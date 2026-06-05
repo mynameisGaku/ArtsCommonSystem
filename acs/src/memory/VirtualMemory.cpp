@@ -13,10 +13,20 @@
 namespace acs {
 
 namespace {
+/** GetSystemInfo の結果を 1 回だけ取得してキャッシュする小ホルダ。 */
 struct SystemInfoCache {
+    /** OS から取得したシステム情報 (ページサイズ/予約粒度等)。 */
     SYSTEM_INFO si;
+
+    /** 構築時に GetSystemInfo を 1 回呼ぶ。 */
     SystemInfoCache() noexcept { ::GetSystemInfo(&si); }
 };
+
+/**
+ * キャッシュ済みのシステム情報を返す (初回呼び出しで取得)。
+ *
+ * @return プロセス唯一の SystemInfoCache への参照。
+ */
 const SystemInfoCache& GetSI() noexcept { static SystemInfoCache c; return c; }
 } // namespace
 
@@ -26,8 +36,6 @@ usize VmAllocGranularity() noexcept   { return GetSI().si.dwAllocationGranularit
 bool VmIsAligned(uptr addr, usize alignment) noexcept {
     return (addr & (alignment - 1)) == 0;
 }
-
-// ---- VmReservation ------------------------------------------------------
 
 VmReservation::~VmReservation() noexcept {
     Release();
@@ -63,12 +71,12 @@ VmReservation& VmReservation::operator=(VmReservation&& o) noexcept {
 // 仮想範囲を予約する（物理ページは未割当）
 TResult<VmReservation> VmReservation::Reserve(usize capacity_bytes) noexcept {
     if (capacity_bytes == 0) return ACS_ERR(Memory, 10, "VmReservation::Reserve: capacity 0");
-    usize gran = VmAllocGranularity();
+    const usize gran = VmAllocGranularity();
     capacity_bytes = (capacity_bytes + gran - 1) & ~(gran - 1);
 
-    void* base = ::VirtualAlloc(nullptr, capacity_bytes, MEM_RESERVE, PAGE_READWRITE);
+    void* const base = ::VirtualAlloc(nullptr, capacity_bytes, MEM_RESERVE, PAGE_READWRITE);
     if (!base) {
-        DWORD err = ::GetLastError();
+        const DWORD err = ::GetLastError();
         return ACS_ERR_OS(Memory, 11, "VirtualAlloc MEM_RESERVE failed", err);
     }
     VmReservation r;
@@ -92,8 +100,8 @@ void VmReservation::Release() noexcept {
 void VmReservation::LruInsert(u64 offset, u32 page_count) noexcept {
     if (m_LruCount == kLruEntries) {
         const mapped_t& victim = m_Lru[kLruEntries - 1];
-        void* addr = static_cast<u8*>(m_Base) + (victim.packed_virtual_addr << 16);
-        usize bytes = static_cast<usize>(victim.page_count) * VmPageSize();
+        void* const addr = static_cast<u8*>(m_Base) + (victim.packed_virtual_addr << 16);
+        const usize bytes = static_cast<usize>(victim.page_count) * VmPageSize();
         ::VirtualFree(addr, bytes, MEM_DECOMMIT);
         --m_LruCount;
     }
@@ -108,7 +116,7 @@ void VmReservation::LruInsert(u64 offset, u32 page_count) noexcept {
 
 // 一致エントリを取り除いて true を返す（再利用可能）
 bool VmReservation::LruTake(u64 offset, u32 page_count) noexcept {
-    u64 packed = (offset >> 16) & ((1ull << 44) - 1);
+    const u64 packed = (offset >> 16) & ((1ull << 44) - 1);
     for (u32 i = 0; i < m_LruCount; ++i) {
         if (m_Lru[i].packed_virtual_addr == packed && m_Lru[i].page_count == page_count) {
             for (u32 j = i; j + 1 < m_LruCount; ++j) m_Lru[j] = m_Lru[j + 1];
@@ -125,8 +133,8 @@ bool VmReservation::LruTake(u64 offset, u32 page_count) noexcept {
 void VmReservation::LruEvictAll() noexcept {
     for (u32 i = 0; i < m_LruCount; ++i) {
         const mapped_t& v = m_Lru[i];
-        void* addr = static_cast<u8*>(m_Base) + (v.packed_virtual_addr << 16);
-        usize bytes = static_cast<usize>(v.page_count) * VmPageSize();
+        void* const addr = static_cast<u8*>(m_Base) + (v.packed_virtual_addr << 16);
+        const usize bytes = static_cast<usize>(v.page_count) * VmPageSize();
         ::VirtualFree(addr, bytes, MEM_DECOMMIT);
     }
     m_LruCount = 0;
@@ -136,18 +144,18 @@ void VmReservation::LruEvictAll() noexcept {
 TResult<void> VmReservation::Commit(usize offset, usize size) noexcept {
     if (!m_Base) return ACS_ERR(Memory, 12, "Commit: reservation released");
     if (offset + size > m_Capacity) return ACS_ERR(Memory, 13, "Commit: out of reservation");
-    usize page_size = VmPageSize();
-    u32 page_count = static_cast<u32>((size + page_size - 1) / page_size);
+    const usize page_size = VmPageSize();
+    const u32 page_count = static_cast<u32>((size + page_size - 1) / page_size);
 
     if (LruTake(static_cast<u64>(offset), page_count)) {
         m_Committed += size;
         return Ok();
     }
 
-    void* addr = static_cast<u8*>(m_Base) + offset;
-    void* p = ::VirtualAlloc(addr, size, MEM_COMMIT, PAGE_READWRITE);
+    void* const addr = static_cast<u8*>(m_Base) + offset;
+    void* const p = ::VirtualAlloc(addr, size, MEM_COMMIT, PAGE_READWRITE);
     if (!p) {
-        DWORD err = ::GetLastError();
+        const DWORD err = ::GetLastError();
         return ACS_ERR_OS(Memory, 14, "VirtualAlloc MEM_COMMIT failed", err);
     }
     m_Committed += size;
@@ -158,16 +166,13 @@ TResult<void> VmReservation::Commit(usize offset, usize size) noexcept {
 TResult<void> VmReservation::Decommit(usize offset, usize size) noexcept {
     if (!m_Base) return ACS_ERR(Memory, 15, "Decommit: reservation released");
     if (offset + size > m_Capacity) return ACS_ERR(Memory, 16, "Decommit: out of reservation");
-    usize page_size = VmPageSize();
-    u32 page_count = static_cast<u32>((size + page_size - 1) / page_size);
+    const usize page_size = VmPageSize();
+    const u32 page_count = static_cast<u32>((size + page_size - 1) / page_size);
     LruInsert(static_cast<u64>(offset), page_count);
     m_Committed = (m_Committed > size) ? m_Committed - size : 0;
     return Ok();
 }
 
-// =============================================================================
-// VmZeroFastNT — Non-Temporal write 版高速ゼロクリア
-// =============================================================================
 // ACS_TARGET_AVX: この関数だけ AVX を許可する（Clang/clang-cl は AVX 組み込み
 // 関数を使う関数に target 属性を要求する。MSVC では空に展開される）。
 ACS_TARGET_AVX void VmZeroFastNT(void* dst, usize size) noexcept {
@@ -178,7 +183,7 @@ ACS_TARGET_AVX void VmZeroFastNT(void* dst, usize size) noexcept {
     }
     __m256i* p = static_cast<__m256i*>(dst);
     const __m256i z = _mm256_setzero_si256();
-    usize blocks = size / kBlock;
+    const usize blocks = size / kBlock;
     for (usize i = 0; i < blocks; ++i) {
         _mm256_stream_si256(p + 0, z);
         _mm256_stream_si256(p + 1, z);
@@ -191,7 +196,7 @@ ACS_TARGET_AVX void VmZeroFastNT(void* dst, usize size) noexcept {
         p += 8;
     }
     _mm_sfence();
-    usize done = blocks * kBlock;
+    const usize done = blocks * kBlock;
     if (done < size) ::memset(static_cast<u8*>(dst) + done, 0, size - done);
 }
 

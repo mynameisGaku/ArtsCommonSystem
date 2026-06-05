@@ -17,15 +17,16 @@
 
 namespace acs::game {
 
-// ----- 内部ヘルパ -----------------------------------------------------------
-
-// EPauseReason の bit 操作ユーティリティ。
-// & ~b で「b に含まれる bit を a から落とす」を表現する。
+/**
+ * b に含まれる bit を a から落とす (a & ~b) ユーティリティ。
+ *
+ * @param a 元の bit mask。
+ * @param b 落とす bit mask。
+ * @return a から b の bit を除いた mask。
+ */
 static constexpr u32 AndNotBits(u32 a, u32 b) noexcept {
     return a & ~b;
 }
-
-// ----- pause 操作 -----------------------------------------------------------
 
 void FPauseDirector::Pause(EPauseReason reason) noexcept {
     // OR で bit を立てる。複合 (UserMenu | SystemMenu) もそのまま受理。
@@ -48,8 +49,6 @@ void FPauseDirector::Resume(EPauseReason reason) noexcept {
     FireTransitions(actually, /*paused=*/false);
 }
 
-// ----- 問い合わせ -----------------------------------------------------------
-
 bool FPauseDirector::IsPausedFor(EPauseReason reason) const noexcept {
     // 複合 reason 判定: reason の **全ての** bit が立っているかを確認する。
     // 部分一致を許すと「UserMenu | SystemMenu の片方だけで true」のような
@@ -69,8 +68,6 @@ EPauseReason FPauseDirector::ActiveReasons() const noexcept {
     return static_cast<EPauseReason>(m_Mask);
 }
 
-// ----- 一括解除 -------------------------------------------------------------
-
 void FPauseDirector::Clear() noexcept {
     // 立っていた全 bit について callback を発火してから mask を 0 に。
     // callback 中に Pause が再帰呼び出しされた場合は新 mask が再度立つが、
@@ -79,8 +76,6 @@ void FPauseDirector::Clear() noexcept {
     m_Mask           = 0u;
     FireTransitions(was, /*paused=*/false);
 }
-
-// ----- time scale 連携 ------------------------------------------------------
 
 f32 FPauseDirector::EffectiveTimeScale() const noexcept {
     // pause 中は 0、非 pause は m_NormalTimeScale を返す。
@@ -98,8 +93,6 @@ f32 FPauseDirector::NormalTimeScale() const noexcept {
     return m_NormalTimeScale;
 }
 
-// ----- 遷移通知 -------------------------------------------------------------
-
 void FPauseDirector::SetCallback(PauseEventCallback cb, void* user) noexcept {
     // 重複登録は不可 (上書き)。cb == nullptr で実質登録解除。
     // user は cb と一緒に保持しないと nullptr 化されて呼び出し時に死ぬ。
@@ -107,11 +100,6 @@ void FPauseDirector::SetCallback(PauseEventCallback cb, void* user) noexcept {
     m_CallbackUser = user;
 }
 
-// ----- 内部: 遷移通知の個別発火 ---------------------------------------------
-// changed_bits は「実際に変化した bit」、paused は遷移方向。
-// 立っていた各 bit について個別に callback を 1 回ずつ呼ぶ。
-// 例えば changed_bits = UserMenu | SystemMenu なら 2 回呼ばれる。
-// callback が未登録なら何もしない。
 void FPauseDirector::FireTransitions(u32 changed_bits, bool paused) const noexcept {
     if (m_Callback == nullptr) return;
     if (changed_bits == 0u)   return;

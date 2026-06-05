@@ -11,25 +11,48 @@ namespace acs {
 
 namespace {
 
-constexpr u32 kMaxVoices = 64;  // 同時再生上限
+/** 同時に確保できる発音スロット (ソースボイス) の上限。 */
+constexpr u32 kMaxVoices = 64;
 
-// 1 個の発音スロット
+/**
+ * 1 個の発音スロット (XAudio2 ソースボイス + 再生用データ)。
+ */
 struct VoiceSlot {
+    /** XAudio2 ソースボイス (未使用時は nullptr)。 */
     IXAudio2SourceVoice* voice      = nullptr;
-    TArray<byte>          buffer_copy;     // XAudio2 が再生中はバッファを保持
+
+    /** 再生中に参照され続けるサンプルデータのコピー。 */
+    TArray<byte>          buffer_copy;
+
+    /** スロットの世代 (解放のたびに加算し、古いハンドルを無効化)。 */
     u32                  generation = 0;
+
+    /** このスロットが現在使用中か。 */
     bool                 in_use     = false;
 };
 
 } // namespace
 
+/**
+ * FAudioEngine の pimpl 実装 (XAudio2 ハンドルとスロット表を保持)。
+ */
 struct FAudioEngine::Impl {
+    /** XAudio2 エンジン本体。 */
     IXAudio2*               xaudio2          = nullptr;
+
+    /** 最終出力のマスタリングボイス。 */
     IXAudio2MasteringVoice* mastering        = nullptr;
+
+    /** このインスタンスが CoInitializeEx を成功させたか (後始末判定用)。 */
     bool                    com_initialized  = false;
 
+    /** スロット表と active_count を保護する mutex。 */
     FMutex                   lock;
+
+    /** 発音スロット表 (最大 kMaxVoices 個)。 */
     VoiceSlot               slots[kMaxVoices] {};
+
+    /** 使用中スロット数。 */
     u32                     active_count     = 0;
 };
 
@@ -83,8 +106,23 @@ void FAudioEngine::Shutdown() noexcept {
 }
 
 namespace {
+/**
+ * スロットのボイスを停止・破棄し、世代を進めて空きに戻す。
+ *
+ * @param slot 解放するスロット。
+ */
 void DestroySlot(VoiceSlot& slot) noexcept;   // 前方宣言（FindFreeSlot が回収に使う）
 
+/**
+ * 再生終了した一発再生スロットを回収しつつ、空きスロット番号を探す。
+ *
+ * @details
+ * まず BuffersQueued==0 になった一発再生ボイスを破棄して空きに戻す
+ * (これを怠ると kMaxVoices 回再生した時点でスロットが尽きる)。ループ再生は
+ * BuffersQueued が 0 にならないため回収対象外。
+ * @param impl 対象エンジンの pimpl。
+ * @return 使える空きスロット番号 (満杯なら 0xFFFFFFFF)。
+ */
 u32 FindFreeSlot(FAudioEngine::Impl& impl) noexcept {
     // 自然に再生が終わった一発再生ボイスを回収する。これをしないと、
     // 一発再生を kMaxVoices 回呼んだ時点でスロットが尽き、以降の Play が
@@ -113,7 +151,7 @@ SoundHandle FAudioEngine::Play(const FAudioAsset& asset, f32 volume, bool loop) 
 
     FScopedLock lk(m_Impl->lock);
 
-    u32 idx = FindFreeSlot(*m_Impl);
+    const u32 idx = FindFreeSlot(*m_Impl);
     if (idx == 0xFFFFFFFFu) return kInvalidSound;
     VoiceSlot& slot = m_Impl->slots[idx];
 
@@ -127,7 +165,7 @@ SoundHandle FAudioEngine::Play(const FAudioAsset& asset, f32 volume, bool loop) 
     wf.nAvgBytesPerSec = wf.nSamplesPerSec * wf.nBlockAlign;
     wf.cbSize          = 0;
 
-    HRESULT hr = m_Impl->xaudio2->CreateSourceVoice(&slot.voice, &wf);
+    const HRESULT hr = m_Impl->xaudio2->CreateSourceVoice(&slot.voice, &wf);
     if (FAILED(hr)) return kInvalidSound;
 
     // サンプルデータを再生中保持するためコピー
@@ -150,11 +188,12 @@ SoundHandle FAudioEngine::Play(const FAudioAsset& asset, f32 volume, bool loop) 
     slot.in_use = true;
     ++m_Impl->active_count;
 
-    SoundHandle h{ idx, slot.generation };
+    const SoundHandle h{ idx, slot.generation };
     return h;
 }
 
 namespace {
+/** スロットのボイスを停止・破棄し、世代を進めて空きに戻す。 */
 void DestroySlot(VoiceSlot& slot) noexcept {
     if (slot.voice) {
         slot.voice->Stop(0);

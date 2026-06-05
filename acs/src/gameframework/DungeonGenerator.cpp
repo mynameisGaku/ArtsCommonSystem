@@ -24,32 +24,57 @@ namespace acs::game {
 
 namespace {
 
-// ---- BSP partition 中の中間表現 (Generate 中だけ存在) -----------------------
+/**
+ * BSP 分割の中間表現 (Generate 実行中だけ存在する partition ノード)。
+ *
+ * @details partition 矩形は閉区間 [x0,x1] x [y0,y1] (両端含む) で表す。
+ */
 struct BspNode {
-    // partition の閉区間 (両端含む)
+    /** partition 左端 x 座標 (両端含む)。 */
     u32 x0 = 0;
+
+    /** partition 上端 y 座標 (両端含む)。 */
     u32 y0 = 0;
+
+    /** partition 右端 x 座標 (両端含む)。 */
     u32 x1 = 0;
+
+    /** partition 下端 y 座標 (両端含む)。 */
     u32 y1 = 0;
+
+    /** BSP 木の深さ (root が 0)。 */
     u32 depth = 0;
-    // 子ノードへのインデックス (0xFFFFFFFF = なし)。TArray<BspNode> 中の位置。
+
+    /** 左子ノードの index (0xFFFFFFFF = 子なし)。TArray<BspNode> 中の位置。 */
     u32 left  = 0xFFFFFFFFu;
+
+    /** 右子ノードの index (0xFFFFFFFF = 子なし)。TArray<BspNode> 中の位置。 */
     u32 right = 0xFFFFFFFFu;
-    // このサブツリーの代表 room 番号 (廊下接続で使う)。0xFFFFFFFF = まだ無い。
+
+    /** このサブツリーの代表 room 番号 (廊下接続で使う)。0xFFFFFFFF = まだ無い。 */
     u32 rep_room = 0xFFFFFFFFu;
 };
 
+/** 無効インデックス / 「子なし」「代表未確定」を表す哨兵値。 */
 constexpr u32 kInvalidIdx = 0xFFFFFFFFu;
 
-// パーティションの幅 / 高さ (両端含む閉区間)。
+/**
+ * partition の幅を返す (両端含む閉区間)。
+ *
+ * @param n 対象 partition ノード。
+ * @return 幅 (x1 - x0 + 1)。
+ */
 inline u32 PartitionW(const BspNode& n) noexcept { return n.x1 - n.x0 + 1u; }
+
+/**
+ * partition の高さを返す (両端含む閉区間)。
+ *
+ * @param n 対象 partition ノード。
+ * @return 高さ (y1 - y0 + 1)。
+ */
 inline u32 PartitionH(const BspNode& n) noexcept { return n.y1 - n.y0 + 1u; }
 
 } // namespace
-
-// ---------------------------------------------------------------------------
-// 公開 API
-// ---------------------------------------------------------------------------
 
 void FDungeonGenerator::Clear() noexcept {
     m_Grid.Clear();
@@ -110,12 +135,8 @@ u32 FDungeonGenerator::FindRandomFloor(u32& out_x, u32& out_y) const noexcept {
     return 0u;
 }
 
-// ---------------------------------------------------------------------------
-// 生成本体
-// ---------------------------------------------------------------------------
 void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
-    // ---- 1. 設定 sanitize ------------------------------------------------------
-    // 仕様: 不正値はサイレントに安全な既定にフォールバック。
+    // 1. 設定 sanitize: 不正値はサイレントに安全な既定にフォールバック。
     u32 width  = config.width  != 0u ? config.width  : 64u;
     u32 height = config.height != 0u ? config.height : 48u;
     // グリッドが極小すぎると room すら作れないので 8x8 を最小として保証。
@@ -135,7 +156,7 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
     u32 max_depth = config.max_depth != 0u ? config.max_depth : 5u;
     if (max_depth > 16u) max_depth = 16u;          // 2^16 leaves は明らかにやりすぎ
 
-    // ---- 2. グリッド確保 + Wall で塗る -----------------------------------------
+    // 2. グリッド確保 + Wall で塗る
     m_Width  = width;
     m_Height = height;
     m_Grid.Clear();
@@ -147,8 +168,7 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
 
     FRandom rng(static_cast<u64>(config.seed));
 
-    // ---- 3. BSP 分割 -----------------------------------------------------------
-    // 全 partition を TArray に積み、index で親子関係を保持する。
+    // 3. BSP 分割: 全 partition を TArray に積み、index で親子関係を保持する。
     // ルートは画面全体 (端の壁余白を確保するため [1, w-2] x [1, h-2])。
     TArray<BspNode> nodes;
     nodes.Reserve(64u);
@@ -245,8 +265,7 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
         work.PushBack(right_idx);
     }
 
-    // ---- 4. リーフに room を配置 ---------------------------------------------
-    // 全ノードを線形走査。子なしのノードがリーフ。
+    // 4. リーフに room を配置: 全ノードを線形走査し、子なしのノードがリーフ。
     for (u32 i = 0; i < nodes.Size(); ++i) {
         BspNode& n = nodes[i];
         if (n.left != kInvalidIdx || n.right != kInvalidIdx) continue;
@@ -291,7 +310,7 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
         m_Rooms.PushBack(room);
     }
 
-    // ---- 5. 兄弟 leaf 間に廊下 -------------------------------------------------
+    // 5. 兄弟 leaf 間に廊下を引く。
     // ノードを「深い順」に走査することでボトムアップ処理を実現する。
     // BspNode を depth でソートする代わりに、depth ごとに 2 周走査する。
     // (max_depth は 16 上限なので O(N * max_depth) は十分高速)
@@ -359,7 +378,7 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
         }
     }
 
-    // ---- 6. Stairs を 1 個置く -------------------------------------------------
+    // 6. Stairs を 1 個置く。
     // 仕様: ランダムな部屋に階段。最後の部屋固定だとプレイヤーが学習してしまうので
     //       random pick が望ましい。部屋が無い (極小 grid で leaf に room が
     //       入らなかった) ケースは no-op。

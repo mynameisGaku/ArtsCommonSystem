@@ -7,33 +7,21 @@
 
 namespace acs::game {
 
-// =============================================================================
-// 内部定数
-// -----------------------------------------------------------------------------
-// 赤エッジ / 方向矢印の decay rate は同一値 (2.0/s = 0.5 秒で消える) で
-// 統一する。挙動を揃えることで「ダメージ余韻」が一括して馴染む。
-// _kDamageToRed は「与ダメ 10 で max まで赤くなる」感覚の係数。
-// _kDeathCamRate は death cam の dramatic zoom 進行速度 (0.5/s = 2 秒で完走)。
-// =============================================================================
 namespace {
-constexpr f32 kRedDecayRate     = 2.0f;     // /s
-constexpr f32 kDirDecayRate     = 2.0f;     // /s
-constexpr f32 kDamageToRed      = 0.1f;     // damage 1.0 → +0.1 red
-constexpr f32 kDeathCamRate     = 0.5f;     // /s (= 2 秒で 0→1)
+/** 赤エッジ強度の decay 速度 (2.0/s = 約 0.5 秒で消える)。 */
+constexpr f32 kRedDecayRate     = 2.0f;
+
+/** 方向矢印不透明度の decay 速度 (赤エッジと揃えた 2.0/s)。 */
+constexpr f32 kDirDecayRate     = 2.0f;
+
+/** ダメージ量 → 赤エッジ加算量への変換係数 (damage 1.0 で +0.1)。 */
+constexpr f32 kDamageToRed      = 0.1f;
+
+/** death cam の dramatic zoom 進行速度 (0.5/s = 2 秒で 0→1 完走)。 */
+constexpr f32 kDeathCamRate     = 0.5f;
 } // namespace
 
-// =============================================================================
-// TakeDamage
-// -----------------------------------------------------------------------------
-// 赤エッジ:
-//   `m_RedIntensity += amount * kDamageToRed` を加算 → [0,1] clamp。
-//   負ダメージは赤を減らさない (回復は別系統 → 何もしない)。
-// 方向矢印:
-//   source_direction が零ベクトル相当なら矢印を **更新しない** (= 既存の矢印
-//   decay をそのまま継続)。これは「環境ダメージは矢印を出さない」要件。
-//   非零なら正規化して m_DirVec に格納、m_DirIntensity = 1.0 リセット。
-//   Normalize(零) は FVec2::Zero() を返すので、LengthSq による判定で除外。
-// =============================================================================
+/** 赤エッジを amount*0.1 加算 [0,1] clamp し、非零方向なら矢印を正規化更新する。 */
 void FDamageFeedback::TakeDamage(f32 amount, FVec2 source_direction) noexcept {
     if (amount <= 0.0f) {
         // 0 / 負ダメージは fail-safe で何もしない (回復扱いは別 API の責務)
@@ -56,16 +44,7 @@ void FDamageFeedback::TakeDamage(f32 amount, FVec2 source_direction) noexcept {
     }
 }
 
-// =============================================================================
-// Tick
-// -----------------------------------------------------------------------------
-//   ・赤エッジ: 線形 decay (kRedDecayRate * dt)。0 を下回らない。
-//   ・方向矢印: 線形 decay (kDirDecayRate * dt)。0 になっても m_DirVec は
-//      残す (= 次フレームで HasDirectionalIndicator() = false になるだけ)。
-//   ・death cam: アクティブ中のみ progress を 0 → 1 に加算 (1 で頭打ち)。
-//      ExitDeathCam が呼ばれるまで m_DeathCamActive は true のまま。
-// dt が負 (clock 巻き戻し等) のときは 0 扱いで state を破壊しない。
-// =============================================================================
+/** 赤エッジ・方向矢印を線形 decay し、death cam active 中は progress を 1 まで進める。 */
 void FDamageFeedback::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
 
@@ -88,14 +67,7 @@ void FDamageFeedback::Tick(f32 dt) noexcept {
     }
 }
 
-// =============================================================================
-// TriggerDeathCam
-// -----------------------------------------------------------------------------
-// 致命傷検知時に caller が呼ぶ。既に active なら killer_pos だけ更新
-// (= 連続致命傷でターゲットが切り替わっても演出を仕切り直さない)。
-// progress リセットは「初回 trigger 時のみ」に限定して、矢印 / 赤エッジは
-// 別系統として残す (=「赤エッジが残ったまま death cam に入る」自然な遷移)。
-// =============================================================================
+/** killer 位置を保存し、未 active のときのみ death cam を起動して progress を 0 に戻す。 */
 void FDamageFeedback::TriggerDeathCam(FVec3 killer_pos) noexcept {
     m_KillerPos = killer_pos;
     if (!m_DeathCamActive) {
@@ -104,22 +76,13 @@ void FDamageFeedback::TriggerDeathCam(FVec3 killer_pos) noexcept {
     }
 }
 
-// =============================================================================
-// ExitDeathCam
-// -----------------------------------------------------------------------------
-// リスポーン UI / シーン遷移開始時に caller が呼ぶ。state を全て初期に戻す
-// (progress も 0)。m_KillerPos は次の trigger で上書きされるので保持で問題なし。
-// =============================================================================
+/** death cam を非 active にして progress を 0 に戻す (killer 位置は次 trigger で上書き)。 */
 void FDamageFeedback::ExitDeathCam() noexcept {
     m_DeathCamActive = false;
     m_DeathCamT      = 0.0f;
 }
 
-// =============================================================================
-// Reset
-// -----------------------------------------------------------------------------
-// シーン切替 / respawn 用の一括クリア。全 state を初期値に戻す。
-// =============================================================================
+/** 赤エッジ・方向矢印・death cam・累積ダメージを含む全 state を初期値へ戻す。 */
 void FDamageFeedback::Reset() noexcept {
     m_RedIntensity        = 0.0f;
     m_DirIntensity        = 0.0f;

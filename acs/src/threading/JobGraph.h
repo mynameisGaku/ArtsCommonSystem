@@ -32,63 +32,137 @@ namespace acs {
 
 class FJobGraph;
 
-// Job のハンドル — FJobGraph::Add の戻り値 / DependOn のキー
+/**
+ * グラフ内の 1 ジョブを指すハンドル (FJobGraph::Add の戻り値 / DependOn のキー)。
+ *
+ * @details graph ポインタとジョブ index の組。index が 0xFFFFFFFF または graph が null なら無効。
+ */
 struct JobHandle {
+    /** このハンドルが属するグラフ (null = 無効)。 */
     FJobGraph* graph = nullptr;
+
+    /** グラフ内のジョブインデックス (0xFFFFFFFF = 無効)。 */
     u32       index = 0xFFFFFFFFu;
 
+    /**
+     * ハンドルが有効なジョブを指しているかを返す。
+     *
+     * @return graph が非 null かつ index が有効なら true。
+     */
     bool IsValid() const noexcept { return graph != nullptr && index != 0xFFFFFFFFu; }
 
-    // self が完了するまで other は走らない (other.DependOn(self) と等価)
+    /**
+     * upstream が完了するまで自身を走らせない依存を追加する。
+     *
+     * @details upstream と自身が同じグラフに属する場合のみ有効 (それ以外は無視)。
+     * @param upstream 先に完了している必要があるジョブ。
+     */
     void DependOn(JobHandle upstream) noexcept;
 };
 
-// Job 関数 (FThreadPool::TaskFn と同形式)
+/** ジョブ本体の関数型 (FThreadPool::TaskFn と同形式)。 */
 using JobFn = void (*)(void* user, u32 worker_index);
 
+/**
+ * 依存関係付きの並列タスクスケジューラ。
+ *
+ * @details
+ * FThreadPool 上で動く DAG スケジューラ。各ジョブは完了時に dependents の
+ * deps_remaining をアトミックにデクリメントし、0 になったものを FThreadPool へ
+ * 投入する fan-out 方式。グラフは Submit 後は変更不可 (Add/AddDependency は Submit 前のみ)。
+ * Reset で依存構造を保ったまま再実行できる。コピー不可。
+ */
 class FJobGraph {
 public:
+    /** 空のジョブグラフを構築する。 */
     FJobGraph() noexcept = default;
-    ~FJobGraph() noexcept;   // new した Job* を解放する (default だとリークしていた)
 
+    /** Add で確保したすべての Job を解放する (Wait 完了後に破棄すること)。 */
+    ~FJobGraph() noexcept;
+
+    /** コピー禁止。 */
     FJobGraph(const FJobGraph&) = delete;
+
+    /** コピー代入も禁止。 */
     FJobGraph& operator=(const FJobGraph&) = delete;
 
-    // Job を追加 (Submit 前のみ呼べる)
+    /**
+     * ジョブを追加する (Submit 前のみ呼べる)。
+     *
+     * @param fn 実行する関数。
+     * @param user fn に渡すユーザーデータ。
+     * @return 追加したジョブのハンドル。Submit 済みまたは fn が null なら無効ハンドル。
+     */
     JobHandle Add(JobFn fn, void* user) noexcept;
 
-    // upstream → downstream の依存関係を追加
+    /**
+     * upstream → downstream の依存関係を追加する (Submit 前のみ有効)。
+     *
+     * @param upstream 先に完了する必要があるジョブ。
+     * @param downstream upstream の完了後に走るジョブ。
+     */
     void AddDependency(JobHandle upstream, JobHandle downstream) noexcept;
 
-    // 全 job を FThreadPool に投入。依存 0 の job が即座に走り始める。
+    /**
+     * 全ジョブを FThreadPool に投入する。依存 0 のジョブが即座に走り始める。
+     *
+     * @details Kahn 法でサイクル検知し、循環があればエラーで投入しない。
+     * @return 成功なら空の TResult。二重 Submit・サイクル検出・投入失敗時はエラー。
+     */
     TResult<void> Submit() noexcept;
 
-    // 全 job 完了まで block (待機中もスティーリングに参加)
+    /** 全ジョブの完了までブロックして待つ (待機中もスティーリングに参加)。 */
     void Wait() noexcept;
 
-    // 同じグラフを再実行する場合に呼ぶ (deps_remaining を初期値に戻す)
+    /** 同じグラフを再実行できるよう、各ジョブの deps_remaining を初期値に戻す。 */
     void Reset() noexcept;
 
-    // 統計
+    /**
+     * グラフ内のジョブ数を返す。
+     *
+     * @return 登録済みジョブ数。
+     */
     u32 JobCount() const noexcept { return static_cast<u32>(m_Jobs.Size()); }
 
 private:
     friend struct JobHandle;
 
-    // Job の static 関数: FThreadPool に渡す TaskFn の thunk
+    /**
+     * 1 ジョブを実行し、依存先を起動する FThreadPool 向けの TaskFn thunk。
+     *
+     * @param user 実行する Job へのポインタ。
+     * @param worker_index 実行中のワーカーインデックス。
+     */
     static void JobThunk(void* user, u32 worker_index) noexcept;
 
+    /** グラフ内の 1 ジョブの状態。 */
     struct Job {
+        /** 実行する関数。 */
         JobFn          fn               = nullptr;
+
+        /** fn に渡すユーザーデータ。 */
         void*          user             = nullptr;
+
+        /** 未解決の依存数 (0 になったら実行可能、アトミック)。 */
         TAtomic<u32>    deps_remaining   {0};
-        u32            initial_deps     = 0;     // Reset 用に保存
-        TArray<u32>     dependents;               // この job が完了すると起動する job の index 群
+
+        /** 初期依存数 (Reset で deps_remaining を復元するために保存)。 */
+        u32            initial_deps     = 0;
+
+        /** このジョブの完了で起動する後続ジョブの index 群。 */
+        TArray<u32>     dependents;
+
+        /** 所属するグラフ (JobThunk から参照する)。 */
         FJobGraph*      owner            = nullptr;
     };
 
+    /** 登録済みジョブ群 (各要素は new で確保され、デストラクタで解放)。 */
     TArray<Job*>        m_Jobs;
+
+    /** 実行中ジョブ数の完了カウンタ (Submit/完了ごとに増減)。 */
     CompletionCounter  m_Counter;
+
+    /** Submit 済みフラグ (true 以降は Add/AddDependency 不可)。 */
     bool               m_bSubmitted       = false;
 };
 

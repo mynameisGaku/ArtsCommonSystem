@@ -11,9 +11,15 @@
 namespace acs {
 
 namespace {
+/** Init/Shutdown の対称な参照カウント (0 で未初期化、1 以上で初期化済み)。 */
 TAtomic<u32> g_init_count{0};
 }
 
+/**
+ * WinSock を初期化する (多重呼び出し可)。
+ *
+ * @return 成功なら空の TResult、WSAStartup 失敗ならエラー。
+ */
 TResult<void> Network::Init() noexcept {
     // 多重 Init は参照カウントで安全に。
     //
@@ -34,7 +40,7 @@ TResult<void> Network::Init() noexcept {
         // cur == 0: 自分が実初期化を担う。先に WSAStartup を成功させてから
         // 0→1 を CAS で確定させる。失敗してもカウントは 0 のまま不変。
         WSADATA d{};
-        int r = ::WSAStartup(MAKEWORD(2, 2), &d);
+        const int r = ::WSAStartup(MAKEWORD(2, 2), &d);
         if (r != 0) {
             return ACS_ERR_OS(IO, 200, "WSAStartup failed", static_cast<u32>(r));
         }
@@ -47,6 +53,7 @@ TResult<void> Network::Init() noexcept {
     }
 }
 
+/** 参照カウントを 1 減らし、最後の参照が外れたら WSACleanup を呼ぶ。 */
 void Network::Shutdown() noexcept {
     // Init と対称に、1→0 の遷移を確定した時だけ WSACleanup を呼ぶ。
     // カウント 0 での Shutdown はアンダーフロー (u32 0→0xFFFFFFFF) を起こさず
@@ -63,11 +70,12 @@ void Network::Shutdown() noexcept {
     }
 }
 
+/** 初期化済みかどうかを返す (参照カウントが 1 以上なら true)。 */
 bool Network::IsInitialized() noexcept {
     return g_init_count.Load(EMemoryOrder::Acquire) > 0;
 }
 
-// "192.168.0.1" 等の文字列を IpAddress に変換
+/** "192.168.0.1" 等のドット区切り文字列を IpAddress に変換する (不正なら 0.0.0.0)。 */
 IpAddress IpAddress::FromString(const char* dotted) noexcept {
     IpAddress a{};
     if (!dotted) return a;

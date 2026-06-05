@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FSceneEventBus 実装 (Phase 1 polish)
+// GameFramework Pillar A — FSceneEventBus 実装
 #include "gameframework/SceneEventBus.h"
 
 namespace acs::game {
 
+/** event id に handler を登録し、Unsubscribe 用の handle を返す (inactive entry を再利用)。 */
 u32 FSceneEventBus::Subscribe(EventId id, HandlerFn fn, void* user) noexcept {
     if (fn == nullptr) {
         ACS_LOG_WARN("FSceneEventBus::Subscribe: null handler for event id=%u ignored", id.value);
@@ -40,6 +41,7 @@ u32 FSceneEventBus::Subscribe(EventId id, HandlerFn fn, void* user) noexcept {
     return h;
 }
 
+/** handle に対応する entry を inactive 化する (物理削除はしない、二重解除は静かに無視)。 */
 void FSceneEventBus::Unsubscribe(u32 handle) noexcept {
     if (handle == 0u) return;  // invalid handle は静かに無視 (RAII 解除パスで頻出)
     for (usize i = 0; i < m_Entries.Size(); ++i) {
@@ -53,6 +55,7 @@ void FSceneEventBus::Unsubscribe(u32 handle) noexcept {
     // 既に Unsubscribe 済 / 未知 handle: no-op (Warn は出さない、二重解除は良くある)
 }
 
+/** id 一致の active handler を snapshot 範囲で順に呼ぶ (再エントランシ安全)。 */
 void FSceneEventBus::Publish(EventId id, const void* payload, u32 payload_size) noexcept {
     // 走査範囲を呼び出し時点で固定。Publish 中に Subscribe された Entry は
     // 次回以降の Publish で呼ばれる (循環 publish の防止にもなる)。
@@ -76,6 +79,7 @@ void FSceneEventBus::Publish(EventId id, const void* payload, u32 payload_size) 
     }
 }
 
+/** 指定 id の active な subscriber 数を返す。 */
 u32 FSceneEventBus::SubscriberCount(EventId id) const noexcept {
     u32 count = 0u;
     for (usize i = 0; i < m_Entries.Size(); ++i) {
@@ -85,6 +89,7 @@ u32 FSceneEventBus::SubscriberCount(EventId id) const noexcept {
     return count;
 }
 
+/** 全 entry を破棄する (m_NextHandle はリセットせず単調増加を維持)。 */
 void FSceneEventBus::ClearAll() noexcept {
     m_Entries.Clear();
     // m_NextHandle はリセットしない: ClearAll 後も以前払い出した handle と

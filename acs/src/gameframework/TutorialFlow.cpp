@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FTutorialFlow 実装 (Phase 2)
+// GameFramework Pillar R — FTutorialFlow 実装
 //
 // 設計メモ:
-//   ・step.id と action_id の比較は <cstring> 不使用方針に従い、Pillar T
-//     FPartySystem.cpp と同形の自前 StrEq を内部 helper で実装。
-//   ・Tick は Phase 2 では state hook のみで内部 timer 不要 (dt 引数は将来
-//     拡張のためのプレースホルダ)。dt は参照しないが API として保持。
+//   ・step.id と action_id の比較は <cstring> 不使用方針に従い、自前 StrEq を
+//     内部 helper で実装。
+//   ・Tick は state hook のみで内部 timer 不要 (dt 引数は拡張のための
+//     プレースホルダ)。dt は参照しないが API として保持。
 //   ・AdvanceStep / Skip / Reset すべて冪等で、inactive 状態から呼ばれても
 //     副作用が出ないように防御。
 #include "gameframework/TutorialFlow.h"
@@ -14,8 +14,14 @@ namespace acs::game {
 
 namespace {
 
-// const char* の安全比較 (FPartySystem / FEntitlement と同形)。どちらかが nullptr
-// なら false。終端ヌルまで一致比較。
+/**
+ * const char* の安全な等価比較を行う。
+ *
+ * @details どちらかが nullptr なら false。終端ヌルまで 1 文字ずつ比較し、両方が同時に '\0' に達したときのみ true。
+ * @param a 比較する文字列 1 (nullptr 可)。
+ * @param b 比較する文字列 2 (nullptr 可)。
+ * @return 内容が完全一致すれば true。
+ */
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -87,8 +93,8 @@ u32 FTutorialFlow::StepCount() const noexcept {
 }
 
 void FTutorialFlow::Tick(f32 /*dt*/) noexcept {
-    // Phase 2: 内部 timer 無し (require_user_action のステップは NotifyAction
-    // または AdvanceStep のみで進む)。将来 hint 出現遅延 / auto-advance step
+    // 内部 timer 無し (require_user_action のステップは NotifyAction
+    // または AdvanceStep のみで進む)。hint 出現遅延 / auto-advance step
     // を入れる際にここで m_CurrentStep の elapsed を進める想定。
 }
 

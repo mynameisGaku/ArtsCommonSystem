@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K (editor_core) — FAssetBrowser 実装 (Phase 21a)
+// GameFramework Pillar K (editor_core) — FAssetBrowser 実装
 //
 // 仕様の意図は FAssetBrowser.h を参照。本ファイルでは:
 //   ・FindFirstFileW / FindNextFileW で assets/ 配下を列挙
@@ -25,13 +25,14 @@
 
 namespace acs::game::editor_core {
 
-// ===========================================================================
-// ローカルヘルパ
-// ===========================================================================
-
 namespace {
 
-// wchar_t 列の長さ (終端含まず)。
+/**
+ * wchar_t 列の長さ (終端含まず) を返す。
+ *
+ * @param s 対象文字列 (nullptr なら 0)。
+ * @return 終端を含まない文字数。
+ */
 usize WLen(const wchar_t* s) noexcept {
     if (s == nullptr) return 0;
     usize n = 0;
@@ -39,14 +40,24 @@ usize WLen(const wchar_t* s) noexcept {
     return n;
 }
 
-// wchar_t を ASCII 比較用に小文字化 (拡張子比較で使う)。'A' 〜 'Z' のみ対応。
+/**
+ * wchar_t を ASCII 比較用に小文字化する ('A'〜'Z' のみ対応)。
+ *
+ * @param c 変換対象の文字。
+ * @return 小文字化した文字 ('A'〜'Z' 以外はそのまま)。
+ */
 wchar_t WLower(wchar_t c) noexcept {
     if (c >= L'A' && c <= L'Z') return static_cast<wchar_t>(c - L'A' + L'a');
     return c;
 }
 
-// 拡張子比較 (大文字小文字無視、`ext` は L".png" 形式の終端 0 付き)。
-// path の末尾が ext と一致すれば true。
+/**
+ * path の末尾が ext と一致するか大文字小文字無視で判定する。
+ *
+ * @param path 判定対象のパス。
+ * @param ext 比較する拡張子 (L".png" 形式の終端 0 付き)。
+ * @return path の末尾が ext と一致すれば true。
+ */
 bool EndsWithIgnoreCase(const wchar_t* path, const wchar_t* ext) noexcept {
     const usize p_len = WLen(path);
     const usize e_len = WLen(ext);
@@ -58,7 +69,12 @@ bool EndsWithIgnoreCase(const wchar_t* path, const wchar_t* ext) noexcept {
     return true;
 }
 
-// path 末尾の '\\' または '/' 以降を返す (= ベース名のポインタ、wchar_t)。
+/**
+ * path 末尾の '\\' / '/' 以降 (= ベース名) へのポインタを返す。
+ *
+ * @param path 対象パス (nullptr なら nullptr)。
+ * @return 最後の区切り以降を指すポインタ (区切りが無ければ path 自身)。
+ */
 const wchar_t* WBaseName(const wchar_t* path) noexcept {
     if (path == nullptr) return nullptr;
     const wchar_t* last = path;
@@ -68,7 +84,14 @@ const wchar_t* WBaseName(const wchar_t* path) noexcept {
     return last;
 }
 
-// wchar_t* を UTF-8 char* に変換 (out_buf 終端 0 含む)。失敗時 out_buf[0]=0。
+/**
+ * wchar_t 文字列を UTF-8 に変換して out_buf へ書き込む (終端 0 含む)。
+ *
+ * @details 失敗時は out_buf[0] = '\0' とする。
+ * @param src 変換元の wchar_t 文字列。
+ * @param out_buf 書き込み先バッファ。
+ * @param out_cap out_buf の容量 (バイト)。
+ */
 void WideToUtf8(const wchar_t* src, char* out_buf, int out_cap) noexcept {
     if (out_buf == nullptr || out_cap <= 0) return;
     out_buf[0] = '\0';
@@ -78,12 +101,22 @@ void WideToUtf8(const wchar_t* src, char* out_buf, int out_cap) noexcept {
     out_buf[out_cap - 1] = '\0';  // 念のため終端保証
 }
 
-// FILETIME -> u64 (100ns 単位)
+/**
+ * Win32 FILETIME を u64 (100ns 単位) に変換する。
+ *
+ * @param ft 変換元の FILETIME。
+ * @return high/low を結合した 100ns 単位の時刻値。
+ */
 u64 FileTimeToU64(const FILETIME& ft) noexcept {
     return (static_cast<u64>(ft.dwHighDateTime) << 32) | static_cast<u64>(ft.dwLowDateTime);
 }
 
-// "EAssetKind 名前" を返す。UI のタグ ("[TEX ]" 等) や Combo に使う。
+/**
+ * EAssetKind の表示名を返す (Filter combo 等に使う)。
+ *
+ * @param k 種別。
+ * @return 種別の表示名文字列 (未知は "Unknown")。
+ */
 const char* KindLabel(EAssetKind k) noexcept {
     switch (k) {
         case EAssetKind::Unknown:      return "Unknown";
@@ -104,7 +137,12 @@ const char* KindLabel(EAssetKind k) noexcept {
     return "Unknown";
 }
 
-// 列表示の左端タグ (4-5 文字、固定幅っぽく)。
+/**
+ * list 行の左端に表示する固定幅タグ ("TEX " 等) を返す。
+ *
+ * @param k 種別。
+ * @return 4 文字の種別タグ (未知は "??? ")。
+ */
 const char* KindTag(EAssetKind k) noexcept {
     switch (k) {
         case EAssetKind::Texture:      return "TEX ";
@@ -127,9 +165,7 @@ const char* KindTag(EAssetKind k) noexcept {
 
 } // anonymous namespace
 
-// ===========================================================================
-// Init / Shutdown
-// ===========================================================================
+/** root_directory を記録し pool を Reserve して初回 Refresh を実行する。 */
 void FAssetBrowser::Init(const wchar_t* root_directory) noexcept {
     // m_RootDirectory にコピー (空 / nullptr は既定 L"assets")。
     const wchar_t* src = (root_directory != nullptr && root_directory[0] != L'\0')
@@ -157,6 +193,7 @@ void FAssetBrowser::Init(const wchar_t* root_directory) noexcept {
     Refresh();
 }
 
+/** pool / TArray / ディレクトリ文字列 / callback を全クリアする。 */
 void FAssetBrowser::Shutdown() noexcept {
     m_Entries.Clear();
     m_PathPool.Clear();
@@ -172,13 +209,12 @@ void FAssetBrowser::Shutdown() noexcept {
     m_OnDoubleClickedUser = nullptr;
 }
 
-// ===========================================================================
-// Refresh / RebuildEntries
-// ===========================================================================
+/** current_directory 配下を再列挙する (RebuildEntries への委譲)。 */
 void FAssetBrowser::Refresh() noexcept {
     RebuildEntries();
 }
 
+/** Win32 列挙で m_Entries / pool を作り直し、offset を絶対 pointer へ解決する。 */
 void FAssetBrowser::RebuildEntries() noexcept {
     // 既存 entry / pool を全クリア (容量は維持)。pointer は全て無効化される。
     m_Entries.Clear();
@@ -186,7 +222,7 @@ void FAssetBrowser::RebuildEntries() noexcept {
     m_NamePool.Clear();
     m_SelectedIndex = -1;  // pool 再構築で path pointer 寿命が切れるため
 
-    // ----- Win32 FindFirstFileW で current_directory 配下を列挙 -----
+    // Win32 FindFirstFileW で current_directory 配下を列挙。
     wchar_t full_dir[kMaxPathChars] = {};
     BuildFullPath(m_CurrentDirectory, full_dir, kMaxPathChars);
 
@@ -210,7 +246,7 @@ void FAssetBrowser::RebuildEntries() noexcept {
         return;
     }
 
-    // ----- 重要: pool の Grow による pointer 無効化対策 ---------------
+    // 重要: pool の Grow による pointer 無効化対策。
     // 列挙ループ中に AppendPathOffset / AppendNameOffset が複数回呼ばれ、
     // 内部で TArray::Reserve が走ると **既存** pool 内容ごと relocation され、
     // 過去 iteration で取った wchar_t* / char* が無効化される。これを
@@ -272,7 +308,7 @@ void FAssetBrowser::RebuildEntries() noexcept {
 
     ::FindClose(h);
 
-    // ---- offset → pointer 解決 (これ以後 pool は触らない) ----
+    // offset → pointer 解決 (これ以後 pool は触らない)。
     const wchar_t* path_base = m_PathPool.IsEmpty() ? nullptr : &m_PathPool[0];
     const char*    name_base = m_NamePool.IsEmpty() ? nullptr : &m_NamePool[0];
     m_Entries.Reserve(pending.Size());
@@ -289,22 +325,23 @@ void FAssetBrowser::RebuildEntries() noexcept {
     }
 }
 
-// ===========================================================================
-// アクセサ
-// ===========================================================================
+/** current directory の entry 件数を返す。 */
 u32 FAssetBrowser::EntryCount() const noexcept {
     return static_cast<u32>(m_Entries.Size());
 }
 
+/** index 番目の entry を返す (範囲外は nullptr)。 */
 const AssetEntry* FAssetBrowser::GetEntry(u32 index) const noexcept {
     if (index >= m_Entries.Size()) return nullptr;
     return &m_Entries[static_cast<usize>(index)];
 }
 
+/** 現在表示中のディレクトリ (root 相対) を返す。 */
 const wchar_t* FAssetBrowser::CurrentDirectory() const noexcept {
     return m_CurrentDirectory;
 }
 
+/** path がディレクトリとして存在すれば current_directory を切り替えて Refresh する。 */
 void FAssetBrowser::SetCurrentDirectory(const wchar_t* path) noexcept {
     // path == nullptr / 空文字 → ルート (current_directory を空文字に)
     if (path == nullptr || path[0] == L'\0') {
@@ -334,6 +371,7 @@ void FAssetBrowser::SetCurrentDirectory(const wchar_t* path) noexcept {
     Refresh();
 }
 
+/** 選択中 entry の path を返す (未選択 / 範囲外は nullptr)。 */
 const wchar_t* FAssetBrowser::SelectedAssetPath() const noexcept {
     if (m_SelectedIndex < 0) return nullptr;
     const u32 idx = static_cast<u32>(m_SelectedIndex);
@@ -341,6 +379,7 @@ const wchar_t* FAssetBrowser::SelectedAssetPath() const noexcept {
     return m_Entries[idx].path;
 }
 
+/** 選択中 entry の kind を返す (未選択 / 範囲外は EAssetKind::Unknown)。 */
 EAssetKind FAssetBrowser::SelectedAssetKind() const noexcept {
     if (m_SelectedIndex < 0) return EAssetKind::Unknown;
     const u32 idx = static_cast<u32>(m_SelectedIndex);
@@ -348,23 +387,24 @@ EAssetKind FAssetBrowser::SelectedAssetKind() const noexcept {
     return m_Entries[idx].kind;
 }
 
+/** 選択変更通知 callback と user ポインタを登録する。 */
 void FAssetBrowser::SetOnAssetSelectedCallback(AssetSelectedCallback cb, void* user) noexcept {
     m_OnSelectedCb   = cb;
     m_OnSelectedUser = user;
 }
 
+/** ダブルクリック通知 callback と user ポインタを登録する。 */
 void FAssetBrowser::SetOnAssetDoubleClickedCallback(AssetDoubleClickedCallback cb, void* user) noexcept {
     m_OnDoubleClickedCb   = cb;
     m_OnDoubleClickedUser = user;
 }
 
+/** kind フィルタを設定する (Unknown でフィルタ解除)。 */
 void FAssetBrowser::SetFilterByKind(EAssetKind kind) noexcept {
     m_FilterKind = kind;
 }
 
-// ===========================================================================
-// ClassifyByExtension — 拡張子から EAssetKind を推定
-// ===========================================================================
+/** 拡張子を順に照合して EAssetKind を推定する (大文字小文字無視)。 */
 EAssetKind FAssetBrowser::ClassifyByExtension(const wchar_t* path) noexcept {
     if (path == nullptr || path[0] == L'\0') return EAssetKind::Unknown;
 
@@ -414,9 +454,7 @@ EAssetKind FAssetBrowser::ClassifyByExtension(const wchar_t* path) noexcept {
     return EAssetKind::Unknown;
 }
 
-// ===========================================================================
-// 内部ヘルパ
-// ===========================================================================
+/** root_directory に sub を結合して out_buf へ書き込む (separator を補う)。 */
 void FAssetBrowser::BuildFullPath(const wchar_t* sub, wchar_t* out_buf, usize cap) const noexcept {
     if (out_buf == nullptr || cap == 0) return;
     out_buf[0] = L'\0';
@@ -442,6 +480,7 @@ void FAssetBrowser::BuildFullPath(const wchar_t* sub, wchar_t* out_buf, usize ca
     out_buf[w] = L'\0';
 }
 
+/** m_PathPool に wchar_t 文字列を追記し、必要なら先に Reserve して offset を返す。 */
 usize FAssetBrowser::AppendPathOffset(const wchar_t* src) noexcept {
     if (src == nullptr) return 0;
     const usize len = WLen(src) + 1u;  // 終端 0 含む
@@ -464,6 +503,7 @@ usize FAssetBrowser::AppendPathOffset(const wchar_t* src) noexcept {
     return start;
 }
 
+/** m_NamePool に UTF-8 文字列を追記し、必要なら先に Reserve して offset を返す。 */
 usize FAssetBrowser::AppendNameOffset(const char* src) noexcept {
     if (src == nullptr) return 0;
     const usize len = std::strlen(src) + 1u;
@@ -483,27 +523,14 @@ usize FAssetBrowser::AppendNameOffset(const char* src) noexcept {
     return start;
 }
 
-// ===========================================================================
-// DrawUI — ImGui window
-// ===========================================================================
-// レイアウト:
-//   ┌─ "Asset Browser" window ───────────────────────────────────────┐
-//   │ [Refresh] [Up]  Path: <current>     [Filter: <kind combo>]     │
-//   │ ─────────────────────────────────────────────────────────────  │
-//   │ ┌─ left (tree) ────┐ ┌─ right (list) ────────────────────────┐ │
-//   │ │ ▼ <root>          │ │ [DIR ] subfolder/                       │ │
-//   │ │   ▼ subfolder/    │ │ [TEX ] foo.png          12.3 KB         │ │
-//   │ │     ...           │ │ ...                                      │ │
-//   │ └───────────────────┘ └──────────────────────────────────────────┘ │
-//   └────────────────────────────────────────────────────────────────────┘
-// ===========================================================================
+/** ツールバー + 左 tree + 右 list を 1 つの ImGui window に描画する。 */
 void FAssetBrowser::DrawUI() noexcept {
     if (!ImGui::Begin("Asset Browser")) {
         ImGui::End();
         return;
     }
 
-    // ----- Toolbar -----
+    // Toolbar
     if (ImGui::Button("Refresh")) {
         Refresh();
     }
@@ -513,7 +540,7 @@ void FAssetBrowser::DrawUI() noexcept {
     if (at_root) ImGui::BeginDisabled();
     if (ImGui::Button("Up")) {
         // current_directory の最後の '\\' / '/' 以降を削る。
-        usize len = WLen(m_CurrentDirectory);
+        const usize len = WLen(m_CurrentDirectory);
         if (len > 0) {
             isize cut = -1;
             for (isize i = static_cast<isize>(len) - 1; i >= 0; --i) {
@@ -544,7 +571,7 @@ void FAssetBrowser::DrawUI() noexcept {
     }
     ImGui::TextUnformatted(cur_utf8);
 
-    // ----- Filter combo (右端寄せはしない、SameLine で続ける) -----
+    // Filter combo (右端寄せはしない、SameLine で続ける)。
     ImGui::SameLine();
     ImGui::SetNextItemWidth(140.0f);
     const char* current_filter = KindLabel(m_FilterKind);
@@ -569,11 +596,11 @@ void FAssetBrowser::DrawUI() noexcept {
 
     ImGui::Separator();
 
-    // ----- 2 カラムレイアウト -----
+    // 2 カラムレイアウト。
     const float content_w = ImGui::GetContentRegionAvail().x;
     const float left_w    = (content_w > 480.0f) ? 220.0f : content_w * 0.4f;
 
-    // ===== 左カラム: tree (root から再帰) =====
+    // 左カラム: tree (root から再帰)。
     ImGui::BeginChild("##asset_tree", ImVec2(left_w, 0), true);
     {
         DrawTreeRecursive(L"", 0u);
@@ -582,7 +609,7 @@ void FAssetBrowser::DrawUI() noexcept {
 
     ImGui::SameLine();
 
-    // ===== 右カラム: current directory の entry リスト =====
+    // 右カラム: current directory の entry リスト。
     ImGui::BeginChild("##asset_list", ImVec2(0, 0), true);
     {
         DrawList();
@@ -592,17 +619,15 @@ void FAssetBrowser::DrawUI() noexcept {
     ImGui::End();
 }
 
-// ===========================================================================
-// DrawTreeRecursive — 左ペインの tree (current_directory の選択 UI)
-// ===========================================================================
-// 左 tree は「ディレクトリの選択」を担う (= ファイルは表示しない / 表示しても
-// 役に立たないので省略)。ノードクリックで SetCurrentDirectory する。
-//
-// 注意: tree は描画フレームごとにディレクトリ列挙を「ノード展開時のみ」
-// 行う ImGui パターンを採用。これでルート以下を毎フレーム全列挙する
-// コストを抑える。実装は再帰関数を tree 構造でなく「展開時に都度
-// FindFirstFile する」形にする。
-// ===========================================================================
+/**
+ * 左ペインの tree を再帰描画し、ノードクリックで current_directory を切り替える。
+ *
+ * @details
+ * 左 tree はディレクトリの選択のみを担い (ファイルは省略)、サブディレクトリ列挙はノード
+ * 展開時にのみ FindFirstFile で行う ImGui パターンで、毎フレーム全列挙のコストを抑える。
+ * @param rel_dir assets/ ルートからの相対パス (空文字でルート)。
+ * @param depth 現在の再帰深度 (32 で打ち切り)。
+ */
 void FAssetBrowser::DrawTreeRecursive(const wchar_t* rel_dir, u32 depth) noexcept {
     if (depth >= 32u) {
         ImGui::TextDisabled("(depth limit)");
@@ -649,7 +674,7 @@ void FAssetBrowser::DrawTreeRecursive(const wchar_t* rel_dir, u32 depth) noexcep
     }
 
     if (open) {
-        // 展開時のみサブディレクトリを列挙する (子のみ ─ ファイルは省略)。
+        // 展開時のみサブディレクトリを列挙する (子のみ。ファイルは省略)。
         wchar_t full_dir[kMaxPathChars] = {};
         BuildFullPath(rel_dir, full_dir, kMaxPathChars);
         wchar_t pattern[kMaxPathChars] = {};
@@ -700,9 +725,7 @@ void FAssetBrowser::DrawTreeRecursive(const wchar_t* rel_dir, u32 depth) noexcep
     ImGui::PopID();
 }
 
-// ===========================================================================
-// DrawList — 右ペインの current directory のエントリ一覧
-// ===========================================================================
+/** current directory の各 entry を kind フィルタ越しに行描画し、選択 / DnD / ダブルクリックを処理する。 */
 void FAssetBrowser::DrawList() noexcept {
     ImGui::Text("Entries: %u%s",
                 static_cast<unsigned>(m_Entries.Size()),
@@ -776,7 +799,7 @@ void FAssetBrowser::DrawList() noexcept {
             }
         }
 
-        // ----- Drag source: AssetEntry::path を ASSET_PATH payload に -----
+        // Drag source: AssetEntry::path を ASSET_PATH payload に載せる。
         // ディレクトリも drag source として提供する (panel 側で folder drop を
         // 受け入れたい場合がある = batch import 等)。
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {

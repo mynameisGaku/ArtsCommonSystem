@@ -18,79 +18,162 @@
 
 namespace acs {
 
-// 現在のスレッドが選択しているセグメント（ScopedMemorySegment で切替）
+/** 現在のスレッドが選択しているセグメント (ScopedMemorySegment で切替)。 */
 ACS_THREAD_LOCAL ESegment tls_current_segment = ESegment::Default;
 
 namespace {
 
-// frame(arena) アロケータのページ確保元。既定アロケータ差し替え (SetDefaultAllocator) の
-// 影響を受けない独立した system allocator を使う (再帰を避ける)。
+/** frame(arena) セグメントのページ確保元。既定差し替え (SetDefaultAllocator) の影響を受けない独立 system allocator (再帰回避)。 */
 FSystemAllocator g_frame_backing;
 
-// 1 セグメント分のアロケータホルダ。
-//   ・use_frame=false: 汎用 = FShardedTlsfAllocator (per-thread シャードで MT スケール、self-lock)
-//   ・use_frame=true : フレーム/スクラッチ = FArenaAllocator (lock-free bump、毎フレーム Reset)
+/** 1 セグメント分のアロケータホルダ (use_frame=false は汎用シャード化 TLSF、true はフレーム用 arena)。 */
 struct SegmentSlot {
+    /** このスロットのセグメント種別。 */
     ESegment              segment        = ESegment::Default;
+
+    /** true ならフレーム/スクラッチ用途 (arena)、false なら汎用 (sharded)。 */
     bool                  use_frame      = false;
+
+    /** スロットが初期化済みか。 */
     bool                  initialized    = false;
-    FShardedTlsfAllocator sharded;            // use_frame=false
-    FArenaAllocator*      arena = nullptr;    // use_frame=true (placement-new)
+
+    /** 汎用アロケータ (use_frame=false のとき使用)。 */
+    FShardedTlsfAllocator sharded;
+
+    /** フレーム/スクラッチ用 arena (use_frame=true のとき placement-new で確保)。 */
+    FArenaAllocator*      arena = nullptr;
+
+    /** ハード予算 (バイト、0 で無制限)。 */
     u64                   budget         = 0;
+
+    /** 仮想予約サイズ (統計用)。 */
     u64                   reserve_size   = 0;
+
+    /** 初回コミット量 (統計用)。 */
     u64                   committed_size = 0;
 };
 
-// SegmentSlot を FAllocator IF として公開するアダプタ。
-// sharded / arena はどちらも内部でスレッド安全 (前者=per-shard ロック、後者=lock-free CAS) なので、
-// ここでロックは取らない。旧実装の「セグメントごと単一 SRWLOCK funnel」を撤廃し、MT 確保の
-// ロック競合を解消する。予算チェックはロック無し (近似でよい)。
+/**
+ * SegmentSlot を FAllocator インターフェイスとして公開するアダプタ。
+ *
+ * @details
+ * 裏側の sharded / arena はどちらも内部でスレッド安全 (per-shard ロック / lock-free CAS) なので、
+ * ここではロックを取らない (旧実装のセグメント単位 SRWLOCK funnel を撤廃し MT 確保競合を解消)。
+ * 予算チェックはロック無しの近似。
+ */
 class SegmentAllocator final : public FAllocator {
 public:
+    /** 未バインド状態で構築する (使用前に Bind を呼ぶこと)。 */
     SegmentAllocator() noexcept = default;
+
+    /**
+     * 公開対象の SegmentSlot を結び付ける。
+     *
+     * @param slot このアダプタが委譲する先のスロット。
+     */
     void Bind(SegmentSlot* slot) noexcept { m_Slot = slot; }
 
+    /**
+     * 予算チェック後に裏側アロケータへ確保を委譲する。
+     *
+     * @param size 確保するバイト数。
+     * @param alignment 要求アライメント。
+     * @param loc 診断用の呼び出し位置。
+     * @return 確保した領域 (未初期化/予算超過/失敗時は nullptr)。
+     */
     void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override {
         if (!m_Slot || !m_Slot->initialized) return nullptr;
-        FAllocator* a = Backing();
+        FAllocator* const a = Backing();
         if (m_Slot->budget > 0 && a->BytesAllocated() + size > m_Slot->budget) return nullptr;
         return a->Alloc(size, alignment, loc);
     }
+
+    /**
+     * 裏側アロケータへ解放を委譲する。
+     *
+     * @param ptr 解放する領域 (未初期化/nullptr は no-op)。
+     */
     void Free(void* ptr) noexcept override {
         if (!m_Slot || !m_Slot->initialized || !ptr) return;
         Backing()->Free(ptr);
     }
+
+    /**
+     * 裏側アロケータへ再確保を委譲する。
+     *
+     * @param ptr 既存の確保。
+     * @param old_size 旧サイズ。
+     * @param new_size 新サイズ。
+     * @param alignment 要求アライメント。
+     * @param loc 診断用の呼び出し位置。
+     * @return 再確保した領域 (未初期化/失敗時は nullptr)。
+     */
     void* Realloc(void* ptr, usize old_size, usize new_size,
                   usize alignment, FSourceLoc loc) noexcept override {
         if (!m_Slot || !m_Slot->initialized) return nullptr;
         return Backing()->Realloc(ptr, old_size, new_size, alignment, loc);  // sharded は in-place
     }
+
+    /**
+     * 裏側アロケータの現在使用バイト数を返す。
+     *
+     * @return 使用バイト数 (未初期化なら 0)。
+     */
     u64 BytesAllocated() const noexcept override {
         return (m_Slot && m_Slot->initialized) ? Backing()->BytesAllocated() : 0;
     }
+
+    /**
+     * 裏側アロケータのピークバイト数を返す。
+     *
+     * @return ピークバイト数 (未初期化なら 0)。
+     */
     u64 PeakBytes() const noexcept override {
         return (m_Slot && m_Slot->initialized) ? Backing()->PeakBytes() : 0;
     }
+
+    /**
+     * セグメント名を返す。
+     *
+     * @return バインド先セグメント名 (未バインドなら "Unbound")。
+     */
     const char* Name() const noexcept override {
         return m_Slot ? ToString(m_Slot->segment) : "Unbound";
     }
 private:
+    /**
+     * 現在のスロットの裏側アロケータ (arena か sharded) を返す。
+     *
+     * @return use_frame に応じた裏側アロケータ。
+     */
     FAllocator* Backing() const noexcept {
         return m_Slot->use_frame ? static_cast<FAllocator*>(m_Slot->arena)
                                   : static_cast<FAllocator*>(&m_Slot->sharded);
     }
+
+    /** 委譲先のセグメントスロット (未バインドなら nullptr)。 */
     SegmentSlot* m_Slot = nullptr;
 };
 
-// プロセスに 1 つだけのグローバル状態
+/** プロセスに 1 つだけのグローバル状態。 */
 struct State {
+    /** セグメント種別ごとのスロット。 */
     SegmentSlot      slots[(usize)ESegment::_Count];
+
+    /** セグメント種別ごとの公開アダプタ。 */
     SegmentAllocator allocators[(usize)ESegment::_Count];
+
+    /** FMemorySystem が初期化済みか。 */
     bool             inited = false;
-    // make_default で既定アロケータを差し替えた場合、Shutdown で復元するため元を保持。
+
+    /** make_default で既定アロケータを差し替えたか (Shutdown で復元するため)。 */
     bool             default_overridden = false;
+
+    /** 差し替え前の既定アロケータ (Shutdown で復元する退避先)。 */
     FAllocator*      prev_default        = nullptr;
 };
+
+/** プロセス唯一のグローバル状態インスタンス。 */
 State g_state;
 
 } // namespace
@@ -237,7 +320,7 @@ u32 FMemorySystem::GetStats(SegmentStats* out, u32 max_count) noexcept {
         s.name      = ToString(slot.segment);
         s.reserve   = slot.reserve_size;
         s.committed = slot.committed_size;
-        FAllocator* a = slot.use_frame ? static_cast<FAllocator*>(slot.arena)
+        FAllocator* const a = slot.use_frame ? static_cast<FAllocator*>(slot.arena)
                                        : static_cast<FAllocator*>(&slot.sharded);
         s.used      = a->BytesAllocated();
         s.peak      = a->PeakBytes();
@@ -246,9 +329,6 @@ u32 FMemorySystem::GetStats(SegmentStats* out, u32 max_count) noexcept {
     return n;
 }
 
-// =============================================================================
-// ScopedMemorySegment — RAII セグメント切替
-// =============================================================================
 // コンストラクタで TLS の現在セグメントを上書き、デストラクタで元に戻す
 ScopedMemorySegment::ScopedMemorySegment(ESegment s) noexcept
     : m_Previous(tls_current_segment) {

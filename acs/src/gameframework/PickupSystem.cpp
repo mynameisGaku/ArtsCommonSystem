@@ -19,18 +19,32 @@ namespace acs::game {
 
 namespace {
 
-// ---- kind 別の既定値 (SpawnRandomAt 用) ------------------------------------
-// 数値は AAA でも indie でも違和感のない一般的なバランスを狙う。
-// 単位: world unit (= サンプル既定で 1px 想定)。
+/**
+ * SpawnRandomAt 用の kind 別既定値。
+ *
+ * @details 数値は AAA でも indie でも違和感のない一般的なバランスを狙う。
+ * 単位は world unit (サンプル既定で 1px 想定)。
+ */
 struct KindDefaults {
+    /** 拾取半径。 */
     f32 radius;
+
+    /** 磁石半径。 */
     f32 magnet_radius;
+
+    /** 寿命 (秒、0 で無期限)。 */
     f32 lifetime_sec;
+
+    /** 通貨価値 / 回復量等の数値。 */
     u32 value;
 };
 
-// 列挙順 = EPickupKind enum 順。インデックスは static_cast<u8>(kind)。
-// 配列サイズ = enum 値の数 (Custom 含む 8 個)。
+/**
+ * kind 別の既定値テーブル。
+ *
+ * @details 列挙順は EPickupKind と一致し、インデックスは static_cast<u8>(kind)。
+ * サイズは Custom を含む enum 値の数 (8 個)。
+ */
 constexpr KindDefaults kKindDefaults[8] = {
     // HealthOrb : 小さめ・吸引強め・短寿命・回復量 10
     { 10.0f,  60.0f,  8.0f, 10u },
@@ -52,15 +66,19 @@ constexpr KindDefaults kKindDefaults[8] = {
 
 } // namespace
 
-// =============================================================================
-// 初期化 / Slot 取得
-// =============================================================================
-
+/** 初期化する (再 Init は ClearAll と等価)。 */
 void FPickupSystem::Init() noexcept {
     // 再 Init は ClearAll と等価 (ヘッダの仕様コメントと対応)。
     ClearAll();
 }
 
+/**
+ * 未使用 slot を確保して index を返す。
+ *
+ * @details index 0 は予約なので i>=1 から inactive slot を線形検索し、初回は 0 番に dummy を
+ * 置き、無ければ末尾に PushBack する。
+ * @return 確保した slot の index。
+ */
 u32 FPickupSystem::AcquireSlot() noexcept {
     // index 0 は予約 (= invalid)。i >= 1 から線形検索で inactive slot を探す。
     for (u32 i = 1; i < m_Slots.Size(); ++i) {
@@ -74,10 +92,13 @@ u32 FPickupSystem::AcquireSlot() noexcept {
     return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
-// =============================================================================
-// Spawn / Despawn
-// =============================================================================
-
+/**
+ * pickup を slot に登録して handle を返す。
+ *
+ * @details slot を確保し info をコピー、generation をインクリメント (0 はスキップ) して active 化する。
+ * @param info 登録する pickup の定義。
+ * @return 新規 PickupId。
+ */
 PickupId FPickupSystem::Spawn(const PickupInfo& info) noexcept {
     const u32 idx = AcquireSlot();
     Slot& s = m_Slots[idx];
@@ -90,6 +111,11 @@ PickupId FPickupSystem::Spawn(const PickupInfo& info) noexcept {
     return PickupId{idx, s.gen};
 }
 
+/**
+ * pickup を消滅させる (handle 検証あり、コールバックは発火しない)。
+ *
+ * @param id 消滅させる pickup の handle。
+ */
 void FPickupSystem::Despawn(PickupId id) noexcept {
     if (!id.IsValid()) return;
     const u32 idx = id.Index();
@@ -100,10 +126,13 @@ void FPickupSystem::Despawn(PickupId id) noexcept {
     if (m_AliveCount > 0) --m_AliveCount;
 }
 
-// =============================================================================
-// Tick (lifetime + 磁石 + 拾取)
-// =============================================================================
-
+/**
+ * 全 pickup の lifetime 進行・磁石効果・拾取判定を 1 パスで処理する。
+ *
+ * @param dt 経過時間 (秒)。
+ * @param player_pos プレイヤーの世界座標。
+ * @param magnet_strength 磁石による吸引速度 (world unit / sec)。
+ */
 void FPickupSystem::Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept {
     const usize n = m_Slots.Size();
     // index 0 は予約なのでスキップ。
@@ -166,14 +195,17 @@ void FPickupSystem::Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept
     }
 }
 
-// =============================================================================
-// 照会
-// =============================================================================
-
+/** active pickup の総数を返す。 */
 u32 FPickupSystem::AlivePickupCount() const noexcept {
     return m_AliveCount;
 }
 
+/**
+ * pickup の PickupInfo への生ポインタを返す (handle 検証あり)。
+ *
+ * @param id 取得する pickup の handle。
+ * @return PickupInfo へのポインタ (無効 id / 既消滅は nullptr)。
+ */
 const PickupInfo* FPickupSystem::GetPickup(PickupId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
@@ -183,24 +215,37 @@ const PickupInfo* FPickupSystem::GetPickup(PickupId id) const noexcept {
     return &s.info;
 }
 
-// =============================================================================
-// コールバック設定
-// =============================================================================
-
+/**
+ * 拾取コールバックと user コンテキストを設定する。
+ *
+ * @param cb 拾取時に呼ぶコールバック (nullptr で detach)。
+ * @param user コールバックへ渡すコンテキスト。
+ */
 void FPickupSystem::SetOnPickupCallback(PickupCallback cb, void* user) noexcept {
     m_OnPickup      = cb;
     m_OnPickupUser = user;
 }
 
+/**
+ * 寿命切れコールバックと user コンテキストを設定する。
+ *
+ * @param cb 失効時に呼ぶコールバック (nullptr で detach)。
+ * @param user コールバックへ渡すコンテキスト。
+ */
 void FPickupSystem::SetOnExpireCallback(ExpireCallback cb, void* user) noexcept {
     m_OnExpire      = cb;
     m_OnExpireUser = user;
 }
 
-// =============================================================================
-// ランダムスポーン / kind 別操作
-// =============================================================================
-
+/**
+ * kind 別既定値で円内ランダムスポーンする。
+ *
+ * @details kind index を範囲 clamp し、spread_radius > 0 なら円板内一様サンプルで位置をずらして
+ * Spawn する。item_id は未設定。
+ * @param kind スポーンする pickup の種別。
+ * @param center スポーン中心の世界座標。
+ * @param spread_radius 散布半径。
+ */
 void FPickupSystem::SpawnRandomAt(EPickupKind kind, FVec2 center, f32 spread_radius) noexcept {
     // kind の index を範囲 clamp (enum 拡張時の保険)。
     u8 ki = static_cast<u8>(kind);
@@ -224,6 +269,11 @@ void FPickupSystem::SpawnRandomAt(EPickupKind kind, FVec2 center, f32 spread_rad
     (void)Spawn(info);
 }
 
+/**
+ * 指定 kind の active pickup を全消滅させる (コールバックなし)。
+ *
+ * @param kind 消滅させる pickup の種別。
+ */
 void FPickupSystem::DespawnAllOfKind(EPickupKind kind) noexcept {
     const usize n = m_Slots.Size();
     for (usize i = 1; i < n; ++i) {
@@ -235,6 +285,12 @@ void FPickupSystem::DespawnAllOfKind(EPickupKind kind) noexcept {
     }
 }
 
+/**
+ * 指定 kind の active pickup 数を線形走査で数える。
+ *
+ * @param kind 数える pickup の種別。
+ * @return 該当する active pickup 数。
+ */
 u32 FPickupSystem::CountOfKind(EPickupKind kind) const noexcept {
     u32 count = 0;
     const usize n = m_Slots.Size();
@@ -246,6 +302,7 @@ u32 FPickupSystem::CountOfKind(EPickupKind kind) const noexcept {
     return count;
 }
 
+/** 全 slot を破棄し alive 数を 0 にする (コールバック設定は維持)。 */
 void FPickupSystem::ClearAll() noexcept {
     m_Slots.Clear();
     m_AliveCount = 0;

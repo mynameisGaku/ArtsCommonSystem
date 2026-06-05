@@ -24,8 +24,8 @@ FArenaAllocator::Page* FArenaAllocator::AllocPage(usize size) noexcept {
     // sizeof(Page) + size + 64 の usize オーバーフローを防ぐ。wrap すると過小な total で
     // alloc し、その後の base/used 計算でページ境界を越えて書き込む (OOB)。
     if (size > (~usize(0)) - sizeof(Page) - 64) return nullptr;
-    usize total = sizeof(Page) + size + 64;
-    void* raw = m_Backing->Alloc(total, alignof(Page), FSourceLoc::Current());
+    const usize total = sizeof(Page) + size + 64;
+    void* const raw = m_Backing->Alloc(total, alignof(Page), FSourceLoc::Current());
     if (!raw) return nullptr;
     auto* p = static_cast<Page*>(raw);
     p->next = nullptr;
@@ -45,16 +45,16 @@ void* FArenaAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) no
         Page* p = m_Current.Load(EMemoryOrder::Acquire);
         if (p) {
             // 現在ページに収まるか確認
-            u64 cur = p->used.Load(EMemoryOrder::Relaxed);
-            u64 base_addr = reinterpret_cast<u64>(p->base);
-            u64 aligned   = AlignUp(base_addr + cur, alignment) - base_addr;
-            u64 next      = aligned + size;
+            const u64 cur = p->used.Load(EMemoryOrder::Relaxed);
+            const u64 base_addr = reinterpret_cast<u64>(p->base);
+            const u64 aligned   = AlignUp(base_addr + cur, alignment) - base_addr;
+            const u64 next      = aligned + size;
             if (next <= p->size) {
                 // CAS でカーソルを進める
                 u64 expected = cur;
                 if (p->used.CompareExchange(expected, next)) {
                     // ピーク値を CAS で更新
-                    u64 b = m_Bytes.FetchAdd(size) + size;
+                    const u64 b = m_Bytes.FetchAdd(size) + size;
                     u64 pk = m_Peak.Load(EMemoryOrder::Relaxed);
                     while (b > pk && !m_Peak.CompareExchange(pk, b)) {}
                     return p->base + aligned;
@@ -69,7 +69,7 @@ void* FArenaAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) no
         Page* nowp = m_Current.Load(EMemoryOrder::Acquire);
         if (nowp != p) continue;
         // 要求サイズが page_size より大きければ専用ページを作る
-        usize ps = size > m_PageSize ? size : m_PageSize;
+        const usize ps = size > m_PageSize ? size : m_PageSize;
         Page* np = AllocPage(ps);
         if (!np) return nullptr;
         np->next = m_Pages;
@@ -90,7 +90,7 @@ void FArenaAllocator::Reset(bool release_pages) noexcept {
         // 全ページを backing に返却
         Page* p = m_Pages;
         while (p) {
-            Page* nx = p->next;
+            Page* const nx = p->next;
             m_Backing->Free(p);
             p = nx;
         }

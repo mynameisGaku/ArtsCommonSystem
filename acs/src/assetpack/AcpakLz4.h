@@ -51,45 +51,75 @@
 
 namespace acs::assetpack {
 
-// ---- FErrorCode subcode (FAcpakCrypto と隣接、1320 番台) -------------------
-inline constexpr u16 kAcpakSubLz4SrcOverflow = 1320; // src cursor が範囲外
-inline constexpr u16 kAcpakSubLz4DstOverflow = 1321; // dst capacity 超過
-inline constexpr u16 kAcpakSubLz4BadOffset   = 1322; // offset 0 / dst 範囲外参照
-inline constexpr u16 kAcpakSubLz4BadInput    = 1323; // 入力 nullptr / size_t 異常
+/** LZ4 解凍中に src cursor が入力範囲を超えた (truncated ブロック)。 */
+inline constexpr u16 kAcpakSubLz4SrcOverflow = 1320;
 
-// ---- FAcpakLz4 (static 関数群、インスタンス化しない) ----------------------
+/** LZ4 出力が dst_capacity を超えた。 */
+inline constexpr u16 kAcpakSubLz4DstOverflow = 1321;
+
+/** LZ4 match offset が 0 / dst 範囲外を指す (不正ブロック)。 */
+inline constexpr u16 kAcpakSubLz4BadOffset   = 1322;
+
+/** LZ4 入力が nullptr / サイズ不整合。 */
+inline constexpr u16 kAcpakSubLz4BadInput    = 1323;
+
+/**
+ * LZ4 block format の自前実装を提供する static 関数群。
+ *
+ * @details third_party 依存ゼロ。インスタンス化はできない (ctor delete)。
+ */
 class FAcpakLz4 {
 public:
+    /** インスタンス化禁止 (全 API は static)。 */
     FAcpakLz4() = delete;
 
-    // 入力サイズから最悪ケースの圧縮出力サイズを算出する (LZ4 公式式)。
-    // = input_size + ceil(input_size / 255) + 16
-    // 圧縮できないデータ (= ランダム / 既圧縮) でも必ずこの範囲に収まる。
+    /**
+     * 入力サイズから最悪ケースの圧縮出力サイズを算出する (LZ4 公式式)。
+     *
+     * @details
+     * = input_size + ceil(input_size / 255) + 16。圧縮できないデータ
+     * (ランダム / 既圧縮) でも必ずこの範囲に収まる。
+     * @param input_size 圧縮前のバイト数。
+     * @return 圧縮出力に必要な最大バイト数。
+     */
     static u32 MaxCompressedSize(u32 input_size) noexcept;
 
-    // src (src_size バイト) を dst (dst_capacity バイト) に圧縮する。
-    //   ・src_size == 0 のときは Ok(0) (空ブロック)。
-    //   ・dst_capacity は MaxCompressedSize(src_size) 以上を推奨。
-    //   ・src_size が 13 バイト未満の場合は素通し (全 literal) で書く。
-    //   ・成功時の戻り値は実際の圧縮後バイト数 (dst の先頭からそのバイト数)。
-    // 主なエラー:
-    //   ・ACS_ERR(Asset, kAcpakSubLz4BadInput,    ...) — src/dst nullptr 等
-    //   ・ACS_ERR(Asset, kAcpakSubLz4DstOverflow, ...) — dst_capacity 不足
+    /**
+     * src を LZ4 block format で dst に圧縮する。
+     *
+     * @details
+     * src_size == 0 のときは Ok(0) (空ブロック)。dst_capacity は
+     * MaxCompressedSize(src_size) 以上を推奨。src_size が 13 バイト未満の場合は
+     * 全 literal で素通しする。失敗時は kAcpakSubLz4BadInput (src/dst nullptr 等)
+     * / kAcpakSubLz4DstOverflow (dst_capacity 不足)。
+     * @param src 圧縮元バイト列。
+     * @param src_size src のバイト数。
+     * @param dst 圧縮先バッファ。
+     * @param dst_capacity dst の容量バイト数。
+     * @return 実際の圧縮後バイト数、失敗ならエラー。
+     */
     static TResult<u32> Compress(const u8* src,
                                 u32       src_size,
                                 u8*       dst,
                                 u32       dst_capacity) noexcept;
 
-    // src (src_size バイト) を dst (dst_capacity バイト) に解凍する。
-    //   ・src_size == 0 のときは Ok(0) (空ブロック)。
-    //   ・dst_capacity は元データサイズ以上必要。実際の解凍後サイズが
-    //     返り値となる (呼び出し側は FAcpakFileEntry::size_uncompressed と
-    //     一致するか検証する)。
-    //   ・全ループで境界検査を行い、不正入力で OOB を起こさない。
-    // 主なエラー:
-    //   ・ACS_ERR(Asset, kAcpakSubLz4SrcOverflow, ...) — 入力が途中で尽きた
-    //   ・ACS_ERR(Asset, kAcpakSubLz4DstOverflow, ...) — 出力が dst を超えた
-    //   ・ACS_ERR(Asset, kAcpakSubLz4BadOffset,   ...) — match offset が不正
+    /**
+     * LZ4 block format の src を dst に解凍する。
+     *
+     * @details
+     * src_size == 0 のときは Ok(0) (空ブロック)。dst_capacity は元データサイズ
+     * 以上必要。全ループで境界検査を行い、不正入力で OOB を起こさない (LZ4 公式の
+     * LZ4_decompress_safe 相当)。呼び出し側は戻り値が
+     * FAcpakFileEntry::size_uncompressed と一致するか検証すること。失敗時は
+     * kAcpakSubLz4SrcOverflow (入力が途中で尽きた) /
+     * kAcpakSubLz4DstOverflow (出力が dst を超えた) /
+     * kAcpakSubLz4BadOffset (match offset が不正)。
+     * @param src 圧縮済みバイト列。
+     * @param src_size src のバイト数。
+     * @param dst 解凍先バッファ。
+     * @param dst_capacity dst の容量バイト数。
+     * @return 実際の解凍後バイト数、失敗ならエラー。
+     */
     static TResult<u32> Decompress(const u8* src,
                                   u32       src_size,
                                   u8*       dst,

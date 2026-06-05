@@ -9,7 +9,12 @@ namespace acs {
 
 namespace {
 
-// EPrimitiveTopology → DX12 トポロジ種別
+/**
+ * EPrimitiveTopology を DX12 のトポロジ種別へ変換する。
+ *
+ * @param t 変換元のプリミティブトポロジ。
+ * @return 対応する D3D12_PRIMITIVE_TOPOLOGY_TYPE (未対応値は UNDEFINED)。
+ */
 D3D12_PRIMITIVE_TOPOLOGY_TYPE ToD3DTopologyType(EPrimitiveTopology t) noexcept {
     switch (t) {
         case EPrimitiveTopology::PointList:     return D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
@@ -21,7 +26,12 @@ D3D12_PRIMITIVE_TOPOLOGY_TYPE ToD3DTopologyType(EPrimitiveTopology t) noexcept {
     return D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED;
 }
 
-// ECullMode → DX12
+/**
+ * ECullMode を DX12 のカリングモードへ変換する。
+ *
+ * @param m 変換元のカリングモード。
+ * @return 対応する D3D12_CULL_MODE。
+ */
 D3D12_CULL_MODE ToD3DCullMode(ECullMode m) noexcept {
     switch (m) {
         case ECullMode::None:  return D3D12_CULL_MODE_NONE;
@@ -31,7 +41,12 @@ D3D12_CULL_MODE ToD3DCullMode(ECullMode m) noexcept {
     return D3D12_CULL_MODE_NONE;
 }
 
-// ラスタライザのデフォルト設定
+/**
+ * 既定設定のラスタライザ記述を構築する (solid 塗り、深度クリップ有効)。
+ *
+ * @param cull 適用するカリングモード。
+ * @return 構築した D3D12_RASTERIZER_DESC。
+ */
 D3D12_RASTERIZER_DESC MakeRasterizer(ECullMode cull) noexcept {
     D3D12_RASTERIZER_DESC r{};
     r.FillMode = D3D12_FILL_MODE_SOLID;
@@ -43,7 +58,13 @@ D3D12_RASTERIZER_DESC MakeRasterizer(ECullMode cull) noexcept {
     return r;
 }
 
-// ブレンド設定（不透明・α・加算）
+/**
+ * ブレンドモードに応じた DX12 ブレンド記述を構築する。
+ *
+ * @details Opaque/AlphaBlend/Additive に対応し、独立ブレンドは無効 (RT0 を全 RT にコピー)。
+ * @param mode 適用するブレンドモード。
+ * @return 構築した D3D12_BLEND_DESC。
+ */
 D3D12_BLEND_DESC MakeBlend(EBlendMode mode) noexcept {
     D3D12_BLEND_DESC b{};
     b.AlphaToCoverageEnable = FALSE;
@@ -74,7 +95,12 @@ D3D12_BLEND_DESC MakeBlend(EBlendMode mode) noexcept {
     return b;
 }
 
-// ECompareFunc → DX12 比較関数
+/**
+ * ECompareFunc を DX12 の比較関数へ変換する。
+ *
+ * @param f 変換元の比較関数。
+ * @return 対応する D3D12_COMPARISON_FUNC。
+ */
 D3D12_COMPARISON_FUNC ToD3DCompare(ECompareFunc f) noexcept {
     switch (f) {
         case ECompareFunc::Never:        return D3D12_COMPARISON_FUNC_NEVER;
@@ -89,7 +115,12 @@ D3D12_COMPARISON_FUNC ToD3DCompare(ECompareFunc f) noexcept {
     return D3D12_COMPARISON_FUNC_ALWAYS;
 }
 
-// EStencilOp → DX12 ステンシル操作
+/**
+ * EStencilOp を DX12 のステンシル操作へ変換する。
+ *
+ * @param o 変換元のステンシル操作。
+ * @return 対応する D3D12_STENCIL_OP。
+ */
 D3D12_STENCIL_OP ToD3DStencilOp(EStencilOp o) noexcept {
     switch (o) {
         case EStencilOp::Keep:     return D3D12_STENCIL_OP_KEEP;
@@ -104,6 +135,15 @@ D3D12_STENCIL_OP ToD3DStencilOp(EStencilOp o) noexcept {
     return D3D12_STENCIL_OP_KEEP;
 }
 
+/**
+ * 深度・ステンシル記述を構築する。
+ *
+ * @details 深度比較は LESS_EQUAL 固定。2D 向けに前面・背面で同一のステンシル面を使う。
+ * @param enabled 深度テストを有効にするなら true。
+ * @param write 深度書き込みを有効にするなら true。
+ * @param st ステンシルの有効/マスク/比較関数・各操作を指定する記述。
+ * @return 構築した D3D12_DEPTH_STENCIL_DESC。
+ */
 D3D12_DEPTH_STENCIL_DESC MakeDepthStencil(bool enabled, bool write,
                                           const FStencilDesc& st) noexcept {
     D3D12_DEPTH_STENCIL_DESC d{};
@@ -123,7 +163,12 @@ D3D12_DEPTH_STENCIL_DESC MakeDepthStencil(bool enabled, bool write,
     return d;
 }
 
-// ESamplerFilter → DX12 フィルタ
+/**
+ * ESamplerFilter を DX12 のフィルタへ変換する。
+ *
+ * @param f 変換元のサンプラフィルタ。
+ * @return 対応する D3D12_FILTER。
+ */
 D3D12_FILTER ToD3DFilter(ESamplerFilter f) noexcept {
     switch (f) {
         case ESamplerFilter::Point:        return D3D12_FILTER_MIN_MAG_MIP_POINT;
@@ -133,7 +178,12 @@ D3D12_FILTER ToD3DFilter(ESamplerFilter f) noexcept {
     return D3D12_FILTER_MIN_MAG_MIP_LINEAR;
 }
 
-// ESamplerAddress → DX12
+/**
+ * ESamplerAddress を DX12 のテクスチャアドレスモードへ変換する。
+ *
+ * @param a 変換元のアドレスモード。
+ * @return 対応する D3D12_TEXTURE_ADDRESS_MODE。
+ */
 D3D12_TEXTURE_ADDRESS_MODE ToD3DAddress(ESamplerAddress a) noexcept {
     switch (a) {
         case ESamplerAddress::Wrap:    return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
@@ -144,6 +194,14 @@ D3D12_TEXTURE_ADDRESS_MODE ToD3DAddress(ESamplerAddress a) noexcept {
     return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
 }
 
+/**
+ * SamplerDesc から DX12 の静的サンプラ記述を構築する。
+ *
+ * @details 異方性フィルタ時のみ max_anisotropy を反映し、ピクセルシェーダから可視にする。
+ * @param s フィルタ・アドレスモード・LOD 範囲などを指定するサンプラ記述。
+ * @param reg 割り当てるシェーダレジスタ番号 (s0..)。
+ * @return 構築した D3D12_STATIC_SAMPLER_DESC。
+ */
 D3D12_STATIC_SAMPLER_DESC MakeStaticSampler(const SamplerDesc& s, u32 reg) noexcept {
     D3D12_STATIC_SAMPLER_DESC d{};
     d.Filter = ToD3DFilter(s.filter);
@@ -164,11 +222,13 @@ D3D12_STATIC_SAMPLER_DESC MakeStaticSampler(const SamplerDesc& s, u32 reg) noexc
 
 } // namespace
 
+/** PSO と RootSignature を解放する。 */
 Dx12Pipeline::~Dx12Pipeline() noexcept {
     ACS_SAFE_RELEASE(m_Pso);
     ACS_SAFE_RELEASE(m_RootSig);
 }
 
+/** ルートシグネチャ・入力レイアウト・PSO を構築する (CreateRhiPipeline 経由で呼ばれる)。 */
 HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexcept {
     HrResult r{};
     m_Topology = desc.topology;
@@ -178,7 +238,7 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
     if (!desc.vs) { r.hr = E_INVALIDARG; return r; }
     // ps は省略可（depth-only パイプラインの場合）
 
-    // ===== ルートシグネチャを構築 =====
+    // ルートシグネチャを構築する。
     // パラメータ: [N x root CBV (b0..)] + [M x descriptor table (1 SRV @ tN..)]
     constexpr u32 kMaxParams = 16;
     if (desc.cbuffer_slots + desc.texture_slots > kMaxParams) {
@@ -212,7 +272,7 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
 
     // 静的サンプラ
     D3D12_STATIC_SAMPLER_DESC samplers[4]{};
-    u32 sampler_count = desc.static_sampler_count > 4 ? 4 : desc.static_sampler_count;
+    const u32 sampler_count = desc.static_sampler_count > 4 ? 4 : desc.static_sampler_count;
     for (u32 i = 0; i < sampler_count; ++i) {
         samplers[i] = MakeStaticSampler(desc.static_samplers[i], i);
     }
@@ -286,8 +346,17 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
     return r;
 }
 
-// ファクトリ
 #if !WITH_RENDER_DILIGENT
+/**
+ * DX12 用に IRhiPipeline を生成するファクトリ。
+ *
+ * @details
+ * RTTI 無効のためバックエンド名で DX12 を判定し、Dx12Pipeline を構築・初期化して返す。
+ * Diligent バックエンド有効時は別実装が提供される。
+ * @param device 生成元のデバイス (DX12 でなければエラー)。
+ * @param desc 構築するパイプラインの記述。
+ * @return 生成したパイプラインを保持する TResult、判定・初期化失敗ならエラー。
+ */
 TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
                                                   const FPipelineDesc& desc) noexcept {
     const char* bn = device.BackendName();
@@ -295,7 +364,7 @@ TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
         return ACS_ERR(Render, 50, "CreateRhiPipeline: device is not DX12");
     Dx12Device* dxd = static_cast<Dx12Device*>(&device);
     auto p = MakeUnique<Dx12Pipeline>();
-    HrResult r = p->Init(*dxd, desc);
+    const HrResult r = p->Init(*dxd, desc);
     if (r.IsErr())
         return ACS_ERR_OS(Render, 51, "Dx12Pipeline::Init failed", static_cast<u32>(r.hr));
     TUniquePtr<IRhiPipeline> base(p.Release(), p.GetAllocator());

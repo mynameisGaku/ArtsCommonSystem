@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q Phase 3 — FWaterVolume 実装
+// GameFramework Pillar Q — FWaterVolume 実装
 //
 // AABB ベースの水域管理 + 浮力計算。slot+generation handle pattern は
-// FCollisionWorld2D / FTriggerWorld2D と同等。Phase 3 は線形走査 (典型 N ≤ 数十)。
+// FCollisionWorld2D / FTriggerWorld2D と同等。線形走査 (典型 N ≤ 数十)。
 #include "gameframework/WaterVolume.h"
 
 namespace acs::game {
 
-// ----- 内部ヘルパ -----------------------------------------------------------
-
-// AABB と点の包含判定。center / half_size から min/max を構築して比較。
-// half_size 各成分は非負想定。負値が来ても |.| を取らずに比較に任せる
-// (= 必ず外れる結果になり、利用者の構成ミスとして安全側に倒れる)。
+/**
+ * AABB と点の包含判定を行う。
+ *
+ * @details
+ * center / half_size から min/max を構築して比較する。half_size 各成分は非負想定で、
+ * 負値が来ても絶対値を取らず比較に任せる (= 必ず外れて安全側に倒れる)。
+ * @param v 判定対象の水域情報。
+ * @param pos 判定する点 (world)。
+ * @return pos が v の AABB 内なら true。
+ */
 static bool ContainsPoint(const FWaterVolumeInfo& v, FVec2 pos) noexcept {
     const f32 dx = pos.x - v.center.x;
     const f32 dy = pos.y - v.center.y;
@@ -19,9 +24,7 @@ static bool ContainsPoint(const FWaterVolumeInfo& v, FVec2 pos) noexcept {
         && (dy >= -v.half_size.y) && (dy <= v.half_size.y);
 }
 
-// ----- Slot 管理 ------------------------------------------------------------
-
-// index 0 は invalid handle に予約 (FCollisionWorld2D と同じ規約)。
+/** 空き slot を探して返す (index 0 は invalid handle に予約)。 */
 u32 FWaterVolume::AcquireSlot() noexcept {
     for (u32 i = 1; i < m_Slots.Size(); ++i) {
         if (!m_Slots[i].active) return i;
@@ -33,8 +36,7 @@ u32 FWaterVolume::AcquireSlot() noexcept {
     return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
-// ----- パブリック API -------------------------------------------------------
-
+/** slot を確保し info を複製、generation を進めて handle を返す。 */
 FWaterVolumeId FWaterVolume::AddVolume(const FWaterVolumeInfo& info) noexcept {
     const u32 idx = AcquireSlot();
     Slot& s = m_Slots[idx];
@@ -47,6 +49,7 @@ FWaterVolumeId FWaterVolume::AddVolume(const FWaterVolumeInfo& info) noexcept {
     return FWaterVolumeId{idx, s.gen};
 }
 
+/** handle を検証して slot を非 active 化する (stale handle は無視)。 */
 void FWaterVolume::RemoveVolume(FWaterVolumeId id) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
     Slot& s = m_Slots[id.Index()];
@@ -56,6 +59,7 @@ void FWaterVolume::RemoveVolume(FWaterVolumeId id) noexcept {
     m_CacheDirty = true;
 }
 
+/** handle を検証して center / half_size のみ更新する (他のパラメータは不変)。 */
 void FWaterVolume::UpdateVolume(FWaterVolumeId id, FVec2 center, FVec2 half_size) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
     Slot& s = m_Slots[id.Index()];
@@ -67,6 +71,7 @@ void FWaterVolume::UpdateVolume(FWaterVolumeId id, FVec2 center, FVec2 half_size
     m_CacheDirty = true;
 }
 
+/** 全 active volume を線形走査し、pos を含む volume があれば true を返す。 */
 bool FWaterVolume::IsUnderwater(FVec2 pos) const noexcept {
     // index 0 は invalid 予約なので 1 から走査。
     for (u32 i = 1; i < m_Slots.Size(); ++i) {
@@ -77,6 +82,7 @@ bool FWaterVolume::IsUnderwater(FVec2 pos) const noexcept {
     return false;
 }
 
+/** 最初に pos を含む volume の surface_y からの沈み深さ (>= 0) を返す。 */
 f32 FWaterVolume::SubmersionDepth(FVec2 pos) const noexcept {
     for (u32 i = 1; i < m_Slots.Size(); ++i) {
         const Slot& s = m_Slots[i];
@@ -91,6 +97,7 @@ f32 FWaterVolume::SubmersionDepth(FVec2 pos) const noexcept {
     return 0.0f;
 }
 
+/** pos を含む全 volume の浮力 + drag を合算して world force を返す。 */
 FVec2 FWaterVolume::ComputeBuoyancyForce(FVec2 pos, FVec2 velocity, f32 mass) const noexcept {
     // 全 volume の寄与を加算。重なる volume があれば力も重畳。
     f32  total_depth_strength = 0.0f;  // Σ (buoyancy_strength * depth) を蓄積
@@ -122,12 +129,14 @@ FVec2 FWaterVolume::ComputeBuoyancyForce(FVec2 pos, FVec2 velocity, f32 mass) co
     };
 }
 
+/** packed cache を必要なら再構築し、先頭ポインタと要素数を返す。 */
 const FWaterVolumeInfo* FWaterVolume::AllVolumes(u32& out_count) const noexcept {
     RebuildPackedCacheIfNeeded();
     out_count = static_cast<u32>(m_PackedCache.Size());
     return out_count > 0 ? m_PackedCache.Data() : nullptr;
 }
 
+/** slot 配列と cache を解放し volume カウントを 0 に戻す。 */
 void FWaterVolume::ClearAll() noexcept {
     m_Slots.Clear();
     m_PackedCache.Clear();
@@ -135,8 +144,7 @@ void FWaterVolume::ClearAll() noexcept {
     m_CacheDirty  = false;   // 空状態は dirty 不要
 }
 
-// ----- private キャッシュ --------------------------------------------------
-
+/** dirty なら active な info を m_PackedCache に詰め直す。 */
 void FWaterVolume::RebuildPackedCacheIfNeeded() const noexcept {
     if (!m_CacheDirty) return;
     m_PackedCache.Clear();

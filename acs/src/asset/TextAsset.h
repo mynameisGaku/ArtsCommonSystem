@@ -12,26 +12,75 @@
 
 namespace acs {
 
+/**
+ * UTF-8 テキスト文字列を保持するアセット。
+ *
+ * @details 内部バッファは末尾に NUL を含み、CStr() で NUL 終端文字列として参照できる。
+ */
 class FTextAsset : public Asset {
 public:
     ACS_ASSET_TYPE("FTextAsset")
 
+    /** 空のテキストアセットを構築する。 */
     FTextAsset() noexcept = default;
+
+    /**
+     * 文字列バッファを所有してテキストアセットを構築する。
+     *
+     * @param text 末尾に NUL を含む文字列バッファ (ムーブで所有を奪う)。
+     */
     explicit FTextAsset(TArray<char>&& text) noexcept : m_Text(Move(text)) {}
 
-    // NUL 終端された文字列ポインタ
+    /**
+     * NUL 終端された文字列ポインタを返す。
+     *
+     * @return 文字列の先頭 (空なら "")。
+     */
     const char* CStr() const noexcept { return m_Text.IsEmpty() ? "" : m_Text.Data(); }
+
+    /**
+     * NUL を除いた文字列長を返す。
+     *
+     * @return バイト数 (空なら 0)。
+     */
     usize       Size() const noexcept { return m_Text.IsEmpty() ? 0 : m_Text.Size() - 1; }
+
+    /**
+     * 末尾 NUL を含む生バッファへの const 参照を返す。
+     *
+     * @return 文字列バッファへの const 参照。
+     */
     const TArray<char>& Raw() const noexcept { return m_Text; }
 
 private:
-    TArray<char> m_Text;  // 末尾に NUL を含む
+    /** 文字列データ (末尾に NUL を含む)。 */
+    TArray<char> m_Text;
 };
 
+/** 任意のテキストファイルを FTextAsset に読み込むローダ。 */
 class FTextAssetLoader final : public IAssetLoader {
 public:
+    /**
+     * 生成するアセット型 ID を返す。
+     *
+     * @return FTextAsset の型 ID。
+     */
     AssetType   TypeId()    const noexcept override { return FTextAsset::StaticType(); }
-    const char* Extension() const noexcept override { return "txt"; }   // 主要拡張子
+
+    /**
+     * 担当する主要拡張子を返す。
+     *
+     * @return "txt" (json/xml/lua などはレジストリが別名で登録する)。
+     */
+    const char* Extension() const noexcept override { return "txt"; }
+
+    /**
+     * バイト列を NUL 終端文字列としてコピーし FTextAsset を生成する。
+     *
+     * @param id 生成アセットに割り当てる ID。
+     * @param bytes テキストファイル全体のバイト列。
+     * @return 成功なら FTextAsset、失敗ならエラー。
+     */
     TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 

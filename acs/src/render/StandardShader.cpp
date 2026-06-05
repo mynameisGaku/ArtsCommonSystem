@@ -11,8 +11,12 @@ namespace acs {
 
 namespace {
 
-// HLSL ソース（VS + PS、row-major で FMat4 をそのまま受け取る）
-// 最大 4 灯の有向光源 + 4 灯の点光源 + 環境光 + Blinn-Phong スペキュラ + シャドウマップ
+/**
+ * 標準ライティングシェーダの HLSL ソース (VS + PS、row-major で FMat4 をそのまま受け取る)。
+ *
+ * @details
+ * 最大 4 灯の有向光源 + 4 灯の点光源 + 環境光 + Blinn-Phong スペキュラ + PCSS シャドウマップ。
+ */
 const char* kStandardHLSL = R"(
 #pragma pack_matrix(row_major)
 
@@ -187,29 +191,67 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-// CB レイアウト（HLSL と一致、float4 アライン）
+/** 有向光源の最大数 (HLSL の ACS_MAX_DIR_LIGHTS と一致)。 */
 constexpr u32 kMaxDirLights   = 4;
+
+/** 点光源の最大数 (HLSL の ACS_MAX_POINT_LIGHTS と一致)。 */
 constexpr u32 kMaxPointLights = 4;
+
+/**
+ * フレーム単位の定数バッファのレイアウト (HLSL の cbuffer Frame と一致、float4 アライン)。
+ */
 struct FrameCBLayout {
+    /** view-projection 行列。 */
     FMat4 view_proj;
+
+    /** 視点ワールド座標 (xyz=eye, w=pad)。 */
     FVec4 camera_pos;
-    FVec4 ambient;                                  // xyz=ambient, w=dir_count
-    FVec4 point_count_pad;                          // x=point_count
+
+    /** 環境光と有向光源数 (xyz=ambient, w=dir_count)。 */
+    FVec4 ambient;
+
+    /** 点光源数 (x=point_count)。 */
+    FVec4 point_count_pad;
+
+    /** 各有向光源の方向 (xyz=光へ向く方向, w=pad)。 */
     FVec4 light_dir  [kMaxDirLights];
+
+    /** 各有向光源の色 (xyz=color, w=pad)。 */
     FVec4 light_color[kMaxDirLights];
+
+    /** 各点光源の位置と範囲 (xyz=world pos, w=range)。 */
     FVec4 point_pos_range[kMaxPointLights];
+
+    /** 各点光源の色 (xyz=color, w=pad)。 */
     FVec4 point_color    [kMaxPointLights];
+
+    /** シャドウマップ投影用の light view-projection 行列。 */
     FMat4 light_view_proj;
-    FVec4 shadow_params;                            // x=bias, y=enabled, z=texel_size
+
+    /** シャドウパラメータ (x=bias, y=enabled, z=texel_size, w=filter_radius)。 */
+    FVec4 shadow_params;
 };
 
+/**
+ * オブジェクト単位の定数バッファのレイアウト (HLSL の cbuffer Object と一致)。
+ */
 struct ObjectCBLayout {
+    /** モデル (world) 行列。 */
     FMat4 model;
+
+    /** ベースカラー (xyz=color, w=alpha)。 */
     FVec4 base_color;
-    FVec4 material;       // x=specular_strength, y=shininess
+
+    /** マテリアル (x=specular_strength, y=shininess, zw=pad)。 */
+    FVec4 material;
 };
 
-// CB は 256B にアライン推奨（DX12 制約）
+/**
+ * 定数バッファサイズを 256 バイト境界に切り上げる (DX12 制約)。
+ *
+ * @tparam T 定数バッファのレイアウト型。
+ * @return sizeof(T) を 256 の倍数に切り上げたバイト数。
+ */
 template<typename T>
 constexpr usize CBSize() noexcept {
     return (sizeof(T) + 255u) & ~static_cast<usize>(255u);
@@ -217,8 +259,9 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
+/** VS/PS のコンパイル、定数バッファ・白テクスチャ・パイプラインを生成する。 */
 TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
-    // === シェーダコンパイル ===
+    // シェーダコンパイル
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kStandardHLSL;
@@ -237,7 +280,7 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
     m_Ps = Move(ps_r.Value());
 
-    // === 定数バッファ ===
+    // 定数バッファ
     FBufferDesc fcb{};
     fcb.size = CBSize<FrameCBLayout>();
     fcb.usage = EBufferUsage::Uniform;
@@ -254,7 +297,7 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     if (ocb_r.IsErr()) return Err<void>(ocb_r.Error());
     m_ObjectCb = Move(ocb_r.Value());
 
-    // === 1×1 白テクスチャ ===
+    // 1×1 白テクスチャ
     const u8 white_pixel[4] = { 255, 255, 255, 255 };
     FTextureDesc td{};
     td.width = 1; td.height = 1;
@@ -265,7 +308,7 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     if (wt_r.IsErr()) return Err<void>(wt_r.Error());
     m_White = Move(wt_r.Value());
 
-    // === パイプライン ===
+    // パイプライン
     FPipelineDesc pd{};
     pd.vs = m_Vs.Get();
     pd.ps = m_Ps.Get();
@@ -300,6 +343,7 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     return Ok();
 }
 
+/** GPU リソースを解放する。 */
 void FStandardShader::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_White.Reset();
@@ -309,6 +353,7 @@ void FStandardShader::Shutdown() noexcept {
     m_Vs.Reset();
 }
 
+/** 単一の有向光源を組み立てて SetLights に委譲する。 */
 void FStandardShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
                               FVec3 light_color, FVec3 ambient) noexcept {
     FDirLight one;
@@ -317,6 +362,7 @@ void FStandardShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
     SetLights(vp, cam, &one, 1, ambient);
 }
 
+/** 有向光源群・カメラ・環境光を保持し、フレーム CB を更新する。 */
 void FStandardShader::SetLights(const FMat4& vp, FVec3 cam,
                                const FDirLight* lights, u32 count,
                                FVec3 ambient) noexcept {
@@ -329,6 +375,7 @@ void FStandardShader::SetLights(const FMat4& vp, FVec3 cam,
     FlushFrameCB();
 }
 
+/** 点光源群を保持し、フレーム CB を更新する。 */
 void FStandardShader::SetPointLights(const PointLight* lights, u32 count) noexcept {
     if (count > kMaxPointLights) count = kMaxPointLights;
     m_PointCount = count;
@@ -336,6 +383,7 @@ void FStandardShader::SetPointLights(const PointLight* lights, u32 count) noexce
     FlushFrameCB();
 }
 
+/** シャドウマップと light view-projection・bias・filter を保持し、フレーム CB を更新する。 */
 void FStandardShader::SetShadowMap(IRhiTexture* tex, const FMat4& light_vp,
                                    f32 bias, f32 filter_radius) noexcept {
     m_ShadowTex    = tex;
@@ -345,6 +393,7 @@ void FStandardShader::SetShadowMap(IRhiTexture* tex, const FMat4& light_vp,
     FlushFrameCB();
 }
 
+/** 保持中のライト・カメラ・シャドウ状態をフレーム定数バッファに書き込む。 */
 void FStandardShader::FlushFrameCB() noexcept {
     if (!m_FrameCb) return;
     FrameCBLayout cb{};
@@ -379,6 +428,7 @@ void FStandardShader::FlushFrameCB() noexcept {
     m_FrameCb->Update(&cb, sizeof(cb));
 }
 
+/** モデル行列・ベースカラー・マテリアルをオブジェクト定数バッファに書き込む。 */
 void FStandardShader::SetObject(const FMat4& model, FVec3 base_color,
                                f32 specular_strength, f32 shininess) noexcept {
     if (!m_ObjectCb) return;
@@ -389,6 +439,7 @@ void FStandardShader::SetObject(const FMat4& model, FVec3 base_color,
     m_ObjectCb->Update(&cb, sizeof(cb));
 }
 
+/** オブジェクト CB を更新し、パイプライン・バッファ・テクスチャを束ねてメッシュを描画する。 */
 void FStandardShader::DrawMesh(IRhiCommandList& cmd,
                               const GpuMesh& mesh,
                               const FMat4& model,

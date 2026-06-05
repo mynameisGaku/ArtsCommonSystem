@@ -19,8 +19,14 @@ namespace acs::game {
 
 namespace {
 
-// const char* の per-byte 安全比較 (FEconomyDirector.cpp / FEntitlement.cpp と同設計)。
-// どちらかが nullptr なら false。
+/**
+ * const char* の per-byte 安全比較を行う。
+ *
+ * @details どちらかが nullptr なら false。終端まで一致したときのみ true。
+ * @param a 比較する一方の文字列。
+ * @param b 比較する他方の文字列。
+ * @return 内容が一致すれば true。
+ */
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -31,10 +37,16 @@ bool StrEq(const char* a, const char* b) noexcept {
     return *a == '\0' && *b == '\0';
 }
 
-// 「id 未発見」を表す哨兵値 (他 Manager と統一)。
+/** 「id 未発見」を表す哨兵値 (他 Manager と統一)。 */
 constexpr u32 kNotFound = ~static_cast<u32>(0);
 
-// u32 加算でオーバーフローしないようにクランプ加算。
+/**
+ * u32 加算をオーバーフローさせずにクランプ加算する。
+ *
+ * @param a 加算の一方。
+ * @param b 加算の他方。
+ * @return a + b、ただし u32 上限を超える場合は上限値。
+ */
 u32 SaturatingAdd(u32 a, u32 b) noexcept {
     const u32 kMax = ~static_cast<u32>(0);
     if (b > kMax - a) return kMax;
@@ -43,10 +55,7 @@ u32 SaturatingAdd(u32 a, u32 b) noexcept {
 
 } // namespace
 
-// =============================================================================
-// 内部検索
-// =============================================================================
-
+/** 武器 id を内部配列位置へ変換する (per-byte 線形検索、未検出は kNotFound)。 */
 u32 FWeaponSystem::FindWeaponSlot(const char* weapon_id) const noexcept {
     if (weapon_id == nullptr) return kNotFound;
     const usize n = m_Defs.Size();
@@ -56,10 +65,7 @@ u32 FWeaponSystem::FindWeaponSlot(const char* weapon_id) const noexcept {
     return kNotFound;
 }
 
-// =============================================================================
-// 武器定義
-// =============================================================================
-
+/** 武器定義を登録し、対応する reserve スロットを 0 で初期化する。 */
 void FWeaponSystem::RegisterWeapon(const FWeaponDef& def) noexcept {
     // defensive: id == nullptr は意味を持たないので静かに弾く。
     if (def.id == nullptr) return;
@@ -87,10 +93,7 @@ void FWeaponSystem::RegisterWeapon(const FWeaponDef& def) noexcept {
     }
 }
 
-// =============================================================================
-// 装備中状態の保存 / 復元
-// =============================================================================
-
+/** 装備中武器の per-weapon 状態 (reserve / mag) を m_Reserves[] へ書き戻す。 */
 void FWeaponSystem::SaveCurrentToSlot() noexcept {
     if (m_CurrentDef == nullptr) return;
     if (m_CurrentSlot == kNotFound) return;
@@ -101,10 +104,7 @@ void FWeaponSystem::SaveCurrentToSlot() noexcept {
     slot.ammo_in_mag  = _state.ammo_in_mag;
 }
 
-// =============================================================================
-// 武器切替
-// =============================================================================
-
+/** 指定 id の武器を装備し、状態を新武器の保存値から復元する。 */
 bool FWeaponSystem::EquipWeapon(const char* weapon_id) noexcept {
     const u32 slot = FindWeaponSlot(weapon_id);
     if (slot == kNotFound) return false;
@@ -152,10 +152,7 @@ bool FWeaponSystem::EquipWeapon(const char* weapon_id) noexcept {
     return true;
 }
 
-// =============================================================================
-// 発射
-// =============================================================================
-
+/** 発射を試み、可否チェックを通れば弾を 1 発消費して FireCallback を発火する。 */
 bool FWeaponSystem::TryFire() noexcept {
     // 装備なし / reload 中は失敗。
     if (m_CurrentDef == nullptr) return false;
@@ -191,10 +188,7 @@ bool FWeaponSystem::TryFire() noexcept {
     return true;
 }
 
-// =============================================================================
-// リロード
-// =============================================================================
-
+/** リロードを開始する (reload_sec<=0 は即時完了)。 */
 void FWeaponSystem::StartReload() noexcept {
     // 装備なし / reload 中は no-op。
     if (m_CurrentDef == nullptr) return;
@@ -223,6 +217,7 @@ void FWeaponSystem::StartReload() noexcept {
     _state.reload_remaining_sec = def.reload_sec;
 }
 
+/** reload 中なら打ち切る (ammo は変化しない)。 */
 void FWeaponSystem::CancelReload() noexcept {
     // reload 中でなければ no-op。ammo_in_mag は変えない (reload はそもそも
     // mag 完了時に補充するので、途中 cancel での部分補充は仕様外)。
@@ -231,6 +226,7 @@ void FWeaponSystem::CancelReload() noexcept {
     _state.reload_remaining_sec = 0.0f;
 }
 
+/** reload を完了させ、mag に reserve を補填して ReloadCallback を発火する。 */
 void FWeaponSystem::CompleteReload() noexcept {
     // 装備なしは defensive: ここに来る前に StartReload で弾いている前提。
     if (m_CurrentDef == nullptr) {
@@ -255,6 +251,7 @@ void FWeaponSystem::CompleteReload() noexcept {
     }
 }
 
+/** reload 進行度 [0, 1] を返す (reload 中でなければ 0.0)。 */
 f32 FWeaponSystem::ReloadProgress() const noexcept {
     if (!_state.reloading) return 0.0f;
     if (m_CurrentDef == nullptr) return 0.0f;
@@ -266,10 +263,7 @@ f32 FWeaponSystem::ReloadProgress() const noexcept {
     return done / total;
 }
 
-// =============================================================================
-// 弾薬補給
-// =============================================================================
-
+/** 指定武器の予備弾薬を加算する (max_reserve でクランプ、装備中なら _state にも反映)。 */
 void FWeaponSystem::AddReserveAmmo(const char* weapon_id, u32 amount) noexcept {
     if (amount == 0u) return;
     const u32 slot = FindWeaponSlot(weapon_id);
@@ -277,25 +271,22 @@ void FWeaponSystem::AddReserveAmmo(const char* weapon_id, u32 amount) noexcept {
 
     const FWeaponDef&   def    = m_Defs[slot];
     ReserveSlot&       res    = m_Reserves[slot];
-    const u32          maxRes = (def.max_reserve == 0u) ? ~static_cast<u32>(0) : def.max_reserve;
+    const u32          max_res = (def.max_reserve == 0u) ? ~static_cast<u32>(0) : def.max_reserve;
 
     // 装備中武器なら _state 側にも反映する (= 二重管理を避けるため
     // 「装備中は _state が真実、非装備中は m_Reserves が真実」と決め、
     // 補給時は両方を整合させる)。
     if (m_CurrentSlot == slot) {
         const u32 next = SaturatingAdd(_state.reserve_ammo, amount);
-        _state.reserve_ammo = (next > maxRes) ? maxRes : next;
+        _state.reserve_ammo = (next > max_res) ? max_res : next;
         res.reserve_ammo    = _state.reserve_ammo;
     } else {
         const u32 next = SaturatingAdd(res.reserve_ammo, amount);
-        res.reserve_ammo = (next > maxRes) ? maxRes : next;
+        res.reserve_ammo = (next > max_res) ? max_res : next;
     }
 }
 
-// =============================================================================
-// フレーム更新
-// =============================================================================
-
+/** 内部時計を進め、reload 中なら残り時間を減算して 0 到達で完了させる。 */
 void FWeaponSystem::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     m_ElapsedTime += dt;
@@ -309,10 +300,7 @@ void FWeaponSystem::Tick(f32 dt) noexcept {
     }
 }
 
-// =============================================================================
-// 全リセット
-// =============================================================================
-
+/** 武器定義 / reserve / current state / コールバックをすべてクリアする。 */
 void FWeaponSystem::ClearAll() noexcept {
     m_Defs.Clear();
     m_Reserves.Clear();

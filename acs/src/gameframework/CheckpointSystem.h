@@ -107,188 +107,383 @@
 
 namespace acs::game {
 
-// ---- CheckpointId: チェックポイントの handle --------------------------------
-// 32bit packed = 24bit index + 8bit generation。0 = invalid。
-// FHealthId / PickupId / FShapeId / FNodeId と同パターン。
+/**
+ * チェックポイントの generational handle。
+ *
+ * @details
+ * 32bit packed = 24bit index + 8bit generation。0 = invalid。Unregister 後に slot
+ * が再利用されても、古い handle は generation 不一致で弾かれる。FHealthId / PickupId
+ * / FShapeId / FNodeId と同パターン。
+ */
 struct CheckpointId {
+    /** packed 表現 (下位 24bit = index、上位 8bit = generation、0 で invalid)。 */
     u32 m_Packed = 0;
 
+    /** invalid (m_Packed == 0) な handle を構築する。 */
     constexpr CheckpointId() noexcept = default;
+
+    /**
+     * index と generation から handle を構築する。
+     *
+     * @param index slot インデックス (下位 24bit に格納)。
+     * @param gen generation (上位 8bit に格納)。
+     */
     constexpr CheckpointId(u32 index, u8 gen) noexcept
         : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
+    /**
+     * slot インデックスを返す。
+     *
+     * @return 下位 24bit の index。
+     */
     constexpr u32  Index()      const noexcept { return m_Packed & 0x00FFFFFFu; }
+
+    /**
+     * generation を返す。
+     *
+     * @return 上位 8bit の generation。
+     */
     constexpr u8   Generation() const noexcept { return static_cast<u8>(m_Packed >> 24); }
+
+    /**
+     * 有効な handle かを返す。
+     *
+     * @return m_Packed != 0 なら true。
+     */
     constexpr bool IsValid()    const noexcept { return m_Packed != 0; }
 
+    /**
+     * 等値比較する。
+     *
+     * @param o 比較対象の handle。
+     * @return packed 表現が一致すれば true。
+     */
     constexpr bool operator==(CheckpointId o) const noexcept { return m_Packed == o.m_Packed; }
+
+    /**
+     * 非等値比較する。
+     *
+     * @param o 比較対象の handle。
+     * @return packed 表現が一致しなければ true。
+     */
     constexpr bool operator!=(CheckpointId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
-// ---- CheckpointInfo: 1 チェックポイントの定義 -------------------------------
-// id              : 検索 / Save/Load / トリガ参照のキー。文字列リテラル想定 (非所有)。
-// spawn_pos       : 復活時のプレイヤー世界座標。
-// level_index     : 復活時にロードするレベル / シーンの index。FSceneManager で
-//                   切替えるための鍵 (caller 解釈)。同一レベル内なら全 checkpoint
-//                   が同じ値を持つ。
-// sort_order      : レベル内での順序 (one_way 判定で使う)。小さいほど序盤、
-//                   大きいほど終盤。同一レベル内で一意に振ることを推奨。
-// one_way         : true = この checkpoint を Activate した後、より sort_order
-//                   の小さい checkpoint への Activate を弾く (戻れない)。
-//                   ボス前 / 強制ワープ後 / カットシーン後等の使用を想定。
-// requires_unlock : true = UnlockCheckpoint で明示 unlock するまで ActivateCheckpoint
-//                   が false を返して no-op。隠し / DLC / 解放鍵連動を表現。
+/**
+ * 1 つのチェックポイントの定義。
+ *
+ * @details id は呼出側が保証する static lifetime の文字列リテラルを想定 (非所有)。
+ */
 struct CheckpointInfo {
+    /** 検索 / Save/Load / トリガ参照のキー。文字列リテラル想定 (非所有)。 */
     const char* id              = nullptr;
+
+    /** 復活時のプレイヤー世界座標。 */
     FVec2        spawn_pos       = FVec2::Zero();
+
+    /** 復活時にロードするレベル / シーンの index (caller 解釈、同一レベル内は同値)。 */
     u32         level_index     = 0;
+
+    /** レベル内での順序 (one_way 判定に使う)。小さいほど序盤、一意に振ることを推奨。 */
     u32         sort_order      = 0;
+
+    /** true なら Activate 後、より sort_order の小さい checkpoint への Activate を弾く (戻れない)。 */
     bool        one_way         = false;
+
+    /** true なら UnlockCheckpoint で明示 unlock するまで ActivateCheckpoint が no-op (隠し / DLC)。 */
     bool        requires_unlock = false;
 };
 
-// ---- ActivateCallback / RespawnCallback ------------------------------------
-// `void(*)(void* user, const char* checkpoint_id, acs::FVec2 spawn_pos) noexcept;`
-// Activate 成功時 / Respawn 引き出し時にそれぞれ 1 回呼ばれる。
-// user は SetOnXxxCallback で渡したコンテキスト (Manager は所有しない)。
-// checkpoint_id は登録時の id (リテラル) がそのまま渡る。
+/**
+ * Activate 成功時に呼ばれる callback の型。
+ *
+ * @param user SetOnActivateCallback で渡したコンテキスト (Manager は所有しない)。
+ * @param checkpoint_id active 化された checkpoint の id (登録時のリテラル)。
+ * @param spawn_pos その checkpoint の復活座標。
+ */
 using ActivateCallback = void(*)(void* user, const char* checkpoint_id, FVec2 spawn_pos) noexcept;
+
+/**
+ * TriggerRespawn 成功時に呼ばれる callback の型。
+ *
+ * @param user SetOnRespawnCallback で渡したコンテキスト (Manager は所有しない)。
+ * @param checkpoint_id 復活元 checkpoint の id (登録時のリテラル)。
+ * @param spawn_pos 復活座標。
+ */
 using RespawnCallback  = void(*)(void* user, const char* checkpoint_id, FVec2 spawn_pos) noexcept;
 
-// ---- FCheckpointSystem ------------------------------------------------------
+/**
+ * プラットフォーマー系の「死亡時に戻る復活ポイント」を管理する小型マネージャ。
+ *
+ * @details
+ * 配置済み checkpoint を string id で識別し、現在 active な 1 つだけを保持して
+ * TriggerRespawn() で復活先座標 + level index を引き出す。HP 状態は持たず
+ * 「どこに復活させるか」のみを管理する責務に絞る (FHealthSystem の DeathCallback
+ * から叩く想定)。one_way / requires_unlock のフラグを Activate 時に評価し、不正な
+ * 遷移は false 返却で弾く。文字列は const char* 非所有、I/O は持たない。
+ */
 class FCheckpointSystem {
 public:
+    /** 空の状態で構築する (checkpoint なし、active なし)。 */
     FCheckpointSystem()  noexcept = default;
+
+    /** 破棄する (非所有データのみ保持のため特別な後始末なし)。 */
     ~FCheckpointSystem() noexcept = default;
 
+    /** コピー禁止 (FGame / Scene 単位で 1 個保持する想定)。 */
     FCheckpointSystem(const FCheckpointSystem&)            = delete;
+
+    /** コピー代入も禁止。 */
     FCheckpointSystem& operator=(const FCheckpointSystem&) = delete;
+
+    /** ムーブ禁止。 */
     FCheckpointSystem(FCheckpointSystem&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FCheckpointSystem& operator=(FCheckpointSystem&&)      = delete;
 
-    // ---- 配置登録 / 解除 ------------------------------------------------
-    // 同 id の 2 重登録は invalid 返却 (黙って弾く)。info.id == nullptr も同様。
-    // 成功時は新しい CheckpointId を返す (24bit idx + 8bit gen)。
+    /**
+     * checkpoint を 1 件登録する。
+     *
+     * @details 同 id の 2 重登録、および info.id == nullptr は invalid 返却で黙って弾く。
+     * @param info 登録する checkpoint 定義 (内部 slot にコピーされる)。
+     * @return 新しい CheckpointId (24bit idx + 8bit gen)。失敗時は invalid。
+     */
     CheckpointId Register(const CheckpointInfo& info) noexcept;
 
-    // checkpoint を解除。slot は再利用 (generation 進む)。invalid id は no-op。
-    // 現 active checkpoint を解除した場合は active を invalid 化する
-    // (TriggerRespawn は false を返すようになる)。
+    /**
+     * checkpoint を解除する。
+     *
+     * @details
+     * slot は再利用され generation が進む。invalid id は no-op。現 active を解除した
+     * 場合は active を invalid 化する (以後 TriggerRespawn は false を返す)。
+     * @param id 解除する checkpoint の handle。
+     */
     void Unregister(CheckpointId id) noexcept;
 
-    // ---- Activate (現在地点として記録) ----------------------------------
-    // 指定 id を active 化。戻り値 true = 切替成功。
-    //   ・id == nullptr / 未登録: false
-    //   ・requires_unlock かつ unlocked リスト未登録: false
-    //   ・現 active の one_way が true で、対象の sort_order が現 active のより小さい: false
-    //   ・既に同 id が active: true (no-op だが成功扱い、callback は再発火しない)
+    /**
+     * 指定 id の checkpoint を active 化する (string 版)。
+     *
+     * @details
+     * 既に同 id が active な場合は no-op だが成功扱い (callback は再発火しない)。
+     * @param checkpoint_id active 化する checkpoint の id。
+     * @return 切替成功なら true。未登録 / nullptr、requires_unlock 未 unlock、
+     *         現 active が one_way かつ対象の sort_order がより小さい場合は false。
+     */
     bool ActivateCheckpoint(const char* checkpoint_id) noexcept;
 
-    // handle 経由の Activate。挙動は string 版と同じ。
+    /**
+     * handle 経由で checkpoint を active 化する。
+     *
+     * @details 挙動は string 版と同じ。
+     * @param id active 化する checkpoint の handle。
+     * @return 切替成功なら true (条件は string 版と同じ)。
+     */
     bool ActivateCheckpoint(CheckpointId id) noexcept;
 
-    // ---- Unlock (隠し / DLC ones) --------------------------------------
-    // requires_unlock な checkpoint を unlock する。
-    // 既に unlocked / 未登録 / requires_unlock=false な id でも黙って受け付ける
-    // (Save 復元で「unlock しただけ残しておきたい」要件があるため厳格化しない)。
-    // id == nullptr は no-op。
+    /**
+     * requires_unlock な checkpoint を unlock する。
+     *
+     * @details
+     * 既に unlocked / 未登録 / requires_unlock=false な id でも黙って受け付ける
+     * (Save 復元が Register より先に来てもよい設計)。id == nullptr は no-op。
+     * @param checkpoint_id unlock する checkpoint の id。
+     */
     void UnlockCheckpoint(const char* checkpoint_id) noexcept;
 
-    // 指定 id が unlocked リストに入っているか。requires_unlock=false な定義の
-    // 場合は常に true を返す (= unlock 不要 = 常時 available)。
-    // id == nullptr / 未登録 id は false。
+    /**
+     * 指定 id が unlock 済みかを返す。
+     *
+     * @details requires_unlock=false な定義は常に true を返す (= unlock 不要 = 常時 available)。
+     * @param checkpoint_id 照会する checkpoint の id。
+     * @return unlock 済み (または unlock 不要) なら true。nullptr / 未登録 id は false。
+     */
     bool IsUnlocked(const char* checkpoint_id) const noexcept;
 
-    // ---- 現在 active な checkpoint の照会 -------------------------------
-    // 現 active CheckpointId。一度も Activate されていない / 解除された場合 invalid。
+    /**
+     * 現在 active な checkpoint の handle を返す。
+     *
+     * @return 現 active な CheckpointId (一度も Activate されていない / 解除済みなら invalid)。
+     */
     CheckpointId CurrentCheckpoint() const noexcept;
 
-    // 死亡時の復活先座標。active 無しなら FVec2::Zero() を返す
-    // (= caller は TriggerRespawn / CurrentCheckpoint.IsValid() で先に判定すべし)。
+    /**
+     * 現在の復活先座標を返す。
+     *
+     * @return active な checkpoint の spawn_pos (active 無しなら FVec2::Zero())。
+     */
     FVec2 CurrentSpawnPos() const noexcept;
 
-    // 直近に active 化された checkpoint の level_index。一度も Activate されて
-    // いない場合は 0 を返す (caller は CurrentCheckpoint() で先に判定すべし)。
+    /**
+     * 直近に active 化された checkpoint の level_index を返す。
+     *
+     * @details レベルロード中に out_param が消えるエッジで使う。
+     * @return 直近の level_index (一度も Activate されていなければ 0)。
+     */
     u32 LastSpawnLevelIndex() const noexcept;
 
-    // ---- 死亡時呼ぶ復活先取得 ------------------------------------------
-    // 戻り値 true = active checkpoint あり、out_pos / out_level_index を書き出す。
-    // false = active 無し (caller は「タイトル戻り」or「レベル先頭」を選ぶ)。
-    // 設定された RespawnCallback は true 時のみ発火する。
+    /**
+     * 死亡時に呼んで復活先を取得する。
+     *
+     * @details active checkpoint がある場合のみ RespawnCallback が発火する。
+     * @param out_pos 復活座標の書き出し先。
+     * @param out_level_index 復活先 level_index の書き出し先。
+     * @return active checkpoint があり書き出した場合 true、active 無しなら false。
+     */
     bool TriggerRespawn(FVec2& out_pos, u32& out_level_index) const noexcept;
 
-    // ---- 件数照会 -------------------------------------------------------
-    u32 CheckpointCount() const noexcept;  // 登録総数 (active な slot のみ)
-    u32 UnlockedCount()   const noexcept;  // unlocked リストの長さ
+    /**
+     * 登録済 checkpoint の総数を返す。
+     *
+     * @return active な slot の数。
+     */
+    u32 CheckpointCount() const noexcept;
 
-    // ---- 単一情報照会 --------------------------------------------------
-    // 見つからなければ nullptr。返却ポインタは Register / Unregister / ClearAll
-    // で無効化される可能性がある。
+    /**
+     * unlocked リストの長さを返す。
+     *
+     * @return unlock 済み id の数。
+     */
+    u32 UnlockedCount()   const noexcept;
+
+    /**
+     * 指定 id の checkpoint 定義へのポインタを返す。
+     *
+     * @details 返却ポインタは Register / Unregister / ClearAll で無効化されうる。
+     * @param checkpoint_id 探す checkpoint の id。
+     * @return 見つかった定義へのポインタ (見つからなければ nullptr)。
+     */
     const CheckpointInfo* FindCheckpoint(const char* checkpoint_id) const noexcept;
 
-    // ---- 全 checkpoint の生バッファ ------------------------------------
-    // out_count に「有効な checkpoint 数」 (= 連続して並ぶ要素数) を書き出して
-    // 返す。返却バッファは内部 m_Scratch 配列を再利用するため、次の AllCheckpoints
-    // / Register / Unregister / ClearAll で無効化される。
-    // (内部の Slot 配列は穴あきだが、本 API は穴を詰めて返す)
+    /**
+     * 有効な checkpoint を穴詰めした生バッファを返す。
+     *
+     * @details
+     * 内部 Slot 配列は穴あきだが、本 API は穴を詰めて連続バッファとして返す。
+     * 返却バッファは内部 m_Scratch を再利用するため、次の AllCheckpoints / Register
+     * / Unregister / ClearAll で無効化される。
+     * @param out_count 有効な checkpoint 数の書き出し先。
+     * @return 先頭要素へのポインタ (0 件なら out_count=0)。
+     */
     const CheckpointInfo* AllCheckpoints(u32& out_count) const noexcept;
 
-    // ---- FCallback ------------------------------------------------------
-    // Activate 成功時 callback。cb == nullptr で解除。
-    // 既に active な checkpoint を Activate しても再発火はしない (no-op 成功)。
+    /**
+     * Activate 成功時 callback を設定する。
+     *
+     * @details 既に active な checkpoint を Activate しても再発火しない (no-op 成功)。
+     * @param cb 設定する callback (nullptr で解除)。
+     * @param user callback に渡すコンテキスト。
+     */
     void SetOnActivateCallback(ActivateCallback cb, void* user) noexcept;
 
-    // TriggerRespawn 成功時 callback。cb == nullptr で解除。
+    /**
+     * TriggerRespawn 成功時 callback を設定する。
+     *
+     * @param cb 設定する callback (nullptr で解除)。
+     * @param user callback に渡すコンテキスト。
+     */
     void SetOnRespawnCallback(RespawnCallback cb, void* user) noexcept;
 
-    // ---- 一括破棄 ------------------------------------------------------
-    // 全 checkpoint / unlocked リスト / active 状態を消去。callback 設定は維持。
+    /**
+     * 全 checkpoint / unlocked リスト / active 状態を消去する。
+     *
+     * @details callback 設定は維持する。
+     */
     void ClearAll() noexcept;
 
 private:
+    /** 1 checkpoint slot (定義 + active フラグ + generation)。 */
     struct Slot {
+        /** checkpoint 定義。 */
         CheckpointInfo info{};
+
+        /** この slot が使用中かどうか。 */
         bool           active = false;
+
+        /** 再利用検出用 generation。 */
         u8             gen    = 0;
     };
 
-    // 未使用 slot を 1 つ確保し index を返す。index 0 は予約 (= invalid)。
+    /**
+     * 未使用 slot を 1 つ確保して index を返す。
+     *
+     * @details index 0 は invalid 予約 (dummy)。空きがなければ末尾に追加する。
+     * @return 確保した slot の index (1 以上)。
+     */
     u32 AcquireSlot() noexcept;
 
-    // id 文字列で m_Slots を線形検索。未検出は -1。id == nullptr も -1。
-    // 戻り値は m_Slots への index (active && id 一致を満たす最初の要素)。
+    /**
+     * id 文字列で m_Slots を線形検索する。
+     *
+     * @param id 探す checkpoint の id。
+     * @return active かつ id 一致の最初の slot index (未検出 / nullptr は -1)。
+     */
     isize FindIndexById(const char* id) const noexcept;
 
-    // unlocked リストで線形検索。未検出は -1。
+    /**
+     * unlocked リストを線形検索する。
+     *
+     * @param id 探す checkpoint の id。
+     * @return 一致する要素の index (未検出は -1)。
+     */
     isize FindUnlockedIndex(const char* id) const noexcept;
 
-    // 内部アクセサ: id が有効なら slot 参照を返し、無効なら nullptr。
+    /**
+     * handle から slot 参照を取得する。
+     *
+     * @param id 解決する handle。
+     * @return 有効なら slot へのポインタ (無効 / generation 不一致なら nullptr)。
+     */
     Slot*       FindSlot(CheckpointId id) noexcept;
+
+    /**
+     * handle から const slot 参照を取得する。
+     *
+     * @param id 解決する handle。
+     * @return 有効なら slot への const ポインタ (無効 / generation 不一致なら nullptr)。
+     */
     const Slot* FindSlot(CheckpointId id) const noexcept;
 
-    // Activate 共通ロジック (id / handle 版が両方ここを通る)。
+    /**
+     * Activate の共通ロジック (id / handle 版が両方ここを通る)。
+     *
+     * @details requires_unlock と現 active の one_way を評価し、不正遷移を弾く。
+     * @param slot_index active 化対象の slot index (呼出側で active と確認済み)。
+     * @return active 化成功なら true、拒否されたら false。
+     */
     bool ActivateInternal(u32 slot_index) noexcept;
 
+    /** checkpoint slot 配列 (index 0 は dummy)。 */
     TArray<Slot>          m_Slots;
-    TArray<const char*>   m_Unlocked;       // unlock された checkpoint id (非所有)
 
-    // 現在 active な checkpoint の handle。invalid = 一度も Activate されていない。
+    /** unlock された checkpoint id (非所有)。 */
+    TArray<const char*>   m_Unlocked;
+
+    /** 現在 active な checkpoint の handle (invalid = 一度も Activate されていない)。 */
     CheckpointId         m_Current;
 
-    // 直近に active 化された level_index と spawn_pos。Unregister で active slot
-    // が消えても直近値として残しておく (デバッグ表示用)。
+    /** 直近に active 化された level_index (active slot が消えても履歴として残す)。 */
     u32                  m_LastLevelIndex = 0;
+
+    /** 直近に active 化された spawn_pos (active slot が消えても履歴として残す)。 */
     FVec2                 m_LastSpawnPos   = FVec2::Zero();
 
-    // active な checkpoint 数 (= active=true な m_Slots の個数)。
+    /** active な checkpoint 数 (= active=true な m_Slots の個数)。 */
     u32                  m_CheckpointCount = 0;
 
-    // AllCheckpoints が穴を詰めて返すための一時バッファ (mutable で const 関数から触る)。
+    /** AllCheckpoints が穴を詰めて返すための一時バッファ (const 関数から触るため mutable)。 */
     mutable TArray<CheckpointInfo> m_Scratch;
 
+    /** Activate 成功時 callback (nullptr で未設定)。 */
     ActivateCallback     m_OnActivate      = nullptr;
+
+    /** Activate callback に渡すコンテキスト。 */
     void*                m_OnActivateUser = nullptr;
+
+    /** TriggerRespawn 成功時 callback (nullptr で未設定)。 */
     RespawnCallback      m_OnRespawn       = nullptr;
+
+    /** Respawn callback に渡すコンテキスト。 */
     void*                m_OnRespawnUser  = nullptr;
 };
 

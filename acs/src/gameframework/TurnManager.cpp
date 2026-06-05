@@ -20,10 +20,7 @@
 
 namespace acs::game {
 
-// ----------------------------------------------------------------------------
-// helpers
-// ----------------------------------------------------------------------------
-
+/** side 名が "Env" 接頭辞を持つ環境側かどうかを判定する。 */
 bool FTurnManager::IsEnvironmentName(const char* name) noexcept {
     if (name == nullptr) return false;
     // strncmp 相当を手書き (STL 禁止 / <cstring> も避け、依存最小化)
@@ -33,12 +30,14 @@ bool FTurnManager::IsEnvironmentName(const char* name) noexcept {
     return true;
 }
 
+/** side の属性からターン phase (Player / Environment / Enemy) を分類する。 */
 ETurnPhase FTurnManager::ClassifyPhase(const SideSlot& s) noexcept {
     if (s.view.is_player_controlled) return ETurnPhase::PlayerTurn;
     if (IsEnvironmentName(s.view.display_name)) return ETurnPhase::EnvironmentTurn;
     return ETurnPhase::EnemyTurn;
 }
 
+/** 空き slot index を確保する (inactive を再利用、無ければ末尾追加)。 */
 u32 FTurnManager::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用
     const usize n = m_Slots.Size();
@@ -55,6 +54,7 @@ u32 FTurnManager::AcquireSlot() noexcept {
     return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
+/** handle を生存中の slot へ解決する (stale なら nullptr)。 */
 FTurnManager::SideSlot* FTurnManager::Resolve(FTurnSideId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
@@ -64,6 +64,7 @@ FTurnManager::SideSlot* FTurnManager::Resolve(FTurnSideId id) noexcept {
     return &s;
 }
 
+/** handle を生存中の slot へ解決する const 版 (stale なら nullptr)。 */
 const FTurnManager::SideSlot* FTurnManager::Resolve(FTurnSideId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
@@ -73,10 +74,7 @@ const FTurnManager::SideSlot* FTurnManager::Resolve(FTurnSideId id) const noexce
     return &s;
 }
 
-// ----------------------------------------------------------------------------
-// init / clear
-// ----------------------------------------------------------------------------
-
+/** 全 slot を inactive 化し、ラウンド状態を Setup にリセットする (callback は保持)。 */
 void FTurnManager::Init() noexcept {
     // 全 slot を inactive 化 (gen は維持 = 次 Acquire で +1 される)
     const usize n = m_Slots.Size();
@@ -99,6 +97,7 @@ void FTurnManager::Init() noexcept {
     // callback は保持 (Init は再 enter 用)。
 }
 
+/** Init に加えて登録済みコールバックも全てクリアする。 */
 void FTurnManager::ClearAll() noexcept {
     Init();
     m_OnTurnStart      = nullptr;
@@ -107,10 +106,7 @@ void FTurnManager::ClearAll() noexcept {
     m_OnRoundEndUser  = nullptr;
 }
 
-// ----------------------------------------------------------------------------
-// side 登録 / 解除
-// ----------------------------------------------------------------------------
-
+/** side を登録し、generation 付き handle を返す。 */
 FTurnSideId FTurnManager::AddSide(const char* display_name, u32 max_ap, u32 initiative,
                                 bool is_player_controlled) noexcept {
     if (display_name == nullptr) return {};
@@ -141,6 +137,7 @@ FTurnSideId FTurnManager::AddSide(const char* display_name, u32 max_ap, u32 init
     return FTurnSideId::Pack(idx, new_gen);
 }
 
+/** side を解除し、必要なら current ターン / turn order を追従調整する。 */
 void FTurnManager::RemoveSide(FTurnSideId id) noexcept {
     SideSlot* s = Resolve(id);
     if (s == nullptr) return;
@@ -232,10 +229,7 @@ void FTurnManager::RemoveSide(FTurnSideId id) noexcept {
     }
 }
 
-// ----------------------------------------------------------------------------
-// turn order 構築
-// ----------------------------------------------------------------------------
-
+/** active side を initiative 降順 (同値は AddSide 順) で turn order に並べ直す。 */
 void FTurnManager::RebuildTurnOrder() noexcept {
     m_TurnOrder.Clear();
     const usize n = m_Slots.Size();
@@ -270,6 +264,7 @@ void FTurnManager::RebuildTurnOrder() noexcept {
     }
 }
 
+/** start_from 以降で最初の未行動 active side を探し m_CurrentOrderIndex に設定する。 */
 void FTurnManager::AdvanceToNextActor(u32 start_from) noexcept {
     const u32 order_n = static_cast<u32>(m_TurnOrder.Size());
     for (u32 i = start_from; i < order_n; ++i) {
@@ -284,10 +279,7 @@ void FTurnManager::AdvanceToNextActor(u32 start_from) noexcept {
     m_CurrentOrderIndex = kInvalidOrderIndex;
 }
 
-// ----------------------------------------------------------------------------
-// ラウンド進行
-// ----------------------------------------------------------------------------
-
+/** 全 side の AP を refill して turn order を再構築し、先頭 side のターンを開始する。 */
 void FTurnManager::StartRound() noexcept {
     if (m_ActiveCount == 0u) {
         // side 未登録 → no-op (phase は Setup のまま)
@@ -327,6 +319,7 @@ void FTurnManager::StartRound() noexcept {
     }
 }
 
+/** 現 side を行動済にし、次 actor へ進む (全員完了なら EndOfRound→次ラウンド連鎖)。 */
 void FTurnManager::EndCurrentTurn() noexcept {
     // Setup / EndOfRound 中の呼び出しは no-op
     if (m_Phase == ETurnPhase::Setup || m_Phase == ETurnPhase::EndOfRound) return;
@@ -375,10 +368,7 @@ void FTurnManager::EndCurrentTurn() noexcept {
     StartRound();
 }
 
-// ----------------------------------------------------------------------------
-// AP 消費
-// ----------------------------------------------------------------------------
-
+/** 現 side の AP を amount だけ消費する (不足や非進行中なら false)。 */
 bool FTurnManager::TryConsumeAP(u32 amount) noexcept {
     if (amount == 0u) return false;
     if (m_Phase == ETurnPhase::Setup || m_Phase == ETurnPhase::EndOfRound) return false;
@@ -396,10 +386,7 @@ bool FTurnManager::TryConsumeAP(u32 amount) noexcept {
     return true;
 }
 
-// ----------------------------------------------------------------------------
-// 問い合わせ
-// ----------------------------------------------------------------------------
-
+/** 現在ターン中の side の handle を返す (非進行中なら invalid)。 */
 FTurnSideId FTurnManager::CurrentTurnSide() const noexcept {
     if (m_Phase == ETurnPhase::Setup || m_Phase == ETurnPhase::EndOfRound) return {};
     if (m_CurrentOrderIndex == kInvalidOrderIndex) return {};
@@ -414,6 +401,7 @@ FTurnSideId FTurnManager::CurrentTurnSide() const noexcept {
     return FTurnSideId::Pack(slot_idx, s.gen);
 }
 
+/** handle から side の公開状態 (FTurnSideState) を取得する (stale なら nullptr)。 */
 const FTurnSideState* FTurnManager::GetSideState(FTurnSideId id) const noexcept {
     const SideSlot* s = Resolve(id);
     if (s == nullptr) return nullptr;
@@ -421,6 +409,7 @@ const FTurnSideState* FTurnManager::GetSideState(FTurnSideId id) const noexcept 
     return &s->view;
 }
 
+/** 今ラウンドでまだ行動していない active side の数を返す。 */
 u32 FTurnManager::TurnsRemainingThisRound() const noexcept {
     if (m_Phase == ETurnPhase::Setup || m_Phase == ETurnPhase::EndOfRound) return 0u;
 

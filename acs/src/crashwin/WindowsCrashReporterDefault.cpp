@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
 // WindowsCrashReporterDefault — FWindowsCrashReporter を gameframework の既定
-// CrashReporter provider へ結線する
-// -----------------------------------------------------------------------------
+// CrashReporter provider へ結線する。
+//
 // gameframework は ACS::CrashWin に依存できない (循環依存) ため、結線は backend
 // 側 (本 TU) から `acs::game::SetCrashReporterProvider()` を呼んで行う。アプリは
 // 起動時に一度 `acs::crashwin::InstallWindowsCrashReporterAsDefault()` を呼ぶだけ
@@ -13,11 +12,11 @@
 // 回走らせ、すぐ使える状態で返す。FWindowsCrashReporter::Init() は product id /
 // version の non-empty を要求するため、ここでは ACS 既定のプレースホルダを渡す。
 // タイトル側はこの後 backend の API を直接叩く際に SetUserId 等で文脈を補える。
-// =============================================================================
 #include "crashwin/WindowsCrashReporter.h"
 
 namespace acs::crashwin {
 
+/** プロセス共有の既定 FWindowsCrashReporter singleton を返す (provider の実体)。 */
 acs::game::ICrashReporterBackend& GetDefaultWindowsCrashReporter() noexcept {
     // Meyers singleton。プロセス内 1 個の Windows backend を既定として共有する。
     static FWindowsCrashReporter s_backend;
@@ -33,6 +32,7 @@ acs::game::ICrashReporterBackend& GetDefaultWindowsCrashReporter() noexcept {
     return s_backend;
 }
 
+/** gameframework の CrashReporter provider に本 backend を登録する。 */
 void InstallWindowsCrashReporterAsDefault() noexcept {
     acs::game::SetCrashReporterProvider(&GetDefaultWindowsCrashReporter);
 }

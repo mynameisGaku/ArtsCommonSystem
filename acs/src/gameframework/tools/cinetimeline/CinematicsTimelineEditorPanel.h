@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — cinetimeline / FCinematicsTimelineEditorPanel (Phase 23)
+// GameFramework Pillar — cinetimeline / FCinematicsTimelineEditorPanel
 //
 // `acs::game::FCinematicsDirector` (= タイムライン上の cutscene 駆動器) を
 // **対話的に編集する timeline editor panel**。Unity Timeline / Unreal Sequencer /
 // Godot FAnimationPlayer の「水平タイムライン + 複数トラック + キーフレーム
-// マーカー + 再生制御」の最小版に相当。Phase 21a で確立された
+// マーカー + 再生制御」の最小版に相当。
 // `editor_core::FEditorPanel` 基底に載せ、`FEditorWorkspace::RegisterPanel(&panel)`
 // の 1 行で workspace に統合できる形にしている。
 //
@@ -35,7 +35,7 @@
 //     対応する FTimelineKeyframe を AddKeyframe する設計 (= editor data →
 //     runtime data の「ベイク」)。
 //   ・実 file save/load は本 panel 範囲外 (= sample 37 menu で stub menu、本物は
-//     別 phase で .acscinetimeline serializer を追加した時点で配線)。
+//     .acscinetimeline serializer を追加した時点で配線)。
 //
 // 使い方 (典型):
 //   FCinematicsTimelineEditorPanel panel;
@@ -57,9 +57,8 @@
 //   workspace.UnregisterPanel(&panel);
 //   panel.Shutdown();
 //
-// 設計選択 (Phase 23 CinematicsTimelineEditor):
-//   ・**FEditorPanel 継承**: Phase 21a 共通基盤の dogfood (sample 31 ModelViewer /
-//     sample 32 AnimCurveEditor / sample 34 LevelEditor 等に続く)。
+// 設計選択:
+//   ・**FEditorPanel 継承**: editor_core 共通基盤の上に載せる。
 //     Title = "Cinematics Timeline"、DrawUI override。
 //   ・**5 種類の ETimelineKeyKind**: CameraCut / FadeColor / TimeScale /
 //     SpawnEffect / TriggerCallback。FCinematicsDirector::ETimelineTrackKind
@@ -95,11 +94,11 @@
 //   ・**ImGui ヘッダは .cpp 限定**: 他 panel (FAnimCurveEditorPanel /
 //     FParticleEditorPanel) と同形。
 //
-// 範囲外 (Phase 23 では持たない、将来追加候補):
-//   ・実 file save/load (= sample 37 menu で stub、別 phase で
+// 範囲外:
+//   ・実 file save/load (= sample 37 menu で stub、
 //     .acscinetimeline serializer を作って配線)
 //   ・複数 director の同時編集
-//   ・undo / redo 統合 (= Phase 21b FUndoStack 経由、将来 OnUndo / OnRedo hook)
+//   ・undo / redo 統合 (= FUndoStack 経由、OnUndo / OnRedo hook)
 //   ・keyframe の補間 / curve 編集 (= AnimCurveEditor と統合した時点で検討)
 //   ・track の add/remove (= 現状 5 種固定)
 //   ・marker 複数選択 + 一括 drag
@@ -126,192 +125,301 @@ class FCinematicsDirector;
 
 namespace acs::game::cinetimeline {
 
-// ---------------------------------------------------------------------------
-// ETimelineKeyKind — 編集 UI 上で扱う 5 種の演出概念
-// ---------------------------------------------------------------------------
-// FCinematicsDirector::ETimelineTrackKind (runtime 側 5 種) とは概念を意図的に
-// 分離し、オーサリング側で典型的に並べたい要素を素直に表現する。
-//   CameraCut       : カメラ位置を瞬時に切り替え (target FVec3)
-//   FadeColor       : 画面全体を start_color → end_color にフェード
-//   TimeScale       : ゲーム時間スケールを倍率指定 (1.0 = 等倍、0.5 = スロー)
-//   SpawnEffect     : エフェクト発火 (effect_id + position)
-//   TriggerCallback : 汎用 callback 発火 (event_id をユーザ定義で解釈)
+/**
+ * 編集 UI 上で扱う 5 種の演出概念。
+ *
+ * @details
+ * FCinematicsDirector::ETimelineTrackKind (runtime 側 5 種) とは概念を意図的に
+ * 分離し、オーサリング側で典型的に並べたい要素を素直に表現する。Play 時に
+ * ToTrackKind() で runtime kind へマッピングしたうえで director に bake する。
+ */
 enum class ETimelineKeyKind : u8 {
+    /** カメラ位置を瞬時に切り替える (target FVec3 を使う)。 */
     CameraCut       = 0,
+
+    /** 画面全体を start_color から end_color へフェードする。 */
     FadeColor       = 1,
+
+    /** ゲーム時間スケールを倍率指定する (1.0 = 等倍、0.5 = スロー)。 */
     TimeScale       = 2,
+
+    /** エフェクトを発火する (effect_id + position を使う)。 */
     SpawnEffect     = 3,
+
+    /** 汎用 callback を発火する (event_id をユーザ定義で解釈)。 */
     TriggerCallback = 4,
 };
 
-// ---------------------------------------------------------------------------
-// EditorKeyframe — panel 内部で保持する keyframe (リッチ payload 付き)
-// ---------------------------------------------------------------------------
-// FCinematicsDirector::FTimelineKeyframe より広い payload を持つ。Play 時に
-// director に AddKeyframe する際は「kind に応じた FTimelineKeyframe」へ変換する。
+/**
+ * panel 内部で保持する keyframe (リッチ payload 付き)。
+ *
+ * @details
+ * FCinematicsDirector::FTimelineKeyframe より広い payload を持つ。Play 時に
+ * director へ AddKeyframe する際は kind に応じた FTimelineKeyframe へ変換する。
+ * payload フィールドは active な kind に対応するものだけが意味を持つ
+ * (CameraCut=camera_target、FadeColor=fade_start_color/fade_end_color、
+ * TimeScale=time_scale、SpawnEffect=event_id+camera_target、
+ * TriggerCallback=event_id)。
+ */
 struct EditorKeyframe {
-    f32              time_sec = 0.0f;                            // タイムライン上の発火時刻 [秒]
+    /** タイムライン上の発火時刻 [秒]。 */
+    f32              time_sec = 0.0f;
+
+    /** この keyframe の演出種別。 */
     ETimelineKeyKind kind     = ETimelineKeyKind::TriggerCallback;
 
-    // ---- kind 別 payload (active な kind に対応するフィールドのみ意味を持つ) ----
-    // CameraCut       : camera_target を使う
-    // FadeColor       : fade_start_color / fade_end_color を使う
-    // TimeScale       : time_scale を使う
-    // SpawnEffect     : effect_id (event_id), spawn_position (camera_target を兼用) を使う
-    // TriggerCallback : event_id を使う
-    FVec3 camera_target  { 0.0f, 0.0f, 0.0f };   // CameraCut / SpawnEffect で使用
-    FVec3 fade_start_color { 0.0f, 0.0f, 0.0f }; // FadeColor で使用 (r,g,b in [0,1])
-    FVec3 fade_end_color   { 1.0f, 1.0f, 1.0f }; // FadeColor で使用 (r,g,b in [0,1])
-    f32  time_scale       { 1.0f };             // TimeScale で使用
-    u32  event_id         { 0u };               // SpawnEffect / TriggerCallback で使用
+    /** CameraCut のカメラ移動先 / SpawnEffect の発生位置。 */
+    FVec3 camera_target  { 0.0f, 0.0f, 0.0f };
 
+    /** FadeColor のフェード開始色 (r,g,b in [0,1])。 */
+    FVec3 fade_start_color { 0.0f, 0.0f, 0.0f };
+
+    /** FadeColor のフェード終了色 (r,g,b in [0,1])。 */
+    FVec3 fade_end_color   { 1.0f, 1.0f, 1.0f };
+
+    /** TimeScale の時間スケール倍率。 */
+    f32  time_scale       { 1.0f };
+
+    /** SpawnEffect の effect_id / TriggerCallback の event_id。 */
+    u32  event_id         { 0u };
+
+    /** 既定値で keyframe を構築する。 */
     EditorKeyframe() noexcept = default;
 };
 
-// ---------------------------------------------------------------------------
-// FCinematicsTimelineEditorPanel — timeline 編集 UI panel
-// ---------------------------------------------------------------------------
+/**
+ * FCinematicsDirector を対話的に編集する timeline editor panel。
+ *
+ * @details
+ * 水平タイムライン + 5 種のトラック + キーフレームマーカー + 再生制御を持つ
+ * 最小の cutscene エディタ。FEditorPanel を継承し、editor 専用のリッチな
+ * keyframe storage (EditorKeyframe の TArray) を panel 側で所有する。Play 時に
+ * 各 keyframe を runtime 用 FTimelineKeyframe へ bake して director に流し込む。
+ * 編集対象の FCinematicsDirector は raw 参照で受け取り、寿命は caller 責任。
+ */
 class FCinematicsTimelineEditorPanel : public acs::game::editor_core::FEditorPanel {
 public:
+    /** 空状態で構築する (内部 state は Init で初期化)。 */
     FCinematicsTimelineEditorPanel() noexcept = default;
+
+    /** 派生破棄に備えた仮想デストラクタ (リソースは非所有)。 */
     ~FCinematicsTimelineEditorPanel() noexcept override = default;
 
-    // 非コピー / 非ムーブ: 基底 FEditorPanel と同規約 + 内部の keyframe 配列 /
-    // selection / director 参照を曖昧にしない (ACS 規約)。
+    /** コピー禁止 (keyframe 配列・selection・director 参照を単独所有するため)。 */
     FCinematicsTimelineEditorPanel(const FCinematicsTimelineEditorPanel&)            = delete;
+
+    /** コピー代入も禁止。 */
     FCinematicsTimelineEditorPanel& operator=(const FCinematicsTimelineEditorPanel&) = delete;
+
+    /** ムーブ禁止 (基底 FEditorPanel と同規約)。 */
     FCinematicsTimelineEditorPanel(FCinematicsTimelineEditorPanel&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FCinematicsTimelineEditorPanel& operator=(FCinematicsTimelineEditorPanel&&)      = delete;
 
-    // ----- 初期化 / 解放 ---------------------------------------------------
-
-    // 内部 state をデフォルトに、director 参照を nullptr、selection を未選択、
-    // duration を default (10s)、keyframes を空に。多重 Init 可 (= 完全リセット)。
+    /**
+     * 内部 state を既定にリセットする (多重呼び出し可 = 完全リセット)。
+     *
+     * @details
+     * director 参照を nullptr、selection を未選択、duration を default (10s)、
+     * keyframes を空に戻す。
+     */
     void Init() noexcept;
 
-    // 内部 state を全解放 (= director 参照 / selection / keyframes を解除)。
-    // director 自体は caller 所有なので本 panel が破棄しない。多重 Shutdown 可。
+    /**
+     * 内部 state を全解放する (多重呼び出し可)。
+     *
+     * @details
+     * director 参照 / selection / keyframes を解除する。director 自体は caller
+     * 所有なので本 panel は破棄しない。
+     */
     void Shutdown() noexcept;
 
-    // ----- director バインド ----------------------------------------------
-
-    // 編集対象の FCinematicsDirector を raw 参照でセット (nullptr で解除)。
-    // 寿命は caller 責任 (本 panel は director を所有しない)。
-    // セット直後は selection をリセット、m_CurrentTime も 0 に戻す。
+    /**
+     * 編集対象の FCinematicsDirector を raw 参照でセットする。
+     *
+     * @details
+     * 寿命は caller 責任 (本 panel は director を所有しない)。セット直後に
+     * selection をリセット、m_CurrentTime を 0 に戻し、editor の現状を即時 bake する。
+     * @param dir 編集対象の director (nullptr で解除)。
+     */
     void SetCinematicsDirector(acs::game::FCinematicsDirector* dir) noexcept;
 
-    // 現在編集対象の FCinematicsDirector (未バインド時は nullptr)。
+    /**
+     * 現在編集対象の FCinematicsDirector を返す。
+     *
+     * @return バインド中の director (未バインド時は nullptr)。
+     */
     acs::game::FCinematicsDirector* CurrentDirector() const noexcept;
 
-    // ----- 再生制御 --------------------------------------------------------
-
-    // タイムカーソルを現在位置から再生開始。director がバインドされていれば
-    // director の全 keyframe を一旦 Clear → editor の現状で再 bake → Play する
-    // (= editor で編集した内容を runtime に反映してから再生開始)。
+    /**
+     * 頭から再生を開始する。
+     *
+     * @details
+     * editor の現状を director に bake してから、director を Stop → Play して
+     * 先頭から再生する (途中位置開始 API が無いため m_CurrentTime も 0 に戻す)。
+     */
     void Play() noexcept;
 
-    // 再生一時停止 (`m_Playing = false`、`m_CurrentTime` 保持)。
+    /** 再生を一時停止する (m_CurrentTime は保持、director も Pause する)。 */
     void Pause() noexcept;
 
-    // 完全停止 (`m_Playing = false`、`m_CurrentTime = 0`、director.Stop も呼ぶ)。
+    /** 再生を完全停止する (m_CurrentTime を 0 に戻し、director も Stop する)。 */
     void Stop() noexcept;
 
-    // dt 秒進める。`m_Playing == true` なら director.Tick(dt) も呼んで keyframe を
-    // 発火させ、`m_CurrentTime` を director.CurrentTime() と同期する。
-    // `m_Playing == false` (= scrub 中) なら panel-local clock だけ進める用途には
-    // 使わない (= scrub は slider 直接編集で行う、Step は再生中専用)。
+    /**
+     * 再生中のみ時間を dt 秒進める。
+     *
+     * @details
+     * m_Playing == true のときだけ動作する (scrub は slider 直接編集で行う)。
+     * director があれば Tick(dt) して m_CurrentTime を director.CurrentTime() と
+     * 同期し、無ければ m_CurrentTime に dt を加算する。duration に達したら再生終了。
+     * @param dt 進める秒 (0 以下なら no-op)。
+     */
     void Step(f32 dt) noexcept;
 
+    /**
+     * 再生中かを返す。
+     *
+     * @return 再生中なら true。
+     */
     bool IsPlaying() const noexcept;
 
-    // ----- 時間軸アクセサ -------------------------------------------------
-
+    /**
+     * 現在のタイムカーソル位置を返す。
+     *
+     * @return 現在時刻 [秒]。
+     */
     f32  CurrentTimeSec() const noexcept;
-    void SetCurrentTimeSec(f32 t) noexcept;   // [0, Duration] にクランプ
 
+    /**
+     * タイムカーソル位置を設定する。
+     *
+     * @param t 設定する時刻 (内部で [0, Duration] にクランプ)。
+     */
+    void SetCurrentTimeSec(f32 t) noexcept;
+
+    /**
+     * タイムライン全体の長さを返す。
+     *
+     * @return Duration [秒]。
+     */
     f32  DurationSec() const noexcept;
-    void SetDurationSec(f32 d) noexcept;      // 最低 0.1s にクランプ
 
-    // ----- keyframe 操作 --------------------------------------------------
+    /**
+     * タイムライン全体の長さを設定する。
+     *
+     * @details
+     * kMinDurationSec を下回る値は丸める。Duration が縮んで範囲外に出た既存
+     * keyframe と m_CurrentTime は新 Duration にクランプする。
+     * @param d 設定する長さ [秒]。
+     */
+    void SetDurationSec(f32 d) noexcept;
 
-    // 現在選択中の keyframe index (= 内部 TArray の index)、未選択は kNoKeySelected。
+    /**
+     * 現在選択中の keyframe index を返す。
+     *
+     * @return 選択中 index (= 内部 TArray の index)。未選択は kNoKeySelected。
+     */
     i32  SelectedKeyframeIndex() const noexcept;
 
-    // selection を変更 (`-1 .. KeyframeCount-1` 範囲外なら kNoKeySelected に丸める)。
+    /**
+     * selection を変更する。
+     *
+     * @param i 選択する index (有効範囲外なら kNoKeySelected に丸める)。
+     */
     void SelectKeyframe(i32 i) noexcept;
 
-    // 新規 keyframe を kind + time_sec で追加。time_sec は [0, Duration] にクランプ。
-    // 追加後は新 keyframe を selection にする。
-    // 内部 keyframe 配列は time 昇順を維持する (= insertion 時に sort)。
+    /**
+     * 新規 keyframe を追加する。
+     *
+     * @details
+     * time_sec を [0, Duration] にクランプして time 昇順を保ったまま挿入し、
+     * 追加した keyframe を selection にする。挿入後 director に即時 bake する。
+     * @param kind 追加する keyframe の演出種別。
+     * @param time_sec 発火時刻 [秒]。
+     */
     void AddKeyframe(ETimelineKeyKind kind, f32 time_sec) noexcept;
 
-    // 選択中の keyframe を削除 (selection が無効なら no-op)。削除後は selection を
-    // 解除する。
+    /**
+     * 選択中の keyframe を削除する (selection が無効なら no-op)。
+     *
+     * @details 順序保存削除し、selection を解除したうえで director に即時 bake する。
+     */
     void RemoveSelectedKeyframe() noexcept;
 
-    // ----- FEditorPanel override -------------------------------------------
-
-    // window タイトル (ImGui::Begin の引数兼 ID)。固定リテラル。
+    /**
+     * window タイトルを返す (ImGui::Begin の引数兼 ID)。
+     *
+     * @return 固定リテラル "Cinematics Timeline"。
+     */
     const char* Title() const noexcept override { return "Cinematics Timeline"; }
 
-    // ImGui::Begin "Cinematics Timeline" + Toolbar + Timeline canvas + Inspector
-    // + Ruler を描画。
+    /** Toolbar + Timeline canvas + Inspector + Ruler を ImGui で描画する。 */
     void DrawUI() noexcept override;
 
-    // ----- 公開定数 --------------------------------------------------------
-
-    // 「未選択」を表す sentinel (i32 戻り値で使用)。FAnimCurveEditorPanel と同形。
+    /** 「未選択」を表す sentinel (i32 戻り値で使用)。 */
     static constexpr i32 kNoKeySelected = -1;
 
-    // タイムライン全 track の数 = ETimelineKeyKind の要素数。
+    /** タイムライン全 track の数 (= ETimelineKeyKind の要素数)。 */
     static constexpr u32 kTrackCount = 5u;
 
-    // 1 トラックの行高さ (px)。5 トラック分の縦サイズの基準。
+    /** 1 トラックの行高さ (px)。5 トラック分の縦サイズの基準。 */
     static constexpr f32 kTrackRowHeightPx = 28.0f;
 
-    // marker の幅 (px) と AABB hit-test 余裕。
+    /** marker の幅 (px)。 */
     static constexpr f32 kMarkerWidthPx     = 10.0f;
+
+    /** marker の AABB hit-test に加える余裕 (px)。 */
     static constexpr f32 kMarkerHitSlackPx  = 3.0f;
 
-    // Duration の最低値 (秒)。0 に近づくとタイム軸が破綻するため。
+    /** Duration の最低値 (秒)。0 に近づくとタイム軸が破綻するため。 */
     static constexpr f32 kMinDurationSec = 0.1f;
 
-    // Duration のデフォルト値 (秒)。
+    /** Duration のデフォルト値 (秒)。 */
     static constexpr f32 kDefaultDurationSec = 10.0f;
 
 private:
-    // 編集対象 FCinematicsDirector (caller 所有、本 panel は非所有)。
+    /** 編集対象 FCinematicsDirector (caller 所有、本 panel は非所有)。 */
     acs::game::FCinematicsDirector* m_Director = nullptr;
 
-    // panel 所有の keyframe 配列 (time 昇順、stable insertion で維持)。
+    /** panel 所有の keyframe 配列 (time 昇順、stable insertion で維持)。 */
     TArray<EditorKeyframe> m_Keyframes;
 
-    // 現在選択中の keyframe index。
+    /** 現在選択中の keyframe index。 */
     i32 m_SelectedIdx = kNoKeySelected;
 
-    // タイムライン上の現在時刻 [秒]。slider / Step / Stop で更新。
+    /** タイムライン上の現在時刻 [秒] (slider / Step / Stop で更新)。 */
     f32 m_CurrentTime = 0.0f;
 
-    // タイムライン全体の長さ [秒]。default 10s。
+    /** タイムライン全体の長さ [秒] (default 10s)。 */
     f32 m_Duration = kDefaultDurationSec;
 
-    // 再生中フラグ。Play で true、Pause / Stop で false。
+    /** 再生中フラグ (Play で true、Pause / Stop で false)。 */
     bool m_Playing = false;
 
-    // marker ドラッグ中フラグ + 対象 index。Step / 他処理に影響しない UI 専用 state。
+    /** marker ドラッグ中フラグ (UI 専用 state)。 */
     bool m_bDraggingMarker = false;
+
+    /** ドラッグ対象の keyframe index (未ドラッグ時は -1)。 */
     i32  m_DragIdx        = -1;
 
-    // 追加 combo のために現在選択している kind (Add ボタン押下時にこの kind で
-    // 新規 keyframe を m_CurrentTime に追加)。
+    /** Add combo で選択中の kind (+Add 押下時にこの kind で追加)。 */
     ETimelineKeyKind m_AddKind = ETimelineKeyKind::CameraCut;
 
-    // ヘルパ: keyframes を time 昇順を保ったまま `kf` を挿入する。
-    // 戻り値: 挿入された index (= sort 後の位置)。
+    /**
+     * time 昇順を保ったまま keyframe を挿入する。
+     *
+     * @param kf 挿入する keyframe。
+     * @return 挿入された index (= sort 後の位置)。
+     */
     i32 InsertKeyframeSorted(const EditorKeyframe& kf) noexcept;
 
-    // ヘルパ: editor の全 keyframe を director に bake (= Clear + AddKeyframe loop)。
-    // SetCinematicsDirector / Play のタイミングで呼ぶ。director が nullptr なら no-op。
+    /**
+     * editor の全 keyframe を director に bake する (= Clear + AddKeyframe loop)。
+     *
+     * @details SetCinematicsDirector / Play / 各編集操作で呼ぶ。director が nullptr なら no-op。
+     */
     void BakeToDirector() noexcept;
 };
 

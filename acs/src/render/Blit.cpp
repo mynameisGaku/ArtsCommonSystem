@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// フルスクリーン texture コピー実装 (Phase 35-3b)
+// フルスクリーン texture コピー実装
 #include "render/Blit.h"
 #include "foundation/Move.h"
 
@@ -7,9 +7,14 @@ namespace acs {
 
 namespace {
 
-// シンプルな fullscreen blit シェーダ。SV_VertexID で 3 頂点の fullscreen 三角形を
-// 生成し、source texture を素 sample して出力する。頂点バッファ無しで Draw(3) で
-// 描画できる (SSR / SSGI / FPostProcess と同じパターン)。
+/**
+ * fullscreen blit シェーダの HLSL ソース。
+ *
+ * @details
+ * SV_VertexID で 3 頂点の fullscreen 三角形を生成し、source texture を素 sample して
+ * 出力する。頂点バッファ無しで Draw(3) で描画できる (SSR / SSGI / FPostProcess と
+ * 同じパターン)。
+ */
 const char* kBlitHLSL = R"(
 Texture2D    src : register(t0);
 SamplerState src_sampler : register(s0);
@@ -32,6 +37,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
 } // namespace
 
+/** ブリット用 VS/PS をコンパイルし、rt_format に合わせた PSO を生成する。 */
 TResult<void> FBlit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -76,12 +82,14 @@ TResult<void> FBlit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     return Ok();
 }
 
+/** パイプラインとシェーダを解放する。 */
 void FBlit::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_Ps.Reset();
     m_Vs.Reset();
 }
 
+/** load 版の RT 開始でフルスクリーン三角形を描画し src を dst へ上書きコピーする。 */
 void FBlit::Copy(IRhiCommandList& cmd, IRhiTexture& src, IRhiTexture& dst) noexcept {
     if (!m_Pipeline) return;
     // 全 pixel が src で上書きされるので clear 不要 → load 版で開始する。

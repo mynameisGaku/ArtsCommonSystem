@@ -8,12 +8,29 @@ namespace acs {
 
 namespace {
 
-// ローカル TRS → 行列（row-major: scale → rotation → translation）
+/**
+ * ローカル TRS から行列を合成する (row-major: scale → rotation → translation)。
+ *
+ * @param t 平行移動。
+ * @param r 回転。
+ * @param s スケール。
+ * @return 合成したローカル変換行列。
+ */
 FMat4 ComposeTRS(FVec3 t, FQuat r, FVec3 s) noexcept {
     return FMat4::Scale(s) * ToMatrix(r) * FMat4::Translation(t);
 }
 
-// アニメーションチャネルから時刻 t における TRS を補間サンプリング
+/**
+ * アニメーションチャネルから時刻 t の TRS を補間サンプリングする。
+ *
+ * @details キーが空なら単位 TRS、端の外なら端のキー値、それ以外は隣接 2 キーを
+ * 線形補間 (回転は slerp) する。キー探索は線形 (チャネルあたりのキー数が少ない前提)。
+ * @param ch サンプリングするアニメーションチャネル。
+ * @param t サンプリングする時刻 (秒)。
+ * @param out_t 補間後の平行移動を受け取る。
+ * @param out_r 補間後の回転を受け取る。
+ * @param out_s 補間後のスケールを受け取る。
+ */
 void SampleChannel(const FAnimationChannel& ch, f32 t,
                    FVec3& out_t, FQuat& out_r, FVec3& out_s) noexcept {
     const usize n = ch.keys.Size();
@@ -55,10 +72,7 @@ void SampleChannel(const FAnimationChannel& ch, f32 t,
 
 } // namespace
 
-// =============================================================================
-// FSkinnedMeshAsset
-// =============================================================================
-
+/** 各ボーンのバインドワールド行列を親から合成し、その逆行列を inverse_bind に格納する。 */
 void FSkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
     const u32 n = static_cast<u32>(m_Bones.Size());
     if (n == 0) return;
@@ -70,7 +84,7 @@ void FSkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
 
     for (u32 i = 0; i < n; ++i) {
         const FBone& b = m_Bones[i];
-        FMat4 local = ComposeTRS(b.bind_translation, b.bind_rotation, b.bind_scale);
+        const FMat4 local = ComposeTRS(b.bind_translation, b.bind_rotation, b.bind_scale);
         // 親 index は子 (i) より小さい前提。不正な glTF で parent>=i や parent>=n の場合、
         // 未計算/範囲外の world_at_bind[parent] を読むと未初期化値読み or OOB になる。
         // parent が 0..i-1 の範囲にあるときだけ親乗算し、それ以外はローカルを採用する。
@@ -87,10 +101,7 @@ void FSkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
     }
 }
 
-// =============================================================================
-// FAnimationPlayer
-// =============================================================================
-
+/** 指定アニメーションを先頭から再生開始する (mesh 未設定・範囲外は無視)。 */
 void FAnimationPlayer::Play(u32 anim_index, bool loop) noexcept {
     if (!m_Mesh) return;
     if (anim_index >= m_Mesh->Animations().Size()) return;
@@ -100,6 +111,7 @@ void FAnimationPlayer::Play(u32 anim_index, bool loop) noexcept {
     m_Playing = true;
 }
 
+/** 再生時刻を dt 進め、ループ時は wrap、非ループ時は終端でクランプして停止する。 */
 void FAnimationPlayer::Update(f32 dt) noexcept {
     if (!m_Playing || !m_Mesh || m_Anim < 0) return;
     if (m_Anim >= static_cast<i32>(m_Mesh->Animations().Size())) return;
@@ -119,6 +131,7 @@ void FAnimationPlayer::Update(f32 dt) noexcept {
     }
 }
 
+/** 現在時刻の (world * inverse_bind) ボーンパレットを書き込み、書き込んだボーン数を返す。 */
 u32 FAnimationPlayer::WritePalette(FMat4* out_palette, u32 max_count) const noexcept {
     if (!m_Mesh || !out_palette) return 0;
     const TArray<FBone>& bones = m_Mesh->Bones();

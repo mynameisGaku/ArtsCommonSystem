@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — ModelViewer / FModelAnimationPanel (Phase 21b)
+// GameFramework Pillar — ModelViewer / FModelAnimationPanel
 //
 // ModelViewer 内で、ロード済みモデルに含まれる **animation clip の再生制御 +
-// timeline 表示** を行う panel。Phase 21a 共通基盤の `editor_core::FEditorPanel`
+// timeline 表示** を行う panel。共通基盤の `editor_core::FEditorPanel`
 // を継承し、ImGui ベースの control 群 (clip dropdown / Play / Pause / Stop /
 // time slider / Loop checkbox / Speed slider / BlendWeight slider) を提供する。
 //
-// 役割分担 (Phase 21b ModelViewer 全体):
+// 役割分担 (ModelViewer 全体):
 //   ・FModelViewerPanel    : 3D viewport + Lighting / Background / Grid / FBone toggle
 //   ・FModelInspectorPanel : mesh 統計 (vertex/index/material/bone count)
 //   ・FModelMaterialPanel  : material slot 編集 (basecolor / metallic / roughness)
 //   ・FModelAnimationPanel : 本 panel — animation clip の再生制御 + timeline
-//   ・FSample 31 demo      : 上記 4 panel を Workspace に組み立て
 //
 // 役割:
 //   ・ロード済みモデルが持つ animation clip 一覧を保持 (`SetClips`)
@@ -49,8 +48,8 @@
 //   anim.Tick(dt);          // m_CurrentTime += dt * speed (Playing 中のみ)
 //   // → callback 内で FAnimationPlayer::SetTime(clip_index, time_sec) を呼ぶ
 //
-// 設計選択 (Phase 21b FModelAnimationPanel):
-//   ・**FEditorPanel 継承**: Phase 21a 基盤に準拠。Title / DrawUI を override。
+// 設計選択 (FModelAnimationPanel):
+//   ・**FEditorPanel 継承**: Title / DrawUI を override。
 //     OnInit は基底実装 (`Workspace()` ポインタ保持) のみで十分 (= 本 panel は
 //     workspace に直接問い合わせる対象が無いため override 不要)。
 //   ・**clip リストは値コピーで保持**: `SetClips` 渡しの `FAnimationClipBinding`
@@ -58,7 +57,7 @@
 //     リテラル想定 (model loader が静的領域 or 永続バッファに保持) — STL
 //     `std::string` を使えないため、ポインタ寿命は呼出側責任。
 //   ・**Playing 状態は enum** (`EAnimationPlayState`): Stopped / Playing /
-//     Paused の三状態。Phase 19a E-prefix 規約 (`enum class E*` + 基底 u8)。
+//     Paused の三状態。E-prefix 規約 (`enum class E*` + 基底 u8)。
 //   ・**Tick (dt) を panel 内に持つ**: FSpriteAnimator と同設計 — DrawUI は
 //     ImGui 描画専任、時刻進行は別 hook (= Workspace の OnFrameBegin 経由 or
 //     FSample 側が明示的に Tick) に分離してテスト容易性を確保。本 panel の
@@ -68,15 +67,15 @@
 //     が true なら wrap (= `m_CurrentTime = fmodf(t, dur)`)、そうでなければ
 //     `_state = Stopped` + `m_CurrentTime = dur` で末尾に固定。
 //     `m_LoopOverride = true` で clip 側 is_looping を強制 true 化 (= UI の
-//     "Loop" checkbox に bind)。Phase 21b 時点では override は単方向 (= ON
+//     "Loop" checkbox に bind)。override は単方向 (= ON
 //     にすると loop、OFF だと clip 既定に従う) で運用。
 //   ・**Speed slider [0.1, 4.0]**: 仕様通り。逆再生 (= 負値) は範囲外で
-//     Phase 21b では未対応 (将来必要なら slider 下限を負に拡張)。0 は実質
+//     未対応。0 は実質
 //     一時停止と同義だが、UX を明確にするため 0 ではなく 0.1 を下限にする。
-//   ・**BlendWeight slider [0, 1]**: Phase 21b は **単一 clip 再生** のため
+//   ・**BlendWeight slider [0, 1]**: 現状は **単一 clip 再生** のため
 //     表示のみで再生にはほぼ影響しない (= renderer 側が FAnimationPlayer に
-//     渡して final pose に blend する想定)。Phase 22+ で複数 clip blending を
-//     入れる際に「複数 layer の weight」を扱う primary slot として再利用。
+//     渡して final pose に blend する想定)。複数 clip blending を
+//     入れる際に「複数 layer の weight」を扱う primary slot として再利用する。
 //   ・**AnimationFrameCallback は raw 関数ポインタ + void* user**: ACS は
 //     std::function 禁止。FParticleEditorPanel / FAssetBrowser と同形の C-style
 //     callback 規約。Tick 終端で 1 度発火、引数は (user, clip_index, time_sec)。
@@ -87,13 +86,13 @@
 //   ・**ImGui ヘッダは .cpp 限定**: FParticleEditorPanel / FModelViewerPanel と
 //     同形 (= ヘッダから ImGui 依存を漏らさない)。
 //
-// 範囲外 (将来 / 別 panel):
-//   ・複数 clip の同時 blending (= 全身 vs 上半身レイヤ等) は Phase 22+。
+// 範囲外 (別 panel):
+//   ・複数 clip の同時 blending (= 全身 vs 上半身レイヤ等)。
 //     本 panel は primary slot のみ。
 //   ・タイムライン上のキー打ち / イベントマーカー (= AnimCurveEditor の役割)。
 //   ・root motion 抽出 / カメラ追従 (= FCinematicsDirector との連携範疇)。
 //   ・clip 圧縮設定 / curve 編集 (= model importer の役割)。
-//   ・retargeting (= bone mapping エディタの将来役割)。
+//   ・retargeting (= bone mapping エディタの役割)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -102,204 +101,307 @@
 
 namespace acs::game::modelview {
 
-// ---------------------------------------------------------------------------
-// EAnimationPlayState — 再生状態
-// ---------------------------------------------------------------------------
-// Phase 19a E-prefix 規約 (= `enum class E*` + 基底 u8)。
-//   Stopped : 未再生 (= `m_CurrentTime = 0`、Play で頭から開始)
-//   Playing : 再生中 (= Tick(dt) で `m_CurrentTime += dt * speed`)
-//   Paused  : 一時停止 (= `m_CurrentTime` 保持、Play で同位置から再開)
-// ---------------------------------------------------------------------------
+/**
+ * animation clip の再生状態。
+ *
+ * @details
+ * E-prefix 規約 (`enum class E*` + 基底 u8) に従う三状態。Play / Pause / Stop で
+ * 遷移し、Tick(dt) は Playing のときだけ時刻を進める。
+ */
 enum class EAnimationPlayState : u8 {
+    /** 未再生 (m_CurrentTime = 0、Play で頭から開始)。 */
     Stopped = 0,
+
+    /** 再生中 (Tick(dt) で m_CurrentTime += dt * speed)。 */
     Playing = 1,
+
+    /** 一時停止 (m_CurrentTime 保持、Play で同位置から再開)。 */
     Paused  = 2,
 };
 
-// ---------------------------------------------------------------------------
-// FAnimationClipBinding — model に含まれる 1 個の animation clip メタ情報
-// ---------------------------------------------------------------------------
-// `SetClips` で外部から渡す POD 構造。本 panel は値コピーで内部 TArray に
-// 保持する (= 呼出側はビルド済み配列を temp で渡してよい)。
-//   name       : clip 表示名。const char* リテラル / 永続バッファ想定
-//                (= 本 panel はコピー所有しない、ポインタ寿命は呼出側責任)。
-//   duration_sec: clip の長さ (秒)。0 以下が来た場合は内部で clamp する。
-//   is_looping : clip 既定のループ可否。UI の Loop checkbox で override 可能。
-//   clip_index : 外部 FAnimationPlayer 内のクリップ ID (= 呼出側 callback に
-//                そのまま渡される値)。本 panel は中身を解釈しない。
-// ---------------------------------------------------------------------------
+/**
+ * model に含まれる 1 個の animation clip のメタ情報。
+ *
+ * @details
+ * SetClips で外部から渡す POD 構造。本 panel は値コピーで内部 TArray に保持する
+ * ため、呼出側はビルド済み配列を temp で渡してよい。
+ */
 struct FAnimationClipBinding {
+    /** clip 表示名 (const char* リテラル / 永続バッファ想定。寿命は呼出側責任)。 */
     const char* name         = nullptr;
+
+    /** clip の長さ (秒)。0 以下が来た場合は内部で clamp する。 */
     f32         duration_sec = 0.0f;
+
+    /** clip 既定のループ可否 (UI の Loop checkbox で override 可能)。 */
     bool        is_looping   = false;
+
+    /** 外部 FAnimationPlayer 内のクリップ ID (callback にそのまま渡す。中身は解釈しない)。 */
     u32         clip_index   = 0u;
 };
 
-// ---------------------------------------------------------------------------
-// FModelAnimationPanel — animation clip 再生制御 + timeline UI
-// ---------------------------------------------------------------------------
+/**
+ * animation clip の再生制御 + timeline UI を提供する ModelViewer 用 panel。
+ *
+ * @details
+ * editor_core::FEditorPanel を継承し、clip 選択 dropdown / Play / Pause / Stop /
+ * Time slider / Loop checkbox / Speed slider / BlendWeight slider を ImGui で描画する。
+ * clip メタ情報は SetClips で値コピー所有し、Tick(dt) で Playing 中の時刻を進めて
+ * 終端で OnFrameCallback を発火する。実際の bone palette 計算や GPU 反映は呼出側
+ * (renderer + FAnimationPlayer) に委譲し、本 panel は時刻進行と UI control のみを持つ。
+ */
 class FModelAnimationPanel : public acs::game::editor_core::FEditorPanel {
 public:
-    // Tick 終端で呼ばれる callback. (user, clip_index, time_sec)。
-    // ACS は std::function 禁止のため raw 関数ポインタ + void* user 規約
-    // (FParticleEditorPanel / FAssetBrowser と同形)。`noexcept` 必須。
+    /**
+     * Tick 終端で 1 度呼ばれる callback 型 (user, clip_index, time_sec)。
+     *
+     * @details
+     * ACS は std::function 禁止のため raw 関数ポインタ + void* user 規約
+     * (FParticleEditorPanel / FAssetBrowser と同形)。noexcept 必須。
+     */
     using AnimationFrameCallback =
         void (*)(void* user, u32 clip_index, f32 time_sec) noexcept;
 
+    /** 空状態で構築する (clip なし / Stopped / time 0)。 */
     FModelAnimationPanel() noexcept = default;
+
+    /** 破棄する (内部 TArray は ~TArray が解放)。 */
     ~FModelAnimationPanel() noexcept override = default;
 
-    // 非コピー・非ムーブ: 基底 FEditorPanel と同規約 + 内部 TArray の所有を
-    // 曖昧にしない (ACS 規約)。
+    /** コピー禁止 (基底 FEditorPanel と同規約)。 */
     FModelAnimationPanel(const FModelAnimationPanel&)            = delete;
+
+    /** コピー代入も禁止。 */
     FModelAnimationPanel& operator=(const FModelAnimationPanel&) = delete;
+
+    /** ムーブ禁止 (内部 TArray の所有を曖昧にしないため)。 */
     FModelAnimationPanel(FModelAnimationPanel&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FModelAnimationPanel& operator=(FModelAnimationPanel&&)      = delete;
 
-    // ----- 初期化 / 解放 ---------------------------------------------------
-
-    // 内部 state をデフォルトに、clip リストを空に、selection / time を 0 に。
-    // callback も nullptr に戻す (= 完全リセット)。多重 Init 可。
+    /**
+     * 内部 state を完全にデフォルトへ戻す (多重 Init 可)。
+     *
+     * @details clip リストを空に、selection / time を 0 に、callback も nullptr に戻す。
+     */
     void Init() noexcept;
 
-    // 内部 state を全解放 (TArray の中身は ~TArray で解放されるが、明示 Clear
-    // で再 Init の確定状態を作る)。多重 Shutdown 可。
+    /**
+     * 内部 state を全解放する (多重 Shutdown 可)。
+     *
+     * @details TArray の中身は ~TArray で解放されるが、明示 Clear で再 Init の確定状態を作る。
+     */
     void Shutdown() noexcept;
 
-    // ----- clip リスト管理 -------------------------------------------------
-
-    // 外部 (model loader) からの clip メタ一覧 push。`count == 0` で空。
-    // 内部 TArray を `count` 個に Resize して中身を値コピーする。
-    // 既存の selection は reset (= 自動的に index 0 を選択、count==0 なら -1)。
-    // 時刻 / state も Stopped + 0 にリセット (= モデル切替時の安全側)。
+    /**
+     * 外部 (model loader) からの clip メタ一覧を push する。
+     *
+     * @details
+     * 内部 TArray を count 個に Resize して中身を値コピーする。selection は index 0 に
+     * 自動リセット (count==0 なら -1)、時刻 / state も Stopped + 0 にリセットする
+     * (モデル切替時の安全側)。
+     * @param clips clip メタ配列 (nullptr なら空として扱う)。
+     * @param count clip の数 (0 で空)。
+     */
     void SetClips(const FAnimationClipBinding* clips, u32 count) noexcept;
 
-    // clip リストを完全に空に。selection = -1、state = Stopped、time = 0 にする。
-    // callback はクリアしない (= Init / Shutdown と区別)。
+    /**
+     * clip リストを完全に空にする。
+     *
+     * @details selection = -1、state = Stopped、time = 0 にする。callback はクリアしない
+     * (Init / Shutdown より浅い reset)。
+     */
     void ClearClips() noexcept;
 
-    // 現在登録されている clip の数。
+    /**
+     * 現在登録されている clip の数を返す。
+     *
+     * @return clip 数。
+     */
     u32 ClipCount() const noexcept;
 
-    // 現在選択中の clip メタ (read-only)。未選択 / 範囲外は nullptr。
+    /**
+     * 現在選択中の clip メタを返す (read-only)。
+     *
+     * @return 選択中 clip へのポインタ (未選択 / 範囲外なら nullptr)。
+     */
     const FAnimationClipBinding* CurrentClip() const noexcept;
 
-    // 現在選択中の clip index (`ClipCount()` 未満の値、未選択は -1)。
+    /**
+     * 現在選択中の clip index を返す。
+     *
+     * @return ClipCount() 未満の index (未選択は kNoClipSelected = -1)。
+     */
     i32 CurrentClipIndex() const noexcept;
 
-    // clip を選択。範囲外 (>= ClipCount()) は no-op。
-    // selection 切替時は時刻を 0 にリセット + Stopped に戻す
-    // (= 別 clip を選択したのに前 clip の time が残ると混乱するため)。
+    /**
+     * clip を選択する。
+     *
+     * @details
+     * selection 切替時は時刻を 0 にリセット + Stopped に戻す (同 clip の再選択も
+     * リスタート意図とみなす)。
+     * @param clip_index 選択する clip の index (>= ClipCount() は no-op)。
+     */
     void SelectClip(u32 clip_index) noexcept;
 
-    // ----- 再生制御 --------------------------------------------------------
-
-    // 現在位置から再生開始。clip が未選択 (= -1) なら no-op。
-    // Stopped から Play した場合は `m_CurrentTime = 0` から、Paused から
-    // Play した場合は `m_CurrentTime` 維持で再開。
+    /**
+     * 現在位置から再生を開始する。
+     *
+     * @details
+     * clip 未選択 (-1) なら no-op。Stopped から Play した場合は m_CurrentTime = 0 から、
+     * Paused から Play した場合は m_CurrentTime 維持で再開する。
+     */
     void Play() noexcept;
 
-    // 一時停止 (`m_CurrentTime` 保持)。`Playing` 以外からは no-op。
+    /** 一時停止する (m_CurrentTime 保持)。Playing 以外からは no-op。 */
     void Pause() noexcept;
 
-    // 停止 (`m_CurrentTime = 0` + state = Stopped)。`Stopped` でも安全。
+    /** 停止する (m_CurrentTime = 0 + state = Stopped)。Stopped でも安全。 */
     void Stop() noexcept;
 
-    // 現在の再生状態。
+    /**
+     * 現在の再生状態を返す。
+     *
+     * @return Stopped / Playing / Paused のいずれか。
+     */
     EAnimationPlayState PlayState() const noexcept;
 
-    // ----- 時刻 / 速度 -----------------------------------------------------
-
-    // 現在の再生位置 (秒)。Stopped 時は 0、Playing/Paused 時は最新の Tick
-    // 結果 or `SetCurrentTimeSec` で書かれた値。
+    /**
+     * 現在の再生位置 (秒) を返す。
+     *
+     * @return Stopped 時は 0、Playing/Paused 時は最新の Tick 結果または SetCurrentTimeSec の値。
+     */
     f32 CurrentTimeSec() const noexcept;
 
-    // 再生位置を直接設定 (= UI の Time slider 操作 or 外部スクラブ用)。
-    // 0 未満は 0、duration 超過は duration にクランプ (clip 未選択時は
-    // `m_CurrentTime = 0` のまま no-op)。state は変更しない (= Paused 中の
-    // scrub 後も Paused のまま、Playing 中の scrub 後も Playing のまま)。
+    /**
+     * 再生位置を直接設定する (UI の Time slider 操作 or 外部スクラブ用)。
+     *
+     * @details
+     * 0 未満は 0、duration 超過は duration にクランプする (clip 未選択時は 0 のまま no-op)。
+     * state は変更しない (Paused / Playing 中の scrub 後も状態を保持)。
+     * @param t 設定する再生位置 (秒)。
+     */
     void SetCurrentTimeSec(f32 t) noexcept;
 
-    // 再生速度 (倍率)。Tick で `m_CurrentTime += dt * speed` に乗る。
+    /**
+     * 現在の再生速度 (倍率) を返す。
+     *
+     * @return Tick で m_CurrentTime += dt * speed に乗る倍率。
+     */
     f32 PlaybackSpeed() const noexcept;
 
-    // 再生速度を設定。仕様: [0.1, 4.0] にクランプ。
-    // 0 は実質一時停止だが UX 上明確にするため下限 0.1 を強制。
-    // 負値は受け付けない (= 逆再生は Phase 21b 範囲外)。
+    /**
+     * 再生速度を設定する。
+     *
+     * @details [kMinPlaybackSpeed, kMaxPlaybackSpeed] = [0.1, 4.0] にクランプ。0 は UX 上
+     * 明確にするため下限 0.1 を強制し、負値 (逆再生) は受け付けない。
+     * @param speed 設定する再生速度 (倍率)。
+     */
     void SetPlaybackSpeed(f32 speed) noexcept;
 
-    // ----- Loop override + BlendWeight ------------------------------------
-
-    // UI の Loop checkbox 状態。true なら clip 側 is_looping を無視して
-    // 強制 loop。false なら clip 既定 (= `current_clip->is_looping`) に従う。
+    /**
+     * Loop override が有効かを返す。
+     *
+     * @return true なら clip 側 is_looping を無視して強制 loop。false なら clip 既定に従う。
+     */
     bool IsLoopingOverride() const noexcept;
+
+    /**
+     * Loop override を設定する (UI の Loop checkbox に bind)。
+     *
+     * @param b true で強制 loop、false で clip 既定 (current_clip->is_looping) に従う。
+     */
     void SetLoopingOverride(bool b) noexcept;
 
-    // blend weight [0, 1]。Phase 21b は単一 clip 再生のため表示用 + callback
-    // 経由で外部 renderer が FAnimationPlayer に渡す参考値。0 未満は 0、
-    // 1 超過は 1 にクランプ。
+    /**
+     * blend weight を返す。
+     *
+     * @return blend weight [0, 1] (現状は単一 clip 再生のため表示用 + callback 出力の参考値)。
+     */
     f32  BlendWeight() const noexcept;
+
+    /**
+     * blend weight を設定する。
+     *
+     * @details 0 未満は 0、1 超過は 1 にクランプする。
+     * @param w 設定する blend weight。
+     */
     void SetBlendWeight(f32 w) noexcept;
 
-    // ----- Tick + callback -------------------------------------------------
-
-    // Playing 中は `m_CurrentTime += dt * m_Speed`。duration 到達時は
-    //   ・loop 有効 → 余りを wrap (= `m_CurrentTime -= duration` を繰り返す)
-    //   ・loop 無効 → `m_CurrentTime = duration` + state = Stopped に遷移
-    // 終端で callback (`m_OnFrameCb`) を発火 (= 設定されていれば)。
-    // clip 未選択 / Stopped / Paused 時は no-op (= state を進めず callback も
-    // 発火しない)。dt <= 0 も no-op (= 巻き戻し非対応、FSpriteAnimator と同方針)。
+    /**
+     * Playing 中の時刻を進め、duration 到達処理と callback 発火を行う。
+     *
+     * @details
+     * Playing 中は m_CurrentTime += dt * m_Speed を進める。duration 到達時、loop 有効
+     * (clip.is_looping || m_LoopOverride) なら余りを wrap、loop 無効なら time = duration +
+     * state = Stopped に遷移する。終端で m_OnFrameCb を 1 度発火する (設定時)。clip 未選択 /
+     * Stopped / Paused / dt <= 0 はすべて no-op (FSpriteAnimator と同方針、巻き戻し非対応)。
+     * @param dt 前フレームからの経過秒 (0 以下は no-op)。
+     */
     void Tick(f32 dt) noexcept;
 
-    // Tick 終端で 1 度呼ばれる callback を設定。nullptr 渡しで解除可能。
-    // cb の引数: (user, clip_index, time_sec) — clip_index は
-    // `FAnimationClipBinding::clip_index` (= 外部 FAnimationPlayer ID)。
+    /**
+     * Tick 終端で呼ばれる callback を設定する。
+     *
+     * @details cb の引数 clip_index は FAnimationClipBinding::clip_index (外部 FAnimationPlayer ID)。
+     * @param cb 設定する callback (nullptr で解除)。
+     * @param user cb の第 1 引数に渡す任意ポインタ。
+     */
     void SetOnFrameCallback(AnimationFrameCallback cb, void* user) noexcept;
 
-    // ----- FEditorPanel override -------------------------------------------
-
-    // window タイトル (ImGui::Begin の引数兼 ID)。固定リテラル。
+    /**
+     * window タイトル (ImGui::Begin の引数兼 ID) を返す。
+     *
+     * @return 固定リテラル "FAnimation"。
+     */
     const char* Title() const noexcept override { return "FAnimation"; }
 
-    // ImGui::Begin "FAnimation" + ClipCombo + Time slider + Play/Pause/Stop +
-    // Loop checkbox + Speed slider + BlendWeight slider 描画。
-    // `IsVisible()` が false なら早期 return (= close ボタンで隠せる)。
+    /**
+     * ImGui window 本体を描画する。
+     *
+     * @details
+     * ImGui::Begin "FAnimation" + ClipCombo + Time slider + Play/Pause/Stop +
+     * Loop checkbox + Speed slider + BlendWeight slider を描画する。IsVisible() が
+     * false なら早期 return する (close ボタンで隠せる)。
+     */
     void DrawUI() noexcept override;
 
-    // ----- 公開定数 --------------------------------------------------------
-
-    // Speed slider の範囲。SetPlaybackSpeed の clamp にも使う。
+    /** Speed slider の下限 (SetPlaybackSpeed の clamp にも使う)。 */
     static constexpr f32 kMinPlaybackSpeed = 0.1f;
+
+    /** Speed slider の上限 (SetPlaybackSpeed の clamp にも使う)。 */
     static constexpr f32 kMaxPlaybackSpeed = 4.0f;
 
-    // 「未選択」を表す sentinel (i32 戻り値で使用)。
+    /** 「未選択」を表す sentinel (i32 戻り値で使用)。 */
     static constexpr i32 kNoClipSelected = -1;
 
 private:
-    // 内部 clip 一覧 (値コピー所有)。name ポインタの寿命は呼出側責任。
+    /** 内部 clip 一覧 (値コピー所有。name ポインタの寿命は呼出側責任)。 */
     TArray<FAnimationClipBinding> m_Clips {};
 
-    // 現在選択中の clip index (`m_Clips` 内 index、未選択は kNoClipSelected)。
+    /** 現在選択中の clip index (m_Clips 内 index、未選択は kNoClipSelected)。 */
     i32 m_CurrentClipIdx = kNoClipSelected;
 
-    // 再生状態。Stopped / Playing / Paused。
+    /** 再生状態 (Stopped / Playing / Paused)。 */
     EAnimationPlayState _state = EAnimationPlayState::Stopped;
 
-    // 現在の再生位置 (秒)。clip duration を超えないようにクランプ / ラップされる。
+    /** 現在の再生位置 (秒)。clip duration を超えないようクランプ / ラップされる。 */
     f32 m_CurrentTimeSec = 0.0f;
 
-    // 再生速度 (倍率)。[0.1, 4.0] にクランプ。
+    /** 再生速度 (倍率)。[0.1, 4.0] にクランプ。 */
     f32 m_Speed = 1.0f;
 
-    // UI の Loop checkbox 状態。true なら clip 既定 is_looping を無視して
-    // 強制 loop。false なら clip 既定に従う。
+    /** UI の Loop checkbox 状態 (true で clip 既定 is_looping を無視して強制 loop)。 */
     bool m_LoopOverride = false;
 
-    // blend weight (Phase 21b は表示 + callback 出力のみ、再生には影響しない)。
+    /** blend weight (現状は表示 + callback 出力のみ、再生には影響しない)。 */
     f32 m_BlendWeight = 1.0f;
 
-    // Tick 終端で呼ばれる callback (= 外部 FAnimationPlayer への時刻反映点)。
+    /** Tick 終端で呼ばれる callback (外部 FAnimationPlayer への時刻反映点)。 */
     AnimationFrameCallback m_OnFrameCb = nullptr;
+
+    /** m_OnFrameCb の第 1 引数に渡す任意ポインタ。 */
     void*                  m_OnFrameUser = nullptr;
 };
 

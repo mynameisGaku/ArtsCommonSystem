@@ -47,8 +47,8 @@
 //       // → caller 側で FDialogueSystem::AddLine 等に流す
 //   }, nullptr);
 //
-// 範囲外 (将来 phase で):
-//   ・format 引数展開 ("{0} HP" の {0} 置換) → FLocalizationDirector 側 Phase 2 範疇
+// 範囲外:
+//   ・format 引数展開 ("{0} HP" の {0} 置換) → FLocalizationDirector 側の範疇
 //   ・スクリプト / JSON からの自動取り込み → ツール側で Register* 列に変換する想定
 //   ・フォントフォールバック / RTL → Pillar Q Polish 側の UI 描画責務
 //
@@ -63,86 +63,161 @@ namespace acs::game {
 // 前方宣言: ヘッダ依存を最小化 (FLocalizationDirector.h を巻き込まない)
 class FLocalizationDirector;
 
-// 1 行ぶんのローカライズ可能ダイアログメタ。本文は持たず、key 経由で
-// FLocalizationDirector から取得する。speaker_id も翻訳キー扱い。
-// const char* は非所有 (literal / 長寿命バッファ前提)。
+/**
+ * 1 行ぶんのローカライズ可能ダイアログメタ。
+ *
+ * @details
+ * 本文そのものは持たず、key 経由で FLocalizationDirector から取得する。
+ * speaker_id も翻訳キー扱いで、const char* メンバは非所有 (literal / 長寿命
+ * バッファ前提)。
+ */
 struct LocalizedDialogueLine {
-    const char* speaker_id    = nullptr;   // 発話者名の翻訳 key (nullptr 可 = ナレーション)
-    const char* line_key      = nullptr;   // 本文の翻訳 key (nullptr 可 = 空行)
-    f32         type_speed_cps = 30.0f;    // タイプ速度 (DialogueLine と同義、<=0 で瞬時)
+    /** 発話者名の翻訳 key (nullptr 可 = ナレーション)。 */
+    const char* speaker_id    = nullptr;
+
+    /** 本文の翻訳 key (nullptr 可 = 空行)。 */
+    const char* line_key      = nullptr;
+
+    /** タイプ速度 (DialogueLine と同義、<=0 で瞬時)。 */
+    f32         type_speed_cps = 30.0f;
 };
 
-// 1 つの選択肢メタ。本文 (表示テキスト) は翻訳 key 経由。
-// next_line_index が範囲外 (>= LineCount) なら「ダイアログ終了」を表現する
-// (DialogueChoice::next_line_index と同契約)。
+/**
+ * 1 つの選択肢メタ。
+ *
+ * @details
+ * 表示テキストは翻訳 key 経由で取得する。next_line_index が範囲外 (>= LineCount)
+ * なら「ダイアログ終了」を表現する (DialogueChoice::next_line_index と同契約)。
+ */
 struct LocalizedDialogueChoice {
-    const char* text_key        = nullptr;          // 選択肢表示の翻訳 key
-    u32         next_line_index = 0xFFFFFFFFu;      // 範囲外で「終了」を表現
+    /** 選択肢表示の翻訳 key。 */
+    const char* text_key        = nullptr;
+
+    /** 選択時のジャンプ先 line index (範囲外で「終了」を表現)。 */
+    u32         next_line_index = 0xFFFFFFFFu;
 };
 
+/**
+ * Dialogue と Localization を疎結合で繋ぐ橋渡し helper。
+ *
+ * @details
+ * 行 / 選択肢メタ (翻訳 key のみ) を蓄積し、StartFromLine で現 locale の翻訳
+ * テキストを解決して callback に流す。本文は持たず、FLocalizationDirector を
+ * 所有もしない (SetLocalizer で外部参照を差し込み、null で detach)。進行状態は
+ * 持たず、非コピー・非ムーブ。
+ */
 class FDialogueLocalizer {
 public:
-    // 現 locale で speaker / text を解決して受け取る callback。
-    // std::function は使わず関数ポインタ + user pointer 形式
-    // (GameFramework 既存 callback 規約と整合)。
-    // speaker / text とも常に非 nullptr (FLocalizationDirector::Get の契約により
-    // 未翻訳時は key 自身が返るため)。Localizer が未設定のときは
-    // speaker_id / line_key そのもの (or 空文字) が返る。
+    /**
+     * 現 locale で解決した speaker / text を受け取る callback の型。
+     *
+     * @details
+     * std::function は使わず関数ポインタ + user pointer 形式 (GameFramework 既存
+     * callback 規約と整合)。speaker / text とも常に非 nullptr (未翻訳時は key 自身、
+     * Localizer 未設定時は speaker_id / line_key そのもの or 空文字が渡る)。
+     */
     using BindCallback = void(*)(void* user, const char* speaker, const char* text, f32 cps) noexcept;
 
+    /** 空状態で構築する。 */
     FDialogueLocalizer()  noexcept = default;
+
+    /** 破棄する (Localizer は非所有なので解放しない)。 */
     ~FDialogueLocalizer() noexcept = default;
 
+    /** コピー禁止 (state holder の唯一性のため)。 */
     FDialogueLocalizer(const FDialogueLocalizer&)            = delete;
+
+    /** コピー代入も禁止。 */
     FDialogueLocalizer& operator=(const FDialogueLocalizer&) = delete;
+
+    /** ムーブ禁止 (state holder の唯一性のため)。 */
     FDialogueLocalizer(FDialogueLocalizer&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FDialogueLocalizer& operator=(FDialogueLocalizer&&)      = delete;
 
-    // ----- 登録 -----
-    // 行を末尾に追加。挿入順に index が振られる (0,1,2,...)。
+    /**
+     * 行を末尾に追加する。
+     *
+     * @details 挿入順に index が振られる (0,1,2,...)。
+     * @param line 追加するローカライズ可能ダイアログ行。
+     */
     void RegisterLine(const LocalizedDialogueLine& line) noexcept;
 
-    // at_line_index 行に紐づく選択肢群を登録。
-    // 同じ line に複数回 RegisterChoice すると 2 回目以降は無視 (= 上書き禁止)。
-    // count == 0 / choices == nullptr / at_line_index 範囲外 は no-op。
-    // (FDialogueSystem::AddChoices と同契約)
+    /**
+     * at_line_index 行に紐づく選択肢群を登録する。
+     *
+     * @details
+     * 同じ line に複数回登録すると 2 回目以降は無視 (= 上書き禁止)。
+     * count == 0 / choices == nullptr / at_line_index 範囲外 は no-op
+     * (FDialogueSystem::AddChoices と同契約)。
+     * @param at_line_index 選択肢を紐づける行の index。
+     * @param choices 登録する選択肢配列。
+     * @param count choices の要素数。
+     */
     void RegisterChoice(u32 at_line_index,
                         const LocalizedDialogueChoice* choices, u32 count) noexcept;
 
-    // ----- Localizer 接続 -----
-    // 翻訳ソースを差し込む。nullptr で detach (以降は key 自身が返る挙動)。
-    // 所有しないので寿命は呼び出し側保証。
+    /**
+     * 翻訳ソースを差し込む。
+     *
+     * @details nullptr で detach (以降は key 自身が返る挙動)。所有しないので寿命は呼び出し側保証。
+     * @param loc 翻訳辞書 (nullptr で detach)。
+     */
     void SetLocalizer(FLocalizationDirector* loc) noexcept;
 
-    // ----- 解決 -----
-    // 指定 line index の speaker / 本文を現 locale で解決し cb を発火。
-    // line_index が範囲外 / cb == nullptr の場合は no-op。
-    // 解決結果が空翻訳 (value == nullptr の登録) でも空文字 "" を渡し、
-    // callback 側で nullptr チェックを書かなくて済むようにする。
+    /**
+     * 指定 line index の speaker / 本文を現 locale で解決し cb を発火する。
+     *
+     * @details
+     * line_index が範囲外 / cb == nullptr の場合は no-op。解決結果が空翻訳でも
+     * 空文字 "" を渡し、callback 側で nullptr チェックを書かなくて済むようにする。
+     * @param line_index 解決する行の index。
+     * @param cb 解決結果を受け取る callback。
+     * @param user cb に渡される文脈ポインタ。
+     */
     void StartFromLine(u32 line_index, BindCallback cb, void* user) noexcept;
 
-    // ----- アクセサ -----
-    // 登録済み行数。
+    /**
+     * 登録済み行数を返す。
+     *
+     * @return 登録済み行数。
+     */
     u32 LineCount() const noexcept;
 
-    // 全行 / 全選択肢を破棄。Localizer 参照は保持する
-    // (= 再利用前提、再 RegisterLine で同 localizer を使いたいケースが大半)。
+    /**
+     * 全行 / 全選択肢を破棄する。
+     *
+     * @details Localizer 参照は保持する (= 同 localizer で別シナリオを再構築する想定が大半)。
+     */
     void Clear() noexcept;
 
 private:
-    // 「line_index 直後に提示する選択肢」の範囲記録
-    // (FDialogueSystem::ChoicesAt と同じ形)
+    /**
+     * line_index 直後に提示する選択肢群の範囲記録 (FDialogueSystem::ChoicesAt と同じ形)。
+     */
     struct ChoicesAt {
+        /** 選択肢を紐づける行の index。 */
         u32 line_index   = 0;
+
+        /** m_AllChoices 内の先頭 index。 */
         u32 choice_start = 0;
+
+        /** この行に紐づく選択肢の本数。 */
         u32 choice_count = 0;
     };
 
+    /** 登録済みダイアログ行 (挿入順)。 */
     TArray<LocalizedDialogueLine>   m_Lines;
-    TArray<ChoicesAt>               m_ChoicesAt;     // line_index 昇順想定 (線形検索)
-    TArray<LocalizedDialogueChoice> m_AllChoices;    // 全 choice をフラットに保持
 
-    FLocalizationDirector* m_Localizer = nullptr;     // 非所有、null で detach
+    /** 行ごとの選択肢範囲記録 (line_index 昇順想定、線形検索)。 */
+    TArray<ChoicesAt>               m_ChoicesAt;
+
+    /** 全選択肢をフラットに保持する配列。 */
+    TArray<LocalizedDialogueChoice> m_AllChoices;
+
+    /** 翻訳辞書 (非所有、null で detach)。 */
+    FLocalizationDirector* m_Localizer = nullptr;
 };
 
 } // namespace acs::game

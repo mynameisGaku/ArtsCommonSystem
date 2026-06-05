@@ -11,29 +11,65 @@
 
 namespace acs {
 
-// テクスチャのフィルタ
+/**
+ * テクスチャをサンプルするときの拡大・縮小フィルタ。
+ */
 enum class ESamplerFilter : u8 {
-    Point,        // ニアレストネイバー（ドット絵向け）
-    Linear,       // バイリニア / トライリニア（普通の写真向け）
-    Anisotropic,  // 異方性フィルタ（高品質）
+    /** ニアレストネイバー（ドット絵向け）。 */
+    Point,
+
+    /** バイリニア / トライリニア（普通の写真向け）。 */
+    Linear,
+
+    /** 異方性フィルタ（高品質）。 */
+    Anisotropic,
 };
 
-// UV のラップ方式
+/**
+ * UV がテクスチャ範囲外に出たときのラップ方式。
+ */
 enum class ESamplerAddress : u8 {
-    Wrap,    // 繰り返し（タイリング）
-    Mirror,  // 鏡像繰り返し
-    Clamp,   // 端の色で塗る
-    Border,  // 境界色（黒）で塗る
+    /** 繰り返し（タイリング）。 */
+    Wrap,
+
+    /** 鏡像繰り返し。 */
+    Mirror,
+
+    /** 端の色で塗る。 */
+    Clamp,
+
+    /** 境界色（黒）で塗る。 */
+    Border,
 };
 
+/**
+ * 静的サンプラの設定。
+ *
+ * @details
+ * フィルタとアドレッシング（U/V/W 各軸）、LOD 範囲、異方性度数をまとめて持つ。
+ * FPipelineDesc::static_samplers にそのまま渡してパイプラインへ埋め込む。
+ */
 struct SamplerDesc {
+    /** 拡大・縮小フィルタ。 */
     ESamplerFilter  filter      = ESamplerFilter::Linear;
+
+    /** U 軸（横）のラップ方式。 */
     ESamplerAddress address_u   = ESamplerAddress::Wrap;
+
+    /** V 軸（縦）のラップ方式。 */
     ESamplerAddress address_v   = ESamplerAddress::Wrap;
+
+    /** W 軸（奥行き／3D テクスチャ用）のラップ方式。 */
     ESamplerAddress address_w   = ESamplerAddress::Wrap;
+
+    /** サンプルに使う最小 LOD（ミップレベル）。 */
     f32            min_lod     = 0.0f;
+
+    /** サンプルに使う最大 LOD（ミップレベル）。 */
     f32            max_lod     = 1000.0f;
-    u32            max_anisotropy = 16;       // ESamplerFilter::Anisotropic のときのみ有効
+
+    /** 異方性度数（ESamplerFilter::Anisotropic のときのみ有効）。 */
+    u32            max_anisotropy = 16;
 };
 
 } // namespace acs

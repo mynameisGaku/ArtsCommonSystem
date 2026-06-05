@@ -52,8 +52,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 // Downsample: 13-tap Jimenez (Call of Duty: Advanced Warfare、SIGGRAPH 2014)。
-// Phase 36-1: 旧 5-tap "簡易" 版は box artifact (がびがび halo) の主因だったので
-// 本実装 (5 つの partial-box average を Karis-style weighted blend) に置換。
+// 5 つの partial-box average を Karis-style weighted blend する。
 //
 // FSample layout (t = 1 source texel):
 //   A . B . C
@@ -132,12 +131,12 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-// TAA resolve (Phase 34f / 34f-2): current HDR + history HDR + depth →
+// TAA resolve: current HDR + history HDR + depth →
 // reprojected & neighborhood-clamped blend。
 //
-// Phase 34f-2: 別 CB (TaaReproj at b1) に view_proj + inv_view_proj +
-// prev_view_proj を入れて、camera motion 由来の motion vec を計算。
-// reproject_enabled = 0 のときは motion=0 で静的 reprojection (frame 34f-1 互換)。
+// 別 CB (TaaReproj at b1) に view_proj + inv_view_proj + prev_view_proj を入れて、
+// camera motion 由来の motion vec を計算。reproject_enabled = 0 のときは motion=0 で
+// 静的 reprojection になる。
 const char* kTaaResolvePS = R"(
 #pragma pack_matrix(row_major)
 cbuffer Post : register(b0) {
@@ -184,10 +183,10 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float3 cur = current_hdr.SampleLevel(current_hdr_sampler, v.uv, 0).rgb;
 
     // History を sample する位置を決める:
-    //   taa_params.z >= 0.5: motion texture モード (Phase 34f-3)。scene_depth slot を
+    //   taa_params.z >= 0.5: motion texture モード。scene_depth slot を
     //     motion vector (camera+object 動き) として再解釈し、そのまま reproject する。
     //     動く mesh も正しく history を引けるので ghost / trail が消える。
-    //   taa_params.y >= 0.5: depth reprojection モード (Phase 34f-2、camera 動きのみ)。
+    //   taa_params.y >= 0.5: depth reprojection モード (camera 動きのみ)。
     float2 hist_uv = v.uv;
     if (taa_params.z >= 0.5) {
         float2 mv = scene_depth.SampleLevel(scene_depth_sampler, v.uv, 0).rg;
@@ -233,8 +232,8 @@ cbuffer Post : register(b0) {
     float4 cg0;       // x=saturation, y=contrast, z=temperature, w=tint
     float4 cg_lift;   // xyz=lift (shadow offset)
     float4 cg_gain;   // xyz=gain (highlight multiplier)
-    float4 cas_params;// x=cas_strength (0=disable、Phase 34i)
-    float4 taa_params;// x=blend_factor (Phase 34f、tonemap は読まないが CB レイアウト整合のため)
+    float4 cas_params;// x=cas_strength (0=disable)
+    float4 taa_params;// x=blend_factor (tonemap は読まないが CB レイアウト整合のため)
 };
 Texture2D    hdr   : register(t0);
 Texture2D    bloom : register(t1);
@@ -285,7 +284,7 @@ float3 Tonemap(float3 c, int kind) {
     return ACESFilm(c);
 }
 
-// FColor grading (Phase 34h): tonemap 後 (LDR) に適用する ASC-CDL 風補正。
+// FColor grading: tonemap 後 (LDR) に適用する ASC-CDL 風補正。
 // 適用順序:
 //   1) lift + gain (SOP の S/O 部分): shadow offset + highlight multiplier
 //   2) contrast (SOP の Power 相当、簡易 pivot=0.5 線形): スロープ調整
@@ -338,7 +337,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     }
     hdr_col *= params0.w;       // exposure
 
-    // CAS sharpening (Phase 34i、AMD FSR 簡略版、HDR-aware):
+    // CAS sharpening (AMD FSR 簡略版、HDR-aware):
     // 注: center に CA が乗っていて neighbor が乗っていない非対称があるが、
     // 既定 ca=0.002 (≒ 0.4 texel) の小オフセットで実害は無視できる。CA を強くするとき
     // (>0.01) は CAS と併用しないか、neighbor 側にも CA を適用するべき (4 倍コスト)。
@@ -377,7 +376,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     int kind = (int)params1.w;
     float3 mapped = Tonemap(mixed, kind);
 
-    // 2.5) FColor grading (Phase 34h、tonemap 後 LDR で適用)
+    // 2.5) FColor grading (tonemap 後 LDR で適用)
     mapped = ColorGrade(mapped);
 
     // 3) Vignette (radial darkening)
@@ -399,14 +398,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-// ==== Auto-exposure (Phase 34k-2) ====
-// シーンの平均輝度を GPU で測定し、露出を自動算出する。Phase 34k の CPU eye-
-// adaptation を実測輝度ベースへ置き換える。3 種のパスで構成:
+// ==== Auto-exposure ====
+// シーンの平均輝度を GPU で測定し、露出を自動算出する。3 種のパスで構成:
 //   1) Luma extract/downsample: m_HdrRt → log2 輝度 → mip chain で 1x1 まで縮約
 //   2) Exposure adapt: 1x1 平均輝度から目標露出を出し、前フレーム露出へ指数補間
 //   3) Exposure apply: m_HdrRt に露出を掛けて m_ExposedRt へ
-// tonemap PSO の texture slot 数を変えない設計 (project_diligent_slot3_issue 回避):
-// 各パスの texture slot は最大 2、tonemap は従来どおり 3 slot のまま。
+// tonemap PSO の texture slot 数を変えない設計: 各パスの texture slot は最大 2、
+// tonemap は 3 slot のまま。
 
 // Luma extract: HDR → log2 輝度。出力 texel が覆う 2x2 source 領域を 4-tap 平均。
 // 幾何平均 (log 空間平均) にすることで少数の高輝度ピクセルに過敏にならない。
@@ -507,16 +505,16 @@ struct PostCBLayout {
     FVec4 cg_lift;   // xyz=lift
     FVec4 cg_gain;   // xyz=gain
     FVec4 cas_params;// x=cas_strength
-    FVec4 taa_params;// x=blend_factor (Phase 34f TAA)、y=reproject_enabled (Phase 34f-2)
+    FVec4 taa_params;// x=blend_factor (TAA)、y=reproject_enabled
 };
 
-// Phase 34f-2: TAA reprojection 用の別 CB (b1 で bind)。
+// TAA reprojection 用の別 CB (b1 で bind)。
 struct TaaReprojCBLayout {
     FMat4 inv_view_proj;
     FMat4 prev_view_proj;
 };
 
-// Phase 34k-2: auto-exposure 用 CB (Exposure adapt パスで b0 に bind)。
+// auto-exposure 用 CB (Exposure adapt パスで b0 に bind)。
 struct AutoExposureCBLayout {
     FVec4 a0;   // x=key, y=min_exp, z=max_exp, w=speed
     FVec4 a1;   // x=dt, y=warm (0=cold start)
@@ -562,7 +560,7 @@ TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     if (cbr.IsErr()) return Err<void>(cbr.Error());
     m_CbPost = Move(cbr.Value());
 
-    // Phase 34f-2: TaaReproj CB (b1)
+    // TaaReproj CB (b1)
     FBufferDesc rcbd{};
     rcbd.size = CBSize<TaaReprojCBLayout>();
     rcbd.usage = EBufferUsage::Uniform;
@@ -571,7 +569,7 @@ TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     if (rcbr.IsErr()) return Err<void>(rcbr.Error());
     m_CbTaaReproj = Move(rcbr.Value());
 
-    // Phase 34k-2: auto-exposure 用 CB
+    // auto-exposure 用 CB
     FBufferDesc acbd{};
     acbd.size = CBSize<AutoExposureCBLayout>();
     acbd.usage = EBufferUsage::Uniform;
@@ -672,7 +670,7 @@ TResult<void> FPostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h
         m_BloomMips[i] = Move(br.Value());
     }
 
-    // TAA history ping-pong RT (Phase 34f): HDR と同サイズ + 同フォーマット
+    // TAA history ping-pong RT: HDR と同サイズ + 同フォーマット
     for (u32 i = 0; i < 2; ++i) {
         FTextureDesc tt{};
         tt.width  = w;
@@ -684,7 +682,7 @@ TResult<void> FPostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h
         m_Taa[i] = Move(tr.Value());
     }
 
-    // ---- Auto-exposure (Phase 34k-2) ----
+    // ---- Auto-exposure ----
     // Luma mip chain: m_HdrRt の 1/2 から 1x1 まで縮約する。最深段 (1x1) に
     // シーン平均 log2 輝度が入る。フォーマットは 1ch あれば足りるが、RT として
     // 実績のある R16G16_Float (BRDF LUT と同形式) を使う。
@@ -833,7 +831,7 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         pd.vs = m_VsFullscreen.Get();
         pd.ps = m_PsTaaResolve.Get();
         pd.rt_format = m_HdrFormat;
-        pd.cbuffer_slots = 2;       // b0=Post, b1=TaaReproj (Phase 34f-2)
+        pd.cbuffer_slots = 2;       // b0=Post, b1=TaaReproj
         pd.texture_slots = 3;
         pd.cbuffer_names[0] = "Post";
         pd.cbuffer_names[1] = "TaaReproj";
@@ -862,7 +860,7 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         pd.ps = m_PsTonemap.Get();
         pd.rt_format = m_ColorFormat;
         pd.cbuffer_slots = 1;
-        pd.texture_slots = 3;       // t0=hdr, t1=bloom, t2=ssr (Phase 34e)
+        pd.texture_slots = 3;       // t0=hdr, t1=bloom, t2=ssr
         pd.cbuffer_names[0] = "Post";
         pd.texture_names[0] = "hdr";
         pd.texture_names[1] = "bloom";
@@ -878,7 +876,7 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         m_PipeTonemap = Move(r.Value());
     }
 
-    // ---- Auto-exposure pipelines (Phase 34k-2) ----
+    // ---- Auto-exposure pipelines ----
     // Luma Extract: m_HdrRt → m_LumaMips[0]、log2 輝度
     {
         FPipelineDesc pd{};
@@ -968,7 +966,7 @@ void FPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 bu
                           const PostProcessParams& params) noexcept {
     if (!m_HdrRt || !m_PipeExtract) return;
 
-    // Auto-exposure (Phase 34k-2): シーン輝度測定 → 露出順応 → 露出適用。
+    // Auto-exposure: シーン輝度測定 → 露出順応 → 露出適用。
     // TAA / Bloom / Tonemap より前に実行し、下流パスは SceneInput() 経由で
     // 露出適用後の m_ExposedRt を読む。条件は有効フラグ + pipeline/RT の存在。
     const bool auto_exp = params.auto_exposure_enabled
@@ -979,7 +977,7 @@ void FPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 bu
         Pass_ExposureApply(cmd);
     }
 
-    // TAA Resolve (Phase 34f): current HDR + previous resolved (history) → new resolved。
+    // TAA Resolve: current HDR + previous resolved (history) → new resolved。
     // 後段で Pass_Tonemap が resolved を読むよう振る舞う (Pass_Tonemap 側で taa_enabled
     // を見て参照を差し替える)。
     if (params.taa_enabled) {
@@ -1026,9 +1024,9 @@ void UpdatePostCB(IRhiBuffer* cb, const PostProcessParams& p,
     l.cg_lift = FVec4{ p.cg_lift.x, p.cg_lift.y, p.cg_lift.z, 0 };
     l.cg_gain = FVec4{ p.cg_gain.x, p.cg_gain.y, p.cg_gain.z, 0 };
     l.cas_params = FVec4{ p.cas_strength < 0 ? 0.0f : p.cas_strength, 0, 0, 0 };
-    // Phase 34f-2: reproject_enabled は taa_depth_texture が指定されてるかで判定。
+    // reproject_enabled は taa_depth_texture が指定されてるかで判定。
     const f32 reproject_enabled = (p.taa_enabled && p.taa_depth_texture) ? 1.0f : 0.0f;
-    // Phase 34f-3: motion texture があれば motion mode (depth reprojection より優先)。
+    // motion texture があれば motion mode (depth reprojection より優先)。
     const f32 motion_mode = (p.taa_enabled && p.taa_motion_texture) ? 1.0f : 0.0f;
     l.taa_params = FVec4{ p.taa_blend_factor < 0 ? 0.0f : p.taa_blend_factor,
                          reproject_enabled, motion_mode, 0 };
@@ -1105,14 +1103,14 @@ void FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const PostProcessParams
 
     UpdatePostCB(m_CbPost.Get(), p, 1.0f / cur_rt->Width(), 1.0f / cur_rt->Height());
 
-    // Phase 34f-2: TaaReproj CB を埋める。`taa_view_proj_no_jitter` が単位行列の
+    // TaaReproj CB を埋める。`taa_view_proj_no_jitter` が単位行列の
     // ままなら inv は単位、prev も単位で motion=0 になる (= 静的 reprojection 動作)。
     TaaReprojCBLayout r{};
     r.inv_view_proj  = Inverse(p.taa_view_proj_no_jitter);
     r.prev_view_proj = p.taa_prev_view_proj_no_jitter;
     if (m_CbTaaReproj) m_CbTaaReproj->Update(&r, sizeof(r));
 
-    // t2 slot: Phase 34f-3 で motion texture が指定されていればそれを bind、
+    // t2 slot: motion texture が指定されていればそれを bind、
     // なければ depth (指定があれば実 depth、なければ 1x1 全 255 で sky 扱い)。
     // shader 側は taa_params.z で解釈を切り替えるので PSO の slot 数は不変。
     IRhiTexture* slot2_tex = p.taa_motion_texture
@@ -1158,7 +1156,7 @@ void FPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf
     cmd.EndRenderToSwapchain(sc, buf_idx);
 }
 
-// ==== Auto-exposure passes (Phase 34k-2) ====
+// ==== Auto-exposure passes ====
 
 IRhiTexture* FPostProcess::SceneInput(const PostProcessParams& p) const noexcept {
     if (p.auto_exposure_enabled && m_ExposedRt) return m_ExposedRt.Get();

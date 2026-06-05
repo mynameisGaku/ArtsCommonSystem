@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — in-game ParticleEditor (Phase 19b)
+// GameFramework Pillar — in-game ParticleEditor
 //
 // `FParticleEffectSystem` (gameframework/FParticleEffectSystem.h) の emitter
 // パラメータを ImGui で実機編集するためのツール用パネル。Editor / DevTool
@@ -62,7 +62,7 @@
 //     直後に `m_Dirty = true` を立てる。外部は `IsDirty()` で確認後 `ClearDirty()`
 //     で同期 (= Save 用のシグナル)。
 //   ・`spread_radians` は `ParticleEmitterDef` には現状フィールドが無いが、
-//     仕様 (Phase 19b) で要求されているため editor 側で「将来追加予定」の
+//     仕様で要求されているため editor 側で「将来追加予定」の
 //     placeholder field を持つ。実 emitter 実行時には未使用。
 //     ParticleEmitterDef に spread_radians フィールドが正式追加されたら、
 //     `m_ExtraSpreadRadians` を削除して `def.spread_radians` 直結に切替える。
@@ -75,110 +75,220 @@
 
 namespace acs::game::fxedit {
 
-// ---------------------------------------------------------------------------
-// FParticleEditorPanel — ImGui ベースの emitter property editor
-// (Phase 24: editor_core::FEditorPanel 継承)
-// ---------------------------------------------------------------------------
+/**
+ * ImGui ベースの emitter property editor パネル。
+ *
+ * @details
+ * `FParticleEffectSystem` の emitter パラメータ (ParticleEmitterDef) を実機編集する
+ * editor_core::FEditorPanel 派生のツールパネル。emitter list の編集 (Add/Remove/
+ * Duplicate) のみを担い、emitter handle や particle pool への反映と Save/Load の実体は
+ * 呼び出し側 / callback に委譲する。非コピー・非ムーブ・全 noexcept・STL 不使用。
+ */
 class FParticleEditorPanel : public ::acs::game::editor_core::FEditorPanel {
 public:
-    // Save / Load callback 型。`user` は SetSaveCallback / SetLoadCallback の
-    // 第二引数で渡したポインタがそのまま戻る (closure 代替)。
+    /**
+     * Save callback 型。
+     *
+     * @details user は SetSaveCallback の第二引数で渡したポインタがそのまま戻る (closure 代替)。
+     */
     using SaveCallback = void (*)(void* user, const ParticleEmitterDef* defs, u32 count) noexcept;
+
+    /**
+     * Load callback 型。
+     *
+     * @details
+     * user は SetLoadCallback の第二引数で渡したポインタがそのまま戻る。inout_count は
+     * 入力で受け入れ可能な最大数、出力で実際にロードした数。
+     */
     using LoadCallback = void (*)(void* user, ParticleEmitterDef* defs, u32& inout_count) noexcept;
 
+    /** 空のパネルを構築する (emitter list は空、未選択)。 */
     FParticleEditorPanel() noexcept = default;
+
+    /** 破棄する (内部 TArray が emitter list を解放)。 */
     ~FParticleEditorPanel() noexcept = default;
 
-    // 非コピー・非ムーブ: 内部 TArray<ParticleEmitterDef> の所有を曖昧にしない。
+    /** コピー禁止 (内部 TArray の所有を曖昧にしないため)。 */
     FParticleEditorPanel(const FParticleEditorPanel&)            = delete;
+
+    /** コピー代入も禁止。 */
     FParticleEditorPanel& operator=(const FParticleEditorPanel&) = delete;
+
+    /** ムーブ禁止。 */
     FParticleEditorPanel(FParticleEditorPanel&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FParticleEditorPanel& operator=(FParticleEditorPanel&&)      = delete;
 
-    // 初期化: emitter list を空に戻し selection を解除する。
-    // 多重 Init 可能 (= 完全リセット)。
+    /**
+     * emitter list を空に戻し selection を解除する (完全リセット)。
+     *
+     * @details 多重 Init 可能。callback はリセットしない。
+     */
     void Init() noexcept;
 
-    // 後片付け: emitter list を解放 (TArray は実体破棄時にも解放するため
-    // 明示 Shutdown は冪等)。多重 Shutdown 可能。
+    /**
+     * emitter list と callback を解放する。
+     *
+     * @details TArray は実体破棄時にも解放するため明示 Shutdown は冪等。多重 Shutdown 可能。
+     */
     void Shutdown() noexcept;
 
-    // Phase 24: FEditorPanel 基底に乗せるため、target system は SetTargetSystem
-    // で先に set してから DrawUI() を呼ぶパターンに変更。
+    /**
+     * read-only の target system を設定する (active particle 数表示用)。
+     *
+     * @param system 紐付ける FParticleEffectSystem (nullptr で解除)。
+     */
     void SetTargetSystem(class FParticleEffectSystem* system) noexcept { m_TargetSystem = system; }
+
+    /**
+     * 現在の target system を返す。
+     *
+     * @return 設定済みの FParticleEffectSystem (未設定なら nullptr)。
+     */
     class FParticleEffectSystem* TargetSystem() const noexcept { return m_TargetSystem; }
 
-    // FEditorPanel override: タイトル。
+    /**
+     * パネルのタイトルを返す (FEditorPanel override)。
+     *
+     * @return "Particle Editor"。
+     */
     const char* Title() const noexcept override { return "Particle Editor"; }
 
-    // FEditorPanel override: メイン ImGui window 描画。target system が set されて
-    // いれば active particle 数を表示。`Begin("Particle Editor")` から始まる
-    // 単一 window レイアウト。
+    /**
+     * メイン ImGui window を描画する (FEditorPanel override)。
+     *
+     * @details
+     * `Begin("Particle Editor")` から始まる単一 window で、左に emitter list、右に
+     * 選択中 emitter の properties を 2 カラムで並べる。target system が set されていれば
+     * active particle 数も表示する。
+     */
     void DrawUI() noexcept override;
 
-    // 新規 emitter を default param で末尾に追加し、selection を新規 emitter
-    // に移す。上限 (kMaxEmitters) に達したら no-op。
+    /**
+     * 新規 emitter を「火花っぽい」プリセットで末尾に追加し、selection を移す。
+     *
+     * @details 上限 kMaxEmitters に達していれば no-op。
+     */
     void AddEmitter() noexcept;
 
-    // 選択中 emitter を削除。selection は前の index に詰める。
-    // 未選択 / 範囲外なら no-op。
+    /**
+     * 選択中 emitter を順序保存しつつ削除する。
+     *
+     * @details 削除後 selection は同 index (= 元の次の emitter)、末尾削除時は前の要素、
+     * 空なら -1 になる。未選択 / 範囲外なら no-op。
+     */
     void RemoveSelectedEmitter() noexcept;
 
-    // 選択中 emitter を複製して直後に挿入、selection を複製先に移す。
-    // 未選択 / 上限到達は no-op。
+    /**
+     * 選択中 emitter を複製して直後に挿入し、selection を複製先に移す。
+     *
+     * @details 未選択 / 上限到達は no-op。
+     */
     void DuplicateSelectedEmitter() noexcept;
 
-    // 現在の選択 index。未選択は -1。
+    /**
+     * 現在の選択 index を返す。
+     *
+     * @return 選択中の index、未選択なら -1。
+     */
     i32 SelectedIndex() const noexcept { return m_Selected; }
 
-    // 選択 index を設定。範囲外 (>= EmitterCount()) は -1 (未選択) に
-    // 正規化する。負値も -1 にクランプ。
+    /**
+     * 選択 index を設定する。
+     *
+     * @details 範囲外 (>= EmitterCount()) や負値は -1 (未選択) に正規化する。
+     * @param index 選択する emitter index。
+     */
     void SelectEmitter(i32 index) noexcept;
 
-    // 現在の emitter 数。
+    /**
+     * 現在の emitter 数を返す。
+     *
+     * @return emitter list の要素数。
+     */
     u32 EmitterCount() const noexcept;
 
-    // index 番目の emitter def (read-only)。範囲外は nullptr。
+    /**
+     * index 番目の emitter def を返す (read-only)。
+     *
+     * @param index 取得する emitter index。
+     * @return emitter def への const ポインタ、範囲外なら nullptr。
+     */
     const ParticleEmitterDef* GetEmitterDef(i32 index) const noexcept;
 
-    // index 番目の emitter def (mutable)。範囲外は nullptr。
-    // 書き換え後は呼び出し側で `MarkDirty()` する想定。
+    /**
+     * index 番目の emitter def を返す (mutable)。
+     *
+     * @details 書き換え後は dirty を立てたい場合 IsDirty/ClearDirty の運用に注意。
+     * @param index 取得する emitter index。
+     * @return emitter def へのポインタ、範囲外なら nullptr。
+     */
     ParticleEmitterDef* GetEmitterDefMutable(i32 index) noexcept;
 
-    // Save callback を登録。nullptr 渡しで解除可能。
+    /**
+     * Save callback を登録する。
+     *
+     * @param cb 登録する callback (nullptr で解除)。
+     * @param user callback 呼び出し時にそのまま渡すユーザポインタ。
+     */
     void SetSaveCallback(SaveCallback cb, void* user) noexcept;
 
-    // Load callback を登録。nullptr 渡しで解除可能。
+    /**
+     * Load callback を登録する。
+     *
+     * @param cb 登録する callback (nullptr で解除)。
+     * @param user callback 呼び出し時にそのまま渡すユーザポインタ。
+     */
     void SetLoadCallback(LoadCallback cb, void* user) noexcept;
 
-    // emitter list 上限 (UI と内部両方の安全弁)。これを超えると AddEmitter /
-    // DuplicateSelectedEmitter は no-op。
+    /**
+     * emitter list の上限 (UI と内部両方の安全弁)。
+     *
+     * @details これを超えると AddEmitter / DuplicateSelectedEmitter は no-op になる。
+     */
     static constexpr u32 kMaxEmitters = 64u;
 
-    // 現在 dirty (= UI で何か書き換えた / Add / Remove / Dup された) か。
-    // 外部の Save タイミング判定に使う。
+    /**
+     * dirty フラグ (UI 編集 / Add / Remove / Dup で立つ) を返す。
+     *
+     * @return 何か変更されていれば true。外部の Save タイミング判定に使う。
+     */
     bool IsDirty() const noexcept { return m_Dirty; }
 
-    // dirty フラグをクリア。Save 完了後に外部が呼ぶ想定。
+    /** dirty フラグをクリアする (Save 完了後に外部が呼ぶ想定)。 */
     void ClearDirty() noexcept { m_Dirty = false; }
 
 private:
+    /** 編集中の emitter def 群 (所有)。 */
     TArray<ParticleEmitterDef> m_Emitters {};
-    // editor 専用の「将来 ParticleEmitterDef に追加される予定」の値。
-    // 現状 ParticleEmitterDef に spread_radians フィールドが無いので、
-    // editor 側のみで持つ。長さは m_Emitters と同期する。
+
+    /**
+     * editor 専用の spread_radians 値 (ParticleEmitterDef に未配備の placeholder)。
+     *
+     * @details 長さは m_Emitters と同期する。実 emitter 実行時には未使用。
+     */
     TArray<f32>                m_ExtraSpreadRadians {};
 
+    /** 現在の選択 index (未選択は -1)。 */
     i32           m_Selected     = -1;
+
+    /** dirty フラグ (編集された)。 */
     bool          m_Dirty        = false;
 
+    /** Save callback (未登録なら nullptr)。 */
     SaveCallback  m_SaveCb      = nullptr;
+
+    /** Save callback に渡すユーザポインタ。 */
     void*         m_SaveUser    = nullptr;
+
+    /** Load callback (未登録なら nullptr)。 */
     LoadCallback  m_LoadCb      = nullptr;
+
+    /** Load callback に渡すユーザポインタ。 */
     void*         m_LoadUser    = nullptr;
 
-    // Phase 24: read-only target (active particle count 表示用)。
-    // nullptr のときは "(no system attached)" を表示。
+    /** read-only target (active particle count 表示用、nullptr で "(no system attached)")。 */
     class FParticleEffectSystem* m_TargetSystem = nullptr;
 };
 

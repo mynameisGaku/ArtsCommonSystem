@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — まとめ include (Phase 1 着手)
+// GameFramework Pillar A — まとめ include
 //
 // `#include "gameframework/GameFramework.h"` 1 行で v1 の Pillar A を全部
-// 引き込める。v3 で確定した残ピラー (B〜H) は後続フェーズで追加していく。
+// 引き込める。
 #pragma once
 
 #include "gameframework/Game.h"
@@ -30,7 +30,6 @@
 #include "gameframework/Effects2D.h"
 #include "gameframework/SceneServices.h"
 
-// ----- Phase 12: parallel agent batch (Pillar B/C/G/H/I/J/L/N/O/Q/R/S 拡張) -----
 #include "gameframework/NodeId.h"
 #include "gameframework/Pool.h"
 #include "gameframework/Random.h"
@@ -52,7 +51,6 @@
 #include "gameframework/PartySystem.h"
 #include "gameframework/DevConsole.h"
 
-// ----- Phase 13: 2 巡目 (P/W/X + Polish phase) -----
 #include "gameframework/FadeTransition.h"
 #include "gameframework/SceneEventBus.h"
 #include "gameframework/StreamingDirector.h"
@@ -69,7 +67,6 @@
 #include "gameframework/TutorialFlow.h"
 #include "gameframework/DialogueSystem.h"
 
-// ----- Phase 14: 3 巡目 (Phase 2 + 完成度 + meta) -----
 #include "gameframework/SceneTimer.h"
 #include "gameframework/TriggerWorld2D.h"
 #include "gameframework/AssetPack.h"
@@ -86,7 +83,6 @@
 #include "gameframework/InspectorSeam.h"
 #include "gameframework/Progression.h"
 
-// ----- Phase 15: 4 巡目 (Phase 3 depth + Pillar D Phase 2 + meta) -----
 #include "gameframework/AnimationCurve.h"
 #include "gameframework/InputRecorder.h"
 #include "gameframework/Perception.h"
@@ -103,7 +99,6 @@
 #include "gameframework/ContentModerator.h"
 #include "gameframework/DialogueLocalizer.h"
 
-// ----- Phase 16: 5 巡目 (Pillar Q/O/V Phase 2-3 + 完成度 + meta) -----
 #include "gameframework/WaterVolume.h"
 #include "gameframework/CrashReporter.h"
 #include "gameframework/TelemetryDirector.h"
@@ -115,7 +110,6 @@
 #include "gameframework/CharacterCustomizer.h"
 #include "gameframework/CombatStateMachine.h"
 
-// ----- Phase 17: 6 巡目 (ゲームドメイン runtime — 小規模アクション RPG 一式) -----
 #include "gameframework/HealthSystem.h"
 #include "gameframework/InventorySystem.h"
 #include "gameframework/CooldownTimer.h"
@@ -127,7 +121,6 @@
 #include "gameframework/ProjectileSystem.h"
 #include "gameframework/NodePool.h"
 
-// ----- Phase 18: 7 巡目 (ジャンルキット — Card / Rhythm / Roguelike / Racing / Survival / Puzzle / Strategy / Platformer / VN) -----
 #include "gameframework/DeckSystem.h"
 #include "gameframework/BeatGrid.h"
 #include "gameframework/DungeonGenerator.h"

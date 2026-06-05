@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — FAnimationGraph (Phase 4)
+// GameFramework Pillar L — FAnimationGraph
 //
 // 3D skeleton-anim 向けの state machine ベース blend graph。
 // FSpriteAnimator (= sprite frame index 計算) と FAnimationCurve (= 任意 f32 補間)
@@ -56,7 +56,7 @@
 //   ・**clip と state を分離**: 1 clip を複数 state から参照する余地を残す (= 例
 //     えば Attack で Walk の clip を流用、Custom1 で Idle clip を流用する等)。
 //   ・**遷移条件は (param_name, threshold)**: param 値 >= threshold で発火。
-//     より複雑な条件 (== / <= / && / ||) は将来拡張。本 Phase は単純化優先。
+//     より複雑な条件 (== / <= / && / ||) は持たず、単純化優先。
 //   ・**TriggerTransition** で明示的遷移も可能 (= 攻撃ボタン入力等を直接遷移に
 //     使うケース; 条件式で表現するのは煩雑なため)。
 //   ・**enter/exit blend duration を state ごとに保持**: 「Idle → Walk」のとき
@@ -72,14 +72,6 @@
 //     共有の場合はポインタ一致 fast path, 異なるバッファでも strcmp で機能)。
 //   ・**非コピー・非ムーブ**, 全 noexcept, STL 不使用, `<string>` 禁止。
 //
-// 将来拡張 (Phase 5+):
-//   ・1D blend space (Walk + Run を speed で連続 blend)
-//   ・2D blend space (Direction X/Y で 8 方向 walk 等)
-//   ・additive layer (Hit reaction を base pose に加算)
-//   ・IK target hook (foot IK / look-at)
-//   ・遷移条件の表現力拡張 (==, <=, 複合)
-//   ・root motion 抽出
-//
 // 参考: FSpriteAnimator (frame anim), FAnimationCurve (curve), FStateMachine<T> (FSM 基盤),
 //      FModelAnimationPanel (UI 連動可能)
 #pragma once
@@ -89,265 +81,507 @@
 
 namespace acs::game {
 
-// ---------------------------------------------------------------------------
-// EAnimationGraphState — 標準状態 ID (Phase 4 では 9 固定)
-// ---------------------------------------------------------------------------
-// 一般的な 3D キャラ制御で頻出する状態を列挙。Custom1/2 はゲーム固有 (掴み /
-// 詠唱 / 変身等) を吸収する拡張枠。それでも足りない場合は本 enum を拡張する
-// (= ACS は「状態は数十個程度」を上限想定; 数百を超えるなら別設計)。
+/**
+ * 標準状態 ID (9 固定)。
+ *
+ * @details
+ * 一般的な 3D キャラ制御で頻出する状態を列挙。Custom1/2 はゲーム固有 (掴み /
+ * 詠唱 / 変身等) を吸収する拡張枠。それでも足りない場合は本 enum を拡張する
+ * (ACS は「状態は数十個程度」を上限想定; 数百を超えるなら別設計)。
+ */
 enum class EAnimationGraphState : u8 {
+    /** 待機。 */
     Idle    = 0,
+
+    /** 歩き。 */
     Walk    = 1,
+
+    /** 走り。 */
     Run     = 2,
+
+    /** ジャンプ。 */
     Jump    = 3,
+
+    /** 攻撃。 */
     Attack  = 4,
+
+    /** 被弾。 */
     Hit     = 5,
+
+    /** 死亡。 */
     Death   = 6,
+
+    /** ゲーム固有の拡張枠 1。 */
     Custom1 = 7,
+
+    /** ゲーム固有の拡張枠 2。 */
     Custom2 = 8,
 };
 
-// ---------------------------------------------------------------------------
-// FAnimationClipBinding — clip メタ情報 (state からは clip_index で参照)
-// ---------------------------------------------------------------------------
-// 注: tools/modelview/FModelAnimationPanel.h にある同名構造は
-//     `acs::game::modelview` 名前空間で別物。本構造は `acs::game` 直下に置く。
-//   clip_name     : デバッグ表示 / 外部 FAnimationPlayer 解決用名 (literal 寿命は
-//                   caller 管理)。
-//   duration_sec  : clip の長さ (秒)。0 以下は内部で 0 にクランプ (= 進行しない)。
-//   is_looping    : true なら local time が duration を超えたら wrap、false なら
-//                   末尾に固定して ClipEndCallback を発火。
-//   default_speed : Tick で local_time に乗る既定再生速度。1.0 = 等速。
+/**
+ * clip メタ情報 (state からは clip_index で参照する)。
+ *
+ * @details
+ * tools/modelview/FModelAnimationPanel.h にある同名構造は acs::game::modelview
+ * 名前空間で別物。本構造は acs::game 直下に置く。
+ */
 struct FAnimationClipBinding {
+    /** デバッグ表示 / 外部 FAnimationPlayer 解決用名 (literal 寿命は caller 管理)。 */
     const char* clip_name     = nullptr;
+
+    /** clip の長さ (秒)。0 以下は内部で 0 にクランプして進行させない。 */
     f32         duration_sec  = 0.0f;
+
+    /** true なら local time が duration を超えたら wrap、false なら末尾固定で ClipEndCallback を発火。 */
     bool        is_looping    = false;
+
+    /** Tick で local_time に乗る既定再生速度 (1.0 = 等速)。 */
     f32         default_speed = 1.0f;
 };
 
-// ---------------------------------------------------------------------------
-// FAnimationStateNode — graph 上の 1 ノード (= 1 つの状態)
-// ---------------------------------------------------------------------------
-//   name             : デバッグ表示用 (UI / log)。literal 寿命は caller 管理。
-//   id               : この state の論理 ID。AddStateNode で重複登録は後勝ち。
-//   clip_index       : 再生する FAnimationClipBinding の index (AddClip 戻り値)。
-//                      範囲外なら Tick 内で 0 にクランプ (= 安全側)。
-//   enter_blend_sec  : この state に **入る** ときに使う blend 長 (秒)。
-//                      ≦ 0 なら即時切替 (alpha=1.0 で開始)。
-//   exit_blend_sec   : この state から **抜ける** とき呼出側が参考にする値。
-//                      Phase 4 では enter 側を優先採用するため、本フィールドは
-//                      情報提供のみ (= 将来 cross-fade で両方使う想定)。
+/**
+ * graph 上の 1 ノード (= 1 つの状態)。
+ */
 struct FAnimationStateNode {
+    /** デバッグ表示用 (UI / log)。literal 寿命は caller 管理。 */
     const char*         name             = nullptr;
+
+    /** この state の論理 ID。AddStateNode で重複登録は後勝ち。 */
     EAnimationGraphState id              = EAnimationGraphState::Idle;
+
+    /** 再生する FAnimationClipBinding の index (AddClip 戻り値)。範囲外は Tick 内で 0 にクランプ。 */
     u32                 clip_index       = 0u;
+
+    /** この state に入るときに使う blend 長 (秒)。0 以下なら即時切替 (alpha=1.0 で開始)。 */
     f32                 enter_blend_sec  = 0.0f;
+
+    /** この state から抜けるとき呼出側が参考にする値 (enter 側優先採用のため情報提供のみ)。 */
     f32                 exit_blend_sec   = 0.0f;
 };
 
-// ---------------------------------------------------------------------------
-// FAnimationTransition — from → to の遷移ルール
-// ---------------------------------------------------------------------------
-//   from                       : 元状態 (current_state とこれが一致時のみ評価)
-//   to                         : 遷移先
-//   condition_param_threshold  : condition_param_name 値が **>= threshold** で発火
-//   condition_param_name       : 比較する param 名 (literal 寿命は caller 管理)。
-//                                nullptr なら exit_immediately だけ評価する。
-//   exit_immediately           : true なら param 条件成立で即発火。
-//                                false なら「現 clip が終端まで再生してから」発火
-//                                (= looping clip では効果なし、Once clip 用)。
+/**
+ * from → to の遷移ルール。
+ */
 struct FAnimationTransition {
+    /** 元状態 (current_state とこれが一致時のみ評価)。 */
     EAnimationGraphState from                      = EAnimationGraphState::Idle;
+
+    /** 遷移先。 */
     EAnimationGraphState to                        = EAnimationGraphState::Idle;
+
+    /** condition_param_name 値が >= この閾値で発火。 */
     f32                  condition_param_threshold = 0.0f;
+
+    /** 比較する param 名 (literal 寿命は caller 管理)。nullptr なら exit_immediately だけ評価。 */
     const char*          condition_param_name      = nullptr;
+
+    /** true なら param 条件成立で即発火、false なら現 clip が終端まで再生してから発火 (Once clip 用)。 */
     bool                 exit_immediately          = true;
 };
 
-// ---------------------------------------------------------------------------
-// GraphHandle — 将来の multi-graph 管理用 handle (Phase 4 では未使用)
-// ---------------------------------------------------------------------------
-// 24bit index + 8bit gen を packed (Cooldown/FSceneTimer と同方針)。
-// 本 Phase では FAnimationGraph 単体使用想定だが、複数グラフ (= 上半身 / 下半身
-// 別レイヤ) を将来導入する際に再利用するため API として公開しておく。
+/**
+ * multi-graph 管理用 handle (現状未使用)。
+ *
+ * @details
+ * 24bit index + 8bit gen を packed (Cooldown/FSceneTimer と同方針)。
+ * FAnimationGraph 単体使用想定だが、複数グラフ (= 上半身 / 下半身別レイヤ) を
+ * 導入する際に再利用するため API として公開しておく。
+ */
 struct GraphHandle {
+    /** index と generation を packed した値 (0 = 無効)。 */
     u32 m_Packed = 0u;
 
+    /**
+     * 有効な handle かを返す。
+     *
+     * @return packed が 0 でなければ true。
+     */
     bool IsValid() const noexcept { return m_Packed != 0u; }
 
+    /** index フィールドのビット幅。 */
     static constexpr u32 kIndexBits = 24u;
-    static constexpr u32 kIndexMask = (1u << kIndexBits) - 1u; // 0x00FFFFFF
-    static constexpr u32 kMaxIndex  = kIndexMask;              // 16777215
 
+    /** index フィールドを取り出すマスク (0x00FFFFFF)。 */
+    static constexpr u32 kIndexMask = (1u << kIndexBits) - 1u;
+
+    /** 表現可能な最大 index (16777215)。 */
+    static constexpr u32 kMaxIndex  = kIndexMask;
+
+    /**
+     * index と generation を packed して handle を作る。
+     *
+     * @param index 24bit に収まる配列インデックス。
+     * @param gen 8bit の generation 値。
+     * @return packed した GraphHandle。
+     */
     static GraphHandle Pack(u32 index, u8 gen) noexcept {
         GraphHandle h;
         h.m_Packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return h;
     }
+
+    /**
+     * packed 値から index を取り出す。
+     *
+     * @return 下位 24bit の index。
+     */
     u32 Index() const noexcept { return m_Packed & kIndexMask; }
+
+    /**
+     * packed 値から generation を取り出す。
+     *
+     * @return 上位 8bit の generation。
+     */
     u8  Gen()   const noexcept { return static_cast<u8>(m_Packed >> kIndexBits); }
 
+    /**
+     * packed 値が等しいかを比較する。
+     *
+     * @param o 比較する handle。
+     * @return packed が一致すれば true。
+     */
     constexpr bool operator==(GraphHandle o) const noexcept { return m_Packed == o.m_Packed; }
+
+    /**
+     * packed 値が異なるかを比較する。
+     *
+     * @param o 比較する handle。
+     * @return packed が異なれば true。
+     */
     constexpr bool operator!=(GraphHandle o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
-// ---------------------------------------------------------------------------
-// FAnimationGraph — state machine ベースの blend graph
-// ---------------------------------------------------------------------------
+/**
+ * state machine ベースの blend graph (3D skeleton-anim 向け)。
+ *
+ * @details
+ * 「現在再生中の clip + 遷移ブレンド」という meta 制御のみを担い、どの clip を /
+ * いつから / どの blend alpha で再生するかを提供する。bone palette 計算や GPU upload
+ * は呼出側 renderer に委譲する。状態は EAnimationGraphState の固定 ID で表し、遷移条件は
+ * (param_name, threshold) または TriggerTransition による明示指定。enter blend 長は遷移先
+ * state 側に持たせ、blend 中は previous_state と blend_alpha (0→1) を出力する。
+ * 非コピー・非ムーブ、全 noexcept、STL 不使用。
+ */
 class FAnimationGraph {
 public:
-    // state 遷移直後 (新 state の OnEnter 相当) に発火。
-    // user : SetOnStateEnterCallback で渡した不透明ポインタ。
-    // from : 直前 state (初回 Tick 等で history 無い場合は current 自身)。
-    // to   : 新 state (= CurrentState())。
+    /**
+     * state 遷移直後 (新 state の OnEnter 相当) に発火する callback 型。
+     *
+     * @param user SetOnStateEnterCallback で渡した不透明ポインタ。
+     * @param from 直前 state (初回 Tick 等で history が無い場合は current 自身)。
+     * @param to 新 state (= CurrentState())。
+     */
     using StateEnterCallback = void(*)(void* user,
                                        EAnimationGraphState from,
                                        EAnimationGraphState to) noexcept;
 
-    // 現 clip が末尾に達したとき (looping=false 時のみ) 発火。
-    // user        : SetOnClipEndCallback で渡した不透明ポインタ。
-    // state       : 末尾に達した clip を含む state ID (= CurrentState())。
-    // clip_index  : 末尾に達した clip の index。
+    /**
+     * 現 clip が末尾に達したとき (looping=false 時のみ) 発火する callback 型。
+     *
+     * @param user SetOnClipEndCallback で渡した不透明ポインタ。
+     * @param state 末尾に達した clip を含む state ID (= CurrentState())。
+     * @param clip_index 末尾に達した clip の index。
+     */
     using ClipEndCallback = void(*)(void* user,
                                     EAnimationGraphState state,
                                     u32 clip_index) noexcept;
 
+    /** 空のグラフを構築する (clip / state / transition なし)。 */
     FAnimationGraph() noexcept = default;
+
+    /** 破棄する (内部 TArray が解放)。 */
     ~FAnimationGraph() noexcept = default;
 
-    // 非コピー・非ムーブ (callback の self ポインタとの競合を防ぐ; ACS 規約)
+    /** コピー禁止 (callback の self ポインタとの競合を防ぐ)。 */
     FAnimationGraph(const FAnimationGraph&)            = delete;
+
+    /** コピー代入も禁止。 */
     FAnimationGraph& operator=(const FAnimationGraph&) = delete;
+
+    /** ムーブ禁止 (ACS 規約)。 */
     FAnimationGraph(FAnimationGraph&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FAnimationGraph& operator=(FAnimationGraph&&)      = delete;
 
-    // ----- 初期化 / 解放 ---------------------------------------------------
-
-    // 内部 state / clip / transition / param を全てクリア + callback を nullptr に。
-    // 多重 Init 可 (= 既存内容を破棄して再構築)。
+    /**
+     * 内部 state / clip / transition / param を全てクリアし callback を nullptr にする。
+     *
+     * @details 多重 Init 可 (= 既存内容を破棄して再構築)。
+     */
     void Init() noexcept;
 
-    // 内部 TArray を Clear するだけ (~TArray が容量を解放するので明示 Shutdown は
-    // 主にライフサイクル明示用)。多重 Shutdown 可。
+    /**
+     * 内部 TArray を Clear して実行時状態をリセットする。
+     *
+     * @details ~TArray が容量を解放するので明示 Shutdown は主にライフサイクル明示用。多重 Shutdown 可。
+     */
     void Shutdown() noexcept;
 
-    // ----- clip 管理 -------------------------------------------------------
-
-    // clip を登録し、内部 index を返す。失敗は無いが超過時は最終 index を返す。
+    /**
+     * clip を登録し、内部 index を返す。
+     *
+     * @param clip 登録する clip メタ情報。
+     * @return 登録した clip の index。
+     */
     u32                         AddClip(const FAnimationClipBinding& clip) noexcept;
+
+    /**
+     * 登録済み clip の数を返す。
+     *
+     * @return clip の個数。
+     */
     u32                         ClipCount() const noexcept;
+
+    /**
+     * 指定 index の clip メタ情報を返す。
+     *
+     * @param i 取得する clip のインデックス。
+     * @return clip への const ポインタ (範囲外なら nullptr)。
+     */
     const FAnimationClipBinding* GetClip(u32 i) const noexcept;
 
-    // ----- state node 管理 -------------------------------------------------
-
-    // 既存 ID と同じ node を追加すると "後勝ち" で上書き (= 同 ID 重複を許容しない)。
+    /**
+     * state node を追加する (同 ID は後勝ちで上書き)。
+     *
+     * @details 同 ID 重複は許容せず、初回追加なら初期状態としてセットされる。
+     * @param node 追加する state node。
+     */
     void                       AddStateNode(const FAnimationStateNode& node) noexcept;
+
+    /**
+     * 登録済み state node の数を返す。
+     *
+     * @return state node の個数。
+     */
     u32                        StateNodeCount() const noexcept;
+
+    /**
+     * 指定 index の state node を返す。
+     *
+     * @param i 取得する state node のインデックス。
+     * @return state node への const ポインタ (範囲外なら nullptr)。
+     */
     const FAnimationStateNode*  GetStateNode(u32 i) const noexcept;
 
-    // ----- transition 管理 -------------------------------------------------
-
-    // transition を追加。重複チェックなし (= 同 from→to を複数登録すれば最初の
-    // ものが優先される; AddTransition 順がそのまま評価順)。
+    /**
+     * transition を追加する。
+     *
+     * @details 重複チェックなし。AddTransition 順がそのまま評価順となり、同 from→to は先頭が優先される。
+     * @param trans 追加する遷移ルール。
+     */
     void                        AddTransition(const FAnimationTransition& trans) noexcept;
+
+    /**
+     * 登録済み transition の数を返す。
+     *
+     * @return transition の個数。
+     */
     u32                         TransitionCount() const noexcept;
+
+    /**
+     * 指定 index の transition を返す。
+     *
+     * @param i 取得する transition のインデックス。
+     * @return transition への const ポインタ (範囲外なら nullptr)。
+     */
     const FAnimationTransition*  GetTransition(u32 i) const noexcept;
 
-    // ----- パラメータ -------------------------------------------------------
-
-    // 遷移条件で参照される f32 param を設定。name 既存なら値更新、無ければ追加。
-    // name == nullptr は no-op。name の寿命は caller 管理。
+    /**
+     * 遷移条件で参照される f32 param を設定する。
+     *
+     * @details name 既存なら値更新、無ければ追加。name の寿命は caller 管理。name == nullptr は no-op。
+     * @param name param 名。
+     * @param value 設定する値。
+     */
     void SetParam(const char* name, f32 value) noexcept;
 
-    // param 取得。未登録 / name==nullptr は 0.0f。
+    /**
+     * param の値を取得する。
+     *
+     * @param name 取得する param 名。
+     * @return param 値 (未登録 / name==nullptr なら 0.0f)。
+     */
     f32  GetParam(const char* name) const noexcept;
 
-    // ----- 遷移制御 --------------------------------------------------------
-
-    // 明示的遷移要求。next Tick で transition 評価より優先して新 state へ移る
-    // (= 攻撃ボタン等の input event を直接遷移に使うため)。
-    // 同 state を指定した場合は no-op (= 同 state への self-loop は明示的に
-    // クリアしないと意図せぬ再 enter を招くため弾く)。
+    /**
+     * 明示的な遷移を要求する (次 Tick で transition 評価より優先)。
+     *
+     * @details
+     * 攻撃ボタン等の input event を直接遷移に使うための機構。同 state を指定した場合は
+     * 意図せぬ再 enter を防ぐため no-op。
+     * @param target_state 遷移先の state ID。
+     */
     void TriggerTransition(EAnimationGraphState target_state) noexcept;
 
-    // ----- 状態取得 --------------------------------------------------------
-
+    /**
+     * 現在の state ID を返す。
+     *
+     * @return 現在の EAnimationGraphState。
+     */
     EAnimationGraphState CurrentState()      const noexcept { return m_CurrentState;  }
+
+    /**
+     * 直前の state ID を返す。
+     *
+     * @return 直前の EAnimationGraphState。
+     */
     EAnimationGraphState PreviousState()     const noexcept { return m_PreviousState; }
+
+    /**
+     * 現 clip 内の経過秒 (local time) を返す。
+     *
+     * @return 現 clip 内の経過秒。
+     */
     f32                  CurrentLocalTime()  const noexcept { return m_LocalTime;     }
 
-    // blend 中なら 0..1 (新状態の比率)、否なら 1.0。
-    // blend_duration <= 0 のときは即時切替なので常に 1.0。
+    /**
+     * 現在の blend alpha を返す。
+     *
+     * @details blend_duration <= 0 のときは即時切替なので常に 1.0。
+     * @return blend 中なら 0..1 (新状態の比率)、否なら 1.0。
+     */
     f32                  CurrentBlendAlpha() const noexcept;
 
-    // 現 state に紐づく clip index。state 未設定なら 0。
+    /**
+     * 現 state に紐づく clip index を返す。
+     *
+     * @return 現 state の clip index (state 未設定なら 0)。
+     */
     u32                  CurrentClipIndex()  const noexcept;
 
-    // ----- 主処理 ----------------------------------------------------------
-
-    // ・current state の clip local_time を進める (looping は wrap、once は終端
-    //   固定 + ClipEndCallback)
-    // ・blend timer を進める (alpha 計算は CurrentBlendAlpha() の lazy 計算)
-    // ・pending trigger があれば優先処理 (= 即遷移)
-    // ・各 transition (from==current) を評価し、条件成立で遷移
-    // dt <= 0 は no-op (= 巻き戻し非対応; FSpriteAnimator と同方針)。
+    /**
+     * グラフを 1 フレーム進める。
+     *
+     * @details
+     * pending trigger を最優先で処理し、blend timer を進め、current state の clip
+     * local_time を前進させ (looping は wrap、once は終端固定 + ClipEndCallback)、
+     * from==current の transition を評価して条件成立で遷移する。dt <= 0 は no-op。
+     * @param dt 経過秒。
+     */
     void Tick(f32 dt) noexcept;
 
-    // 全状態を初期化 (current = first state、local_time = 0、blend = 完了)。
-    // clip / state / transition / param 設定はそのまま維持 (= Init との違い)。
-    // callback も保持。state node が 0 個なら何もせず current_state も変更しない。
+    /**
+     * 実行時状態を初期化する (current = 先頭 state、local_time = 0、blend = 完了)。
+     *
+     * @details
+     * clip / state / transition / param 設定と callback はそのまま維持する (Init との違い)。
+     * state node が 0 個なら current_state を変更しない。
+     */
     void Reset() noexcept;
 
-    // ----- callback --------------------------------------------------------
-
+    /**
+     * state 遷移時に呼ぶ callback を設定する。
+     *
+     * @param cb 遷移直後に呼ぶ callback (nullptr で無効化)。
+     * @param user callback に渡す不透明ポインタ。
+     */
     void SetOnStateEnterCallback(StateEnterCallback cb, void* user) noexcept;
+
+    /**
+     * clip 終端到達時に呼ぶ callback を設定する。
+     *
+     * @param cb clip 末尾到達時に呼ぶ callback (nullptr で無効化)。
+     * @param user callback に渡す不透明ポインタ。
+     */
     void SetOnClipEndCallback   (ClipEndCallback    cb, void* user) noexcept;
 
 private:
+    /**
+     * 名前付きの f32 パラメータ 1 個。
+     */
     struct Param {
+        /** param 名 (literal 寿命は caller 管理)。 */
         const char* name  = nullptr;
+
+        /** param の現在値。 */
         f32         value = 0.0f;
     };
 
-    // state ID から内部 _state_nodes 配列の index を引く。見つからなければ -1
-    // (= u32 で UINT32_MAX) を返す。
+    /**
+     * state ID から内部 _state_nodes 配列の index を引く。
+     *
+     * @param id 探す state ID。
+     * @return 見つかった index (無ければ kInvalidIndex)。
+     */
     u32 FindStateNodeIndex(EAnimationGraphState id) const noexcept;
 
-    // 新 state への遷移を実行 (blend timer set、prev/cur 更新、callback 発火)。
-    // target が現状態と同じ場合でも強制 enter する (= TriggerTransition での
-    // 明示再起動は許容したい場合; ただし内部呼び出しは事前に弾く想定)。
+    /**
+     * 新 state への遷移を実行する (blend timer set、prev/cur 更新、callback 発火)。
+     *
+     * @details
+     * target が現状態と同じ場合でも強制 enter する。未登録 state への遷移は無視する。
+     * @param target 遷移先の state ID。
+     */
     void DoTransition(EAnimationGraphState target) noexcept;
 
-    // 現 state の transition を 1 つ評価し、成立すれば遷移して true を返す。
-    // exit_immediately=false の場合は「Once clip 終端到達まで」発火を保留する。
-    // 1 Tick で複数連続遷移を防ぐため、true を返したら呼出側はループを止める。
+    /**
+     * 現 state の transition を順に評価し、成立すれば遷移する。
+     *
+     * @details
+     * exit_immediately=false の場合は Once clip 終端到達まで発火を保留する。
+     * 1 Tick で複数連続遷移を防ぐため、遷移したら呼出側はループを止める。
+     * @return 遷移が起きたら true。
+     */
     bool EvaluateTransitions() noexcept;
 
-    // local_time を current clip の duration に応じて進行 + wrap/clamp。
-    // 末尾到達で is_looping=false なら true を返す (ClipEndCallback 発火条件)。
+    /**
+     * local_time を current clip の duration に応じて進行させる (wrap/clamp)。
+     *
+     * @param dt 経過秒。
+     * @return 末尾到達で is_looping=false なら true (ClipEndCallback 発火条件)。
+     */
     bool AdvanceLocalTime(f32 dt) noexcept;
 
-    // ---- データ ----
+    /** 登録済み clip メタ情報。 */
     TArray<FAnimationClipBinding> m_Clips;
+
+    /** 登録済み state node。 */
     TArray<FAnimationStateNode>   _state_nodes;
+
+    /** 登録済み transition (評価順 = 追加順)。 */
     TArray<FAnimationTransition>  m_Transitions;
+
+    /** 遷移条件で参照される param 群。 */
     TArray<Param>                m_Params;
 
-    // ---- 実行時状態 ----
+    /** 現在の state ID。 */
     EAnimationGraphState m_CurrentState    = EAnimationGraphState::Idle;
+
+    /** 直前の state ID。 */
     EAnimationGraphState m_PreviousState   = EAnimationGraphState::Idle;
-    f32                  m_LocalTime       = 0.0f; // 現 clip 内の経過秒
-    f32                  m_BlendTimer      = 0.0f; // 0 = blend 完了 / >0 = blend 残時間
-    f32                  m_BlendDuration   = 0.0f; // 現遷移の総 blend 時間
-    bool                 m_HasCurrent      = false;// state node が 1 つでも入って Reset 済か
-    bool                 m_ClipEndedFired = false;// 同 Once clip で多重発火を防ぐ
+
+    /** 現 clip 内の経過秒。 */
+    f32                  m_LocalTime       = 0.0f;
+
+    /** blend 残時間 (0 = blend 完了 / >0 = 残時間)。 */
+    f32                  m_BlendTimer      = 0.0f;
+
+    /** 現遷移の総 blend 時間。 */
+    f32                  m_BlendDuration   = 0.0f;
+
+    /** state node が 1 つでも入って初期状態がセット済みか。 */
+    bool                 m_HasCurrent      = false;
+
+    /** 同 Once clip での ClipEndCallback 多重発火を防ぐフラグ。 */
+    bool                 m_ClipEndedFired = false;
+
+    /** TriggerTransition で要求された遷移先 (m_bTriggerPending が true のとき有効)。 */
     EAnimationGraphState m_PendingTrigger  = EAnimationGraphState::Idle;
+
+    /** 明示的遷移の予約が立っているか。 */
     bool                 m_bTriggerPending  = false;
 
-    // ---- callback ----
+    /** state 遷移時 callback。 */
     StateEnterCallback _state_enter_cb   = nullptr;
+
+    /** state 遷移時 callback に渡す不透明ポインタ。 */
     void*              _state_enter_user = nullptr;
+
+    /** clip 終端到達時 callback。 */
     ClipEndCallback    m_ClipEndCb      = nullptr;
+
+    /** clip 終端到達時 callback に渡す不透明ポインタ。 */
     void*              m_ClipEndUser    = nullptr;
 };
 

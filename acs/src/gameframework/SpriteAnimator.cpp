@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FSpriteAnimator 実装 (Phase 3 完結)
+// GameFramework Pillar C — FSpriteAnimator 実装
 //
 // ・時間→frame index 計算: floor(m_Elapsed * m_Fps)
 // ・Loop:     N で mod
@@ -12,6 +12,7 @@
 
 namespace acs::game {
 
+/** 再生パラメータを初期化する (不正値は安全な既定に補正、frame event は維持)。 */
 void FSpriteAnimator::Init(u32 frame_count, f32 fps, EPlayMode mode) noexcept {
     m_FrameCount   = frame_count == 0u ? 1u : frame_count;
     m_Fps           = fps > 0.0f ? fps : 1.0f;
@@ -22,6 +23,7 @@ void FSpriteAnimator::Init(u32 frame_count, f32 fps, EPlayMode mode) noexcept {
     m_Finished      = false;
 }
 
+/** 再生を開始する (Once が終了済みなら先頭へ巻き戻してから再生)。 */
 void FSpriteAnimator::Play() noexcept {
     // Once が末尾で終わっているときに Play() されたら先頭に巻き戻して再生
     // (= 「もう一回」を Play 単独で実現する一般的な期待挙動)
@@ -33,10 +35,12 @@ void FSpriteAnimator::Play() noexcept {
     m_Playing = true;
 }
 
+/** 位置を維持して一時停止する。 */
 void FSpriteAnimator::Pause() noexcept {
     m_Playing = false;
 }
 
+/** 先頭に戻して停止する (経過時間・終了フラグもリセット)。 */
 void FSpriteAnimator::Stop() noexcept {
     m_Playing       = false;
     m_Elapsed       = 0.0f;
@@ -44,6 +48,7 @@ void FSpriteAnimator::Stop() noexcept {
     m_Finished      = false;
 }
 
+/** 経過秒から周期を考慮した論理 frame index を計算する (Loop=mod / PingPong=折返し / Once=クランプ)。 */
 u32 FSpriteAnimator::ComputeFrame(f32 elapsed) const noexcept {
     // 1 frame の表示時間 (sec/frame)
     const f32 t = elapsed * m_Fps;          // = 経過 frame 数 (連続値)
@@ -70,6 +75,7 @@ u32 FSpriteAnimator::ComputeFrame(f32 elapsed) const noexcept {
     return 0;
 }
 
+/** 経過時間を進め、周期 wrap/クランプ後に frame を再計算して frame event を発火する。 */
 void FSpriteAnimator::Tick(f32 dt) noexcept {
     if (!m_Playing || dt <= 0.0f) return;
     if (m_Fps <= 0.0f)            return; // 0 fps はフリーズ
@@ -113,6 +119,7 @@ void FSpriteAnimator::Tick(f32 dt) noexcept {
     }
 }
 
+/** next に一致する frame event を発火する (二重発火しないよう Tick から境界跨ぎ時のみ呼ばれる)。 */
 void FSpriteAnimator::FireEventsBetween(u32 prev, u32 next, bool wrapped) noexcept {
     // 同 frame で wrap (= 1 周期内に止まる超低 fps & 高 dt) を考慮。
     // Loop:     prev<next なら (prev, next] が新規進入、wrapped なら間の周回も発火。
@@ -132,6 +139,7 @@ void FSpriteAnimator::FireEventsBetween(u32 prev, u32 next, bool wrapped) noexce
     }
 }
 
+/** [0,1] のフレーム進行率を返す (Loop/PingPong は周期内、Once は 0→1 の単調進行)。 */
 f32 FSpriteAnimator::NormalizedTime() const noexcept {
     if (m_FrameCount == 0u || m_Fps <= 0.0f) return 0.0f;
 
@@ -156,6 +164,7 @@ f32 FSpriteAnimator::NormalizedTime() const noexcept {
     return 0.0f;
 }
 
+/** 指定 frame へ強制シークする (末尾クランプ、m_Elapsed を frame 先頭時刻へ再計算)。 */
 void FSpriteAnimator::SetCurrentFrame(u32 i) noexcept {
     if (m_FrameCount == 0u) return;
     const u32 idx = i >= m_FrameCount ? (m_FrameCount - 1u) : i;
@@ -166,10 +175,12 @@ void FSpriteAnimator::SetCurrentFrame(u32 i) noexcept {
     m_Finished = false;
 }
 
+/** fps を差し替える (負値は 0 にクランプ = フリーズ相当)。 */
 void FSpriteAnimator::SetFps(f32 fps) noexcept {
     m_Fps = fps > 0.0f ? fps : 0.0f;
 }
 
+/** frame 進入時に呼ぶコールバックを登録する (cb==nullptr / 範囲外 frame は無視)。 */
 void FSpriteAnimator::AddFrameEvent(u32 frame, FrameEventFn cb, void* user) noexcept {
     if (cb == nullptr)         return;
     if (frame >= m_FrameCount) return; // 範囲外は黙って無視

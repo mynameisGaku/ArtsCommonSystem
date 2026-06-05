@@ -22,58 +22,140 @@
 
 namespace acs {
 
+/**
+ * 同サイズ小ブロックに特化した lock-free 固定サイズプール (Treiber スタック方式)。
+ *
+ * @details
+ * 構築時に block_size×block_count の連続ストレージを 1 回確保し、全ブロックを単方向
+ * フリーリストに連結する。Alloc=head の pop、Free=head への push を 64bit CAS 1 回で行う。
+ * ABA 問題は head ポインタ (x64 ユーザ空間 47bit) の上位 17bit に世代タグを埋め込む方式で
+ * 回避する (DCAS 不要)。パーティクル・ノード・コンポーネント等の大量確保/解放に向く。
+ */
 class FPoolAllocator final : public FAllocator {
 public:
-    // 1 ブロックのサイズ（最低 sizeof(Node)=8B にラウンドアップ）
-    // ブロック総数を block_count、整列を alignment で指定。
+    /**
+     * 固定サイズブロックのプールを構築し、ストレージを 1 回確保する。
+     *
+     * @details
+     * block_size は最低 sizeof(Node) かつ alignment の倍数に切り上げられる。alignment は
+     * 最低 sizeof(void*)。block_size×block_count のオーバーフローや確保失敗時は空プール
+     * (BlockCount()==0) になる。初期フリーリスト連結はシングルスレッド前提。
+     * @param block_size 1 ブロックの要求サイズ (内部で切り上げ)。
+     * @param block_count ブロック総数。
+     * @param alignment 各ブロックのアライメント (既定 kDefaultAlignment)。
+     * @param backing ストレージの確保元 (nullptr なら DefaultAllocator)。
+     */
     FPoolAllocator(usize block_size, usize block_count,
                   usize alignment = kDefaultAlignment,
                   FAllocator* backing = nullptr) noexcept;
+
+    /** ストレージを backing に返して破棄する。 */
     ~FPoolAllocator() noexcept override;
 
+    /** コピー禁止 (ストレージを単独所有するため)。 */
     FPoolAllocator(const FPoolAllocator&) = delete;
+
+    /** コピー代入も禁止。 */
     FPoolAllocator& operator=(const FPoolAllocator&) = delete;
 
+    /**
+     * フリーリストから 1 ブロックを pop して返す (Treiber スタックの pop)。
+     *
+     * @details size がブロックサイズ超、alignment がプールの整列超、プール枯渇時は nullptr。返す領域は常に 1 ブロック分。
+     * @param size 要求サイズ (m_BlockSize 以下であること)。
+     * @param alignment 要求アライメント (プールの整列以下であること)。
+     * @param loc 診断用の呼び出し位置 (本実装では未使用)。
+     * @return 確保した 1 ブロック (失敗時 nullptr)。
+     */
     void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override;
+
+    /**
+     * ブロックをフリーリストへ push して返す (Treiber スタックの push)。
+     *
+     * @details nullptr は no-op。このプール由来でないポインタを渡すと UB (検証は Contains で行う)。
+     * @param ptr このプールが払い出したブロック (nullptr 可)。
+     */
     void  Free (void* ptr)                                  noexcept override;
 
-    // ブロックサイズ / 総数の取得
+    /**
+     * 1 ブロックのサイズを返す (切り上げ後)。
+     *
+     * @return 切り上げ済みのブロックサイズ (バイト)。
+     */
     u64 BlockSize()      const noexcept { return m_BlockSize; }
+
+    /**
+     * ブロック総数を返す。
+     *
+     * @return プールが保持するブロック数 (確保失敗時 0)。
+     */
     u64 BlockCount()     const noexcept { return m_BlockCount; }
 
-    // 現在の使用量 = 生存ブロック数 × ブロックサイズ
+    /**
+     * 現在の使用バイト数を返す。
+     *
+     * @return 生存ブロック数 × ブロックサイズ。
+     */
     u64 BytesAllocated() const noexcept override {
         return m_Live.Load(EMemoryOrder::Acquire) * m_BlockSize;
     }
+
+    /**
+     * 識別名を返す。
+     *
+     * @return 文字列 "TPool"。
+     */
     const char* Name()   const noexcept override { return "TPool"; }
 
-    // ptr がこのプールから払い出されたものか判定（Heap フォールバックとの区別用）
+    /**
+     * ptr がこのプールのストレージ範囲内かを判定する。
+     *
+     * @details Heap フォールバック等との区別に使う。アライメント (= 実ブロック先頭) までは検証しない。
+     * @param ptr 判定対象のポインタ。
+     * @return プールのストレージ範囲内なら true。
+     */
     bool Contains(const void* ptr) const noexcept {
         if (!m_Storage || !ptr) return false;
-        const u8* p = static_cast<const u8*>(ptr);
-        const u8* end = m_Storage + m_BlockSize * m_BlockCount;
+        const u8* const p = static_cast<const u8*>(ptr);
+        const u8* const end = m_Storage + m_BlockSize * m_BlockCount;
         return p >= m_Storage && p < end;
     }
 
 private:
-    // フリーリストノード（フリーブロックの先頭にオーバーレイ配置）
+    /** フリーリストノード (フリーブロックの先頭にオーバーレイ配置)。 */
     struct Node {
+        /** 次のフリーブロックへのリンク。 */
         Node* next;
     };
 
-    // ABA タグ付きポインタ（16B、未使用だが将来 DCAS への切替時用）
+    /** ABA タグ付きポインタ (16B、現状未使用。将来 DCAS へ切り替える際用)。 */
     struct alignas(16) TaggedPtr {
+        /** フリーブロックへのポインタ。 */
         Node* ptr;
+
+        /** ABA 検出用の世代タグ。 */
         u64   tag;
     };
 
-    u8*               m_Storage    = nullptr;     // ブロック配列の先頭
+    /** ブロック配列の先頭 (backing から 1 回確保、失敗時 nullptr)。 */
+    u8*               m_Storage    = nullptr;
+
+    /** 切り上げ済みの 1 ブロックサイズ。 */
     u64               m_BlockSize = 0;
+
+    /** ブロック総数 (確保失敗時 0)。 */
     u64               m_BlockCount= 0;
+
+    /** 各ブロックのアライメント (切り上げ済み)。 */
     u64               m_Alignment  = 0;
-    FAllocator*        m_Backing    = nullptr;     // m_Storage の確保元
-    TAtomic<u64>       m_Live {0};                 // 現在使用中のブロック数
-    // フリーリストの head + ABA タグ を 1 つの 64bit にパック
+
+    /** ストレージの確保元アロケータ。 */
+    FAllocator*        m_Backing    = nullptr;
+
+    /** 現在使用中のブロック数 (統計用)。 */
+    TAtomic<u64>       m_Live {0};
+
+    /** フリーリスト head と ABA タグを 1 ワードにパックしたもの (上位 17bit=タグ、下位 47bit=ポインタ)。 */
     TAtomic<u64>       m_HeadPacked {0};
 };
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M Phase 2 — FNetSnapshot 実装
+// GameFramework Pillar M — FNetSnapshot 実装
 //
 // 構成:
 //   1) NetTransportStub: 常に NotImplemented を返す null-object transport。
@@ -12,9 +12,9 @@
 //      ・TryGetInterpolatedSnapshot: 2 snapshot を取り出して entity 単位で
 //        線形補間 (現時点では同 entity_id 同 component_mask の data を 2 つ
 //        並べる純粋な lerp は行わず、buffer 内の "より新しい側" の data を
-//        view として返す)。本 Phase の補間は "時刻に対応する snapshot を選ぶ"
-//        段階まで実装し、float コンポーネント単位の値補間は Phase 3 で
-//        コンポーネントスキーマが入ってから本実装する。
+//        view として返す)。補間は "時刻に対応する snapshot を選ぶ" 段階まで
+//        実装し、float コンポーネント単位の値補間はコンポーネントスキーマが
+//        入ってから本実装する。
 //
 // 設計メモ:
 //   ・wire format (frame): [magic 'ACSN'][version][SnapshotHeader(24B)]
@@ -51,46 +51,75 @@ namespace acs::game {
 
 namespace {
 
-// -----------------------------------------------------------------------------
-// little-endian 読み書き helper (strict-aliasing 安全)
-// -----------------------------------------------------------------------------
-// ホスト側 (Win x64 / ARM64 LE) 前提なので memcpy された生バイトがそのまま
-// 整数になる。FSaveArchive.cpp / FLockstep.cpp と同じ流儀。
-// -----------------------------------------------------------------------------
+/**
+ * u32 を little-endian で書き出す (strict-aliasing 安全)。
+ *
+ * @param dst 書き込み先。
+ * @param v 書き出す値。
+ */
 inline void WriteU32LE(u8* dst, u32 v) noexcept { MemCopy(dst, &v, sizeof(u32)); }
+
+/**
+ * u64 を little-endian で書き出す (strict-aliasing 安全)。
+ *
+ * @param dst 書き込み先。
+ * @param v 書き出す値。
+ */
 inline void WriteU64LE(u8* dst, u64 v) noexcept { MemCopy(dst, &v, sizeof(u64)); }
+
+/**
+ * u32 を little-endian で読み出す (strict-aliasing 安全)。
+ *
+ * @param src 読み込み元。
+ * @return 復元した u32。
+ */
 inline u32  ReadU32LE (const u8* src) noexcept { u32 v = 0; MemCopy(&v, src, sizeof(u32)); return v; }
+
+/**
+ * u64 を little-endian で読み出す (strict-aliasing 安全)。
+ *
+ * @param src 読み込み元。
+ * @return 復元した u64。
+ */
 inline u64  ReadU64LE (const u8* src) noexcept { u64 v = 0; MemCopy(&v, src, sizeof(u64)); return v; }
 
-// -----------------------------------------------------------------------------
-// frame wire format 定数
-// -----------------------------------------------------------------------------
-// frame = [magic 'ACSN'(4)][version(4)][SnapshotHeader(24)][payload][crc32(4)]。
-// magic + version は FLockstep の 'ACSL' / version レイアウトと同思想で、
-// 異なる wire stream の混入 / 非互換バージョンを受信時に弾く。
-constexpr u8  kFrameMagic[4]   = { 'A', 'C', 'S', 'N' };  // 'ACSN' (Net Snapshot)
+/** frame magic 'ACSN' (Net Snapshot。異なる wire stream の混入を弾く)。 */
+constexpr u8  kFrameMagic[4]   = { 'A', 'C', 'S', 'N' };
+
+/** frame の wire format バージョン。 */
 constexpr u32 kFrameVersion    = 1u;
+
+/** magic フィールドのバイト数。 */
 constexpr u32 kMagicSize       = 4u;
+
+/** version フィールドのバイト数。 */
 constexpr u32 kVersionSize     = 4u;
 
-// SnapshotHeader を 24 byte の LE wire format に書く / 読む。
+/** SnapshotHeader の wire 上のバイト数。 */
 constexpr u32 kHeaderWireSize = 24;
 
-// frame 内オフセット。
-constexpr u32 kVersionOffset = kMagicSize;                          // 4
-constexpr u32 kHeaderOffset  = kMagicSize + kVersionSize;           // 8
-constexpr u32 kPayloadOffset = kHeaderOffset + kHeaderWireSize;     // 32
+/** version フィールドの frame 内オフセット。 */
+constexpr u32 kVersionOffset = kMagicSize;
+
+/** SnapshotHeader の frame 内オフセット。 */
+constexpr u32 kHeaderOffset  = kMagicSize + kVersionSize;
+
+/** payload の frame 内オフセット。 */
+constexpr u32 kPayloadOffset = kHeaderOffset + kHeaderWireSize;
+
+/** crc32 footer のバイト数。 */
 constexpr u32 kCrcFooterSize = 4u;
 
-// magic / version / header / payload を除いた固定オーバーヘッド。
-//   = magic(4) + version(4) + header(24) + crc32(4) = 36 byte。
+/** payload を除いた frame の固定オーバーヘッド (magic+version+header+crc32 = 36)。 */
 constexpr u32 kFrameFixedOverhead =
     kMagicSize + kVersionSize + kHeaderWireSize + kCrcFooterSize;
 
-// ---- CRC32 (poly 0xEDB88320, init/xorout 0xFFFFFFFF) ----------------------
-// FSaveArchive / FLockstep と同一実装 (gameframework は assetpack を依存に
-// 持たないため link 単位を独立させる)。Meyer's singleton で thread-safe な
-// lookup table 初期化を行う。
+/**
+ * CRC32 ルックアップテーブルを返す (poly 0xEDB88320、Meyer's singleton で初期化)。
+ *
+ * @details FSaveArchive / FLockstep と同一実装 (gameframework は link 単位を独立させる)。
+ * @return 256 要素の CRC32 テーブル先頭。
+ */
 const u32* GetCrc32Table() noexcept {
     static u32 m_Table[256] = {};
     static bool m_Initialized = false;
@@ -107,7 +136,13 @@ const u32* GetCrc32Table() noexcept {
     return m_Table;
 }
 
-// バイト列の CRC32 を計算する (Zlib / PNG 規約)。
+/**
+ * バイト列の CRC32 を計算する (Zlib / PNG 規約、init/xorout 0xFFFFFFFF)。
+ *
+ * @param data 対象バイト列。
+ * @param size data のバイト数。
+ * @return 計算した CRC32。
+ */
 u32 ComputeCrc32(const void* data, u64 size) noexcept {
     const u32* table = GetCrc32Table();
     const u8*  p     = static_cast<const u8*>(data);
@@ -118,6 +153,12 @@ u32 ComputeCrc32(const void* data, u64 size) noexcept {
     return crc ^ 0xFFFFFFFFu;
 }
 
+/**
+ * SnapshotHeader を 24 byte の LE wire format で書き出す。
+ *
+ * @param dst 書き込み先 (24 byte 確保済み)。
+ * @param h 書き出す header (crc32 フィールドも含めてそのまま書く)。
+ */
 void WriteHeader(u8* dst, const SnapshotHeader& h) noexcept {
     WriteU32LE(dst + 0,  h.tick);
     WriteU32LE(dst + 4,  h.sequence);
@@ -126,6 +167,12 @@ void WriteHeader(u8* dst, const SnapshotHeader& h) noexcept {
     WriteU32LE(dst + 20, h.crc32);
 }
 
+/**
+ * 24 byte の LE wire format から SnapshotHeader を読み出す。
+ *
+ * @param src 読み込み元 (24 byte)。
+ * @param h 復元した header を書き込む先。
+ */
 void ReadHeader(const u8* src, SnapshotHeader& h) noexcept {
     h.tick                = ReadU32LE(src + 0);
     h.sequence            = ReadU32LE(src + 4);
@@ -134,18 +181,22 @@ void ReadHeader(const u8* src, SnapshotHeader& h) noexcept {
     h.crc32               = ReadU32LE(src + 20);
 }
 
-// -----------------------------------------------------------------------------
-// WSAStartup の プロセス内 ref-count (FUdpTransport 用)
-// -----------------------------------------------------------------------------
-// 複数の FUdpTransport / 他モジュールの Winsock 利用と共存できるよう、
-// WSAStartup は「初回のみ実行」「最後の解放で WSACleanup」とする。network
-// モジュール (Network.cpp) と同じ流儀だが、gameframework は Network を依存に
-// 持たないため file-local に独立した counter を持つ (両者の counter は別物だが、
-// WSAStartup/WSACleanup 自体が OS 側で ref-count されるため共存しても安全)。
+/**
+ * WSAStartup のプロセス内 ref-count (FUdpTransport 用)。
+ *
+ * @details
+ * 複数の FUdpTransport / 他モジュールの Winsock 利用と共存できるよう「初回のみ
+ * WSAStartup、最後の解放で WSACleanup」とする。gameframework は Network を依存に
+ * 持たないため file-local に独立した counter を持つ (OS 側でも ref-count されるため
+ * 共存しても安全)。
+ */
 TAtomic<u32> g_WsaRefCount{0};
 
-// WSAStartup を ref-count して 1 回だけ実行する。
-// 戻り値: 0 = 成功、それ以外 = WSAStartup の戻り値 (= エラーコード)。
+/**
+ * WSAStartup を ref-count して 1 回だけ実行する。
+ *
+ * @return 0 で成功、それ以外は WSAStartup の戻り値 (= エラーコード)。
+ */
 int WsaStartupAddRef() noexcept {
     if (g_WsaRefCount.FetchAdd(1) > 0) {
         return 0;  // 既に他がスタート済み。
@@ -158,7 +209,7 @@ int WsaStartupAddRef() noexcept {
     return r;
 }
 
-// WSAStartup の ref を 1 戻す。最後の解放で WSACleanup を呼ぶ。
+/** WSAStartup の ref を 1 戻す (最後の解放で WSACleanup を呼ぶ)。 */
 void WsaStartupRelease() noexcept {
     const u32 prev = g_WsaRefCount.FetchSub(1);
     if (prev == 1) {
@@ -168,12 +219,7 @@ void WsaStartupRelease() noexcept {
 
 } // namespace
 
-// =============================================================================
-// NetTransportStub — defensive stub
-// -----------------------------------------------------------------------------
-// 全 API が ACS_ERR(IO, kSub_NotImplemented) を返す。BackendClientStub と
-// 同じパターン: stub が本番に混入したケースを QA で検出可能にする。
-// =============================================================================
+/** 常に kSub_NotImplemented を返す (stub が本番に混入したケースを QA で検出可能に)。 */
 TResult<void> NetTransportStub::Connect(const char* address, u16 port) noexcept {
     (void)address;
     (void)port;
@@ -182,10 +228,12 @@ TResult<void> NetTransportStub::Connect(const char* address, u16 port) noexcept 
                    "(stub: link a concrete transport implementation)");
 }
 
+/** never-connected なので no-op。 */
 void NetTransportStub::Disconnect() noexcept {
     // stub は never-connected。no-op で安全に通す。
 }
 
+/** 常に kSub_NotImplemented を返す。 */
 TResult<void> NetTransportStub::Send(const void* data, u32 size) noexcept {
     (void)data;
     (void)size;
@@ -194,6 +242,7 @@ TResult<void> NetTransportStub::Send(const void* data, u32 size) noexcept {
                    "(stub: link a concrete transport implementation)");
 }
 
+/** 常に kSub_NotImplemented を返す。 */
 TResult<u32> NetTransportStub::Receive(void* out_buffer, u32 capacity) noexcept {
     (void)out_buffer;
     (void)capacity;
@@ -202,32 +251,19 @@ TResult<u32> NetTransportStub::Receive(void* out_buffer, u32 capacity) noexcept 
                    "(stub: link a concrete transport implementation)");
 }
 
-// プロセス共有の stub。function-local static (C++11 magic statics) で
-// thread-safe 初期化。
+/** プロセス共有の stub を返す (function-local static で thread-safe 初期化)。 */
 INetTransport& GetTransportStub() noexcept {
     static NetTransportStub s_instance;
     return s_instance;
 }
 
-// =============================================================================
-// FUdpTransport — 実 Winsock2 UDP transport
-// -----------------------------------------------------------------------------
-// 全 method が real な Winsock 呼び出しを行う。NetTransportStub と違い
-// NotImplemented は一切返さない。失敗時は WSAGetLastError() を os_error に
-// 載せた FErrorCode を返す。
-// =============================================================================
-
+/** socket を確実に閉じ、WSAStartup の ref も戻して破棄する (べき等)。 */
 FUdpTransport::~FUdpTransport() noexcept {
     // socket を確実に閉じ、WSAStartup の ref も戻す (べき等)。
     Disconnect();
 }
 
-// -----------------------------------------------------------------------------
-// Connect — WSAStartup → socket → 非ブロッキング → bind → remote endpoint 保持
-// -----------------------------------------------------------------------------
-// UDP はコネクションレスなので「接続」= 「送受信できる open な socket を用意し、
-// 送信先 endpoint を確定する」を意味する。多重 Connect は前の socket を閉じて
-// から張り直す (べき等な再接続)。
+/** WSAStartup → socket 生成 → 非ブロッキング化 → bind → remote endpoint 保持。 */
 TResult<void> FUdpTransport::Connect(const char* address, u16 port) noexcept {
     if (address == nullptr) {
         return ACS_ERR(IO, NetSnapshotError::kSub_BadArgument,
@@ -300,9 +336,7 @@ TResult<void> FUdpTransport::Connect(const char* address, u16 port) noexcept {
     return Ok();
 }
 
-// -----------------------------------------------------------------------------
-// Disconnect — closesocket + WSACleanup (ref を戻す)。多重 / 未接続呼出は no-op。
-// -----------------------------------------------------------------------------
+/** closesocket + WSACleanup (ref を戻す)。多重 / 未接続呼出は no-op。 */
 void FUdpTransport::Disconnect() noexcept {
     if (m_Socket != kInvalidSocket) {
         ::closesocket(static_cast<SOCKET>(m_Socket));
@@ -316,12 +350,7 @@ void FUdpTransport::Disconnect() noexcept {
     m_RemotePort = 0;
 }
 
-// -----------------------------------------------------------------------------
-// Send — remote endpoint へ 1 datagram を sendto()。境界保持 (1 Send = 1 packet)。
-// -----------------------------------------------------------------------------
-// WSAEWOULDBLOCK (送信 buffer 一時的満杯) は kSub_BufferFull で返し、上位
-// (FNetSnapshot::CommitSnapshot) は packet loss 相当に扱える。それ以外の失敗は
-// kSub_SendFailed (os_error 付き)。
+/** remote endpoint へ 1 datagram を sendto() する (境界保持、1 Send = 1 packet)。 */
 TResult<void> FUdpTransport::Send(const void* data, u32 size) noexcept {
     if (m_Socket == kInvalidSocket) {
         return ACS_ERR(IO, NetSnapshotError::kSub_NotConnected,
@@ -357,11 +386,7 @@ TResult<void> FUdpTransport::Send(const void* data, u32 size) noexcept {
     return Ok();
 }
 
-// -----------------------------------------------------------------------------
-// Receive — 非ブロッキング recvfrom() で 1 datagram を取り出す。境界保持。
-// -----------------------------------------------------------------------------
-// 受信データなし (WSAEWOULDBLOCK) は「成功・0 byte」で返す (Err にしない)。
-// これにより FNetSnapshot::Tick の pump ループは「0 で抜ける」契約を満たす。
+/** 非ブロッキング recvfrom() で 1 datagram を取り出す (受信なしは 0 byte 成功)。 */
 TResult<u32> FUdpTransport::Receive(void* out_buffer, u32 capacity) noexcept {
     if (m_Socket == kInvalidSocket) {
         return ACS_ERR(IO, NetSnapshotError::kSub_NotConnected,
@@ -392,11 +417,7 @@ TResult<u32> FUdpTransport::Receive(void* out_buffer, u32 capacity) noexcept {
     return TResult<u32>(OkInit, static_cast<u32>(got));
 }
 
-// -----------------------------------------------------------------------------
-// PendingBytesIn — recv 待ちバイト数を ioctlsocket(FIONREAD) で問い合わせる。
-// -----------------------------------------------------------------------------
-// UDP では「次に取り出せる 1 datagram のサイズ」を返す (OS 実装依存)。
-// 失敗時 / 未接続時は 0 (= 「不明 / なし」の defensive fallback)。
+/** recv 待ちバイト数を ioctlsocket(FIONREAD) で問い合わせる (失敗 / 未接続は 0)。 */
 u32 FUdpTransport::PendingBytesIn() const noexcept {
     if (m_Socket == kInvalidSocket) {
         return 0;
@@ -408,12 +429,7 @@ u32 FUdpTransport::PendingBytesIn() const noexcept {
     return static_cast<u32>(avail);
 }
 
-// =============================================================================
-// FNetSnapshot::EncodedSnapshotSize
-// -----------------------------------------------------------------------------
-// 1 frame の総バイト数。payload_size を u64 に広げてから clamp し、32bit
-// 加算オーバーフローを避ける (max_payload_bytes 上限内なら必ず収まる)。
-// =============================================================================
+/** 1 frame の総バイト数を返す (u64 で加算 → u32 上限超えは clamp)。 */
 u32 FNetSnapshot::EncodedSnapshotSize(u32 payload_size) noexcept {
     const u64 total = static_cast<u64>(kFrameFixedOverhead)
                     + static_cast<u64>(payload_size);
@@ -425,14 +441,7 @@ u32 FNetSnapshot::EncodedSnapshotSize(u32 payload_size) noexcept {
     return static_cast<u32>(total);
 }
 
-// =============================================================================
-// FNetSnapshot::EncodeSnapshot
-// -----------------------------------------------------------------------------
-// header + payload を frame wire layout で out_buffer に書き出す real な直列化。
-//   [magic 'ACSN'][version][SnapshotHeader(24, crc32=0 で書く)][payload][crc32]
-// CRC32 は magic を除いた [version .. payload 末尾) を対象に計算し、footer に
-// 格納する (FLockstep が frames 部に CRC を付けるのと同思想)。
-// =============================================================================
+/** header + payload を frame wire layout で out_buffer に直列化する (CRC を footer に付与)。 */
 TResult<void> FNetSnapshot::EncodeSnapshot(const SnapshotHeader& header,
                                           const u8* payload, u32 payload_size,
                                           u8* out_buffer, u32 out_capacity,
@@ -485,14 +494,7 @@ TResult<void> FNetSnapshot::EncodeSnapshot(const SnapshotHeader& header,
     return Ok();
 }
 
-// =============================================================================
-// FNetSnapshot::DecodeSnapshot
-// -----------------------------------------------------------------------------
-// frame bytes を検証 + 復元する real な逆直列化。magic / version / size /
-// CRC32 を順に検証し、不正なら対応する Err を返す。成功時は out_header に
-// SnapshotHeader (footer の crc32 を復元含む) を、out_payload に payload を
-// 置換コピーする。
-// =============================================================================
+/** frame bytes を magic / version / size / CRC32 で検証し、header + payload を復元する。 */
 TResult<void> FNetSnapshot::DecodeSnapshot(const u8* buffer, u32 size,
                                           SnapshotHeader& out_header,
                                           TArray<u8>& out_payload) noexcept {
@@ -556,13 +558,7 @@ TResult<void> FNetSnapshot::DecodeSnapshot(const u8* buffer, u32 size,
     return Ok();
 }
 
-// =============================================================================
-// FNetSnapshot::Init
-// -----------------------------------------------------------------------------
-// 設定をコピーし、ring buffer の容量を確保する。Standalone 以外で
-// transport が nullptr の場合は GetTransportStub() に差し替えて
-// リンク互換を保つ (defensive 設計)。
-// =============================================================================
+/** 設定をコピーし ring buffer を確保する (Standalone 以外で nullptr transport は stub に差替)。 */
 void FNetSnapshot::Init(const NetSnapshotConfig& config, ENetRole role,
                        INetTransport* transport) noexcept {
     m_Config = config;
@@ -602,11 +598,7 @@ void FNetSnapshot::Init(const NetSnapshotConfig& config, ENetRole role,
     m_BytesReceived     = 0;
 }
 
-// =============================================================================
-// FNetSnapshot::Shutdown
-// -----------------------------------------------------------------------------
-// transport は外部所有なので触らない。ring buffer / pending / scratch を解放。
-// =============================================================================
+/** ring buffer / pending / scratch を解放する (transport は外部所有なので触らない)。 */
 void FNetSnapshot::Shutdown() noexcept {
     m_RingBuffer.Clear();
     m_PendingEntities.Clear();
@@ -616,17 +608,12 @@ void FNetSnapshot::Shutdown() noexcept {
     m_Transport  = nullptr;
 }
 
+/** ring buffer に貯まっている snapshot 件数を返す。 */
 u32 FNetSnapshot::BufferedSnapshotCount() const noexcept {
     return m_RingCount;
 }
 
-// =============================================================================
-// FNetSnapshot::AddEntitySnapshot
-// -----------------------------------------------------------------------------
-// server 側で 1 entity 分の state を pending list に積む。data は内部に
-// バイトコピーするので、呼出側は AddEntitySnapshot 後すぐに data を破棄して
-// よい。Client / Standalone では no-op。
-// =============================================================================
+/** server 側で 1 entity 分の state を pending list にコピーして積む (Client/Standalone は no-op)。 */
 void FNetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask,
                                     const void* data, u32 data_size) noexcept {
     // Client / Standalone は送信側ではないので no-op。
@@ -648,23 +635,7 @@ void FNetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask,
     m_PendingEntities.PushBack(Move(pe));
 }
 
-// =============================================================================
-// FNetSnapshot::CommitSnapshot
-// -----------------------------------------------------------------------------
-// pending list を 1 つの payload に concat し、SnapshotHeader を付けて
-// EncodeSnapshot で frame bytes (magic+version+header+payload+crc32) を構築し、
-// transport.Send する。
-//
-// 失敗ケース (黙ってスキップ):
-//   ・Client / Standalone 役割: 送信側ではないので no-op。
-//   ・transport == nullptr: Standalone fallback で起きうる。
-//   ・payload > max_payload_bytes: 設定上限超過。
-//   ・EncodeSnapshot が Err: 内部 buffer 確保失敗等 (ベストエフォートで skip)。
-//   ・transport.Send が Err 返却: packet loss と等価扱い (ベストエフォート)。
-//
-// pending list は呼出後にクリアされる (成否によらず)。これにより次 tick の
-// AddEntitySnapshot は前 tick の残骸を引きずらない。
-// =============================================================================
+/** pending list を 1 payload に concat し、frame を構築して best-effort 送信する。 */
 void FNetSnapshot::CommitSnapshot(u32 tick) noexcept {
     // 役割チェック。Client / Standalone は no-op。
     if (m_Role == ENetRole::Client || m_Role == ENetRole::Standalone) {
@@ -766,22 +737,7 @@ void FNetSnapshot::CommitSnapshot(u32 tick) noexcept {
     m_PendingEntities.Clear();
 }
 
-// =============================================================================
-// FNetSnapshot::Tick
-// -----------------------------------------------------------------------------
-// transport.Receive を非ブロッキングで pump し、受信した snapshot を ring
-// buffer に追加する。1 Tick で複数 snapshot を取り込めるよう、受信なしに
-// なるまでループする (PendingBytesIn が 0 で抜ける)。
-//
-// 受信した snapshot の wire format は CommitSnapshot 側と対称:
-//   magic+version+header(24B)+payload(header.payload_size B)+crc32。
-// 各 frame は DecodeSnapshot で magic / version / size / CRC32 を検証してから
-// ring buffer に積む。検証に失敗した frame (破損 / 改竄 / 非互換) は破棄し、
-// 統計 (PacketsReceived/BytesReceived) にだけ載せる。
-// 受信フレームを 1 度に取り切る前提 (INetTransport の Receive がメッセージ
-// 境界保持の契約)。TCP のような stream transport を使う場合は派生実装側で
-// length-prefixed framing を実装する (INetTransport の契約どおり)。
-// =============================================================================
+/** transport.Receive を pump し、検証成功した snapshot を ring buffer に積む。 */
 void FNetSnapshot::Tick(f32 dt) noexcept {
     (void)dt;
 
@@ -839,30 +795,7 @@ void FNetSnapshot::Tick(f32 dt) noexcept {
     }
 }
 
-// =============================================================================
-// FNetSnapshot::TryGetInterpolatedSnapshot
-// -----------------------------------------------------------------------------
-// client_time_sec に対して「interpolation_delay_sec 前」の時刻を target に
-// 設定し、ring buffer の中から target を挟む 2 snapshot を探す。1 snapshot
-// しかなければそれをそのまま使う。
-//
-// 補間ポリシー (Phase 2):
-//   ・component data のスキーマを本クラスは知らないため、float 単位の
-//     lerp は行わない。Phase 3 でコンポーネントレジストリ (= 型情報 + 補間
-//     関数) が入ってから本実装する。
-//   ・Phase 2 では「target 時刻に最も近い snapshot」を view として返す。
-//     具体的には、buffer 内の sequence 番号で sort 済みと仮定して、target
-//     tick (= last_received_tick - interpolation_delay 相当) 直前の snapshot
-//     を選ぶ。
-//
-// 戻り値:
-//   true  — out_snapshots / out_actual_count に有効データを書いた
-//   false — buffer が空、または client time が buffer 範囲外
-//
-// 注意:
-//   ・out_snapshots[i].component_data は ring buffer 内 payload を直接指す
-//     非所有 view。次の Tick() / CommitSnapshot() 呼出まで有効。
-// =============================================================================
+/** 最新 snapshot を payload walk して EntitySnapshot view に流す (float lerp は未実装)。 */
 bool FNetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec,
                                              EntitySnapshot* out_snapshots,
                                              u32 max_count,
@@ -886,15 +819,15 @@ bool FNetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec,
     const u32 newest_idx = (m_RingHead + cap - 1u) % cap;
     const BufferedSnapshot& newest = m_RingBuffer[static_cast<usize>(newest_idx)];
 
-    // target_seq: client_time_sec を秒として持つが、Phase 2 では実時刻軸を
-    // wire format に乗せていない (server_timestamp_us は 0 固定)。よって本
-    // 実装では「最新 snapshot を返す」シンプル選択を取る。
+    // target_seq: client_time_sec を秒として持つが、実時刻軸はまだ wire format
+    // に乗っていない (server_timestamp_us は 0 固定)。よって本実装では「最新
+    // snapshot を返す」シンプル選択を取る。
     //
-    // Phase 3 で server_timestamp_us を実装 / 計測時刻と紐付けたら、ここで
+    // server_timestamp_us を計測時刻と紐付ける場合は、ここで
     //   target_us = newest.header.server_timestamp_us
     //             - static_cast<u64>(m_Config.interpolation_delay_sec * 1e6f);
     // を計算し、target_us を挟む 2 snapshot を ring から線形探索 → lerp する。
-    // 現状 client_time_sec は受け取るだけで使わない (将来の API 後方互換のため)。
+    // 現状 client_time_sec は受け取るだけで使わない (API 後方互換のため)。
     (void)client_time_sec;
 
     const SnapshotHeader& hdr = newest.header;
@@ -933,8 +866,7 @@ bool FNetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec,
     }
 
     out_actual_count = emitted;
-    // 統計上、補間に使った snapshot の header.tick を反映 (Phase 3 で 2 snapshot
-    // 間の状況を返すフィールドを足す可能性あり)。
+    // 統計上、補間に使った snapshot の header.tick を反映。
     (void)hdr;
     return emitted > 0;
 }

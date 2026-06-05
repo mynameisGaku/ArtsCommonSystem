@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — FPartySystem 実装 (Phase T-1 スケルトン)
+// GameFramework Pillar T — FPartySystem 実装
 //
-// 現フェーズ: state machine + メンバ/フレンドリスト管理は完全実装。実 SDK 呼び出し
+// state machine + メンバ/フレンドリスト管理は完全実装。実 SDK 呼び出し
 // (FSteamworksBridge / EOS / PSN / Xbox / NSO) は seam として未接続で、Joining /
 // Leaving は Tick で仮想完了する。これにより呼び出し側 (FGame / Scene) は本 system を
-// 通常通り使い始めることができ、Pillar S 実装到着時に bridge を差し替えるだけで実
-// プラットフォーム動作する設計。
+// 通常通り使い始めることができ、bridge を差し替えるだけで実プラットフォーム動作する設計。
 //
 // 設計メモ:
 //   ・SDK 完了 (kPendingDurationSec 経過) は **常に成功扱い** にしている。実 SDK
 //     接続後は Tick 中に bridge.PollResult() を見て成功/失敗を分岐する。失敗時は
-//     state を Solo に戻すリセット動作を入れる予定 (現スケルトンでは未実装)。
+//     state を Solo に戻すリセット動作を入れる (現状は未実装)。
 //   ・タイムアウト閾値は短め (1.5 秒) に設定。これは UI のスピナー演出を兼ねた
 //     疑似遅延であり、実 SDK 接続後は外部の真の completion event に置き換わる。
 //   ・メンバ / フレンド比較は Pillar O FEntitlement と同じく自前 StrEq で実施。
@@ -21,12 +20,17 @@ namespace acs::game {
 
 namespace {
 
-// 仮想 SDK 完了までの待ち時間 (秒)。Phase T-1 スケルトンの暫定値。
-// Phase T-2 で real bridge に差し替え後は使用しない。
+/** 仮想 SDK 完了までの待ち時間 (秒)。暫定値で、real bridge 差し替え後は使用しない。 */
 constexpr f32 kPendingDurationSec = 1.5f;
 
-// const char* の安全比較 (Pillar O FEntitlement と同じ実装)。どちらかが nullptr
-// なら false。終端ヌルまで一致比較。
+/**
+ * const char* の安全比較を行う。
+ *
+ * @details どちらかが nullptr なら false。終端ヌルまで一致比較する (STL 不使用)。
+ * @param a 比較対象その 1。
+ * @param b 比較対象その 2。
+ * @return 内容が一致すれば true。
+ */
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -40,8 +44,8 @@ bool StrEq(const char* a, const char* b) noexcept {
 } // namespace
 
 void FPartySystem::EmplaceSelfAsLeader() noexcept {
-    // Phase T-2 で FSteamworksBridge::GetLocalPlayerId() / GetLocalDisplayName()
-    // から取得して入れ替える。現スケルトンでは固定文字列リテラル (寿命無限) を使用。
+    // 実装時は FSteamworksBridge::GetLocalPlayerId() / GetLocalDisplayName()
+    // から取得して入れ替える。現状は固定文字列リテラル (寿命無限) を使用。
     PartyMember self{};
     self.player_id    = "local:self";
     self.display_name = "You";
@@ -64,8 +68,8 @@ TResult<void> FPartySystem::CreateParty(const char* party_name) noexcept {
     m_PartyId      = nullptr;  // 自分作成時は SDK が後で割り当てる想定
     m_PendingTimer = 0.0f;
     _state         = EPartyState::Joining;
-    // TODO(Phase T-2): FSteamworksBridge.CreateLobby(party_name) を発行し、
-    //   Tick() 中に PollResult を見て InParty 遷移する。失敗時は Solo に戻す。
+    // real bridge 接続後は FSteamworksBridge.CreateLobby(party_name) を発行し、
+    // Tick() 中に PollResult を見て InParty 遷移する。失敗時は Solo に戻す。
     return Ok();
 }
 
@@ -80,7 +84,7 @@ TResult<void> FPartySystem::JoinParty(const char* party_id) noexcept {
     m_PartyId      = party_id;
     m_PendingTimer = 0.0f;
     _state         = EPartyState::Joining;
-    // TODO(Phase T-2): FSteamworksBridge.JoinLobby(party_id) を発行。
+    // real bridge 接続後は FSteamworksBridge.JoinLobby(party_id) を発行する。
     return Ok();
 }
 
@@ -92,7 +96,7 @@ TResult<void> FPartySystem::LeaveParty() noexcept {
     }
     m_PendingTimer = 0.0f;
     _state         = EPartyState::Leaving;
-    // TODO(Phase T-2): FSteamworksBridge.LeaveLobby(m_PartyId) を発行。
+    // real bridge 接続後は FSteamworksBridge.LeaveLobby(m_PartyId) を発行する。
     return Ok();
 }
 
@@ -108,9 +112,9 @@ TResult<void> FPartySystem::InviteFriend(const char* friend_id) noexcept {
     // 厳格にローカル list と突き合わせると有効な招待を弾く可能性があるため。
     // 一方で moderation / blocking 判定はここでは行わない (将来の別モジュール)。
     (void)friend_id;
-    // TODO(Phase T-2): FSteamworksBridge.InviteFriendToLobby(m_PartyId, friend_id)。
-    //   結果通知 (送信失敗 / 受信側拒否 / 受信側 accept) は bridge イベントで
-    //   非同期に流れてくる想定。本 API は「送信できたか」だけを返す。
+    // real bridge 接続後は FSteamworksBridge.InviteFriendToLobby(m_PartyId, friend_id)
+    // を発行する。結果通知 (送信失敗 / 受信側拒否 / 受信側 accept) は bridge イベントで
+    // 非同期に流れてくる想定で、本 API は「送信できたか」だけを返す。
     return Ok();
 }
 
@@ -222,9 +226,16 @@ const Friend* FPartySystem::Friends() const noexcept {
     return m_Friends.Data();
 }
 
-// 未使用ヘルパだが、将来 InviteFriend で「ローカル list 内のフレンドのみ許可」
-// 等のポリシーが必要になったときに使う。コンパイル時の dead-code 警告を避ける
-// ため、明示的に [[maybe_unused]] でマーク。
+/**
+ * フレンドリスト内に指定 platform_id が含まれるかを返す。
+ *
+ * @details
+ * 将来 InviteFriend で「ローカル list 内のフレンドのみ許可」等のポリシーが必要に
+ * なったときに使う未使用ヘルパ。dead-code 警告回避のため [[maybe_unused]] を付ける。
+ * @param list 走査するフレンドリスト。
+ * @param platform_id 探す platform_id。
+ * @return 含まれていれば true (platform_id == nullptr は false)。
+ */
 [[maybe_unused]] static bool FriendListContains(const TArray<Friend>& list,
                                                 const char* platform_id) noexcept {
     if (platform_id == nullptr) return false;

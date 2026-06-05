@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FSceneServices (Phase 8、v3 spec §3.1)
+// GameFramework Pillar A — FSceneServices
 //
 // シーンが必要なサービス (FSceneClock / FTweenManager / FSequenceRunner / FInputMap)
 // を bit flag (`ESvc`) で宣言、FSceneServices が遅延 alloc して保持する取り付けハブ。
@@ -33,8 +33,8 @@
 //   ・**自動 pause**: シーンが下位に追いやられた間は OnUpdate が呼ばれず、
 //     Clock も tick されないので tween/seq は自然に止まる。明示的 Pause 不要。
 //
-// 範囲外 (Phase 8 では):
-//   ・FCamera2D / Physics2D / Audio / Events / Debug / Timers / Ui の各サービス
+// 範囲外 (本クラスでは持たない):
+//   ・Audio / Events / Debug / Timers / Ui の各サービス
 //     (該当 Pillar 実装時に ESvc enum と FSceneServices に追加)。
 #pragma once
 
@@ -50,67 +50,220 @@
 
 namespace acs::game {
 
+/**
+ * シーンが要求するサービスを宣言する bit flag。
+ *
+ * @details WantedServices() でこのマスクを返すと、FSceneServices が該当サービスだけを遅延 alloc する。
+ */
 enum class ESvc : u32 {
+    /** サービスを一切要求しない。 */
     None       = 0,
+
+    /** FSceneClock (時間スケール付き dt)。 */
     Clock      = 1u << 0,
+
+    /** FTweenManager (補間アニメーション)。 */
     Tweens     = 1u << 1,
+
+    /** FSequenceRunner (時系列スクリプト)。 */
     Sequences  = 1u << 2,
+
+    /** FInputMap (アクションへの入力束ね)。 */
     Input      = 1u << 3,
+
+    /** FCamera2D (2D カメラ)。 */
     Camera2D    = 1u << 4,
+
+    /** FCollisionWorld2D (2D 衝突)。 */
     Physics2D  = 1u << 5,
-    Triggers   = 1u << 6,   // FTriggerWorld2D (overlap enter/stay/exit イベント)
-    // Future: Audio, Events, Debug, Timers, Ui
+
+    /** FTriggerWorld2D (overlap enter/stay/exit イベント)。 */
+    Triggers   = 1u << 6,
+
+    /** 2D ゲームの既定セット (Clock | Tweens | Sequences | Input)。 */
     Default2D  = Clock | Tweens | Sequences | Input,
 };
 
+/**
+ * 2 つの ESvc マスクの bit OR を返す。
+ *
+ * @param a 左辺のマスク。
+ * @param b 右辺のマスク。
+ * @return a と b の bit OR を取ったマスク。
+ */
 constexpr ESvc operator|(ESvc a, ESvc b) noexcept {
     return static_cast<ESvc>(static_cast<u32>(a) | static_cast<u32>(b));
 }
+
+/**
+ * 2 つの ESvc マスクの bit AND を返す。
+ *
+ * @param a 左辺のマスク。
+ * @param b 右辺のマスク。
+ * @return a と b の bit AND を取ったマスク。
+ */
 constexpr ESvc operator&(ESvc a, ESvc b) noexcept {
     return static_cast<ESvc>(static_cast<u32>(a) & static_cast<u32>(b));
 }
+
+/**
+ * マスクが指定フラグを含むかを返す。
+ *
+ * @param mask 検査対象のマスク。
+ * @param flag 含まれるか調べるフラグ。
+ * @return mask に flag の bit が立っていれば true。
+ */
 constexpr bool SvcHas(ESvc mask, ESvc flag) noexcept {
     return (static_cast<u32>(mask) & static_cast<u32>(flag)) != 0u;
 }
 
+/**
+ * シーンのサービス (Clock/Tweens/Sequences/Input/Camera/Physics/Triggers) を遅延 alloc して保持するハブ。
+ *
+ * @details
+ * constructor で wanted bit を見て該当サービスだけ TUniquePtr<T> を作る。未要求のサービスは null
+ * のままで、accessor 呼出は ACS_ASSERT で検出する。tick は 2 phase 構成で、PreUpdate (Clock 進行)
+ * → scene.OnUpdate → PostUpdate (Tweens/Sequences/Camera/Triggers tick) の順に駆動される。
+ * FGame/FSceneManager がフレームごとに自動で tick + scene 切替に追従する。
+ */
 class FSceneServices {
 public:
-    // Wanted bit を見て該当サービスを alloc。未要求は null のまま。
+    /**
+     * wanted bit を見て該当サービスを alloc する。
+     *
+     * @details 未要求のサービスは null のまま。Physics2D / Triggers は alloc 後に Init も呼ぶ。
+     * @param wanted 要求するサービスの bit mask。
+     */
     explicit FSceneServices(ESvc wanted) noexcept;
+
+    /** サービスを破棄する (各サービスは TUniquePtr が解放)。 */
     ~FSceneServices() noexcept = default;
 
+    /** コピー禁止 (サービスを単独所有するため)。 */
     FSceneServices(const FSceneServices&)            = delete;
+
+    /** コピー代入も禁止。 */
     FSceneServices& operator=(const FSceneServices&) = delete;
 
+    /**
+     * 構築時に要求されたサービスマスクを返す。
+     *
+     * @return constructor に渡された wanted マスク。
+     */
     ESvc  Wanted() const noexcept { return m_Wanted; }
+
+    /**
+     * 指定サービスが要求されているかを返す。
+     *
+     * @param s 調べるサービスフラグ。
+     * @return wanted マスクに s が含まれていれば true。
+     */
     bool Has(ESvc s) const noexcept { return SvcHas(m_Wanted, s); }
 
-    // Accessors. 該当サービスが要求されていなければ ACS_ASSERT で停止。
+    /**
+     * FSceneClock への参照を返す。
+     *
+     * @details ESvc::Clock が要求されていなければ ACS_ASSERT で停止する。
+     * @return クロックサービスへの参照。
+     */
     FSceneClock&          Clock()     noexcept;
+
+    /**
+     * FTweenManager への参照を返す。
+     *
+     * @details ESvc::Tweens が要求されていなければ ACS_ASSERT で停止する。
+     * @return tween サービスへの参照。
+     */
     FTweenManager&        Tweens()    noexcept;
+
+    /**
+     * FSequenceRunner への参照を返す。
+     *
+     * @details ESvc::Sequences が要求されていなければ ACS_ASSERT で停止する。
+     * @return sequence サービスへの参照。
+     */
     FSequenceRunner&      Sequences() noexcept;
+
+    /**
+     * FInputMap への参照を返す。
+     *
+     * @details ESvc::Input が要求されていなければ ACS_ASSERT で停止する。
+     * @return 入力サービスへの参照。
+     */
     FInputMap&            Input()     noexcept;
+
+    /**
+     * FCamera2D への参照を返す。
+     *
+     * @details ESvc::Camera2D が要求されていなければ ACS_ASSERT で停止する。
+     * @return カメラサービスへの参照。
+     */
     acs::game::FCamera2D& Camera()    noexcept;
+
+    /**
+     * FCollisionWorld2D への参照を返す。
+     *
+     * @details ESvc::Physics2D が要求されていなければ ACS_ASSERT で停止する。
+     * @return 物理サービスへの参照。
+     */
     FCollisionWorld2D&    Physics()   noexcept;
+
+    /**
+     * FTriggerWorld2D への参照を返す。
+     *
+     * @details ESvc::Triggers が要求されていなければ ACS_ASSERT で停止する。
+     * @return トリガサービスへの参照。
+     */
     FTriggerWorld2D&      Triggers()  noexcept;
 
-    // FGame/FSceneManager driver (利用者は触らない)。
-    //   PreUpdate: Clock.Tick(raw_dt) で時間を進める (= scaled dt が確定)
-    //   PostUpdate: Tweens/Sequences.Tick(scaled_dt) で更新適用
+    /**
+     * scene.OnUpdate の前に呼ぶ前段 tick (利用者は触らない)。
+     *
+     * @details Clock を Tick(raw_dt) して時間を進め、scaled dt を確定する。
+     * @param raw_dt スケール前の生 dt。
+     */
     void _PreUpdate(f32 raw_dt) noexcept;
+
+    /**
+     * scene.OnUpdate の後に呼ぶ後段 tick (利用者は触らない)。
+     *
+     * @details Tweens/Sequences/Camera/Triggers を scaled_dt で Tick して更新を適用する。
+     * @param scaled_dt Clock で確定したスケール済み dt。
+     */
     void _PostUpdate(f32 scaled_dt) noexcept;
 
-    // PreUpdate 後に scene の OnUpdate に渡す dt。Clock 未要求なら raw_dt をそのまま返す。
+    /**
+     * scene の OnUpdate に渡す dt を返す。
+     *
+     * @details _PreUpdate 後に呼ぶ。Clock 未要求なら raw_dt をそのまま返す。
+     * @param raw_dt スケール前の生 dt。
+     * @return Clock がスケールした dt (未要求なら raw_dt)。
+     */
     f32  _ScaledDt(f32 raw_dt) const noexcept;
 
 private:
+    /** 構築時に要求されたサービスマスク。 */
     ESvc                       m_Wanted = ESvc::None;
+
+    /** クロックサービス (未要求なら null)。 */
     TUniquePtr<FSceneClock>     m_Clock;
+
+    /** tween サービス (未要求なら null)。 */
     TUniquePtr<FTweenManager>   m_Tweens;
+
+    /** sequence サービス (未要求なら null)。 */
     TUniquePtr<FSequenceRunner> m_Sequences;
+
+    /** 入力サービス (未要求なら null)。 */
     TUniquePtr<FInputMap>       m_Input;
+
+    /** カメラサービス (未要求なら null)。 */
     TUniquePtr<acs::game::FCamera2D> m_Camera;
+
+    /** 物理サービス (未要求なら null)。 */
     TUniquePtr<FCollisionWorld2D>    m_Physics;
+
+    /** トリガサービス (未要求なら null)。 */
     TUniquePtr<FTriggerWorld2D>      m_Triggers;
 };
 

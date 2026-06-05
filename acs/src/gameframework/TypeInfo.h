@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar J — FTypeInfo (Phase 2)
+// GameFramework Pillar J — FTypeInfo
 //
 // RTTI 不使用の最小反射 (reflection)。シリアライザ / インスペクタ / デバッガ
 // などが「フィールド名 / 型名 / オフセット / サイズ」を知るための最小限の
@@ -40,60 +40,101 @@
 
 namespace acs::game {
 
-// -----------------------------------------------------------------------------
-// FieldInfo — 反射された 1 フィールドの記述
-// -----------------------------------------------------------------------------
+/**
+ * 反射された 1 フィールドの記述。
+ */
 struct FieldInfo {
-    const c8* name;       // フィールド名 (例: "x")
-    const c8* type_name;  // 型名文字列 (ユーザー指定、例: "f32")
-    usize     offset;     // 型先頭からのバイトオフセット (offsetof)
-    usize     size;       // フィールドのバイトサイズ (sizeof)
+    /** フィールド名 (例: "x")。 */
+    const c8* name;
+
+    /** 型名文字列 (ユーザー指定、例: "f32")。 */
+    const c8* type_name;
+
+    /** 型先頭からのバイトオフセット (offsetof)。 */
+    usize     offset;
+
+    /** フィールドのバイトサイズ (sizeof)。 */
+    usize     size;
 };
 
-// -----------------------------------------------------------------------------
-// FTypeInfoBase — 型 T の反射メタ情報の base 形 (Reflect<T>() の戻り)
-// -----------------------------------------------------------------------------
+/**
+ * 型 T の反射メタ情報の base 形 (Reflect<T>() の戻り値)。
+ */
 struct FTypeInfoBase {
-    const c8*        type_name;     // 型名文字列 (例: "PlayerState")
-    usize            size;          // sizeof(T)
-    usize            alignment;     // alignof(T)
-    const FieldInfo* fields;        // FieldInfo 配列 (field_count 要素)
-    u32              field_count;   // フィールド数
-    const void*      type_tag;      // 一意 type ID (= TypeTag<T>())
+    /** 型名文字列 (例: "PlayerState")。 */
+    const c8*        type_name;
+
+    /** sizeof(T)。 */
+    usize            size;
+
+    /** alignof(T)。 */
+    usize            alignment;
+
+    /** FieldInfo 配列 (field_count 要素)。 */
+    const FieldInfo* fields;
+
+    /** フィールド数。 */
+    u32              field_count;
+
+    /** 一意 type ID (= TypeTag<T>())。 */
+    const void*      type_tag;
 };
 
-// -----------------------------------------------------------------------------
-// TypeTag<T>() — 型 T の一意 ID (static int のアドレス)
-//
-// AppState / FComponent2D と同じパターン。RTTI 不使用、各 T インスタンス化で
-// 別 instantiation = 別アドレス。
-// -----------------------------------------------------------------------------
+/**
+ * 型 T の一意 ID (static int のアドレス) を返す。
+ *
+ * @details
+ * AppState / FComponent2D と同じパターン。RTTI 不使用で、各 T のインスタンス化ごとに
+ * 別 instantiation = 別アドレスになる。
+ * @tparam T ID を取得する型。
+ * @return 型 T を一意に識別する不透明ポインタ。
+ */
 template<typename T>
 inline const void* TypeTag() noexcept {
     static const int s_tag = 0;
     return static_cast<const void*>(&s_tag);
 }
 
-// -----------------------------------------------------------------------------
-// ReflectedFields<T> — 型 T の static FieldInfo 配列ホルダ
-//
-// ACS_GAME_REFLECT macro が特殊化を生成する。
-// default 特殊化は空 (fields == nullptr / count == 0)。
-// -----------------------------------------------------------------------------
+/**
+ * 型 T の static FieldInfo 配列ホルダ。
+ *
+ * @details
+ * ACS_GAME_REFLECT macro が特殊化を生成する。default 特殊化は空
+ * (fields == nullptr / count == 0)。
+ * @tparam T 反射対象の型。
+ */
 template<typename T>
 struct ReflectedFields {
+    /**
+     * FieldInfo 配列を返す。
+     *
+     * @return FieldInfo 配列 (default 特殊化は nullptr)。
+     */
     static constexpr const FieldInfo* Fields() noexcept { return nullptr; }
+
+    /**
+     * フィールド数を返す。
+     *
+     * @return フィールド数 (default 特殊化は 0)。
+     */
     static constexpr u32              Count()  noexcept { return 0; }
 };
 
-// -----------------------------------------------------------------------------
-// FTypeInfo<T> — 型 T の反射情報 (ユーザー特殊化される)
-//
-// default 特殊化 = 未反射 (type_name == nullptr / field_count == 0)。
-// ACS_GAME_REFLECT macro でユーザーが特殊化を生成する。
-// -----------------------------------------------------------------------------
+/**
+ * 型 T の反射情報 (ユーザー特殊化される)。
+ *
+ * @details
+ * default 特殊化は未反射を表す (type_name == nullptr / field_count == 0)。
+ * ACS_GAME_REFLECT macro でユーザーが特殊化を生成する。
+ * @tparam T 反射対象の型。
+ */
 template<typename T>
 struct FTypeInfo {
+    /**
+     * 型 T の反射情報への static 参照を返す。
+     *
+     * @return 型 T の FTypeInfoBase への const 参照。
+     */
     static const FTypeInfoBase& Get() noexcept {
         static const FTypeInfoBase s_info {
             /* type_name   */ nullptr,
@@ -107,9 +148,12 @@ struct FTypeInfo {
     }
 };
 
-// -----------------------------------------------------------------------------
-// Reflect<T>() — FTypeInfo<T> の static 取得 (短縮形)
-// -----------------------------------------------------------------------------
+/**
+ * FTypeInfo<T> の反射情報を取得する短縮形。
+ *
+ * @tparam T 反射情報を取得する型。
+ * @return 型 T の FTypeInfoBase への const 参照。
+ */
 template<typename T>
 inline const FTypeInfoBase& Reflect() noexcept {
     return FTypeInfo<T>::Get();
@@ -117,10 +161,13 @@ inline const FTypeInfoBase& Reflect() noexcept {
 
 } // namespace acs::game
 
-// =============================================================================
-// ACS_GAME_FIELD(T, field, type_str)
-//   — FieldInfo の構造体初期化子を返す。ACS_GAME_REFLECT の引数として使う。
-// =============================================================================
+/**
+ * FieldInfo の構造体初期化子を生成するマクロ (ACS_GAME_REFLECT の引数に使う)。
+ *
+ * @param T フィールドを持つ型。
+ * @param field フィールド名。
+ * @param type_str 型名文字列。
+ */
 #define ACS_GAME_FIELD(T, field, type_str)                                       \
     ::acs::game::FieldInfo{                                                      \
         #field,                                                                  \
@@ -129,16 +176,15 @@ inline const FTypeInfoBase& Reflect() noexcept {
         static_cast<::acs::usize>(sizeof(((T*)0)->field))                        \
     }
 
-// =============================================================================
-// ACS_GAME_REFLECT(T, fields...)
-//   — 型 T を反射する。`ReflectedFields<T>` と `FTypeInfo<T>` の特殊化を生成。
-//   グローバル名前空間で呼ぶこと (template 特殊化のため)。
-//
-// 例:
-//   ACS_GAME_REFLECT(PlayerState,
-//       ACS_GAME_FIELD(PlayerState, x, "f32"),
-//       ACS_GAME_FIELD(PlayerState, y, "f32"))
-// =============================================================================
+/**
+ * 型 T を反射するマクロ。
+ *
+ * @details
+ * ReflectedFields<T> と FTypeInfo<T> の特殊化を生成する。template 特殊化のため
+ * グローバル名前空間で呼ぶこと。
+ * @param T 反射する型。
+ * @param ... ACS_GAME_FIELD で生成した FieldInfo 初期化子の可変長リスト。
+ */
 #define ACS_GAME_REFLECT(T, ...)                                                 \
     namespace acs::game {                                                        \
     template<>                                                                   \

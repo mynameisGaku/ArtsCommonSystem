@@ -15,14 +15,20 @@ namespace acs {
 
 namespace {
 
-// `cbuffer X : register(b3)` or `Texture2D Y : register(t1)` から
-// 型 prefix と slot 番号 + 識別子名を抽出する超軽量 HLSL scanner。
-// 完全な HLSL parser ではないが、ACS の slim HLSL (前処理 #pragma /
-// #define はあるが register 句は plain 数字) を相手にする想定。
-// 戻り値: 成功なら true、out_name に identifier、out_slot に数字。
-//
-// keyword: "cbuffer" / "Texture2D" / "SamplerState" 等
-// reg_letter: 'b' / 't' / 's'
+/**
+ * HLSL source から `keyword X : register(<letter>N)` を走査し slot→名前を埋める。
+ *
+ * @details
+ * `cbuffer X : register(b3)` や `Texture2D Y : register(t1)` のような宣言を相手にする
+ * 超軽量 scanner。完全な HLSL parser ではなく、register 句が plain 数字である ACS の
+ * slim HLSL を前提とする。slot < out_capacity の宣言だけ out_names[slot] に識別子名を
+ * 書き込む (名前は kMaxNameLen-1 で切り詰め)。
+ * @param src 走査対象の HLSL source 文字列 (null なら何もしない)。
+ * @param keyword 探すリソースキーワード ("cbuffer" / "Texture2D" 等、null なら何もしない)。
+ * @param reg_letter register レジスタ種別の文字 ('b' / 't' / 's')。
+ * @param out_names slot ごとの名前を書き込む二次元バッファ。
+ * @param out_capacity 書き込み可能な slot 数 (これ以上の slot は無視)。
+ */
 void ParseShaderBindings(
     const char* src,
     const char* keyword,
@@ -38,7 +44,7 @@ void ParseShaderBindings(
     const char* p = src;
     while (*p) {
         // keyword の境界マッチ (前が ident 文字でない位置のみ)
-        bool at_boundary = (p == src) || !is_ident_chr(*(p - 1));
+        const bool at_boundary = (p == src) || !is_ident_chr(*(p - 1));
         if (at_boundary && std::strncmp(p, keyword, klen) == 0
             && !is_ident_chr(p[klen])) {
             const char* q = p + klen;
@@ -80,10 +86,12 @@ void ParseShaderBindings(
 
 } // namespace
 
+/** Diligent シェーダオブジェクトを解放する。 */
 DiligentShader::~DiligentShader() noexcept {
     if (m_Shader) { m_Shader->Release(); m_Shader = nullptr; }
 }
 
+/** HLSL source をコンパイルしてシェーダを生成し、register binding を抽出する。 */
 TResult<void> DiligentShader::Init(DiligentDevice& device, const FShaderDesc& desc) noexcept {
     m_Device = &device;
     m_Stage  = desc.stage;
@@ -96,9 +104,7 @@ TResult<void> DiligentShader::Init(DiligentDevice& device, const FShaderDesc& de
     sci.SourceLanguage = Diligent::SHADER_SOURCE_LANGUAGE_HLSL;
     // DEFAULT は D3D12 だと FXC (SM 5.1 上限)。DXC に切り替えると SM6.0+
     // 利用可だが、dxcompiler.dll をビルド成果物に同梱する設定が要る。
-    // Phase 30 で post-build copy / NuGet 取得を整備したらここを
-    // SHADER_COMPILER_DXC に上げる。現状は FXC で十分 (compute / wave 等
-    // SM6 専用機能はまだ未使用)。
+    // 現状は FXC で十分 (compute / wave 等 SM6 専用機能はまだ未使用)。
     sci.ShaderCompiler = Diligent::SHADER_COMPILER_DEFAULT;
     sci.HLSLVersion    = {5, 1};
     sci.Source         = desc.hlsl_source;

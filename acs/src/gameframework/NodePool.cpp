@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B Phase 4 — FNodePool 実装
+// GameFramework Pillar B — FNodePool 実装
 //
 // ヘッダの設計コメント (FNodePool.h) と FCollisionWorld2D.cpp の slot+gen pool
 // パターンに完全準拠する。所有権を持たないこと、index 0 予約、generation 0
@@ -9,6 +9,7 @@
 
 namespace acs::game {
 
+/** 初期容量を予約する (index 0 dummy slot を確保し、配列を reserve する)。 */
 void FNodePool::Init(u32 initial_capacity) noexcept {
     // index 0 は予約 (FNodeId{0,0} = invalid と衝突しない dummy slot)。
     // 既に Init 済 (= m_Slots.Size() > 0) の場合でも追加 reserve だけ行う。
@@ -22,6 +23,7 @@ void FNodePool::Init(u32 initial_capacity) noexcept {
     }
 }
 
+/** 空き slot を 1 つ取得する (free stack → 末尾追加、16M 超で 0 を返す)。 */
 u32 FNodePool::AcquireSlot() noexcept {
     // free stack から再利用 slot を取得
     if (!m_FreeIndices.IsEmpty()) {
@@ -42,6 +44,7 @@ u32 FNodePool::AcquireSlot() noexcept {
     return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
+/** FNode2D を登録し、世代を進めた FNodeId を発行して node->_SetId する。 */
 FNodeId FNodePool::RegisterExistingNode(FNode2D* node) noexcept {
     if (node == nullptr) return FNodeId{};
 
@@ -61,6 +64,7 @@ FNodeId FNodePool::RegisterExistingNode(FNode2D* node) noexcept {
     return new_id;
 }
 
+/** slot を free 化し、対応 FNode2D の Id を invalid に戻す (stale / 二重解放は安全)。 */
 void FNodePool::Unregister(FNodeId id) noexcept {
     if (!id.IsValid()) return;
     const u32 idx = id.Index();
@@ -83,6 +87,7 @@ void FNodePool::Unregister(FNodeId id) noexcept {
     m_FreeIndices.PushBack(idx);
 }
 
+/** slot が active かつ generation 一致なら true を返す。 */
 bool FNodePool::IsValid(FNodeId id) const noexcept {
     if (!id.IsValid()) return false;
     const u32 idx = id.Index();
@@ -91,6 +96,7 @@ bool FNodePool::IsValid(FNodeId id) const noexcept {
     return s.active && s.gen == id.Generation();
 }
 
+/** id が有効なら対応する FNode2D* を、stale / invalid なら nullptr を返す。 */
 FNode2D* FNodePool::Get(FNodeId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
@@ -100,6 +106,7 @@ FNode2D* FNodePool::Get(FNodeId id) const noexcept {
     return s.ptr;
 }
 
+/** node ポインタを線形探索して FNodeId を逆引きする (無ければ invalid)。 */
 FNodeId FNodePool::IdOf(FNode2D* node) const noexcept {
     if (node == nullptr) return FNodeId{};
     // index 0 は dummy なので 1 から走査。
@@ -112,6 +119,7 @@ FNodeId FNodePool::IdOf(FNode2D* node) const noexcept {
     return FNodeId{};
 }
 
+/** 全 active slot を free 化し、各 FNode2D の Id を invalid に戻す (gen は維持)。 */
 void FNodePool::ClearAll() noexcept {
     // 全 active slot を free 化、対応 node の Id を invalid に。
     // gen はあえてリセットせず維持する (= 同じ slot を ClearAll 後に再利用した時、

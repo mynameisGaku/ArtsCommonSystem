@@ -22,36 +22,40 @@
 
 namespace acs::game {
 
-// ---- Stub: Reader -------------------------------------------------------
-
+/** NotImplemented を返す stub 実装。 */
 TResult<void> FAssetPackReaderStub::Mount(const char* pack_path) noexcept {
     (void)pack_path;  // 未使用引数 (Stub なので no-op)
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
                    "FAssetPackReaderStub: Mount is not implemented (link real FAssetPack module)");
 }
 
+/** 副作用なしの no-op stub 実装。 */
 void FAssetPackReaderStub::Unmount() noexcept {
     // Mount に成功し得ない Stub では何もすることがない。
     // Mount() 前に呼ばれても安全 (no-op)。
 }
 
+/** NotImplemented を返す stub 実装。 */
 TResult<u32> FAssetPackReaderStub::FileCount() noexcept {
     return TResult<u32>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
                                "FAssetPackReaderStub: FileCount is not implemented (link real FAssetPack module)"));
 }
 
+/** NotImplemented を返す stub 実装。 */
 TResult<const char*> FAssetPackReaderStub::FileName(u32 index) noexcept {
     (void)index;
     return TResult<const char*>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
                                        "FAssetPackReaderStub: FileName is not implemented (link real FAssetPack module)"));
 }
 
+/** NotImplemented を返す stub 実装。 */
 TResult<u64> FAssetPackReaderStub::FileSize(const char* name) noexcept {
     (void)name;
     return TResult<u64>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
                                "FAssetPackReaderStub: FileSize is not implemented (link real FAssetPack module)"));
 }
 
+/** NotImplemented を返す stub 実装。 */
 TResult<void> FAssetPackReaderStub::ReadFile(const char* name, u8* out_buffer, u64 buffer_size) noexcept {
     (void)name;
     (void)out_buffer;
@@ -60,14 +64,14 @@ TResult<void> FAssetPackReaderStub::ReadFile(const char* name, u8* out_buffer, u
                    "FAssetPackReaderStub: ReadFile is not implemented (link real FAssetPack module)");
 }
 
-// ---- Stub: Writer -------------------------------------------------------
-
+/** NotImplemented を返す stub 実装。 */
 TResult<void> FAssetPackWriterStub::BeginPack(const char* output_path) noexcept {
     (void)output_path;
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
                    "FAssetPackWriterStub: BeginPack is not implemented (link real FAssetPack module)");
 }
 
+/** NotImplemented を返す stub 実装。 */
 TResult<void> FAssetPackWriterStub::AddFile(const char* virtual_name, const u8* data, u64 size) noexcept {
     (void)virtual_name;
     (void)data;
@@ -76,43 +80,49 @@ TResult<void> FAssetPackWriterStub::AddFile(const char* virtual_name, const u8* 
                    "FAssetPackWriterStub: AddFile is not implemented (link real FAssetPack module)");
 }
 
+/** NotImplemented を返す stub 実装。 */
 TResult<void> FAssetPackWriterStub::FinishPack() noexcept {
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
                    "FAssetPackWriterStub: FinishPack is not implemented (link real FAssetPack module)");
 }
 
-// ---- static singleton accessors -----------------------------------------
-
+/** 既定 stub の Reader (Meyer's singleton) を返す。 */
 IAssetPackReader& GetReaderStub() noexcept {
     // C++11 以降、関数スコープ static の初期化は thread-safe。
     static FAssetPackReaderStub m_Instance;
     return m_Instance;
 }
 
+/** 既定 stub の Writer (Meyer's singleton) を返す。 */
 IAssetPackWriter& GetWriterStub() noexcept {
     static FAssetPackWriterStub m_Instance;
     return m_Instance;
 }
 
-// ---- 既定 provider 結線 (実 backend モジュールから登録される) -------------
-
 namespace {
+/** 既定 Reader provider (実 backend の Install* で登録。未登録なら nullptr)。 */
 AssetPackReaderProvider g_ReaderProvider = nullptr;
+
+/** 既定 Writer provider (実 backend の Install* で登録。未登録なら nullptr)。 */
 AssetPackWriterProvider g_WriterProvider = nullptr;
 } // namespace
 
+/** 既定 Reader provider を登録する (nullptr で stub に戻す)。 */
 void SetAssetPackReaderProvider(AssetPackReaderProvider provider) noexcept {
     g_ReaderProvider = provider;
 }
 
+/** provider 登録済みならその実装、未登録なら GetReaderStub() を返す。 */
 IAssetPackReader& GetDefaultAssetPackReader() noexcept {
     return g_ReaderProvider ? g_ReaderProvider() : GetReaderStub();
 }
 
+/** 既定 Writer provider を登録する (nullptr で stub に戻す)。 */
 void SetAssetPackWriterProvider(AssetPackWriterProvider provider) noexcept {
     g_WriterProvider = provider;
 }
 
+/** provider 登録済みならその実装、未登録なら GetWriterStub() を返す。 */
 IAssetPackWriter& GetDefaultAssetPackWriter() noexcept {
     return g_WriterProvider ? g_WriterProvider() : GetWriterStub();
 }

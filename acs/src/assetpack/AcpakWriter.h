@@ -26,9 +26,6 @@
 //   ・data ポインタは呼び出し側所有 — Writer はコピーを取らない。寿命管理
 //     ミスを早期検知するため、Finalize 完了後 Close するまで data は触れない
 //     とドキュメント上明記する。
-//   ・Phase 1 では flags = 0 のみ実装。Encrypted / Compressed bit を立てて
-//     Open すると ACS_ERR(Asset, kAcpakSubNotImplemented) を返す。
-//
 // 非コピー・非ムーブ。
 // =============================================================================
 #pragma once
@@ -38,80 +35,141 @@
 #include "container/Array.h"
 
 #include "assetpack/AcpakFormat.h"
-#include "assetpack/AcpakCrypto.h"  // AcpakKey (Phase 2: 暗号化 pak の鍵注入)
+#include "assetpack/AcpakCrypto.h"  // AcpakKey (暗号化 pak の鍵注入)
 
 namespace acs::assetpack {
 
+/**
+ * 複数のバラのファイルを 1 つの `.acpak` にまとめる Writer。
+ *
+ * @details
+ * AddFile は実書き込みせず内部の pending list にポインタ + サイズだけを積み、
+ * 実書き込みは Finalize 内で一気に行う。data ポインタは呼び出し側所有で Writer は
+ * コピーを取らないため、data の寿命は Open〜Finalize の間保つこと。ツールビルド
+ * (パッキングコマンド) から使う想定で、ランタイムは FAcpakReader だけで足りる。
+ * ハンドル + pending list を所有するため non-copy / non-move。
+ */
 class FAcpakWriter {
 public:
+    /** 空状態で構築する (出力は Open で開く)。 */
     FAcpakWriter() noexcept = default;
+
+    /** 破棄する (Open 済なら Close 相当の後始末を行う)。 */
     ~FAcpakWriter() noexcept;
 
+    /** コピー禁止 (ハンドル + pending list を単独所有するため)。 */
     FAcpakWriter(const FAcpakWriter&)            = delete;
+
+    /** コピー代入も禁止。 */
     FAcpakWriter& operator=(const FAcpakWriter&) = delete;
+
+    /** ムーブ禁止 (固定アドレスでライフタイムを管理するため)。 */
     FAcpakWriter(FAcpakWriter&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FAcpakWriter& operator=(FAcpakWriter&&)      = delete;
 
-    // ---- ライフサイクル -----------------------------------------------------
-
-    // 出力ファイルを開く。既存ファイルは上書き (CREATE_ALWAYS)。
-    //   ・flags は AcpakFlagNone / AcpakFlagCompressed / AcpakFlagEncrypted の
-    //     任意組み合わせ (Phase 2 で全 bit 実装済)。
-    //   ・Encrypted を立てる場合は **Open より前に** SetKey() を呼んで鍵を
-    //     設定すること。鍵未設定で Encrypted Open すると Finalize 時に
-    //     ACS_ERR(Asset, kAcpakSubCryptoKey) を返す (Open 自体は成功する)。
-    //   ・既に Open 状態なら ACS_ERR(IO, kAcpakSubAlreadyOpen)。
-    //   ・成功すると以降 AddFile / Finalize が呼べる。
+    /**
+     * 出力ファイルを開き、ヘッダのプレースホルダを書く (既存は上書き)。
+     *
+     * @details
+     * CREATE_ALWAYS で開き、file_count / file_table_offset を 0 にしたヘッダを先に
+     * 書く (実値は Finalize で seek して上書き)。成功すると以降 AddFile / Finalize が
+     * 呼べる。flags は AcpakFlagNone / AcpakFlagCompressed / AcpakFlagEncrypted の
+     * 任意組み合わせ。Encrypted を立てる場合は Open より前に SetKey() で鍵を設定する
+     * こと (鍵未設定でも Open 自体は成功し、Finalize 時に kAcpakSubCryptoKey を返す)。
+     * 既に Open 状態なら kAcpakSubAlreadyOpen、未知 flag bit は kAcpakSubBadFlags。
+     * @param output_path 出力する `.acpak` の UTF-16 パス。
+     * @param flags 書き出しオプション (圧縮 / 暗号化)。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     TResult<void> Open(const wchar_t* output_path, EAcpakFlags flags) noexcept;
 
-    // 暗号化用の鍵を設定する。Open 前後どちらでも呼べる。
-    // flags に AcpakFlagEncrypted が含まれているときに Finalize で使われる。
+    /**
+     * 暗号化用の鍵を設定する。
+     *
+     * @details
+     * Open 前後どちらでも呼べる。flags に AcpakFlagEncrypted が含まれるとき
+     * Finalize で AES-256-GCM 暗号化に使われる。Close すると 0 クリアされる。
+     * @param key 設定する AES-256 鍵。
+     */
     void SetKey(const FAcpakKey& key) noexcept;
 
-    // ハンドルを閉じる。Finalize 前に呼ぶと書きかけアーカイブが残るため、
-    // ベストエフォートでファイルを削除する (実装は単純に CloseHandle だけ呼ぶ
-    // — DeleteFileW は呼ばない。テスト挙動が分かりにくくなるため)。
-    // 多重 Close は安全 (no-op)。
+    /**
+     * ハンドルを閉じて内部状態をクリアする (多重 Close は no-op)。
+     *
+     * @details
+     * Finalize 前に呼ぶと書きかけアーカイブがディスクに残る (DeleteFileW は
+     * 呼ばない)。鍵情報も 0 クリアする。
+     */
     void Close() noexcept;
 
-    // ---- エントリ追加 -------------------------------------------------------
-
-    // 1 ファイルを pak に追加する。
-    //   ・virtual_path は pak 内仮想パス (UTF-16、wcscmp で検索される)。
-    //     Open〜Finalize の間ポインタ寿命を保つこと (Writer はコピーしない)。
-    //   ・data / size はそのファイルの生バイト列。同様にポインタ寿命を保つ。
-    //   ・Open 前に呼ぶと ACS_ERR(IO, kAcpakSubNotOpen)。
-    //   ・size 0 のファイルも追加可能 (offset は header の直後を指す)。
+    /**
+     * 1 ファイルを pak に追加する (実書き込みはせず pending list に積む)。
+     *
+     * @details
+     * virtual_path / data は呼び出し側所有のため Open〜Finalize の間ポインタ寿命を
+     * 保つこと (Writer はコピーしない)。size 0 のファイルも追加できる。Open 前 /
+     * Finalize 後に呼ぶと kAcpakSubNotOpen、data が null かつ size>0 は
+     * kAcpakSubIOFailure。
+     * @param virtual_path pak 内の仮想パス (UTF-16、wcscmp で検索される)。
+     * @param data 追加するファイルの生バイト列。
+     * @param size data のバイト数。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     TResult<void> AddFile(const wchar_t* virtual_path,
                          const void*    data,
                          u64            size) noexcept;
 
-    // pak を確定する。
-    //   ・header → 全ファイルデータ → file table の順で書き出す。
-    //   ・各ファイルの CRC32 を計算し、file table の crc32 フィールドに格納する。
-    //   ・成功時はハンドルが flush 済 (Close を呼んでよい)。
-    //   ・Open 前 / 2 回目の呼び出しは ACS_ERR(IO, kAcpakSubNotOpen)。
+    /**
+     * pak を確定し、header → 全ファイルデータ → file table の順で書き出す。
+     *
+     * @details
+     * 各 entry を compress-then-encrypt パイプライン (圧縮 → 暗号化、flags 依存) に
+     * 通し、CRC32 (元バイト基準) を file table に格納する。最後にヘッダを seek して
+     * file_count / file_table_offset を確定し FlushFileBuffers する。成功時は
+     * ハンドルが flush 済 (Close を呼んでよい)。Open 前 / 2 回目の呼び出しは
+     * kAcpakSubNotOpen、暗号化 flag 立ちで鍵未設定は kAcpakSubCryptoKey。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     TResult<void> Finalize() noexcept;
 
 private:
-    // pending entry の生表現。AddFile が積み、Finalize が消費する。
-    // ポインタはすべて呼び出し側所有 — Writer はコピーを取らない。
+    /**
+     * AddFile が積み Finalize が消費する pending entry の生表現。
+     *
+     * @details ポインタはすべて呼び出し側所有 — Writer はコピーを取らない。
+     */
     struct PendingEntry {
-        const wchar_t* path;   // 仮想パス (UTF-16、wcscmp 比較)
-        const void*    data;   // 生バイト
-        u64            size;   // バイト数
+        /** 仮想パス (UTF-16、wcscmp 比較)。 */
+        const wchar_t* path;
+
+        /** 追加するファイルの生バイト列。 */
+        const void*    data;
+
+        /** data のバイト数。 */
+        u64            size;
     };
 
-    // Finalize 後 (or Open 失敗時) に状態をクリアする。
+    /** Finalize 後 / Open 失敗時に内部状態 (flags / pending / 鍵) をクリアする。 */
     void ResetState() noexcept;
 
-    void*               m_FileHandle = nullptr;   // Win32 HANDLE 相当
-    u32                 m_Flags       = 0;         // header.flags
-    bool                m_Finalized   = false;     // Finalize 済か
-    TArray<PendingEntry> m_Pending;                 // AddFile が積んだ entry 群
+    /** Win32 HANDLE 相当 (<windows.h> を header から外すため void* で保持)。 */
+    void*               m_FileHandle = nullptr;
 
-    // Phase 2: 暗号化鍵 (AcpakFlagEncrypted のときに Finalize で使う)。
+    /** header.flags (encrypted / compressed)。 */
+    u32                 m_Flags       = 0;
+
+    /** Finalize 済フラグ (2 回目の AddFile / Finalize を弾く)。 */
+    bool                m_Finalized   = false;
+
+    /** AddFile が積んだ entry 群 (Finalize で消費)。 */
+    TArray<PendingEntry> m_Pending;
+
+    /** 暗号化鍵 (AcpakFlagEncrypted のときに Finalize で使う、Close で 0 クリア)。 */
     FAcpakKey            m_Key{};
+
+    /** SetKey で鍵が設定されたか (Close で false にリセット)。 */
     bool                m_HasKey     = false;
 };
 

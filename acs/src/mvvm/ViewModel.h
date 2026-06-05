@@ -34,12 +34,26 @@
 
 namespace acs {
 
+/**
+ * MVVM の ViewModel 基底クラス。
+ *
+ * @details
+ * 本体はあえて空で (RTTI 不要・識別子なし)、命名と意図のみを提供する。派生クラスが
+ * Observable<T> をメンバとして公開し、View 側は Subscribe / Bind でそれを監視する。
+ * Model のデータ更新を Observable.Set で反映すると View へ自動伝播する。
+ */
 class FViewModel {
 public:
+    /** 空の ViewModel を構築する。 */
     FViewModel() noexcept = default;
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
     virtual ~FViewModel() noexcept = default;
 
+    /** コピー禁止 (Observable メンバの購読を単独所有するため)。 */
     FViewModel(const FViewModel&) = delete;
+
+    /** コピー代入も禁止。 */
     FViewModel& operator=(const FViewModel&) = delete;
 };
 

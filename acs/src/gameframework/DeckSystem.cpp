@@ -20,8 +20,14 @@ namespace acs::game {
 
 namespace {
 
-// const char* の per-byte 安全比較。Inventory / Economy / FCharacterCustomizer と同設計。
-// どちらかが nullptr なら false。
+/**
+ * const char* の per-byte 安全比較。
+ *
+ * @details どちらかが nullptr なら false。両者を終端まで突き合わせて完全一致を判定する。
+ * @param a 比較する文字列 A。
+ * @param b 比較する文字列 B。
+ * @return 内容が完全一致すれば true。
+ */
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -32,15 +38,12 @@ bool StrEq(const char* a, const char* b) noexcept {
     return *a == '\0' && *b == '\0';
 }
 
-// 「id 未発見」を表す哨兵値 (Inventory / Economy と同設計)。
+/** 「id 未発見」を表す哨兵値 (全 bit 1)。 */
 constexpr u32 kNotFound = ~static_cast<u32>(0);
 
 } // namespace
 
-// =============================================================================
-// 内部ユーティリティ
-// =============================================================================
-
+/** card_id を m_Cards から線形検索し、見つかった index を返す (未検出は kNotFound)。 */
 u32 FDeckSystem::FindCardSlot(const char* card_id) const noexcept {
     if (card_id == nullptr) return kNotFound;
     const usize n = m_Cards.Size();
@@ -50,10 +53,7 @@ u32 FDeckSystem::FindCardSlot(const char* card_id) const noexcept {
     return kNotFound;
 }
 
-// =============================================================================
-// カード定義
-// =============================================================================
-
+/** id 重複を弾いてカード定義を m_Cards に追加する。 */
 void FDeckSystem::RegisterCard(const FCardDef& def) noexcept {
     // defensive: id == nullptr は意味を持たないので静かに弾く。
     if (def.id == nullptr) return;
@@ -67,16 +67,14 @@ void FDeckSystem::RegisterCard(const FCardDef& def) noexcept {
     m_Cards.PushBack(def);
 }
 
+/** card_id に対応する FCardDef へのポインタを返す (未登録は nullptr)。 */
 const FCardDef* FDeckSystem::FindCardDef(const char* card_id) const noexcept {
     const u32 slot = FindCardSlot(card_id);
     if (slot == kNotFound) return nullptr;
     return &m_Cards[slot];
 }
 
-// =============================================================================
-// デッキ構築
-// =============================================================================
-
+/** 登録済み card_id の正規ポインタを deck 末尾に count 枚 push する。 */
 void FDeckSystem::AddToDeck(const char* card_id, u32 count) noexcept {
     if (card_id == nullptr || count == 0) return;
 
@@ -94,23 +92,24 @@ void FDeckSystem::AddToDeck(const char* card_id, u32 count) noexcept {
     }
 }
 
+/** 山札のみクリアする。 */
 void FDeckSystem::ClearDeck() noexcept {
     m_Deck.Clear();
 }
 
-// =============================================================================
-// ゾーンサイズ照会
-// =============================================================================
-
+/** 山札の枚数を返す。 */
 u32 FDeckSystem::DeckSize()    const noexcept { return static_cast<u32>(m_Deck.Size());    }
+
+/** 手札の枚数を返す。 */
 u32 FDeckSystem::HandSize()    const noexcept { return static_cast<u32>(m_Hand.Size());    }
+
+/** 捨札の枚数を返す。 */
 u32 FDeckSystem::DiscardSize() const noexcept { return static_cast<u32>(m_Discard.Size()); }
+
+/** 除外ゾーンの枚数を返す。 */
 u32 FDeckSystem::ExileSize()   const noexcept { return static_cast<u32>(m_Exile.Size());   }
 
-// =============================================================================
-// シャッフル
-// =============================================================================
-
+/** seed に応じて Global / ローカル FRandom を選んでデッキを Fisher-Yates する。 */
 void FDeckSystem::Shuffle(u32 seed) noexcept {
     // FRandom::Shuffle は Fisher-Yates (O(n))。0/1 枚のときは即帰る。
     if (m_Deck.Size() < 2) return;
@@ -125,10 +124,7 @@ void FDeckSystem::Shuffle(u32 seed) noexcept {
     }
 }
 
-// =============================================================================
-// ドロー
-// =============================================================================
-
+/** デッキ末尾を 1 枚引いて手札に追加する (空時は discard を reshuffle)。 */
 bool FDeckSystem::Draw() noexcept {
     // デッキ空時は discard を shuffle して reuse。
     if (m_Deck.IsEmpty()) {
@@ -156,6 +152,7 @@ bool FDeckSystem::Draw() noexcept {
     return true;
 }
 
+/** Draw を n 回繰り返す (途中で引けなくなったら false で抜ける)。 */
 bool FDeckSystem::DrawN(u32 n) noexcept {
     if (n == 0u) return true;
     // 「引けただけ引く」設計: 途中で false になっても戻り値だけ false にして抜ける。
@@ -165,10 +162,7 @@ bool FDeckSystem::DrawN(u32 n) noexcept {
     return true;
 }
 
-// =============================================================================
-// ゾーン操作
-// =============================================================================
-
+/** 手札 index のカードを前方シフトで取り出し discard へ移す。 */
 bool FDeckSystem::DiscardFromHand(u32 hand_index) noexcept {
     if (hand_index >= static_cast<u32>(m_Hand.Size())) return false;
     const char* card = m_Hand[hand_index];
@@ -185,6 +179,7 @@ bool FDeckSystem::DiscardFromHand(u32 hand_index) noexcept {
     return true;
 }
 
+/** 手札 index のカードを前方シフトで取り出し exile へ移す。 */
 bool FDeckSystem::ExileFromHand(u32 hand_index) noexcept {
     if (hand_index >= static_cast<u32>(m_Hand.Size())) return false;
     const char* card = m_Hand[hand_index];
@@ -199,6 +194,7 @@ bool FDeckSystem::ExileFromHand(u32 hand_index) noexcept {
     return true;
 }
 
+/** 手札を全部 discard へ移し、手札を空にする。 */
 bool FDeckSystem::DiscardAllHand() noexcept {
     // 手札空でも true (= no-op として成功扱い、ターン終了処理を統一して書きやすくする)。
     const usize n = m_Hand.Size();
@@ -212,6 +208,7 @@ bool FDeckSystem::DiscardAllHand() noexcept {
     return true;
 }
 
+/** PlayCallback を発火させてから手札 index のカードを discard へ移す。 */
 bool FDeckSystem::PlayCard(u32 hand_index) noexcept {
     if (hand_index >= static_cast<u32>(m_Hand.Size())) return false;
 
@@ -239,29 +236,20 @@ bool FDeckSystem::PlayCard(u32 hand_index) noexcept {
     return true;
 }
 
-// =============================================================================
-// 手札照会
-// =============================================================================
-
+/** 手札 index のカード id を返す (範囲外は nullptr)。 */
 const char* FDeckSystem::HandCardAt(u32 index) const noexcept {
     if (index >= static_cast<u32>(m_Hand.Size())) return nullptr;
     return m_Hand[index];
 }
 
-// =============================================================================
-// コールバック
-// =============================================================================
-
+/** プレイ callback と user コンテキストを設定する (nullptr で detach)。 */
 void FDeckSystem::SetOnPlayCallback(PlayCallback cb, void* user) noexcept {
     // nullptr で detach は明示的に許可。
     m_OnPlay      = cb;
     m_OnPlayUser = user;
 }
 
-// =============================================================================
-// 全リセット
-// =============================================================================
-
+/** カード定義・全ゾーン・callback をすべてクリアする。 */
 void FDeckSystem::ClearAll() noexcept {
     m_Cards.Clear();
     m_Deck.Clear();

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar D — FInputMap 実装 (Phase 6)
+// GameFramework Pillar D — FInputMap 実装
 #include "gameframework/InputMap.h"
 #include "platform/Input.h"
 
 namespace acs::game {
 
+/** キーボードキーの binding を末尾に追加する。 */
 void FInputMap::BindKey(ActionId action, EKey key) noexcept {
     Binding b;
     b.action = action;
@@ -13,6 +14,7 @@ void FInputMap::BindKey(ActionId action, EKey key) noexcept {
     m_Bindings.PushBack(b);
 }
 
+/** マウスボタンの binding を末尾に追加する。 */
 void FInputMap::BindMouseButton(ActionId action, EMouseButton mb) noexcept {
     Binding b;
     b.action = action;
@@ -21,6 +23,7 @@ void FInputMap::BindMouseButton(ActionId action, EMouseButton mb) noexcept {
     m_Bindings.PushBack(b);
 }
 
+/** ゲームパッドボタンの binding を player_index 付きで末尾に追加する。 */
 void FInputMap::BindGamepad(ActionId action, EGamepadButton gb, u32 player_index) noexcept {
     Binding b;
     b.action = action;
@@ -30,6 +33,7 @@ void FInputMap::BindGamepad(ActionId action, EGamepadButton gb, u32 player_index
     m_Bindings.PushBack(b);
 }
 
+/** neg/pos キーのペアを 1D axis binding として末尾に追加する。 */
 void FInputMap::BindAxisKeys(ActionId action, EKey neg, EKey pos) noexcept {
     Binding b;
     b.action   = action;
@@ -39,6 +43,7 @@ void FInputMap::BindAxisKeys(ActionId action, EKey neg, EKey pos) noexcept {
     m_Bindings.PushBack(b);
 }
 
+/** 指定アクションの binding を in-place の compaction で全削除する。 */
 void FInputMap::Unbind(ActionId action) noexcept {
     u32 w = 0;
     for (u32 r = 0; r < m_Bindings.Size(); ++r) {
@@ -50,10 +55,12 @@ void FInputMap::Unbind(ActionId action) noexcept {
     while (m_Bindings.Size() > w) m_Bindings.PopBack();
 }
 
+/** 全 binding を破棄する。 */
 void FInputMap::ClearAll() noexcept {
     m_Bindings.Clear();
 }
 
+/** 該当アクションの各 binding を走査し、いずれかがこのフレームで押されたか判定する。 */
 bool FInputMap::IsPressed(ActionId action) const noexcept {
     for (u32 i = 0; i < m_Bindings.Size(); ++i) {
         const Binding& b = m_Bindings[i];
@@ -76,6 +83,7 @@ bool FInputMap::IsPressed(ActionId action) const noexcept {
     return false;
 }
 
+/** 該当アクションの各 binding を走査し、いずれかが押下中か判定する (axis は |値|>0 で Held)。 */
 bool FInputMap::IsHeld(ActionId action) const noexcept {
     for (u32 i = 0; i < m_Bindings.Size(); ++i) {
         const Binding& b = m_Bindings[i];
@@ -100,6 +108,7 @@ bool FInputMap::IsHeld(ActionId action) const noexcept {
     return false;
 }
 
+/** 該当アクションの各 binding を走査し、いずれかがこのフレームで離されたか判定する。 */
 bool FInputMap::IsReleased(ActionId action) const noexcept {
     for (u32 i = 0; i < m_Bindings.Size(); ++i) {
         const Binding& b = m_Bindings[i];
@@ -112,7 +121,7 @@ bool FInputMap::IsReleased(ActionId action) const noexcept {
             if (Input::IsMouseButtonReleased(static_cast<EMouseButton>(b.code))) return true;
             break;
         case BindKind::EGamepadButton:
-            // GamepadButtonReleased が無いので Released は今フェーズ未対応 (always false)
+            // GamepadButtonReleased が無いので Released は未対応 (always false)
             break;
         case BindKind::Axis1D:
             break;
@@ -121,6 +130,7 @@ bool FInputMap::IsReleased(ActionId action) const noexcept {
     return false;
 }
 
+/** 該当アクションの axis binding を累積し、clamp(-1, +1) した値を返す。 */
 f32 FInputMap::Axis(ActionId action) const noexcept {
     f32 acc = 0.0f;
     for (u32 i = 0; i < m_Bindings.Size(); ++i) {

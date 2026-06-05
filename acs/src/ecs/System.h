@@ -20,27 +20,52 @@ namespace acs {
 
 class World;
 
-// システム関数のシグネチャ
+/** システム関数のシグネチャ (World と経過秒を受け取る関数ポインタ)。 */
 using SystemFn = void (*)(World& world, f32 dt);
 
+/**
+ * 登録したシステム関数を毎フレーム登録順に実行するスケジューラ。
+ *
+ * @details
+ * システムは (World&, f32 dt) の自由関数ポインタとして保持する。Tick で登録順に
+ * 1 回ずつ呼ぶだけの単純な逐次スケジューラで、依存解決や並列化は行わない。
+ */
 class SystemScheduler {
 public:
+    /** 空のスケジューラを構築する。 */
     SystemScheduler() noexcept = default;
 
-    // システム関数を登録（順序は登録順）
+    /**
+     * システム関数を登録する (実行順は登録順)。
+     *
+     * @param fn 登録するシステム関数。
+     */
     void Add(SystemFn fn) noexcept { m_Systems.PushBack(fn); }
 
-    // 全システムを順に呼ぶ（dt は前フレームからの経過秒）
+    /**
+     * 登録した全システムを登録順に 1 回ずつ呼ぶ。
+     *
+     * @param world 各システムへ渡す World。
+     * @param dt 前フレームからの経過秒。
+     */
     void Tick(World& world, f32 dt) noexcept {
         for (usize i = 0; i < m_Systems.Size(); ++i) {
             m_Systems[i](world, dt);
         }
     }
 
+    /** 登録済みシステムを全て取り除く。 */
     void Clear() noexcept { m_Systems.Clear(); }
+
+    /**
+     * 登録済みシステム数を返す。
+     *
+     * @return 登録されているシステム関数の数。
+     */
     usize Count() const noexcept { return m_Systems.Size(); }
 
 private:
+    /** 登録順に保持したシステム関数の配列。 */
     TArray<SystemFn> m_Systems;
 };
 

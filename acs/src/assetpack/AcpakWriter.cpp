@@ -13,10 +13,7 @@
 //      size_uncompressed(8) + size_stored(8) + crc32(4))
 //   4. ヘッダ書き戻し (file_count + file_table_offset)
 //
-// Phase 1 制約:
-//   ・flags = AcpakFlagNone のみ実装。Encrypted/Compressed bit を渡すと
-//     NotImplemented を返す (Open 時点で即弾く)。
-//   ・size_stored == size_uncompressed (= 生バイトをそのまま書く)。
+// 制約:
 //   ・data の所有権は呼び出し側に残る — Writer はコピーを取らない。
 //     呼び出し側は Finalize 完了まで data ポインタを生かしておくこと。
 // =============================================================================
@@ -26,34 +23,45 @@
 #include "foundation/Log.h"
 #include "memory/Memory.h"
 
-#include "assetpack/AcpakCrypto.h" // Phase 2: AES-256-GCM 暗号化
-#include "assetpack/AcpakLz4.h"    // Phase 2: LZ4 圧縮
+#include "assetpack/AcpakCrypto.h" // AES-256-GCM 暗号化
+#include "assetpack/AcpakLz4.h"    // LZ4 圧縮
 
 namespace acs::assetpack {
 
-// ============================================================================
-// 名前無し名前空間: CRC32 + Win32 write helper
-// ============================================================================
 namespace {
 
-// FAcpakReader.cpp と同じ実装。link 単位を分けているので重複する。
-// (Hash.cpp に共通 CRC32 を出す案は Phase 2 でやる)
+/**
+ * CRC32 lookup table (poly 0xEDB88320) を遅延構築して返す。
+ *
+ * @details
+ * FAcpakReader.cpp と同じ実装。link 単位を分けているので重複する。256-entry
+ * table を最初の呼び出し時に組み立てる (Meyers singleton)。
+ * @return 256 要素の CRC32 lookup table。
+ */
 const u32* GetCrc32Table() noexcept {
-    static u32 m_Table[256] = {};
-    static bool m_Initialized = false;
-    if (!m_Initialized) {
+    static u32 table[256] = {};
+    static bool initialized = false;
+    if (!initialized) {
         for (u32 i = 0; i < 256; ++i) {
             u32 c = i;
             for (u32 k = 0; k < 8; ++k) {
                 c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
             }
-            m_Table[i] = c;
+            table[i] = c;
         }
-        m_Initialized = true;
+        initialized = true;
     }
-    return m_Table;
+    return table;
 }
 
+/**
+ * バイト列の CRC32 を計算する。
+ *
+ * @details init = 0xFFFFFFFF, xorout = 0xFFFFFFFF (Zlib / PNG と同じ規約)。
+ * @param data CRC を計算する対象バイト列。
+ * @param size data のバイト数。
+ * @return 計算した CRC32。
+ */
 u32 ComputeCrc32(const void* data, u64 size) noexcept {
     const u32* table = GetCrc32Table();
     const u8*  p     = static_cast<const u8*>(data);
@@ -64,9 +72,14 @@ u32 ComputeCrc32(const void* data, u64 size) noexcept {
     return crc ^ 0xFFFFFFFFu;
 }
 
-// 現在の file pointer 位置 (= これから書く位置 = "tell") を取る。
+/**
+ * 現在の file pointer 位置 (= これから書く位置 = "tell") を返す。
+ *
+ * @param h 対象のファイルハンドル。
+ * @return 現在の file pointer のオフセット (取得失敗時は 0)。
+ */
 u64 Tell(HANDLE h) noexcept {
-    LARGE_INTEGER zero{};
+    const LARGE_INTEGER zero{};
     LARGE_INTEGER cur{};
     if (!::SetFilePointerEx(h, zero, &cur, FILE_CURRENT)) {
         return 0;
@@ -74,7 +87,14 @@ u64 Tell(HANDLE h) noexcept {
     return static_cast<u64>(cur.QuadPart);
 }
 
-// 指定位置に SeekFile。失敗時 false。
+/**
+ * file pointer を指定オフセットに移動する (SetFilePointerEx, FILE_BEGIN)。
+ *
+ * @param h 対象のファイルハンドル。
+ * @param offset 移動先のファイルオフセット。
+ * @param err 失敗時に GetLastError の値を格納する (成功時 0)。
+ * @return 成功なら true、失敗なら false。
+ */
 bool SeekTo(HANDLE h, u64 offset, DWORD& err) noexcept {
     err = 0;
     LARGE_INTEGER li{};
@@ -86,14 +106,25 @@ bool SeekTo(HANDLE h, u64 offset, DWORD& err) noexcept {
     return true;
 }
 
-// ReadFile と同様、>4GiB を考慮した WriteFile ラッパ。
+/**
+ * src の size バイトをすべて書き込む (>4GiB を考慮した WriteFile ラッパ)。
+ *
+ * @details
+ * WriteFile は DWORD (32bit) 単位でしか書けないため、4GiB 超はチャンク分割して
+ * ループする。size == 0 は何もせず成功を返す。
+ * @param h 書き込み対象のファイルハンドル。
+ * @param src 書き込むバイト列。
+ * @param size src のバイト数。
+ * @param err 失敗時に GetLastError の値を格納する (成功時 0)。
+ * @return 成功なら true、失敗なら false。
+ */
 bool WriteAll(HANDLE h, const void* src, u64 size, DWORD& err) noexcept {
     err = 0;
     if (size == 0) return true;
     const u8* p = static_cast<const u8*>(src);
     u64 remaining = size;
     while (remaining > 0) {
-        DWORD chunk = (remaining > 0x7FFFFFFFu)
+        const DWORD chunk = (remaining > 0x7FFFFFFFu)
                           ? 0x7FFFFFFFu
                           : static_cast<DWORD>(remaining);
         DWORD wrote = 0;
@@ -108,16 +139,32 @@ bool WriteAll(HANDLE h, const void* src, u64 size, DWORD& err) noexcept {
     return true;
 }
 
-// ---- little-endian バイト列書き込み (strict-aliasing 安全) ----------------
+/**
+ * u32 を 4 バイト LE で書き出す (strict-aliasing 安全)。
+ *
+ * @param dst 書き込み先 (4 バイト)。
+ * @param v 書き込む u32。
+ */
 void WriteU32LE(u8* dst, u32 v) noexcept {
     MemCopy(dst, &v, sizeof(u32));
 }
 
+/**
+ * u64 を 8 バイト LE で書き出す (strict-aliasing 安全)。
+ *
+ * @param dst 書き込み先 (8 バイト)。
+ * @param v 書き込む u64。
+ */
 void WriteU64LE(u8* dst, u64 v) noexcept {
     MemCopy(dst, &v, sizeof(u64));
 }
 
-// 自前 wcslen (依存ヘッダを増やさない)。
+/**
+ * 自前 wcslen で NUL 終端 wchar_t 列の長さを返す (依存ヘッダを増やさない)。
+ *
+ * @param s 長さを測る文字列 (nullptr なら 0)。
+ * @return NUL を含まない wchar_t 数。
+ */
 u32 LenW(const wchar_t* s) noexcept {
     u32 n = 0;
     if (s == nullptr) return 0;
@@ -127,14 +174,12 @@ u32 LenW(const wchar_t* s) noexcept {
 
 } // namespace
 
-// ============================================================================
-// FAcpakWriter 実装
-// ============================================================================
-
+/** 破棄時に Close を呼んで後始末する。 */
 FAcpakWriter::~FAcpakWriter() noexcept {
     Close();
 }
 
+/** ハンドルを閉じ、ResetState で内部状態をクリアする (多重 Close は no-op)。 */
 void FAcpakWriter::Close() noexcept {
     if (m_FileHandle != nullptr) {
         ::CloseHandle(static_cast<HANDLE>(m_FileHandle));
@@ -143,6 +188,7 @@ void FAcpakWriter::Close() noexcept {
     ResetState();
 }
 
+/** flags / Finalize フラグ / pending list / 鍵情報をクリアする。 */
 void FAcpakWriter::ResetState() noexcept {
     m_Flags     = 0;
     m_Finalized = false;
@@ -153,11 +199,13 @@ void FAcpakWriter::ResetState() noexcept {
     m_HasKey = false;
 }
 
+/** 暗号化鍵を内部にコピーし、鍵設定済みフラグを立てる。 */
 void FAcpakWriter::SetKey(const FAcpakKey& key) noexcept {
     MemCopy(m_Key.bytes, key.bytes, sizeof(m_Key.bytes));
     m_HasKey = true;
 }
 
+/** 出力ファイルを開き、ヘッダのプレースホルダ (36B) を書き出す。 */
 TResult<void> FAcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) noexcept {
     if (m_FileHandle != nullptr) {
         return ACS_ERR(IO, kAcpakSubAlreadyOpen,
@@ -168,7 +216,7 @@ TResult<void> FAcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) 
                        "FAcpakWriter::Open: output_path is null");
     }
 
-    // Phase 2: encrypted / compressed は実装済。未知 flag bit のみ拒否。
+    // encrypted / compressed は対応済。未知 flag bit のみ拒否。
     const u32 known_flags = static_cast<u32>(AcpakFlagEncrypted) |
                             static_cast<u32>(AcpakFlagCompressed);
     if ((static_cast<u32>(flags) & ~known_flags) != 0) {
@@ -176,7 +224,7 @@ TResult<void> FAcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) 
                        "FAcpakWriter::Open: unknown flag bits");
     }
 
-    HANDLE h = ::CreateFileW(output_path, GENERIC_WRITE, 0, nullptr,
+    const HANDLE h = ::CreateFileW(output_path, GENERIC_WRITE, 0, nullptr,
                              CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) {
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
@@ -211,6 +259,7 @@ TResult<void> FAcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) 
     return Ok();
 }
 
+/** 1 ファイルを pending list に積む (実書き込みは Finalize)。 */
 TResult<void> FAcpakWriter::AddFile(const wchar_t* virtual_path,
                                   const void*    data,
                                   u64            size) noexcept {
@@ -239,38 +288,19 @@ TResult<void> FAcpakWriter::AddFile(const wchar_t* virtual_path,
     return Ok();
 }
 
-// ----------------------------------------------------------------------------
-// Finalize — pending entry 群をディスクに書き出し、最後にヘッダを更新
-// -----------------------------------------------------------------------------
-// Phase 2 では各 entry に対し **compress-then-encrypt** パイプラインを通す。
-//   1. (元データ ptr, size) → CRC32 計算 (元バイト基準)
-//   2. compressed 立ち & 圧縮効果あり (< original * 0.97) → LZ4 圧縮
-//      圧縮効果が薄ければ生格納フォールバック (FAcpakFileEntry::size_stored ==
-//      size_uncompressed のまま)。この判断は per-entry に独立。
-//      ※ FAssetPack.md §5 の "97%" 安全規則。アーカイブがバラより大きくなる
-//          ことを防ぐ。
-//   3. encrypted 立ち → CSPRNG nonce 生成 → AES-256-GCM 暗号化 (tag 出力)
-//   4. ディスクに stored bytes を書く
-//   5. file table に (offset, size_unc, size_st, crc32, nonce?, tag?) を書く
-//
-// 注意: 圧縮判定は per-entry なので、同 .acpak 内でも一部は LZ4、一部は生格納
-// と混在しうる。Reader は size_stored / size_uncompressed の値だけで pipeline
-// を構成できる (圧縮しないエントリは LZ4 ステージが no-op になる)。
-//
-// 圧縮 + 暗号化が両方立っている場合のフォールバック:
-//   ・LZ4 で生格納に倒れた entry でも、暗号化は通常通り行う (size_stored ==
-//     size_uncompressed のままで AES-GCM)。
-//   ・Reader は size_stored == size_uncompressed のとき LZ4 をスキップする
-//     pipeline になっている (= FAcpakReader::ReadFile の is_compressed
-//     ブロックで full_match 0 のときも単に noop)。
-//   ・ただし現実装の Reader はファイル単位の per-entry "compressed?" 判定を
-//     持たない (header flags のみ参照)。そこで Reader は「compressed flag が
-//     立っていれば常に LZ4 Decompress を試みる」設計。
-//     → そのため Writer 側は「compressed flag 立ち時は entry が短くても
-//       必ず LZ4 を通し、たとえ size_stored > size_uncompressed でも保存する」
-//       挙動とする。"97%" 安全規則は Phase 3 で per-entry flag を追加して
-//       再検討する (今は単純化を優先)。
+/** pending entry 群をディスクに書き出し、最後にヘッダを更新して pak を確定する。 */
 TResult<void> FAcpakWriter::Finalize() noexcept {
+    // 各 entry に対し compress-then-encrypt パイプラインを通す:
+    //   1. (元データ ptr, size) → CRC32 計算 (元バイト基準)
+    //   2. compressed 立ち → LZ4 圧縮
+    //   3. encrypted 立ち → CSPRNG nonce 生成 → AES-256-GCM 暗号化 (tag 出力)
+    //   4. ディスクに stored bytes を書く
+    //   5. file table に (offset, size_unc, size_st, crc32, nonce?, tag?) を書く
+    //
+    // Reader はファイル単位の per-entry "compressed?" 判定を持たず header flags
+    // のみ参照するため、compressed flag 立ち時は entry が短くても必ず LZ4 を通し、
+    // たとえ size_stored > size_uncompressed でも保存する。圧縮 + 暗号化が両方
+    // 立つ場合も、LZ4 で生格納に倒れた entry を含め暗号化は通常通り行う。
     if (m_FileHandle == nullptr) {
         return ACS_ERR(IO, kAcpakSubNotOpen,
                        "FAcpakWriter::Finalize: writer not open");
@@ -280,7 +310,7 @@ TResult<void> FAcpakWriter::Finalize() noexcept {
                        "FAcpakWriter::Finalize: already finalized");
     }
 
-    HANDLE h = static_cast<HANDLE>(m_FileHandle);
+    const HANDLE h = static_cast<HANDLE>(m_FileHandle);
     DWORD  err = 0;
 
     // ---- 既にヘッダ 36B は Open で書いてあり、file pointer は 36 にある -----
@@ -338,7 +368,7 @@ TResult<void> FAcpakWriter::Finalize() noexcept {
             const u32 src_size = static_cast<u32>(p.size);
             const u32 dst_cap  = FAcpakLz4::MaxCompressedSize(src_size);
             stage_compress.Resize(dst_cap);
-            auto cr = FAcpakLz4::Compress(static_cast<const u8*>(p.data),
+            const auto cr = FAcpakLz4::Compress(static_cast<const u8*>(p.data),
                                          src_size,
                                          stage_compress.Data(),
                                          dst_cap);
@@ -352,12 +382,12 @@ TResult<void> FAcpakWriter::Finalize() noexcept {
             // CSPRNG nonce 生成。RNG 失敗時はゼロ nonce での AES-GCM 暗号化
             // (= nonce 再利用 → 認証鍵漏洩) を絶対に避けるため、エラーを伝播し
             // 暗号化を中止する。
-            auto nr = FAcpakCrypto::GenerateRandomNonce(w.cipher_nonce);
+            const auto nr = FAcpakCrypto::GenerateRandomNonce(w.cipher_nonce);
             if (nr.IsErr()) return nr.Error();
 
             // 出力バッファ (= 同 size の別領域、in-place も可だが分離で安全)
             stage_encrypt.Resize(static_cast<usize>(stage_size));
-            auto er = FAcpakCrypto::Encrypt(m_Key,
+            const auto er = FAcpakCrypto::Encrypt(m_Key,
                                            w.cipher_nonce,
                                            stage_ptr, stage_size,
                                            stage_encrypt.Data(),
@@ -390,7 +420,7 @@ TResult<void> FAcpakWriter::Finalize() noexcept {
 
         // path_len (4) + path (len*2) + offset (8) + size_unc (8) + size_st (8)
         // + crc32 (4) を 1 つの一時バッファに詰めて書く。
-        // Phase 2: 暗号化のとき末尾に cipher_nonce(12) + cipher_tag(16) を続ける。
+        // 暗号化のとき末尾に cipher_nonce(12) + cipher_tag(16) を続ける。
         const u64 path_bytes  = static_cast<u64>(len) * sizeof(wchar_t);
         const u64 tail_bytes  = is_encrypted ? (28u + kAcpakCipherFieldsDiskSize)
                                               : 28u;
@@ -408,10 +438,10 @@ TResult<void> FAcpakWriter::Finalize() noexcept {
         if (path_bytes > 0) {
             MemCopy(buf + 4, p.path, static_cast<usize>(path_bytes));
         }
-        u8* tail = buf + 4 + path_bytes;
+        u8* const tail = buf + 4 + path_bytes;
         WriteU64LE(tail + 0,  w.offset);
         WriteU64LE(tail + 8,  w.size_unc);     // size_uncompressed
-        WriteU64LE(tail + 16, w.size_stored);  // size_stored (Phase 2: 圧縮+暗号化後)
+        WriteU64LE(tail + 16, w.size_stored);  // size_stored (圧縮+暗号化後)
         WriteU32LE(tail + 24, w.crc32);
         if (is_encrypted) {
             MemCopy(tail + 28,      w.cipher_nonce, 12);

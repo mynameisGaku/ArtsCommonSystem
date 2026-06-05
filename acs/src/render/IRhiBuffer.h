@@ -11,34 +11,92 @@ namespace acs {
 
 class IRhiDevice;
 
-// バッファの用途
+/**
+ * バッファの用途を表す。
+ *
+ * @details バッファ生成時の最適なメモリ配置・バインド先を決めるために使う。
+ */
 enum class EBufferUsage : u8 {
-    Vertex,    // 頂点バッファ
-    Index16,   // 16-bit インデックスバッファ
-    Index32,   // 32-bit インデックスバッファ
-    Uniform,   // 定数バッファ (CB)
-    Storage,   // UAV / SSBO
-    Staging,   // CPU からのアップロード用
+    /** 頂点バッファ。 */
+    Vertex,
+
+    /** 16-bit インデックスバッファ。 */
+    Index16,
+
+    /** 32-bit インデックスバッファ。 */
+    Index32,
+
+    /** 定数バッファ (CB)。 */
+    Uniform,
+
+    /** UAV / SSBO。 */
+    Storage,
+
+    /** CPU からのアップロード用ステージングバッファ。 */
+    Staging,
 };
 
+/**
+ * バッファ生成パラメータ。
+ *
+ * @details サイズ・用途に加え、動的更新可否と初期データを指定する。
+ */
 struct FBufferDesc {
+    /** バッファのバイトサイズ。 */
     usize       size         = 0;
+
+    /** バッファの用途。 */
     EBufferUsage usage        = EBufferUsage::Vertex;
-    bool        cpu_writable = false;     // 動的更新したいなら true
-    const void* initial_data = nullptr;   // 初期データ（任意）
+
+    /** 動的に Update したいなら true。 */
+    bool        cpu_writable = false;
+
+    /** 初期データへのポインタ (任意、不要なら nullptr)。 */
+    const void* initial_data = nullptr;
 };
 
+/**
+ * GPU バッファの抽象インターフェイス (頂点・インデックス・定数バッファ)。
+ *
+ * @details バックエンド (DX12 / Vulkan 等) が実装する。生成は CreateRhiBuffer で行う。
+ */
 class IRhiBuffer {
 public:
+    /** 派生バックエンド実装を正しく破棄するための仮想デストラクタ。 */
     virtual ~IRhiBuffer() noexcept = default;
 
+    /**
+     * バッファのバイトサイズを返す。
+     *
+     * @return 確保したバイトサイズ。
+     */
     virtual usize       Size()  const noexcept = 0;
+
+    /**
+     * バッファの用途を返す。
+     *
+     * @return 生成時に指定した EBufferUsage。
+     */
     virtual EBufferUsage Usage() const noexcept = 0;
 
-    // CPU からデータを書き込む（cpu_writable=true で作ったバッファのみ可能）
+    /**
+     * CPU からデータを書き込む。
+     *
+     * @details cpu_writable=true で生成したバッファのみ可能。
+     * @param data 書き込むデータの先頭。
+     * @param size 書き込むバイト数。
+     * @param offset バッファ先頭からの書き込み開始オフセット (既定 0)。
+     */
     virtual void Update(const void* data, usize size, usize offset = 0) noexcept = 0;
 };
 
+/**
+ * GPU バッファを生成する。
+ *
+ * @param device バッファ生成に使う RHI デバイス。
+ * @param desc バッファ生成パラメータ。
+ * @return 成功なら所有権付きバッファ、生成失敗ならエラー。
+ */
 TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const FBufferDesc& desc) noexcept;
 
 } // namespace acs

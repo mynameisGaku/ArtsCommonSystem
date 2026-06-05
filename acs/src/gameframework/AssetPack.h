@@ -6,10 +6,8 @@
 // 不透明な `.acpak` にまとめ、ゲームコードを変えずに切り替えられる。
 //
 // 注: **本来は独立モジュール `ACS::FAssetPack` (`src/assetpack/`) を作る** が、
-// Phase 1 (= GameFramework Pillar G スケルトン) では GameFramework 内に
-// interface stub のみを置く。AES-256-GCM 暗号 + LZ4 圧縮 + 認証タグ検証 等の
-// 実体実装は Phase 2 で独立モジュールへ切り出して行う。
-// 詳細仕様は `acs/docs/FAssetPack.md` を参照。
+// GameFramework 内には interface stub のみを置く。AES-256-GCM 暗号 + LZ4 圧縮 +
+// 認証タグ検証 等の実体実装は独立モジュール側で行う。
 //
 // 使い方:
 //   class AssetLoader {
@@ -29,7 +27,7 @@
 //       }
 //   };
 //
-// 設計選択 (Pillar G Phase 1):
+// 設計選択 (Pillar G):
 //   ・**シーム (= 純粋仮想 I/F) として抽象化**: AES-GCM / LZ4 / bcrypt (Windows CNG)
 //     依存は重く、それらをリンクしないテストビルドでも本 I/F だけは常に提供する。
 //     実装は別モジュール (将来の `ACS::FAssetPack`) で `IAssetPackReader` /
@@ -47,7 +45,7 @@
 //   ・**実 FAssetPack 実装はここでは作らない**: GoldenAssetPackReader 等は AES-GCM
 //     CNG / LZ4 への依存を伴うため、本ファイルでは I/F + Stub のみ。
 //
-// 範囲外 (Phase 2+ で):
+// 範囲外 (本ファイルでは持たない):
 //   ・実 `.acpak` フォーマットの読み書き (ヘッダ / TOC / ブロブ領域)。
 //   ・AES-256-GCM 復号 + 認証タグ検証、LZ4 解凍。
 //   ・パスヒープ暗号化、ハッシュのみモード、追記 patch pak。
@@ -60,159 +58,333 @@
 
 namespace acs::game {
 
-// ---- FErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
+// FErrorCode subcode 定義 (ErrCategory::Generic 配下)。
 // FSteamworksBridge (1001-1099) / FWorkshopBridge (1101-1199) と subcode 空間が
 // 重ならないよう、FAssetPack は 1200 番台を使う。
-inline constexpr u16 kSubAssetPackNotImplemented = 1201;  // Stub による未実装
-inline constexpr u16 kSubAssetPackNotMounted     = 1202;  // Mount() 前の API 呼び出し
 
-// ---- FAssetPackInfo (現在マウント中の pak の最小情報) ---------------------
-// Bridge は文字列を所有しない。`file_path` は呼び出し側 (or 実装内 static literal) の
-// メモリを参照するだけで、利用側でコピーしないこと。寿命は「次の Unmount/Mount を
-// 呼ぶまで」を保証する。
+/** Stub による未実装を表す subcode (Mount/Read 等が返す)。 */
+inline constexpr u16 kSubAssetPackNotImplemented = 1201;
+
+/** Mount() 前の API 呼び出しを表す subcode。 */
+inline constexpr u16 kSubAssetPackNotMounted     = 1202;
+
+/**
+ * 現在マウント中の pak の最小情報。
+ *
+ * @details
+ * Bridge は文字列を所有しない。file_path は呼び出し側 (or 実装内 static literal) の
+ * メモリを参照するだけで、利用側でコピーしないこと。寿命は「次の Unmount/Mount を
+ * 呼ぶまで」を保証する。
+ */
 struct FAssetPackInfo {
-    const char* file_path    = nullptr;  // Mount した pak ファイルの絶対 / 相対パス
-    u64         content_hash = 0;        // pak 全体の content hash (改竄検知用)
-    bool        encrypted    = false;    // AES-256-GCM 暗号化されているか
-    bool        mounted      = false;    // 現在マウント中か
+    /** Mount した pak ファイルの絶対 / 相対パス (借用、コピーしない)。 */
+    const char* file_path    = nullptr;
+
+    /** pak 全体の content hash (改竄検知用)。 */
+    u64         content_hash = 0;
+
+    /** AES-256-GCM 暗号化されているか。 */
+    bool        encrypted    = false;
+
+    /** 現在マウント中か。 */
+    bool        mounted      = false;
 };
 
-// ---- 抽象 I/F: Reader -----------------------------------------------------
-// `.acpak` を読み出すためのインターフェース。ランタイムが利用する側。
-// 実装は本体外モジュール (or テスト) で Override する。
+/**
+ * `.acpak` を読み出すための抽象インターフェース (ランタイム利用側)。
+ *
+ * @details 実装は本体外モジュール (or テスト) で override する。
+ */
 class IAssetPackReader {
 public:
+    /** 既定構築する。 */
     IAssetPackReader() noexcept = default;
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
     virtual ~IAssetPackReader() noexcept = default;
 
+    /** コピー禁止 (I/F は参照で扱う)。 */
     IAssetPackReader(const IAssetPackReader&)            = delete;
+
+    /** コピー代入も禁止。 */
     IAssetPackReader& operator=(const IAssetPackReader&) = delete;
+
+    /** ムーブ禁止。 */
     IAssetPackReader(IAssetPackReader&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     IAssetPackReader& operator=(IAssetPackReader&&)      = delete;
 
-    // pak ファイルをマウントする。成功すると以降の API 呼び出しが有効になる。
-    // 多重 Mount は実装依存 (大抵は前の pak を自動 Unmount してから新規 Mount)。
+    /**
+     * pak ファイルをマウントし、以降の API 呼び出しを有効にする。
+     *
+     * @details 多重 Mount は実装依存 (大抵は前の pak を自動 Unmount してから新規 Mount)。
+     * @param pack_path マウントする pak ファイルのパス。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     virtual TResult<void> Mount(const char* pack_path) noexcept = 0;
 
-    // 現在の pak をアンマウントする。Mount() 前に呼んでも安全 (no-op)。
+    /** 現在の pak をアンマウントする (Mount() 前に呼んでも安全な no-op)。 */
     virtual void Unmount() noexcept = 0;
 
-    // Mount() 成功後かつ Unmount() 前なら true。
+    /**
+     * 現在マウント中かを返す。
+     *
+     * @return Mount() 成功後かつ Unmount() 前なら true。
+     */
     virtual bool IsMounted() const noexcept = 0;
 
-    // 現在マウント中の pak に含まれるファイル数。
+    /**
+     * 現在マウント中の pak に含まれるファイル数を返す。
+     *
+     * @return ファイル数、未マウント等は失敗エラー。
+     */
     virtual TResult<u32> FileCount() noexcept = 0;
 
-    // index 番目のファイル名 (UTF-8、pak 内仮想パス)。返り値の文字列の寿命は
-    // 「次の Unmount/Mount を呼ぶまで」。範囲外 index はエラー。
+    /**
+     * index 番目のファイル名 (UTF-8、pak 内仮想パス) を返す。
+     *
+     * @details 返り値の文字列の寿命は「次の Unmount/Mount を呼ぶまで」。
+     * @param index ファイルのインデックス。
+     * @return ファイル名、範囲外 index はエラー。
+     */
     virtual TResult<const char*> FileName(u32 index) noexcept = 0;
 
-    // 仮想ファイル名から復号 + 解凍後のオリジナルサイズを取得する。
-    // ReadFile に渡すバッファサイズ事前確保用。未存在パスはエラー。
+    /**
+     * 仮想ファイル名から復号 + 解凍後のオリジナルサイズを取得する。
+     *
+     * @details ReadFile に渡すバッファサイズの事前確保に使う。
+     * @param name pak 内仮想ファイル名。
+     * @return オリジナルサイズ (バイト)、未存在パスはエラー。
+     */
     virtual TResult<u64> FileSize(const char* name) noexcept = 0;
 
-    // 仮想ファイル名のデータを out_buffer に復号 + 解凍してコピーする。
-    // buffer_size は FileSize() 戻り値以上必要。不足はエラー。
+    /**
+     * 仮想ファイル名のデータを out_buffer に復号 + 解凍してコピーする。
+     *
+     * @param name pak 内仮想ファイル名。
+     * @param out_buffer コピー先バッファ。
+     * @param buffer_size out_buffer の容量 (FileSize() 戻り値以上必要)。
+     * @return 成功なら空の TResult、容量不足等はエラー。
+     */
     virtual TResult<void> ReadFile(const char* name, u8* out_buffer, u64 buffer_size) noexcept = 0;
 };
 
-// ---- 抽象 I/F: Writer -----------------------------------------------------
-// `.acpak` を新規作成するためのインターフェース。ツール (パッキングコマンド)
-// 側のみ利用する。ランタイムは Reader だけで足りる。
+/**
+ * `.acpak` を新規作成するための抽象インターフェース (ツール側のみ利用)。
+ *
+ * @details ランタイムは Reader だけで足りる。Writer はパッキングコマンドで使う。
+ */
 class IAssetPackWriter {
 public:
+    /** 既定構築する。 */
     IAssetPackWriter() noexcept = default;
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
     virtual ~IAssetPackWriter() noexcept = default;
 
+    /** コピー禁止 (I/F は参照で扱う)。 */
     IAssetPackWriter(const IAssetPackWriter&)            = delete;
+
+    /** コピー代入も禁止。 */
     IAssetPackWriter& operator=(const IAssetPackWriter&) = delete;
+
+    /** ムーブ禁止。 */
     IAssetPackWriter(IAssetPackWriter&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     IAssetPackWriter& operator=(IAssetPackWriter&&)      = delete;
 
-    // 出力 pak ファイルを開いて書き込みを開始する。output_path 既存ファイルは
-    // 実装依存 (大抵は truncate 上書き)。BeginPack / FinishPack 対で使う。
+    /**
+     * 出力 pak ファイルを開いて書き込みを開始する。
+     *
+     * @details output_path 既存ファイルの扱いは実装依存 (大抵は truncate 上書き)。
+     * FinishPack と対で使う。
+     * @param output_path 書き込み先 pak ファイルのパス。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     virtual TResult<void> BeginPack(const char* output_path) noexcept = 0;
 
-    // 1 ファイルを pak に追加する。virtual_name は pak 内仮想パス、data はオリジナル
-    // (非圧縮 / 非暗号) バイト列、size はそのサイズ。BeginPack 前に呼ぶとエラー。
-    // 実装は compress-then-encrypt 順 (FAssetPack.md §5) で TOC / ブロブを構築する。
+    /**
+     * 1 ファイルを pak に追加する (実装は compress-then-encrypt 順で構築)。
+     *
+     * @param virtual_name pak 内仮想パス。
+     * @param data オリジナル (非圧縮 / 非暗号) バイト列。
+     * @param size data のバイトサイズ。
+     * @return 成功なら空の TResult、BeginPack 前の呼び出し等はエラー。
+     */
     virtual TResult<void> AddFile(const char* virtual_name, const u8* data, u64 size) noexcept = 0;
 
-    // pak を確定して書き込みを終える。TOC を暗号化し、ヘッダの content_hash を
-    // 確定する。これ以降の AddFile 呼び出しはエラー。
+    /**
+     * pak を確定して書き込みを終える。
+     *
+     * @details TOC を暗号化し、ヘッダの content_hash を確定する。以降の AddFile はエラー。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     virtual TResult<void> FinishPack() noexcept = 0;
 };
 
-// ---- Stub 実装: Reader ----------------------------------------------------
-// FAssetPack 未統合ビルド / ユニットテスト用の no-op 実装。
-//   ・Mount() / FileCount() / FileName() / FileSize() / ReadFile() は全て
-//     ACS_ERR(Generic, kSubAssetPackNotImplemented) を返す。
-//   ・Unmount() は副作用なし。IsMounted() は常に false。
+/**
+ * FAssetPack 未統合ビルド / ユニットテスト用の no-op な Reader 実装。
+ *
+ * @details
+ * Mount() / FileCount() / FileName() / FileSize() / ReadFile() は全て
+ * ACS_ERR(Generic, kSubAssetPackNotImplemented) を返す。Unmount() は副作用なし、
+ * IsMounted() は常に false。
+ */
 class FAssetPackReaderStub final : public IAssetPackReader {
 public:
+    /** 既定構築する。 */
     FAssetPackReaderStub() noexcept = default;
+
+    /** 破棄する。 */
     ~FAssetPackReaderStub() noexcept override = default;
 
+    /**
+     * NotImplemented を返す (stub)。
+     *
+     * @param pack_path 無視される。
+     * @return 常に kSubAssetPackNotImplemented エラー。
+     */
     TResult<void>         Mount(const char* pack_path) noexcept override;
+
+    /** 副作用なしの no-op (stub)。 */
     void                 Unmount() noexcept override;
+
+    /**
+     * 常に未マウントを返す (stub)。
+     *
+     * @return 常に false。
+     */
     bool                 IsMounted() const noexcept override { return false; }
+
+    /**
+     * NotImplemented を返す (stub)。
+     *
+     * @return 常に kSubAssetPackNotImplemented エラー。
+     */
     TResult<u32>          FileCount() noexcept override;
+
+    /**
+     * NotImplemented を返す (stub)。
+     *
+     * @param index 無視される。
+     * @return 常に kSubAssetPackNotImplemented エラー。
+     */
     TResult<const char*>  FileName(u32 index) noexcept override;
+
+    /**
+     * NotImplemented を返す (stub)。
+     *
+     * @param name 無視される。
+     * @return 常に kSubAssetPackNotImplemented エラー。
+     */
     TResult<u64>          FileSize(const char* name) noexcept override;
+
+    /**
+     * NotImplemented を返す (stub)。
+     *
+     * @param name 無視される。
+     * @param out_buffer 無視される。
+     * @param buffer_size 無視される。
+     * @return 常に kSubAssetPackNotImplemented エラー。
+     */
     TResult<void>         ReadFile(const char* name, u8* out_buffer, u64 buffer_size) noexcept override;
 };
 
-// ---- Stub 実装: Writer ----------------------------------------------------
-// 同上の Writer 側 no-op 実装。全 API が NotImplemented を返す。
+/**
+ * FAssetPack 未統合ビルド / ユニットテスト用の no-op な Writer 実装。
+ *
+ * @details 全 API が NotImplemented (kSubAssetPackNotImplemented) を返す。
+ */
 class FAssetPackWriterStub final : public IAssetPackWriter {
 public:
+    /** 既定構築する。 */
     FAssetPackWriterStub() noexcept = default;
+
+    /** 破棄する。 */
     ~FAssetPackWriterStub() noexcept override = default;
 
+    /**
+     * NotImplemented を返す (stub)。
+     *
+     * @param output_path 無視される。
+     * @return 常に kSubAssetPackNotImplemented エラー。
+     */
     TResult<void>  BeginPack(const char* output_path) noexcept override;
+
+    /**
+     * NotImplemented を返す (stub)。
+     *
+     * @param virtual_name 無視される。
+     * @param data 無視される。
+     * @param size 無視される。
+     * @return 常に kSubAssetPackNotImplemented エラー。
+     */
     TResult<void>  AddFile(const char* virtual_name, const u8* data, u64 size) noexcept override;
+
+    /**
+     * NotImplemented を返す (stub)。
+     *
+     * @return 常に kSubAssetPackNotImplemented エラー。
+     */
     TResult<void>  FinishPack() noexcept override;
 };
 
-// ---- static singleton accessors -----------------------------------------
-// 実 FAssetPack 実装が DI される前のデフォルト stub。Meyer's singleton。
+/**
+ * 既定 stub の Reader (Meyer's singleton) を返す。
+ *
+ * @return プロセス共有の FAssetPackReaderStub 参照。
+ */
 IAssetPackReader& GetReaderStub() noexcept;
+
+/**
+ * 既定 stub の Writer (Meyer's singleton) を返す。
+ *
+ * @return プロセス共有の FAssetPackWriterStub 参照。
+ */
 IAssetPackWriter& GetWriterStub() noexcept;
 
-// =============================================================================
-// 既定 AssetPack の provider 結線 (実 backend モジュールへの委譲点)
-// -----------------------------------------------------------------------------
+// 既定 AssetPack の provider 結線 (実 backend モジュールへの委譲点)。
 // gameframework は実 backend モジュール (ACS::AssetPack / FAcpakGameReader /
 // FAcpakGameWriter) に依存できない (循環依存になる: backend 側が本 interface に
-// 依存する)。そこで実 backend 側が `SetAssetPackReaderProvider()` /
-// `SetAssetPackWriterProvider()` で「既定 Reader/Writer を返す関数」を登録し、
-// ゲームコードは `GetDefaultAssetPackReader()` / `GetDefaultAssetPackWriter()` を
-// 通じて backend 非依存に既定実装を取得する。
-//
-//   ・provider 未登録 (= backend 未リンク / Install 未呼出) → Stub を返す。
-//   ・provider 登録済み (= 実 backend リンク + Install 呼び出し済み) → 実装を返す。
-//
-// 典型: アプリ起動時に一度だけ
-//   acs::assetpack::InstallAcpakReaderAsDefault();   // provider を登録
-//   acs::assetpack::InstallAcpakWriterAsDefault();
-// 以降はどこでも `acs::game::GetDefaultAssetPackReader()` で実 `.acpak` Reader が
-// 得られる。
-// =============================================================================
+// 依存する)。そこで実 backend 側が SetAssetPackReaderProvider() /
+// SetAssetPackWriterProvider() で「既定 Reader/Writer を返す関数」を登録し、
+// ゲームコードは GetDefaultAssetPackReader() / GetDefaultAssetPackWriter() を
+// 通じて backend 非依存に既定実装を取得する。provider 未登録なら Stub を返す。
+
+/** 既定 Reader を返す provider 関数ポインタ型。 */
 using AssetPackReaderProvider = IAssetPackReader& (*)() noexcept;
+
+/** 既定 Writer を返す provider 関数ポインタ型。 */
 using AssetPackWriterProvider = IAssetPackWriter& (*)() noexcept;
 
-// 既定 Reader provider を登録する (実 backend モジュールの Install* から呼ぶ)。
-// nullptr 登録で stub に戻す。後勝ち。
+/**
+ * 既定 Reader provider を登録する (実 backend モジュールの Install* から呼ぶ)。
+ *
+ * @param provider 登録する provider 関数 (nullptr で stub に戻す)。後勝ち。
+ */
 void SetAssetPackReaderProvider(AssetPackReaderProvider provider) noexcept;
 
-// 既定 Reader を返す。provider 登録済みならその実装、未登録なら GetReaderStub()。
+/**
+ * 既定 Reader を返す。
+ *
+ * @return provider 登録済みならその実装、未登録なら GetReaderStub()。
+ */
 IAssetPackReader& GetDefaultAssetPackReader() noexcept;
 
-// 既定 Writer provider を登録する (実 backend モジュールの Install* から呼ぶ)。
-// nullptr 登録で stub に戻す。後勝ち。
+/**
+ * 既定 Writer provider を登録する (実 backend モジュールの Install* から呼ぶ)。
+ *
+ * @param provider 登録する provider 関数 (nullptr で stub に戻す)。後勝ち。
+ */
 void SetAssetPackWriterProvider(AssetPackWriterProvider provider) noexcept;
 
-// 既定 Writer を返す。provider 登録済みならその実装、未登録なら GetWriterStub()。
+/**
+ * 既定 Writer を返す。
+ *
+ * @return provider 登録済みならその実装、未登録なら GetWriterStub()。
+ */
 IAssetPackWriter& GetDefaultAssetPackWriter() noexcept;
 
 } // namespace acs::game

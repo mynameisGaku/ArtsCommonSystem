@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FSpatialAudio 実装 (Phase 3)
+// GameFramework Pillar H — FSpatialAudio 実装
 //
 // 3D listener + source の集中管理、距離減衰 / constant-power stereo panning。
 // stereo パン + 距離減衰は実数学 (in-repo 完結) で、真のバイノーラル化
@@ -13,11 +13,18 @@ namespace acs::game {
 
 namespace {
 
-// -----------------------------------------------------------------------------
-// 距離減衰ゲイン — curve 種別に応じて d ∈ [0, max_d] を gain ∈ [0, 1] に写像。
-// d >= max_d は culling (0)。d <= 0 は最大 (1)。FSpatialAudio::ComputeAttenuatedVolume
-// と HrtfRendererStub::ProcessSource の双方で同一の式を共有する。
-// -----------------------------------------------------------------------------
+/**
+ * curve 種別に応じて距離 d を距離減衰ゲイン [0, 1] に写像する。
+ *
+ * @details
+ * d >= max_distance は culling (0)、d <= 0 は最大 (1)。FSpatialAudio::
+ * ComputeAttenuatedVolume と HrtfRendererStub::ProcessSource の双方で同一の式を
+ * 共有する。
+ * @param d listener から source までの距離。
+ * @param max_distance この距離以上で culling する最大可聴距離。
+ * @param curve 適用する減衰カーブ種別。
+ * @return [0, 1] の減衰ゲイン。
+ */
 f32 ComputeAttenuationGain(f32 d, f32 max_distance, EAttenuationCurve curve) noexcept {
     if (max_distance <= 0.0f) return 0.0f;
     if (d <= 0.0f)            return 1.0f;
@@ -53,13 +60,17 @@ f32 ComputeAttenuationGain(f32 d, f32 max_distance, EAttenuationCurve curve) noe
     return Saturate(atten);
 }
 
-// -----------------------------------------------------------------------------
-// Constant-power (等パワー) stereo パンゲイン — pan ∈ [-1, +1] を左右ゲインへ。
-//   θ = (pan + 1) * π/4   (pan=-1→θ=0, pan=0→θ=π/4, pan=+1→θ=π/2)
-//   left  = cos(θ),  right = sin(θ)
-// linear pan ((1±pan)/2) と違い、中央でも left²+right² = 1 を満たすため
-// 左右に振っても知覚音量 (パワー) が一定に保たれる (-3dB pan law)。
-// -----------------------------------------------------------------------------
+/**
+ * pan ∈ [-1, +1] を constant-power (等パワー) の左右ステレオゲインへ変換する。
+ *
+ * @details
+ * θ = (pan + 1) * π/4 とし、left = cos(θ)、right = sin(θ)。linear pan ((1±pan)/2) と
+ * 違い中央でも left² + right² = 1 を満たすため、左右に振っても知覚音量 (パワー) が
+ * 一定に保たれる (-3dB pan law)。pan は内部で [-1, +1] に clamp する。
+ * @param pan パンニング位置 [-1=左, 0=中央, +1=右]。
+ * @param left 左チャンネルゲインの書き戻し先。
+ * @param right 右チャンネルゲインの書き戻し先。
+ */
 void ComputeConstantPowerGains(f32 pan, f32& left, f32& right) noexcept {
     if (pan < -1.0f) pan = -1.0f;
     if (pan >  1.0f) pan =  1.0f;
@@ -70,10 +81,7 @@ void ComputeConstantPowerGains(f32 pan, f32& left, f32& right) noexcept {
 
 } // namespace
 
-// =============================================================================
-// HrtfRendererStub — constant-power stereo panning + 距離減衰 (HRTF seam のみ stub)
-// =============================================================================
-
+/** stub renderer を初期化する (真の HRTF は seam、パン + 減衰は実数学)。 */
 TResult<void> HrtfRendererStub::Init() noexcept {
     m_Initialized = true;
     // 真の HRTF (KEMAR 256-tap convolution) は外部 IR データを要するため
@@ -88,14 +96,17 @@ TResult<void> HrtfRendererStub::Init() noexcept {
     return Ok();
 }
 
+/** stub renderer を停止する。 */
 void HrtfRendererStub::Shutdown() noexcept {
     m_Initialized = false;
 }
 
+/** パン / 減衰計算の基準となる listener を設定する。 */
 void HrtfRendererStub::SetListener(const FAudioListener& listener) noexcept {
     m_Listener = listener;
 }
 
+/** mono 入力に pan + 距離減衰を適用し interleaved stereo 出力へ書き込む。 */
 void HrtfRendererStub::ProcessSource(const FAudioSource3D& source,
                                      const f32* mono_input,
                                      f32* stereo_output,
@@ -145,22 +156,17 @@ void HrtfRendererStub::ProcessSource(const FAudioSource3D& source,
     }
 }
 
-// =============================================================================
-// FSpatialAudio — 構築・listener
-// =============================================================================
-
+/** source 配列を初期容量で予約して構築する。 */
 FSpatialAudio::FSpatialAudio() noexcept {
     m_Sources.Reserve(kInitialSourceCapacity);
 }
 
+/** 計算基準となる listener (位置・姿勢) を設定する。 */
 void FSpatialAudio::SetListener(const FAudioListener& l) noexcept {
     m_Listener = l;
 }
 
-// =============================================================================
-// FSpatialAudio — source 管理
-// =============================================================================
-
+/** 3D source を登録して割り当てた id を返す (不正 max_distance は 20m に既定)。 */
 u32 FSpatialAudio::RegisterSource(FVec3 pos, f32 max_distance,
                                   EAttenuationCurve curve) noexcept {
     FAudioSource3D s {};
@@ -176,6 +182,7 @@ u32 FSpatialAudio::RegisterSource(FVec3 pos, f32 max_distance,
     return s.source_id;
 }
 
+/** source の位置と速度を更新する (stale id は警告して無視)。 */
 void FSpatialAudio::UpdateSource(u32 id, FVec3 pos, FVec3 vel) noexcept {
     const usize idx = FindIndex(id);
     if (idx >= m_Sources.Size()) {
@@ -186,6 +193,7 @@ void FSpatialAudio::UpdateSource(u32 id, FVec3 pos, FVec3 vel) noexcept {
     m_Sources[idx].velocity = vel;
 }
 
+/** source の基準音量を設定する ([0,1] に clamp、stale id は警告して無視)。 */
 void FSpatialAudio::SetSourceVolume(u32 id, f32 v) noexcept {
     const usize idx = FindIndex(id);
     if (idx >= m_Sources.Size()) {
@@ -199,6 +207,7 @@ void FSpatialAudio::SetSourceVolume(u32 id, f32 v) noexcept {
     m_Sources[idx].volume = c;
 }
 
+/** source を削除する (未登録 / 削除済みは静かに無視、順序非保持)。 */
 void FSpatialAudio::RemoveSource(u32 id) noexcept {
     const usize idx = FindIndex(id);
     if (idx >= m_Sources.Size()) {
@@ -206,14 +215,11 @@ void FSpatialAudio::RemoveSource(u32 id) noexcept {
         return;
     }
     // active=false のままにして、Tick で物理的に圧縮するのが理想だが、
-    // Phase H-3 は素朴に末尾と swap して削除 (順序不問)。
+    // 現状は素朴に末尾と swap して削除 (順序不問)。
     m_Sources.RemoveAtSwap(idx);
 }
 
-// =============================================================================
-// FSpatialAudio — 計算結果取得
-// =============================================================================
-
+/** source の距離減衰後の音量を返す (未登録 / 非アクティブは 0)。 */
 f32 FSpatialAudio::ComputeAttenuatedVolume(u32 id) const noexcept {
     const usize idx = FindIndex(id);
     if (idx >= m_Sources.Size()) return 0.0f;
@@ -229,6 +235,7 @@ f32 FSpatialAudio::ComputeAttenuatedVolume(u32 id) const noexcept {
     return s.volume * atten;
 }
 
+/** source の pan [-1,+1] を listener 基準で返す (未登録 / 縮退姿勢は 0=中央)。 */
 f32 FSpatialAudio::ComputePan(u32 id) const noexcept {
     const usize idx = FindIndex(id);
     if (idx >= m_Sources.Size()) return 0.0f;
@@ -256,10 +263,7 @@ f32 FSpatialAudio::ComputePan(u32 id) const noexcept {
     return pan;
 }
 
-// =============================================================================
-// FSpatialAudio — 統計・driver
-// =============================================================================
-
+/** アクティブな source の数を返す。 */
 u32 FSpatialAudio::SourceCount() const noexcept {
     u32 n = 0;
     for (usize i = 0; i < m_Sources.Size(); ++i) {
@@ -268,25 +272,24 @@ u32 FSpatialAudio::SourceCount() const noexcept {
     return n;
 }
 
+/** 毎フレームの更新フック (現状は state を進めない no-op)。 */
 void FSpatialAudio::Tick(f32 /*dt*/) noexcept {
-    // Phase H-3 は state を進めない (listener / source は外から push)。
-    // Phase 2 で:
+    // 現状は state を進めない (listener / source は外から push)。
+    // 将来:
     //   ・Doppler shift 計算 (velocity 比率 → pitch)
     //   ・古い inactive source の物理 GC
     //   ・streaming FAudioEngine voice の更新
     // を追加予定。
 }
 
+/** 全 source を削除する (m_NextSourceId はリセットしない)。 */
 void FSpatialAudio::Clear() noexcept {
     m_Sources.Clear();
     // m_NextSourceId はリセットしない。Clear 直後に登録した source は新 ID
     // を受け取り、外部に握られた古い ID とは衝突しない (stale 検出が機能する)。
 }
 
-// =============================================================================
-// 内部 helper
-// =============================================================================
-
+/** id 一致 source の index を返す (未検出 / id==0 は m_Sources.Size())。 */
 usize FSpatialAudio::FindIndex(u32 id) const noexcept {
     if (id == 0) return m_Sources.Size();  // 0 は無効予約
     for (usize i = 0; i < m_Sources.Size(); ++i) {

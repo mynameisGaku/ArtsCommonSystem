@@ -23,7 +23,12 @@ namespace acs {
 
 namespace tlsf {
 
-// 上位ビットの位置を返す（log2 相当）
+/**
+ * 最上位の立っているビット位置を返す (32bit、log2 相当)。
+ *
+ * @param v 入力値。
+ * @return 最上位ビットの位置 (v==0 なら -1)。
+ */
 ACS_FORCEINLINE int Fls(u32 v) noexcept {
     if (v == 0) return -1;
     unsigned long idx;
@@ -31,7 +36,12 @@ ACS_FORCEINLINE int Fls(u32 v) noexcept {
     return static_cast<int>(idx);
 }
 
-// 下位の最初に立っているビット位置を返す
+/**
+ * 最下位の立っているビット位置を返す (32bit)。
+ *
+ * @param v 入力値。
+ * @return 最下位ビットの位置 (v==0 なら -1)。
+ */
 ACS_FORCEINLINE int Ffs(u32 v) noexcept {
     if (v == 0) return -1;
     unsigned long idx;
@@ -39,7 +49,12 @@ ACS_FORCEINLINE int Ffs(u32 v) noexcept {
     return static_cast<int>(idx);
 }
 
-// 64bit 用の Fls
+/**
+ * 最上位の立っているビット位置を返す (usize 幅、log2 相当)。
+ *
+ * @param v 入力値。
+ * @return 最上位ビットの位置 (v==0 なら -1)。
+ */
 ACS_FORCEINLINE int FlsSize(usize v) noexcept {
     if (v == 0) return -1;
     unsigned long idx;
@@ -51,51 +66,129 @@ ACS_FORCEINLINE int FlsSize(usize v) noexcept {
     return static_cast<int>(idx);
 }
 
-// size_and_flags の下位 2 ビットをフラグに使う
+/** size_and_flags の bit0: このブロックがフリーであることを示す。 */
 constexpr usize kBlockFreeBit     = 1ull << 0;
+
+/** size_and_flags の bit1: 物理的に前のブロックがフリーであることを示す。 */
 constexpr usize kPrevFreeBit      = 1ull << 1;
+
+/** size_and_flags からサイズ部だけ取り出すマスク (下位 2bit を除く)。 */
 constexpr usize kBlockSizeMask    = ~(kBlockFreeBit | kPrevFreeBit);
 
-// payload 起点までのオフセット
+/** ブロックヘッダのうち、次ブロックと重複しない実オーバーヘッド (size_and_flags 分)。 */
 constexpr usize kBlockHeaderOverhead = sizeof(usize);
+
+/** ヘッダ先頭から payload 起点までのオフセット。 */
 constexpr usize kBlockStartOffset = sizeof(FBlockHeader*) + sizeof(usize);
 
-// サイズ部分だけ取り出す
+/**
+ * ブロックのサイズ部を取り出す。
+ *
+ * @param b 対象ブロック。
+ * @return フラグを除いたブロックサイズ。
+ */
 ACS_FORCEINLINE usize BlockSize(const FBlockHeader* b) noexcept {
     return b->size_and_flags & kBlockSizeMask;
 }
-// フラグを保ちつつサイズだけ書き換える
+
+/**
+ * フラグを保ったままブロックのサイズ部だけ書き換える。
+ *
+ * @param b 対象ブロック。
+ * @param size 新しいブロックサイズ。
+ */
 ACS_FORCEINLINE void  SetBlockSize(FBlockHeader* b, usize size) noexcept {
-    usize old_flags = b->size_and_flags & ~kBlockSizeMask;
+    const usize old_flags = b->size_and_flags & ~kBlockSizeMask;
     b->size_and_flags = size | old_flags;
 }
+
+/**
+ * ブロックがフリーかを返す。
+ *
+ * @param b 対象ブロック。
+ * @return フリーなら true。
+ */
 ACS_FORCEINLINE bool  IsFree(const FBlockHeader* b) noexcept {
     return (b->size_and_flags & kBlockFreeBit) != 0;
 }
+
+/**
+ * 物理的に前のブロックがフリーかを返す。
+ *
+ * @param b 対象ブロック。
+ * @return 前ブロックがフリーなら true。
+ */
 ACS_FORCEINLINE bool  IsPrevFree(const FBlockHeader* b) noexcept {
     return (b->size_and_flags & kPrevFreeBit) != 0;
 }
+
+/**
+ * ブロックにフリーフラグを立てる。
+ *
+ * @param b 対象ブロック。
+ */
 ACS_FORCEINLINE void  MarkFree(FBlockHeader* b) noexcept    { b->size_and_flags |= kBlockFreeBit; }
+
+/**
+ * ブロックのフリーフラグを下ろす (使用中にする)。
+ *
+ * @param b 対象ブロック。
+ */
 ACS_FORCEINLINE void  MarkUsed(FBlockHeader* b) noexcept    { b->size_and_flags &= ~kBlockFreeBit; }
+
+/**
+ * 「前ブロックはフリー」フラグを立てる。
+ *
+ * @param b 対象ブロック。
+ */
 ACS_FORCEINLINE void  MarkPrevFree(FBlockHeader* b) noexcept{ b->size_and_flags |= kPrevFreeBit; }
+
+/**
+ * 「前ブロックはフリー」フラグを下ろす。
+ *
+ * @param b 対象ブロック。
+ */
 ACS_FORCEINLINE void  MarkPrevUsed(FBlockHeader* b) noexcept{ b->size_and_flags &= ~kPrevFreeBit; }
 
-// ヘッダから payload ポインタへ
+/**
+ * ブロックヘッダから payload ポインタへ変換する。
+ *
+ * @param b 対象ブロック。
+ * @return payload 先頭ポインタ。
+ */
 ACS_FORCEINLINE void* BlockToPtr(const FBlockHeader* b) noexcept {
     return reinterpret_cast<u8*>(const_cast<FBlockHeader*>(b)) + kBlockStartOffset;
 }
-// payload からヘッダへ戻る
+
+/**
+ * payload ポインタからブロックヘッダへ戻る。
+ *
+ * @param p payload ポインタ。
+ * @return 対応するブロックヘッダ。
+ */
 ACS_FORCEINLINE FBlockHeader* PtrToBlock(const void* p) noexcept {
     return reinterpret_cast<FBlockHeader*>(reinterpret_cast<u8*>(const_cast<void*>(p)) - kBlockStartOffset);
 }
 
-// 物理的に次のブロックを得る（解放時の隣接統合に使う）
+/**
+ * 物理的に次のブロックを得る (隣接統合に使う)。
+ *
+ * @param b 対象ブロック。
+ * @return 物理的に直後のブロック。
+ */
 ACS_FORCEINLINE FBlockHeader* NextBlock(const FBlockHeader* b) noexcept {
     return reinterpret_cast<FBlockHeader*>(
         reinterpret_cast<u8*>(BlockToPtr(b)) + BlockSize(b) - kBlockHeaderOverhead);
 }
 
-// サイズから (FL, SL) インデックスを計算
+/**
+ * サイズから挿入先の (FL, SL) インデックスを計算する。
+ *
+ * @details 小サイズは線形領域に均等割り、それ以外は log2 + 上位ビット切り出しで対数的に分配する。
+ * @param size 対象サイズ。
+ * @param fl 第 1 レベルインデックスを返す。
+ * @param sl 第 2 レベルインデックスを返す。
+ */
 ACS_FORCEINLINE void MappingInsert(usize size, int& fl, int& sl) noexcept {
     if (size < SMALL_BLOCK_SIZE) {
         // 小サイズは線形領域に均等割り
@@ -113,25 +206,36 @@ ACS_FORCEINLINE void MappingInsert(usize size, int& fl, int& sl) noexcept {
     }
 }
 
-// alloc 用: 要求サイズを「次のサブバケット境界」まで切り上げる
+/**
+ * 確保探索用に、要求サイズを次のサブバケット境界まで切り上げて (FL, SL) を求める。
+ *
+ * @details 切り上げにより、選んだバケット内のどのブロックでも要求を満たせることを保証する (O(1) の代償)。
+ * @param size 要求サイズ。
+ * @param fl 探索開始の第 1 レベルインデックスを返す。
+ * @param sl 探索開始の第 2 レベルインデックスを返す。
+ */
 ACS_FORCEINLINE void MappingSearch(usize size, int& fl, int& sl) noexcept {
     if (size >= SMALL_BLOCK_SIZE) {
-        usize round = (1ull << (FlsSize(size) - SL_INDEX_LOG2)) - 1;
+        const usize round = (1ull << (FlsSize(size) - SL_INDEX_LOG2)) - 1;
         size += round;
     }
     MappingInsert(size, fl, sl);
 }
 
-// 要求サイズを block_size へ変換する。
-//
-// 重要な不変条件: 連続するブロックヘッダの間隔は block_size + kBlockHeaderOverhead。
-// 先頭ブロックは 16 整列、payload は header + kBlockStartOffset(=16) なので、すべての
-// payload を 16 整列に保つには「全ブロックヘッダが 16 整列」である必要があり、それには
-//     (block_size + kBlockHeaderOverhead) ≡ 0  (mod ALIGN_SIZE)
-//   ⇔ block_size ≡ ALIGN_SIZE - kBlockHeaderOverhead ≡ 8  (mod 16)
-// でなければならない。AlignUp(size,16) は ≡0 になり連鎖の途中で payload が 8 整列に
-// 落ちる (確保の約半数が 16 整列を満たさない) ため、+kBlockHeaderOverhead して ≡8 に補正する。
-// 先頭プールブロック (pool_size-24) も ≡8、分割/統合もこの剰余を保存する。
+/**
+ * 要求サイズを 16 整列を保つ block_size へ変換する。
+ *
+ * @details
+ * 重要な不変条件: 連続するブロックヘッダの間隔は block_size + kBlockHeaderOverhead。
+ * 先頭ブロックは 16 整列、payload は header + kBlockStartOffset(=16) なので、すべての
+ * payload を 16 整列に保つには全ブロックヘッダが 16 整列である必要があり、それには
+ * (block_size + kBlockHeaderOverhead) ≡ 0 (mod 16)、すなわち block_size ≡ 8 (mod 16)
+ * でなければならない。AlignUp(size,16) は ≡0 で連鎖の途中で payload が 8 整列に落ちるため、
+ * +kBlockHeaderOverhead して ≡8 に補正する。free 時に next_free/prev_free を収容できる
+ * 最小ブロック (≡8) へクランプもする。
+ * @param size 要求サイズ (0 なら 0 を返す)。
+ * @return 16 整列を保つブロックサイズ (使用可能領域 >= size を必ず満たす)。
+ */
 ACS_FORCEINLINE usize AdjustRequestSize(usize size, usize /*align*/) noexcept {
     if (size == 0) return 0;
     // AlignUp(size,16) (>= size, ≡0 mod16) に overhead を足して ≡8 mod16 にする。
@@ -144,10 +248,6 @@ ACS_FORCEINLINE usize AdjustRequestSize(usize size, usize /*align*/) noexcept {
 }
 
 } // namespace tlsf
-
-// =============================================================================
-// FTlsfAllocator 実装
-// =============================================================================
 
 FTlsfAllocator::~FTlsfAllocator() noexcept {}
 
@@ -179,7 +279,7 @@ TResult<void> FTlsfAllocator::InitWithReservation(VmReservation&& reservation,
                                                 usize commit_initial) noexcept {
     auto cr = reservation.Commit(0, commit_initial);
     if (cr.IsErr()) return cr;
-    void* base = reservation.Base();
+    void* const base = reservation.Base();
     auto r = Init(base, commit_initial);
     if (r.IsErr()) return r;
     m_Reservation = Move(reservation);
@@ -215,10 +315,10 @@ bool FTlsfAllocator::GrowToFit(usize needed_bytes) noexcept {
     if (chunk > remaining) chunk = remaining;          // 残予約でキャップ (最終 grow は残り全部)
     if (chunk < need) return false;                    // 残予約では要求を満たせない = OOM
 
-    auto cr = m_Reservation.Commit(m_CommittedBytes, chunk);
+    const auto cr = m_Reservation.Commit(m_CommittedBytes, chunk);
     if (cr.IsErr()) return false;
-    u8* base = static_cast<u8*>(m_Reservation.Base()) + m_CommittedBytes;
-    auto ar = AddPool(base, chunk);
+    u8* const base = static_cast<u8*>(m_Reservation.Base()) + m_CommittedBytes;
+    const auto ar = AddPool(base, chunk);
     if (ar.IsErr()) return false;                      // (commit は次回 grow で再利用される)
     m_CommittedBytes += chunk;
     return true;
@@ -247,7 +347,7 @@ TResult<void> FTlsfAllocator::AddPool(void* pool_base, usize pool_size) noexcept
     FBlockHeader* block = reinterpret_cast<FBlockHeader*>(
         static_cast<u8*>(pool_base) - kBlockStartOffset + kBlockStartOffset);
     block->prev_phys_block = nullptr;
-    usize block_size = pool_size - kBlockStartOffset - kBlockHeaderOverhead;
+    const usize block_size = pool_size - kBlockStartOffset - kBlockHeaderOverhead;
     block->size_and_flags = block_size | kBlockFreeBit;
     block->next_free = nullptr;
     block->prev_free = nullptr;
@@ -268,7 +368,7 @@ void FTlsfAllocator::InsertFreeBlock(tlsf::FBlockHeader* block) noexcept {
     MappingInsert(BlockSize(block), fl, sl);
 
     // 双方向リンクで先頭挿入
-    FBlockHeader* current = m_Blocks[fl][sl];
+    FBlockHeader* const current = m_Blocks[fl][sl];
     block->next_free = current;
     block->prev_free = &m_NullBlock;
     current->prev_free = block;
@@ -282,8 +382,8 @@ void FTlsfAllocator::InsertFreeBlock(tlsf::FBlockHeader* block) noexcept {
 // フリーリストから取り除く（バケットが空なら対応ビットも下ろす）
 void FTlsfAllocator::RemoveFreeBlock(tlsf::FBlockHeader* block) noexcept {
     using namespace tlsf;
-    FBlockHeader* prev = block->prev_free;
-    FBlockHeader* next = block->next_free;
+    FBlockHeader* const prev = block->prev_free;
+    FBlockHeader* const next = block->next_free;
     next->prev_free = prev;
     prev->next_free = next;
 
@@ -308,7 +408,7 @@ tlsf::FBlockHeader* FTlsfAllocator::SearchSuitableBlock(int& fl, int& sl) noexce
     u32 sl_map = m_SlBitmap[fl] & (~0u << sl);
     if (sl_map == 0) {
         // 見つからなければ FL を 1 つ上にずらす
-        u32 fl_map = m_FlBitmap & (~0u << (fl + 1));
+        const u32 fl_map = m_FlBitmap & (~0u << (fl + 1));
         if (fl_map == 0) return nullptr;  // OOM
         fl = Ffs(fl_map);
         sl_map = m_SlBitmap[fl];
@@ -329,7 +429,7 @@ void FTlsfAllocator::TrimFreeBlock(tlsf::FBlockHeader* block, usize size) noexce
     if (bs < size || (bs - size) < kBlockHeaderOverhead + MIN_BLOCK_SIZE) {
         return;  // 切り出す余裕が無い (exact-fit / 僅差を含む) → 分割しない
     }
-    usize remaining = bs - size - kBlockHeaderOverhead;
+    const usize remaining = bs - size - kBlockHeaderOverhead;
     if (remaining < MIN_BLOCK_SIZE) return;  // 念のため (上のガードで保証済み)
 
     SetBlockSize(block, size);
@@ -398,10 +498,11 @@ void FTlsfAllocator::TrimUsedBlock(tlsf::FBlockHeader* block, usize size) noexce
     MarkPrevFree(a2);                          // a2 の prev(=rem) は free
 }
 
-// 安全上限。これを超える要求は内部のサイズ計算 (AlignUp / search_size) が
-// オーバーフローして過小確保 → OOB を招くため、計算前に弾く。
-static constexpr usize kMaxAllocSize = (~usize(0)) >> 1;   // アドレス空間の半分 (実用上無制限)
-static constexpr usize kMaxAlignment = 64u * 1024u;        // 64KiB (VirtualAlloc 粒度)。これ以上は非現実的
+/** 確保サイズの安全上限 (アドレス空間の半分、実用上無制限)。内部サイズ計算の overflow→OOB を防ぐため超過要求を弾く。 */
+static constexpr usize kMaxAllocSize = (~usize(0)) >> 1;
+
+/** アライメントの安全上限 (64KiB = VirtualAlloc 粒度)。これ以上は非現実的で search_size の wrap を招く。 */
+static constexpr usize kMaxAlignment = 64u * 1024u;
 
 // 確保
 void* FTlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
@@ -413,7 +514,7 @@ void* FTlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noe
     if ((alignment & (alignment - 1u)) != 0u) return nullptr; // 2 のべき乗でない alignment は不正
 
     // サイズをアライン → バケット検索
-    usize adjust = AdjustRequestSize(size, alignment);
+    const usize adjust = AdjustRequestSize(size, alignment);
 
     // alignment > ALIGN_SIZE(16) の場合、chaining が保証する 16 整列では足りない。
     // 先頭に余白 (leading free ブロック) を切り出して payload を要求境界へ前進させる
@@ -439,7 +540,7 @@ void* FTlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noe
 
     // ---- over-alignment: 先頭ギャップを leading free ブロックとして切り出す ----
     if (alignment > ALIGN_SIZE) {
-        u8* ptr     = static_cast<u8*>(BlockToPtr(block));
+        const u8* ptr = static_cast<u8*>(BlockToPtr(block));
         u8* aligned = reinterpret_cast<u8*>(
             AlignUp(reinterpret_cast<uptr>(ptr), static_cast<uptr>(alignment)));
         usize gap = static_cast<usize>(aligned - ptr);  // ptr/aligned とも 16 整列 → gap は 16 の倍数
@@ -483,7 +584,7 @@ void* FTlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noe
     m_BytesUsed += BlockSize(block);
     if (m_BytesUsed > m_BytesPeak) m_BytesPeak = m_BytesUsed;
 
-    void* result = BlockToPtr(block);
+    void* const result = BlockToPtr(block);
     // payload は必ず要求 alignment を満たす (16 は chaining 不変条件、>16 は上の leading split)
     ACS_ASSERT((reinterpret_cast<uptr>(result) & (static_cast<uptr>(alignment) - 1)) == 0);
     return result;
@@ -594,8 +695,8 @@ void FTlsfAllocator::Free(void* ptr) noexcept {
     // UAF 検出: 解放した payload のうちフリーリストノード (先頭 16B = next_free/prev_free) を
     // 除く領域を 0xDD で塗る。解放後に読まれた場合に目立たせる (Debug のみ)。
     {
-        u8* node_end = static_cast<u8*>(BlockToPtr(block)) + sizeof(FBlockHeader*) * 2;
-        u8* end      = reinterpret_cast<u8*>(NextBlock(block));
+        u8* const node_end = static_cast<u8*>(BlockToPtr(block)) + sizeof(FBlockHeader*) * 2;
+        u8* const end      = reinterpret_cast<u8*>(NextBlock(block));
         for (u8* q = node_end; q < end; ++q) *q = static_cast<u8>(0xDD);
     }
 #endif
@@ -644,7 +745,7 @@ void* FTlsfAllocator::Realloc(void* ptr, usize old_size, usize new_size,
     if (adjust > old_bs) {
         // 拡大: 物理的に次のブロックが free で、合算サイズが要求を満たすなら in-place 統合。
         // そうでなければコピーを伴う移動 (新規確保 + memcpy + 解放) にフォールバック。
-        FBlockHeader* next = NextBlock(block);
+        FBlockHeader* const next = NextBlock(block);
         if (!(IsFree(next) && (old_bs + BlockSize(next) + kBlockHeaderOverhead) >= adjust)) {
             return FAllocator::Realloc(ptr, old_size, new_size, alignment, loc);
         }

@@ -9,10 +9,12 @@
 
 namespace acs::game {
 
+/** 任意 2 点間の線分を 1 本バッファへ積む。 */
 void FDebugDraw::DrawLine(FVec2 a, FVec2 b, FVec4 color) noexcept {
     m_Lines.PushBack(Line{a, b, color});
 }
 
+/** AABB の 4 隅を 4 辺の線分に分解して積む。 */
 void FDebugDraw::DrawAabb(const Aabb2& a, FVec4 color) noexcept {
     // 4 隅 → 4 辺。
     //   tl --- tr
@@ -30,6 +32,7 @@ void FDebugDraw::DrawAabb(const Aabb2& a, FVec4 color) noexcept {
     m_Lines.PushBack(Line{bl, tl, color});  // 左辺
 }
 
+/** 円を segments 本の線分に分解した近似輪郭を積む (segments<3 は 3 に丸める)。 */
 void FDebugDraw::DrawCircle(const Circle& c, FVec4 color, u32 segments) noexcept {
     // 縮退ガード: 3 角形未満は形にならない。
     if (segments < 3u) segments = 3u;
@@ -49,6 +52,7 @@ void FDebugDraw::DrawCircle(const Circle& c, FVec4 color, u32 segments) noexcept
     // i = segments のとき theta = 2π となり、開始点に戻るため自然に閉じる。
 }
 
+/** 中心 pos の "+" 記号を横線・縦線の 2 本として積む (size は片側長)。 */
 void FDebugDraw::DrawCross(FVec2 pos, f32 size, FVec4 color) noexcept {
     // "+" 記号: 横線（左右）+ 縦線（上下）。size は片側長。
     const f32 h = size;

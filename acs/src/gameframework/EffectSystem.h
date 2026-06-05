@@ -5,7 +5,7 @@
 // FCamera Shake (FCamera2D 連携) をひとまとめにし、描画側 / FGame ループ /
 // FCamera2D が「pull する側」になる単純なバスとして振る舞う。
 //
-// 設計選択 (Phase ?? = Pillar I Phase 1):
+// 設計選択 (Pillar I):
 //   ・**FEffectSystem 自身は何も描画しない / 何も時間を止めない**:
 //      Flash → 描画パイプ末尾の overlay が `FlashColor() * FlashIntensity()`
 //             を加算 (alpha blend) して画面に被せる。
@@ -44,7 +44,7 @@
 //       }
 //   };
 //
-// 範囲外 (Phase 2+ で):
+// 範囲外:
 //   ・color grading / chromatic aberration / vignette / radial blur のレシピ
 //   ・複数 channel (UI / world / cinematic) で独立 mute
 //   ・curve-based intensity (Easing 連携)
@@ -55,63 +55,130 @@
 
 namespace acs::game {
 
+/**
+ * Flash / HitStop / カメラシェイクをまとめる画面演出の中央指揮塔。
+ *
+ * @details
+ * 自身は何も描画せず時間も止めない純粋 state machine で、描画側 / FGame ループ /
+ * FCamera2D が pull する単純なバスとして振る舞う。Flash は描画パイプ末尾が
+ * FlashColor() * FlashIntensity() を加算 overlay し、HitStop は FGame が
+ * IsHitStop() を見て time_scale=0 を選び、Shake は FCamera2D が PendingShakeTrauma()
+ * を pull → AddShake → ConsumeShake() で消費する。Tick は常に real-time dt で進める。
+ */
 class FEffectSystem {
 public:
+    /** 全エフェクトを停止状態で構築する。 */
     FEffectSystem() noexcept = default;
+
+    /** デストラクタ (所有リソースなし)。 */
     ~FEffectSystem() noexcept = default;
 
+    /** コピー禁止 (演出状態を単独所有するため)。 */
     FEffectSystem(const FEffectSystem&)            = delete;
+
+    /** コピー代入も禁止。 */
     FEffectSystem& operator=(const FEffectSystem&) = delete;
+
+    /** ムーブ禁止。 */
     FEffectSystem(FEffectSystem&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FEffectSystem& operator=(FEffectSystem&&)      = delete;
 
-    // ----- Flash (画面全体に色を被せる) -----
-    // color    : RGB (0..1)、描画側が `color * intensity` を加算 blend する想定
-    // intensity: 最大強度 (0..1 が無難。1.0 で完全白飛び)
-    // duration : 0 → fully bright、duration 経過で 0 (線形減衰)
+    /**
+     * 画面全体に被せるフラッシュを開始する (最新の呼出で上書き、累積しない)。
+     *
+     * @details intensity の負値は 0 に clamp、duration <= 0 は走行中の flash を即消去。
+     * @param color フラッシュ色 RGB (0..1)。描画側が color * intensity を加算 blend する。
+     * @param intensity ピーク強度 (0..1 が無難、1.0 で完全白飛び。負値は 0 に clamp)。
+     * @param duration ピークから 0 へ線形減衰するまでの秒。0 以下で即消去。
+     */
     void Flash(FVec3 color, f32 intensity, f32 duration) noexcept;
 
-    // ----- HitStop (一時停止) -----
-    // duration 秒の間、IsHitStop() が true を返す。
-    // FGame ループはこれを見て time_scale=0 にする責務を持つ。
-    // 重ねがけは max を採用 (短い hit stop が長い hit stop を打ち消さない)。
+    /**
+     * ヒットストップ (一時停止) を要求する。
+     *
+     * @details
+     * duration 秒の間 IsHitStop() が true を返す。FGame ループがこれを見て time_scale=0
+     * にする責務を持つ。重ねがけは max を採用 (短い hit stop が長い hit stop を打ち消さない)。
+     * @param duration 停止させたい秒。
+     */
     void HitStop(f32 duration) noexcept;
 
-    // ----- FCamera Shake (FCamera2D 連携) -----
-    // trauma      : 0..1、FCamera2D::AddShake にそのまま渡せる値
-    // duration_hint: 将来用 (現状未使用、API 安定のため shape を確保)
-    // 同一フレーム中の複数呼出は max を保つ (max-of-frame)。
+    /**
+     * カメラシェイクの pending trauma を積む。
+     *
+     * @details
+     * 同一フレーム中の複数呼出は max を保つ (max-of-frame)。FCamera2D が次フレーム頭で
+     * ConsumeShake する想定。
+     * @param trauma 0..1 のシェイク強度 (FCamera2D::AddShake にそのまま渡せる値)。
+     * @param duration_hint 将来用 (現状未使用、API 安定のため shape を確保)。
+     */
     void TriggerShake(f32 trauma, f32 duration_hint = 0.0f) noexcept;
 
-    // ----- driver -----
-    // dt は real-time dt (hit stop 中も 0 にしない)。
-    // 全エフェクトの内部 timer を進める。
+    /**
+     * 全エフェクトの内部 timer を進める。
+     *
+     * @details dt は real-time dt を渡す (hit stop 中も 0 にしない)。
+     * @param dt 前フレームからの実経過秒。
+     */
     void Tick(f32 dt) noexcept;
 
-    // ----- accessors (描画側 / FCamera2D 側が pull する) -----
-    // 0 = フラッシュなし、>0 で描画側が overlay
+    /**
+     * 現在のフラッシュ強度を返す (描画側が overlay 用に pull する)。
+     *
+     * @return 0 = フラッシュなし、>0 で描画側が overlay に使う強度。
+     */
     f32  FlashIntensity() const noexcept;
+
+    /**
+     * 現在のフラッシュ色を返す。
+     *
+     * @return フラッシュ色 RGB。
+     */
     FVec3 FlashColor()     const noexcept { return m_FlashColor; }
 
+    /**
+     * ヒットストップ中かを返す (FGame ループが time_scale 判定に使う)。
+     *
+     * @return 残時間が残っていれば true。
+     */
     bool IsHitStop()      const noexcept { return m_HitStopRemain > 0.0f; }
+
+    /**
+     * ヒットストップの残時間を返す。
+     *
+     * @return 停止の残り秒。
+     */
     f32  HitStopRemain()  const noexcept { return m_HitStopRemain; }
 
-    // FCamera2D 側が読んで AddShake に流す
+    /**
+     * pending のシェイク trauma を返す (FCamera2D が読んで AddShake に流す)。
+     *
+     * @return 未消費の trauma (0 ならシェイク要求なし)。
+     */
     f32  PendingShakeTrauma() const noexcept { return m_PendingShake; }
-    // FCamera2D 側が AddShake 後に呼んで pending を 0 に
+
+    /** pending のシェイク trauma を 0 にリセットする (FCamera2D が AddShake 後に呼ぶ)。 */
     void ConsumeShake() noexcept { m_PendingShake = 0.0f; }
 
 private:
-    // Flash state
-    f32  m_FlashT        = 0.0f;        // 残時間 (0..flash_total)
-    f32  m_FlashTotal    = 0.0f;        // 開始時 duration (除算用)
-    f32  m_FlashMax      = 0.0f;        // ピーク intensity
+    /** フラッシュの残時間 (0..m_FlashTotal)。 */
+    f32  m_FlashT        = 0.0f;
+
+    /** フラッシュ開始時の duration (減衰の除算に使う)。 */
+    f32  m_FlashTotal    = 0.0f;
+
+    /** フラッシュのピーク強度。 */
+    f32  m_FlashMax      = 0.0f;
+
+    /** フラッシュ色 RGB。 */
     FVec3 m_FlashColor   {0.0f, 0.0f, 0.0f};
 
-    // HitStop state
+    /** ヒットストップの残時間。 */
     f32  m_HitStopRemain = 0.0f;
 
-    // Shake pending (FCamera2D が次フレーム consume するまで保持)
+    /** 未消費のシェイク trauma (FCamera2D が次フレーム consume するまで保持)。 */
     f32  m_PendingShake   = 0.0f;
 };
 

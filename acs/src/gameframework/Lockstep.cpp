@@ -1,11 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M — FLockstep 実装 (Phase M-1 スケルトン)
-//
-// 現フェーズ:
-//   ・Init / RecordInput / StartReplay / ConsumeInput / CurrentTick /
-//     InputCount / ComputeChecksum / Clear はすべて本実装。
-//   ・SaveToBuffer / LoadFromBuffer は ACS_ERR(IO, kSub_NotImplemented) を返す
-//     stub (FSaveSlot Phase 1 と同じ pattern)。Phase M-2 で実 I/O 接続予定。
+// GameFramework Pillar M — FLockstep 実装
 //
 // 設計メモ:
 //   ・ConsumeInput は m_ReplayCursor から線形走査する。記録順 = tick 昇順を
@@ -17,7 +11,6 @@
 //     (strict aliasing 違反回避)。
 //   ・FNV を選んだ理由: STL 不使用 + ヘッダ追加なしで 5 行で書ける。
 //     replay 同期ずれ検知 (1〜2 bit 差分が大半) には十分な avalanche を持つ。
-//     より強い hash (xxHash3 / CRC-64) は Phase M-2 で考慮する。
 #include "gameframework/Lockstep.h"
 
 #include "memory/Memory.h"   // MemCopy
@@ -26,32 +19,44 @@ namespace acs::game {
 
 namespace {
 
-// FNV-1a 64-bit 定数 (RFC 風)。
+/** FNV-1a 64-bit の offset basis。 */
 constexpr u64 kFnvOffsetBasis = 0xCBF29CE484222325ull;
+
+/** FNV-1a 64-bit の prime。 */
 constexpr u64 kFnvPrime       = 0x100000001B3ull;
 
-// =============================================================================
-// SaveToBuffer / LoadFromBuffer 用フォーマット定数
-// -----------------------------------------------------------------------------
-// レイアウト (すべて little-endian):
-//   [magic 'ACSL'][version][tick_rate_hz][frame_count][frames...][crc32]
-// crc32 は frames 部 (header と footer を除いた本体) のみを対象に計算する
-// (FSaveArchive の payload CRC と同じ思想)。
-// InputFrame は padding を含む POD なので生 memcpy はせず、各フィールドを
-// 固定幅の wire layout (tick=4 / player_id=4 / buttons=1 / axis.x=4 / axis.y=4
-// = 17 B) で書き出す。これで ABI / padding に依存しない bit-precise な永続化に
-// なる (デターミニズム検証用途では再現性が最重要)。
-// =============================================================================
-constexpr u8  kMagic[4]       = { 'A', 'C', 'S', 'L' };  // 'ACSL'
-constexpr u32 kFormatVersion  = 1u;
-constexpr u32 kHeaderSize     = 16u;  // magic(4) + version(4) + tick_rate_hz(4) + frame_count(4)
-constexpr u32 kFrameWireSize  = 17u;  // tick(4) + player_id(4) + buttons(1) + axis.x(4) + axis.y(4)
-constexpr u32 kFooterSize     = 4u;   // crc32
+/**
+ * SaveToBuffer / LoadFromBuffer のマジック 'ACSL'。
+ *
+ * @details
+ * 永続化レイアウト (すべて little-endian) は
+ * [magic][version][tick_rate_hz][frame_count][frames...][crc32]。crc32 は frames 部
+ * (header と footer を除いた本体) のみを対象に計算する。InputFrame は padding を含む POD
+ * なので生 memcpy はせず固定幅 wire layout で書き出し、ABI / padding 非依存の bit-precise
+ * な永続化にする (デターミニズム検証用途で再現性が最重要)。
+ */
+constexpr u8  kMagic[4]       = { 'A', 'C', 'S', 'L' };
 
-// ---- CRC32 (poly 0xEDB88320, init/xorout 0xFFFFFFFF) ----------------------
-// FSaveArchive / assetpack と同一実装 (link 単位を独立させるためここでも単独に
-// 持つ — gameframework は assetpack を依存に持たない)。Meyer's singleton で
-// thread-safe な lookup table 初期化を行う。
+/** wire フォーマットのバージョン。 */
+constexpr u32 kFormatVersion  = 1u;
+
+/** ヘッダ部の byte 数 (magic 4 + version 4 + tick_rate_hz 4 + frame_count 4)。 */
+constexpr u32 kHeaderSize     = 16u;
+
+/** 1 フレームの wire byte 数 (tick 4 + player_id 4 + buttons 1 + axis.x 4 + axis.y 4)。 */
+constexpr u32 kFrameWireSize  = 17u;
+
+/** フッタ部の byte 数 (crc32)。 */
+constexpr u32 kFooterSize     = 4u;
+
+/**
+ * CRC32 lookup table を遅延初期化して返す (poly 0xEDB88320, init/xorout 0xFFFFFFFF)。
+ *
+ * @details
+ * FSaveArchive / assetpack と同一実装 (link 単位を独立させるためここでも単独に持つ)。
+ * Meyer's singleton で thread-safe に table を初期化する。
+ * @return 256 要素の CRC32 lookup table。
+ */
 const u32* GetCrc32Table() noexcept {
     static u32 m_Table[256] = {};
     static bool m_Initialized = false;
@@ -68,7 +73,13 @@ const u32* GetCrc32Table() noexcept {
     return m_Table;
 }
 
-// バイト列の CRC32 を計算する (Zlib / PNG 規約)。
+/**
+ * バイト列の CRC32 を計算する (Zlib / PNG 規約)。
+ *
+ * @param data 計算対象の先頭ポインタ。
+ * @param size バイト数。
+ * @return CRC32 値。
+ */
 u32 ComputeCrc32(const void* data, u64 size) noexcept {
     const u32* table = GetCrc32Table();
     const u8*  p     = static_cast<const u8*>(data);
@@ -79,22 +90,45 @@ u32 ComputeCrc32(const void* data, u64 size) noexcept {
     return crc ^ 0xFFFFFFFFu;
 }
 
-// ---- little-endian 読み書き helper (strict-aliasing 安全) -----------------
-// FSaveArchive と同じく MemCopy 経由でバイトコピーする。ホスト側も LE 前提。
+/**
+ * u32 を little-endian バイト列として書き込む (strict-aliasing 安全)。
+ *
+ * @details FSaveArchive と同じく MemCopy 経由でバイトコピーする。ホスト側も LE 前提。
+ * @param dst 書き込み先 (4 byte)。
+ * @param v 書き込む値。
+ */
 void WriteU32LE(u8* dst, u32 v) noexcept { MemCopy(dst, &v, sizeof(u32)); }
 
+/**
+ * little-endian バイト列から u32 を読み出す (strict-aliasing 安全)。
+ *
+ * @param src 読み込み元 (4 byte)。
+ * @return 読み出した u32 値。
+ */
 u32 ReadU32LE(const u8* src) noexcept {
     u32 v = 0; MemCopy(&v, src, sizeof(u32)); return v;
 }
 
-// 1 バイトを FNV-1a で混ぜる。
+/**
+ * 1 バイトを FNV-1a で混ぜる。
+ *
+ * @param h 現在のハッシュ値。
+ * @param byte 混ぜるバイト。
+ * @return 更新後のハッシュ値。
+ */
 inline u64 FnvFold(u64 h, u8 byte) noexcept {
     h ^= static_cast<u64>(byte);
     h *= kFnvPrime;
     return h;
 }
 
-// u32 を little-endian バイト列として混ぜる。
+/**
+ * u32 を little-endian バイト列として FNV-1a で混ぜる。
+ *
+ * @param h 現在のハッシュ値。
+ * @param v 混ぜる u32 値。
+ * @return 更新後のハッシュ値。
+ */
 inline u64 FnvFoldU32(u64 h, u32 v) noexcept {
     h = FnvFold(h, static_cast<u8>(v        & 0xFFu));
     h = FnvFold(h, static_cast<u8>((v >> 8 ) & 0xFFu));
@@ -103,11 +137,15 @@ inline u64 FnvFoldU32(u64 h, u32 v) noexcept {
     return h;
 }
 
-// f32 のビットパターンを u32 として取り出して混ぜる。
-// reinterpret_cast や union 経由は strict aliasing 違反になるため memcpy で実施。
-// memcpy は <cstring> 依存だが、ACS 全体で既に MemCopy 経由 (memory/Memory.h) を
-// 採用しているのでここでは __builtin_memcpy 相当のコンパイラ最適化に委ねる小ループで
-// 実装する (STL 不使用方針)。
+/**
+ * f32 のビットパターンを u32 として取り出す。
+ *
+ * @details
+ * reinterpret_cast や union 経由は strict aliasing 違反になるため、バイト単位の小ループで
+ * 読み出す (STL 不使用方針)。
+ * @param v ビットを取り出す f32 値。
+ * @return v のビットパターンを表す u32。
+ */
 inline u32 BitsOf(f32 v) noexcept {
     u32 out = 0;
     const u8* src = reinterpret_cast<const u8*>(&v);
@@ -118,7 +156,12 @@ inline u32 BitsOf(f32 v) noexcept {
     return out;
 }
 
-// BitsOf の逆: u32 ビットパターンを f32 に読み替える (strict-aliasing 安全)。
+/**
+ * u32 ビットパターンを f32 に読み替える (BitsOf の逆、strict-aliasing 安全)。
+ *
+ * @param bits f32 のビットパターン。
+ * @return 読み替えた f32 値。
+ */
 inline f32 F32FromBits(u32 bits) noexcept {
     f32 out = 0.0f;
     MemCopy(&out, &bits, sizeof(f32));
@@ -145,7 +188,7 @@ void FLockstep::RecordInput(const InputFrame& frame) noexcept {
     m_Frames.PushBack(frame);
     // m_CurrentTick は「次に書き込む tick」のヒント。連続 tick 想定で frame.tick+1
     // に進める。非連続な tick (rollback で巻き戻し等) を許容する場合は呼び出し側で
-    // 明示的に管理することになる (Phase M-2 で rollback 対応する際に再設計)。
+    // 明示的に管理することになる。
     m_CurrentTick = frame.tick + 1u;
 }
 
@@ -177,7 +220,7 @@ bool FLockstep::ConsumeInput(u32 tick, u32 player_id, InputFrame& out) noexcept 
             return true;
         }
         // 記録順が tick 昇順を破る場合 (rollback / 未来 frame の混入) は素朴に
-        // 走査を続ける。Phase M-2 で per-tick index を持つことで高速化予定。
+        // 走査を続ける。
     }
     return false;
 }
@@ -209,17 +252,7 @@ void FLockstep::Clear() noexcept {
     // m_Mode / m_TickRateHz は保持。Init で改めて切り替える設計。
 }
 
-// -----------------------------------------------------------------------------
-// SaveToBuffer — frames を [magic][version][tick_rate_hz][frame_count][frames][crc32]
-//                レイアウトで buffer に書き出す。
-// -----------------------------------------------------------------------------
-// 手順:
-//   1. required = header(16) + frame_count * 17 + footer(4)
-//   2. size < required なら kSub_BufferTooSmall
-//   3. write header [magic][version][tick_rate_hz][frame_count]
-//   4. write frames (各 17 B の固定 wire layout、padding 非依存)
-//   5. write crc32(frames 部) footer
-//   6. out_written = required
+/** frames を [magic][version][tick_rate_hz][frame_count][frames][crc32] レイアウトで buffer に書き出す。 */
 TResult<void> FLockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept {
     out_written = 0;
     if (buffer == nullptr) {
@@ -267,18 +300,7 @@ TResult<void> FLockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) no
     return Ok();
 }
 
-// -----------------------------------------------------------------------------
-// LoadFromBuffer — buffer を解釈して frames を復元する (置換セマンティクス)。
-// -----------------------------------------------------------------------------
-// 手順:
-//   1. size < header(16) + footer(4) なら kSub_BadSize
-//   2. magic 検証 → 不一致なら kSub_BadMagic
-//   3. version 検証 → kFormatVersion と不一致なら kSub_BadVersion
-//   4. header(16) + frame_count * 17 + footer(4) が size と一致しなければ kSub_BadSize
-//   5. crc32(frames 部) → footer と不一致なら kSub_BadCrc
-//   6. m_Frames.Clear(); m_Frames.Reserve(frame_count); 順次 PushBack
-//   7. tick_rate_hz を復元、m_CurrentTick / m_ReplayCursor を 0 にリセット
-//      (StartReplay 待ち状態)
+/** buffer を解釈・検証 (magic / version / size / crc32) して frames を復元する (置換セマンティクス)。 */
 TResult<void> FLockstep::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,

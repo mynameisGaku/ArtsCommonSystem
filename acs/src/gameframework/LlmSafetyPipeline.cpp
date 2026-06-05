@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U Phase 2 — FLlmSafetyPipeline 実装
+// GameFramework Pillar U — FLlmSafetyPipeline 実装
 //
 // 各ルールの実装状況:
 //   ・InputValidation: 空 / 長すぎる入力 (> 8KB) を Refused
@@ -21,8 +21,12 @@ namespace acs::game {
 
 namespace {
 
-// ---- 内部: 文字列長 (`<string.h>` 不使用、明示ループで C 規約準拠) ------------
-// strlen 等価。nullptr は 0 を返す (呼び出し側で null チェックを省略可能に)。
+/**
+ * strlen 等価の文字列長を返す (`<string.h>` 不使用、明示ループ)。
+ *
+ * @param s 計測する null 終端文字列 (nullptr 可)。
+ * @return 文字数 (nullptr は 0)。
+ */
 u32 StrLen(const char* s) noexcept {
     if (s == nullptr) return 0;
     u32 n = 0;
@@ -30,13 +34,24 @@ u32 StrLen(const char* s) noexcept {
     return n;
 }
 
-// 大文字 → 小文字。ASCII 範囲のみ (multibyte は素通し)。
+/**
+ * 大文字を小文字に変換する (ASCII 範囲のみ、multibyte は素通し)。
+ *
+ * @param c 変換する文字。
+ * @return 小文字化した文字。
+ */
 char ToLowerAscii(char c) noexcept {
     return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
 }
 
-// haystack に needle が出現するか (大小文字非感受、ASCII)。
-// needle は短い文字列リテラル前提なので素朴な O(n*m) で十分。
+/**
+ * haystack に needle が出現するかを大小文字非感受で判定する (ASCII)。
+ *
+ * @details needle は短い文字列リテラル前提なので素朴な O(n*m) で実装する。
+ * @param haystack 検索対象文字列。
+ * @param needle 探す部分文字列。
+ * @return 出現すれば true (どちらか nullptr は false、空 needle は true)。
+ */
 bool ContainsCaseInsensitive(const char* haystack, const char* needle) noexcept {
     if (haystack == nullptr || needle == nullptr) return false;
     if (needle[0] == '\0') return true;
@@ -52,42 +67,71 @@ bool ContainsCaseInsensitive(const char* haystack, const char* needle) noexcept 
     return false;
 }
 
-// 簡易トークン推定: 英語/混在テキストに対して 1 token ≒ 4 byte (OpenAI 経験則)。
-// 厳密 BPE は不要、予算チェック用途には十分。
+/**
+ * byte 長から概算トークン数を推定する (1 token ≒ 4 byte、OpenAI 経験則)。
+ *
+ * @details 厳密 BPE は不要、予算チェック用途には十分。
+ * @param byte_len テキストの byte 長。
+ * @return 概算トークン数 (ceil(byte_len / 4))。
+ */
 u32 EstimateTokens(u32 byte_len) noexcept {
     return (byte_len + 3u) / 4u;
 }
 
-// ---- 文字クラス判定 (ASCII、`<ctype.h>` 不使用) ------------------------------
+/**
+ * 文字が数字かを返す (ASCII、`<ctype.h>` 不使用)。
+ *
+ * @param c 判定する文字。
+ * @return '0'〜'9' なら true。
+ */
 bool IsDigit(char c) noexcept {
     return c >= '0' && c <= '9';
 }
 
+/**
+ * 文字が英字かを返す (ASCII)。
+ *
+ * @param c 判定する文字。
+ * @return 'a'〜'z' / 'A'〜'Z' なら true。
+ */
 bool IsAlpha(char c) noexcept {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
 
-// メール local-part / domain-part に許される文字 (簡易: RFC を厳密に追わない)。
-// 検出目的なので「現実のアドレスを取りこぼさない」最小集合に絞る。
+/**
+ * メール local-part に許される文字かを返す。
+ *
+ * @details RFC を厳密に追わず、検出目的で「現実のアドレスを取りこぼさない」最小集合に絞る。
+ * @param c 判定する文字。
+ * @return local-part に許される文字なら true。
+ */
 bool IsEmailLocalChar(char c) noexcept {
     return IsAlpha(c) || IsDigit(c)
         || c == '.' || c == '_' || c == '%' || c == '+' || c == '-';
 }
 
+/**
+ * メール domain-part に許される文字かを返す。
+ *
+ * @param c 判定する文字。
+ * @return domain-part に許される文字なら true。
+ */
 bool IsEmailDomainChar(char c) noexcept {
     return IsAlpha(c) || IsDigit(c) || c == '.' || c == '-';
 }
 
-// 電話 / クレカの「数字グルーピング区切り」とみなす文字。
-// 数字の連なりを跨いで連続桁数を数えるために許容する。
+/**
+ * 電話 / クレカの「数字グルーピング区切り」とみなす文字かを返す。
+ *
+ * @details 数字の連なりを跨いで連続桁数を数えるために許容する。
+ * @param c 判定する文字。
+ * @return 区切り文字 (空白 / ダッシュ / '.' / 括弧 / '+') なら true。
+ */
 bool IsPhoneSeparator(char c) noexcept {
     return c == ' ' || c == '-' || c == '.' || c == '(' || c == ')' || c == '+';
 }
 
-// ---- jailbreak 典型句リスト (Phase 1) ----------------------------------------
-// 実運用では prompt injection corpus + 分類器に置き換える。本リストは
-// 「最低限の防御線」として有名な英語句のみを並べる。日本語版 / 多言語拡張は
-// Phase 2 で別ファイル (LlmSafetyPatterns.h) に切り出す予定。
+/** jailbreak 典型句リスト (最低限の防御線。実運用では corpus + 分類器に置き換える)。 */
 constexpr const char* kJailbreakPatterns[] = {
     "ignore previous instructions",
     "ignore the above",
@@ -101,18 +145,18 @@ constexpr const char* kJailbreakPatterns[] = {
     "DAN mode",                 // "Do Anything Now"
 };
 
+/** kJailbreakPatterns の要素数。 */
 constexpr u32 kJailbreakPatternCount =
     sizeof(kJailbreakPatterns) / sizeof(kJailbreakPatterns[0]);
 
-// ---- RefusalEnforcement キーワードリスト -------------------------------------
-// LLM 応答が「キャラ設定を破って素のアシスタントに戻った」「禁止トピックに
-// 踏み込んだ」典型句を弾く防御線。jailbreak リスト (入力側) と異なり、こちらは
-// **出力側でモデルがメタ発言・規約逸脱した兆候** を拾う。
-//   ・"as an ai language model" 等 = キャラを脱いで素のアシスタントに戻った合図
-//   ・"ignore previous instructions" 等 = 応答内に注入文がエコーされた / 自己注入
-//   ・"system prompt" / "jailbreak" = 内部情報の漏洩兆候
-// 実運用では分類器 + キャラ anchor との semantic 距離で補強するが、文字列一致
-// だけでも「明確な逸脱」は確実に捕まえられる。
+/**
+ * RefusalEnforcement キーワードリスト (出力側でモデルがメタ発言・規約逸脱した兆候)。
+ *
+ * @details
+ * LLM 応答が「キャラ設定を破って素のアシスタントに戻った」「禁止トピックに踏み込んだ」
+ * 典型句を弾く防御線。"as an ai ..." はキャラ離脱、"ignore previous instructions" は
+ * 注入文のエコー、"system prompt" / "jailbreak" は内部情報の漏洩兆候を拾う。
+ */
 constexpr const char* kRefusalKeywords[] = {
     "as an ai language model",
     "as an ai assistant",
@@ -127,18 +171,24 @@ constexpr const char* kRefusalKeywords[] = {
     "developer mode",
 };
 
+/** kRefusalKeywords の要素数。 */
 constexpr u32 kRefusalKeywordCount =
     sizeof(kRefusalKeywords) / sizeof(kRefusalKeywords[0]);
 
-// ---- 文字列バッファ (filtered_text 用) ---------------------------------------
-// 素通し時は入力をそのままコピー、PII 検出時は [REDACTED] 置換後の文字列を保持。
-// 入力ポインタの寿命を呼び出し側が保証できない可能性に備えて thread_local
-// バッファにコピーして返す。サイズは入力上限と同じ 8KB。
-//
-// thread_local にすることで、複数スレッド (例: gameplay スレッドと UI スレッド)
-// で別の FLlmSafetyPipeline を回しても互いに上書きしない。
+/** filtered_text バッファのサイズ (= 入力上限と同じ 8KB)。 */
 constexpr u32 kFilteredBufSize = 8192;
 
+/**
+ * 文字列を thread_local バッファにコピーして返す (filtered_text 用)。
+ *
+ * @details
+ * 入力ポインタの寿命を呼び出し側が保証できない可能性に備えて static thread_local
+ * バッファにコピーする。thread_local なので複数スレッドで別 pipeline を回しても
+ * 互いに上書きしない。バッファ長を超える分は切り詰める。
+ * @param src コピー元文字列 (nullptr なら空文字を返す)。
+ * @param len src の byte 長。
+ * @return thread_local バッファへのポインタ。
+ */
 const char* StoreFiltered(const char* src, u32 len) noexcept {
     static thread_local char buf[kFilteredBufSize];
     if (src == nullptr) {
@@ -151,18 +201,24 @@ const char* StoreFiltered(const char* src, u32 len) noexcept {
     return buf;
 }
 
-// ---- PII 検出 ----------------------------------------------------------------
-// 置換トークン。検出した PII スパンを丸ごとこの文字列で上書きする。
+/** PII 置換トークン。検出した PII スパンを丸ごとこの文字列で上書きする。 */
 constexpr char kRedactToken[]   = "[REDACTED]";
-constexpr u32  kRedactTokenLen  = sizeof(kRedactToken) - 1u;  // '\0' を除く
 
-// テキスト位置 i から始まるメールアドレス様トークンを検出する。
-// 規則: local-part (1+ 文字) → '@' → domain-part に '.' が 1 つ以上含まれ、
-//       かつ '@' の後の domain が英数字で始まる。マッチしたら全長を返す
-//       (= スパン byte 数)、しなければ 0。`<regex>` 不使用の手書きスキャナ。
-//
-// 注意: local-part の先頭文字は呼び出し側で「直前が単語境界」を保証済み前提
-//       (= 数字/メール文字が連続する途中から呼ばれない)。
+/** kRedactToken の文字数 ('\0' を除く)。 */
+constexpr u32  kRedactTokenLen  = sizeof(kRedactToken) - 1u;
+
+/**
+ * テキスト位置 i から始まるメールアドレス様トークンを検出する。
+ *
+ * @details
+ * 規則: local-part (1+ 文字) → '@' → domain-part に '.' が 1 つ以上含まれ、かつ
+ * '@' の後の domain が英数字で始まる。末尾の '.' / '-' は TLD として不正なので削る。
+ * `<regex>` 不使用の手書きスキャナ。i の直前が単語境界であることは呼び出し側が保証済み前提。
+ * @param text 走査対象テキスト。
+ * @param len text の byte 長。
+ * @param i 走査開始位置。
+ * @return マッチしたスパンの byte 数 (マッチしなければ 0)。
+ */
 u32 MatchEmail(const char* text, u32 len, u32 i) noexcept {
     u32 p = i;
     // local-part: 1 文字以上のメール許容文字。'@' 直前なので '.' で終わってもよい
@@ -188,12 +244,19 @@ u32 MatchEmail(const char* text, u32 len, u32 i) noexcept {
     return p - i;
 }
 
-// テキスト位置 i から始まる「数字グループ run」を走査し、含まれる数字の総数 (=
-// digit_count) と run の byte 長 (= span) を求める。区切り (空白/ダッシュ/括弧/
-// '+'/'.') を数字に挟む形を 1 つの run とみなす。電話番号・クレカ番号の共通土台。
-//
-// `out_digit_count` に純粋な数字桁数、戻り値に run 全体の byte 数を返す。
-// 先頭が数字でなければ 0 を返す。末尾の区切りは run に含めない (trim)。
+/**
+ * テキスト位置 i から始まる「数字グループ run」を走査する。
+ *
+ * @details
+ * 区切り (空白/ダッシュ/括弧/'+'/'.') を数字に挟む形を 1 つの run とみなす。
+ * 電話番号・クレカ番号検出の共通土台。先頭が数字でなければ 0 を返す。末尾の区切りは
+ * run に含めない (trim)。
+ * @param text 走査対象テキスト。
+ * @param len text の byte 長。
+ * @param i 走査開始位置。
+ * @param out_digit_count run に含まれる純粋な数字桁数の出力先。
+ * @return run 全体の byte 数 (末尾区切りを除いたスパン。先頭が数字でなければ 0)。
+ */
 u32 ScanDigitRun(const char* text, u32 len, u32 i, u32* out_digit_count) noexcept {
     *out_digit_count = 0;
     if (i >= len || !IsDigit(text[i])) return 0;
@@ -220,10 +283,16 @@ u32 ScanDigitRun(const char* text, u32 len, u32 i, u32* out_digit_count) noexcep
     return last_digit - i;   // 末尾区切りを除いたスパン
 }
 
-// run (= 数字 + 区切りの並び) がメールアドレス内かどうかは呼び出し側でメール
-// 検出を優先することで回避する。ここでは「単語境界から始まる数字 run」のみ扱う。
-//
-// 入力位置 i の直前が「数字 / メール文字 / '@'」でないこと = 単語境界。
+/**
+ * 入力位置 i の直前が単語境界かを返す。
+ *
+ * @details
+ * 直前が「数字 / 英字 / '@' / '_' / '%' / '+'」でないことを単語境界とみなす。
+ * これにより数字 run / メールトークンを途中から拾うのを防ぐ。
+ * @param text 走査対象テキスト。
+ * @param i 検査する位置。
+ * @return 直前が単語境界なら true (i==0 も true)。
+ */
 bool IsWordBoundaryBefore(const char* text, u32 i) noexcept {
     if (i == 0) return true;
     char prev = text[i - 1];
@@ -234,8 +303,15 @@ bool IsWordBoundaryBefore(const char* text, u32 i) noexcept {
     return true;
 }
 
-// [REDACTED] トークンを out[*w] に書き込む。容量不足なら *out_truncated を立てて
-// false を返す (= 呼び出し側は走査を打ち切る)。書けたら *w を進めて true。
+/**
+ * [REDACTED] トークンを out[*w] に書き込む。
+ *
+ * @param out 出力バッファ。
+ * @param out_cap out の容量。
+ * @param w 書き込み位置 (成功時に進める)。
+ * @param out_truncated 容量不足のとき true をセットする出力先。
+ * @return 書けたら true、容量不足なら false (呼び出し側は走査を打ち切る)。
+ */
 bool EmitRedactToken(char* out, u32 out_cap, u32* w, bool* out_truncated) noexcept {
     if (*w + kRedactTokenLen >= out_cap) {
         *out_truncated = true;
@@ -245,18 +321,21 @@ bool EmitRedactToken(char* out, u32 out_cap, u32* w, bool* out_truncated) noexce
     return true;
 }
 
-// PII (メール / 電話 / クレカ) を検出して [REDACTED] に置換し、結果を thread_local
-// バッファに書く。1 件以上置換したら true (= Filtered)、無置換なら false (= Pass)。
-//
-// 走査ポリシー (左から 1 パス、貪欲):
-//   1. 各位置でまずメールを試す (メールは '@' を含むので数字 run より優先)。
-//   2. メールでなければ、単語境界かつ数字始まりなら数字 run を測る。
-//        ・桁数 13〜16        → クレカ様      → 置換
-//        ・桁数 10 以上       → 電話様        → 置換
-//        ・それ未満           → 無視 (誤検出を避ける)
-//      (13〜16 はクレカ、それ以外の 10+ は電話。両者とも [REDACTED] で同じ扱い。)
-//   3. どれにもマッチしなければ 1 文字コピーして次へ。
-// バッファ溢れ時は途中で打ち切り ('\0' 終端は保証)。
+/**
+ * PII (メール / 電話 / クレカ) を検出して [REDACTED] に置換する。
+ *
+ * @details
+ * 左から 1 パスの貪欲走査。各位置でまずメールを試し ('@' を含むので数字 run より優先)、
+ * メールでなければ単語境界かつ数字始まりの数字 run を測る (桁数 10 以上を電話 / クレカとして
+ * 置換、それ未満は誤検出回避で無視)。どれにもマッチしなければ 1 文字コピーする。バッファ
+ * 溢れ時は途中で打ち切るが '\0' 終端は保証する。
+ * @param src 入力テキスト。
+ * @param len src の byte 長。
+ * @param out 出力バッファ。
+ * @param out_cap out の容量。
+ * @param out_truncated バッファ溢れで打ち切ったとき true をセットする出力先。
+ * @return 1 件以上置換したら true (= Filtered)、無置換なら false (= Pass)。
+ */
 bool RedactPii(const char* src, u32 len, char* out, u32 out_cap, bool* out_truncated) noexcept {
     *out_truncated = false;
     bool redacted = false;
@@ -297,8 +376,15 @@ bool RedactPii(const char* src, u32 len, char* out, u32 out_cap, bool* out_trunc
     return redacted;
 }
 
-// PII 置換結果を thread_local バッファに書いて返すラッパ。
-// 戻り値: 1 件以上置換したか (= Filtered にすべきか)。
+/**
+ * PII 置換結果を thread_local バッファに書いて返すラッパ。
+ *
+ * @details バッファ溢れ時は警告ログを出す。
+ * @param src 入力テキスト。
+ * @param len src の byte 長。
+ * @param out_ptr 置換後テキスト (thread_local バッファ) のポインタ出力先。
+ * @return 1 件以上置換したか (= Filtered にすべきか)。
+ */
 bool StoreRedacted(const char* src, u32 len, const char** out_ptr) noexcept {
     static thread_local char buf[kFilteredBufSize];
     bool truncated = false;
@@ -310,15 +396,14 @@ bool StoreRedacted(const char* src, u32 len, const char** out_ptr) noexcept {
     return redacted;
 }
 
-// 入力上限 byte 数 (= filtered バッファサイズ - 1)。これ以上は Refused 扱い。
+/** 入力上限 byte 数 (= filtered バッファサイズ - 1)。これ以上は Refused 扱い。 */
 constexpr u32 kMaxInputBytes  = kFilteredBufSize - 1u;
+
+/** 出力上限 byte 数 (= filtered バッファサイズ - 1)。これ以上は Refused 扱い。 */
 constexpr u32 kMaxOutputBytes = kFilteredBufSize - 1u;
 
 } // namespace
 
-// =============================================================================
-// FLlmSafetyPipeline 実装
-// =============================================================================
 void FLlmSafetyPipeline::Init(ESafetyRule rules) noexcept {
     m_Rules            = rules;
     m_RefusedCount    = 0;

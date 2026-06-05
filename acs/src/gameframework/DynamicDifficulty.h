@@ -7,9 +7,8 @@
 // 連続値 [0, 1] の難易度を smooth lerp で目標へ寄せ、各種乗数 (敵 HP / ダメージ
 // / 速度 / プレイヤー HP) を返す。
 //
-// 想定する位置付け (Pillar U Phase 2):
-//   ・Pillar U Phase 1 (FMlRuntime / Upscaler) は「外部 ML SDK seam」だった。
-//     Phase 2 (本クラス) は ML を使わない **純内製の決定論的 DDA**。
+// 想定する位置付け (Pillar U):
+//   ・本クラスは ML を使わない **純内製の決定論的 DDA**。
 //   ・**決定論ゾーンの外**: Adaptive の skill 推定 / smooth lerp は浮動小数の
 //     非可換性を含むため、固定タイムステップでの再現性は保証しない。replay /
 //     netcode 同期に乗せるなら `Adaptive` 以外 (Easy/Normal/Hard/VeryHard) を
@@ -38,7 +37,7 @@
 //       }
 //   };
 //
-// 設計選択 (Pillar U Phase 2):
+// 設計選択 (Pillar U):
 //   ・**5 モード固定 + Adaptive**: ユーザーが UI で選ぶ離散モードと、自動調整の
 //     Adaptive モードを enum 1 つに混ぜる。離散モード時は乗数も離散値を即返し、
 //     `Tick()` は no-op に近い (Adaptive 時だけ smooth lerp を進める)。
@@ -47,8 +46,7 @@
 //                      - retry_density * w_r - death_density * w_d )
 //      target_difficulty = 1.0 - skill
 //      → skill が高いほど高難易度に寄せる。
-//      重み (w_k / w_c / w_r / w_d) は内部で固定 (Phase 2)。Phase 3 で
-//      `SetAdaptiveWeights(...)` API で外部化検討。
+//      重み (w_k / w_c / w_r / w_d) は内部で固定。
 //   ・**smooth lerp は FCamera2D と同じ framerate-independent**:
 //      `t = 1 - exp(-rate * dt)` で dt 不変。rate = 0.5 で約 1.4 秒で 50% 詰める
 //      ゆっくり追従。プレイヤーが「急にゲームが楽になった/難しくなった」と
@@ -70,11 +68,11 @@
 //     1 個前提 (Scene のメンバ持ち回り)。
 //   ・**STL 不使用 / `<string>` 不使用**: ACS 規約。
 //
-// 範囲外 (Phase 3+):
+// 範囲外:
 //   ・skill 重みの外部設定 API
 //   ・per-encounter difficulty (戦闘単位での個別調整)
-//   ・persistence (FSaveSlot 経由で stats を残す → Phase 3 で連携検討)
-//   ・ML 推論ベースの skill 推定 (Phase U-3 で FMlRuntime と連携検討)
+//   ・persistence (FSaveSlot 経由で stats を残す)
+//   ・ML 推論ベースの skill 推定
 #pragma once
 
 #include "foundation/Types.h"
@@ -82,109 +80,230 @@
 
 namespace acs::game {
 
-// ---- EDifficultyLevel -------------------------------------------------------
-// 5 モード。`Adaptive` 以外は離散値直接マップで Tick が no-op (近い動作)。
-// `Adaptive` 時のみ Tick で skill→target→smooth lerp を進める。
+/**
+ * 難易度モード。
+ *
+ * @details
+ * `Adaptive` 以外は離散値直接マップで Tick がほぼ no-op。`Adaptive` 時のみ Tick で
+ * skill 推定 → target → smooth lerp を進める。
+ */
 enum class EDifficultyLevel : u8 {
+    /** 易しい (敵弱体・player HP 増)。 */
     Easy     = 0,
+
+    /** 標準。 */
     Normal   = 1,
+
+    /** 難しい。 */
     Hard     = 2,
+
+    /** 非常に難しい。 */
     VeryHard = 3,
+
+    /** プレイ統計から自動調整する適応モード。 */
     Adaptive = 4,
 };
 
-// ---- PlayerSkillStats ------------------------------------------------------
-// プレイヤーの腕前判定に使う実プレイ統計。
-// ・deaths_last_session  : 現セッション中の死亡回数
-// ・kills_last_session   : 現セッション中の撃破回数
-// ・retries_current_level: 現レベルのリトライ回数 (RecordLevelComplete で 0 リセット)
-// ・average_completion_time : 直近クリア時間の指数移動平均 (s)。0 = 未計測
-// ・powerups_collected   : 現セッション中のパワーアップ取得数
+/**
+ * プレイヤーの腕前判定に使う実プレイ統計。
+ */
 struct PlayerSkillStats {
+    /** 現セッション中の死亡回数。 */
     u32 deaths_last_session   = 0;
+
+    /** 現セッション中の撃破回数。 */
     u32 kills_last_session    = 0;
+
+    /** 現レベルのリトライ回数 (RecordLevelComplete で 0 リセット)。 */
     u32 retries_current_level = 0;
+
+    /** 直近クリア時間の指数移動平均 (秒)。0 = 未計測。 */
     f32 average_completion_time = 0.0f;
+
+    /** 現セッション中のパワーアップ取得数。 */
     u32 powerups_collected    = 0;
 };
 
+/**
+ * 内製の決定論的 DDA (Dynamic Difficulty Adjustment)。
+ *
+ * @details
+ * プレイヤーの実プレイ統計 (死亡 / 撃破 / リトライ / クリア時間) を追跡し、5 モード
+ * (Easy/Normal/Hard/VeryHard/Adaptive) で難易度を切り替える。Adaptive では skill 推定値
+ * から連続難易度 [0,1] を framerate-independent な smooth lerp で目標へ寄せ、敵 HP /
+ * 敵ダメージ / 敵速度 / player HP の各乗数を返す。インスタンス 1 個前提の非コピー・非ムーブ型。
+ */
 class FDynamicDifficulty {
 public:
+    /** Normal 相当の初期状態で構築する (本格的な初期化は Init)。 */
     FDynamicDifficulty()  noexcept = default;
+
+    /** 破棄する。 */
     ~FDynamicDifficulty() noexcept = default;
 
+    /** コピー禁止 (Scene が単独所有する想定)。 */
     FDynamicDifficulty(const FDynamicDifficulty&)            = delete;
+
+    /** コピー代入も禁止。 */
     FDynamicDifficulty& operator=(const FDynamicDifficulty&) = delete;
+
+    /** ムーブ禁止。 */
     FDynamicDifficulty(FDynamicDifficulty&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FDynamicDifficulty& operator=(FDynamicDifficulty&&)      = delete;
 
-    // ----- 初期化 / モード切替 -----
-    // base_level: 初期モード。Adaptive 指定時は `m_CurrentDifficulty` を
-    //             0.5 (= Normal 相当) スタートにして、Tick で target に寄せていく。
+    /**
+     * 統計を初期化して base_level に切り替える。
+     *
+     * @details
+     * Adaptive 指定時は m_CurrentDifficulty を 0.5 (中庸) スタートにして Tick で target へ
+     * 寄せていく。離散モード指定時は該当段の連続値にスナップする。
+     * @param base_level 初期モード (既定 Normal)。
+     */
     void Init(EDifficultyLevel base_level = EDifficultyLevel::Normal) noexcept;
 
-    // モード切替。離散モードへの変更は `m_CurrentDifficulty` を該当段の
-    // 連続値 (Easy=0 / Normal=1/3 / Hard=2/3 / VeryHard=1) に即スナップ。
-    // Adaptive へ切替時は現在値を保持して target に向かって lerp 続行。
+    /**
+     * モードを切り替える。
+     *
+     * @details
+     * 離散モードへの変更は m_CurrentDifficulty を該当段の連続値 (Easy=0 / Normal=1/3 /
+     * Hard=2/3 / VeryHard=1) に即スナップする。Adaptive への切替時は現在値を保持して target
+     * に向かって lerp を続行する。
+     * @param mode 切り替え先のモード。
+     */
     void SetMode(EDifficultyLevel mode) noexcept;
 
+    /**
+     * 現在のモードを返す。
+     *
+     * @return 現在の EDifficultyLevel。
+     */
     EDifficultyLevel CurrentMode() const noexcept { return m_Mode; }
 
-    // ----- 統計記録 (gameplay 側がイベント駆動で呼ぶ) -----
+    /** 死亡を 1 回記録する (u32 max でクランプ)。 */
     void RecordDeath()           noexcept;
+
+    /** 撃破を 1 回記録する (u32 max でクランプ)。 */
     void RecordKill()            noexcept;
-    // time_taken: そのレベルのクリアにかかった秒数。負値は 0 として扱う。
-    // average は EMA (係数 0.3) で更新、retries_current_level は 0 リセット。
+
+    /**
+     * レベルクリアを記録する。
+     *
+     * @details
+     * average_completion_time を EMA (係数 0.3) で更新し、retries_current_level を 0 リセットする。
+     * @param time_taken そのレベルのクリアにかかった秒数。負値は 0 として扱う。
+     */
     void RecordLevelComplete(f32 time_taken) noexcept;
+
+    /** リトライを 1 回記録する (u32 max でクランプ)。 */
     void RecordRetry()           noexcept;
+
+    /** パワーアップ取得を 1 回記録する (u32 max でクランプ)。 */
     void RecordPowerupCollected() noexcept;
 
-    // ----- 連続値難易度 [0, 1] -----
-    // 離散モード: 該当段の固定値。Adaptive: smooth lerp 中の現在値。
+    /**
+     * 現在の連続値難易度 [0,1] を返す。
+     *
+     * @return 離散モードは該当段の固定値、Adaptive は smooth lerp 中の現在値。
+     */
     f32 CurrentDifficulty() const noexcept { return m_CurrentDifficulty; }
 
-    // ----- 乗数 accessor (戦闘ロジックが pull) -----
-    // 0.5 = Easy, 1.0 = Normal, 1.5 = Hard, 2.0 = VeryHard。
-    // Adaptive 時は 4 段表を線形補間。
+    /**
+     * 敵 HP 乗数を返す。
+     *
+     * @details Easy 0.5 / Normal 1.0 / Hard 1.5 / VeryHard 2.0。Adaptive 時は 4 段表を線形補間。
+     * @return 敵 HP 乗数。
+     */
     f32 EnemyHealthMultiplier() const noexcept;
-    // ダメージ乗数。Easy 0.6 / Normal 1.0 / Hard 1.4 / VeryHard 1.8。
+
+    /**
+     * 敵ダメージ乗数を返す。
+     *
+     * @details Easy 0.6 / Normal 1.0 / Hard 1.4 / VeryHard 1.8。Adaptive 時は 4 段表を線形補間。
+     * @return 敵ダメージ乗数。
+     */
     f32 EnemyDamageMultiplier() const noexcept;
-    // 敵移動 / 攻撃速度乗数。Easy 0.85 / Normal 1.0 / Hard 1.15 / VeryHard 1.3。
+
+    /**
+     * 敵移動 / 攻撃速度乗数を返す。
+     *
+     * @details Easy 0.85 / Normal 1.0 / Hard 1.15 / VeryHard 1.3。Adaptive 時は 4 段表を線形補間。
+     * @return 敵速度乗数。
+     */
     f32 EnemySpeedMultiplier()  const noexcept;
-    // プレイヤー HP 倍率 (逆相関)。Easy 1.5 / Normal 1.0 / Hard 0.85 / VeryHard 0.75。
+
+    /**
+     * プレイヤー HP 倍率を返す (難易度と逆相関)。
+     *
+     * @details Easy 1.5 / Normal 1.0 / Hard 0.85 / VeryHard 0.75。Adaptive 時は 4 段表を線形補間。
+     * @return プレイヤー HP 倍率。
+     */
     f32 PlayerHealthMultiplier() const noexcept;
 
-    // ----- 統計参照 / リセット -----
+    /**
+     * 統計への const 参照を返す。
+     *
+     * @return PlayerSkillStats への参照。
+     */
     const PlayerSkillStats& Stats() const noexcept { return _stats; }
-    // 統計のみ初期化。モード / current_difficulty は維持。NewGame/シーン切替向け。
+
+    /** 統計とセッション時間のみ初期化する (モード / current_difficulty は維持。NewGame・シーン切替向け)。 */
     void ResetStats() noexcept;
 
-    // ----- driver (Adaptive 時に skill 推定 → target → smooth lerp) -----
-    // 離散モード時は no-op (current は離散値で固定済み)。
+    /**
+     * 毎フレーム呼ぶ driver。
+     *
+     * @details
+     * session_time を進め、Adaptive 時は skill 推定 → target → framerate-independent な
+     * exponential lerp で current_difficulty を target へ寄せる。離散モード時は値が固定済みなので
+     * session_time の加算のみ。
+     * @param dt 経過秒。負値は 0 として扱う。
+     */
     void Tick(f32 dt) noexcept;
 
 private:
-    // Adaptive 時の target 難易度を skill 推定から算出 ([0,1])。
+    /**
+     * Adaptive 時の target 難易度を skill 推定から算出する。
+     *
+     * @return target 難易度 [0,1] (= 1 - skill)。
+     */
     f32 ComputeAdaptiveTarget() const noexcept;
 
-    // 離散モード → 連続値 [0,1] 対応 (Easy=0, Normal=1/3, Hard=2/3, VeryHard=1)。
+    /**
+     * 離散モードを連続値 [0,1] に変換する。
+     *
+     * @param m 離散モード (Easy=0 / Normal=1/3 / Hard=2/3 / VeryHard=1)。
+     * @return 対応する連続値 (Adaptive 渡しは fallback で 1/3)。
+     */
     static f32 ContinuousFromDiscrete(EDifficultyLevel m) noexcept;
 
-    // 連続値 [0,1] を 4 段表 (vals[4]) で線形補間。区間 0.0..1/3..2/3..1.0。
+    /**
+     * 連続値 [0,1] を 4 段表で線形補間する。
+     *
+     * @details 区間境界は 0.0 / 1/3 / 2/3 / 1.0、範囲外は両端値で頭打ち。
+     * @param t 補間位置 [0,1]。
+     * @param vals 4 段の値テーブル。
+     * @return 補間結果。
+     */
     static f32 SampleCurve(f32 t, const f32 vals[4]) noexcept;
 
+    /** 現在のモード。 */
     EDifficultyLevel m_Mode               = EDifficultyLevel::Normal;
-    f32             m_CurrentDifficulty = 0.333333f;  // Normal start (= 1/3)
+
+    /** 現在の連続値難易度 [0,1] (Normal start = 1/3)。 */
+    f32             m_CurrentDifficulty = 0.333333f;
+
+    /** プレイヤーの実プレイ統計。 */
     PlayerSkillStats _stats {};
 
-    // Adaptive 用の累積セッション時間 (= 統計密度の分母として使う)。
+    /** Adaptive 用の累積セッション時間 (統計密度の分母)。 */
     f32 m_SessionTime = 0.0f;
 
-    // smooth lerp rate (1/s)。`1 - exp(-rate * dt)` で dt 不変な指数追従。
-    // 0.5 で約 1.4 秒で 50% 詰める。意図的にゆっくり (急変回避)。
+    /** smooth lerp rate (1/s)。0.5 で約 1.4 秒で 50% 詰める指数追従。 */
     static constexpr f32 kAdaptiveLerpRate = 0.5f;
 
-    // EMA 係数: average_completion_time の更新で「新値 30% / 旧値 70%」。
+    /** average_completion_time の EMA 係数 (新値 30% / 旧値 70%)。 */
     static constexpr f32 kCompletionTimeEmaAlpha = 0.3f;
 };
 

@@ -7,13 +7,16 @@
 
 namespace acs::game {
 
-// =============================================================================
-// Flash
-// -----------------------------------------------------------------------------
-// 後から呼ばれた Flash で常に上書き (累積しない)。
-// duration <= 0 はノーオプ (Flash を消したい場合は intensity=0 を渡せばよいが、
-// 0 duration は除算を避けたいので明示的に early-return)。
-// =============================================================================
+/**
+ * 画面全体に被せるフラッシュを開始する (常に最新の呼出で上書き、累積しない)。
+ *
+ * @details
+ * intensity の負値は 0 に clamp する。duration <= 0 は走行中の flash を即座に消す
+ * (0 duration は減衰の除算を避けたいため明示的に early-return)。
+ * @param color フラッシュ色 RGB (0..1)。描画側が color * intensity を加算 blend する。
+ * @param intensity ピーク強度 (負値は 0 に clamp)。
+ * @param duration フラッシュが 0 に線形減衰するまでの秒。0 以下で即消去。
+ */
 void FEffectSystem::Flash(FVec3 color, f32 intensity, f32 duration) noexcept {
     if (duration <= 0.0f) {
         // すでに走っていた flash を即座に消す
@@ -31,12 +34,14 @@ void FEffectSystem::Flash(FVec3 color, f32 intensity, f32 duration) noexcept {
     m_FlashT     = duration;  // ピーク状態でスタート
 }
 
-// =============================================================================
-// HitStop
-// -----------------------------------------------------------------------------
-// 残時間と新時間の max を採用 (= 強い hit stop が後発の弱い hit stop で
-// 打ち消されない)。負値はノーオプ。
-// =============================================================================
+/**
+ * ヒットストップ (一時停止) を要求する。
+ *
+ * @details
+ * 残時間と新時間の max を採用するため、強い hit stop が後発の弱い hit stop で
+ * 打ち消されない。duration <= 0 はノーオプ。
+ * @param duration 停止させたい秒。
+ */
 void FEffectSystem::HitStop(f32 duration) noexcept {
     if (duration <= 0.0f) return;
     if (duration > m_HitStopRemain) {
@@ -44,14 +49,16 @@ void FEffectSystem::HitStop(f32 duration) noexcept {
     }
 }
 
-// =============================================================================
-// TriggerShake
-// -----------------------------------------------------------------------------
-// 同一フレーム中の複数呼出は max を保つ (= 大ダメージ hit が小ヒットで
-// 上書きされない)。FCamera2D が次フレーム頭で ConsumeShake する想定。
-// duration_hint は将来 FEffectSystem 内で trauma decay の倍率に使いたい場合の
-// 予約 (現状は無視)。
-// =============================================================================
+/**
+ * カメラシェイクの pending trauma を積む。
+ *
+ * @details
+ * 同一フレーム中の複数呼出は max を保つ (max-of-frame: 大ダメージ hit が小ヒットで
+ * 上書きされない)。FCamera2D が次フレーム頭で ConsumeShake する想定。trauma <= 0
+ * はノーオプ。duration_hint は将来 trauma decay 倍率に使う予約で現状は無視する。
+ * @param trauma 0..1 のシェイク強度 (FCamera2D::AddShake にそのまま渡せる値)。
+ * @param duration_hint 将来用 (現状未使用)。
+ */
 void FEffectSystem::TriggerShake(f32 trauma, f32 /*duration_hint*/) noexcept {
     if (trauma <= 0.0f) return;
     // pending は max-of-frame (FCamera2D の AddShake が累積側を担う)
@@ -60,15 +67,16 @@ void FEffectSystem::TriggerShake(f32 trauma, f32 /*duration_hint*/) noexcept {
     }
 }
 
-// =============================================================================
-// Tick
-// -----------------------------------------------------------------------------
-// real-time dt で呼ばれる前提 (hit stop 中も 0 ではない)。
-//   ・Flash timer: 線形減衰。0 を下回ったら停止状態 (m_FlashT=0)。
-//   ・HitStop timer: 線形減衰。
-//   ・Pending shake: ここでは消さない (FCamera2D が ConsumeShake する責務)。
-// dt が負 (= clock 巻き戻し等) のときは 0 扱いにして state を破壊しない。
-// =============================================================================
+/**
+ * 全エフェクトの内部 timer を進める (real-time dt で呼ぶ)。
+ *
+ * @details
+ * hit stop 中も dt は 0 にしない前提。Flash / HitStop の timer を線形減衰させ、
+ * 0 を下回ったら停止状態にリセットする。pending shake はここでは消さない
+ * (FCamera2D が ConsumeShake する責務)。dt が負 (clock 巻き戻し等) なら 0 扱いにして
+ * state を破壊しない。
+ * @param dt 前フレームからの実経過秒。
+ */
 void FEffectSystem::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
 
@@ -93,12 +101,13 @@ void FEffectSystem::Tick(f32 dt) noexcept {
     // pending shake は ConsumeShake() が来るまで保持
 }
 
-// =============================================================================
-// FlashIntensity
-// -----------------------------------------------------------------------------
-// `m_FlashMax * (m_FlashT / m_FlashTotal)` で 1 → 0 の線形減衰。
-// m_FlashTotal <= 0 のときは 0 を返す (除算回避)。
-// =============================================================================
+/**
+ * 現在のフラッシュ強度を線形減衰で返す。
+ *
+ * @details m_FlashMax * (m_FlashT / m_FlashTotal) で 1 → 0 へ落とす。
+ * m_FlashTotal <= 0 または残時間 0 のときは 0 を返す (除算回避)。
+ * @return 0 = フラッシュなし、>0 で描画側が overlay に使う強度。
+ */
 f32 FEffectSystem::FlashIntensity() const noexcept {
     if (m_FlashTotal <= 0.0f || m_FlashT <= 0.0f) return 0.0f;
     return m_FlashMax * (m_FlashT / m_FlashTotal);

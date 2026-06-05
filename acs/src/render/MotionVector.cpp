@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FMotionVector 実装 (Phase 34f-3)
+// FMotionVector 実装
 #include "render/MotionVector.h"
 #include "asset/MeshAsset.h"          // MeshVertex の input layout 用
 #include "foundation/Move.h"
@@ -9,7 +9,7 @@ namespace acs {
 
 namespace {
 
-// motion + normal G-buffer の geometry pass (Phase 34f-3 + 34m)。
+// motion + normal G-buffer の geometry pass。
 // MRT 2 枚出力:
 //   SV_Target0 (RG16F)        = screen-space motion vector (prev_uv - curr_uv)
 //   SV_Target1 (RGBA16F .xyz) = world-space normal

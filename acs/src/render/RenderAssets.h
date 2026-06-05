@@ -25,31 +25,73 @@ class FImageAsset;
 class FMeshAsset;
 class FSkinnedMeshAsset;
 
-// 画像アセットを GPU テクスチャにアップロード（同期、即座に使用可能）
+/**
+ * 画像アセットを GPU テクスチャにアップロードする (同期、戻った時点で即座に使用可能)。
+ *
+ * @param device テクスチャ生成に使う RHI デバイス。
+ * @param img アップロード元の画像アセット。
+ * @return 生成したテクスチャを所有する TUniquePtr、失敗ならエラー。
+ */
 TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const FImageAsset& img) noexcept;
 
-// メッシュ用の VB + IB のセット
+/**
+ * メッシュ 1 つ分の GPU バッファセット (頂点バッファ + インデックスバッファ)。
+ */
 struct GpuMesh {
+    /** 頂点バッファ (所有権を持つ)。 */
     TUniquePtr<IRhiBuffer> vertex_buffer;
+
+    /** インデックスバッファ (所有権を持つ)。 */
     TUniquePtr<IRhiBuffer> index_buffer;
+
+    /** 頂点数。 */
     u32                    vertex_count = 0;
+
+    /** インデックス数。 */
     u32                    index_count  = 0;
+
+    /** 1 頂点のバイト数 (stride)。 */
     u32                    vertex_stride = 0;
 };
 
-// メッシュアセットから GpuMesh を作る（位置 + 法線 + UV、stride=32B）
+/**
+ * メッシュアセットから GpuMesh を作る (位置 + 法線 + UV、stride=32B)。
+ *
+ * @param device バッファ生成に使う RHI デバイス。
+ * @param mesh アップロード元のメッシュアセット。
+ * @param out 生成した VB/IB と各カウントを書き込む出力先。
+ * @return 成功なら空の TResult、失敗ならエラー。
+ */
 TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, GpuMesh& out) noexcept;
 
-// スキンメッシュ用の GPU バッファセット（FSkinnedShader が消費する形式）
+/**
+ * スキンメッシュ 1 つ分の GPU バッファセット (FSkinnedShader が消費する形式)。
+ */
 struct SkinnedGpuMesh {
+    /** 頂点バッファ (所有権を持つ)。 */
     TUniquePtr<IRhiBuffer> vertex_buffer;
+
+    /** インデックスバッファ (所有権を持つ)。 */
     TUniquePtr<IRhiBuffer> index_buffer;
+
+    /** 頂点数。 */
     u32 vertex_count = 0;
+
+    /** インデックス数。 */
     u32 index_count  = 0;
-    u32 vertex_stride = 0;        // FSkinnedVertex のサイズ
+
+    /** 1 頂点のバイト数 (FSkinnedVertex のサイズ)。 */
+    u32 vertex_stride = 0;
 };
 
-// FSkinnedMeshAsset → SkinnedGpuMesh
+/**
+ * スキンメッシュアセットから SkinnedGpuMesh を作る。
+ *
+ * @param device バッファ生成に使う RHI デバイス。
+ * @param mesh アップロード元のスキンメッシュアセット。
+ * @param out 生成した VB/IB と各カウントを書き込む出力先。
+ * @return 成功なら空の TResult、失敗ならエラー。
+ */
 TResult<void> UploadSkinnedMesh(IRhiDevice& device,
                                 const FSkinnedMeshAsset& mesh,
                                 SkinnedGpuMesh& out) noexcept;

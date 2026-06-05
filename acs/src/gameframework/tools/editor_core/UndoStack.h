@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / FUndoStack (Phase 21a)
+// GameFramework Tools — editor_core / FUndoStack
 //
 // 役割:
 //   全エディタが共有する undo / redo の中央ハブ。FEditorCommand 派生インスタンス
@@ -19,7 +19,7 @@
 //       stack.Undo();
 //   }
 //
-// 設計選択 (Phase 21a):
+// 設計選択:
 //   ・**TUniquePtr<FEditorCommand> を 2 本の TArray に積む**: undo / redo の
 //     LIFO スタック。基底ポインタなので polymorphic dispatch (virtual Execute /
 //     Undo / Description) で派生型を意識せず巻き戻せる。
@@ -53,7 +53,7 @@
 //     「Redo 由来の execution か?」であり、Push と Undo は 0 で同じだが、
 //     callback 側で必要なら Description で識別する。
 //
-// 将来拡張余地 (Phase 21a 範囲外):
+// 将来拡張余地:
 //   ・transaction (BeginGroup / EndGroup): Push を一時的に Group に転送して
 //     EndGroup で 1 個の CommandGroup 派生にまとめる。
 //   ・branched history (git のような分岐 undo): Push で redo stack を破棄せず
@@ -73,96 +73,177 @@ namespace acs::game::editor_core {
 
 class FEditorCommand;
 
-// =============================================================================
-// CommandExecutedCallback — Push / Undo / Redo 後の副反応用
-// -----------------------------------------------------------------------------
-// `user`    : SetOnExecutedCallback の第二引数で渡したコンテキスト。
-// `cmd`     : 直前に Execute / Undo された command。Push 経路は merge で
-//             差し替わった可能性があるので、必ず最終的にスタックに載った
-//             方を返す (= Push 内で merge があった場合は基底 = top の方)。
-// `is_redo` : Redo 経路から呼ばれた場合 true、Push / Undo 経路は false。
-//             undo / redo の方向は cb 側で必要なら別パラメータを足す。
-// =============================================================================
+/**
+ * Push / Undo / Redo 後の副反応を editor 側へ通知するコールバック型。
+ *
+ * @details
+ * editor が「Undo されたから hierarchy を再描画」「Redo されたから dirty
+ * フラグを立て直し」等の処理を書けるようにする。第二引数の cmd は直前に
+ * Execute / Undo された command で、Push 経路で merge があった場合は最終的に
+ * スタックに載った top を返す。is_redo は Redo 経路から呼ばれたときのみ true、
+ * Push / Undo 経路は false。
+ *
+ * @param user SetOnExecutedCallback の第二引数で渡したコンテキスト。
+ * @param cmd 直前に Execute / Undo された command (スタック top)。
+ * @param is_redo Redo 経路なら true、Push / Undo 経路は false。
+ */
 using CommandExecutedCallback =
     void (*)(void* user, const class FEditorCommand* cmd, bool is_redo) noexcept;
 
-// =============================================================================
-// FUndoStack — Editor 共通の undo/redo ハブ
-// -----------------------------------------------------------------------------
-// 非コピー / 非ムーブ、全 noexcept、STL 不使用 (`acs::TArray` + `acs::TUniquePtr`)。
-// =============================================================================
+/**
+ * 全エディタが共有する undo / redo の中央ハブ。
+ *
+ * @details
+ * FEditorCommand 派生インスタンスを 2 本の LIFO スタック (undo / redo) に
+ * TUniquePtr で所有し、Push で 1 操作分を実行・登録、Undo / Redo で巻き戻し /
+ * やり直しする。連続 drag 等の merge も Push 時にここで判定する。非コピー /
+ * 非ムーブ、全 noexcept、STL 不使用 (acs::TArray + acs::TUniquePtr)。
+ */
 class FUndoStack {
 public:
+    /** 空のスタックを構築する (上限は default 64、Init で再設定可)。 */
     FUndoStack() noexcept  = default;
+
+    /** 破棄する (全 cmd は TUniquePtr の dtor で自動 delete される)。 */
     ~FUndoStack() noexcept = default;
 
+    /** コピー禁止 (command の所有権を単独で持つため)。 */
     FUndoStack(const FUndoStack&)            = delete;
+
+    /** コピー代入も禁止。 */
     FUndoStack& operator=(const FUndoStack&) = delete;
+
+    /** ムーブ禁止。 */
     FUndoStack(FUndoStack&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FUndoStack& operator=(FUndoStack&&)      = delete;
 
-    // 初期化。多重 Init 可 (履歴を空にする + 上限を再設定)。max_history は
-    // undo + redo それぞれの上限ではなく「undo stack に積める件数の上限」。
-    // 0 を渡された場合は default (64) にフォールバックする。
+    /**
+     * 履歴を空にして上限を設定する (多重 Init 安全)。
+     *
+     * @details
+     * max_history は undo / redo それぞれの上限ではなく「undo stack に積める
+     * 件数の上限」。0 を渡された場合は default (64) にフォールバックする。
+     * callback は Init では解除しない (起動側が Init より先に登録するケースを許容)。
+     * @param max_history undo stack に積める件数の上限 (0 は 64 に丸める)。
+     */
     void Init(u32 max_history = 64) noexcept;
 
-    // 1 件積む。所有権を奪う (内部で TUniquePtr に詰め直して破棄責任を引き取る)。
-    // 動作順:
-    //   1. cmd == nullptr なら no-op (誤呼び対策、cmd は delete されない)。
-    //   2. cmd->Execute() を呼ぶ。
-    //   3. 直前 (= m_UndoStack.Back()) と CanMerge / MergeWith できれば
-    //      `m_UndoStack` には PushBack せず、merge 結果として cmd は破棄。
-    //   4. merge しなければ m_UndoStack に PushBack。
-    //   5. m_RedoStack を Clear (= new edit が来たので redo の未来は破棄)。
-    //   6. m_UndoStack.Size() > m_MaxHistory なら最古を 1 件捨てる。
-    //   7. callback を (cb_user, スタック top の cmd, is_redo=false) で発火。
+    /**
+     * command を 1 件積む (所有権を奪い、その場で Execute する)。
+     *
+     * @details
+     * cmd == nullptr なら silent no-op。それ以外は受け取った直後に TUniquePtr へ
+     * 詰め直して破棄責任を引き取り、cmd->Execute() を呼ぶ。直前 (m_UndoStack.Back())
+     * と CanMerge / MergeWith できれば PushBack せず merge して破棄し (連続 drag の
+     * 1 件化)、そうでなければ m_UndoStack に PushBack する。続けて m_RedoStack を
+     * Clear し (new edit で redo の未来は破棄)、上限超過なら最古 1 件を捨て、
+     * 最後に callback を (cb_user, スタック top, is_redo=false) で発火する。
+     * @param cmd 積む command (所有権が移る。nullptr は no-op)。
+     */
     void Push(class FEditorCommand* cmd) noexcept;
 
-    // undo を 1 件巻き戻す。動作順:
-    //   1. m_UndoStack.IsEmpty() なら false を返して no-op。
-    //   2. top を取り出して cmd->Undo() を呼ぶ。
-    //   3. その cmd を m_RedoStack に Move する (= 再度 Redo で execute できる)。
-    //   4. callback を (cb_user, cmd, is_redo=false) で発火 (undo は redo 由来
-    //      ではないので false)。
-    //   5. true を返す。
+    /**
+     * undo を 1 件巻き戻す。
+     *
+     * @details
+     * m_UndoStack が空なら false を返して no-op。そうでなければ top を取り出して
+     * cmd->Undo() を呼び、その cmd を m_RedoStack へ Move する (再度 Redo で実行可)。
+     * 最後に callback を (cb_user, cmd, is_redo=false) で発火する (Undo は Redo
+     * 由来ではないので false)。
+     * @return 巻き戻したら true、undo stack が空なら false。
+     */
     bool Undo() noexcept;
 
-    // redo を 1 件やり直す。動作順は Undo の対称:
-    //   1. m_RedoStack.IsEmpty() なら false を返して no-op。
-    //   2. m_RedoStack.Back() を取り出して cmd->Execute() を呼ぶ。
-    //   3. その cmd を m_UndoStack に Move する。
-    //   4. callback を (cb_user, cmd, is_redo=true) で発火。
-    //   5. true を返す。
+    /**
+     * redo を 1 件やり直す (Undo の対称操作)。
+     *
+     * @details
+     * m_RedoStack が空なら false を返して no-op。そうでなければ top を取り出して
+     * cmd->Execute() を再実行し、その cmd を m_UndoStack へ Move する。最後に
+     * callback を (cb_user, cmd, is_redo=true) で発火する。
+     * @return やり直したら true、redo stack が空なら false。
+     */
     bool Redo() noexcept;
 
+    /**
+     * undo できる command があるかを返す。
+     *
+     * @return undo stack が空でなければ true。
+     */
     bool CanUndo() const noexcept;
+
+    /**
+     * redo できる command があるかを返す。
+     *
+     * @return redo stack が空でなければ true。
+     */
     bool CanRedo() const noexcept;
 
+    /**
+     * undo stack に積まれている件数を返す。
+     *
+     * @return undo 可能な command の数。
+     */
     u32 UndoCount() const noexcept;
+
+    /**
+     * redo stack に積まれている件数を返す。
+     *
+     * @return redo 可能な command の数。
+     */
     u32 RedoCount() const noexcept;
 
-    // top の Description (UI 表示用)。各スタックが空のときは空文字列 "" を返す
-    // (nullptr ではない → UI 側で strlen / strcmp が安全)。
+    /**
+     * undo stack top の Description を返す (UI 表示用)。
+     *
+     * @details スタックが空または top が null のときは空文字列 "" を返す (nullptr ではない → UI 側で strlen / strcmp が安全)。
+     * @return top command の説明文字列 (無ければ "")。
+     */
     const char* UndoDescription() const noexcept;
+
+    /**
+     * redo stack top の Description を返す (UI 表示用)。
+     *
+     * @details スタックが空または top が null のときは空文字列 "" を返す。
+     * @return top command の説明文字列 (無ければ "")。
+     */
     const char* RedoDescription() const noexcept;
 
-    // 全 cmd 破棄。TUniquePtr の dtor で自動 delete される。
+    /** undo / redo 両スタックの全 command を破棄する (TUniquePtr の dtor で自動 delete)。 */
     void Clear() noexcept;
 
-    // (cb, user) ペアを 1 個保持する (= 単一購読モード)。複数購読は今のところ
-    // 必要性が薄い (= editor のメインループが 1 個この callback で副反応をまとめ
-    // て管理する想定)。cb = nullptr を渡せば解除。
+    /**
+     * Push / Undo / Redo 後に呼ぶ callback を登録する (単一購読モード)。
+     *
+     * @details (cb, user) ペアを 1 個だけ保持する。cb = nullptr を渡せば解除。
+     * @param cb 発火させる callback (nullptr で解除)。
+     * @param user callback の第一引数として渡すコンテキスト。
+     */
     void SetOnExecutedCallback(CommandExecutedCallback cb, void* user) noexcept;
 
 private:
-    // m_UndoStack が m_MaxHistory を超えていれば、最古 1 件を捨てる。
-    // PushBack 後にのみ呼ぶ前提なので、超過量は高々 1。
+    /**
+     * m_UndoStack が上限を超えていれば最古の command を捨てる。
+     *
+     * @details PushBack 直後にのみ呼ぶ前提なので、超過量は高々 1 件。
+     */
     void DropOldestIfOverflow() noexcept;
 
+    /** undo の LIFO スタック (command の所有権を持つ)。 */
     TArray<TUniquePtr<FEditorCommand>> m_UndoStack {};
+
+    /** redo の LIFO スタック (Push のたびに Clear される)。 */
     TArray<TUniquePtr<FEditorCommand>> m_RedoStack {};
+
+    /** undo stack に積める件数の上限。 */
     u32                             m_MaxHistory = 64;
+
+    /** Push / Undo / Redo 後に発火する callback (未設定なら nullptr)。 */
     CommandExecutedCallback         m_Cb          = nullptr;
+
+    /** callback へ渡すユーザコンテキスト。 */
     void*                           m_CbUser     = nullptr;
 };
 

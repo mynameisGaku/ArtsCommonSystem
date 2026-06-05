@@ -8,7 +8,7 @@
 namespace acs::game {
 
 TResult<void> FTilemap::LoadTiledJson(const char* json_text, usize len) noexcept {
-    auto pr = ParseJson(json_text, len);
+    const auto pr = ParseJson(json_text, len);
     if (pr.IsErr()) return pr.Error();
     const FJsonValue& root = pr.Value();
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Image-Based Lighting 実装 (Phase 31)
+// Image-Based Lighting 実装
 //
 // 現段階の機能: BRDF LUT 生成、FSky → env cubemap キャプチャ、skybox preview 描画。
 // irradiance / prefilter は後続ステップで追加する。
@@ -750,8 +750,8 @@ void ImageBasedLighting::ComputeSh9FromEquirect(const f32* rgba_float,
     const f32 sqrt5_4sqrtPi  = 0.315391565252520f;    // √5/(4√π)
     const f32 sqrt15_4sqrtPi = 0.546274215296039f;    // √15/(4√π)
 
-    const f32 dPhi   = 2.0f * kPi / static_cast<f32>(width);
-    const f32 dTheta = kPi / static_cast<f32>(height);
+    const f32 d_phi   = 2.0f * kPi / static_cast<f32>(width);
+    const f32 d_theta = kPi / static_cast<f32>(height);
 
     f64 sh_r[9] = {0,0,0,0,0,0,0,0,0};
     f64 sh_g[9] = {0,0,0,0,0,0,0,0,0};
@@ -759,18 +759,18 @@ void ImageBasedLighting::ComputeSh9FromEquirect(const f32* rgba_float,
 
     for (u32 y = 0; y < height; ++y) {
         const f32 theta = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(height) * kPi;
-        const f32 sinT  = Sin(theta);
-        const f32 cosT  = Cos(theta);
-        const f32 weight = sinT * dPhi * dTheta;   // 球面要素 dω = sinθ dθ dφ
+        const f32 sin_t  = Sin(theta);
+        const f32 cos_t  = Cos(theta);
+        const f32 weight = sin_t * d_phi * d_theta;   // 球面要素 dω = sinθ dθ dφ
         for (u32 x = 0; x < width; ++x) {
             const f32 phi = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(width)
                             * 2.0f * kPi - kPi;
-            const f32 sinP = Sin(phi);
-            const f32 cosP = Cos(phi);
+            const f32 sin_p = Sin(phi);
+            const f32 cos_p = Cos(phi);
             // direction (右手座標、equirect 規約 phi=0 が +Z、theta=0 が +Y)
-            const f32 nx = sinT * sinP;
-            const f32 ny = cosT;
-            const f32 nz = sinT * cosP;
+            const f32 nx = sin_t * sin_p;
+            const f32 ny = cos_t;
+            const f32 nz = sin_t * cos_p;
 
             const u32 idx = (y * width + x) * 4u;
             const f32 r = rgba_float[idx + 0];

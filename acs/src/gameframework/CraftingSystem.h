@@ -81,14 +81,6 @@
 //   ・**重複登録は黙って弾く + WARN**: FEconomyDirector / FInventorySystem と同パターン。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
 //   ・**STL 不使用、`<string>` 禁止**: const char* 非所有 + acs::TArray のみ。
-//
-// 範囲外 (ジャンルキット Phase 2+ で):
-//   ・並列クラフトキュー — 必要ならインスタンスを複数持つ。
-//   ・確率成果物 / クラフト品質ロール — 本クラスは決定的に固定数を grant する。
-//   ・レシピ習得アンロック (実績 / 進行) — FProgression / FAchievementManager と組み合わせて
-//     unlock_level を更新する形で呼出側が表現する。
-//   ・永続化 — Pillar J Serialize と統合 (本クラスはセッション内のみ)。
-//   ・craft 中の中断状態 (再開可能 in-progress) — 仕様上 Cancel = 素材返却 + Idle へ統一。
 #pragma once
 
 #include "foundation/Types.h"
@@ -96,193 +88,324 @@
 
 namespace acs::game {
 
-// ---- Ingredient: レシピ 1 つの素材エントリ ----------------------------------
-// item_id : 素材アイテム id (FInventorySystem 側の item_id と一致する想定)。
-//           文字列リテラル想定 (非所有)。
-// count   : 必要個数 (1 以上)。0 を渡された場合は「実質常に満たす」素材として扱う。
+/**
+ * レシピ 1 件分の素材エントリ。
+ */
 struct Ingredient {
+    /** 素材アイテム id (FInventorySystem の item_id と一致する想定。文字列リテラル、非所有)。 */
     const char* item_id = nullptr;
+
+    /** 必要個数。0 は「実質常に満たす」素材として扱う。 */
     u32         count   = 0;
 };
 
-// ---- CraftRecipe: 1 件のレシピ定義 (immutable) -----------------------------
-// recipe_id          : 一意キー (FindRecipe / StartCraft のキー)。文字列リテラル想定。
-// display_name       : UI 表示名 (非所有)。
-// result_item_id     : 成果物の item_id (FInventorySystem の item_id 想定)。
-// result_count       : 1 回のクラフトで得られる成果物の個数 (1 以上)。
-// ingredient_count   : ingredients 配列の要素数。
-// ingredients        : 素材配列 (呼出側が長寿命を保証する非所有バッファ)。
-//                      ingredient_count == 0 のとき nullptr 許容 (素材不要 recipe)。
-// craft_duration_sec : クラフト所要秒数。0 以下は「即座に完了」(次の Tick で grant)。
-// required_workbench : クラフトに必要なワークベンチ id (StartCraft の current_workbench と
-//                      一致しないと失敗)。nullptr / "" で「ワークベンチ不要」。
-// unlock_level       : この recipe を解放するプレイヤー必要レベル (StartCraft の
-//                      player_level >= unlock_level で許可)。0 で常に解放。
+/**
+ * 1 件のクラフトレシピ定義 (immutable)。
+ */
 struct CraftRecipe {
+    /** 一意キー (FindRecipe / StartCraft のキー。文字列リテラル想定)。 */
     const char*       recipe_id          = nullptr;
+
+    /** UI 表示名 (非所有)。 */
     const char*       display_name       = nullptr;
+
+    /** 成果物の item_id (FInventorySystem の item_id 想定)。 */
     const char*       result_item_id     = nullptr;
+
+    /** 1 回のクラフトで得られる成果物の個数 (1 以上)。 */
     u32               result_count       = 1;
+
+    /** ingredients 配列の要素数。 */
     u32               ingredient_count   = 0;
+
+    /** 素材配列 (呼出側が長寿命を保証する非所有バッファ。要素数 0 のとき nullptr 許容)。 */
     const Ingredient* ingredients        = nullptr;
+
+    /** クラフト所要秒数。0 以下は「即座に完了」(次の Tick で grant)。 */
     f32               craft_duration_sec = 0.0f;
+
+    /** 必要なワークベンチ id (StartCraft の current_workbench と一致しないと失敗。nullptr / "" で不要)。 */
     const char*       required_workbench = nullptr;
+
+    /** この recipe を解放するプレイヤー必要レベル (player_level >= unlock_level で許可。0 で常に解放)。 */
     u32               unlock_level       = 0;
 };
 
-// ---- ECraftStatus: 現在のクラフト状態 ---------------------------------------
-// Idle      : 何もクラフトしていない (初期 / Cancel 後 / Completed の次の StartCraft 後)。
-// Crafting  : Tick で進行中。
-// Completed : 直前の Tick で完了 → result が grant 済。次の StartCraft / ClearAll まで保持。
-// Cancelled : Crafting 中に CancelCraft で取り消し → ingredient 返却済。
-//             次の StartCraft で Idle 経由せず Crafting に上書きされる。
+/**
+ * 現在のクラフト状態。
+ */
 enum class ECraftStatus : u8 {
+    /** 何もクラフトしていない (初期 / Cancel 後 / Completed の次の StartCraft 後)。 */
     Idle      = 0,
+
+    /** Tick で進行中。 */
     Crafting  = 1,
+
+    /** 直前の Tick で完了 → result が grant 済 (次の StartCraft / ClearAll まで保持)。 */
     Completed = 2,
+
+    /** Crafting 中に CancelCraft で取り消し → ingredient 返却済。 */
     Cancelled = 3,
 };
 
-// ---- FCraftingSystem ---------------------------------------------------------
+/**
+ * レシピ登録 + 進行タイマ + インベントリ adapter で「素材を消費し時間経過後に成果物を得る」
+ * クラフト挙動を扱う小型マネージャ。
+ *
+ * @details
+ * レシピ定義と現在クラフト中の進行状態を保持し、素材の消費 / 成果物の付与は C 関数ポインタの
+ * adapter 経由で行う (在庫表現に非依存)。同時クラフトは 1 件のみ。ingredient はクラフト開始時に
+ * 一括消費し、CancelCraft で grant し戻す。完了は Tick 内で判定し grant + CompleteCallback を
+ * 発火、Status() は次の StartCraft / ClearAll まで Completed を保持する。
+ */
 class FCraftingSystem {
 public:
-    // インベントリ adapter (C 関数ポインタ + user)。STL <functional> 禁止のため。
-    //   user    : SetInventoryAdapter で渡したコンテキスト (Manager は所有しない)
-    //   item_id : 対象アイテム id (リテラル参照)
-    //   count   : 個数 (consume / grant のときのみ意味を持つ)
-
-    // 「在庫の現個数を取得」 — 戻り値: 現在の個数 (0 以上)。
+    /**
+     * 在庫の現個数を取得する adapter の型。
+     *
+     * @param user SetInventoryAdapter で渡したコンテキスト (Manager は所有しない)。
+     * @param item_id 対象アイテム id (リテラル参照)。
+     * @return 在庫の現在個数 (0 以上)。
+     */
     using InventoryQueryFn   = u32  (*)(void* user, const char* item_id) noexcept;
 
-    // 「在庫から count 個 consume」 — 戻り値: 全量消費成功 true / 不足等で失敗 false。
+    /**
+     * 在庫から count 個 consume する adapter の型。
+     *
+     * @param user SetInventoryAdapter で渡したコンテキスト。
+     * @param item_id 対象アイテム id (リテラル参照)。
+     * @param count 消費個数。
+     * @return 全量消費成功なら true、不足等で失敗なら false。
+     */
     using InventoryConsumeFn = bool (*)(void* user, const char* item_id, u32 count) noexcept;
 
-    // 「在庫に count 個 grant」 — 戻り値: 付与成功 true / 在庫満杯等で失敗 false。
+    /**
+     * 在庫に count 個 grant する adapter の型。
+     *
+     * @param user SetInventoryAdapter で渡したコンテキスト。
+     * @param item_id 対象アイテム id (リテラル参照)。
+     * @param count 付与個数。
+     * @return 付与成功なら true、在庫満杯等で失敗なら false。
+     */
     using InventoryGrantFn   = bool (*)(void* user, const char* item_id, u32 count) noexcept;
 
-    // 完了コールバック。Tick(dt) 内で craft 完了したフレームに発火する。
-    //   user           : SetOnCompleteCallback で渡したコンテキスト
-    //   recipe_id      : 完了したレシピ id (リテラル参照、登録時の id を返す)
-    //   result_item_id : 成果物 id (リテラル参照)
-    //   result_count   : 付与した個数
+    /**
+     * クラフト完了コールバックの型 (Tick 内で完了したフレームに発火)。
+     *
+     * @param user SetOnCompleteCallback で渡したコンテキスト。
+     * @param recipe_id 完了したレシピ id (リテラル参照、登録時の id)。
+     * @param result_item_id 成果物 id (リテラル参照)。
+     * @param result_count 付与した個数。
+     */
     using CompleteCallback = void (*)(void* user, const char* recipe_id,
                                       const char* result_item_id, u32 result_count) noexcept;
 
+    /** 空のマネージャを構築する。 */
     FCraftingSystem()  noexcept = default;
+
+    /** 破棄する。 */
     ~FCraftingSystem() noexcept = default;
 
+    /** コピー禁止 (他 Manager 系と統一)。 */
     FCraftingSystem(const FCraftingSystem&)            = delete;
+
+    /** コピー代入も禁止。 */
     FCraftingSystem& operator=(const FCraftingSystem&) = delete;
+
+    /** ムーブ禁止。 */
     FCraftingSystem(FCraftingSystem&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FCraftingSystem& operator=(FCraftingSystem&&)      = delete;
 
-    // ---- レシピ定義 (起動時に 1 度ずつ) ----------------------------------
-    // 同 recipe_id の 2 重登録は no-op (WARN)。`recipe.recipe_id == nullptr` も no-op。
-    // `recipe.result_count == 0` は 1 にクランプ (defensive)。
-    // ingredient_count > 0 で ingredients == nullptr の場合は ingredient_count を 0 に
-    // 補正して受理 (起動順序エラーで配列指定漏れを救済)。
+    /**
+     * レシピを登録する (起動時に 1 度ずつ)。
+     *
+     * @details
+     * 同 recipe_id の 2 重登録は no-op (WARN)。recipe.recipe_id == nullptr も no-op。
+     * result_count == 0 は 1 にクランプする。ingredient_count > 0 で ingredients == nullptr
+     * の場合は ingredient_count を 0 に補正して受理する (配列指定漏れの救済)。
+     * @param recipe 登録するレシピ定義 (内部にコピーされる)。
+     */
     void RegisterRecipe(const CraftRecipe& recipe) noexcept;
 
-    // 単一 CraftRecipe 取得。未登録 / nullptr は nullptr。
-    // 返却ポインタは次の RegisterRecipe() / ClearAll() で無効化される可能性がある。
+    /**
+     * recipe_id で単一レシピを取得する。
+     *
+     * @details 返却ポインタは次の RegisterRecipe() / ClearAll() で無効化される可能性がある。
+     * @param recipe_id 探すレシピ id。
+     * @return 見つかったレシピへのポインタ (未登録 / nullptr は nullptr)。
+     */
     const CraftRecipe* FindRecipe(const char* recipe_id) const noexcept;
 
-    // 登録 recipe 件数。
+    /**
+     * 登録済みレシピ件数を返す。
+     *
+     * @return 登録レシピ数。
+     */
     u32 RecipeCount() const noexcept;
 
-    // 全 recipe の生バッファ。`out_count` に件数を書き出す。
-    // 返却ポインタは RecipeCount() 件の連続バッファ。RegisterRecipe() / ClearAll() で
-    // 無効化される。
+    /**
+     * 全レシピの連続バッファを返す。
+     *
+     * @details 返却ポインタは RecipeCount() 件の連続バッファで、RegisterRecipe() / ClearAll()
+     * で無効化される。
+     * @param out_count レシピ件数を書き出す出力先。
+     * @return 全レシピを指す先頭ポインタ。
+     */
     const CraftRecipe* AllRecipes(u32& out_count) const noexcept;
 
-    // ---- インベントリ adapter ---------------------------------------------
-    // すべて nullptr でも動作する (= 在庫無制限デバッグモード)。
-    // 部分設定 (query だけ等) は意図的に許容するが、StartCraft の consume / 完了時の
-    // grant が nullptr の関数を踏むと「在庫操作なし成功」として扱われる (=テスト容易)。
+    /**
+     * インベントリ adapter を設定する。
+     *
+     * @details
+     * すべて nullptr でも動作する (在庫無制限デバッグモード)。部分設定も許容し、consume / grant
+     * が nullptr の場合は「在庫操作なし成功」として扱う (テスト容易性)。
+     * @param query 在庫個数取得 adapter (nullptr 可)。
+     * @param consume 在庫消費 adapter (nullptr 可)。
+     * @param grant 在庫付与 adapter (nullptr 可)。
+     * @param user 各 adapter に渡すコンテキスト (所有しない)。
+     */
     void SetInventoryAdapter(InventoryQueryFn   query,
                              InventoryConsumeFn consume,
                              InventoryGrantFn   grant,
                              void*              user) noexcept;
 
-    // ---- クラフト判定 / 実行 ----------------------------------------------
-    // 事前判定 (side effect なし):
-    //   ・recipe_id が登録されていること
-    //   ・required_workbench が一致 (nullptr / "" なら不要扱い)
-    //   ・player_level >= unlock_level
-    //   ・(query adapter があるとき) すべての ingredient が必要数以上揃っていること
-    // current_workbench == nullptr / "" は「ワークベンチ無し」を意味する。
-    // player_level のデフォルト 999 は「レベル制約なし」想定のショートカット (テスト等)。
+    /**
+     * クラフト可能かを判定する (side effect なし)。
+     *
+     * @details
+     * recipe_id が登録され、required_workbench が一致 (nullptr / "" は不要扱い)、
+     * player_level >= unlock_level、かつ query adapter があるとき全 ingredient が必要数以上
+     * 揃っていれば true。CanCraft() が true なら StartCraft() も成功する不変条件を保つ。
+     * @param recipe_id クラフトするレシピ id。
+     * @param current_workbench 現在のワークベンチ id (nullptr / "" はワークベンチ無し)。
+     * @param player_level プレイヤーレベル (既定 999 = レベル制約なしのショートカット)。
+     * @return クラフト可能なら true。
+     */
     bool CanCraft(const char* recipe_id,
                   const char* current_workbench = nullptr,
                   u32         player_level      = 999) const noexcept;
 
-    // クラフト開始 — ingredient を一括 consume → Status = Crafting に遷移。
-    // 失敗時 (CanCraft が false / 既に Crafting / consume が途中失敗) は false を返し
-    // side effect なし (途中失敗時は既に consume したぶんを巻き戻す)。
-    // 既に Completed / Cancelled なら上書き許可 (= 次のクラフトに進める)。
+    /**
+     * クラフトを開始する (ingredient を一括 consume → Status = Crafting)。
+     *
+     * @details
+     * 失敗時 (CanCraft が false / 既に Crafting / consume が途中失敗) は false を返し、途中失敗
+     * 時は消費したぶんを巻き戻して side effect なしにする。既に Completed / Cancelled なら上書き
+     * 許可。
+     * @param recipe_id クラフトするレシピ id。
+     * @param current_workbench 現在のワークベンチ id。
+     * @param player_level プレイヤーレベル。
+     * @return 開始できたら true。
+     */
     bool StartCraft(const char* recipe_id,
                     const char* current_workbench,
                     u32         player_level) noexcept;
 
-    // クラフト中断 — Status == Crafting のときだけ動作 (Idle / Completed / Cancelled では no-op)。
-    // ingredient を全量 grant し戻して Status = Cancelled に遷移。
+    /**
+     * 進行中クラフトを中断する。
+     *
+     * @details Status == Crafting のときだけ動作 (それ以外は no-op)。ingredient を全量 grant し
+     * 戻して Status = Cancelled に遷移する。
+     */
     void CancelCraft() noexcept;
 
-    // ---- 状態取得 ----------------------------------------------------------
-    // 現在のクラフト状態。
+    /**
+     * 現在のクラフト状態を返す。
+     *
+     * @return 現在の ECraftStatus。
+     */
     ECraftStatus Status() const noexcept;
 
-    // クラフト進行率 [0, 1]。Crafting 時のみ意味を持つ (それ以外は 0)。
-    // craft_duration_sec <= 0 のレシピでは Tick 後 1.0 を返す (即時完了)。
+    /**
+     * クラフト進行率を返す。
+     *
+     * @details Crafting 時のみ意味を持つ (それ以外は 0)。craft_duration_sec <= 0 のレシピでは 1.0。
+     * @return 進行率 [0,1]。
+     */
     f32 CraftProgress() const noexcept;
 
-    // 残り秒数。Crafting 時のみ意味を持つ (それ以外は 0)。
+    /**
+     * クラフトの残り秒数を返す。
+     *
+     * @details Crafting 時のみ意味を持つ (それ以外は 0)。
+     * @return 残り秒数。
+     */
     f32 CraftRemainingSec() const noexcept;
 
-    // 現在のクラフト対象 recipe_id (Crafting / Completed / Cancelled 時に有効)。
-    // Idle / 未開始は nullptr。返却ポインタは登録時の生 id (リテラル参照)。
+    /**
+     * 現在のクラフト対象 recipe_id を返す。
+     *
+     * @details Crafting / Completed / Cancelled 時に有効。返却ポインタは登録時の生 id (リテラル参照)。
+     * @return クラフト対象の recipe_id (Idle / 未開始は nullptr)。
+     */
     const char* CurrentRecipeId() const noexcept;
 
-    // ---- 進行 --------------------------------------------------------------
-    // 時間進行。Crafting 中なら remaining_sec を dt 減算し、<= 0 で完了 → grant +
-    // CompleteCallback 発火 + Status = Completed に遷移。
-    // Crafting 以外は no-op。dt <= 0 も no-op (defensive)。
+    /**
+     * 時間を進める。
+     *
+     * @details Crafting 中なら remaining_sec を dt 減算し、<= 0 で完了 → grant + CompleteCallback
+     * 発火 + Status = Completed に遷移する。Crafting 以外や dt <= 0 は no-op。
+     * @param dt 経過秒。
+     */
     void Tick(f32 dt) noexcept;
 
-    // ---- コールバック ------------------------------------------------------
-    // cb = nullptr で detach。user は所有しない (= 呼出側の責務)。
+    /**
+     * 完了コールバックを設定する。
+     *
+     * @param cb 発火させる callback (nullptr で detach)。
+     * @param user callback に渡すコンテキスト (所有しない)。
+     */
     void SetOnCompleteCallback(CompleteCallback cb, void* user) noexcept;
 
-    // ---- 全リセット (デバッグ / シーン切替時) -----------------------------
-    // レシピ + 現在状態 + adapter + callback をすべてクリア。
-    // ingredient の返却は行わない (シーン切替で在庫ごと再構築する想定)。
+    /**
+     * レシピ + 現在状態 + adapter + callback をすべてクリアする (デバッグ / シーン切替時)。
+     *
+     * @details ingredient の返却は行わない (シーン切替で在庫ごと再構築する想定)。
+     */
     void ClearAll() noexcept;
 
 private:
-    // recipe_id → m_Recipes 内 index の per-byte 線形検索。未検出は ~0u。
+    /**
+     * recipe_id を per-byte 線形検索して m_Recipes 内 index を返す。
+     *
+     * @param recipe_id 探すレシピ id。
+     * @return 見つかった index、未検出は kNotFound (~0u)。
+     */
     u32 FindRecipeSlot(const char* recipe_id) const noexcept;
 
-    // レシピ定義 (起動時 immutable)。
+    /** レシピ定義 (起動時 immutable)。 */
     TArray<CraftRecipe> m_Recipes;
 
-    // インベントリ adapter (C 関数ポインタ + user)。
+    /** 在庫個数取得 adapter。 */
     InventoryQueryFn   m_Query   = nullptr;
+
+    /** 在庫消費 adapter。 */
     InventoryConsumeFn m_Consume = nullptr;
+
+    /** 在庫付与 adapter。 */
     InventoryGrantFn   m_Grant   = nullptr;
+
+    /** 各 adapter に渡すコンテキスト。 */
     void*              m_InvUser = nullptr;
 
-    // 完了通知 callback (C 関数ポインタ + user)。
+    /** 完了通知 callback。 */
     CompleteCallback m_OnComplete      = nullptr;
+
+    /** 完了通知 callback に渡すコンテキスト。 */
     void*            m_OnCompleteUser = nullptr;
 
-    // 現在のクラフト状態。
+    /** 現在のクラフト状態。 */
     ECraftStatus _status               = ECraftStatus::Idle;
-    // 現在のクラフト対象 recipe (= m_Recipes の要素を指す or nullptr)。
-    // Crafting / Completed / Cancelled の間は有効、Idle / ClearAll で nullptr。
+
+    /** 現在のクラフト対象 recipe (m_Recipes の要素を指す。Idle / ClearAll で nullptr)。 */
     const CraftRecipe* m_CurrentRecipe = nullptr;
-    // craft_duration_sec — 進行率計算用に保持 (recipe を差し替えても安定)。
+
+    /** 現在クラフトの所要秒数 (進行率計算用に保持。recipe 差し替えに対し安定)。 */
     f32 m_CurrentDurationSec          = 0.0f;
-    // 残り秒数 (Tick で減算)。完了で 0、Cancel でも 0 にリセット。
+
+    /** 現在クラフトの残り秒数 (Tick で減算。完了 / Cancel で 0)。 */
     f32 m_CurrentRemainingSec         = 0.0f;
 };
 

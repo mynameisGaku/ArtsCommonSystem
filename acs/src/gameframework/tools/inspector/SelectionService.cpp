@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — SceneInspector / FSelectionService 実装 (Phase 20)
+// GameFramework Pillar — SceneInspector / FSelectionService 実装
 //
 // 設計のポイント (詳細はヘッダ参照):
 //   ・現選択 FNodeId (1 個) + (cb, user) 登録 list の最小ハブ。
@@ -10,9 +10,7 @@
 
 namespace acs::game::inspector {
 
-// ============================================================================
-// Init
-// ============================================================================
+/** 現選択を invalid に、callback list を空に戻して初期化する。 */
 void FSelectionService::Init() noexcept {
     // 完全初期化: 現選択を invalid に、callback list を空に。
     // 容量は保持 (Reserve 状態を保つ ≒ 再 Init 後のアロケーション節約)。
@@ -20,9 +18,7 @@ void FSelectionService::Init() noexcept {
     m_Callbacks.Clear();
 }
 
-// ============================================================================
-// SelectNode / ClearSelection
-// ============================================================================
+/** 現選択を id に切り替え、値が変化した場合のみ callback を一斉発火する。 */
 void FSelectionService::SelectNode(FNodeId id) noexcept {
     // 同一選択への再 Select は no-op (callback 発火しない)。FNodeId 比較は
     // packed u32 の == なので O(1)。
@@ -36,6 +32,7 @@ void FSelectionService::SelectNode(FNodeId id) noexcept {
     FireChange(from, m_Current);
 }
 
+/** 現選択を invalid に戻し、前選択が valid だった場合のみ callback を発火する。 */
 void FSelectionService::ClearSelection() noexcept {
     // 既に未選択なら no-op (callback 発火しない)。
     if (!m_Current.IsValid()) {
@@ -46,22 +43,19 @@ void FSelectionService::ClearSelection() noexcept {
     FireChange(from, m_Current);
 }
 
-// ============================================================================
-// 問い合わせ
-// ============================================================================
+/** 現選択を返す (未選択時は invalid handle)。 */
 FNodeId FSelectionService::CurrentSelection() const noexcept {
     return m_Current;
 }
 
+/** 指定 id が現選択と完全一致するかを返す。 */
 bool FSelectionService::IsSelected(FNodeId id) const noexcept {
     // FNodeId::operator== は packed u32 の完全一致。
     // invalid 同士の比較も true になる (両方 packed == 0)。
     return m_Current == id;
 }
 
-// ============================================================================
-// コールバック登録 / 解除
-// ============================================================================
+/** (cb, user) ペアを登録する (重複・null は no-op)。 */
 void FSelectionService::RegisterCallback(SelectionChangeCallback cb, void* user) noexcept {
     if (cb == nullptr) {
         // null コールバックは silent no-op (HotReloadWatcher と同じ規約だが
@@ -81,6 +75,7 @@ void FSelectionService::RegisterCallback(SelectionChangeCallback cb, void* user)
     m_Callbacks.PushBack(e);
 }
 
+/** (cb, user) に完全一致する登録 1 件を解除する (該当なし・null は no-op)。 */
 void FSelectionService::UnregisterCallback(SelectionChangeCallback cb, void* user) noexcept {
     // null は no-op (Register と対称)。
     if (cb == nullptr) {
@@ -98,10 +93,12 @@ void FSelectionService::UnregisterCallback(SelectionChangeCallback cb, void* use
     // 未登録ペアの Unregister は no-op (panel の Shutdown 順序揺らぎを致命化しない)。
 }
 
+/** 登録済みコールバック数を返す。 */
 u32 FSelectionService::CallbackCount() const noexcept {
     return static_cast<u32>(m_Callbacks.Size());
 }
 
+/** 全 callback 登録を破棄し、選択も invalid に戻す (通知は行わない)。 */
 void FSelectionService::ClearAll() noexcept {
     // shutdown 想定の一括破棄。callback 発火 (ClearSelection 相当) は **行わない**
     // — 購読側はもはや listening しない前提で呼ぶ API なので、ここで dispatch
@@ -110,12 +107,10 @@ void FSelectionService::ClearAll() noexcept {
     m_Callbacks.Clear();
 }
 
-// ============================================================================
-// 内部ヘルパ: 登録順に dispatch
-// ============================================================================
+/** 登録順に全 callback へ選択変更を dispatch する内部ヘルパ。 */
 void FSelectionService::FireChange(FNodeId from, FNodeId to) const noexcept {
     // callback 内で別の panel が UnregisterCallback / RegisterCallback を
-    // 呼ぶ可能性があるが、Phase 20 では「dispatch 中の自己改変は未定義」と
+    // 呼ぶ可能性があるが、「dispatch 中の自己改変は未定義」と
     // 規定する (登録 list を index で走査するので、swap-remove や PushBack が
     // 走ると同じ要素が 2 回呼ばれる / スキップされる可能性がある)。実用上は
     // editor の panel 構成は起動時に確定するため問題ない。

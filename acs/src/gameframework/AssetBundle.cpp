@@ -16,7 +16,14 @@
 namespace acs::game {
 
 namespace {
-// UTF-8 const char* path → wchar_t[260] (FAssetRegistry が wide path を取るため)。
+/**
+ * UTF-8 の path を wide 文字列に変換する (FAssetRegistry が wide path を取るため)。
+ *
+ * @param utf8 変換元の UTF-8 path。
+ * @param out 変換結果を書き込むバッファ。
+ * @param cap out バッファの容量 (wchar_t 数)。
+ * @return 変換成功なら true (失敗時は out[0] を 0 にして false)。
+ */
 bool WidenPath(const char* utf8, wchar_t* out, int cap) noexcept {
     if (!utf8 || cap <= 0) return false;
     const int n = ::MultiByteToWideChar(CP_UTF8, 0, utf8, -1, out, cap);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L Phase 2 — Pathfinding 実装
+// GameFramework Pillar L — Pathfinding 実装
 //
 // A* の流れ (標準形):
 //   1. start を open set に追加、g_score[start] = 0、f_score[start] = h(start, goal)
@@ -21,15 +21,16 @@
 
 namespace acs::game {
 
-// 対角移動コスト (sqrt(2))。constexpr ではなく inline static でリテラル化。
+/** 対角移動のコスト (sqrt(2))。 */
 static constexpr f32 kDiagCost = 1.41421356237f;
+
+/** 直進移動 (4 方向) のコスト。 */
 static constexpr f32 kStraightCost = 1.0f;
-// came_from の "未設定" 番兵。u32 最大値。グリッドサイズは width*height で
-// 実用上ここまで届かないので衝突しない。
+
+/** came_from の "未設定" 番兵 (u32 最大値)。実用上グリッド index と衝突しない。 */
 static constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 
-// ---- Init / Setter / Getter ----------------------------------------------------
-
+/** グリッドを width*height で全 cell walkable に初期化し、A* 一時バッファを確保する。 */
 void NavGrid::Init(u32 width, u32 height) noexcept {
     m_Width  = width;
     m_Height = height;
@@ -51,23 +52,25 @@ void NavGrid::Init(u32 width, u32 height) noexcept {
     m_CameFrom.Resize(count);
 }
 
+/** cell の通行可否を設定する (範囲外は no-op)。 */
 void NavGrid::SetWalkable(u32 x, u32 y, bool walkable) noexcept {
     if (x >= m_Width || y >= m_Height) return;          // 範囲外は no-op
     m_Walkable[IndexOf(x, y)] = walkable ? 1 : 0;
 }
 
+/** cell の通行可否を返す (範囲外は通行不可扱い)。 */
 bool NavGrid::IsWalkable(u32 x, u32 y) const noexcept {
     if (x >= m_Width || y >= m_Height) return false;   // 範囲外は通行不可扱い
     return m_Walkable[IndexOf(x, y)] != 0;
 }
 
+/** 全 cell を walkable に戻す (グリッドサイズは保持)。 */
 void NavGrid::ClearWalls() noexcept {
     const u32 count = m_Width * m_Height;
     for (u32 i = 0; i < count; ++i) m_Walkable[i] = 1;
 }
 
-// ---- Heuristic -----------------------------------------------------------------
-
+/** 対角許可なら Octile distance、なしなら Manhattan の heuristic を計算する。 */
 f32 NavGrid::Heuristic(u32 x, u32 y, u32 goal_x, u32 goal_y) const noexcept {
     // 符号付き距離を取るため一度 i64 経由で減算してから絶対値。
     const f32 dx = Abs(static_cast<f32>(static_cast<i64>(x) - static_cast<i64>(goal_x)));
@@ -84,10 +87,9 @@ f32 NavGrid::Heuristic(u32 x, u32 y, u32 goal_x, u32 goal_y) const noexcept {
     return dx + dy;
 }
 
-// ---- Open set 操作 -------------------------------------------------------------
-
+/** open list から f_score 最小のノードの位置を線形走査で返す。 */
 usize NavGrid::PopLowestF() noexcept {
-    // 線形最小値走査 (Phase 2 簡素実装)。binary heap への置換は Phase 3+。
+    // 線形最小値走査の簡素実装。binary heap への置換は将来検討。
     const usize n = _open.Size();
     if (n == 0) return 0;
     usize best_pos = 0;
@@ -102,8 +104,7 @@ usize NavGrid::PopLowestF() noexcept {
     return best_pos;
 }
 
-// ---- Reconstruct ---------------------------------------------------------------
-
+/** came_from を goal から start まで遡り、逆順に並べて経路を再構築する。 */
 void NavGrid::Reconstruct(u32 start_idx, u32 goal_idx, TArray<PathPoint>& out_path) const noexcept {
     // goal から came_from を辿って start まで遡り、out_path に逆順で push。
     // 最後に reverse して start → goal の順にする。
@@ -130,14 +131,13 @@ void NavGrid::Reconstruct(u32 start_idx, u32 goal_idx, TArray<PathPoint>& out_pa
     }
 }
 
-// ---- A* 本体 -------------------------------------------------------------------
-
+/** A* 本体。start から goal への最短経路を out_path に書き込む (成否を返す)。 */
 bool NavGrid::FindPath(u32 start_x, u32 start_y,
                        u32 goal_x,  u32 goal_y,
                        TArray<PathPoint>& out_path) noexcept {
     out_path.Clear();
 
-    // ----- 早期失敗ガード -----
+    // 早期失敗ガード
     if (m_Width == 0 || m_Height == 0)                return false;
     if (start_x >= m_Width || start_y >= m_Height)    return false;
     if (goal_x  >= m_Width || goal_y  >= m_Height)    return false;
@@ -156,7 +156,7 @@ bool NavGrid::FindPath(u32 start_x, u32 start_y,
         return true;
     }
 
-    // ----- 一時バッファのリセット -----
+    // 一時バッファのリセット
     // (Init で resize 済みのはずだが、念のためサイズ齟齬があれば調整)。
     const u32 count = m_Width * m_Height;
     if (_closed.Size()    != count) _closed.Resize(count);
@@ -173,13 +173,13 @@ bool NavGrid::FindPath(u32 start_x, u32 start_y,
     }
     _open.Clear();
 
-    // ----- start を open へ -----
+    // start を open へ
     m_GScore[start_idx]  = 0.0f;
     m_FScore[start_idx]  = Heuristic(start_x, start_y, goal_x, goal_y);
     m_InOpen[start_idx]  = 1;
     _open.PushBack(start_idx);
 
-    // ----- 隣接 offset 表 -----
+    // 隣接 offset 表
     // 4 方向 + (allow_diagonal なら 4 つ追加) = 最大 8。
     // dx, dy, cost の組を持つ。
     struct Neighbor {
@@ -199,7 +199,7 @@ bool NavGrid::FindPath(u32 start_x, u32 start_y,
     };
     const u32 neighbor_count = m_AllowDiagonal ? 8u : 4u;
 
-    // ----- メインループ -----
+    // メインループ
     while (!_open.IsEmpty()) {
         // 1. open から f 最小を取り出す。
         const usize pos = PopLowestF();

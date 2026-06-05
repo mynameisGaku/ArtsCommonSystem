@@ -9,24 +9,21 @@
 
 namespace acs::game {
 
-// ----------------------------------------------------------------------------
-// helpers
-// ----------------------------------------------------------------------------
-
+/** 値を [0,1] にクランプする。 */
 f32 FCombatStateMachine::Clamp01(f32 v) noexcept {
     if (v < 0.0f) return 0.0f;
     if (v > 1.0f) return 1.0f;
     return v;
 }
 
-// 各 state の既定脅威レベル。Tick 内で m_ThreatTarget に流し込む。
-// 値は「BGM intensity / camera shake の自然な強度」に合わせた経験値。
-//   Peaceful  = 0.00 — 平穏 (BGM Calm / 環境音 のみ)
-//   Alert     = 0.30 — 緊張 (BGM Tension / 心拍 SE)
-//   Engaged   = 0.70 — 戦闘 (BGM Combat / 連続 SFX)
-//   BossFight = 1.00 — ボス戦 (BGM Combat 最大 / 振動最大)
-//   Victory   = 0.40 — 勝利直後 (Engaged からの自然な減衰、Calm へは Reset で)
-//   Retreat   = 0.20 — 撤退 (緊張感は残るが Combat ではない)
+/**
+ * 各 state の既定脅威レベルを返す (Tick 内で m_ThreatTarget に流し込む)。
+ *
+ * @details
+ * 値は BGM intensity / camera shake の自然な強度に合わせた経験値:
+ * Peaceful=0.00 (平穏) / Alert=0.30 (緊張) / Engaged=0.70 (戦闘) /
+ * BossFight=1.00 (ボス戦) / Victory=0.40 (勝利直後) / Retreat=0.20 (撤退)。
+ */
 f32 FCombatStateMachine::DefaultThreatTarget(ECombatState state) noexcept {
     switch (state) {
         case ECombatState::Peaceful:  return 0.0f;
@@ -39,14 +36,12 @@ f32 FCombatStateMachine::DefaultThreatTarget(ECombatState state) noexcept {
     return 0.0f;  // unreachable, defensive default
 }
 
-// ----------------------------------------------------------------------------
-// construction / lifecycle
-// ----------------------------------------------------------------------------
-
+/** Peaceful 状態で構築し、敵配列を reserve する。 */
 FCombatStateMachine::FCombatStateMachine() noexcept {
     m_Enemies.Reserve(kEnemyReserveHint);
 }
 
+/** state を Peaceful に、awareness を全クリアして再初期化する (callback は保持)。 */
 void FCombatStateMachine::Init() noexcept {
     _state             = ECombatState::Peaceful;
     m_ThreatTarget     = DefaultThreatTarget(ECombatState::Peaceful);
@@ -57,16 +52,14 @@ void FCombatStateMachine::Init() noexcept {
     // m_Callback / m_CallbackUser は保持 (Init は scene 再 enter 用と位置付け)。
 }
 
+/** callback も含めて完全な初期状態に戻す。 */
 void FCombatStateMachine::Reset() noexcept {
     Init();
     m_Callback      = nullptr;
     m_CallbackUser = nullptr;
 }
 
-// ----------------------------------------------------------------------------
-// enemy 検索 / 取得
-// ----------------------------------------------------------------------------
-
+/** EnemyAwareness を id で線形探索する (無ければ m_Enemies.Size() を返す)。 */
 usize FCombatStateMachine::FindEnemy(u32 enemy_id) const noexcept {
     const usize n = m_Enemies.Size();
     for (usize i = 0; i < n; ++i) {
@@ -75,6 +68,7 @@ usize FCombatStateMachine::FindEnemy(u32 enemy_id) const noexcept {
     return n;
 }
 
+/** is_engaged=true な敵の数を返す。 */
 u32 FCombatStateMachine::EngagedEnemyCount() const noexcept {
     u32 count = 0;
     const usize n = m_Enemies.Size();
@@ -84,14 +78,12 @@ u32 FCombatStateMachine::EngagedEnemyCount() const noexcept {
     return count;
 }
 
+/** state が Engaged または BossFight なら true。 */
 bool FCombatStateMachine::IsInCombat() const noexcept {
     return _state == ECombatState::Engaged || _state == ECombatState::BossFight;
 }
 
-// ----------------------------------------------------------------------------
-// state 遷移コア
-// ----------------------------------------------------------------------------
-
+/** 内部 state を遷移させ、必要なら callback を発火する。 */
 void FCombatStateMachine::TransitionTo(ECombatState next) noexcept {
     if (next == _state) return;  // no-op (callback 不発火)
     const ECombatState prev = _state;
@@ -113,10 +105,7 @@ void FCombatStateMachine::TransitionTo(ECombatState next) noexcept {
     }
 }
 
-// ----------------------------------------------------------------------------
-// 戦闘通知
-// ----------------------------------------------------------------------------
-
+/** 敵検出を通知する (Peaceful なら Alert へ遷移)。 */
 void FCombatStateMachine::NotifyEnemyDetected(u32 enemy_id) noexcept {
     // awareness レコードを upsert (新規 or 1.0 へ上書き)。is_engaged は据置 —
     // 既に交戦中の敵を再検出しても engaged 状態を解除しない。
@@ -139,6 +128,7 @@ void FCombatStateMachine::NotifyEnemyDetected(u32 enemy_id) noexcept {
     }
 }
 
+/** 交戦開始を通知する (Engaged へ遷移、BossFight 中は据置)。 */
 void FCombatStateMachine::NotifyCombatStarted(u32 enemy_id) noexcept {
     // 該当敵を is_engaged=true に。未登録なら新規追加 (awareness=1.0)。
     const usize idx = FindEnemy(enemy_id);
@@ -160,6 +150,7 @@ void FCombatStateMachine::NotifyCombatStarted(u32 enemy_id) noexcept {
     }
 }
 
+/** 1 敵分の交戦解消を通知する (残敵 0 で Victory / Retreat へ遷移)。 */
 void FCombatStateMachine::NotifyCombatEnded(u32 enemy_id, bool victory) noexcept {
     // 該当敵を engaged から外す。awareness は 0 に落として「忘れた」扱いに。
     // (= 次フレーム以降の NotifyEnemyDetected で再 alert 可能)
@@ -181,6 +172,7 @@ void FCombatStateMachine::NotifyCombatEnded(u32 enemy_id, bool victory) noexcept
     }
 }
 
+/** ボス遭遇を通知する (どの state からでも BossFight へ割り込み遷移)。 */
 void FCombatStateMachine::NotifyBossEncountered(u32 boss_id) noexcept {
     // ボスを engaged 一覧に upsert (awareness=1, is_engaged=true)。
     const usize idx = FindEnemy(boss_id);
@@ -206,6 +198,7 @@ void FCombatStateMachine::NotifyBossEncountered(u32 boss_id) noexcept {
     }
 }
 
+/** ボス撃破を通知する (残 engaged 敵で Engaged / Victory へ復帰)。 */
 void FCombatStateMachine::NotifyBossDefeated() noexcept {
     // BossFight 以外で呼ばれたら警告 + no-op (誤用検出)。
     if (_state != ECombatState::BossFight) {
@@ -235,10 +228,7 @@ void FCombatStateMachine::NotifyBossDefeated() noexcept {
     }
 }
 
-// ----------------------------------------------------------------------------
-// driver
-// ----------------------------------------------------------------------------
-
+/** 毎フレーム呼んで脅威レベルを target へ指数減衰で追従させる driver。 */
 void FCombatStateMachine::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
 
@@ -265,10 +255,7 @@ void FCombatStateMachine::Tick(f32 dt) noexcept {
     m_ThreatCurrent  = Clamp01(m_ThreatCurrent);
 }
 
-// ----------------------------------------------------------------------------
-// callback
-// ----------------------------------------------------------------------------
-
+/** state 遷移 callback を登録する (cb==nullptr で解除)。 */
 void FCombatStateMachine::SetOnStateChangeCallback(StateChangeCallback cb, void* user) noexcept {
     m_Callback      = cb;
     m_CallbackUser = user;

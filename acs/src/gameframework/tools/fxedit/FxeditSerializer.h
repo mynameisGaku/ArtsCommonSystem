@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — ParticleEditor `.fxedit` テキスト I/O (Phase 19b)
+// GameFramework Tools — ParticleEditor `.fxedit` テキスト I/O
 //
 // 役割:
 //   ParticleEditor (in-engine particle authoring tool) が編集中の emitter 群を
@@ -60,8 +60,8 @@
 //   ・**Text + 1 行 = 1 key**: git diff で 1 パラメータ変更が 1 行 diff になる。
 //   ・**emitter index prefix (E0, E1, ...)**: 順序が壊れても再構築可能、
 //     かつ多重 emitter ファイル (1 ファイル = N emitters) を素直に扱える。
-//   ・**Magic + Version**: 先頭行で `ACS_FXEDIT 1` を要求。Phase 2 以降 schema が
-//     変わったら version をインクリメントし、後方互換ローダが分岐する。
+//   ・**Magic + Version**: 先頭行で `ACS_FXEDIT 1` を要求。schema が変わったら
+//     version をインクリメントし、後方互換ローダが分岐する。
 //   ・**非コピー・非ムーブ static class**: state を持たないため。
 //   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 規約。
 //   ・**file I/O は acs::FileSystem に委譲**: `<stdio.h>` 等の C 標準 I/O を
@@ -71,13 +71,6 @@
 //     可能だが、ロード結果を ParticleEditor 側に流し込む際にコピーが必要に
 //     なるため、最初から呼び出し側 buffer に書き込む方式にして余計な
 //     allocation を省く。format は `name0\0name1\0name2\0...` 連結。
-//
-// 範囲外 (Phase 2+ で検討):
-//   ・curve-based 補間 (color over lifetime 等) の serialize 形式。
-//   ・テクスチャ参照 (path string) の serialize。
-//   ・3D 化 (FVec3 gravity / FVec3 position 等)。
-//   ・unicode emitter 名 (現状 ASCII printable のみ)。
-//   ・エスケープシーケンス (現状 `"` を含む name は不正)。
 //
 // 注意:
 //   ・本クラスは ParticleEmitterDef の型を不完全宣言 (forward decl) のみで
@@ -91,103 +84,157 @@
 
 namespace acs::game {
 
-// 前方宣言: 実体は `gameframework/FParticleEffectSystem.h`。
-// .cpp 側で完全型を include する。
+// 前方宣言: 実体は `gameframework/ParticleEffectSystem.h`。.cpp 側で完全型を include する。
 struct ParticleEmitterDef;
 
 namespace fxedit {
 
-// =============================================================================
-// FFxeditSerializer — `.fxedit` テキストファイルの save/load
-// -----------------------------------------------------------------------------
-// すべてのメンバは static。state を持たない utility class なので、コンストラクタ
-// / コピー / ムーブを禁止しておく (誤って実体化されるのを防ぐ)。
-// =============================================================================
+/**
+ * `.fxedit` テキストファイルの save/load を担う state-less ユーティリティ。
+ *
+ * @details
+ * すべてのメンバは static。state を持たない utility class なので、コンストラクタ・
+ * コピー・ムーブを禁止しておく (誤って実体化されるのを防ぐ)。emitter 群を人間可読 /
+ * git diff 可能なテキスト (`ACS_FXEDIT` v1) で書き出し・復元する。
+ */
 class FFxeditSerializer {
 public:
+    /** 構築禁止 (state を持たない static ユーティリティのため)。 */
     FFxeditSerializer()                                   = delete;
+
+    /** 破棄禁止 (実体化しないため)。 */
     ~FFxeditSerializer()                                  = delete;
+
+    /** コピー禁止。 */
     FFxeditSerializer(const FFxeditSerializer&)            = delete;
+
+    /** コピー代入も禁止。 */
     FFxeditSerializer& operator=(const FFxeditSerializer&) = delete;
+
+    /** ムーブ禁止。 */
     FFxeditSerializer(FFxeditSerializer&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FFxeditSerializer& operator=(FFxeditSerializer&&)      = delete;
 
-    // ---- file format 定数 -----------------------------------------------
-    // 先頭行に必ず付ける magic 文字列 + 現在のフォーマットバージョン。
+    /** 先頭行に必ず付ける magic 文字列。 */
     static constexpr const char* kMagic            = "ACS_FXEDIT";
+
+    /** 現在のフォーマットバージョン。 */
     static constexpr u32         kCurrentVersion   = 1u;
 
-    // emitter 1 個分のテキスト出力に必要な最大バイト数 (sprintf 用上限見積)。
-    // 約 12 key * (prefix "E999 " 6B + name 32B + value 64B + newline) ≒ 1.5 KB。
-    // 安全側で 2048B にしておく。
+    /**
+     * emitter 1 個分のテキスト出力に必要な最大バイト数 (sprintf 用上限見積)。
+     *
+     * @details
+     * 約 12 key * (prefix "E999 " 6B + name 32B + value 64B + newline) ≒ 1.5 KB。
+     * 安全側で 2048B にしておく。
+     */
     static constexpr usize       kMaxBytesPerEmitter = 2048;
 
-    // 1 行のテキストパース時に許容する最大長 (これ以上は切り捨てる)。
+    /** 1 行のテキストパース時に許容する最大長 (これ以上は切り捨てる)。 */
     static constexpr usize       kMaxLineLength      = 512;
 
-    // 1 emitter の name に許容する最大バイト数 (NUL 終端含まず)。
-    // ParticleEditor 側の UI 想定で 31 文字 (+NUL = 32B) としておく。
+    /**
+     * 1 emitter の name に許容する最大バイト数 (NUL 終端含まず)。
+     *
+     * @details ParticleEditor 側の UI 想定で 31 文字 (+NUL = 32B) としておく。
+     */
     static constexpr usize       kMaxEmitterName     = 31;
 
-    // ---- FErrorCode subcode 定義 (ErrCategory::IO) -----------------------
-    // FSaveSlot (1-99) と衝突しないよう、fxedit は 700-799 番を使う。
+    /**
+     * save/load のエラー subcode (FErrorCode の ErrCategory::IO で使う)。
+     *
+     * @details FSaveSlot (1-99) と衝突しないよう、fxedit は 700-799 番を使う。
+     */
     enum SubCode : u16 {
+        /** エラーなし。 */
         kSub_OK                = 0,
-        kSub_NullArgs          = 700,  // file_path / defs / names が nullptr
-        kSub_TooManyEmitters   = 701,  // count > max_emitters
-        kSub_BufferOverflow    = 702,  // name buffer 不足 or 出力 buffer 不足
-        kSub_BadMagic          = 703,  // 先頭が "ACS_FXEDIT" でない
-        kSub_BadVersion        = 704,  // version が未対応
-        kSub_BadFormat         = 705,  // 行の構文不正
-        kSub_FileNotFound      = 706,  // 読み込み対象が存在しない
-        kSub_IOFailure         = 707,  // 下位 FileSystem からのエラー
+
+        /** file_path / defs / names が nullptr。 */
+        kSub_NullArgs          = 700,
+
+        /** count > max_emitters。 */
+        kSub_TooManyEmitters   = 701,
+
+        /** name buffer 不足 or 出力 buffer 不足。 */
+        kSub_BufferOverflow    = 702,
+
+        /** 先頭が "ACS_FXEDIT" でない。 */
+        kSub_BadMagic          = 703,
+
+        /** version が未対応。 */
+        kSub_BadVersion        = 704,
+
+        /** 行の構文不正。 */
+        kSub_BadFormat         = 705,
+
+        /** 読み込み対象が存在しない。 */
+        kSub_FileNotFound      = 706,
+
+        /** 下位 FileSystem からのエラー。 */
+        kSub_IOFailure         = 707,
     };
 
-    // -----------------------------------------------------------------------
-    // Save — emitter 群を `.fxedit` テキストへ書き出す
-    // -----------------------------------------------------------------------
-    // file_path: 保存先 (Win32 wide path)。既存ファイルは上書き。
-    // defs:      ParticleEmitterDef 配列 (count 個)。nullptr 不可。
-    // names:     emitter 名 (C 文字列) の配列。nullptr 個別要素は "" 扱い。
-    //            ただし names ポインタ自体が nullptr の場合は kSub_NullArgs。
-    // count:     emitter 個数 (0 も valid: ヘッダだけ書き出す)。
+    /**
+     * emitter 群を `.fxedit` テキストへ書き出す。
+     *
+     * @details count が 0 のときはヘッダだけ書き出す。既存ファイルは上書きする。
+     * @param file_path 保存先 (Win32 wide path)。
+     * @param defs ParticleEmitterDef 配列 (count 個)。count>0 のとき nullptr 不可。
+     * @param names emitter 名 (C 文字列) の配列。個別要素 nullptr は "" 扱い。
+     *              count>0 で names ポインタ自体が nullptr の場合は kSub_NullArgs。
+     * @param count emitter 個数 (0 も valid)。
+     * @return 成功なら空の TResult、null 引数 / バッファ溢れ / I/O 失敗ならエラー。
+     */
     static TResult<void, FErrorCode> Save(const wchar_t*             file_path,
                                         const ParticleEmitterDef*  defs,
                                         const char* const*         names,
                                         u32                        count) noexcept;
 
-    // -----------------------------------------------------------------------
-    // Load — `.fxedit` テキストから emitter 群を読み出す
-    // -----------------------------------------------------------------------
-    // file_path:             読み込み元 (Win32 wide path)。
-    // out_defs:              復元する ParticleEmitterDef 配列 (max_emitters 個分の領域)。
-    // out_name_buffer:       名前バッファ (各 emitter の C string を連結配置)。
-    //                        `name0\0name1\0...\0name<n-1>\0` 形式で書き込む。
-    // name_buffer_capacity:  out_name_buffer のバイト数。
-    // max_emitters:          out_defs の要素数 (= 受け入れ可能な最大 emitter 数)。
-    // 戻り値: 成功時は実際にロードした emitter 数 (<= max_emitters)。
+    /**
+     * `.fxedit` テキストから emitter 群を読み出す。
+     *
+     * @param file_path 読み込み元 (Win32 wide path)。
+     * @param out_defs 復元する ParticleEmitterDef 配列 (max_emitters 個分の領域)。
+     * @param out_name_buffer 名前バッファ。各 emitter の C string を `name0\0name1\0...`
+     *                        形式で連結配置する。
+     * @param name_buffer_capacity out_name_buffer のバイト数。
+     * @param max_emitters out_defs の要素数 (= 受け入れ可能な最大 emitter 数)。
+     * @return 成功なら実際にロードした emitter 数 (<= max_emitters)、null 引数 /
+     *         magic 不一致 / version 不一致 / 容量超過 / I/O 失敗ならエラー。
+     */
     static TResult<u32, FErrorCode> Load(const wchar_t*       file_path,
                                        ParticleEmitterDef*  out_defs,
                                        char*                out_name_buffer,
                                        u32                  name_buffer_capacity,
                                        u32                  max_emitters) noexcept;
 
-    // -----------------------------------------------------------------------
-    // ParseHeaderVersion — 先頭行の "ACS_FXEDIT <v>" を検査して v を返す
-    // -----------------------------------------------------------------------
-    // 0 を返した場合は magic mismatch / version 解析失敗を意味する。
-    // text は NUL 終端でなくても OK (text_len で長さを与える)。
+    /**
+     * 先頭の非空行から "ACS_FXEDIT <v>" を検査して version を返す。
+     *
+     * @details text は NUL 終端でなくても OK (text_len で長さを与える)。
+     * @param text パース対象のテキスト先頭。
+     * @param text_len text の長さ (バイト)。
+     * @return 解析できた version。magic 不一致 / version 解析失敗なら 0。
+     */
     static u32 ParseHeaderVersion(const char* text, u32 text_len) noexcept;
 
-    // -----------------------------------------------------------------------
-    // ParseLine — 1 行の "<key> <v0> [<v1> [<v2> [<v3>]]]" を解釈する
-    // -----------------------------------------------------------------------
-    // line は NUL 終端を期待 (ReadAllText が末尾 NUL 付きで読むため)。
-    // out_key: key 文字列の **開始ポインタ** (line 内、終端 NUL 化はしない)。
-    //          代わりに in-place NUL 化はせず、呼び出し側が長さを別途判定する。
-    //          ここでは「最初の空白文字までを key 範囲」とする規約。
-    // out_v0..v3: 数値スロット。出現しない値には 0.0 が入る。
-    // 返り値: 構文が正しければ true。完全に空行 (key も無い) なら false。
+    /**
+     * 1 行の "<key> <v0> [<v1> [<v2> [<v3>]]]" を構文解析する。
+     *
+     * @details
+     * line は NUL 終端を期待する (ReadAllText が末尾 NUL 付きで読むため)。out_key は
+     * line 内の key 開始ポインタを指す (終端 NUL 化はしないので長さは呼び出し側が
+     * 「最初の空白文字まで」で判定する)。出現しない値スロットには 0.0 が入る。
+     * @param line パース対象の 1 行 (NUL 終端)。
+     * @param out_key key 文字列の開始ポインタ (line 内)。
+     * @param out_v0 1 番目の数値スロット。
+     * @param out_v1 2 番目の数値スロット。
+     * @param out_v2 3 番目の数値スロット。
+     * @param out_v3 4 番目の数値スロット。
+     * @return 構文が正しければ true、空行 / コメント行なら false。
+     */
     static bool ParseLine(const char*  line,
                           const char*& out_key,
                           f32&         out_v0,
@@ -195,10 +242,13 @@ public:
                           f32&         out_v2,
                           f32&         out_v3) noexcept;
 
-    // -----------------------------------------------------------------------
-    // SkipWhitespace — ' ' / '\t' / '\r' / '\n' を読み飛ばす
-    // -----------------------------------------------------------------------
-    // 末端 NUL は跨がない (NUL に当たったらそこで止まる)。
+    /**
+     * ' ' / '\t' / '\r' / '\n' を読み飛ばす。
+     *
+     * @details 末端 NUL は跨がない (NUL に当たったらそこで止まる)。
+     * @param p 走査開始ポインタ (nullptr 可)。
+     * @return 最初の非空白文字 (または NUL) を指すポインタ。p が nullptr なら nullptr。
+     */
     static const char* SkipWhitespace(const char* p) noexcept;
 };
 

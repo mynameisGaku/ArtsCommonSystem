@@ -15,6 +15,7 @@
 
 namespace acs::game {
 
+/** inactive slot を再利用するか末尾に追加して空きスロット index を返す (上限到達で kMaxIndex)。 */
 u32 FSceneTimer::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用 (キャッシュ局所性 + index 上限 24bit 保護)
     const usize n = m_Entries.Size();
@@ -31,10 +32,12 @@ u32 FSceneTimer::AcquireSlot() noexcept {
     return static_cast<u32>(m_Entries.Size()) - 1u;
 }
 
+/** index と gen を packed handle にまとめて返す。 */
 FTimerHandle FSceneTimer::MakeHandle(u32 index, u8 gen) const noexcept {
     return FTimerHandle::Pack(index, gen);
 }
 
+/** delay_sec 後に 1 回だけ cb(user) を呼ぶ one-shot timer を登録する (不正引数は invalid handle)。 */
 FTimerHandle FSceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void* user) noexcept {
     if (cb == nullptr) return {};
     if (delay_sec <= 0.0f) return {};
@@ -59,6 +62,7 @@ FTimerHandle FSceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void* user
     return MakeHandle(idx, new_gen);
 }
 
+/** period_sec ごとに cb(user) を繰り返す interval timer を登録する (不正引数は invalid handle)。 */
 FTimerHandle FSceneTimer::SetInterval(f32 period_sec, TimerCallback cb, void* user) noexcept {
     if (cb == nullptr) return {};
     if (period_sec <= 0.0f) return {};
@@ -82,6 +86,7 @@ FTimerHandle FSceneTimer::SetInterval(f32 period_sec, TimerCallback cb, void* us
     return MakeHandle(idx, new_gen);
 }
 
+/** h が active なら停止して true を返す (stale / 完了済みは false)。 */
 bool FSceneTimer::Cancel(FTimerHandle h) noexcept {
     if (!h.IsValid()) return false;
     const u32 idx = h.Index();
@@ -96,6 +101,7 @@ bool FSceneTimer::Cancel(FTimerHandle h) noexcept {
     return true;
 }
 
+/** 全 active timer を停止する (コールバックは呼ばない)。 */
 void FSceneTimer::CancelAll() noexcept {
     const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
@@ -108,6 +114,7 @@ void FSceneTimer::CancelAll() noexcept {
     m_ActiveCount = 0u;
 }
 
+/** h が現在も有効な active timer を指しているかを返す。 */
 bool FSceneTimer::IsActive(FTimerHandle h) const noexcept {
     if (!h.IsValid()) return false;
     const u32 idx = h.Index();
@@ -116,6 +123,7 @@ bool FSceneTimer::IsActive(FTimerHandle h) const noexcept {
     return e.active && e.gen == h.Gen();
 }
 
+/** dt 進めて満了した timer を登録順に発火する (Interval は大 dt で carry 連続発火)。 */
 void FSceneTimer::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     if (m_ActiveCount == 0u) return;

@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — leveledit / FLevelEditorPanel (Phase 22)
+// GameFramework Pillar — leveledit / FLevelEditorPanel
 //
 // `acs::game::FTilemap` (multi-layer u16 FTileId grid) を **対話的に編集する
 // tilemap painter panel**。Unity Tile Palette / Tiled / LDtk の「ペイント /
 // 消し / 塗りつぶし / スポイト」 4 ブラシ + アクティブレイヤ切替 + tile id
-// picker + grid show/hide + snap-to-grid を提供する。Phase 21a で確立された
-// `editor_core::FEditorPanel` 基底に載せ、`FEditorWorkspace::RegisterPanel(&panel)`
-// の 1 行で workspace に統合できる形にしている。
+// picker + grid show/hide + snap-to-grid を提供する。`editor_core::FEditorPanel`
+// 基底に載せ、`FEditorWorkspace::RegisterPanel(&panel)` の 1 行で workspace に
+// 統合できる形にしている。
 //
 // 役割:
 //   ・ImGui canvas 上に FTilemap を矩形描画 (= ImDrawList::AddRectFilled の
-//     row-major スイープ、本物テクスチャは Phase 2 以降で差し替え)
+//     row-major スイープ、本物テクスチャは未対応で色付き矩形 placeholder)
 //   ・上部 toolbar:
 //       - Brush kind 選択 (Paint / Erase / Fill / Pick)
 //       - Active layer dropdown (LayerCount 個の選択肢)
@@ -32,9 +32,9 @@
 //     caller 所有 (= `SetTilemap(&tm)` で raw 参照を渡す、寿命は caller 責任)。
 //     本 panel が tilemap を生成 / 破棄しない (FAnimCurveEditorPanel が
 //     FAnimationCurve を non-owning で受けるのと同形)。
-//   ・FTilemap の描画 (本物テクスチャ atlas) は **Phase 2 以降の責務**。Phase 22
-//     範囲では「ImDrawList で色付き矩形を描く placeholder」のみ。tile id を
-//     疑似乱数ハッシュで色に変換する `TileIdToColor` を内部実装する。
+//   ・FTilemap の描画は「ImDrawList で色付き矩形を描く placeholder」のみ
+//     (本物テクスチャ atlas は未対応)。tile id を疑似乱数ハッシュで色に変換する
+//     `TileIdToColor` を内部実装する。
 //   ・Save / Load tilemap は sample 34 側で stub menu を出す。本 panel 自身は
 //     永続化 API を持たない (= JSON / binary / pak 等の選択を panel が知らない)。
 //
@@ -54,16 +54,15 @@
 //   workspace.UnregisterPanel(&panel);
 //   panel.Shutdown();
 //
-// 設計選択 (Phase 22 LevelEditor):
-//   ・**FEditorPanel 継承**: Phase 21a 共通基盤の dogfood (sample 31 ModelViewer /
-//     sample 32 AnimCurveEditor に続く 3 つ目)。Title = "Level Editor"、
+// 設計選択 (LevelEditor):
+//   ・**FEditorPanel 継承**: 共通基盤に載せる。Title = "Level Editor"、
 //     DrawUI override。
 //   ・**tilemap は raw pointer の非所有保持**: caller 所有 (FAnimCurveEditorPanel
 //     が FAnimationCurve を non-owning で受けるのと同方針)。本 panel は tilemap
 //     の寿命に関与せず、`m_Tilemap == nullptr` 時は "(No tilemap bound)" を表示。
 //   ・**FEditorCamera Mode2D を内包**: 各 panel が独自 camera を持つ Unity
 //     SceneView 風モデル (FModelViewerPanel と同形)。FCamera() アクセサで参照を
-//     返し、外部 (sample 34) は HandleMouseInput / Tick を呼ぶ。本 panel 内部の
+//     返し、外部は HandleMouseInput / Tick を呼ぶ。本 panel 内部の
 //     viewport drawing でも `m_Camera.State().zoom_2d` と `m_Camera.State().position`
 //     を使って world → screen 変換する。
 //   ・**EBrushKind は u8 enum**: ACS の E prefix enum 規約。Paint=塗り (drag 対応)、
@@ -77,19 +76,19 @@
 //   ・**flood-fill の上限 sentinel**: FTilemap 全 cell 数 (= 32*32=1024 程度)
 //     を超える stack 深さは想定しないが、巨大マップでも暴走しないよう
 //     `kFloodFillMaxCells` で打ち切り (= 64*64=4096)。
-//   ・**Tile id 範囲は 0〜1023 (u16 だが UI 上で打ち切り)**: 仕様で指定された
-//     範囲。本物 atlas が出来たら index 上限は atlas size に合わせて拡張する。
+//   ・**Tile id 範囲は 0〜1023 (u16 だが UI 上で打ち切り)**: 本物 atlas が
+//     出来たら index 上限は atlas size に合わせて拡張する。
 //     `kTileIdMax = 1023` を公開定数として出す。
 //   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用 / `<string>` 禁止**:
 //     ACS 規約。
 //   ・**ImGui ヘッダは .cpp 限定**: 他 panel (FParticleEditorPanel /
 //     FModelViewerPanel / FInspectorPanel) と同形。
 //
-// 範囲外 (Phase 22 では持たない、将来追加候補):
+// 範囲外 (本 panel では持たない):
 //   ・本物テクスチャ atlas でのタイル描画 (= 現状は色付き矩形 placeholder)
 //   ・複数 tilemap の同時編集 / レイヤ重ね表示の z-order 操作
-//   ・undo / redo 統合 (= Phase 21b FUndoStack 経由、将来 OnUndo / OnRedo hook)
-//   ・tilemap のシリアライズ (= sample 34 menu で stub、本物は別 phase)
+//   ・undo / redo 統合
+//   ・tilemap のシリアライズ
 //   ・矩形選択 / コピー&ペースト / 移動 / 回転
 //   ・auto-tiling (= Wang tiles / 4-bit neighbor mask)
 //   ・collision layer の特別扱い (= 現状はただの layer)
@@ -109,136 +108,242 @@ class FTilemap;
 
 namespace acs::game::leveledit {
 
-// ---------------------------------------------------------------------------
-// EBrushKind — ペイントブラシの種類
-// ---------------------------------------------------------------------------
-// Paint=塗り (current_tile_id を SetTile、drag 対応)
-// Erase=消し (FTileId{0} を SetTile、drag 対応)
-// Fill =flood-fill (クリック位置の連結成分を current_tile_id で塗替、click 単発)
-// Pick =スポイト (クリック位置の tile id を current_tile_id にコピー、click 単発)
-// ---------------------------------------------------------------------------
+/**
+ * ペイントブラシの種類。
+ *
+ * @details
+ * Paint=塗り (current_tile_id を SetTile、drag 対応)、Erase=消し
+ * (FTileId{0} を SetTile、drag 対応)、Fill=flood-fill (クリック位置の連結成分を
+ * current_tile_id で塗替、click 単発)、Pick=スポイト (クリック位置の tile id を
+ * current_tile_id にコピー、click 単発)。
+ */
 enum class EBrushKind : u8 {
+    /** 塗り。current_tile_id を SetTile する (drag で連続塗り対応)。 */
     Paint = 0,
+
+    /** 消し。FTileId{0} を SetTile する (drag 対応)。 */
     Erase = 1,
+
+    /** flood-fill。クリック位置の連結成分を current_tile_id で塗り替える (click 単発)。 */
     Fill  = 2,
+
+    /** スポイト。クリック位置の tile id を current_tile_id にコピーする (click 単発)。 */
     Pick  = 3,
 };
 
-// ---------------------------------------------------------------------------
-// FLevelEditorPanel — FTilemap (multi-layer u16 FTileId grid) 編集 UI panel
-// ---------------------------------------------------------------------------
+/**
+ * FTilemap (multi-layer u16 FTileId grid) を対話的に編集する tilemap painter panel。
+ *
+ * @details
+ * Paint / Erase / Fill / Pick の 4 ブラシ + アクティブレイヤ切替 + tile id picker +
+ * grid show/hide + snap-to-grid を提供する。FEditorPanel 基底に載せ、Workspace へ 1 行
+ * で統合できる。FTilemap データは caller 所有で raw 参照として受け取り、本 panel は
+ * tilemap を生成・破棄しない。描画は ImDrawList で色付き矩形を積む placeholder
+ * (本物テクスチャ atlas は未対応)。内部に 2D mode の FEditorCamera を内包し pan/zoom する。
+ */
 class FLevelEditorPanel : public acs::game::editor_core::FEditorPanel {
 public:
+    /** 空状態で構築する (内部 state は Init で初期化)。 */
     FLevelEditorPanel() noexcept = default;
+
+    /** 破棄する (tilemap は caller 所有なので解放しない)。 */
     ~FLevelEditorPanel() noexcept override = default;
 
-    // 非コピー / 非ムーブ: 基底 FEditorPanel と同規約 + 内部 FEditorCamera
-    // (非コピー / 非ムーブ) + tilemap 参照 / brush state の所有を曖昧にしない
-    // (ACS 規約)。
+    /** コピー禁止 (基底 FEditorPanel と同規約、内部 FEditorCamera も非コピー)。 */
     FLevelEditorPanel(const FLevelEditorPanel&)            = delete;
+
+    /** コピー代入も禁止。 */
     FLevelEditorPanel& operator=(const FLevelEditorPanel&) = delete;
+
+    /** ムーブ禁止 (tilemap 参照・brush state の所有を曖昧にしないため)。 */
     FLevelEditorPanel(FLevelEditorPanel&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FLevelEditorPanel& operator=(FLevelEditorPanel&&)      = delete;
 
-    // ----- 初期化 / 解放 ---------------------------------------------------
-
-    // 内部 state をデフォルトに、FEditorCamera を 2D mode で Init、tilemap 参照を
-    // nullptr、brush=Paint、tile_id=1、active_layer=0、show_grid=true、
-    // snap_to_grid=true、selected coord を unset に。多重 Init 可 (= 完全リセット)。
+    /**
+     * 内部 state をデフォルトに初期化する。
+     *
+     * @details
+     * FEditorCamera を 2D mode で Init し base ortho size を 512 に、tilemap 参照を
+     * nullptr、brush=Paint、tile_id=1、active_layer=0、show_grid=true、snap_to_grid=true、
+     * selected coord を unset にする。多重呼び出し可 (= 完全リセット)。
+     */
     void Init() noexcept;
 
-    // 内部 state を全解放 (= tilemap 参照を解除、FEditorCamera を Reset)。
-    // tilemap 自体は caller 所有なので本 panel が破棄しない。多重 Shutdown 可。
+    /**
+     * 内部 state を全解放する。
+     *
+     * @details
+     * tilemap 参照を解除し FEditorCamera を Reset、selected coord をリセットする。
+     * tilemap 自体は caller 所有なので本 panel は破棄しない。多重呼び出し可。
+     */
     void Shutdown() noexcept;
 
-    // ----- tilemap バインド ------------------------------------------------
-
-    // 編集対象の FTilemap を raw 参照でセット (nullptr で解除)。
-    // 寿命は caller 責任 (本 panel は tilemap を所有しない)。
-    // セット直後は active_layer を 0 にクランプ、selected coord をリセット
-    // (= 別 tilemap に切替えたら前 tilemap の coord は無意味)。
+    /**
+     * 編集対象の FTilemap を raw 参照でセットする (nullptr で解除)。
+     *
+     * @details
+     * 寿命は caller 責任 (本 panel は tilemap を所有しない)。セット直後は active_layer を
+     * LayerCount() でクランプし、selected coord をリセットする (= 別 tilemap に切替えたら
+     * 前 tilemap の coord は無意味)。
+     * @param tm 編集対象の FTilemap (nullptr で解除)。
+     */
     void SetTilemap(class FTilemap* tm) noexcept;
 
-    // 現在編集対象の FTilemap (未バインド時は nullptr)。
+    /**
+     * 現在編集対象の FTilemap を返す。
+     *
+     * @return 編集対象の FTilemap (未バインド時は nullptr)。
+     */
     class FTilemap* CurrentTilemap() const noexcept;
 
-    // ----- FEditorCamera ----------------------------------------------------
-
-    // 内部 FEditorCamera (Mode2D) への参照。呼出側 (sample 34) が
-    // `HandleMouseInput` / `Tick` を呼ぶ。寿命は本 panel と同一。
+    /**
+     * 内部 FEditorCamera (Mode2D) への参照を返す。
+     *
+     * @details 呼出側が HandleMouseInput / Tick を呼ぶ。寿命は本 panel と同一。
+     * @return 内部 FEditorCamera への参照。
+     */
     acs::game::editor_core::FEditorCamera& Camera() noexcept;
 
-    // ----- ブラシ / レイヤ / tile id 設定 ----------------------------------
-
+    /**
+     * 現在のブラシ種別を返す。
+     *
+     * @return 現在の EBrushKind。
+     */
     EBrushKind CurrentBrush() const noexcept;
+
+    /**
+     * ブラシ種別を設定する。
+     *
+     * @param b 設定するブラシ種別。
+     */
     void SetCurrentBrush(EBrushKind b) noexcept;
 
-    // 現在ペイント中の tile id (Paint / Fill / Pick で使用、Erase では未使用)。
-    // 上限は `kTileIdMax` (= 1023) でクランプ。
+    /**
+     * 現在ペイント中の tile id を返す。
+     *
+     * @details Paint / Fill / Pick で使用 (Erase では未使用)。
+     * @return 現在の tile id。
+     */
     u16 CurrentTileId() const noexcept;
+
+    /**
+     * ペイントする tile id を設定する。
+     *
+     * @details kTileIdMax (= 1023) を超える値はクランプされる。
+     * @param id 設定する tile id。
+     */
     void SetCurrentTileId(u16 id) noexcept;
 
-    // アクティブレイヤ番号 (`FTilemap::LayerCount()` 未満)。
-    // tilemap 未バインド時はそのまま値を保持、バインド後に LayerCount で
-    // クランプされる。
+    /**
+     * アクティブレイヤ番号を返す。
+     *
+     * @return アクティブレイヤ番号 (FTilemap::LayerCount() 未満)。
+     */
     u32 ActiveLayer() const noexcept;
+
+    /**
+     * アクティブレイヤ番号を設定する。
+     *
+     * @details
+     * tilemap バインド時は LayerCount() でクランプ、未バインド時はそのまま保持し
+     * 後の SetTilemap でクランプされる。
+     * @param layer 設定するレイヤ番号。
+     */
     void SetActiveLayer(u32 layer) noexcept;
 
-    // grid 表示 toggle (= ImDrawList で grid line を描くか)。
+    /**
+     * grid 表示フラグを返す。
+     *
+     * @return grid を描画するなら true。
+     */
     bool ShowGrid() const noexcept;
+
+    /**
+     * grid 表示フラグを設定する。
+     *
+     * @param b true なら ImDrawList で grid line を描く。
+     */
     void SetShowGrid(bool b) noexcept;
 
-    // snap-to-grid 表示 toggle (= ホバー時のハイライト矩形を tile 単位に
-    // 揃えるか。ペイント自体は tile 単位なのでこのフラグは表示用)。
+    /**
+     * snap-to-grid 表示フラグを返す。
+     *
+     * @return snap-to-grid 表示なら true。
+     */
     bool SnapToGrid() const noexcept;
+
+    /**
+     * snap-to-grid 表示フラグを設定する。
+     *
+     * @details ホバー時のハイライト矩形を tile 単位に揃える表示用フラグ (ペイント自体は常に tile 単位)。
+     * @param b true なら snap 表示する。
+     */
     void SetSnapToGrid(bool b) noexcept;
 
-    // ----- FEditorPanel override -------------------------------------------
-
-    // window タイトル (ImGui::Begin の引数兼 ID)。固定リテラル。
+    /**
+     * window タイトルを返す (ImGui::Begin の引数兼 ID)。
+     *
+     * @return 固定リテラル "Level Editor"。
+     */
     const char* Title() const noexcept override { return "Level Editor"; }
 
-    // Workspace への登録時に呼ばれる。基底実装で Workspace ポインタ保存、
-    // 本クラスでは追加初期化 (FEditorCamera を 2D mode で Init し直す保険) を行う。
+    /**
+     * Workspace への登録時に呼ばれる初期化フック。
+     *
+     * @details
+     * 基底実装で Workspace ポインタを保存したあと、FEditorCamera を 2D mode で
+     * 初期化し直す (Init() 未呼出でも登録だけで動くようにする保険)。
+     * @param workspace 登録先のエディタワークスペース。
+     */
     void OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept override;
 
-    // ImGui::Begin "Level Editor" + Toolbar + Canvas + Inspector を描画。
-    // tilemap 未バインドなら "(No tilemap bound)" を表示してセクションは出さない。
+    /**
+     * Toolbar + viewport canvas + inspector を ImGui で描画する。
+     *
+     * @details
+     * ImGui::Begin "Level Editor" 内に Toolbar (Brush / Layer / Tile ID / Show Grid /
+     * Snap)、viewport canvas (tilemap 矩形描画 + ホバー強調 + クリック/drag ペイント)、
+     * inspector を出す。tilemap 未バインドなら "(No tilemap bound)" を表示して終了する。
+     */
     void DrawUI() noexcept override;
 
-    // ----- 公開定数 --------------------------------------------------------
-
-    // tile id picker (UI) の上限。仕様で 0〜1023 を要求 (本物 atlas 整備までの
-    // 暫定値)。`SetCurrentTileId` でクランプに使う。
+    /** tile id picker (UI) の上限 (本物 atlas 整備までの暫定値、SetCurrentTileId でクランプに使う)。 */
     static constexpr u16 kTileIdMax = 1023u;
 
-    // flood-fill (Brush=Fill) の最大処理セル数。FTilemap 全 cell を超える深さの
-    // 暴走を防ぐための上限。32*32 想定なら 1024 で十分、巨大マップでも 4096 で
-    // 打ち切り (= タイル数が 4096 を超える領域は塗り切れない、警告も出さない簡易実装)。
+    /** flood-fill (Brush=Fill) の最大処理セル数 (巨大マップでの暴走を防ぐ上限)。 */
     static constexpr u32 kFloodFillMaxCells = 4096u;
 
-    // "未選択" を表す sentinel coord (= u32 max)。selected_x / selected_y が
-    // この値の時は inspector が "(none)" を出す。
+    /** "未選択" を表す sentinel coord (= u32 max)。inspector が "(none)" を出す判定に使う。 */
     static constexpr u32 kNoCoord = 0xFFFFFFFFu;
 
 private:
-    // 2D viewport camera (pan / zoom)。Init() で Mode2D に初期化。
+    /** 2D viewport camera (pan / zoom)。Init() で Mode2D に初期化する。 */
     acs::game::editor_core::FEditorCamera m_Camera {};
 
-    // 編集対象 FTilemap (caller 所有、本 panel は非所有)。
+    /** 編集対象 FTilemap (caller 所有、本 panel は非所有)。 */
     class FTilemap* m_Tilemap = nullptr;
 
-    // ---- ブラシ / レイヤ / tile id ----
+    /** 現在のブラシ種別。 */
     EBrushKind m_Brush          = EBrushKind::Paint;
-    u16        m_CurrentTileId = 1u;            // 1 にしておくと初手 Paint が「空でない tile」を置く
+
+    /** 現在ペイント中の tile id (初期値 1 で初手 Paint が空でない tile を置く)。 */
+    u16        m_CurrentTileId = 1u;
+
+    /** アクティブレイヤ番号。 */
     u32        m_ActiveLayer    = 0u;
 
-    // ---- 表示 toggle ----
+    /** grid 表示フラグ。 */
     bool       m_ShowGrid       = true;
+
+    /** snap-to-grid 表示フラグ。 */
     bool       m_SnapToGrid    = true;
 
-    // ---- inspector 用「最後にクリック / ホバーした tile coord」----
+    /** inspector 用「最後にクリック / ホバーした tile」の X 座標 (未選択は kNoCoord)。 */
     u32        m_SelectedX      = kNoCoord;
+
+    /** inspector 用「最後にクリック / ホバーした tile」の Y 座標 (未選択は kNoCoord)。 */
     u32        m_SelectedY      = kNoCoord;
 };
 

@@ -3,9 +3,8 @@
 // ACS FAssetPack — `.acpak` v1 ファイルフォーマット bit-precise 定義
 // -----------------------------------------------------------------------------
 // `.acpak` は ACS が「アセット流出のカジュアル防止 + 完全性検証」を行うため
-// の独自アーカイブフォーマット。Phase 1 では「raw bytes + CRC32 検証」の最低
-// 限のレイアウトを定義し、Phase 2 で AES-256-GCM (Windows CNG) + LZ4 圧縮を
-// 同フレーム内で追加する。
+// の独自アーカイブフォーマット。「raw bytes + CRC32 検証」のレイアウトに加え、
+// AES-256-GCM (Windows CNG) 暗号化 + LZ4 圧縮を同フレーム内で扱える。
 //
 // ヘッダ + ファイルデータ + ファイルテーブル の 3 セクション構成:
 //
@@ -19,7 +18,7 @@
 //                                                を 8 バイト境界に乗せる)
 //   0x18     8    file_table_offset      u64 (アーカイブ先頭からのオフセット)
 //   0x20     4    reserved               u32 = 0
-//   0x24     -    (Phase 2 拡張領域)
+//   0x24     -    (拡張領域)
 //
 //   [file 0 data] ... [file N-1 data]   (各 entry の offset/size に基づき配置)
 //
@@ -57,9 +56,8 @@
 //     Writer はストリーミング書き込みできる (AddFile 中はテーブルをメモリ上に
 //     貯め、Finalize で末尾に書き出す)。
 //   ・CRC32 は size_uncompressed バイト (= 復号 + 解凍後の生データ) に対して
-//     計算する。Phase 1 では size_stored == size_uncompressed なので
-//     stored 側の CRC を計算してもよいが、Phase 2 で圧縮/暗号化が入っても
-//     検証仕様が変わらないよう「uncompressed バイトに対する CRC」と固定する。
+//     計算する。圧縮/暗号化の有無に関わらず検証仕様が変わらないよう
+//     「uncompressed バイトに対する CRC」と固定する。
 // =============================================================================
 #pragma once
 
@@ -67,63 +65,97 @@
 
 namespace acs::assetpack {
 
-// ---- magic / version 定数 -------------------------------------------------
-
-// `.acpak` ファイル先頭 8 バイト = "ACPAK\0\0\0" (リテラルバイト列)。
-// Reader は CreateFileW 直後にこの 8 バイトと一致するかを最初に検査する。
-// reinterpret_cast<u64>(...) のような alias 越え比較は strict-aliasing を
-// 破るため避け、必ず memcmp / バイト列比較で検査すること。
+/**
+ * `.acpak` ファイル先頭 8 バイトの magic = "ACPAK\0\0\0"。
+ *
+ * @details
+ * Reader は CreateFileW 直後にこの 8 バイトと一致するかを最初に検査する。
+ * reinterpret_cast<u64>(...) のような alias 越え比較は strict-aliasing を
+ * 破るため避け、必ず memcmp / バイト列比較で検査する。
+ */
 inline constexpr u8 kAcpakMagic[8] = {
     'A', 'C', 'P', 'A', 'K', '\0', '\0', '\0'
 };
 
-// 現在のフォーマットバージョン。Phase 1 = 1。Phase 2 でも 1 を保ち、
-// flags の bit を追加することで互換を保つ予定 (= reader は flags の未知 bit
-// を見つけた場合のみ NotImplemented を返す)。互換破壊する変更を行うときに
-// だけ version を 2 に上げる。
+/**
+ * 現在のフォーマットバージョン (= 1)。
+ *
+ * @details
+ * flags の bit を追加することで後方互換を保つ (reader は flags の未知 bit を
+ * 見つけた場合のみエラーを返す)。互換破壊する変更を行うときにだけ 2 に上げる。
+ */
 inline constexpr u32 kAcpakVersion = 1u;
 
-// ---- フラグ (header.flags の bitfield) -----------------------------------
-// Phase 2 で Encrypted / Compressed 共に実装済。順序は **compress-then-encrypt**
-// (FAssetPack.md §5)。読み出し時は **decrypt-then-decompress** の逆順。
-// Reader/Writer は flags を見て pipeline を組み立てる。
+/**
+ * header.flags の bitfield。pipeline は compress-then-encrypt 順。
+ *
+ * @details
+ * 書き込みは compress-then-encrypt、読み出しはその逆順の
+ * decrypt-then-decompress。Reader/Writer は flags を見て pipeline を組み立てる。
+ */
 enum EAcpakFlags : u32 {
+    /** フラグなし (= 生バイト + CRC32 のみ、v1 raw レイアウト)。 */
     AcpakFlagNone        = 0u,
-    AcpakFlagEncrypted   = 1u << 0,  // 各 file data が AES-256-GCM 暗号化 (Phase 2)
-    AcpakFlagCompressed  = 1u << 1,  // 各 file data が LZ4 圧縮 (Phase 2)
+
+    /** 各 file data が AES-256-GCM で暗号化されている。 */
+    AcpakFlagEncrypted   = 1u << 0,
+
+    /** 各 file data が LZ4 で圧縮されている。 */
+    AcpakFlagCompressed  = 1u << 1,
 };
 
-// ---- ヘッダ (固定 40 バイト) ---------------------------------------------
-// アーカイブ先頭にそのまま書き込まれる POD 構造体。
-//   ・全フィールド little-endian
-//   ・filed_table_offset の前に padding u32 を入れて u64 を 8B 境界に揃える
-//     (一部 ARM プロセッサは unaligned u64 read で fault を起こすため)
-//   ・reinterpret_cast による直接読込は禁止 — Reader/Writer は明示的に
-//     バイト列を memcpy で読み出す (Hash.cpp と同じ流儀)
+/**
+ * アーカイブ先頭に書き込まれる固定長ヘッダ POD。
+ *
+ * @details
+ * 全フィールド little-endian。file_table_offset の前に padding u32 を入れて
+ * u64 を 8B 境界に揃える (一部 ARM プロセッサは unaligned u64 read で fault を
+ * 起こすため)。reinterpret_cast による直接読込は禁止し、Reader/Writer は明示的に
+ * バイト列を memcpy で読み出す (Hash.cpp と同じ流儀)。ディスク I/O は
+ * kAcpakHeaderDiskSize (= 36) を用いて行う。
+ */
 struct FAcpakHeader {
-    u8  magic[8];             // = kAcpakMagic
-    u32 version;              // = kAcpakVersion
-    u32 flags;                // EAcpakFlags bitfield
-    u32 file_count;           // file table 内の entry 数
-    u32 padding;              // = 0 (file_table_offset を 8B 境界に乗せる)
-    u64 file_table_offset;    // アーカイブ先頭からの絶対オフセット
-    u32 reserved;             // = 0 (Phase 2 拡張用)
+    /** magic = kAcpakMagic ("ACPAK\0\0\0")。 */
+    u8  magic[8];
+
+    /** フォーマットバージョン = kAcpakVersion。 */
+    u32 version;
+
+    /** EAcpakFlags bitfield (encrypted / compressed)。 */
+    u32 flags;
+
+    /** file table 内の entry 数。 */
+    u32 file_count;
+
+    /** = 0。file_table_offset を 8B 境界に乗せるためのパディング。 */
+    u32 padding;
+
+    /** アーカイブ先頭から file table までの絶対オフセット。 */
+    u64 file_table_offset;
+
+    /** = 0。将来拡張用の予約フィールド。 */
+    u32 reserved;
 };
 
-// バイト境界が想定通りであることを静的に保証する。
-// header.magic[8] + version(4) + flags(4) + file_count(4) + padding(4)
-//   = 24 → file_table_offset (8) は 24 % 8 == 0 で揃う
-//   = 32 + reserved(4) = 36
-//   = align(8) で末尾に 4B 詰めて 40 にはせず、reserved を 4B のままにする。
-//
-// ディスク上は 36 バイトを書く (sizeof(FAcpakHeader) は処理系の構造体パディング
-// で 40 になり得るため、I/O は kAcpakHeaderDiskSize で明示的に行う)。
+/**
+ * ヘッダのディスク上サイズ (= 36 バイト)。
+ *
+ * @details
+ * magic(8) + version(4) + flags(4) + file_count(4) + padding(4) = 24 で
+ * file_table_offset(8) は 8B 境界に揃い、+8 = 32、+ reserved(4) = 36。
+ * sizeof(FAcpakHeader) は処理系の構造体パディングで 40 になり得るため、I/O は
+ * 必ずこの定数を使って 36 バイトで読み書きする。
+ */
 inline constexpr usize kAcpakHeaderDiskSize = 36;
 
-// file table 内の各 entry が暗号化フラグ立ち時に追加で持つバイト数。
-// = cipher_nonce(12) + cipher_tag(16) = 28
-// Reader/Writer は header.flags & AcpakFlagEncrypted のときだけこの 28 バイトを
-// 読み書きする。v1 (flags=0) では 0 バイト = レイアウト変更なし。
+/**
+ * 暗号化フラグ立ち時に各 entry が file table に追加で持つバイト数 (= 28)。
+ *
+ * @details
+ * cipher_nonce(12) + cipher_tag(16) = 28。Reader/Writer は
+ * header.flags & AcpakFlagEncrypted のときだけこの 28 バイトを読み書きする。
+ * v1 (flags=0) では 0 バイト = レイアウト変更なし。
+ */
 inline constexpr usize kAcpakCipherFieldsDiskSize = 12u + 16u;
 
 static_assert(sizeof(u8) == 1 && sizeof(u32) == 4 && sizeof(u64) == 8,
@@ -131,47 +163,82 @@ static_assert(sizeof(u8) == 1 && sizeof(u32) == 4 && sizeof(u64) == 8,
 static_assert(sizeof(((FAcpakHeader*)0)->magic) == 8,
               "FAcpakHeader::magic must be 8 bytes");
 
-// ---- ファイルエントリ (Reader が file table から構築する in-memory 表現) -
-// アーカイブ上のレイアウトとは形が異なる (path はディスク上では path_len +
-// wchar_t[path_len] の可変長で、ここでは「Reader 内の文字列 pool を指す
-// const wchar_t*」として保持する)。
-//
-// 文字列の寿命:
-//   ・Reader が Open した時点で文字列 pool を確保し、Close するまでこの
-//     ポインタは有効。Close 後にアクセスするのは UB。
-//
-// 暗号化フィールド (Phase 2 拡張):
-//   ・cipher_nonce / cipher_tag は AcpakFlagEncrypted が立った pak でのみ
-//     ディスクから読み込まれる。flags=0 (v1) の pak ではゼロクリアされる。
-//   ・AES-256-GCM の規格上、nonce は 96bit (12B)、tag は 128bit (16B) 固定。
+/**
+ * Reader が file table から構築する in-memory のファイルエントリ表現。
+ *
+ * @details
+ * アーカイブ上のレイアウトとは形が異なる (path はディスク上では path_len +
+ * wchar_t[path_len] の可変長だが、ここでは Reader 内の文字列 pool を指す
+ * const wchar_t* として保持する)。path は Reader が Open した時点から Close
+ * までだけ有効で、Close 後のアクセスは UB。cipher_nonce / cipher_tag は
+ * AcpakFlagEncrypted が立った pak でのみディスクから読み込まれ、flags=0 (v1) の
+ * pak ではゼロクリアされる。AES-256-GCM 規格上 nonce は 96bit (12B)、tag は
+ * 128bit (16B) 固定。
+ */
 struct FAcpakFileEntry {
-    const wchar_t* path;              // Reader 内文字列 pool への参照
-    u64            offset;            // アーカイブ先頭からの絶対オフセット
-    u64            size_uncompressed; // 復号 + 解凍後のバイト数
-    u64            size_stored;       // アーカイブ上の生バイト数
-    u32            crc32;             // size_uncompressed バイトに対する CRC32
-    u8             cipher_nonce[12];  // AES-256-GCM nonce (encrypted pak のみ)
-    u8             cipher_tag[16];    // AES-256-GCM 認証タグ (encrypted pak のみ)
+    /** Reader 内文字列 pool への参照 (Close まで有効)。 */
+    const wchar_t* path;
+
+    /** アーカイブ先頭からこのファイルデータまでの絶対オフセット。 */
+    u64            offset;
+
+    /** 復号 + 解凍後のバイト数。 */
+    u64            size_uncompressed;
+
+    /** アーカイブ上の生バイト数 (圧縮 + 暗号化後のサイズ)。 */
+    u64            size_stored;
+
+    /** size_uncompressed バイトに対する CRC32。 */
+    u32            crc32;
+
+    /** AES-256-GCM の per-file nonce (encrypted pak のみ有効、それ以外は 0)。 */
+    u8             cipher_nonce[12];
+
+    /** AES-256-GCM 認証タグ (encrypted pak のみ有効、それ以外は 0)。 */
+    u8             cipher_tag[16];
 };
 
-// ---- エラーコード subcode (ErrCategory::IO / ErrCategory::Asset 配下) ----
-// FSaveSlot (1-99) / FSteamworksBridge (1001-1099) / FWorkshopBridge (1101-1199)
-// / FAssetPack stub (1200 番台) と subcode 空間が重ならないよう、FAssetPack 実装
-// は 1300 番台を使う。
-inline constexpr u16 kAcpakSubBadMagic         = 1301; // 先頭 8 バイトが ACPAK でない
-inline constexpr u16 kAcpakSubBadVersion       = 1302; // version が kAcpakVersion でない
-inline constexpr u16 kAcpakSubBadSize          = 1303; // ファイル長が想定外 / 範囲外
-inline constexpr u16 kAcpakSubBadCrc           = 1304; // CRC mismatch (破損 or 改竄)
-inline constexpr u16 kAcpakSubBadFlags         = 1305; // 未知 flags bit が立っている
-inline constexpr u16 kAcpakSubNotImplemented   = 1306; // (Phase 1 残留) encrypted/compressed
-                                                       // Phase 2 で実装済のため未使用。
-                                                       // 将来別の未実装機能用に再利用可。
-inline constexpr u16 kAcpakSubNotOpen          = 1307; // Open() 前の API 呼び出し
-inline constexpr u16 kAcpakSubNotFound         = 1308; // path / index が pak 内に無い
-inline constexpr u16 kAcpakSubBufferTooSmall   = 1309; // ReadFile の out_buffer が小さすぎ
-inline constexpr u16 kAcpakSubAlreadyOpen      = 1310; // Writer::Open 二重呼び出し
-inline constexpr u16 kAcpakSubNotFinalized     = 1311; // Finalize 前に Close (内部用)
-inline constexpr u16 kAcpakSubIOFailure        = 1312; // Win32 I/O 失敗 (os_error 参照)
-inline constexpr u16 kAcpakSubOutOfMemory      = 1313; // 文字列 pool / entry array 確保失敗
+// FAssetPack の subcode は ErrCategory::IO / ErrCategory::Asset 配下で
+// 1300 番台を使う。FSaveSlot (1-99) / FSteamworksBridge (1001-1099) /
+// FWorkshopBridge (1101-1199) / FAssetPack stub (1200 番台) とは重ならない。
+
+/** 先頭 8 バイトが kAcpakMagic でない (= .acpak でない)。 */
+inline constexpr u16 kAcpakSubBadMagic         = 1301;
+
+/** version が kAcpakVersion でない。 */
+inline constexpr u16 kAcpakSubBadVersion       = 1302;
+
+/** ファイル長 / オフセットが想定外 or 範囲外。 */
+inline constexpr u16 kAcpakSubBadSize          = 1303;
+
+/** CRC32 mismatch (破損 or 改竄)。 */
+inline constexpr u16 kAcpakSubBadCrc           = 1304;
+
+/** header に未知 flags bit が立っている。 */
+inline constexpr u16 kAcpakSubBadFlags         = 1305;
+
+/** 未実装機能を呼び出した。 */
+inline constexpr u16 kAcpakSubNotImplemented   = 1306;
+
+/** Open() 前に API を呼び出した。 */
+inline constexpr u16 kAcpakSubNotOpen          = 1307;
+
+/** path / index が pak 内に存在しない。 */
+inline constexpr u16 kAcpakSubNotFound         = 1308;
+
+/** ReadFile の out_buffer が小さすぎる。 */
+inline constexpr u16 kAcpakSubBufferTooSmall   = 1309;
+
+/** Writer::Open の二重呼び出し。 */
+inline constexpr u16 kAcpakSubAlreadyOpen      = 1310;
+
+/** Finalize 前に Close した (内部用)。 */
+inline constexpr u16 kAcpakSubNotFinalized     = 1311;
+
+/** Win32 I/O 失敗 (詳細は os_error を参照)。 */
+inline constexpr u16 kAcpakSubIOFailure        = 1312;
+
+/** 文字列 pool / entry array の確保失敗 (OOM)。 */
+inline constexpr u16 kAcpakSubOutOfMemory      = 1313;
 
 } // namespace acs::assetpack

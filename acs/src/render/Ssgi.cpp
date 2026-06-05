@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Screen-Space Global Illumination 実装 (Phase 33c)
+// Screen-Space Global Illumination 実装
 #include "render/Ssgi.h"
 #include "foundation/Move.h"
 #include "foundation/Log.h"
@@ -21,7 +21,7 @@ cbuffer SsgiCB : register(b0) {
 
 Texture2D    scene_color    : register(t0);
 Texture2D    scene_depth    : register(t1);
-Texture2D    normal_gbuffer : register(t2);   // world-space normal (Phase 34m/34o)
+Texture2D    normal_gbuffer : register(t2);   // world-space normal
 SamplerState scene_color_sampler    : register(s0);
 SamplerState scene_depth_sampler    : register(s1);
 SamplerState normal_gbuffer_sampler : register(s2);
@@ -49,9 +49,9 @@ float4 PSMain(VSOut v) : SV_TARGET {
     if (depth >= 0.9999) return float4(0, 0, 0, 1);   // sky → no indirect light
 
     float3 wp = ReconstructWorldPos(v.uv, depth);
-    // normal G-buffer から per-pixel world normal を sample (Phase 34o)。
-    // 旧 cross(ddx,ddy) は 2x2 quad 単位で faceted になり、hemisphere の
-    // ray 方向が段差状にずれて GI のサンプリングがブロック状になっていた。
+    // normal G-buffer から per-pixel world normal を sample する。
+    // cross(ddx,ddy) は 2x2 quad 単位で faceted になり、hemisphere の
+    // ray 方向が段差状にずれて GI のサンプリングがブロック状になるため使わない。
     float3 N = normalize(normal_gbuffer.SampleLevel(normal_gbuffer_sampler, v.uv, 0).xyz);
     float3 V = normalize(eye.xyz - wp);
     if (dot(N, V) < 0.0) N = -N;
@@ -126,7 +126,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-// Phase 33c-2: depth-aware bilateral blur (RGB)。SSGI raw は 4 ray のみで
+// depth-aware bilateral blur (RGB)。SSGI raw は 4 ray のみで
 // 強ノイズなので、depth 不連続を跨がない 5x5 blur で平滑化する。
 const char* kSsgiBlurHLSL = R"(
 #pragma pack_matrix(row_major)
@@ -184,7 +184,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-// Phase 33c-3: temporal accumulation。blur 済み SSGI を、前フレームの結果
+// temporal accumulation。blur 済み SSGI を、前フレームの結果
 // (history) と reprojection + neighborhood clamp して時間積分する。4 ray の
 // ノイズが時間方向にも平均されて大幅に減る。TAA の resolve と同じ構造。
 const char* kSsgiTemporalHLSL = R"(
@@ -195,13 +195,13 @@ cbuffer SsgiCB : register(b0) {
     float4x4 inv_view_proj;
     float4   eye;
     float4   params;          // z=texel_w, w=texel_h
-    float4x4 prev_view_proj;   // Phase 33c-3: reprojection 用
-    float4   temporal_params;  // Phase 34f-3: x=motion_texture_mode
+    float4x4 prev_view_proj;   // reprojection 用
+    float4   temporal_params;  // x=motion_texture_mode
 };
 
 Texture2D    current_gi  : register(t0);   // blur 済み SSGI (今フレーム)
 Texture2D    history_gi  : register(t1);   // 前フレームの temporal 結果
-Texture2D    scene_depth : register(t2);   // Phase 34f-3: motion mode では motion vector
+Texture2D    scene_depth : register(t2);   // motion mode では motion vector
 SamplerState current_gi_sampler  : register(s0);
 SamplerState history_gi_sampler  : register(s1);
 SamplerState scene_depth_sampler : register(s2);
@@ -234,7 +234,7 @@ float2 ReprojectUv(float2 uv) {
 float4 PSMain(VSOut v) : SV_TARGET {
     float3 cur = current_gi.SampleLevel(current_gi_sampler, v.uv, 0).rgb;
 
-    // Phase 34f-3: motion texture モードなら scene_depth slot を motion vector
+    // motion texture モードなら scene_depth slot を motion vector
     // として再解釈し、動く mesh も含めて history を reproject する。
     // 非モードなら従来の camera-only depth reprojection。
     float2 huv;
@@ -273,8 +273,8 @@ struct SsgiCBLayout {
     FMat4 inv_view_proj;
     FVec4 eye;
     FVec4 params;
-    FMat4 prev_view_proj;       // Phase 33c-3
-    FVec4 temporal_params;      // Phase 34f-3: x=motion_texture_mode (0/1)
+    FMat4 prev_view_proj;
+    FVec4 temporal_params;      // x=motion_texture_mode (0/1)
 };
 
 template<typename T>
@@ -315,12 +315,12 @@ TResult<void> FSsgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) n
     if (r.IsErr()) return Err<void>(r.Error());
     m_Output = Move(r.Value());
 
-    // Phase 33c-2: blur 後の RT
+    // blur 後の RT
     auto br = CreateRhiTexture(device, td);
     if (br.IsErr()) return Err<void>(br.Error());
     m_BlurOutput = Move(br.Value());
 
-    // Phase 33c-3: temporal accumulation の history ping-pong
+    // temporal accumulation の history ping-pong
     for (u32 i = 0; i < 2; ++i) {
         m_History[i].Reset();
         auto hr = CreateRhiTexture(device, td);
@@ -378,7 +378,7 @@ TResult<void> FSsgi::CreatePipeline(IRhiDevice& device) noexcept {
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
     else m_Pipeline = Move(r.Value());
 
-    // Phase 33c-2: blur pipeline (ssgi_raw + scene_depth → blurred)。
+    // blur pipeline (ssgi_raw + scene_depth → blurred)。
     // VS は本体と同じ fullscreen-triangle なので m_Vs を再利用。
     FShaderDesc bps_d{};
     bps_d.stage = EShaderStage::Pixel;
@@ -415,7 +415,7 @@ TResult<void> FSsgi::CreatePipeline(IRhiDevice& device) noexcept {
     if (auto r = CreateRhiPipeline(device, bpd); r.IsErr()) return Err<void>(r.Error());
     else m_BlurPipeline = Move(r.Value());
 
-    // Phase 33c-3: temporal pipeline (current_gi + history_gi + scene_depth → history)
+    // temporal pipeline (current_gi + history_gi + scene_depth → history)
     FShaderDesc tps_d{};
     tps_d.stage = EShaderStage::Pixel;
     tps_d.hlsl_source = kSsgiTemporalHLSL;
@@ -499,7 +499,7 @@ void FSsgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                                1.0f / static_cast<f32>(m_Width),
                                1.0f / static_cast<f32>(m_Height)};
     data.prev_view_proj = prev_view_proj;
-    // Phase 34f-3: motion texture が指定されていれば temporal pass を motion mode に。
+    // motion texture が指定されていれば temporal pass を motion mode に。
     data.temporal_params = FVec4{ motion_texture ? 1.0f : 0.0f, 0, 0, 0 };
     m_Cb->Update(&data, sizeof(data));
 
@@ -513,7 +513,7 @@ void FSsgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.Draw(3);
     cl.EndRenderToTexture(*m_Output);
 
-    // Pass 2 (Phase 33c-2): depth-aware bilateral blur → m_BlurOutput
+    // Pass 2: depth-aware bilateral blur → m_BlurOutput
     cl.BeginRenderToTexture(*m_BlurOutput, ClearColor{0, 0, 0, 1}, nullptr, 1.0f);
     cl.SetPipeline(*m_BlurPipeline);
     cl.SetConstantBuffer(0, *m_Cb);
@@ -522,7 +522,7 @@ void FSsgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.Draw(3);
     cl.EndRenderToTexture(*m_BlurOutput);
 
-    // Pass 3 (Phase 33c-3): temporal accumulation → m_History[cur]
+    // Pass 3: temporal accumulation → m_History[cur]
     const u32 cur  = m_TemporalFrame & 1u;
     const u32 prev = cur ^ 1u;
     // Cold-start: frame 0 は history が未初期化なので blur 結果を history slot に
@@ -535,7 +535,7 @@ void FSsgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.SetConstantBuffer(0, *m_Cb);
     cl.SetTexture(0, *m_BlurOutput);   // current (blur 済み)
     cl.SetTexture(1, *hist_in);        // history (or blur on frame 0)
-    // Phase 34f-3: t2 は motion texture (あれば) または scene_depth。
+    // t2 は motion texture (あれば) または scene_depth。
     // shader 側が temporal_params.x で解釈を切替えるので PSO の slot 数は不変。
     cl.SetTexture(2, motion_texture ? *motion_texture : scene_depth);
     cl.Draw(3);

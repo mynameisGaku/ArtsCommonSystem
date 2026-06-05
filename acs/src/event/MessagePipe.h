@@ -33,16 +33,36 @@
 
 namespace acs {
 
+/**
+ * スレッド間 MPMC キュー (mutex + condvar 実装)。
+ *
+ * @details
+ * 値をキューに積み、別スレッドが取りに来る方式。MessageBroker (同期 pub/sub) と対照的に、
+ * publisher は handler を直接呼ばず値を渡すだけ。TryPop は非ブロッキング、Pop は値が来るか
+ * Close されるまで block する。先頭取り出しは O(N) シフトで実装する単純な配列キュー。
+ * @tparam T キューで受け渡す値型 (ムーブで出し入れする)。
+ */
 template<typename T>
 class MessagePipe {
 public:
+    /** 空のパイプを構築する。 */
     MessagePipe() noexcept = default;
+
+    /** Close() してから破棄する (block 待ち中の Pop を解放する)。 */
     ~MessagePipe() noexcept { Close(); }
 
+    /** コピー禁止 (mutex/condvar を抱えるため)。 */
     MessagePipe(const MessagePipe&) = delete;
+
+    /** コピー代入も禁止。 */
     MessagePipe& operator=(const MessagePipe&) = delete;
 
-    // 値を末尾に積む。Close() 済みなら false、追加成功なら true。
+    /**
+     * 値を末尾に積み、待機中の consumer を 1 つ起こす。
+     *
+     * @param value 積む値 (ムーブで取り込む)。
+     * @return 追加できたら true、Close() 済みなら false。
+     */
     bool Push(T value) noexcept {
         {
             FScopedLock lock(m_Mtx);
@@ -53,7 +73,12 @@ public:
         return true;
     }
 
-    // 即座に取り出し試行 (空なら false)
+    /**
+     * 値を 1 つ取り出す (非ブロッキング)。
+     *
+     * @param out 取り出した値の書き戻し先。
+     * @return 取り出せたら true、キューが空なら false。
+     */
     bool TryPop(T& out) noexcept {
         FScopedLock lock(m_Mtx);
         if (m_Q.Size() == 0) return false;
@@ -67,7 +92,13 @@ public:
         return true;
     }
 
-    // 値が来るまで block。Close() 中に呼ばれた / 呼ばれた後なら false 返す。
+    /**
+     * 値が来るまで block して 1 つ取り出す。
+     *
+     * @details Close() 済みでキューが空のまま起こされた場合は false を返す。
+     * @param out 取り出した値の書き戻し先。
+     * @return 取り出せたら true、closed かつ空なら false。
+     */
     bool Pop(T& out) noexcept {
         FScopedLock lock(m_Mtx);
         while (m_Q.Size() == 0 && !_closed) {
@@ -82,7 +113,7 @@ public:
         return true;
     }
 
-    // 待機中のすべての Pop を解放 (false で抜けさせる)
+    /** クローズし、待機中の全 Pop を起こして false で抜けさせる。 */
     void Close() noexcept {
         {
             FScopedLock lock(m_Mtx);
@@ -91,20 +122,37 @@ public:
         m_Cv.NotifyAll();
     }
 
+    /**
+     * クローズ済みかを返す。
+     *
+     * @return Close() 済みなら true。
+     */
     bool IsClosed() const noexcept {
         FScopedLock lock(m_Mtx);
         return _closed;
     }
 
+    /**
+     * 現在キューに溜まっている要素数を返す。
+     *
+     * @return キューの要素数。
+     */
     usize Size() const noexcept {
         FScopedLock lock(m_Mtx);
         return m_Q.Size();
     }
 
 private:
+    /** キュー全体を保護する mutex (const メソッドからも触るため mutable)。 */
     mutable FMutex   m_Mtx;
+
+    /** 値到着・クローズを通知する条件変数。 */
     ConditionVar    m_Cv;
+
+    /** 値を保持する FIFO キュー。 */
     TArray<T>        m_Q;
+
+    /** クローズ済みフラグ。 */
     bool            _closed = false;
 };
 

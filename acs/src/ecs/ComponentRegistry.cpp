@@ -4,8 +4,12 @@
 
 namespace acs {
 
+/**
+ * 全コンポーネント型ぶんの ComponentOps を保持する関数静的配列を返す。
+ *
+ * @return kMaxComponentTypes 個の ComponentOps 配列先頭。
+ */
 ComponentOps* FComponentRegistry::Slots() noexcept {
-    // 全コンポーネント型ぶんの Ops を保持する固定配列
     static ComponentOps slots[kMaxComponentTypes] {};
     return slots;
 }

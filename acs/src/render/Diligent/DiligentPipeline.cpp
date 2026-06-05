@@ -94,7 +94,7 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc
     const bool has_ps = ps && ps->Native();
 
     auto& gp = psoCI.GraphicsPipeline;
-    // MRT 対応 (Phase 34d-2): desc.rt_count > 0 のとき rt_formats[] を使い、
+    // MRT 対応: desc.rt_count > 0 のとき rt_formats[] を使い、
     // それ以外は legacy 単一 RT (desc.rt_format)。
     if (has_ps) {
         if (desc.rt_count > 0) {
@@ -134,8 +134,7 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc
     // 種別で内部的に何か変換してると推測。
     // 注: HelloBloom の off-screen HDR RT (PS あり、has_ps=true) も `true`
     // で正常動作。off-screen color RT で誤動作する suspected ケースは現状
-    // 未観測。将来 RT 種別ごとに分けたくなったら FPipelineDesc に
-    // `target_kind = Swapchain/OffscreenColor/Depth` を追加する。
+    // 未観測。
     gp.RasterizerDesc.FrontCounterClockwise = has_ps;
     gp.DepthStencilDesc.DepthEnable = desc.depth_test && desc.depth_format != EFormat::Unknown;
     gp.DepthStencilDesc.DepthWriteEnable = desc.depth_write;
@@ -235,9 +234,9 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc
     psoCI.PSODesc.ResourceLayout.DefaultVariableType =
         Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC;
 
-    constexpr u32 kMaxStaticSamplers = 16;     // Phase 33f-prep: 8→16
+    constexpr u32 kMaxStaticSamplers = 16;
     Diligent::ImmutableSamplerDesc samplers[kMaxStaticSamplers]{};
-    u32 ns = desc.static_sampler_count > kMaxStaticSamplers
+    const u32 ns = desc.static_sampler_count > kMaxStaticSamplers
               ? kMaxStaticSamplers : desc.static_sampler_count;
     for (u32 i = 0; i < ns; ++i) {
         const auto& s = desc.static_samplers[i];

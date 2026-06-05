@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F Phase 1 — 実装 (Phase 10)
+// GameFramework Pillar F — 実装
 #include "gameframework/CollisionWorld2D.h"
 #include "foundation/Move.h"
 #include "math/Math.h"
 
 namespace acs::game {
 
+/** 空き slot を確保してインデックスを返す (index 0 は invalid 予約)。 */
 u32 FCollisionWorld2D::AcquireSlot() noexcept {
     for (u32 i = 1; i < m_Slots.Size(); ++i) {   // index 0 を予約 (= invalid)
         if (!m_Slots[i].active) return i;
@@ -17,6 +18,7 @@ u32 FCollisionWorld2D::AcquireSlot() noexcept {
     return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
+/** AABB 形状を登録して handle を返す。 */
 FShapeId FCollisionWorld2D::AddAabb(const Aabb2& a, u32 layer) noexcept {
     const u32 idx = AcquireSlot();
     Slot& s = m_Slots[idx];
@@ -31,6 +33,7 @@ FShapeId FCollisionWorld2D::AddAabb(const Aabb2& a, u32 layer) noexcept {
     return FShapeId{idx, s.gen};
 }
 
+/** 円形状を登録して handle を返す。 */
 FShapeId FCollisionWorld2D::AddCircle(const Circle& c, u32 layer) noexcept {
     const u32 idx = AcquireSlot();
     Slot& s = m_Slots[idx];
@@ -45,6 +48,7 @@ FShapeId FCollisionWorld2D::AddCircle(const Circle& c, u32 layer) noexcept {
     return FShapeId{idx, s.gen};
 }
 
+/** 凸ポリゴン形状を登録して handle を返す。 */
 FShapeId FCollisionWorld2D::AddPolygon(const ConvexPoly2& p, u32 layer) noexcept {
     const u32 idx = AcquireSlot();
     Slot& s = m_Slots[idx];
@@ -59,6 +63,7 @@ FShapeId FCollisionWorld2D::AddPolygon(const ConvexPoly2& p, u32 layer) noexcept
     return FShapeId{idx, s.gen};
 }
 
+/** OBB (回転矩形) を登録して handle を返す。 */
 FShapeId FCollisionWorld2D::AddObb(const Obb2& o, u32 layer) noexcept {
     const u32 idx = AcquireSlot();
     Slot& s = m_Slots[idx];
@@ -73,6 +78,7 @@ FShapeId FCollisionWorld2D::AddObb(const Obb2& o, u32 layer) noexcept {
     return FShapeId{idx, s.gen};
 }
 
+/** AABB 形状を更新する (handle / 種別不一致なら no-op)。 */
 void FCollisionWorld2D::UpdateAabb(FShapeId id, const Aabb2& a) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
     Slot& s = m_Slots[id.Index()];
@@ -81,6 +87,7 @@ void FCollisionWorld2D::UpdateAabb(FShapeId id, const Aabb2& a) noexcept {
     MarkDirty();
 }
 
+/** 円形状を更新する (handle / 種別不一致なら no-op)。 */
 void FCollisionWorld2D::UpdateCircle(FShapeId id, const Circle& c) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
     Slot& s = m_Slots[id.Index()];
@@ -89,6 +96,7 @@ void FCollisionWorld2D::UpdateCircle(FShapeId id, const Circle& c) noexcept {
     MarkDirty();
 }
 
+/** 凸ポリゴン形状を更新する (handle / 種別不一致なら no-op)。 */
 void FCollisionWorld2D::UpdatePolygon(FShapeId id, const ConvexPoly2& p) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
     Slot& s = m_Slots[id.Index()];
@@ -97,6 +105,7 @@ void FCollisionWorld2D::UpdatePolygon(FShapeId id, const ConvexPoly2& p) noexcep
     MarkDirty();
 }
 
+/** OBB 形状を更新する (handle / 種別不一致なら no-op)。 */
 void FCollisionWorld2D::UpdateObb(FShapeId id, const Obb2& o) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
     Slot& s = m_Slots[id.Index()];
@@ -105,6 +114,7 @@ void FCollisionWorld2D::UpdateObb(FShapeId id, const Obb2& o) noexcept {
     MarkDirty();
 }
 
+/** shape を削除する (slot 再利用・generation 進行)。 */
 void FCollisionWorld2D::Remove(FShapeId id) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
     Slot& s = m_Slots[id.Index()];
@@ -115,6 +125,7 @@ void FCollisionWorld2D::Remove(FShapeId id) noexcept {
     MarkDirty();
 }
 
+/** 全 shape を破棄し grid もクリアする。 */
 void FCollisionWorld2D::ClearAll() noexcept {
     m_Slots.Clear();
     m_Cells.Clear();
@@ -122,9 +133,15 @@ void FCollisionWorld2D::ClearAll() noexcept {
     m_Dirty = false;
 }
 
-// float → セル index の安全変換。NaN は 0、i32 範囲外はクランプする。
-// float→int は変換先に収まらない値だと未定義動作なので、必ずここを通す。
-// 閾値は f32 で厳密表現できる 2^31-128 を使う (2^31 は float で 2147483648.0 になり危険)。
+/**
+ * float をセル index へ安全に変換する (NaN は 0、i32 範囲外はクランプ)。
+ *
+ * @details
+ * float→int は変換先に収まらない値だと未定義動作なので必ずここを通す。閾値は f32 で
+ * 厳密表現できる 2^31-128 を使う (2^31 は float で 2147483648.0 になり危険)。
+ * @param v 変換する浮動小数値。
+ * @return 安全に丸めたセル index。
+ */
 static ACS_FORCEINLINE i32 SafeCellIndex(f32 v) noexcept {
     if (!(v == v)) return 0;                            // NaN
     if (v <= -2147483520.0f) return (-2147483647 - 1);  // <= INT32_MIN
@@ -132,7 +149,7 @@ static ACS_FORCEINLINE i32 SafeCellIndex(f32 v) noexcept {
     return static_cast<i32>(v);
 }
 
-// AABB 中心 + half_size から overlapping cell 範囲
+/** AABB が重なるセル範囲を求める。 */
 void FCollisionWorld2D::CellRange(const Aabb2& a, i32& cx_min, i32& cy_min,
                                   i32& cx_max, i32& cy_max) const noexcept {
     // m_CellSize が 0 / 負だと 1/0 = inf → mn*inf = NaN/inf となり後段の cast が UB。
@@ -146,6 +163,7 @@ void FCollisionWorld2D::CellRange(const Aabb2& a, i32& cx_min, i32& cy_min,
     cy_max = SafeCellIndex(Floor(mx.y * inv));
 }
 
+/** 円が重なるセル範囲を求める (AABB に囲って委譲)。 */
 void FCollisionWorld2D::CellRange(const Circle& c, i32& cx_min, i32& cy_min,
                                   i32& cx_max, i32& cy_max) const noexcept {
     Aabb2 a;
@@ -154,6 +172,7 @@ void FCollisionWorld2D::CellRange(const Circle& c, i32& cx_min, i32& cy_min,
     CellRange(a, cx_min, cy_min, cx_max, cy_max);
 }
 
+/** (cx, cy) のセルを線形探索する (無ければ nullptr)。 */
 FCollisionWorld2D::GridCell* FCollisionWorld2D::FindCell(i32 cx, i32 cy) noexcept {
     for (u32 i = 0; i < m_Cells.Size(); ++i) {
         if (m_Cells[i].cx == cx && m_Cells[i].cy == cy) return &m_Cells[i];
@@ -161,6 +180,7 @@ FCollisionWorld2D::GridCell* FCollisionWorld2D::FindCell(i32 cx, i32 cy) noexcep
     return nullptr;
 }
 
+/** (cx, cy) のセルを取得し、無ければ新規作成して返す。 */
 FCollisionWorld2D::GridCell& FCollisionWorld2D::GetOrCreateCell(i32 cx, i32 cy) noexcept {
     if (GridCell* found = FindCell(cx, cy)) return *found;
     GridCell nc;
@@ -170,6 +190,7 @@ FCollisionWorld2D::GridCell& FCollisionWorld2D::GetOrCreateCell(i32 cx, i32 cy) 
     return m_Cells.Back();
 }
 
+/** slot を重なる全セルに登録する。 */
 void FCollisionWorld2D::InsertSlotIntoCells(u32 slot_idx) noexcept {
     const Slot& s = m_Slots[slot_idx];
     if (!s.active) return;
@@ -188,6 +209,7 @@ void FCollisionWorld2D::InsertSlotIntoCells(u32 slot_idx) noexcept {
     }
 }
 
+/** dirty なときだけグリッドを全再構築する。 */
 void FCollisionWorld2D::RebuildGridIfDirty() noexcept {
     if (!m_Dirty) return;
     m_Cells.Clear();
@@ -197,7 +219,7 @@ void FCollisionWorld2D::RebuildGridIfDirty() noexcept {
     m_Dirty = false;
 }
 
-// ===== Narrow phase helpers =====
+/** slot[idx] が AABB と交差するかを判定する (narrow phase)。 */
 bool FCollisionWorld2D::NarrowIntersectAabb(u32 slot_idx, const Aabb2& a) const noexcept {
     const Slot& s = m_Slots[slot_idx];
     switch (s.kind) {
@@ -209,6 +231,7 @@ bool FCollisionWorld2D::NarrowIntersectAabb(u32 slot_idx, const Aabb2& a) const 
     }
 }
 
+/** slot[idx] が円と交差するかを判定する (narrow phase)。 */
 bool FCollisionWorld2D::NarrowIntersectCircle(u32 slot_idx, const Circle& c) const noexcept {
     const Slot& s = m_Slots[slot_idx];
     switch (s.kind) {
@@ -220,6 +243,7 @@ bool FCollisionWorld2D::NarrowIntersectCircle(u32 slot_idx, const Circle& c) con
     }
 }
 
+/** slot[idx] が凸ポリゴンと交差するかを判定する (narrow phase)。 */
 bool FCollisionWorld2D::NarrowIntersectPoly(u32 slot_idx, const ConvexPoly2& p) const noexcept {
     const Slot& s = m_Slots[slot_idx];
     switch (s.kind) {
@@ -231,7 +255,7 @@ bool FCollisionWorld2D::NarrowIntersectPoly(u32 slot_idx, const ConvexPoly2& p) 
     }
 }
 
-// ===== クエリ =====
+/** AABB と重なる shape を列挙する。 */
 void FCollisionWorld2D::OverlapAabb(const Aabb2& a, TArray<FShapeId>& out, FShapeId exclude, u32 mask) noexcept {
     out.Clear();
     RebuildGridIfDirty();
@@ -258,6 +282,7 @@ void FCollisionWorld2D::OverlapAabb(const Aabb2& a, TArray<FShapeId>& out, FShap
     }
 }
 
+/** 円と重なる shape を列挙する。 */
 void FCollisionWorld2D::OverlapCircle(const Circle& c, TArray<FShapeId>& out, FShapeId exclude, u32 mask) noexcept {
     out.Clear();
     RebuildGridIfDirty();
@@ -284,6 +309,7 @@ void FCollisionWorld2D::OverlapCircle(const Circle& c, TArray<FShapeId>& out, FS
     }
 }
 
+/** 凸ポリゴンと重なる shape を列挙する (頂点数 3 未満は無視)。 */
 void FCollisionWorld2D::OverlapPolygon(const ConvexPoly2& p, TArray<FShapeId>& out, FShapeId exclude, u32 mask) noexcept {
     out.Clear();
     if (p.count < 3) return;
@@ -312,6 +338,7 @@ void FCollisionWorld2D::OverlapPolygon(const ConvexPoly2& p, TArray<FShapeId>& o
     }
 }
 
+/** 円を重なる全 shape から押し出す合計ベクトルを返す (collide-and-slide 用)。 */
 FVec2 FCollisionWorld2D::ResolveCircle(const Circle& c, FShapeId exclude, u32 mask) noexcept {
     RebuildGridIfDirty();
     m_QueryMarks.Resize(m_Slots.Size());
@@ -346,6 +373,7 @@ FVec2 FCollisionWorld2D::ResolveCircle(const Circle& c, FShapeId exclude, u32 ma
     return total;
 }
 
+/** 凸ポリゴンを重なる全 shape から押し出す合計ベクトルを返す (collide-and-slide 用)。 */
 FVec2 FCollisionWorld2D::ResolvePolygon(const ConvexPoly2& p, FShapeId exclude, u32 mask) noexcept {
     RebuildGridIfDirty();
     m_QueryMarks.Resize(m_Slots.Size());
@@ -383,13 +411,13 @@ FVec2 FCollisionWorld2D::ResolvePolygon(const ConvexPoly2& p, FShapeId exclude, 
     return total;
 }
 
+/** レイをキャストし最も近い shape を 1 つ返す。 */
 bool FCollisionWorld2D::Raycast(const Ray2& ray, f32 max_t,
                                 RayHit2& out_hit, FShapeId& out_id, u32 mask) noexcept {
     out_hit = {};
     out_id  = {};
     RebuildGridIfDirty();
-    // Phase 1 簡略化: ray の長さ範囲を AABB で囲って overlap → 各候補に narrow raycast。
-    // 後段で DDA traversal に置換 (Phase 2)。
+    // ray の長さ範囲を AABB で囲って overlap → 各候補に narrow raycast。
     FVec2 ray_min{
         ray.origin.x + (ray.direction.x < 0 ? ray.direction.x * max_t : 0.0f),
         ray.origin.y + (ray.direction.y < 0 ? ray.direction.y * max_t : 0.0f),

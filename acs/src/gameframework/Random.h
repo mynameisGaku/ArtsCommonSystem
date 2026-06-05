@@ -32,67 +32,157 @@
 
 namespace acs::game {
 
+/**
+ * 決定論的 PRNG (xoshiro128**)。
+ *
+ * @details
+ * 4×u32 state / 128bit period の xoshiro128** を採用し、gameplay・particle・
+ * shuffle 等の用途で決定論的な再現性を提供する (暗号用途は対象外)。seed の拡散
+ * には SplitMix64 を使い、低エントロピ入力でも初期状態のビット分布を良好に保つ。
+ * 非コピー / 非ムーブで state を 1 箇所にとどめ、全 API noexcept。
+ */
 class FRandom {
 public:
-    // 既定: 起動時刻ベースで seed する。決定論再現が必要なら u64 を明示。
+    /** 起動時刻 (Clock::Ticks) を seed にして構築する。 */
     FRandom() noexcept;
+
+    /**
+     * 明示した u64 seed で構築する (決定論再現用)。
+     *
+     * @param seed 初期化に使う seed。
+     */
     explicit FRandom(u64 seed) noexcept;
 
-    // 非コピー / 非ムーブ (state は 1 箇所にとどめる)
+    /** コピー禁止 (state を 1 箇所にとどめるため)。 */
     FRandom(const FRandom&)            = delete;
+
+    /** コピー代入も禁止。 */
     FRandom& operator=(const FRandom&) = delete;
+
+    /** ムーブ禁止 (state を 1 箇所にとどめるため)。 */
     FRandom(FRandom&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FRandom& operator=(FRandom&&)      = delete;
 
-    // 任意の u64 で再 seed (SplitMix64 で 4 個の u32 に拡散)
+    /**
+     * 任意の u64 で再 seed する (SplitMix64 で 4 個の u32 state に拡散)。
+     *
+     * @param seed 拡散元の seed (0 でも全 0 state にはならない)。
+     */
     void Seed(u64 seed) noexcept;
 
-    // ---- raw 出力 ----------------------------------------------------------
-    // xoshiro128** から 32bit を 1 個取り出す。全 API の最下層。
+    /**
+     * xoshiro128** から 32bit を 1 個取り出す (全 API の最下層)。
+     *
+     * @return 生成した 32bit 乱数。
+     */
     u32 NextU32() noexcept;
 
-    // ---- 一般ユース --------------------------------------------------------
-    // [0, 1) の f32。上位 24bit を仮数に詰めて 0x1p-24 でスケール。
+    /**
+     * [0, 1) の f32 を返す。
+     *
+     * @details 上位 24bit を仮数に詰めて 1/2^24 でスケールするため 1.0 は返さない。
+     * @return [0, 1) の一様乱数。
+     */
     f32 NextF32Unit() noexcept;
 
-    // [min, max] inclusive。max < min なら swap して扱う。
+    /**
+     * [min, max] inclusive の整数を返す。
+     *
+     * @details max < min なら swap して扱う。剰余方式 (gameplay 用途では偏り無視)。
+     * @param min 範囲の下限 (含む)。
+     * @param max 範囲の上限 (含む)。
+     * @return [min, max] の一様整数。
+     */
     i32 RangeInt(i32 min, i32 max) noexcept;
 
-    // [min, max) の f32。NaN/inf は呼び出し側責務。
+    /**
+     * [min, max) の f32 を返す。
+     *
+     * @details NaN/inf 入力は呼び出し側責務。min>max でも線形補間で動作はする。
+     * @param min 範囲の下限 (含む)。
+     * @param max 範囲の上限 (含まない)。
+     * @return [min, max) の一様乱数。
+     */
     f32 RangeF32(f32 min, f32 max) noexcept;
 
-    // true_probability を [0,1] でクランプして bool を返す。
+    /**
+     * 確率 true_probability で true を返す。
+     *
+     * @details true_probability は [0,1] にクランプ。0 で常に false、1 で常に true。
+     * @param true_probability true を返す確率 (既定 0.5)。
+     * @return 抽選結果の bool。
+     */
     bool NextBool(f32 true_probability = 0.5f) noexcept;
 
-    // 円板内一様サンプル (rejection sampling: 2x2 box → 円内採用)。
-    // 一様性は完璧、平均試行 ~4/π ≒ 1.27 回で polar 公式より速いことが多い。
+    /**
+     * 円板内の一様な点をサンプルする。
+     *
+     * @details rejection sampling ([-1,1]^2 box で採り円内に入るまで再試行)。一様性は
+     * 厳密で平均試行 ~4/π ≒ 1.27 回。
+     * @param radius 円板の半径 (既定 1.0)。
+     * @return 半径 radius の円板内の点。
+     */
     FVec2 PointInCircle(f32 radius = 1.0f) noexcept;
 
-    // 円周上一様サンプル (角度 [0, 2π) から sin/cos)。
+    /**
+     * 円周上の一様な点をサンプルする。
+     *
+     * @details 角度を [0, 2π) で一様に取り (cos, sin) で円周上へ写す。
+     * @param radius 円の半径 (既定 1.0)。
+     * @return 半径 radius の円周上の点。
+     */
     FVec2 PointOnCircle(f32 radius = 1.0f) noexcept;
 
-    // Fisher-Yates シャッフル (in-place, O(n))。TArray の Size()/[] のみ要求。
+    /**
+     * 配列を Fisher-Yates シャッフルする (in-place, O(n))。
+     *
+     * @details TArray の Size()/operator[] のみ要求する。
+     * @tparam T 配列要素型 (ムーブ可能であること)。
+     * @param a シャッフル対象の配列 (in-place で並べ替える)。
+     */
     template<typename T>
     void Shuffle(TArray<T>& a) noexcept;
 
-    // 重み付き index 選択。weights は非負想定、合計が 0 なら 0 を返す。
-    // O(count) の累積和方式。count==0 のときは 0 を返す (defensive)。
+    /**
+     * 重みに比例して index を選択する。
+     *
+     * @details 累積和方式 O(count)。負の重みは 0 扱い。合計が 0 / count==0 なら 0 を返す。
+     * @param weights 各 index の重み配列 (非負想定)。
+     * @param count weights の要素数。
+     * @return 選ばれた index ([0, count))。
+     */
     u32 WeightedChoice(const f32* weights, u32 count) noexcept;
 
-    // プロセス内シングルトン (lazy init、時刻 seed)。スレッド安全性は呼び出し側責務。
+    /**
+     * プロセス内シングルトンを返す (lazy init、時刻 seed)。
+     *
+     * @details スレッド安全性は呼び出し側責務 (別スレッドは別 FRandom を持つこと)。
+     * @return プロセス共有の FRandom インスタンス。
+     */
     static FRandom& Global() noexcept;
 
 private:
-    // xoshiro128** state: 4 個の u32、全 0 は禁止 (SplitMix64 が回避)。
+    /** xoshiro128** state[0] (全 0 state は禁止、SplitMix64 が回避)。 */
     u32 m_S0 = 0;
+
+    /** xoshiro128** state[1]。 */
     u32 m_S1 = 0;
+
+    /** xoshiro128** state[2]。 */
     u32 m_S2 = 0;
+
+    /** xoshiro128** state[3]。 */
     u32 m_S3 = 0;
 };
 
-// ---------------------------------------------------------------------------
-// template 実装: ヘッダで完結させる (TArray<T> のインスタンス化を許す)
-// ---------------------------------------------------------------------------
+/**
+ * 配列を Fisher-Yates シャッフルする (in-place, O(n))。
+ *
+ * @tparam T 配列要素型 (ムーブ可能であること)。
+ * @param a シャッフル対象の配列 (in-place で並べ替える)。
+ */
 template<typename T>
 void FRandom::Shuffle(TArray<T>& a) noexcept {
     const usize n = a.Size();

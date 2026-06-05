@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — in-game ParticleEditor 実装 (Phase 19b)
+// GameFramework Pillar — in-game ParticleEditor 実装
 //
 // 仕様の意図は FParticleEditorPanel.h を参照。本ファイルでは:
 //   ・emitter list の Add / Remove / Duplicate (= editor 側 index 管理)
@@ -16,24 +16,32 @@
 
 namespace acs::game::fxedit {
 
-// ---- ローカルヘルパ ------------------------------------------------------
-// emitter 1 件の表示ラベル "Emitter NN" を整形する。ImGui::Selectable の
-// 識別子兼表示文字列として使う。先頭 "##" で ID 衝突避けはせず、
-// PushID(i) でユニーク化する戦略。
+/**
+ * emitter 1 件の表示ラベル "Emitter NN" を整形する。
+ *
+ * @details ImGui::Selectable の表示文字列として使う (ID 衝突避けは呼出側の PushID(i))。
+ * @param buf 整形結果の書き込み先。
+ * @param buf_size buf のバイト数。
+ * @param index emitter index。
+ */
 static void FormatEmitterLabel(char* buf, usize buf_size, i32 index) noexcept {
     if (buf == nullptr || buf_size == 0) return;
     std::snprintf(buf, buf_size, "Emitter %d", static_cast<int>(index));
 }
 
-// emitter index の境界チェック。負値 / 範囲外を弾く。
+/**
+ * emitter index の境界チェックを行う (負値 / 範囲外を弾く)。
+ *
+ * @param index 検査する index。
+ * @param count 有効な emitter 数。
+ * @return 0 <= index < count なら true。
+ */
 static bool IsValidIndex(i32 index, u32 count) noexcept {
     if (index < 0) return false;
     return static_cast<u32>(index) < count;
 }
 
-// =============================================================================
-// Init / Shutdown
-// =============================================================================
+/** emitter list を空に戻し selection と dirty を解除する (callback は保持)。 */
 void FParticleEditorPanel::Init() noexcept {
     // 完全リセット: 既存登録があれば破棄して 0 件状態にする。
     // 多重 Init を許容するため、m_Emitters.Clear() で実体は解放せず
@@ -46,6 +54,7 @@ void FParticleEditorPanel::Init() noexcept {
     // クリアは別操作と扱う)。
 }
 
+/** emitter list を解放し selection / dirty / callback をすべてクリアする。 */
 void FParticleEditorPanel::Shutdown() noexcept {
     // TArray はデストラクタで解放されるが、明示的に Clear することで
     // 多重 Shutdown / 再 Init の確定状態を作る。
@@ -60,12 +69,7 @@ void FParticleEditorPanel::Shutdown() noexcept {
     m_LoadUser = nullptr;
 }
 
-// =============================================================================
-// AddEmitter
-// =============================================================================
-// default ParticleEmitterDef を 1 件追加し、新規 emitter を selection に。
-// 上限 kMaxEmitters に達していれば no-op。
-// =============================================================================
+/** 「火花っぽい」プリセットの emitter を 1 件追加し、新規 emitter を選択する。 */
 void FParticleEditorPanel::AddEmitter() noexcept {
     if (m_Emitters.Size() >= static_cast<usize>(kMaxEmitters)) {
         // 上限到達は silent no-op (UI からは Add ボタンが見えていても安全)。
@@ -91,12 +95,7 @@ void FParticleEditorPanel::AddEmitter() noexcept {
     m_Dirty    = true;
 }
 
-// =============================================================================
-// RemoveSelectedEmitter
-// =============================================================================
-// 選択中 emitter を順序保存しつつ削除 (PushBack/PopBack ではなく
-// 詰める方式)。emitter リストは「上から順に表示される」ので順序を保つ。
-// =============================================================================
+/** 選択中 emitter を順序保存しつつ削除し、selection を更新する。 */
 void FParticleEditorPanel::RemoveSelectedEmitter() noexcept {
     const u32 count = static_cast<u32>(m_Emitters.Size());
     if (!IsValidIndex(m_Selected, count)) return;
@@ -123,12 +122,7 @@ void FParticleEditorPanel::RemoveSelectedEmitter() noexcept {
     m_Dirty = true;
 }
 
-// =============================================================================
-// DuplicateSelectedEmitter
-// =============================================================================
-// 選択中 emitter を直後に挿入。selection は複製先に移る。
-// 上限到達 / 未選択 は no-op。
-// =============================================================================
+/** 選択中 emitter を直後に複製挿入し、selection を複製先へ移す。 */
 void FParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
     const u32 count = static_cast<u32>(m_Emitters.Size());
     if (!IsValidIndex(m_Selected, count)) return;
@@ -137,8 +131,8 @@ void FParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
     const usize src = static_cast<usize>(m_Selected);
     // 末尾に PushBack してから 1 個ずつ後ろにシフトして挿入位置を空ける。
     // src+1 番目に挿入したい。
-    ParticleEmitterDef copy   = m_Emitters[src];                // 値コピー
-    f32                spread = m_ExtraSpreadRadians[src];
+    const ParticleEmitterDef copy   = m_Emitters[src];          // 値コピー
+    const f32                spread = m_ExtraSpreadRadians[src];
     m_Emitters.PushBack(copy);
     m_ExtraSpreadRadians.PushBack(spread);
 
@@ -163,9 +157,7 @@ void FParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
     m_Dirty    = true;
 }
 
-// =============================================================================
-// SelectEmitter / EmitterCount / GetEmitterDef
-// =============================================================================
+/** 選択 index を設定する (範囲外 / 負値は -1 に正規化)。 */
 void FParticleEditorPanel::SelectEmitter(i32 index) noexcept {
     const u32 count = static_cast<u32>(m_Emitters.Size());
     if (index < 0) {
@@ -179,44 +171,38 @@ void FParticleEditorPanel::SelectEmitter(i32 index) noexcept {
     m_Selected = index;
 }
 
+/** 現在の emitter 数を返す。 */
 u32 FParticleEditorPanel::EmitterCount() const noexcept {
     return static_cast<u32>(m_Emitters.Size());
 }
 
+/** index 番目の emitter def を返す (read-only、範囲外は nullptr)。 */
 const ParticleEmitterDef* FParticleEditorPanel::GetEmitterDef(i32 index) const noexcept {
     if (!IsValidIndex(index, static_cast<u32>(m_Emitters.Size()))) return nullptr;
     return &m_Emitters[static_cast<usize>(index)];
 }
 
+/** index 番目の emitter def を返す (mutable、範囲外は nullptr)。 */
 ParticleEmitterDef* FParticleEditorPanel::GetEmitterDefMutable(i32 index) noexcept {
     if (!IsValidIndex(index, static_cast<u32>(m_Emitters.Size()))) return nullptr;
     return &m_Emitters[static_cast<usize>(index)];
 }
 
-// =============================================================================
-// SetSaveCallback / SetLoadCallback
-// =============================================================================
+/** Save callback とユーザポインタを登録する (nullptr で解除)。 */
 void FParticleEditorPanel::SetSaveCallback(SaveCallback cb, void* user) noexcept {
     m_SaveCb   = cb;
     m_SaveUser = user;
 }
 
+/** Load callback とユーザポインタを登録する (nullptr で解除)。 */
 void FParticleEditorPanel::SetLoadCallback(LoadCallback cb, void* user) noexcept {
     m_LoadCb   = cb;
     m_LoadUser = user;
 }
 
-// =============================================================================
-// DrawUI — メイン ImGui window
-// =============================================================================
-// 2 カラムレイアウト:
-//   left  : emitter list + Add / Dup / Remove / Save / Load
-//   right : 選択中 emitter の properties (slider / colorEdit / inputFloat)
-//
-// ImGui 関数の戻り値 (= true on change) を捕まえて m_Dirty を立てる。
-// =============================================================================
+/** メイン ImGui window を 2 カラム (emitter list + properties) で描画する。 */
 void FParticleEditorPanel::DrawUI() noexcept {
-    // Phase 24: FEditorPanel 継承で no-param DrawUI 化。target system は
+    // FEditorPanel 継承で no-param DrawUI 化。target system は
     // SetTargetSystem() で事前に set 想定 (nullptr のときは live particle
     // 数を "(no system)" 表示)。
     if (!ImGui::Begin("Particle Editor")) {
@@ -239,13 +225,12 @@ void FParticleEditorPanel::DrawUI() noexcept {
     }
     ImGui::Separator();
 
-    // ----- 2 カラムレイアウト -----
-    // BeginColumns でも良いが、Phase 19b では Child window で左右を分ける方が
+    // 2 カラムレイアウト: BeginColumns でも良いが、Child window で左右を分ける方が
     // resize ハンドル不要で読みやすい。
     const float content_w = ImGui::GetContentRegionAvail().x;
     const float left_w    = (content_w > 480.0f) ? 200.0f : content_w * 0.35f;
 
-    // ===== 左カラム: emitter list =====
+    // 左カラム: emitter list。
     ImGui::BeginChild("##fxedit_left", ImVec2(left_w, 0), true);
     {
         ImGui::TextUnformatted("Emitters");
@@ -317,7 +302,7 @@ void FParticleEditorPanel::DrawUI() noexcept {
 
     ImGui::SameLine();
 
-    // ===== 右カラム: 選択中 emitter properties =====
+    // 右カラム: 選択中 emitter properties。
     ImGui::BeginChild("##fxedit_right", ImVec2(0, 0), true);
     {
         const u32 count = static_cast<u32>(m_Emitters.Size());
@@ -328,7 +313,7 @@ void FParticleEditorPanel::DrawUI() noexcept {
             ImGui::Text("Selected: idx=%d", static_cast<int>(m_Selected));
             ImGui::Separator();
 
-            // ---- timing ----
+            // timing
             if (ImGui::SliderFloat("lifetime_sec", &def.lifetime_sec,
                                    0.0f, 10.0f, "%.3f")) {
                 m_Dirty = true;
@@ -343,7 +328,7 @@ void FParticleEditorPanel::DrawUI() noexcept {
             }
 
             ImGui::Separator();
-            // ---- speed ----
+            // speed
             if (ImGui::SliderFloat("speed_min", &def.speed_min,
                                    0.0f, 500.0f, "%.2f")) {
                 if (def.speed_min > def.speed_max) def.speed_max = def.speed_min;
@@ -356,7 +341,7 @@ void FParticleEditorPanel::DrawUI() noexcept {
             }
 
             ImGui::Separator();
-            // ---- scale ----
+            // scale
             if (ImGui::SliderFloat("scale_start", &def.scale_start,
                                    0.0f, 64.0f, "%.2f")) {
                 m_Dirty = true;
@@ -367,7 +352,7 @@ void FParticleEditorPanel::DrawUI() noexcept {
             }
 
             ImGui::Separator();
-            // ---- spread_radians (editor-side placeholder) ----
+            // spread_radians (editor-side placeholder)
             f32& spread = m_ExtraSpreadRadians[static_cast<usize>(m_Selected)];
             if (ImGui::SliderFloat("spread_radians", &spread,
                                    0.0f, 6.28318f /* 2*pi */, "%.3f")) {
@@ -376,7 +361,7 @@ void FParticleEditorPanel::DrawUI() noexcept {
             ImGui::TextDisabled("(spread_radians: editor-side preview)");
 
             ImGui::Separator();
-            // ---- gravity ----
+            // gravity
             f32 gravity_xy[2] = { def.gravity.x, def.gravity.y };
             if (ImGui::InputFloat2("gravity", gravity_xy)) {
                 def.gravity.x = gravity_xy[0];
@@ -385,7 +370,7 @@ void FParticleEditorPanel::DrawUI() noexcept {
             }
 
             ImGui::Separator();
-            // ---- color ----
+            // color
             f32 color_start_rgb[3] = { def.color_start.x, def.color_start.y, def.color_start.z };
             if (ImGui::ColorEdit3("color_start", color_start_rgb)) {
                 def.color_start.x = color_start_rgb[0];
@@ -402,7 +387,7 @@ void FParticleEditorPanel::DrawUI() noexcept {
             }
 
             ImGui::Separator();
-            // ---- status footer ----
+            // status footer
             if (m_Dirty) {
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "* modified");
             } else {

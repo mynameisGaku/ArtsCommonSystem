@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — editor_core / FPropertyDrawer 実装 (Phase 21a)
+// GameFramework Tools — editor_core / FPropertyDrawer 実装
 //
 // 仕様の意図は FPropertyDrawer.h を参照。本ファイルでは:
 //   ・per-byte StrEq による const char* 比較ループ (FSettings / FEntitlement と同形)
@@ -18,13 +18,16 @@
 
 namespace acs::game::editor_core {
 
-// =============================================================================
-// 内部ヘルパ
-// =============================================================================
 namespace {
 
-// const char* の per-byte 比較。nullptr 安全。
-// FSettings.cpp / FEntitlement.cpp と同形 (= ACS 内 StrEq pattern)。
+/**
+ * const char* の per-byte 比較で 2 文字列が一致するかを返す。
+ *
+ * @details nullptr 安全 (一方でも nullptr なら不一致)。FSettings / FEntitlement と同形。
+ * @param a 比較する文字列その 1。
+ * @param b 比較する文字列その 2。
+ * @return 両者が非 null で内容一致なら true。
+ */
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -35,8 +38,15 @@ bool StrEq(const char* a, const char* b) noexcept {
     return *a == '\0' && *b == '\0';
 }
 
-// label が nullptr / 空文字なら "##unnamed" を返す。ImGui は label に nullptr を
-// 渡せないため (= internal SetID で deref する箇所がある) 安全側に倒す。
+/**
+ * label を ImGui へ安全に渡せる文字列へ正規化する。
+ *
+ * @details
+ * label が nullptr / 空文字なら "##unnamed" を返す。ImGui は label に nullptr を
+ * 渡せない (internal SetID で deref する箇所がある) ため安全側に倒す。
+ * @param label 正規化する元ラベル。
+ * @return 非 null の表示ラベル。
+ */
 const char* SafeLabel(const char* label) noexcept {
     if (label == nullptr || label[0] == '\0') {
         return "##unnamed";
@@ -44,32 +54,24 @@ const char* SafeLabel(const char* label) noexcept {
     return label;
 }
 
-// hover tooltip を出す共通処理。tooltip == nullptr なら no-op。
+/**
+ * 直前の item に hover tooltip を出す共通処理。
+ *
+ * @details tooltip が nullptr / 空文字、または item が hover されていなければ no-op。
+ * @param tooltip 表示する tooltip 文字列。
+ */
 void DrawTooltip(const char* tooltip) noexcept {
     if (tooltip != nullptr && tooltip[0] != '\0' && ImGui::IsItemHovered()) {
         ImGui::SetTooltip("%s", tooltip);
     }
 }
 
-// =============================================================================
-// Bundled drawer 群
-// =============================================================================
-// すべて DrawerFn シグネチャ (= `void (const PropertyContext&) noexcept`) で
-// 統一。data_ptr の型は drawer 名で暗黙に決まる:
-//   "F32Slider"  → f32*
-//   "Vec2Drag"   → f32[2] (= acs::FVec2 連続 x/y を想定)
-//   "Vec3Drag"   → f32[3] (= acs::FVec3 連続 x/y/z、ただし FVec3 は alignas(16) で
-//                          padding を含むため呼び出し側で 3 要素にコピーして渡す
-//                          パターン。本 drawer は f32* を素直に 3 要素読む)
-//   "Vec4Drag"   → f32[4]
-//   "ColorRGB"   → f32[3] (RGB 0..1)
-//   "ColorRGBA"  → f32[4] (RGBA 0..1)
-//   "AssetPath"  → char[]  (kTextInputBufferSize 長を想定、null 終端)
-//   "EnumCombo"  → i32* (= int*; 選択中 index)
-//   "TextInput"  → char[]  (kTextInputBufferSize 長を想定、null 終端)
-// =============================================================================
-
-// F32Slider: ctx.min_value / ctx.max_value で SliderFloat。
+/**
+ * F32Slider drawer: ctx.min_value / ctx.max_value 範囲の SliderFloat を描画する。
+ *
+ * @details data_ptr は f32* を想定する。
+ * @param ctx 描画パラメータ (data_ptr / label / tooltip / min/max / out_changed)。
+ */
 void Drawer_F32Slider(const PropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
     f32* p = static_cast<f32*>(ctx.data_ptr);
@@ -84,7 +86,12 @@ void Drawer_F32Slider(const PropertyContext& ctx) noexcept {
     }
 }
 
-// Vec2Drag: DragFloat2 (speed=0.1)。
+/**
+ * Vec2Drag drawer: DragFloat2 (speed=0.1) を描画する。
+ *
+ * @details data_ptr は連続 x/y を持つ f32[2] を想定する。
+ * @param ctx 描画パラメータ。
+ */
 void Drawer_Vec2Drag(const PropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
     f32* p = static_cast<f32*>(ctx.data_ptr);
@@ -95,7 +102,14 @@ void Drawer_Vec2Drag(const PropertyContext& ctx) noexcept {
     }
 }
 
-// Vec3Drag: DragFloat3 (speed=0.1)。
+/**
+ * Vec3Drag drawer: DragFloat3 (speed=0.1) を描画する。
+ *
+ * @details
+ * data_ptr は連続 x/y/z を持つ f32[3] を想定する (FVec3 は alignas(16) で padding を
+ * 含むため、呼び出し側で 3 要素にコピーして渡すパターン)。
+ * @param ctx 描画パラメータ。
+ */
 void Drawer_Vec3Drag(const PropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
     f32* p = static_cast<f32*>(ctx.data_ptr);
@@ -106,7 +120,12 @@ void Drawer_Vec3Drag(const PropertyContext& ctx) noexcept {
     }
 }
 
-// Vec4Drag: DragFloat4 (speed=0.1)。
+/**
+ * Vec4Drag drawer: DragFloat4 (speed=0.1) を描画する。
+ *
+ * @details data_ptr は連続 4 要素を持つ f32[4] を想定する。
+ * @param ctx 描画パラメータ。
+ */
 void Drawer_Vec4Drag(const PropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
     f32* p = static_cast<f32*>(ctx.data_ptr);
@@ -117,7 +136,12 @@ void Drawer_Vec4Drag(const PropertyContext& ctx) noexcept {
     }
 }
 
-// ColorRGB: ColorEdit3 (0..1)。
+/**
+ * ColorRGB drawer: ColorEdit3 (0..1) を描画する。
+ *
+ * @details data_ptr は RGB 各成分 0..1 の f32[3] を想定する。
+ * @param ctx 描画パラメータ。
+ */
 void Drawer_ColorRGB(const PropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
     f32* p = static_cast<f32*>(ctx.data_ptr);
@@ -128,7 +152,12 @@ void Drawer_ColorRGB(const PropertyContext& ctx) noexcept {
     }
 }
 
-// ColorRGBA: ColorEdit4 (0..1)。
+/**
+ * ColorRGBA drawer: ColorEdit4 (0..1) を描画する。
+ *
+ * @details data_ptr は RGBA 各成分 0..1 の f32[4] を想定する。
+ * @param ctx 描画パラメータ。
+ */
 void Drawer_ColorRGBA(const PropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
     f32* p = static_cast<f32*>(ctx.data_ptr);
@@ -139,11 +168,15 @@ void Drawer_ColorRGBA(const PropertyContext& ctx) noexcept {
     }
 }
 
-// AssetPath: char[] バッファに対する InputText + DragDrop 受け口。
-//   ・data_ptr は null 終端 char[]、容量は kTextInputBufferSize と想定。
-//   ・ImGui 側で path を直接編集可能 (= テキスト入力)。
-//   ・別 panel (FAssetBrowser) から "ASSET_PATH" payload で drag-drop されると
-//     バッファに strncpy で書き戻す。
+/**
+ * AssetPath drawer: char[] バッファに対する InputText + DragDrop 受け口を描画する。
+ *
+ * @details
+ * data_ptr は null 終端 char[] (容量 kTextInputBufferSize) を想定。ImGui 側で path を
+ * 直接編集できるほか、別 panel (FAssetBrowser) から "ASSET_PATH" payload で drag-drop
+ * されるとバッファに strncpy で書き戻す。
+ * @param ctx 描画パラメータ。
+ */
 void Drawer_AssetPath(const PropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
     char* buf = static_cast<char*>(ctx.data_ptr);
@@ -177,17 +210,16 @@ void Drawer_AssetPath(const PropertyContext& ctx) noexcept {
     }
 }
 
-// EnumCombo: ImGui::Combo (enum_values は "Item0\0Item1\0...\0" 形式 OR
-// const char* const items[]; 形式の両方を支援。ImGui::Combo の overload は
-// `const char* items_separated_by_zeros` を取るものと `const char* const items[]`
-// を取るものがある。本 drawer は呼び出し側の自由度を上げるため、
-//   ・ctx.enum_count > 0  → "Item0\0Item1\0..." と解釈せず、items_separated_by_zeros
-//     形式の文字列をそのまま渡す + items_count を ctx.enum_count に合わせる
-//   ・ImGui::Combo(label, int*, items_separated_by_zeros, popup_max_height_in_items=-1)
-//     を使う方が API として素直 (ImGui 側で '\0' 終端を数える)
-// → 結論: items_separated_by_zeros の 3 引数 overload を使う (= enum_count 不要)
-//   が、互換性のため `popup_max_height_in_items=ctx.enum_count` を渡せるよう
-//   4 引数 overload を選ぶ。enum_count が 0 なら -1 (= ImGui 既定)。
+/**
+ * EnumCombo drawer: ImGui::Combo を描画する。
+ *
+ * @details
+ * data_ptr は選択中 index を持つ int* を想定し、ctx.enum_values は
+ * "Item0\0Item1\0...\0" 形式の items_separated_by_zeros 文字列。ctx.enum_count を
+ * popup_max_height_in_items として渡す (0 なら ImGui 既定の -1)。data_ptr または
+ * enum_values が nullptr なら no-op。
+ * @param ctx 描画パラメータ (data_ptr / enum_values / enum_count を使う)。
+ */
 void Drawer_EnumCombo(const PropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr || ctx.enum_values == nullptr) return;
     int* p = static_cast<int*>(ctx.data_ptr);
@@ -205,9 +237,12 @@ void Drawer_EnumCombo(const PropertyContext& ctx) noexcept {
     }
 }
 
-// TextInput: char[] バッファに対する read-write InputText。
-//   ・data_ptr は null 終端 char[]、容量は kTextInputBufferSize と想定。
-//   ・ImGui 側で文字列を直接編集 (read-only にしたい場合は将来 ctx に flag 追加)。
+/**
+ * TextInput drawer: char[] バッファに対する read-write InputText を描画する。
+ *
+ * @details data_ptr は null 終端 char[] (容量 kTextInputBufferSize) を想定する。
+ * @param ctx 描画パラメータ。
+ */
 void Drawer_TextInput(const PropertyContext& ctx) noexcept {
     if (ctx.data_ptr == nullptr) return;
     char* buf = static_cast<char*>(ctx.data_ptr);
@@ -222,10 +257,7 @@ void Drawer_TextInput(const PropertyContext& ctx) noexcept {
 
 } // namespace
 
-// =============================================================================
-// Init / Shutdown / ClearAll
-// =============================================================================
-
+/** 既存登録を破棄して bundled drawer 9 種を自動登録する。 */
 void PropertyDrawerRegistry::Init() noexcept {
     // 既存登録を全て破棄 (多重 Init を許容)。
     m_Entries.Clear();
@@ -245,22 +277,21 @@ void PropertyDrawerRegistry::Init() noexcept {
     RegisterDrawer("TextInput",  &Drawer_TextInput);
 }
 
+/** 全 drawer 登録を破棄する。 */
 void PropertyDrawerRegistry::Shutdown() noexcept {
     // 全 drawer 登録を破棄。Init での bundled 再注入は呼び出し側で `Init()` を
     // 呼び直す責務 (= Shutdown は state を空に倒すだけ)。
     m_Entries.Clear();
 }
 
+/** 全 drawer 登録を破棄して空に戻す (Shutdown と同義)。 */
 void PropertyDrawerRegistry::ClearAll() noexcept {
     // Shutdown と同義 (= ImGui 等のグローバル状態は触らないため等価)。
     // 別名 API として残しているのは Init/Shutdown/ClearAll の対称性を取るため。
     m_Entries.Clear();
 }
 
-// =============================================================================
-// FindIndex (内部線形探索)
-// =============================================================================
-
+/** name 一致のエントリを線形探索する (未ヒットは -1)。 */
 isize PropertyDrawerRegistry::FindIndex(const char* type_name) const noexcept {
     if (type_name == nullptr || type_name[0] == '\0') return -1;
     const usize n = m_Entries.Size();
@@ -272,10 +303,7 @@ isize PropertyDrawerRegistry::FindIndex(const char* type_name) const noexcept {
     return -1;
 }
 
-// =============================================================================
-// Register / Unregister / Has / Draw
-// =============================================================================
-
+/** type_name + DrawerFn を後勝ちで登録 / 上書きする (不正引数は no-op)。 */
 void PropertyDrawerRegistry::RegisterDrawer(const char* type_name, DrawerFn fn) noexcept {
     // null / 空文字 / null fn は全部 no-op (= 呼び出し側ミスを silent に弾く)。
     if (type_name == nullptr || type_name[0] == '\0' || fn == nullptr) return;
@@ -297,6 +325,7 @@ void PropertyDrawerRegistry::RegisterDrawer(const char* type_name, DrawerFn fn) 
     m_Entries.PushBack(e);
 }
 
+/** type_name 一致の登録 1 件を末尾 swap で解除する (順序非保持)。 */
 void PropertyDrawerRegistry::UnregisterDrawer(const char* type_name) noexcept {
     const isize idx = FindIndex(type_name);
     if (idx < 0) return;
@@ -305,16 +334,18 @@ void PropertyDrawerRegistry::UnregisterDrawer(const char* type_name) noexcept {
     m_Entries.RemoveAtSwap(static_cast<usize>(idx));
 }
 
+/** type_name に対応する drawer が登録済みかを返す。 */
 bool PropertyDrawerRegistry::HasDrawer(const char* type_name) const noexcept {
     return FindIndex(type_name) >= 0;
 }
 
+/** type_name の drawer を ctx で呼ぶ (該当ありで true、未登録で false)。 */
 bool PropertyDrawerRegistry::DrawProperty(const char* type_name,
                                           const PropertyContext& ctx) const noexcept {
     const isize idx = FindIndex(type_name);
     if (idx < 0) return false;
 
-    DrawerFn fn = m_Entries[static_cast<usize>(idx)].fn;
+    const DrawerFn fn = m_Entries[static_cast<usize>(idx)].fn;
     if (fn == nullptr) {
         // 防御的: Register 時に null fn は弾いているはずだが、念のため。
         return false;
@@ -323,14 +354,12 @@ bool PropertyDrawerRegistry::DrawProperty(const char* type_name,
     return true;
 }
 
-// =============================================================================
-// イントロスペクション (DrawerCount / DrawerName)
-// =============================================================================
-
+/** 登録済み drawer 数を返す。 */
 u32 PropertyDrawerRegistry::DrawerCount() const noexcept {
     return static_cast<u32>(m_Entries.Size());
 }
 
+/** index 番目の drawer name を返す (範囲外は nullptr)。 */
 const char* PropertyDrawerRegistry::DrawerName(u32 index) const noexcept {
     if (static_cast<usize>(index) >= m_Entries.Size()) return nullptr;
     return m_Entries[static_cast<usize>(index)].name;

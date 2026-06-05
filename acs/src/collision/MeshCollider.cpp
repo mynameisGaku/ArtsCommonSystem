@@ -8,19 +8,44 @@ namespace acs {
 
 namespace {
 
+/** 引数不正 (null/空 positions、範囲外 index 等) を表すサブエラーコード。 */
 constexpr u16 kSubColMeshInvalidArg = 401;
+
+/** 三角形が 1 つも作れなかったことを表すサブエラーコード。 */
 constexpr u16 kSubColMeshEmpty      = 402;
+
+/** BVH の葉に許す最大三角形数 (これ以下で分割を止める)。 */
 constexpr u32 kBvhLeafSize          = 4;
 
+/**
+ * ベクトルの指定軸成分を返す。
+ *
+ * @param v 取り出す元のベクトル。
+ * @param axis 軸 (0=x, 1=y, 2=z)。
+ * @return 指定軸の成分値。
+ */
 ACS_FORCEINLINE f32 AxisVal(FVec3 v, int axis) noexcept {
     return axis == 0 ? v.x : (axis == 1 ? v.y : v.z);
 }
 
+/**
+ * 各成分ごとに最小値を取って min 点を p で広げる。
+ *
+ * @param mn 更新する min 点 (in/out)。
+ * @param p 取り込む点。
+ */
 void ExpandMin(FVec3& mn, FVec3 p) noexcept {
     if (p.x < mn.x) mn.x = p.x;
     if (p.y < mn.y) mn.y = p.y;
     if (p.z < mn.z) mn.z = p.z;
 }
+
+/**
+ * 各成分ごとに最大値を取って max 点を p で広げる。
+ *
+ * @param mx 更新する max 点 (in/out)。
+ * @param p 取り込む点。
+ */
 void ExpandMax(FVec3& mx, FVec3 p) noexcept {
     if (p.x > mx.x) mx.x = p.x;
     if (p.y > mx.y) mx.y = p.y;
@@ -29,6 +54,7 @@ void ExpandMax(FVec3& mx, FVec3 p) noexcept {
 
 } // namespace
 
+/** レンダリング用メッシュから collider を構築する (頂点位置のみ使用)。 */
 TResult<void> FMeshCollider::BuildFromMesh(const FMeshAsset& mesh) noexcept {
     const TArray<MeshVertex>& verts = mesh.Vertices();
     const TArray<u32>&        idx   = mesh.Indices();
@@ -43,6 +69,7 @@ TResult<void> FMeshCollider::BuildFromMesh(const FMeshAsset& mesh) noexcept {
                               idx.Data(), static_cast<u32>(idx.Size()));
 }
 
+/** 生の頂点位置 + 三角形インデックス列から collider を構築する。 */
 TResult<void> FMeshCollider::BuildFromTriangles(const FVec3* positions, u32 vertex_count,
                                                 const u32* indices, u32 index_count) noexcept {
     Clear();
@@ -85,6 +112,7 @@ TResult<void> FMeshCollider::BuildFromTriangles(const FVec3* positions, u32 vert
     return Ok();
 }
 
+/** 三角形・BVH・境界をすべて破棄して空状態に戻す。 */
 void FMeshCollider::Clear() noexcept {
     m_Tris.Clear();
     m_TriIndex.Clear();
@@ -92,6 +120,7 @@ void FMeshCollider::Clear() noexcept {
     m_Bounds = Aabb3{};
 }
 
+/** m_TriIndex の [first, first+count) 範囲の三角形を包む AABB を求める。 */
 Aabb3 FMeshCollider::ComputeBounds(u32 first, u32 count) const noexcept {
     FVec3 mn{ 3.4e38f, 3.4e38f, 3.4e38f };
     FVec3 mx{ -3.4e38f, -3.4e38f, -3.4e38f };
@@ -103,6 +132,7 @@ Aabb3 FMeshCollider::ComputeBounds(u32 first, u32 count) const noexcept {
     return Aabb3::FromMinMax(mn, mx);
 }
 
+/** m_Tris から median-split AABB BVH を構築する。 */
 void FMeshCollider::BuildBvh() noexcept {
     m_Nodes.Clear();
     m_TriIndex.Clear();
@@ -157,6 +187,7 @@ void FMeshCollider::BuildBvh() noexcept {
     }
 }
 
+/** レイを撃って最近接ヒットを返す (三角形面法線つき)。 */
 RayHit3 FMeshCollider::Raycast(const Ray3& ray, f32 t_max) const noexcept {
     RayHit3 best{};
     if (m_Nodes.Size() == 0) return best;
@@ -185,6 +216,7 @@ RayHit3 FMeshCollider::Raycast(const Ray3& ray, f32 t_max) const noexcept {
     return best;
 }
 
+/** AABB がメッシュと重なるかを判定する (broadphase 用)。 */
 bool FMeshCollider::OverlapsAabb(const Aabb3& box) const noexcept {
     if (m_Nodes.Size() == 0) return false;
     u32 stack[128];

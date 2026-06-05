@@ -11,10 +11,12 @@
 
 namespace acs {
 
+/** Diligent スワップチェインを解放する。 */
 DiligentSwapchain::~DiligentSwapchain() noexcept {
     if (m_Swap) { m_Swap->Release(); m_Swap = nullptr; }
 }
 
+/** ウィンドウに対してバックエンド別 factory でスワップチェインを生成する。 */
 TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainConfig& cfg) noexcept {
     m_Device = &device;
     m_BufferCount = (cfg.buffer_count >= 2 && cfg.buffer_count <= 3) ? cfg.buffer_count : 2;
@@ -69,17 +71,20 @@ TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainCon
     return Ok();
 }
 
+/** バックバッファインデックスを返す (Diligent が内部管理するため常に 0)。 */
 u32 DiligentSwapchain::AcquireNextImage() noexcept {
     // Diligent はバックバッファインデックスを内部管理する。
     // BeginRenderToSwapchain では SetRenderTargets(m_Swap->GetCurrentBackBufferRTV()) を呼ぶ。
     return 0;
 }
 
+/** 現在のバックバッファを vsync 設定に従って提示する。 */
 void DiligentSwapchain::Present() noexcept {
     if (!m_Swap) return;
     m_Swap->Present(m_bVsync ? 1 : 0);
 }
 
+/** スワップチェインを新しいサイズに作り直す。 */
 bool DiligentSwapchain::Resize(u32 width, u32 height) noexcept {
     if (!m_Swap) return false;               // スワップチェイン未初期化 = リサイズ不能
     if (width == 0 || height == 0) return true;  // 無効サイズ要求は no-op

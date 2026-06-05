@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — SceneInspector / FHierarchyPanel (Phase 20 editor 第二弾)
+// GameFramework Tools — SceneInspector / FHierarchyPanel
 //
 // シーン (FNode2D ツリー) を ImGui ベースの hierarchy パネルで可視化 + 編集する
 // エディタ用パネル。Unity の Hierarchy / Godot の SceneTree / UE の World Outliner
@@ -26,14 +26,14 @@
 //     項目 (例: "Create Child", "Save as Prefab") は外部で実装。callback で
 //     "今右クリックされた FNode2D*" を渡し、外部側で context menu 続きを描画。
 //
-// 設計選択 (Phase 20):
+// 設計選択:
 //   ・**non-copy / non-move**: 内部 TArray<CollapsedEntry> + raw pointer の所有を
 //     曖昧にしない。FInspectorSeam / FParticleEditorPanel と同じ規約。
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range / nullptr 等を
 //     no-op で表現。
 //   ・**STL 不使用**: 折りたたみ状態は `TArray<CollapsedEntry>` の linear search
 //     (= FNodeId → bool マップ)。ノード数が 100k 級でなければ十分速い。binary
-//     search / hash table は Phase 20+ で必要なら導入。
+//     search / hash table は必要なら導入。
 //   ・**ImGui ヘッダは .cpp 側のみ**: header からは imgui 依存を漏らさない
 //     (`FParticleEditorPanel.h` と同じ方針)。
 //   ・**FSelectionService は forward decl**: header からは依存を切り、.cpp 側で
@@ -45,10 +45,10 @@
 //     に payload struct を渡すが、scene 内では FNode2D の生存期間が selection を
 //     超えることは無いので、ポインタ直渡しで安全。識別子は `"HIER_NODE_PTR"`。
 //
-// 範囲外 (Phase 20+ / 別エージェント):
+// 範囲外:
 //   ・FComponent2D の子要素表示 (= property は FInspectorPanel 担当)
 //   ・Undo / Redo
-//   ・複数選択 (Phase 20 は単一選択のみ)
+//   ・複数選択 (現状は単一選択のみ)
 //   ・Search / filter
 //   ・rename in-place
 #pragma once
@@ -65,118 +65,225 @@ class FNode2D;
 
 namespace acs::game::inspector {
 
-// 別エージェントが作成中の selection 集中点。forward decl のみ受ける。
+/** selection 集中点 (別レイヤで実装、forward decl のみ受ける)。 */
 class FSelectionService;
 
-// ---------------------------------------------------------------------------
-// FHierarchyPanel — ImGui ベースの FNode2D 階層ツリー
-// (Phase 24: editor_core::FEditorPanel 継承)
-// ---------------------------------------------------------------------------
+/**
+ * ImGui ベースで FNode2D 階層ツリーを可視化・編集するエディタパネル。
+ *
+ * @details
+ * Unity の Hierarchy / Godot の SceneTree / UE の World Outliner 相当。
+ * `Begin("Scene Hierarchy")` の 1 window で root_node 配下を再帰 TreeNode 描画し、
+ * クリック選択・右クリック context menu (Delete / Duplicate / Reparent)・Drag & Drop
+ * による reparent・ExpandAll/CollapseAll をサポートする。selection は注入された
+ * FSelectionService 経由で他パネルと共有し、未注入時は内部 m_SelectedId を使う。
+ * editor_core::FEditorPanel を継承し、全 API は noexcept・STL 不使用・ImGui 依存は
+ * .cpp に閉じる。
+ */
 class FHierarchyPanel : public ::acs::game::editor_core::FEditorPanel {
 public:
-    // 右クリック context menu の追加項目を外部に委譲するためのコールバック。
-    // 標準の "Delete" / "Duplicate" / "Reparent" は本パネル内で描画するため、
-    // この callback は **追加** 項目 ("Create Child" / "Save as Prefab" 等) のみ
-    // 担当する想定。`user` は SetOnNodeRightClickCallback の第二引数。
+    /**
+     * 右クリック context menu の追加項目を外部へ委譲する関数ポインタ型。
+     *
+     * @details
+     * 標準の "Delete" / "Duplicate" / "Reparent" は本パネル内で描画するため、この
+     * callback は追加項目 ("Create Child" / "Save as Prefab" 等) のみ担当する想定。
+     * @param user SetOnNodeRightClickCallback の第二引数で渡したユーザポインタ。
+     * @param node 今右クリックされた対象ノード。
+     */
     using NodeRightClickCallback = void (*)(void* user, class FNode2D* node) noexcept;
 
+    /** 空状態で構築する (root / selection なし)。 */
     FHierarchyPanel() noexcept = default;
+
+    /** 破棄する (外部所有の root / FSelectionService / callback は解放しない)。 */
     ~FHierarchyPanel() noexcept = default;
 
-    // 非コピー・非ムーブ: 内部 TArray<CollapsedEntry> + raw pointer の所有を
-    // 曖昧にしない。
+    /** コピー禁止 (内部 TArray + raw pointer の所有を曖昧にしないため)。 */
     FHierarchyPanel(const FHierarchyPanel&)            = delete;
+
+    /** コピー代入も禁止。 */
     FHierarchyPanel& operator=(const FHierarchyPanel&) = delete;
+
+    /** ムーブ禁止 (同上の所有規約)。 */
     FHierarchyPanel(FHierarchyPanel&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FHierarchyPanel& operator=(FHierarchyPanel&&)      = delete;
 
-    // 初期化: 折りたたみマップを空に、selection を解除する。多重 Init 可。
+    /** 折りたたみマップを空にし selection を解除して初期化する (多重 Init 可)。 */
     void Init() noexcept;
 
-    // 後片付け: 折りたたみマップを解放、callback を解除する。多重 Shutdown 可。
+    /** 折りたたみマップを解放し callback を解除して後始末する (多重 Shutdown 可)。 */
     void Shutdown() noexcept;
 
-    // メイン ImGui window 描画。`Begin("Scene Hierarchy")` 1 window で完結。
-    // root_node 配下を再帰 TreeNode で描画する。root 自体も最上位 TreeNode と
-    // して表示される (= ユーザは root をクリックして scene 全体を選択できる)。
-    // Phase 24: FEditorPanel 継承で no-param DrawUI 化。root node は SetRootNode で
-    // 事前 set する。
+    /**
+     * 再帰描画の起点となる root ノードを設定する。
+     *
+     * @param root root として描画する FNode2D (nullptr で未設定)。
+     */
     void SetRootNode(class FNode2D* root) noexcept { m_RootNode = root; }
+
+    /**
+     * 設定済みの root ノードを返す。
+     *
+     * @return root ノード (未設定なら nullptr)。
+     */
     class FNode2D* RootNode() const noexcept { return m_RootNode; }
 
-    // FEditorPanel override
+    /**
+     * このパネルのウィンドウタイトルを返す。
+     *
+     * @return "Scene Hierarchy"。
+     */
     const char* Title() const noexcept override { return "Scene Hierarchy"; }
+
+    /**
+     * メイン ImGui window を描画する。
+     *
+     * @details
+     * `Begin("Scene Hierarchy")` の 1 window で完結し、SetRootNode で事前設定された
+     * root 配下を再帰 TreeNode 描画する。root 自体も最上位 TreeNode として表示される
+     * (= ユーザは root をクリックして scene 全体を選択できる)。root 未設定時は案内
+     * メッセージのみ表示する。
+     */
     void DrawUI() noexcept override;
 
-    // FSelectionService を注入。nullptr で内部 selection モードに戻せる。
+    /**
+     * FSelectionService を注入する。
+     *
+     * @details nullptr を渡すと内部 selection モード (m_SelectedId) に戻る。
+     * @param svc 共有する selection サービス (non-owning)。
+     */
     void SetSelectionService(class FSelectionService* svc) noexcept;
 
-    // 現選択ノードの FNodeId。FSelectionService が注入されていればそちら経由、
-    // そうでなければ内部 `m_SelectedId` を返す。未選択は `FNodeId{}` (packed==0)。
+    /**
+     * 現在の選択ノードの FNodeId を返す。
+     *
+     * @details FSelectionService 注入時はそちら経由、未注入なら内部 m_SelectedId。
+     * @return 選択中ノードの FNodeId (未選択は packed==0 の無効値)。
+     */
     FNodeId SelectedNodeId() const noexcept;
 
-    // 選択を `node` に切替。nullptr で選択解除。FSelectionService 注入時は
-    // そちらにも反映する。
+    /**
+     * 選択を `node` に切り替える。
+     *
+     * @details FSelectionService 注入時はそちらにも反映する。
+     * @param node 選択するノード (nullptr で選択解除)。
+     */
     void SelectNode(class FNode2D* node) noexcept;
 
-    // 全 TreeNode を展開状態にする (= 折りたたみマップを空にする)。
-    // ImGui の TreeNode は default が「展開」なので、map にエントリが無い =
-    // 展開、エントリが true なら「折りたたみ」を表す。よって ExpandAll は
-    // map を空にすれば良い。
+    /**
+     * 全 TreeNode を展開状態にする。
+     *
+     * @details
+     * ImGui の TreeNode は default が「展開」なので、折りたたみマップにエントリが
+     * 無い = 展開、エントリが true なら「折りたたみ」を表す。よって本関数はマップを
+     * 空にするだけでよい。
+     */
     void ExpandAll() noexcept;
 
-    // 全 TreeNode を折りたたむ。次回 DrawUI で各ノード描画時に
-    // 既存 FNodeId エントリを true に立てる必要があるため、ここでは
-    // `m_bCollapseAllPending` フラグだけ立てて DrawUI で適用する。
+    /**
+     * 全 TreeNode を折りたたむ。
+     *
+     * @details
+     * 各ノードの折りたたみ反映は次回 DrawUI の走査時に行うため、ここでは
+     * m_bCollapseAllPending フラグを立てるだけにする。
+     */
     void CollapseAll() noexcept;
 
-    // 選択中ノードに `FNode2D::Destroy()` を呼ぶ。pending_destroy がマークされ、
-    // 次フレームの ResolveStructuralChanges で実 destroy される。
-    // 未選択 / FSelectionService 経由でも該当ノードが取れない場合は no-op。
-    // selection は解除される。
+    /**
+     * 選択中ノードに FNode2D::Destroy() を呼ぶ。
+     *
+     * @details
+     * pending_destroy がマークされ、次フレームの ResolveStructuralChanges で実
+     * destroy される。selection は解除する。選択中ノードを解決できない場合は no-op。
+     */
     void DeleteSelected() noexcept;
 
-    // 右クリック追加項目 callback を登録。nullptr で解除可。
+    /**
+     * 右クリック追加項目の callback を登録する。
+     *
+     * @param cb 呼ぶ callback (nullptr で解除)。
+     * @param user callback 第一引数として戻すユーザポインタ。
+     */
     void SetOnNodeRightClickCallback(NodeRightClickCallback cb, void* user) noexcept;
 
 private:
-    // 折りたたみ状態 1 エントリ。TArray<CollapsedEntry> を FNodeId で linear search
-    // することで「FNodeId → bool collapsed」マップを実現する。
+    /**
+     * 折りたたみ状態 1 件分のエントリ。
+     *
+     * @details TArray<CollapsedEntry> を FNodeId で線形探索し「FNodeId → bool collapsed」マップとして使う。
+     */
     struct CollapsedEntry {
+        /** 対象ノードの FNodeId。 */
         FNodeId id      {};
+
+        /** 折りたたみ済みなら true。 */
         bool   collapsed = false;
     };
 
-    // root_node 配下を再帰描画。`depth` は将来的なインデント / 上限ガード用。
+    /**
+     * `node` を 1 つ描画し、子を再帰描画する。
+     *
+     * @details
+     * TreeNodeEx で開閉状態を m_CollapsedMap に反映・書き戻しつつ、クリックで選択切替、
+     * 右クリックで context menu、Drag & Drop で reparent 要求を処理する。深さ 64 で
+     * 防衛的にガードする。
+     * @param node 描画する対象ノード。
+     * @param depth 再帰の深さ (上限ガードおよび簡易ラベル表示に使う)。
+     */
     void DrawNodeRecursive(class FNode2D& node, u32 depth) noexcept;
 
-    // FNodeId → collapsed のルックアップ。エントリ無しは false (= 展開) 扱い。
+    /**
+     * 指定 FNodeId が折りたたみ済みかを返す。
+     *
+     * @param id 調べるノードの FNodeId。
+     * @return 折りたたみ済みなら true (エントリ無しは展開扱いで false)。
+     */
     bool IsCollapsed(FNodeId id) const noexcept;
 
-    // FNodeId に対する collapsed 状態を上書き保存 (エントリ無ければ追加)。
-    // c == false かつ既存エントリ無しなら no-op (= default expanded を保つ)。
+    /**
+     * 指定 FNodeId の折りたたみ状態を上書き保存する。
+     *
+     * @details c == false かつ既存エントリ無しなら no-op (default expanded を保つ)。
+     * @param id 対象ノードの FNodeId。
+     * @param c true で折りたたみ、false で展開。
+     */
     void SetCollapsed(FNodeId id, bool c) noexcept;
 
-    // drag drop payload の識別子文字列 (ImGui 仕様: 32 文字以内)。
+    /** Drag & Drop payload の識別子文字列 (ImGui 仕様: 32 文字以内)。 */
     static constexpr const char* kDragDropId = "HIER_NODE_PTR";
 
-    // Phase 24: 事前 set される root node (DrawUI で再帰描画の起点)
+    /** 再帰描画の起点となる root ノード (SetRootNode で設定)。 */
     class FNode2D*             m_RootNode          = nullptr;
 
+    /** FNodeId → 折りたたみ状態のマップ (線形探索)。 */
     TArray<CollapsedEntry>     m_CollapsedMap      {};
+
+    /** 共有 selection サービス (non-owning、未注入なら nullptr)。 */
     FSelectionService*         m_SelectionService  = nullptr;
-    // FSelectionService 未注入時のフォールバック selection。
+
+    /** FSelectionService 未注入時のフォールバック selection。 */
     FNodeId                    m_SelectedId        {};
-    // 内部 selection の生ポインタ (Delete / Duplicate 用)。FSelectionService 注入
-    // 時もキャッシュしておく (DrawUI で更新)。
+
+    /** 選択中ノードの生ポインタ (Delete / Duplicate 用、DrawUI 走査で更新)。 */
     class FNode2D*             m_SelectedNode      = nullptr;
-    // 右クリック context menu の Reparent target 設定 step 用の一時保管。
-    // 1 段目で "Set as Reparent Target" を押すと set、2 段目に別ノード上で
-    // "Reparent here" でこれを使って `Reparent` を呼ぶ。
+
+    /**
+     * 右クリック context menu の Reparent target 一時保管。
+     *
+     * @details 1 段目で "Set as Reparent Target" で set し、2 段目に別ノード上で "Reparent Here" で Reparent を呼ぶ。
+     */
     class FNode2D*             m_ReparentTarget    = nullptr;
-    // CollapseAll の遅延適用フラグ。
+
+    /** CollapseAll の遅延適用フラグ。 */
     bool                      m_bCollapseAllPending = false;
+
+    /** 右クリック追加項目の callback (未登録なら nullptr)。 */
     NodeRightClickCallback    m_RightClickCb     = nullptr;
+
+    /** callback に渡すユーザポインタ。 */
     void*                     m_RightClickUser   = nullptr;
 };
 

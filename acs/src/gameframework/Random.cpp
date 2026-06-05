@@ -16,7 +16,13 @@ namespace acs::game {
 
 namespace {
 
-// SplitMix64: 1 step で次の 64bit を生成。0 seed でも分布が偏らないのが利点。
+/**
+ * SplitMix64 を 1 step 進めて次の 64bit を生成する。
+ *
+ * @details 0 seed でも分布が偏らないので xoshiro state の bootstrap に最適。
+ * @param state 更新される内部 state (golden ratio constant を加算してから攪拌)。
+ * @return 生成した 64bit 乱数。
+ */
 inline u64 SplitMix64Step(u64& state) noexcept {
     state += 0x9E3779B97F4A7C15ULL;          // golden ratio constant
     u64 z = state;
@@ -25,25 +31,31 @@ inline u64 SplitMix64Step(u64& state) noexcept {
     return z ^ (z >> 31);
 }
 
-// 32bit 左ローテート (xoshiro128** のコアプリミティブ)
+/**
+ * 32bit 左ローテート (xoshiro128** のコアプリミティブ)。
+ *
+ * @param x 回転対象のビット列。
+ * @param k 左に回す桁数。
+ * @return x を左に k ビット回転した値。
+ */
 inline u32 Rotl32(u32 x, int k) noexcept {
     return (x << k) | (x >> (32 - k));
 }
 
 } // namespace
 
-// ---------------------------------------------------------------------------
-// 構築 / 種まき
-// ---------------------------------------------------------------------------
+/** 起動時刻 (Clock::Ticks) を seed にして構築する。 */
 FRandom::FRandom() noexcept {
     // 時刻 (QPC tick) を seed に使う。FrameTimer 起動順に依存せず単独で使える。
     Seed(Clock::Ticks());
 }
 
+/** 明示した u64 seed で構築する。 */
 FRandom::FRandom(u64 seed) noexcept {
     Seed(seed);
 }
 
+/** 任意の u64 で再 seed する (SplitMix64 で 4 個の u32 state に拡散)。 */
 void FRandom::Seed(u64 seed) noexcept {
     // SplitMix64 で 2 個の u64 を取り、4 個の u32 に分解。
     // seed=0 のときも SplitMix の constant 加算で z≠0 が保証され、
@@ -64,9 +76,7 @@ void FRandom::Seed(u64 seed) noexcept {
     }
 }
 
-// ---------------------------------------------------------------------------
-// raw 出力 (xoshiro128**)
-// ---------------------------------------------------------------------------
+/** xoshiro128** から 32bit を 1 個取り出す (全 API の最下層)。 */
 u32 FRandom::NextU32() noexcept {
     // xoshiro128** の "**" バリアント: state の線形進行に
     // 非線形スクランブラを乗せて高品質 32bit を出力。
@@ -83,9 +93,7 @@ u32 FRandom::NextU32() noexcept {
     return result;
 }
 
-// ---------------------------------------------------------------------------
-// 一般ユース
-// ---------------------------------------------------------------------------
+/** [0, 1) の f32 を返す (上位 24bit を仮数に詰めるため 1.0 は返さない)。 */
 f32 FRandom::NextF32Unit() noexcept {
     // 上位 24bit を仮数に: f32 の mantissa は 23bit + implicit 1 で 24bit 精度。
     // (x >> 8) で 0..(2^24 - 1)、× 2^-24 で [0, 1)。1.0 を絶対に返さない。
@@ -93,6 +101,7 @@ f32 FRandom::NextF32Unit() noexcept {
     return static_cast<f32>(bits) * (1.0f / 16777216.0f); // 1/2^24
 }
 
+/** [min, max] inclusive の整数を返す (max < min なら swap)。 */
 i32 FRandom::RangeInt(i32 min, i32 max) noexcept {
     // max < min は swap して扱う (defensive、API の使い心地優先)。
     if (max < min) {
@@ -115,12 +124,14 @@ i32 FRandom::RangeInt(i32 min, i32 max) noexcept {
     return min + static_cast<i32>(r);
 }
 
+/** [min, max) の f32 を返す (線形補間)。 */
 f32 FRandom::RangeF32(f32 min, f32 max) noexcept {
     // [min, max): max==min なら min 固定、min>max は呼び出し側の bug 扱いだが
     // 線形補間で動作はする ([max, min) を返すことになる)。
     return min + (max - min) * NextF32Unit();
 }
 
+/** 確率 true_probability ([0,1] にクランプ) で true を返す。 */
 bool FRandom::NextBool(f32 true_probability) noexcept {
     // 範囲外はクランプ。0 → 常に false、1 → 常に true (浮動小数の境界に注意:
     // NextF32Unit() < 1.0f が保証されているので 1.0f との比較で常に true)。
@@ -129,6 +140,7 @@ bool FRandom::NextBool(f32 true_probability) noexcept {
     return NextF32Unit() < true_probability;
 }
 
+/** 円板内の一様な点をサンプルする (rejection sampling)。 */
 FVec2 FRandom::PointInCircle(f32 radius) noexcept {
     // Rejection sampling: [-1,1]^2 box でサンプル、単位円内に入るまで再試行。
     // 一様性は厳密。平均試行回数は 4/π ≒ 1.273 回 (期待値)、最大は確率的に小。
@@ -144,12 +156,14 @@ FVec2 FRandom::PointInCircle(f32 radius) noexcept {
     }
 }
 
+/** 円周上の一様な点をサンプルする (角度 [0, 2π) から cos/sin)。 */
 FVec2 FRandom::PointOnCircle(f32 radius) noexcept {
     // 角度を [0, 2π) で一様にサンプル、(cos, sin) で円周上の点へ。
     const f32 theta = NextF32Unit() * kTwoPi;
     return FVec2{ Cos(theta) * radius, Sin(theta) * radius };
 }
 
+/** 重みに比例して index を選択する (累積和方式 O(count))。 */
 u32 FRandom::WeightedChoice(const f32* weights, u32 count) noexcept {
     if (count == 0u || weights == nullptr) return 0u;
     // 累積和を取り、[0, total) の一様乱数で線形探索。
@@ -171,6 +185,7 @@ u32 FRandom::WeightedChoice(const f32* weights, u32 count) noexcept {
     return count - 1u;
 }
 
+/** プロセス内シングルトンを返す (C++11 magic statics で lazy init)。 */
 FRandom& FRandom::Global() noexcept {
     // C++11 magic statics でスレッド安全な lazy init。
     // 用途上、複数スレッドからの並行呼び出しは未保護 (上記コメント参照)。

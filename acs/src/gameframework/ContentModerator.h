@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U Phase 2 — FContentModerator (UGC コンテンツモデレーション seam)
+// GameFramework Pillar U — FContentModerator (UGC コンテンツモデレーション seam)
 //
 // 役割:
 //   ユーザー生成コンテンツ (UGC: チャット文 / アップロード画像 / プロフィール名)
@@ -30,7 +30,7 @@
 //   ・**Stub は static singleton**: `GetModeratorStub()` で取得。実 SDK 未統合ビルドでも
 //     `m_Moderator = &acs::game::GetModeratorStub();` だけでコンパイル可能。
 //
-// 範囲外 (Phase 2+ で):
+// 範囲外:
 //   ・実 SDK 実装 (Azure / Google / OpenAI / Hive)。
 //   ・画像 NSFW スコア (= 画像分類器ローカル推論)。
 //   ・多言語対応 (日本語 / 中国語 / アラビア語の NG 単語辞書)。
@@ -50,163 +50,231 @@
 
 namespace acs::game {
 
-// ---- FErrorCode subcode 定義 (ErrCategory::Generic 配下) ----------------------
-// FSteamworksBridge と同じく `Generic + 安定 subcode` で未実装/未初期化を表現。
-inline constexpr u16 kSubContentModeratorNotImplemented = 1301;  // Stub による未実装
-inline constexpr u16 kSubContentModeratorBadArgument    = 1302;  // nullptr / size==0 等
+/** Stub による未実装を表す subcode (ErrCategory::Generic 配下)。 */
+inline constexpr u16 kSubContentModeratorNotImplemented = 1301;
 
-// =============================================================================
-// EModerationVerdict — UI フロー制御の 3 値判定
-// -----------------------------------------------------------------------------
-//   Allow = そのまま公開して良い
-//   Warn  = 公開前にユーザー or モデレーターの確認が必要 (= "borderline")
-//   Block = 公開してはならない (法令違反 / コミュニティガイドライン違反)
-// =============================================================================
+/** nullptr / size==0 等の不正引数を表す subcode (ErrCategory::Generic 配下)。 */
+inline constexpr u16 kSubContentModeratorBadArgument    = 1302;
+
+/**
+ * UI フロー制御のための 3 値モデレーション判定。
+ */
 enum class EModerationVerdict : u8 {
+    /** そのまま公開して良い。 */
     Allow = 0,
+
+    /** 公開前にユーザー or モデレーターの確認が必要 (borderline)。 */
     Warn  = 1,
+
+    /** 公開してはならない (法令違反 / コミュニティガイドライン違反)。 */
     Block = 2,
 };
 
-// =============================================================================
-// EContentRating — レーティング軸 (年齢ゲート / Storefront age rating 表示用)
-// -----------------------------------------------------------------------------
-//   Safe                       = 全年齢
-//   Mild                       = 軽度の暴力 / 風刺 等 (PG 相当)
-//   Mature                     = 成人向け要素を含む (17+ 相当)
-//   Explicit                   = 露骨な暴力 / 性的描写 (18+ 相当、要 age gate)
-//   SexualMinor_HardcodedBlock = 児童性的搾取に該当 → **実装にかかわらず常に Block**
-//
-// 最後の `SexualMinor_HardcodedBlock` だけは特別: 実装 (Stub / 実 SDK / モック)
-// がこのレーティングを返した場合、verdict は **必ず Block にハードコード** する。
-// "Allow に降格する" 経路を残さないことで、法令遵守上の最重要ガードレールを
-// シーム層 (= 本ファイル) で保証する。
-// =============================================================================
+/**
+ * レーティング軸 (年齢ゲート / Storefront age rating 表示用)。
+ *
+ * @details
+ * SexualMinor_HardcodedBlock だけは特別で、実装 (Stub / 実 SDK / モック) がこの
+ * レーティングを返した場合 verdict は必ず Block にハードコードする。Allow へ降格する
+ * 経路を残さず、法令遵守上の最重要ガードレールをシーム層で保証する。
+ */
 enum class EContentRating : u8 {
+    /** 全年齢。 */
     Safe                       = 0,
+
+    /** 軽度の暴力 / 風刺 等 (PG 相当)。 */
     Mild                       = 1,
+
+    /** 成人向け要素を含む (17+ 相当)。 */
     Mature                     = 2,
+
+    /** 露骨な暴力 / 性的描写 (18+ 相当、要 age gate)。 */
     Explicit                   = 3,
+
+    /** 児童性的搾取に該当。実装にかかわらず verdict は常に Block。 */
     SexualMinor_HardcodedBlock = 4,
 };
 
-// =============================================================================
-// ModerationResult — 1 回の Moderate*() 呼び出しの結果
-// -----------------------------------------------------------------------------
-// `reason` は文字列を所有しない (= 静的リテラル or 内部 static バッファを指す)。
-// 寿命は「次の Moderate*() 呼び出しまで」。呼び出し側はその前に消費すること。
-// =============================================================================
+/**
+ * 1 回の Moderate*() 呼び出しの結果。
+ *
+ * @details
+ * reason は文字列を所有しない (静的リテラル or 内部 static バッファを指す)。寿命は
+ * 「次の Moderate*() 呼び出しまで」で、呼び出し側はその前に消費する必要がある。
+ */
 struct ModerationResult {
+    /** UI フロー制御の 3 値判定。 */
     EModerationVerdict verdict = EModerationVerdict::Allow;
+
+    /** レーティング軸の判定。 */
     EContentRating     rating  = EContentRating::Safe;
-    const char*       reason  = nullptr;   // Warn/Block で有効、Allow では nullptr 可
+
+    /** 判定理由 (Warn/Block で有効、Allow では nullptr 可。非所有)。 */
+    const char*       reason  = nullptr;
 };
 
-// =============================================================================
-// IContentModerator — 抽象 seam (二段 moderation)
-// -----------------------------------------------------------------------------
-// テキスト / 画像 / ユーザー名 をそれぞれ独立にモデレーションする 3 つの入口。
-// 実装側 (Stub / 実 SDK) は ModerateText/Image/UserName をオーバーライドし、
-// `Tick(dt)` で非同期処理 (REST ポーリング等) を回す。
-//
-// 典型使用:
-//   class FGame {
-//       acs::game::IContentModerator* m_Mod = nullptr;
-//       void OnStart() noexcept override {
-//           m_Mod = &acs::game::GetModeratorStub();
-//       }
-//       void OnTick(f32 dt) noexcept override {
-//           m_Mod->Tick(dt);
-//       }
-//       bool TryPostChat(const char* user_id, const char* text) noexcept {
-//           auto r = m_Mod->ModerateText(user_id, text);
-//           if (!r) { LogError(); return false; }
-//           if (r.Value().verdict == EModerationVerdict::Block) { ShowBlockedUi(r.Value().reason); return false; }
-//           if (r.Value().verdict == EModerationVerdict::Warn ) { ShowWarnUi (r.Value().reason); /* 続行可 */ }
-//           PostChat(text);
-//           return true;
-//       }
-//   };
-// =============================================================================
+/**
+ * UGC モデレーションの抽象 seam (二段 moderation)。
+ *
+ * @details
+ * テキスト / 画像 / ユーザー名をそれぞれ独立にモデレーションする 3 つの入口を持つ。
+ * 実装側 (Stub / 実 SDK) は ModerateText/Image/UserName を override し、Tick(dt) で
+ * 非同期処理 (REST ポーリング等) を回す。verdict (UI フロー制御) と rating (年齢ゲート)
+ * の 2 軸を返す。
+ */
 class IContentModerator {
 public:
+    /** 既定構築する。 */
     IContentModerator() noexcept = default;
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
     virtual ~IContentModerator() noexcept = default;
 
-    // 非コピー・非ムーブ (state を 1 箇所にとどめる)
+    /** コピー禁止 (state を 1 箇所にとどめるため)。 */
     IContentModerator(const IContentModerator&)            = delete;
+
+    /** コピー代入も禁止。 */
     IContentModerator& operator=(const IContentModerator&) = delete;
+
+    /** ムーブ禁止。 */
     IContentModerator(IContentModerator&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     IContentModerator& operator=(IContentModerator&&)      = delete;
 
-    // テキストモデレーション (チャット / プロフィール bio / レビュー文 等)。
-    // `user_id` は通報履歴・レピュテーション参照用 (Stub では未使用、nullptr 可)。
-    // `text` が nullptr / 空文字の場合の扱いは実装依存 (Stub は Allow)。
+    /**
+     * テキストをモデレーションする (チャット / プロフィール bio / レビュー文 等)。
+     *
+     * @param user_id 通報履歴・レピュテーション参照用の id (Stub では未使用、nullptr 可)。
+     * @param text 判定対象テキスト。nullptr / 空文字の扱いは実装依存 (Stub は Allow)。
+     * @return 判定結果、または API 通信失敗時のエラー。
+     */
     virtual TResult<ModerationResult> ModerateText(const char* user_id, const char* text) noexcept = 0;
 
-    // 画像モデレーション (アバター / スクリーンショット投稿 / カスタムバナー 等)。
-    // `image_data` は呼び出し側が所有する生バイト列 (PNG / JPEG / WebP 等の任意フォーマット)。
-    // size==0 / nullptr は BadArgument エラーで返す (Stub も同様)。
+    /**
+     * 画像をモデレーションする (アバター / スクショ投稿 / カスタムバナー 等)。
+     *
+     * @param user_id 通報履歴・レピュテーション参照用の id (Stub では未使用、nullptr 可)。
+     * @param image_data 呼出側所有の生バイト列 (PNG / JPEG / WebP 等)。
+     * @param size image_data のバイト数。0 / nullptr は BadArgument。
+     * @return 判定結果、または不正引数 / API 失敗時のエラー。
+     */
     virtual TResult<ModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept = 0;
 
-    // ユーザー名モデレーション (アカウント作成 / 改名時)。
-    // 通常 text モデレーションより厳しい (= 短い文字列内の侮辱・なりすまし検出を強化)。
-    // Stub では text と同じ NG ワード辞書を流用する。
+    /**
+     * ユーザー名をモデレーションする (アカウント作成 / 改名時)。
+     *
+     * @details 通常 text より厳しい (短い文字列内の侮辱・なりすまし検出を強化)。Stub では
+     * text と同じ NG ワード辞書を流用する。
+     * @param name 判定対象のユーザー名。
+     * @return 判定結果、または API 失敗時のエラー。
+     */
     virtual TResult<ModerationResult> ModerateUserName(const char* name) noexcept = 0;
 
-    // 非同期処理ポンプ (REST 結果ポーリング / 内部キュー dispatch)。
-    // ゲームループから毎フレーム呼ぶこと。Stub は no-op。
+    /**
+     * 非同期処理ポンプ (REST 結果ポーリング / 内部キュー dispatch)。
+     *
+     * @details ゲームループから毎フレーム呼ぶこと。Stub は no-op。
+     * @param dt 経過秒。
+     */
     virtual void Tick(f32 dt) noexcept = 0;
 
-    // 実 SDK 接続中 (= 同期 / 非同期どちらでも API を発火できる状態) なら true。
-    // Stub は常に true (= 依存ゼロで即可用)。
+    /**
+     * API を発火できる状態かを返す。
+     *
+     * @return 実 SDK 接続中 (同期 / 非同期どちらでも発火可) なら true。Stub は常に true。
+     */
     virtual bool IsAvailable() const noexcept = 0;
 };
 
-// =============================================================================
-// ContentModeratorStub — 依存ゼロのデフォルト実装 (ローカルテキストフィルタ)
-// -----------------------------------------------------------------------------
-// ・text: 内部の小さな NG 単語リスト (kBlockedWords[]) に対し、
-//     (a) 生文字列の ASCII 大小文字非感受 contain チェック、および
-//     (b) **正規化文字列** (小文字化 + leet 数字/記号置換 + 空白/記号除去) の
-//         contain チェックの 2 経路で照合する。これにより `f u c k` / `f.u.c.k` /
-//         `sh1t` 風の spaced / 記号挿入 / 桁置換変種も同じ辞書エントリで捕捉する。
-//   ヒット時は verdict=Block / rating=Mature が基本。但し `SexualMinor` 関連
-//   keyword (kHardcodedBlockWords[]) にヒットした場合は **必ず**
-//   verdict=Block / rating=SexualMinor_HardcodedBlock を返す (= ハードコード block)。
-// ・image: ローカルに画像分類器が無いため判定不能。**Safe と断定せず**
-//     verdict=Allow / rating=Mature ("ローカル未審査") で通過させる seam。
-//     実 NSFW 分類器 (ローカル ONNX / リモート API) は別モジュールで override する。
-//     size==0 / nullptr は BadArgument。
-// ・username: text と同じ正規化付き辞書照合を使用。
-// ・Tick(dt) / IsAvailable() は no-op (常に true)。
-// =============================================================================
+/**
+ * 依存ゼロのデフォルト実装 (ローカルテキストフィルタ + 肌色比率画像判定)。
+ *
+ * @details
+ * text/username は NG 単語リストに対し (a) 生文字列の ASCII 大小文字非感受 contain と
+ * (b) 正規化文字列 (小文字化 + leet 置換 + 空白/記号除去) の contain の 2 経路で照合し、
+ * `f u c k` / `f.u.c.k` / `sh1t` 風の変種も捕捉する。SexualMinor 関連 keyword にヒット
+ * した場合は必ず verdict=Block / rating=SexualMinor_HardcodedBlock を返す。image は外部
+ * SDK 無しで肌色比率 heuristic (Kovac et al.) を使い、露出度から verdict/rating を判定する
+ * (size==0 / nullptr は BadArgument)。Tick / IsAvailable は no-op (常に true)。
+ */
 class ContentModeratorStub final : public IContentModerator {
 public:
+    /** 既定構築する。 */
     ContentModeratorStub() noexcept = default;
+
+    /** 破棄する。 */
     ~ContentModeratorStub() noexcept override = default;
 
+    /**
+     * テキストを NG ワード辞書で判定する。
+     *
+     * @param user_id Stub では未使用 (nullptr 可)。
+     * @param text 判定対象テキスト (nullptr / 空文字は Allow)。
+     * @return 判定結果 (常に Ok)。
+     */
     TResult<ModerationResult> ModerateText(const char* user_id, const char* text) noexcept override;
+
+    /**
+     * 画像をローカルデコードし肌色比率 heuristic で判定する。
+     *
+     * @param user_id Stub では未使用 (nullptr 可)。
+     * @param image_data 判定対象の生バイト列。
+     * @param size image_data のバイト数 (0 / nullptr / デコード不能は BadArgument)。
+     * @return 判定結果、または不正引数 / デコード失敗時のエラー。
+     */
     TResult<ModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept override;
+
+    /**
+     * ユーザー名を text と同じ NG ワード辞書で判定する。
+     *
+     * @param name 判定対象のユーザー名。
+     * @return 判定結果 (常に Ok)。
+     */
     TResult<ModerationResult> ModerateUserName(const char* name) noexcept override;
+
+    /**
+     * 非同期キューを持たないため no-op。
+     *
+     * @param dt 経過秒 (未使用)。
+     */
     void                     Tick(f32 dt) noexcept override;
+
+    /**
+     * 常に利用可能であることを返す。
+     *
+     * @return 常に true (依存ゼロで即可用)。
+     */
     bool                     IsAvailable() const noexcept override { return true; }
 
-    // 既にデコード済みの RGBA8 ピクセル列を直接 NSFW 判定する公開 API。
-    // エンジンが CPU 側にテクスチャを持っている場合に再デコードを避けられる。
-    // 肌色比率 heuristic (Kovac et al.) で露出度を推定する本実装。
+    /**
+     * デコード済み RGBA8 ピクセル列を直接 NSFW 判定する。
+     *
+     * @details エンジンが CPU 側にテクスチャを持つ場合に再デコードを避けられる。肌色比率
+     * heuristic (Kovac et al.) で露出度を推定する。
+     * @param rgba RGBA8 ピクセル列 (4ch interleaved)。
+     * @param width 画像幅 (px)。0 は BadArgument。
+     * @param height 画像高さ (px)。0 は BadArgument。
+     * @return 判定結果、または不正引数時のエラー。
+     */
     TResult<ModerationResult> ModerateImageRgba8(const u8* rgba, u32 width, u32 height) noexcept;
 
 private:
-    // 肌色比率 → verdict/rating のしきい値判定 (ModerateImage / RGBA 直接判定で共用)。
+    /**
+     * 肌色比率を verdict/rating のしきい値で判定する (ModerateImage / RGBA 直接判定で共用)。
+     *
+     * @param skin_ratio 不透明ピクセルに対する肌色ピクセルの比率 [0,1]。
+     * @return しきい値に応じた判定結果 (常に Ok)。
+     */
     TResult<ModerationResult> ClassifyImageRatio(f32 skin_ratio) const noexcept;
 };
 
-// =============================================================================
-// GetModeratorStub() — 全コードで共有できる static singleton
-// -----------------------------------------------------------------------------
-// 実 SDK 実装が DI される前のデフォルト。FSteamworksBridge::GetStub() と同じ規約。
-// =============================================================================
+/**
+ * 全コードで共有できる Stub の static singleton を返す。
+ *
+ * @details 実 SDK 実装が DI される前のデフォルト。FSteamworksBridge::GetStub() と同じ規約。
+ * @return 共有 ContentModeratorStub への参照。
+ */
 IContentModerator& GetModeratorStub() noexcept;
 
 } // namespace acs::game

@@ -2,7 +2,7 @@
 // =============================================================================
 // ACS FAssetPack — FAcpakReader 実装 (Win32 I/O + CRC32 検証)
 // -----------------------------------------------------------------------------
-// Phase 1 実装範囲:
+// 実装範囲:
 //   ・magic / version / flags 検証
 //   ・file table をエントリ毎に逐次読み出して `TArray<FAcpakFileEntry>` を構築
 //   ・各 path は `m_StringPool` に NUL 終端付きで連結保存し、entry.path はその
@@ -24,37 +24,43 @@
 #include "foundation/Log.h"
 #include "memory/Memory.h"         // MemCopy / MemSet
 
-#include "assetpack/AcpakCrypto.h" // Phase 2: AES-256-GCM 復号
-#include "assetpack/AcpakLz4.h"    // Phase 2: LZ4 解凍
+#include "assetpack/AcpakCrypto.h" // AES-256-GCM 復号
+#include "assetpack/AcpakLz4.h"    // LZ4 解凍
 
 namespace acs::assetpack {
 
-// ============================================================================
-// 名前無し名前空間: CRC32 + 低レベル read helper
-// ============================================================================
 namespace {
 
-// ---- CRC32 (poly 0xEDB88320, init/xorout 0xFFFFFFFF) ----------------------
-// 256-entry lookup table を最初の呼び出し時に組み立てる。Meyer's singleton で
-// thread-safe (C++11 以降の規格保証)。
+/**
+ * CRC32 lookup table (poly 0xEDB88320) を遅延構築して返す。
+ *
+ * @details 256-entry table を最初の呼び出し時に組み立てる (Meyers singleton)。
+ * @return 256 要素の CRC32 lookup table。
+ */
 const u32* GetCrc32Table() noexcept {
-    static u32 m_Table[256] = {};
-    static bool m_Initialized = false;
-    if (!m_Initialized) {
+    static u32 table[256] = {};
+    static bool initialized = false;
+    if (!initialized) {
         for (u32 i = 0; i < 256; ++i) {
             u32 c = i;
             for (u32 k = 0; k < 8; ++k) {
                 c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
             }
-            m_Table[i] = c;
+            table[i] = c;
         }
-        m_Initialized = true;
+        initialized = true;
     }
-    return m_Table;
+    return table;
 }
 
-// バイト列の CRC32 を計算する。
-// init = 0xFFFFFFFF, xorout = 0xFFFFFFFF (Zlib / PNG と同じ規約)。
+/**
+ * バイト列の CRC32 を計算する。
+ *
+ * @details init = 0xFFFFFFFF, xorout = 0xFFFFFFFF (Zlib / PNG と同じ規約)。
+ * @param data CRC を計算する対象バイト列。
+ * @param size data のバイト数。
+ * @return 計算した CRC32。
+ */
 u32 ComputeCrc32(const void* data, u64 size) noexcept {
     const u32* table = GetCrc32Table();
     const u8*  p     = static_cast<const u8*>(data);
@@ -65,9 +71,19 @@ u32 ComputeCrc32(const void* data, u64 size) noexcept {
     return crc ^ 0xFFFFFFFFu;
 }
 
-// ---- Win32 read helper -----------------------------------------------------
-// SetFilePointerEx + ReadFile を 1 度で行うラッパ。
-// 失敗時は false を返し、err に GetLastError を入れる (成功時 err = 0)。
+/**
+ * 指定オフセットから size バイトを dst に読み出す (SetFilePointerEx + ReadFile)。
+ *
+ * @details
+ * ReadFile は DWORD (32bit) 単位でしか読めないため、4GiB 超はチャンク分割して
+ * ループする。size == 0 は何もせず成功を返す。
+ * @param h 読み出し対象のファイルハンドル。
+ * @param offset 読み出し開始のファイルオフセット。
+ * @param dst 読み出し先バッファ。
+ * @param size 読み出すバイト数。
+ * @param err 失敗時に GetLastError の値を格納する (成功時 0)。
+ * @return 成功なら true、失敗なら false。
+ */
 bool ReadAt(HANDLE h, u64 offset, void* dst, u64 size, DWORD& err) noexcept {
     err = 0;
     if (size == 0) return true;
@@ -81,7 +97,7 @@ bool ReadAt(HANDLE h, u64 offset, void* dst, u64 size, DWORD& err) noexcept {
     u8* dst_b = static_cast<u8*>(dst);
     u64 remaining = size;
     while (remaining > 0) {
-        DWORD chunk = (remaining > 0x7FFFFFFFu)
+        const DWORD chunk = (remaining > 0x7FFFFFFFu)
                           ? 0x7FFFFFFFu
                           : static_cast<DWORD>(remaining);
         DWORD got = 0;
@@ -96,23 +112,40 @@ bool ReadAt(HANDLE h, u64 offset, void* dst, u64 size, DWORD& err) noexcept {
     return true;
 }
 
-// ---- little-endian バイト列読み取り (strict-aliasing 安全) ----------------
-// reinterpret_cast<u32*>(buf) は strict-aliasing 違反になり得るので、
-// memcpy ベースで読み出す。ACS 対応プラットフォームは全て LE なので
-// memcpy の生バイト並びがそのまま LE 整数になる。
+/**
+ * 4 バイトを u32 (LE) として strict-aliasing 安全に読む。
+ *
+ * @details
+ * reinterpret_cast<u32*> は strict-aliasing 違反になり得るため memcpy で読む。
+ * ACS 対応プラットフォームは全て LE なので生バイト並びがそのまま LE 整数になる。
+ * @param src 読み出し元 (4 バイト)。
+ * @return 読み出した u32。
+ */
 u32 ReadU32LE(const u8* src) noexcept {
     u32 v = 0;
     MemCopy(&v, src, sizeof(u32));
     return v;
 }
 
+/**
+ * 8 バイトを u64 (LE) として strict-aliasing 安全に読む。
+ *
+ * @param src 読み出し元 (8 バイト)。
+ * @return 読み出した u64。
+ */
 u64 ReadU64LE(const u8* src) noexcept {
     u64 v = 0;
     MemCopy(&v, src, sizeof(u64));
     return v;
 }
 
-// 自前 wcscmp (依存ヘッダを増やさない)。両方 NUL 終端前提。
+/**
+ * 自前 wcscmp で 2 つの NUL 終端 wchar_t 列を比較する (依存ヘッダを増やさない)。
+ *
+ * @param a 比較対象の文字列 (NUL 終端)。
+ * @param b 比較対象の文字列 (NUL 終端)。
+ * @return 一致なら 0、a<b で負、a>b で正。
+ */
 int CompareW(const wchar_t* a, const wchar_t* b) noexcept {
     while (*a && (*a == *b)) { ++a; ++b; }
     return static_cast<int>(*a) - static_cast<int>(*b);
@@ -120,14 +153,12 @@ int CompareW(const wchar_t* a, const wchar_t* b) noexcept {
 
 } // namespace
 
-// ============================================================================
-// FAcpakReader 実装
-// ============================================================================
-
+/** 破棄時に Close を呼んで後始末する。 */
 FAcpakReader::~FAcpakReader() noexcept {
     Close();
 }
 
+/** ハンドルを閉じ、文字列 pool + entry 配列 + 鍵情報を解放/0 クリアする。 */
 void FAcpakReader::Close() noexcept {
     if (m_FileHandle != nullptr) {
         ::CloseHandle(static_cast<HANDLE>(m_FileHandle));
@@ -144,11 +175,13 @@ void FAcpakReader::Close() noexcept {
     m_HasKey = false;
 }
 
+/** 暗号化 pak の復号鍵を内部にコピーし、鍵設定済みフラグを立てる。 */
 void FAcpakReader::SetKey(const FAcpakKey& key) noexcept {
     MemCopy(m_Key.bytes, key.bytes, sizeof(m_Key.bytes));
     m_HasKey = true;
 }
 
+/** `.acpak` を開き、header と file table を読み出す (失敗時は Close 相当に戻す)。 */
 TResult<void> FAcpakReader::Open(const wchar_t* file_path) noexcept {
     // 二度目以降の Open は前回を黙って閉じる (gameframework の Mount 流儀)。
     if (IsOpen()) Close();
@@ -158,7 +191,7 @@ TResult<void> FAcpakReader::Open(const wchar_t* file_path) noexcept {
                        "FAcpakReader::Open: file_path is null");
     }
 
-    HANDLE h = ::CreateFileW(file_path, GENERIC_READ, FILE_SHARE_READ, nullptr,
+    const HANDLE h = ::CreateFileW(file_path, GENERIC_READ, FILE_SHARE_READ, nullptr,
                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) {
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
@@ -168,7 +201,7 @@ TResult<void> FAcpakReader::Open(const wchar_t* file_path) noexcept {
 
     LARGE_INTEGER size{};
     if (!::GetFileSizeEx(h, &size)) {
-        DWORD err = ::GetLastError();
+        const DWORD err = ::GetLastError();
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
                           "FAcpakReader::Open: GetFileSizeEx failed", err);
@@ -177,7 +210,7 @@ TResult<void> FAcpakReader::Open(const wchar_t* file_path) noexcept {
     m_FileHandle = h;
     m_FileSize   = static_cast<u64>(size.QuadPart);
 
-    auto r = LoadHeaderAndTable();
+    const auto r = LoadHeaderAndTable();
     if (r.IsErr()) {
         Close();
         return r.Error();
@@ -185,20 +218,17 @@ TResult<void> FAcpakReader::Open(const wchar_t* file_path) noexcept {
     return Ok();
 }
 
-// ----------------------------------------------------------------------------
-// LoadHeaderAndTable — header (36B) と file table の全 entry を読み出す
-// ----------------------------------------------------------------------------
-// 2 パス構成:
-//   Pass 1: 各 entry の (path_len, offset, size_uncompressed, size_stored,
-//           crc32, path_pool_offset) を `entries_raw` に読み出す。path 文字列
-//           は `paths_temp` に連結保存し、m_StringPool の最終サイズを確定する。
-//   Pass 2: m_StringPool に paths_temp をコピーし、entries_raw を m_Entries
-//           に変換 (entry.path = pool_base + path_pool_offset)。
-//
-// このやり方なら m_StringPool は Pass 2 で 1 度だけ Resize するので、
-// PushBack 中の re-grow による dangling pointer が起きない。
+/** header (36B) と file table の全 entry を 2 パスで読み出す。 */
 TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
-    HANDLE h = static_cast<HANDLE>(m_FileHandle);
+    // 2 パス構成:
+    //   Pass 1: 各 entry の (path_len, offset, size_uncompressed, size_stored,
+    //           crc32, path_pool_offset) を読み出す。path 文字列は paths_temp に
+    //           連結保存し、m_StringPool の最終サイズを確定する。
+    //   Pass 2: m_StringPool に paths_temp をコピーし、entries_raw を m_Entries
+    //           に変換 (entry.path = pool_base + path_pool_offset)。
+    // このやり方なら m_StringPool は Pass 2 で 1 度だけ Resize するので、
+    // PushBack 中の re-grow による dangling pointer が起きない。
+    const HANDLE h = static_cast<HANDLE>(m_FileHandle);
 
     if (m_FileSize < kAcpakHeaderDiskSize) {
         return ACS_ERR(IO, kAcpakSubBadSize,
@@ -235,7 +265,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
                        "FAcpakReader::Open: unsupported .acpak version");
     }
 
-    // Phase 2: Encrypted / Compressed bit は実装済。未知 bit のみ拒否する。
+    // Encrypted / Compressed bit は実装済。未知 bit のみ拒否する。
     const u32 known_flags = static_cast<u32>(AcpakFlagEncrypted) |
                             static_cast<u32>(AcpakFlagCompressed);
     if ((flags & ~known_flags) != 0) {
@@ -259,7 +289,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
     // ---- Pass 1: 各 entry のメタデータと path 長を読み、path 文字列を
     //              `paths_temp` (TArray<wchar_t>) に連結する -----------------
     // 内部表現: entry のうち path だけ後で resolve するので、index 配列を別途
-    // 保持する。Phase 2: encrypted pak のときは追加で cipher_nonce/tag も読む。
+    // 保持する。encrypted pak のときは追加で cipher_nonce/tag も読む。
     struct RawEntry {
         u32 path_len;          // wchar_t 数
         u32 path_pool_offset;  // m_StringPool 内の先頭オフセット (wchar_t 単位)
@@ -307,7 +337,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
         const u64 path_bytes = static_cast<u64>(path_len) * sizeof(wchar_t);
         // entry の残りサイズ: path + offset(8) + size_uncompressed(8) +
         // size_stored(8) + crc32(4) = path_bytes + 28
-        // Phase 2: encrypted のときはさらに cipher_nonce(12) + cipher_tag(16) = 28
+        // encrypted のときはさらに cipher_nonce(12) + cipher_tag(16) = 28
         const u64 tail_bytes = is_encrypted
                                    ? (28u + kAcpakCipherFieldsDiskSize)
                                    : 28u;
@@ -367,7 +397,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
             return ACS_ERR(IO, kAcpakSubBadSize,
                            "FAcpakReader::Open: entry data range out of file");
         }
-        // Phase 2: stored != uncompressed は AcpakFlagCompressed のときだけ許容。
+        // stored != uncompressed は AcpakFlagCompressed のときだけ許容。
         // Compressed 立ってないのに stored != uncompressed なら破損アーカイブ。
         if (!is_compressed && r.size_stored != r.size_uncompressed) {
             return ACS_ERR(Asset, kAcpakSubBadSize,
@@ -407,11 +437,16 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept {
     return Ok();
 }
 
-// ----------------------------------------------------------------------------
-// InternPath (legacy helper) — Pass 1/Pass 2 構造に変えたため未使用。
-// 仕様上は header に宣言があるので空実装を残す (将来 incremental add で
-// 使う余地があるため delete はしない)。
-// ----------------------------------------------------------------------------
+/**
+ * src の wchar_t 列を m_StringPool に NUL 付きで追加し、その先頭を返す。
+ *
+ * @details
+ * 現在の LoadHeaderAndTable は 2 パス構造でこの helper を使わない (= 未使用)。
+ * header に宣言があるため空実装を残している。
+ * @param src 追加する文字列。
+ * @param len src の wchar_t 数。
+ * @return pool 内に確保された文字列の先頭ポインタ。
+ */
 const wchar_t* FAcpakReader::InternPath(const wchar_t* src, u32 len) noexcept {
     const usize prev = m_StringPool.Size();
     for (u32 i = 0; i < len; ++i) {
@@ -421,16 +456,14 @@ const wchar_t* FAcpakReader::InternPath(const wchar_t* src, u32 len) noexcept {
     return m_StringPool.Data() + prev;
 }
 
-// ----------------------------------------------------------------------------
-// GetEntry / FindEntry
-// ----------------------------------------------------------------------------
-
+/** index 番目の entry を返す (範囲外 / 未 Open なら nullptr)。 */
 const FAcpakFileEntry* FAcpakReader::GetEntry(u32 index) const noexcept {
     if (!IsOpen()) return nullptr;
     if (static_cast<usize>(index) >= m_Entries.Size()) return nullptr;
     return &m_Entries[static_cast<usize>(index)];
 }
 
+/** 仮想パスから entry を線形探索で探す (無い / 未 Open なら nullptr)。 */
 const FAcpakFileEntry* FAcpakReader::FindEntry(const wchar_t* path) const noexcept {
     if (!IsOpen() || path == nullptr) return nullptr;
     for (usize i = 0; i < m_Entries.Size(); ++i) {
@@ -441,10 +474,7 @@ const FAcpakFileEntry* FAcpakReader::FindEntry(const wchar_t* path) const noexce
     return nullptr;
 }
 
-// ----------------------------------------------------------------------------
-// GetUncompressedSize / ReadFile
-// ----------------------------------------------------------------------------
-
+/** 仮想パスの復号 + 解凍後のバイト数を返す (未存在は kAcpakSubNotFound)。 */
 TResult<u64> FAcpakReader::GetUncompressedSize(const wchar_t* path) const noexcept {
     if (!IsOpen()) {
         return ACS_ERR(IO, kAcpakSubNotOpen,
@@ -458,6 +488,7 @@ TResult<u64> FAcpakReader::GetUncompressedSize(const wchar_t* path) const noexce
     return TResult<u64>(OkInit, e->size_uncompressed);
 }
 
+/** 仮想パスのファイルを out_buffer に読み出す (復号 → 解凍 → CRC32 検証)。 */
 TResult<u64> FAcpakReader::ReadFile(const wchar_t* path,
                                   void*          out_buffer,
                                   u64            buffer_size) noexcept {
@@ -482,7 +513,7 @@ TResult<u64> FAcpakReader::ReadFile(const wchar_t* path,
     const bool is_encrypted  = (m_Flags & static_cast<u32>(AcpakFlagEncrypted))  != 0u;
     const bool is_compressed = (m_Flags & static_cast<u32>(AcpakFlagCompressed)) != 0u;
 
-    HANDLE h = static_cast<HANDLE>(m_FileHandle);
+    const HANDLE h = static_cast<HANDLE>(m_FileHandle);
     DWORD  err = 0;
 
     // 暗号化 pak で鍵未設定なら早期に弾く (Decrypt がいずれにせよ失敗するが、
@@ -540,8 +571,8 @@ TResult<u64> FAcpakReader::ReadFile(const wchar_t* path,
     // size_stored == 0 (= 元から空ファイル) でも GMAC 動作で tag 検証を行う。
     // ここを skip すると空ファイルの cipher_tag が攻撃者に書き換え自由になる。
     if (is_encrypted) {
-        u8* p = static_cast<u8*>(stored_dst);
-        auto dr = FAcpakCrypto::Decrypt(m_Key,
+        u8* const p = static_cast<u8*>(stored_dst);
+        const auto dr = FAcpakCrypto::Decrypt(m_Key,
                                        e->cipher_nonce,
                                        e->cipher_tag,
                                        p, e->size_stored,
@@ -559,7 +590,7 @@ TResult<u64> FAcpakReader::ReadFile(const wchar_t* path,
             return ACS_ERR(Asset, kAcpakSubBadSize,
                            "FAcpakReader::ReadFile: uncompressed size > 4GiB (LZ4 limit)");
         }
-        auto dr = FAcpakLz4::Decompress(tmp.Data(),
+        const auto dr = FAcpakLz4::Decompress(tmp.Data(),
                                        static_cast<u32>(e->size_stored),
                                        static_cast<u8*>(out_buffer),
                                        static_cast<u32>(buffer_size));

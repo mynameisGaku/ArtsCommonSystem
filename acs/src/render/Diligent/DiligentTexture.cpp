@@ -10,6 +10,7 @@
 
 namespace acs {
 
+/** per-slice RTV とテクスチャ本体を解放する (default view は ITexture 所有のため触らない)。 */
 DiligentTexture::~DiligentTexture() noexcept {
     // m_Srv/m_Rtv/m_Dsv は ITexture が所有するビューなので個別 Release は不要。
     // per_slice_rtv で CreateView した別個ビューだけ明示 Release。
@@ -19,6 +20,7 @@ DiligentTexture::~DiligentTexture() noexcept {
     if (m_Texture) { m_Texture->Release(); m_Texture = nullptr; }
 }
 
+/** per_slice_rtv で生成した slice/mip 単位の RTV を返す (範囲外なら nullptr)。 */
 Diligent::ITextureView* DiligentTexture::RtvSlice(u32 slice, u32 mip) const noexcept {
     if (m_ArraySize == 0 || m_Mips == 0) return nullptr;
     if (slice >= m_ArraySize || mip >= m_Mips) return nullptr;
@@ -27,6 +29,7 @@ Diligent::ITextureView* DiligentTexture::RtvSlice(u32 slice, u32 mip) const noex
     return m_SliceRtvs[idx];
 }
 
+/** 記述に従ってテクスチャ・default view・任意の per-slice RTV を生成する。 */
 TResult<void> DiligentTexture::Init(DiligentDevice& device, const FTextureDesc& desc) noexcept {
     m_Device  = &device;
     m_Width   = desc.width;
@@ -82,8 +85,8 @@ TResult<void> DiligentTexture::Init(DiligentDevice& device, const FTextureDesc& 
     Diligent::TextureData*      p_init = nullptr;
     if (desc.initial_data && desc.initial_data_size > 0
         && (m_ArraySize > 1 || m_Mips > 1) && !m_IsDepth && !m_IsRt) {
-        // cubemap / array / mip > 1 への initial_data は現状未サポート (Phase 31 では
-        // GPU 上で焼く設計に倒している)。silent drop を防ぐため明示的に警告する。
+        // cubemap / array / mip > 1 への initial_data は現状未サポート
+        // (GPU 上で焼く設計に倒している)。silent drop を防ぐため明示的に警告する。
         ACS_LOG_WARN("DiligentTexture: initial_data ignored for array_size=%u mips=%u",
                      m_ArraySize, m_Mips);
     }

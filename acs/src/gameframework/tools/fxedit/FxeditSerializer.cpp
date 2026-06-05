@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — `.fxedit` テキストシリアライザ実装 (Phase 19b)
+// GameFramework Tools — `.fxedit` テキストシリアライザ実装
 //
 // テキスト形式の詳細仕様は FFxeditSerializer.h を参照。
 //
@@ -37,18 +37,26 @@
 
 namespace acs::game::fxedit {
 
-// =============================================================================
-// 内部ヘルパ
-// =============================================================================
 namespace {
 
-// ASCII printable 範囲かどうか (' ' を除く制御文字を排除する用途)。
+/**
+ * ASCII printable 範囲かを返す (制御文字を排除する用途)。
+ *
+ * @param c 判定する文字。
+ * @return 0x20..0x7E なら true。
+ */
 inline bool IsAsciiPrintable(char c) noexcept {
     return c >= 0x20 && c < 0x7F;
 }
 
-// 任意の終端文字列について長さを計算 (max_len で打ち切り)。
-// `std::strlen` 相当だが上限付きで NUL なし入力の暴走を防ぐ。
+/**
+ * 終端文字列の長さを上限付きで計算する。
+ *
+ * @details `std::strlen` 相当だが上限付きで NUL なし入力の暴走を防ぐ。
+ * @param s 対象文字列 (nullptr 可)。
+ * @param max_len 走査する最大バイト数。
+ * @return NUL または max_len までの長さ。s が nullptr なら 0。
+ */
 inline usize StrLenBounded(const char* s, usize max_len) noexcept {
     if (s == nullptr) return 0;
     usize n = 0;
@@ -56,8 +64,14 @@ inline usize StrLenBounded(const char* s, usize max_len) noexcept {
     return n;
 }
 
-// out_buf に NUL 終端文字列を append し、終端 NUL は書かない (まとめて
-// 後で書く)。capacity を超えそうな場合は false を返す。
+/**
+ * out に len バイト分の文字列を append する (終端 NUL は書かない)。
+ *
+ * @param out 追記先のバイト配列。
+ * @param s コピー元 (len バイト)。
+ * @param len 追記するバイト数。
+ * @return 追記できたら true、alloc 失敗なら false。
+ */
 inline bool AppendStr(TArray<char>& out, const char* s, usize len) noexcept {
     const usize old = out.Size();
     out.Resize(old + len);
@@ -66,6 +80,13 @@ inline bool AppendStr(TArray<char>& out, const char* s, usize len) noexcept {
     return true;
 }
 
+/**
+ * out に 1 文字を append する。
+ *
+ * @param out 追記先のバイト配列。
+ * @param c 追記する文字。
+ * @return 追記できたら true、alloc 失敗なら false。
+ */
 inline bool AppendChar(TArray<char>& out, char c) noexcept {
     const usize old = out.Size();
     out.Resize(old + 1);
@@ -74,9 +95,17 @@ inline bool AppendChar(TArray<char>& out, char c) noexcept {
     return true;
 }
 
-// "<key> v0 [v1 [v2 [v3]]]\n" 行を append する。
-//  ・count = 値の個数 (1..4)。
-//  ・prefix が non-null なら "<prefix> " を頭に付ける ("E0 " など)。
+/**
+ * "<key> v0 [v1 [v2 [v3]]]\n" 行を append する。
+ *
+ * @details 数値は `%g` フォーマットで出力する。
+ * @param out 追記先のバイト配列。
+ * @param prefix non-null なら "<prefix> " を頭に付ける ("E0" など)。null なら付けない。
+ * @param key 出力する key 文字列。
+ * @param values 出力する数値配列 (count 個)。
+ * @param count 値の個数 (1..4 にクランプ)。
+ * @return 追記できたら true、整形溢れ / alloc 失敗なら false。
+ */
 bool AppendKeyValueLine(TArray<char>& out,
                         const char*  prefix,
                         const char*  key,
@@ -102,7 +131,15 @@ bool AppendKeyValueLine(TArray<char>& out,
     return AppendStr(out, line, static_cast<usize>(n));
 }
 
-// "<prefix> name \"<value>\"\n" を append する (引用符付き文字列 key 用)。
+/**
+ * "<prefix> name \"<value>\"\n" を append する (引用符付き文字列 key 用)。
+ *
+ * @details name 内の非 printable 文字と `"` は `_` に置換し、kMaxEmitterName で切り詰める。
+ * @param out 追記先のバイト配列。
+ * @param prefix 行頭に付ける emitter prefix ("E0" など)。
+ * @param name 出力する emitter 名 (nullptr は "" 扱い)。
+ * @return 追記できたら true、整形溢れ / alloc 失敗なら false。
+ */
 bool AppendNameLine(TArray<char>& out,
                     const char*  prefix,
                     const char*  name) noexcept {
@@ -126,11 +163,20 @@ bool AppendNameLine(TArray<char>& out,
     return AppendStr(out, line, static_cast<usize>(n));
 }
 
-// 1 行をテキスト本体から取り出す。
-//  text[pos..] から `\n` または `\0` まで読み、行内容を out_line に書き込み
-//  (NUL 終端付き、末尾 \r は除去)、`pos` を次の行頭まで進める。
-//  out_line は kMaxLineLength + 1 バイト確保しておく前提。
-//  戻り値: 何か行を取り出した (空行含む) なら true、入力が末端なら false。
+/**
+ * テキスト本体から 1 行を取り出す。
+ *
+ * @details
+ * text[pos..] から `\n` または `\0` まで読み、行内容を out_line に NUL 終端付きで
+ * 書き込み (末尾 \r は除去)、pos を次の行頭まで進める。out_line は out_line_capacity
+ * バイト確保しておく前提。
+ * @param text テキスト本体。
+ * @param text_len text の長さ (バイト)。
+ * @param pos 走査位置。読み終えた次の行頭に更新される。
+ * @param out_line 行内容の書き込み先 (NUL 終端付き)。
+ * @param out_line_capacity out_line のバイト数。
+ * @return 行を取り出した (空行含む) なら true、入力が末端なら false。
+ */
 bool ReadOneLine(const char* text,
                  usize       text_len,
                  usize&      pos,
@@ -151,8 +197,12 @@ bool ReadOneLine(const char* text,
     return true;
 }
 
-// "ACS_FXEDIT" を line から探して version を読む。
-// 失敗時は 0 を返す。
+/**
+ * 行頭の "ACS_FXEDIT <v>" から version を読む。
+ *
+ * @param line 検査する 1 行。
+ * @return 読めた version。magic 不一致 / 数値が無い場合は 0。
+ */
 u32 ParseMagicLine(const char* line) noexcept {
     const char* p = line;
     // 先頭の空白スキップ。
@@ -175,8 +225,14 @@ u32 ParseMagicLine(const char* line) noexcept {
     return any ? v : 0u;
 }
 
-// "E<digits>" prefix から emitter index を取り出す。失敗時は false。
-// key_begin..key_end は line 内のスライス (key_end は exclusive)。
+/**
+ * "E<digits>" prefix から emitter index を取り出す。
+ *
+ * @param key_begin key スライスの開始ポインタ。
+ * @param key_end key スライスの終端ポインタ (exclusive)。
+ * @param out_index 取り出した index の格納先。
+ * @return 正しく解析できたら true、形式不正なら false。
+ */
 bool ParseEmitterIndex(const char* key_begin,
                       const char* key_end,
                       u32&        out_index) noexcept {
@@ -194,7 +250,14 @@ bool ParseEmitterIndex(const char* key_begin,
     return true;
 }
 
-// key 文字列が固定リテラル lit と等しいか比較 (key は空白で区切られたスライス)。
+/**
+ * key スライスが固定リテラルと等しいかを比較する。
+ *
+ * @param key_begin key スライスの開始ポインタ。
+ * @param key_end key スライスの終端ポインタ (exclusive)。
+ * @param lit 比較対象の NUL 終端リテラル。
+ * @return key スライスと lit が完全一致なら true。
+ */
 bool KeyEquals(const char* key_begin,
               const char* key_end,
               const char* lit) noexcept {
@@ -206,8 +269,14 @@ bool KeyEquals(const char* key_begin,
     return (key_begin + i == key_end) && lit[i] == '\0';
 }
 
-// `"<value>"` 形式から中身を抽出して dst に格納する (NUL 終端、上限あり)。
-// 引用符が無い場合は失敗 → false。
+/**
+ * `"<value>"` 形式から中身を抽出して dst に格納する。
+ *
+ * @param line 抽出元の文字列 (引用符を含む)。
+ * @param dst 抽出結果の格納先 (NUL 終端、dst_capacity-1 で切り詰め)。
+ * @param dst_capacity dst のバイト数。
+ * @return 引用符内を抽出できたら true、開き引用符が無ければ false。
+ */
 bool ExtractQuotedName(const char* line,
                       char*       dst,
                       usize       dst_capacity) noexcept {
@@ -226,21 +295,14 @@ bool ExtractQuotedName(const char* line,
 
 } // namespace
 
-// =============================================================================
-// SkipWhitespace
-// =============================================================================
+/** ' ' / '\t' / '\r' / '\n' を読み飛ばす (NUL で停止)。 */
 const char* FFxeditSerializer::SkipWhitespace(const char* p) noexcept {
     if (p == nullptr) return nullptr;
     while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') ++p;
     return p;
 }
 
-// =============================================================================
-// ParseLine — "<key> v0 [v1] [v2] [v3]" を構文解析
-// -----------------------------------------------------------------------------
-// out_key は line 内の先頭文字を指すポインタ (NUL 終端ではない、長さは
-// 呼出側で再計算)。値が存在しないスロットには 0.0f を入れる。
-// =============================================================================
+/** "<key> v0 [v1] [v2] [v3]" を構文解析する (空スロットは 0.0f)。 */
 bool FFxeditSerializer::ParseLine(const char*  line,
                                  const char*& out_key,
                                  f32&         out_v0,
@@ -275,9 +337,7 @@ bool FFxeditSerializer::ParseLine(const char*  line,
     return true;
 }
 
-// =============================================================================
-// ParseHeaderVersion — 先頭非空行で magic + version を検査
-// =============================================================================
+/** 先頭の非空行で magic + version を検査し、version を返す (失敗時 0)。 */
 u32 FFxeditSerializer::ParseHeaderVersion(const char* text, u32 text_len) noexcept {
     if (text == nullptr || text_len == 0u) return 0u;
     char line[kMaxLineLength + 1];
@@ -290,9 +350,7 @@ u32 FFxeditSerializer::ParseHeaderVersion(const char* text, u32 text_len) noexce
     return 0u;
 }
 
-// =============================================================================
-// Save — defs[count] と names[count] を .fxedit テキストへ書き出す
-// =============================================================================
+/** defs[count] と names[count] を `.fxedit` テキストへ書き出す。 */
 TResult<void, FErrorCode> FFxeditSerializer::Save(const wchar_t*            file_path,
                                                const ParticleEmitterDef* defs,
                                                const char* const*        names,
@@ -304,7 +362,7 @@ TResult<void, FErrorCode> FFxeditSerializer::Save(const wchar_t*            file
     TArray<char> out;
     out.Reserve(static_cast<usize>(count) * kMaxBytesPerEmitter + 128u);
 
-    // ----- header -------------------------------------------------------
+    // header: magic 行 + EMITTER count 行。
     {
         char hdr[64];
         int n = std::snprintf(hdr, sizeof(hdr), "%s %u\n", kMagic, kCurrentVersion);
@@ -321,7 +379,7 @@ TResult<void, FErrorCode> FFxeditSerializer::Save(const wchar_t*            file
         }
     }
 
-    // ----- emitter blocks ----------------------------------------------
+    // emitter blocks: 各 emitter を "E<idx> <key> ..." 行群で出力する。
     for (u32 i = 0; i < count; ++i) {
         char prefix[16];
         int pn = std::snprintf(prefix, sizeof(prefix), "E%u", i);
@@ -389,7 +447,7 @@ TResult<void, FErrorCode> FFxeditSerializer::Save(const wchar_t*            file
     }
 
     // 終端 NUL を書かない (WriteAllText は与えたバイト列をそのまま書く)。
-    auto wr = FileSystem::WriteAllBytes(file_path,
+    const auto wr = FileSystem::WriteAllBytes(file_path,
                                         reinterpret_cast<const byte*>(out.Data()),
                                         out.Size());
     if (wr.IsErr()) {
@@ -402,9 +460,7 @@ TResult<void, FErrorCode> FFxeditSerializer::Save(const wchar_t*            file
     return Ok();
 }
 
-// =============================================================================
-// Load — `.fxedit` テキストを out_defs / out_name_buffer に復元
-// =============================================================================
+/** `.fxedit` テキストを out_defs / out_name_buffer に復元する。 */
 TResult<u32, FErrorCode> FFxeditSerializer::Load(const wchar_t*       file_path,
                                               ParticleEmitterDef*  out_defs,
                                               char*                out_name_buffer,
@@ -420,7 +476,7 @@ TResult<u32, FErrorCode> FFxeditSerializer::Load(const wchar_t*       file_path,
                        "FFxeditSerializer::Load: file not found");
     }
 
-    auto rr = FileSystem::ReadAllText(file_path);
+    const auto rr = FileSystem::ReadAllText(file_path);
     if (rr.IsErr()) {
         return ACS_ERR_OS(IO, kSub_IOFailure,
                           "FFxeditSerializer::Load: ReadAllText failed",
@@ -430,7 +486,7 @@ TResult<u32, FErrorCode> FFxeditSerializer::Load(const wchar_t*       file_path,
     const usize text_len = text.Size() > 0 ? text.Size() - 1u : 0u; // 末尾 NUL を除いた長さ
     const char* text_ptr = text.Size() > 0 ? text.Data() : "";
 
-    // ---- magic + version 検査 -----------------------------------------
+    // magic + version 検査。
     const u32 ver = ParseHeaderVersion(text_ptr,
                                        static_cast<u32>(text_len > 0xFFFFFFFFu ? 0xFFFFFFFFu : text_len));
     if (ver == 0u) {
@@ -444,8 +500,7 @@ TResult<u32, FErrorCode> FFxeditSerializer::Load(const wchar_t*       file_path,
                        "FFxeditSerializer::Load: unsupported version");
     }
 
-    // ---- 1 pass parse ---------------------------------------------------
-    // 既定 def + 空 name で全 slot を初期化しておき、行ごとに上書きしていく。
+    // 1 pass parse: 既定 def + 空 name で全 slot を初期化し、行ごとに上書きする。
     for (u32 i = 0; i < max_emitters; ++i) {
         out_defs[i] = ParticleEmitterDef{};
     }
@@ -481,14 +536,14 @@ TResult<u32, FErrorCode> FFxeditSerializer::Load(const wchar_t*       file_path,
             header_consumed = true;
         }
 
-        // ---- "EMITTER count N" 行 ---------------------------------
+        // "EMITTER count N" 行。
         if (std::strncmp(p, "EMITTER", 7) == 0 &&
             (p[7] == ' ' || p[7] == '\t')) {
             const char* q = SkipWhitespace(p + 7);
             if (std::strncmp(q, "count", 5) == 0 && (q[5] == ' ' || q[5] == '\t')) {
                 q = SkipWhitespace(q + 5);
                 char* endp = nullptr;
-                long c = std::strtol(q, &endp, 10);
+                const long c = std::strtol(q, &endp, 10);
                 if (endp != q && c >= 0) {
                     declared_count    = static_cast<u32>(c);
                     saw_emitter_count = true;
@@ -497,8 +552,7 @@ TResult<u32, FErrorCode> FFxeditSerializer::Load(const wchar_t*       file_path,
             continue;
         }
 
-        // ---- "E<idx> <key> ..." 行 ---------------------------------
-        // key は最初のトークン (= "E<idx>")。
+        // "E<idx> <key> ..." 行。key は最初のトークン (= "E<idx>")。
         const char* tok_begin = p;
         const char* tok_end   = p;
         while (*tok_end != '\0' && *tok_end != ' ' && *tok_end != '\t') ++tok_end;
@@ -518,7 +572,7 @@ TResult<u32, FErrorCode> FFxeditSerializer::Load(const wchar_t*       file_path,
 
         ParticleEmitterDef& d = out_defs[idx];
 
-        // ---- name 行 (引用符付き文字列) ---------------------------
+        // name 行 (引用符付き文字列)。
         if (KeyEquals(k2_begin, k2_end, "name")) {
             if (idx < nameable) {
                 char* dst = out_name_buffer + static_cast<usize>(idx) *
@@ -529,7 +583,7 @@ TResult<u32, FErrorCode> FFxeditSerializer::Load(const wchar_t*       file_path,
             continue;
         }
 
-        // ---- 残りは数値行: 値部分を改めて strtof で読む -----------
+        // 残りは数値行: 値部分を改めて strtof で読む。
         f32 vals[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
         const char* vp = k2_end;
         u32 nv = 0;

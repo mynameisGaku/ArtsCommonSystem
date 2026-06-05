@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U Phase 2 — FDynamicDifficulty 実装
+// GameFramework Pillar U — FDynamicDifficulty 実装
 //
 // 仕様意図は FDynamicDifficulty.h を参照。本ファイルは「離散モード時は乗数を
 // 即返し / Adaptive 時は skill 推定 + smooth lerp」の純粋 state machine。
@@ -7,56 +7,53 @@
 
 namespace acs::game {
 
-// =============================================================================
-// 内部定数 / テーブル
-// -----------------------------------------------------------------------------
-// 4 段乗数テーブル (Easy / Normal / Hard / VeryHard):
-//   ・敵 HP : 0.5 / 1.0 / 1.5 / 2.0  (要件指示)
-//   ・敵ダメ: 0.6 / 1.0 / 1.4 / 1.8
-//   ・敵速度: 0.85 / 1.0 / 1.15 / 1.3 (速度は感触が壊れるので保守的)
-//   ・PHP   : 1.5 / 1.0 / 0.85 / 0.75 (逆相関、Easy で player 多 HP)
-//
-// Adaptive 用 skill 推定の重み:
-//   kill / clear 速度はプラス寄与、retry / death はマイナス寄与。
-//   各統計を「セッション秒で正規化」してから合算 → saturate で [0,1]。
-// =============================================================================
 namespace {
 
+/** 敵 HP 乗数の 4 段テーブル (Easy / Normal / Hard / VeryHard)。 */
 constexpr f32 kEnemyHpTable [4] = { 0.5f,  1.0f,  1.5f,  2.0f  };
+
+/** 敵ダメージ乗数の 4 段テーブル (Easy / Normal / Hard / VeryHard)。 */
 constexpr f32 kEnemyDmgTable[4] = { 0.6f,  1.0f,  1.4f,  1.8f  };
+
+/** 敵速度乗数の 4 段テーブル (感触が壊れるので保守的な値)。 */
 constexpr f32 kEnemySpdTable[4] = { 0.85f, 1.0f,  1.15f, 1.3f  };
+
+/** プレイヤー HP 倍率の 4 段テーブル (難易度と逆相関、Easy で多 HP)。 */
 constexpr f32 kPlayerHpTable[4] = { 1.5f,  1.0f,  0.85f, 0.75f };
 
-// Skill 推定の重み (合計 ~1.0 程度になるよう調整)。
-// kill: 1 kill/min がベース、それを上回ると skill++ 寄与
-// death: 1 death/min がベース、それを上回ると skill-- 寄与
-// retry: 1 retry でも skill-- に少し寄与 (current_level の難航判定)
-// clear: avg_completion < 60s で skill++、それ以上で減衰
-constexpr f32 kKillRatePerMinute    = 1.0f;   // baseline 1/min
+/** kill レートの baseline (1 kill/min を 1.0 とする正規化基準)。 */
+constexpr f32 kKillRatePerMinute    = 1.0f;
+
+/** death レートの baseline (1 death/min を 1.0 とする正規化基準)。 */
 constexpr f32 kDeathRatePerMinute   = 1.0f;
+
+/** skill 推定での kill レートの重み (プラス寄与)。 */
 constexpr f32 kWeightKillRate       = 0.35f;
+
+/** skill 推定でのクリア速度スコアの重み (プラス寄与)。 */
 constexpr f32 kWeightClearSpeed     = 0.25f;
-constexpr f32 kWeightRetryPenalty   = 0.10f;  // 1 retry につき
+
+/** skill 推定でのリトライ 1 回あたりの減点重み。 */
+constexpr f32 kWeightRetryPenalty   = 0.10f;
+
+/** skill 推定での death レートの重み (マイナス寄与)。 */
 constexpr f32 kWeightDeathRate      = 0.40f;
 
-// average_completion_time の評価用基準時間。これ以下なら skill ↑、上なら ↓。
+/** クリア速度スコアの評価基準時間 (秒)。これ以下なら skill↑、上なら↓。 */
 constexpr f32 kClearTimeBaselineSec = 60.0f;
 
-// セッション時間下限。1 秒未満では density 推定の分母として使わない (発散回避)。
+/** セッション時間下限 (秒)。これ未満では density 推定の分母に使わない (発散回避)。 */
 constexpr f32 kMinSessionTimeSec    = 1.0f;
 
-// 連続値 → 区間インデックス境界 (Easy=0 / Normal=1/3 / Hard=2/3 / VeryHard=1)。
+/** 連続値の区間境界 1/3 (Easy↔Normal)。 */
 constexpr f32 kSegThird             = 1.0f / 3.0f;
+
+/** 連続値の区間境界 2/3 (Normal↔Hard)。 */
 constexpr f32 kSegTwoThirds         = 2.0f / 3.0f;
 
 } // namespace
 
-// =============================================================================
-// helper: 離散モード → 連続値 [0,1]
-// -----------------------------------------------------------------------------
-// Adaptive はここに来ない (= Adaptive 切替時の current 維持は呼出側で処理済み)。
-// 念のためフォールバックとして Normal の連続値を返す。
-// =============================================================================
+/** 離散モードを連続値 [0,1] に変換する (Adaptive は fallback で Normal の連続値)。 */
 f32 FDynamicDifficulty::ContinuousFromDiscrete(EDifficultyLevel m) noexcept {
     switch (m) {
         case EDifficultyLevel::Easy:     return 0.0f;
@@ -68,14 +65,7 @@ f32 FDynamicDifficulty::ContinuousFromDiscrete(EDifficultyLevel m) noexcept {
     return kSegThird;
 }
 
-// =============================================================================
-// helper: 連続値 [0,1] を 4 段表で線形補間
-// -----------------------------------------------------------------------------
-// 区間 [0, 1/3] → vals[0]..vals[1]
-// 区間 [1/3, 2/3] → vals[1]..vals[2]
-// 区間 [2/3, 1.0] → vals[2]..vals[3]
-// 範囲外は両端の値で頭打ち (defensive)。
-// =============================================================================
+/** 連続値 [0,1] を 4 段表で区間線形補間する (範囲外は両端値で頭打ち)。 */
 f32 FDynamicDifficulty::SampleCurve(f32 t, const f32 vals[4]) noexcept {
     if (t <= 0.0f)         return vals[0];
     if (t >= 1.0f)         return vals[3];
@@ -91,15 +81,7 @@ f32 FDynamicDifficulty::SampleCurve(f32 t, const f32 vals[4]) noexcept {
     return Lerp(vals[2], vals[3], local);
 }
 
-// =============================================================================
-// Init / SetMode
-// -----------------------------------------------------------------------------
-// Init は state を初期化して base_level に切替。Adaptive 指定時は 0.5 から
-// スタート (= 中庸)、それ以外は離散値スナップ。
-// SetMode は Adaptive → 離散の切替で「離散値に即スナップ」、その他遷移は
-// current を保持。これにより「Adaptive 中だが UI から Normal を強制」みたいな
-// 用例でプレイヤーが期待する離散値が即反映される。
-// =============================================================================
+/** 統計を初期化して base_level に切り替える (Adaptive は 0.5 中庸スタート)。 */
 void FDynamicDifficulty::Init(EDifficultyLevel base_level) noexcept {
     _stats        = PlayerSkillStats{};
     m_SessionTime = 0.0f;
@@ -111,6 +93,7 @@ void FDynamicDifficulty::Init(EDifficultyLevel base_level) noexcept {
     }
 }
 
+/** モードを切り替える (離散モードは連続値へ即スナップ、Adaptive は current 保持)。 */
 void FDynamicDifficulty::SetMode(EDifficultyLevel mode) noexcept {
     m_Mode = mode;
     if (mode != EDifficultyLevel::Adaptive) {
@@ -120,24 +103,21 @@ void FDynamicDifficulty::SetMode(EDifficultyLevel mode) noexcept {
     // Adaptive への切替は current を保持 (Tick で target に向け smooth lerp 継続)
 }
 
-// =============================================================================
-// 統計記録
-// -----------------------------------------------------------------------------
-// すべて加算のみ (overflow は u32 max クランプ)。RecordLevelComplete は
-// average_completion_time を EMA で更新し、retries_current_level を 0 リセット。
-// =============================================================================
+/** 死亡を 1 回記録する (u32 max でクランプ)。 */
 void FDynamicDifficulty::RecordDeath() noexcept {
     if (_stats.deaths_last_session < 0xFFFFFFFFu) {
         ++_stats.deaths_last_session;
     }
 }
 
+/** 撃破を 1 回記録する (u32 max でクランプ)。 */
 void FDynamicDifficulty::RecordKill() noexcept {
     if (_stats.kills_last_session < 0xFFFFFFFFu) {
         ++_stats.kills_last_session;
     }
 }
 
+/** レベルクリアを記録する (avg を EMA 更新、retries を 0 リセット)。 */
 void FDynamicDifficulty::RecordLevelComplete(f32 time_taken) noexcept {
     if (time_taken < 0.0f) time_taken = 0.0f;
     if (_stats.average_completion_time <= 0.0f) {
@@ -152,36 +132,27 @@ void FDynamicDifficulty::RecordLevelComplete(f32 time_taken) noexcept {
     _stats.retries_current_level = 0;  // クリアできたのでリトライ累計はリセット
 }
 
+/** リトライを 1 回記録する (u32 max でクランプ)。 */
 void FDynamicDifficulty::RecordRetry() noexcept {
     if (_stats.retries_current_level < 0xFFFFFFFFu) {
         ++_stats.retries_current_level;
     }
 }
 
+/** パワーアップ取得を 1 回記録する (u32 max でクランプ)。 */
 void FDynamicDifficulty::RecordPowerupCollected() noexcept {
     if (_stats.powerups_collected < 0xFFFFFFFFu) {
         ++_stats.powerups_collected;
     }
 }
 
-// =============================================================================
-// ResetStats
-// -----------------------------------------------------------------------------
-// 統計のみ初期化。モード / current_difficulty / session_time は維持。
-// NewGame や章切替時に呼ぶ想定 (= 進行は残すがスタッツは仕切り直し)。
-// =============================================================================
+/** 統計とセッション時間のみ初期化する (モード / current_difficulty は維持)。 */
 void FDynamicDifficulty::ResetStats() noexcept {
     _stats        = PlayerSkillStats{};
     m_SessionTime = 0.0f;
 }
 
-// =============================================================================
-// 乗数 accessor
-// -----------------------------------------------------------------------------
-// 離散モード: 該当段の値を即返却。Adaptive: 連続値で 4 段表を補間。
-// 離散モードでも SampleCurve を経由しても良いが (current は離散値スナップ済み)、
-// テーブル直接参照のほうが意図が読めて分岐コストも誤差レベル。
-// =============================================================================
+/** 敵 HP 乗数を返す (離散モードは表直接参照、Adaptive は 4 段表を補間)。 */
 f32 FDynamicDifficulty::EnemyHealthMultiplier() const noexcept {
     if (m_Mode == EDifficultyLevel::Adaptive) {
         return SampleCurve(m_CurrentDifficulty, kEnemyHpTable);
@@ -189,6 +160,7 @@ f32 FDynamicDifficulty::EnemyHealthMultiplier() const noexcept {
     return kEnemyHpTable[static_cast<u32>(m_Mode)];
 }
 
+/** 敵ダメージ乗数を返す (離散モードは表直接参照、Adaptive は 4 段表を補間)。 */
 f32 FDynamicDifficulty::EnemyDamageMultiplier() const noexcept {
     if (m_Mode == EDifficultyLevel::Adaptive) {
         return SampleCurve(m_CurrentDifficulty, kEnemyDmgTable);
@@ -196,6 +168,7 @@ f32 FDynamicDifficulty::EnemyDamageMultiplier() const noexcept {
     return kEnemyDmgTable[static_cast<u32>(m_Mode)];
 }
 
+/** 敵速度乗数を返す (離散モードは表直接参照、Adaptive は 4 段表を補間)。 */
 f32 FDynamicDifficulty::EnemySpeedMultiplier() const noexcept {
     if (m_Mode == EDifficultyLevel::Adaptive) {
         return SampleCurve(m_CurrentDifficulty, kEnemySpdTable);
@@ -203,6 +176,7 @@ f32 FDynamicDifficulty::EnemySpeedMultiplier() const noexcept {
     return kEnemySpdTable[static_cast<u32>(m_Mode)];
 }
 
+/** プレイヤー HP 倍率を返す (離散モードは表直接参照、Adaptive は 4 段表を補間)。 */
 f32 FDynamicDifficulty::PlayerHealthMultiplier() const noexcept {
     if (m_Mode == EDifficultyLevel::Adaptive) {
         return SampleCurve(m_CurrentDifficulty, kPlayerHpTable);
@@ -210,24 +184,15 @@ f32 FDynamicDifficulty::PlayerHealthMultiplier() const noexcept {
     return kPlayerHpTable[static_cast<u32>(m_Mode)];
 }
 
-// =============================================================================
-// ComputeAdaptiveTarget
-// -----------------------------------------------------------------------------
-// skill 推定を [0,1] で求め、target = 1 - skill を返す。
-// skill 推定式:
-//   minutes = max(session_time / 60, ε)
-//   kill_rate  = kills / minutes / kKillRatePerMinute     ... 1.0 で baseline
-//   death_rate = deaths / minutes / kDeathRatePerMinute
-//   clear_score: avg_time が小さいほど高い (baseline 60s で 1.0)
-//                avg_time == 0 (未計測) なら 0 寄与
-//   retry_pen  = retries_current_level * kWeightRetryPenalty
-//
-//   skill = kill_rate * w_k + clear_score * w_c
-//         - death_rate * w_d - retry_pen
-//   skill = saturate(skill * 0.5 + 0.5)  ... [-1,1] 範囲を [0,1] にマップ
-//
-// 各統計の重みは合計でほぼ ±1 程度のスケールに収まるよう調整。
-// =============================================================================
+/**
+ * skill 推定から Adaptive の target 難易度を算出する。
+ *
+ * @details
+ * kill / death を分あたりに正規化して baseline と比較し、クリア速度スコアとリトライ減点を
+ * 合成して符号付き skill を作る。skill = saturate(skill_signed * 0.5 + 0.5) で [-1,1] を
+ * [0,1] にマップし、target = 1 - skill を返す (上手いプレイヤーほど高難易度)。
+ * @return target 難易度 [0,1]。
+ */
 f32 FDynamicDifficulty::ComputeAdaptiveTarget() const noexcept {
     // session_time 下限ガード。プレイ開始直後の DDA 暴れを防ぐ。
     const f32 session_sec = m_SessionTime < kMinSessionTimeSec
@@ -268,19 +233,7 @@ f32 FDynamicDifficulty::ComputeAdaptiveTarget() const noexcept {
     return 1.0f - skill;
 }
 
-// =============================================================================
-// Tick
-// -----------------------------------------------------------------------------
-// 離散モード時:
-//   ・session_time だけ加算 (Adaptive へ切替えた瞬間でも統計分母として効く)
-//   ・current_difficulty はスナップ済みなので何もしない
-// Adaptive 時:
-//   ・session_time += dt
-//   ・target = ComputeAdaptiveTarget()
-//   ・current_difficulty を framerate-independent exponential lerp で target へ寄せる
-//
-// dt が負 (clock 巻き戻し) なら 0 扱い (state を破壊しない)。
-// =============================================================================
+/** session_time を進め、Adaptive 時は target へ framerate-independent lerp で寄せる。 */
 void FDynamicDifficulty::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
     m_SessionTime += dt;

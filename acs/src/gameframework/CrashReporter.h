@@ -21,7 +21,7 @@
 //   ・CrashReporterBacktrace   — Backtrace.io coresnap
 //   ・CrashReporterBugSnag     — BugSnag Cocoa/C++ SDK
 //
-// 範囲外 (本フェーズでは扱わない):
+// 範囲外:
 //   ・OS signal / SEH ハンドラの登録          (具象実装側の責務)
 //   ・minidump / coredump の収集とアップロード (具象実装側の責務)
 //   ・PII (個人情報) のフィルタ                (呼出側が breadcrumb に詰める段で守る)
@@ -55,185 +55,335 @@
 
 namespace acs::game {
 
-// =============================================================================
-// 共通: stub 用エラーサブコード
-// -----------------------------------------------------------------------------
-// FSaveSlot / FBackendClient と同じく、本ピラーでも「Phase 1 stub = NotImplemented」
-// を `subcode = kSub_NotImplemented` で表現する。`ErrCategory` には Generic を
-// 使う (クラッシュ報告は I/O とは限らず Generic seam の性格が強い)。
-// =============================================================================
+/**
+ * クラッシュ報告 backend の FErrorCode サブコード定義。
+ *
+ * @details ErrCategory は Generic を使い、stub は kSub_NotImplemented を返す。
+ */
 struct CrashReporterError {
+    /** クラッシュ報告 API が返すエラーサブコード。 */
     enum SubCode : u16 {
-        kSub_NotInitialized = 1,  // Init() 前の API 呼び出し
-        kSub_AlreadyInited  = 2,  // 2 重 Init (実装側で許容するかは任意)
-        kSub_BadArgument    = 3,  // product_id / message が nullptr 等
-        kSub_QueueFull      = 4,  // 内部キュー溢れ (breadcrumb / event)
-        kSub_NetworkFailure = 5,  // アップロード失敗
-        kSub_NotImplemented = 99, // stub: 未実装
+        /** Init() 前に API を呼んだ。 */
+        kSub_NotInitialized = 1,
+
+        /** 2 重 Init (許容するかは実装依存)。 */
+        kSub_AlreadyInited  = 2,
+
+        /** product_id / message が nullptr 等の不正引数。 */
+        kSub_BadArgument    = 3,
+
+        /** 内部キュー溢れ (breadcrumb / event)。 */
+        kSub_QueueFull      = 4,
+
+        /** アップロード失敗。 */
+        kSub_NetworkFailure = 5,
+
+        /** stub: 未実装。 */
+        kSub_NotImplemented = 99,
     };
 };
 
-// =============================================================================
-// CrashContext — クラッシュ 1 件分の context
-// -----------------------------------------------------------------------------
-// 全フィールドは Backend が「ReportCrash 呼び出し中のみ」参照する想定。
-// 文字列ポインタは呼出側 (= クラッシュハンドラ) が寿命を保証する。stack_trace は
-// 改行区切りの 1 本文字列 (Sentry/BugSnag が要求する正規化は backend 側で行う)。
-// =============================================================================
+/**
+ * クラッシュ 1 件分の context。
+ *
+ * @details
+ * 全フィールドは Backend が ReportCrash 呼び出し中のみ参照する想定。文字列ポインタは
+ * 呼出側 (クラッシュハンドラ) が寿命を保証する非所有ポインタ。
+ */
 struct CrashContext {
-    const char* exception_type = nullptr;  // "SEH_ACCESS_VIOLATION" / "std::bad_alloc" 等
-    const char* message        = nullptr;  // 人間可読の説明 ("null deref in Foo::Bar" 等)
-    const char* stack_trace    = nullptr;  // 改行区切りスタック (空でも可)
-    const char* scene_name     = nullptr;  // クラッシュ時にアクティブなシーン名 (任意)
-    u64         frame_count    = 0;        // 起動から何フレーム経過した時か
-    u64         timestamp      = 0;        // UNIX epoch ミリ秒 (任意; 0 = 未設定)
-    const char* build_id       = nullptr;  // ビルド識別子 ("v1.2.3-abcdef" 等)
+    /** 例外/シグナルの種別 ("SEH_ACCESS_VIOLATION" / "std::bad_alloc" 等)。 */
+    const char* exception_type = nullptr;
+
+    /** 人間可読の説明 ("null deref in Foo::Bar" 等)。 */
+    const char* message        = nullptr;
+
+    /** 改行区切りのスタックトレース 1 本文字列 (空でも可)。 */
+    const char* stack_trace    = nullptr;
+
+    /** クラッシュ時にアクティブなシーン名 (任意)。 */
+    const char* scene_name     = nullptr;
+
+    /** 起動から何フレーム経過した時点か。 */
+    u64         frame_count    = 0;
+
+    /** UNIX epoch ミリ秒 (任意; 0 = 未設定)。 */
+    u64         timestamp      = 0;
+
+    /** ビルド識別子 ("v1.2.3-abcdef" 等)。 */
+    const char* build_id       = nullptr;
 };
 
-// =============================================================================
-// ICrashReporterBackend — クラッシュ報告 backend の抽象 seam
-// -----------------------------------------------------------------------------
-// 1 タイトルにつき通常 1 インスタンス (Singleton 的運用)。
-// 寿命はタイトル側 (acs::FApplication 等) が握る。
-// =============================================================================
+/**
+ * クラッシュ報告 backend の抽象 seam。
+ *
+ * @details
+ * Sentry / Crashpad / Backtrace.io / BugSnag 等の具象実装を差し込むためのインターフェイス。
+ * 1 タイトルにつき通常 1 インスタンス (Singleton 的運用) で、寿命はタイトル側
+ * (acs::FApplication 等) が握る。全 API は二次クラッシュ防止のため noexcept。
+ */
 class ICrashReporterBackend {
 public:
+    /** 抽象基底を構築する。 */
     ICrashReporterBackend() noexcept = default;
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
     virtual ~ICrashReporterBackend() noexcept = default;
 
+    /** コピー禁止 (backend は単一インスタンスで運用するため)。 */
     ICrashReporterBackend(const ICrashReporterBackend&)            = delete;
+
+    /** コピー代入も禁止。 */
     ICrashReporterBackend& operator=(const ICrashReporterBackend&) = delete;
+
+    /** ムーブ禁止。 */
     ICrashReporterBackend(ICrashReporterBackend&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     ICrashReporterBackend& operator=(ICrashReporterBackend&&)      = delete;
 
-    // SDK 初期化。`product_id` (例: "com.example.mygame") + `version`
-    // (例: "1.2.3") はサービス上で集計キーになる。両方とも呼出側が寿命を
-    // 保証する static / member バッファ。多重 Init の可否は実装依存。
+    /**
+     * SDK を初期化する。
+     *
+     * @details product_id / version はサービス上の集計キー。両方とも呼出側が寿命を保証する
+     * static / member バッファ。多重 Init の可否は実装依存。
+     * @param product_id 製品識別子 (例: "com.example.mygame")。
+     * @param version バージョン文字列 (例: "1.2.3")。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     virtual TResult<void> Init(const char* product_id, const char* version) noexcept = 0;
 
-    // 終了処理。Init() 前に呼んでも安全 (no-op)。残った breadcrumb / event は
-    // 可能な範囲で flush することが望ましい (本 interface では強制しない)。
+    /**
+     * 終了処理を行う。
+     *
+     * @details Init() 前に呼んでも安全 (no-op)。残った breadcrumb / event は可能な範囲で
+     * flush することが望ましい (本 interface では強制しない)。
+     */
     virtual void Shutdown() noexcept = 0;
 
-    // Init() 成功後かつ Shutdown() 前なら true。stub は常に false 寄り。
+    /**
+     * backend が利用可能かを返す。
+     *
+     * @return Init() 成功後かつ Shutdown() 前なら true。
+     */
     virtual bool IsAvailable() const noexcept = 0;
 
-    // クラッシュ 1 件を送信する。プロセスがまだ生きている前提 (uncatchable な
-    // SEH/POSIX signal は具象実装の signal handler 側で別経路にする想定)。
-    // `ctx` のフィールドは関数戻りまで生存していれば良い。
+    /**
+     * クラッシュ 1 件を送信する。
+     *
+     * @details プロセスがまだ生きている前提 (uncatchable な SEH/POSIX signal は具象実装の
+     * signal handler 側で別経路にする想定)。ctx のフィールドは関数戻りまで生存していれば良い。
+     * @param ctx 送信するクラッシュ context。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     virtual TResult<void> ReportCrash(const CrashContext& ctx) noexcept = 0;
 
-    // 非致命的エラーを送信する。`category` は集計用のキー ("net" / "save" /
-    // "shader" 等)、`message` は人間可読のメッセージ。
+    /**
+     * 非致命的エラーを送信する。
+     *
+     * @param category 集計用のキー ("net" / "save" / "shader" 等)。
+     * @param message 人間可読のメッセージ。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     virtual TResult<void> ReportError(const char* category, const char* message) noexcept = 0;
 
-    // クラッシュ前の context をリングバッファに 1 件追加する。Sentry/BugSnag の
-    // breadcrumb モデル。category / message のセマンティクスは ReportError と
-    // 同じだが、こちらは送信せず、ReportCrash 時にまとめて添付される想定。
+    /**
+     * クラッシュ前の context をリングバッファに 1 件追加する (breadcrumb モデル)。
+     *
+     * @details ReportError と引数の意味は同じだが、こちらは即時送信せず ReportCrash 時に
+     * まとめて添付される想定。
+     * @param category 集計用のキー。
+     * @param message 人間可読のメッセージ。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     virtual TResult<void> AddBreadcrumb(const char* category, const char* message) noexcept = 0;
 
-    // 匿名ユーザー ID を設定する。GDPR / CCPA 対応のため、生 email / OS account
-    // 名ではなく、初回起動時に生成した UUID 等を渡すこと。`anonymous_id` の
-    // 寿命は呼出側が保証する (Backend がコピーするかどうかは実装依存)。
+    /**
+     * 匿名ユーザー ID を設定する。
+     *
+     * @details GDPR / CCPA 対応のため、生 email / OS account 名ではなく初回起動時に生成した
+     * UUID 等を渡すこと。anonymous_id の寿命は呼出側が保証する (コピーするかは実装依存)。
+     * @param anonymous_id 設定する匿名 ID 文字列。
+     */
     virtual void SetUserId(const char* anonymous_id) noexcept = 0;
 
-    // 非同期送信キューの pump。毎フレーム呼ばれる前提。`dt` は前フレームからの
-    // 経過秒。タイムアウト判定や retry スケジューリングに使う。
+    /**
+     * 非同期送信キューを pump する (毎フレーム呼ばれる前提)。
+     *
+     * @details タイムアウト判定や retry スケジューリングに使う。
+     * @param dt 前フレームからの経過秒。
+     */
     virtual void Tick(f32 dt) noexcept = 0;
 };
 
-// =============================================================================
-// CrashReporterStub — ICrashReporterBackend の null-object 実装
-// -----------------------------------------------------------------------------
-// 全 API が NotImplemented を返す defensive stub。Init() ですら成功扱いに
-// しないことで、本番ビルドに stub が紛れ込んだ場合に QA 工程で検出可能にする。
-// (これは BackendClientStub と同じ方針。SteamworksBridgeStub は Init() のみ
-// 成功扱いだったが、FCrashReporter はより厳格にしておく。)
-// =============================================================================
+/**
+ * ICrashReporterBackend の null-object 実装。
+ *
+ * @details
+ * 全 API が NotImplemented を返す defensive stub。Init() ですら成功扱いにしないことで、
+ * 本番ビルドに stub が紛れ込んだ場合に QA 工程で検出可能にする。
+ */
 class CrashReporterStub final : public ICrashReporterBackend {
 public:
+    /** stub を構築する。 */
     CrashReporterStub() noexcept = default;
+
+    /** 破棄する。 */
     ~CrashReporterStub() noexcept override = default;
 
+    /**
+     * 常に NotImplemented エラーを返す (初期化しない)。
+     *
+     * @param product_id 無視される製品識別子。
+     * @param version 無視されるバージョン文字列。
+     * @return kSub_NotImplemented のエラー。
+     */
     TResult<void> Init(const char* product_id, const char* version) noexcept override;
+
+    /** no-op (stub は never-initialized 状態のため何もしない)。 */
     void         Shutdown() noexcept override;
+
+    /**
+     * 常に利用不可を返す。
+     *
+     * @return 常に false。
+     */
     bool         IsAvailable() const noexcept override { return false; }
+
+    /**
+     * 常に NotImplemented エラーを返す (送信しない)。
+     *
+     * @param ctx 無視されるクラッシュ context。
+     * @return kSub_NotImplemented のエラー。
+     */
     TResult<void> ReportCrash(const CrashContext& ctx) noexcept override;
+
+    /**
+     * 常に NotImplemented エラーを返す (送信しない)。
+     *
+     * @param category 無視されるカテゴリ。
+     * @param message 無視されるメッセージ。
+     * @return kSub_NotImplemented のエラー。
+     */
     TResult<void> ReportError(const char* category, const char* message) noexcept override;
+
+    /**
+     * 常に NotImplemented エラーを返す (追加しない)。
+     *
+     * @param category 無視されるカテゴリ。
+     * @param message 無視されるメッセージ。
+     * @return kSub_NotImplemented のエラー。
+     */
     TResult<void> AddBreadcrumb(const char* category, const char* message) noexcept override;
+
+    /**
+     * no-op (stub はユーザー ID を保持しない)。
+     *
+     * @param anonymous_id 無視される匿名 ID。
+     */
     void         SetUserId(const char* anonymous_id) noexcept override;
+
+    /**
+     * no-op (stub には pump 対象がない)。
+     *
+     * @param dt 無視される経過秒。
+     */
     void         Tick(f32 dt) noexcept override;
 };
 
-// プロセス共有の stub ICrashReporterBackend。常に NotImplemented を返す。
-// 本体側 (タイトル / サンプル) はまずこれを使ってリンクを通す。具象実装に
-// 切り替える際は `m_Crash` メンバ等に CrashReporterSentry 等を差し替える。
+/**
+ * プロセス共有の stub backend を返す。
+ *
+ * @details 常に NotImplemented を返す process-wide singleton。本体側 (タイトル / サンプル)
+ * はまずこれを使ってリンクを通し、後から具象実装に差し替える。
+ * @return stub ICrashReporterBackend への参照。
+ */
 ICrashReporterBackend& GetCrashStub() noexcept;
 
-// =============================================================================
-// 既定 CrashReporter の provider 結線 (実 backend モジュールへの委譲点)
-// -----------------------------------------------------------------------------
-// gameframework は実 backend モジュール (例: ACS::CrashWin /
-// FWindowsCrashReporter) に依存できない (循環依存になる: backend 側が本
-// interface に依存する)。そこで実 backend 側が `SetCrashReporterProvider()` で
-// 「既定 backend を返す関数」を登録し、ゲームコードは
-// `GetDefaultCrashReporter()` を通じて backend 非依存に既定 backend を取得する。
-//
-//   ・provider 未登録 (= backend 未リンク / flag OFF) → GetCrashStub() を返す。
-//   ・provider 登録済み (= 実 backend リンク + Install 呼び出し済み) → 実 backend。
-//
-// 典型: アプリ起動時に一度だけ
-//   #if WITH_ACS_CRASH_REPORTER
-//       acs::crashwin::InstallWindowsCrashReporterAsDefault();   // provider 登録
-//   #endif
-// 以降はどこでも `acs::game::GetDefaultCrashReporter()` で実 backend が得られる。
+/**
+ * 既定 backend を返す provider 関数の型。
+ *
+ * @details
+ * gameframework は実 backend モジュール (循環依存になる) に依存できないため、実 backend 側が
+ * この型の関数を SetCrashReporterProvider で登録し、ゲームコードは GetDefaultCrashReporter
+ * 経由で backend 非依存に既定 backend を取得する。
+ */
 using CrashReporterProvider = ICrashReporterBackend& (*)() noexcept;
 
-// 既定 backend provider を登録する (実 backend モジュールの Install* から呼ぶ)。
-// nullptr 登録で stub に戻す。後勝ち。
+/**
+ * 既定 backend provider を登録する (実 backend モジュールの Install* から呼ぶ)。
+ *
+ * @details nullptr を登録すると stub に戻す。後勝ち。
+ * @param provider 既定 backend を返す関数 (nullptr で解除)。
+ */
 void SetCrashReporterProvider(CrashReporterProvider provider) noexcept;
 
-// 既定 backend を返す。provider 登録済みならその実 backend、未登録なら
-// GetCrashStub()。
+/**
+ * 既定 backend を返す。
+ *
+ * @return provider 登録済みならその実 backend、未登録なら GetCrashStub()。
+ */
 ICrashReporterBackend& GetDefaultCrashReporter() noexcept;
 
-// =============================================================================
-// CrashHandler — 高レベル wrapper
-// -----------------------------------------------------------------------------
-// ICrashReporterBackend を 1 つ抱えて、タイトル側のホットパスで使いやすい
-// API を提供する thin wrapper。
-//   ・Install(backend) で参照を保持し、Uninstall() で外す。
-//   ・NotifyCrash() は CrashContext を最小フィールドだけ埋めて ReportCrash を
-//     呼ぶ簡略パス。
-//   ・AddBreadcrumb() は backend に素通し。
-// backend == nullptr の状態 (Install 前 / Uninstall 後) では全 API が no-op
-// になる (= 二次クラッシュ防止)。
-// =============================================================================
+/**
+ * ICrashReporterBackend を 1 つ抱える高レベル thin wrapper。
+ *
+ * @details
+ * Install(backend) で参照を借り、Uninstall() で外す。NotifyCrash() は CrashContext の最小
+ * フィールドだけ埋めて ReportCrash を呼ぶ簡略パス、AddBreadcrumb() は backend に素通しする。
+ * backend == nullptr の状態 (Install 前 / Uninstall 後) では全 API が no-op になる
+ * (二次クラッシュ防止)。
+ */
 class CrashHandler {
 public:
+    /** backend 未設定状態で構築する。 */
     CrashHandler() noexcept = default;
+
+    /** 破棄する (backend の所有権は持たないため解放しない)。 */
     ~CrashHandler() noexcept = default;
 
+    /** コピー禁止。 */
     CrashHandler(const CrashHandler&)            = delete;
+
+    /** コピー代入も禁止。 */
     CrashHandler& operator=(const CrashHandler&) = delete;
+
+    /** ムーブ禁止。 */
     CrashHandler(CrashHandler&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     CrashHandler& operator=(CrashHandler&&)      = delete;
 
-    // backend は呼出側が所有 (Install は寿命を借りるだけ)。
-    // nullptr を渡すと Uninstall と同義。
+    /**
+     * 使用する backend を設定する (寿命を借りるだけ)。
+     *
+     * @details 多重 Install は最後の 1 個で上書き。nullptr を渡すと Uninstall と同義。
+     * @param backend 呼出側が所有する backend (nullptr 可)。
+     */
     void Install(ICrashReporterBackend* backend) noexcept;
 
-    // backend 参照を外す。多重呼出 / 未 Install 呼出は no-op (べき等)。
+    /** backend 参照を外す。多重呼出 / 未 Install 呼出は no-op (べき等)。 */
     void Uninstall() noexcept;
 
-    // 簡略クラッシュ通知。frame_count / timestamp 等の追加 context は
-    // 後で別 API を生やすときに拡張する。Backend が nullptr の場合は no-op。
+    /**
+     * 簡略クラッシュ通知 (最小フィールドだけ埋めて ReportCrash を呼ぶ)。
+     *
+     * @details backend が nullptr の場合は no-op。
+     * @param exception_type 例外/シグナルの種別文字列。
+     * @param message 人間可読の説明。
+     */
     void NotifyCrash(const char* exception_type, const char* message) noexcept;
 
-    // Backend に素通し。Backend が nullptr の場合は no-op。
+    /**
+     * breadcrumb を backend に素通しで追加する。
+     *
+     * @details backend が nullptr の場合は no-op。
+     * @param category 集計用のキー。
+     * @param message 人間可読のメッセージ。
+     */
     void AddBreadcrumb(const char* category, const char* message) noexcept;
 
 private:
+    /** 借用中の backend (非所有。未設定なら nullptr)。 */
     ICrashReporterBackend* m_Backend = nullptr;
 };
 

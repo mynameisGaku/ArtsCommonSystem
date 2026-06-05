@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I Phase 2 — FParticleEffectSystem 実装
+// GameFramework Pillar I — FParticleEffectSystem 実装
 //
 // 仕様の意図は FParticleEffectSystem.h を参照。本ファイルでは:
 //   ・generational emitter slot の Acquire / Release
@@ -14,13 +14,13 @@
 
 namespace acs::game {
 
-// =============================================================================
-// Init
-// -----------------------------------------------------------------------------
-// pool 容量を確定し、particle / active flag 配列を default 構築する。
-// 二度目以降の呼び出しは no-op (固定容量ポリシー: 走行中の resize は禁止)。
-// max_particles == 0 は誤呼出しと見なし 1024 を採用 (silently fail を避ける)。
-// =============================================================================
+/**
+ * pool 容量を確定し、particle / active flag 配列を default 構築する。
+ *
+ * @details
+ * 二度目以降の呼び出しは no-op (固定容量ポリシー: 走行中の resize は禁止)。
+ * max_particles == 0 は誤呼出しと見なし 1024 を採用する (silently fail を避ける)。
+ */
 void FParticleEffectSystem::Init(u32 max_particles) noexcept {
     if (m_Capacity != 0u) return;                  // 既に初期化済み
     if (max_particles == 0u) max_particles = 1024u;
@@ -35,14 +35,13 @@ void FParticleEffectSystem::Init(u32 max_particles) noexcept {
     m_NextFree        = 0u;
 }
 
-// =============================================================================
-// AcquireEmitterSlot
-// -----------------------------------------------------------------------------
-// 既存の inactive (in_use==false) slot を線形探索で再利用、無ければ末尾追加。
-// 24bit index 上限到達時は kInvalidIdx を返す (= caller 側で invalid handle 化)。
-// FSceneTimer の AcquireSlot と同じ規約。emitter 数は通常 10〜100 程度なので
-// 線形探索で十分。
-// =============================================================================
+/**
+ * 既存の inactive slot を線形探索で再利用、無ければ末尾追加する。
+ *
+ * @details
+ * 24bit index 上限到達時は kInvalidIdx を返す (caller 側で invalid handle 化)。
+ * emitter 数は通常 10〜100 程度なので線形探索で十分。
+ */
 u32 FParticleEffectSystem::AcquireEmitterSlot() noexcept {
     const usize n = m_Emitters.Size();
     for (usize i = 0; i < n; ++i) {
@@ -57,14 +56,13 @@ u32 FParticleEffectSystem::AcquireEmitterSlot() noexcept {
     return static_cast<u32>(m_Emitters.Size()) - 1u;
 }
 
-// =============================================================================
-// CreateEmitter
-// -----------------------------------------------------------------------------
-// 1) lifetime_sec <= 0 の def は無効 (放出しても直ちに死ぬので意味が無い)。
-// 2) slot を確保し、def をコピーして active 化。
-// 3) gen を 1 進める (0 にラップしたら 1 に戻す。0 は IsValid==false なので
-//    handle として配ってはいけない)。
-// =============================================================================
+/**
+ * slot を確保し def をコピーして active 化、新しい handle を払い出す。
+ *
+ * @details
+ * lifetime_sec <= 0 の def は無効 (放出しても直ちに死ぬため)。gen を 1 進め、0 に
+ * ラップしたら 1 に戻す (0 は IsValid==false なので handle として配れない)。
+ */
 FEmitterHandle FParticleEffectSystem::CreateEmitter(const ParticleEmitterDef& def, FVec2 pos) noexcept {
     if (def.lifetime_sec <= 0.0f) return {};
 
@@ -87,13 +85,13 @@ FEmitterHandle FParticleEffectSystem::CreateEmitter(const ParticleEmitterDef& de
     return FEmitterHandle::Pack(idx, new_gen);
 }
 
-// =============================================================================
-// SetEmitterPosition / SetEmitterActive
-// -----------------------------------------------------------------------------
-// invalid / 範囲外 / gen mismatch / in_use==false は no-op。
-// gen 一致のチェックで「DestroyEmitter 後に同 slot が別 emitter に化けても
-// 古い handle で誤上書きしない」ことを保証する。
-// =============================================================================
+/**
+ * emitter の位置を更新する (handle が有効なときのみ)。
+ *
+ * @details
+ * invalid / 範囲外 / gen mismatch / in_use==false は no-op。gen 一致チェックで
+ * DestroyEmitter 後に同 slot が別 emitter に化けても古い handle で誤上書きしない。
+ */
 void FParticleEffectSystem::SetEmitterPosition(FEmitterHandle h, FVec2 pos) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
@@ -103,6 +101,13 @@ void FParticleEffectSystem::SetEmitterPosition(FEmitterHandle h, FVec2 pos) noex
     e.pos = pos;
 }
 
+/**
+ * emitter の active 状態を更新する。
+ *
+ * @details
+ * invalid / 範囲外 / gen mismatch / in_use==false は no-op。非 active 化時は
+ * emit_accum をリセットし、再 active 時の急な大量放出を避ける。
+ */
 void FParticleEffectSystem::SetEmitterActive(FEmitterHandle h, bool active) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
@@ -117,13 +122,13 @@ void FParticleEffectSystem::SetEmitterActive(FEmitterHandle h, bool active) noex
     }
 }
 
-// =============================================================================
-// Burst
-// -----------------------------------------------------------------------------
-// burst_count を切り捨てで整数化し、その個数を一気に放出。pool 空き数で
-// 自然にクランプ (EmitOne 側で満杯時は no-op)。emitter が in_use なら active
-// に関わらず発火 (= 「死亡時の最後の一吹き」を非 active 状態でも使えるように)。
-// =============================================================================
+/**
+ * burst_count を切り捨てた個数を一気に放出する。
+ *
+ * @details
+ * pool 空き数で自然にクランプ (EmitOne 側で満杯時は no-op)。emitter が in_use なら
+ * active に関わらず発火し、死亡時の最後の一吹きを非 active 状態でも使えるようにする。
+ */
 void FParticleEffectSystem::Burst(FEmitterHandle h) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
@@ -139,12 +144,13 @@ void FParticleEffectSystem::Burst(FEmitterHandle h) noexcept {
     }
 }
 
-// =============================================================================
-// DestroyEmitter
-// -----------------------------------------------------------------------------
-// emitter slot を空けるだけ。既存の particle はそのまま (寿命まで生きる)。
-// gen は維持する (次の AcquireEmitterSlot で +1 して払い出す)。
-// =============================================================================
+/**
+ * emitter slot を空ける (既存の particle は寿命まで残す)。
+ *
+ * @details
+ * slot を in_use=false に戻すだけで、放出済 particle はそのまま寿命まで生きる。
+ * gen は維持し、次の AcquireEmitterSlot で +1 して払い出す。
+ */
 void FParticleEffectSystem::DestroyEmitter(FEmitterHandle h) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
@@ -158,16 +164,14 @@ void FParticleEffectSystem::DestroyEmitter(FEmitterHandle h) noexcept {
     if (m_EmitterCount > 0u) --m_EmitterCount;
 }
 
-// =============================================================================
-// AcquireParticleSlot
-// -----------------------------------------------------------------------------
-// `m_NextFree` を起点に巡回探索 (modulo capacity)。
-//   ・大半のフレームでは 1〜2 step で空きが見つかる (= O(1) 期待)。
-//   ・最悪 O(N) だが、m_ActiveParticles >= m_Capacity の早期 return で
-//      満杯時は即時 fail する。
-//   ・found 時に m_NextFree を「次の slot」に進めておくと、次回呼出が
-//      連続して O(1) になりやすい (= ring buffer 的局所性)。
-// =============================================================================
+/**
+ * m_NextFree を起点に巡回探索し、空き particle slot の index を返す。
+ *
+ * @details
+ * 大半のフレームでは 1〜2 step で空きが見つかる (O(1) 期待)、最悪 O(N) だが
+ * m_ActiveParticles >= m_Capacity の早期 return で満杯時は即時 fail する。found 時に
+ * m_NextFree を次 slot へ進め、ring buffer 的局所性で次回呼出を O(1) に近づける。
+ */
 u32 FParticleEffectSystem::AcquireParticleSlot() noexcept {
     if (m_Capacity == 0u) return kInvalidIdx;
     if (m_ActiveParticles >= m_Capacity) return kInvalidIdx;
@@ -189,16 +193,14 @@ u32 FParticleEffectSystem::AcquireParticleSlot() noexcept {
     return kInvalidIdx; // 理論上ここには来ない (上で active < capacity を確認済)
 }
 
-// =============================================================================
-// EmitOne
-// -----------------------------------------------------------------------------
-// emitter の def に従って particle を 1 個出生させる:
-//   ・方向: [0, 2π) の角度から sin/cos で単位ベクトルを作る (円周一様)。
-//   ・速度: [speed_min, speed_max] の一様乱数 (両端 inclusive)。
-//   ・position: emitter の pos そのまま (volume / shape 拡張は Phase 3+)。
-//   ・age=0、lifetime / color / scale は def をコピー。
-// pool 満杯時は何もしない (= 見た目の劣化を許容、フレームを潰さない)。
-// =============================================================================
+/**
+ * emitter の def に従って particle を 1 個出生させる。
+ *
+ * @details
+ * 方向は [0, 2π) の角度から sin/cos で作る単位ベクトル (円周一様)、速度は
+ * [speed_min, speed_max] の一様乱数、position は emitter の pos、age=0 で
+ * lifetime / color / scale / gravity は def をコピーする。pool 満杯時は何もしない。
+ */
 void FParticleEffectSystem::EmitOne(const Emitter& e) noexcept {
     const u32 idx = AcquireParticleSlot();
     if (idx == kInvalidIdx) return;
@@ -225,17 +227,14 @@ void FParticleEffectSystem::EmitOne(const Emitter& e) noexcept {
     p.gravity     = e.def.gravity;
 }
 
-// =============================================================================
-// Tick
-// -----------------------------------------------------------------------------
-// 1) 各 emitter で連続放出 (active && emit_rate > 0)。accumulator 方式:
-//    `emit_accum += rate * dt`、整数部分を 1 個ずつ EmitOne。
-// 2) 全 particle を物理積分: pos += vel*dt、vel += gravity*dt (semi-implicit
-//    Euler)。これにより gravity 影響下でも数値発散しにくい。
-// 3) age += dt し、lifetime を超えたら active=0 に戻して pool に返却。
-//
-// dt <= 0 は no-op。Init 前 (m_Capacity == 0) も no-op (defensive)。
-// =============================================================================
+/**
+ * 連続放出 → 物理積分 → 寿命チェックを 1 フレーム分実行する。
+ *
+ * @details
+ * 各 emitter で accumulator 方式 (emit_accum += rate * dt の整数部を放出)、全
+ * particle を semi-implicit Euler で積分 (v <- v + g*dt → p <- p + v*dt)、age が
+ * lifetime を超えたら active=0 に戻して pool へ返却する。dt <= 0 / Init 前は no-op。
+ */
 void FParticleEffectSystem::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     if (m_Capacity == 0u) return;
@@ -293,15 +292,14 @@ void FParticleEffectSystem::Tick(f32 dt) noexcept {
     }
 }
 
-// =============================================================================
-// AllParticles / ClearAll
-// =============================================================================
+/** particle pool の先頭ポインタと全体サイズを返す (Init 前は nullptr / 0)。 */
 const Particle* FParticleEffectSystem::AllParticles(u32& out_count) const noexcept {
     out_count = m_Capacity;
     if (m_Capacity == 0u) return nullptr;
     return m_Particles.Data();
 }
 
+/** 全 emitter slot を解放し全 particle を inactive 化する (gen と pool 容量は維持)。 */
 void FParticleEffectSystem::ClearAll() noexcept {
     // emitter slot を全て解放 (gen はそのまま残す = stale handle 検出を維持)
     const usize en = m_Emitters.Size();
@@ -321,13 +319,13 @@ void FParticleEffectSystem::ClearAll() noexcept {
     m_NextFree        = 0u;
 }
 
-// =============================================================================
-// NextRandUnit / NextRandRange
-// -----------------------------------------------------------------------------
-// Numerical Recipes 由来の LCG (a=1664525, c=1013904223, m=2^32)。
-// 統計的品質は決して高くないが、particle 用途 (見た目のばらけ) には十分。
-// 上位 24bit を仮数に詰めて [0,1) f32 を作る (xoshiro と同じ手口、bias 最小)。
-// =============================================================================
+/**
+ * LCG を 1 step 進めて [0,1) の一様乱数を返す。
+ *
+ * @details
+ * Numerical Recipes 由来の LCG (a=1664525, c=1013904223, m=2^32)。統計的品質は高くないが
+ * particle 用途には十分。上位 24bit を仮数に詰めて [0,1) f32 を作る (bias 最小)。
+ */
 f32 FParticleEffectSystem::NextRandUnit() noexcept {
     m_RngState = m_RngState * 1664525u + 1013904223u;
     // 上位 24bit を [0,1) に。0x1p-24 = 1/16777216。
@@ -335,6 +333,7 @@ f32 FParticleEffectSystem::NextRandUnit() noexcept {
     return static_cast<f32>(bits) * (1.0f / 16777216.0f);
 }
 
+/** [min, max] の一様乱数を返す (min > max は swap、退化ケースは min を即返し)。 */
 f32 FParticleEffectSystem::NextRandRange(f32 min, f32 max) noexcept {
     if (max < min) {
         const f32 t = min;

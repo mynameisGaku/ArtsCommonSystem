@@ -34,7 +34,7 @@
 //       }
 //   };
 //
-// 設計選択 (Pillar W Phase 1):
+// 設計選択:
 //   ・**シーム (= 純粋仮想 I/F) として抽象化**: Perforce / Plastic / Jenkins SDK は
 //     プラットフォーム別 lib 配布 (libp4api.a など) で依存追加が重い。本体は SDK
 //     非依存のままビルドできるよう、ヘッダだけは常に提供し、実装は別モジュール
@@ -66,10 +66,10 @@
 //     「ネットワーク越しの SCM / ビルドファーム」連携は外部 SDK 依存を伴うため、
 //     本ファイルでは I/F + Stub + ローカル本実装まで。SDK 連携は別モジュールで。
 //
-// 範囲外 (Phase 2+ で):
+// 範囲外:
 //   ・ロック取得のリトライ / 自動再接続 / 切断検知の callback。
 //   ・ビルドログのストリーミング (artifact url 経由で取得する想定)。
-//   ・コードレビュー / PR 連携 (Pillar W の別 seam で扱う候補)。
+//   ・コードレビュー / PR 連携 (別 seam で扱う候補)。
 //   ・アーティスト向け P4V/PlasticGUI 連携 (本 seam ではプログラム API のみ)。
 #pragma once
 
@@ -78,314 +78,593 @@
 
 namespace acs::game {
 
-// =============================================================================
-// 共通: stub 用エラーサブコード
-// -----------------------------------------------------------------------------
-// FBackendClient / FSaveSlot 等と同じく「Phase 1 stub = NotImplemented」を
-// `subcode = kSub_NotImplemented (= 99)` で表現する。`ErrCategory` には Generic を
-// 使う (P4 / Jenkins は I/O だが、本 seam は API 抽象であって特定の通信路を
-// 仮定しないため Generic が妥当)。
-// =============================================================================
+/**
+ * スタジオワークフロー seam 共通のエラーサブコード集。
+ *
+ * @details
+ * FBackendClient / FSaveSlot 等と同じく「stub = NotImplemented」を
+ * kSub_NotImplemented (= 99) で表現する。ErrCategory には Generic を使う (P4 /
+ * Jenkins は I/O だが、本 seam は API 抽象であって特定の通信路を仮定しないため
+ * Generic が妥当)。
+ */
 struct StudioWorkflowError {
+    /** 各種失敗を表すサブコード。 */
     enum SubCode : u16 {
-        kSub_NotConnected   = 1,  // バックエンドへ未接続のまま呼ばれた
-        kSub_BadArgument    = 2,  // asset_path / user / req フィールドが nullptr
-        kSub_NotFound       = 3,  // asset_path / build_id が見つからない
-        kSub_AlreadyLocked  = 4,  // 別ユーザーが既にロック保持
-        kSub_PermissionDenied = 5,// バックエンド側で権限拒否
-        kSub_NotImplemented = 99, // stub: 未実装
+        /** バックエンドへ未接続のまま呼ばれた。 */
+        kSub_NotConnected   = 1,
+
+        /** asset_path / user / req フィールドが nullptr。 */
+        kSub_BadArgument    = 2,
+
+        /** asset_path / build_id が見つからない。 */
+        kSub_NotFound       = 3,
+
+        /** 別ユーザーが既にロックを保持している。 */
+        kSub_AlreadyLocked  = 4,
+
+        /** バックエンド側で権限拒否された。 */
+        kSub_PermissionDenied = 5,
+
+        /** stub: 未実装。 */
+        kSub_NotImplemented = 99,
     };
 };
 
-// =============================================================================
-// FAssetLockInfo — QueryLock の戻り値 (P4 の `p4 fstat` 相当の最小情報)
-// -----------------------------------------------------------------------------
-// Backend は文字列を所有しない。`asset_path` / `locker_user` は外部 SDK 側
-// (または Stub 内 static literal) のメモリを参照するだけで、呼び出し側で
-// コピーしない。寿命は「次の Tick / 次の Backend 呼び出しまで」を保証する
-// (実装によってはより長い)。
-// =============================================================================
+/**
+ * QueryLock の戻り値 (P4 の `p4 fstat` 相当の最小情報)。
+ *
+ * @details
+ * Backend は文字列を所有しない。asset_path / locker_user は外部 SDK 側 (または Stub
+ * 内 static literal) のメモリを参照するだけで、呼び出し側でコピーしない。寿命は
+ * 「次の Tick / 次の Backend 呼び出しまで」を保証する (実装によってはより長い)。
+ */
 struct FAssetLockInfo {
-    const char* asset_path  = nullptr;  // ロック対象パス (例: "//depot/FGame/foo.fbx")
-    const char* locker_user = nullptr;  // ロック保持ユーザー (例: "designer_a")
-    u64         lock_time   = 0;        // ロック取得時刻 (実装依存; UNIX epoch 推奨)
+    /** ロック対象パス (例: "//depot/FGame/foo.fbx")。Backend が所有しない借用文字列。 */
+    const char* asset_path  = nullptr;
+
+    /** ロック保持ユーザー (例: "designer_a")。Backend が所有しない借用文字列。 */
+    const char* locker_user = nullptr;
+
+    /** ロック取得時刻 (実装依存; UNIX epoch 推奨)。 */
+    u64         lock_time   = 0;
 };
 
-// =============================================================================
-// IAssetLockingBackend — P4 / Plastic / Helix Core 等への抽象シーム
-// -----------------------------------------------------------------------------
-// ロックの粒度は「アセットパス 1 本につき 1 ロック」を想定。フォルダロックや
-// 階層ロックは本 I/F ではサポートしない (具象実装側で実現するなら拡張)。
-// =============================================================================
+/**
+ * P4 / Plastic / Helix Core 等への抽象シーム (アセット排他ロック)。
+ *
+ * @details
+ * ロックの粒度は「アセットパス 1 本につき 1 ロック」を想定。フォルダロックや階層
+ * ロックは本 I/F ではサポートしない (具象実装側で実現するなら拡張)。
+ */
 class IAssetLockingBackend {
 public:
+    /** 既定構築。 */
     IAssetLockingBackend() noexcept = default;
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
     virtual ~IAssetLockingBackend() noexcept = default;
 
+    /** コピー禁止 (バックエンドは単一所有を想定)。 */
     IAssetLockingBackend(const IAssetLockingBackend&)            = delete;
+
+    /** コピー代入も禁止。 */
     IAssetLockingBackend& operator=(const IAssetLockingBackend&) = delete;
+
+    /** ムーブ禁止。 */
     IAssetLockingBackend(IAssetLockingBackend&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     IAssetLockingBackend& operator=(IAssetLockingBackend&&)      = delete;
 
-    // 指定アセットを `user` の名前でロックする。既にロック中なら kSub_AlreadyLocked。
-    // `asset_path` / `user` は呼出側が寿命保証する文字列 (string literal or member
-    // バッファ)。Backend は内部でコピーしない。
+    /**
+     * 指定アセットを user の名前でロックする。
+     *
+     * @details
+     * 既にロック中なら kSub_AlreadyLocked。asset_path / user は呼出側が寿命保証する
+     * 文字列 (string literal or member バッファ) で、Backend は内部でコピーしない。
+     * @param asset_path ロック対象のアセットパス。
+     * @param user ロック保持者の名前。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     virtual TResult<void> LockAsset(const char* asset_path, const char* user) noexcept = 0;
 
-    // ロック解除。`asset_path` が未ロック状態なら kSub_NotFound。
-    // 他ユーザーのロックを解除する権限は実装依存 (P4 では admin 権限が要る)。
+    /**
+     * 指定アセットのロックを解除する。
+     *
+     * @details
+     * asset_path が未ロック状態なら kSub_NotFound。他ユーザーのロックを解除する権限は
+     * 実装依存 (P4 では admin 権限が要る)。
+     * @param asset_path ロック解除するアセットパス。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     virtual TResult<void> UnlockAsset(const char* asset_path) noexcept = 0;
 
-    // 指定アセットの現在のロック状態を取得。未ロックなら kSub_NotFound。
-    // 戻り値の文字列メンバの寿命は次の Backend 呼び出しまで保証する。
+    /**
+     * 指定アセットの現在のロック状態を取得する。
+     *
+     * @details 未ロックなら kSub_NotFound。戻り値の文字列メンバの寿命は次の Backend 呼び出しまで保証する。
+     * @param asset_path 問い合わせるアセットパス。
+     * @return ロック情報、または未ロック/失敗時のエラー。
+     */
     virtual TResult<FAssetLockInfo> QueryLock(const char* asset_path) noexcept = 0;
 
-    // バックエンドへ現在接続できているか。Stub は常に false。
+    /**
+     * バックエンドへ現在接続できているかを返す。
+     *
+     * @return 接続済みなら true (Stub は常に false)。
+     */
     virtual bool IsConnected() const noexcept = 0;
 };
 
-// =============================================================================
-// IBuildFarmBackend — Jenkins / TeamCity / Unity Cloud Build 等への抽象シーム
-// -----------------------------------------------------------------------------
-// 「ビルドを投入 → ポーリングで完了確認 → artifact URL を受け取る」フローのみを
-// 抽象化する。リアルタイムログ / web hook 通知は本 I/F ではサポートしない。
-// =============================================================================
+/**
+ * Jenkins / TeamCity / Unity Cloud Build 等への抽象シーム (ビルドファーム)。
+ *
+ * @details
+ * 「ビルドを投入 → ポーリングで完了確認 → artifact URL を受け取る」フローのみを抽象化
+ * する。リアルタイムログ / web hook 通知は本 I/F ではサポートしない。
+ */
 class IBuildFarmBackend {
 public:
-    // ビルド投入リクエスト。フィールドはすべて呼出側が寿命保証する `const char*`。
-    // `preset` は farm 側で予め登録されたビルド構成名 (例: "Shipping_Win64")、
-    // `branch` は git/p4 のブランチ/ストリーム名、`commit_sha` はピンポイントの
-    // リビジョン識別子 (git sha / p4 changelist 番号文字列 等)。
+    /**
+     * ビルド投入リクエスト。
+     *
+     * @details
+     * フィールドはすべて呼出側が寿命保証する const char*。preset は farm 側で予め登録
+     * されたビルド構成名 (例: "Shipping_Win64")、branch は git/p4 のブランチ/ストリーム
+     * 名、commit_sha はピンポイントのリビジョン識別子 (git sha / p4 changelist 番号
+     * 文字列 等)。
+     */
     struct BuildRequest {
+        /** farm 側で予め登録されたビルド構成名 (例: "Shipping_Win64")。 */
         const char* preset     = nullptr;
+
+        /** git/p4 のブランチ/ストリーム名。 */
         const char* branch     = nullptr;
+
+        /** ピンポイントのリビジョン識別子 (git sha / p4 changelist 番号文字列 等)。 */
         const char* commit_sha = nullptr;
     };
 
-    // PollBuild の戻り値。`success == false` でもビルド ID は有効 (失敗を表す
-    // 結果として返る)。`artifact_url` は成功時のみ非 nullptr を保証 (失敗時は
-    // nullptr を返してよい)。寿命は次の Backend 呼び出しまで。
+    /**
+     * PollBuild の戻り値。
+     *
+     * @details
+     * success == false でもビルド ID は有効 (失敗を表す結果として返る)。artifact_url は
+     * 成功時のみ非 nullptr を保証 (失敗時は nullptr を返してよい)。寿命は次の Backend
+     * 呼び出しまで。
+     */
     struct BuildResult {
+        /** 対象ビルドの opaque ID (0 は無効予約)。 */
         u64         build_id     = 0;
+
+        /** ビルドが成功したか。 */
         bool        success      = false;
+
+        /** 成功時の artifact URL (失敗時は nullptr 可)。借用文字列。 */
         const char* artifact_url = nullptr;
     };
 
+    /** 既定構築。 */
     IBuildFarmBackend() noexcept = default;
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
     virtual ~IBuildFarmBackend() noexcept = default;
 
+    /** コピー禁止 (バックエンドは単一所有を想定)。 */
     IBuildFarmBackend(const IBuildFarmBackend&)            = delete;
+
+    /** コピー代入も禁止。 */
     IBuildFarmBackend& operator=(const IBuildFarmBackend&) = delete;
+
+    /** ムーブ禁止。 */
     IBuildFarmBackend(IBuildFarmBackend&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     IBuildFarmBackend& operator=(IBuildFarmBackend&&)      = delete;
 
-    // ビルドを farm に投入。成功時は非ゼロの `build_id` を返す。
-    // `req.preset` / `req.branch` / `req.commit_sha` のいずれかが nullptr なら
-    // kSub_BadArgument を返す責務は具象実装側 (stub では NotImplemented を優先)。
+    /**
+     * ビルドを farm に投入する。
+     *
+     * @details
+     * 成功時は非ゼロの build_id を返す。req.preset / req.branch / req.commit_sha の
+     * いずれかが nullptr なら kSub_BadArgument を返す責務は具象実装側 (stub では
+     * NotImplemented を優先)。
+     * @param req 投入するビルドリクエスト。
+     * @return 成功時の build_id、または失敗時のエラー。
+     */
     virtual TResult<u64> SubmitBuild(const BuildRequest& req) noexcept = 0;
 
-    // ビルド状態を取得。`build_id == 0` は kSub_BadArgument、未知の ID は kSub_NotFound。
-    // 進行中は IsOk な BuildResult を返してもよい (success=false / artifact_url=nullptr)
-    // が、本 I/F では「完了したかどうか」を呼出側に明示するため、進行中は IsErr を
-    // 返す実装も許容する (kSub_NotFound 以外の Generic エラーで返すなど。具象側の
-    // ポリシー)。
+    /**
+     * ビルド状態を取得する。
+     *
+     * @details
+     * build_id == 0 は kSub_BadArgument、未知の ID は kSub_NotFound。進行中は IsOk な
+     * BuildResult を返してもよい (success=false / artifact_url=nullptr) が、本 I/F では
+     * 「完了したかどうか」を呼出側に明示するため、進行中は IsErr を返す実装も許容する
+     * (kSub_NotFound 以外の Generic エラーで返すなど。具象側のポリシー)。
+     * @param build_id 状態を問い合わせるビルド ID。
+     * @return ビルド結果、または失敗/進行中のエラー。
+     */
     virtual TResult<BuildResult> PollBuild(u64 build_id) noexcept = 0;
 
-    // ビルドのキャンセル要求。完了済み / 未知 ID への要求は kSub_NotFound。
+    /**
+     * ビルドのキャンセルを要求する。
+     *
+     * @details 完了済み / 未知 ID への要求は kSub_NotFound。
+     * @param build_id キャンセルするビルド ID。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     virtual TResult<void> CancelBuild(u64 build_id) noexcept = 0;
 
-    // バックエンドへ現在接続できているか。Stub は常に false。
+    /**
+     * バックエンドへ現在接続できているかを返す。
+     *
+     * @return 接続済みなら true (Stub は常に false)。
+     */
     virtual bool IsConnected() const noexcept = 0;
 };
 
-// =============================================================================
-// Stub 実装
-// -----------------------------------------------------------------------------
-// 外部 SDK (P4 / Jenkins 等) 未統合ビルド / ユニットテスト用の no-op 実装。
-//   ・IsConnected() は常に false。
-//   ・各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を返す。
-//   ・コピー/ムーブは基底 I/F で delete 済みのため本クラスも自然に non-copy。
-// =============================================================================
+/**
+ * IAssetLockingBackend の null-object stub 実装。
+ *
+ * @details
+ * 外部 SDK (P4 / Plastic 等) 未統合ビルド / ユニットテスト用の no-op 実装。
+ * IsConnected() は常に false、各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を
+ * 返す。コピー/ムーブは基底 I/F で delete 済みのため本クラスも自然に non-copy。
+ */
 class FAssetLockingStub final : public IAssetLockingBackend {
 public:
+    /** 既定構築。 */
     FAssetLockingStub() noexcept = default;
+
+    /** 破棄する。 */
     ~FAssetLockingStub() noexcept override = default;
 
+    /**
+     * 常に NotImplemented を返す (no-op stub)。
+     *
+     * @param asset_path 無視される。
+     * @param user 無視される。
+     * @return kSub_NotImplemented エラー。
+     */
     TResult<void>           LockAsset(const char* asset_path, const char* user) noexcept override;
+
+    /**
+     * 常に NotImplemented を返す (no-op stub)。
+     *
+     * @param asset_path 無視される。
+     * @return kSub_NotImplemented エラー。
+     */
     TResult<void>           UnlockAsset(const char* asset_path) noexcept override;
+
+    /**
+     * 常に NotImplemented を返す (no-op stub)。
+     *
+     * @param asset_path 無視される。
+     * @return kSub_NotImplemented エラー。
+     */
     TResult<FAssetLockInfo>  QueryLock(const char* asset_path) noexcept override;
+
+    /**
+     * 常に false を返す (未接続)。
+     *
+     * @return 常に false。
+     */
     bool                   IsConnected() const noexcept override { return false; }
 };
 
+/**
+ * IBuildFarmBackend の null-object stub 実装。
+ *
+ * @details
+ * 外部 SDK (Jenkins / TeamCity 等) 未統合ビルド / ユニットテスト用の no-op 実装。
+ * IsConnected() は常に false、各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を
+ * 返す。
+ */
 class FBuildFarmStub final : public IBuildFarmBackend {
 public:
+    /** 既定構築。 */
     FBuildFarmStub() noexcept = default;
+
+    /** 破棄する。 */
     ~FBuildFarmStub() noexcept override = default;
 
+    /**
+     * 常に NotImplemented を返す (no-op stub)。
+     *
+     * @param req 無視される。
+     * @return kSub_NotImplemented エラー。
+     */
     TResult<u64>          SubmitBuild(const BuildRequest& req) noexcept override;
+
+    /**
+     * 常に NotImplemented を返す (no-op stub)。
+     *
+     * @param build_id 無視される。
+     * @return kSub_NotImplemented エラー。
+     */
     TResult<BuildResult>  PollBuild(u64 build_id) noexcept override;
+
+    /**
+     * 常に NotImplemented を返す (no-op stub)。
+     *
+     * @param build_id 無視される。
+     * @return kSub_NotImplemented エラー。
+     */
     TResult<void>         CancelBuild(u64 build_id) noexcept override;
+
+    /**
+     * 常に false を返す (未接続)。
+     *
+     * @return 常に false。
+     */
     bool                 IsConnected() const noexcept override { return false; }
 };
 
-// =============================================================================
-// FLocalFileAssetLocking — オンディスク lock ファイルによる実ロック実装
-// -----------------------------------------------------------------------------
-// Perforce / Plastic 等の外部 SCM サーバを使わず、**ローカルファイルシステム上の
-// サイドカー lock ファイル** で IAssetLockingBackend を本実装する。
-// 「実 (non-Perforce) 実装」であり stub ではない。
-//
-// 仕組み:
-//   ・LockAsset(asset_path, user):
-//       `<asset_path>.lock` を Win32 `CreateFileW(CREATE_NEW)` で生成する。
-//       CREATE_NEW は「ファイルが既に存在したら ERROR_FILE_EXISTS で失敗する」
-//       **原子的 (atomic)** な作成フラグ。OS カーネルが排他を保証するため、
-//       2 プロセス / 2 スレッドが同時に同じアセットをロックしようとしても
-//       片方だけが成功する (= 協調ロックの race を正しく処理)。成功した側は
-//       lock ファイルへ owner 名と取得時刻 (UNIX epoch 秒) を書き込む。
-//       既にロック済みなら kSub_AlreadyLocked。
-//   ・UnlockAsset(asset_path):
-//       lock ファイルを読み、所有者を検証してから `DeleteFileW` で削除する。
-//       未ロックなら kSub_NotFound。
-//   ・QueryLock(asset_path):
-//       lock ファイルの存在 + 内容 (owner / time) を読み取って FAssetLockInfo に
-//       詰めて返す。文字列は本オブジェクト内の固定長バッファ (m_QueryPathBuf /
-//       m_QueryUserBuf) を指すため、寿命は「次の Backend 呼び出しまで」。
-//   ・IsConnected(): ローカル FS は常に利用可能なので true。
-//
-// 設計メモ:
-//   ・asset_path は UTF-8 の `const char*`。Win32 へ渡す前に内部で UTF-16 へ
-//     変換する (FHotReload / FSaveArchive と同じ流儀)。`//depot/...` のような
-//     P4 depot 構文ではなく、ローカル実装では実ファイルパス (相対/絶対) を渡す。
-//   ・lock ファイルのフォーマットは 1 行目=owner、2 行目=取得時刻(10 進秒) の
-//     極小テキスト。人間が読めて、クラッシュ後に手で消せる (協調ロックなので
-//     強制力は無く、運用での合意が前提)。
-//   ・STL 非依存: owner / path は固定長 char バッファ (member) に保持する。
-// =============================================================================
+/**
+ * オンディスク lock ファイルによる IAssetLockingBackend の実ロック実装。
+ *
+ * @details
+ * Perforce / Plastic 等の外部 SCM サーバを使わず、ローカルファイルシステム上の
+ * サイドカー lock ファイルで本実装する (「実 (non-Perforce) 実装」であり stub では
+ * ない)。LockAsset は `<asset_path>.lock` を Win32 CreateFileW(CREATE_NEW) で生成する
+ * (CREATE_NEW は「既に存在したら ERROR_FILE_EXISTS で失敗」する原子的フラグで、OS
+ * カーネルが排他を保証するため 2 プロセス/スレッドが同時にロックしても片方だけが成功
+ * する)。成功側は lock ファイルへ owner 名と取得時刻 (UNIX epoch 秒) を書き込み、既に
+ * ロック済みなら kSub_AlreadyLocked。UnlockAsset は lock ファイルを読んで所有者を検証
+ * してから DeleteFileW で削除し (未ロックは kSub_NotFound)、QueryLock は lock ファイルの
+ * 存在 + 内容を FAssetLockInfo に詰めて返す (文字列は本オブジェクト内の固定長バッファを
+ * 指すため寿命は「次の Backend 呼び出しまで」)。IsConnected はローカル FS が常に利用
+ * 可能なため true。asset_path は UTF-8 の const char* で内部で UTF-16 へ変換し、lock
+ * ファイルは 1 行目=owner、2 行目=取得時刻(10 進秒) の極小テキスト。STL 非依存で owner
+ * / path は固定長 char バッファに保持する。
+ */
 class FLocalFileAssetLocking final : public IAssetLockingBackend {
 public:
-    // path / user バッファの最大長 (NUL 含む)。MAX_PATH 級 + 余裕。
+    /** path バッファの最大長 (NUL 含む)。MAX_PATH 級 + 余裕。 */
     static constexpr int kMaxPathChars = 1024;
+
+    /** user バッファの最大長 (NUL 含む)。 */
     static constexpr int kMaxUserChars = 256;
 
+    /** 既定構築。 */
     FLocalFileAssetLocking() noexcept = default;
+
+    /** 破棄する。 */
     ~FLocalFileAssetLocking() noexcept override = default;
 
+    /**
+     * `<asset_path>.lock` を CREATE_NEW で原子的に生成し、owner と取得時刻を書く。
+     *
+     * @details 既にロック済みなら kSub_AlreadyLocked。asset_path / user が空なら kSub_BadArgument。
+     * @param asset_path ロック対象のアセットパス (UTF-8)。
+     * @param user ロック保持者の名前 (UTF-8)。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     TResult<void>           LockAsset(const char* asset_path, const char* user) noexcept override;
+
+    /**
+     * lock ファイルを削除してロックを解除する (協調ロックなので誰でも解除可)。
+     *
+     * @details 未ロック (lock ファイル無し) なら kSub_NotFound。
+     * @param asset_path ロック解除するアセットパス (UTF-8)。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     TResult<void>           UnlockAsset(const char* asset_path) noexcept override;
+
+    /**
+     * lock ファイルの存在と内容を読み取り、FAssetLockInfo に詰めて返す。
+     *
+     * @details
+     * 未ロックなら kSub_NotFound。戻り値の文字列メンバは本オブジェクト内の固定長
+     * バッファ (m_QueryPathBuf / m_QueryUserBuf) を指すため、寿命は「次の Backend
+     * 呼び出しまで」。
+     * @param asset_path 問い合わせるアセットパス (UTF-8)。
+     * @return ロック情報、または未ロック/失敗時のエラー。
+     */
     TResult<FAssetLockInfo> QueryLock(const char* asset_path) noexcept override;
+
+    /**
+     * ローカル FS は常に利用可能なので true を返す。
+     *
+     * @return 常に true。
+     */
     bool                    IsConnected() const noexcept override { return true; }
 
-    // 所有者検証付き解除 (seam 拡張)。lock ファイルの owner が `user` と一致する
-    // 場合のみ削除する。一致しなければ kSub_PermissionDenied、未ロックは
-    // kSub_NotFound。「自分のロックだけ外す」厳格運用が必要な場合に使う。
-    // (基底 UnlockAsset(asset_path) は協調ロックとして誰でも解除可。)
+    /**
+     * 所有者検証付きでロックを解除する (seam 拡張)。
+     *
+     * @details
+     * lock ファイルの owner が user と一致する場合のみ削除する。一致しなければ
+     * kSub_PermissionDenied、未ロックは kSub_NotFound。「自分のロックだけ外す」厳格運用が
+     * 必要な場合に使う (基底 UnlockAsset は協調ロックとして誰でも解除可)。
+     * @param asset_path ロック解除するアセットパス (UTF-8)。
+     * @param user 解除を要求するユーザー (lock の owner と照合)。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     TResult<void> UnlockAssetAs(const char* asset_path, const char* user) noexcept;
 
 private:
-    // QueryLock の戻り値文字列が指す先 (寿命 = 次の呼び出しまで)。
+    /** QueryLock の戻り値 asset_path が指す先 (寿命 = 次の呼び出しまで)。 */
     char m_QueryPathBuf[kMaxPathChars] = {};
+
+    /** QueryLock の戻り値 locker_user が指す先 (寿命 = 次の呼び出しまで)。 */
     char m_QueryUserBuf[kMaxUserChars] = {};
 };
 
-// =============================================================================
-// FLocalBuildRunner — Win32 CreateProcessW によるローカルビルド実行 (実装)
-// -----------------------------------------------------------------------------
-// Jenkins / TeamCity 等の外部ビルドファームを使わず、**ローカルマシン上で実際に
-// ビルドコマンド (バッチ / exe) を起動して終了コードを回収する** ことで
-// IBuildFarmBackend を本実装する。いわば「サイズ 1 の実ビルドファーム」。
-// 「実 (non-Jenkins) 実装」であり stub ではない。
-//
-// 2 系統の API を提供する:
-//   (A) RunBuild(command_line, &out_exit_code) — **同期** 実行ヘルパ。
-//       Win32 CreateProcessW でコマンドを起動し、WaitForSingleObject で完了を
-//       待ち、GetExitCodeProcess で実際の終了コードを回収して out_exit_code に
-//       入れる。プロセス起動自体に成功すれば (終了コードが何であれ) IsOk を返す。
-//       例: RunBuild(L"cmd /c exit 3", ec) → ec == 3。
-//   (B) IBuildFarmBackend seam (SubmitBuild/PollBuild/CancelBuild) — preset を
-//       「起動するコマンドライン」として解釈し、ジョブを内部テーブルに登録して
-//       非同期に起動・追跡する。Jenkins 連携コードをそのまま流用できる。
-//
-// 設計メモ:
-//   ・command_line は CreateProcessW の lpCommandLine 仕様に従い **書き換え可能な
-//     バッファ** が必要なため、内部で固定長バッファへコピーしてから渡す。
-//   ・SubmitBuild の `req.preset` を起動コマンドライン (UTF-8) とみなす。branch /
-//     commit_sha は環境変数的なメタ情報として lock せず、ここでは情報のみ。
-//   ・ジョブは固定長テーブル (kMaxJobs 件) で管理。build_id は 1 始まりの連番
-//     (0 は無効予約)。
-//   ・STL 非依存: ジョブテーブルは固定長配列、文字列は固定長 char バッファ。
-// =============================================================================
+/**
+ * Win32 CreateProcessW によるローカルビルド実行で IBuildFarmBackend を本実装する。
+ *
+ * @details
+ * Jenkins / TeamCity 等の外部ビルドファームを使わず、ローカルマシン上で実際にビルド
+ * コマンド (バッチ / exe) を起動して終了コードを回収する「サイズ 1 の実ビルドファーム」
+ * (「実 (non-Jenkins) 実装」であり stub ではない)。2 系統の API を提供する: (A)
+ * RunBuild(command_line, &out_exit_code) は同期実行ヘルパで、CreateProcessW で起動し
+ * WaitForSingleObject で完了を待ち GetExitCodeProcess で終了コードを回収する (プロセス
+ * 起動自体に成功すれば終了コードが何であれ IsOk)。(B) IBuildFarmBackend seam
+ * (SubmitBuild/PollBuild/CancelBuild) は preset を「起動するコマンドライン」として解釈
+ * し、ジョブを内部テーブルに登録して非同期に起動・追跡する。command_line は
+ * CreateProcessW の lpCommandLine 仕様に従い書き換え可能なバッファが必要なため内部で
+ * 固定長バッファへコピーしてから渡す。branch / commit_sha は情報のみ。ジョブは固定長
+ * テーブル (kMaxJobs 件) で管理し、build_id は 1 始まりの連番 (0 は無効予約)。STL 非依存。
+ */
 class FLocalBuildRunner final : public IBuildFarmBackend {
 public:
-    static constexpr int kMaxJobs        = 32;     // 同時追跡できるビルドジョブ数
-    static constexpr int kMaxCmdChars    = 4096;   // コマンドライン最大長 (NUL 含む)
-    static constexpr int kMaxArtifactLen = 1024;   // artifact パス最大長 (NUL 含む)
+    /** 同時追跡できるビルドジョブ数。 */
+    static constexpr int kMaxJobs        = 32;
 
+    /** コマンドライン最大長 (NUL 含む)。 */
+    static constexpr int kMaxCmdChars    = 4096;
+
+    /** artifact パス最大長 (NUL 含む)。 */
+    static constexpr int kMaxArtifactLen = 1024;
+
+    /** 既定構築。 */
     FLocalBuildRunner() noexcept = default;
+
+    /** 追跡中のプロセス HANDLE をすべて閉じて破棄する (プロセス自体は kill しない)。 */
     ~FLocalBuildRunner() noexcept override;
 
-    // ---- (A) 同期実行ヘルパ (seam 非経由) ----------------------------------
-    // command_line (UTF-16, 書き換え可能) を起動し、終了まで待ってから
-    // out_exit_code に実際の終了コードを書く。起動失敗は OS サブコードで Err。
-    // timeout_ms に 0 を渡すと INFINITE (完了まで待つ)。
+    /**
+     * command_line (UTF-16, 書き換え可能) を起動し、終了まで待って終了コードを得る (同期、seam 非経由)。
+     *
+     * @details
+     * 起動失敗は OS サブコードで Err を返す。timeout_ms に 0 を渡すと INFINITE
+     * (完了まで待つ)。
+     * @param command_line 起動するコマンドライン (UTF-16, 内部で可変バッファへ複写)。
+     * @param out_exit_code プロセスの実際の終了コードを書き込む先。
+     * @param timeout_ms 完了待ちのタイムアウト (ミリ秒、0 で INFINITE)。
+     * @return 成功なら空の TResult、起動失敗/タイムアウトならエラー。
+     */
     TResult<void> RunBuild(const wchar_t* command_line,
                            u32&           out_exit_code,
                            u32            timeout_ms = 0) noexcept;
 
-    // command_line を UTF-8 で受ける版 (内部で UTF-16 へ変換)。
+    /**
+     * command_line を UTF-8 で受け、内部で UTF-16 へ変換して RunBuild する。
+     *
+     * @param command_line 起動するコマンドライン (UTF-8)。
+     * @param out_exit_code プロセスの実際の終了コードを書き込む先。
+     * @param timeout_ms 完了待ちのタイムアウト (ミリ秒、0 で INFINITE)。
+     * @return 成功なら空の TResult、変換/起動失敗ならエラー。
+     */
     TResult<void> RunBuildUtf8(const char* command_line,
                                u32&        out_exit_code,
                                u32         timeout_ms = 0) noexcept;
 
-    // ---- (B) IBuildFarmBackend seam ----------------------------------------
+    /**
+     * preset を起動コマンドラインとして解釈し、非同期にビルドジョブを起動する。
+     *
+     * @details req.preset が空ならエラー、ジョブテーブルが満杯なら kSub_PermissionDenied。成功時は 1 始まりの連番 build_id を返す。
+     * @param req 投入するビルドリクエスト (preset を起動コマンドラインとして使用)。
+     * @return 成功時の build_id、または失敗時のエラー。
+     */
     TResult<u64>          SubmitBuild(const BuildRequest& req) noexcept override;
+
+    /**
+     * ジョブの完了状態を非ブロッキングに確認し、結果を返す。
+     *
+     * @details build_id == 0 は kSub_BadArgument、未知 ID は kSub_NotFound、進行中は IsErr で返す。
+     * @param build_id 状態を問い合わせるビルド ID。
+     * @return ビルド結果、または失敗/進行中のエラー。
+     */
     TResult<BuildResult>  PollBuild(u64 build_id) noexcept override;
+
+    /**
+     * 進行中のジョブを kill してスロットを解放する。
+     *
+     * @details 未知 ID / 完了済みジョブへの要求は kSub_NotFound。
+     * @param build_id キャンセルするビルド ID。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     TResult<void>         CancelBuild(u64 build_id) noexcept override;
+
+    /**
+     * ローカル実行は常に利用可能なので true を返す。
+     *
+     * @return 常に true。
+     */
     bool                  IsConnected() const noexcept override { return true; }
 
 private:
-    // 1 ビルドジョブの追跡状態。
+    /** 1 ビルドジョブの追跡状態。 */
     struct Job {
-        u64    m_BuildId = 0;                       // 0 = 空きスロット
-        void*  m_Process = nullptr;                 // HANDLE (プロセス)。void* で windows.h を header に持ち込まない
-        bool   m_Finished = false;                  // 完了済みか (poll でラッチ)
-        bool   m_Success  = false;                  // exit_code == 0 か
-        u32    m_ExitCode = 0;                      // 完了時の終了コード
-        char   m_Artifact[kMaxArtifactLen] = {};    // 成功時に返す疑似 artifact パス
+        /** ビルド ID (0 = 空きスロット)。 */
+        u64    m_BuildId = 0;
+
+        /** プロセス HANDLE。void* で windows.h を header に持ち込まない。 */
+        void*  m_Process = nullptr;
+
+        /** 完了済みか (poll でラッチされる)。 */
+        bool   m_Finished = false;
+
+        /** 成功したか (exit_code == 0 か)。 */
+        bool   m_Success  = false;
+
+        /** 完了時の終了コード。 */
+        u32    m_ExitCode = 0;
+
+        /** 成功時に返す疑似 artifact パス。 */
+        char   m_Artifact[kMaxArtifactLen] = {};
     };
 
-    Job* FindJob(u64 build_id) noexcept;            // build_id でジョブを引く (無ければ nullptr)
-    void CloseJob(Job& job) noexcept;               // プロセス HANDLE を閉じてスロットを空ける
+    /**
+     * build_id でジョブを引く。
+     *
+     * @param build_id 検索するビルド ID。
+     * @return 該当ジョブへのポインタ (無ければ nullptr)。
+     */
+    Job* FindJob(u64 build_id) noexcept;
 
+    /**
+     * プロセス HANDLE を閉じてスロットを空きに戻す。
+     *
+     * @param job 解放するジョブスロット。
+     */
+    void CloseJob(Job& job) noexcept;
+
+    /** ビルドジョブ追跡テーブル (固定長)。 */
     Job m_Jobs[kMaxJobs] = {};
-    u64 m_NextBuildId    = 1;                        // 連番発番器 (0 は無効予約)
+
+    /** 次に発番する build_id (1 始まりの連番、0 は無効予約)。 */
+    u64 m_NextBuildId    = 1;
 };
 
-// =============================================================================
-// アクセサ: stub 実装への参照を取る
-// -----------------------------------------------------------------------------
-// 本体側 (タイトル / エディタ) はまずこの 2 つを使ってリンクを通す。
-// 具象実装に切り替える際は `IAssetLockingBackend*` / `IBuildFarmBackend*` を持つ
-// メンバ変数に `PerforceAssetLocking` / `JenkinsBuildFarm` 等を差し替える。
-// =============================================================================
-
-// プロセス共有の stub IAssetLockingBackend。常に NotImplemented を返す。
+/**
+ * プロセス共有の stub IAssetLockingBackend を返す。
+ *
+ * @details
+ * 依存ゼロのデフォルト実装で、常に NotImplemented を返す。本体側 (タイトル / エディタ)
+ * はまずこれを使ってリンクを通し、具象実装に切り替える際は IAssetLockingBackend* を持つ
+ * メンバ変数に PerforceAssetLocking 等を差し替える。
+ * @return プロセス共有の FAssetLockingStub への参照。
+ */
 IAssetLockingBackend& GetAssetLockingStub() noexcept;
 
-// プロセス共有の stub IBuildFarmBackend。常に NotImplemented を返す。
+/**
+ * プロセス共有の stub IBuildFarmBackend を返す。
+ *
+ * @details 依存ゼロのデフォルト実装で、常に NotImplemented を返す。
+ * @return プロセス共有の FBuildFarmStub への参照。
+ */
 IBuildFarmBackend& GetBuildFarmStub() noexcept;
 
-// =============================================================================
-// アクセサ: 実 (ローカル) 実装への参照を取る
-// -----------------------------------------------------------------------------
-// 外部 SDK に依存しないオンディスク / ローカルプロセス本実装。stub と差し替えて
-// `m_Locks = &GetLocalFileAssetLocking();` のように使う。process-wide singleton。
-// =============================================================================
-
-// プロセス共有の実 IAssetLockingBackend (オンディスク lock ファイル)。
+/**
+ * プロセス共有の実 IAssetLockingBackend (オンディスク lock ファイル) を返す。
+ *
+ * @details
+ * 外部 SDK に依存しないオンディスク本実装。stub と差し替えて `m_Locks =
+ * &GetLocalFileAssetLocking();` のように使う process-wide singleton。
+ * @return プロセス共有の FLocalFileAssetLocking への参照。
+ */
 FLocalFileAssetLocking& GetLocalFileAssetLocking() noexcept;
 
-// プロセス共有の実 IBuildFarmBackend (ローカル CreateProcessW)。
+/**
+ * プロセス共有の実 IBuildFarmBackend (ローカル CreateProcessW) を返す。
+ *
+ * @details 外部 SDK に依存しないローカルプロセス本実装の process-wide singleton。
+ * @return プロセス共有の FLocalBuildRunner への参照。
+ */
 FLocalBuildRunner& GetLocalBuildRunner() noexcept;
 
 } // namespace acs::game

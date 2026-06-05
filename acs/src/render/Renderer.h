@@ -37,53 +37,145 @@ namespace acs {
 
 class FWindow;
 
+/**
+ * ウィンドウへの描画ループを統括する高レベルレンダラ。
+ *
+ * @details
+ * Device + Swapchain + CommandList (+ 任意で深度バッファ) を所有し、BeginFrame /
+ * EndFrame でフレーム境界を管理する。BeginFrame 後に GetCommandList() でコマンドを
+ * 積み、FStandardShader / FSky / FSpriteBatch などの高レベルヘルパで描画する。GPU
+ * リソースを単独所有する non-copy 型。
+ */
 class FRenderer {
 public:
+    /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FRenderer() noexcept = default;
+
+    /** 破棄する (確保した GPU リソースを解放)。 */
     ~FRenderer() noexcept;
 
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
     FRenderer(const FRenderer&) = delete;
+
+    /** コピー代入も禁止。 */
     FRenderer& operator=(const FRenderer&) = delete;
 
-    // ウィンドウに紐付けて初期化（DX12 Device + Swapchain + CommandList を作成）
-    // enable_depth=true なら深度バッファ (D32_Float) を自動で作成する
+    /**
+     * ウィンドウに紐付けて初期化する (Device + Swapchain + CommandList を作成)。
+     *
+     * @param w 描画先のウィンドウ。
+     * @param enable_debug デバッグレイヤを有効にするか。
+     * @param enable_depth true なら深度バッファ (D32_Float) を自動で作成する。
+     * @return 成功なら空の TResult、初期化失敗ならエラー。
+     */
     TResult<void> Init(FWindow& w, bool enable_debug = false, bool enable_depth = true) noexcept;
 
-    // 全リソースを解放
+    /** 確保した全リソースを解放する。 */
     void Shutdown() noexcept;
 
-    // フレーム開始（クリア色で塗りつぶし、深度は 1.0 でクリア）
+    /**
+     * フレームを開始する (クリア色で塗りつぶし、深度は 1.0 でクリア)。
+     *
+     * @param clear バックバッファをクリアする色。
+     */
     void BeginFrame(const ClearColor& clear) noexcept;
 
-    // フレーム終了（GPU に投入 + Present）
+    /** フレームを終了する (コマンドを GPU に投入し Present)。 */
     void EndFrame() noexcept;
 
-    // ウィンドウサイズ変更時に呼ぶ（イベントハンドラから）
+    /**
+     * ウィンドウサイズ変更時に呼ぶ (スワップチェーン・深度を再作成)。
+     *
+     * @param width 新しいウィンドウ幅。
+     * @param height 新しいウィンドウ高さ。
+     */
     void OnResize(u32 width, u32 height) noexcept;
 
+    /**
+     * RHI デバイスを返す。
+     *
+     * @return 所有する RHI デバイス。
+     */
     IRhiDevice*     Device()      const noexcept { return m_Device.Get(); }
+
+    /**
+     * スワップチェーンを返す。
+     *
+     * @return 所有するスワップチェーン。
+     */
     IRhiSwapchain*  Swapchain()   const noexcept { return m_Swapchain.Get(); }
+
+    /**
+     * コマンドリストを返す (BeginFrame 後にコマンドを積む)。
+     *
+     * @return 所有するコマンドリスト。
+     */
     IRhiCommandList* CommandList() const noexcept { return m_Cmd.Get(); }
+
+    /**
+     * 深度バッファを返す。
+     *
+     * @return 所有する深度バッファ (enable_depth=false なら nullptr)。
+     */
     IRhiTexture*    DepthBuffer() const noexcept { return m_Depth.Get(); }
-    // 現在 BeginFrame で取得したバックバッファ index。マルチパス (反射等) で
-    // 同一フレーム内にスワップチェーンを再バインドする際に必要。
+
+    /**
+     * BeginFrame で取得した現在のバックバッファ index を返す。
+     *
+     * @details マルチパス (反射等) で同一フレーム内にスワップチェーンを再バインドする際に必要。
+     * @return 現在のバックバッファ index。
+     */
     u32             CurrentBuffer() const noexcept { return m_CurrentBuffer; }
 
-    // 描画ターゲットのフォーマット（パイプライン作成時に必要）
+    /**
+     * カラー描画ターゲットのフォーマットを返す (パイプライン作成時に必要)。
+     *
+     * @return バックバッファのカラーフォーマット。
+     */
     EFormat          ColorFormat() const noexcept { return m_ColorFormat; }
+
+    /**
+     * 深度ターゲットのフォーマットを返す (パイプライン作成時に必要)。
+     *
+     * @return 深度バッファのフォーマット。
+     */
     EFormat          DepthFormat() const noexcept { return m_DepthFormat; }
 
 private:
+    /**
+     * 深度バッファを指定サイズで作り直す。
+     *
+     * @param w 新しい深度バッファの幅。
+     * @param h 新しい深度バッファの高さ。
+     * @return 成功なら空の TResult、再作成失敗ならエラー。
+     */
     TResult<void> RebuildDepth(u32 w, u32 h) noexcept;
 
+    /** RHI デバイス。 */
     TUniquePtr<IRhiDevice>      m_Device;
+
+    /** スワップチェーン。 */
     TUniquePtr<IRhiSwapchain>   m_Swapchain;
+
+    /** コマンドリスト。 */
     TUniquePtr<IRhiCommandList> m_Cmd;
+
+    /** 深度バッファ (enable_depth=false なら未確保)。 */
     TUniquePtr<IRhiTexture>     m_Depth;
+
+    /** バックバッファのカラーフォーマット。 */
     EFormat                      m_ColorFormat  = EFormat::B8G8R8A8_UNorm;
+
+    /** 深度バッファのフォーマット。 */
     EFormat                      m_DepthFormat  = EFormat::D32_Float;
+
+    /** BeginFrame で取得した現在のバックバッファ index。 */
     u32                         m_CurrentBuffer = 0;
+
+    /** 深度バッファを使うか。 */
     bool                        m_EnableDepth   = true;
+
+    /** フレームが BeginFrame 済み (EndFrame 未呼出) か。 */
     bool                        m_bFrameOpen     = false;
 };
 

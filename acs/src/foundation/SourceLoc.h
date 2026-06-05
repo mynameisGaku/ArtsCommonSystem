@@ -7,16 +7,59 @@
 
 namespace acs {
 
+/**
+ * ソースコード上の発生位置 (ファイル・関数・行・列) を保持する値型。
+ *
+ * @details
+ * std::source_location 相当をコンパイラ組み込み (__builtin_FILE 等) で実装する。
+ * Current() をデフォルト引数として渡すと、呼び出し位置を自動でキャプチャできる。
+ */
 class FSourceLoc {
 public:
+    /** 空の位置情報 (ファイル・関数は空文字列、行・列は 0) を構築する。 */
     constexpr FSourceLoc() noexcept = default;
 
+    /**
+     * ソースファイルパスを返す。
+     *
+     * @return ファイルパス文字列 (未設定なら空文字列)。
+     */
     constexpr const char* File()     const noexcept { return m_File; }
+
+    /**
+     * 関数名を返す。
+     *
+     * @return 関数名文字列 (未設定なら空文字列)。
+     */
     constexpr const char* Function() const noexcept { return m_Func; }
+
+    /**
+     * 行番号を返す。
+     *
+     * @return 行番号 (未設定なら 0)。
+     */
     constexpr u32         Line()     const noexcept { return m_Line; }
+
+    /**
+     * 列番号を返す。
+     *
+     * @return 列番号 (未設定または GCC では 0)。
+     */
     constexpr u32         Column()   const noexcept { return m_Col;  }
 
-    // デフォルト引数として渡すと呼び出し位置をキャプチャする
+    /**
+     * 呼び出し位置をキャプチャした FSourceLoc を生成する。
+     *
+     * @details
+     * 各引数のデフォルト値がコンパイラ組み込みで埋まるため、引数を渡さずに呼ぶと
+     * 呼び出し箇所のファイル・関数・行・列が入る。col は GCC では __builtin_COLUMN が
+     * ないため常に 0。
+     * @param file ソースファイルパス (既定: 呼び出し箇所のファイル)。
+     * @param func 関数名 (既定: 呼び出し箇所の関数)。
+     * @param line 行番号 (既定: 呼び出し箇所の行)。
+     * @param col 列番号 (既定: 呼び出し箇所の列、GCC では 0)。
+     * @return 呼び出し位置を反映した FSourceLoc。
+     */
     static consteval FSourceLoc Current(
         const char* file = __builtin_FILE(),
         const char* func = __builtin_FUNCTION(),
@@ -36,9 +79,16 @@ public:
     }
 
 private:
+    /** ソースファイルパス (既定は空文字列)。 */
     const char* m_File = "";
+
+    /** 関数名 (既定は空文字列)。 */
     const char* m_Func = "";
+
+    /** 行番号 (既定は 0)。 */
     u32         m_Line = 0;
+
+    /** 列番号 (既定は 0)。 */
     u32         m_Col  = 0;
 };
 

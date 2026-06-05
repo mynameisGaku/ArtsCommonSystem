@@ -14,18 +14,42 @@
 
 namespace acs {
 
+/**
+ * アセットローダのインターフェイス。
+ *
+ * @details
+ * 各アセット型 (Texture, Mesh, Audio など) ごとに実装し、FAssetRegistry に登録する。
+ * レジストリは Extension() でパスの拡張子からローダを選び、LoadFromBytes() を呼ぶ。
+ * 非同期ロードはレジストリ側が FThreadPool で LoadFromBytes() を呼ぶ形で実現するため、
+ * 実装は同期ロードだけを考えればよい。
+ */
 class IAssetLoader {
 public:
+    /** 派生ローダを正しく破棄するための仮想デストラクタ。 */
     virtual ~IAssetLoader() noexcept = default;
 
-    // 担当するアセット型 ID
+    /**
+     * このローダが生成するアセット型 ID を返す。
+     *
+     * @return 担当アセット型の AssetType。
+     */
     virtual AssetType TypeId() const noexcept = 0;
 
-    // 担当する拡張子（"dds", "png", "mesh" など）— レジストリがマッチング
+    /**
+     * このローダが担当する拡張子を返す ("dds", "png", "mesh" など)。
+     *
+     * @details レジストリがこの文字列でパスの拡張子とマッチングする ("*" は全拡張子フォールバック)。
+     * @return 小文字 ASCII の拡張子文字列。
+     */
     virtual const char* Extension() const noexcept = 0;
 
-    // バイト列からアセットを生成（同期）
-    // 非同期化は FAssetRegistry 側が FThreadPool で本関数を呼ぶ形で実現する
+    /**
+     * バイト列からアセットを同期生成する。
+     *
+     * @param id 生成したアセットに割り当てる ID。
+     * @param bytes ファイル全体のバイト列。
+     * @return 成功なら生成したアセット、失敗ならエラー。
+     */
     virtual TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept = 0;
 };
 

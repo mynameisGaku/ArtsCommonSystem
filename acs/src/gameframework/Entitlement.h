@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — FEntitlement (DLC / FSeasonPass / Cosmetic 権利チェック)
+// EntitlementRegistry — DLC / シーズンパス / コスメティック等の権利チェック
 //
 // プレイヤーが「持っているかどうか」をゲームロジック側から問い合わせる窓口。
 // DLC、シーズンパス、バトルパス、コスメティックパック、グッズ同梱の引換コード等の
@@ -33,7 +33,7 @@
 //     最初から非コピー・非ムーブで固定する。
 //   ・全 noexcept: 例外不使用方針 (TResult<T,E> + bool 戻り値)。
 //
-// 範囲外 (本フェーズでは扱わない):
+// 範囲外:
 //   ・永続化 / シリアライズ (Pillar J Serialize 側で扱う)
 //   ・プラットフォーム SDK 連携の具象 (Pillar S Storefront 側で実装、こちらは依存しない)
 //   ・期限付き entitlement (期限切れ判定や残時間照会) — `active` フラグの更新を
@@ -46,58 +46,130 @@
 
 namespace acs::game {
 
-// 権利種別。Pillar S 側のアダプタが分類してから Add() に渡す前提で、
-// レジストリは単に分類タグとして保持・検索キーに使う。
+/**
+ * 権利種別。
+ *
+ * @details
+ * Pillar S 側のアダプタが分類してから Add() に渡す前提で、レジストリは単に
+ * 分類タグとして保持・検索キーに使う。
+ */
 enum class EntitlementKind : u8 {
-    Dlc,                // 追加コンテンツ (マップ / シナリオ / キャラ等)
-    FSeasonPass,         // 一定期間 / シーズン束ねの権利
-    BattlePass,         // tier 進行型 (cosmetic 中心を推奨)
-    CosmeticPack,       // 見た目だけのスキン・装飾
-    GoodsRedeemCode,    // 物販同梱コード等から redeem された結果
+    /** 追加コンテンツ (マップ / シナリオ / キャラ等)。 */
+    Dlc,
+
+    /** 一定期間 / シーズン束ねの権利。 */
+    FSeasonPass,
+
+    /** tier 進行型 (cosmetic 中心を推奨)。 */
+    BattlePass,
+
+    /** 見た目だけのスキン・装飾。 */
+    CosmeticPack,
+
+    /** 物販同梱コード等から redeem された結果。 */
+    GoodsRedeemCode,
 };
 
-// 1 つの権利情報。`id` は registry 側で所有しない (呼び出し側保証)。
+/**
+ * 1 つの権利情報。
+ *
+ * @details `id` は registry 側で所有しない (呼び出し側が寿命を保証する)。
+ */
 struct EntitlementInfo {
+    /** 権利を識別する文字列 (非所有、呼び出し側が寿命を保証)。 */
     const char*     id     = nullptr;
+
+    /** 権利の分類タグ。 */
     EntitlementKind kind   = EntitlementKind::Dlc;
-    bool            active = false;  // false で「持ってはいるが現在無効」を表現可
+
+    /** 有効フラグ (false で「持ってはいるが現在無効」を表現可)。 */
+    bool            active = false;
 };
 
+/**
+ * 権利情報 (entitlement) をローカルに保持し問い合わせるレジストリ。
+ *
+ * @details
+ * DLC・シーズンパス・コスメティックパック等の権利をストア非依存で保持し、
+ * IsActive()/HasAny() でゲームロジックから所持判定を行う。Pillar S (ストア SDK)
+ * 側のアダプタが取得結果を Add() で流し込む想定。非コピー・非ムーブ。
+ */
 class EntitlementRegistry {
 public:
+    /** 空のレジストリを構築する。 */
     EntitlementRegistry()  noexcept = default;
+
+    /** 破棄する (保持していた権利情報を解放)。 */
     ~EntitlementRegistry() noexcept = default;
 
+    /** コピー禁止 (通常 1 つの長寿命オブジェクトで運用するため)。 */
     EntitlementRegistry(const EntitlementRegistry&)            = delete;
+
+    /** コピー代入も禁止。 */
     EntitlementRegistry& operator=(const EntitlementRegistry&) = delete;
+
+    /** ムーブ禁止 (entitlement の分裂を防ぐため)。 */
     EntitlementRegistry(EntitlementRegistry&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     EntitlementRegistry& operator=(EntitlementRegistry&&)      = delete;
 
-    // 新規 entitlement を登録。同一 id の重複は禁止せず、後追いで上書き挙動には
-    // しない (Pillar S 側で dedup する想定)。`id == nullptr` は no-op で防御。
+    /**
+     * 新規 entitlement を登録する。
+     *
+     * @details
+     * 同一 id の重複は禁止せず、上書きもしない (Pillar S 側で dedup する想定)。
+     * id == nullptr は no-op で防御する。
+     * @param info 登録する権利情報。
+     */
     void Add(EntitlementInfo info) noexcept;
 
-    // id が登録済みか (active 不問)。`id == nullptr` は false。
+    /**
+     * id が登録済みかを返す (active 不問)。
+     *
+     * @param id 探す権利 id (nullptr なら false)。
+     * @return 登録済みなら true。
+     */
     bool Has(const char* id) const noexcept;
 
-    // id が登録済み **かつ** active か。`id == nullptr` は false。
+    /**
+     * id が登録済み かつ active かを返す。
+     *
+     * @param id 探す権利 id (nullptr なら false)。
+     * @return 登録済みかつ active なら true。
+     */
     bool IsActive(const char* id) const noexcept;
 
-    // 指定 kind の active な entitlement が 1 つでもあるか。
-    // 「シーズンパス所持者向け UI を出すか」等の判定に使う。
+    /**
+     * 指定 kind の active な entitlement が 1 つでもあるかを返す。
+     *
+     * @details 「シーズンパス所持者向け UI を出すか」等の判定に使う。
+     * @param k 探す権利種別。
+     * @return 該当する active な権利が 1 つでもあれば true。
+     */
     bool HasAny(EntitlementKind k) const noexcept;
 
-    // 全削除 (ストア再同期時に呼ばれる想定)。
+    /**
+     * 全 entitlement を削除する (ストア再同期時に呼ばれる想定)。
+     */
     void Clear() noexcept;
 
-    // 件数 (active / inactive 含む)。
+    /**
+     * 登録件数を返す (active / inactive 含む)。
+     *
+     * @return 保持している権利情報の件数。
+     */
     u32 Count() const noexcept;
 
-    // 生バッファ getter。デバッグ表示 / イテレーション用。
-    // 戻り値は Count() 件の連続バッファ、Clear() / Add() で無効化される。
+    /**
+     * 生バッファの先頭ポインタを返す (デバッグ表示 / イテレーション用)。
+     *
+     * @return Count() 件の連続バッファ。Clear() / Add() で無効化される。
+     */
     const EntitlementInfo* AllInfos() const noexcept;
 
 private:
+    /** 登録済み権利情報の配列。 */
     TArray<EntitlementInfo> m_Infos;
 };
 

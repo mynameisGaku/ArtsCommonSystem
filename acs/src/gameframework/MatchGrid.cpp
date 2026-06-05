@@ -6,10 +6,18 @@ namespace acs::game {
 
 namespace {
 
-// 範囲外 Get / 初期状態の安全なフォールバック値。
-// const-ref 返却なので static lifetime が必要。
+/** 範囲外 Get / 初期状態用の空セル (const-ref 返却のため static lifetime)。 */
 const GridCell kEmptyCell{};
 
+/**
+ * 2 つのセルが 4-近傍で隣接 (横 or 縦に距離 1) しているかを返す。
+ *
+ * @param x1 1 つ目のセルの X 座標。
+ * @param y1 1 つ目のセルの Y 座標。
+ * @param x2 2 つ目のセルの X 座標。
+ * @param y2 2 つ目のセルの Y 座標。
+ * @return 上下左右いずれかで隣接していれば true。
+ */
 inline bool IsAdjacent(u32 x1, u32 y1, u32 x2, u32 y2) noexcept {
     // 4-neighborhood: 横 or 縦に距離 1
     const u32 dx = (x1 > x2) ? (x1 - x2) : (x2 - x1);
@@ -19,9 +27,6 @@ inline bool IsAdjacent(u32 x1, u32 y1, u32 x2, u32 y2) noexcept {
 
 } // namespace
 
-// ---------------------------------------------------------------------------
-// 初期化 / 基本アクセス
-// ---------------------------------------------------------------------------
 void FMatchGrid::Init(u32 width, u32 height, u32 color_count) noexcept {
     if (width  == 0) width  = 1;
     if (height == 0) height = 1;
@@ -76,9 +81,6 @@ void FMatchGrid::SetOnClearCallback(ClearCallback cb, void* user) noexcept {
     m_OnClearUser = user;
 }
 
-// ---------------------------------------------------------------------------
-// FillRandom (no-match invariant)
-// ---------------------------------------------------------------------------
 u8 FMatchGrid::PickColorAvoidingMatch(u32 x, u32 y, FRandom& rng) const noexcept {
     // 候補色 1..color_count から、左 2 個 / 上 2 個が同色になる色を弾く。
     // color_count == 1 の場合は invariant を諦める (常に同色になる)。
@@ -123,9 +125,6 @@ void FMatchGrid::FillRandom(u32 seed) noexcept {
     }
 }
 
-// ---------------------------------------------------------------------------
-// マッチ検出 (3+ 連続を水平 / 垂直 2 パス走査)
-// ---------------------------------------------------------------------------
 u32 FMatchGrid::DetectMatches(MatchInfo* out_matches, u32 max_matches) const noexcept {
     u32 count = 0;
 
@@ -193,9 +192,6 @@ u32 FMatchGrid::DetectMatches(MatchInfo* out_matches, u32 max_matches) const noe
     return count;
 }
 
-// ---------------------------------------------------------------------------
-// swap 試行 (マッチ非発生時は戻す)
-// ---------------------------------------------------------------------------
 bool FMatchGrid::TrySwap(u32 x1, u32 y1, u32 x2, u32 y2) noexcept {
     if (x1 >= m_Width || y1 >= m_Height) return false;
     if (x2 >= m_Width || y2 >= m_Height) return false;
@@ -226,9 +222,6 @@ bool FMatchGrid::TrySwap(u32 x1, u32 y1, u32 x2, u32 y2) noexcept {
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// 個別消去 + special 効果 (visited で再入防止)
-// ---------------------------------------------------------------------------
 void FMatchGrid::ClearOne(u32 x, u32 y, TArray<u8>& visited) noexcept {
     if (x >= m_Width || y >= m_Height) return;
     const usize i = Idx(x, y);
@@ -299,9 +292,6 @@ void FMatchGrid::ApplySpecialEffect(u32 x, u32 y, u8 color, ESpecialKind sp,
     }
 }
 
-// ---------------------------------------------------------------------------
-// 重力 / 補充
-// ---------------------------------------------------------------------------
 u32 FMatchGrid::ApplyGravity() noexcept {
     u32 moved = 0;
     // 列ごとに下から走査。空 cell より上の最初の非空を見つけて下に落とす。
@@ -346,9 +336,6 @@ u32 FMatchGrid::RefillFromTop() noexcept {
     return filled;
 }
 
-// ---------------------------------------------------------------------------
-// resolve サイクル (detect → clear → gravity → refill を stable まで反復)
-// ---------------------------------------------------------------------------
 u32 FMatchGrid::ResolveAllMatches() noexcept {
     const u32 cleared_before = m_TotalCleared;
     const usize n = m_Cells.Size();

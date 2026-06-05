@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — animcurve / FAnimCurveEditorPanel 実装 (Phase 22)
+// GameFramework Pillar — animcurve / FAnimCurveEditorPanel 実装
 //
 // 仕様の意図は FAnimCurveEditorPanel.h を参照。本ファイルでは:
 //   ・Init / Shutdown / SetCurve / dirty / callback: 状態管理
@@ -22,29 +22,49 @@
 
 namespace acs::game::animcurve {
 
-// =============================================================================
-// ローカルヘルパ
-// =============================================================================
-
-// 小さな clamp ヘルパ (Math.h は f32 専用の Saturate しか持たないため
-// 任意レンジ用に自前で 1 個用意する)。
+/**
+ * 任意レンジ用の clamp ヘルパ。
+ *
+ * @details Math.h は f32 専用の Saturate ([0,1]) しか持たないため自前で用意する。
+ * @param v クランプ対象の値。
+ * @param lo 下限。
+ * @param hi 上限。
+ * @return [lo, hi] にクランプした値。
+ */
 static f32 ClampF(f32 v, f32 lo, f32 hi) noexcept {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-// FAnimationCurve から bbox (= curve 全体の [time_min, time_max] /
-// [value_min, value_max]) を取得する。空 curve なら適当な default を返す
-// (canvas を描画可能な状態にするため)。
-//   ・time:  [0, 1] を最低範囲として、key が外に出ていれば拡張
-//   ・value: [-1, 1] を最低範囲として、key が外に出ていれば拡張
-// これで「key が密集していても canvas が崩壊しない」 + 「キー値が大きく
-// なれば自動でズームアウト」する直感的な振る舞いになる。
+/**
+ * curve 全体の表示用 bounding box (canvas ↔ curve 座標変換のレンジ)。
+ *
+ * @details time は最低 [0,1]、value は最低 [-1,1] を確保し、key がそれより外に
+ * 出ていれば拡張する。これで key が密集しても canvas が崩壊せず、キー値が大きく
+ * なれば自動でズームアウトする。
+ */
 struct CurveBounds {
+    /** time 軸の最小値 (左端)。 */
     f32 time_min;
+
+    /** time 軸の最大値 (右端)。 */
     f32 time_max;
+
+    /** value 軸の最小値 (下端)。 */
     f32 value_min;
+
+    /** value 軸の最大値 (上端)。 */
     f32 value_max;
 };
+
+/**
+ * curve から表示用の bounding box を計算する。
+ *
+ * @details 全 key を走査して最低レンジ ([0,1] x [-1,1]) を拡張し、退化防止
+ * (range ~0 で座標変換が NaN になるのを防ぐ) と上下左右 10% の余白付けを行う。
+ * 空 curve / nullptr なら既定レンジを返す (canvas を描画可能にするため)。
+ * @param curve 計測対象の curve (nullptr 可)。
+ * @return 余白込みの表示レンジ。
+ */
 static CurveBounds ComputeBounds(const FAnimationCurve* curve) noexcept {
     CurveBounds b { 0.0f, 1.0f, -1.0f, 1.0f };
     if (curve == nullptr) return b;
@@ -69,7 +89,17 @@ static CurveBounds ComputeBounds(const FAnimationCurve* curve) noexcept {
     return b;
 }
 
-// curve 空間 → canvas (px) 空間への変換 (= key 描画 / 線描画用)。
+/**
+ * curve 空間の点を canvas (px) 空間へ変換する (key 描画 / 線描画用)。
+ *
+ * @details y は画面下向きが正なので反転する (= curve 値が大きいほど画面上)。
+ * @param time curve の time 座標。
+ * @param value curve の value 座標。
+ * @param b 座標変換のレンジ。
+ * @param canvas_origin canvas 左上のスクリーン座標。
+ * @param canvas_size canvas の px サイズ。
+ * @return 対応する canvas 上の px 座標。
+ */
 static ImVec2 CurveToCanvas(f32 time, f32 value,
                             const CurveBounds& b,
                             const ImVec2& canvas_origin,
@@ -81,7 +111,17 @@ static ImVec2 CurveToCanvas(f32 time, f32 value,
                   canvas_origin.y + (1.0f - ny) * canvas_size.y);
 }
 
-// canvas (px) → curve 空間への逆変換 (= ドラッグや右クリック追加用)。
+/**
+ * canvas (px) 上の点を curve 空間へ逆変換する (ドラッグ / 右クリック追加用)。
+ *
+ * @details canvas_size が 0 のときはゼロ除算を避けて正規化座標 0 とみなす。
+ * @param pos canvas 上の px 座標。
+ * @param b 座標変換のレンジ。
+ * @param canvas_origin canvas 左上のスクリーン座標。
+ * @param canvas_size canvas の px サイズ。
+ * @param out_time 逆変換した time を書き戻す。
+ * @param out_value 逆変換した value を書き戻す。
+ */
 static void CanvasToCurve(const ImVec2& pos,
                           const CurveBounds& b,
                           const ImVec2& canvas_origin,
@@ -96,7 +136,12 @@ static void CanvasToCurve(const ImVec2& pos,
     out_value = b.value_min + ny * (b.value_max - b.value_min);
 }
 
-// interp combo / wrap mode combo の表示文字列。
+/**
+ * 補間モードの表示文字列を返す (interp combo 用)。
+ *
+ * @param interp 補間モード。
+ * @return "Step" / "Linear" / "Hermite" (未知なら "?")。
+ */
 static const char* InterpName(ECurveInterpolation interp) noexcept {
     switch (interp) {
     case ECurveInterpolation::Step:    return "Step";
@@ -105,6 +150,13 @@ static const char* InterpName(ECurveInterpolation interp) noexcept {
     }
     return "?";
 }
+
+/**
+ * wrap モードの表示文字列を返す (wrap mode combo 用)。
+ *
+ * @param m wrap モード。
+ * @return "Clamp" / "Loop" / "PingPong" (未知なら "?")。
+ */
 static const char* WrapName(FAnimationCurve::WrapMode m) noexcept {
     switch (m) {
     case FAnimationCurve::WrapMode::Clamp:    return "Clamp";
@@ -114,14 +166,24 @@ static const char* WrapName(FAnimationCurve::WrapMode m) noexcept {
     return "?";
 }
 
-// 既存 key の time, value, in_tangent, out_tangent, in_interp, out_interp を
-// 編集する低レベルヘルパ。FAnimationCurve は AddKey で同 time の上書きが
-// 「value + out_interp」だけ、AddKeyHermite で「value + in/out_tangent +
-// in/out_interp」を更新する仕様なので、time を変えるには「古 key を Remove
-// → 新 time で AddKeyHermite で再生成」する形にする。
-//
-// new_time: 新しい time (clamp 済みで渡すこと)
-// 戻り値: 編集後の key の新 index (= sort 後の位置)。
+/**
+ * 既存 key を別 time へ移動する低レベルヘルパ (古 key 削除 → 新 time で再生成)。
+ *
+ * @details
+ * FAnimationCurve は AddKey で同 time 上書き時に value + out_interp のみ、
+ * AddKeyHermite で value + in/out_tangent + in/out_interp を更新する仕様のため、
+ * time を変えるには古 key を RemoveKey して新 time で再挿入する必要がある。常に
+ * AddKeyHermite で tangent を保存し、interp が Hermite 以外なら AddKey で out_interp
+ * を上書きする 2 段構えにしている。
+ * @param curve 編集対象の curve。
+ * @param old_idx 移動元の key index。
+ * @param new_time 新しい time (呼び出し側で clamp 済みで渡すこと)。
+ * @param new_value 新しい value。
+ * @param new_in_tan 新しい in tangent。
+ * @param new_out_tan 新しい out tangent。
+ * @param new_interp 適用する out 補間モード。
+ * @return 再挿入後 (sort 後) の key index。old_idx 範囲外や検索失敗なら -1。
+ */
 static i32 ReplaceKeyAtNewTime(FAnimationCurve& curve, u32 old_idx,
                                f32 new_time, f32 new_value,
                                f32 new_in_tan, f32 new_out_tan,
@@ -150,9 +212,7 @@ static i32 ReplaceKeyAtNewTime(FAnimationCurve& curve, u32 old_idx,
     return -1;
 }
 
-// =============================================================================
-// Init / Shutdown / SetCurve / IsDirty / ClearDirty / SetOnChangeCallback
-// =============================================================================
+/** 内部 state を初期値に戻す。 */
 void FAnimCurveEditorPanel::Init() noexcept {
     m_Curve            = nullptr;
     m_SelectedKeyIdx = kNoKeySelected;
@@ -163,6 +223,7 @@ void FAnimCurveEditorPanel::Init() noexcept {
     m_OnChangeUser   = nullptr;
 }
 
+/** 内部 state を全解放する。 */
 void FAnimCurveEditorPanel::Shutdown() noexcept {
     m_Curve            = nullptr;
     m_SelectedKeyIdx = kNoKeySelected;
@@ -173,6 +234,7 @@ void FAnimCurveEditorPanel::Shutdown() noexcept {
     m_OnChangeUser   = nullptr;
 }
 
+/** 編集対象の curve をセットし selection / dirty をリセットする。 */
 void FAnimCurveEditorPanel::SetCurve(FAnimationCurve* curve) noexcept {
     m_Curve            = curve;
     m_SelectedKeyIdx = kNoKeySelected;
@@ -181,24 +243,29 @@ void FAnimCurveEditorPanel::SetCurve(FAnimationCurve* curve) noexcept {
     m_DragKeyIdx     = -1;
 }
 
+/** 現在バインド中の curve を返す。 */
 FAnimationCurve* FAnimCurveEditorPanel::CurrentCurve() const noexcept {
     return m_Curve;
 }
 
+/** dirty flag を返す。 */
 bool FAnimCurveEditorPanel::IsDirty() const noexcept {
     return m_Dirty;
 }
 
+/** dirty flag を false に戻す。 */
 void FAnimCurveEditorPanel::ClearDirty() noexcept {
     m_Dirty = false;
 }
 
+/** 変更通知 callback と user ポインタを登録する。 */
 void FAnimCurveEditorPanel::SetOnChangeCallback(CurveChangeCallback cb,
                                                void* user) noexcept {
     m_OnChangeCb   = cb;
     m_OnChangeUser = user;
 }
 
+/** dirty を立て、immediate なら callback を即時発火する。 */
 void FAnimCurveEditorPanel::NotifyChanged(bool immediate) noexcept {
     m_Dirty = true;
     if (immediate && m_OnChangeCb != nullptr) {
@@ -206,9 +273,7 @@ void FAnimCurveEditorPanel::NotifyChanged(bool immediate) noexcept {
     }
 }
 
-// =============================================================================
-// DrawUI — ImGui で toolbar + canvas を描画
-// =============================================================================
+/** ImGui で toolbar + canvas を描画する。 */
 void FAnimCurveEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
@@ -226,9 +291,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
 
     FAnimationCurve& curve = *m_Curve;
 
-    // ------------------------------------------------------------------------
-    // Toolbar 1: Interpolation Combo (= 選択中 key の out_interp を切替)
-    // ------------------------------------------------------------------------
+    // Toolbar 1: Interpolation Combo (= 選択中 key の out_interp を切替)。
     // 選択中 key の現在 interp を combo の初期値にする。未選択時は disable。
     {
         ImGui::TextUnformatted("Interp:");
@@ -268,9 +331,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
         ImGui::EndDisabled();
     }
 
-    // ------------------------------------------------------------------------
-    // Toolbar 2: WrapMode Combo (Pre / Post 個別)
-    // ------------------------------------------------------------------------
+    // Toolbar 2: WrapMode Combo (Pre / Post 個別)。
     ImGui::SameLine();
     ImGui::TextUnformatted("Pre:");
     ImGui::SameLine();
@@ -318,9 +379,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
         }
     }
 
-    // ------------------------------------------------------------------------
-    // Toolbar 3: Add Key / Clear
-    // ------------------------------------------------------------------------
+    // Toolbar 3: Add Key / Clear。
     ImGui::SameLine();
     if (ImGui::Button("Add Key")) {
         // 「現在の curve の中点 time」あたりに新 key を追加するのが直感的。
@@ -358,9 +417,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
         NotifyChanged(true);
     }
 
-    // ------------------------------------------------------------------------
-    // Toolbar 4: Eval preview slider (= 現在時刻でサンプルした値表示)
-    // ------------------------------------------------------------------------
+    // Toolbar 4: Eval preview slider (= 現在時刻でサンプルした値表示)。
     {
         static f32 s_preview_t = 0.0f;   // 「現在時刻」preview 用
         const f32 dur = curve.Duration();
@@ -384,9 +441,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
 
     ImGui::Separator();
 
-    // ------------------------------------------------------------------------
-    // Canvas — curve / key marker / tangent handle を描画 + drag 処理
-    // ------------------------------------------------------------------------
+    // Canvas — curve / key marker / tangent handle を描画 + drag 処理。
     const CurveBounds bounds = ComputeBounds(&curve);
 
     // canvas サイズ: 残り window 領域を全て使う (高さは最小 200px 確保)。

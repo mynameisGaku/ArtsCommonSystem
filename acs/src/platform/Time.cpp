@@ -10,12 +10,27 @@
 namespace acs {
 
 namespace {
+
+/** 基準クロック型 (portable な単調増加クロック)。 */
 using SteadyClock = std::chrono::steady_clock;
+
+/** 起動基準点を保持する状態。 */
 struct TimeState {
+    /** 起点となる時刻 (構築時の now)。 */
     SteadyClock::time_point start;
+
+    /** 現在時刻を起点として初期化する。 */
     TimeState() noexcept : start(SteadyClock::now()) {}
 };
+
+/**
+ * 唯一の TimeState を遅延構築して返す。
+ *
+ * @details 初回呼び出し時の now が以降すべての経過時間計測の起点になる。
+ * @return プロセス唯一の TimeState への const 参照。
+ */
 const TimeState& GetTimeState() noexcept { static TimeState s; return s; }
+
 } // namespace
 
 f64 Clock::SecondsSinceStartup() noexcept {
@@ -46,8 +61,8 @@ FrameTimer::FrameTimer() noexcept {
 }
 
 f32 FrameTimer::Tick() noexcept {
-    u64 now = Clock::Ticks();
-    u64 freq = Clock::TicksPerSecond();
+    const u64 now = Clock::Ticks();
+    const u64 freq = Clock::TicksPerSecond();
     f32 dt = static_cast<f32>(static_cast<f64>(now - m_LastTicks) / static_cast<f64>(freq));
     m_LastTicks = now;
 

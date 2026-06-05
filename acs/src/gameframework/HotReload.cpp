@@ -32,37 +32,63 @@ namespace acs::game {
 
 #ifndef ACS_GAME_SHIPPING
 
-// ============================================================================
-// WatchEntry — 監視ディレクトリ 1 件あたりの ReadDirectoryChangesW 状態
-// ============================================================================
-// HANDLE + OVERLAPPED + 受信バッファ + recursive フラグを束ねる。
-// OVERLAPPED と m_Buffer のアドレスは I/O 発行から完了通知まで安定している必要が
-// あるため、この struct は TUniquePtr で個別 heap 確保される (ヘッダ参照)。
+/**
+ * 監視ディレクトリ 1 件あたりの ReadDirectoryChangesW 状態。
+ *
+ * @details
+ * HANDLE + OVERLAPPED + 受信バッファ + recursive フラグを束ねる。OVERLAPPED と m_Buffer
+ * のアドレスは I/O 発行から完了通知まで安定している必要があるため、この struct は
+ * TUniquePtr で個別 heap 確保される (ヘッダ参照)。
+ */
 struct WatchEntry {
-    // ReadDirectoryChangesW の受信バッファ。FILE_NOTIFY_INFORMATION は DWORD
-    // 整列が要求されるため u32 配列で確保してアラインを保証する。32KiB あれば
-    // 1 フレーム分の連続変更には十分 (溢れたら次の read で取り直す)。
+    /**
+     * ReadDirectoryChangesW の受信バッファのバイト数。
+     *
+     * @details
+     * FILE_NOTIFY_INFORMATION は DWORD 整列が要求されるため u32 配列で確保してアラインを
+     * 保証する。32KiB あれば 1 フレーム分の連続変更には十分 (溢れたら次の read で取り直す)。
+     */
     static constexpr DWORD kBufferBytes = 32u * 1024u;
 
-    const char* m_Path      = nullptr;              // 監視 dir の UTF-8 path (借用、Unwatch 照合用)
-    HANDLE     m_Dir       = INVALID_HANDLE_VALUE;  // CreateFileW で開いたディレクトリ
-    bool       m_Recursive = true;                  // サブディレクトリも監視するか
-    bool       m_ReadPending = false;               // ReadDirectoryChangesW 発行中か
-    OVERLAPPED m_Overlapped{};                      // 非同期 I/O 状態 (アドレス固定が必須)
-    u32        m_Buffer[kBufferBytes / sizeof(u32)] = {};  // DWORD 整列バッファ
+    /** 監視 dir の UTF-8 path (借用。Unwatch 照合用)。 */
+    const char* m_Path      = nullptr;
 
+    /** CreateFileW で開いたディレクトリ HANDLE。 */
+    HANDLE     m_Dir       = INVALID_HANDLE_VALUE;
+
+    /** サブディレクトリも監視するか。 */
+    bool       m_Recursive = true;
+
+    /** ReadDirectoryChangesW 発行中か。 */
+    bool       m_ReadPending = false;
+
+    /** 非同期 I/O 状態 (アドレス固定が必須)。 */
+    OVERLAPPED m_Overlapped{};
+
+    /** DWORD 整列された受信バッファ。 */
+    u32        m_Buffer[kBufferBytes / sizeof(u32)] = {};
+
+    /** 空状態で構築する (m_Dir は invalid、HANDLE は未確保)。 */
     WatchEntry() noexcept = default;
+
+    /** 破棄する (Close で I/O 取り消し + HANDLE クローズ)。 */
     ~WatchEntry() noexcept {
         Close();
     }
 
-    // 非コピー・非ムーブ (HANDLE / OVERLAPPED の所有を曖昧にしない)。
+    /** コピー禁止 (HANDLE / OVERLAPPED の所有を曖昧にしないため)。 */
     WatchEntry(const WatchEntry&)            = delete;
+
+    /** コピー代入も禁止。 */
     WatchEntry& operator=(const WatchEntry&) = delete;
+
+    /** ムーブ禁止。 */
     WatchEntry(WatchEntry&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     WatchEntry& operator=(WatchEntry&&)      = delete;
 
-    // 発行中の I/O を取り消し、HANDLE を閉じる。多重呼び出し安全。
+    /** 発行中の I/O を取り消し、HANDLE を閉じる (多重呼び出し安全)。 */
     void Close() noexcept {
         if (m_Dir != INVALID_HANDLE_VALUE) {
             // 発行中の ReadDirectoryChangesW を取り消す (CloseHandle でも暗黙に
@@ -76,7 +102,12 @@ struct WatchEntry {
         }
     }
 
-    // ReadDirectoryChangesW を 1 回発行する (one-shot)。成功で m_ReadPending=true。
+    /**
+     * ReadDirectoryChangesW を 1 回発行する (one-shot)。
+     *
+     * @details OVERLAPPED を毎回リセットし、completion routine を使わず poll 方式で待つ。
+     * @return 発行に成功して m_ReadPending=true になれば true、失敗なら false。
+     */
     bool IssueRead() noexcept {
         if (m_Dir == INVALID_HANDLE_VALUE) {
             return false;
@@ -110,14 +141,26 @@ struct WatchEntry {
 
 namespace {
 
-// FILE_ACTION_* を removed フラグへマップする (削除 / rename-from を「消えた」扱い)。
+/**
+ * FILE_ACTION_* を「消えた」フラグへマップする。
+ *
+ * @details 削除 (FILE_ACTION_REMOVED) と rename-from (RENAMED_OLD_NAME) を removed 扱いにする。
+ * @param action FILE_NOTIFY_INFORMATION の Action 値。
+ * @return 削除系のアクションなら true。
+ */
 bool ActionIsRemoval(DWORD action) noexcept {
     return action == FILE_ACTION_REMOVED ||
            action == FILE_ACTION_RENAMED_OLD_NAME;
 }
 
-// WCHAR (UTF-16, 非 NUL 終端 + 文字数指定) を FString (UTF-8) へ詰める。
-// 既存内容は上書き (Clear してから Append)。失敗時は空のまま。
+/**
+ * WCHAR (UTF-16, 非 NUL 終端 + 文字数指定) を FString (UTF-8) へ変換する。
+ *
+ * @details 既存内容は上書き (Clear してから Append)。変換失敗時は空のままにする。
+ * @param w UTF-16 文字列の先頭 (NUL 終端不要)。
+ * @param wlen w の文字数 (WCHAR 単位)。
+ * @param out 変換結果の格納先 (UTF-8)。
+ */
 void Utf16ToUtf8(const wchar_t* w, int wlen, FString& out) noexcept {
     out.Clear();
     if (w == nullptr || wlen <= 0) {
@@ -153,8 +196,14 @@ void Utf16ToUtf8(const wchar_t* w, int wlen, FString& out) noexcept {
     }
 }
 
-// UTF-8 の path を UTF-16 へ変換し out_w (要素数 out_cap) に NUL 終端で書く。
-// 成功で true。バッファ不足 / 変換失敗で false。
+/**
+ * UTF-8 の path を UTF-16 へ変換し、NUL 終端で out_w に書く。
+ *
+ * @param u8 入力 UTF-8 文字列 (NUL 終端)。
+ * @param out_w 出力 UTF-16 バッファ。
+ * @param out_cap out_w の要素数 (WCHAR 単位)。
+ * @return 変換成功なら true、バッファ不足 / 変換失敗なら false。
+ */
 bool Utf8ToUtf16(const char* u8, wchar_t* out_w, int out_cap) noexcept {
     if (u8 == nullptr || out_w == nullptr || out_cap <= 0) {
         return false;
@@ -164,8 +213,13 @@ bool Utf8ToUtf16(const char* u8, wchar_t* out_w, int out_cap) noexcept {
     return got > 0;
 }
 
-// UTF-8 の dir path に "/" 区切りで rel (UTF-8) を連結して rel_inout に書き戻す。
-// ReadDirectoryChangesW の filename は dir 相対なので、絶対 path に復元する。
+/**
+ * dir path に "/" 区切りで相対 path を連結して絶対 path に復元する。
+ *
+ * @details ReadDirectoryChangesW の filename は dir 相対なので、これで絶対 path に戻す。
+ * @param dir 監視 dir の UTF-8 path (空 / nullptr なら rel_inout をそのまま使う)。
+ * @param rel_inout 入力は dir 相対 path、出力は連結後の絶対 path (UTF-8)。
+ */
 void JoinPath(const char* dir, FString& rel_inout) noexcept {
     FString joined;
     if (dir != nullptr && dir[0] != '\0') {
@@ -184,17 +238,12 @@ void JoinPath(const char* dir, FString& rel_inout) noexcept {
 
 } // namespace
 
-// ============================================================================
-// dtor (out-of-line: WatchEntry が完全型になる本 TU でのみ実体化)
-// ============================================================================
+/** デストラクタ (WatchEntry が完全型になる本 TU で実体化し Shutdown を呼ぶ)。 */
 HotReloadWatcher::~HotReloadWatcher() noexcept {
     Shutdown();
 }
 
-// ============================================================================
-// ライフサイクル
-// ============================================================================
-
+/** 内部バッファを軽く予約する (OS watcher の起動は WatchDirectory が担う)。 */
 void HotReloadWatcher::Init() noexcept {
     // 既に WatchDirectory 済みなら何もしない (多重 Init 安全)。実際の OS watcher
     // 起動 (CreateFileW + ReadDirectoryChangesW) は WatchDirectory が担う。
@@ -204,6 +253,7 @@ void HotReloadWatcher::Init() noexcept {
     m_EventPaths.Reserve(8);
 }
 
+/** OS watcher を閉じ、監視 path / callback / pending event を全クリアする。 */
 void HotReloadWatcher::Shutdown() noexcept {
     // OS watcher ハンドルを閉じる (TUniquePtr<WatchEntry> の dtor → Close())。
     // 発行中の ReadDirectoryChangesW は CancelIoEx + CloseHandle で取り消される。
@@ -219,10 +269,7 @@ void HotReloadWatcher::Shutdown() noexcept {
     m_EventPaths.Clear();
 }
 
-// ============================================================================
-// 監視対象登録
-// ============================================================================
-
+/** ディレクトリを監視登録し、OS watcher (CreateFileW + 初回 read) を起動する。 */
 void HotReloadWatcher::WatchDirectory(const char* dir_path, bool recursive) noexcept {
     if (dir_path == nullptr || dir_path[0] == '\0') {
         ACS_LOG_WARN("HotReloadWatcher::WatchDirectory: null/empty path (ignored)");
@@ -282,6 +329,7 @@ void HotReloadWatcher::WatchDirectory(const char* dir_path, bool recursive) noex
     m_Watchers.PushBack(Move(entry));
 }
 
+/** ファイル path を監視 path リストに登録する (個別の OS watcher は持たない)。 */
 void HotReloadWatcher::WatchFile(const char* file_path) noexcept {
     if (file_path == nullptr || file_path[0] == '\0') {
         ACS_LOG_WARN("HotReloadWatcher::WatchFile: null/empty path (ignored)");
@@ -297,6 +345,7 @@ void HotReloadWatcher::WatchFile(const char* file_path) noexcept {
     m_WatchedPaths.PushBack(file_path);
 }
 
+/** path に対応する OS watcher と監視 path 登録を除去する (未登録は no-op)。 */
 void HotReloadWatcher::Unwatch(const char* path) noexcept {
     if (path == nullptr || path[0] == '\0') {
         return;  // null/empty は no-op (境界条件吸収)
@@ -325,10 +374,7 @@ void HotReloadWatcher::Unwatch(const char* path) noexcept {
     // 未登録の Unwatch は no-op (呼び出し側のライフサイクルミスを致命化しない)。
 }
 
-// ============================================================================
-// コールバック登録
-// ============================================================================
-
+/** (cb, user) ペアを重複なしで callback リストに登録する。 */
 void HotReloadWatcher::RegisterCallback(HotReloadCallback cb, void* user) noexcept {
     if (cb == nullptr) {
         ACS_LOG_WARN("HotReloadWatcher::RegisterCallback: null cb (ignored)");
@@ -347,10 +393,7 @@ void HotReloadWatcher::RegisterCallback(HotReloadCallback cb, void* user) noexce
     m_Callbacks.PushBack(e);
 }
 
-// ============================================================================
-// 駆動
-// ============================================================================
-
+/** 各 watcher の完了を poll して event を積み、pending を callback へ FIFO で dispatch する。 */
 void HotReloadWatcher::Tick(f32 dt) noexcept {
     (void)dt;
 
@@ -450,18 +493,17 @@ void HotReloadWatcher::Tick(f32 dt) noexcept {
     }
 }
 
-// ============================================================================
-// 状態取得
-// ============================================================================
-
+/** 監視登録された path の数を返す。 */
 u32 HotReloadWatcher::WatchedCount() const noexcept {
     return static_cast<u32>(m_WatchedPaths.Size());
 }
 
+/** 未消費の pending event 数を返す。 */
 u32 HotReloadWatcher::PendingEventCount() const noexcept {
     return static_cast<u32>(m_PendingEvents.Size());
 }
 
+/** pending event の先頭 1 件を FIFO で取り出して除去する (空なら false)。 */
 bool HotReloadWatcher::ConsumeNextEvent(HotReloadEvent& out) noexcept {
     if (m_PendingEvents.Size() == 0) {
         return false;  // 空なら out は触らず false
@@ -481,7 +523,7 @@ bool HotReloadWatcher::ConsumeNextEvent(HotReloadEvent& out) noexcept {
     return true;
 }
 
-// pending event 先頭 1 件を m_PendingEvents / m_EventPaths から lockstep で除去。
+/** pending event 先頭 1 件を m_PendingEvents / m_EventPaths から lockstep で shift 除去する。 */
 void HotReloadWatcher::RemoveFrontEventPair() noexcept {
     if (m_PendingEvents.Size() > 0) {
         for (usize i = 1; i < m_PendingEvents.Size(); ++i) {
@@ -497,6 +539,7 @@ void HotReloadWatcher::RemoveFrontEventPair() noexcept {
     }
 }
 
+/** pending event と所有 path 文字列を lockstep で全クリアする。 */
 void HotReloadWatcher::ClearEvents() noexcept {
     // pending events と所有 path 文字列を lockstep で全クリア。
     m_PendingEvents.Clear();
@@ -505,23 +548,56 @@ void HotReloadWatcher::ClearEvents() noexcept {
 
 #else // ACS_GAME_SHIPPING
 
-// ============================================================================
-// Ship build no-op 実装
-// ============================================================================
-// 全 method を no-op に。シンボル定義は残し、呼び出し側コードが #ifdef だらけに
-// ならないようにする。戻り値は安全な既定値 (0 / false)。
+// Ship build (ACS_GAME_SHIPPING) では全 method を no-op にする。シンボル定義は残し、
+// 呼び出し側コードが #ifdef だらけにならないようにする。戻り値は安全な既定値 (0 / false)。
 
+/** ship build のデストラクタ (no-op)。 */
 HotReloadWatcher::~HotReloadWatcher() noexcept {}
+
+/** ship build では監視を行わない (no-op)。 */
 void HotReloadWatcher::Init() noexcept {}
+
+/** ship build では解放するものが無い (no-op)。 */
 void HotReloadWatcher::Shutdown() noexcept {}
+
+/** ship build ではディレクトリ監視を行わない (no-op)。 */
 void HotReloadWatcher::WatchDirectory(const char* /*dir_path*/, bool /*recursive*/) noexcept {}
+
+/** ship build ではファイル監視を行わない (no-op)。 */
 void HotReloadWatcher::WatchFile(const char* /*file_path*/) noexcept {}
+
+/** ship build では監視解除するものが無い (no-op)。 */
 void HotReloadWatcher::Unwatch(const char* /*path*/) noexcept {}
+
+/** ship build では callback を登録しない (no-op)。 */
 void HotReloadWatcher::RegisterCallback(HotReloadCallback /*cb*/, void* /*user*/) noexcept {}
+
+/** ship build では駆動しない (no-op)。 */
 void HotReloadWatcher::Tick(f32 /*dt*/) noexcept {}
+
+/**
+ * ship build の監視 path 数 (常に 0)。
+ *
+ * @return 0。
+ */
 u32  HotReloadWatcher::WatchedCount() const noexcept { return 0; }
+
+/**
+ * ship build の pending event 数 (常に 0)。
+ *
+ * @return 0。
+ */
 u32  HotReloadWatcher::PendingEventCount() const noexcept { return 0; }
+
+/**
+ * ship build の event 取り出し (常に失敗)。
+ *
+ * @param out 触らない。
+ * @return false。
+ */
 bool HotReloadWatcher::ConsumeNextEvent(HotReloadEvent& /*out*/) noexcept { return false; }
+
+/** ship build では event を持たない (no-op)。 */
 void HotReloadWatcher::ClearEvents() noexcept {}
 
 #endif // ACS_GAME_SHIPPING

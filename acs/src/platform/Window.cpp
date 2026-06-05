@@ -15,9 +15,15 @@ void FWindow::DispatchEvent_Internal(const Event& e) noexcept {
 
 namespace {
 
-// VK_* (Win32 仮想キーコード) → EKey 変換
-EKey VkToKey(WPARAM vk, LPARAM lParam) noexcept {
-    bool extended = (lParam & (1 << 24)) != 0;  // 右側修飾キー判別用
+/**
+ * Win32 仮想キーコードを EKey へ変換する。
+ *
+ * @param vk WM_KEY* で渡される仮想キーコード (WPARAM)。
+ * @param l_param WM_KEY* の LPARAM (bit24 の拡張フラグで左右の修飾キーを判別)。
+ * @return 対応する EKey (未対応なら EKey::Unknown)。
+ */
+EKey VkToKey(WPARAM vk, LPARAM l_param) noexcept {
+    const bool extended = (l_param & (1 << 24)) != 0;  // 右側修飾キー判別用
     switch (vk) {
         case 'A': return EKey::A; case 'B': return EKey::B; case 'C': return EKey::C;
         case 'D': return EKey::D; case 'E': return EKey::E; case 'F': return EKey::F;
@@ -84,13 +90,28 @@ EKey VkToKey(WPARAM vk, LPARAM lParam) noexcept {
     }
 }
 
-// HWND → FWindow* 紐付け用キー
+/** HWND の prop に FWindow* を紐付けるためのキー名。 */
 constexpr const wchar_t* kPropKey = L"ACS_WINDOW_PTR";
 
+/**
+ * HWND の prop から対応する FWindow* を取り出す。
+ *
+ * @param hwnd 対象ウィンドウのハンドル。
+ * @return 紐付いた FWindow (未登録なら nullptr)。
+ */
 FWindow* GetWindowFromHwnd(HWND hwnd) noexcept {
     return static_cast<FWindow*>(::GetPropW(hwnd, kPropKey));
 }
 
+/**
+ * ウィンドウメッセージを処理し、Event へ変換してコールバックへ流すウィンドウプロシージャ。
+ *
+ * @param hwnd メッセージ対象のウィンドウハンドル。
+ * @param msg ウィンドウメッセージ識別子 (WM_*)。
+ * @param wp メッセージの WPARAM。
+ * @param lp メッセージの LPARAM。
+ * @return メッセージの処理結果 (未処理は DefWindowProcW へ委譲した値)。
+ */
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept {
     FWindow* w = GetWindowFromHwnd(hwnd);
     if (!w) return ::DefWindowProcW(hwnd, msg, wp, lp);
@@ -104,8 +125,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
             return 0;
         }
         case WM_SIZE: {
-            u32 width  = static_cast<u32>(LOWORD(lp));
-            u32 height = static_cast<u32>(HIWORD(lp));
+            const u32 width  = static_cast<u32>(LOWORD(lp));
+            const u32 height = static_cast<u32>(HIWORD(lp));
             w->UpdateSize_Internal(width, height);
             Event e{}; e.type = EventType::WindowResize;
             e.resize.width = width; e.resize.height = height;
@@ -121,7 +142,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
         }
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN: {
-            bool repeat = (lp & (1 << 30)) != 0;
+            const bool repeat = (lp & (1 << 30)) != 0;
             Event e{};
             e.type = repeat ? EventType::KeyRepeat : EventType::KeyPressed;
             e.key.key = VkToKey(wp, lp);
@@ -139,7 +160,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
         }
         case WM_LBUTTONDOWN: case WM_RBUTTONDOWN: case WM_MBUTTONDOWN:
         case WM_LBUTTONUP:   case WM_RBUTTONUP:   case WM_MBUTTONUP: {
-            bool down = (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN || msg == WM_MBUTTONDOWN);
+            const bool down = (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN || msg == WM_MBUTTONDOWN);
             EMouseButton b = EMouseButton::Left;
             if (msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP) b = EMouseButton::Right;
             if (msg == WM_MBUTTONDOWN || msg == WM_MBUTTONUP) b = EMouseButton::Middle;
@@ -178,10 +199,17 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
     return ::DefWindowProcW(hwnd, msg, wp, lp);
 }
 
+/** ウィンドウクラスを登録済みかを示すフラグ (二重登録を防ぐ)。 */
 bool g_class_registered = false;
+
+/** RegisterClassExW / CreateWindowExW で使うウィンドウクラス名。 */
 constexpr const wchar_t* kClassName = L"ACSWindow";
 
-// ウィンドウクラス登録（初回のみ）
+/**
+ * ウィンドウクラスを初回のみ登録する。
+ *
+ * @return 登録済みまたは登録成功なら true、RegisterClassExW 失敗なら false。
+ */
 bool EnsureWindowClass() noexcept {
     if (g_class_registered) return true;
     WNDCLASSEXW wc{};
@@ -275,7 +303,7 @@ TResult<FWindow> FWindow::Create(const FWindowConfig& cfg) noexcept {
     RECT rect{ 0, 0, static_cast<LONG>(cfg.width), static_cast<LONG>(cfg.height) };
     ::AdjustWindowRect(&rect, style, FALSE);
 
-    HWND hwnd = ::CreateWindowExW(
+    const HWND hwnd = ::CreateWindowExW(
         0, kClassName, cfg.title, style,
         CW_USEDEFAULT, CW_USEDEFAULT,
         rect.right - rect.left, rect.bottom - rect.top,
@@ -323,7 +351,7 @@ void FWindow::SetTitle(const wchar_t* title) noexcept {
 
 void FWindow::SetFullscreen(bool on) noexcept {
     if (!m_Hwnd || on == m_Fullscreen) return;
-    HWND hwnd = static_cast<HWND>(m_Hwnd);
+    const HWND hwnd = static_cast<HWND>(m_Hwnd);
     if (on) {
         // 現在の窓矩形・スタイルを記憶
         RECT r{};

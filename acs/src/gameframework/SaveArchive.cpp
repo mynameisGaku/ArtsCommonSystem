@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// GameFramework Pillar J — FSaveArchive 実装 (Win32 I/O + CRC32)
-// -----------------------------------------------------------------------------
+// FSaveArchive 実装 (Win32 I/O + CRC32)
+//
 // FSaveArchive.h で宣言した 4 メソッド (WriteToFile / ReadFromFile /
 // PeekVersion / PeekPayloadSize) の本体。Win32 ファイル API を直接叩いて
 // `.acssave` の bit-precise format を読み書きする。
@@ -10,15 +9,13 @@
 //   ・<windows.h> は foundation/Platform.h 経由で 1 箇所に閉じ込める
 //     (Yield / CreateFile / GetMessage 等のマクロ汚染対策はここで吸収済)。
 //   ・CRC32 ルーチンは assetpack/FAcpakReader.cpp / FAcpakWriter.cpp と同じ実装
-//     (poly 0xEDB88320, init/xorout 0xFFFFFFFF, table 256 entry)。将来 Hash.cpp
-//     に共通化する余地は残しているが、Phase 1 では link 単位を独立させたい
-//     (assetpack を依存に持たないテストビルドでも FSaveArchive を使えるように)
-//     ため、ここでも単独に持つ。
+//     (poly 0xEDB88320, init/xorout 0xFFFFFFFF, table 256 entry)。link 単位を
+//     独立させたい (assetpack を依存に持たないテストビルドでも FSaveArchive を
+//     使えるように) ため、ここでも単独に持つ。
 //   ・little-endian 読み書きは MemCopy 経由で strict-aliasing 違反を避ける。
 //     ACS 対応プラットフォームは Win/x64 と ARM64 (LE) のみ前提。
 //   ・>4GiB の payload を扱う想定は無いが、WriteFile/ReadFile は DWORD (32bit)
 //     単位でしか扱えないため一応 chunk ループを残す (assetpack と同じ流儀)。
-// =============================================================================
 #include "gameframework/SaveArchive.h"
 
 #include "foundation/Platform.h"   // <windows.h>
@@ -27,21 +24,19 @@
 
 namespace acs::game {
 
-// ============================================================================
-// magic バイト列の定義 (header に置く 8 バイト = ASCII "ACSSAVE\0")
-// ============================================================================
+/** header 先頭に置く magic バイト列 "ACSSAVE\0" の実体。 */
 const u8 FSaveArchive::kMagicBytes[FSaveArchive::kMagicSize] = {
     'A', 'C', 'S', 'S', 'A', 'V', 'E', '\0'
 };
 
-// ============================================================================
-// 名前無し名前空間: CRC32 + Win32 helper
-// ============================================================================
 namespace {
 
-// ---- CRC32 (poly 0xEDB88320, init/xorout 0xFFFFFFFF) ----------------------
-// Meyer's singleton で thread-safe な lookup table 初期化を行う。
-// (assetpack/FAcpakReader.cpp と同一実装)
+/**
+ * CRC32 (poly 0xEDB88320) の lookup table を返す。
+ *
+ * @details Meyer's singleton で thread-safe に 256 entry の table を遅延初期化する。
+ * @return 256 要素の CRC32 lookup table。
+ */
 const u32* GetCrc32Table() noexcept {
     static u32 m_Table[256] = {};
     static bool m_Initialized = false;
@@ -58,7 +53,13 @@ const u32* GetCrc32Table() noexcept {
     return m_Table;
 }
 
-// バイト列の CRC32 を計算する (Zlib / PNG 規約)。
+/**
+ * バイト列の CRC32 を計算する (Zlib / PNG 規約)。
+ *
+ * @param data 入力バイト列の先頭。
+ * @param size 入力バイト数。
+ * @return 計算した CRC32 値 (init/xorout 0xFFFFFFFF)。
+ */
 u32 ComputeCrc32(const void* data, u64 size) noexcept {
     const u32* table = GetCrc32Table();
     const u8*  p     = static_cast<const u8*>(data);
@@ -69,23 +70,52 @@ u32 ComputeCrc32(const void* data, u64 size) noexcept {
     return crc ^ 0xFFFFFFFFu;
 }
 
-// ---- little-endian 読み書き helper (strict-aliasing 安全) -----------------
-// reinterpret_cast での読み書きは UB なので、MemCopy 経由でバイトコピーする。
-// ホスト側も LE 前提なので memcpy された生バイトがそのまま整数になる。
+/**
+ * u32 を little-endian で書き込む (strict-aliasing 安全)。
+ *
+ * @details reinterpret_cast での書き込みは UB なので MemCopy 経由でバイトコピーする。ホストも LE 前提。
+ * @param dst 書き込み先 (4 バイト以上)。
+ * @param v 書き込む値。
+ */
 void WriteU32LE(u8* dst, u32 v) noexcept { MemCopy(dst, &v, sizeof(u32)); }
+
+/**
+ * u64 を little-endian で書き込む (strict-aliasing 安全)。
+ *
+ * @details reinterpret_cast での書き込みは UB なので MemCopy 経由でバイトコピーする。ホストも LE 前提。
+ * @param dst 書き込み先 (8 バイト以上)。
+ * @param v 書き込む値。
+ */
 void WriteU64LE(u8* dst, u64 v) noexcept { MemCopy(dst, &v, sizeof(u64)); }
 
+/**
+ * little-endian の u32 を読み込む (strict-aliasing 安全)。
+ *
+ * @param src 読み込み元 (4 バイト以上)。
+ * @return 読み込んだ u32 値。
+ */
 u32 ReadU32LE(const u8* src) noexcept {
     u32 v = 0; MemCopy(&v, src, sizeof(u32)); return v;
 }
+
+/**
+ * little-endian の u64 を読み込む (strict-aliasing 安全)。
+ *
+ * @param src 読み込み元 (8 バイト以上)。
+ * @return 読み込んだ u64 値。
+ */
 u64 ReadU64LE(const u8* src) noexcept {
     u64 v = 0; MemCopy(&v, src, sizeof(u64)); return v;
 }
 
-// ---- Win32 read/write/seek ラッパ -----------------------------------------
-// >4GiB を扱うため DWORD 単位の chunk ループにしておく (assetpack と同流儀)。
-// 成功で true、失敗で err に GetLastError を入れて false。
-
+/**
+ * ファイルポインタを先頭からの offset へ移動する。
+ *
+ * @param h 対象ファイルハンドル。
+ * @param offset 先頭からのバイトオフセット。
+ * @param err 失敗時に GetLastError を入れる出力引数 (成功時は 0)。
+ * @return 成功なら true、失敗なら false。
+ */
 bool SeekTo(HANDLE h, u64 offset, DWORD& err) noexcept {
     err = 0;
     LARGE_INTEGER li{};
@@ -97,6 +127,16 @@ bool SeekTo(HANDLE h, u64 offset, DWORD& err) noexcept {
     return true;
 }
 
+/**
+ * size バイトを完全に読み込む (DWORD 単位の chunk ループ)。
+ *
+ * @details >4GiB を扱うため DWORD 単位で分割読みする (assetpack と同流儀)。
+ * @param h 対象ファイルハンドル。
+ * @param dst 読み込み先バッファ。
+ * @param size 読み込むバイト数。
+ * @param err 失敗時に GetLastError (EOF 時は ERROR_HANDLE_EOF) を入れる出力引数。
+ * @return 全バイト読めたら true、失敗なら false。
+ */
 bool ReadAll(HANDLE h, void* dst, u64 size, DWORD& err) noexcept {
     err = 0;
     if (size == 0) return true;
@@ -118,6 +158,16 @@ bool ReadAll(HANDLE h, void* dst, u64 size, DWORD& err) noexcept {
     return true;
 }
 
+/**
+ * size バイトを完全に書き込む (DWORD 単位の chunk ループ)。
+ *
+ * @details >4GiB を扱うため DWORD 単位で分割書きする (assetpack と同流儀)。
+ * @param h 対象ファイルハンドル。
+ * @param src 書き込むバイト列の先頭。
+ * @param size 書き込むバイト数。
+ * @param err 失敗時に GetLastError (部分書き込み時は ERROR_WRITE_FAULT) を入れる出力引数。
+ * @return 全バイト書けたら true、失敗なら false。
+ */
 bool WriteAll(HANDLE h, const void* src, u64 size, DWORD& err) noexcept {
     err = 0;
     if (size == 0) return true;
@@ -139,17 +189,29 @@ bool WriteAll(HANDLE h, const void* src, u64 size, DWORD& err) noexcept {
     return true;
 }
 
-// ---- enum class → u16 (FErrorCode.subcode に入れるための reduction) ------
-// ESaveArchiveSubCode は u32 だが FErrorCode.subcode は u16。Phase 1 の値は
-// 1..7 のみなので無問題だが、明示的に縮約しておく。
+/**
+ * ESaveArchiveSubCode を FErrorCode.subcode 用の u16 に縮約する。
+ *
+ * @details
+ * ESaveArchiveSubCode は u32 だが FErrorCode.subcode は u16。値は 1..7 のみなので
+ * 情報落ちは無いが、明示的に縮約しておく。
+ * @param sc 縮約するサブコード。
+ * @return u16 に縮約したサブコード値。
+ */
 constexpr u16 SubU16(ESaveArchiveSubCode sc) noexcept {
     return static_cast<u16>(static_cast<u32>(sc));
 }
 
-// ---- header buffer (24 バイト) のパースを 1 箇所に集約 -------------------
-// 戻り値:
-//   true  — magic 一致、header.payload_size / header.version を out に詰める
-//   false — magic 不一致 (out_version / out_payload_size の値は不定)
+/**
+ * 24 バイトの header buffer を検証してフィールドを取り出す。
+ *
+ * @details magic が一致した場合のみ out_* を埋める。不一致時の out_* の値は不定。
+ * @param header_buf 24 バイトの header バッファ。
+ * @param out_version magic 一致時に version を受け取る出力引数。
+ * @param out_payload_size magic 一致時に payload サイズを受け取る出力引数。
+ * @param out_crc32 magic 一致時に payload の CRC32 を受け取る出力引数。
+ * @return magic が一致すれば true、不一致なら false。
+ */
 bool ParseHeader(const u8* header_buf,
                  u32&      out_version,
                  u64&      out_payload_size,
@@ -163,9 +225,15 @@ bool ParseHeader(const u8* header_buf,
     return true;
 }
 
-// ---- open helper: ファイルを read で開く (file not found は専用 subcode) ---
-// CreateFileW の失敗を ERROR_FILE_NOT_FOUND と他で分け、より上位のセーブ UI
-// が「continue 表示」を出すかを判断しやすくする。
+/**
+ * ファイルを読み込み専用で開く (file not found は専用 subcode)。
+ *
+ * @details
+ * CreateFileW の失敗を ERROR_FILE_NOT_FOUND とそれ以外で分け、上位のセーブ UI が
+ * 「続きから表示」を出すか判断しやすくする。
+ * @param file_path 開くファイルパス (nullptr はエラー)。
+ * @return 成功なら開いたハンドルを持つ TResult、失敗ならエラー。
+ */
 TResult<HANDLE> OpenForRead(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
@@ -187,13 +255,13 @@ TResult<HANDLE> OpenForRead(const wchar_t* file_path) noexcept {
 
 } // namespace
 
-// ============================================================================
-// FSaveArchive::WriteToFile
-// ----------------------------------------------------------------------------
-// header (24B) → payload (payload_size B) の順で書く。書き込み途中の失敗時
-// (= electricity loss / disk full) はファイルが破損する可能性があるが、
-// atomic rename は呼び出し側の FSaveSlot が ".tmp" 経由で担当する設計。
-// ============================================================================
+/**
+ * header (24B) → payload の順で .acssave ファイルを書き出す。
+ *
+ * @details
+ * 書き込み途中の失敗時 (停電 / disk full) はファイルが破損し得るが、atomic rename は
+ * 呼び出し側の FSaveSlot が ".tmp" 経由で担当する設計。
+ */
 TResult<void> FSaveArchive::WriteToFile(const wchar_t* file_path,
                                       u32            version,
                                       const void*    payload,
@@ -221,7 +289,7 @@ TResult<void> FSaveArchive::WriteToFile(const wchar_t* file_path,
                           "FSaveArchive::WriteToFile: CreateFileW failed", err);
     }
 
-    // ---- header (24B) を build ------------------------------------------
+    // header (24B) を build
     u8 header_buf[kHeaderSize] = {};
     MemCopy(header_buf, kMagicBytes, kMagicSize);
     WriteU32LE(header_buf + 8,  version);
@@ -237,7 +305,7 @@ TResult<void> FSaveArchive::WriteToFile(const wchar_t* file_path,
                           "FSaveArchive::WriteToFile: WriteFile (header) failed", err);
     }
 
-    // ---- payload (size==0 でも noop で良い) -----------------------------
+    // payload (size==0 でも noop で良い)
     if (payload_size > 0) {
         if (!WriteAll(h, payload, payload_size, err)) {
             ::CloseHandle(h);
@@ -248,7 +316,7 @@ TResult<void> FSaveArchive::WriteToFile(const wchar_t* file_path,
     }
 
     // CloseHandle は flush も兼ねる (OS buffer cache に書き出すだけで、
-    // 真の persistence は FlushFileBuffers が必要だが、Phase 1 では呼ばない —
+    // 真の persistence は FlushFileBuffers が必要だが、ここでは呼ばない —
     // 上位 FSaveSlot 層が rename を行う前に明示 flush することを期待)。
     if (!::CloseHandle(h)) {
         DWORD close_err = ::GetLastError();
@@ -258,13 +326,13 @@ TResult<void> FSaveArchive::WriteToFile(const wchar_t* file_path,
     return Ok();
 }
 
-// ============================================================================
-// FSaveArchive::ReadFromFile
-// ----------------------------------------------------------------------------
-// header (24B) を読んで magic + version + payload_size + crc を取り出し、
-// out_capacity 検査 → version 検査 → payload 読込 → CRC 計算 → 一致確認、
-// の順で fail-fast する。
-// ============================================================================
+/**
+ * .acssave ファイルを読み込んで payload を out_payload に展開する。
+ *
+ * @details
+ * header (24B) を読んで magic + version + payload_size + crc を取り出し、file_size 検査 →
+ * version 検査 → 容量検査 → payload 読込 → CRC 検証の順で fail-fast する。
+ */
 TResult<u32> FSaveArchive::ReadFromFile(const wchar_t* file_path,
                                       void*          out_payload,
                                       u64            out_capacity,
@@ -277,11 +345,11 @@ TResult<u32> FSaveArchive::ReadFromFile(const wchar_t* file_path,
                        "FSaveArchive::ReadFromFile: out_payload is null but capacity > 0");
     }
 
-    auto open_r = OpenForRead(file_path);
+    const auto open_r = OpenForRead(file_path);
     if (open_r.IsErr()) return open_r.Error();
     HANDLE h = open_r.Value();
 
-    // ---- file_size の sanity check ------------------------------------
+    // file_size の sanity check
     LARGE_INTEGER fsize{};
     if (!::GetFileSizeEx(h, &fsize)) {
         DWORD err = ::GetLastError();
@@ -296,7 +364,7 @@ TResult<u32> FSaveArchive::ReadFromFile(const wchar_t* file_path,
                        "FSaveArchive::ReadFromFile: file smaller than header");
     }
 
-    // ---- header (24B) を読む -------------------------------------------
+    // header (24B) を読む
     u8 header_buf[kHeaderSize] = {};
     DWORD err = 0;
     if (!ReadAll(h, header_buf, kHeaderSize, err)) {
@@ -323,7 +391,7 @@ TResult<u32> FSaveArchive::ReadFromFile(const wchar_t* file_path,
 
     out_payload_size = payload_size;
 
-    // ---- version 不一致は kSubMigrationNeeded で先に返す ---------------
+    // version 不一致は kSubMigrationNeeded で先に返す。
     // 「buffer に書き込まない」のが migration ハンドラから見ると最も扱いやすい。
     if (version != expected_version) {
         ACS_LOG_WARN("FSaveArchive::ReadFromFile: version mismatch (file=%u, expected=%u)",
@@ -333,14 +401,14 @@ TResult<u32> FSaveArchive::ReadFromFile(const wchar_t* file_path,
                        "FSaveArchive::ReadFromFile: version mismatch (migration needed)");
     }
 
-    // ---- buffer 容量 check --------------------------------------------
+    // buffer 容量 check
     if (out_capacity < payload_size) {
         ::CloseHandle(h);
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubBufferTooSmall),
                        "FSaveArchive::ReadFromFile: out_capacity < payload_size");
     }
 
-    // ---- payload を out_payload に読み込む -----------------------------
+    // payload を out_payload に読み込む
     if (payload_size > 0) {
         if (!ReadAll(h, out_payload, payload_size, err)) {
             ::CloseHandle(h);
@@ -349,7 +417,7 @@ TResult<u32> FSaveArchive::ReadFromFile(const wchar_t* file_path,
         }
     }
 
-    // ---- CRC32 検証 ----------------------------------------------------
+    // CRC32 検証
     const u32 actual_crc = (payload_size > 0) ? ComputeCrc32(out_payload, payload_size)
                                               : (0xFFFFFFFFu ^ 0xFFFFFFFFu);
     if (actual_crc != expected_crc) {
@@ -364,11 +432,9 @@ TResult<u32> FSaveArchive::ReadFromFile(const wchar_t* file_path,
     return TResult<u32>(OkInit, version);
 }
 
-// ============================================================================
-// FSaveArchive::PeekVersion — header のみ読んで version を返す
-// ============================================================================
+/** header (24B) のみ読み、payload を読まずに version を返す。 */
 TResult<u32> FSaveArchive::PeekVersion(const wchar_t* file_path) noexcept {
-    auto open_r = OpenForRead(file_path);
+    const auto open_r = OpenForRead(file_path);
     if (open_r.IsErr()) return open_r.Error();
     HANDLE h = open_r.Value();
 
@@ -390,11 +456,9 @@ TResult<u32> FSaveArchive::PeekVersion(const wchar_t* file_path) noexcept {
     return TResult<u32>(OkInit, version);
 }
 
-// ============================================================================
-// FSaveArchive::PeekPayloadSize — header のみ読んで payload_size を返す
-// ============================================================================
+/** header (24B) のみ読み、payload を読まずに payload_size を返す。 */
 TResult<u64> FSaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
-    auto open_r = OpenForRead(file_path);
+    const auto open_r = OpenForRead(file_path);
     if (open_r.IsErr()) return open_r.Error();
     HANDLE h = open_r.Value();
 

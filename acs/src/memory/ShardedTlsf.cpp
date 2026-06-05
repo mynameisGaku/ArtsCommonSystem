@@ -15,7 +15,11 @@ namespace acs {
 
 namespace {
 
-// 論理コア数 (シャード数の自動決定 / clamp 用)。
+/**
+ * 論理コア数を返す (シャード数の自動決定 / clamp 用)。
+ *
+ * @return 論理プロセッサ数 (0 を返さないよう最低 1)。
+ */
 u32 DetectLogicalCores() noexcept {
     SYSTEM_INFO si{};
     ::GetSystemInfo(&si);
@@ -23,45 +27,69 @@ u32 DetectLogicalCores() noexcept {
     return n > 0u ? n : 1u;
 }
 
-// スレッドに割り当てるシャード index。全シャード化アロケータで共有する分散ヒント。
-// (各アロケータは自分の m_ShardCount で剰余を取るので共有で問題ない)
+/** スレッドに割り当てるシャード index。全シャード化アロケータで共有する分散ヒント (各々 m_ShardCount で剰余)。 */
 ACS_THREAD_LOCAL int t_assigned_shard = -1;
 
-// ---- thread-local マガジン (lock-free hot path) ----------------------------
-// 小ブロックの free-list をスレッドローカルに持ち、alloc/free をロック/アトミック無しで
-// 処理する。block_size は TLSF の量子化により 24,40,56,... (=24+16k) なので、それを
-// そのままサイズクラスにする。
-constexpr u32   kCacheClasses  = 32;                                   // block_size 24..520
-constexpr u32   kBucketCap     = 64;                                   // クラスごと最大キャッシュ数
-constexpr u32   kRefillBatch   = 32;                                   // refill 時に確保する数
-constexpr usize kCacheMinBlock = 24;
-constexpr usize kCacheMaxBlock = kCacheMinBlock + 16u * (kCacheClasses - 1);  // = 520
+/** thread-local マガジンのサイズクラス数 (block_size 24..520 をカバー)。 */
+constexpr u32   kCacheClasses  = 32;
 
-// block_size -> class (24+16k -> k)。対象外は -1。
+/** 1 サイズクラスあたりの最大キャッシュ数。 */
+constexpr u32   kBucketCap     = 64;
+
+/** refill 1 回でまとめて確保するブロック数。 */
+constexpr u32   kRefillBatch   = 32;
+
+/** キャッシュ対象の最小 block_size (TLSF 量子化の最小ブロック)。 */
+constexpr usize kCacheMinBlock = 24;
+
+/** キャッシュ対象の最大 block_size (= 24 + 16×(kCacheClasses-1) = 520)。 */
+constexpr usize kCacheMaxBlock = kCacheMinBlock + 16u * (kCacheClasses - 1);
+
+/**
+ * block_size をキャッシュのサイズクラスに変換する。
+ *
+ * @details TLSF の block_size は 24,40,56,... (=24+16k) なので k をクラスにする。範囲外や非量子サイズは対象外。
+ * @param bs TLSF の block_size。
+ * @return サイズクラス index (対象外は -1)。
+ */
 ACS_FORCEINLINE int CacheClassOfBlock(usize bs) noexcept {
     if (bs < kCacheMinBlock || bs > kCacheMaxBlock) return -1;
     const usize d = bs - kCacheMinBlock;
     if ((d & 15u) != 0u) return -1;
     return static_cast<int>(d >> 4);
 }
-// 確保したい size から TLSF の block_size を求める (AdjustRequestSize と同一式)。
+
+/**
+ * 確保要求サイズから TLSF が割り当てる block_size を求める (AdjustRequestSize と同一式)。
+ *
+ * @param size 確保要求サイズ。
+ * @return 対応する block_size。
+ */
 ACS_FORCEINLINE usize CacheBlockSizeForRequest(usize size) noexcept {
     usize bs = ((size + 15u) & ~usize(15)) + 8u;
     if (bs < kCacheMinBlock) bs = kCacheMinBlock;
     return bs;
 }
 
-// スレッドローカルのマガジン本体。owner+epoch で 1 アロケータに専有させ、別アロケータや
-// 再 Init を検出したら中身を捨てて貼り直す (世代検証)。
+/** スレッドローカルのマガジン本体 (owner+epoch で 1 アロケータに専有、別アロケータ/再 Init 検出で破棄)。 */
 struct FThreadCache {
+    /** このマガジンを専有するアロケータ (世代検証用)。 */
     const void* owner = nullptr;
+
+    /** owner の世代 (再 Init で旧世代を検出するため)。 */
     u64         epoch = 0;
+
+    /** サイズクラスごとの free-list 先頭 (単方向リンク)。 */
     void*       head[kCacheClasses]  = {};
+
+    /** サイズクラスごとのキャッシュ済みブロック数。 */
     u32         count[kCacheClasses] = {};
 };
+
+/** 呼び出しスレッドの thread-local マガジン。 */
 ACS_THREAD_LOCAL FThreadCache t_tcache;
 
-// Init ごとに新しい世代を配る (0 は無効)。
+/** Init ごとに新しい世代を配るカウンタ (0 は無効世代)。 */
 TAtomic<u64> g_epoch_counter{0};
 
 } // namespace
@@ -139,7 +167,7 @@ void* FShardedTlsfAllocator::AllocSharded(usize size, usize alignment, FSourceLo
         const u32 idx = static_cast<u32>(start + static_cast<int>(i)) % m_ShardCount;
         Shard& sh = m_Shards[idx];
         FScopedLock lk(sh.lock);
-        void* p = sh.alloc.Alloc(size, alignment, loc);
+        void* const p = sh.alloc.Alloc(size, alignment, loc);
         if (p) return p;
     }
     return nullptr;   // 全シャード満杯 = 真の OOM
@@ -156,8 +184,16 @@ void FShardedTlsfAllocator::FreeSharded(void* ptr) noexcept {
     m_Shards[s].alloc.Free(ptr);
 }
 
-// マガジンを呼び出しスレッド × 本アロケータに整合させる。別アロケータ/旧世代を掴んでいたら
-// 中身を捨てて貼り直す (旧世代のブロックは VM ごと消えているので捨てて安全)。
+/**
+ * 呼び出しスレッドのマガジンを指定 owner×epoch に整合させて返す。
+ *
+ * @details
+ * 別アロケータ/旧世代を掴んでいたら中身を捨てて貼り直す (旧世代のブロックは VM ごと消えているので
+ * 捨てて安全)。
+ * @param owner 専有させるアロケータ (通常 this)。
+ * @param epoch そのアロケータの現在世代。
+ * @return 整合済みの thread-local マガジンへの参照。
+ */
 static ACS_FORCEINLINE FThreadCache& AcquireCache(const void* owner, u64 epoch) noexcept {
     FThreadCache& tc = t_tcache;
     if (tc.owner != owner || tc.epoch != epoch) {
@@ -178,14 +214,14 @@ void* FShardedTlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc loc) 
         if (cls >= 0) {
             FThreadCache& tc = AcquireCache(this, m_Epoch);
             if (tc.count[cls] > 0) {                       // ヒット: ロック無しで pop
-                void* p = tc.head[cls];
+                void* const p = tc.head[cls];
                 tc.head[cls] = *reinterpret_cast<void**>(p);
                 --tc.count[cls];
                 return p;
             }
             // ミス: バッチ refill (確保したブロックは実 block_size のクラスへ積む)
             for (u32 i = 0; i < kRefillBatch; ++i) {
-                void* p = AllocSharded(bs - 8u, 16, loc);  // request bs-8 → block_size bs
+                void* const p = AllocSharded(bs - 8u, 16, loc);  // request bs-8 → block_size bs
                 if (!p) break;
                 const int rc = CacheClassOfBlock(FTlsfAllocator::PayloadBlockSize(p));
                 if (rc >= 0 && tc.count[rc] < kBucketCap) {
@@ -196,7 +232,7 @@ void* FShardedTlsfAllocator::Alloc(usize size, usize alignment, FSourceLoc loc) 
                 }
             }
             if (tc.count[cls] > 0) {                        // refill 後に pop
-                void* p = tc.head[cls];
+                void* const p = tc.head[cls];
                 tc.head[cls] = *reinterpret_cast<void**>(p);
                 --tc.count[cls];
                 return p;
@@ -226,7 +262,7 @@ void FShardedTlsfAllocator::Free(void* ptr) noexcept {
             if (tc.count[cls] >= kBucketCap) {
                 // バケット満杯: 半分を実シャードへ返してから push (償却)
                 for (u32 i = 0; i < kBucketCap / 2 && tc.head[cls]; ++i) {
-                    void* q = tc.head[cls];
+                    void* const q = tc.head[cls];
                     tc.head[cls] = *reinterpret_cast<void**>(q);
                     --tc.count[cls];
                     FreeSharded(q);
@@ -258,12 +294,12 @@ void* FShardedTlsfAllocator::Realloc(void* ptr, usize old_size, usize new_size,
     {
         // 同一シャード内で in-place / 同シャード移動を試みる。
         FScopedLock lk(m_Shards[s].lock);
-        void* p = m_Shards[s].alloc.Realloc(ptr, old_size, new_size, alignment, loc);
+        void* const p = m_Shards[s].alloc.Realloc(ptr, old_size, new_size, alignment, loc);
         if (p) return p;
     }
     // 同シャードで不可 → 別シャードへ移動。ロックを重ねない (デッドロック回避):
     // 先に新規確保 (任意シャード) → コピー → 旧を解放。失敗時は旧を保持 (realloc 契約)。
-    void* np = Alloc(new_size, alignment, loc);
+    void* const np = Alloc(new_size, alignment, loc);
     if (!np) return nullptr;
     MemCopy(np, ptr, old_size < new_size ? old_size : new_size);
     Free(ptr);

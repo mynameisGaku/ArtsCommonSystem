@@ -11,7 +11,7 @@ namespace acs {
 
 namespace {
 
-// HLSL: フルスクリーン三角形（VB 不要）+ 視線方向ベース sky
+/** スカイの HLSL ソース (フルスクリーン三角形 + 視線方向ベースの空と太陽。VB 不要)。 */
 const char* kSkyHLSL = R"(
 #pragma pack_matrix(row_major)
 
@@ -72,22 +72,52 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
+/**
+ * スカイ定数バッファのレイアウト (HLSL の cbuffer FSky と一致)。
+ */
 struct SkyCB {
+    /** 画面 NDC からワールドへの逆 view-projection。 */
     FMat4 inv_view_proj;
+
+    /** 視点ワールド座標 (xyz=eye)。 */
     FVec4 camera_pos;
+
+    /** 太陽方向 (xyz、camera→sun)。 */
     FVec4 sun_dir;
+
+    /** 太陽の色 (xyz)。 */
     FVec4 sun_color;
-    FVec4 sun_params;     // (radius, glow, _, _)
+
+    /** 太陽パラメータ (x=radius(1-cos), y=glow, zw=pad)。 */
+    FVec4 sun_params;
+
+    /** 天頂の色。 */
     FVec4 zenith;
+
+    /** 地平線の色。 */
     FVec4 horizon;
+
+    /** 地面方向の色。 */
     FVec4 ground;
 };
 
+/**
+ * 定数バッファサイズを 256 バイト境界に切り上げる (DX12 制約)。
+ *
+ * @tparam T 定数バッファのレイアウト型。
+ * @return sizeof(T) を 256 の倍数に切り上げたバイト数。
+ */
 template<typename T>
 constexpr usize CBSize() noexcept {
     return (sizeof(T) + 255u) & ~static_cast<usize>(255u);
 }
 
+/**
+ * ゼロ長を避けてベクトルを正規化する。
+ *
+ * @param v 正規化するベクトル。
+ * @return 正規化したベクトル。長さがほぼ 0 なら (0,1,0) を返す。
+ */
 ACS_FORCEINLINE FVec3 NormalizeSafe(FVec3 v) noexcept {
     const f32 len2 = v.x*v.x + v.y*v.y + v.z*v.z;
     if (len2 < 1e-12f) return FVec3{0, 1, 0};
@@ -97,8 +127,10 @@ ACS_FORCEINLINE FVec3 NormalizeSafe(FVec3 v) noexcept {
 
 } // namespace
 
+/** 太陽方向を正規化して保持する。 */
 void FSky::SetSunDirection(FVec3 dir) noexcept { m_SunDir = NormalizeSafe(dir); }
 
+/** VS/PS/定数バッファ/パイプラインを生成する。 */
 TResult<void> FSky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -148,6 +180,7 @@ TResult<void> FSky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_fo
     return Ok();
 }
 
+/** GPU リソースを解放する。 */
 void FSky::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_Cb.Reset();
@@ -155,6 +188,7 @@ void FSky::Shutdown() noexcept {
     m_Vs.Reset();
 }
 
+/** 昼空プリセット (青空 + 白い太陽) を適用する。 */
 void FSky::PresetDay() noexcept {
     m_SunDir     = NormalizeSafe(FVec3{0.4f, 0.7f, 0.4f});
     m_SunColor   = FVec3{1.0f, 0.95f, 0.85f};
@@ -165,6 +199,7 @@ void FSky::PresetDay() noexcept {
     m_Ground      = FVec3{0.18f, 0.20f, 0.20f};
 }
 
+/** 夕焼けプリセット (茜色 + 暖色太陽) を適用する。 */
 void FSky::PresetSunset() noexcept {
     m_SunDir     = NormalizeSafe(FVec3{0.7f, 0.05f, 0.5f});
     m_SunColor   = FVec3{1.0f, 0.55f, 0.25f};
@@ -175,6 +210,7 @@ void FSky::PresetSunset() noexcept {
     m_Ground      = FVec3{0.10f, 0.06f, 0.08f};
 }
 
+/** 夜空プリセット (紺青 + 弱い月光) を適用する。 */
 void FSky::PresetNight() noexcept {
     m_SunDir     = NormalizeSafe(FVec3{0.3f, 0.6f, 0.2f});
     m_SunColor   = FVec3{0.85f, 0.85f, 0.95f};
@@ -185,11 +221,12 @@ void FSky::PresetNight() noexcept {
     m_Ground      = FVec3{0.02f, 0.03f, 0.05f};
 }
 
+/** 定数バッファを更新し、フルスクリーン三角形でスカイを描画する。 */
 void FSky::Render(IRhiCommandList& cl, const FCamera& camera) noexcept {
     if (!m_Pipeline || !m_Cb) return;
     SkyCB cb{};
     cb.inv_view_proj = Inverse(camera.ViewProjection());
-    FVec3 eye = camera.Eye();
+    const FVec3 eye = camera.Eye();
     cb.camera_pos = FVec4{eye.x, eye.y, eye.z, 1};
     cb.sun_dir    = FVec4{m_SunDir.x, m_SunDir.y, m_SunDir.z, 0};
     cb.sun_color  = FVec4{m_SunColor.x, m_SunColor.y, m_SunColor.z, 1};

@@ -7,7 +7,7 @@
 //   2) 攻撃源を指す方向矢印 (off-screen damage indicator)
 //   3) death cam (致命傷 → killer をズームアウトで映す演出)
 //
-// 設計選択 (Phase 2 = Pillar R Phase 2):
+// 設計選択:
 //   ・**FDamageFeedback 自身は描画しない / カメラを動かさない**:
 //      FEffectSystem と同じ「副作用ゼロ / 純粋 state machine」方針。
 //      ・赤エッジ → 描画パイプ末尾の overlay が ScreenEdgeRedIntensity() を
@@ -53,7 +53,7 @@
 //       }
 //   };
 //
-// 範囲外 (Phase 3+):
+// 範囲外:
 //   ・血しぶき・画面割れ等の SFX 連携
 //   ・low HP 時の心拍音 / 視野狭窄 (FAudioDirector / 別 overlay と連携)
 //   ・death cam の cinematic curve (今は線形)
@@ -65,80 +65,141 @@
 
 namespace acs::game {
 
+/**
+ * 被ダメージ時の視覚フィードバックを集中管理する純粋 state holder。
+ *
+ * @details
+ * 赤エッジオーバーレイ・方向矢印 (off-screen damage indicator)・death cam の 3 要素を
+ * 一箇所で扱う。自身は描画もカメラ操作も行わず、各 accessor を描画/UI/カメラ制御コードが
+ * pull して使う副作用ゼロ設計。赤エッジは累積加算 → 線形 decay、方向矢印は最後の被弾源で
+ * 上書き、death cam は明示的な trigger/exit で制御する。state 重複を避けるため
+ * 非コピー・非ムーブ。
+ */
 class FDamageFeedback {
 public:
+    /** 全 state を初期値 (フィードバックなし) で構築する。 */
     FDamageFeedback() noexcept = default;
+
+    /** 破棄する。 */
     ~FDamageFeedback() noexcept = default;
 
+    /** コピー禁止 (state 重複で death cam の整合性が壊れるため)。 */
     FDamageFeedback(const FDamageFeedback&)            = delete;
+
+    /** コピー代入も禁止。 */
     FDamageFeedback& operator=(const FDamageFeedback&) = delete;
+
+    /** ムーブ禁止。 */
     FDamageFeedback(FDamageFeedback&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FDamageFeedback& operator=(FDamageFeedback&&)      = delete;
 
-    // ----- ダメージ受領 -----
-    // amount           : 受けたダメージ量 (任意スケール、0.1 倍で赤エッジに加算)
-    // source_direction : 攻撃源 → プレイヤー方向ベクトル。零ベクトルなら矢印を
-    //                    更新しない (= 環境ダメージ等の無方向ヒット)。
-    //                    正規化は内部で実行 (caller は生 delta を渡せる)。
+    /**
+     * ダメージを 1 件受け取り、赤エッジ強度を加算し方向矢印を更新する。
+     *
+     * @details
+     * 赤エッジは amount * 0.1 を加算して [0,1] clamp。amount <= 0 は何もしない (回復は別系統)。
+     * source_direction が零ベクトル相当のときは矢印を更新しない (環境ダメージ等の無方向ヒット)、
+     * 非零なら正規化して保持し不透明度を 1.0 にリセットする。
+     * @param amount 受けたダメージ量 (任意スケール、0.1 倍で赤エッジに加算)。
+     * @param source_direction 攻撃源 → プレイヤー方向ベクトル (正規化は内部で実行。既定は無方向)。
+     */
     void TakeDamage(f32 amount, FVec2 source_direction = FVec2{0.0f, 0.0f}) noexcept;
 
-    // ----- driver -----
-    // real-time dt で呼ばれる前提。各エフェクトの decay を進める。
-    // dt が負なら 0 扱いで state を破壊しない。
+    /**
+     * 各エフェクトの decay と death cam progress を 1 ステップ進める。
+     *
+     * @details real-time dt で毎フレーム呼ばれる前提。dt が負なら 0 扱いで state を破壊しない。
+     * @param dt 前フレームからの経過秒。
+     */
     void Tick(f32 dt) noexcept;
 
-    // ----- 赤エッジ accessors (描画 overlay が pull) -----
-    // 0 = エフェクトなし、1 = 完全赤被せ。線形 [0,1]。
+    /**
+     * 画面端を赤く染める現在の強度を返す (描画 overlay が pull)。
+     *
+     * @return 赤エッジ強度 [0,1] (0 = なし、1 = 完全赤被せ)。
+     */
     f32 ScreenEdgeRedIntensity() const noexcept { return m_RedIntensity; }
 
-    // ----- 方向矢印 accessors (UI 層が pull) -----
-    // 矢印を描画すべきか (alpha が ε 以上か)
+    /**
+     * 方向矢印を描画すべきかを返す。
+     *
+     * @return 矢印の不透明度が 0 より大きければ true。
+     */
     bool HasDirectionalIndicator() const noexcept { return m_DirIntensity > 0.0f; }
-    // 矢印が指す方向 (正規化済み)。HasDirectionalIndicator() == false のとき
-    // の値は未定義扱い (caller は HasDirectionalIndicator で守ること)。
+
+    /**
+     * 矢印が指す方向ベクトルを返す (UI 層が pull)。
+     *
+     * @details HasDirectionalIndicator() == false のときの値は未定義扱い (利用側でガードすること)。
+     * @return 正規化済みの矢印方向。
+     */
     FVec2 DirectionalIndicator() const noexcept { return m_DirVec; }
-    // 矢印の不透明度 [0,1]
+
+    /**
+     * 方向矢印の不透明度を返す。
+     *
+     * @return 矢印の不透明度 [0,1]。
+     */
     f32 DirectionalIndicatorAlpha() const noexcept { return m_DirIntensity; }
 
-    // ----- death cam -----
-    // killer_pos: カメラを向ける対象の world 座標 (= 致命傷を与えた相手の位置)
+    /**
+     * death cam 演出を開始する (致命傷検知時に呼ぶ)。
+     *
+     * @details 既に active なら killer_pos のみ更新し progress は仕切り直さない。
+     * @param killer_pos カメラを向ける対象の world 座標 (致命傷を与えた相手の位置)。
+     */
     void TriggerDeathCam(FVec3 killer_pos) noexcept;
 
-    // 現在 death cam 演出中か
+    /**
+     * 現在 death cam 演出中かを返す。
+     *
+     * @return death cam が active なら true。
+     */
     bool IsDeathCamActive() const noexcept { return m_DeathCamActive; }
-    // カメラが LookAt すべき world 座標 (trigger 時の killer 位置)
+
+    /**
+     * カメラが LookAt すべき world 座標を返す。
+     *
+     * @return trigger 時の killer 位置。
+     */
     FVec3 DeathCamTarget() const noexcept { return m_KillerPos; }
-    // [0,1] dramatic zoom progress。Tick で 0 → 1 へ 2 秒で進み、その後は 1.0 で
-    // 維持。caller (カメラ制御) はこれを zoom / DoF のイージングに使う。
+
+    /**
+     * death cam の dramatic zoom progress を返す。
+     *
+     * @details Tick で 0 → 1 へ 2 秒で進み、その後は 1.0 で維持。zoom / DoF のイージングに使う。
+     * @return progress [0,1]。
+     */
     f32 DeathCamProgress() const noexcept { return m_DeathCamT; }
-    // 明示的に death cam を解除 (例: リスポーン処理開始時)
+
+    /** death cam を明示的に解除する (例: リスポーン処理開始時)。progress も 0 に戻す。 */
     void ExitDeathCam() noexcept;
 
-    // ----- 一括リセット (シーン切替 / respawn 用) -----
-    // 全 state を初期値に戻す。
+    /** 全 state を初期値に戻す (シーン切替 / respawn 用の一括クリア)。 */
     void Reset() noexcept;
 
 private:
-    // ---- 赤エッジ state ----
-    // [0,1] 画面端を赤く染める強度。TakeDamage で加算、Tick で 2.0/s decay。
+    /** 画面端を赤く染める強度 [0,1]。TakeDamage で加算、Tick で 2.0/s decay。 */
     f32 m_RedIntensity = 0.0f;
 
-    // ---- 方向矢印 state ----
-    // [0,1] 矢印の不透明度。TakeDamage(dir != 0) で 1.0、Tick で 2.0/s decay。
+    /** 矢印の不透明度 [0,1]。TakeDamage(dir != 0) で 1.0、Tick で 2.0/s decay。 */
     f32  m_DirIntensity = 0.0f;
-    // 正規化済みの矢印方向ベクトル。最後に向きが指定された TakeDamage で更新。
+
+    /** 正規化済みの矢印方向ベクトル。最後に向きが指定された TakeDamage で更新。 */
     FVec2 m_DirVec       = FVec2{0.0f, 0.0f};
 
-    // ---- death cam state ----
+    /** death cam が現在 active かどうか。 */
     bool m_DeathCamActive = false;
-    // [0,1] dramatic zoom progress。Trigger 時 0、Tick で 1/2.0 * dt 加算。
+
+    /** death cam の dramatic zoom progress [0,1]。Trigger 時 0、Tick で 0.5/s 加算。 */
     f32  m_DeathCamT      = 0.0f;
-    // カメラが見るべき killer 位置 (trigger 時にスナップ、以後 caller が読む)
+
+    /** カメラが見るべき killer 位置 (trigger 時にスナップ、以後 caller が読む)。 */
     FVec3 m_KillerPos       = FVec3{0.0f, 0.0f, 0.0f};
 
-    // ---- デバッグ用 / 将来拡張 (low HP 演出フック等) ----
-    // 累積ダメージ総量。Reset で 0 に戻る。FAmbientDirector などが
-    // 「最近のダメージ密度」を読みたい時のフック。
+    /** 累積ダメージ総量。Reset で 0 に戻る。最近のダメージ密度を読む将来拡張用フック。 */
     f32 m_RecentDamageTotal = 0.0f;
 };
 

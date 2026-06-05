@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F Phase 3 — FTriggerWorld2D 実装
+// GameFramework Pillar F — FTriggerWorld2D 実装
 #include "gameframework/TriggerWorld2D.h"
 #include "foundation/Move.h"
 
 namespace acs::game {
 
-// ===== Slot 管理 =====
-
+/** 空き slot を確保する (index 0 は invalid 用に予約)。 */
 u32 FTriggerWorld2D::AcquireSlot() noexcept {
     // index 0 を invalid 用に予約 (FTriggerId == 0 == invalid と一致させる)
     for (u32 i = 1; i < m_Slots.Size(); ++i) {
@@ -19,10 +18,12 @@ u32 FTriggerWorld2D::AcquireSlot() noexcept {
     return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
+/** 初期化する (現状は状態を持たないが、将来の SpatialGrid 等のため API を予約)。 */
 void FTriggerWorld2D::Init() noexcept {
-    // Phase 3 では特に何もしない。将来 SpatialGrid を追加した時に cell_size 等を持つ。
+    // 現状は特に何もしない。将来 SpatialGrid を追加した時に cell_size 等を持つ。
 }
 
+/** 円形 trigger を登録する。 */
 FTriggerId FTriggerWorld2D::AddCircle(const Circle& c, u32 layer) noexcept {
     const u32 idx = AcquireSlot();
     FTriggerSlot& s = m_Slots[idx];
@@ -37,6 +38,7 @@ FTriggerId FTriggerWorld2D::AddCircle(const Circle& c, u32 layer) noexcept {
     return FTriggerId{idx, s.gen};
 }
 
+/** AABB trigger を登録する。 */
 FTriggerId FTriggerWorld2D::AddAabb(const Aabb2& a, u32 layer) noexcept {
     const u32 idx = AcquireSlot();
     FTriggerSlot& s = m_Slots[idx];
@@ -51,6 +53,7 @@ FTriggerId FTriggerWorld2D::AddAabb(const Aabb2& a, u32 layer) noexcept {
     return FTriggerId{idx, s.gen};
 }
 
+/** 円形 trigger の形状を更新する (移動時)。 */
 void FTriggerWorld2D::UpdateCircle(FTriggerId id, const Circle& c) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
     FTriggerSlot& s = m_Slots[id.Index()];
@@ -58,6 +61,7 @@ void FTriggerWorld2D::UpdateCircle(FTriggerId id, const Circle& c) noexcept {
     s.circle = c;
 }
 
+/** AABB trigger の形状を更新する (移動時)。 */
 void FTriggerWorld2D::UpdateAabb(FTriggerId id, const Aabb2& a) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
     FTriggerSlot& s = m_Slots[id.Index()];
@@ -65,6 +69,7 @@ void FTriggerWorld2D::UpdateAabb(FTriggerId id, const Aabb2& a) noexcept {
     s.aabb = a;
 }
 
+/** trigger を削除する (slot は再利用、generation が進む)。 */
 void FTriggerWorld2D::Remove(FTriggerId id) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
     FTriggerSlot& s = m_Slots[id.Index()];
@@ -75,6 +80,7 @@ void FTriggerWorld2D::Remove(FTriggerId id) noexcept {
     // 関連 pair は次 Tick で OnExit 発火後に自然消滅する (next_pairs に乗らないため)
 }
 
+/** trigger に任意の user ポインタを紐付ける。 */
 void FTriggerWorld2D::SetUserData(FTriggerId id, void* user) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
     FTriggerSlot& s = m_Slots[id.Index()];
@@ -82,6 +88,7 @@ void FTriggerWorld2D::SetUserData(FTriggerId id, void* user) noexcept {
     s.user = user;
 }
 
+/** trigger に紐付けた user ポインタを取得する。 */
 void* FTriggerWorld2D::UserData(FTriggerId id) const noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return nullptr;
     const FTriggerSlot& s = m_Slots[id.Index()];
@@ -89,21 +96,25 @@ void* FTriggerWorld2D::UserData(FTriggerId id) const noexcept {
     return s.user;
 }
 
+/** overlap 開始イベントのコールバックを設定する。 */
 void FTriggerWorld2D::SetOnEnter(TriggerEventCallback cb, void* user) noexcept {
     m_OnEnter      = cb;
     m_OnEnterUser = user;
 }
 
+/** overlap 継続イベントのコールバックを設定する。 */
 void FTriggerWorld2D::SetOnStay(TriggerEventCallback cb, void* user) noexcept {
     m_OnStay      = cb;
     m_OnStayUser = user;
 }
 
+/** overlap 終了イベントのコールバックを設定する。 */
 void FTriggerWorld2D::SetOnExit(TriggerEventCallback cb, void* user) noexcept {
     m_OnExit      = cb;
     m_OnExitUser = user;
 }
 
+/** 全 trigger と overlap state を破棄する。 */
 void FTriggerWorld2D::ClearAll() noexcept {
     m_Slots.Clear();
     m_Pairs.Clear();
@@ -111,7 +122,7 @@ void FTriggerWorld2D::ClearAll() noexcept {
     m_TriggerCount = 0;
 }
 
-// ===== Narrow phase: 任意の 2 trigger の overlap 判定 =====
+/** 2 つの trigger slot が幾何的に重なるかを返す (narrow phase)。 */
 bool FTriggerWorld2D::ShapesOverlap(const FTriggerSlot& a, const FTriggerSlot& b) const noexcept {
     if (a.kind == Kind::FAabb && b.kind == Kind::FAabb)     return Intersect(a.aabb,   b.aabb);
     if (a.kind == Kind::Circle && b.kind == Kind::Circle) return Intersect(a.circle, b.circle);
@@ -120,7 +131,7 @@ bool FTriggerWorld2D::ShapesOverlap(const FTriggerSlot& a, const FTriggerSlot& b
     return false;
 }
 
-// ===== Tick: overlap pair 全比較 + イベント発火 =====
+/** 全 pair の overlap 状態を更新し、前フレと比較してイベントを発火する。 */
 void FTriggerWorld2D::Tick(f32 /*dt*/) noexcept {
     // 1. 今フレの overlap pair を全 O(N^2) ペアで再計算し m_NextPairs に格納。
     //    (a, b) は a < b で正規化。active な slot のみを対象。

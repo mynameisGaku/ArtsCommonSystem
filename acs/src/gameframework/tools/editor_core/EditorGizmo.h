@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — editor_core / FEditorGizmo (Phase 21a)
+// GameFramework Pillar — editor_core / FEditorGizmo
 //
 // 役割:
 //   選択中の FNode2D / Node3D の Transform を viewport 上で直接ドラッグ操作する
@@ -40,7 +40,7 @@
 //   // 4) drag 終了時に FUndoStack へ push したい場合:
 //   gizmo.SetOnManipulateCallback(&MyEditor::OnGizmoDelta, &editor);
 //
-// 設計選択 (Phase 21a):
+// 設計選択:
 //   ・**EGizmoMode / EGizmoSpace / EGizmoAxis の 3 enum**: ACS 規約の E prefix
 //     enum、`u8` 基底で表のレイアウトに優しい。`None_` は EGizmoAxis 側で
 //     キーワード衝突回避のためアンダースコア付き (foundation/Limits.h 等で
@@ -72,45 +72,23 @@
 //     (`drag_start_world`) を覚え、現フレームの mouse ray と軸/平面の交点との
 //     差分から delta を計算する。これにより「クリック位置とハンドル中心がずれて
 //     いても」drag が滑らかになる (Unity / Blender と同じ感覚)。
-//   ・**rotate モードは euler 角度差分**: Phase 21a 範囲では quat 補間は使わず、
+//   ・**rotate モードは euler 角度差分**: quat 補間は使わず、
 //     軸ごとに「現マウス角度 - 開始マウス角度」を計算して inout_rotation_euler の
 //     対応軸に加算する単純実装。Gimbal lock の心配があるが、editor 上の手動
 //     編集なので許容範囲。
 //   ・**scale モードは axis-aligned**: 軸ハンドルで「その軸方向の uniform scale
 //     倍率」を計算。XY/XZ/YZ 平面 + ScreenAlign は scale モードでは hit を取らない
 //     (= 各軸ごとの非一様 scale を意図的に強制、Unity と同じ)。
-//   ・**DrawGizmo は FDebugDraw (FVec2 ベース) に出力**: 現状 FDebugDraw は 2D
-//     ラインバッファ (Pillar H Phase 1)。本ヘッダでは「Z 軸を捨てて XY 平面に
+//   ・**DrawGizmo は FDebugDraw (FVec2 ベース) に出力**: FDebugDraw は 2D
+//     ラインバッファ。本ヘッダでは「Z 軸を捨てて XY 平面に
 //     射影する」simple projection を採用する (= 2D top-down view を想定)。
-//     完全 3D viewport 描画は将来 DebugDraw3D (= FVec3 ベース) を追加した上で
-//     overload を生やす予定 (Phase 21b 以降)。
 //   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用 / `<string>` 禁止**:
 //     ACS 規約。state は POD GizmoState + パラメータ群のみ。
 //
-// 将来拡張余地 (Phase 21b 以降):
-//   ・**multi-select**: 複数 Node を同時に操作する。pivot 計算 (centroid / first
-//     selected / scene origin) と各 Node への delta 配布を追加。本クラスの
-//     API シグネチャは 1 Node 想定なので、上位に MultiGizmo wrapper を載せる
-//     形が綺麗。
-//   ・**pivot mode (center / local origin / bounds center)**: 現状は「inout_*
-//     で渡された point を pivot とみなす」一択。pivot 計算は上位責務 (上位が
-//     bounds 計算した結果を pivot として渡す)。
-//   ・**2D 専用 gizmo (top-down)**: Z 軸を完全に無視するモード。本クラスは
-//     既に Z を捨てて 2D 描画している (= DrawGizmo の制約) ので、Manipulate
-//     側でも Z 軸ハンドルを hide できる SetIgnoreZAxis(bool) を後付けする。
-//   ・**collider 等の shape 編集**: AABB の各辺中央に resize handle を出す
-//     ShapeGizmo として派生クラスで実装する想定。本クラスは transform 編集に
-//     特化。
-//   ・**DebugDraw3D (= FVec3 ベース) との overload**: 現状の DrawGizmo に加えて
-//     `void DrawGizmo(DebugDraw3D& dd3, ...)` を追加し、3D viewport で正しい
-//     遠近表示を提供する。
-//   ・**screen-aligned ハンドル**: 既に EGizmoAxis::ScreenAlign を定義済みだが、
-//     現状 Phase 21a は rotate モードの全軸回転として未使用 (= 値だけ予約)。
-//
-// 範囲外 (本フェーズで持たない):
+// 範囲外:
 //   ・vertex / face 編集 (mesh edit gizmo)
 //   ・animation キーフレーム上のドラッグ操作 (TimelineEditor 側責務)
-//   ・collider shape edit (= ShapeGizmo は後付け派生)
+//   ・collider shape edit
 //   ・camera viewport 操作 (= Pan / Orbit / Zoom は別 input handler)
 #pragma once
 
@@ -123,246 +101,465 @@ class FDebugDraw;        // 前方宣言 — .cpp で gameframework/FDebugDraw.h
 
 namespace acs::game::editor_core {
 
-// ============================================================================
-// EGizmoMode — 現在の操作モード
-// ----------------------------------------------------------------------------
-// `None` は「ハンドル一切なし」(= シーン上で gizmo を描画も操作もしない) 用。
-// editor の Q/W/E/R 系キーバインドで Translate/Rotate/Scale を切り替える想定。
-// ============================================================================
+/**
+ * gizmo の現在の操作モード。
+ *
+ * @details
+ * None は「ハンドル一切なし」(= シーン上で gizmo を描画も操作もしない) 用。
+ * editor の Q/W/E/R 系キーバインドで Translate/Rotate/Scale を切り替える想定。
+ */
 enum class EGizmoMode : u8 {
-    None      = 0,  // gizmo 完全 OFF
-    Translate = 1,  // 移動 (axis arrow + plane handle)
-    Rotate    = 2,  // 回転 (axis ring)
-    Scale     = 3,  // 拡縮 (axis box)
+    /** gizmo 完全 OFF (描画も hit test もしない)。 */
+    None      = 0,
+
+    /** 移動モード (axis arrow + plane handle)。 */
+    Translate = 1,
+
+    /** 回転モード (axis ring)。 */
+    Rotate    = 2,
+
+    /** 拡縮モード (axis box)。 */
+    Scale     = 3,
 };
 
-// ============================================================================
-// EGizmoSpace — 操作座標系
-// ----------------------------------------------------------------------------
-// World: ワールド軸 (X/Y/Z 固定) を表示し、その軸方向に move/scale する。
-// Local: 対象 Node の rotation を考慮した「ローカル軸」を表示・操作する。
-// Phase 21a 範囲では Local space は inout_rotation_euler を quat に変換して
-// 軸を回転させる実装 (Manipulate / DrawGizmo の両方に効く)。
-// ============================================================================
+/**
+ * gizmo の操作座標系。
+ *
+ * @details
+ * World はワールド軸 (X/Y/Z 固定) を表示してその軸方向に move/scale する。
+ * Local は対象 Node の rotation を考慮した「ローカル軸」を表示・操作する。
+ * Local space は inout_rotation_euler を quat に変換して軸を回転させる実装で、
+ * Manipulate / DrawGizmo の両方に効く。
+ */
 enum class EGizmoSpace : u8 {
-    World = 0,  // world axis (default)
-    Local = 1,  // node local axis (rotation を考慮)
+    /** ワールド軸 (X/Y/Z 固定、既定)。 */
+    World = 0,
+
+    /** Node の rotation を考慮したローカル軸。 */
+    Local = 1,
 };
 
-// ============================================================================
-// EGizmoAxis — どの軸/平面ハンドルが hot か
-// ----------------------------------------------------------------------------
-// `None_` のアンダースコアは `None` キーワード化を避けるための ACS 規約
-// (foundation/Limits.h 等で既出)。
-// XY / XZ / YZ は平面ハンドル (translate モードで 2 軸同時 drag 用)。
-// ScreenAlign は rotate モードの「画面平行 trackball 風回転」用、Phase 21a では
-// 値だけ予約 (実 hit test は将来追加)。
-// ============================================================================
+/**
+ * どの軸/平面ハンドルが hot (ホバー or drag 中) かを表す。
+ *
+ * @details
+ * None_ のアンダースコアは None キーワード化を避けるための ACS 規約
+ * (foundation/Limits.h 等で既出)。XY / XZ / YZ は平面ハンドル (translate
+ * モードで 2 軸同時 drag 用)。ScreenAlign は rotate モードの「画面平行 trackball
+ * 風回転」用で、値だけ予約し実 hit test は未実装。
+ */
 enum class EGizmoAxis : u8 {
-    None_       = 0,  // どのハンドルもホバー / drag していない
-    X           = 1,  // X 軸ハンドル
-    Y           = 2,  // Y 軸ハンドル
-    Z           = 3,  // Z 軸ハンドル
-    XY          = 4,  // XY 平面ハンドル (translate)
-    XZ          = 5,  // XZ 平面ハンドル (translate)
-    YZ          = 6,  // YZ 平面ハンドル (translate)
-    ScreenAlign = 7,  // 画面平行ハンドル (rotate 用、Phase 21a は予約)
+    /** どのハンドルもホバー / drag していない。 */
+    None_       = 0,
+
+    /** X 軸ハンドル。 */
+    X           = 1,
+
+    /** Y 軸ハンドル。 */
+    Y           = 2,
+
+    /** Z 軸ハンドル。 */
+    Z           = 3,
+
+    /** XY 平面ハンドル (translate)。 */
+    XY          = 4,
+
+    /** XZ 平面ハンドル (translate)。 */
+    XZ          = 5,
+
+    /** YZ 平面ハンドル (translate)。 */
+    YZ          = 6,
+
+    /** 画面平行ハンドル (rotate 用、値だけ予約)。 */
+    ScreenAlign = 7,
 };
 
-// ============================================================================
-// GizmoState — 現フレームの操作状態 (POD、テストで覗ける)
-// ----------------------------------------------------------------------------
-// 公開フィールドだが、書き換えは FEditorGizmo 内部からのみ行うこと。
-// `drag_start_world` は drag 開始時のワールド空間ヒット点 (delta 計算の基点)。
-// ============================================================================
+/**
+ * gizmo の現フレームの操作状態 (POD、テストで覗ける)。
+ *
+ * @details
+ * 公開フィールドだが、書き換えは FEditorGizmo 内部からのみ行うこと。
+ * drag_start_world は drag 開始時のワールド空間ヒット点 (delta 計算の基点)。
+ */
 struct GizmoState {
-    EGizmoMode mode             = EGizmoMode::Translate;  // 現在のモード
-    EGizmoSpace space           = EGizmoSpace::World;     // 現在の座標系
-    EGizmoAxis  hot_axis        = EGizmoAxis::None_;      // ホバー or drag 中の軸
-    bool        dragging        = false;                  // LMB 押下中の drag 中フラグ
-    acs::FVec3   drag_start_world{};                       // drag 開始時の world hit point
+    /** 現在の操作モード。 */
+    EGizmoMode mode             = EGizmoMode::Translate;
+
+    /** 現在の操作座標系。 */
+    EGizmoSpace space           = EGizmoSpace::World;
+
+    /** ホバー or drag 中の軸/平面ハンドル。 */
+    EGizmoAxis  hot_axis        = EGizmoAxis::None_;
+
+    /** LMB 押下中の drag 中フラグ。 */
+    bool        dragging        = false;
+
+    /** drag 開始時の world hit point (delta 計算の基点)。 */
+    acs::FVec3   drag_start_world{};
 };
 
-// ============================================================================
-// ManipulateCallback — drag 終了時 (or 各フレーム中) に外部へ delta を通知
-// ----------------------------------------------------------------------------
-// drag 完了時に 1 度だけ呼ばれる (= FUndoStack に MoveNodeCommand 等を push する
-// 適切なタイミング)。`delta` の意味はモード依存:
-//   Translate: world space の移動量 (FVec3)
-//   Rotate   : euler 角度の差分 (radians; FVec3)
-//   Scale    : scale 倍率の差分 (FVec3; 1.0 を基準)
-// user は SetOnManipulateCallback の第二引数で渡したポインタがそのまま戻る。
-// ============================================================================
+/**
+ * drag 終了時に外部へ delta を通知する callback 型。
+ *
+ * @details
+ * drag 完了時に 1 度だけ呼ばれる (= FUndoStack に MoveNodeCommand 等を push する
+ * 適切なタイミング)。delta の意味はモード依存で、Translate は world space の
+ * 移動量、Rotate は euler 角度の差分 (radians)、Scale は scale 倍率の差分
+ * (1.0 を基準) を表す。user は SetOnManipulateCallback の第二引数で渡した
+ * ポインタがそのまま戻る。
+ * @param user SetOnManipulateCallback で登録したユーザポインタ。
+ * @param mode drag 確定時の操作モード。
+ * @param delta モード依存の代表 delta。
+ */
 using ManipulateCallback = void (*)(void* user, EGizmoMode mode, acs::FVec3 delta) noexcept;
 
-// ============================================================================
-// FEditorGizmo — 選択 Node の Transform を viewport 上で直接操作するハンドル
-// ----------------------------------------------------------------------------
-// 1 個のインスタンスを editor が所有し、選択中 Node の transform を毎フレーム
-// 流し込む。ハンドル本体は POD 状態のみで、レンダリングは FDebugDraw 経由
-// (= レンダラ非依存)。
-// ============================================================================
+/**
+ * 選択 Node の Transform を viewport 上で直接操作するハンドル。
+ *
+ * @details
+ * 1 個のインスタンスを editor が所有し、選択中 Node の transform を毎フレーム
+ * 流し込む。ハンドル本体は POD 状態のみで、レンダリングは FDebugDraw 経由
+ * (= レンダラ非依存)。ProcessInput → Manipulate → DrawGizmo の 3 段で入力取得 /
+ * 値更新 / 描画を完全に分離し、translate / rotate / scale の各モードで X/Y/Z 軸
+ * ハンドルと平面ハンドルを提供する。
+ */
 class FEditorGizmo {
 public:
+    /** 空状態で構築する (state は default、ハンドル形状は既定値)。 */
     FEditorGizmo() noexcept  = default;
+
+    /** 破棄する (所有リソースなし)。 */
     ~FEditorGizmo() noexcept = default;
 
-    // 非コピー / 非ムーブ: editor 内で 1 個だけ生存させる前提 (ACS 規約)。
+    /** コピー禁止 (editor 内で 1 個だけ生存させる前提)。 */
     FEditorGizmo(const FEditorGizmo&)            = delete;
+
+    /** コピー代入も禁止。 */
     FEditorGizmo& operator=(const FEditorGizmo&) = delete;
+
+    /** ムーブ禁止 (editor 内で 1 個だけ生存させる前提)。 */
     FEditorGizmo(FEditorGizmo&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FEditorGizmo& operator=(FEditorGizmo&&)      = delete;
 
-    // ----- ライフサイクル ---------------------------------------------------
-
-    // 初期化 (state を default に戻す、callback はクリアしない)。多重 Init 可。
+    /**
+     * 初期化する。
+     *
+     * @details
+     * state を default に戻す (mode = Translate, hot = None_, dragging = false)。
+     * callback / snap step / ハンドル形状は意図的に維持する (= editor セッションを
+     * またいだ復帰を想定)。完全初期化したい場合は Shutdown を呼ぶ。多重 Init 可。
+     */
     void Init() noexcept;
 
-    // 後片付け (state + callback + snap step を完全初期化)。多重 Shutdown 可。
+    /**
+     * 後片付けする。
+     *
+     * @details state + callback + snap step + ハンドル形状をすべて default に戻す。多重 Shutdown 可。
+     */
     void Shutdown() noexcept;
 
-    // ----- モード / 座標系 -------------------------------------------------
-
+    /**
+     * 操作モードを設定する。
+     *
+     * @details drag 中に呼ばれた場合は drag を確定 (callback 発火) してから mode を変える。
+     * @param mode 設定する操作モード。
+     */
     void SetMode(EGizmoMode mode) noexcept;
+
+    /**
+     * 現在の操作モードを返す。
+     *
+     * @return 設定済みの EGizmoMode。
+     */
     EGizmoMode Mode() const noexcept { return _state.mode; }
 
+    /**
+     * 操作座標系を設定する。
+     *
+     * @details drag 中に呼ばれた場合は drag を確定 (callback 発火) してから space を変える。
+     * @param space 設定する操作座標系。
+     */
     void SetSpace(EGizmoSpace space) noexcept;
+
+    /**
+     * 現在の操作座標系を返す。
+     *
+     * @return 設定済みの EGizmoSpace。
+     */
     EGizmoSpace Space() const noexcept { return _state.space; }
 
-    // ----- スナップ設定 -----------------------------------------------------
-    // 各モードごとに独立した snap step。step <= 0 で snap 無効化。
-    // Shift モディファイア検出は ProcessInput 呼び出し側責務 (= 呼ぶ側が
-    // Shift 押下時のみ snap_active を true にして渡す API は将来検討)。
-    // 現状は「step > 0 かつ drag 中なら常に snap する」シンプル動作。
+    /**
+     * 移動モードの snap step を設定する (world units)。
+     *
+     * @details step <= 0 で snap 無効化。drag 中に step > 0 なら delta が step に量子化される。
+     * @param step スナップ単位 (world units、負値・0 は無効)。
+     */
+    void SetSnapTranslate(f32 step) noexcept;
 
-    void SetSnapTranslate(f32 step) noexcept;   // world units
-    void SetSnapRotate(f32 step_deg) noexcept;  // degrees (内部で radians 換算)
-    void SetSnapScale(f32 step) noexcept;       // 倍率 (例: 0.1 → 10% 刻み)
+    /**
+     * 回転モードの snap step を設定する (degrees)。
+     *
+     * @details 内部で radians に換算して保持する。step_deg <= 0 で snap 無効化。
+     * @param step_deg スナップ角度 (degrees、負値・0 は無効)。
+     */
+    void SetSnapRotate(f32 step_deg) noexcept;
 
+    /**
+     * 拡縮モードの snap step を設定する (倍率刻み)。
+     *
+     * @details step <= 0 で snap 無効化。
+     * @param step スナップ倍率刻み (例: 0.1 → 10% 刻み、負値・0 は無効)。
+     */
+    void SetSnapScale(f32 step) noexcept;
+
+    /**
+     * 移動モードの snap step を返す。
+     *
+     * @return スナップ単位 (world units、0 なら無効)。
+     */
     f32 SnapTranslate() const noexcept { return m_SnapTranslate; }
+
+    /**
+     * 回転モードの snap step を degrees で返す。
+     *
+     * @return スナップ角度 (degrees、0 なら無効)。
+     */
     f32 SnapRotateDeg() const noexcept;
+
+    /**
+     * 拡縮モードの snap step を返す。
+     *
+     * @return スナップ倍率刻み (0 なら無効)。
+     */
     f32 SnapScale() const noexcept     { return m_SnapScale; }
 
-    // ----- 入力処理 ---------------------------------------------------------
-    // 毎フレーム呼ぶ。マウス ray と LMB 状態を渡して、drag 開始 / 継続 / 終了の
-    // 遷移を更新する。Manipulate / DrawGizmo を呼ぶ前にこの関数を呼ぶこと。
-    //
-    // 引数:
-    //   mouse_ray_origin     : カメラ位置 (world space)
-    //   mouse_ray_direction  : マウス位置から伸びる方向 (正規化推奨)
-    //   lmb_down             : 当フレームで LMB が押下された (edge: false→true)
-    //   lmb_held             : 当フレームで LMB が押下中 (level)
-    //   lmb_up               : 当フレームで LMB が離された (edge: true→false)
-    //
-    // 遷移:
-    //   !dragging かつ lmb_down かつ hot_axis != None_ : drag 開始
-    //   dragging  かつ lmb_held                       : drag 継続 (hot_axis 保持)
-    //   dragging  かつ lmb_up                         : drag 終了 + callback 発火
-    //   !dragging かつ !lmb_held                       : hot_axis を毎フレーム再判定
+    /**
+     * 入力を処理して drag state machine を駆動する (毎フレーム呼ぶ)。
+     *
+     * @details
+     * Manipulate / DrawGizmo を呼ぶ前にこの関数を呼ぶこと。遷移は、!dragging かつ
+     * lmb_down かつ hot_axis != None_ で drag 開始、dragging 中は hot_axis を保持、
+     * dragging かつ lmb_up で drag 終了 + callback 発火、非 drag では hot_axis を
+     * 毎フレーム再判定する。
+     * @param mouse_ray_origin カメラ位置 (world space)。
+     * @param mouse_ray_direction マウス位置から伸びる方向 (正規化推奨)。
+     * @param lmb_down 当フレームで LMB が押下された (edge: false→true)。
+     * @param lmb_held 当フレームで LMB が押下中 (level)。
+     * @param lmb_up 当フレームで LMB が離された (edge: true→false)。
+     */
     void ProcessInput(acs::FVec3 mouse_ray_origin,
                       acs::FVec3 mouse_ray_direction,
                       bool lmb_down,
                       bool lmb_held,
                       bool lmb_up) noexcept;
 
-    // ----- transform 操作 ---------------------------------------------------
-    // ProcessInput の後に呼ぶ。drag 中であれば inout_* を in-place 更新し、
-    // true を返す。drag 中でなければ false を返して inout_* は触らない。
-    //
-    // モード別の inout 解釈:
-    //   Translate: inout_position に delta を加算
-    //   Rotate   : inout_rotation_euler に angular delta を加算 (radians)
-    //   Scale    : inout_scale に delta を加算 (1.0 を基準とした倍率)
-    //
-    // pivot は inout_position をそのまま使用 (= Node のローカル原点が pivot)。
+    /**
+     * drag 中であれば transform を in-place 更新する (ProcessInput の後に呼ぶ)。
+     *
+     * @details
+     * drag 中でなければ false を返して inout_* は触らない。モード別に、Translate は
+     * inout_position に delta を加算、Rotate は inout_rotation_euler に angular delta
+     * を加算 (radians)、Scale は inout_scale に倍率 delta を加算する。pivot は
+     * inout_position をそのまま使用する (= Node のローカル原点が pivot)。
+     * @param inout_position 更新対象の位置 (Translate で書き換え)。
+     * @param inout_rotation_euler 更新対象の euler 回転 (Rotate で書き換え、radians)。
+     * @param inout_scale 更新対象のスケール (Scale で書き換え)。
+     * @return drag 中で何か更新したら true、drag 中でなければ false。
+     */
     bool Manipulate(acs::FVec3& inout_position,
                     acs::FVec3& inout_rotation_euler,
                     acs::FVec3& inout_scale) noexcept;
 
-    // ----- 描画 -------------------------------------------------------------
-    // FDebugDraw 経由で軸 line + ハンドルを描く。実描画は dd の消費側責務。
-    // FDebugDraw が 2D (FVec2) なので、Z 軸は XY 平面へ射影される (top-down view)。
-    // 将来 DebugDraw3D が来たら overload を生やす予定。
-    //
-    // 描画色: X=red / Y=green / Z=blue / 平面=半透明黄色 / 選択中 hot=白ハイライト。
+    /**
+     * FDebugDraw 経由で軸 line + ハンドルを描く。
+     *
+     * @details
+     * 実描画は dd の消費側責務。FDebugDraw が 2D (FVec2) なので Z 軸は XY 平面へ
+     * 射影される (top-down view)。描画色は X=赤 / Y=緑 / Z=青 / 平面=半透明黄色 /
+     * 選択中 hot=白ハイライト。
+     * @param dd 軸・ハンドルの line を積む先のデバッグ描画バッファ。
+     * @param position gizmo 中心の world 座標。
+     * @param rotation_euler 軸ベースを構築するための euler 回転 (Local space で使用)。
+     * @param scale 対象のスケール (描画には未使用、引数のみ)。
+     */
     void DrawGizmo(FDebugDraw& dd,
                    acs::FVec3 position,
                    acs::FVec3 rotation_euler,
                    acs::FVec3 scale) noexcept;
 
-    // ----- 状態問い合わせ ---------------------------------------------------
-
+    /**
+     * drag 中かを返す。
+     *
+     * @return drag 中なら true。
+     */
     bool IsDragging() const noexcept    { return _state.dragging; }
+
+    /**
+     * 現在 hot な軸/平面ハンドルを返す。
+     *
+     * @return ホバー or drag 中の EGizmoAxis (なければ None_)。
+     */
     EGizmoAxis HotAxis() const noexcept { return _state.hot_axis; }
 
-    // テスト / inspector 表示用に GizmoState の現値をまるごと参照で公開。
+    /**
+     * GizmoState の現値をまるごと参照で返す (テスト / inspector 表示用)。
+     *
+     * @return 現フレームの GizmoState への const 参照。
+     */
     const GizmoState& State() const noexcept { return _state; }
 
-    // ----- callback 登録 ----------------------------------------------------
-    // drag 終了時 (= 内部で `dragging: true → false` 遷移したフレーム末) に 1 度
-    // 呼ばれる。null 渡しで解除 (= 既存 callback をクリア)。
+    /**
+     * drag 終了通知 callback を登録する。
+     *
+     * @details
+     * 内部で dragging が true → false へ遷移したフレーム末に 1 度呼ばれる。
+     * cb に null を渡すと解除 (= 既存 callback をクリア)。
+     * @param cb 登録する callback (null で解除)。
+     * @param user callback に渡されるユーザポインタ。
+     */
     void SetOnManipulateCallback(ManipulateCallback cb, void* user) noexcept;
 
-    // ----- ハンドル形状パラメータ (上位 editor から微調整可能) ---------------
-    // 軸ハンドルの「太さ」(ray-cylinder hit test の半径) と、軸の長さ。
-    // 平面ハンドルの半サイズ。camera 距離スケーリングは外側責務 (= camera 距離に
-    // 応じて axis_length / handle_radius を毎フレーム書き換える運用)。
+    /**
+     * 軸ハンドルの世界長を設定する。
+     *
+     * @details 描画と hit test の沿軸範囲に使う。0 以下は 1e-3 に clamp。camera 距離スケーリングは外側責務。
+     * @param length 軸の世界長 (default 1.0)。
+     */
+    void SetAxisLength(f32 length) noexcept;
 
-    void SetAxisLength(f32 length) noexcept;       // 軸の世界長 (default 1.0)
-    void SetHandleRadius(f32 radius) noexcept;     // 軸 hit 円柱半径 (default 0.05)
-    void SetPlaneHandleSize(f32 size) noexcept;    // 平面 hit 矩形半サイズ (default 0.2)
+    /**
+     * 軸ハンドルの hit 円柱半径を設定する。
+     *
+     * @details ray-line 最近接距離がこの半径以下なら軸 hit。0 以下は 1e-4 に clamp。
+     * @param radius 軸 hit 円柱の半径 (default 0.05)。
+     */
+    void SetHandleRadius(f32 radius) noexcept;
 
+    /**
+     * 平面ハンドルの hit 矩形の半サイズを設定する。
+     *
+     * @details 0 以下は 1e-3 に clamp。
+     * @param size 平面 hit 矩形の半サイズ (default 0.2)。
+     */
+    void SetPlaneHandleSize(f32 size) noexcept;
+
+    /**
+     * 軸ハンドルの世界長を返す。
+     *
+     * @return 設定済みの軸長。
+     */
     f32 AxisLength() const noexcept       { return m_AxisLength; }
+
+    /**
+     * 軸ハンドルの hit 円柱半径を返す。
+     *
+     * @return 設定済みの hit 半径。
+     */
     f32 HandleRadius() const noexcept     { return m_HandleRadius; }
+
+    /**
+     * 平面ハンドルの hit 矩形の半サイズを返す。
+     *
+     * @return 設定済みの平面 hit 半サイズ。
+     */
     f32 PlaneHandleSize() const noexcept  { return m_PlaneHandleSize; }
 
 private:
-    // ProcessInput から呼ぶ「現マウス ray がどの軸/平面に当たっているか」判定。
-    // drag 中は呼ばない (hot axis を保持するため)。
+    /**
+     * 現マウス ray がどの軸/平面ハンドルにホバーしているか判定する。
+     *
+     * @details
+     * drag 中は呼ばない (hot axis を保持するため)。優先順は 平面ハンドル > 軸ハンドル。
+     * gizmo 中心は m_DragOriginPos を仮定する。
+     * @param ray_origin マウス ray の始点 (world space)。
+     * @param ray_direction マウス ray の方向。
+     * @return hit した EGizmoAxis (どれも当たらなければ None_)。
+     */
     EGizmoAxis PickAxis(acs::FVec3 ray_origin, acs::FVec3 ray_direction) const noexcept;
 
-    // drag 開始時 / 継続時に呼ぶ「ray と hot 軸/平面の交点 (world space)」算出。
-    // 失敗時 (= ray 平行など) は inout_hit を変えず false を返す。
+    /**
+     * 現マウス ray と hot 軸/平面の world space 交点を算出する。
+     *
+     * @details 軸ハンドルは ray と axis-line の最近接点、平面ハンドルは ray-plane 交点を hit とする。
+     * @param ray_origin マウス ray の始点 (world space)。
+     * @param ray_direction マウス ray の方向。
+     * @param out_hit hit 点 (world space) の格納先。
+     * @return 交点が取れたら true、平行・未対応軸なら false (out_hit は不変)。
+     */
     bool RaycastToHot(acs::FVec3 ray_origin,
                       acs::FVec3 ray_direction,
                       acs::FVec3& out_hit) const noexcept;
 
-    // Manipulate 内で snap step を delta に適用するヘルパ (step==0 は no-op)。
+    /**
+     * スカラー値に snap step を適用する (四捨五入で量子化)。
+     *
+     * @param value 量子化する値。
+     * @param step スナップ単位 (0 以下なら value をそのまま返す)。
+     * @return 量子化後の値。
+     */
     static f32 ApplySnap(f32 value, f32 step) noexcept;
+
+    /**
+     * FVec3 の各成分に独立して snap step を適用する。
+     *
+     * @param v 量子化するベクトル。
+     * @param step スナップ単位 (0 以下なら v をそのまま返す)。
+     * @return 各成分を量子化したベクトル。
+     */
     static acs::FVec3 ApplySnap(acs::FVec3 v, f32 step) noexcept;
 
-    // drag 終了時 (lmb_up 検出時) に呼ぶ — 累積 delta を ManipulateCallback に渡す。
+    /**
+     * drag 終了時に ManipulateCallback へ delta を通知する。
+     *
+     * @details callback 未登録なら no-op。代表 delta は Zero で渡し、editor 側で drag 確定だけ判定する想定。
+     */
     void FireDragEnd() noexcept;
 
-    // ----- 状態 -------------------------------------------------------------
-
+    /** 現フレームの操作状態 (mode / space / hot_axis / dragging / drag_start_world)。 */
     GizmoState _state{};
 
-    // drag 開始時に記録される「直近の Manipulate 入力 transform 値」。
-    // 一連の drag で累積 delta を計算するために使う (drag_start_world とは別)。
-    // drag_start_world はワールド空間のヒット点、これは元の transform value。
+    /** drag 開始時に記録した元の位置 (累積 delta の基点)。 */
     acs::FVec3 m_DragOriginPos{};
+
+    /** drag 開始時に記録した元の euler 回転 (累積 delta の基点)。 */
     acs::FVec3 m_DragOriginRot{};
+
+    /** drag 開始時に記録した元のスケール (累積 delta の基点)。 */
     acs::FVec3 m_DragOriginScl{};
-    // 初回 Manipulate で m_DragOrigin* をセット済みかフラグ (= 0 判定の罠回避)。
+
+    /** 初回 Manipulate で m_DragOrigin* をセット済みかフラグ (0 値判定の罠回避)。 */
     bool      m_bDragOriginSet = false;
 
-    // 直近マウス ray (ProcessInput で更新、Manipulate で参照)
+    /** 直近マウス ray の始点 (ProcessInput で更新、Manipulate で参照)。 */
     acs::FVec3 m_LastRayOrigin{};
+
+    /** 直近マウス ray の方向 (ProcessInput で更新、Manipulate で参照)。 */
     acs::FVec3 m_LastRayDirection{0.0f, 0.0f, 1.0f};
 
-    // snap step (各モードごと、0 で disable)
+    /** 移動 snap step (world units、0 で無効)。 */
     f32 m_SnapTranslate = 0.0f;
-    f32 m_SnapRotate    = 0.0f;  // radians (SetSnapRotate(deg) で換算して格納)
+
+    /** 回転 snap step (radians、SetSnapRotate(deg) で換算して格納、0 で無効)。 */
+    f32 m_SnapRotate    = 0.0f;
+
+    /** 拡縮 snap step (倍率刻み、0 で無効)。 */
     f32 m_SnapScale     = 0.0f;
 
-    // ハンドル形状
+    /** 軸ハンドルの世界長。 */
     f32 m_AxisLength        = 1.0f;
+
+    /** 軸ハンドルの hit 円柱半径。 */
     f32 m_HandleRadius      = 0.05f;
+
+    /** 平面ハンドルの hit 矩形の半サイズ。 */
     f32 m_PlaneHandleSize  = 0.2f;
 
-    // drag 終了通知 callback
+    /** drag 終了通知 callback (未登録なら nullptr)。 */
     ManipulateCallback m_Cb      = nullptr;
+
+    /** callback に渡すユーザポインタ。 */
     void*              m_CbUser = nullptr;
 };
 

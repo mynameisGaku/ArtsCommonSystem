@@ -3,7 +3,7 @@
 // ACS FAssetPack — FAcpakCrypto 実装 (Windows CNG / BCrypt)
 // -----------------------------------------------------------------------------
 // Win32 BCrypt API ラッパ。各 API 呼び出しでアルゴリズムプロバイダを開いて
-// 閉じるシンプルな実装。Phase 2 ではキャッシュ無し (起動時 + ストリーミングが
+// 閉じるシンプルな実装。キャッシュ無し (起動時 + ストリーミングが
 // 主用途で、ハンドル生成コストは I/O に比べて誤差)。
 //
 // 暗号化フロー:
@@ -20,8 +20,7 @@
 // 注意:
 //   ・BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO 構造体は ZeroMemory + cbSize 必須。
 //   ・GCM の cbAuthData == 0 で AAD なし。AAD (path_hash 等) を渡すと
-//     FAssetPack.md §4.3 の cut-and-paste 攻撃対策になるが、Phase 2 では
-//     シンプル化のため AAD なし版を提供する。Phase 3 で追加する余地あり。
+//     cut-and-paste 攻撃対策になるが、シンプル化のため AAD なし版を提供する。
 //   ・BCryptEncrypt の cbInput == 0 のケースは GCM の GMAC 動作 (タグ計算のみ)。
 //     これは Win10 以降で正しく動作する。Win7 は ACS のターゲット外。
 // =============================================================================
@@ -42,13 +41,15 @@
 
 namespace acs::assetpack {
 
-// ============================================================================
-// 名前無し名前空間: BCrypt ハンドルの RAII + ヘルパ
-// ============================================================================
 namespace {
 
-// AES-GCM 用に algorithm provider + chain mode 設定を一括で行うヘルパ。
-// 成功時 *hAlg にハンドル、失敗時は内部で閉じて nullptr を返す。
+/**
+ * AES-GCM 用に algorithm provider を開き chain mode を設定する。
+ *
+ * @details 成功時 *hAlg にハンドルを返し、失敗時は内部で閉じて nullptr にする。
+ * @param hAlg provider ハンドルの出力先。
+ * @return CNG の NTSTATUS (STATUS_SUCCESS で成功)。
+ */
 NTSTATUS OpenAesGcmProvider(BCRYPT_ALG_HANDLE* hAlg) noexcept {
     *hAlg = nullptr;
     NTSTATUS s = ::BCryptOpenAlgorithmProvider(hAlg,
@@ -68,9 +69,16 @@ NTSTATUS OpenAesGcmProvider(BCRYPT_ALG_HANDLE* hAlg) noexcept {
     return s;
 }
 
-// algorithm provider から AES-256 symmetric key ハンドルを作る。
-// 鍵バイトは内部で CNG にコピーされるため、戻り直後に呼び出し側で SecureZero
-// しても問題ない (本実装では呼び出し側が FAcpakKey をスタック保持しているだけ)。
+/**
+ * algorithm provider から AES-256 symmetric key ハンドルを作る。
+ *
+ * @details 鍵バイトは内部で CNG にコピーされるため、戻り直後に呼び出し側で
+ * SecureZero しても問題ない。
+ * @param hAlg AES-GCM provider ハンドル。
+ * @param key 256bit の AES 鍵。
+ * @param hKey 生成した key ハンドルの出力先。
+ * @return CNG の NTSTATUS (STATUS_SUCCESS で成功)。
+ */
 NTSTATUS CreateAesKey(BCRYPT_ALG_HANDLE  hAlg,
                       const FAcpakKey&    key,
                       BCRYPT_KEY_HANDLE* hKey) noexcept {
@@ -85,9 +93,6 @@ NTSTATUS CreateAesKey(BCRYPT_ALG_HANDLE  hAlg,
 
 } // namespace
 
-// ============================================================================
-// FAcpakCrypto::DeriveKey — PBKDF2-HMAC-SHA256 で 32 バイト鍵を導出
-// ============================================================================
 TResult<FAcpakKey> FAcpakCrypto::DeriveKey(const u8* password,
                                         u32       password_len,
                                         const u8* salt,
@@ -133,9 +138,6 @@ TResult<FAcpakKey> FAcpakCrypto::DeriveKey(const u8* password,
     return TResult<FAcpakKey>(OkInit, out);
 }
 
-// ============================================================================
-// FAcpakCrypto::Encrypt — AES-256-GCM 暗号化 + tag 生成
-// ============================================================================
 TResult<void> FAcpakCrypto::Encrypt(const FAcpakKey& key,
                                   const u8        nonce[kAcpakNonceSize],
                                   const u8*       plaintext,
@@ -151,8 +153,8 @@ TResult<void> FAcpakCrypto::Encrypt(const FAcpakKey& key,
         return ACS_ERR(Asset, kAcpakSubCryptoOp,
                        "FAcpakCrypto::Encrypt: nonce/tag pointer is null");
     }
-    // BCryptEncrypt の cbInput は ULONG (32bit)。Phase 2 では single-chunk と
-    // し、>4GiB の単一エントリは未対応 (実用上 .acpak のエントリは数 MB 程度)。
+    // BCryptEncrypt の cbInput は ULONG (32bit)。single-chunk とし、
+    // >4GiB の単一エントリは未対応 (実用上 .acpak のエントリは数 MB 程度)。
     if (size > 0xFFFFFFFFu) {
         return ACS_ERR(Asset, kAcpakSubCryptoOp,
                        "FAcpakCrypto::Encrypt: size > 4GiB not supported");
@@ -182,7 +184,7 @@ TResult<void> FAcpakCrypto::Encrypt(const FAcpakKey& key,
     info.cbNonce      = static_cast<ULONG>(kAcpakNonceSize);
     info.pbTag        = tag_out;
     info.cbTag        = static_cast<ULONG>(kAcpakTagSize);
-    // AAD なし (Phase 2)、chain block 状態も不要 (single-chunk)。
+    // AAD なし、chain block 状態も不要 (single-chunk)。
     info.pbAuthData   = nullptr;
     info.cbAuthData   = 0;
     info.pbMacContext = nullptr;
@@ -219,9 +221,6 @@ TResult<void> FAcpakCrypto::Encrypt(const FAcpakKey& key,
     return Ok();
 }
 
-// ============================================================================
-// FAcpakCrypto::Decrypt — AES-256-GCM 復号 + tag 検証
-// ============================================================================
 TResult<void> FAcpakCrypto::Decrypt(const FAcpakKey& key,
                                   const u8        nonce[kAcpakNonceSize],
                                   const u8        tag[kAcpakTagSize],
@@ -307,14 +306,9 @@ TResult<void> FAcpakCrypto::Decrypt(const FAcpakKey& key,
     return Ok();
 }
 
-// ============================================================================
-// FAcpakCrypto::GenerateRandomNonce — CSPRNG 12 バイト
-// ============================================================================
 // セキュリティ上の不変条件: AES-GCM では (key, nonce) の組が一度でも再利用される
 // と認証鍵 (H) が漏洩し、任意改竄が可能になる致命的破綻を起こす。したがって
 // CSPRNG が失敗した場合に「ゼロ / 予測可能な nonce」で処理を続行してはならない。
-// 旧実装は失敗時に MemSet(0) して void で黙って返していたため、呼び出し側が
-// 失敗を検知できず全エントリ共通のゼロ nonce で暗号化される危険があった。
 // ここでは TResult<void> を返し、RNG 失敗を必ずエラーとして伝播させる。
 TResult<void> FAcpakCrypto::GenerateRandomNonce(u8 nonce_out[kAcpakNonceSize]) noexcept {
     if (nonce_out == nullptr) {
@@ -322,7 +316,7 @@ TResult<void> FAcpakCrypto::GenerateRandomNonce(u8 nonce_out[kAcpakNonceSize]) n
                        "FAcpakCrypto::GenerateRandomNonce: nonce_out pointer is null");
     }
 
-    NTSTATUS s = ::BCryptGenRandom(nullptr,
+    const NTSTATUS s = ::BCryptGenRandom(nullptr,
                                    nonce_out,
                                    static_cast<ULONG>(kAcpakNonceSize),
                                    BCRYPT_USE_SYSTEM_PREFERRED_RNG);

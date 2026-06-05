@@ -12,11 +12,21 @@
 
 namespace acs {
 
+/** 保持している Diligent バッファを解放する。 */
 DiligentBuffer::~DiligentBuffer() noexcept {
     if (m_Buffer) { m_Buffer->Release(); m_Buffer = nullptr; }
 }
 
 namespace {
+/**
+ * EBufferUsage を Diligent の BIND_FLAGS へ変換する。
+ *
+ * @details
+ * Storage は SRV/UAV 両方で使えるよう BIND_UNORDERED_ACCESS と BIND_SHADER_RESOURCE を
+ * 立てる。Staging には bind flag を付けない。
+ * @param u 変換元のバッファ用途。
+ * @return 対応する Diligent::BIND_FLAGS (未対応なら BIND_NONE)。
+ */
 Diligent::BIND_FLAGS BindFromUsage(EBufferUsage u) noexcept {
     switch (u) {
         case EBufferUsage::Vertex:   return Diligent::BIND_VERTEX_BUFFER;
@@ -35,6 +45,7 @@ Diligent::BIND_FLAGS BindFromUsage(EBufferUsage u) noexcept {
 }
 } // namespace
 
+/** desc に従って GPU バッファを生成する。 */
 TResult<void> DiligentBuffer::Init(DiligentDevice& device, const FBufferDesc& desc) noexcept {
     m_Device  = &device;
     m_Size    = desc.size;
@@ -88,6 +99,7 @@ TResult<void> DiligentBuffer::Init(DiligentDevice& device, const FBufferDesc& de
     return Ok();
 }
 
+/** バッファの内容を更新する (Staging は Map、それ以外は UpdateBuffer)。 */
 void DiligentBuffer::Update(const void* data, usize size, usize offset) noexcept {
     if (!m_Buffer || !m_Device || !data || size == 0) return;
     auto* ctx = m_Device->Context();

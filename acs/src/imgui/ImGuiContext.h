@@ -26,34 +26,69 @@ namespace acs {
 class FWindow;
 class FRenderer;
 
-// ImGui ラッパ（Win32 + DX12 backend を組み合わせる）
+/**
+ * ImGui を ACS の FWindow + FRenderer に統合する薄いラッパ。
+ *
+ * @details
+ * Win32 backend (imgui_impl_win32) と DX12 backend (imgui_impl_dx12) を組み合わせ、
+ * ImGui コンテキスト・SRV ディスクリプタヒープ・各 backend のライフサイクルを 1 つに
+ * まとめて管理する。標準フローは Init → 毎フレーム NewFrame/Render → Shutdown。
+ */
 class ImGuiCtx {
 public:
+    /** 空状態で構築する (実体は Init で確保)。 */
     ImGuiCtx() noexcept = default;
+
+    /** Shutdown を呼んで backend とコンテキストを破棄する。 */
     ~ImGuiCtx() noexcept;
 
+    /** コピー禁止 (ImGui コンテキスト・GPU リソースを単独所有するため)。 */
     ImGuiCtx(const ImGuiCtx&) = delete;
+
+    /** コピー代入も禁止。 */
     ImGuiCtx& operator=(const ImGuiCtx&) = delete;
 
-    // 初期化（FWindow と FRenderer に紐付け）
+    /**
+     * ImGui コンテキストと Win32/DX12 backend を初期化する。
+     *
+     * @details
+     * ImGui コンテキストを作ってキーボードナビゲーションを有効化し、Win32 backend に
+     * HWND を渡し、DX12 backend 用の SHADER_VISIBLE な SRV ヒープ (64 ディスクリプタ) を
+     * 確保して紐付ける。FRenderer が未初期化 (Device/Swapchain が null) の場合は失敗する。
+     * @param window 紐付ける対象ウィンドウ (HWND を取得する)。
+     * @param renderer DX12 デバイス・スワップチェインの取得元レンダラ。
+     * @return 成功なら空の TResult、初期化失敗ならエラー。
+     */
     TResult<void> Init(FWindow& window, FRenderer& renderer) noexcept;
 
-    // 解放
+    /** DX12/Win32 backend と ImGui コンテキスト・SRV ヒープを解放する (多重呼び出し安全)。 */
     void Shutdown() noexcept;
 
-    // フレーム開始（毎フレーム最初に呼ぶ。BeginFrame の後）
+    /** 新しい ImGui フレームを開始する (毎フレーム最初、BeginFrame の後に呼ぶ)。 */
     void NewFrame() noexcept;
 
-    // 描画（毎フレーム終わりに呼ぶ。EndFrame の前）
+    /** 構築済み ImGui の描画コマンドを現在のコマンドリストへ発行する (毎フレーム終盤、EndFrame の前に呼ぶ)。 */
     void Render() noexcept;
 
-    // ウィンドウイベントを ImGui に転送（FApplication::OnEvent で呼ぶ）
+    /**
+     * ウィンドウイベントを ImGui の IO に転送する (FApplication::OnEvent から呼ぶ)。
+     *
+     * @details マウスのボタン・移動・スクロールと文字入力を ImGuiIO へ反映する (キー入力は未対応)。
+     * @param e 転送する入力・ウィンドウイベント。
+     */
     void OnEvent(const Event& e) noexcept;
 
 private:
+    /** 紐付け対象のウィンドウ (Init で受け取る)。 */
     FWindow*    m_Window    = nullptr;
+
+    /** DX12 デバイス・スワップチェインの取得元レンダラ (Init で受け取る)。 */
     FRenderer*  m_Renderer  = nullptr;
-    void*      m_SrvHeap  = nullptr;  // ID3D12DescriptorHeap*
+
+    /** DX12 backend 用の SHADER_VISIBLE な SRV ヒープ (ID3D12DescriptorHeap*)。 */
+    void*      m_SrvHeap  = nullptr;
+
+    /** 初期化済みフラグ (NewFrame/Render/Shutdown のガードに使う)。 */
     bool       m_Initialized = false;
 };
 

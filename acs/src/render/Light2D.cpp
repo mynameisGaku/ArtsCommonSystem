@@ -8,9 +8,13 @@ namespace acs {
 
 namespace {
 
-// scene × (ambient + Σ light·影) を合成する fullscreen シェーダ。
-// occluder mask を linear sample しつつ、面光源近似で複数レイを撃って penumbra を
-// 出す。座標は全てピクセル空間 (occluder/scene と同じ)。
+/**
+ * scene × (ambient + Σ light·影) を合成する fullscreen シェーダの HLSL ソース。
+ *
+ * @details
+ * occluder mask を linear sample しつつ、面光源近似で複数レイを撃って penumbra を
+ * 出す。座標は全てピクセル空間 (occluder/scene と同じ)。
+ */
 const char* kLight2DHLSL = R"(
 cbuffer Light2DCB : register(b0) {
     float4 ambient;     // rgb = ambient, w = light count
@@ -95,13 +99,27 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
+/** Light2DCB 定数バッファの CPU 側レイアウト (HLSL の cbuffer と一致)。 */
 struct Light2DCBLayout {
+    /** rgb = ambient、w = light count。 */
     FVec4 ambient;
+
+    /** x = 1/w、y = 1/h、z = march steps、w = ray count。 */
     FVec4 screen;
+
+    /** 各光源の xy = pos(px)、z = radius(px)、w = intensity。 */
     FVec4 lpos[FLighting2D::kMaxLights];
+
+    /** 各光源の rgb = color、w = softness(0..1)。 */
     FVec4 lcol[FLighting2D::kMaxLights];
 };
 
+/**
+ * 定数バッファサイズを 256 バイト境界に切り上げて返す。
+ *
+ * @tparam T サイズを求める定数バッファのレイアウト型。
+ * @return 256 の倍数に切り上げた sizeof(T)。
+ */
 template<typename T>
 constexpr usize CBSize() noexcept {
     return (sizeof(T) + 255u) & ~static_cast<usize>(255u);
@@ -109,10 +127,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-// ============================================================================
-// FLighting2D
-// ============================================================================
-
+/** GPU リソース (scene/occluder RT・パイプライン・定数バッファ) を確保する。 */
 TResult<void> FLighting2D::Init(IRhiDevice& device, EFormat color_format,
                                 u32 width, u32 height) noexcept {
     m_Device      = &device;
@@ -138,6 +153,7 @@ TResult<void> FLighting2D::Init(IRhiDevice& device, EFormat color_format,
     return Ok();
 }
 
+/** scene RT と occluder RT を生成する (既存があれば作り直す)。 */
 TResult<void> FLighting2D::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
     m_SceneRt.Reset();
     m_OccluderRt.Reset();
@@ -162,6 +178,7 @@ TResult<void> FLighting2D::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexc
     return Ok();
 }
 
+/** 合成シェーダ (VS/PS) とパイプラインを生成する。 */
 TResult<void> FLighting2D::CreatePipeline(IRhiDevice& device) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage       = EShaderStage::Vertex;
@@ -205,6 +222,7 @@ TResult<void> FLighting2D::CreatePipeline(IRhiDevice& device) noexcept {
     return Ok();
 }
 
+/** 確保した全 GPU リソースを解放し、状態をリセットする。 */
 void FLighting2D::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_Cb.Reset();
@@ -216,6 +234,7 @@ void FLighting2D::Shutdown() noexcept {
     m_LightCount  = 0;
 }
 
+/** 解像度変更時に内部 RT を作り直す (無効/同サイズは no-op)。 */
 TResult<void> FLighting2D::Resize(u32 width, u32 height) noexcept {
     if (!m_Device) return ACS_ERR(Render, 360, "FLighting2D::Resize before Init");
     if (width == 0 || height == 0) return Ok();                 // 無効サイズは無視
@@ -225,36 +244,43 @@ TResult<void> FLighting2D::Resize(u32 width, u32 height) noexcept {
     return CreateTargets(*m_Device, width, height);
 }
 
+/** 点光源を 1 個追加する (上限到達なら false)。 */
 bool FLighting2D::AddLight(const FLight2D& light) noexcept {
     if (m_LightCount >= kMaxLights) return false;
     m_Lights[m_LightCount++] = light;
     return true;
 }
 
+/** 影の品質を設定する (march_steps を 2..64、ray_count を 1..16 に clamp)。 */
 void FLighting2D::SetShadowQuality(u32 march_steps, u32 ray_count) noexcept {
     m_MarchSteps = (march_steps < 2u) ? 2u : (march_steps > 64u ? 64u : march_steps);
     m_RayCount   = (ray_count   < 1u) ? 1u : (ray_count   > 16u ? 16u : ray_count);
 }
 
+/** scene RT を bind + clear して世界の albedo 描画 bracket を開始する。 */
 void FLighting2D::BeginScene(IRhiCommandList& cl, FVec4 clear) noexcept {
     if (!m_SceneRt) return;
     cl.BeginRenderToTexture(*m_SceneRt, ClearColor{clear.x, clear.y, clear.z, clear.w},
                             nullptr, 1.0f);
 }
 
+/** scene 描画 bracket を終了する。 */
 void FLighting2D::EndScene(IRhiCommandList& cl) noexcept {
     if (m_SceneRt) cl.EndRenderToTexture(*m_SceneRt);
 }
 
+/** occluder RT を黒 clear して影スプライト描画 bracket を開始する。 */
 void FLighting2D::BeginOccluders(IRhiCommandList& cl) noexcept {
     if (!m_OccluderRt) return;
     cl.BeginRenderToTexture(*m_OccluderRt, ClearColor{0, 0, 0, 1}, nullptr, 1.0f);
 }
 
+/** occluder 描画 bracket を終了する。 */
 void FLighting2D::EndOccluders(IRhiCommandList& cl) noexcept {
     if (m_OccluderRt) cl.EndRenderToTexture(*m_OccluderRt);
 }
 
+/** 定数バッファを更新し、現在 bind 中のターゲットへ scene × light を合成描画する。 */
 void FLighting2D::Composite(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexcept {
     if (!m_Pipeline || !m_Cb || !m_SceneRt || !m_OccluderRt) return;
 
@@ -279,10 +305,7 @@ void FLighting2D::Composite(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noe
     cl.Draw(3);
 }
 
-// ============================================================================
-// FBlobShadow
-// ============================================================================
-
+/** 柔らかい放射状グラデーションの影テクスチャを CPU で生成して GPU へ上げる。 */
 TResult<void> FBlobShadow::Init(IRhiDevice& device, u32 resolution) noexcept {
     u32 res = resolution;
     if (res < 16u) res = 16u;
@@ -319,10 +342,12 @@ TResult<void> FBlobShadow::Init(IRhiDevice& device, u32 resolution) noexcept {
     return Ok();
 }
 
+/** 影テクスチャを解放する。 */
 void FBlobShadow::Shutdown() noexcept {
     m_Tex.Reset();
 }
 
+/** (cx,cy) 中心に w×h の影テクスチャを SpriteBatch で描く。 */
 void FBlobShadow::Draw(FSpriteBatch& sb, f32 cx, f32 cy, f32 w, f32 h,
                        f32 alpha, FVec3 color) noexcept {
     if (!m_Tex) return;

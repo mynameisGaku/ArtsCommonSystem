@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — FInspectorPanel (Phase 20 editor 第二弾)
+// GameFramework Pillar K — FInspectorPanel
 //
 // `FInspectorSeam` 経由で公開された `IInspectableProvider` の `InspectableObject`
 // を ImGui ベースの field widget として描画 / 編集する UI パネル。シーンビュー
-// (Phase 20-1 SceneHierarchyPanel) で選択された Node に対して、紐づく provider
+// (SceneHierarchyPanel) で選択された Node に対して、紐づく provider
 // の field 配列を表示する。
 //
 // 役割分担:
@@ -58,105 +58,156 @@
 #include "gameframework/NodeId.h"
 
 namespace acs::game {
-class FInspectorSeam;       // 前方宣言は本パネル内では不要 (header include 済み) だが
-                           // 仕様一貫性のため宣言を残す
+/** field provider を公開する seam (本ヘッダは include 済みだが仕様一貫性のため宣言を残す)。 */
+class FInspectorSeam;
 }
 
 #include "gameframework/tools/editor_core/EditorPanel.h"
 
 namespace acs::game::inspector {
 
-// 別エージェントが作成中の FSelectionService。本パネルは forward-decl で受け、
-// .cpp 側で実装ヘッダ (FSelectionService.h) を include して扱う。
-// 本パネルが使う最小 API は `FNodeId CurrentSelection() const noexcept` 1 つのみ。
+/**
+ * 現在の選択を共有する selection サービス (別レイヤで実装、forward-decl で受ける)。
+ *
+ * @details 本パネルが使う最小 API は `FNodeId CurrentSelection() const noexcept` のみで、.cpp 側で実装ヘッダを include する。
+ */
 class FSelectionService;
 
-// ---------------------------------------------------------------------------
-// FInspectorPanel — ImGui ベースの field property editor
-// (Phase 24: editor_core::FEditorPanel 継承)
-// ---------------------------------------------------------------------------
+/**
+ * 選択ノードの InspectableObject を ImGui field widget として描画・編集するパネル。
+ *
+ * @details
+ * `FInspectorSeam` 経由で公開された `IInspectableProvider` を解決し、その field 配列を
+ * EFieldKind に応じた ImGui widget (Checkbox / InputInt / SliderFloat / DragFloatN /
+ * ColorEdit / InputText / Combo 等) で描画する。描画と編集 widget 構築のみを担当し、
+ * 値の永続化や undo は FieldChangeCallback 経由で外部へ委譲する。選択 FNodeId は注入
+ * された FSelectionService から取得する。editor_core::FEditorPanel を継承し、全 API は
+ * noexcept・STL 不使用・ImGui 依存は .cpp に閉じる。
+ */
 class FInspectorPanel : public ::acs::game::editor_core::FEditorPanel {
 public:
-    // field 変更通知 callback。`user` は SetOnFieldChangeCallback の第二引数で
-    // 渡したポインタがそのまま戻る (closure 代替)。`field_name` は Provider が
-    // 所有するリテラル文字列 (InspectableField::name)。
+    /**
+     * field 変更通知の関数ポインタ型。
+     *
+     * @param user SetOnFieldChangeCallback の第二引数で渡したユーザポインタ (closure 代替)。
+     * @param target 変更が起きたノードの FNodeId。
+     * @param field_name 変更された field 名 (Provider 所有のリテラル文字列)。
+     * @param kind 変更された field の EFieldKind。
+     */
     using FieldChangeCallback = void (*)(void* user,
                                          FNodeId target,
                                          const char* field_name,
                                          EFieldKind kind) noexcept;
 
+    /** 空状態で構築する (seam / selection なし)。 */
     FInspectorPanel() noexcept = default;
+
+    /** 破棄する (外部所有の seam / FSelectionService / callback は解放しない)。 */
     ~FInspectorPanel() noexcept = default;
 
-    // 非コピー・非ムーブ: 内部 dirty / selection / callback 状態の所有を曖昧にしない。
+    /** コピー禁止 (内部 dirty / selection / callback 状態の所有を曖昧にしないため)。 */
     FInspectorPanel(const FInspectorPanel&)            = delete;
+
+    /** コピー代入も禁止。 */
     FInspectorPanel& operator=(const FInspectorPanel&) = delete;
+
+    /** ムーブ禁止 (同上の所有規約)。 */
     FInspectorPanel(FInspectorPanel&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FInspectorPanel& operator=(FInspectorPanel&&)      = delete;
 
-    // 初期化: 内部状態を初期値に戻す。多重 Init 可。
+    /** 内部状態 (selection / dirty) を初期値に戻して初期化する (多重 Init 可)。 */
     void Init() noexcept;
 
-    // 後片付け: dirty / callback / selection を解除。多重 Shutdown 可。
+    /** dirty / callback / selection を解除して後始末する (多重 Shutdown 可)。 */
     void Shutdown() noexcept;
 
-    // メイン ImGui window 描画。`Begin("Inspector")` で 1 つの window を出す。
-    //
-    // 選択 FNodeId の解決順:
-    //   1. SetSelectionService() で FSelectionService が設定済みなら、その
-    //      `Current()` を優先採用。
-    //   2. それが無効 (= !IsValid()) なら、引数 `selected_id` を使う。
-    //   3. どちらも無効なら "(Nothing selected)" を表示して return。
-    //
-    // Provider 解決は `seam.GetProvider(node_id)` を呼ぶ (FNodeId 受けの API を
-    // 想定)。nullptr が返ったら "(No provider)" を表示。
-    // Phase 24: FEditorPanel 継承で no-param DrawUI 化。FInspectorSeam は
-    // SetInspectorSeam で事前 set、selection は FSelectionService 経由で取得。
+    /**
+     * provider lookup に使う FInspectorSeam を設定する。
+     *
+     * @param seam field provider を引く seam (nullptr で未設定)。
+     */
     void SetInspectorSeam(class FInspectorSeam* seam) noexcept { m_InspectorSeam = seam; }
+
+    /**
+     * 設定済みの FInspectorSeam を返す。
+     *
+     * @return seam ポインタ (未設定なら nullptr)。
+     */
     class FInspectorSeam* InspectorSeamPtr() const noexcept { return m_InspectorSeam; }
 
+    /**
+     * このパネルのウィンドウタイトルを返す。
+     *
+     * @return "Inspector"。
+     */
     const char* Title() const noexcept override { return "Inspector"; }
+
+    /**
+     * メイン ImGui window を描画する。
+     *
+     * @details
+     * `Begin("Inspector")` で 1 window を出す。選択 FNodeId は FSelectionService の
+     * CurrentSelection() を採用し、無効なら "(Nothing selected)" を表示して return する。
+     * Provider は `seam.GetProviderForNode(node_id)` で解決し、nullptr なら案内を表示する。
+     * 各 Provider オブジェクトを type/instance ヘッダ + field 配列で描画し、編集が起きたら
+     * dirty を立て Provider 通知 + FieldChangeCallback を発火する。
+     */
     void DrawUI() noexcept override;
 
-    // FSelectionService を登録。nullptr で解除。FSelectionService の保持期間は
-    // 呼び出し側責務 (non-owning)。
+    /**
+     * FSelectionService を登録する。
+     *
+     * @details 保持期間は呼び出し側責務 (non-owning)。
+     * @param svc 選択を取得する selection サービス (nullptr で解除)。
+     */
     void SetSelectionService(FSelectionService* svc) noexcept;
 
-    // 直近の DrawUI 内で何らかの field が編集されたか。
+    /**
+     * 直近の DrawUI で何らかの field が編集されたかを返す。
+     *
+     * @return 編集があれば true。
+     */
     bool IsAnyFieldDirty() const noexcept { return m_Dirty; }
 
-    // dirty フラグをクリア。外部の永続化 / undo 処理完了後に呼ぶ想定。
+    /** dirty フラグをクリアする (外部の永続化 / undo 完了後に呼ぶ想定)。 */
     void ClearDirtyFlag() noexcept { m_Dirty = false; }
 
-    // field 変更通知 callback を登録。nullptr で解除。
+    /**
+     * field 変更通知 callback を登録する。
+     *
+     * @param cb 呼ぶ callback (nullptr で解除)。
+     * @param user callback 第一引数として戻すユーザポインタ。
+     */
     void SetOnFieldChangeCallback(FieldChangeCallback cb, void* user) noexcept;
 
-    // ---- 公開定数 -------------------------------------------------------
-    // F32 SliderFloat の既定 min/max。InspectableField に min/max metadata が
-    // 追加されるまでの暫定値。
+    /** F32 SliderFloat の既定 min (InspectableField に min/max metadata が入るまでの暫定値)。 */
     static constexpr f32 kDefaultSliderMin = -1000.0f;
+
+    /** F32 SliderFloat の既定 max (同上の暫定値)。 */
     static constexpr f32 kDefaultSliderMax =  1000.0f;
 
-    // FString 編集用スタックバッファ長 (= ImGui::InputText 制限)。
+    /** FString 編集用スタックバッファ長 (ImGui::InputText の上限)。 */
     static constexpr u32 kStringBufferSize = 256u;
 
 private:
-    // 現在の選択 FNodeId キャッシュ。FSelectionService から取得した値、または
-    // DrawUI の引数で渡された値を反映する (DrawUI 末尾で更新)。デバッグ表示用。
+    /** 現在の選択 FNodeId キャッシュ (DrawUI で更新、デバッグ表示用)。 */
     FNodeId               m_CurrentSelection {};
 
-    // FSelectionService (non-owning)。nullptr ならば DrawUI 引数を採用。
+    /** 選択取得用の FSelectionService (non-owning、未注入なら nullptr)。 */
     FSelectionService*    m_SelectionService = nullptr;
 
-    // Phase 24: 事前 set される FInspectorSeam (DrawUI で provider lookup に使う)
+    /** provider lookup に使う FInspectorSeam (SetInspectorSeam で設定)。 */
     class FInspectorSeam* m_InspectorSeam    = nullptr;
 
-    // 直近フレームで field 変更が起きたか。外部が IsAnyFieldDirty() で読み、
-    // ClearDirtyFlag() でクリアする。
+    /** 直近フレームで field 変更が起きたかのフラグ (IsAnyFieldDirty / ClearDirtyFlag で読み書き)。 */
     bool                 m_Dirty             = false;
 
-    // field 変更通知 callback。
+    /** field 変更通知 callback (未登録なら nullptr)。 */
     FieldChangeCallback  m_OnChangeCb      = nullptr;
+
+    /** callback に渡すユーザポインタ。 */
     void*                m_OnChangeUser    = nullptr;
 };
 

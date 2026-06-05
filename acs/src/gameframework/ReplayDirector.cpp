@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FReplayDirector 実装 (Phase R-3 スケルトン)
+// GameFramework Pillar R — FReplayDirector 実装
 //
-// 現フェーズ:
-//   ・Init / StartRecording / StopRecording / StartPlayback /
-//     PausePlayback / ResumePlayback / StopPlayback /
-//     SetPlaybackSpeed / SeekToTick / Tick / ProgressNormalized は本実装。
-//   ・SaveReplay / LoadReplay は ACS_ERR(IO, kSub_NotImplemented) を返す stub。
-//     Phase R-4 で FInputRecorder / FLockstep の SaveToBuffer / LoadFromBuffer と
-//     metadata sidecar (.meta) の bit-precise layout を接続予定。
+// Init / StartRecording / StopRecording / StartPlayback /
+// PausePlayback / ResumePlayback / StopPlayback /
+// SetPlaybackSpeed / SeekToTick / Tick / ProgressNormalized / SaveReplay /
+// LoadReplay をすべて本実装する。SaveReplay / LoadReplay は FInputRecorder /
+// FLockstep の SaveToBuffer / LoadFromBuffer を束ねた container を扱う。
 //
 // 設計メモ:
 //   ・Mode 遷移は明示的: Idle → (StartRecording) → Recording → (StopRecording) → Idle
@@ -56,11 +54,18 @@ namespace acs::game {
 
 namespace {
 
-// 再生速度の clamp 範囲。0.25x / 0.5x / 1x / 2x / 4x / 8x / 16x の範囲外を弾く。
+/** 再生速度の下限 (0.25x)。 */
 constexpr f32 kMinSpeed = 0.25f;
+
+/** 再生速度の上限 (16x)。 */
 constexpr f32 kMaxSpeed = 16.0f;
 
-// SetPlaybackSpeed の範囲 clamp + 異常値ガード。
+/**
+ * 再生速度を有効範囲に clamp し、異常値をガードする。
+ *
+ * @param v clamp 対象の速度。
+ * @return [kMinSpeed, kMaxSpeed] に収めた速度 (0 / 負値 / NaN は 1.0)。
+ */
 inline f32 ClampSpeed(f32 v) noexcept {
     // 0 / 負値 / NaN は誤呼び出しとして 1.0 に強制復帰。Pause は別 API なので
     // ここで 0 を許容すると意味が二重になる。
@@ -72,46 +77,65 @@ inline f32 ClampSpeed(f32 v) noexcept {
     return v;
 }
 
-// =============================================================================
-// container wire format 定数
-// -----------------------------------------------------------------------------
-// layout:
-//   [0]   magic 'ACRP' (4)                            ← 'A' 'C' 'R' 'P'
-//   [4]   version u32 (4)
-//   ---- metadata ----
-//         seed u64 (8)
-//         timestamp u64 (8)
-//         duration_ticks u32 (4)
-//         game_version  : [len u32][bytes]   (null → len 0)
-//         level_id      : [len u32][bytes]
-//         player_name   : [len u32][bytes]
-//         checksum_hex  : [len u32][bytes]
-//   ---- blobs ----
-//         input_blob_size u32 (4) + input_blob bytes
-//         lockstep_blob_size u32 (4) + lockstep_blob bytes
-//   ---- footer ----
-//         crc32 u32 (4)  ← magic を含む「footer 直前まで」全体の CRC32
-// =============================================================================
-constexpr u8  kReplayMagic[4] = { 'A', 'C', 'R', 'P' };  // 'ACRP' (ACS Replay)
+/**
+ * container 先頭の magic バイト列 'ACRP' (ACS Replay)。
+ *
+ * @details
+ * container layout は [magic][version][metadata (seed/timestamp/duration + 4 len-prefixed 文字列)]
+ * [input_blob_size + bytes][lockstep_blob_size + bytes][crc32 footer] の順。
+ */
+constexpr u8  kReplayMagic[4] = { 'A', 'C', 'R', 'P' };
+
+/** container フォーマットのバージョン。 */
 constexpr u32 kReplayVersion  = 1u;
+
+/** footer の CRC32 のバイト数。 */
 constexpr u32 kCrcFooterSize  = 4u;
 
-// metadata 文字列の sanity 上限 (破損 container で巨大 len を読まされる事故予防)。
-constexpr u32 kMaxStringLen   = 64u * 1024u;          // 64 KiB / 1 文字列
-// container 全体の sanity 上限 (FSettings の 16 MiB と整合)。録画は最大でも
-// 数十 MB オーダーだが、ここでは header 読み出し時の defensive 上限として使う。
-constexpr u64 kMaxContainerBytes = 256ull * 1024ull * 1024ull;  // 256 MiB
+/** metadata 文字列の sanity 上限 (破損 container で巨大 len を読まされる事故予防、64 KiB)。 */
+constexpr u32 kMaxStringLen   = 64u * 1024u;
 
-// ---- little-endian 読み書き helper (strict-aliasing 安全) ------------------
-// FSaveArchive.cpp / NetSnapshot.cpp と同流儀。LE 固定 (Win/x64 / ARM64)。
+/** container 全体の sanity 上限 (header 読み出し時の defensive 上限、256 MiB)。 */
+constexpr u64 kMaxContainerBytes = 256ull * 1024ull * 1024ull;
+
+/**
+ * u32 を LE バイト列として書き込む (strict-aliasing 安全)。
+ *
+ * @param dst 書き込み先 (4 バイト)。
+ * @param v 書き込む値。
+ */
 inline void WriteU32LE(u8* dst, u32 v) noexcept { MemCopy(dst, &v, sizeof(u32)); }
+
+/**
+ * u64 を LE バイト列として書き込む (strict-aliasing 安全)。
+ *
+ * @param dst 書き込み先 (8 バイト)。
+ * @param v 書き込む値。
+ */
 inline void WriteU64LE(u8* dst, u64 v) noexcept { MemCopy(dst, &v, sizeof(u64)); }
+
+/**
+ * LE バイト列から u32 を読み出す (strict-aliasing 安全)。
+ *
+ * @param src 読み出し元 (4 バイト)。
+ * @return 復元した u32。
+ */
 inline u32  ReadU32LE (const u8* src) noexcept { u32 v = 0; MemCopy(&v, src, sizeof(u32)); return v; }
+
+/**
+ * LE バイト列から u64 を読み出す (strict-aliasing 安全)。
+ *
+ * @param src 読み出し元 (8 バイト)。
+ * @return 復元した u64。
+ */
 inline u64  ReadU64LE (const u8* src) noexcept { u64 v = 0; MemCopy(&v, src, sizeof(u64)); return v; }
 
-// ---- CRC32 (poly 0xEDB88320, init/xorout 0xFFFFFFFF) ----------------------
-// FSaveArchive / FLockstep / NetSnapshot と同一実装。Meyer's singleton で
-// thread-safe な lookup table 初期化を行う (gameframework 内で重複実装)。
+/**
+ * CRC32 (poly 0xEDB88320) の lookup table を返す。
+ *
+ * @details Meyer's singleton で thread-safe に 256 entry の table を遅延初期化する。
+ * @return 256 要素の CRC32 lookup table。
+ */
 const u32* GetCrc32Table() noexcept {
     static u32 m_Table[256] = {};
     static bool m_Initialized = false;
@@ -128,6 +152,13 @@ const u32* GetCrc32Table() noexcept {
     return m_Table;
 }
 
+/**
+ * バイト列の CRC32 を計算する (init/xorout 0xFFFFFFFF)。
+ *
+ * @param data 計算対象の先頭。
+ * @param size バイト数。
+ * @return CRC32 値。
+ */
 u32 ComputeCrc32(const void* data, u64 size) noexcept {
     const u32* table = GetCrc32Table();
     const u8*  p     = static_cast<const u8*>(data);
@@ -138,10 +169,14 @@ u32 ComputeCrc32(const void* data, u64 size) noexcept {
     return crc ^ 0xFFFFFFFFu;
 }
 
-// ---- Win32 read/write/path helper (FSaveArchive / FSettings と同流儀) ------
-
-// `<path>` の末尾に L".tmp" を付けた一時パスを out_buf に作る。
-// out_cap は out_buf の要素数。成功で true、長さ超過で false。
+/**
+ * `<path>` の末尾に L".tmp" を付けた一時パスを out_buf に作る。
+ *
+ * @param path 元のパス (NUL 終端)。
+ * @param out_buf 出力先バッファ。
+ * @param out_cap out_buf の要素数。
+ * @return 収まれば true、長さ超過で false。
+ */
 bool MakeTmpPath(const wchar_t* path, wchar_t* out_buf, usize out_cap) noexcept {
     usize n = 0;
     while (path[n] != L'\0') ++n;
@@ -154,6 +189,15 @@ bool MakeTmpPath(const wchar_t* path, wchar_t* out_buf, usize out_cap) noexcept 
     return true;
 }
 
+/**
+ * HANDLE に size バイトを chunk ループで全書き込みする。
+ *
+ * @param h 書き込み先のファイルハンドル。
+ * @param src 書き込むデータの先頭。
+ * @param size 書き込むバイト数。
+ * @param err 失敗時に GetLastError を格納する出力。
+ * @return 全書き込み成功で true、失敗で false。
+ */
 bool WriteAll(HANDLE h, const void* src, u64 size, DWORD& err) noexcept {
     err = 0;
     if (size == 0) return true;
@@ -175,6 +219,15 @@ bool WriteAll(HANDLE h, const void* src, u64 size, DWORD& err) noexcept {
     return true;
 }
 
+/**
+ * HANDLE から size バイトを chunk ループで全読み込みする。
+ *
+ * @param h 読み込み元のファイルハンドル。
+ * @param dst 読み込み先バッファの先頭。
+ * @param size 読み込むバイト数。
+ * @param err 失敗時に GetLastError を格納する出力。
+ * @return 全読み込み成功で true、EOF / 失敗で false。
+ */
 bool ReadAll(HANDLE h, void* dst, u64 size, DWORD& err) noexcept {
     err = 0;
     if (size == 0) return true;
@@ -196,8 +249,13 @@ bool ReadAll(HANDLE h, void* dst, u64 size, DWORD& err) noexcept {
     return true;
 }
 
-// ---- TArray<u8> への length-prefixed 文字列 append ------------------------
-// [u32 len][bytes]。s == nullptr は len 0 (= 空文字列) として扱う。
+/**
+ * TArray<u8> に length-prefixed 文字列 ([u32 len][bytes]) を追記する。
+ *
+ * @details s == nullptr は len 0 (= 空文字列) として扱う。
+ * @param out 追記先のバッファ。
+ * @param s 追記する NUL 終端文字列 (null 可)。
+ */
 void AppendLenPrefixedString(TArray<u8>& out, const char* s) noexcept {
     u32 len = 0;
     if (s != nullptr) {
@@ -211,19 +269,37 @@ void AppendLenPrefixedString(TArray<u8>& out, const char* s) noexcept {
     }
 }
 
-// ---- TArray<u8> への raw bytes append (LE u32 size prefix 付き) ------------
+/**
+ * TArray<u8> に u32 を LE で追記する。
+ *
+ * @param out 追記先のバッファ。
+ * @param v 追記する値。
+ */
 void AppendU32(TArray<u8>& out, u32 v) noexcept {
     const usize off = out.Size();
     out.Resize(off + sizeof(u32));
     WriteU32LE(out.Data() + off, v);
 }
 
+/**
+ * TArray<u8> に u64 を LE で追記する。
+ *
+ * @param out 追記先のバッファ。
+ * @param v 追記する値。
+ */
 void AppendU64(TArray<u8>& out, u64 v) noexcept {
     const usize off = out.Size();
     out.Resize(off + sizeof(u64));
     WriteU64LE(out.Data() + off, v);
 }
 
+/**
+ * TArray<u8> に raw バイト列を追記する。
+ *
+ * @param out 追記先のバッファ。
+ * @param src 追記するバイト列の先頭 (size 0 なら no-op)。
+ * @param size 追記するバイト数。
+ */
 void AppendBytes(TArray<u8>& out, const u8* src, u32 size) noexcept {
     if (size == 0) return;
     const usize off = out.Size();
@@ -233,10 +309,7 @@ void AppendBytes(TArray<u8>& out, const u8* src, u32 size) noexcept {
 
 } // namespace
 
-// -----------------------------------------------------------------------------
-// 初期化
-// -----------------------------------------------------------------------------
-
+/** 録画 / 再生 state を初期値に戻す (source 結線と owned 文字列は保持)。 */
 void FReplayDirector::Init() noexcept {
     m_Mode             = EReplayMode::Idle;
     m_Metadata         = ReplayMetadata{};   // 全 field を default に戻す
@@ -249,10 +322,7 @@ void FReplayDirector::Init() noexcept {
     // 強制しない (director の寿命を通じて結線を維持したい)。
 }
 
-// -----------------------------------------------------------------------------
-// 低レベル source の注入 (非所有)
-// -----------------------------------------------------------------------------
-
+/** 非所有の recorder / lockstep ポインタを保持する (寿命は呼び出し側責務)。 */
 void FReplayDirector::SetSources(FInputRecorder* recorder, FLockstep* lockstep) noexcept {
     // 非所有ポインタをそのまま保持する (寿命は呼び出し側責務)。nullptr 許容:
     // 片方だけ注入する / どちらも注入しない構成でも container は valid。
@@ -260,10 +330,7 @@ void FReplayDirector::SetSources(FInputRecorder* recorder, FLockstep* lockstep) 
     m_Lockstep = lockstep;
 }
 
-// -----------------------------------------------------------------------------
-// 録画開始 / 停止
-// -----------------------------------------------------------------------------
-
+/** Idle から Recording へ遷移し metadata をコピーする (それ以外は kSub_BadMode)。 */
 TResult<void> FReplayDirector::StartRecording(const ReplayMetadata& meta) noexcept {
     // Idle 以外からの直接遷移は禁止。Recording 中の再開や Playback 中の
     // 切り替えは意図しない上書きが起こりやすいため、明示的な Stop を強制する。
@@ -280,6 +347,7 @@ TResult<void> FReplayDirector::StartRecording(const ReplayMetadata& meta) noexce
     return TResult<void>{};
 }
 
+/** Recording から Idle へ遷移し duration_ticks を確定する (それ以外は kSub_BadMode)。 */
 TResult<void> FReplayDirector::StopRecording() noexcept {
     // Recording 以外からの呼び出しは誤用扱い。Playback 中に StopRecording を
     // 呼んでしまった場合に黙って Idle にすると metadata が壊れるため明示エラー。
@@ -295,10 +363,7 @@ TResult<void> FReplayDirector::StopRecording() noexcept {
     return TResult<void>{};
 }
 
-// -----------------------------------------------------------------------------
-// 再生開始 / 一時停止 / 停止
-// -----------------------------------------------------------------------------
-
+/** Idle から Playback へ遷移し tick を 0 にリセットする (それ以外は kSub_BadMode)。 */
 TResult<void> FReplayDirector::StartPlayback() noexcept {
     if (m_Mode != EReplayMode::Idle) {
         return ACS_ERR(Generic, kSub_BadMode,
@@ -312,6 +377,7 @@ TResult<void> FReplayDirector::StartPlayback() noexcept {
     return TResult<void>{};
 }
 
+/** Playback から Paused へ遷移する (それ以外は no-op)。 */
 void FReplayDirector::PausePlayback() noexcept {
     // Playback 以外では no-op (Paused 中の再 Pause / Idle 中の誤呼び出しを許容)。
     if (m_Mode == EReplayMode::Playback) {
@@ -319,6 +385,7 @@ void FReplayDirector::PausePlayback() noexcept {
     }
 }
 
+/** Paused から Playback へ遷移する (それ以外は no-op)。 */
 void FReplayDirector::ResumePlayback() noexcept {
     // Paused 以外では no-op。
     if (m_Mode == EReplayMode::Paused) {
@@ -326,6 +393,7 @@ void FReplayDirector::ResumePlayback() noexcept {
     }
 }
 
+/** Playback / Paused から Idle へ遷移する (それ以外は冪等に no-op)。 */
 void FReplayDirector::StopPlayback() noexcept {
     // Playback / Paused → Idle。Recording / Idle 中の呼び出しは黙って no-op
     // (Stop は冪等であってほしい UX)。
@@ -335,16 +403,14 @@ void FReplayDirector::StopPlayback() noexcept {
     }
 }
 
-// -----------------------------------------------------------------------------
-// 再生速度 / Seek / Progress
-// -----------------------------------------------------------------------------
-
+/** 再生倍速を clamp して設定する (accumulator は保持してジャンプを防ぐ)。 */
 void FReplayDirector::SetPlaybackSpeed(f32 speed) noexcept {
     m_PlaybackSpeed = ClampSpeed(speed);
     // accumulator はそのまま。速度変更時に sub-tick の dt を捨てると
     // 再生が微妙にジャンプするのを防ぐ。
 }
 
+/** tick を duration_ticks 上限で clamp して current_tick にジャンプする (mode は不変)。 */
 void FReplayDirector::SeekToTick(u32 tick) noexcept {
     // duration_ticks を上限に clamp。LoadReplay 前 (duration = 0) の seek は
     // 0 に張り付くが、これは UI のスクラブバーで「録画されていない」状態を
@@ -354,6 +420,7 @@ void FReplayDirector::SeekToTick(u32 tick) noexcept {
     m_TickAccumulator = 0.0f;  // sub-tick を持ち越さない
 }
 
+/** current_tick / duration_ticks を [0, 1] で返す (duration 0 なら 0.0)。 */
 f32 FReplayDirector::ProgressNormalized() const noexcept {
     const u32 d = m_Metadata.duration_ticks;
     if (d == 0) {
@@ -365,10 +432,7 @@ f32 FReplayDirector::ProgressNormalized() const noexcept {
     return (p > 1.0f) ? 1.0f : p;
 }
 
-// -----------------------------------------------------------------------------
-// 毎フレーム呼び出し
-// -----------------------------------------------------------------------------
-
+/** 現在 mode に応じて tick を進め、再生終了時は自動的に Idle へ落とす。 */
 void FReplayDirector::Tick(f32 dt) noexcept {
     // 異常な dt (NaN / 負) はゲームループの早期 frame skip / pause からの復帰時に
     // 紛れ込みやすい。0 でガードして無視する。
@@ -411,18 +475,7 @@ void FReplayDirector::Tick(f32 dt) noexcept {
     // Paused / Idle: no-op (Tick が呼ばれても何もしない)。
 }
 
-// -----------------------------------------------------------------------------
-// SaveReplay — container 1 ファイル + atomic write の本実装
-// -----------------------------------------------------------------------------
-// 手順:
-//   1. file_path が null なら kSub_NullPath。
-//   2. m_Recorder / m_Lockstep の SaveToBuffer 出力を取得 (未注入なら size 0)。
-//      SaveToBuffer は buffer 不足を size 報告なしで返すため、上限見積もり
-//      (16 + count*32 + 8) で一括確保してから out_written に trim する。
-//   3. container body を [magic][version][metadata][input_blob][lockstep_blob]
-//      の順で TArray<u8> に組み立て、末尾に body 全体の CRC32 を付ける。
-//   4. `<path>.tmp` に書き、FlushFileBuffers → MoveFileExW で atomic rename。
-// -----------------------------------------------------------------------------
+/** metadata + 2 blob を container body に組み立て、`.tmp` 経由で atomic write する。 */
 TResult<void> FReplayDirector::SaveReplay(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_NullPath,
@@ -537,17 +590,7 @@ TResult<void> FReplayDirector::SaveReplay(const wchar_t* file_path) noexcept {
     return Ok();
 }
 
-// -----------------------------------------------------------------------------
-// LoadReplay — container 検証 + metadata / blob 復元の本実装
-// -----------------------------------------------------------------------------
-// 手順:
-//   1. file_path が null なら kSub_NullPath。
-//   2. ファイルを全読みし、magic / version / CRC32 を検証。
-//   3. metadata を復元 (文字列は director 所有の m_*Owned バッファに複製し、
-//      m_Metadata.* をその Data() に向ける = 寿命を director に束ねる)。
-//   4. 注入済み source があれば input_blob / lockstep_blob を LoadFromBuffer へ。
-//   5. m_Mode = Idle / m_CurrentTick = 0 にして StartPlayback 待ち状態にする。
-// -----------------------------------------------------------------------------
+/** container を全読みして magic/version/CRC を検証し、metadata と source blob を復元する。 */
 TResult<void> FReplayDirector::LoadReplay(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_NullPath,

@@ -135,12 +135,12 @@ HrResult Dx12Device::Init(const DeviceConfig& cfg) noexcept {
     }
 
     // DXGI ファクトリ作成
-    UINT factory_flags = cfg.enable_debug_layer ? DXGI_CREATE_FACTORY_DEBUG : 0;
+    const UINT factory_flags = cfg.enable_debug_layer ? DXGI_CREATE_FACTORY_DEBUG : 0;
     r.hr = ::CreateDXGIFactory2(factory_flags, IID_PPV_ARGS(&m_Factory));
     if (r.IsErr()) return r;
 
     // 適切なアダプタ（GPU）を列挙して選ぶ
-    DXGI_GPU_PREFERENCE pref = cfg.prefer_high_perf
+    const DXGI_GPU_PREFERENCE pref = cfg.prefer_high_perf
         ? DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE
         : DXGI_GPU_PREFERENCE_UNSPECIFIED;
     for (UINT i = 0;; ++i) {
@@ -158,7 +158,7 @@ HrResult Dx12Device::Init(const DeviceConfig& cfg) noexcept {
             m_Adapter = adapter;
             // GPU 名（UTF-16 → UTF-8 簡易変換）
             for (int j = 0; j < 127 && desc.Description[j]; ++j) {
-                wchar_t c = desc.Description[j];
+                const wchar_t c = desc.Description[j];
                 m_AdapterName[j] = (c < 128) ? static_cast<char>(c) : '?';
                 m_AdapterName[j + 1] = 0;
             }
@@ -231,7 +231,7 @@ void Dx12Device::WaitForFenceValue(u64 value) noexcept {
 TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& cfg) noexcept {
     auto d = MakeUnique<Dx12Device>();
     if (!d) return ACS_ERR(Memory, 200, "Dx12Device alloc failed");
-    HrResult r = d->Init(cfg);
+    const HrResult r = d->Init(cfg);
     if (r.IsErr()) {
         return ACS_ERR_OS(Render, 1, "Dx12Device::Init failed", static_cast<u32>(r.hr));
     }

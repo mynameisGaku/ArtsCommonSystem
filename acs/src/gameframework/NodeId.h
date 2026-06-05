@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B Phase 3 — FNodeId (シーングラフ用 generational handle)
+// GameFramework Pillar B — FNodeId (シーングラフ用 generational handle)
 //
 // シーングラフ内の FNode2D / Node を一意に識別する 32bit パック handle。
 // 1 個の `u32` に **24bit index + 8bit generation** を pack する設計で、
@@ -29,7 +29,7 @@
 //   ・**operator==/!= のみ**: ハンドルの順序付け (< 等) は仕様として持たない。
 //     必要なら呼び出し側が `Index()` を取り出して比較すべき。
 //   ・**STL / `<cstdint>` 不使用**: `foundation/Types.h` の `u32 / u8` のみ。
-//     ACS 全体の規約に準拠 (Phase 0 codify 済)。
+//     ACS 全体の規約に準拠。
 //
 // 注意:
 //   ・index が 24bit を超える値で構築された場合、上位 bit は黙って捨てられる
@@ -41,33 +41,69 @@
 
 namespace acs::game {
 
-/// シーングラフ Node を識別する packed 32bit handle (generational)。
+/**
+ * シーングラフ Node を識別する packed 32bit handle (generational)。
+ *
+ * @details
+ * 1 個の u32 に low24=index + high8=generation を pack する POD handle。
+ * packed == 0 をそのまま invalid とし、FNodeId() の既定構築と一致させる。
+ * 全関数 constexpr noexcept のヘッダオンリ型。
+ */
 struct FNodeId {
-    /// 0 = invalid。layout: low24=index, high8=generation。
+    /** pack 済みの 32bit 値 (0 = invalid、layout: low24=index, high8=generation)。 */
     u32 m_Packed = 0;
 
-    /// 既定構築 = invalid handle (packed == 0)。
+    /** 既定構築 = invalid handle (packed == 0)。 */
     constexpr FNodeId() noexcept = default;
 
-    /// index (24bit) と generation (8bit) を pack して構築する。
-    /// index は `& 0x00FFFFFFu` でマスクされるため、24bit 超の値は上位が落ちる。
+    /**
+     * index (24bit) と generation (8bit) を pack して構築する。
+     *
+     * @details index は & 0x00FFFFFFu でマスクされるため、24bit 超の値は上位が落ちる。
+     * @param index pool / SoA 配列の index (0 〜 16,777,215)。
+     * @param gen slot の世代カウンタ (0 〜 255)。
+     */
     constexpr FNodeId(u32 index, u8 gen) noexcept
         : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
-    /// pool / SoA 配列の index を取り出す (0 〜 16,777,215)。
+    /**
+     * pool / SoA 配列の index を取り出す。
+     *
+     * @return packed の low24 bit (0 〜 16,777,215)。
+     */
     constexpr u32  Index() const noexcept { return m_Packed & 0x00FFFFFFu; }
 
-    /// slot の世代カウンタを取り出す (0 〜 255)。stale handle 検出用。
+    /**
+     * slot の世代カウンタを取り出す (stale handle 検出用)。
+     *
+     * @return packed の high8 bit (0 〜 255)。
+     */
     constexpr u8   Generation() const noexcept {
         return static_cast<u8>(m_Packed >> 24);
     }
 
-    /// invalid (= packed == 0) でなければ true。
-    /// 注意: 「pool に該当 slot が生きているか」は呼び出し側で別途検証すること。
+    /**
+     * invalid (= packed == 0) でなければ true を返す。
+     *
+     * @details 「pool に該当 slot が生きているか」は呼び出し側で別途検証すること。
+     * @return packed != 0 なら true。
+     */
     constexpr bool IsValid() const noexcept { return m_Packed != 0; }
 
-    /// 完全一致比較 (index + generation の両方が一致した時のみ true)。
+    /**
+     * 完全一致比較 (index + generation の両方が一致した時のみ true)。
+     *
+     * @param o 比較相手のハンドル。
+     * @return packed が一致すれば true。
+     */
     constexpr bool operator==(FNodeId o) const noexcept { return m_Packed == o.m_Packed; }
+
+    /**
+     * 不一致比較 (index または generation が違えば true)。
+     *
+     * @param o 比較相手のハンドル。
+     * @return packed が不一致なら true。
+     */
     constexpr bool operator!=(FNodeId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 

@@ -10,13 +10,17 @@
 
 namespace acs {
 
+/** ソケットが開いていれば閉じてから破棄する。 */
 TcpListener::~TcpListener() noexcept {
     Close();
 }
 
+/** ムーブ構築する (ソケットの所有権を奪い、元を無効化する)。 */
 TcpListener::TcpListener(TcpListener&& o) noexcept : m_Socket(o.m_Socket) {
     o.m_Socket = ~uptr{0};
 }
+
+/** ムーブ代入する (自分のソケットを閉じてから所有権を奪う)。 */
 TcpListener& TcpListener::operator=(TcpListener&& o) noexcept {
     if (this == &o) return *this;
     Close();
@@ -25,16 +29,17 @@ TcpListener& TcpListener::operator=(TcpListener&& o) noexcept {
     return *this;
 }
 
+/** 指定アドレス/ポートで socket→bind→listen を実行し、待ち受け中のリスナーを返す。 */
 TResult<TcpListener> TcpListener::Listen(IpAddress addr, u16 port, u32 backlog) noexcept {
     if (!Network::IsInitialized())
         return ACS_ERR(IO, 220, "Network::Init() not called");
 
-    SOCKET s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    const SOCKET s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (s == INVALID_SOCKET)
         return ACS_ERR_OS(IO, 221, "socket failed", static_cast<u32>(::WSAGetLastError()));
 
     // SO_REUSEADDR を有効化（再起動時の TIME_WAIT 対策）
-    int opt = 1;
+    const int opt = 1;
     ::setsockopt(s, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&opt), sizeof(opt));
 
     sockaddr_in sa{};
@@ -46,12 +51,12 @@ TResult<TcpListener> TcpListener::Listen(IpAddress addr, u16 port, u32 backlog) 
     sa.sin_addr.S_un.S_un_b.s_b4 = addr.octets[3];
 
     if (::bind(s, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == SOCKET_ERROR) {
-        u32 err = static_cast<u32>(::WSAGetLastError());
+        const u32 err = static_cast<u32>(::WSAGetLastError());
         ::closesocket(s);
         return ACS_ERR_OS(IO, 222, "bind failed", err);
     }
     if (::listen(s, static_cast<int>(backlog)) == SOCKET_ERROR) {
-        u32 err = static_cast<u32>(::WSAGetLastError());
+        const u32 err = static_cast<u32>(::WSAGetLastError());
         ::closesocket(s);
         return ACS_ERR_OS(IO, 223, "listen failed", err);
     }
@@ -61,11 +66,12 @@ TResult<TcpListener> TcpListener::Listen(IpAddress addr, u16 port, u32 backlog) 
     return TResult<TcpListener>(OkInit, Move(l));
 }
 
+/** 1 接続を accept し、リモートアドレスを設定した TcpConnection を返す。 */
 TResult<TcpConnection> TcpListener::Accept() noexcept {
     if (m_Socket == ~uptr{0}) return ACS_ERR(IO, 224, "listener not open");
     sockaddr_in sa{};
     int len = sizeof(sa);
-    SOCKET cs = ::accept(static_cast<SOCKET>(m_Socket),
+    const SOCKET cs = ::accept(static_cast<SOCKET>(m_Socket),
                           reinterpret_cast<sockaddr*>(&sa), &len);
     if (cs == INVALID_SOCKET)
         return ACS_ERR_OS(IO, 225, "accept failed", static_cast<u32>(::WSAGetLastError()));
@@ -79,6 +85,7 @@ TResult<TcpConnection> TcpListener::Accept() noexcept {
         TcpConnection::FromAccepted(static_cast<uptr>(cs), remote));
 }
 
+/** ソケットのノンブロッキングモードを切り替える。 */
 TResult<void> TcpListener::SetNonBlocking(bool enable) noexcept {
     if (m_Socket == ~uptr{0}) return ACS_ERR(IO, 226, "listener not open");
     u_long mode = enable ? 1 : 0;
@@ -88,6 +95,7 @@ TResult<void> TcpListener::SetNonBlocking(bool enable) noexcept {
     return Ok();
 }
 
+/** ソケットが開いていれば閉じて無効状態にする (多重呼び出し安全)。 */
 void TcpListener::Close() noexcept {
     if (m_Socket != ~uptr{0}) {
         ::closesocket(static_cast<SOCKET>(m_Socket));

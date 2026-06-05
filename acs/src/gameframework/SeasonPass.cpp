@@ -15,19 +15,18 @@ namespace acs::game {
 
 namespace {
 
-// 「tier_index 未発見」を表す哨兵値。FAchievementManager と同設計。
+/** 「tier_index 未発見」を表す哨兵値 (FAchievementManager と同設計)。 */
 constexpr u32 kNotFound = ~static_cast<u32>(0);
 
-// xp / timestamp の u32 / u64 上限。
+/** 累積 xp の u32 飽和上限 (これ以上加算しても丸める)。 */
 constexpr u32 kMaxXp        = ~static_cast<u32>(0);
+
+/** timestamp の u64 飽和上限 (オーバーフロー防御の丸め先)。 */
 constexpr u64 kMaxTimestamp = ~static_cast<u64>(0);
 
 } // namespace
 
-// =============================================================================
-// 内部検索
-// =============================================================================
-
+/** FindTierSlot の実装 (tier_index を線形走査して配列スロットを返す、未発見は kNotFound)。 */
 u32 FSeasonPass::FindTierSlot(u32 tier_index) const noexcept {
     const usize n = m_Tiers.Size();
     for (usize i = 0; i < n; ++i) {
@@ -36,10 +35,7 @@ u32 FSeasonPass::FindTierSlot(u32 tier_index) const noexcept {
     return kNotFound;
 }
 
-// =============================================================================
-// シーズン制御
-// =============================================================================
-
+/** StartSeason の実装 (info を取り込み xp / premium / tier / claim 状態をリセット)。 */
 void FSeasonPass::StartSeason(const SeasonInfo& info) noexcept {
     m_Info         = info;
     m_Xp           = 0;
@@ -51,6 +47,7 @@ void FSeasonPass::StartSeason(const SeasonInfo& info) noexcept {
     m_Claims.Clear();
 }
 
+/** DefineTier の実装 (tier 定義と空の claim 状態を追加、tier_index 重複は警告して無視)。 */
 void FSeasonPass::DefineTier(const Tier& t) noexcept {
     // tier_index 重複は黙って弾く + WARN (アセット二重ロード保護)。
     if (FindTierSlot(t.tier_index) != kNotFound) {
@@ -67,12 +64,14 @@ void FSeasonPass::DefineTier(const Tier& t) noexcept {
     m_Claims.PushBack(cs);
 }
 
+/** EndSeason の実装 (現在時刻を end_timestamp に強制して Ended に固定、tier / claim / xp は保持)。 */
 void FSeasonPass::EndSeason() noexcept {
     // 手動終了: 現在時刻を end_timestamp に強制して Ended 状態に固定。
     // tier 定義 / claim 状態 / xp は保持 (シーズン後グレースピリオドの claim 用)。
     m_CurrentTime = m_Info.end_timestamp;
 }
 
+/** Tick の実装 (dt[秒] の整数部を現在時刻へ加算し、end_timestamp で飽和させる)。 */
 void FSeasonPass::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
 
@@ -107,10 +106,7 @@ void FSeasonPass::Tick(f32 dt) noexcept {
     }
 }
 
-// =============================================================================
-// XP 操作
-// =============================================================================
-
+/** AwardXp の実装 (累積 xp に amount を加算、kMaxXp で飽和)。 */
 void FSeasonPass::AwardXp(u32 amount) noexcept {
     if (amount == 0) return;
     if (amount > kMaxXp - m_Xp) {
@@ -120,14 +116,12 @@ void FSeasonPass::AwardXp(u32 amount) noexcept {
     }
 }
 
-// =============================================================================
-// 照会
-// =============================================================================
-
+/** CurrentXp の実装 (現在の累積 xp を返す)。 */
 u32 FSeasonPass::CurrentXp() const noexcept {
     return m_Xp;
 }
 
+/** CurrentTier の実装 (xp >= xp_threshold を満たす最大 tier_index を線形走査で返す)。 */
 u32 FSeasonPass::CurrentTier() const noexcept {
     // xp >= xp_threshold を満たす最大 tier_index を返す。
     // 線形走査 (件数は通常 50〜100)。
@@ -145,20 +139,19 @@ u32 FSeasonPass::CurrentTier() const noexcept {
     return best;
 }
 
+/** Status の実装 (現在時刻と start/end timestamp の比較で NotStarted/Active/Ended を返す)。 */
 ESeasonStatus FSeasonPass::Status() const noexcept {
     if (m_CurrentTime < m_Info.start_timestamp) return ESeasonStatus::NotStarted;
     if (m_CurrentTime >= m_Info.end_timestamp)  return ESeasonStatus::Ended;
     return ESeasonStatus::Active;
 }
 
-// =============================================================================
-// Premium Pass
-// =============================================================================
-
+/** HasPremiumPass の実装 (プレミアムパス保有フラグを返す)。 */
 bool FSeasonPass::HasPremiumPass() const noexcept {
     return m_HasPremium;
 }
 
+/** SetPremiumPass の実装 (保有フラグを設定、false にしても既 claim 済み報酬は巻き戻さない)。 */
 void FSeasonPass::SetPremiumPass(bool has) noexcept {
     // false にしても既 claim 済の premium 報酬は巻き戻さない (返金後でも貰った
     // ものは保持する設計)。再 claim 防止のために premium_claimed フラグは
@@ -166,10 +159,7 @@ void FSeasonPass::SetPremiumPass(bool has) noexcept {
     m_HasPremium = has;
 }
 
-// =============================================================================
-// 報酬 claim
-// =============================================================================
-
+/** IsRewardClaimed の実装 (指定 tier の free / premium ストリームが claim 済みかを返す)。 */
 bool FSeasonPass::IsRewardClaimed(u32 tier_index, bool premium) const noexcept {
     const u32 slot = FindTierSlot(tier_index);
     if (slot == kNotFound) return false;
@@ -177,6 +167,7 @@ bool FSeasonPass::IsRewardClaimed(u32 tier_index, bool premium) const noexcept {
     return premium ? cs.premium_claimed : cs.free_claimed;
 }
 
+/** ClaimReward の実装 (解放条件 / reward_id / premium 保有 / 二重 claim を検査して claim を確定)。 */
 bool FSeasonPass::ClaimReward(u32 tier_index, bool premium) noexcept {
     const u32 slot = FindTierSlot(tier_index);
     if (slot == kNotFound) return false;
@@ -203,6 +194,7 @@ bool FSeasonPass::ClaimReward(u32 tier_index, bool premium) noexcept {
     return true;
 }
 
+/** GetRewardId の実装 (指定 tier の free / premium ストリームの reward_id を返す、未発見は nullptr)。 */
 const char* FSeasonPass::GetRewardId(u32 tier_index, bool premium) const noexcept {
     const u32 slot = FindTierSlot(tier_index);
     if (slot == kNotFound) return nullptr;
@@ -210,6 +202,7 @@ const char* FSeasonPass::GetRewardId(u32 tier_index, bool premium) const noexcep
     return premium ? tier.reward_id_premium : tier.reward_id_free;
 }
 
+/** ClaimableCount の実装 (解放済みかつ未請求の free / premium 報酬を全 tier で合算する)。 */
 u32 FSeasonPass::ClaimableCount() const noexcept {
     // 未請求の「解放済」報酬の合算。
     // ・free: reward_id_free != nullptr かつ xp >= threshold かつ !free_claimed
@@ -231,6 +224,7 @@ u32 FSeasonPass::ClaimableCount() const noexcept {
     return count;
 }
 
+/** TierCount の実装 (定義済み tier の数を返す)。 */
 u32 FSeasonPass::TierCount() const noexcept {
     return static_cast<u32>(m_Tiers.Size());
 }

@@ -21,35 +21,59 @@ namespace acs {
 
 namespace {
 
-// パニック処理全体を排他する。複数スレッドが同時に panic するケースで、
-// 出力が交ざらないようにする。
+/** パニック処理全体を排他するロック (複数スレッド同時 panic 時の出力混在を防ぐ)。 */
 SRWLOCK   g_panic_lock = SRWLOCK_INIT;
-PanicHook g_hook = nullptr;       // ユーザー登録の事前フック
-void*     g_hook_user = nullptr;  // フックに渡すコンテキスト
 
-// バッファを HANDLE に書き出す（部分書き込みに対応）。
+/** ユーザー登録の事前フック (未登録なら nullptr)。 */
+PanicHook g_hook = nullptr;
+
+/** フックに渡すコンテキストポインタ。 */
+void*     g_hook_user = nullptr;
+
+/**
+ * バッファを HANDLE に書き出す (部分書き込みは無視する)。
+ *
+ * @param h 書き込み先ハンドル (無効ハンドルなら何もしない)。
+ * @param buf 書き込むバッファ。
+ * @param n 書き込むバイト数。
+ */
 void WriteAll(HANDLE h, const char* buf, usize n) noexcept {
     if (h == INVALID_HANDLE_VALUE || h == nullptr) return;
     DWORD written = 0;
     ::WriteFile(h, buf, static_cast<DWORD>(n), &written, nullptr);
 }
 
-// stderr / OutputDebugString / フックに同時出力する共通ルート
+/**
+ * stderr / OutputDebugString / 登録フックに同時出力する共通ルート。
+ *
+ * @param buf 出力するバッファ。
+ * @param n 出力するバイト数。
+ */
 void Emit(const char* buf, usize n) noexcept {
-    HANDLE err = ::GetStdHandle(STD_ERROR_HANDLE);
+    const HANDLE err = ::GetStdHandle(STD_ERROR_HANDLE);
     WriteAll(err, buf, n);
     ::OutputDebugStringA(buf);
     if (g_hook) g_hook(g_hook_user, buf, n);
 }
 
-// StackTrace::Print 用のシンク関数
+/**
+ * StackTrace::Print 用のシンク関数 (1 行ずつ Emit に流す)。
+ *
+ * @param line 出力するスタックトレース 1 行。
+ * @param len line のバイト数。
+ */
 void StackSink(void* /*user*/, const char* line, usize len) noexcept {
     Emit(line, len);
 }
 
 } // namespace
 
-// パニックフックを登録する。nullptr で解除可能。
+/**
+ * パニックフックを登録する (nullptr で解除可能)。
+ *
+ * @param hook 登録するフック (nullptr で解除)。
+ * @param user フックに渡すコンテキストポインタ。
+ */
 void SetPanicHook(PanicHook hook, void* user) noexcept {
     AcquireSRWLockExclusive(&g_panic_lock);
     g_hook = hook;
@@ -57,7 +81,15 @@ void SetPanicHook(PanicHook hook, void* user) noexcept {
     ReleaseSRWLockExclusive(&g_panic_lock);
 }
 
-// パニック本体。可変長引数なので vsnprintf でメッセージを整形する。
+/**
+ * パニック本体。ヘッダとメッセージとスタックトレースを出力してプロセスを終了する。
+ *
+ * @details 可変長引数を vsnprintf で整形し、終了コード 3 で TerminateProcess する。
+ * @param loc 発生位置。
+ * @param expr 失敗した式の文字列 (nullptr なら "<none>")。
+ * @param fmt printf 形式のメッセージ書式 (nullptr なら "(no message)")。
+ * @param ... fmt に対応する可変長引数。
+ */
 ACS_NORETURN void FPanic(FSourceLoc loc, const char* expr, const char* fmt, ...) noexcept {
     AcquireSRWLockExclusive(&g_panic_lock);
 

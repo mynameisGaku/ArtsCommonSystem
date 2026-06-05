@@ -31,7 +31,7 @@ TResult<TcpConnection> TcpConnection::Connect(IpAddress addr, u16 port) noexcept
     if (!Network::IsInitialized())
         return ACS_ERR(IO, 210, "Network::Init() not called");
 
-    SOCKET s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    const SOCKET s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (s == INVALID_SOCKET)
         return ACS_ERR_OS(IO, 211, "socket failed", static_cast<u32>(::WSAGetLastError()));
 
@@ -44,7 +44,7 @@ TResult<TcpConnection> TcpConnection::Connect(IpAddress addr, u16 port) noexcept
     sa.sin_addr.S_un.S_un_b.s_b4 = addr.octets[3];
 
     if (::connect(s, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == SOCKET_ERROR) {
-        u32 err = static_cast<u32>(::WSAGetLastError());
+        const u32 err = static_cast<u32>(::WSAGetLastError());
         ::closesocket(s);
         return ACS_ERR_OS(IO, 212, "connect failed", err);
     }
@@ -73,7 +73,7 @@ void TcpConnection::Close() noexcept {
 
 isize TcpConnection::Send(const void* data, usize size) noexcept {
     if (m_Socket == ~uptr{0}) return -1;
-    int n = ::send(static_cast<SOCKET>(m_Socket), static_cast<const char*>(data),
+    const int n = ::send(static_cast<SOCKET>(m_Socket), static_cast<const char*>(data),
                    static_cast<int>(size), 0);
     if (n == SOCKET_ERROR) return -1;
     return n;
@@ -81,7 +81,7 @@ isize TcpConnection::Send(const void* data, usize size) noexcept {
 
 isize TcpConnection::Recv(void* buf, usize size) noexcept {
     if (m_Socket == ~uptr{0}) return -1;
-    int n = ::recv(static_cast<SOCKET>(m_Socket), static_cast<char*>(buf),
+    const int n = ::recv(static_cast<SOCKET>(m_Socket), static_cast<char*>(buf),
                    static_cast<int>(size), 0);
     if (n == SOCKET_ERROR) return -1;
     return n;  // 0 は相手切断

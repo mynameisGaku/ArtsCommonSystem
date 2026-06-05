@@ -25,17 +25,29 @@ namespace acs::game {
 
 namespace {
 
-// FLocalizationDirector が未接続のときに「key 自身 or 空文字」を返す helper。
-// FLocalizationDirector::Get の契約 (key==nullptr→"" / 未翻訳→key) と同じ挙動を
-// 自前で再現することで、m_Localizer の有無に関わらず callback に渡る値の
-// nullptr-safe 性を保証する。
+/**
+ * FLocalizationDirector が未接続のときに「key 自身 or 空文字」を返す。
+ *
+ * @details
+ * FLocalizationDirector::Get の契約 (key==nullptr→"" / 未翻訳→key) と同じ挙動を
+ * 自前で再現することで、m_Localizer の有無に関わらず callback に渡る値の
+ * nullptr-safe 性を保証する。
+ * @param key 解決する翻訳 key (nullptr 可)。
+ * @return key が nullptr なら空文字、それ以外は key 自身。
+ */
 const char* ResolveWithoutLocalizer(const char* key) noexcept {
     if (key == nullptr) return "";
     return key;
 }
 
-// m_Localizer 有無を一元化して key→text 解決。
-// 戻り値は常に非 nullptr (空文字最小)。
+/**
+ * Localizer の有無を一元化して key → text を解決する。
+ *
+ * @details 戻り値は常に非 nullptr (最小で空文字)。
+ * @param loc 翻訳辞書 (nullptr で未接続フォールバック)。
+ * @param key 解決する翻訳 key (nullptr 可)。
+ * @return 解決済みテキスト (常に非 nullptr)。
+ */
 const char* ResolveKey(const FLocalizationDirector* loc, const char* key) noexcept {
     if (loc == nullptr) {
         return ResolveWithoutLocalizer(key);

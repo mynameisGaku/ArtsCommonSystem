@@ -16,7 +16,13 @@ namespace acs::game {
 
 namespace {
 
-// const char* の per-byte 比較。nullptr 安全。
+/**
+ * const char* を per-byte 比較する (nullptr 安全)。
+ *
+ * @param a 比較する文字列 A。
+ * @param b 比較する文字列 B。
+ * @return 両者が等しければ true (どちらかが nullptr なら false)。
+ */
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -27,7 +33,12 @@ bool StrEq(const char* a, const char* b) noexcept {
     return *a == '\0' && *b == '\0';
 }
 
-// const char* の長さ (NUL 終端まで)。nullptr は 0。
+/**
+ * const char* の長さ (NUL 終端まで) を返す。
+ *
+ * @param s 長さを測る文字列 (nullptr は 0)。
+ * @return NUL 終端を除いた文字数。
+ */
 usize StrLen(const char* s) noexcept {
     if (s == nullptr) return 0;
     usize n = 0;
@@ -35,10 +46,16 @@ usize StrLen(const char* s) noexcept {
     return n;
 }
 
-// f32 を 1 文字 buffer に round-trip 可能な精度で書く。STL (snprintf) を避け、
-// 自前で「整数部.小数部」を出力する。±0 / 大きい値も扱えるよう、まず整数部を
-// 10 進展開し、小数部は固定 9 桁まで出して末尾の 0 を畳む (1.5 → "1.5")。
-// FString に追記する。
+/**
+ * f32 を round-trip 可能な精度で 10 進文字列にして FString へ追記する。
+ *
+ * @details
+ * STL (snprintf) を避け、自前で「整数部.小数部」を出力する。整数部を 10 進展開し、
+ * 小数部は固定 6 桁まで出して末尾の 0 を畳む (1.5 → "1.5")。NaN / Inf は安全側で 0 と
+ * して書き、u64 に収まらない巨大値は double 空間で上位桁から展開する。
+ * @param out 追記先の FString。
+ * @param v 書き出す f32 値。
+ */
 void AppendF32(FString& out, f32 v) noexcept {
     // NaN / Inf は設定値として現実的でないので、安全側で 0 として書く
     // (Load 側でも 0 に parse される)。
@@ -109,7 +126,13 @@ void AppendF32(FString& out, f32 v) noexcept {
     }
 }
 
-// i32 を 10 進文字列として FString に追記する。
+/**
+ * i32 を 10 進文字列にして FString へ追記する。
+ *
+ * @details INT_MIN を含めて安全に絶対値化するため符号なしで magnitude を扱う。
+ * @param out 追記先の FString。
+ * @param v 書き出す i32 値。
+ */
 void AppendI32(FString& out, i32 v) noexcept {
     u32 mag;
     if (v < 0) {
@@ -135,7 +158,14 @@ void AppendI32(FString& out, i32 v) noexcept {
     out.Append(FStringView(digits, static_cast<usize>(n)));
 }
 
-// [begin, end) を f32 に parse。"<int>.<frac>" / 先頭符号を許容。
+/**
+ * [begin, end) を f32 に parse する。
+ *
+ * @details "<int>.<frac>" 形式と先頭符号を許容する。
+ * @param begin parse 対象の先頭ポインタ。
+ * @param end parse 対象の終端ポインタ (この手前まで)。
+ * @return parse した f32 値。
+ */
 f32 ParseF32(const char* begin, const char* end) noexcept {
     const char* p   = begin;
     f32         sign = 1.0f;
@@ -161,8 +191,16 @@ f32 ParseF32(const char* begin, const char* end) noexcept {
     return sign * (int_part + frac);
 }
 
-// [begin, end) を i32 に parse。先頭符号を許容、オーバーフローは飽和しない
-// (設定値が i32 範囲を超える運用は想定外)。
+/**
+ * [begin, end) を i32 に parse する。
+ *
+ * @details
+ * 先頭符号を許容する。オーバーフローは飽和しない (設定値が i32 範囲を超える運用は
+ * 想定外)。
+ * @param begin parse 対象の先頭ポインタ。
+ * @param end parse 対象の終端ポインタ (この手前まで)。
+ * @return parse した i32 値。
+ */
 i32 ParseI32(const char* begin, const char* end) noexcept {
     const char* p    = begin;
     bool        neg  = false;
@@ -181,6 +219,7 @@ i32 ParseI32(const char* begin, const char* end) noexcept {
 
 } // namespace
 
+/** key 一致 entry の index を返す (未検出 / nullptr は -1)。 */
 isize FSettings::FindIndex(const char* key) const noexcept {
     if (key == nullptr) return -1;
     const usize n = m_Entries.Size();
@@ -190,6 +229,7 @@ isize FSettings::FindIndex(const char* key) const noexcept {
     return -1;
 }
 
+/** key 一致 entry を返し、無ければ kind=None で新規追加して返す。 */
 FSettings::Entry& FSettings::UpsertEntry(const char* key) noexcept {
     // key == nullptr は呼び出し側でガードされている前提だが、二重防御で
     // 末尾を返す代わりに sentinel を立てる必要はない (Set* 側で弾く)。
@@ -204,9 +244,7 @@ FSettings::Entry& FSettings::UpsertEntry(const char* key) noexcept {
     return m_Entries[m_Entries.Size() - 1];
 }
 
-// ============================================================================
-// 書き込み
-// ============================================================================
+/** f32 値を書き込む (同名 key は上書き、key == nullptr は no-op)。 */
 void FSettings::SetF32(const char* key, f32 v) noexcept {
     if (key == nullptr) return;
     Entry& e   = UpsertEntry(key);
@@ -214,6 +252,7 @@ void FSettings::SetF32(const char* key, f32 v) noexcept {
     e.value.f  = v;
 }
 
+/** i32 値を書き込む (同名 key は上書き、key == nullptr は no-op)。 */
 void FSettings::SetI32(const char* key, i32 v) noexcept {
     if (key == nullptr) return;
     Entry& e   = UpsertEntry(key);
@@ -221,6 +260,7 @@ void FSettings::SetI32(const char* key, i32 v) noexcept {
     e.value.i  = v;
 }
 
+/** bool 値を書き込む (同名 key は上書き、key == nullptr は no-op)。 */
 void FSettings::SetBool(const char* key, bool v) noexcept {
     if (key == nullptr) return;
     Entry& e   = UpsertEntry(key);
@@ -228,6 +268,7 @@ void FSettings::SetBool(const char* key, bool v) noexcept {
     e.value.b  = v;
 }
 
+/** string 値を書き込む (非所有、同名 key は上書き、key == nullptr は no-op)。 */
 void FSettings::SetString(const char* key, const char* v) noexcept {
     if (key == nullptr) return;
     Entry& e   = UpsertEntry(key);
@@ -235,9 +276,7 @@ void FSettings::SetString(const char* key, const char* v) noexcept {
     e.value.s  = v;  // 非所有: 呼び出し側が寿命を保証する
 }
 
-// ============================================================================
-// 読み出し (型不一致 / 未検出は default_value)
-// ============================================================================
+/** f32 値を読み出す (型不一致 / 未検出は default_value)。 */
 f32 FSettings::GetF32(const char* key, f32 default_value) const noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
@@ -246,6 +285,7 @@ f32 FSettings::GetF32(const char* key, f32 default_value) const noexcept {
     return e.value.f;
 }
 
+/** i32 値を読み出す (型不一致 / 未検出は default_value)。 */
 i32 FSettings::GetI32(const char* key, i32 default_value) const noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
@@ -254,6 +294,7 @@ i32 FSettings::GetI32(const char* key, i32 default_value) const noexcept {
     return e.value.i;
 }
 
+/** bool 値を読み出す (型不一致 / 未検出は default_value)。 */
 bool FSettings::GetBool(const char* key, bool default_value) const noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
@@ -262,6 +303,7 @@ bool FSettings::GetBool(const char* key, bool default_value) const noexcept {
     return e.value.b;
 }
 
+/** string 値を読み出す (型不一致 / 未検出は default_value)。 */
 const char* FSettings::GetString(const char* key, const char* default_value) const noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return default_value;
@@ -270,13 +312,12 @@ const char* FSettings::GetString(const char* key, const char* default_value) con
     return e.value.s;
 }
 
-// ============================================================================
-// メタ操作
-// ============================================================================
+/** key が登録済みかを返す (kind 不問)。 */
 bool FSettings::Has(const char* key) const noexcept {
     return FindIndex(key) >= 0;
 }
 
+/** key を 1 件削除する (該当なし / nullptr は no-op、順序非保持)。 */
 void FSettings::Remove(const char* key) noexcept {
     const isize idx = FindIndex(key);
     if (idx < 0) return;
@@ -284,31 +325,46 @@ void FSettings::Remove(const char* key) noexcept {
     m_Entries.RemoveAtSwap(static_cast<usize>(idx));
 }
 
+/** 全エントリを削除する。 */
 void FSettings::Clear() noexcept {
     m_Entries.Clear();
 }
 
+/** 登録エントリ数を返す (kind 不問)。 */
 u32 FSettings::Count() const noexcept {
     // 件数は通常 u32 範囲を超えない (UI 設定で数百個が現実的上限)。
     return static_cast<u32>(m_Entries.Size());
 }
 
-// ============================================================================
-// 永続化
-// ============================================================================
-// サブコード: FSaveArchive と被らない独自値域 (10..) を割り当てる。
 namespace {
-constexpr u16 kSubIo        = 10;  // CreateFileW / WriteFile / MoveFileExW 失敗
-constexpr u16 kSubFileTooLarge = 11;  // Load 対象が sanity 上限超過
-constexpr u16 kSubNullPath   = 12;  // file_path == nullptr
-constexpr u16 kSubOom        = 13;  // 読み込みバッファ確保失敗
 
-// Load が読み込む settings ファイルの sanity 上限 (16 MiB)。設定ファイルが
-// これを超えるのは破損か別フォーマットの誤指定なので弾く。
+/** エラーサブコード: CreateFileW / WriteFile / MoveFileExW 等の IO 失敗。 */
+constexpr u16 kSubIo        = 10;
+
+/** エラーサブコード: Load 対象が sanity 上限を超過。 */
+constexpr u16 kSubFileTooLarge = 11;
+
+/** エラーサブコード: file_path == nullptr。 */
+constexpr u16 kSubNullPath   = 12;
+
+/** エラーサブコード: 読み込みバッファ確保失敗。 */
+constexpr u16 kSubOom        = 13;
+
+/**
+ * Load が読み込む settings ファイルの sanity 上限 (16 MiB)。
+ *
+ * @details これを超えるのは破損か別フォーマットの誤指定なので弾く。
+ */
 constexpr u64 kMaxSettingsBytes = 16ull * 1024ull * 1024ull;
 
-// `<path>` の末尾に L".tmp" を付けた一時パスを out_buf に作る。
-// out_cap は out_buf の要素数。成功で true、長さ超過で false。
+/**
+ * `<path>` の末尾に L".tmp" を付けた一時パスを out_buf に作る。
+ *
+ * @param path 元のパス (NUL 終端)。
+ * @param out_buf 一時パスを書き込むバッファ。
+ * @param out_cap out_buf の要素数。
+ * @return 収まれば true、長さ超過なら false。
+ */
 bool MakeTmpPath(const wchar_t* path, wchar_t* out_buf, usize out_cap) noexcept {
     usize n = 0;
     while (path[n] != L'\0') ++n;
@@ -322,19 +378,21 @@ bool MakeTmpPath(const wchar_t* path, wchar_t* out_buf, usize out_cap) noexcept 
 }
 } // namespace
 
-// ----------------------------------------------------------------------------
-// Save — 全 entry を `<tag>:<key>=<value>\n` で直列化し atomic write する。
-//   1. FString に全行を組み立てる (UTF-8 / LF)。
-//   2. `<path>.tmp` に CREATE_ALWAYS で書き、FlushFileBuffers で flush。
-//   3. MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH) で本パスへ rename。
-// 途中で失敗しても本ファイルは旧内容のまま (atomicity)。
-// ----------------------------------------------------------------------------
+/**
+ * 全 entry を `<tag>:<key>=<value>` で直列化し atomic write する。
+ *
+ * @details
+ * (1) FString に全行を組み立て (UTF-8 / LF)、(2) `<path>.tmp` に CREATE_ALWAYS で
+ * 書いて FlushFileBuffers で flush し、(3) MoveFileExW(REPLACE_EXISTING |
+ * WRITE_THROUGH) で本パスへ rename する。途中で失敗しても本ファイルは旧内容のまま
+ * (atomicity)。
+ */
 TResult<void> FSettings::Save(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSubNullPath, "FSettings::Save: file_path is null");
     }
 
-    // ---- テキスト組み立て ----------------------------------------------
+    // テキスト組み立て
     FString text;
     const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
@@ -366,13 +424,13 @@ TResult<void> FSettings::Save(const wchar_t* file_path) noexcept {
         text.Append('\n');
     }
 
-    // ---- `<path>.tmp` を組む -------------------------------------------
+    // `<path>.tmp` を組む
     wchar_t tmp_path[1024];
     if (!MakeTmpPath(file_path, tmp_path, 1024)) {
         return ACS_ERR(IO, kSubIo, "FSettings::Save: file path too long for .tmp suffix");
     }
 
-    // ---- tmp に書き込む (CREATE_ALWAYS = 既存 truncate) ----------------
+    // tmp に書き込む (CREATE_ALWAYS = 既存 truncate)
     HANDLE h = ::CreateFileW(tmp_path,
                              GENERIC_WRITE,
                              0,                 // 排他: 書き込み中は他者に開かせない
@@ -409,7 +467,7 @@ TResult<void> FSettings::Save(const wchar_t* file_path) noexcept {
         return ACS_ERR_OS(IO, kSubIo, "FSettings::Save: CloseHandle (.tmp) failed", err);
     }
 
-    // ---- atomic rename: tmp → 本パス -----------------------------------
+    // atomic rename: tmp → 本パス
     if (!::MoveFileExW(tmp_path, file_path,
                        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         const DWORD err = ::GetLastError();
@@ -419,20 +477,21 @@ TResult<void> FSettings::Save(const wchar_t* file_path) noexcept {
     return Ok();
 }
 
-// ----------------------------------------------------------------------------
-// Load — ファイルを全読みし、各行を parse して in-memory store に復元する。
-//   行形式: `<tag>:<key>=<value>` (tag = f/i/b/s)。`#` 始まりと空行は skip。
-//   未知 tag / `=` 無しの行は skip (前方互換)。
-//   復元した key / string 値は m_StringPool が所有する (ファイル由来の文字列
-//   寿命をストアより長く保つため複製する)。行数 ×2 を先に Reserve し、TArray
-//   再確保による FString 移動 = Data() ポインタ無効化を防ぐ。
-// ----------------------------------------------------------------------------
+/**
+ * ファイルを全読みし、各行を parse して in-memory store に復元する。
+ *
+ * @details
+ * 行形式は `<tag>:<key>=<value>` (tag = f/i/b/s)。`#` 始まりと空行は skip し、未知 tag /
+ * `=` 無しの行も skip する (前方互換)。復元した key / string 値は m_StringPool が所有
+ * する (ファイル由来の文字列寿命をストアより長く保つため複製する)。行数 ×2 を先に
+ * Reserve し、TArray 再確保による FString 移動 = Data() ポインタ無効化を防ぐ。
+ */
 TResult<void> FSettings::Load(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSubNullPath, "FSettings::Load: file_path is null");
     }
 
-    // ---- ファイルを開く (FSaveArchive.cpp と同じ流儀) ------------------
+    // ファイルを開く (FSaveArchive.cpp と同じ流儀)
     HANDLE h = ::CreateFileW(file_path,
                              GENERIC_READ,
                              FILE_SHARE_READ,
@@ -466,7 +525,7 @@ TResult<void> FSettings::Load(const wchar_t* file_path) noexcept {
                        "FSettings::Load: settings file exceeds 16 MiB sanity limit");
     }
 
-    // ---- 全読み込み (+1 で末尾に番兵 NUL を置けるようにする) -----------
+    // 全読み込み (+1 で末尾に番兵 NUL を置けるようにする)
     const usize buf_size = static_cast<usize>(size_u64);
     FAllocator& alloc    = DefaultAllocator();
     void*       raw      = alloc.Alloc(buf_size + 1, alignof(char), FSourceLoc::Current());
@@ -496,7 +555,7 @@ TResult<void> FSettings::Load(const wchar_t* file_path) noexcept {
     ::CloseHandle(h);
     buf[buf_size] = '\0';  // 番兵
 
-    // ---- 既存値を捨ててから復元 (Load は「ファイル状態に置き換える」意味) ---
+    // 既存値を捨ててから復元 (Load は「ファイル状態に置き換える」意味)
     Clear();
     m_StringPool.Clear();
 
@@ -508,7 +567,7 @@ TResult<void> FSettings::Load(const wchar_t* file_path) noexcept {
     }
     m_StringPool.Reserve(line_count * 2);
 
-    // ---- 行ごとに parse -------------------------------------------------
+    // 行ごとに parse
     usize i = 0;
     while (i < buf_size) {
         // 行の範囲 [line_begin, line_end) を切り出す (LF 区切り、CR は除去)。

@@ -10,8 +10,15 @@ namespace acs {
 
 namespace {
 
-// EPixelFormat → EFormat（GPU 側）変換
-// 3 チャンネルは GPU では一般的に使えないので、4 チャンネルに展開する必要がある。
+/**
+ * EPixelFormat を GPU 側の EFormat に変換する。
+ *
+ * @details
+ * 3 チャンネルは GPU では一般的に使えないため 4 チャンネルへ展開した EFormat を返す。
+ * 1ch / 2ch は専用処理が必要なため EFormat::Unknown を返す。
+ * @param f 変換元の CPU 側ピクセルフォーマット。
+ * @return 対応する GPU 側 EFormat。未対応なら EFormat::Unknown。
+ */
 EFormat ToRhiFormat(EPixelFormat f) noexcept {
     switch (f) {
         case EPixelFormat::R8:               return EFormat::Unknown;     // 1ch は専用処理
@@ -26,11 +33,18 @@ EFormat ToRhiFormat(EPixelFormat f) noexcept {
 
 } // namespace
 
+/**
+ * 画像アセットを GPU テクスチャにアップロードする（同期、即座に使用可能）。
+ *
+ * @param device テクスチャ生成に使う RHI デバイス。
+ * @param img アップロード元の画像アセット。
+ * @return 成功なら所有権付きの IRhiTexture、空画像・未対応フォーマット・生成失敗ならエラー。
+ */
 TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const FImageAsset& img) noexcept {
     if (img.Width() == 0 || img.Height() == 0)
         return ACS_ERR(Render, 80, "UploadTexture: empty image");
 
-    EFormat gpu_fmt = ToRhiFormat(img.EFormat());
+    const EFormat gpu_fmt = ToRhiFormat(img.EFormat());
     if (gpu_fmt == EFormat::Unknown)
         return ACS_ERR(Render, 81, "UploadTexture: unsupported pixel format");
 
@@ -48,6 +62,15 @@ TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const FImageA
     return CreateRhiTexture(device, d);
 }
 
+/**
+ * メッシュアセットから頂点バッファ・インデックスバッファを作って GpuMesh に詰める。
+ *
+ * @details 静的 mesh は USAGE_IMMUTABLE で扱う。インデックスが無ければ IB は生成しない。
+ * @param device バッファ生成に使う RHI デバイス。
+ * @param mesh アップロード元のメッシュアセット。
+ * @param out 生成した VB/IB と頂点数・インデックス数・ストライドの書き込み先。
+ * @return 成功なら空の TResult、空メッシュ・バッファ生成失敗ならエラー。
+ */
 TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, GpuMesh& out) noexcept {
     if (mesh.Vertices().Size() == 0)
         return ACS_ERR(Render, 82, "UploadMesh: empty mesh");
@@ -79,6 +102,17 @@ TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, GpuMesh& ou
     return Ok();
 }
 
+/**
+ * スキンメッシュアセットから GPU バッファを作って SkinnedGpuMesh に詰める。
+ *
+ * @details
+ * FSkinnedVertex 形式の頂点で VB を作る（FSkinnedShader が消費する形式）。静的 mesh は
+ * USAGE_IMMUTABLE で扱い、インデックスが無ければ IB は生成しない。
+ * @param device バッファ生成に使う RHI デバイス。
+ * @param mesh アップロード元のスキンメッシュアセット。
+ * @param out 生成した VB/IB と頂点数・インデックス数・ストライドの書き込み先。
+ * @return 成功なら空の TResult、空メッシュ・バッファ生成失敗ならエラー。
+ */
 TResult<void> UploadSkinnedMesh(IRhiDevice& device, const FSkinnedMeshAsset& mesh,
                                SkinnedGpuMesh& out) noexcept {
     if (mesh.Vertices().Size() == 0)

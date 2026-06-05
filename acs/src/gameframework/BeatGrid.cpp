@@ -20,15 +20,13 @@
 
 namespace acs::game {
 
-// ----------------------------------------------------------------------------
-// helpers
-// ----------------------------------------------------------------------------
-
+/** ms 値を sec に変換する (負値は 0 にクランプ)。 */
 f32 FBeatGrid::MsToSec(f32 ms) noexcept {
     if (ms < 0.0f) return 0.0f;
     return ms * 0.001f;
 }
 
+/** |delta| を判定窓と比較して EJudgement を決める (good_window 外は Miss)。 */
 EJudgement FBeatGrid::ClassifyDelta(f32 abs_delta_sec) const noexcept {
     if (abs_delta_sec <= m_PerfectWindowSec) return EJudgement::Perfect;
     if (abs_delta_sec <= m_GreatWindowSec)   return EJudgement::Great;
@@ -36,6 +34,7 @@ EJudgement FBeatGrid::ClassifyDelta(f32 abs_delta_sec) const noexcept {
     return EJudgement::Miss;
 }
 
+/** lane の最近 note を線形探索する (good_window 外は対象外、該当なしは npos)。 */
 usize FBeatGrid::FindNearestNote(EBeatLane lane) const noexcept {
     const usize n = m_Notes.Size();
     usize best_idx = n;            // npos
@@ -55,6 +54,7 @@ usize FBeatGrid::FindNearestNote(EBeatLane lane) const noexcept {
     return best_idx;
 }
 
+/** 判定を確定して統計 / コンボを更新し判定 callback を発火する。 */
 void FBeatGrid::ApplyJudgement(EBeatLane lane, EJudgement j) noexcept {
     switch (j) {
         case EJudgement::Perfect: ++m_PerfectCount; ++m_CurrentCombo; break;
@@ -69,10 +69,7 @@ void FBeatGrid::ApplyJudgement(EBeatLane lane, EJudgement j) noexcept {
     }
 }
 
-// ----------------------------------------------------------------------------
-// 初期化 / 読込
-// ----------------------------------------------------------------------------
-
+/** 再生状態と統計を初期化する (譜面 / callback は保持、judged を全 false に)。 */
 void FBeatGrid::Init() noexcept {
     // 譜面 / callback は保持し、再生状態 / 統計のみリセット。
     // (callback は呼出側が SetOn* で別途設定済みの想定なので維持する。
@@ -94,6 +91,7 @@ void FBeatGrid::Init() noexcept {
     for (usize i = 0; i < n; ++i) m_Judged[i] = false;
 }
 
+/** 譜面を内部にコピー所有し、既存譜面と統計 / 状態を全破棄して上書きする。 */
 void FBeatGrid::LoadChart(const FBeatNote* notes, u32 count, f32 bpm) noexcept {
     // 既存譜面を破棄
     m_Notes.Clear();
@@ -126,6 +124,7 @@ void FBeatGrid::LoadChart(const FBeatNote* notes, u32 count, f32 bpm) noexcept {
     m_MaxCombo      = 0u;
 }
 
+/** 判定窓を sec に変換して設定し、perfect <= great <= good を保証する。 */
 void FBeatGrid::SetTimingWindows(f32 perfect_ms, f32 great_ms, f32 good_ms) noexcept {
     f32 p = MsToSec(perfect_ms);
     f32 g = MsToSec(great_ms);
@@ -138,10 +137,7 @@ void FBeatGrid::SetTimingWindows(f32 perfect_ms, f32 great_ms, f32 good_ms) noex
     m_GoodWindowSec    = d;
 }
 
-// ----------------------------------------------------------------------------
-// 再生制御
-// ----------------------------------------------------------------------------
-
+/** 再生を開始し、judged フラグと統計をリセットする (再挑戦)。 */
 void FBeatGrid::Start() noexcept {
     m_CurrentTime = 0.0f;
     m_Playing      = true;
@@ -158,6 +154,7 @@ void FBeatGrid::Start() noexcept {
     m_MaxCombo     = 0u;
 }
 
+/** 即時停止し current_time を 0 に戻す (統計 / judged は維持)。 */
 void FBeatGrid::Stop() noexcept {
     m_Playing      = false;
     m_Paused       = false;
@@ -166,18 +163,17 @@ void FBeatGrid::Stop() noexcept {
     // ClearAll で完全クリア。
 }
 
+/** 再生中なら進行を一時停止する。 */
 void FBeatGrid::Pause() noexcept {
     if (m_Playing) m_Paused = true;
 }
 
+/** 再生中なら一時停止を解除して再開する。 */
 void FBeatGrid::Resume() noexcept {
     if (m_Playing) m_Paused = false;
 }
 
-// ----------------------------------------------------------------------------
-// 入力 / 駆動
-// ----------------------------------------------------------------------------
-
+/** lane の最近 note と current_time の差分から判定し、統計 / コンボを更新する。 */
 EJudgement FBeatGrid::Tap(EBeatLane lane) noexcept {
     // 停止中は判定対象なし
     if (!m_Playing) return EJudgement::Miss;
@@ -203,6 +199,7 @@ EJudgement FBeatGrid::Tap(EBeatLane lane) noexcept {
     return j;
 }
 
+/** current_time を進め、good_window 超過の未判定 note を Miss として捌き、完了で EndCallback を発火する。 */
 void FBeatGrid::Tick(f32 dt) noexcept {
     if (!m_Playing) return;
     if (m_Paused)   return;
@@ -238,10 +235,7 @@ void FBeatGrid::Tick(f32 dt) noexcept {
     }
 }
 
-// ----------------------------------------------------------------------------
-// 統計
-// ----------------------------------------------------------------------------
-
+/** 重み付き命中数を total_notes で割って正確度を返す (空譜面は満点 1.0f)。 */
 f32 FBeatGrid::Accuracy() const noexcept {
     if (m_TotalNotes == 0u) return 1.0f; // 空譜面 = 満点扱い (divide-by-zero 回避)
     const f32 weighted =
@@ -251,10 +245,7 @@ f32 FBeatGrid::Accuracy() const noexcept {
     return weighted / static_cast<f32>(m_TotalNotes);
 }
 
-// ----------------------------------------------------------------------------
-// 全リセット
-// ----------------------------------------------------------------------------
-
+/** 譜面 / 統計 / 状態 / callback を初期値に戻す完全リセット。 */
 void FBeatGrid::ClearAll() noexcept {
     m_Notes.Clear();
     m_Judged.Clear();

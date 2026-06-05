@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E Phase 3 — FCameraShakePresets 実装
+// GameFramework Pillar E — FCameraShakePresets 実装
 //
 // 設計上のポイント:
 //   ・組み込み preset の数値は「small/large + duration」感が一聴で伝わる
@@ -18,9 +18,14 @@ namespace acs::game {
 
 namespace {
 
-// const char* per-byte 安全比較。どちらかが nullptr なら false。
-// FAchievementManager / FEntitlement と同設計の helper を anonymous namespace に
-// 再掲する (ピラー単位で独立しているほうが読みやすい)。
+/**
+ * const char* を per-byte で安全比較する。
+ *
+ * @details FAchievementManager / FEntitlement と同設計の helper (STL 不使用)。
+ * @param a 比較する文字列 A。
+ * @param b 比較する文字列 B。
+ * @return 内容が一致すれば true。どちらかが nullptr なら false。
+ */
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -31,25 +36,19 @@ bool StrEq(const char* a, const char* b) noexcept {
     return *a == '\0' && *b == '\0';
 }
 
-// 「未発見」哨兵値。
+/** 「未発見」を表す哨兵値。 */
 constexpr u32 kNotFound = ~static_cast<u32>(0);
 
-// 組み込み preset の実値。amplitude / decay の単位は FCamera2D.h の trauma 方式
-// を参照。frequency は FCamera2D 実装が将来 SetShakeFrequency を持ったときに
-// 流す前提の「希望値」。duration_hint は trauma / decay_rate の概算秒数。
-//
-// 数値設計:
-//   ExplosionSmall  : 短い punch。trauma 中、amp 中、decay 速め。
-//   ExplosionLarge  : 大爆発。trauma 強、amp 大、decay 標準。
-//   EarthquakeShort : 短地震。trauma 中弱、amp 中、decay 遅め (= 揺れが残る)。
-//   EarthquakeLong  : 長地震。trauma 中、amp 中強、decay 非常に遅い、freq 低い。
-//   HitImpact       : 着弾。trauma 弱、amp 弱、decay 高速、freq 高め (キレ重視)。
-//   RocketLaunch    : 連射継続。trauma 中、amp 小、decay 中、freq 高め。
-//   MeteorImpact    : 隕石。trauma 最強、amp 最大、decay 遅め、freq 低め。
-//   Custom          : 哨兵 — ZeroParams を返す。
-//
-// `static const` でテーブル化すると thread-local 初期化が絡むので、関数 switch
-// で素直に書く (コンパイラは余裕でテーブル化する)。
+/**
+ * 組み込み preset の実値を switch で返す。
+ *
+ * @details
+ * amplitude / decay の単位は FCamera2D.h の trauma 方式を参照。frequency は将来の
+ * SetShakeFrequency 用の希望値、duration_hint は trauma / decay_rate の概算秒数。
+ * static const テーブルは thread-local 初期化が絡むため関数 switch で素直に書く。
+ * @param p 取得するプリセット種別。
+ * @return 対応する ShakeParams。Custom / 未知値は中立値を返す。
+ */
 ShakeParams BuiltinParams(EShakePreset p) noexcept {
     switch (p) {
         case EShakePreset::ExplosionSmall:
@@ -75,14 +74,12 @@ ShakeParams BuiltinParams(EShakePreset p) noexcept {
 
 } // namespace
 
-// =============================================================================
-// 組み込み preset
-// =============================================================================
-
+/** 組み込み preset の ShakeParams を返す。 */
 ShakeParams FCameraShakePresets::GetPreset(EShakePreset preset) noexcept {
     return BuiltinParams(preset);
 }
 
+/** 組み込み preset を SetAmp → SetDecay → AddShake の順で target に流し込む。 */
 void FCameraShakePresets::ApplyPreset(IShakeTarget& target,
                                      EShakePreset   preset) noexcept {
     // Custom は名前経由 (ApplyCustomByName) 専用 — 即値経由では no-op。
@@ -96,10 +93,7 @@ void FCameraShakePresets::ApplyPreset(IShakeTarget& target,
     target.AddShake(p.trauma);
 }
 
-// =============================================================================
-// カスタム preset
-// =============================================================================
-
+/** 名前でカスタムプリセットのインデックスを線形検索する (未検出は kNotFound)。 */
 u32 FCameraShakePresets::FindCustomIndex(const char* name) const noexcept {
     if (name == nullptr) return kNotFound;
     const usize n = m_Customs.Size();
@@ -109,6 +103,7 @@ u32 FCameraShakePresets::FindCustomIndex(const char* name) const noexcept {
     return kNotFound;
 }
 
+/** カスタム preset を登録する (同 name は上書き、nullptr は no-op)。 */
 void FCameraShakePresets::RegisterCustomPreset(const char*        name,
                                               const ShakeParams& params) noexcept {
     if (name == nullptr) return;
@@ -126,6 +121,7 @@ void FCameraShakePresets::RegisterCustomPreset(const char*        name,
     m_Customs.PushBack(e);
 }
 
+/** 名前で引いたカスタム preset を ApplyPreset と同じ順序で target に流し込む。 */
 bool FCameraShakePresets::ApplyCustomByName(IShakeTarget& target,
                                            const char*   name) noexcept {
     const u32 idx = FindCustomIndex(name);
@@ -139,6 +135,7 @@ bool FCameraShakePresets::ApplyCustomByName(IShakeTarget& target,
     return true;
 }
 
+/** 登録済みカスタムプリセット数を返す。 */
 u32 FCameraShakePresets::CustomCount() const noexcept {
     return static_cast<u32>(m_Customs.Size());
 }

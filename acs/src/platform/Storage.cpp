@@ -22,12 +22,24 @@ namespace acs {
 
 namespace {
 
+/**
+ * 2 つの NUL 終端文字列が等しいかを返す。
+ *
+ * @param a 比較する文字列 1 (nullptr 可)。
+ * @param b 比較する文字列 2 (nullptr 可)。
+ * @return 内容が一致すれば true (両方 nullptr も true)。
+ */
 bool StrEq(const char* a, const char* b) noexcept {
     if (!a || !b) return a == b;
     while (*a && *b) { if (*a != *b) return false; ++a; ++b; }
     return *a == 0 && *b == 0;
 }
 
+/**
+ * 文字列末尾の空白・改行類 (' ' '\t' '\r' '\n') を取り除く。
+ *
+ * @param s 対象の文字列 (その場で短縮される)。
+ */
 void RTrim(FString& s) noexcept {
     while (s.Size() > 0) {
         const char c = s[s.Size() - 1];
@@ -43,7 +55,16 @@ void RTrim(FString& s) noexcept {
     }
 }
 
-// 与えられたバッファ内に "<sub>\\<file>" の形でパスを書く
+/**
+ * "<base>\<sub>\<file>" の形でパスを out へ書き込む。
+ *
+ * @details cap に収まる範囲で連結し、常に NUL 終端する。
+ * @param out 書き込み先バッファ。
+ * @param cap out の容量 (要素数)。
+ * @param base 先頭のベースパス。
+ * @param sub サブディレクトリ名。
+ * @param file ファイル名。
+ */
 void Concat(wchar_t* out, usize cap, const wchar_t* base,
             const wchar_t* sub, const wchar_t* file) noexcept {
     if (cap == 0) return;
@@ -61,6 +82,14 @@ void Concat(wchar_t* out, usize cap, const wchar_t* base,
     append(file);
 }
 
+/**
+ * パスから末尾要素を除いたディレクトリ部分を out へ書き込む。
+ *
+ * @details 最後の '\\' または '/' までを切り出す。区切りが無ければ out は空文字列。
+ * @param path 元のパス。
+ * @param out ディレクトリ部分を書き込む先のバッファ。
+ * @param cap out の容量 (要素数)。
+ */
 void DirOf(const wchar_t* path, wchar_t* out, usize cap) noexcept {
     usize len = 0;
     while (path[len] && len + 1 < cap) { out[len] = path[len]; ++len; }
@@ -203,7 +232,7 @@ TResult<void> Storage::LoadFromBytes(const u8* data, usize size) noexcept {
         usize ks = 0; while (ks < eq && (line.Data()[ks] == ' ' || line.Data()[ks] == '\t')) ++ks;
         usize ke = eq; while (ke > ks && (line.Data()[ke - 1] == ' ' || line.Data()[ke - 1] == '\t')) --ke;
         usize vs = eq + 1; while (vs < line.Size() && (line.Data()[vs] == ' ' || line.Data()[vs] == '\t')) ++vs;
-        usize ve = line.Size();
+        const usize ve = line.Size();
 
         Entry e;
         e.key   = FString(FStringView(line.Data() + ks, ke - ks));
@@ -247,7 +276,7 @@ TResult<void> Storage::GetAppDataPath(const wchar_t* sub_dir,
 
     // %APPDATA%（FOLDERID_RoamingAppData）を取得
     PWSTR appdata = nullptr;
-    HRESULT hr = ::SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &appdata);
+    const HRESULT hr = ::SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &appdata);
     if (FAILED(hr) || !appdata) {
         if (appdata) ::CoTaskMemFree(appdata);
         return ACS_ERR_OS(OS, 111, "SHGetKnownFolderPath failed", static_cast<u32>(hr));
@@ -269,23 +298,38 @@ TResult<void> Storage::GetAppDataPath(const wchar_t* sub_dir,
     return Ok();
 }
 
-// ----------------------------------------------------------------------------
-// UTF-8 受口版 — wchar_t に変換して既存実装に委譲
-// (Linux/macOS では既存実装側もまだ Win32 依存。後続フェーズで完全 portable に)
-// ----------------------------------------------------------------------------
 namespace {
+
+/**
+ * UTF-8 文字列を wchar_t 文字列へ変換する。
+ *
+ * @param utf8 変換元の NUL 終端 UTF-8 文字列。
+ * @param out 変換結果を書き込む先のバッファ。
+ * @param cap out の容量 (要素数)。
+ * @return 変換に成功すれば true。
+ */
 bool Utf8ToWide(const char* utf8, wchar_t* out, usize cap) noexcept {
     if (!utf8 || !out || cap == 0) return false;
-    int n = ::MultiByteToWideChar(CP_UTF8, 0, utf8, -1, out,
+    const int n = ::MultiByteToWideChar(CP_UTF8, 0, utf8, -1, out,
                                   static_cast<int>(cap));
     return n > 0;
 }
+
+/**
+ * wchar_t 文字列を UTF-8 文字列へ変換する。
+ *
+ * @param wide 変換元の NUL 終端 wchar_t 文字列。
+ * @param out 変換結果を書き込む先のバッファ。
+ * @param cap out の容量 (バイト数)。
+ * @return 変換に成功すれば true。
+ */
 bool WideToUtf8(const wchar_t* wide, char* out, usize cap) noexcept {
     if (!wide || !out || cap == 0) return false;
-    int n = ::WideCharToMultiByte(CP_UTF8, 0, wide, -1, out,
+    const int n = ::WideCharToMultiByte(CP_UTF8, 0, wide, -1, out,
                                   static_cast<int>(cap), nullptr, nullptr);
     return n > 0;
 }
+
 } // namespace
 
 TResult<void> Storage::Load(const char* path_utf8) noexcept {

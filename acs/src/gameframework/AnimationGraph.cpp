@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — FAnimationGraph 実装 (Phase 4)
+// GameFramework Pillar L — FAnimationGraph 実装
 //
 // アルゴリズム概要:
 //   Tick(dt):
@@ -27,9 +27,9 @@
 //   ・loop wrap は while で複数周回 (= 巨大 dt が来ても周期内に収める。f32 精度
 //     ロス対策)。
 //   ・blend は **「新状態が 0→1 で前面に来る」一方向 cross-fade**。前状態の
-//     local_time を保持していないため、本 Phase では呼出側 renderer が
-//     「current clip のみを alpha で fade-in」する想定。前状態を含めた true
-//     cross-fade は Phase 5+ で previous_local_time を別途保持する形に拡張。
+//     local_time を保持していないため、呼出側 renderer が「current clip のみを
+//     alpha で fade-in」する想定。前状態を含めた true cross-fade は
+//     previous_local_time を別途保持する形に拡張できる。
 //   ・state node 0 個での Tick / Reset は no-op。各 API は debug ビルドでも
 //     crash させない方針 (= FSpriteAnimator / FCooldownTimer と同方針)。
 #include "gameframework/AnimationGraph.h"
@@ -40,20 +40,23 @@ namespace acs::game {
 
 namespace {
 
-// param 名比較 (literal 共有想定だが別バッファでも機能するよう strcmp 経由)
+/**
+ * param 名を比較する (literal 共有想定だが別バッファでも機能するよう strcmp 経由)。
+ *
+ * @param a 比較する文字列 1。
+ * @param b 比較する文字列 2。
+ * @return 内容が等しければ true (両方 nullptr 以外で同ポインタなら fast path)。
+ */
 inline bool NamesEqual(const char* a, const char* b) noexcept {
     if (a == b)                       return true;  // pointer 一致 fast path
     if (a == nullptr || b == nullptr) return false;
     return ::strcmp(a, b) == 0;
 }
 
+/** state node が見つからなかったことを表す番兵 index。 */
 constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 
 } // namespace
-
-// =============================================================================
-// 初期化 / 解放
-// =============================================================================
 
 void FAnimationGraph::Init() noexcept {
     m_Clips.Clear();
@@ -91,10 +94,6 @@ void FAnimationGraph::Shutdown() noexcept {
     m_ClipEndedFired = false;
 }
 
-// =============================================================================
-// clip 管理
-// =============================================================================
-
 u32 FAnimationGraph::AddClip(const FAnimationClipBinding& clip) noexcept {
     m_Clips.PushBack(clip);
     return static_cast<u32>(m_Clips.Size()) - 1u;
@@ -108,10 +107,6 @@ const FAnimationClipBinding* FAnimationGraph::GetClip(u32 i) const noexcept {
     if (i >= m_Clips.Size()) return nullptr;
     return &m_Clips[i];
 }
-
-// =============================================================================
-// state node 管理
-// =============================================================================
 
 void FAnimationGraph::AddStateNode(const FAnimationStateNode& node) noexcept {
     // 既存 ID と同じ node なら後勝ち上書き (重複 ID を許容しない)
@@ -145,10 +140,6 @@ const FAnimationStateNode* FAnimationGraph::GetStateNode(u32 i) const noexcept {
     return &_state_nodes[i];
 }
 
-// =============================================================================
-// transition 管理
-// =============================================================================
-
 void FAnimationGraph::AddTransition(const FAnimationTransition& trans) noexcept {
     m_Transitions.PushBack(trans);
 }
@@ -161,10 +152,6 @@ const FAnimationTransition* FAnimationGraph::GetTransition(u32 i) const noexcept
     if (i >= m_Transitions.Size()) return nullptr;
     return &m_Transitions[i];
 }
-
-// =============================================================================
-// パラメータ
-// =============================================================================
 
 void FAnimationGraph::SetParam(const char* name, f32 value) noexcept {
     if (name == nullptr) return;
@@ -193,10 +180,6 @@ f32 FAnimationGraph::GetParam(const char* name) const noexcept {
     return 0.0f;
 }
 
-// =============================================================================
-// 遷移制御
-// =============================================================================
-
 void FAnimationGraph::TriggerTransition(EAnimationGraphState target_state) noexcept {
     // 同 state への明示的遷移は no-op (= 意図せぬ self-loop による再 enter を
     // 防ぐ; どうしても再 enter したい場合は一旦別 state を経由する設計に)
@@ -204,10 +187,6 @@ void FAnimationGraph::TriggerTransition(EAnimationGraphState target_state) noexc
     m_PendingTrigger = target_state;
     m_bTriggerPending = true;
 }
-
-// =============================================================================
-// 状態取得
-// =============================================================================
 
 f32 FAnimationGraph::CurrentBlendAlpha() const noexcept {
     if (m_BlendDuration <= 0.0f) return 1.0f;       // 即時切替の場合
@@ -226,10 +205,6 @@ u32 FAnimationGraph::CurrentClipIndex() const noexcept {
     if (idx == kInvalidIndex) return 0u;
     return _state_nodes[idx].clip_index;
 }
-
-// =============================================================================
-// 内部ヘルパ
-// =============================================================================
 
 u32 FAnimationGraph::FindStateNodeIndex(EAnimationGraphState id) const noexcept {
     const usize n = _state_nodes.Size();
@@ -317,10 +292,6 @@ bool FAnimationGraph::EvaluateTransitions() noexcept {
     return false;
 }
 
-// =============================================================================
-// Tick / Reset
-// =============================================================================
-
 void FAnimationGraph::Tick(f32 dt) noexcept {
     if (dt <= 0.0f)            return;
     if (_state_nodes.IsEmpty()) return;
@@ -378,10 +349,6 @@ void FAnimationGraph::Reset() noexcept {
     m_bTriggerPending  = false;
     m_HasCurrent      = true;
 }
-
-// =============================================================================
-// callback
-// =============================================================================
 
 void FAnimationGraph::SetOnStateEnterCallback(StateEnterCallback cb, void* user) noexcept {
     _state_enter_cb   = cb;

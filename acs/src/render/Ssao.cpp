@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Screen-Space Ambient Occlusion 実装 (Phase 34j、HBAO-lite)
+// Screen-Space Ambient Occlusion 実装 (HBAO-lite)
 #include "render/Ssao.h"
 #include "foundation/Move.h"
 #include "foundation/Log.h"
@@ -8,6 +8,7 @@ namespace acs {
 
 namespace {
 
+/** SSAO (GTAO) + contact shadow を計算するシェーダの HLSL ソース。 */
 const char* kSsaoHLSL = R"(
 #pragma pack_matrix(row_major)
 
@@ -16,12 +17,12 @@ cbuffer SsaoCB : register(b0) {
     float4x4 inv_view_proj;
     float4   eye;              // xyz = world pos
     float4   params;           // x=intensity, y=radius, z=texel_w, w=texel_h
-    float4x4 view;             // Phase 34j-6 GTAO: world → view 変換
-    float4   light_dir;        // Phase 34q: dir light 0 への方向 (xyz, world、surface→light)
+    float4x4 view;             // GTAO: world → view 変換
+    float4   light_dir;        // dir light 0 への方向 (xyz, world、surface→light)
 };
 
 Texture2D    scene_depth    : register(t0);
-Texture2D    normal_gbuffer : register(t1);   // world-space normal (Phase 34m/34o)
+Texture2D    normal_gbuffer : register(t1);   // world-space normal
 SamplerState scene_depth_sampler    : register(s0);
 SamplerState normal_gbuffer_sampler : register(s1);
 
@@ -60,9 +61,9 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
     // view-space position
     float3 P = ReconstructViewPos(v.uv, depth);
-    // normal G-buffer の world normal を view 空間へ変換 (Phase 34o)。
-    // 旧 cross(ddx,ddy) は 2x2 quad 単位で faceted になり、GTAO の slice 平面
-    // 射影が段差状にずれて AO がブロック状になっていた。
+    // normal G-buffer の world normal を view 空間へ変換。
+    // cross(ddx,ddy) は 2x2 quad 単位で faceted になり、GTAO の slice 平面
+    // 射影が段差状にずれて AO がブロック状になるため避ける。
     float3 Nw = normalize(normal_gbuffer.SampleLevel(normal_gbuffer_sampler, v.uv, 0).xyz);
     float3 N  = normalize(mul(float4(Nw, 0.0), view).xyz);
     float3 V = normalize(-P);             // view 空間: eye = 原点
@@ -153,7 +154,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // visibility = 見える割合 (1=全開放、0=全遮蔽)。intensity で AO 強度調整。
     float ao = saturate(1.0 - (1.0 - visibility) * kIntensity);
 
-    // ===== Contact shadow (Phase 34q) =====
+    // ===== Contact shadow =====
     // dir light 0 へ向かう短距離 screen-space ray march。surface と光源の間に
     // geometry があれば直接光が遮られている (= 接地影)。shadow map が拾えない
     // 細かい接触遮蔽 (球と床の接地際など) を補う。結果は .g に焼き、blur で軟化、
@@ -190,9 +191,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-// Phase 34j-4: depth-aware bilateral blur。SSAO raw のノイズを、depth 不連続
-// (シルエットエッジ) を跨がないように平滑化する。5x5 kernel、spatial gaussian ×
-// depth similarity weight。
+/**
+ * depth-aware bilateral blur の HLSL ソース。
+ *
+ * @details
+ * SSAO raw のノイズを、depth 不連続 (シルエットエッジ) を跨がないように平滑化する。
+ * 5x5 kernel で spatial gaussian × depth similarity weight を掛け合わせる。
+ */
 const char* kSsaoBlurHLSL = R"(
 #pragma pack_matrix(row_major)
 
@@ -253,15 +258,33 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
+/** SSAO シェーダの定数バッファ (b0) の CPU 側レイアウト。 */
 struct SsaoCBLayout {
+    /** view * projection 行列。 */
     FMat4 view_proj;
+
+    /** view * projection の逆行列 (depth+uv → world)。 */
     FMat4 inv_view_proj;
+
+    /** カメラ world pos (xyz)。 */
     FVec4 eye;
+
+    /** パラメータ (x=intensity, y=radius, z=texel_w, w=texel_h)。 */
     FVec4 params;
-    FMat4 view;             // Phase 34j-6 GTAO
-    FVec4 light_dir;        // Phase 34q: contact shadow 用 dir light 0 方向
+
+    /** world → view 変換 (GTAO の slice 計算で使う)。 */
+    FMat4 view;
+
+    /** contact shadow 用 dir light 0 への方向 (xyz、surface→light)。 */
+    FVec4 light_dir;
 };
 
+/**
+ * 定数バッファのサイズを 256B 境界に切り上げて返す。
+ *
+ * @tparam T サイズを計算する型。
+ * @return 256B アラインに切り上げた sizeof(T)。
+ */
 template<typename T>
 constexpr usize CBSize() noexcept {
     return (sizeof(T) + 255u) & ~static_cast<usize>(255u);
@@ -269,6 +292,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
+/** 出力 RT・パイプライン・定数バッファを生成する。 */
 TResult<void> FSsao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     m_Device = &device;
     m_Width = width;
@@ -287,6 +311,7 @@ TResult<void> FSsao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     return Ok();
 }
 
+/** SSAO raw と blur 後の出力 RT を生成する。 */
 TResult<void> FSsao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
     m_Output.Reset();
     m_BlurOutput.Reset();
@@ -300,13 +325,14 @@ TResult<void> FSsao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) n
     if (r.IsErr()) return Err<void>(r.Error());
     m_Output = Move(r.Value());
 
-    // Phase 34j-4: blur 後の RT (同フォーマット / 同サイズ)
+    // blur 後の RT (同フォーマット / 同サイズ)
     auto br = CreateRhiTexture(device, td);
     if (br.IsErr()) return Err<void>(br.Error());
     m_BlurOutput = Move(br.Value());
     return Ok();
 }
 
+/** SSAO 本体と blur のシェーダ・パイプラインを生成する。 */
 TResult<void> FSsao::CreatePipeline(IRhiDevice& device) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -351,7 +377,7 @@ TResult<void> FSsao::CreatePipeline(IRhiDevice& device) noexcept {
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
     else m_Pipeline = Move(r.Value());
 
-    // Phase 34j-4: blur pipeline (ssao_raw + scene_depth → blurred)。
+    // blur pipeline (ssao_raw + scene_depth → blurred)。
     // VS は SSAO 本体と同じ fullscreen-triangle なので m_Vs を再利用する
     // (kSsaoHLSL と kSsaoBlurHLSL の VSMain は同一構造)。
     FShaderDesc bps_d{};
@@ -391,6 +417,7 @@ TResult<void> FSsao::CreatePipeline(IRhiDevice& device) noexcept {
     return Ok();
 }
 
+/** 確保した GPU リソースを解放する。 */
 void FSsao::Shutdown() noexcept {
     m_BlurPipeline.Reset();
     m_Pipeline.Reset();
@@ -403,6 +430,7 @@ void FSsao::Shutdown() noexcept {
     m_Device = nullptr;
 }
 
+/** 解像度変更時に内部 RT を作り直す。 */
 TResult<void> FSsao::Resize(u32 width, u32 height) noexcept {
     if (!m_Device) return ACS_ERR(Render, 330, "FSsao::Resize before Init");
     if (width == m_Width && height == m_Height) return Ok();
@@ -411,6 +439,7 @@ TResult<void> FSsao::Resize(u32 width, u32 height) noexcept {
     return CreateOutputRT(*m_Device, width, height);
 }
 
+/** SSAO (GTAO) と contact shadow を 2 pass で計算し内部 RT に書く。 */
 void FSsao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_depth,
                   IRhiTexture& normal_gbuffer,
@@ -426,7 +455,7 @@ void FSsao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     data.params        = FVec4{intensity, radius,
                                1.0f / static_cast<f32>(m_Width),
                                1.0f / static_cast<f32>(m_Height)};
-    data.view          = view;       // Phase 34j-6 GTAO: world → view
+    data.view          = view;       // GTAO: world → view
     data.light_dir     = FVec4{light_dir.x, light_dir.y, light_dir.z, 0};
     m_Cb->Update(&data, sizeof(data));
 
@@ -439,7 +468,7 @@ void FSsao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.Draw(3);
     cl.EndRenderToTexture(*m_Output);
 
-    // Pass 2 (Phase 34j-4): depth-aware bilateral blur → m_BlurOutput
+    // Pass 2: depth-aware bilateral blur → m_BlurOutput
     cl.BeginRenderToTexture(*m_BlurOutput, ClearColor{1, 1, 1, 1}, nullptr, 1.0f);
     cl.SetPipeline(*m_BlurPipeline);
     cl.SetConstantBuffer(0, *m_Cb);

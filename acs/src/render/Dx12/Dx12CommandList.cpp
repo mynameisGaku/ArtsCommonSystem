@@ -127,7 +127,7 @@ void Dx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index
         m_BackbufferIsRt = true;
     }
 
-    D3D12_CPU_DESCRIPTOR_HANDLE rtv = dx_sc.BackBufferRTV(buffer_index);
+    const D3D12_CPU_DESCRIPTOR_HANDLE rtv = dx_sc.BackBufferRTV(buffer_index);
 
     // 深度バッファのバインド + クリア
     Dx12Texture* dx_depth = nullptr;
@@ -187,7 +187,7 @@ void Dx12CommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) noexc
         dx_depth.SetCurrentState(D3D12_RESOURCE_STATE_DEPTH_WRITE);
     }
 
-    D3D12_CPU_DESCRIPTOR_HANDLE dsv = dx_depth.DsvCpuHandle();
+    const D3D12_CPU_DESCRIPTOR_HANDLE dsv = dx_depth.DsvCpuHandle();
     m_CmdList->OMSetRenderTargets(0, nullptr, FALSE, &dsv);
     m_CmdList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, depth_clear, 0, 0, nullptr);
 
@@ -222,7 +222,7 @@ void BindOffscreenRT(ID3D12GraphicsCommandList* cmd, Dx12Texture& rt, IRhiTextur
         rt.SetCurrentState(D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
 
-    D3D12_CPU_DESCRIPTOR_HANDLE rtv = rt.RtvCpuHandle();
+    const D3D12_CPU_DESCRIPTOR_HANDLE rtv = rt.RtvCpuHandle();
     Dx12Texture* dx_depth = depth ? static_cast<Dx12Texture*>(depth) : nullptr;
     if (dx_depth && dx_depth->IsDepth()) {
         if (dx_depth->CurrentState() != D3D12_RESOURCE_STATE_DEPTH_WRITE) {
@@ -235,7 +235,7 @@ void BindOffscreenRT(ID3D12GraphicsCommandList* cmd, Dx12Texture& rt, IRhiTextur
             cmd->ResourceBarrier(1, &b);
             dx_depth->SetCurrentState(D3D12_RESOURCE_STATE_DEPTH_WRITE);
         }
-        D3D12_CPU_DESCRIPTOR_HANDLE dsv = dx_depth->DsvCpuHandle();
+        const D3D12_CPU_DESCRIPTOR_HANDLE dsv = dx_depth->DsvCpuHandle();
         cmd->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
         if (do_clear) {
             UINT cf = D3D12_CLEAR_FLAG_DEPTH;
@@ -289,7 +289,7 @@ void Dx12CommandList::EndRenderToTexture(IRhiTexture& rt) noexcept {
     }
 }
 
-// Phase 35-3b: SS 屈折用の load 版 (clear せず再 bind)。
+// SS 屈折用の load 版 (clear せず再 bind)。
 void Dx12CommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
                                                 IRhiTexture* depth) noexcept {
     auto& dx_rt = static_cast<Dx12Texture&>(rt);
@@ -305,7 +305,7 @@ void Dx12CommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 
     auto& dx_rt = static_cast<Dx12Texture&>(rt);
     if (!dx_rt.HasRtv()) return;  // per_slice_rtv=true で作成された RT のみ
 
-    D3D12_CPU_DESCRIPTOR_HANDLE rtv = dx_rt.RtvCpuHandleForSlice(slice, mip);
+    const D3D12_CPU_DESCRIPTOR_HANDLE rtv = dx_rt.RtvCpuHandleForSlice(slice, mip);
     if (rtv.ptr == 0) return;     // 範囲外 slice/mip (作成されていない) は安全にスキップ
 
     // リソース全体 (全 face/mip サブリソース) を RENDER_TARGET へ遷移。複数 face を続けて
@@ -342,7 +342,7 @@ void Dx12CommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 
     m_BoundPipe = nullptr;  // パイプライン再 bind を強制 (BeginRenderToTexture と同様)
 }
 
-// MRT (Phase 34d-2) も同様、Diligent 専用。Dx12 raw では stub。
+// MRT も同様、Diligent 専用。Dx12 raw では stub。
 // 誤って Dx12 raw backend で MRT を呼んだケースを log で検出可能にする。
 void Dx12CommandList::BeginRenderToTextureMrt(IRhiTexture* const* /*rts*/, u32 /*rt_count*/,
                                                 const ClearColor& /*clear*/,
@@ -450,7 +450,7 @@ TResult<TUniquePtr<IRhiCommandList>> CreateRhiCommandList(IRhiDevice& device) no
         return ACS_ERR(Render, 20, "CreateRhiCommandList: device is not DX12");
     Dx12Device* dxd = static_cast<Dx12Device*>(&device);
     auto cl = MakeUnique<Dx12CommandList>();
-    HrResult r = cl->Init(*dxd);
+    const HrResult r = cl->Init(*dxd);
     if (r.IsErr()) {
         return ACS_ERR_OS(Render, 21, "Dx12CommandList::Init failed", static_cast<u32>(r.hr));
     }

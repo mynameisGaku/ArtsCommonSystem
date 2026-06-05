@@ -28,53 +28,197 @@ namespace acs { class FString; }
 
 namespace acs::mvvm::imgui {
 
-// === 編集可能 (View → FViewModel に書き戻す) ===
+/**
+ * f32 Observable をスライダで編集する (操作されたら Set で書き戻す)。
+ *
+ * @param label ウィジェットのラベル。
+ * @param v 編集対象の Observable。
+ * @param v_min スライダ下限。
+ * @param v_max スライダ上限。
+ */
 void Bind(const char* label, Observable<f32>& v, f32 v_min, f32 v_max) noexcept;
+
+/**
+ * f64 Observable をスライダで編集する (操作されたら Set で書き戻す)。
+ *
+ * @param label ウィジェットのラベル。
+ * @param v 編集対象の Observable。
+ * @param v_min スライダ下限。
+ * @param v_max スライダ上限。
+ */
 void Bind(const char* label, Observable<f64>& v, f64 v_min, f64 v_max) noexcept;
+
+/**
+ * i32 Observable をスライダで編集する (操作されたら Set で書き戻す)。
+ *
+ * @param label ウィジェットのラベル。
+ * @param v 編集対象の Observable。
+ * @param v_min スライダ下限。
+ * @param v_max スライダ上限。
+ */
 void Bind(const char* label, Observable<i32>& v, i32 v_min, i32 v_max) noexcept;
+
+/**
+ * u32 Observable をスライダで編集する (操作されたら Set で書き戻す)。
+ *
+ * @param label ウィジェットのラベル。
+ * @param v 編集対象の Observable。
+ * @param v_min スライダ下限。
+ * @param v_max スライダ上限。
+ */
 void Bind(const char* label, Observable<u32>& v, u32 v_min, u32 v_max) noexcept;
+
+/**
+ * bool Observable をチェックボックスで編集する (操作されたら Set で書き戻す)。
+ *
+ * @param label ウィジェットのラベル。
+ * @param v 編集対象の Observable。
+ */
 void Bind(const char* label, Observable<bool>& v) noexcept;
 
-// === FVec2/FVec3 スライダ ===
+/**
+ * FVec2 Observable を 2 成分スライダで編集する (操作されたら Set で書き戻す)。
+ *
+ * @param label ウィジェットのラベル。
+ * @param v 編集対象の Observable。
+ * @param v_min 各成分の下限。
+ * @param v_max 各成分の上限。
+ */
 void BindSlider2(const char* label, Observable<FVec2>& v, f32 v_min, f32 v_max) noexcept;
+
+/**
+ * FVec3 Observable を 3 成分スライダで編集する (操作されたら Set で書き戻す)。
+ *
+ * @param label ウィジェットのラベル。
+ * @param v 編集対象の Observable。
+ * @param v_min 各成分の下限。
+ * @param v_max 各成分の上限。
+ */
 void BindSlider3(const char* label, Observable<FVec3>& v, f32 v_min, f32 v_max) noexcept;
 
-// === RGB カラーピッカー (FVec3 を 0..1 の RGB として扱う) ===
+/**
+ * FVec3 Observable を RGB カラーピッカーで編集する。
+ *
+ * @details FVec3 を 0..1 の RGB として扱う。操作されたら Set で書き戻す。
+ * @param label ウィジェットのラベル。
+ * @param v 編集対象の Observable。
+ */
 void BindColor3(const char* label, Observable<FVec3>& v) noexcept;
 
-// === コンボボックス (i32 を index として、ラベル配列から選ぶ) ===
-//   labels   : 表示するラベルの配列 (count 個、null終端文字列)
-//   count    : labels の要素数
+/**
+ * i32 Observable をコンボボックスで編集する (値を選択 index として扱う)。
+ *
+ * @details 選択されたら index を Set で書き戻す。
+ * @param label ウィジェットのラベル。
+ * @param v 選択 index を保持する Observable。
+ * @param labels 表示するラベル配列 (count 個、各要素 null 終端文字列)。
+ * @param count labels の要素数。
+ */
 void BindCombo(const char* label, Observable<i32>& v,
                const char* const* labels, u32 count) noexcept;
 
-// === 文字列入力 (FString 型 Observable を編集) ===
-//   persistent : caller が持つ char バッファ (フレーム間で内容保持される必要あり)
-//   cap        : persistent の容量 (バイト)
+/**
+ * FString Observable をテキスト入力で編集する。
+ *
+ * @details
+ * 編集確定時に persistent の内容を Set で書き戻し、非編集中は Observable の最新値を
+ * persistent へ同期する (外部変更の反映)。
+ * @param label ウィジェットのラベル。
+ * @param v 編集対象の Observable。
+ * @param persistent フレーム間で内容を保持する caller 所有の char バッファ。
+ * @param cap persistent の容量 (バイト)。
+ */
 void BindText(const char* label, Observable<acs::FString>& v,
               char* persistent, usize cap) noexcept;
 
-// === printf 形式の表示専用ラベル (例: "HP: %d") ===
+/**
+ * Observable の現在値を printf 形式で表示する表示専用ラベル。
+ *
+ * @details
+ * primary template は使われず、プリミティブ型ごとに ImguiBindings.cpp で明示特殊化する。
+ * 特殊化が primary template の使用前に見える必要があるため宣言をここに置く。
+ * @tparam T 表示する値の型。
+ * @param fmt 値を 1 つ受け取る printf 書式 (例: "HP: %d")。
+ * @param v 表示する Observable。
+ */
 template<typename T>
 void BindFormat(const char* fmt, const Observable<T>& v) noexcept;
-// プリミティブ型ごとの実装は ImguiBindings.cpp で明示的に特殊化している。
-// 特殊化の「宣言」をここに置く（primary template が使われる前に特殊化が
-// 見えている必要がある — extern template との併用は標準上 ill-formed）。
+
+/**
+ * BindFormat の f32 特殊化宣言。
+ *
+ * @param fmt f32 を 1 つ受け取る printf 書式。
+ * @param v 表示する Observable<f32>。
+ */
 template<> void BindFormat<f32>(const char*, const Observable<f32>&) noexcept;
+
+/**
+ * BindFormat の f64 特殊化宣言。
+ *
+ * @param fmt f64 を 1 つ受け取る printf 書式。
+ * @param v 表示する Observable<f64>。
+ */
 template<> void BindFormat<f64>(const char*, const Observable<f64>&) noexcept;
+
+/**
+ * BindFormat の i32 特殊化宣言。
+ *
+ * @param fmt i32 を 1 つ受け取る printf 書式。
+ * @param v 表示する Observable<i32>。
+ */
 template<> void BindFormat<i32>(const char*, const Observable<i32>&) noexcept;
+
+/**
+ * BindFormat の u32 特殊化宣言。
+ *
+ * @param fmt u32 を 1 つ受け取る printf 書式。
+ * @param v 表示する Observable<u32>。
+ */
 template<> void BindFormat<u32>(const char*, const Observable<u32>&) noexcept;
 
-// === Command (ボタン) ===
-//   can_execute=false の間は grayout 表示
+/**
+ * Command をボタンとして描画し、クリックで実行する。
+ *
+ * @details can_execute が false の間は grayout 表示され実行されない。
+ * @param label ボタンのラベル。
+ * @param cmd 描画・実行する Command。
+ * @return クリックされ実行できたら true。
+ */
 bool BindCommand(const char* label, Command& cmd) noexcept;
 
-// === 読み取り専用テキスト ===
+/**
+ * f32 Observable の現在値を読み取り専用テキストで表示する。
+ *
+ * @param label 先頭に付けるラベル。
+ * @param v 表示する Observable。
+ */
 void BindReadOnly(const char* label, const Observable<f32>& v) noexcept;
+
+/**
+ * i32 Observable の現在値を読み取り専用テキストで表示する。
+ *
+ * @param label 先頭に付けるラベル。
+ * @param v 表示する Observable。
+ */
 void BindReadOnly(const char* label, const Observable<i32>& v) noexcept;
+
+/**
+ * bool Observable の現在値を読み取り専用テキストで表示する。
+ *
+ * @param label 先頭に付けるラベル。
+ * @param v 表示する Observable。
+ */
 void BindReadOnly(const char* label, const Observable<bool>& v) noexcept;
 
-// === プログレスバー (HP/MP 表示など) ===
+/**
+ * f32 Observable の値を [v_min, v_max] で正規化してプログレスバー表示する。
+ *
+ * @details HP/MP などの割合表示に使う。
+ * @param label バーの後ろに付けるラベル。
+ * @param v 表示する Observable。
+ * @param v_min 0% に対応する下限。
+ * @param v_max 100% に対応する上限。
+ */
 void BindProgress(const char* label, const Observable<f32>& v, f32 v_min, f32 v_max) noexcept;
 
 } // namespace acs::mvvm::imgui

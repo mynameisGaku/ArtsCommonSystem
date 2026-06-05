@@ -19,6 +19,7 @@
 
 namespace acs::game {
 
+/** inactive な slot を再利用し、なければ末尾に追加して index を返す。 */
 u32 FCooldownTimer::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用
     const usize n = m_Slots.Size();
@@ -35,10 +36,12 @@ u32 FCooldownTimer::AcquireSlot() noexcept {
     return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
+/** index と generation を packed して CooldownId を作る。 */
 CooldownId FCooldownTimer::MakeId(u32 index, u8 gen) const noexcept {
     return CooldownId::Pack(index, gen);
 }
 
+/** handle を解決し、slot active + gen 一致なら slot を返す。 */
 FCooldownTimer::Slot* FCooldownTimer::Resolve(CooldownId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
@@ -48,6 +51,7 @@ FCooldownTimer::Slot* FCooldownTimer::Resolve(CooldownId id) noexcept {
     return &s;
 }
 
+/** handle を解決し、slot active + gen 一致なら const slot を返す。 */
 const FCooldownTimer::Slot* FCooldownTimer::Resolve(CooldownId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
@@ -57,6 +61,7 @@ const FCooldownTimer::Slot* FCooldownTimer::Resolve(CooldownId id) const noexcep
     return &s;
 }
 
+/** cooldown を登録し、reload 中扱いの slot を確保して handle を返す。 */
 CooldownId FCooldownTimer::Register(const char* label, f32 duration_sec) noexcept {
     if (duration_sec <= 0.0f) return {};
 
@@ -79,6 +84,7 @@ CooldownId FCooldownTimer::Register(const char* label, f32 duration_sec) noexcep
     return MakeId(idx, new_gen);
 }
 
+/** slot をクリアして active 解除する (gen は次 Acquire で進む)。 */
 void FCooldownTimer::Unregister(CooldownId id) noexcept {
     Slot* s = Resolve(id);
     if (s == nullptr) return;
@@ -92,6 +98,7 @@ void FCooldownTimer::Unregister(CooldownId id) noexcept {
     if (m_ActiveCount > 0u) --m_ActiveCount;
 }
 
+/** charged なら remaining を duration に戻して消費し true を返す。 */
 bool FCooldownTimer::TryUse(CooldownId id) noexcept {
     Slot* s = Resolve(id);
     if (s == nullptr) return false;
@@ -103,11 +110,13 @@ bool FCooldownTimer::TryUse(CooldownId id) noexcept {
     return true;
 }
 
+/** cooldown が charged かを返す (stale handle は false)。 */
 bool FCooldownTimer::IsCharged(CooldownId id) const noexcept {
     const Slot* s = Resolve(id);
     return s != nullptr && s->charged;
 }
 
+/** 残り cooldown 秒数を返す (charged / stale は 0)。 */
 f32 FCooldownTimer::Remaining(CooldownId id) const noexcept {
     const Slot* s = Resolve(id);
     if (s == nullptr) return 0.0f;
@@ -115,6 +124,7 @@ f32 FCooldownTimer::Remaining(CooldownId id) const noexcept {
     return s->remaining > 0.0f ? s->remaining : 0.0f;
 }
 
+/** cooldown 進行率 [0,1] を返す (charged は 1.0、stale は 0)。 */
 f32 FCooldownTimer::Progress(CooldownId id) const noexcept {
     const Slot* s = Resolve(id);
     if (s == nullptr) return 0.0f;
@@ -127,6 +137,7 @@ f32 FCooldownTimer::Progress(CooldownId id) const noexcept {
     return p;
 }
 
+/** 即時 charged にし、false→true 遷移なら ReadyCallback を発火する。 */
 void FCooldownTimer::ForceReady(CooldownId id) noexcept {
     Slot* s = Resolve(id);
     if (s == nullptr) return;
@@ -139,6 +150,7 @@ void FCooldownTimer::ForceReady(CooldownId id) noexcept {
     }
 }
 
+/** cooldown を duration にリセットして reload 中 (charged=false) に戻す。 */
 void FCooldownTimer::Reset(CooldownId id) noexcept {
     Slot* s = Resolve(id);
     if (s == nullptr) return;
@@ -146,6 +158,7 @@ void FCooldownTimer::Reset(CooldownId id) noexcept {
     s->charged   = false;
 }
 
+/** cooldown 長を変更し、必要なら remaining を new_duration にクランプする。 */
 void FCooldownTimer::SetDuration(CooldownId id, f32 new_duration_sec) noexcept {
     if (new_duration_sec <= 0.0f) return;
     Slot* s = Resolve(id);
@@ -159,6 +172,7 @@ void FCooldownTimer::SetDuration(CooldownId id, f32 new_duration_sec) noexcept {
     }
 }
 
+/** 全 active slot をクリアして active 解除し、件数を 0 にする。 */
 void FCooldownTimer::ClearAll() noexcept {
     const usize n = m_Slots.Size();
     for (usize i = 0; i < n; ++i) {
@@ -173,6 +187,7 @@ void FCooldownTimer::ClearAll() noexcept {
     m_ActiveCount = 0u;
 }
 
+/** 全 cooldown の remaining を進め、0 到達で charged 遷移 + callback 発火。 */
 void FCooldownTimer::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     if (m_ActiveCount == 0u) return;

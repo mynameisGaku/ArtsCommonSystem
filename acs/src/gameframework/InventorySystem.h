@@ -41,7 +41,7 @@
 //   inv.MoveSlot(3, 7);                                  // UI ドラッグ&ドロップ
 //   inv.DropSlot(7);                                     // can_drop=true のときのみ
 //
-// 設計選択 (Pillar O/G Phase 4):
+// 設計選択 (Pillar O/G):
 //   ・**Item 定義は単一 TArray<ItemDef>**: アイテム数は AAA でも 500〜2000 のオーダー、
 //     線形走査で十分 (FEntitlement / FEconomyDirector と同じ判断)。
 //   ・**Slot data は固定長 TArray<InventorySlot>**: Init(slot_count) で Resize し、
@@ -69,7 +69,7 @@
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
 //   ・**STL 不使用、`<string>` 禁止**: const char* 非所有のみ。
 //
-// 範囲外 (Phase 5+ で):
+// 範囲外:
 //   ・永続化 (Save/Load) — Pillar J Serialize と統合。slot 内容は起動毎にリセット。
 //   ・装備品の性能 / バフ — 本クラスは「持ってる個数」だけを真実とし、性能は別 Manager。
 //   ・アイテムカテゴリでのフィルタリング — UI 側で実装 (本クラスは AllSlots を提供)。
@@ -84,147 +84,260 @@
 
 namespace acs::game {
 
-// ---- EItemCategory: アイテム分類 --------------------------------------------
-// UI のタブフィルタや、AddItem / Drop の挙動分岐の参考に使う。
-// Manager は中身を解釈しない (= 値を保存して照会できるようにするだけ)。
+/**
+ * アイテム分類。
+ *
+ * @details
+ * UI のタブフィルタや、AddItem / Drop の挙動分岐の参考に使う。Manager は中身を
+ * 解釈しない (= 値を保存して照会できるようにするだけ)。
+ */
 enum class EItemCategory : u8 {
-    Consumable = 0,  // ポーション / 食料 / 弾薬等の消費アイテム
-    Equipment  = 1,  // 装備品 (見た目 cosmetic は FCharacterCustomizer 側)
-    Material   = 2,  // クラフト素材 / 鉱石 / ハーブ等
-    Quest      = 3,  // クエスト関連アイテム (通常 can_drop = false)
-    Keys       = 4,  // 鍵 / IC カード等 (通常 can_drop = false)
-    Cosmetic   = 5,  // インベントリで持ち歩く cosmetic 系 (装着は別 Manager)
+    /** ポーション / 食料 / 弾薬等の消費アイテム。 */
+    Consumable = 0,
+
+    /** 装備品 (見た目 cosmetic は FCharacterCustomizer 側)。 */
+    Equipment  = 1,
+
+    /** クラフト素材 / 鉱石 / ハーブ等。 */
+    Material   = 2,
+
+    /** クエスト関連アイテム (通常 can_drop = false)。 */
+    Quest      = 3,
+
+    /** 鍵 / IC カード等 (通常 can_drop = false)。 */
+    Keys       = 4,
+
+    /** インベントリで持ち歩く cosmetic 系 (装着は別 Manager)。 */
+    Cosmetic   = 5,
 };
 
-// ---- ItemDef: アイテム 1 種類の定義 (immutable) ----------------------------
-// id           : 一意キー (slot.item_id から参照される)。文字列リテラル想定 (非所有)。
-// display_name : UI 表示名 (非所有)。
-// category     : 分類 (UI フィルタ用、Manager は値保存のみ)。
-// max_stack    : 同 slot に重ねられる最大個数。1 = stack 不可。
-//                0 を渡された場合は 1 にクランプして登録する (defensive)。
-// icon_path    : UI アイコン画像のパス (非所有)。レンダラ / UI が解釈。
-// can_drop     : DropSlot で捨てられるか。quest / key 系は false にする想定。
+/**
+ * アイテム 1 種類の定義 (immutable)。
+ */
 struct ItemDef {
+    /** 一意キー (slot.item_id から参照される)。文字列リテラル想定 (非所有)。 */
     const char*  id           = nullptr;
+
+    /** UI 表示名 (非所有)。 */
     const char*  display_name = nullptr;
+
+    /** 分類 (UI フィルタ用、Manager は値保存のみ)。 */
     EItemCategory category     = EItemCategory::Consumable;
+
+    /** 同 slot に重ねられる最大個数 (1 = stack 不可。0 は 1 にクランプ)。 */
     u32          max_stack    = 1;
+
+    /** UI アイコン画像のパス (非所有)。レンダラ / UI が解釈。 */
     const char*  icon_path    = nullptr;
+
+    /** DropSlot で捨てられるか (quest / key 系は false にする想定)。 */
     bool         can_drop     = true;
 };
 
-// ---- InventorySlot: 1 つの slot の内容 -------------------------------------
-// item_id : 入っているアイテムの id (リテラル参照、非所有)。nullptr = 空 slot。
-// count   : stack 数 (1〜max_stack)。空 slot のときは 0。
+/**
+ * 1 つの slot の内容。
+ */
 struct InventorySlot {
+    /** 入っているアイテムの id (リテラル参照、非所有)。nullptr = 空 slot。 */
     const char* item_id = nullptr;
+
+    /** stack 数 (1〜max_stack)。空 slot のときは 0。 */
     u32         count   = 0;
 };
 
-// ---- FInventorySystem -------------------------------------------------------
+/**
+ * アイテムスロット + stack 管理を行うインベントリマネージャ。
+ *
+ * @details
+ * 固定 slot 数 × stack 可能アイテムモデルで、プレイヤーが持ち歩くアイテムを保持する。
+ * 全 noexcept、非コピー・非ムーブ。const char* は非所有 (呼出側が長寿命を保証)。
+ */
 class FInventorySystem {
 public:
-    // 変更通知コールバック。STL <functional> 禁止のため C 関数ポインタ + user。
-    //   user       : SetOnChangeCallback で渡したコンテキスト (Manager は所有しない)
-    //   slot_index : 変化があった slot 番号
-    //   item_id    : 変化後の id (リテラル参照) or nullptr (= 空になった)
-    //   count      : 変化後の stack 数 (空 slot のときは 0)
+    /**
+     * slot 変更通知コールバック (C 関数ポインタ + user)。
+     *
+     * @details STL <functional> 禁止のため関数ポインタ + void* user 形式。
+     * @param user SetOnChangeCallback で渡したコンテキスト (Manager は所有しない)。
+     * @param slot_index 変化があった slot 番号。
+     * @param item_id 変化後の id (リテラル参照) or nullptr (= 空になった)。
+     * @param count 変化後の stack 数 (空 slot のときは 0)。
+     */
     using ChangeCallback = void(*)(void* user, u32 slot_index, const char* item_id, u32 count) noexcept;
 
+    /** 空状態 (slot 数 0) で構築する。 */
     FInventorySystem()  noexcept = default;
+
+    /** 破棄する (内部 TArray が解放)。 */
     ~FInventorySystem() noexcept = default;
 
+    /** コピー禁止 (他 Manager 系と統一)。 */
     FInventorySystem(const FInventorySystem&)            = delete;
+
+    /** コピー代入も禁止。 */
     FInventorySystem& operator=(const FInventorySystem&) = delete;
+
+    /** ムーブ禁止。 */
     FInventorySystem(FInventorySystem&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FInventorySystem& operator=(FInventorySystem&&)      = delete;
 
-    // ---- 初期化 ----------------------------------------------------------
-    // slot 数を設定 (再呼び出しで slot_count が変わる場合は内容クリアして resize、
-    // 同じ slot_count なら no-op)。slot_count == 0 は 1 にクランプ (defensive)。
-    // default 30 想定 (一般的な RPG / サバイバルゲームの初期容量)。
+    /**
+     * slot 数を設定する (冪等に再構築)。
+     *
+     * @details
+     * 再呼び出しで slot_count が変わる場合は内容クリアして resize、同じ slot_count
+     * なら no-op。slot_count == 0 は 1 にクランプ (defensive)。
+     * @param slot_count 確保する slot 数 (既定 30)。
+     */
     void Init(u32 slot_count = 30) noexcept;
 
-    // ---- 定義登録 (起動時に 1 度ずつ) ------------------------------------
-    // 同 id の 2 重登録は no-op (WARN)。`def.id == nullptr` も no-op。
-    // `def.max_stack == 0` は 1 にクランプ。
+    /**
+     * アイテム定義を登録する (起動時に 1 度ずつ)。
+     *
+     * @details
+     * 同 id の 2 重登録は no-op (WARN)。`def.id == nullptr` も no-op。
+     * `def.max_stack == 0` は 1 にクランプ。
+     * @param def 登録するアイテム定義。
+     */
     void RegisterItem(const ItemDef& def) noexcept;
 
-    // 単一 ItemDef 取得。未登録 / nullptr は nullptr。返却ポインタは次の
-    // RegisterItem() / ClearAll() で無効化される可能性がある。
+    /**
+     * 単一 ItemDef を取得する。
+     *
+     * @details 返却ポインタは次の RegisterItem() / ClearAll() で無効化され得る。
+     * @param item_id 探すアイテム id。
+     * @return 見つかった ItemDef へのポインタ (未登録 / nullptr なら nullptr)。
+     */
     const ItemDef* FindItem(const char* item_id) const noexcept;
 
-    // ---- 在庫操作 --------------------------------------------------------
-    // 指定 item_id を count 個追加。既存 stack に積み増し優先 → なければ空 slot を使う。
-    // 戻り値: 追加できた個数 (満杯で全部入らなかったら 0〜count の途中値)。
-    // 未登録 item_id / nullptr / count == 0 は 0 を返す (side effect なし)。
-    // Init() 前 (slot_count == 0) も 0 を返す。
+    /**
+     * 指定アイテムを count 個追加する。
+     *
+     * @details 既存 stack への積み増し優先 → なければ空 slot を使う。
+     * @param item_id 追加するアイテム id。
+     * @param count 追加したい個数。
+     * @return 実際に追加できた個数 (満杯 / 未登録 / nullptr / Init 前は 0〜count の途中値)。
+     */
     u32 AddItem(const char* item_id, u32 count) noexcept;
 
-    // 指定 item_id を count 個削除 (全 slot 横断、前方優先で減らす)。
-    // 戻り値: 実際に削除できた個数 (在庫不足なら 0〜count の途中値)。
-    // 未登録 item_id / nullptr / count == 0 は 0。
+    /**
+     * 指定アイテムを count 個削除する (全 slot 横断、前方優先)。
+     *
+     * @param item_id 削除するアイテム id。
+     * @param count 削除したい個数。
+     * @return 実際に削除できた個数 (在庫不足 / 未登録 / nullptr は 0〜count の途中値)。
+     */
     u32 RemoveItem(const char* item_id, u32 count) noexcept;
 
-    // 指定 item_id を min_count 個以上持っているか。
-    // nullptr / 未登録は false。min_count == 0 は true (defensive — 「0 個以上」)。
+    /**
+     * 指定アイテムを min_count 個以上持っているかを返す。
+     *
+     * @param item_id 調べるアイテム id。
+     * @param min_count 必要な最小個数 (既定 1。0 は defensive に true)。
+     * @return min_count 個以上あれば true (nullptr / 未登録は false)。
+     */
     bool HasItem(const char* item_id, u32 min_count = 1) const noexcept;
 
-    // 指定 item_id を全 slot で合計何個持っているか。
-    // 未登録 / nullptr は 0。
+    /**
+     * 指定アイテムを全 slot 合計で何個持っているかを返す。
+     *
+     * @param item_id 集計するアイテム id。
+     * @return 合計 stack 数 (未登録 / nullptr は 0)。
+     */
     u32 ItemTotal(const char* item_id) const noexcept;
 
-    // ---- slot 操作 -------------------------------------------------------
-    // slot 間の移動 (UI ドラッグ&ドロップ用)。
-    //   ・from / to が同じ index → no-op true
-    //   ・to が空 → from の内容を to に移し、from を空にする
-    //   ・to に同 item_id が入っている → merge (max_stack まで)。残りは from に残す
-    //   ・to に別 item_id が入っている → swap
-    // 戻り値: 範囲外 / Init 前 / nullptr 系の異常は false。それ以外は true。
-    // from が空 slot のときも true (操作は no-op)。
+    /**
+     * slot 間で内容を移動する (UI ドラッグ&ドロップ用)。
+     *
+     * @details
+     * from / to が同 index は no-op で成功扱い。to が空なら移動、to に同 item_id
+     * なら merge (max_stack まで、残りは from に残す)、別 item_id なら swap。
+     * @param from_index 移動元 slot の添字。
+     * @param to_index 移動先 slot の添字。
+     * @return 範囲外 / Init 前 / nullptr 系の異常は false、それ以外は true。
+     */
     bool MoveSlot(u32 from_index, u32 to_index) noexcept;
 
-    // slot を空にする (= アイテムを地面に落とす想定の UI 操作)。
-    // 戻り値: 範囲外 / Init 前 / 既に空 / can_drop == false の slot は false。
-    // 落としたアイテムをワールドに spawn するのは呼出側の責務 (ChangeCallback で検知)。
+    /**
+     * slot を空にする (アイテムを地面に落とす想定の UI 操作)。
+     *
+     * @details
+     * 落としたアイテムをワールドに spawn するのは呼出側の責務 (ChangeCallback で検知)。
+     * @param index 空にする slot の添字。
+     * @return 範囲外 / Init 前 / 既に空 / can_drop == false なら false、成功なら true。
+     */
     bool DropSlot(u32 index) noexcept;
 
-    // ---- 照会 ------------------------------------------------------------
-    // 指定 slot の内容を取得。範囲外は nullptr。
-    // 返却ポインタは次の Init() / ClearAll() で無効化される可能性がある。
-    // 個々の slot 操作 (Add / Remove / Move / Drop) ではポインタは有効のまま。
+    /**
+     * 指定 slot の内容を取得する。
+     *
+     * @details
+     * 返却ポインタは次の Init() / ClearAll() で無効化され得る。個々の slot 操作
+     * (Add / Remove / Move / Drop) ではポインタは有効のまま。
+     * @param index 取得する slot の添字。
+     * @return slot へのポインタ (範囲外なら nullptr)。
+     */
     const InventorySlot* GetSlot(u32 index) const noexcept;
 
-    // 現在の slot 数 (Init で設定した値)。
+    /**
+     * 現在の slot 数を返す。
+     *
+     * @return Init で設定した slot 数。
+     */
     u32 SlotCount() const noexcept;
 
-    // 空 slot の個数 (UI の "X/Y 使用" 表示等)。
+    /**
+     * 空 slot の個数を返す (UI の "X/Y 使用" 表示等)。
+     *
+     * @return item_id == nullptr の slot 数。
+     */
     u32 EmptySlotCount() const noexcept;
 
-    // ---- コールバック ----------------------------------------------------
-    // cb = nullptr で detach。user は所有しない (= 呼出側の責務)。
+    /**
+     * slot 変更通知コールバックを設定する。
+     *
+     * @details cb = nullptr で detach。user は所有しない (呼出側の責務)。
+     * @param cb 変更時に呼ぶコールバック (nullptr で解除)。
+     * @param user コールバックに渡すコンテキスト。
+     */
     void SetOnChangeCallback(ChangeCallback cb, void* user) noexcept;
 
-    // ---- 全リセット (デバッグ / シーン切替時) ----------------------------
-    // アイテム定義 + slot 内容をすべてクリア。slot 数も 0 に戻る (再 Init 必須)。
-    // ChangeCallback 設定もクリアする。loop 防止のため callback は呼ばない。
+    /**
+     * アイテム定義 + slot 内容 + コールバック設定をすべてクリアする。
+     *
+     * @details
+     * slot 数も 0 に戻る (再 Init 必須)。loop 防止のため callback は呼ばない。
+     */
     void ClearAll() noexcept;
 
 private:
-    // item_id → m_Items 内 index の per-byte 線形検索。未検出は ~0u。
+    /**
+     * item_id から m_Items 内 index を線形検索する。
+     *
+     * @param item_id 探すアイテム id。
+     * @return 見つかった index、未検出は ~0u。
+     */
     u32 FindItemSlot(const char* item_id) const noexcept;
 
-    // slot 変更通知 (callback が設定されていれば呼ぶ)。
+    /**
+     * slot 変更を通知する (callback が設定されていれば呼ぶ)。
+     *
+     * @param slot_index 変化があった slot 番号。
+     */
     void NotifyChange(u32 slot_index) noexcept;
 
-    // アイテム定義 (起動時 immutable)。
+    /** アイテム定義 (起動時 immutable)。 */
     TArray<ItemDef> m_Items;
 
-    // slot data (Init で固定長 Resize、以降伸縮しない)。
+    /** slot data (Init で固定長 Resize、以降伸縮しない)。 */
     TArray<InventorySlot> m_Slots;
 
-    // 変更通知 callback (C 関数ポインタ + user)。Manager は user を所有しない。
+    /** 変更通知 callback (C 関数ポインタ)。未設定は nullptr。 */
     ChangeCallback m_OnChange      = nullptr;
+
+    /** ChangeCallback に渡すユーザコンテキスト (Manager は所有しない)。 */
     void*          m_OnChangeUser = nullptr;
 };
 

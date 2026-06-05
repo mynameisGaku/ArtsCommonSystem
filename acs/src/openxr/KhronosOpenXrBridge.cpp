@@ -13,30 +13,30 @@ namespace acs::openxr {
 
 namespace {
 
-acs::FErrorCode XrError(XrResult Result, acs::u16 Subcode, const char* Message) noexcept {
-    (void)Result;
-    return ACS_ERR(Generic, Subcode, Message);
+acs::FErrorCode XrError(XrResult result, acs::u16 subcode, const char* message) noexcept {
+    (void)result;
+    return ACS_ERR(Generic, subcode, message);
 }
 
-bool HasExtension(const char* Name) noexcept {
-    u32 Count = 0;
-    XrResult Result = xrEnumerateInstanceExtensionProperties(nullptr, 0, &Count, nullptr);
-    if (Result != XR_SUCCESS || Count == 0) {
+bool HasExtension(const char* name) noexcept {
+    u32 count = 0;
+    XrResult result = xrEnumerateInstanceExtensionProperties(nullptr, 0, &count, nullptr);
+    if (result != XR_SUCCESS || count == 0) {
         return false;
     }
 
-    XrExtensionProperties Props[128] = {};
-    const u32 Cap = Count < 128u ? Count : 128u;
-    for (u32 i = 0; i < Cap; ++i) {
-        Props[i].type = XR_TYPE_EXTENSION_PROPERTIES;
+    XrExtensionProperties props[128] = {};
+    const u32 cap = count < 128u ? count : 128u;
+    for (u32 i = 0; i < cap; ++i) {
+        props[i].type = XR_TYPE_EXTENSION_PROPERTIES;
     }
-    Result = xrEnumerateInstanceExtensionProperties(nullptr, Cap, &Count, Props);
-    if (Result != XR_SUCCESS) {
+    result = xrEnumerateInstanceExtensionProperties(nullptr, cap, &count, props);
+    if (result != XR_SUCCESS) {
         return false;
     }
-    const u32 n = Count < Cap ? Count : Cap;
+    const u32 n = count < cap ? count : cap;
     for (u32 i = 0; i < n; ++i) {
-        if (std::strcmp(Props[i].extensionName, Name) == 0) {
+        if (std::strcmp(props[i].extensionName, name) == 0) {
             return true;
         }
     }
@@ -49,46 +49,46 @@ FKhronosOpenXrBridge::~FKhronosOpenXrBridge() noexcept {
     Shutdown();
 }
 
-TResult<void> FKhronosOpenXrBridge::Init(game::EXrPlatform Platform) noexcept {
+TResult<void> FKhronosOpenXrBridge::Init(game::EXrPlatform platform) noexcept {
     if (m_bInitialized) return Ok();
 
-    u32 ExtensionCount = 0;
-    XrResult EnumResult = xrEnumerateInstanceExtensionProperties(nullptr, 0, &ExtensionCount, nullptr);
-    if (EnumResult == XR_ERROR_RUNTIME_UNAVAILABLE) {
-        return XrError(EnumResult, kSubOpenXrRuntimeUnavailable,
+    u32 extension_count = 0;
+    const XrResult enum_result = xrEnumerateInstanceExtensionProperties(nullptr, 0, &extension_count, nullptr);
+    if (enum_result == XR_ERROR_RUNTIME_UNAVAILABLE) {
+        return XrError(enum_result, kSubOpenXrRuntimeUnavailable,
                        "OpenXR loader is linked, but no active OpenXR runtime is installed");
     }
-    if (EnumResult != XR_SUCCESS) {
-        return XrError(EnumResult, kSubOpenXrInitFailed,
+    if (enum_result != XR_SUCCESS) {
+        return XrError(enum_result, kSubOpenXrInitFailed,
                        "xrEnumerateInstanceExtensionProperties failed");
     }
 
-    XrApplicationInfo AppInfo{};
-    std::strncpy(AppInfo.applicationName, "ACS", XR_MAX_APPLICATION_NAME_SIZE - 1);
-    AppInfo.applicationVersion = 1;
-    std::strncpy(AppInfo.engineName, "ACS", XR_MAX_ENGINE_NAME_SIZE - 1);
-    AppInfo.engineVersion = 1;
-    AppInfo.apiVersion = XR_CURRENT_API_VERSION;
+    XrApplicationInfo app_info{};
+    std::strncpy(app_info.applicationName, "ACS", XR_MAX_APPLICATION_NAME_SIZE - 1);
+    app_info.applicationVersion = 1;
+    std::strncpy(app_info.engineName, "ACS", XR_MAX_ENGINE_NAME_SIZE - 1);
+    app_info.engineVersion = 1;
+    app_info.apiVersion = XR_CURRENT_API_VERSION;
 
-    XrInstanceCreateInfo CreateInfo{};
-    CreateInfo.type = XR_TYPE_INSTANCE_CREATE_INFO;
-    CreateInfo.applicationInfo = AppInfo;
+    XrInstanceCreateInfo create_info{};
+    create_info.type = XR_TYPE_INSTANCE_CREATE_INFO;
+    create_info.applicationInfo = app_info;
 
-    XrInstance Instance = XR_NULL_HANDLE;
-    XrResult CreateResult = xrCreateInstance(&CreateInfo, &Instance);
-    if (CreateResult == XR_ERROR_RUNTIME_UNAVAILABLE) {
-        return XrError(CreateResult, kSubOpenXrRuntimeUnavailable,
+    XrInstance instance = XR_NULL_HANDLE;
+    const XrResult create_result = xrCreateInstance(&create_info, &instance);
+    if (create_result == XR_ERROR_RUNTIME_UNAVAILABLE) {
+        return XrError(create_result, kSubOpenXrRuntimeUnavailable,
                        "OpenXR runtime disappeared while creating instance");
     }
-    if (CreateResult != XR_SUCCESS) {
-        return XrError(CreateResult, kSubOpenXrInitFailed, "xrCreateInstance failed");
+    if (create_result != XR_SUCCESS) {
+        return XrError(create_result, kSubOpenXrInitFailed, "xrCreateInstance failed");
     }
 
-    m_Instance = reinterpret_cast<void*>(Instance);
-    m_Platform = Platform;
+    m_Instance = reinterpret_cast<void*>(instance);
+    m_Platform = platform;
     m_bInitialized = true;
     m_bPassthroughSupported = HasExtension("XR_FB_passthrough") || HasExtension("XR_HTC_passthrough");
-    ACS_LOG_INFO("FKhronosOpenXrBridge initialized (extensions=%u)", ExtensionCount);
+    ACS_LOG_INFO("FKhronosOpenXrBridge initialized (extensions=%u)", extension_count);
     return Ok();
 }
 
@@ -108,8 +108,8 @@ void FKhronosOpenXrBridge::Shutdown() noexcept {
     m_bTickWarned = false;
 }
 
-void FKhronosOpenXrBridge::Tick(f32 Dt) noexcept {
-    (void)Dt;
+void FKhronosOpenXrBridge::Tick(f32 dt) noexcept {
+    (void)dt;
     // 正直化: 実セッションループ (xrCreateSession → xrWaitFrame / xrBeginFrame /
     // xrLocateViews / xrSyncActions / xrLocateSpace) は graphics binding (D3D12/Vulkan)
     // と HMD ランタイムを要求し、本 module は renderer に依存しないため未実装。
@@ -135,8 +135,8 @@ void FKhronosOpenXrBridge::Tick(f32 Dt) noexcept {
     m_Right = game::XrControllerState{};
 }
 
-void FKhronosOpenXrBridge::SetPassthrough(bool bOn) noexcept {
-    m_bPassthroughRequested = bOn && m_bPassthroughSupported;
+void FKhronosOpenXrBridge::SetPassthrough(bool b_on) noexcept {
+    m_bPassthroughRequested = b_on && m_bPassthroughSupported;
 }
 
 } // namespace acs::openxr

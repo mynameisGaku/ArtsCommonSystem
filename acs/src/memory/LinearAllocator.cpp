@@ -32,10 +32,10 @@ void* FLinearAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) n
     if (size == 0 || !m_Base) return nullptr;
     if (alignment < 1) alignment = 1;
     while (true) {
-        u64 cur = m_Used.Load(EMemoryOrder::Relaxed);
-        u64 base_addr = reinterpret_cast<u64>(m_Base);
-        u64 aligned   = AlignUp(base_addr + cur, alignment) - base_addr;
-        u64 next      = aligned + size;
+        const u64 cur = m_Used.Load(EMemoryOrder::Relaxed);
+        const u64 base_addr = reinterpret_cast<u64>(m_Base);
+        const u64 aligned   = AlignUp(base_addr + cur, alignment) - base_addr;
+        const u64 next      = aligned + size;
         if (next > m_Capacity) return nullptr;  // 予算超過
         u64 expected = cur;
         if (m_Used.CompareExchange(expected, next)) {

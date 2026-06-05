@@ -4,6 +4,7 @@
 
 namespace acs {
 
+/** バイト列を NUL 終端の char バッファへコピーし、Ready 状態の FTextAsset を生成して返す。 */
 TResult<TSharedPtr<Asset>> FTextAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     TArray<char> text;
     text.Resize(bytes.Size() + 1);

@@ -29,47 +29,99 @@
 
 namespace acs {
 
+/**
+ * XAudio2 を裏に持つ音声再生エンジン。
+ *
+ * @details
+ * Init() で COM とマスタリングボイスを立ち上げ、Play() で FAudioAsset ごとに 1 つの
+ * ソースボイス (発音スロット) を確保して再生する。同時発音は最大 64 スロットで、
+ * 一発再生のボイスはバッファが流れ切ると自動回収され、ループ再生は Stop されるまで残る。
+ * 各再生は世代付きの SoundHandle で識別され、スロット再利用後の古いハンドルは無効になる。
+ * 内部状態は XAudio2 ヘッダを公開しないよう pimpl で隠蔽し、スロットは mutex で保護する。
+ * non-copy 型。
+ */
 class FAudioEngine {
 public:
+    /** 未初期化状態で構築する (XAudio2 は Init で立ち上げ)。 */
     FAudioEngine() noexcept = default;
+
+    /** 破棄する (Shutdown を呼んで全ボイスと XAudio2 を解放)。 */
     ~FAudioEngine() noexcept;
 
+    /** コピー禁止 (XAudio2 リソースを単独所有するため)。 */
     FAudioEngine(const FAudioEngine&) = delete;
+
+    /** コピー代入も禁止。 */
     FAudioEngine& operator=(const FAudioEngine&) = delete;
 
-    // XAudio2 を初期化
+    /**
+     * COM とマスタリングボイスを含む XAudio2 エンジンを初期化する。
+     *
+     * @return 成功なら空の TResult、二重初期化や XAudio2 生成失敗ならエラー。
+     */
     TResult<void> Init() noexcept;
-    // 全停止 + 解放
+
+    /** 全ボイスを停止・解放し、XAudio2 と COM を後始末する (多重呼び出し安全)。 */
     void Shutdown() noexcept;
 
-    // 音声を再生開始
-    //   volume: 0.0..1.0
-    //   loop  : true なら無限ループ
+    /**
+     * アセットを 1 つのソースボイスで再生開始する。
+     *
+     * @details
+     * 空きスロットを確保し、サンプルデータを再生中保持用にコピーしてソースボイスを生成・
+     * 再生する。空きスロットが無い・アセットが空の場合は無効ハンドルを返す。
+     * @param asset 再生する音声アセット (wav/mp3/flac/ogg)。
+     * @param volume 初期音量 (0.0..1.0、範囲外は内部でクランプ、既定 1.0)。
+     * @param loop true なら無限ループ再生 (既定 false の一発再生)。
+     * @return この再生を指す SoundHandle (失敗時は kInvalidSound)。
+     */
     SoundHandle Play(const FAudioAsset& asset, f32 volume = 1.0f, bool loop = false) noexcept;
 
-    // 停止 (内部スロットも解放)
+    /**
+     * 指定ハンドルの再生を停止し、内部スロットを解放する。
+     *
+     * @details 世代が一致しない (= 既に解放済みの) ハンドルは無視する。
+     * @param h 停止する再生のハンドル。
+     */
     void Stop(SoundHandle h) noexcept;
 
-    // 音量変更 (0.0..1.0、超過は内部でクランプ)
+    /**
+     * 指定ハンドルの再生音量を変更する。
+     *
+     * @details 世代不一致のハンドルは無視する。値は 0.0..1.0 に内部クランプする。
+     * @param h 対象の再生ハンドル。
+     * @param volume 新しい音量 (0.0..1.0)。
+     */
     void SetVolume(SoundHandle h, f32 volume) noexcept;
 
-    // 全音停止
+    /** 再生中の全ボイスを停止し、全スロットを解放する。 */
     void StopAll() noexcept;
 
-    // マスター音量（最終出力の音量、0.0..1.0）
+    /**
+     * 最終出力のマスター音量を変更する。
+     *
+     * @param volume マスター音量 (0.0..1.0、範囲外は内部でクランプ)。
+     */
     void SetMasterVolume(f32 volume) noexcept;
 
-    // 再生中の音をすべて一時停止 / 再開（再生位置は保持される）
+    /** 再生中の全ボイスを一時停止する (再生位置は保持される)。 */
     void PauseAll() noexcept;
+
+    /** PauseAll で止めた全ボイスを保持位置から再開する。 */
     void ResumeAll() noexcept;
 
-    // 現在再生中のスロット数 (デバッグ用)
+    /**
+     * 現在使用中の発音スロット数を返す (デバッグ用)。
+     *
+     * @return アクティブなボイススロット数。
+     */
     u32 ActiveCount() const noexcept;
 
-    // pimpl: XAudio2 ヘッダを公開しないための private 実装。型名のみ前方宣言。
+    /** XAudio2 ヘッダを公開しないための pimpl 実装型 (前方宣言のみ)。 */
     struct Impl;
 
 private:
+    /** pimpl 実装の所有ポインタ (未初期化時は nullptr)。 */
     Impl* m_Impl = nullptr;
 };
 

@@ -14,8 +14,14 @@ namespace acs::game {
 
 namespace {
 
-// const char* の per-byte 安全比較。FEntitlement.cpp / FAchievementManager.cpp と同設計。
-// どちらかが nullptr なら false (StrEq("a", nullptr) は false)。
+/**
+ * const char* の per-byte 安全比較。
+ *
+ * @details どちらかが nullptr なら false (StrEq("a", nullptr) は false)。STL <cstring> 不使用。
+ * @param a 比較する文字列 A。
+ * @param b 比較する文字列 B。
+ * @return 両者が同一内容の文字列なら true。
+ */
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -26,21 +32,22 @@ bool StrEq(const char* a, const char* b) noexcept {
     return *a == '\0' && *b == '\0';
 }
 
-// 「id 未発見」を表す哨兵値 (FAchievementManager と同じ慣習)。
+/** 「id 未発見」を表す哨兵値。 */
 constexpr u32 kNotFound = ~static_cast<u32>(0);
 
-// ECosmeticSlot を m_EquippedInSlot[] のインデックスに変換 (範囲外は kNotFound)。
-// 不正値が enum class 経由で渡された場合のガード (将来 slot 追加し忘れ防止)。
+/**
+ * ECosmeticSlot を m_EquippedInSlot[] のインデックスに変換する。
+ *
+ * @details 不正値が enum 経由で渡された場合のガード (将来 slot 追加し忘れ防止)。
+ * @param slot 変換する slot 値。
+ * @return 0..kCosmeticSlotCount-1 の index (範囲外は kNotFound)。
+ */
 u32 SlotIndex(ECosmeticSlot slot) noexcept {
     const u32 idx = static_cast<u32>(slot);
     return (idx < kCosmeticSlotCount) ? idx : kNotFound;
 }
 
 } // namespace
-
-// =============================================================================
-// 構築
-// =============================================================================
 
 FCharacterCustomizer::FCharacterCustomizer() noexcept {
     // 固定長 const char*[] を nullptr で初期化 (= 全 slot 未装着)。
@@ -50,10 +57,6 @@ FCharacterCustomizer::FCharacterCustomizer() noexcept {
     }
 }
 
-// =============================================================================
-// 内部ユーティリティ
-// =============================================================================
-
 u32 FCharacterCustomizer::FindIndex(const char* id) const noexcept {
     if (id == nullptr) return kNotFound;
     const usize n = m_Items.Size();
@@ -62,10 +65,6 @@ u32 FCharacterCustomizer::FindIndex(const char* id) const noexcept {
     }
     return kNotFound;
 }
-
-// =============================================================================
-// 定義登録
-// =============================================================================
 
 void FCharacterCustomizer::RegisterCosmetic(const CosmeticItem& item) noexcept {
     // defensive: id == nullptr は意味を持たないので静かに弾く。
@@ -77,10 +76,6 @@ void FCharacterCustomizer::RegisterCosmetic(const CosmeticItem& item) noexcept {
     m_Items.PushBack(item);
     m_Unlocked.PushBack(false);  // 登録時は未 unlock がデフォルト
 }
-
-// =============================================================================
-// Unlock 管理
-// =============================================================================
 
 bool FCharacterCustomizer::UnlockCosmetic(const char* id) noexcept {
     const u32 idx = FindIndex(id);
@@ -96,10 +91,6 @@ bool FCharacterCustomizer::IsUnlocked(const char* id) const noexcept {
     if (idx == kNotFound) return false;
     return m_Unlocked[idx];
 }
-
-// =============================================================================
-// 装着 / 解除
-// =============================================================================
 
 bool FCharacterCustomizer::EquipCosmetic(const char* id) noexcept {
     const u32 idx = FindIndex(id);
@@ -152,10 +143,6 @@ const char* FCharacterCustomizer::EquippedInSlot(ECosmeticSlot slot) const noexc
     return m_EquippedInSlot[slot_idx];
 }
 
-// =============================================================================
-// 照会
-// =============================================================================
-
 u32 FCharacterCustomizer::CosmeticCount() const noexcept {
     return static_cast<u32>(m_Items.Size());
 }
@@ -189,18 +176,10 @@ const CosmeticItem* FCharacterCustomizer::AllCosmetics(u32& out_count) const noe
     return m_Items.Data();
 }
 
-// =============================================================================
-// FCallback
-// =============================================================================
-
 void FCharacterCustomizer::SetOnEquipCallback(EquipCallback cb, void* user) noexcept {
     m_OnEquip      = cb;
     m_OnEquipUser = user;
 }
-
-// =============================================================================
-// リセット
-// =============================================================================
 
 void FCharacterCustomizer::ClearAll() noexcept {
     m_Items.Clear();

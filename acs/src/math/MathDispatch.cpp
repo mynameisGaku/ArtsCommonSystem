@@ -3,8 +3,7 @@
 // ACS Math — MathDispatch 実装
 // -----------------------------------------------------------------------------
 // CPU 機能を見て関数ポインタテーブルを構築。
-// 現状は SSE2 ベースライン経路のみ実装。AVX2 専用ビルド (/arch:AVX2 で
-// 別 TU) は v2 で追加予定。
+// 現状は SSE2 ベースライン経路のみ実装。
 // =============================================================================
 #include "math/MathDispatch.h"
 #include "math/Cpu.h"
@@ -14,28 +13,48 @@ namespace acs {
 
 namespace {
 
-// SSE2 ベースライン実装（DirectXMath が /arch:SSE2 で動作）
+/**
+ * 点群を 1 要素ずつ行列変換する SSE2 ベースライン実装。
+ *
+ * @details DirectXMath が /arch:SSE2 で動作する経路で、全 CPU で正しく動く。
+ * @param in 入力点配列。
+ * @param out 出力点配列。
+ * @param count 変換する要素数。
+ * @param m 変換行列。
+ */
 void TransformPointsScalar(const FVec3* in, FVec3* out, usize count, const FMat4& m) noexcept {
     for (usize i = 0; i < count; ++i) {
         out[i] = TransformPoint(in[i], m);
     }
 }
+
+/**
+ * 方向ベクトル群を 1 要素ずつ行列変換する SSE2 ベースライン実装。
+ *
+ * @param in 入力ベクトル配列。
+ * @param out 出力ベクトル配列。
+ * @param count 変換する要素数。
+ * @param m 変換行列。
+ */
 void TransformVectorsScalar(const FVec3* in, FVec3* out, usize count, const FMat4& m) noexcept {
     for (usize i = 0; i < count; ++i) {
         out[i] = TransformVector(in[i], m);
     }
 }
 
+/** ディスパッチテーブルの実体 (Init が結線する)。 */
 MathDispatch  g_dispatch {};
+
+/** 初期化状態 (0=未初期化, 1=初期化中, 2=完了)。 */
 TAtomic<u32>   g_inited {0};
 
-// 関数ポインタを実装に差し替える。
-//
-// 注意: かつてここに「AVX2 経路」として中身がスカラ実装をそのまま呼ぶだけの偽関数を
-// 置き、HasAvx2() で分岐していた。実体はベースライン (DirectXMath/SSE2) と同一で、
-// AVX2 を名乗るだけの no-op スタブだったため削除した。AVX2 特化は /arch:AVX2 で
-// コンパイルした別 TU の実装を用意できた時点で dispatch に正式に結線する。
-// それまでは正しく動作するベースライン経路を全 CPU で使う (出力は常に正しい)。
+/**
+ * ディスパッチ関数ポインタをベースライン実装に結線する。
+ *
+ * @details
+ * 全 CPU で正しく動作する DirectXMath/SSE2 経路を割り当てる (出力は常に正しい)。
+ * AVX2 特化は /arch:AVX2 でコンパイルした別 TU の実装を用意して結線する。
+ */
 void Init() noexcept {
     g_dispatch.transform_points  = &TransformPointsScalar;
     g_dispatch.transform_vectors = &TransformVectorsScalar;

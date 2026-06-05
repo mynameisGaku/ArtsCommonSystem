@@ -7,7 +7,7 @@
 // ポインタテーブル経由でディスパッチし、起動時に検出した CPU 機能に応じて
 // 最適な実装を選択する。
 //
-// Phase 1 では SSE2 ベースラインのみ実装。AVX2 専用 TU の追加は v2 課題。
+// 現状は SSE2 ベースライン経路のみ実装。
 // =============================================================================
 #pragma once
 
@@ -17,17 +17,42 @@
 
 namespace acs {
 
-// 起動時に CPU 機能から選ばれる関数ポインタ群
+/**
+ * 起動時に CPU 機能から実装を選んで結線するバッチ演算の関数ポインタ群。
+ */
 struct MathDispatch {
+    /** 点群を行列で一括変換する関数 (in→out、count 個、行列 m)。 */
     void (*transform_points) (const FVec3* in, FVec3* out, usize count, const FMat4& m) = nullptr;
+
+    /** 方向ベクトル群を行列で一括変換する関数 (in→out、count 個、行列 m)。 */
     void (*transform_vectors)(const FVec3* in, FVec3* out, usize count, const FMat4& m) = nullptr;
 };
 
-// 取得（初回呼び出しで初期化）
+/**
+ * ディスパッチテーブルを返す (初回呼び出しで初期化)。
+ *
+ * @return 結線済みの MathDispatch への const 参照。
+ */
 const MathDispatch& GetMathDispatch() noexcept;
 
-// 利便関数: ディスパッチ越しに呼ぶ
+/**
+ * 点群をディスパッチ越しに行列変換する利便関数。
+ *
+ * @param in 入力点配列。
+ * @param out 出力点配列 (count 要素確保済み)。
+ * @param count 変換する要素数。
+ * @param m 変換行列。
+ */
 void TransformPoints (const FVec3* in, FVec3* out, usize count, const FMat4& m) noexcept;
+
+/**
+ * 方向ベクトル群をディスパッチ越しに行列変換する利便関数。
+ *
+ * @param in 入力ベクトル配列。
+ * @param out 出力ベクトル配列 (count 要素確保済み)。
+ * @param count 変換する要素数。
+ * @param m 変換行列。
+ */
 void TransformVectors(const FVec3* in, FVec3* out, usize count, const FMat4& m) noexcept;
 
 } // namespace acs

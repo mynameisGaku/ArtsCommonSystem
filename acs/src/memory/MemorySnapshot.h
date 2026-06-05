@@ -17,19 +17,38 @@
 
 namespace acs {
 
+/** FMemorySystem の使用状況を SVG/BMP/stdout として可視化出力するユーティリティ (全 static、ゼロ依存)。 */
 class FMemorySnapshot {
 public:
-    // SVG ファイル出力（人間可読、ラベル付き）
+    /**
+     * メモリ使用状況を SVG ファイルに出力する (人間可読、ラベル付き)。
+     *
+     * @details セグメントごとに 1 行のバー (予約=全長、使用=塗り、ピーク=赤線) を描く。セグメントが無ければエラー。
+     * @param path 出力先のファイルパス (上書き作成)。
+     * @param width 画像の幅 (既定 800)。
+     * @param row_height 1 行の高さ (既定 40)。
+     * @return 成功なら空の TResult、セグメント無し/ファイル作成失敗ならエラー。
+     */
     static TResult<void> WriteSvg(const wchar_t* path,
                                  u32 width = 800,
                                  u32 row_height = 40) noexcept;
 
-    // BMP ファイル出力（24bpp、外部依存ゼロ）
+    /**
+     * メモリ使用状況を 24bpp 無圧縮 BMP ファイルに出力する (外部依存ゼロ)。
+     *
+     * @details セグメントごとに 1 行のバー (予約=灰背景、使用=カラー) を描く。セグメントが無ければエラー。
+     * @param path 出力先のファイルパス (上書き作成)。
+     * @param width 画像の幅 (既定 800)。
+     * @param row_height 1 行の高さ (既定 30)。
+     * @return 成功なら空の TResult、セグメント無し/確保/ファイル作成失敗ならエラー。
+     */
     static TResult<void> WriteBmp(const wchar_t* path,
                                  u32 width = 800,
                                  u32 row_height = 30) noexcept;
 
-    // コンソールへテキスト出力（ロガー / ターミナル用）
+    /**
+     * メモリ使用状況をコンソールへテキスト表として出力する (CI ログ/ターミナル用)。
+     */
     static void DumpToStdOut() noexcept;
 };
 

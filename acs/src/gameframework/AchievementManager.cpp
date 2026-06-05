@@ -9,9 +9,9 @@
 //   ・実績件数は通常 50〜300 のオーダーなので線形走査で十分。
 //   ・Bridge へは Unlock() / 自動 unlock のタイミングで一度だけ送信。
 //     失敗 (= Bridge 未初期化 / 未実装) は WARN ログだけ残し、ローカル進捗
-//     を破棄しない (オフライン → オンライン復帰の再送は Phase 3+)。
+//     を破棄しない。
 //   ・unlock_timestamp は Clock::MillisSinceStartup()。プラットフォーム時刻
-//     (wall clock) ではなく起動からの相対 ms で十分というのは設計判断 (Phase 2)。
+//     (wall clock) ではなく起動からの相対 ms で十分というのは設計判断。
 #include "gameframework/AchievementManager.h"
 
 #include "gameframework/SteamworksBridge.h"  // ISteamworksBridge 完全型 + UnlockAchievement()
@@ -22,8 +22,14 @@ namespace acs::game {
 
 namespace {
 
-// const char* の per-byte 安全比較。FEntitlement.cpp と同設計。
-// どちらかが nullptr なら false を返す (StrEq("a", nullptr) は false)。
+/**
+ * const char* を per-byte で安全に比較する。
+ *
+ * @details どちらかが nullptr なら false を返す (StrEq("a", nullptr) は false)。
+ * @param a 比較対象の文字列 1。
+ * @param b 比較対象の文字列 2。
+ * @return 両者が同一内容かつ非 nullptr なら true。
+ */
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -34,15 +40,12 @@ bool StrEq(const char* a, const char* b) noexcept {
     return *a == '\0' && *b == '\0';
 }
 
-// 「id 未発見」を表す哨兵値。u32 全ビット 1 (= 0xFFFFFFFF)。
+/** 「id 未発見」を表す哨兵値 (u32 全ビット 1 = 0xFFFFFFFF)。 */
 constexpr u32 kNotFound = ~static_cast<u32>(0);
 
 } // namespace
 
-// =============================================================================
-// 内部ユーティリティ
-// =============================================================================
-
+/** id 文字列を全実績から線形検索し、index か kNotFound を返す。 */
 u32 FAchievementManager::FindIndex(const char* id) const noexcept {
     if (id == nullptr) return kNotFound;
     const usize n = m_Defs.Size();
@@ -52,6 +55,7 @@ u32 FAchievementManager::FindIndex(const char* id) const noexcept {
     return kNotFound;
 }
 
+/** 内部 unlock 共通処理 (進捗を max に固定し、timestamp 記録と Bridge 送信を行う)。 */
 void FAchievementManager::UnlockInternal(u32 index) noexcept {
     // 呼出側で index 有効性は保証済 (FindIndex から流れてくる) だが、
     // 念のため範囲チェック (Reset 等経由のレースに備える保険)。
@@ -62,7 +66,7 @@ void FAchievementManager::UnlockInternal(u32 index) noexcept {
 
     p.current_progress = p.max_progress;
     p.unlocked         = true;
-    // 起動からの ms。プラットフォーム時刻が必要になったら Phase 3 で拡張。
+    // 起動からの ms。プラットフォーム時刻が必要になったら拡張する。
     p.unlock_timestamp = Clock::MillisSinceStartup();
 
     // Bridge attach 中なら SDK へ送信。失敗時はローカル進捗には影響させない。
@@ -77,10 +81,7 @@ void FAchievementManager::UnlockInternal(u32 index) noexcept {
     }
 }
 
-// =============================================================================
-// 定義登録
-// =============================================================================
-
+/** 実績定義を登録する (重複 id / nullptr は弾き、max_progress=0 は 1 に丸める)。 */
 void FAchievementManager::RegisterAchievement(const FAchievementDef& def) noexcept {
     // defensive: id == nullptr は意味を持たないので静かに弾く。
     if (def.id == nullptr) return;
@@ -106,10 +107,7 @@ void FAchievementManager::RegisterAchievement(const FAchievementDef& def) noexce
     m_Progress.PushBack(p);
 }
 
-// =============================================================================
-// 進捗操作
-// =============================================================================
-
+/** 進捗を絶対値で設定し、max 到達なら自動 unlock する。 */
 void FAchievementManager::SetProgress(const char* id, u32 progress) noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return;
@@ -126,6 +124,7 @@ void FAchievementManager::SetProgress(const char* id, u32 progress) noexcept {
     }
 }
 
+/** 進捗を delta 加算し、オーバーフロー / 上限超過を max にクランプして自動 unlock する。 */
 void FAchievementManager::IncrementProgress(const char* id, u32 delta) noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return;
@@ -149,12 +148,14 @@ void FAchievementManager::IncrementProgress(const char* id, u32 delta) noexcept 
     }
 }
 
+/** id を検索して即時 unlock する (見つからなければ no-op)。 */
 void FAchievementManager::Unlock(const char* id) noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return;
     UnlockInternal(idx);
 }
 
+/** 単一実績の進捗を初期化する (Bridge 側のリセットは行わない)。 */
 void FAchievementManager::Reset(const char* id) noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return;
@@ -165,6 +166,7 @@ void FAchievementManager::Reset(const char* id) noexcept {
     // Bridge 側のリセットは呼ばない (SDK 仕様によっては不可能 / 危険)。
 }
 
+/** 全実績の進捗を初期化する。 */
 void FAchievementManager::ResetAll() noexcept {
     const usize n = m_Progress.Size();
     for (usize i = 0; i < n; ++i) {
@@ -175,26 +177,26 @@ void FAchievementManager::ResetAll() noexcept {
     }
 }
 
-// =============================================================================
-// 照会
-// =============================================================================
-
+/** 実績が unlock 済みかを返す (id が無ければ false)。 */
 bool FAchievementManager::IsUnlocked(const char* id) const noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return false;
     return m_Progress[idx].unlocked;
 }
 
+/** 実績の現在進捗を返す (id が無ければ 0)。 */
 u32 FAchievementManager::GetProgress(const char* id) const noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return 0;
     return m_Progress[idx].current_progress;
 }
 
+/** 登録済み実績の総数を返す。 */
 u32 FAchievementManager::TotalCount() const noexcept {
     return static_cast<u32>(m_Progress.Size());
 }
 
+/** unlock 済み実績の数を数えて返す。 */
 u32 FAchievementManager::UnlockedCount() const noexcept {
     u32 c = 0;
     const usize n = m_Progress.Size();
@@ -204,32 +206,28 @@ u32 FAchievementManager::UnlockedCount() const noexcept {
     return c;
 }
 
+/** 単一実績の状態ポインタを返す (id が無ければ nullptr)。 */
 const FAchievementProgress* FAchievementManager::GetState(const char* id) const noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return nullptr;
     return &m_Progress[idx];
 }
 
+/** 全実績状態の生バッファを返し、件数を out_count に書き出す。 */
 const FAchievementProgress* FAchievementManager::AllStates(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Progress.Size());
     return m_Progress.Data();
 }
 
-// =============================================================================
-// FSteamworksBridge 統合
-// =============================================================================
-
+/** Storefront SDK ブリッジを attach / detach する (nullptr で detach)。 */
 void FAchievementManager::AttachSteamworks(ISteamworksBridge* bridge) noexcept {
     // nullptr で detach は明示的に許可 (オフラインモードへ戻す)。
     m_Bridge = bridge;
 }
 
-// =============================================================================
-// Tick
-// =============================================================================
-
+/** 毎フレーム更新フック (現状は完全に no-op の予約点)。 */
 void FAchievementManager::Tick(f32 dt) noexcept {
-    // Phase 2 では完全 no-op。将来「累計時間系実績」を内蔵する場合の予約。
+    // 現状は完全 no-op。「累計時間系実績」を内蔵する場合の予約点。
     (void)dt;
 }
 

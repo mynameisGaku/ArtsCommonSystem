@@ -7,33 +7,77 @@
 
 namespace acs {
 
-// イベント種別
+/** ウィンドウ・入力イベントの種別。 */
 enum class EventType : u8 {
+    /** 無効値 (ゼロ初期化された Event の既定)。 */
     None = 0,
-    WindowClose,         // ウィンドウの × ボタンが押された
-    WindowResize,        // ウィンドウサイズが変わった
-    WindowFocus,         // フォーカス獲得
-    WindowLostFocus,     // フォーカス喪失
-    KeyPressed,          // キーが押された (押下開始)
-    KeyReleased,         // キーが離された
-    KeyRepeat,           // キーが押され続けてリピート
-    MouseButtonPressed,  // マウスボタン押下
-    MouseButtonReleased, // マウスボタン解放
-    MouseMoved,          // マウスカーソル移動
-    MouseScrolled,       // ホイール回転
-    CharInput,           // 文字入力 (テキスト入力用、IME 後)
+
+    /** ウィンドウの × ボタンや閉じる要求が来た。 */
+    WindowClose,
+
+    /** ウィンドウのクライアント領域サイズが変わった (resize フィールド有効)。 */
+    WindowResize,
+
+    /** ウィンドウがフォーカスを獲得した。 */
+    WindowFocus,
+
+    /** ウィンドウがフォーカスを喪失した。 */
+    WindowLostFocus,
+
+    /** キーが押された (押下開始の 1 回。key フィールド有効)。 */
+    KeyPressed,
+
+    /** キーが離された (key フィールド有効)。 */
+    KeyReleased,
+
+    /** キーが押され続けて OS のオートリピートが発火した (key フィールド有効)。 */
+    KeyRepeat,
+
+    /** マウスボタンが押された (mouse_button フィールド有効)。 */
+    MouseButtonPressed,
+
+    /** マウスボタンが離された (mouse_button フィールド有効)。 */
+    MouseButtonReleased,
+
+    /** マウスカーソルが移動した (mouse_move フィールド有効)。 */
+    MouseMoved,
+
+    /** マウスホイールが回転した (mouse_scroll フィールド有効)。 */
+    MouseScrolled,
+
+    /** 文字が入力された (IME 確定後の Unicode コードポイント。char_input フィールド有効)。 */
+    CharInput,
 };
 
-// イベント本体（種別ごとに有効なフィールドが異なる union 風レイアウト）
+/**
+ * 1 件のウィンドウ・入力イベント。
+ *
+ * @details
+ * type に応じて union 内の対応するメンバだけが有効になる。FWindow が WindowProc で
+ * 構築し、SetEventCallback で登録されたコールバックへ渡す。
+ */
 struct Event {
+    /** このイベントの種別 (どの union メンバが有効かを決める)。 */
     EventType type = EventType::None;
+
     union {
-        struct { u32 width, height; }                    resize;        // WindowResize
-        struct { EKey key; bool repeat; }                 key;           // EKey*
-        struct { EMouseButton button; }                   mouse_button;  // EMouseButton*
-        struct { f32 x, y; f32 dx, dy; }                 mouse_move;    // MouseMoved
-        struct { f32 x, y; }                             mouse_scroll;  // MouseScrolled
-        struct { u32 codepoint; }                        char_input;    // CharInput
+        /** WindowResize 用: 新しいクライアント領域サイズ (px)。 */
+        struct { u32 width, height; }                    resize;
+
+        /** KeyPressed / KeyReleased / KeyRepeat 用: 対象キーとリピートフラグ。 */
+        struct { EKey key; bool repeat; }                 key;
+
+        /** MouseButtonPressed / MouseButtonReleased 用: 対象ボタン。 */
+        struct { EMouseButton button; }                   mouse_button;
+
+        /** MouseMoved 用: カーソル位置 (x,y) と前回からの差分 (dx,dy)、クライアント座標。 */
+        struct { f32 x, y; f32 dx, dy; }                 mouse_move;
+
+        /** MouseScrolled 用: ホイール回転量 (x=水平, y=垂直)。 */
+        struct { f32 x, y; }                             mouse_scroll;
+
+        /** CharInput 用: 入力された Unicode コードポイント。 */
+        struct { u32 codepoint; }                        char_input;
     };
 };
 

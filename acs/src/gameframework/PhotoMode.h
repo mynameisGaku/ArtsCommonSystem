@@ -32,7 +32,7 @@
 //   FPhotoMode は FGame / Scene のメンバとして 1 インスタンスだけ存在する
 //   想定。複製可能にすると saved_time_scale 等の整合性管理が破綻する。
 //
-// 範囲外 (Phase 2+):
+// 範囲外:
 //   ・depth of field マニュアル制御
 //   ・キャラポーズ・表情変更
 //   ・hide HUD / sticker / frame overlay
@@ -44,75 +44,183 @@
 
 namespace acs::game {
 
+/**
+ * ゲーム時間を停止して景色を撮影する撮影モードの状態 holder。
+ *
+ * @details
+ * active フラグ・カメラ自由操作オフセット (pan / zoom / rotation)・色フィルタ種別・
+ * 撮影リクエスト flag・Enter 時の time scale 保存値だけを保持する。実際の時間停止や
+ * カメラ移動・フィルタ適用は caller (FGame / Scene / ポストプロセスパス) が状態を見て
+ * 行うため、GameFramework から FGame への依存を持たない。state holder の唯一性を保つ
+ * ため非コピー・非ムーブ。
+ */
 class FPhotoMode {
 public:
-    // フィルタ種別。実 LUT 解決はポストプロセスパスが担当。
+    /**
+     * 色フィルタの種別。
+     *
+     * @details 実 LUT / シェーダパラメータの解決はポストプロセスパスが担当し、
+     * 本クラスはどのフィルタが選ばれているかだけを保持する。
+     */
     enum FilterKind {
-        None      = 0,   // フィルタなし (素通し)
-        Sepia     = 1,   // セピア調 (warm tone + 彩度落とし)
-        Grayscale = 2,   // モノクロ
-        Vivid     = 3,   // 高彩度 / 高コントラスト
-        Vignette  = 4,   // 周辺光量落とし
+        /** フィルタなし (素通し)。 */
+        None      = 0,
+
+        /** セピア調 (warm tone + 彩度落とし)。 */
+        Sepia     = 1,
+
+        /** モノクロ。 */
+        Grayscale = 2,
+
+        /** 高彩度 / 高コントラスト。 */
+        Vivid     = 3,
+
+        /** 周辺光量落とし。 */
+        Vignette  = 4,
     };
 
+    /** 非アクティブ状態で構築する (フィルタ None、オフセット 0)。 */
     FPhotoMode() noexcept = default;
+
+    /** デストラクタ。 */
     ~FPhotoMode() noexcept = default;
 
-    // 非コピー・非ムーブ (state holder の唯一性を担保)
+    /** コピー禁止 (state holder の唯一性を担保するため)。 */
     FPhotoMode(const FPhotoMode&)            = delete;
+
+    /** コピー代入も禁止。 */
     FPhotoMode& operator=(const FPhotoMode&) = delete;
+
+    /** ムーブ禁止 (state holder の唯一性を担保するため)。 */
     FPhotoMode(FPhotoMode&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FPhotoMode& operator=(FPhotoMode&&)      = delete;
 
-    // ----- モード遷移 -----
-    // 現在の time_scale を保存して active=true、カメラオフセットも初期化。
-    // 実際に `FGame::SetTimeScale(0)` を呼ぶのは caller の責任。
+    /**
+     * 撮影モードに入る。
+     *
+     * @details
+     * 二重 Enter は no-op (保存値を上書きしない)。現在の time_scale を保存し、カメラ
+     * オフセット・ズーム・回転・撮影 flag をリセットする。フィルタは前回値を保持する。
+     * 実際に `FGame::SetTimeScale(0)` を呼ぶのは caller の責任。
+     * @param current_time_scale Enter 時点の time scale (Exit 後の復元用に保存される)。
+     */
     void Enter(f32 current_time_scale = 1.0f) noexcept;
 
-    // active=false に戻す。caller が SavedTimeScale() を見て復元する。
+    /**
+     * 撮影モードを抜ける。
+     *
+     * @details active=false に戻し撮影 flag を落とすだけ。time scale の復元は
+     * caller が SavedTimeScale() を見て行う。カメラオフセット等は保持される。
+     */
     void Exit() noexcept;
 
+    /**
+     * 撮影モード中かを返す。
+     *
+     * @return active なら true。
+     */
     bool IsActive() const noexcept { return m_Active; }
 
-    // ----- カメラ自由操作 (累積 offset) -----
-    // パン: 入力 delta を累積。座標系は world units 想定。
+    /**
+     * カメラのパン入力を累積する (active 中のみ反映)。
+     *
+     * @param delta 加算するオフセット (world units 想定)。
+     */
     void MoveCamera(FVec2 delta) noexcept;
 
-    // ズーム倍率の乗算的変更。zoom_delta=0.1 で +10% ズームイン。
-    // 結果は [0.1, 10.0] に clamp される。
+    /**
+     * ズーム倍率を変更する (active 中のみ反映)。
+     *
+     * @details zoom_delta を現在倍率に加算し、結果を [0.1, 10.0] に clamp する。
+     * @param zoom_delta ズーム倍率への加算量 (+0.1 で +10% ズームイン)。
+     */
     void ZoomCamera(f32 zoom_delta) noexcept;
 
-    // 回転を累積 (radians)。
+    /**
+     * 回転オフセットを累積する (active 中のみ反映)。
+     *
+     * @param rad_delta 加算する回転量 (ラジアン)。
+     */
     void RotateCamera(f32 rad_delta) noexcept;
 
-    // ----- accessor -----
+    /**
+     * 累積されたカメラオフセットを返す。
+     *
+     * @return MoveCamera で累積したオフセット。
+     */
     FVec2 CameraOffset()    const noexcept { return m_Offset; }
+
+    /**
+     * 現在のズーム倍率を返す。
+     *
+     * @return [0.1, 10.0] に clamp 済みのズーム倍率。
+     */
     f32  ZoomMultiplier()  const noexcept { return m_ZoomMult; }
+
+    /**
+     * 累積された回転オフセットを返す。
+     *
+     * @return RotateCamera で累積した回転 (ラジアン)。
+     */
     f32  RotationOffset()  const noexcept { return m_Rot; }
 
-    // ----- フィルタ -----
+    /**
+     * 色フィルタ種別を設定する。
+     *
+     * @param f 適用するフィルタ種別。
+     */
     void       SetFilter(FilterKind f) noexcept { m_Filter = f; }
+
+    /**
+     * 現在の色フィルタ種別を返す。
+     *
+     * @return 設定済みのフィルタ種別。
+     */
     FilterKind GetFilter() const noexcept       { return m_Filter; }
 
-    // ----- 撮影リクエスト (poll-and-consume) -----
-    // ユーザがシャッターボタンを押した時に呼ぶ。flag が立つだけ。
+    /** 撮影リクエスト flag を立てる (シャッターボタン押下時に呼ぶ)。 */
     void RequestCapture() noexcept { m_bCapturePending = true; }
 
-    // 描画側が 1 フレーム末尾で呼ぶ。立っていれば true を返して同時に rear。
+    /**
+     * 撮影リクエストを読み取って同時に消費する (描画側が 1 フレーム末尾で呼ぶ)。
+     *
+     * @details active 外では常に false。flag が立っていれば true を返し同時に落とすため、
+     * 同一フレームで複数回呼んでも 1 枚しか撮影されない。
+     * @return 撮影リクエストが立っていれば true。
+     */
     bool ConsumeCaptureRequest() noexcept;
 
-    // ----- time scale 連携 -----
-    // Enter() 時に保存した値。caller が Exit() 後に
-    // `FGame::SetTimeScale(photo.SavedTimeScale())` で復元する用。
+    /**
+     * Enter 時に保存した time scale を返す。
+     *
+     * @details caller が Exit 後に `FGame::SetTimeScale(photo.SavedTimeScale())` で
+     * 復元する用。
+     * @return Enter 時点の time scale。
+     */
     f32 SavedTimeScale() const noexcept { return m_SavedTimeScale; }
 
 private:
+    /** 撮影モード中フラグ。 */
     bool       m_Active            = false;
+
+    /** 累積カメラオフセット (world units)。 */
     FVec2       m_Offset            {0.0f, 0.0f};
+
+    /** 累積ズーム倍率 ([0.1, 10.0] に clamp)。 */
     f32        m_ZoomMult         = 1.0f;
+
+    /** 累積回転オフセット (ラジアン)。 */
     f32        m_Rot               = 0.0f;
+
+    /** 選択中の色フィルタ種別。 */
     FilterKind m_Filter            = None;
+
+    /** 撮影リクエストの保留フラグ (poll-and-consume)。 */
     bool       m_bCapturePending   = false;
+
+    /** Enter 時に保存した time scale (Exit 後の復元用)。 */
     f32        m_SavedTimeScale  = 1.0f;
 };
 

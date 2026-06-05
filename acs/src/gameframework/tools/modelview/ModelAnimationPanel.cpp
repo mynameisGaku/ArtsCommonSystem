@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — ModelViewer / FModelAnimationPanel 実装 (Phase 21b)
+// GameFramework Pillar — ModelViewer / FModelAnimationPanel 実装
 //
 // 仕様の意図は FModelAnimationPanel.h を参照。本ファイルでは:
 //   ・clip リストの SetClips / ClearClips (値コピー)
@@ -16,30 +16,44 @@
 
 namespace acs::game::modelview {
 
-// =============================================================================
-// 内部ヘルパ
-// =============================================================================
 namespace {
 
-// f32 を [lo, hi] にクランプ。`acs::Clamp` (foundation/Move.h) を使わずに
-// 局所定義しているのは、本 .cpp が他の foundation ヘッダ依存を増やさず
-// 自己完結するため (= FEditorCamera.cpp が同形の局所 ClampF を持つのと同方針)。
+/**
+ * f32 を [lo, hi] にクランプする。
+ *
+ * @details acs::Clamp を使わず局所定義することで本 .cpp の foundation ヘッダ依存を増やさない
+ * (FEditorCamera.cpp の局所 ClampF と同方針)。
+ * @param v クランプする値。
+ * @param lo 下限。
+ * @param hi 上限。
+ * @return [lo, hi] に収めた値。
+ */
 inline f32 ClampF(f32 v, f32 lo, f32 hi) noexcept {
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
 }
 
-// i32 index と u32 count の境界チェック。負値 / 範囲外を弾く。
-// FParticleEditorPanel と同形 (= editor 系 panel 共通の小ヘルパ)。
+/**
+ * i32 index と u32 count の境界チェックを行う。
+ *
+ * @param index 検査する index (負値は無効)。
+ * @param count 要素数。
+ * @return 0 <= index < count なら true。
+ */
 inline bool IsValidClipIndex(i32 index, u32 count) noexcept {
     if (index < 0) return false;
     return static_cast<u32>(index) < count;
 }
 
-// clip 名が nullptr or 空文字の場合に Combo の表示用に "<unnamed>" を返す。
-// ImGui の Combo preview に nullptr を渡すと UB なので必ず非 null 文字列を
-// 渡す (= FPropertyDrawer.cpp の SafeLabel と同方針)。
+/**
+ * Combo 表示用に非 null の clip 名を返す。
+ *
+ * @details ImGui の Combo preview に nullptr を渡すと UB なので、nullptr / 空文字なら
+ * "<unnamed>" を返す。
+ * @param name 元の clip 名 (nullptr 可)。
+ * @return 非 null の表示用文字列。
+ */
 inline const char* SafeClipName(const char* name) noexcept {
     if (name == nullptr || name[0] == '\0') return "<unnamed>";
     return name;
@@ -47,12 +61,7 @@ inline const char* SafeClipName(const char* name) noexcept {
 
 } // namespace
 
-// =============================================================================
-// Init / Shutdown
-// =============================================================================
-// Init は state を完全に初期値へ戻す (= 多重 Init を完全リセットとして扱う)。
-// callback も解除する (= Shutdown と同じ深さの reset)。
-// =============================================================================
+/** 内部 state を完全に初期値へ戻し、callback も解除する。 */
 void FModelAnimationPanel::Init() noexcept {
     m_Clips.Clear();  // 中身は破棄、容量は保持 (= 次回再構築のアロケ節約)
     m_CurrentClipIdx = kNoClipSelected;
@@ -65,8 +74,9 @@ void FModelAnimationPanel::Init() noexcept {
     m_OnFrameUser    = nullptr;
 }
 
+/** Init と同じ深さで内部 state を全 reset する (多重 Shutdown 安全)。 */
 void FModelAnimationPanel::Shutdown() noexcept {
-    // Init と同じ深さの reset。TArray は ~TArray で破棄されるが明示 Clear で
+    // TArray は ~TArray で破棄されるが明示 Clear で
     // 多重 Shutdown / 再 Init の確定状態を作る (FParticleEditorPanel と同形)。
     m_Clips.Clear();
     m_CurrentClipIdx = kNoClipSelected;
@@ -79,9 +89,7 @@ void FModelAnimationPanel::Shutdown() noexcept {
     m_OnFrameUser    = nullptr;
 }
 
-// =============================================================================
-// clip リスト管理
-// =============================================================================
+/** clip メタ一覧を値コピーで取り込み、selection / time / state をリセットする。 */
 void FModelAnimationPanel::SetClips(const FAnimationClipBinding* clips,
                                    u32 count) noexcept {
     // nullptr + count > 0 は呼出側ミスだが、defensive に「count = 0 として扱う」。
@@ -114,6 +122,7 @@ void FModelAnimationPanel::SetClips(const FAnimationClipBinding* clips,
     m_CurrentTimeSec = 0.0f;
 }
 
+/** clip リストを空にして Stopped + time 0 に戻す (callback / 設定値は保持)。 */
 void FModelAnimationPanel::ClearClips() noexcept {
     m_Clips.Clear();
     m_CurrentClipIdx = kNoClipSelected;
@@ -123,10 +132,12 @@ void FModelAnimationPanel::ClearClips() noexcept {
     // (= Init / Shutdown より浅い reset、UI 設定は維持したい)。
 }
 
+/** 現在登録されている clip の数を返す。 */
 u32 FModelAnimationPanel::ClipCount() const noexcept {
     return static_cast<u32>(m_Clips.Size());
 }
 
+/** 現在選択中の clip メタを返す (未選択 / 範囲外は nullptr)。 */
 const FAnimationClipBinding* FModelAnimationPanel::CurrentClip() const noexcept {
     if (!IsValidClipIndex(m_CurrentClipIdx, static_cast<u32>(m_Clips.Size()))) {
         return nullptr;
@@ -134,10 +145,12 @@ const FAnimationClipBinding* FModelAnimationPanel::CurrentClip() const noexcept 
     return &m_Clips[static_cast<usize>(m_CurrentClipIdx)];
 }
 
+/** 現在選択中の clip index を返す (未選択は kNoClipSelected)。 */
 i32 FModelAnimationPanel::CurrentClipIndex() const noexcept {
     return m_CurrentClipIdx;
 }
 
+/** clip を選択し、time 0 + Stopped にリセットする (範囲外は no-op)。 */
 void FModelAnimationPanel::SelectClip(u32 clip_index) noexcept {
     // 範囲外 (>= ClipCount) は no-op (= 静かに無視、エラーは LogWarning 等で
     // 出すべきだが本 panel は log 依存を持たない方針)。
@@ -150,9 +163,7 @@ void FModelAnimationPanel::SelectClip(u32 clip_index) noexcept {
     _state            = EAnimationPlayState::Stopped;
 }
 
-// =============================================================================
-// 再生制御
-// =============================================================================
+/** 現在位置から再生開始する (Stopped からは頭出し、Paused からは継続)。 */
 void FModelAnimationPanel::Play() noexcept {
     // clip 未選択 = 何も再生できない。silent no-op。
     if (m_CurrentClipIdx < 0) return;
@@ -165,6 +176,7 @@ void FModelAnimationPanel::Play() noexcept {
     _state = EAnimationPlayState::Playing;
 }
 
+/** Playing 中なら Paused に遷移する (それ以外は no-op)。 */
 void FModelAnimationPanel::Pause() noexcept {
     // Playing 中のみ Paused に遷移。Stopped / Paused からの Pause は no-op
     // (= UX 上、停止中に Pause ボタンを押しても何も起こらないのが自然)。
@@ -173,23 +185,23 @@ void FModelAnimationPanel::Pause() noexcept {
     }
 }
 
+/** どの状態からも Stopped + time 0 に遷移する (完全頭出し)。 */
 void FModelAnimationPanel::Stop() noexcept {
-    // どの状態からも Stopped + time = 0 に遷移 (= 完全頭出し)。
     _state            = EAnimationPlayState::Stopped;
     m_CurrentTimeSec = 0.0f;
 }
 
+/** 現在の再生状態を返す。 */
 EAnimationPlayState FModelAnimationPanel::PlayState() const noexcept {
     return _state;
 }
 
-// =============================================================================
-// 時刻 / 速度 / Loop / Blend
-// =============================================================================
+/** 現在の再生位置 (秒) を返す。 */
 f32 FModelAnimationPanel::CurrentTimeSec() const noexcept {
     return m_CurrentTimeSec;
 }
 
+/** 再生位置を [0, duration] にクランプして設定する (state は変えない)。 */
 void FModelAnimationPanel::SetCurrentTimeSec(f32 t) noexcept {
     // clip 未選択 = 時刻も意味を持たない (= 0 のまま固定)。
     const FAnimationClipBinding* c = CurrentClip();
@@ -208,43 +220,38 @@ void FModelAnimationPanel::SetCurrentTimeSec(f32 t) noexcept {
     m_CurrentTimeSec = ClampF(t, 0.0f, dur);
 }
 
+/** 現在の再生速度 (倍率) を返す。 */
 f32 FModelAnimationPanel::PlaybackSpeed() const noexcept {
     return m_Speed;
 }
 
+/** 再生速度を [0.1, 4.0] にクランプして設定する。 */
 void FModelAnimationPanel::SetPlaybackSpeed(f32 speed) noexcept {
     // 仕様: [0.1, 4.0] にクランプ。負値も 0.1 へ正規化 (= 逆再生は将来対応)。
     m_Speed = ClampF(speed, kMinPlaybackSpeed, kMaxPlaybackSpeed);
 }
 
+/** Loop override が有効かを返す。 */
 bool FModelAnimationPanel::IsLoopingOverride() const noexcept {
     return m_LoopOverride;
 }
 
+/** Loop override を設定する。 */
 void FModelAnimationPanel::SetLoopingOverride(bool b) noexcept {
     m_LoopOverride = b;
 }
 
+/** blend weight を返す。 */
 f32 FModelAnimationPanel::BlendWeight() const noexcept {
     return m_BlendWeight;
 }
 
+/** blend weight を [0, 1] にクランプして設定する。 */
 void FModelAnimationPanel::SetBlendWeight(f32 w) noexcept {
     m_BlendWeight = ClampF(w, 0.0f, 1.0f);
 }
 
-// =============================================================================
-// Tick — 時刻進行 + duration 到達処理 + callback 発火
-// =============================================================================
-// Playing 中のみ `m_CurrentTime += dt * m_Speed` を進め、duration を超えたら:
-//   ・loop (= clip.is_looping || m_LoopOverride) → 余りで wrap
-//   ・loop でない                                → Stopped + time = duration
-// 終端で m_OnFrameCb (設定されていれば) を 1 度発火する。
-//
-// dt <= 0 は no-op (= 巻き戻し非対応、FSpriteAnimator と同方針)。
-// clip 未選択 / Stopped / Paused / duration <= 0 はすべて no-op
-// (= callback も発火しない、無駄な GPU 反映を呼び出し側に渡さない)。
-// =============================================================================
+/** Playing 中の時刻を進め、duration 到達処理 + callback 発火を行う。 */
 void FModelAnimationPanel::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     if (_state != EAnimationPlayState::Playing) return;
@@ -303,24 +310,14 @@ void FModelAnimationPanel::Tick(f32 dt) noexcept {
     }
 }
 
+/** Tick 終端で呼ばれる callback と user ポインタを設定する。 */
 void FModelAnimationPanel::SetOnFrameCallback(AnimationFrameCallback cb,
                                              void* user) noexcept {
     m_OnFrameCb   = cb;
     m_OnFrameUser = user;
 }
 
-// =============================================================================
-// DrawUI — メイン ImGui window
-// =============================================================================
-// レイアウト (単一 "FAnimation" window 内):
-//   ClipCombo (dropdown)
-//   ────────────
-//   Time slider [0, duration]
-//   [Play] [Pause] [Stop]    (3 ボタン横並び)
-//   [x] Loop (override)
-//   Speed slider [0.1, 4.0]
-//   BlendWeight slider [0, 1]
-// =============================================================================
+/** ImGui window (ClipCombo / Time / Play-Pause-Stop / Loop / Speed / BlendWeight) を描画する。 */
 void FModelAnimationPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
@@ -334,7 +331,7 @@ void FModelAnimationPanel::DrawUI() noexcept {
 
     const u32 clip_count = static_cast<u32>(m_Clips.Size());
 
-    // ----- ClipCombo (dropdown) ------------------------------------------
+    // ClipCombo (dropdown)。
     // current preview 文字列: 未選択 / 空 list なら "(no clip)"、それ以外は
     // 選択中 clip 名。
     const char* preview = "(no clip)";
@@ -363,7 +360,7 @@ void FModelAnimationPanel::DrawUI() noexcept {
 
     ImGui::Separator();
 
-    // ----- 現在 clip のメタ情報 + Time slider ------------------------------
+    // 現在 clip のメタ情報 + Time slider。
     const FAnimationClipBinding* cur = CurrentClip();
     if (cur == nullptr) {
         // clip 未選択時は disabled テキストで案内し、controls は disable する。
@@ -422,7 +419,7 @@ void FModelAnimationPanel::DrawUI() noexcept {
     }
 
     // Speed slider [0.1, 4.0]。logarithmic にすると 1x 付近の微調整がしやすい
-    // が、Phase 21b は線形で十分 (= 後で SliderFloat の flags に
+    // が、線形で十分 (= 後で SliderFloat の flags に
     // ImGuiSliderFlags_Logarithmic を足せる)。
     {
         f32 s = m_Speed;
@@ -433,8 +430,7 @@ void FModelAnimationPanel::DrawUI() noexcept {
         }
     }
 
-    // BlendWeight slider [0, 1]。Phase 21b は表示用、Phase 22+ で複数 clip
-    // blending の primary slot として再利用する予定 (ヘッダ設計選択節参照)。
+    // BlendWeight slider [0, 1]。現状は表示用 (ヘッダ設計選択節参照)。
     {
         f32 w = m_BlendWeight;
         if (ImGui::SliderFloat("BlendWeight", &w, 0.0f, 1.0f, "%.2f")) {

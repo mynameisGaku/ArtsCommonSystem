@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FTween / FTweenManager 実装 (Phase 3)
+// GameFramework Pillar C — FTween / FTweenManager 実装
 #include "gameframework/Tween.h"
 
 namespace acs::game {

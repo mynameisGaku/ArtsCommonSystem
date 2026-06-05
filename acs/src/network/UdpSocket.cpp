@@ -10,13 +10,17 @@
 
 namespace acs {
 
+/** ソケットを閉じて破棄する。 */
 FUdpSocket::~FUdpSocket() noexcept {
     Close();
 }
 
+/** ムーブ構築する (移動元のハンドルを奪い、移動元を無効化する)。 */
 FUdpSocket::FUdpSocket(FUdpSocket&& o) noexcept : m_Socket(o.m_Socket) {
     o.m_Socket = ~uptr{0};
 }
+
+/** ムーブ代入する (既存ハンドルを閉じてから移動元のハンドルを奪う)。 */
 FUdpSocket& FUdpSocket::operator=(FUdpSocket&& o) noexcept {
     if (this == &o) return *this;
     Close();
@@ -25,11 +29,12 @@ FUdpSocket& FUdpSocket::operator=(FUdpSocket&& o) noexcept {
     return *this;
 }
 
+/** 指定アドレス/ポートにバインドした UDP ソケットを生成する。 */
 TResult<FUdpSocket> FUdpSocket::Bind(IpAddress addr, u16 port) noexcept {
     if (!Network::IsInitialized())
         return ACS_ERR(IO, 230, "Network::Init() not called");
 
-    SOCKET s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    const SOCKET s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (s == INVALID_SOCKET)
         return ACS_ERR_OS(IO, 231, "socket failed", static_cast<u32>(::WSAGetLastError()));
 
@@ -42,7 +47,7 @@ TResult<FUdpSocket> FUdpSocket::Bind(IpAddress addr, u16 port) noexcept {
     sa.sin_addr.S_un.S_un_b.s_b4 = addr.octets[3];
 
     if (::bind(s, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == SOCKET_ERROR) {
-        u32 err = static_cast<u32>(::WSAGetLastError());
+        const u32 err = static_cast<u32>(::WSAGetLastError());
         ::closesocket(s);
         return ACS_ERR_OS(IO, 232, "bind failed", err);
     }
@@ -52,6 +57,7 @@ TResult<FUdpSocket> FUdpSocket::Bind(IpAddress addr, u16 port) noexcept {
     return TResult<FUdpSocket>(OkInit, Move(u));
 }
 
+/** 指定先へデータグラムを送信する。 */
 isize FUdpSocket::SendTo(IpAddress dst_addr, u16 dst_port,
                         const void* data, usize size) noexcept {
     if (m_Socket == ~uptr{0}) return -1;
@@ -62,17 +68,18 @@ isize FUdpSocket::SendTo(IpAddress dst_addr, u16 dst_port,
     sa.sin_addr.S_un.S_un_b.s_b2 = dst_addr.octets[1];
     sa.sin_addr.S_un.S_un_b.s_b3 = dst_addr.octets[2];
     sa.sin_addr.S_un.S_un_b.s_b4 = dst_addr.octets[3];
-    int n = ::sendto(static_cast<SOCKET>(m_Socket),
+    const int n = ::sendto(static_cast<SOCKET>(m_Socket),
                      static_cast<const char*>(data), static_cast<int>(size), 0,
                      reinterpret_cast<sockaddr*>(&sa), sizeof(sa));
     return (n == SOCKET_ERROR) ? -1 : n;
 }
 
+/** データグラムを受信し、送信元アドレスを from に書き込む。 */
 isize FUdpSocket::RecvFrom(void* buf, usize size, IpAddress& from) noexcept {
     if (m_Socket == ~uptr{0}) return -1;
     sockaddr_in sa{};
     int len = sizeof(sa);
-    int n = ::recvfrom(static_cast<SOCKET>(m_Socket),
+    const int n = ::recvfrom(static_cast<SOCKET>(m_Socket),
                        static_cast<char*>(buf), static_cast<int>(size), 0,
                        reinterpret_cast<sockaddr*>(&sa), &len);
     if (n == SOCKET_ERROR) return -1;
@@ -84,6 +91,7 @@ isize FUdpSocket::RecvFrom(void* buf, usize size, IpAddress& from) noexcept {
     return n;
 }
 
+/** ノンブロッキングモードを設定する。 */
 TResult<void> FUdpSocket::SetNonBlocking(bool enable) noexcept {
     if (m_Socket == ~uptr{0}) return ACS_ERR(IO, 233, "socket not open");
     u_long mode = enable ? 1 : 0;
@@ -93,6 +101,7 @@ TResult<void> FUdpSocket::SetNonBlocking(bool enable) noexcept {
     return Ok();
 }
 
+/** ソケットを閉じてハンドルを無効化する (多重呼び出し安全)。 */
 void FUdpSocket::Close() noexcept {
     if (m_Socket != ~uptr{0}) {
         ::closesocket(static_cast<SOCKET>(m_Socket));

@@ -8,6 +8,7 @@
 
 namespace acs::game {
 
+/** owner の world transform から矩形を計算し、テクスチャ有無で描き分けて SpriteBatch へ積む。 */
 void FSprite2DComponent::OnDraw(RenderContext& rc) noexcept {
     if (!rc.HasSprites()) return;
 

@@ -15,7 +15,7 @@
 //     **必ず TResult<...> Err を返す**ことで、本番ビルドに stub が紛れ込んだ
 //     ケースを QA 工程で検出可能にしておく。
 //
-// 将来 (Phase 2 以降, Pillar O 本実装フェーズ):
+// 将来 (Pillar O 本実装):
 //   ・Sentry Native SDK ラッパ (CrashReporterSentry)
 //   ・Crashpad out-of-process minidump 連携 (CrashReporterCrashpad)
 //   ・SEH / POSIX signal handler の登録と coredump pipe
@@ -39,10 +39,7 @@
 
 namespace acs::game {
 
-// -----------------------------------------------------------------------------
-// CrashReporterStub — ICrashReporterBackend の null-object 実装
-// -----------------------------------------------------------------------------
-
+/** stub: 初期化せず NotImplemented エラーを返す。 */
 TResult<void> CrashReporterStub::Init(const char* product_id, const char* version) noexcept {
     (void)product_id;
     (void)version;
@@ -51,10 +48,12 @@ TResult<void> CrashReporterStub::Init(const char* product_id, const char* versio
                    "(stub: link a concrete crash reporter implementation)");
 }
 
+/** stub: never-initialized 状態なので no-op。 */
 void CrashReporterStub::Shutdown() noexcept {
     // stub は never-initialized 状態。no-op で安全に通す。
 }
 
+/** stub: 送信せず NotImplemented エラーを返す。 */
 TResult<void> CrashReporterStub::ReportCrash(const CrashContext& ctx) noexcept {
     (void)ctx;
     return ACS_ERR(Generic, CrashReporterError::kSub_NotImplemented,
@@ -62,6 +61,7 @@ TResult<void> CrashReporterStub::ReportCrash(const CrashContext& ctx) noexcept {
                    "(stub: link a concrete crash reporter implementation)");
 }
 
+/** stub: 送信せず NotImplemented エラーを返す。 */
 TResult<void> CrashReporterStub::ReportError(const char* category, const char* message) noexcept {
     (void)category;
     (void)message;
@@ -70,6 +70,7 @@ TResult<void> CrashReporterStub::ReportError(const char* category, const char* m
                    "(stub: link a concrete crash reporter implementation)");
 }
 
+/** stub: 追加せず NotImplemented エラーを返す。 */
 TResult<void> CrashReporterStub::AddBreadcrumb(const char* category, const char* message) noexcept {
     (void)category;
     (void)message;
@@ -78,55 +79,51 @@ TResult<void> CrashReporterStub::AddBreadcrumb(const char* category, const char*
                    "(stub: link a concrete crash reporter implementation)");
 }
 
+/** stub: ユーザー ID を保持しないので no-op。 */
 void CrashReporterStub::SetUserId(const char* anonymous_id) noexcept {
     (void)anonymous_id;
     // stub はユーザー ID を保持しない。no-op。
 }
 
+/** stub: pump 対象がないので no-op。 */
 void CrashReporterStub::Tick(f32 dt) noexcept {
     (void)dt;
     // stub には pump 対象なし。no-op。
 }
 
-// -----------------------------------------------------------------------------
-// アクセサ: function-local static で process-wide singleton を保持
-// -----------------------------------------------------------------------------
-// C++11 magic statics により初期化は thread-safe。
-// 破棄順序は他の static と独立で良い (相互依存なし)。
+/** function-local static で process-wide な stub singleton を返す (magic statics)。 */
 ICrashReporterBackend& GetCrashStub() noexcept {
     static CrashReporterStub s_instance;
     return s_instance;
 }
 
-// ---- 既定 backend provider 結線 (実 backend への委譲) ----------------------
 namespace {
+/** 登録済みの既定 backend provider (未登録なら nullptr)。 */
 CrashReporterProvider g_CrashReporterProvider = nullptr;
 }
 
+/** 既定 backend provider を差し替える (後勝ち)。 */
 void SetCrashReporterProvider(CrashReporterProvider provider) noexcept {
     g_CrashReporterProvider = provider;
 }
 
+/** provider 登録済みなら実 backend、未登録なら stub を返す。 */
 ICrashReporterBackend& GetDefaultCrashReporter() noexcept {
     return g_CrashReporterProvider ? g_CrashReporterProvider() : GetCrashStub();
 }
 
-// -----------------------------------------------------------------------------
-// CrashHandler — 高レベル wrapper
-// -----------------------------------------------------------------------------
-// `m_Backend == nullptr` チェックを全 API に入れて二次クラッシュを防ぐ。
-// クラッシュ報告系のホットパスでは branch 1 本の方が安全で、性能ペナルティも
-// 無視できる (どうせ呼ばれる頻度は低い)。
-
+/** 借用 backend を設定する (nullptr は Uninstall と同義、後勝ち)。 */
 void CrashHandler::Install(ICrashReporterBackend* backend) noexcept {
     // nullptr 受け入れは Uninstall と同義。多重 Install は最後の 1 個で上書き。
     m_Backend = backend;
 }
 
+/** 借用 backend 参照を外す (べき等)。 */
 void CrashHandler::Uninstall() noexcept {
     m_Backend = nullptr;
 }
 
+/** backend があれば最小 context で ReportCrash を呼ぶ (nullptr なら no-op)。 */
 void CrashHandler::NotifyCrash(const char* exception_type, const char* message) noexcept {
     if (m_Backend == nullptr) {
         // 未 Install: 黙って no-op。クラッシュ報告経路で SEGV を起こさない。
@@ -140,6 +137,7 @@ void CrashHandler::NotifyCrash(const char* exception_type, const char* message) 
     (void)m_Backend->ReportCrash(ctx);
 }
 
+/** backend があれば breadcrumb を素通しする (nullptr なら no-op)。 */
 void CrashHandler::AddBreadcrumb(const char* category, const char* message) noexcept {
     if (m_Backend == nullptr) {
         return;

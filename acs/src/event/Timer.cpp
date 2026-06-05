@@ -4,6 +4,7 @@
 
 namespace acs {
 
+/** delay_seconds 後に 1 回だけ呼ぶタイマを登録する (空き slot 再利用 + 世代更新)。 */
 FTimerHandle FTimerManager::SetTimeout(f32 delay_seconds, TimerCallback cb, void* user) noexcept {
     if (!cb || delay_seconds < 0.0f) return kInvalidTimer;
 
@@ -28,6 +29,7 @@ FTimerHandle FTimerManager::SetTimeout(f32 delay_seconds, TimerCallback cb, void
     return FTimerHandle{ s.id, s.generation };
 }
 
+/** period_seconds ごとに繰り返し呼ぶタイマを登録する (空き slot 再利用 + 世代更新)。 */
 FTimerHandle FTimerManager::SetInterval(f32 period_seconds, TimerCallback cb, void* user) noexcept {
     if (!cb || period_seconds <= 0.0f) return kInvalidTimer;
 
@@ -52,6 +54,7 @@ FTimerHandle FTimerManager::SetInterval(f32 period_seconds, TimerCallback cb, vo
     return FTimerHandle{ s.id, s.generation };
 }
 
+/** 指定タイマを線形検索して解除し、slot を再利用待ちへ戻す。 */
 bool FTimerManager::Cancel(FTimerHandle h) noexcept {
     if (!h.IsValid()) return false;
     // id は 1-based、m_Slots の中を線形検索（タイマ数は通常少ないので OK）
@@ -68,6 +71,7 @@ bool FTimerManager::Cancel(FTimerHandle h) noexcept {
     return false;
 }
 
+/** dt を経過させ、発火条件を満たしたタイマを呼ぶ (周期は catch-up で複数回発火し得る)。 */
 void FTimerManager::Tick(f32 dt) noexcept {
     // コールバック中にタイマを追加 / Cancel される可能性があるので、
     // ループ中の m_Slots.Size() を毎回読み直す。新規追加は末尾のため安全。
@@ -82,8 +86,8 @@ void FTimerManager::Tick(f32 dt) noexcept {
         if (!s.repeating) {
             // 1 回限りはコールバックを呼ぶ前にスロット解放
             // (コールバック中に同じハンドルを Cancel しても false が返るだけで安全)
-            TimerCallback cb   = s.cb;
-            void*         user = s.user;
+            const TimerCallback cb   = s.cb;
+            void* const         user = s.user;
             s.active = false;
             s.cb     = nullptr;
             s.user   = nullptr;
@@ -115,13 +119,14 @@ void FTimerManager::Tick(f32 dt) noexcept {
                 break;
             }
             ++fired;
-            TimerCallback cb   = cur.cb;
-            void*         user = cur.user;
+            const TimerCallback cb   = cur.cb;
+            void* const         user = cur.user;
             cb(user);  // 呼び出し後 cur/s は dangling し得る → 参照を残さずループ先頭で取り直す
         }
     }
 }
 
+/** active な slot を数えて現在のアクティブタイマ数を返す。 */
 u32 FTimerManager::ActiveCount() const noexcept {
     u32 n = 0;
     for (usize i = 0; i < m_Slots.Size(); ++i) if (m_Slots[i].active) ++n;

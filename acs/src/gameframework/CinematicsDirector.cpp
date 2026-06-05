@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R Phase 2 — FCinematicsDirector 実装
+// GameFramework Pillar R — FCinematicsDirector 実装
 //
 // 状態遷移:
 //   Stopped (m_Playing=false, m_Time=0)
@@ -124,8 +124,6 @@ void FCinematicsDirector::SetEventCallback(EventCallbackFn cb, void* user) noexc
     m_EventCb   = cb;
     m_EventUser = user;
 }
-
-// ===== private =====
 
 void FCinematicsDirector::FireUpTo(f32 up_to_time) noexcept {
     const u32 n = static_cast<u32>(m_Keyframes.Size());

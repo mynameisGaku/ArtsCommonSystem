@@ -30,10 +30,10 @@
 //   mr.SortByLoadOrder();
 //   for (u32 i = 0; i < mr.Count(); ++i) {
 //       const ModInfo& m = mr.All()[i];
-//       if (m.enabled) MountPack(m.pack_path);  // TODO: FAssetPack Phase 2
+//       if (m.enabled) MountPack(m.pack_path);  // FAssetPack 統合は別途
 //   }
 //
-// 設計選択 (Pillar N Phase 1 = skeleton):
+// 設計選択:
 //   ・**所有しない const char***: id / name / pack_path は外部所有の文字列を
 //     借りるだけ (`<string>` 禁止)。呼び出し側 (= Mod manifest loader) が
 //     寿命を持ち、Registry の寿命を超えるまで生かす責務を負う。manifest を
@@ -51,7 +51,7 @@
 //   ・**非コピー・非ムーブ**: Mod 管理はゲーム寿命に 1 インスタンスのみ。複製を
 //     許すと "どの Registry が active か" が曖昧になるので禁止 (FInputMap と同じ)。
 //
-// 範囲外 (Phase 2+ で):
+// 範囲外:
 //   ・実際の `.acpak` mount (Pillar G FAssetPack 統合) — Mount API 自体が
 //     未確定のため、Registry は path を保持するだけ。
 //   ・Mod 間依存解決 (dependency graph、循環検出、欠落警告)。
@@ -69,65 +69,142 @@
 
 namespace acs::game {
 
-// 1 Mod 分のメタデータ。
-//
-// 文字列フィールドは「呼び出し側が所有する」前提で nullptr 許容にしている:
-//   ・`id`        : Mod 一意キー。空文字や nullptr は Register 時にスキップ。
-//   ・`name`      : 表示用 (UI が pull する)。nullptr 可。
-//   ・`pack_path` : `.acpak` のファイルパス。nullptr なら「path 未指定」(= manifest
-//                   のみ登録で実体 mount は後で別途渡す) を意味する。
-//
-// `version` は (major << 24) | (minor << 16) | patch エンコーディングを想定する
-// が、Registry 側は不透明に扱う (比較のみ)。
+/**
+ * 1 Mod 分のメタデータ。
+ *
+ * @details
+ * 文字列フィールドは「呼び出し側が所有する」前提で nullptr 許容にしている
+ * (id は Mod 一意キーで空文字や nullptr は Register 時にスキップ、name は表示用、
+ * pack_path は .acpak のパスで nullptr なら path 未指定)。version は
+ * (major << 24) | (minor << 16) | patch エンコーディングを想定するが、Registry
+ * 側は不透明に扱う (比較のみ)。
+ */
 struct ModInfo {
+    /** Mod 一意キー (外部所有。空文字や nullptr は Register 時にスキップ)。 */
     const char* id         = nullptr;
+
+    /** 表示用の名前 (外部所有。UI が pull する。nullptr 可)。 */
     const char* name       = nullptr;
+
+    /** バージョン ((major << 24) | (minor << 16) | patch、Registry は不透明扱い)。 */
     u32         version    = 0;
+
+    /** load 順 (昇順。小さい方を先に load、大きい方が後で上書き)。 */
     i32         load_order = 0;
+
+    /** 有効フラグ (true で mount 対象)。 */
     bool        enabled    = false;
+
+    /** .acpak のファイルパス (外部所有。nullptr なら path 未指定)。 */
     const char* pack_path  = nullptr;
 };
 
+/**
+ * ユーザー Mod の登録・有効化・並び順を管理する薄いレジストリ。
+ *
+ * @details
+ * 各 Mod を ModInfo の内部 TArray に保持し、load_order 昇順に並べる。文字列は
+ * 所有せず呼び出し側の寿命に依存する。1 ゲーム寿命に 1 インスタンスのみを想定し
+ * non-copy / non-move とする。
+ */
 class FModRegistry {
 public:
+    /** 空のレジストリを構築する。 */
     FModRegistry() noexcept = default;
+
+    /** 破棄する (内部 TArray が解放される)。 */
     ~FModRegistry() noexcept = default;
 
+    /** コピー禁止 (active な Registry を一意にするため)。 */
     FModRegistry(const FModRegistry&)            = delete;
+
+    /** コピー代入も禁止。 */
     FModRegistry& operator=(const FModRegistry&) = delete;
+
+    /** ムーブ禁止。 */
     FModRegistry(FModRegistry&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FModRegistry& operator=(FModRegistry&&)      = delete;
 
-    // ----- 登録 -----
-    // info を内部 TArray にコピーで追加する (ModInfo は POD なので浅いコピーで OK、
-    // ただし指している文字列バッファの寿命は呼び出し側が保証する)。
-    // id == nullptr のエントリは無視 (警告ログのみ)。
+    /**
+     * Mod を内部リストの末尾に登録する。
+     *
+     * @details
+     * info を内部 TArray に浅くコピーして追加する (指す文字列バッファの寿命は
+     * 呼び出し側が保証する)。id == nullptr のエントリは無視する (警告ログのみ)。
+     * @param info 登録する Mod のメタデータ。
+     */
     void Register(const ModInfo& info) noexcept;
 
-    // ----- 有効化 -----
-    // id に一致する Mod の enabled フラグを書き換える。見つかれば true。
+    /**
+     * id に一致する Mod を有効化する。
+     *
+     * @param mod_id 有効化する Mod の一意キー。
+     * @return 見つかって enabled を立てたら true。
+     */
     bool Enable (const char* mod_id) noexcept;
+
+    /**
+     * id に一致する Mod を無効化する。
+     *
+     * @param mod_id 無効化する Mod の一意キー。
+     * @return 見つかって enabled を落としたら true。
+     */
     bool Disable(const char* mod_id) noexcept;
 
-    // 指定 Mod の load_order を変更する (sort は別途呼び出し側で実行)。
-    // 見つからなくても黙って noop (UI 側で都度同期する想定)。
+    /**
+     * 指定 Mod の load_order を変更する (sort は別途呼び出し側で実行)。
+     *
+     * @details 見つからなくても黙って no-op (UI 側で都度同期する想定)。
+     * @param mod_id 対象 Mod の一意キー。
+     * @param order 新しい load 順。
+     */
     void SetLoadOrder(const char* mod_id, i32 order) noexcept;
 
-    // ----- 検索・列挙 -----
+    /**
+     * 登録済み Mod の件数を返す。
+     *
+     * @return Mod の件数。
+     */
     u32                Count() const noexcept;
-    const ModInfo*     Find (const char* mod_id) const noexcept;  // nullptr if not found
-    const ModInfo*     All  () const noexcept;  // 生バッファ、Count() で長さ確定
 
-    // load_order 昇順に並べ替える (同値は登録順を保つ安定 sort)。
+    /**
+     * id に一致する Mod を検索する。
+     *
+     * @param mod_id 探す Mod の一意キー。
+     * @return 見つかった ModInfo へのポインタ (無ければ nullptr)。
+     */
+    const ModInfo*     Find (const char* mod_id) const noexcept;
+
+    /**
+     * 登録済み Mod の生バッファ先頭を返す。
+     *
+     * @return ModInfo 配列の先頭 (長さは Count() で確定)。
+     */
+    const ModInfo*     All  () const noexcept;
+
+    /**
+     * load_order 昇順に並べ替える (同値は登録順を保つ安定 sort)。
+     */
     void SortByLoadOrder() noexcept;
 
-    // 全 Mod を削除。
+    /**
+     * 登録済み Mod を全て削除する。
+     */
     void Clear() noexcept;
 
 private:
-    // 内部の id 比較ヘルパ (両者 nullptr 安全)。
+    /**
+     * 2 つの id 文字列が等しいかを返す (両者 nullptr 安全)。
+     *
+     * @param a 比較する id (nullptr 可)。
+     * @param b 比較する id (nullptr 可)。
+     * @return 文字列として一致すれば true。
+     */
     static bool IdEquals(const char* a, const char* b) noexcept;
 
+    /** 登録済み Mod の配列 (登録順、SortByLoadOrder で並べ替え)。 */
     TArray<ModInfo> m_Mods;
 };
 

@@ -87,7 +87,7 @@ TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
     }
     constexpr Diligent::Uint32 kMaxAdapters = 8;
     Diligent::GraphicsAdapterInfo adapters[kMaxAdapters]{};
-    Diligent::Uint32 enumerate = num_adapters > kMaxAdapters ? kMaxAdapters : num_adapters;
+    const Diligent::Uint32 enumerate = num_adapters > kMaxAdapters ? kMaxAdapters : num_adapters;
     m_Factory->EnumerateAdapters(eci.GraphicsAPIVersion, enumerate, adapters);
     Diligent::Uint32 selected = 0;
     if (cfg.prefer_high_perf) {
@@ -145,7 +145,7 @@ TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& cfg) noexcept {
     }
     constexpr Diligent::Uint32 kMaxAdapters = 8;
     Diligent::GraphicsAdapterInfo adapters[kMaxAdapters]{};
-    Diligent::Uint32 enumerate = num_adapters > kMaxAdapters ? kMaxAdapters : num_adapters;
+    const Diligent::Uint32 enumerate = num_adapters > kMaxAdapters ? kMaxAdapters : num_adapters;
     m_FactoryVk->EnumerateAdapters({}, enumerate, adapters);
     Diligent::Uint32 selected = 0;
     if (cfg.prefer_high_perf) {

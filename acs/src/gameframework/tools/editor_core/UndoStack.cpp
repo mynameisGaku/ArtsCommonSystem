@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / FUndoStack 実装 (Phase 21a)
+// GameFramework Tools — editor_core / FUndoStack 実装
 //
 // 設計のポイント (詳細はヘッダ参照):
 //   ・undo / redo は LIFO の `TArray<TUniquePtr<FEditorCommand>>` で表現する。
@@ -14,9 +14,7 @@
 
 namespace acs::game::editor_core {
 
-// ============================================================================
-// Init
-// ============================================================================
+/** 履歴を全破棄して上限を再設定する (多重 Init 安全、0 は 64 に丸める)。 */
 void FUndoStack::Init(u32 max_history) noexcept {
     // 履歴を全破棄して上限を再設定する。多重 Init 安全。
     // 0 を渡された場合は default (64) にフォールバック (誤渡し対策)。
@@ -28,9 +26,7 @@ void FUndoStack::Init(u32 max_history) noexcept {
     // SetOnExecutedCallback(nullptr, nullptr) を呼ぶ。
 }
 
-// ============================================================================
-// Push
-// ============================================================================
+/** command を 1 件積む (所有権を奪い、Execute → merge 判定 → redo 破棄を行う)。 */
 void FUndoStack::Push(FEditorCommand* cmd) noexcept {
     // 1. nullptr ガード: 誤呼び対策。cmd は呼び出し側が責任持って渡すべきだが、
     //    null だった場合に Execute を呼んで AV することのほうが危険なので
@@ -44,7 +40,7 @@ void FUndoStack::Push(FEditorCommand* cmd) noexcept {
     // alloc は DefaultAllocator() 前提 (caller が New<T>(DefaultAllocator(), ...)
     // で作るのが標準パターン)。別 allocator の場合、TUniquePtr が delete する際に
     // alloc 引数 (= 第二引数) を渡す必要があるが、それは caller 側で個別に
-    // TUniquePtr を作って Release してから渡す Phase 21+ 拡張で対応する。
+    // TUniquePtr を作って Release してから渡す。
     TUniquePtr<FEditorCommand> owned(cmd, &DefaultAllocator());
 
     // 2. Execute を呼ぶ (= "Do action")。
@@ -70,7 +66,6 @@ void FUndoStack::Push(FEditorCommand* cmd) noexcept {
     }
 
     // 5. new edit が来た時点で m_RedoStack の "未来" は破棄される。
-    //    branched history が欲しくなった段階で Phase 21+ で見直す。
     m_RedoStack.Clear();
 
     // 6. 上限超えチェック。merge 経路で件数は増えないので超過は起こらないが、
@@ -85,9 +80,7 @@ void FUndoStack::Push(FEditorCommand* cmd) noexcept {
     }
 }
 
-// ============================================================================
-// Undo
-// ============================================================================
+/** undo を 1 件巻き戻し、その command を redo stack へ移す。 */
 bool FUndoStack::Undo() noexcept {
     // 何も積まれていなければ no-op で false を返す (= UI 側で MenuItem の
     // enabled チェックがあっても、race 等で空のときに silent に弾ける)。
@@ -118,9 +111,7 @@ bool FUndoStack::Undo() noexcept {
     return true;
 }
 
-// ============================================================================
-// Redo
-// ============================================================================
+/** redo を 1 件やり直し、その command を undo stack へ戻す (Undo の対称)。 */
 bool FUndoStack::Redo() noexcept {
     if (m_RedoStack.IsEmpty()) {
         return false;
@@ -147,25 +138,27 @@ bool FUndoStack::Redo() noexcept {
     return true;
 }
 
-// ============================================================================
-// 問い合わせ
-// ============================================================================
+/** undo できる command があるかを返す。 */
 bool FUndoStack::CanUndo() const noexcept {
     return !m_UndoStack.IsEmpty();
 }
 
+/** redo できる command があるかを返す。 */
 bool FUndoStack::CanRedo() const noexcept {
     return !m_RedoStack.IsEmpty();
 }
 
+/** undo stack に積まれている件数を返す。 */
 u32 FUndoStack::UndoCount() const noexcept {
     return static_cast<u32>(m_UndoStack.Size());
 }
 
+/** redo stack に積まれている件数を返す。 */
 u32 FUndoStack::RedoCount() const noexcept {
     return static_cast<u32>(m_RedoStack.Size());
 }
 
+/** undo stack top の Description を返す (空なら "")。 */
 const char* FUndoStack::UndoDescription() const noexcept {
     // 空のときは空文字列 (nullptr ではない → strlen / strcmp が安全)。
     if (m_UndoStack.IsEmpty()) {
@@ -179,6 +172,7 @@ const char* FUndoStack::UndoDescription() const noexcept {
     return (desc != nullptr) ? desc : "";
 }
 
+/** redo stack top の Description を返す (空なら "")。 */
 const char* FUndoStack::RedoDescription() const noexcept {
     if (m_RedoStack.IsEmpty()) {
         return "";
@@ -191,9 +185,7 @@ const char* FUndoStack::RedoDescription() const noexcept {
     return (desc != nullptr) ? desc : "";
 }
 
-// ============================================================================
-// Clear / FCallback
-// ============================================================================
+/** undo / redo 両スタックの全 command を破棄する。 */
 void FUndoStack::Clear() noexcept {
     // TUniquePtr の dtor で全 cmd が自動 delete される。TArray::Clear は size を
     // 0 に戻すだけで capacity は維持されるため、その後の Push で再アロケーション
@@ -202,15 +194,14 @@ void FUndoStack::Clear() noexcept {
     m_RedoStack.Clear();
 }
 
+/** Push / Undo / Redo 後に呼ぶ callback を登録する (nullptr で解除)。 */
 void FUndoStack::SetOnExecutedCallback(CommandExecutedCallback cb, void* user) noexcept {
     // cb / user ともそのまま保存。nullptr 解除 OK (= cb は呼ばれなくなる)。
     m_Cb      = cb;
     m_CbUser = user;
 }
 
-// ============================================================================
-// 内部ヘルパ
-// ============================================================================
+/** 上限超過時に最古 1 件を捨てる (PushBack 直後にのみ呼ぶ、超過量は高々 1)。 */
 void FUndoStack::DropOldestIfOverflow() noexcept {
     // m_UndoStack のみが上限管理対象 (redo は Push 時に Clear されるため自然に
     // 上限以下になる)。

@@ -8,32 +8,58 @@
 
 namespace acs {
 
+/**
+ * FApplication::Run に渡す起動オプション一式。
+ *
+ * @details
+ * ウィンドウ・ロガー・メモリシステム・スレッドプール・レンダラ・背景色の初期値を
+ * まとめて保持する集約 struct。すべてのフィールドに既定値があり、`FAppConfig cfg{};`
+ * のまま Run に渡せば標準設定で起動できる。
+ */
 struct FAppConfig {
-    // ウィンドウ
+    /** ウィンドウタイトル。 */
     const wchar_t* title       = L"ACS FApplication";
-    u32            width       = 1280;
-    u32            height      = 720;
-    bool           resizable   = true;
-    bool           vsync       = true;
-    bool           start_clear = true;     // BeginFrame で背景色クリアするか
 
-    // ロガー
+    /** クライアント領域の幅 (ピクセル)。 */
+    u32            width       = 1280;
+
+    /** クライアント領域の高さ (ピクセル)。 */
+    u32            height      = 720;
+
+    /** ウィンドウのリサイズを許可するか。 */
+    bool           resizable   = true;
+
+    /** 垂直同期 (VSync) を有効にするか。 */
+    bool           vsync       = true;
+
+    /** BeginFrame で背景色クリアを行うか。 */
+    bool           start_clear = true;
+
+    /** ロガーの最小出力重要度 (これ未満は破棄)。 */
     ELogSeverity    log_severity = ELogSeverity::Info;
+
+    /** ログ出力先ファイルパス (nullptr でファイル出力なし)。 */
     const wchar_t* log_file     = nullptr;
 
-    // メモリシステム（nullptr で既定設定を使う）
+    /** メモリシステム設定 (nullptr で既定設定を使う)。 */
     const MemorySystemConfig* memory = nullptr;
 
-    // FThreadPool ワーカー数（0 で自動）
+    /** FThreadPool のワーカースレッド数 (0 でハードウェア並列数から自動決定)。 */
     u32            worker_count = 0;
 
-    // レンダラ
-    bool           enable_gpu_debug = false;  // Debug ビルド時に有効推奨
+    /** レンダラの GPU デバッグレイヤを有効にするか (Debug ビルド時に有効推奨)。 */
+    bool           enable_gpu_debug = false;
 
-    // 背景色（BeginFrame で使用）
+    /** 背景クリア色の赤成分 (0..1)。 */
     f32            clear_r = 0.1f;
+
+    /** 背景クリア色の緑成分 (0..1)。 */
     f32            clear_g = 0.12f;
+
+    /** 背景クリア色の青成分 (0..1)。 */
     f32            clear_b = 0.16f;
+
+    /** 背景クリア色のアルファ成分 (0..1)。 */
     f32            clear_a = 1.0f;
 };
 

@@ -23,7 +23,7 @@
 #include "container/Array.h"
 #include "foundation/Log.h"
 
-// ---- Win32 / XAudio2 ヘッダ (本 .cpp ローカル) -----------------------------
+// Win32 / XAudio2 ヘッダ (本 .cpp ローカル)。
 // <windows.h> マクロ汚染 (min/max など) を最小化するため WIN32_LEAN_AND_MEAN
 // + NOMINMAX を付ける (ACS のビルドスクリプトは既にコマンドラインで両方定義
 // しているので、ローカルの define は ifndef ガード付きで二重定義を避ける)。
@@ -39,21 +39,30 @@
 
 namespace acs::game {
 
-// ----------------------------------------------------------------------------
-// 内部 helpers / 定数
-// ----------------------------------------------------------------------------
 namespace {
 
-// volume を 0.0..1.0 に clamp (XAudio2 自体は > 1 も受けるが歪むので抑える)。
+/**
+ * volume を 0.0..1.0 に clamp する。
+ *
+ * @details XAudio2 自体は > 1 も受けるが歪むので抑える。
+ * @param v clamp する音量。
+ * @return [0.0, 1.0] に収めた音量。
+ */
 f32 ClampVolume(f32 v) noexcept {
     if (v < 0.0f) return 0.0f;
     if (v > 1.0f) return 1.0f;
     return v;
 }
 
-// pitch を XAudio2 が受ける ratio に clamp。XAudio2 は SetFrequencyRatio で
-// XAUDIO2_MIN_FREQ_RATIO (= 1/1024.0) .. XAUDIO2_MAX_FREQ_RATIO (= 1024.0) を
-// 受けるが、現実用途は [0.25, 4.0] で十分。範囲外は警告 + clamp する。
+/**
+ * pitch を XAudio2 が受ける周波数比に clamp する。
+ *
+ * @details
+ * XAudio2 は SetFrequencyRatio で XAUDIO2_MIN_FREQ_RATIO (= 1/1024.0) ..
+ * XAUDIO2_MAX_FREQ_RATIO (= 1024.0) を受けるが、現実用途は [0.25, 4.0] で十分。
+ * @param p clamp する周波数比。
+ * @return [0.25, 4.0] に収めた周波数比。
+ */
 f32 ClampPitch(f32 p) noexcept {
     constexpr f32 kMin = 0.25f;
     constexpr f32 kMax = 4.0f;
@@ -62,50 +71,64 @@ f32 ClampPitch(f32 p) noexcept {
     return p;
 }
 
-// 1 個の発音 slot。
+/** 1 個の発音 slot。 */
 struct VoiceSlot {
-    IXAudio2SourceVoice* voice    = nullptr;  // XAudio2 source voice
-    TArray<byte>          buffer;              // 再生中保持する PCM コピー
-    // handle 検証用 generation。**1 始まり** (0 は invalid 表現に予約)。
-    // 理由: AudioVoiceHandle は (index<<0 | gen<<24) を packed == 0 で invalid と
-    // する規約 (FNodeId / FShapeId と同一)。generation=0 のまま index=0 の slot を
-    // 配ると packed == 0 = kInvalidAudioVoice と衝突し、確保成功が IsValid()==false
-    // となって StopVoice 不能 → voice リーク + active_count 不整合を起こす。
-    // よって初期値を 1 にし、DestroySlot でのラップ時も 0 をスキップする。
-    u8                   generation = 1;      // handle 検証用 (1..255 を循環、0 は予約)
-    bool                 active    = false;   // true なら use 中
-    bool                 looped    = false;   // ループ再生か (一発再生は Tick で回収)
+    /** XAudio2 source voice (空きスロットは nullptr)。 */
+    IXAudio2SourceVoice* voice    = nullptr;
+
+    /** 再生中ずっと保持する PCM コピー (XAudio2 が参照し続けるため)。 */
+    TArray<byte>          buffer;
+
+    /**
+     * handle 検証用 generation (1 始まり、0 は invalid 表現に予約)。
+     *
+     * @details
+     * AudioVoiceHandle は (index | gen<<24) を packed == 0 で invalid とする規約
+     * (FNodeId / FShapeId と同一)。generation=0 のまま index=0 の slot を配ると
+     * packed == 0 = kInvalidAudioVoice と衝突し、確保成功が IsValid()==false となって
+     * StopVoice 不能 → voice リーク + active_count 不整合を起こす。よって初期値を 1 にし、
+     * DestroySlot でのラップ時も 0 をスキップする (1..255 を循環)。
+     */
+    u8                   generation = 1;
+
+    /** true なら使用中。 */
+    bool                 active    = false;
+
+    /** ループ再生か (一発再生は Tick で自然回収、ループは StopVoice まで残る)。 */
+    bool                 looped    = false;
 };
 
 } // namespace
 
-// ----------------------------------------------------------------------------
-// pimpl
-// ----------------------------------------------------------------------------
+/** XAudio2 / COM のハンドルと voice pool を保持する pimpl 本体。 */
 struct FXAudio2Backend::Impl {
+    /** XAudio2 エンジンインスタンス。 */
     IXAudio2*               xaudio2          = nullptr;
-    IXAudio2MasteringVoice* mastering        = nullptr;
-    bool                    com_initialized  = false;  // 自分で CoInit した
-    bool                    initialized      = false;  // フル init 済 (Init 成功)
 
+    /** マスタリングボイス (最終出力)。 */
+    IXAudio2MasteringVoice* mastering        = nullptr;
+
+    /** 自分で CoInitializeEx に成功したか (true のときだけ Shutdown で CoUninitialize)。 */
+    bool                    com_initialized  = false;
+
+    /** フル init 済か (Init 成功フラグ)。 */
+    bool                    initialized      = false;
+
+    /** 固定容量の発音 slot 配列。 */
     TArray<VoiceSlot>        slots;
+
+    /** 同時発音数の上限 (= slot 数)。 */
     u32                     max_voices       = 0;
+
+    /** 現在アクティブな voice 数。 */
     u32                     active_count     = 0;
 };
-
-// ----------------------------------------------------------------------------
-// construction / destruction
-// ----------------------------------------------------------------------------
 
 FXAudio2Backend::FXAudio2Backend() noexcept = default;
 
 FXAudio2Backend::~FXAudio2Backend() noexcept {
     Shutdown();
 }
-
-// ----------------------------------------------------------------------------
-// Init / Shutdown
-// ----------------------------------------------------------------------------
 
 TResult<void> FXAudio2Backend::Init(u32 max_voices) noexcept {
     if (m_Impl != nullptr && m_Impl->initialized) {
@@ -127,7 +150,7 @@ TResult<void> FXAudio2Backend::Init(u32 max_voices) noexcept {
         m_Impl = new Impl();
     }
 
-    // ---- COM 初期化 -----
+    // COM 初期化。
     // 既に他モジュールが COM init 済の可能性あり (S_FALSE / RPC_E_CHANGED_MODE)。
     // 自分が成功 (S_OK) したときだけ Shutdown で CoUninitialize を呼ぶ。
     HRESULT hr = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -148,7 +171,7 @@ TResult<void> FXAudio2Backend::Init(u32 max_voices) noexcept {
                           static_cast<u32>(hr));
     }
 
-    // ---- XAudio2 エンジン作成 -----
+    // XAudio2 エンジン作成。
     hr = ::XAudio2Create(&m_Impl->xaudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
     if (FAILED(hr)) {
         Shutdown();
@@ -157,7 +180,7 @@ TResult<void> FXAudio2Backend::Init(u32 max_voices) noexcept {
                           static_cast<u32>(hr));
     }
 
-    // ---- マスタリングボイス -----
+    // マスタリングボイス。
     hr = m_Impl->xaudio2->CreateMasteringVoice(&m_Impl->mastering);
     if (FAILED(hr)) {
         Shutdown();
@@ -166,7 +189,7 @@ TResult<void> FXAudio2Backend::Init(u32 max_voices) noexcept {
                           static_cast<u32>(hr));
     }
 
-    // ---- voice pool -----
+    // voice pool。
     m_Impl->max_voices = max_voices;
     m_Impl->slots.Resize(max_voices);  // VoiceSlot{} で初期化 (active=false)
 
@@ -178,25 +201,25 @@ TResult<void> FXAudio2Backend::Init(u32 max_voices) noexcept {
 void FXAudio2Backend::Shutdown() noexcept {
     if (m_Impl == nullptr) return;
 
-    // ---- 全 voice 停止 + destroy -----
+    // 全 voice 停止 + destroy。
     StopAllVoices();
     // slot TArray 自体は Impl のデストラクタで TArray<VoiceSlot> 経由解放される。
     m_Impl->slots.Clear();
     m_Impl->max_voices = 0;
 
-    // ---- mastering voice -----
+    // mastering voice。
     if (m_Impl->mastering != nullptr) {
         m_Impl->mastering->DestroyVoice();
         m_Impl->mastering = nullptr;
     }
 
-    // ---- XAudio2 engine -----
+    // XAudio2 engine。
     if (m_Impl->xaudio2 != nullptr) {
         m_Impl->xaudio2->Release();
         m_Impl->xaudio2 = nullptr;
     }
 
-    // ---- COM -----
+    // COM。
     if (m_Impl->com_initialized) {
         ::CoUninitialize();
         m_Impl->com_initialized = false;
@@ -211,14 +234,17 @@ bool FXAudio2Backend::IsInitialized() const noexcept {
     return m_Impl != nullptr && m_Impl->initialized;
 }
 
-// ----------------------------------------------------------------------------
-// Play 系の共通実装 (一発 / ループ)
-// ----------------------------------------------------------------------------
 namespace {
 
-// fmt → WAVEFORMATEX (Pcm16 / Pcm32Float のみ対応)。Wav 形式はここでは
-// 受け付けない (将来 wav parser を入れる場合は別 path で処理する)。
-// 成功時 true、未対応 fmt は false (呼び出し側で InvalidHandle を返す)。
+/**
+ * clip のフォーマットから WAVEFORMATEX を組み立てる (Pcm16 / Pcm32Float のみ対応)。
+ *
+ * @details
+ * Wav 形式はここでは受け付けない (将来 wav parser を入れる場合は別 path で処理する)。
+ * @param clip 入力 clip 記述子。
+ * @param out 書き込み先の WAVEFORMATEX。
+ * @return 対応フォーマットで有効な値を組めたら true、未対応 fmt や不正値なら false。
+ */
 bool FillWaveFormat(const AudioClipDesc& clip, WAVEFORMATEX& out) noexcept {
     out = WAVEFORMATEX{};
     out.nChannels      = static_cast<WORD>(clip.channel_count);
@@ -245,8 +271,14 @@ bool FillWaveFormat(const AudioClipDesc& clip, WAVEFORMATEX& out) noexcept {
     return out.nBlockAlign != 0 && out.nChannels != 0 && out.nSamplesPerSec != 0;
 }
 
-// VoiceSlot を完全破棄する (XAudio2 voice + バッファコピー解放)。
-// generation は increment して、古いハンドルでの再アクセスを無効化。
+/**
+ * VoiceSlot を完全破棄する (XAudio2 voice + バッファコピー解放)。
+ *
+ * @details
+ * generation を increment して古いハンドルでの再アクセスを無効化する。0 にラップ
+ * したら 1 にスキップする (0 は invalid 表現に予約)。active=false に戻す。
+ * @param slot 破棄する発音 slot。
+ */
 void DestroySlot(VoiceSlot& slot) noexcept {
     if (slot.voice != nullptr) {
         slot.voice->Stop(0);
@@ -265,7 +297,20 @@ void DestroySlot(VoiceSlot& slot) noexcept {
 
 } // namespace
 
-// 共通の Play 関数 (一発 / ループの分岐は loop 引数で吸収)。
+/**
+ * PlayOneShot / PlayLooped の共通実装 (一発 / ループの分岐は loop 引数で吸収)。
+ *
+ * @details
+ * 空きスロットを線形探索し、SourceVoice を作って PCM を slot 内バッファにコピー
+ * してから再生する。未 init / データ不正 / 未対応 fmt / pool 満杯 / XAudio2 失敗の
+ * いずれでも kInvalidAudioVoice を返す。
+ * @param impl 操作対象の pimpl。
+ * @param clip 再生する PCM clip 記述子。
+ * @param volume 音量 (clamp される)。
+ * @param pitch 周波数比 (clamp される)。
+ * @param loop true ならループ再生 (XAUDIO2_LOOP_INFINITE)。
+ * @return 再生中 voice のハンドル (失敗時は kInvalidAudioVoice)。
+ */
 static AudioVoiceHandle PlayInternal(FXAudio2Backend::Impl& impl,
                                      const AudioClipDesc& clip,
                                      f32 volume,
@@ -348,6 +393,7 @@ static AudioVoiceHandle PlayInternal(FXAudio2Backend::Impl& impl,
     return AudioVoiceHandle{ idx, slot.generation };
 }
 
+/** 一発再生する (PlayInternal に loop=false で委譲)。 */
 AudioVoiceHandle FXAudio2Backend::PlayOneShot(const AudioClipDesc& clip,
                                              f32 volume,
                                              f32 pitch) noexcept {
@@ -355,16 +401,13 @@ AudioVoiceHandle FXAudio2Backend::PlayOneShot(const AudioClipDesc& clip,
     return PlayInternal(*m_Impl, clip, volume, pitch, /*loop=*/false);
 }
 
+/** ループ再生する (PlayInternal に loop=true で委譲)。 */
 AudioVoiceHandle FXAudio2Backend::PlayLooped(const AudioClipDesc& clip,
                                             f32 volume,
                                             f32 pitch) noexcept {
     if (m_Impl == nullptr) return kInvalidAudioVoice;
     return PlayInternal(*m_Impl, clip, volume, pitch, /*loop=*/true);
 }
-
-// ----------------------------------------------------------------------------
-// Stop / volume / 状態
-// ----------------------------------------------------------------------------
 
 void FXAudio2Backend::StopVoice(AudioVoiceHandle voice) noexcept {
     if (m_Impl == nullptr || !m_Impl->initialized) return;
@@ -421,10 +464,7 @@ void FXAudio2Backend::Tick(f32 /*dt*/) noexcept {
     }
 }
 
-// ----------------------------------------------------------------------------
-// 拡張 (XAudio2 固有)
-// ----------------------------------------------------------------------------
-
+/** マスタリングボイス音量を設定する (volume は clamp される)。 */
 void FXAudio2Backend::SetMasterVolume(f32 volume) noexcept {
     if (m_Impl == nullptr || m_Impl->mastering == nullptr) return;
     m_Impl->mastering->SetVolume(ClampVolume(volume));

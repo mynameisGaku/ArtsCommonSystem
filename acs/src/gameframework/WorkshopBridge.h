@@ -23,7 +23,7 @@
 //       }
 //   };
 //
-// 設計選択 (Pillar S Phase 2):
+// 設計選択:
 //   ・**FSteamworksBridge とは別 I/F**: Workshop は publish ワークフロー (CreateItem /
 //     UpdateItem) を持ち、API 面が Achievement / Leaderboard とは別領域。一緒くたに
 //     すると Bridge が肥大化するため、別ファイルで隔離する。
@@ -36,18 +36,11 @@
 //     成功、その他は ACS_ERR(Generic, kSubWorkshopNotImplemented, ...) を返す。
 //   ・**ダウンロード進捗は同期 poll**: GetDownloadProgress(item_id) を毎フレーム
 //     呼んで [0, 1] を取得。-1 は「現在ダウンロード中ではない / 不明」を表す。
-//     非同期 callback 登録は Phase 3+ で検討。
 //   ・**Stub は static singleton で取得**: FSteamworksBridge と同じく
 //     `GetWorkshopStub()` を提供。`WorkshopBridgeStub::IsAvailable()` は
 //     常に false を返し、UI 側で「Workshop 機能無効」表示の判定に使える。
 //   ・**実 SDK 実装はここでは作らない**: GoldenWorkshopBridge 等は Steamworks UGC
 //     API への依存を伴うため、本ファイルでは I/F + Stub のみ。
-//
-// 範囲外 (Phase 3+ で):
-//   ・タグ / カテゴリ検索、評価 (vote up/down)、コメント。
-//   ・依存関係 (item A が item B に依存)、コレクション。
-//   ・非同期 callback 登録、Future 形式の API。
-//   ・プレビュー画像 / 動画のアップロード。
 #pragma once
 
 #include "foundation/Result.h"
@@ -55,118 +48,299 @@
 
 namespace acs::game {
 
-// ---- FErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
-// FSteamworksBridge と subcode 空間が重ならないよう 1100 番台を使う。
-inline constexpr u16 kSubWorkshopNotImplemented = 1101;  // Stub による未実装
-inline constexpr u16 kSubWorkshopNotInitialized = 1102;  // Init() 前の API 呼び出し
-inline constexpr u16 kSubWorkshopUnavailable    = 1103;  // SDK が無効 (Stub 等)
+/**
+ * Stub が未実装 API で返す subcode (ErrCategory::Generic 配下)。
+ *
+ * @details FSteamworksBridge と subcode 空間が重ならないよう 1100 番台を使う。
+ */
+inline constexpr u16 kSubWorkshopNotImplemented = 1101;
 
-// ---- WorkshopItem (cross-platform 共通の UGC メタ情報) -------------------
-// Bridge は文字列を所有しない。`title` / `description` / `author` は実 SDK 側
-// (または Stub 内 static literal) のメモリを参照する。寿命は「次の Tick() を
-// 呼ぶまで」を保証する (実装によってはそれより長い)。
+/** Init() 前に API を呼び出したときの subcode。 */
+inline constexpr u16 kSubWorkshopNotInitialized = 1102;
+
+/** SDK が無効 (Stub 等) のときの subcode。 */
+inline constexpr u16 kSubWorkshopUnavailable    = 1103;
+
+/**
+ * cross-platform 共通の UGC アイテムメタ情報。
+ *
+ * @details
+ * Bridge は文字列を所有しない。title / description / author は実 SDK 側
+ * (または Stub 内 static literal) のメモリを参照し、寿命は「次の Tick() を
+ * 呼ぶまで」を保証する (実装によってはそれより長い)。
+ */
 struct WorkshopItem {
-    u64         item_id     = 0;        // SDK 固有の opaque ID (Steam PublishedFileId_t 等)
-    const char* title       = nullptr;  // ユーザー表示タイトル (UTF-8)
-    const char* description = nullptr;  // 説明文 (UTF-8、長文可)
-    const char* author      = nullptr;  // 投稿者表示名 (UTF-8)
-    u64         file_size   = 0;        // ダウンロード後のファイルサイズ (バイト)
-    bool        installed   = false;    // ローカルにダウンロード済みなら true
-    bool        subscribed  = false;    // ローカルプレイヤーが subscribe 中なら true
+    /** SDK 固有の opaque ID (Steam PublishedFileId_t 等)。 */
+    u64         item_id     = 0;
+
+    /** ユーザー表示タイトル (UTF-8、所有しない)。 */
+    const char* title       = nullptr;
+
+    /** 説明文 (UTF-8、長文可、所有しない)。 */
+    const char* description = nullptr;
+
+    /** 投稿者表示名 (UTF-8、所有しない)。 */
+    const char* author      = nullptr;
+
+    /** ダウンロード後のファイルサイズ (バイト)。 */
+    u64         file_size   = 0;
+
+    /** ローカルにダウンロード済みなら true。 */
+    bool        installed   = false;
+
+    /** ローカルプレイヤーが subscribe 中なら true。 */
+    bool        subscribed  = false;
 };
 
-// ---- 抽象 I/F -------------------------------------------------------------
-// Steam Workshop / EOS UGC / mod.io の差を吸収する純粋仮想インターフェース。
-// 実装は本体外モジュール (or テスト) で Override する。
+/**
+ * Steam Workshop / EOS UGC / mod.io への橋渡しシーム (純粋仮想 I/F)。
+ *
+ * @details
+ * プラットフォーム固有 UGC SDK の差を吸収し、ゲーム側は本 I/F 経由でのみ UGC の
+ * publish / subscribe / download を行う。実装は本体外モジュール (or テスト) で
+ * Override する。u64 item_id は SDK 固有 ID を表す opaque key として扱う。
+ */
 class IWorkshopBridge {
 public:
+    /** 空のブリッジを構築する。 */
     IWorkshopBridge() noexcept = default;
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
     virtual ~IWorkshopBridge() noexcept = default;
 
+    /** コピー禁止 (ブリッジは参照で扱う seam のため)。 */
     IWorkshopBridge(const IWorkshopBridge&)            = delete;
+
+    /** コピー代入も禁止。 */
     IWorkshopBridge& operator=(const IWorkshopBridge&) = delete;
+
+    /** ムーブ禁止。 */
     IWorkshopBridge(IWorkshopBridge&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     IWorkshopBridge& operator=(IWorkshopBridge&&)      = delete;
 
-    // SDK 初期化。失敗は SDK 固有のエラーを TResult で返す。多重呼び出し可否は
-    // 実装依存だが、Stub は何度呼んでも成功を返す。
+    /**
+     * SDK を初期化する。
+     *
+     * @details
+     * 失敗は SDK 固有のエラーを TResult で返す。多重呼び出し可否は実装依存だが、
+     * Stub は何度呼んでも成功を返す。
+     * @return 成功なら空の TResult、失敗なら SDK 固有のエラー。
+     */
     virtual TResult<void> Init() noexcept = 0;
 
-    // SDK 終了処理。Init() 前に呼んでも安全 (no-op)。
+    /** SDK の終了処理を行う (Init() 前に呼んでも安全な no-op)。 */
     virtual void Shutdown() noexcept = 0;
 
-    // Workshop / UGC 機能が現在のビルドで利用可能か。Stub は常に false を返し、
-    // UI 側で「Workshop 機能はこのビルドでは無効」と表示する判定に使う。
+    /**
+     * Workshop / UGC 機能が現在のビルドで利用可能かを返す。
+     *
+     * @details Stub は常に false を返し、UI 側で「Workshop 機能はこのビルドでは無効」と表示する判定に使う。
+     * @return 利用可能なら true。
+     */
     virtual bool IsAvailable() const noexcept = 0;
 
-    // 新規 UGC アイテムの publish。content_path はローカルファイル / ディレクトリ
-    // のパス (UTF-8)。成功時は SDK が割り当てた item_id を返す。
+    /**
+     * 新規 UGC アイテムを publish する。
+     *
+     * @param title アイテムのユーザー表示タイトル (UTF-8)。
+     * @param content_path アップロードするローカルファイル / ディレクトリのパス (UTF-8)。
+     * @return 成功なら SDK が割り当てた item_id、失敗ならエラー。
+     */
     virtual TResult<u64> CreateItem(const char* title, const char* content_path) noexcept = 0;
 
-    // 既存アイテムの更新 (差分アップロード)。change_note は変更履歴に表示される。
+    /**
+     * 既存アイテムを更新する (差分アップロード)。
+     *
+     * @param item_id 更新対象アイテムの opaque ID。
+     * @param content_path 更新後のローカルファイル / ディレクトリのパス (UTF-8)。
+     * @param change_note 変更履歴に表示される変更メモ (UTF-8)。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     virtual TResult<void> UpdateItem(u64 item_id,
                                     const char* content_path,
                                     const char* change_note) noexcept = 0;
 
-    // アイテムメタ情報のクエリ。戻り値の文字列は次の Tick() まで有効。
+    /**
+     * アイテムのメタ情報をクエリする。
+     *
+     * @param item_id クエリ対象アイテムの opaque ID。
+     * @return 成功なら WorkshopItem (内部の文字列は次の Tick() まで有効)、失敗ならエラー。
+     */
     virtual TResult<WorkshopItem> QueryItem(u64 item_id) noexcept = 0;
 
-    // ローカルプレイヤーが subscribe 中のアイテム数。
+    /**
+     * ローカルプレイヤーが subscribe 中のアイテム数を返す。
+     *
+     * @return 成功なら subscribe 中のアイテム数、失敗ならエラー。
+     */
     virtual TResult<u32> QuerySubscribedCount() noexcept = 0;
 
-    // アイテムを subscribe する。SDK 側で自動的にダウンロードが始まる場合もある
-    // (Steam の標準挙動)。
+    /**
+     * アイテムを subscribe する。
+     *
+     * @details SDK 側で自動的にダウンロードが始まる場合もある (Steam の標準挙動)。
+     * @param item_id subscribe するアイテムの opaque ID。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     virtual TResult<void> SubscribeItem(u64 item_id) noexcept = 0;
 
-    // subscribe を解除。ローカルファイルは SDK 側で削除される場合もある。
+    /**
+     * アイテムの subscribe を解除する。
+     *
+     * @details ローカルファイルは SDK 側で削除される場合もある。
+     * @param item_id 解除するアイテムの opaque ID。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     virtual TResult<void> UnsubscribeItem(u64 item_id) noexcept = 0;
 
-    // 明示的なダウンロード開始 (subscribe 済みアイテムを再ダウンロード等)。
+    /**
+     * アイテムの明示的なダウンロードを開始する (subscribe 済みアイテムの再ダウンロード等)。
+     *
+     * @param item_id ダウンロードするアイテムの opaque ID。
+     * @return 成功なら空の TResult、失敗ならエラー。
+     */
     virtual TResult<void> DownloadItem(u64 item_id) noexcept = 0;
 
-    // ダウンロード進捗を [0, 1] で返す。完了済み / 未開始 / 不明な場合は -1。
-    // ポーリング前提のシンプル API (Phase 3+ で非同期 callback に置き換え予定)。
+    /**
+     * ダウンロード進捗を返す (ポーリング前提のシンプル API)。
+     *
+     * @param item_id 進捗を取得するアイテムの opaque ID。
+     * @return 進捗を [0, 1] で返す。完了済み / 未開始 / 不明な場合は -1。
+     */
     virtual f32 GetDownloadProgress(u64 item_id) noexcept = 0;
 
-    // コールバックポンプ。SteamAPI_RunCallbacks() 相当を Bridge 側に畳み込む。
-    // ゲームループから毎フレーム呼ぶこと。
+    /**
+     * コールバックポンプを回す (ゲームループから毎フレーム呼ぶ)。
+     *
+     * @details SteamAPI_RunCallbacks() 相当を Bridge 側に畳み込む。
+     * @param dt 前フレームからの経過秒。
+     */
     virtual void Tick(f32 dt) noexcept = 0;
 };
 
-// ---- Stub 実装 ------------------------------------------------------------
-// Steamworks UGC SDK 未統合ビルド / ユニットテスト用の no-op 実装。
-//   ・Init() のみ常に成功 (m_Initialized = true)。
-//   ・IsAvailable() は常に false (UI 側で Workshop ボタンを非表示にする判定用)。
-//   ・全 publish / subscribe / download 系は ACS_ERR(Generic,
-//     kSubWorkshopNotImplemented) を返す。
-//   ・GetDownloadProgress() は常に -1 を返す。
-//   ・Shutdown() / Tick() は副作用なし。
+/**
+ * Steamworks UGC SDK 未統合ビルド / ユニットテスト用の no-op 実装。
+ *
+ * @details
+ * Init() のみ常に成功 (m_Initialized = true)、IsAvailable() は常に false
+ * (UI 側で Workshop ボタンを非表示にする判定用)。全 publish / subscribe /
+ * download / query 系は ACS_ERR(Generic, kSubWorkshopNotImplemented) を返す。
+ * GetDownloadProgress() は常に -1、Shutdown() / Tick() は副作用なし。
+ */
 class WorkshopBridgeStub final : public IWorkshopBridge {
 public:
+    /** 未初期化状態の Stub を構築する。 */
     WorkshopBridgeStub() noexcept = default;
+
+    /** 何もせず破棄する。 */
     ~WorkshopBridgeStub() noexcept override = default;
 
+    /**
+     * 初期化済みフラグを立てる (常に成功)。
+     *
+     * @return 常に成功した空の TResult。
+     */
     TResult<void>         Init() noexcept override;
+
+    /** 初期化済みフラグを下ろす (副作用なし)。 */
     void                 Shutdown() noexcept override;
+
+    /**
+     * 常に false を返す (Workshop 機能無効)。
+     *
+     * @return 常に false。
+     */
     bool                 IsAvailable() const noexcept override { return false; }
+
+    /**
+     * 未実装エラーを返す。
+     *
+     * @param title 使用しない (Stub のため)。
+     * @param content_path 使用しない (Stub のため)。
+     * @return Init() 前なら未初期化エラー、それ以外は未実装エラー。
+     */
     TResult<u64>          CreateItem(const char* title, const char* content_path) noexcept override;
+
+    /**
+     * 未実装エラーを返す。
+     *
+     * @param item_id 使用しない (Stub のため)。
+     * @param content_path 使用しない (Stub のため)。
+     * @param change_note 使用しない (Stub のため)。
+     * @return Init() 前なら未初期化エラー、それ以外は未実装エラー。
+     */
     TResult<void>         UpdateItem(u64 item_id, const char* content_path, const char* change_note) noexcept override;
+
+    /**
+     * 未実装エラーを返す。
+     *
+     * @param item_id 使用しない (Stub のため)。
+     * @return Init() 前なら未初期化エラー、それ以外は未実装エラー。
+     */
     TResult<WorkshopItem> QueryItem(u64 item_id) noexcept override;
+
+    /**
+     * 未実装エラーを返す。
+     *
+     * @return Init() 前なら未初期化エラー、それ以外は未実装エラー。
+     */
     TResult<u32>          QuerySubscribedCount() noexcept override;
+
+    /**
+     * 未実装エラーを返す。
+     *
+     * @param item_id 使用しない (Stub のため)。
+     * @return Init() 前なら未初期化エラー、それ以外は未実装エラー。
+     */
     TResult<void>         SubscribeItem(u64 item_id) noexcept override;
+
+    /**
+     * 未実装エラーを返す。
+     *
+     * @param item_id 使用しない (Stub のため)。
+     * @return Init() 前なら未初期化エラー、それ以外は未実装エラー。
+     */
     TResult<void>         UnsubscribeItem(u64 item_id) noexcept override;
+
+    /**
+     * 未実装エラーを返す。
+     *
+     * @param item_id 使用しない (Stub のため)。
+     * @return Init() 前なら未初期化エラー、それ以外は未実装エラー。
+     */
     TResult<void>         DownloadItem(u64 item_id) noexcept override;
+
+    /**
+     * 常に -1.0f を返す (ダウンロード中ではない / 不明)。
+     *
+     * @param item_id 使用しない (Stub のため)。
+     * @return 常に -1.0f。
+     */
     f32                  GetDownloadProgress(u64 item_id) noexcept override;
+
+    /**
+     * 何もしない (Stub は callback pump を持たない)。
+     *
+     * @param dt 使用しない (Stub のため)。
+     */
     void                 Tick(f32 dt) noexcept override;
 
 private:
+    /** 初期化済みフラグ (Init() で true、Shutdown() で false)。 */
     bool m_Initialized = false;
 };
 
-// 全コードで共有できる static singleton。実 SDK 実装が DI される前のデフォルト。
-// FSteamworksBridge では `SteamworksBridgeStub::GetStub()` という静的メンバ
-// 関数を使っているが、Workshop 側は仕様に合わせて自由関数で公開する
-// (どちらも Meyer's singleton で thread-safe)。
+/**
+ * 全コードで共有できる Stub の static singleton を返す。
+ *
+ * @details
+ * 実 SDK 実装が DI される前のデフォルト。Meyer's singleton で構築するため
+ * thread-safe。FSteamworksBridge は静的メンバ関数を使うが、Workshop 側は仕様に
+ * 合わせて自由関数で公開する。
+ * @return プロセス内で唯一の WorkshopBridgeStub への参照。
+ */
 IWorkshopBridge& GetWorkshopStub() noexcept;
 
 } // namespace acs::game

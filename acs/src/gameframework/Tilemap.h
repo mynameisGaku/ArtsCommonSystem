@@ -30,7 +30,7 @@
 //       FTileId hovered = map.GetTile(tx, ty, 0);
 //   }
 //
-// 設計 (Phase 1 = Pillar Q v1):
+// 設計 (Pillar Q):
 //   ・**FTileId = u16**: 65535 種類のタイル ID を許容。0 = 空 (背景透過扱い)。
 //     描画側が atlas index として解釈するか辞書 lookup するかは利用者責任。
 //   ・**レイヤー = 独立した TArray<FTileId>**: layer 数 N に対して N 本の
@@ -61,82 +61,227 @@
 
 namespace acs::game {
 
-// 1 セル = 1 個の FTileId。0 を「空 (no tile)」として予約。
+/**
+ * 1 セルを表すタイル ID (u16)。0 を「空 (no tile)」として予約する。
+ *
+ * @details
+ * 65535 種類までのタイルを許容し、描画側が atlas index として解釈するか辞書
+ * lookup するかは利用者責任。0 は背景透過扱いの空セルとして予約される。
+ */
 struct FTileId {
+    /** タイル ID 本体 (0 = 空セル)。 */
     u16 value = 0;
+
+    /** 空 (value = 0) のタイル ID を構築する。 */
     constexpr FTileId() noexcept = default;
+
+    /**
+     * 指定 ID のタイルを構築する。
+     *
+     * @param v タイル ID (0 = 空)。
+     */
     constexpr explicit FTileId(u16 v) noexcept : value(v) {}
+
+    /**
+     * 空セルかどうかを返す。
+     *
+     * @return value == 0 なら true。
+     */
     constexpr bool IsEmpty() const noexcept { return value == 0; }
+
+    /**
+     * 2 つのタイル ID が等しいかを返す。
+     *
+     * @param o 比較対象のタイル ID。
+     * @return value が一致すれば true。
+     */
     constexpr bool operator==(FTileId o) const noexcept { return value == o.value; }
+
+    /**
+     * 2 つのタイル ID が異なるかを返す。
+     *
+     * @param o 比較対象のタイル ID。
+     * @return value が異なれば true。
+     */
     constexpr bool operator!=(FTileId o) const noexcept { return value != o.value; }
 };
 
+/**
+ * 2D グリッド上に FTileId を並べる data-only コンテナ (レイヤー対応)。
+ *
+ * @details
+ * レイヤー数 N に対して N 本の row-major (y * width + x) フラット配列を持ち、
+ * tile↔world 座標変換と Fill / FillRect ユーティリティを提供する。tile_size は
+ * world 単位での 1 tile の辺長 (典型 16.0f / 32.0f)。シーン所有 / TPool 経由を
+ * 想定した non-copy / non-move 型。
+ */
 class FTilemap {
 public:
+    /** 空のタイルマップを構築する (グリッドは Init で確保)。 */
     FTilemap() noexcept = default;
+
+    /** 破棄する (レイヤーバッファは TArray が解放)。 */
     ~FTilemap() noexcept = default;
 
-    // 非コピー・非ムーブ
+    /** コピー禁止 (シーンで単独所有するため)。 */
     FTilemap(const FTilemap&)            = delete;
+
+    /** コピー代入も禁止。 */
     FTilemap& operator=(const FTilemap&) = delete;
+
+    /** ムーブ禁止。 */
     FTilemap(FTilemap&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FTilemap& operator=(FTilemap&&)      = delete;
 
-    // グリッドを (width x height) で初期化、`layer_count` レイヤー分の
-    // バッファを確保し全 tile を 0 (空) でゼロクリア。`tile_size` は world
-    // 単位での 1 tile の辺長 (典型 16.0f / 32.0f)。
-    // 不正値 (0) は安全な既定 (width/height は 1、layer_count は 1、
-    // tile_size は 16.0f) にフォールバック。
+    /**
+     * グリッドを (width x height) で初期化し、全 tile を 0 (空) でクリアする。
+     *
+     * @details
+     * layer_count レイヤー分のバッファを確保する。不正値 (0) は安全な既定
+     * (width/height は 1、layer_count は 1、tile_size は 16.0f) にフォールバックする。
+     * @param width グリッドの横セル数。
+     * @param height グリッドの縦セル数。
+     * @param layer_count レイヤー数 (既定 1)。
+     * @param tile_size world 単位での 1 tile の辺長 (既定 16.0f)。
+     */
     void Init(u32 width, u32 height, u32 layer_count = 1, f32 tile_size = 16.0f) noexcept;
 
-    // ----- Tiled (.tmj/.json) ローダ (content pipeline) -----
-    // Tiled Map Editor の JSON マップを読み込む。map の width/height/tilewidth と
-    // "layers" 配列中の各 "tilelayer" の "data" (row-major GID 配列) を取り込む。
-    //   ・tilelayer のみ対象 (objectgroup 等は無視)。GID 上位 3bit の flip フラグは
-    //     除去し、FTileId(u16) に clamp する (GID 0 = 空)。
-    //   ・data[k] を (x = k%w, y = k/w) に配置 (Tiled の行順)。
-    // 解析失敗 / width=0 / tilelayer 欠如は ACS_ERR。Init をこの中で呼ぶ。
+    /**
+     * Tiled Map Editor の JSON マップを読み込む。
+     *
+     * @details
+     * map の width/height/tilewidth と "layers" 配列中の各 "tilelayer" の "data"
+     * (row-major GID 配列) を取り込む。tilelayer のみ対象 (objectgroup 等は無視)、
+     * GID 上位 3bit の flip フラグは除去して FTileId(u16) に clamp する (GID 0 = 空)。
+     * data[k] を (x = k%w, y = k/w) に配置する。内部で Init を呼ぶ。
+     * 解析失敗 / width=0 / tilelayer 欠如は ACS_ERR を返す。
+     * @param json_text Tiled の JSON テキスト。
+     * @param len json_text のバイト長。
+     * @return 成功なら空の TResult、解析失敗ならエラー。
+     */
     TResult<void> LoadTiledJson(const char* json_text, usize len) noexcept;
 
-    // 個別タイル設定。範囲外 (x / y / layer) は no-op。
+    /**
+     * 個別タイルを設定する。
+     *
+     * @details 範囲外 (x / y / layer) は no-op。
+     * @param x 列インデックス。
+     * @param y 行インデックス。
+     * @param tile 設定するタイル ID。
+     * @param layer 対象レイヤー (既定 0)。
+     */
     void SetTile(u32 x, u32 y, FTileId tile, u32 layer = 0) noexcept;
 
-    // 個別タイル取得。範囲外なら空 FTileId{0}。
+    /**
+     * 個別タイルを取得する。
+     *
+     * @param x 列インデックス。
+     * @param y 行インデックス。
+     * @param layer 対象レイヤー (既定 0)。
+     * @return 指定セルのタイル ID (範囲外なら空 FTileId{0})。
+     */
     FTileId GetTile(u32 x, u32 y, u32 layer = 0) const noexcept;
 
-    // 指定レイヤー全体を tile で埋める。範囲外 layer は no-op。
+    /**
+     * 指定レイヤー全体を tile で埋める。
+     *
+     * @details 範囲外 layer は no-op。
+     * @param tile 埋めるタイル ID。
+     * @param layer 対象レイヤー (既定 0)。
+     */
     void Fill(FTileId tile, u32 layer = 0) noexcept;
 
-    // 半開区間ではなく **閉区間** [x0..x1] x [y0..y1] を塗る。
-    // x0 > x1 / y0 > y1 は swap 扱い、グリッド境界で clamp。
-    // 範囲外 layer は no-op。
+    /**
+     * 閉区間 [x0..x1] x [y0..y1] の矩形を tile で塗る。
+     *
+     * @details
+     * 半開区間ではなく閉区間。x0 > x1 / y0 > y1 は swap 扱いとし、グリッド境界で
+     * clamp する。範囲外 layer は no-op。
+     * @param x0 矩形の左端列。
+     * @param y0 矩形の上端行。
+     * @param x1 矩形の右端列。
+     * @param y1 矩形の下端行。
+     * @param tile 塗るタイル ID。
+     * @param layer 対象レイヤー (既定 0)。
+     */
     void FillRect(u32 x0, u32 y0, u32 x1, u32 y1, FTileId tile, u32 layer = 0) noexcept;
 
-    // 全レイヤーを 0 (空) で埋める (サイズは保持)。
+    /** 全レイヤーを 0 (空) で埋める (サイズは保持)。 */
     void Clear() noexcept;
 
+    /**
+     * グリッドの横セル数を返す。
+     *
+     * @return 幅 (セル数)。
+     */
     u32 Width()      const noexcept { return m_Width; }
+
+    /**
+     * グリッドの縦セル数を返す。
+     *
+     * @return 高さ (セル数)。
+     */
     u32 Height()     const noexcept { return m_Height; }
+
+    /**
+     * レイヤー数を返す。
+     *
+     * @return 確保済みレイヤー数。
+     */
     u32 LayerCount() const noexcept { return static_cast<u32>(m_Layers.Size()); }
+
+    /**
+     * 1 tile の world 単位での辺長を返す。
+     *
+     * @return tile_size。
+     */
     f32 TileSize()   const noexcept { return m_TileSize; }
 
-    // tile (x,y) の **中心** world 座標。範囲外 (x>=width / y>=height) でも
-    // 計算式そのものを返す (デバッグ用に左上原点で連続を期待する利用者が
-    // 居るため明示的にチェックしない。+Y=画面下なので row 0 が画面上端)。
+    /**
+     * tile (x,y) の中心 world 座標を返す。
+     *
+     * @details
+     * 範囲外 (x>=width / y>=height) でも計算式そのものを返す (左上原点での連続を
+     * 期待する利用者のため明示的にチェックしない)。+Y=画面下なので row 0 が画面上端。
+     * @param x 列インデックス。
+     * @param y 行インデックス。
+     * @return tile の中心の world 座標。
+     */
     FVec2 TileToWorld(u32 x, u32 y) const noexcept;
 
-    // world → tile。範囲外 (グリッド外 / 負値) は false。
-    // 成功時のみ out_x / out_y を書き込む。
+    /**
+     * world 座標を tile インデックスに変換する。
+     *
+     * @details 成功時のみ out_x / out_y を書き込む。
+     * @param world 変換元の world 座標。
+     * @param out_x 列インデックスの出力先。
+     * @param out_y 行インデックスの出力先。
+     * @return グリッド内なら true、範囲外 (グリッド外 / 負値) なら false。
+     */
     bool WorldToTile(FVec2 world, u32& out_x, u32& out_y) const noexcept;
 
-    // 描画用 raw データ。size = Width() * Height()、layout = row-major
-    // (`y * width + x`)。範囲外 layer は nullptr。
+    /**
+     * 指定レイヤーの描画用 raw データ先頭を返す。
+     *
+     * @details size = Width() * Height()、layout = row-major (y * width + x)。
+     * @param layer 対象レイヤー。
+     * @return レイヤー先頭ポインタ (範囲外 layer なら nullptr)。
+     */
     const FTileId* LayerData(u32 layer) const noexcept;
 
 private:
-    TArray<TArray<FTileId>> m_Layers {};      // m_Layers[L] = row-major (w*h)
+    /** レイヤーごとの row-major (w*h) タイル配列 (m_Layers[L] が L 番レイヤー)。 */
+    TArray<TArray<FTileId>> m_Layers {};
+
+    /** グリッドの横セル数。 */
     u32                  m_Width      = 0;
+
+    /** グリッドの縦セル数。 */
     u32                  m_Height     = 0;
+
+    /** world 単位での 1 tile の辺長。 */
     f32                  m_TileSize  = 16.0f;
 };
 

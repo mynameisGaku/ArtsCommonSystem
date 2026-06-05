@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — editor_core / FEditorPanel 実装 (Phase 21a)
+// GameFramework Pillar — editor_core / FEditorPanel 実装
 //
 // 設計のポイント (詳細はヘッダ参照):
 //   ・本基底は「Workspace ポインタを保存する」最低限の OnInit と、
@@ -18,22 +18,15 @@
 
 namespace acs::game::editor_core {
 
-// ============================================================================
-// OnInit — Workspace 参照を内部に保存
-// ============================================================================
-// 派生クラスが override する際は冒頭で `FEditorPanel::OnInit(workspace);` を
-// 呼ぶこと (= ヘッダのコメント参照)。基底は他に副作用を持たないため、
-// 「派生で呼び忘れた場合」は Workspace() が nullptr のまま動作する
-// (= 派生側で workspace を使わないなら無害、使うなら呼び忘れ自体がバグ)。
-//
-// Workspace ポインタの解除は基底側では行わない (OnShutdown の default は no-op)。
-// 派生クラスが「Shutdown 後に Workspace() が nullptr を返してほしい」場合は
-// override で明示的に基底の `m_Workspace = nullptr;` 相当を呼ぶ必要があるが、
-// m_Workspace は private のため将来 protected に変更するか、
-// `FEditorPanel::OnShutdown()` を明示的に呼べる形にするかは Phase 21b で
-// 利用パターンが揃ってから判断する (= YAGNI、現状は OnInit 1 回 + 終生有効
-// の典型ケースのみ想定)。
-// ============================================================================
+/**
+ * Workspace 参照を内部に保存する基底初期化フック。
+ *
+ * @details
+ * 派生クラスが override する際は冒頭で FEditorPanel::OnInit(workspace) を呼ぶこと。
+ * 基底は他に副作用を持たず、Workspace ポインタの解除は行わない (OnShutdown の
+ * default は no-op)。非 inline で持つことで翻訳単位 anchor (vtable 出力先) を兼ねる。
+ * @param workspace 登録先の editor workspace (参照を non-owning で保持)。
+ */
 void FEditorPanel::OnInit(FEditorWorkspace& workspace) noexcept {
     m_Workspace = &workspace;
 }

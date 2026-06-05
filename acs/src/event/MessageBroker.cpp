@@ -4,6 +4,7 @@
 
 namespace acs {
 
+/** 全チャンネルを解放して破棄する。 */
 MessageBroker::~MessageBroker() noexcept {
     for (usize i = 0; i < m_Channels.Size(); ++i) {
         if (m_Channels[i]) {
@@ -13,10 +14,11 @@ MessageBroker::~MessageBroker() noexcept {
     }
 }
 
+/** EventTypeId に対応するチャンネルを返す (create=true なら未生成時に確保)。 */
 MessageBroker::Channel* MessageBroker::GetChannel(EventTypeId id, bool create) noexcept {
     if (id >= m_Channels.Size()) {
         if (!create) return nullptr;
-        usize old = m_Channels.Size();
+        const usize old = m_Channels.Size();
         m_Channels.Resize(id + 1);
         for (usize i = old; i <= id; ++i) m_Channels[i] = nullptr;
     }
@@ -26,6 +28,7 @@ MessageBroker::Channel* MessageBroker::GetChannel(EventTypeId id, bool create) n
     return m_Channels[id];
 }
 
+/** 型消去された購読登録の実体 (空き slot を再利用または新規確保し世代を進める)。 */
 SubscriptionHandle MessageBroker::SubscribeRaw(EventTypeId channel,
                                                 MessageCallback cb, void* user) noexcept {
     if (!cb) return kInvalidSubscription;
@@ -49,6 +52,7 @@ SubscriptionHandle MessageBroker::SubscribeRaw(EventTypeId channel,
     return SubscriptionHandle{ channel, s.id, s.generation };
 }
 
+/** 購読を解除する (Publish 反復中なら slot 解放を遅延しつつ即座に非アクティブ化)。 */
 bool MessageBroker::Unsubscribe(SubscriptionHandle h) noexcept {
     if (!h.IsValid()) return false;
     Channel* ch = GetChannel(h.channel, false);
@@ -73,6 +77,7 @@ bool MessageBroker::Unsubscribe(SubscriptionHandle h) noexcept {
     return false;
 }
 
+/** 発行時点の購読者集合を同期で呼び、ネスト解消後に遅延 Cancel を反映する。 */
 void MessageBroker::PublishRaw(EventTypeId channel, const void* payload) noexcept {
     Channel* ch = GetChannel(channel, false);
     if (!ch) return;
@@ -91,7 +96,7 @@ void MessageBroker::PublishRaw(EventTypeId channel, const void* payload) noexcep
     // Publish ネスト解消後に遅延 Cancel を反映
     if (ch->publish_depth == 0 && ch->pending_cancel.Size() > 0) {
         for (usize i = 0; i < ch->pending_cancel.Size(); ++i) {
-            u32 idx = ch->pending_cancel[i];
+            const u32 idx = ch->pending_cancel[i];
             if (idx < ch->slots.Size()) {
                 Slot& s = ch->slots[idx];
                 s.cb   = nullptr;
@@ -103,6 +108,7 @@ void MessageBroker::PublishRaw(EventTypeId channel, const void* payload) noexcep
     }
 }
 
+/** 指定チャンネルの active な購読 slot 数を数えて返す。 */
 u32 MessageBroker::SubscriberCount(EventTypeId channel) const noexcept {
     if (channel >= m_Channels.Size() || !m_Channels[channel]) return 0;
     const Channel* ch = m_Channels[channel];

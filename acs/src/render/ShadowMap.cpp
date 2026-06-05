@@ -9,6 +9,7 @@ namespace acs {
 
 namespace {
 
+/** シャドウキャスターを depth-only で描く頂点シェーダの HLSL ソース。 */
 const char* kCasterHLSL = R"(
 #pragma pack_matrix(row_major)
 
@@ -36,6 +37,12 @@ VSOut VSMain(VSIn v) {
 }
 )";
 
+/**
+ * ゼロ除算を避けて正規化する。
+ *
+ * @param v 正規化するベクトル。
+ * @return 正規化したベクトル (長さがほぼ 0 なら {0,1,0})。
+ */
 ACS_FORCEINLINE FVec3 NormalizeSafe(FVec3 v) noexcept {
     const f32 len2 = v.x*v.x + v.y*v.y + v.z*v.z;
     if (len2 < 1e-12f) return FVec3{0, 1, 0};
@@ -43,6 +50,13 @@ ACS_FORCEINLINE FVec3 NormalizeSafe(FVec3 v) noexcept {
     return { v.x * inv, v.y * inv, v.z * inv };
 }
 
+/**
+ * 2 点間のユークリッド距離を返す。
+ *
+ * @param a 始点。
+ * @param b 終点。
+ * @return a と b の距離。
+ */
 ACS_FORCEINLINE f32 Distance3(const FVec3& a, const FVec3& b) noexcept {
     const f32 dx = a.x - b.x;
     const f32 dy = a.y - b.y;
@@ -50,7 +64,13 @@ ACS_FORCEINLINE f32 Distance3(const FVec3& a, const FVec3& b) noexcept {
     return Sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-// row-major: v_out = v * M (row vector times matrix)
+/**
+ * 行ベクトル × 行列を計算する (row-major: v_out = v * M)。
+ *
+ * @param v 行ベクトル。
+ * @param m 掛ける行列。
+ * @return v * m の結果。
+ */
 ACS_FORCEINLINE FVec4 MulRowVec4(const FVec4& v, const FMat4& m) noexcept {
     return FVec4{
         v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0] + v.w * m.m[3][0],
@@ -62,6 +82,7 @@ ACS_FORCEINLINE FVec4 MulRowVec4(const FVec4& v, const FMat4& m) noexcept {
 
 } // namespace
 
+/** 深度テクスチャ・キャスター VS・定数バッファ・depth-only パイプラインを生成する。 */
 TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) noexcept {
     if (size == 0) size = 2048;
     if (cascade_count == 0) cascade_count = 1;
@@ -69,7 +90,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     m_Size          = size;
     m_CascadeCount = cascade_count;
 
-    // ===== 深度テクスチャ（SRV 可視）======================================
+    // 深度テクスチャ (SRV 可視)。
     // single mode (cascade_count=1): size × size
     // CSM mode    (cascade_count≥2): atlas = (size * cascade_count) × size
     FTextureDesc td{};
@@ -82,7 +103,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     if (tr.IsErr()) return Err<void>(tr.Error());
     m_Depth = Move(tr.Value());
 
-    // ===== Caster VS =====
+    // Caster VS。
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kCasterHLSL;
@@ -92,7 +113,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
     m_Vs = Move(vs_r.Value());
 
-    // ===== 定数バッファ =====
+    // 定数バッファ。
     FBufferDesc cbd{};
     cbd.size = 256;
     cbd.usage = EBufferUsage::Uniform;
@@ -105,7 +126,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     if (ob_r.IsErr()) return Err<void>(ob_r.Error());
     m_ObjectCb = Move(ob_r.Value());
 
-    // ===== 深度のみパイプライン =====
+    // 深度のみパイプライン。
     FPipelineDesc pd{};
     pd.vs = m_Vs.Get();
     pd.ps = nullptr;          // depth-only
@@ -135,6 +156,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     return Ok();
 }
 
+/** 確保した GPU リソースを解放し、サイズ・cascade 数を初期状態に戻す。 */
 void FShadowMap::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_ObjectCb.Reset();
@@ -145,9 +167,10 @@ void FShadowMap::Shutdown() noexcept {
     m_CascadeCount = 1;
 }
 
+/** single cascade 用に光源の LookAt + ortho を組み、cascade 0 の light VP を更新する。 */
 void FShadowMap::SetDirectionalLight(FVec3 light_dir, FVec3 center, f32 radius) noexcept {
-    FVec3 dir = NormalizeSafe(light_dir);
-    FVec3 light_pos = FVec3{
+    const FVec3 dir = NormalizeSafe(light_dir);
+    const FVec3 light_pos = FVec3{
         center.x + dir.x * radius * 2.5f,
         center.y + dir.y * radius * 2.5f,
         center.z + dir.z * radius * 2.5f,
@@ -155,8 +178,8 @@ void FShadowMap::SetDirectionalLight(FVec3 light_dir, FVec3 center, f32 radius) 
     FVec3 up = FVec3{0, 1, 0};
     if (Abs(dir.y) > 0.95f) up = FVec3{0, 0, 1};
 
-    FMat4 view = FMat4::LookAtLH(light_pos, center, up);
-    FMat4 proj = FMat4::OrthoLH(radius * 2.5f, radius * 2.5f, 0.0f, radius * 5.0f);
+    const FMat4 view = FMat4::LookAtLH(light_pos, center, up);
+    const FMat4 proj = FMat4::OrthoLH(radius * 2.5f, radius * 2.5f, 0.0f, radius * 5.0f);
     m_LightVp[0] = view * proj;
     // 残りの cascade は同じ VP を入れて split を inf に (常に cascade 0 が当たる)
     for (u32 c = 1; c < kMaxCascades; ++c) {
@@ -168,6 +191,7 @@ void FShadowMap::SetDirectionalLight(FVec3 light_dir, FVec3 center, f32 radius) 
     if (m_LightCb) m_LightCb->Update(&m_LightVp[0], sizeof(FMat4));
 }
 
+/** CSM 用に frustum を分割し、各 cascade の bounding sphere から light VP を計算する。 */
 void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
                                              const FMat4& view, const FMat4& proj,
                                              f32 near_z, f32 far_z,
@@ -177,8 +201,7 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
     if (near_z < 1e-3f) near_z = 1e-3f;
     if (far_z <= near_z) far_z = near_z + 1.0f;
 
-    // === Zhang practical split ===
-    // splits[i] = (1-λ)*uniform + λ*log
+    // Zhang practical split: splits[i] = (1-λ)*uniform + λ*log
     // 配列要素は cascade 境界の view-space z (splits[0]=near、splits[N]=far)
     f32 splits[kMaxCascades + 1] = {};
     splits[0] = near_z;
@@ -191,7 +214,7 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
         splits[c] = lambda * log_v + (1.0f - lambda) * uniform_v;
     }
 
-    // === 全 frustum の world-space コーナー 8 個を取得 ===
+    // 全 frustum の world-space コーナー 8 個を取得。
     // ndc corner → view-projection 逆変換で world に戻す
     const FMat4 vp     = view * proj;
     const FMat4 inv_vp = Inverse(vp);
@@ -206,9 +229,9 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
         fcorners[i] = FVec3{ w.x * iw, w.y * iw, w.z * iw };
     }
 
-    // === 各 cascade の sub-frustum bounding sphere → light VP ===
-    FVec3 dir = NormalizeSafe(light_dir);
-    FVec3 up  = (Abs(dir.y) > 0.95f) ? FVec3{0, 0, 1} : FVec3{0, 1, 0};
+    // 各 cascade の sub-frustum bounding sphere → light VP。
+    const FVec3 dir = NormalizeSafe(light_dir);
+    const FVec3 up  = (Abs(dir.y) > 0.95f) ? FVec3{0, 0, 1} : FVec3{0, 1, 0};
 
     const f32 inv_full = 1.0f / (far_z - near_z);
     for (u32 c = 0; c < m_CascadeCount; ++c) {
@@ -257,15 +280,18 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
     if (m_LightCb) m_LightCb->Update(&m_LightVp[0], sizeof(FMat4));
 }
 
+/** LightCB を選択 cascade の VP で更新する (範囲外は cascade 0)。 */
 void FShadowMap::SetCurrentCascade(u32 cascade) noexcept {
     if (cascade >= m_CascadeCount) cascade = 0;
     if (m_LightCb) m_LightCb->Update(&m_LightVp[cascade], sizeof(FMat4));
 }
 
+/** キャスターの model 行列を per-object CB へ書き込む。 */
 void FShadowMap::SetCaster(const FMat4& model) noexcept {
     if (m_ObjectCb) m_ObjectCb->Update(&model, sizeof(FMat4));
 }
 
+/** atlas 内の cascade 領域に対応する viewport を組み立てて返す。 */
 FViewport FShadowMap::CascadeViewport(u32 cascade) const noexcept {
     if (cascade >= m_CascadeCount) cascade = 0;
     FViewport vp{};
@@ -278,6 +304,7 @@ FViewport FShadowMap::CascadeViewport(u32 cascade) const noexcept {
     return vp;
 }
 
+/** atlas 内の cascade 領域に対応する scissor を組み立てて返す。 */
 FScissorRect FShadowMap::CascadeScissor(u32 cascade) const noexcept {
     if (cascade >= m_CascadeCount) cascade = 0;
     FScissorRect r{};

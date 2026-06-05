@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
 // ACS Container — FString 実装
-// -----------------------------------------------------------------------------
+//
 // SSO の遷移ロジックと vsnprintf によるフォーマット追記。
-// =============================================================================
 #include "container/String.h"
 #include "memory/Memory.h"
 #include "foundation/Move.h"
@@ -13,39 +11,62 @@
 
 namespace acs {
 
-// 既定構築: SSO で空文字列
+/** 既定アロケータで SSO の空文字列を構築する。 */
 FString::FString() noexcept : m_Alloc(&DefaultAllocator()) {
     m_Sso.data[0] = 0;
     SetInlineLen(0);
 }
 
+/**
+ * 指定アロケータで SSO の空文字列を構築する。
+ *
+ * @param a ヒープ確保に使うアロケータ。
+ */
 FString::FString(FAllocator& a) noexcept : m_Alloc(&a) {
     m_Sso.data[0] = 0;
     SetInlineLen(0);
 }
 
-// C 文字列から構築
+/**
+ * C 文字列から構築する (空状態から Append でコピーする)。
+ *
+ * @param cstr NUL 終端文字列 (nullptr なら空文字列)。
+ * @param a ヒープ確保に使うアロケータ。
+ */
 FString::FString(const char* cstr, FAllocator& a) noexcept : m_Alloc(&a) {
     m_Sso.data[0] = 0;
     SetInlineLen(0);
     if (cstr) Append(FStringView(cstr));
 }
 
-// FStringView から構築
+/**
+ * FStringView から構築する (空状態から Append でコピーする)。
+ *
+ * @param v コピー元のビュー。
+ * @param a ヒープ確保に使うアロケータ。
+ */
 FString::FString(FStringView v, FAllocator& a) noexcept : m_Alloc(&a) {
     m_Sso.data[0] = 0;
     SetInlineLen(0);
     Append(v);
 }
 
-// コピー: 単に Append（SSO/Heap の遷移は Append 内で適切に処理）
+/**
+ * コピー構築する (Append で内容を複製、SSO/Heap 遷移は Append が処理)。
+ *
+ * @param o コピー元。
+ */
 FString::FString(const FString& o) noexcept : m_Alloc(o.m_Alloc) {
     m_Sso.data[0] = 0;
     SetInlineLen(0);
     Append(o.View());
 }
 
-// ムーブ: ヒープなら所有権移譲、SSO なら memcpy
+/**
+ * ムーブ構築する (ヒープなら所有権移譲、SSO なら memcpy)。
+ *
+ * @param o ムーブ元 (空文字列にリセットされる)。
+ */
 FString::FString(FString&& o) noexcept : m_Alloc(o.m_Alloc) {
     if (o.IsHeap()) {
         m_Heap.data     = o.m_Heap.data;
@@ -56,7 +77,7 @@ FString::FString(FString&& o) noexcept : m_Alloc(o.m_Alloc) {
         o.m_Sso.data[0]   = 0;
         o.SetInlineLen(0);
     } else {
-        usize n = o.Size();
+        const usize n = o.Size();
         for (usize i = 0; i <= n; ++i) m_Sso.data[i] = o.m_Sso.data[i];
         SetInlineLen(static_cast<u8>(n));
         o.m_Sso.data[0] = 0;
@@ -64,6 +85,12 @@ FString::FString(FString&& o) noexcept : m_Alloc(o.m_Alloc) {
     }
 }
 
+/**
+ * コピー代入する (既存内容をクリアして Append で複製する)。
+ *
+ * @param o コピー元。
+ * @return *this。
+ */
 FString& FString::operator=(const FString& o) noexcept {
     if (this == &o) return *this;
     Clear();
@@ -71,6 +98,12 @@ FString& FString::operator=(const FString& o) noexcept {
     return *this;
 }
 
+/**
+ * ムーブ代入する (既存ヒープを解放し、ヒープなら所有権移譲・SSO なら memcpy)。
+ *
+ * @param o ムーブ元 (空文字列にリセットされる)。
+ * @return *this。
+ */
 FString& FString::operator=(FString&& o) noexcept {
     if (this == &o) return *this;
     Clear();
@@ -87,7 +120,7 @@ FString& FString::operator=(FString&& o) noexcept {
         o.m_Sso.data[0] = 0;
         o.SetInlineLen(0);
     } else {
-        usize n = o.Size();
+        const usize n = o.Size();
         for (usize i = 0; i <= n; ++i) m_Sso.data[i] = o.m_Sso.data[i];
         SetInlineLen(static_cast<u8>(n));
         o.m_Sso.data[0] = 0;
@@ -96,11 +129,12 @@ FString& FString::operator=(FString&& o) noexcept {
     return *this;
 }
 
+/** ヒープを使っていれば解放する。 */
 FString::~FString() noexcept {
     if (IsHeap()) m_Alloc->Free(m_Heap.data);
 }
 
-// 空文字列にリセット（容量は保持）
+/** 空文字列にリセットする (容量は保持)。 */
 void FString::Clear() noexcept {
     if (IsHeap()) {
         m_Heap.size = 0;
@@ -111,13 +145,18 @@ void FString::Clear() noexcept {
     }
 }
 
-// 容量拡大: 必要なら SSO → Heap に遷移
+/**
+ * 容量を拡大する (必要なら SSO からヒープへ遷移し、NUL 含め内容をコピーする)。
+ *
+ * @details 最小確保量は 32 バイト。確保失敗は ACS_ASSERTF で検出する。
+ * @param new_capacity 確保する最小容量。
+ */
 void FString::Grow(usize new_capacity) noexcept {
     if (new_capacity <= Capacity()) return;
-    usize cap = new_capacity < 32 ? 32 : new_capacity;
+    const usize cap = new_capacity < 32 ? 32 : new_capacity;
     char* p = static_cast<char*>(m_Alloc->Alloc(cap + 1, alignof(char), FSourceLoc::Current()));
     ACS_ASSERTF(p, "FString::Grow: alloc failed (cap=%zu)", cap);
-    usize old_size = Size();
+    const usize old_size = Size();
     const char* old = Data();
     // NUL 含めてコピー
     for (usize i = 0; i <= old_size; ++i) p[i] = old[i];
@@ -128,11 +167,20 @@ void FString::Grow(usize new_capacity) noexcept {
     m_Sso.remaining = 0x80;  // ヒープフラグ
 }
 
+/**
+ * 容量を予約する (現容量より大きい場合のみ Grow する)。
+ *
+ * @param new_capacity 確保する最小容量。
+ */
 void FString::Reserve(usize new_capacity) noexcept {
     if (new_capacity > Capacity()) Grow(new_capacity);
 }
 
-// 文字列追記。容量不足なら 1.5 倍ずつ拡大
+/**
+ * 文字列を追記する (容量不足なら幾何級数的に拡大、self-aliasing も安全に扱う)。
+ *
+ * @param v 追記するビュー。
+ */
 void FString::Append(FStringView v) noexcept {
     if (v.IsEmpty()) return;
     const usize cur  = Size();
@@ -171,25 +219,34 @@ void FString::Append(FStringView v) noexcept {
     else          SetInlineLen(static_cast<u8>(req));
 }
 
+/**
+ * 1 文字を追記する (Append(FStringView) へ委譲)。
+ *
+ * @param c 追記する文字。
+ */
 void FString::Append(char c) noexcept {
     Append(FStringView(&c, 1));
 }
 
-// printf スタイルのフォーマット追記
-// 1) vsnprintf(nullptr) で必要長を計算
-// 2) Reserve して書き込み
+/**
+ * printf 風フォーマットで追記する。
+ *
+ * @details vsnprintf(nullptr) で必要長を計算してから Reserve し、本体へ書き込む。
+ * @param fmt printf 形式の書式文字列。
+ * @return 追記後の文字列サイズ (失敗時は 0)。
+ */
 usize FString::AppendFormat(const char* fmt, ...) noexcept {
     va_list ap;
     va_start(ap, fmt);
     va_list ap2;
     va_copy(ap2, ap);
-    int needed = ::vsnprintf(nullptr, 0, fmt, ap);
+    const int needed = ::vsnprintf(nullptr, 0, fmt, ap);
     va_end(ap);
     if (needed < 0) { va_end(ap2); return 0; }
-    usize cur = Size();
+    const usize cur = Size();
     Reserve(cur + static_cast<usize>(needed));
     char* d = Data();
-    int wrote = ::vsnprintf(d + cur, static_cast<usize>(needed) + 1, fmt, ap2);
+    const int wrote = ::vsnprintf(d + cur, static_cast<usize>(needed) + 1, fmt, ap2);
     va_end(ap2);
     if (wrote < 0) return 0;
     if (IsHeap()) m_Heap.size = cur + static_cast<usize>(wrote);

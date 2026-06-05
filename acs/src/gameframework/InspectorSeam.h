@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — FInspectorSeam (Phase 2)
+// GameFramework Pillar K — FInspectorSeam
 //
 // reflection-driven debug inspector の「シーム (seam)」インターフェース。
 // ゲーム内の任意のオブジェクト (Player / Enemy / FCamera / FSettings 等) が
@@ -29,7 +29,7 @@
 //   inspector.Init();
 //   inspector.RegisterProvider(&player);
 //
-//   // UI レイヤ (Phase K-3 で本実装):
+//   // UI レイヤ:
 //   for (u32 p = 0; p < inspector.ProviderCount(); ++p) {
 //       auto* prov = inspector.GetProvider(p);
 //       for (u32 o = 0; o < prov->ObjectCount(); ++o) {
@@ -39,9 +39,9 @@
 //       }
 //   }
 //
-// 設計選択 (Pillar K Phase 2):
+// 設計選択:
 //   ・**シーム化 (= I/F + 集中点) で UI と切り離す**: `FInspectorSeam` 本体は
-//     Provider レジストリだけを持ち、ImGui / Ui 描画は Phase K-3 で別レイヤから
+//     Provider レジストリだけを持ち、ImGui / Ui 描画は別レイヤから
 //     呼ぶ。Ship build では Provider 登録自体を #ifdef で消す前提。
 //   ・**Provider は non-owning**: ゲーム側の生存期間に従う。RegisterProvider 後に
 //     Provider を destruct する場合は呼び出し側で必ず Unregister すること。
@@ -54,16 +54,8 @@
 //   ・**OnFieldChanged は通知のみ**: UI 側で値を書き換えた後に呼ばれる。Provider は
 //     再バリデーション (clamp / 派生値の再計算 / dirty flag) をここで行う。
 //   ・**non-copy / non-move**: 内部の TArray<Provider*> 所有を曖昧にしない。
-//   ・**全 noexcept**: ACS 規約。エラーは現状なし (Phase 2 は登録 / 取得のみ)。
+//   ・**全 noexcept**: ACS 規約。エラーは現状なし (登録 / 取得のみ)。
 //   ・**STL 不使用**: `acs::TArray<IInspectableProvider*>` で保持。
-//
-// 範囲外 (Phase K-3 以降で):
-//   ・実 ImGui / ACS::Ui との接続 (描画 + 編集 widget)
-//   ・複合型 (struct / array of T) の自動展開
-//   ・min/max/step メタデータ (現状は raw 値のみ)
-//   ・field の hide / readonly 属性
-//   ・undo/redo 統合
-//   ・JSON 形式での値ダンプ / ロード
 #pragma once
 
 #include "foundation/Types.h"
@@ -72,137 +64,267 @@
 
 namespace acs::game {
 
-// ---- フィールド種別 ------------------------------------------------------
-// 描画 / 編集レイヤが switch して扱う「データの型タグ」。
-// 現状は最小セット: スカラ + FVec2-4 + 文字列 (read-only) + Enum (整数 + ラベル配列)。
+/**
+ * フィールド種別 (描画 / 編集レイヤが扱うデータの型タグ)。
+ *
+ * @details
+ * 描画 / 編集レイヤが switch して扱う。現状は最小セット: スカラ + FVec2-4 +
+ * 文字列 (read-only) + Enum (整数 + ラベル配列)。
+ */
 enum class EFieldKind : u8 {
-    Bool,    // bool*
-    I32,     // i32*
-    U32,     // u32*
-    F32,     // f32*
-    FVec2,    // acs::FVec2*  (描画側は data を FVec2* にキャスト)
-    FVec3,    // acs::FVec3*
-    FVec4,    // acs::FVec4*
-    FString,  // const char**  (read-only 想定。書き換えは Phase K-3+)
-    Enum,    // i32* + enum_values[0..enum_value_count) のラベル
+    /** bool* を指す。 */
+    Bool,
+
+    /** i32* を指す。 */
+    I32,
+
+    /** u32* を指す。 */
+    U32,
+
+    /** f32* を指す。 */
+    F32,
+
+    /** acs::FVec2* を指す (描画側は data を FVec2* にキャスト)。 */
+    FVec2,
+
+    /** acs::FVec3* を指す。 */
+    FVec3,
+
+    /** acs::FVec4* を指す。 */
+    FVec4,
+
+    /** const char** を指す (read-only 想定)。 */
+    FString,
+
+    /** i32* + enum_values[0..enum_value_count) のラベルを持つ。 */
+    Enum,
 };
 
-// ---- 公開フィールド -----------------------------------------------------
-// Provider が `InspectableObject` 経由で配列を返す 1 件。配列の寿命は
-// Provider が保持する (static / メンバ)。FInspectorSeam はコピーしない。
+/**
+ * Provider が公開する 1 フィールド。
+ *
+ * @details
+ * Provider が `InspectableObject` 経由で配列を返す 1 件。配列の寿命は
+ * Provider が保持する (static / メンバ)。FInspectorSeam はコピーしない。
+ */
 struct InspectableField {
-    const char*  name             = nullptr;  // フィールド表示名 (caller 所有、リテラル想定)
+    /** フィールド表示名 (caller 所有、リテラル想定)。 */
+    const char*  name             = nullptr;
+
+    /** このフィールドのデータ型タグ。 */
     EFieldKind    kind             = EFieldKind::Bool;
-    void*        data             = nullptr;  // 該当型へのポインタ。kind に応じてキャスト
-    u32          enum_value_count = 0;        // kind == Enum のときの有効ラベル数
-    const char** enum_values      = nullptr;  // kind == Enum のときの値 → ラベル配列
+
+    /** 該当型へのポインタ。kind に応じてキャストする。 */
+    void*        data             = nullptr;
+
+    /** kind == Enum のときの有効ラベル数。 */
+    u32          enum_value_count = 0;
+
+    /** kind == Enum のときの値 → ラベル配列。 */
+    const char** enum_values      = nullptr;
 };
 
-// ---- 公開オブジェクト ---------------------------------------------------
-// Provider が公開する 1 オブジェクト (例: 1 体の Player、1 つの FCamera)。
-// `fields` 配列の寿命は Provider 所有。
+/**
+ * Provider が公開する 1 オブジェクト (例: 1 体の Player、1 つの FCamera)。
+ *
+ * @details `fields` 配列の寿命は Provider 所有。
+ */
 struct InspectableObject {
-    const char*       type_name     = nullptr;  // クラス名相当 ("Player" 等)
-    const char*       instance_name = nullptr;  // インスタンス名 ("P1" / "Boss" 等)
-    InspectableField* fields        = nullptr;  // Provider 所有
+    /** クラス名相当 ("Player" 等)。 */
+    const char*       type_name     = nullptr;
+
+    /** インスタンス名 ("P1" / "Boss" 等)。 */
+    const char*       instance_name = nullptr;
+
+    /** 公開フィールド配列 (Provider 所有)。 */
+    InspectableField* fields        = nullptr;
+
+    /** fields の要素数。 */
     u32               field_count   = 0;
 };
 
-// ---- 抽象 I/F: Inspectable な対象を提供する ------------------------------
-// ゲーム側オブジェクトが自身 (または管理下のリスト) を Inspector に公開する。
-// 1 Provider = 1 オブジェクトでも、1 Provider = N オブジェクト (Manager 型) でも OK。
+/**
+ * Inspectable な対象を提供する抽象インターフェース。
+ *
+ * @details
+ * ゲーム側オブジェクトが自身 (または管理下のリスト) を Inspector に公開する。
+ * 1 Provider = 1 オブジェクトでも、1 Provider = N オブジェクト (Manager 型) でも OK。
+ */
 class IInspectableProvider {
 public:
+    /** 既定構築。 */
     IInspectableProvider() noexcept = default;
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
     virtual ~IInspectableProvider() noexcept = default;
 
+    /** コピー禁止。 */
     IInspectableProvider(const IInspectableProvider&)            = delete;
+
+    /** コピー代入も禁止。 */
     IInspectableProvider& operator=(const IInspectableProvider&) = delete;
+
+    /** ムーブ禁止。 */
     IInspectableProvider(IInspectableProvider&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     IInspectableProvider& operator=(IInspectableProvider&&)      = delete;
 
-    // この Provider が公開するオブジェクト数。0 なら何も描画されない。
+    /**
+     * この Provider が公開するオブジェクト数を返す。
+     *
+     * @return 公開オブジェクト数 (0 なら何も描画されない)。
+     */
     virtual u32 ObjectCount() noexcept = 0;
 
-    // index 番目のオブジェクトを返す。index >= ObjectCount() は呼び出し側で
-    // 弾く前提 (UB を許容)。fields 配列の所有権は Provider 側に残る。
+    /**
+     * index 番目のオブジェクトを返す。
+     *
+     * @details
+     * index >= ObjectCount() は呼び出し側で弾く前提 (UB を許容)。fields 配列の
+     * 所有権は Provider 側に残る。
+     * @param index 取得するオブジェクトの添字。
+     * @return index 番目の公開オブジェクト。
+     */
     virtual InspectableObject GetObject(u32 index) noexcept = 0;
 
-    // UI 側が field の値を書き換えた直後に呼ばれる。Provider は clamp /
-    // 派生値再計算 / dirty flag のセット等をここで行う。obj_index, field_index は
-    // GetObject() / fields の添字に対応。
+    /**
+     * UI 側が field の値を書き換えた直後に呼ばれる通知フック。
+     *
+     * @details Provider は clamp / 派生値再計算 / dirty flag のセット等をここで行う。
+     * @param obj_index GetObject() の添字に対応するオブジェクト番号。
+     * @param field_index fields 配列の添字に対応するフィールド番号。
+     */
     virtual void OnFieldChanged(u32 obj_index, u32 field_index) noexcept = 0;
 };
 
-// ---- 集中点: Provider レジストリ ----------------------------------------
-// Provider の登録 / 列挙 / 変更通知のハブ。
-// 描画レイヤ (Phase K-3 で ImGui or ACS::Ui) はこのインスタンスから
-// ProviderCount() / GetProvider() を回して描画する。
+/**
+ * Provider の登録 / 列挙 / 変更通知のハブ (Provider レジストリ)。
+ *
+ * @details
+ * 描画レイヤ (ImGui or ACS::Ui) はこのインスタンスから ProviderCount() /
+ * GetProvider() を回して描画する。
+ */
 class FInspectorSeam {
 public:
+    /** 空のレジストリで構築する。 */
     FInspectorSeam() noexcept = default;
+
+    /** 破棄する (Provider は non-owning なので破棄しない)。 */
     ~FInspectorSeam() noexcept = default;
 
-    // 非コピー・非ムーブ: 内部 TArray<Provider*> の所有を曖昧にしない。
+    /** コピー禁止 (内部 TArray<Provider*> の所有を曖昧にしないため)。 */
     FInspectorSeam(const FInspectorSeam&)            = delete;
+
+    /** コピー代入も禁止。 */
     FInspectorSeam& operator=(const FInspectorSeam&) = delete;
+
+    /** ムーブ禁止。 */
     FInspectorSeam(FInspectorSeam&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FInspectorSeam& operator=(FInspectorSeam&&)      = delete;
 
-    // 初期化。現状は何もしない (将来 Phase K-3 で ImGui コンテキスト等の
-    // セットアップを足す想定の予約点)。多重呼び出し可。
+    /**
+     * 初期化する (多重呼び出し可)。
+     *
+     * @details 現状は何もしない (ImGui コンテキスト等のセットアップを足す想定の予約点)。
+     */
     void Init() noexcept;
 
-    // Provider 登録。non-owning: provider の生存期間は呼び出し側責務。
-    // 同一ポインタの多重登録は許可しない (重複は無視 + 何もしない)。
-    // nullptr は無視。
-    // node 紐付けなし版 (= 紐付く FNodeId は invalid)。FNodeId からの逆引きを
-    // 使いたい場合は RegisterProviderForNode を使うこと。
+    /**
+     * node 紐付けなしで Provider を登録する。
+     *
+     * @details
+     * non-owning: provider の生存期間は呼び出し側責務。同一ポインタの多重登録は
+     * 許可しない (重複は無視)。nullptr は無視。紐付く FNodeId は invalid となるため、
+     * FNodeId からの逆引きを使いたい場合は RegisterProviderForNode を使うこと。
+     * @param provider 登録する Provider (non-owning)。
+     */
     void RegisterProvider(IInspectableProvider* provider) noexcept;
 
-    // node 紐付き版の Provider 登録。`node_id` をキーに後で GetProviderForNode で
-    // 逆引きできる。non-owning は RegisterProvider と同じ。同一 provider ポインタの
-    // 多重登録は弾く (この場合 node_id の更新も行わない)。nullptr は無視。
-    //
-    // 設計意図: FNodeId は「シーングラフ上の slot index + generation」を表す
-    // ハンドルであり、provider レジストリ上の登録順 index とは別物。両者を取り
-    // 違えると別 provider を引いてしまうため、node→provider の対応は明示的に
-    // ここで記録する (panel 側が id.Index() を登録 index と誤用しないため)。
+    /**
+     * node 紐付きで Provider を登録する。
+     *
+     * @details
+     * `node_id` をキーに後で GetProviderForNode で逆引きできる。non-owning は
+     * RegisterProvider と同じ。同一 provider ポインタの多重登録は弾く
+     * (この場合 node_id の更新も行わない)。nullptr は無視。FNodeId は
+     * 「slot index + generation」を表すハンドルで provider レジストリの登録順
+     * index とは別物のため、node→provider の対応をここで明示的に記録する。
+     * @param node_id 逆引きキーにする FNodeId。
+     * @param provider 登録する Provider (non-owning)。
+     */
     void RegisterProviderForNode(FNodeId node_id, IInspectableProvider* provider) noexcept;
 
-    // Provider 登録解除。未登録 / nullptr は無視 (no-op)。
-    // 解除後、Provider オブジェクト自体は破棄しない (non-owning なので)。
+    /**
+     * Provider 登録を解除する。
+     *
+     * @details
+     * 未登録 / nullptr は無視 (no-op)。解除後、Provider オブジェクト自体は破棄
+     * しない (non-owning なので)。
+     * @param provider 解除する Provider。
+     */
     void UnregisterProvider(IInspectableProvider* provider) noexcept;
 
-    // 登録済み Provider 数。
+    /**
+     * 登録済み Provider 数を返す。
+     *
+     * @return 登録されている Provider の個数。
+     */
     u32 ProviderCount() const noexcept;
 
-    // index 番目の Provider。範囲外 (index >= ProviderCount()) は nullptr 安全。
-    // ここでの index は **登録順 (provider レジストリ上の位置)** であり、FNodeId の
-    // Index() ではない。FNodeId から引きたい場合は GetProviderForNode を使う。
+    /**
+     * 登録順 index で Provider を取得する。
+     *
+     * @details
+     * 範囲外 (index >= ProviderCount()) は nullptr 安全。ここでの index は
+     * 登録順 (provider レジストリ上の位置) であり、FNodeId の Index() ではない。
+     * FNodeId から引きたい場合は GetProviderForNode を使う。
+     * @param index 登録順の添字。
+     * @return index 番目の Provider (範囲外なら nullptr)。
+     */
     IInspectableProvider* GetProvider(u32 index) const noexcept;
 
-    // FNodeId をキーに紐付く Provider を逆引きする。RegisterProviderForNode で
-    // 登録した node_id に完全一致 (index + generation) する provider を返す。
-    // 一致なし / invalid id は nullptr。これが node-keyed lookup の正しい入口。
+    /**
+     * FNodeId をキーに紐付く Provider を逆引きする。
+     *
+     * @details
+     * RegisterProviderForNode で登録した node_id に完全一致 (index + generation)
+     * する provider を返す。これが node-keyed lookup の正しい入口。
+     * @param node_id 逆引きする FNodeId。
+     * @return 一致する Provider (一致なし / invalid id なら nullptr)。
+     */
     IInspectableProvider* GetProviderForNode(FNodeId node_id) const noexcept;
 
-    // UI 側が値を書き換えた直後に呼ぶ。指定 Provider の OnFieldChanged() に
-    // forward する。範囲外 (provider_index >= ProviderCount()) は no-op。
+    /**
+     * 指定 Provider の OnFieldChanged() に変更を forward する。
+     *
+     * @details 範囲外 (provider_index >= ProviderCount()) は no-op。
+     * @param provider_index 通知先 Provider の登録順 index。
+     * @param obj_index 変更されたオブジェクトの添字。
+     * @param field_index 変更されたフィールドの添字。
+     */
     void NotifyFieldChanged(u32 provider_index, u32 obj_index, u32 field_index) noexcept;
 
-    // 全 Provider 登録を破棄 (Provider 自体は破棄しない)。
+    /** 全 Provider 登録を破棄する (Provider 自体は破棄しない)。 */
     void ClearAll() noexcept;
 
-    // TODO(Phase K-3): ImGui / ACS::Ui との接続レイヤを別 class
-    //   (e.g. `InspectorImGuiAdapter`) として実装し、本クラスは描画ロジックを
-    //   持たない純粋なレジストリのままにする。
-
 private:
-    // m_Providers[i] と m_NodeIds[i] は常に同じ index で対応する parallel array。
-    // 追加 / swap-remove / Clear は両者を必ず揃えて操作すること。
-    // node 紐付けなしで登録した provider の m_NodeIds[i] は invalid (FNodeId{})。
+    /**
+     * 登録済み Provider (non-owning)。m_NodeIds と同じ index で対応する。
+     *
+     * @details
+     * m_Providers[i] と m_NodeIds[i] は常に同じ index で対応する parallel array。
+     * 追加 / swap-remove / Clear は両者を必ず揃えて操作すること。
+     */
     TArray<IInspectableProvider*> m_Providers;
+
+    /**
+     * 各 Provider に紐付く FNodeId (node 紐付けなしは invalid FNodeId{})。
+     *
+     * @details m_Providers と同じ index で対応する parallel array。
+     */
     TArray<FNodeId>               m_NodeIds;
 };
 

@@ -14,40 +14,105 @@
 
 namespace acs {
 
-// 時刻ユーティリティ
+/**
+ * 高精度な時刻取得ユーティリティ (全メソッド static)。
+ *
+ * @details
+ * 実装は std::chrono::steady_clock ベースで、初回参照時を起点とする単調増加時刻を返す。
+ * Windows では内部的に QPC、Linux/macOS では CLOCK_MONOTONIC 相当。
+ */
 class Clock {
 public:
-    // 起動からの経過秒（高精度）
+    /**
+     * 起動 (初回参照) からの経過秒を返す。
+     *
+     * @return 経過秒 (高精度、単調増加)。
+     */
     static f64 SecondsSinceStartup() noexcept;
-    // 起動からの経過ミリ秒
+
+    /**
+     * 起動 (初回参照) からの経過ミリ秒を返す。
+     *
+     * @return 経過ミリ秒。
+     */
     static u64 MillisSinceStartup() noexcept;
-    // 経過 100ns ティック（QPC ベース）
+
+    /**
+     * 内部クロックの生 tick 値を返す。
+     *
+     * @details 1 tick の長さは steady_clock の period 依存 (ナノ秒など)。TicksPerSecond と
+     * 組み合わせて秒へ換算する。
+     * @return time_since_epoch の生 tick カウント。
+     */
     static u64 Ticks() noexcept;
-    // 1 秒あたりのティック数
+
+    /**
+     * 1 秒あたりの tick 数を返す。
+     *
+     * @return steady_clock の period から求めた 1 秒あたりの tick 数。
+     */
     static u64 TicksPerSecond() noexcept;
 };
 
-// フレーム時間計測（毎フレーム Tick を呼ぶ）
+/**
+ * フレーム時間を計測するタイマ (毎フレーム Tick を呼ぶ)。
+ *
+ * @details 前回 Tick からの経過秒を返しつつ、平滑化 dt・累積秒・累積フレーム数を更新する。
+ */
 class FrameTimer {
 public:
+    /** 現在時刻を基準点にしてタイマを初期化する。 */
     FrameTimer() noexcept;
 
-    // 経過秒を返し、内部時刻を更新する。最大 dt は 0.25 秒に制限（停止後の暴走防止）
+    /**
+     * 前回呼び出しからの経過秒を返し、内部状態を更新する。
+     *
+     * @details
+     * dt は [0.0, 0.25] 秒にクランプする (ブレークポイント等で長時間停止した後の暴走防止)。
+     * 併せて指数移動平均で平滑化 dt を更新し、累積秒とフレーム数を進める。
+     * @return クランプ後の経過秒。
+     */
     f32 Tick() noexcept;
 
-    // 過去 N フレームの平均 dt
+    /**
+     * 平滑化された 1 フレームあたりの dt を返す。
+     *
+     * @return 指数移動平均で平滑化した dt (秒)。
+     */
     f32 SmoothedDelta() const noexcept { return m_Smoothed; }
-    // 過去 N フレームの平均 FPS
+
+    /**
+     * 平滑化 dt から求めた平均 FPS を返す。
+     *
+     * @return 平均 FPS (平滑化 dt が 0 のときは 0)。
+     */
     f32 SmoothedFPS()   const noexcept { return m_Smoothed > 0 ? 1.0f / m_Smoothed : 0; }
-    // 累積フレーム数
+
+    /**
+     * これまでに計測した累積フレーム数を返す。
+     *
+     * @return Tick を呼んだ累積回数。
+     */
     u64 FrameCount()    const noexcept { return m_Frames; }
-    // 起動からの累積秒
+
+    /**
+     * クランプ後 dt を積算した累積秒を返す。
+     *
+     * @return 累積経過秒。
+     */
     f64 TotalSeconds()  const noexcept { return m_Total; }
 
 private:
-    u64 m_LastTicks = 0;     // 前回 Tick の時刻
-    f32 m_Smoothed   = 0.0f;  // 平滑化された dt
+    /** 前回 Tick 時の生 tick 値。 */
+    u64 m_LastTicks = 0;
+
+    /** 平滑化された dt (秒)。 */
+    f32 m_Smoothed   = 0.0f;
+
+    /** クランプ後 dt の累積秒。 */
     f64 m_Total      = 0.0;
+
+    /** Tick を呼んだ累積フレーム数。 */
     u64 m_Frames     = 0;
 };
 

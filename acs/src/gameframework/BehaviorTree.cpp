@@ -9,14 +9,14 @@
 
 namespace acs::game {
 
-// ---- FBtSelector --------------------------------------------------------------
-
+/** 子の所有権を奪って末尾に追加する (nullptr は静かに無視)。 */
 void FBtSelector::AddChild(TUniquePtr<FBtNode> child) noexcept {
     // nullptr 子はそもそも tick できないので追加しない (静かに無視)。
     if (!child) return;
     m_Children.PushBack(Move(child));
 }
 
+/** 子を順に Tick し、最初の Running/Success で抜ける (全 Failure なら Failure)。 */
 EBtStatus FBtSelector::Tick(void* blackboard, f32 dt) noexcept {
     // OR セマンティクス: Running か Success を見つけたらその時点で抜ける。
     //   ・Running → 子がまだ進行中、Selector も Running を伝播
@@ -35,13 +35,13 @@ EBtStatus FBtSelector::Tick(void* blackboard, f32 dt) noexcept {
     return EBtStatus::Failure;
 }
 
-// ---- FBtSequence --------------------------------------------------------------
-
+/** 子の所有権を奪って末尾に追加する (nullptr は静かに無視)。 */
 void FBtSequence::AddChild(TUniquePtr<FBtNode> child) noexcept {
     if (!child) return;
     m_Children.PushBack(Move(child));
 }
 
+/** 子を順に Tick し、最初の Running/Failure で抜ける (全 Success なら Success)。 */
 EBtStatus FBtSequence::Tick(void* blackboard, f32 dt) noexcept {
     // AND セマンティクス: Running か Failure を見つけたらその時点で抜ける。
     //   ・Running → 子がまだ進行中、FSequence も Running
@@ -60,21 +60,20 @@ EBtStatus FBtSequence::Tick(void* blackboard, f32 dt) noexcept {
     return EBtStatus::Success;
 }
 
-// ---- FBtAction ----------------------------------------------------------------
-
+/** 保持する関数ポインタを呼ぶ (未設定ならソフトフェイルで Failure)。 */
 EBtStatus FBtAction::Tick(void* blackboard, f32 dt) noexcept {
     // 関数ポインタ未設定はソフトフェイル: Failure を返して composite が前進する。
     if (m_Fn == nullptr) return EBtStatus::Failure;
     return m_Fn(blackboard, dt);
 }
 
-// ---- FBehaviorTree ------------------------------------------------------------
-
+/** root を差し替える (旧 root は TUniquePtr デストラクタで自動破棄)。 */
 void FBehaviorTree::SetRoot(TUniquePtr<FBtNode> root) noexcept {
     // 旧 root はここで TUniquePtr デストラクタにより自動破棄される。
     m_Root = Move(root);
 }
 
+/** root を 1 フレーム評価する (root 未設定なら Failure)。 */
 EBtStatus FBehaviorTree::Tick(void* blackboard, f32 dt) noexcept {
     // root 未設定の tree は「常に失敗」として扱う (composite と同じ規約)。
     if (!m_Root) return EBtStatus::Failure;

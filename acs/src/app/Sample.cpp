@@ -5,10 +5,12 @@
 
 namespace acs::FSample {
 
+/** 既定 UI フォントパスを返す (Windows ではメイリオ)。詳細は宣言を参照。 */
 const wchar_t* DefaultUIFontPath() noexcept {
     return L"C:\\Windows\\Fonts\\meiryo.ttc";
 }
 
+/** 候補フォントを順に試して最初に成功したものをロードする。詳細は宣言を参照。 */
 TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device, f32 size_px,
                                    u32 atlas_size, bool include_cjk) noexcept {
     // Windows 標準フォント候補。最初に LoadFromFile が成功したら採用。
@@ -22,7 +24,7 @@ TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device, f32 size_px,
     };
 
     for (const wchar_t* const* p = kCandidates; *p; ++p) {
-        auto r = font.LoadFromFile(device, *p, size_px, atlas_size, include_cjk);
+        const auto r = font.LoadFromFile(device, *p, size_px, atlas_size, include_cjk);
         if (r.IsOk()) return Ok();
     }
     return ACS_ERR(Asset, 5, "no default UI font found on this platform");

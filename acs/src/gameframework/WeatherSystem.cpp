@@ -10,16 +10,16 @@
 
 namespace acs::game {
 
-// ----- 天候別パラメータ LUT --------------------------------------------------
-//
-// 値はゲーム性重視 (写実気象モデルではない):
-//   ambient_mult     : ambient 輝度倍率 (Storm/Sandstorm で暗化)
-//   particle_density : 粒子発生率倍率 (Clear=0、HeavyRain/Storm で max)
-//   sky_tint         : sky color に乗算 (1,1,1 = 補正なし)
-//   wind_strength    : [0,1]、Storm/Sandstorm = 1
-//   fog_density      : 霧密度倍率 (Fog で大、Sandstorm でも視界不良)
-//
-// 並びは EWeatherKind の数値順 (Clear=0 .. Sandstorm=7) と一致させる。
+/**
+ * 天候別の描画修飾パラメータ LUT。
+ *
+ * @details
+ * 値はゲーム性重視 (写実気象モデルではない)。各成分は ambient_mult (輝度倍率、
+ * Storm/Sandstorm で暗化)、particle_density (粒子発生率、Clear=0、HeavyRain/Storm
+ * で max)、sky_tint (sky color 乗算、1,1,1=補正なし)、wind_strength ([0,1]、
+ * Storm/Sandstorm=1)、fog_density (霧密度倍率、Fog で大)。並びは EWeatherKind の
+ * 数値順 (Clear=0 .. Sandstorm=7) と一致させる。
+ */
 static const FWeatherSystem::KindParams kParamsTable[8] = {
     // Clear      晴天: 何も足さず、何も引かない基準値
     { 1.00f, 0.00f, FVec3{1.00f, 1.00f, 1.00f}, 0.10f, 1.00f },
@@ -39,6 +39,7 @@ static const FWeatherSystem::KindParams kParamsTable[8] = {
     { 0.50f, 1.50f, FVec3{1.10f, 0.85f, 0.55f}, 1.00f, 3.00f },
 };
 
+/** 天候種別に対応する修飾パラメータを LUT から引く (範囲外は Clear にフォールバック)。 */
 const FWeatherSystem::KindParams& FWeatherSystem::Params(EWeatherKind k) noexcept {
     // 範囲外は Clear にフォールバック (將来の enum 拡張で size > 8 となる場合の
     // 安全網)。現状の enum 定義では決して走らない。
@@ -47,8 +48,7 @@ const FWeatherSystem::KindParams& FWeatherSystem::Params(EWeatherKind k) noexcep
     return kParamsTable[idx];
 }
 
-// ----- 状態制御 -------------------------------------------------------------
-
+/** 目標天候を設定し、遷移を開始する (同一天候は即完了、duration<=0 は即時切替)。 */
 void FWeatherSystem::SetWeather(EWeatherKind kind, f32 transition_duration) noexcept {
     // 同一天候: 既にその天候なので即完了状態に揃える。
     if (kind == m_Current && m_TransitionT >= 1.0f) {
@@ -62,7 +62,7 @@ void FWeatherSystem::SetWeather(EWeatherKind kind, f32 transition_duration) noex
     // 遷移中に SetWeather を再呼出: 現在の混合値を「次の current」として固定
     // するのが理想だが、KindParams は離散なので簡略化 — 単純に current を
     // 「今までの target」に置き換え、新しい target に向け再スタートする。
-    // (混合途中の急な切替は視覚的に気にならない範囲、Phase 3 で要検討。)
+    // (混合途中の急な切替は視覚的に気にならない範囲、将来要検討。)
     if (m_TransitionT < 1.0f) {
         m_Current = m_Target;
     }
@@ -82,6 +82,7 @@ void FWeatherSystem::SetWeather(EWeatherKind kind, f32 transition_duration) noex
     }
 }
 
+/** 遷移を 1 フレーム分進め、完了時に current を target へスナップする。 */
 void FWeatherSystem::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
 
@@ -105,6 +106,7 @@ void FWeatherSystem::Tick(f32 dt) noexcept {
     }
 }
 
+/** 初期化直後の状態 (Clear、遷移完了、風向き東) へ戻す。 */
 void FWeatherSystem::Reset() noexcept {
     m_Current             = EWeatherKind::Clear;
     m_Target              = EWeatherKind::Clear;
@@ -114,32 +116,35 @@ void FWeatherSystem::Reset() noexcept {
     m_WindDir            = FVec2{1.0f, 0.0f};
 }
 
-// ----- 描画 / lighting 用 modifier (current → target を線形補間) ------------
-
+/** ambient 輝度倍率を current → target の線形補間で返す。 */
 f32 FWeatherSystem::AmbientLightMultiplier() const noexcept {
     const KindParams& a = Params(m_Current);
     const KindParams& b = Params(m_Target);
     return Lerp(a.ambient_mult, b.ambient_mult, m_TransitionT);
 }
 
+/** 粒子密度倍率を current → target の線形補間で返す。 */
 f32 FWeatherSystem::ParticleDensity() const noexcept {
     const KindParams& a = Params(m_Current);
     const KindParams& b = Params(m_Target);
     return Lerp(a.particle_density, b.particle_density, m_TransitionT);
 }
 
+/** sky tint 乗算係数を current → target の線形補間で返す。 */
 FVec3 FWeatherSystem::SkyTintMultiplier() const noexcept {
     const KindParams& a = Params(m_Current);
     const KindParams& b = Params(m_Target);
     return Lerp(a.sky_tint, b.sky_tint, m_TransitionT);
 }
 
+/** 風の強さ [0,1] を current → target の線形補間で返す。 */
 f32 FWeatherSystem::WindStrength() const noexcept {
     const KindParams& a = Params(m_Current);
     const KindParams& b = Params(m_Target);
     return Lerp(a.wind_strength, b.wind_strength, m_TransitionT);
 }
 
+/** 霧密度倍率を current → target の線形補間で返す。 */
 f32 FWeatherSystem::FogDensityMultiplier() const noexcept {
     const KindParams& a = Params(m_Current);
     const KindParams& b = Params(m_Target);

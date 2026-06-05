@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E — FCameraStack 実装 (Phase 2)
+// GameFramework Pillar E — FCameraStack 実装
 #include "gameframework/CameraStack.h"
 
 #include "foundation/Log.h"
@@ -7,12 +7,12 @@
 
 namespace acs::game {
 
-// ====== ヘルパ ======================================================
-
+/** 2 つの FVec2 を進捗 t で線形補間する。 */
 FVec2 FCameraStack::LerpVec2(FVec2 a, FVec2 b, f32 t) noexcept {
     return FVec2{Lerp(a.x, b.x, t), Lerp(a.y, b.y, t)};
 }
 
+/** 2 つの zoom を対数空間で補間する (入力は下限 0.001 にクランプ)。 */
 f32 FCameraStack::LerpZoom(f32 a, f32 b, f32 t) noexcept {
     // 光学的に自然な中点 → 対数空間で線形補間。zoom <= 0 ガード (FCamera2D 側で
     // 0.001 にクランプされているはずだが、防御的に Abs を取ってから扱う)。
@@ -21,6 +21,7 @@ f32 FCameraStack::LerpZoom(f32 a, f32 b, f32 t) noexcept {
     return Exp(Lerp(Log(sa), Log(sb), t));
 }
 
+/** 2 つの角度を最短角経路で補間する。 */
 f32 FCameraStack::LerpAngle(f32 a, f32 b, f32 t) noexcept {
     // 差分を [-π, π] に正規化してから lerp (= 最短角経路)。
     f32 d = b - a;
@@ -29,8 +30,7 @@ f32 FCameraStack::LerpAngle(f32 a, f32 b, f32 t) noexcept {
     return a + d * t;
 }
 
-// ====== 遷移 =========================================================
-
+/** カメラを top に push し、旧 top からの補間を開始する。 */
 void FCameraStack::PushCamera(FCamera2D& cam, f32 blend_duration) noexcept {
     if (m_Entries.Size() >= kMaxLayers) {
         ACS_LOG_WARN("FCameraStack::PushCamera: layer cap reached (%u) — ignored",
@@ -46,6 +46,7 @@ void FCameraStack::PushCamera(FCamera2D& cam, f32 blend_duration) noexcept {
     m_Entries.PushBack(e);
 }
 
+/** top をフェードアウト状態に切り替える (実際の除去は Tick で行う)。 */
 void FCameraStack::PopCamera(f32 blend_duration) noexcept {
     if (m_Entries.Size() <= 1) {
         ACS_LOG_WARN("FCameraStack::PopCamera on stack of size %u (need >=2) — ignored",
@@ -60,13 +61,13 @@ void FCameraStack::PopCamera(f32 blend_duration) noexcept {
     top.is_in          = false;
 }
 
-// ====== 状態取得 =====================================================
-
+/** 現在 active なカメラ (= 最上層) を返す (空なら nullptr)。 */
 FCamera2D* FCameraStack::Active() const noexcept {
     if (m_Entries.IsEmpty()) return nullptr;
     return m_Entries.Back().cam;
 }
 
+/** top が補間途中かどうかを返す。 */
 bool FCameraStack::IsBlending() const noexcept {
     if (m_Entries.IsEmpty()) return false;
     const CameraEntry& top = m_Entries.Back();
@@ -77,18 +78,19 @@ bool FCameraStack::IsBlending() const noexcept {
         && m_Entries.Size() >= 2u;
 }
 
+/** top の blend 進捗 [0,1] を返す (非 blend 時は 1)。 */
 f32 FCameraStack::BlendProgress() const noexcept {
     if (m_Entries.IsEmpty()) return 1.0f;
     const f32 t = m_Entries.Back().blend_t;
     return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
 }
 
+/** スタックを空にする。 */
 void FCameraStack::Clear() noexcept {
     m_Entries.Clear();
 }
 
-// ====== Effective* (描画側が読む) ====================================
-
+/** 描画に使う実 view center を返す (blend 中は下層との線形補間)。 */
 FVec2 FCameraStack::EffectivePosition() const noexcept {
     if (m_Entries.IsEmpty()) return FVec2{0.0f, 0.0f};
     const CameraEntry& top = m_Entries.Back();
@@ -105,6 +107,7 @@ FVec2 FCameraStack::EffectivePosition() const noexcept {
                      : LerpVec2(top_pos, under_pos, top.blend_t);
 }
 
+/** 描画に使う実 zoom を返す (blend 中は下層との対数補間)。 */
 f32 FCameraStack::EffectiveZoom() const noexcept {
     if (m_Entries.IsEmpty()) return 1.0f;
     const CameraEntry& top = m_Entries.Back();
@@ -118,6 +121,7 @@ f32 FCameraStack::EffectiveZoom() const noexcept {
                      : LerpZoom(top_z, under_z, top.blend_t);
 }
 
+/** 描画に使う実 rotation を返す (blend 中は下層との最短角補間)。 */
 f32 FCameraStack::EffectiveRotation() const noexcept {
     if (m_Entries.IsEmpty()) return 0.0f;
     const CameraEntry& top = m_Entries.Back();
@@ -131,8 +135,7 @@ f32 FCameraStack::EffectiveRotation() const noexcept {
                      : LerpAngle(top_r, under_r, top.blend_t);
 }
 
-// ====== driver =======================================================
-
+/** blend timer を進め、active な 2 層を tick し、pop 完了時に top を除去する。 */
 void FCameraStack::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
     if (m_Entries.IsEmpty()) return;

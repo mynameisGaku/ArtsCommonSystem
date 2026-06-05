@@ -27,69 +27,92 @@
 
 namespace acs::assetpack {
 
-// ============================================================================
-// 定数 (LZ4 block format)
-// ============================================================================
 namespace {
 
-// 最低 match 長 (LZ4 仕様)。token の low 4-bit は match_length - 4 を表す。
+/** LZ4 の最低 match 長 (= 4)。token の low 4-bit は match_length - 4 を表す。 */
 constexpr u32 kMinMatch        = 4;
-// 終端保護: 最後の match の終端から end-of-block まで最低 12 バイト literal、
-// うち最後の 5 バイトは必ず literal。Compressor はこの 12 バイト手前で match
-// 探索を打ち切る。
+
+/**
+ * end-of-block 直前で literal でなければならない末尾バイト数 (= 5)。
+ *
+ * @details Compressor は match をこの位置より前で伸ばし切る (LZ4 仕様)。
+ */
 constexpr u32 kLastLiterals    = 5;
+
+/**
+ * 末尾で match 探索を打ち切るマージン (= 12 バイト)。
+ *
+ * @details
+ * 最後の match の終端から end-of-block まで最低 12 バイトを literal とする
+ * (LZ4 の LZ4_LAST_LITERALS 規約)。Compressor はこの 12 バイト手前で match
+ * 探索を止める。
+ */
 constexpr u32 kMatchFindLimit  = 12;
-// 最大 offset (16bit LE)。1〜65535、0 は不正。
+
+/** 後方参照の最大 offset (= 65535、16bit LE)。1〜65535、0 は不正。 */
 constexpr u32 kMaxOffset       = 65535;
-// Hash table サイズ (16K エントリ = 64KB)。LZ4 fast の典型値。
-constexpr u32 kHashTableSize   = 1u << 14;   // 16384
+
+/** Hash table のエントリ数 (= 16384、64KB)。LZ4 fast の典型値。 */
+constexpr u32 kHashTableSize   = 1u << 14;
+
+/** Hash table index 用のマスク (= kHashTableSize - 1)。 */
 constexpr u32 kHashTableMask   = kHashTableSize - 1;
 
-// ============================================================================
-// 共通ユーティリティ
-// ============================================================================
-
-// 4 バイトを strict-aliasing 安全に u32 として読む。
+/**
+ * 4 バイトを strict-aliasing 安全に u32 (LE) として読む。
+ *
+ * @param p 読み出し元 (4 バイト)。
+ * @return 読み出した u32。
+ */
 inline u32 Read32LE(const u8* p) noexcept {
     u32 v = 0;
     MemCopy(&v, p, 4);
     return v;
 }
 
-// 2 バイト LE を u16 で読む。
+/**
+ * 2 バイトを u16 (LE) として読む。
+ *
+ * @param p 読み出し元 (2 バイト)。
+ * @return 読み出した u16。
+ */
 inline u16 Read16LE(const u8* p) noexcept {
     u16 v = 0;
     MemCopy(&v, p, 2);
     return v;
 }
 
-// 2 バイト LE で書く。
+/**
+ * u16 を 2 バイト LE で書き出す。
+ *
+ * @param p 書き込み先 (2 バイト)。
+ * @param v 書き込む u16。
+ */
 inline void Write16LE(u8* p, u16 v) noexcept {
     MemCopy(p, &v, 2);
 }
 
-// 4 バイトを単純 multiplicative hash で hash table の index に変換。
-// 衝突しやすいが LZ4 fast level として実用的。
+/**
+ * 4 バイトシーケンスを multiplicative hash で hash table index に変換する。
+ *
+ * @details FNV ベースの 32 → 14bit hash。衝突しやすいが LZ4 fast として実用的。
+ * @param seq hash 対象の 4 バイトシーケンス。
+ * @return hash table の index (0..kHashTableMask)。
+ */
 inline u32 HashSequence(u32 seq) noexcept {
-    // FNV ベースの 32 → 14bit hash。簡素で十分散らばる。
     return ((seq * 2654435761u) >> (32 - 14)) & kHashTableMask;
 }
 
-// ============================================================================
-// MaxCompressedSize
-// ============================================================================
-// LZ4 公式式: input + (input / 255) + 16
-// 全 literal 化した最悪ケースで 255 バイトごとに extension byte 1 追加 + token
-// 1 + 終端余裕 16 を確保。
 } // namespace
 
+/** 入力サイズから最悪ケースの圧縮出力サイズを算出する (LZ4 公式式)。 */
 u32 FAcpakLz4::MaxCompressedSize(u32 input_size) noexcept {
+    // LZ4 公式式: input + (input / 255) + 16。全 literal 化の最悪ケースで
+    // 255 バイトごとに extension byte 1 + token 1 + 終端余裕 16 を確保。
     return input_size + (input_size / 255u) + 16u;
 }
 
-// ============================================================================
-// Compress — 単純 hash-based 1 パス LZ4
-// ============================================================================
+/** src を LZ4 block format で dst に圧縮し、圧縮後バイト数を返す。 */
 TResult<u32> FAcpakLz4::Compress(const u8* src,
                                u32       src_size,
                                u8*       dst,
@@ -132,7 +155,7 @@ TResult<u32> FAcpakLz4::Compress(const u8* src,
                            "FAcpakLz4::Compress: dst overflow (short input)");
         }
         // token: high 4-bit = literal_length (15 = "拡張あり")
-        u8 token = (lit_len >= 15u) ? (15u << 4) : static_cast<u8>(lit_len << 4);
+        const u8 token = (lit_len >= 15u) ? (15u << 4) : static_cast<u8>(lit_len << 4);
         *op++ = token;
         if (lit_len >= 15u) {
             u32 remain = lit_len - 15u;
@@ -275,9 +298,7 @@ TResult<u32> FAcpakLz4::Compress(const u8* src,
     return TResult<u32>(OkInit, static_cast<u32>(op - dst_begin));
 }
 
-// ============================================================================
-// Decompress — LZ4_decompress_safe 相当 (境界検査付き)
-// ============================================================================
+/** LZ4 block format の src を境界検査付きで dst に解凍し、解凍後バイト数を返す。 */
 TResult<u32> FAcpakLz4::Decompress(const u8* src,
                                  u32       src_size,
                                  u8*       dst,

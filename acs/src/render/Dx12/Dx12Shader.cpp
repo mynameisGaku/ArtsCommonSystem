@@ -7,10 +7,12 @@
 
 namespace acs {
 
+/** コンパイル済みバイトコード blob を解放する。 */
 Dx12Shader::~Dx12Shader() noexcept {
     ACS_SAFE_RELEASE(m_Blob);
 }
 
+/** HLSL ソースを D3DCompile でステージ対応ターゲットへコンパイルし blob を保持する。 */
 HrResult Dx12Shader::Init(Dx12Device& /*device*/, const FShaderDesc& desc) noexcept {
     HrResult r{};
     m_Stage = desc.stage;
@@ -54,15 +56,24 @@ HrResult Dx12Shader::Init(Dx12Device& /*device*/, const FShaderDesc& desc) noexc
     return r;
 }
 
-// ファクトリ
 #if !WITH_RENDER_DILIGENT
+/**
+ * DX12 用に IRhiShader を生成するファクトリ。
+ *
+ * @details
+ * RTTI 無効のためバックエンド名で DX12 を判定し、Dx12Shader を構築して HLSL を
+ * コンパイルする。Diligent バックエンド有効時は別実装が提供される。
+ * @param device 生成元のデバイス (DX12 でなければエラー)。
+ * @param desc コンパイルするシェーダの記述 (ソース・ステージ・エントリポイント等)。
+ * @return 生成したシェーダを保持する TResult、判定・コンパイル失敗ならエラー。
+ */
 TResult<TUniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice& device, const FShaderDesc& desc) noexcept {
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 40, "CreateRhiShader: device is not DX12");
     Dx12Device* dxd = static_cast<Dx12Device*>(&device);
     auto s = MakeUnique<Dx12Shader>();
-    HrResult r = s->Init(*dxd, desc);
+    const HrResult r = s->Init(*dxd, desc);
     if (r.IsErr())
         return ACS_ERR_OS(Render, 41, "Dx12Shader::Init failed (compile)", static_cast<u32>(r.hr));
     TUniquePtr<IRhiShader> base(s.Release(), s.GetAllocator());

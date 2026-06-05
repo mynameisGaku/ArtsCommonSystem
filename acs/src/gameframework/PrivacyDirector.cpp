@@ -18,17 +18,21 @@
 
 namespace acs::game {
 
-// ----- 永続化フォーマット定数 ----------------------------------------------
-
-// consent ファイルの schema version。policy_version (= ポリシー文言の版) とは
-// 別物で、こちらは ConsentStatus の **バイナリレイアウト** に対する版番号。
-// レイアウトを変えたら +1 し、旧ファイル読込時に kSubMigrationNeeded で検知する。
+/**
+ * consent ファイルの schema version。
+ *
+ * @details
+ * policy_version (= ポリシー文言の版) とは別物で、こちらは ConsentStatus の
+ * バイナリレイアウトに対する版番号。レイアウトを変えたら +1 し、旧ファイル読込時に
+ * kSubMigrationNeeded で検知する。
+ */
 static constexpr u32 kConsentSchemaVersion = 1u;
 
-// ----- 内部ヘルパ -----------------------------------------------------------
-
-// Required(=0) を除いた全カテゴリの bit 集合。GrantAll/RevokeAll で使う。
-// 新カテゴリ追加時はここに OR で追記する必要がある (静的に閉じておく)。
+/**
+ * Required (= 0) を除いた全カテゴリの bit 集合。
+ *
+ * @details GrantAll / RevokeAll で使う。新カテゴリ追加時はここに OR で追記する必要がある (静的に閉じる)。
+ */
 static constexpr EConsentCategory kAllCategories =
     EConsentCategory::Analytics
     | EConsentCategory::Marketing
@@ -37,14 +41,18 @@ static constexpr EConsentCategory kAllCategories =
     | EConsentCategory::Telemetry
     | EConsentCategory::CrashReports;
 
-// EConsentCategory 同士の bit 操作ユーティリティ。
-// & ~b で「b に含まれる bit を a から落とす」を表現する。
+/**
+ * a から b に含まれる bit を落とした結果を返す (a & ~b)。
+ *
+ * @param a 元のカテゴリ mask。
+ * @param b 落とす bit を持つカテゴリ。
+ * @return a から b の bit を除いたカテゴリ。
+ */
 static constexpr EConsentCategory AndNot(EConsentCategory a, EConsentCategory b) noexcept {
     return static_cast<EConsentCategory>(static_cast<u32>(a) & ~static_cast<u32>(b));
 }
 
-// ----- 初期化 ---------------------------------------------------------------
-
+/** 現在のポリシー版を記録し director を初期化済みにする。 */
 void FPrivacyDirector::Init(u32 current_policy_version) noexcept {
     m_CurrentPolicyVersion = current_policy_version;
     m_Initialized            = true;
@@ -52,32 +60,33 @@ void FPrivacyDirector::Init(u32 current_policy_version) noexcept {
     // 未 Load なら「初回 = 何も同意していない = Required のみ」の状態のまま。
 }
 
-// ----- 同意操作 -------------------------------------------------------------
-
+/** 指定カテゴリの同意 bit を立てる (OR)。 */
 void FPrivacyDirector::GrantConsent(EConsentCategory cat) noexcept {
     // OR で bit を立てる。複合 (Analytics | Marketing) もそのまま受理。
     // Required(=0) を渡されても OR で変化なしなので分岐不要。
     _status.granted_mask = _status.granted_mask | cat;
 }
 
+/** 指定カテゴリの同意 bit を落とす (& ~cat)。 */
 void FPrivacyDirector::RevokeConsent(EConsentCategory cat) noexcept {
     // & ~cat で bit を落とす。Required(=0) は ~0 = 全 bit になるため
     // 「Required を revoke」要求は実質 no-op。明示判定はせず数学に任せる。
     _status.granted_mask = AndNot(_status.granted_mask, cat);
 }
 
+/** Required を除く全カテゴリを ON にする ("Accept All" 相当)。 */
 void FPrivacyDirector::GrantAll() noexcept {
     // Required を除く全カテゴリを ON。"Accept All" ボタン相当。
     _status.granted_mask = kAllCategories;
 }
 
+/** 全カテゴリを OFF (Required のみ) にする ("Reject All" 相当)。 */
 void FPrivacyDirector::RevokeAll() noexcept {
     // 全カテゴリ OFF (= Required のみ)。"Reject All" ボタン相当。
     _status.granted_mask = EConsentCategory::Required;
 }
 
-// ----- 問い合わせ -----------------------------------------------------------
-
+/** 指定カテゴリの全 bit が同意済みかを返す (Required は常に true)。 */
 bool FPrivacyDirector::HasConsent(EConsentCategory cat) const noexcept {
     // Required (=0) は仕様により常に true (法的同意不要のカテゴリ)。
     // GDPR/CCPA でも「サービス提供に必要不可欠な処理」は同意なしで許される
@@ -91,12 +100,12 @@ bool FPrivacyDirector::HasConsent(EConsentCategory cat) const noexcept {
     return (mask & want) == want;
 }
 
+/** 現在同意済みのカテゴリ mask を返す。 */
 EConsentCategory FPrivacyDirector::GrantedMask() const noexcept {
     return _status.granted_mask;
 }
 
-// ----- 初回ダイアログ判定 ---------------------------------------------------
-
+/** 初回 consent ダイアログの提示が必要かを返す (Init 前は保守的に true)。 */
 bool FPrivacyDirector::RequiresInitialConsent() const noexcept {
     // Init() 前は判定不能なので「要・表示」を返す保守側にしておく
     // (= ダイアログを必ず出してから先に進ませる)。
@@ -104,12 +113,12 @@ bool FPrivacyDirector::RequiresInitialConsent() const noexcept {
     return !m_bInitialConsentShown;
 }
 
+/** 初回ダイアログを提示済みとしてマークする。 */
 void FPrivacyDirector::MarkInitialConsentShown() noexcept {
     m_bInitialConsentShown = true;
 }
 
-// ----- ポリシー版管理 -------------------------------------------------------
-
+/** 保存済みポリシー版が現在より古いかを返す (Init 前は保守的に false)。 */
 bool FPrivacyDirector::IsPolicyOutdated() const noexcept {
     // 保存済み policy_version が「現在」より古ければ再同意が必要。
     // Init() 前は current が 0 のままなので、未初期化なら常に false (= 古くない)。
@@ -118,16 +127,17 @@ bool FPrivacyDirector::IsPolicyOutdated() const noexcept {
     return _status.policy_version < m_CurrentPolicyVersion;
 }
 
+/** 保存されていたポリシー版を返す。 */
 u32 FPrivacyDirector::StoredPolicyVersion() const noexcept {
     return _status.policy_version;
 }
 
+/** Init() に渡された現在のポリシー版を返す。 */
 u32 FPrivacyDirector::CurrentPolicyVersion() const noexcept {
     return m_CurrentPolicyVersion;
 }
 
-// ----- デバッグ -------------------------------------------------------------
-
+/** 全状態を初期化前に戻す (テスト・デバッグ用)。 */
 void FPrivacyDirector::Reset() noexcept {
     // テスト用。本番フローでは呼ばない。
     _status                 = ConsentStatus{};
@@ -136,8 +146,7 @@ void FPrivacyDirector::Reset() noexcept {
     m_bInitialConsentShown  = false;
 }
 
-// ----- 永続化 ---------------------------------------------------------------
-
+/** 現在の同意状態を .acssave バイナリでローカル保存する。 */
 TResult<void> FPrivacyDirector::SaveConsent(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_BadPath,
@@ -161,6 +170,7 @@ TResult<void> FPrivacyDirector::SaveConsent(const wchar_t* file_path) noexcept {
     return slot.Save(_status, kConsentSchemaVersion);
 }
 
+/** 保存済みの同意状態を復元する (ファイル無しは初回起動扱いで Ok)。 */
 TResult<void> FPrivacyDirector::LoadConsent(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_BadPath,
@@ -181,7 +191,7 @@ TResult<void> FPrivacyDirector::LoadConsent(const wchar_t* file_path) noexcept {
         return Ok();
     }
 
-    auto r = slot.Load(kConsentSchemaVersion);
+    const auto r = slot.Load(kConsentSchemaVersion);
     if (r.IsErr()) {
         // version 不一致 (kSubMigrationNeeded) / CRC 破損 / I/O 失敗はそのまま
         // 伝搬する。呼び出し側は「壊れた consent → 再同意」を選べるが、ここで

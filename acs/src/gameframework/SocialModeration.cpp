@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — FSocialModeration 実装 (Phase T-2 スケルトン)
+// GameFramework Pillar T — FSocialModeration 実装
 //
-// 現フェーズ: ローカルブロックリストと通報キューの管理は完全実装。実 SDK 呼び出し
+// ローカルブロックリストと通報キューの管理は完全実装。実 SDK 呼び出し
 // (Steam ISteamUser::ReportPlayer / EOS / PSN / Xbox / NSO) は seam として未接続で、
 // SubmitReport は queue に積むだけ、FlushReports は queue を空にして成功扱い。
 // これにより呼び出し側 (FGame / UI) は本 system を通常通り使い始めることができ、
@@ -12,8 +12,8 @@
 //     list 上限が 100、PSN も同程度) なので O(n) で十分。仮に 1000 件規模になっても
 //     1 フレームあたりの IsBlocked 呼び出し回数は数件 (InviteFriend 直前等) なので
 //     ハッシュ化のコストを上回らない。
-//   ・通報送信は将来 backend 接続後に「送信成功 → queue から削除」の挙動に変える。
-//     現フェーズでは SubmitReport が必ず queue に積み、FlushReports で全件成功扱い。
+//   ・通報送信は backend 接続後に「送信成功 → queue から削除」の挙動になる。
+//     現状は SubmitReport が必ず queue に積み、FlushReports で全件成功扱い。
 //   ・文字列比較は FPartySystem と同じ StrEq (<cstring> も避ける ACS 規約)。
 //   ・空 user_id (nullptr) は防御的に弾く: SDK 取得失敗時の nullptr 流入で list を
 //     壊さないため (Pillar O FEntitlement / FPartySystem.AddFriend と同じポリシー)。
@@ -23,8 +23,14 @@ namespace acs::game {
 
 namespace {
 
-// const char* の安全比較 (FPartySystem と同じ実装、ACS 規約 <cstring> 不使用)。
-// どちらかが nullptr なら false。終端ヌルまで一致比較。
+/**
+ * const char* を安全に比較する (ACS 規約 <cstring> 不使用)。
+ *
+ * @details どちらかが nullptr なら false。終端ヌルまで一致比較する。
+ * @param a 比較する文字列 A。
+ * @param b 比較する文字列 B。
+ * @return 両者が等しければ true。
+ */
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -37,11 +43,13 @@ bool StrEq(const char* a, const char* b) noexcept {
 
 } // namespace
 
+/** 永続化 block list のロード / SDK 接続を行う seam (現状は no-op)。 */
 void FSocialModeration::Init() noexcept {
-    // Phase T-3 で永続化された block list のロード / FSteamworksBridge への
-    // 接続を行う seam。現スケルトンでは no-op (TArray はデフォルト初期化済み)。
+    // 永続化された block list のロード / FSteamworksBridge への接続を行う seam。
+    // 現状では no-op (TArray はデフォルト初期化済み)。
 }
 
+/** block list を線形走査し user_id が含まれるかを返す (nullptr は false)。 */
 bool FSocialModeration::FindBlocked(const char* user_id) const noexcept {
     if (user_id == nullptr) return false;
     const usize n = m_Blocked.Size();
@@ -51,6 +59,7 @@ bool FSocialModeration::FindBlocked(const char* user_id) const noexcept {
     return false;
 }
 
+/** user_id をブロック登録する (nullptr / 既登録は no-op)。 */
 void FSocialModeration::BlockUser(const char* user_id) noexcept {
     if (user_id == nullptr) {
         // SDK 取得失敗時の nullptr 流入で list を壊さない (FPartySystem.AddFriend と同じ)。
@@ -69,10 +78,11 @@ void FSocialModeration::BlockUser(const char* user_id) noexcept {
     // フィールドを残すことで将来の API 拡張余地は確保。
     e.timestamp = 0;
     m_Blocked.PushBack(e);
-    // TODO(Phase T-3): FSteamworksBridge.SetCommunicationRestriction(user_id, true)。
-    //   PSN / Xbox では SDK 側にも同期反映が必要 (通信遮断のため)。
+    // SDK 同期 (FSteamworksBridge.SetCommunicationRestriction(user_id, true)) は
+    // backend 接続後に行う seam。PSN / Xbox では SDK 側にも通信遮断の反映が必要。
 }
 
+/** user_id のブロックを解除する (nullptr / 未登録は no-op、順序非保持)。 */
 void FSocialModeration::UnblockUser(const char* user_id) noexcept {
     if (user_id == nullptr) return;
     const usize n = m_Blocked.Size();
@@ -81,7 +91,8 @@ void FSocialModeration::UnblockUser(const char* user_id) noexcept {
             // 順序は保持しない (RemoveAtSwap)。block list は集合的に扱われるため
             // UI 表示でも順序依存しない設計。
             m_Blocked.RemoveAtSwap(i);
-            // TODO(Phase T-3): FSteamworksBridge.SetCommunicationRestriction(user_id, false)。
+            // SDK 同期 (FSteamworksBridge.SetCommunicationRestriction(user_id, false))
+            // は backend 接続後に行う seam。
             return;
         }
     }
@@ -89,36 +100,41 @@ void FSocialModeration::UnblockUser(const char* user_id) noexcept {
     // 実は登録されていなかった」ケースで例外を出さない)。
 }
 
+/** user_id がブロック済みかを返す (nullptr は false)。 */
 bool FSocialModeration::IsBlocked(const char* user_id) const noexcept {
     return FindBlocked(user_id);
 }
 
+/** ブロック済みユーザー数を返す。 */
 u32 FSocialModeration::BlockedCount() const noexcept {
     return static_cast<u32>(m_Blocked.Size());
 }
 
+/** ブロックエントリ配列の先頭を返し、件数を out_count に書き戻す。 */
 const FBlockEntry* FSocialModeration::AllBlocked(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Blocked.Size());
     return m_Blocked.Data();
 }
 
+/** 通報を backend へ同期送信する seam (現状は常に未受理 = false を返す)。 */
 bool FSocialModeration::TrySubmitToBackend(const ReportRecord& rep) noexcept {
-    (void)rep;  // 現フェーズでは未使用 (seam の引数だけ確定させておく)。
-    // ===== seam: 実ネットワーク送信本体 (Phase T-3 で実装) =====
+    (void)rep;  // 現状では未使用 (seam の引数だけ確定させておく)。
+    // seam: 実ネットワーク送信本体。
     // backend 未接続なら受理しない → 呼び出し側 (SubmitReport / FlushReports) が
     // queue に残し、「送信したつもりで消える」事故を防ぐ。
-    // Phase T-3 でここに FSteamworksBridge.ReportPlayer(rep) 等を実装し、SDK が
+    // ここに FSteamworksBridge.ReportPlayer(rep) 等を実装し、SDK が
     // 受理 (HTTP 2xx / SDK success) を返したら true を返すように差し替える。
     if (!m_BackendConnected) {
         return false;
     }
-    // backend 接続済みでも、実送信ロジック未実装の現フェーズでは受理しない。
+    // backend 接続済みでも、実送信ロジック未実装の現状では受理しない。
     // (SetBackendConnected(true) を seam テストで呼んでも、まだ送信本体が無いため
     //  false を返す。これにより「接続フラグだけ立てて中身は空」という嘘の成功を
-    //  作らない — Phase T-3 で送信実装と同時に true 返却へ差し替える。)
+    //  作らない — 送信実装と同時に true 返却へ差し替える。)
     return false;
 }
 
+/** 通報を受け付ける (同期送信を試み、未受理なら pending queue に保持)。 */
 TResult<void> FSocialModeration::SubmitReport(const ReportRecord& rep) noexcept {
     if (rep.reported_user_id == nullptr) {
         // 通報対象が空なら審査側で識別不能 (必須項目)。Generic + subcode 1。
@@ -128,7 +144,7 @@ TResult<void> FSocialModeration::SubmitReport(const ReportRecord& rep) noexcept 
     // ケースをサポート (プラットフォームによっては reporter 非公開で送信可能)。
 
     // まず seam 経由で同期送信を試みる。受理されれば queue に積まず累計のみ加算。
-    // 未受理 (現フェーズは常にこちら) なら pending queue に保持し、後で
+    // 未受理 (現状は常にこちら) なら pending queue に保持し、後で
     // FlushReports() による再送に委ねる (オフライン耐性)。どちらの経路でも
     // 「通報を受け付けた」ことは保証されるため呼び出し側には Ok() を返す。
     if (TrySubmitToBackend(rep)) {
@@ -139,24 +155,29 @@ TResult<void> FSocialModeration::SubmitReport(const ReportRecord& rep) noexcept 
     return Ok();
 }
 
+/** 未送信の保留通報数を返す。 */
 u32 FSocialModeration::PendingReportCount() const noexcept {
     return static_cast<u32>(m_PendingReports.Size());
 }
 
+/** これまでに送信受理された通報の累計数を返す。 */
 u32 FSocialModeration::DeliveredReportCount() const noexcept {
     return m_Delivered;
 }
 
+/** backend 接続状態を切り替える seam (自動フラッシュはしない)。 */
 void FSocialModeration::SetBackendConnected(bool connected) noexcept {
     // Pillar S 側が SDK 接続完了 / 切断時に呼ぶ seam。接続状態を切り替えるだけで
     // 自動フラッシュはしない (フラッシュ契機は呼び出し側が FlushReports で制御)。
     m_BackendConnected = connected;
 }
 
+/** backend が接続済みかを返す。 */
 bool FSocialModeration::IsBackendConnected() const noexcept {
     return m_BackendConnected;
 }
 
+/** 保留通報を順に再送し、残件があれば集約エラーを返す (順序保持の安定圧縮)。 */
 TResult<void> FSocialModeration::FlushReports() noexcept {
     // 未送信通報を queue 先頭から順に seam へ流す local state machine。
     // 受理された分だけ前方に詰め直さず「残す側」を後ろから前へ走査して
@@ -192,6 +213,7 @@ TResult<void> FSocialModeration::FlushReports() noexcept {
     return Ok();
 }
 
+/** ローカル state (block list / pending queue) を消去する (累計値・接続状態は保持)。 */
 void FSocialModeration::ClearLocalState() noexcept {
     // テスト / アカウント切り替え / セーブデータ削除時に呼ぶ。SDK 同期は
     // 行わない (ローカル state のみ消去するため、SDK 側のブロック設定は

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FTutorialFlow (Phase 2)
+// GameFramework Pillar R — FTutorialFlow
 //
 // 役割:
 //   連続する「チュートリアルステップ」を順序付きで表示・完了判定し、ユーザー操作
@@ -44,87 +44,163 @@
 
 namespace acs::game {
 
-// チュートリアルステップ 1 件分。全フィールド非所有 const char* (寿命は呼び出し側保証)。
-//   id                   - NotifyAction で参照される識別子 (一意である必要は無いが、
-//                          重複すると最初のマッチが採用される)。
-//   message              - 表示用テキスト (UI 側が描画)。
-//   highlight_target     - UI ハイライト対象 (例: "player" / "inventory_button")。
-//                          nullptr 可。本クラスは保持するだけで解釈はしない。
-//   require_user_action  - true の場合、NotifyAction で id と一致する action_id が
-//                          来るか、AdvanceStep が明示的に呼ばれるまで自動進行
-//                          しない。false の場合は AdvanceStep 呼び出しのみで進む
-//                          (timer 等は Tick で扱わない、Phase 2 は明示前進のみ)。
+/**
+ * チュートリアルステップ 1 件分。
+ *
+ * @details 全フィールドは非所有の const char* で、寿命は呼び出し側が保証する。
+ */
 struct FTutorialStep {
+    /** NotifyAction で参照される識別子 (一意でなくてよいが、重複時は最初のマッチが採用される)。 */
     const char* id                  = nullptr;
+
+    /** 表示用テキスト (UI 側が描画)。 */
     const char* message             = nullptr;
+
+    /** UI ハイライト対象 (例: "player" / "inventory_button")。nullptr 可。本クラスは保持するだけで解釈はしない。 */
     const char* highlight_target    = nullptr;
+
+    /**
+     * ユーザー操作の達成を待つかのフラグ。
+     *
+     * @details
+     * true の場合、NotifyAction で id と一致する action_id が来るか AdvanceStep が明示的に
+     * 呼ばれるまで自動進行しない。false の場合は AdvanceStep 呼び出しのみで進む
+     * (timer 等は Tick で扱わない、明示前進のみ)。
+     */
     bool        require_user_action = false;
 };
 
+/**
+ * 順序付きチュートリアルステップを表示・前進させる軽量 state machine。
+ *
+ * @details
+ * 描画は行わず、現在ステップへの const ポインタを公開するだけ。表示は呼び出し側
+ * (UI レイヤ / Scene) が CurrentStep() を見て自前で描く。時間ベースで自動進行する
+ * FSequence と異なり「ユーザーが action を達成したら進む」能動的進行で、
+ * require_user_action=true の間は dt をいくら積んでも自動 advance しない。
+ * 全フィールドは非所有 const char* (寿命は呼び出し側保証)。非コピー・非ムーブ。
+ * Skip は不可逆で冪等。
+ */
 class FTutorialFlow {
 public:
+    /** 空のチュートリアルフローを構築する (ステップ未登録)。 */
     FTutorialFlow()  noexcept = default;
+
+    /** 破棄する。 */
     ~FTutorialFlow() noexcept = default;
 
-    // 通常は Scene につき 1 個の長寿命オブジェクト。state 分裂を避けるため
-    // 非コピー・非ムーブ。
+    /** コピー禁止 (state 分裂を避けるため。通常は Scene につき 1 個の長寿命オブジェクト)。 */
     FTutorialFlow(const FTutorialFlow&)            = delete;
+
+    /** コピー代入も禁止。 */
     FTutorialFlow& operator=(const FTutorialFlow&) = delete;
+
+    /** ムーブ禁止 (state 分裂を避けるため)。 */
     FTutorialFlow(FTutorialFlow&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FTutorialFlow& operator=(FTutorialFlow&&)      = delete;
 
-    // ----- ステップ定義 -----
-    // ステップを末尾に追加。Start 前のみ呼ぶ想定だが、走行中に追加されても
-    // 末尾に積まれるだけで現在進行には影響しない (Pillar R 簡易方針)。
+    /**
+     * ステップを末尾に追加する。
+     *
+     * @details
+     * Start 前のみ呼ぶ想定だが、走行中に追加されても末尾に積まれるだけで現在進行には影響しない。
+     * @param step 追加するチュートリアルステップ。
+     */
     void AddStep(const FTutorialStep& step) noexcept;
 
-    // ----- 制御 -----
-    // ステップ 0 から表示開始。ステップが 1 件も無い場合は m_Completed=true に
-    // 遷移して即終了 (空チュートリアルの no-op)。複数回呼ばれた場合は Reset
-    // 相当の再初期化を行う。
+    /**
+     * ステップ 0 から表示を開始する。
+     *
+     * @details
+     * ステップが 1 件も無い場合は m_Completed=true に遷移して即終了する (空チュートリアルの no-op)。
+     * 複数回呼ばれた場合は Reset 相当の再初期化を行う。
+     */
     void Start() noexcept;
 
-    // 次のステップへ手動前進。require_user_action のステップで条件達成後、
-    // または require_user_action=false のステップでガイダンス確認後に呼ぶ。
-    // 最終ステップで呼ばれた場合は m_Completed=true に遷移。inactive 状態
-    // (Start 前 / Skip 後 / 完了後) の呼び出しは no-op。
+    /**
+     * 次のステップへ手動で前進する。
+     *
+     * @details
+     * require_user_action のステップで条件達成後、または require_user_action=false のステップで
+     * ガイダンス確認後に呼ぶ。最終ステップで呼ばれた場合は m_Completed=true に遷移する。
+     * inactive 状態 (Start 前 / Skip 後 / 完了後) の呼び出しは no-op。
+     */
     void AdvanceStep() noexcept;
 
-    // ユーザーが action を実行したことを通知。現在ステップの id と
-    // 一致し require_user_action=true なら自動的に AdvanceStep を呼ぶ。
-    // action_id == nullptr / inactive 状態 / 不一致は no-op。
+    /**
+     * ユーザーが action を実行したことを通知する。
+     *
+     * @details
+     * 現在ステップの id と一致し require_user_action=true なら自動的に AdvanceStep を呼ぶ。
+     * action_id == nullptr / inactive 状態 / 不一致は no-op。
+     * @param action_id 実行された action の識別子。
+     */
     void NotifyAction(const char* action_id) noexcept;
 
-    // ステップ定義を保持したまま走行 state を初期化 (Start 前と同じ状態)。
+    /** ステップ定義を保持したまま走行 state を初期化する (Start 前と同じ状態)。 */
     void Reset() noexcept;
 
-    // チュートリアル全体を skip して完了扱いにする。冪等 (2 度目以降 no-op)。
+    /** チュートリアル全体を skip して完了扱いにする (冪等、2 度目以降 no-op)。 */
     void Skip() noexcept;
 
-    // ----- 状態 query -----
-    // Start 後・Skip / 完了前なら true。
+    /**
+     * 走行中かを返す。
+     *
+     * @return Start 後・Skip / 完了前なら true。
+     */
     bool IsActive() const noexcept { return m_Active; }
 
-    // 全ステップを通過 or Skip 済みなら true。
+    /**
+     * 完了済みかを返す。
+     *
+     * @return 全ステップを通過 or Skip 済みなら true。
+     */
     bool IsCompleted() const noexcept { return m_Completed; }
 
-    // 現在のステップ番号 (Start 前は 0)。
+    /**
+     * 現在のステップ番号を返す。
+     *
+     * @return 現在のステップインデックス (Start 前は 0)。
+     */
     u32 CurrentStepIndex() const noexcept { return m_CurrentStep; }
 
-    // 描画 / 表示用の現在ステップポインタ。Start 前・Skip 後・完了後は nullptr。
+    /**
+     * 描画 / 表示用に現在ステップへのポインタを返す。
+     *
+     * @return 現在ステップへのポインタ。Start 前・Skip 後・完了後は nullptr。
+     */
     const FTutorialStep* CurrentStep() const noexcept;
 
-    // 登録済みステップ数。
+    /**
+     * 登録済みステップ数を返す。
+     *
+     * @return 登録済みステップ数。
+     */
     u32 StepCount() const noexcept;
 
-    // 毎フレーム呼ぶ (Phase 2 では state 確認用 hook、現状内部 timer は持たない
-    // が、将来 auto-advance ステップ / hint 出現遅延等のために noexcept fn を予約)。
+    /**
+     * 毎フレーム呼ぶ state 確認用 hook。
+     *
+     * @details
+     * 現状は内部 timer を持たないが、将来の auto-advance ステップ / hint 出現遅延等のために
+     * dt を受け取る noexcept fn として予約している。
+     * @param dt 前フレームからの経過秒。
+     */
     void Tick(f32 dt) noexcept;
 
 private:
+    /** 登録済みステップ列。 */
     TArray<FTutorialStep> m_Steps;
+
+    /** 現在のステップインデックス。 */
     u32                 m_CurrentStep = 0;
+
+    /** 走行中フラグ。 */
     bool                m_Active       = false;
+
+    /** 完了済みフラグ。 */
     bool                m_Completed    = false;
 };
 

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FUiLayer 実装 (Phase H-1 スケルトン)
+// GameFramework Pillar H — FUiLayer 実装
 //
-// 現フェーズ: state holder のみ完全実装。実 `acs::ui` Widget tree 構築 / 描画 /
+// state holder を完全実装する。実 `acs::ui` Widget tree 構築 / 描画 /
 // hit-test / event 配送は seam として未接続で、Init / Tick / HandleInput の中身は
 // state 操作と TODO コメントのみ。これにより Scene 側は通常通り
-// AddButton / AddText / SetVisible / Remove を呼び始めることができ、Phase H-2 で
+// AddButton / AddText / SetVisible / Remove を呼び始めることができ、後から
 // `acs::ui` 接続を入れるだけで実 UI が表示される設計。
 //
 // 設計メモ:
@@ -14,8 +14,8 @@
 //     見つからなかったか判定する (signed/unsigned 混在を避ける慣用)。
 //   ・Tick で `just_pressed` を一括クリアする。これにより IsButtonPressed は
 //     **直前フレームに発生した押下** のみ true を返すワンショットセマンティクス
-//     となる (押しっぱなしで連続 true を返さない)。Phase H-2 で event 配送が
-//     繋がると、HandleInput で該当 widget の just_pressed を立てる流れになる。
+//     となる (押しっぱなしで連続 true を返さない)。event 配送が繋がると、
+//     HandleInput で該当 widget の just_pressed を立てる流れになる。
 //   ・全 noexcept、STL 不使用、<string> 不使用 (規約 §1, §2)。
 #include "gameframework/UiLayer.h"
 #include "gameframework/RenderContext.h"
@@ -40,8 +40,8 @@ void FUiLayer::Init() noexcept {
         ACS_LOG_DEBUG("FUiLayer::Init called twice (ignored)");
         return;
     }
-    // TODO(Phase H-2): `acs::ui::Container` を root として `MakeUnique` で確保し
-    //   メンバ保持する。現フェーズは state holder のみで root インスタンス不要。
+    // TODO: `acs::ui::Container` を root として `MakeUnique` で確保し
+    //   メンバ保持する。現状は state holder のみで root インスタンス不要。
     m_Widgets.Clear();
     m_NextHandle = 1;
     m_Initialized = true;
@@ -53,7 +53,7 @@ void FUiLayer::Shutdown() noexcept {
         // 未初期化での Shutdown は no-op (冪等)。
         return;
     }
-    // TODO(Phase H-2): root Container を破棄。現フェーズは保持していないので
+    // TODO: root Container を破棄。現状は保持していないので
     //   m_Widgets をクリアするだけで完結。
     m_Widgets.Clear();
     m_NextHandle = 1;
@@ -179,7 +179,7 @@ u32 FUiLayer::AddText(const char* text, acs::FVec2 pos) noexcept {
     e.handle       = m_NextHandle++;
     e.kind         = EWidgetKind::Text;
     e.pos          = pos;
-    e.size         = acs::FVec2{0.0f, 0.0f};  // Phase H-2 でフォントメトリックから計算
+    e.size         = acs::FVec2{0.0f, 0.0f};  // フォントメトリックから計算予定
     e.text         = text;                    // 非所有
     e.visible      = true;
     e.just_pressed = false;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FAnimationCurve 実装 (Phase 3)
+// GameFramework Pillar C — FAnimationCurve 実装
 //
 // アルゴリズム:
 //   ・AddKey:  内部 TArray を time 昇順に保つよう、二分探索で挿入位置を決める。
@@ -19,8 +19,14 @@
 
 namespace acs::game {
 
-// time 昇順を保ったまま挿入位置を返す (= 二分探索の lower_bound)
-// 同 time の key があればその index を返し、上書き処理に流す。
+/**
+ * time 昇順の key 列で time の挿入位置を二分探索で返す (lower_bound)。
+ *
+ * @details 同 time の key があればその index を返し、呼び出し側の上書き処理に流す。
+ * @param keys time 昇順に並んだ key 列。
+ * @param time 挿入位置を求める時刻 (秒)。
+ * @return time 以上の最初の key の index。
+ */
 static u32 LowerBoundByTime(const TArray<CurveKey>& keys, f32 time) noexcept {
     u32 lo = 0;
     u32 hi = static_cast<u32>(keys.Size());

@@ -8,11 +8,13 @@
 
 namespace acs {
 
+/** 永続マップを解除し GPU リソースを解放する。 */
 Dx12Buffer::~Dx12Buffer() noexcept {
     if (m_Mapped && m_Resource) m_Resource->Unmap(0, nullptr);
     ACS_SAFE_RELEASE(m_Resource);
 }
 
+/** desc に従って GPU バッファを確保し、必要なら永続マップして初期データを複製する。 */
 HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept {
     HrResult r{};
     m_Device = &device;
@@ -86,6 +88,7 @@ HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept 
     return r;
 }
 
+/** 現在フレームスロットの領域へ CPU からデータを書き込む。 */
 void Dx12Buffer::Update(const void* data, usize size, usize offset) noexcept {
     if (!m_Mapped || !data) return;
     if (offset + size > m_Size) return;
@@ -97,6 +100,7 @@ void Dx12Buffer::Update(const void* data, usize size, usize offset) noexcept {
     ::memcpy(base + offset, data, size);
 }
 
+/** フレームリングのスロットオフセットを加味した現在の GPU 仮想アドレスを返す。 */
 D3D12_GPU_VIRTUAL_ADDRESS Dx12Buffer::Gpu() const noexcept {
     if (!m_Resource) return 0;
     D3D12_GPU_VIRTUAL_ADDRESS addr = m_Resource->GetGPUVirtualAddress();
@@ -106,15 +110,24 @@ D3D12_GPU_VIRTUAL_ADDRESS Dx12Buffer::Gpu() const noexcept {
     return addr;
 }
 
-// ファクトリ
 #if !WITH_RENDER_DILIGENT
+/**
+ * DX12 用に IRhiBuffer を生成するファクトリ。
+ *
+ * @details
+ * RTTI 無効のためバックエンド名で DX12 を判定し、Dx12Buffer を構築・初期化して返す。
+ * Diligent バックエンド有効時は別実装が提供される。
+ * @param device 生成元のデバイス (DX12 でなければエラー)。
+ * @param desc 構築するバッファの記述。
+ * @return 生成したバッファを保持する TResult、判定・初期化失敗ならエラー。
+ */
 TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const FBufferDesc& desc) noexcept {
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 30, "CreateRhiBuffer: device is not DX12");
     Dx12Device* dxd = static_cast<Dx12Device*>(&device);
     auto b = MakeUnique<Dx12Buffer>();
-    HrResult r = b->Init(*dxd, desc);
+    const HrResult r = b->Init(*dxd, desc);
     if (r.IsErr())
         return ACS_ERR_OS(Render, 31, "Dx12Buffer::Init failed", static_cast<u32>(r.hr));
     TUniquePtr<IRhiBuffer> base(b.Release(), b.GetAllocator());

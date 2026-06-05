@@ -36,76 +36,196 @@
 
 namespace acs::game {
 
-// 24bit index + 8bit generation を packed した handle。
-// m_Packed == 0 を invalid と定義 (gen は常に 1 以上)。
+/**
+ * タイマーを識別する packed handle (24bit index + 8bit generation)。
+ *
+ * @details
+ * m_Packed == 0 を invalid と定義する (generation は active 化時に常に 1 以上に
+ * なる)。slot 再利用後の stale 参照は generation 不一致で検出できる。
+ */
 struct FTimerHandle {
+    /** index と generation を詰めた 32bit 値 (0 = invalid)。 */
     u32 m_Packed = 0u;
 
+    /**
+     * handle が有効値かを返す。
+     *
+     * @return m_Packed が非 0 なら true。
+     */
     bool IsValid() const noexcept { return m_Packed != 0u; }
 
-    // pack/unpack ヘルパ (manager 内部用、誤用防止に static で明示)。
+    /** index 部に割り当てるビット数。 */
     static constexpr u32 kIndexBits = 24u;
+
+    /** index 部を取り出すマスク (0x00FFFFFF)。 */
     static constexpr u32 kIndexMask = (1u << kIndexBits) - 1u; // 0x00FFFFFF
+
+    /** index として表現できる最大値 (= 16777215 スロット)。 */
     static constexpr u32 kMaxIndex  = kIndexMask;              // 16777215 個
 
+    /**
+     * index と generation から handle を組み立てる。
+     *
+     * @param index スロット index (下位 24bit に格納、上位は切り捨て)。
+     * @param gen generation (上位 8bit に格納)。
+     * @return 詰めた FTimerHandle。
+     */
     static FTimerHandle Pack(u32 index, u8 gen) noexcept {
         FTimerHandle h;
         h.m_Packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return h;
     }
+
+    /**
+     * handle から index 部を取り出す。
+     *
+     * @return スロット index (下位 24bit)。
+     */
     u32 Index() const noexcept { return m_Packed & kIndexMask; }
+
+    /**
+     * handle から generation 部を取り出す。
+     *
+     * @return generation (上位 8bit)。
+     */
     u8  Gen()   const noexcept { return static_cast<u8>(m_Packed >> kIndexBits); }
 };
 
+/** タイマー発火時に呼ぶ C 関数ポインタ型 (user pointer を 1 つ受け取る)。 */
 using TimerCallback = void(*)(void* user) noexcept;
 
+/**
+ * シーンスコープの SetTimeout / SetInterval を提供する遅延コールバック管理。
+ *
+ * @details
+ * 各 Scene がメンバとして保持し OnUpdate から Tick(dt) を呼ぶ想定で、Scene 死亡で
+ * 自動破棄される (グローバル寿命の FTimerManager との違い)。コールバックは
+ * void(*)(void*) noexcept 関数ポインタで保持し、handle は 24bit index + 8bit gen
+ * の packed u32 で stale 参照を検出可能。発火中の self 参照との競合を避けるため
+ * 非コピー・非ムーブ。
+ */
 class FSceneTimer {
 public:
+    /** 空のタイマー管理を構築する。 */
     FSceneTimer() noexcept = default;
+
+    /** 破棄する (active timer は呼ばずに捨てる)。 */
     ~FSceneTimer() noexcept = default;
 
-    // 非コピー・非ムーブ (発火中の self 参照との競合を防ぐ)
+    /** コピー禁止 (発火中の self 参照との競合を防ぐため)。 */
     FSceneTimer(const FSceneTimer&)            = delete;
+
+    /** コピー代入も禁止。 */
     FSceneTimer& operator=(const FSceneTimer&) = delete;
+
+    /** ムーブ禁止。 */
     FSceneTimer(FSceneTimer&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FSceneTimer& operator=(FSceneTimer&&)      = delete;
 
-    // delay_sec 後に cb(user) を 1 回だけ実行。
-    // delay_sec <= 0 or cb == nullptr は invalid handle を返す (即時実行はしない)。
+    /**
+     * delay_sec 後に cb(user) を 1 回だけ実行するタイマーを登録する。
+     *
+     * @param delay_sec 発火までの遅延秒。0 以下は invalid handle を返す (即時実行しない)。
+     * @param cb 発火時に呼ぶコールバック。nullptr なら invalid handle を返す。
+     * @param user cb に渡すコンテキスト (この管理は所有しない)。
+     * @return 登録したタイマーの handle (不正引数なら invalid)。
+     */
     FTimerHandle SetTimeout(f32 delay_sec, TimerCallback cb, void* user) noexcept;
 
-    // period_sec ごとに cb(user) を繰り返し実行 (Cancel まで永続)。
-    // period_sec <= 0 or cb == nullptr は invalid handle を返す。
+    /**
+     * period_sec ごとに cb(user) を繰り返し実行するタイマーを登録する。
+     *
+     * @details Cancel するまで永続する。
+     * @param period_sec 発火周期の秒。0 以下は invalid handle を返す。
+     * @param cb 発火時に呼ぶコールバック。nullptr なら invalid handle を返す。
+     * @param user cb に渡すコンテキスト (この管理は所有しない)。
+     * @return 登録したタイマーの handle (不正引数なら invalid)。
+     */
     FTimerHandle SetInterval(f32 period_sec, TimerCallback cb, void* user) noexcept;
 
-    // h が active なら停止して true を返す。stale or 既に完了は false。
+    /**
+     * 指定 handle のタイマーを停止する。
+     *
+     * @param h 停止するタイマーの handle。
+     * @return active を停止できたら true。stale または既に完了済みなら false。
+     */
     bool Cancel(FTimerHandle h) noexcept;
 
-    // 全 active timer を停止 (callback は呼ばない)。
+    /** 全 active timer を停止する (コールバックは呼ばない)。 */
     void CancelAll() noexcept;
 
+    /**
+     * 指定 handle のタイマーが現在 active かを返す。
+     *
+     * @param h 調べるタイマーの handle。
+     * @return active なら true (stale / 完了済みなら false)。
+     */
     bool IsActive(FTimerHandle h) const noexcept;
+
+    /**
+     * 現在 active なタイマーの数を返す。
+     *
+     * @return active timer 数。
+     */
     u32  ActiveCount() const noexcept { return m_ActiveCount; }
 
-    // 毎フレーム呼ぶ。dt < 0 は無視 (= 0 は何もしない)。
-    // 大 dt のとき Interval は同 Tick 内で複数回発火し得る (carry 方式)。
+    /**
+     * 毎フレーム呼んで経過時間を進め、満了したタイマーを発火する。
+     *
+     * @details
+     * dt < 0 は無視 (0 も何もしない)。大 dt のとき Interval は elapsed - period を
+     * carry して同 Tick 内で複数回発火し得る。
+     * @param dt 前フレームからの経過秒。
+     */
     void Tick(f32 dt) noexcept;
 
 private:
+    /** 1 タイマーぶんの内部状態。 */
     struct TimerEntry {
+        /** 発火時に呼ぶコールバック。 */
         TimerCallback cb        = nullptr;
+
+        /** cb に渡すコンテキスト。 */
         void*         user      = nullptr;
+
+        /** 前回発火 (または登録) からの経過秒。 */
         f32           elapsed   = 0.0f;
+
+        /** 発火までの遅延 / 発火周期の秒。 */
         f32           period    = 0.0f;
+
+        /** Interval なら true、Timeout (一度きり) なら false。 */
         bool          repeating = false;
+
+        /** スロットが使用中なら true。 */
         bool          active    = false;
-        u8            gen       = 0u; // 0 = 未使用。Acquire で必ず 1 以上にする
+
+        /** スロットの generation (0 = 未使用、Acquire で必ず 1 以上にする)。 */
+        u8            gen       = 0u;
     };
 
+    /**
+     * 空きスロットを確保 (なければ末尾に追加) して index を返す。
+     *
+     * @return 確保したスロットの index。
+     */
     u32         AcquireSlot() noexcept;
+
+    /**
+     * index と generation から handle を組み立てる。
+     *
+     * @param index スロット index。
+     * @param gen スロットの generation。
+     * @return 対応する FTimerHandle。
+     */
     FTimerHandle MakeHandle(u32 index, u8 gen) const noexcept;
 
+    /** タイマースロット配列 (active/inactive 混在)。 */
     TArray<TimerEntry> m_Entries;
+
+    /** 現在 active なタイマーの数。 */
     u32               m_ActiveCount = 0u;
 };
 

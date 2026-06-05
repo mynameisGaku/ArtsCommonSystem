@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// スクリーンスペース屈折シェーダ実装 (Phase 3)
+// スクリーンスペース屈折シェーダ実装
 #include "render/RefractionShader.h"
 #include "asset/MeshAsset.h"
 #include "foundation/Move.h"
@@ -156,13 +156,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
 struct FrameCBLayout {
     FMat4 view_proj;
     FVec4 camera_pos;
-    FVec4 back_params;     // Phase 35-3f: x=enabled, y=near, z=far, w=pad
-    FVec4 screen_params;   // Phase 35-3f: x=1/w, y=1/h, zw=pad
+    FVec4 back_params;     // x=enabled, y=near, z=far, w=pad
+    FVec4 screen_params;   // x=1/w, y=1/h, zw=pad
 };
 
 struct ObjectCBLayout {
     FMat4 model;
-    FVec4 material;       // x=ior, y=thickness, z=roughness (35-3d), w=dispersion (35-3e)
+    FVec4 material;       // x=ior, y=thickness, z=roughness, w=dispersion
     FVec4 tint;           // xyz=glass tint
 };
 
@@ -224,7 +224,7 @@ TResult<void> FRefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     pd.cull_mode     = ECullMode::Back;
     pd.blend_mode    = EBlendMode::Opaque;   // SS 屈折は背景を曲げて不透明描画する
     pd.cbuffer_slots = 2;     // b0=Frame, b1=Object
-    pd.texture_slots = 3;     // t0=background, t1=env, t2=back_depth (Phase 35-3f)
+    pd.texture_slots = 3;     // t0=background, t1=env, t2=back_depth
     pd.cbuffer_names[0] = "Frame";
     pd.cbuffer_names[1] = "Object";
     pd.texture_names[0] = "background";
@@ -250,7 +250,7 @@ TResult<void> FRefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());
     m_Pipeline = Move(pl_r.Value());
 
-    // Phase 35-3f back_depth fallback: 1x1 R32G32_Float texture。.r = 1.0 を
+    // back_depth fallback: 1x1 R32G32_Float texture。.r = 1.0 を
     // 入れ、shader の「back_d >= 0.9999 → スカラー fallback」分岐に必ず hit
     // させる (R32_Float が EFormat 未定義のため 2ch を採用、.g は捨てられる)。
     {
@@ -338,7 +338,7 @@ void FRefractionShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh,
     cmd.SetConstantBuffer(1, *m_ObjectCb);
     cmd.SetTexture(0, background);
     cmd.SetTexture(1, env);
-    // Phase 35-3f: back_depth slot は SetBackDepth で渡されたテクスチャ、
+    // back_depth slot は SetBackDepth で渡されたテクスチャ、
     // 未設定なら 1x1 = 1.0 fallback (shader 側で「back_d>=0.9999 → scalar」)
     cmd.SetTexture(2, m_BackDepth ? *m_BackDepth : *m_BackDepthFb);
     cmd.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);

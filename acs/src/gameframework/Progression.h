@@ -38,7 +38,7 @@
 //   u32 cur = p.AchievedCount();
 //   u32 tot = p.MilestoneCount();
 //
-// 設計選択 (v7 Phase 1):
+// 設計選択:
 //   ・**累計 XP は u32**:
 //     - 64bit にする必要があるほど一回のセッションで XP を稼ぐタイトルは稀。
 //       u32 max = 約 42 億で実用上の上限を遥かに超える。オーバーフロー時は
@@ -68,19 +68,15 @@
 //     - FTriggerWorld2D / FSceneTimer と同じ pattern。`std::function` は STL 禁止
 //       方針で使えないので、`void(*)(void*,...)` で固定。1 種類のみ (達成時)
 //       なので命名は `MilestoneCallback`。
-//   ・**Save / Load は Phase 1 では TODO スタブ**:
-//     - FSaveSlot / FSettings と同じく、形だけ TResult<void> を返す。実 I/O は
-//       Phase 2 で FileSystem / FSaveSlot 経由で実装する。
 //   ・**全 noexcept、非コピー・非ムーブ**:
 //     - 他 Manager 系と統一。誤って値渡しされて進捗が分裂すると検知し辛い。
 //   ・**STL 不使用、`<string>` 禁止**:
 //     - ACS 全体方針。文字列は const char* 非所有のみ。
 //
-// 範囲外 (Phase 2+ で):
+// 範囲外:
 //   ・XP 倍率・経験値テーブル差し替え (今はハードコード log2 ベース)
 //   ・SDK 統合 (Steamworks 等は FAchievementManager 側で扱う)
-//   ・永続化の実装 (Phase 2 で FSaveSlot 経由に接続)
-//   ・seasonal reset / prestige system (Phase 3+ で別 API として追加検討)
+//   ・seasonal reset / prestige system (別 API として追加検討)
 #pragma once
 
 #include "foundation/Types.h"
@@ -89,113 +85,212 @@
 
 namespace acs::game {
 
-// ---- MilestoneDef: 起動時に 1 回登録される immutable な定義 ----------------
-// id           : 検索 / 永続化のキー。文字列リテラル想定 (非所有)。
-// display_name : UI 表示用 (リスト・トースト等)。非所有。
-// required_xp  : 累計 XP がこの値以上になった瞬間に達成扱い。
-//                AwardXp 時に内部で線形走査して判定する。
-// unlock_content_id:
-//                達成時に「何がアンロックされるか」を表す ID。FProgression 自身は
-//                解放処理を行わず、FCallback でゲーム側に通知するだけ。nullptr は
-//                許容 (= 純粋に演出だけのマイルストーン)。
+/**
+ * 起動時に 1 回登録される immutable なマイルストーン定義。
+ *
+ * @details required_xp 以上に累計 XP が達した瞬間に達成扱いになる。文字列は非所有
+ * (呼出側が static lifetime を保証する文字列リテラル想定)。
+ */
 struct MilestoneDef {
+    /** 検索 / 永続化のキー (文字列リテラル想定、非所有)。 */
     const char* id                = nullptr;
+
+    /** UI 表示用の名前 (リスト・トースト等、非所有)。 */
     const char* display_name      = nullptr;
+
+    /** 達成に必要な累計 XP (これ以上で達成扱い)。 */
     u32         required_xp       = 0;
+
+    /** 達成時に解放されるコンテンツの ID (nullptr 許容、演出のみ)。 */
     const char* unlock_content_id = nullptr;
 };
 
-// ---- MilestoneState: 実行時に変化する 1 マイルストーンの状態 ----------------
-// MilestoneDef と同 index 位置で 1:1 対応する。id は Def 側のものを参照
-// コピー (= 同じリテラルを指す) して、検索 / 表示で扱いやすくする。
-// achieved_timestamp は Clock::MillisSinceStartup() の値 (起動からの ms)。
-// 0 は「未達成」 or 「達成時に Clock 未取得」を表す。
+/**
+ * 実行時に変化する 1 マイルストーンの状態。
+ *
+ * @details MilestoneDef と同 index 位置で 1:1 対応する。
+ */
 struct MilestoneState {
+    /** 対応する MilestoneDef の id を参照コピーした値 (検索 / 表示用)。 */
     const char* id                 = nullptr;
+
+    /** 達成済みフラグ。 */
     bool        achieved           = false;
-    u64         achieved_timestamp = 0;  // Clock::MillisSinceStartup() at achievement
+
+    /** 達成時の Clock::MillisSinceStartup() (起動からの ms、0 は未達成/未取得)。 */
+    u64         achieved_timestamp = 0;
 };
 
-// ---- MilestoneCallback ----------------------------------------------------
-// `void(*)(void* user, const char* milestone_id) noexcept`
-// 達成した瞬間に 1 回だけ呼ばれる。user は SetOnAchievedCallback で渡した値。
-// milestone_id は登録時の id (リテラル) がそのまま渡る。
+/**
+ * マイルストーン達成時に 1 回呼ばれる callback 型。
+ *
+ * @details user は SetOnAchievedCallback で渡した値、milestone_id は登録時の id
+ * (リテラル) がそのまま渡る。
+ */
 using MilestoneCallback = void(*)(void* user, const char* milestone_id) noexcept;
 
-// ---- FProgression ---------------------------------------------------------
+/**
+ * 累計 XP / レベル / マイルストーン / アンロックを束ねる進行システム。
+ *
+ * @details
+ * AwardXp で累計 XP を加算するとレベルが floor(log2(xp+1)) で上がり、所定の閾値を
+ * 越えると milestone が達成され、登録済み callback でゲーム側へ通知する。FProgression
+ * 自身はコンテンツ解放の実体を持たず、プラットフォーム SDK にも依存しない。MilestoneDef
+ * (immutable 定義) と MilestoneState (実行時状態) を同 index で 1:1 に持つ。全 noexcept、
+ * 非コピー・非ムーブ、STL 不使用 (文字列は const char* 非所有)。
+ */
 class FProgression {
 public:
+    /** 空状態で構築する (XP=0、milestone なし)。 */
     FProgression()  noexcept = default;
+
+    /** 破棄する (非所有文字列のみ保持するため何もしない)。 */
     ~FProgression() noexcept = default;
 
+    /** コピー禁止 (進捗が分裂するのを防ぐため)。 */
     FProgression(const FProgression&)            = delete;
+
+    /** コピー代入も禁止。 */
     FProgression& operator=(const FProgression&) = delete;
+
+    /** ムーブ禁止 (進捗が分裂するのを防ぐため)。 */
     FProgression(FProgression&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FProgression& operator=(FProgression&&)      = delete;
 
-    // ---- 定義登録 (起動時に 1 度ずつ) -----------------------------------
-    // 同 id の 2 重登録は no-op、`def.id == nullptr` も no-op (defensive)。
+    /**
+     * マイルストーン定義を登録する (起動時に 1 度ずつ)。
+     *
+     * @details 同 id の 2 重登録は no-op、def.id == nullptr も no-op (defensive)。
+     * @param def 登録する immutable なマイルストーン定義。
+     */
     void RegisterMilestone(const MilestoneDef& def) noexcept;
 
-    // ---- XP 操作 --------------------------------------------------------
-    // 累計 XP に amount を加算し、各 milestone の達成判定を行う。
-    // 加算結果が u32 を超える場合は max にクランプ (オーバーフロー防御)。
-    // amount = 0 は no-op (callback も発火しない)。
+    /**
+     * 累計 XP に amount を加算し、各 milestone の達成判定を行う。
+     *
+     * @details 加算結果が u32 を超える場合は max にクランプ。amount = 0 は no-op
+     * (callback も発火しない)。
+     * @param amount 加算する XP 量。
+     */
     void AwardXp(u32 amount) noexcept;
 
-    // ---- 照会 -----------------------------------------------------------
+    /**
+     * 現在の累計 XP を返す。
+     *
+     * @return 累計 XP。
+     */
     u32 CurrentXp()    const noexcept;
-    // floor(log2(xp + 1))。xp = 0 → 0、xp = 1 → 1、xp = 3 → 2、xp = 7 → 3、…
+
+    /**
+     * 現在のレベルを返す。
+     *
+     * @details floor(log2(xp + 1))。xp = 0 → 0、xp = 1 → 1、xp = 3 → 2、xp = 7 → 3、…
+     * @return 現在のレベル。
+     */
     u32 CurrentLevel() const noexcept;
 
-    // 指定 id が達成済みか。`id == nullptr` / 未登録 id は false。
+    /**
+     * 指定 id のマイルストーンが達成済みかを返す。
+     *
+     * @param id 照会する milestone の id。
+     * @return 達成済みなら true (id == nullptr / 未登録 id は false)。
+     */
     bool IsMilestoneAchieved(const char* id) const noexcept;
 
-    // 登録総数 / 達成数。UI の "5/20 unlocked" 表示用。
+    /**
+     * 登録済みマイルストーンの総数を返す。
+     *
+     * @return 登録総数 (UI の "5/20 unlocked" 表示用)。
+     */
     u32 MilestoneCount() const noexcept;
+
+    /**
+     * 達成済みマイルストーンの数を返す。
+     *
+     * @return 達成数。
+     */
     u32 AchievedCount()  const noexcept;
 
-    // 単一状態取得。見つからなければ nullptr。返却ポインタは次の
-    // RegisterMilestone() / ResetProgress() で無効化される可能性がある。
+    /**
+     * 指定 id のマイルストーン状態を返す。
+     *
+     * @details 返却ポインタは次の RegisterMilestone() / ResetProgress() で無効化される。
+     * @param id 照会する milestone の id。
+     * @return 状態へのポインタ (見つからなければ nullptr)。
+     */
     const MilestoneState* GetState(const char* id) const noexcept;
 
-    // 全状態の生バッファ。`out_count` に件数を書き出して返す。
-    // 返却ポインタは MilestoneCount() 件の連続バッファ、RegisterMilestone()
-    // / ResetProgress() で無効化される。
+    /**
+     * 全マイルストーン状態の連続バッファを返す。
+     *
+     * @details 返却ポインタは MilestoneCount() 件の連続バッファ、RegisterMilestone()
+     * / ResetProgress() で無効化される。
+     * @param out_count バッファの件数を書き出す先。
+     * @return 状態配列の先頭ポインタ。
+     */
     const MilestoneState* AllStates(u32& out_count) const noexcept;
 
-    // ---- リセット (debug / NewGame+ 系) ---------------------------------
-    // 累計 XP = 0、全 milestone を未達成に戻す。定義 (MilestoneDef 配列) は保持。
-    // 出荷ビルドでは UI から呼ばないこと (デバッグメニュー / NewGame+ 想定)。
+    /**
+     * 累計 XP を 0 に、全 milestone を未達成に戻す (定義は保持)。
+     *
+     * @details 出荷ビルドでは UI から呼ばないこと (デバッグメニュー / NewGame+ 想定)。
+     */
     void ResetProgress() noexcept;
 
-    // ---- FCallback -------------------------------------------------------
-    // 達成時 callback を登録 / 差し替え / 解除 (cb = nullptr で解除)。
-    // 設定された callback は AwardXp 内で「未達成 → 達成」遷移を起こした
-    // milestone ごとに 1 回呼ばれる。
+    /**
+     * 達成時 callback を登録 / 差し替え / 解除する。
+     *
+     * @details 設定された callback は AwardXp 内で「未達成 → 達成」遷移を起こした
+     * milestone ごとに 1 回呼ばれる。
+     * @param cb 登録する callback (nullptr で解除)。
+     * @param user callback に渡す user data。
+     */
     void SetOnAchievedCallback(MilestoneCallback cb, void* user) noexcept;
 
-    // ---- 永続化 (FSaveArchive で実装済み、round-trip 検証済み) -----------
-    // Save: 累計 XP + 達成済み milestone を FSaveArchive バイナリ (CRC32 付き) で
-    //   file_path に書く。milestone は id の FNV-1a hash をキーにするので登録順に非依存。
-    // Load: 同じ MilestoneDef 群を RegisterMilestone した後に呼ぶと、XP と各 milestone の
-    //   達成状態を復元する (hash 一致でマッチング、未登録 hash は無視)。
+    /**
+     * 累計 XP と達成済み milestone を保存する。
+     *
+     * @details FSaveArchive バイナリ (CRC32 付き) で書き出す。milestone は id の
+     * FNV-1a hash をキーにするので登録順に非依存。
+     * @param file_path 書き出し先のファイルパス。
+     * @return 成功なら空の TResult、IO 失敗ならエラー。
+     */
     TResult<void> Save(const wchar_t* file_path) noexcept;
+
+    /**
+     * 保存した進捗を復元する。
+     *
+     * @details 同じ MilestoneDef 群を RegisterMilestone した後に呼ぶと、XP と各
+     * milestone の達成状態を復元する (hash 一致でマッチング、未登録 hash は無視)。
+     * @param file_path 読み込むファイルパス。
+     * @return 成功なら空の TResult、IO / 検証失敗ならエラー。
+     */
     TResult<void> Load(const wchar_t* file_path) noexcept;
 
 private:
-    // id 文字列を m_Defs から線形検索。未検出は -1。`id == nullptr` も -1。
+    /**
+     * id 文字列を m_Defs から線形検索する。
+     *
+     * @param id 検索する milestone の id。
+     * @return 見つかった index、未検出 / id == nullptr なら -1。
+     */
     isize FindIndex(const char* id) const noexcept;
 
-    // 累計 XP。AwardXp で加算され、ResetProgress で 0 に戻る。
+    /** 累計 XP (AwardXp で加算、ResetProgress で 0)。 */
     u32 m_Xp = 0;
 
-    // Def / State は 1:1 対応 (同 index)。
+    /** マイルストーン定義 (immutable、State と 1:1 対応)。 */
     TArray<MilestoneDef>   m_Defs;
+
+    /** マイルストーン実行時状態 (Def と同 index で 1:1 対応)。 */
     TArray<MilestoneState> _states;
 
-    // 達成時 callback (関数ポインタ + user data)。両方 nullptr で「未設定」。
+    /** 達成時 callback (nullptr で未設定)。 */
     MilestoneCallback m_OnAchieved      = nullptr;
+
+    /** 達成時 callback に渡す user data。 */
     void*             m_OnAchievedUser = nullptr;
 };
 

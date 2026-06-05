@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / FEditorTheme 実装 (Phase 21a)
+// GameFramework Tools — editor_core / FEditorTheme 実装
 //
 // 仕様詳細は FEditorTheme.h を参照。本ファイルでは:
 //   ・preset 種別ごとの色テーブル定義 (Dark / DarkBlue / Light / HighContrast /
@@ -23,25 +23,37 @@
 
 namespace acs::game::editor_core {
 
-// =============================================================================
-// ローカルヘルパ
-// =============================================================================
 namespace {
 
-// ACS::FVec4 → ImVec4 の単純変換。レイアウトは互換 (どちらも float x4) だが
-// 型は別物なので明示変換で混乱を避ける。
+/**
+ * FVec4 を ImVec4 に変換する。
+ *
+ * @details レイアウトは互換 (どちらも float x4) だが型は別物なので明示変換で混乱を避ける。
+ * @param v 変換元の ACS カラー。
+ * @return 対応する ImVec4。
+ */
 ImVec4 ToImVec4(const FVec4& v) noexcept {
     return ImVec4(v.x, v.y, v.z, v.w);
 }
 
-// ImVec4 → ACS::FVec4 の逆変換 (LoadTheme で ImGui::ColorEdit が出した値を
-// 受け取る経路では使わないが、対称性のため用意)。
+/**
+ * ImVec4 を FVec4 に変換する。
+ *
+ * @details ImGui::ColorEdit が出した値を受け取る経路で使う逆変換。
+ * @param v 変換元の ImVec4。
+ * @return 対応する ACS カラー。
+ */
 FVec4 FromImVec4(const ImVec4& v) noexcept {
     return FVec4{v.x, v.y, v.z, v.w};
 }
 
-// preset 名を `.acstheme` テキスト用に const char* で返す。LoadTheme の
-// parser でも逆引きする (= ToPreset)。Custom は読み書きどちらも対応。
+/**
+ * preset を `.acstheme` テキスト用の名前文字列に変換する。
+ *
+ * @details LoadTheme の parser でも ToPreset で逆引きする。Custom も読み書きに対応。
+ * @param p 名前を得たい preset。
+ * @return preset 名 (未知値は "Dark")。
+ */
 const char* PresetName(EEditorThemePreset p) noexcept {
     switch (p) {
         case EEditorThemePreset::Dark:         return "Dark";
@@ -54,8 +66,13 @@ const char* PresetName(EEditorThemePreset p) noexcept {
     return "Dark";
 }
 
-// 名前 → preset の逆引き。strncmp で正確一致のみ受け入れる。
-// 一致しなければ Dark を返す (= 安全側 fallback)。
+/**
+ * preset 名文字列を EEditorThemePreset に逆引きする。
+ *
+ * @details strcmp で完全一致のみ受け入れ、一致しなければ Dark を返す (安全側 fallback)。
+ * @param name preset 名 (nullptr 可)。
+ * @return 一致した preset (不一致 / nullptr は Dark)。
+ */
 EEditorThemePreset ToPreset(const char* name) noexcept {
     if (name == nullptr) return EEditorThemePreset::Dark;
     // 順序は enum 値順に揃え、文字列長で枝刈り。
@@ -68,31 +85,29 @@ EEditorThemePreset ToPreset(const char* name) noexcept {
     return EEditorThemePreset::Dark;
 }
 
-// ImGui context が存在するかの簡易チェック。Init 前 / context 破棄後の
-// 多重呼び出しから守るため、各 Apply* 系の冒頭で確認する。
+/**
+ * ImGui context が存在するかを返す。
+ *
+ * @details Init 前 / context 破棄後の多重呼び出しから守るため各 Apply* 系の冒頭で確認する。
+ * @return ImGui context が生きていれば true。
+ */
 bool HasImGuiContext() noexcept {
     return ImGui::GetCurrentContext() != nullptr;
 }
 
 } // namespace
 
-// =============================================================================
-// preset 色テーブル
-// -----------------------------------------------------------------------------
-// 各 preset の RGBA `[0, 1]` 範囲の色。コメントの hex 値は人間用の参考表記
-// (実値は f32 で書く: `0x1E / 255.0 ≒ 0.118` 等)。基本色相設計:
-//
-//   Dark         : 中間グレー (#2E2E2E) ベース、accent オレンジ (#FF9F40)。
-//                  ImGui 既定 StyleColorsDark より僅かに暖色寄り。
-//   DarkBlue     : VS Code "Dark+" 風青み grey (#1F232C)、accent VSCode blue
-//                  (#007ACC)。
-//   Light        : 白基調 (#F0F0F0)、accent VSCode blue (#0078D7) を darker に
-//                  下げて視認性確保。
-//   HighContrast : 黒背景 (#000000) + 白文字 (#FFFFFF) + 黄 accent (#FFD700)。
-//                  WCAG AAA レベルのコントラスト比 (≥ 7:1) を意識。
-//   Sepia        : 茶背景 (#3A2E22) + クリーム文字 (#F4E8D8) + 焦茶 accent
-//                  (#A07050)。e-reader 風。
-// =============================================================================
+/**
+ * preset 種別ごとの既定カラーパレットを out に書き込む。
+ *
+ * @details
+ * 各 preset の RGBA [0,1] カラーを設定する (コメントの hex は人間用の参考表記)。
+ * Dark は中間グレー + 暖色オレンジ accent、DarkBlue は青み grey + VSCode blue、
+ * Light は白基調、HighContrast は黒/白/黄の WCAG AAA 想定、Sepia は茶系 e-reader 風。
+ * Custom は SetCustomColors が直接書き込むため out を変更しない。
+ * @param preset カラーを得たい preset 種別。
+ * @param out 書き込み先のカラーパレット (Custom では不変)。
+ */
 void FEditorTheme::FillPresetColors(EEditorThemePreset       preset,
                                    EditorThemeColors&       out) noexcept {
     switch (preset) {
@@ -184,9 +199,7 @@ void FEditorTheme::FillPresetColors(EEditorThemePreset       preset,
     }
 }
 
-// =============================================================================
-// Init — default = Dark を ImGui に流す
-// =============================================================================
+/** 既定 (Dark preset + 標準 metric) で初期化し ImGui に流す。 */
 void FEditorTheme::Init() noexcept {
     m_Preset         = EEditorThemePreset::Dark;
     m_FontScale     = 1.0f;
@@ -196,9 +209,7 @@ void FEditorTheme::Init() noexcept {
     ApplyToImGui();
 }
 
-// =============================================================================
-// ApplyPreset — preset 既定値を `m_Colors` に書き、ImGui に流す
-// =============================================================================
+/** preset を適用する (Custom 以外は既定色で m_Colors を上書きしてから ImGui に流す)。 */
 void FEditorTheme::ApplyPreset(EEditorThemePreset preset) noexcept {
     m_Preset = preset;
     // Custom 以外なら m_Colors を上書き。Custom は SetCustomColors 経由で
@@ -210,18 +221,14 @@ void FEditorTheme::ApplyPreset(EEditorThemePreset preset) noexcept {
     ApplyToImGui();
 }
 
-// =============================================================================
-// SetCustomColors — 任意パレットを設定 + Custom に切り替え
-// =============================================================================
+/** 任意のカラーパレットを設定して preset を Custom に切り替え ImGui に流す。 */
 void FEditorTheme::SetCustomColors(const EditorThemeColors& colors) noexcept {
     m_Colors = colors;
     m_Preset = EEditorThemePreset::Custom;
     ApplyToImGui();
 }
 
-// =============================================================================
-// SetFontScale — global font scale (高 DPI / HighContrast 視認性)
-// =============================================================================
+/** global font scale を設定する (<=0 は無視、上限 4.0 で clamp、ImGui IO に反映)。 */
 void FEditorTheme::SetFontScale(f32 scale) noexcept {
     // <= 0 は無視 (= no-op)。0 倍は ImGui を壊す。
     if (scale <= 0.0f) return;
@@ -237,9 +244,7 @@ void FEditorTheme::SetFontScale(f32 scale) noexcept {
     }
 }
 
-// =============================================================================
-// SetRoundedCorners — 全 corner radius を統一
-// =============================================================================
+/** 全 ImGui corner radius (window/frame/popup/grab/tab/scrollbar/child) を統一する。 */
 void FEditorTheme::SetRoundedCorners(f32 radius) noexcept {
     if (radius < 0.0f) radius = 0.0f;
     m_CornerRadius = radius;
@@ -255,9 +260,7 @@ void FEditorTheme::SetRoundedCorners(f32 radius) noexcept {
     }
 }
 
-// =============================================================================
-// SetSpacing — ItemSpacing.y (情報密度の主軸)
-// =============================================================================
+/** ItemSpacing.y を設定する (x は y の 0.5 倍に連動、情報密度の主軸)。 */
 void FEditorTheme::SetSpacing(f32 item_spacing_y) noexcept {
     if (item_spacing_y < 0.0f) item_spacing_y = 0.0f;
     m_ItemSpacingY = item_spacing_y;
@@ -268,16 +271,14 @@ void FEditorTheme::SetSpacing(f32 item_spacing_y) noexcept {
     }
 }
 
-// =============================================================================
-// ApplyToImGui — `m_Colors` / 各 metric を ImGui::GetStyle() / IO に流し込む
-// =============================================================================
+/** m_Colors と各 metric (corner/spacing/font) を ImGui::GetStyle() / IO に流し込む。 */
 void FEditorTheme::ApplyToImGui() noexcept {
     if (!HasImGuiContext()) return;
 
     ImGuiStyle& s    = ImGui::GetStyle();
     ImVec4*     col  = s.Colors;
 
-    // ---- 基本背景 / フレーム --------------------------------------------
+    // 基本背景 / フレーム。
     col[ImGuiCol_WindowBg]              = ToImVec4(m_Colors.window_bg);
     col[ImGuiCol_ChildBg]               = ToImVec4(m_Colors.window_bg);
     col[ImGuiCol_PopupBg]               = ToImVec4(m_Colors.window_bg);
@@ -285,34 +286,34 @@ void FEditorTheme::ApplyToImGui() noexcept {
     col[ImGuiCol_FrameBgHovered]        = ToImVec4(m_Colors.button_hover);
     col[ImGuiCol_FrameBgActive]         = ToImVec4(m_Colors.button_active);
 
-    // ---- タイトルバー ---------------------------------------------------
+    // タイトルバー。
     col[ImGuiCol_TitleBg]               = ToImVec4(m_Colors.title_bg);
     col[ImGuiCol_TitleBgActive]         = ToImVec4(m_Colors.title_bg);
     col[ImGuiCol_TitleBgCollapsed]      = ToImVec4(m_Colors.title_bg);
     col[ImGuiCol_MenuBarBg]             = ToImVec4(m_Colors.title_bg);
 
-    // ---- ボタン ---------------------------------------------------------
+    // ボタン。
     col[ImGuiCol_Button]                = ToImVec4(m_Colors.button_bg);
     col[ImGuiCol_ButtonHovered]         = ToImVec4(m_Colors.button_hover);
     col[ImGuiCol_ButtonActive]          = ToImVec4(m_Colors.button_active);
 
-    // ---- ヘッダ (CollapsingHeader / Selectable hover 等) -----------------
+    // ヘッダ (CollapsingHeader / Selectable hover 等)。
     col[ImGuiCol_Header]                = ToImVec4(m_Colors.button_bg);
     col[ImGuiCol_HeaderHovered]         = ToImVec4(m_Colors.button_hover);
     col[ImGuiCol_HeaderActive]          = ToImVec4(m_Colors.button_active);
 
-    // ---- 文字 -----------------------------------------------------------
+    // 文字。
     col[ImGuiCol_Text]                  = ToImVec4(m_Colors.text);
     col[ImGuiCol_TextDisabled]          = ToImVec4(m_Colors.text_disabled);
 
-    // ---- 枠 / 区切り ----------------------------------------------------
+    // 枠 / 区切り。
     col[ImGuiCol_Border]                = ToImVec4(m_Colors.border);
     col[ImGuiCol_BorderShadow]          = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
     col[ImGuiCol_Separator]             = ToImVec4(m_Colors.separator);
     col[ImGuiCol_SeparatorHovered]      = ToImVec4(m_Colors.accent);
     col[ImGuiCol_SeparatorActive]       = ToImVec4(m_Colors.accent);
 
-    // ---- accent (CheckMark / Slider / Tab / Resize) ----------------------
+    // accent (CheckMark / Slider / Tab / Resize)。
     col[ImGuiCol_CheckMark]             = ToImVec4(m_Colors.accent);
     col[ImGuiCol_SliderGrab]            = ToImVec4(m_Colors.accent);
     col[ImGuiCol_SliderGrabActive]      = ToImVec4(m_Colors.accent);
@@ -325,13 +326,13 @@ void FEditorTheme::ApplyToImGui() noexcept {
     col[ImGuiCol_TabUnfocused]          = ToImVec4(m_Colors.button_bg);
     col[ImGuiCol_TabUnfocusedActive]    = ToImVec4(m_Colors.button_active);
 
-    // ---- スクロールバー -------------------------------------------------
+    // スクロールバー。
     col[ImGuiCol_ScrollbarBg]           = ToImVec4(m_Colors.frame_bg);
     col[ImGuiCol_ScrollbarGrab]         = ToImVec4(m_Colors.button_bg);
     col[ImGuiCol_ScrollbarGrabHovered]  = ToImVec4(m_Colors.button_hover);
     col[ImGuiCol_ScrollbarGrabActive]   = ToImVec4(m_Colors.button_active);
 
-    // ---- corner / spacing / font ---------------------------------------
+    // corner / spacing / font。
     s.WindowRounding    = m_CornerRadius;
     s.FrameRounding     = m_CornerRadius;
     s.PopupRounding     = m_CornerRadius;
@@ -346,9 +347,7 @@ void FEditorTheme::ApplyToImGui() noexcept {
     ImGui::GetIO().FontGlobalScale = m_FontScale;
 }
 
-// =============================================================================
-// DrawThemeSettingsUI — preset combo + ColorEdit4 + Save/Load
-// =============================================================================
+/** Theme 設定ウィンドウを描画する (preset combo + ColorEdit4 群 + metric slider + Save/Load)。 */
 void FEditorTheme::DrawThemeSettingsUI() noexcept {
     if (!HasImGuiContext()) return;
 
@@ -357,7 +356,7 @@ void FEditorTheme::DrawThemeSettingsUI() noexcept {
         return;
     }
 
-    // ---- preset combo ---------------------------------------------------
+    // preset combo。
     const char* items[] = {
         "Dark", "DarkBlue", "Light", "HighContrast", "Sepia", "Custom",
     };
@@ -368,8 +367,7 @@ void FEditorTheme::DrawThemeSettingsUI() noexcept {
 
     ImGui::Separator();
 
-    // ---- カラー編集 -----------------------------------------------------
-    // ColorEdit4 で値を drag するたびに ApplyToImGui を呼び、Custom に切替。
+    // カラー編集。ColorEdit4 で値を drag するたびに ApplyToImGui を呼び、Custom に切替。
     bool changed = false;
     auto edit = [&](const char* label, FVec4& v) {
         ImVec4 tmp = ToImVec4(v);
@@ -400,7 +398,7 @@ void FEditorTheme::DrawThemeSettingsUI() noexcept {
 
     ImGui::Separator();
 
-    // ---- metric (font / corner / spacing) -------------------------------
+    // metric (font / corner / spacing)。
     f32 font_scale = m_FontScale;
     if (ImGui::SliderFloat("Font Scale", &font_scale, 0.5f, 3.0f, "%.2fx")) {
         SetFontScale(font_scale);
@@ -416,9 +414,7 @@ void FEditorTheme::DrawThemeSettingsUI() noexcept {
 
     ImGui::Separator();
 
-    // ---- Save / Load ----------------------------------------------------
-    // Phase 21a 時点ではファイルダイアログが無いので固定パスを使う。
-    // Phase 21b で FAssetBrowser 連動のファイルピッカーに置き換え予定。
+    // Save / Load。ファイルダイアログが無いので固定パスを使う。
     if (ImGui::Button("Save Theme")) {
         SaveTheme(L"data/editor/theme.acstheme");
     }
@@ -431,21 +427,15 @@ void FEditorTheme::DrawThemeSettingsUI() noexcept {
     ImGui::End();
 }
 
-// =============================================================================
-// SaveTheme — `.acstheme` テキスト書き出し
-// -----------------------------------------------------------------------------
-// フォーマット (FFxeditSerializer と同設計、1 行 1 key=value):
-//   ACS_THEME 1
-//   preset Dark
-//   font_scale 1.00
-//   corner_radius 3.00
-//   item_spacing_y 4.00
-//   window_bg 0.180 0.180 0.180 1.000
-//   title_bg 0.130 0.130 0.130 1.000
-//   ... (全 13 カラー)
-//
-// 失敗時は ACS_LOG_WARN で記録 (戻り値 void = ベストエフォート)。
-// =============================================================================
+/**
+ * 現在の theme を `.acstheme` テキストファイルに書き出す。
+ *
+ * @details
+ * 1 行 1 key=value 形式 (magic + version、preset、font_scale / corner_radius /
+ * item_spacing_y の metric 3 行、全 13 カラーの順) で書く。バッファ overflow や
+ * 書き込み失敗時は ACS_LOG_WARN で記録し打ち切る (戻り値 void = ベストエフォート)。
+ * @param file_path 書き出し先のファイルパス (nullptr は no-op)。
+ */
 void FEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return;
 
@@ -475,7 +465,7 @@ void FEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
                           static_cast<double>(v.w));
     };
 
-    // ---- ヘッダ + metric ------------------------------------------------
+    // ヘッダ + metric。
     if (!write_line("%s %u\n", kMagic, kCurrentVersion) ||
         !write_line("preset %s\n", PresetName(m_Preset)) ||
         !write_line("font_scale %.3f\n",      static_cast<double>(m_FontScale)) ||
@@ -485,7 +475,7 @@ void FEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
         return;
     }
 
-    // ---- カラー 13 件 ---------------------------------------------------
+    // カラー 13 件。
     if (!write_color("window_bg",     m_Colors.window_bg)     ||
         !write_color("title_bg",      m_Colors.title_bg)      ||
         !write_color("button_bg",     m_Colors.button_bg)     ||
@@ -503,8 +493,8 @@ void FEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
         return;
     }
 
-    // ---- 書き出し -------------------------------------------------------
-    auto r = FileSystem::WriteAllBytes(file_path,
+    // 書き出し。
+    const auto r = FileSystem::WriteAllBytes(file_path,
                                        reinterpret_cast<const byte*>(buf),
                                        static_cast<usize>(pos));
     if (r.IsErr()) {
@@ -513,13 +503,15 @@ void FEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
     }
 }
 
-// =============================================================================
-// LoadTheme — `.acstheme` テキスト読み込み
-// -----------------------------------------------------------------------------
-// 失敗時 (ファイル無し / magic mismatch / parse 失敗) は ACS_LOG_WARN + 現状
-// 維持 (= 旧 theme を保持)。部分成功 (= 一部のキーだけ読めた) は許容し、未知
-// キー / 解析失敗キーは単に黙ってスキップ (前方互換)。
-// =============================================================================
+/**
+ * `.acstheme` テキストファイルを読み込んで theme に反映する。
+ *
+ * @details
+ * 一時バッファに読み、magic + version 検証を通った後に一括 commit する (= 部分上書きを
+ * 防ぐ)。ファイル無し / magic mismatch / 非対応 version では ACS_LOG_WARN + 現状維持。
+ * 未知キー / 解析失敗キーは黙ってスキップする (前方互換)。
+ * @param file_path 読み込み元のファイルパス (nullptr は no-op)。
+ */
 void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return;
     if (!FileSystem::Exists(file_path)) {
@@ -527,7 +519,7 @@ void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
         return;
     }
 
-    auto rr = FileSystem::ReadAllText(file_path);
+    const auto rr = FileSystem::ReadAllText(file_path);
     if (rr.IsErr()) {
         ACS_LOG_WARN("FEditorTheme::LoadTheme: ReadAllText failed: os=%u",
                      rr.Error().os_error);
@@ -544,9 +536,8 @@ void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
     const char* p     = text.Data();
     const char* end   = p + text.Size();
 
-    // ---- 行単位 parser --------------------------------------------------
-    // 既存値を破壊しないよう一時バッファに読んだ結果を蓄積し、最後に
-    // commit する (= magic mismatch 等で部分上書きされない)。
+    // 行単位 parser。既存値を破壊しないよう一時バッファに読んだ結果を蓄積し、
+    // 最後に commit する (= magic mismatch 等で部分上書きされない)。
     EditorThemeColors  new_colors      = m_Colors;
     EEditorThemePreset new_preset      = m_Preset;
     f32                new_font_scale  = m_FontScale;
@@ -583,8 +574,7 @@ void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
         key[ki] = '\0';
         while (*q == ' ' || *q == '\t') ++q;
 
-        // ---- magic ------------------------------------------------------
-        // 初回行は `ACS_THEME <ver>` のはず。違うなら明示エラー。
+        // magic。初回行は `ACS_THEME <ver>` のはず。違うなら明示エラー。
         if (!magic_ok) {
             if (std::strcmp(key, kMagic) == 0) {
                 const u32 v = static_cast<u32>(std::strtoul(q, nullptr, 10));
@@ -601,7 +591,7 @@ void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
             return;
         }
 
-        // ---- preset 名 --------------------------------------------------
+        // preset 名。
         if (std::strcmp(key, "preset") == 0) {
             // `preset <name>` の name は空白なし ASCII 想定。
             char name[32] = {};
@@ -615,7 +605,7 @@ void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
             continue;
         }
 
-        // ---- スカラー metric --------------------------------------------
+        // スカラー metric。
         if (std::strcmp(key, "font_scale") == 0) {
             new_font_scale = std::strtof(q, nullptr);
             continue;
@@ -629,8 +619,7 @@ void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
             continue;
         }
 
-        // ---- カラー (FVec4) ----------------------------------------------
-        // ヘルパで `x y z w` の 4 値を読む。失敗時は黙って skip。
+        // カラー (FVec4)。ヘルパで `x y z w` の 4 値を読む。失敗時は黙って skip。
         auto parse_vec4 = [&](FVec4& out_v) noexcept {
             char* tail = nullptr;
             const f32 x = std::strtof(q, &tail); if (tail == q) return;
@@ -660,7 +649,7 @@ void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
         return;
     }
 
-    // ---- commit (= 全部読めたら一括反映) ---------------------------------
+    // commit (= 全部読めたら一括反映)。
     m_Colors          = new_colors;
     m_Preset          = new_preset;
     m_FontScale      = new_font_scale;

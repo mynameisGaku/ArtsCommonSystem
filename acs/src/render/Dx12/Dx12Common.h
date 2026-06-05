@@ -11,14 +11,36 @@
 
 namespace acs {
 
-// 失敗時に HRESULT を保持する小さな結果ラッパ（既存 TResult との橋渡し）
+/**
+ * 失敗時に HRESULT を保持する小さな結果ラッパ。
+ *
+ * @details DX12 API の HRESULT を持ち回り、既存の TResult との橋渡しに使う軽量型。
+ */
 struct HrResult {
+    /** 直近の DX12 呼び出しの HRESULT (既定 S_OK)。 */
     HRESULT hr = S_OK;
+
+    /**
+     * 成功状態かを返す。
+     *
+     * @return SUCCEEDED(hr) なら true。
+     */
     bool IsOk()  const noexcept { return SUCCEEDED(hr); }
+
+    /**
+     * 失敗状態かを返す。
+     *
+     * @return FAILED(hr) なら true。
+     */
     bool IsErr() const noexcept { return FAILED(hr); }
 };
 
-// EFormat → DXGI_FORMAT 変換
+/**
+ * RHI の EFormat を対応する DXGI_FORMAT へ変換する。
+ *
+ * @param f 変換元の EFormat。
+ * @return 対応する DXGI_FORMAT (未対応値は DXGI_FORMAT_UNKNOWN)。
+ */
 inline DXGI_FORMAT ToDxgiFormat(EFormat f) noexcept {
     switch (f) {
         case EFormat::R8G8B8A8_UNorm:        return DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -37,7 +59,12 @@ inline DXGI_FORMAT ToDxgiFormat(EFormat f) noexcept {
     }
 }
 
-// EResourceState → D3D12_RESOURCE_STATES 変換
+/**
+ * RHI の EResourceState を対応する D3D12_RESOURCE_STATES へ変換する。
+ *
+ * @param s 変換元の EResourceState。
+ * @return 対応する D3D12_RESOURCE_STATES (未対応値は D3D12_RESOURCE_STATE_COMMON)。
+ */
 inline D3D12_RESOURCE_STATES ToD3D12State(EResourceState s) noexcept {
     switch (s) {
         case EResourceState::Common:               return D3D12_RESOURCE_STATE_COMMON;
@@ -53,7 +80,7 @@ inline D3D12_RESOURCE_STATES ToD3D12State(EResourceState s) noexcept {
     }
 }
 
-// COM ポインタを安全に解放するマクロ
+/** COM ポインタを安全に Release して nullptr に戻すマクロ。 */
 #define ACS_SAFE_RELEASE(p) do { if (p) { (p)->Release(); (p) = nullptr; } } while (0)
 
 } // namespace acs

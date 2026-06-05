@@ -10,21 +10,51 @@
 
 namespace acs {
 
-// 型ごとの操作（型消去で実行時に呼び出せるようにする関数ポインタ群）
+/**
+ * 型消去されたコンポーネント型ごとの操作 (サイズ・整列・破棄・ムーブ)。
+ *
+ * @details
+ * ECS が任意のコンポーネント型を型を知らずに扱えるよう、破棄・ムーブ構築を
+ * 関数ポインタ化して保持する。size==0 のスロットは未登録を表す。
+ */
 struct ComponentOps {
+    /** コンポーネント 1 個分のバイトサイズ (0 なら未登録)。 */
     usize size      = 0;
+
+    /** コンポーネント型の要求アラインメント (バイト)。 */
     usize alignment = 0;
-    void  (*destroy)(void* p) noexcept     = nullptr;  // ~T()
-    void  (*move)(void* dst, void* src) noexcept = nullptr;  // T(move(*src))
+
+    /** *p を T として破棄する関数ポインタ (~T() 相当、trivial なら何もしない)。 */
+    void  (*destroy)(void* p) noexcept     = nullptr;
+
+    /** *src を *dst へムーブ構築する関数ポインタ (T(move(*src)) 相当)。 */
+    void  (*move)(void* dst, void* src) noexcept = nullptr;
+
+    /** 型名 (typeid 非依存のため既定は固定文字列)。 */
     const char* name = "Unknown";
 };
 
+/**
+ * コンポーネント型ごとの ComponentOps を保持・参照する型消去レジストリ。
+ *
+ * @details
+ * ComponentTypeId をキーに、サイズ・整列・破棄・ムーブを実行時に問い合わせ可能な
+ * 形で保存する。Slots() の固定配列を共有する純粋な静的ユーティリティ。
+ */
 class FComponentRegistry {
 public:
-    // 型 T を登録（初回のみ実体登録、以降は同じ Ops を返す）
+    /**
+     * 型 T を登録し、その ComponentOps を返す (初回のみ実体登録、以降は既存を返す)。
+     *
+     * @details
+     * 初回は破棄・ムーブの関数ポインタ、sizeof/alignof を埋める。trivial 破棄なら
+     * destroy は何もしない。typeid を使えないため name は固定文字列のまま。
+     * @tparam T 登録するコンポーネント型。
+     * @return 型 T に対応する ComponentOps への const 参照。
+     */
     template<typename T>
     static const ComponentOps& Register() noexcept {
-        ComponentTypeId id = GetComponentTypeId<T>();
+        const ComponentTypeId id = GetComponentTypeId<T>();
         ComponentOps& slot = Slots()[id];
         if (slot.size == 0) {
             // T を破棄する関数ポインタ
@@ -42,11 +72,22 @@ public:
         return slot;
     }
 
+    /**
+     * 登録済みの ComponentTypeId に対応する ComponentOps を返す。
+     *
+     * @param id 取得対象のコンポーネント型 ID。
+     * @return 対応する ComponentOps への const 参照 (未登録なら size==0 の既定値)。
+     */
     static const ComponentOps& Get(ComponentTypeId id) noexcept {
         return Slots()[id];
     }
 
 private:
+    /**
+     * 全コンポーネント型ぶんの ComponentOps を保持する固定配列を返す。
+     *
+     * @return kMaxComponentTypes 個の ComponentOps 配列先頭。
+     */
     static ComponentOps* Slots() noexcept;
 };
 

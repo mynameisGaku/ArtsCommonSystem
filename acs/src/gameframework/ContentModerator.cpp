@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U Phase 2 — FContentModerator 実装 (Stub のみ)
+// GameFramework Pillar U — FContentModerator 実装 (Stub のみ)
 //
 // 本 .cpp では `IContentModerator` 自体は提供せず、外部 SDK 非依存で常に使える
 // `ContentModeratorStub` のみを実装する。Azure Content Safety / Google Perspective /
@@ -33,34 +33,36 @@ namespace acs::game {
 
 namespace {
 
-// =============================================================================
-// 画像 NSFW ローカル heuristic (skin-tone 比率法)
-// -----------------------------------------------------------------------------
-// 外部 SDK / クラウド API なしで動く実分類器。よく知られた肌色ピクセル比率
-// (Kovac et al. の RGB 肌色判定) を使い、画像中の肌色ピクセル割合から露出度を
-// 推定する。完璧ではない (顔のアップ等で false positive、未成年検出は不可) が、
-// 「常に Allow」の seam ではなく、ピクセルを実際に解析して判定する本実装。
-//   ・skin_ratio >= 0.55 → Explicit / Block
-//   ・skin_ratio >= 0.35 → Mature   / Warn   (要手動確認 = borderline)
-//   ・skin_ratio >= 0.18 → Mild     / Allow
-//   ・それ未満           → Safe     / Allow
-// 透明ピクセル (alpha < 16) は UI パディング等とみなし母数から除外する。
-// 注意: 未成年性的搾取 (SexualMinor_HardcodedBlock) は肌色比率では検出できない。
-//   その rating は専用の年齢/CSAM 分類器が必須で、本 heuristic の範囲外 (正直)。
-
-// Kovac et al. (2003) のアップライト肌色判定ルール (sRGB 8-bit 前提)。
+/**
+ * Kovac et al. (2003) のアップライト肌色判定ルール (sRGB 8-bit 前提)。
+ *
+ * @details 外部 SDK 無しで動く肌色ピクセル判定。未成年性的搾取は肌色比率では検出
+ * できないため、その rating は本 heuristic の範囲外。
+ * @param r 赤成分 (0-255)。
+ * @param g 緑成分 (0-255)。
+ * @param b 青成分 (0-255)。
+ * @return 肌色とみなせれば true。
+ */
 bool IsSkinTone(u8 r, u8 g, u8 b) noexcept {
     const i32 ri = r, gi = g, bi = b;
     i32 mx = ri; if (gi > mx) mx = gi; if (bi > mx) mx = bi;
     i32 mn = ri; if (gi < mn) mn = gi; if (bi < mn) mn = bi;
-    const i32 absRG = (ri > gi) ? (ri - gi) : (gi - ri);
+    const i32 abs_rg = (ri > gi) ? (ri - gi) : (gi - ri);
     return ri > 95 && gi > 40 && bi > 20 &&
            (mx - mn) > 15 &&
-           absRG > 15 &&
+           abs_rg > 15 &&
            ri > gi && ri > bi;
 }
 
-// RGBA8 ピクセル列から肌色比率を求める。母数は不透明ピクセル数。
+/**
+ * RGBA8 ピクセル列から肌色比率を求める。
+ *
+ * @details 母数は不透明ピクセル数。透明ピクセル (alpha < 16) は UI パディング等とみなし
+ * 母数から除外する。
+ * @param rgba RGBA8 ピクセル列 (4ch interleaved)。
+ * @param pixel_count ピクセル数。
+ * @return 不透明ピクセルに対する肌色ピクセルの比率 [0,1] (不透明ゼロなら 0)。
+ */
 f32 SkinRatioRgba8(const u8* rgba, u64 pixel_count) noexcept {
     u64 opaque = 0;
     u64 skin   = 0;
@@ -74,7 +76,15 @@ f32 SkinRatioRgba8(const u8* rgba, u64 pixel_count) noexcept {
     return static_cast<f32>(skin) / static_cast<f32>(opaque);
 }
 
-// HDR (float RGBA) 用: 各成分を [0,1] clamp → 8-bit 量子化して同じ判定にかける。
+/**
+ * HDR (float RGBA) ピクセル列から肌色比率を求める。
+ *
+ * @details 各成分を [0,1] clamp → 8-bit 量子化して RGBA8 と同じ肌色判定にかける。透明
+ * ピクセル (alpha < 0.0625) は母数から除外する。
+ * @param rgba float RGBA ピクセル列 (4ch interleaved)。
+ * @param pixel_count ピクセル数。
+ * @return 不透明ピクセルに対する肌色ピクセルの比率 [0,1] (不透明ゼロなら 0)。
+ */
 f32 SkinRatioRgbaF32(const f32* rgba, u64 pixel_count) noexcept {
     u64 opaque = 0;
     u64 skin   = 0;
@@ -93,8 +103,13 @@ f32 SkinRatioRgbaF32(const f32* rgba, u64 pixel_count) noexcept {
     return static_cast<f32>(skin) / static_cast<f32>(opaque);
 }
 
-// ---- 内部: 文字列長 (`<string.h>` 不使用、明示ループ) ----------------------
-// strlen 等価。nullptr は 0 を返す (呼び出し側で null チェックを省略可能に)。
+/**
+ * 文字列長を返す (`<string.h>` 不使用、明示ループ)。
+ *
+ * @details strlen 等価。
+ * @param s 対象文字列 (nullptr は 0 を返す)。
+ * @return NUL を除いた文字数。
+ */
 u64 StrLen(const char* s) noexcept {
     if (s == nullptr) return 0;
     u64 n = 0;
@@ -102,14 +117,24 @@ u64 StrLen(const char* s) noexcept {
     return n;
 }
 
-// ASCII 大文字 → 小文字。multibyte は素通し。
+/**
+ * ASCII 大文字を小文字に変換する。
+ *
+ * @param c 入力文字 (multibyte は素通し)。
+ * @return 小文字化した文字。
+ */
 char ToLowerAscii(char c) noexcept {
     return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
 }
 
-// haystack に needle が出現するか (大小文字非感受、ASCII)。
-// needle が空 ("") なら常に true。haystack==nullptr は常に false。
-// needle は短いリテラル前提で素朴な O(n*m)。
+/**
+ * haystack に needle が出現するかを ASCII 大小文字非感受で判定する。
+ *
+ * @details needle は短いリテラル前提で素朴な O(n*m)。
+ * @param haystack 探索対象 (nullptr は常に false)。
+ * @param needle 探す部分文字列 (空 "" は常に true)。
+ * @return needle が見つかれば true。
+ */
 bool ContainsCaseInsensitive(const char* haystack, const char* needle) noexcept {
     if (haystack == nullptr || needle == nullptr) return false;
     if (needle[0] == '\0') return true;
@@ -125,9 +150,14 @@ bool ContainsCaseInsensitive(const char* haystack, const char* needle) noexcept 
     return false;
 }
 
-// ---- 内部: leet 数字 / 記号 → アルファベット置換 --------------------------
-// 桁・記号で母音/子音を偽装する典型的な leet speak を 1 文字単位で正規化する。
-// 該当しない文字はそのまま返す (大文字は後段の ToLowerAscii で潰す)。
+/**
+ * leet speak の数字 / 記号をアルファベットに 1 文字単位で正規化する。
+ *
+ * @details 桁・記号で母音/子音を偽装する典型的な leet を畳む。大文字は後段の
+ * ToLowerAscii で潰す。
+ * @param c 入力文字 (該当しなければそのまま返す)。
+ * @return 置換後の文字。
+ */
 char DeLeet(char c) noexcept {
     switch (c) {
         case '0': return 'o';
@@ -142,24 +172,34 @@ char DeLeet(char c) noexcept {
     }
 }
 
-// ---- 内部: 区切り文字判定 (正規化で除去する文字) --------------------------
-// 英数字 (a-z / A-Z / 0-9) 以外をすべて区切りとみなす。空白・記号・句読点を除去し、
-// `f u c k` / `f.u.c.k` / `f-u-c-k` を `fuck` に畳む。multibyte (0x80-) も除去対象。
+/**
+ * 正規化で除去する区切り文字かを判定する。
+ *
+ * @details 英数字 (a-z / A-Z / 0-9) 以外をすべて区切りとみなす。空白・記号・句読点を
+ * 除去して `f u c k` / `f.u.c.k` を `fuck` に畳む。multibyte (0x80-) も除去対象。
+ * @param c 入力文字。
+ * @return 区切り文字なら true。
+ */
 bool IsSeparator(char c) noexcept {
     const bool is_alpha = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
     const bool is_digit = (c >= '0' && c <= '9');
     return !(is_alpha || is_digit);
 }
 
-// 正規化バッファ長 (= 入力をこのサイズまで詰めて判定)。超過分は切り捨て。
-// チャット / ユーザー名想定の上限。NG ワードは短いので末尾切り捨ての実害は小さい。
+/** 入力テキスト正規化バッファ長 (超過分は切り捨て。チャット / ユーザー名想定の上限)。 */
 constexpr u64 kNormalizedBufSize = 512;
-// needle 側 (辞書エントリ) 正規化バッファ。NG ワードは短いリテラル前提。
+
+/** needle 側 (辞書エントリ) 正規化バッファ長 (NG ワードは短いリテラル前提)。 */
 constexpr u64 kNeedleBufSize = 64;
 
-// ---- 内部: 文字列正規化 (汎用) --------------------------------------------
-// 入力を「区切り除去 → leet 置換 → ASCII 小文字化」して `dst` へ詰め、NUL 終端する。
-// `src` が nullptr のときは空文字列を書き込む。`cap` は dst の容量 (終端込み)。
+/**
+ * 文字列を正規化して dst へ詰め、NUL 終端する (汎用)。
+ *
+ * @details 「区切り除去 → leet 置換 → ASCII 小文字化」を行う。容量超過分は切り捨てる。
+ * @param src 入力文字列 (nullptr のときは空文字列を書き込む)。
+ * @param dst 出力先バッファ。
+ * @param cap dst の容量 (終端込み)。
+ */
 void NormalizeInto(const char* src, char* dst, u64 cap) noexcept {
     u64 n = 0;
     if (src != nullptr && cap > 0) {
@@ -172,22 +212,32 @@ void NormalizeInto(const char* src, char* dst, u64 cap) noexcept {
     if (cap > 0) dst[n] = '\0';
 }
 
-// ---- 内部: 入力テキスト正規化 ---------------------------------------------
-// 入力を正規化して thread_local バッファへ詰め、先頭ポインタを返す (常に NUL 終端)。
-// 寿命は次回 NormalizeText() 呼び出しまで (= 1 回の Classify 内で消費する)。
+/**
+ * 入力を正規化して thread_local バッファへ詰め、先頭ポインタを返す。
+ *
+ * @details 常に NUL 終端する。返却ポインタの寿命は次回 NormalizeText() 呼び出しまで
+ * (= 1 回の Classify 内で消費する)。
+ * @param src 入力文字列。
+ * @return 正規化済み文字列を指す thread_local ポインタ。
+ */
 const char* NormalizeText(const char* src) noexcept {
     static thread_local char buf[kNormalizedBufSize];
     NormalizeInto(src, buf, kNormalizedBufSize);
     return buf;
 }
 
-// ---- 内部: 生文字列 or 正規化文字列のいずれかにヒットするか ----------------
-// 2 経路で照合する:
-//   - 生 `text` に対する大小文字非感受 contain (素の表記・スペース込みの語をそのまま捕捉)
-//   - 正規化 `normalized` に対する「正規化済み needle」の contain
-//     (spaced / leet / 記号挿入の変種を捕捉)。needle 側も同じ規則で畳むので、
-//     辞書に "kill yourself" のような空白入りリテラルを書いても正しく一致する。
-// `normalized` は呼び出し側で 1 度だけ作って使い回す。
+/**
+ * 生文字列 or 正規化文字列のいずれかに needle がヒットするかを判定する。
+ *
+ * @details
+ * 2 経路で照合する: 生 text への大小文字非感受 contain (素の表記をそのまま捕捉) と、
+ * 正規化 normalized への「正規化済み needle」の contain (spaced / leet / 記号挿入の変種を
+ * 捕捉)。needle 側も同じ規則で畳むので "kill yourself" 風の空白入りリテラルも一致する。
+ * @param text 生入力テキスト。
+ * @param normalized 呼出側が事前に作った正規化済みテキスト (使い回す)。
+ * @param needle 辞書エントリ (生 / 正規化の両方で照合)。
+ * @return いずれかの経路でヒットすれば true。
+ */
 bool MatchesRawOrNormalized(const char* text, const char* normalized, const char* needle) noexcept {
     if (ContainsCaseInsensitive(text, needle)) return true;
     char needle_norm[kNeedleBufSize];
@@ -196,13 +246,13 @@ bool MatchesRawOrNormalized(const char* text, const char* normalized, const char
     return ContainsCaseInsensitive(normalized, needle_norm);
 }
 
-// ---- ハードコード Block 辞書 (= 児童性的搾取関連 keyword) ------------------
-// このリストにヒットした場合、verdict は **必ず Block** で rating は
-// SexualMinor_HardcodedBlock。Allow / Warn に降格する経路は存在しない。
-// 実 SDK 接続後もこのガードは seam 層 (Stub) に残し、二重防壁として機能させる。
-//
-// NOTE: ASCII リテラルで明示的に書く。日本語 / 中国語 / 露語等の追加は Phase 2 で
-//       外部 patterns ファイル (i18n 辞書) に分離する。
+/**
+ * ハードコード Block 辞書 (児童性的搾取関連 keyword)。
+ *
+ * @details このリストにヒットした場合 verdict は必ず Block、rating は
+ * SexualMinor_HardcodedBlock となり、Allow / Warn に降格する経路は存在しない。実 SDK
+ * 接続後もこのガードは seam 層 (Stub) に残し、二重防壁として機能させる。
+ */
 constexpr const char* kHardcodedBlockWords[] = {
     "child porn",
     "cp video",       // "child porn" の隠語
@@ -211,12 +261,16 @@ constexpr const char* kHardcodedBlockWords[] = {
     "lolicon porn",
     "shotacon porn",
 };
+
+/** kHardcodedBlockWords の要素数。 */
 constexpr u64 kHardcodedBlockWordCount =
     sizeof(kHardcodedBlockWords) / sizeof(kHardcodedBlockWords[0]);
 
-// ---- 一般 Block 辞書 (= NG ワード) -----------------------------------------
-// 軽度〜重度の不適切表現。実 SDK 未統合時の最低限の防御線として ASCII 英語のみ。
-// Phase 2 で多言語 / 文脈考慮型分類器に置き換える。
+/**
+ * 一般 Block 辞書 (NG ワード)。
+ *
+ * @details 軽度〜重度の不適切表現。実 SDK 未統合時の最低限の防御線として ASCII 英語のみ。
+ */
 constexpr const char* kBlockedWords[] = {
     "fuck",
     "shit",
@@ -227,12 +281,21 @@ constexpr const char* kBlockedWords[] = {
     "kill yourself",
     "kys",
 };
+
+/** kBlockedWords の要素数。 */
 constexpr u64 kBlockedWordCount =
     sizeof(kBlockedWords) / sizeof(kBlockedWords[0]);
 
-// ---- 内部判定: text モデレーション本体 ------------------------------------
-// kHardcodedBlockWords を先に評価することで、`SexualMinor` 関連 keyword に
-// 後段の Allow 降格を絶対に許さない契約を保証する。
+/**
+ * テキストモデレーションの本体判定。
+ *
+ * @details
+ * kHardcodedBlockWords を先に評価することで、SexualMinor 関連 keyword に後段の Allow
+ * 降格を絶対に許さない契約を保証する。次いで kBlockedWords を照合し、いずれにも該当
+ * しなければ Allow を返す。
+ * @param text 判定対象テキスト (nullptr / 空文字は Allow)。
+ * @return verdict / rating / reason を埋めた判定結果。
+ */
 ModerationResult ClassifyText(const char* text) noexcept {
     ModerationResult r{};
     if (text == nullptr || text[0] == '\0') {
@@ -276,15 +339,13 @@ ModerationResult ClassifyText(const char* text) noexcept {
 
 } // namespace
 
-// =============================================================================
-// ContentModeratorStub 実装
-// =============================================================================
-
+/** テキストを ClassifyText で判定する (user_id は Stub では未使用)。 */
 TResult<ModerationResult> ContentModeratorStub::ModerateText(const char* user_id, const char* text) noexcept {
     (void)user_id;  // Stub では未使用 (実 SDK では通報履歴・レピュテーション参照に使う)
     return ClassifyText(text);
 }
 
+/** 画像をローカルデコードし肌色比率 heuristic で判定する。 */
 TResult<ModerationResult> ContentModeratorStub::ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept {
     (void)user_id;
     if (image_data == nullptr || size == 0) {
@@ -301,7 +362,7 @@ TResult<ModerationResult> ContentModeratorStub::ModerateImage(const char* user_i
     TArray<byte> encoded;
     encoded.Resize(static_cast<usize>(size));
     MemCopy(encoded.Data(), image_data, static_cast<usize>(size));
-    auto decoded = loader.LoadFromBytes(FAssetId{0}, encoded);
+    const auto decoded = loader.LoadFromBytes(FAssetId{0}, encoded);
     if (decoded.IsErr()) {
         return TResult<ModerationResult>(
             ACS_ERR(Generic, kSubContentModeratorBadArgument,
@@ -319,7 +380,7 @@ TResult<ModerationResult> ContentModeratorStub::ModerateImage(const char* user_i
     return ClassifyImageRatio(ratio);
 }
 
-// 肌色比率 → ModerationResult のしきい値判定 (ModerateImage と RGBA 直接判定で共用)。
+/** 肌色比率を 4 段のしきい値で verdict/rating に変換する。 */
 TResult<ModerationResult> ContentModeratorStub::ClassifyImageRatio(f32 skin_ratio) const noexcept {
     ModerationResult r{};
     if (skin_ratio >= 0.55f) {
@@ -342,8 +403,7 @@ TResult<ModerationResult> ContentModeratorStub::ClassifyImageRatio(f32 skin_rati
     return r;
 }
 
-// 既にデコード済みの RGBA8 ピクセルを直接判定する公開 API (エンジンが既に
-// テクスチャを CPU 側に持っている場合に再デコードを避けられる)。
+/** デコード済み RGBA8 ピクセルを再デコードせず肌色比率で判定する。 */
 TResult<ModerationResult> ContentModeratorStub::ModerateImageRgba8(
         const u8* rgba, u32 width, u32 height) noexcept {
     if (rgba == nullptr || width == 0 || height == 0) {
@@ -355,6 +415,7 @@ TResult<ModerationResult> ContentModeratorStub::ModerateImageRgba8(
     return ClassifyImageRatio(ratio);
 }
 
+/** ユーザー名を text と同じ NG ワード辞書 (ClassifyText) で判定する。 */
 TResult<ModerationResult> ContentModeratorStub::ModerateUserName(const char* name) noexcept {
     // ユーザー名 NG チェックは text と同じ辞書を流用 (Stub なので簡略化)。
     // 実 SDK では「短い文字列内のなりすまし / leet speak / 同形異義字」検出を
@@ -362,15 +423,12 @@ TResult<ModerationResult> ContentModeratorStub::ModerateUserName(const char* nam
     return ClassifyText(name);
 }
 
+/** 非同期キューを持たないため no-op。 */
 void ContentModeratorStub::Tick(f32 dt) noexcept {
     (void)dt;  // Stub は非同期キューを持たないので no-op。
 }
 
-// =============================================================================
-// GetModeratorStub() — Meyer's singleton
-// -----------------------------------------------------------------------------
-// C++11 以降、関数スコープ static の初期化は thread-safe。追加同期は不要。
-// =============================================================================
+/** Stub の共有 singleton を返す (関数スコープ static で thread-safe 初期化)。 */
 IContentModerator& GetModeratorStub() noexcept {
     static ContentModeratorStub m_Instance;
     return m_Instance;

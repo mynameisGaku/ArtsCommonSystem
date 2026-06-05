@@ -1,18 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — FLocalizationDirector 実装
+// GameFramework — FLocalizationDirector 実装
 //
 // key 比較は const char* 同士の per-byte 比較 (StrEq 相当を自前で書く)。
 // STL 禁止 + <cstring> も避ける方針で、ループを直接書いておく。
 // 文字列 ID 件数は通常 100〜2000 のオーダーなので、線形走査で十分。
-// THashMap 化は Phase 2 で計測してから検討する。
 #include "gameframework/LocalizationDirector.h"
 
 namespace acs::game {
 
 namespace {
 
-// const char* の安全比較。どちらかが nullptr なら false。
-// 終端ヌルまで一致 (長さ不一致は終端ズレで検出される)。
+/**
+ * const char* 同士を終端ヌルまで安全に比較する (`<cstring>` 不使用)。
+ *
+ * @details 長さ不一致は終端ズレで検出される。
+ * @param a 比較する文字列 (nullptr 可)。
+ * @param b 比較する文字列 (nullptr 可)。
+ * @return 全文字一致なら true (どちらかが nullptr なら false)。
+ */
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {

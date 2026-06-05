@@ -12,8 +12,8 @@
 #include "render/IRhiSampler.h"
 #include "render/IRhiShader.h"
 
-// ---- Diligent 公式ヘッダ ----
-// 名前空間 / マクロ汚染を最小化するため、利用したい型だけ select-include する。
+// Diligent 公式ヘッダ。名前空間 / マクロ汚染を最小化するため、利用したい型だけ
+// select-include する。
 #define ENGINE_DLL 0
 #define D3D12_SUPPORTED 1
 // Diligent は内部で <Windows.h> を引くが、ACS の Platform.h で macro #undef は実施済み。
@@ -46,7 +46,12 @@ namespace acs::diligent_detail {
 
 using namespace Diligent;
 
-// EFormat: ACS EFormat → Diligent TEXTURE_FORMAT
+/**
+ * ACS の EFormat を Diligent の TEXTURE_FORMAT へ変換する。
+ *
+ * @param f 変換元の ACS テクスチャフォーマット。
+ * @return 対応する Diligent フォーマット (未対応なら TEX_FORMAT_UNKNOWN)。
+ */
 inline TEXTURE_FORMAT ToDiligent(EFormat f) noexcept {
     switch (f) {
         case EFormat::R8G8B8A8_UNorm:       return TEX_FORMAT_RGBA8_UNORM;
@@ -65,7 +70,12 @@ inline TEXTURE_FORMAT ToDiligent(EFormat f) noexcept {
     }
 }
 
-// Topology
+/**
+ * ACS の EPrimitiveTopology を Diligent の PRIMITIVE_TOPOLOGY へ変換する。
+ *
+ * @param t 変換元のプリミティブトポロジ。
+ * @return 対応する Diligent トポロジ (既定は TRIANGLE_LIST)。
+ */
 inline PRIMITIVE_TOPOLOGY ToDiligent(EPrimitiveTopology t) noexcept {
     switch (t) {
         case EPrimitiveTopology::PointList:     return PRIMITIVE_TOPOLOGY_POINT_LIST;
@@ -77,7 +87,12 @@ inline PRIMITIVE_TOPOLOGY ToDiligent(EPrimitiveTopology t) noexcept {
     return PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 }
 
-// ECullMode
+/**
+ * ACS の ECullMode を Diligent の CULL_MODE へ変換する。
+ *
+ * @param c 変換元のカリングモード。
+ * @return 対応する Diligent カリングモード (既定は CULL_MODE_NONE)。
+ */
 inline CULL_MODE ToDiligent(ECullMode c) noexcept {
     switch (c) {
         case ECullMode::None:  return CULL_MODE_NONE;
@@ -87,7 +102,12 @@ inline CULL_MODE ToDiligent(ECullMode c) noexcept {
     return CULL_MODE_NONE;
 }
 
-// EBlendMode → BlendStateDesc 設定（RT0 のみ）
+/**
+ * ACS の EBlendMode を Diligent の RenderTargetBlendDesc (RT0) へ反映する。
+ *
+ * @param m 適用するブレンドモード。
+ * @param rt 設定先の RT0 ブレンド記述。
+ */
 inline void ApplyBlend(EBlendMode m, RenderTargetBlendDesc& rt) noexcept {
     switch (m) {
         case EBlendMode::Opaque:
@@ -114,7 +134,12 @@ inline void ApplyBlend(EBlendMode m, RenderTargetBlendDesc& rt) noexcept {
     }
 }
 
-// Sampler
+/**
+ * ACS の ESamplerFilter を Diligent の FILTER_TYPE へ変換する。
+ *
+ * @param f 変換元のサンプラフィルタ。
+ * @return 対応する Diligent フィルタ (既定は FILTER_TYPE_LINEAR)。
+ */
 inline FILTER_TYPE ToDiligentFilter(ESamplerFilter f) noexcept {
     switch (f) {
         case ESamplerFilter::Point:       return FILTER_TYPE_POINT;
@@ -124,6 +149,12 @@ inline FILTER_TYPE ToDiligentFilter(ESamplerFilter f) noexcept {
     return FILTER_TYPE_LINEAR;
 }
 
+/**
+ * ACS の ESamplerAddress を Diligent の TEXTURE_ADDRESS_MODE へ変換する。
+ *
+ * @param a 変換元のサンプラアドレッシングモード。
+ * @return 対応する Diligent アドレスモード (既定は TEXTURE_ADDRESS_WRAP)。
+ */
 inline TEXTURE_ADDRESS_MODE ToDiligentAddress(ESamplerAddress a) noexcept {
     switch (a) {
         case ESamplerAddress::Wrap:   return TEXTURE_ADDRESS_WRAP;
@@ -137,7 +168,12 @@ inline TEXTURE_ADDRESS_MODE ToDiligentAddress(ESamplerAddress a) noexcept {
 // 注意: SamplerDesc は ACS 名前空間にも同名がある。Diligent::SamplerDesc を使うときは
 // 必ず完全修飾 (Diligent::SamplerDesc) で呼ぶ。
 
-// Shader stage
+/**
+ * ACS の EShaderStage を Diligent の SHADER_TYPE へ変換する。
+ *
+ * @param s 変換元のシェーダステージ。
+ * @return 対応する Diligent シェーダタイプ (未対応なら SHADER_TYPE_UNKNOWN)。
+ */
 inline SHADER_TYPE ToDiligent(EShaderStage s) noexcept {
     switch (s) {
         case EShaderStage::Vertex:  return SHADER_TYPE_VERTEX;
@@ -147,7 +183,12 @@ inline SHADER_TYPE ToDiligent(EShaderStage s) noexcept {
     return SHADER_TYPE_UNKNOWN;
 }
 
-// EResourceState
+/**
+ * ACS の EResourceState を Diligent の RESOURCE_STATE へ変換する。
+ *
+ * @param s 変換元のリソース状態。
+ * @return 対応する Diligent リソース状態 (未対応なら RESOURCE_STATE_UNKNOWN)。
+ */
 inline RESOURCE_STATE ToDiligent(EResourceState s) noexcept {
     switch (s) {
         case EResourceState::Common:              return RESOURCE_STATE_COMMON;
@@ -163,7 +204,12 @@ inline RESOURCE_STATE ToDiligent(EResourceState s) noexcept {
     return RESOURCE_STATE_UNKNOWN;
 }
 
-// セマンティック名を D3D12 風に正規化（HLSL 側と一致）
+/**
+ * セマンティック名を D3D12 風に正規化する (HLSL 側と一致させる)。
+ *
+ * @param s 入力セマンティック名 (nullptr 可)。
+ * @return s が非 null ならそのまま、null なら "POSITION"。
+ */
 inline const char* NormalizeSemantic(const char* s) noexcept {
     return s ? s : "POSITION";
 }

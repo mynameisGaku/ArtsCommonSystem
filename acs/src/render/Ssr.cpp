@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Screen-Space Reflection 実装 (Phase 34e)
+// Screen-Space Reflection 実装
 #include "render/Ssr.h"
 #include "foundation/Move.h"
 #include "foundation/Log.h"
@@ -8,6 +8,7 @@ namespace acs {
 
 namespace {
 
+/** raw SSR パスの HLSL ソース (screen-space DDA ray march + Hi-Z skip-ahead)。 */
 const char* kSsrHLSL = R"(
 #pragma pack_matrix(row_major)
 
@@ -18,15 +19,15 @@ cbuffer SsrCB : register(b0) {
     float4   params;          // x=intensity, y=max_ray_dist, z=frame_jitter, w=thickness_world
     float4x4 prev_view_proj;  // raw march では未使用 (CB layout 整合のため宣言)
     float4   temporal_params; // x=1/width, y=1/height, z=blend
-    // Phase 36-3a Hi-Z: ray march の skip-ahead
+    // Hi-Z: ray march の skip-ahead
     // x=enabled (0/1), y=block_size (=8), z=1/hiz_w, w=1/hiz_h
     float4   hiz_params;
 };
 
 Texture2D    scene_color    : register(t0);
 Texture2D    scene_depth    : register(t1);
-Texture2D    normal_gbuffer : register(t2);   // world-space normal (Phase 34m)
-Texture2D    hiz_min        : register(t3);   // Phase 36-3a 1/8 coarse min-depth
+Texture2D    normal_gbuffer : register(t2);   // world-space normal
+Texture2D    hiz_min        : register(t3);   // 1/8 coarse min-depth
 SamplerState scene_color_sampler    : register(s0);
 SamplerState scene_depth_sampler    : register(s1);
 SamplerState normal_gbuffer_sampler : register(s2);
@@ -57,20 +58,20 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
     float3 wp = ReconstructWorldPos(v.uv, depth);
     float3 V  = normalize(eye.xyz - wp);
-    // normal G-buffer から per-pixel world normal を sample (Phase 34m)
+    // normal G-buffer から per-pixel world normal を sample
     float3 N  = normalize(normal_gbuffer.SampleLevel(normal_gbuffer_sampler, v.uv, 0).xyz);
     if (dot(N, V) < 0.0) N = -N;                       // facing 補正 (背面の保険)
     float3 R  = reflect(-V, N);
     if (dot(R, V) < -0.95) return float4(0, 0, 0, 0);  // 真後ろ反射は SSR データ無し
 
-    // ===== screen-space DDA ray march (McGuire & Mara 2014, Phase 34n) =====
+    // ===== screen-space DDA ray march (McGuire & Mara 2014) =====
     // 反射レイを screen 空間へ射影し 1 texel/step で行進する。NDC depth は screen
     // 空間で線形 (射影変換は直線を直線に写し、perspective divide 後の NDC 空間でも
     // レイは直線 → z_ndc は screen 座標の affine 関数。ラスタライザが三角形の depth を
     // 線形補間できるのと同じ原理) なので、レイ depth は端点間の線形補間で正確。world
     // 固定ステップ march は screen 空間でサンプリングが疎になり反射像がレイ方向に
     // 伸びてスメアしていた — DDA で根本解決。hit は depth 区間の straddle で交差を
-    // 確定し、surface 奥へ回り込んだら world 距離で occlusion を判定する (34n-3)。
+    // 確定し、surface 奥へ回り込んだら world 距離で occlusion を判定する。
     float2 res    = float2(1.0 / temporal_params.x, 1.0 / temporal_params.y);
     float  maxLen = max(params.y, 0.5);
 
@@ -114,7 +115,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     bool   hit = false;
     [loop]
     for (float i = 0.0; i < marchMax; i += 1.0) {
-        // ===== Phase 36-3a Hi-Z skip-ahead =====
+        // ===== Hi-Z skip-ahead =====
         // 1/8 解像度の "min depth" を読み、ray.z がそれより手前 (= ブロック内の
         // 全 surface より手前) なら、ray.z が min に追いつくまで複数 texel を
         // 一気に飛ばす。ブロック越境を防ぐため 1 ブロック分 (=8 texel) を上限と
@@ -180,7 +181,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-// Phase 34e-3: temporal accumulation。jitter 付き raw SSR を、前フレームの履歴と
+// temporal accumulation。jitter 付き raw SSR を、前フレームの履歴と
 // reproject + neighborhood clamp して時間方向に平均する。silhouette のジャギーや
 // march の量子化ノイズが大幅に減る。RGBA 全 ch を扱う (.a = hit mask も平滑化され、
 // hit/miss 境界がアンチエイリアスされる)。temporal SSGI と同形。
@@ -192,7 +193,7 @@ cbuffer SsrCB : register(b0) {
     float4x4 inv_view_proj;
     float4   eye;
     float4   params;
-    float4x4 prev_view_proj;     // Phase 34e-3: reprojection 用
+    float4x4 prev_view_proj;     // reprojection 用
     float4   temporal_params;    // x=texel_w, y=texel_h, z=blend_factor, w=motion_mode
 };
 
@@ -231,7 +232,7 @@ float2 ReprojectUv(float2 uv) {
 float4 PSMain(VSOut v) : SV_TARGET {
     float4 cur = current_ssr.SampleLevel(current_ssr_sampler, v.uv, 0);
 
-    // Phase 34p: motion texture モードなら scene_depth slot を motion vector として
+    // motion texture モードなら scene_depth slot を motion vector として
     // 再解釈し、動く mesh の反射も history を正しく追従させる (SSGI temporal と同形)。
     // 非モードは従来の camera-only depth reprojection。
     float2 huv;
@@ -273,9 +274,9 @@ struct SsrCBLayout {
     FMat4 inv_view_proj;
     FVec4 eye;
     FVec4 params;
-    FMat4 prev_view_proj;     // Phase 34e-3: temporal reproject 用
-    FVec4 temporal_params;    // Phase 34e-3: x=texel_w, y=texel_h, z=blend_factor
-    FVec4 hiz_params;         // Phase 36-3a: x=enabled, y=block_size, z/w=1/hiz_size (raw shader のみ参照)
+    FMat4 prev_view_proj;     // temporal reproject 用
+    FVec4 temporal_params;    // x=texel_w, y=texel_h, z=blend_factor
+    FVec4 hiz_params;         // x=enabled, y=block_size, z/w=1/hiz_size (raw shader のみ参照)
 };
 
 template<typename T>
@@ -315,7 +316,7 @@ TResult<void> FSsr::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) no
     if (r.IsErr()) return Err<void>(r.Error());
     m_Output = Move(r.Value());
 
-    // Phase 34e-3: temporal accumulation の history ping-pong
+    // temporal accumulation の history ping-pong
     for (u32 i = 0; i < 2; ++i) {
         m_History[i].Reset();
         auto hr = CreateRhiTexture(device, td);
@@ -379,7 +380,7 @@ TResult<void> FSsr::CreatePipeline(IRhiDevice& device) noexcept {
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
     else m_Pipeline = Move(r.Value());
 
-    // Phase 34e-3: temporal pipeline (current_ssr + history_ssr + scene_depth → history)。
+    // temporal pipeline (current_ssr + history_ssr + scene_depth → history)。
     // VS は fullscreen-triangle で raw と同形なので m_Vs を再利用。
     FShaderDesc tps_d{};
     tps_d.stage = EShaderStage::Pixel;
@@ -460,8 +461,8 @@ void FSsr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     const f32 jt     = static_cast<f32>(jf) * 0.61803399f;
     const f32 jitter = jt - static_cast<f32>(static_cast<u32>(jt));
 
-    // Hi-Z params (Phase 36-3a)
-    f32 hiz_enabled = hiz_texture ? 1.0f : 0.0f;
+    // Hi-Z params
+    const f32 hiz_enabled = hiz_texture ? 1.0f : 0.0f;
     f32 hiz_inv_w = 0.0f, hiz_inv_h = 0.0f;
     if (hiz_texture) {
         const u32 hw = hiz_texture->Width();
@@ -506,7 +507,7 @@ void FSsr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.SetConstantBuffer(0, *m_Cb);
     cl.SetTexture(0, *m_Output);        // current (jitter 付き raw)
     cl.SetTexture(1, *hist_in);        // history (or raw on frame 0)
-    // Phase 34p: motion texture (あれば) で動く mesh の反射 ghost を消す。
+    // motion texture (あれば) で動く mesh の反射 ghost を消す。
     // shader が temporal_params.w で解釈を切替えるので PSO の slot 数は不変。
     cl.SetTexture(2, motion_texture ? *motion_texture : scene_depth);
     cl.Draw(3);

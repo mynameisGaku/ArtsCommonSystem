@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FFadeTransition 実装 (Phase A polish)
+// FFadeTransition 実装
 #include "gameframework/FadeTransition.h"
 
 namespace acs::game {
 
 namespace {
 
-// duration=0 を安全に扱うため、進捗 t を [0,1] で返す小ヘルパ。
-// duration <= 0 なら「完了済」扱いで 1.0 を返す。
+/**
+ * 進捗 t を [0,1] にクランプして返す小ヘルパ。
+ *
+ * @details duration <= 0 なら 0 除算を避けるため「完了済」扱いで 1.0 を返す。
+ * @param elapsed 現在 phase 内での経過秒。
+ * @param duration phase の総秒数。
+ * @return [0, 1] にクランプした進捗。
+ */
 inline f32 SafeProgress(f32 elapsed, f32 duration) noexcept {
     if (duration <= 0.0f) return 1.0f;
     const f32 t = elapsed / duration;

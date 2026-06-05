@@ -8,6 +8,7 @@
 
 namespace acs::game {
 
+/** 全レイヤの非空タイルを atlas UV (未設定時はデバッグ色) で SpriteBatch へ描く。 */
 void FTilemapComponent::OnDraw(RenderContext& rc) noexcept {
     if (!rc.HasSprites()) return;
     FSpriteBatch& sb = rc.Sprites();
@@ -17,8 +18,8 @@ void FTilemapComponent::OnDraw(RenderContext& rc) noexcept {
     const u32   w      = m_Map.Width();
     const u32   h      = m_Map.Height();
     const u32   layers = m_Map.LayerCount();
-    const f32   cellW  = 1.0f / static_cast<f32>(m_Cols);
-    const f32   cellH  = 1.0f / static_cast<f32>(m_Rows);
+    const f32   cell_w = 1.0f / static_cast<f32>(m_Cols);
+    const f32   cell_h = 1.0f / static_cast<f32>(m_Rows);
 
     for (u32 L = 0; L < layers; ++L) {        // 0 = 最背面 → 前面へ
         const FTileId* data = m_Map.LayerData(L);
@@ -34,10 +35,10 @@ void FTilemapComponent::OnDraw(RenderContext& rc) noexcept {
                     const u32 cell = static_cast<u32>(t.value - 1u);
                     const u32 col  = cell % m_Cols;
                     const u32 row  = (cell / m_Cols) % m_Rows;
-                    const f32 u0   = static_cast<f32>(col) * cellW;
-                    const f32 v0   = static_cast<f32>(row) * cellH;
+                    const f32 u0   = static_cast<f32>(col) * cell_w;
+                    const f32 v0   = static_cast<f32>(row) * cell_h;
                     sb.DrawRotated(*m_Atlas, cx, cy, ts, ts, 0.0f,
-                                   u0, v0, u0 + cellW, v0 + cellH, m_Tint);
+                                   u0, v0, u0 + cell_w, v0 + cell_h, m_Tint);
                 } else {
                     // テクスチャ未設定: tile id 由来の色でデバッグ描画。
                     const f32 r = static_cast<f32>((t.value * 53u) % 255u) / 255.0f;
@@ -50,6 +51,7 @@ void FTilemapComponent::OnDraw(RenderContext& rc) noexcept {
     }
 }
 
+/** 指定レイヤの非空タイルを 1 タイル = 1 AABB で物理ワールドへ登録する。 */
 void FTilemapComponent::BuildCollision(FCollisionWorld2D& world, u32 layer,
                                        u32 collision_layer_bit) noexcept {
     const FTileId* data = m_Map.LayerData(layer);

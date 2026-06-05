@@ -10,19 +10,14 @@
 
 namespace acs::game {
 
-// ----------------------------------------------------------------------------
-// helpers
-// ----------------------------------------------------------------------------
-
+/** 値を [0, 1] にクランプする。 */
 f32 FMusicDirector::Clamp01(f32 v) noexcept {
     if (v < 0.0f) return 0.0f;
     if (v > 1.0f) return 1.0f;
     return v;
 }
 
-// 現在 state / intensity に合致する track を選び、結線済みなら実 director の
-// PlayBgm へ流す。未結線なら no-op (state のみ更新済み)。fade_in_sec は state
-// 遷移の長さをそのまま BGM クロスフェードに渡す (即時切替なら 0)。
+/** 現在 state / intensity に合う track を選び、結線済みなら BGM 再生へ流す。 */
 void FMusicDirector::RouteCurrentTrackToAudio(f32 fade_in_sec) noexcept {
     if (m_Audio == nullptr) return;  // state-only 動作 (無音、crash しない)
 
@@ -36,10 +31,7 @@ void FMusicDirector::RouteCurrentTrackToAudio(f32 fade_in_sec) noexcept {
     m_Audio->PlayBgm(t.asset_path, fade_in_sec, t.loop);
 }
 
-// ----------------------------------------------------------------------------
-// construction
-// ----------------------------------------------------------------------------
-
+/** track 配列を事前確保し、各 state の index を 0 で初期化する。 */
 FMusicDirector::FMusicDirector() noexcept {
     // 想定登録数で track 配列を事前確保 (拡張時の reallocation を抑える)。
     m_Tracks.Reserve(kTrackReserveHint);
@@ -49,10 +41,7 @@ FMusicDirector::FMusicDirector() noexcept {
     }
 }
 
-// ----------------------------------------------------------------------------
-// track 登録
-// ----------------------------------------------------------------------------
-
+/** 指定 state の連続区間末尾に track を挿入し、state インデックスを更新する。 */
 void FMusicDirector::RegisterTrack(EMusicState state, const MusicTrack& track) noexcept {
     if (track.asset_path == nullptr) {
         ACS_LOG_WARN("FMusicDirector::RegisterTrack: asset_path=nullptr → ignored");
@@ -92,11 +81,13 @@ void FMusicDirector::RegisterTrack(EMusicState state, const MusicTrack& track) n
     }
 }
 
+/** state インデックスの再構築 hook (現状は逐次更新のため空)。 */
 void FMusicDirector::RebuildStateIndex() noexcept {
     // 現状は RegisterTrack 内で逐次更新しており、明示再構築は不要。
     // 将来 UnregisterTrack を導入する際の hook 用に空関数として残す。
 }
 
+/** 指定 state 内で intensity に合う track index を返す (なければ fallback)。 */
 usize FMusicDirector::FindTrackForState(EMusicState state, f32 intensity) const noexcept {
     const u32 state_idx = static_cast<u32>(state);
     if (state_idx >= kStateCount) return m_Tracks.Size();
@@ -123,10 +114,7 @@ usize FMusicDirector::FindTrackForState(EMusicState state, f32 intensity) const 
     return fallback;
 }
 
-// ----------------------------------------------------------------------------
-// 状態遷移
-// ----------------------------------------------------------------------------
-
+/** current → state へクロスフェード開始 (即時切替・同一 state 再要求を処理)。 */
 void FMusicDirector::SetState(EMusicState state, f32 transition_sec) noexcept {
     const u32 state_idx = static_cast<u32>(state);
     if (state_idx >= kStateCount) {
@@ -164,14 +152,12 @@ void FMusicDirector::SetState(EMusicState state, f32 transition_sec) noexcept {
     RouteCurrentTrackToAudio(transition_sec);
 }
 
+/** current != target かつ progress < 1 なら true。 */
 bool FMusicDirector::IsTransitioning() const noexcept {
     return m_CurrentState != m_TargetState && m_TransitionProgress < 1.0f;
 }
 
-// ----------------------------------------------------------------------------
-// intensity
-// ----------------------------------------------------------------------------
-
+/** intensity を [0, 1] にクランプして設定する (範囲外は警告)。 */
 void FMusicDirector::SetIntensity(f32 intensity_0_to_1) noexcept {
     const f32 c = Clamp01(intensity_0_to_1);
     if (c != intensity_0_to_1) {
@@ -181,10 +167,7 @@ void FMusicDirector::SetIntensity(f32 intensity_0_to_1) noexcept {
     m_Intensity = c;
 }
 
-// ----------------------------------------------------------------------------
-// Stinger
-// ----------------------------------------------------------------------------
-
+/** pending stinger を更新し、結線済みなら即時に SFX を重ね再生する。 */
 void FMusicDirector::PlayStinger(const char* asset_path, f32 volume) noexcept {
     if (asset_path == nullptr) {
         ACS_LOG_WARN("FMusicDirector::PlayStinger: asset_path=nullptr → ignored");
@@ -211,6 +194,7 @@ void FMusicDirector::PlayStinger(const char* asset_path, f32 volume) noexcept {
     }
 }
 
+/** 保持中の stinger を取り出し、pending=false に戻す。 */
 const char* FMusicDirector::ConsumeStinger(f32& out_volume) noexcept {
     if (!m_StingerPending) {
         out_volume = 0.0f;
@@ -224,10 +208,7 @@ const char* FMusicDirector::ConsumeStinger(f32& out_volume) noexcept {
     return path;
 }
 
-// ----------------------------------------------------------------------------
-// driver
-// ----------------------------------------------------------------------------
-
+/** クロスフェードの進捗を進め、完了したら current を target に snap する。 */
 void FMusicDirector::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
 
@@ -258,10 +239,7 @@ void FMusicDirector::Tick(f32 dt) noexcept {
     }
 }
 
-// ----------------------------------------------------------------------------
-// Stop
-// ----------------------------------------------------------------------------
-
+/** state を Silent に即時切替し、stinger を破棄して実 BGM も停止する。 */
 void FMusicDirector::Stop() noexcept {
     m_CurrentState        = EMusicState::Silent;
     m_TargetState         = EMusicState::Silent;
@@ -280,16 +258,14 @@ void FMusicDirector::Stop() noexcept {
     }
 }
 
-// ----------------------------------------------------------------------------
-// 派生情報
-// ----------------------------------------------------------------------------
-
+/** 現在 state で intensity に合致する track を返す。 */
 const MusicTrack* FMusicDirector::CurrentTrack() const noexcept {
     const usize idx = FindTrackForState(m_CurrentState, m_Intensity);
     if (idx >= m_Tracks.Size()) return nullptr;
     return &m_Tracks[idx];
 }
 
+/** 遷移先 state 側の track を返す (遷移していなければ nullptr)。 */
 const MusicTrack* FMusicDirector::TargetTrack() const noexcept {
     if (m_CurrentState == m_TargetState) return nullptr;
     const usize idx = FindTrackForState(m_TargetState, m_Intensity);

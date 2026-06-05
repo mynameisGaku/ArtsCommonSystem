@@ -8,16 +8,14 @@
 
 namespace acs::game {
 
-// =============================================================================
-// Enter — 撮影モードに入る
-//   1. すでに active なら no-op (二重 Enter 防止: 保存値が壊れるため)
-//   2. 現在の time_scale を保存
-//   3. カメラ操作オフセットを完全リセット
-//      → 前回の撮影時のパン/ズーム/回転を持ち越さない (UX 上の自然挙動)
-//   4. フィルタはリセット **しない**: ユーザが「今回もセピアで撮りたい」
-//      と思うのが普通なので、最後に選んだフィルタを覚えておく
-//   5. capture_pending もリセットして「Enter 直後に誤撮影」を防ぐ
-// =============================================================================
+/**
+ * 撮影モードに入る。
+ *
+ * @details
+ * 二重 Enter は保存値を壊さないため no-op。現在の time_scale を保存し、カメラオフセット・
+ * ズーム・回転・撮影 flag をリセットする。フィルタは最後の選択を保持する。
+ * @param current_time_scale Enter 時点の time scale (復元用に保存する)。
+ */
 void FPhotoMode::Enter(f32 current_time_scale) noexcept {
     if (m_Active) {
         return;  // 二重 Enter ガード (m_SavedTimeScale を上書きしない)
@@ -31,37 +29,36 @@ void FPhotoMode::Enter(f32 current_time_scale) noexcept {
     // m_Filter は意図的に保持
 }
 
-// =============================================================================
-// Exit — 撮影モードを抜ける
-//   active=false にするだけ。time_scale 復元は caller が
-//   `FGame::SetTimeScale(photo.SavedTimeScale())` で行う。
-//   カメラ offset / zoom / rot もそのまま保持する。次回 Enter() 時に
-//   リセットされるので、Exit→Enter 間に値を見たい用途を阻害しない。
-// =============================================================================
+/**
+ * 撮影モードを抜ける。
+ *
+ * @details active=false にして撮影 flag を落とすだけ。time scale 復元は caller が行う。
+ * カメラ offset / zoom / rot は保持され、次回 Enter でリセットされる。
+ */
 void FPhotoMode::Exit() noexcept {
     m_Active          = false;
     m_bCapturePending = false;
 }
 
-// =============================================================================
-// MoveCamera — パン入力を累積
-//   active 中のみ反映 (撮影モード外で誤って積まないようにガード)。
-// =============================================================================
+/**
+ * カメラのパン入力を累積する (active 中のみ反映)。
+ *
+ * @param delta 加算するオフセット (world units)。
+ */
 void FPhotoMode::MoveCamera(FVec2 delta) noexcept {
     if (!m_Active) return;
     m_Offset.x += delta.x;
     m_Offset.y += delta.y;
 }
 
-// =============================================================================
-// ZoomCamera — ズーム変化を加算 (乗算ではなく加算)
-//   ・zoom_delta = +0.1 → 1.0 → 1.1 (10% ズームイン)
-//   ・zoom_delta = -0.5 → 1.0 → 0.5 (50% ズームアウト)
-//   ・最終値は [0.1, 10.0] に clamp:
-//       - 0.1 未満は LOD / 深度バッファ精度が破綻する
-//       - 10.0 超は被写界深度ボケが極端で実用性なし
-//   active 外でも操作許可 (Enter() で 1.0 にリセットされるため副作用なし)。
-// =============================================================================
+/**
+ * ズーム倍率を変更する (active 中のみ反映)。
+ *
+ * @details
+ * zoom_delta を現在倍率に加算し ([+0.1] で 1.0→1.1)、結果を [0.1, 10.0] に clamp する。
+ * 0.1 未満は LOD / 深度バッファ精度が、10.0 超は被写界深度ボケが破綻するため。
+ * @param zoom_delta ズーム倍率への加算量。
+ */
 void FPhotoMode::ZoomCamera(f32 zoom_delta) noexcept {
     if (!m_Active) return;
     m_ZoomMult += zoom_delta;
@@ -69,22 +66,25 @@ void FPhotoMode::ZoomCamera(f32 zoom_delta) noexcept {
     if (m_ZoomMult > 10.0f) m_ZoomMult = 10.0f;
 }
 
-// =============================================================================
-// RotateCamera — 回転を累積 (radians)
-//   wrap (-π..π) はしない。caller がフレーム合成時に Sin/Cos に渡すだけ
-//   なので overflow しても挙動は変わらない。
-// =============================================================================
+/**
+ * 回転オフセットを累積する (active 中のみ反映)。
+ *
+ * @details wrap (-π..π) はしない。caller が Sin/Cos に渡すだけなので overflow しても
+ * 挙動は変わらない。
+ * @param rad_delta 加算する回転量 (ラジアン)。
+ */
 void FPhotoMode::RotateCamera(f32 rad_delta) noexcept {
     if (!m_Active) return;
     m_Rot += rad_delta;
 }
 
-// =============================================================================
-// ConsumeCaptureRequest — 撮影 flag を読んで同時に落とす
-//   ・active 外では常に false を返す (Exit 後の取り残し flag 防止)
-//   ・成功時は m_bCapturePending を false に rear:
-//     描画ループが同一フレームで複数回呼んでも 1 枚しか撮影されない
-// =============================================================================
+/**
+ * 撮影リクエストを読み取って同時に消費する。
+ *
+ * @details active 外では常に false。成功時は flag を落とすため、同一フレームで複数回
+ * 呼んでも 1 枚しか撮影されない。
+ * @return 撮影リクエストが立っていれば true。
+ */
 bool FPhotoMode::ConsumeCaptureRequest() noexcept {
     if (!m_Active) return false;
     if (!m_bCapturePending) return false;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — IAudioBackend (Phase 2: 実音声再生 seam)
+// GameFramework Pillar H — IAudioBackend (実音声再生 seam)
 //
 // 役割:
 //   `FAudioDirector` から見た「実際に音を出す層」の純粋仮想インターフェース。
@@ -23,11 +23,11 @@
 //     で COM ハンドル二重解放を避けるため最初から非コピー・非ムーブ。
 //   ・**STL 不使用 / 全 noexcept**: ACS 全体方針。
 //
-// 範囲外 (将来フェーズで):
+// 範囲外:
 //   ・3D positional / spatial / HRTF (Pillar FSpatialAudio 担当)
 //   ・submix bus / DSP chain / reverb
 //   ・wav/ogg/mp3 デコード (今回は Pcm16 raw bytes 入力前提、Wav 形式は
-//     Phase 3 で別 loader と組合せる)
+//     別 loader と組合せる)
 //   ・streaming (大型 BGM をオンメモリせず逐次デコード)
 #pragma once
 
@@ -36,123 +36,227 @@
 
 namespace acs::game {
 
-// ---- FErrorCode subcode 定義 (ErrCategory::Generic 配下) ------------------
-// FSteamworksBridge / FVoiceChat と同様、Generic + 安定 subcode で表現。
-// 呼び出し側は `err.subcode == kSubAudioComInitFailed` 等でフィルタ可能。
-inline constexpr u16 kSubAudioAlreadyInitialized = 1200;  // Init を 2 回呼んだ
-inline constexpr u16 kSubAudioNotInitialized     = 1201;  // Init() 前の API 呼び出し
-inline constexpr u16 kSubAudioComInitFailed      = 1202;  // CoInitializeEx 失敗
-inline constexpr u16 kSubAudioCreateFailed       = 1203;  // XAudio2Create / 同等失敗
-inline constexpr u16 kSubAudioMasterVoiceFailed  = 1204;  // CreateMasteringVoice 失敗
-inline constexpr u16 kSubAudioInvalidArgs        = 1205;  // Init(max_voices=0) 等
+/** Init を 2 回呼んだ (多重初期化)。 */
+inline constexpr u16 kSubAudioAlreadyInitialized = 1200;
 
-// ---- フォーマット種別 -----------------------------------------------------
-// PlayOneShot / PlayLooped に渡す clip がどの形式かを示す。
-//   ・Pcm16     = 16bit signed PCM (典型的な WAV PCM 形式の raw bytes)
-//   ・Pcm32Float = 32bit IEEE float PCM (高品質、DSP-friendly)
-//   ・Wav       = ファイルからロード済の WAV 形式 (パーサ別途、Phase 3)
+/** Init() より前に API を呼び出した。 */
+inline constexpr u16 kSubAudioNotInitialized     = 1201;
+
+/** CoInitializeEx に失敗した。 */
+inline constexpr u16 kSubAudioComInitFailed      = 1202;
+
+/** XAudio2Create または同等の生成呼び出しに失敗した。 */
+inline constexpr u16 kSubAudioCreateFailed       = 1203;
+
+/** CreateMasteringVoice に失敗した。 */
+inline constexpr u16 kSubAudioMasterVoiceFailed  = 1204;
+
+/** 引数が不正 (Init(max_voices=0) など)。 */
+inline constexpr u16 kSubAudioInvalidArgs        = 1205;
+
+/**
+ * PlayOneShot / PlayLooped に渡す clip の音声フォーマット種別。
+ *
+ * @details
+ * Pcm16 は典型的な WAV PCM の raw bytes、Pcm32Float は DSP-friendly な高品質形式、
+ * Wav はファイルからロード済の WAV 形式 (パーサは別途) を表す。
+ */
 enum class EAudioFormat : u8 {
+    /** 16bit signed PCM (典型的な WAV PCM 形式の raw bytes)。 */
     Pcm16      = 0,
+
+    /** 32bit IEEE float PCM (高品質、DSP-friendly)。 */
     Pcm32Float = 1,
+
+    /** ファイルからロード済の WAV 形式 (パーサ別途)。 */
     Wav        = 2,
 };
 
-// ---- clip 記述子 ----------------------------------------------------------
-// 再生する音声バッファのフォーマット + データ参照。pcm_data は backend 側で
-// 必要な間 (一発再生終了 / Stop まで) 内部コピーされる。
-//
-//   ・pcm_data     : raw PCM サンプル列 (Wav 形式の場合は RIFF ヘッダ込み)
-//   ・pcm_size     : pcm_data の有効バイト数
-//   ・sample_rate  : 1 チャネルあたりサンプル/秒 (e.g. 44100 / 48000)
-//   ・channel_count: チャネル数 (1=mono / 2=stereo)
-//   ・format       : 上記 EAudioFormat
+/**
+ * 再生する音声バッファのフォーマット + データ参照を表す clip 記述子。
+ *
+ * @details
+ * pcm_data は backend 側で必要な間 (一発再生終了 / Stop まで) 内部コピーされるため、
+ * 呼び出し側で寿命を延ばす必要はない。
+ */
 struct AudioClipDesc {
+    /** raw PCM サンプル列 (Wav 形式の場合は RIFF ヘッダ込み)。 */
     const void*  pcm_data      = nullptr;
+
+    /** pcm_data の有効バイト数。 */
     u64          pcm_size      = 0;
+
+    /** 1 チャネルあたりサンプル/秒 (例: 44100 / 48000)。 */
     u32          sample_rate   = 0;
+
+    /** チャネル数 (1=mono / 2=stereo)。 */
     u32          channel_count = 0;
+
+    /** pcm_data のフォーマット種別。 */
     EAudioFormat format        = EAudioFormat::Pcm16;
 };
 
-// ---- voice handle --------------------------------------------------------
-// 内部表現: 下位 24bit = voice index、上位 8bit = generation。
-// 再利用された slot を古いハンドルで参照する事故を generation で検出する。
-// 全 0 (= m_Packed == 0) は無効ハンドルを意味する (kInvalidAudioVoice)。
-//
-// **重要な不変条件 (backend 実装側の契約)**:
-//   有効ハンドルの packed 値は決して 0 になってはならない。pack は
-//   `(index & 0x00FFFFFF) | (gen << 24)` なので、index==0 かつ gen==0 だと
-//   packed==0 となり kInvalidAudioVoice と区別不能になる。これを避けるため、
-//   **backend は generation を必ず 1 以上で配る** (slot 初期 gen=1、ラップ時は
-//   0 をスキップして 1 にする)。これで最初の voice (index=0) でも packed が
-//   非 0 になり、確保成功を IsValid()==false と誤判定しない。
-//   この規約は FNodeId / FShapeId (24bit index + 8bit gen, gen>=1) と同一。
+/**
+ * 再生中の voice を一意に指す generational handle。
+ *
+ * @details
+ * 内部表現は下位 24bit = voice index、上位 8bit = generation。再利用された slot を
+ * 古いハンドルで参照する事故を generation で検出する。全 0 (= m_Packed == 0) は無効
+ * ハンドル (kInvalidAudioVoice) を意味する。
+ *
+ * 重要な不変条件 (backend 実装側の契約): 有効ハンドルの packed 値は決して 0 に
+ * なってはならない。pack は `(index & 0x00FFFFFF) | (gen << 24)` なので index==0 かつ
+ * gen==0 だと packed==0 となり kInvalidAudioVoice と区別不能になる。これを避けるため
+ * backend は generation を必ず 1 以上で配る (slot 初期 gen=1、ラップ時は 0 をスキップ
+ * して 1 にする)。これで最初の voice (index=0) でも packed が非 0 になり、確保成功を
+ * IsValid()==false と誤判定しない。この規約は FNodeId / FShapeId と同一。
+ */
 struct AudioVoiceHandle {
+    /** 下位 24bit=index、上位 8bit=generation を詰めた packed 値 (0=無効)。 */
     u32 m_Packed = 0;
 
+    /** 無効ハンドル (m_Packed=0) を構築する。 */
     constexpr AudioVoiceHandle() noexcept = default;
+
+    /**
+     * index と generation を packed 値に詰めて構築する。
+     *
+     * @param index voice の slot インデックス (下位 24bit)。
+     * @param gen slot の世代カウンタ (上位 8bit、有効ハンドルでは 1 以上)。
+     */
     constexpr AudioVoiceHandle(u32 index, u8 gen) noexcept
         : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
+    /**
+     * 有効なハンドルかを返す。
+     *
+     * @return packed 値が非 0 (= 有効) なら true。
+     */
     bool IsValid() const noexcept { return m_Packed != 0u; }
 
+    /**
+     * voice の slot インデックスを返す。
+     *
+     * @return packed 値の下位 24bit。
+     */
     u32 Index() const noexcept { return m_Packed & 0x00FFFFFFu; }
+
+    /**
+     * slot の世代カウンタを返す。
+     *
+     * @return packed 値の上位 8bit。
+     */
     u8  Generation() const noexcept { return static_cast<u8>(m_Packed >> 24); }
 };
 
+/** 無効を表す voice ハンドル定数 (m_Packed=0)。 */
 inline constexpr AudioVoiceHandle kInvalidAudioVoice {};
 
-// ---- 抽象 I/F -------------------------------------------------------------
-// FXAudio2Backend / 将来の CoreAudioBackend / NullAudioBackend (テスト用) 等の
-// 差を吸収する純粋仮想 I/F。`FAudioDirector::SetBackend(IAudioBackend*)` で
-// 差し込み、FAudioDirector は backend nullptr のとき無音 (no-op) で動作する。
+/**
+ * FAudioDirector から見た「実際に音を出す層」の純粋仮想インターフェース。
+ *
+ * @details
+ * FXAudio2Backend / 将来の CoreAudioBackend / NullAudioBackend (テスト用) 等の差を
+ * 吸収する。`FAudioDirector::SetBackend(IAudioBackend*)` で差し込み、FAudioDirector は
+ * backend が nullptr のとき無音 (no-op) で動作する。
+ */
 class IAudioBackend {
 public:
+    /** 既定構築する。 */
     IAudioBackend() noexcept = default;
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
     virtual ~IAudioBackend() noexcept = default;
 
+    /** コピー禁止 (backend は 1 個の長寿命オブジェクト、COM ハンドル二重解放を防ぐ)。 */
     IAudioBackend(const IAudioBackend&)            = delete;
+
+    /** コピー代入も禁止。 */
     IAudioBackend& operator=(const IAudioBackend&) = delete;
+
+    /** ムーブ禁止。 */
     IAudioBackend(IAudioBackend&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     IAudioBackend& operator=(IAudioBackend&&)      = delete;
 
-    // backend 初期化。max_voices は同時発音数の上限 (slot 数)。0 は不正。
-    // 多重 Init は kSubAudioAlreadyInitialized エラー。
+    /**
+     * backend を初期化する。
+     *
+     * @details 多重 Init は kSubAudioAlreadyInitialized エラーになる。
+     * @param max_voices 同時発音数の上限 (slot 数)。0 は不正。
+     * @return 成功なら空の TResult、初期化失敗なら対応する subcode 付きエラー。
+     */
     virtual TResult<void> Init(u32 max_voices = 64) noexcept = 0;
 
-    // 全 voice を停止して資源解放。Init 前に呼んでも安全 (no-op)。
+    /** 全 voice を停止して資源を解放する (Init 前に呼んでも安全な no-op)。 */
     virtual void Shutdown() noexcept = 0;
 
-    // Init 済かつ実バックエンドが正常起動した状態か。
+    /**
+     * Init 済かつ実バックエンドが正常起動した状態かを返す。
+     *
+     * @return 初期化済みで稼働中なら true。
+     */
     virtual bool IsInitialized() const noexcept = 0;
 
-    // 一発再生 (loop なし、終端で自動回収)。
-    //   volume: 0.0〜1.0 を想定 (実装は clamp 推奨)
-    //   pitch : 1.0 = 等倍、0.5 = 1 オクターブ低い、2.0 = 1 オクターブ高い
-    // 失敗時 (未 init / 空きスロットなし / fmt 不正) は kInvalidAudioVoice を返す。
+    /**
+     * 一発再生する (loop なし、終端で slot を自動回収)。
+     *
+     * @details 失敗時 (未 init / 空きスロットなし / フォーマット不正) は kInvalidAudioVoice を返す。
+     * @param clip 再生する音声バッファの記述子。
+     * @param volume 音量 (0.0〜1.0 を想定、実装は clamp 推奨)。
+     * @param pitch 再生ピッチ (1.0=等倍、0.5=1 オクターブ低い、2.0=1 オクターブ高い)。
+     * @return 再生 voice のハンドル (失敗時は kInvalidAudioVoice)。
+     */
     virtual AudioVoiceHandle PlayOneShot(const AudioClipDesc& clip,
                                          f32 volume,
                                          f32 pitch) noexcept = 0;
 
-    // ループ再生 (Stop までずっと鳴り続ける)。引数は PlayOneShot と同様。
+    /**
+     * ループ再生する (StopVoice まで鳴り続ける)。
+     *
+     * @details 失敗時 (未 init / 空きスロットなし / フォーマット不正) は kInvalidAudioVoice を返す。
+     * @param clip 再生する音声バッファの記述子。
+     * @param volume 音量 (0.0〜1.0 を想定、実装は clamp 推奨)。
+     * @param pitch 再生ピッチ (1.0=等倍、0.5=1 オクターブ低い、2.0=1 オクターブ高い)。
+     * @return 再生 voice のハンドル (失敗時は kInvalidAudioVoice)。
+     */
     virtual AudioVoiceHandle PlayLooped(const AudioClipDesc& clip,
                                         f32 volume,
                                         f32 pitch) noexcept = 0;
 
-    // 指定 voice を停止し slot を解放。無効 / 既に解放済ハンドルは no-op。
+    /**
+     * 指定 voice を停止し slot を解放する。
+     *
+     * @param voice 停止する voice ハンドル (無効 / 既に解放済なら no-op)。
+     */
     virtual void StopVoice(AudioVoiceHandle voice) noexcept = 0;
 
-    // 指定 voice の音量を変更。無効 / 解放済は no-op。範囲外は clamp 推奨。
+    /**
+     * 指定 voice の音量を変更する。
+     *
+     * @param voice 対象の voice ハンドル (無効 / 解放済なら no-op)。
+     * @param volume 新しい音量 (範囲外は clamp 推奨)。
+     */
     virtual void SetVoiceVolume(AudioVoiceHandle voice, f32 volume) noexcept = 0;
 
-    // 全 voice を停止して slot 解放。Init 前は no-op。
+    /** 全 voice を停止して slot を解放する (Init 前は no-op)。 */
     virtual void StopAllVoices() noexcept = 0;
 
-    // 現在再生中 (= slot active) の voice 数。デバッグ / UI メーター用。
+    /**
+     * 現在再生中 (= slot active) の voice 数を返す。
+     *
+     * @details デバッグ / UI メーター用。
+     * @return アクティブな voice 数。
+     */
     virtual u32 ActiveVoiceCount() const noexcept = 0;
 
-    // 完了した一発再生 voice の slot 解放等、内部状態を進める。
-    // ゲームループから毎フレーム呼ぶ。dt は実時間秒 (実装によっては使わない)。
+    /**
+     * 内部状態を 1 フレーム進める (完了した一発再生 voice の slot 解放等)。
+     *
+     * @details ゲームループから毎フレーム呼ぶ。
+     * @param dt 実時間の経過秒 (実装によっては使わない)。
+     */
     virtual void Tick(f32 dt) noexcept = 0;
 };
 

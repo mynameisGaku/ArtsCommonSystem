@@ -16,67 +16,217 @@
 
 namespace acs {
 
-// 標準頂点フォーマット (32 bytes)
+/** 標準頂点フォーマット (32 bytes、位置 + 法線 + UV)。 */
 struct MeshVertex {
+    /** 頂点位置 (オブジェクト空間)。 */
     FVec3 position;
+
+    /** 頂点法線。 */
     FVec3 normal;
+
+    /** テクスチャ座標 U。 */
     f32  u;
+
+    /** テクスチャ座標 V。 */
     f32  v;
 };
 
-// サブメッシュ（複数マテリアル対応用、開始 index と数だけ持つ）
+/**
+ * サブメッシュ (複数マテリアル対応用にインデックス範囲だけを持つ)。
+ *
+ * @details インデックスバッファ中の [first_index, first_index + index_count) を 1 つの描画単位とする。
+ */
 struct SubMesh {
+    /** インデックスバッファ中の開始インデックス。 */
     u32 first_index = 0;
+
+    /** このサブメッシュが使うインデックス数。 */
     u32 index_count = 0;
 };
 
+/**
+ * 単一の静的メッシュアセット (頂点配列 + インデックス配列 + サブメッシュ範囲)。
+ *
+ * @details 頂点は MeshVertex (位置 + 法線 + UV) 固定。各ローダ (glTF/GLB/OBJ/FBX) が
+ * 全プリミティブを 1 つの本アセットへ flatten して構築する。
+ */
 class FMeshAsset : public Asset {
 public:
     ACS_ASSET_TYPE("FMeshAsset")
 
+    /** 空のメッシュアセットを構築する。 */
     FMeshAsset() noexcept = default;
 
+    /**
+     * 頂点配列への const 参照を返す。
+     *
+     * @return 頂点配列への const 参照。
+     */
     const TArray<MeshVertex>& Vertices()  const noexcept { return m_Vertices; }
+
+    /**
+     * 頂点配列への可変参照を返す。
+     *
+     * @return 頂点配列への可変参照。
+     */
     TArray<MeshVertex>&       Vertices()        noexcept { return m_Vertices; }
+
+    /**
+     * インデックス配列への const 参照を返す。
+     *
+     * @return インデックス配列への const 参照。
+     */
     const TArray<u32>&        Indices()   const noexcept { return m_Indices; }
+
+    /**
+     * インデックス配列への可変参照を返す。
+     *
+     * @return インデックス配列への可変参照。
+     */
     TArray<u32>&              Indices()         noexcept { return m_Indices; }
+
+    /**
+     * サブメッシュ配列への const 参照を返す。
+     *
+     * @return サブメッシュ配列への const 参照。
+     */
     const TArray<SubMesh>&    SubMeshes() const noexcept { return m_Submeshes; }
+
+    /**
+     * サブメッシュ配列への可変参照を返す。
+     *
+     * @return サブメッシュ配列への可変参照。
+     */
     TArray<SubMesh>&          SubMeshes()       noexcept { return m_Submeshes; }
 
 private:
+    /** 頂点配列 (位置 + 法線 + UV)。 */
     TArray<MeshVertex> m_Vertices;
+
+    /** インデックス配列。 */
     TArray<u32>        m_Indices;
+
+    /** サブメッシュ範囲の配列。 */
     TArray<SubMesh>    m_Submeshes;
 };
 
-// glTF / GLB ローダ (cgltf)
+/**
+ * glTF (.gltf) を FMeshAsset へロードするローダ (cgltf 使用)。
+ *
+ * @details v1 では外部バイナリ参照は非対応で、埋め込みバッファのみサポートする。
+ */
 class GltfAssetLoader final : public IAssetLoader {
 public:
+    /**
+     * このローダが生成するアセット型を返す。
+     *
+     * @return FMeshAsset の静的型 ID。
+     */
     AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
+
+    /**
+     * 対応する拡張子を返す。
+     *
+     * @return "gltf"。
+     */
     const char* Extension() const noexcept override { return "gltf"; }
+
+    /**
+     * バイト列を glTF としてパースし FMeshAsset を構築する。
+     *
+     * @param id 生成するアセットに割り当てる ID。
+     * @param bytes .gltf のバイト列。
+     * @return 成功なら Ready 状態の FMeshAsset、パース/バッファロード失敗ならエラー。
+     */
     TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
+/** GLB (.glb) を FMeshAsset へロードするローダ (cgltf 使用)。 */
 class GlbAssetLoader final : public IAssetLoader {
 public:
+    /**
+     * このローダが生成するアセット型を返す。
+     *
+     * @return FMeshAsset の静的型 ID。
+     */
     AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
+
+    /**
+     * 対応する拡張子を返す。
+     *
+     * @return "glb"。
+     */
     const char* Extension() const noexcept override { return "glb"; }
+
+    /**
+     * バイト列を GLB としてパースし FMeshAsset を構築する。
+     *
+     * @param id 生成するアセットに割り当てる ID。
+     * @param bytes .glb のバイト列。
+     * @return 成功なら Ready 状態の FMeshAsset、パース/バッファロード失敗ならエラー。
+     */
     TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
-// Wavefront OBJ ローダ（自前パーサ）
+/**
+ * Wavefront OBJ (.obj) を FMeshAsset へロードするローダ (自前パーサ)。
+ *
+ * @details v / vn / vt / f のみ対応し、マテリアルは無視する。
+ */
 class ObjAssetLoader final : public IAssetLoader {
 public:
+    /**
+     * このローダが生成するアセット型を返す。
+     *
+     * @return FMeshAsset の静的型 ID。
+     */
     AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
+
+    /**
+     * 対応する拡張子を返す。
+     *
+     * @return "obj"。
+     */
     const char* Extension() const noexcept override { return "obj"; }
+
+    /**
+     * バイト列を OBJ としてパースし FMeshAsset を構築する。
+     *
+     * @param id 生成するアセットに割り当てる ID。
+     * @param bytes .obj のバイト列。
+     * @return 構築した Ready 状態の FMeshAsset。
+     */
     TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
-// FBX ローダ (ufbx)
+/**
+ * FBX (.fbx) を FMeshAsset へロードするローダ (ufbx 使用)。
+ *
+ * @details ufbx の三角形化ヘルパで全メッシュを三角形へ分割して取り込む。
+ */
 class FbxAssetLoader final : public IAssetLoader {
 public:
+    /**
+     * このローダが生成するアセット型を返す。
+     *
+     * @return FMeshAsset の静的型 ID。
+     */
     AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
+
+    /**
+     * 対応する拡張子を返す。
+     *
+     * @return "fbx"。
+     */
     const char* Extension() const noexcept override { return "fbx"; }
+
+    /**
+     * バイト列を FBX としてパースし FMeshAsset を構築する。
+     *
+     * @param id 生成するアセットに割り当てる ID。
+     * @param bytes .fbx のバイト列。
+     * @return 成功なら Ready 状態の FMeshAsset、ロード失敗ならエラー。
+     */
     TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 

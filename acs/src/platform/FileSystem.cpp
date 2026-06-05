@@ -8,13 +8,25 @@ namespace acs {
 
 namespace {
 
-// 共通: 読み取り用に CreateFile してハンドルを取得
+/**
+ * 読み取り用にファイルを開いてハンドルを返す。
+ *
+ * @details GENERIC_READ・FILE_SHARE_READ・OPEN_EXISTING で開くため未存在は失敗する。
+ * @param path 開くファイルのパス。
+ * @return ファイルハンドル (失敗時は INVALID_HANDLE_VALUE)。
+ */
 HANDLE OpenForRead(const wchar_t* path) noexcept {
     return ::CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr,
                          OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
 }
 
-// 共通: 書き込み用に CreateFile してハンドルを取得（上書き）
+/**
+ * 書き込み用にファイルを開いてハンドルを返す (既存は上書き)。
+ *
+ * @details GENERIC_WRITE・共有なし・CREATE_ALWAYS で開くため既存内容は破棄される。
+ * @param path 開くファイルのパス。
+ * @return ファイルハンドル (失敗時は INVALID_HANDLE_VALUE)。
+ */
 HANDLE OpenForWrite(const wchar_t* path) noexcept {
     return ::CreateFileW(path, GENERIC_WRITE, 0, nullptr,
                          CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -24,7 +36,7 @@ HANDLE OpenForWrite(const wchar_t* path) noexcept {
 
 // ファイル全体をバイト列として読み込む
 TResult<TArray<byte>> FileSystem::ReadAllBytes(const wchar_t* path) noexcept {
-    HANDLE h = OpenForRead(path);
+    const HANDLE h = OpenForRead(path);
     if (h == INVALID_HANDLE_VALUE)
         return ACS_ERR_OS(IO, 100, "CreateFileW (read) failed", ::GetLastError());
 
@@ -42,8 +54,8 @@ TResult<TArray<byte>> FileSystem::ReadAllBytes(const wchar_t* path) noexcept {
     TArray<byte> buf;
     buf.Resize(static_cast<usize>(size.QuadPart));
     DWORD read = 0;
-    BOOL ok = ::ReadFile(h, buf.Data(), static_cast<DWORD>(buf.Size()), &read, nullptr);
-    DWORD err = ok ? 0 : ::GetLastError();
+    const BOOL ok = ::ReadFile(h, buf.Data(), static_cast<DWORD>(buf.Size()), &read, nullptr);
+    const DWORD err = ok ? 0 : ::GetLastError();
     ::CloseHandle(h);
     if (!ok || read != buf.Size())
         return ACS_ERR_OS(IO, 103, "ReadFile failed", err);
@@ -64,12 +76,12 @@ TResult<TArray<char>> FileSystem::ReadAllText(const wchar_t* path) noexcept {
 
 // バイト列を書き出す（上書き）
 TResult<void> FileSystem::WriteAllBytes(const wchar_t* path, const byte* data, usize size) noexcept {
-    HANDLE h = OpenForWrite(path);
+    const HANDLE h = OpenForWrite(path);
     if (h == INVALID_HANDLE_VALUE)
         return ACS_ERR_OS(IO, 110, "CreateFileW (write) failed", ::GetLastError());
     DWORD wrote = 0;
-    BOOL ok = ::WriteFile(h, data, static_cast<DWORD>(size), &wrote, nullptr);
-    DWORD err = ok ? 0 : ::GetLastError();
+    const BOOL ok = ::WriteFile(h, data, static_cast<DWORD>(size), &wrote, nullptr);
+    const DWORD err = ok ? 0 : ::GetLastError();
     ::CloseHandle(h);
     if (!ok || wrote != size)
         return ACS_ERR_OS(IO, 111, "WriteFile failed", err);
@@ -96,13 +108,13 @@ TResult<u64> FileSystem::FileSize(const wchar_t* path) noexcept {
 
 // ファイル存在確認
 bool FileSystem::Exists(const wchar_t* path) noexcept {
-    DWORD a = ::GetFileAttributesW(path);
+    const DWORD a = ::GetFileAttributesW(path);
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
 // ディレクトリ存在確認
 bool FileSystem::DirectoryExists(const wchar_t* path) noexcept {
-    DWORD a = ::GetFileAttributesW(path);
+    const DWORD a = ::GetFileAttributesW(path);
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
 
@@ -114,7 +126,7 @@ TResult<void> FileSystem::CreateDirectory(const wchar_t* path) noexcept {
     while (path[n] && n < 1023) { buf[n] = path[n]; ++n; }
     buf[n] = 0;
     for (usize i = 0; i < n; ++i) {
-        wchar_t c = buf[i];
+        const wchar_t c = buf[i];
         if ((c == L'\\' || c == L'/') && i > 0) {
             buf[i] = 0;
             if (!DirectoryExists(buf)) ::CreateDirectoryW(buf, nullptr);
@@ -122,7 +134,7 @@ TResult<void> FileSystem::CreateDirectory(const wchar_t* path) noexcept {
         }
     }
     if (!::CreateDirectoryW(path, nullptr)) {
-        DWORD err = ::GetLastError();
+        const DWORD err = ::GetLastError();
         if (err != ERROR_ALREADY_EXISTS)
             return ACS_ERR_OS(IO, 130, "CreateDirectoryW failed", err);
     }

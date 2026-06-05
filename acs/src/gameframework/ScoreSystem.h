@@ -42,7 +42,7 @@
 //   f32 left = ss.ComboTimeRemaining();
 //   f32 mul  = ss.ComboMultiplier();
 //
-// 設計選択 (Pillar R/O Phase 1):
+// 設計選択 (Pillar R/O):
 //   ・**multiplier は ×100 整数で entry に記録**: ScoreEntry.multiplier_x100 は
 //     例えば 250 = 2.5x。倍率を f32 で持つと bit 完全一致が取れず、Replay /
 //     Telemetry での比較で偽差分が出るため整数化する。
@@ -67,7 +67,7 @@
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
 //   ・**STL 不使用、`<string>` 禁止**: const char* 非所有のみ。
 //
-// 範囲外 (Phase 2+ で):
+// 範囲外:
 //   ・永続化 (HighScore Save/Load) — Pillar J Serialize と統合予定。
 //     現状は SetHighScore() で外部から注入する手動 wiring。
 //   ・難易度補正 / グレード判定 — FDynamicDifficulty / FGameFlow と連携想定。
@@ -80,161 +80,289 @@
 
 namespace acs::game {
 
-// ---- ScoreEntry: 1 回の AddScore() に対応する記録 --------------------------
-// category         : 加算カテゴリ (例: "enemy.normal" / "bonus.air_combo")。文字列リテラル想定 (非所有)。
-// base_value       : AddScore() に渡された素点 (multiplier 適用前)。
-// weighted_value   : base * (multiplier_x100 / 100) の最終加算値 (実際に CurrentScore に足した量)。
-// multiplier_x100  : この加算時点での倍率を ×100 整数化したもの (例: 250 = 2.5x)。
+/**
+ * 1 回の AddScore() に対応する記録。
+ *
+ * @details
+ * category は文字列リテラル想定 (非所有)。weighted_value は base に倍率を掛けて
+ * 実際に CurrentScore へ足した値、multiplier_x100 はその加算時点の倍率の ×100 整数。
+ */
 struct ScoreEntry {
+    /** 加算カテゴリ (例: "enemy.normal" / "bonus.air_combo")。文字列リテラル想定 (非所有)。 */
     const char* category        = nullptr;
+
+    /** AddScore() に渡された素点 (倍率適用前)。 */
     u64         base_value      = 0;
+
+    /** base * (multiplier_x100 / 100) の最終加算値 (実際に CurrentScore に足した量)。 */
     u64         weighted_value  = 0;
-    u32         multiplier_x100 = 100;  // 100 = 1.0x
+
+    /** この加算時点での倍率を ×100 整数化したもの (例: 250 = 2.5x、既定 100 = 1.0x)。 */
+    u32         multiplier_x100 = 100;
 };
 
-// ---- FScoreSystem ----------------------------------------------------------
+/**
+ * スコア累積 + コンボ計算 + マイルストン通知をまとめた高レベルマネージャ。
+ *
+ * @details
+ * アーケード / 高速アクション系向け。NotifyHit でコンボがインクリメントされ、
+ * AddScore() 時にコンボから算出した倍率を掛けて加算する。NotifyMiss() または
+ * combo_duration 内に次のヒットが無ければコンボがリセットされる。倍率は entry に
+ * ×100 整数で記録し (Replay / Telemetry の偽差分回避)、category は所有しない
+ * const char*、entry log は max 100 件の capped append。全 noexcept で非コピー・
+ * 非ムーブ。
+ */
 class FScoreSystem {
 public:
-    // コンボ→倍率の差し替え関数型。nullptr 指定で内部デフォルトに戻す。
-    // 戻り値 multiplier は呼出側で f32 として使われるが、内部では ×100 して
-    // u32 に丸めて ScoreEntry に記録する。
+    /**
+     * コンボ数から倍率を算出する差し替え可能な関数型。
+     *
+     * @details
+     * 戻り値は呼出側で f32 として扱われるが、内部では ×100 して u32 に丸めて
+     * ScoreEntry に記録する。SetMultiplierFn に nullptr を渡すと内部デフォルトに戻る。
+     */
     using MultiplierFn = f32(*)(u32 combo) noexcept;
 
-    // マイルストン通過通知。MilestoneCallback はスコアが milestone_score を
-    // 超えた最初の AddScore() でだけ呼ばれる (= 1 度だけ)。Reset() で再武装。
-    //   user            : SetOnMilestoneCallback で渡したコンテキスト (Manager は所有しない)
-    //   milestone       : 通過した milestone 値 (RegisterMilestone で登録した値そのもの)
-    //   current_score   : 通過時点での CurrentScore() 値
+    /**
+     * マイルストン通過を通知するコールバック型。
+     *
+     * @details
+     * スコアが milestone_score を超えた最初の AddScore() でだけ呼ばれ (1 度だけ)、
+     * Reset() で再武装される。
+     */
     using MilestoneCallback = void(*)(void* user, u64 milestone, u64 current_score) noexcept;
 
+    /** 空状態で構築する。 */
     FScoreSystem()  noexcept = default;
+
+    /** 破棄する。 */
     ~FScoreSystem() noexcept = default;
 
+    /** コピー禁止 (他 Manager 系と統一)。 */
     FScoreSystem(const FScoreSystem&)            = delete;
+
+    /** コピー代入も禁止。 */
     FScoreSystem& operator=(const FScoreSystem&) = delete;
+
+    /** ムーブ禁止。 */
     FScoreSystem(FScoreSystem&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FScoreSystem& operator=(FScoreSystem&&)      = delete;
 
-    // ---- 初期化 -----------------------------------------------------------
-    // combo_duration をデフォルト (3 秒)、multiplier 関数をデフォルトに戻し、
-    // 現在スコア / コンボ / entry log / milestone 通過状態をすべて 0 / 空に
-    // クリアする。HighScore は保持する (= ゲーム再起動時に外部から SetHighScore
-    // で復元される想定)。
+    /**
+     * 最初の状態に初期化する。
+     *
+     * @details
+     * combo_duration をデフォルト (3 秒)、multiplier 関数 / milestone callback を
+     * デフォルト (nullptr) に戻し、現在スコア / コンボ / entry log / milestone 定義 /
+     * 通過状態をすべてクリアする。HighScore は保持する (= 外部から SetHighScore で
+     * 復元される想定)。
+     */
     void Init() noexcept;
 
-    // ---- スコア加算 -------------------------------------------------------
-    // base × current_multiplier を CurrentScore に加算し、ScoreEntry log に
-    // 記録する (max 100 件 — 超えると最古を捨てる)。
-    //   ・base_value == 0     : 加算 0 だが log には記録する (倍率の履歴として
-    //                           意味があるケースがあるため。空打ち判定は category
-    //                           で表現)。
-    //   ・category == nullptr : log の category 欄も nullptr で記録。加算自体は
-    //                           通常通り行う。
-    //   ・u64 オーバーフロー  : ~0ull にクランプ (CurrentScore / weighted_value
-    //                           共に)。
-    // 加算後に登録済 milestone をすべて走査し、初回通過時に callback を発火する。
+    /**
+     * base × 現在倍率を CurrentScore に加算し、entry log に記録する。
+     *
+     * @details
+     * base_value == 0 でも倍率履歴として log には記録する。category == nullptr は
+     * log の category 欄も nullptr で記録する。u64 オーバーフローは ~0ull に
+     * クランプする。加算後に登録済 milestone を全件走査し、初回通過時に callback を
+     * 発火する。
+     * @param category 加算カテゴリ (非所有、nullptr 可)。
+     * @param base_value 倍率適用前の素点。
+     */
     void AddScore(const char* category, u64 base_value) noexcept;
 
-    // ---- スコア照会 -------------------------------------------------------
+    /**
+     * 現在の累積スコアを返す。
+     *
+     * @return 現在スコア。
+     */
     u64 CurrentScore() const noexcept { return m_CurrentScore; }
+
+    /**
+     * ハイスコアを返す。
+     *
+     * @return これまでの最高スコア。
+     */
     u64 HighScore()    const noexcept { return m_HighScore; }
 
-    // 外部から HighScore を注入 (Save/Load から復元)。score が現在の
-    // HighScore より低い値であっても上書きする (= 強制セット)。永続化との
-    // 連携を意識した最低限の API。
+    /**
+     * HighScore を外部から注入する (Save/Load からの復元用)。
+     *
+     * @details 現在値より低い値でも上書きする (強制セット)。
+     * @param score 設定する HighScore 値。
+     */
     void SetHighScore(u64 score) noexcept { m_HighScore = score; }
 
-    // ---- コンボ -----------------------------------------------------------
+    /**
+     * 現在のコンボ数を返す。
+     *
+     * @return 連続ヒット回数。
+     */
     u32 ComboCount()          const noexcept { return m_ComboCount; }
+
+    /**
+     * コンボ継続の残り時間を返す。
+     *
+     * @return combo_timer の残り秒。
+     */
     f32 ComboTimeRemaining()  const noexcept { return m_ComboTimer; }
 
-    // ヒット成功 (敵撃破 / コンボ継続)。combo_count++、combo_timer をリセット
-    // (= combo_duration に再設定)。max 件数の上限はかけない (u32 max まで)。
+    /**
+     * ヒット成功を通知する (敵撃破 / コンボ継続)。
+     *
+     * @details combo_count を 1 増やし (u32 max でクランプ)、combo_timer を combo_duration に再設定する。
+     */
     void NotifyHit() noexcept;
 
-    // ミス / 被弾。combo_count = 0、combo_timer = 0。AddScore 時の倍率も
-    // デフォルト (1.0x) に戻る。
+    /**
+     * ミス / 被弾を通知する。
+     *
+     * @details combo_count を 0、combo_timer を 0 にしてコンボをリセットする (倍率もデフォルトに戻る)。
+     */
     void NotifyMiss() noexcept;
 
-    // ---- 駆動 -------------------------------------------------------------
-    // 毎フレ呼び、combo_timer を dt 秒減算する。0 を切ったら NotifyMiss と同じ
-    // 効果でコンボリセット。dt <= 0 は no-op。
+    /**
+     * 毎フレーム呼んで combo_timer を減算する。
+     *
+     * @details 0 を切ったら NotifyMiss と同じ効果でコンボをリセットする。dt <= 0 は no-op。
+     * @param dt 前フレームからの経過秒。
+     */
     void Tick(f32 dt) noexcept;
 
-    // コンボのタイムアウト秒を変更。sec <= 0 は意味不明なので 0 に丸める
-    // (= 「コンボ無効化」相当: NotifyHit 直後に Tick で即リセット)。
+    /**
+     * コンボのタイムアウト秒を変更する。
+     *
+     * @details sec <= 0 は 0 に丸める (コンボ無効化相当: NotifyHit 直後の Tick で即リセット)。
+     * @param sec 新しい combo_duration (秒)。
+     */
     void SetComboDuration(f32 sec) noexcept;
 
-    // 現時点での combo→倍率 (= 関数適用結果)。AddScore は内部でこの値を
-    // 参照して加算する。UI のリアルタイム倍率表示にも使う。
+    /**
+     * 現時点での combo→倍率 (倍率関数の適用結果) を返す。
+     *
+     * @details AddScore は内部でこの値を参照して加算する。UI のリアルタイム倍率表示にも使える。
+     * @return 現在の倍率。
+     */
     f32 ComboMultiplier() const noexcept;
 
-    // 倍率関数を差し替える。nullptr で内部デフォルト (1.0 + combo*0.1, clamp
-    // [1.0, 10.0]) に戻る。
+    /**
+     * 倍率関数を差し替える。
+     *
+     * @param fn 新しい倍率関数。nullptr で内部デフォルト (1.0 + combo*0.1, clamp [1.0, 10.0]) に戻る。
+     */
     void SetMultiplierFn(MultiplierFn fn) noexcept;
 
-    // ---- entry log --------------------------------------------------------
+    /**
+     * entry log の件数を返す。
+     *
+     * @return 記録済み ScoreEntry の数。
+     */
     u32 EntryCount() const noexcept;
 
-    // 全 entry の生バッファ。`out_count` に件数を書き出して返す。
-    // 返却ポインタは EntryCount() 件の連続バッファ、次の AddScore() / Reset() /
-    // ClearAll() で無効化される可能性がある。
+    /**
+     * 全 entry の生バッファを返す。
+     *
+     * @details 返却ポインタは EntryCount() 件の連続バッファで、次の AddScore() / Reset() / ClearAll() で無効化され得る。
+     * @param out_count 件数の書き出し先。
+     * @return entry バッファの先頭ポインタ。
+     */
     const ScoreEntry* AllEntries(u32& out_count) const noexcept;
 
-    // ---- milestone --------------------------------------------------------
-    // 通過時に MilestoneCallback を発火するスコア値を登録。重複値は黙って弾く
-    // (no-op + WARN)。milestone_score == 0 は意味不明なので no-op。
-    // 登録順序非依存 (= AddScore のたびに全件走査して通過判定する)。
+    /**
+     * 通過時に MilestoneCallback を発火するスコア値を登録する。
+     *
+     * @details
+     * 重複値は黙って弾く (no-op + WARN)。milestone_score == 0 は no-op。登録順序
+     * 非依存 (AddScore のたびに全件走査して通過判定する)。
+     * @param milestone_score 通過を通知するスコア閾値。
+     */
     void RegisterMilestone(u64 milestone_score) noexcept;
 
-    // cb == nullptr で detach。user は所有しない (= 呼出側の責務)。
+    /**
+     * マイルストン通過コールバックを設定する。
+     *
+     * @param cb 通過時に呼ぶコールバック (nullptr で detach)。
+     * @param user cb に渡すコンテキスト (この Manager は所有しない)。
+     */
     void SetOnMilestoneCallback(MilestoneCallback cb, void* user) noexcept;
 
-    // ---- リセット ---------------------------------------------------------
-    // 現在スコア / コンボ / entry log / milestone 通過状態をクリア。
-    // HighScore / milestone 定義 / multiplier 関数 / callback はすべて保持。
-    // ゲームセッション開始時に呼ぶ典型 reset。
+    /**
+     * セッション開始時の典型 reset。
+     *
+     * @details
+     * 現在スコア / コンボ / entry log / milestone 通過状態をクリアする。HighScore /
+     * milestone 定義 / multiplier 関数 / callback はすべて保持する。
+     */
     void Reset() noexcept;
 
-    // すべてをクリア (HighScore / milestone 定義 / callback も含む完全リセット)。
-    // テスト / セーブデータ削除時に使う。
+    /**
+     * すべてをクリアする完全リセット。
+     *
+     * @details HighScore / milestone 定義 / callback も含めて消す。テスト / セーブデータ削除時に使う。
+     */
     void ClearAll() noexcept;
 
 private:
-    // ScoreEntry log の上限件数 (capped append、超えると最古を捨てる)。
+    /** ScoreEntry log の上限件数 (capped append、超えると最古を捨てる)。 */
     static constexpr u32 kMaxEntries = 100;
 
-    // 内部 default multiplier 関数。1.0 + combo*0.1 を [1.0, 10.0] に clamp。
-    // public な static にしておくと unit test 側で直接比較できるが、現状は
-    // 内部実装としてのみ使う。
+    /**
+     * 内部デフォルトの倍率関数。
+     *
+     * @details 1.0 + combo*0.1 を [1.0, 10.0] にクランプして返す。
+     * @param combo 現在のコンボ数。
+     * @return クランプ済みの倍率。
+     */
     static f32 DefaultMultiplierFn(u32 combo) noexcept;
 
-    // 加算後の milestone 走査。CurrentScore() が新しい値に更新された直後に
-    // 呼ばれる。m_Milestones / m_MilestoneHit を 1:1 並行 TArray で管理する。
+    /**
+     * 加算後に milestone を走査し、初回通過時に callback を発火する。
+     *
+     * @details CurrentScore が更新された直後に呼ばれる。m_Milestones / m_MilestoneHit を 1:1 並行 TArray で管理する。
+     */
     void CheckMilestones() noexcept;
 
-    // ScoreEntry を log に push (capped append)。
+    /**
+     * ScoreEntry を log に push する (capped append)。
+     *
+     * @param e 追加する entry。
+     */
     void PushEntry(const ScoreEntry& e) noexcept;
 
-    // 状態
+    /** 現在の累積スコア。 */
     u64 m_CurrentScore = 0;
+
+    /** これまでの最高スコア。 */
     u64 m_HighScore    = 0;
+
+    /** 現在のコンボ数。 */
     u32 m_ComboCount   = 0;
+
+    /** コンボ継続の残り時間 (秒)。 */
     f32 m_ComboTimer   = 0.0f;
+
+    /** コンボのタイムアウト秒 (既定 3 秒)。 */
     f32 m_ComboDuration = 3.0f;
 
-    // entry log。最大 kMaxEntries 件で capped append。
+    /** entry log (最大 kMaxEntries 件で capped append)。 */
     TArray<ScoreEntry> m_Entries;
 
-    // milestone 定義と通過済フラグ。1:1 並行 TArray (= 同 index で対応)。
+    /** milestone 定義 (m_MilestoneHit と 1:1 並行)。 */
     TArray<u64>  m_Milestones;
+
+    /** milestone ごとの通過済フラグ (m_Milestones と 1:1 並行)。 */
     TArray<bool> m_MilestoneHit;
 
-    // 差し替え可能な倍率関数 (nullptr = 内部デフォルト)。
+    /** 差し替え可能な倍率関数 (nullptr = 内部デフォルト)。 */
     MultiplierFn m_MultiplierFn = nullptr;
 
-    // milestone callback (C 関数ポインタ + user)。Manager は user を所有しない。
+    /** milestone 通過コールバック (nullptr = 未登録)。 */
     MilestoneCallback m_OnMilestone      = nullptr;
+
+    /** milestone コールバックに渡す user pointer (Manager は所有しない)。 */
     void*             m_OnMilestoneUser = nullptr;
 };
 

@@ -8,10 +8,6 @@
 
 namespace acs::game {
 
-// ----------------------------------------------------------------------------
-// helpers (slot 取得 / 検索)
-// ----------------------------------------------------------------------------
-
 u32 FLapTimer::AcquireSlot() noexcept {
     // index 0 を invalid 予約として残す (dummy slot)。
     for (u32 i = 1; i < m_Slots.Size(); ++i) {
@@ -56,10 +52,6 @@ bool FLapTimer::IsBetterRank(const RacerStats& lhs, const RacerStats& rhs) const
     // 3. 同 lap + 同 checkpoint なら経過時間が短い方が上 (先に到達した)。
     return lhs.total_time_sec < rhs.total_time_sec;
 }
-
-// ----------------------------------------------------------------------------
-// セットアップ
-// ----------------------------------------------------------------------------
 
 void FLapTimer::Init(u32 total_laps, u32 checkpoints_per_lap) noexcept {
     // 0 周 / 0 checkpoint は意味を持たないので 1 にクランプ。
@@ -129,10 +121,6 @@ void FLapTimer::RemoveRacer(RacerId id) noexcept {
     if (m_RacerCount > 0) --m_RacerCount;
 }
 
-// ----------------------------------------------------------------------------
-// レース制御
-// ----------------------------------------------------------------------------
-
 void FLapTimer::Start() noexcept {
     _state          = State::Running;
     m_RaceTimeSec  = 0.0f;
@@ -175,10 +163,6 @@ void FLapTimer::Resume() noexcept {
 bool FLapTimer::IsRunning() const noexcept {
     return _state == State::Running;
 }
-
-// ----------------------------------------------------------------------------
-// 進捗通知
-// ----------------------------------------------------------------------------
 
 void FLapTimer::NotifyCheckpointPassed(RacerId id, u32 checkpoint_index) noexcept {
     if (_state != State::Running) return;     // 開始前 / 停止中 / Pause 中は無視
@@ -247,10 +231,6 @@ void FLapTimer::NotifyLapCompleted(RacerId id) noexcept {
     }
 }
 
-// ----------------------------------------------------------------------------
-// driver
-// ----------------------------------------------------------------------------
-
 void FLapTimer::Tick(f32 dt) noexcept {
     if (_state != State::Running) return;
     if (dt <= 0.0f) return;
@@ -266,10 +246,6 @@ void FLapTimer::Tick(f32 dt) noexcept {
         s.stats.total_time_sec += dt;
     }
 }
-
-// ----------------------------------------------------------------------------
-// 問い合わせ
-// ----------------------------------------------------------------------------
 
 f32 FLapTimer::RaceTimeSec() const noexcept {
     return m_RaceTimeSec;
@@ -352,10 +328,6 @@ const LapRecord* FLapTimer::GetLapRecord(RacerId id, u32 lap_index) const noexce
     return &s->records[lap_index];
 }
 
-// ----------------------------------------------------------------------------
-// callback
-// ----------------------------------------------------------------------------
-
 void FLapTimer::SetOnLapCallback(LapCallback cb, void* user) noexcept {
     m_OnLap      = cb;
     m_OnLapUser = user;
@@ -365,10 +337,6 @@ void FLapTimer::SetOnFinishCallback(FinishCallback cb, void* user) noexcept {
     m_OnFinish      = cb;
     m_OnFinishUser = user;
 }
-
-// ----------------------------------------------------------------------------
-// 一括破棄
-// ----------------------------------------------------------------------------
 
 void FLapTimer::ClearAll() noexcept {
     m_Slots.Clear();

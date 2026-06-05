@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — cinetimeline / FCinematicsTimelineEditorPanel 実装 (Phase 23)
+// GameFramework Pillar — cinetimeline / FCinematicsTimelineEditorPanel 実装
 //
 // 仕様の意図は FCinematicsTimelineEditorPanel.h を参照。本ファイルでは:
 //   ・Init / Shutdown / SetCinematicsDirector / Play / Pause / Stop / Step:
@@ -22,44 +22,52 @@
 
 namespace acs::game::cinetimeline {
 
-// =============================================================================
-// ローカルヘルパ
-// =============================================================================
-
-// f32 用の任意レンジ clamp。
+/**
+ * f32 を任意レンジ [lo, hi] にクランプする。
+ *
+ * @param v クランプ対象の値。
+ * @param lo 下限。
+ * @param hi 上限。
+ * @return [lo, hi] に収めた値。
+ */
 static f32 ClampF(f32 v, f32 lo, f32 hi) noexcept {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-// -----------------------------------------------------------------------------
-// editor payload → runtime event_id エンコード
-// -----------------------------------------------------------------------------
-// 背景: runtime 側 FTimelineKeyframe の FireEvent payload は `u32 event_id` 1 個
-// しか持たない。一方 editor は kind ごとにリッチな実値 (色 / scale / effect_id)
-// をオーサリングする。BakeToDirector がこの実値を捨てて event_id=0 だけ焼くと、
-// 「構造は焼けたが値が落ちる」= caller 側で演出を再現できない。そこで FireEvent
-// 経由の各 kind は、**実値を event_id の 32bit に可逆エンコードして載せる**。
-// caller は最上位 8bit の kind タグを見て、残り 24bit を kind ごとに復号する。
-//
-//   bit 31..24 : kind タグ (kEventTag*)
-//   bit 23.. 0 : kind 別ペイロード
-//     FadeColor       : fade_end_color を 8bit RGB に量子化 (0xRRGGBB、24bit 完全)
-//     TimeScale       : time_scale [0,8] を 24bit 固定小数に量子化 (実用精度で可逆)
-//     SpawnEffect     : effect_id (= editor の event_id) を 24bit でそのまま
-//     TriggerCallback : event_id を 24bit でそのまま (互換のため下位 24bit 維持)
-// これで「値が落ちる」不具合を解消する。FadeColor の start_color のみ 32bit に
-// 収まらず載らない (runtime payload が 1×u32 のため) — これは runtime 契約の上限で
-// あり、本 panel 単独では解決不能。偽の成功ではなく「end_color は完全に載る /
-// start_color は別フェーズで runtime payload 拡張時に対応」という正直な縮退とする。
+/**
+ * editor payload を runtime event_id に可逆エンコードするためのタグとマスク。
+ *
+ * @details
+ * runtime 側 FTimelineKeyframe の FireEvent payload は u32 event_id 1 個しか
+ * 持たないため、editor のリッチな実値 (色 / scale / effect_id) を event_id の
+ * 32bit に詰める。bit 31..24 が kind タグ (kEventTag*)、bit 23..0 が kind 別
+ * ペイロード (FadeColor=8bit RGB、TimeScale=24bit 固定小数、SpawnEffect/
+ * TriggerCallback=24bit の id)。caller はタグで分岐し下位 24bit を復号する。
+ * FadeColor の start_color のみ 32bit に収まらず載らない (runtime 契約の上限)。
+ */
 enum : u32 {
+    /** FadeColor の kind タグ (下位 24bit = end_color の RGB)。 */
     kEventTagFadeColor       = 0x01u << 24,
+
+    /** TimeScale の kind タグ (下位 24bit = scale の固定小数)。 */
     kEventTagTimeScale       = 0x02u << 24,
+
+    /** SpawnEffect の kind タグ (下位 24bit = effect_id)。 */
     kEventTagSpawnEffect     = 0x03u << 24,
+
+    /** TriggerCallback の kind タグ (下位 24bit = event_id)。 */
     kEventTagTriggerCallback = 0x04u << 24,
-    kEventPayloadMask        = 0x00FFFFFFu,  // 下位 24bit
+
+    /** ペイロード部 (下位 24bit) を取り出すマスク。 */
+    kEventPayloadMask        = 0x00FFFFFFu,
 };
 
-// f32 チャンネル [0,1] → 8bit 量子化。
+/**
+ * f32 チャンネル [0,1] を 8bit (0..255) に量子化する。
+ *
+ * @param v 量子化対象の値 (範囲外は [0,1] にクランプ)。
+ * @return 量子化した 8bit 値 (0..255)。
+ */
 static u32 QuantizeUnit8(f32 v) noexcept {
     const f32 c = ClampF(v, 0.0f, 1.0f);
     i32 q = static_cast<i32>(c * 255.0f + 0.5f);
@@ -68,16 +76,28 @@ static u32 QuantizeUnit8(f32 v) noexcept {
     return static_cast<u32>(q);
 }
 
-// FVec3 色 (r,g,b in [0,1]) → 0x00RRGGBB (24bit)。
+/**
+ * FVec3 色 (r,g,b in [0,1]) を 0x00RRGGBB (24bit) にエンコードする。
+ *
+ * @param c エンコードする色。
+ * @return 0x00RRGGBB 形式の 24bit 値。
+ */
 static u32 EncodeColorRGB(const FVec3& c) noexcept {
     return (QuantizeUnit8(c.x) << 16)
          | (QuantizeUnit8(c.y) << 8)
          | (QuantizeUnit8(c.z));
 }
 
-// time_scale [0,8] → 24bit 固定小数 (1/(2^21) 刻み、編集 step 0.01 を十分上回る精度)。
-// kEventTagTimeScale と OR して使う。caller は (raw & mask) / 2097152.0f で復号。
+/** time_scale 固定小数化の分母 (2^21)。caller は (raw & mask) / この値で復号する。 */
 static constexpr f32 kTimeScaleFixedDenom = 2097152.0f;  // 2^21
+
+/**
+ * time_scale [0,8] を 24bit 固定小数にエンコードする。
+ *
+ * @details 1/(2^21) 刻みで、編集 step 0.01 を十分上回る精度を持つ。念のため 24bit に飽和する。
+ * @param s エンコードする時間スケール (範囲外は [0,8] にクランプ)。
+ * @return 下位 24bit に収めた固定小数値 (kEventTagTimeScale と OR して使う)。
+ */
 static u32 EncodeTimeScale(f32 s) noexcept {
     const f32 c = ClampF(s, 0.0f, 8.0f);  // inspector DragFloat と同レンジ
     u32 q = static_cast<u32>(c * kTimeScaleFixedDenom + 0.5f);
@@ -85,7 +105,12 @@ static u32 EncodeTimeScale(f32 s) noexcept {
     return q;
 }
 
-// ETimelineKeyKind の表示名 (toolbar combo / inspector / marker tooltip 用)。
+/**
+ * ETimelineKeyKind の表示名を返す (toolbar combo / inspector / marker label 用)。
+ *
+ * @param k 表示名を求める kind。
+ * @return kind の英字名 (未知の値は "?")。
+ */
 static const char* KindName(ETimelineKeyKind k) noexcept {
     switch (k) {
     case ETimelineKeyKind::CameraCut:       return "CameraCut";
@@ -97,9 +122,13 @@ static const char* KindName(ETimelineKeyKind k) noexcept {
     return "?";
 }
 
-// 5 種のトラック色 (marker の塗り色)。
-// 視認性のため意味のある色 (camera=cyan / fade=yellow / time=magenta /
-// spawn=green / trigger=orange) を選ぶ。
+/**
+ * kind ごとの marker 塗り色を返す。
+ *
+ * @details 視認性のため意味のある色を割り当てる (camera=cyan / fade=yellow / time=magenta / spawn=green / trigger=orange)。
+ * @param k 色を求める kind。
+ * @return marker の塗り色 (ImU32)。未知の値はグレー。
+ */
 static ImU32 KindColor(ETimelineKeyKind k) noexcept {
     switch (k) {
     case ETimelineKeyKind::CameraCut:       return IM_COL32( 80, 200, 255, 255);
@@ -111,18 +140,18 @@ static ImU32 KindColor(ETimelineKeyKind k) noexcept {
     return IM_COL32(200, 200, 200, 255);
 }
 
-// editor kind → director runtime kind の mapping。editor は 5 種 (CameraCut /
-// FadeColor / TimeScale / SpawnEffect / TriggerCallback)、runtime は
-// {Wait / MoveCamera / ShowDialogue / PlayMusic / FireEvent} の 5 種で意味が
-// 異なる。素直なマッピング:
-//   CameraCut       -> MoveCamera (camera payload に target_pos を載せる)
-//   FadeColor       -> FireEvent  (event_id = kEventTagFadeColor   | RGB24(end_color))
-//   TimeScale       -> FireEvent  (event_id = kEventTagTimeScale   | fixed24(scale))
-//   SpawnEffect     -> FireEvent  (event_id = kEventTagSpawnEffect | (effect_id & 24bit))
-//   TriggerCallback -> FireEvent  (event_id = kEventTagTriggerCallback | (event_id & 24bit))
-// FireEvent 経由のものは event_id の最上位 8bit が kind タグ、下位 24bit が kind 別
-// の実ペイロードを保持する (上記 Encode* ヘルパ参照)。caller はタグで分岐し下位
-// 24bit を復号することで、editor でオーサリングした実値を runtime に復元できる。
+/**
+ * editor kind を director runtime kind にマッピングする。
+ *
+ * @details
+ * editor は 5 種 (CameraCut / FadeColor / TimeScale / SpawnEffect /
+ * TriggerCallback)、runtime は {Wait / MoveCamera / ShowDialogue / PlayMusic /
+ * FireEvent} の 5 種で意味が異なる。CameraCut は MoveCamera に、その他 4 種は
+ * すべて FireEvent にマッピングする。FireEvent 系の event_id には kind タグと
+ * 実ペイロードが詰められる (BakeToDirector / Encode* ヘルパ参照)。
+ * @param k マッピングする editor kind。
+ * @return 対応する runtime の ETimelineTrackKind (未知の値は Wait)。
+ */
 static ETimelineTrackKind ToTrackKind(ETimelineKeyKind k) noexcept {
     switch (k) {
     case ETimelineKeyKind::CameraCut:       return ETimelineTrackKind::MoveCamera;
@@ -134,7 +163,15 @@ static ETimelineTrackKind ToTrackKind(ETimelineKeyKind k) noexcept {
     return ETimelineTrackKind::Wait;
 }
 
-// time [0, Duration] → canvas x 座標 (px) 変換。
+/**
+ * time [0, Duration] を canvas x 座標 (px) に変換する。
+ *
+ * @param t 変換する時刻 [秒]。
+ * @param duration タイムライン全体の長さ [秒]。
+ * @param canvas_x canvas 左端の x 座標 (px)。
+ * @param canvas_w canvas の幅 (px)。
+ * @return 対応する canvas 内 x 座標 (px)。duration <= 0 なら canvas_x。
+ */
 static f32 TimeToCanvasX(f32 t, f32 duration,
                          f32 canvas_x, f32 canvas_w) noexcept {
     if (duration <= 0.0f) return canvas_x;
@@ -142,7 +179,15 @@ static f32 TimeToCanvasX(f32 t, f32 duration,
     return canvas_x + ClampF(n, 0.0f, 1.0f) * canvas_w;
 }
 
-// canvas x (px) → time [0, Duration] 変換。
+/**
+ * canvas x 座標 (px) を time [0, Duration] に変換する。
+ *
+ * @param x 変換する canvas 内 x 座標 (px)。
+ * @param duration タイムライン全体の長さ [秒]。
+ * @param canvas_x canvas 左端の x 座標 (px)。
+ * @param canvas_w canvas の幅 (px)。
+ * @return 対応する時刻 [秒] (0..duration)。canvas_w <= 0 なら 0。
+ */
 static f32 CanvasXToTime(f32 x, f32 duration,
                          f32 canvas_x, f32 canvas_w) noexcept {
     if (canvas_w <= 0.0f) return 0.0f;
@@ -150,9 +195,7 @@ static f32 CanvasXToTime(f32 x, f32 duration,
     return ClampF(n, 0.0f, 1.0f) * duration;
 }
 
-// =============================================================================
-// Init / Shutdown / SetCinematicsDirector / CurrentDirector
-// =============================================================================
+/** 内部 state を既定値にリセットする。 */
 void FCinematicsTimelineEditorPanel::Init() noexcept {
     m_Director        = nullptr;
     m_Keyframes.Clear();
@@ -165,6 +208,7 @@ void FCinematicsTimelineEditorPanel::Init() noexcept {
     m_AddKind        = ETimelineKeyKind::CameraCut;
 }
 
+/** 内部 state を全解放する (director は非所有なので破棄しない)。 */
 void FCinematicsTimelineEditorPanel::Shutdown() noexcept {
     m_Director        = nullptr;
     m_Keyframes.Clear();
@@ -175,6 +219,7 @@ void FCinematicsTimelineEditorPanel::Shutdown() noexcept {
     m_DragIdx        = -1;
 }
 
+/** 編集対象の director を raw 参照でセットし、現状を即時 bake する。 */
 void FCinematicsTimelineEditorPanel::SetCinematicsDirector(
         acs::game::FCinematicsDirector* dir) noexcept {
     m_Director     = dir;
@@ -186,14 +231,13 @@ void FCinematicsTimelineEditorPanel::SetCinematicsDirector(
     BakeToDirector();
 }
 
+/** 現在編集対象の director を返す。 */
 acs::game::FCinematicsDirector*
 FCinematicsTimelineEditorPanel::CurrentDirector() const noexcept {
     return m_Director;
 }
 
-// =============================================================================
-// 再生制御
-// =============================================================================
+/** 現状を director に bake してから頭出し再生する。 */
 void FCinematicsTimelineEditorPanel::Play() noexcept {
     // editor の現状を director に bake してから再生開始 (= scrub で変更があった
     // 場合も runtime に反映される)。
@@ -210,6 +254,7 @@ void FCinematicsTimelineEditorPanel::Play() noexcept {
     m_Playing      = true;
 }
 
+/** 再生を一時停止する (時刻は保持)。 */
 void FCinematicsTimelineEditorPanel::Pause() noexcept {
     m_Playing = false;
     if (m_Director != nullptr) {
@@ -217,6 +262,7 @@ void FCinematicsTimelineEditorPanel::Pause() noexcept {
     }
 }
 
+/** 再生を完全停止し、時刻を 0 に戻す。 */
 void FCinematicsTimelineEditorPanel::Stop() noexcept {
     m_Playing      = false;
     m_CurrentTime = 0.0f;
@@ -225,6 +271,7 @@ void FCinematicsTimelineEditorPanel::Stop() noexcept {
     }
 }
 
+/** 再生中のみ dt 秒進め、director と時刻を同期する。 */
 void FCinematicsTimelineEditorPanel::Step(f32 dt) noexcept {
     if (!m_Playing) return;
     if (dt <= 0.0f) return;
@@ -245,25 +292,27 @@ void FCinematicsTimelineEditorPanel::Step(f32 dt) noexcept {
     }
 }
 
+/** 再生中かを返す。 */
 bool FCinematicsTimelineEditorPanel::IsPlaying() const noexcept {
     return m_Playing;
 }
 
-// =============================================================================
-// 時間軸アクセサ
-// =============================================================================
+/** 現在のタイムカーソル位置 [秒] を返す。 */
 f32 FCinematicsTimelineEditorPanel::CurrentTimeSec() const noexcept {
     return m_CurrentTime;
 }
 
+/** タイムカーソル位置を [0, Duration] にクランプして設定する。 */
 void FCinematicsTimelineEditorPanel::SetCurrentTimeSec(f32 t) noexcept {
     m_CurrentTime = ClampF(t, 0.0f, m_Duration);
 }
 
+/** タイムライン全体の長さ [秒] を返す。 */
 f32 FCinematicsTimelineEditorPanel::DurationSec() const noexcept {
     return m_Duration;
 }
 
+/** 全体の長さを設定し、範囲外の keyframe / 現在時刻をクランプする。 */
 void FCinematicsTimelineEditorPanel::SetDurationSec(f32 d) noexcept {
     if (d < kMinDurationSec) d = kMinDurationSec;
     m_Duration = d;
@@ -276,13 +325,12 @@ void FCinematicsTimelineEditorPanel::SetDurationSec(f32 d) noexcept {
     if (m_CurrentTime > m_Duration) m_CurrentTime = m_Duration;
 }
 
-// =============================================================================
-// keyframe 操作
-// =============================================================================
+/** 現在選択中の keyframe index を返す。 */
 i32 FCinematicsTimelineEditorPanel::SelectedKeyframeIndex() const noexcept {
     return m_SelectedIdx;
 }
 
+/** selection を変更する (有効範囲外は kNoKeySelected に丸める)。 */
 void FCinematicsTimelineEditorPanel::SelectKeyframe(i32 i) noexcept {
     if (i < 0 || static_cast<usize>(i) >= m_Keyframes.Size()) {
         m_SelectedIdx = kNoKeySelected;
@@ -291,6 +339,7 @@ void FCinematicsTimelineEditorPanel::SelectKeyframe(i32 i) noexcept {
     }
 }
 
+/** 新規 keyframe を time 昇順で追加し、selection と director を更新する。 */
 void FCinematicsTimelineEditorPanel::AddKeyframe(ETimelineKeyKind kind,
                                                 f32 time_sec) noexcept {
     EditorKeyframe kf;
@@ -307,6 +356,7 @@ void FCinematicsTimelineEditorPanel::AddKeyframe(ETimelineKeyKind kind,
     BakeToDirector();
 }
 
+/** 選択中の keyframe を順序保存削除し、selection 解除後 director を更新する。 */
 void FCinematicsTimelineEditorPanel::RemoveSelectedKeyframe() noexcept {
     if (m_SelectedIdx < 0) return;
     const usize idx = static_cast<usize>(m_SelectedIdx);
@@ -325,9 +375,7 @@ void FCinematicsTimelineEditorPanel::RemoveSelectedKeyframe() noexcept {
     BakeToDirector();
 }
 
-// =============================================================================
-// 内部ヘルパ
-// =============================================================================
+/** time 昇順 (同時刻は登録順) を保ったまま keyframe を挿入し、挿入位置を返す。 */
 i32 FCinematicsTimelineEditorPanel::InsertKeyframeSorted(
         const EditorKeyframe& kf) noexcept {
     // time 昇順 (同時刻は登録順 = stable) を維持する挿入位置を線形探索。
@@ -354,6 +402,7 @@ i32 FCinematicsTimelineEditorPanel::InsertKeyframeSorted(
     return static_cast<i32>(insert_at);
 }
 
+/** editor の全 keyframe を runtime FTimelineKeyframe に変換して director に焼く。 */
 void FCinematicsTimelineEditorPanel::BakeToDirector() noexcept {
     if (m_Director == nullptr) return;
     m_Director->Clear();
@@ -363,13 +412,9 @@ void FCinematicsTimelineEditorPanel::BakeToDirector() noexcept {
         FTimelineKeyframe rk;
         rk.time_sec = ek.time_sec;
         rk.kind     = ToTrackKind(ek.kind);
-        // kind 別 payload を rk に詰める。
-        // 修正: 旧実装は FireEvent 系で ek.event_id をそのまま焼くだけで、
-        //       FadeColor の色 / TimeScale の scale という「オーサリングした実値」を
-        //       完全に取りこぼしていた (しかも色/scale kind は UI で event_id を
-        //       触らないので常に 0 = 全 keyframe が同じ no-op event に潰れる)。
-        //       下では各 kind の実値を event_id の 32bit に可逆エンコードして載せ、
-        //       値が落ちないようにする (エンコード仕様は冒頭ヘルパ参照)。
+        // kind 別 payload を rk に詰める。FireEvent 系は各 kind の実値 (色 / scale /
+        // effect_id) を event_id の 32bit に可逆エンコードして載せる (= 値を落とさない。
+        // エンコード仕様は冒頭ヘルパ参照)。
         switch (ek.kind) {
         case ETimelineKeyKind::CameraCut:
             // camera payload に target を載せる (x,y)。z/zoom/duration は editor で
@@ -404,9 +449,7 @@ void FCinematicsTimelineEditorPanel::BakeToDirector() noexcept {
     }
 }
 
-// =============================================================================
-// DrawUI — ImGui で toolbar + timeline canvas + inspector + ruler を描画
-// =============================================================================
+/** Toolbar + timeline canvas + inspector + ruler を ImGui で描画する。 */
 void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
@@ -415,9 +458,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
         return;
     }
 
-    // ------------------------------------------------------------------------
     // Toolbar: Play / Pause / Stop / Step / Time slider / Add combo + button
-    // ------------------------------------------------------------------------
     {
         if (ImGui::Button("Play")) {
             Play();
@@ -497,9 +538,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
 
     ImGui::Separator();
 
-    // ------------------------------------------------------------------------
     // Layout: 左 (timeline canvas + ruler) と 右 (inspector) の二分割。
-    // ------------------------------------------------------------------------
     const f32 right_pane_w = 260.0f;
     const f32 avail_w = ImGui::GetContentRegionAvail().x;
     const f32 left_pane_w = (avail_w > right_pane_w + 50.0f)
@@ -523,8 +562,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
         dl->AddRectFilled(canvas_origin, canvas_end, IM_COL32(30, 30, 35, 255));
         dl->AddRect      (canvas_origin, canvas_end, IM_COL32(80, 80, 90, 255));
 
-        // ----- ルーラー (上端) -----
-        // 1s ごとに目盛 + テキスト。Duration が大きいと目盛間隔が狭くなるが
+        // ルーラー (上端): 1s ごとに目盛 + テキスト。Duration が大きいと目盛間隔が狭くなるが
         // とりあえず 1s ステップで固定。
         const f32 ruler_y0 = canvas_origin.y;
         const f32 ruler_y1 = ruler_y0 + ruler_h;
@@ -544,8 +582,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
                         IM_COL32(200, 200, 200, 255), buf);
         }
 
-        // ----- トラック行 (5 行) -----
-        // 各行の y 範囲を [track_y0, track_y1] で計算、行間に薄いグリッド線。
+        // トラック行 (5 行): 各行の y 範囲を [row_y0, row_y1] で計算、行ごとに zebra 縞背景。
         const f32 tracks_y0 = ruler_y1 + 2.0f;
         for (u32 r = 0; r < kTrackCount; ++r) {
             const f32 row_y0 = tracks_y0 + kTrackRowHeightPx * static_cast<f32>(r);
@@ -567,7 +604,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
                     ImVec2(canvas_end.x,    tracks_y0 + track_h),
                     IM_COL32(80, 80, 90, 255));
 
-        // ----- マウス hit-test / drag 処理用 InvisibleButton -----
+        // マウス hit-test / drag 処理用 InvisibleButton
         ImGui::InvisibleButton("##timeline_canvas",
                                ImVec2(canvas_w, canvas_h),
                                ImGuiButtonFlags_MouseButtonLeft);
@@ -645,7 +682,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
             BakeToDirector();
         }
 
-        // ----- marker 描画 (全 keyframe を縦長四角で) -----
+        // marker 描画: 全 keyframe を縦長四角で描く
         const f32 marker_pad_y = 4.0f;
         for (usize i = 0; i < m_Keyframes.Size(); ++i) {
             const EditorKeyframe& kf = m_Keyframes[i];
@@ -658,7 +695,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
             const f32 ry1 = ry0 + kTrackRowHeightPx;
             const f32 half_w = kMarkerWidthPx * 0.5f;
             const bool is_sel = (m_SelectedIdx == static_cast<i32>(i));
-            // 選択中は黄色枠 + 元色塗り。非選択は元色だけ。
+            // 選択中は白い太枠 + 元色塗り。非選択は元色塗り + 暗い細枠。
             const ImU32 fill = KindColor(kf.kind);
             const ImU32 stroke = is_sel
                 ? IM_COL32(255, 255, 255, 255)
@@ -669,7 +706,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
             dl->AddRect      (a, b, stroke, 2.0f, 0, is_sel ? 2.0f : 1.0f);
         }
 
-        // ----- 現在カーソルの縦線 (赤) -----
+        // 現在カーソルの縦線 (赤)
         {
             const f32 cx = TimeToCanvasX(m_CurrentTime, m_Duration,
                                           canvas_origin.x, canvas_w);

@@ -10,13 +10,13 @@
 //     drop して末尾に新規を積む。FIFO 順序は保証しないが、各 event は
 //     timestamp を持つので利用側でソート可能。
 //   ・Flush は backend->SendTelemetry() に 1 件ずつ流し、Err なら pending に
-//     残す = 次回 Flush で再送される。Phase 2 の stub backend は必ず Err を
+//     残す = 次回 Flush で再送される。stub backend は必ず Err を
 //     返すため、実機テストでは m_FailedCount が増える挙動が観察される。
 //   ・consent ガード: FPrivacyDirector が attach されていれば
 //     HasConsent(EConsentCategory::Telemetry) を毎 TrackEvent / Flush で確認。
 //     nullptr 注入時はガードスキップ (テスト用)。
 //   ・timestamp は Clock::MillisSinceStartup()。Pillar S の Achievement と同じ
-//     起動相対 ms 設計 (Phase 3 で wall clock 切替予定)。
+//     起動相対 ms 設計 (将来 wall clock 切替予定)。
 #include "gameframework/TelemetryDirector.h"
 
 #include "gameframework/BackendClient.h"      // IBackendClient::SendTelemetry()
@@ -28,8 +28,14 @@ namespace acs::game {
 
 namespace {
 
-// const char* の per-byte 安全比較。FAchievementManager.cpp / FEntitlement.cpp と同設計。
-// どちらかが nullptr なら false を返す (StrEq("a", nullptr) は false)。
+/**
+ * const char* の per-byte 安全比較を行う (FAchievementManager.cpp / FEntitlement.cpp と同設計)。
+ *
+ * @details どちらかが nullptr なら false を返す (StrEq("a", nullptr) は false)。
+ * @param a 比較する文字列 1。
+ * @param b 比較する文字列 2。
+ * @return 内容が完全一致すれば true。
+ */
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -42,10 +48,7 @@ bool StrEq(const char* a, const char* b) noexcept {
 
 } // namespace
 
-// =============================================================================
-// 内部ユーティリティ
-// =============================================================================
-
+/** category が明示 deny されていなければ enabled を返す (未登録は既定 enabled)。 */
 bool FTelemetryDirector::IsCategoryEnabledInternal(const char* category) const noexcept {
     // category == nullptr は許可扱い (defensive。TrackEvent 側で更に弾く)。
     if (category == nullptr) return true;
@@ -61,6 +64,7 @@ bool FTelemetryDirector::IsCategoryEnabledInternal(const char* category) const n
     return true;
 }
 
+/** pending queue が上限に達していれば最古 1 件 (index 0) を drop する。 */
 void FTelemetryDirector::DropOldestIfFull() noexcept {
     // 上限未満なら何もしない。
     if (m_Pending.Size() < static_cast<usize>(kMaxPending)) return;
@@ -73,10 +77,7 @@ void FTelemetryDirector::DropOldestIfFull() noexcept {
     m_Pending.RemoveAtSwap(0);
 }
 
-// =============================================================================
-// 初期化 / 終了
-// =============================================================================
-
+/** backend / privacy 参照を差し込んで初期化する (pending と統計は温存)。 */
 void FTelemetryDirector::Init(IBackendClient* backend, FPrivacyDirector* privacy) noexcept {
     m_Backend            = backend;
     m_Privacy            = privacy;
@@ -86,6 +87,7 @@ void FTelemetryDirector::Init(IBackendClient* backend, FPrivacyDirector* privacy
     // 既に投入された event を保持したまま backend を差し替える運用を許す。
 }
 
+/** pending queue とフィルタを空にし、参照を切る (送信は試みない)。 */
 void FTelemetryDirector::Shutdown() noexcept {
     // pending queue を空にし、参照を切る。送信は試みない (呼出側が事前に Flush)。
     m_Pending.Clear();
@@ -97,10 +99,7 @@ void FTelemetryDirector::Shutdown() noexcept {
     // m_SentCount / m_FailedCount は監査用にリセットしない (Clear() で 0 に戻す)。
 }
 
-// =============================================================================
-// event 投入
-// =============================================================================
-
+/** consent / category フィルタを通過した event を pending queue に積む。 */
 void FTelemetryDirector::TrackEvent(const char*   event_name,
                                    const char*   json_payload,
                                    EventPriority priority,
@@ -136,10 +135,7 @@ void FTelemetryDirector::TrackEvent(const char*   event_name,
     m_Pending.PushBack(e);
 }
 
-// =============================================================================
-// Flush
-// =============================================================================
-
+/** pending を逆順に backend へ送信し、成功分のみ除去する (失敗分は次回再送)。 */
 void FTelemetryDirector::Flush() noexcept {
     // Init() 前 / backend 無し は no-op (pending はそのまま温存)。
     if (!m_Initialized || m_Backend == nullptr) {
@@ -181,26 +177,22 @@ void FTelemetryDirector::Flush() noexcept {
     m_ElapsedSinceFlush = 0.0f;
 }
 
-// =============================================================================
-// 統計
-// =============================================================================
-
+/** 現在 pending queue に溜まっている event 数を返す。 */
 u32 FTelemetryDirector::PendingCount() const noexcept {
     return static_cast<u32>(m_Pending.Size());
 }
 
+/** 送信に成功した累計 event 数を返す。 */
 u32 FTelemetryDirector::SentCount() const noexcept {
     return m_SentCount;
 }
 
+/** 送信に失敗した累計 event 数を返す。 */
 u32 FTelemetryDirector::FailedCount() const noexcept {
     return m_FailedCount;
 }
 
-// =============================================================================
-// Tick / 設定
-// =============================================================================
-
+/** 経過時間を積算し、flush 間隔を超えたら自動 Flush する。 */
 void FTelemetryDirector::Tick(f32 dt) noexcept {
     if (!m_Initialized) return;
     // 異常値 (NaN / 負値) ガード。負の dt は 0 扱いに丸める。
@@ -213,15 +205,13 @@ void FTelemetryDirector::Tick(f32 dt) noexcept {
     }
 }
 
+/** 自動 Flush の間隔を設定する (0 以下は 5 秒既定に丸める)。 */
 void FTelemetryDirector::SetFlushInterval(f32 sec) noexcept {
     // 0 以下は 5 秒既定に丸める (= 暴走防止)。
     m_FlushInterval = sec > 0.0f ? sec : 5.0f;
 }
 
-// =============================================================================
-// category フィルタ
-// =============================================================================
-
+/** category の許可フラグを設定する (deny のみフィルタへ登録、enabled は登録不要)。 */
 void FTelemetryDirector::EnableCategory(const char* category, bool enabled) noexcept {
     if (category == nullptr) return;
 
@@ -244,10 +234,7 @@ void FTelemetryDirector::EnableCategory(const char* category, bool enabled) noex
     }
 }
 
-// =============================================================================
-// デバッグ
-// =============================================================================
-
+/** pending・フィルタ・統計をリセットする (backend / privacy 参照は維持)。 */
 void FTelemetryDirector::Clear() noexcept {
     m_Pending.Clear();
     m_Filters.Clear();

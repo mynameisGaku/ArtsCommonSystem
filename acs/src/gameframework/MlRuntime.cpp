@@ -22,13 +22,8 @@
 
 namespace acs::game {
 
-// =============================================================================
-// MlRuntimeStub — 全 method NotImplemented
-// -----------------------------------------------------------------------------
-// `ACS_ERR(Generic, kSub_NotImplemented, ...)` を返す。ErrCategory に
-// `NotImplemented` 専用カテゴリは無いため、FSaveSlot.h と同じ「Generic +
-// subcode 99」の規約に揃える。message は静的文字列リテラル (ACS の方針通り)。
-// =============================================================================
+// NotImplemented 専用カテゴリは無いため、FSaveSlot.h と同じ「Generic + subcode 99」の
+// 規約で ACS_ERR を返す (message は静的文字列リテラル)。
 TResult<void> MlRuntimeStub::Init() noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
                    "MlRuntimeStub::Init: ML backend not integrated (Phase U-1 stub)");
@@ -56,12 +51,8 @@ TResult<void> MlRuntimeStub::RunInference(MlModelHandle /*h*/,
                    "MlRuntimeStub::RunInference: ML backend not integrated (Phase U-1 stub)");
 }
 
-// =============================================================================
-// FUpscalerStub — Off のみ受け付ける
-// -----------------------------------------------------------------------------
-// `EUpscalerKind::Off` への Init は「無効化を選んだ」状態として成功扱い。
-// それ以外 (FSR / DLSS / XeSS / Custom) は SDK 未統合なので NotImplemented。
-// =============================================================================
+// Off への Init は「無効化を選んだ」状態として成功扱い。それ以外
+// (FSR / DLSS / XeSS / Custom) は SDK 未統合なので NotImplemented。
 TResult<void> FUpscalerStub::Init(EUpscalerKind k) noexcept {
     if (k == EUpscalerKind::Off) {
         m_Kind = EUpscalerKind::Off;
@@ -72,40 +63,47 @@ TResult<void> FUpscalerStub::Init(EUpscalerKind k) noexcept {
                    "FUpscalerStub::Init: requested upscaler backend not integrated (Phase U-1 stub)");
 }
 
-// =============================================================================
-// global stub アクセサ
-// -----------------------------------------------------------------------------
-// 関数内 static で遅延構築 (Meyers singleton)。process lifetime のオブジェクト
-// として 1 個だけ存在し、`GetMlRuntimeStub()` / `GetUpscalerStub()` を呼んだ
-// すべての箇所が同じ instance を共有する。
-//
-// スレッド安全性:
-//   C++11 以降、関数内 static の初期化は thread-safe (magic statics)。
-//   ただし stub 自身は状態を持つ (FUpscalerStub::m_Kind) ため、複数スレッドから
-//   同時アクセスする呼び出し側は外部同期を取る必要がある。
-// =============================================================================
+/**
+ * 共有 MlRuntimeStub への参照を返す (関数内 static の Meyers singleton)。
+ *
+ * @details C++11 以降の magic statics で初期化は thread-safe だが、stub 自身の状態への同時アクセスは呼び出し側責務。
+ * @return process lifetime の MlRuntimeStub への参照。
+ */
 IMlRuntime& GetMlRuntimeStub() noexcept {
     static MlRuntimeStub instance;
     return instance;
 }
 
+/**
+ * 共有 FUpscalerStub への参照を返す (関数内 static の Meyers singleton)。
+ *
+ * @details C++11 以降の magic statics で初期化は thread-safe だが、stub 自身の状態 (m_Kind) への同時アクセスは呼び出し側責務。
+ * @return process lifetime の FUpscalerStub への参照。
+ */
 IUpscaler& GetUpscalerStub() noexcept {
     static FUpscalerStub instance;
     return instance;
 }
 
-// ---- 既定 MlRuntime provider 結線 (実 backend への委譲) -------------------
-// gameframework は実 backend (ACS::MlOnnx) に依存できない (循環依存) ため、
-// 実 backend 側 (例: acs::mlonnx::InstallOnnxAsDefault) が `SetMlRuntimeProvider`
-// を呼んで関数ポインタを登録する。未登録なら GetMlRuntimeStub() を返す。
 namespace {
+/** 登録済みの既定 MlRuntime provider (未登録なら nullptr → stub にフォールバック)。 */
 MlRuntimeProvider g_MlRuntimeProvider = nullptr;
 }
 
+/**
+ * 既定 MlRuntime provider を登録する。
+ *
+ * @param provider 登録する provider 関数 (nullptr で解除)。
+ */
 void SetMlRuntimeProvider(MlRuntimeProvider provider) noexcept {
     g_MlRuntimeProvider = provider;
 }
 
+/**
+ * 既定 MlRuntime を返す。
+ *
+ * @return provider 登録済みならその実 runtime、未登録なら GetMlRuntimeStub()。
+ */
 IMlRuntime& GetDefaultMlRuntime() noexcept {
     return g_MlRuntimeProvider ? g_MlRuntimeProvider() : GetMlRuntimeStub();
 }

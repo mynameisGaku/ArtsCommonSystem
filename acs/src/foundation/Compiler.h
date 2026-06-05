@@ -9,7 +9,6 @@
 // =============================================================================
 #pragma once
 
-// ---- コンパイラ検出 -------------------------------------------------------
 // コンパイラ固有のマクロ群（_MSC_VER, __clang__, __GNUC__）を見て
 // ACS_COMPILER_MSVC / ACS_COMPILER_CLANG / ACS_COMPILER_GCC のいずれかを 1 にする。
 #if defined(__clang__)
@@ -36,8 +35,7 @@
     #define ACS_COMPILER_GCC 0
 #endif
 
-// ---- プラットフォーム検出 -------------------------------------------------
-// ACS は Windows / DX12 をターゲットとする。他 OS 対応は将来検討。
+// ACS は Windows / DX12 をターゲットとする。
 #if defined(_WIN32) || defined(_WIN64)
     #define ACS_PLATFORM_WINDOWS 1
     #define ACS_PLATFORM_NAME "windows"
@@ -45,7 +43,6 @@
     #error "ACS currently targets Windows only"
 #endif
 
-// ---- アーキテクチャ検出 ---------------------------------------------------
 // x86-64 と ARM64 をサポート。SIMD やスレッド原語の選択に使用。
 #if defined(_M_X64) || defined(__x86_64__)
     #define ACS_ARCH_X64 1
@@ -64,7 +61,6 @@
     #define ACS_ARCH_ARM64 0
 #endif
 
-// ---- ビルドモード ---------------------------------------------------------
 // Debug / Release を統一的に判定するためのフラグ。
 #if defined(_DEBUG) || defined(DEBUG)
     #define ACS_BUILD_DEBUG 1
@@ -72,7 +68,6 @@
     #define ACS_BUILD_DEBUG 0
 #endif
 
-// ---- 関数属性ラッパ -------------------------------------------------------
 // コンパイラ間の方言差を吸収し、ポータブルな属性マクロを提供する。
 #if ACS_COMPILER_MSVC
     #define ACS_FORCEINLINE     __forceinline                 // 強制インライン化（MSVC）
@@ -98,7 +93,6 @@
     #define ACS_DLLIMPORT
 #endif
 
-// ---- SIMD ターゲット属性 --------------------------------------------------
 // 特定の関数だけ AVX / AVX2 を有効化するための属性。
 // Clang / GCC は組み込み関数 (_mm256_* 等) をターゲット機能でゲートするため、
 // AVX 命令を使う関数には per-function の target 属性が必要。MSVC は組み込み
@@ -113,7 +107,6 @@
     #define ACS_TARGET_AVX2  __attribute__((target("avx2,fma")))
 #endif
 
-// ---- 分岐予測ヒント -------------------------------------------------------
 // CPU の分岐予測器に「成立／不成立」のヒントを与え、ホットパスを最適化する。
 // MSVC は __builtin_expect 相当を持たないため、PGO に依存して恒等マクロ化。
 #if ACS_COMPILER_MSVC
@@ -124,11 +117,9 @@
     #define ACS_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #endif
 
-// ---- キャッシュラインサイズ -----------------------------------------------
 // x64 / Apple Silicon では 64 バイト。POWER 系は 128 だが現状非対応。
 #define ACS_CACHELINE_SIZE 64
 
-// ---- その他ユーティリティ -------------------------------------------------
 #define ACS_UNUSED(x) ((void)(x))                              // 未使用警告抑制
 
 // トークン連結／文字列化マクロ（Assert 等のマクロで使用）

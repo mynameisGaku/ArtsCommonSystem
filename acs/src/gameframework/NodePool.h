@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B Phase 4 — FNodePool (FNode2D の generational pool)
+// GameFramework Pillar B — FNodePool (FNode2D の generational pool)
 //
 // シーン全体で唯一の `FNode2D*` レジストリ。`FNode2D` インスタンス自体は親の
 // `m_Children` (TUniquePtr<FNode2D>) が所有し続け、本 pool は **参照のみ** を
@@ -24,7 +24,7 @@
 //   pool.Unregister(enemy_id);   // slot 解放 + gen++ → 古い handle は invalid 化
 //   enemy_ptr->Destroy();        // scene tree からは別途 reap される
 //
-// 設計選択 (Phase 4 = Pillar B Phase 4):
+// 設計選択 (Pillar B):
 //   ・**non-owning**: 所有権は FNode2D の親 (=TUniquePtr<FNode2D>) 側にあり、本 pool
 //     は raw ポインタだけ持つ。TPool の破棄や ClearAll は FNode2D を delete しない。
 //   ・**Slot = {ptr, gen, active}**: FCollisionWorld2D::Slot と同じパターン。
@@ -52,72 +52,145 @@ namespace acs::game {
 
 class FNode2D;   // forward decl — full include は .cpp 側 (FNode2D::_SetId 呼出のため)
 
-/// FNode2D 群を pool で管理し、安定した FNodeId を発行 + stale 検出する。
-/// 所有権は持たない (FNode2D は親の TUniquePtr が所有)。
+/**
+ * FNode2D 群を pool で管理し、安定した FNodeId を発行 + stale 検出する。
+ *
+ * @details
+ * FNode2D の所有権は持たない (FNode2D は親の TUniquePtr が所有)。本 pool は raw
+ * ポインタだけを保持し、generational handle (FNodeId) の発行と stale 検出を担う。
+ * Slot = {ptr, gen, active} 構成で、index 0 は invalid 用に予約、有効 slot は 1..N。
+ * 空き slot は free stack で O(1) 再利用する。
+ */
 class FNodePool {
 public:
+    /** 空の pool を構築する (slot 配列は Init / 初回 Register で確保)。 */
     FNodePool()  noexcept = default;
+
+    /** 破棄する (FNode2D は非所有なので何も delete しない)。 */
     ~FNodePool() noexcept = default;
 
+    /** コピー禁止 (pool は scene が固定オブジェクトとして単独所有するため)。 */
     FNodePool(const FNodePool&)            = delete;
+
+    /** コピー代入も禁止。 */
     FNodePool& operator=(const FNodePool&) = delete;
+
+    /** ムーブ禁止。 */
     FNodePool(FNodePool&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FNodePool& operator=(FNodePool&&)      = delete;
 
-    /// 初期容量を予約 (再 alloc 回避用)。複数回呼出可、縮小はしない。
-    /// initial_capacity 0 や負の値はそのまま受けて、初回 Register まで何もしない。
+    /**
+     * 初期容量を予約する (再 alloc 回避用)。
+     *
+     * @details 複数回呼出可、縮小はしない。index 0 の dummy slot を未確保なら確保する。
+     * @param initial_capacity 予約する slot 数 (0 なら dummy 確保のみで reserve しない)。
+     */
     void Init(u32 initial_capacity = 256) noexcept;
 
-    /// 既存の生 FNode2D を pool に登録、新しい FNodeId を発行して node->_SetId する。
-    /// node == nullptr、または slot 数が 16M に達した場合は invalid FNodeId を返す
-    /// (この場合 node の Id は変更しない)。
+    /**
+     * 既存の生 FNode2D を pool に登録し、新しい FNodeId を発行する。
+     *
+     * @details 発行した FNodeId は node->_SetId() で node 自身にも書き込む。
+     * @param node 登録する FNode2D (nullptr、または slot 数が 16M に達したときは登録しない)。
+     * @return 発行した FNodeId。失敗時は invalid (この場合 node の Id は変更しない)。
+     */
     FNodeId RegisterExistingNode(FNode2D* node) noexcept;
 
-    /// slot を free 化し、対応 FNode2D の Id を invalid にリセット、generation を進める。
-    /// 既に invalid / stale な id は何もしない (二重 Unregister は安全)。
+    /**
+     * slot を free 化し、対応 FNode2D の Id を invalid にリセットする。
+     *
+     * @details 既に invalid / stale な id は何もしない (二重 Unregister は安全)。
+     * generation は次の AcquireSlot で進むため、ここでは進めない。
+     * @param id 解放する slot の FNodeId。
+     */
     void Unregister(FNodeId id) noexcept;
 
-    /// id が指す slot が active かつ generation が一致するか。
+    /**
+     * id が指す slot が active かつ generation が一致するかを返す。
+     *
+     * @param id 検証する FNodeId。
+     * @return slot が生きていて世代も一致すれば true。
+     */
     bool IsValid(FNodeId id) const noexcept;
 
-    /// id 経由で FNode2D* を取り出す。stale / invalid なら nullptr。
+    /**
+     * id 経由で FNode2D* を取り出す。
+     *
+     * @param id 取り出す FNodeId。
+     * @return 対応する FNode2D。stale / invalid なら nullptr。
+     */
     FNode2D* Get(FNodeId id) const noexcept;
 
-    /// node ポインタから FNodeId を逆引き (線形探索 O(N))。
-    /// node == nullptr、または pool に存在しなければ invalid FNodeId を返す。
+    /**
+     * node ポインタから FNodeId を逆引きする (線形探索 O(N))。
+     *
+     * @param node 逆引きする FNode2D。
+     * @return 対応する FNodeId。node == nullptr または pool に存在しなければ invalid。
+     */
     FNodeId IdOf(FNode2D* node) const noexcept;
 
-    /// 現在 active な slot 数。
+    /**
+     * 現在 active な slot 数を返す。
+     *
+     * @return active な slot 数。
+     */
     u32 ActiveCount() const noexcept { return m_ActiveCount; }
 
-    /// 現在の slot 数 (内部配列長 - 1、index 0 予約分を除外)。
-    /// 物理的に確保された FNode2D 個数の上限ではなく、過去に到達した最大値の指標。
+    /**
+     * 現在の slot 数を返す (内部配列長 - 1、index 0 予約分を除外)。
+     *
+     * @details 物理的に確保された FNode2D 個数の上限ではなく、過去に到達した最大値の指標。
+     * @return index 0 の dummy を除いた slot 数。
+     */
     u32 Capacity() const noexcept {
         const u32 sz = static_cast<u32>(m_Slots.Size());
         return sz > 0 ? sz - 1u : 0u;   // index 0 予約分を引く
     }
 
-    /// 全 slot を一括 free。各登録済 FNode2D の Id を invalid にリセットする。
-    /// FNode2D 自体は削除しない (所有していないため)。free_indices stack もクリア。
-    /// gen は維持する (= 同じ slot を再利用した時、ClearAll 前の handle は確実に stale)。
+    /**
+     * 全 slot を一括 free する。
+     *
+     * @details 各登録済 FNode2D の Id を invalid にリセットし、free_indices stack もクリアする。
+     * FNode2D 自体は削除しない (非所有)。gen は維持するため、ClearAll 前の handle は再利用後も
+     * 確実に stale 検出される。
+     */
     void ClearAll() noexcept;
 
 private:
+    /**
+     * 1 つの slot エントリ (登録された FNode2D の参照と世代)。
+     */
     struct Slot {
-        FNode2D* ptr    = nullptr;   // 非所有 (FNode2D の所有は親 TUniquePtr 側)
-        u8      gen    = 0;          // 0 は予約 (= invalid handle と一致)。有効 slot は 1..255
+        /** 登録された FNode2D (非所有。所有は親 TUniquePtr 側)。 */
+        FNode2D* ptr    = nullptr;
+
+        /** 世代カウンタ (0 は予約 = invalid handle と一致。有効 slot は 1..255)。 */
+        u8      gen    = 0;
+
+        /** この slot が現在使用中かどうか。 */
         bool    active = false;
     };
 
-    /// 空き slot を 1 つ取得 (free stack → 末尾追加の順)。index 0 は予約。
-    /// 16M 上限に到達した場合は 0 を返す (= 呼出側で invalid FNodeId 化)。
+    /**
+     * 空き slot を 1 つ取得する (free stack → 末尾追加の順)。
+     *
+     * @details index 0 は予約。16M 上限に到達した場合は 0 を返す。
+     * @return 取得した slot の index。確保不能なら 0 (呼出側で invalid FNodeId 化)。
+     */
     u32 AcquireSlot() noexcept;
 
-    /// 24bit index 上限 (FNodeId pack 仕様に合わせる)。
-    static constexpr u32 kMaxIndex = 0x00FFFFFFu;   // = 16,777,215
+    /** 24bit index 上限 (FNodeId pack 仕様に合わせる、= 16,777,215)。 */
+    static constexpr u32 kMaxIndex = 0x00FFFFFFu;
 
-    TArray<Slot> m_Slots;          // index 0 は dummy (= invalid 用予約)
-    TArray<u32>  m_FreeIndices;   // LIFO stack。pop → 再利用 slot、empty → 末尾追加
+    /** slot 配列 (index 0 は dummy = invalid 用予約)。 */
+    TArray<Slot> m_Slots;
+
+    /** 空き slot index の LIFO stack (pop → 再利用、empty → 末尾追加)。 */
+    TArray<u32>  m_FreeIndices;
+
+    /** 現在 active な slot 数。 */
     u32         m_ActiveCount = 0;
 };
 

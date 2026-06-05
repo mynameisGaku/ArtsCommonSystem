@@ -19,8 +19,13 @@ namespace acs::game {
 
 namespace {
 
-// const char* の per-byte 安全比較。FEntitlement.cpp / FAchievementManager.cpp と同設計。
-// どちらかが nullptr なら false。
+/**
+ * const char* の per-byte 安全比較。
+ *
+ * @param a 比較文字列 1。
+ * @param b 比較文字列 2。
+ * @return 両者が等しければ true。どちらかが nullptr なら false。
+ */
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -31,21 +36,18 @@ bool StrEq(const char* a, const char* b) noexcept {
     return *a == '\0' && *b == '\0';
 }
 
-// 「id 未発見」を表す哨兵値。FAchievementManager / FSeasonPass と同設計。
+/** 「id 未発見」を表す哨兵値。 */
 constexpr u32 kNotFound = ~static_cast<u32>(0);
 
-// 在庫「無制限」を表す哨兵値 (ヘッダの仕様コメントと対応)。
+/** 在庫「無制限」を表す哨兵値 (Purchase 時に減算しない)。 */
 constexpr u32 kStockUnlimited = ~static_cast<u32>(0);
 
-// 残高 (u32) の上限。AddToBalance のオーバーフロークランプで使用。
+/** 残高 (u32) の上限。AddToBalance のオーバーフロークランプで使う。 */
 constexpr u32 kMaxBalance = ~static_cast<u32>(0);
 
 } // namespace
 
-// =============================================================================
-// 内部検索
-// =============================================================================
-
+/** currency_id に対応するスロット index を線形検索する (未発見は kNotFound)。 */
 u32 FEconomyDirector::FindCurrencySlot(const char* currency_id) const noexcept {
     if (currency_id == nullptr) return kNotFound;
     const usize n = m_Currencies.Size();
@@ -55,6 +57,7 @@ u32 FEconomyDirector::FindCurrencySlot(const char* currency_id) const noexcept {
     return kNotFound;
 }
 
+/** item_id に対応するスロット index を線形検索する (未発見は kNotFound)。 */
 u32 FEconomyDirector::FindItemSlot(const char* item_id) const noexcept {
     if (item_id == nullptr) return kNotFound;
     const usize n = m_Items.Size();
@@ -64,10 +67,7 @@ u32 FEconomyDirector::FindItemSlot(const char* item_id) const noexcept {
     return kNotFound;
 }
 
-// =============================================================================
-// 通貨定義 / 残高
-// =============================================================================
-
+/** 通貨を登録し残高を 0 で初期化する (id == nullptr / 同 id 重複は no-op)。 */
 void FEconomyDirector::RegisterCurrency(const CurrencyDef& def) noexcept {
     // defensive: id == nullptr は意味を持たないので静かに弾く。
     if (def.id == nullptr) return;
@@ -83,18 +83,21 @@ void FEconomyDirector::RegisterCurrency(const CurrencyDef& def) noexcept {
     m_Balances.PushBack(static_cast<u32>(0));
 }
 
+/** 指定通貨の残高を amount に上書きする (未登録通貨は no-op)。 */
 void FEconomyDirector::SetBalance(const char* currency_id, u32 amount) noexcept {
     const u32 slot = FindCurrencySlot(currency_id);
     if (slot == kNotFound) return;
     m_Balances[slot] = amount;
 }
 
+/** 指定通貨の残高を返す (未登録通貨は 0)。 */
 u32 FEconomyDirector::GetBalance(const char* currency_id) const noexcept {
     const u32 slot = FindCurrencySlot(currency_id);
     if (slot == kNotFound) return 0;
     return m_Balances[slot];
 }
 
+/** 指定通貨に delta を加算する (u32 上限でクランプ。未登録通貨は false)。 */
 bool FEconomyDirector::AddToBalance(const char* currency_id, u32 delta) noexcept {
     const u32 slot = FindCurrencySlot(currency_id);
     if (slot == kNotFound) return false;
@@ -109,6 +112,7 @@ bool FEconomyDirector::AddToBalance(const char* currency_id, u32 delta) noexcept
     return true;
 }
 
+/** 指定通貨から delta を減算する (残高不足 / 未登録通貨は変更せず false)。 */
 bool FEconomyDirector::DeductFromBalance(const char* currency_id, u32 delta) noexcept {
     const u32 slot = FindCurrencySlot(currency_id);
     if (slot == kNotFound) return false;
@@ -119,10 +123,7 @@ bool FEconomyDirector::DeductFromBalance(const char* currency_id, u32 delta) noe
     return true;
 }
 
-// =============================================================================
-// 商品定義
-// =============================================================================
-
+/** 商品を登録する (item_id == nullptr / 同 id 重複は no-op、未登録通貨参照でも受理)。 */
 void FEconomyDirector::RegisterItem(const ShopItem& item) noexcept {
     // defensive: item_id == nullptr は意味を持たないので静かに弾く。
     if (item.item_id == nullptr) return;
@@ -138,10 +139,16 @@ void FEconomyDirector::RegisterItem(const ShopItem& item) noexcept {
     m_Items.PushBack(item);
 }
 
-// =============================================================================
-// 購入
-// =============================================================================
-
+/**
+ * 商品を購入する。
+ *
+ * @details
+ * 在庫・通貨・残高の全 check を済ませてから残高減算と在庫減算をまとめて行うことで
+ * 「失敗時 side effect なし」を保証する。失敗時も item_id != nullptr ならコールバックを
+ * success=false で呼ぶ (item_id == nullptr のみ完全 no-op)。
+ * @param item_id 購入する商品 id。
+ * @return 購入成功なら true。
+ */
 bool FEconomyDirector::PurchaseItem(const char* item_id) noexcept {
     // nullptr は完全 no-op (コールバックも呼ばない)。
     if (item_id == nullptr) return false;
@@ -201,39 +208,32 @@ bool FEconomyDirector::PurchaseItem(const char* item_id) noexcept {
     return true;
 }
 
-// =============================================================================
-// 商品照会
-// =============================================================================
-
+/** item_id に対応する商品を返す (未発見は nullptr)。 */
 const ShopItem* FEconomyDirector::FindItem(const char* item_id) const noexcept {
     const u32 slot = FindItemSlot(item_id);
     if (slot == kNotFound) return nullptr;
     return &m_Items[slot];
 }
 
+/** 登録済み商品数を返す。 */
 u32 FEconomyDirector::ItemCount() const noexcept {
     return static_cast<u32>(m_Items.Size());
 }
 
+/** 全商品配列の生ポインタを返す (out_count に件数を書き込む)。 */
 const ShopItem* FEconomyDirector::AllItems(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Items.Size());
     return m_Items.Data();
 }
 
-// =============================================================================
-// コールバック
-// =============================================================================
-
+/** 購入結果コールバックと user ポインタを設定する (cb == nullptr で detach)。 */
 void FEconomyDirector::SetOnPurchaseCallback(PurchaseCallback cb, void* user) noexcept {
     // nullptr で detach は明示的に許可。
     m_OnPurchase      = cb;
     m_OnPurchaseUser = user;
 }
 
-// =============================================================================
-// 全リセット
-// =============================================================================
-
+/** 通貨・残高・商品・コールバックを全てリセットする。 */
 void FEconomyDirector::ClearAll() noexcept {
     m_Currencies.Clear();
     m_Balances.Clear();

@@ -22,37 +22,67 @@ using acs::game::EScriptValueKind;
 using acs::game::NativeFunction;
 namespace script_err = acs::game::script_err;
 
-// ============================================================================
-// Impl: lua_State* + native function registry
-// ============================================================================
+/**
+ * lua_State* と native function registry を抱える Pimpl 本体。
+ *
+ * @details
+ * lua.h を public header から隠すための実装隠蔽型。trampoline が IScriptVm& を
+ * 渡せるよう所有 FLuaVm へのポインタも保持する。
+ */
 struct FLuaVm::Impl {
+    /** Lua VM 本体 (Init で生成、Shutdown で lua_close)。 */
     lua_State* m_L = nullptr;
 
-    // 登録済み native function。lua closure の upvalue に index を載せ、
-    // trampoline がここから fn/user を引く。
+    /**
+     * 登録済み native function 1 件。
+     *
+     * @details lua closure の upvalue に index を載せ、trampoline がここから fn/user を引く。
+     */
     struct NativeReg {
+        /** script から call されたときに呼ぶ native 関数。 */
         NativeFunction fn   = nullptr;
+
+        /** fn の第 3 引数に渡すコンテキストポインタ。 */
         void*          user = nullptr;
     };
+
+    /** 登録済み native function の配列 (index が closure upvalue になる)。 */
     acs::TArray<NativeReg> m_Natives;
-    FLuaVm*               m_Owner = nullptr;  // trampoline が IScriptVm& を渡すため
 
-    // CallFunction が返す FString は Lua 所有メモリを指す。スタックから pop
-    // すると GC 対象になり dangling になるため、直前に registry へ anchor して
-    // VM 寿命の間 (= 次の CallFunction まで) 値を生かす。LUA_NOREF=未保持。
-    int m_LastStringRef = LUA_NOREF;  // lauxlib.h。-2 = 未保持。
+    /** この Impl を所有する FLuaVm (trampoline が IScriptVm& を渡すため)。 */
+    FLuaVm*               m_Owner = nullptr;
 
-    // 直前に anchor した戻り文字列を registry から外す (GC 許可)。
+    /**
+     * 直前の CallFunction が anchor した戻り文字列の registry ref (LUA_NOREF=未保持)。
+     *
+     * @details
+     * CallFunction が返す FString は Lua 所有メモリを指す。スタックから pop すると
+     * GC 対象になり dangling になるため、直前に registry へ anchor して VM 寿命の間
+     * (= 次の CallFunction まで) 値を生かす。
+     */
+    int m_LastStringRef = LUA_NOREF;
+
+    /**
+     * 直前に anchor した戻り文字列を registry から外す (GC 許可)。
+     *
+     * @details CallFunction の度に呼び、前回の戻り文字列を解放してから今回の値を anchor し直す。
+     */
     void ReleaseLastString() noexcept;
 
-    // lua_CFunction (int(*)(lua_State*))。static メンバなので Impl の private
-    // メンバにアクセスできる。匿名 namespace の free 関数だと Impl が
-    // FLuaVm の private nested 型なので触れない。
+    /**
+     * lua_CFunction として登録される native 関数 trampoline。
+     *
+     * @details
+     * static メンバなので Impl の private メンバにアクセスできる (匿名 namespace の
+     * free 関数だと Impl が FLuaVm の private nested 型なので触れない)。upvalue(1)=
+     * registry index、upvalue(2)=FLuaVm::Impl* から該当 NativeReg を引いて呼び出す。
+     * @param L Lua VM 状態。
+     * @return Lua に返す戻り値の個数 (戻り値が Nil 以外なら 1、それ以外は 0)。
+     */
     static int NativeTrampoline(lua_State* L) noexcept;
 };
 
-// 直前に anchor した戻り文字列を解放。CallFunction の度に呼び、前回の
-// 戻り文字列を解放してから今回の値を anchor し直す (1 個だけ生かす方式)。
+/** 直前に anchor した戻り文字列を解放する (registry から unref して GC を許可)。 */
 void FLuaVm::Impl::ReleaseLastString() noexcept {
     if (m_L && m_LastStringRef != LUA_NOREF && m_LastStringRef != LUA_REFNIL) {
         luaL_unref(m_L, LUA_REGISTRYINDEX, m_LastStringRef);
@@ -62,7 +92,14 @@ void FLuaVm::Impl::ReleaseLastString() noexcept {
 
 namespace {
 
-// Lua stack の 1 値 (index idx) を ScriptValue に変換。
+/**
+ * Lua stack の 1 値を ScriptValue に変換する。
+ *
+ * @details Bool/Number/FString に対応し、それ以外の型はすべて Nil に落とす。
+ * @param L Lua VM 状態。
+ * @param idx 変換するスタックインデックス。
+ * @return 変換した ScriptValue (FString は Lua 所有メモリを指し call 中のみ有効)。
+ */
 ScriptValue LuaToScriptValue(lua_State* L, int idx) noexcept {
     ScriptValue sv{};
     switch (lua_type(L, idx)) {
@@ -85,7 +122,13 @@ ScriptValue LuaToScriptValue(lua_State* L, int idx) noexcept {
     return sv;
 }
 
-// ScriptValue を Lua stack に push。
+/**
+ * ScriptValue を Lua stack に push する。
+ *
+ * @details Bool/Number/FString/Handle を対応する Lua 値で積み、Nil はそれ以外も含め lua_pushnil。
+ * @param L Lua VM 状態。
+ * @param sv push する値。
+ */
 void PushScriptValue(lua_State* L, const ScriptValue& sv) noexcept {
     switch (sv.kind) {
         case EScriptValueKind::Bool:    lua_pushboolean(L, sv.v.b ? 1 : 0);          break;
@@ -99,7 +142,7 @@ void PushScriptValue(lua_State* L, const ScriptValue& sv) noexcept {
 
 } // namespace
 
-// native function trampoline。upvalue(1)=registry index、upvalue(2)=FLuaVm::Impl*。
+/** native function trampoline 本体 (upvalue から NativeReg を引いて C++ 関数を呼ぶ)。 */
 int FLuaVm::Impl::NativeTrampoline(lua_State* L) noexcept {
     const int reg_index = static_cast<int>(lua_tointeger(L, lua_upvalueindex(1)));
     auto* impl = static_cast<FLuaVm::Impl*>(lua_touserdata(L, lua_upvalueindex(2)));
@@ -135,21 +178,20 @@ int FLuaVm::Impl::NativeTrampoline(lua_State* L) noexcept {
     return 0;
 }
 
-// ============================================================================
-// 公開 API
-// ============================================================================
-
+/** Pimpl を確保し、所有者ポインタを自身に設定する。 */
 FLuaVm::FLuaVm() noexcept {
     m_Impl = new Impl();
     m_Impl->m_Owner = this;
 }
 
+/** Shutdown で lua_State を解放してから Pimpl を delete する。 */
 FLuaVm::~FLuaVm() noexcept {
     Shutdown();
     delete m_Impl;
     m_Impl = nullptr;
 }
 
+/** lua_State を生成し標準ライブラリを open する。 */
 acs::TResult<void> FLuaVm::Init() noexcept {
     if (m_Impl->m_L) return acs::Ok();  // 既に初期化済み
     m_Impl->m_L = luaL_newstate();
@@ -162,6 +204,7 @@ acs::TResult<void> FLuaVm::Init() noexcept {
     return acs::Ok();
 }
 
+/** lua_State を lua_close で破棄し、native registry と戻り文字列 anchor をリセットする。 */
 void FLuaVm::Shutdown() noexcept {
     if (m_Impl && m_Impl->m_L) {
         lua_close(m_Impl->m_L);              // registry ごと破棄されるので ref は無効化
@@ -173,6 +216,7 @@ void FLuaVm::Shutdown() noexcept {
     }
 }
 
+/** ソースを luaL_loadbuffer で parse し lua_pcall で即時実行する。 */
 acs::TResult<void> FLuaVm::LoadScript(const char* source, acs::u32 source_len,
                                       const char* chunk_name) noexcept {
     if (!m_Impl->m_L) {
@@ -200,6 +244,7 @@ acs::TResult<void> FLuaVm::LoadScript(const char* source, acs::u32 source_len,
     return acs::Ok();
 }
 
+/** グローバル関数を lua_pcall し、戻り文字列は registry に anchor して延命する。 */
 acs::TResult<void> FLuaVm::CallFunction(const char* function_name,
                                         const ScriptValue* args, acs::u32 arg_count,
                                         ScriptValue* ret_out) noexcept {
@@ -257,6 +302,7 @@ acs::TResult<void> FLuaVm::CallFunction(const char* function_name,
     return acs::Ok();
 }
 
+/** native registry に登録し、index と Impl* を upvalue に載せた trampoline closure を setglobal する。 */
 acs::TResult<void> FLuaVm::RegisterNativeFunction(const char* function_name,
                                                   NativeFunction fn, void* user) noexcept {
     if (!m_Impl->m_L) {
@@ -280,12 +326,14 @@ acs::TResult<void> FLuaVm::RegisterNativeFunction(const char* function_name,
     return acs::Ok();
 }
 
+/** 数値を push して name のグローバルに setglobal する (未初期化 / name null なら no-op)。 */
 void FLuaVm::SetGlobalNumber(const char* name, acs::f64 value) noexcept {
     if (!m_Impl->m_L || !name) return;
     lua_pushnumber(m_Impl->m_L, static_cast<lua_Number>(value));
     lua_setglobal(m_Impl->m_L, name);
 }
 
+/** name のグローバルを getglobal し、数値なら返し、それ以外は default_value を返す。 */
 acs::f64 FLuaVm::GetGlobalNumber(const char* name, acs::f64 default_value) const noexcept {
     if (!m_Impl->m_L || !name) return default_value;
     lua_State* L = m_Impl->m_L;
@@ -298,12 +346,14 @@ acs::f64 FLuaVm::GetGlobalNumber(const char* name, acs::f64 default_value) const
     return result;
 }
 
+/** lua_gc(LUA_GCCOLLECT) で強制 GC を 1 サイクル走らせる (未初期化なら no-op)。 */
 void FLuaVm::CollectGarbage() noexcept {
     if (m_Impl->m_L) {
         lua_gc(m_Impl->m_L, LUA_GCCOLLECT, 0);
     }
 }
 
+/** lua_gc の GCCOUNT (KiB) と GCCOUNTB (端数 byte) を合算してメモリ使用量を返す。 */
 acs::u64 FLuaVm::MemoryUsageBytes() const noexcept {
     if (!m_Impl->m_L) return 0;
     const int kb = lua_gc(m_Impl->m_L, LUA_GCCOUNT, 0);

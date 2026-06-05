@@ -35,92 +35,45 @@
 
 namespace acs::game {
 
-// =============================================================================
-// OpenXrBridgeStub::Init — NotImplemented
-// -----------------------------------------------------------------------------
-// `platform` は受け取るが stub では一切使わない (Phase X-2 で具象 backend が
-// 選ばれるまでは検出も接続もしないため)。`(void)platform` で未使用警告を抑止。
-// `m_Initialized` は false のまま据え置く (Init 失敗時に initialized=true にすると
-// 上位の IsInitialized 判定が壊れるため)。
-// =============================================================================
+/** 常に NotImplemented を返す (platform は使わず、m_Initialized は false のまま)。 */
 TResult<void> OpenXrBridgeStub::Init(EXrPlatform platform) noexcept {
     (void)platform;  // stub は platform 自動検出も特定指定も実装していない
     return ACS_ERR(Generic, xr_err::kSub_NotImplemented,
                    "OpenXrBridgeStub::Init: XR backend not integrated (Phase X-1 stub)");
 }
 
-// =============================================================================
-// OpenXrBridgeStub::Shutdown — no-op
-// -----------------------------------------------------------------------------
-// Init が常に失敗する以上、解放対象は存在しない。`m_Initialized` を false に
-// 戻すだけにする (将来 Init 成功する具象 backend に置き換わったときの
-// 防御として副作用最小で残す)。
-// =============================================================================
+/** m_Initialized を false に戻すだけの no-op (解放対象なし)。 */
 void OpenXrBridgeStub::Shutdown() noexcept {
     m_Initialized = false;
 }
 
-// =============================================================================
-// OpenXrBridgeStub::Tick — no-op
-// -----------------------------------------------------------------------------
-// stub は XR ランタイムイベントを持たないので、`dt` を受け取って捨てるだけ。
-// 上位コードが `Tick(dt)` を毎フレーム呼ぶ慣習を維持できるよう、引数シグネチャ
-// だけ提供する。
-// =============================================================================
+/** dt を受け取って捨てるだけの no-op (XR イベントポンプを持たない)。 */
 void OpenXrBridgeStub::Tick(f32 dt) noexcept {
     (void)dt;
 }
 
-// =============================================================================
-// OpenXrBridgeStub::SetPassthrough — no-op
-// -----------------------------------------------------------------------------
-// stub は `IsPassthroughSupported()` で false を返すので、`SetPassthrough(true)`
-// が呼ばれても安全に無視する。エラーは返さず、上位の MR モード切替コードが
-// "passthrough が黙って効かなかった" 状況で fallback 表示 (= passthrough なしの
-// 通常 VR / 通常 2D) を選べるようにする。
-// =============================================================================
+/** on を無視する no-op (passthrough 非対応のため安全に捨てる)。 */
 void OpenXrBridgeStub::SetPassthrough(bool on) noexcept {
     (void)on;
 }
 
-// =============================================================================
-// GetXrStub — global stub アクセサ
-// -----------------------------------------------------------------------------
-// 関数内 static で遅延構築 (Meyers singleton)。process lifetime のオブジェクト
-// として 1 個だけ存在し、すべての呼び出し箇所が同じ instance を共有する。
-//
-// スレッド安全性:
-//   C++11 以降、関数内 static の初期化は thread-safe (magic statics)。
-//   ただし stub 自身は状態 (`m_Initialized`) を持つため、複数スレッドから
-//   同時に Init/Shutdown を呼ぶ場合は呼び出し側で同期を取る必要がある。
-//   (stub は Init が必ず失敗するので競合は発生しないが、Phase X-2 の具象
-//    backend に差し替わったときの契約として明示しておく。)
-// =============================================================================
+/** 関数内 static で遅延構築する共有 stub への参照を返す (Meyers singleton)。 */
 IOpenXrBridge& GetXrStub() noexcept {
     static OpenXrBridgeStub instance;
     return instance;
 }
 
-// =============================================================================
-// 既定 OpenXrBridge provider 結線
-// -----------------------------------------------------------------------------
-// 実 backend モジュール (ACS::OpenXr) は本 gameframework に依存するが、その逆は
-// 依存できない (循環依存) ため、結線は backend 側から `SetOpenXrBridgeProvider()`
-// を呼んで動的に登録する。未登録時は GetXrStub() に縮退するので、backend 未リンク
-// (= SDK 無し) のビルドでもここはそのままコンパイル / 実行できる。
-//
-// provider ポインタは anon-namespace の static。プロセス内 1 個で、後勝ち登録。
-// 単一スレッド初期化前提 (アプリ起動時に一度 Install を呼ぶ慣習) のため、素朴な
-// 生ポインタで足りる。
-// =============================================================================
 namespace {
+    /** 登録済みの既定 bridge provider (未登録なら nullptr = stub に縮退)。 */
     OpenXrBridgeProvider g_OpenXrBridgeProvider = nullptr;
 } // namespace
 
+/** 既定 bridge provider を後勝ちで登録する。 */
 void SetOpenXrBridgeProvider(OpenXrBridgeProvider provider) noexcept {
     g_OpenXrBridgeProvider = provider;
 }
 
+/** provider 登録済みならその実 bridge、未登録なら stub を返す。 */
 IOpenXrBridge& GetDefaultOpenXrBridge() noexcept {
     return g_OpenXrBridgeProvider ? g_OpenXrBridgeProvider() : GetXrStub();
 }

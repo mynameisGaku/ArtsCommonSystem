@@ -5,7 +5,7 @@
 //   ローカルブロックリストと通報 (報告) キューを管理する。実プラットフォームの
 //   モデレーション SDK (Steam ISteamUser::ReportPlayer / EOS ReportPlayer /
 //   PSN Communication Block / Xbox Reputation / NSO 通報 API) への送信は seam
-//   として未接続で、Phase T-3 以降で `FSteamworksBridge` 等を経由して接続する。
+//   として未接続で、`FSteamworksBridge` 等を経由して接続する。
 //
 //   FPartySystem.h で「moderation / blocking は別モジュール」と明記した通り、
 //   本 system が「上位レイヤから呼ばれる単一窓口」を担う。InviteFriend で
@@ -51,11 +51,11 @@
 //   // 後で再送 (オンライン復帰時など)
 //   (void)mod.FlushReports();
 //
-// 設計選択 (Phase T-2 スケルトン):
+// 設計選択:
 //   ・**ローカル state は完全実装**: ブロックリストの追加/解除/検索、通報
 //     キューへの追加/フラッシュはすべて動く。
 //   ・**SDK 接続は TODO**: 実 ReportPlayer 送信 / Steam Block 同期 / PSN
-//     CommunicationRestriction 反映は Phase T-3 以降で接続。本 system は
+//     CommunicationRestriction 反映は seam 経由で接続する。本 system は
 //     seam として const char* (user_id) を受けるだけ。
 //   ・**const char* 非所有**: 規約通り <string> 不使用。user_id / note の
 //     寿命は呼び出し側 (文字列リテラル or 長寿命バッファ) が保証する。
@@ -67,7 +67,7 @@
 //     損なわれるため非コピー・非ムーブ。
 //   ・**全 noexcept**: ACS 全体方針 (TResult<T, FErrorCode> + bool 戻り値)。
 //
-// 範囲外 (Phase T-3 以降):
+// 範囲外:
 //   ・実 SDK 接続 (Steam ReportPlayer / EOS / PSN / Xbox Reputation / NSO)
 //   ・ブロック list の永続化 (Pillar J Serialize 経由 / クラウド同期)
 //   ・自動モデレーション (toxic 検出 ML、Pillar U AI 側に分離)
@@ -82,128 +82,247 @@
 
 namespace acs::game {
 
-// 通報カテゴリ。プラットフォーム規約 (Steam / PSN / Xbox / NSO) で共通的に
-// 求められる種別を最小公倍数として定義。プラットフォーム固有の細分カテゴリ
-// (Steam の「不正な広告」等) は将来 OtherToxicity 内の note で表現する想定。
+/**
+ * 通報カテゴリ。
+ *
+ * @details
+ * プラットフォーム規約 (Steam / PSN / Xbox / NSO) で共通的に求められる種別を
+ * 最小公倍数として定義する。プラットフォーム固有の細分カテゴリ (Steam の
+ * 「不正な広告」等) は将来 OtherToxicity 内の note で表現する想定。
+ */
 enum class EReportCategory : u8 {
-    Harassment        = 0,  // 嫌がらせ / 暴言 / つきまとい
-    HateSpeech        = 1,  // ヘイトスピーチ / 差別表現
-    Cheating          = 2,  // チート / マクロ / 不正ツール
-    Spam              = 3,  // スパム / 広告 / 詐欺勧誘
-    InappropriateName = 4,  // 不適切な名前 / アバター
-    OtherToxicity     = 5,  // その他 (note で詳細記述)
+    /** 嫌がらせ / 暴言 / つきまとい。 */
+    Harassment        = 0,
+
+    /** ヘイトスピーチ / 差別表現。 */
+    HateSpeech        = 1,
+
+    /** チート / マクロ / 不正ツール。 */
+    Cheating          = 2,
+
+    /** スパム / 広告 / 詐欺勧誘。 */
+    Spam              = 3,
+
+    /** 不適切な名前 / アバター。 */
+    InappropriateName = 4,
+
+    /** その他 (note で詳細記述)。 */
+    OtherToxicity     = 5,
 };
 
-// 通報 1 件分。`reported_user_id` / `reporter_user_id` / `note` はすべて
-// const char* 非所有 (FPartySystem と同じポリシー)。timestamp は Unix 秒など
-// 呼び出し側が決めた単調増加値 (本 system は比較せず保存のみ)。
+/**
+ * 通報 1 件分のレコード。
+ *
+ * @details
+ * `reported_user_id` / `reporter_user_id` / `note` はすべて const char* 非所有
+ * (FPartySystem と同じポリシー)。timestamp は Unix 秒など呼び出し側が決めた
+ * 単調増加値で、本 system は比較せず保存のみ行う。
+ */
 struct ReportRecord {
-    const char*    reported_user_id = nullptr;  // 通報対象 (SDK 固有 ID)
-    const char*    reporter_user_id = nullptr;  // 通報者 (通常 local player)
+    /** 通報対象の user_id (SDK 固有 ID、非所有)。 */
+    const char*    reported_user_id = nullptr;
+
+    /** 通報者の user_id (通常 local player、非所有)。 */
+    const char*    reporter_user_id = nullptr;
+
+    /** 通報カテゴリ (種別選択は規約上必須)。 */
     EReportCategory category         = EReportCategory::OtherToxicity;
-    const char*    note             = nullptr;  // 自由記述 (空文字 or nullptr 可)
-    u64            timestamp        = 0;        // 通報時刻 (呼び出し側基準)
+
+    /** 自由記述 (空文字 or nullptr 可、非所有)。 */
+    const char*    note             = nullptr;
+
+    /** 通報時刻 (呼び出し側基準の単調増加値)。 */
+    u64            timestamp        = 0;
 };
 
-// ブロックリスト 1 件分。`blocked_user_id` は const char* 非所有。
-// timestamp は監査ログ用 (「いつブロックしたか」UI 表示) で本 system は比較しない。
+/**
+ * ブロックリスト 1 件分のエントリ。
+ *
+ * @details
+ * `blocked_user_id` は const char* 非所有。timestamp は監査ログ用
+ * (「いつブロックしたか」UI 表示) で、本 system は比較しない。
+ */
 struct FBlockEntry {
-    const char* blocked_user_id = nullptr;  // ブロック対象 (SDK 固有 ID)
-    u64         timestamp       = 0;        // ブロック時刻 (呼び出し側基準)
+    /** ブロック対象の user_id (SDK 固有 ID、非所有)。 */
+    const char* blocked_user_id = nullptr;
+
+    /** ブロック時刻 (呼び出し側基準の値)。 */
+    u64         timestamp       = 0;
 };
 
-// ローカルブロックリスト管理 + 通報キュー。
+/**
+ * ローカルブロックリスト管理 + 通報キュー。
+ *
+ * @details
+ * ブロックリストの追加 / 解除 / 検索と通報キューへの追加 / フラッシュはすべて
+ * ローカルで完結し、実プラットフォームのモデレーション SDK (ReportPlayer 等) への
+ * 送信は seam として未接続。通常は長寿命 1 個で運用し、誤コピーで block list が
+ * 分裂して安全性が損なわれるのを避けるため非コピー・非ムーブとする。
+ */
 class FSocialModeration {
 public:
+    /** 空状態で構築する。 */
     FSocialModeration()  noexcept = default;
+
+    /** 破棄する。 */
     ~FSocialModeration() noexcept = default;
 
-    // 通常は長寿命 1 個運用。誤コピーで block list が分裂して安全性が
-    // 損なわれるのを避けるため非コピー・非ムーブ。
+    /** コピー禁止 (block list の分裂を防ぐため)。 */
     FSocialModeration(const FSocialModeration&)            = delete;
+
+    /** コピー代入も禁止。 */
     FSocialModeration& operator=(const FSocialModeration&) = delete;
+
+    /** ムーブ禁止 (block list の分裂を防ぐため)。 */
     FSocialModeration(FSocialModeration&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FSocialModeration& operator=(FSocialModeration&&)      = delete;
 
-    // ----- 初期化 -----
-    // 内部 state を初期化 (現フェーズでは no-op、将来 SDK ハンドルや永続化
-    // ロードを行う想定の seam)。多重呼び出し可。
+    /**
+     * 内部 state を初期化する。
+     *
+     * @details 現状は no-op。将来 SDK ハンドルや永続化ロードを行う想定の seam で、多重呼び出し可。
+     */
     void Init() noexcept;
 
-    // ----- block list 操作 -----
-    // user_id をローカルブロックリストに追加。既に登録済みなら no-op。
-    // user_id == nullptr も no-op (FPartySystem.AddFriend と同じ防御)。
-    // SDK 同期は TODO (Phase T-3 で FSteamworksBridge.SetCommunicationRestriction)。
+    /**
+     * user_id をローカルブロックリストに追加する。
+     *
+     * @details 既に登録済み、または user_id == nullptr なら no-op (FPartySystem.AddFriend と同じ防御)。
+     * @param user_id ブロックする相手の user_id (非所有)。
+     */
     void BlockUser(const char* user_id) noexcept;
 
-    // user_id をローカルブロックリストから削除。未登録なら no-op。
-    // 順序は保持しない (RemoveAtSwap)。SDK 同期は同上 TODO。
+    /**
+     * user_id をローカルブロックリストから削除する。
+     *
+     * @details 未登録なら no-op。順序は保持しない (RemoveAtSwap)。
+     * @param user_id ブロック解除する相手の user_id (非所有)。
+     */
     void UnblockUser(const char* user_id) noexcept;
 
-    // user_id がブロック済みか。nullptr は常に false。
-    // FPartySystem.InviteFriend() の前段ガードとしての呼び出しを想定。
+    /**
+     * user_id がブロック済みかを返す。
+     *
+     * @details FPartySystem.InviteFriend() の前段ガードとしての呼び出しを想定。
+     * @param user_id 判定する相手の user_id (nullptr は常に false)。
+     * @return ブロック済みなら true。
+     */
     bool IsBlocked(const char* user_id) const noexcept;
 
-    // ブロック件数。
+    /**
+     * ブロック件数を返す。
+     *
+     * @return 現在のブロックリストの件数。
+     */
     u32 BlockedCount() const noexcept;
 
-    // ブロックリスト生バッファ (BlockedCount() 件)。BlockUser / UnblockUser /
-    // ClearLocalState で無効化される。out_count に件数も返す (利便性)。
+    /**
+     * ブロックリストの生バッファを返す。
+     *
+     * @details BlockUser / UnblockUser / ClearLocalState で無効化される。
+     * @param out_count 件数 (BlockedCount() と同値) を受け取る参照。
+     * @return 先頭要素へのポインタ (out_count 件、空なら実装依存)。
+     */
     const FBlockEntry* AllBlocked(u32& out_count) const noexcept;
 
-    // ----- 通報 -----
-    // 通報を送信する。現フェーズでは SDK 未接続のため常に pending queue に
-    // 追加して Ok() を返す (将来 backend 接続後は同期送信を試みて、失敗時
-    // のみ queue に残す挙動になる)。reported_user_id == nullptr は弾く。
+    /**
+     * 通報を送信する。
+     *
+     * @details
+     * 現状は SDK 未接続のため常に pending queue に追加して Ok() を返す
+     * (将来 backend 接続後は同期送信を試み、失敗時のみ queue に残す挙動になる)。
+     * reported_user_id == nullptr は弾く。
+     * @param rep 送信する通報レコード。
+     * @return 受理または queue 追加に成功すれば Ok、不正入力ならエラー。
+     */
     TResult<void> SubmitReport(const ReportRecord& rep) noexcept;
 
-    // 未送信通報の件数 (queue サイズ)。
+    /**
+     * 未送信通報の件数を返す。
+     *
+     * @return pending queue のサイズ。
+     */
     u32 PendingReportCount() const noexcept;
 
-    // これまでに backend へ「受理された」通報の累計件数 (監査 / UI 表示用)。
-    // FlushReports / SubmitReport が seam 経由で受理に成功した分だけ加算される。
-    // ClearLocalState でも 0 にリセットしない (アカウント単位の累計を保つ)。
+    /**
+     * これまでに backend へ受理された通報の累計件数を返す。
+     *
+     * @details
+     * FlushReports / SubmitReport が seam 経由で受理に成功した分だけ加算される。
+     * ClearLocalState でも 0 にリセットしない (アカウント単位の累計を保つ)。
+     * @return 受理済み通報の累計件数。
+     */
     u32 DeliveredReportCount() const noexcept;
 
-    // backend (FSteamworksBridge / cloud filter) への接続有無を切り替える seam。
-    // 上位レイヤ (Pillar S) が SDK 接続完了 / 切断時に呼ぶ。現フェーズでは誰も
-    // 呼ばないため false のまま → FlushReports は 1 件も受理せず queue を保持する
-    // (「送信したつもりで消える」事故を防ぐ honest な local 挙動)。
+    /**
+     * backend (FSteamworksBridge / cloud filter) への接続有無を切り替える seam。
+     *
+     * @details
+     * 上位レイヤが SDK 接続完了 / 切断時に呼ぶ。false の間は FlushReports が
+     * 1 件も受理せず queue を保持する (「送信したつもりで消える」事故を防ぐ)。
+     * @param connected backend が接続済みなら true。
+     */
     void SetBackendConnected(bool connected) noexcept;
 
-    // backend が接続済みか。FlushReports の挙動を呼び出し側が事前に判断する用。
+    /**
+     * backend が接続済みかを返す。
+     *
+     * @return 接続済みなら true。
+     */
     bool IsBackendConnected() const noexcept;
 
-    // 未送信通報をまとめて backend に送信する local state machine。
-    // queue 先頭から TrySubmitToBackend() を順次呼び、受理された分だけ queue から
-    // 削除して m_Delivered を加算、未受理 (= backend 未接続) の分は queue に残す。
-    // 1 件でも残れば集約エラーを返す (呼び出し側が「全件は送れていない」と検知でき、
-    // オンライン復帰後の再フラッシュを促せる)。全件受理 or 元から空なら Ok()。
+    /**
+     * 未送信通報をまとめて backend に送信する。
+     *
+     * @details
+     * queue 先頭から TrySubmitToBackend() を順次呼び、受理された分だけ queue から
+     * 削除して m_Delivered を加算、未受理 (= backend 未接続) の分は queue に残す。
+     * @return 全件受理 or 元から空なら Ok、1 件でも残れば集約エラー。
+     */
     TResult<void> FlushReports() noexcept;
 
-    // ----- 全消去 -----
-    // ブロックリストと通報キューを両方クリアする。テスト用 / セーブデータ
-    // 削除 / アカウント切り替え時に使用。SDK 同期は行わない (ローカルのみ)。
+    /**
+     * ブロックリストと通報キューを両方クリアする。
+     *
+     * @details テスト用 / セーブデータ削除 / アカウント切り替え時に使う。SDK 同期は行わない。
+     */
     void ClearLocalState() noexcept;
 
 private:
-    // 重複ブロック検査用ヘルパ。線形走査 (block list は通常 100 件以下を想定)。
-    // 見つかったら true、なければ false。nullptr は false。
+    /**
+     * user_id が既にブロックリストにあるかを線形走査で判定する。
+     *
+     * @param user_id 検索する user_id (nullptr は false)。
+     * @return 見つかれば true。
+     */
     bool FindBlocked(const char* user_id) const noexcept;
 
-    // ===== 通報送信 seam (Phase T-3 で実 SDK 接続) =====
-    // 1 件の通報を backend (Steam ReportPlayer / EOS / PSN / Xbox / NSO、もしくは
-    // クラウドフィルタ) へ送信し、受理されたら true を返す。**ネットワーク送信
-    // 本体はここで実装する** ため、現フェーズでは backend 未接続 = m_BackendConnected
-    // が false の間は常に false を返す (1 件も受理しない = queue に残す)。
-    // local state machine (FlushReports / SubmitReport) はこの戻り値だけを見て
-    // bookkeeping を行い、SDK の有無を意識しない。
+    /**
+     * 1 件の通報を backend へ送信する seam。
+     *
+     * @details
+     * 実 SDK (Steam ReportPlayer / EOS / PSN / Xbox / NSO もしくはクラウドフィルタ)
+     * へのネットワーク送信本体はここで実装する。現状は m_BackendConnected が false の間は
+     * 常に false を返す (1 件も受理せず queue に残す)。local state machine はこの戻り値だけを
+     * 見て bookkeeping し、SDK の有無を意識しない。
+     * @param rep 送信する通報レコード。
+     * @return backend に受理されたら true。
+     */
     bool TrySubmitToBackend(const ReportRecord& rep) noexcept;
 
-    TArray<FBlockEntry>   m_Blocked;        // ローカルブロックリスト
-    TArray<ReportRecord> m_PendingReports; // 未送信通報キュー
-    bool                 m_BackendConnected = false;  // backend 接続フラグ (seam)
-    u32                  m_Delivered        = 0;       // backend 受理済み通報の累計
+    /** ローカルブロックリスト。 */
+    TArray<FBlockEntry>   m_Blocked;
+
+    /** 未送信通報キュー。 */
+    TArray<ReportRecord> m_PendingReports;
+
+    /** backend 接続フラグ (seam)。 */
+    bool                 m_BackendConnected = false;
+
+    /** backend 受理済み通報の累計件数。 */
+    u32                  m_Delivered        = 0;
 };
 
 } // namespace acs::game

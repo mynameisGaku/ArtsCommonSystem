@@ -14,8 +14,12 @@ namespace {
 #define ACS_MAX_DIR_LIGHTS   4
 #define ACS_MAX_POINT_LIGHTS 4
 
-// HLSL: PBR Cook-Torrance。FStandardShader と同じ vertex 入力 (pos / nrm / uv)
-// + 同じ vs 出力 (world_p / world_n / uv)。
+/**
+ * PBR Cook-Torrance シェーダの HLSL ソース (VSMain / PSMain)。
+ *
+ * @details FStandardShader と同じ vertex 入力 (pos / nrm / uv) と vs 出力
+ * (world_p / world_n / uv) を持ち、IBL・shadow・SSAO/SSGI/SSR・拡張 lobe を含む。
+ */
 const char* kPbrHLSL = R"(
 #pragma pack_matrix(row_major)
 
@@ -906,54 +910,153 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
+/** 有向光源の最大数 (HLSL の ACS_MAX_DIR_LIGHTS と一致)。 */
 constexpr u32 kMaxDirLights   = 4;
+
+/** 点光源の最大数 (HLSL の ACS_MAX_POINT_LIGHTS と一致)。 */
 constexpr u32 kMaxPointLights = 4;
+
+/** 矩形 area light の最大数 (HLSL の ACS_MAX_AREA_LIGHTS と一致)。 */
 constexpr u32 kMaxAreaLights  = 2;
+
+/**
+ * per-frame 定数バッファ (b0) の C++ 側ミラーレイアウト。
+ *
+ * @details HLSL の cbuffer Frame と完全に一致させる。ライト・環境・probe・fog・
+ * shadow (CSM 4 cascade)・SSAO/SSGI/lightmap/SSR の各パラメータを保持する。
+ */
 struct FrameCBLayout {
+    /** カメラの view-projection 行列。 */
     FMat4 view_proj;
+
+    /** カメラ world position (xyz=eye、w=pad)。 */
     FVec4 camera_pos;
+
+    /** 環境光 (xyz=ambient color、w=dir_count)。 */
     FVec4 ambient;
-    FVec4 point_count_pad;       // x=point_count, y=area_count
+
+    /** 光源数 (x=point_count、y=area_count)。 */
+    FVec4 point_count_pad;
+
+    /** 各有向光源の方向 (xyz)。 */
     FVec4 light_dir   [kMaxDirLights];
+
+    /** 各有向光源の色 (xyz)。 */
     FVec4 light_color [kMaxDirLights];
+
+    /** 各点光源の位置と range (xyz=pos、w=range)。 */
     FVec4 point_pos_range[kMaxPointLights];
+
+    /** 各点光源の色 (xyz)。 */
     FVec4 point_color    [kMaxPointLights];
+
+    /** IBL パラメータ (x=ibl_enabled、y=prefilter_mip_count、z=use_sh9)。 */
     FVec4 ibl_params;
+
+    /** SH 9 single mode の係数 (各 xyz=RGB)。 */
     FVec4 sh9[9];
+
+    /** 各 area light の中心 world position。 */
     FVec4 area_center [kMaxAreaLights];
+
+    /** 各 area light の axis_x*half_width。 */
     FVec4 area_axis_x [kMaxAreaLights];
+
+    /** 各 area light の axis_y*half_height。 */
     FVec4 area_axis_y [kMaxAreaLights];
+
+    /** 各 area light の色。 */
     FVec4 area_color  [kMaxAreaLights];
+
+    /** probe grid パラメータ (x=probe_count)。 */
     FVec4 probe_params;
+
+    /** 各 probe の world position (xyz)。 */
     FVec4 probe_pos[4];
+
+    /** 各 probe の SH 9 係数 (probe ごとに連続した 9 個)。 */
     FVec4 probe_sh9[4 * 9];
+
+    /** fog の色と密度 (xyz=color、w=density)。 */
     FVec4 fog_color_density;
+
+    /** fog の高さパラメータ (x=height_falloff、y=fog_height_base)。 */
     FVec4 fog_height_params;
-    // CSM 対応 (Phase 34b part 3): single mode は shadow_view_proj[0] のみ使用、
-    // 残りは backward compat の inf split で常にスキップ。
-    FMat4 shadow_view_proj[4];   // 各 cascade の light VP
-    FVec4 shadow_params;         // x=bias, y=enabled, z=texel_size, w=filter_radius
-    FVec4 cascade_splits;        // xyzw = cascade 0/1/2/3 の view-space z far (inf=未使用)
-    FVec4 cascade_uv_scale;      // x=atlas X scale (single=1, N-cascade=1/N)、y=1、zw=pad
-    FVec4 ssao_params;       // Phase 34j-2: x=enabled, y=intensity, zw=inv_viewport
-    FVec4 ssgi_params;       // Phase 33c: x=enabled, y=intensity, zw=pad
-    FVec4 lightmap_params;   // Phase 33f: x=enabled, y=intensity, zw=pad
-    FVec4 ssr_params;        // Phase 34e-2fix: x=enabled, y=intensity, zw=pad
+
+    /**
+     * 各 cascade の light VP (最大 4)。
+     *
+     * @details single mode は shadow_view_proj[0] のみ使用、残りは backward compat の
+     * inf split で常にスキップされる。
+     */
+    FMat4 shadow_view_proj[4];
+
+    /** shadow パラメータ (x=bias、y=enabled、z=texel_size、w=filter_radius)。 */
+    FVec4 shadow_params;
+
+    /** 各 cascade の view-space z far (xyzw=cascade 0/1/2/3、inf=未使用)。 */
+    FVec4 cascade_splits;
+
+    /** cascade atlas の UV スケール (x=atlas X scale: single=1/N-cascade=1/N、y=1)。 */
+    FVec4 cascade_uv_scale;
+
+    /** SSAO パラメータ (x=enabled、y=intensity、zw=inv_viewport)。 */
+    FVec4 ssao_params;
+
+    /** SSGI パラメータ (x=enabled、y=intensity)。 */
+    FVec4 ssgi_params;
+
+    /** lightmap パラメータ (x=enabled、y=intensity)。 */
+    FVec4 lightmap_params;
+
+    /** SSR パラメータ (x=enabled、y=intensity)。 */
+    FVec4 ssr_params;
 };
 
+/**
+ * per-object 定数バッファ (b1) の C++ 側ミラーレイアウト。
+ *
+ * @details HLSL の cbuffer Object と完全に一致させる。model 行列と PBR 基本パラメータ +
+ * 拡張 lobe (clearcoat/anisotropy/emissive/sheen/iridescence/SSS) を保持する。
+ */
 struct ObjectCBLayout {
+    /** モデル行列。 */
     FMat4 model;
+
+    /** ベースカラー (xyz=color、w=alpha)。 */
     FVec4 base_color;
-    FVec4 pbr_params;        // x=metallic, y=roughness, z=ao, w=pad
-    FVec4 ext_params;        // x=clearcoat, y=coat_roughness, z=anisotropy, w=flags
-    FVec4 aniso_tangent;     // xyz=tangent world, w=pad
-    FVec4 emissive;          // Phase 34l: xyz=emissive color * strength, w=pad
-    FVec4 sheen_params;      // Phase 35-1a: xyz=sheen color, w=sheen weight
-    FVec4 sheen_rough;       // Phase 35-1a: x=sheen roughness, yzw=pad
-    FVec4 irid_params;       // Phase 35-1b: x=weight, y=thickness(nm), z=film IOR, w=pad
-    FVec4 sss_params;        // Phase 35-2: xyz=subsurface color, w=weight
+
+    /** PBR 基本パラメータ (x=metallic、y=roughness、z=ao)。 */
+    FVec4 pbr_params;
+
+    /** 拡張パラメータ (x=clearcoat、y=coat_roughness、z=anisotropy、w=flags)。 */
+    FVec4 ext_params;
+
+    /** anisotropic tangent (xyz=world tangent)。 */
+    FVec4 aniso_tangent;
+
+    /** emissive (xyz=color*strength)。 */
+    FVec4 emissive;
+
+    /** sheen (xyz=sheen color、w=sheen weight)。 */
+    FVec4 sheen_params;
+
+    /** sheen roughness (x=roughness)。 */
+    FVec4 sheen_rough;
+
+    /** iridescence (x=weight、y=thickness(nm)、z=film IOR)。 */
+    FVec4 irid_params;
+
+    /** subsurface (xyz=color、w=weight)。 */
+    FVec4 sss_params;
 };
 
+/**
+ * 定数バッファサイズを 256 バイト境界に切り上げて返す。
+ *
+ * @tparam T サイズを求める CB レイアウト型。
+ * @return 256 バイトアラインされた T のサイズ。
+ */
 template<typename T>
 constexpr usize CBSize() noexcept {
     return (sizeof(T) + 255u) & ~static_cast<usize>(255u);
@@ -961,6 +1064,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
+/** シェーダ・PSO・CB・fallback テクスチャ群を生成する。 */
 TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -1103,7 +1207,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     pd.depth_write   = true;
     pd.cull_mode     = ECullMode::Back;
     pd.cbuffer_slots = 2;     // b0=Frame, b1=Object
-    pd.texture_slots = 10;    // t0=albedo .. t8=lightmap, t9=ssr_color (Phase 34e-2fix)
+    pd.texture_slots = 10;    // t0=albedo .. t8=lightmap, t9=ssr_color
     pd.cbuffer_names[0] = "Frame";
     pd.cbuffer_names[1] = "Object";
     pd.texture_names[0] = "albedo";
@@ -1166,6 +1270,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     return Ok();
 }
 
+/** 全 GPU リソースと参照ポインタを解放する。 */
 void FPbrShader::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_ObjectCb.Reset();
@@ -1195,6 +1300,7 @@ void FPbrShader::Shutdown() noexcept {
     m_IblEnabled    = false;
 }
 
+/** IBL テクスチャを記録し、3 つ揃っていれば IBL ambient を有効化する。 */
 void FPbrShader::SetIbl(IRhiTexture* irradiance,
                        IRhiTexture* prefilter,
                        IRhiTexture* brdf_lut,
@@ -1208,12 +1314,14 @@ void FPbrShader::SetIbl(IRhiTexture* irradiance,
     FlushFrameCB();
 }
 
+/** fog の色・密度・高さパラメータを記録して frame CB を更新する。 */
 void FPbrShader::SetFog(FVec3 color, f32 density, f32 height_falloff, f32 height_base) noexcept {
     m_FogColorDensity = FVec4{color.x, color.y, color.z, density};
     m_FogHeightParams = FVec4{height_falloff, height_base, 0, 0};
     FlushFrameCB();
 }
 
+/** probe grid (位置 + SH9) を最大 4 個記録し、残りを 0 埋めして frame CB を更新する。 */
 void FPbrShader::SetProbeGrid(const LightProbe* probes, u32 count) noexcept {
     if (count > 4) count = 4;
     m_ProbeCount = count;
@@ -1230,6 +1338,7 @@ void FPbrShader::SetProbeGrid(const LightProbe* probes, u32 count) noexcept {
     FlushFrameCB();
 }
 
+/** SH 9 係数を記録して SH9 ambient mode を切り替え、frame CB を更新する。 */
 void FPbrShader::SetSh9(const FVec4* sh9_or_null) noexcept {
     if (sh9_or_null) {
         for (u32 i = 0; i < 9; ++i) m_Sh9[i] = sh9_or_null[i];
@@ -1241,6 +1350,7 @@ void FPbrShader::SetSh9(const FVec4* sh9_or_null) noexcept {
     FlushFrameCB();
 }
 
+/** IBL slot 1-3 と normal/shadow/SSAO/SSGI/lightmap/SSR を実テクスチャか fallback で bind する。 */
 void FPbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
     if (m_IblEnabled) {
         cmd.SetTexture(1, *m_IblIrradiance);
@@ -1251,37 +1361,37 @@ void FPbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
         if (m_IblPrefilterFb)  cmd.SetTexture(2, *m_IblPrefilterFb);
         if (m_IblBrdfFb)       cmd.SetTexture(3, *m_IblBrdfFb);
     }
-    // Normal map (Phase 34g): 必ず slot 4 を bind
+    // Normal map: 必ず slot 4 を bind
     if (m_NormalMap) {
         cmd.SetTexture(4, *m_NormalMap);
     } else if (m_NormalMapFb) {
         cmd.SetTexture(4, *m_NormalMapFb);
     }
-    // Shadow map (Phase 34b): slot 5
+    // Shadow map: slot 5
     if (m_ShadowDepth) {
         cmd.SetTexture(5, *m_ShadowDepth);
     } else if (m_ShadowFb) {
         cmd.SetTexture(5, *m_ShadowFb);
     }
-    // SSAO map (Phase 34j-2): slot 6
+    // SSAO map: slot 6
     if (m_SsaoTex) {
         cmd.SetTexture(6, *m_SsaoTex);
     } else if (m_SsaoFb) {
         cmd.SetTexture(6, *m_SsaoFb);
     }
-    // SSGI color (Phase 33c): slot 7
+    // SSGI color: slot 7
     if (m_SsgiTex) {
         cmd.SetTexture(7, *m_SsgiTex);
     } else if (m_SsgiFb) {
         cmd.SetTexture(7, *m_SsgiFb);
     }
-    // Lightmap (Phase 33f): slot 8
+    // Lightmap: slot 8
     if (m_LightmapTex) {
         cmd.SetTexture(8, *m_LightmapTex);
     } else if (m_LightmapFb) {
         cmd.SetTexture(8, *m_LightmapFb);
     }
-    // SSR (Phase 34e-2fix): slot 9
+    // SSR: slot 9
     if (m_SsrTex) {
         cmd.SetTexture(9, *m_SsrTex);
     } else if (m_SsrFb) {
@@ -1289,10 +1399,12 @@ void FPbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
     }
 }
 
+/** normal map テクスチャ参照を差し替える。 */
 void FPbrShader::SetNormalMap(IRhiTexture* tex) noexcept {
     m_NormalMap = tex;
 }
 
+/** SSAO テクスチャ・強度・viewport inv size を記録して frame CB を更新する。 */
 void FPbrShader::SetSsao(IRhiTexture* ssao_tex, f32 intensity,
                         u32 viewport_w, u32 viewport_h) noexcept {
     m_SsaoTex       = ssao_tex;
@@ -1302,24 +1414,28 @@ void FPbrShader::SetSsao(IRhiTexture* ssao_tex, f32 intensity,
     FlushFrameCB();
 }
 
+/** SSGI テクスチャと強度を記録して frame CB を更新する。 */
 void FPbrShader::SetSsgi(IRhiTexture* ssgi_tex, f32 intensity) noexcept {
     m_SsgiTex       = ssgi_tex;
     m_SsgiIntensity = intensity < 0 ? 0.0f : intensity;
     FlushFrameCB();
 }
 
+/** SSR テクスチャと強度を記録して frame CB を更新する。 */
 void FPbrShader::SetSsr(IRhiTexture* ssr_tex, f32 intensity) noexcept {
     m_SsrTex       = ssr_tex;
     m_SsrIntensity = intensity < 0 ? 0.0f : intensity;
     FlushFrameCB();
 }
 
+/** lightmap テクスチャと強度を記録して frame CB を更新する。 */
 void FPbrShader::SetLightmap(IRhiTexture* lightmap_tex, f32 intensity) noexcept {
     m_LightmapTex       = lightmap_tex;
     m_LightmapIntensity = intensity < 0 ? 0.0f : intensity;
     FlushFrameCB();
 }
 
+/** single-cascade 互換で全 cascade に同じ VP を書き、splits を inf にして frame CB を更新する。 */
 void FPbrShader::SetShadowMap(IRhiTexture* depth, const FMat4& light_vp,
                               f32 bias, f32 texel_size, f32 filter_radius) noexcept {
     m_ShadowDepth     = depth;
@@ -1333,6 +1449,7 @@ void FPbrShader::SetShadowMap(IRhiTexture* depth, const FMat4& light_vp,
     FlushFrameCB();
 }
 
+/** 各 cascade の VP・split・atlas UV スケールを記録して frame CB を更新する。 */
 void FPbrShader::SetShadowMapCascades(IRhiTexture* depth,
                                       const FMat4* light_vp,
                                       const f32*  cascade_splits,
@@ -1359,6 +1476,7 @@ void FPbrShader::SetShadowMapCascades(IRhiTexture* depth,
     FlushFrameCB();
 }
 
+/** カメラ・環境光・有向光源を記録して frame CB を更新する。 */
 void FPbrShader::SetLights(const FMat4& vp, FVec3 eye,
                           const FDirLight* lights, u32 count,
                           FVec3 ambient) noexcept {
@@ -1371,6 +1489,7 @@ void FPbrShader::SetLights(const FMat4& vp, FVec3 eye,
     FlushFrameCB();
 }
 
+/** 点光源を記録して frame CB を更新する。 */
 void FPbrShader::SetPointLights(const PointLight* lights, u32 count) noexcept {
     if (count > kMaxPointLights) count = kMaxPointLights;
     m_PointCount = count;
@@ -1378,6 +1497,7 @@ void FPbrShader::SetPointLights(const PointLight* lights, u32 count) noexcept {
     FlushFrameCB();
 }
 
+/** 矩形 area light を記録して frame CB を更新する。 */
 void FPbrShader::SetAreaLights(const AreaLight* lights, u32 count) noexcept {
     if (count > kMaxAreaLights) count = kMaxAreaLights;
     m_AreaCount = count;
@@ -1385,6 +1505,7 @@ void FPbrShader::SetAreaLights(const AreaLight* lights, u32 count) noexcept {
     FlushFrameCB();
 }
 
+/** 全 member 値から FrameCBLayout を構築して frame CB に書き込む。 */
 void FPbrShader::FlushFrameCB() noexcept {
     if (!m_FrameCb) return;
     FrameCBLayout cb{};
@@ -1452,6 +1573,7 @@ void FPbrShader::FlushFrameCB() noexcept {
     m_FrameCb->Update(&cb, sizeof(cb));
 }
 
+/** model と PBR/拡張パラメータから ObjectCBLayout を構築して object CB に書き込む。 */
 void FPbrShader::SetObject(const FMat4& model, FVec3 base_color,
                           f32 metallic, f32 roughness, f32 ao) noexcept {
     if (!m_ObjectCb) return;
@@ -1469,6 +1591,7 @@ void FPbrShader::SetObject(const FMat4& model, FVec3 base_color,
     m_ObjectCb->Update(&cb, sizeof(cb));
 }
 
+/** clearcoat/anisotropy パラメータを member に格納する (次の SetObject で反映)。 */
 void FPbrShader::SetExtParams(f32 clearcoat, f32 clearcoat_roughness,
                              f32 anisotropy, FVec3 tangent) noexcept {
     m_ExtParams    = FVec4{clearcoat, clearcoat_roughness, anisotropy, 0};
@@ -1478,12 +1601,14 @@ void FPbrShader::SetExtParams(f32 clearcoat, f32 clearcoat_roughness,
     // 描画前に SetObject() が再度呼ばれて反映される設計。
 }
 
+/** emissive (color*strength) を member に格納する (次の SetObject で反映)。 */
 void FPbrShader::SetEmissive(FVec3 color, f32 strength) noexcept {
     const f32 s = strength < 0.0f ? 0.0f : strength;
     m_Emissive = FVec4{color.x * s, color.y * s, color.z * s, 0.0f};
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
+/** sheen パラメータを [0,1] にクランプして member に格納する (次の SetObject で反映)。 */
 void FPbrShader::SetSheen(FVec3 sheen_color, f32 weight, f32 roughness) noexcept {
     // weight は [0,1] の blend 係数、sheen_color は反射率なので各 ch を [0,1] に収める。
     // これでシェーダの energy 減衰係数 (1 - weight*maxC*0.5) が負へ振れない。
@@ -1495,6 +1620,7 @@ void FPbrShader::SetSheen(FVec3 sheen_color, f32 weight, f32 roughness) noexcept
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
+/** iridescence パラメータを物理範囲にクランプして member に格納する (次の SetObject で反映)。 */
 void FPbrShader::SetIridescence(f32 weight, f32 thickness_nm, f32 film_ior) noexcept {
     // weight は [0,1] の blend 係数。thickness は非負、film_ior は物理的に >= 1。
     const f32 w = weight < 0.0f ? 0.0f : (weight > 1.0f ? 1.0f : weight);
@@ -1504,6 +1630,7 @@ void FPbrShader::SetIridescence(f32 weight, f32 thickness_nm, f32 film_ior) noex
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
+/** subsurface パラメータを [0,1] にクランプして member に格納する (次の SetObject で反映)。 */
 void FPbrShader::SetSubsurface(FVec3 sss_color, f32 weight) noexcept {
     // weight は [0,1] の blend 係数、sss_color は内部散乱の色 (各 ch [0,1])。
     auto sat01 = [](f32 v) noexcept { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
@@ -1512,6 +1639,7 @@ void FPbrShader::SetSubsurface(FVec3 sss_color, f32 weight) noexcept {
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
+/** SetObject + パイプライン/CB/テクスチャ/VB/IB bind + DrawIndexed をまとめて発行する。 */
 void FPbrShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const FMat4& model,
                         FVec3 base_color, f32 metallic, f32 roughness, f32 ao,
                         IRhiTexture* albedo) noexcept {

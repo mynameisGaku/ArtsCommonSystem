@@ -477,7 +477,7 @@ void FSpriteBatch::DrawString(const Font& font, const char* utf8_text,
 
     const char* p = utf8_text;
     while (true) {
-        u32 cp = DecodeUtf8(&p);
+        const u32 cp = DecodeUtf8(&p);
         if (cp == 0) break;
         if (cp == '\n') {
             pen_x    = x;

@@ -20,6 +20,7 @@
 
 namespace acs::assetpack {
 
+/** プロセス共有の既定 Acpak Reader を返す (Meyers singleton)。 */
 acs::game::IAssetPackReader& GetDefaultAcpakReader() noexcept {
     // Meyers singleton。プロセス内 1 個の Reader を既定として共有する。
     // 利用側が Mount()/Unmount() でマウント状態を管理する。
@@ -27,10 +28,12 @@ acs::game::IAssetPackReader& GetDefaultAcpakReader() noexcept {
     return s_reader;
 }
 
+/** GetDefaultAcpakReader を gameframework の既定 Reader provider として登録する。 */
 void InstallAcpakReaderAsDefault() noexcept {
     acs::game::SetAssetPackReaderProvider(&GetDefaultAcpakReader);
 }
 
+/** プロセス共有の既定 Acpak Writer を返す (Meyers singleton)。 */
 acs::game::IAssetPackWriter& GetDefaultAcpakWriter() noexcept {
     // Meyers singleton。プロセス内 1 個の Writer を既定として共有する。
     // 利用側が BeginPack()/FinishPack() で書き込みライフサイクルを管理する。
@@ -38,6 +41,7 @@ acs::game::IAssetPackWriter& GetDefaultAcpakWriter() noexcept {
     return s_writer;
 }
 
+/** GetDefaultAcpakWriter を gameframework の既定 Writer provider として登録する。 */
 void InstallAcpakWriterAsDefault() noexcept {
     acs::game::SetAssetPackWriterProvider(&GetDefaultAcpakWriter);
 }

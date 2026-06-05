@@ -10,31 +10,65 @@ namespace acs {
 
 namespace {
 
-// 現フレーム / 前フレームの押下状態（フレーム遷移で「Pressed/Released」を判定）
+/**
+ * 全入力デバイスの現フレーム / 前フレーム状態をまとめた構造体。
+ *
+ * @details now と prev を比較してフレーム単位の「Pressed / Released」を判定する。
+ */
 struct InputState {
+    /** 現フレームのキー押下状態 (EKey で添字)。 */
     bool keys_now [(usize)EKey::_Count]         {};
+
+    /** 前フレームのキー押下状態 (EKey で添字)。 */
     bool keys_prev[(usize)EKey::_Count]         {};
+
+    /** 現フレームのマウスボタン押下状態 (EMouseButton で添字)。 */
     bool mb_now [(usize)EMouseButton::_Count]   {};
+
+    /** 前フレームのマウスボタン押下状態 (EMouseButton で添字)。 */
     bool mb_prev[(usize)EMouseButton::_Count]   {};
-    f32  mouse_x = 0, mouse_y = 0;
-    f32  mouse_x_prev = 0, mouse_y_prev = 0;
-    f32  wheel_accum = 0;     // 当該フレーム中に積み上げ
-    f32  wheel_frame = 0;     // Update 時にスナップショット
 
-    // テキスト入力（このフレームに積み上げた UTF-8 文字列、NUL 終端）
+    /** 現在のマウス X 座標 (クライアント座標, px)。 */
+    f32  mouse_x = 0;
+
+    /** 現在のマウス Y 座標 (クライアント座標, px)。 */
+    f32  mouse_y = 0;
+
+    /** 前フレームのマウス X 座標 (差分計算用)。 */
+    f32  mouse_x_prev = 0;
+
+    /** 前フレームのマウス Y 座標 (差分計算用)。 */
+    f32  mouse_y_prev = 0;
+
+    /** 当該フレーム中に積み上げるホイール回転量。 */
+    f32  wheel_accum = 0;
+
+    /** Update 時にスナップショットしたホイール回転量 (MouseWheel が返す値)。 */
+    f32  wheel_frame = 0;
+
+    /** このフレームに積み上げたテキスト入力 (UTF-8、NUL 終端)。 */
     char text_utf8[256] {};
-    u32  text_len     = 0;
-    u32  hi_surrogate = 0;    // UTF-16 上位サロゲート待ち
 
-    // ゲームパッド (XInput) — 4 人分
+    /** text_utf8 に積まれた現在のバイト長。 */
+    u32  text_len     = 0;
+
+    /** 待機中の UTF-16 上位サロゲート (無ければ 0)。 */
+    u32  hi_surrogate = 0;
+
+    /** 現フレームの XInput 状態 (プレイヤー 0..3)。 */
     XINPUT_STATE pad_now [4] {};
+
+    /** 前フレームの XInput 状態 (プレイヤー 0..3、Pressed 判定用)。 */
     XINPUT_STATE pad_prev[4] {};
+
+    /** 各プレイヤーのゲームパッド接続状態。 */
     bool         pad_connected[4] {};
 };
 
+/** プロセス唯一の入力状態 (全 static メソッドが参照する)。 */
 InputState g_input;
 
-// XInput ボタンビット → EGamepadButton 変換テーブル
+/** EGamepadButton から XInput のボタンビットへ変換するテーブル (0 は未対応ボタン)。 */
 constexpr WORD kPadBits[(usize)EGamepadButton::_Count] = {
     XINPUT_GAMEPAD_A,              // A
     XINPUT_GAMEPAD_B,              // B
@@ -53,21 +87,38 @@ constexpr WORD kPadBits[(usize)EGamepadButton::_Count] = {
     0,                              // Guide (XInput では未公開)
 };
 
-// スティック生値 → -1.0〜+1.0 正規化（デッドゾーン込み）
+/**
+ * スティックの生値をデッドゾーン込みで -1.0〜+1.0 に正規化する。
+ *
+ * @param v スティックの生値 (-32768〜32767)。
+ * @param deadzone この絶対値未満は 0 に丸めるデッドゾーン閾値。
+ * @return 正規化した値 (デッドゾーン内なら 0.0)。
+ */
 ACS_FORCEINLINE f32 NormalizeStick(SHORT v, SHORT deadzone) noexcept {
     if (v > -deadzone && v < deadzone) return 0.0f;
-    f32 n = static_cast<f32>(v);
-    f32 max_v = (v > 0) ? 32767.0f : 32768.0f;
+    const f32 n = static_cast<f32>(v);
+    const f32 max_v = (v > 0) ? 32767.0f : 32768.0f;
     return n / max_v;
 }
 
-// トリガー生値 → 0.0〜1.0
+/**
+ * トリガーの生値を 0.0〜1.0 に正規化する。
+ *
+ * @param v トリガーの生値 (0〜255)。
+ * @return 正規化した値 (XInput の閾値未満なら 0.0)。
+ */
 ACS_FORCEINLINE f32 NormalizeTrigger(BYTE v) noexcept {
     if (v < XINPUT_GAMEPAD_TRIGGER_THRESHOLD) return 0.0f;
     return static_cast<f32>(v) / 255.0f;
 }
 
-// コードポイントを UTF-8 で text_utf8 末尾に追記する
+/**
+ * Unicode コードポイントを UTF-8 エンコードして text_utf8 の末尾へ追記する。
+ *
+ * @details NUL 終端ぶんを含めてバッファに収まらない場合は何もしない。
+ * @param s 追記先の入力状態。
+ * @param cp 追記する Unicode コードポイント。
+ */
 void AppendTextUtf8(InputState& s, u32 cp) noexcept {
     char tmp[4];
     u32  n = 0;
@@ -117,7 +168,7 @@ void Input::Update() noexcept {
     for (DWORD i = 0; i < 4; ++i) {
         g_input.pad_prev[i] = g_input.pad_now[i];
         ZeroMemory(&g_input.pad_now[i], sizeof(XINPUT_STATE));
-        DWORD r = ::XInputGetState(i, &g_input.pad_now[i]);
+        const DWORD r = ::XInputGetState(i, &g_input.pad_now[i]);
         g_input.pad_connected[i] = (r == ERROR_SUCCESS);
     }
 }
@@ -188,17 +239,17 @@ bool Input::IsGamepadConnected(u32 idx) noexcept {
 
 bool Input::IsGamepadButtonDown(u32 idx, EGamepadButton b) noexcept {
     if (idx >= 4 || !g_input.pad_connected[idx]) return false;
-    WORD bit = kPadBits[(usize)b];
+    const WORD bit = kPadBits[(usize)b];
     if (bit == 0) return false;
     return (g_input.pad_now[idx].Gamepad.wButtons & bit) != 0;
 }
 
 bool Input::IsGamepadButtonPressed(u32 idx, EGamepadButton b) noexcept {
     if (idx >= 4 || !g_input.pad_connected[idx]) return false;
-    WORD bit = kPadBits[(usize)b];
+    const WORD bit = kPadBits[(usize)b];
     if (bit == 0) return false;
-    bool now  = (g_input.pad_now[idx].Gamepad.wButtons  & bit) != 0;
-    bool prev = (g_input.pad_prev[idx].Gamepad.wButtons & bit) != 0;
+    const bool now  = (g_input.pad_now[idx].Gamepad.wButtons  & bit) != 0;
+    const bool prev = (g_input.pad_prev[idx].Gamepad.wButtons & bit) != 0;
     return now && !prev;
 }
 

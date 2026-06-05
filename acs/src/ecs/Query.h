@@ -18,13 +18,36 @@
 
 namespace acs {
 
+/**
+ * 指定した全コンポーネントを持つエンティティを走査するクエリビュー。
+ *
+ * @details
+ * 一番要素数の少ない SparseSet を主軸 (primary) に選び、その dense を走査しつつ
+ * 各エンティティが他のコンポーネントも持つかを確認してラムダを適用する。dense は
+ * 走査前にローカルへスナップショットするため、ラムダ内での Add/Remove (構造変更) で
+ * 反復が無効化されない。World::Query<...>() から生成する。
+ * @tparam Comps 同時に要求するコンポーネント型 (1 つ以上)。
+ */
 template<typename... Comps>
 class QueryView {
 public:
+    /**
+     * 走査対象の World を束ねてビューを構築する。
+     *
+     * @param w 走査対象の World (参照を保持)。
+     */
     explicit QueryView(World& w) noexcept : m_World(w) {}
 
-    // 各エンティティに対してラムダを呼ぶ
-    // ラムダは (EntityId, Comps&...) を受け取る
+    /**
+     * 全 Comps を持つ各エンティティにラムダを呼ぶ (逐次)。
+     *
+     * @details
+     * primary の dense をローカルへスナップショットしてから反復するため、fn が当該
+     * コンポーネントを Add/Remove して SparseSet が再確保しても use-after-free しない
+     * (構造変更に安全)。fn は (EntityId, Comps&...) を受け取る。
+     * @tparam Fn (EntityId, Comps&...) を受け取る呼び出し可能型。
+     * @param fn 各エンティティに適用するラムダ (値で受け取る)。
+     */
     template<typename Fn>
     void Each(Fn fn) noexcept {
         SparseSetBase* primary = nullptr;
@@ -41,19 +64,25 @@ public:
         for (usize i = 0; i < count; ++i) snapshot[i] = dense[i];
 
         for (usize i = 0; i < count; ++i) {
-            EntityId e = m_World.MakeIdFromIndex(snapshot[i]);
+            const EntityId e = m_World.MakeIdFromIndex(snapshot[i]);
             if (AllPresent(e)) {
                 InvokeWith(fn, e);
             }
         }
     }
 
-    // 並列イテレーション: FThreadPool::ParallelFor で chunk 分割して fn を呼ぶ。
-    // ラムダはエンティティ単位で独立に呼ばれる前提（同じ entity が複数スレッドから
-    // 同時に呼ばれることはないが、グローバル資源は別途同期が必要）。
-    //
-    // grain = 1 chunk あたりの最小エンティティ数。小さすぎるとオーバーヘッドが
-    //         相対的に大きくなる。1024 前後が経験的に良いバランス。
+    /**
+     * 全 Comps を持つ各エンティティに fn を並列で呼ぶ。
+     *
+     * @details
+     * primary の dense をスナップショットし、FThreadPool::ParallelFor で chunk 分割して
+     * fn を呼ぶ (完了まで block)。同じエンティティが複数スレッドから同時に呼ばれること
+     * はないが、グローバル資源を触る場合はユーザー側で同期が必要。
+     * @tparam Fn (EntityId, Comps&...) を受け取る呼び出し可能型。
+     * @param fn 各エンティティに適用するラムダ。
+     * @param grain 1 chunk あたりの最小エンティティ数 (小さすぎると分割オーバーヘッドが
+     *              相対的に増える。1024 前後が経験的に良いバランス)。
+     */
     template<typename Fn>
     void EachParallel(Fn fn, u32 grain = 1024) noexcept {
         SparseSetBase* primary = nullptr;
@@ -81,8 +110,8 @@ public:
 
         auto thunk = [](u32 i, u32 /*worker*/, void* user) {
             auto* c = static_cast<Ctx*>(user);
-            u32 idx = c->dense[i];
-            EntityId e = c->self->m_World.MakeIdFromIndex(idx);
+            const u32 idx = c->dense[i];
+            const EntityId e = c->self->m_World.MakeIdFromIndex(idx);
             if (c->self->AllPresent(e)) {
                 c->self->InvokeWith(*c->fn, e);
             }
@@ -93,8 +122,14 @@ public:
     }
 
 private:
-    // 全コンポーネントの SparseSet を取得し、主軸 (最小サイズ) を選ぶ。
-    // どれか 1 つでも欠けていれば false を返す。
+    /**
+     * 全 Comps の SparseSet を取得し、最小サイズのものを主軸として選ぶ。
+     *
+     * @details どれか 1 つでも未登録 (= 該当コンポーネントを持つエンティティが皆無) の
+     * 場合は走査不要なので false を返す。
+     * @param out_primary 選んだ主軸 SparseSet を書き戻す出力先。
+     * @return 全コンポーネントが揃って主軸を選べたら true。
+     */
     bool ResolvePrimary(SparseSetBase*& out_primary) noexcept {
         SparseSetBase* sets[sizeof...(Comps)] = {
             static_cast<SparseSetBase*>(m_World.template TryGetSet<Comps>())... };
@@ -109,23 +144,40 @@ private:
         return true;
     }
 
-    // 指定エンティティが全コンポーネントを持っているか
+    /**
+     * 指定エンティティが Comps を全て持っているかを返す。
+     *
+     * @param e 判定するエンティティ。
+     * @return 全コンポーネントを持っていれば true。
+     */
     bool AllPresent(EntityId e) noexcept {
         bool all = true;
         ((all = all && (m_World.template Get<Comps>(e) != nullptr)), ...);
         return all;
     }
 
-    // 全コンポーネントを取り出して fn を呼ぶ（呼び出し前に AllPresent で確認済み）
+    /**
+     * 全コンポーネントを取り出して fn を呼ぶ (呼び出し前に AllPresent で確認済み)。
+     *
+     * @tparam Fn (EntityId, Comps&...) を受け取る呼び出し可能型。
+     * @param fn 適用するラムダ。
+     * @param e 対象エンティティ。
+     */
     template<typename Fn>
     void InvokeWith(Fn fn, EntityId e) noexcept {
         fn(e, *m_World.template Get<Comps>(e)...);
     }
 
+    /** 走査対象の World。 */
     World& m_World;
 };
 
-// World::Query<...>() の実装本体（World.h で前方宣言）
+/**
+ * World::Query<...>() の実装本体 (World.h で宣言、QueryView を生成して返す)。
+ *
+ * @tparam Comps 同時に要求するコンポーネント型。
+ * @return この World を束ねた QueryView<Comps...>。
+ */
 template<typename... Comps>
 auto World::Query() noexcept {
     return QueryView<Comps...>(*this);

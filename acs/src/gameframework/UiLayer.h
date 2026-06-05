@@ -32,13 +32,13 @@
 //       void OnExit() noexcept override { m_Ui.Shutdown(); }
 //   };
 //
-// 設計選択 (Phase H-1 スケルトン):
-//   ・**state holder のみ実装**: 実 Widget 生成 / 描画 / ヒットテストは現フェーズ
-//     では未接続 (Init / Tick / HandleInput 内に TODO コメントで明示)。代わりに
+// 設計選択:
+//   ・**state holder のみ実装**: 実 Widget 生成 / 描画 / ヒットテストは未接続
+//     (Init / Tick / HandleInput 内に TODO コメントで明示)。代わりに
 //     ハンドル付きの WidgetEntry を TArray で保持し、追加・削除・可視性・押下
 //     クエリは完全動作する。これにより呼び出し側 (Scene) は本 layer を通常通り
-//     使い始めることができ、Phase H-2 で `acs::ui::StackPanel` 等の実 widget
-//     接続に差し替えるだけで描画 / 入力が動く設計。
+//     使い始めることができ、`acs::ui::StackPanel` 等の実 widget 接続に
+//     差し替えるだけで描画 / 入力が動く設計。
 //   ・**ハンドルは u32 単調増加**: 削除後の再利用は行わない (世代カウンタ不要、
 //     現実的に 1 シーンで数千 widget を超えることはまずないため uint32 で十分)。
 //     0 は invalid handle 予約。
@@ -49,7 +49,7 @@
 //     が分裂すると詰むため非コピー・非ムーブ。
 //   ・**全 noexcept**: ACS 全体方針。Init / Shutdown は冪等で再呼び出し安全。
 //
-// 範囲外 (Phase H-2 以降で接続):
+// 範囲外:
 //   ・実 `acs::ui::Widget` ツリー構築 (StackPanel / Button / TextBlock の生成)
 //   ・`FUiRenderer` による描画 (RenderContext から FSpriteBatch / Font を受ける)
 //   ・`Event` → hit-test → Widget::OnPointerDown 等の配送
@@ -72,116 +72,224 @@ struct Event;
 
 namespace game {
 
-class RenderContext;   // OnDrawHud 等で渡される描画コンテキスト (gameframework)
+class RenderContext;
 
-// FUiLayer が扱う widget の種類。Phase H-1 はボタンとテキストのみ。Phase H-2 で
-// Slider / Checkbox / TextInput を追加する想定。
+/**
+ * FUiLayer が扱う widget の種類。
+ *
+ * @details 現状はボタンとテキストのみ (Slider / Checkbox / TextInput は範囲外)。
+ */
 enum class EWidgetKind : u8 {
+    /** 未設定 / 無効。 */
     None    = 0,
-    Button  = 1,  // クリックで押下イベントを発火する短形ボタン
-    Text    = 2,  // 単純な静的テキスト (押下ヒットテストなし)
+
+    /** クリックで押下イベントを発火する矩形ボタン。 */
+    Button  = 1,
+
+    /** 単純な静的テキスト (押下ヒットテストなし)。 */
+    Text    = 2,
 };
 
-// 単一 widget の状態 1 件分。state holder の中核。
-//   ・handle       : AddButton / AddText が返す不透明 ID (0 は invalid)
-//   ・kind         : 種別 (Button / Text)。判別に必要 (描画 / 入力分岐)
-//   ・pos, size    : 画面ピクセル単位の絶対座標 / サイズ。Text は size 未使用
-//   ・text         : ラベル / 表示テキスト (非所有、寿命は呼び出し側保証)
-//   ・visible      : 不可視時は描画もヒットテストもスキップ
-//   ・just_pressed : 直前フレームで押された (Tick 開始時に clear、次フレームで
-//                    呼び出し側が IsButtonPressed で読み取って消費する想定)
+/**
+ * 単一 widget の状態 1 件分 (state holder の中核)。
+ */
 struct WidgetEntry {
+    /** AddButton / AddText が返す不透明 ID (0 は invalid)。 */
     u32         handle       = 0;
+
+    /** widget の種別 (描画 / 入力分岐に使う)。 */
     EWidgetKind  kind         = EWidgetKind::None;
+
+    /** 画面ピクセル単位の絶対座標。 */
     acs::FVec2   pos         {0.0f, 0.0f};
+
+    /** 画面ピクセル単位のサイズ (Text は未使用)。 */
     acs::FVec2   size        {0.0f, 0.0f};
+
+    /** ラベル / 表示テキスト (非所有、寿命は呼び出し側保証)。 */
     const char* text         = nullptr;
+
+    /** 可視フラグ (不可視時は描画もヒットテストもスキップ)。 */
     bool        visible      = true;
-    bool        just_pressed = false;   // クリック成立 (consume-on-read)
-    bool        hovered      = false;    // カーソルが上 (描画ハイライト)
-    bool        pressed_down = false;    // pointer-down 中 (押し込み描画)
+
+    /** 直前フレームで押されたフラグ (consume-on-read。Tick 開始時に clear)。 */
+    bool        just_pressed = false;
+
+    /** カーソルが上に乗っているフラグ (描画ハイライト用)。 */
+    bool        hovered      = false;
+
+    /** pointer-down 中フラグ (押し込み描画用)。 */
+    bool        pressed_down = false;
 };
 
+/**
+ * acs::ui の Widget tree を Scene のライフサイクルに繋ぐ薄い glue 層。
+ *
+ * @details
+ * Scene の Init / Tick / HandleInput / Shutdown と Widget tree を結び、典型的なゲーム UI
+ * (ボタン / テキスト表示) を最小 API で扱えるようにする。現状は実 Widget 生成 / 描画 /
+ * ヒットテストは未接続の state holder で、ハンドル付きの WidgetEntry を TArray で保持し、
+ * 追加・削除・可視性・押下クエリは完全動作する。ハンドルは u32 単調増加で再利用しない
+ * (0 は invalid 予約)。const char* は非所有 (寿命は呼び出し側保証)。非コピー・非ムーブ、
+ * 全 noexcept、Init / Shutdown は冪等。
+ */
 class FUiLayer {
 public:
+    /** 空の UI レイヤを構築する (widget 未登録、未初期化)。 */
     FUiLayer()  noexcept = default;
+
+    /** 破棄する。 */
     ~FUiLayer() noexcept = default;
 
-    // 非コピー・非ムーブ (state holder。誤コピーで widget 状態が分裂しないよう)。
+    /** コピー禁止 (state holder。誤コピーで widget 状態が分裂しないため)。 */
     FUiLayer(const FUiLayer&)            = delete;
+
+    /** コピー代入も禁止。 */
     FUiLayer& operator=(const FUiLayer&) = delete;
+
+    /** ムーブ禁止 (state holder。誤コピーで widget 状態が分裂しないため)。 */
     FUiLayer(FUiLayer&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FUiLayer& operator=(FUiLayer&&)      = delete;
 
-    // ----- ライフサイクル -----
-    // Scene::OnEnter から呼ぶ。Widget tree の root を確保 (現フェーズは stub、
-    // Phase H-2 で `acs::ui::Container` を root として new する)。冪等で再呼出
-    // 安全 (二度 Init してもメモリリークしない)。
+    /**
+     * UI レイヤを初期化する (Scene::OnEnter から呼ぶ)。
+     *
+     * @details
+     * Widget tree の root を確保する (現状は stub、実装時は acs::ui::Container を root として
+     * new する)。冪等で再呼び出し安全 (二度 Init してもメモリリークしない)。
+     */
     void Init() noexcept;
 
-    // Scene::OnExit から呼ぶ。全 widget をクリアし、root を解放。冪等。
+    /** 全 widget をクリアし root を解放する (Scene::OnExit から呼ぶ。冪等)。 */
     void Shutdown() noexcept;
 
-    // Scene::OnUpdate から呼ぶ。Phase H-1 では `just_pressed` フラグの伝搬
-    // ハンドリングのみ。Phase H-2 で `acs::ui::Widget::Layout` 再計算と
-    // tween / animation の更新を入れる。
+    /**
+     * UI 状態を更新する (Scene::OnUpdate から呼ぶ)。
+     *
+     * @details
+     * 現状は just_pressed フラグの伝搬ハンドリングのみ。実装時に acs::ui::Widget::Layout
+     * 再計算と tween / animation の更新を入れる。
+     * @param dt 前フレームからの経過秒。
+     */
     void Tick(f32 dt) noexcept;
 
-    // Scene::OnEvent から呼ぶ。マウスイベントを処理する:
-    //   ・MouseMoved          → カーソル位置を記録し hover 状態を更新
-    //   ・MouseButtonPressed   → カーソル位置の最前面ボタンを押し込み状態に
-    //   ・MouseButtonReleased  → 押し込み開始ボタンと同じボタン上で離したら
-    //                            「クリック成立」= just_pressed を立てる
+    /**
+     * マウスイベントを処理する (Scene::OnEvent から呼ぶ)。
+     *
+     * @details
+     * MouseMoved はカーソル位置を記録して hover 状態を更新、MouseButtonPressed は
+     * カーソル位置の最前面ボタンを押し込み状態に、MouseButtonReleased は押し込み開始ボタンと
+     * 同じボタン上で離したら「クリック成立」= just_pressed を立てる。
+     * @param event 処理するプラットフォームイベント。
+     */
     void HandleInput(const acs::Event& event) noexcept;
 
-    // Scene::OnDrawHud から呼ぶ。登録 widget を rc の SpriteBatch + Font で描画する
-    // (ボタンは hover/押下で色変化、Text はラベル)。SpriteBatch セッションが開いて
-    // いる前提 (FScene2D の HUD パスから呼ぶ)。Font が無い環境では矩形のみ。
+    /**
+     * 登録 widget を描画する (Scene::OnDrawHud から呼ぶ)。
+     *
+     * @details
+     * rc の SpriteBatch + Font で描画する (ボタンは hover/押下で色変化、Text はラベル)。
+     * SpriteBatch セッションが開いている前提で、Font が無い環境では矩形のみ描画する。
+     * @param rc 描画コマンドを積む先のレンダーコンテキスト。
+     */
     void Draw(RenderContext& rc) const noexcept;
 
-    // 現在登録されている widget 数 (visible / hidden 問わず)。テスト / デバッグ向け。
+    /**
+     * 現在登録されている widget 数を返す (visible / hidden 問わず)。
+     *
+     * @return 登録 widget 数 (テスト / デバッグ向け)。
+     */
     u32 WidgetCount() const noexcept;
 
-    // ----- 簡素 widget API -----
-    // ボタンを追加。戻り値は 0 でない handle (IsButtonPressed / SetVisible /
-    // Remove に渡す)。label は非所有 (寿命は呼び出し側保証)。
+    /**
+     * ボタンを追加する。
+     *
+     * @param label ボタンのラベル (非所有、寿命は呼び出し側保証)。
+     * @param pos 画面ピクセル単位の絶対座標。
+     * @param size 画面ピクセル単位のサイズ。
+     * @return 0 でない handle (IsButtonPressed / SetVisible / Remove に渡す)。
+     */
     u32 AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size) noexcept;
 
-    // 静的テキストを追加。戻り値は handle。text は非所有。size は描画時に
-    // フォントメトリックから自動計算する想定 (Phase H-2)。
+    /**
+     * 静的テキストを追加する。
+     *
+     * @details size は描画時にフォントメトリックから自動計算する想定。
+     * @param text 表示テキスト (非所有、寿命は呼び出し側保証)。
+     * @param pos 画面ピクセル単位の絶対座標。
+     * @return 発行した handle。
+     */
     u32 AddText(const char* text, acs::FVec2 pos) noexcept;
 
-    // ボタンが「直前フレームで押されたか」を返す。Phase H-1 では HandleInput
-    // で押下検出が未実装なため常に false (state holder のみ)。Phase H-2 で
-    // hit-test と event 配送が繋がると正常動作する。invalid handle / Text
-    // kind には常に false。
+    /**
+     * ボタンが直前フレームで押されたかを返す。
+     *
+     * @param handle 確認するボタンの handle。
+     * @return 押されていれば true。invalid handle / Text kind には常に false。
+     */
     bool IsButtonPressed(u32 handle) const noexcept;
 
-    // 可視性を変更。invalid handle は無視 (ログ警告のみ)。
+    /**
+     * widget の可視性を変更する。
+     *
+     * @param handle 対象 widget の handle (invalid handle はログ警告のみで無視)。
+     * @param visible 可視にするなら true。
+     */
     void SetVisible(u32 handle, bool visible) noexcept;
 
-    // 指定 handle の widget を削除。invalid handle は無視。削除後の handle は
-    // 再利用されない (世代カウンタなし)。
+    /**
+     * 指定 handle の widget を削除する。
+     *
+     * @details 削除後の handle は再利用されない (世代カウンタなし)。
+     * @param handle 削除する widget の handle (invalid handle は無視)。
+     */
     void Remove(u32 handle) noexcept;
 
-    // 全 widget を削除。Init 後の初期化やシーン内画面切替で利用。Shutdown とは
-    // 異なり root は保持されるので、続けて AddButton 等が可能。
+    /**
+     * 全 widget を削除する。
+     *
+     * @details
+     * Init 後の初期化やシーン内画面切替で利用する。Shutdown とは異なり root は保持されるので、
+     * 続けて AddButton 等が可能。
+     */
     void Clear() noexcept;
 
 private:
-    // 内部探索ヘルパ。指定 handle のインデックスを返す。見つからない / handle == 0
-    // なら -1 相当 (u32 の MAX = 0xFFFFFFFFu) を返す。
+    /**
+     * 指定 handle の widget のインデックスを返す内部探索ヘルパ。
+     *
+     * @param handle 探す widget の handle。
+     * @return 見つかったインデックス。見つからない / handle == 0 なら 0xFFFFFFFFu。
+     */
     u32 FindIndex(u32 handle) const noexcept;
 
-    // (x,y) を含む最前面 (= 最後に追加された) の visible なボタンの handle を返す。
-    // 無ければ 0。
+    /**
+     * (x,y) を含む最前面の visible なボタンの handle を返す。
+     *
+     * @param x カーソルの X 座標 (画面ピクセル)。
+     * @param y カーソルの Y 座標 (画面ピクセル)。
+     * @return 最後に追加された (= 最前面) ヒットボタンの handle。無ければ 0。
+     */
     u32 HitTopButton(f32 x, f32 y) const noexcept;
 
-    TArray<WidgetEntry> m_Widgets;          // 全 widget の状態 (handle 順は保証しない)
-    u32                m_NextHandle  = 1;  // 次に発行する handle (0 は invalid 予約)
-    f32                m_MouseX      = 0.0f;  // 直近のカーソル位置 (MouseMoved で更新)
+    /** 全 widget の状態 (handle 順は保証しない)。 */
+    TArray<WidgetEntry> m_Widgets;
+
+    /** 次に発行する handle (0 は invalid 予約)。 */
+    u32                m_NextHandle  = 1;
+
+    /** 直近のカーソル X 座標 (MouseMoved で更新)。 */
+    f32                m_MouseX      = 0.0f;
+
+    /** 直近のカーソル Y 座標 (MouseMoved で更新)。 */
     f32                m_MouseY      = 0.0f;
-    u32                m_PressedHandle = 0;   // pointer-down を開始したボタン (0=無し)
+
+    /** pointer-down を開始したボタンの handle (0 = 無し)。 */
+    u32                m_PressedHandle = 0;
+
+    /** Init 済みフラグ。 */
     bool               m_Initialized = false;
 };
 

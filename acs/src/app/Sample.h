@@ -39,13 +39,24 @@ class IRhiDevice;
 
 namespace FSample {
 
-// プラットフォーム別のデフォルト UI フォントを 1 つ返す
-// (見つからなければ最初の候補を返す。後段の LoadFromFile が IsErr を返す)
+/**
+ * プラットフォーム別の既定 UI フォントパスを 1 つ返す。
+ *
+ * @details 見つからない場合も最初の候補をそのまま返す (後段の LoadFromFile が IsErr を返す)。
+ * @return OS ごとに優先される UI フォントのファイルパス。
+ */
 const wchar_t* DefaultUIFontPath() noexcept;
 
-// 候補フォントを順に試して最初に成功したものをロードする。
-//   atlas_size  : Font のアトラスサイズ (LoadFromFile に渡す)
-//   include_cjk : 日本語等を含めるか (true で大きな atlas を使う)
+/**
+ * 候補フォントを順に試し、最初に読み込めたものを font に展開する。
+ *
+ * @param font 読み込み先の Font (成功時に内容が構築される)。
+ * @param device アトラス生成に使う RHI デバイス。
+ * @param size_px フォントのピクセルサイズ (既定 18.0)。
+ * @param atlas_size グリフアトラスの一辺サイズ (既定 1024)。
+ * @param include_cjk 日本語等を含めるか (true で大きな atlas を使う、既定 false)。
+ * @return いずれか成功なら空の TResult、全候補が失敗ならエラー。
+ */
 TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device,
                                    f32  size_px     = 18.0f,
                                    u32  atlas_size  = 1024,
@@ -54,15 +65,14 @@ TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device,
 } // namespace FSample
 } // namespace acs
 
-// ----------------------------------------------------------------------------
-// マクロ: 「Init を呼んで失敗したら Quit して return」を 1 行で
-// ----------------------------------------------------------------------------
-//
-// 使い方:
-//   ACS_SAMPLE_INIT(m_RendererThing.Init(args));
-//
-// マクロ内では `auto m_R = (expr); if (m_R.IsErr()) { ログ + Quit + return; }` を展開。
-// FApplication のメンバ関数からのみ使える (Quit() メソッドへのアクセスが要るため)。
+/**
+ * expr を評価し、TResult が IsErr なら理由をログして Quit() + return する。
+ *
+ * @details
+ * 「Init を呼んで失敗したら Quit して return」を 1 行で書くためのヘルパ。Quit() を
+ * 参照するため FApplication のメンバ関数 (戻り値 void) の中からのみ使える。
+ * @param expr TResult を返す初期化式。
+ */
 #define ACS_SAMPLE_INIT(expr)                                                      \
     do {                                                                           \
         auto m_AcsSampleR = (expr);                                               \
@@ -74,10 +84,15 @@ TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device,
         }                                                                          \
     } while (0)
 
-// TResult<T> を受けて、成功なら value を name に束縛、失敗なら Quit + return。
-// 使い方:
-//   ACS_SAMPLE_TAKE(tex, CreateRhiTexture(*dev, td));
-//   // 以降 tex を使える
+/**
+ * expr を評価し、成功なら value を name に束縛、失敗なら Quit() + return する。
+ *
+ * @details
+ * 行内の一意な一時名 (__LINE__ 連結) に受けてから Move して name に束縛する。
+ * ACS_SAMPLE_INIT 同様 FApplication のメンバ関数からのみ使える。
+ * @param name 取り出した値を束縛するローカル変数名。
+ * @param expr TResult を返す式。
+ */
 #define ACS_SAMPLE_TAKE(name, expr)                                                \
     auto ACS_CONCAT(m_AcsTakeR, __LINE__) = (expr);                              \
     if (ACS_CONCAT(m_AcsTakeR, __LINE__).IsErr()) {                              \

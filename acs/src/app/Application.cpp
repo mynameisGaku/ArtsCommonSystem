@@ -14,7 +14,7 @@ namespace acs {
 // 2) アプリ派生クラスの OnEvent も呼ぶ
 // 3) リサイズ時は FRenderer にも通知
 void FApplication::EventBridge(void* user, const Event& e) noexcept {
-    FApplication* app = static_cast<FApplication*>(user);
+    FApplication* const app = static_cast<FApplication*>(user);
     Input::OnEvent(e);
     if (e.type == EventType::WindowResize) {
         app->m_Renderer.OnResize(e.resize.width, e.resize.height);
@@ -37,7 +37,7 @@ int FApplication::Run(const FAppConfig& cfg) noexcept {
     ACS_LOG_INFO("ACS FApplication starting up...");
 
     // メモリシステム初期化
-    auto mr = FMemorySystem::Init(cfg.memory ? *cfg.memory : FMemorySystem::DefaultConfig());
+    const auto mr = FMemorySystem::Init(cfg.memory ? *cfg.memory : FMemorySystem::DefaultConfig());
     if (mr.IsErr()) {
         ACS_LOG_ERROR("FMemorySystem::Init failed: %s", mr.Error().message);
         FLogger::Shutdown();
@@ -45,7 +45,7 @@ int FApplication::Run(const FAppConfig& cfg) noexcept {
     }
 
     // FThreadPool 起動
-    auto tr = FThreadPool::Init(cfg.worker_count);
+    const auto tr = FThreadPool::Init(cfg.worker_count);
     if (tr.IsErr()) {
         ACS_LOG_ERROR("FThreadPool::Init failed: %s", tr.Error().message);
         FMemorySystem::Shutdown();
@@ -72,7 +72,7 @@ int FApplication::Run(const FAppConfig& cfg) noexcept {
     m_Window.SetEventCallback(&EventBridge, this);
 
     // レンダラ初期化
-    auto rr = m_Renderer.Init(m_Window, cfg.enable_gpu_debug);
+    const auto rr = m_Renderer.Init(m_Window, cfg.enable_gpu_debug);
     if (rr.IsErr()) {
         ACS_LOG_ERROR("FRenderer::Init failed: %s", rr.Error().message);
         FThreadPool::Shutdown();

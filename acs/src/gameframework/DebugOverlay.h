@@ -29,7 +29,7 @@
 //       }
 //   };
 //
-// 設計選択 (GameFramework Pillar H Phase 1):
+// 設計選択 (GameFramework Pillar H):
 //   ・**state holder のみ**: 描画 API を持ち込むと Diligent / DX12 raw / Headless で
 //     スキニングが分かれてしまうので、ここでは値の保持と算出だけに留める。
 //   ・**60 frame moving average**: dt から fps = 1/dt を算出し、循環バッファ 60 個を
@@ -46,10 +46,10 @@
 //   ・**STL 不使用**: `acs::TArray<f32>` / `acs::TArray<Watch>` を使用、`<string>` 禁止。
 //     実装側で `<cstring>` (strcmp / strlen) のみ許可。
 //
-// 範囲外 (Phase 2+ で):
+// 範囲外 (本クラスでは持たない):
 //   ・グラフ表示 (frame time 棒グラフ / 履歴折れ線)
 //   ・メモリ使用量の自動取得 (現状は SceneName と並ぶ任意ラベルとして caller が watch
-//     に流し込む。Pillar A 完成後に `FAllocator` から bytes 取得して自動化予定)
+//     に流し込む)
 //   ・国際化 (現状は ASCII / UTF-8 の生 char*、フォントレンダラ側で対応)
 //   ・スレッドセーフ (Tick / Add 等は同一スレッド前提)
 #pragma once
@@ -59,87 +59,194 @@
 
 namespace acs::game {
 
+/**
+ * FPS / シーン名 / カスタム watch を保持・更新する状態保持クラス。
+ *
+ * @details
+ * 実描画 (FSpriteBatch / ImGui / DrawString 等) は呼出し側の責務で、本クラスは
+ * 「何を出すべきか」を保持・更新するだけでグラフィック層に依存しない (テスト /
+ * Headless でも動作)。dt から瞬間 fps を算出し 60 frame の循環バッファで平均 /
+ * 最小 / 最大を計測する。watch は label / value とも caller 所有のポインタを保持
+ * するだけで複製しない。非コピー・非ムーブ。
+ */
 class FDebugOverlay {
 public:
-    // ----- 公開型 -----
-    // 1 行の watch エントリ。label / value とも caller 所有 (本クラスは複製しない)。
-    // value バッファは caller が毎フレーム更新可 (pointer は不変であること)。
+    /**
+     * 1 行の watch エントリ。
+     *
+     * @details label / value とも caller 所有 (本クラスは複製しない)。value バッファは
+     * caller が毎フレーム更新してよい (pointer は不変であること)。
+     */
     struct Watch {
+        /** 表示ラベル (caller 所有、非所有参照)。 */
         const char* label = nullptr;
+
+        /** 表示値の文字列 (caller 所有、非所有参照)。 */
         const char* value = nullptr;
     };
 
+    /** 空状態で構築する (内部バッファは Init で確保)。 */
     FDebugOverlay() noexcept = default;
+
+    /** 破棄する (TArray が内部バッファを解放)。 */
     ~FDebugOverlay() noexcept = default;
 
-    // 非コピー・非ムーブ (履歴 / watches の所有権を曖昧にしない)
+    /** コピー禁止 (履歴 / watches の所有権を曖昧にしないため)。 */
     FDebugOverlay(const FDebugOverlay&)            = delete;
+
+    /** コピー代入も禁止。 */
     FDebugOverlay& operator=(const FDebugOverlay&) = delete;
+
+    /** ムーブ禁止 (履歴 / watches の所有権を曖昧にしないため)。 */
     FDebugOverlay(FDebugOverlay&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FDebugOverlay& operator=(FDebugOverlay&&)      = delete;
 
-    // ----- ライフサイクル -----
-    // 内部バッファを事前確保 (60 frame 履歴)。再 Init は履歴をクリアする。
+    /**
+     * 内部バッファを事前確保する。
+     *
+     * @details 60 frame 履歴ぶんの capacity を Reserve し、各カウンタを 0 始まりに戻す。
+     * 再 Init は履歴をクリアする。
+     */
     void Init() noexcept;
 
-    // 1 フレーム進める。dt <= 0 は履歴に push せず無視。
-    // 60 frame moving average / min / max を更新する。
+    /**
+     * 1 フレーム進めて fps 履歴を更新する。
+     *
+     * @details dt <= 0 (一時停止 / 負値) は履歴汚染を避けるため push せず無視する。
+     * 60 frame の循環バッファに fps = 1/dt を書き込み、瞬間 fps を更新する。
+     * @param dt 前フレームからの経過秒。
+     */
     void Tick(f32 dt) noexcept;
 
-    // 履歴 / watches / scene name を初期状態に戻す。可視状態は保持。
+    /**
+     * 履歴 / watches / scene name を初期状態に戻す。
+     *
+     * @details 可視状態 (m_Visible) は意図的に保持する (Reset で誤って非表示にしない)。
+     */
     void Reset() noexcept;
 
-    // ----- 可視状態 -----
+    /** オーバーレイを可視にする。 */
     void Show() noexcept   { m_Visible = true; }
+
+    /** オーバーレイを非可視にする。 */
     void Hide() noexcept   { m_Visible = false; }
+
+    /** 可視状態を反転する。 */
     void Toggle() noexcept { m_Visible = !m_Visible; }
+
+    /**
+     * 可視状態を返す。
+     *
+     * @return 可視なら true。
+     */
     bool IsVisible() const noexcept { return m_Visible; }
 
-    // ----- フレームレート計測 (Tick が更新) -----
-    // 最新フレームの瞬間 fps (= 1/dt)。Tick 未呼出時は 0。
+    /**
+     * 最新フレームの瞬間 fps を返す。
+     *
+     * @return 直近 Tick で算出した 1/dt。Tick 未呼出時は 0。
+     */
     f32 CurrentFps() const noexcept { return m_CurrentFps; }
-    // 直近 60 frame の算術平均。履歴が満たない場合は有効分だけで平均。
+
+    /**
+     * 直近 60 frame の平均 fps を返す。
+     *
+     * @details 履歴が満たない場合は有効分だけで算術平均する。
+     * @return 平均 fps。履歴空時は 0。
+     */
     f32 AverageFps() const noexcept;
-    // 履歴中の最小 fps。履歴空時は 0。
+
+    /**
+     * 履歴中の最小 fps を返す。
+     *
+     * @return 履歴を線形走査した最小 fps。履歴空時は 0。
+     */
     f32 MinFps() const noexcept;
-    // 履歴中の最大 fps。履歴空時は 0。
+
+    /**
+     * 履歴中の最大 fps を返す。
+     *
+     * @return 履歴を線形走査した最大 fps。履歴空時は 0。
+     */
     f32 MaxFps() const noexcept;
 
-    // ----- シーン名 (caller 所有のリテラル想定) -----
+    /**
+     * シーン名を設定する。
+     *
+     * @param name 表示するシーン名 (caller 所有のリテラル想定、非所有参照)。
+     */
     void SetSceneName(const char* name) noexcept { m_SceneName = name; }
+
+    /**
+     * 設定済みのシーン名を返す。
+     *
+     * @return シーン名 (未設定なら nullptr)。
+     */
     const char* SceneName() const noexcept { return m_SceneName; }
 
-    // ----- カスタム watch -----
-    // label / value とも caller 所有。同名 label は後勝ち上書き (value 差し替え)。
-    // label / value が nullptr の場合は何もしない (安全)。
+    /**
+     * watch を追加する (同名 label は後勝ちで value を差し替え)。
+     *
+     * @details label / value とも caller 所有で複製しない。同名 label があれば value だけ
+     * 上書きする。label / value のいずれかが nullptr なら何もしない (安全)。
+     * @param label 表示ラベル (caller 所有)。
+     * @param value 表示値の文字列 (caller 所有)。
+     */
     void AddWatch(const char* label, const char* value) noexcept;
 
-    // label 一致する watch を削除 (swap-remove、順序非保持)。該当なしは no-op。
+    /**
+     * label 一致する watch を削除する。
+     *
+     * @details swap-remove のため順序は保持しない。該当なしは no-op。
+     * @param label 削除する watch のラベル。
+     */
     void RemoveWatch(const char* label) noexcept;
 
-    // 全 watch を削除。
+    /** 全 watch を削除する。 */
     void ClearWatches() noexcept;
 
-    // 登録済み watch 数。
+    /**
+     * 登録済み watch 数を返す。
+     *
+     * @return watch の件数。
+     */
     u32 WatchCount() const noexcept;
 
-    // 全 watch を読み取り用に列挙。out_count に件数を書き込み、生ポインタを返す。
-    // 戻り値はクラス所有の内部バッファ (`TArray<Watch>` の data)、Add/Remove/Clear
-    // 呼出しまで有効。空のときは nullptr を返し、out_count = 0。
+    /**
+     * 全 watch を読み取り用に列挙する。
+     *
+     * @details 戻り値はクラス所有の内部バッファ (TArray<Watch> の data) を指し、
+     * Add/Remove/Clear 呼出しまで有効。
+     * @param out_count watch 件数を書き込む先。
+     * @return watch 配列の先頭ポインタ。空のときは nullptr (out_count = 0)。
+     */
     const Watch* AllWatches(u32& out_count) const noexcept;
 
 private:
-    // 履歴は固定容量の循環バッファ。サンプル数 = 60。
+    /** fps 履歴の固定容量 (循環バッファのサンプル数)。 */
     static constexpr u32 kFpsHistoryCap = 60u;
 
-    TArray<f32>    m_FpsHistory;          // size <= kFpsHistoryCap、要素は fps 値
-    u32           m_FpsIndex    = 0u;    // 次に書き込むスロット (mod kFpsHistoryCap)
-    bool          m_bFpsFilled   = false; // 履歴が一周したか (size == cap の意味)
+    /** fps 履歴バッファ (size <= kFpsHistoryCap、要素は fps 値)。 */
+    TArray<f32>    m_FpsHistory;
 
+    /** 次に書き込むスロット (mod kFpsHistoryCap)。 */
+    u32           m_FpsIndex    = 0u;
+
+    /** 履歴が一周したか (true なら size == cap で上書きモード)。 */
+    bool          m_bFpsFilled   = false;
+
+    /** 最新フレームの瞬間 fps。 */
     f32           m_CurrentFps  = 0.0f;
-    const char*   m_SceneName   = nullptr;  // caller 所有
 
+    /** 表示するシーン名 (caller 所有、非所有参照)。 */
+    const char*   m_SceneName   = nullptr;
+
+    /** 登録済み watch 列 (label / value とも非所有参照)。 */
     TArray<Watch>  m_Watches;
+
+    /** 可視フラグ (false なら描画側が表示しない想定)。 */
     bool          m_Visible      = false;
 };
 

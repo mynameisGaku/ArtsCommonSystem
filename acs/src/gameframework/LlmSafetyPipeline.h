@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U Phase 2 — FLlmSafetyPipeline (LLM 入出力安全パイプ)
+// GameFramework Pillar U — FLlmSafetyPipeline (LLM 入出力安全パイプ)
 //
 // 役割:
 //   LLM NPC のセリフ生成経路 (= 決定論ゾーンの外側) に対して、入力検証 /
@@ -47,139 +47,252 @@
 
 namespace acs::game {
 
-// =============================================================================
-// ESafetyRule — どの安全機能を有効化するかの bit flag
-// -----------------------------------------------------------------------------
-// `Default` = 全機能 on。ゲーム側で必要に応じて個別に EnableRule(...) で外す。
-// =============================================================================
+/**
+ * どの安全機能を有効化するかの bit flag。
+ *
+ * @details Default = 全機能 on。ゲーム側で必要に応じて個別に EnableRule(...) で外す。
+ */
 enum class ESafetyRule : u32 {
+    /** 全機能 off。 */
     None                = 0,
-    InputValidation     = 1u << 0,  // 空文字 / 長すぎる入力を弾く
-    JailbreakDetection  = 1u << 1,  // "ignore previous instructions" 等の典型句を弾く
-    PiiRedaction        = 1u << 2,  // メール / 電話 / クレカ番号を `[REDACTED]` に置換
-    EContentRating       = 1u << 3,  // 暴力 / 性的 / 自傷 / ヘイトを弾く (ML 分類器 seam)
-    TokenBudget         = 1u << 4,  // 入出力トークン上限 (簡易: 1 token ≒ 4 byte)
-    RefusalEnforcement  = 1u << 5,  // キャラ逸脱 / メタ発言キーワードを弾く
 
+    /** 空文字 / 長すぎる入力を弾く。 */
+    InputValidation     = 1u << 0,
+
+    /** "ignore previous instructions" 等の jailbreak 典型句を弾く。 */
+    JailbreakDetection  = 1u << 1,
+
+    /** メール / 電話 / クレカ番号を [REDACTED] に置換する。 */
+    PiiRedaction        = 1u << 2,
+
+    /** 暴力 / 性的 / 自傷 / ヘイトを弾く (ML 分類器 seam、未注入時は no-op)。 */
+    EContentRating       = 1u << 3,
+
+    /** 入出力トークン上限を超えた場合に弾く (簡易: 1 token ≒ 4 byte)。 */
+    TokenBudget         = 1u << 4,
+
+    /** キャラ逸脱 / メタ発言キーワードを弾く。 */
+    RefusalEnforcement  = 1u << 5,
+
+    /** 全機能 on (既定値)。 */
     Default = InputValidation | JailbreakDetection | PiiRedaction
             | EContentRating   | TokenBudget        | RefusalEnforcement,
 };
 
+/**
+ * ESafetyRule の OR 合成。
+ *
+ * @param a 合成元のマスク。
+ * @param b 合成するマスク。
+ * @return a と b を OR したマスク。
+ */
 constexpr ESafetyRule operator|(ESafetyRule a, ESafetyRule b) noexcept {
     return static_cast<ESafetyRule>(static_cast<u32>(a) | static_cast<u32>(b));
 }
+
+/**
+ * ESafetyRule の AND 合成。
+ *
+ * @param a 合成元のマスク。
+ * @param b 合成するマスク。
+ * @return a と b を AND したマスク。
+ */
 constexpr ESafetyRule operator&(ESafetyRule a, ESafetyRule b) noexcept {
     return static_cast<ESafetyRule>(static_cast<u32>(a) & static_cast<u32>(b));
 }
+
+/**
+ * マスクに特定フラグが立っているかを返す。
+ *
+ * @param mask 検査対象のマスク。
+ * @param flag 検査するフラグ。
+ * @return flag が mask に含まれていれば true。
+ */
 constexpr bool SafetyHas(ESafetyRule mask, ESafetyRule flag) noexcept {
     return (static_cast<u32>(mask) & static_cast<u32>(flag)) != 0u;
 }
 
-// =============================================================================
-// ESafetyVerdict — パイプラインの判定結果
-// -----------------------------------------------------------------------------
-//   Pass            = 安全に通過、`filtered_text` は入力をそのまま返す
-//   Refused         = 規約違反 / jailbreak 検出 → 文字列は返さず `refusal_reason` を埋める
-//   Filtered        = 危険箇所だけ除去して通過 → `filtered_text` に置換済み文字列
-//   BudgetExceeded  = トークン予算超過 → 上位は LLM 呼び出しを skip すべし
-// =============================================================================
+/**
+ * パイプラインの判定結果。
+ *
+ * @details Validate / Filter が SafetyResult::verdict に返す 4 値。
+ */
 enum class ESafetyVerdict : u32 {
+    /** 安全に通過。filtered_text は入力をそのまま返す。 */
     Pass            = 0,
+
+    /** 規約違反 / jailbreak 検出。文字列は返さず refusal_reason を埋める。 */
     Refused         = 1,
+
+    /** 危険箇所だけ除去して通過。filtered_text に置換済み文字列を返す。 */
     Filtered        = 2,
+
+    /** トークン予算超過。上位は LLM 呼び出しを skip すべき。 */
     BudgetExceeded  = 3,
 };
 
-// =============================================================================
-// SafetyResult — 1 回の Validate / Filter 呼び出しの結果
-// -----------------------------------------------------------------------------
-// 文字列は所有しない (= 内部 static バッファへのポインタ)。寿命は **次回の
-// ValidateInput / FilterOutput 呼び出しまで**。呼び出し側はその前にコピー or
-// 消費すること。
-// =============================================================================
+/**
+ * 1 回の Validate / Filter 呼び出しの結果。
+ *
+ * @details
+ * 文字列は所有しない (= 内部 static バッファへのポインタ)。寿命は次回の
+ * ValidateInput / FilterOutput 呼び出しまで。呼び出し側はその前にコピー or 消費すること。
+ */
 struct SafetyResult {
+    /** 判定結果。 */
     ESafetyVerdict verdict        = ESafetyVerdict::Pass;
-    const char*   filtered_text  = nullptr;  // Pass / Filtered で有効、それ以外 nullptr
-    const char*   refusal_reason = nullptr;  // Refused で有効、それ以外 nullptr
-    u32           input_tokens   = 0;        // 概算トークン数 (= byte_len / 4)
-    u32           output_tokens  = 0;        // FilterOutput でのみ有効
+
+    /** 通過後テキスト (Pass / Filtered で有効、それ以外 nullptr)。 */
+    const char*   filtered_text  = nullptr;
+
+    /** 拒否理由 (Refused で有効、それ以外 nullptr)。 */
+    const char*   refusal_reason = nullptr;
+
+    /** 入力の概算トークン数 (= byte_len / 4)。 */
+    u32           input_tokens   = 0;
+
+    /** 出力の概算トークン数 (FilterOutput でのみ有効)。 */
+    u32           output_tokens  = 0;
 };
 
-// =============================================================================
-// FLlmSafetyPipeline — 入出力安全パイプライン本体
-// -----------------------------------------------------------------------------
-// 1 インスタンス = 1 つの NPC キャラクタ前提 (CharacterAnchor を 1 個保持する)。
-// 複数 NPC を同時運用する場合は FLlmSafetyPipeline を NPC ごとに持つ。
-//
-// 典型使用:
-//   FLlmSafetyPipeline pipe;
-//   pipe.Init();
-//   pipe.SetTokenBudget(1024, 512);
-//   pipe.SetCharacterAnchor("You are a friendly shopkeeper in a fantasy RPG.");
-//
-//   auto in_res = pipe.ValidateInput(player_text);
-//   if (in_res.verdict != ESafetyVerdict::Pass) { ShowRefusalUi(in_res.refusal_reason); return; }
-//
-//   auto llm_text = my_llm.Generate(player_text);
-//   auto out_res = pipe.FilterOutput(llm_text);
-//   if (out_res.verdict == ESafetyVerdict::Refused) { NpcBecomesSilent(); return; }
-//   DisplayNpcLine(out_res.filtered_text);
-// =============================================================================
+/**
+ * LLM 入出力の安全パイプライン本体。
+ *
+ * @details
+ * 入力検証 / jailbreak 検出 / PII 除去 / コンテンツレーティング / トークン予算 /
+ * refusal 強制を bit flag 駆動で提供する。1 インスタンス = 1 つの NPC キャラクタ前提
+ * (CharacterAnchor を 1 個保持する)。複数 NPC を同時運用する場合は NPC ごとに持つ。
+ * 典型使用は Init → SetTokenBudget → SetCharacterAnchor のあと、ValidateInput で
+ * ユーザー入力を検証し、LLM 生成結果を FilterOutput で検証 / フィルタする。
+ */
 class FLlmSafetyPipeline {
 public:
+    /** 既定値で構築する (rules=Default、未初期化状態)。 */
     FLlmSafetyPipeline() noexcept = default;
+
+    /** 破棄する。 */
     ~FLlmSafetyPipeline() noexcept = default;
 
-    // 非コピー・非ムーブ (state を 1 箇所にとどめる)
+    /** コピー禁止 (state を 1 箇所にとどめるため)。 */
     FLlmSafetyPipeline(const FLlmSafetyPipeline&)            = delete;
+
+    /** コピー代入も禁止。 */
     FLlmSafetyPipeline& operator=(const FLlmSafetyPipeline&) = delete;
+
+    /** ムーブ禁止。 */
     FLlmSafetyPipeline(FLlmSafetyPipeline&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FLlmSafetyPipeline& operator=(FLlmSafetyPipeline&&)      = delete;
 
-    // 初期化。bit flag で機能を選択。多重 Init は最新 rules で上書き。
+    /**
+     * パイプラインを初期化する。
+     *
+     * @details bit flag で機能を選択する。多重 Init は最新 rules で上書きし統計をリセットする。
+     * @param rules 有効化する安全機能のマスク (既定は全機能 on)。
+     */
     void Init(ESafetyRule rules = ESafetyRule::Default) noexcept;
 
-    // 入出力それぞれのトークン上限。0 を指定すると当該方向のチェック無効。
-    // 規定値: max_input_tokens = 2048, max_output_tokens = 1024。
+    /**
+     * 入出力それぞれのトークン上限を設定する。
+     *
+     * @details 0 を指定すると当該方向のチェックを無効にする。規定値は 2048 / 1024。
+     * @param max_input_tokens 入力トークン上限。
+     * @param max_output_tokens 出力トークン上限。
+     */
     void SetTokenBudget(u32 max_input_tokens, u32 max_output_tokens) noexcept;
 
-    // NPC キャラの system prompt (refusal 判定の基準テキスト)。
-    // `nullptr` は anchor 無し = RefusalEnforcement が事実上 no-op になる。
-    // 文字列の寿命は呼び出し側責務 (パイプライン側はコピーしない)。
+    /**
+     * NPC キャラの system prompt (refusal 判定の基準テキスト) を設定する。
+     *
+     * @details nullptr は anchor 無し = RefusalEnforcement が事実上 no-op になる。文字列はコピーしない。
+     * @param system_prompt キャラ anchor のテキスト (寿命は呼び出し側責務)。
+     */
     void SetCharacterAnchor(const char* system_prompt) noexcept;
 
-    // ユーザー入力を検証 (LLM 投入前)。
-    // - InputValidation: 空 / 長すぎ → Refused
-    // - JailbreakDetection: "ignore previous instructions" 等の典型句 → Refused
-    // - TokenBudget: input_tokens > max_input_tokens → BudgetExceeded
+    /**
+     * ユーザー入力を検証する (LLM 投入前)。
+     *
+     * @details
+     * InputValidation で空 / 長すぎを Refused、JailbreakDetection で典型句を Refused、
+     * TokenBudget で input_tokens 超過を BudgetExceeded にする。問題なければ Pass。
+     * @param user_text 検証するユーザー入力。
+     * @return 判定結果 (Pass 時は filtered_text に入力コピー)。
+     */
     SafetyResult ValidateInput(const char* user_text) noexcept;
 
-    // LLM 応答を検証 / フィルタ (UI 表示前)。判定順は Refusal → Rating → PII。
-    // - RefusalEnforcement: キャラ逸脱 / メタ発言キーワード一致 → Refused
-    // - EContentRating: 危険スコア超過 → Refused (ML 分類器 seam、未注入時 no-op)
-    // - PiiRedaction: メール / 電話 / クレカ番号を `[REDACTED]` に置換 → Filtered
-    // - TokenBudget: output_tokens > max_output_tokens → BudgetExceeded
+    /**
+     * LLM 応答を検証 / フィルタする (UI 表示前)。
+     *
+     * @details
+     * 判定順は出力長サニティ → TokenBudget → RefusalEnforcement → EContentRating → PiiRedaction。
+     * キャラ逸脱 / メタ発言キーワード一致や危険スコア超過は Refused、メール / 電話 / クレカ番号は
+     * [REDACTED] に置換して Filtered、トークン超過は BudgetExceeded にする。
+     * @param llm_response 検証する LLM 応答。
+     * @return 判定結果 (Filtered 時は filtered_text に置換済みテキスト)。
+     */
     SafetyResult FilterOutput(const char* llm_response) noexcept;
 
-    // rules マスク操作
+    /**
+     * 指定ルールが有効かを返す。
+     *
+     * @param rule 検査するルール。
+     * @return 有効なら true。
+     */
     bool       IsRuleEnabled(ESafetyRule rule) const noexcept;
+
+    /**
+     * 指定ルールの有効 / 無効を切り替える。
+     *
+     * @param rule 切り替えるルール。
+     * @param enable true で有効化、false で無効化。
+     */
     void       EnableRule(ESafetyRule rule, bool enable) noexcept;
+
+    /**
+     * 現在の rules マスクを返す。
+     *
+     * @return 有効化されている安全機能のマスク。
+     */
     ESafetyRule Rules() const noexcept { return m_Rules; }
 
-    // 統計 (テレメトリ / デバッグ用)
+    /**
+     * これまでに Refused / BudgetExceeded とした回数を返す。
+     *
+     * @return 拒否カウント。
+     */
     u32  RefusedCount()  const noexcept { return m_RefusedCount; }
+
+    /**
+     * これまでに PII 置換で Filtered とした回数を返す。
+     *
+     * @return フィルタカウント。
+     */
     u32  FilteredCount() const noexcept { return m_FilteredCount; }
 
-    // 統計とキャラ anchor を初期状態に戻す (rules / budget は保持)。
+    /** 統計とキャラ anchor を初期状態に戻す (rules / budget は保持)。 */
     void Reset() noexcept;
 
 private:
+    /** 有効化されている安全機能のマスク。 */
     ESafetyRule  m_Rules               = ESafetyRule::Default;
+
+    /** 入力トークン上限 (0 でチェック無効)。 */
     u32         m_MaxInputTokens    = 2048;
+
+    /** 出力トークン上限 (0 でチェック無効)。 */
     u32         m_MaxOutputTokens   = 1024;
-    const char* m_CharacterAnchor    = nullptr;  // 非所有
+
+    /** キャラ anchor の system prompt (非所有)。 */
+    const char* m_CharacterAnchor    = nullptr;
+
+    /** Refused / BudgetExceeded の累計回数。 */
     u32         m_RefusedCount       = 0;
+
+    /** Filtered (PII 置換) の累計回数。 */
     u32         m_FilteredCount      = 0;
+
+    /** Init 済みフラグ。 */
     bool        m_Initialized         = false;
 };
 

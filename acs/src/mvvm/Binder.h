@@ -13,7 +13,7 @@
 //
 // 設計:
 //   ・Set() はループしないように、現在更新中フラグで再帰防止
-//   ・OneWayBinder<T>(src, dst) で片方向版もアリ (将来追加)
+//   ・OneWayBinder<T>(src, dst) で片方向版もアリ
 #pragma once
 
 #include "mvvm/Observable.h"
@@ -22,9 +22,26 @@
 
 namespace acs {
 
+/**
+ * 2 つの Observable<T> を双方向に同期させるバインダ。
+ *
+ * @details
+ * 構築時にまず a の値を b へ反映し、その後両方を Subscribe する。一方が変わると
+ * もう一方へ Set で伝播し、m_bUpdating フラグで往復ループ (再帰) を防ぐ。
+ * dtor で両 Observable から Unsubscribe する。
+ *
+ * @tparam T 同期する値の型。
+ */
 template<typename T>
 class FTwoWayBinder {
 public:
+    /**
+     * 2 つの Observable を双方向バインドして構築する。
+     *
+     * @details a の現在値を b に初期反映してから両方を Subscribe する (a→b が初期方向)。
+     * @param a 一方の Observable (初期同期の source)。
+     * @param b もう一方の Observable (初期同期の destination)。
+     */
     FTwoWayBinder(Observable<T>& a, Observable<T>& b) noexcept
         : m_A(&a), m_B(&b) {
         // 初期同期: a の値を b に反映 (FViewModel → View 想定)
@@ -33,15 +50,26 @@ public:
         m_HB = b.Subscribe(&OnBChanged, this);
     }
 
+    /** 両 Observable から Unsubscribe して同期を解除する。 */
     ~FTwoWayBinder() noexcept {
         if (m_A) m_A->Unsubscribe(m_HA);
         if (m_B) m_B->Unsubscribe(m_HB);
     }
 
+    /** コピー禁止 (購読を単独所有するため)。 */
     FTwoWayBinder(const FTwoWayBinder&) = delete;
+
+    /** コピー代入も禁止。 */
     FTwoWayBinder& operator=(const FTwoWayBinder&) = delete;
 
 private:
+    /**
+     * a が変化したとき b へ伝播するリスナ。
+     *
+     * @details m_bUpdating が立っていれば往復を避けるため何もしない。
+     * @param v a の新値。
+     * @param user this を指すポインタ。
+     */
     static void OnAChanged(const T& v, void* user) noexcept {
         auto* self = static_cast<FTwoWayBinder*>(user);
         if (self->m_bUpdating) return;
@@ -49,6 +77,14 @@ private:
         self->m_B->Set(v);
         self->m_bUpdating = false;
     }
+
+    /**
+     * b が変化したとき a へ伝播するリスナ。
+     *
+     * @details m_bUpdating が立っていれば往復を避けるため何もしない。
+     * @param v b の新値。
+     * @param user this を指すポインタ。
+     */
     static void OnBChanged(const T& v, void* user) noexcept {
         auto* self = static_cast<FTwoWayBinder*>(user);
         if (self->m_bUpdating) return;
@@ -57,143 +93,239 @@ private:
         self->m_bUpdating = false;
     }
 
+    /** 一方の Observable。 */
     Observable<T>*    m_A = nullptr;
+
+    /** もう一方の Observable。 */
     Observable<T>*    m_B = nullptr;
+
+    /** m_A への購読ハンドル。 */
     ObservableHandle  m_HA;
+
+    /** m_B への購読ハンドル。 */
     ObservableHandle  m_HB;
+
+    /** 伝播中フラグ (往復ループ防止)。 */
     bool              m_bUpdating = false;
 };
 
-// 片方向 (src → dst のみ)
+/**
+ * src の変化を dst へ片方向に流すバインダ (同じ型)。
+ *
+ * @details 構築時に src の現在値を dst へ反映し、以後 src の変化を dst へ Set する。
+ * @tparam T 同期する値の型。
+ */
 template<typename T>
 class OneWayBinder {
 public:
+    /**
+     * 片方向バインドして構築する。
+     *
+     * @param src 監視元の Observable。
+     * @param dst 反映先の Observable。
+     */
     OneWayBinder(Observable<T>& src, Observable<T>& dst) noexcept
         : m_Src(&src), m_Dst(&dst) {
         dst.Set(src.Get());
         m_H = src.Subscribe(&OnChanged, this);
     }
+
+    /** src から Unsubscribe して同期を解除する。 */
     ~OneWayBinder() noexcept {
         if (m_Src) m_Src->Unsubscribe(m_H);
     }
+
+    /** コピー禁止 (購読を単独所有するため)。 */
     OneWayBinder(const OneWayBinder&) = delete;
+
+    /** コピー代入も禁止。 */
     OneWayBinder& operator=(const OneWayBinder&) = delete;
 
 private:
+    /**
+     * src が変化したとき dst へ反映するリスナ。
+     *
+     * @param v src の新値。
+     * @param user this を指すポインタ。
+     */
     static void OnChanged(const T& v, void* user) noexcept {
         auto* self = static_cast<OneWayBinder*>(user);
         self->m_Dst->Set(v);
     }
+
+    /** 監視元の Observable。 */
     Observable<T>*   m_Src = nullptr;
+
+    /** 反映先の Observable。 */
     Observable<T>*   m_Dst = nullptr;
+
+    /** src への購読ハンドル。 */
     ObservableHandle m_H;
 };
 
-// View → FViewModel 方向は OneWayBinder(view, vm) と書く (alias は提供しない、混乱の元)。
-
-// 変換関数つき OneWay Binder (Src → Dst、別の型に変換)
-//
-// 使い方:
-//   Observable<i32>      hp { 100 };
-//   Observable<FString>   hp_text;
-//   static FString IntToText(const i32& v, void* /*user*/) noexcept {
-//       char buf[32]; std::snprintf(buf, sizeof(buf), "HP: %d", v);
-//       return FString{buf};
-//   }
-//   OneWayConvertBinder<i32, FString> bind(hp, hp_text, &IntToText, nullptr);
+/**
+ * src の変化を型変換して dst へ片方向に流すバインダ (異なる型)。
+ *
+ * @details
+ * 構築時に変換関数で src の現在値を変換して dst へ反映し、以後 src の変化のたびに
+ * 同じ変換を通して dst へ Set する。dtor で src から Unsubscribe する。
+ * @tparam Src 監視元の値の型。
+ * @tparam Dst 反映先の値の型。
+ */
 template<typename Src, typename Dst>
 class OneWayConvertBinder {
 public:
+    /** Src を Dst へ変換する関数型 (値と user を受け取る)。 */
     using ConvertFn = Dst (*)(const Src& v, void* user);
 
+    /**
+     * 変換つき片方向バインドして構築する。
+     *
+     * @param src 監視元の Observable。
+     * @param dst 反映先の Observable。
+     * @param fn Src を Dst へ変換する関数。
+     * @param user 変換関数へそのまま渡される任意ポインタ。
+     */
     OneWayConvertBinder(Observable<Src>& src, Observable<Dst>& dst,
                         ConvertFn fn, void* user) noexcept
         : m_Src(&src), m_Dst(&dst), m_Fn(fn), m_User(user) {
         dst.Set(fn(src.Get(), user));
         m_H = src.Subscribe(&OnChanged, this);
     }
+
+    /** src から Unsubscribe して同期を解除する。 */
     ~OneWayConvertBinder() noexcept {
         if (m_Src) m_Src->Unsubscribe(m_H);
     }
+
+    /** コピー禁止 (購読を単独所有するため)。 */
     OneWayConvertBinder(const OneWayConvertBinder&)            = delete;
+
+    /** コピー代入も禁止。 */
     OneWayConvertBinder& operator=(const OneWayConvertBinder&) = delete;
 
 private:
+    /**
+     * src が変化したとき変換して dst へ反映するリスナ。
+     *
+     * @param v src の新値。
+     * @param user this を指すポインタ。
+     */
     static void OnChanged(const Src& v, void* user) noexcept {
         auto* self = static_cast<OneWayConvertBinder*>(user);
         if (self->m_Fn) self->m_Dst->Set(self->m_Fn(v, self->m_User));
     }
+
+    /** 監視元の Observable。 */
     Observable<Src>*  m_Src  = nullptr;
+
+    /** 反映先の Observable。 */
     Observable<Dst>*  m_Dst  = nullptr;
+
+    /** Src→Dst の変換関数。 */
     ConvertFn         m_Fn   = nullptr;
+
+    /** 変換関数へ渡す user ポインタ。 */
     void*             m_User = nullptr;
+
+    /** src への購読ハンドル。 */
     ObservableHandle  m_H;
 };
 
-// 1 回だけ src の値を dst にコピーする (live binding ではなく初期化用)。
-// クラスではなく関数: lifetime を持たないので class にする意義がない。
+/**
+ * src の現在値を dst へ 1 回だけコピーする (live binding ではなく初期化用)。
+ *
+ * @details 継続購読しないため class ではなく関数で提供する。
+ * @tparam T 値の型。
+ * @param src コピー元の Observable。
+ * @param dst コピー先の Observable。
+ */
 template<typename T>
 inline void CopyOnce(const Observable<T>& src, Observable<T>& dst) noexcept {
     dst.Set(src.Get());
 }
 
-// ============================================================================
-// Bind(src, dst) — 暗黙変換つき汎用バインドファクトリ
-// ----------------------------------------------------------------------------
-// 同じ型なら OneWayBinder、違う型なら TDefaultConverter<Src, Dst> を経由した
-// OneWayConvertBinder を返す。返り値は prvalue なので C++17 の copy elision で
-// auto に直接受けられる。
-//
-// 例:
-//   Observable<f32> hp{100};
-//   Observable<FString> hp_text;
-//   auto b = Bind(hp, hp_text);    // f32 → FString 自動変換
-//
-//   Observable<i32> a, b;
-//   auto b2 = Bind(a, b);          // 同型 → OneWayBinder<i32>
-// ============================================================================
+/**
+ * 同じ型の src→dst を片方向バインドする (OneWayBinder ファクトリ)。
+ *
+ * @details 返り値は prvalue なので copy elision で auto に直接受けられる。
+ * @tparam T 値の型。
+ * @param src 監視元の Observable。
+ * @param dst 反映先の Observable。
+ * @return 構築した OneWayBinder<T>。
+ */
 template<typename T>
 inline OneWayBinder<T> Bind(Observable<T>& src, Observable<T>& dst) noexcept {
     return OneWayBinder<T>(src, dst);
 }
 
+/**
+ * 異なる型の src→dst を既定変換を通して片方向バインドする。
+ *
+ * @details TDefaultConverter<Src, Dst> 経由の OneWayConvertBinder を返す。
+ * @tparam Src 監視元の値の型。
+ * @tparam Dst 反映先の値の型。
+ * @param src 監視元の Observable。
+ * @param dst 反映先の Observable。
+ * @return 構築した OneWayConvertBinder<Src, Dst>。
+ */
 template<typename Src, typename Dst>
 inline OneWayConvertBinder<Src, Dst> Bind(Observable<Src>& src, Observable<Dst>& dst) noexcept {
     return OneWayConvertBinder<Src, Dst>(
         src, dst, &mvvm::TDefaultConverter<Src, Dst>::Convert, nullptr);
 }
 
-// 双方向版
+/**
+ * 同じ型の a と b を双方向バインドする (FTwoWayBinder ファクトリ)。
+ *
+ * @tparam T 値の型。
+ * @param a 一方の Observable。
+ * @param b もう一方の Observable。
+ * @return 構築した FTwoWayBinder<T>。
+ */
 template<typename T>
 inline FTwoWayBinder<T> TwoWayBind(Observable<T>& a, Observable<T>& b) noexcept {
     return FTwoWayBinder<T>(a, b);
 }
 
-// ============================================================================
-// MakeBind / MakeTwoWayBind / MakeBindConvert — TUniquePtr 版
-// ----------------------------------------------------------------------------
-// Bind() の生 OneWayBinder を返す版だと、コピー/ムーブ不可なため member 変数として
-// 持てない (member 初期化順、ヒープ確保が必要)。Make* 系は TUniquePtr を返すので、
-// クラスメンバとして自然に持てる + dtor で自動的に Unsubscribe される。
-//
-//   class MyApp {
-//       TUniquePtr<OneWayBinder<f32>> m_Bind;
-//       void OnStart() {
-//           m_Bind = MakeBind(vm.hp, view.hp);
-//           // OnShutdown で m_Bind.Reset() するか、デストラクタ任せ
-//       }
-//   };
-// ============================================================================
+/**
+ * 同じ型の片方向バインドを TUniquePtr で生成する。
+ *
+ * @details
+ * 生 Binder はコピー/ムーブ不可でメンバとして持ちにくいため、ヒープ確保した
+ * TUniquePtr を返してクラスメンバとして保持でき、dtor で自動 Unsubscribe される。
+ * @tparam T 値の型。
+ * @param src 監視元の Observable。
+ * @param dst 反映先の Observable。
+ * @return 所有権を持つ OneWayBinder<T> の TUniquePtr。
+ */
 template<typename T>
 inline TUniquePtr<OneWayBinder<T>> MakeBind(Observable<T>& src, Observable<T>& dst) noexcept {
     return MakeUnique<OneWayBinder<T>>(src, dst);
 }
 
+/**
+ * 同じ型の双方向バインドを TUniquePtr で生成する。
+ *
+ * @tparam T 値の型。
+ * @param a 一方の Observable。
+ * @param b もう一方の Observable。
+ * @return 所有権を持つ FTwoWayBinder<T> の TUniquePtr。
+ */
 template<typename T>
 inline TUniquePtr<FTwoWayBinder<T>> MakeTwoWayBind(Observable<T>& a, Observable<T>& b) noexcept {
     return MakeUnique<FTwoWayBinder<T>>(a, b);
 }
 
+/**
+ * 異なる型の変換つき片方向バインドを既定変換で TUniquePtr 生成する。
+ *
+ * @tparam Src 監視元の値の型。
+ * @tparam Dst 反映先の値の型。
+ * @param src 監視元の Observable。
+ * @param dst 反映先の Observable。
+ * @return 所有権を持つ OneWayConvertBinder<Src, Dst> の TUniquePtr。
+ */
 template<typename Src, typename Dst>
 inline TUniquePtr<OneWayConvertBinder<Src, Dst>>
 MakeBindConvert(Observable<Src>& src, Observable<Dst>& dst) noexcept {
@@ -201,6 +333,17 @@ MakeBindConvert(Observable<Src>& src, Observable<Dst>& dst) noexcept {
         src, dst, &mvvm::TDefaultConverter<Src, Dst>::Convert, nullptr);
 }
 
+/**
+ * 異なる型の変換つき片方向バインドを明示変換関数で TUniquePtr 生成する。
+ *
+ * @tparam Src 監視元の値の型。
+ * @tparam Dst 反映先の値の型。
+ * @param src 監視元の Observable。
+ * @param dst 反映先の Observable。
+ * @param fn Src を Dst へ変換する関数。
+ * @param user 変換関数へ渡す任意ポインタ。
+ * @return 所有権を持つ OneWayConvertBinder<Src, Dst> の TUniquePtr。
+ */
 template<typename Src, typename Dst>
 inline TUniquePtr<OneWayConvertBinder<Src, Dst>>
 MakeBindConvert(Observable<Src>& src, Observable<Dst>& dst,

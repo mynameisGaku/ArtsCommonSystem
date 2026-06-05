@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — fontedit / FFontEditorPanel 実装 (Phase 23)
+// GameFramework Pillar — fontedit / FFontEditorPanel 実装
 //
 // 仕様の意図は FFontEditorPanel.h を参照。本ファイルでは:
 //   ・FEditorPanel 基底 hook (OnInit / DrawUI) の override
@@ -20,40 +20,72 @@
 
 namespace acs::game::fontedit {
 
-// ============================================================================
-// ローカルヘルパ
-// ============================================================================
 namespace {
 
-// f32 を [lo, hi] にクランプ (acs::math の Clamp に依存しない最小実装、
-// FSpriteAtlasEditorPanel.cpp と同じ pattern)。
+/**
+ * f32 を [lo, hi] にクランプする。
+ *
+ * @details acs::math の Clamp に依存しない最小実装 (FSpriteAtlasEditorPanel.cpp と同じ pattern)。
+ * @param v クランプ対象の値。
+ * @param lo 下限。
+ * @param hi 上限。
+ * @return [lo, hi] に収めた値。
+ */
 inline f32 ClampF32(f32 v, f32 lo, f32 hi) noexcept {
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
 }
 
-// i32 を [lo, hi] にクランプ。
+/**
+ * i32 を [lo, hi] にクランプする。
+ *
+ * @param v クランプ対象の値。
+ * @param lo 下限。
+ * @param hi 上限。
+ * @return [lo, hi] に収めた値。
+ */
 inline i32 ClampI32(i32 v, i32 lo, i32 hi) noexcept {
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
 }
 
-// FontFaceInfo の 2 要素 swap (順序保持 reorder 用)。
-// FontFaceInfo は POD なので memcpy 相当の代入で十分。
+/**
+ * 2 つの FontFaceInfo を入れ替える (順序保持 reorder 用)。
+ *
+ * @details FontFaceInfo は POD なので memcpy 相当の代入で十分。
+ * @param a 入れ替える一方。
+ * @param b 入れ替えるもう一方。
+ */
 inline void SwapFaces(FontFaceInfo& a, FontFaceInfo& b) noexcept {
     const FontFaceInfo tmp = a;
     a = b;
     b = tmp;
 }
 
-// utf-8 を 1 codepoint デコードし、(decoded, advance) を返す。
-// 不正シーケンスは '?' (0x3F) + advance=1 を返す (= 安全な前進)。
-// preview canvas で文字列を「擬似的に face ごとの描画」させる代わりに、
-// ImGui::TextUnformatted で全文を描いてサイズだけ可視化するため、本実装は
-// 「ASCII 以外も 1 codepoint として進める」目的のごく簡易デコーダ。
-struct U8Decoded { u32 cp; u32 adv; };
+/**
+ * utf-8 デコード 1 回分の結果 (codepoint と進めた byte 数)。
+ */
+struct U8Decoded {
+    /** デコードした codepoint。 */
+    u32 cp;
+
+    /** 消費した byte 数 (次の文字へ進める量)。 */
+    u32 adv;
+};
+
+/**
+ * utf-8 文字列の先頭 1 codepoint をデコードする。
+ *
+ * @details
+ * 不正シーケンスは '?' (0x3F) + advance=1 を返す (= 安全な前進)。preview canvas で
+ * 文字列を擬似的に face ごとに描画する代わりに ImGui::TextUnformatted で全文を描いて
+ * サイズだけ可視化するため、「ASCII 以外も 1 codepoint として進める」目的のごく簡易な
+ * デコーダ。
+ * @param p デコード対象の utf-8 文字列先頭ポインタ (nullptr / 空文字列可)。
+ * @return デコードした codepoint と消費 byte 数 (終端なら { 0, 0 })。
+ */
 inline U8Decoded DecodeUtf8One(const c8* p) noexcept {
     if (p == nullptr || *p == '\0') return { 0u, 0u };
     const auto b0 = static_cast<unsigned char>(p[0]);
@@ -86,18 +118,30 @@ inline U8Decoded DecodeUtf8One(const c8* p) noexcept {
     return { 0x3Fu, 1u };
 }
 
-// 与えられた codepoint が face の char range にカバーされているかを判定。
-// 「この face が glyph を提供する候補か」を chain 表示の hint に使う。
+/**
+ * 与えられた codepoint が face の char range に含まれるかを判定する。
+ *
+ * @details 「この face が glyph を提供する候補か」を chain 表示の hint に使う。
+ * @param f 判定対象の face。
+ * @param cp 判定する codepoint。
+ * @return f.char_range_min..f.char_range_max に cp が入れば true。
+ */
 inline bool FaceCoversCodepoint(const FontFaceInfo& f, u32 cp) noexcept {
     return cp >= f.char_range_min && cp <= f.char_range_max;
 }
 
-// ASCII 範囲外 codepoint を ImGui で安全に文字表示するため、Latin-1 補助 (<=
-// 0xFF) は 1 byte char にキャストして渡す。それ以外は "U+XXXX" 形式の hex
-// ラベルにフォールバック (ImGui の default font は CJK / 拡張 Unicode をデフォ
-// では含まないため、ここで実 glyph を出す保証はない)。
-//
-// `out` バッファに書き込み、終端 '\0' を保証する。`out_cap` は終端含む byte。
+/**
+ * codepoint を ImGui で安全に表示できる短いラベル文字列へ整形する。
+ *
+ * @details
+ * ASCII 印字可能はそのまま 1 char、Latin-1 補助 (<= 0xFF) は 1 byte char にキャストして
+ * 渡す。それ以外は "U+XXXX" 形式の hex ラベルにフォールバックする (ImGui の default font は
+ * CJK / 拡張 Unicode をデフォルトでは含まないため、実 glyph が出る保証はない)。out には終端
+ * '\0' を必ず書き込む。
+ * @param cp 整形する codepoint。
+ * @param out 書き込み先バッファ (nullptr 可)。
+ * @param out_cap out のバイト容量 (終端 '\0' を含む)。
+ */
 inline void FormatCodepointLabel(u32 cp, c8* out, usize out_cap) noexcept {
     if (out == nullptr || out_cap < 1u) return;
     out[0] = '\0';
@@ -121,9 +165,7 @@ inline void FormatCodepointLabel(u32 cp, c8* out, usize out_cap) noexcept {
 
 } // anonymous namespace
 
-// ============================================================================
-// Init / Shutdown
-// ============================================================================
+/** 内部状態を初期化する (face リストを空に、preview をデフォルト文字列に)。 */
 void FFontEditorPanel::Init() noexcept {
     // m_Faces (acs::TArray) は Clear で size を 0 に (capacity は保持)。
     m_Faces.Clear();
@@ -145,6 +187,7 @@ void FFontEditorPanel::Init() noexcept {
     m_DockedTarget = true;
 }
 
+/** 内部状態を破棄して初期値に戻す (face リスト・選択・preview をリセット)。 */
 void FFontEditorPanel::Shutdown() noexcept {
     m_Faces.Clear();
     m_Selected     = -1;
@@ -152,18 +195,18 @@ void FFontEditorPanel::Shutdown() noexcept {
     for (u32 i = 0; i < kPreviewTextCapacity; ++i) m_PreviewText[i] = '\0';
 }
 
-// ============================================================================
-// face リスト操作
-// ============================================================================
+/** 登録済み font face の数を返す。 */
 u32 FFontEditorPanel::FontFaceCount() const noexcept {
     return static_cast<u32>(m_Faces.Size());
 }
 
+/** i 番目の font face を返す (範囲外なら nullptr)。 */
 const FontFaceInfo* FFontEditorPanel::GetFontFace(u32 i) const noexcept {
     if (i >= static_cast<u32>(m_Faces.Size())) return nullptr;
     return &m_Faces[static_cast<usize>(i)];
 }
 
+/** face を末尾に追加し、fallback_index を index と同期する (上限超過時は無視)。 */
 void FFontEditorPanel::AddFontFace(const FontFaceInfo& info) noexcept {
     if (static_cast<u32>(m_Faces.Size()) >= kMaxFontFaces) return;
     // 末尾追加 + fallback_index を TArray index と同期。
@@ -174,6 +217,7 @@ void FFontEditorPanel::AddFontFace(const FontFaceInfo& info) noexcept {
     if (m_Selected < 0) m_Selected = static_cast<i32>(new_idx);
 }
 
+/** i 番目の face を順序保持で削除し、fallback_index と選択を補正する。 */
 void FFontEditorPanel::RemoveFontFace(u32 i) noexcept {
     const u32 count = static_cast<u32>(m_Faces.Size());
     if (i >= count) return;
@@ -202,6 +246,7 @@ void FFontEditorPanel::RemoveFontFace(u32 i) noexcept {
     if (new_count == 0u) m_Selected = -1;
 }
 
+/** i 番目の face を chain 内で 1 つ前へ移動し、選択を追随させる。 */
 void FFontEditorPanel::MoveFaceUp(u32 i) noexcept {
     const u32 count = static_cast<u32>(m_Faces.Size());
     if (i == 0u || i >= count) return;
@@ -213,6 +258,7 @@ void FFontEditorPanel::MoveFaceUp(u32 i) noexcept {
     else if (m_Selected == static_cast<i32>(i - 1u)) m_Selected = static_cast<i32>(i);
 }
 
+/** i 番目の face を chain 内で 1 つ後ろへ移動し、選択を追随させる。 */
 void FFontEditorPanel::MoveFaceDown(u32 i) noexcept {
     const u32 count = static_cast<u32>(m_Faces.Size());
     if (count == 0u || i + 1u >= count) return;
@@ -223,22 +269,19 @@ void FFontEditorPanel::MoveFaceDown(u32 i) noexcept {
     else if (m_Selected == static_cast<i32>(i + 1u)) m_Selected = static_cast<i32>(i);
 }
 
-// ============================================================================
-// 選択
-// ============================================================================
+/** 現在選択中の face index を返す (未選択なら -1)。 */
 i32 FFontEditorPanel::SelectedIndex() const noexcept {
     return m_Selected;
 }
 
+/** face を選択する (範囲外の index を渡すと未選択 -1 になる)。 */
 void FFontEditorPanel::SelectFace(i32 i) noexcept {
     const i32 count = static_cast<i32>(m_Faces.Size());
     if (i < 0 || i >= count) { m_Selected = -1; return; }
     m_Selected = i;
 }
 
-// ============================================================================
-// Preview text / size
-// ============================================================================
+/** preview 文字列を設定する (内部バッファへコピーし終端を保証、nullptr で空に)。 */
 void FFontEditorPanel::SetPreviewText(const char* utf8) noexcept {
     for (u32 i = 0; i < kPreviewTextCapacity; ++i) m_PreviewText[i] = '\0';
     if (utf8 == nullptr) return;
@@ -249,45 +292,52 @@ void FFontEditorPanel::SetPreviewText(const char* utf8) noexcept {
     m_PreviewText[kPreviewTextCapacity - 1u] = '\0';
 }
 
+/** 現在の preview 文字列を返す。 */
 const char* FFontEditorPanel::PreviewText() const noexcept {
     return m_PreviewText;
 }
 
+/** 現在の preview フォントサイズ (px) を返す。 */
 f32 FFontEditorPanel::PreviewFontSize() const noexcept {
     return m_PreviewSize;
 }
 
+/** preview フォントサイズを設定する ([kMinPreviewFontSize, kMaxPreviewFontSize] にクランプ)。 */
 void FFontEditorPanel::SetPreviewFontSize(f32 px) noexcept {
     m_PreviewSize = ClampF32(px, kMinPreviewFontSize, kMaxPreviewFontSize);
 }
 
-// ============================================================================
-// FEditorPanel override: OnInit
-// ============================================================================
+/** workspace へ panel を登録し、preview バッファの終端を確定する (FEditorPanel override)。 */
 void FFontEditorPanel::OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept {
     FEditorPanel::OnInit(workspace);
     // preview バッファ終端 0 を念のため確定 (多重 OnInit でも安全)。
     m_PreviewText[kPreviewTextCapacity - 1u] = '\0';
 }
 
-// ============================================================================
-// FEditorPanel override: DrawUI
-// ============================================================================
-// レイアウト (1 window "Font Editor"):
-//   ┌──────────────────────────────────────────────────────────────────┐
-//   │ [+ Add] [- Remove] [^ Up] [v Down] | faces: N / 32                │  <- toolbar
-//   ├─────────────┬────────────────────────────┬──────────────────────┤
-//   │ Faces       │ Preview                    │ Inspector            │
-//   │ 0: NotoSans │  Text: [____________]      │ family:  NotoSans    │
-//   │ 1: NotoMono │  Size: [-- slider --]      │ path:    /path/...   │
-//   │ 2: Emoji    │                            │ base_px: 24.0        │
-//   │             │  [face 0] preview line     │ range:   0x20-0xFFFF │
-//   │             │  [face 1] preview line     │ fb idx:  0           │
-//   │             │  [face 2] preview line     │ MSDF:    [x]         │
-//   ├─────────────┴────────────────────────────┴──────────────────────┤
-//   │ Char range (0x20-0xFF): [grid of 16x14 glyph cells]              │
-//   └──────────────────────────────────────────────────────────────────┘
-// ============================================================================
+/**
+ * Font Editor の 1 window UI を毎フレーム描画する (FEditorPanel override)。
+ *
+ * @details
+ * 上部 toolbar (Add / Remove / Reorder + face 数表示)、左カラムの face list
+ * (fallback chain)、中央カラムの preview (utf-8 入力 + size slider + 各 face 行)、
+ * 右カラムの inspector (選択 face のメタ値編集)、下部の char-range strip
+ * (0x20-0xFF を 16 列グリッド) で構成する。レイアウト概略:
+ * @code
+ *   ┌──────────────────────────────────────────────────────────────────┐
+ *   │ [+ Add] [- Remove] [^ Up] [v Down] | faces: N / 32                │  <- toolbar
+ *   ├─────────────┬────────────────────────────┬──────────────────────┤
+ *   │ Faces       │ Preview                    │ Inspector            │
+ *   │ 0: NotoSans │  Text: [____________]      │ family:  NotoSans    │
+ *   │ 1: NotoMono │  Size: [-- slider --]      │ path:    /path/...   │
+ *   │ 2: Emoji    │                            │ base_px: 24.0        │
+ *   │             │  [face 0] preview line     │ range:   0x20-0xFFFF │
+ *   │             │  [face 1] preview line     │ fb idx:  0           │
+ *   │             │  [face 2] preview line     │ MSDF:    [x]         │
+ *   ├─────────────┴────────────────────────────┴──────────────────────┤
+ *   │ Char range (0x20-0xFF): [grid of 16x14 glyph cells]              │
+ *   └──────────────────────────────────────────────────────────────────┘
+ * @endcode
+ */
 void FFontEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
@@ -298,7 +348,7 @@ void FFontEditorPanel::DrawUI() noexcept {
 
     const i32 count = static_cast<i32>(m_Faces.Size());
 
-    // ----- 上部 toolbar -----
+    // 上部 toolbar
     {
         const bool can_add = (count < static_cast<i32>(kMaxFontFaces));
         if (!can_add) ImGui::BeginDisabled();
@@ -341,7 +391,7 @@ void FFontEditorPanel::DrawUI() noexcept {
 
     ImGui::Separator();
 
-    // ----- 3 カラム (List / Preview / Inspector) のサイズ計算 -----
+    // 3 カラム (List / Preview / Inspector) のサイズ計算。
     // 下部 char-range strip 用の高さも確保しておく。
     const f32 content_w   = ImGui::GetContentRegionAvail().x;
     const f32 content_h   = ImGui::GetContentRegionAvail().y;
@@ -355,7 +405,7 @@ void FFontEditorPanel::DrawUI() noexcept {
     const f32 gap_w       = ImGui::GetStyle().ItemSpacing.x * 2.0f;
     const f32 center_w    = content_w - left_w - right_w - gap_w;
 
-    // ===== 左カラム: face list =====
+    // 左カラム: face list
     ImGui::BeginChild("##fontedit_left", ImVec2(left_w, cols_h), true);
     {
         ImGui::TextUnformatted("Fallback Chain");
@@ -384,14 +434,14 @@ void FFontEditorPanel::DrawUI() noexcept {
 
     ImGui::SameLine();
 
-    // ===== 中央カラム: preview canvas =====
+    // 中央カラム: preview canvas
     ImGui::BeginChild("##fontedit_preview", ImVec2(center_w, cols_h), true,
                       ImGuiWindowFlags_HorizontalScrollbar);
     {
         ImGui::TextUnformatted("Preview");
         ImGui::Separator();
 
-        // ---- preview text 入力 ----
+        // preview text 入力
         ImGui::TextUnformatted("Text:");
         ImGui::SameLine();
         // InputText は static バッファ直結 (= panel 寿命中アドレス不変)。
@@ -401,7 +451,7 @@ void FFontEditorPanel::DrawUI() noexcept {
                          m_PreviewText,
                          static_cast<size_t>(kPreviewTextCapacity));
 
-        // ---- preview size slider ----
+        // preview size slider
         ImGui::TextUnformatted("Size:");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(220.0f);
@@ -414,10 +464,9 @@ void FFontEditorPanel::DrawUI() noexcept {
 
         ImGui::Separator();
 
-        // ---- 各 face で擬似プレビュー ----
-        // 実 face 描画統合は Phase 23+ なので、ImGui::SetWindowFontScale で
-        // size 感だけ可視化する。各 face 行に "family: text" を出す。
-        // 未登録 (count==0) は guidance。
+        // 各 face で擬似プレビュー。
+        // ImGui::SetWindowFontScale で size 感だけ可視化する。各 face 行に
+        // "family: text" を出す。未登録 (count==0) は guidance。
         if (count == 0) {
             ImGui::TextDisabled("(Add a font face above to preview)");
         } else {
@@ -458,7 +507,7 @@ void FFontEditorPanel::DrawUI() noexcept {
 
     ImGui::SameLine();
 
-    // ===== 右カラム: inspector =====
+    // 右カラム: inspector
     ImGui::BeginChild("##fontedit_inspector", ImVec2(right_w, cols_h), true);
     {
         ImGui::TextUnformatted("Inspector");
@@ -523,7 +572,7 @@ void FFontEditorPanel::DrawUI() noexcept {
     }
     ImGui::EndChild();
 
-    // ===== 下部: full char range preview (0x20-0xFF を 16 列グリッド) =====
+    // 下部: full char range preview (0x20-0xFF を 16 列グリッド)
     ImGui::BeginChild("##fontedit_charstrip", ImVec2(0.0f, 0.0f), true,
                       ImGuiWindowFlags_HorizontalScrollbar);
     {
@@ -534,8 +583,6 @@ void FFontEditorPanel::DrawUI() noexcept {
 
         constexpr u32 kCols = 16u;
         c8 cell[12] = {};
-        // ImGui::Columns は将来 deprecation 予定なので Table を使う方が望ましいが、
-        // 軽量パスのため Columns で十分。Table 化は Phase 23+ で.
         // 表示形式: 各セル "ch" (= 1 char) を中央寄せで並べ、Tooltip で codepoint。
         if (ImGui::BeginTable("##fontedit_chartable", static_cast<int>(kCols),
                               ImGuiTableFlags_Borders |

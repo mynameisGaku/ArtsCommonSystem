@@ -1,21 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
 // ACS Container — HashBytes 実装（xxhash 風 64bit ハッシュ）
-// -----------------------------------------------------------------------------
+//
 // バイト列を 4 並列 (32B) ストライプで処理し、最後にミックスダウン。
 // SMHasher 上位品質、整数キーには THasher<u64>::HashMix64 を使うこと。
-// =============================================================================
 #include "container/Hash.h"
 
 namespace acs {
 
 namespace {
-// 8 / 4 バイトを安全にロード（strict-aliasing UB を避けるため byte コピー）
+/**
+ * 8 バイトを strict-aliasing 安全にロードする (byte コピーで UB 回避)。
+ *
+ * @param p 読み出し元の先頭バイト。
+ * @return 読み出した u64 値。
+ */
 ACS_FORCEINLINE u64 ReadU64(const byte* p) noexcept {
     u64 v;
     for (int i = 0; i < 8; ++i) reinterpret_cast<byte*>(&v)[i] = p[i];
     return v;
 }
+
+/**
+ * 4 バイトを strict-aliasing 安全にロードする (byte コピーで UB 回避)。
+ *
+ * @param p 読み出し元の先頭バイト。
+ * @return 読み出した u32 値。
+ */
 ACS_FORCEINLINE u64 ReadU32(const byte* p) noexcept {
     u32 v;
     for (int i = 0; i < 4; ++i) reinterpret_cast<byte*>(&v)[i] = p[i];
@@ -23,8 +33,17 @@ ACS_FORCEINLINE u64 ReadU32(const byte* p) noexcept {
 }
 } // namespace
 
-// xxhash64 風実装（簡易版）。基本ストライプ 32B で 4 つのアキュムレータを
-// 並列に進め、最後にマージしてアバランチ処理。
+/**
+ * 任意バイト列の 64bit ハッシュを計算する (xxhash64 風の簡易版)。
+ *
+ * @details
+ * 32B (4×8B) ストライプで 4 つのアキュムレータを並列に進め、最後にマージして残り
+ * 8B/4B/1B を取り込み、アバランチ処理して品質を確保する。
+ * @param data ハッシュ対象の先頭ポインタ。
+ * @param len バイト長。
+ * @param seed 初期シード。
+ * @return 64bit ハッシュ値。
+ */
 u64 HashBytes(const void* data, usize len, u64 seed) noexcept {
     // 黄金比由来の素数定数（xxhash と同じ）
     constexpr u64 P1 = 0x9E3779B185EBCA87ull;

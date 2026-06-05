@@ -55,7 +55,7 @@ TResult<void> FRenderer::RebuildDepth(u32 w, u32 h) noexcept {
     td.height = h;
     td.format = m_DepthFormat;
     td.is_depth_target = true;
-    // Phase 34d: SSGI / SSR / TAA で depth を SRV として読みたいので常時 ON。
+    // SSGI / SSR / TAA で depth を SRV として読みたいので常時 ON。
     // 軽い overhead 程度 (TYPELESS で確保され、Diligent が内部で適切に view を作る)。
     td.shader_visible_depth = true;
     auto tr = CreateRhiTexture(*m_Device, td);

@@ -9,7 +9,15 @@ namespace acs::Primitive {
 
 namespace {
 
-// 1 頂点を MeshVertex 形式で push する小ヘルパ
+/**
+ * 1 頂点を MeshVertex として組み立てて配列末尾へ追加する。
+ *
+ * @param dst 追加先の頂点配列。
+ * @param pos 頂点位置。
+ * @param nrm 頂点法線。
+ * @param u テクスチャ座標 U。
+ * @param v テクスチャ座標 V。
+ */
 void PushVertex(TArray<MeshVertex>& dst, FVec3 pos, FVec3 nrm, f32 u, f32 v) noexcept {
     MeshVertex mv;
     mv.position = pos;
@@ -21,7 +29,7 @@ void PushVertex(TArray<MeshVertex>& dst, FVec3 pos, FVec3 nrm, f32 u, f32 v) noe
 
 } // namespace
 
-// ---- Cube --------------------------------------------------------------
+/** 中心原点の立方体を生成する (6 面 × 4 頂点、面ごとの法線、UV 0..1)。 */
 TSharedPtr<FMeshAsset> MakeCube(f32 size) noexcept {
     auto m = MakeShared<FMeshAsset>();
     if (!m) return TSharedPtr<FMeshAsset>();
@@ -68,7 +76,7 @@ TSharedPtr<FMeshAsset> MakeCube(f32 size) noexcept {
     return m;
 }
 
-// ---- FSphere (UV) -------------------------------------------------------
+/** UV 球を生成する (緯度 × 経度の格子、segments>=3 / rings>=2 に丸め)。 */
 TSharedPtr<FMeshAsset> MakeSphere(f32 radius, u32 segments, u32 rings) noexcept {
     if (segments < 3) segments = 3;
     if (rings    < 2) rings    = 2;
@@ -91,8 +99,8 @@ TSharedPtr<FMeshAsset> MakeSphere(f32 radius, u32 segments, u32 rings) noexcept 
             const f32 sin_theta = Sin(theta);
             const f32 cos_theta = Cos(theta);
 
-            FVec3 nrm{ sin_phi * cos_theta, cos_phi, sin_phi * sin_theta };
-            FVec3 pos{ nrm.x * radius, nrm.y * radius, nrm.z * radius };
+            const FVec3 nrm{ sin_phi * cos_theta, cos_phi, sin_phi * sin_theta };
+            const FVec3 pos{ nrm.x * radius, nrm.y * radius, nrm.z * radius };
             PushVertex(V, pos, nrm, u_t, v_t);
         }
     }
@@ -115,7 +123,7 @@ TSharedPtr<FMeshAsset> MakeSphere(f32 radius, u32 segments, u32 rings) noexcept 
     return m;
 }
 
-// ---- FPlane (XZ) --------------------------------------------------------
+/** XZ 平面を生成する (4 頂点・2 三角形、Y=0、法線 +Y)。 */
 TSharedPtr<FMeshAsset> MakePlane(f32 width, f32 depth) noexcept {
     auto m = MakeShared<FMeshAsset>();
     if (!m) return TSharedPtr<FMeshAsset>();

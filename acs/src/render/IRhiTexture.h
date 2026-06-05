@@ -22,35 +22,116 @@ namespace acs {
 
 class IRhiDevice;
 
+/**
+ * テクスチャ生成パラメータ。
+ *
+ * @details
+ * サイズ・フォーマット・ミップ・配列段数のほか、RT / 深度ターゲット / cubemap などの
+ * 用途フラグと初期ピクセルデータを指定する。CreateRhiTexture に渡して生成する。
+ */
 struct FTextureDesc {
+    /** テクスチャの幅（ピクセル）。 */
     u32         width            = 0;
+
+    /** テクスチャの高さ（ピクセル）。 */
     u32         height           = 0;
+
+    /** ピクセルフォーマット。 */
     EFormat      format           = EFormat::R8G8B8A8_UNorm;
-    u32         mip_levels       = 1;             // 1 = ベースのみ。>1 で生成する場合は per_slice_rtv を併用してミップ毎に描画する
-    u32         array_size       = 1;             // 1 = 単一、6 = cubemap、>1 = テクスチャ配列
-    bool        is_cubemap       = false;         // true なら array_size==6 を要求（Diligent: RESOURCE_DIM_TEX_CUBE）
-    bool        is_render_target = false;          // RT として使うなら true
-    bool        is_depth_target  = false;          // 深度バッファとして使うなら true
-    bool        shader_visible_depth = false;     // is_depth_target=true で SRV も作る（シャドウマップ用）
-    bool        per_slice_rtv    = false;         // is_render_target=true 時、array_size*mip_levels 個の RTV を per-slice 作成（cubemap 面/ミップ別パスを書くのに必要）
-    const void* initial_data     = nullptr;        // RGBA 等、tightly-packed（cubemap/array 初期化は未サポート）
+
+    /** ミップレベル数（1 = ベースのみ。>1 で生成する場合は per_slice_rtv を併用してミップ毎に描画する）。 */
+    u32         mip_levels       = 1;
+
+    /** 配列段数（1 = 単一、6 = cubemap、>1 = テクスチャ配列）。 */
+    u32         array_size       = 1;
+
+    /** cubemap として扱うか（true なら array_size==6 を要求。Diligent: RESOURCE_DIM_TEX_CUBE）。 */
+    bool        is_cubemap       = false;
+
+    /** レンダーターゲットとして使うか。 */
+    bool        is_render_target = false;
+
+    /** 深度バッファとして使うか。 */
+    bool        is_depth_target  = false;
+
+    /** is_depth_target=true のとき SRV も作るか（シャドウマップ用）。 */
+    bool        shader_visible_depth = false;
+
+    /** is_render_target=true のとき array_size*mip_levels 個の RTV を per-slice 作成するか（cubemap 面／ミップ別パスを書くのに必要）。 */
+    bool        per_slice_rtv    = false;
+
+    /** 初期ピクセルデータ（RGBA 等、tightly-packed。cubemap/array 初期化は未サポート）。 */
+    const void* initial_data     = nullptr;
+
+    /** 初期ピクセルデータのバイト数。 */
     usize       initial_data_size = 0;
 };
 
+/**
+ * GPU 上の 2D 画像を表すテクスチャ抽象（シェーダから読める SRV を持つ）。
+ *
+ * @details
+ * CreateRhiTexture で生成し、描画時に cmd.SetTexture でスロットへバインドして使う。
+ * RT / 深度ターゲット / cubemap など FTextureDesc の用途フラグに応じたリソースを表す。
+ */
 class IRhiTexture {
 public:
+    /** 派生バックエンド実装を正しく破棄するための仮想デストラクタ。 */
     virtual ~IRhiTexture() noexcept = default;
 
+    /**
+     * テクスチャの幅を返す。
+     *
+     * @return 幅（ピクセル）。
+     */
     virtual u32    Width()      const noexcept = 0;
+
+    /**
+     * テクスチャの高さを返す。
+     *
+     * @return 高さ（ピクセル）。
+     */
     virtual u32    Height()     const noexcept = 0;
+
+    /**
+     * テクスチャのピクセルフォーマットを返す。
+     *
+     * @return ピクセルフォーマット。
+     */
     virtual EFormat EPixelFormat() const noexcept = 0;
 
-    // Phase 31 で追加。既存バックエンドは安全な既定値を返してよい。
+    /**
+     * ミップレベル数を返す。
+     *
+     * @details 既存バックエンドは安全な既定値 1 を返してよい。
+     * @return ミップレベル数。
+     */
     virtual u32    MipLevels()  const noexcept { return 1; }
+
+    /**
+     * 配列段数を返す。
+     *
+     * @details 既存バックエンドは安全な既定値 1 を返してよい。
+     * @return 配列段数。
+     */
     virtual u32    ArraySize()  const noexcept { return 1; }
+
+    /**
+     * cubemap かどうかを返す。
+     *
+     * @details 既存バックエンドは安全な既定値 false を返してよい。
+     * @return cubemap なら true。
+     */
     virtual bool   IsCubemap()  const noexcept { return false; }
 };
 
+/**
+ * テクスチャを生成する（初期データがあれば同期アップロードして即使用可能）。
+ *
+ * @param device テクスチャ生成に使う RHI デバイス。
+ * @param desc テクスチャ生成パラメータ。
+ * @return 成功なら所有権付きの IRhiTexture、生成失敗ならエラー。
+ */
 TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
                                                      const FTextureDesc& desc) noexcept;
 

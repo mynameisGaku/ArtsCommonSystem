@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E — FCamera2D (Phase 9)
+// GameFramework Pillar E — FCamera2D
 //
 // 2D カメラ: position / zoom / rotation、target 追従 (指数 smoothing)、
 // screen shake (trauma 方式)、world↔screen 座標変換、world boundary clamping。
@@ -19,7 +19,7 @@
 //       }
 //   };
 //
-// 設計選択 (Phase 9 = Pillar E Phase 1):
+// 設計選択:
 //   ・**framerate independent smoothing**: `1 - exp(-smoothing * dt)` で
 //     dt 不変な指数追従。`smoothing = 5.0` で約 0.2 秒で 63% 詰める典型値。
 //   ・**Eiserloh trauma shake** (Squirrel Eiserloh GDC 2016):
@@ -32,11 +32,6 @@
 //     実際に view 設定に使う値。
 //   ・**World↔Screen**: 画面中心 = view center、zoom > 1 で拡大表示。
 //     rotation は radians、+ で CCW。
-//
-// 範囲外 (Phase 2+ で):
-//   ・deadzone (player が deadzone 内にいる間はカメラ動かさない)
-//   ・cinemachine 級の blend graph / virtual camera 切替
-//   ・gameplay → cinematic switch
 #pragma once
 
 #include "foundation/Types.h"
@@ -45,61 +40,166 @@
 
 namespace acs::game {
 
+/**
+ * 2D カメラ (position / zoom / rotation、target 追従、screen shake、座標変換、bounds clamp)。
+ *
+ * @details
+ * target 追従は framerate independent な指数 smoothing (1 - exp(-smoothing * dt))、
+ * screen shake は Eiserloh trauma 方式 (trauma² * amplitude * noise)、bounds clamp は
+ * SetBounds の rect 内に position を抑える。EffectiveViewCenter() = position + shake_offset を
+ * レンダラーが view 設定に使う。FSceneServices 経由で PostUpdate に自動 tick される。
+ */
 class FCamera2D {
 public:
+    /** 既定値 (原点・zoom 1・無回転・追従/bounds 無し) で構築する。 */
     FCamera2D() noexcept = default;
+
+    /** 破棄する。 */
     ~FCamera2D() noexcept = default;
 
+    /** コピー禁止 (Services が単一インスタンスとして tick するため)。 */
     FCamera2D(const FCamera2D&)            = delete;
+
+    /** コピー代入も禁止。 */
     FCamera2D& operator=(const FCamera2D&) = delete;
 
-    // ----- 基本 transform -----
+    /**
+     * カメラ位置 (= shake 前の view center) を返す。
+     *
+     * @return world 座標でのカメラ位置。
+     */
     FVec2 Position() const noexcept { return m_Position; }
+
+    /**
+     * カメラ位置を直接設定する。
+     *
+     * @param p 設定する world 座標。
+     */
     void SetPosition(FVec2 p) noexcept { m_Position = p; }
 
+    /**
+     * 現在の zoom 倍率を返す。
+     *
+     * @return zoom 倍率 (> 1 で拡大表示)。
+     */
     f32  Zoom() const noexcept { return m_Zoom; }
+
+    /**
+     * zoom 倍率を設定する (下限 0.001 にクランプ)。
+     *
+     * @param z 設定する zoom 倍率。
+     */
     void SetZoom(f32 z) noexcept { m_Zoom = z > 0.001f ? z : 0.001f; }
 
+    /**
+     * 現在の回転角を返す。
+     *
+     * @return 回転角 (radians、+ で CCW)。
+     */
     f32  Rotation() const noexcept { return m_Rotation; }
+
+    /**
+     * 回転角を設定する。
+     *
+     * @param r 設定する回転角 (radians、+ で CCW)。
+     */
     void SetRotation(f32 r) noexcept { m_Rotation = r; }
 
-    // ----- target follow (毎フレーム値で渡す。stable ptr 不要) -----
-    // smoothing: 大きいほど snappier (typical 3..10)。0 以下で即座にスナップ。
+    /**
+     * 追従ターゲット位置を設定する (毎フレーム値で渡す。stable ptr 不要)。
+     *
+     * @param target_pos 追従先の world 座標。
+     * @param smoothing 追従の鋭さ (大きいほど snappier、typical 3..10)。0 以下で即座にスナップ。
+     */
     void SetTargetPos(FVec2 target_pos, f32 smoothing = 5.0f) noexcept {
         m_TargetPos = target_pos;
         m_Smoothing  = smoothing;
         m_HasTarget = true;
     }
+
+    /** 追従を解除する (以後 position は手動制御)。 */
     void ClearTarget() noexcept { m_HasTarget = false; }
+
+    /**
+     * 追従が有効かを返す。
+     *
+     * @return 追従中なら true。
+     */
     bool HasTarget() const noexcept { return m_HasTarget; }
 
-    // ----- screen shake (Eiserloh trauma 方式) -----
+    /**
+     * trauma を加算する (Eiserloh trauma 方式、[0,1] にクランプ)。
+     *
+     * @param amount 加算する trauma 量。
+     */
     void AddShake(f32 amount) noexcept {
         m_Trauma += amount;
         if (m_Trauma > 1.0f) m_Trauma = 1.0f;
         if (m_Trauma < 0.0f) m_Trauma = 0.0f;
     }
+
+    /**
+     * 現在の trauma 値を返す。
+     *
+     * @return trauma 値 ([0,1])。
+     */
     f32  TraumaLevel() const noexcept { return m_Trauma; }
+
+    /**
+     * shake の最大振幅を設定する。
+     *
+     * @param a 振幅 (trauma=1 時の world units 最大)。
+     */
     void SetShakeAmplitude(f32 a) noexcept { m_ShakeAmplitude = a; }
+
+    /**
+     * shake の trauma 減衰レートを設定する。
+     *
+     * @param r 1 秒あたりの trauma 減衰量。
+     */
     void SetShakeDecayRate(f32 r) noexcept { m_ShakeDecay = r; }
 
-    // shake オフセット込みの実 view center
+    /**
+     * shake オフセット込みの実 view center を返す。
+     *
+     * @return position + shake_offset (レンダラーが view 設定に使う値)。
+     */
     FVec2 EffectiveViewCenter() const noexcept {
         return FVec2{m_Position.x + m_ShakeOffset.x,
                      m_Position.y + m_ShakeOffset.y};
     }
 
-    // ----- world bounds clamp -----
+    /**
+     * world boundary clamp を設定する (position を rect 内に抑える)。
+     *
+     * @param min clamp 矩形の最小座標。
+     * @param max clamp 矩形の最大座標。
+     */
     void SetBounds(FVec2 min, FVec2 max) noexcept {
         m_BoundsMin = min;
         m_BoundsMax = max;
         m_HasBounds = true;
     }
+
+    /** bounds clamp を解除する (以後は無制限)。 */
     void ClearBounds() noexcept { m_HasBounds = false; }
+
+    /**
+     * bounds clamp が有効かを返す。
+     *
+     * @return clamp 有効なら true。
+     */
     bool HasBounds() const noexcept { return m_HasBounds; }
 
-    // ----- 座標変換 -----
-    // 画面ピクセル → world 座標 (画面中心が view center、zoom > 1 で拡大)
+    /**
+     * 画面ピクセル座標を world 座標へ変換する。
+     *
+     * @details 画面中心を view center、zoom > 1 で拡大、rotation を逆回転して合成する。
+     * @param screen 画面ピクセル座標。
+     * @param screen_w 画面幅 (ピクセル)。
+     * @param screen_h 画面高さ (ピクセル)。
+     * @return 対応する world 座標。
+     */
     FVec2 ScreenToWorld(FVec2 screen, u32 screen_w, u32 screen_h) const noexcept {
         const f32 cx = static_cast<f32>(screen_w) * 0.5f;
         const f32 cy = static_cast<f32>(screen_h) * 0.5f;
@@ -114,6 +214,15 @@ public:
         return FVec2{vc.x + rx, vc.y + ry};
     }
 
+    /**
+     * world 座標を画面ピクセル座標へ変換する。
+     *
+     * @details ScreenToWorld の逆変換。view center からの差分を rotation で回し zoom を掛けて画面中心に足す。
+     * @param world world 座標。
+     * @param screen_w 画面幅 (ピクセル)。
+     * @param screen_h 画面高さ (ピクセル)。
+     * @return 対応する画面ピクセル座標。
+     */
     FVec2 WorldToScreen(FVec2 world, u32 screen_w, u32 screen_h) const noexcept {
         const FVec2 vc = EffectiveViewCenter();
         const f32 dx = world.x - vc.x;
@@ -127,7 +236,14 @@ public:
         return FVec2{cx + rx * m_Zoom, cy + ry * m_Zoom};
     }
 
-    // ----- driver (Services が PostUpdate で自動呼出) -----
+    /**
+     * カメラを 1 フレーム進める (Services が PostUpdate で自動呼出)。
+     *
+     * @details
+     * target follow (framerate-independent な指数 smoothing) → bounds clamp →
+     * trauma 減衰 + shake offset (trauma² * amplitude * sin/cos noise) の順で更新する。
+     * @param dt 経過秒 (負値は 0 にクランプ)。
+     */
     void Tick(f32 dt) noexcept {
         if (dt < 0.0f) dt = 0.0f;
         // 1) target follow (framerate-independent exponential smoothing)
@@ -157,22 +273,46 @@ public:
     }
 
 private:
+    /** カメラ位置 (= shake 前の view center)。 */
     FVec2 m_Position    {0.0f, 0.0f};
+
+    /** zoom 倍率 (> 1 で拡大、下限 0.001)。 */
     f32  m_Zoom         = 1.0f;
+
+    /** 回転角 (radians、+ で CCW)。 */
     f32  m_Rotation     = 0.0f;
 
+    /** 追従ターゲットの world 座標。 */
     FVec2 m_TargetPos  {0.0f, 0.0f};
+
+    /** 追従の鋭さ (大きいほど snappier、0 以下で即スナップ)。 */
     f32  m_Smoothing    = 5.0f;
+
+    /** 追従が有効かどうか。 */
     bool m_HasTarget   = false;
 
+    /** 現在の trauma 値 ([0,1])。 */
     f32  m_Trauma           = 0.0f;
-    FVec2 m_ShakeOffset    {0.0f, 0.0f};
-    f32  m_ShakeSeed       = 0.0f;
-    f32  m_ShakeAmplitude  = 0.5f;     // world units max @ trauma=1
-    f32  m_ShakeDecay      = 1.0f;     // 1.0 → 0.0 を 1 秒で
 
+    /** 今フレームの shake オフセット (EffectiveViewCenter で position に加算)。 */
+    FVec2 m_ShakeOffset    {0.0f, 0.0f};
+
+    /** shake noise の位相シード (Tick で時間進行)。 */
+    f32  m_ShakeSeed       = 0.0f;
+
+    /** shake の最大振幅 (trauma=1 時の world units 最大)。 */
+    f32  m_ShakeAmplitude  = 0.5f;
+
+    /** trauma の減衰レート (1 秒あたりの減衰量)。 */
+    f32  m_ShakeDecay      = 1.0f;
+
+    /** bounds clamp 矩形の最小座標。 */
     FVec2 m_BoundsMin      {0.0f, 0.0f};
+
+    /** bounds clamp 矩形の最大座標。 */
     FVec2 m_BoundsMax      {0.0f, 0.0f};
+
+    /** bounds clamp が有効かどうか。 */
     bool m_HasBounds       = false;
 };
 

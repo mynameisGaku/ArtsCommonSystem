@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F — FPhysicsBody2D 実装 (Phase 11 + Phase 3 collide-and-slide)
+// GameFramework Pillar F — FPhysicsBody2D 実装 (collide-and-slide)
 #include "gameframework/PhysicsBody2D.h"
 #include "math/Math.h"
 
 namespace acs::game {
 
+/** ローカル多角形を pos へ平行移動した world 多角形を返す。 */
 ConvexPoly2 FPhysicsBody2D::WorldPoly(FVec2 pos) const noexcept {
     ConvexPoly2 p;
     for (u32 i = 0; i < m_LocalPoly.count; ++i) {
@@ -13,11 +14,13 @@ ConvexPoly2 FPhysicsBody2D::WorldPoly(FVec2 pos) const noexcept {
     return p;
 }
 
+/** attach 時に owner の現在位置で shape を CollisionWorld に登録する。 */
 void FPhysicsBody2D::OnAttach(FNode2D& owner) noexcept {
     if (m_World == nullptr || m_Kind == ShapeKind::None) return;
     RegisterShapeAt(owner.Local().position);
 }
 
+/** detach 時に登録済み shape を除去し handle を無効化する。 */
 void FPhysicsBody2D::OnDetach() noexcept {
     if (m_World != nullptr && m_Registered) {
         m_World->Remove(m_Handle);
@@ -26,6 +29,7 @@ void FPhysicsBody2D::OnDetach() noexcept {
     m_Registered = false;
 }
 
+/** 未登録時のみ、現在の形状種別に応じて pos に shape を登録する。 */
 void FPhysicsBody2D::RegisterShapeAt(FVec2 pos) noexcept {
     if (m_World == nullptr || m_Registered) return;
     if (m_Kind == ShapeKind::Circle) {
@@ -38,6 +42,7 @@ void FPhysicsBody2D::RegisterShapeAt(FVec2 pos) noexcept {
     m_Registered = m_Handle.IsValid();
 }
 
+/** 登録済みなら owner の現在位置で CollisionWorld の shape を更新する。 */
 void FPhysicsBody2D::SyncShapeIfRegistered() noexcept {
     if (m_World == nullptr || !m_Registered || !HasOwner()) return;
     const FVec2 pos = Owner().Local().position;
@@ -50,6 +55,7 @@ void FPhysicsBody2D::SyncShapeIfRegistered() noexcept {
     }
 }
 
+/** pos に shape を置いたとき自分以外と overlap するかを overlap クエリで判定する。 */
 bool FPhysicsBody2D::WouldBlockAt(FVec2 pos) noexcept {
     if (m_World == nullptr) return false;
     TArray<FShapeId> hits;
@@ -63,6 +69,11 @@ bool FPhysicsBody2D::WouldBlockAt(FVec2 pos) noexcept {
     return hits.Size() > 0;
 }
 
+/**
+ * 速度を統合し、collide-and-slide (または軸独立 block) で owner 位置を更新する。
+ *
+ * @param dt 経過秒 (0 以下なら何もしない)。
+ */
 void FPhysicsBody2D::OnUpdate(f32 dt) noexcept {
     if (m_World == nullptr || m_Kind == ShapeKind::None || dt <= 0.0f) return;
     if (!m_Registered) RegisterShapeAt(Owner().Local().position);

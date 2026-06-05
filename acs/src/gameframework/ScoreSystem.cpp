@@ -21,24 +21,28 @@ namespace acs::game {
 
 namespace {
 
-// u64 全ビット 1 (= オーバーフロー時のクランプ値)。
+/** u64 全ビット 1 (オーバーフロー時のクランプ値)。 */
 constexpr u64 kMaxU64 = ~static_cast<u64>(0);
 
-// 倍率関数の clamp 範囲 (= デフォルト関数で使用)。
+/** デフォルト倍率関数の clamp 下限。 */
 constexpr f32 kMinDefaultMult = 1.0f;
+
+/** デフォルト倍率関数の clamp 上限。 */
 constexpr f32 kMaxDefaultMult = 10.0f;
 
-// u64 を飽和加算 (= overflow → kMaxU64)。
+/**
+ * u64 を飽和加算する (オーバーフロー時は kMaxU64 にクランプ)。
+ *
+ * @param a 加算元。
+ * @param b 加算する値。
+ * @return a + b (オーバーフローなら kMaxU64)。
+ */
 inline u64 SaturatingAddU64(u64 a, u64 b) noexcept {
     if (b > kMaxU64 - a) return kMaxU64;
     return a + b;
 }
 
 } // namespace
-
-// =============================================================================
-// デフォルト倍率関数
-// =============================================================================
 
 f32 FScoreSystem::DefaultMultiplierFn(u32 combo) noexcept {
     // 1.0 + combo * 0.1 を [1.0, 10.0] にクランプ。
@@ -48,10 +52,6 @@ f32 FScoreSystem::DefaultMultiplierFn(u32 combo) noexcept {
     if (m > kMaxDefaultMult) m = kMaxDefaultMult;
     return m;
 }
-
-// =============================================================================
-// 初期化 / リセット
-// =============================================================================
 
 void FScoreSystem::Init() noexcept {
     // Init は「最初の状態に戻す」セマンティクスで Reset + 設定リセット相当。
@@ -98,10 +98,6 @@ void FScoreSystem::ClearAll() noexcept {
     m_OnMilestone       = nullptr;
     m_OnMilestoneUser  = nullptr;
 }
-
-// =============================================================================
-// スコア加算
-// =============================================================================
 
 void FScoreSystem::AddScore(const char* category, u64 base_value) noexcept {
     // 現在倍率 (f32) を ×100 整数に変換。負値 / NaN は防御的に 100 (1.0x) に。
@@ -153,10 +149,6 @@ void FScoreSystem::AddScore(const char* category, u64 base_value) noexcept {
     CheckMilestones();
 }
 
-// =============================================================================
-// コンボ操作
-// =============================================================================
-
 void FScoreSystem::NotifyHit() noexcept {
     // u32 オーバーフローは防御的に max クランプ (~0u)。実ゲームでは到達しないが、
     // 自動テストでの 100M 連打等を保護。
@@ -200,10 +192,6 @@ void FScoreSystem::SetMultiplierFn(MultiplierFn fn) noexcept {
     m_MultiplierFn = fn;
 }
 
-// =============================================================================
-// entry log
-// =============================================================================
-
 u32 FScoreSystem::EntryCount() const noexcept {
     return static_cast<u32>(m_Entries.Size());
 }
@@ -226,10 +214,6 @@ void FScoreSystem::PushEntry(const ScoreEntry& e) noexcept {
         m_Entries.PushBack(e);
     }
 }
-
-// =============================================================================
-// milestone
-// =============================================================================
 
 void FScoreSystem::RegisterMilestone(u64 milestone_score) noexcept {
     // 0 は意味不明 (= 初期状態で即通過してしまう) なので無視。

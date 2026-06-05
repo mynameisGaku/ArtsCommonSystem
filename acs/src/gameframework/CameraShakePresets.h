@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E Phase 3 — FCameraShakePresets
+// FCameraShakePresets
 //
 // FCamera2D (= IShakeTarget) に対して「爆発 / 地震 / 着弾」等のジャンル別
 // shake パラメータを 1 行で流し込む薄い preset ライブラリ。Eiserloh trauma
@@ -10,7 +10,7 @@
 // 使い方:
 //   class GameplayScene : public Scene {
 //       void OnEnter() noexcept override {
-//           // (Phase 3+ で FCamera2D が IShakeTarget を派生したら直接渡せる)
+//           // FCamera2D が IShakeTarget を派生していれば直接渡せる:
 //           // FCameraShakePresets::ApplyPreset(Services().Camera(),
 //           //                                 EShakePreset::ExplosionLarge);
 //       }
@@ -22,13 +22,13 @@
 //       ShakeParams{0.7f, 1.0f, 0.8f, 18.0f, 1.2f});
 //   presets.ApplyCustomByName(target, "BossSlam");
 //
-// 設計選択 (Phase 3):
+// 設計選択:
 //   ・**IShakeTarget seam**: FCameraShakePresets は FCamera2D に直接依存しない。
-//     trauma を吸う側を `IShakeTarget` 抽象で受けることで、Phase 3+ で
-//     FCamera2D が IShakeTarget を派生するまでの間も spec として正しい
-//     形を維持できる。テスト用の MockShakeTarget でユニットテストも書ける。
+//     trauma を吸う側を `IShakeTarget` 抽象で受けることで、FCamera2D が
+//     IShakeTarget を派生していなくても spec として正しい形を維持できる。
+//     テスト用の MockShakeTarget でユニットテストも書ける。
 //   ・**preset 値は static const 関数で配る**: 単純な定数なので constexpr
-//     にしたい所だが、Custom enum case + 拡張 (将来 EShakePreset を増やす)
+//     にしたい所だが、Custom enum case + 拡張 (EShakePreset を増やす)
 //     を見越して関数経由に統一。コンパイラは余裕で fold する。
 //   ・**Custom preset は名前 + ShakeParams を TArray に保持**: 件数は典型 0〜
 //     20 程度なので線形検索。const char* は呼び出し側が保証する static
@@ -44,11 +44,11 @@
 //     (秒)。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 preset/manager 系と統一。
 //
-// 範囲外 (Phase 4+ で):
+// 範囲外:
 //   ・preset 間 blending (爆発中に地震が来た時、別軸で合成する等)
 //   ・directional shake (現状は等方ノイズ、方向ベクトルは FCamera2D 拡張で)
 //   ・perlin/curl-noise ベース shake (現状は sin/cos 直流回避 noise)
-//   ・preset の JSON 等からの読み込み (Phase 3 は C++ 即値ベースで十分)
+//   ・preset の JSON 等からの読み込み (現状は C++ 即値ベース)
 #pragma once
 
 #include "foundation/Types.h"
@@ -56,107 +56,205 @@
 
 namespace acs::game {
 
-// ---- EShakePreset enum -----------------------------------------------------
-// trauma 加算 + amp/decay 上書きで「爆発っぽい」「地震っぽい」を一発で出す
-// ためのプリセット種別。Custom は名前付きカスタムを表す哨兵 (GetPreset では
-// 中立値を返す)。
+/**
+ * shake プリセットの種別。
+ *
+ * @details
+ * trauma 加算 + amp/decay 上書きで「爆発っぽい」「地震っぽい」を一発で出すための
+ * プリセット種別。Custom は名前付きカスタムを表す哨兵 (GetPreset では中立値を返す)。
+ */
 enum class EShakePreset : u8 {
-    ExplosionSmall = 0,   // 手榴弾 / 小爆弾。短く激しく。
-    ExplosionLarge,       // 大爆発 / ロケット直撃。長く強く。
-    EarthquakeShort,      // ステージギミック型短震動。
-    EarthquakeLong,       // 環境演出型長震動 (周波数低)。
-    HitImpact,            // 攻撃ヒット / 被弾。ごく短い punch。
-    RocketLaunch,         // 連続発射型の継続震動 (高周波、低 amp、低 decay)。
-    MeteorImpact,         // 隕石着弾 / ボス登場。最強クラス。
-    Custom,               // RegisterCustomPreset 経由で登録された名前付き。
+    /** 手榴弾 / 小爆弾。短く激しく。 */
+    ExplosionSmall = 0,
+
+    /** 大爆発 / ロケット直撃。長く強く。 */
+    ExplosionLarge,
+
+    /** ステージギミック型短震動。 */
+    EarthquakeShort,
+
+    /** 環境演出型長震動 (周波数低)。 */
+    EarthquakeLong,
+
+    /** 攻撃ヒット / 被弾。ごく短い punch。 */
+    HitImpact,
+
+    /** 連続発射型の継続震動 (高周波、低 amp、低 decay)。 */
+    RocketLaunch,
+
+    /** 隕石着弾 / ボス登場。最強クラス。 */
+    MeteorImpact,
+
+    /** RegisterCustomPreset 経由で登録された名前付き (哨兵)。 */
+    Custom,
 };
 
-// ---- ShakeParams ----------------------------------------------------------
-// preset 1 個分の shake パラメータ。trauma を AddShake、amplitude を
-// SetShakeAmplitude、decay_rate を SetShakeDecayRate に流す。frequency と
-// duration_hint は FCamera2D 側 API には現状反映されない (frequency は
-// FCamera2D 実装 (Tick 内 25.0f hard-coded) を将来 SetShakeFrequency 化する
-// ための予約、duration_hint は caller のヒント)。
+/**
+ * shake プリセット 1 個分のパラメータ。
+ *
+ * @details
+ * trauma を AddShake、amplitude を SetShakeAmplitude、decay_rate を SetShakeDecayRate に流す。
+ * frequency と duration_hint は FCamera2D 側 API には現状反映されない (frequency は将来の
+ * SetShakeFrequency 化のための予約、duration_hint は caller のヒント)。
+ */
 struct ShakeParams {
-    f32 trauma         = 0.0f;   // AddShake(amount) — 0..1 想定。preset では 0.3..0.9。
-    f32 amplitude      = 0.5f;   // SetShakeAmplitude — world units max @ trauma=1。
-    f32 decay_rate     = 1.0f;   // SetShakeDecayRate — trauma を 1 秒で 1.0 → 0.0 にする値。
-    f32 frequency      = 25.0f;  // 主要振動周波数 (FCamera2D 拡張予約)。
-    f32 duration_hint  = 1.0f;   // 約何秒で減衰しきるかの目安 = trauma / decay_rate。
+    /** AddShake に渡す trauma 量 (0..1 想定、preset では 0.3..0.9)。 */
+    f32 trauma         = 0.0f;
+
+    /** SetShakeAmplitude に渡す振幅 (world units max @ trauma=1)。 */
+    f32 amplitude      = 0.5f;
+
+    /** SetShakeDecayRate に渡す減衰量 (trauma を 1 秒で 1.0 → 0.0 にする値)。 */
+    f32 decay_rate     = 1.0f;
+
+    /** 主要振動周波数 (FCamera2D 拡張予約。現状 API には反映されない)。 */
+    f32 frequency      = 25.0f;
+
+    /** 約何秒で減衰しきるかの目安 (= trauma / decay_rate)。caller のヒント。 */
+    f32 duration_hint  = 1.0f;
 };
 
-// ---- IShakeTarget seam ----------------------------------------------------
-// FCameraShakePresets が trauma 値を流し込む先の純粋仮想インターフェース。
-// FCamera2D は Phase 3+ でこれを派生する (現状の AddShake / SetShakeAmplitude
-// / SetShakeDecayRate と同シグネチャ)。テスト用 mock も同じ I/F を実装する。
+/**
+ * shake パラメータの流し込み先となる純粋仮想インターフェース。
+ *
+ * @details
+ * FCamera2D がこれを派生する (AddShake / SetShakeAmplitude / SetShakeDecayRate と同シグネチャ)。
+ * テスト用 mock も同じ I/F を実装することで FCameraShakePresets を FCamera2D に直接依存させない。
+ */
 class IShakeTarget {
 public:
+    /** 空状態で構築する。 */
     IShakeTarget() noexcept = default;
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
     virtual ~IShakeTarget() noexcept = default;
 
+    /** コピー禁止。 */
     IShakeTarget(const IShakeTarget&)            = delete;
+
+    /** コピー代入も禁止。 */
     IShakeTarget& operator=(const IShakeTarget&) = delete;
+
+    /** ムーブ禁止。 */
     IShakeTarget(IShakeTarget&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     IShakeTarget& operator=(IShakeTarget&&)      = delete;
 
-    // trauma を amount だけ累積 (clamp [0,1] は実装側責務)。
+    /**
+     * trauma を加算する (clamp [0,1] は実装側責務)。
+     *
+     * @param trauma 加算する trauma 量。
+     */
     virtual void AddShake(f32 trauma) noexcept = 0;
 
-    // amplitude を上書き (world units max @ trauma=1)。
+    /**
+     * 振幅を上書きする。
+     *
+     * @param a 振幅 (world units max @ trauma=1)。
+     */
     virtual void SetShakeAmplitude(f32 a) noexcept = 0;
 
-    // decay_rate を上書き (trauma を 1 秒で 1.0 → 0.0 にする値)。
+    /**
+     * trauma 減衰レートを上書きする。
+     *
+     * @param r 減衰量 (trauma を 1 秒で 1.0 → 0.0 にする値)。
+     */
     virtual void SetShakeDecayRate(f32 r) noexcept = 0;
 };
 
-// ---- FCameraShakePresets ---------------------------------------------------
+/**
+ * ジャンル別 shake パラメータを IShakeTarget に 1 行で流し込む薄い preset ライブラリ。
+ *
+ * @details
+ * Eiserloh trauma 方式の amplitude / decay_rate / frequency / 適正 duration を名前付きで
+ * 提供する。組み込み preset は static 関数で配り、カスタム preset は名前 + ShakeParams を
+ * TArray に保持して線形検索する (名前は caller の static lifetime 想定)。非コピー・非ムーブ。
+ */
 class FCameraShakePresets {
 public:
+    /** 空のプリセットライブラリを構築する。 */
     FCameraShakePresets()  noexcept = default;
+
+    /** 破棄する。 */
     ~FCameraShakePresets() noexcept = default;
 
+    /** コピー禁止 (他 preset/manager 系と統一)。 */
     FCameraShakePresets(const FCameraShakePresets&)            = delete;
+
+    /** コピー代入も禁止。 */
     FCameraShakePresets& operator=(const FCameraShakePresets&) = delete;
+
+    /** ムーブ禁止。 */
     FCameraShakePresets(FCameraShakePresets&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FCameraShakePresets& operator=(FCameraShakePresets&&)      = delete;
 
-    // ---- 組み込み preset 取得 -------------------------------------------
-    // preset 用の trauma/amplitude/decay/freq 値を返す。Custom が渡された
-    // 場合は中立値 (= ZeroParams 相当) を返す (Custom は名前経由で
-    // ApplyCustomByName 専用)。
+    /**
+     * 組み込み preset の ShakeParams を返す。
+     *
+     * @param preset 取得するプリセット種別。
+     * @return 対応する ShakeParams。Custom は中立値 (= 適用しても見た目に影響しない値)。
+     */
     static ShakeParams GetPreset(EShakePreset preset) noexcept;
 
-    // ---- 組み込み preset 適用 -------------------------------------------
-    // preset を target に流し込む。順序:
-    //   1) SetShakeAmplitude(params.amplitude)
-    //   2) SetShakeDecayRate(params.decay_rate)
-    //   3) AddShake(params.trauma)  ← 加算 (累積)
-    // Custom が渡された場合は no-op (caller は ApplyCustomByName を使う)。
+    /**
+     * 組み込み preset を target に流し込む。
+     *
+     * @details SetShakeAmplitude → SetShakeDecayRate → AddShake (加算累積) の順で適用する。
+     * @param target 流し込み先の shake ターゲット。
+     * @param preset 適用するプリセット種別。Custom は no-op (caller は ApplyCustomByName を使う)。
+     */
     static void ApplyPreset(IShakeTarget& target, EShakePreset preset) noexcept;
 
-    // ---- カスタム preset 登録 -------------------------------------------
-    // name は呼び出し側が保証する static lifetime の文字列 (リテラル想定)。
-    // 同 name の 2 重登録は黙って上書き (アセット二重ロード時に直近が勝つ)。
-    // name == nullptr は no-op (defensive)。
+    /**
+     * カスタム preset を登録する。
+     *
+     * @details 同 name の 2 重登録は黙って上書きする (アセット二重ロード時に直近が勝つ)。
+     * @param name プリセット名。caller が保証する static lifetime の文字列 (リテラル想定)。nullptr は no-op。
+     * @param params 登録する shake パラメータ。
+     */
     void RegisterCustomPreset(const char* name, const ShakeParams& params) noexcept;
 
-    // 名前で引いた ShakeParams を target に流し込む。同 ApplyPreset と
-    // 同じ順序 (SetAmp → SetDecay → AddShake) で適用する。
-    // 戻り値: true = 発見 + 適用、false = 未登録 / name == nullptr。
+    /**
+     * 名前で引いたカスタム preset を target に流し込む。
+     *
+     * @details ApplyPreset と同じ順序 (SetAmp → SetDecay → AddShake) で適用する。
+     * @param target 流し込み先の shake ターゲット。
+     * @param name 適用するカスタムプリセット名。
+     * @return 発見 + 適用できれば true。未登録 / name == nullptr は false。
+     */
     bool ApplyCustomByName(IShakeTarget& target, const char* name) noexcept;
 
-    // 登録済みカスタムプリセット数。
+    /**
+     * 登録済みカスタムプリセット数を返す。
+     *
+     * @return カスタムプリセットの件数。
+     */
     u32 CustomCount() const noexcept;
 
 private:
+    /**
+     * 登録済みカスタムプリセット 1 件分のエントリ。
+     */
     struct CustomEntry {
-        const char* name = nullptr;   // 所有しない (caller の static lifetime)
+        /** プリセット名 (所有しない。caller の static lifetime)。 */
+        const char* name = nullptr;
+
+        /** 紐付く shake パラメータ。 */
         ShakeParams params{};
     };
 
-    // 名前で線形検索 (件数は典型 < 20)。見つからなければ ~0u を返す。
+    /**
+     * 名前でカスタムプリセットのインデックスを線形検索する (件数は典型 < 20)。
+     *
+     * @param name 検索するプリセット名。
+     * @return m_Customs 内のインデックス (見つからなければ ~0u)。
+     */
     u32 FindCustomIndex(const char* name) const noexcept;
 
+    /** 登録済みカスタムプリセットの配列。 */
     TArray<CustomEntry> m_Customs;
 };
 

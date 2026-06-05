@@ -15,15 +15,6 @@
 //     **必ず TResult<...> Err を返す** ことで、本番ビルドに stub が紛れ込んだ
 //     ケースを QA 工程で検出可能にしておく。
 //
-// 将来 (Phase 2 以降, FStudioWorkflow モジュール本実装フェーズ):
-//   ・PerforceAssetLocking         — libp4api 経由の P4 ロック (主流)
-//   ・PlasticAssetLocking          — Plastic SCM の Smart Locks 連携
-//   ・GitLfsAssetLocking           — Git LFS file locking API (中規模スタジオ向け)
-//   ・JenkinsBuildFarm             — Jenkins REST API + multibranch pipeline 連携
-//   ・TeamCityBuildFarm            — TeamCity REST API 連携
-//   ・GithubActionsBuildFarm       — GitHub Actions workflow dispatch + Artifacts
-//   ・UnityCloudBuildFarm          — Unity Cloud Build (Unity プロジェクト時のみ)
-//
 // 設計メモ:
 //   ・Stub は **process-wide singleton** で十分。`static` ローカル変数で
 //     thread-safe initialization (C++11 magic statics) を活用する。
@@ -39,13 +30,7 @@
 
 namespace acs::game {
 
-// -----------------------------------------------------------------------------
-// FAssetLockingStub: IAssetLockingBackend の null-object 実装
-// -----------------------------------------------------------------------------
-// IsConnected() は常に false (header で inline 定義済み)。
-// 各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を返す。
-// -----------------------------------------------------------------------------
-
+/** stub: 常に NotImplemented を返す (具象アセットロックバックエンドを link せよ)。 */
 TResult<void> FAssetLockingStub::LockAsset(const char* asset_path, const char* user) noexcept {
     (void)asset_path;
     (void)user;
@@ -54,6 +39,7 @@ TResult<void> FAssetLockingStub::LockAsset(const char* asset_path, const char* u
                    "(stub: link a concrete asset locking backend such as Perforce/Plastic)");
 }
 
+/** stub: 常に NotImplemented を返す。 */
 TResult<void> FAssetLockingStub::UnlockAsset(const char* asset_path) noexcept {
     (void)asset_path;
     return ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
@@ -61,6 +47,7 @@ TResult<void> FAssetLockingStub::UnlockAsset(const char* asset_path) noexcept {
                    "(stub: link a concrete asset locking backend such as Perforce/Plastic)");
 }
 
+/** stub: 常に NotImplemented を返す。 */
 TResult<FAssetLockInfo> FAssetLockingStub::QueryLock(const char* asset_path) noexcept {
     (void)asset_path;
     return TResult<FAssetLockInfo>(
@@ -69,13 +56,7 @@ TResult<FAssetLockInfo> FAssetLockingStub::QueryLock(const char* asset_path) noe
                 "(stub: link a concrete asset locking backend such as Perforce/Plastic)"));
 }
 
-// -----------------------------------------------------------------------------
-// FBuildFarmStub: IBuildFarmBackend の null-object 実装
-// -----------------------------------------------------------------------------
-// IsConnected() は常に false (header で inline 定義済み)。
-// 各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を返す。
-// -----------------------------------------------------------------------------
-
+/** stub: 常に NotImplemented を返す (具象ビルドファームバックエンドを link せよ)。 */
 TResult<u64> FBuildFarmStub::SubmitBuild(const BuildRequest& req) noexcept {
     (void)req;
     return TResult<u64>(
@@ -84,6 +65,7 @@ TResult<u64> FBuildFarmStub::SubmitBuild(const BuildRequest& req) noexcept {
                 "(stub: link a concrete build farm backend such as Jenkins/TeamCity)"));
 }
 
+/** stub: 常に NotImplemented を返す。 */
 TResult<IBuildFarmBackend::BuildResult> FBuildFarmStub::PollBuild(u64 build_id) noexcept {
     (void)build_id;
     return TResult<IBuildFarmBackend::BuildResult>(
@@ -92,6 +74,7 @@ TResult<IBuildFarmBackend::BuildResult> FBuildFarmStub::PollBuild(u64 build_id) 
                 "(stub: link a concrete build farm backend such as Jenkins/TeamCity)"));
 }
 
+/** stub: 常に NotImplemented を返す。 */
 TResult<void> FBuildFarmStub::CancelBuild(u64 build_id) noexcept {
     (void)build_id;
     return ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
@@ -99,14 +82,17 @@ TResult<void> FBuildFarmStub::CancelBuild(u64 build_id) noexcept {
                    "(stub: link a concrete build farm backend such as Jenkins/TeamCity)");
 }
 
-// =============================================================================
-// 名前無し名前空間: ローカル実装で使う Win32 helper
-// =============================================================================
 namespace {
 
-// ---- UTF-8 → UTF-16 変換 (FHotReload と同流儀) ----------------------------
-// u8 (NUL 終端) を out_w (要素数 out_cap) に NUL 終端付きで変換する。
-// 成功で true、入力 null / バッファ不足 / 変換失敗で false。
+/**
+ * UTF-8 文字列を UTF-16 へ変換する (FHotReload と同流儀)。
+ *
+ * @details u8 (NUL 終端) を out_w に NUL 終端付きで変換する。
+ * @param u8 入力 UTF-8 文字列 (NUL 終端)。
+ * @param out_w 変換結果を書き込む UTF-16 バッファ。
+ * @param out_cap out_w の要素数。
+ * @return 成功で true、入力 null / バッファ不足 / 変換失敗で false。
+ */
 bool Utf8ToUtf16(const char* u8, wchar_t* out_w, int out_cap) noexcept {
     if (u8 == nullptr || out_w == nullptr || out_cap <= 0) {
         return false;
@@ -116,8 +102,14 @@ bool Utf8ToUtf16(const char* u8, wchar_t* out_w, int out_cap) noexcept {
     return got > 0;
 }
 
-// ---- char バッファへの安全コピー (STL 非依存) -----------------------------
-// src を dst (要素数 cap) に NUL 終端付きで複写する。src が長すぎれば切り詰める。
+/**
+ * char バッファへ NUL 終端付きで安全コピーする (STL 非依存)。
+ *
+ * @details src が長すぎれば dst の容量に合わせて切り詰める。
+ * @param dst コピー先バッファ。
+ * @param cap dst の要素数。
+ * @param src コピー元文字列 (nullptr 可)。
+ */
 void CopyCStr(char* dst, int cap, const char* src) noexcept {
     if (dst == nullptr || cap <= 0) return;
     int i = 0;
@@ -129,7 +121,13 @@ void CopyCStr(char* dst, int cap, const char* src) noexcept {
     dst[i] = '\0';
 }
 
-// ---- NUL 終端 C 文字列の一致判定 (strcmp 相当, STL 非依存) -----------------
+/**
+ * NUL 終端 C 文字列の一致を判定する (strcmp 相当, STL 非依存)。
+ *
+ * @param a 比較する文字列 1 (nullptr 可)。
+ * @param b 比較する文字列 2 (nullptr 可)。
+ * @return 内容が一致すれば true (両方 nullptr も一致扱い)。
+ */
 bool CStrEqual(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return a == b;
     while (*a != '\0' && *b != '\0') {
@@ -139,9 +137,15 @@ bool CStrEqual(const char* a, const char* b) noexcept {
     return *a == *b;
 }
 
-// ---- wchar_t バッファへの append (NUL 終端維持) ---------------------------
-// dst (要素数 cap, NUL 終端済み) の末尾に suffix を連結する。溢れたら何もしない。
-// 成功で true。
+/**
+ * NUL 終端済み wchar_t バッファの末尾に suffix を連結する (NUL 終端維持)。
+ *
+ * @details 連結後に容量を超える場合は何もしない。
+ * @param dst 連結先バッファ (NUL 終端済み)。
+ * @param cap dst の要素数。
+ * @param suffix 連結する UTF-16 文字列。
+ * @return 連結に成功すれば true、溢れ/不正引数なら false。
+ */
 bool AppendWStr(wchar_t* dst, int cap, const wchar_t* suffix) noexcept {
     if (dst == nullptr || suffix == nullptr || cap <= 0) return false;
     int len = 0;
@@ -156,15 +160,25 @@ bool AppendWStr(wchar_t* dst, int cap, const wchar_t* suffix) noexcept {
     return true;
 }
 
-// ---- asset_path(UTF-8) → "<asset>.lock" の UTF-16 path に変換 -------------
-// 成功で true (out_w に NUL 終端付き lock path)、失敗で false。
+/**
+ * asset_path (UTF-8) を "<asset>.lock" の UTF-16 path に変換する。
+ *
+ * @param asset_path 入力アセットパス (UTF-8)。
+ * @param out_w lock path を書き込む UTF-16 バッファ。
+ * @param out_cap out_w の要素数。
+ * @return 成功で true (out_w に NUL 終端付き lock path)、失敗で false。
+ */
 bool MakeLockPath(const char* asset_path, wchar_t* out_w, int out_cap) noexcept {
     if (!Utf8ToUtf16(asset_path, out_w, out_cap)) return false;
     return AppendWStr(out_w, out_cap, L".lock");
 }
 
-// ---- 現在時刻を UNIX epoch 秒で取得 ---------------------------------------
-// Win32 FILETIME (1601-01-01 起点, 100ns 単位) を UNIX epoch 秒へ変換する。
+/**
+ * 現在時刻を UNIX epoch 秒で取得する。
+ *
+ * @details Win32 FILETIME (1601-01-01 起点, 100ns 単位) を UNIX epoch 秒へ変換する。
+ * @return 現在時刻の UNIX epoch 秒。
+ */
 u64 NowUnixSeconds() noexcept {
     FILETIME ft{};
     ::GetSystemTimeAsFileTime(&ft);
@@ -175,8 +189,14 @@ u64 NowUnixSeconds() noexcept {
     return (ticks / 10000000ull) - kEpochOffsetSec;
 }
 
-// ---- u64 を 10 進 ASCII 文字列に (sprintf 非使用) --------------------------
-// out (要素数 cap) に NUL 終端付きで書く。書いたバイト数 (NUL 除く) を返す。
+/**
+ * u64 を 10 進 ASCII 文字列に変換する (sprintf 非使用)。
+ *
+ * @param v 変換する値。
+ * @param out 結果を書き込むバッファ (NUL 終端付き)。
+ * @param cap out の要素数。
+ * @return 書いたバイト数 (NUL 除く)。
+ */
 int U64ToDec(u64 v, char* out, int cap) noexcept {
     if (out == nullptr || cap <= 0) return 0;
     char tmp[24];
@@ -193,8 +213,14 @@ int U64ToDec(u64 v, char* out, int cap) noexcept {
     return w;
 }
 
-// ---- 10 進 ASCII → u64 (atoi 相当, STL 非使用) ----------------------------
-// p から数字以外が来るまで読む。先頭空白はスキップ。
+/**
+ * 10 進 ASCII を u64 に変換する (atoi 相当, STL 非使用)。
+ *
+ * @details p から数字以外が来るまで読む。先頭の空白/改行はスキップする。
+ * @param p 変換元の文字列先頭。
+ * @param len 走査可能な最大文字数。
+ * @return 変換した u64 値。
+ */
 u64 DecToU64(const char* p, usize len) noexcept {
     u64 v = 0;
     usize i = 0;
@@ -205,11 +231,19 @@ u64 DecToU64(const char* p, usize len) noexcept {
     return v;
 }
 
-// ---- lock ファイル本体の読み込み ------------------------------------------
-// lock_path_w の中身を buf (要素数 cap) に読み、owner_out / time_out に分解する。
-// フォーマット: 1 行目 = owner、2 行目 = 取得時刻(10 進秒)。
-// 成功 (= ファイル存在 + 読み取り成功) で true、存在しなければ false。
-// out_os_err に GetLastError を入れる (ERROR_FILE_NOT_FOUND は「未ロック」を意味)。
+/**
+ * lock ファイル本体を読み込み、owner と取得時刻に分解する。
+ *
+ * @details
+ * フォーマットは 1 行目 = owner、2 行目 = 取得時刻(10 進秒)。out_os_err には
+ * GetLastError を入れる (ERROR_FILE_NOT_FOUND は「未ロック」を意味する)。
+ * @param lock_path_w 読み込む lock ファイルの UTF-16 パス。
+ * @param owner_out owner 名を書き込むバッファ。
+ * @param owner_cap owner_out の要素数。
+ * @param time_out 取得時刻 (UNIX epoch 秒) を書き込む先。
+ * @param out_os_err 失敗時の GetLastError を書き込む先。
+ * @return ファイル存在 + 読み取り成功で true、存在しない/失敗で false。
+ */
 bool ReadLockFile(const wchar_t* lock_path_w,
                   char*          owner_out,
                   int            owner_cap,
@@ -259,10 +293,7 @@ bool ReadLockFile(const wchar_t* lock_path_w,
 
 } // namespace
 
-// =============================================================================
-// FLocalFileAssetLocking — オンディスク lock ファイルによる実ロック実装
-// =============================================================================
-
+/** `<asset_path>.lock` を CREATE_NEW で原子的に生成し、owner と取得時刻を書く。 */
 TResult<void> FLocalFileAssetLocking::LockAsset(const char* asset_path,
                                                 const char* user) noexcept {
     if (asset_path == nullptr || asset_path[0] == '\0') {
@@ -320,6 +351,7 @@ TResult<void> FLocalFileAssetLocking::LockAsset(const char* asset_path,
     return Ok();
 }
 
+/** lock ファイルを削除してロックを解除する (協調ロックなので誰でも解除可)。 */
 TResult<void> FLocalFileAssetLocking::UnlockAsset(const char* asset_path) noexcept {
     if (asset_path == nullptr || asset_path[0] == '\0') {
         return ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
@@ -359,6 +391,7 @@ TResult<void> FLocalFileAssetLocking::UnlockAsset(const char* asset_path) noexce
     return Ok();
 }
 
+/** owner を検証し、一致する場合のみ lock ファイルを削除する。 */
 TResult<void> FLocalFileAssetLocking::UnlockAssetAs(const char* asset_path,
                                                     const char* user) noexcept {
     if (asset_path == nullptr || asset_path[0] == '\0') {
@@ -407,6 +440,7 @@ TResult<void> FLocalFileAssetLocking::UnlockAssetAs(const char* asset_path,
     return Ok();
 }
 
+/** lock ファイルの存在と内容を読み取り、FAssetLockInfo に詰めて返す。 */
 TResult<FAssetLockInfo>
 FLocalFileAssetLocking::QueryLock(const char* asset_path) noexcept {
     if (asset_path == nullptr || asset_path[0] == '\0') {
@@ -446,10 +480,7 @@ FLocalFileAssetLocking::QueryLock(const char* asset_path) noexcept {
     return TResult<FAssetLockInfo>(OkInit, info);
 }
 
-// =============================================================================
-// FLocalBuildRunner — Win32 CreateProcessW によるローカルビルド実行 (実装)
-// =============================================================================
-
+/** 追跡中のプロセス HANDLE をすべて閉じて破棄する (プロセス自体は kill しない)。 */
 FLocalBuildRunner::~FLocalBuildRunner() noexcept {
     // 追跡中のプロセス HANDLE をすべて閉じる (プロセス自体は kill しない)。
     for (int i = 0; i < kMaxJobs; ++i) {
@@ -459,6 +490,7 @@ FLocalBuildRunner::~FLocalBuildRunner() noexcept {
     }
 }
 
+/** build_id でジョブを引く (無ければ nullptr)。 */
 FLocalBuildRunner::Job* FLocalBuildRunner::FindJob(u64 build_id) noexcept {
     if (build_id == 0) return nullptr;
     for (int i = 0; i < kMaxJobs; ++i) {
@@ -467,6 +499,7 @@ FLocalBuildRunner::Job* FLocalBuildRunner::FindJob(u64 build_id) noexcept {
     return nullptr;
 }
 
+/** プロセス HANDLE を閉じてスロットを空きに戻す。 */
 void FLocalBuildRunner::CloseJob(Job& job) noexcept {
     if (job.m_Process != nullptr) {
         ::CloseHandle(static_cast<HANDLE>(job.m_Process));
@@ -479,6 +512,7 @@ void FLocalBuildRunner::CloseJob(Job& job) noexcept {
     job.m_Artifact[0] = '\0';
 }
 
+/** command_line を CreateProcessW で起動し、完了まで待って終了コードを回収する。 */
 TResult<void> FLocalBuildRunner::RunBuild(const wchar_t* command_line,
                                           u32&           out_exit_code,
                                           u32            timeout_ms) noexcept {
@@ -545,6 +579,7 @@ TResult<void> FLocalBuildRunner::RunBuild(const wchar_t* command_line,
     return Ok();
 }
 
+/** command_line を UTF-8 で受け、UTF-16 へ変換して RunBuild に委譲する。 */
 TResult<void> FLocalBuildRunner::RunBuildUtf8(const char* command_line,
                                               u32&        out_exit_code,
                                               u32         timeout_ms) noexcept {
@@ -557,6 +592,7 @@ TResult<void> FLocalBuildRunner::RunBuildUtf8(const char* command_line,
     return RunBuild(cmd_w, out_exit_code, timeout_ms);
 }
 
+/** preset を起動コマンドラインとして解釈し、非同期にビルドジョブを起動する。 */
 TResult<u64> FLocalBuildRunner::SubmitBuild(const BuildRequest& req) noexcept {
     // preset を「起動するコマンドライン」として解釈する (ローカルファーム規約)。
     if (req.preset == nullptr || req.preset[0] == '\0') {
@@ -615,6 +651,7 @@ TResult<u64> FLocalBuildRunner::SubmitBuild(const BuildRequest& req) noexcept {
     return TResult<u64>(OkInit, id);
 }
 
+/** ジョブの完了状態を非ブロッキングに確認し、結果を返す。 */
 TResult<IBuildFarmBackend::BuildResult>
 FLocalBuildRunner::PollBuild(u64 build_id) noexcept {
     if (build_id == 0) {
@@ -658,6 +695,7 @@ FLocalBuildRunner::PollBuild(u64 build_id) noexcept {
     return TResult<BuildResult>(OkInit, r);
 }
 
+/** 進行中のジョブを kill してスロットを解放する。 */
 TResult<void> FLocalBuildRunner::CancelBuild(u64 build_id) noexcept {
     if (build_id == 0) {
         return ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
@@ -686,28 +724,25 @@ TResult<void> FLocalBuildRunner::CancelBuild(u64 build_id) noexcept {
     return Ok();
 }
 
-// -----------------------------------------------------------------------------
-// アクセサ: function-local static で process-wide singleton を保持
-// -----------------------------------------------------------------------------
-// C++11 magic statics により初期化は thread-safe。
-// 破棄順序は他の static と独立で良い (相互依存なし)。
-// -----------------------------------------------------------------------------
-
+/** function-local static で process-wide singleton の stub locking backend を返す。 */
 IAssetLockingBackend& GetAssetLockingStub() noexcept {
     static FAssetLockingStub s_instance;
     return s_instance;
 }
 
+/** function-local static で process-wide singleton の stub build farm backend を返す。 */
 IBuildFarmBackend& GetBuildFarmStub() noexcept {
     static FBuildFarmStub s_instance;
     return s_instance;
 }
 
+/** function-local static で process-wide singleton の実ローカル locking backend を返す。 */
 FLocalFileAssetLocking& GetLocalFileAssetLocking() noexcept {
     static FLocalFileAssetLocking s_instance;
     return s_instance;
 }
 
+/** function-local static で process-wide singleton の実ローカル build runner を返す。 */
 FLocalBuildRunner& GetLocalBuildRunner() noexcept {
     static FLocalBuildRunner s_instance;
     return s_instance;

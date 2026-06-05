@@ -9,10 +9,6 @@
 
 namespace acs::game {
 
-// ============================================================================
-// 内部 — category 検索
-// ============================================================================
-
 usize FPerfBudget::FindCategoryIndex(const char* category) const noexcept {
     if (category == nullptr) return m_Categories.Size();
     // pointer 同一 → strcmp の順。リテラル運用なら pointer 同一の高速 path で抜ける。
@@ -23,10 +19,6 @@ usize FPerfBudget::FindCategoryIndex(const char* category) const noexcept {
     }
     return m_Categories.Size();
 }
-
-// ============================================================================
-// セットアップ
-// ============================================================================
 
 void FPerfBudget::SetFrameBudget(f32 ms) noexcept {
     // 負値 / NaN を 0 (= 判定無効) に正規化。
@@ -58,10 +50,6 @@ void FPerfBudget::DefineCategory(const char* category, f32 budget_ms, u32 budget
     e.budget_bytes = budget_bytes;
     m_Categories.PushBack(e);
 }
-
-// ============================================================================
-// 記録
-// ============================================================================
 
 void FPerfBudget::RecordTimeMs(const char* category, f32 elapsed_ms) noexcept {
     if (category == nullptr) return;
@@ -98,10 +86,6 @@ void FPerfBudget::RecordMemoryFree(const char* category, u32 bytes) noexcept {
         e.spent_bytes -= bytes;
     }
 }
-
-// ============================================================================
-// フレーム境界
-// ============================================================================
 
 void FPerfBudget::BeginFrame() noexcept {
     // spent_ms のみ 0 にリセット。spent_bytes は累積保持 (現在保持中の量)。
@@ -143,10 +127,6 @@ void FPerfBudget::EndFrame() noexcept {
     }
 }
 
-// ============================================================================
-// 問い合わせ
-// ============================================================================
-
 bool FPerfBudget::IsOverBudget(const char* category) const noexcept {
     if (category == nullptr) return false;
     const usize idx = FindCategoryIndex(category);
@@ -165,10 +145,6 @@ f32 FPerfBudget::AverageFrameMs() const noexcept {
     for (usize i = 0; i < n; ++i) sum += m_FrameHistory[i];
     return sum / static_cast<f32>(n);
 }
-
-// ============================================================================
-// 列挙 / 管理
-// ============================================================================
 
 u32 FPerfBudget::CategoryCount() const noexcept {
     return static_cast<u32>(m_Categories.Size());

@@ -27,9 +27,16 @@ namespace acs::game {
 
 namespace {
 
-// label の同一性比較。pointer 一致を最初に試して strcmp に fallback。
-// 両方 nullptr / 片方 nullptr の扱いは「片方 nullptr なら不一致、両 nullptr なら不一致」
-// (= label == nullptr を有効 key と見なさない設計、API 側で nullptr ガード済み)。
+/**
+ * 2 つのラベルが同一かを判定する。
+ *
+ * @details pointer 一致を最初に試し、不一致なら strcmp に fallback する (複数 TU で
+ * 同一リテラルが別アドレスに置かれるケースを救済)。どちらかが nullptr なら不一致と扱う
+ * (label == nullptr を有効 key と見なさない設計、API 側で nullptr ガード済み)。
+ * @param a 比較するラベル A。
+ * @param b 比較するラベル B。
+ * @return 同一なら true。
+ */
 bool LabelEquals(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     if (a == b) return true;
@@ -38,10 +45,7 @@ bool LabelEquals(const char* a, const char* b) noexcept {
 
 } // namespace
 
-// ============================================================================
-// enqueue
-// ============================================================================
-
+/** 末尾に command を追加する (nullptr label/fn は警告して no-op)。 */
 void FSceneCommandQueue::Enqueue(const char* label, SceneCommandFn fn, void* user,
                                  u32 priority, bool one_shot) noexcept {
     if (label == nullptr) {
@@ -62,6 +66,7 @@ void FSceneCommandQueue::Enqueue(const char* label, SceneCommandFn fn, void* use
     m_Records.PushBack(r);
 }
 
+/** 同 label が無ければ追加する (denounce、nullptr label/fn は警告して no-op)。 */
 void FSceneCommandQueue::EnqueueIfAbsent(const char* label, SceneCommandFn fn, void* user,
                                          u32 priority) noexcept {
     if (label == nullptr) {
@@ -89,10 +94,7 @@ void FSceneCommandQueue::EnqueueIfAbsent(const char* label, SceneCommandFn fn, v
     m_Records.PushBack(r);
 }
 
-// ============================================================================
-// cancel / inspect
-// ============================================================================
-
+/** label 一致の全 command を順序保存しつつ削除する。 */
 void FSceneCommandQueue::Cancel(const char* label) noexcept {
     if (label == nullptr) return;
     // 安定削除: write index で前から詰める (順序保存)。
@@ -108,10 +110,12 @@ void FSceneCommandQueue::Cancel(const char* label) noexcept {
     while (m_Records.Size() > w) m_Records.PopBack();
 }
 
+/** 現在キュー上の command 数を返す。 */
 u32 FSceneCommandQueue::PendingCount() const noexcept {
     return static_cast<u32>(m_Records.Size());
 }
 
+/** label 一致の command が存在するかを返す。 */
 bool FSceneCommandQueue::Contains(const char* label) const noexcept {
     if (label == nullptr) return false;
     const usize n = m_Records.Size();
@@ -121,14 +125,12 @@ bool FSceneCommandQueue::Contains(const char* label) const noexcept {
     return false;
 }
 
+/** 全 command を破棄する (callback は呼ばない)。 */
 void FSceneCommandQueue::ClearAll() noexcept {
     m_Records.Clear();
 }
 
-// ============================================================================
-// Flush
-// ============================================================================
-
+/** insertion sort で priority 昇順に安定ソートする (同 priority は Enqueue 順保存)。 */
 void FSceneCommandQueue::StableSortByPriority() noexcept {
     // insertion sort (stable)。N は小規模想定 (editor の保留要求や連打抑制で
     // 通常 < 数十)。同 priority は Enqueue 順 (= 元の index 順) を保存する。
@@ -145,6 +147,7 @@ void FSceneCommandQueue::StableSortByPriority() noexcept {
     }
 }
 
+/** priority 昇順で snapshot 範囲の command を実行し、repeating と再追加分のみ残す。 */
 void FSceneCommandQueue::Flush() noexcept {
     if (m_Records.IsEmpty()) return;
 

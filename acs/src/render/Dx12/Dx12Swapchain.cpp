@@ -35,7 +35,7 @@ HrResult Dx12Swapchain::Init(Dx12Device& device, const SwapchainConfig& cfg) noe
     sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 
     IDXGISwapChain1* sc1 = nullptr;
-    HWND hwnd = cfg.window ? static_cast<HWND>(cfg.window->NativeHandle()) : nullptr;
+    const HWND hwnd = cfg.window ? static_cast<HWND>(cfg.window->NativeHandle()) : nullptr;
     if (!hwnd) { r.hr = E_INVALIDARG; return r; }
 
     r.hr = device.DxgiFactory()->CreateSwapChainForHwnd(
@@ -98,8 +98,8 @@ u32 Dx12Swapchain::AcquireNextImage() noexcept {
 }
 
 void Dx12Swapchain::Present() noexcept {
-    UINT sync_interval = m_bVsync ? 1 : 0;
-    UINT flags = m_bVsync ? 0 : DXGI_PRESENT_ALLOW_TEARING;
+    const UINT sync_interval = m_bVsync ? 1 : 0;
+    const UINT flags = m_bVsync ? 0 : DXGI_PRESENT_ALLOW_TEARING;
     m_Swapchain->Present(sync_interval, flags);
 }
 
@@ -112,9 +112,9 @@ bool Dx12Swapchain::Resize(u32 width, u32 height) noexcept {
     m_Device->WaitIdle();
     ReleaseBuffers();
 
-    HRESULT hr = m_Swapchain->ResizeBuffers(m_BufferCount, width, height,
-                                            DXGI_FORMAT_UNKNOWN,
-                                            DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING);
+    const HRESULT hr = m_Swapchain->ResizeBuffers(m_BufferCount, width, height,
+                                                  DXGI_FORMAT_UNKNOWN,
+                                                  DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING);
     if (FAILED(hr)) {
         // ResizeBuffers 失敗。バッファは既に解放済みなので幅/高さは更新せず、
         // 旧寸法のまま矛盾なく残す。false を返して呼び出し側に描画スキップを促す。
@@ -144,7 +144,7 @@ TResult<TUniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device,
         return ACS_ERR(Render, 10, "CreateRhiSwapchain: device is not DX12");
     Dx12Device* dxd = static_cast<Dx12Device*>(&device);
     auto sc = MakeUnique<Dx12Swapchain>();
-    HrResult r = sc->Init(*dxd, cfg);
+    const HrResult r = sc->Init(*dxd, cfg);
     if (r.IsErr()) {
         return ACS_ERR_OS(Render, 11, "Dx12Swapchain::Init failed", static_cast<u32>(r.hr));
     }

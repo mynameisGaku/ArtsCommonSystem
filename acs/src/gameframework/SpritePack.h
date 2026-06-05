@@ -49,92 +49,187 @@
 
 namespace acs::game {
 
-// atlas 内の 1 矩形 = 1 frame。name は caller 所有 (文字列リテラル前提)。
-// pivot は frame のローカル空間 [0,1] (0,0 = 左上 / 1,1 = 右下) で表現し、
-// 描画時のアンカー (回転中心 / 配置基準) として使う。
+/**
+ * atlas 内の 1 矩形 = 1 frame。
+ *
+ * @details
+ * name は caller 所有 (文字列リテラル前提)。pivot は frame のローカル空間 [0,1]
+ * (0,0=左上 / 1,1=右下) で表し、描画時のアンカー (回転中心 / 配置基準) に使う。
+ */
 struct SpriteFrame {
-    const char* name    = nullptr;  // 検索キー (caller 所有、リテラル想定)
-    u32         x       = 0;        // atlas 内 X (pixel)
-    u32         y       = 0;        // atlas 内 Y (pixel)
-    u32         w       = 0;        // 幅 (pixel)
-    u32         h       = 0;        // 高さ (pixel)
-    f32         pivot_x = 0.5f;     // frame ローカル [0,1]、既定は中心
-    f32         pivot_y = 0.5f;     // frame ローカル [0,1]、既定は中心
+    /** 検索キー (caller 所有、文字列リテラル想定)。 */
+    const char* name    = nullptr;
+
+    /** atlas 内 X 座標 (pixel)。 */
+    u32         x       = 0;
+
+    /** atlas 内 Y 座標 (pixel)。 */
+    u32         y       = 0;
+
+    /** 矩形の幅 (pixel)。 */
+    u32         w       = 0;
+
+    /** 矩形の高さ (pixel)。 */
+    u32         h       = 0;
+
+    /** pivot の X (frame ローカル [0,1]、既定は中心)。 */
+    f32         pivot_x = 0.5f;
+
+    /** pivot の Y (frame ローカル [0,1]、既定は中心)。 */
+    f32         pivot_y = 0.5f;
 };
 
-// atlas 全体のメタ情報。texture そのものは別モジュール (FAssetBundle 等) が所有。
+/**
+ * atlas 全体のメタ情報。
+ *
+ * @details texture そのものは別モジュール (FAssetBundle 等) が所有する。
+ */
 struct SpritePackInfo {
-    const char* atlas_texture_path = nullptr;  // caller 所有
-    u32         atlas_width        = 0;        // pixel (0 = 未設定)
-    u32         atlas_height       = 0;        // pixel (0 = 未設定)
+    /** atlas テクスチャのパス (caller 所有)。 */
+    const char* atlas_texture_path = nullptr;
+
+    /** atlas テクスチャの幅 (pixel、0 = 未設定)。 */
+    u32         atlas_width        = 0;
+
+    /** atlas テクスチャの高さ (pixel、0 = 未設定)。 */
+    u32         atlas_height       = 0;
 };
 
+/**
+ * 1 枚の atlas テクスチャと名前付き frame 矩形群を持つデータ層。
+ *
+ * @details
+ * 描画 API・asset loader には触れず「矩形と名前の辞書」に徹する。利用者は
+ * AtlasTexturePath() で texture を自前ロードし、FindFrame() で矩形と pivot を取り出し、
+ * ComputeUv() で [0,1] UV を得て FSpriteAnimator と組み合わせて再生する。frame 名は
+ * const char* 借用 (caller 所有) で、比較は pointer 同一 → strcmp の順に評価する。
+ */
 class FSpritePack {
 public:
+    /** 空の atlas データを構築する (frame なし、メタ未設定)。 */
     FSpritePack() noexcept = default;
+
+    /** デストラクタ (frame 配列・所有文字列は TArray/FString が解放)。 */
     ~FSpritePack() noexcept = default;
 
-    // ACS 規約: atlas データを不意に複製しないよう非コピー・非ムーブ
+    /** コピー禁止 (atlas データを不意に複製しないため)。 */
     FSpritePack(const FSpritePack&)            = delete;
+
+    /** コピー代入も禁止。 */
     FSpritePack& operator=(const FSpritePack&) = delete;
+
+    /** ムーブ禁止。 */
     FSpritePack(FSpritePack&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FSpritePack& operator=(FSpritePack&&)      = delete;
 
-    // atlas メタ情報を設定。既存の frame 配列はそのまま保持される
-    // (= 同じ atlas で再 Init するユースケース)。frame もまとめてクリアしたい場合は
-    // ClearAll を併用する。
+    /**
+     * atlas メタ情報を設定する。
+     *
+     * @details
+     * 値コピーで取り込み、既存の frame 配列はそのまま保持する (同じ atlas での再 Init 用途)。
+     * frame もまとめてクリアしたい場合は ClearAll を併用する。
+     * @param info 取り込む atlas メタ情報。
+     */
     void Init(const SpritePackInfo& info) noexcept;
 
-    // frame を追加。name == nullptr は無視 (= debug ビルドでも crash させない)。
-    // 同名 frame が既に存在しても重複登録は許容する (= 利用者の責任で重複を避ける、
-    // FindFrame は最初に一致したものを返す)。
+    /**
+     * frame を追加する。
+     *
+     * @details
+     * name==nullptr は検索不能になるため無視する (debug ビルドでも crash させない)。
+     * 同名 frame の重複登録は許容し、FindFrame は最初に一致したものを返す。
+     * @param frame 追加する frame。
+     */
     void AddFrame(const SpriteFrame& frame) noexcept;
 
-    // ----- atlas JSON ローダ (content pipeline) -----
-    // Aseprite / TexturePacker が吐く sprite atlas JSON を読み込む。frame 名と
-    // image path は **内部で所有** するので、JSON テキストの寿命に依存しない。
-    // 既存 frame は ClearAll してから読み込む。対応形式:
-    //   ・Aseprite "hash":  { "frames": { "name": { "frame": {x,y,w,h}, ["pivot":{x,y}] } } }
-    //   ・TexturePacker "array": { "frames": [ { "filename": "name", "frame": {x,y,w,h} } ] }
-    //   ・meta: { "image": "...", "size": { "w":.., "h":.. } } を atlas メタへ取り込む。
-    // 解析失敗 / frames 欠如は ACS_ERR。成功時は FindFrame("name") で取り出せる。
+    /**
+     * Aseprite / TexturePacker の sprite atlas JSON を読み込む。
+     *
+     * @details
+     * frame 名と image path を内部で所有するため JSON テキストの寿命に依存しない。
+     * 既存 frame は ClearAll してから読み込む。対応形式は Aseprite "hash"
+     * ({ "frames": { "name": { "frame": {x,y,w,h}, ["pivot":{x,y}] } } }) と
+     * TexturePacker "array" ({ "frames": [ { "filename": "name", "frame": {x,y,w,h} } ] })、
+     * meta ({ "image": "...", "size": { "w":.., "h":.. } }) を atlas メタへ取り込む。
+     * @param json_text atlas JSON のテキスト。
+     * @param len json_text のバイト長。
+     * @return 成功なら空の TResult、解析失敗 / frames 欠如なら ACS_ERR。
+     */
     TResult<void> LoadAtlasJson(const char* json_text, usize len) noexcept;
 
-    // 名前で frame を検索。見つからなければ nullptr。
-    // 比較は pointer 同一 → strcmp の順。name == nullptr は常に nullptr。
+    /**
+     * 名前で frame を検索する。
+     *
+     * @details 比較は pointer 同一 → strcmp の順。
+     * @param name 検索するキー (nullptr は常に nullptr を返す)。
+     * @return 見つかった frame へのポインタ (無ければ nullptr)。
+     */
     const SpriteFrame* FindFrame(const char* name) const noexcept;
 
-    // 名前で frame の有無を確認 (= FindFrame != nullptr の syntactic sugar)。
+    /**
+     * 名前で frame の有無を確認する。
+     *
+     * @param name 検索するキー。
+     * @return 存在すれば true (= FindFrame != nullptr)。
+     */
     bool HasFrame(const char* name) const noexcept;
 
-    // 登録 frame 数。
+    /**
+     * 登録 frame 数を返す。
+     *
+     * @return frame 数。
+     */
     u32 FrameCount() const noexcept;
 
-    // 内部配列の先頭ポインタを返す。out_count に frame 数を書き戻す。
-    // ポインタは Init / AddFrame / RemoveFrame / ClearAll で無効化される。
+    /**
+     * 内部 frame 配列の先頭ポインタを返す。
+     *
+     * @details ポインタは Init / AddFrame / RemoveFrame / ClearAll で無効化される。
+     * @param out_count frame 数を書き戻す出力先。
+     * @return frame 配列の先頭ポインタ。
+     */
     const SpriteFrame* AllFrames(u32& out_count) const noexcept;
 
-    // atlas メタ情報を取得。
+    /**
+     * atlas メタ情報を取得する。
+     *
+     * @return atlas メタ情報への const 参照。
+     */
     const SpritePackInfo& Info() const noexcept { return m_Info; }
 
-    // 指定 name の frame を削除。複数一致しても全て削除する。
-    // 順序は保持しない (= 末尾 swap)。name == nullptr は no-op。
+    /**
+     * 指定 name の frame を削除する。
+     *
+     * @details 複数一致しても全て削除する。順序は保持しない (末尾 swap)。
+     * @param name 削除する frame の名前 (nullptr は no-op)。
+     */
     void RemoveFrame(const char* name) noexcept;
 
-    // 全 frame を削除。atlas メタ情報 (m_Info) は保持される。
+    /** 全 frame を削除する (atlas メタ情報 m_Info は保持)。 */
     void ClearAll() noexcept;
 
-    // UV 計算ヘルパ: frame の矩形を atlas size で割って [0,1] UV を返す。
-    // 戻り値は {u0, v0, u1, v1}。atlas_width / atlas_height が 0 のときは
-    // 0 除算を避け {0, 0, 0, 0} を返す (= 不正状態でも crash させない)。
+    /**
+     * frame の矩形を atlas size で割って [0,1] UV を計算する。
+     *
+     * @details atlas_width / atlas_height が 0 のときは 0 除算を避け {0,0,0,0} を返す。
+     * @param frame UV を求める frame。
+     * @return UV サブ矩形 {u0, v0, u1, v1}。
+     */
     acs::FVec4 ComputeUv(const SpriteFrame& frame) const noexcept;
 
 private:
+    /** atlas メタ情報。 */
     SpritePackInfo     m_Info;
+
+    /** 登録された frame の配列。 */
     TArray<SpriteFrame> m_Frames;
-    // LoadAtlasJson が所有する文字列 (frame 名 / image path)。SpriteFrame.name は
-    // m_OwnedNames[i].Data() を指す。Reserve 済みで再 alloc しないため SSO でも安定。
+
+    /** LoadAtlasJson が所有する frame 名バッファ (SpriteFrame.name が指す、Reserve 済で安定)。 */
     TArray<FString>    m_OwnedNames;
+
+    /** LoadAtlasJson が所有する atlas image path。 */
     FString            m_OwnedImagePath;
 };
 

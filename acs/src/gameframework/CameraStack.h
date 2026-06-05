@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E — FCameraStack (Phase 2)
+// GameFramework Pillar E — FCameraStack
 //
 // 複数 `FCamera2D` を **virtual camera スタック**として保持し、最上層 (= top) を
 // active として扱う Cinemachine 風スイッチャ。Push/Pop の遷移は **線形補間**で
@@ -31,7 +31,7 @@
 //       }
 //   };
 //
-// 設計選択 (Phase 2 = Pillar E Phase 2):
+// 設計選択 (Pillar E):
 //   ・**virtual camera スタック**: FCamera2D は user が own。FCameraStack は
 //     **non-owning pointer** だけを持つ。寿命管理は呼び出し側責任 (= Scene 内
 //     のメンバ変数として持つのが典型)。
@@ -55,12 +55,6 @@
 //     生かしておきたいケースは呼び出し側で個別 Tick すれば良い。
 //   ・**非コピー・非ムーブ**: 内部 TArray が non-owning ptr を持つだけだが、
 //     FSceneManager と同じく「state holder は move されない」方針で統一。
-//
-// 範囲外 (Phase 3+ で):
-//   ・blend カーブ指定 (現状 linear 固定。easing は user が dt 前に通せば良い)
-//   ・複数 camera の同時 blend (3 層以上を重みづけ合成)
-//   ・Cinemachine 級の priority queue / blend graph
-//   ・3D camera (Pillar E Phase 3 で Camera3D を別途定義予定)
 #pragma once
 
 #include "container/Array.h"
@@ -70,65 +64,171 @@
 
 namespace acs::game {
 
+/**
+ * 複数の FCamera2D を virtual camera スタックとして保持し、最上層を active とする切替器。
+ *
+ * @details
+ * Cinemachine 風スイッチャ。Push/Pop の遷移は直近 2 層を補間 (position/zoom/rotation) し、
+ * 描画側は Effective* アクセサで現在のカメラ値を取得する。zoom は対数補間、rotation は
+ * 最短角補間。FCamera2D は user が own し、本クラスは non-owning ポインタのみを最大 4 層持つ
+ * (非コピー・非ムーブ)。Tick は active な 2 層だけ FCamera2D::Tick を呼ぶ。
+ */
 class FCameraStack {
 public:
+    /** 空のスタックを構築する。 */
     FCameraStack() noexcept = default;
+
+    /** 破棄する (カメラ実体は所有しないので解放しない)。 */
     ~FCameraStack() noexcept = default;
 
+    /** コピー禁止 (state holder は move/copy されない方針)。 */
     FCameraStack(const FCameraStack&)            = delete;
+
+    /** コピー代入も禁止。 */
     FCameraStack& operator=(const FCameraStack&) = delete;
+
+    /** ムーブ禁止。 */
     FCameraStack(FCameraStack&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FCameraStack& operator=(FCameraStack&&)      = delete;
 
-    // ----- 遷移 -----
-    // `cam` を top に push し、`blend_duration` 秒かけて旧 top から線形補間する。
-    // `blend_duration <= 0` で即時切替。スタックが既に kMaxLayers なら警告し
-    // 無視する (= 同じカメラを 2 回 push しても重複登録される点に注意)。
+    /**
+     * カメラを top に push し、旧 top から補間しながら切り替える。
+     *
+     * @details blend_duration <= 0 で即時切替。スタックが既に kMaxLayers なら警告して無視する
+     * (= 同じカメラを 2 回 push しても重複登録される点に注意)。
+     * @param cam push する非所有カメラ。
+     * @param blend_duration 旧 top からの補間にかける秒数。
+     */
     void PushCamera(FCamera2D& cam, f32 blend_duration = 0.5f) noexcept;
 
-    // top を pop。`blend_duration` 秒かけて下層へフェードアウトしてから実際に
-    // 取り除く。スタックが 1 枚以下なら警告して無視 (= 完全に空にはしない)。
+    /**
+     * top を pop する。
+     *
+     * @details blend_duration 秒かけて下層へフェードアウトしてから実際に取り除く。
+     * スタックが 1 枚以下なら警告して無視する (= 完全に空にはしない)。
+     * @param blend_duration 下層へのフェードアウトにかける秒数。
+     */
     void PopCamera(f32 blend_duration = 0.5f) noexcept;
 
-    // ----- 状態取得 -----
-    FCamera2D* Active() const noexcept;          // 現在の top (= 最上層)。空なら nullptr。
+    /**
+     * 現在 active なカメラ (= 最上層) を返す。
+     *
+     * @return top のカメラ (空なら nullptr)。
+     */
+    FCamera2D* Active() const noexcept;
+
+    /**
+     * blend 中かどうかを返す。
+     *
+     * @return top が補間途中 (下層あり + blend_t < 1 + duration > 0) なら true。
+     */
     bool      IsBlending() const noexcept;
-    f32       BlendProgress() const noexcept;   // [0, 1]、非 blend 時は 1。
+
+    /**
+     * 現在の blend 進捗を返す。
+     *
+     * @return blend 進捗 [0, 1] (非 blend 時は 1)。
+     */
+    f32       BlendProgress() const noexcept;
+
+    /**
+     * スタックの深さ (積まれているカメラ数) を返す。
+     *
+     * @return スタック内のカメラ数。
+     */
     u32       Depth() const noexcept { return static_cast<u32>(m_Entries.Size()); }
+
+    /** スタックを空にする (全エントリを破棄)。 */
     void      Clear() noexcept;
 
-    // ----- 描画側が読む補間結果 -----
-    // active (= top) のカメラ値を、blend 中は「下層 (= 一つ下) との線形補間」
-    // した値で返す。zoom は対数補間、rotation は最短角補間 (wrap-around 補正)。
+    /**
+     * 描画に使う実 view center を返す。
+     *
+     * @details blend 中は下層との線形補間値。それ以外は top の EffectiveViewCenter。
+     * @return 補間後の view center (world 座標)。
+     */
     FVec2 EffectivePosition() const noexcept;
+
+    /**
+     * 描画に使う実 zoom を返す。
+     *
+     * @details blend 中は下層との対数補間値。それ以外は top の zoom。
+     * @return 補間後の zoom 倍率。
+     */
     f32  EffectiveZoom()     const noexcept;
+
+    /**
+     * 描画に使う実 rotation を返す。
+     *
+     * @details blend 中は下層との最短角補間値。それ以外は top の rotation。
+     * @return 補間後の回転角 (radians)。
+     */
     f32  EffectiveRotation() const noexcept;
 
-    // ----- driver -----
-    // blend timer 進行 + active な 2 層の FCamera2D::Tick 呼び出し。pop の
-    // blend が完了したフレームで実際に top を取り除く。
+    /**
+     * スタックを 1 フレーム進める。
+     *
+     * @details blend timer を進め、active な 2 層 (top と blend 中なら下層) の FCamera2D::Tick を
+     * 呼ぶ。pop の blend が完了したフレームで実際に top を取り除く。
+     * @param dt 経過秒 (負値は 0 にクランプ)。
+     */
     void Tick(f32 dt) noexcept;
 
-    // virtual camera の同時保持上限。深い積み重ねは想定外 (= 4 で十分)。
+    /** virtual camera の同時保持上限 (深い積み重ねは想定外なので 4)。 */
     static constexpr u32 kMaxLayers = 4;
 
 private:
+    /**
+     * スタックに積まれたカメラ 1 層分のエントリ (カメラ参照と blend 状態)。
+     */
     struct CameraEntry {
+        /** このエントリが指す非所有カメラ。 */
         FCamera2D* cam            = nullptr;
-        f32       blend_t        = 1.0f;   // 経過進捗 [0,1]。1 = blend 完了。
-        f32       blend_duration = 0.0f;   // <= 0 なら即時。
-        bool      is_in          = true;   // true = フェードイン (Push 起源)、
-                                            // false = フェードアウト (Pop 起源)。
+
+        /** blend の経過進捗 [0,1]。1 = blend 完了。 */
+        f32       blend_t        = 1.0f;
+
+        /** blend にかける秒数 (<= 0 なら即時)。 */
+        f32       blend_duration = 0.0f;
+
+        /** true = フェードイン (Push 起源)、false = フェードアウト (Pop 起源)。 */
+        bool      is_in          = true;
     };
 
-    // [0,1] の進捗で `a` と `b` を線形補間 (FVec2)。
+    /**
+     * 2 つの FVec2 を進捗 t で線形補間する。
+     *
+     * @param a 始点。
+     * @param b 終点。
+     * @param t 補間進捗 [0,1]。
+     * @return 補間後の FVec2。
+     */
     static FVec2 LerpVec2(FVec2 a, FVec2 b, f32 t) noexcept;
-    // zoom は exp(lerp(log(a), log(b), t)) (光学的に自然な中点)。
+
+    /**
+     * 2 つの zoom を対数空間で補間する (光学的に自然な中点)。
+     *
+     * @param a 始点 zoom。
+     * @param b 終点 zoom。
+     * @param t 補間進捗 [0,1]。
+     * @return exp(lerp(log(a), log(b), t))。入力は下限 0.001 にクランプ。
+     */
     static f32  LerpZoom(f32 a, f32 b, f32 t) noexcept;
-    // rotation は差分を [-π, π] に正規化してから lerp (最短角)。
+
+    /**
+     * 2 つの角度を最短角経路で補間する。
+     *
+     * @param a 始点角 (radians)。
+     * @param b 終点角 (radians)。
+     * @param t 補間進捗 [0,1]。
+     * @return 差分を [-π, π] に正規化してから lerp した角度。
+     */
     static f32  LerpAngle(f32 a, f32 b, f32 t) noexcept;
 
-    TArray<CameraEntry> m_Entries;   // m_Entries.Back() が top (= active)
+    /** カメラエントリの配列 (Back() が top = active)。 */
+    TArray<CameraEntry> m_Entries;
 };
 
 } // namespace acs::game

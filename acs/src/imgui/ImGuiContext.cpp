@@ -18,10 +18,12 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(
 
 namespace acs {
 
+/** Shutdown を呼んで backend とコンテキストを破棄する。 */
 ImGuiCtx::~ImGuiCtx() noexcept {
     Shutdown();
 }
 
+/** ImGui コンテキストと Win32/DX12 backend を初期化する。 */
 TResult<void> ImGuiCtx::Init(FWindow& window, FRenderer& renderer) noexcept {
     m_Window = &window;
     m_Renderer = &renderer;
@@ -80,6 +82,7 @@ TResult<void> ImGuiCtx::Init(FWindow& window, FRenderer& renderer) noexcept {
     return Ok();
 }
 
+/** DX12/Win32 backend と ImGui コンテキスト・SRV ヒープを解放する。 */
 void ImGuiCtx::Shutdown() noexcept {
     if (!m_Initialized) return;
     ImGui_ImplDX12_Shutdown();
@@ -92,6 +95,7 @@ void ImGuiCtx::Shutdown() noexcept {
     m_Initialized = false;
 }
 
+/** 新しい ImGui フレームを開始する。 */
 void ImGuiCtx::NewFrame() noexcept {
     if (!m_Initialized) return;
     ImGui_ImplDX12_NewFrame();
@@ -99,6 +103,7 @@ void ImGuiCtx::NewFrame() noexcept {
     ImGui::NewFrame();
 }
 
+/** 構築済み ImGui の描画コマンドを現在のコマンドリストへ発行する。 */
 void ImGuiCtx::Render() noexcept {
     if (!m_Initialized || !m_Renderer) return;
     ImGui::Render();
@@ -118,7 +123,7 @@ void ImGuiCtx::Render() noexcept {
     ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), cmd_list);
 }
 
-// FWindow のイベントを ImGui に転送（FApplication::OnEvent から呼ぶ）
+/** ウィンドウイベントを ImGui の IO に転送する。 */
 void ImGuiCtx::OnEvent(const Event& e) noexcept {
     if (!m_Initialized || !m_Window) return;
     // ImGui の Win32 backend は WndProc 経由でメッセージを受け取る設計。

@@ -11,7 +11,13 @@ namespace acs {
 
 namespace {
 
-// EFormat のピクセルあたりバイト数（簡易）
+/**
+ * EFormat 1 ピクセルあたりのバイト数を返す (簡易テーブル)。
+ *
+ * @details 初期データのアップロード時に行ピッチを計算するのに使う。
+ * @param f 問い合わせるピクセルフォーマット。
+ * @return 1 ピクセルのバイト数 (未知フォーマットは 0)。
+ */
 u32 BytesPerPixel(EFormat f) noexcept {
     switch (f) {
         case EFormat::R8G8B8A8_UNorm:
@@ -31,6 +37,7 @@ u32 BytesPerPixel(EFormat f) noexcept {
 
 } // namespace
 
+/** 割り当て済みの SRV/DSV/RTV スロットを解放しリソースを Release する。 */
 Dx12Texture::~Dx12Texture() noexcept {
     if (m_Device) {
         if (m_SrvSlot >= 0) m_Device->FreeSrvSlot(m_SrvSlot);
@@ -44,6 +51,7 @@ Dx12Texture::~Dx12Texture() noexcept {
     ACS_SAFE_RELEASE(m_Resource);
 }
 
+/** desc に従って DX12 リソースと SRV/DSV/RTV を生成する (詳細はヘッダ参照)。 */
 HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcept {
     HrResult r{};
     m_Device = &device;
@@ -101,7 +109,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         }
     }
 
-    // ===== 1. DEFAULT ヒープにテクスチャを作成 =====
+    // 1. DEFAULT ヒープにテクスチャを作成
     D3D12_RESOURCE_DESC td{};
     td.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     td.Alignment = 0;
@@ -156,7 +164,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         return r;
     }
 
-    // ===== 1b. 深度バッファの DSV + （任意）SRV =====
+    // 1b. 深度バッファの DSV + （任意）SRV
     if (desc.is_depth_target) {
         m_DsvSlot = device.AllocateDsvSlot();
         if (m_DsvSlot < 0) { r.hr = E_OUTOFMEMORY; return r; }
@@ -182,7 +190,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         return r;
     }
 
-    // ===== 2. 初期データがあれば UPLOAD ヒープ経由でコピー =====
+    // 2. 初期データがあれば UPLOAD ヒープ経由でコピー
     if (desc.initial_data && desc.initial_data_size > 0) {
         ID3D12Device* dev = device.D3DDevice();
 
@@ -259,7 +267,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         }
         upload->Unmap(0, nullptr);
 
-        // ===== 3. コマンドリストを単発で作って upload → default をコピー =====
+        // 3. コマンドリストを単発で作って upload → default をコピー
         ID3D12CommandAllocator* alloc = nullptr;
         r.hr = dev->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc));
         if (r.IsErr()) { upload->Release(); return r; }
@@ -299,7 +307,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         upload->Release();
     }
 
-    // ===== 4. SRV ヒープに SRV を作成 =====
+    // 4. SRV ヒープに SRV を作成
     m_SrvSlot = device.AllocateSrvSlot();
     if (m_SrvSlot < 0) { ACS_LOG_ERROR("Dx12Texture: SRV slot exhausted"); r.hr = E_OUTOFMEMORY; return r; }
     m_CurrentState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
@@ -328,7 +336,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     device.D3DDevice()->CreateShaderResourceView(
         m_Resource, &srv, device.SrvCpuHandle(m_SrvSlot));
 
-    // ===== 5. オフスクリーン RT は RTV も作成 (BeginRenderToTexture(Slice) 用) =====
+    // 5. オフスクリーン RT は RTV も作成 (BeginRenderToTexture(Slice) 用)
     if (desc.is_render_target) {
         if (desc.per_slice_rtv) {
             // array_size * mip_levels 個の per-slice RTV を作成 (cube face / 配列スライス / mip
@@ -336,7 +344,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
             // RtvCpuHandleForSlice() がこの順に引く。
             for (u32 s = 0; s < m_ArraySize; ++s) {
                 for (u32 mip = 0; mip < m_MipLevels; ++mip) {
-                    i32 slot = device.AllocateRtvSlot();
+                    const i32 slot = device.AllocateRtvSlot();
                     if (slot < 0) {
                         ACS_LOG_ERROR("Dx12Texture: per-slice RTV slot 枯渇 (slice=%u mip=%u)", s, mip);
                         r.hr = E_OUTOFMEMORY; return r;
@@ -354,7 +362,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
                 }
             }
         } else {
-            i32 slot = device.AllocateRtvSlot();
+            const i32 slot = device.AllocateRtvSlot();
             if (slot < 0) { ACS_LOG_ERROR("Dx12Texture: RTV slot exhausted"); r.hr = E_OUTOFMEMORY; return r; }
             D3D12_RENDER_TARGET_VIEW_DESC rtv{};
             rtv.Format = typed_fmt;
@@ -377,11 +385,13 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     return r;
 }
 
+/** 先頭 (slice0/mip0) の RTV CPU ハンドルを返す。 */
 D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::RtvCpuHandle() const noexcept {
     if (!m_Device || m_RtvSlots.IsEmpty()) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
     return m_Device->RtvCpuHandle(m_RtvSlots[0]);
 }
 
+/** index = slice*mip_levels + mip の per-slice RTV CPU ハンドルを返す。 */
 D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::RtvCpuHandleForSlice(u32 slice, u32 mip) const noexcept {
     if (!m_Device) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
     const usize idx = static_cast<usize>(slice) * m_MipLevels + mip;
@@ -389,16 +399,27 @@ D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::RtvCpuHandleForSlice(u32 slice, u32 mip
     return m_Device->RtvCpuHandle(m_RtvSlots[idx]);
 }
 
+/** SRV の GPU ディスクリプタハンドルを返す。 */
 D3D12_GPU_DESCRIPTOR_HANDLE Dx12Texture::SrvGpuHandle() const noexcept {
     return m_Device ? m_Device->SrvGpuHandle(m_SrvSlot) : D3D12_GPU_DESCRIPTOR_HANDLE{0};
 }
 
+/** DSV の CPU ディスクリプタハンドルを返す。 */
 D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::DsvCpuHandle() const noexcept {
     return m_Device ? m_Device->DsvCpuHandle(m_DsvSlot) : D3D12_CPU_DESCRIPTOR_HANDLE{0};
 }
 
-// ファクトリ（Diligent バックエンドが有効化されている場合は Diligent 側に譲る）
 #if !WITH_RENDER_DILIGENT
+/**
+ * RHI テクスチャを生成するファクトリ (DX12 バックエンド版)。
+ *
+ * @details
+ * Diligent バックエンドが有効なときは Diligent 側の実装に譲るため、この定義は
+ * WITH_RENDER_DILIGENT が無効なときのみ有効。device が DX12 でない場合はエラーを返す。
+ * @param device テクスチャを生成する RHI デバイス (DX12 でなければエラー)。
+ * @param desc 生成するテクスチャの記述。
+ * @return 成功なら IRhiTexture を所有する TUniquePtr、失敗ならエラー。
+ */
 TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
                                                 const FTextureDesc& desc) noexcept {
     const char* bn = device.BackendName();
@@ -406,7 +427,7 @@ TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
         return ACS_ERR(Render, 70, "CreateRhiTexture: device is not DX12");
     Dx12Device* dxd = static_cast<Dx12Device*>(&device);
     auto t = MakeUnique<Dx12Texture>();
-    HrResult r = t->Init(*dxd, desc);
+    const HrResult r = t->Init(*dxd, desc);
     if (r.IsErr())
         return ACS_ERR_OS(Render, 71, "Dx12Texture::Init failed", static_cast<u32>(r.hr));
     TUniquePtr<IRhiTexture> base(t.Release(), t.GetAllocator());

@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
 // ACS Container — FJson 実装 (recursive-descent パーサ)
-// =============================================================================
 #include "container/Json.h"
 #include "foundation/Error.h"
 
@@ -12,33 +10,56 @@
 namespace acs {
 
 namespace {
-// パースエラーメッセージは thread_local バッファに置く (ParseJson の戻り FErrorCode
-// が指すため、Parser ローカルだと dangling する — review 指摘)。寿命は「同スレッドで
-// 次に ParseJson を呼ぶまで」。codebase の reason ポインタ規約と同じ。
+/**
+ * パースエラーメッセージ用 thread_local バッファ。
+ *
+ * @details ParseJson の戻り FErrorCode がこのバッファを指すため、Parser ローカルだと
+ * dangling する (review 指摘)。寿命は「同スレッドで次に ParseJson を呼ぶまで」。
+ */
 thread_local char g_JsonErrBuf[160] = {0};
 
-// ロケール非依存の数値変換用 C ロケール (小数点は常に '.')。strtod は LC_NUMERIC に
-// 依存し、',' 小数点ロケールでは JSON の "1.5" を誤読するため _strtod_l を使う。
+/**
+ * ロケール非依存の数値変換用 C ロケールを返す (小数点は常に '.')。
+ *
+ * @details strtod は LC_NUMERIC に依存し ',' 小数点ロケールでは JSON の "1.5" を誤読
+ * するため _strtod_l に渡す C ロケールを 1 度だけ生成して使い回す。
+ * @return C ロケールハンドル (生成失敗時は NULL になり得る)。
+ */
 _locale_t JsonCLocale() noexcept {
     static const _locale_t s_loc = ::_create_locale(LC_ALL, "C");
     return s_loc;
 }
 } // namespace
 
-// 共有の静的 Null 値 (At/Get が miss したとき返す。const なので安全)。
+/**
+ * At/Get が miss したとき返す共有の静的 Null 値を返す。
+ *
+ * @return const な静的 Null 値への参照 (chain アクセス用)。
+ */
 static const FJsonValue& NullValue() noexcept {
     static const FJsonValue s_null;
     return s_null;
 }
 
-// ---- FJsonValue メソッド ---------------------------------------------------
-
 // 特殊メンバは complete-type の本 TU で定義 (再帰所有のため)。
+
+/** 空の Null 値を構築する。 */
 FJsonValue::FJsonValue() noexcept = default;
+
+/** 子要素ごと破棄する。 */
 FJsonValue::~FJsonValue() noexcept = default;
+
+/** ムーブ構築する (子の所有権を奪う)。 */
 FJsonValue::FJsonValue(FJsonValue&&) noexcept = default;
+
+/** ムーブ代入する (子の所有権を奪う)。 */
 FJsonValue& FJsonValue::operator=(FJsonValue&&) noexcept = default;
 
+/**
+ * 値を種別 t にリセットしてスカラ・子をすべてクリアする。
+ *
+ * @param t リセット後の種別。
+ */
 void FJsonValue::Reset(EJsonType t) noexcept {
     m_Type = t;
     m_Bool = false;
@@ -48,6 +69,12 @@ void FJsonValue::Reset(EJsonType t) noexcept {
     m_Keys.Clear();
 }
 
+/**
+ * 数値を i64 で取り出す (型不一致なら def、NaN は def、範囲外は端値に clamp)。
+ *
+ * @param def 型不一致時の既定値。
+ * @return i64 値または def。
+ */
 i64 FJsonValue::AsInt(i64 def) const noexcept {
     if (m_Type != EJsonType::Number) return def;
     const f64 n = m_Number;
@@ -57,6 +84,12 @@ i64 FJsonValue::AsInt(i64 def) const noexcept {
     return static_cast<i64>(n);
 }
 
+/**
+ * 数値を u32 で取り出す (型不一致なら def、NaN は def、範囲外は clamp)。
+ *
+ * @param def 型不一致時の既定値。
+ * @return u32 値または def。
+ */
 u32 FJsonValue::AsU32(u32 def) const noexcept {
     if (m_Type != EJsonType::Number) return def;
     const f64 n = m_Number;
@@ -66,12 +99,29 @@ u32 FJsonValue::AsU32(u32 def) const noexcept {
     return static_cast<u32>(n);
 }
 
+/**
+ * 配列/オブジェクトの子要素数を返す。
+ *
+ * @return m_Elems の要素数。
+ */
 u32 FJsonValue::Size() const noexcept { return static_cast<u32>(m_Elems.Size()); }
 
+/**
+ * 配列要素を index で取得する (範囲外は静的 Null 値)。
+ *
+ * @param i 要素インデックス。
+ * @return i 番目の要素、または静的 Null 値。
+ */
 const FJsonValue& FJsonValue::At(u32 i) const noexcept {
     return (i < m_Elems.Size()) ? m_Elems[i] : NullValue();
 }
 
+/**
+ * オブジェクトメンバを key で線形検索する。
+ *
+ * @param key 探すキー (NUL 終端文字列)。
+ * @return 見つかれば値ポインタ、存在しない / 非オブジェクトなら nullptr。
+ */
 const FJsonValue* FJsonValue::Find(const char* key) const noexcept {
     if (m_Type != EJsonType::Object || key == nullptr) return nullptr;
     const FStringView want(key);
@@ -81,25 +131,53 @@ const FJsonValue* FJsonValue::Find(const char* key) const noexcept {
     return nullptr;
 }
 
+/**
+ * オブジェクトメンバを key で取得する (miss 時は静的 Null 値で chain 安全)。
+ *
+ * @param key 探すキー (NUL 終端文字列)。
+ * @return 対応する値、または静的 Null 値。
+ */
 const FJsonValue& FJsonValue::Get(const char* key) const noexcept {
     const FJsonValue* v = Find(key);
     return v ? *v : NullValue();
 }
 
+/**
+ * オブジェクトのメンバ数を返す (非 Object なら 0)。
+ *
+ * @return メンバ数。
+ */
 u32 FJsonValue::MemberCount() const noexcept {
     return m_Type == EJsonType::Object ? static_cast<u32>(m_Elems.Size()) : 0;
 }
 
+/**
+ * i 番目メンバの key を返す (非 Object / 範囲外は空 view)。
+ *
+ * @param i メンバインデックス。
+ * @return key のビュー、または空 view。
+ */
 FStringView FJsonValue::MemberKey(u32 i) const noexcept {
     if (m_Type != EJsonType::Object || i >= m_Keys.Size()) return FStringView{};
     return m_Keys[i].View();
 }
 
+/**
+ * Array に空要素を追加してその参照を返す。
+ *
+ * @return 追加した空要素への参照。
+ */
 FJsonValue& FJsonValue::_PushArrayElem() noexcept {
     m_Elems.PushBack(FJsonValue{});
     return m_Elems[m_Elems.Size() - 1];
 }
 
+/**
+ * Object に key を追加し、対応する value への参照を返す。
+ *
+ * @param key 追加するメンバ key (内容をコピーする)。
+ * @return 追加した value への参照。
+ */
 FJsonValue& FJsonValue::_AddMember(FStringView key) noexcept {
     FString k;
     k.Append(key);
@@ -108,31 +186,70 @@ FJsonValue& FJsonValue::_AddMember(FStringView key) noexcept {
     return m_Elems[m_Elems.Size() - 1];
 }
 
-// ---- パーサ ----------------------------------------------------------------
-
 namespace {
 
-constexpr u32 kMaxDepth = 256;   // nesting 上限 (stack overflow / DoS 防御)
+/** nesting の上限 (stack overflow / DoS 防御)。 */
+constexpr u32 kMaxDepth = 256;
 
+/**
+ * recursive-descent JSON パーサの状態 (カーソル + 行・列 + エラー)。
+ *
+ * @details 入力範囲 [p, end) を走査し、行・列を追跡しながら値を組み立てる。
+ * 最初のエラーだけを err_sub と g_JsonErrBuf に保持する。
+ */
 struct Parser {
+    /** 現在の読み取り位置。 */
     const char* p;
+
+    /** 入力末尾の次を指すポインタ。 */
     const char* end;
+
+    /** 現在行 (1 始まり、エラーメッセージ用)。 */
     u32 line = 1;
+
+    /** 現在列 (1 始まり、エラーメッセージ用)。 */
     u32 col  = 1;
+
+    /** 最初に発生したエラーの subcode (0 = エラーなし)。 */
     u16 err_sub = 0;
 
+    /**
+     * 入力テキストからパーサを構築する。
+     *
+     * @param text 入力 JSON テキスト。
+     * @param len text のバイト長。
+     */
     explicit Parser(const char* text, usize len) noexcept
         : p(text), end(text + len) {}
 
+    /**
+     * 入力終端に達したかを返す。
+     *
+     * @return p が end 以上なら true。
+     */
     bool AtEnd() const noexcept { return p >= end; }
+
+    /**
+     * 現在文字を覗き見る (終端なら '\0')。
+     *
+     * @return 現在位置の文字、終端なら '\0'。
+     */
     char Peek() const noexcept { return p < end ? *p : '\0'; }
 
+    /** カーソルを 1 文字進める (改行で行・列を更新)。 */
     void Advance() noexcept {
         if (p >= end) return;
         if (*p == '\n') { ++line; col = 1; } else { ++col; }
         ++p;
     }
 
+    /**
+     * パースエラーを記録する (最初の 1 件のみ保持)。
+     *
+     * @details メッセージを thread_local バッファへ行・列付きで整形する。
+     * @param sub error subcode。
+     * @param msg エラー内容を表す短い文字列。
+     */
     void Fail(u16 sub, const char* msg) noexcept {
         if (err_sub != 0) return;   // 最初のエラーを保持
         err_sub = sub;
@@ -142,6 +259,7 @@ struct Parser {
                       "JSON %s (line %u, col %u)", msg, line, col);
     }
 
+    /** 空白文字 (スペース/タブ/CR/LF) を読み飛ばす。 */
     void SkipWs() noexcept {
         while (p < end) {
             const char c = *p;
@@ -150,7 +268,12 @@ struct Parser {
         }
     }
 
-    // UTF-8 1 コードポイント追記 (FString へ)。
+    /**
+     * コードポイントを UTF-8 にエンコードして FString へ追記する。
+     *
+     * @param out 追記先の文字列。
+     * @param cp Unicode コードポイント。
+     */
     static void AppendUtf8(FString& out, u32 cp) noexcept {
         char b[4];
         if (cp <= 0x7F) {
@@ -174,7 +297,12 @@ struct Parser {
         }
     }
 
-    // 16 進 4 桁を読む。失敗で false。
+    /**
+     * 16 進 4 桁を読み取る (\u エスケープ用)。
+     *
+     * @param out 読み取った値の出力先。
+     * @return 4 桁とも読めたら true、途中終端 / 不正桁なら false。
+     */
     bool ReadHex4(u32& out) noexcept {
         out = 0;
         for (int i = 0; i < 4; ++i) {
@@ -191,7 +319,14 @@ struct Parser {
         return true;
     }
 
-    // 文字列を読む (開き '"' は呼出側が消費済み)。out へ。
+    /**
+     * 文字列本体を読み取る (開き '"' は呼出側が消費済み)。
+     *
+     * @details エスケープ \" \\ \/ \b \f \n \r \t \uXXXX (サロゲートペア対応) をデコード
+     * する。制御文字や未終端はエラー。
+     * @param out デコード結果の出力先。
+     * @return 閉じ '"' まで読めたら true、エラーなら false。
+     */
     bool ParseString(FString& out) noexcept {
         out.Clear();
         while (true) {
@@ -246,9 +381,16 @@ struct Parser {
         }
     }
 
-    // 数値を読む。token 範囲を切り出し strtod。
+    /**
+     * 数値トークンを読み取って f64 に変換する。
+     *
+     * @details token 範囲を切り出し NUL 終端バッファへ写してロケール非依存の strtod で
+     * 変換する。形式不正や 63 文字超過はエラー。
+     * @param out 変換結果の出力先。
+     * @return 変換できたら true、エラーなら false。
+     */
     bool ParseNumber(f64& out) noexcept {
-        const char* start = p;
+        const char* const start = p;
         if (Peek() == '-') Advance();
         if (Peek() == '0') { Advance(); }
         else if (Peek() >= '1' && Peek() <= '9') { while (Peek() >= '0' && Peek() <= '9') Advance(); }
@@ -280,6 +422,15 @@ struct Parser {
         return true;
     }
 
+    /**
+     * 任意の JSON 値を 1 つパースする (型を先読みして分岐)。
+     *
+     * @details depth で nesting を追跡し kMaxDepth 超過でエラー。object/array/string/
+     * true/false/null/number を判別して対応するパーサへ振り分ける。
+     * @param out パース結果の出力先。
+     * @param depth 現在の nesting 深さ。
+     * @return 成功なら true、エラーなら false。
+     */
     bool ParseValue(FJsonValue& out, u32 depth) noexcept {
         if (depth > kMaxDepth) { Fail(kSubJsonDepth, "nesting too deep"); return false; }
         SkipWs();
@@ -316,6 +467,13 @@ struct Parser {
         }
     }
 
+    /**
+     * 配列 '[ ... ]' をパースする (開き '[' は呼出側で確認済み)。
+     *
+     * @param out 結果を格納する Array 値。
+     * @param depth 現在の nesting 深さ。
+     * @return 成功なら true、エラーなら false。
+     */
     bool ParseArray(FJsonValue& out, u32 depth) noexcept {
         Advance();   // '['
         out._MakeArray();
@@ -333,6 +491,13 @@ struct Parser {
         }
     }
 
+    /**
+     * オブジェクト '{ ... }' をパースする (開き '{' は呼出側で確認済み)。
+     *
+     * @param out 結果を格納する Object 値。
+     * @param depth 現在の nesting 深さ。
+     * @return 成功なら true、エラーなら false。
+     */
     bool ParseObject(FJsonValue& out, u32 depth) noexcept {
         Advance();   // '{'
         out._MakeObject();
@@ -361,6 +526,15 @@ struct Parser {
 
 } // namespace
 
+/**
+ * JSON テキストをパースして DOM を返す。
+ *
+ * @details 空入力・パース失敗・ルート値後のゴミをそれぞれ subcode 付きエラーで返す。
+ * 成功時は root 値をムーブして返す。
+ * @param text 入力 JSON テキスト。
+ * @param len text のバイト長。
+ * @return 成功なら root 値、失敗なら line/col 付きエラー。
+ */
 TResult<FJsonValue> ParseJson(const char* text, usize len) noexcept {
     if (text == nullptr || len == 0) {
         return ACS_ERR(Generic, kSubJsonEof, "JSON: empty input");

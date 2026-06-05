@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L Phase 3 — FPerception (NPC sight / hearing sense)
+// GameFramework Pillar L — FPerception (NPC sight / hearing sense)
 //
 // NPC が複数 target (player / 他の NPC / 音源等) を「視覚」「聴覚」で
 // 検知できるかを判定するための最小モジュール。FBehaviorTree の leaf や
@@ -17,7 +17,7 @@
 // 聴覚判定 (hearing):
 //     distance(eye, target) <= hearing_range
 //
-//   ・障害物無視 (壁ごしも聞こえる)。raycast による occlusion は Phase 2 で導入。
+//   ・障害物無視 (壁ごしも聞こえる)。raycast による occlusion は未対応。
 //   ・視野角に依存しない 360 度判定。
 //
 // 設計選択:
@@ -52,91 +52,187 @@
 
 namespace acs::game {
 
-// NPC の感覚パラメータ。
-//   sight_range   : 視認距離の上限 (m, world unit)。0 以下なら誰も見えない。
-//   sight_fov_rad : 視野角 (radian, 全幅)。例: 90 度なら kPi/2 を渡す。
-//                   実際の判定は cos(fov/2) との dot 比較。
-//   hearing_range : 聴取距離の上限。0 以下なら何も聞こえない。
+/**
+ * NPC の感覚パラメータ (視覚・聴覚の到達範囲と視野角)。
+ *
+ * @details 視覚判定は距離フィルタ (sight_range) と視野角フィルタ (cos(fov/2) との dot 比較)
+ *          の両方、聴覚判定は距離フィルタ (hearing_range) のみで行う。
+ */
 struct SenseConfig {
+    /** 視認距離の上限 (m, world unit)。0 以下なら誰も見えない。 */
     f32 sight_range   = 0.0f;
+
+    /** 視野角 (radian, 全幅)。例: 90 度なら kPi/2 を渡す。判定は cos(fov/2) との dot 比較。 */
     f32 sight_fov_rad = 0.0f;
+
+    /** 聴取距離の上限。0 以下なら何も聞こえない。 */
     f32 hearing_range = 0.0f;
 };
 
-// 知覚対象 1 件。pos / id は外部から与え、is_visible / is_audible は
-// Tick が更新する出力スロット。
+/**
+ * 知覚対象 1 件。
+ *
+ * @details pos / id は外部から与え、is_visible / is_audible は Tick が更新する出力スロット。
+ */
 struct PerceptionTarget {
+    /** target のワールド座標。 */
     FVec2 pos        = FVec2::Zero();
+
+    /** target を識別する ID。 */
     u32  id         = 0;
+
+    /** 前回 Tick 時点で視認可能だったか (Tick が更新)。 */
     bool is_visible = false;
+
+    /** 前回 Tick 時点で聴取可能だったか (Tick が更新)。 */
     bool is_audible = false;
 };
 
-// NPC 1 体ぶんの知覚状態。eye 位置 / forward / config と、複数 target を保持。
-// Tick で全 target の visible/audible フラグを再計算する。
+/**
+ * NPC 1 体ぶんの視覚 / 聴覚知覚を管理するモジュール。
+ *
+ * @details
+ * eye 位置 / forward / config と複数 target を保持し、Tick で全 target の visible/audible
+ * フラグを再計算する。FBehaviorTree の leaf や blackboard の値ソースとして使う想定。
+ * target は線形管理 (N が小さい想定)、cos(fov/2) は SetConfig でキャッシュする。Scene/Actor
+ * のメンバとして固定位置に置く想定で非コピー・非ムーブ。
+ */
 class FPerception {
 public:
+    /** 空状態 (config なし、target なし、forward = +X) で構築する。 */
     FPerception() noexcept = default;
+
+    /** 破棄する。 */
     ~FPerception() noexcept = default;
 
+    /** コピー禁止 (固定位置に置く state holder のため)。 */
     FPerception(const FPerception&)            = delete;
+
+    /** コピー代入も禁止。 */
     FPerception& operator=(const FPerception&) = delete;
+
+    /** ムーブ禁止。 */
     FPerception(FPerception&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FPerception& operator=(FPerception&&)      = delete;
 
-    // 感覚パラメータを差し替える。cos(fov/2) もここでキャッシュする。
-    // 既存 target の visible/audible フラグは次の Tick まで変化しない (現値保持)。
+    /**
+     * 感覚パラメータを差し替える。
+     *
+     * @details
+     * cos(fov/2) をここでキャッシュし、Tick の hot path に Cos を入れない。既存 target の
+     * visible/audible フラグは次の Tick まで変化しない (現値保持)。
+     * @param cfg 適用する感覚パラメータ。
+     */
     void SetConfig(const SenseConfig& cfg) noexcept;
 
-    // eye 位置と forward ベクトル (正規化済み前提) を更新する。
-    // forward が長さ 0 だった場合は (1, 0) にフォールバックする。
+    /**
+     * eye 位置と forward ベクトルを更新する。
+     *
+     * @details forward が長さ 0 だった場合は (1, 0) にフォールバックする。
+     * @param pos 新しい eye のワールド座標。
+     * @param forward 視線方向 (正規化済み前提、長さ 0 なら +X に置換)。
+     */
     void SetEyePos(FVec2 pos, FVec2 forward) noexcept;
 
-    // 新規 target を追加。同じ id が既に存在する場合は pos を更新するだけ
-    // (UpdateTarget と同じ振る舞いで、重複追加を防ぐ)。
+    /**
+     * 新規 target を追加する。
+     *
+     * @details 同じ id が既に存在する場合は pos を更新するだけ (UpdateTarget と同じ振る舞い)。
+     * @param id 追加する target の ID。
+     * @param pos target のワールド座標。
+     */
     void AddTarget(u32 id, FVec2 pos) noexcept;
 
-    // 指定 id の target を削除。存在しなければ no-op。順序は保持されない。
+    /**
+     * 指定 id の target を削除する。
+     *
+     * @details 存在しなければ no-op。順序非保証の高速削除のため順序は保持されない。
+     * @param id 削除する target の ID。
+     */
     void RemoveTarget(u32 id) noexcept;
 
-    // 指定 id の target 位置を更新。存在しなければ no-op
-    // (= AddTarget せず静かに無視。AI が削除済み target を参照するケースの想定)。
+    /**
+     * 指定 id の target 位置を更新する。
+     *
+     * @details 存在しなければ no-op (AddTarget せず静かに無視。削除済み target 参照の想定)。
+     * @param id 更新する target の ID。
+     * @param pos 新しいワールド座標。
+     */
     void UpdateTarget(u32 id, FVec2 pos) noexcept;
 
-    // 指定 id の target が前回 Tick 時点で visible/audible だったか。
-    // 存在しなければ false。
+    /**
+     * 指定 id の target が前回 Tick 時点で視認可能だったかを返す。
+     *
+     * @param id 問い合わせる target の ID。
+     * @return 視認可能なら true。存在しなければ false。
+     */
     bool IsTargetVisible(u32 id) const noexcept;
+
+    /**
+     * 指定 id の target が前回 Tick 時点で聴取可能だったかを返す。
+     *
+     * @param id 問い合わせる target の ID。
+     * @return 聴取可能なら true。存在しなければ false。
+     */
     bool IsTargetAudible(u32 id) const noexcept;
 
-    // 現在登録されている target 数。
+    /**
+     * 現在登録されている target 数を返す。
+     *
+     * @return target 件数。
+     */
     u32 TargetCount() const noexcept;
 
-    // 全 target 配列への読み取り専用ポインタ。out_count に件数を書き込む。
-    // 戻り値は内部バッファ — 次の Add/Remove/Update 呼び出しで invalidate される。
+    /**
+     * 全 target 配列への読み取り専用ポインタを返す。
+     *
+     * @details 戻り値は内部バッファで、次の Add/Remove/Update 呼び出しで invalidate される。
+     * @param out_count target 件数を書き込む出力先。
+     * @return target 配列の先頭ポインタ (空のときの扱いは TArray::Data に従う)。
+     */
     const PerceptionTarget* AllTargets(u32& out_count) const noexcept;
 
-    // 1 フレームぶんの知覚再計算。全 target の is_visible / is_audible を
-    // 現在の eye / forward / config に基づいて更新する。
-    // dt は将来の「視認までの遅延 (perception delay)」用に予約。本実装では未使用。
+    /**
+     * 1 フレームぶんの知覚を再計算する。
+     *
+     * @details
+     * 全 target の is_visible / is_audible を現在の eye / forward / config に基づいて更新する。
+     * 聴覚は距離のみ、視覚は距離 + 視野角で判定する。距離 0 の target は無条件 visible。
+     * @param dt 将来の perception delay 用に予約された経過秒 (本実装では未使用)。
+     */
     void Tick(f32 dt) noexcept;
 
-    // 全 target を削除 (config / eye 状態は保持)。
+    /**
+     * 全 target を削除する。
+     *
+     * @details config / eye 状態は保持する (再利用時の利便性)。
+     */
     void ClearAll() noexcept;
 
 private:
-    // id から target の配列インデックスを線形検索。
-    // 見つからなければ m_Targets.Size() を返す (= "not found" の番兵)。
+    /**
+     * id から target の配列インデックスを線形検索する。
+     *
+     * @param id 探す target の ID。
+     * @return 一致する index。見つからなければ m_Targets.Size() (not-found の番兵)。
+     */
     usize FindIndexById(u32 id) const noexcept;
 
-    // ---- 設定 ----
+    /** 現在の感覚パラメータ。 */
     SenseConfig m_Cfg            = {};
-    f32         m_CosHalfFov   = 1.0f;   // SetConfig でキャッシュ (= cos(fov/2))
 
-    // ---- eye 状態 ----
+    /** SetConfig でキャッシュした cos(fov/2) (視野角判定の閾値)。 */
+    f32         m_CosHalfFov   = 1.0f;
+
+    /** eye のワールド座標。 */
     FVec2        m_EyePos        = FVec2::Zero();
-    FVec2        m_EyeForward    = FVec2{1.0f, 0.0f};   // 既定 +X
 
-    // ---- target ----
+    /** eye の視線方向 (正規化済み、既定 +X)。 */
+    FVec2        m_EyeForward    = FVec2{1.0f, 0.0f};
+
+    /** 知覚対象の配列 (線形管理)。 */
     TArray<PerceptionTarget> m_Targets;
 };
 

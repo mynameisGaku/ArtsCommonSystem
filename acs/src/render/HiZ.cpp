@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Hi-Z 実装 (Phase 36-3a)
+// Hi-Z 実装
 #include "render/HiZ.h"
 #include "foundation/Move.h"
 #include "foundation/Log.h"

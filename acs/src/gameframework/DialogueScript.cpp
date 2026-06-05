@@ -30,17 +30,22 @@ namespace acs::game {
 
 namespace {
 
-// ラベル名比較 (両方 nullptr は match とは扱わない)。
+/**
+ * ラベル名を比較する (両方 nullptr は match とは扱わない)。
+ *
+ * @param a 比較対象の文字列 (nullptr 可)。
+ * @param b 比較対象の文字列 (nullptr 可)。
+ * @return 両方非 nullptr かつ内容一致なら true。
+ */
 inline bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     return ::strcmp(a, b) == 0;
 }
 
+/** ラベル未解決を表す番兵 index。 */
 constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 
 } // namespace
-
-// ===== public =====
 
 void FDialogueScript::Init() noexcept {
     m_CurrentChoices.Clear();
@@ -202,8 +207,6 @@ void FDialogueScript::Tick(f32 dt) noexcept {
     }
 }
 
-// ----- callback 登録 -----
-
 void FDialogueScript::SetOnSayCallback(SayCallback cb, void* user) noexcept {
     m_SayCb = cb; m_SayUser = user;
 }
@@ -231,8 +234,6 @@ void FDialogueScript::SetOnChoicePresentCallback(ChoicePresentCallback cb, void*
 void FDialogueScript::SetOnEndCallback(EndCallback cb, void* user) noexcept {
     m_EndCb = cb; m_EndUser = user;
 }
-
-// ===== private =====
 
 u32 FDialogueScript::ResolveLabel(const char* label) const noexcept {
     if (label == nullptr) return kInvalidIndex;

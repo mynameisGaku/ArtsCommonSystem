@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — btedit / FBehaviorTreeEditorPanel (Phase 22)
+// GameFramework Pillar — btedit / FBehaviorTreeEditorPanel
 //
 // `gameframework/FBehaviorTree.h` (Pillar L) の BT を **可視化 + ライブデバッグ**
 // するための ImGui パネル。Unity の Behavior Designer / Unreal の Behavior Tree
-// Editor の `Debugger` モードに相当する役割を担う。Phase 22 では v1 = "visualize
-// + step debug" にスコープを絞り、ノードのグラフ編集 (drag drop で
-// composite に子追加 / 配置入替) は v2 (将来) で対応する。
+// Editor の `Debugger` モードに相当する役割を担う。スコープは "visualize
+// + step debug" に絞り、ノードのグラフ編集 (drag drop で
+// composite に子追加 / 配置入替) は範囲外。
 //
 // 役割分担:
 //   ・本パネルは「**実行中の BT を観察する**」のが第一責務。FBehaviorTree 本体は
@@ -26,8 +26,8 @@
 //     tick 関数を登録し、そちらが `tree->Tick(my_bb, dt)` を呼ぶ。callback 登録時は
 //     panel は `tree->Tick` を直接呼ばず、callback だけを呼ぶ (= 排他)。
 //
-// 設計選択 (Pillar 22 — btedit 第一弾):
-//   ・**FEditorPanel 継承**: Phase 21a で確立した editor_core 基底に乗せる。
+// 設計選択:
+//   ・**FEditorPanel 継承**: editor_core 基底に乗せる。
 //     FEditorWorkspace に登録するだけで自動 dispatch される。Title は
 //     "Behavior Tree Editor"。
 //   ・**メタミラー方式 (前述)**: FBehaviorTree.h の API を改造しないために採用。
@@ -37,7 +37,7 @@
 //     (= 0xFFFFFFFFu) を root の parent_id として使う。
 //   ・**EBtKind (Selector / FSequence / Action) を u8 enum で持つ**: 表示時の色分け
 //     と TreeNode タイプ判別に使う。FBehaviorTree.h の EBtStatus と同じく u8 enum
-//     で揃え、ACS の "E-prefix enum" 規約 (project_acs_coding_conventions) に従う。
+//     で揃え、ACS の "E-prefix enum" 規約に従う。
 //   ・**status 表示色は固定リテラル**: Success=緑 (0,1,0)、Failure=赤 (1,0,0)、
 //     Running=黄 (1,1,0)。ImGui::PushStyleColor で TreeNode テキストに反映する。
 //   ・**history ring buffer は固定長 60**: 60 frame ≈ 1 秒 @ 60 fps の窓。
@@ -76,7 +76,7 @@
 //   │ └────────────────────────┘  └─────────────────────────────┘ │
 //   └──────────────────────────────────────────────────────────────┘
 //
-// 範囲外 (Phase 22 v1、将来追加候補):
+// 範囲外:
 //   ・グラフ編集 (drag-drop でツリー再配置、AddChild / RemoveChild)
 //   ・blackboard inspector (任意型の void* を可視化する仕組み)
 //   ・条件ブレークポイント (特定 node が Running になったら autorun を止める等)
@@ -92,197 +92,327 @@
 
 namespace acs::game::btedit {
 
-// ---------------------------------------------------------------------------
-// EBtKind — メタミラー上の node 種別 (実体 BT の FBtNode 派生に対応)
-// ---------------------------------------------------------------------------
-// 実体 BT 側で RTTI 抜きに種別を判定できないため、メタミラー側で明示的に
-// 保持する。FBtSelector → Selector、FBtSequence → FSequence、FBtAction → Action
-// に 1:1 対応する想定 (= 将来 BtParallel 等が追加されたらここに enum を増やす)。
+/**
+ * メタミラー上の BT node 種別 (実体 BT の FBtNode 派生に対応)。
+ *
+ * @details
+ * 実体 BT 側で RTTI 抜きに種別を判定できないため、メタミラー側で明示的に保持する。
+ * FBtSelector → Selector、FBtSequence → Sequence、FBtAction → Action に 1:1 対応する想定。
+ */
 enum class EBtKind : u8 {
+    /** Selector composite (子を順に試し、最初に成功した子で成功)。 */
     Selector = 0,
+
+    /** Sequence composite (子を順に実行し、最初に失敗した子で失敗)。 */
     Sequence = 1,
+
+    /** Action leaf (関数を実行する末端ノード、子を持たない)。 */
     Action   = 2,
 };
 
-// ---------------------------------------------------------------------------
-// FBehaviorTreeEditorPanel — FBehaviorTree の visualize + step debug パネル
-// ---------------------------------------------------------------------------
+/**
+ * FBehaviorTree を可視化 + step debug する ImGui パネル。
+ *
+ * @details
+ * 実行中の BT を観察するのが第一責務。実体ツリーは private メンバ + RTTI 無効で
+ * panel から覗けないため、ユーザが AddNode で「親 id・kind・表示名」を push する
+ * メタデータミラー方式を採る。各 node の last_status は SetNodeStatus で push してもらい、
+ * StepOnce / autorun で BT を 1 tick 進めて root status を history ring に積む。
+ * FEditorPanel 継承で FEditorWorkspace に登録すれば自動 dispatch される。
+ * 非コピー / 非ムーブ / 全 noexcept / STL 不使用で、name は非所有の永続文字列を想定する。
+ */
 class FBehaviorTreeEditorPanel : public editor_core::FEditorPanel {
 public:
-    // StepCallback: panel が「1 tick 進めたい」時に呼ばれる関数ポインタ。
-    // 登録されていれば panel は `tree->Tick(nullptr, dt)` を直接呼ばず、
-    // この callback だけを呼ぶ (= ユーザに blackboard を渡す自由を与える)。
-    // `user` は SetOnStepCallback の第二引数で渡したポインタがそのまま戻る。
+    /**
+     * panel が 1 tick 進めたい時に呼ばれる関数ポインタ型。
+     *
+     * @details
+     * 登録されていれば panel は tree->Tick(nullptr, dt) を直接呼ばず、この callback
+     * だけを呼ぶ (= ユーザに blackboard を渡す自由を与える)。callback 側で
+     * tree->Tick(my_bb, dt) を呼ぶ規約。
+     * @param user SetOnStepCallback の第二引数で渡したポインタがそのまま戻る。
+     * @param tree 観察中の FBehaviorTree。
+     * @param dt この tick で進める秒数。
+     */
     using StepCallback = void(*)(void* user, FBehaviorTree* tree, f32 dt) noexcept;
 
-    // 履歴 ring buffer の長さ (frame 数)。仕様で 60 frame 固定。
+    /** 履歴 ring buffer の長さ (frame 数)。仕様で 60 frame 固定。 */
     static constexpr u32 kHistorySize = 60u;
 
-    // SelectedNodeId / parent_id の "none" シグネル。u32 max。
+    /** SelectedNodeId / parent_id の "none" シグナル (u32 max)。 */
     static constexpr u32 kInvalidId   = 0xFFFFFFFFu;
 
+    /** 空状態で構築する (メタミラー・履歴は Init で確保)。 */
     FBehaviorTreeEditorPanel() noexcept = default;
+
+    /** 破棄する (TArray が内部リソースを解放)。 */
     ~FBehaviorTreeEditorPanel() noexcept override = default;
 
-    // 非コピー / 非ムーブ: 内部 `TArray<NodeMeta>` + `TArray<u8>` の所有を曖昧に
-    // しない (FEditorPanel 基底もデフォルトで非コピー / 非ムーブ宣言済)。
+    /** コピー禁止 (内部 TArray の所有を曖昧にしないため)。 */
     FBehaviorTreeEditorPanel(const FBehaviorTreeEditorPanel&)            = delete;
+
+    /** コピー代入も禁止。 */
     FBehaviorTreeEditorPanel& operator=(const FBehaviorTreeEditorPanel&) = delete;
+
+    /** ムーブ禁止 (内部 TArray の所有を曖昧にしないため)。 */
     FBehaviorTreeEditorPanel(FBehaviorTreeEditorPanel&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
     FBehaviorTreeEditorPanel& operator=(FBehaviorTreeEditorPanel&&)      = delete;
 
-    // ----- ライフサイクル ---------------------------------------------------
-
-    // 初期化: メタミラー / 履歴を空にし、autorun / step counter / selection を
-    // default に戻す。多重 Init 可。callback はリセットしない (= 別操作)。
+    /**
+     * 初期化する。
+     *
+     * @details
+     * メタミラーをクリアし、履歴を kHistorySize 個確保して Failure で埋め、autorun /
+     * step counter / selection を default に戻す。多重 Init 可。callback はリセットしない
+     * (= 別操作扱い)。
+     */
     void Init() noexcept;
 
-    // 後片付け: メタミラーと履歴と callback を全部クリア。多重 Shutdown 可。
+    /**
+     * 後片付けする。
+     *
+     * @details メタミラー・履歴・callback を全てクリアする。多重 Shutdown 可。
+     */
     void Shutdown() noexcept;
 
-    // ----- FBehaviorTree 紐付け ---------------------------------------------
-
-    // 観察対象の BT を差し替える (nullptr で解除)。所有しない (caller 所有)。
-    // 差し替え時に Reset() 相当 (step counter / history / status を初期化) を
-    // 行うが、メタミラーは触らない (= 同じ構造で別インスタンスを観察する用途)。
+    /**
+     * 観察対象の BT を差し替える (nullptr で解除)。
+     *
+     * @details
+     * panel は tree を所有しない (caller 所有)。差し替え時に Reset() を呼んで step counter /
+     * history / 全 node status を初期化するが、メタミラーは触らない (= 同じ構造で別
+     * インスタンスを観察する用途に対応)。
+     * @param tree 観察する FBehaviorTree (nullptr で解除)。
+     */
     void SetTree(FBehaviorTree* tree) noexcept;
 
-    // 現在観察中の BT (なければ nullptr)。
+    /**
+     * 現在観察中の BT を返す。
+     *
+     * @return 観察中の FBehaviorTree (未設定なら nullptr)。
+     */
     FBehaviorTree* CurrentTree() const noexcept { return m_Tree; }
 
-    // ----- autorun / step 制御 ----------------------------------------------
-
-    // autorun (= 毎フレーム自動 Tick) の現在値。
+    /**
+     * autorun (= 毎フレーム自動 Tick) が有効かを返す。
+     *
+     * @return autorun が ON なら true。
+     */
     bool IsAutorun() const noexcept { return m_Autorun; }
-    // autorun を切替。ON にすると OnFrameBegin で毎 frame 1 tick 進む。
+
+    /**
+     * autorun を切り替える。
+     *
+     * @param b true なら OnFrameBegin で毎 frame 1 tick 進める。
+     */
     void SetAutorun(bool b) noexcept { m_Autorun = b; }
 
-    // 1 tick (dt = 0.016f 固定) だけ手動で進める。StepCallback が登録されていれば
-    // そちらに委譲、無ければ `tree->Tick(nullptr, 0.016f)` を直接呼ぶ。
-    // tree 未設定 (= CurrentTree() == nullptr) なら no-op。
-    // history ring に root status を 1 件 push、step_count++。
+    /**
+     * 1 tick だけ手動で進める。
+     *
+     * @details
+     * dt = kStepDt (0.016f) 固定で TickInternal を呼ぶ。StepCallback が登録されていれば
+     * そちらに委譲、無ければ tree->Tick(nullptr, kStepDt) を直接呼ぶ。tree 未設定なら
+     * no-op。history ring に root status を 1 件 push、step counter を +1 する。
+     */
     void StepOnce() noexcept;
 
-    // step counter / history / 全 node の last_status を初期状態に戻す。
-    // メタミラー (NodeMeta 配列) と autorun フラグは触らない。
+    /**
+     * step counter / history / 全 node の last_status を初期状態に戻す。
+     *
+     * @details メタミラー (NodeMeta 配列) と autorun フラグ・selection は触らない。
+     */
     void Reset() noexcept;
 
-    // 現在の step counter (Reset で 0 に戻る、StepOnce で +1)。
+    /**
+     * 現在の step counter を返す。
+     *
+     * @return 累積 step 数 (Reset で 0、StepOnce / autorun tick で +1)。
+     */
     u32 StepCount() const noexcept { return m_StepCount; }
 
-    // ----- selection ---------------------------------------------------------
-
-    // 現在の選択 node id。未選択は kInvalidId (= 0xFFFFFFFF)。
+    /**
+     * 現在の選択 node id を返す。
+     *
+     * @return 選択中の node id (未選択は kInvalidId)。
+     */
     u32 SelectedNodeId() const noexcept { return m_Selected; }
 
-    // 選択 node を設定。範囲外 / kInvalidId 渡しで「未選択」に正規化される。
+    /**
+     * 選択 node を設定する。
+     *
+     * @param node_id 選択する node id (範囲外 / kInvalidId で「未選択」に正規化)。
+     */
     void SelectNode(u32 node_id) noexcept;
 
-    // ----- メタミラー操作 (= caller が AddNode で BT 構造を panel に教える) -
-
-    // 新規 node をメタミラーに追加し、払い出した node_id (= 0..N-1) を返す。
-    // ・kind         : Selector / FSequence / Action のいずれか
-    // ・name         : ImGui 表示名 (リテラル / 永続領域、panel は所有しない)
-    // ・parent_id    : 既存 node の id、root の場合は kInvalidId
-    // parent_id が kInvalidId 以外で範囲外を指す場合は parent_id を kInvalidId
-    // に置き換えて root 扱いで追加する (= 安全に倒す)。
-    // 上限 (kMaxNodes) に達したら kInvalidId を返す (= 失敗を id で通知)。
+    /**
+     * 新規 node をメタミラーに追加し、払い出した node_id を返す。
+     *
+     * @details
+     * caller が BT 構造を panel に教えるための API。id は現在の末尾 index (0..N-1) を払い出す。
+     * parent_id が kInvalidId 以外で範囲外を指す場合は root 扱い (kInvalidId) に倒して安全に追加する。
+     * 上限 kMaxNodes に達した場合は追加せず kInvalidId を返す (= 失敗を id で通知)。
+     * @param kind Selector / Sequence / Action のいずれか。
+     * @param name ImGui 表示名 (リテラル / 永続領域、panel は所有しない)。
+     * @param parent_id 親 node の id、root の場合は kInvalidId。
+     * @return 払い出した node_id (上限到達時は kInvalidId)。
+     */
     u32 AddNode(EBtKind kind, const char* name, u32 parent_id) noexcept;
 
-    // 既存 node の last_status を更新する。FBtAction の Fn から呼ぶことを想定。
-    // 範囲外は no-op。Reset で全 node が Failure に戻る。
+    /**
+     * 既存 node の last_status を更新する。
+     *
+     * @details FBtAction の Fn から呼ぶことを想定。範囲外は no-op。Reset で全 node が Failure に戻る。
+     * @param node_id 更新対象の node id。
+     * @param status 新しい last_status。
+     */
     void SetNodeStatus(u32 node_id, EBtStatus status) noexcept;
 
-    // メタミラー全削除 + selection 解除。BT 構造を組み直す前に呼ぶ。
-    // (autorun / step counter / history はクリアしない、Reset を別途呼ぶこと)
+    /**
+     * メタミラーを全削除し、selection を解除する。
+     *
+     * @details BT 構造を組み直す前に呼ぶ。history / step counter / autorun は触らない (Reset を別途呼ぶ)。
+     */
     void ClearNodes() noexcept;
 
-    // 現在登録済 node 数。
+    /**
+     * 現在登録済みの node 数を返す。
+     *
+     * @return メタミラー内の node 数。
+     */
     u32 NodeCount() const noexcept { return static_cast<u32>(m_Nodes.Size()); }
 
-    // 指定 id の node の last_status (範囲外は Failure)。
+    /**
+     * 指定 id の node の last_status を返す。
+     *
+     * @param node_id 問い合わせる node id。
+     * @return その node の last_status (範囲外は Failure)。
+     */
     EBtStatus NodeStatus(u32 node_id) const noexcept;
 
-    // ----- callback 登録 ----------------------------------------------------
-
-    // 1 tick 進める時の独自処理を登録 (blackboard を渡したい場合等)。
-    // nullptr で解除 (= panel が `tree->Tick(nullptr, dt)` を直接呼ぶ fallback)。
+    /**
+     * 1 tick 進める時の独自処理を登録する (blackboard を渡したい場合等)。
+     *
+     * @details nullptr で解除すると panel が tree->Tick(nullptr, dt) を直接呼ぶ fallback に戻る。
+     * @param cb 登録する StepCallback (nullptr で解除)。
+     * @param user callback の第一引数として戻すユーザポインタ。
+     */
     void SetOnStepCallback(StepCallback cb, void* user) noexcept;
 
-    // ----- FEditorPanel override --------------------------------------------
-
-    // ImGui::Begin に渡す window タイトル (リテラル)。
+    /**
+     * ImGui::Begin に渡す window タイトルを返す。
+     *
+     * @return "Behavior Tree Editor" (リテラル)。
+     */
     const char* Title() const noexcept override { return "Behavior Tree Editor"; }
 
-    // 毎フレーム呼ばれる non-ImGui hook。autorun が ON のときに dt で 1 tick 進める。
-    // (Step は 0.016f 固定だが、autorun はゲームの実 dt を反映するため step 単位
-    //  ではなく実時間進行に追従する。)
+    /**
+     * 毎フレーム呼ばれる non-ImGui hook。
+     *
+     * @details
+     * autorun が ON のときに実 dt で 1 tick 進める (Step は kStepDt 固定だが、autorun は
+     * ゲームの実 dt を反映するため step 単位ではなく実時間進行に追従する)。
+     * @param dt 前フレームからの経過秒。
+     */
     void OnFrameBegin(f32 dt) noexcept override;
 
-    // メイン ImGui 描画: toolbar / history graph / tree view / node inspector。
+    /** メイン ImGui 描画 (toolbar / history graph / tree view / node inspector)。 */
     void DrawUI() noexcept override;
 
-    // ----- 公開定数 ---------------------------------------------------------
-
-    // 同時登録可能 node 数の上限 (overflow ガード)。実用 BT で 128 で十分。
-    // 上限到達時の AddNode は kInvalidId を返す (= silent fail 通知)。
+    /**
+     * 同時登録可能な node 数の上限 (overflow ガード)。
+     *
+     * @details 実用 BT で 128 で十分。上限到達時の AddNode は kInvalidId を返す (= silent fail 通知)。
+     */
     static constexpr u32 kMaxNodes = 128u;
 
-    // StepOnce で使う固定 dt (= 60 fps の 1 frame 分)。
+    /** StepOnce で使う固定 dt (= 60 fps の 1 frame 分)。 */
     static constexpr f32 kStepDt   = 0.016f;
 
 private:
-    // ----- 内部メタ node ----------------------------------------------------
-    // 1 個の BT node の表示用情報 + last_status を持つ value 型 struct。
-    // 配列内 index == id == NodeMeta::id (= 三位一体で常に等しい)。
+    /**
+     * 1 個の BT node の表示用情報 + last_status を持つ value 型 struct。
+     *
+     * @details 配列内 index == id == NodeMeta::id (= 三位一体で常に等しい)。
+     */
     struct NodeMeta {
-        u32         id          = kInvalidId;  // == 配列内 index
-        u32         parent_id   = kInvalidId;  // 親 id、root は kInvalidId
+        /** この node の id (== 配列内 index)。 */
+        u32         id          = kInvalidId;
+
+        /** 親 node の id (root は kInvalidId)。 */
+        u32         parent_id   = kInvalidId;
+
+        /** node 種別 (Selector / Sequence / Action)。 */
         EBtKind     kind        = EBtKind::Action;
-        const char* name        = nullptr;     // リテラル / 永続領域 (非所有)
-        EBtStatus   last_status = EBtStatus::Failure; // 初期値は Failure
+
+        /** ImGui 表示名 (リテラル / 永続領域、非所有)。 */
+        const char* name        = nullptr;
+
+        /** 直近の tick での status (初期値 Failure)。 */
+        EBtStatus   last_status = EBtStatus::Failure;
     };
 
-    // ----- 内部 helper -----------------------------------------------------
-    // 引数 dt で 1 tick 進める実装本体 (StepOnce / autorun から共通利用)。
-    // callback 登録時は callback だけ呼ぶ、未登録時は `tree->Tick(nullptr, dt)`。
-    // history ring に root status を push、step_count++。
+    /**
+     * 引数 dt で 1 tick 進める実装本体 (StepOnce / autorun から共通利用)。
+     *
+     * @details
+     * callback 登録時は callback だけ呼び、未登録時は tree->Tick(nullptr, dt) を呼ぶ。
+     * 取得した root status を history ring に push し、step counter を +1 する。
+     * @param dt この tick で進める秒数。
+     */
     void TickInternal(f32 dt) noexcept;
 
-    // tree view 再帰描画 (depth は表示インデント / 暴走防止用)。
-    // node_id の子 node を線形走査して再帰展開する。
+    /**
+     * tree view を再帰描画する。
+     *
+     * @details node_id の子 node を m_Nodes 内で線形走査して再帰展開する。
+     * @param node_id 描画する node の id。
+     * @param depth 表示インデント兼暴走防止用の再帰深度。
+     */
     void DrawTreeRecursive(u32 node_id, u32 depth) noexcept;
 
-    // status (Success/Failure/Running) → ImGui 文字色 (4f ベース) を返すヘルパ。
-    // 戻り値は ImVec4 を float[4] で受け渡しできる形にする (header に ImGui 型を
-    // 持ち込まないため)。caller 側は r/g/b/a を直接 ImVec4 にキャストする。
+    /**
+     * status を ImGui 文字色 (RGBA float) に変換するヘルパ。
+     *
+     * @details
+     * header に ImGui 型を持ち込まないため ImVec4 ではなく float[4] で受け渡す。
+     * caller 側は r/g/b/a を直接 ImVec4 にキャストする。
+     * @param s 変換元の EBtStatus。
+     * @param out_rgba 変換結果を書き込む長さ 4 の RGBA 配列。
+     */
     static void StatusColor(EBtStatus s, f32 out_rgba[4]) noexcept;
 
-    // ----- 内部状態 ---------------------------------------------------------
-
-    // 観察中の FBehaviorTree (非所有)。
+    /** 観察中の FBehaviorTree (非所有)。 */
     FBehaviorTree* m_Tree         = nullptr;
 
-    // autorun (毎フレーム OnFrameBegin で TickInternal を呼ぶ)。
+    /** autorun フラグ (毎フレーム OnFrameBegin で TickInternal を呼ぶ)。 */
     bool          m_Autorun      = false;
 
-    // 累積 step 数 (Reset で 0、StepOnce / autorun tick で +1)。
+    /** 累積 step 数 (Reset で 0、StepOnce / autorun tick で +1)。 */
     u32           m_StepCount   = 0;
 
-    // 選択中 node id (kInvalidId = 未選択)。
+    /** 選択中 node id (kInvalidId = 未選択)。 */
     u32           m_Selected     = kInvalidId;
 
-    // メタミラー本体。index == id。
+    /** メタミラー本体 (index == id)。 */
     TArray<NodeMeta> m_Nodes;
 
-    // root status の履歴 ring buffer (要素は EBtStatus の u8 生値)。
-    // 容量は Init で kHistorySize 個を Resize、以降 Resize しない。
+    /**
+     * root status の履歴 ring buffer (要素は EBtStatus の u8 生値)。
+     *
+     * @details 容量は Init で kHistorySize 個を Resize し、以降 Resize しない。
+     */
     TArray<u8>     m_History;
-    // 次に書き込む位置 (circular)。0..kHistorySize-1。
+
+    /** 次に書き込む履歴位置 (circular、0..kHistorySize-1)。 */
     u32           m_HistoryHead = 0;
 
-    // tick callback (= 独自 blackboard を渡したい場合の hook)。
+    /** tick callback (= 独自 blackboard を渡したい場合の hook、未登録は nullptr)。 */
     StepCallback  m_StepCb      = nullptr;
+
+    /** StepCallback に渡すユーザポインタ。 */
     void*         m_StepUser    = nullptr;
 };
 

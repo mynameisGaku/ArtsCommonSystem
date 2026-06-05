@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — SceneInspector / FHierarchyPanel 実装 (Phase 20 editor 第二弾)
+// GameFramework Tools — SceneInspector / FHierarchyPanel 実装
 //
 // 仕様の意図は FHierarchyPanel.h を参照。本ファイルでは:
 //   ・root_node を起点に FNode2D ツリーを再帰描画 (ImGui::TreeNodeEx)
@@ -19,10 +19,18 @@
 
 namespace acs::game::inspector {
 
-// ---- ローカルヘルパ ------------------------------------------------------
-// 描画ラベル "Node #idx (id=N:gen)" を整形する。FNodeId が invalid なら
-// "Node #idx (no-id)" の表記。これにより同名 (ラベル無し) のノードでも
-// hierarchy 上で区別できる (Unity の "GameObject (1)" 命名相当)。
+/**
+ * ノードの描画ラベルを整形する。
+ *
+ * @details
+ * FNodeId が valid なら "Node #idx (id=N:gen)"、invalid なら "Node #idx (no-id)" と書く。
+ * これにより同名 (ラベル無し) のノードでも hierarchy 上で区別できる
+ * (Unity の "GameObject (1)" 命名相当)。buf が nullptr または buf_size==0 なら no-op。
+ * @param buf 出力先バッファ。
+ * @param buf_size buf の容量 (NUL 終端を含む)。
+ * @param node ラベルを整形する対象ノード。
+ * @param sibling_index ラベルに埋め込む兄弟インデックス。
+ */
 static void FormatNodeLabel(char* buf, usize buf_size,
                             const FNode2D& node, u32 sibling_index) noexcept {
     if (buf == nullptr || buf_size == 0) return;
@@ -38,9 +46,7 @@ static void FormatNodeLabel(char* buf, usize buf_size,
     }
 }
 
-// =============================================================================
-// Init / Shutdown
-// =============================================================================
+/** 折りたたみマップを空にし selection を解除して初期化する (FSelectionService / callback は維持)。 */
 void FHierarchyPanel::Init() noexcept {
     m_CollapsedMap.Clear();
     m_SelectedId         = FNodeId{};
@@ -51,6 +57,7 @@ void FHierarchyPanel::Init() noexcept {
     // Init で触らない (= Set 状態を維持)。
 }
 
+/** 折りたたみマップ・selection・callback を全て解除して後始末する。 */
 void FHierarchyPanel::Shutdown() noexcept {
     m_CollapsedMap.Clear();
     m_SelectedId         = FNodeId{};
@@ -62,9 +69,13 @@ void FHierarchyPanel::Shutdown() noexcept {
     m_RightClickUser    = nullptr;
 }
 
-// =============================================================================
-// SetSelectionService / SelectedNodeId / SelectNode
-// =============================================================================
+/**
+ * FSelectionService を注入し、内部 selection キャッシュを seam 側の現選択に同期する。
+ *
+ * @details
+ * FNode2D* は FNodeId から逆引きできないため nullptr に戻し、次の DrawUI 走査で再キャッシュする。
+ * @param svc 共有する selection サービス (nullptr で内部 selection モードに戻る)。
+ */
 void FHierarchyPanel::SetSelectionService(FSelectionService* svc) noexcept {
     m_SelectionService = svc;
     // FSelectionService 注入直後、internal cache を seam 側の現選択に同期して
@@ -77,6 +88,12 @@ void FHierarchyPanel::SetSelectionService(FSelectionService* svc) noexcept {
     }
 }
 
+/**
+ * 現在の選択ノードの FNodeId を返す。
+ *
+ * @details FSelectionService 注入時はそちらの CurrentSelection() を、未注入なら内部 m_SelectedId を返す。
+ * @return 選択中ノードの FNodeId (未選択は無効値)。
+ */
 FNodeId FHierarchyPanel::SelectedNodeId() const noexcept {
     if (m_SelectionService != nullptr) {
         return m_SelectionService->CurrentSelection();
@@ -84,6 +101,12 @@ FNodeId FHierarchyPanel::SelectedNodeId() const noexcept {
     return m_SelectedId;
 }
 
+/**
+ * 選択を `node` に切り替える。
+ *
+ * @details 内部キャッシュ (m_SelectedNode / m_SelectedId) を更新し、FSelectionService 注入時はそちらにも反映する。
+ * @param node 選択するノード (nullptr で選択解除)。
+ */
 void FHierarchyPanel::SelectNode(FNode2D* node) noexcept {
     m_SelectedNode = node;
     if (node != nullptr) {
@@ -101,15 +124,14 @@ void FHierarchyPanel::SelectNode(FNode2D* node) noexcept {
     }
 }
 
-// =============================================================================
-// ExpandAll / CollapseAll
-// =============================================================================
+/** 折りたたみマップを空にして全 TreeNode を展開状態にする (default expanded 扱い)。 */
 void FHierarchyPanel::ExpandAll() noexcept {
     // 折りたたみマップを空にする = 全 FNodeId が "default expanded" 扱い。
     m_CollapsedMap.Clear();
     m_bCollapseAllPending = false;
 }
 
+/** 遅延適用フラグを立て、次回 DrawUI の走査で全 TreeNode を折りたたむ。 */
 void FHierarchyPanel::CollapseAll() noexcept {
     // DrawUI で各ノード走査時に既存エントリを true に立てる。ここでは
     // 単にフラグを立てるだけ (ノードを 1 つも DrawUI 内で見ていない時点での
@@ -117,9 +139,14 @@ void FHierarchyPanel::CollapseAll() noexcept {
     m_bCollapseAllPending = true;
 }
 
-// =============================================================================
-// DeleteSelected
-// =============================================================================
+/**
+ * 選択中ノードに Destroy() を呼び、selection と reparent target を整理する。
+ *
+ * @details
+ * DrawUI 走査でキャッシュされた m_SelectedNode を対象とし、無ければ no-op。Destroy はフレーム
+ * 境界で reap される。selection は解除し、reparent target に同ノードが指定されていれば dangling
+ * 回避のため clear する。
+ */
 void FHierarchyPanel::DeleteSelected() noexcept {
     // selection の Node* は DrawUI 走査中にキャッシュされている前提
     // (FSelectionService 注入時も同様)。キャッシュが無ければ no-op。
@@ -138,18 +165,24 @@ void FHierarchyPanel::DeleteSelected() noexcept {
     }
 }
 
-// =============================================================================
-// SetOnNodeRightClickCallback
-// =============================================================================
+/**
+ * 右クリック追加項目の callback を登録する。
+ *
+ * @param cb 呼ぶ callback (nullptr で解除)。
+ * @param user callback に渡すユーザポインタ。
+ */
 void FHierarchyPanel::SetOnNodeRightClickCallback(NodeRightClickCallback cb,
                                                  void* user) noexcept {
     m_RightClickCb   = cb;
     m_RightClickUser = user;
 }
 
-// =============================================================================
-// IsCollapsed / SetCollapsed (FNodeId → bool linear search)
-// =============================================================================
+/**
+ * 指定 FNodeId が折りたたみ済みかを線形探索で返す。
+ *
+ * @param id 調べるノードの FNodeId。
+ * @return 折りたたみ済みなら true (エントリ無しは展開扱いで false)。
+ */
 bool FHierarchyPanel::IsCollapsed(FNodeId id) const noexcept {
     for (u32 i = 0; i < m_CollapsedMap.Size(); ++i) {
         if (m_CollapsedMap[i].id == id) return m_CollapsedMap[i].collapsed;
@@ -157,6 +190,13 @@ bool FHierarchyPanel::IsCollapsed(FNodeId id) const noexcept {
     return false;  // エントリ無し = default expanded
 }
 
+/**
+ * 指定 FNodeId の折りたたみ状態を上書き保存する。
+ *
+ * @details 既存エントリがあれば更新、無ければ c==true のときのみ追加 (c==false は default expanded を保つため no-op)。
+ * @param id 対象ノードの FNodeId。
+ * @param c true で折りたたみ、false で展開。
+ */
 void FHierarchyPanel::SetCollapsed(FNodeId id, bool c) noexcept {
     for (u32 i = 0; i < m_CollapsedMap.Size(); ++i) {
         if (m_CollapsedMap[i].id == id) {
@@ -174,26 +214,19 @@ void FHierarchyPanel::SetCollapsed(FNodeId id, bool c) noexcept {
     }
 }
 
-// =============================================================================
-// DrawNodeRecursive — 1 ノードを描画し、子を再帰描画
-// =============================================================================
-// TreeNode の expand/collapse 状態:
-//   ・最初の描画では `ImGui::SetNextItemOpen(open)` で `m_CollapsedMap` の
-//     状態を反映する (= 起動直後は全展開)。
-//   ・ユーザがクリックして変えた場合は `ImGui::IsItemToggledOpen()` を見て
-//     map に書き戻す。
-//   ・CollapseAll の遅延適用: フレーム最初のノード描画前にこの関数が呼ばれ、
-//     `m_bCollapseAllPending` が立っていれば「現ノード以下を強制 close」する。
-//
-// 選択 / 右クリック / Drag & Drop:
-//   ・Selectable behavior は TreeNode の `ImGuiTreeNodeFlags_Selected` で実現。
-//     クリックされたら `SelectNode(&node)` を呼ぶ。
-//   ・右クリックは `ImGui::BeginPopupContextItem()` で開く。Delete / Duplicate /
-//     Reparent (Set Target / Reparent Here) + 外部 callback。
-//   ・Drag source = この TreeNode、payload = &node。
-//   ・Drag target = この TreeNode 行、accept 時に source node を target に
-//     `Reparent` 要求する (cycle/self は FNode2D 側で弾かれる)。
-// =============================================================================
+/**
+ * `node` を 1 つ描画し、子を再帰描画する。
+ *
+ * @details
+ * TreeNode の開閉状態は SetNextItemOpen で m_CollapsedMap を反映し、ユーザの
+ * IsItemToggledOpen を検知して map へ書き戻す。m_bCollapseAllPending が立っていれば
+ * 現ノードを強制 close する。クリックされたら SelectNode、右クリックで
+ * BeginPopupContextItem (Delete / Duplicate / Reparent (Set Target / Reparent Here) + 外部
+ * callback)、Drag source は payload に &node を、Drop target は受け取った source ノードに
+ * Reparent を要求する (cycle / self は FNode2D 側で弾かれる)。深さ 64 で防衛的にガードする。
+ * @param node 描画する対象ノード。
+ * @param depth 再帰の深さ (上限ガードおよび簡易ラベル表示に使う)。
+ */
 void FHierarchyPanel::DrawNodeRecursive(FNode2D& node, u32 depth) noexcept {
     // depth 上限ガード (ACS の FNode2D は構造的に木構造で循環不能だが、防衛策)。
     if (depth >= 64u) {
@@ -267,7 +300,7 @@ void FHierarchyPanel::DrawNodeRecursive(FNode2D& node, u32 depth) noexcept {
         SelectNode(&node);
     }
 
-    // ----- Drag source: 自分を payload に -----
+    // Drag source: 自分を payload に。
     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
         FNode2D* self_ptr = &node;
         ImGui::SetDragDropPayload(kDragDropId, &self_ptr, sizeof(self_ptr));
@@ -275,7 +308,7 @@ void FHierarchyPanel::DrawNodeRecursive(FNode2D& node, u32 depth) noexcept {
         ImGui::EndDragDropSource();
     }
 
-    // ----- Drop target: 受け取った FNode2D* を自分の子に reparent -----
+    // Drop target: 受け取った FNode2D* を自分の子に reparent。
     if (ImGui::BeginDragDropTarget()) {
         const ImGuiPayload* payload =
             ImGui::AcceptDragDropPayload(kDragDropId);
@@ -295,7 +328,7 @@ void FHierarchyPanel::DrawNodeRecursive(FNode2D& node, u32 depth) noexcept {
         ImGui::EndDragDropTarget();
     }
 
-    // ----- 右クリック context menu -----
+    // 右クリック context menu。
     if (ImGui::BeginPopupContextItem("##hier_ctx")) {
         // selection をこのノードに切り替えてから menu 操作 (UX 安心感)。
         SelectNode(&node);
@@ -338,7 +371,7 @@ void FHierarchyPanel::DrawNodeRecursive(FNode2D& node, u32 depth) noexcept {
         }
         if (!can_reparent_here) ImGui::EndDisabled();
 
-        // ----- 外部 callback (追加メニュー項目を提供する hook) -----
+        // 外部 callback (追加メニュー項目を提供する hook)。
         // ImGui の popup は「同 popup 内で 1 回開いている間は毎フレーム再描画
         // される」ため、callback は popup が開いている間に毎フレーム呼ばれる。
         // callback 側で ImGui::MenuItem("...") 等を追加する想定 (= 外部から
@@ -353,7 +386,7 @@ void FHierarchyPanel::DrawNodeRecursive(FNode2D& node, u32 depth) noexcept {
         ImGui::EndPopup();
     }
 
-    // ----- 子の再帰描画 -----
+    // 子の再帰描画。
     if (open && has_child) {
         for (u32 i = 0; i < node.ChildCount(); ++i) {
             FNode2D* c = node.Child(i);
@@ -367,24 +400,18 @@ void FHierarchyPanel::DrawNodeRecursive(FNode2D& node, u32 depth) noexcept {
     ImGui::PopID();
 }
 
-// =============================================================================
-// DrawUI — メイン ImGui window
-// =============================================================================
-// Begin("Scene Hierarchy") 1 window で完結。レイアウト:
-//   ┌──────── "Scene Hierarchy" window ─────────┐
-//   │ [Expand All] [Collapse All] [Delete Sel.] │
-//   │ Reparent Target: <name> [Clear]           │
-//   │ ─────────────────────────────────────── │
-//   │ ▼ Root (id=...)                            │
-//   │   ▼ Child 0                                │
-//   │     ▶ Grandchild 0                         │
-//   │   ▼ Child 1                                │
-//   │     ...                                    │
-//   └─────────────────────────────────────────────┘
-// =============================================================================
+/**
+ * メイン ImGui window を描画する。
+ *
+ * @details
+ * `Begin("Scene Hierarchy")` の 1 window で完結する。上部に [Expand All] [Collapse All]
+ * [Delete Selected] のツールバーと Reparent Target 表示行を出し、Separator の下に
+ * スクロール可能な子 region として root から DrawNodeRecursive でツリーを描画する。root
+ * 未設定時は案内メッセージのみ表示する。末尾で CollapseAll の遅延適用フラグを下ろす。
+ */
 void FHierarchyPanel::DrawUI() noexcept {
-    // Phase 24: FEditorPanel 継承で no-param 化。SetRootNode で事前 set された
-    // m_RootNode を root に描画。null なら "(no root set)" メッセージ表示。
+    // SetRootNode で事前 set された m_RootNode を root に描画。null なら
+    // "(no root set)" メッセージ表示。
     if (!ImGui::Begin("Scene Hierarchy")) {
         ImGui::End();
         return;
@@ -396,7 +423,7 @@ void FHierarchyPanel::DrawUI() noexcept {
     }
     FNode2D& root_node = *m_RootNode;
 
-    // ----- Toolbar -----
+    // Toolbar。
     if (ImGui::Button("Expand All")) {
         ExpandAll();
     }
@@ -433,8 +460,7 @@ void FHierarchyPanel::DrawUI() noexcept {
     }
     ImGui::Separator();
 
-    // ----- Tree -----
-    // ImGui の子 region として scroll 可能領域を持たせる。
+    // ImGui の子 region として scroll 可能領域を持たせる (ツリー本体)。
     if (ImGui::BeginChild("##hier_tree", ImVec2(0, 0), false,
                           ImGuiWindowFlags_HorizontalScrollbar)) {
         DrawNodeRecursive(root_node, 0u);

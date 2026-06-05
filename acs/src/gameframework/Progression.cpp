@@ -20,8 +20,14 @@ namespace acs::game {
 
 namespace {
 
-// const char* の per-byte 比較。nullptr 安全。
-// FEntitlement.cpp / FSettings.cpp と同じ実装 (STL <cstring> 禁止のため)。
+/**
+ * const char* 同士を nullptr 安全に per-byte 比較する。
+ *
+ * @details STL <cstring> 禁止のため自前実装。終端ヌルまで一致した時のみ true。
+ * @param a 比較対象の文字列 A。
+ * @param b 比較対象の文字列 B。
+ * @return 内容が完全一致すれば true。
+ */
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -32,14 +38,18 @@ bool StrEq(const char* a, const char* b) noexcept {
     return *a == '\0' && *b == '\0';
 }
 
-// ---- 永続化フォーマット定数 -----------------------------------------------
-// FSaveArchive payload の schema バージョン。レイアウト変更時に bump する。
+/** FSaveArchive payload の schema バージョン (レイアウト変更時に bump)。 */
 constexpr u32 kProgressionSaveVersion = 1u;
 
-// id 文字列の FNV-1a 32bit ハッシュ。InputMap.h の ActionHash と同一規約
-// (offset basis 2166136261, prime 16777619)。永続化キーとして使い、リテラル
-// 提示順に依存しない安定 ID を得る。id == nullptr は 0 を返す (RegisterMilestone
-// 時点で nullptr id は弾かれているので実際には来ない)。
+/**
+ * id 文字列の FNV-1a 32bit ハッシュを計算する。
+ *
+ * @details
+ * InputMap.h の ActionHash と同一規約 (offset basis 2166136261, prime 16777619)。
+ * 永続化キーとして使い、リテラル提示順に依存しない安定 ID を得る。
+ * @param id ハッシュ対象の文字列 (nullptr なら 0 を返す)。
+ * @return id の FNV-1a 32bit ハッシュ。
+ */
 u32 HashId(const char* id) noexcept {
     if (id == nullptr) return 0u;
     u32 h = 2166136261u;
@@ -51,9 +61,13 @@ u32 HashId(const char* id) noexcept {
     return h;
 }
 
-// ---- little-endian バイト列ライタ (TArray<u8> 末尾追記) --------------------
-// FSaveArchive と同じ LE 規約。MemCopy ではなくシフトで書くのでホスト
-// endianness 非依存。
+/**
+ * u32 を little-endian で TArray<u8> 末尾に 4 バイト追記する。
+ *
+ * @details FSaveArchive と同じ LE 規約。シフトで書くのでホスト endianness 非依存。
+ * @param buf 追記先のバイト列。
+ * @param v 書き出す u32 値。
+ */
 void AppendU32LE(TArray<u8>& buf, u32 v) noexcept {
     buf.PushBack(static_cast<u8>(v        & 0xFFu));
     buf.PushBack(static_cast<u8>((v >> 8 ) & 0xFFu));
@@ -61,13 +75,25 @@ void AppendU32LE(TArray<u8>& buf, u32 v) noexcept {
     buf.PushBack(static_cast<u8>((v >> 24) & 0xFFu));
 }
 
+/**
+ * u64 を little-endian で TArray<u8> 末尾に 8 バイト追記する。
+ *
+ * @param buf 追記先のバイト列。
+ * @param v 書き出す u64 値。
+ */
 void AppendU64LE(TArray<u8>& buf, u64 v) noexcept {
     for (u32 i = 0; i < 8; ++i) {
         buf.PushBack(static_cast<u8>((v >> (i * 8)) & 0xFFull));
     }
 }
 
-// ---- little-endian バイト列リーダ (境界チェックは呼出側) ------------------
+/**
+ * little-endian の 4 バイトを u32 として読み出す。
+ *
+ * @details 境界チェックは呼出側の責務。
+ * @param p 読み出し元の 4 バイト先頭ポインタ。
+ * @return デコードした u32 値。
+ */
 u32 ReadU32LE(const u8* p) noexcept {
     return static_cast<u32>(p[0])
          | (static_cast<u32>(p[1]) << 8)
@@ -75,6 +101,13 @@ u32 ReadU32LE(const u8* p) noexcept {
          | (static_cast<u32>(p[3]) << 24);
 }
 
+/**
+ * little-endian の 8 バイトを u64 として読み出す。
+ *
+ * @details 境界チェックは呼出側の責務。
+ * @param p 読み出し元の 8 バイト先頭ポインタ。
+ * @return デコードした u64 値。
+ */
 u64 ReadU64LE(const u8* p) noexcept {
     u64 v = 0;
     for (u32 i = 0; i < 8; ++i) {
@@ -83,16 +116,23 @@ u64 ReadU64LE(const u8* p) noexcept {
     return v;
 }
 
-// ---- per-entry のバイト数 ---------------------------------------------------
-// id_hash(u32=4) + achieved(u8=1) + pad(3) + timestamp(u64=8) = 16 バイト。
-// achieved の後ろを 3 バイト pad して timestamp を 8byte 境界に揃え、
-// レイアウトを読みやすくする (pad はゼロ書き)。
+/**
+ * 1 milestone entry のバイト数。
+ *
+ * @details id_hash(u32=4) + achieved(u8=1) + pad(3) + timestamp(u64=8) = 16 バイト。pad で timestamp を 8byte 境界に揃える。
+ */
 constexpr usize kEntrySize  = 16;
-constexpr usize kHeaderPart = 8;  // xp(u32) + count(u32)
 
-// floor(log2(v)) を非負整数ループで算出。
-//   v == 0 は呼出側で弾く前提 (log2(0) は未定義)。
-// 32bit 値なら最大 31 回ループするだけなので十分高速。
+/** payload ヘッダのバイト数 (xp(u32) + count(u32) = 8)。 */
+constexpr usize kHeaderPart = 8;
+
+/**
+ * floor(log2(v)) を非負整数ループで算出する。
+ *
+ * @details v == 0 は呼出側で弾く前提 (log2(0) は未定義)。32bit 値なら最大 31 回ループするだけ。
+ * @param v 対象の値 (1 以上であること)。
+ * @return floor(log2(v))。
+ */
 u32 Floor_Log2_NonZero(u32 v) noexcept {
     u32 r = 0;
     while (v > 1u) {
@@ -104,9 +144,7 @@ u32 Floor_Log2_NonZero(u32 v) noexcept {
 
 } // namespace
 
-// ============================================================================
-// 内部検索ヘルパ
-// ============================================================================
+/** id に一致する Def の index を線形探索する (見つからなければ -1)。 */
 isize FProgression::FindIndex(const char* id) const noexcept {
     if (id == nullptr) return -1;
     const usize n = m_Defs.Size();
@@ -116,9 +154,7 @@ isize FProgression::FindIndex(const char* id) const noexcept {
     return -1;
 }
 
-// ============================================================================
-// 定義登録
-// ============================================================================
+/** milestone 定義を登録し、対応する State を 1:1 で追加する (id 重複は no-op)。 */
 void FProgression::RegisterMilestone(const MilestoneDef& def) noexcept {
     // id == nullptr は意味を持たないので静かに弾く (アセット欠損時等の保険)。
     if (def.id == nullptr) return;
@@ -136,9 +172,7 @@ void FProgression::RegisterMilestone(const MilestoneDef& def) noexcept {
     _states.PushBack(st);
 }
 
-// ============================================================================
-// XP 操作 + Milestone 達成判定
-// ============================================================================
+/** 累計 XP を加算し (オーバーフローはクランプ)、未達成 milestone の達成判定を行う。 */
 void FProgression::AwardXp(u32 amount) noexcept {
     if (amount == 0) return;
 
@@ -179,13 +213,12 @@ void FProgression::AwardXp(u32 amount) noexcept {
     }
 }
 
-// ============================================================================
-// 照会
-// ============================================================================
+/** 現在の累計 XP を返す。 */
 u32 FProgression::CurrentXp() const noexcept {
     return m_Xp;
 }
 
+/** 累計 XP から floor(log2(xp + 1)) でレベルを算出する。 */
 u32 FProgression::CurrentLevel() const noexcept {
     // floor(log2(xp + 1))。
     //   xp = 0   → log2(1)  = 0
@@ -203,17 +236,20 @@ u32 FProgression::CurrentLevel() const noexcept {
     return Floor_Log2_NonZero(v);
 }
 
+/** 指定 id の milestone が達成済みかを返す (未登録なら false)。 */
 bool FProgression::IsMilestoneAchieved(const char* id) const noexcept {
     const isize idx = FindIndex(id);
     if (idx < 0) return false;
     return _states[static_cast<usize>(idx)].achieved;
 }
 
+/** 登録済み milestone の総数を返す。 */
 u32 FProgression::MilestoneCount() const noexcept {
     // 件数は通常 u32 範囲を超えない (タイトル 1 つで通常 10〜100)。
     return static_cast<u32>(m_Defs.Size());
 }
 
+/** 達成済み milestone の数を数えて返す。 */
 u32 FProgression::AchievedCount() const noexcept {
     u32 count = 0;
     const usize n = _states.Size();
@@ -223,20 +259,20 @@ u32 FProgression::AchievedCount() const noexcept {
     return count;
 }
 
+/** 指定 id の milestone 状態へのポインタを返す (未登録なら nullptr)。 */
 const MilestoneState* FProgression::GetState(const char* id) const noexcept {
     const isize idx = FindIndex(id);
     if (idx < 0) return nullptr;
     return &_states[static_cast<usize>(idx)];
 }
 
+/** 全 milestone 状態の配列先頭を返し、件数を out_count に書き戻す。 */
 const MilestoneState* FProgression::AllStates(u32& out_count) const noexcept {
     out_count = static_cast<u32>(_states.Size());
     return _states.Data();
 }
 
-// ============================================================================
-// リセット
-// ============================================================================
+/** XP を 0 に戻し全 milestone を未達成に戻す (定義配列は保持)。 */
 void FProgression::ResetProgress() noexcept {
     m_Xp = 0;
     // 定義配列 (m_Defs) は保持。State 側だけ未達成に戻す。
@@ -247,35 +283,36 @@ void FProgression::ResetProgress() noexcept {
     }
 }
 
-// ============================================================================
-// FCallback
-// ============================================================================
+/** milestone 達成時に呼ぶコールバックとユーザーポインタを登録する。 */
 void FProgression::SetOnAchievedCallback(MilestoneCallback cb, void* user) noexcept {
     m_OnAchieved      = cb;
     m_OnAchievedUser = user;
 }
 
-// ============================================================================
-// 永続化 — FSaveArchive 経由の binary I/O
-// ----------------------------------------------------------------------------
-// payload レイアウト (すべて little-endian、schema version = kProgressionSaveVersion):
-//
-//   offset  size  field        説明
-//   ------  ----  -----------  -------------------------------------------------
-//   0x00    4     xp           累計 XP (m_Xp)
-//   0x04    4     count        後続 entry 数 (= 登録 milestone 数)
-//   0x08    16*N  entries[N]   各 milestone の {id_hash, achieved, pad, timestamp}
-//
-//   1 entry (16 バイト):
-//     +0   4   id_hash             def.id の FNV-1a 32bit hash (永続キー)
-//     +4   1   achieved            0/1
-//     +5   3   pad                 ゼロ詰め (timestamp の 8byte 整列用)
-//     +8   8   achieved_timestamp  Clock::MillisSinceStartup() の値
-//
-// header / magic / CRC32 / atomic な truncate-write は FSaveArchive が担う。
-// id は文字列ではなく FNV-1a hash で書き出すことで、リテラルの提示順や
-// アドレスに依存しない安定キーで Load 時に突き合わせできる。
-// ============================================================================
+/**
+ * 進行状況を FSaveArchive 経由でバイナリファイルに保存する。
+ *
+ * @details
+ * payload レイアウト (すべて little-endian、schema version = kProgressionSaveVersion):
+ *
+ *   offset  size  field        説明
+ *   ------  ----  -----------  -------------------------------------------------
+ *   0x00    4     xp           累計 XP (m_Xp)
+ *   0x04    4     count        後続 entry 数 (= 登録 milestone 数)
+ *   0x08    16*N  entries[N]   各 milestone の {id_hash, achieved, pad, timestamp}
+ *
+ *   1 entry (16 バイト):
+ *     +0   4   id_hash             def.id の FNV-1a 32bit hash (永続キー)
+ *     +4   1   achieved            0/1
+ *     +5   3   pad                 ゼロ詰め (timestamp の 8byte 整列用)
+ *     +8   8   achieved_timestamp  Clock::MillisSinceStartup() の値
+ *
+ * header / magic / CRC32 / atomic な truncate-write は FSaveArchive が担う。id は文字列
+ * ではなく FNV-1a hash で書き出すことで、リテラルの提示順やアドレスに依存しない安定キーで
+ * Load 時に突き合わせできる。
+ * @param file_path 保存先ファイルパス。
+ * @return 成功なら空の TResult、null パス / I/O 失敗ならエラー。
+ */
 TResult<void> FProgression::Save(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, 0, "FProgression::Save: file_path is null");
@@ -306,13 +343,22 @@ TResult<void> FProgression::Save(const wchar_t* file_path) noexcept {
                                      static_cast<u64>(payload.Size()));
 }
 
+/**
+ * 保存ファイルから進行状況を復元する。
+ *
+ * @details
+ * payload サイズを先読みして検証し、xp と各 entry を id_hash で現在登録済みの milestone に
+ * 突き合わせて復元する。突き合わない id_hash (旧版で削除された milestone 等) は警告して skip。
+ * @param file_path 読み込み元ファイルパス。
+ * @return 成功なら空の TResult、null パス / 破損 / I/O 失敗ならエラー。
+ */
 TResult<void> FProgression::Load(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, 0, "FProgression::Load: file_path is null");
     }
 
     // payload サイズを先読みしてバッファを確保する。
-    auto size_r = FSaveArchive::PeekPayloadSize(file_path);
+    const auto size_r = FSaveArchive::PeekPayloadSize(file_path);
     if (size_r.IsErr()) return size_r.Error();
     const u64 payload_size = size_r.Value();
 
@@ -324,7 +370,7 @@ TResult<void> FProgression::Load(const wchar_t* file_path) noexcept {
     payload.Resize(static_cast<usize>(payload_size));
 
     u64 actual_size = 0;
-    auto rd = FSaveArchive::ReadFromFile(file_path,
+    const auto rd = FSaveArchive::ReadFromFile(file_path,
                                          payload.Data(),
                                          payload_size,
                                          kProgressionSaveVersion,

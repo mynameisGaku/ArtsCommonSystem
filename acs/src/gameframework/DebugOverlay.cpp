@@ -8,10 +8,7 @@
 
 namespace acs::game {
 
-// ============================================================================
-// ライフサイクル
-// ============================================================================
-
+/** 60 frame 履歴ぶんの capacity を確保し、カウンタを 0 始まりに戻す。 */
 void FDebugOverlay::Init() noexcept {
     // 履歴 (60 frame) を事前確保しておく (毎 Tick の reallocation を回避)。
     // Reserve は capacity のみで size 不変なので、論理 size はそのまま 0 始まり。
@@ -22,6 +19,7 @@ void FDebugOverlay::Init() noexcept {
     m_CurrentFps  = 0.0f;
 }
 
+/** dt から fps を算出し、循環バッファに書き込む (dt <= 0 は無視)。 */
 void FDebugOverlay::Tick(f32 dt) noexcept {
     // dt <= 0 (一時停止 / 負値) は履歴汚染を避けるため無視。
     if (dt <= 0.0f) return;
@@ -45,6 +43,7 @@ void FDebugOverlay::Tick(f32 dt) noexcept {
     }
 }
 
+/** 履歴 / watches / scene name をクリアする (m_Visible は保持)。 */
 void FDebugOverlay::Reset() noexcept {
     m_FpsHistory.Clear();
     m_FpsIndex    = 0u;
@@ -55,10 +54,7 @@ void FDebugOverlay::Reset() noexcept {
     // m_Visible は意図的に保持 (Reset で誤って非表示にしない)。
 }
 
-// ============================================================================
-// フレームレート集計
-// ============================================================================
-
+/** 履歴中の fps の算術平均を返す (履歴空時は 0)。 */
 f32 FDebugOverlay::AverageFps() const noexcept {
     const usize n = m_FpsHistory.Size();
     if (n == 0u) return 0.0f;
@@ -67,6 +63,7 @@ f32 FDebugOverlay::AverageFps() const noexcept {
     return sum / static_cast<f32>(n);
 }
 
+/** 履歴を線形走査して最小 fps を返す (履歴空時は 0)。 */
 f32 FDebugOverlay::MinFps() const noexcept {
     const usize n = m_FpsHistory.Size();
     if (n == 0u) return 0.0f;
@@ -78,6 +75,7 @@ f32 FDebugOverlay::MinFps() const noexcept {
     return m;
 }
 
+/** 履歴を線形走査して最大 fps を返す (履歴空時は 0)。 */
 f32 FDebugOverlay::MaxFps() const noexcept {
     const usize n = m_FpsHistory.Size();
     if (n == 0u) return 0.0f;
@@ -89,10 +87,7 @@ f32 FDebugOverlay::MaxFps() const noexcept {
     return m;
 }
 
-// ============================================================================
-// Watch 管理 (label / value とも caller 所有、本クラスは複製しない)
-// ============================================================================
-
+/** 同名 label があれば value を差し替え、無ければ新規 watch を追加する。 */
 void FDebugOverlay::AddWatch(const char* label, const char* value) noexcept {
     if (label == nullptr || value == nullptr) return;
     // 同名 label があれば value を差し替え (後勝ち)。
@@ -109,6 +104,7 @@ void FDebugOverlay::AddWatch(const char* label, const char* value) noexcept {
     m_Watches.PushBack(w);
 }
 
+/** label 一致する watch を swap-remove する (順序非保持)。 */
 void FDebugOverlay::RemoveWatch(const char* label) noexcept {
     if (label == nullptr) return;
     for (usize i = 0; i < m_Watches.Size(); ++i) {
@@ -121,14 +117,17 @@ void FDebugOverlay::RemoveWatch(const char* label) noexcept {
     }
 }
 
+/** 全 watch を削除する。 */
 void FDebugOverlay::ClearWatches() noexcept {
     m_Watches.Clear();
 }
 
+/** 登録済み watch 数を返す。 */
 u32 FDebugOverlay::WatchCount() const noexcept {
     return static_cast<u32>(m_Watches.Size());
 }
 
+/** watch 配列の先頭ポインタと件数を返す (空なら nullptr)。 */
 const FDebugOverlay::Watch* FDebugOverlay::AllWatches(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Watches.Size());
     if (m_Watches.Size() == 0u) return nullptr;

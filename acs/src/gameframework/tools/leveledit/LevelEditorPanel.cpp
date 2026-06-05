@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — FLevelEditorPanel 実装 (Phase 22)
+// GameFramework Pillar — FLevelEditorPanel 実装
 //
 // 仕様の意図は FLevelEditorPanel.h を参照。本ファイルでは:
 //   ・FEditorPanel 基底 hook (OnInit / DrawUI) の override
@@ -23,12 +23,14 @@
 
 namespace acs::game::leveledit {
 
-// =============================================================================
-// ローカルヘルパ
-// =============================================================================
 namespace {
 
-// brush kind → 表示ラベル。範囲外は "(unknown)"。
+/**
+ * ブラシ種別を表示ラベルに変換する。
+ *
+ * @param b 変換するブラシ種別。
+ * @return 対応するラベル文字列 (範囲外は "(unknown)")。
+ */
 const char* BrushLabel(EBrushKind b) noexcept {
     switch (b) {
         case EBrushKind::Paint: return "Paint";
@@ -39,9 +41,16 @@ const char* BrushLabel(EBrushKind b) noexcept {
     }
 }
 
-// tile id を疑似乱数ハッシュで RGBA 色に変換する placeholder (本物 atlas が
-// 出来るまでの暫定描画用)。0 (= 空) はほぼ透明な暗灰色で「下地が見える」感を
-// 出す。0 以外は id をハッシュして HSV-ish な色相を散らす。
+/**
+ * tile id を疑似乱数ハッシュで RGBA 色に変換する placeholder。
+ *
+ * @details
+ * 本物 atlas が出来るまでの暫定描画用。0 (= 空) はほぼ透明な暗灰色で「下地が
+ * 見える」感を出し、0 以外は splitmix32 風ハッシュで色相を散らす。各 channel は
+ * 全黒近くを避けるため最低輝度 64 を保証する。
+ * @param id 変換する tile id。
+ * @return ImGui 用の RGBA 色 (ImU32)。
+ */
 ImU32 TileIdToColor(u16 id) noexcept {
     if (id == 0u) {
         // 空 tile: 暗灰半透明 (背景の checkerboard を意識させる)
@@ -62,13 +71,20 @@ ImU32 TileIdToColor(u16 id) noexcept {
     return IM_COL32(r, g, b, 255);
 }
 
-// world → screen (canvas 上の ImVec2)。
-// 2D FEditorCamera は (position.x, position.y) を viewport 中央とみなす ortho
-// 投影で、zoom_2d で拡大率を持つ。基本 ortho 幅 = base_ortho_size / zoom_2d、
-// 高さは aspect 比からの導出だが、本 panel では canvas pixel 比でスケールを
-// 単純化する: pixels_per_world = canvas_h / (base_ortho_size / zoom_2d / aspect)。
-// ─ ただし aspect 算出を canvas 内で完結させたいので「pixels_per_world =
-//   canvas_width / world_width」を使う ortho 流の素朴形にする。
+/**
+ * world 座標を canvas 上の screen 座標 (ImVec2) に変換する。
+ *
+ * @details
+ * 2D ortho 投影を pixels_per_world でスケールした素朴形。world Y は +Y 上、
+ * screen Y は +Y 下なので符号を反転する。
+ * @param wx world X 座標。
+ * @param wy world Y 座標。
+ * @param cam_x カメラ中心の world X。
+ * @param cam_y カメラ中心の world Y。
+ * @param pixels_per_world world 1 単位あたりの screen ピクセル数。
+ * @param canvas_center canvas 中央の screen 座標。
+ * @return 変換後の screen 座標。
+ */
 inline ImVec2 WorldToScreen(f32 wx, f32 wy,
                             f32 cam_x, f32 cam_y, f32 pixels_per_world,
                             ImVec2 canvas_center) noexcept {
@@ -77,7 +93,19 @@ inline ImVec2 WorldToScreen(f32 wx, f32 wy,
                   canvas_center.y - (wy - cam_y) * pixels_per_world);
 }
 
-// screen → world (逆変換)。
+/**
+ * screen 座標を world 座標に逆変換する。
+ *
+ * @details pixels_per_world が極小 (< 0.0001) のときはカメラ中心をそのまま返す。
+ * @param sx screen X 座標。
+ * @param sy screen Y 座標。
+ * @param cam_x カメラ中心の world X。
+ * @param cam_y カメラ中心の world Y。
+ * @param pixels_per_world world 1 単位あたりの screen ピクセル数。
+ * @param canvas_center canvas 中央の screen 座標。
+ * @param out_wx 変換後の world X を受け取る出力。
+ * @param out_wy 変換後の world Y を受け取る出力。
+ */
 inline void ScreenToWorld(f32 sx, f32 sy,
                           f32 cam_x, f32 cam_y, f32 pixels_per_world,
                           ImVec2 canvas_center,
@@ -91,9 +119,20 @@ inline void ScreenToWorld(f32 sx, f32 sy,
     out_wy = cam_y - (sy - canvas_center.y) / pixels_per_world;
 }
 
-// flood-fill (4-neighbor)。`map` の layer `layer` で、開始点 (sx, sy) の tile id
-// と同じ連結成分を `new_id` で塗り替える。`new_id == start_id` なら no-op。
-// 上限 `max_cells` を超える場合は途中で打ち切り (= 巨大マップでも暴走しない)。
+/**
+ * 4-neighbor flood-fill で連結成分を塗り替える。
+ *
+ * @details
+ * 開始点 (sx, sy) の tile id と同じ連結成分を new_id で塗り替える。
+ * new_id == start_id なら no-op。再帰だと巨大マップで stack overflow するため
+ * 明示スタック (TArray<u32>) を使い、max_cells を超えたら途中で打ち切る。
+ * @param map 対象の FTilemap。
+ * @param layer 塗り替えるレイヤ番号。
+ * @param sx 開始 tile の X 座標。
+ * @param sy 開始 tile の Y 座標。
+ * @param new_id 塗り替え後の tile id。
+ * @param max_cells 処理セル数の上限 (暴走防止の打ち切り値)。
+ */
 void FloodFill(class FTilemap& map, u32 layer,
                u32 sx, u32 sy, u16 new_id, u32 max_cells) noexcept {
     const u32 w = map.Width();
@@ -137,9 +176,7 @@ void FloodFill(class FTilemap& map, u32 layer,
 
 } // anonymous namespace
 
-// =============================================================================
-// Init / Shutdown
-// =============================================================================
+/** 内部 state をデフォルトに初期化する (FEditorCamera を 2D mode で Init)。 */
 void FLevelEditorPanel::Init() noexcept {
     // FEditorCamera を 2D mode で完全初期化 (= position=origin, zoom=1.0)。
     m_Camera.Init(acs::game::editor_core::EEditorCameraMode::Mode2D);
@@ -163,6 +200,7 @@ void FLevelEditorPanel::Init() noexcept {
     m_DockedTarget = true;
 }
 
+/** 内部 state を全解放する (tilemap 参照解除 + FEditorCamera Reset)。 */
 void FLevelEditorPanel::Shutdown() noexcept {
     // FEditorCamera は POD だが明示 Reset で確定状態にする。
     m_Camera.Reset();
@@ -171,9 +209,7 @@ void FLevelEditorPanel::Shutdown() noexcept {
     m_SelectedY  = kNoCoord;
 }
 
-// =============================================================================
-// SetTilemap / CurrentTilemap
-// =============================================================================
+/** 編集対象の FTilemap を raw 参照でセットし、active_layer と selection を整える。 */
 void FLevelEditorPanel::SetTilemap(class FTilemap* tm) noexcept {
     m_Tilemap = tm;
     // active_layer を LayerCount() でクランプ (= 別 tilemap に切替えたら
@@ -191,38 +227,43 @@ void FLevelEditorPanel::SetTilemap(class FTilemap* tm) noexcept {
     m_SelectedY = kNoCoord;
 }
 
+/** 現在編集対象の FTilemap を返す (未バインド時は nullptr)。 */
 class FTilemap* FLevelEditorPanel::CurrentTilemap() const noexcept {
     return m_Tilemap;
 }
 
-// =============================================================================
-// FCamera アクセサ
-// =============================================================================
+/** 内部 FEditorCamera (Mode2D) への参照を返す。 */
 acs::game::editor_core::FEditorCamera& FLevelEditorPanel::Camera() noexcept {
     return m_Camera;
 }
 
-// =============================================================================
-// ブラシ / レイヤ / tile id / 表示 toggle のアクセサ
-// =============================================================================
+/** 現在のブラシ種別を返す。 */
 EBrushKind FLevelEditorPanel::CurrentBrush() const noexcept {
     return m_Brush;
 }
+
+/** ブラシ種別を設定する。 */
 void FLevelEditorPanel::SetCurrentBrush(EBrushKind b) noexcept {
     m_Brush = b;
 }
 
+/** 現在ペイント中の tile id を返す。 */
 u16 FLevelEditorPanel::CurrentTileId() const noexcept {
     return m_CurrentTileId;
 }
+
+/** ペイントする tile id を設定する (kTileIdMax でクランプ)。 */
 void FLevelEditorPanel::SetCurrentTileId(u16 id) noexcept {
     if (id > kTileIdMax) id = kTileIdMax;
     m_CurrentTileId = id;
 }
 
+/** アクティブレイヤ番号を返す。 */
 u32 FLevelEditorPanel::ActiveLayer() const noexcept {
     return m_ActiveLayer;
 }
+
+/** アクティブレイヤ番号を設定する (tilemap バインド時は LayerCount でクランプ)。 */
 void FLevelEditorPanel::SetActiveLayer(u32 layer) noexcept {
     // tilemap がある場合は LayerCount でクランプ、無い場合はそのまま受け入れる
     // (後で SetTilemap でクランプされる)。
@@ -237,53 +278,34 @@ void FLevelEditorPanel::SetActiveLayer(u32 layer) noexcept {
     m_ActiveLayer = layer;
 }
 
+/** grid 表示フラグを返す。 */
 bool FLevelEditorPanel::ShowGrid() const noexcept {
     return m_ShowGrid;
 }
+
+/** grid 表示フラグを設定する。 */
 void FLevelEditorPanel::SetShowGrid(bool b) noexcept {
     m_ShowGrid = b;
 }
 
+/** snap-to-grid 表示フラグを返す。 */
 bool FLevelEditorPanel::SnapToGrid() const noexcept {
     return m_SnapToGrid;
 }
+
+/** snap-to-grid 表示フラグを設定する。 */
 void FLevelEditorPanel::SetSnapToGrid(bool b) noexcept {
     m_SnapToGrid = b;
 }
 
-// =============================================================================
-// FEditorPanel override: OnInit
-// =============================================================================
-// 基底実装 (Workspace ポインタ保存) を必ず呼んでから、追加で FEditorCamera を
-// 2D mode で再初期化する。Init() が呼ばれていなくても Workspace 登録だけで
-// パネルが動くようにする保険。
-// =============================================================================
+/** Workspace 登録時の初期化フック (基底実装 + FEditorCamera を 2D mode で再初期化)。 */
 void FLevelEditorPanel::OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept {
     FEditorPanel::OnInit(workspace);
     m_Camera.Init(acs::game::editor_core::EEditorCameraMode::Mode2D);
     m_Camera.SetBaseOrthoSize(512.0f);
 }
 
-// =============================================================================
-// FEditorPanel override: DrawUI
-// =============================================================================
-// ImGui::Begin("Level Editor") から始まる 1 window レイアウト:
-//   ┌────────────── "Level Editor" window ────────────────────────────┐
-//   │ [Brush: Paint v] [Layer: 0 v] [Tile ID: ___]                     │
-//   │ [✓] Show Grid  [✓] Snap to Grid                                   │
-//   │ ┌──────── viewport canvas (大) ──────┐  ┌─── Inspector ────────┐ │
-//   │ │  tilemap を矩形描画 + hover tile を │  │ Selected:            │ │
-//   │ │  ハイライト + クリック / drag で    │  │   x: ...             │ │
-//   │ │  ペイント                            │  │   y: ...             │ │
-//   │ │                                       │  │   layer: ...         │ │
-//   │ │                                       │  │   tile id: ...       │ │
-//   │ └────────────────────────────────────┘  │ FCamera:              │ │
-//   │                                          │   pos: (..., ...)    │ │
-//   │                                          │   zoom: ...          │ │
-//   │                                          │ [Frame Map]          │ │
-//   │                                          └──────────────────────┘ │
-//   └──────────────────────────────────────────────────────────────────┘
-// =============================================================================
+/** Toolbar + viewport canvas + inspector を 1 window レイアウトで描画する。 */
 void FLevelEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
@@ -304,9 +326,7 @@ void FLevelEditorPanel::DrawUI() noexcept {
     const f32 tile_size = map.TileSize();
     const u32 layer_count = map.LayerCount();
 
-    // ------------------------------------------------------------------------
     // Toolbar: Brush kind / Active layer / Tile id picker / Show grid / Snap
-    // ------------------------------------------------------------------------
     {
         // Brush kind combo
         ImGui::SetNextItemWidth(120.0f);
@@ -362,18 +382,14 @@ void FLevelEditorPanel::DrawUI() noexcept {
 
     ImGui::Separator();
 
-    // ------------------------------------------------------------------------
     // Layout: viewport canvas (左 70%) | inspector (右 30%)
-    // ------------------------------------------------------------------------
     const f32 content_w = ImGui::GetContentRegionAvail().x;
     const f32 content_h = ImGui::GetContentRegionAvail().y;
     const f32 inspector_w = (content_w > 300.0f) ? 240.0f : (content_w * 0.30f);
     const f32 canvas_w = content_w - inspector_w - 8.0f;   // 8px gap
     const f32 canvas_h = (content_h > 200.0f) ? content_h : 200.0f;
 
-    // ------------------------------------------------------------------------
     // FViewport canvas
-    // ------------------------------------------------------------------------
     ImGui::BeginChild("##leveledit_viewport",
                       ImVec2(canvas_w, canvas_h),
                       true,
@@ -565,9 +581,7 @@ void FLevelEditorPanel::DrawUI() noexcept {
     }
     ImGui::EndChild();
 
-    // ------------------------------------------------------------------------
     // Inspector (右側)
-    // ------------------------------------------------------------------------
     ImGui::SameLine();
     ImGui::BeginChild("##leveledit_inspector",
                       ImVec2(inspector_w, canvas_h),

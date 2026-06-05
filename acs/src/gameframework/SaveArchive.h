@@ -63,103 +63,127 @@
 
 namespace acs::game {
 
-// -----------------------------------------------------------------------------
-// FSaveArchive エラー subcode (FErrorCode.subcode に格納)
-// -----------------------------------------------------------------------------
-// 上位層が switch 分岐できるよう、固定 u32 値を割り当てる。
-// 値域は 1..7 (Phase 1)。後段で増やす場合も既存値の再利用は禁止する。
+/**
+ * FSaveArchive の各 API が返すエラー subcode (FErrorCode.subcode に格納)。
+ *
+ * @details
+ * 上位層が switch 分岐できるよう固定 u32 値 (1..7) を割り当てる。既存値の再利用は禁止。
+ * kSubMigrationNeeded は「読めたが version が違う」を示す non-fatal な扱いを意図する。
+ */
 enum class ESaveArchiveSubCode : u32 {
-    kSubBadMagic         = 1,  // 先頭 8 バイトが "ACSSAVE\0" でない
-    kSubVersionMismatch  = 2,  // header.version が想定外の値 (将来予約)
-    kSubBufferTooSmall   = 3,  // ReadFromFile の out_capacity < payload_size
-    kSubChecksumFail     = 4,  // CRC32 mismatch (破損 or 改竄)
-    kSubFileNotFound     = 5,  // open 時に file が無い (ERROR_FILE_NOT_FOUND)
-    kSubIoError          = 6,  // 下層 Win32 I/O 失敗 (read/write/seek)
-    kSubMigrationNeeded  = 7,  // header.version != expected_version (migrate 要求)
+    /** 先頭 8 バイトが "ACSSAVE\0" でない。 */
+    kSubBadMagic         = 1,
+
+    /** header.version が想定外の値 (予約)。 */
+    kSubVersionMismatch  = 2,
+
+    /** ReadFromFile の out_capacity < payload_size。 */
+    kSubBufferTooSmall   = 3,
+
+    /** CRC32 mismatch (破損 or 改竄)。 */
+    kSubChecksumFail     = 4,
+
+    /** open 時に file が無い (ERROR_FILE_NOT_FOUND)。 */
+    kSubFileNotFound     = 5,
+
+    /** 下層 Win32 I/O 失敗 (read/write/seek)。 */
+    kSubIoError          = 6,
+
+    /** header.version != expected_version (migrate 要求)。 */
+    kSubMigrationNeeded  = 7,
 };
 
-// -----------------------------------------------------------------------------
-// FSaveArchive — `.acssave` バイナリ I/O 一括クラス
-// -----------------------------------------------------------------------------
+/**
+ * POD を `.acssave` 1 ファイルにタグ付きバイナリで読み書きする低レベル I/O クラス。
+ *
+ * @details
+ * ファイルは 24 バイト header (magic "ACSSAVE\0" + version + payload_size + payload の CRC32)
+ * の後に payload バイト列が続く little-endian フォーマット。状態を持たない static 関数の
+ * 集合体で、Win32 ファイル API を直接叩く。全 API noexcept でエラーは TResult で伝搬する。
+ */
 class FSaveArchive {
 public:
-    // ---- フォーマット定数 ------------------------------------------------
-    // magic は ASCII "ACSSAVE\0" の 8 バイト。kMagicBytes はそのバイト列を
-    // 公開する (header_buf 比較用)。
+    /** magic バイト列のサイズ (ASCII "ACSSAVE\0" の 8 バイト)。 */
     static constexpr usize kMagicSize  = 8;
-    static constexpr usize kHeaderSize = 24;  // magic(8) + version(4) + size(8) + crc(4)
 
-    // C 文字列リテラル "ACSSAVE" は実装側 (.cpp) で直接参照する。
-    // header に書く 8 バイトはこの定数経由で公開しておく。
+    /** header の固定サイズ (magic 8 + version 4 + size 8 + crc 4)。 */
+    static constexpr usize kHeaderSize = 24;
+
+    /** header 先頭に書く magic バイト列 "ACSSAVE\0" (比較用に公開)。 */
     static const u8 kMagicBytes[kMagicSize];
 
-    // ---- 非インスタンス: コピー / ムーブ禁止 ------------------------------
+    /** インスタンス化禁止 (state を持たない static 関数の集合)。 */
     FSaveArchive()                              = delete;
+
+    /** デストラクタも禁止 (非インスタンス)。 */
     ~FSaveArchive()                             = delete;
+
+    /** コピー禁止。 */
     FSaveArchive(const FSaveArchive&)            = delete;
+
+    /** ムーブ禁止。 */
     FSaveArchive(FSaveArchive&&)                 = delete;
+
+    /** コピー代入も禁止。 */
     FSaveArchive& operator=(const FSaveArchive&) = delete;
+
+    /** ムーブ代入も禁止。 */
     FSaveArchive& operator=(FSaveArchive&&)      = delete;
 
-    // ---- 書き込み: payload を `.acssave` 1 ファイルに保存 ------------------
-    // file_path   : 出力先 (絶対 / 相対どちらでも可、wchar_t 終端)
-    // version     : payload に対応する schema バージョン (呼び出し側が定義)
-    // payload     : 書き出すバイト列の先頭 (nullptr 不可、payload_size == 0
-    //               の場合は header のみが書かれる)
-    // payload_size: payload のバイト数 (u64)
-    //
-    // 戻り値:
-    //   Ok              — 全データの書き込みに成功
-    //   Err(IO,...)     — file open / write / seek / close いずれかが失敗
-    //                     (subcode は ESaveArchiveSubCode::kSubIoError)
-    //
-    // 失敗時のファイル状態:
-    //   既存ファイルは CreateFileW(CREATE_ALWAYS) で truncate 後に書くため、
-    //   途中失敗するとファイルは中途半端な状態で残る可能性がある。
-    //   atomic rename が必要なら呼び出し側で tmp file → rename を組むこと
-    //   (FSaveSlot 上位層で実装する)。
+    /**
+     * payload を `.acssave` 1 ファイル (header + payload + CRC32) に保存する。
+     *
+     * @details
+     * CreateFileW(CREATE_ALWAYS) で既存ファイルを truncate して書くため、途中失敗すると
+     * ファイルは中途半端な状態で残り得る。atomic rename が必要なら呼び出し側 (FSaveSlot 上位層)
+     * で tmp file → rename を組む。
+     * @param file_path 出力先パス (絶対 / 相対どちらでも可、wchar_t 終端)。
+     * @param version payload に対応する schema バージョン (呼び出し側が定義)。
+     * @param payload 書き出すバイト列の先頭 (payload_size > 0 なら nullptr 不可)。
+     * @param payload_size payload のバイト数 (0 なら header のみ書かれる)。
+     * @return 成功なら空の TResult、open / write / close 失敗で kSubIoError。
+     */
     static TResult<void> WriteToFile(const wchar_t* file_path,
                                     u32            version,
                                     const void*    payload,
                                     u64            payload_size) noexcept;
 
-    // ---- 読み込み: `.acssave` を検証し、payload を out_payload にコピー ----
-    // file_path        : 入力ファイル (wchar_t 終端)
-    // out_payload      : 読み込み先バッファ (nullptr 不可)
-    // out_capacity     : out_payload のサイズ (バイト)。
-    //                    実 payload_size <= out_capacity が必要、それ未満なら
-    //                    kSubBufferTooSmall を返す。
-    // expected_version : 呼び出し側が期待する version。一致しない場合は
-    //                    kSubMigrationNeeded を返し、out_payload_size には
-    //                    実 payload_size が入る (= migrate の手がかりとして
-    //                    使える)。
-    // out_payload_size : 出力。読めた payload のバイト数 (header 由来)。
-    //                    エラー時の意味は subcode ごとに以下:
-    //                      kSubBufferTooSmall  : 実 size を返す (allocate 再試行用)
-    //                      kSubMigrationNeeded : 実 size を返す
-    //                      その他              : 不定 (0 に初期化される)
-    //
-    // 戻り値:
-    //   Ok(actual_version)             — 全検証 + コピー成功。返値は header.version。
-    //   Err(IO/Asset, ...)             — magic / crc / io 失敗
-    //   Err(Asset, kSubMigrationNeeded) — version 不一致 (out_payload にはコピー
-    //                                     しない、out_payload_size のみ設定)
+    /**
+     * `.acssave` を検証し、payload を out_payload にコピーする。
+     *
+     * @details
+     * magic → version → out_capacity → payload → CRC の順で fail-fast する。version 不一致時は
+     * out_payload へコピーせず kSubMigrationNeeded を返し、out_payload_size に実 size を入れて
+     * migrate の手がかりとする。kSubBufferTooSmall 時も out_payload_size に実 size を返す。
+     * @param file_path 入力ファイルパス (wchar_t 終端)。
+     * @param out_payload 読み込み先バッファ (out_capacity > 0 なら nullptr 不可)。
+     * @param out_capacity out_payload のサイズ (payload_size 未満なら kSubBufferTooSmall)。
+     * @param expected_version 呼び出し側が期待する version。
+     * @param out_payload_size 出力。読めた payload のバイト数 (header 由来、エラー時は subcode 依存)。
+     * @return 成功なら header.version、magic / crc / io 失敗や version 不一致は対応 subcode。
+     */
     static TResult<u32> ReadFromFile(const wchar_t* file_path,
                                     void*          out_payload,
                                     u64            out_capacity,
                                     u32            expected_version,
                                     u64&           out_payload_size) noexcept;
 
-    // ---- header のみ peek ------------------------------------------------
-    // ファイルを開いて先頭 kHeaderSize バイトだけ読み、検証して version を返す。
-    // ファイルが存在しない / magic 不一致 / io 失敗時は対応する subcode を返す。
-    //
-    // 用途: タイトル画面で「セーブデータの形式が古い」表示を出すための事前判定。
+    /**
+     * header だけを読み、検証して version を返す。
+     *
+     * @details タイトル画面で「セーブデータの形式が古い」表示を出す事前判定に使う。
+     * @param file_path 入力ファイルパス。
+     * @return 成功なら header.version、不在 / magic 不一致 / io 失敗は対応 subcode。
+     */
     static TResult<u32> PeekVersion(const wchar_t* file_path) noexcept;
 
-    // ---- payload_size のみ peek -----------------------------------------
-    // PeekVersion と同様、header のみ読んで payload_size を返す。
-    // 用途: payload を読み込む前に buffer サイズを allocate する。
+    /**
+     * header だけを読み、payload_size を返す。
+     *
+     * @details payload を読み込む前に buffer サイズを allocate する用途。
+     * @param file_path 入力ファイルパス。
+     * @return 成功なら header.payload_size、不在 / magic 不一致 / io 失敗は対応 subcode。
+     */
     static TResult<u64> PeekPayloadSize(const wchar_t* file_path) noexcept;
 };
 

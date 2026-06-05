@@ -21,13 +21,16 @@ namespace acs {
 
 namespace {
 
-// 焼き込むコードポイント範囲（first, count）
+/** 焼き込む 1 つのコードポイント範囲 (開始 + 個数)。 */
 struct CpRange {
+    /** 範囲の先頭コードポイント。 */
     u32 first;
+
+    /** 範囲に含まれるコードポイント数。 */
     u32 count;
 };
 
-// デフォルト範囲: ASCII / Latin-1 / かな / 全角句読点・英数
+/** 既定で焼く範囲 (ASCII / Latin-1 / かな / 全角句読点・英数)。 */
 constexpr CpRange kDefaultRanges[] = {
     { 0x0020, 0x007F - 0x0020 },   // ASCII (95)
     { 0x00A0, 0x0100 - 0x00A0 },   // Latin-1 補足 (96)
@@ -36,13 +39,22 @@ constexpr CpRange kDefaultRanges[] = {
     { 0x30A0, 0x3100 - 0x30A0 },   // 片仮名 (96)
     { 0xFF01, 0xFF5F - 0xFF01 },   // 全角英数記号 (94)
 };
+
+/** kDefaultRanges の要素数。 */
 constexpr u32 kNumDefaultRanges = sizeof(kDefaultRanges) / sizeof(kDefaultRanges[0]);
 
-// 追加範囲: CJK 統合漢字（include_cjk=true で焼く）
-constexpr CpRange kCjkRange = { 0x4E00, 0x9FB0 - 0x4E00 };  // 約 20,400 字
+/** include_cjk=true で追加で焼く CJK 統合漢字範囲 (約 20,400 字)。 */
+constexpr CpRange kCjkRange = { 0x4E00, 0x9FB0 - 0x4E00 };
 
 } // namespace
 
+/**
+ * UTF-8 文字列から 1 文字をデコードし、ポインタを次の文字へ進める。
+ *
+ * @details 終端 (NUL) では 0 を返し、不正バイト列は U+FFFD を返して 1 文字ぶん進める。
+ * @param p デコード位置を指すポインタへのポインタ (デコード後に次の文字位置へ進む)。
+ * @return デコードしたコードポイント (終端は 0、不正バイトは 0xFFFD)。
+ */
 u32 DecodeUtf8(const char** p) noexcept {
     if (!p || !*p) return 0;
     const u8* s = reinterpret_cast<const u8*>(*p);
@@ -76,6 +88,7 @@ u32 DecodeUtf8(const char** p) noexcept {
     return c;
 }
 
+/** TTF/OTF/TTC バイト列からアトラスを焼いてグリフマップと GPU テクスチャを構築する。 */
 TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize ttf_size,
                                  f32 pixel_size, u32 atlas_size, bool include_cjk) noexcept {
     if (!ttf_data || ttf_size == 0)
@@ -98,13 +111,13 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     m_Descent  = descent  * scale;
     m_LineGap = line_gap * scale;
 
-    // ===== アトラス用ピクセル（R8 single-channel）=====
+    // アトラス用ピクセル（R8 single-channel）
     const usize atlas_bytes = static_cast<usize>(atlas_size) * atlas_size;
     u8* atlas_r8 = static_cast<u8*>(DefaultAllocator().Alloc(atlas_bytes));
     if (!atlas_r8) return ACS_ERR(Memory, 220, "Font: atlas alloc");
     ::memset(atlas_r8, 0, atlas_bytes);
 
-    // ===== stbtt_pack で複数コードポイント範囲を一気に焼く =====
+    // stbtt_pack で複数コードポイント範囲を一気に焼く
     stbtt_pack_context spc{};
     if (!stbtt_PackBegin(&spc, atlas_r8,
                           static_cast<int>(atlas_size), static_cast<int>(atlas_size),
@@ -144,7 +157,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     (void)stbtt_PackFontRanges(&spc, ttf_data, 0, ranges.Data(), static_cast<int>(num_active));
     stbtt_PackEnd(&spc);
 
-    // ===== R8 → RGBA8 変換（アルファのみ、RGB は白）=====
+    // R8 → RGBA8 変換（アルファのみ、RGB は白）
     const usize rgba_bytes = atlas_bytes * 4;
     u8* atlas_rgba = static_cast<u8*>(DefaultAllocator().Alloc(rgba_bytes));
     if (!atlas_rgba) {
@@ -159,7 +172,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     }
     DefaultAllocator().Free(atlas_r8);
 
-    // ===== GPU テクスチャ作成 =====
+    // GPU テクスチャ作成
     FTextureDesc td{};
     td.width = atlas_size; td.height = atlas_size;
     td.format = EFormat::R8G8B8A8_UNorm;
@@ -170,7 +183,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     if (tr.IsErr()) return Err<void>(tr.Error());
     m_Atlas = Move(tr.Value());
 
-    // ===== グリフマップ構築 =====
+    // グリフマップ構築
     const f32 inv_size = 1.0f / static_cast<f32>(atlas_size);
     for (u32 ri = 0; ri < num_active; ++ri) {
         const stbtt_packedchar* pcs = packed_per_range[ri].Data();
@@ -196,6 +209,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     return Ok();
 }
 
+/** ファイルを読み込み、そのバイト列を LoadFromBytes に渡してアトラスを構築する。 */
 TResult<void> Font::LoadFromFile(IRhiDevice& device, const wchar_t* path,
                                 f32 pixel_size, u32 atlas_size, bool include_cjk) noexcept {
     auto bytes_r = FileSystem::ReadAllBytes(path);
@@ -205,6 +219,7 @@ TResult<void> Font::LoadFromFile(IRhiDevice& device, const wchar_t* path,
                          bytes.Size(), pixel_size, atlas_size, include_cjk);
 }
 
+/** アトラステクスチャとグリフマップを解放し、メトリクスを 0 に戻す。 */
 void Font::Shutdown() noexcept {
     m_Atlas.Reset();
     m_Glyphs.Clear();
@@ -212,6 +227,7 @@ void Font::Shutdown() noexcept {
     m_PixelSize = 0;
 }
 
+/** コードポイントのグリフ情報を取得する (アトラス未収録なら false)。 */
 bool Font::GetGlyph(u32 codepoint, GlyphInfo& out) const noexcept {
     const GlyphInfo* hit = m_Glyphs.Find(codepoint);
     if (!hit) return false;
@@ -219,12 +235,13 @@ bool Font::GetGlyph(u32 codepoint, GlyphInfo& out) const noexcept {
     return true;
 }
 
+/** UTF-8 文字列の描画幅をピクセルで測る (改行は無視)。 */
 f32 Font::MeasureWidth(const char* utf8_text) const noexcept {
     if (!utf8_text) return 0.0f;
     f32 w = 0.0f;
     const char* p = utf8_text;
     while (true) {
-        u32 cp = DecodeUtf8(&p);
+        const u32 cp = DecodeUtf8(&p);
         if (cp == 0) break;
         if (cp == '\n') continue;
         GlyphInfo g{};

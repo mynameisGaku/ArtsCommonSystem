@@ -7,17 +7,51 @@ namespace acs {
 
 namespace {
 
+/** 同一平面・共線など退化入力を表すサブエラーコード。 */
 constexpr u16 kSubHullDegenerate = 421;
+
+/** 点が 4 個未満で凸包を張れないことを表すサブエラーコード。 */
 constexpr u16 kSubHullTooFew     = 422;
 
+/**
+ * incremental hull の作業用の 1 三角形面。
+ *
+ * @details 平面方程式 dot(n, x) = d で表され、n は centroid から外を向く法線。
+ */
 struct Face {
-    u32   a, b, c;
-    FVec3 n;        // 外向き法線
-    f32   d;        // 平面: dot(n, x) = d
+    /** 頂点インデックス a (反時計回りの 1 番目)。 */
+    u32   a;
+
+    /** 頂点インデックス b (反時計回りの 2 番目)。 */
+    u32   b;
+
+    /** 頂点インデックス c (反時計回りの 3 番目)。 */
+    u32   c;
+
+    /** 外向きの単位法線 (退化面ではゼロベクトル)。 */
+    FVec3 n;
+
+    /** 平面オフセット (dot(n, x) = d)。 */
+    f32   d;
+
+    /** 現在処理中の点から可視かどうかの作業フラグ。 */
     bool  visible;
 };
 
-// a,b,c から centroid の外側を向く法線で Face を作る。
+/**
+ * 3 頂点 a,b,c から centroid の外側を向く面を作る。
+ *
+ * @details
+ * a,b,c がほぼ共線な退化三角形では Cross がゼロ近傍になり Normalize がゼロ除算で
+ * NaN 法線を生むため、十分な大きさがある時だけ正規化し退化時はゼロ法線にして不活性な
+ * 面として扱う。centroid が法線の正側に来る場合は内向きなので法線を反転し巻き順も入れ替える。
+ * @param p 全頂点配列の先頭ポインタ。
+ * @param a 面の頂点インデックス a。
+ * @param b 面の頂点インデックス b。
+ * @param c 面の頂点インデックス c。
+ * @param centroid 外向き判定に使う凸包内部の基準点 (初期四面体の重心)。
+ * @return 外向き法線に正規化された Face。
+ */
 Face MakeFace(const FVec3* p, u32 a, u32 b, u32 c, FVec3 centroid) noexcept {
     // 退化三角形 (a,b,c がほぼ共線) では Cross がゼロ近傍になり Normalize がゼロ除算で
     // NaN 法線を生む。NaN は後段の全 Dot 比較を汚染し可視判定を壊す (hull 崩壊/無限ループ)。
@@ -36,6 +70,7 @@ Face MakeFace(const FVec3* p, u32 a, u32 b, u32 c, FVec3 centroid) noexcept {
 
 } // namespace
 
+/** 点群から 3D 凸包の三角形メッシュを構築する (incremental hull 実装本体)。 */
 TResult<void> BuildConvexHull3(const FVec3* points, u32 count,
                                TArray<FVec3>& out_verts,
                                TArray<u32>& out_indices) noexcept {
@@ -45,7 +80,7 @@ TResult<void> BuildConvexHull3(const FVec3* points, u32 count,
         return ACS_ERR(Generic, kSubHullTooFew, "BuildConvexHull3: need >= 4 points");
     }
 
-    // ===== 初期四面体: affinely independent な 4 点を選ぶ =====
+    // 初期四面体: affinely independent な 4 点を選ぶ
     u32 i0 = 0;
     for (u32 i = 1; i < count; ++i) if (points[i].x < points[i0].x) i0 = i;
 
@@ -144,7 +179,7 @@ TResult<void> BuildConvexHull3(const FVec3* points, u32 count,
         processed[k] = 1;
     }
 
-    // ===== 使用頂点を集めて remap → out_verts / out_indices =====
+    // 使用頂点を集めて remap → out_verts / out_indices
     TArray<i32> remap;
     remap.Resize(count);
     for (u32 i = 0; i < count; ++i) remap[i] = -1;

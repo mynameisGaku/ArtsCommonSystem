@@ -8,29 +8,77 @@ namespace acs {
 
 namespace {
 
+/** 引数不正 (null/空画像) を表すサブエラーコード。 */
 constexpr u16 kSubSpriteColInvalidArg = 411;
+
+/** 不透明境界画素が少なすぎることを表すサブエラーコード。 */
 constexpr u16 kSubSpriteColEmpty      = 412;
 
+/**
+ * アルファ判定つきの読み取り専用 RGBA8 画像ビュー。
+ *
+ * @details しきい値 thr 以上のアルファを「不透明」とみなす。範囲外座標は背景扱い。
+ */
 struct AlphaImage {
+    /** RGBA8 tightly-packed 画素列の先頭 (所有しない)。 */
     const u8* rgba;
-    u32 w, h;
+
+    /** 画像の幅 (px)。 */
+    u32 w;
+
+    /** 画像の高さ (px)。 */
+    u32 h;
+
+    /** 「不透明」とみなすアルファのしきい値。 */
     u8  thr;
+
+    /**
+     * 指定画素が不透明かを返す。
+     *
+     * @param x 画素 X 座標。
+     * @param y 画素 Y 座標。
+     * @return 範囲内かつ alpha >= thr なら true、範囲外は false (背景扱い)。
+     */
     bool Opaque(int x, int y) const noexcept {
         if (x < 0 || y < 0 || x >= static_cast<int>(w) || y >= static_cast<int>(h)) return false;
         return rgba[(static_cast<usize>(y) * w + x) * 4u + 3u] >= thr;
     }
 };
 
-// 2D 外積 (a→b) × (a→c)。符号で c が a→b の左右どちらかを示す。
+/**
+ * 2D 外積 (a→b) × (a→c) を返す。
+ *
+ * @details 符号で c が線分 a→b の左右どちらにあるかを示す (Jarvis march の turn 判定用)。
+ * @param a 基点。
+ * @param b a からの 1 本目の方向の終点。
+ * @param c 左右を判定する点。
+ * @return 外積のスカラー値 (正で左、負で右、0 で共線)。
+ */
 ACS_FORCEINLINE f32 Cross2(FVec2 a, FVec2 b, FVec2 c) noexcept {
     return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 }
+
+/**
+ * 2 点間の距離の二乗を返す。
+ *
+ * @param a 点 1。
+ * @param b 点 2。
+ * @return a と b の距離の二乗。
+ */
 ACS_FORCEINLINE f32 DistSq(FVec2 a, FVec2 b) noexcept {
     const f32 dx = a.x - b.x, dy = a.y - b.y;
     return dx * dx + dy * dy;
 }
 
-// 線分 (a,b) と点 p の垂直距離 (Douglas-Peucker 用)。
+/**
+ * 線分 (a,b) と点 p の垂直距離を返す (Douglas-Peucker 用)。
+ *
+ * @details 線分が縮退している場合は端点 a からの距離を返す。
+ * @param p 距離を測る点。
+ * @param a 線分の始点。
+ * @param b 線分の終点。
+ * @return 点 p から線分 (a,b) への垂直距離。
+ */
 f32 PerpDist(FVec2 p, FVec2 a, FVec2 b) noexcept {
     const f32 dx = b.x - a.x, dy = b.y - a.y;
     const f32 len2 = dx * dx + dy * dy;
@@ -41,12 +89,14 @@ f32 PerpDist(FVec2 p, FVec2 a, FVec2 b) noexcept {
 
 } // namespace
 
+/** 凸包・輪郭・境界を破棄して空状態に戻す。 */
 void FSpriteCollider::Clear() noexcept {
     m_HullCount    = 0;
     m_OutlineCount = 0;
     m_Bounds       = Aabb2{};
 }
 
+/** RGBA8 画像のアルファから凸包・輪郭・AABB を構築する。 */
 TResult<void> FSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 height,
                                               u8 alpha_threshold, f32 simplify_epsilon) noexcept {
     Clear();
@@ -55,7 +105,7 @@ TResult<void> FSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 hei
     }
     const AlphaImage img{ rgba, width, height, alpha_threshold };
 
-    // ===== 1. 境界画素 (不透明 かつ 4 近傍に背景/外がある) を収集 =====
+    // 1. 境界画素 (不透明 かつ 4 近傍に背景/外がある) を収集
     TArray<FVec2> boundary;
     for (u32 y = 0; y < height; ++y) {
         for (u32 x = 0; x < width; ++x) {
@@ -72,7 +122,7 @@ TResult<void> FSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 hei
     }
     const u32 bn = static_cast<u32>(boundary.Size());
 
-    // ===== 2. 凸包 (Jarvis march、順序非依存で堅牢) =====
+    // 2. 凸包 (Jarvis march、順序非依存で堅牢)
     u32 start = 0;
     for (u32 i = 1; i < bn; ++i) {
         if (boundary[i].x < boundary[start].x ||
@@ -98,7 +148,7 @@ TResult<void> FSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 hei
         if (++guard > bn + 2) break;          // 安全網
     } while (cur != start && m_HullCount < kMaxVertices);
 
-    // ===== 3. 輪郭トレース (Moore 近傍、時計回り) → Douglas-Peucker 簡略化 =====
+    // 3. 輪郭トレース (Moore 近傍、時計回り) → Douglas-Peucker 簡略化
     static const int OFF[8][2] = {
         {1,0},{1,1},{0,1},{-1,1},{-1,0},{-1,-1},{0,-1},{1,-1}  // E,SE,S,SW,W,NW,N,NE
     };
@@ -178,7 +228,7 @@ TResult<void> FSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 hei
         for (u32 i = 0; i < m_HullCount && i < kMaxVertices; ++i) m_Outline[m_OutlineCount++] = m_Hull[i];
     }
 
-    // ===== 4. AABB (凸包から) =====
+    // 4. AABB (凸包から)
     FVec2 mn{ boundary[0].x, boundary[0].y };
     FVec2 mx = mn;
     for (u32 i = 1; i < bn; ++i) {
@@ -191,6 +241,7 @@ TResult<void> FSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 hei
     return Ok();
 }
 
+/** 凸包を ConvexPoly2 (物理用) に変換する。 */
 ConvexPoly2 FSpriteCollider::HullPolygon() const noexcept {
     ConvexPoly2 poly;
     const u32 n = m_HullCount;
@@ -205,6 +256,7 @@ ConvexPoly2 FSpriteCollider::HullPolygon() const noexcept {
     return poly;
 }
 
+/** 点が簡略化済み輪郭ポリゴンの内側かを判定する (ray-crossing、凹形状対応)。 */
 bool FSpriteCollider::ContainsPoint(FVec2 p) const noexcept {
     const u32 n = m_OutlineCount;
     if (n < 3) return false;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FAudioDirector (Phase 2: 実 backend 接続)
+// GameFramework Pillar H — FAudioDirector
 //
 // シーン跨ぎで生存する「音声指揮層」。FSceneServices ではなく FGame (or app)
 // に持たせる前提 (BGM はシーン切替で途切れないため、シーン局所では困る)。
@@ -11,11 +11,11 @@
 //   ・ダッキング: 短期間だけ BGM 音量を一時的に下げる (ボイス再生中など)
 //   ・Pause / Resume / StopAll
 //   ・Tick(dt) で内部 timer (クロスフェード / ダッキング) を進行
-//   ・**IAudioBackend 接続 (Phase 2 で追加)**: `SetBackend(IAudioBackend*)` で
+//   ・**IAudioBackend 接続**: `SetBackend(IAudioBackend*)` で
 //     `FXAudio2Backend` 等の concrete backend を差し込むと、実音再生 + master /
 //     pause / stop / Tick を backend に delegate する。backend == nullptr のとき
-//     は従来通り state-only 動作 (= 無音、ログ警告も出さない)。
-//   ・**clip 直接再生 API (Phase 2 で追加)**: `PlayBgmClip(const AudioClipDesc&,
+//     は state-only 動作 (= 無音、ログ警告も出さない)。
+//   ・**clip 直接再生 API**: `PlayBgmClip(const AudioClipDesc&,
 //     fade, loop)` / `PlaySfxClip(const AudioClipDesc&, vol, pitch)` で raw PCM
 //     データから直接再生できる。名前ベース API (PlayBgm / PlaySfx) は state 管理
 //     のみ (将来 name→clip resolver を導入予定)。
@@ -30,7 +30,7 @@
 //   ・**SFX は ring 風に固定容量**: 容量 32 (典型的同時発音数を踏まえた目安)。
 //     満杯なら最古を上書き (シューティング的に許容)。
 //   ・**name は所有しない**: `const char*` を保持 = ROM の文字列リテラル前提。
-//     Phase 3 で FStringView / Asset Handle に置き換える。
+//     将来 FStringView / Asset Handle に置き換える。
 //   ・**backend は所有しない**: `IAudioBackend*` は raw ptr。呼び出し側が
 //     `FXAudio2Backend` 等を所有し、SetBackend(nullptr) で先に切ってから
 //     backend の Shutdown を呼ぶ責任を負う (二重解放回避)。
@@ -39,7 +39,7 @@
 //     Tick() で BGM voice の `SetVoiceVolume` に反映する (EffectiveBgmVolume
 //     を毎フレ算出して backend へ流す)。
 //
-// 範囲外 (Phase 3+ で):
+// 範囲外:
 //   ・name → AudioClipDesc resolver (FAssetRegistry 統合)
 //   ・3D positional / spatial / submix bus / DSP chain
 //   ・スナップショット (mixer state を hot-swap)
@@ -50,159 +50,330 @@
 #include "container/Array.h"
 #include "gameframework/audio_backend/IAudioBackend.h"
 
-namespace acs { class FAssetRegistry; }   // name→clip 解決に使う (前方宣言)
+namespace acs { class FAssetRegistry; }
 
 namespace acs::game {
 
+/**
+ * シーン跨ぎで生存する音声指揮層 (BGM クロスフェード / SFX / ダッキング)。
+ *
+ * @details
+ * 3 段ボリュームバス (Master / Bgm / Sfx)、BGM クロスフェード、SFX one-shot ring、
+ * ダッキングを state machine で持つ。SetBackend で IAudioBackend を差すと実音再生に
+ * delegate し、backend == nullptr のときは state-only (無音) で動く。name → clip 解決は
+ * SetAssetRegistry した registry を通じて行う。FGame (or app) に持たせ、Tick(dt) で
+ * 内部タイマを進行させる。
+ */
 class FAudioDirector {
 public:
-    // SFX one-shot 最大同時発音数。超過時は最古を上書き。
+    /** SFX one-shot の最大同時発音数 (超過時は最古を上書き)。 */
     static constexpr u32 kMaxSfxVoices = 32;
-    // ダッキング fade-out / fade-in の固定窓 (秒)。
+
+    /** ダッキングの fade-out / fade-in 固定窓 (秒)。 */
     static constexpr f32 kDuckFadeWindow = 0.1f;
 
+    /** SFX ring を固定容量で予約して構築する。 */
     FAudioDirector() noexcept;
+
+    /** 破棄する (backend / registry は非所有なので解放しない)。 */
     ~FAudioDirector() noexcept = default;
 
+    /** コピー禁止 (内部 state を単独所有するため)。 */
     FAudioDirector(const FAudioDirector&)            = delete;
+
+    /** コピー代入も禁止。 */
     FAudioDirector& operator=(const FAudioDirector&) = delete;
 
-    // ----- ボリュームバス -----
-    // [0, 1] にクランプ。範囲外は警告 + clamp して受理。
+    /**
+     * Master ボリュームを設定する。
+     *
+     * @param v 設定する音量 [0, 1] (範囲外は警告 + clamp して受理)。
+     */
     void SetMasterVolume(f32 v) noexcept;
+
+    /**
+     * BGM バスのボリュームを設定する。
+     *
+     * @param v 設定する音量 [0, 1] (範囲外は警告 + clamp して受理)。
+     */
     void SetBgmVolume(f32 v) noexcept;
+
+    /**
+     * SFX バスのボリュームを設定する。
+     *
+     * @param v 設定する音量 [0, 1] (範囲外は警告 + clamp して受理)。
+     */
     void SetSfxVolume(f32 v) noexcept;
+
+    /**
+     * Master ボリュームを返す。
+     *
+     * @return 現在の Master 音量 [0, 1]。
+     */
     f32  GetMasterVolume() const noexcept { return m_MasterVolume; }
+
+    /**
+     * BGM バスのボリュームを返す。
+     *
+     * @return 現在の BGM 音量 [0, 1]。
+     */
     f32  GetBgmVolume()    const noexcept { return m_BgmVolume; }
+
+    /**
+     * SFX バスのボリュームを返す。
+     *
+     * @return 現在の SFX 音量 [0, 1]。
+     */
     f32  GetSfxVolume()    const noexcept { return m_SfxVolume; }
 
-    // ----- BGM クロスフェード -----
-    // name が同じ場合は no-op (現行 BGM 継続)。fade_in_sec <= 0 で即時切替。
-    // 既に遷移中なら新規 BGM へ再遷移 (current は強制停止)。
+    /**
+     * BGM をクロスフェードで再生する。
+     *
+     * @details
+     * name が現行 BGM と同じなら no-op (継続)。既に遷移中なら新規 BGM へ再遷移する
+     * (current は強制停止)。backend + registry があれば name を実ロードして実音再生、
+     * 無ければ state-only。
+     * @param name 再生する BGM 名 (= asset path、所有しない literal 前提)。
+     * @param fade_in_sec フェードイン秒 (<= 0 で即時切替)。
+     * @param loop ループ再生するか。
+     */
     void PlayBgm(const char* name, f32 fade_in_sec = 1.0f, bool loop = true) noexcept;
-    // BGM を fade out して停止。fade_out_sec <= 0 で即時停止。
+
+    /**
+     * 再生中の BGM を fade out して停止する。
+     *
+     * @param fade_out_sec フェードアウト秒 (<= 0 で即時停止)。
+     */
     void StopBgm(f32 fade_out_sec = 0.5f) noexcept;
+
+    /**
+     * 現在再生中 (current slot) の BGM 名を返す。
+     *
+     * @return current BGM 名 (再生していなければ nullptr)。
+     */
     const char* CurrentBgmName() const noexcept { return m_Bgm[0].name; }
 
-    // ----- SFX one-shot -----
-    // volume_scale: この one-shot の追加ゲイン [0, ~]。0.0 で no-op。
-    // ring 満杯なら最古を上書き (シューティング的にゲームプレイ妨害なし)。
+    /**
+     * SFX one-shot を再生する。
+     *
+     * @details ring 満杯なら最古を上書きする (ゲームプレイ妨害なし)。backend + registry が
+     * あれば実音再生、無ければ state ring に積む。
+     * @param name 再生する SFX 名 (= asset path、所有しない literal 前提)。
+     * @param volume_scale この one-shot の追加ゲイン [0, ~] (0.0 で no-op)。
+     */
     void PlaySfx(const char* name, f32 volume_scale = 1.0f) noexcept;
 
-    // ----- ダッキング -----
-    // 短期間 BGM 音量を一時的に下げる。
-    //   duration_sec: 谷の幅 (この時間だけ depth で抑える)
-    //   depth: 0.0 (完全消音) ～ 1.0 (抑制なし)。例: 0.3 で 30% に下げる。
-    // 前後 kDuckFadeWindow 秒で線形 fade in/out が掛かる (ガラ無し)。
-    // 新たな Duck() で既存 state を上書き (スタックしない)。
+    /**
+     * 短期間だけ BGM 音量を一時的に下げる (ダッキング)。
+     *
+     * @details 前後 kDuckFadeWindow 秒で線形 fade in/out が掛かる。新たな Duck() で既存
+     * state を上書きする (スタックしない)。
+     * @param duration_sec 谷の幅 (この時間だけ depth で抑える)。
+     * @param depth 谷底ゲイン 0.0 (完全消音) ～ 1.0 (抑制なし)。例: 0.3 で 30% に下げる。
+     */
     void Duck(f32 duration_sec, f32 depth) noexcept;
 
-    // ----- グローバル制御 -----
-    // 全 BGM / SFX を一時停止。Tick での timer 進行も止まる (= 復帰時に
-    // クロスフェードがそのまま続きから再開)。
+    /**
+     * 全 BGM / SFX を一時停止する。
+     *
+     * @details Tick での timer 進行も止まる (復帰時にクロスフェードがそのまま続きから再開)。
+     */
     void Pause() noexcept;
+
+    /** 一時停止を解除する。 */
     void Resume() noexcept;
-    // 全 BGM / SFX を停止して state リセット (volume バスは保持)。
+
+    /** 全 BGM / SFX を停止して state をリセットする (volume バスは保持)。 */
     void StopAll() noexcept;
+
+    /**
+     * 一時停止中かを返す。
+     *
+     * @return Pause 中なら true。
+     */
     bool IsPaused() const noexcept { return m_Paused; }
 
-    // ----- driver (FGame / FSceneManager から毎フレーム呼ぶ) -----
-    // Pause 中は dt を消費しない (state 凍結)。
+    /**
+     * 毎フレーム呼んで内部タイマ (クロスフェード / ダッキング) を進行させる。
+     *
+     * @details Pause 中は dt を消費しない (state 凍結)。FGame / FSceneManager から呼ぶ。
+     * @param dt 前フレームからの経過秒。
+     */
     void Tick(f32 dt) noexcept;
 
-    // ----- 派生情報 (debug / backend に流す合成済みボリューム) -----
-    // 実際に backend に流す合成済みボリューム。
-    //   master * bgm * duck_envelope  (BGM 系)
-    //   master * sfx                  (SFX 系)
+    /**
+     * backend に流す合成済み BGM ボリュームを返す。
+     *
+     * @return master * bgm * duck_envelope * bgm_mix (Pause 中は 0)。
+     */
     f32 EffectiveBgmVolume() const noexcept;
+
+    /**
+     * backend に流す合成済み SFX ボリュームを返す。
+     *
+     * @return master * sfx (Pause 中は 0)。
+     */
     f32 EffectiveSfxVolume() const noexcept;
 
-    // ----- backend 接続 (Phase 2 で追加) -----
-    // concrete backend (FXAudio2Backend 等) を差し込む。nullptr で切断。
-    // 切断時に既存 BGM/SFX voice は backend->StopAllVoices で停止する責任は
-    // 呼び出し側に委ねる (本層は raw ptr 入替のみ)。
+    /**
+     * concrete backend (FXAudio2Backend 等) を差し込む。
+     *
+     * @details
+     * nullptr で切断。切断時に既存 BGM/SFX voice を backend->StopAllVoices で停止する責任は
+     * 呼び出し側に委ねる (本層は raw ptr 入替のみ)。
+     * @param backend 差し込む backend (非所有、nullptr で切断)。
+     */
     void           SetBackend(IAudioBackend* backend) noexcept { m_Backend = backend; }
+
+    /**
+     * 現在の backend を返す。
+     *
+     * @return 設定済み backend (未設定なら nullptr)。
+     */
     IAudioBackend* GetBackend() const noexcept { return m_Backend; }
 
-    // ----- asset registry 接続 (name → AudioClipDesc 解決) -----
-    // app 所有の registry (FApplication::GetAssets()) を差し込むと、PlayBgm/PlaySfx の
-    // name (= asset path、例 "audio/bgm.ogg") を実ロードして実音再生する。
-    // registry または backend が未設定のときは従来の state-only (無音) で動作する。
+    /**
+     * name → AudioClipDesc 解決に使う asset registry を差し込む。
+     *
+     * @details
+     * app 所有の registry (FApplication::GetAssets()) を差すと PlayBgm/PlaySfx の name
+     * (= asset path) を実ロードして実音再生する。registry または backend 未設定のときは
+     * 従来の state-only (無音) で動作する。
+     * @param registry 差し込む asset レジストリ (非所有)。
+     */
     void            SetAssetRegistry(FAssetRegistry* registry) noexcept { m_Registry = registry; }
+
+    /**
+     * 現在の asset registry を返す。
+     *
+     * @return 設定済み registry (未設定なら nullptr)。
+     */
     FAssetRegistry* GetAssetRegistry() const noexcept { return m_Registry; }
 
-    // ----- clip 直接再生 (Phase 2 で追加) -----
-    // backend が設定されていない / 不正 clip のとき: kInvalidAudioVoice を返す
-    // (no-op、警告は backend 側で出す)。
-    //
-    // BGM clip 再生: 既存 BGM voice を fade out して停止 → 新 BGM voice を
-    //                fade in (本層 state machine が EffectiveBgmVolume を毎フレ
-    //                backend->SetVoiceVolume に反映するので、初期 volume=0)。
-    // loop=false の使用は稀 (BGM は基本 loop)、stinger 演出用に許可。
+    /**
+     * raw PCM の AudioClipDesc を BGM として直接再生する。
+     *
+     * @details
+     * 既存 BGM voice を fade out して停止 → 新 BGM voice を fade in する (本層 state machine
+     * が EffectiveBgmVolume を毎フレ backend->SetVoiceVolume に反映するので初期 volume=0)。
+     * loop=false の使用は稀 (BGM は基本 loop) で stinger 演出用に許可する。
+     * @param clip 再生する PCM クリップ記述子。
+     * @param fade_in_sec フェードイン秒 (<= 0 で即時切替)。
+     * @param loop ループ再生するか。
+     * @return 再生 voice ハンドル (backend 未設定 / 不正 clip は kInvalidAudioVoice)。
+     */
     AudioVoiceHandle PlayBgmClip(const AudioClipDesc& clip,
                                  f32 fade_in_sec = 1.0f,
                                  bool loop = true) noexcept;
-    // SFX one-shot 再生: backend に PlayOneShot を投げる。volume は
-    // EffectiveSfxVolume * volume_scale で合成済。pitch=1.0 が等倍。
+
+    /**
+     * raw PCM の AudioClipDesc を SFX one-shot として直接再生する。
+     *
+     * @details volume は EffectiveSfxVolume * volume_scale で合成済 (duck は掛けない)。
+     * @param clip 再生する PCM クリップ記述子。
+     * @param volume_scale この one-shot の追加ゲイン [0, ~] (0.0 以下で no-op)。
+     * @param pitch 再生ピッチ (1.0 が等倍)。
+     * @return 再生 voice ハンドル (backend 未設定 / 不正 clip は kInvalidAudioVoice)。
+     */
     AudioVoiceHandle PlaySfxClip(const AudioClipDesc& clip,
                                  f32 volume_scale = 1.0f,
                                  f32 pitch = 1.0f) noexcept;
 
 private:
-    // BGM スロット 1 本の state。`m_Bgm[0]` = current、`m_Bgm[1]` = 遷移中の new。
+    /** BGM スロット 1 本の state (m_Bgm[0] = current、m_Bgm[1] = 遷移中の new)。 */
     struct FBgmSlot {
-        const char*      name         = nullptr;   // 所有しない (literal 前提)
-        f32              gain         = 0.0f;      // 現在の slot ゲイン [0, 1]
-        f32              target       = 0.0f;      // 目標ゲイン (= 0 で fade out 中)
-        f32              fade_per_sec = 0.0f;      // |target - gain| / fade_duration
+        /** BGM 名 (所有しない、literal 前提)。 */
+        const char*      name         = nullptr;
+
+        /** 現在の slot ゲイン [0, 1]。 */
+        f32              gain         = 0.0f;
+
+        /** 目標ゲイン (= 0 で fade out 中)。 */
+        f32              target       = 0.0f;
+
+        /** 1 秒あたりのゲイン変化量 (|target - gain| / fade_duration)。 */
+        f32              fade_per_sec = 0.0f;
+
+        /** ループ再生するか。 */
         bool             loop         = true;
+
+        /** スロットが使用中か。 */
         bool             active       = false;
-        // Phase 2 追加: backend voice handle。clip 直接再生時のみ valid。
-        // 名前ベース PlayBgm のみで遷移したスロットは kInvalidAudioVoice のまま。
+
+        /** backend voice ハンドル (clip 直接再生時のみ valid、名前ベースは kInvalidAudioVoice)。 */
         AudioVoiceHandle voice        = {};
     };
 
-    // SFX one-shot ring エントリ。
+    /** SFX one-shot ring の 1 エントリ。 */
     struct SfxEntry {
+        /** SFX 名 (所有しない、literal 前提)。 */
         const char* name         = nullptr;
+
+        /** この one-shot の追加ゲイン。 */
         f32         volume_scale = 1.0f;
-        bool        active       = false;  // false なら slot 空き
+
+        /** エントリが使用中か (false なら slot 空き)。 */
+        bool        active       = false;
     };
 
-    // ----- 内部ヘルパ -----
+    /**
+     * 値を [0, 1] にクランプする。
+     *
+     * @param v クランプ対象。
+     * @return [0, 1] に収めた値。
+     */
     static f32 Clamp01(f32 v) noexcept;
-    // duck envelope (= BGM に掛ける 0..1 のゲイン係数) を現在 timer から計算。
+
+    /**
+     * 現在のダッキング timer から duck envelope を計算する。
+     *
+     * @return BGM に掛ける 0..1 のゲイン係数 (非アクティブ時は 1.0)。
+     */
     f32  ComputeDuckEnvelope() const noexcept;
 
-    // ----- volume バス -----
+    /** Master ボリューム [0, 1]。 */
     f32 m_MasterVolume = 1.0f;
+
+    /** BGM バスのボリューム [0, 1]。 */
     f32 m_BgmVolume    = 1.0f;
+
+    /** SFX バスのボリューム [0, 1]。 */
     f32 m_SfxVolume    = 1.0f;
 
-    // ----- BGM クロスフェード state -----
+    /** BGM クロスフェード state ([0]=current、[1]=遷移中の new)。 */
     FBgmSlot m_Bgm[2] {};
 
-    // ----- SFX ring (固定容量) -----
-    TArray<SfxEntry> m_Sfx;   // 容量 kMaxSfxVoices で reserve、サイズも同じく予約
-    u32             m_SfxHead = 0;  // 上書き時の次書込先 (FIFO)
+    /** SFX one-shot ring (容量 kMaxSfxVoices で予約)。 */
+    TArray<SfxEntry> m_Sfx;
 
-    // ----- Duck state -----
+    /** ring 上書き時の次書込先 (FIFO)。 */
+    u32             m_SfxHead = 0;
+
+    /** ダッキングがアクティブか。 */
     bool m_bDuckActive        = false;
-    f32  m_DuckDepth         = 1.0f;  // 谷底ゲイン [0, 1]
-    f32  m_DuckRemaining     = 0.0f;  // 全体残り (fade in + hold + fade out)
-    f32  m_DuckTotal         = 0.0f;  // 全体長 (= duration + 2 * kDuckFadeWindow)
 
-    // ----- 全体制御 -----
+    /** ダッキングの谷底ゲイン [0, 1]。 */
+    f32  m_DuckDepth         = 1.0f;
+
+    /** ダッキングの残り時間 (fade in + hold + fade out)。 */
+    f32  m_DuckRemaining     = 0.0f;
+
+    /** ダッキングの全体長 (= duration + 2 * kDuckFadeWindow)。 */
+    f32  m_DuckTotal         = 0.0f;
+
+    /** 一時停止中フラグ。 */
     bool m_Paused = false;
 
-    // ----- backend (Phase 2 で追加、非所有 raw ptr) -----
-    // nullptr 時は state-only 動作 (無音)。`FXAudio2Backend` 等を呼び出し側で
-    // 所有し、SetBackend で差し込む。Pause/Resume/StopAll/Tick/SetMasterVolume
-    // を本層から forward する。
+    /**
+     * 実音再生先の backend (非所有 raw ptr)。
+     *
+     * @details
+     * nullptr 時は state-only 動作 (無音)。FXAudio2Backend 等を呼び出し側で所有し
+     * SetBackend で差し込む。Pause/Resume/StopAll/Tick/SetMasterVolume を本層から forward する。
+     */
     IAudioBackend* m_Backend = nullptr;
 
-    // ----- asset registry (非所有 raw ptr) -----
-    // name → AudioClipDesc 解決用。app 所有の registry を SetAssetRegistry で差す。
+    /** name → AudioClipDesc 解決用の asset registry (非所有 raw ptr)。 */
     FAssetRegistry* m_Registry = nullptr;
 };
 

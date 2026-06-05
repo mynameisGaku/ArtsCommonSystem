@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FSequence / FSequenceRunner 実装 (Phase 4)
+// GameFramework Pillar C — FSequence / FSequenceRunner 実装
 #include "gameframework/Sequence.h"
 #include "foundation/Move.h"
 
 namespace acs::game {
 
+/** Wait アクションを末尾に追加する。 */
 FSequence& FSequence::Wait(f32 seconds) noexcept {
     SeqAction a;
     a.kind     = SeqAction::Kind::Wait;
@@ -13,6 +14,7 @@ FSequence& FSequence::Wait(f32 seconds) noexcept {
     return *this;
 }
 
+/** Call アクションを末尾に追加する。 */
 FSequence& FSequence::Call(void(*fn)(void*) noexcept, void* user) noexcept {
     SeqAction a;
     a.kind      = SeqAction::Kind::Call;
@@ -23,6 +25,7 @@ FSequence& FSequence::Call(void(*fn)(void*) noexcept, void* user) noexcept {
     return *this;
 }
 
+/** f32 を tween する TweenF アクションを末尾に追加する。 */
 FSequence& FSequence::FTween(f32* target, f32 from, f32 to, f32 duration,
                            Easing::EasingFn ease) noexcept {
     SeqAction a;
@@ -36,6 +39,7 @@ FSequence& FSequence::FTween(f32* target, f32 from, f32 to, f32 duration,
     return *this;
 }
 
+/** FVec2 を tween する TweenV2 アクションを末尾に追加する。 */
 FSequence& FSequence::FTween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
                            Easing::EasingFn ease) noexcept {
     SeqAction a;
@@ -49,6 +53,7 @@ FSequence& FSequence::FTween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
     return *this;
 }
 
+/** FVec3 を tween する TweenV3 アクションを末尾に追加する。 */
 FSequence& FSequence::FTween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
                            Easing::EasingFn ease) noexcept {
     SeqAction a;
@@ -62,8 +67,7 @@ FSequence& FSequence::FTween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
     return *this;
 }
 
-// =================== Runner ===================
-
+/** 空きスロットを再利用優先で確保する (無ければ末尾に追加)。 */
 u32 FSequenceRunner::AcquireSlot() noexcept {
     for (u32 i = 0; i < m_Slots.Size(); ++i) {
         if (!m_Slots[i].active) return i;
@@ -72,6 +76,7 @@ u32 FSequenceRunner::AcquireSlot() noexcept {
     return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
+/** シーケンスをスロットに格納して実行開始する。 */
 SeqHandle FSequenceRunner::Start(FSequence seq) noexcept {
     if (seq.Actions().Size() == 0) return {};
     const u32 idx = AcquireSlot();
@@ -89,6 +94,7 @@ SeqHandle FSequenceRunner::Start(FSequence seq) noexcept {
     return SeqHandle{idx, s.generation};
 }
 
+/** ハンドルが指すスロットを非アクティブ化する。 */
 void FSequenceRunner::Cancel(SeqHandle h) noexcept {
     if (!h.IsValid() || h.index >= m_Slots.Size()) return;
     Slot& s = m_Slots[h.index];

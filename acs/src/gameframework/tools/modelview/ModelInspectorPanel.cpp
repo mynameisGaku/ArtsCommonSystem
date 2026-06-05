@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — modelview / FModelInspectorPanel 実装 (Phase 21b)
+// GameFramework Pillar — modelview / FModelInspectorPanel 実装
 //
 // 仕様の意図は FModelInspectorPanel.h を参照。本ファイルでは:
 //   ・UpdateFromModel: summary + 3 配列の値コピーと has_model フラグ更新
@@ -22,22 +22,24 @@
 
 namespace acs::game::modelview {
 
-// =============================================================================
-// 定数 / ヘルパ
-// =============================================================================
-
-// bone 階層描画の再帰深度上限 (= 不正な parent_index による無限ループ防衛)。
-// 実 skeleton では 32 階層を超えることはまず無いが、64 に余裕を取る。
+/**
+ * bone 階層描画の再帰深度上限 (不正な parent_index による無限ループ防衛)。
+ *
+ * @details 実 skeleton では 32 階層を超えることはまず無いが、64 に余裕を取る。
+ */
 static constexpr u32 kBoneRecursionLimit = 64u;
 
-// "(unnamed)" 代替ラベル。caller が name = nullptr を渡してきた場合に使う。
+/**
+ * caller が nullptr を渡した場合に "(unnamed)" を返す安全ラベル。
+ *
+ * @param name 元の名前 (nullptr 可)。
+ * @return name が非 null ならそのまま、nullptr なら "(unnamed)"。
+ */
 static const char* SafeName(const char* name) noexcept {
     return (name != nullptr) ? name : "(unnamed)";
 }
 
-// =============================================================================
-// Init / Shutdown
-// =============================================================================
+/** 内部状態を空にする (summary はゼロ初期化、3 配列を Clear、has_model = false)。 */
 void FModelInspectorPanel::Init() noexcept {
     // m_Summary は値型 = ゼロ初期化に戻す。
     m_Summary    = MeshSummary{};
@@ -47,10 +49,10 @@ void FModelInspectorPanel::Init() noexcept {
     m_HasModel  = false;
 }
 
+/** Init と同じ深さで内部状態を全 reset する (容量は destructor が解放)。 */
 void FModelInspectorPanel::Shutdown() noexcept {
-    // TArray の容量も解放したいので Clear() に追加して何もしない (TArray は
-    // Clear で要素数 0、Destruct で容量解放)。ここでは要素破棄のみで十分
-    // (panel 自身の destructor が容量を解放する)。
+    // TArray は Clear で要素数 0。容量解放は panel 自身の destructor に任せ、
+    // ここでは要素破棄のみで十分。
     m_Summary    = MeshSummary{};
     m_Submeshes.Clear();
     m_Bones.Clear();
@@ -58,15 +60,7 @@ void FModelInspectorPanel::Shutdown() noexcept {
     m_HasModel  = false;
 }
 
-// =============================================================================
-// UpdateFromModel — caller (= FModelViewerPanel 等) からのデータプッシュ
-// =============================================================================
-// summary は値コピー、3 つの配列は要素を 1 つずつ PushBack でコピーする。
-// 既存内容は完全に破棄してから新内容を積む (= 部分更新ではなく全置換)。
-//
-// 配列ポインタが nullptr の場合は対応 count を 0 として扱う (= 防衛的に
-// nullptr アクセスを避ける)。caller の使い勝手として、bones や clips が
-// "存在しない" model (= static mesh) を素直に表現できるようにする意図。
+/** caller から渡された summary + 3 配列を値コピーで全置換し has_model = true にする。 */
 void FModelInspectorPanel::UpdateFromModel(const MeshSummary&        summary,
                                           const SubmeshInfo*        submeshes,
                                           u32                       submesh_count,
@@ -76,7 +70,7 @@ void FModelInspectorPanel::UpdateFromModel(const MeshSummary&        summary,
                                           u32                       clip_count) noexcept {
     m_Summary = summary;
 
-    // ----- Submeshes -----
+    // Submeshes。
     m_Submeshes.Clear();
     if (submeshes != nullptr && submesh_count > 0) {
         m_Submeshes.Reserve(submesh_count);
@@ -87,7 +81,7 @@ void FModelInspectorPanel::UpdateFromModel(const MeshSummary&        summary,
         }
     }
 
-    // ----- Bones -----
+    // Bones。
     m_Bones.Clear();
     if (bones != nullptr && bone_count > 0) {
         m_Bones.Reserve(bone_count);
@@ -96,7 +90,7 @@ void FModelInspectorPanel::UpdateFromModel(const MeshSummary&        summary,
         }
     }
 
-    // ----- FAnimation Clips -----
+    // Animation Clips。
     m_Clips.Clear();
     if (clips != nullptr && clip_count > 0) {
         m_Clips.Reserve(clip_count);
@@ -108,9 +102,7 @@ void FModelInspectorPanel::UpdateFromModel(const MeshSummary&        summary,
     m_HasModel = true;
 }
 
-// =============================================================================
-// Clear — "No model loaded" 状態に戻す
-// =============================================================================
+/** 表示内容を空に戻し "No model loaded" 状態にする。 */
 void FModelInspectorPanel::Clear() noexcept {
     m_Summary    = MeshSummary{};
     m_Submeshes.Clear();
@@ -119,19 +111,7 @@ void FModelInspectorPanel::Clear() noexcept {
     m_HasModel  = false;
 }
 
-// =============================================================================
-// DrawBoneRecursive — 1 bone と子を TreeNode で再帰描画
-// =============================================================================
-// bone_index を root とする部分木を描画する。同 m_Bones 配列を線形走査して
-// `parent_index == bone_index` の要素を子として再帰呼び出しする。
-//
-// depth は無限再帰防止のガード:
-//   ・depth >= kBoneRecursionLimit で描画を打ち切る (= "(depth limit)" 表示)。
-//   ・データ的に bone parent_index が循環していなければ depth は bone 階層
-//     深さに等しい (= 一般のキャラクタで < 16 想定)。
-//
-// 子が無い (= leaf bone) なら ImGuiTreeNodeFlags_Leaf を付けて矢印を隠す。
-// =============================================================================
+/** bone_index を root とする部分木を TreeNode で再帰描画する (depth でガード)。 */
 void FModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept {
     if (depth >= kBoneRecursionLimit) {
         ImGui::TextDisabled("  (bone depth limit reached)");
@@ -185,9 +165,7 @@ void FModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept
     ImGui::PopID();
 }
 
-// =============================================================================
-// DrawUI — ImGui::Begin("Model Info") + 4 セクション
-// =============================================================================
+/** ImGui::Begin("Model Info") + Summary / Submeshes / Bones / Animation Clips を描画する。 */
 void FModelInspectorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
@@ -204,9 +182,7 @@ void FModelInspectorPanel::DrawUI() noexcept {
         return;
     }
 
-    // ------------------------------------------------------------------------
-    // 1) Summary セクション — 常時表示、CollapsingHeader 外で簡潔に出す
-    // ------------------------------------------------------------------------
+    // 1) Summary セクション — 常時表示、CollapsingHeader 外で簡潔に出す。
     // CollapsingHeader にせず素の Text 群にする理由: summary は本 panel で最も
     // 高頻度に確認される情報のため、開閉を許さず常に視認できる位置に置く
     // (Unity の Mesh Inspector もヘッダー直下に常時表示する設計)。
@@ -226,9 +202,7 @@ void FModelInspectorPanel::DrawUI() noexcept {
 
     ImGui::Spacing();
 
-    // ------------------------------------------------------------------------
-    // 2) Submeshes セクション — CollapsingHeader + Table
-    // ------------------------------------------------------------------------
+    // 2) Submeshes セクション — CollapsingHeader + Table。
     // 大きな model では数十 submesh あり得るので、開閉できる方が UX 上望ましい。
     // Table は ImGuiTableFlags_Borders + RowBg で見やすく整形する。
     if (ImGui::CollapsingHeader("Submeshes", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -275,9 +249,7 @@ void FModelInspectorPanel::DrawUI() noexcept {
         }
     }
 
-    // ------------------------------------------------------------------------
-    // 3) Bones セクション — CollapsingHeader + TreeNode 再帰
-    // ------------------------------------------------------------------------
+    // 3) Bones セクション — CollapsingHeader + TreeNode 再帰。
     // root bone (= parent_index < 0) を全て列挙し、各 root から DrawBoneRecursive。
     // 一般のキャラクタは root が 1 つだが、ACS は複数 root を許容する (=
     // 武器 attach 用の補助 skeleton root 等)。
@@ -308,9 +280,7 @@ void FModelInspectorPanel::DrawUI() noexcept {
         }
     }
 
-    // ------------------------------------------------------------------------
-    // 4) FAnimation Clips セクション — CollapsingHeader + Table
-    // ------------------------------------------------------------------------
+    // 4) FAnimation Clips セクション — CollapsingHeader + Table。
     if (ImGui::CollapsingHeader("FAnimation Clips", ImGuiTreeNodeFlags_DefaultOpen)) {
         if (m_Clips.IsEmpty()) {
             ImGui::TextDisabled("  (no animation clips)");

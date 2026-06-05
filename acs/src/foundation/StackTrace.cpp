@@ -18,12 +18,17 @@ namespace acs {
 
 namespace {
 
-// DbgHelp は内部状態を共有するためスレッドセーフでない。
-// 全シンボル解決呼び出しを 1 つの SRWLOCK で守る。
+/** 全シンボル解決呼び出しを直列化するロック (DbgHelp は非スレッドセーフ)。 */
 SRWLOCK   g_sym_lock = SRWLOCK_INIT;
-volatile LONG g_sym_initialized = 0;  // 0=未初期化, 1=初期化済み
 
-// SymInitialize を一度だけ呼ぶ（多重呼び出しは無害だが無駄）
+/** シンボル初期化済みフラグ (0=未初期化, 1=初期化済み)。 */
+volatile LONG g_sym_initialized = 0;
+
+/**
+ * SymInitialize を一度だけ呼ぶ (多重呼び出しは無害だが無駄なのでガードする)。
+ *
+ * @details 行番号読み込み・遅延ロード・名前デマングルのオプションを設定してから初期化する。
+ */
 void EnsureSymbols() noexcept {
     if (g_sym_initialized) return;
     AcquireSRWLockExclusive(&g_sym_lock);
@@ -40,26 +45,24 @@ void EnsureSymbols() noexcept {
 
 } // namespace
 
-// 現在のスタックフレームを取得する。
-// CaptureStackBackTrace は WinAPI で、非常に高速かつスレッドセーフ。
+/** 現在のスタックフレームを取得する (CaptureStackBackTrace は高速かつスレッドセーフ)。詳細は宣言を参照。 */
 void StackTrace::Capture(u32 skip) noexcept {
     USHORT n = ::CaptureStackBackTrace(static_cast<DWORD>(skip), kStackTraceMaxFrames, m_Addrs, nullptr);
     m_Count    = static_cast<u32>(n);
-    m_bResolved = false;
+    m_Resolved = false;
 }
 
-// 取得済みアドレスをシンボル名 / ファイル名 / 行番号に変換する。
-// SYMBOL_INFO は末尾可変長の構造体なので適切なサイズで確保する。
+/** 取得済みアドレスをシンボル名 / ファイル名 / 行番号に変換する。詳細は宣言を参照。 */
 void StackTrace::Resolve() noexcept {
-    if (m_bResolved || m_Count == 0) return;
+    if (m_Resolved || m_Count == 0) return;
     EnsureSymbols();
 
     AcquireSRWLockExclusive(&g_sym_lock);
-    HANDLE proc = GetCurrentProcess();
+    const HANDLE proc = GetCurrentProcess();
 
     // SYMBOL_INFO + 名前用バッファをスタックに確保（ヒープ割り当てを避ける）
     alignas(SYMBOL_INFO) byte sym_buf[sizeof(SYMBOL_INFO) + 256];
-    SYMBOL_INFO* sym = reinterpret_cast<SYMBOL_INFO*>(sym_buf);
+    SYMBOL_INFO* const sym = reinterpret_cast<SYMBOL_INFO*>(sym_buf);
     sym->SizeOfStruct = sizeof(SYMBOL_INFO);
     sym->MaxNameLen   = 255;
 
@@ -73,7 +76,7 @@ void StackTrace::Resolve() noexcept {
         f.file[0]   = 0;
         f.line      = 0;
 
-        DWORD64 addr = reinterpret_cast<DWORD64>(m_Addrs[i]);
+        const DWORD64 addr = reinterpret_cast<DWORD64>(m_Addrs[i]);
         DWORD64 disp64 = 0;
         // シンボル取得（失敗時はアドレスのみ表示）
         if (SymFromAddr(proc, addr, &disp64, sym)) {
@@ -89,11 +92,10 @@ void StackTrace::Resolve() noexcept {
         }
     }
     ReleaseSRWLockExclusive(&g_sym_lock);
-    m_bResolved = true;
+    m_Resolved = true;
 }
 
-// 解決済みフレームを 1 行ずつ整形して sink に渡す。
-// 出力先（stderr / ロガー / ファイル）は呼び出し元が決める。
+/** 解決済みフレームを 1 行ずつ整形して sink に渡す (出力先は呼び出し元が決める)。詳細は宣言を参照。 */
 void StackTrace::Print(Sink sink, void* user) const noexcept {
     char buf[640];
     for (u32 i = 0; i < m_Count; ++i) {

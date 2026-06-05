@@ -10,6 +10,7 @@
 namespace acs {
 
 namespace {
+/** 空きエントリリストの終端を表す番兵インデックス。 */
 constexpr u32 kNoIndex = 0xFFFFFFFFu;
 }
 

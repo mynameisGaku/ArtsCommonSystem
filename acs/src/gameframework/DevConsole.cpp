@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — FDevConsole 実装 (Phase 1 skeleton)
+// GameFramework Pillar K — FDevConsole 実装
 //
 // state コンテナのみ。UI / 入力ハンドラは別レイヤ。詳細は FDevConsole.h 参照。
 #include "gameframework/DevConsole.h"
@@ -12,10 +12,7 @@
 
 namespace acs::game {
 
-// ============================================================================
-// 文字列ヘルパ
-// ============================================================================
-
+/** src を kMaxLineLen で truncate しつつ DefaultAllocator 上に null 終端複製する。 */
 const char* FDevConsole::DupString(const char* src) noexcept {
     if (src == nullptr) return nullptr;
     // strnlen 相当を手で書く (kMaxLineLen を超えたら truncate)。
@@ -30,16 +27,14 @@ const char* FDevConsole::DupString(const char* src) noexcept {
     return buf;
 }
 
+/** DupString が確保した文字列を DefaultAllocator へ返却する。 */
 void FDevConsole::FreeString(const char* s) noexcept {
     if (s == nullptr) return;
     // DupString が確保したものを Free する。const_cast は所有元が分かっているため安全。
     DefaultAllocator().Free(const_cast<void*>(static_cast<const void*>(s)));
 }
 
-// ============================================================================
-// リング相当 push (TArray<const char*> + cap 100 + drop oldest)
-// ============================================================================
-
+/** line を複製して buf 末尾に追加する (cap 到達時は最古を Free して shift left)。 */
 void FDevConsole::PushLine(TArray<const char*>& buf, const char* line) noexcept {
     const char* copy = DupString(line);
     if (copy == nullptr) return;  // 確保失敗時は黙って捨てる (Log 内 Log のループ防止)
@@ -55,6 +50,7 @@ void FDevConsole::PushLine(TArray<const char*>& buf, const char* line) noexcept 
     buf.PushBack(copy);
 }
 
+/** buf の全エントリを Free してから Clear する。 */
 void FDevConsole::ClearLines(TArray<const char*>& buf) noexcept {
     for (usize i = 0; i < buf.Size(); ++i) {
         FreeString(buf[i]);
@@ -62,20 +58,14 @@ void FDevConsole::ClearLines(TArray<const char*>& buf) noexcept {
     buf.Clear();
 }
 
-// ============================================================================
-// ライフサイクル
-// ============================================================================
-
+/** 履歴 / ログのヒープバッファを Free する (コマンドは非所有なので Free 不要)。 */
 FDevConsole::~FDevConsole() noexcept {
     ClearLines(m_History);
     ClearLines(m_Log);
     // m_Commands は POD ポインタのみで、name/help は caller 所有なので Free 不要。
 }
 
-// ============================================================================
-// コマンド登録
-// ============================================================================
-
+/** name を線形検索し、あれば後勝ち上書き、無ければ新規コマンドを追加する。 */
 void FDevConsole::RegisterCommand(const char* name,
                                  CommandFn   fn,
                                  void*       user,
@@ -104,10 +94,7 @@ void FDevConsole::RegisterCommand(const char* name,
     m_Commands.PushBack(c);
 }
 
-// ============================================================================
-// 実行 (tokenize + dispatch)
-// ============================================================================
-
+/** command_line をコピーして in-place tokenize し、コマンドを照合して dispatch する。 */
 void FDevConsole::Execute(const char* command_line) noexcept {
     if (command_line == nullptr) return;
 
@@ -176,30 +163,31 @@ void FDevConsole::Execute(const char* command_line) noexcept {
     found->fn(found->user, argc, args);
 }
 
-// ============================================================================
-// 履歴 / ログ
-// ============================================================================
-
+/** 空でない入力行を履歴バッファに push する。 */
 void FDevConsole::PushHistory(const char* line) noexcept {
     if (line == nullptr || line[0] == '\0') return;
     PushLine(m_History, line);
 }
 
+/** i 番目の履歴行を返す (範囲外は nullptr)。 */
 const char* FDevConsole::History(u32 i) const noexcept {
     if (i >= m_History.Size()) return nullptr;
     return m_History[i];
 }
 
+/** メッセージをログバッファに push する。 */
 void FDevConsole::Log(const char* msg) noexcept {
     if (msg == nullptr) return;
     PushLine(m_Log, msg);
 }
 
+/** i 番目のログ行を返す (範囲外は nullptr)。 */
 const char* FDevConsole::LogLine(u32 i) const noexcept {
     if (i >= m_Log.Size()) return nullptr;
     return m_Log[i];
 }
 
+/** 履歴とログを Free して空にする (コマンド登録は保持)。 */
 void FDevConsole::Clear() noexcept {
     ClearLines(m_History);
     ClearLines(m_Log);

@@ -15,8 +15,16 @@ namespace acs {
 
 namespace {
 
-// wchar_t* パスから拡張子（小文字 ASCII）を取り出す。"*" は対応なしを示す。
-// ascii 範囲外の拡張子は扱わない（一般的でないため）
+/**
+ * wchar_t パスから拡張子を小文字 ASCII で取り出す。
+ *
+ * @details
+ * 末尾から '.' を探し、見つかった拡張子を小文字化して out にコピーする。'.' が
+ * 無ければ空文字列。ASCII 範囲外の文字は '?' に置換する (一般的でないため扱わない)。
+ * @param path 拡張子を取り出す対象のパス。
+ * @param out 拡張子を書き込む NUL 終端バッファ。
+ * @param cap out バッファの容量 (バイト数)。
+ */
 void ExtractExtensionAscii(const wchar_t* path, char* out, usize cap) noexcept {
     // 末尾から '.' を探す
     usize len = 0;
@@ -37,12 +45,24 @@ void ExtractExtensionAscii(const wchar_t* path, char* out, usize cap) noexcept {
     out[w] = 0;
 }
 
+/**
+ * 2 つの NUL 終端 ASCII 文字列が等しいかを返す。
+ *
+ * @param a 比較する文字列 1。
+ * @param b 比較する文字列 2。
+ * @return 完全一致すれば true。
+ */
 bool StrEqAscii(const char* a, const char* b) noexcept {
     while (*a && *b) { if (*a != *b) return false; ++a; ++b; }
     return *a == 0 && *b == 0;
 }
 
-// パスから FAssetId を作る（wchar_t をバイト列としてハッシュ）
+/**
+ * パスから FAssetId を作る (wchar_t 列をバイト列としてハッシュ)。
+ *
+ * @param path ハッシュ元のパス。
+ * @return パスから生成した FAssetId。
+ */
 FAssetId MakeIdFromPath(const wchar_t* path) noexcept {
     usize len = 0;
     while (path[len]) ++len;
@@ -62,7 +82,7 @@ IAssetLoader* FAssetRegistry::FindLoader(const wchar_t* path) noexcept {
     ExtractExtensionAscii(path, ext, sizeof(ext));
     IAssetLoader* fallback = nullptr;
     for (usize i = 0; i < m_Loaders.Size(); ++i) {
-        const char* e = m_Loaders[i]->Extension();
+        const char* const e = m_Loaders[i]->Extension();
         if (StrEqAscii(e, "*")) fallback = m_Loaders[i];
         if (StrEqAscii(e, ext)) return m_Loaders[i];
     }
@@ -72,12 +92,12 @@ IAssetLoader* FAssetRegistry::FindLoader(const wchar_t* path) noexcept {
 TResult<TSharedPtr<Asset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
     if (!path) return ACS_ERR(Asset, 1, "FAssetRegistry::Load: null path");
 
-    FAssetId id = MakeIdFromPath(path);
+    const FAssetId id = MakeIdFromPath(path);
 
     // キャッシュにあればそのまま返す
     {
         FScopedLock lk(m_Lock);
-        TSharedPtr<Asset>* hit = m_Cache.Find(id);
+        const TSharedPtr<Asset>* hit = m_Cache.Find(id);
         if (hit && hit->Get()) return TResult<TSharedPtr<Asset>>(OkInit, *hit);
     }
 
@@ -111,16 +131,34 @@ TResult<TSharedPtr<Asset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
     return TResult<TSharedPtr<Asset>>(OkInit, Move(a));
 }
 
-// 非同期ロード用のワーカー引数
 namespace {
+/** 非同期ロードワーカーに渡すジョブ引数 (heap 確保し所有権をワーカーへ渡す)。 */
 struct AsyncLoadJob {
+    /** キャッシュ挿入先のレジストリ。 */
     FAssetRegistry*           registry  = nullptr;
-    TSharedPtr<AsyncLoadState>       state;       // 結果書き込み先（worker と future で共有）
+
+    /** 結果書き込み先 (worker と future で共有)。 */
+    TSharedPtr<AsyncLoadState>       state;
+
+    /** 実行するローダ。 */
     IAssetLoader*            loader    = nullptr;
+
+    /** ロード対象のアセット ID。 */
     FAssetId                  id        = FAssetId{};
+
+    /** ロード対象のパス (最大 259 文字 + NUL)。 */
     wchar_t                  path[260] = {};
 };
 
+/**
+ * 非同期ロードを実行するワーカー関数 (FThreadPool から呼ばれる)。
+ *
+ * @details
+ * ファイル読み込み → ローダ呼び出し → キャッシュ挿入を行い、結果かエラーを
+ * state に書き込んで counter を Done() する。ジョブは TUniquePtr のスコープ抜けで自動 delete される。
+ * @param user AsyncLoadJob* を指す不透明ポインタ (所有権を受け取る)。
+ * @param worker 呼び出し元ワーカーのインデックス (未使用)。
+ */
 void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
     TUniquePtr<AsyncLoadJob> job(static_cast<AsyncLoadJob*>(user));
 
@@ -176,12 +214,12 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
         return FAssetFuture(Move(state));
     }
 
-    FAssetId id = MakeIdFromPath(path);
+    const FAssetId id = MakeIdFromPath(path);
 
     // キャッシュにあれば即完了状態で返す
     {
         FScopedLock lk(m_Lock);
-        TSharedPtr<Asset>* hit = m_Cache.Find(id);
+        const TSharedPtr<Asset>* hit = m_Cache.Find(id);
         if (hit && hit->Get()) {
             state->result = *hit;
             state->counter.Done();
@@ -235,7 +273,7 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
 
 TSharedPtr<Asset> FAssetRegistry::Find(FAssetId id) noexcept {
     FScopedLock lk(m_Lock);
-    TSharedPtr<Asset>* hit = m_Cache.Find(id);
+    const TSharedPtr<Asset>* hit = m_Cache.Find(id);
     return (hit && hit->Get()) ? *hit : TSharedPtr<Asset>();
 }
 
@@ -250,64 +288,165 @@ void FAssetRegistry::Clear() noexcept {
 }
 
 namespace {
-// 標準ローダ実体（プロセス寿命）
+/** 画像ローダ実体 (プロセス寿命)。 */
 ImageAssetLoader  g_image_loader;
+
+/** WAV 音声ローダ実体。 */
 WavAssetLoader    g_wav_loader;
+
+/** MP3 音声ローダ実体。 */
 Mp3AssetLoader    g_mp3_loader;
+
+/** FLAC 音声ローダ実体。 */
 FlacAssetLoader   g_flac_loader;
+
+/** OGG Vorbis 音声ローダ実体。 */
 OggAssetLoader    g_ogg_loader;
+
+/** glTF メッシュローダ実体。 */
 GltfAssetLoader   g_gltf_loader;
+
+/** GLB メッシュローダ実体。 */
 GlbAssetLoader    g_glb_loader;
+
+/** Wavefront OBJ メッシュローダ実体。 */
 ObjAssetLoader    g_obj_loader;
+
+/** FBX メッシュローダ実体。 */
 FbxAssetLoader    g_fbx_loader;
+
+/** テキストローダ実体。 */
 FTextAssetLoader   g_text_loader;
+
+/** バイナリフォールバックローダ実体。 */
 FBinaryAssetLoader g_binary_loader;
 
-// 拡張子別名のラッパ（同じ実体を別の拡張子で登録できるようにする）
+/**
+ * 拡張子別名のラッパローダ。
+ *
+ * @details 同じローダ実体を別の拡張子でも登録できるよう、TypeId/LoadFromBytes を委譲し Extension だけ差し替える。
+ */
 class AliasLoader final : public IAssetLoader {
 public:
+    /**
+     * 委譲先ローダと別名拡張子を指定して構築する。
+     *
+     * @param base 実処理を委譲するローダ実体。
+     * @param ext このラッパが担当する拡張子。
+     */
     AliasLoader(IAssetLoader* base, const char* ext) noexcept : m_Base(base), m_Ext(ext) {}
+
+    /**
+     * 委譲先のアセット型 ID を返す。
+     *
+     * @return base->TypeId()。
+     */
     AssetType   TypeId()    const noexcept override { return m_Base->TypeId(); }
+
+    /**
+     * この別名の拡張子を返す。
+     *
+     * @return 構築時に渡した拡張子。
+     */
     const char* Extension() const noexcept override { return m_Ext; }
+
+    /**
+     * 委譲先ローダでバイト列からアセットを生成する。
+     *
+     * @param id 生成アセットに割り当てる ID。
+     * @param bytes ファイル全体のバイト列。
+     * @return base->LoadFromBytes() の結果。
+     */
     TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override {
         return m_Base->LoadFromBytes(id, bytes);
     }
 private:
+    /** 実処理を委譲するローダ実体。 */
     IAssetLoader* m_Base;
+
+    /** このラッパが担当する拡張子。 */
     const char*   m_Ext;
 };
 
-// 画像 (jpg/jpeg/bmp/tga/gif/hdr/pic/pnm/ppm/pgm/psd)
+/** 画像ローダの .jpg 別名。 */
 AliasLoader g_image_jpg { &g_image_loader, "jpg"  };
+
+/** 画像ローダの .jpeg 別名。 */
 AliasLoader g_image_jpeg{ &g_image_loader, "jpeg" };
+
+/** 画像ローダの .bmp 別名。 */
 AliasLoader g_image_bmp { &g_image_loader, "bmp"  };
+
+/** 画像ローダの .tga 別名。 */
 AliasLoader g_image_tga { &g_image_loader, "tga"  };
+
+/** 画像ローダの .gif 別名。 */
 AliasLoader g_image_gif { &g_image_loader, "gif"  };
+
+/** 画像ローダの .hdr 別名 (HDR 画像)。 */
 AliasLoader g_image_hdr { &g_image_loader, "hdr"  };
+
+/** 画像ローダの .pic 別名。 */
 AliasLoader g_image_pic { &g_image_loader, "pic"  };
+
+/** 画像ローダの .pnm 別名。 */
 AliasLoader g_image_pnm { &g_image_loader, "pnm"  };
+
+/** 画像ローダの .ppm 別名。 */
 AliasLoader g_image_ppm { &g_image_loader, "ppm"  };
+
+/** 画像ローダの .pgm 別名。 */
 AliasLoader g_image_pgm { &g_image_loader, "pgm"  };
+
+/** 画像ローダの .psd 別名。 */
 AliasLoader g_image_psd { &g_image_loader, "psd"  };
 
-// 音声 (oga は ogg の別名)
+/** OGG ローダの .oga 別名 (oga は ogg の別名)。 */
 AliasLoader g_ogg_oga { &g_ogg_loader, "oga" };
 
-// テキスト (各拡張子)
+/** テキストローダの .json 別名。 */
 AliasLoader g_text_json { &g_text_loader, "json" };
+
+/** テキストローダの .xml 別名。 */
 AliasLoader g_text_xml  { &g_text_loader, "xml"  };
+
+/** テキストローダの .yaml 別名。 */
 AliasLoader g_text_yaml { &g_text_loader, "yaml" };
+
+/** テキストローダの .yml 別名。 */
 AliasLoader g_text_yml  { &g_text_loader, "yml"  };
+
+/** テキストローダの .toml 別名。 */
 AliasLoader g_text_toml { &g_text_loader, "toml" };
+
+/** テキストローダの .ini 別名。 */
 AliasLoader g_text_ini  { &g_text_loader, "ini"  };
+
+/** テキストローダの .csv 別名。 */
 AliasLoader g_text_csv  { &g_text_loader, "csv"  };
+
+/** テキストローダの .md 別名。 */
 AliasLoader g_text_md   { &g_text_loader, "md"   };
+
+/** テキストローダの .log 別名。 */
 AliasLoader g_text_log  { &g_text_loader, "log"  };
+
+/** テキストローダの .hlsl 別名。 */
 AliasLoader g_text_hlsl { &g_text_loader, "hlsl" };
+
+/** テキストローダの .glsl 別名。 */
 AliasLoader g_text_glsl { &g_text_loader, "glsl" };
+
+/** テキストローダの .vert 別名。 */
 AliasLoader g_text_vert { &g_text_loader, "vert" };
+
+/** テキストローダの .frag 別名。 */
 AliasLoader g_text_frag { &g_text_loader, "frag" };
+
+/** テキストローダの .lua 別名。 */
 AliasLoader g_text_lua  { &g_text_loader, "lua"  };
+
+/** テキストローダの .py 別名。 */
 AliasLoader g_text_py   { &g_text_loader, "py"   };
 } // namespace
 
