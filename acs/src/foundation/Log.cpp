@@ -205,7 +205,19 @@ void EmitOne(const Cell& c) noexcept {
 
     if (g_state.use_console) WriteAll(g_state.out_console, line, len);
     if (g_state.out_file != INVALID_HANDLE_VALUE) WriteAll(g_state.out_file, line, len);
-    if (g_state.use_dbgout) ::OutputDebugStringA(line);
+    if (g_state.use_dbgout) {
+        // デバッガ (VS 出力ウィンドウ等) は UTF-16 を正しく表示する。UTF-8 → UTF-16 に
+        // 変換して OutputDebugStringW で出すことで、ANSI 経由の文字化けを防ぐ。
+        wchar_t wline[1024];
+        const int wn = ::MultiByteToWideChar(CP_UTF8, 0, line, static_cast<int>(len),
+                                             wline, static_cast<int>(sizeof(wline) / sizeof(wchar_t)) - 1);
+        if (wn > 0) {
+            wline[wn] = L'\0';
+            ::OutputDebugStringW(wline);
+        } else {
+            ::OutputDebugStringA(line);
+        }
+    }
 }
 
 /**
@@ -308,10 +320,22 @@ void FLogger::Init(const FLogConfig& cfg) noexcept {
     // 出力先ハンドル取得
     g_state.use_console = cfg.console;
     g_state.use_dbgout  = cfg.debug_output;
-    if (cfg.console) g_state.out_console = ::GetStdHandle(STD_OUTPUT_HANDLE);
+    if (cfg.console) {
+        g_state.out_console = ::GetStdHandle(STD_OUTPUT_HANDLE);
+        // ログ本文は UTF-8 (ソースは /utf-8 でコンパイル)。コンソールの既定コードページ
+        // (日本語環境では 932 等) のままだと UTF-8 バイト列が誤解釈されて文字化けするため、
+        // 出力コードページを UTF-8 (65001) に切り替える。
+        ::SetConsoleOutputCP(CP_UTF8);
+    }
     if (cfg.file_path) {
         g_state.out_file = ::CreateFileW(cfg.file_path, GENERIC_WRITE, FILE_SHARE_READ,
                                          nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        // 先頭に UTF-8 BOM を書き、テキストエディタが UTF-8 として開けるようにする。
+        if (g_state.out_file != INVALID_HANDLE_VALUE) {
+            const unsigned char bom[3] = { 0xEF, 0xBB, 0xBF };
+            DWORD w = 0;
+            ::WriteFile(g_state.out_file, bom, 3, &w, nullptr);
+        }
     }
 
     // QPC ↔ wall clock キャリブレーション

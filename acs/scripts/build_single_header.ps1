@@ -10,7 +10,8 @@
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File acs/scripts/build_single_header.ps1
 #   ... -Configs Debug          # only one config
-param([string[]]$Configs = @('Debug','Release'))
+#   ... -Deploy C:\acs          # also mirror dist/ to a consumer location
+param([string[]]$Configs = @('Debug','Release'), [string]$Deploy = '')
 $ErrorActionPreference = 'Stop'
 
 $repo  = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -44,5 +45,15 @@ foreach ($cfg in $Configs) {
     & $libexe "@$rsp" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "lib.exe failed for $cfg" }
     Write-Host ("    {0:N1} MB" -f ((Get-Item $outlib).Length/1MB))
+}
+
+# 3) optional: mirror dist/ to a consumer location (e.g. C:\acs)
+if ($Deploy) {
+    Write-Host "==> deploying dist/ -> $Deploy"
+    & robocopy $dist $Deploy /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
+    # robocopy exit codes 0..7 are success; >=8 is a real error
+    if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
+    $global:LASTEXITCODE = 0
+    Write-Host "    deployed."
 }
 Write-Host "done."
