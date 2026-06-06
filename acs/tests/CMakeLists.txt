@@ -13,6 +13,9 @@ add_executable(acs_unit_tests
     mvvm_tests.cpp
     ui_tests.cpp
     uilayer_tests.cpp
+    json_tests.cpp
+    collider_tests.cpp
+    crypto_tests.cpp
     render_tests.cpp
 )
 set_target_properties(acs_unit_tests PROPERTIES FOLDER "Engine/Tests")
@@ -37,6 +40,8 @@ target_link_libraries(acs_unit_tests PRIVATE
     ACS::Ui
     ACS::Render
     ACS::GameFramework
+    ACS::Collision
+    ACS::AssetPack
     ACS::Test
 )
 
