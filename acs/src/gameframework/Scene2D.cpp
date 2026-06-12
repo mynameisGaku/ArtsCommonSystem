@@ -5,6 +5,7 @@
 #include "gameframework/SceneServices.h"
 #include "gameframework/Camera2D.h"
 #include "gameframework/Game.h"
+#include "gameframework/PolygonRenderer2D.h"
 #include "render/Renderer.h"
 #include "render/IRhiCommandList.h"
 #include "render/IRhiSwapchain.h"
@@ -13,6 +14,7 @@
 #include "foundation/Log.h"
 
 #include <cmath>   // std::cos / std::sin (三角形オクルーダーの頂点算出)
+#include <cstring> // std::strcmp
 
 namespace acs::game {
 
@@ -143,6 +145,39 @@ static void CollectLightsAndOccluders(FNode2D& node,
                 O.polyVerts[0] = FVec2{ w.position.x + hy * sph,            w.position.y - hy * cph };
                 O.polyVerts[1] = FVec2{ w.position.x - hx * cph - hy * sph, w.position.y - hx * sph + hy * cph };
                 O.polyVerts[2] = FVec2{ w.position.x + hx * cph - hy * sph, w.position.y + hx * sph + hy * cph };
+            } else if (primShape == 3) {                  // ポリゴン → FPolygonRenderer2D の頂点を world 変換
+                O.shape = 2;
+                // FPolygonRenderer2D を見つけてローカル頂点を取得
+                u32 vc = 0;
+                FVec2 localVerts[FPolygonRenderer2D::kMaxVerts];
+                for (u32 pi = 0; pi < node.ComponentCount(); ++pi) {
+                    FComponent2D* pc = node.ComponentAt(pi);
+                    if (pc != nullptr && pc->ReflectName() != nullptr
+                        && std::strcmp(pc->ReflectName(), "FPolygonRenderer2D") == 0) {
+                        const FPolygonRenderer2D* poly = static_cast<const FPolygonRenderer2D*>(pc);
+                        vc = poly->VertCount();
+                        for (u32 k = 0; k < vc; ++k) localVerts[k] = poly->Vert(k);
+                        break;
+                    }
+                }
+                if (vc >= 3) {
+                    const u32 maxV = (vc > kMaxOccPolyVerts) ? kMaxOccPolyVerts : vc;
+                    O.polyCount = static_cast<i32>(maxV);
+                    for (u32 k = 0; k < maxV; ++k) {
+                        const u32 si = (vc > kMaxOccPolyVerts) ? (k * vc) / maxV : k;
+                        const f32 lx = localVerts[si].x * w.scale.x;
+                        const f32 ly = localVerts[si].y * w.scale.y;
+                        O.polyVerts[k] = FVec2{ w.position.x + lx * cph - ly * sph,
+                                                 w.position.y + lx * sph + ly * cph };
+                    }
+                } else {
+                    // フォールバック: 外接箱
+                    O.shape = 2; O.polyCount = 4;
+                    O.polyVerts[0] = FVec2{ w.position.x - hx*cph + hy*sph, w.position.y - hx*sph - hy*cph };
+                    O.polyVerts[1] = FVec2{ w.position.x + hx*cph + hy*sph, w.position.y + hx*sph - hy*cph };
+                    O.polyVerts[2] = FVec2{ w.position.x + hx*cph - hy*sph, w.position.y + hx*sph + hy*cph };
+                    O.polyVerts[3] = FVec2{ w.position.x - hx*cph - hy*sph, w.position.y - hx*sph + hy*cph };
+                }
             } else if (primShape == 0) {                  // 箱 → 4頂点ポリゴン (回転/細長も正確)
                 O.shape = 2; O.polyCount = 4;
                 O.polyVerts[0] = FVec2{ w.position.x - hx*cph + hy*sph, w.position.y - hx*sph - hy*cph };

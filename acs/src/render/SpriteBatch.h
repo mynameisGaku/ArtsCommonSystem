@@ -97,7 +97,7 @@ struct FSpriteLight {
 
 /** 影を落とすオクルーダー (lit スプライトのソフト影用)。中心/サイズは screen px。 */
 /** 影オクルーダーの多角形頂点の最大数 (三角形=3、クラウン/星等の複雑形状まで。超は切り詰め)。 */
-inline constexpr u32 kMaxOccPolyVerts = 16;
+inline constexpr u32 kMaxOccPolyVerts = 32;
 
 struct FSpriteOccluder {
     FVec2 center{ 0, 0 };       ///< 中心 (px)。

@@ -181,7 +181,7 @@ cbuffer Lights : register(b2) {
     float4 light_dir[16];     // xy=dir(正規化), z=coneInner(cos), w=coneOuter(cos)
     float4 occ[16];           // xy=center(px), z=radius(外接), w=shape(0=円,1=箱,2=多角形)
     float4 occ2[16];          // xy=box halfExtents, z=rotation(rad), w=多角形の頂点数
-    float4 occ_poly[128];     // 多角形オクルーダーの頂点 (occluder j: occ_poly[j*8..j*8+7]=16頂点, 1 float4=2頂点)
+    float4 occ_poly[256];     // 多角形オクルーダーの頂点 (occluder j: occ_poly[j*16..j*15]=32頂点, 1 float4=2頂点)
 };
 
 struct VSIn  { float2 pos : POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; };
@@ -216,9 +216,9 @@ float BoxSdf(float2 p, float2 C, float rot, float2 he) {
     return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
 }
 
-// occluder j の頂点 k (0..15) を取り出す。occ_poly は occluder ごとに 8 float4 (16頂点)、1 float4=2頂点。
+// occluder j の頂点 k (0..31) を取り出す。occ_poly は occluder ごとに 16 float4 (32頂点)、1 float4=2頂点。
 float2 OccVert(int j, int k) {
-    float4 f = occ_poly[j * 8 + (k >> 1)];
+    float4 f = occ_poly[j * 16 + (k >> 1)];
     return (k & 1) ? f.zw : f.xy;
 }
 // 点 p から線分 [a,b] への距離。
@@ -287,7 +287,7 @@ float ShadowVisibility(float2 P, float2 Lp, int occ_count, int selfOcc) {
             float  gate= smoothstep(-pen, pen, t);       // 中心が画素の後方(光源側)なら影を消す
             occv = (1.0 - smoothstep(-pen, pen, BoxSdf(cp, C, rot, he))) * gate;
         } else if (shape == 2) {                         // 多角形 (三角形/ポリゴン)
-            int   nv  = min((int)occ2[j].w, 16);         // occ_poly のバジェット (16頂点) を超えない
+            int   nv  = min((int)occ2[j].w, 32);         // occ_poly のバジェット (32頂点) を超えない
             if (nv < 3) continue;                        // 退化ポリゴンは遮蔽なし
             float pen = max(occ[j].z * 0.22, 4.0);
             // 線分 [P, 光源] が多角形を貫けば 0 → 完全遮蔽 (umbra)。外れれば «内側に射影される縁»
@@ -752,7 +752,7 @@ bool FSpriteBatch::EnsureLitPipeline() noexcept {
 
     {
         FBufferDesc cbd{};
-        cbd.size = 4096;   // light_info+ambient+pos/col/dir/occ/occ2[16]+occ_poly[64] = 2336B
+        cbd.size = 5632;   // light_info+ambient+pos/col/dir/occ/occ2[16]+occ_poly[256] = 5408B
         cbd.usage = EBufferUsage::Uniform;
         cbd.cpu_writable = true;
         auto cb_r = CreateRhiBuffer(*m_Device, cbd);
@@ -865,8 +865,8 @@ void FSpriteBatch::SetLights(const FSpriteLight* lights, u32 count, FVec3 ambien
     if (!EnsureLitPipeline()) return;
     if (count > kMaxLitLights) count = kMaxLitLights;
     if (occ_count > kMaxLitLights) occ_count = kMaxLitLights;
-    // cbuffer Lights: light_info, ambient, pos[16], col[16], dir[16], occ[16], occ2[16], occ_poly[128] = 840 floats。
-    f32 cb[4 + 4 + 16 * 4 * 5 + 128 * 4] = {};
+    // cbuffer Lights: light_info, ambient, pos[16], col[16], dir[16], occ[16], occ2[16], occ_poly[256] = 1352 floats。
+    f32 cb[4 + 4 + 16 * 4 * 5 + 256 * 4] = {};
     cb[0] = static_cast<f32>(count); cb[1] = light_height; cb[2] = static_cast<f32>(occ_count);
     cb[4] = ambient.x; cb[5] = ambient.y; cb[6] = ambient.z;
     f32* pos  = cb + 8;            // light_pos[16] (xy, radius, intensity)
@@ -874,7 +874,7 @@ void FSpriteBatch::SetLights(const FSpriteLight* lights, u32 count, FVec3 ambien
     f32* dir  = cb + 8 + 128;      // light_dir[16] (dir.xy, coneInner, coneOuter)
     f32* ocp  = cb + 8 + 192;      // occ[16] (xy=center, z=radius, w=shape)
     f32* ocp2 = cb + 8 + 256;      // occ2[16] (xy=halfExtents, z=rotation, w=多角形頂点数)
-    f32* opl  = cb + 8 + 320;      // occ_poly[128] (occluder j: opl[j*32 .. +31] = 16頂点)
+    f32* opl  = cb + 8 + 320;      // occ_poly[256] (occluder j: opl[j*64 .. +63] = 32頂点)
     for (u32 i = 0; i < count; ++i) {
         pos[i * 4 + 0] = lights[i].pos.x;
         pos[i * 4 + 1] = lights[i].pos.y;
@@ -897,13 +897,13 @@ void FSpriteBatch::SetLights(const FSpriteLight* lights, u32 count, FVec3 ambien
         ocp2[i * 4 + 0] = occluders[i].halfExtents.x;
         ocp2[i * 4 + 1] = occluders[i].halfExtents.y;
         ocp2[i * 4 + 2] = occluders[i].rotation;
-        if (occluders[i].shape == 2) {                       // 多角形の頂点 (最大 16) を詰める
+        if (occluders[i].shape == 2) {                       // 多角形の頂点 (最大 32) を詰める
             u32 nv = occluders[i].polyCount;
             if (nv > kMaxOccPolyVerts) nv = kMaxOccPolyVerts;
             ocp2[i * 4 + 3] = static_cast<f32>(nv);
             for (u32 k = 0; k < nv; ++k) {
-                opl[i * 32 + k * 2 + 0] = occluders[i].polyVerts[k].x;
-                opl[i * 32 + k * 2 + 1] = occluders[i].polyVerts[k].y;
+                opl[i * 64 + k * 2 + 0] = occluders[i].polyVerts[k].x;
+                opl[i * 64 + k * 2 + 1] = occluders[i].polyVerts[k].y;
             }
         }
     }

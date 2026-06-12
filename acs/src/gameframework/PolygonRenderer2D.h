@@ -44,6 +44,9 @@ public:
     /** 頂点数。 */
     u32 VertCount() const noexcept { return m_Count; }
 
+    /** 指定インデックスのローカル頂点 (境界外は原点)。 */
+    FVec2 Vert(u32 i) const noexcept { return (i < m_Count) ? m_Verts[i] : FVec2{ 0.0f, 0.0f }; }
+
     /** owner の world transform でローカル頂点を変換し、三角形ファンで塗る。 */
     void OnDraw(RenderContext& rc) noexcept override {
         if (!rc.HasSprites() || m_Count < 3u || !HasOwner()) return;
