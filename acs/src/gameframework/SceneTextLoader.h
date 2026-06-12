@@ -7,7 +7,10 @@
 // 一致する。座標は editor が world=pixel で扱うので、読込側は PixelsPerUnit=1 を想定。
 //
 // 対応行: ノード行 (id parent x y rot sx sy base r g b a name) / COMP <id> <type> /
-//         CPROP <id> <slot> <prop> <x y z w>。POLY/SPRT/NFLG は現状未対応 (best-effort)。
+//         CPROP <id> <slot> <prop> <x y z w> / POLY <id> <count> <x y ...> /
+//         RPLY <id> <count> <x y ...> (描画用滑らか頂点) /
+//         NFLG <id> <visible> <enabled> <sortLayer> /
+//         SPRT <id> <path> / MAT <id> <path>。
 //
 // 使い方 (FScene2D 派生の OnReady から):
 //   SetPixelsPerUnit(1.0f);

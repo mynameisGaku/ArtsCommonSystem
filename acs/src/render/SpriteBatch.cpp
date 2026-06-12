@@ -302,8 +302,11 @@ float ShadowVisibility(float2 P, float2 Lp, int occ_count, int selfOcc) {
             float2 dirP  = toP / dP;
             float  along = dot(C - Lp, dirP);            // 円中心の «光源からの» 奥行
             float  perp  = length((C - Lp) - dirP * along); // 中心からレイへの垂直距離
-            // tangent 側 penumbra (perp≈r で減衰) × 奥行ゲート (画素が円より手前=光源側なら影なし)。
-            occv = (1.0 - smoothstep(r - pen, r + pen, perp)) * smoothstep(along - r, along, dP);
+            // tangent 側 penumbra (perp≈r で減衰) × 奥行ゲート (画素が円より手前=光源側なら影なし)
+            // × 前方ゲート (along>0: 円が光源より後ろにある画素には影を落とさない。along は無限
+            //   投影なので奥行ゲートだけだと光源の反対側に偽影が出る)。
+            occv = (1.0 - smoothstep(r - pen, r + pen, perp))
+                 * smoothstep(along - r, along, dP) * smoothstep(-r, r, along);
         }
         vis *= 1.0 - saturate(occv);                     // saturate で vis を [0,1] に保つ
     }

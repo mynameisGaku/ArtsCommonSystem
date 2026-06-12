@@ -11,8 +11,11 @@
 #include "gameframework/Component2D.h"
 #include "gameframework/SceneServices.h"
 #include "gameframework/SceneTextLoader.h"
+#include "gameframework/PolygonRenderer2D.h"
 #include "math/Vec.h"
 #include "math/Collision2D.h"
+
+#include <cstring>
 
 using namespace acs;
 using namespace acs::game;
@@ -165,4 +168,114 @@ ACS_TEST(ComponentServices, ReadsPhysicsAndCameraDuringTick) {
     EXPECT_EQ(p.shapes_seen, 2u);                      // 同じ physics world を読んでいる
     EXPECT_NEAR(p.cam_pos_seen.x, 3.0f, 1e-4f);        // 同じ camera を読んでいる
     EXPECT_NEAR(p.cam_pos_seen.y, 7.0f, 1e-4f);
+}
+
+// --- SceneTextLoader: NFLG (ノードフラグ) ----------------------------------------
+
+ACS_TEST(SceneTextLoader, NflgSetsVisibleEnabledSortLayer) {
+    const char* scene =
+        "ACSCENE v1\n"
+        "2\n"
+        "1 -1 0.0 0.0 0.0 1.0 1.0 48.0 0.6 0.7 0.9 1.0 NodeA\n"
+        "2 -1 10.0 0.0 0.0 1.0 1.0 48.0 0.6 0.7 0.9 1.0 NodeB\n"
+        "NFLG 1 0 0 3\n"     // NodeA: visible=0, enabled=0, sortLayer=3
+        "NFLG 2 1 1 7\n"     // NodeB: visible=1, enabled=1, sortLayer=7
+        "SEL -1 0\n";
+    FNode2D root;
+    LoadAcsceneText(scene, root);
+
+    EXPECT_EQ(root.ChildCount(), 2u);
+    FNode2D* a = root.Child(0);
+    FNode2D* b = root.Child(1);
+    EXPECT_TRUE(a != nullptr && b != nullptr);
+
+    // NodeA: NFLG で visible=false, enabled=false, sortLayer=3
+    EXPECT_TRUE(!a->IsVisible());
+    EXPECT_TRUE(!a->IsEnabled());
+    EXPECT_EQ(a->SortLayer(), 3);
+
+    // NodeB: NFLG で visible=true, enabled=true, sortLayer=7
+    EXPECT_TRUE(b->IsVisible());
+    EXPECT_TRUE(b->IsEnabled());
+    EXPECT_EQ(b->SortLayer(), 7);
+}
+
+// NFLG が無ければ既定値 (visible=1, enabled=1, sortLayer=0) のまま。
+ACS_TEST(SceneTextLoader, NflgDefaultsWithoutLine) {
+    const char* scene =
+        "ACSCENE v1\n"
+        "1\n"
+        "1 -1 0.0 0.0 0.0 1.0 1.0 48.0 0.6 0.7 0.9 1.0 Solo\n"
+        "SEL -1 0\n";
+    FNode2D root;
+    LoadAcsceneText(scene, root);
+
+    EXPECT_EQ(root.ChildCount(), 1u);
+    FNode2D* n = root.Child(0);
+    EXPECT_TRUE(n != nullptr);
+    EXPECT_TRUE(n->IsVisible());
+    EXPECT_TRUE(n->IsEnabled());
+    EXPECT_EQ(n->SortLayer(), 0);
+}
+
+// --- SceneTextLoader: RPLY (描画用滑らか頂点) ------------------------------------
+
+ACS_TEST(SceneTextLoader, RplyOverridesPolyVertsForRendering) {
+    const char* scene =
+        "ACSCENE v1\n"
+        "1\n"
+        "1 -1 0.0 0.0 0.0 1.0 1.0 48.0 0.6 0.7 0.9 1.0 PolyNode\n"
+        "COMP 1 FPrimitiveRenderer2D\n"
+        "COMP 1 FPolygonRenderer2D\n"
+        "POLY 1 4 0.0 0.0 10.0 0.0 10.0 10.0 0.0 10.0\n"   // 角張った四角
+        "RPLY 1 8 0.0 0.0 5.0 -1.0 10.0 0.0 11.0 5.0 10.0 10.0 5.0 11.0 0.0 10.0 -1.0 5.0\n"  // 滑らかな8頂点
+        "SEL -1 0\n";
+    FNode2D root;
+    LoadAcsceneText(scene, root);
+
+    EXPECT_EQ(root.ChildCount(), 1u);
+    FNode2D* n = root.Child(0);
+    EXPECT_TRUE(n != nullptr);
+
+    // FPolygonRenderer2D が RPLY の 8 頂点で上書きされている
+    bool found = false;
+    for (u32 c = 0; c < n->ComponentCount(); ++c) {
+        FComponent2D* comp = n->ComponentAt(c);
+        if (comp != nullptr && comp->ReflectName() != nullptr
+            && std::strcmp(comp->ReflectName(), "FPolygonRenderer2D") == 0) {
+            FPolygonRenderer2D* poly = static_cast<FPolygonRenderer2D*>(comp);
+            EXPECT_EQ(poly->VertCount(), 8u);  // RPLY の 8 頂点 (POLY の 4 を上書き)
+            found = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+// RPLY が無ければ POLY の頂点がそのまま使われる (後方互換)。
+ACS_TEST(SceneTextLoader, PolyUsedWhenNoRply) {
+    const char* scene =
+        "ACSCENE v1\n"
+        "1\n"
+        "1 -1 0.0 0.0 0.0 1.0 1.0 48.0 0.6 0.7 0.9 1.0 PolyNode\n"
+        "COMP 1 FPolygonRenderer2D\n"
+        "POLY 1 5 0.0 0.0 10.0 0.0 10.0 10.0 5.0 12.0 0.0 10.0\n"
+        "SEL -1 0\n";
+    FNode2D root;
+    LoadAcsceneText(scene, root);
+
+    FNode2D* n = root.Child(0);
+    EXPECT_TRUE(n != nullptr);
+    bool found = false;
+    for (u32 c = 0; c < n->ComponentCount(); ++c) {
+        FComponent2D* comp = n->ComponentAt(c);
+        if (comp != nullptr && comp->ReflectName() != nullptr
+            && std::strcmp(comp->ReflectName(), "FPolygonRenderer2D") == 0) {
+            FPolygonRenderer2D* poly = static_cast<FPolygonRenderer2D*>(comp);
+            EXPECT_EQ(poly->VertCount(), 5u);  // POLY の 5 頂点 (RPLY 無し)
+            found = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found);
 }

@@ -36,6 +36,14 @@ struct LoadedNode {
     f32      rb[6]      = { 1.0f, 0.1f, 0.5f, 1.0f, 0.05f, 0.1f };  // bodyType,rest,fric,mass,linD,angD
     FVec2    poly[kMaxPolyVerts]{}; // POLY 行のローカル頂点 (物理の polygon 用)
     u32      polyCount  = 0u;
+    // NFLG (ノードフラグ): visible/enabled/sortLayer。既定値は FNode2D の既定と一致。
+    bool     visible    = true;
+    bool     enabled    = true;
+    i32      sortLayer  = 0;
+    bool     hasNflg    = false;     // NFLG 行が存在したか
+    // RPLY (描画用滑らか頂点)。POLY がコライダー用、RPLY が描画用。
+    FVec2    renderVerts[FPolygonRenderer2D::kMaxVerts]{};
+    u32      renderCount = 0u;
 };
 
 /** id からノードのインデックスを引く (線形)。 */
@@ -213,7 +221,40 @@ FSceneBounds LoadAcsceneText(const char* text, FNode2D& root,
             }
             continue;
         }
-        // NFLG / RPLY / SEL は現状スキップ (best-effort)。
+        if (std::strncmp(line, "NFLG ", 5) == 0) {           // NFLG <id> <visible> <enabled> <sortLayer>
+            int nid = 0, vis = 1, ena = 1, layer = 0;
+            if (std::sscanf(line, "NFLG %d %d %d %d", &nid, &vis, &ena, &layer) >= 2) {
+                const int idx = FindLoadedIndex(nodes, nid);
+                if (idx >= 0) {
+                    LoadedNode& ln = nodes[static_cast<u32>(idx)];
+                    ln.visible   = (vis != 0);
+                    ln.enabled   = (ena != 0);
+                    ln.sortLayer = layer;
+                    ln.hasNflg   = true;
+                }
+            }
+            continue;
+        }
+        if (std::strncmp(line, "RPLY ", 5) == 0) {          // RPLY <id> <count> <x0 y0 ...> (描画用滑らか頂点)
+            int nid = 0, cnt = 0, consumed = 0;
+            if (std::sscanf(line, "RPLY %d %d %n", &nid, &cnt, &consumed) >= 2 && cnt >= 3) {
+                const int idx = FindLoadedIndex(nodes, nid);
+                if (idx >= 0) {
+                    LoadedNode& ln = nodes[static_cast<u32>(idx)];
+                    if (cnt > static_cast<int>(FPolygonRenderer2D::kMaxVerts)) cnt = FPolygonRenderer2D::kMaxVerts;
+                    const char* q = line + consumed;
+                    int parsed = 0;
+                    for (; parsed < cnt; ++parsed) {
+                        int c2 = 0;
+                        if (std::sscanf(q, "%f %f %n", &ln.renderVerts[parsed].x, &ln.renderVerts[parsed].y, &c2) < 2) break;
+                        q += c2;
+                    }
+                    ln.renderCount = static_cast<u32>(parsed);
+                }
+            }
+            continue;
+        }
+        // SEL はスキップ (スタンドアロンに選択概念は無い)。
     }
 
     // --- 親付け fixup (順序非依存。Reparent は Local 保持) ---
@@ -227,6 +268,31 @@ FSceneBounds LoadAcsceneText(const char* text, FNode2D& root,
         }
     }
     if (reparented) root.ResolveStructuralChanges();
+
+    // --- NFLG (ノードフラグ) を適用 ---
+    for (u32 i = 0; i < nodes.Size(); ++i) {
+        if (!nodes[i].hasNflg) continue;
+        FNode2D* n = nodes[i].node;
+        n->SetVisible(nodes[i].visible);
+        n->SetEnabled(nodes[i].enabled);
+        n->SetSortLayer(nodes[i].sortLayer);
+    }
+
+    // --- RPLY (描画用滑らか頂点) を FPolygonRenderer2D に適用 ---
+    // POLY で作った FPolygonRenderer2D の描画頂点を RPLY の滑らか頂点で上書きする。
+    // RPLY が無ければ POLY 頂点のまま (角張った描画)。
+    for (u32 i = 0; i < nodes.Size(); ++i) {
+        if (nodes[i].renderCount < 3u) continue;
+        FNode2D* n = nodes[i].node;
+        for (u32 c = 0; c < n->ComponentCount(); ++c) {
+            FComponent2D* comp = n->ComponentAt(c);
+            if (comp != nullptr && comp->ReflectName() != nullptr
+                && std::strcmp(comp->ReflectName(), "FPolygonRenderer2D") == 0) {
+                static_cast<FPolygonRenderer2D*>(comp)->SetVerts(nodes[i].renderVerts, nodes[i].renderCount);
+                break;
+            }
+        }
+    }
 
     // --- FPrimitiveRenderer2D の見た目をノードの color/base で設定 (editor の描画と一致) ---
     // shape が Box/Circle/Triangle (0-2) なら base サイズで描画。Polygon (>=3) は FPolygonRenderer2D
