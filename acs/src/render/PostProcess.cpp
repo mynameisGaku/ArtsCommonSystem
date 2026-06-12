@@ -313,25 +313,35 @@ float3 ColorGrade(float3 c) {
     return max(c, 0.0);
 }
 
-// procedural noise (Inigo Quilez 風) — film grain 用、低コスト
-float HashGrain(float2 p, float t) {
-    p = frac(p * float2(123.34, 456.21));
-    p += dot(p, p + 45.32 + t);
-    return frac(p.x * p.y);
+// Interleaved Gradient Noise (Jimenez 2014) — film grain / dither 用。低コストで
+// blue-noise に近い分布になり、白ノイズより縞・塊が出にくい。
+//   p = screen pixel 座標 (v.pos.xy)。解像度非依存の 1px 粒。
+//   t = フレーム時間。パターンを毎フレーム平行移動して時間方向にちらつかせる。
+float IGN(float2 p, float t) {
+    p += t * float2(5.588238, 1.715728);
+    return frac(52.9829189 * frac(dot(p, float2(0.06711056, 0.00583715))));
 }
 
 float4 PSMain(VSOut v) : SV_TARGET {
-    // 1) Chromatic aberration: 中心から放射方向に R/G/B を分けてサンプル
+    // 1) Chromatic aberration: 中心から放射方向に R/G/B を分けてサンプル。
+    //    中心はシャープ・周辺ほど分離が強くなるよう pow で形状化し、各チャンネルを
+    //    放射方向に 2 タップ平均して硬いフリンジを滑らかなスメアにする (安物の単純
+    //    1 タップずらしを避ける)。
     float2 center = float2(0.5, 0.5);
     float2 dir = v.uv - center;
     float dist_radial = length(dir);
     float ca = params2.z;
     float3 hdr_col;
     if (ca > 1e-5) {
-        float2 ofs = dir * ca;
-        hdr_col.r = hdr.Sample(hdr_sampler, v.uv + ofs).r;
-        hdr_col.g = hdr.Sample(hdr_sampler, v.uv      ).g;
-        hdr_col.b = hdr.Sample(hdr_sampler, v.uv - ofs).b;
+        // dir はもともと端ほど大きい。さらに pow(.,1.5) (convex) で中心をシャープに
+        // 保ち、分離を周辺へ寄せる。
+        float  shape = pow(saturate(dist_radial * 1.41421356), 1.5);   // 0(中心)→1(端)
+        float2 ofs   = dir * ca * (1.0 + shape);
+        hdr_col.r = (hdr.Sample(hdr_sampler, v.uv + ofs).r +
+                     hdr.Sample(hdr_sampler, v.uv + ofs * 0.5).r) * 0.5;
+        hdr_col.g =  hdr.Sample(hdr_sampler, v.uv).g;
+        hdr_col.b = (hdr.Sample(hdr_sampler, v.uv - ofs).b +
+                     hdr.Sample(hdr_sampler, v.uv - ofs * 0.5).b) * 0.5;
     } else {
         hdr_col = hdr.Sample(hdr_sampler, v.uv).rgb;
     }
@@ -385,15 +395,27 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float vig = smoothstep(1.0, vig_r, dist_radial * 1.414);     // 1.414 ~= sqrt(2)
     mapped *= lerp(1.0 - vig_i, 1.0, vig);
 
-    // 4) Film grain (HDR 後、Gamma 前)
+    // 4) Film grain (Gamma 前): screen-space IGN で解像度非依存の 1px 粒。
+    //    grain_time で毎フレーム動かし、luma に応じて量を変えて暗部を潰さない。
     float g_i = params2.w;
     if (g_i > 1e-5) {
-        float n = HashGrain(v.uv * 1024.0, params3.x);
-        mapped += (n - 0.5) * g_i;
+        float n    = IGN(v.pos.xy, params3.x) - 0.5;
+        float luma = dot(mapped, float3(0.299, 0.587, 0.114));
+        mapped += n * g_i * (0.35 + 0.65 * luma);
     }
 
     // 5) Gamma
     mapped = pow(max(mapped, 0.0), 1.0 / max(params1.x, 0.0001));
+
+    // 6) Dither: 8-bit 量子化前に ±1 LSB の三角分布 (TPDF) ノイズを足し、空・bloom の裾・
+    //    vignette・グレーディングのシャドウに出る等高線状バンディングを消す。ほぼゼロコスト
+    //    で「安っぽさ」に最も効く。2 つの IGN を独立化して足すと三角分布 (TPDF) になる。
+    //    ※ d2 は軸別オフセット + 別の時間位相にする。同一定数を両軸へ足すと IGN の滑らかな
+    //      勾配上を平行移動するだけで d1 と相関し、TPDF にならないため。
+    float d1   = IGN(v.pos.xy, params3.x);
+    float d2   = IGN(v.pos.xy + float2(113.0, 71.0), params3.x * 0.37 + 0.5);
+    mapped += (d1 + d2 - 1.0) * (1.0 / 255.0);
+
     return float4(mapped, 1.0);
 }
 )";

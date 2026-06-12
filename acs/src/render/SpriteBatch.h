@@ -53,6 +53,110 @@ enum class EStencilMode : u8 {
 };
 
 /**
+ * スプライトのピクセル効果プリセット (マテリアルアセットが参照する基本シェーダ)。
+ *
+ * @details
+ * SetEffect で切り替える。マテリアルアセット (.acsmat) は「どのプリセットを使うか + パラメータ」
+ * を保持し、ノードはそのマテリアルを参照するだけ。シェーダを書けない人でも見た目を変えられる。
+ * UV 歪み系 (Wave/Pixelate) はサンプル前、色系 (Grayscale/Tint/...) はサンプル後に適用される。
+ */
+enum class ESpriteEffect : u8 {
+    None       = 0,   ///< 効果なし (通常描画)。
+    Grayscale  = 1,   ///< グレースケール (strength=度合い 0..1)。
+    Tint       = 2,   ///< 色染め (strength=度合い 0..1, color=染め色)。
+    Vignette   = 3,   ///< 周辺減光 (strength=強さ, p0=開始半径, p1=終了半径, color=縁色)。
+    Wave       = 4,   ///< 波打ち UV 歪み (strength=振幅, p0=周波数, p1=速度, time)。
+    Pixelate   = 5,   ///< モザイク (p0=セル数X, p1=セル数Y)。
+    HueShift   = 6,   ///< 色相回転 (strength=角度°, p0=回転速度°/s, time)。
+    Brightness = 7,   ///< 明るさ/コントラスト (strength=明るさ, p0=コントラスト)。
+    Invert     = 8,   ///< 色反転 (strength=度合い 0..1)。
+    Sepia      = 9,   ///< セピア調 (strength=度合い 0..1)。
+    Posterize  = 10,  ///< 階調化/ポスタリゼーション (strength=度合い, p0=階調数)。
+    Scanline   = 11,  ///< 走査線/CRT風 (strength=濃さ, p0=線の本数)。
+    Chromatic  = 12,  ///< 色収差 (strength=度合い, p0=ずれ量)。要テクスチャ。
+};
+
+/** 2D ライトの種類。 */
+enum class ELightType : u8 {
+    Point       = 0,   ///< 点光源 (位置 + 半径減衰、全方向)。
+    Spot        = 1,   ///< スポット (位置 + 半径 + 円錐方向)。
+    Directional = 2,   ///< 平行光 (方向のみ、減衰なし。太陽光)。
+};
+
+/** 2D ライト (lit スプライト用)。座標はスプライトと同じピクセル空間 (左上原点)。 */
+struct FSpriteLight {
+    FVec2 pos{ 0, 0 };           ///< 光源位置 (px、Point/Spot)。
+    f32   radius   = 256.0f;     ///< 届く半径 (px、Point/Spot)。
+    FVec3 color{ 1, 1, 1 };      ///< 光の色 (RGB)。
+    f32   intensity = 1.0f;      ///< 明るさ倍率。
+    i32   type      = 0;         ///< ELightType (0=Point, 1=Spot, 2=Directional)。
+    FVec2 dir{ 0, 1 };           ///< スポット軸 / 平行光の進行方向 (正規化)。
+    f32   coneInner = 0.92f;     ///< スポット内円錐 (cos、1=細い)。
+    f32   coneOuter = 0.70f;     ///< スポット外円錐 (cos、< inner)。
+};
+
+/** 影を落とすオクルーダー (lit スプライトのソフト影用)。中心/サイズは screen px。 */
+/** 影オクルーダーの多角形頂点の最大数 (三角形=3、クラウン/星等の複雑形状まで。超は切り詰め)。 */
+inline constexpr u32 kMaxOccPolyVerts = 16;
+
+struct FSpriteOccluder {
+    FVec2 center{ 0, 0 };       ///< 中心 (px)。
+    f32   radius = 32.0f;       ///< 円の半径 / 外接半径 (px、penumbra 幅算出にも使用)。
+    i32   shape  = 0;           ///< 0=円, 1=箱, 2=多角形。
+    FVec2 halfExtents{ 16, 16 };///< 箱の半サイズ (px、shape=1)。
+    f32   rotation = 0.0f;      ///< 箱の回転 (ラジアン、shape=1)。
+    // --- 多角形 (shape=2: 三角形/ポリゴン) ---
+    FVec2 polyVerts[kMaxOccPolyVerts] = {};  ///< 多角形の頂点 (px、world/screen 空間)。
+    i32   polyCount = 0;                     ///< 多角形の頂点数 (3..kMaxOccPolyVerts)。
+};
+
+/** lit スプライトのマテリアルパラメータ (b1 の cbuffer LitMaterial)。PBR/トゥーン両対応。 */
+struct FLitMaterialParams {
+    FVec4 baseColor       = FVec4{ 1, 1, 1, 1 };  ///< アルベド tint (rgb) + 不透明度 (a)。
+    f32   metallic        = 0.0f;                 ///< 0=誘電体 .. 1=金属 (PBR)。
+    f32   roughness       = 0.5f;                 ///< 0=鏡面 .. 1=拡散 (PBR)。
+    f32   normalStrength  = 1.0f;                 ///< 法線マップの強さ。
+    f32   ao              = 1.0f;                 ///< アンビエントオクルージョン。
+    FVec3 emissive        = FVec3{ 0, 0, 0 };     ///< 自己発光色。
+    f32   emissiveStrength = 0.0f;                ///< 発光強度。
+    // --- シェーディングモード ---
+    i32   shadingMode     = 0;                    ///< 0=PBR, 1=Toon。
+    // --- トゥーン (shadingMode=1) ---
+    FVec3 shadow1Color    = FVec3{ 0.55f, 0.52f, 0.62f }; ///< 1影の色。
+    f32   shadow1Threshold = 0.5f;                ///< 1影のしきい値 (lum)。
+    FVec3 shadow2Color    = FVec3{ 0.32f, 0.30f, 0.40f }; ///< 2影 (より暗い) の色。
+    f32   shadow2Threshold = 0.2f;                ///< 2影のしきい値 (lum)。
+    FVec3 rimColor        = FVec3{ 1, 1, 1 };     ///< リムライト色。
+    f32   rimPower        = 4.0f;                  ///< リムの鋭さ。
+    FVec3 specColor       = FVec3{ 1, 1, 1 };     ///< トゥーンスペキュラ色。
+    f32   specThreshold   = 0.85f;                ///< スペキュラのステップしきい値。
+    f32   toonSoftness    = 0.05f;                ///< 影境界の柔らかさ。
+    // --- Substrate 風 拡張ロブ (shadingMode=0 PBR のみ有効) ---
+    f32   clearcoat          = 0.0f;              ///< クリアコート層の強さ (上層 GGX、IOR1.5)。
+    f32   clearcoatRoughness = 0.1f;              ///< クリアコート層のラフネス。
+    f32   anisotropy         = 0.0f;              ///< 異方性 -1..1 (横/縦に伸びるハイライト、T=画面X)。
+    f32   specularLevel      = 0.5f;              ///< 誘電体反射率 (0.5→F0=0.04、glTF KHR_specular)。
+    f32   specularTint       = 0.0f;              ///< 鏡面を base 色へ寄せる量 (0=白)。
+    f32   sheen              = 0.0f;              ///< シーン (布の逆反射リム) の強さ。
+    f32   sheenRoughness     = 0.3f;              ///< シーンのラフネス (Charlie 分布)。
+    FVec3 sheenColor         = FVec3{ 1, 1, 1 };  ///< シーン色。
+    f32   subsurface         = 0.0f;              ///< サブサーフェス (wrap 拡散 + 影色付け) の量。
+    FVec3 subsurfaceColor    = FVec3{ 1.0f, 0.3f, 0.2f }; ///< 透過部の色 (肌/蝋)。
+    // --- 描画コンテキスト (マテリアル値ではない。描画側が設定) ---
+    i32   selfOccluder       = -1;                ///< 自分自身のオクルーダー番号 (-1=無し)。自己影スキップ。
+};
+
+/** ESpriteEffect のパラメータ (b1 の cbuffer Effect に対応)。 */
+struct FEffectParams {
+    f32   strength = 1.0f;               ///< 主効果量。
+    f32   p0       = 0.0f;               ///< 補助パラメータ 0。
+    f32   p1       = 0.0f;               ///< 補助パラメータ 1。
+    f32   p2       = 0.0f;               ///< 補助パラメータ 2 (予備)。
+    f32   time     = 0.0f;               ///< アニメ用の経過秒。
+    FVec4 color    = FVec4{ 1, 1, 1, 1 };///< 染め色 / 縁色。
+};
+
+/**
  * ピクセル座標で 2D スプライト・矩形を描くバッチ式ヘルパ。
  *
  * @details
@@ -294,8 +398,72 @@ public:
      */
     void SetStencilMode(EStencilMode mode, u8 ref = 1) noexcept;
 
+    /**
+     * ピクセル効果 (マテリアルプリセット) を適用する。
+     *
+     * @details
+     * SetBlendMode と同じ要領でバッチを flush してから効果 PSO + b1 パラメータへ切り替える。
+     * 以降の Draw 系はすべてこの効果で描かれる。ClearEffect (または Begin) で解除する。
+     * effect == None を渡すと ClearEffect と同じ動作。効果 PSO/シェーダ/CB は初回呼び出し時に
+     * 遅延生成される (効果を使わないシーンでは作らない)。stencil / additive とは併用しない。
+     * @param effect 適用する効果プリセット。
+     * @param params 効果のパラメータ。
+     */
+    void SetEffect(ESpriteEffect effect, const FEffectParams& params) noexcept;
+
+    /** ピクセル効果を解除し、通常 (アルファブレンド) パイプラインへ戻す。 */
+    void ClearEffect() noexcept;
+
+    /**
+     * lit スプライト用の 2D 点光源を設定する (フレーム内で一度、lit 描画の前に呼ぶ)。
+     *
+     * @details
+     * 以降の SetLitMaterial → Draw は、ここで渡したライト群で陰影付けされる。light_height は
+     * 光源の «高さ» (法線が効くよう平面より上に置く)。count は kMaxLitLights で頭打ち。
+     * @param lights 点光源配列。
+     * @param count ライト数。
+     * @param ambient 環境光 (RGB)。
+     * @param light_height 光源の高さ (px、N·L のため平面より上)。
+     * @param occluders 影を落とす円オクルーダー配列 (null=影なし)。
+     * @param occ_count オクルーダー数 (kMaxLitLights で頭打ち)。
+     */
+    void SetLights(const FSpriteLight* lights, u32 count, FVec3 ambient,
+                   f32 light_height = 80.0f,
+                   const FSpriteOccluder* occluders = nullptr, u32 occ_count = 0) noexcept;
+
+    /**
+     * lit (PBR) マテリアルを適用する。以降の Draw は法線マップ + ライトで陰影付けされる。
+     *
+     * @details
+     * SetEffect と同じ要領でバッチを flush してから lit PSO + b1 (マテリアル) + 法線テクスチャ (t1)
+     * へ切り替える。アルベドは通常どおり t0 (Draw に渡すテクスチャ)。事前に SetLights が必要。
+     * normal_tex が null なら平面法線 (凹凸なし) になる。ClearLit (または Begin) で解除。
+     * @param mat PBR マテリアルパラメータ。
+     * @param normal_tex 法線マップ (null=平面)。
+     */
+    void SetLitMaterial(const FLitMaterialParams& mat, IRhiTexture* normal_tex) noexcept;
+
+    /** lit を解除し、通常 (アンリット) パイプラインへ戻す。 */
+    void ClearLit() noexcept;
+
     /** 描画を終了し、残りのバッチを GPU に送る。 */
     void End() noexcept;
+
+    /**
+     * 蓄積済みスプライトを今すぐ描画する (カウントは維持、バッチは継続)。
+     *
+     * @details カスタムパイプラインで割り込み描画する前に呼び、保留中のスプライトを
+     *          先に確定させる。End と違いカウントをリセットしないので、以降のスプライトは
+     *          そのまま VB の続きへ追記され破綻しない。割り込み描画後は Rebind() を呼ぶこと。
+     */
+    void FlushPending() noexcept;
+
+    /**
+     * 外部パイプラインで割り込み描画した後、バッチの pipeline/view/VB/IB を貼り直す。
+     *
+     * @details FlushPending() → 自前パイプライン描画 → Rebind() の順で使う。
+     */
+    void Rebind() noexcept;
 
 private:
     /** 1 スプライト頂点 (pos2D + uv + color)。 */
@@ -352,6 +520,20 @@ private:
     bool EnsureAdditivePipeline() noexcept;
 
     /**
+     * ピクセル効果 PS + PSO + 効果用 CB リングを遅延生成する。
+     *
+     * @return 生成済み or 生成成功なら true。
+     */
+    bool EnsureEffectPipeline() noexcept;
+
+    /**
+     * lit (PBR) スプライトの VS/PS + PSO + マテリアル/ライト CB + 平面法線テクスチャを遅延生成する。
+     *
+     * @return 生成済み or 生成成功なら true。
+     */
+    bool EnsureLitPipeline() noexcept;
+
+    /**
      * vs/ps/layout 等のパイプライン共通部を埋める。
      *
      * @param pd 埋める対象のパイプライン記述。
@@ -394,6 +576,79 @@ private:
 
     /** 現在のブレンドモード。 */
     EBlendMode               m_BlendMode = EBlendMode::AlphaBlend;
+
+    /** ピクセル効果用ピクセルシェーダ (全プリセットを id 分岐で内包)。初回 SetEffect で遅延生成。 */
+    TUniquePtr<IRhiShader>   m_EffectPs;
+
+    /** ピクセル効果用 PSO (b1 に cbuffer Effect、DSV 無し・AlphaBlend)。初回 SetEffect で遅延生成。 */
+    TUniquePtr<IRhiPipeline> m_EffectPipe;
+
+    /** 効果 PS/PSO/CB が生成済みかのフラグ。 */
+    bool                     m_EffectReady  = false;
+
+    /** 現在ピクセル効果が有効か (ClearEffect/Begin で false)。 */
+    bool                     m_EffectActive = false;
+
+    /**
+     * 効果パラメータ CB のリング本数。
+     *
+     * @details
+     * view CB と同じく、1 フレーム内で複数ノードが別効果を使うと単一アドレスを上書きし合う
+     * (DX12 は即時 memcpy、GPU が読むのは draw 実行時) ため、SetEffect ごとに別スロットへ書く。
+     * ただし view 切替がフレーム内 ~6 回なのに対し、効果は «マテリアル付きノード 1 つにつき
+     * 1 回» 消費する (DrawScene / DrawTree が per-node で SetEffect) ので桁が大きく異なる。
+     * リングがフレーム内で一周すると、まだ GPU 実行されていないスロットを上書きして効果
+     * パラメータが化けるため、想定される «同時表示マテリアルノード数» を十分上回る本数にする。
+     * 256 を超える効果ノードを 1 フレームで描く極端なシーンではこの値を増やすこと。
+     */
+    static constexpr u32     kEffectRing = 256;
+
+    /** 効果パラメータ CB のリング (cbuffer Effect)。 */
+    TUniquePtr<IRhiBuffer>   m_EffectCb[kEffectRing];
+
+    /** 現在使用中の効果 CB インデックス。 */
+    u32                      m_EffectCbCur = 0;
+
+    /** lit スプライトの同時ライト上限。 */
+    static constexpr u32     kMaxLitLights = 16;
+
+    /**
+     * lit マテリアル CB のリング本数。
+     *
+     * @details
+     * 効果 CB (kEffectRing) と同じく «マテリアル付き lit ノード 1 つにつき 1 回» 消費する
+     * (DrawScene / DrawTree が per-node で SetLitMaterial)。フレーム内で一周すると未実行
+     * スロットを上書きしてマテリアルパラメータが化けるため、同時表示 lit ノード数を十分
+     * 上回る本数にする。これを超える極端なシーンではこの値を増やすこと。
+     */
+    static constexpr u32     kLitMatRing = 256;
+
+    /** lit スプライト VS (world pos を出力)。初回 SetLitMaterial で遅延生成。 */
+    TUniquePtr<IRhiShader>   m_LitVs;
+
+    /** lit スプライト PS (法線マップ + ライトで BRDF)。 */
+    TUniquePtr<IRhiShader>   m_LitPs;
+
+    /** lit スプライト PSO (t0=albedo, t1=normal, b1=material, b2=lights)。 */
+    TUniquePtr<IRhiPipeline> m_LitPipe;
+
+    /** lit リソースが生成済みか。 */
+    bool                     m_LitReady  = false;
+
+    /** 現在 lit が有効か (ClearLit/Begin で false)。 */
+    bool                     m_LitActive = false;
+
+    /** マテリアル CB のリング (cbuffer LitMaterial、per-node 消費)。 */
+    TUniquePtr<IRhiBuffer>   m_LitMatCb[kLitMatRing];
+
+    /** 現在使用中のマテリアル CB インデックス。 */
+    u32                      m_LitMatCbCur = 0;
+
+    /** ライト CB (cbuffer Lights、フレーム内で SetLights が一度書く)。 */
+    TUniquePtr<IRhiBuffer>   m_LightsCb;
+
+    /** 法線マップ未指定時の平面法線 1x1 テクスチャ ((128,128,255)=+Z)。 */
+    TUniquePtr<IRhiTexture>  m_FlatNormal;
 
     /** 頂点バッファ。 */
     TUniquePtr<IRhiBuffer>   m_Vb;

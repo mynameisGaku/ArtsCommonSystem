@@ -47,6 +47,48 @@ TResult<void> FRenderer::Init(FWindow& w, bool enable_debug, bool enable_depth) 
     return Ok();
 }
 
+TResult<void> FRenderer::InitExternal(void* hwnd, u32 width, u32 height,
+                                      bool enable_debug, bool enable_depth) noexcept {
+    m_EnableDepth = enable_depth;
+    m_ColorFormat = EFormat::B8G8R8A8_UNorm;
+    m_DepthFormat = EFormat::D32_Float;
+
+    // デバイス作成
+    DeviceConfig dcfg{};
+    dcfg.enable_debug_layer = enable_debug;
+    auto dr = CreateRhiDevice(dcfg);
+    if (dr.IsErr()) return Err<void>(dr.Error());
+    m_Device = Move(dr.Value());
+
+    // スワップチェイン作成（外部 HWND に紐付け）
+    SwapchainConfig scfg{};
+    scfg.external_hwnd   = hwnd;
+    scfg.external_width  = width;
+    scfg.external_height = height;
+    scfg.format = m_ColorFormat;
+    scfg.buffer_count = 2;
+    // vsync は OFF。エディタ (WPF 等) は UI スレッドの CompositionTarget.Rendering から
+    // 描画を駆動するため、vsync 待ちで Present がブロックすると WPF 自身の合成が止まり
+    // 画面が白くなる。即時 Present (tearing 許容) で UI スレッドをブロックしない。
+    scfg.vsync = false;
+    auto sr = CreateRhiSwapchain(*m_Device, scfg);
+    if (sr.IsErr()) return Err<void>(sr.Error());
+    m_Swapchain = Move(sr.Value());
+
+    // コマンドリスト作成
+    auto cr = CreateRhiCommandList(*m_Device);
+    if (cr.IsErr()) return Err<void>(cr.Error());
+    m_Cmd = Move(cr.Value());
+
+    // 深度バッファをスワップチェインのサイズで作成
+    if (m_EnableDepth) {
+        auto rd = RebuildDepth(m_Swapchain->Width(), m_Swapchain->Height());
+        if (rd.IsErr()) return rd;
+    }
+
+    return Ok();
+}
+
 TResult<void> FRenderer::RebuildDepth(u32 w, u32 h) noexcept {
     m_Depth.Reset();
     if (w == 0 || h == 0) return Ok();

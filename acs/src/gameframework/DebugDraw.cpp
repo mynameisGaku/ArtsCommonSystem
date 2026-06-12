@@ -7,6 +7,8 @@
 
 #include "math/Math.h"
 
+#include <cmath>   // std::sqrt
+
 namespace acs::game {
 
 /** 任意 2 点間の線分を 1 本バッファへ積む。 */
@@ -58,6 +60,24 @@ void FDebugDraw::DrawCross(FVec2 pos, f32 size, FVec4 color) noexcept {
     const f32 h = size;
     m_Lines.PushBack(Line{FVec2{pos.x - h, pos.y}, FVec2{pos.x + h, pos.y}, color});
     m_Lines.PushBack(Line{FVec2{pos.x, pos.y - h}, FVec2{pos.x, pos.y + h}, color});
+}
+
+/** a→b の矢印: 軸 1 本 + 矢じり 2 本 (b から後方へ ±約23°)。 */
+void FDebugDraw::DrawArrow(FVec2 a, FVec2 b, FVec4 color, f32 head_len) noexcept {
+    m_Lines.PushBack(Line{a, b, color});   // 軸
+    const FVec2 dv{ b.x - a.x, b.y - a.y };
+    const f32   len = std::sqrt(dv.x * dv.x + dv.y * dv.y);
+    if (len < 1e-6f) return;               // 退化: 矢じり無し
+    const FVec2 dir{ dv.x / len, dv.y / len };
+    const f32   hl  = (head_len > 0.0f) ? head_len : len * 0.2f;
+
+    // 後方ベクトル (-dir) を ±ang 回転して矢じり 2 本。
+    const FVec2 back{ -dir.x, -dir.y };
+    const f32   c = Cos(0.4f), s = Sin(0.4f);
+    const FVec2 l{ back.x * c - back.y * s, back.x * s + back.y * c };   // +ang
+    const FVec2 r{ back.x * c + back.y * s, -back.x * s + back.y * c };  // -ang
+    m_Lines.PushBack(Line{b, FVec2{b.x + l.x * hl, b.y + l.y * hl}, color});
+    m_Lines.PushBack(Line{b, FVec2{b.x + r.x * hl, b.y + r.y * hl}, color});
 }
 
 } // namespace acs::game

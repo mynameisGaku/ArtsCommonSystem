@@ -10,14 +10,11 @@
 
 namespace hellobt {
 
-// panel に対し AddNode で node id を払い出し、bb 側に保存する。
-// AddNode の払い出した id を Action Fn からの panel.SetNodeStatus に使うため、
-// 構築フェーズで一括して id を確定させる。
-void BuildPanelMirror(acs::game::btedit::FBehaviorTreeEditorPanel& panel,
-                      BtEditorBb&                                 bb) noexcept;
+// panel にメタミラー (Selector / Condition / Compare / Task …) を AddNode で組み、
+// root ノードの id を返す。Compare デコレーターは動的ブラックボードの変数名を参照する。
+acs::u32 BuildPanelMirror(acs::game::btedit::FBehaviorTreeEditorPanel& panel) noexcept;
 
-// メタミラーと同形の実 BT (Selector{Seq{Pickup,Move},Seq{Wait,Attack}}) を組み、
-// bt にセットする。Action Fn の関数ポインタはここで実 BT に bake される。
+// コードで BT を組む参考実装 (graph-run に置き換えたため現サンプルでは未使用)。
 void BuildBehaviorTree(acs::game::FBehaviorTree& bt) noexcept;
 
 } // namespace hellobt

@@ -70,6 +70,23 @@ public:
      */
     TResult<void> Init(FWindow& w, bool enable_debug = false, bool enable_depth = true) noexcept;
 
+    /**
+     * 外部 HWND に紐付けて初期化する (FWindow を経由せず生 HWND をホストする)。
+     *
+     * @details
+     * C# WPF エディタ等が用意した既存ウィンドウの HWND にスワップチェインを作る。
+     * FWindow 版 Init と同様に Device + Swapchain + CommandList (+深度) を確保する。
+     * リサイズは OnResize(w,h) を呼ぶ (HWND からサイズは取得しない)。
+     * @param hwnd 描画先の生 HWND (void*)。
+     * @param width 初期バックバッファ幅。
+     * @param height 初期バックバッファ高さ。
+     * @param enable_debug デバッグレイヤを有効にするか。
+     * @param enable_depth true なら深度バッファを自動作成する。
+     * @return 成功なら空の TResult、初期化失敗ならエラー。
+     */
+    TResult<void> InitExternal(void* hwnd, u32 width, u32 height,
+                               bool enable_debug = false, bool enable_depth = true) noexcept;
+
     /** 確保した全リソースを解放する。 */
     void Shutdown() noexcept;
 

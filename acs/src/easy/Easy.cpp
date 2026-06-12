@@ -35,6 +35,7 @@
 #include "render/RhiTypes.h"
 #include "render/IRhiSwapchain.h"
 #include "render/PostProcess.h"
+#include "render/BurnEffect.h"
 #include "asset/AssetRegistry.h"
 #include "asset/Asset.h"
 #include "asset/ImageAsset.h"
@@ -163,6 +164,9 @@ struct EasyState {
 
     /** 図形・スプライト・文字の描画を集約するスプライトバッチ。 */
     FSpriteBatch   batch;
+
+    /** 紙が燃える per-pixel ディゾルブ効果 (どのバックエンドでも動く)。 */
+    FBurnEffect    burn;
 
     /** 既定フォント (DrawString 用)。 */
     Font          font;
@@ -544,6 +548,7 @@ void ShutdownEasy() noexcept {
     if (g_state.audio_ok) g_state.audio.Shutdown();
     g_state.sounds = TArray<SoundSlot>{};
     g_state.assets.Clear();
+    g_state.burn.Shutdown();
     if (g_state.post_available) g_state.post.Shutdown();
     g_state.renderer.Shutdown();             // ここで GPU デバイスを破棄する
     FThreadPool::Shutdown();
@@ -794,6 +799,10 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
     g_state.circle_tex = MakeCircleTexture(*dev);
     g_state.font_ok    = LoadDefaultFont(*dev);
 
+    // 燃えディゾルブ効果 (失敗しても続行: DrawBurnDissolve が no-op になるだけ)
+    if (auto r = g_state.burn.Init(*dev, batch_fmt); r.IsErr())
+        ACS_LOG_WARN("easy: 燃えディゾルブ効果を初期化できませんでした");
+
     // 8. 音声（失敗しても続行。音が鳴らないだけ）
     g_state.audio_ok = g_state.audio.Init().IsOk();
     if (!g_state.audio_ok)
@@ -943,6 +952,23 @@ void ToggleFullscreen() noexcept {
 /** 現在全画面表示かを返す。 */
 bool IsFullscreen() noexcept {
     return g_state.booted && g_state.window.IsFullscreen();
+}
+
+/** コンソール窓の表示/非表示を切り替える (GUI ビルドでは何もしない)。 */
+void ShowConsole(bool show) noexcept {
+    HWND con = ::GetConsoleWindow();
+    if (con) ::ShowWindow(con, show ? SW_SHOW : SW_HIDE);
+}
+
+/** コンソール窓の表示/非表示を反転する。 */
+void ToggleConsole() noexcept {
+    ShowConsole(!IsConsoleVisible());
+}
+
+/** コンソール窓が現在表示されているかを返す。 */
+bool IsConsoleVisible() noexcept {
+    HWND con = ::GetConsoleWindow();
+    return con && ::IsWindowVisible(con);
 }
 
 /** ポストプロセスが利用可能かを返す。 */
@@ -1289,6 +1315,25 @@ void SetClipRect(f32 x, f32 y, f32 width, f32 height) noexcept {
 void ClearClipRect() noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     g_state.batch.ClearClipRect();
+}
+
+/** 紙が燃える per-pixel ディゾルブを矩形に重ねる。描けたら true (未対応なら false)。 */
+bool DrawBurnDissolve(f32 x, f32 y, f32 w, f32 h, f32 progress,
+                      FColor ember, FColor paper, f32 edge, f32 freq, f32 time, f32 cells) noexcept {
+    if (!g_state.frame_open) { WarnDrawOutsideFrame(); return false; }
+    if (!g_state.burn.Ready()) return false;
+    IRhiCommandList* cl = g_state.renderer.CommandList();
+    if (!cl) return false;
+    g_state.batch.FlushPending();                 // 保留スプライトを先に確定
+    BurnParams bp;
+    bp.progress = progress; bp.edge = edge; bp.freq = freq; bp.time = time; bp.cells = cells;
+    bp.ember = FVec3{ ember.r, ember.g, ember.b };
+    bp.paper = FVec3{ paper.r, paper.g, paper.b };
+    g_state.burn.Draw(*cl, x, y, w, h,
+                      static_cast<f32>(g_state.window.Width()),
+                      static_cast<f32>(g_state.window.Height()), bp);
+    g_state.batch.Rebind();                        // バッチの bind を貼り直す
+    return true;
 }
 
 /** 画像を読み込み GPU に転送してスプライトを返す (同一パスはキャッシュ)。 */

@@ -20,8 +20,24 @@ class FWindow;
  * CreateRhiSwapchain に渡してスワップチェインを生成する。
  */
 struct SwapchainConfig {
-    /** 提示先のウィンドウ。 */
+    /** 提示先のウィンドウ（window と external_hwnd は二者択一。window 優先）。 */
     FWindow* window      = nullptr;
+
+    /**
+     * 提示先の外部 HWND（window==nullptr のとき使用）。
+     *
+     * @details
+     * エディタ（C# WPF 等）が用意した既存の HWND にスワップチェインを作って描画する
+     * ホスティング用途。FWindow を経由せず生 HWND を渡せる。external_width /
+     * external_height で初期サイズを指定する（HWND から取得しない）。
+     */
+    void*    external_hwnd   = nullptr;
+
+    /** external_hwnd 使用時の初期幅（ピクセル）。 */
+    u32      external_width  = 0;
+
+    /** external_hwnd 使用時の初期高さ（ピクセル）。 */
+    u32      external_height = 0;
 
     /** バックバッファのピクセルフォーマット。 */
     EFormat  format      = EFormat::B8G8R8A8_UNorm;

@@ -125,6 +125,48 @@ target_link_libraries(acs_game INTERFACE
     ACS::Foundation ACS::Threading ACS::Memory ACS::Container ACS::Math
     ACS::Platform ACS::Asset ACS::Ecs ACS::Render ACS::App)
 
+# ---- 4b. ACS Editor ABI: C# (WPF) エディタが P/Invoke する C ABI DLL ---------
+# 外部 HWND にエンジンの DX12 スワップチェインをホストして描画するブリッジ。
+# DX12 raw backend 専用。出力は Binaries/<config>/acs_editor_abi.dll。
+if(ACS_RENDER_DX12_RAW AND EXISTS "${ACS_SOURCE_ROOT}/editor_abi/EditorAbi.cpp")
+    add_library(acs_editor_abi SHARED "${ACS_SOURCE_ROOT}/editor_abi/EditorAbi.cpp")
+    add_library(ACS::EditorAbi ALIAS acs_editor_abi)
+    acs_apply_compiler_options(acs_editor_abi)   # /utf-8 + C++ 標準 + 警告レベル (engine と同条件)
+    # ACS::Game (集約) に加え GameFramework をリンク: リフレクションレジストリ
+    # (FTypeRegistry) と ReflectCatalog をエディタ ABI から使えるようにする。
+    target_link_libraries(acs_editor_abi PRIVATE ACS::Game ACS::GameFramework)
+    target_include_directories(acs_editor_abi PRIVATE "${ACS_SOURCE_ROOT}")
+    set_target_properties(acs_editor_abi PROPERTIES FOLDER "Game")
+endif()
+
+# ---- 4c. 外部ユーザープロジェクト (エディタが生成したゲーム) の取り込み ---------
+# エディタの Build アクションが -DACS_EXTERNAL_PROJECT_DIR=<project>/Source を渡して
+# 再 configure すると、その CMakeLists が add_subdirectory され、ゲームが既存の
+# エンジン静的 lib (ACS::GameFramework 等) をリンクする追加ターゲットになる。
+# → エンジンを再ビルドせずインクリメンタルに 1 つのゲーム exe を作れる。
+if(ACS_EXTERNAL_PROJECT_DIR AND EXISTS "${ACS_EXTERNAL_PROJECT_DIR}/CMakeLists.txt")
+    add_subdirectory("${ACS_EXTERNAL_PROJECT_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/_extproj")
+    message(STATUS "ACS: 外部プロジェクトを取り込み: ${ACS_EXTERNAL_PROJECT_DIR}")
+endif()
+
+# ---- acsbuild: .Build.cs ↔ Module.cmake のドリフト検証ターゲット (dev 用・任意) -----
+# 各 src/<mod>/<Name>.Build.cs が生成すべき Module.cmake と、実際にコミットされている
+# Module.cmake がズレていないか検証する (手編集 / 新規 .cpp の再生成忘れを検出)。
+# ALL_BUILD には含めない明示ターゲット。dotnet がある環境だけ登録する。
+#   cmake --build <build> --target acs_buildcs_check
+find_program(ACS_DOTNET_EXE dotnet)
+if(ACS_DOTNET_EXE)
+    add_custom_target(acs_buildcs_check
+        COMMAND "${ACS_DOTNET_EXE}" run --project "${ACS_TREE_ROOT}/tools/acsbuild/AcsBuild.csproj"
+                -c Release -- --check --root "${ACS_TREE_ROOT}"
+        WORKING_DIRECTORY "${ACS_TREE_ROOT}"
+        COMMENT "acsbuild: .Build.cs と Module.cmake の整合を検証 (--check)"
+        USES_TERMINAL VERBATIM)
+    set_target_properties(acs_buildcs_check PROPERTIES FOLDER "Tools")
+else()
+    message(STATUS "ACS: dotnet 未検出のため acs_buildcs_check ターゲットを skip")
+endif()
+
 if(ACS_BUILD_TESTS)
     enable_testing()
     add_subdirectory("${ACS_TREE_ROOT}/tests" "${CMAKE_CURRENT_BINARY_DIR}/tests")

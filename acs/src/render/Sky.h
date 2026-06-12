@@ -117,6 +117,47 @@ public:
      */
     void SetGroundColor(FVec3 c)    noexcept { m_Ground  = c; }
 
+    /**
+     * 手続き的な雲の量と濃さを設定する。
+     *
+     * @param coverage 雲量 (0=快晴、1=全天曇り)。
+     * @param density 雲の濃さ/輪郭の鋭さ (1=やわらか、2〜3=もくもく)。
+     */
+    void SetClouds(f32 coverage, f32 density = 1.6f) noexcept {
+        m_CloudCoverage = coverage < 0.0f ? 0.0f : (coverage > 1.0f ? 1.0f : coverage);
+        m_CloudDensity  = density  < 0.1f ? 0.1f : density;
+    }
+
+    /**
+     * 雲を描くかどうかを切り替える。
+     *
+     * @param on true で雲を描画 (既定 ON)。
+     */
+    void SetCloudsEnabled(bool on)  noexcept { m_bCloudsEnabled = on; }
+
+    /**
+     * 雲の基本色を設定する。
+     *
+     * @param c 雲の RGB 色 (太陽方向で明色に、濃い所は暗色に補間される)。
+     */
+    void SetCloudColor(FVec3 c)     noexcept { m_CloudColor = c; }
+
+    /**
+     * 雲が流れる速さを設定する。
+     *
+     * @param speed 風速 (0=静止、1=標準)。SetTime と併用してアニメする。
+     */
+    void SetCloudWind(f32 speed)    noexcept { m_CloudWind = speed; }
+
+    /**
+     * 雲アニメ用の時間を設定する (任意。決定論的に制御したいときだけ呼ぶ)。
+     *
+     * @details 呼ばなくても Render() が内部で時間を進めるので雲は流れる。毎フレーム
+     *          経過秒を渡すと、その値が当該フレームで優先される (リプレイ/スクショ向け)。
+     * @param seconds 起動からの経過秒など、単調増加する時間値。
+     */
+    void SetTime(f32 seconds)       noexcept { m_Time = seconds; }
+
     /** 昼空プリセットを適用する (青空 + 白い太陽)。 */
     void PresetDay()    noexcept;
 
@@ -217,6 +258,24 @@ private:
 
     /** 地面方向の RGB 色。 */
     FVec3 m_Ground     = FVec3{0.20f, 0.18f, 0.16f};
+
+    /** 雲を描画するか (既定 ON)。 */
+    bool m_bCloudsEnabled = true;
+
+    /** 雲量 (0=快晴、1=全天曇り)。 */
+    f32  m_CloudCoverage = 0.50f;
+
+    /** 雲の濃さ/輪郭の鋭さ。 */
+    f32  m_CloudDensity  = 1.6f;
+
+    /** 雲が流れる速さ。 */
+    f32  m_CloudWind     = 1.0f;
+
+    /** 雲アニメ用の時間 (SetTime で更新)。 */
+    f32  m_Time          = 0.0f;
+
+    /** 雲の基本 RGB 色。 */
+    FVec3 m_CloudColor   = FVec3{1.0f, 1.0f, 1.0f};
 };
 
 } // namespace acs

@@ -1,0 +1,118 @@
+<Window x:Class="AcsEditor.ProjectLauncher"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ACS Editor — プロジェクト"
+        Height="600" Width="800"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource Win}"
+        ResizeMode="NoResize">
+    <Grid Margin="0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- ヘッダ -->
+        <Border Grid.Row="0" Background="{DynamicResource Edge}" Padding="22,16">
+            <StackPanel>
+                <TextBlock Text="ACS Editor" FontSize="22" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Text}"/>
+                <TextBlock Text="プロジェクトを作成、または既存のプロジェクトを開きます。"
+                           Foreground="{DynamicResource TextDim}" Margin="0,4,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 本体: 左=新規 / 右=開く -->
+        <Grid Grid.Row="1" Margin="22,18,22,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="300"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- 新規プロジェクト -->
+            <Border Grid.Column="0" Background="{DynamicResource Panel}" CornerRadius="6" Padding="18">
+                <StackPanel>
+                    <TextBlock Text="新規プロジェクト" FontSize="15" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Text}" Margin="0,0,0,14"/>
+
+                    <TextBlock Text="プロジェクト名" Foreground="{DynamicResource TextDim}" Margin="0,0,0,4"/>
+                    <TextBox x:Name="NameBox" Text="MyGame" Margin="0,0,0,14"/>
+
+                    <TextBlock Text="作成先フォルダ" Foreground="{DynamicResource TextDim}" Margin="0,0,0,4"/>
+                    <Grid Margin="0,0,0,14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="LocationBox" Grid.Column="0"/>
+                        <Button x:Name="BrowseLocationBtn" Grid.Column="1" Content="…" Width="34"
+                                Margin="6,0,0,0" Click="OnBrowseLocation"/>
+                    </Grid>
+
+                    <TextBlock Text="テンプレート" Foreground="{DynamicResource TextDim}" Margin="0,0,0,6"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <ToggleButton x:Name="TplBlank" Grid.Column="0" Height="92"
+                                      Click="OnPickTemplate" Tag="blank">
+                            <StackPanel>
+                                <TextBlock Text="Blank" FontSize="14" FontWeight="SemiBold"
+                                           HorizontalAlignment="Center" Foreground="{DynamicResource Text}"/>
+                                <TextBlock Text="空のシーンから開始" Foreground="{DynamicResource Text}"
+                                           HorizontalAlignment="Center" Margin="0,4,0,0" TextWrapping="Wrap"
+                                           TextAlignment="Center"/>
+                            </StackPanel>
+                        </ToggleButton>
+                        <ToggleButton x:Name="Tpl2D" Grid.Column="2" Height="92" IsChecked="True"
+                                      Click="OnPickTemplate" Tag="2d">
+                            <StackPanel>
+                                <TextBlock Text="2D Template" FontSize="14" FontWeight="SemiBold"
+                                           HorizontalAlignment="Center" Foreground="{DynamicResource Text}"/>
+                                <TextBlock Text="操作可能なプレイヤー・地形・物理の土台付き"
+                                           Foreground="{DynamicResource Text}" HorizontalAlignment="Center"
+                                           Margin="0,4,0,0" TextWrapping="Wrap" TextAlignment="Center"/>
+                            </StackPanel>
+                        </ToggleButton>
+                    </Grid>
+
+                    <Button x:Name="CreateBtn" Content="作成して開く" Height="38" Margin="0,18,0,0"
+                            Click="OnCreate" FontWeight="SemiBold"/>
+                </StackPanel>
+            </Border>
+
+            <!-- プロジェクトを開く + 最近使った -->
+            <Border Grid.Column="2" Background="{DynamicResource Panel}" CornerRadius="6" Padding="18">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="プロジェクトを開く" FontSize="15" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Text}" Margin="0,0,0,14"/>
+                    <Button Grid.Row="1" x:Name="OpenBtn" Content="既存を開く…" Height="36"
+                            Click="OnOpenExisting"/>
+                    <TextBlock Grid.Row="2" Text="最近使ったプロジェクト" Foreground="{DynamicResource TextDim}"
+                               Margin="0,18,0,6"/>
+                    <ListBox Grid.Row="3" x:Name="RecentsList" MouseDoubleClick="OnRecentDoubleClick"/>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- フッタ -->
+        <Border Grid.Row="2" Background="{DynamicResource Edge}" Padding="22,12">
+            <Grid>
+                <TextBlock x:Name="StatusText" VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextDim}"/>
+                <Button Content="終了" Width="92" Height="32" HorizontalAlignment="Right"
+                        Click="OnCancel"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

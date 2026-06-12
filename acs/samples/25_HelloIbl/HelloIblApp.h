@@ -79,6 +79,10 @@ void RenderSsaoPass(HelloIblApp& app, const acs::FMat4& vp_for_render,
 void RenderSsgiPass(HelloIblApp& app, const acs::FMat4& vp_for_render,
                     const acs::FMat4& inv_vp, const acs::FMat4& vp_no_jitter) noexcept;
 void UpdateExposureControls(HelloIblApp& app, acs::f32 dt) noexcept;
+void DrawBrdfLutOverlay(HelloIblApp& app, acs::IRhiTexture* lut, acs::u32 sw) noexcept;
+void DrawSsrDebugOverlay(HelloIblApp& app, acs::u32 sh) noexcept;
+void DrawSsaoDebugOverlay(HelloIblApp& app, acs::u32 sw, acs::u32 sh) noexcept;
+void DrawStatusText(HelloIblApp& app, acs::IRhiTexture* lut, acs::u32 sw) noexcept;
 void DrawHud(HelloIblApp& app, acs::u32 sw, acs::u32 sh) noexcept;
 
 class HelloIblApp : public acs::FApplication {
@@ -100,6 +104,16 @@ private:
     friend void RenderShadowPass(HelloIblApp&, const acs::FVec3&) noexcept;
     friend acs::FVec3 ResolveSunDirection(const HelloIblApp&) noexcept;
     friend void BindPbrLighting(HelloIblApp&, const acs::FMat4&, const acs::FDirLight&) noexcept;
+    // BindPbrLighting の各サブ bind helper (PbrLightingBindings.cpp、private へ直接 bind)。
+    friend void BindIbl(HelloIblApp&) noexcept;
+    friend void BindSun(HelloIblApp&, const acs::FMat4&, const acs::FDirLight&) noexcept;
+    friend void BindSsao(HelloIblApp&) noexcept;
+    friend void BindSsgi(HelloIblApp&) noexcept;
+    friend void BindSsr(HelloIblApp&) noexcept;
+    friend void BindShadow(HelloIblApp&) noexcept;
+    friend void BindFog(HelloIblApp&) noexcept;
+    friend void BindProbeGrid(HelloIblApp&) noexcept;
+    friend void BindAreaLight(HelloIblApp&) noexcept;
     friend void DrawFloor(HelloIblApp&) noexcept;
     friend void DrawSphereGrid(HelloIblApp&) noexcept;
     friend void UpdateDynamicOrbs(HelloIblApp&) noexcept;
@@ -114,6 +128,10 @@ private:
     friend void RenderSsgiPass(HelloIblApp&, const acs::FMat4&, const acs::FMat4&,
                                const acs::FMat4&) noexcept;
     friend void UpdateExposureControls(HelloIblApp&, acs::f32) noexcept;
+    friend void DrawBrdfLutOverlay(HelloIblApp&, acs::IRhiTexture*, acs::u32) noexcept;
+    friend void DrawSsrDebugOverlay(HelloIblApp&, acs::u32) noexcept;
+    friend void DrawSsaoDebugOverlay(HelloIblApp&, acs::u32, acs::u32) noexcept;
+    friend void DrawStatusText(HelloIblApp&, acs::IRhiTexture*, acs::u32) noexcept;
     friend void DrawHud(HelloIblApp&, acs::u32, acs::u32) noexcept;
 
     acs::FPostProcess        m_Post;

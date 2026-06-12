@@ -145,7 +145,12 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // --- Fresnel 反射 (環境マップ) ---
     float  NoV = saturate(dot(N, V));
     float  F   = 0.04 + 0.96 * pow(saturate(1.0 - NoV), 5.0);   // F0=0.04 (誘電体)
-    float3 reflected = env.SampleLevel(env_sampler, reflect(-V, N), 0).rgb;
+    // roughness で prefilter mip を選び、荒い面ほどボケた反射にする (常時シャープな
+    // 「安い鏡」を回避)。screen_params.z = env の mip 数。prefilter でない (mip=1) cubemap
+    // なら LOD は 0 にクランプされ従来どおり。
+    float  env_max_lod = max(screen_params.z - 1.0, 0.0);
+    float  refl_lod    = roughness * env_max_lod;
+    float3 reflected   = env.SampleLevel(env_sampler, reflect(-V, N), refl_lod).rgb;
 
     // 屈折と反射を Fresnel で混合
     return float4(lerp(refracted, reflected, F), 1.0);
@@ -332,6 +337,19 @@ void FRefractionShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh,
                                 FVec3 tint, f32 roughness, f32 dispersion) noexcept {
     if (!m_Pipeline || !mesh.vertex_buffer || !mesh.index_buffer) return;
     SetObject(model, ior, thickness, tint, roughness, dispersion);
+
+    // env の mip 数を screen_params.z に載せ直し、shader の roughness→反射 LOD を駆動する。
+    if (m_FrameCb) {
+        FrameCBLayout cb{};
+        cb.view_proj   = m_Vp;
+        cb.camera_pos  = FVec4{m_Eye.x, m_Eye.y, m_Eye.z, 1.0f};
+        cb.back_params = FVec4{m_bBackEnabled ? 1.0f : 0.0f, m_BackNear, m_BackFar, 0};
+        cb.screen_params = FVec4{
+            m_ScreenW > 0 ? 1.0f / static_cast<f32>(m_ScreenW) : 0.0f,
+            m_ScreenH > 0 ? 1.0f / static_cast<f32>(m_ScreenH) : 0.0f,
+            static_cast<f32>(env.MipLevels()), 0};
+        m_FrameCb->Update(&cb, sizeof(cb));
+    }
 
     cmd.SetPipeline(*m_Pipeline);
     cmd.SetConstantBuffer(0, *m_FrameCb);

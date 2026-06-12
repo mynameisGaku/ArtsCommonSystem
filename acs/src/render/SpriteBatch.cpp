@@ -55,6 +55,446 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
+// HLSL: ピクセル効果プリセット (マテリアルアセットの基本シェーダ)。
+// VS は通常スプライトと共通 (m_Vs を再利用) なので、ここでは PSEffect だけを使う。
+// cbuffer Effect(b1) の effect_id で分岐し、1 つの PSO で全プリセットを賄う。
+const char* kSpriteEffectHLSL = R"(
+cbuffer Screen : register(b0) {
+    float4 inv_screen;
+    float4 view;
+};
+cbuffer Effect : register(b1) {
+    float4 fx_a;     // x=effect_id, y=strength, z=p0, w=p1
+    float4 fx_b;     // x=p2, y=time, z=_, w=_
+    float4 fx_color; // 染め色 / 縁色
+};
+
+struct VSOut {
+    float4 pos : SV_POSITION;
+    float2 uv  : TEXCOORD0;
+    float4 col : COLOR;
+};
+
+Texture2D    atlas : register(t0);
+SamplerState atlas_sampler : register(s0);
+
+// 輝度軸まわりの色相回転 (Rodrigues 回転、おおむね輝度を保つ)。
+float3 HueShiftRGB(float3 c, float angle) {
+    const float3 k = float3(0.57735027, 0.57735027, 0.57735027); // (1,1,1)/sqrt(3)
+    float ca = cos(angle);
+    float sa = sin(angle);
+    return c * ca + cross(k, c) * sa + k * dot(k, c) * (1.0 - ca);
+}
+
+float4 PSEffect(VSOut v) : SV_TARGET {
+    int   id  = (int)fx_a.x;
+    float str = fx_a.y;
+    float p0  = fx_a.z;
+    float p1  = fx_a.w;
+    float t   = fx_b.y;
+
+    // --- UV 歪み系 (サンプル前) ---
+    float2 uv = v.uv;
+    if (id == 4) {                       // Wave: str=振幅, p0=周波数, p1=速度
+        uv.x += sin(uv.y * p0 + t * p1) * str;
+        uv.y += cos(uv.x * p0 + t * p1) * str * 0.5;
+    } else if (id == 5) {                // Pixelate: p0=セル数X, p1=セル数Y
+        float2 cells = float2(max(p0, 1.0), max(p1, 1.0));
+        uv = (floor(uv * cells) + 0.5) / cells;
+    }
+
+    float4 base;
+    if (id == 12) {                      // Chromatic: R/B を逆方向にずらしてサンプル (色収差)
+        float o   = p0;
+        float4 sr = atlas.Sample(atlas_sampler, uv + float2(o, 0.0));
+        float4 cg = atlas.Sample(atlas_sampler, uv);
+        float4 sb = atlas.Sample(atlas_sampler, uv - float2(o, 0.0));
+        // 透明な隣接タップ(縁)では中心チャンネルへフォールバックし、暗色フリンジを防ぐ。
+        float r   = lerp(cg.r, sr.r, sr.a);
+        float b   = lerp(cg.b, sb.b, sb.a);
+        float4 ab = float4(r, cg.g, b, cg.a) * v.col;
+        base = lerp(cg * v.col, ab, saturate(str));
+    } else {
+        base = atlas.Sample(atlas_sampler, uv) * v.col;
+    }
+
+    // --- 色系 (サンプル後) ---
+    if (id == 1) {                       // Grayscale
+        float g = dot(base.rgb, float3(0.299, 0.587, 0.114));
+        base.rgb = lerp(base.rgb, float3(g, g, g), saturate(str));
+    } else if (id == 2) {                // Tint
+        base.rgb = lerp(base.rgb, base.rgb * fx_color.rgb, saturate(str));
+    } else if (id == 3) {                // Vignette: str=強さ, p0=開始半径, p1=終了半径, color=縁色
+        float r   = length(v.uv - 0.5) * 1.41421356;       // 0=中心 .. 1=隅
+        float vig = smoothstep(p0, max(p1, p0 + 0.001), r); // 0=内側 .. 1=外周
+        base.rgb  = lerp(base.rgb, fx_color.rgb, saturate(str) * vig);
+    } else if (id == 6) {                // HueShift: str=角度°, p0=回転速度°/s
+        base.rgb = HueShiftRGB(base.rgb, radians(str + p0 * t));
+    } else if (id == 7) {                // Brightness/Contrast: str=明るさ, p0=コントラスト
+        base.rgb = (base.rgb - 0.5) * max(p0, 0.0) + 0.5;
+        base.rgb = saturate(base.rgb * str);   // コントラスト>1 の暗ピクセルで負値→背景減算を防ぐ
+    } else if (id == 8) {                // Invert: 色反転
+        base.rgb = lerp(base.rgb, 1.0 - base.rgb, saturate(str));
+    } else if (id == 9) {                // Sepia: セピア調
+        float3 sep = float3(dot(base.rgb, float3(0.393, 0.769, 0.189)),
+                            dot(base.rgb, float3(0.349, 0.686, 0.168)),
+                            dot(base.rgb, float3(0.272, 0.534, 0.131)));
+        base.rgb = lerp(base.rgb, sep, saturate(str));
+    } else if (id == 10) {               // Posterize: str=度合い, p0=階調数
+        float lv = max(p0, 2.0);
+        float3 q = floor(base.rgb * lv + 0.5) / lv;
+        base.rgb = lerp(base.rgb, q, saturate(str));
+    } else if (id == 11) {               // Scanline: str=濃さ, p0=線の本数
+        float s = 0.5 + 0.5 * sin(v.uv.y * p0 * 6.2831853);
+        base.rgb *= 1.0 - saturate(str) * s;
+    }
+    return base;
+}
+)";
+
+// HLSL: lit (PBR metallic-roughness) スプライト。アルベド(t0) + 法線マップ(t1) を
+// 2D 点光源 (b2) で Cook-Torrance BRDF 陰影付けする。VS は world px を PS へ渡す。
+const char* kLitSpriteHLSL = R"(
+cbuffer Screen : register(b0) {
+    float4 inv_screen;   // (1/w, 1/h, w, h)
+    float4 view;         // (cam_x, cam_y, zoom, _)
+};
+cbuffer LitMaterial : register(b1) {
+    float4 base_color;   // rgb=tint, a=opacity
+    float4 mat0;         // x=metallic, y=roughness, z=normalStrength, w=ao
+    float4 emissive;     // rgb=emissive*strength
+    float4 toon0;        // x=mode(0=PBR,1=Toon), y=rimPower, z=specThreshold, w=softness
+    float4 shadow1;      // rgb=1影色, w=1影しきい値
+    float4 shadow2;      // rgb=2影色, w=2影しきい値
+    float4 toon_rim;     // rgb=リム色
+    float4 toon_spec;    // rgb=トゥーンスペキュラ色
+    float4 adv0;         // x=clearcoat, y=clearcoatRoughness, z=anisotropy, w=specularLevel
+    float4 adv1;         // x=specularTint, y=sheen, z=sheenRoughness, w=subsurface
+    float4 sheen_col;    // rgb=シーン色
+    float4 sss_col;      // rgb=サブサーフェス色
+};
+cbuffer Lights : register(b2) {
+    float4 light_info;        // x=count, y=height, z=occluder count
+    float4 ambient;           // rgb=ambient
+    float4 light_pos[16];     // xy=pos(px), z=radius, w=intensity
+    float4 light_col[16];     // rgb=color, w=type (0=Point,1=Spot,2=Directional)
+    float4 light_dir[16];     // xy=dir(正規化), z=coneInner(cos), w=coneOuter(cos)
+    float4 occ[16];           // xy=center(px), z=radius(外接), w=shape(0=円,1=箱,2=多角形)
+    float4 occ2[16];          // xy=box halfExtents, z=rotation(rad), w=多角形の頂点数
+    float4 occ_poly[128];     // 多角形オクルーダーの頂点 (occluder j: occ_poly[j*8..j*8+7]=16頂点, 1 float4=2頂点)
+};
+
+struct VSIn  { float2 pos : POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; };
+struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float2 wpos : TEXCOORD1; };
+
+VSOut VSLit(VSIn v) {
+    VSOut o;
+    float2 screen_half = float2(inv_screen.z, inv_screen.w) * 0.5;
+    float2 sp = (v.pos - view.xy) * view.z + screen_half;
+    float2 ndc;
+    ndc.x = sp.x * inv_screen.x * 2.0 - 1.0;
+    ndc.y = 1.0 - sp.y * inv_screen.y * 2.0;
+    o.pos  = float4(ndc, 0.0, 1.0);
+    o.uv   = v.uv;
+    o.col  = v.col;
+    o.wpos = v.pos;          // world px (ライト計算用)
+    return o;
+}
+
+Texture2D    atlas         : register(t0);   // アルベド
+Texture2D    normal_tex    : register(t1);   // 法線マップ (未指定は平面 1x1)
+SamplerState atlas_sampler : register(s0);
+
+static const float PI = 3.14159265;
+
+// 箱の符号付き距離 (中心 C, 回転 rot, 半サイズ he のローカル系で評価)。負=内側。
+float BoxSdf(float2 p, float2 C, float rot, float2 he) {
+    float2 lp = p - C;
+    float  cs = cos(-rot), sn = sin(-rot);
+    float2 r  = float2(lp.x * cs - lp.y * sn, lp.x * sn + lp.y * cs);
+    float2 q  = abs(r) - he;
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+}
+
+// occluder j の頂点 k (0..15) を取り出す。occ_poly は occluder ごとに 8 float4 (16頂点)、1 float4=2頂点。
+float2 OccVert(int j, int k) {
+    float4 f = occ_poly[j * 8 + (k >> 1)];
+    return (k & 1) ? f.zw : f.xy;
+}
+// 点 p から線分 [a,b] への距離。
+float DistPtSeg(float2 p, float2 a, float2 b) {
+    float2 ab = b - a, ap = p - a;
+    float  t  = clamp(dot(ap, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+    return length(ap - ab * t);
+}
+float Cross2(float2 a, float2 b) { return a.x * b.y - a.y * b.x; }
+// 2線分 [p1,p2],[p3,p4] が «真に» 交差するか (向き付き面積の符号)。
+bool SegSegCross(float2 p1, float2 p2, float2 p3, float2 p4) {
+    float d1 = Cross2(p4 - p3, p1 - p3);
+    float d2 = Cross2(p4 - p3, p2 - p3);
+    float d3 = Cross2(p2 - p1, p3 - p1);
+    float d4 = Cross2(p2 - p1, p4 - p1);
+    return (d1 * d2 < 0.0) && (d3 * d4 < 0.0);
+}
+// 点 q から線分 [P,L] への «内側» 垂直距離。q が端点キャップ域 (t<=0 or t>=1) に射影される場合は
+// 寄与しない (1e9)。«画素 P に隣接するオクルーダー» が光源側に偽の影 (全周ハロー) を作るのを防ぐ:
+// 光源側では全頂点が t<=0 (画素の後方) に射影され除外される。t は «光源へ向かう» 向きで測る。
+float SegDistInterior(float2 q, float2 P, float2 L) {
+    float2 d  = L - P;
+    float  dd = max(dot(d, d), 1e-6);
+    float  t  = dot(q - P, d) / dd;
+    if (t <= 0.0 || t >= 1.0) return 1e9;          // 端点キャップは無視 (片側 penumbra)
+    return length(q - (P + d * t));                // 内側のみ垂直距離
+}
+// 線分 [P,L] と多角形 (occluder j, n頂点) の «遮蔽» 評価。辺を横切れば 0 (=貫通=完全遮蔽=umbra)。
+// penumbra は «線分の内側に射影される頂点» の垂直距離だけで測る (端点 P/L 近傍は数えない) ため、
+// 光源側 (オクルーダーが画素の後方) では影ゼロ。誤った光源側の影 (輪郭ハロー) が出ない。
+float SegPolyDist(float2 P, float2 L, int j, int n) {
+    float best = 1e9;
+    int   pv = n - 1;
+    [loop] for (int i = 0; i < n; ++i) {
+        float2 a = OccVert(j, pv), b = OccVert(j, i);
+        if (SegSegCross(P, L, a, b)) return 0.0;   // 辺と交差 = 貫通 (umbra)
+        best = min(best, SegDistInterior(a, P, L));// 内側頂点のみ → 片側 penumbra
+        pv = i;
+    }
+    return best;
+}
+
+// オクルーダー (円/箱/多角形) によるソフト影。影は «オクルーダーが画素 P と光源 Lp の間にある»
+// 場合のみ落ちる (片側)。多角形=線分貫通(umbra)+内側頂点距離(penumbra)、円=光源視点レイへの垂直
+// 距離+奥行ゲート、箱=最近点 SDF+向きゲート。いずれも «画素の光源側» (オクルーダーが画素の後方)
+// では影ゼロ → 輪郭まわりの誤った影 (光源側ハロー) が出ない。selfOcc は «自分自身» のオクルーダー
+// 番号で、自スプライトを自己影しないようスキップする (距離ベース自己フェードは «球の外周=影要る»
+// と «球自身=影要らない» が同距離域で矛盾し明るいリング/直線エッジを生むため、番号スキップが正)。
+// 1=遮蔽なし。
+float ShadowVisibility(float2 P, float2 Lp, int occ_count, int selfOcc) {
+    float vis = 1.0;
+    [loop] for (int j = 0; j < occ_count; ++j) {
+        if (j == selfOcc) continue;                      // 自分自身は影を落とさない
+        float2 C     = occ[j].xy;
+        float  d_len = max(length(Lp - P), 1e-3);        // ガード: dir は常に有限
+        float2 dir   = (Lp - P) / d_len;
+        float  t     = dot(C - P, dir);
+        float2 cp    = P + dir * clamp(t, 0.0, d_len);   // 線分上の最近点 (光源側へはみ出さない)
+        float  occv;
+        int    shape = (int)occ[j].w;
+        if (shape == 1) {                                // 箱 (通常 CPU は4頂点ポリゴンで出すため後方互換用)
+            float2 he = occ2[j].xy;
+            if (he.x <= 0.0 && he.y <= 0.0) continue;    // ゼロ面積の箱は遮蔽なし
+            float  rot = occ2[j].z;
+            float  pen = max((he.x + he.y) * 0.25, 5.0);
+            float  gate= smoothstep(-pen, pen, t);       // 中心が画素の後方(光源側)なら影を消す
+            occv = (1.0 - smoothstep(-pen, pen, BoxSdf(cp, C, rot, he))) * gate;
+        } else if (shape == 2) {                         // 多角形 (三角形/ポリゴン)
+            int   nv  = min((int)occ2[j].w, 16);         // occ_poly のバジェット (16頂点) を超えない
+            if (nv < 3) continue;                        // 退化ポリゴンは遮蔽なし
+            float pen = max(occ[j].z * 0.22, 4.0);
+            // 線分 [P, 光源] が多角形を貫けば 0 → 完全遮蔽 (umbra)。外れれば «内側に射影される縁»
+            // までの距離で penumbra。光源側の画素は頂点が後方に射影され影ゼロ (輪郭ハロー無し)。
+            occv = 1.0 - smoothstep(0.0, pen, SegPolyDist(P, Lp, j, nv));
+        } else {                                         // 円: 光源→画素レイへの垂直距離 + 奥行ゲート
+            float r = occ[j].z;
+            if (r <= 0.0) continue;                      // ゼロ半径の円は遮蔽なし
+            float  pen   = max(r * 0.35, 6.0);
+            float2 toP   = P - Lp;                        // 光源→画素
+            float  dP    = max(length(toP), 1e-3);
+            float2 dirP  = toP / dP;
+            float  along = dot(C - Lp, dirP);            // 円中心の «光源からの» 奥行
+            float  perp  = length((C - Lp) - dirP * along); // 中心からレイへの垂直距離
+            // tangent 側 penumbra (perp≈r で減衰) × 奥行ゲート (画素が円より手前=光源側なら影なし)。
+            occv = (1.0 - smoothstep(r - pen, r + pen, perp)) * smoothstep(along - r, along, dP);
+        }
+        vis *= 1.0 - saturate(occv);                     // saturate で vis を [0,1] に保つ
+    }
+    return vis;
+}
+
+// 等方 GGX NDF (alpha = roughness^2 を渡す)。クリアコート用。
+float D_GGX(float ndh, float alpha) {
+    float a2  = alpha * alpha;
+    float den = ndh * ndh * (a2 - 1.0) + 1.0;
+    return a2 / max(PI * den * den, 1e-6);
+}
+// 異方 GGX NDF。ax=ay のとき D_GGX と一致 (T=接線, B=従法線方向の半角射影)。
+float D_GGX_aniso(float ndh, float hdt, float hdb, float ax, float ay) {
+    float d = hdt * hdt / (ax * ax) + hdb * hdb / (ay * ay) + ndh * ndh;
+    return 1.0 / max(PI * ax * ay * d * d, 1e-6);
+}
+// Smith-Schlick 幾何項 (roughness を直接)。
+float G_Smith(float ndv, float ndl, float roughness) {
+    float k  = (roughness + 1.0); k = k * k / 8.0;
+    float gv = ndv / (ndv * (1.0 - k) + k);
+    float gl = ndl / (ndl * (1.0 - k) + k);
+    return gv * gl;
+}
+// Charlie 分布 (布の逆反射シーン)。
+float D_Charlie(float ndh, float r) {
+    float inv = 1.0 / max(r * r, 0.0025);
+    float s   = max(1.0 - ndh * ndh, 0.0);      // sin^2
+    return (2.0 + inv) * pow(s, inv * 0.5) / (2.0 * PI);
+}
+
+// Substrate 風マルチロブ BRDF: metallic-roughness ベース + 異方性 + 鏡面レベル/tint +
+// サブサーフェス wrap + シーン + クリアコート上層。拡張パラメータは cbuffer から直接読む。
+float3 BRDF(float3 N, float3 V, float3 L, float3 albedo, float metallic, float roughness) {
+    float  ndl = max(dot(N, L), 0.0);
+    if (ndl <= 0.0 && adv1.w <= 0.0) return float3(0, 0, 0);  // SSS が無ければ裏面は寄与なし
+    float3 H   = normalize(V + L);
+    float  ndv = max(dot(N, V), 1e-3);
+    float  ndh = max(dot(N, H), 0.0);
+    float  vdh = max(dot(V, H), 0.0);
+
+    float clearcoat = saturate(adv0.x);
+    float ccRough   = clamp(adv0.y, 0.04, 1.0);
+    float aniso     = clamp(adv0.z, -0.95, 0.95);
+    float specLevel = saturate(adv0.w);
+    float specTint  = saturate(adv1.x);
+    float sheenW    = saturate(adv1.y);
+    float sheenR    = clamp(adv1.z, 0.05, 1.0);
+    float subsurf   = saturate(adv1.w);
+
+    // 反射 F0: 誘電体は specLevel/tint で制御、金属は albedo。
+    float3 dielF0 = (0.08 * specLevel) * lerp(float3(1, 1, 1), albedo, specTint);
+    float3 F0 = lerp(dielF0, albedo, metallic);
+    float3 F  = F0 + (1.0 - F0) * pow(1.0 - vdh, 5.0);
+
+    // 異方 GGX。接線フレームは per-pixel N から直交化する (法線マップで N が傾いても
+    // T,B が N と直交を保ち、D_GGX_aniso の前提が崩れて暴発するのを防ぐ)。平面 N=(0,0,1)
+    // では T=(1,0,0)/B=(0,1,0) に一致 (= 従来の画面XY 方向)。
+    float3 T = float3(1, 0, 0) - N * N.x;                 // 画面X を N へ Gram-Schmidt 直交化
+    T = (dot(T, T) > 1e-6) ? normalize(T) : float3(0, 1, 0);
+    float3 B = cross(N, T);
+    float  alpha = roughness * roughness;
+    float  ax = max(alpha * (1.0 + aniso), 1e-3);
+    float  ay = max(alpha * (1.0 - aniso), 1e-3);
+    float  D  = D_GGX_aniso(ndh, dot(H, T), dot(H, B), ax, ay);
+    float  G  = G_Smith(ndv, ndl, roughness);
+    float3 spec = D * G * F / max(4.0 * ndv * ndl, 1e-4);
+
+    // 拡散 (サブサーフェスで wrap + 影を SSS 色へ)。
+    float3 kd     = (1.0 - F) * (1.0 - metallic);
+    float  wrap   = subsurf * 0.5;
+    float  ndlW   = saturate((dot(N, L) + wrap) / (1.0 + wrap));
+    float  diffNdl = lerp(ndl, ndlW, subsurf);
+    float3 diffAlb = lerp(albedo, sss_col.rgb * albedo, subsurf * (1.0 - ndl));
+    float3 diff    = kd * diffAlb / PI;
+
+    // シーン (Charlie)。
+    float3 sheen = float3(0, 0, 0);
+    if (sheenW > 0.0) {
+        float Dc = D_Charlie(ndh, sheenR);
+        float Vs = 1.0 / (4.0 * (ndl + ndv - ndl * ndv) + 1e-4);
+        sheen = sheen_col.rgb * sheenW * Dc * Vs;
+    }
+
+    float3 baseLayer = diff * diffNdl + (spec + sheen) * ndl;
+
+    // クリアコート上層 (固定 F0=0.04 の GGX)。下層を (1 - cc*Fcc) で減衰。
+    if (clearcoat > 0.0) {
+        float Dcc = D_GGX(ndh, ccRough * ccRough);
+        float Gcc = G_Smith(ndv, ndl, ccRough);
+        float Fcc = 0.04 + 0.96 * pow(1.0 - vdh, 5.0);
+        float specCC = Dcc * Gcc * Fcc / max(4.0 * ndv * ndl, 1e-4);
+        baseLayer = baseLayer * (1.0 - clearcoat * Fcc) + clearcoat * specCC * ndl;
+    }
+    return baseLayer;
+}
+
+// per-channel ソフトニー: knee 以下は無変更、超過分のみ滑らかに 1.0 へ漸近 (決して飽和しない)。
+// C1 連続 (knee で傾き 1)。BGRA8 RT のハードな 1.0 クリップ (光源近傍の白円) を柔らかいハイライトへ。
+float3 SoftKnee(float3 c) {
+    const float knee  = 0.85;
+    const float range = 1.0 - knee;                       // knee 超のヘッドルーム (0.15)
+    float3 over   = max(c - knee, 0.0);
+    float3 rolled = range * (over / (over + range));      // [0,∞) → [0,range)
+    return min(c, knee) + rolled;
+}
+
+float4 PSLit(VSOut v) : SV_TARGET {
+    float4 alb = atlas.Sample(atlas_sampler, v.uv) * base_color;
+    alb.rgb *= v.col.rgb;
+    float metallic  = saturate(mat0.x);
+    float roughness = clamp(mat0.y, 0.04, 1.0);
+    float nstr      = mat0.z;
+    float ao        = mat0.w;
+
+    // 法線マップ規約: DirectX (+Y-down) を前提。world/screen が Y-down なので nt.y は無反転。
+    // アセットが OpenGL (+Y-up, green-up) で書き出されている場合は次行で nt.y = -nt.y; する。
+    float3 nt = normal_tex.Sample(atlas_sampler, v.uv).xyz * 2.0 - 1.0;
+    nt.xy *= nstr;
+    float3 N = normalize(float3(nt.x, nt.y, max(nt.z, 0.05)));
+    float3 P = float3(v.wpos, 0.0);
+    float3 V = float3(0.0, 0.0, 1.0);
+
+    int   count     = (int)light_info.x;
+    float height    = light_info.y;
+    int   occ_count = (int)light_info.z;
+    int   mode      = (int)toon0.x;       // 0=PBR, 1=Toon
+    int   selfOcc   = (int)sss_col.w;     // 自分自身のオクルーダー番号 (-1=無し)。自己影スキップ用
+    float3 Lo  = float3(0, 0, 0);         // PBR 直接光
+    float  lum = 0.0;                     // トゥーン: 受けた光量 (cel ランプ用)
+    float  tspec = 0.0;                   // トゥーン: スペキュラ最大
+    [loop] for (int i = 0; i < count; ++i) {
+        int    type = (int)light_col[i].w;
+        float3 L; float at; float2 shadowTarget;
+        if (type == 2) {                                   // Directional (平行光): 方向のみ・減衰なし
+            float2 d = normalize(light_dir[i].xy + float2(1e-5, 0));   // 進行方向
+            L = normalize(float3(-d, 0.7));                            // 画素→光源 (上方 + 逆方向)
+            at = 1.0;
+            shadowTarget = v.wpos - d * 5000.0;                       // 影は -方向へ平行に伸びる
+        } else {                                            // Point / Spot
+            float3 Ld   = float3(light_pos[i].xy, height) - P;
+            float  dist = length(Ld);
+            L    = Ld / max(dist, 1e-3);
+            float rad = max(light_pos[i].z, 1.0);
+            float dr  = dist / rad;
+            at = saturate(1.0 - dr * dr);    // 緩やかな減衰 (中域を明るく保ち縁で落とす。旧 (1-d/r)^2 は急峻すぎた)
+            shadowTarget = light_pos[i].xy;
+            if (type == 1) {                                // Spot: 円錐減衰
+                float2 axis = normalize(light_dir[i].xy + float2(1e-5, 0));   // スポット軸 (外向き)
+                float2 toP  = normalize(P.xy - light_pos[i].xy);
+                float  cosA = dot(toP, axis);
+                at *= smoothstep(light_dir[i].w, light_dir[i].z, cosA);       // outer→inner
+            }
+        }
+        float vis = ShadowVisibility(v.wpos, shadowTarget, occ_count, selfOcc);  // オクルーダーのソフト影
+        if (mode == 0) {                                    // PBR: Cook-Torrance
+            Lo += BRDF(N, V, L, alb.rgb, metallic, roughness) * light_col[i].rgb * light_pos[i].w * at * vis;
+        } else {                                            // Toon: 光量 + ステップスペキュラ
+            float ndl = max(dot(N, L), 0.0);
+            lum  += ndl * at * vis * light_pos[i].w;
+            float3 H = normalize(V + L);
+            tspec = max(tspec, pow(max(dot(N, H), 0.0), 48.0) * at * vis);
+        }
+    }
+
+    float3 col;
+    if (mode == 0) {                                        // ===== PBR =====
+        // アンビエント: 拡散は金属で減衰、鏡面 (環境反射の簡易版) は F0 で。金属が真っ黒に
+        // ならず «照らされた金属が明るく見える»。env 倍率で薄い環境光の反射を表現。
+        float3 F0a     = lerp(float3(0.04, 0.04, 0.04), alb.rgb, metallic);
+        float3 ambDiff = alb.rgb * (1.0 - metallic) * ambient.rgb * ao;
+        float3 ambSpec = F0a * ambient.rgb * 5.0 * ao;      // 環境鏡面 (金属ほど効く)
+        col = Lo + ambDiff + ambSpec + emissive.rgb;
+        col = SoftKnee(col);                                // 明部の白飛びを per-channel で滑らかに圧縮
+    } else {                                                // ===== Toon (UTS 風 cel) =====
+        float soft = max(toon0.w, 0.001);
+        float3 baseLit = alb.rgb;                           // 明部 = テクスチャ×ベース色
+        float3 s1 = shadow1.rgb * alb.rgb;                  // 1影 (テクスチャで色付け)
+        float3 s2 = shadow2.rgb * alb.rgb;                  // 2影
+        float3 surf = lerp(s1, baseLit, smoothstep(shadow1.w - soft, shadow1.w + soft, lum));
+        surf = lerp(s2, surf, smoothstep(shadow2.w - soft, shadow2.w + soft, lum));
+        float rim = pow(1.0 - max(dot(N, V), 0.0), max(toon0.y, 0.1));   // リムライト
+        surf += toon_rim.rgb * rim;
+        surf += toon_spec.rgb * step(toon0.z, tspec);       // ステップ状トゥーンスペキュラ
+        surf += emissive.rgb;
+        col = surf;
+    }
+    return float4(col, alb.a);
+}
+)";
+
 } // namespace
 
 TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_sprites) noexcept {
@@ -231,6 +671,122 @@ bool FSpriteBatch::EnsureAdditivePipeline() noexcept {
     return true;
 }
 
+// ピクセル効果 PS + PSO + 効果 CB リングを遅延生成する。VS は通常スプライトと共通
+// (m_Vs)。PSO は通常パイプラインと同じ DSV 無し・AlphaBlend で、b1 に cbuffer Effect
+// を 1 本追加するだけ。効果を使わないシーンでは一切作らない。
+bool FSpriteBatch::EnsureEffectPipeline() noexcept {
+    if (m_EffectReady) return true;
+    if (!m_Device) return false;
+
+    FShaderDesc ps_d{};
+    ps_d.stage = EShaderStage::Pixel;
+    ps_d.hlsl_source = kSpriteEffectHLSL;
+    ps_d.entry_point = "PSEffect";
+    ps_d.debug_name  = "Sprite.Effect.PS";
+    auto ps_r = CreateRhiShader(*m_Device, ps_d);
+    if (ps_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: 効果 PS の生成に失敗"); return false; }
+    m_EffectPs = Move(ps_r.Value());
+
+    for (u32 i = 0; i < kEffectRing; ++i) {
+        FBufferDesc cbd{};
+        cbd.size = 256;
+        cbd.usage = EBufferUsage::Uniform;
+        cbd.cpu_writable = true;
+        auto cb_r = CreateRhiBuffer(*m_Device, cbd);
+        if (cb_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: 効果 CB の生成に失敗"); return false; }
+        m_EffectCb[i] = Move(cb_r.Value());
+    }
+    m_EffectCbCur = 0;
+
+    FPipelineDesc pd{};
+    FillCommonPipelineDesc(pd);          // vs/layout/sampler/atlas/Screen(b0) を共通設定
+    pd.ps            = m_EffectPs.Get();  // PS だけ効果版へ差し替え
+    pd.depth_format  = EFormat::Unknown;
+    pd.depth_test    = false;
+    pd.cbuffer_slots = 2;                 // b0=Screen, b1=Effect
+    pd.cbuffer_names[1] = "Effect";
+    auto pl_r = CreateRhiPipeline(*m_Device, pd);
+    if (pl_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: 効果 PSO の生成に失敗"); return false; }
+    m_EffectPipe = Move(pl_r.Value());
+
+    m_EffectReady = true;
+    return true;
+}
+
+// lit (PBR) スプライトの VS/PS + PSO + マテリアル/ライト CB + 平面法線テクスチャを遅延生成する。
+bool FSpriteBatch::EnsureLitPipeline() noexcept {
+    if (m_LitReady) return true;
+    if (!m_Device) return false;
+
+    FShaderDesc vs_d{};
+    vs_d.stage = EShaderStage::Vertex;
+    vs_d.hlsl_source = kLitSpriteHLSL;
+    vs_d.entry_point = "VSLit";
+    vs_d.debug_name  = "Sprite.Lit.VS";
+    auto vs_r = CreateRhiShader(*m_Device, vs_d);
+    if (vs_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: lit VS の生成に失敗"); return false; }
+    m_LitVs = Move(vs_r.Value());
+
+    FShaderDesc ps_d{};
+    ps_d.stage = EShaderStage::Pixel;
+    ps_d.hlsl_source = kLitSpriteHLSL;
+    ps_d.entry_point = "PSLit";
+    ps_d.debug_name  = "Sprite.Lit.PS";
+    auto ps_r = CreateRhiShader(*m_Device, ps_d);
+    if (ps_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: lit PS の生成に失敗"); return false; }
+    m_LitPs = Move(ps_r.Value());
+
+    for (u32 i = 0; i < kLitMatRing; ++i) {
+        FBufferDesc cbd{};
+        cbd.size = 256;   // 1 マテリアル CB のバイト数 (LitMaterial は 48B、256 境界に切り上げ)
+        cbd.usage = EBufferUsage::Uniform;
+        cbd.cpu_writable = true;
+        auto cb_r = CreateRhiBuffer(*m_Device, cbd);
+        if (cb_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: lit マテリアル CB の生成に失敗"); return false; }
+        m_LitMatCb[i] = Move(cb_r.Value());
+    }
+    m_LitMatCbCur = 0;
+
+    {
+        FBufferDesc cbd{};
+        cbd.size = 4096;   // light_info+ambient+pos/col/dir/occ/occ2[16]+occ_poly[64] = 2336B
+        cbd.usage = EBufferUsage::Uniform;
+        cbd.cpu_writable = true;
+        auto cb_r = CreateRhiBuffer(*m_Device, cbd);
+        if (cb_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: ライト CB の生成に失敗"); return false; }
+        m_LightsCb = Move(cb_r.Value());
+    }
+
+    // 平面法線 1x1 ((128,128,255) = (0,0,1) を [0,1] エンコード)。
+    const u8 flat_n[4] = { 128, 128, 255, 255 };
+    FTextureDesc td{};
+    td.width = 1; td.height = 1;
+    td.format = EFormat::R8G8B8A8_UNorm;
+    td.initial_data = flat_n;
+    td.initial_data_size = 4;
+    auto nt_r = CreateRhiTexture(*m_Device, td);
+    if (nt_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: 平面法線テクスチャの生成に失敗"); return false; }
+    m_FlatNormal = Move(nt_r.Value());
+
+    FPipelineDesc pd{};
+    FillCommonPipelineDesc(pd);          // vs/layout/sampler/atlas/Screen(b0) を共通設定
+    pd.vs            = m_LitVs.Get();     // VS だけ lit 版へ差し替え (world pos を出す)
+    pd.ps            = m_LitPs.Get();
+    pd.depth_format  = EFormat::Unknown;
+    pd.depth_test    = false;
+    pd.cbuffer_slots = 3;                 // b0=Screen, b1=LitMaterial, b2=Lights
+    pd.cbuffer_names[1] = "LitMaterial";
+    pd.cbuffer_names[2] = "Lights";
+    pd.texture_slots = 2;                 // t0=atlas, t1=normal_tex
+    pd.texture_names[1] = "normal_tex";
+    auto pl_r = CreateRhiPipeline(*m_Device, pd);
+    if (pl_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: lit PSO の生成に失敗"); return false; }
+    m_LitPipe = Move(pl_r.Value());
+
+    m_LitReady = true;
+    return true;
+}
+
 void FSpriteBatch::SetBlendMode(EBlendMode mode) noexcept {
     if (!m_Cl || mode == m_BlendMode) return;
     Flush();                                  // 直前のバッチを現ブレンドで確定
@@ -266,12 +822,154 @@ void FSpriteBatch::SetStencilMode(EStencilMode mode, u8 ref) noexcept {
     m_StencilMode = mode;
 }
 
+void FSpriteBatch::SetEffect(ESpriteEffect effect, const FEffectParams& params) noexcept {
+    if (!m_Cl) return;
+    if (effect == ESpriteEffect::None) { ClearEffect(); return; }
+    Flush();                                   // 直前のバッチを現パイプラインで確定
+    if (!EnsureEffectPipeline()) return;
+
+    // 効果 CB を次スロットへ書く (フレーム内で複数効果が衝突しないように)。
+    m_EffectCbCur = (m_EffectCbCur + 1u) % kEffectRing;
+    const f32 cb[12] = {
+        static_cast<f32>(static_cast<i32>(effect)), params.strength, params.p0, params.p1,
+        params.p2, params.time, 0.0f, 0.0f,
+        params.color.x, params.color.y, params.color.z, params.color.w,
+    };
+    m_EffectCb[m_EffectCbCur]->Update(cb, sizeof(cb));
+
+    m_Cl->SetPipeline(*m_EffectPipe);
+    BindViewBuffer();                                       // b0 (PSO 切替で root 引数が無効化)
+    m_Cl->SetConstantBuffer(1, *m_EffectCb[m_EffectCbCur]); // b1
+    m_Cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    m_Cl->SetIndexBuffer(*m_Ib);
+    m_EffectActive = true;
+}
+
+void FSpriteBatch::ClearEffect() noexcept {
+    if (!m_Cl || !m_EffectActive) return;
+    Flush();                                   // 効果バッチを確定してから通常へ戻す
+    m_Cl->SetPipeline(*m_Pipeline);
+    BindViewBuffer();
+    m_Cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    m_Cl->SetIndexBuffer(*m_Ib);
+    m_EffectActive = false;
+}
+
+void FSpriteBatch::SetLights(const FSpriteLight* lights, u32 count, FVec3 ambient,
+                             f32 light_height,
+                             const FSpriteOccluder* occluders, u32 occ_count) noexcept {
+    if (!m_Cl) return;
+    if (!EnsureLitPipeline()) return;
+    if (count > kMaxLitLights) count = kMaxLitLights;
+    if (occ_count > kMaxLitLights) occ_count = kMaxLitLights;
+    // cbuffer Lights: light_info, ambient, pos[16], col[16], dir[16], occ[16], occ2[16], occ_poly[128] = 840 floats。
+    f32 cb[4 + 4 + 16 * 4 * 5 + 128 * 4] = {};
+    cb[0] = static_cast<f32>(count); cb[1] = light_height; cb[2] = static_cast<f32>(occ_count);
+    cb[4] = ambient.x; cb[5] = ambient.y; cb[6] = ambient.z;
+    f32* pos  = cb + 8;            // light_pos[16] (xy, radius, intensity)
+    f32* col  = cb + 8 + 64;       // light_col[16] (rgb, type)
+    f32* dir  = cb + 8 + 128;      // light_dir[16] (dir.xy, coneInner, coneOuter)
+    f32* ocp  = cb + 8 + 192;      // occ[16] (xy=center, z=radius, w=shape)
+    f32* ocp2 = cb + 8 + 256;      // occ2[16] (xy=halfExtents, z=rotation, w=多角形頂点数)
+    f32* opl  = cb + 8 + 320;      // occ_poly[128] (occluder j: opl[j*32 .. +31] = 16頂点)
+    for (u32 i = 0; i < count; ++i) {
+        pos[i * 4 + 0] = lights[i].pos.x;
+        pos[i * 4 + 1] = lights[i].pos.y;
+        pos[i * 4 + 2] = lights[i].radius;
+        pos[i * 4 + 3] = lights[i].intensity;
+        col[i * 4 + 0] = lights[i].color.x;
+        col[i * 4 + 1] = lights[i].color.y;
+        col[i * 4 + 2] = lights[i].color.z;
+        col[i * 4 + 3] = static_cast<f32>(lights[i].type);
+        dir[i * 4 + 0] = lights[i].dir.x;
+        dir[i * 4 + 1] = lights[i].dir.y;
+        dir[i * 4 + 2] = lights[i].coneInner;
+        dir[i * 4 + 3] = lights[i].coneOuter;
+    }
+    for (u32 i = 0; i < occ_count; ++i) {
+        ocp[i * 4 + 0]  = occluders[i].center.x;
+        ocp[i * 4 + 1]  = occluders[i].center.y;
+        ocp[i * 4 + 2]  = occluders[i].radius;
+        ocp[i * 4 + 3]  = static_cast<f32>(occluders[i].shape);
+        ocp2[i * 4 + 0] = occluders[i].halfExtents.x;
+        ocp2[i * 4 + 1] = occluders[i].halfExtents.y;
+        ocp2[i * 4 + 2] = occluders[i].rotation;
+        if (occluders[i].shape == 2) {                       // 多角形の頂点 (最大 16) を詰める
+            u32 nv = occluders[i].polyCount;
+            if (nv > kMaxOccPolyVerts) nv = kMaxOccPolyVerts;
+            ocp2[i * 4 + 3] = static_cast<f32>(nv);
+            for (u32 k = 0; k < nv; ++k) {
+                opl[i * 32 + k * 2 + 0] = occluders[i].polyVerts[k].x;
+                opl[i * 32 + k * 2 + 1] = occluders[i].polyVerts[k].y;
+            }
+        }
+    }
+    m_LightsCb->Update(cb, sizeof(cb));
+}
+
+void FSpriteBatch::SetLitMaterial(const FLitMaterialParams& mat, IRhiTexture* normal_tex) noexcept {
+    if (!m_Cl) return;
+    Flush();                                   // 直前のバッチを現パイプラインで確定
+    if (!EnsureLitPipeline()) return;
+
+    m_LitMatCbCur = (m_LitMatCbCur + 1u) % kLitMatRing;
+    const f32 cb[48] = {
+        mat.baseColor.x, mat.baseColor.y, mat.baseColor.z, mat.baseColor.w,            // base_color
+        mat.metallic, mat.roughness, mat.normalStrength, mat.ao,                       // mat0
+        mat.emissive.x * mat.emissiveStrength, mat.emissive.y * mat.emissiveStrength,  // emissive
+        mat.emissive.z * mat.emissiveStrength, 0.0f,
+        static_cast<f32>(mat.shadingMode), mat.rimPower, mat.specThreshold, mat.toonSoftness,  // toon0
+        mat.shadow1Color.x, mat.shadow1Color.y, mat.shadow1Color.z, mat.shadow1Threshold,     // shadow1
+        mat.shadow2Color.x, mat.shadow2Color.y, mat.shadow2Color.z, mat.shadow2Threshold,     // shadow2
+        mat.rimColor.x, mat.rimColor.y, mat.rimColor.z, 0.0f,                          // toon_rim
+        mat.specColor.x, mat.specColor.y, mat.specColor.z, 0.0f,                       // toon_spec
+        mat.clearcoat, mat.clearcoatRoughness, mat.anisotropy, mat.specularLevel,      // adv0
+        mat.specularTint, mat.sheen, mat.sheenRoughness, mat.subsurface,               // adv1
+        mat.sheenColor.x, mat.sheenColor.y, mat.sheenColor.z, 0.0f,                    // sheen_col
+        mat.subsurfaceColor.x, mat.subsurfaceColor.y, mat.subsurfaceColor.z,           // sss_col.rgb
+        static_cast<f32>(mat.selfOccluder),                                            // sss_col.w = selfOcc
+    };
+    m_LitMatCb[m_LitMatCbCur]->Update(cb, sizeof(cb));
+
+    m_Cl->SetPipeline(*m_LitPipe);
+    BindViewBuffer();                                       // b0
+    m_Cl->SetConstantBuffer(1, *m_LitMatCb[m_LitMatCbCur]); // b1
+    m_Cl->SetConstantBuffer(2, *m_LightsCb);               // b2
+    m_Cl->SetTexture(1, normal_tex ? *normal_tex : *m_FlatNormal);   // t1
+    m_Cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    m_Cl->SetIndexBuffer(*m_Ib);
+    m_LitActive = true;
+}
+
+void FSpriteBatch::ClearLit() noexcept {
+    if (!m_Cl || !m_LitActive) return;
+    Flush();
+    m_Cl->SetPipeline(*m_Pipeline);
+    BindViewBuffer();
+    m_Cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    m_Cl->SetIndexBuffer(*m_Ib);
+    m_LitActive = false;
+}
+
 void FSpriteBatch::Shutdown() noexcept {
     m_Pipeline.Reset();
     for (u32 i = 0; i < 4; ++i) m_StencilPipe[i].Reset();
     m_StencilReady = false;
     m_AdditivePipe.Reset();
     m_AdditiveReady = false;
+    m_EffectPipe.Reset();
+    m_EffectPs.Reset();
+    for (u32 i = 0; i < kEffectRing; ++i) m_EffectCb[i].Reset();
+    m_EffectReady = false;
+    m_EffectActive = false;
+    m_LitPipe.Reset();
+    m_LitVs.Reset();
+    m_LitPs.Reset();
+    for (u32 i = 0; i < kLitMatRing; ++i) m_LitMatCb[i].Reset();
+    m_LightsCb.Reset();
+    m_FlatNormal.Reset();
+    m_LitReady = false;
+    m_LitActive = false;
     m_White.Reset();
     for (u32 i = 0; i < kViewRing; ++i) m_Cb[i].Reset();
     m_Ib.Reset();
@@ -293,6 +991,8 @@ void FSpriteBatch::Begin(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexce
     m_CurrentTex = nullptr;
     m_StencilMode = EStencilMode::Off;   // 既定パイプライン (m_Pipeline) で開始
     m_BlendMode   = EBlendMode::AlphaBlend;
+    m_EffectActive = false;              // 効果は Begin でリセット (既定 = 通常 PSO)
+    m_LitActive    = false;              // lit も Begin でリセット
 
     // ビューを恒等（カメラ無し）に戻し、フレッシュな view バッファへ書く。
     // (Begin は同一フレーム内で複数回呼ばれ得る — 反射の 2 パス等 — ので、
@@ -498,6 +1198,20 @@ void FSpriteBatch::DrawString(const Font& font, const char* utf8_text,
 void FSpriteBatch::End() noexcept {
     Flush();
     m_Cl = nullptr;
+}
+
+void FSpriteBatch::FlushPending() noexcept {
+    Flush();   // カウントは維持されるので以降のスプライトは VB の続きへ追記される
+}
+
+void FSpriteBatch::Rebind() noexcept {
+    if (!m_Cl) return;
+    // Begin と同じ bind を貼り直す (カウントやリングは進めない)。割り込み描画で
+    // 変わった pipeline / vertex・index buffer / view cbuffer を元に戻す。
+    m_Cl->SetPipeline(*m_Pipeline);
+    BindViewBuffer();
+    m_Cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    m_Cl->SetIndexBuffer(*m_Ib);
 }
 
 void FSpriteBatch::Flush() noexcept {

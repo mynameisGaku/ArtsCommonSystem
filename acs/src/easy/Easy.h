@@ -225,6 +225,25 @@ void ToggleFullscreen() noexcept;
 bool IsFullscreen() noexcept;
 
 /**
+ * コンソール (コマンドプロンプト) ウィンドウの表示/非表示を切り替える。
+ *
+ * @details ゲームウィンドウとは別に開く黒いコンソール窓を隠したり、デバッグ時に
+ *          再表示したりできる。コンソールが無い (GUI サブシステム) ビルドでは何もしない。
+ * @param show true で表示、false で非表示。
+ */
+void ShowConsole(bool show) noexcept;
+
+/** コンソール (コマンドプロンプト) ウィンドウの表示/非表示を反転する。 */
+void ToggleConsole() noexcept;
+
+/**
+ * コンソール (コマンドプロンプト) ウィンドウが現在表示されているかを返す。
+ *
+ * @return 表示中なら true。コンソールが無いビルドでは false。
+ */
+bool IsConsoleVisible() noexcept;
+
+/**
  * 塗りつぶし長方形を描く (OpenWindow の後、while(NextFrame()) ループ内で呼ぶ)。
  *
  * @param x 左上の X 座標。
@@ -562,6 +581,28 @@ void SetClipRect(f32 x, f32 y, f32 width, f32 height) noexcept;
 
 /** クリップを解除して画面全体に描けるようにする。 */
 void ClearClipRect() noexcept;
+
+/**
+ * 紙が燃えて消える per-pixel ディゾルブを矩形に重ねる (どのバックエンドでも動く)。
+ *
+ * @details 描画内容を先に描いてからこれを重ねると、progress 0→1 で燃え際 (白熱→橙→
+ *          黒コゲ) が進みながら下の内容が現れる。セル/ドットでなくピクセル単位なので高解像度。
+ * @param x,y 矩形左上 (px)。
+ * @param w,h 矩形サイズ (px)。
+ * @param progress 0=全部紙, 1=全部燃えて下が見える。
+ * @param ember 燃え際の基準色。
+ * @param paper 紙 (覆い) の色。
+ * @param edge 燃え際の帯幅 (既定 0.12)。
+ * @param freq ノイズ周波数 (既定 7。大きいほど細かい炎縁)。
+ * @param time 炎ゆらぎ用の時間 (0 で静止)。
+ * @param cells ドット調の分割数 (0=なめらか最高解像度、N=N分割の四角ドット)。
+ * @return 描画できたら true、効果が使えなければ false。
+ */
+bool DrawBurnDissolve(f32 x, f32 y, f32 w, f32 h, f32 progress,
+                      FColor ember = FColor{ 1.0f, 0.45f, 0.06f, 1.0f },
+                      FColor paper = FColor{ 0.88f, 0.84f, 0.74f, 1.0f },
+                      f32 edge = 0.12f, f32 freq = 7.0f, f32 time = 0.0f,
+                      f32 cells = 0.0f) noexcept;
 
 // Bloom（発光）・ビネット・カラーグレーディング等、画面全体にかかる効果。
 // **Diligent バックエンドでビルドした場合のみ有効**（DX12 raw ビルドでは

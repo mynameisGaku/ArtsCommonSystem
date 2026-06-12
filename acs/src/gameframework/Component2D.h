@@ -37,11 +37,13 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "math/Vec.h"   // FVec2 / FVec3 (QueryLight 等)
 
 namespace acs::game {
 
 class FNode2D;
 class RenderContext;
+class FSceneServices;
 
 /**
  * 型 T ごとに一意なコンポーネント種別 ID を返す (RTTI 不使用)。
@@ -57,6 +59,19 @@ const void* ComponentKindOf() noexcept {
     static const int s_tag = 0;
     return static_cast<const void*>(&s_tag);
 }
+
+/**
+ * 2D ライトの記述子 (FComponent2D::QueryLight が埋める。位置は呼び出し側が owner world から)。
+ */
+struct FLightDesc2D {
+    i32   type      = 0;            ///< 0=Point, 1=Spot, 2=Directional。
+    f32   radius    = 256.0f;       ///< 届く半径 (px、Point/Spot)。
+    FVec3 color{ 1, 1, 1 };         ///< 光の色。
+    f32   intensity = 1.5f;         ///< 明るさ。
+    FVec2 dir{ 0, 1 };              ///< スポット軸 / 平行光方向 (正規化)。
+    f32   coneInner = 0.92f;        ///< スポット内円錐 (cos)。
+    f32   coneOuter = 0.70f;        ///< スポット外円錐 (cos)。
+};
 
 /**
  * FNode2D に attach する「振る舞いパーツ」の基底。
@@ -93,6 +108,18 @@ public:
      * @return ComponentKindOf<派生型>() の安定ポインタ ID。
      */
     virtual const void* Kind() const noexcept = 0;
+
+    /**
+     * リフレクション登録名 (= クラス名) を返す。インスタンス→FTypeRegistry の橋渡し。
+     *
+     * @details
+     * Kind() は per-process の void* タグで実行をまたいで安定せず、FTypeId (名前ハッシュ)
+     * とも別物。シリアライズ / Play モード実体化は「生きたコンポーネント → 反射型」を
+     * 名前で解決する必要があるため、ACS_GAME_COMPONENT_KIND が #T を返す ReflectName を
+     * 自動実装する。未対応 (この基底のまま) は nullptr。
+     * @return クラス名文字列 (反射カタログの登録名と一致)。未対応は nullptr。
+     */
+    virtual const char* ReflectName() const noexcept { return nullptr; }
 
     /**
      * 依存コンポーネント宣言フック (Unity の [RequireComponent] 相当)。
@@ -151,11 +178,79 @@ public:
     virtual void OnDrawPostChildren(RenderContext& /*rc*/) noexcept {}
 
     /**
+     * シーンサービスが配線され Play 開始されたとき 1 回呼ばれる opt-in フック。
+     *
+     * @details
+     * OnAttach の後・services が存在するときだけ発火する (通常 FScene2D Play でも editor の
+     * インプロセス Play でも同一)。ここで `services.Input()/Physics()/Camera()` の参照を
+     * キャッシュしておけば、OnUpdate は分岐なしで使える。既定 no-op。1 コンポーネントにつき
+     * 高々 1 回 (二重発火しない)。
+     * @param services 配線済みの FSceneServices。
+     */
+    virtual void OnAttachServices(FSceneServices& /*services*/) noexcept {}
+
+    /**
      * detach (owner 破棄) 直前に 1 回呼ばれる後始末フック。
      *
      * @details 既定 no-op。
      */
     virtual void OnDetach()                  noexcept {}
+
+    // 注: 以下の 2 つは «末尾に追加» すること。途中に挿入すると後続 virtual の vtable
+    // スロットがずれ、古いヘッダでビルドされた game DLL と ABI 不整合になる (append-only)。
+
+    /**
+     * 2D 点光源コンポーネントなら、その半径/色/強度を返す (FLight2DComponent が override)。
+     *
+     * @details シーンが lit スプライトのためにライトを収集するのに使う。位置は owner ノードの world。
+     * @param out ライト記述子の出力 (type/radius/color/intensity/dir/cone)。
+     * @return ライトコンポーネントなら true。
+     */
+    virtual bool QueryLight(FLightDesc2D& /*out*/) const noexcept { return false; }
+
+    /**
+     * 影を落とすコンポーネントなら占有半径スケールを返す (FShadowCaster2DComponent が override)。
+     *
+     * @param radius_scale ノード半径に対する占有半径スケールの出力。
+     * @param shape 影の形状の出力 (0=円, 1=箱)。
+     * @return 影キャスターなら true。
+     */
+    virtual bool QueryShadowCaster(f32& /*radius_scale*/, i32& /*shape*/) const noexcept { return false; }
+
+    /**
+     * プリミティブ形状コンポーネントなら shape(0=Box,1=Circle,2=Triangle) とローカル半サイズを返す。
+     *
+     * @details 影オクルーダーを «見た目の形» に合わせるため、影収集が同じノードのこれを問い合わせる。
+     *   末尾に追加 (append-only。途中挿入禁止)。
+     * @return プリミティブレンダラなら true。
+     */
+    virtual bool QueryPrimitive(i32& /*shape*/, FVec2& /*half_size*/) const noexcept { return false; }
+
+    /**
+     * owner ツリーに配線された FSceneServices を返す (未配線なら nullptr)。
+     *
+     * @return 配線済み services ポインタ (owner 未設定/未配線は nullptr)。
+     */
+    FSceneServices* SceneServices() const noexcept;
+
+    /**
+     * services が配線済みかを返す。
+     *
+     * @return SceneServices() が非 null なら true。
+     */
+    bool HasSceneServices() const noexcept;
+
+    /**
+     * services が利用可能なら OnAttachServices を一度だけ発火する (内部用、ガード付き)。
+     *
+     * @param svc 配線された services (nullptr なら何もしない)。
+     */
+    void _MaybeAttachServices(FSceneServices* svc) noexcept {
+        if (svc != nullptr && !m_ServicesAttached) {
+            m_ServicesAttached = true;
+            OnAttachServices(*svc);
+        }
+    }
 
     /**
      * owner ノードへの可変参照を返す。
@@ -188,11 +283,15 @@ public:
 private:
     /** owner ノード (attach 前は nullptr)。 */
     FNode2D* m_Owner = nullptr;
+
+    /** OnAttachServices 発火済みフラグ (二重発火防止)。 */
+    bool     m_ServicesAttached = false;
 };
 
-/** 派生クラスで Kind() を 1 行で override するためのマクロ。 */
+/** 派生クラスで Kind() + ReflectName() を 1 行で override するためのマクロ。 */
 #define ACS_GAME_COMPONENT_KIND(T)                                                  \
     const void* Kind() const noexcept override                                       \
-    { return ::acs::game::ComponentKindOf<T>(); }
+    { return ::acs::game::ComponentKindOf<T>(); }                                     \
+    const char* ReflectName() const noexcept override { return #T; }
 
 } // namespace acs::game

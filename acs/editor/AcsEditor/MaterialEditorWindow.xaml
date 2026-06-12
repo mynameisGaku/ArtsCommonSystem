@@ -1,0 +1,323 @@
+<Window x:Class="AcsEditor.MaterialEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="マテリアルエディタ" Height="560" Width="380"
+        WindowStartupLocation="CenterOwner"
+        Background="#FF1E2127" Foreground="#FFE6E8EC" FontSize="12">
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#FFB8BEC8"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#FF2A2E36"/>
+            <Setter Property="Foreground" Value="#FFE6E8EC"/>
+            <Setter Property="BorderBrush" Value="#FF3A3F49"/>
+            <Setter Property="Padding" Value="4,2"/>
+        </Style>
+    </Window.Resources>
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- ヘッダ: ライブプレビュー + ファイル名 -->
+        <Grid Grid.Row="0" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Width="84" Height="84" CornerRadius="4" Margin="0,0,10,0"
+                    BorderBrush="#FF3A3F49" BorderThickness="1" Background="#FF15171C">
+                <Image x:Name="PreviewImage" Stretch="Fill" RenderOptions.BitmapScalingMode="Linear"
+                       SnapsToDevicePixels="True"/>
+            </Border>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                <TextBlock Text="ライブプレビュー" FontSize="11" Foreground="#FF8A93A0"/>
+                <TextBlock x:Name="FileLabel" Text="material.acsmat" FontSize="11" Foreground="#FF6F7681"
+                           TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- 名前 + 種別 (PBR / 効果) -->
+        <Grid Grid.Row="1" Margin="0,0,0,6">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="名前"/>
+            <TextBox   Grid.Row="0" Grid.Column="1" x:Name="NameBox" Margin="0,0,0,4"/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="種別"/>
+            <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="KindBox" SelectionChanged="OnKindChanged">
+                <ComboBoxItem Content="PBR (BRDF サーフェス)"/>
+                <ComboBoxItem Content="効果プリセット (ポストプロセス)"/>
+            </ComboBox>
+        </Grid>
+
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+        <Grid>
+        <!-- ============ PBR パネル ============ -->
+        <StackPanel x:Name="PbrPanel" Margin="0,4,0,0">
+            <!-- シェーディング (PBR / トゥーン) -->
+            <Grid Margin="0,0,0,4"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Text="シェーディング"/>
+                <ComboBox Grid.Column="1" x:Name="ShadeBox" SelectionChanged="OnShadeChanged">
+                    <ComboBoxItem Content="PBR (写実)"/>
+                    <ComboBoxItem Content="トゥーン (セル/アニメ調)"/>
+                </ComboBox>
+            </Grid>
+            <!-- ベースカラー -->
+            <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock Text="ベースカラー"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <TextBox x:Name="BcR" Width="40" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
+                    <TextBox x:Name="BcG" Width="40" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
+                    <TextBox x:Name="BcB" Width="40" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
+                    <TextBox x:Name="BcA" Width="40" TextChanged="OnPbrChanged"/>
+                </StackPanel>
+                <Border Grid.Column="2" x:Name="BaseSwatch" Width="24" Height="24" CornerRadius="4"
+                        Background="#FFFFFFFF" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
+            </Grid>
+            <!-- アルベド画像 -->
+            <Grid Margin="0,3"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock Text="アルベド画像"/>
+                <TextBlock Grid.Column="1" x:Name="AlbedoLabel" Text="(なし)" Foreground="#FF8A93A0"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="11"/>
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <Button Content="…" Click="OnBrowseAlbedo" Padding="8,2" Margin="0,0,4,0"/>
+                    <Button Content="✕" Click="OnClearAlbedo" Padding="6,2" Foreground="#FFE39AA0"/>
+                </StackPanel>
+            </Grid>
+            <!-- 法線マップ -->
+            <Grid Margin="0,3"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock Text="法線マップ"/>
+                <TextBlock Grid.Column="1" x:Name="NormalLabel" Text="(なし)" Foreground="#FF8A93A0"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="11"/>
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <Button Content="…" Click="OnBrowseNormal" Padding="8,2" Margin="0,0,4,0"/>
+                    <Button Content="✕" Click="OnClearNormal" Padding="6,2" Foreground="#FFE39AA0"/>
+                </StackPanel>
+            </Grid>
+            <!-- メタリック -->
+            <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                <TextBlock Text="メタリック"/>
+                <Slider Grid.Column="1" x:Name="MetallicSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnPbrSlider"/>
+                <TextBox Grid.Column="2" x:Name="Metallic" TextChanged="OnPbrChanged" Margin="4,0,0,0"/>
+            </Grid>
+            <!-- ラフネス -->
+            <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                <TextBlock Text="ラフネス"/>
+                <Slider Grid.Column="1" x:Name="RoughnessSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnPbrSlider"/>
+                <TextBox Grid.Column="2" x:Name="Roughness" TextChanged="OnPbrChanged" Margin="4,0,0,0"/>
+            </Grid>
+            <!-- 法線の強さ -->
+            <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                <TextBlock Text="法線の強さ"/>
+                <Slider Grid.Column="1" x:Name="NormalStrSlider" Minimum="0" Maximum="2" VerticalAlignment="Center" ValueChanged="OnPbrSlider"/>
+                <TextBox Grid.Column="2" x:Name="NormalStr" TextChanged="OnPbrChanged" Margin="4,0,0,0"/>
+            </Grid>
+            <!-- AO -->
+            <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                <TextBlock Text="AO"/>
+                <Slider Grid.Column="1" x:Name="AoSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnPbrSlider"/>
+                <TextBox Grid.Column="2" x:Name="Ao" TextChanged="OnPbrChanged" Margin="4,0,0,0"/>
+            </Grid>
+            <!-- エミッシブ色 -->
+            <Grid Margin="0,4,0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock Text="エミッシブ色"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <TextBox x:Name="EmR" Width="40" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
+                    <TextBox x:Name="EmG" Width="40" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
+                    <TextBox x:Name="EmB" Width="40" TextChanged="OnPbrChanged"/>
+                </StackPanel>
+                <Border Grid.Column="2" x:Name="EmSwatch" Width="24" Height="24" CornerRadius="4"
+                        Background="#FF000000" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
+            </Grid>
+            <!-- 発光強度 -->
+            <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                <TextBlock Text="発光強度"/>
+                <Slider Grid.Column="1" x:Name="EmStrSlider" Minimum="0" Maximum="5" VerticalAlignment="Center" ValueChanged="OnPbrSlider"/>
+                <TextBox Grid.Column="2" x:Name="EmStr" TextChanged="OnPbrChanged" Margin="4,0,0,0"/>
+            </Grid>
+            <!-- ============ Substrate 拡張 (シェーディング=PBR のとき表示) ============ -->
+            <StackPanel x:Name="SubstratePanel" Margin="0,2,0,0">
+                <Border Height="1" Background="#FF3A3F49" Margin="0,4"/>
+                <TextBlock Text="Substrate 拡張ロブ" FontSize="11" Foreground="#FF8A93A0" Margin="0,0,0,2"/>
+                <!-- クリアコート -->
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="クリアコート"/>
+                    <Slider Grid.Column="1" x:Name="ClrCoatSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnExtSlider"/>
+                    <TextBox Grid.Column="2" x:Name="ClrCoat" TextChanged="OnExtChanged" Margin="4,0,0,0"/>
+                </Grid>
+                <!-- コート荒さ -->
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="コート荒さ"/>
+                    <Slider Grid.Column="1" x:Name="CoatRoughSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnExtSlider"/>
+                    <TextBox Grid.Column="2" x:Name="CoatRough" TextChanged="OnExtChanged" Margin="4,0,0,0"/>
+                </Grid>
+                <!-- 異方性 -->
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="異方性"/>
+                    <Slider Grid.Column="1" x:Name="AnisoSlider" Minimum="-1" Maximum="1" VerticalAlignment="Center" ValueChanged="OnExtSlider"/>
+                    <TextBox Grid.Column="2" x:Name="Aniso" TextChanged="OnExtChanged" Margin="4,0,0,0"/>
+                </Grid>
+                <!-- 鏡面レベル -->
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="鏡面レベル"/>
+                    <Slider Grid.Column="1" x:Name="SpecLvlSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnExtSlider"/>
+                    <TextBox Grid.Column="2" x:Name="SpecLvl" TextChanged="OnExtChanged" Margin="4,0,0,0"/>
+                </Grid>
+                <!-- 鏡面tint -->
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="鏡面tint"/>
+                    <Slider Grid.Column="1" x:Name="SpecTintSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnExtSlider"/>
+                    <TextBox Grid.Column="2" x:Name="SpecTint" TextChanged="OnExtChanged" Margin="4,0,0,0"/>
+                </Grid>
+                <!-- シーン (布の逆反射) -->
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="シーン"/>
+                    <Slider Grid.Column="1" x:Name="SheenSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnExtSlider"/>
+                    <TextBox Grid.Column="2" x:Name="Sheen" TextChanged="OnExtChanged" Margin="4,0,0,0"/>
+                </Grid>
+                <!-- シーン荒さ -->
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="シーン荒さ"/>
+                    <Slider Grid.Column="1" x:Name="SheenRoughSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnExtSlider"/>
+                    <TextBox Grid.Column="2" x:Name="SheenRough" TextChanged="OnExtChanged" Margin="4,0,0,0"/>
+                </Grid>
+                <!-- シーン色 -->
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="シーン色"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <TextBox x:Name="ShR" Width="40" Margin="0,0,3,0" TextChanged="OnExtChanged"/>
+                        <TextBox x:Name="ShG" Width="40" Margin="0,0,3,0" TextChanged="OnExtChanged"/>
+                        <TextBox x:Name="ShB" Width="40" TextChanged="OnExtChanged"/>
+                    </StackPanel>
+                    <Border Grid.Column="2" x:Name="ShSwatch" Width="24" Height="24" CornerRadius="4" Background="#FFFFFFFF" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
+                </Grid>
+                <!-- サブサーフェス -->
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="SSS 量"/>
+                    <Slider Grid.Column="1" x:Name="SubsurfSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnExtSlider"/>
+                    <TextBox Grid.Column="2" x:Name="Subsurf" TextChanged="OnExtChanged" Margin="4,0,0,0"/>
+                </Grid>
+                <!-- SSS 色 -->
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="SSS 色"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <TextBox x:Name="SsR" Width="40" Margin="0,0,3,0" TextChanged="OnExtChanged"/>
+                        <TextBox x:Name="SsG" Width="40" Margin="0,0,3,0" TextChanged="OnExtChanged"/>
+                        <TextBox x:Name="SsB" Width="40" TextChanged="OnExtChanged"/>
+                    </StackPanel>
+                    <Border Grid.Column="2" x:Name="SsSwatch" Width="24" Height="24" CornerRadius="4" Background="#FFFF4D33" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
+                </Grid>
+            </StackPanel>
+            <!-- ============ トゥーン項目 (シェーディング=トゥーン のとき表示) ============ -->
+            <StackPanel x:Name="ToonSubPanel" Visibility="Collapsed" Margin="0,2,0,0">
+                <Border Height="1" Background="#FF3A3F49" Margin="0,4"/>
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="1影の色"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <TextBox x:Name="S1R" Width="40" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
+                        <TextBox x:Name="S1G" Width="40" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
+                        <TextBox x:Name="S1B" Width="40" TextChanged="OnToonChanged"/>
+                    </StackPanel>
+                    <Border Grid.Column="2" x:Name="S1Swatch" Width="24" Height="24" CornerRadius="4" Background="#FF888888" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
+                </Grid>
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="1影しきい値"/>
+                    <Slider Grid.Column="1" x:Name="S1ThrSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnToonSlider"/>
+                    <TextBox Grid.Column="2" x:Name="S1Thr" TextChanged="OnToonChanged" Margin="4,0,0,0"/>
+                </Grid>
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="2影の色"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <TextBox x:Name="S2R" Width="40" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
+                        <TextBox x:Name="S2G" Width="40" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
+                        <TextBox x:Name="S2B" Width="40" TextChanged="OnToonChanged"/>
+                    </StackPanel>
+                    <Border Grid.Column="2" x:Name="S2Swatch" Width="24" Height="24" CornerRadius="4" Background="#FF555555" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
+                </Grid>
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="2影しきい値"/>
+                    <Slider Grid.Column="1" x:Name="S2ThrSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnToonSlider"/>
+                    <TextBox Grid.Column="2" x:Name="S2Thr" TextChanged="OnToonChanged" Margin="4,0,0,0"/>
+                </Grid>
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="リム色"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <TextBox x:Name="RimR" Width="40" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
+                        <TextBox x:Name="RimG" Width="40" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
+                        <TextBox x:Name="RimB" Width="40" TextChanged="OnToonChanged"/>
+                    </StackPanel>
+                    <Border Grid.Column="2" x:Name="RimSwatch" Width="24" Height="24" CornerRadius="4" Background="#FFFFFFFF" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
+                </Grid>
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="リム強さ"/>
+                    <Slider Grid.Column="1" x:Name="RimPowSlider" Minimum="0.5" Maximum="12" VerticalAlignment="Center" ValueChanged="OnToonSlider"/>
+                    <TextBox Grid.Column="2" x:Name="RimPow" TextChanged="OnToonChanged" Margin="4,0,0,0"/>
+                </Grid>
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="ハイライト閾"/>
+                    <Slider Grid.Column="1" x:Name="SpecThrSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnToonSlider"/>
+                    <TextBox Grid.Column="2" x:Name="SpecThr" TextChanged="OnToonChanged" Margin="4,0,0,0"/>
+                </Grid>
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="境界の硬さ"/>
+                    <Slider Grid.Column="1" x:Name="SoftSlider" Minimum="0.001" Maximum="0.3" VerticalAlignment="Center" ValueChanged="OnToonSlider"/>
+                    <TextBox Grid.Column="2" x:Name="Soft" TextChanged="OnToonChanged" Margin="4,0,0,0"/>
+                </Grid>
+            </StackPanel>
+            <TextBlock x:Name="PbrHint" Margin="0,8,0,0" TextWrapping="Wrap" Foreground="#FF7C8694" FontSize="11"
+                       Text="PBR (metallic-roughness)。アルベド+法線マップ+メタリック/ラフネス/エミッシブを 2D ライトで陰影付け。プレビューは球サンプル。"/>
+        </StackPanel>
+
+        <!-- ============ 効果パネル ============ -->
+        <StackPanel x:Name="EffectPanel" Margin="0,4,0,0" Visibility="Collapsed">
+            <Grid Margin="0,0,0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Text="効果"/>
+                <ComboBox Grid.Column="1" x:Name="EffectBox" SelectionChanged="OnEffectChanged"/>
+            </Grid>
+            <StackPanel x:Name="ParamPanel" Margin="0,4,0,0">
+                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="LblStrength" Text="Strength"/>
+                    <Slider Grid.Column="1" x:Name="StrengthSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnStrengthSlider"/>
+                    <TextBox Grid.Column="2" x:Name="Strength" TextChanged="OnParamChanged" Margin="4,0,0,0"/>
+                </Grid>
+                <Grid x:Name="RowP0" Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="LblP0" Text="P0"/>
+                    <TextBox Grid.Column="1" x:Name="P0" TextChanged="OnParamChanged"/>
+                </Grid>
+                <Grid x:Name="RowP1" Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="LblP1" Text="P1"/>
+                    <TextBox Grid.Column="1" x:Name="P1" TextChanged="OnParamChanged"/>
+                </Grid>
+                <Grid x:Name="RowP2" Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="LblP2" Text="P2"/>
+                    <TextBox Grid.Column="1" x:Name="P2" TextChanged="OnParamChanged"/>
+                </Grid>
+                <Grid x:Name="RowColor" Margin="0,4,0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="LblColor" Text="Color"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <TextBox x:Name="ColR" Width="40" Margin="0,0,3,0" TextChanged="OnParamChanged"/>
+                        <TextBox x:Name="ColG" Width="40" Margin="0,0,3,0" TextChanged="OnParamChanged"/>
+                        <TextBox x:Name="ColB" Width="40" Margin="0,0,3,0" TextChanged="OnParamChanged"/>
+                        <TextBox x:Name="ColA" Width="40" TextChanged="OnParamChanged"/>
+                    </StackPanel>
+                    <Border Grid.Column="2" x:Name="ColorSwatch" Width="24" Height="24" CornerRadius="4"
+                            Background="#FF000000" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
+                </Grid>
+                <CheckBox x:Name="AnimatedBox" Content="アニメーション (経過時間を流す)" Margin="0,6,0,0"
+                          Foreground="#FFB8BEC8" Click="OnParamToggled"/>
+            </StackPanel>
+            <TextBlock x:Name="HintText" Margin="0,10,0,0" TextWrapping="Wrap" VerticalAlignment="Top"
+                       Foreground="#FF7C8694" FontSize="11"/>
+        </StackPanel>
+        </Grid>
+        </ScrollViewer>
+
+        <!-- ボタン -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <TextBlock x:Name="StatusText" Text="" Foreground="#FF6FBF73" VerticalAlignment="Center" Margin="0,0,12,0"/>
+            <Button Content="閉じる" Click="OnClose" Padding="14,4"/>
+        </StackPanel>
+    </Grid>
+</Window>

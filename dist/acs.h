@@ -16129,6 +16129,25 @@ void ToggleFullscreen() noexcept;
 bool IsFullscreen() noexcept;
 
 /**
+ * コンソール (コマンドプロンプト) ウィンドウの表示/非表示を切り替える。
+ *
+ * @details ゲームウィンドウとは別に開く黒いコンソール窓を隠したり、デバッグ時に
+ *          再表示したりできる。コンソールが無い (GUI サブシステム) ビルドでは何もしない。
+ * @param show true で表示、false で非表示。
+ */
+void ShowConsole(bool show) noexcept;
+
+/** コンソール (コマンドプロンプト) ウィンドウの表示/非表示を反転する。 */
+void ToggleConsole() noexcept;
+
+/**
+ * コンソール (コマンドプロンプト) ウィンドウが現在表示されているかを返す。
+ *
+ * @return 表示中なら true。コンソールが無いビルドでは false。
+ */
+bool IsConsoleVisible() noexcept;
+
+/**
  * 塗りつぶし長方形を描く (OpenWindow の後、while(NextFrame()) ループ内で呼ぶ)。
  *
  * @param x 左上の X 座標。
@@ -16466,6 +16485,28 @@ void SetClipRect(f32 x, f32 y, f32 width, f32 height) noexcept;
 
 /** クリップを解除して画面全体に描けるようにする。 */
 void ClearClipRect() noexcept;
+
+/**
+ * 紙が燃えて消える per-pixel ディゾルブを矩形に重ねる (どのバックエンドでも動く)。
+ *
+ * @details 描画内容を先に描いてからこれを重ねると、progress 0→1 で燃え際 (白熱→橙→
+ *          黒コゲ) が進みながら下の内容が現れる。セル/ドットでなくピクセル単位なので高解像度。
+ * @param x,y 矩形左上 (px)。
+ * @param w,h 矩形サイズ (px)。
+ * @param progress 0=全部紙, 1=全部燃えて下が見える。
+ * @param ember 燃え際の基準色。
+ * @param paper 紙 (覆い) の色。
+ * @param edge 燃え際の帯幅 (既定 0.12)。
+ * @param freq ノイズ周波数 (既定 7。大きいほど細かい炎縁)。
+ * @param time 炎ゆらぎ用の時間 (0 で静止)。
+ * @param cells ドット調の分割数 (0=なめらか最高解像度、N=N分割の四角ドット)。
+ * @return 描画できたら true、効果が使えなければ false。
+ */
+bool DrawBurnDissolve(f32 x, f32 y, f32 w, f32 h, f32 progress,
+                      FColor ember = FColor{ 1.0f, 0.45f, 0.06f, 1.0f },
+                      FColor paper = FColor{ 0.88f, 0.84f, 0.74f, 1.0f },
+                      f32 edge = 0.12f, f32 freq = 7.0f, f32 time = 0.0f,
+                      f32 cells = 0.0f) noexcept;
 
 // Bloom（発光）・ビネット・カラーグレーディング等、画面全体にかかる効果。
 // **Diligent バックエンドでビルドした場合のみ有効**（DX12 raw ビルドでは
@@ -33387,6 +33428,22 @@ public:
     /** 描画を終了し、残りのバッチを GPU に送る。 */
     void End() noexcept;
 
+    /**
+     * 蓄積済みスプライトを今すぐ描画する (カウントは維持、バッチは継続)。
+     *
+     * @details カスタムパイプラインで割り込み描画する前に呼び、保留中のスプライトを
+     *          先に確定させる。End と違いカウントをリセットしないので、以降のスプライトは
+     *          そのまま VB の続きへ追記され破綻しない。割り込み描画後は Rebind() を呼ぶこと。
+     */
+    void FlushPending() noexcept;
+
+    /**
+     * 外部パイプラインで割り込み描画した後、バッチの pipeline/view/VB/IB を貼り直す。
+     *
+     * @details FlushPending() → 自前パイプライン描画 → Rebind() の順で使う。
+     */
+    void Rebind() noexcept;
+
 private:
     /** 1 スプライト頂点 (pos2D + uv + color)。 */
     struct Vertex {
@@ -43707,12 +43764,10 @@ private:
 //   };
 //
 // 設計選択:
-//   ・**state holder のみ実装**: 実 Widget 生成 / 描画 / ヒットテストは未接続
-//     (Init / Tick / HandleInput 内に TODO コメントで明示)。代わりに
-//     ハンドル付きの WidgetEntry を TArray で保持し、追加・削除・可視性・押下
-//     クエリは完全動作する。これにより呼び出し側 (Scene) は本 layer を通常通り
-//     使い始めることができ、`acs::ui::StackPanel` 等の実 widget 接続に
-//     差し替えるだけで描画 / 入力が動く設計。
+//   ・**自前の軽量実装**: acs::ui の Widget tree は使わず、ハンドル付きの
+//     WidgetEntry を TArray で保持して Button/Text の 追加・削除・可視性・
+//     ヒットテスト・押下クエリ・即時描画 (Draw) まで完全動作させる。Slider /
+//     Checkbox / TextInput 等のリッチ widget が要るときは `acs::ui` を直接使う。
 //   ・**ハンドルは u32 単調増加**: 削除後の再利用は行わない (世代カウンタ不要、
 //     現実的に 1 シーンで数千 widget を超えることはまずないため uint32 で十分)。
 //     0 は invalid handle 予約。
@@ -74178,6 +74233,111 @@ private:
 
 } // namespace acs
 
+// ===================== render/BurnEffect.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// 紙が燃えて消える per-pixel ディゾルブ (2D オーバーレイ用シェーダ効果)
+//
+// 用途: 2D の矩形領域に「燃える紙」を 1 枚かぶせ、progress 0→1 で燃え際 (白熱→橙→
+//       黒コゲ) が進みながら下の描画内容を出現させる。ピクセル単位の手続きノイズで
+//       描くのでセル/ドットにならず高解像度。FSky と同じく自前の VS/PS/PSO/CB を持ち、
+//       コマンドリストに 6 頂点のクアッドを 1 回 Draw するだけ (VB 不要)。
+
+
+namespace acs {
+
+/** 燃えディゾルブのパラメータ。 */
+struct BurnParams {
+    /** 0=全部紙, 1=全部燃えて下が見える。 */
+    f32   progress = 0.0f;
+
+    /** 燃え際の帯幅 (0.05〜0.2)。 */
+    f32   edge     = 0.12f;
+
+    /** 燃え際の基準色 (橙)。 */
+    FVec3 ember    = FVec3{1.0f, 0.45f, 0.06f};
+
+    /** 紙 (覆い) の色。 */
+    FVec3 paper    = FVec3{0.88f, 0.84f, 0.74f};
+
+    /** ノイズ周波数 (大きいほど細かい炎縁)。 */
+    f32   freq     = 7.0f;
+
+    /** アニメ用の時間 (炎のゆらぎ。0 で静止)。 */
+    f32   time     = 0.0f;
+
+    /** ドット調の分割数 (0=なめらか最高解像度、N=N分割の四角ドット)。 */
+    f32   cells    = 0.0f;
+};
+
+/**
+ * 紙が燃えるディゾルブをピクセル単位で描く 2D オーバーレイ効果。
+ *
+ * @details DX12 raw / Diligent どちらでも動く (FSky と同じ生パイプライン)。アルファ
+ *          ブレンドで重ね、燃え尽きた画素は discard して下の内容を見せる。
+ */
+class FBurnEffect {
+public:
+    /** 空状態で構築する (GPU リソースは Init で確保)。 */
+    FBurnEffect() noexcept = default;
+
+    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
+    ~FBurnEffect() noexcept = default;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    FBurnEffect(const FBurnEffect&) = delete;
+
+    /** コピー代入も禁止。 */
+    FBurnEffect& operator=(const FBurnEffect&) = delete;
+
+    /**
+     * VS/PS/PSO/定数バッファを生成する。
+     *
+     * @param device リソース生成に使う RHI デバイス。
+     * @param rt_format 描画先カラーターゲットのフォーマット (バッチと一致させる)。
+     * @return 成功なら空の TResult、確保失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device, EFormat rt_format) noexcept;
+
+    /** 確保した GPU リソースを解放する。 */
+    void Shutdown() noexcept;
+
+    /** Init 済みで描画可能か。 */
+    bool Ready() const noexcept { return m_Pipeline.Get() != nullptr && m_Cb[0].Get() != nullptr; }
+
+    /**
+     * 矩形領域に燃えディゾルブを 1 枚描く。
+     *
+     * @param cl コマンドを積むコマンドリスト。
+     * @param x,y 矩形左上 (スクリーン px)。
+     * @param w,h 矩形サイズ (px)。
+     * @param screen_w,screen_h 出力解像度 (NDC 変換用)。
+     * @param p 燃えパラメータ。
+     */
+    void Draw(IRhiCommandList& cl, f32 x, f32 y, f32 w, f32 h,
+              f32 screen_w, f32 screen_h, const BurnParams& p) noexcept;
+
+private:
+    /** クアッドを出す頂点シェーダ。 */
+    TUniquePtr<IRhiShader>   m_Vs;
+
+    /** 燃えを計算するピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_Ps;
+
+    /** 描画パイプライン (アルファブレンド)。 */
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+
+    /** 1 フレーム内で複数回 Draw しても CB が衝突しないようリングで持つ。 */
+    static constexpr u32     kRing = 32;
+
+    /** パラメータ定数バッファのリング。 */
+    TUniquePtr<IRhiBuffer>   m_Cb[kRing];
+
+    /** 次に使う CB スロット (Draw ごとに進める)。 */
+    u32                      m_CbIdx = 0;
+};
+
+} // namespace acs
+
 // ===================== render/DebugDraw.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // FDebugDraw3D — 3D ライン (LineList) のデバッグ描画。コライダーの wireframe、
@@ -76767,9 +76927,10 @@ struct PostProcessParams {
      * CAS シャープニング (AMD FSR 簡略版) の強度。
      *
      * @details カラーグレーディング後 / gamma 前に適用。0=無効、0.3=subtle、0.6=neutral、
-     * 1.0=strong。負値は不可。
+     * 1.0=strong。負値は不可。既定で subtle に効かせ、見かけの解像感を上げる
+     * (HDR-aware なので白飛び域でも破綻しない)。0 にすれば従来どおり無効。
      */
-    f32  cas_strength    = 0.0f;
+    f32  cas_strength    = 0.3f;
 
     /**
      * TAA (Temporal Anti-Aliasing) を有効にするか。
@@ -77955,6 +78116,47 @@ public:
      */
     void SetGroundColor(FVec3 c)    noexcept { m_Ground  = c; }
 
+    /**
+     * 手続き的な雲の量と濃さを設定する。
+     *
+     * @param coverage 雲量 (0=快晴、1=全天曇り)。
+     * @param density 雲の濃さ/輪郭の鋭さ (1=やわらか、2〜3=もくもく)。
+     */
+    void SetClouds(f32 coverage, f32 density = 1.6f) noexcept {
+        m_CloudCoverage = coverage < 0.0f ? 0.0f : (coverage > 1.0f ? 1.0f : coverage);
+        m_CloudDensity  = density  < 0.1f ? 0.1f : density;
+    }
+
+    /**
+     * 雲を描くかどうかを切り替える。
+     *
+     * @param on true で雲を描画 (既定 ON)。
+     */
+    void SetCloudsEnabled(bool on)  noexcept { m_bCloudsEnabled = on; }
+
+    /**
+     * 雲の基本色を設定する。
+     *
+     * @param c 雲の RGB 色 (太陽方向で明色に、濃い所は暗色に補間される)。
+     */
+    void SetCloudColor(FVec3 c)     noexcept { m_CloudColor = c; }
+
+    /**
+     * 雲が流れる速さを設定する。
+     *
+     * @param speed 風速 (0=静止、1=標準)。SetTime と併用してアニメする。
+     */
+    void SetCloudWind(f32 speed)    noexcept { m_CloudWind = speed; }
+
+    /**
+     * 雲アニメ用の時間を設定する (任意。決定論的に制御したいときだけ呼ぶ)。
+     *
+     * @details 呼ばなくても Render() が内部で時間を進めるので雲は流れる。毎フレーム
+     *          経過秒を渡すと、その値が当該フレームで優先される (リプレイ/スクショ向け)。
+     * @param seconds 起動からの経過秒など、単調増加する時間値。
+     */
+    void SetTime(f32 seconds)       noexcept { m_Time = seconds; }
+
     /** 昼空プリセットを適用する (青空 + 白い太陽)。 */
     void PresetDay()    noexcept;
 
@@ -78055,6 +78257,24 @@ private:
 
     /** 地面方向の RGB 色。 */
     FVec3 m_Ground     = FVec3{0.20f, 0.18f, 0.16f};
+
+    /** 雲を描画するか (既定 ON)。 */
+    bool m_bCloudsEnabled = true;
+
+    /** 雲量 (0=快晴、1=全天曇り)。 */
+    f32  m_CloudCoverage = 0.50f;
+
+    /** 雲の濃さ/輪郭の鋭さ。 */
+    f32  m_CloudDensity  = 1.6f;
+
+    /** 雲が流れる速さ。 */
+    f32  m_CloudWind     = 1.0f;
+
+    /** 雲アニメ用の時間 (SetTime で更新)。 */
+    f32  m_Time          = 0.0f;
+
+    /** 雲の基本 RGB 色。 */
+    FVec3 m_CloudColor   = FVec3{1.0f, 1.0f, 1.0f};
 };
 
 } // namespace acs
@@ -80089,24 +80309,11 @@ public:
      */
     void OnTextInput(u32 codepoint) noexcept override {
         if (!focused) return;
-        if (codepoint < 32) return;     // 制御文字無視 (ASCII)
-        // 簡易: ASCII 範囲だけサポート
-        if (codepoint > 0x7F) return;
-        char buf[2] = { static_cast<char>(codepoint), 0 };
-        const FString cur = text.Get();
-        // 末尾追加 (簡易、cursor 管理はしない)
-        const usize len = 0;  // FString の length getter が無いので空文字列扱い → 前の値の末尾追加は別途
-        (void)len;
-        // 仮実装: 単純連結
-        // ACS FString は AppendFormat 等あるが、ここでは新規 FString を作って差し替える
-        // Container/String.h の API に応じて要調整
-        char tmp[256];
-        const char* src = cur.Data() ? cur.Data() : "";
-        usize i = 0;
-        while (i + 2 < sizeof(tmp) && src[i]) { tmp[i] = src[i]; ++i; }
-        tmp[i++] = static_cast<char>(codepoint);
-        tmp[i]   = 0;
-        text.Set(FString{tmp});
+        if (codepoint < 32 || codepoint > 0x7F) return;  // ASCII 印字可能文字のみ (制御文字・非 ASCII は無視)
+        // 末尾に 1 文字追加する (cursor 管理はしない)。FString::Append で長さ制限なく伸ばせる。
+        FString s = text.Get();
+        s.Append(static_cast<char>(codepoint));
+        text.Set(s);
     }
     /**
      * フォーカス中の編集キーを処理する (現状 Backspace のみ)。
@@ -80117,15 +80324,14 @@ public:
      */
     void OnKey(i32 key, bool pressed_) noexcept override {
         if (!focused || !pressed_) return;
-        // Backspace = 0x08 (実装は ASCII 想定 backspace)
-        if (key == 0x08) {
-            const char* src = text.Get().Data();
-            if (!src || !*src) return;
-            char tmp[256] = {};
-            usize n = 0;
-            while (src[n]) { tmp[n] = src[n]; ++n; }
-            if (n > 0) tmp[n - 1] = 0;
-            text.Set(FString{tmp});
+        if (key == 0x08) {  // Backspace: 末尾 1 文字 (ASCII = 1 バイト) を削る
+            const FString cur = text.Get();
+            const usize n = cur.Size();
+            if (n == 0) return;
+            FString s;
+            const char* d = cur.Data();
+            for (usize i = 0; i + 1 < n; ++i) s.Append(d[i]);
+            text.Set(s);
         }
     }
 };
@@ -80212,6 +80418,15 @@ public:
      * @param color 文字色 (RGBA)。
      */
     void DrawText(const char* utf8, f32 x, f32 y, const FVec4& color) noexcept;
+
+    /**
+     * 既定フォントで UTF-8 文字列の描画幅 (px) を測る。
+     *
+     * @details caret 位置決め等に使う。フォント未設定 / 文字列 null なら 0 を返す。
+     * @param utf8 測定する UTF-8 文字列。
+     * @return 文字列の描画幅 (px)。
+     */
+    f32 MeasureText(const char* utf8) const noexcept;
 
     /**
      * テーマ色への const 参照を返す (Widget の Render が色を参照)。

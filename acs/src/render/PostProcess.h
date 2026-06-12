@@ -116,9 +116,10 @@ struct PostProcessParams {
      * CAS シャープニング (AMD FSR 簡略版) の強度。
      *
      * @details カラーグレーディング後 / gamma 前に適用。0=無効、0.3=subtle、0.6=neutral、
-     * 1.0=strong。負値は不可。
+     * 1.0=strong。負値は不可。既定で subtle に効かせ、見かけの解像感を上げる
+     * (HDR-aware なので白飛び域でも破綻しない)。0 にすれば従来どおり無効。
      */
-    f32  cas_strength    = 0.0f;
+    f32  cas_strength    = 0.3f;
 
     /**
      * TAA (Temporal Anti-Aliasing) を有効にするか。

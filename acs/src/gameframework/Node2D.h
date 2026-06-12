@@ -28,6 +28,8 @@
 namespace acs::game {
 
 class RenderContext;
+class FSceneServices;   // 非所有ポインタで参照 (include しない = ノードヘッダを軽く保つ)
+struct FMaterial2D;     // 使用マテリアル (効果プリセット)。実体は TUniquePtr で所有 (ヘッダを軽く保つ)
 
 /**
  * シーンの中身を表す唯一のノード (2D 専用)。
@@ -170,6 +172,73 @@ public:
     EChildDrawOrder ChildDrawOrder() const noexcept { return m_ChildOrder; }
 
     /**
+     * この node に焼き込んだマテリアル効果の状態 (SpriteBatch 型に依存しない軽量 POD)。
+     *
+     * @details Node2D.h を軽く保つため、効果プリセットの値だけをここに持つ
+     *          (ESpriteEffect の整数値 + パラメータ)。DrawTree が rc.Sprites().SetEffect へ渡す。
+     */
+    struct FMaterialState {
+        i32   kind     = 0;            ///< 0 = Lit/PBR, 1 = Effect。
+        bool  active   = false;        ///< マテリアルが設定されているか。
+        // --- Effect ---
+        i32   effect   = 0;            ///< ESpriteEffect の整数値 (0 = None)。
+        f32   strength = 1.0f;         ///< 主効果量。
+        f32   p0 = 0.0f, p1 = 0.0f, p2 = 0.0f;  ///< 補助パラメータ。
+        FVec4 color{ 1, 1, 1, 1 };     ///< 染め色 / 縁色。
+        bool  animated = false;        ///< true で描画時に MaterialClock() を time に流す。
+        // --- Lit (PBR) ---
+        FVec4 baseColor{ 1, 1, 1, 1 }; ///< アルベド tint + 不透明度。
+        f32   metallic = 0.0f, roughness = 0.5f, normalStrength = 1.0f, ao = 1.0f;
+        FVec3 emissive{ 0, 0, 0 };     ///< 自己発光色。
+        f32   emissiveStrength = 0.0f; ///< 発光強度。
+        void* normalTex = nullptr;     ///< 法線マップ (非所有 IRhiTexture*、シーンが所有)。null=平面。
+        // --- シェーディングモード + トゥーン ---
+        i32   shadingMode = 0;         ///< 0=PBR, 1=Toon。
+        FVec3 shadow1Color{ 0.55f, 0.52f, 0.62f }; f32 shadow1Threshold = 0.5f;
+        FVec3 shadow2Color{ 0.32f, 0.30f, 0.40f }; f32 shadow2Threshold = 0.2f;
+        FVec3 rimColor{ 1, 1, 1 };     f32 rimPower = 4.0f;
+        FVec3 specColor{ 1, 1, 1 };    f32 specThreshold = 0.85f;
+        f32   toonSoftness = 0.05f;
+        // --- Substrate 風 拡張ロブ (PBR のみ) ---
+        f32   clearcoat = 0.0f, clearcoatRoughness = 0.1f, anisotropy = 0.0f;
+        f32   specularLevel = 0.5f, specularTint = 0.0f;
+        f32   sheen = 0.0f, sheenRoughness = 0.3f;   FVec3 sheenColor{ 1, 1, 1 };
+        f32   subsurface = 0.0f;                       FVec3 subsurfaceColor{ 1.0f, 0.3f, 0.2f };
+    };
+
+    /**
+     * この node に使用マテリアル (効果プリセット) を設定する。
+     *
+     * @details
+     * DrawTree がこの node 自身の描画 (OnDraw + 自分の component の OnDraw) を効果で包む
+     * (子には及ばない = 各 node が自分のマテリアルを持つ)。アニメ付き効果は MaterialClock()
+     * を参照する。マテリアルの値はコピーして焼き込む。
+     * @param mat 設定するマテリアル。
+     */
+    void SetMaterial(const FMaterial2D& mat) noexcept;
+
+    /** 使用マテリアルを外す (効果なしに戻す)。 */
+    void ClearMaterial() noexcept { m_Mat.active = false; }
+
+    /** PBR マテリアルの法線マップ (非所有 IRhiTexture*) を設定する。シーンが所有・遅延ロードする。 */
+    void SetMaterialNormalTex(void* tex) noexcept { m_Mat.normalTex = tex; }
+
+    /** この node の使用マテリアルの法線マップパス長が 0 でないか (シーンの遅延ロード判定用)。 */
+    const FMaterialState& MaterialState() const noexcept { return m_Mat; }
+
+    /** マテリアルが設定されているか。 */
+    bool HasMaterial() const noexcept { return m_Mat.active; }
+
+    /** PBR (Lit) マテリアルが設定されているか (シーンのライト収集要否の判定用)。 */
+    bool IsLitMaterial() const noexcept { return m_Mat.active && m_Mat.kind == 0; }
+
+    /** 自分自身のオクルーダー番号を設定する (シーンの影収集が毎フレーム設定。-1=自分は影源でない)。
+     *  lit 描画時にこの番号のオクルーダーをスキップし、自スプライトの自己影 (リング/直線) を防ぐ。 */
+    void SetSelfOccluder(i32 k) noexcept { m_SelfOccluder = k; }
+    /** 自分自身のオクルーダー番号 (-1=無し)。 */
+    i32  SelfOccluder() const noexcept { return m_SelfOccluder; }
+
+    /**
      * この node の描画レイヤを設定する。
      *
      * @details 親が Layer/LayerThenY のとき兄弟ソートの第1キー。低いほど奥 (先に描画)。
@@ -221,6 +290,30 @@ public:
      */
     FNode2D* Child(u32 i) const noexcept {
         return i < m_Children.Size() ? m_Children[i].Get() : nullptr;
+    }
+
+    /**
+     * 直接の子 `child` を、子配列内のインデックス `to` の位置へ即時に移動する (兄弟の並べ替え)。
+     *
+     * @details エディタのヒエラルキーで兄弟順を入れ替える / 隙間へ挿入するのに使う。他の子の相対
+     * 順序は保たれる。`child` が直接の子でなければ false。`to` は配列サイズ-1 にクランプされる。
+     * 構造変更の予約ではなく即時適用 (描画/更新ループ外から呼ぶこと)。
+     * @param child 移動する直接の子。
+     * @param to 移動先インデックス。
+     * @return 移動したら true、`child` が子でなければ false。
+     */
+    bool MoveChild(FNode2D& child, u32 to) noexcept {
+        const u32 n = static_cast<u32>(m_Children.Size());
+        u32 from = n;
+        for (u32 i = 0; i < n; ++i) { if (m_Children[i].Get() == &child) { from = i; break; } }
+        if (from >= n) return false;
+        if (to >= n) to = n - 1;
+        if (from == to) return true;
+        TUniquePtr<FNode2D> moved = static_cast<TUniquePtr<FNode2D>&&>(m_Children[from]);
+        if (from < to) { for (u32 i = from; i < to; ++i) m_Children[i] = static_cast<TUniquePtr<FNode2D>&&>(m_Children[i + 1]); }
+        else           { for (u32 i = from; i > to; --i) m_Children[i] = static_cast<TUniquePtr<FNode2D>&&>(m_Children[i - 1]); }
+        m_Children[to] = static_cast<TUniquePtr<FNode2D>&&>(moved);
+        return true;
     }
 
     /**
@@ -303,6 +396,7 @@ public:
         ref->OnRequire(*this);
         m_Components.PushBack(TUniquePtr<FComponent2D>(comp.Release(), comp.GetAllocator()));
         ref->OnAttach(*this);
+        ref->_MaybeAttachServices(SceneServices());   // ツリーが既に services 配線済なら即 fire
         return *ref;
     }
 
@@ -377,11 +471,82 @@ public:
     }
 
     /**
+     * 全コンポーネントを除去する (各 OnDetach → 破棄)。Play 終了時のクリーンアップ等に使う。
+     */
+    void RemoveAllComponents() noexcept {
+        for (u32 i = 0; i < m_Components.Size(); ++i)
+            if (m_Components[i]) { m_Components[i]->OnDetach(); m_Components[i].Reset(); }
+        m_Components.Clear();
+    }
+
+    /**
      * attach 済みコンポーネントの数を返す。
      *
      * @return コンポーネント数。
      */
     u32 ComponentCount() const noexcept { return static_cast<u32>(m_Components.Size()); }
+
+    /**
+     * i 番目のコンポーネントを返す (型を知らない汎用列挙。範囲外は nullptr)。
+     *
+     * @details シリアライズ / Play モード等が `Kind()`/`ReflectName()` 越しに横断利用する。
+     * @param i コンポーネントのインデックス。
+     * @return i 番目のコンポーネント (範囲外なら nullptr)。
+     */
+    FComponent2D*       ComponentAt(u32 i)       noexcept {
+        return i < m_Components.Size() ? m_Components[i].Get() : nullptr;
+    }
+
+    /** i 番目のコンポーネントを返す (const 版)。 */
+    const FComponent2D* ComponentAt(u32 i) const noexcept {
+        return i < m_Components.Size() ? m_Components[i].Get() : nullptr;
+    }
+
+    /**
+     * 構築済みのコンポーネントを非テンプレートで attach する (factory 生成物の取り付けに使う)。
+     *
+     * @details
+     * AddComponent<T> はコンパイル時に型が要るため、reflection factory で生成した
+     * `TUniquePtr<FComponent2D>` を取り付けられない。これはその受け口。OnRequire→OnAttach の
+     * lifecycle は AddComponent と同じ。`comp` はエンジンアロケータ所有であること
+     * (CreateComponentByName が満たす)。
+     * @param comp 取り付けるコンポーネント (所有権が移る、非 null 前提)。
+     * @return attach したコンポーネントへの参照。
+     */
+    FComponent2D& AttachComponent(TUniquePtr<FComponent2D> comp) noexcept {
+        FComponent2D* ref = comp.Get();
+        ref->_SetOwner(this);
+        ref->OnRequire(*this);
+        m_Components.PushBack(Move(comp));
+        ref->OnAttach(*this);
+        ref->_MaybeAttachServices(SceneServices());   // ツリーが既に services 配線済なら即 fire
+        return *ref;
+    }
+
+    /**
+     * ツリーに配線された FSceneServices を返す (root まで遡る。未配線なら nullptr)。
+     *
+     * @details services は root ノードにのみ設定され、子は root まで歩いて解決する
+     * (m_Owner/m_Parent と同じ「親が pointee を生かす」非所有ポインタ規約)。
+     * @return 配線済み FSceneServices ポインタ (未配線は nullptr)。
+     */
+    FSceneServices* SceneServices() const noexcept;
+
+    /**
+     * services ポインタを設定する (内部用。root ノードでのみ意味を持つ)。
+     *
+     * @param svc 設定する FSceneServices (非所有、nullptr で解除)。
+     */
+    void _SetSceneServices(FSceneServices* svc) noexcept { m_Services = svc; }
+
+    /**
+     * root に services を設定し、subtree の全コンポーネントの OnAttachServices を一度発火する。
+     *
+     * @details ツリー構築完了後・services 生成後に 1 回呼ぶ (FScene2D / editor Play)。
+     * 既に発火済のコンポーネントは二重発火しない (各コンポーネントの内部フラグでガード)。
+     * @param svc 配線する FSceneServices。
+     */
+    void _ActivateServices(FSceneServices& svc) noexcept;
 
     /**
      * subtree 全体に可変刻み update を伝播する (root から呼ぶ)。
@@ -434,8 +599,18 @@ private:
     /** ローカル transform (真値。world は親から合成)。 */
     FTransform2D m_Local{};
 
+    /**
+     * subtree に services を発火だけする (ポインタは設定しない、_ActivateServices の再帰部)。
+     *
+     * @param svc 発火に使う FSceneServices ポインタ。
+     */
+    void _ActivateSubtreeServices(FSceneServices* svc) noexcept;
+
     /** 親ノード (root なら nullptr)。 */
     FNode2D*     m_Parent          = nullptr;
+
+    /** 配線された FSceneServices (root にのみ設定、非所有。子は walk-to-root で解決)。 */
+    FSceneServices* m_Services     = nullptr;
 
     /** 直接の子 (所有権を持つ)。 */
     TArray<TUniquePtr<FNode2D>>      m_Children;
@@ -457,6 +632,12 @@ private:
 
     /** 子の描画順モード。 */
     EChildDrawOrder m_ChildOrder   = EChildDrawOrder::Tree;
+
+    /** 使用マテリアル (効果プリセット) の焼き込み状態。active=false なら効果なし。 */
+    FMaterialState m_Mat;
+
+    /** 自分自身のオクルーダー番号 (シーンの影収集が毎フレーム設定。-1=影源でない)。自己影スキップ用。 */
+    i32 m_SelfOccluder = -1;
 
     /** 有効フラグ (false で subtree の update をスキップ)。 */
     bool        m_Enabled         = true;

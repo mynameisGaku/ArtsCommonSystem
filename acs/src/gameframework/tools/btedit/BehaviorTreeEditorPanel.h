@@ -88,6 +88,8 @@
 #include "container/Array.h"
 #include "foundation/Types.h"
 #include "gameframework/BehaviorTree.h"
+#include "gameframework/tools/btedit/BtActionRegistry.h"
+#include "gameframework/tools/btedit/BtCatalog.h"
 #include "gameframework/tools/editor_core/EditorPanel.h"
 
 namespace acs::game::btedit {
@@ -101,13 +103,51 @@ namespace acs::game::btedit {
  */
 enum class EBtKind : u8 {
     /** Selector composite (子を順に試し、最初に成功した子で成功)。 */
-    Selector = 0,
+    Selector  = 0,
 
     /** Sequence composite (子を順に実行し、最初に失敗した子で失敗)。 */
-    Sequence = 1,
+    Sequence  = 1,
 
-    /** Action leaf (関数を実行する末端ノード、子を持たない)。 */
-    Action   = 2,
+    /** Action leaf (関数を実行する末端ノード、子を持たない。条件/即時判定向き)。 */
+    Action    = 2,
+
+    /** Decorator (子を 1 つ持ち、その結果を deco op で変換する単子ノード)。 */
+    Decorator = 3,
+
+    /** Task leaf (関数を実行する末端ノード。Action と同じくレジストリ解決、"仕事"系)。 */
+    Task      = 4,
+};
+
+/**
+ * EBtKind が末端 leaf (Action / Task = 子を持たない実行ノード) かを返す。
+ *
+ * @details
+ * leaf はグラフ上で出力ポートを持たず、TickGraph ではレジストリ解決した関数を呼ぶ。
+ * Selector / Sequence (composite) と Decorator (単子) は非 leaf で子を持てる。
+ * @param k 判定する種別。
+ * @return Action または Task なら true。
+ */
+inline bool BtKindIsLeaf(EBtKind k) noexcept {
+    return k == EBtKind::Action || k == EBtKind::Task;
+}
+
+/**
+ * Decorator ノードの動作モード (kind==Decorator のときのみ意味を持つ)。
+ *
+ * @details
+ * 1 つの Decorator 種別の中で「結果変換」と「条件ガード」を切り替えるための区別。
+ * Transform は子の結果を deco op で変換、Condition/Compare は条件を評価し、true の
+ * ときだけ子を実行してその結果を返す (false なら子をスキップして Failure) ガード。
+ */
+enum class EBtDecoMode : u8 {
+    /** 子の結果を EBtDecoratorOp で変換する (Inverter / ForceSuccess / …)。 */
+    Transform = 0,
+
+    /** Condition レジストリの bool 関数 (ノード名で解決) で子をガードする。 */
+    Condition = 1,
+
+    /** ブラックボード変数と定数の比較 (var <op> const) で子をガードする。 */
+    Compare   = 2,
 };
 
 /**
@@ -271,6 +311,37 @@ public:
     void SetNodeStatus(u32 node_id, EBtStatus status) noexcept;
 
     /**
+     * Decorator node の変換 op を設定する (kind!=Decorator の node は no-op)。
+     *
+     * @details AddNode(EBtKind::Decorator, ...) で作った node に op を後付けするための API。
+     * @param node_id 対象 node の id。
+     * @param op 設定する変換 op (Inverter / ForceSuccess / ForceFailure / Repeat)。
+     * @return 設定できたら true (範囲外 / Decorator 以外は false)。
+     */
+    bool SetNodeDecoratorOp(u32 node_id, EBtDecoratorOp op) noexcept;
+
+    /**
+     * Decorator node の動作モードを設定する (kind!=Decorator は no-op)。
+     *
+     * @param node_id 対象 node の id。
+     * @param mode Transform / Condition / Compare。
+     * @return 設定できたら true (範囲外 / Decorator 以外は false)。
+     */
+    bool SetNodeDecoratorMode(u32 node_id, EBtDecoMode mode) noexcept;
+
+    /**
+     * Decorator node を Compare モードに設定し、比較条件 (var <op> const) を与える。
+     *
+     * @details mode を Compare に切り替え、var/op/rhs を設定する。kind!=Decorator は no-op。
+     * @param node_id 対象 node の id。
+     * @param var 比較する blackboard 変数名 (schema のキー)。
+     * @param op 比較演算子。
+     * @param rhs 比較定数 (右辺)。
+     * @return 設定できたら true (範囲外 / Decorator 以外は false)。
+     */
+    bool SetNodeCompare(u32 node_id, const char* var, EBtCompareOp op, f32 rhs) noexcept;
+
+    /**
      * メタミラーを全削除し、selection を解除する。
      *
      * @details BT 構造を組み直す前に呼ぶ。history / step counter / autorun は触らない (Reset を別途呼ぶ)。
@@ -300,6 +371,131 @@ public:
      * @param user callback の第一引数として戻すユーザポインタ。
      */
     void SetOnStepCallback(StepCallback cb, void* user) noexcept;
+
+    // ===== no-code 実行 (グラフを直接インタプリトする) =====
+
+    /**
+     * Action 名を関数へ解決するレジストリを設定する (no-code 実行を有効化)。
+     *
+     * @details 非 null をセットすると Step / Continuous はハンドビルドの FBehaviorTree では
+     *          なく「メタミラーのグラフを直接インタプリト」して実行する。Action ノードの
+     *          表示名をキーに registry から関数を引いて呼ぶ。null で従来動作に戻る。
+     * @param reg アクションレジストリ (非所有、null で解除)。
+     */
+    void SetActionRegistry(const FBtActionRegistry* reg) noexcept { m_Registry = reg; }
+
+    /**
+     * Condition デコレーター用の bool 関数レジストリを設定する (no-code 条件を有効化)。
+     *
+     * @details Condition モードの Decorator が、ノード名をキーに bool 関数を引いて子をガードする。
+     * @param reg 条件レジストリ (非所有、null で解除)。
+     */
+    void SetConditionRegistry(const FBtConditionRegistry* reg) noexcept { m_CondReg = reg; }
+
+    /**
+     * 比較条件用の blackboard スキーマを設定する (変数リンクを有効化)。
+     *
+     * @details Compare モードの Decorator が、変数名→(型・オフセット) を schema で解決して
+     *          BtCompareVar で値を読み、定数と比較する。エディタは変数候補の提示にも使う。
+     * @param schema blackboard スキーマ (非所有、null で解除)。
+     */
+    void SetBlackboardSchema(const FBtBlackboardSchema* schema) noexcept { m_Schema = schema; }
+
+    /**
+     * エディタ所有の動的ブラックボードを設定する (変数のエディタ編集を有効化)。
+     *
+     * @details
+     * 非 null をセットすると、エディタの Blackboard パネルで変数の追加 / リネーム /
+     * 削除 / 型変更 / 値編集ができ、Compare デコレーターは変数名をここから引いて評価する
+     * (offset スキーマより優先)。通常はこの動的 BB を SetGraphBlackboard にも渡し、
+     * Action/Condition 関数が同じインスタンスを名前アクセスする。
+     * @param bb 動的ブラックボード (非所有、null で解除)。
+     */
+    void SetDynamicBlackboard(FBtBlackboard* bb) noexcept { m_DynBb = bb; }
+
+    /** 設定済みの Condition レジストリを返す (UI 用、未設定は nullptr)。 */
+    const FBtConditionRegistry* ConditionRegistry() const noexcept { return m_CondReg; }
+
+    /** 設定済みの blackboard スキーマを返す (UI 用、未設定は nullptr)。 */
+    const FBtBlackboardSchema* BlackboardSchema() const noexcept { return m_Schema; }
+
+    /** 設定済みの動的ブラックボードを返す (UI 用、未設定は nullptr)。 */
+    FBtBlackboard* DynamicBlackboard() const noexcept { return m_DynBb; }
+
+    /**
+     * グラフインタプリト時に Action 関数へ渡す blackboard を設定する。
+     *
+     * @param bb ゲーム状態へのポインタ (非所有)。
+     */
+    void SetGraphBlackboard(void* bb) noexcept { m_GraphBb = bb; }
+
+    /** レジストリ設定済みで「グラフ直接実行」モードかを返す。 */
+    bool IsGraphRunnable() const noexcept { return m_Registry != nullptr; }
+
+    /**
+     * メタミラーのグラフを 1 tick 直接インタプリトする (selector/sequence/action 意味論)。
+     *
+     * @details 各ノードの last_status と visit_order を更新し、root status を履歴へ push する。
+     *          Action は registry から名前で引いた関数を blackboard 付きで呼ぶ。ゲーム側の
+     *          毎フレームループから直接呼べば、エディタにライブ実行フローが流れる。
+     * @param dt この tick の経過秒。
+     * @return root の status (root 不在/未解決は Failure)。
+     */
+    EBtStatus TickGraph(f32 dt) noexcept;
+
+    /**
+     * 現在のグラフをテキストファイルへ保存する。
+     *
+     * @param path 保存先パス。
+     * @return 成功なら true。
+     */
+    bool SaveGraph(const char* path) const noexcept;
+
+    /**
+     * テキストファイルからグラフを読み込む (既存ノードはクリアされる)。
+     *
+     * @param path 読み込み元パス。
+     * @return 成功なら true。
+     */
+    bool LoadGraph(const char* path) noexcept;
+
+    /**
+     * 現在のグラフを実行可能な FBehaviorTree ノードツリーへ bake する。
+     *
+     * @details
+     * メタミラーを walk し、Selector/Sequence/Action(Task)/Decorator(Transform) は core
+     * ランタイムノードへ、Condition/Compare デコレーターは btedit の FBtConditionNode /
+     * FBtCompareNode へ変換した 1 本のツリーを構築して返す。Action/Condition 名は
+     * 設定済みレジストリ (SetActionRegistry / SetConditionRegistry) で解決し、Compare の
+     * 変数は実行時に FBtBlackboard 名前アクセスで解決する。返り値を FBehaviorTree::SetRoot
+     * に渡せば、エディタ外 (通常のゲームループ) で `bt.Tick(&blackboard, dt)` として走らせられる。
+     * @return root ノード (root 不在なら空の TUniquePtr)。
+     */
+    TUniquePtr<FBtNode> BuildRuntimeTree() const noexcept;
+
+    // ===== undo / redo (ユーザ操作。ホストがメニュー/ツールバーに束縛してもよい) =====
+
+    /** 1 手戻す (undo 履歴が空なら no-op)。 */
+    void Undo() noexcept;
+
+    /** 1 手やり直す (redo 履歴が空なら no-op)。 */
+    void Redo() noexcept;
+
+    /** undo 可能か。 */
+    bool CanUndo() const noexcept { return !m_UndoStack.IsEmpty(); }
+
+    /** redo 可能か。 */
+    bool CanRedo() const noexcept { return !m_RedoStack.IsEmpty(); }
+
+    /**
+     * 現在のグラフ状態を undo 履歴へ明示的にコミットする (チェックポイント)。
+     *
+     * @details
+     * 通常は DrawUI 内の自動追跡 (編集確定時) でコミットされるが、ホストがバッチ操作の
+     * 前に明示チェックポイントを打ちたい場合や、ImGui frame を回さずにプログラム的に
+     * 編集して undo 単位を区切りたい場合に使う。初回は baseline 初期化のみ。
+     */
+    void PushUndoCheckpoint() noexcept;
 
     /**
      * ImGui::Begin に渡す window タイトルを返す。
@@ -344,14 +540,58 @@ private:
         /** 親 node の id (root は kInvalidId)。 */
         u32         parent_id   = kInvalidId;
 
-        /** node 種別 (Selector / Sequence / Action)。 */
+        /** node 種別 (Selector / Sequence / Action / Decorator / Task)。 */
         EBtKind     kind        = EBtKind::Action;
+
+        /** kind==Decorator のときの変換 op (decoMode==Transform でのみ使用)。 */
+        EBtDecoratorOp deco     = EBtDecoratorOp::Inverter;
+
+        /** kind==Decorator の動作モード (Transform / Condition / Compare)。 */
+        EBtDecoMode    decoMode = EBtDecoMode::Transform;
+
+        /** decoMode==Compare の比較対象 blackboard 変数名 (schema のキー)。 */
+        char           var[48]  = { 0 };
+
+        /** decoMode==Compare の比較演算子。 */
+        EBtCompareOp   cmpOp    = EBtCompareOp::Less;
+
+        /** decoMode==Compare の比較定数 (右辺)。 */
+        f32            cmpRhs   = 0.0f;
 
         /** ImGui 表示名 (リテラル / 永続領域、非所有)。 */
         const char* name        = nullptr;
 
         /** 直近の tick での status (初期値 Failure)。 */
         EBtStatus   last_status = EBtStatus::Failure;
+
+        /** エディタで付けた名前 (空なら name を使う)。エディタ作成/リネーム用。 */
+        char        ename[48]   = { 0 };
+
+        /** グラフ canvas 上の位置 (world 座標。auto-layout / ドラッグで決まる)。 */
+        f32         x           = 0.0f;
+        f32         y           = 0.0f;
+
+        /** false = 削除済み (tombstone)。id==index を保つため配列からは消さない。 */
+        bool        alive       = true;
+
+        /** 直近 tick でこのノードが訪問された順番 (0=未訪問。実行フロー可視化用)。 */
+        u32         visit_order = 0u;
+    };
+
+    /**
+     * undo/redo 用のグラフ状態スナップショット (ノード配列 + 動的 BB のコピー)。
+     *
+     * @details TArray はコピー不可なので move-only。要素 (NodeMeta) は値コピーで詰める。
+     */
+    struct GraphSnapshot {
+        /** ノード配列のコピー。 */
+        TArray<NodeMeta> nodes;
+
+        /** 動的ブラックボードのコピー (hasBb のときのみ有効)。 */
+        FBtBlackboard    bb;
+
+        /** bb が有効か (m_DynBb 設定時に true)。 */
+        bool             hasBb = false;
     };
 
     /**
@@ -372,6 +612,86 @@ private:
      * @param depth 表示インデント兼暴走防止用の再帰深度。
      */
     void DrawTreeRecursive(u32 node_id, u32 depth) noexcept;
+
+    /** ノードグラフ canvas を描画 + 操作 (pan/zoom/ドラッグ/追加/接続/削除)。 */
+    void DrawGraph() noexcept;
+
+    /**
+     * 「ノード追加」メニュー項目群を描画する (popup / submenu 内から共通利用)。
+     *
+     * @details
+     * Selector / Sequence / Decorator(op) / Condition(catalog) / Compare / Task(catalog) /
+     * Task / Action を列挙し、選択で AddNodeGraph する。catalog 系は登録済み name を一覧する。
+     * @param parent_id 追加先の親 (kInvalidId で root)。
+     * @param wx,wy 配置 world 座標。
+     */
+    void DrawAddMenu(u32 parent_id, f32 wx, f32 wy) noexcept;
+
+    /** tree 構造から各 node の x,y を自動配置する (tidy layout)。 */
+    void AutoLayout() noexcept;
+
+    /** node の表示名を返す (ename が空でなければそれ、無ければ name)。 */
+    const char* DisplayName(const NodeMeta& n) const noexcept;
+
+    /**
+     * エディタからノードを追加する (グラフ上に配置)。
+     *
+     * @param kind 種別。
+     * @param parent_id 親 (kInvalidId で root)。
+     * @param wx,wy 配置 world 座標。
+     * @return 払い出した id (上限到達は kInvalidId)。
+     */
+    u32  AddNodeGraph(EBtKind kind, u32 parent_id, f32 wx, f32 wy) noexcept;
+
+    /** ノードを tombstone 削除し、子を祖父へ付け替える。 */
+    void DeleteNodeGraph(u32 id) noexcept;
+
+    /** maybe_ancestor が node の祖先 (自分含む) かを返す (循環接続ガード用)。 */
+    bool IsAncestor(u32 maybe_ancestor, u32 node) const noexcept;
+
+    /**
+     * グラフ 1 ノードを再帰インタプリトする (TickGraph の本体)。
+     *
+     * @param id ノード id。
+     * @param dt 経過秒。
+     * @param guard 再帰深度ガード。
+     * @return このノードの status。
+     */
+    EBtStatus TickGraphNode(u32 id, f32 dt, u32 guard) noexcept;
+
+    /**
+     * id の生存子を x 座標 (= 左→右の見た目順) に並べて out へ集める。
+     *
+     * @param id 親ノード id。
+     * @param out 子 id の出力先 (最大 cap 個)。
+     * @param cap out の容量。
+     * @return 集めた子の数。
+     */
+    u32 CollectChildrenSorted(u32 id, u32* out, u32 cap) const noexcept;
+
+    /**
+     * メタミラー 1 ノードを実行可能な FBtNode へ再帰変換する (BuildRuntimeTree の本体)。
+     *
+     * @param id 変換するノード id。
+     * @param guard 再帰深度ガード。
+     * @return 構築した FBtNode (不正/未解決は空の TUniquePtr)。
+     */
+    TUniquePtr<FBtNode> BuildRuntimeNode(u32 id, u32 guard) const noexcept;
+
+    /** 現在のグラフ状態 (ノード + 動的 BB) を out へコピーする (undo 用)。 */
+    void CaptureSnapshot(GraphSnapshot& out) const noexcept;
+
+    /** スナップショットから現在のグラフ状態を復元する (selection 等はリセット)。 */
+    void RestoreSnapshot(const GraphSnapshot& s) noexcept;
+
+    /** 現在のグラフ状態の変更検出用シグネチャ (ノード + 動的 BB を畳み込む)。 */
+    u64 GraphSignature() const noexcept;
+
+    /** 毎フレーム呼び、編集が「確定」したら baseline を undo stack へ積む。 */
+    void UpdateUndoTracking() noexcept;
+
+    /** 現在の baseline を undo stack へ積み、baseline を現在状態へ更新する (redo はクリア)。 */
+    void CommitBaseline() noexcept;
 
     /**
      * status を ImGui 文字色 (RGBA float) に変換するヘルパ。
@@ -414,6 +734,69 @@ private:
 
     /** StepCallback に渡すユーザポインタ。 */
     void*         m_StepUser    = nullptr;
+
+    // ===== ノードグラフ表示の状態 =====
+    /** グラフ表示モード (false = 従来のツリーリスト表示)。 */
+    bool m_GraphMode  = true;
+
+    /** auto-layout 済みフラグ (node 構成が変わると false に戻して再配置)。 */
+    bool m_DidLayout  = false;
+
+    /** canvas のパン (スクリーン px) とズーム。 */
+    f32  m_PanX       = 40.0f;
+    f32  m_PanY       = 40.0f;
+    f32  m_Zoom       = 1.0f;
+
+    /** ドラッグ中ノード (kInvalidId = なし)。 */
+    u32  m_DragNode   = kInvalidId;
+
+    /** 接続ドラッグの元ノード (出力ポートから引く、kInvalidId = なし)。 */
+    u32  m_LinkSrc    = kInvalidId;
+
+    /** 右クリックメニューの対象ノード。 */
+    u32  m_CtxNode    = kInvalidId;
+
+    /** 空所での左ドラッグによるパン中フラグ。 */
+    bool m_PanningBg  = false;
+
+    /** Add ポップアップで配置する world 座標。 */
+    f32  m_AddX       = 0.0f;
+    f32  m_AddY       = 0.0f;
+
+    // ===== no-code 実行 / 実行フロー可視化 =====
+    /** Action 名→関数のレジストリ (非所有、非 null でグラフ直接実行モード)。 */
+    const FBtActionRegistry* m_Registry = nullptr;
+
+    /** Condition 名→bool 関数のレジストリ (非所有、Condition デコレーター用)。 */
+    const FBtConditionRegistry* m_CondReg = nullptr;
+
+    /** blackboard 変数スキーマ (非所有、offset 参照型。Compare / 変数候補提示用)。 */
+    const FBtBlackboardSchema* m_Schema = nullptr;
+
+    /** エディタ所有の動的ブラックボード (非所有、Compare 優先解決 + 変数のエディタ編集用)。 */
+    FBtBlackboard* m_DynBb = nullptr;
+
+    /** グラフ実行時に Action へ渡す blackboard (非所有)。 */
+    void* m_GraphBb   = nullptr;
+
+    /** 直近 tick の訪問順カウンタ (visit_order 採番用)。 */
+    u32   m_VisitSeq  = 0u;
+
+    // ===== undo / redo =====
+    /** undo スタック (古い→新しい順。top が直前の確定状態)。 */
+    TArray<GraphSnapshot> m_UndoStack;
+
+    /** redo スタック (undo で押し戻された状態)。 */
+    TArray<GraphSnapshot> m_RedoStack;
+
+    /** 現在の確定状態のスナップショット (変更検出の基準)。 */
+    GraphSnapshot m_UndoBaseline;
+
+    /** m_UndoBaseline のシグネチャ (現在状態と比較して変更を検出)。 */
+    u64  m_BaselineSig = 0u;
+
+    /** baseline 初期化済みか (最初の DrawUI で 1 度キャプチャ)。 */
+    bool m_UndoInit    = false;
 };
 
 } // namespace acs::game::btedit

@@ -192,6 +192,24 @@ public:
     bool HasBounds() const noexcept { return m_HasBounds; }
 
     /**
+     * デッドゾーン (追従しない箱) を設定する。target が camera 周りの ±half_extents 内に
+     * いる間はカメラを動かさず、箱を出たら target を箱の縁に保つよう追従する (プラットフォーマ向け)。
+     *
+     * @param half_extents カメラ中心からの箱の半サイズ (x/y)。
+     */
+    void SetDeadzone(FVec2 half_extents) noexcept { m_Deadzone = half_extents; m_HasDeadzone = true; }
+
+    /** デッドゾーンを解除する (中心追従に戻る)。 */
+    void ClearDeadzone() noexcept { m_HasDeadzone = false; }
+
+    /**
+     * デッドゾーンが有効かを返す。
+     *
+     * @return 有効なら true。
+     */
+    bool HasDeadzone() const noexcept { return m_HasDeadzone; }
+
+    /**
      * 画面ピクセル座標を world 座標へ変換する。
      *
      * @details 画面中心を view center、zoom > 1 で拡大、rotation を逆回転して合成する。
@@ -248,12 +266,24 @@ public:
         if (dt < 0.0f) dt = 0.0f;
         // 1) target follow (framerate-independent exponential smoothing)
         if (m_HasTarget) {
+            // デッドゾーン: target が箱の中なら現状維持、外なら target を箱の縁に保つ位置を狙う。
+            FVec2 eff = m_TargetPos;
+            if (m_HasDeadzone) {
+                const f32 dx = m_TargetPos.x - m_Position.x;
+                const f32 dy = m_TargetPos.y - m_Position.y;
+                const f32 ax = dx < 0.0f ? -dx : dx;
+                const f32 ay = dy < 0.0f ? -dy : dy;
+                eff.x = (ax > m_Deadzone.x) ? (m_TargetPos.x - (dx > 0.0f ? m_Deadzone.x : -m_Deadzone.x))
+                                            : m_Position.x;
+                eff.y = (ay > m_Deadzone.y) ? (m_TargetPos.y - (dy > 0.0f ? m_Deadzone.y : -m_Deadzone.y))
+                                            : m_Position.y;
+            }
             if (m_Smoothing <= 0.0f) {
-                m_Position = m_TargetPos;
+                m_Position = eff;
             } else {
                 const f32 t = 1.0f - Exp(-m_Smoothing * dt);
-                m_Position.x += (m_TargetPos.x - m_Position.x) * t;
-                m_Position.y += (m_TargetPos.y - m_Position.y) * t;
+                m_Position.x += (eff.x - m_Position.x) * t;
+                m_Position.y += (eff.y - m_Position.y) * t;
             }
         }
         // 2) bounds clamp
@@ -314,6 +344,12 @@ private:
 
     /** bounds clamp が有効かどうか。 */
     bool m_HasBounds       = false;
+
+    /** デッドゾーン箱の半サイズ (カメラ中心から)。 */
+    FVec2 m_Deadzone       {0.0f, 0.0f};
+
+    /** デッドゾーンが有効かどうか。 */
+    bool m_HasDeadzone     = false;
 };
 
 } // namespace acs::game

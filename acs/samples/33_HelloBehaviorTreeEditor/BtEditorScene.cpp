@@ -22,34 +22,47 @@ void BtEditorScene::OnEnter() noexcept {
     // editor らしいニュートラルグレー (background は ImGui がほぼ覆う)。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
 
-    // panel 初期化 (順序: Init → AddNode 構造登録 → SetTree → SetCallback)。
     m_Panel.Init();
 
-    // panel に「メタミラー node 構造」を登録、続けて同形の実 BT を組む。
-    // この 2 つは 1:1 対応で組むことで、Action Fn からの panel.SetNodeStatus
-    // 呼び出しが正しい node に着地する。
-    BuildPanelMirror(m_Panel, m_Bb);
-    BuildBehaviorTree(m_Bt);
+    // (1) 動的ブラックボードに変数を用意する。これらはエディタの Blackboard パネルから
+    //     追加 / リネーム / 値編集でき、Compare デコレーターの変数候補にもなる。
+    //     ・see_phase : CanSeePlayer が毎 tick 進める位相 (コード駆動)。
+    //     ・health    : コードは触らない体力値。エディタで poke して条件を試す。
+    m_Bb.Add("see_phase", EBtVarType::I32);
+    m_Bb.Add("health",    EBtVarType::F32);
+    m_Bb.SetF32("health", 100.0f);
 
-    // panel に観察対象 BT + callback を登録。
-    m_Bb.panel = &m_Panel;
-    m_Panel.SetTree(&m_Bt);
-    m_Panel.SetOnStepCallback(&StepCallbackFn, &m_Bb);
+    // (2) no-code 実行を有効化する。Task/Action 名 → 関数、Condition 名 → bool 関数を
+    //     registry に登録し、動的ブラックボードと共に panel へ渡す。これで Step /
+    //     Continuous は「エディタのグラフを直接インタプリト」して実行し、実行フローが
+    //     ライブで光る。Compare デコレーターは動的変数を名前で読んで評価する。
+    m_Reg.Register("Pickup", &ActionPickup);
+    m_Reg.Register("Move",   &ActionMove);
+    m_Reg.Register("Wait",   &ActionWait);
+    m_Reg.Register("Attack", &ActionAttack);
+    m_Cond.Register("CanSeePlayer", &CanSeePlayer);
 
-    // 起動時 selection を root に向けておく
-    // (UX: 最初から Inspector に情報が見えるように)。
-    m_Panel.SelectNode(m_Bb.id_root);
+    m_Panel.SetActionRegistry(&m_Reg);
+    m_Panel.SetConditionRegistry(&m_Cond);
+    m_Panel.SetDynamicBlackboard(&m_Bb);   // エディタで変数編集できる動的 BB
+    m_Panel.SetGraphBlackboard(&m_Bb);     // Action/Condition 関数に渡す同一インスタンス
+
+    // (3) エディタのグラフ (メタミラー) を構築し、root を選択しておく。
+    const u32 root = BuildPanelMirror(m_Panel);
+    m_Panel.SelectNode(root);
 
     // 起動時は Continuous (autorun) ON にして、すぐにアニメーションを見せる。
     m_Panel.SetAutorun(true);
 
-    ACS_LOG_INFO("[BtEditor] entered (BT: Selector{Seq{Pickup,Move},Seq{Wait,Attack}})");
+    ACS_LOG_INFO("[BtEditor] entered (graph-run + dynamic blackboard)");
 }
 
 void BtEditorScene::OnExit() noexcept {
-    // 順序: callback 解除 → SetTree(nullptr) → Shutdown。
-    m_Panel.SetOnStepCallback(nullptr, nullptr);
-    m_Panel.SetTree(nullptr);
+    // registry / blackboard を解除してから Shutdown。
+    m_Panel.SetActionRegistry(nullptr);
+    m_Panel.SetConditionRegistry(nullptr);
+    m_Panel.SetDynamicBlackboard(nullptr);
+    m_Panel.SetGraphBlackboard(nullptr);
     m_Panel.Shutdown();
 
     ACS_LOG_INFO("[BtEditor] exited");
@@ -75,16 +88,26 @@ void BtEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Reset Tree", "R")) {
-                // bb 進捗カウンタを 0 に戻し、panel 側も Reset (= step counter /
-                // history / 全 status を初期化)。メタミラーと autorun は維持。
-                m_Bb.counter_move = 0;
-                m_Bb.counter_wait = 0;
+                // 動的変数を初期値へ、panel 側も Reset (= step counter / history /
+                // 全 status を初期化)。メタミラーと autorun は維持。
+                m_Bb.SetI32("see_phase", 0);
+                m_Bb.SetF32("health", 100.0f);
                 m_Panel.Reset();
                 ACS_LOG_INFO("[BtEditor] Reset Tree");
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Quit", "Esc")) {
                 GetGame().Quit();
+            }
+            ImGui::EndMenu();
+        }
+        // Window メニュー: パネルの × で閉じた後に再表示するための導線。
+        // (panel.DrawUI は IsVisible() false で何も描かないので、ここで戻せないと
+        //  一度閉じたパネルが二度と出せなくなる = 「× が効かない」体験になる。)
+        if (ImGui::BeginMenu("Window")) {
+            bool vis = m_Panel.IsVisible();
+            if (ImGui::MenuItem("Behavior Tree Editor", nullptr, &vis)) {
+                m_Panel.SetVisible(vis);
             }
             ImGui::EndMenu();
         }

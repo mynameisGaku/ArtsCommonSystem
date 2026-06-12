@@ -123,3 +123,18 @@
 #define ACS_NOTREACHED()                                                        \
     ::acs::FPanic(::acs::FSourceLoc::Current(), "<not reached>",                  \
                  "supposedly unreachable code was reached")
+
+// =============================================================================
+// Unreal 互換の小文字エイリアス — checkf
+// -----------------------------------------------------------------------------
+//   checkf(expr, fmt, ...) == ACS_CHECKF(expr, fmt, ...)  (常時有効・メッセージ付き)
+//
+// Unreal から来た人が手癖で書けるように用意する。
+// ※ bare `check` / `verify` はあえて提供しない: これらは一般的な識別子
+//   (ローカル関数・変数名) と衝突するため (例: tests が check(p, sz, sd) を使用)。
+//   メッセージ無しの常時検査は ACS_CHECK を、debug 検査は ACS_VERIFY を直接使う。
+//   `checkf` は十分に珍しい綴りなので衝突しにくく、グローバルに提供する。
+// =============================================================================
+#ifndef checkf
+    #define checkf(expr, fmt, ...)      ACS_CHECKF(expr, fmt, ##__VA_ARGS__)
+#endif

@@ -113,6 +113,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
     float2 hit_uv = float2(0, 0);
     bool   hit = false;
+    float  hitFrac = 0.0;          // marchMax に対する到達割合 (距離フェード用)
     [loop]
     for (float i = 0.0; i < marchMax; i += 1.0) {
         // ===== Hi-Z skip-ahead =====
@@ -163,8 +164,9 @@ float4 PSMain(VSOut v) : SV_TARGET {
         if (within) {
             // 起点至近の交差は self-reflection なので除外
             if (distance(scene_wp, wp) > 0.05) {
-                hit    = true;
-                hit_uv = uv_s;
+                hit     = true;
+                hit_uv  = uv_s;
+                hitFrac = i / marchMax;
                 break;
             }
             continue;                                  // self-hit → 行進継続
@@ -177,7 +179,10 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // 画面端フェード (反射先が画面端に近いほど薄める)
     float2 d2e       = min(hit_uv, 1.0 - hit_uv);
     float  edge_fade = saturate(min(d2e.x, d2e.y) * 8.0);
-    return float4(hit_color * params.x * edge_fade, 1.0);
+    // 距離フェード: 遠くまで march した反射ほど薄める。長い反射の急な打ち切りや
+    // 量子化ノイズを目立たなくし、広い水面で反射が不自然に途切れない。
+    float  dist_fade = saturate(1.0 - hitFrac * hitFrac);
+    return float4(hit_color * params.x * edge_fade * dist_fade, 1.0);
 }
 )";
 

@@ -12,8 +12,8 @@ using namespace acs;
 
 namespace helloibl {
 
-namespace {
-
+// HUD の各 overlay helper は HelloIblApp の private を直接触るため friend 宣言済み
+// (HelloIblApp.h)。匿名名前空間に入れると friend 一致しなくなるので namespace 直下に置く。
 void DrawBrdfLutOverlay(HelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
     if (!lut) return;
     app.m_Batch.DrawRect(static_cast<f32>(sw) - 280, 20,
@@ -119,8 +119,6 @@ void DrawStatusText(HelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
                               static_cast<f32>(sw) - 265, 308, FVec4{0.85f, 0.85f, 0.85f, 1});
     }
 }
-
-} // anonymous namespace
 
 void DrawHud(HelloIblApp& app, u32 sw, u32 sh) noexcept {
     IRhiCommandList* cl = app.GetRenderer().CommandList();

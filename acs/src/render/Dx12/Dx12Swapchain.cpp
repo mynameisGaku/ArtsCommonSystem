@@ -18,8 +18,9 @@ HrResult Dx12Swapchain::Init(Dx12Device& device, const SwapchainConfig& cfg) noe
     m_Device = &device;
     m_BufferCount = (cfg.buffer_count >= 2 && cfg.buffer_count <= kMaxBuffers) ? cfg.buffer_count : 2;
     m_bVsync = cfg.vsync;
-    m_Width  = cfg.window ? cfg.window->Width()  : 0;
-    m_Height = cfg.window ? cfg.window->Height() : 0;
+    // window 優先、無ければ external_hwnd（エディタ等が用意した生 HWND）を使う。
+    m_Width  = cfg.window ? cfg.window->Width()  : cfg.external_width;
+    m_Height = cfg.window ? cfg.window->Height() : cfg.external_height;
 
     // スワップチェイン記述
     DXGI_SWAP_CHAIN_DESC1 sd{};
@@ -35,7 +36,8 @@ HrResult Dx12Swapchain::Init(Dx12Device& device, const SwapchainConfig& cfg) noe
     sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 
     IDXGISwapChain1* sc1 = nullptr;
-    const HWND hwnd = cfg.window ? static_cast<HWND>(cfg.window->NativeHandle()) : nullptr;
+    const HWND hwnd = cfg.window ? static_cast<HWND>(cfg.window->NativeHandle())
+                                 : static_cast<HWND>(cfg.external_hwnd);
     if (!hwnd) { r.hr = E_INVALIDARG; return r; }
 
     r.hr = device.DxgiFactory()->CreateSwapChainForHwnd(

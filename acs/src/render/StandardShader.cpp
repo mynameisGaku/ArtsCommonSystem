@@ -325,6 +325,8 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     pd.texture_names[0] = "albedo";
     pd.texture_names[1] = "shadow_map";
     pd.static_sampler_count = 2;
+    // albedo は Linear。異方性 (Anisotropic) は mip チェーンが無いと実質 bilinear で
+    // 効果が出ないため、アルベドの自動 mip 生成を入れるまでは Linear のままにする。
     pd.static_samplers[0].filter    = ESamplerFilter::Linear;
     pd.static_samplers[0].address_u = ESamplerAddress::Wrap;
     pd.static_samplers[0].address_v = ESamplerAddress::Wrap;

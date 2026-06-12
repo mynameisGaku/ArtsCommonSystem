@@ -124,6 +124,16 @@ public:
      */
     void DrawCross(FVec2 pos, f32 size, FVec4 color) noexcept;
 
+    /**
+     * a→b の矢印 (軸 1 本 + 矢じり 2 本 = 計 3 線) を蓄積する。速度/法線ベクトルの可視化に使う。
+     *
+     * @param a 矢印の始点。
+     * @param b 矢印の終点 (矢じりが付く)。
+     * @param color 線分の RGBA 色。
+     * @param head_len 矢じりの長さ (0 で軸長の 20%)。
+     */
+    void DrawArrow(FVec2 a, FVec2 b, FVec4 color, f32 head_len = 0.0f) noexcept;
+
     /** 蓄積した線分をクリアする (容量は保持)。フレーム頭か描画消費後に呼ぶ。 */
     void Clear() noexcept { m_Lines.Clear(); }
 

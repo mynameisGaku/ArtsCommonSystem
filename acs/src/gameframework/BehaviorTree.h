@@ -70,6 +70,7 @@
 
 #include "foundation/Types.h"
 #include "foundation/Move.h"
+#include "foundation/Cast.h"      // ACS_RTTI_* / Cast<T> (RTTI 不使用のノード型判定)
 #include "memory/UniquePtr.h"
 #include "container/Array.h"
 
@@ -88,6 +89,96 @@ enum class EBtStatus : u8 {
     /** このノードは失敗 (composite が次へ進める判断材料)。 */
     Failure = 2,
 };
+
+/**
+ * FBtDecorator が子の結果をどう変換するか。
+ *
+ * @details
+ * decorator は子を 1 つだけ持ち、その Tick 結果に下記の変換を施す。Running は
+ * いずれの op でも素通し (子がまだ進行中なら decorator も進行中) する規約で統一する。
+ * editor 側 (btedit) のメタミラーも本 enum を共有する (= 単一の真実点)。
+ */
+enum class EBtDecoratorOp : u8 {
+    /** 子の Success↔Failure を反転する (Running は素通し)。条件の否定に使う。 */
+    Inverter     = 0,
+
+    /** 子が Failure でも Success に倒す (Running は素通し)。任意分岐を必ず成功扱い。 */
+    ForceSuccess = 1,
+
+    /** 子が Success でも Failure に倒す (Running は素通し)。常に失敗させる。 */
+    ForceFailure = 2,
+
+    /** 子が Success を返したら Running に変えて繰り返させる (Failure/Running は素通し)。 */
+    Repeat       = 3,
+};
+
+/**
+ * 子の status に decorator op を適用する純関数 (Running は全 op 素通し)。
+ *
+ * @details
+ * FBtDecorator::Tick と editor (btedit) のグラフインタプリタが同じ意味論を共有する
+ * ための単一実装。runtime とエディタの decorator 挙動が乖離しないことを保証する。
+ * @param op 適用する変換種別。
+ * @param child 子ノードの Tick 結果。
+ * @return 変換後の status。
+ */
+EBtStatus ApplyDecorator(EBtDecoratorOp op, EBtStatus child) noexcept;
+
+/**
+ * blackboard 変数の型 (no-code 比較条件 / スキーマで使う基本スカラ型)。
+ *
+ * @details
+ * ブラックボード上のフィールドをエディタから「名前 + 型 + オフセット」で参照し、
+ * 値を f32 に正規化して定数と比較するための最小型集合。pointer/struct は対象外。
+ */
+enum class EBtVarType : u8 {
+    /** bool (1 byte)。0=false / 非0=true。 */
+    Bool = 0,
+    /** 32bit 符号付き整数。 */
+    I32  = 1,
+    /** 32bit 浮動小数。 */
+    F32  = 2,
+};
+
+/**
+ * 比較条件の演算子 (variable <op> constant)。
+ */
+enum class EBtCompareOp : u8 {
+    Less      = 0, /**< <  */
+    LessEq    = 1, /**< <= */
+    Equal     = 2, /**< == */
+    NotEqual  = 3, /**< != */
+    GreaterEq = 4, /**< >= */
+    Greater   = 5, /**< >  */
+};
+
+/**
+ * blackboard の指定フィールドを定数と比較する純関数 (no-code 比較条件の評価本体)。
+ *
+ * @details
+ * `bb` を char* とみなして `offset` バイト先を `type` で読み、f32 に正規化して
+ * `rhs` と `op` で比較する。bb が null の場合は false。Equal/NotEqual は f32 では
+ * 厳密一致になりがちな点に注意 (整数/bool 比較で使う想定)。editor インタプリタと
+ * (将来の) runtime 条件ノードが同じ意味論を共有するための単一実装。
+ * @param bb     ブラックボード先頭ポインタ (user 構造体)。
+ * @param offset bb 先頭からのバイトオフセット。
+ * @param type   読み取る型。
+ * @param op     比較演算子。
+ * @param rhs    比較対象の定数 (f32 に正規化済み)。
+ * @return 比較結果 (bb が null なら false)。
+ */
+bool BtCompareVar(const void* bb, u32 offset, EBtVarType type, EBtCompareOp op, f32 rhs) noexcept;
+
+/**
+ * f32 同士を比較演算子で比べる純関数 (比較条件のスカラ比較本体)。
+ *
+ * @details BtCompareVar と editor の動的ブラックボード比較が共有する単一実装。
+ * @param lhs 左辺 (変数値を f32 に正規化したもの)。
+ * @param op  比較演算子。
+ * @param rhs 右辺の定数。
+ * @return 比較結果。
+ */
+bool BtCompareF32(f32 lhs, EBtCompareOp op, f32 rhs) noexcept;
 
 /**
  * 全 BT ノードの抽象基底。
@@ -114,6 +205,9 @@ public:
     /** ムーブ代入も禁止。 */
     FBtNode& operator=(FBtNode&&)      = delete;
 
+    // RTTI 不使用の型判定 (Cast<FBtSelector>(node) 等を可能にする)。階層のルート。
+    ACS_RTTI_ROOT(FBtNode)
+
     /**
      * 1 フレーム分の評価を行う。
      *
@@ -133,6 +227,8 @@ public:
  */
 class FBtSelector : public FBtNode {
 public:
+    ACS_RTTI(FBtSelector, FBtNode)
+
     /** 空の selector を構築する。 */
     FBtSelector() noexcept = default;
 
@@ -176,6 +272,8 @@ private:
  */
 class FBtSequence : public FBtNode {
 public:
+    ACS_RTTI(FBtSequence, FBtNode)
+
     /** 空の sequence を構築する。 */
     FBtSequence() noexcept = default;
 
@@ -219,6 +317,8 @@ private:
  */
 class FBtAction : public FBtNode {
 public:
+    ACS_RTTI(FBtAction, FBtNode)
+
     /** leaf が呼ぶ評価関数の型。 */
     using Fn = EBtStatus(*)(void* blackboard, f32 dt) noexcept;
 
@@ -244,6 +344,63 @@ public:
 private:
     /** 評価に使う関数ポインタ (未設定なら nullptr)。 */
     Fn m_Fn = nullptr;
+};
+
+/**
+ * 子を 1 つだけ持ち、その結果を EBtDecoratorOp で変換する装飾ノード。
+ *
+ * @details
+ * Inverter / ForceSuccess / ForceFailure / Repeat の 4 種を提供する。Running は
+ * いずれの op でも素通しする (子が進行中なら decorator も進行中)。子が未設定の
+ * 場合は Failure を返す (= 装飾対象が無いのでソフトフェイル)。子の所有権は
+ * decorator が握る (SetChild で move-in、既存の子は破棄して差し替え)。
+ */
+class FBtDecorator : public FBtNode {
+public:
+    ACS_RTTI(FBtDecorator, FBtNode)
+
+    /**
+     * 変換 op を指定して decorator を構築する。
+     *
+     * @param op 子の結果に施す変換種別。
+     */
+    explicit FBtDecorator(EBtDecoratorOp op) noexcept : m_Op(op) {}
+
+    /** 破棄する (子は TUniquePtr が解放)。 */
+    ~FBtDecorator() noexcept override = default;
+
+    /**
+     * 装飾する子を設定する (既存の子は破棄して差し替え)。
+     *
+     * @param child 装飾対象の子ノード (nullptr で子を外す)。
+     */
+    void SetChild(TUniquePtr<FBtNode> child) noexcept;
+
+    /**
+     * 現在の変換 op を差し替える。
+     *
+     * @param op 新しい変換種別。
+     */
+    void SetOp(EBtDecoratorOp op) noexcept { m_Op = op; }
+
+    /**
+     * 子を Tick し、結果に op の変換を施して返す。
+     *
+     * @param blackboard user 定義の状態。
+     * @param dt 前フレームからの経過秒。
+     * @return 変換後の status (子が未設定なら Failure)。
+     */
+    EBtStatus Tick(void* blackboard, f32 dt) noexcept override;
+
+    /** 子が設定済みかを返す。 */
+    bool HasChild() const noexcept { return static_cast<bool>(m_Child); }
+
+private:
+    /** 変換種別。 */
+    EBtDecoratorOp      m_Op;
+
+    /** 装飾する子ノード (所有権を持つ)。 */
+    TUniquePtr<FBtNode> m_Child;
 };
 
 /**

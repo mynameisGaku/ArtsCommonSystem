@@ -11,6 +11,7 @@ namespace acs {
 
 class IRhiSwapchain;
 class IRhiCommandList;
+class IRhiTexture;
 class FWindow;
 
 /**
@@ -39,6 +40,23 @@ public:
 
     /** GPU の処理が完了するまで待つ (Shutdown 前などに必要)。 */
     virtual void WaitIdle() noexcept = 0;
+
+    // 注: 以降に virtual を追加する場合は «末尾追加» すること (vtable スロット安定化)。
+
+    /**
+     * レンダーターゲットテクスチャの内容を CPU メモリへ読み戻す (同期、GPU→CPU)。
+     *
+     * @details
+     * tex は描画済み (caller が render + WaitIdle 済み) であること。out_pixels に行優先で
+     * 詰める (4 バイト/ピクセル = RGBA8/BGRA8 前提)。サムネイル/スクリーンショット用の一度きり
+     * 操作で、内部で readback ヒープ + コピー + fence 待ち + de-pad を行う (遅い)。
+     * 既定は未対応 (false)。DX12 バックエンドが実装する。
+     * @param tex 読み戻し元のテクスチャ (render target)。
+     * @param out_pixels 書き込み先 (>= width*height*4 バイト)。
+     * @param out_size out_pixels のバイト数。
+     * @return 成功なら true、未対応/失敗なら false。
+     */
+    virtual bool ReadTexture(IRhiTexture& /*tex*/, void* /*out_pixels*/, u32 /*out_size*/) noexcept { return false; }
 };
 
 /**

@@ -1,10 +1,51 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar B — FNode2D 実装
 #include "gameframework/Node2D.h"
+#include "gameframework/Material2D.h"      // FMaterial2D / ApplyMaterial / MaterialClock
+#include "gameframework/RenderContext.h"   // rc.Sprites() (マテリアル効果の適用先)
 #include "foundation/Move.h"
 #include "foundation/Log.h"
 
 namespace acs::game {
+
+/** この node に使用マテリアル (効果 or PBR) の値を焼き込む。 */
+void FNode2D::SetMaterial(const FMaterial2D& mat) noexcept {
+    m_Mat.kind     = static_cast<i32>(mat.kind);
+    // Effect
+    m_Mat.effect   = static_cast<i32>(mat.effect);
+    m_Mat.strength = mat.params.strength;
+    m_Mat.p0       = mat.params.p0;
+    m_Mat.p1       = mat.params.p1;
+    m_Mat.p2       = mat.params.p2;
+    m_Mat.color    = mat.params.color;
+    m_Mat.animated = mat.animated;
+    // PBR
+    m_Mat.baseColor        = mat.pbr.baseColor;
+    m_Mat.metallic         = mat.pbr.metallic;
+    m_Mat.roughness        = mat.pbr.roughness;
+    m_Mat.normalStrength   = mat.pbr.normalStrength;
+    m_Mat.ao               = mat.pbr.ao;
+    m_Mat.emissive         = mat.pbr.emissive;
+    m_Mat.emissiveStrength = mat.pbr.emissiveStrength;
+    m_Mat.shadingMode      = mat.pbr.shadingMode;
+    m_Mat.shadow1Color     = mat.pbr.shadow1Color; m_Mat.shadow1Threshold = mat.pbr.shadow1Threshold;
+    m_Mat.shadow2Color     = mat.pbr.shadow2Color; m_Mat.shadow2Threshold = mat.pbr.shadow2Threshold;
+    m_Mat.rimColor         = mat.pbr.rimColor;     m_Mat.rimPower = mat.pbr.rimPower;
+    m_Mat.specColor        = mat.pbr.specColor;    m_Mat.specThreshold = mat.pbr.specThreshold;
+    m_Mat.toonSoftness     = mat.pbr.toonSoftness;
+    // Substrate 拡張
+    m_Mat.clearcoat          = mat.pbr.clearcoat;
+    m_Mat.clearcoatRoughness = mat.pbr.clearcoatRoughness;
+    m_Mat.anisotropy         = mat.pbr.anisotropy;
+    m_Mat.specularLevel      = mat.pbr.specularLevel;
+    m_Mat.specularTint       = mat.pbr.specularTint;
+    m_Mat.sheen              = mat.pbr.sheen;
+    m_Mat.sheenRoughness     = mat.pbr.sheenRoughness;
+    m_Mat.sheenColor         = mat.pbr.sheenColor;
+    m_Mat.subsurface         = mat.pbr.subsurface;
+    m_Mat.subsurfaceColor    = mat.pbr.subsurfaceColor;
+    m_Mat.active   = true;
+}
 
 /** 親をたどって world transform を合成して返す (キャッシュなし)。 */
 FTransform2D FNode2D::World() const noexcept {
@@ -26,6 +67,39 @@ FNode2D& FNode2D::AddChild(TUniquePtr<FNode2D> child) noexcept {
         ref.OnSpawn();
     }
     return ref;
+}
+
+/** root まで遡って配線済み FSceneServices を返す (m_Owner/m_Parent と同じ非所有規約)。 */
+FSceneServices* FNode2D::SceneServices() const noexcept {
+    const FNode2D* n = this;
+    while (n->m_Parent != nullptr) n = n->m_Parent;
+    return n->m_Services;
+}
+
+/** root に services を設定し、subtree 全コンポーネントの OnAttachServices を一度発火する。 */
+void FNode2D::_ActivateServices(FSceneServices& svc) noexcept {
+    m_Services = &svc;                 // root にのみ設定 (子は walk-to-root で解決)
+    _ActivateSubtreeServices(&svc);
+}
+
+/** subtree を DFS し各コンポーネントの OnAttachServices をガード付きで発火する (ポインタは設定しない)。 */
+void FNode2D::_ActivateSubtreeServices(FSceneServices* svc) noexcept {
+    for (u32 i = 0; i < m_Components.Size(); ++i) {
+        if (m_Components[i]) m_Components[i]->_MaybeAttachServices(svc);
+    }
+    for (u32 i = 0; i < m_Children.Size(); ++i) {
+        if (m_Children[i]) m_Children[i]->_ActivateSubtreeServices(svc);
+    }
+}
+
+/** コンポーネント → owner ツリーの services 解決 (owner 未設定なら nullptr)。 */
+FSceneServices* FComponent2D::SceneServices() const noexcept {
+    return (m_Owner != nullptr) ? m_Owner->SceneServices() : nullptr;
+}
+
+/** services が配線済みか。 */
+bool FComponent2D::HasSceneServices() const noexcept {
+    return SceneServices() != nullptr;
 }
 
 /** 自身と components の OnUpdate を呼び、子へ可変刻み update を伝播する。 */
@@ -61,11 +135,42 @@ void FNode2D::FixedUpdateTree(f32 fixed_dt) noexcept {
 /** 自身と components を描画し、子ツリーを描画順モードに従って描く。 */
 void FNode2D::DrawTree(RenderContext& rc) noexcept {
     if (!m_Visible || m_PendingDestroy) return;
+    // 使用マテリアル (PBR or 効果プリセット) で「この node 自身の描画」を包む。子には及ばない
+    // (各 node が自分のマテリアルを持つ)。アニメ付きは共有クロックを参照する。
+    bool fx = false, lit = false;
+    if (m_Mat.active && m_Mat.kind == 0) {          // PBR (Lit): 集めたライト + 法線で BRDF
+        FLitMaterialParams lm;
+        lm.baseColor = m_Mat.baseColor; lm.metallic = m_Mat.metallic; lm.roughness = m_Mat.roughness;
+        lm.normalStrength = m_Mat.normalStrength; lm.ao = m_Mat.ao;
+        lm.emissive = m_Mat.emissive; lm.emissiveStrength = m_Mat.emissiveStrength;
+        lm.shadingMode = m_Mat.shadingMode;
+        lm.shadow1Color = m_Mat.shadow1Color; lm.shadow1Threshold = m_Mat.shadow1Threshold;
+        lm.shadow2Color = m_Mat.shadow2Color; lm.shadow2Threshold = m_Mat.shadow2Threshold;
+        lm.rimColor = m_Mat.rimColor; lm.rimPower = m_Mat.rimPower;
+        lm.specColor = m_Mat.specColor; lm.specThreshold = m_Mat.specThreshold;
+        lm.toonSoftness = m_Mat.toonSoftness;
+        lm.clearcoat = m_Mat.clearcoat; lm.clearcoatRoughness = m_Mat.clearcoatRoughness;
+        lm.anisotropy = m_Mat.anisotropy; lm.specularLevel = m_Mat.specularLevel; lm.specularTint = m_Mat.specularTint;
+        lm.sheen = m_Mat.sheen; lm.sheenRoughness = m_Mat.sheenRoughness; lm.sheenColor = m_Mat.sheenColor;
+        lm.subsurface = m_Mat.subsurface; lm.subsurfaceColor = m_Mat.subsurfaceColor;
+        lm.selfOccluder = m_SelfOccluder;                                              // 自己影スキップ
+        rc.Sprites().SetLitMaterial(lm, static_cast<IRhiTexture*>(m_Mat.normalTex));   // 法線マップ (null=平面)
+        lit = true;
+    } else if (m_Mat.active && m_Mat.effect != 0) { // 効果プリセット
+        FEffectParams p;
+        p.strength = m_Mat.strength; p.p0 = m_Mat.p0; p.p1 = m_Mat.p1; p.p2 = m_Mat.p2;
+        p.color = m_Mat.color;
+        if (m_Mat.animated) p.time = MaterialClock();
+        rc.Sprites().SetEffect(static_cast<ESpriteEffect>(m_Mat.effect), p);
+        fx = true;
+    }
     OnDraw(rc);
     // components の OnDraw (描画も合成)
     for (u32 i = 0; i < m_Components.Size(); ++i) {
         if (m_Components[i]) m_Components[i]->OnDraw(rc);
     }
+    if (lit)     rc.Sprites().ClearLit();
+    else if (fx) rc.Sprites().ClearEffect();   // 子ツリーの前に効果を解除
     // 描画順モード。既定 (Tree) は配列順でゼロオーバーヘッド。
     // Layer/LayerThenY のときだけ兄弟を安定ソートしてから描く。
     if (m_ChildOrder == EChildDrawOrder::Tree) {

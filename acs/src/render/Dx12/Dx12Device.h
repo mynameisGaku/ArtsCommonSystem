@@ -150,6 +150,9 @@ public:
     /** キューに積まれた全コマンドの GPU 完了を CPU 側で待つ。 */
     void WaitIdle() noexcept override;
 
+    /** RT テクスチャを CPU へ読み戻す (readback ヒープ + コピー + fence 待ち。RGBA8/BGRA8)。 */
+    bool ReadTexture(IRhiTexture& tex, void* out_pixels, u32 out_size) noexcept override;
+
     /**
      * 現フレームの投入完了を表す fence 値を Signal して返す。
      *

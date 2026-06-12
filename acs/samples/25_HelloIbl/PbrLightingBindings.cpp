@@ -14,8 +14,9 @@ using namespace acs;
 
 namespace helloibl {
 
-namespace {
-
+// 各 bind helper は HelloIblApp の private (m_Pbr / m_Ibl / m_Shadow…) を直接触るため
+// friend 宣言済み (HelloIblApp.h)。匿名名前空間に入れると friend と一致しなくなるので
+// namespace 直下に置く。
 void BindIbl(HelloIblApp& app) noexcept {
     app.m_Pbr.SetIbl(app.m_Ibl.IrradianceMap(), app.m_Ibl.PrefilterMap(), app.m_Ibl.BrdfLut(),
                     app.m_Ibl.PrefilterMips());
@@ -115,8 +116,6 @@ void BindAreaLight(HelloIblApp& app) noexcept {
         app.m_Pbr.SetAreaLights(nullptr, 0);
     }
 }
-
-} // anonymous namespace
 
 void BindPbrLighting(HelloIblApp& app, const FMat4& vp_for_render, const FDirLight& sun) noexcept {
     BindIbl(app);

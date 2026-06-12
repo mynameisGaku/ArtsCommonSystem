@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // DX12 デバイス実装
 #include "render/Dx12/Dx12Device.h"
+#include "render/Dx12/Dx12Texture.h"   // Dx12Texture (ReadTexture の cast)
 #include "memory/UniquePtr.h"
+
+#include <cstring>                      // std::memcpy
 
 namespace acs {
 
@@ -223,6 +226,84 @@ void Dx12Device::WaitForFenceValue(u64 value) noexcept {
     if (m_IdleFence->GetCompletedValue() >= value) return;
     m_IdleFence->SetEventOnCompletion(value, m_IdleEvent);
     ::WaitForSingleObject(m_IdleEvent, INFINITE);
+}
+
+// RT テクスチャを CPU へ読み戻す (一度きりのサムネイル/スクショ用)。RGBA8/BGRA8 (4 B/px) 前提。
+bool Dx12Device::ReadTexture(IRhiTexture& tex, void* out_pixels, u32 out_size) noexcept {
+    if (!m_Device || !m_GfxQueue || out_pixels == nullptr) return false;
+    auto* dtex = static_cast<Dx12Texture*>(&tex);
+    ID3D12Resource* res = dtex->Resource();
+    if (res == nullptr) return false;
+    const u32 w = tex.Width(), h = tex.Height();
+    const u32 bpp = 4;                                   // RGBA8/BGRA8 前提
+    if (w == 0 || h == 0 || out_size < w * h * bpp) return false;
+
+    // コピー可能フットプリント (行ピッチは 256B 整列されることがある)。
+    D3D12_RESOURCE_DESC desc = res->GetDesc();
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp{};
+    UINT num_rows = 0; UINT64 row_size = 0, total = 0;
+    m_Device->GetCopyableFootprints(&desc, 0, 1, 0, &fp, &num_rows, &row_size, &total);
+
+    // readback ヒープのバッファを確保。
+    D3D12_HEAP_PROPERTIES hp{}; hp.Type = D3D12_HEAP_TYPE_READBACK;
+    D3D12_RESOURCE_DESC bd{};
+    bd.Dimension          = D3D12_RESOURCE_DIMENSION_BUFFER;
+    bd.Width              = total;
+    bd.Height             = 1; bd.DepthOrArraySize = 1; bd.MipLevels = 1;
+    bd.Format             = DXGI_FORMAT_UNKNOWN;
+    bd.SampleDesc.Count   = 1;
+    bd.Layout             = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    ID3D12Resource* rb = nullptr;
+    if (FAILED(m_Device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &bd,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&rb))) || rb == nullptr)
+        return false;
+
+    // 一度きりの allocator + command list を作って texture→buffer コピーを記録。
+    ID3D12CommandAllocator* alloc = nullptr;
+    ID3D12GraphicsCommandList* cl = nullptr;
+    bool ok = SUCCEEDED(m_Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc)))
+           && SUCCEEDED(m_Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, nullptr, IID_PPV_ARGS(&cl)));
+    if (ok) {
+        const D3D12_RESOURCE_STATES cur = dtex->CurrentState();
+        auto transition = [&](D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to) {
+            D3D12_RESOURCE_BARRIER b{};
+            b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            b.Transition.pResource   = res;
+            b.Transition.StateBefore = from;
+            b.Transition.StateAfter  = to;
+            b.Transition.Subresource = 0;
+            cl->ResourceBarrier(1, &b);
+        };
+        const bool need = (cur != D3D12_RESOURCE_STATE_COPY_SOURCE);
+        if (need) transition(cur, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        D3D12_TEXTURE_COPY_LOCATION dst{}; dst.pResource = rb;
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT; dst.PlacedFootprint = fp;
+        D3D12_TEXTURE_COPY_LOCATION src{}; src.pResource = res;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; src.SubresourceIndex = 0;
+        cl->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        if (need) transition(D3D12_RESOURCE_STATE_COPY_SOURCE, cur);   // 元の状態へ戻す
+        cl->Close();
+        ID3D12CommandList* lists[] = { cl };
+        m_GfxQueue->ExecuteCommandLists(1, lists);
+        WaitForFenceValue(SignalGraphicsQueue());
+
+        void* mapped = nullptr;
+        D3D12_RANGE read_range{ 0, static_cast<SIZE_T>(total) };
+        if (SUCCEEDED(rb->Map(0, &read_range, &mapped)) && mapped != nullptr) {
+            auto* dstp = static_cast<u8*>(out_pixels);
+            const auto* srcp = static_cast<const u8*>(mapped);
+            const u32 row_pitch = fp.Footprint.RowPitch;
+            for (u32 y = 0; y < h; ++y)
+                std::memcpy(dstp + static_cast<usize>(y) * w * bpp,
+                            srcp + static_cast<usize>(y) * row_pitch, w * bpp);
+            D3D12_RANGE no_write{ 0, 0 };
+            rb->Unmap(0, &no_write);
+        } else ok = false;
+    }
+    if (cl)    cl->Release();
+    if (alloc) alloc->Release();
+    rb->Release();
+    return ok;
 }
 
 // ファクトリ関数: CreateRhiDevice の DX12 実装

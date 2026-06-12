@@ -24,6 +24,8 @@ cbuffer FSky : register(b0) {
     float4   zenith_color;
     float4   horizon_color;
     float4   ground_color;
+    float4   cloud_params0;       // x=coverage(0..1), y=density(sharpness), z=time, w=enabled(0/1)
+    float4   cloud_params1;       // xyz=cloud_color, w=wind_speed
 };
 
 struct VSOut {
@@ -41,32 +43,110 @@ VSOut VSMain(uint id : SV_VertexID) {
     return o;
 }
 
+// ---- 雲用の value noise + FBM ----------------------------------------------
+// 軽量なハッシュ value noise を 6 octave 重ね、octave ごとに座標を回転させて
+// 軸に揃ったタイリングを崩す。gradient/simplex より単純だが、回転 + 多 octave で
+// 十分に有機的な雲になる。
+float Hash2(float2 p) {
+    p = frac(p * float2(127.1, 311.7));
+    p += dot(p, p + 34.23);
+    return frac(p.x * p.y);
+}
+float ValueNoise(float2 p) {
+    float2 i = floor(p);
+    float2 f = frac(p);
+    float2 u = f * f * (3.0 - 2.0 * f);          // smoothstep 補間で格子段差を消す
+    float a = Hash2(i + float2(0.0, 0.0));
+    float b = Hash2(i + float2(1.0, 0.0));
+    float c = Hash2(i + float2(0.0, 1.0));
+    float d = Hash2(i + float2(1.0, 1.0));
+    return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y);
+}
+float Fbm(float2 p) {
+    float sum = 0.0;
+    float amp = 0.5;
+    const float2x2 rot = float2x2(0.80, -0.60, 0.60, 0.80);   // ~37deg 回転
+    [unroll]
+    for (int i = 0; i < 6; ++i) {
+        sum += amp * ValueNoise(p);
+        p    = mul(rot, p) * 2.02;               // lacunarity ~2 + 回転
+        amp *= 0.5;                              // gain 0.5
+    }
+    return sum;
+}
+
+// IGN ベースの dither (8-bit 量子化前にバンディングを消す)。
+float SkyDither(float2 pix, float t) {
+    pix += t * float2(5.588238, 1.715728);
+    return frac(52.9829189 * frac(dot(pix, float2(0.06711056, 0.00583715))));
+}
+
 float4 PSMain(VSOut v) : SV_TARGET {
     // 1) NDC（z=1）から逆 VP でワールド座標を求める
     float4 wp = mul(float4(v.ndc.x, -v.ndc.y, 1.0, 1.0), inv_view_proj);
     wp.xyz /= wp.w;
-    float3 dir = normalize(wp.xyz - camera_pos.xyz);
+    float3 dir   = normalize(wp.xyz - camera_pos.xyz);
+    float3 sundn = normalize(sun_dir.xyz);
 
-    // 2) 高さ角でグラデ。dir.y = 0 が地平線、+1 が天頂、-1 が真下
+    // 2) 高さ角でグラデ。dir.y = 0 が地平線、+1 が天頂、-1 が真下。
+    //    指数を 0.5 に緩めて天頂までの遷移を滑らかにする。
     float t = dir.y;
     float3 sky;
     if (t >= 0.0) {
-        // 地平線 → 天頂
-        sky = lerp(horizon_color.xyz, zenith_color.xyz, pow(saturate(t), 0.6));
+        sky = lerp(horizon_color.xyz, zenith_color.xyz, pow(saturate(t), 0.5));
     } else {
-        // 地平線 → 地面
-        sky = lerp(horizon_color.xyz, ground_color.xyz, pow(saturate(-t), 0.6));
+        sky = lerp(horizon_color.xyz, ground_color.xyz, pow(saturate(-t), 0.5));
     }
 
-    // 3) 太陽: 視線と太陽方向の角度
-    float c    = saturate(dot(dir, normalize(sun_dir.xyz)));
-    float ang  = 1.0 - c;    // 0 = 太陽の中心
+    // 2.5) 太陽方向の地平線グロー (Mie 前方散乱の簡易ローブ): 地平線付近 + 太陽方位で
+    //      暖色を盛り、のっぺりした 2-stop グラデを大気らしくする。
+    float sun_d      = saturate(dot(dir, sundn));
+    float horizonBnd = exp(-abs(t) * 6.0);             // 地平線に集中
+    float glow       = pow(sun_d, 4.0) * horizonBnd;
+    sky += sun_color.xyz * glow * 0.6;
+
+    // 3) 太陽ディスク + ハロー
+    float c   = sun_d;
+    float ang = 1.0 - c;    // 0 = 太陽の中心
     if (ang < sun_params.x) {
         sky = sun_color.xyz;
     } else if (ang < sun_params.y) {
         float k = 1.0 - smoothstep(sun_params.x, sun_params.y, ang);
         sky = lerp(sky, sun_color.xyz, k);
     }
+
+    // 4) 手続き的な雲 (地平線より上のみ)。視線を高さ 1 の雲平面に投影して FBM を引く。
+    if (cloud_params0.w >= 0.5 && dir.y > 0.004) {
+        float  time     = cloud_params0.z;
+        float  wind     = cloud_params1.w;
+        // 平面投影。地平線方向 (dir.y 小) で遠近感が出るよう dir.y を少し持ち上げて
+        // uv の発散を抑える (地平線でも雲が潰れず層状に見える)。
+        float2 uv       = (dir.xz / (dir.y + 0.12)) * 1.1;
+        uv += float2(time * wind * 0.02, time * wind * 0.013);
+
+        float coverage  = saturate(cloud_params0.x);
+        float density   = max(cloud_params0.y, 0.1);
+        float n         = Fbm(uv);
+        // coverage で remap: coverage が高いほど薄い部分も雲になる
+        float clouds    = saturate((n - (1.0 - coverage)) / max(coverage, 0.001));
+        clouds          = pow(clouds, density);
+        // 地平線のすぐ上から雲を出し、天頂へ向けてしっかり乗せる。
+        float hFade     = smoothstep(0.0, 0.10, dir.y);
+        clouds         *= hFade;
+
+        // 簡易ライティング: 雲の濃い所を影色、薄い縁を明色 + 太陽方向で明るく。
+        // contrast を上げて空との分離をはっきりさせる。
+        float3 litCol   = lerp(cloud_params1.xyz, sun_color.xyz, sun_d * 0.5);
+        float3 shadow   = cloud_params1.xyz * 0.45;
+        float3 cloudCol = lerp(shadow, litCol, saturate(n * 1.4));
+        sky = lerp(sky, cloudCol, clouds);
+    }
+
+    // 5) Dither: 8-bit 出力時のグラデ縞を消す (HDR 出力時は ±1/255 で実質無影響)。
+    //    d2 は軸別オフセット + 別の時間位相で d1 と独立化し、足して TPDF にする。
+    float d1 = SkyDither(v.pos.xy, cloud_params0.z);
+    float d2 = SkyDither(v.pos.xy + float2(113.0, 71.0), cloud_params0.z * 0.37 + 0.5);
+    sky += (d1 + d2 - 1.0) * (1.0 / 255.0);
 
     return float4(sky, 1.0);
 }
@@ -99,6 +179,12 @@ struct SkyCB {
 
     /** 地面方向の色。 */
     FVec4 ground;
+
+    /** 雲パラメータ0 (x=coverage, y=density, z=time, w=enabled)。 */
+    FVec4 cloud0;
+
+    /** 雲パラメータ1 (xyz=cloud_color, w=wind_speed)。 */
+    FVec4 cloud1;
 };
 
 /**
@@ -197,6 +283,10 @@ void FSky::PresetDay() noexcept {
     m_Zenith      = FVec3{0.15f, 0.35f, 0.78f};
     m_Horizon     = FVec3{0.70f, 0.83f, 0.95f};
     m_Ground      = FVec3{0.18f, 0.20f, 0.20f};
+    m_CloudColor    = FVec3{1.0f, 1.0f, 1.0f};
+    m_CloudCoverage = 0.60f;
+    m_CloudDensity  = 1.1f;
+    m_CloudWind     = 1.0f;
 }
 
 /** 夕焼けプリセット (茜色 + 暖色太陽) を適用する。 */
@@ -208,6 +298,10 @@ void FSky::PresetSunset() noexcept {
     m_Zenith      = FVec3{0.06f, 0.10f, 0.30f};
     m_Horizon     = FVec3{1.00f, 0.55f, 0.25f};
     m_Ground      = FVec3{0.10f, 0.06f, 0.08f};
+    m_CloudColor    = FVec3{1.0f, 0.72f, 0.50f};   // 茜色に染まった雲
+    m_CloudCoverage = 0.55f;
+    m_CloudDensity  = 1.3f;
+    m_CloudWind     = 0.8f;
 }
 
 /** 夜空プリセット (紺青 + 弱い月光) を適用する。 */
@@ -219,6 +313,10 @@ void FSky::PresetNight() noexcept {
     m_Zenith      = FVec3{0.02f, 0.03f, 0.08f};
     m_Horizon     = FVec3{0.05f, 0.07f, 0.15f};
     m_Ground      = FVec3{0.02f, 0.03f, 0.05f};
+    m_CloudColor    = FVec3{0.10f, 0.12f, 0.20f};  // 紺青の薄い雲
+    m_CloudCoverage = 0.38f;
+    m_CloudDensity  = 1.8f;
+    m_CloudWind     = 0.5f;
 }
 
 /** 定数バッファを更新し、フルスクリーン三角形でスカイを描画する。 */
@@ -234,11 +332,19 @@ void FSky::Render(IRhiCommandList& cl, const FCamera& camera) noexcept {
     cb.zenith     = FVec4{m_Zenith.x, m_Zenith.y, m_Zenith.z, 1};
     cb.horizon    = FVec4{m_Horizon.x, m_Horizon.y, m_Horizon.z, 1};
     cb.ground     = FVec4{m_Ground.x, m_Ground.y, m_Ground.z, 1};
+    cb.cloud0     = FVec4{m_CloudCoverage, m_CloudDensity, m_Time,
+                          m_bCloudsEnabled ? 1.0f : 0.0f};
+    cb.cloud1     = FVec4{m_CloudColor.x, m_CloudColor.y, m_CloudColor.z, m_CloudWind};
     m_Cb->Update(&cb, sizeof(cb));
 
     cl.SetPipeline(*m_Pipeline);
     cl.SetConstantBuffer(0, *m_Cb);
     cl.Draw(3);    // VB 無し、SV_VertexID で 3 頂点
+
+    // 雲アニメ用の時間を内部で進める。これにより呼び出し側が SetTime を書かなくても
+    // 雲が流れる (SetTime を毎フレーム呼べばそちらが優先され、決定論的に制御できる)。
+    // 60fps 想定の固定ステップ。雲はゆっくり流れるので実フレームレート差は問題にならない。
+    m_Time += 1.0f / 60.0f;
 }
 
 } // namespace acs

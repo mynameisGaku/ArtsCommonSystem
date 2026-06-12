@@ -1,10 +1,27 @@
 add_executable(acs_unit_tests
     main.cpp
     foundation_tests.cpp
+    cast_tests.cpp
+    reflect_tests.cpp
+    reflect_serialize_tests.cpp
+    reflect_apply_tests.cpp
+    spatialaudio2d_tests.cpp
+    scene_serialize_tests.cpp
+    component_factory_tests.cpp
+    component_services_tests.cpp
+    input_feed_tests.cpp
+    rigidworld_tests.cpp
+    rigidbody_component_tests.cpp
+    debugdraw_tests.cpp
+    tilemap_tests.cpp
+    steering_tests.cpp
+    camera_tests.cpp
+    behaviortree_tests.cpp
     threading_tests.cpp
     memory_tests.cpp
     memory_system_tests.cpp
     smartptr_tests.cpp
+    objectpool_tests.cpp
     container_tests.cpp
     math_tests.cpp
     ecs_tests.cpp
@@ -17,6 +34,9 @@ add_executable(acs_unit_tests
     collider_tests.cpp
     crypto_tests.cpp
     render_tests.cpp
+    spritesortlist_tests.cpp
+    editor_play_draw_tests.cpp
+    material2d_tests.cpp
 )
 set_target_properties(acs_unit_tests PROPERTIES FOLDER "Engine/Tests")
 

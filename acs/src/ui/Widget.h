@@ -85,6 +85,110 @@ struct FUiPadding {
 };
 
 /**
+ * アンカー (Unity RectTransform 風): 親矩形に対する正規化アンカー + ピクセルオフセット。
+ *
+ * @details
+ * 子の各辺を「親矩形の正規化点 (anchor) からのピクセルオフセット」で決める。
+ * これにより画面 / 親のリサイズに対して **レスポンシブ** に追従する。
+ *   child.left   = parent.x + min.x*parent.w + offset_l
+ *   child.top    = parent.y + min.y*parent.h + offset_t
+ *   child.right  = parent.x + max.x*parent.w + offset_r
+ *   child.bottom = parent.y + max.y*parent.h + offset_b
+ * min==max (点アンカー) なら固定サイズ配置、min!=max ならその軸が親に追従して伸縮する。
+ * 既定は「親全体を埋める」(min=0, max=1, offset=0)。プリセットは下の static ヘルパ参照。
+ */
+struct FUiAnchor {
+    /** アンカー最小点 (正規化 [0,1]、親矩形の左上=0 / 右下=1)。 */
+    FVec2 min{ 0.0f, 0.0f };
+
+    /** アンカー最大点 (正規化 [0,1])。min と等しいと点アンカー (固定サイズ)。 */
+    FVec2 max{ 1.0f, 1.0f };
+
+    /** 左辺オフセット (px、min.x のアンカー点から右が正)。 */
+    f32 offset_l = 0.0f;
+
+    /** 上辺オフセット (px、min.y のアンカー点から下が正)。 */
+    f32 offset_t = 0.0f;
+
+    /** 右辺オフセット (px、max.x のアンカー点から右が正、内側マージンは負)。 */
+    f32 offset_r = 0.0f;
+
+    /** 下辺オフセット (px、max.y のアンカー点から下が正、内側マージンは負)。 */
+    f32 offset_b = 0.0f;
+
+    /**
+     * 点アンカー: 親の正規化点 ap に対し、サイズ (w,h) の矩形を (ox,oy) ずらして置く。
+     *
+     * @details 矩形の左上 = アンカー点 + (ox,oy)。角・端固定 UI (HUD 等) に使う。
+     * @param ap 親矩形上の正規化アンカー点 ([0,0]=左上, [1,1]=右下, [0.5,0.5]=中央)。
+     * @param w 矩形の幅 (px)。
+     * @param h 矩形の高さ (px)。
+     * @param ox X オフセット (px、既定 0)。
+     * @param oy Y オフセット (px、既定 0)。
+     * @return 構築した FUiAnchor。
+     */
+    static FUiAnchor Point(FVec2 ap, f32 w, f32 h, f32 ox = 0.0f, f32 oy = 0.0f) noexcept {
+        FUiAnchor a;
+        a.min = ap; a.max = ap;
+        a.offset_l = ox;       a.offset_t = oy;
+        a.offset_r = ox + w;   a.offset_b = oy + h;
+        return a;
+    }
+
+    /**
+     * 親中央に固定サイズで配置する点アンカー。
+     *
+     * @param w 幅 (px)。
+     * @param h 高さ (px)。
+     * @return アンカー点 (0.5,0.5)・矩形中心が親中心に来る FUiAnchor。
+     */
+    static FUiAnchor Centered(f32 w, f32 h) noexcept {
+        FUiAnchor a;
+        a.min = { 0.5f, 0.5f }; a.max = { 0.5f, 0.5f };
+        a.offset_l = -w * 0.5f; a.offset_t = -h * 0.5f;
+        a.offset_r =  w * 0.5f; a.offset_b =  h * 0.5f;
+        return a;
+    }
+
+    /**
+     * 親全体を四辺マージン付きで埋めるストレッチアンカー。
+     *
+     * @param l 左マージン (px)。
+     * @param t 上マージン (px)。
+     * @param r 右マージン (px)。
+     * @param b 下マージン (px)。
+     * @return 親に追従して伸縮する FUiAnchor。
+     */
+    static FUiAnchor Stretch(f32 l = 0.0f, f32 t = 0.0f, f32 r = 0.0f, f32 b = 0.0f) noexcept {
+        FUiAnchor a;
+        a.min = { 0.0f, 0.0f }; a.max = { 1.0f, 1.0f };
+        a.offset_l =  l; a.offset_t =  t;
+        a.offset_r = -r; a.offset_b = -b;
+        return a;
+    }
+};
+
+/**
+ * 親矩形 + アンカーから子の絶対矩形を算出する。
+ *
+ * @details FUiAnchor の式をそのまま適用。負幅 / 負高さは 0 にクランプしない (呼び出し側責務)。
+ * @param parent 親の絶対矩形。
+ * @param a 子のアンカー設定。
+ * @return 子の絶対矩形 (left/top/width/height)。
+ */
+inline FUiRect ComputeAnchoredRect(const FUiRect& parent, const FUiAnchor& a) noexcept {
+    const f32 ax0 = parent.x + a.min.x * parent.w;
+    const f32 ay0 = parent.y + a.min.y * parent.h;
+    const f32 ax1 = parent.x + a.max.x * parent.w;
+    const f32 ay1 = parent.y + a.max.y * parent.h;
+    const f32 left   = ax0 + a.offset_l;
+    const f32 top    = ay0 + a.offset_t;
+    const f32 right  = ax1 + a.offset_r;
+    const f32 bottom = ay1 + a.offset_b;
+    return { left, top, right - left, bottom - top };
+}
+
+/**
  * retained-mode UI ツリーの基底ウィジェット。
  *
  * @details
@@ -153,6 +257,9 @@ public:
 
     /** 要望サイズ (0 の成分はレイアウトに任せる)。 */
     FUiRect requested;
+
+    /** アンカー設定 (AnchorPanel の子のときのみ使われる。既定は親全体を埋める)。 */
+    FUiAnchor anchor;
 
     /** ポインタが上にあるか (FUiInput が更新)。 */
     bool hovered = false;
@@ -348,6 +455,43 @@ public:
         for (usize i = 0; i < m_Children.Size(); ++i) {
             Widget* const c = m_Children[i].Get();
             if (c && c->visible) c->Layout(x, y, w, h);
+        }
+    }
+};
+
+/**
+ * 各子を自身の anchor (RectTransform 風) に従って配置するレスポンシブパネル。
+ *
+ * @details
+ * Container が全子に同じ矩形を渡すのに対し、AnchorPanel は子ごとの `anchor` を
+ * ComputeAnchoredRect で解決して個別配置する。パネルの rect が変わる (画面リサイズ等)
+ * と全子が追従するため、HUD やオーバーレイの解像度非依存レイアウトに使う。
+ *
+ * 使い方:
+ *   AnchorPanel hud;
+ *   auto* score = hud.Add<Label>("0");
+ *   score->anchor = FUiAnchor::Point({1,0}, 120, 32, -128, 8);  // 右上に固定サイズ
+ *   auto* bar = hud.Add<Container>();
+ *   bar->anchor = FUiAnchor::Stretch(16, 0, 16, 8);             // 下端を左右いっぱい
+ *   hud.Layout(0, 0, screen_w, screen_h);
+ */
+class AnchorPanel : public Widget {
+public:
+    /**
+     * 自身の rect を確定し、各 visible な子を anchor に従って配置する。
+     *
+     * @param x 左上 X 座標 (px)。
+     * @param y 左上 Y 座標 (px)。
+     * @param w 幅 (px)。
+     * @param h 高さ (px)。
+     */
+    void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
+        rect = { x, y, w, h };
+        for (usize i = 0; i < m_Children.Size(); ++i) {
+            Widget* const c = m_Children[i].Get();
+            if (!c || !c->visible) continue;
+            const FUiRect cr = ComputeAnchoredRect(rect, c->anchor);
+            c->Layout(cr.x, cr.y, cr.w, cr.h);
         }
     }
 };

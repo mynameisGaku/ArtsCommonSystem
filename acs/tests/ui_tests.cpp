@@ -214,3 +214,87 @@ ACS_TEST(Ui, TextInputBackspace) {
     ti.OnKey(0x08, true);           // 空で Backspace → no-op (クラッシュ無し)
     EXPECT_EQ(ti.text.Get().Size(), usize(0));
 }
+
+// ---- Anchor: ComputeAnchoredRect の基本式 ---------------------------------
+ACS_TEST(Ui, AnchorComputeRect) {
+    const FUiRect parent{ 100, 50, 800, 600 };
+
+    // フルストレッチ (既定): 親そのまま。
+    {
+        FUiAnchor a;  // min(0,0) max(1,1) offset0
+        const FUiRect r = ComputeAnchoredRect(parent, a);
+        EXPECT_EQ(r.x, 100.0f); EXPECT_EQ(r.y, 50.0f);
+        EXPECT_EQ(r.w, 800.0f); EXPECT_EQ(r.h, 600.0f);
+    }
+    // 四辺マージン付きストレッチ。
+    {
+        const FUiRect r = ComputeAnchoredRect(parent, FUiAnchor::Stretch(16, 8, 16, 24));
+        EXPECT_EQ(r.x, 116.0f);             // 100 + 16
+        EXPECT_EQ(r.y, 58.0f);              // 50 + 8
+        EXPECT_EQ(r.w, 800.0f - 16 - 16);   // 768
+        EXPECT_EQ(r.h, 600.0f - 8 - 24);    // 568
+    }
+}
+
+// ---- Anchor: 点アンカー (角固定 + 中央) -----------------------------------
+ACS_TEST(Ui, AnchorPointCorners) {
+    const FUiRect parent{ 0, 0, 1000, 800 };
+
+    // 右上 (1,0) に 120x32、内側へ ox=-128, oy=8。
+    {
+        const FUiRect r = ComputeAnchoredRect(parent, FUiAnchor::Point({1, 0}, 120, 32, -128, 8));
+        EXPECT_EQ(r.x, 1000.0f - 128);  // 872
+        EXPECT_EQ(r.y, 8.0f);
+        EXPECT_EQ(r.w, 120.0f);
+        EXPECT_EQ(r.h, 32.0f);
+    }
+    // 中央 100x60。
+    {
+        const FUiRect r = ComputeAnchoredRect(parent, FUiAnchor::Centered(100, 60));
+        EXPECT_EQ(r.x, 500.0f - 50);    // 450
+        EXPECT_EQ(r.y, 400.0f - 30);    // 370
+        EXPECT_EQ(r.w, 100.0f);
+        EXPECT_EQ(r.h, 60.0f);
+    }
+}
+
+// ---- AnchorPanel: 子をアンカーで配置し、リサイズで追従する ---------------
+ACS_TEST(Ui, AnchorPanelResponsive) {
+    AnchorPanel hud;
+    auto* tl  = hud.Add<Label>("tl");
+    auto* br  = hud.Add<Label>("br");
+    auto* bar = hud.Add<Container>();
+    tl->anchor  = FUiAnchor::Point({0, 0}, 80, 24, 8, 8);     // 左上固定
+    br->anchor  = FUiAnchor::Point({1, 1}, 80, 24, -88, -32); // 右下固定
+    bar->anchor = FUiAnchor::Stretch(0, 0, 0, 40);            // 上端を左右いっぱい (高さは下40除く)
+
+    // 1280x720 でレイアウト。
+    hud.Layout(0, 0, 1280, 720);
+    EXPECT_EQ(tl->rect.x, 8.0f);    EXPECT_EQ(tl->rect.y, 8.0f);
+    EXPECT_EQ(br->rect.x, 1280.0f - 88);   // 1192
+    EXPECT_EQ(br->rect.y, 720.0f - 32);    // 688
+    EXPECT_EQ(bar->rect.x, 0.0f);
+    EXPECT_EQ(bar->rect.w, 1280.0f);
+    EXPECT_EQ(bar->rect.h, 720.0f - 40);   // 680
+
+    // 画面を 1920x1080 にリサイズ → 右下/ストレッチが追従、左上は不動。
+    hud.Layout(0, 0, 1920, 1080);
+    EXPECT_EQ(tl->rect.x, 8.0f);    EXPECT_EQ(tl->rect.y, 8.0f);   // 左上は不変
+    EXPECT_EQ(br->rect.x, 1920.0f - 88);   // 1832 追従
+    EXPECT_EQ(br->rect.y, 1080.0f - 32);   // 1048 追従
+    EXPECT_EQ(bar->rect.w, 1920.0f);       // 横いっぱい追従
+    EXPECT_EQ(bar->rect.h, 1080.0f - 40);  // 1040
+}
+
+// ---- AnchorPanel: 非 visible な子は配置スキップ ---------------------------
+ACS_TEST(Ui, AnchorPanelSkipsHidden) {
+    AnchorPanel p;
+    auto* a = p.Add<Label>("a");
+    a->anchor = FUiAnchor::Point({0, 0}, 50, 50, 10, 10);
+    a->visible = false;
+    a->rect = { -1, -1, -1, -1 };   // 番兵
+
+    p.Layout(0, 0, 400, 400);
+    // visible=false なので Layout されず rect は番兵のまま。
+    EXPECT_EQ(a->rect.x, -1.0f);
+}
