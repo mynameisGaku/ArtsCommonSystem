@@ -246,22 +246,51 @@ float SegDistInterior(float2 q, float2 P, float2 L) {
     if (t <= 0.0 || t >= 1.0) return 1e9;          // 端点キャップは無視 (片側 penumbra)
     return length(q - (P + d * t));                // 内側のみ垂直距離
 }
-// 線分 [P,L] と多角形 (occluder j, n頂点) の «遮蔽» 評価。
-// 偶奇ルール: 辺を横切った回数が奇数=内側(umbra)、偶数=外側(penumbra距離)。
-// 凹多角形や星型(自己交差)でも正しく動作する。光源側は SegDistInterior が影ゼロ。
-float SegPolyDist(float2 P, float2 L, int j, int n) {
-    float best = 1e9;
-    int   crossings = 0;
-    int   pv = n - 1;
-    [loop] for (int i = 0; i < n; ++i) {
-        float2 a = OccVert(j, pv), b = OccVert(j, i);
-        if (SegSegCross(P, L, a, b)) crossings++;
-        best = min(best, SegDistInterior(a, P, L));
-        pv = i;
-    }
-    if ((crossings & 1) != 0) return 0.0;   // 奇数回交差 = 内側 = umbra
-    return best;                             // 偶数回 = 外側 = penumbra のみ
+// レイ[L,P]が三角形(a,b,c)の «内側» を貫くか。Pは三角形の手前=光源側にあるか。
+// 三角形の各辺について、P と対向頂点が «同じ側» にある = レイが三角形を貫く。
+bool RayTriCross(float2 L, float2 P, float2 a, float2 b, float2 c) {
+    float2 d = P - L;
+    float e1 = Cross2(b - a, d);
+    float e2 = Cross2(c - b, d);
+    float e3 = Cross2(a - c, d);
+    float f1 = Cross2(b - a, P - a);
+    float f2 = Cross2(c - b, P - b);
+    float f3 = Cross2(a - c, P - c);
+    return (e1 * f1 >= 0.0 && e2 * f2 >= 0.0 && e3 * f3 >= 0.0);
 }
+
+// 点 P から線分 [a,b] への距離 (penumbra 用)。
+float PtSegDist(float2 P, float2 a, float2 b) {
+    float2 ab = b - a, ap = P - a;
+    float  t  = saturate(dot(ap, ab) / max(dot(ab, ab), 1e-6));
+    return length(P - (a + ab * t));
+}
+
+// 多角形オクルーダー j の «三角形ファン» による影判定。
+// 三角形ファン (v0, v_k, v_{k+1}) の各三角形に対して、レイ[L,P]が貫く=umbra。
+// penumbra は三角形の辺までの距離。光源側は影ゼロ (dist to light guard)。
+// 凸/凹/自己交差(星型)すべて正しく動作する。
+float SegPolyDist(float2 P, float2 L, int j, int n) {
+    if (n < 3) return 1e9;
+    float2 v0 = OccVert(j, 0);
+    // レイ方向の逆=光源側チェック: Pがオクルーダーの «光源側» なら影なし。
+    float2 d  = L - P;
+    float  dd = max(dot(d, d), 1e-6);
+    float best = 1e9;
+    [loop] for (int k = 1; k < n - 1; ++k) {
+        float2 v1 = OccVert(j, k);
+        float2 v2 = OccVert(j, k + 1);
+        if (RayTriCross(L, P, v0, v1, v2)) return 0.0;    // umbra
+        best = min(best, PtSegDist(P, v0, v1));
+        best = min(best, PtSegDist(P, v1, v2));
+        best = min(best, PtSegDist(P, v2, v0));
+    }
+    // 最後の三角形 (v0, v_{n-1}, v1) もチェック
+    {
+        float2 vn = OccVert(j, n - 1);
+        float2 v1 = OccVert(j, 1);
+        if (RayTriCross(L, P, v0, vn, v1)) return 0.0;
+    }
     return best;
 }
 
