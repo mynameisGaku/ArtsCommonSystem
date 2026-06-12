@@ -246,18 +246,22 @@ float SegDistInterior(float2 q, float2 P, float2 L) {
     if (t <= 0.0 || t >= 1.0) return 1e9;          // 端点キャップは無視 (片側 penumbra)
     return length(q - (P + d * t));                // 内側のみ垂直距離
 }
-// 線分 [P,L] と多角形 (occluder j, n頂点) の «遮蔽» 評価。辺を横切れば 0 (=貫通=完全遮蔽=umbra)。
-// penumbra は «線分の内側に射影される頂点» の垂直距離だけで測る (端点 P/L 近傍は数えない) ため、
-// 光源側 (オクルーダーが画素の後方) では影ゼロ。誤った光源側の影 (輪郭ハロー) が出ない。
+// 線分 [P,L] と多角形 (occluder j, n頂点) の «遮蔽» 評価。
+// 偶奇ルール: 辺を横切った回数が奇数=内側(umbra)、偶数=外側(penumbra距離)。
+// 凹多角形や星型(自己交差)でも正しく動作する。光源側は SegDistInterior が影ゼロ。
 float SegPolyDist(float2 P, float2 L, int j, int n) {
     float best = 1e9;
+    int   crossings = 0;
     int   pv = n - 1;
     [loop] for (int i = 0; i < n; ++i) {
         float2 a = OccVert(j, pv), b = OccVert(j, i);
-        if (SegSegCross(P, L, a, b)) return 0.0;   // 辺と交差 = 貫通 (umbra)
-        best = min(best, SegDistInterior(a, P, L));// 内側頂点のみ → 片側 penumbra
+        if (SegSegCross(P, L, a, b)) crossings++;
+        best = min(best, SegDistInterior(a, P, L));
         pv = i;
     }
+    if ((crossings & 1) != 0) return 0.0;   // 奇数回交差 = 内側 = umbra
+    return best;                             // 偶数回 = 外側 = penumbra のみ
+}
     return best;
 }
 
