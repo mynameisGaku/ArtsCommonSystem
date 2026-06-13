@@ -461,6 +461,9 @@ if(ACS_BUILD_SAMPLES)
     if(ACS_RENDER_DX12_RAW)
         acs_add_sample(65_HelloJobsVisual)
     endif()
+
+    # --- (43) HelloVertexSSS (頂点空間サブサーフェススキャタリング: FVertexScatter) ---
+    acs_add_sample(66_HelloVertexSSS)
 endif()
 
 if(ACS_STARTUP_PROJECT AND TARGET ${ACS_STARTUP_PROJECT})
