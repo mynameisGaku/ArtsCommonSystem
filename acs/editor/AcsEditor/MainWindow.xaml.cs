@@ -234,12 +234,65 @@ public partial class MainWindow : Window
         Log("Viewport attached — engine rendering into hosted HWND.");
         AssetBrowser.Engine = Engine;                  // .acsmat サムネイルを実シェーダ GPU プレビューに
         AssetBrowser.Refresh();                        // device 準備後に再生成 (GPU サムネイル)
+        if (_project != null) LoadProjectSettings();   // プロジェクト設定 (Config/ProjectSettings.ini) を読込+適用
         if (_project != null) LoadUserTypes();         // 先にユーザー型を登録 (シーン内の user component を attach 可能に)
         if (_project != null) LoadProjectScene();      // デモを置き換えてプロジェクトの初期シーンへ
         UpdateGizmoToggles(EngineInterop.acs_editor_gizmo_get_mode(Engine));   // 初期 active (Move)
         BuildHierarchy();
         PopulateComponentCombo();
         RefreshCreateMenus();   // 右クリック生成メニュー (ビルトイン / ユーザー定義) を構築
+    }
+
+    // ===== プロジェクト設定 (Config/ProjectSettings.ini) =====
+    private string SettingsIniPath =>
+        System.IO.Path.Combine(_project!.RootDir, "Config", "ProjectSettings.ini");
+
+    /// <summary>INI を読み込み ABI でパース+適用する (無ければ既定値)。AA コンボも同期する。</summary>
+    private void LoadProjectSettings()
+    {
+        if (Engine == IntPtr.Zero || _project == null) return;
+        try
+        {
+            string text = System.IO.File.Exists(SettingsIniPath)
+                ? System.IO.File.ReadAllText(SettingsIniPath, System.Text.Encoding.UTF8) : "";
+            EngineInterop.acs_editor_settings_load_text(Engine, text);
+            SyncAaCombo();
+            if (text.Length > 0) Log($"Project settings ← {SettingsIniPath}");
+        }
+        catch (Exception ex) { Log("Project settings load error: " + ex.Message); }
+    }
+
+    /// <summary>ABI の設定を INI へシリアライズして保存し、AA コンボを同期する。</summary>
+    private void SaveProjectSettings()
+    {
+        if (Engine == IntPtr.Zero || _project == null) return;
+        try
+        {
+            var buf = new byte[64 * 1024];
+            EngineInterop.acs_editor_settings_serialize(Engine, buf, buf.Length);
+            string dir = System.IO.Path.GetDirectoryName(SettingsIniPath)!;
+            System.IO.Directory.CreateDirectory(dir);
+            System.IO.File.WriteAllText(SettingsIniPath, EngineInterop.Utf8Z(buf), System.Text.Encoding.UTF8);
+            SyncAaCombo();
+        }
+        catch (Exception ex) { Log("Project settings save error: " + ex.Message); }
+    }
+
+    /// <summary>Rendering.MsaaSamples の現在値をツールバーの AA コンボへ反映する (再発火させない)。</summary>
+    private bool _suppressAa;
+    private void SyncAaCombo()
+    {
+        var buf = new byte[32];
+        if (EngineInterop.acs_editor_settings_get_value(Engine, "Rendering", "MsaaSamples", buf, buf.Length) == 0) return;
+        int idx = EngineInterop.Utf8Z(buf) switch { "2" => 1, "4" => 2, "8" => 3, _ => 0 };
+        if (AaBox != null && AaBox.SelectedIndex != idx) { _suppressAa = true; AaBox.SelectedIndex = idx; _suppressAa = false; }
+    }
+
+    private void OnProjectSettings(object sender, RoutedEventArgs e)
+    {
+        if (Engine == IntPtr.Zero) return;
+        var win = new ProjectSettingsWindow(this, Engine, SaveProjectSettings);
+        win.ShowDialog();
     }
 
     // プロジェクトの初期シーンをロード (無ければ空シーン)。attach 後に 1 度呼ぶ。
@@ -250,6 +303,14 @@ public partial class MainWindow : Window
         try
         {
             string scenePath = _project.InitialScenePath;
+            // Game.DefaultScene (プロジェクト設定) があればそちらを優先する
+            var sbuf = new byte[256];
+            if (EngineInterop.acs_editor_settings_get_value(Engine, "Game", "DefaultScene", sbuf, sbuf.Length) != 0)
+            {
+                string rel = EngineInterop.Utf8Z(sbuf);
+                if (rel.Length > 0)
+                    scenePath = System.IO.Path.Combine(_project.RootDir, rel.Replace('/', System.IO.Path.DirectorySeparatorChar));
+            }
             if (System.IO.File.Exists(scenePath))
             {
                 string text = System.IO.File.ReadAllText(scenePath, System.Text.Encoding.UTF8);
@@ -633,11 +694,16 @@ public partial class MainWindow : Window
     /// <summary>AA コンボ変更: MSAA サンプル数 (FXAA/2x/4x/8x) をエンジンへ反映する。</summary>
     private void OnAaChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (Engine == IntPtr.Zero || AaBox == null) return;   // XAML 初期化中は無視 (既定 8x はエンジン側既定と一致)
+        if (Engine == IntPtr.Zero || AaBox == null || _suppressAa) return;   // 初期化/同期中は無視
         int[] map = { 1, 2, 4, 8 };
         int idx = AaBox.SelectedIndex;
         if (idx < 0 || idx >= map.Length) return;
-        EngineInterop.acs_editor_set_msaa(Engine, map[idx]);
+        // プロジェクト設定 (Rendering.MsaaSamples) 経由で適用 + 永続化し、Project Settings と共有する。
+        // プロジェクト未オープン時は ABI へ直接渡す (設定ファイルの保存先が無いため)。
+        if (_project != null && EngineInterop.acs_editor_settings_set(Engine, "Rendering", "MsaaSamples", map[idx].ToString()) != 0)
+            SaveProjectSettings();
+        else
+            EngineInterop.acs_editor_set_msaa(Engine, map[idx]);
         Log(map[idx] == 1 ? "AA: FXAA" : $"AA: MSAA {map[idx]}x");
     }
 

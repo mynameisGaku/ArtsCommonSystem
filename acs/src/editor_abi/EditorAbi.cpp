@@ -17,6 +17,7 @@
 #include "render/RhiTypes.h"
 #include "render/SpriteBatch.h"
 #include "render/Fxaa.h"
+#include "gameframework/ProjectSettings.h"
 #include "math/Vec.h"
 #include "foundation/Log.h"
 #include "memory/MemorySystem.h"
@@ -190,6 +191,14 @@ struct EditorHost {
     // MSAA PSO の本体バッチでは描けない)。EnsurePreviewRt で遅延初期化。
     FSpriteBatch                preview_sprites;
     bool                        preview_sprites_ready = false;
+
+    // プロジェクト設定 (UE の Project Settings 相当)。acs_editor_settings_load で
+    // <project>/Config/ProjectSettings.ini を読み、変更のたび保存 + エンジンへ適用する。
+    game::FProjectSettings      settings;
+    char                        settings_path[512] = {};
+    FVec3                       ambient      = FVec3{ 0.10f, 0.11f, 0.13f };   // Rendering.AmbientColor
+    f32                         light_height = 90.0f;                          // Rendering.LightHeight
+    ClearColor                  clear_color  { 0.07f, 0.08f, 0.10f, 1.0f };    // Rendering.ClearColor
 
     // マテリアル GPU プレビュー: 実シェーダでサンプルを RT に描き readback する。
     TUniquePtr<IRhiCommandList> preview_cl;            // 専用コマンドリスト (フレーム外で submit)
@@ -1522,7 +1531,7 @@ void DrawScene(EditorHost& h, FSpriteBatch& sb, u32 w, u32 hh) noexcept {
             O.shape = static_cast<i32>(n->comp_props[cs][1][0]);
         }
     }
-    sb.SetLights(lights, lightCount, FVec3{ 0.10f, 0.11f, 0.13f }, 90.0f * z, occluders, occCount);
+    sb.SetLights(lights, lightCount, h.ambient, h.light_height * z, occluders, occCount);
 
     // ノード本体。スプライト画像があればそれを、無ければ色付き矩形を描く。
     // 非可視ノードはゴースト表示 (alpha を落として「隠し」を見せつつ選択可能に保つ)。
@@ -1796,6 +1805,9 @@ ACS_EDITOR_API int acs_editor_attach(void* handle, void* hwnd, uint32_t width, u
         ACS_LOG_ERROR("[acs_editor_abi] sprite batch init failed: %s", sr.Error().message);
     }
 
+    // プロジェクト設定を既定値で初期化 (C# がプロジェクトを開いた後 settings_load_text で上書き)
+    host->settings.ResetToDefaults();
+
     // FXAA (MSAA 無効時のフォールバック。失敗してもエディタは AA 無しで続行できる)
     const auto fr = host->fxaa.Init(*host->renderer.Device(), host->renderer.ColorFormat());
     host->fxaa_ready = fr.IsOk();
@@ -1857,7 +1869,7 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
         ACS_LOG_INFO("[acs_editor_abi] MSAA = %ux", host->msaa_samples);
     }
 
-    const ClearColor clear{ 0.07f, 0.08f, 0.10f, 1.0f };
+    const ClearColor clear = host->clear_color;   // Rendering.ClearColor (プロジェクト設定)
     host->renderer.BeginFrame(clear);
 
     if (host->sprites_ready) {
@@ -1914,6 +1926,99 @@ ACS_EDITOR_API void acs_editor_resize(void* handle, uint32_t width, uint32_t hei
     host->renderer.OnResize(width, height);
     host->width  = width;
     host->height = height;
+}
+
+// =============================================================================
+// C ABI — プロジェクト設定 (UE の Project Settings 相当)
+// =============================================================================
+
+/** プロジェクト設定をエンジン状態へ反映する (ロード/変更時に呼ぶ)。 */
+static void ApplySettings(EditorHost& h) noexcept {
+    const int msaa = h.settings.GetInt("Rendering", "MsaaSamples", 8);
+    h.msaa_pending = (msaa >= 8) ? 8u : (msaa >= 4) ? 4u : (msaa >= 2) ? 2u : 1u;
+    h.ambient      = h.settings.GetColor("Rendering", "AmbientColor", FVec3{ 0.10f, 0.11f, 0.13f });
+    h.light_height = h.settings.GetFloat("Rendering", "LightHeight", 90.0f);
+    const FVec3 cc = h.settings.GetColor("Rendering", "ClearColor", FVec3{ 0.07f, 0.08f, 0.10f });
+    h.clear_color  = ClearColor{ cc.x, cc.y, cc.z, 1.0f };
+    h.snap_move    = h.settings.GetFloat("Editor", "SnapMove", 10.0f);
+    h.snap_rotate  = h.settings.GetFloat("Editor", "SnapRotateDeg", 15.0f) * 3.1415926535f / 180.0f;
+    h.snap_scale   = h.settings.GetFloat("Editor", "SnapScale", 0.25f);
+}
+
+/** INI テキストからプロジェクト設定を読み込み、エンジンへ適用する (C# がファイル I/O 担当)。
+ *  ini_text=null/空 は既定値で初期化 (初回起動)。 */
+ACS_EDITOR_API void acs_editor_settings_load_text(void* handle, const char* ini_text) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return;
+    if (ini_text != nullptr && ini_text[0] != '\0') host->settings.LoadText(ini_text);
+    else                                            host->settings.ResetToDefaults();
+    ApplySettings(*host);
+}
+
+/** プロジェクト設定を INI テキストへシリアライズする (C# が書き込む)。書いた文字数を返す。 */
+ACS_EDITOR_API int acs_editor_settings_serialize(void* handle, char* out, int cap) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || out == nullptr || cap <= 0) return 0;
+    return static_cast<int>(host->settings.SerializeText(out, static_cast<usize>(cap)));
+}
+
+/** 設定エントリ数。 */
+ACS_EDITOR_API int acs_editor_settings_count(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr) ? static_cast<int>(host->settings.Count()) : 0;
+}
+
+/** index 番目のエントリを TSV 1 行 "category\tkey\tvalue\ttype\toptions\tbuiltin\tdesc" で返す。
+ *  type は ESettingType の整数。options/desc は無ければ空。 */
+ACS_EDITOR_API int acs_editor_settings_entry(void* handle, int index, char* out, int cap) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || out == nullptr || cap <= 0) return 0;
+    if (index < 0 || static_cast<u32>(index) >= host->settings.Count()) return 0;
+    const game::FSettingEntry& e = host->settings.At(static_cast<u32>(index));
+    const int w = std::snprintf(out, static_cast<size_t>(cap), "%s\t%s\t%s\t%d\t%s\t%d\t%s",
+                                e.category, e.key, e.value, static_cast<int>(e.type),
+                                e.options != nullptr ? e.options : "",
+                                e.builtin ? 1 : 0,
+                                e.desc != nullptr ? e.desc : "");
+    return (w > 0) ? 1 : 0;
+}
+
+/** 既存エントリの値を設定し、エンジンへ即適用する。成功 1。 */
+ACS_EDITOR_API int acs_editor_settings_set(void* handle, const char* cat, const char* key,
+                                           const char* value) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return 0;
+    if (!host->settings.Set(cat, key, value)) return 0;
+    ApplySettings(*host);
+    return 1;
+}
+
+/** ユーザー定義エントリを追加する (既存キーは値更新)。成功 1。 */
+ACS_EDITOR_API int acs_editor_settings_add(void* handle, const char* cat, const char* key,
+                                           const char* value) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return 0;
+    const int ok = host->settings.Add(cat, key, value) ? 1 : 0;
+    if (ok) ApplySettings(*host);
+    return ok;
+}
+
+/** ユーザー定義エントリを削除する (ビルトインは不可)。成功 1。 */
+ACS_EDITOR_API int acs_editor_settings_remove(void* handle, const char* cat, const char* key) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return 0;
+    return host->settings.Remove(cat, key) ? 1 : 0;
+}
+
+/** 値を 1 つ取得する (ユーザーコード/エディタの個別参照用)。見つかれば 1。 */
+ACS_EDITOR_API int acs_editor_settings_get_value(void* handle, const char* cat, const char* key,
+                                                 char* out, int cap) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || out == nullptr || cap <= 0) return 0;
+    const game::FSettingEntry* e = host->settings.Find(cat, key);
+    if (e == nullptr) return 0;
+    std::snprintf(out, static_cast<size_t>(cap), "%s", e->value);
+    return 1;
 }
 
 /** MSAA サンプル数を設定する (1=FXAA のみ / 2 / 4 / 8)。次フレームの先頭で適用される。 */

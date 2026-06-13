@@ -60,6 +60,8 @@
                 <MenuItem Header="Copy"  Command="ApplicationCommands.Copy"  InputGestureText="Ctrl+C"/>
                 <MenuItem Header="Paste" Command="ApplicationCommands.Paste" InputGestureText="Ctrl+V"/>
                 <MenuItem Header="Delete" Command="ApplicationCommands.Delete" InputGestureText="Del"/>
+                <Separator/>
+                <MenuItem Header="Project Settings…" Click="OnProjectSettings"/>
             </MenuItem>
             <MenuItem Header="_GameObject">
                 <MenuItem Header="Create Empty" Click="OnCreateEmpty"/>

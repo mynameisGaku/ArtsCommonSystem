@@ -33,6 +33,41 @@ internal static class EngineInterop
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_set_msaa(IntPtr handle, int samples);
 
+    // ----- プロジェクト設定 (Project Settings) -----
+    // INI テキストの読込/シリアライズは ABI、ファイル I/O は C# 側 (規律どおり)。
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_settings_load_text(IntPtr handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string iniText);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_settings_serialize(IntPtr handle, [Out] byte[] buf, int cap);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_settings_count(IntPtr handle);
+    /// <summary>TSV 1行 "category\tkey\tvalue\ttype\toptions\tbuiltin\tdesc" を返す。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_settings_entry(IntPtr handle, int index, [Out] byte[] buf, int cap);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_settings_set(IntPtr handle,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string cat, [MarshalAs(UnmanagedType.LPUTF8Str)] string key,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string value);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_settings_add(IntPtr handle,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string cat, [MarshalAs(UnmanagedType.LPUTF8Str)] string key,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string value);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_settings_remove(IntPtr handle,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string cat, [MarshalAs(UnmanagedType.LPUTF8Str)] string key);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_settings_get_value(IntPtr handle,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string cat, [MarshalAs(UnmanagedType.LPUTF8Str)] string key,
+        [Out] byte[] buf, int cap);
+
+    /// <summary>NUL 終端 UTF-8 バイト列を string にする (Out バッファのデコード用)。</summary>
+    public static string Utf8Z(byte[] buf)
+    {
+        int n = Array.IndexOf(buf, (byte)0);
+        if (n < 0) n = buf.Length;
+        return System.Text.Encoding.UTF8.GetString(buf, 0, n);
+    }
+
     /// <summary>現在の実効 MSAA サンプル数を返す。</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_get_msaa(IntPtr handle);

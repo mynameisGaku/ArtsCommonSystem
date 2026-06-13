@@ -80,6 +80,7 @@ acs_module(
         PrefabSystem.cpp
         PrivacyDirector.cpp
         Progression.cpp
+        ProjectSettings.cpp
         ProjectileSystem.cpp
         Random.cpp
         Reflect.cpp
@@ -245,6 +246,7 @@ acs_module(
         PrimitiveRenderer2D.h
         PrivacyDirector.h
         Progression.h
+        ProjectSettings.h
         ProjectileSystem.h
         Random.h
         Reflect.h
