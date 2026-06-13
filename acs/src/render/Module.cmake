@@ -37,6 +37,7 @@ set(_acsgen_render_sources
     Ssgi.cpp
     Ssr.cpp
     StandardShader.cpp
+    VertexScatter.cpp
 )
 set(_acsgen_render_headers
     Atmosphere.h
@@ -74,6 +75,7 @@ set(_acsgen_render_headers
     Ssgi.h
     Ssr.h
     StandardShader.h
+    VertexScatter.h
 )
 set(_acsgen_render_public_deps
     Foundation

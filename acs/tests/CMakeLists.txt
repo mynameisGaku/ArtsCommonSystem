@@ -34,6 +34,7 @@ add_executable(acs_unit_tests
     collider_tests.cpp
     crypto_tests.cpp
     render_tests.cpp
+    vertexscatter_tests.cpp
     spritesortlist_tests.cpp
     editor_play_draw_tests.cpp
     material2d_tests.cpp
