@@ -66,6 +66,7 @@ acs_module(
         MusicDirector.cpp
         NetSnapshot.cpp
         Node2D.cpp
+        Node3D.cpp
         NodePool.cpp
         OpenXrBridge.cpp
         ParticleEffectSystem.cpp
@@ -93,6 +94,7 @@ acs_module(
         SaveArchive.cpp
         SaveSlot.cpp
         Scene2D.cpp
+        Scene3D.cpp
         SceneCommandQueue.cpp
         SceneEventBus.cpp
         SceneManager.cpp
@@ -184,6 +186,7 @@ acs_module(
         CollisionWorld2D.h
         CombatStateMachine.h
         Component2D.h
+        Component3D.h
         ComponentFactory.h
         ContentModerator.h
         CooldownTimer.h
@@ -223,11 +226,13 @@ acs_module(
         Lockstep.h
         MatchGrid.h
         Material2D.h
+        MeshComponent3D.h
         MlRuntime.h
         ModRegistry.h
         MusicDirector.h
         NetSnapshot.h
         Node2D.h
+        Node3D.h
         NodeId.h
         NodePool.h
         OpenXrBridge.h
@@ -262,6 +267,7 @@ acs_module(
         SaveSlot.h
         Scene.h
         Scene2D.h
+        Scene3D.h
         SceneCommandQueue.h
         SceneEventBus.h
         SceneManager.h
@@ -293,6 +299,7 @@ acs_module(
         TilemapPhysics.h
         TilemapQuery.h
         Transform2D.h
+        Transform3D.h
         TriggerComponent.h
         TriggerWorld2D.h
         TurnManager.h

@@ -13,6 +13,7 @@
 #include "gameframework/Node2D.h"
 #include "gameframework/Component2D.h"
 #include "gameframework/RenderContext.h"
+#include "render/SpriteBatch.h"
 #include "math/Vec.h"
 
 using namespace acs;
@@ -57,9 +58,13 @@ ACS_TEST(EditorPlayDraw, DrawTreeInvokesComponentOnDrawWithWiredContext) {
     FNode2D& child = root.AddChild(MakeUnique<FNode2D>());
     FProbeDraw& probe = child.AddComponent<FProbeDraw>();
 
-    // acs_game_scene_draw と同じ配線: SpriteBatch (fake 非 null) + world view。
+    // acs_game_scene_draw と同じ配線: SpriteBatch + world view。
+    // 実 FSpriteBatch を stack に置く (Init しないので GPU 不要、LightsActive()=0 で安全)。
+    // DrawTree はマテリアル無しノードで rc.Sprites().LightsActive() を問い合わせるため、
+    // fake ポインタではなく CPU 側だけで成立する実体が要る。
+    FSpriteBatch sprites;
     RenderContext rc;
-    rc._SetSpriteBatch(reinterpret_cast<FSpriteBatch*>(0x1));   // deref しない (HasSprites 判定のみ)
+    rc._SetSpriteBatch(&sprites);
     rc._SetView2D(FVec2{ 12.0f, 34.0f }, 2.0f);
 
     EXPECT_EQ(probe.draws, 0);
@@ -79,8 +84,9 @@ ACS_TEST(EditorPlayDraw, HiddenNodeSkipsOnDraw) {
     FProbeDraw& probe = child.AddComponent<FProbeDraw>();
     child.SetVisible(false);
 
+    FSpriteBatch sprites;
     RenderContext rc;
-    rc._SetSpriteBatch(reinterpret_cast<FSpriteBatch*>(0x1));
+    rc._SetSpriteBatch(&sprites);
     root.DrawTree(rc);
     EXPECT_EQ(probe.draws, 0);
 }
