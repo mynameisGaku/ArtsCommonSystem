@@ -674,6 +674,7 @@ public partial class MainWindow : Window
     private void OnViewportTransformChanged()
     {
         if (Engine == IntPtr.Zero) return;
+        if (_view3d) { int s3 = EngineInterop.acs_editor_selected3d(Engine); if (s3 >= 0) Populate3DInspector(s3); return; }
         int sel = EngineInterop.acs_editor_selected(Engine);
         if (sel >= 0) { _selectedId = sel; PopulateInspector(sel); }
     }

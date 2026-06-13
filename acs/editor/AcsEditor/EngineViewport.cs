@@ -60,6 +60,7 @@ public sealed class EngineViewport : HwndHost
     private IntPtr _origProc;            // 元の STATIC ウィンドウプロシージャ
     private bool _panning;
     private bool _gizmoDragging;         // 移動ギズモのドラッグ中
+    private bool _giz3dDragging;         // 3D 変形ギズモのドラッグ中
     private int _lastX, _lastY;
     private bool _marqueeDragging;       // ラバーバンド (矩形) 選択のドラッグ中
     private int _marqStartX, _marqStartY, _marqLastX, _marqLastY;
@@ -136,11 +137,19 @@ public sealed class EngineViewport : HwndHost
 
             case WM_LBUTTONDOWN:
                 FeedMouseButton(0, 1);   // Play 中なら game へ転送 (Play 外は no-op)
-                // 3D ビューポート: 左クリックでメッシュをレイピック (選択)。
+                // 3D ビューポート: まず変形ギズモを掴めるか試し、掴めなければレイピック。
                 if (_engine != IntPtr.Zero && EngineInterop.acs_editor_get_view3d(_engine) != 0)
                 {
-                    int p3 = EngineInterop.acs_editor_pick3d(_engine, LoWord(lParam), HiWord(lParam));
-                    Picked?.Invoke(p3);
+                    int gx = LoWord(lParam), gy = HiWord(lParam);
+                    if (EngineInterop.acs_editor_gizmo3d_begin(_engine, gx, gy) != 0)
+                    {
+                        _giz3dDragging = true; SetCapture(hWnd);
+                    }
+                    else
+                    {
+                        int p3 = EngineInterop.acs_editor_pick3d(_engine, gx, gy);
+                        Picked?.Invoke(p3);
+                    }
                     break;
                 }
                 // ポリゴン描画モード: クリックで点を置く (ピック/ギズモはしない)。
@@ -205,6 +214,7 @@ public sealed class EngineViewport : HwndHost
                 FeedMouseButton(0, 0);
                 // teardown は WM_CAPTURECHANGED に集約。ReleaseCapture が同期的にそれを送る。
                 // _finalizing で「自前の解放」と「奪取」を区別し、奪取時は marquee をキャンセルする。
+                if (_giz3dDragging) ReleaseCapture();   // 3D ギズモの確定は CAPTURECHANGED で
                 if (_gizmoDragging || _marqueeDragging) { _finalizing = true; ReleaseCapture(); }
                 break;
 
@@ -232,6 +242,12 @@ public sealed class EngineViewport : HwndHost
                 // capture 喪失/解放はすべてここで teardown する (LBUTTONUP も ReleaseCapture 経由で
                 // 同期的にここへ来る)。これでドラッグ中にキャプチャを奪われても gizmo_end +
                 // Inspector 更新が確実に走る。
+                if (_giz3dDragging)
+                {
+                    _giz3dDragging = false;
+                    if (_engine != IntPtr.Zero) EngineInterop.acs_editor_gizmo3d_end(_engine);
+                    TransformChanged?.Invoke();
+                }
                 if (_gizmoDragging)
                 {
                     _gizmoDragging = false;
@@ -267,7 +283,13 @@ public sealed class EngineViewport : HwndHost
                 {
                     int x = LoWord(lParam), y = HiWord(lParam);
                     EngineInterop.acs_editor_logic_input_mouse_move(_engine, x, y);   // Play 中なら game へ (外は no-op)
-                    if (_gizmoDragging)
+                    if (_giz3dDragging)
+                    {
+                        EngineInterop.acs_editor_gizmo3d_drag(_engine, x, y);
+                        EngineInterop.acs_editor_render(_engine, 0f);
+                        TransformChanged?.Invoke();
+                    }
+                    else if (_gizmoDragging)
                     {
                         EngineInterop.acs_editor_gizmo_update(_engine, x, y);
                         EngineInterop.acs_editor_render(_engine, 0f);   // 即時再描画 (操作追従、カクつき緩和)

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+﻿// SPDX-License-Identifier: Apache-2.0
 // =============================================================================
 // ACS Editor ABI — C# (WPF) エディタが P/Invoke するための C ABI ブリッジ DLL
 // -----------------------------------------------------------------------------
@@ -270,6 +270,12 @@ struct EditorHost {
     int          next_id3d     = 1;
     bool         scene3d_seeded = false;  // 初回 3D 切替でデフォルトシーンを置いたか
     TArray<ENode3D> nodes3d;              // 3D シーンのノード列
+    // 3D ギズモのドラッグ状態 (0=非活性, 1=X, 2=Y, 3=Z 軸)。
+    int          giz3d_axis    = 0;
+    f32          giz3d_grab    = 0.0f;    // ドラッグ開始時の «軸上パラメータ» (移動/拡縮の基準)
+    FVec3        giz3d_start_pos{ 0, 0, 0 };
+    FVec3        giz3d_start_scale{ 1, 1, 1 };
+    f32          giz3d_start_rot = 0.0f;
 
     // Undo/Redo: シーンのシリアライズ文字列スナップショットを積む (所有 raw char*)。
     TArray<char*> undo;
@@ -1925,6 +1931,64 @@ FVec3 Cam3DEye(const EditorHost& h) noexcept {
                   h.cam3d_target.z + dir.z * h.cam3d_dist };
 }
 
+/** スクリーン点 (sx,sy) を通すワールドレイ (origin=eye, dir 正規化) を返す。 */
+struct EGizRay { FVec3 origin; FVec3 dir; };
+EGizRay Cam3DScreenRay(const EditorHost& h, f32 sx, f32 sy, f32 W, f32 H) noexcept {
+    const FVec3 eye = Cam3DEye(h);
+    const f32 cpit = std::cos(h.cam3d_pitch), spit = std::sin(h.cam3d_pitch);
+    const f32 cyaw = std::cos(h.cam3d_yaw),   syaw = std::sin(h.cam3d_yaw);
+    const FVec3 fwd{ -cpit * syaw, -spit, -cpit * cyaw };
+    FVec3 right{ cyaw, 0, -syaw };
+    FVec3 up{ right.y * fwd.z - right.z * fwd.y, right.z * fwd.x - right.x * fwd.z, right.x * fwd.y - right.y * fwd.x };
+    const f32 aspect = (H > 0) ? W / H : 1.0f;
+    const f32 tanHalf = std::tan(0.5f * 50.0f * 3.14159265f / 180.0f);
+    const f32 ndcx = (2.0f * sx / W - 1.0f) * tanHalf * aspect;
+    const f32 ndcy = (1.0f - 2.0f * sy / H) * tanHalf;
+    FVec3 d{ fwd.x + right.x * ndcx + up.x * ndcy, fwd.y + right.y * ndcx + up.y * ndcy, fwd.z + right.z * ndcx + up.z * ndcy };
+    const f32 dl = std::sqrt(d.x*d.x + d.y*d.y + d.z*d.z);
+    if (dl > 1e-6f) d = FVec3{ d.x/dl, d.y/dl, d.z/dl };
+    return EGizRay{ eye, d };
+}
+
+/** ワールド点をスクリーン座標へ射影する (画面内かつ前方なら true)。 */
+bool WorldToScreen3D(const EditorHost& h, FVec3 wp, f32 W, f32 H, f32& outSx, f32& outSy) noexcept {
+    const f32 aspect = (H > 0) ? W / H : 1.0f;
+    FCamera cam; cam.SetPerspective(50.0f * 3.14159265f / 180.0f, aspect, 0.05f, 500.0f);
+    cam.SetLookAt(Cam3DEye(h), h.cam3d_target);
+    const FMat4 vp = cam.ViewProjection();
+    const FVec4 clip = Transform(FVec4{ wp.x, wp.y, wp.z, 1.0f }, vp);
+    if (clip.w <= 1e-4f) return false;                  // カメラ後方
+    outSx = (clip.x / clip.w * 0.5f + 0.5f) * W;
+    outSy = (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * H;
+    return true;
+}
+
+/** 点 p からレイ [o,d] への «レイに沿った» 最近パラメータ t (= 射影距離)。 */
+f32 RayParamForClosest(const EGizRay& r, FVec3 p) noexcept {
+    const FVec3 op{ p.x - r.origin.x, p.y - r.origin.y, p.z - r.origin.z };
+    return op.x * r.dir.x + op.y * r.dir.y + op.z * r.dir.z;
+}
+
+/** 2 直線 (軸: A+s*ad, レイ: r) の最近接で «軸パラメータ s» を返す (移動ドラッグ用)。 */
+f32 ClosestAxisParam(FVec3 A, FVec3 ad, const EGizRay& r) noexcept {
+    // ad, r.dir は正規化。s = ((B-A)·(ad - (ad·rd)rd)) / (1 - (ad·rd)^2)
+    const FVec3 B = r.origin;
+    const FVec3 BA{ B.x - A.x, B.y - A.y, B.z - A.z };
+    const f32 adrd = ad.x*r.dir.x + ad.y*r.dir.y + ad.z*r.dir.z;
+    const f32 denom = 1.0f - adrd * adrd;
+    if (std::abs(denom) < 1e-5f) return 0.0f;           // 平行
+    const f32 baAd = BA.x*ad.x + BA.y*ad.y + BA.z*ad.z;
+    const f32 baRd = BA.x*r.dir.x + BA.y*r.dir.y + BA.z*r.dir.z;
+    return (baAd - baRd * adrd) / denom;
+}
+
+/** 軸番号 (1=X,2=Y,3=Z) → 単位方向。 */
+FVec3 AxisDir(int axis) noexcept {
+    if (axis == 1) return FVec3{ 1, 0, 0 };
+    if (axis == 2) return FVec3{ 0, 1, 0 };
+    return FVec3{ 0, 0, 1 };
+}
+
 /** 初回 3D 切替でデフォルトの 3D シーン (床 + 立方体 + 球) を置く。 */
 void Seed3DScene(EditorHost& h) noexcept {
     if (h.scene3d_seeded) return;
@@ -2042,6 +2106,25 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                         0.5f * std::abs(sn->scale.y) + 0.04f,
                         0.5f * std::abs(sn->scale.z) + 0.04f };
         h.dbg3d.Aabb(Aabb3{ sn->pos, he }, FVec4{ 1.0f, 0.78f, 0.25f, 1 });
+        // 変形ギズモ: 3 軸の線 (移動/拡縮)。掴んでいる軸は強調。スクリーン一定長へスケール。
+        f32 csx, csy;
+        const f32 gscreen = 90.0f;            // 軸の見かけ長 (px)
+        f32 gl = 1.5f;
+        if (WorldToScreen3D(h, sn->pos, static_cast<f32>(scW), static_cast<f32>(scH), csx, csy)) {
+            f32 ex, ey;
+            if (WorldToScreen3D(h, FVec3{ sn->pos.x + 1.0f, sn->pos.y, sn->pos.z },
+                                static_cast<f32>(scW), static_cast<f32>(scH), ex, ey)) {
+                const f32 ppu = std::sqrt((ex - csx) * (ex - csx) + (ey - csy) * (ey - csy));  // px / world1
+                if (ppu > 1e-3f) gl = gscreen / ppu;
+            }
+        }
+        const FVec4 cols[3] = { FVec4{ 0.95f, 0.35f, 0.35f, 1 }, FVec4{ 0.40f, 0.90f, 0.45f, 1 }, FVec4{ 0.45f, 0.60f, 0.98f, 1 } };
+        for (int a = 1; a <= 3; ++a) {
+            const FVec3 d = AxisDir(a);
+            FVec4 c = cols[a - 1];
+            if (h.giz3d_axis == a) c = FVec4{ 1.0f, 0.92f, 0.30f, 1 };   // 掴み中は黄
+            h.dbg3d.Line(sn->pos, FVec3{ sn->pos.x + d.x * gl, sn->pos.y + d.y * gl, sn->pos.z + d.z * gl }, c);
+        }
     }
     h.dbg3d.End(*cl, vp);
 }
@@ -4207,6 +4290,87 @@ ACS_EDITOR_API int acs_editor_pick3d(void* handle, float sx, float sy) {
     }
     if (best >= 0) host->sel3d = best;
     return best;
+}
+
+/** 3D 変形ギズモの掴み開始。選択ノードの軸線に近ければその軸を掴む。掴んだ軸 (1=X,2=Y,3=Z)、
+ *  外れたら 0 を返す。掴めた場合は呼び出し側が以降の mouse-move を gizmo3d_drag へ流す。 */
+ACS_EDITOR_API int acs_editor_gizmo3d_begin(void* handle, float sx, float sy) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return 0;
+    ENode3D* n = FindNode3D(*host, host->sel3d);
+    IRhiSwapchain* sc = host->renderer.Swapchain();
+    if (n == nullptr || sc == nullptr) return 0;
+    const f32 W = static_cast<f32>(sc->Width()), H = static_cast<f32>(sc->Height());
+
+    // 各軸線をスクリーンに射影し、クリック点との «線分距離» が近い軸を掴む。
+    f32 csx, csy;
+    if (!WorldToScreen3D(*host, n->pos, W, H, csx, csy)) return 0;
+    // 軸の見かけ長 (px/world) を X 軸で測る。
+    f32 ex, ey; f32 ppu = 60.0f;
+    if (WorldToScreen3D(*host, FVec3{ n->pos.x + 1.0f, n->pos.y, n->pos.z }, W, H, ex, ey))
+        ppu = std::sqrt((ex - csx) * (ex - csx) + (ey - csy) * (ey - csy));
+    const f32 gl = (ppu > 1e-3f) ? 90.0f / ppu : 1.5f;
+
+    int   best = 0; f32 bestD = 14.0f;            // ヒット閾値 (px)
+    for (int a = 1; a <= 3; ++a) {
+        const FVec3 d = AxisDir(a);
+        f32 tx, ty;
+        if (!WorldToScreen3D(*host, FVec3{ n->pos.x + d.x * gl, n->pos.y + d.y * gl, n->pos.z + d.z * gl }, W, H, tx, ty)) continue;
+        // 点 (sx,sy) から線分 [(csx,csy),(tx,ty)] への距離。
+        const f32 vx = tx - csx, vy = ty - csy;
+        const f32 wx = sx - csx, wy = sy - csy;
+        const f32 len2 = vx * vx + vy * vy;
+        f32 t = (len2 > 1e-3f) ? (wx * vx + wy * vy) / len2 : 0.0f;
+        t = (t < 0) ? 0 : (t > 1) ? 1 : t;
+        const f32 dx = csx + vx * t - sx, dy = csy + vy * t - sy;
+        const f32 dist = std::sqrt(dx * dx + dy * dy);
+        if (dist < bestD) { bestD = dist; best = a; }
+    }
+    host->giz3d_axis = best;
+    if (best == 0) return 0;
+    // ドラッグ基準を記録 (移動=軸上パラメータ、拡縮/回転=開始値)。
+    const EGizRay r = Cam3DScreenRay(*host, sx, sy, W, H);
+    host->giz3d_grab        = ClosestAxisParam(n->pos, AxisDir(best), r);
+    host->giz3d_start_pos   = n->pos;
+    host->giz3d_start_scale = n->scale;
+    host->giz3d_start_rot   = (best == 1) ? n->rot.x : (best == 2) ? n->rot.y : n->rot.z;
+    return best;
+}
+
+/** 3D ギズモのドラッグ更新。現在のギズモモード (move/rotate/scale) に従い軸方向へ変形する。 */
+ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || host->giz3d_axis == 0) return;
+    ENode3D* n = FindNode3D(*host, host->sel3d);
+    IRhiSwapchain* sc = host->renderer.Swapchain();
+    if (n == nullptr || sc == nullptr) return;
+    const f32 W = static_cast<f32>(sc->Width()), H = static_cast<f32>(sc->Height());
+    const int axis = host->giz3d_axis;
+    const FVec3 ad = AxisDir(axis);
+    const EGizRay r = Cam3DScreenRay(*host, sx, sy, W, H);
+    const f32 s = ClosestAxisParam(host->giz3d_start_pos, ad, r);
+    const f32 delta = s - host->giz3d_grab;        // 軸上の移動量 (world)
+
+    if (host->gizmo_mode == 2) {                    // Scale: 軸成分を delta で増減
+        FVec3 sc0 = host->giz3d_start_scale;
+        f32* comp = (axis == 1) ? &sc0.x : (axis == 2) ? &sc0.y : &sc0.z;
+        *comp += delta;
+        if (*comp < 0.05f) *comp = 0.05f;
+        n->scale = sc0;
+    } else if (host->gizmo_mode == 1) {             // Rotate: delta を角度 (度) に割り当て
+        const f32 ang = host->giz3d_start_rot + delta * 30.0f;
+        if (axis == 1) n->rot.x = ang; else if (axis == 2) n->rot.y = ang; else n->rot.z = ang;
+    } else {                                        // Move: 軸方向へ平行移動
+        n->pos = FVec3{ host->giz3d_start_pos.x + ad.x * delta,
+                        host->giz3d_start_pos.y + ad.y * delta,
+                        host->giz3d_start_pos.z + ad.z * delta };
+    }
+}
+
+/** 3D ギズモのドラッグ終了。 */
+ACS_EDITOR_API void acs_editor_gizmo3d_end(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host != nullptr) host->giz3d_axis = 0;
 }
 
 // =============================================================================

@@ -113,6 +113,13 @@ internal static class EngineInterop
     /// <summary>メッシュファイル (.gltf/.glb/.obj/.fbx) を 3D ノードとして読み込む。</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_add_mesh3d(IntPtr handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string path, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+    // 3D 変形ギズモ (現在のギズモモード move/rotate/scale を軸方向に適用)。
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_gizmo3d_begin(IntPtr handle, float sx, float sy);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_gizmo3d_drag(IntPtr handle, float sx, float sy);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_gizmo3d_end(IntPtr handle);
 
     // ----- scene introspection / edit (Hierarchy / Inspector) -----
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
