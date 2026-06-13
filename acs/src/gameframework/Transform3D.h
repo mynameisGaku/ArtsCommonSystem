@@ -19,6 +19,7 @@
 #include "math/Vec.h"
 #include "math/Mat.h"
 #include "math/Quat.h"
+#include "math/Math.h"
 
 namespace acs::game {
 
@@ -71,7 +72,9 @@ struct FTransform3D {
                             scale.y * local.position.y,
                             scale.z * local.position.z };
         out.position = position + Rotate(rotation, scaled);
-        out.rotation = rotation * local.rotation;
+        // world 向き: 子ローカル回転を先に、親回転を後に適用 = local * parent
+        // (codebase の a*b は «a を先に・b を後に» 適用するため。Rotate(a*b,v)=Rotate(b,Rotate(a,v)))。
+        out.rotation = local.rotation * rotation;
         out.scale    = FVec3{ scale.x * local.scale.x,
                               scale.y * local.scale.y,
                               scale.z * local.scale.z };
@@ -95,6 +98,52 @@ struct FTransform3D {
         m.m[2][0] = scale.z * r.m[2][0]; m.m[2][1] = scale.z * r.m[2][1]; m.m[2][2] = scale.z * r.m[2][2]; m.m[2][3] = 0.0f;
         m.m[3][0] = position.x;          m.m[3][1] = position.y;          m.m[3][2] = position.z;          m.m[3][3] = 1.0f;
         return m;
+    }
+
+    /**
+     * オイラー角 (度、XYZ 順) から rotation を設定する。
+     *
+     * @details
+     * editor_abi の Node3DModel と同じ合成順 `Rx * Ry * Rz` (row-vector で点に X→Y→Z の順で
+     * 適用) になるよう quaternion を組む: `rotation = qx * qy * qz` (codebase の `a*b` は a を
+     * 先に適用するため、ToMatrix が Rx*Ry*Rz と一致する)。エディタの度数オイラー編集を
+     * クォータニオン保持の transform に橋渡しする。
+     * @param deg X/Y/Z 各軸のオイラー角 (度)。
+     */
+    void SetEulerDeg(FVec3 deg) noexcept {
+        const FQuat qx = FQuat::AxisAngle(FVec3{1, 0, 0}, deg.x * kDeg2Rad);
+        const FQuat qy = FQuat::AxisAngle(FVec3{0, 1, 0}, deg.y * kDeg2Rad);
+        const FQuat qz = FQuat::AxisAngle(FVec3{0, 0, 1}, deg.z * kDeg2Rad);
+        // a*b は «a 先 / b 後» 適用なので、Rx→Ry→Rz の順に v へ効かせるには qx*qy*qz。
+        // → Rotate(rotation, v) == v * (Rx*Ry*Rz) (editor Node3DModel と一致)。
+        rotation = Normalize(qx * qy * qz);
+    }
+
+    /**
+     * 現在の rotation をオイラー角 (度、XYZ 順) に分解して返す。
+     *
+     * @details
+     * `Rx * Ry * Rz` 分解 (SetEulerDeg の逆)。回転行列 (row-major) から
+     * β=asin(-m02)、α=atan2(m12,m22)、γ=atan2(m01,m00) を取り出す。Y が ±90° 近傍
+     * (ジンバルロック) では γ=0 に縮退させ α に寄せる。|Y|<90° では SetEulerDeg と往復一致。
+     * @return X/Y/Z 各軸のオイラー角 (度)。
+     */
+    FVec3 EulerDeg() const noexcept {
+        const FMat4 m = ToMatrix(rotation);          // row-major、Rotate(q,v)=v*m
+        f32 sy = -m.m[0][2];                          // -sin(Y)
+        sy = (sy < -1.0f) ? -1.0f : (sy > 1.0f ? 1.0f : sy);   // asin 用にクランプ
+        const f32 beta = ASin(sy);                   // Y
+        const f32 cy   = Sqrt(1.0f - sy * sy);       // cos(Y) >= 0 (|Y|<=90°)
+        f32 alpha, gamma;
+        if (cy > 1e-4f) {
+            alpha = ATan2(m.m[1][2], m.m[2][2]);     // X = atan2(sx*cy, cx*cy)
+            gamma = ATan2(m.m[0][1], m.m[0][0]);     // Z = atan2(cy*sz, cy*cz)
+        } else {
+            // ジンバルロック (cos Y ≈ 0): Z を 0 に固定し X へ寄せる
+            alpha = ATan2(-m.m[2][1], m.m[1][1]);
+            gamma = 0.0f;
+        }
+        return FVec3{ alpha * kRad2Deg, beta * kRad2Deg, gamma * kRad2Deg };
     }
 
     /**

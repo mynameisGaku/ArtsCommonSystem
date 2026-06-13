@@ -136,6 +136,64 @@ ACS_TEST(Transform3D, ComposeScaleAndIdentity) {
     ExpectVec3Near(b.scale,    x.scale,    1e-5f);
 }
 
+// --- SetEulerDeg が editor の Rx*Ry*Rz 行列と一致する (実測クロスチェック) ----
+ACS_TEST(Transform3D, EulerMatchesEditorMatrix) {
+    // editor_abi の Node3DModel と同じ回転合成 Rx*Ry*Rz を独立に組んで ground truth に。
+    struct E { f32 x, y, z; };
+    const E euls[] = { {30, 0, 0}, {0, 45, 0}, {0, 0, 60}, {20, 35, -50}, {-15, 80, 25} };
+    const FVec3 vs[] = { {1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0.5f, -0.3f, 0.8f} };
+    for (const E& e : euls) {
+        FTransform3D t;
+        t.SetEulerDeg(FVec3{ e.x, e.y, e.z });
+        const FMat4 R = FMat4::RotationX(e.x * kDeg2Rad)
+                      * FMat4::RotationY(e.y * kDeg2Rad)
+                      * FMat4::RotationZ(e.z * kDeg2Rad);
+        for (const FVec3 v : vs) {
+            const FVec3 byQuat = Rotate(t.rotation, v);
+            const FVec3 byMat  = TransformPoint(v, R);
+            ExpectVec3Near(byQuat, byMat, 1e-4f);
+        }
+    }
+}
+
+// --- SetEulerDeg → EulerDeg の往復一致 (非ジンバル域) ------------------------
+ACS_TEST(Transform3D, EulerRoundTrip) {
+    struct E { f32 x, y, z; };
+    const E euls[] = { {0, 0, 0}, {30, 0, 0}, {0, 40, 0}, {0, 0, 70},
+                       {25, -35, 50}, {-60, 20, -80} };   // |Y|<85° に収める
+    for (const E& e : euls) {
+        FTransform3D t;
+        t.SetEulerDeg(FVec3{ e.x, e.y, e.z });
+        const FVec3 out = t.EulerDeg();
+        EXPECT_NEAR(out.x, e.x, 1e-2f);
+        EXPECT_NEAR(out.y, e.y, 1e-2f);
+        EXPECT_NEAR(out.z, e.z, 1e-2f);
+    }
+}
+
+// --- 単一軸 Z+90° は (1,0,0)→(0,1,0) (既存 2D/Quat 規約と一致) ---------------
+ACS_TEST(Transform3D, EulerSingleAxisZ) {
+    FTransform3D t;
+    t.SetEulerDeg(FVec3{ 0, 0, 90 });
+    ExpectVec3Near(Rotate(t.rotation, FVec3{1, 0, 0}), FVec3{0, 1, 0}, 1e-4f);
+}
+
+// --- Compose の world 回転が独立行列積 (M_local * M_parent) と一致する ---------
+ACS_TEST(Transform3D, ComposeRotationMatchesMatrixProduct) {
+    auto eulMat = [](f32 x, f32 y, f32 z) {
+        return FMat4::RotationX(x * kDeg2Rad) * FMat4::RotationY(y * kDeg2Rad) * FMat4::RotationZ(z * kDeg2Rad);
+    };
+    FTransform3D parent; parent.SetEulerDeg(FVec3{ 20, 35, -10 });
+    FTransform3D local;  local.SetEulerDeg(FVec3{ -15, 40, 25 });
+    const FTransform3D world = parent.Compose(local);
+    // 導出: M(world) = M_local * M_parent (Rotate(q,v)=v*M、a*b は a 先適用)
+    const FMat4 expect = eulMat(-15, 40, 25) * eulMat(20, 35, -10);
+    const FVec3 vs[] = { {1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0.4f, 0.7f, -0.5f} };
+    for (const FVec3 v : vs) {
+        ExpectVec3Near(Rotate(world.rotation, v), TransformPoint(v, expect), 1e-4f);
+    }
+}
+
 // === FNode3D 階層 ===========================================================
 
 // --- 親の transform が子の World() に合成される (2 段) -----------------------
