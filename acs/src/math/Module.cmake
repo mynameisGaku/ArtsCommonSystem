@@ -11,6 +11,7 @@ acs_module(
         MathDispatch.cpp
     HEADERS
         Camera.h
+        CameraRig.h
         Collision2D.h
         Collision3D.h
         Cpu.h

@@ -36,6 +36,7 @@ add_executable(acs_unit_tests
     render_tests.cpp
     vertexscatter_tests.cpp
     node3d_tests.cpp
+    camerarig_tests.cpp
     spritesortlist_tests.cpp
     editor_play_draw_tests.cpp
     material2d_tests.cpp
