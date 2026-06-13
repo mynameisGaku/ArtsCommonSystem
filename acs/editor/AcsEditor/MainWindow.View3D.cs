@@ -185,6 +185,26 @@ public partial class MainWindow
     private void OnAdd3DSphere(object sender, RoutedEventArgs e) => Add3DNode(1, "Sphere");
     private void OnAdd3DPlane(object sender, RoutedEventArgs e)  => Add3DNode(2, "Plane");
 
+    /// <summary>メッシュファイル (.gltf/.glb/.obj/.fbx) をダイアログで選び 3D ノードとして読み込む。</summary>
+    private void OnImport3DMesh(object sender, RoutedEventArgs e)
+    {
+        if (Engine == IntPtr.Zero) return;
+        if (!_view3d) { View3DBtn.IsChecked = true; OnToggle3D(View3DBtn, new RoutedEventArgs()); }
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Import 3D Mesh",
+            Filter = "3D Mesh (*.gltf;*.glb;*.obj;*.fbx)|*.gltf;*.glb;*.obj;*.fbx|All files (*.*)|*.*",
+            InitialDirectory = _project?.AssetsDir,
+        };
+        if (dlg.ShowDialog(this) != true) return;
+        int id = EngineInterop.acs_editor_add_mesh3d(Engine, dlg.FileName, "");
+        if (id < 0) { Log($"メッシュ読込失敗: {System.IO.Path.GetFileName(dlg.FileName)} (形式/内容を確認)"); return; }
+        BuildHierarchy();
+        Select3DInHierarchy(id);
+        Populate3DInspector(id);
+        Log($"3D メッシュを読込: {System.IO.Path.GetFileName(dlg.FileName)} (id {id})");
+    }
+
     private void Add3DNode(int prim, string name)
     {
         if (Engine == IntPtr.Zero) return;

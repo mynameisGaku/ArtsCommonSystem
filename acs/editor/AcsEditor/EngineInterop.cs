@@ -110,6 +110,9 @@ internal static class EngineInterop
     public static extern int acs_editor_scene3d_serialize(IntPtr handle, [Out] byte[] buf, int cap);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_scene3d_load_text(IntPtr handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string text);
+    /// <summary>メッシュファイル (.gltf/.glb/.obj/.fbx) を 3D ノードとして読み込む。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_add_mesh3d(IntPtr handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string path, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
 
     // ----- scene introspection / edit (Hierarchy / Inspector) -----
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]

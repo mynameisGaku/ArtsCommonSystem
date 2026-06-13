@@ -70,6 +70,7 @@
                 <MenuItem Header="3D Cube"   Click="OnAdd3DCube"/>
                 <MenuItem Header="3D Sphere" Click="OnAdd3DSphere"/>
                 <MenuItem Header="3D Plane"  Click="OnAdd3DPlane"/>
+                <MenuItem Header="3D Mesh… (.gltf/.obj)" Click="OnImport3DMesh"/>
             </MenuItem>
             <MenuItem Header="_Build">
                 <MenuItem Header="新規クラス…" Click="OnNewClass"/>

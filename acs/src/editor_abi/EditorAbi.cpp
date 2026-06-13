@@ -186,7 +186,9 @@ struct ENode3D {
     FVec3 rot   = FVec3{ 0, 0, 0 };          ///< オイラー角 (度、XYZ 順)。
     FVec3 scale = FVec3{ 1, 1, 1 };
     FVec4 color = FVec4{ 0.80f, 0.80f, 0.85f, 1.0f };
-    int   prim  = 0;                          ///< 0=Cube, 1=Sphere, 2=Plane。
+    int   prim  = 0;                          ///< 0=Cube, 1=Sphere, 2=Plane, 3=Custom(mesh)。
+    TSharedPtr<Asset> mesh;                   ///< prim==3 のカスタムメッシュ (FMeshAsset。描画/ピック用)。
+    char  mesh_path[260] = {};                ///< カスタムメッシュの元ファイル (保存/再読込用)。
 };
 
 /** 1 つのビューポート + エディタ・シーン (実 FNode2D ツリー) を保持する描画ホスト。 */
@@ -1945,6 +1947,29 @@ ENode3D* FindNode3D(EditorHost& h, int id) noexcept {
     return nullptr;
 }
 
+/** メッシュファイル (.gltf/.glb/.obj/.fbx、UTF-8 path) を読み込んで FMeshAsset を返す (失敗 null)。 */
+TSharedPtr<Asset> LoadMeshFile(const char* path) noexcept {
+    if (path == nullptr || path[0] == '\0') return nullptr;
+    wchar_t wpath[512];
+    if (MultiByteToWideChar(kCpUtf8, 0, path, -1, wpath, 512) <= 0) return nullptr;
+    auto bytes = FileSystem::ReadAllBytes(wpath);
+    if (bytes.IsErr() || bytes.Value().Size() == 0) { ACS_LOG_ERROR("[3D] メッシュ open 失敗: %s", path); return nullptr; }
+    // 拡張子で loader を選ぶ。
+    const char* ext = std::strrchr(path, '.');
+    TResult<TSharedPtr<Asset>> r = ACS_ERR(Asset, 900, "no loader");
+    if (ext != nullptr) {
+        if      (_stricmp(ext, ".glb")  == 0) { GlbAssetLoader  l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
+        else if (_stricmp(ext, ".gltf") == 0) { GltfAssetLoader l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
+        else if (_stricmp(ext, ".obj")  == 0) { ObjAssetLoader  l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
+        else if (_stricmp(ext, ".fbx")  == 0) { FbxAssetLoader  l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
+    }
+    if (r.IsErr()) { ACS_LOG_ERROR("[3D] メッシュ parse 失敗: %s", path); return nullptr; }
+    TSharedPtr<Asset> a = r.Value();
+    const FMeshAsset* m = static_cast<const FMeshAsset*>(a.Get());
+    if (m == nullptr || m->Vertices().Size() == 0) { ACS_LOG_ERROR("[3D] メッシュ空: %s", path); return nullptr; }
+    return a;
+}
+
 /** 3D シーンを描画する (グリッド + ライト付きメッシュ + 選択ハイライト/ギズモ)。 */
 void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     if (!Ensure3D(h)) return;
@@ -1970,7 +1995,9 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     dv.Reserve(8192);
     for (u32 i = 0; i < h.nodes3d.Size(); ++i) {
         const ENode3D& n = h.nodes3d[i];
-        const FMeshAsset* cm = (n.prim == 1) ? h.cpu_sphere.Get() : (n.prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
+        const FMeshAsset* cm = (n.prim == 3) ? static_cast<const FMeshAsset*>(n.mesh.Get())
+                             : (n.prim == 1) ? h.cpu_sphere.Get()
+                             : (n.prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
         if (cm == nullptr) continue;
         const FMat4 model = Node3DModel(n);
         // 法線変換: 一様スケール前提で model の回転部をそのまま使う (剪断なし)。
@@ -3934,6 +3961,30 @@ ACS_EDITOR_API int acs_editor_add_node3d(void* handle, int prim, const char* nam
     return n.id;
 }
 
+/** メッシュファイル (.gltf/.glb/.obj/.fbx) を 3D ノードとして読み込む。新ノード id (失敗 -1)。 */
+ACS_EDITOR_API int acs_editor_add_mesh3d(void* handle, const char* path, const char* name) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || path == nullptr) return -1;
+    TSharedPtr<Asset> mesh = LoadMeshFile(path);
+    if (!mesh) return -1;
+    ENode3D n;
+    n.id = host->next_id3d++;
+    n.prim = 3;
+    n.mesh = mesh;
+    n.pos = FVec3{ 0, 0.5f, 0 };
+    n.color = FVec4{ 0.78f, 0.78f, 0.82f, 1 };
+    std::snprintf(n.mesh_path, sizeof(n.mesh_path), "%s", path);
+    if (name != nullptr && name[0] != '\0') std::snprintf(n.name, sizeof(n.name), "%s", name);
+    else {
+        const char* base = std::strrchr(path, '\\'); const char* base2 = std::strrchr(path, '/');
+        if (base2 != nullptr && base2 > base) base = base2;
+        std::snprintf(n.name, sizeof(n.name), "%s", (base != nullptr) ? base + 1 : path);
+    }
+    host->nodes3d.PushBack(n);
+    host->sel3d = n.id;
+    return n.id;
+}
+
 /** 3D ノードを削除する (成功 1)。 */
 ACS_EDITOR_API int acs_editor_delete_node3d(void* handle, int id) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -4050,6 +4101,11 @@ ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap
             n.scale.x, n.scale.y, n.scale.z, n.color.x, n.color.y, n.color.z, n.color.w, n.name);
         if (w < 0 || w >= cap - cur) { out[cap - 1] = '\0'; break; }
         cur += w;
+        if (n.prim == 3 && n.mesh_path[0] != '\0' && cur < cap) {     // カスタムメッシュの元ファイル
+            const int w2 = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "MSH3D %d %s\n", n.id, n.mesh_path);
+            if (w2 < 0 || w2 >= cap - cur) { out[cap - 1] = '\0'; break; }
+            cur += w2;
+        }
     }
     out[cur < cap ? cur : cap - 1] = '\0';
     return cur;
@@ -4070,6 +4126,16 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
         while (*p != '\0' && *p != '\n') { if (n + 1 < sizeof(line)) line[n++] = *p; ++p; }
         line[n] = '\0';
         if (*p == '\n') ++p;
+        if (std::strncmp(line, "MSH3D ", 6) == 0) {                  // カスタムメッシュの再読込
+            int mid = 0; char mp[260] = {};
+            if (std::sscanf(line, "MSH3D %d %259[^\n]", &mid, mp) >= 2) {
+                if (ENode3D* en = FindNode3D(*host, mid)) {
+                    std::snprintf(en->mesh_path, sizeof(en->mesh_path), "%s", mp);
+                    en->mesh = LoadMeshFile(mp);                     // 失敗時は null → 描画スキップ
+                }
+            }
+            continue;
+        }
         if (std::strncmp(line, "N3D ", 4) != 0) continue;
         ENode3D nd; char nm[64] = {};
         const int got = std::sscanf(line, "N3D %d %d %f %f %f %f %f %f %f %f %f %f %f %f %f %63[^\n]",
