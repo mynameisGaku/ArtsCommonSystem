@@ -136,6 +136,13 @@ public sealed class EngineViewport : HwndHost
 
             case WM_LBUTTONDOWN:
                 FeedMouseButton(0, 1);   // Play 中なら game へ転送 (Play 外は no-op)
+                // 3D ビューポート: 左クリックでメッシュをレイピック (選択)。
+                if (_engine != IntPtr.Zero && EngineInterop.acs_editor_get_view3d(_engine) != 0)
+                {
+                    int p3 = EngineInterop.acs_editor_pick3d(_engine, LoWord(lParam), HiWord(lParam));
+                    Picked?.Invoke(p3);
+                    break;
+                }
                 // ポリゴン描画モード: クリックで点を置く (ピック/ギズモはしない)。
                 if (_engine != IntPtr.Zero && PolyMode)
                 {

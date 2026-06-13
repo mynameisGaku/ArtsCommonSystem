@@ -34,7 +34,14 @@
 #include "memory/UniquePtr.h"               // TUniquePtr / MakeUnique
 #include "container/Array.h"                // TArray
 #include "render/IRhiTexture.h"             // IRhiTexture (スプライト)
-#include "render/RenderAssets.h"            // UploadTexture (FImageAsset → GPU)
+#include "render/RenderAssets.h"            // UploadTexture / UploadMesh / GpuMesh
+#include "render/DebugDraw.h"               // FDebugDraw3D (グリッド/ギズモ/選択 AABB の線)
+#include "asset/MeshPrimitive.h"            // Primitive::MakeCube/MakeSphere/MakePlane
+#include "asset/MeshAsset.h"                // FMeshAsset
+#include "math/Camera.h"                    // FCamera (透視 + lookAt)
+#include "math/Mat.h"                       // FMat4 (model 行列の合成)
+#include "math/Math.h"                      // kDeg2Rad
+#include "math/Collision3D.h"               // Aabb3 (選択ハイライト)
 #include "asset/ImageAsset.h"               // FImageAsset / ImageAssetLoader (stb_image)
 #include "asset/AssetId.h"                  // kInvalidAssetId
 #include "platform/FileSystem.h"            // FileSystem::ReadAllBytes
@@ -43,6 +50,7 @@
 #include <cstdio>   // std::snprintf / std::sscanf
 #include <cstring>  // std::strncmp (シーン読込のヘッダ判定)
 #include <cmath>    // sinf / cosf
+#include <algorithm> // std::max / std::abs (3D ピック)
 #include <new>      // std::nothrow
 
 #define ACS_EDITOR_API extern "C" __declspec(dllexport)
@@ -169,6 +177,18 @@ struct FGameShim {
     }
 };
 
+/** 3D ビューポートのノード (Phase 1: プリミティブ + transform + 色)。
+ *  2D の FEditorNode (FNode2D 派生) とは別系統の軽量表現。 */
+struct ENode3D {
+    int   id    = 0;
+    char  name[64] = {};
+    FVec3 pos   = FVec3{ 0, 0, 0 };
+    FVec3 rot   = FVec3{ 0, 0, 0 };          ///< オイラー角 (度、XYZ 順)。
+    FVec3 scale = FVec3{ 1, 1, 1 };
+    FVec4 color = FVec4{ 0.80f, 0.80f, 0.85f, 1.0f };
+    int   prim  = 0;                          ///< 0=Cube, 1=Sphere, 2=Plane。
+};
+
 /** 1 つのビューポート + エディタ・シーン (実 FNode2D ツリー) を保持する描画ホスト。 */
 struct EditorHost {
     FRenderer    renderer;
@@ -226,6 +246,28 @@ struct EditorHost {
     f32          cam_pan_x = 0.0f;
     f32          cam_pan_y = 0.0f;
     f32          cam_zoom  = 1.0f;
+
+    // --- 3D ビューポート (Phase 1: 軌道カメラ + ライト付きプリミティブ + グリッド) ---
+    // 2D シーン (FNode2D) とは別系統。view3d=true でレンダ/入力が 3D に切り替わる。
+    bool         view3d        = false;
+    f32          cam3d_yaw     = 0.78f;   // 軌道 yaw (rad)
+    f32          cam3d_pitch   = 0.55f;   // 軌道 pitch (rad、+で見下ろし)
+    f32          cam3d_dist    = 14.0f;   // 注視点からの距離 (ドリー)
+    FVec3        cam3d_target  = FVec3{ 0.0f, 1.0f, 0.0f };
+    // 3D メッシュの自前ライティングパイプライン (動的 VB + 非インデックス Draw、DebugDraw3D と同方式)。
+    TUniquePtr<IRhiShader>   m3d_vs, m3d_ps;
+    TUniquePtr<IRhiPipeline> m3d_pipe;
+    TUniquePtr<IRhiBuffer>   m3d_frame_cb;            // b0: view_proj + light + ambient
+    TUniquePtr<IRhiBuffer>   m3d_dyn_vb;              // 動的頂点バッファ (毎フレーム展開)
+    u32          m3d_dyn_cap  = 0;                    // 動的 VB の頂点容量
+    FDebugDraw3D    dbg3d;                // グリッド/選択 AABB/ギズモの線
+    bool         r3d_ready     = false;   // 3D リソース初期化済み
+    GpuMesh      gm_cube, gm_sphere, gm_plane;   // プリミティブ GPU メッシュ (将来 DrawIndexed 用)
+    TSharedPtr<FMeshAsset> cpu_cube, cpu_sphere, cpu_plane;   // 動的 VB 展開元の CPU メッシュ
+    int          sel3d         = -1;      // 選択中の 3D ノード id
+    int          next_id3d     = 1;
+    bool         scene3d_seeded = false;  // 初回 3D 切替でデフォルトシーンを置いたか
+    TArray<ENode3D> nodes3d;              // 3D シーンのノード列
 
     // Undo/Redo: シーンのシリアライズ文字列スナップショットを積む (所有 raw char*)。
     TArray<char*> undo;
@@ -1761,6 +1803,222 @@ const char* CategoryLabel(acs::game::ETypeCategory cat) noexcept {
     return "Unknown";
 }
 
+// =============================================================================
+// 3D ビューポート (Phase 1): 軌道カメラ + ライト付きプリミティブ + グリッド
+// =============================================================================
+
+/** 3D 描画リソース (シェーダ / デバッグ線 / プリミティブメッシュ) を遅延初期化する。 */
+// 3D メッシュの自前ライティング HLSL。GpuMesh の DrawIndexed はエディタ深度面コンテキストで
+// 描画が出ないため、DebugDraw3D と同じ «動的 VB + 非インデックス Draw» 方式を採る。頂点は既に
+// ワールド座標 + 法線 + 色 (CPU で展開済み) なので model 行列は不要。
+const char* kMesh3DHLSL = R"(
+#pragma pack_matrix(row_major)
+cbuffer Frame : register(b0) {
+    float4x4 view_proj;
+    float4   light_dir;   // xyz=surface→light, w=ambient
+    float4   light_col;   // rgb=light color
+};
+struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float3 col : COLOR; };
+struct VSOut { float4 pos : SV_POSITION; float3 nrm : NORMAL; float3 col : COLOR; };
+VSOut VSMain(VSIn v) {
+    VSOut o;
+    o.pos = mul(float4(v.pos, 1.0), view_proj);   // 頂点は既にワールド座標
+    o.nrm = v.nrm;
+    o.col = v.col;
+    return o;
+}
+float4 PSMain(VSOut v) : SV_TARGET {
+    float3 N = normalize(v.nrm);
+    float3 L = normalize(light_dir.xyz);
+    float  ndl  = max(dot(N, L), 0.0);
+    float  fill = max(dot(N, float3(-L.x, L.y * 0.3, -L.z)), 0.0) * 0.25;
+    float3 col  = v.col * (light_dir.w + light_col.rgb * (ndl + fill));
+    col = col / (col + 1.0.xxx);
+    return float4(pow(col, (1.0 / 2.2).xxx), 1.0);
+}
+)";
+
+struct M3DFrame { FMat4 view_proj; FVec4 light_dir; FVec4 light_col; };
+struct M3DVtx   { f32 px, py, pz, nx, ny, nz, r, g, b; };   // ワールド座標 + 法線 + 色 (36 bytes)
+
+bool Ensure3D(EditorHost& h) noexcept {
+    if (h.r3d_ready) return true;
+    IRhiDevice* dev = h.renderer.Device();
+    if (dev == nullptr) return false;
+    const EFormat cf = h.renderer.ColorFormat();
+    const EFormat df = h.renderer.DepthFormat();
+    if (h.dbg3d.Init(*dev, cf).IsErr()) { ACS_LOG_ERROR("[3D] DebugDraw3D init 失敗"); return false; }
+
+    FShaderDesc vs{}; vs.stage = EShaderStage::Vertex; vs.hlsl_source = kMesh3DHLSL; vs.entry_point = "VSMain"; vs.debug_name = "Mesh3D.VS";
+    FShaderDesc ps{}; ps.stage = EShaderStage::Pixel;  ps.hlsl_source = kMesh3DHLSL; ps.entry_point = "PSMain"; ps.debug_name = "Mesh3D.PS";
+    auto vr = CreateRhiShader(*dev, vs); auto pr = CreateRhiShader(*dev, ps);
+    if (vr.IsErr() || pr.IsErr()) { ACS_LOG_ERROR("[3D] mesh シェーダ生成失敗"); return false; }
+    h.m3d_vs = Move(vr.Value()); h.m3d_ps = Move(pr.Value());
+
+    FPipelineDesc pd{};
+    pd.vs = h.m3d_vs.Get(); pd.ps = h.m3d_ps.Get();
+    pd.topology     = EPrimitiveTopology::TriangleList;
+    pd.rt_format    = cf;
+    pd.depth_format = df;
+    pd.depth_test   = true; pd.depth_write = true;     // 動的 VB 方式なら深度も効く (重なり解決)
+    pd.cull_mode    = ECullMode::None;          // 表裏どちらの巻きでも確実に出す
+    pd.blend_mode   = EBlendMode::Opaque;
+    pd.cbuffer_slots = 1; pd.cbuffer_names[0] = "Frame";
+    pd.vertex_stride = sizeof(M3DVtx);
+    pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
+    pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 12 };
+    pd.layout[2] = { "COLOR",    0, EFormat::R32G32B32_Float, 24 };
+    pd.layout_count = 3;
+    auto plr = CreateRhiPipeline(*dev, pd);
+    if (plr.IsErr()) { ACS_LOG_ERROR("[3D] mesh パイプライン生成失敗"); return false; }
+    h.m3d_pipe = Move(plr.Value());
+
+    {
+        FBufferDesc c{}; c.size = 256; c.usage = EBufferUsage::Uniform; c.cpu_writable = true;
+        auto r = CreateRhiBuffer(*dev, c); if (r.IsOk()) h.m3d_frame_cb = Move(r.Value());
+    }
+    {
+        h.m3d_dyn_cap = 200000u;                       // 頂点容量 (プリミティブ多数でも十分)
+        FBufferDesc c{}; c.size = sizeof(M3DVtx) * h.m3d_dyn_cap; c.usage = EBufferUsage::Vertex; c.cpu_writable = true;
+        auto r = CreateRhiBuffer(*dev, c); if (r.IsOk()) h.m3d_dyn_vb = Move(r.Value());
+    }
+
+    auto cube = Primitive::MakeCube(1.0f);
+    auto sph  = Primitive::MakeSphere(0.5f, 32, 16);
+    auto pl   = Primitive::MakePlane(1.0f, 1.0f);
+    if (!cube || !sph || !pl) { ACS_LOG_ERROR("[3D] プリミティブ生成失敗"); return false; }
+    if (UploadMesh(*dev, *cube, h.gm_cube).IsErr() ||
+        UploadMesh(*dev, *sph,  h.gm_sphere).IsErr() ||
+        UploadMesh(*dev, *pl,   h.gm_plane).IsErr()) { ACS_LOG_ERROR("[3D] メッシュアップロード失敗"); return false; }
+    h.cpu_cube = cube; h.cpu_sphere = sph; h.cpu_plane = pl;
+    h.r3d_ready = true;
+    return true;
+}
+
+/** prim 種別に対応する GPU メッシュを返す。 */
+const GpuMesh& Mesh3DFor(const EditorHost& h, int prim) noexcept {
+    if (prim == 1) return h.gm_sphere;
+    if (prim == 2) return h.gm_plane;
+    return h.gm_cube;
+}
+
+/** ノードのモデル行列 (Scale → Rotate(XYZ) → Translate) を合成する。 */
+FMat4 Node3DModel(const ENode3D& n) noexcept {
+    const f32 d2r = 3.14159265f / 180.0f;
+    FMat4 m = FMat4::Scale(n.scale);
+    m = m * FMat4::RotationX(n.rot.x * d2r);
+    m = m * FMat4::RotationY(n.rot.y * d2r);
+    m = m * FMat4::RotationZ(n.rot.z * d2r);
+    m = m * FMat4::Translation(n.pos);
+    return m;
+}
+
+/** 軌道カメラの eye 位置を yaw/pitch/dist/target から求める。 */
+FVec3 Cam3DEye(const EditorHost& h) noexcept {
+    const f32 cp = std::cos(h.cam3d_pitch), sp = std::sin(h.cam3d_pitch);
+    const f32 cy = std::cos(h.cam3d_yaw),   sy = std::sin(h.cam3d_yaw);
+    const FVec3 dir{ cp * sy, sp, cp * cy };          // target→eye 方向
+    return FVec3{ h.cam3d_target.x + dir.x * h.cam3d_dist,
+                  h.cam3d_target.y + dir.y * h.cam3d_dist,
+                  h.cam3d_target.z + dir.z * h.cam3d_dist };
+}
+
+/** 初回 3D 切替でデフォルトの 3D シーン (床 + 立方体 + 球) を置く。 */
+void Seed3DScene(EditorHost& h) noexcept {
+    if (h.scene3d_seeded) return;
+    h.scene3d_seeded = true;
+    ENode3D ground;  std::snprintf(ground.name, sizeof(ground.name), "Ground");
+    ground.prim = 2; ground.scale = FVec3{ 16, 1, 16 }; ground.pos = FVec3{ 0, 0, 0 };
+    ground.color = FVec4{ 0.32f, 0.34f, 0.38f, 1 }; ground.id = h.next_id3d++;
+    h.nodes3d.PushBack(ground);
+    ENode3D box;  std::snprintf(box.name, sizeof(box.name), "Cube");
+    box.prim = 0; box.pos = FVec3{ -1.4f, 0.5f, 0 }; box.color = FVec4{ 0.85f, 0.45f, 0.35f, 1 };
+    box.id = h.next_id3d++; h.nodes3d.PushBack(box);
+    ENode3D ball; std::snprintf(ball.name, sizeof(ball.name), "Sphere");
+    ball.prim = 1; ball.pos = FVec3{ 1.3f, 0.6f, 0.2f }; ball.scale = FVec3{ 1.2f, 1.2f, 1.2f };
+    ball.color = FVec4{ 0.40f, 0.62f, 0.92f, 1 }; ball.id = h.next_id3d++; h.nodes3d.PushBack(ball);
+    h.sel3d = box.id;
+}
+
+ENode3D* FindNode3D(EditorHost& h, int id) noexcept {
+    for (u32 i = 0; i < h.nodes3d.Size(); ++i) if (h.nodes3d[i].id == id) return &h.nodes3d[i];
+    return nullptr;
+}
+
+/** 3D シーンを描画する (グリッド + ライト付きメッシュ + 選択ハイライト/ギズモ)。 */
+void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
+    if (!Ensure3D(h)) return;
+    IRhiCommandList* cl = h.renderer.CommandList();
+    if (cl == nullptr) return;
+
+    const f32 aspect = (scH > 0) ? static_cast<f32>(scW) / static_cast<f32>(scH) : 1.0f;
+    FCamera cam;
+    cam.SetPerspective(50.0f * 3.14159265f / 180.0f, aspect, 0.05f, 500.0f);
+    const FVec3 eye = Cam3DEye(h);
+    cam.SetLookAt(eye, h.cam3d_target);
+    const FMat4 vp = cam.ViewProjection();
+
+    // フレーム CB (view_proj + 光 + 環境光)。
+    M3DFrame fcb{};
+    fcb.view_proj = vp;
+    fcb.light_dir = FVec4{ 0.40f, 0.85f, -0.35f, 0.22f };   // xyz=光方向, w=ambient
+    fcb.light_col = FVec4{ 1.10f, 1.07f, 1.00f, 0.0f };
+    if (h.m3d_frame_cb) h.m3d_frame_cb->Update(&fcb, sizeof(fcb));
+
+    // 全ノードの三角形を «ワールド座標 + 法線 + 色» に展開して動的 VB へ詰める (非インデックス)。
+    TArray<M3DVtx>& dv = *(new TArray<M3DVtx>());   // (関数末尾で delete) — 大容量をスタックに積まない
+    dv.Reserve(8192);
+    for (u32 i = 0; i < h.nodes3d.Size(); ++i) {
+        const ENode3D& n = h.nodes3d[i];
+        const FMeshAsset* cm = (n.prim == 1) ? h.cpu_sphere.Get() : (n.prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
+        if (cm == nullptr) continue;
+        const FMat4 model = Node3DModel(n);
+        // 法線変換: 一様スケール前提で model の回転部をそのまま使う (剪断なし)。
+        const auto& vtx = cm->Vertices();
+        const auto& idx = cm->Indices();
+        for (u32 k = 0; k + 2 < idx.Size(); k += 3) {
+            for (u32 t = 0; t < 3; ++t) {
+                const MeshVertex& mv = vtx[idx[k + t]];
+                const FVec4 wp = Transform(FVec4{ mv.position.x, mv.position.y, mv.position.z, 1.0f }, model);
+                const FVec4 wn = Transform(FVec4{ mv.normal.x, mv.normal.y, mv.normal.z, 0.0f }, model);
+                M3DVtx o; o.px = wp.x; o.py = wp.y; o.pz = wp.z;
+                o.nx = wn.x; o.ny = wn.y; o.nz = wn.z;
+                o.r = n.color.x; o.g = n.color.y; o.b = n.color.z;
+                if (dv.Size() < h.m3d_dyn_cap) dv.PushBack(o);
+            }
+        }
+    }
+    if (dv.Size() > 0 && h.m3d_dyn_vb) {
+        h.m3d_dyn_vb->Update(dv.Data(), sizeof(M3DVtx) * dv.Size());
+        cl->SetPipeline(*h.m3d_pipe);
+        cl->SetConstantBuffer(0, *h.m3d_frame_cb);
+        cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
+        cl->Draw(static_cast<u32>(dv.Size()), 0);
+    }
+    delete &dv;
+
+    // グリッド + 軸 + 選択ハイライト (デバッグ線)。
+    h.dbg3d.Begin();
+    const int   N = 20; const f32 step = 1.0f;
+    const f32   ext = N * step * 0.5f;
+    const FVec4 gcol{ 0.30f, 0.32f, 0.37f, 1 };
+    for (int i = -N / 2; i <= N / 2; ++i) {
+        const f32 t = i * step;
+        h.dbg3d.Line(FVec3{ t, 0, -ext }, FVec3{ t, 0, ext }, gcol);
+        h.dbg3d.Line(FVec3{ -ext, 0, t }, FVec3{ ext, 0, t }, gcol);
+    }
+    h.dbg3d.Line(FVec3{ 0, 0, 0 }, FVec3{ ext, 0, 0 }, FVec4{ 0.85f, 0.30f, 0.30f, 1 });  // X 軸 (赤)
+    h.dbg3d.Line(FVec3{ 0, 0, 0 }, FVec3{ 0, ext * 0.5f, 0 }, FVec4{ 0.35f, 0.85f, 0.40f, 1 }); // Y 軸 (緑)
+    h.dbg3d.Line(FVec3{ 0, 0, 0 }, FVec3{ 0, 0, ext }, FVec4{ 0.35f, 0.55f, 0.95f, 1 });  // Z 軸 (青)
+    if (ENode3D* sn = FindNode3D(h, h.sel3d)) {                              // 選択ノードの AABB
+        const FVec3 he{ 0.5f * std::abs(sn->scale.x) + 0.04f,
+                        0.5f * std::abs(sn->scale.y) + 0.04f,
+                        0.5f * std::abs(sn->scale.z) + 0.04f };
+        h.dbg3d.Aabb(Aabb3{ sn->pos, he }, FVec4{ 1.0f, 0.78f, 0.25f, 1 });
+    }
+    h.dbg3d.End(*cl, vp);
+}
+
 } // namespace
 
 // =============================================================================
@@ -1871,6 +2129,16 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
 
     const ClearColor clear = host->clear_color;   // Rendering.ClearColor (プロジェクト設定)
     host->renderer.BeginFrame(clear);
+
+    // --- 3D ビューポート: backbuffer に直接描く (BeginFrame が深度バッファを bind 済み)。
+    //     2D の AA (オフスクリーン RT) 経路は深度を持たないため経由しない。
+    if (host->view3d) {
+        IRhiCommandList* cl = host->renderer.CommandList();
+        IRhiSwapchain*   sc = host->renderer.Swapchain();
+        if (cl != nullptr && sc != nullptr) DrawScene3D(*host, sc->Width(), sc->Height());
+        host->renderer.EndFrame();
+        return;
+    }
 
     if (host->sprites_ready) {
         IRhiCommandList* cl = host->renderer.CommandList();
@@ -2044,6 +2312,10 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->sprites.Shutdown();
     host->preview_sprites.Shutdown();
     host->fxaa.Shutdown();
+    host->dbg3d.Shutdown();
+    host->m3d_pipe.Reset(); host->m3d_vs.Reset(); host->m3d_ps.Reset();
+    host->m3d_frame_cb.Reset(); host->m3d_dyn_vb.Reset();
+    host->gm_cube = GpuMesh{}; host->gm_sphere = GpuMesh{}; host->gm_plane = GpuMesh{};
     host->renderer.Shutdown();
     delete host;
 }
@@ -3568,16 +3840,31 @@ ACS_EDITOR_API int acs_editor_pick(void* handle, float screen_x, float screen_y)
     return (host != nullptr) ? PickNode(*host, screen_x, screen_y) : -1;
 }
 
-/** カメラをスクリーン量だけ平行移動する (ドラッグパン)。 */
+/** カメラをスクリーン量だけ平行移動する (ドラッグパン)。3D モードでは軌道回転。 */
 ACS_EDITOR_API void acs_editor_camera_pan(void* handle, float dx, float dy) {
     auto* host = static_cast<EditorHost*>(handle);
-    if (host != nullptr) { host->cam_pan_x += dx; host->cam_pan_y += dy; }
+    if (host == nullptr) return;
+    if (host->view3d) {                                 // 3D: ドラッグで軌道 (yaw/pitch)
+        host->cam3d_yaw   -= dx * 0.01f;
+        host->cam3d_pitch += dy * 0.01f;
+        const f32 lim = 1.5533f;                        // ±89° で gimbal 回避
+        if (host->cam3d_pitch >  lim) host->cam3d_pitch =  lim;
+        if (host->cam3d_pitch < -lim) host->cam3d_pitch = -lim;
+        return;
+    }
+    host->cam_pan_x += dx; host->cam_pan_y += dy;
 }
 
-/** アンカー (スクリーン点) を固定して factor 倍ズームする (ホイール)。 */
+/** アンカー (スクリーン点) を固定して factor 倍ズームする (ホイール)。3D モードではドリー。 */
 ACS_EDITOR_API void acs_editor_camera_zoom(void* handle, float factor, float anchor_x, float anchor_y) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr || factor <= 0.0f) return;
+    if (host->view3d) {                                 // 3D: 注視点との距離を増減
+        host->cam3d_dist /= factor;                     // factor>1 (ホイール上) で近づく
+        if (host->cam3d_dist < 1.0f)   host->cam3d_dist = 1.0f;
+        if (host->cam3d_dist > 200.0f) host->cam3d_dist = 200.0f;
+        return;
+    }
     const f32 z0 = host->cam_zoom;
     f32 z1 = z0 * factor;
     if (z1 < 0.05f) z1 = 0.05f;          // クランプ (極端なズームを防ぐ)
@@ -3603,6 +3890,206 @@ ACS_EDITOR_API void acs_editor_camera_get(void* handle, float* pan_x, float* pan
     if (pan_x) *pan_x = host->cam_pan_x;
     if (pan_y) *pan_y = host->cam_pan_y;
     if (zoom)  *zoom  = host->cam_zoom;
+}
+
+// =============================================================================
+// C ABI — 3D ビューポート (Phase 1: モード切替 / ノード / 軌道カメラ / ピック)
+// =============================================================================
+
+/** 3D ビューポートの ON/OFF を切り替える。初回 ON で既定の 3D シーンを置く。 */
+ACS_EDITOR_API void acs_editor_set_view3d(void* handle, int on) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return;
+    host->view3d = (on != 0);
+    if (host->view3d) Seed3DScene(*host);
+}
+
+/** 現在 3D ビューポートか。 */
+ACS_EDITOR_API int acs_editor_get_view3d(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr && host->view3d) ? 1 : 0;
+}
+
+/** 3D カメラを既定の俯瞰に戻す。 */
+ACS_EDITOR_API void acs_editor_cam3d_reset(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return;
+    host->cam3d_yaw = 0.78f; host->cam3d_pitch = 0.55f; host->cam3d_dist = 14.0f;
+    host->cam3d_target = FVec3{ 0, 1.0f, 0 };
+}
+
+/** 3D ノードを追加する (prim: 0=Cube 1=Sphere 2=Plane)。新ノード id を返す (失敗 -1)。 */
+ACS_EDITOR_API int acs_editor_add_node3d(void* handle, int prim, const char* name) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return -1;
+    ENode3D n;
+    n.id = host->next_id3d++;
+    n.prim = (prim >= 0 && prim <= 2) ? prim : 0;
+    if (prim == 2) { n.scale = FVec3{ 8, 1, 8 }; n.color = FVec4{ 0.34f, 0.36f, 0.40f, 1 }; }
+    else           { n.pos   = FVec3{ 0, 0.5f, 0 }; }
+    std::snprintf(n.name, sizeof(n.name), "%s", (name != nullptr && name[0] != '\0') ? name :
+                  (prim == 1 ? "Sphere" : prim == 2 ? "Plane" : "Cube"));
+    host->nodes3d.PushBack(n);
+    host->sel3d = n.id;
+    return n.id;
+}
+
+/** 3D ノードを削除する (成功 1)。 */
+ACS_EDITOR_API int acs_editor_delete_node3d(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return 0;
+    for (u32 i = 0; i < host->nodes3d.Size(); ++i) {
+        if (host->nodes3d[i].id == id) {
+            for (u32 j = i; j + 1 < host->nodes3d.Size(); ++j) host->nodes3d[j] = host->nodes3d[j + 1];
+            host->nodes3d.PopBack();
+            if (host->sel3d == id) host->sel3d = -1;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/** 3D ノード数。 */
+ACS_EDITOR_API int acs_editor_node3d_count(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr) ? static_cast<int>(host->nodes3d.Size()) : 0;
+}
+
+/** index 番目の 3D ノード id (範囲外は -1)。 */
+ACS_EDITOR_API int acs_editor_node3d_id_at(void* handle, int index) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || index < 0 || static_cast<u32>(index) >= host->nodes3d.Size()) return -1;
+    return host->nodes3d[static_cast<u32>(index)].id;
+}
+
+/** 3D ノードの名前を out (cap) へ書く。成功 1。 */
+ACS_EDITOR_API int acs_editor_node3d_name(void* handle, int id, char* out, int cap) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || out == nullptr || cap <= 0) return 0;
+    ENode3D* n = FindNode3D(*host, id);
+    if (n == nullptr) return 0;
+    std::snprintf(out, static_cast<size_t>(cap), "%s", n->name);
+    return 1;
+}
+
+/** 3D ノードの prim 種別 (0=Cube 1=Sphere 2=Plane、無効は -1)。 */
+ACS_EDITOR_API int acs_editor_node3d_prim(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return -1;
+    ENode3D* n = FindNode3D(*host, id);
+    return (n != nullptr) ? n->prim : -1;
+}
+
+/** 3D ノードの transform (pos/rot(度)/scale = 9 float) を取得する。成功 1。 */
+ACS_EDITOR_API int acs_editor_node3d_get_transform(void* handle, int id, float* out9) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || out9 == nullptr) return 0;
+    ENode3D* n = FindNode3D(*host, id);
+    if (n == nullptr) return 0;
+    out9[0] = n->pos.x; out9[1] = n->pos.y; out9[2] = n->pos.z;
+    out9[3] = n->rot.x; out9[4] = n->rot.y; out9[5] = n->rot.z;
+    out9[6] = n->scale.x; out9[7] = n->scale.y; out9[8] = n->scale.z;
+    return 1;
+}
+
+/** 3D ノードの transform を設定する。成功 1。 */
+ACS_EDITOR_API int acs_editor_node3d_set_transform(void* handle, int id,
+        float px, float py, float pz, float rx, float ry, float rz, float sx, float sy, float sz) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return 0;
+    ENode3D* n = FindNode3D(*host, id);
+    if (n == nullptr) return 0;
+    n->pos = FVec3{ px, py, pz }; n->rot = FVec3{ rx, ry, rz }; n->scale = FVec3{ sx, sy, sz };
+    return 1;
+}
+
+/** 3D ノードの色を取得する (rgba)。成功 1。 */
+ACS_EDITOR_API int acs_editor_node3d_get_color(void* handle, int id, float* out4) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || out4 == nullptr) return 0;
+    ENode3D* n = FindNode3D(*host, id);
+    if (n == nullptr) return 0;
+    out4[0] = n->color.x; out4[1] = n->color.y; out4[2] = n->color.z; out4[3] = n->color.w;
+    return 1;
+}
+
+/** 3D ノードの色を設定する。成功 1。 */
+ACS_EDITOR_API int acs_editor_node3d_set_color(void* handle, int id, float r, float g, float b, float a) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return 0;
+    ENode3D* n = FindNode3D(*host, id);
+    if (n == nullptr) return 0;
+    n->color = FVec4{ r, g, b, a };
+    return 1;
+}
+
+/** 選択中の 3D ノード id (-1=なし)。 */
+ACS_EDITOR_API int acs_editor_selected3d(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr) ? host->sel3d : -1;
+}
+
+/** 3D ノードを選択する (id<0 で選択解除)。 */
+ACS_EDITOR_API void acs_editor_select3d(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host != nullptr) host->sel3d = id;
+}
+
+/** スクリーン点から 3D ノードをレイピックする。最も手前の id を返す (外れは -1)。
+ *  ノードは «位置中心の球» (半径 = max scale の半分) で近似交差判定する。 */
+ACS_EDITOR_API int acs_editor_pick3d(void* handle, float sx, float sy) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return -1;
+    IRhiSwapchain* sc = host->renderer.Swapchain();
+    if (sc == nullptr) return -1;
+    const f32 W = static_cast<f32>(sc->Width()), H = static_cast<f32>(sc->Height());
+    if (W <= 0 || H <= 0) return -1;
+
+    // スクリーン → ワールドレイ。カメラ基底を yaw/pitch から再構成する (forward/right/up)。
+    const f32 aspect = W / H;
+    const FVec3 eye = Cam3DEye(*host);
+    const f32 cpit = std::cos(host->cam3d_pitch), spit = std::sin(host->cam3d_pitch);
+    const f32 cyaw = std::cos(host->cam3d_yaw),   syaw = std::sin(host->cam3d_yaw);
+    const FVec3 fwd{ -cpit * syaw, -spit, -cpit * cyaw };   // eye→target
+    FVec3 right{ cyaw, 0, -syaw };
+    // up = right × fwd
+    FVec3 up{ right.y * fwd.z - right.z * fwd.y,
+              right.z * fwd.x - right.x * fwd.z,
+              right.x * fwd.y - right.y * fwd.x };
+    const f32 tanHalf = std::tan(0.5f * 50.0f * 3.14159265f / 180.0f);
+    const f32 ndcx = (2.0f * sx / W - 1.0f) * tanHalf * aspect;
+    const f32 ndcy = (1.0f - 2.0f * sy / H) * tanHalf;
+    FVec3 dir{ fwd.x + right.x * ndcx + up.x * ndcy,
+               fwd.y + right.y * ndcx + up.y * ndcy,
+               fwd.z + right.z * ndcx + up.z * ndcy };
+    const f32 dl = std::sqrt(dir.x*dir.x + dir.y*dir.y + dir.z*dir.z);
+    if (dl > 1e-6f) dir = FVec3{ dir.x/dl, dir.y/dl, dir.z/dl };
+
+    int   best = -1; f32 bestT = 1e30f;
+    for (u32 i = 0; i < host->nodes3d.Size(); ++i) {
+        const ENode3D& n = host->nodes3d[i];
+        const f32 r = 0.5f * std::max(std::abs(n.scale.x), std::max(std::abs(n.scale.y), std::abs(n.scale.z)))
+                    + (n.prim == 2 ? 0.0f : 0.0f);
+        const f32 rad = (n.prim == 2) ? 0.0f : r;        // 平面は球近似が弱い → 後段で別途
+        const FVec3 oc{ eye.x - n.pos.x, eye.y - n.pos.y, eye.z - n.pos.z };
+        if (rad > 0.0f) {                                 // レイ vs 球
+            const f32 b = oc.x*dir.x + oc.y*dir.y + oc.z*dir.z;
+            const f32 c = oc.x*oc.x + oc.y*oc.y + oc.z*oc.z - rad*rad;
+            const f32 disc = b*b - c;
+            if (disc >= 0.0f) { const f32 t = -b - std::sqrt(disc); if (t > 0.0f && t < bestT) { bestT = t; best = n.id; } }
+        } else {                                          // 平面 (y≈pos.y) vs レイ
+            if (std::abs(dir.y) > 1e-5f) {
+                const f32 t = (n.pos.y - eye.y) / dir.y;
+                if (t > 0.0f && t < bestT) {
+                    const f32 hx = eye.x + dir.x * t, hz = eye.z + dir.z * t;
+                    if (std::abs(hx - n.pos.x) <= 0.5f * std::abs(n.scale.x) &&
+                        std::abs(hz - n.pos.z) <= 0.5f * std::abs(n.scale.z)) { bestT = t; best = n.id; }
+                }
+            }
+        }
+    }
+    if (best >= 0) host->sel3d = best;
+    return best;
 }
 
 // =============================================================================

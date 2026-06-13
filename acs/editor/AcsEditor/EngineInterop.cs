@@ -72,6 +72,41 @@ internal static class EngineInterop
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_get_msaa(IntPtr handle);
 
+    // ----- 3D ビューポート (Phase 1) -----
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_set_view3d(IntPtr handle, int on);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_get_view3d(IntPtr handle);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_cam3d_reset(IntPtr handle);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_add_node3d(IntPtr handle, int prim, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_delete_node3d(IntPtr handle, int id);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_count(IntPtr handle);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_id_at(IntPtr handle, int index);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_name(IntPtr handle, int id, [Out] byte[] buf, int cap);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_prim(IntPtr handle, int id);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_get_transform(IntPtr handle, int id, [Out] float[] out9);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_set_transform(IntPtr handle, int id,
+        float px, float py, float pz, float rx, float ry, float rz, float sx, float sy, float sz);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_get_color(IntPtr handle, int id, [Out] float[] out4);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_set_color(IntPtr handle, int id, float r, float g, float b, float a);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_selected3d(IntPtr handle);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_select3d(IntPtr handle, int id);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_pick3d(IntPtr handle, float sx, float sy);
+
     // ----- scene introspection / edit (Hierarchy / Inspector) -----
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node_count(IntPtr handle);

@@ -295,6 +295,15 @@ public partial class MainWindow : Window
         win.ShowDialog();
     }
 
+    /// <summary>2D/3D ビューポート切替。3D 時はビューポートのドラッグ=軌道、ホイール=ドリー (ABI側)。</summary>
+    private void OnToggle3D(object sender, RoutedEventArgs e)
+    {
+        if (Engine == IntPtr.Zero) return;
+        bool on = View3DBtn.IsChecked == true;
+        EngineInterop.acs_editor_set_view3d(Engine, on ? 1 : 0);
+        Log(on ? "3D ビューポート (ドラッグ=軌道 / ホイール=ドリー)" : "2D ビューポート");
+    }
+
     // プロジェクトの初期シーンをロード (無ければ空シーン)。attach 後に 1 度呼ぶ。
     private void LoadProjectScene()
     {

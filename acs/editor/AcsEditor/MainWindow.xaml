@@ -99,6 +99,9 @@
                 <CheckBox x:Name="SnapCheck" Content="Snap" Click="OnSnapToggle" VerticalAlignment="Center" Margin="10,0,4,0"/>
                 <Button Content="⊙ Focus" Click="OnFocus" Padding="9,4" Margin="4,0,1,0"/>
                 <Separator/>
+                <ToggleButton x:Name="View3DBtn" Content="⬗ 3D" Click="OnToggle3D" Padding="8,4" Margin="1,0"
+                              ToolTip="2D スプライト編集 / 3D シーン編集 を切り替え"/>
+                <Separator/>
                 <ToggleButton x:Name="PolyBtn" Content="✎ Polygon" Click="OnPolyToggle" Padding="8,4" Margin="1,0"/>
                 <Separator/>
                 <TextBlock Text="Align" VerticalAlignment="Center" Margin="4,0,6,0" Foreground="{StaticResource TextDim}"/>
