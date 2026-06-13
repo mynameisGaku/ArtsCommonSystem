@@ -300,7 +300,8 @@ public partial class MainWindow : Window
     {
         if (Engine == IntPtr.Zero) return;
         _view3d = View3DBtn.IsChecked == true;
-        EngineInterop.acs_editor_set_view3d(Engine, _view3d ? 1 : 0);
+        EngineInterop.acs_editor_set_view3d(Engine, _view3d ? 1 : 0);   // 初回 ON で既定シーンを seed
+        if (_view3d) Load3DSceneIfPresent();    // 保存済み 3D シーンがあれば seed を上書き
         BuildHierarchy();                       // 2D/3D でツリーの中身を切り替える
         if (_view3d) { int s = EngineInterop.acs_editor_selected3d(Engine); if (s >= 0) Populate3DInspector(s); else Clear3DInspector(); }
         else Clear3DInspector();
@@ -1759,6 +1760,7 @@ public partial class MainWindow : Window
     private void OnSaveScene(object sender, RoutedEventArgs e)
     {
         if (Engine == IntPtr.Zero) return;
+        if (_view3d) { Save3DScene(); return; }   // 3D モードは 3D シーンを保存
         // プロジェクトの初期シーンを開いているなら、そこへ直接上書き保存 (ダイアログ無し)。
         string? target = _currentScenePath;
         if (string.IsNullOrEmpty(target))

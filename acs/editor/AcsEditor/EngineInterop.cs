@@ -106,6 +106,10 @@ internal static class EngineInterop
     public static extern void acs_editor_select3d(IntPtr handle, int id);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_pick3d(IntPtr handle, float sx, float sy);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_scene3d_serialize(IntPtr handle, [Out] byte[] buf, int cap);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_scene3d_load_text(IntPtr handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string text);
 
     // ----- scene introspection / edit (Hierarchy / Inspector) -----
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]

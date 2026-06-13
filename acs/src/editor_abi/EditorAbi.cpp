@@ -4035,6 +4035,57 @@ ACS_EDITOR_API void acs_editor_select3d(void* handle, int id) {
     if (host != nullptr) host->sel3d = id;
 }
 
+/** 3D シーンをテキストへシリアライズする (C# が保存)。書いた文字数を返す。
+ *  形式: 1 行 "N3D <id> <prim> px py pz rx ry rz sx sy sz r g b a <name>"。 */
+ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || out == nullptr || cap <= 0) return 0;
+    int cur = 0;
+    cur += std::snprintf(out + cur, static_cast<size_t>(cap - cur), "ACS3D v1\n");
+    for (u32 i = 0; i < host->nodes3d.Size() && cur < cap; ++i) {
+        const ENode3D& n = host->nodes3d[i];
+        const int w = std::snprintf(out + cur, static_cast<size_t>(cap - cur),
+            "N3D %d %d %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.3f %.3f %.3f %.3f %s\n",
+            n.id, n.prim, n.pos.x, n.pos.y, n.pos.z, n.rot.x, n.rot.y, n.rot.z,
+            n.scale.x, n.scale.y, n.scale.z, n.color.x, n.color.y, n.color.z, n.color.w, n.name);
+        if (w < 0 || w >= cap - cur) { out[cap - 1] = '\0'; break; }
+        cur += w;
+    }
+    out[cur < cap ? cur : cap - 1] = '\0';
+    return cur;
+}
+
+/** 3D シーンをテキストから読み込む (既存ノードを置き換える)。成功 1。 */
+ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || text == nullptr) return 0;
+    host->nodes3d.Clear();
+    host->sel3d = -1;
+    host->scene3d_seeded = true;                     // 読み込んだら seed しない
+    int maxId = 0;
+    const char* p = text;
+    char line[512];
+    while (*p != '\0') {
+        u32 n = 0;
+        while (*p != '\0' && *p != '\n') { if (n + 1 < sizeof(line)) line[n++] = *p; ++p; }
+        line[n] = '\0';
+        if (*p == '\n') ++p;
+        if (std::strncmp(line, "N3D ", 4) != 0) continue;
+        ENode3D nd; char nm[64] = {};
+        const int got = std::sscanf(line, "N3D %d %d %f %f %f %f %f %f %f %f %f %f %f %f %f %63[^\n]",
+            &nd.id, &nd.prim, &nd.pos.x, &nd.pos.y, &nd.pos.z, &nd.rot.x, &nd.rot.y, &nd.rot.z,
+            &nd.scale.x, &nd.scale.y, &nd.scale.z, &nd.color.x, &nd.color.y, &nd.color.z, &nd.color.w, nm);
+        if (got >= 15) {
+            std::snprintf(nd.name, sizeof(nd.name), "%s", (got >= 16) ? nm : "Node");
+            host->nodes3d.PushBack(nd);
+            if (nd.id > maxId) maxId = nd.id;
+        }
+    }
+    host->next_id3d = maxId + 1;
+    if (host->nodes3d.Size() > 0) host->sel3d = host->nodes3d[0].id;
+    return 1;
+}
+
 /** スクリーン点から 3D ノードをレイピックする。最も手前の id を返す (外れは -1)。
  *  ノードは «位置中心の球» (半径 = max scale の半分) で近似交差判定する。 */
 ACS_EDITOR_API int acs_editor_pick3d(void* handle, float sx, float sy) {

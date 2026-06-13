@@ -196,4 +196,37 @@ public partial class MainWindow
         Populate3DInspector(id);
         Log($"3D {name} を追加 (id {id})");
     }
+
+    // ===== 3D シーンの保存 / 読込 (<project>/Assets/scene3d.acs3d) =====
+    private string Scene3DPath =>
+        _project != null ? System.IO.Path.Combine(_project.RootDir, "Assets", "scene3d.acs3d") : "";
+
+    /// <summary>3D シーンを INI 風テキストへシリアライズしてファイル保存する。</summary>
+    public void Save3DScene()
+    {
+        if (Engine == IntPtr.Zero || _project == null) return;
+        try
+        {
+            var buf = new byte[256 * 1024];
+            EngineInterop.acs_editor_scene3d_serialize(Engine, buf, buf.Length);
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Scene3DPath)!);
+            System.IO.File.WriteAllText(Scene3DPath, EngineInterop.Utf8Z(buf), System.Text.Encoding.UTF8);
+            Log($"3D シーンを保存 ← {Scene3DPath}");
+        }
+        catch (Exception ex) { Log("3D scene save error: " + ex.Message); }
+    }
+
+    /// <summary>ファイルがあれば 3D シーンを読み込む。無ければ ABI の既定シーン (seed) のまま。</summary>
+    private void Load3DSceneIfPresent()
+    {
+        if (Engine == IntPtr.Zero || _project == null) return;
+        try
+        {
+            if (!System.IO.File.Exists(Scene3DPath)) return;
+            string text = System.IO.File.ReadAllText(Scene3DPath, System.Text.Encoding.UTF8);
+            if (EngineInterop.acs_editor_scene3d_load_text(Engine, text) != 0)
+                Log($"3D シーンを読込 ← {Scene3DPath}");
+        }
+        catch (Exception ex) { Log("3D scene load error: " + ex.Message); }
+    }
 }
