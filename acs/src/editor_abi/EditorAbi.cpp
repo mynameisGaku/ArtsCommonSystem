@@ -261,6 +261,7 @@ struct EditorHost {
     TUniquePtr<IRhiPipeline> m3d_pipe;                // メッシュ本体 (depth on)
     TUniquePtr<IRhiPipeline> m3d_overlay_pipe;        // ギズモ等のオーバーレイ (depth off, 常に手前)
     TUniquePtr<IRhiBuffer>   m3d_frame_cb;            // b0: view_proj + light + ambient
+    TUniquePtr<IRhiBuffer>   m3d_giz_cb;              // ギズモ用 (高アンビエント=フラット、法線非依存)
     TUniquePtr<IRhiBuffer>   m3d_dyn_vb;              // 本体メッシュの動的 VB
     TUniquePtr<IRhiBuffer>   m3d_giz_vb;              // ギズモ用の動的 VB (depth off で描く)
     u32          m3d_dyn_cap  = 0;                    // 動的 VB の頂点容量
@@ -276,12 +277,19 @@ struct EditorHost {
     int          next_id3d     = 1;
     bool         scene3d_seeded = false;  // 初回 3D 切替でデフォルトシーンを置いたか
     TArray<ENode3D> nodes3d;              // 3D シーンのノード列
-    // 3D ギズモのドラッグ状態 (0=非活性, 1=X, 2=Y, 3=Z 軸)。
-    int          giz3d_axis    = 0;
-    f32          giz3d_grab    = 0.0f;    // ドラッグ開始時の «軸上パラメータ» (移動/拡縮の基準)
+    // 3D ギズモのドラッグ状態。
+    //   ハンドル: 0=非活性, 1=X, 2=Y, 3=Z 軸, 4=XY, 5=YZ, 6=XZ 平面。
+    int          giz3d_handle  = 0;
+    f32          giz3d_start_mx = 0, giz3d_start_my = 0;   // ドラッグ開始マウス (px)
+    f32          giz3d_sdx = 0, giz3d_sdy = 0;             // 軸のスクリーン方向 (単位)、軸移動/回転/拡縮用
+    f32          giz3d_wpp = 0;                            // world / px (軸方向、移動の換算)
+    // 平面移動: 面内 2 軸のスクリーンベクトル (px / gl-world) と gl。スクリーン空間 2x2 連立で安定移動。
+    f32          giz3d_p1x = 0, giz3d_p1y = 0;             // e1 の画面ベクトル
+    f32          giz3d_p2x = 0, giz3d_p2y = 0;             // e2 の画面ベクトル
+    f32          giz3d_pgl = 1.0f;
     FVec3        giz3d_start_pos{ 0, 0, 0 };
     FVec3        giz3d_start_scale{ 1, 1, 1 };
-    f32          giz3d_start_rot = 0.0f;
+    FVec3        giz3d_start_rot{ 0, 0, 0 };
 
     // Undo/Redo: シーンのシリアライズ文字列スナップショットを積む (所有 raw char*)。
     TArray<char*> undo;
@@ -1953,6 +1961,10 @@ bool Ensure3D(EditorHost& h) noexcept {
     }
     {
         FBufferDesc c{}; c.size = 256; c.usage = EBufferUsage::Uniform; c.cpu_writable = true;
+        auto r = CreateRhiBuffer(*dev, c); if (r.IsOk()) h.m3d_giz_cb = Move(r.Value());
+    }
+    {
+        FBufferDesc c{}; c.size = 256; c.usage = EBufferUsage::Uniform; c.cpu_writable = true;
         auto r = CreateRhiBuffer(*dev, c); if (r.IsOk()) h.sky_cb = Move(r.Value());
     }
     {
@@ -2123,6 +2135,57 @@ void AppendMeshTris(TArray<M3DVtx>& dv, const FMeshAsset* cm, const FMat4& model
     }
 }
 
+/** ギズモのワールド長 (カメラ距離に比例 → 画面上ほぼ一定。視線と軸の角度で破綻しない)。 */
+f32 Gizmo3DScale(const EditorHost& h, FVec3 pos) noexcept {
+    const FVec3 eye = Cam3DEye(h);
+    const FVec3 d{ eye.x - pos.x, eye.y - pos.y, eye.z - pos.z };
+    const f32 dist = std::sqrt(d.x*d.x + d.y*d.y + d.z*d.z);
+    return (dist > 0.1f ? dist : 0.1f) * 0.16f;
+}
+
+/** 軸方向に伸びる «箱バー» を gv へ追加する (world X/Y/Z 軸のみ、非一様スケールで回転不要)。 */
+void AppendBar(TArray<M3DVtx>& gv, const EditorHost& h, FVec3 center, int axis, f32 len, f32 th, FVec3 col) noexcept {
+    FVec3 s{ th, th, th }; (axis == 1) ? (s.x = len) : (axis == 2) ? (s.y = len) : (s.z = len);
+    const FMat4 m = FMat4::Scale(s) * FMat4::Translation(center);
+    AppendMeshTris(gv, h.cpu_cube.Get(), m, col, 4096);
+}
+
+/** 軸方向の «円錐の矢じり» を gv へ追加する (apex = base + axisDir*len)。 */
+void AppendCone(TArray<M3DVtx>& gv, FVec3 base, int axis, f32 len, f32 rad, FVec3 col) noexcept {
+    const FVec3 ax = AxisDir(axis);
+    // 軸に直交する 2 基底 u,v。
+    FVec3 u = (axis == 2) ? FVec3{ 1, 0, 0 } : FVec3{ 0, 1, 0 };
+    FVec3 v{ ax.y*u.z - ax.z*u.y, ax.z*u.x - ax.x*u.z, ax.x*u.y - ax.y*u.x };
+    const FVec3 apex{ base.x + ax.x*len, base.y + ax.y*len, base.z + ax.z*len };
+    const int N = 12;
+    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { M3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z; gv.PushBack(o);} };
+    for (int i = 0; i < N; ++i) {
+        const f32 a0 = 6.2831853f * i / N, a1 = 6.2831853f * (i + 1) / N;
+        const FVec3 p0{ base.x + (u.x*std::cos(a0)+v.x*std::sin(a0))*rad, base.y + (u.y*std::cos(a0)+v.y*std::sin(a0))*rad, base.z + (u.z*std::cos(a0)+v.z*std::sin(a0))*rad };
+        const FVec3 p1{ base.x + (u.x*std::cos(a1)+v.x*std::sin(a1))*rad, base.y + (u.y*std::cos(a1)+v.y*std::sin(a1))*rad, base.z + (u.z*std::cos(a1)+v.z*std::sin(a1))*rad };
+        pushV(apex, ax); pushV(p0, ax); pushV(p1, ax);     // 側面 (法線は近似で軸方向)
+        pushV(base, FVec3{-ax.x,-ax.y,-ax.z}); pushV(p1, FVec3{-ax.x,-ax.y,-ax.z}); pushV(p0, FVec3{-ax.x,-ax.y,-ax.z}); // 底
+    }
+}
+
+/** 平面ハンドルの «小さな四角» を gv へ追加する (中心 c、面内基底 e1,e2、半サイズ hs)。 */
+void AppendQuad(TArray<M3DVtx>& gv, FVec3 c, FVec3 e1, FVec3 e2, f32 hs, FVec3 col) noexcept {
+    const FVec3 n{ e1.y*e2.z - e1.z*e2.y, e1.z*e2.x - e1.x*e2.z, e1.x*e2.y - e1.y*e2.x };
+    FVec3 p00{ c.x-(e1.x+e2.x)*hs, c.y-(e1.y+e2.y)*hs, c.z-(e1.z+e2.z)*hs };
+    FVec3 p10{ c.x+(e1.x-e2.x)*hs, c.y+(e1.y-e2.y)*hs, c.z+(e1.z-e2.z)*hs };
+    FVec3 p11{ c.x+(e1.x+e2.x)*hs, c.y+(e1.y+e2.y)*hs, c.z+(e1.z+e2.z)*hs };
+    FVec3 p01{ c.x-(e1.x-e2.x)*hs, c.y-(e1.y-e2.y)*hs, c.z-(e1.z-e2.z)*hs };
+    auto pv = [&](FVec3 p){ if (gv.Size()<4096){ M3DVtx o;o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;gv.PushBack(o);} };
+    pv(p00);pv(p10);pv(p11); pv(p00);pv(p11);pv(p01);
+}
+
+/** 平面ハンドル番号 (4=XY,5=YZ,6=XZ) → 面内 2 軸 + 法線。 */
+void PlaneAxes(int handle, FVec3& e1, FVec3& e2, FVec3& n) noexcept {
+    if (handle == 4)      { e1 = FVec3{1,0,0}; e2 = FVec3{0,1,0}; n = FVec3{0,0,1}; }  // XY
+    else if (handle == 5) { e1 = FVec3{0,1,0}; e2 = FVec3{0,0,1}; n = FVec3{1,0,0}; }  // YZ
+    else                  { e1 = FVec3{1,0,0}; e2 = FVec3{0,0,1}; n = FVec3{0,1,0}; }  // XZ
+}
+
 /** 3D シーンを描画する (スカイ + ライト付きメッシュ + 選択ハイライト/太いギズモ)。 */
 void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     if (!Ensure3D(h)) return;
@@ -2184,32 +2247,49 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     }
     delete &dv;
 
-    // --- (3) 選択ノードの太いギズモバー (depth off で常に手前) ---
+    // --- (3) 選択ノードの変形ギズモ (Unity/Unreal 風: 軸シャフト + 矢じり + 平面ハンドル + 中心)。
+    //         depth off のオーバーレイで常に手前。サイズはカメラ距離で一定 (角度で破綻しない)。
     if (ENode3D* sn = FindNode3D(h, h.sel3d)) {
-        // 軸長をスクリーン一定 (px) に保つ。
-        f32 gl = 1.5f, csx, csy, ex, ey;
-        if (WorldToScreen3D(h, sn->pos, static_cast<f32>(scW), static_cast<f32>(scH), csx, csy) &&
-            WorldToScreen3D(h, FVec3{ sn->pos.x + 1.0f, sn->pos.y, sn->pos.z }, static_cast<f32>(scW), static_cast<f32>(scH), ex, ey)) {
-            const f32 ppu = std::sqrt((ex - csx) * (ex - csx) + (ey - csy) * (ey - csy));
-            if (ppu > 1e-3f) gl = 110.0f / ppu;          // ギズモの見かけ長 (px)
-        }
-        const f32 th = gl * 0.045f;                       // バーの太さ (長さの 4.5%、細めの 3D バー)
-        const FVec3 cols[3] = { FVec3{ 0.95f, 0.30f, 0.30f }, FVec3{ 0.35f, 0.90f, 0.40f }, FVec3{ 0.45f, 0.60f, 0.98f } };
-        TArray<M3DVtx>& gv = *(new TArray<M3DVtx>()); gv.Reserve(1024);
+        const f32 gl = Gizmo3DScale(h, sn->pos);
+        const f32 shaft = gl * 0.022f;     // シャフト半径
+        const f32 head  = gl * 0.075f;     // 矢じり半径
+        const f32 headL = gl * 0.24f;      // 矢じり長
+        const f32 axisL = gl * 0.76f;      // シャフト終端 (= 矢じりの根本)
+        const FVec3 cols[3] = { FVec3{ 0.92f, 0.26f, 0.30f }, FVec3{ 0.40f, 0.86f, 0.34f }, FVec3{ 0.30f, 0.55f, 0.96f } };
+        const FVec3 hot{ 1.0f, 0.86f, 0.22f };
+        TArray<M3DVtx>& gv = *(new TArray<M3DVtx>()); gv.Reserve(2048);
+
+        // 3 軸 (シャフト + 矢じり)。
         for (int a = 1; a <= 3; ++a) {
             const FVec3 d = AxisDir(a);
-            FVec3 col = cols[a - 1];
-            if (h.giz3d_axis == a) col = FVec3{ 1.0f, 0.90f, 0.25f };   // 掴み中は黄
-            // 軸方向に長い細い箱: scale (th,th,th) を軸だけ gl に伸ばし、中心を pos+axis*gl/2 へ。
-            FVec3 s{ th, th, th }; (a == 1) ? (s.x = gl) : (a == 2) ? (s.y = gl) : (s.z = gl);
-            const FVec3 c{ sn->pos.x + d.x * gl * 0.5f, sn->pos.y + d.y * gl * 0.5f, sn->pos.z + d.z * gl * 0.5f };
-            const FMat4 m = FMat4::Scale(s) * FMat4::Translation(c);
-            AppendMeshTris(gv, h.cpu_cube.Get(), m, col, 4096);
+            const FVec3 col = (h.giz3d_handle == a) ? hot : cols[a - 1];
+            const FVec3 mid{ sn->pos.x + d.x * axisL * 0.5f, sn->pos.y + d.y * axisL * 0.5f, sn->pos.z + d.z * axisL * 0.5f };
+            AppendBar(gv, h, mid, a, axisL, shaft, col);
+            AppendCone(gv, FVec3{ sn->pos.x + d.x * axisL, sn->pos.y + d.y * axisL, sn->pos.z + d.z * axisL }, a, headL, head, col);
         }
-        if (gv.Size() > 0 && h.m3d_giz_vb) {
+        // 平面ハンドル (XY=4,YZ=5,XZ=6): 各 2 軸の途中にオフセットした小四角。
+        const f32 po = gl * 0.34f, ph = gl * 0.11f;
+        for (int hpl = 4; hpl <= 6; ++hpl) {
+            FVec3 e1, e2, nrm; PlaneAxes(hpl, e1, e2, nrm);
+            const FVec3 c{ sn->pos.x + (e1.x + e2.x) * po, sn->pos.y + (e1.y + e2.y) * po, sn->pos.z + (e1.z + e2.z) * po };
+            FVec3 col = (h.giz3d_handle == hpl) ? hot : FVec3{ cols[(hpl==5)?0:0].x, 0, 0 };
+            // 平面色 = 法線軸の補色寄り (XY→青系, YZ→赤系, XZ→緑系)。簡易に法線軸色を薄く。
+            if (hpl == 4) col = (h.giz3d_handle==4)?hot:FVec3{0.30f,0.55f,0.96f};
+            if (hpl == 5) col = (h.giz3d_handle==5)?hot:FVec3{0.92f,0.26f,0.30f};
+            if (hpl == 6) col = (h.giz3d_handle==6)?hot:FVec3{0.40f,0.86f,0.34f};
+            AppendQuad(gv, c, e1, e2, ph, col);
+        }
+        // 中心キューブ (見た目のアクセント)。
+        AppendMeshTris(gv, h.cpu_cube.Get(), FMat4::Scale(FVec3{gl*0.05f,gl*0.05f,gl*0.05f}) * FMat4::Translation(sn->pos),
+                       FVec3{ 0.85f, 0.85f, 0.88f }, 4096);
+
+        if (gv.Size() > 0 && h.m3d_giz_vb && h.m3d_giz_cb) {
+            // ギズモは «フラットに明るく» (高アンビエント・ライト0) → 法線の裏表に依存せず常に鮮やか。
+            M3DFrame gcb{}; gcb.view_proj = vp; gcb.light_dir = FVec4{ 0, 1, 0, 0.92f }; gcb.light_col = FVec4{ 0.10f, 0.10f, 0.10f, 0 };
+            h.m3d_giz_cb->Update(&gcb, sizeof(gcb));
             h.m3d_giz_vb->Update(gv.Data(), sizeof(M3DVtx) * gv.Size());
             cl->SetPipeline(*h.m3d_overlay_pipe);         // depth off → 常に手前
-            cl->SetConstantBuffer(0, *h.m3d_frame_cb);
+            cl->SetConstantBuffer(0, *h.m3d_giz_cb);
             cl->SetVertexBuffer(*h.m3d_giz_vb, sizeof(M3DVtx));
             cl->Draw(static_cast<u32>(gv.Size()), 0);
         }
@@ -2513,7 +2593,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->dbg3d.Shutdown();
     host->m3d_pipe.Reset(); host->m3d_overlay_pipe.Reset(); host->m3d_vs.Reset(); host->m3d_ps.Reset();
     host->sky_pipe.Reset(); host->sky_vs.Reset(); host->sky_ps.Reset(); host->sky_cb.Reset();
-    host->m3d_frame_cb.Reset(); host->m3d_dyn_vb.Reset(); host->m3d_giz_vb.Reset();
+    host->m3d_frame_cb.Reset(); host->m3d_giz_cb.Reset(); host->m3d_dyn_vb.Reset(); host->m3d_giz_vb.Reset();
     host->gm_cube = GpuMesh{}; host->gm_sphere = GpuMesh{}; host->gm_plane = GpuMesh{};
     host->renderer.Shutdown();
     delete host;
@@ -4381,8 +4461,8 @@ ACS_EDITOR_API int acs_editor_pick3d(void* handle, float sx, float sy) {
     return best;
 }
 
-/** 3D 変形ギズモの掴み開始。選択ノードの軸線に近ければその軸を掴む。掴んだ軸 (1=X,2=Y,3=Z)、
- *  外れたら 0 を返す。掴めた場合は呼び出し側が以降の mouse-move を gizmo3d_drag へ流す。 */
+/** 3D 変形ギズモの掴み開始。軸シャフト/平面ハンドルに近ければ掴む。
+ *  返り値: 0=外れ, 1-3=軸(X/Y/Z), 4-6=平面(XY/YZ/XZ)。掴めたら以降の move を drag へ。 */
 ACS_EDITOR_API int acs_editor_gizmo3d_begin(void* handle, float sx, float sy) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr) return 0;
@@ -4390,76 +4470,123 @@ ACS_EDITOR_API int acs_editor_gizmo3d_begin(void* handle, float sx, float sy) {
     IRhiSwapchain* sc = host->renderer.Swapchain();
     if (n == nullptr || sc == nullptr) return 0;
     const f32 W = static_cast<f32>(sc->Width()), H = static_cast<f32>(sc->Height());
-
-    // 各軸線をスクリーンに射影し、クリック点との «線分距離» が近い軸を掴む。
+    const FVec3 P = n->pos;
+    const f32 gl = Gizmo3DScale(*host, P);
     f32 csx, csy;
-    if (!WorldToScreen3D(*host, n->pos, W, H, csx, csy)) return 0;
-    // 軸の見かけ長 (px/world) を X 軸で測る。
-    f32 ex, ey; f32 ppu = 60.0f;
-    if (WorldToScreen3D(*host, FVec3{ n->pos.x + 1.0f, n->pos.y, n->pos.z }, W, H, ex, ey))
-        ppu = std::sqrt((ex - csx) * (ex - csx) + (ey - csy) * (ey - csy));
-    const f32 gl = (ppu > 1e-3f) ? 110.0f / ppu : 1.5f;   // 描画バーと同じ見かけ長
+    if (!WorldToScreen3D(*host, P, W, H, csx, csy)) return 0;
 
-    int   best = 0; f32 bestD = 18.0f;            // ヒット閾値 (px、太いバーに合わせ広め)
-    for (int a = 1; a <= 3; ++a) {
-        const FVec3 d = AxisDir(a);
-        f32 tx, ty;
-        if (!WorldToScreen3D(*host, FVec3{ n->pos.x + d.x * gl, n->pos.y + d.y * gl, n->pos.z + d.z * gl }, W, H, tx, ty)) continue;
-        // 点 (sx,sy) から線分 [(csx,csy),(tx,ty)] への距離。
-        const f32 vx = tx - csx, vy = ty - csy;
-        const f32 wx = sx - csx, wy = sy - csy;
-        const f32 len2 = vx * vx + vy * vy;
-        f32 t = (len2 > 1e-3f) ? (wx * vx + wy * vy) / len2 : 0.0f;
-        t = (t < 0) ? 0 : (t > 1) ? 1 : t;
-        const f32 dx = csx + vx * t - sx, dy = csy + vy * t - sy;
-        const f32 dist = std::sqrt(dx * dx + dy * dy);
-        if (dist < bestD) { bestD = dist; best = a; }
+    int best = 0; f32 bestScore = 1e9f;
+    // --- 平面ハンドル優先 (中心寄りの四角を掴みやすく)。スクリーン上の四角中心への近さ。
+    const f32 po = gl * 0.34f;
+    for (int hpl = 4; hpl <= 6; ++hpl) {
+        FVec3 e1, e2, nrm; PlaneAxes(hpl, e1, e2, nrm);
+        const FVec3 c{ P.x + (e1.x+e2.x)*po, P.y + (e1.y+e2.y)*po, P.z + (e1.z+e2.z)*po };
+        f32 hx, hy;
+        if (!WorldToScreen3D(*host, c, W, H, hx, hy)) continue;
+        const f32 dist = std::sqrt((hx-sx)*(hx-sx) + (hy-sy)*(hy-sy));
+        if (dist < 16.0f && dist < bestScore) { bestScore = dist; best = hpl; }
     }
-    host->giz3d_axis = best;
+    // --- 軸シャフト (線分距離)。平面に掴まれていなければ。
+    if (best == 0) {
+        f32 bestD = 14.0f;
+        for (int a = 1; a <= 3; ++a) {
+            const FVec3 d = AxisDir(a);
+            f32 tx, ty;
+            if (!WorldToScreen3D(*host, FVec3{ P.x + d.x*gl, P.y + d.y*gl, P.z + d.z*gl }, W, H, tx, ty)) continue;
+            const f32 vx = tx - csx, vy = ty - csy, wx = sx - csx, wy = sy - csy;
+            const f32 len2 = vx*vx + vy*vy;
+            f32 t = (len2 > 1e-3f) ? (wx*vx + wy*vy) / len2 : 0.0f;
+            t = (t < 0) ? 0 : (t > 1) ? 1 : t;
+            const f32 dx = csx + vx*t - sx, dy = csy + vy*t - sy;
+            const f32 dist = std::sqrt(dx*dx + dy*dy);
+            if (dist < bestD) { bestD = dist; best = a; }
+        }
+    }
+    host->giz3d_handle = best;
     if (best == 0) return 0;
-    // ドラッグ基準を記録 (移動=軸上パラメータ、拡縮/回転=開始値)。
-    const EGizRay r = Cam3DScreenRay(*host, sx, sy, W, H);
-    host->giz3d_grab        = ClosestAxisParam(n->pos, AxisDir(best), r);
-    host->giz3d_start_pos   = n->pos;
+
+    host->giz3d_start_mx    = sx; host->giz3d_start_my = sy;
+    host->giz3d_start_pos   = P;
     host->giz3d_start_scale = n->scale;
-    host->giz3d_start_rot   = (best == 1) ? n->rot.x : (best == 2) ? n->rot.y : n->rot.z;
+    host->giz3d_start_rot   = n->rot;
+
+    if (best <= 3) {
+        // 軸: スクリーン上の軸方向 (単位) と world/px を求める (移動を «マウスの軸方向移動» に追従)。
+        const FVec3 d = AxisDir(best);
+        f32 ex, ey;
+        if (WorldToScreen3D(*host, FVec3{ P.x + d.x*gl, P.y + d.y*gl, P.z + d.z*gl }, W, H, ex, ey)) {
+            f32 vx = ex - csx, vy = ey - csy;
+            const f32 vl = std::sqrt(vx*vx + vy*vy);
+            if (vl > 1e-3f) { host->giz3d_sdx = vx/vl; host->giz3d_sdy = vy/vl; host->giz3d_wpp = gl / vl; }
+            else            { host->giz3d_sdx = 1; host->giz3d_sdy = 0; host->giz3d_wpp = 0.01f; }
+        }
+    } else {
+        // 平面: 面内 2 軸のスクリーンベクトル (P→P+e*gl) を記録 → drag で 2x2 連立を解く。
+        FVec3 e1, e2, nrm; PlaneAxes(best, e1, e2, nrm);
+        host->giz3d_pgl = gl;
+        f32 a1x, a1y, a2x, a2y;
+        if (WorldToScreen3D(*host, FVec3{ P.x+e1.x*gl, P.y+e1.y*gl, P.z+e1.z*gl }, W, H, a1x, a1y) &&
+            WorldToScreen3D(*host, FVec3{ P.x+e2.x*gl, P.y+e2.y*gl, P.z+e2.z*gl }, W, H, a2x, a2y)) {
+            host->giz3d_p1x = a1x - csx; host->giz3d_p1y = a1y - csy;
+            host->giz3d_p2x = a2x - csx; host->giz3d_p2y = a2y - csy;
+        } else { host->giz3d_p1x = host->giz3d_p1y = host->giz3d_p2x = host->giz3d_p2y = 0; }
+    }
     return best;
 }
 
-/** 3D ギズモのドラッグ更新。現在のギズモモード (move/rotate/scale) に従い軸方向へ変形する。 */
+/** 3D ギズモのドラッグ更新。現在のモード (move/rotate/scale) に従い変形する。 */
 ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
     auto* host = static_cast<EditorHost*>(handle);
-    if (host == nullptr || host->giz3d_axis == 0) return;
+    if (host == nullptr || host->giz3d_handle == 0) return;
     ENode3D* n = FindNode3D(*host, host->sel3d);
     IRhiSwapchain* sc = host->renderer.Swapchain();
     if (n == nullptr || sc == nullptr) return;
     const f32 W = static_cast<f32>(sc->Width()), H = static_cast<f32>(sc->Height());
-    const int axis = host->giz3d_axis;
-    const FVec3 ad = AxisDir(axis);
-    const EGizRay r = Cam3DScreenRay(*host, sx, sy, W, H);
-    const f32 s = ClosestAxisParam(host->giz3d_start_pos, ad, r);
-    const f32 delta = s - host->giz3d_grab;        // 軸上の移動量 (world)
+    const int hnd = host->giz3d_handle;
 
-    if (host->gizmo_mode == 2) {                    // Scale: 軸成分を delta で増減
-        FVec3 sc0 = host->giz3d_start_scale;
-        f32* comp = (axis == 1) ? &sc0.x : (axis == 2) ? &sc0.y : &sc0.z;
-        *comp += delta;
+    if (hnd >= 4) {                                  // 平面移動 (Move 専用): スクリーン空間 2x2 連立
+        FVec3 e1, e2, nrm; PlaneAxes(hnd, e1, e2, nrm);
+        const f32 mdx = sx - host->giz3d_start_mx, mdy = sy - host->giz3d_start_my;
+        // [p1 p2] [u;v] = md  → u,v は «gl-world 単位» の e1,e2 移動量。
+        const f32 det = host->giz3d_p1x * host->giz3d_p2y - host->giz3d_p1y * host->giz3d_p2x;
+        if (std::abs(det) < 1e-3f) return;            // 平面が視線に平行 (退化) → 無視
+        const f32 u = (mdx * host->giz3d_p2y - mdy * host->giz3d_p2x) / det;
+        const f32 v = (host->giz3d_p1x * mdy - host->giz3d_p1y * mdx) / det;
+        const f32 du = u * host->giz3d_pgl, dv = v * host->giz3d_pgl;
+        n->pos = FVec3{ host->giz3d_start_pos.x + e1.x*du + e2.x*dv,
+                        host->giz3d_start_pos.y + e1.y*du + e2.y*dv,
+                        host->giz3d_start_pos.z + e1.z*du + e2.z*dv };
+        return;
+    }
+
+    // 軸ハンドル: マウスのスクリーン移動量を «軸のスクリーン方向» に射影 → 直感的に追従。
+    const f32 mdx = sx - host->giz3d_start_mx, mdy = sy - host->giz3d_start_my;
+    const f32 px  = mdx * host->giz3d_sdx + mdy * host->giz3d_sdy;   // 軸方向の px 量 (符号付き)
+    const FVec3 ad = AxisDir(hnd);
+
+    if (host->gizmo_mode == 2) {                     // Scale
+        FVec3 s0 = host->giz3d_start_scale;
+        f32* comp = (hnd == 1) ? &s0.x : (hnd == 2) ? &s0.y : &s0.z;
+        *comp += px * host->giz3d_wpp;
         if (*comp < 0.05f) *comp = 0.05f;
-        n->scale = sc0;
-    } else if (host->gizmo_mode == 1) {             // Rotate: delta を角度 (度) に割り当て
-        const f32 ang = host->giz3d_start_rot + delta * 30.0f;
-        if (axis == 1) n->rot.x = ang; else if (axis == 2) n->rot.y = ang; else n->rot.z = ang;
-    } else {                                        // Move: 軸方向へ平行移動
-        n->pos = FVec3{ host->giz3d_start_pos.x + ad.x * delta,
-                        host->giz3d_start_pos.y + ad.y * delta,
-                        host->giz3d_start_pos.z + ad.z * delta };
+        n->scale = s0;
+    } else if (host->gizmo_mode == 1) {              // Rotate (px → 度)
+        FVec3 r0 = host->giz3d_start_rot;
+        const f32 ang = px * 0.5f;
+        if (hnd == 1) r0.x += ang; else if (hnd == 2) r0.y += ang; else r0.z += ang;
+        n->rot = r0;
+    } else {                                         // Move (px → world、軸方向)
+        const f32 dw = px * host->giz3d_wpp;
+        n->pos = FVec3{ host->giz3d_start_pos.x + ad.x*dw,
+                        host->giz3d_start_pos.y + ad.y*dw,
+                        host->giz3d_start_pos.z + ad.z*dw };
     }
 }
 
 /** 3D ギズモのドラッグ終了。 */
 ACS_EDITOR_API void acs_editor_gizmo3d_end(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
-    if (host != nullptr) host->giz3d_axis = 0;
+    if (host != nullptr) host->giz3d_handle = 0;
 }
 
 // =============================================================================
