@@ -66,6 +66,10 @@
             <MenuItem Header="_GameObject">
                 <MenuItem Header="Create Empty" Click="OnCreateEmpty"/>
                 <MenuItem Header="Create Child of Selection" Click="OnCreateChild"/>
+                <Separator/>
+                <MenuItem Header="3D Cube"   Click="OnAdd3DCube"/>
+                <MenuItem Header="3D Sphere" Click="OnAdd3DSphere"/>
+                <MenuItem Header="3D Plane"  Click="OnAdd3DPlane"/>
             </MenuItem>
             <MenuItem Header="_Build">
                 <MenuItem Header="新規クラス…" Click="OnNewClass"/>
@@ -218,6 +222,9 @@
                                 <TextBlock x:Name="InspSub" Text="ノードを選択してください" Foreground="{StaticResource TextDim}" FontSize="11" Margin="0,2,0,0"/>
                             </StackPanel>
                         </Border>
+
+                        <!-- 3D ノードの Inspector (3D モードで動的生成。2D の InspFields は隠す)。 -->
+                        <StackPanel x:Name="Insp3DPanel" Visibility="Collapsed"/>
 
                         <StackPanel x:Name="InspFields" IsEnabled="False">
                             <TextBlock Text="TRANSFORM" Style="{StaticResource Section}"/>

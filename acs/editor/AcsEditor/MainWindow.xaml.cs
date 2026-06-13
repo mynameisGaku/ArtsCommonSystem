@@ -299,9 +299,12 @@ public partial class MainWindow : Window
     private void OnToggle3D(object sender, RoutedEventArgs e)
     {
         if (Engine == IntPtr.Zero) return;
-        bool on = View3DBtn.IsChecked == true;
-        EngineInterop.acs_editor_set_view3d(Engine, on ? 1 : 0);
-        Log(on ? "3D ビューポート (ドラッグ=軌道 / ホイール=ドリー)" : "2D ビューポート");
+        _view3d = View3DBtn.IsChecked == true;
+        EngineInterop.acs_editor_set_view3d(Engine, _view3d ? 1 : 0);
+        BuildHierarchy();                       // 2D/3D でツリーの中身を切り替える
+        if (_view3d) { int s = EngineInterop.acs_editor_selected3d(Engine); if (s >= 0) Populate3DInspector(s); else Clear3DInspector(); }
+        else Clear3DInspector();
+        Log(_view3d ? "3D ビューポート (右/中ドラッグ=軌道 / ホイール=ドリー / 左クリック=選択)" : "2D ビューポート");
     }
 
     // プロジェクトの初期シーンをロード (無ければ空シーン)。attach 後に 1 度呼ぶ。
@@ -439,6 +442,7 @@ public partial class MainWindow : Window
     private void BuildHierarchy()
     {
         if (Engine == IntPtr.Zero) return;
+        if (_view3d) { Build3DHierarchy(); return; }    // 3D モードは 3D ノードを並べる
         HierarchyTree.Items.Clear();
 
         int count = EngineInterop.acs_editor_node_count(Engine);
@@ -474,7 +478,11 @@ public partial class MainWindow : Window
     // ===== Viewport picking: ビューポートのクリック選択を Hierarchy/Inspector に反映 =====
     // ビューポート側で既に ABI の選択集合を更新済み (single/toggle/none)。ここでは ABI を
     // 真実点として読み直し、ツリーのハイライトと Inspector を同期するだけ (id は無視可)。
-    private void OnViewportPicked(int id) => SyncSelectionUi();
+    private void OnViewportPicked(int id)
+    {
+        if (_view3d) { Select3DInHierarchy(id); if (id >= 0) Populate3DInspector(id); else Clear3DInspector(); return; }
+        SyncSelectionUi();
+    }
 
     /// <summary>
     /// ABI の選択集合を各 TreeViewItem へ写す (IsInSet/IsPrimary 添付プロパティ + native 単一
@@ -1355,6 +1363,7 @@ public partial class MainWindow : Window
         if (Engine == IntPtr.Zero || _syncingSelection) return;   // 同期中の native 変更は無視
         if (e.NewValue is TreeViewItem item && item.Tag is int id)
         {
+            if (_view3d) { EngineInterop.acs_editor_select3d(Engine, id); Populate3DInspector(id); return; }
             EngineInterop.acs_editor_select(Engine, id);   // 単一選択 (集合を {id} に)
             SyncSelectionUi();
         }
