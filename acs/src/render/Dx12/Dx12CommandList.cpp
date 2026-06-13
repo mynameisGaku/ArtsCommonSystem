@@ -289,6 +289,46 @@ void Dx12CommandList::EndRenderToTexture(IRhiTexture& rt) noexcept {
     }
 }
 
+// MSAA RT をバックバッファへ ResolveSubresource で解決する。
+// 解決後バックバッファは RENDER_TARGET へ戻し、EndRenderToSwapchain (RT→PRESENT) と整合させる。
+void Dx12CommandList::ResolveToSwapchain(IRhiTexture& src, IRhiSwapchain& sc, u32 buffer_index) noexcept {
+    auto& dx_src = static_cast<Dx12Texture&>(src);
+    auto& dx_sc  = static_cast<Dx12Swapchain&>(sc);
+    ID3D12Resource* bb = dx_sc.BackBuffer(buffer_index);
+    if (bb == nullptr || dx_src.Resource() == nullptr || dx_src.SampleCount() <= 1) return;
+
+    D3D12_RESOURCE_BARRIER b[2]{};
+    u32 n = 0;
+    if (dx_src.CurrentState() != D3D12_RESOURCE_STATE_RESOLVE_SOURCE) {
+        b[n].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b[n].Transition.pResource   = dx_src.Resource();
+        b[n].Transition.StateBefore = dx_src.CurrentState();
+        b[n].Transition.StateAfter  = D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
+        b[n].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        ++n;
+        dx_src.SetCurrentState(D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+    }
+    b[n].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    b[n].Transition.pResource   = bb;
+    b[n].Transition.StateBefore = m_BackbufferIsRt ? D3D12_RESOURCE_STATE_RENDER_TARGET
+                                                   : D3D12_RESOURCE_STATE_PRESENT;
+    b[n].Transition.StateAfter  = D3D12_RESOURCE_STATE_RESOLVE_DEST;
+    b[n].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    ++n;
+    m_CmdList->ResourceBarrier(n, b);
+
+    m_CmdList->ResolveSubresource(bb, 0, dx_src.Resource(), 0, ToDxgiFormat(dx_src.EPixelFormat()));
+
+    D3D12_RESOURCE_BARRIER back{};
+    back.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    back.Transition.pResource   = bb;
+    back.Transition.StateBefore = D3D12_RESOURCE_STATE_RESOLVE_DEST;
+    back.Transition.StateAfter  = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    back.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    m_CmdList->ResourceBarrier(1, &back);
+    m_BackbufferIsRt = true;
+}
+
 // SS 屈折用の load 版 (clear せず再 bind)。
 void Dx12CommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
                                                 IRhiTexture* depth) noexcept {

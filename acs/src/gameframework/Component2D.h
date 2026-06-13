@@ -213,9 +213,11 @@ public:
      *
      * @param radius_scale ノード半径に対する占有半径スケールの出力。
      * @param shape 影の形状の出力 (0=円, 1=箱)。
+     * @param self_shadow 自分自身にも影を落とすか (false=自己影スキップ、既定)。
      * @return 影キャスターなら true。
      */
-    virtual bool QueryShadowCaster(f32& /*radius_scale*/, i32& /*shape*/) const noexcept { return false; }
+    virtual bool QueryShadowCaster(f32& /*radius_scale*/, i32& /*shape*/,
+                                   bool& /*self_shadow*/) const noexcept { return false; }
 
     /**
      * プリミティブ形状コンポーネントなら shape(0=Box,1=Circle,2=Triangle) とローカル半サイズを返す。

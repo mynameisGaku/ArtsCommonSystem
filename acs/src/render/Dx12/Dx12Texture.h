@@ -150,6 +150,13 @@ public:
     bool                        HasRtv()        const noexcept { return !m_RtvSlots.IsEmpty(); }
 
     /**
+     * MSAA サンプル数を返す (1=非 MSAA)。
+     *
+     * @return 作成時の sample_count (RT 以外は常に 1)。
+     */
+    u32                         SampleCount()   const noexcept { return m_SampleCount; }
+
+    /**
      * 基となる D3D12 リソースを返す。
      *
      * @return ID3D12Resource ポインタ (未確保なら nullptr)。
@@ -191,6 +198,9 @@ private:
 
     /** 配列スライス数 (最低 1、cubemap は 6 の倍数)。 */
     u32                   m_ArraySize = 1;
+
+    /** MSAA サンプル数 (1=非 MSAA。RT 専用)。 */
+    u32                   m_SampleCount = 1;
 
     /** キューブマップとして作成されたか。 */
     bool                  m_IsCubemap = false;

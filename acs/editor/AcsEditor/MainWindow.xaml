@@ -108,6 +108,14 @@
                 <Button Content="VC" Click="OnAlignVC"     Padding="7,4" Margin="1,0"/>
                 <Button Content="DH" Click="OnDistributeH" Padding="7,4" Margin="4,0,1,0"/>
                 <Button Content="DV" Click="OnDistributeV" Padding="7,4" Margin="1,0"/>
+                <Separator/>
+                <TextBlock Text="AA" VerticalAlignment="Center" Margin="4,0,6,0" Foreground="{StaticResource TextDim}"/>
+                <ComboBox x:Name="AaBox" Width="84" VerticalAlignment="Center" SelectionChanged="OnAaChanged">
+                    <ComboBoxItem Content="FXAA"/>
+                    <ComboBoxItem Content="MSAA 2x"/>
+                    <ComboBoxItem Content="MSAA 4x"/>
+                    <ComboBoxItem Content="MSAA 8x" IsSelected="True"/>
+                </ComboBox>
             </StackPanel>
         </Border>
 

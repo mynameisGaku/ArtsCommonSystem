@@ -109,6 +109,10 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         }
     }
 
+    // MSAA は RT 専用 (MS テクスチャは mip 不可・SRV 無し・初期データ不可)
+    m_SampleCount = (desc.is_render_target && desc.sample_count > 1) ? desc.sample_count : 1;
+    if (m_SampleCount > 1) m_MipLevels = 1;
+
     // 1. DEFAULT ヒープにテクスチャを作成
     D3D12_RESOURCE_DESC td{};
     td.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -118,7 +122,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     td.DepthOrArraySize = static_cast<UINT16>(req_array);   // cubemap=6 / 配列=N / 単一=1
     td.MipLevels = static_cast<UINT16>(m_MipLevels);
     td.Format = resource_fmt;
-    td.SampleDesc.Count = 1;
+    td.SampleDesc.Count = m_SampleCount;
     td.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     td.Flags  = D3D12_RESOURCE_FLAG_NONE;
     if (desc.is_depth_target) td.Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
@@ -307,7 +311,17 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         upload->Release();
     }
 
-    // 4. SRV ヒープに SRV を作成
+    // 4. SRV ヒープに SRV を作成 (MSAA RT は sample 不可なので SRV を作らない → resolve して使う)
+    if (m_SampleCount > 1) {
+        const i32 slot = device.AllocateRtvSlot();
+        if (slot < 0) { ACS_LOG_ERROR("Dx12Texture: RTV slot exhausted (MSAA)"); r.hr = E_OUTOFMEMORY; return r; }
+        D3D12_RENDER_TARGET_VIEW_DESC rtv{};
+        rtv.Format = typed_fmt;
+        rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS;
+        device.D3DDevice()->CreateRenderTargetView(m_Resource, &rtv, device.RtvCpuHandle(slot));
+        m_RtvSlots.PushBack(slot);
+        return r;
+    }
     m_SrvSlot = device.AllocateSrvSlot();
     if (m_SrvSlot < 0) { ACS_LOG_ERROR("Dx12Texture: SRV slot exhausted"); r.hr = E_OUTOFMEMORY; return r; }
     m_CurrentState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;

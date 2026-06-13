@@ -29,6 +29,14 @@ internal static class EngineInterop
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_destroy(IntPtr handle);
 
+    /// <summary>MSAA サンプル数 (1=FXAA のみ / 2 / 4 / 8) を設定。次フレームから適用。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_set_msaa(IntPtr handle, int samples);
+
+    /// <summary>現在の実効 MSAA サンプル数を返す。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_get_msaa(IntPtr handle);
+
     // ----- scene introspection / edit (Hierarchy / Inspector) -----
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node_count(IntPtr handle);

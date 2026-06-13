@@ -57,6 +57,20 @@ public:
     virtual void EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index) noexcept = 0;
 
     /**
+     * MSAA レンダーターゲットをスワップチェインのバックバッファへ解決 (resolve) する。
+     *
+     * @details
+     * sample_count>1 で作成した RT をフレームの最後にバックバッファへ ResolveSubresource する。
+     * 呼出し後バックバッファは RENDER_TARGET 状態に戻る (続けて描画 / EndRenderToSwapchain 可)。
+     * 既定実装は no-op (現状 Dx12 backend のみ実装)。
+     * @param src 解決元の MSAA レンダーターゲット (描画済み)。
+     * @param sc 解決先のスワップチェイン。
+     * @param buffer_index 解決先バックバッファのインデックス。
+     */
+    virtual void ResolveToSwapchain(class IRhiTexture& /*src*/, IRhiSwapchain& /*sc*/,
+                                    u32 /*buffer_index*/) noexcept {}
+
+    /**
      * シャドウパスを開始する (depth-only RT を bind + clear)。
      *
      * @details ビューポートも depth のサイズに合わせて自動設定する。

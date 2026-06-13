@@ -16,6 +16,7 @@
 #include "render/Renderer.h"
 #include "render/RhiTypes.h"
 #include "render/SpriteBatch.h"
+#include "render/Fxaa.h"
 #include "math/Vec.h"
 #include "foundation/Log.h"
 #include "memory/MemorySystem.h"
@@ -176,6 +177,19 @@ struct EditorHost {
     u32          width         = 0;
     u32          height        = 0;
     f32          time          = 0.0f;
+
+    // AA: シーンをオフスクリーン RT に描き、MSAA resolve (既定 8x) または FXAA で backbuffer へ出す。
+    FFxaa                       fxaa;                  // FXAA パス (MSAA 無効/失敗時のフォールバック)
+    bool                        fxaa_ready = false;
+    TUniquePtr<IRhiTexture>     scene_rt;              // シーン用オフスクリーン RT (swapchain と同サイズ)
+    u32                         scene_rt_w = 0, scene_rt_h = 0;
+    u32                         msaa_samples = 8;      // 現在の MSAA サンプル数 (1=FXAA のみ)
+    u32                         msaa_pending = 8;      // 次フレーム適用 (acs_editor_set_msaa)
+
+    // マテリアルプレビュー用の非 MSAA スプライトバッチ (preview_rt は sample_count=1 のため
+    // MSAA PSO の本体バッチでは描けない)。EnsurePreviewRt で遅延初期化。
+    FSpriteBatch                preview_sprites;
+    bool                        preview_sprites_ready = false;
 
     // マテリアル GPU プレビュー: 実シェーダでサンプルを RT に描き readback する。
     TUniquePtr<IRhiCommandList> preview_cl;            // 専用コマンドリスト (フレーム外で submit)
@@ -1457,12 +1471,14 @@ void DrawScene(EditorHost& h, FSpriteBatch& sb, u32 w, u32 hh) noexcept {
     FSpriteOccluder occluders[16];
     u32 occCount = 0;
     int occNodeIdx[16];
+    bool occSelfShadow[16];          // 自己影あり (m_SelfShadow=1) のオクルーダーはスキップ番号を渡さない
     for (u32 i = 0; i < h.nodes.Size() && occCount < 16; ++i) {
         const FEditorNode* n = h.nodes[i];
         const int cs = ShadowCasterSlot(n);
         if (cs < 0 || !n->IsVisible()) continue;
         const game::FTransform2D ow = n->World();
         occNodeIdx[occCount] = static_cast<int>(i);
+        occSelfShadow[occCount] = (n->comp_props[cs][2][0] > 0.5f);   // m_SelfShadow (行2)
         FSpriteOccluder& O = occluders[occCount++];
         const f32 scale = (n->comp_props[cs][0][0] > 0.01f) ? n->comp_props[cs][0][0] : 1.0f;  // radiusScale
         const f32 cx = SX(ow.position.x), cy = SY(ow.position.y);
@@ -1521,17 +1537,45 @@ void DrawScene(EditorHost& h, FSpriteBatch& sb, u32 w, u32 hh) noexcept {
             LoadNodeSprite(h, n);              // 遅延ロード (attach 後・シーン読込後・複製後)
         // マテリアルをこのノードの本体描画に適用する。Scene/Game 両ビュー共通。
         if (!n->material_loaded) LoadNodeMaterial(n);
+        const int prShape = PrimitiveShape(n);
+        // 影の上下関係 = 描画順 (後に描く = 上)。自分より «下» (先描画) のキャスターの影は受けない。
+        // 上の物体の面に下からの影が乗る物理は無く、凹形状の相手と重なった際のまだら影も防ぐ。
+        // 地面 (先頭に描く受け手) は全キャスターの影を受け、上→下へはシルエットから連続した影が落ちる。
+        u32 skipMask = 0;
+        for (u32 k = 0; k < occCount; ++k)
+            if (occNodeIdx[k] < static_cast<int>(i)) skipMask |= 1u << k;
         bool fx = false, lit = false;
         if (n->material_path[0] != '\0' && n->material.kind == game::EMaterialKind::Lit) {
             // PBR (Lit) マテリアル: 法線マップ + 集めたライトで BRDF 陰影付け。
             if (!n->mat_tex_loaded) LoadNodeMaterialTextures(h, n);   // 法線マップ遅延ロード
             FLitMaterialParams lm = game::ToLitParams(n->material.pbr);   // PBR/トゥーン共通
+            lm.occluderSkipMask = skipMask;                              // 自分より下のキャスターを除外
             for (u32 k = 0; k < occCount; ++k)                           // 自分が occluder なら番号を渡す
-                if (occNodeIdx[k] == static_cast<int>(i)) { lm.selfOccluder = static_cast<i32>(k); break; }
+                if (occNodeIdx[k] == static_cast<int>(i)) {
+                    if (occSelfShadow[k]) lm.selfShadowOccluder = static_cast<i32>(k);   // 自己影: 内部=umbra
+                    else                  lm.selfOccluder       = static_cast<i32>(k);   // 既定: 自己影スキップ
+                    break;
+                }
             sb.SetLitMaterial(lm, n->mat_normal_tex.Get());   // normal 無しは平面
             lit = true;
         } else {
             fx = game::ApplyMaterial(sb, n->material, h.time);   // 効果プリセット (None なら false)
+            if (!fx && lightCount > 0 && (n->sprite_tex.Get() != nullptr || prShape >= 0)) {
+                // ライトのあるシーンではマテリアル無しノードも既定 Lit で陰影付けする
+                // (影の中のノードが無灯火のまま明るく浮くのを防ぐ。Node2D::DrawTree と同じ規律)。
+                // エディタ用ギズモ (レンダラー無し) は対象外。
+                FLitMaterialParams lm;
+                lm.roughness = 0.85f;
+                lm.occluderSkipMask = skipMask;                          // 自分より下のキャスターを除外
+                for (u32 k = 0; k < occCount; ++k)
+                    if (occNodeIdx[k] == static_cast<int>(i)) {
+                        if (occSelfShadow[k]) lm.selfShadowOccluder = static_cast<i32>(k);
+                        else                  lm.selfOccluder       = static_cast<i32>(k);
+                        break;
+                    }
+                sb.SetLitMaterial(lm, nullptr);
+                lit = true;
+            }
         }
         // アルベド = マテリアルの albedo override (lit のみ) があればそれ、無ければノードのスプライト。
         IRhiTexture* albedoTex = n->sprite_tex.Get();
@@ -1540,7 +1584,6 @@ void DrawScene(EditorHost& h, FSpriteBatch& sb, u32 w, u32 hh) noexcept {
             sb.DrawRotated(*albedoTex, cx, cy, dw, dh, w.rotation,
                            0.0f, 0.0f, 1.0f, 1.0f, FVec4{ 1.0f, 1.0f, 1.0f, alpha });
         } else {
-            const int prShape = PrimitiveShape(n);
             if (prShape == 3 && (n->poly_count >= 3 || n->render_count >= 3)) {   // ポリゴン (頂点はノードが保持)
                 FVec4 col = n->color; col.w *= alpha;
                 DrawNodePolygon(h, sb, n, w, col);
@@ -1738,10 +1781,26 @@ ACS_EDITOR_API int acs_editor_attach(void* handle, void* hwnd, uint32_t width, u
     host->width    = width;
     host->height   = height;
 
-    const auto sr = host->sprites.Init(*host->renderer.Device(), host->renderer.ColorFormat(), 8192);
+    // MSAA (既定 8x) でスプライトバッチを初期化。PSO 生成に失敗する環境では非 MSAA へフォールバック。
+    auto sr = host->sprites.Init(*host->renderer.Device(), host->renderer.ColorFormat(), 8192,
+                                 host->msaa_samples);
+    if (sr.IsErr() && host->msaa_samples > 1) {
+        ACS_LOG_WARN("[acs_editor_abi] MSAA %ux sprite batch init failed → 非 MSAA で再試行",
+                     host->msaa_samples);
+        host->msaa_samples = host->msaa_pending = 1;
+        host->sprites.Shutdown();
+        sr = host->sprites.Init(*host->renderer.Device(), host->renderer.ColorFormat(), 8192, 1);
+    }
     host->sprites_ready = sr.IsOk();
     if (!host->sprites_ready) {
         ACS_LOG_ERROR("[acs_editor_abi] sprite batch init failed: %s", sr.Error().message);
+    }
+
+    // FXAA (MSAA 無効時のフォールバック。失敗してもエディタは AA 無しで続行できる)
+    const auto fr = host->fxaa.Init(*host->renderer.Device(), host->renderer.ColorFormat());
+    host->fxaa_ready = fr.IsOk();
+    if (!host->fxaa_ready) {
+        ACS_LOG_ERROR("[acs_editor_abi] fxaa init failed: %s", fr.Error().message);
     }
 
     ACS_LOG_INFO("[acs_editor_abi] attached to HWND %p (%ux%u)", hwnd, width, height);
@@ -1751,6 +1810,27 @@ ACS_EDITOR_API int acs_editor_attach(void* handle, void* hwnd, uint32_t width, u
 static void EditorStepPlay(EditorHost& h, f32 dt) noexcept;   // 前方宣言 (定義は Play モード節)
 static void EditorTickLogic(EditorHost& h, f32 dt) noexcept;  // 前方宣言 (インプロセス Play)
 
+/** swapchain と同サイズのシーン用オフスクリーン RT を用意する (リサイズ/サンプル数変更時は作り直し)。 */
+static bool EnsureSceneRt(EditorHost& h, u32 w, u32 hgt) noexcept {
+    if (w == 0 || hgt == 0) return false;
+    if (h.scene_rt && h.scene_rt_w == w && h.scene_rt_h == hgt) return true;
+    IRhiDevice* dev = h.renderer.Device();
+    if (dev == nullptr) return false;
+    dev->WaitIdle();                        // 旧 RT が前フレームでまだ参照されている可能性 (リサイズ時のみ)
+    FTextureDesc td{};
+    td.width  = w;
+    td.height = hgt;
+    td.format = h.renderer.ColorFormat();
+    td.is_render_target = true;
+    td.sample_count = h.msaa_samples;       // MSAA RT (1 なら通常 RT + FXAA)
+    auto r = CreateRhiTexture(*dev, td);
+    if (r.IsErr()) { h.scene_rt.Reset(); h.scene_rt_w = h.scene_rt_h = 0; return false; }
+    h.scene_rt   = Move(r.Value());
+    h.scene_rt_w = w;
+    h.scene_rt_h = hgt;
+    return true;
+}
+
 ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr || !host->attached) return;
@@ -1758,6 +1838,24 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
 
     if (host->play_state == 1) EditorStepPlay(*host, dt);   // 再生中は物理を進める
     if (host->logic_play)      EditorTickLogic(*host, dt);  // インプロセス Play: ユーザーロジックを進める
+
+    // MSAA サンプル数の変更を適用する (PSO はサンプル数を焼き込むためバッチごと再生成)。
+    if (host->msaa_pending != host->msaa_samples && host->renderer.Device() != nullptr) {
+        host->renderer.Device()->WaitIdle();
+        host->msaa_samples = host->msaa_pending;
+        host->scene_rt.Reset();
+        host->scene_rt_w = host->scene_rt_h = 0;
+        host->sprites.Shutdown();
+        auto sr = host->sprites.Init(*host->renderer.Device(), host->renderer.ColorFormat(), 8192,
+                                     host->msaa_samples);
+        if (sr.IsErr() && host->msaa_samples > 1) {       // 非対応サンプル数 → 非 MSAA へ
+            host->msaa_samples = host->msaa_pending = 1;
+            host->sprites.Shutdown();
+            sr = host->sprites.Init(*host->renderer.Device(), host->renderer.ColorFormat(), 8192, 1);
+        }
+        host->sprites_ready = sr.IsOk();
+        ACS_LOG_INFO("[acs_editor_abi] MSAA = %ux", host->msaa_samples);
+    }
 
     const ClearColor clear{ 0.07f, 0.08f, 0.10f, 1.0f };
     host->renderer.BeginFrame(clear);
@@ -1767,6 +1865,12 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
         IRhiSwapchain*   sc = host->renderer.Swapchain();
         if (cl != nullptr && sc != nullptr) {
             const u32 scW = sc->Width(), scH = sc->Height();
+            // AA: シーンをオフスクリーン RT に描き、MSAA resolve または FXAA で backbuffer へ。
+            // RT 生成失敗時は従来どおり backbuffer へ直接描く (MSAA 時は PSO 不一致のため不可 →
+            // attach/切替時のフォールバックで msaa_samples=1 が保証される)。
+            const bool useMsaa = host->msaa_samples > 1;
+            const bool aa = (useMsaa || host->fxaa_ready) && EnsureSceneRt(*host, scW, scH);
+            if (aa) cl->BeginRenderToTexture(*host->scene_rt, clear, nullptr, 1.0f);
             host->sprites.Begin(*cl, scW, scH);
             DrawScene(*host, host->sprites, scW, scH);
             // インプロセス Play 中はユーザーコンポーネントの OnDraw を world view で重ねて描く。
@@ -1780,6 +1884,24 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
                 host->logic_shim.draw(host->logic_scene, &host->sprites, vcx, vcy, vz, scW, scH);
             }
             host->sprites.End();
+            if (aa) {
+                if (useMsaa) {
+                    // MSAA: ResolveSubresource で backbuffer へ解決 (バリアは内部で処理)。
+                    cl->ResolveToSwapchain(*host->scene_rt, *sc, host->renderer.CurrentBuffer());
+                } else {
+                    cl->EndRenderToTexture(*host->scene_rt);            // RT → SRV
+                    cl->BeginRenderToSwapchain(*sc, host->renderer.CurrentBuffer(), clear, nullptr, 1.0f);
+                    FViewport vp{};                                     // 再バインド後に全画面ビューポートを戻す
+                    vp.width  = static_cast<f32>(scW);
+                    vp.height = static_cast<f32>(scH);
+                    cl->SetViewport(vp);
+                    FScissorRect sr{};
+                    sr.right  = static_cast<i32>(scW);
+                    sr.bottom = static_cast<i32>(scH);
+                    cl->SetScissor(sr);
+                    host->fxaa.Apply(*cl, *host->scene_rt);             // FXAA 解決 → backbuffer
+                }
+            }
         }
     }
 
@@ -1794,6 +1916,20 @@ ACS_EDITOR_API void acs_editor_resize(void* handle, uint32_t width, uint32_t hei
     host->height = height;
 }
 
+/** MSAA サンプル数を設定する (1=FXAA のみ / 2 / 4 / 8)。次フレームの先頭で適用される。 */
+ACS_EDITOR_API void acs_editor_set_msaa(void* handle, int samples) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return;
+    u32 s = (samples >= 8) ? 8u : (samples >= 4) ? 4u : (samples >= 2) ? 2u : 1u;
+    host->msaa_pending = s;
+}
+
+/** 現在の MSAA サンプル数を返す (フォールバック後の実効値)。 */
+ACS_EDITOR_API int acs_editor_get_msaa(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr) ? static_cast<int>(host->msaa_samples) : 1;
+}
+
 ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr) return;
@@ -1801,6 +1937,8 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     ClearStack(host->redo);
     if (host->renderer.Device() != nullptr) host->renderer.Device()->WaitIdle();
     host->sprites.Shutdown();
+    host->preview_sprites.Shutdown();
+    host->fxaa.Shutdown();
     host->renderer.Shutdown();
     delete host;
 }
@@ -2315,7 +2453,7 @@ static void EnsurePreviewSamples(EditorHost& h) noexcept {
     h.preview_samples_ready = true;
 }
 
-/** プレビュー RT (size×size) と専用コマンドリストを必要なら (再)生成する。 */
+/** プレビュー RT (size×size) と専用コマンドリスト・非 MSAA バッチを必要なら (再)生成する。 */
 static bool EnsurePreviewRt(EditorHost& h, u32 size) noexcept {
     IRhiDevice* dev = h.renderer.Device();
     if (dev == nullptr) return false;
@@ -2334,6 +2472,12 @@ static bool EnsurePreviewRt(EditorHost& h, u32 size) noexcept {
         h.preview_rt = Move(r.Value());
         h.preview_rt_size = size;
     }
+    // 本体バッチは MSAA PSO のため非 MSAA の preview_rt には描けない → 専用バッチを遅延初期化
+    if (!h.preview_sprites_ready) {
+        const auto r = h.preview_sprites.Init(*dev, h.renderer.ColorFormat(), 1024, 1);
+        if (r.IsErr()) return false;
+        h.preview_sprites_ready = true;
+    }
     return true;
 }
 
@@ -2349,9 +2493,9 @@ static int RenderPreview(EditorHost& h, u32 size, u8* out_rgba, u32 out_size, Dr
 
     cl->Begin();
     cl->BeginRenderToTexture(*h.preview_rt, ClearColor{ 0.10f, 0.10f, 0.12f, 1.0f }, nullptr, 1.0f);
-    h.sprites.Begin(*cl, size, size);
-    drawFn(h.sprites, static_cast<f32>(size));
-    h.sprites.End();
+    h.preview_sprites.Begin(*cl, size, size);
+    drawFn(h.preview_sprites, static_cast<f32>(size));
+    h.preview_sprites.End();
     cl->EndRenderToTexture(*h.preview_rt);
     cl->End();
     cl->Submit();

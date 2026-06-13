@@ -630,6 +630,17 @@ public partial class MainWindow : Window
         if (Engine != IntPtr.Zero) { EngineInterop.acs_editor_camera_reset(Engine); Log("View reset (pan 0, zoom 1)."); }
     }
 
+    /// <summary>AA コンボ変更: MSAA サンプル数 (FXAA/2x/4x/8x) をエンジンへ反映する。</summary>
+    private void OnAaChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (Engine == IntPtr.Zero || AaBox == null) return;   // XAML 初期化中は無視 (既定 8x はエンジン側既定と一致)
+        int[] map = { 1, 2, 4, 8 };
+        int idx = AaBox.SelectedIndex;
+        if (idx < 0 || idx >= map.Length) return;
+        EngineInterop.acs_editor_set_msaa(Engine, map[idx]);
+        Log(map[idx] == 1 ? "AA: FXAA" : $"AA: MSAA {map[idx]}x");
+    }
+
     // ===== ギズモモード切替 (Move / Rotate / Scale) =====
     private void SetGizmoMode(int mode, string name)
     {

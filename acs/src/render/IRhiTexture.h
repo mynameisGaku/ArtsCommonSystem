@@ -60,6 +60,10 @@ struct FTextureDesc {
     /** is_render_target=true のとき array_size*mip_levels 個の RTV を per-slice 作成するか（cubemap 面／ミップ別パスを書くのに必要）。 */
     bool        per_slice_rtv    = false;
 
+    /** MSAA サンプル数 (1=非 MSAA)。>1 は is_render_target=true 専用で SRV は作られない
+     *  (MS テクスチャは通常 sample 不可)。描画後に IRhiCommandList::ResolveToSwapchain で解決する。 */
+    u32         sample_count     = 1;
+
     /** 初期ピクセルデータ（RGBA 等、tightly-packed。cubemap/array 初期化は未サポート）。 */
     const void* initial_data     = nullptr;
 

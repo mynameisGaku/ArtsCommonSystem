@@ -144,6 +144,8 @@ struct FLitMaterialParams {
     FVec3 subsurfaceColor    = FVec3{ 1.0f, 0.3f, 0.2f }; ///< 透過部の色 (肌/蝋)。
     // --- 描画コンテキスト (マテリアル値ではない。描画側が設定) ---
     i32   selfOccluder       = -1;                ///< 自分自身のオクルーダー番号 (-1=無し)。自己影スキップ。
+    i32   selfShadowOccluder = -1;                ///< 自己影 (m_SelfShadow=1) の自分の番号 (-1=無し)。内部=umbra。
+    u32   occluderSkipMask   = 0;                 ///< 自分より下 (先描画) のキャスターのスキップマスク (bit j=occluder j)。
 };
 
 /** ESpriteEffect のパラメータ (b1 の cbuffer Effect に対応)。 */
@@ -188,7 +190,8 @@ public:
      */
     TResult<void> Init(IRhiDevice& device,
                       EFormat rt_format     = EFormat::B8G8R8A8_UNorm,
-                      u32 max_sprites      = 4096) noexcept;
+                      u32 max_sprites      = 4096,
+                      u32 msaa_samples     = 1) noexcept;
 
     /** 確保した GPU リソースを解放する。 */
     void Shutdown() noexcept;
@@ -431,6 +434,13 @@ public:
                    f32 light_height = 80.0f,
                    const FSpriteOccluder* occluders = nullptr, u32 occ_count = 0) noexcept;
 
+    /** シーンに有効な 2D ライトがあるか (直近の SetLights の count>0)。
+     *  マテリアル無しノードを既定 Lit で陰影付けするかの判定に使う。 */
+    bool LightsActive() const noexcept { return m_SceneLightCount > 0; }
+
+    /** ライト状態を「無し」に戻す (SetLights を呼ばないパスで前フレームの残留を防ぐ)。 */
+    void ClearLights() noexcept { m_SceneLightCount = 0; }
+
     /**
      * lit (PBR) マテリアルを適用する。以降の Draw は法線マップ + ライトで陰影付けされる。
      *
@@ -646,6 +656,13 @@ private:
 
     /** ライト CB (cbuffer Lights、フレーム内で SetLights が一度書く)。 */
     TUniquePtr<IRhiBuffer>   m_LightsCb;
+
+    /** 直近の SetLights で渡されたライト数 (LightsActive 判定用)。 */
+    u32                      m_SceneLightCount = 0;
+
+    /** MSAA サンプル数 (1=非 MSAA)。全 PSO に焼き込まれるため Init 時に決める。
+     *  描画先 RT の sample_count と一致させること。 */
+    u32                      m_MsaaSamples = 1;
 
     /** 法線マップ未指定時の平面法線 1x1 テクスチャ ((128,128,255)=+Z)。 */
     TUniquePtr<IRhiTexture>  m_FlatNormal;

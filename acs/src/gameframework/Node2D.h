@@ -238,6 +238,7 @@ public:
     /** 自分自身のオクルーダー番号 (-1=無し)。 */
     i32  SelfOccluder() const noexcept { return m_SelfOccluder; }
 
+
     /**
      * この node の描画レイヤを設定する。
      *

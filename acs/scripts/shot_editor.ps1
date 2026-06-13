@@ -8,6 +8,7 @@ param(
     [int]   $PostWait = 0,    # クリック後・キャプチャ前の待機 ms (アニメ/物理の進行を見る)
     [string]$Keys     = "",   # クリック後に送るキーストローク (SendKeys 形式。例 "{ENTER}")
     [string]$LaunchArgs = "", # exe へ渡す起動引数 (例 プロジェクトの .acsproject パス)
+    [string]$Scroll   = "",   # "x,y,ticks" カーソルを (x,y) に置きホイール (正=ズームイン)。";"区切りで複数回
     [switch]$NoMaximize,      # 最大化せず元サイズで撮る (固定サイズのランチャー等)
     [string]$DoubleClick = "" # -Click の後に "x,y" を素早く2回クリック (ダブルクリック検証用)
 )
@@ -68,6 +69,22 @@ try {
             Start-Sleep -Milliseconds 60
             [Win]::mouse_event(0x04, 0, 0, 0, [IntPtr]::Zero)   # LEFTUP
             Start-Sleep -Milliseconds 700
+        }
+    }
+
+    if ($Scroll -ne "") {
+        foreach ($sc in ($Scroll -split ';')) {
+            $xy = $sc -split ','
+            $cx = $r.Left + [int]$xy[0]; $cy = $r.Top + [int]$xy[1]
+            $ticks = [int]$xy[2]
+            [void][Win]::SetCursorPos($cx, $cy)
+            Start-Sleep -Milliseconds 200
+            $n = [Math]::Abs($ticks); $delta = if ($ticks -ge 0) { 120 } else { -120 }
+            for ($s = 0; $s -lt $n; $s++) {
+                [Win]::mouse_event(0x0800, 0, 0, [uint32]($delta -band 0xFFFFFFFF), [IntPtr]::Zero)   # WHEEL
+                Start-Sleep -Milliseconds 80
+            }
+            Start-Sleep -Milliseconds 500
         }
     }
 

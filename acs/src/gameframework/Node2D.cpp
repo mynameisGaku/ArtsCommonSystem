@@ -153,7 +153,13 @@ void FNode2D::DrawTree(RenderContext& rc) noexcept {
         lm.anisotropy = m_Mat.anisotropy; lm.specularLevel = m_Mat.specularLevel; lm.specularTint = m_Mat.specularTint;
         lm.sheen = m_Mat.sheen; lm.sheenRoughness = m_Mat.sheenRoughness; lm.sheenColor = m_Mat.sheenColor;
         lm.subsurface = m_Mat.subsurface; lm.subsurfaceColor = m_Mat.subsurfaceColor;
-        lm.selfOccluder = m_SelfOccluder;                                              // 自己影スキップ
+        // m_SelfOccluder: ≥0=自己影スキップ番号 / ≤-2=自己影有効 (-(oc+2) エンコード、Scene2D 参照)
+        const i32 selfK = (m_SelfOccluder <= -2) ? (-m_SelfOccluder - 2) : m_SelfOccluder;
+        if (m_SelfOccluder <= -2) lm.selfShadowOccluder = selfK;
+        else                      lm.selfOccluder       = selfK;
+        // 影の上下関係 = 描画順 (オクルーダーは描画順に収集される)。自分より下 (番号が小さい)
+        // のキャスターの影は受けない。上の面に下からの影が乗る物理は無く、重なり時のまだら影も防ぐ。
+        if (selfK > 0) lm.occluderSkipMask = (1u << selfK) - 1u;
         rc.Sprites().SetLitMaterial(lm, static_cast<IRhiTexture*>(m_Mat.normalTex));   // 法線マップ (null=平面)
         lit = true;
     } else if (m_Mat.active && m_Mat.effect != 0) { // 効果プリセット
@@ -163,6 +169,18 @@ void FNode2D::DrawTree(RenderContext& rc) noexcept {
         if (m_Mat.animated) p.time = MaterialClock();
         rc.Sprites().SetEffect(static_cast<ESpriteEffect>(m_Mat.effect), p);
         fx = true;
+    } else if (rc.Sprites().LightsActive()) {       // マテリアル無し + ライト有り: 既定 Lit
+        // ライトのあるシーンではマテリアル未設定のノードも陰影付けする。さもないと
+        // 影の中のノードが無灯火のまま明るく浮く。マット寄りの既定 PBR (白 tint =
+        // ノード色がそのまま出る) で、自分が影オクルーダーなら自己影をスキップする。
+        FLitMaterialParams lm;
+        lm.roughness = 0.85f;
+        const i32 selfK = (m_SelfOccluder <= -2) ? (-m_SelfOccluder - 2) : m_SelfOccluder;
+        if (m_SelfOccluder <= -2) lm.selfShadowOccluder = selfK;                 // 自己影有効 (エンコード値)
+        else                      lm.selfOccluder       = selfK;
+        if (selfK > 0) lm.occluderSkipMask = (1u << selfK) - 1u;                 // 自分より下のキャスターを除外
+        rc.Sprites().SetLitMaterial(lm, nullptr);
+        lit = true;
     }
     OnDraw(rc);
     // components の OnDraw (描画も合成)

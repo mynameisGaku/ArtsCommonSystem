@@ -162,11 +162,11 @@ cbuffer Screen : register(b0) {
 cbuffer LitMaterial : register(b1) {
     float4 base_color;   // rgb=tint, a=opacity
     float4 mat0;         // x=metallic, y=roughness, z=normalStrength, w=ao
-    float4 emissive;     // rgb=emissive*strength
+    float4 emissive;     // rgb=emissive*strength, w=自己影オクルーダー番号 (-1=無し)
     float4 toon0;        // x=mode(0=PBR,1=Toon), y=rimPower, z=specThreshold, w=softness
     float4 shadow1;      // rgb=1影色, w=1影しきい値
     float4 shadow2;      // rgb=2影色, w=2影しきい値
-    float4 toon_rim;     // rgb=リム色
+    float4 toon_rim;     // rgb=リム色, w=自分より下(先描画)のキャスターのスキップマスク (bit j=occluder j)
     float4 toon_spec;    // rgb=トゥーンスペキュラ色
     float4 adv0;         // x=clearcoat, y=clearcoatRoughness, z=anisotropy, w=specularLevel
     float4 adv1;         // x=specularTint, y=sheen, z=sheenRoughness, w=subsurface
@@ -236,75 +236,66 @@ bool SegSegCross(float2 p1, float2 p2, float2 p3, float2 p4) {
     float d4 = Cross2(p2 - p1, p4 - p1);
     return (d1 * d2 < 0.0) && (d3 * d4 < 0.0);
 }
-// 点 q から線分 [P,L] への «内側» 垂直距離。q が端点キャップ域 (t<=0 or t>=1) に射影される場合は
-// 寄与しない (1e9)。«画素 P に隣接するオクルーダー» が光源側に偽の影 (全周ハロー) を作るのを防ぐ:
-// 光源側では全頂点が t<=0 (画素の後方) に射影され除外される。t は «光源へ向かう» 向きで測る。
-float SegDistInterior(float2 q, float2 P, float2 L) {
-    float2 d  = L - P;
-    float  dd = max(dot(d, d), 1e-6);
-    float  t  = dot(q - P, d) / dd;
-    if (t <= 0.0 || t >= 1.0) return 1e9;          // 端点キャップは無視 (片側 penumbra)
-    return length(q - (P + d * t));                // 内側のみ垂直距離
-}
-// レイ[L,P]が三角形(a,b,c)の «内側» を貫くか。Pは三角形の手前=光源側にあるか。
-// 三角形の各辺について、P と対向頂点が «同じ側» にある = レイが三角形を貫く。
-bool RayTriCross(float2 L, float2 P, float2 a, float2 b, float2 c) {
-    float2 d = P - L;
-    float e1 = Cross2(b - a, d);
-    float e2 = Cross2(c - b, d);
-    float e3 = Cross2(a - c, d);
-    float f1 = Cross2(b - a, P - a);
-    float f2 = Cross2(c - b, P - b);
-    float f3 = Cross2(a - c, P - c);
-    return (e1 * f1 >= 0.0 && e2 * f2 >= 0.0 && e3 * f3 >= 0.0);
-}
-
-// 点 P から線分 [a,b] への距離 (penumbra 用)。
-float PtSegDist(float2 P, float2 a, float2 b) {
-    float2 ab = b - a, ap = P - a;
-    float  t  = saturate(dot(ap, ab) / max(dot(ab, ab), 1e-6));
-    return length(P - (a + ab * t));
-}
-
-// 多角形オクルーダー j の «三角形ファン» による影判定。
-// 三角形ファン (v0, v_k, v_{k+1}) の各三角形に対して、レイ[L,P]が貫く=umbra。
-// penumbra は三角形の辺までの距離。光源側は影ゼロ (dist to light guard)。
-// 凸/凹/自己交差(星型)すべて正しく動作する。
-float SegPolyDist(float2 P, float2 L, int j, int n) {
+// 多角形オクルーダー j の «遮蔽» 評価 (輪郭エッジ交差 + 非ゼロ巻き数則)。
+// umbra: 線分 [P,L] が輪郭のどれかの辺を横切る (外側 w=0 から横切れば必ず w≠0 の充填領域へ
+//        入る) か、P 自身の巻き数が非ゼロ (P がポリゴン内部)。三角形ファンと違い凹み (星の
+//        腕の間・王冠の谷間) を埋めず、自己交差 (五芒星) も nonzero 充填で中央まで遮蔽する。
+// penumbra: «影境界レイ» (光源→頂点の延長線、頂点より先 s>0) までの距離。頂点までの距離だと
+//        光線が頂点の近くを通過しただけで減光し、光が当たる面の縁にスジ状の偽影が張り付く。
+//        帯幅は頂点からの距離 s に «純粋比例» で広げる (= 境界レイまわりの一定角度。面光源の
+//        penumbra は距離に比例して広がる)。上限を付けると頭打ち地点で見かけの境界が折れ曲がる
+//        ため付けない。返す距離は d*r/s に正規化する (r=オクルーダー外接半径)。
+// inside_umbra: P がオクルーダー内部のときの扱い。false (既定) = «影を落とさない» (1e9)。
+//        重なったスプライトは互いの内部になるため、内部=umbra だと面同士が塗り潰される。
+//        true は自己影 (m_SelfShadow) 用で、内部 = umbra (自分の形に包まれて暗くなる)。
+float SegPolyDist(float2 P, float2 L, int j, int n, float r, bool inside_umbra) {
     if (n < 3) return 1e9;
-    float2 v0 = OccVert(j, 0);
-    // レイ方向の逆=光源側チェック: Pがオクルーダーの «光源側» なら影なし。
-    float2 d  = L - P;
-    float  dd = max(dot(d, d), 1e-6);
-    float best = 1e9;
-    [loop] for (int k = 1; k < n - 1; ++k) {
-        float2 v1 = OccVert(j, k);
-        float2 v2 = OccVert(j, k + 1);
-        if (RayTriCross(L, P, v0, v1, v2)) return 0.0;    // umbra
-        best = min(best, PtSegDist(P, v0, v1));
-        best = min(best, PtSegDist(P, v1, v2));
-        best = min(best, PtSegDist(P, v2, v0));
+    bool crossed = false;
+    int  wind = 0;
+    int  pv   = n - 1;
+    [loop] for (int i = 0; i < n; ++i) {
+        float2 a = OccVert(j, pv), b = OccVert(j, i);
+        crossed = crossed || SegSegCross(P, L, a, b);  // 境界横断 = umbra (内部判定の後に適用)
+        if ((a.y <= P.y) != (b.y <= P.y)) {            // P からの水平レイで巻き数を数える
+            float x = a.x + (P.y - a.y) * (b.x - a.x) / (b.y - a.y);
+            if (x > P.x) wind += (b.y > a.y) ? 1 : -1;
+        }
+        pv = i;
     }
-    // 最後の三角形 (v0, v_{n-1}, v1) もチェック
-    {
-        float2 vn = OccVert(j, n - 1);
-        float2 v1 = OccVert(j, 1);
-        if (RayTriCross(L, P, v0, vn, v1)) return 0.0;
+    if (wind != 0) return inside_umbra ? 0.0 : 1e9;  // P が内部 = 重なり (影なし) or 自己影 (umbra)
+    if (crossed) return 0.0;                         // 境界横断 = umbra
+    float best = 1e9;
+    [loop] for (int k = 0; k < n; ++k) {
+        float2 q  = OccVert(j, k);
+        float2 u  = q - L;
+        float  ul = max(length(u), 1e-3);
+        float2 ud = u / ul;
+        float2 w  = P - q;
+        float  s  = dot(w, ud);                      // 境界レイに沿った頂点からの距離
+        if (s <= 0.0) continue;                      // 頂点より光源側に影境界は無い
+        float  d  = length(w - ud * s);              // 境界レイへの垂直距離
+        best = min(best, d * max(r, 1.0) / s);
     }
     return best;
 }
 
 // オクルーダー (円/箱/多角形) によるソフト影。影は «オクルーダーが画素 P と光源 Lp の間にある»
-// 場合のみ落ちる (片側)。多角形=線分貫通(umbra)+内側頂点距離(penumbra)、円=光源視点レイへの垂直
+// 場合のみ落ちる (片側)。多角形=線分貫通(umbra)+影境界レイ距離(penumbra)、円=光源視点レイへの垂直
 // 距離+奥行ゲート、箱=最近点 SDF+向きゲート。いずれも «画素の光源側» (オクルーダーが画素の後方)
 // では影ゼロ → 輪郭まわりの誤った影 (光源側ハロー) が出ない。selfOcc は «自分自身» のオクルーダー
 // 番号で、自スプライトを自己影しないようスキップする (距離ベース自己フェードは «球の外周=影要る»
 // と «球自身=影要らない» が同距離域で矛盾し明るいリング/直線エッジを生むため、番号スキップが正)。
-// 1=遮蔽なし。
-float ShadowVisibility(float2 P, float2 Lp, int occ_count, int selfOcc) {
+// 画素がオクルーダーの «内部» にある場合、そのオクルーダーは影を落とさない (重なったスプライトが
+// 互いの面を塗り潰さないように)。例外は selfShadowJ (m_SelfShadow=1 の自分自身): 内部 = umbra。
+// skipMask は «自分より下 (先描画) のキャスター» のビット集合: 影の上下関係は描画順で決まり、
+// 影は上の物体から下の物体・地面にのみ落ちる。下から上の面に影が乗る物理は無く、凹形状の相手と
+// 重なった際のまだら影も原理的に出ない。1=遮蔽なし。
+float ShadowVisibility(float2 P, float2 Lp, int occ_count, int selfOcc, int selfShadowJ, int skipMask) {
     float vis = 1.0;
     [loop] for (int j = 0; j < occ_count; ++j) {
         if (j == selfOcc) continue;                      // 自分自身は影を落とさない
+        if (((skipMask >> j) & 1) != 0) continue;        // 自分より下のキャスターは影を落とさない
+        bool   inside_umbra = (j == selfShadowJ);        // 自己影 ON の自分だけ «内部=umbra»
         float2 C     = occ[j].xy;
         float  d_len = max(length(Lp - P), 1e-3);        // ガード: dir は常に有限
         float2 dir   = (Lp - P) / d_len;
@@ -316,6 +307,7 @@ float ShadowVisibility(float2 P, float2 Lp, int occ_count, int selfOcc) {
             float2 he = occ2[j].xy;
             if (he.x <= 0.0 && he.y <= 0.0) continue;    // ゼロ面積の箱は遮蔽なし
             float  rot = occ2[j].z;
+            if (!inside_umbra && BoxSdf(P, C, rot, he) <= 0.0) continue;   // P が箱内部 = 重なり → 影なし
             float  pen = max((he.x + he.y) * 0.25, 5.0);
             float  gate= smoothstep(-pen, pen, t);       // 中心が画素の後方(光源側)なら影を消す
             occv = (1.0 - smoothstep(-pen, pen, BoxSdf(cp, C, rot, he))) * gate;
@@ -323,12 +315,13 @@ float ShadowVisibility(float2 P, float2 Lp, int occ_count, int selfOcc) {
             int   nv  = min((int)occ2[j].w, 32);         // occ_poly のバジェット (32頂点) を超えない
             if (nv < 3) continue;                        // 退化ポリゴンは遮蔽なし
             float pen = max(occ[j].z * 0.22, 4.0);
-            // 線分 [P, 光源] が多角形を貫けば 0 → 完全遮蔽 (umbra)。外れれば «内側に射影される縁»
-            // までの距離で penumbra。光源側の画素は頂点が後方に射影され影ゼロ (輪郭ハロー無し)。
-            occv = 1.0 - smoothstep(0.0, pen, SegPolyDist(P, Lp, j, nv));
+            // 線分 [P, 光源] が多角形を貫けば 0 → 完全遮蔽 (umbra)。外れれば «影境界レイ»
+            // までの距離で penumbra。光源側の画素は影ゼロ (輪郭ハロー無し)。
+            occv = 1.0 - smoothstep(0.0, pen, SegPolyDist(P, Lp, j, nv, occ[j].z, inside_umbra));
         } else {                                         // 円: 光源→画素レイへの垂直距離 + 奥行ゲート
             float r = occ[j].z;
             if (r <= 0.0) continue;                      // ゼロ半径の円は遮蔽なし
+            if (!inside_umbra && length(P - C) <= r) continue;   // P が円内部 = 重なり → 影なし
             float  pen   = max(r * 0.35, 6.0);
             float2 toP   = P - Lp;                        // 光源→画素
             float  dP    = max(length(toP), 1e-3);
@@ -468,6 +461,8 @@ float4 PSLit(VSOut v) : SV_TARGET {
     int   occ_count = (int)light_info.z;
     int   mode      = (int)toon0.x;       // 0=PBR, 1=Toon
     int   selfOcc   = (int)sss_col.w;     // 自分自身のオクルーダー番号 (-1=無し)。自己影スキップ用
+    int   selfShJ   = (int)emissive.w;    // 自己影 (m_SelfShadow=1) の自分の番号 (-1=無し)。内部=umbra
+    int   skipMask  = (int)toon_rim.w;    // 自分より下 (先描画) のキャスターのスキップマスク
     float3 Lo  = float3(0, 0, 0);         // PBR 直接光
     float  lum = 0.0;                     // トゥーン: 受けた光量 (cel ランプ用)
     float  tspec = 0.0;                   // トゥーン: スペキュラ最大
@@ -494,7 +489,7 @@ float4 PSLit(VSOut v) : SV_TARGET {
                 at *= smoothstep(light_dir[i].w, light_dir[i].z, cosA);       // outer→inner
             }
         }
-        float vis = ShadowVisibility(v.wpos, shadowTarget, occ_count, selfOcc);  // オクルーダーのソフト影
+        float vis = ShadowVisibility(v.wpos, shadowTarget, occ_count, selfOcc, selfShJ, skipMask);  // オクルーダーのソフト影
         if (mode == 0) {                                    // PBR: Cook-Torrance
             Lo += BRDF(N, V, L, alb.rgb, metallic, roughness) * light_col[i].rgb * light_pos[i].w * at * vis;
         } else {                                            // Toon: 光量 + ステップスペキュラ
@@ -533,11 +528,13 @@ float4 PSLit(VSOut v) : SV_TARGET {
 
 } // namespace
 
-TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_sprites) noexcept {
+TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_sprites,
+                                 u32 msaa_samples) noexcept {
     if (max_sprites == 0) max_sprites = 4096;
-    m_MaxSprites = max_sprites;
-    m_Device   = &device;     // ステンシル PSO の遅延生成で再利用
-    m_RtFormat = rt_format;
+    m_MaxSprites  = max_sprites;
+    m_Device      = &device;     // ステンシル PSO の遅延生成で再利用
+    m_RtFormat    = rt_format;
+    m_MsaaSamples = (msaa_samples > 1) ? msaa_samples : 1;   // 全 PSO に焼き込む
 
     // === シェーダ ===
     FShaderDesc vs_d{};
@@ -655,6 +652,7 @@ void FSpriteBatch::FillCommonPipelineDesc(FPipelineDesc& pd) const noexcept {
     pd.layout[1] = { "TEXCOORD", 0, EFormat::R32G32_Float,    8  };
     pd.layout[2] = { "COLOR",    0, EFormat::R32G32B32A32_Float, 16 };
     pd.layout_count = 3;
+    pd.sample_count = m_MsaaSamples;   // MSAA RT へ描く場合は全 PSO のサンプル数を合わせる
 }
 
 // ステンシル 4 モードの PSO を遅延生成する。すべて DSVFormat=D24S8 で、深度テスト/
@@ -898,6 +896,7 @@ void FSpriteBatch::SetLights(const FSpriteLight* lights, u32 count, FVec3 ambien
     if (!EnsureLitPipeline()) return;
     if (count > kMaxLitLights) count = kMaxLitLights;
     if (occ_count > kMaxLitLights) occ_count = kMaxLitLights;
+    m_SceneLightCount = count;
     // cbuffer Lights: light_info, ambient, pos[16], col[16], dir[16], occ[16], occ2[16], occ_poly[256] = 1352 floats。
     f32 cb[4 + 4 + 16 * 4 * 5 + 256 * 4] = {};
     cb[0] = static_cast<f32>(count); cb[1] = light_height; cb[2] = static_cast<f32>(occ_count);
@@ -953,11 +952,12 @@ void FSpriteBatch::SetLitMaterial(const FLitMaterialParams& mat, IRhiTexture* no
         mat.baseColor.x, mat.baseColor.y, mat.baseColor.z, mat.baseColor.w,            // base_color
         mat.metallic, mat.roughness, mat.normalStrength, mat.ao,                       // mat0
         mat.emissive.x * mat.emissiveStrength, mat.emissive.y * mat.emissiveStrength,  // emissive
-        mat.emissive.z * mat.emissiveStrength, 0.0f,
+        mat.emissive.z * mat.emissiveStrength, static_cast<f32>(mat.selfShadowOccluder),   // w=自己影番号
         static_cast<f32>(mat.shadingMode), mat.rimPower, mat.specThreshold, mat.toonSoftness,  // toon0
         mat.shadow1Color.x, mat.shadow1Color.y, mat.shadow1Color.z, mat.shadow1Threshold,     // shadow1
         mat.shadow2Color.x, mat.shadow2Color.y, mat.shadow2Color.z, mat.shadow2Threshold,     // shadow2
-        mat.rimColor.x, mat.rimColor.y, mat.rimColor.z, 0.0f,                          // toon_rim
+        mat.rimColor.x, mat.rimColor.y, mat.rimColor.z,
+        static_cast<f32>(mat.occluderSkipMask),                                        // toon_rim (w=スキップマスク)
         mat.specColor.x, mat.specColor.y, mat.specColor.z, 0.0f,                       // toon_spec
         mat.clearcoat, mat.clearcoatRoughness, mat.anisotropy, mat.specularLevel,      // adv0
         mat.specularTint, mat.sheen, mat.sheenRoughness, mat.subsurface,               // adv1

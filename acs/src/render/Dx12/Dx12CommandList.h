@@ -105,6 +105,16 @@ public:
     void EndRenderToTexture(IRhiTexture& rt) noexcept override;
 
     /**
+     * MSAA RT をバックバッファへ ResolveSubresource で解決する。
+     *
+     * @details 解決後バックバッファは RENDER_TARGET 状態に戻る (EndRenderToSwapchain 可)。
+     * @param src 解決元の MSAA レンダーターゲット。
+     * @param sc 解決先のスワップチェイン。
+     * @param buffer_index 解決先バックバッファのインデックス。
+     */
+    void ResolveToSwapchain(IRhiTexture& src, IRhiSwapchain& sc, u32 buffer_index) noexcept override;
+
+    /**
      * クリアせずにオフスクリーン RT を再 bind してパスを開始する (load 版)。
      *
      * @details SS 屈折など既存内容を保持したまま追記描画する用途で使う。

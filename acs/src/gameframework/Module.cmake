@@ -216,6 +216,7 @@ acs_module(
         InspectorSeam.h
         InventorySystem.h
         LapTimer.h
+        Light2DComponent.h
         LlmSafetyPipeline.h
         LocalizationDirector.h
         Lockstep.h

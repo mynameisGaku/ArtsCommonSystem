@@ -94,9 +94,16 @@ public:
     /** 影の形状 (0=円, 1=箱)。 */
     f32 m_Shape = 0.0f;
 
-    /** シーンの影オクルーダー収集用: 占有半径スケールと形状を返す。 */
-    bool QueryShadowCaster(f32& radius_scale, i32& shape) const noexcept override {
-        radius_scale = m_RadiusScale; shape = static_cast<i32>(m_Shape); return true;
+    /** 自分自身にも影を落とすか (false=自己影スキップ・既定)。
+     *  スプライトは «カメラ側を向いた面» なので通常はスキップが自然だが、
+     *  厳密な 2D 平面世界として自分の落ち影で自分を暗くしたい場合に有効にする。 */
+    bool m_SelfShadow = false;
+
+    /** シーンの影オクルーダー収集用: 占有半径スケール・形状・自己影の有無を返す。 */
+    bool QueryShadowCaster(f32& radius_scale, i32& shape, bool& self_shadow) const noexcept override {
+        radius_scale = m_RadiusScale; shape = static_cast<i32>(m_Shape);
+        self_shadow = m_SelfShadow;
+        return true;
     }
 };
 

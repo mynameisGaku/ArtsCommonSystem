@@ -141,7 +141,8 @@ ACS_REGISTER_COMPONENT(FLight2DComponent,
 // 影を落とすタグ (このノードのシルエットが lit スプライトに円ソフト影を落とす)。
 ACS_REGISTER_COMPONENT(FShadowCaster2DComponent,
     ACS_RFIELD_D(FShadowCaster2DComponent, m_RadiusScale, EFieldKind::F32, 1.0f, 0.0f, 0.0f, 0.0f),
-    ACS_RFIELD_D(FShadowCaster2DComponent, m_Shape,       EFieldKind::F32, 0.0f, 0.0f, 0.0f, 0.0f))  // 0=円,1=箱
+    ACS_RFIELD_D(FShadowCaster2DComponent, m_Shape,       EFieldKind::F32, 0.0f, 0.0f, 0.0f, 0.0f),  // 0=円,1=箱
+    ACS_RFIELD_D(FShadowCaster2DComponent, m_SelfShadow,  EFieldKind::Bool, 0.0f, 0.0f, 0.0f, 0.0f))  // false=自己影スキップ (既定)
 
 // ----- Scene -----
 ACS_REGISTER_SCENE(FScene2D)

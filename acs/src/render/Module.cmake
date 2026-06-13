@@ -17,6 +17,7 @@ set(_acsgen_render_sources
     BurnEffect.cpp
     DebugDraw.cpp
     Font.cpp
+    Fxaa.cpp
     HiZ.cpp
     Ibl.cpp
     Light2D.cpp
@@ -43,6 +44,7 @@ set(_acsgen_render_headers
     BurnEffect.h
     DebugDraw.h
     Font.h
+    Fxaa.h
     HiZ.h
     IRhiBuffer.h
     IRhiCommandList.h

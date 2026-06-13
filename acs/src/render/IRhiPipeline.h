@@ -251,6 +251,9 @@ struct FPipelineDesc {
      * stencil テスト/書込みが効く。
      */
     FStencilDesc      stencil    = {};
+
+    /** MSAA サンプル数 (1=非 MSAA)。描画先 RT の sample_count と一致させること。 */
+    u32               sample_count = 1;
 };
 
 /**

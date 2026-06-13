@@ -122,7 +122,7 @@ static void CollectLightsAndOccluders(FNode2D& node,
     for (u32 i = 0; i < node.ComponentCount(); ++i) {
         const FComponent2D* c = node.ComponentAt(i);
         if (c == nullptr) continue;
-        FLightDesc2D ld; f32 rscale = 0; i32 oshape = 0;
+        FLightDesc2D ld; f32 rscale = 0; i32 oshape = 0; bool self_sh = false;
         if (lc < 16 && c->QueryLight(ld)) {
             FSpriteLight& L = lights[lc++];
             L.pos = w.position;     L.radius = ld.radius;
@@ -130,8 +130,11 @@ static void CollectLightsAndOccluders(FNode2D& node,
             L.type = ld.type;       L.dir = ld.dir;
             L.coneInner = ld.coneInner; L.coneOuter = ld.coneOuter;
         }
-        if (oc < 16 && c->QueryShadowCaster(rscale, oshape)) {
-            node.SetSelfOccluder(static_cast<i32>(oc));   // 自分自身のオクルーダー番号を記録
+        if (oc < 16 && c->QueryShadowCaster(rscale, oshape, self_sh)) {
+            // 自分自身のオクルーダー番号を記録。既定 (self_shadow=false) は描画時の自己影
+            // スキップ用にそのまま、自己影有効時は -(oc+2) でエンコードして «内部=umbra»
+            // 扱いを DrawTree へ伝える (-1 は «オクルーダー無し» のため使えない)。
+            node.SetSelfOccluder(self_sh ? -(static_cast<i32>(oc) + 2) : static_cast<i32>(oc));
             FSpriteOccluder& O = occ[oc++];
             const f32 hx = (primShape >= 0 ? primHalf.x : 24.0f) * w.scale.x * rscale;
             const f32 hy = (primShape >= 0 ? primHalf.y : 24.0f) * w.scale.y * rscale;
@@ -208,6 +211,8 @@ void FScene2D::DrawWorldPass(RenderContext& rc) noexcept {
     CollectLightsAndOccluders(m_Root, lights, lc, occ, oc, has_lit);
     if (has_lit || lc > 0)
         sb.SetLights(lights, lc, FVec3{ 0.10f, 0.11f, 0.13f }, 90.0f, occ, oc);
+    else
+        sb.ClearLights();   // 前フレームのライト残留で既定 Lit が誤発動しないように
     m_Root.DrawTree(rc);
     OnDrawWorld(rc, sb);
 }

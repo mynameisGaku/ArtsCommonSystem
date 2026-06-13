@@ -338,7 +338,7 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
         pd.NumRenderTargets = 0;          // depth-only
     }
     pd.DSVFormat = ToDxgiFormat(desc.depth_format);
-    pd.SampleDesc.Count = 1;
+    pd.SampleDesc.Count = (desc.sample_count > 1) ? desc.sample_count : 1;   // MSAA RT 用 PSO
     pd.InputLayout.pInputElementDescs = desc.layout_count > 0 ? ie : nullptr;
     pd.InputLayout.NumElements = desc.layout_count;
 
