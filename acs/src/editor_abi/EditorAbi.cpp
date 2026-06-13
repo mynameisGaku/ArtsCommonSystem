@@ -258,10 +258,16 @@ struct EditorHost {
     FVec3        cam3d_target  = FVec3{ 0.0f, 1.0f, 0.0f };
     // 3D メッシュの自前ライティングパイプライン (動的 VB + 非インデックス Draw、DebugDraw3D と同方式)。
     TUniquePtr<IRhiShader>   m3d_vs, m3d_ps;
-    TUniquePtr<IRhiPipeline> m3d_pipe;
+    TUniquePtr<IRhiPipeline> m3d_pipe;                // メッシュ本体 (depth on)
+    TUniquePtr<IRhiPipeline> m3d_overlay_pipe;        // ギズモ等のオーバーレイ (depth off, 常に手前)
     TUniquePtr<IRhiBuffer>   m3d_frame_cb;            // b0: view_proj + light + ambient
-    TUniquePtr<IRhiBuffer>   m3d_dyn_vb;              // 動的頂点バッファ (毎フレーム展開)
+    TUniquePtr<IRhiBuffer>   m3d_dyn_vb;              // 本体メッシュの動的 VB
+    TUniquePtr<IRhiBuffer>   m3d_giz_vb;              // ギズモ用の動的 VB (depth off で描く)
     u32          m3d_dyn_cap  = 0;                    // 動的 VB の頂点容量
+    // スカイボックス (フルスクリーン三角形で天空グラデーション)。
+    TUniquePtr<IRhiShader>   sky_vs, sky_ps;
+    TUniquePtr<IRhiPipeline> sky_pipe;
+    TUniquePtr<IRhiBuffer>   sky_cb;                  // カメラ基底 (レイ再構成用)
     FDebugDraw3D    dbg3d;                // グリッド/選択 AABB/ギズモの線
     bool         r3d_ready     = false;   // 3D リソース初期化済み
     GpuMesh      gm_cube, gm_sphere, gm_plane;   // プリミティブ GPU メッシュ (将来 DrawIndexed 用)
@@ -1849,6 +1855,43 @@ float4 PSMain(VSOut v) : SV_TARGET {
 struct M3DFrame { FMat4 view_proj; FVec4 light_dir; FVec4 light_col; };
 struct M3DVtx   { f32 px, py, pz, nx, ny, nz, r, g, b; };   // ワールド座標 + 法線 + 色 (36 bytes)
 
+// スカイボックス: フルスクリーン三角形でカメラレイ方向から天空グラデーションを描く。
+// 頂点バッファ不要 (SV_VertexID)。深度オフ・最背面 (メッシュが上に描かれる)。
+const char* kSky3DHLSL = R"(
+cbuffer Sky : register(b0) {
+    float4 cam_fwd;     // xyz = 視線前方
+    float4 cam_right;   // xyz = 右, w = tanHalf*aspect
+    float4 cam_up;      // xyz = 上, w = tanHalf
+    float4 zenith;      // rgb = 天頂色
+    float4 horizon;     // rgb = 地平色
+    float4 ground;      // rgb = 地面側色
+    float4 sun;         // xyz = 太陽方向
+};
+struct VSOut { float4 pos : SV_POSITION; float2 ndc : TEXCOORD0; };
+VSOut VSMain(uint id : SV_VertexID) {
+    float2 uv = float2((id << 1) & 2, id & 2);   // (0,0)(2,0)(0,2)
+    VSOut o;
+    o.ndc = uv * 2.0 - 1.0;                       // -1..3 の三角形
+    o.pos = float4(o.ndc, 1.0, 1.0);             // z=1 (最遠)
+    o.ndc.y = -o.ndc.y;
+    return o;
+}
+float4 PSMain(VSOut v) : SV_TARGET {
+    float3 dir = normalize(cam_fwd.xyz + cam_right.xyz * (v.ndc.x * cam_right.w)
+                                       + cam_up.xyz    * (v.ndc.y * cam_up.w));
+    float  t = dir.y;
+    float3 sky;
+    if (t >= 0.0) sky = lerp(horizon.rgb, zenith.rgb, pow(saturate(t), 0.55));   // 地平→天頂
+    else          sky = lerp(horizon.rgb, ground.rgb,  saturate(-t * 1.6));       // 地平→地面側
+    float  sd = max(dot(dir, normalize(sun.xyz)), 0.0);
+    sky += float3(1.0, 0.92, 0.78) * (pow(sd, 220.0) * 1.2 + pow(sd, 12.0) * 0.10); // 太陽 + グロー
+    sky = sky / (sky + 1.0.xxx);
+    return float4(pow(sky, (1.0/2.2).xxx), 1.0);
+}
+)";
+
+struct SkyCB { FVec4 fwd, right, up, zenith, horizon, ground, sun; };  // 112 bytes
+
 bool Ensure3D(EditorHost& h) noexcept {
     if (h.r3d_ready) return true;
     IRhiDevice* dev = h.renderer.Device();
@@ -1881,14 +1924,43 @@ bool Ensure3D(EditorHost& h) noexcept {
     if (plr.IsErr()) { ACS_LOG_ERROR("[3D] mesh パイプライン生成失敗"); return false; }
     h.m3d_pipe = Move(plr.Value());
 
+    // オーバーレイ用 (同シェーダ・depth off): ギズモを常に手前に出す。
+    pd.depth_test = false; pd.depth_write = false;
+    auto plo = CreateRhiPipeline(*dev, pd);
+    if (plo.IsErr()) { ACS_LOG_ERROR("[3D] overlay パイプライン生成失敗"); return false; }
+    h.m3d_overlay_pipe = Move(plo.Value());
+
+    // スカイボックス (フルスクリーン三角形、depth off、cbuffer Sky 1 本)。
+    FShaderDesc svs{}; svs.stage = EShaderStage::Vertex; svs.hlsl_source = kSky3DHLSL; svs.entry_point = "VSMain"; svs.debug_name = "Sky3D.VS";
+    FShaderDesc sps{}; sps.stage = EShaderStage::Pixel;  sps.hlsl_source = kSky3DHLSL; sps.entry_point = "PSMain"; sps.debug_name = "Sky3D.PS";
+    auto svr = CreateRhiShader(*dev, svs); auto spr = CreateRhiShader(*dev, sps);
+    if (svr.IsErr() || spr.IsErr()) { ACS_LOG_ERROR("[3D] sky シェーダ生成失敗"); return false; }
+    h.sky_vs = Move(svr.Value()); h.sky_ps = Move(spr.Value());
+    FPipelineDesc skd{};
+    skd.vs = h.sky_vs.Get(); skd.ps = h.sky_ps.Get();
+    skd.topology = EPrimitiveTopology::TriangleList;
+    skd.rt_format = cf; skd.depth_format = EFormat::Unknown;
+    skd.depth_test = false; skd.depth_write = false;
+    skd.cull_mode = ECullMode::None; skd.blend_mode = EBlendMode::Opaque;
+    skd.cbuffer_slots = 1; skd.cbuffer_names[0] = "Sky";
+    auto skr = CreateRhiPipeline(*dev, skd);
+    if (skr.IsErr()) { ACS_LOG_ERROR("[3D] sky パイプライン生成失敗"); return false; }
+    h.sky_pipe = Move(skr.Value());
+
     {
         FBufferDesc c{}; c.size = 256; c.usage = EBufferUsage::Uniform; c.cpu_writable = true;
         auto r = CreateRhiBuffer(*dev, c); if (r.IsOk()) h.m3d_frame_cb = Move(r.Value());
     }
     {
+        FBufferDesc c{}; c.size = 256; c.usage = EBufferUsage::Uniform; c.cpu_writable = true;
+        auto r = CreateRhiBuffer(*dev, c); if (r.IsOk()) h.sky_cb = Move(r.Value());
+    }
+    {
         h.m3d_dyn_cap = 200000u;                       // 頂点容量 (プリミティブ多数でも十分)
         FBufferDesc c{}; c.size = sizeof(M3DVtx) * h.m3d_dyn_cap; c.usage = EBufferUsage::Vertex; c.cpu_writable = true;
         auto r = CreateRhiBuffer(*dev, c); if (r.IsOk()) h.m3d_dyn_vb = Move(r.Value());
+        FBufferDesc cg{}; cg.size = sizeof(M3DVtx) * 4096; cg.usage = EBufferUsage::Vertex; cg.cpu_writable = true;
+        auto rg = CreateRhiBuffer(*dev, cg); if (rg.IsOk()) h.m3d_giz_vb = Move(rg.Value());
     }
 
     auto cube = Primitive::MakeCube(1.0f);
@@ -2034,7 +2106,24 @@ TSharedPtr<Asset> LoadMeshFile(const char* path) noexcept {
     return a;
 }
 
-/** 3D シーンを描画する (グリッド + ライト付きメッシュ + 選択ハイライト/ギズモ)。 */
+/** CPU メッシュ cm の三角形を model 行列でワールド変換し色を付けて dv へ追加する。 */
+void AppendMeshTris(TArray<M3DVtx>& dv, const FMeshAsset* cm, const FMat4& model, FVec3 col, u32 cap) noexcept {
+    if (cm == nullptr) return;
+    const auto& vtx = cm->Vertices();
+    const auto& idx = cm->Indices();
+    for (u32 k = 0; k + 2 < idx.Size(); k += 3) {
+        for (u32 t = 0; t < 3; ++t) {
+            const MeshVertex& mv = vtx[idx[k + t]];
+            const FVec4 wp = Transform(FVec4{ mv.position.x, mv.position.y, mv.position.z, 1.0f }, model);
+            const FVec4 wn = Transform(FVec4{ mv.normal.x, mv.normal.y, mv.normal.z, 0.0f }, model);
+            M3DVtx o; o.px = wp.x; o.py = wp.y; o.pz = wp.z;
+            o.nx = wn.x; o.ny = wn.y; o.nz = wn.z; o.r = col.x; o.g = col.y; o.b = col.z;
+            if (dv.Size() < cap) dv.PushBack(o);
+        }
+    }
+}
+
+/** 3D シーンを描画する (スカイ + ライト付きメッシュ + 選択ハイライト/太いギズモ)。 */
 void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     if (!Ensure3D(h)) return;
     IRhiCommandList* cl = h.renderer.CommandList();
@@ -2047,6 +2136,28 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     cam.SetLookAt(eye, h.cam3d_target);
     const FMat4 vp = cam.ViewProjection();
 
+    // --- (1) スカイボックス: フルスクリーン三角形で背景の天空を描く (depth off、最初に描画) ---
+    if (h.sky_pipe && h.sky_cb) {
+        const f32 cpit = std::cos(h.cam3d_pitch), spit = std::sin(h.cam3d_pitch);
+        const f32 cyaw = std::cos(h.cam3d_yaw),   syaw = std::sin(h.cam3d_yaw);
+        const FVec3 fwd{ -cpit * syaw, -spit, -cpit * cyaw };
+        const FVec3 right{ cyaw, 0, -syaw };
+        const FVec3 up{ right.y * fwd.z - right.z * fwd.y, right.z * fwd.x - right.x * fwd.z, right.x * fwd.y - right.y * fwd.x };
+        const f32 tanHalf = std::tan(0.5f * 50.0f * 3.14159265f / 180.0f);
+        SkyCB sk{};
+        sk.fwd    = FVec4{ fwd.x, fwd.y, fwd.z, 0 };
+        sk.right  = FVec4{ right.x, right.y, right.z, tanHalf * aspect };
+        sk.up     = FVec4{ up.x, up.y, up.z, tanHalf };
+        sk.zenith = FVec4{ 0.16f, 0.33f, 0.62f, 0 };     // 天頂 (青)
+        sk.horizon= FVec4{ 0.62f, 0.70f, 0.80f, 0 };     // 地平 (淡い)
+        sk.ground = FVec4{ 0.20f, 0.19f, 0.21f, 0 };     // 下半球 (暗いグレー)
+        sk.sun    = FVec4{ 0.40f, 0.85f, -0.35f, 0 };
+        h.sky_cb->Update(&sk, sizeof(sk));
+        cl->SetPipeline(*h.sky_pipe);
+        cl->SetConstantBuffer(0, *h.sky_cb);
+        cl->Draw(3, 0);
+    }
+
     // フレーム CB (view_proj + 光 + 環境光)。
     M3DFrame fcb{};
     fcb.view_proj = vp;
@@ -2054,30 +2165,15 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     fcb.light_col = FVec4{ 1.10f, 1.07f, 1.00f, 0.0f };
     if (h.m3d_frame_cb) h.m3d_frame_cb->Update(&fcb, sizeof(fcb));
 
-    // 全ノードの三角形を «ワールド座標 + 法線 + 色» に展開して動的 VB へ詰める (非インデックス)。
-    TArray<M3DVtx>& dv = *(new TArray<M3DVtx>());   // (関数末尾で delete) — 大容量をスタックに積まない
+    // --- (2) ノードのメッシュ本体 (depth on) ---
+    TArray<M3DVtx>& dv = *(new TArray<M3DVtx>());   // 大容量をスタックに積まない
     dv.Reserve(8192);
     for (u32 i = 0; i < h.nodes3d.Size(); ++i) {
         const ENode3D& n = h.nodes3d[i];
         const FMeshAsset* cm = (n.prim == 3) ? static_cast<const FMeshAsset*>(n.mesh.Get())
                              : (n.prim == 1) ? h.cpu_sphere.Get()
                              : (n.prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
-        if (cm == nullptr) continue;
-        const FMat4 model = Node3DModel(n);
-        // 法線変換: 一様スケール前提で model の回転部をそのまま使う (剪断なし)。
-        const auto& vtx = cm->Vertices();
-        const auto& idx = cm->Indices();
-        for (u32 k = 0; k + 2 < idx.Size(); k += 3) {
-            for (u32 t = 0; t < 3; ++t) {
-                const MeshVertex& mv = vtx[idx[k + t]];
-                const FVec4 wp = Transform(FVec4{ mv.position.x, mv.position.y, mv.position.z, 1.0f }, model);
-                const FVec4 wn = Transform(FVec4{ mv.normal.x, mv.normal.y, mv.normal.z, 0.0f }, model);
-                M3DVtx o; o.px = wp.x; o.py = wp.y; o.pz = wp.z;
-                o.nx = wn.x; o.ny = wn.y; o.nz = wn.z;
-                o.r = n.color.x; o.g = n.color.y; o.b = n.color.z;
-                if (dv.Size() < h.m3d_dyn_cap) dv.PushBack(o);
-            }
-        }
+        AppendMeshTris(dv, cm, Node3DModel(n), FVec3{ n.color.x, n.color.y, n.color.z }, h.m3d_dyn_cap);
     }
     if (dv.Size() > 0 && h.m3d_dyn_vb) {
         h.m3d_dyn_vb->Update(dv.Data(), sizeof(M3DVtx) * dv.Size());
@@ -2088,45 +2184,37 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     }
     delete &dv;
 
-    // グリッド + 軸 + 選択ハイライト (デバッグ線)。
-    h.dbg3d.Begin();
-    const int   N = 20; const f32 step = 1.0f;
-    const f32   ext = N * step * 0.5f;
-    const FVec4 gcol{ 0.30f, 0.32f, 0.37f, 1 };
-    for (int i = -N / 2; i <= N / 2; ++i) {
-        const f32 t = i * step;
-        h.dbg3d.Line(FVec3{ t, 0, -ext }, FVec3{ t, 0, ext }, gcol);
-        h.dbg3d.Line(FVec3{ -ext, 0, t }, FVec3{ ext, 0, t }, gcol);
-    }
-    h.dbg3d.Line(FVec3{ 0, 0, 0 }, FVec3{ ext, 0, 0 }, FVec4{ 0.85f, 0.30f, 0.30f, 1 });  // X 軸 (赤)
-    h.dbg3d.Line(FVec3{ 0, 0, 0 }, FVec3{ 0, ext * 0.5f, 0 }, FVec4{ 0.35f, 0.85f, 0.40f, 1 }); // Y 軸 (緑)
-    h.dbg3d.Line(FVec3{ 0, 0, 0 }, FVec3{ 0, 0, ext }, FVec4{ 0.35f, 0.55f, 0.95f, 1 });  // Z 軸 (青)
-    if (ENode3D* sn = FindNode3D(h, h.sel3d)) {                              // 選択ノードの AABB
-        const FVec3 he{ 0.5f * std::abs(sn->scale.x) + 0.04f,
-                        0.5f * std::abs(sn->scale.y) + 0.04f,
-                        0.5f * std::abs(sn->scale.z) + 0.04f };
-        h.dbg3d.Aabb(Aabb3{ sn->pos, he }, FVec4{ 1.0f, 0.78f, 0.25f, 1 });
-        // 変形ギズモ: 3 軸の線 (移動/拡縮)。掴んでいる軸は強調。スクリーン一定長へスケール。
-        f32 csx, csy;
-        const f32 gscreen = 90.0f;            // 軸の見かけ長 (px)
-        f32 gl = 1.5f;
-        if (WorldToScreen3D(h, sn->pos, static_cast<f32>(scW), static_cast<f32>(scH), csx, csy)) {
-            f32 ex, ey;
-            if (WorldToScreen3D(h, FVec3{ sn->pos.x + 1.0f, sn->pos.y, sn->pos.z },
-                                static_cast<f32>(scW), static_cast<f32>(scH), ex, ey)) {
-                const f32 ppu = std::sqrt((ex - csx) * (ex - csx) + (ey - csy) * (ey - csy));  // px / world1
-                if (ppu > 1e-3f) gl = gscreen / ppu;
-            }
+    // --- (3) 選択ノードの太いギズモバー (depth off で常に手前) ---
+    if (ENode3D* sn = FindNode3D(h, h.sel3d)) {
+        // 軸長をスクリーン一定 (px) に保つ。
+        f32 gl = 1.5f, csx, csy, ex, ey;
+        if (WorldToScreen3D(h, sn->pos, static_cast<f32>(scW), static_cast<f32>(scH), csx, csy) &&
+            WorldToScreen3D(h, FVec3{ sn->pos.x + 1.0f, sn->pos.y, sn->pos.z }, static_cast<f32>(scW), static_cast<f32>(scH), ex, ey)) {
+            const f32 ppu = std::sqrt((ex - csx) * (ex - csx) + (ey - csy) * (ey - csy));
+            if (ppu > 1e-3f) gl = 110.0f / ppu;          // ギズモの見かけ長 (px)
         }
-        const FVec4 cols[3] = { FVec4{ 0.95f, 0.35f, 0.35f, 1 }, FVec4{ 0.40f, 0.90f, 0.45f, 1 }, FVec4{ 0.45f, 0.60f, 0.98f, 1 } };
+        const f32 th = gl * 0.045f;                       // バーの太さ (長さの 4.5%、細めの 3D バー)
+        const FVec3 cols[3] = { FVec3{ 0.95f, 0.30f, 0.30f }, FVec3{ 0.35f, 0.90f, 0.40f }, FVec3{ 0.45f, 0.60f, 0.98f } };
+        TArray<M3DVtx>& gv = *(new TArray<M3DVtx>()); gv.Reserve(1024);
         for (int a = 1; a <= 3; ++a) {
             const FVec3 d = AxisDir(a);
-            FVec4 c = cols[a - 1];
-            if (h.giz3d_axis == a) c = FVec4{ 1.0f, 0.92f, 0.30f, 1 };   // 掴み中は黄
-            h.dbg3d.Line(sn->pos, FVec3{ sn->pos.x + d.x * gl, sn->pos.y + d.y * gl, sn->pos.z + d.z * gl }, c);
+            FVec3 col = cols[a - 1];
+            if (h.giz3d_axis == a) col = FVec3{ 1.0f, 0.90f, 0.25f };   // 掴み中は黄
+            // 軸方向に長い細い箱: scale (th,th,th) を軸だけ gl に伸ばし、中心を pos+axis*gl/2 へ。
+            FVec3 s{ th, th, th }; (a == 1) ? (s.x = gl) : (a == 2) ? (s.y = gl) : (s.z = gl);
+            const FVec3 c{ sn->pos.x + d.x * gl * 0.5f, sn->pos.y + d.y * gl * 0.5f, sn->pos.z + d.z * gl * 0.5f };
+            const FMat4 m = FMat4::Scale(s) * FMat4::Translation(c);
+            AppendMeshTris(gv, h.cpu_cube.Get(), m, col, 4096);
         }
+        if (gv.Size() > 0 && h.m3d_giz_vb) {
+            h.m3d_giz_vb->Update(gv.Data(), sizeof(M3DVtx) * gv.Size());
+            cl->SetPipeline(*h.m3d_overlay_pipe);         // depth off → 常に手前
+            cl->SetConstantBuffer(0, *h.m3d_frame_cb);
+            cl->SetVertexBuffer(*h.m3d_giz_vb, sizeof(M3DVtx));
+            cl->Draw(static_cast<u32>(gv.Size()), 0);
+        }
+        delete &gv;
     }
-    h.dbg3d.End(*cl, vp);
 }
 
 } // namespace
@@ -2423,8 +2511,9 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->preview_sprites.Shutdown();
     host->fxaa.Shutdown();
     host->dbg3d.Shutdown();
-    host->m3d_pipe.Reset(); host->m3d_vs.Reset(); host->m3d_ps.Reset();
-    host->m3d_frame_cb.Reset(); host->m3d_dyn_vb.Reset();
+    host->m3d_pipe.Reset(); host->m3d_overlay_pipe.Reset(); host->m3d_vs.Reset(); host->m3d_ps.Reset();
+    host->sky_pipe.Reset(); host->sky_vs.Reset(); host->sky_ps.Reset(); host->sky_cb.Reset();
+    host->m3d_frame_cb.Reset(); host->m3d_dyn_vb.Reset(); host->m3d_giz_vb.Reset();
     host->gm_cube = GpuMesh{}; host->gm_sphere = GpuMesh{}; host->gm_plane = GpuMesh{};
     host->renderer.Shutdown();
     delete host;
@@ -4309,9 +4398,9 @@ ACS_EDITOR_API int acs_editor_gizmo3d_begin(void* handle, float sx, float sy) {
     f32 ex, ey; f32 ppu = 60.0f;
     if (WorldToScreen3D(*host, FVec3{ n->pos.x + 1.0f, n->pos.y, n->pos.z }, W, H, ex, ey))
         ppu = std::sqrt((ex - csx) * (ex - csx) + (ey - csy) * (ey - csy));
-    const f32 gl = (ppu > 1e-3f) ? 90.0f / ppu : 1.5f;
+    const f32 gl = (ppu > 1e-3f) ? 110.0f / ppu : 1.5f;   // 描画バーと同じ見かけ長
 
-    int   best = 0; f32 bestD = 14.0f;            // ヒット閾値 (px)
+    int   best = 0; f32 bestD = 18.0f;            // ヒット閾値 (px、太いバーに合わせ広め)
     for (int a = 1; a <= 3; ++a) {
         const FVec3 d = AxisDir(a);
         f32 tx, ty;
