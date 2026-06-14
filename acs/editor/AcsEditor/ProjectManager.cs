@@ -334,6 +334,24 @@ public static class ProjectManager
         "} // namespace\n\n" +
         "ACS_GAME_MAIN(FGameApp)\n";
 
+    /// <summary>プロジェクトのビルド定義 (Source/CMakeLists.txt) を現在のテンプレートへ更新する。
+    /// 旧バージョンのエディタで作られたプロジェクトの陳腐化した CMakeLists (例: ACS_ENGINE_DIR を
+    /// 要求する古いスタブ) を自己修復する。内容が一致していれば書き込まない (不要な再 configure を回避)。
+    /// 書き換えたら true を返す (呼び出し側は再 configure を強制すべき)。</summary>
+    public static bool EnsureBuildFiles(Project project)
+    {
+        try
+        {
+            string cmakePath = Path.Combine(project.RootDir, "Source", "CMakeLists.txt");
+            string want = CMakeTemplate(SanitizeIdent(project.Name), project.RootDir);
+            if (File.Exists(cmakePath) && File.ReadAllText(cmakePath) == want) return false;
+            Directory.CreateDirectory(Path.GetDirectoryName(cmakePath)!);
+            File.WriteAllText(cmakePath, want, Utf8NoBom);
+            return true;
+        }
+        catch { return false; }   // 書けなくてもビルドは試みる
+    }
+
     // エンジンが ACS_EXTERNAL_PROJECT_DIR=<Source> 経由で add_subdirectory する前提。
     // サンプルと同じく add_executable + ACS::GameFramework だけで済む。出力はプロジェクトの Binaries へ。
     private static string CMakeTemplate(string ident, string rootDir)

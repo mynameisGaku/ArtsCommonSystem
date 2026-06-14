@@ -48,6 +48,10 @@ public static class BuildService
         string srcDir = project.SourceDir;
         string ident = ProjectManager.SanitizeIdent(project.Name);
 
+        // ビルド定義の自己修復: 旧版エディタ生成の陳腐化した CMakeLists (ACS_ENGINE_DIR 要求の
+        // 古いスタブ等) を現在のテンプレートへ更新する。書き換えたら再 configure を強制 (glob/配線反映)。
+        if (ProjectManager.EnsureBuildFiles(project)) { forceConfigure = true; log("ビルド定義 (Source/CMakeLists.txt) を更新しました。"); }
+
         // リフレクション・コードジェネレータ: ACS_CLASS / ACS_PROPERTY マーカー → 登録コード (.gen.cpp)。
         // 生成ファイルが新規ならソース集合が変わるので再 configure を強制する。
         try { if (ReflectionCodegen.Generate(project, log)) forceConfigure = true; }
