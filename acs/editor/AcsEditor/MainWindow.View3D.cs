@@ -96,7 +96,7 @@ public partial class MainWindow
         if (EngineInterop.acs_editor_node3d_get_transform(Engine, id, tf) == 0) return;
         var col = new float[4];
         EngineInterop.acs_editor_node3d_get_color(Engine, id, col);
-        int prim = EngineInterop.acs_editor_node3d_prim(Engine, id);
+        int kind = EngineInterop.acs_editor_node3d_kind(Engine, id);   // 0=Cube 1=Sphere 2=Plane 3=Mesh 4=Sprite 5=Polygon
 
         _pop3d = true;
         Insp3DPanel.Children.Clear();
@@ -108,17 +108,33 @@ public partial class MainWindow
         Insp3DPanel.Children.Add(Vec3Row("Color", col[0], col[1], col[2], (r, g, b) =>
             EngineInterop.acs_editor_node3d_set_color(Engine, id, r, g, b, 1.0f)));
 
-        // 形状ドロップダウン
-        var shapeRow = new DockPanel { Margin = new Thickness(0, 4, 0, 2) };
-        var lbl = new TextBlock { Text = "Shape", Width = 64, VerticalAlignment = VerticalAlignment.Center,
-            Foreground = (Brush)FindResource("TextDim") };
-        DockPanel.SetDock(lbl, Dock.Left); shapeRow.Children.Add(lbl);
-        var combo = new ComboBox { VerticalAlignment = VerticalAlignment.Center };
-        foreach (var s in new[] { "Cube", "Sphere", "Plane" }) combo.Items.Add(s);
-        combo.SelectedIndex = (prim >= 0 && prim <= 2) ? prim : 0;
-        combo.IsEnabled = false;   // 形状変更は Phase 2+ (再生成が要る) — 表示のみ
-        shapeRow.Children.Add(combo);
-        Insp3DPanel.Children.Add(shapeRow);
+        // 形状 / 種別。プリミティブ (Cube/Sphere/Plane) は編集可能ドロップダウン。
+        // Mesh/Sprite/Polygon は種別を読み取り専用ラベルで表示 (誤って "Cube" と出さない)。
+        if (kind >= 0 && kind <= 2)
+        {
+            var shapeRow = new DockPanel { Margin = new Thickness(0, 4, 0, 2) };
+            var lbl = new TextBlock { Text = "Shape", Width = 64, VerticalAlignment = VerticalAlignment.Center,
+                Foreground = (Brush)FindResource("TextDim") };
+            DockPanel.SetDock(lbl, Dock.Left); shapeRow.Children.Add(lbl);
+            var combo = new ComboBox { VerticalAlignment = VerticalAlignment.Center };
+            foreach (var s in new[] { "Cube", "Sphere", "Plane" }) combo.Items.Add(s);
+            combo.SelectedIndex = kind;
+            combo.SelectionChanged += (_, __) =>
+            {
+                if (_pop3d) return;
+                int sel = combo.SelectedIndex;
+                if (sel >= 0 && EngineInterop.acs_editor_node3d_set_prim(Engine, id, sel) != 0)
+                    Log($"3D ノード {id} の形状を {combo.SelectedItem} に変更");
+            };
+            shapeRow.Children.Add(combo);
+            Insp3DPanel.Children.Add(shapeRow);
+        }
+        else
+        {
+            string typeName = kind switch { 3 => "Mesh", 4 => "Sprite", 5 => "Polygon", _ => "—" };
+            Insp3DPanel.Children.Add(LabeledValue3D("Type", typeName));
+            if (kind == 4) Insp3DPanel.Children.Add(SpriteRow3D(id));   // スプライト画像の差替え UI
+        }
 
         // 削除ボタン
         var del = new Button { Content = "🗑 Delete", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 12, 0, 0),
@@ -132,6 +148,51 @@ public partial class MainWindow
         };
         Insp3DPanel.Children.Add(del);
         _pop3d = false;
+    }
+
+    /// <summary>「ラベル: 値」の読み取り専用行 (3D Inspector の種別表示などに使う)。</summary>
+    private FrameworkElement LabeledValue3D(string label, string value)
+    {
+        var row = new DockPanel { Margin = new Thickness(0, 4, 0, 2) };
+        var lbl = new TextBlock { Text = label, Width = 64, VerticalAlignment = VerticalAlignment.Center,
+            Foreground = (Brush)FindResource("TextDim") };
+        DockPanel.SetDock(lbl, Dock.Left); row.Children.Add(lbl);
+        row.Children.Add(new TextBlock { Text = value, VerticalAlignment = VerticalAlignment.Center });
+        return row;
+    }
+
+    /// <summary>スプライトノードの画像差替え行 (現在のファイル名 + 「…」で再選択)。</summary>
+    private FrameworkElement SpriteRow3D(int id)
+    {
+        var row = new DockPanel { Margin = new Thickness(0, 4, 0, 2) };
+        var lbl = new TextBlock { Text = "Sprite", Width = 64, VerticalAlignment = VerticalAlignment.Center,
+            Foreground = (Brush)FindResource("TextDim") };
+        DockPanel.SetDock(lbl, Dock.Left); row.Children.Add(lbl);
+        var browse = new Button { Content = "…", Width = 28, VerticalAlignment = VerticalAlignment.Center };
+        DockPanel.SetDock(browse, Dock.Right); row.Children.Add(browse);
+        string cur = EngineInterop.Node3DSprite(Engine, id);
+        var name = new TextBlock {
+            Text = string.IsNullOrEmpty(cur) ? "(なし)" : System.IO.Path.GetFileName(cur),
+            VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 0, 6, 0) };
+        row.Children.Add(name);
+        browse.Click += (_, __) =>
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "Sprite 画像を選択",
+                Filter = "画像 (*.png;*.jpg;*.jpeg;*.bmp;*.tga)|*.png;*.jpg;*.jpeg;*.bmp;*.tga|All files (*.*)|*.*",
+                InitialDirectory = _project?.AssetsDir,
+            };
+            if (dlg.ShowDialog(this) != true) return;
+            if (EngineInterop.acs_editor_node3d_set_sprite(Engine, id, dlg.FileName) != 0)
+            {
+                Log($"スプライト画像を差替え: {System.IO.Path.GetFileName(dlg.FileName)} (id {id})");
+                Populate3DInspector(id);
+            }
+            else Log($"スプライト差替え失敗: {System.IO.Path.GetFileName(dlg.FileName)} (画像形式を確認)");
+        };
+        return row;
     }
 
     private void Set3DTransform(int id, int which, float a, float b, float c)

@@ -101,6 +101,26 @@ internal static class EngineInterop
     public static extern int acs_editor_node3d_name(IntPtr handle, int id, [Out] byte[] buf, int cap);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_prim(IntPtr handle, int id);
+    /// <summary>ノード種別: 0=Cube 1=Sphere 2=Plane 3=Mesh 4=Sprite 5=Polygon (不明 -1)。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_kind(IntPtr handle, int id);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr acs_editor_node3d_sprite_get(IntPtr handle, int id);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_set_sprite(IntPtr handle, int id, [MarshalAs(UnmanagedType.LPUTF8Str)] string path);
+    /// <summary>プリミティブ形状を切替 (0=Cube 1=Sphere 2=Plane)。sprite/polygon/mesh は不可。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_set_prim(IntPtr handle, int id, int prim);
+    /// <summary>3D スプライトノードの画像パス (UTF-8、スプライトでなければ "")。</summary>
+    public static string Node3DSprite(IntPtr handle, int id)
+    {
+        IntPtr p = acs_editor_node3d_sprite_get(handle, id);
+        if (p == IntPtr.Zero) return "";
+        int n = 0; while (Marshal.ReadByte(p, n) != 0) n++;
+        if (n == 0) return "";
+        var b = new byte[n]; Marshal.Copy(p, b, 0, n);
+        return System.Text.Encoding.UTF8.GetString(b);
+    }
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_get_transform(IntPtr handle, int id, [Out] float[] out9);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]

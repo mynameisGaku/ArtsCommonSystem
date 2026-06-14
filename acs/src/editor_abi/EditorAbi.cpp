@@ -4671,6 +4671,62 @@ ACS_EDITOR_API int acs_editor_node3d_prim(void* handle, int id) {
     return (n != nullptr) ? NPrim(n) : -1;
 }
 
+/** 3D ノードの «種別» を返す: 0=Cube 1=Sphere 2=Plane 3=Mesh 4=Sprite 5=Polygon (不明 -1)。
+ *  prim だけでは sprite/polygon を見分けられない (内部 prim は Cube/Mesh のまま) ため別に公開する。 */
+ACS_EDITOR_API int acs_editor_node3d_kind(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return -1;
+    game::FNode3D* n = FindNode3DNode(*host, id);
+    if (n == nullptr) return -1;
+    EEd3DRec* r = Rec3D(n);
+    if (r != nullptr && r->sprite_path[0] != '\0') return 4;       // Sprite (テクスチャ付きクアッド)
+    if (r != nullptr && r->poly_pts.Size() >= 3)   return 5;       // Polygon (z=0 手続きメッシュ)
+    return NPrim(n);                                               // 0..3 (Cube/Sphere/Plane/Mesh)
+}
+
+/** スプライトノードの画像パスを返す (スプライトでなければ "")。 */
+ACS_EDITOR_API const char* acs_editor_node3d_sprite_get(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return "";
+    game::FNode3D* n = FindNode3DNode(*host, id);
+    EEd3DRec* r = Rec3D(n);
+    return (r != nullptr) ? r->sprite_path : "";
+}
+
+/** スプライトノードの画像を差し替える (テクスチャ再ロード)。成功 1。 */
+ACS_EDITOR_API int acs_editor_node3d_set_sprite(void* handle, int id, const char* path) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || path == nullptr || path[0] == '\0') return 0;
+    if (!Ensure3D(*host)) return 0;
+    game::FNode3D* n = FindNode3DNode(*host, id);
+    if (n == nullptr) return 0;
+    EEd3DRec* r = Rec3D(n);
+    game::FMeshComponent3D* m = Mesh3D(n);
+    if (r == nullptr || m == nullptr) return 0;
+    u32 iw = 0, ih = 0;
+    TUniquePtr<IRhiTexture> tex = LoadTexWithSize(*host, path, iw, ih);
+    if (!tex || iw == 0 || ih == 0) { ACS_LOG_WARN("[3D] スプライト差替えの画像読込に失敗: %s", path); return 0; }
+    std::snprintf(r->sprite_path, sizeof(r->sprite_path), "%s", path);
+    IRhiTexture* raw = tex.Get();
+    host->sprite_textures.PushBack(Move(tex));
+    m->SetRenderHandle(raw);
+    return 1;
+}
+
+/** プリミティブノードの形状を切り替える (0=Cube 1=Sphere 2=Plane)。sprite/polygon/mesh は対象外。成功 1。 */
+ACS_EDITOR_API int acs_editor_node3d_set_prim(void* handle, int id, int prim) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || prim < 0 || prim > 2) return 0;
+    game::FNode3D* n = FindNode3DNode(*host, id);
+    if (n == nullptr) return 0;
+    EEd3DRec* r = Rec3D(n);
+    if (r != nullptr && (r->sprite_path[0] != '\0' || r->poly_pts.Size() >= 3)) return 0;   // sprite/polygon は不可
+    game::FMeshComponent3D* m = Mesh3D(n);
+    if (m == nullptr || m->Primitive() == game::EMeshPrimitive3D::Mesh) return 0;            // mesh アセットも不可
+    m->SetPrimitive(static_cast<game::EMeshPrimitive3D>(prim));
+    return 1;
+}
+
 /** 3D ノードの transform (pos/rot(度)/scale = 9 float) を取得する。成功 1。 */
 ACS_EDITOR_API int acs_editor_node3d_get_transform(void* handle, int id, float* out9) {
     auto* host = static_cast<EditorHost*>(handle);
