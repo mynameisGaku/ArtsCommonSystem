@@ -210,6 +210,15 @@ internal static class EngineInterop
     public static extern int acs_editor_poly_finalize(IntPtr handle);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_poly_cancel(IntPtr handle);
+    // Ortho ビューでの 3D ポリゴン描画 (クリックを z=0 へ逆射影)。
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_poly3d_begin(IntPtr handle);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_poly3d_add_point(IntPtr handle, float sx, float sy);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_poly3d_finalize(IntPtr handle);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_poly3d_cancel(IntPtr handle);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_poly_is_drawing(IntPtr handle);
 

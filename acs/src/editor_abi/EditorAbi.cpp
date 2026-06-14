@@ -285,6 +285,7 @@ struct EditorHost {
     int          next_id3d     = 1;
     bool         scene3d_seeded = false;  // 初回 3D 切替でデフォルトシーンを置いたか
     game::FScene3D scene3d;               // 3D シーングラフ (各ノード = root の子 FNode3D + EEd3DRec)
+    TArray<FVec2> poly3d_pts;             // Ortho ポリゴン描画中の頂点 (XY, z=0 平面へ逆射影済み)
     // 3D ギズモのドラッグ状態。
     //   ハンドル: 0=非活性, 1=X, 2=Y, 3=Z 軸, 4=XY, 5=YZ, 6=XZ 平面。
     int          giz3d_handle  = 0;
@@ -2024,6 +2025,16 @@ FCamera EditorCam3D(const EditorHost& h, f32 aspect) noexcept {
     }
     cam.SetLookAt(Cam3DEye(h), h.cam3d_target);
     return cam;
+}
+
+/** スクリーン点を z=0 平面のワールド座標(XY)へ逆射影する。視線が平面に平行なら false。 */
+bool ScreenToZ0(const EditorHost& h, f32 sx, f32 sy, f32 W, f32 H, FVec2& outXY) noexcept {
+    const f32 aspect = (H > 0) ? W / H : 1.0f;
+    const Ray3 ray = acs::ScreenPointToRay(EditorCam3D(h, aspect).ViewProjection(), sx, sy, W, H);
+    if (std::abs(ray.direction.z) < 1e-6f) return false;      // 視線が z=0 平面に平行
+    const f32 t = -ray.origin.z / ray.direction.z;
+    outXY = FVec2{ ray.origin.x + ray.direction.x * t, ray.origin.y + ray.direction.y * t };
+    return true;
 }
 
 /** スクリーン点 (sx,sy) を通すワールドレイ (origin=eye, dir 正規化) を返す。 */
@@ -4380,6 +4391,56 @@ ACS_EDITOR_API int acs_editor_add_polygon3d(void* handle, const float* xy, int c
     m->SetColor(FVec4{ r, g, b, a });
     host->sel3d = id;
     return id;
+}
+
+// --- Ortho ビューでのポリゴン «描画ツール» (クリックを z=0 へ逆射影して頂点を貯める) ---
+
+/** Ortho ポリゴン描画を開始する (頂点バッファをクリア)。 */
+ACS_EDITOR_API void acs_editor_poly3d_begin(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host != nullptr) host->poly3d_pts.Clear();
+}
+
+/** 描画中: スクリーン点を z=0 へ逆射影して頂点を追加する。追加後の頂点数を返す。 */
+ACS_EDITOR_API int acs_editor_poly3d_add_point(void* handle, float sx, float sy) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return 0;
+    IRhiSwapchain* sc = host->renderer.Swapchain();
+    if (sc != nullptr) {
+        const f32 W = static_cast<f32>(sc->Width()), H = static_cast<f32>(sc->Height());
+        FVec2 xy;
+        if (ScreenToZ0(*host, sx, sy, W, H, xy)) host->poly3d_pts.PushBack(xy);
+    }
+    return static_cast<int>(host->poly3d_pts.Size());
+}
+
+/** 描画を確定し、頂点列からフラットポリゴンノードを作る。新 id (頂点<3 で -1)。 */
+ACS_EDITOR_API int acs_editor_poly3d_finalize(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || host->poly3d_pts.Size() < 3) { if (host != nullptr) host->poly3d_pts.Clear(); return -1; }
+    TSharedPtr<Asset> mesh = MakeFlatPolygon3D(host->poly3d_pts.Data(), static_cast<u32>(host->poly3d_pts.Size()));
+    host->poly3d_pts.Clear();
+    if (!mesh) return -1;
+    game::FNode3D& n = AddNode3D(*host, "Polygon2D");
+    const int id = host->next_id3d++;
+    n.GetComponent<EEd3DRec>()->id = id;
+    game::FMeshComponent3D* m = n.GetComponent<game::FMeshComponent3D>();
+    m->SetMeshAsset(mesh);
+    m->SetColor(FVec4{ 0.45f, 0.78f, 0.95f, 1 });
+    host->sel3d = id;
+    return id;
+}
+
+/** Ortho ポリゴン描画をキャンセルする。 */
+ACS_EDITOR_API void acs_editor_poly3d_cancel(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host != nullptr) host->poly3d_pts.Clear();
+}
+
+/** 描画中の頂点数。 */
+ACS_EDITOR_API int acs_editor_poly3d_count(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr) ? static_cast<int>(host->poly3d_pts.Size()) : 0;
 }
 
 /** 3D ノードを削除する (成功 1)。 */

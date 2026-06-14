@@ -141,6 +141,11 @@ public sealed class EngineViewport : HwndHost
                 if (_engine != IntPtr.Zero && EngineInterop.acs_editor_get_view3d(_engine) != 0)
                 {
                     int gx = LoWord(lParam), gy = HiWord(lParam);
+                    if (PolyMode)   // Ortho ポリゴン描画: クリックを z=0 平面へ逆射影して頂点を置く
+                    {
+                        EngineInterop.acs_editor_poly3d_add_point(_engine, gx, gy);
+                        break;
+                    }
                     if (EngineInterop.acs_editor_gizmo3d_begin(_engine, gx, gy) != 0)
                     {
                         _giz3dDragging = true; SetCapture(hWnd);

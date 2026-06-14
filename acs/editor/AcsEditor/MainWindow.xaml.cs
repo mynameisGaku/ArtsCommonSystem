@@ -894,13 +894,17 @@ public partial class MainWindow : Window
         if (Engine == IntPtr.Zero || _viewport == null) return;
         if (PolyBtn.IsChecked == true)
         {
-            EngineInterop.acs_editor_poly_begin(Engine);
+            if (_view3d) EngineInterop.acs_editor_poly3d_begin(Engine);
+            else         EngineInterop.acs_editor_poly_begin(Engine);
             _viewport.PolyMode = true;
-            Log("ポリゴン描画: ビューポートをクリックで頂点を置き、Enter か Esc で閉じる。");
+            Log(_view3d
+                ? "ポリゴン描画 (Ortho 推奨): クリックで z=0 平面に頂点、Enter/Esc で確定。"
+                : "ポリゴン描画: ビューポートをクリックで頂点を置き、Enter か Esc で閉じる。");
         }
         else
         {
-            EngineInterop.acs_editor_poly_cancel(Engine);
+            if (_view3d) EngineInterop.acs_editor_poly3d_cancel(Engine);
+            else         EngineInterop.acs_editor_poly_cancel(Engine);
             _viewport.PolyMode = false;
             Log("ポリゴン描画をキャンセル。");
         }
@@ -909,10 +913,17 @@ public partial class MainWindow : Window
     private void FinalizePoly()
     {
         if (Engine == IntPtr.Zero || _viewport == null || !_viewport.PolyMode) return;
-        int id = EngineInterop.acs_editor_poly_finalize(Engine);
+        int id = _view3d ? EngineInterop.acs_editor_poly3d_finalize(Engine)
+                         : EngineInterop.acs_editor_poly_finalize(Engine);
         _viewport.PolyMode = false;
         PolyBtn.IsChecked = false;
-        if (id >= 0) { BuildHierarchy(); SyncSelectionUi(); Log($"ポリゴンを作成しました (node {id})。"); }
+        if (id >= 0)
+        {
+            BuildHierarchy();
+            if (_view3d) { Select3DInHierarchy(id); Populate3DInspector(id); }
+            else SyncSelectionUi();
+            Log($"ポリゴンを作成しました (node {id})。");
+        }
         else Log("ポリゴンには頂点が 3 つ以上必要です。");
     }
 
