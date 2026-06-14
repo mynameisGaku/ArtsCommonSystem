@@ -33,6 +33,8 @@
 #include "gameframework/ReflectApply.h"     // ApplyFieldValue (authored 値を実体へ適用)
 #include "gameframework/Scene3D.h"          // FScene3D (3D シーングラフ = 3D ノードの実コンテナ)
 #include "gameframework/Node3D.h"           // FNode3D / FComponent3D
+#include "gameframework/MeshComponent3D.h"  // FMeshComponent3D (prim/color/mesh の native 保持)
+#include "gameframework/Scene3DSerialize.h" // (将来) シリアライザ委譲用
 #include "memory/UniquePtr.h"               // TUniquePtr / MakeUnique
 #include "container/Array.h"                // TArray
 #include "render/IRhiTexture.h"             // IRhiTexture (スプライト)
@@ -179,35 +181,19 @@ struct FGameShim {
     }
 };
 
-/** 3D ビューポートのノード (Phase 1: プリミティブ + transform + 色)。
- *  2D の FEditorNode (FNode2D 派生) とは別系統の軽量表現。 */
-struct ENode3D {
-    int   id    = 0;
-    char  name[64] = {};
-    FVec3 pos   = FVec3{ 0, 0, 0 };
-    FVec3 rot   = FVec3{ 0, 0, 0 };          ///< オイラー角 (度、XYZ 順)。
-    FVec3 scale = FVec3{ 1, 1, 1 };
-    FVec4 color = FVec4{ 0.80f, 0.80f, 0.85f, 1.0f };
-    int   prim  = 0;                          ///< 0=Cube, 1=Sphere, 2=Plane, 3=Custom(mesh)。
-    TSharedPtr<Asset> mesh;                   ///< prim==3 のカスタムメッシュ (FMeshAsset。描画/ピック用)。
-    char  mesh_path[260] = {};                ///< カスタムメッシュの元ファイル (保存/再読込用)。
-};
-
 /**
- * editor の 3D ノードデータ (ENode3D) をエンジン scene graph の FNode3D に載せるための
- * コンポーネント。各 editor 3D ノード = scene3d.Root() の子 FNode3D + 本コンポーネント。
+ * editor 3D ノードの «エディタ固有» 状態を FNode3D に載せるコンポーネント (第2段)。
  *
  * @details
- * 段階移行の第1段: コンテナを TArray<ENode3D> から game::FScene3D へ移し、ノードの寿命/
- * 階層/generational id をエンジンに委ねる。ノードデータ自体は当面 ENode3D のまま本
- * コンポーネントが保持する (描画/ギズモ/ピックのロジックは無改変)。mesh の TSharedPtr も
- * FNode3D 所有下に入る (= ノード破棄で自動解放)。次段で pos/scale を FNode3D::Local()、
- * mesh を FMeshComponent3D へ移す。
+ * 第2段でノードデータを engine native へ移した: transform(pos/scale/回転) は
+ * FNode3D::Local()、メッシュ(prim/color/mesh/mesh_path) は FMeshComponent3D、名前は
+ * FNode3D::Name() が持つ。本コンポーネントには engine に該当の無い «editor 整数 id» と
+ * «authored オイラー角(度)» だけを残す (オイラーは quat に焼くと丸まるため編集値を保持)。
  */
 struct EEd3DRec : public acs::game::FComponent3D {
     ACS_GAME_COMPONENT3D_KIND(EEd3DRec)
-    /** このノードの編集データ (transform/色/プリミティブ/メッシュ)。 */
-    ENode3D data;
+    int   id    = 0;                          ///< editor 整数 id (ABI/C# 境界・シリアライズ用)。
+    FVec3 euler = FVec3{ 0, 0, 0 };           ///< authored オイラー角 (度、XYZ。Local().rotation の編集元)。
 };
 
 /** 1 つのビューポート + エディタ・シーン (実 FNode2D ツリー) を保持する描画ホスト。 */
@@ -2014,13 +2000,17 @@ const GpuMesh& Mesh3DFor(const EditorHost& h, int prim) noexcept {
 }
 
 /** ノードのモデル行列 (Scale → Rotate(XYZ) → Translate) を合成する。 */
-FMat4 Node3DModel(const ENode3D& n) noexcept {
+FMat4 Node3DModel(game::FNode3D* n) noexcept {
     const f32 d2r = 3.14159265f / 180.0f;
-    FMat4 m = FMat4::Scale(n.scale);
-    m = m * FMat4::RotationX(n.rot.x * d2r);
-    m = m * FMat4::RotationY(n.rot.y * d2r);
-    m = m * FMat4::RotationZ(n.rot.z * d2r);
-    m = m * FMat4::Translation(n.pos);
+    const FVec3 scale = n->Local().scale;
+    const FVec3 pos   = n->Local().position;
+    EEd3DRec* r = n->GetComponent<EEd3DRec>();
+    const FVec3 e = (r != nullptr) ? r->euler : FVec3{ 0, 0, 0 };
+    FMat4 m = FMat4::Scale(scale);
+    m = m * FMat4::RotationX(e.x * d2r);
+    m = m * FMat4::RotationY(e.y * d2r);
+    m = m * FMat4::RotationZ(e.z * d2r);
+    m = m * FMat4::Translation(pos);
     return m;
 }
 
@@ -2093,37 +2083,46 @@ FVec3 AxisDir(int axis) noexcept {
 }
 
 // 3D ノードアクセス補助 (実体は FindNode3D 群の直後)。Seed3DScene が先に使うため前方宣言。
-ENode3D& AddNode3D(EditorHost& h, const char* name) noexcept;
+game::FNode3D& AddNode3D(EditorHost& h, const char* name) noexcept;
 
 /** 初回 3D 切替でデフォルトの 3D シーン (床 + 立方体 + 球) を置く。 */
 void Seed3DScene(EditorHost& h) noexcept {
     if (h.scene3d_seeded) return;
     h.scene3d_seeded = true;
     {
-        ENode3D& ground = AddNode3D(h, "Ground");
-        std::snprintf(ground.name, sizeof(ground.name), "Ground");
-        ground.prim = 2; ground.scale = FVec3{ 16, 1, 16 }; ground.pos = FVec3{ 0, 0, 0 };
-        ground.color = FVec4{ 0.32f, 0.34f, 0.38f, 1 }; ground.id = h.next_id3d++;
+        game::FNode3D& g = AddNode3D(h, "Ground");
+        g.Local().position = FVec3{ 0, 0, 0 }; g.Local().scale = FVec3{ 16, 1, 16 };
+        g.GetComponent<EEd3DRec>()->id = h.next_id3d++;
+        g.GetComponent<game::FMeshComponent3D>()->SetPrimitive(game::EMeshPrimitive3D::Plane);
+        g.GetComponent<game::FMeshComponent3D>()->SetColor(FVec4{ 0.32f, 0.34f, 0.38f, 1 });
     }
     {
-        ENode3D& box = AddNode3D(h, "Cube");
-        std::snprintf(box.name, sizeof(box.name), "Cube");
-        box.prim = 0; box.pos = FVec3{ -1.4f, 0.5f, 0 }; box.color = FVec4{ 0.85f, 0.45f, 0.35f, 1 };
-        box.id = h.next_id3d++; h.sel3d = box.id;
+        game::FNode3D& box = AddNode3D(h, "Cube");
+        box.Local().position = FVec3{ -1.4f, 0.5f, 0 };
+        const int id = h.next_id3d++;
+        box.GetComponent<EEd3DRec>()->id = id; h.sel3d = id;
+        box.GetComponent<game::FMeshComponent3D>()->SetPrimitive(game::EMeshPrimitive3D::Cube);
+        box.GetComponent<game::FMeshComponent3D>()->SetColor(FVec4{ 0.85f, 0.45f, 0.35f, 1 });
     }
     {
-        ENode3D& ball = AddNode3D(h, "Sphere");
-        std::snprintf(ball.name, sizeof(ball.name), "Sphere");
-        ball.prim = 1; ball.pos = FVec3{ 1.3f, 0.6f, 0.2f }; ball.scale = FVec3{ 1.2f, 1.2f, 1.2f };
-        ball.color = FVec4{ 0.40f, 0.62f, 0.92f, 1 }; ball.id = h.next_id3d++;
+        game::FNode3D& ball = AddNode3D(h, "Sphere");
+        ball.Local().position = FVec3{ 1.3f, 0.6f, 0.2f }; ball.Local().scale = FVec3{ 1.2f, 1.2f, 1.2f };
+        ball.GetComponent<EEd3DRec>()->id = h.next_id3d++;
+        ball.GetComponent<game::FMeshComponent3D>()->SetPrimitive(game::EMeshPrimitive3D::Sphere);
+        ball.GetComponent<game::FMeshComponent3D>()->SetColor(FVec4{ 0.40f, 0.62f, 0.92f, 1 });
     }
 }
 
-// --- 3D ノードアクセス (各 editor ノード = scene3d.Root() の子 FNode3D + EEd3DRec) ---
+// --- 3D ノードアクセス (各 editor ノード = root の子 FNode3D + EEd3DRec + FMeshComponent3D) ---
 
-/** FNode3D から EEd3DRec を取り出す (無ければ null)。 */
+/** FNode3D から EEd3DRec (editor id + euler) を取り出す (無ければ null)。 */
 EEd3DRec* Rec3D(game::FNode3D* n) noexcept {
     return (n != nullptr) ? n->GetComponent<EEd3DRec>() : nullptr;
+}
+
+/** FNode3D から FMeshComponent3D (prim/color/mesh) を取り出す (無ければ null)。 */
+game::FMeshComponent3D* Mesh3D(game::FNode3D* n) noexcept {
+    return (n != nullptr) ? n->GetComponent<game::FMeshComponent3D>() : nullptr;
 }
 
 /** editor 3D ノード数 (= root の直接の子の数)。 */
@@ -2132,35 +2131,42 @@ u32 Node3DNum(EditorHost& h) noexcept { return h.scene3d.Root().ChildCount(); }
 /** index 番目の editor 3D ノードの FNode3D (範囲外 null)。 */
 game::FNode3D* Node3DNodeAt(EditorHost& h, u32 i) noexcept { return h.scene3d.Root().Child(i); }
 
-/** index 番目の editor 3D ノードデータ (範囲外 null)。 */
-ENode3D* Node3DAt(EditorHost& h, u32 i) noexcept {
-    EEd3DRec* r = Rec3D(h.scene3d.Root().Child(i));
-    return (r != nullptr) ? &r->data : nullptr;
-}
-
-/** id でノードデータを線形探索する (無ければ null)。従来の呼び出し側はそのまま使える。 */
-ENode3D* FindNode3D(EditorHost& h, int id) noexcept {
-    const u32 n = Node3DNum(h);
-    for (u32 i = 0; i < n; ++i) { ENode3D* d = Node3DAt(h, i); if (d != nullptr && d->id == id) return d; }
-    return nullptr;
-}
-
-/** id でノードの FNode3D を線形探索する (無ければ null)。delete 等の構造操作用。 */
+/** editor 整数 id で FNode3D を線形探索する (無ければ null)。 */
 game::FNode3D* FindNode3DNode(EditorHost& h, int id) noexcept {
     const u32 n = Node3DNum(h);
     for (u32 i = 0; i < n; ++i) {
         game::FNode3D* nn = Node3DNodeAt(h, i);
         EEd3DRec* r = Rec3D(nn);
-        if (r != nullptr && r->data.id == id) return nn;
+        if (r != nullptr && r->id == id) return nn;
     }
     return nullptr;
 }
 
-/** 新規 3D ノードを生成して ENode3D データへの参照を返す (FNode3D + EEd3DRec を作る)。 */
-ENode3D& AddNode3D(EditorHost& h, const char* name) noexcept {
+/** ノードの prim 種別 (FMeshComponent3D 無し or 不明は 0=Cube)。 */
+int NPrim(game::FNode3D* n) noexcept {
+    game::FMeshComponent3D* m = Mesh3D(n);
+    return (m != nullptr) ? static_cast<int>(m->Primitive()) : 0;
+}
+
+/** ノードの色 (FMeshComponent3D 無しは既定灰)。 */
+FVec4 NColor(game::FNode3D* n) noexcept {
+    game::FMeshComponent3D* m = Mesh3D(n);
+    return (m != nullptr) ? m->Color() : FVec4{ 0.80f, 0.80f, 0.85f, 1.0f };
+}
+
+/** ノードのカスタムメッシュ FMeshAsset (prim!=Mesh や未設定は null)。 */
+const FMeshAsset* NMesh(game::FNode3D* n) noexcept {
+    game::FMeshComponent3D* m = Mesh3D(n);
+    return (m != nullptr) ? m->Mesh() : nullptr;
+}
+
+/** 新規 3D ノードを生成して FNode3D への参照を返す (FNode3D + EEd3DRec + FMeshComponent3D)。 */
+game::FNode3D& AddNode3D(EditorHost& h, const char* name) noexcept {
     game::FNode3D& n = h.scene3d.Spawn(FStringView((name != nullptr && name[0] != '\0') ? name : "Node"));
-    EEd3DRec& r = n.AddComponent<EEd3DRec>();
-    return r.data;
+    n.AddComponent<EEd3DRec>();
+    game::FMeshComponent3D& m = n.AddComponent<game::FMeshComponent3D>();
+    m.SetColor(FVec4{ 0.80f, 0.80f, 0.85f, 1.0f });   // 旧 ENode3D 既定色を踏襲
+    return n;
 }
 
 /** メッシュファイル (.gltf/.glb/.obj/.fbx、UTF-8 path) を読み込んで FMeshAsset を返す (失敗 null)。 */
@@ -2300,13 +2306,14 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     TArray<M3DVtx>& dv = *(new TArray<M3DVtx>());   // 大容量をスタックに積まない
     dv.Reserve(8192);
     for (u32 i = 0; i < Node3DNum(h); ++i) {
-        const ENode3D* np = Node3DAt(h, i);
-        if (np == nullptr) continue;
-        const ENode3D& n = *np;
-        const FMeshAsset* cm = (n.prim == 3) ? static_cast<const FMeshAsset*>(n.mesh.Get())
-                             : (n.prim == 1) ? h.cpu_sphere.Get()
-                             : (n.prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
-        AppendMeshTris(dv, cm, Node3DModel(n), FVec3{ n.color.x, n.color.y, n.color.z }, h.m3d_dyn_cap);
+        game::FNode3D* nn = Node3DNodeAt(h, i);
+        if (nn == nullptr) continue;
+        const int prim = NPrim(nn);
+        const FMeshAsset* cm = (prim == 3) ? NMesh(nn)
+                             : (prim == 1) ? h.cpu_sphere.Get()
+                             : (prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
+        const FVec4 col = NColor(nn);
+        AppendMeshTris(dv, cm, Node3DModel(nn), FVec3{ col.x, col.y, col.z }, h.m3d_dyn_cap);
     }
     if (dv.Size() > 0 && h.m3d_dyn_vb) {
         h.m3d_dyn_vb->Update(dv.Data(), sizeof(M3DVtx) * dv.Size());
@@ -2319,8 +2326,9 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
 
     // --- (3) 選択ノードの変形ギズモ (Unity/Unreal 風: 軸シャフト + 矢じり + 平面ハンドル + 中心)。
     //         depth off のオーバーレイで常に手前。サイズはカメラ距離で一定 (角度で破綻しない)。
-    if (ENode3D* sn = FindNode3D(h, h.sel3d)) {
-        const f32 gl = Gizmo3DScale(h, sn->pos);
+    if (game::FNode3D* sn = FindNode3DNode(h, h.sel3d)) {
+        const FVec3 P = sn->Local().position;
+        const f32 gl = Gizmo3DScale(h, P);
         const f32 shaft = gl * 0.022f;     // シャフト半径
         const f32 head  = gl * 0.075f;     // 矢じり半径
         const f32 headL = gl * 0.24f;      // 矢じり長
@@ -2333,15 +2341,15 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         for (int a = 1; a <= 3; ++a) {
             const FVec3 d = AxisDir(a);
             const FVec3 col = (h.giz3d_handle == a) ? hot : cols[a - 1];
-            const FVec3 mid{ sn->pos.x + d.x * axisL * 0.5f, sn->pos.y + d.y * axisL * 0.5f, sn->pos.z + d.z * axisL * 0.5f };
+            const FVec3 mid{ P.x + d.x * axisL * 0.5f, P.y + d.y * axisL * 0.5f, P.z + d.z * axisL * 0.5f };
             AppendBar(gv, h, mid, a, axisL, shaft, col);
-            AppendCone(gv, FVec3{ sn->pos.x + d.x * axisL, sn->pos.y + d.y * axisL, sn->pos.z + d.z * axisL }, a, headL, head, col);
+            AppendCone(gv, FVec3{ P.x + d.x * axisL, P.y + d.y * axisL, P.z + d.z * axisL }, a, headL, head, col);
         }
         // 平面ハンドル (XY=4,YZ=5,XZ=6): 各 2 軸の途中にオフセットした小四角。
         const f32 po = gl * 0.34f, ph = gl * 0.11f;
         for (int hpl = 4; hpl <= 6; ++hpl) {
             FVec3 e1, e2, nrm; PlaneAxes(hpl, e1, e2, nrm);
-            const FVec3 c{ sn->pos.x + (e1.x + e2.x) * po, sn->pos.y + (e1.y + e2.y) * po, sn->pos.z + (e1.z + e2.z) * po };
+            const FVec3 c{ P.x + (e1.x + e2.x) * po, P.y + (e1.y + e2.y) * po, P.z + (e1.z + e2.z) * po };
             FVec3 col = (h.giz3d_handle == hpl) ? hot : FVec3{ cols[(hpl==5)?0:0].x, 0, 0 };
             // 平面色 = 法線軸の補色寄り (XY→青系, YZ→赤系, XZ→緑系)。簡易に法線軸色を薄く。
             if (hpl == 4) col = (h.giz3d_handle==4)?hot:FVec3{0.30f,0.55f,0.96f};
@@ -2350,7 +2358,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
             AppendQuad(gv, c, e1, e2, ph, col);
         }
         // 中心キューブ (見た目のアクセント)。
-        AppendMeshTris(gv, h.cpu_cube.Get(), FMat4::Scale(FVec3{gl*0.05f,gl*0.05f,gl*0.05f}) * FMat4::Translation(sn->pos),
+        AppendMeshTris(gv, h.cpu_cube.Get(), FMat4::Scale(FVec3{gl*0.05f,gl*0.05f,gl*0.05f}) * FMat4::Translation(P),
                        FVec3{ 0.85f, 0.85f, 0.88f }, 4096);
 
         if (gv.Size() > 0 && h.m3d_giz_vb && h.m3d_giz_cb) {
@@ -4273,14 +4281,16 @@ ACS_EDITOR_API int acs_editor_add_node3d(void* handle, int prim, const char* nam
     if (host == nullptr) return -1;
     const char* nm = (name != nullptr && name[0] != '\0') ? name
                    : (prim == 1 ? "Sphere" : prim == 2 ? "Plane" : "Cube");
-    ENode3D& n = AddNode3D(*host, nm);
-    n.id = host->next_id3d++;
-    n.prim = (prim >= 0 && prim <= 2) ? prim : 0;
-    if (prim == 2) { n.scale = FVec3{ 8, 1, 8 }; n.color = FVec4{ 0.34f, 0.36f, 0.40f, 1 }; }
-    else           { n.pos   = FVec3{ 0, 0.5f, 0 }; }
-    std::snprintf(n.name, sizeof(n.name), "%s", nm);
-    host->sel3d = n.id;
-    return n.id;
+    game::FNode3D& n = AddNode3D(*host, nm);
+    const int id = host->next_id3d++;
+    n.GetComponent<EEd3DRec>()->id = id;
+    game::FMeshComponent3D* m = n.GetComponent<game::FMeshComponent3D>();
+    const int p = (prim >= 0 && prim <= 2) ? prim : 0;
+    m->SetPrimitive(static_cast<game::EMeshPrimitive3D>(p));
+    if (prim == 2) { n.Local().scale = FVec3{ 8, 1, 8 }; m->SetColor(FVec4{ 0.34f, 0.36f, 0.40f, 1 }); }
+    else           { n.Local().position = FVec3{ 0, 0.5f, 0 }; }
+    host->sel3d = id;
+    return id;
 }
 
 /** メッシュファイル (.gltf/.glb/.obj/.fbx) を 3D ノードとして読み込む。新ノード id (失敗 -1)。 */
@@ -4296,16 +4306,16 @@ ACS_EDITOR_API int acs_editor_add_mesh3d(void* handle, const char* path, const c
         if (base2 != nullptr && base2 > base) base = base2;
         std::snprintf(nmbuf, sizeof(nmbuf), "%s", (base != nullptr) ? base + 1 : path);
     }
-    ENode3D& n = AddNode3D(*host, nmbuf);
-    n.id = host->next_id3d++;
-    n.prim = 3;
-    n.mesh = mesh;
-    n.pos = FVec3{ 0, 0.5f, 0 };
-    n.color = FVec4{ 0.78f, 0.78f, 0.82f, 1 };
-    std::snprintf(n.mesh_path, sizeof(n.mesh_path), "%s", path);
-    std::snprintf(n.name, sizeof(n.name), "%s", nmbuf);
-    host->sel3d = n.id;
-    return n.id;
+    game::FNode3D& n = AddNode3D(*host, nmbuf);   // 名前は Spawn(nmbuf) で設定済み
+    const int id = host->next_id3d++;
+    n.GetComponent<EEd3DRec>()->id = id;
+    n.Local().position = FVec3{ 0, 0.5f, 0 };
+    game::FMeshComponent3D* m = n.GetComponent<game::FMeshComponent3D>();
+    m->SetMeshAsset(mesh);                          // 種別 Mesh + 所有 (ノード破棄で解放)
+    m->SetColor(FVec4{ 0.78f, 0.78f, 0.82f, 1 });
+    m->SetMeshPath(FStringView(path));              // 元ファイルパスを記録 (保存/再読込用)
+    host->sel3d = id;
+    return id;
 }
 
 /** 3D ノードを削除する (成功 1)。 */
@@ -4330,37 +4340,41 @@ ACS_EDITOR_API int acs_editor_node3d_count(void* handle) {
 ACS_EDITOR_API int acs_editor_node3d_id_at(void* handle, int index) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr || index < 0) return -1;
-    ENode3D* d = Node3DAt(*host, static_cast<u32>(index));
-    return (d != nullptr) ? d->id : -1;
+    EEd3DRec* r = Rec3D(Node3DNodeAt(*host, static_cast<u32>(index)));
+    return (r != nullptr) ? r->id : -1;
 }
 
 /** 3D ノードの名前を out (cap) へ書く。成功 1。 */
 ACS_EDITOR_API int acs_editor_node3d_name(void* handle, int id, char* out, int cap) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr || out == nullptr || cap <= 0) return 0;
-    ENode3D* n = FindNode3D(*host, id);
+    game::FNode3D* n = FindNode3DNode(*host, id);
     if (n == nullptr) return 0;
-    std::snprintf(out, static_cast<size_t>(cap), "%s", n->name);
+    const FStringView nv = n->Name();
+    std::snprintf(out, static_cast<size_t>(cap), "%.*s", static_cast<int>(nv.Size()), nv.Data());
     return 1;
 }
 
-/** 3D ノードの prim 種別 (0=Cube 1=Sphere 2=Plane、無効は -1)。 */
+/** 3D ノードの prim 種別 (0=Cube 1=Sphere 2=Plane 3=Mesh、無効は -1)。 */
 ACS_EDITOR_API int acs_editor_node3d_prim(void* handle, int id) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr) return -1;
-    ENode3D* n = FindNode3D(*host, id);
-    return (n != nullptr) ? n->prim : -1;
+    game::FNode3D* n = FindNode3DNode(*host, id);
+    return (n != nullptr) ? NPrim(n) : -1;
 }
 
 /** 3D ノードの transform (pos/rot(度)/scale = 9 float) を取得する。成功 1。 */
 ACS_EDITOR_API int acs_editor_node3d_get_transform(void* handle, int id, float* out9) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr || out9 == nullptr) return 0;
-    ENode3D* n = FindNode3D(*host, id);
+    game::FNode3D* n = FindNode3DNode(*host, id);
     if (n == nullptr) return 0;
-    out9[0] = n->pos.x; out9[1] = n->pos.y; out9[2] = n->pos.z;
-    out9[3] = n->rot.x; out9[4] = n->rot.y; out9[5] = n->rot.z;
-    out9[6] = n->scale.x; out9[7] = n->scale.y; out9[8] = n->scale.z;
+    const FVec3 p = n->Local().position, s = n->Local().scale;
+    EEd3DRec* r = Rec3D(n);
+    const FVec3 e = (r != nullptr) ? r->euler : FVec3{ 0, 0, 0 };
+    out9[0] = p.x; out9[1] = p.y; out9[2] = p.z;
+    out9[3] = e.x; out9[4] = e.y; out9[5] = e.z;   // authored オイラー (度)
+    out9[6] = s.x; out9[7] = s.y; out9[8] = s.z;
     return 1;
 }
 
@@ -4369,9 +4383,13 @@ ACS_EDITOR_API int acs_editor_node3d_set_transform(void* handle, int id,
         float px, float py, float pz, float rx, float ry, float rz, float sx, float sy, float sz) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr) return 0;
-    ENode3D* n = FindNode3D(*host, id);
+    game::FNode3D* n = FindNode3DNode(*host, id);
     if (n == nullptr) return 0;
-    n->pos = FVec3{ px, py, pz }; n->rot = FVec3{ rx, ry, rz }; n->scale = FVec3{ sx, sy, sz };
+    n->Local().position = FVec3{ px, py, pz };
+    n->Local().scale    = FVec3{ sx, sy, sz };
+    const FVec3 e{ rx, ry, rz };
+    n->Local().SetEulerDeg(e);                       // quat に焼く (描画/合成用)
+    EEd3DRec* r = Rec3D(n); if (r != nullptr) r->euler = e;   // authored 値も保持
     return 1;
 }
 
@@ -4379,9 +4397,10 @@ ACS_EDITOR_API int acs_editor_node3d_set_transform(void* handle, int id,
 ACS_EDITOR_API int acs_editor_node3d_get_color(void* handle, int id, float* out4) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr || out4 == nullptr) return 0;
-    ENode3D* n = FindNode3D(*host, id);
+    game::FNode3D* n = FindNode3DNode(*host, id);
     if (n == nullptr) return 0;
-    out4[0] = n->color.x; out4[1] = n->color.y; out4[2] = n->color.z; out4[3] = n->color.w;
+    const FVec4 c = NColor(n);
+    out4[0] = c.x; out4[1] = c.y; out4[2] = c.z; out4[3] = c.w;
     return 1;
 }
 
@@ -4389,9 +4408,10 @@ ACS_EDITOR_API int acs_editor_node3d_get_color(void* handle, int id, float* out4
 ACS_EDITOR_API int acs_editor_node3d_set_color(void* handle, int id, float r, float g, float b, float a) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr) return 0;
-    ENode3D* n = FindNode3D(*host, id);
+    game::FNode3D* n = FindNode3DNode(*host, id);
     if (n == nullptr) return 0;
-    n->color = FVec4{ r, g, b, a };
+    game::FMeshComponent3D* m = Mesh3D(n);
+    if (m != nullptr) m->SetColor(FVec4{ r, g, b, a });
     return 1;
 }
 
@@ -4416,17 +4436,23 @@ ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap
     cur += std::snprintf(out + cur, static_cast<size_t>(cap - cur), "ACS3D v1\n");
     const u32 cnt = Node3DNum(*host);
     for (u32 i = 0; i < cnt && cur < cap; ++i) {
-        const ENode3D* np = Node3DAt(*host, i);
-        if (np == nullptr) continue;
-        const ENode3D& n = *np;
+        game::FNode3D* nn = Node3DNodeAt(*host, i);
+        EEd3DRec* r = Rec3D(nn);
+        if (nn == nullptr || r == nullptr) continue;
+        const FVec3 p = nn->Local().position, s = nn->Local().scale, e = r->euler;
+        const FVec4 col = NColor(nn);
+        const int prim = NPrim(nn);
+        char nm[128]; { const FStringView nv = nn->Name(); u32 ln = 0; for (; ln < nv.Size() && ln + 1u < sizeof(nm); ++ln) nm[ln] = nv[ln]; nm[ln] = '\0'; }
         const int w = std::snprintf(out + cur, static_cast<size_t>(cap - cur),
             "N3D %d %d %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.3f %.3f %.3f %.3f %s\n",
-            n.id, n.prim, n.pos.x, n.pos.y, n.pos.z, n.rot.x, n.rot.y, n.rot.z,
-            n.scale.x, n.scale.y, n.scale.z, n.color.x, n.color.y, n.color.z, n.color.w, n.name);
+            r->id, prim, p.x, p.y, p.z, e.x, e.y, e.z,
+            s.x, s.y, s.z, col.x, col.y, col.z, col.w, nm);
         if (w < 0 || w >= cap - cur) { out[cap - 1] = '\0'; break; }
         cur += w;
-        if (n.prim == 3 && n.mesh_path[0] != '\0' && cur < cap) {     // カスタムメッシュの元ファイル
-            const int w2 = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "MSH3D %d %s\n", n.id, n.mesh_path);
+        game::FMeshComponent3D* mc = Mesh3D(nn);
+        if (prim == 3 && mc != nullptr && mc->MeshPath().Size() > 0 && cur < cap) {     // カスタムメッシュの元ファイル
+            char mp[300]; { const FStringView pv = mc->MeshPath(); u32 ln = 0; for (; ln < pv.Size() && ln + 1u < sizeof(mp); ++ln) mp[ln] = pv[ln]; mp[ln] = '\0'; }
+            const int w2 = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "MSH3D %d %s\n", r->id, mp);
             if (w2 < 0 || w2 >= cap - cur) { out[cap - 1] = '\0'; break; }
             cur += w2;
         }
@@ -4453,28 +4479,36 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
         if (std::strncmp(line, "MSH3D ", 6) == 0) {                  // カスタムメッシュの再読込
             int mid = 0; char mp[260] = {};
             if (std::sscanf(line, "MSH3D %d %259[^\n]", &mid, mp) >= 2) {
-                if (ENode3D* en = FindNode3D(*host, mid)) {
-                    std::snprintf(en->mesh_path, sizeof(en->mesh_path), "%s", mp);
-                    en->mesh = LoadMeshFile(mp);                     // 失敗時は null → 描画スキップ
+                if (game::FNode3D* en = FindNode3DNode(*host, mid)) {
+                    if (game::FMeshComponent3D* m = Mesh3D(en)) {
+                        m->SetMeshAsset(LoadMeshFile(mp));           // 失敗時 null → 描画スキップ
+                        m->SetMeshPath(FStringView(mp));             // パス記録 (種別 Mesh に)
+                    }
                 }
             }
             continue;
         }
         if (std::strncmp(line, "N3D ", 4) != 0) continue;
-        ENode3D nd; char nm[64] = {};
+        int nid = 0, nprim = 0; char nm[64] = {};
+        FVec3 pos{ 0, 0, 0 }, rot{ 0, 0, 0 }, scl{ 1, 1, 1 }; FVec4 color{ 0.8f, 0.8f, 0.85f, 1 };
         const int got = std::sscanf(line, "N3D %d %d %f %f %f %f %f %f %f %f %f %f %f %f %f %63[^\n]",
-            &nd.id, &nd.prim, &nd.pos.x, &nd.pos.y, &nd.pos.z, &nd.rot.x, &nd.rot.y, &nd.rot.z,
-            &nd.scale.x, &nd.scale.y, &nd.scale.z, &nd.color.x, &nd.color.y, &nd.color.z, &nd.color.w, nm);
+            &nid, &nprim, &pos.x, &pos.y, &pos.z, &rot.x, &rot.y, &rot.z,
+            &scl.x, &scl.y, &scl.z, &color.x, &color.y, &color.z, &color.w, nm);
         if (got >= 15) {
-            std::snprintf(nd.name, sizeof(nd.name), "%s", (got >= 16) ? nm : "Node");
-            ENode3D& slot = AddNode3D(*host, nd.name);   // FNode3D + EEd3DRec を作って
-            slot = nd;                                   // 解析データを載せる
-            if (nd.id > maxId) maxId = nd.id;
+            game::FNode3D& nd = AddNode3D(*host, (got >= 16) ? nm : "Node");
+            nd.Local().position = pos; nd.Local().scale = scl; nd.Local().SetEulerDeg(rot);
+            EEd3DRec* r = nd.GetComponent<EEd3DRec>(); if (r != nullptr) { r->id = nid; r->euler = rot; }
+            game::FMeshComponent3D* m = nd.GetComponent<game::FMeshComponent3D>();
+            if (m != nullptr) {
+                m->SetPrimitive(static_cast<game::EMeshPrimitive3D>((nprim >= 0 && nprim <= 3) ? nprim : 0));
+                m->SetColor(color);
+            }
+            if (nid > maxId) maxId = nid;
         }
     }
     host->next_id3d = maxId + 1;
-    ENode3D* first = Node3DAt(*host, 0);
-    if (first != nullptr) host->sel3d = first->id;
+    EEd3DRec* fr = Rec3D(Node3DNodeAt(*host, 0));
+    if (fr != nullptr) host->sel3d = fr->id;
     return 1;
 }
 
@@ -4511,25 +4545,26 @@ ACS_EDITOR_API int acs_editor_pick3d(void* handle, float sx, float sy) {
     int   best = -1; f32 bestT = 1e30f;
     const u32 pcnt = Node3DNum(*host);
     for (u32 i = 0; i < pcnt; ++i) {
-        const ENode3D* np = Node3DAt(*host, i);
-        if (np == nullptr) continue;
-        const ENode3D& n = *np;
-        const f32 r = 0.5f * std::max(std::abs(n.scale.x), std::max(std::abs(n.scale.y), std::abs(n.scale.z)))
-                    + (n.prim == 2 ? 0.0f : 0.0f);
-        const f32 rad = (n.prim == 2) ? 0.0f : r;        // 平面は球近似が弱い → 後段で別途
-        const FVec3 oc{ eye.x - n.pos.x, eye.y - n.pos.y, eye.z - n.pos.z };
+        game::FNode3D* nn = Node3DNodeAt(*host, i);
+        EEd3DRec* rr = Rec3D(nn);
+        if (nn == nullptr || rr == nullptr) continue;
+        const FVec3 npos = nn->Local().position, nsc = nn->Local().scale;
+        const int nprim = NPrim(nn);
+        const f32 r = 0.5f * std::max(std::abs(nsc.x), std::max(std::abs(nsc.y), std::abs(nsc.z)));
+        const f32 rad = (nprim == 2) ? 0.0f : r;         // 平面は球近似が弱い → 後段で別途
+        const FVec3 oc{ eye.x - npos.x, eye.y - npos.y, eye.z - npos.z };
         if (rad > 0.0f) {                                 // レイ vs 球
             const f32 b = oc.x*dir.x + oc.y*dir.y + oc.z*dir.z;
             const f32 c = oc.x*oc.x + oc.y*oc.y + oc.z*oc.z - rad*rad;
             const f32 disc = b*b - c;
-            if (disc >= 0.0f) { const f32 t = -b - std::sqrt(disc); if (t > 0.0f && t < bestT) { bestT = t; best = n.id; } }
+            if (disc >= 0.0f) { const f32 t = -b - std::sqrt(disc); if (t > 0.0f && t < bestT) { bestT = t; best = rr->id; } }
         } else {                                          // 平面 (y≈pos.y) vs レイ
             if (std::abs(dir.y) > 1e-5f) {
-                const f32 t = (n.pos.y - eye.y) / dir.y;
+                const f32 t = (npos.y - eye.y) / dir.y;
                 if (t > 0.0f && t < bestT) {
                     const f32 hx = eye.x + dir.x * t, hz = eye.z + dir.z * t;
-                    if (std::abs(hx - n.pos.x) <= 0.5f * std::abs(n.scale.x) &&
-                        std::abs(hz - n.pos.z) <= 0.5f * std::abs(n.scale.z)) { bestT = t; best = n.id; }
+                    if (std::abs(hx - npos.x) <= 0.5f * std::abs(nsc.x) &&
+                        std::abs(hz - npos.z) <= 0.5f * std::abs(nsc.z)) { bestT = t; best = rr->id; }
                 }
             }
         }
@@ -4543,11 +4578,11 @@ ACS_EDITOR_API int acs_editor_pick3d(void* handle, float sx, float sy) {
 ACS_EDITOR_API int acs_editor_gizmo3d_begin(void* handle, float sx, float sy) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr) return 0;
-    ENode3D* n = FindNode3D(*host, host->sel3d);
+    game::FNode3D* n = FindNode3DNode(*host, host->sel3d);
     IRhiSwapchain* sc = host->renderer.Swapchain();
     if (n == nullptr || sc == nullptr) return 0;
     const f32 W = static_cast<f32>(sc->Width()), H = static_cast<f32>(sc->Height());
-    const FVec3 P = n->pos;
+    const FVec3 P = n->Local().position;
     const f32 gl = Gizmo3DScale(*host, P);
     f32 csx, csy;
     if (!WorldToScreen3D(*host, P, W, H, csx, csy)) return 0;
@@ -4584,8 +4619,8 @@ ACS_EDITOR_API int acs_editor_gizmo3d_begin(void* handle, float sx, float sy) {
 
     host->giz3d_start_mx    = sx; host->giz3d_start_my = sy;
     host->giz3d_start_pos   = P;
-    host->giz3d_start_scale = n->scale;
-    host->giz3d_start_rot   = n->rot;
+    host->giz3d_start_scale = n->Local().scale;
+    { EEd3DRec* r = Rec3D(n); host->giz3d_start_rot = (r != nullptr) ? r->euler : FVec3{ 0, 0, 0 }; }
 
     if (best <= 3) {
         // 軸: スクリーン上の軸方向 (単位) と world/px を求める (移動を «マウスの軸方向移動» に追従)。
@@ -4615,7 +4650,7 @@ ACS_EDITOR_API int acs_editor_gizmo3d_begin(void* handle, float sx, float sy) {
 ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr || host->giz3d_handle == 0) return;
-    ENode3D* n = FindNode3D(*host, host->sel3d);
+    game::FNode3D* n = FindNode3DNode(*host, host->sel3d);
     IRhiSwapchain* sc = host->renderer.Swapchain();
     if (n == nullptr || sc == nullptr) return;
     const f32 W = static_cast<f32>(sc->Width()), H = static_cast<f32>(sc->Height());
@@ -4630,9 +4665,9 @@ ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
         const f32 u = (mdx * host->giz3d_p2y - mdy * host->giz3d_p2x) / det;
         const f32 v = (host->giz3d_p1x * mdy - host->giz3d_p1y * mdx) / det;
         const f32 du = u * host->giz3d_pgl, dv = v * host->giz3d_pgl;
-        n->pos = FVec3{ host->giz3d_start_pos.x + e1.x*du + e2.x*dv,
-                        host->giz3d_start_pos.y + e1.y*du + e2.y*dv,
-                        host->giz3d_start_pos.z + e1.z*du + e2.z*dv };
+        n->Local().position = FVec3{ host->giz3d_start_pos.x + e1.x*du + e2.x*dv,
+                                     host->giz3d_start_pos.y + e1.y*du + e2.y*dv,
+                                     host->giz3d_start_pos.z + e1.z*du + e2.z*dv };
         return;
     }
 
@@ -4646,17 +4681,18 @@ ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
         f32* comp = (hnd == 1) ? &s0.x : (hnd == 2) ? &s0.y : &s0.z;
         *comp += px * host->giz3d_wpp;
         if (*comp < 0.05f) *comp = 0.05f;
-        n->scale = s0;
+        n->Local().scale = s0;
     } else if (host->gizmo_mode == 1) {              // Rotate (px → 度)
         FVec3 r0 = host->giz3d_start_rot;
         const f32 ang = px * 0.5f;
         if (hnd == 1) r0.x += ang; else if (hnd == 2) r0.y += ang; else r0.z += ang;
-        n->rot = r0;
+        n->Local().SetEulerDeg(r0);                  // quat に焼く
+        EEd3DRec* rc = Rec3D(n); if (rc != nullptr) rc->euler = r0;   // authored 値も更新
     } else {                                         // Move (px → world、軸方向)
         const f32 dw = px * host->giz3d_wpp;
-        n->pos = FVec3{ host->giz3d_start_pos.x + ad.x*dw,
-                        host->giz3d_start_pos.y + ad.y*dw,
-                        host->giz3d_start_pos.z + ad.z*dw };
+        n->Local().position = FVec3{ host->giz3d_start_pos.x + ad.x*dw,
+                                     host->giz3d_start_pos.y + ad.y*dw,
+                                     host->giz3d_start_pos.z + ad.z*dw };
     }
 }
 
