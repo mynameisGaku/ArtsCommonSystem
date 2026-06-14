@@ -139,6 +139,9 @@ public partial class MainWindow : Window
             case "scene":
                 Log($"シーンアセット: {System.IO.Path.GetFileName(e.FullPath)}");
                 break;
+            case "prefab":
+                InstantiatePrefab(e.FullPath, _selectedId);   // 選択ノード配下へ (無ければ root)
+                break;
             case "material":
                 // .acsmat をダブルクリック → マテリアルエディタを開く。選択ノードがあれば割当も。
                 if (_selectedId >= 0)
@@ -1537,6 +1540,55 @@ public partial class MainWindow : Window
             _selectedId = id;
             SelectHierarchyItem(id);   // ツリー選択 → Inspector 更新
         }
+    }
+
+    // ===== プレハブ: ノードのサブツリーを .acsprefab として保存 / 再インスタンス化 =====
+    //   プレハブ = サブツリーの直列化テキスト (ACSCENE 形式)。copy_subtree で保存し、
+    //   paste_subtree で複製 (id 再マップ + ObjectRef 内部参照の付け替え) してインスタンス化する。
+
+    private void OnCtxSavePrefab(object sender, RoutedEventArgs e) => SaveAsPrefab(_contextNodeId);
+
+    /// <summary>ノード(とサブツリー)を .acsprefab アセットとして保存する。</summary>
+    private void SaveAsPrefab(int id)
+    {
+        if (Engine == IntPtr.Zero || id < 0 || _project == null) return;
+        string text = EngineInterop.CopySubtree(Engine, id);
+        if (string.IsNullOrEmpty(text)) { Log("プレハブ化に失敗 (サブツリーの直列化が空)。"); return; }
+        string nm = EngineInterop.NodeName(Engine, id);
+        if (string.IsNullOrWhiteSpace(nm)) nm = "Prefab";
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "プレハブを保存",
+            Filter = "ACS Prefab (*.acsprefab)|*.acsprefab",
+            InitialDirectory = _project.AssetsDir,
+            FileName = nm + ".acsprefab",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+        try
+        {
+            System.IO.File.WriteAllText(dlg.FileName, text, System.Text.Encoding.UTF8);
+            AssetBrowser.Refresh();
+            Log($"プレハブを保存 → {System.IO.Path.GetFileName(dlg.FileName)}");
+        }
+        catch (Exception ex) { Log("プレハブ保存エラー: " + ex.Message); }
+    }
+
+    /// <summary>.acsprefab を読み、parentId 配下にインスタンス化する(id 再マップは ABI 側)。</summary>
+    private void InstantiatePrefab(string path, int parentId)
+    {
+        if (Engine == IntPtr.Zero) return;
+        string text;
+        try { text = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8); }
+        catch (Exception ex) { Log("プレハブ読込エラー: " + ex.Message); return; }
+        int id = EngineInterop.acs_editor_paste_subtree(Engine, text, parentId);
+        if (id >= 0)
+        {
+            BuildHierarchy();
+            _selectedId = id;
+            SelectHierarchyItem(id);
+            Log($"プレハブをインスタンス化: {System.IO.Path.GetFileName(path)} → node {id}");
+        }
+        else Log("プレハブのインスタンス化に失敗: " + System.IO.Path.GetFileName(path));
     }
 
     // ===== Components: 登録 Component 型のアタッチ表示 / 編集 =====

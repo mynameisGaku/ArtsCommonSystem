@@ -706,13 +706,15 @@ int EmitCompProps(char* buf, int cur, int cap, const FEditorNode* n) noexcept {
  * トップは名前末尾に " Copy" を付ける。各クローンは新しい editor_id を採番する。
  * @return クローンしたサブツリーの根。
  */
-FEditorNode* CloneSubtree(EditorHost& h, FEditorNode* src, int parent_id, bool top) noexcept {
+FEditorNode* CloneSubtree(EditorHost& h, FEditorNode* src, int parent_id, bool top,
+                          TArray<int>* oldIds = nullptr, TArray<int>* newIds = nullptr) noexcept {
     const game::FTransform2D t = src->Local();
     char nm[64];
     std::snprintf(nm, sizeof(nm), top ? "%s Copy" : "%s", src->name);
     FEditorNode* clone = CreateNode(h, h.next_id, parent_id, nm,
                                     t.position.x, t.position.y, t.rotation, t.scale.x, t.scale.y,
                                     src->base, src->color);
+    if (oldIds != nullptr && newIds != nullptr) { oldIds->PushBack(src->editor_id); newIds->PushBack(clone->editor_id); }
     clone->SetVisible(src->IsVisible());           // 表示フラグも複製
     clone->SetEnabled(src->IsEnabled());
     clone->SetSortLayer(src->SortLayer());
@@ -732,8 +734,30 @@ FEditorNode* CloneSubtree(EditorHost& h, FEditorNode* src, int parent_id, bool t
     }
     // 子を再帰複製 (src の子配列は不変なので走査安全)。
     for (u32 i = 0; i < src->ChildCount(); ++i)
-        CloneSubtree(h, static_cast<FEditorNode*>(src->Child(i)), clone->editor_id, false);
+        CloneSubtree(h, static_cast<FEditorNode*>(src->Child(i)), clone->editor_id, false, oldIds, newIds);
     return clone;
+}
+
+/** 複製した subtree 内の ObjectRef プロパティ値を old→new id で再マップする (subtree 内参照のみ)。 */
+void RemapClonedObjectRefs(EditorHost& h, const TArray<int>& oldIds, const TArray<int>& newIds) noexcept {
+    auto Map = [&](int o) -> int {
+        for (u32 i = 0; i < oldIds.Size(); ++i) if (oldIds[i] == o) return newIds[i];
+        return -1;
+    };
+    for (u32 n = 0; n < newIds.Size(); ++n) {
+        FEditorNode* node = FindNode(h, newIds[n]);
+        if (node == nullptr) continue;
+        for (u32 slot = 0; slot < node->component_count; ++slot) {
+            const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(node->components[slot]);
+            if (d == nullptr) continue;
+            const u32 nf = (d->field_count < FEditorNode::kMaxProps) ? d->field_count : FEditorNode::kMaxProps;
+            for (u32 prop = 0; prop < nf; ++prop) {
+                if (d->fields[prop].kind != game::EFieldKind::ObjectRef) continue;
+                const int rm = Map(static_cast<int>(node->comp_props[slot][prop][0]));
+                if (rm >= 0) node->comp_props[slot][prop][0] = static_cast<float>(rm);   // 内部参照のみ
+            }
+        }
+    }
 }
 
 /** シーンを空に戻す (隠しルートだけの状態)。 */
@@ -1177,7 +1201,21 @@ int PasteSubtree(EditorHost& h, const char* text, int target_parent) noexcept {
             float a = 0, b = 0, c = 0, e = 0;
             if (std::sscanf(line, "CPROP %d %u %u %f %f %f %f", &onid, &slot, &prop, &a, &b, &c, &e) >= 3) {
                 const int nn = MapId(onid);
-                if (nn >= 0) SetCompProp(FindNode(h, nn), slot, prop, a, b, c, e);
+                if (nn >= 0) {
+                    FEditorNode* node = FindNode(h, nn);
+                    float v0 = a;
+                    // ObjectRef プロパティは subtree 内を指す参照だけ new id へ付け替える
+                    // (外部を指す参照は元のまま = prefab 内部リンクが複製後も保たれる)。
+                    if (node != nullptr && slot < node->component_count) {
+                        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(node->components[slot]);
+                        if (d != nullptr && prop < d->field_count
+                            && d->fields[prop].kind == game::EFieldKind::ObjectRef) {
+                            const int rm = MapId(static_cast<int>(a));
+                            if (rm >= 0) v0 = static_cast<float>(rm);
+                        }
+                    }
+                    SetCompProp(node, slot, prop, v0, b, c, e);
+                }
             }
             continue;
         }
@@ -5314,7 +5352,9 @@ ACS_EDITOR_API int acs_editor_node_duplicate(void* handle, int id) {
     if (src == nullptr) return -1;
     PushUndo(*host);
     const int parent_id = ParentIdOf(*host, src);   // 元と同じ親 = 兄弟として複製
-    FEditorNode* clone = CloneSubtree(*host, src, parent_id, /*top=*/true);
+    TArray<int> oldIds, newIds;
+    FEditorNode* clone = CloneSubtree(*host, src, parent_id, /*top=*/true, &oldIds, &newIds);
+    RemapClonedObjectRefs(*host, oldIds, newIds);    // subtree 内の参照を新 id へ付け替え
     SelSet(*host, clone->editor_id);
     return clone->editor_id;
 }
@@ -5434,15 +5474,17 @@ ACS_EDITOR_API int acs_editor_selection_duplicate(void* handle) {
     // 複製中に selection を書き換えるので、対象 id を先にコピーしておく。
     TArray<int> sources = host->selection.Clone();
     TArray<int> newIds;
+    TArray<int> refOld, refNew;   // 複製した全ノードの old→new (ObjectRef 再マップ用)
     for (u32 i = 0; i < sources.Size(); ++i) {
         FEditorNode* src = FindNode(*host, sources[i]);
         if (src == nullptr) continue;
         // 祖先も選択集合にあるノードは、その祖先の複製に subtree として含まれる → 単独複製しない
         // (二重複製を防ぐ)。
         if (AnyAncestorInList(*host, src, sources)) continue;
-        FEditorNode* clone = CloneSubtree(*host, src, ParentIdOf(*host, src), /*top=*/true);
+        FEditorNode* clone = CloneSubtree(*host, src, ParentIdOf(*host, src), /*top=*/true, &refOld, &refNew);
         newIds.PushBack(clone->editor_id);
     }
+    RemapClonedObjectRefs(*host, refOld, refNew);   // 複製集合内を指す参照を新 id へ付け替え
     // 新しい複製群を選択する (primary = 最後の複製)。
     host->selection.Clear();
     for (u32 i = 0; i < newIds.Size(); ++i) host->selection.PushBack(newIds[i]);

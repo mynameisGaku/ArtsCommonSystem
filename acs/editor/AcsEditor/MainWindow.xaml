@@ -164,6 +164,7 @@
                             <MenuItem x:Name="CtxBuiltin" Header="ビルトインのオブジェクト"/>
                             <MenuItem x:Name="CtxUser" Header="ユーザー定義のオブジェクト"/>
                             <Separator/>
+                            <MenuItem Header="プレハブとして保存…" Click="OnCtxSavePrefab"/>
                             <MenuItem Header="名前を変更" Click="OnCtxRename"/>
                             <MenuItem Header="削除" Click="OnCtxDelete"/>
                         </ContextMenu>

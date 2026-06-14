@@ -202,13 +202,14 @@ public partial class AssetBrowserPanel : UserControl
         ".acscene" => "scene",
         ".acsproject" => "project",
         ".acsmat" => "material",
+        ".acsprefab" => "prefab",
         _ => "file",
     };
 
     private static string GlyphFor(string kind) => kind switch
     {
         "image" => "IMG", "audio" => "AUD", "mesh" => "MESH", "text" => "TXT",
-        "scene" => "SCN", "project" => "PROJ", "material" => "MAT", _ => "FILE",
+        "scene" => "SCN", "project" => "PROJ", "material" => "MAT", "prefab" => "PREF", _ => "FILE",
     };
 
     private static Brush BrushFor(string kind) => kind switch
