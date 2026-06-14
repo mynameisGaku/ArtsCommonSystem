@@ -14,6 +14,7 @@
 #include "gameframework/Node3D.h"
 #include "gameframework/Component3D.h"
 #include "gameframework/Scene3D.h"
+#include "gameframework/Scene3DSerialize.h"
 #include "gameframework/MeshComponent3D.h"
 #include "asset/MeshAsset.h"
 #include "memory/SharedPtr.h"
@@ -490,6 +491,98 @@ ACS_TEST(MeshComponent3D, ConstructWithPrimitive) {
     FNode3D node;
     auto& m = node.AddComponent<FMeshComponent3D>(EMeshPrimitive3D::Plane);
     EXPECT_TRUE(m.Primitive() == EMeshPrimitive3D::Plane);
+}
+
+// === Scene3DSerialize =======================================================
+
+// --- save → load の往復で構造/transform/メッシュ記述が一致する ---------------
+ACS_TEST(Scene3DSerialize, RoundTrip) {
+    FScene3D a;
+    // Box: cube・赤・pos/euler/scale 非自明
+    FNode3D& box = a.Spawn(FStringView("Box"));
+    box.Local().position = FVec3{ 1, 2, 3 };
+    box.Local().SetEulerDeg(FVec3{ 10, 20, 30 });
+    box.Local().scale = FVec3{ 2, 2, 2 };
+    { auto& m = box.AddComponent<FMeshComponent3D>(EMeshPrimitive3D::Cube); m.SetColor(FVec4{0.9f,0.1f,0.1f,1}); }
+    // Ball: sphere・青 (root 直下)
+    FNode3D& ball = a.Spawn(FStringView("Ball"));
+    { auto& m = ball.AddComponent<FMeshComponent3D>(EMeshPrimitive3D::Sphere); m.SetColor(FVec4{0.2f,0.4f,0.9f,1}); }
+    // Child: Box の子 (階層)
+    FNode3D& child = a.Spawn(FStringView("Child"), &box);
+    child.Local().position = FVec3{ 0, 1, 0 };
+    child.AddComponent<FMeshComponent3D>(EMeshPrimitive3D::Plane);
+    // Custom: メッシュパス
+    FNode3D& custom = a.Spawn(FStringView("Custom"));
+    { auto& m = custom.AddComponent<FMeshComponent3D>(); m.SetMeshPath(FStringView("Assets/teapot.obj")); }
+
+    char buf[4096];
+    const u32 wrote = SaveScene3DText(a, buf, sizeof(buf));
+    EXPECT_TRUE(wrote > 0);
+
+    FScene3D b;
+    EXPECT_TRUE(LoadScene3DText(b, buf));
+    // 構造一致 (root + 4 ノード)
+    EXPECT_EQ(b.NodeCount(), a.NodeCount());
+    EXPECT_EQ(b.NodeCount(), 5u);
+
+    // Box の transform / mesh
+    FNode3D* bbox = b.FindByName(FStringView("Box"));
+    EXPECT_TRUE(bbox != nullptr);
+    ExpectVec3Near(bbox->Local().position, FVec3{1,2,3}, 1e-3f);
+    ExpectVec3Near(bbox->Local().scale,    FVec3{2,2,2}, 1e-3f);
+    ExpectVec3Near(bbox->Local().EulerDeg(), FVec3{10,20,30}, 2e-2f);
+    FMeshComponent3D* bmc = bbox->GetComponent<FMeshComponent3D>();
+    EXPECT_TRUE(bmc != nullptr);
+    EXPECT_TRUE(bmc->Primitive() == EMeshPrimitive3D::Cube);
+    EXPECT_NEAR(bmc->Color().x, 0.9f, 1e-3f);
+
+    // 階層: Child の親が Box
+    FNode3D* bchild = b.FindByName(FStringView("Child"));
+    EXPECT_TRUE(bchild != nullptr);
+    EXPECT_TRUE(bchild->Parent() == bbox);
+    ExpectVec3Near(bchild->Local().position, FVec3{0,1,0}, 1e-3f);
+
+    // メッシュパス
+    FNode3D* bcustom = b.FindByName(FStringView("Custom"));
+    EXPECT_TRUE(bcustom != nullptr);
+    FMeshComponent3D* cmc = bcustom->GetComponent<FMeshComponent3D>();
+    EXPECT_TRUE(cmc != nullptr);
+    EXPECT_TRUE(cmc->Primitive() == EMeshPrimitive3D::Mesh);
+    EXPECT_TRUE(cmc->MeshPath() == FStringView("Assets/teapot.obj"));
+}
+
+// --- Load は既存内容を置き換える (二重 Load で増殖しない) -------------------
+ACS_TEST(Scene3DSerialize, LoadReplacesExisting) {
+    FScene3D a;
+    a.Spawn(FStringView("One"));
+    a.Spawn(FStringView("Two"));
+    char buf[1024];
+    SaveScene3DText(a, buf, sizeof(buf));
+
+    FScene3D b;
+    b.Spawn(FStringView("OldA"));
+    b.Spawn(FStringView("OldB"));
+    b.Spawn(FStringView("OldC"));
+    EXPECT_EQ(b.NodeCount(), 4u);
+    LoadScene3DText(b, buf);
+    EXPECT_EQ(b.NodeCount(), 3u);                  // root + One + Two (古い 3 つは消えた)
+    EXPECT_TRUE(b.FindByName(FStringView("OldA")) == nullptr);
+    EXPECT_TRUE(b.FindByName(FStringView("One")) != nullptr);
+    // 2 回 Load しても増えない
+    LoadScene3DText(b, buf);
+    EXPECT_EQ(b.NodeCount(), 3u);
+}
+
+// --- 空シーン (root のみ) の往復 --------------------------------------------
+ACS_TEST(Scene3DSerialize, EmptyScene) {
+    FScene3D a;
+    char buf[256];
+    const u32 wrote = SaveScene3DText(a, buf, sizeof(buf));
+    EXPECT_TRUE(wrote > 0);                        // root 行は出る
+    FScene3D b;
+    b.Spawn(FStringView("X"));
+    EXPECT_TRUE(LoadScene3DText(b, buf));
+    EXPECT_EQ(b.NodeCount(), 1u);                  // root のみ
 }
 
 // --- メッシュアセットを所有し、外部参照を捨てても生存する -------------------

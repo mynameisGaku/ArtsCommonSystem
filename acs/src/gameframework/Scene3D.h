@@ -151,6 +151,15 @@ public:
      */
     u32 NodeCount() const noexcept;
 
+    /**
+     * root の全子孫を破棄してシーンを空にする (root 自身は残し、transform/名前を既定へ戻す)。
+     *
+     * @details
+     * 各 top-level 子を Destroy → pool を purge → 即時 reap する (Update を待たない)。
+     * シーン読み込み (LoadScene3DText) の «置き換え» 前処理に使う。
+     */
+    void Clear() noexcept;
+
 private:
     /** シーンの root ノード (ツリーの起点、名前 "Root")。 */
     FNode3D m_Root{ FStringView("Root") };

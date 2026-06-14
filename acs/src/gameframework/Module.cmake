@@ -96,6 +96,7 @@ acs_module(
         SaveSlot.cpp
         Scene2D.cpp
         Scene3D.cpp
+        Scene3DSerialize.cpp
         SceneCommandQueue.cpp
         SceneEventBus.cpp
         SceneManager.cpp
@@ -270,6 +271,7 @@ acs_module(
         Scene.h
         Scene2D.h
         Scene3D.h
+        Scene3DSerialize.h
         SceneCommandQueue.h
         SceneEventBus.h
         SceneManager.h

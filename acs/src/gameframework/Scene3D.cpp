@@ -57,4 +57,16 @@ u32 FScene3D::NodeCount() const noexcept {
     return CountRec(&m_Root);
 }
 
+void FScene3D::Clear() noexcept {
+    // top-level 子を全て破棄予定にし、pool から外して即 reap (Update を待たない)。
+    for (u32 i = 0; i < m_Root.ChildCount(); ++i) {
+        if (FNode3D* c = m_Root.Child(i)) c->Destroy();
+    }
+    m_Pool.PurgePendingDestroy();
+    m_Root.ResolveStructuralChanges();
+    // root 自身を既定へ戻す (読み込み側が root 行で上書きする)。
+    m_Root.Local() = FTransform3D::Identity();
+    m_Root.SetName(FStringView("Root"));
+}
+
 } // namespace acs::game
