@@ -178,6 +178,9 @@ protected:
     /** シーンが top に来たとき 1 度だけ呼ばれる初期化フック (派生で override)。 */
     virtual void OnReady() noexcept {}
 
+    /** World サブシステム初期化直後、root ノードへ束を配線する (配下から GetSubsystem<T>() 可に)。 */
+    void _OnWorldSubsystemsReady() noexcept override { m_Root._SetSubsystems(_WorldSubsystemsPtr()); }
+
     /**
      * 毎フレームのゲームロジックフック (root の更新前に呼ばれる)。
      *

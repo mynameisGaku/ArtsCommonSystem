@@ -38,6 +38,7 @@
 
 #include "foundation/Types.h"
 #include "math/Vec.h"   // FVec2 / FVec3 (QueryLight 等)
+#include "gameframework/SubsystemCollection.h"   // GetSubsystem<T>() (軽量ヘッダ)
 
 namespace acs::game {
 
@@ -241,6 +242,26 @@ public:
      * @return SceneServices() が非 null なら true。
      */
     bool HasSceneServices() const noexcept;
+
+    /**
+     * owner ツリーに配線された World サブシステム束を返す (未配線なら nullptr)。
+     *
+     * @return World スコープのコレクション (GameInstance → Engine へフォールバック)。
+     */
+    FSubsystemCollection* Subsystems() const noexcept;
+
+    /**
+     * 型でサブシステムを取得する (World → GameInstance → Engine の順に検索)。
+     *
+     * @details オブジェクト同士のやり取り(スコア加算・イベント送出 等)はこれ経由で行う。
+     * @tparam T FSubsystem 派生型。
+     * @return T*(未配線/未登録なら nullptr)。
+     */
+    template<typename T>
+    T* GetSubsystem() const noexcept {
+        FSubsystemCollection* s = Subsystems();
+        return (s != nullptr) ? s->Get<T>() : nullptr;
+    }
 
     /**
      * services が利用可能なら OnAttachServices を一度だけ発火する (内部用、ガード付き)。

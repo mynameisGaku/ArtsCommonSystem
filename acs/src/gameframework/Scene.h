@@ -24,6 +24,7 @@
 #include "foundation/Move.h"
 #include "memory/UniquePtr.h"
 #include "gameframework/SceneServices.h"
+#include "gameframework/SubsystemCollection.h"
 
 namespace acs {
 
@@ -183,6 +184,54 @@ public:
      */
     FSceneServices* _ServicesOrNull() const noexcept { return m_Services.Get(); }
 
+    // ===== サブシステム (World スコープ) =====
+
+    /**
+     * このシーン(World スコープ)のサブシステム束を返す。
+     *
+     * @details World に無いサブシステムは GameInstance → Engine へフォールバックする
+     * (FSceneManager が parent を配線する)。
+     * @return World スコープのコレクション。
+     */
+    FSubsystemCollection& Subsystems() noexcept { return m_WorldSubsystems; }
+
+    /**
+     * 型でサブシステムを取得する (World → GameInstance → Engine の順に検索)。
+     *
+     * @tparam T FSubsystem 派生型。
+     * @return T*(未登録なら nullptr)。
+     */
+    template<typename T>
+    T* GetSubsystem() noexcept { return m_WorldSubsystems.Get<T>(); }
+
+    /**
+     * World サブシステムを初期化する (内部用。FSceneManager が push 時に呼ぶ)。
+     *
+     * @param parent GameInstance スコープのコレクション(フォールバック先)。
+     */
+    void _InitWorldSubsystems(FSubsystemCollection* parent) noexcept {
+        m_WorldSubsystems.Initialize(ESubsystemScope::World, parent);
+        _OnWorldSubsystemsReady();
+    }
+
+    /** World サブシステムを 1 フレーム進める (内部用)。 */
+    void _TickWorldSubsystems(f32 dt) noexcept { m_WorldSubsystems.Tick(dt); }
+
+    /** World サブシステムを解体する (内部用。FSceneManager が pop 時に呼ぶ)。 */
+    void _DeinitWorldSubsystems() noexcept { m_WorldSubsystems.Deinitialize(); }
+
+    /** World サブシステムへのポインタ (内部用。派生がノードへ配線するのに使う)。 */
+    FSubsystemCollection* _WorldSubsystemsPtr() noexcept { return &m_WorldSubsystems; }
+
+protected:
+    /**
+     * World サブシステムの初期化直後に呼ばれる内部フック(OnEnter より前)。
+     *
+     * @details FScene2D が override してルートノードへサブシステム束を配線し、
+     * 配下のノード/コンポーネントから GetSubsystem<T>() を使えるようにする。
+     */
+    virtual void _OnWorldSubsystemsReady() noexcept {}
+
 private:
     /** 所属する FGame (default = nullptr、_SetContext で配線)。 */
     FGame*                    m_Game     = nullptr;
@@ -192,6 +241,9 @@ private:
 
     /** attach されたサービス束 (WantedServices に応じて FSceneManager が確保、所有権を持つ)。 */
     TUniquePtr<FSceneServices> m_Services;
+
+    /** World スコープのサブシステム束 (push 時に FSceneManager が Initialize)。 */
+    FSubsystemCollection m_WorldSubsystems;
 };
 
 } // namespace game

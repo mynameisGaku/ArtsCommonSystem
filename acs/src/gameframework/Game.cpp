@@ -14,6 +14,11 @@ namespace acs::game {
 
 /** 起動時に InitialScene() を push して即時適用する。 */
 void FGame::OnStart() noexcept {
+    // サブシステムを先に初期化(最初のシーンの World サブシステム/OnEnter が参照できるように)。
+    // Engine が最上位、GameInstance はその子(Get<T> が Engine へフォールバックする)。
+    m_EngineSubsystems.Initialize(ESubsystemScope::Engine);
+    m_GameInstanceSubsystems.Initialize(ESubsystemScope::GameInstance, &m_EngineSubsystems);
+
     TUniquePtr<Scene> first = InitialScene();
     if (!first) {
         ACS_LOG_ERROR("FGame::InitialScene() returned null — Quit");
@@ -56,7 +61,11 @@ void FGame::OnUpdate(f32 dt) noexcept {
         }
     }
 
-    // variable-rate update (毎フレーム dt)
+    // Engine / GameInstance サブシステムを tick(シーンより先 = ゲーム全体の状態を先に更新)。
+    m_EngineSubsystems.Tick(scaled_dt);
+    m_GameInstanceSubsystems.Tick(scaled_dt);
+
+    // variable-rate update (毎フレーム dt)。Scene 内で World サブシステムも tick される。
     m_Scenes._Update(scaled_dt);
 }
 
@@ -123,9 +132,12 @@ void FGame::TransitionTo(TUniquePtr<Scene> next, f32 out_sec, f32 in_sec) noexce
     m_Fade.StartFade(EFadeKind::FadeInOut, out_sec, in_sec, 0.0f);
 }
 
-/** 全シーンを shutdown し、UI フォントと overlay リソースを解放する。 */
+/** 全シーンを shutdown し、サブシステムと UI フォント・overlay リソースを解放する。 */
 void FGame::OnShutdown() noexcept {
-    m_Scenes._ShutdownAll();
+    m_Scenes._ShutdownAll();                  // 各シーンが OnExit で World サブシステムを解体
+    // サブシステムを下位スコープから順に解体(GameInstance → Engine)。
+    m_GameInstanceSubsystems.Deinitialize();
+    m_EngineSubsystems.Deinitialize();
     if (m_UiFontReady) m_UiFont.Shutdown();
     if (m_OverlayReady) m_Overlay.Shutdown();
 }

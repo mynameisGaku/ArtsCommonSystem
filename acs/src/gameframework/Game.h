@@ -27,6 +27,7 @@
 #include "gameframework/RenderContext.h"
 #include "gameframework/AppState.h"
 #include "gameframework/FadeTransition.h"
+#include "gameframework/SubsystemCollection.h"
 
 namespace acs::game {
 
@@ -146,6 +147,30 @@ public:
      */
     FFadeTransition& Fade() noexcept { return m_Fade; }
 
+    /**
+     * GameInstance スコープのサブシステム束を返す(Engine スコープへフォールバックする)。
+     *
+     * @details Scene の World サブシステム束はこれを parent にする。
+     * @return GameInstance スコープのコレクション。
+     */
+    FSubsystemCollection& GameInstanceSubsystems() noexcept { return m_GameInstanceSubsystems; }
+
+    /**
+     * Engine スコープ(アプリ全体寿命)のサブシステム束を返す。
+     *
+     * @return Engine スコープのコレクション。
+     */
+    FSubsystemCollection& EngineSubsystems() noexcept { return m_EngineSubsystems; }
+
+    /**
+     * 型でサブシステムを取得する(GameInstance → Engine の順に検索)。
+     *
+     * @tparam T FSubsystem 派生型。
+     * @return T*(未登録なら nullptr)。
+     */
+    template<typename T>
+    T* GetSubsystem() noexcept { return m_GameInstanceSubsystems.Get<T>(); }
+
 protected:
     /**
      * 最初に push される Scene を返す (派生クラスで実装必須)。
@@ -209,6 +234,12 @@ private:
 
     /** シーン跨ぎの型消去永続状態 (1 個固定)。 */
     FAppStateSlot  m_AppState;
+
+    /** Engine スコープ(アプリ全体寿命)のサブシステム束。 */
+    FSubsystemCollection m_EngineSubsystems;
+
+    /** GameInstance スコープ(ゲームセッション寿命、シーン跨ぎ)のサブシステム束。 */
+    FSubsystemCollection m_GameInstanceSubsystems;
 
     /** 全シーン共有の HUD フォント (game 寿命)。 */
     Font          m_UiFont;

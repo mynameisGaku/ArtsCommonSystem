@@ -541,6 +541,33 @@ public:
     void _SetSceneServices(FSceneServices* svc) noexcept { m_Services = svc; }
 
     /**
+     * ツリーに配線された World サブシステム束を返す (root まで遡る。未配線なら nullptr)。
+     *
+     * @details services と同じく root にのみ設定され、子は walk-to-root で解決する。
+     * @return World スコープのコレクション (未配線は nullptr)。
+     */
+    FSubsystemCollection* Subsystems() const noexcept;
+
+    /**
+     * 型でサブシステムを取得する (World → GameInstance → Engine の順に検索)。
+     *
+     * @tparam T FSubsystem 派生型。
+     * @return T*(未配線/未登録なら nullptr)。
+     */
+    template<typename T>
+    T* GetSubsystem() const noexcept {
+        FSubsystemCollection* s = Subsystems();
+        return (s != nullptr) ? s->Get<T>() : nullptr;
+    }
+
+    /**
+     * サブシステム束ポインタを設定する (内部用。root ノードでのみ意味を持つ)。
+     *
+     * @param subs 設定する FSubsystemCollection (非所有、nullptr で解除)。
+     */
+    void _SetSubsystems(FSubsystemCollection* subs) noexcept { m_Subsystems = subs; }
+
+    /**
      * root に services を設定し、subtree の全コンポーネントの OnAttachServices を一度発火する。
      *
      * @details ツリー構築完了後・services 生成後に 1 回呼ぶ (FScene2D / editor Play)。
@@ -612,6 +639,9 @@ private:
 
     /** 配線された FSceneServices (root にのみ設定、非所有。子は walk-to-root で解決)。 */
     FSceneServices* m_Services     = nullptr;
+
+    /** 配線された World サブシステム束 (root にのみ設定、非所有。子は walk-to-root で解決)。 */
+    FSubsystemCollection* m_Subsystems = nullptr;
 
     /** 直接の子 (所有権を持つ)。 */
     TArray<TUniquePtr<FNode2D>>      m_Children;

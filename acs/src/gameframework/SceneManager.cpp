@@ -62,6 +62,8 @@ void FSceneManager::DoPushInternal(FGame& game, TUniquePtr<Scene> next,
     if (wanted != ESvc::None) {
         next->_AttachServices(MakeUnique<FSceneServices>(wanted));
     }
+    // World スコープのサブシステムを初期化(parent = GameInstance → Engine)。OnEnter より前。
+    next->_InitWorldSubsystems(&game.GameInstanceSubsystems());
     m_Stack.PushBack(Move(next));
     m_Stack.Back()->OnEnter();
 }
@@ -70,6 +72,7 @@ void FSceneManager::DoPushInternal(FGame& game, TUniquePtr<Scene> next,
 void FSceneManager::DoPopInternal(bool resume_new) noexcept {
     if (m_Stack.IsEmpty()) return;
     m_Stack.Back()->OnExit();
+    m_Stack.Back()->_DeinitWorldSubsystems();   // OnExit 後に World サブシステムを解体
     // 退場 Scene を ring buffer の現在ヘッドに格納 (3 フレーム保持)。
     // ヘッドは _ApplyPending の冒頭で前進 + 古いスロット解放済。
     m_Retired[m_RetireHead] = Move(m_Stack.Back());
@@ -127,9 +130,11 @@ void FSceneManager::_Update(f32 dt) noexcept {
     if (svc != nullptr) {
         svc->_PreUpdate(dt);
         const f32 scaled = svc->_ScaledDt(dt);
+        top->_TickWorldSubsystems(scaled);   // World サブシステムを OnUpdate より先に tick
         top->OnUpdate(scaled);
         svc->_PostUpdate(scaled);
     } else {
+        top->_TickWorldSubsystems(dt);
         top->OnUpdate(dt);
     }
 }
@@ -160,6 +165,7 @@ void FSceneManager::_ShutdownAll() noexcept {
     // top から順に OnExit を呼んでから破棄。
     while (!m_Stack.IsEmpty()) {
         m_Stack.Back()->OnExit();
+        m_Stack.Back()->_DeinitWorldSubsystems();   // World サブシステムも解体
         m_Stack.PopBack();
     }
     for (u32 i = 0; i < kRetireRingSize; ++i) {

@@ -92,6 +92,13 @@ void FNode2D::_ActivateSubtreeServices(FSceneServices* svc) noexcept {
     }
 }
 
+/** root まで遡って配線済み World サブシステム束を返す (services と同じ非所有規約)。 */
+FSubsystemCollection* FNode2D::Subsystems() const noexcept {
+    const FNode2D* n = this;
+    while (n->m_Parent != nullptr) n = n->m_Parent;
+    return n->m_Subsystems;
+}
+
 /** コンポーネント → owner ツリーの services 解決 (owner 未設定なら nullptr)。 */
 FSceneServices* FComponent2D::SceneServices() const noexcept {
     return (m_Owner != nullptr) ? m_Owner->SceneServices() : nullptr;
@@ -100,6 +107,11 @@ FSceneServices* FComponent2D::SceneServices() const noexcept {
 /** services が配線済みか。 */
 bool FComponent2D::HasSceneServices() const noexcept {
     return SceneServices() != nullptr;
+}
+
+/** コンポーネント → owner ツリーの World サブシステム束を解決 (owner 未設定なら nullptr)。 */
+FSubsystemCollection* FComponent2D::Subsystems() const noexcept {
+    return (m_Owner != nullptr) ? m_Owner->Subsystems() : nullptr;
 }
 
 /** 自身と components の OnUpdate を呼び、子へ可変刻み update を伝播する。 */
