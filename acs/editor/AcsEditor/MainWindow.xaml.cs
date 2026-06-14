@@ -441,6 +441,15 @@ public partial class MainWindow : Window
 
     private void OnCtxDelete(object sender, RoutedEventArgs e) => DeleteSelected();
 
+    // 畳んだノード id を覚えておき、ヒエラルキー再構築でも展開状態を維持する
+    // (再構築のたびに IsExpanded=true だと畳んでもすぐ開いてしまうため)。
+    private readonly HashSet<int> _collapsedNodes = new();
+    private void WireCollapseTracking(TreeViewItem tvi)
+    {
+        tvi.Expanded  += (s, e) => { if (s is TreeViewItem t && t.Tag is int id) { _collapsedNodes.Remove(id); } e.Handled = true; };
+        tvi.Collapsed += (s, e) => { if (s is TreeViewItem t && t.Tag is int id) { _collapsedNodes.Add(id);    } e.Handled = true; };
+    }
+
     private void BuildHierarchy()
     {
         if (Engine == IntPtr.Zero) return;
@@ -454,13 +463,15 @@ public partial class MainWindow : Window
         {
             int id = EngineInterop.acs_editor_node_id_at(Engine, i);
             ids.Add(id);
-            items[id] = new TreeViewItem
+            var tvi = new TreeViewItem
             {
                 Header = EngineInterop.NodeName(Engine, id),
                 Tag = id,
-                IsExpanded = true,
+                IsExpanded = !_collapsedNodes.Contains(id),   // 畳み状態を再構築でも維持
                 Foreground = System.Windows.Media.Brushes.Gainsboro,
             };
+            WireCollapseTracking(tvi);
+            items[id] = tvi;
         }
         // 親子をつなぐ。
         foreach (int id in ids)

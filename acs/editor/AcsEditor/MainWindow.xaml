@@ -113,6 +113,7 @@
 
         <!-- ツールバー -->
         <Border DockPanel.Dock="Top" Background="{StaticResource Panel2}" BorderBrush="{StaticResource Edge}" BorderThickness="0,0,0,1">
+            <!-- グローバルツールバー: プロジェクト全体の操作のみ (シーン編集ツールはシーンビューへ) -->
             <StackPanel Orientation="Horizontal" Margin="8,6">
                 <Button x:Name="PlayBtn"  Content="▶  Play"  Click="OnPlay"  Padding="11,4" Margin="2,0" Foreground="#FF8BE0A0"/>
                 <Button x:Name="PauseBtn" Content="❚❚ Pause" Click="OnPause" Padding="10,4" Margin="2,0" IsEnabled="False"/>
@@ -121,37 +122,6 @@
                 <Button x:Name="BuildBtn" Content="🔨 Build" Click="OnBuildProject" Padding="10,4" Margin="2,0"/>
                 <Button x:Name="RunBtn" Content="▷ Run" Click="OnBuildAndRun" Padding="10,4" Margin="2,0" Foreground="#FF7FB8FF"/>
                 <ToggleButton x:Name="HotReloadBtn" Content="🔁 Hot Reload" Click="OnHotReloadToggle" Padding="8,4" Margin="2,0"/>
-                <Separator/>
-                <!-- View グループ -->
-                <Button Content="⤢ Reset View" Click="OnResetView" Padding="10,4" Margin="2,0"/>
-                <Button Content="⊙ Focus" Click="OnFocus" Padding="9,4" Margin="2,0"/>
-                <Separator/>
-                <!-- Mode グループ -->
-                <ToggleButton x:Name="View3DBtn" Content="⬗ 3D" Click="OnToggle3D" Padding="8,4" Margin="1,0"
-                              ToolTip="2D スプライト編集 / 3D シーン編集 を切り替え"/>
-                <ToggleButton x:Name="PolyBtn" Content="✎ Polygon" Click="OnPolyToggle" Padding="8,4" Margin="1,0"/>
-                <Separator/>
-                <!-- Gizmo グループ -->
-                <TextBlock Text="Gizmo" VerticalAlignment="Center" Margin="4,0,6,0" Foreground="{StaticResource TextDim}"/>
-                <ToggleButton x:Name="GizMove"   Content="✛ Move"   Click="OnGizmoMove"   Padding="8,4" Margin="1,0"/>
-                <ToggleButton x:Name="GizRotate" Content="⟳ Rotate" Click="OnGizmoRotate" Padding="8,4" Margin="1,0"/>
-                <ToggleButton x:Name="GizScale"  Content="⤢ Scale"  Click="OnGizmoScale"  Padding="8,4" Margin="1,0"/>
-                <CheckBox x:Name="SnapCheck" Content="Snap" Click="OnSnapToggle" VerticalAlignment="Center" Margin="10,0,4,0"/>
-                <Separator/>
-                <!-- 整列/分散は 8 ボタンをやめてドロップダウンに集約 -->
-                <Menu Background="Transparent" VerticalAlignment="Center" Padding="0">
-                    <MenuItem Header="⊞ Align ▾" Padding="8,4" ToolTip="選択ノードの整列・分散">
-                        <MenuItem Header="左揃え"     Click="OnAlignLeft"/>
-                        <MenuItem Header="右揃え"     Click="OnAlignRight"/>
-                        <MenuItem Header="上揃え"     Click="OnAlignTop"/>
-                        <MenuItem Header="下揃え"     Click="OnAlignBottom"/>
-                        <MenuItem Header="水平中央"   Click="OnAlignHC"/>
-                        <MenuItem Header="垂直中央"   Click="OnAlignVC"/>
-                        <Separator/>
-                        <MenuItem Header="水平に分散" Click="OnDistributeH"/>
-                        <MenuItem Header="垂直に分散" Click="OnDistributeV"/>
-                    </MenuItem>
-                </Menu>
                 <Separator/>
                 <TextBlock Text="AA" VerticalAlignment="Center" Margin="4,0,6,0" Foreground="{StaticResource TextDim}"/>
                 <ComboBox x:Name="AaBox" Width="84" VerticalAlignment="Center" SelectionChanged="OnAaChanged">
@@ -210,12 +180,39 @@
                 </Grid.RowDefinitions>
 
                 <DockPanel Grid.Row="0" Background="{StaticResource Edge}">
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Background="{StaticResource Panel2}">
+                    <DockPanel DockPanel.Dock="Top" Background="{StaticResource Panel2}">
                         <ToggleButton x:Name="SceneTabBtn" Content="◳ Scene" IsChecked="True" Click="OnSceneTab"
                                       Padding="12,4" Margin="2" Background="Transparent" Foreground="{StaticResource Text}"/>
                         <ToggleButton x:Name="GameTabBtn" Content="▶ Game" Click="OnGameTab"
                                       Padding="12,4" Margin="2" Background="Transparent" Foreground="{StaticResource Text}"/>
-                    </StackPanel>
+                        <!-- シーンビュー専用の編集ツール (右寄せ。グローバルツールバーから移動) -->
+                        <StackPanel x:Name="SceneTools" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0">
+                            <ToggleButton x:Name="View3DBtn" Content="⬗ 3D" Click="OnToggle3D" Padding="8,3" Margin="1,0" ToolTip="2D / 3D 編集の切り替え"/>
+                            <ToggleButton x:Name="PolyBtn" Content="✎ Polygon" Click="OnPolyToggle" Padding="8,3" Margin="1,0"/>
+                            <Separator/>
+                            <ToggleButton x:Name="GizMove"   Content="✛" Click="OnGizmoMove"   Padding="8,3" Margin="1,0" ToolTip="移動 (Move)"/>
+                            <ToggleButton x:Name="GizRotate" Content="⟳" Click="OnGizmoRotate" Padding="8,3" Margin="1,0" ToolTip="回転 (Rotate)"/>
+                            <ToggleButton x:Name="GizScale"  Content="⤢" Click="OnGizmoScale"  Padding="8,3" Margin="1,0" ToolTip="拡縮 (Scale)"/>
+                            <CheckBox x:Name="SnapCheck" Content="Snap" Click="OnSnapToggle" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                            <Separator/>
+                            <Button Content="⊙ Focus" Click="OnFocus" Padding="8,3" Margin="1,0" ToolTip="選択にフォーカス"/>
+                            <Button Content="⤢ Reset" Click="OnResetView" Padding="8,3" Margin="1,0" ToolTip="ビューをリセット"/>
+                            <Separator/>
+                            <Menu Background="Transparent" VerticalAlignment="Center" Padding="0">
+                                <MenuItem Header="⊞ Align ▾" Padding="7,3" ToolTip="整列・分散">
+                                    <MenuItem Header="左揃え"     Click="OnAlignLeft"/>
+                                    <MenuItem Header="右揃え"     Click="OnAlignRight"/>
+                                    <MenuItem Header="上揃え"     Click="OnAlignTop"/>
+                                    <MenuItem Header="下揃え"     Click="OnAlignBottom"/>
+                                    <MenuItem Header="水平中央"   Click="OnAlignHC"/>
+                                    <MenuItem Header="垂直中央"   Click="OnAlignVC"/>
+                                    <Separator/>
+                                    <MenuItem Header="水平に分散" Click="OnDistributeH"/>
+                                    <MenuItem Header="垂直に分散" Click="OnDistributeV"/>
+                                </MenuItem>
+                            </Menu>
+                        </StackPanel>
+                    </DockPanel>
                     <Border x:Name="ViewportHost" Background="#FF0E1116" Margin="0"/>
                 </DockPanel>
 

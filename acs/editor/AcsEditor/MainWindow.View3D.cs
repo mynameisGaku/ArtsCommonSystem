@@ -35,8 +35,9 @@ public partial class MainWindow
                 Tag = id,
                 Foreground = Brushes.Gainsboro,
                 IsSelected = (id == sel),
-                IsExpanded = true,
+                IsExpanded = !_collapsedNodes.Contains(id),   // 畳み状態を維持
             };
+            WireCollapseTracking(tvi);
             byId[id] = tvi;
             int parent = EngineInterop.acs_editor_node3d_parent(Engine, id);
             if (parent >= 0 && byId.TryGetValue(parent, out var pitem)) pitem.Items.Add(tvi);
