@@ -1121,8 +1121,9 @@ public partial class MainWindow : Window
     private void BuildLog(string msg)
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(() => BuildLog(msg)); return; }
-        BuildList.Items.Add($"[{DateTime.Now:HH:mm:ss}] {msg}");
-        BuildList.ScrollIntoView(BuildList.Items[BuildList.Items.Count - 1]);
+        var line = new BuildLine { Text = $"[{DateTime.Now:HH:mm:ss}] {msg}", Brush = LevelBrush(ClassifyBuildLine(msg)) };
+        BuildList.Items.Add(line);   // エラー=赤 / 警告=黄 で色分け
+        BuildList.ScrollIntoView(line);
     }
 
     // ===== ホットリロード: Source 保存を監視 → 自動再ビルド → ゲーム再起動 =====

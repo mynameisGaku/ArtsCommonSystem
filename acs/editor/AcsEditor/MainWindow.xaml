@@ -252,7 +252,16 @@
                     </DockPanel>
                     <ListBox x:Name="ConsoleList" Grid.Row="1" Background="{StaticResource Panel2}"
                              BorderThickness="0" FontSize="12" Margin="4"
+                             SelectionMode="Extended" KeyDown="OnConsoleKeyDown"
                              ScrollViewer.HorizontalScrollBarVisibility="Auto" VirtualizingPanel.IsVirtualizing="True">
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="コピー (選択行)" Click="OnCopyLog" InputGestureText="Ctrl+C"/>
+                                <MenuItem Header="すべてコピー"   Click="OnCopyAllLog"/>
+                                <Separator/>
+                                <MenuItem Header="クリア"         Click="OnClearLog"/>
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal">
@@ -266,7 +275,23 @@
                         </ListBox.ItemTemplate>
                     </ListBox>
                     <ListBox x:Name="BuildList" Grid.Row="1" Background="{StaticResource Panel2}" Foreground="#FFB7BEC8"
-                             BorderThickness="0" FontFamily="Consolas" FontSize="12" Margin="4" Visibility="Collapsed"/>
+                             BorderThickness="0" FontFamily="Consolas" FontSize="12" Margin="4" Visibility="Collapsed"
+                             SelectionMode="Extended" KeyDown="OnBuildKeyDown"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="コピー (選択行)" Click="OnCopyBuild" InputGestureText="Ctrl+C"/>
+                                <MenuItem Header="すべてコピー"   Click="OnCopyAllBuild"/>
+                                <Separator/>
+                                <MenuItem Header="クリア"         Click="OnClearBuild"/>
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Text}" Foreground="{Binding Brush}" FontFamily="Consolas"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
                     <local:AssetBrowserPanel x:Name="AssetBrowser" Grid.Row="1" Visibility="Collapsed"/>
                 </Grid>
             </Grid>

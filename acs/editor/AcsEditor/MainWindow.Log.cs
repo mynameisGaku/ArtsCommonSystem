@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -34,6 +35,13 @@ namespace AcsEditor
         };
         public Brush ChipBrush => LogTheme.ChipBg(Tag);
         public Brush ChipFg    => LogTheme.ChipFg;
+    }
+
+    /// <summary>ビルド出力 1 行 (本文 + 重大度に応じた色)。エラー=赤 / 警告=黄 で見分けやすく。</summary>
+    public sealed class BuildLine
+    {
+        public string Text  { get; init; } = "";
+        public Brush  Brush { get; init; } = LogTheme.InfoText;
     }
 
     /// <summary>ログの配色テーブル (凍結ブラシ。タグごとに識別色)。</summary>
@@ -152,5 +160,102 @@ namespace AcsEditor
         }
 
         private void OnClearLog(object sender, RoutedEventArgs e) => _logAll.Clear();
+
+        // ===== ログのコピー (選択行 or 表示中全行 → クリップボード) =====
+
+        /// <summary>1 行を「HH:mm:ss [Tag] 本文」のプレーンテキストに整形する (コピー用)。</summary>
+        private static string LogLineText(LogEntry e) => $"{e.TimeText} [{e.Tag}] {e.Message}";
+
+        /// <summary>選択中のログ行をコピー (未選択なら表示中の全行)。Ctrl+C / 右クリックメニューから。</summary>
+        private void CopySelectedLog()
+        {
+            var src = ConsoleList.SelectedItems.Count > 0
+                ? ConsoleList.SelectedItems.Cast<LogEntry>()
+                : ConsoleList.Items.Cast<LogEntry>();
+            CopyLogLines(src);
+        }
+
+        private void CopyLogLines(System.Collections.Generic.IEnumerable<LogEntry> items)
+        {
+            var rows = items.Where(e => e != null).ToList();
+            if (rows.Count == 0) return;
+            var sb = new System.Text.StringBuilder();
+            foreach (var e in rows) sb.AppendLine(LogLineText(e));
+            try
+            {
+                Clipboard.SetText(sb.ToString());
+                Log($"ログ {rows.Count} 行をコピーしました", "General", LogLevel.Success);
+            }
+            catch (Exception ex) { Log("ログのコピーに失敗: " + ex.Message, "General", LogLevel.Error); }
+        }
+
+        private void OnCopyLog(object sender, RoutedEventArgs e) => CopySelectedLog();
+        private void OnCopyAllLog(object sender, RoutedEventArgs e) => CopyLogLines(ConsoleList.Items.Cast<LogEntry>());
+
+        private void OnConsoleKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.C
+                && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0)
+            {
+                CopySelectedLog();
+                e.Handled = true;
+            }
+        }
+
+        // ===== ビルド出力の色分け (エラー=赤 / 警告=黄) + コピー =====
+
+        /// <summary>ビルド/コンパイラ/CMake 出力 1 行の重大度を推定する。"0 Error(s)" 等の集計行は誤検出しない。</summary>
+        private static LogLevel ClassifyBuildLine(string s)
+        {
+            string m = s.ToLowerInvariant();
+            if (m.Contains(": error ") || m.Contains("error c") || m.Contains("error msb") || m.Contains("error lnk")
+                || m.Contains("fatal error") || m.Contains("cmake error") || m.Contains("失敗")
+                || m.Contains("エラー") || m.Contains(" failed"))
+                return LogLevel.Error;
+            if (m.Contains(": warning ") || m.Contains("warning c") || m.Contains("warning msb")
+                || m.Contains("cmake warning") || m.Contains("警告"))
+                return LogLevel.Warn;
+            if (m.Contains("成功") || m.Contains("succeeded") || m.Contains(" → ")) return LogLevel.Success;
+            return LogLevel.Info;
+        }
+
+        /// <summary>重大度 → 表示色 (ログ/ビルド出力共通)。</summary>
+        private static Brush LevelBrush(LogLevel lvl) => lvl switch
+        {
+            LogLevel.Error   => LogTheme.ErrorText,
+            LogLevel.Warn    => LogTheme.WarnText,
+            LogLevel.Success => LogTheme.SuccessText,
+            _                => LogTheme.InfoText,
+        };
+
+        private void CopyBuildSelected()
+        {
+            var src = BuildList.SelectedItems.Count > 0
+                ? BuildList.SelectedItems.Cast<BuildLine>()
+                : BuildList.Items.Cast<BuildLine>();
+            var rows = src.Where(b => b != null).Select(b => b.Text).ToList();
+            if (rows.Count == 0) return;
+            try { Clipboard.SetText(string.Join(Environment.NewLine, rows)); }
+            catch { /* クリップボード使用中などは無視 */ }
+        }
+
+        private void OnCopyBuild(object sender, RoutedEventArgs e) => CopyBuildSelected();
+        private void OnCopyAllBuild(object sender, RoutedEventArgs e)
+        {
+            var rows = BuildList.Items.Cast<BuildLine>().Where(b => b != null).Select(b => b.Text).ToList();
+            if (rows.Count == 0) return;
+            try { Clipboard.SetText(string.Join(Environment.NewLine, rows)); } catch { }
+        }
+        private void OnClearBuild(object sender, RoutedEventArgs e) => BuildList.Items.Clear();
+
+        private void OnBuildKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.C
+                && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0)
+            {
+                CopyBuildSelected();
+                e.Handled = true;
+            }
+        }
     }
 }
