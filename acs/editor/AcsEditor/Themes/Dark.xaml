@@ -405,7 +405,8 @@
                         <ToggleButton x:Name="Expander" Grid.Column="0" Style="{StaticResource TreeExpandToggle}"
                                       ClickMode="Press"
                                       IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}}"/>
-                        <Border x:Name="row" Grid.Column="1" Background="{TemplateBinding Background}" CornerRadius="0" Padding="{TemplateBinding Padding}">
+                        <Border x:Name="row" Grid.Column="1" Background="{TemplateBinding Background}" CornerRadius="0"
+                                BorderBrush="#FF262B34" BorderThickness="0,0,0,1" Padding="{TemplateBinding Padding}">
                             <ContentPresenter ContentSource="Header" HorizontalAlignment="Left" VerticalAlignment="Center"/>
                         </Border>
                         <ItemsPresenter x:Name="ItemsHost" Grid.Row="1" Grid.Column="1"/>
@@ -485,6 +486,37 @@
                             <Setter Property="Opacity" Value="0.6"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ============ ContextMenu (右クリックメニュー。既定の白を置換) ============ -->
+    <Style TargetType="ContextMenu">
+        <Setter Property="Background" Value="{StaticResource Panel2}"/>
+        <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource CtrlBorder}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContextMenu">
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="1" Padding="3">
+                        <Border.Effect>
+                            <DropShadowEffect Color="#000000" BlurRadius="14" ShadowDepth="2" Opacity="0.55"/>
+                        </Border.Effect>
+                        <ItemsPresenter Grid.IsSharedSizeScope="True"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- メニュー/コンテキストメニュー内の区切りは «横線» (ツールバーの縦線とは別) -->
+    <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="Separator">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Separator">
+                    <Border Height="1" Background="{StaticResource CtrlBorder}" Margin="8,4"/>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

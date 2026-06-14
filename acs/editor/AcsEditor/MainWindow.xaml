@@ -122,29 +122,36 @@
                 <Button x:Name="RunBtn" Content="▷ Run" Click="OnBuildAndRun" Padding="10,4" Margin="2,0" Foreground="#FF7FB8FF"/>
                 <ToggleButton x:Name="HotReloadBtn" Content="🔁 Hot Reload" Click="OnHotReloadToggle" Padding="8,4" Margin="2,0"/>
                 <Separator/>
+                <!-- View グループ -->
                 <Button Content="⤢ Reset View" Click="OnResetView" Padding="10,4" Margin="2,0"/>
+                <Button Content="⊙ Focus" Click="OnFocus" Padding="9,4" Margin="2,0"/>
                 <Separator/>
+                <!-- Mode グループ -->
+                <ToggleButton x:Name="View3DBtn" Content="⬗ 3D" Click="OnToggle3D" Padding="8,4" Margin="1,0"
+                              ToolTip="2D スプライト編集 / 3D シーン編集 を切り替え"/>
+                <ToggleButton x:Name="PolyBtn" Content="✎ Polygon" Click="OnPolyToggle" Padding="8,4" Margin="1,0"/>
+                <Separator/>
+                <!-- Gizmo グループ -->
                 <TextBlock Text="Gizmo" VerticalAlignment="Center" Margin="4,0,6,0" Foreground="{StaticResource TextDim}"/>
                 <ToggleButton x:Name="GizMove"   Content="✛ Move"   Click="OnGizmoMove"   Padding="8,4" Margin="1,0"/>
                 <ToggleButton x:Name="GizRotate" Content="⟳ Rotate" Click="OnGizmoRotate" Padding="8,4" Margin="1,0"/>
                 <ToggleButton x:Name="GizScale"  Content="⤢ Scale"  Click="OnGizmoScale"  Padding="8,4" Margin="1,0"/>
                 <CheckBox x:Name="SnapCheck" Content="Snap" Click="OnSnapToggle" VerticalAlignment="Center" Margin="10,0,4,0"/>
-                <Button Content="⊙ Focus" Click="OnFocus" Padding="9,4" Margin="4,0,1,0"/>
                 <Separator/>
-                <ToggleButton x:Name="View3DBtn" Content="⬗ 3D" Click="OnToggle3D" Padding="8,4" Margin="1,0"
-                              ToolTip="2D スプライト編集 / 3D シーン編集 を切り替え"/>
-                <Separator/>
-                <ToggleButton x:Name="PolyBtn" Content="✎ Polygon" Click="OnPolyToggle" Padding="8,4" Margin="1,0"/>
-                <Separator/>
-                <TextBlock Text="Align" VerticalAlignment="Center" Margin="4,0,6,0" Foreground="{StaticResource TextDim}"/>
-                <Button Content="L"  Click="OnAlignLeft"   Padding="7,4" Margin="1,0"/>
-                <Button Content="R"  Click="OnAlignRight"  Padding="7,4" Margin="1,0"/>
-                <Button Content="T"  Click="OnAlignTop"    Padding="7,4" Margin="1,0"/>
-                <Button Content="B"  Click="OnAlignBottom" Padding="7,4" Margin="1,0"/>
-                <Button Content="HC" Click="OnAlignHC"     Padding="7,4" Margin="1,0"/>
-                <Button Content="VC" Click="OnAlignVC"     Padding="7,4" Margin="1,0"/>
-                <Button Content="DH" Click="OnDistributeH" Padding="7,4" Margin="4,0,1,0"/>
-                <Button Content="DV" Click="OnDistributeV" Padding="7,4" Margin="1,0"/>
+                <!-- 整列/分散は 8 ボタンをやめてドロップダウンに集約 -->
+                <Menu Background="Transparent" VerticalAlignment="Center" Padding="0">
+                    <MenuItem Header="⊞ Align ▾" Padding="8,4" ToolTip="選択ノードの整列・分散">
+                        <MenuItem Header="左揃え"     Click="OnAlignLeft"/>
+                        <MenuItem Header="右揃え"     Click="OnAlignRight"/>
+                        <MenuItem Header="上揃え"     Click="OnAlignTop"/>
+                        <MenuItem Header="下揃え"     Click="OnAlignBottom"/>
+                        <MenuItem Header="水平中央"   Click="OnAlignHC"/>
+                        <MenuItem Header="垂直中央"   Click="OnAlignVC"/>
+                        <Separator/>
+                        <MenuItem Header="水平に分散" Click="OnDistributeH"/>
+                        <MenuItem Header="垂直に分散" Click="OnDistributeV"/>
+                    </MenuItem>
+                </Menu>
                 <Separator/>
                 <TextBlock Text="AA" VerticalAlignment="Center" Margin="4,0,6,0" Foreground="{StaticResource TextDim}"/>
                 <ComboBox x:Name="AaBox" Width="84" VerticalAlignment="Center" SelectionChanged="OnAaChanged">
