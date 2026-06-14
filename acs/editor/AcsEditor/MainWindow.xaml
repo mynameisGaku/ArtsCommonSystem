@@ -35,8 +35,8 @@
             <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
-        <!-- 小型数値ボックス (Inspector)。テーマ TextBox を継承。 -->
-        <Style x:Key="NumBox" TargetType="TextBox">
+        <!-- 小型数値ボックス (Inspector)。テーマ TextBox を継承 (BasedOn が無いと WPF 既定=白に落ちる)。 -->
+        <Style x:Key="NumBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
             <Setter Property="Padding" Value="6,3"/>
         </Style>
     </Window.Resources>
@@ -271,7 +271,7 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0">
                     <StackPanel Margin="12,10">
                         <!-- 選択ノードのヘッダ -->
-                        <Border Background="{StaticResource Panel2}" CornerRadius="5" Padding="10,8" Margin="0,0,0,4">
+                        <Border Background="{StaticResource Panel2}" CornerRadius="0" Padding="10,8" Margin="0,0,0,4">
                             <StackPanel>
                                 <TextBlock x:Name="InspName" Text="(no selection)" FontWeight="SemiBold" FontSize="14"/>
                                 <TextBlock x:Name="InspSub" Text="ノードを選択してください" Foreground="{StaticResource TextDim}" FontSize="11" Margin="0,2,0,0"/>
@@ -330,7 +330,7 @@
                                     <TextBox x:Name="ColB" Width="40" Margin="0,0,3,0" Style="{StaticResource NumBox}"/>
                                     <TextBox x:Name="ColA" Width="40" Style="{StaticResource NumBox}"/>
                                 </StackPanel>
-                                <Border x:Name="ColorSwatch" Grid.Column="2" Width="26" Height="26" CornerRadius="4"
+                                <Border x:Name="ColorSwatch" Grid.Column="2" Width="26" Height="26" CornerRadius="0"
                                         Background="#FF888888" BorderBrush="{StaticResource Edge}" BorderThickness="1" Margin="6,0,0,0"/>
                             </Grid>
                             <Grid Margin="0,3">

@@ -32,7 +32,7 @@
             </Grid.ColumnDefinitions>
 
             <!-- 新規プロジェクト -->
-            <Border Grid.Column="0" Background="{DynamicResource Panel}" CornerRadius="6" Padding="18">
+            <Border Grid.Column="0" Background="{DynamicResource Panel}" CornerRadius="0" Padding="18">
                 <StackPanel>
                     <TextBlock Text="新規プロジェクト" FontSize="15" FontWeight="SemiBold"
                                Foreground="{DynamicResource Text}" Margin="0,0,0,14"/>
@@ -86,7 +86,7 @@
             </Border>
 
             <!-- プロジェクトを開く + 最近使った -->
-            <Border Grid.Column="2" Background="{DynamicResource Panel}" CornerRadius="6" Padding="18">
+            <Border Grid.Column="2" Background="{DynamicResource Panel}" CornerRadius="0" Padding="18">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>

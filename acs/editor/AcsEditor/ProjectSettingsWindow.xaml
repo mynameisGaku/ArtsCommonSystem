@@ -12,7 +12,7 @@
         </Grid.ColumnDefinitions>
 
         <!-- カテゴリ一覧 (UE の左ペイン相当) -->
-        <Border Grid.Column="0" Background="{StaticResource Panel}" CornerRadius="6" Margin="0,0,8,0">
+        <Border Grid.Column="0" Background="{StaticResource Panel}" CornerRadius="0" Margin="0,0,8,0">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Top" Text="カテゴリ" Margin="10,8,10,4"
                            Foreground="{StaticResource TextDim}"/>
@@ -22,7 +22,7 @@
         </Border>
 
         <!-- 選択カテゴリの設定項目 -->
-        <Border Grid.Column="1" Background="{StaticResource Panel}" CornerRadius="6">
+        <Border Grid.Column="1" Background="{StaticResource Panel}" CornerRadius="0">
             <DockPanel Margin="10">
                 <!-- ユーザー定義項目の追加行 -->
                 <Border DockPanel.Dock="Bottom" Padding="0,8,0,0">

@@ -27,7 +27,7 @@
         <!-- ヘッダ: ライブプレビュー + ファイル名 -->
         <Grid Grid.Row="0" Margin="0,0,0,8">
             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <Border Grid.Column="0" Width="84" Height="84" CornerRadius="4" Margin="0,0,10,0"
+            <Border Grid.Column="0" Width="84" Height="84" CornerRadius="0" Margin="0,0,10,0"
                     BorderBrush="#FF3A3F49" BorderThickness="1" Background="#FF15171C">
                 <Image x:Name="PreviewImage" Stretch="Fill" RenderOptions.BitmapScalingMode="Linear"
                        SnapsToDevicePixels="True"/>
@@ -73,7 +73,7 @@
                     <TextBox x:Name="BcB" Width="40" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
                     <TextBox x:Name="BcA" Width="40" TextChanged="OnPbrChanged"/>
                 </StackPanel>
-                <Border Grid.Column="2" x:Name="BaseSwatch" Width="24" Height="24" CornerRadius="4"
+                <Border Grid.Column="2" x:Name="BaseSwatch" Width="24" Height="24" CornerRadius="0"
                         Background="#FFFFFFFF" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
             </Grid>
             <!-- アルベド画像 -->
@@ -128,7 +128,7 @@
                     <TextBox x:Name="EmG" Width="40" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
                     <TextBox x:Name="EmB" Width="40" TextChanged="OnPbrChanged"/>
                 </StackPanel>
-                <Border Grid.Column="2" x:Name="EmSwatch" Width="24" Height="24" CornerRadius="4"
+                <Border Grid.Column="2" x:Name="EmSwatch" Width="24" Height="24" CornerRadius="0"
                         Background="#FF000000" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
             </Grid>
             <!-- 発光強度 -->
@@ -191,7 +191,7 @@
                         <TextBox x:Name="ShG" Width="40" Margin="0,0,3,0" TextChanged="OnExtChanged"/>
                         <TextBox x:Name="ShB" Width="40" TextChanged="OnExtChanged"/>
                     </StackPanel>
-                    <Border Grid.Column="2" x:Name="ShSwatch" Width="24" Height="24" CornerRadius="4" Background="#FFFFFFFF" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
+                    <Border Grid.Column="2" x:Name="ShSwatch" Width="24" Height="24" CornerRadius="0" Background="#FFFFFFFF" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
                 </Grid>
                 <!-- サブサーフェス -->
                 <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
@@ -207,7 +207,7 @@
                         <TextBox x:Name="SsG" Width="40" Margin="0,0,3,0" TextChanged="OnExtChanged"/>
                         <TextBox x:Name="SsB" Width="40" TextChanged="OnExtChanged"/>
                     </StackPanel>
-                    <Border Grid.Column="2" x:Name="SsSwatch" Width="24" Height="24" CornerRadius="4" Background="#FFFF4D33" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
+                    <Border Grid.Column="2" x:Name="SsSwatch" Width="24" Height="24" CornerRadius="0" Background="#FFFF4D33" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
                 </Grid>
             </StackPanel>
             <!-- ============ トゥーン項目 (シェーディング=トゥーン のとき表示) ============ -->
@@ -220,7 +220,7 @@
                         <TextBox x:Name="S1G" Width="40" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
                         <TextBox x:Name="S1B" Width="40" TextChanged="OnToonChanged"/>
                     </StackPanel>
-                    <Border Grid.Column="2" x:Name="S1Swatch" Width="24" Height="24" CornerRadius="4" Background="#FF888888" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
+                    <Border Grid.Column="2" x:Name="S1Swatch" Width="24" Height="24" CornerRadius="0" Background="#FF888888" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
                 </Grid>
                 <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
                     <TextBlock Text="1影しきい値"/>
@@ -234,7 +234,7 @@
                         <TextBox x:Name="S2G" Width="40" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
                         <TextBox x:Name="S2B" Width="40" TextChanged="OnToonChanged"/>
                     </StackPanel>
-                    <Border Grid.Column="2" x:Name="S2Swatch" Width="24" Height="24" CornerRadius="4" Background="#FF555555" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
+                    <Border Grid.Column="2" x:Name="S2Swatch" Width="24" Height="24" CornerRadius="0" Background="#FF555555" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
                 </Grid>
                 <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
                     <TextBlock Text="2影しきい値"/>
@@ -248,7 +248,7 @@
                         <TextBox x:Name="RimG" Width="40" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
                         <TextBox x:Name="RimB" Width="40" TextChanged="OnToonChanged"/>
                     </StackPanel>
-                    <Border Grid.Column="2" x:Name="RimSwatch" Width="24" Height="24" CornerRadius="4" Background="#FFFFFFFF" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
+                    <Border Grid.Column="2" x:Name="RimSwatch" Width="24" Height="24" CornerRadius="0" Background="#FFFFFFFF" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
                 </Grid>
                 <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
                     <TextBlock Text="リム強さ"/>
@@ -302,7 +302,7 @@
                         <TextBox x:Name="ColB" Width="40" Margin="0,0,3,0" TextChanged="OnParamChanged"/>
                         <TextBox x:Name="ColA" Width="40" TextChanged="OnParamChanged"/>
                     </StackPanel>
-                    <Border Grid.Column="2" x:Name="ColorSwatch" Width="24" Height="24" CornerRadius="4"
+                    <Border Grid.Column="2" x:Name="ColorSwatch" Width="24" Height="24" CornerRadius="0"
                             Background="#FF000000" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
                 </Grid>
                 <CheckBox x:Name="AnimatedBox" Content="アニメーション (経過時間を流す)" Margin="0,6,0,0"

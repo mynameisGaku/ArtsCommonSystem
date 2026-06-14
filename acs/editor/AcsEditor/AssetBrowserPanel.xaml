@@ -36,7 +36,7 @@
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="ListBoxItem">
-                                <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="4">
+                                <Border x:Name="Bd" Background="Transparent" CornerRadius="0" Padding="4">
                                     <ContentPresenter/>
                                 </Border>
                                 <ControlTemplate.Triggers>
@@ -57,7 +57,7 @@
                     <StackPanel Width="78">
                         <!-- 画像はサムネイル、それ以外は種別グリフ (背後の Border) -->
                         <Grid Width="64" Height="64" HorizontalAlignment="Center">
-                            <Border CornerRadius="4" Background="{Binding GlyphBrush}">
+                            <Border CornerRadius="0" Background="{Binding GlyphBrush}">
                                 <TextBlock Text="{Binding Glyph}" Foreground="White" FontWeight="SemiBold"
                                            FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>

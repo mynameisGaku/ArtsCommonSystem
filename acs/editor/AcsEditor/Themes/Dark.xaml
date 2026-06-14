@@ -46,7 +46,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Thumb">
-                    <Border x:Name="t" Background="{StaticResource ScrollThumb}" CornerRadius="4" Margin="2"/>
+                    <Border x:Name="t" Background="{StaticResource ScrollThumb}" CornerRadius="0" Margin="2"/>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="t" Property="Background" Value="{StaticResource ScrollThumbHover}"/>
@@ -133,7 +133,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="b" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" SnapsToDevicePixels="True">
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="0" SnapsToDevicePixels="True">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
                     </Border>
                     <ControlTemplate.Triggers>
@@ -167,7 +167,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleButton">
                     <Border x:Name="b" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" SnapsToDevicePixels="True">
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="0" SnapsToDevicePixels="True">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
                     </Border>
                     <ControlTemplate.Triggers>
@@ -203,7 +203,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="TextBox">
                     <Border x:Name="b" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="3">
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="0">
                         <ScrollViewer x:Name="PART_ContentHost" Padding="{TemplateBinding Padding}" VerticalAlignment="Center"/>
                     </Border>
                     <ControlTemplate.Triggers>
@@ -231,7 +231,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="CheckBox">
                     <StackPanel Orientation="Horizontal" Background="Transparent">
-                        <Border x:Name="box" Width="16" Height="16" CornerRadius="3" VerticalAlignment="Center"
+                        <Border x:Name="box" Width="16" Height="16" CornerRadius="0" VerticalAlignment="Center"
                                 Background="{StaticResource Panel2}" BorderBrush="{StaticResource CtrlBorder}" BorderThickness="1">
                             <Path x:Name="chk" Stretch="Uniform" Margin="3" Stroke="#FF0E1116" StrokeThickness="2"
                                   Data="M 0,5 L 4,9 L 10,0" Visibility="Collapsed"/>
@@ -266,7 +266,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleButton">
                     <Border x:Name="b" Background="{StaticResource Ctrl}" BorderBrush="{StaticResource CtrlBorder}"
-                            BorderThickness="1" CornerRadius="3">
+                            BorderThickness="1" CornerRadius="0">
                         <Path x:Name="arrow" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"
                               Data="M 0,0 L 8,0 L 4,5 Z" Fill="{StaticResource TextDim}"/>
                     </Border>
@@ -299,7 +299,7 @@
                         <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True" Focusable="False"
                                IsOpen="{TemplateBinding IsDropDownOpen}" PopupAnimation="Slide">
                             <Border Background="{StaticResource Panel2}" BorderBrush="{StaticResource CtrlBorder}" BorderThickness="1"
-                                    CornerRadius="3" MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                    CornerRadius="0" MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
                                     MaxHeight="260" Margin="0,2,0,0">
                                 <ScrollViewer>
                                     <ItemsPresenter/>
@@ -318,7 +318,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBoxItem">
-                    <Border x:Name="b" Background="Transparent" Padding="{TemplateBinding Padding}" CornerRadius="2">
+                    <Border x:Name="b" Background="Transparent" Padding="{TemplateBinding Padding}" CornerRadius="0">
                         <ContentPresenter/>
                     </Border>
                     <ControlTemplate.Triggers>
@@ -405,7 +405,7 @@
                         <ToggleButton x:Name="Expander" Grid.Column="0" Style="{StaticResource TreeExpandToggle}"
                                       ClickMode="Press"
                                       IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}}"/>
-                        <Border x:Name="row" Grid.Column="1" Background="{TemplateBinding Background}" CornerRadius="3" Padding="{TemplateBinding Padding}">
+                        <Border x:Name="row" Grid.Column="1" Background="{TemplateBinding Background}" CornerRadius="0" Padding="{TemplateBinding Padding}">
                             <ContentPresenter ContentSource="Header" HorizontalAlignment="Left" VerticalAlignment="Center"/>
                         </Border>
                         <ItemsPresenter x:Name="ItemsHost" Grid.Row="1" Grid.Column="1"/>
@@ -443,7 +443,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="MenuItem">
-                    <Border x:Name="b" Background="Transparent" CornerRadius="3">
+                    <Border x:Name="b" Background="Transparent" CornerRadius="0">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" SharedSizeGroup="Icon"/>
@@ -460,7 +460,7 @@
                             <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True" Focusable="False"
                                    IsOpen="{TemplateBinding IsSubmenuOpen}" PopupAnimation="Fade">
                                 <Border Background="{StaticResource Panel2}" BorderBrush="{StaticResource CtrlBorder}"
-                                        BorderThickness="1" CornerRadius="4" Padding="3" Margin="0,1,8,8">
+                                        BorderThickness="1" CornerRadius="0" Padding="3" Margin="0,1,8,8">
                                     <Border.Effect>
                                         <DropShadowEffect Color="#000000" BlurRadius="12" ShadowDepth="2" Opacity="0.5"/>
                                     </Border.Effect>
@@ -516,7 +516,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ToolTip">
                     <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="1" CornerRadius="3" Padding="7,4">
+                            BorderThickness="1" CornerRadius="0" Padding="7,4">
                         <ContentPresenter/>
                     </Border>
                 </ControlTemplate>
@@ -582,7 +582,7 @@
 
     <!-- ============ Log tag chip (colored badge) ============ -->
     <Style x:Key="LogChip" TargetType="Border">
-        <Setter Property="CornerRadius" Value="3"/>
+        <Setter Property="CornerRadius" Value="0"/>
         <Setter Property="Padding" Value="6,0"/>
         <Setter Property="MinWidth" Value="52"/>
         <Setter Property="Height" Value="15"/>
