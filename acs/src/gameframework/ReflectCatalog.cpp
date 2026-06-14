@@ -29,6 +29,7 @@
 #include "gameframework/PrimitiveRenderer2D.h"  // FPrimitiveRenderer2D (形状描画 + コライダー形状)
 #include "gameframework/Effects2D.h"   // FWater2D / FFire2D / FTrail2D / FStencilClip2D
 #include "gameframework/Light2DComponent.h"  // FLight2DComponent (2D 点光源)
+#include "gameframework/Follow2DComponent.h"  // FFollow2DComponent (オブジェクト参照デモ)
 
 // ----- Scene -----
 #include "gameframework/Scene2D.h"
@@ -143,6 +144,10 @@ ACS_REGISTER_COMPONENT(FShadowCaster2DComponent,
     ACS_RFIELD_D(FShadowCaster2DComponent, m_RadiusScale, EFieldKind::F32, 1.0f, 0.0f, 0.0f, 0.0f),
     ACS_RFIELD_D(FShadowCaster2DComponent, m_Shape,       EFieldKind::F32, 0.0f, 0.0f, 0.0f, 0.0f),  // 0=円,1=箱
     ACS_RFIELD_D(FShadowCaster2DComponent, m_SelfShadow,  EFieldKind::Bool, 0.0f, 0.0f, 0.0f, 0.0f))  // false=自己影スキップ (既定)
+// 追従コンポーネント。target は «オブジェクト参照»(他ノードへの参照を渡す UPROPERTY 風)のデモ。
+ACS_REGISTER_COMPONENT(FFollow2DComponent,
+    ACS_RFIELD_REF(FFollow2DComponent, target),                             // 参照先ノード ID (ピッカーで設定)
+    ACS_RFIELD_D(FFollow2DComponent, speed, EFieldKind::F32, 3.0f, 0.0f, 0.0f, 0.0f))
 
 // ----- Scene -----
 ACS_REGISTER_SCENE(FScene2D)

@@ -1677,6 +1677,33 @@ public partial class MainWindow : Window
             return panel;
         }
 
+        // ObjectRef (kind 9): 他ノードへの参照ピッカー。値 = 参照先の安定 ID を float[0] に保持 (-1=なし)。
+        if (kind == 9)
+        {
+            var combo = new ComboBox { MinWidth = 150, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+            var ids = new System.Collections.Generic.List<int> { -1 };   // 先頭 = (None)
+            combo.Items.Add("(None)");
+            int count = EngineInterop.acs_editor_node_count(Engine);
+            for (int i = 0; i < count; i++)
+            {
+                int nid = EngineInterop.acs_editor_node_id_at(Engine, i);
+                if (nid == id) continue;                                  // 自己参照は除外
+                string nm = EngineInterop.NodeName(Engine, nid);
+                ids.Add(nid);
+                combo.Items.Add($"{(string.IsNullOrEmpty(nm) ? "Node" : nm)} (id {nid})");
+            }
+            int curRef = (int)Math.Round(vals[0]);
+            int selIdx = ids.IndexOf(curRef);
+            combo.SelectedIndex = selIdx >= 0 ? selIdx : 0;               // 不明な参照は (None) 表示
+            combo.SelectionChanged += (_, __) =>
+            {
+                int si = combo.SelectedIndex;
+                if (si >= 0 && si < ids.Count) { vals[0] = ids[si]; Commit(); }
+            };
+            panel.Children.Add(combo);
+            return panel;
+        }
+
         // 既知の列挙系プロパティ (bodyType / shape) はドロップダウンで選ばせる (整数値を保持)。
         string[]? choices = pname switch
         {

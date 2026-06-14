@@ -98,6 +98,9 @@ enum class EFieldKind : u8 {
 
     /** i32* + enum_values[0..enum_value_count) のラベルを持つ。 */
     Enum,
+
+    /** i32* (= 参照先オブジェクトの安定 ID、-1 で «なし»)。エディタはノードピッカーで編集する。 */
+    ObjectRef,
 };
 
 /**

@@ -281,6 +281,10 @@ template<class T> inline const FTypeDesc* AcsTypeDescOf() noexcept { return null
 #define ACS_RPROP_V3(propname, dx, dy, dz)    ACS_RPROP(propname, ::acs::game::EFieldKind::FVec3, dx, dy, dz, 0)
 /** FVec4 のプロパティ (色なら RGBA)。 */
 #define ACS_RPROP_V4(propname, dx, dy, dz, dw) ACS_RPROP(propname, ::acs::game::EFieldKind::FVec4, dx, dy, dz, dw)
+/** オブジェクト参照のプロパティ (値 = 参照先の安定 ID、既定 -1 = «なし»)。エディタはノードピッカーで編集。 */
+#define ACS_RPROP_REF(propname)               ACS_RPROP(propname, ::acs::game::EFieldKind::ObjectRef, -1, 0, 0, 0)
+/** オブジェクト参照のフィールド (offset 反射。実メンバ = i32 の参照先 ID。実行時 apply される)。 */
+#define ACS_RFIELD_REF(Type, member)          ACS_RFIELD_D(Type, member, ::acs::game::EFieldKind::ObjectRef, -1, 0, 0, 0)
 
 /** 列挙値記述子 (EnumType::val)。 */
 #define ACS_EVAL(EnumType, val)                                                 \

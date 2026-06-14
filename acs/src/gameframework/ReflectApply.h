@@ -37,6 +37,7 @@ inline void ApplyFieldValue(void* obj, const FReflectField& f, const f32 v[4]) n
     switch (f.kind) {
         case EFieldKind::Bool:  *reinterpret_cast<bool*>(p) = (v[0] != 0.0f); break;
         case EFieldKind::I32:   *reinterpret_cast<i32*>(p)  = static_cast<i32>(v[0]); break;
+        case EFieldKind::ObjectRef: *reinterpret_cast<i32*>(p) = static_cast<i32>(v[0]); break;  // 参照先 ID (実行時に解決)
         case EFieldKind::U32:   *reinterpret_cast<u32*>(p)  = static_cast<u32>(v[0]); break;
         case EFieldKind::F32:   *reinterpret_cast<f32*>(p)  = v[0]; break;
         case EFieldKind::FVec2: { auto* d = reinterpret_cast<f32*>(p); d[0]=v[0]; d[1]=v[1]; } break;
@@ -60,6 +61,7 @@ inline void ReadFieldValue(const void* obj, const FReflectField& f, f32 out[4]) 
     switch (f.kind) {
         case EFieldKind::Bool:  out[0] = *reinterpret_cast<const bool*>(p) ? 1.0f : 0.0f; break;
         case EFieldKind::I32:   out[0] = static_cast<f32>(*reinterpret_cast<const i32*>(p)); break;
+        case EFieldKind::ObjectRef: out[0] = static_cast<f32>(*reinterpret_cast<const i32*>(p)); break;
         case EFieldKind::U32:   out[0] = static_cast<f32>(*reinterpret_cast<const u32*>(p)); break;
         case EFieldKind::F32:   out[0] = *reinterpret_cast<const f32*>(p); break;
         case EFieldKind::FVec2: { auto* d = reinterpret_cast<const f32*>(p); out[0]=d[0]; out[1]=d[1]; } break;

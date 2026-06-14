@@ -114,3 +114,38 @@ ACS_TEST(ReflectApply, FactoryCreateThenApply) {
 
     reg.Destroy(d->id, obj);
 }
+
+// ----- オブジェクト参照プロパティ (EFieldKind::ObjectRef) -----
+// 参照先の安定 ID を i32 メンバへ apply/read できる (実行時に id→ノード解決する土台)。
+struct FRefHolder {
+    virtual ~FRefHolder() noexcept = default;
+    i32 target = -1;   // 参照先 ID (-1 = なし)
+    f32 speed  = 2.0f;
+};
+
+ACS_REGISTER_COMPONENT(FRefHolder,
+    ACS_RFIELD_REF(FRefHolder, target),
+    ACS_RFIELD_D(FRefHolder, speed, acs::game::EFieldKind::F32, 2.0f, 0, 0, 0))
+
+// target フィールドが ObjectRef 種別で反射され、既定 -1 を持つ。
+ACS_TEST(ReflectApply, ObjectRefFieldKind) {
+    const FTypeDesc* d = FTypeRegistry::Get().FindByName("FRefHolder");
+    EXPECT_TRUE(d != nullptr);
+    const FReflectField* f = FindField(*d, "target");
+    EXPECT_TRUE(f != nullptr);
+    EXPECT_TRUE(f->kind == EFieldKind::ObjectRef);
+    EXPECT_TRUE(f->defaults[0] == -1.0f);     // 既定は «なし»
+}
+
+// 参照 ID を実メンバへ書き込み / 読み出しできる。
+ACS_TEST(ReflectApply, ObjectRefApplyAndRead) {
+    const FTypeDesc* d = FTypeRegistry::Get().FindByName("FRefHolder");
+    const FReflectField* f = FindField(*d, "target");
+    FRefHolder h;
+    f32 v[4] = { 42.0f, 0, 0, 0 };            // 参照先 ID = 42
+    ApplyFieldValue(&h, *f, v);
+    EXPECT_EQ(h.target, 42);
+    f32 out[4] = { 0, 0, 0, 0 };
+    ReadFieldValue(&h, *f, out);
+    EXPECT_TRUE(out[0] == 42.0f);
+}
