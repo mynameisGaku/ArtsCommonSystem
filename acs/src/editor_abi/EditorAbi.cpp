@@ -36,6 +36,7 @@
 #include "gameframework/MeshComponent3D.h"  // FMeshComponent3D (prim/color/mesh の native 保持)
 #include "gameframework/Scene3DSerialize.h" // (将来) シリアライザ委譲用
 #include "memory/UniquePtr.h"               // TUniquePtr / MakeUnique
+#include "memory/SharedPtr.h"               // TSharedPtr / MakeShared (フラットポリゴンメッシュ生成)
 #include "container/Array.h"                // TArray
 #include "render/IRhiTexture.h"             // IRhiTexture (スプライト)
 #include "render/RenderAssets.h"            // UploadTexture / UploadMesh / GpuMesh
@@ -2111,6 +2112,20 @@ void Seed3DScene(EditorHost& h) noexcept {
         ball.GetComponent<game::FMeshComponent3D>()->SetPrimitive(game::EMeshPrimitive3D::Sphere);
         ball.GetComponent<game::FMeshComponent3D>()->SetColor(FVec4{ 0.40f, 0.62f, 0.92f, 1 });
     }
+}
+
+/** 2D ポリゴン点列 (XY 平面、z=0) からフラットな FMeshAsset を作る (扇状三角形分割、法線+Z)。
+ *  «2D は内部的に 3D 空間 (z=0) にある» を体現: 2D ポリゴンを 3D シーンのノードとして持つ。 */
+TSharedPtr<Asset> MakeFlatPolygon3D(const FVec2* pts, u32 n) noexcept {
+    if (pts == nullptr || n < 3) return nullptr;
+    auto mesh = MakeShared<FMeshAsset>();
+    auto& V = mesh->Vertices();
+    for (u32 i = 0; i < n; ++i)
+        V.PushBack(MeshVertex{ FVec3{ pts[i].x, pts[i].y, 0.0f }, FVec3{ 0, 0, 1 }, 0.0f, 0.0f });
+    auto& I = mesh->Indices();
+    for (u32 i = 1; i + 1 < n; ++i) { I.PushBack(0); I.PushBack(i); I.PushBack(i + 1); }   // 扇 (凸前提)
+    mesh->SubMeshes().PushBack(SubMesh{ 0, static_cast<u32>(I.Size()) });
+    return TSharedPtr<Asset>(mesh);
 }
 
 // --- 3D ノードアクセス (各 editor ノード = root の子 FNode3D + EEd3DRec + FMeshComponent3D) ---
@@ -4280,10 +4295,15 @@ ACS_EDITOR_API int acs_editor_get_view3d(void* handle) {
     return (host != nullptr && host->view3d) ? 1 : 0;
 }
 
-/** 3D ビューの投影を 正射(2D ビュー) / 透視 で切り替える。 */
+/** 3D ビューの投影を 正射(2D ビュー) / 透視 で切り替える。正射 ON でカメラを正面 (XY 平面直視) へ。 */
 ACS_EDITOR_API void acs_editor_set_ortho3d(void* handle, int on) {
     auto* host = static_cast<EditorHost*>(handle);
-    if (host != nullptr) host->ortho3d = (on != 0);
+    if (host == nullptr) return;
+    host->ortho3d = (on != 0);
+    if (host->ortho3d) {                                 // 正射 = 2D 前面ビュー: XY 平面を正面から直視
+        host->cam3d_yaw = 0.0f; host->cam3d_pitch = 0.0f;
+        host->cam3d_target = FVec3{ 0, 0, 0 };
+    }
 }
 
 /** 現在 正射(2D ビュー) か。 */
@@ -4339,6 +4359,25 @@ ACS_EDITOR_API int acs_editor_add_mesh3d(void* handle, const char* path, const c
     m->SetMeshAsset(mesh);                          // 種別 Mesh + 所有 (ノード破棄で解放)
     m->SetColor(FVec4{ 0.78f, 0.78f, 0.82f, 1 });
     m->SetMeshPath(FStringView(path));              // 元ファイルパスを記録 (保存/再読込用)
+    host->sel3d = id;
+    return id;
+}
+
+/** 2D ポリゴン (XY 平面の点列 xy[count*2]) を 3D シーンのフラットノードとして追加する。新 id (失敗 -1)。 */
+ACS_EDITOR_API int acs_editor_add_polygon3d(void* handle, const float* xy, int count,
+                                            float r, float g, float b, float a, const char* name) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || xy == nullptr || count < 3) return -1;
+    TArray<FVec2> pts; pts.Reserve(static_cast<usize>(count));
+    for (int i = 0; i < count; ++i) pts.PushBack(FVec2{ xy[i * 2], xy[i * 2 + 1] });
+    TSharedPtr<Asset> mesh = MakeFlatPolygon3D(pts.Data(), static_cast<u32>(count));
+    if (!mesh) return -1;
+    game::FNode3D& n = AddNode3D(*host, (name != nullptr && name[0] != '\0') ? name : "Polygon2D");
+    const int id = host->next_id3d++;
+    n.GetComponent<EEd3DRec>()->id = id;
+    game::FMeshComponent3D* m = n.GetComponent<game::FMeshComponent3D>();
+    m->SetMeshAsset(mesh);                               // prim=Mesh + 所有 (z=0 フラットメッシュ)
+    m->SetColor(FVec4{ r, g, b, a });
     host->sel3d = id;
     return id;
 }

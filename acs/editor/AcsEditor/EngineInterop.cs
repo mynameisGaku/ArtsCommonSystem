@@ -78,6 +78,8 @@ internal static class EngineInterop
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_set_ortho3d(IntPtr handle, int on);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_add_polygon3d(IntPtr handle, float[] xy, int count, float r, float g, float b, float a, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_get_ortho3d(IntPtr handle);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_get_view3d(IntPtr handle);

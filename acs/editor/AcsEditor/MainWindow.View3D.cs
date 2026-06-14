@@ -192,6 +192,28 @@ public partial class MainWindow
     private void OnAdd3DSphere(object sender, RoutedEventArgs e) => Add3DNode(1, "Sphere");
     private void OnAdd3DPlane(object sender, RoutedEventArgs e)  => Add3DNode(2, "Plane");
 
+    /// <summary>2D ポリゴン (XY 平面、z=0 のフラットメッシュ) を 3D シーンのノードとして追加する。
+    /// «2D も内部的に 3D 空間にある» の体現 (Phase B)。既定は正五角形。</summary>
+    private void OnAdd2DPolygon(object sender, RoutedEventArgs e)
+    {
+        if (Engine == IntPtr.Zero) return;
+        if (!_view3d) { View3DBtn.IsChecked = true; OnToggle3D(View3DBtn, new RoutedEventArgs()); }
+        const int sides = 5;                                   // 正五角形 (半径 1、XY 平面)
+        var xy = new float[sides * 2];
+        for (int i = 0; i < sides; ++i)
+        {
+            double ang = Math.PI / 2 + i * 2 * Math.PI / sides;
+            xy[i * 2]     = (float)Math.Cos(ang);
+            xy[i * 2 + 1] = (float)Math.Sin(ang);
+        }
+        int id = EngineInterop.acs_editor_add_polygon3d(Engine, xy, sides, 0.45f, 0.78f, 0.95f, 1f, "Polygon2D");
+        if (id < 0) return;
+        BuildHierarchy();
+        Select3DInHierarchy(id);
+        Populate3DInspector(id);
+        Log($"2D ポリゴンを 3D シーンに追加 (id {id})");
+    }
+
     /// <summary>メッシュファイル (.gltf/.glb/.obj/.fbx) をダイアログで選び 3D ノードとして読み込む。</summary>
     private void OnImport3DMesh(object sender, RoutedEventArgs e)
     {
