@@ -13,6 +13,8 @@
 #include "foundation/Types.h"
 #include "container/StringView.h"
 #include "gameframework/Node3D.h"
+#include "gameframework/Node3DPool.h"
+#include "gameframework/NodeId.h"
 
 namespace acs::game {
 
@@ -26,10 +28,13 @@ namespace acs::game {
  */
 class FScene3D {
 public:
-    /** 空のシーンを構築する (root のみ)。 */
-    FScene3D() noexcept = default;
+    /** 空のシーンを構築する (root のみ。pool を初期化し root も登録する)。 */
+    FScene3D() noexcept {
+        m_Pool.Init(256);
+        m_Pool.RegisterExistingNode(&m_Root);   // root にも有効な FNodeId を振る
+    }
 
-    /** シーンを破棄する (root ツリーごと解放)。 */
+    /** シーンを破棄する (root ツリーごと解放。pool は非所有なので何も delete しない)。 */
     ~FScene3D() noexcept = default;
 
     /** コピー禁止 (FNode3D ツリーを単独所有するため)。 */
@@ -59,14 +64,61 @@ public:
     const FNode3D& Root() const noexcept { return m_Root; }
 
     /**
-     * 名前を付けて子ノードを生成し、参照を返す簡易ヘルパ。
+     * 名前を付けて子ノードを生成し、generational id を振って参照を返す簡易ヘルパ。
      *
-     * @details parent==nullptr のときは root の子にする。OnSpawn は AddChild 内で即時発火。
+     * @details parent==nullptr のときは root の子にする。OnSpawn は AddChild 内で即時発火し、
+     * 生成ノードは pool に登録される (= 戻り値の `node.Id()` が有効になる)。
      * @param name 新規ノードの名前。
      * @param parent 親ノード (nullptr なら root)。
      * @return 生成した子ノードへの参照。
      */
     FNode3D& Spawn(FStringView name, FNode3D* parent = nullptr) noexcept;
+
+    /**
+     * generational id から FNode3D を取り出す (stale / invalid なら nullptr)。
+     *
+     * @param id 取り出す FNodeId。
+     * @return 対応するノード (stale なら nullptr)。
+     */
+    FNode3D* Get(FNodeId id) noexcept { return m_Pool.Get(id); }
+
+    /**
+     * id が現在も生きているか (stale 検出)。
+     *
+     * @param id 検証する FNodeId。
+     * @return 生きていれば true。
+     */
+    bool IsValid(FNodeId id) const noexcept { return m_Pool.IsValid(id); }
+
+    /**
+     * ノードポインタから FNodeId を逆引きする。
+     *
+     * @param node 逆引きするノード。
+     * @return 対応する FNodeId (未登録なら invalid)。
+     */
+    FNodeId IdOf(FNode3D* node) noexcept { return m_Pool.IdOf(node); }
+
+    /**
+     * id 指定でノードを破棄予定にする (実際の reap は次の Update)。
+     *
+     * @details root は破棄できない (false を返す)。pool からの登録解除は次の Update の
+     * PurgePendingDestroy が行う (= 破棄予定の間も id は valid のまま、reap 前に外れる)。
+     * @param id 破棄するノードの FNodeId。
+     * @return 破棄予定にしたら true、未登録 / root なら false。
+     */
+    bool Destroy(FNodeId id) noexcept {
+        FNode3D* n = m_Pool.Get(id);
+        if (n == nullptr || n == &m_Root) return false;
+        n->Destroy();
+        return true;
+    }
+
+    /**
+     * pool に登録されている (生きている) ノード数を返す (root を含む)。
+     *
+     * @return active なノード数。
+     */
+    u32 RegisteredCount() const noexcept { return m_Pool.ActiveCount(); }
 
     /**
      * 毎フレームの update。
@@ -102,6 +154,9 @@ public:
 private:
     /** シーンの root ノード (ツリーの起点、名前 "Root")。 */
     FNode3D m_Root{ FStringView("Root") };
+
+    /** generational id レジストリ (非所有。Spawn で登録、Update で破棄予定を purge)。 */
+    FNode3DPool m_Pool;
 };
 
 } // namespace acs::game

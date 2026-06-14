@@ -31,16 +31,21 @@ u32 CountRec(const FNode3D* n) noexcept {
 
 FNode3D& FScene3D::Spawn(FStringView name, FNode3D* parent) noexcept {
     FNode3D* p = (parent != nullptr) ? parent : &m_Root;
-    return p->AddChild(MakeUnique<FNode3D>(name));
+    FNode3D& child = p->AddChild(MakeUnique<FNode3D>(name));
+    m_Pool.RegisterExistingNode(&child);   // 生成ノードに generational id を振る
+    return child;
 }
 
 void FScene3D::Update(f32 dt) noexcept {
     m_Root.UpdateTree(dt);
+    // reap される «前» に破棄予定ノードを pool から外す (ダングリング防止、どの破棄経路でも)。
+    m_Pool.PurgePendingDestroy();
     m_Root.ResolveStructuralChanges();
 }
 
 void FScene3D::FixedUpdate(f32 fixed_dt) noexcept {
     m_Root.FixedUpdateTree(fixed_dt);
+    m_Pool.PurgePendingDestroy();
     m_Root.ResolveStructuralChanges();
 }
 

@@ -392,6 +392,70 @@ ACS_TEST(Scene3D, UpdatePropagatesAndReaps) {
     EXPECT_EQ(scene.Root().ChildCount(), 0u);
 }
 
+// --- generational id: Spawn 登録 / Get / IdOf 往復 -------------------------
+ACS_TEST(Scene3D, IdRegistryGetAndIdOf) {
+    FScene3D scene;
+    FNode3D& a = scene.Spawn(FStringView("A"));
+    const FNodeId ida = a.Id();
+    EXPECT_TRUE(ida.IsValid());
+    EXPECT_TRUE(scene.Get(ida) == &a);
+    EXPECT_TRUE(scene.IsValid(ida));
+    EXPECT_TRUE(scene.IdOf(&a) == ida);
+    // root も登録済み (constructor)
+    EXPECT_TRUE(scene.Get(scene.Root().Id()) == &scene.Root());
+    // 未登録 / invalid id は nullptr
+    EXPECT_TRUE(scene.Get(FNodeId{}) == nullptr);
+    EXPECT_TRUE(!scene.IsValid(FNodeId{}));
+}
+
+// --- Destroy(id): Update まで valid、reap 後は stale -------------------------
+ACS_TEST(Scene3D, DestroyByIdGoesStaleAfterUpdate) {
+    FScene3D scene;
+    FNode3D& a = scene.Spawn(FStringView("A"));
+    const FNodeId ida = a.Id();
+    EXPECT_EQ(scene.RegisteredCount(), 2u);            // root + A
+
+    EXPECT_TRUE(scene.Destroy(ida));
+    EXPECT_TRUE(scene.IsValid(ida));                   // まだ reap 前 = valid
+    scene.Update(0.016f);                              // purge → reap
+    EXPECT_TRUE(!scene.IsValid(ida));                  // stale 化
+    EXPECT_TRUE(scene.Get(ida) == nullptr);
+    EXPECT_EQ(scene.RegisteredCount(), 1u);            // root のみ
+    EXPECT_EQ(scene.NodeCount(), 1u);
+    // root は破棄不可
+    EXPECT_TRUE(!scene.Destroy(scene.Root().Id()));
+}
+
+// --- slot 再利用時の世代不一致で旧 handle が stale 検出される -----------------
+ACS_TEST(Scene3D, StaleHandleAfterSlotReuse) {
+    FScene3D scene;
+    FNode3D& a = scene.Spawn(FStringView("A"));
+    const FNodeId old = a.Id();
+    scene.Destroy(old);
+    scene.Update(0.016f);                              // a を reap + slot free
+
+    // 新規 Spawn が同じ slot index を再利用するが gen が進む
+    FNode3D& b = scene.Spawn(FStringView("B"));
+    const FNodeId fresh = b.Id();
+    EXPECT_TRUE(fresh.IsValid());
+    // 旧 handle は (gen 不一致で) stale、新 handle は valid
+    EXPECT_TRUE(!scene.IsValid(old));
+    EXPECT_TRUE(scene.Get(old) == nullptr);
+    EXPECT_TRUE(scene.Get(fresh) == &b);
+    EXPECT_TRUE(old != fresh);
+}
+
+// --- 直接 node->Destroy() でも pool が self-heal する ------------------------
+ACS_TEST(Scene3D, DirectDestroyAlsoPurged) {
+    FScene3D scene;
+    FNode3D& a = scene.Spawn(FStringView("A"));
+    const FNodeId ida = a.Id();
+    a.Destroy();                                       // scene.Destroy ではなく直接
+    scene.Update(0.016f);
+    EXPECT_TRUE(!scene.IsValid(ida));                  // PurgePendingDestroy が外す
+    EXPECT_EQ(scene.RegisteredCount(), 1u);
+}
+
 // === FMeshComponent3D =======================================================
 
 // --- 既定値 / プリミティブ・色・パスの設定取得 -----------------------------

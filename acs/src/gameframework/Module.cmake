@@ -67,6 +67,7 @@ acs_module(
         NetSnapshot.cpp
         Node2D.cpp
         Node3D.cpp
+        Node3DPool.cpp
         NodePool.cpp
         OpenXrBridge.cpp
         ParticleEffectSystem.cpp
@@ -233,6 +234,7 @@ acs_module(
         NetSnapshot.h
         Node2D.h
         Node3D.h
+        Node3DPool.h
         NodeId.h
         NodePool.h
         OpenXrBridge.h
