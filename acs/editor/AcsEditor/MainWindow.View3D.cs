@@ -24,6 +24,8 @@ public partial class MainWindow
         HierarchyTree.Items.Clear();
         int count = EngineInterop.acs_editor_node3d_count(Engine);
         int sel = EngineInterop.acs_editor_selected3d(Engine);
+        // DFS pre-order (親が子より先) で来るので、親 TreeViewItem は既に作られている。
+        var byId = new System.Collections.Generic.Dictionary<int, TreeViewItem>();
         for (int i = 0; i < count; ++i)
         {
             int id = EngineInterop.acs_editor_node3d_id_at(Engine, i);
@@ -33,8 +35,12 @@ public partial class MainWindow
                 Tag = id,
                 Foreground = Brushes.Gainsboro,
                 IsSelected = (id == sel),
+                IsExpanded = true,
             };
-            HierarchyTree.Items.Add(tvi);
+            byId[id] = tvi;
+            int parent = EngineInterop.acs_editor_node3d_parent(Engine, id);
+            if (parent >= 0 && byId.TryGetValue(parent, out var pitem)) pitem.Items.Add(tvi);
+            else HierarchyTree.Items.Add(tvi);
         }
         Log($"Hierarchy: {count} 個の 3D ノード");
     }

@@ -88,6 +88,10 @@ internal static class EngineInterop
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_id_at(IntPtr handle, int index);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_parent(IntPtr handle, int id);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_reparent3d(IntPtr handle, int child, int parent);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_name(IntPtr handle, int id, [Out] byte[] buf, int cap);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_prim(IntPtr handle, int id);

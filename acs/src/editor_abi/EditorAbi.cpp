@@ -1999,20 +1999,6 @@ const GpuMesh& Mesh3DFor(const EditorHost& h, int prim) noexcept {
     return h.gm_cube;
 }
 
-/** ノードのモデル行列 (Scale → Rotate(XYZ) → Translate) を合成する。 */
-FMat4 Node3DModel(game::FNode3D* n) noexcept {
-    const f32 d2r = 3.14159265f / 180.0f;
-    const FVec3 scale = n->Local().scale;
-    const FVec3 pos   = n->Local().position;
-    EEd3DRec* r = n->GetComponent<EEd3DRec>();
-    const FVec3 e = (r != nullptr) ? r->euler : FVec3{ 0, 0, 0 };
-    FMat4 m = FMat4::Scale(scale);
-    m = m * FMat4::RotationX(e.x * d2r);
-    m = m * FMat4::RotationY(e.y * d2r);
-    m = m * FMat4::RotationZ(e.z * d2r);
-    m = m * FMat4::Translation(pos);
-    return m;
-}
 
 /** 軌道カメラの eye 位置を yaw/pitch/dist/target から求める。 */
 FVec3 Cam3DEye(const EditorHost& h) noexcept {
@@ -2125,19 +2111,15 @@ game::FMeshComponent3D* Mesh3D(game::FNode3D* n) noexcept {
     return (n != nullptr) ? n->GetComponent<game::FMeshComponent3D>() : nullptr;
 }
 
-/** editor 3D ノード数 (= root の直接の子の数)。 */
-u32 Node3DNum(EditorHost& h) noexcept { return h.scene3d.Root().ChildCount(); }
+/** root 配下を DFS pre-order で集める (root 自身は除く)。前方宣言 (FindNode3DNode が使う)。 */
+void Dfs3DCollect(game::FNode3D* n, TArray<game::FNode3D*>& out) noexcept;
 
-/** index 番目の editor 3D ノードの FNode3D (範囲外 null)。 */
-game::FNode3D* Node3DNodeAt(EditorHost& h, u32 i) noexcept { return h.scene3d.Root().Child(i); }
-
-/** editor 整数 id で FNode3D を線形探索する (無ければ null)。 */
+/** editor 整数 id で FNode3D を «木全体» から線形探索する (階層対応、無ければ null)。 */
 game::FNode3D* FindNode3DNode(EditorHost& h, int id) noexcept {
-    const u32 n = Node3DNum(h);
-    for (u32 i = 0; i < n; ++i) {
-        game::FNode3D* nn = Node3DNodeAt(h, i);
-        EEd3DRec* r = Rec3D(nn);
-        if (r != nullptr && r->id == id) return nn;
+    TArray<game::FNode3D*> all; Dfs3DCollect(&h.scene3d.Root(), all);
+    for (u32 i = 0; i < all.Size(); ++i) {
+        EEd3DRec* r = Rec3D(all[i]);
+        if (r != nullptr && r->id == id) return all[i];
     }
     return nullptr;
 }
@@ -2167,6 +2149,24 @@ game::FNode3D& AddNode3D(EditorHost& h, const char* name) noexcept {
     game::FMeshComponent3D& m = n.AddComponent<game::FMeshComponent3D>();
     m.SetColor(FVec4{ 0.80f, 0.80f, 0.85f, 1.0f });   // 旧 ENode3D 既定色を踏襲
     return n;
+}
+
+/** root 配下を DFS pre-order で集める (root 自身は除く)。階層対応の列挙/描画/保存に使う。 */
+void Dfs3DCollect(game::FNode3D* n, TArray<game::FNode3D*>& out) noexcept {
+    if (n == nullptr) return;
+    for (u32 i = 0; i < n->ChildCount(); ++i) {
+        game::FNode3D* c = n->Child(i);
+        if (c != nullptr) { out.PushBack(c); Dfs3DCollect(c, out); }
+    }
+}
+
+/** ノードの «親の editor 整数 id» を返す (親が root or 無しは -1)。 */
+int ParentId3D(EditorHost& h, game::FNode3D* n) noexcept {
+    if (n == nullptr) return -1;
+    game::FNode3D* p = n->Parent();
+    if (p == nullptr || p == &h.scene3d.Root()) return -1;
+    EEd3DRec* r = Rec3D(p);
+    return (r != nullptr) ? r->id : -1;
 }
 
 /** メッシュファイル (.gltf/.glb/.obj/.fbx、UTF-8 path) を読み込んで FMeshAsset を返す (失敗 null)。 */
@@ -2305,15 +2305,16 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     // --- (2) ノードのメッシュ本体 (depth on) ---
     TArray<M3DVtx>& dv = *(new TArray<M3DVtx>());   // 大容量をスタックに積まない
     dv.Reserve(8192);
-    for (u32 i = 0; i < Node3DNum(h); ++i) {
-        game::FNode3D* nn = Node3DNodeAt(h, i);
-        if (nn == nullptr) continue;
+    TArray<game::FNode3D*> all3d; Dfs3DCollect(&h.scene3d.Root(), all3d);   // 階層を平坦化 (World で合成)
+    for (u32 i = 0; i < all3d.Size(); ++i) {
+        game::FNode3D* nn = all3d[i];
+        if (Mesh3D(nn) == nullptr) continue;
         const int prim = NPrim(nn);
         const FMeshAsset* cm = (prim == 3) ? NMesh(nn)
                              : (prim == 1) ? h.cpu_sphere.Get()
                              : (prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
         const FVec4 col = NColor(nn);
-        AppendMeshTris(dv, cm, Node3DModel(nn), FVec3{ col.x, col.y, col.z }, h.m3d_dyn_cap);
+        AppendMeshTris(dv, cm, nn->World().ToMat4(), FVec3{ col.x, col.y, col.z }, h.m3d_dyn_cap);   // 親変形を合成
     }
     if (dv.Size() > 0 && h.m3d_dyn_vb) {
         h.m3d_dyn_vb->Update(dv.Data(), sizeof(M3DVtx) * dv.Size());
@@ -4330,18 +4331,42 @@ ACS_EDITOR_API int acs_editor_delete_node3d(void* handle, int id) {
     return 1;
 }
 
-/** 3D ノード数。 */
+/** 3D ノード数 (root を除く全ノード、階層含む)。 */
 ACS_EDITOR_API int acs_editor_node3d_count(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
-    return (host != nullptr) ? static_cast<int>(Node3DNum(*host)) : 0;
+    if (host == nullptr) return 0;
+    TArray<game::FNode3D*> all; Dfs3DCollect(&host->scene3d.Root(), all);
+    return static_cast<int>(all.Size());
 }
 
-/** index 番目の 3D ノード id (範囲外は -1)。 */
+/** DFS pre-order で index 番目の 3D ノード id (範囲外は -1)。階層は親→子の順で並ぶ。 */
 ACS_EDITOR_API int acs_editor_node3d_id_at(void* handle, int index) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr || index < 0) return -1;
-    EEd3DRec* r = Rec3D(Node3DNodeAt(*host, static_cast<u32>(index)));
+    TArray<game::FNode3D*> all; Dfs3DCollect(&host->scene3d.Root(), all);
+    if (static_cast<u32>(index) >= all.Size()) return -1;
+    EEd3DRec* r = Rec3D(all[static_cast<u32>(index)]);
     return (r != nullptr) ? r->id : -1;
+}
+
+/** ノードの親の editor id を返す (root 直下 / 無効は -1)。Hierarchy パネルの木構築用。 */
+ACS_EDITOR_API int acs_editor_node3d_parent(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return -1;
+    return ParentId3D(*host, FindNode3DNode(*host, id));
+}
+
+/** child を parent(=-1 で root) の子に付け替える。成功 1。 */
+ACS_EDITOR_API int acs_editor_reparent3d(void* handle, int child_id, int parent_id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return 0;
+    game::FNode3D* child = FindNode3DNode(*host, child_id);
+    if (child == nullptr) return 0;
+    game::FNode3D* parent = (parent_id < 0) ? &host->scene3d.Root() : FindNode3DNode(*host, parent_id);
+    if (parent == nullptr) return 0;
+    child->Reparent(*parent);                 // cycle/自己は engine 側で弾く
+    host->scene3d.Update(0.0f);               // 構造変更を即時解決
+    return 1;
 }
 
 /** 3D ノードの名前を out (cap) へ書く。成功 1。 */
@@ -4428,24 +4453,25 @@ ACS_EDITOR_API void acs_editor_select3d(void* handle, int id) {
 }
 
 /** 3D シーンをテキストへシリアライズする (C# が保存)。書いた文字数を返す。
- *  形式: 1 行 "N3D <id> <prim> px py pz rx ry rz sx sy sz r g b a <name>"。 */
+ *  形式: "N3D <id> <parent> <prim> px py pz rx ry rz sx sy sz r g b a <name>" (DFS、親が先)。 */
 ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr || out == nullptr || cap <= 0) return 0;
     int cur = 0;
-    cur += std::snprintf(out + cur, static_cast<size_t>(cap - cur), "ACS3D v1\n");
-    const u32 cnt = Node3DNum(*host);
-    for (u32 i = 0; i < cnt && cur < cap; ++i) {
-        game::FNode3D* nn = Node3DNodeAt(*host, i);
+    cur += std::snprintf(out + cur, static_cast<size_t>(cap - cur), "ACS3D v2\n");
+    TArray<game::FNode3D*> all; Dfs3DCollect(&host->scene3d.Root(), all);   // 親が子より先 (DFS pre-order)
+    for (u32 i = 0; i < all.Size() && cur < cap; ++i) {
+        game::FNode3D* nn = all[i];
         EEd3DRec* r = Rec3D(nn);
-        if (nn == nullptr || r == nullptr) continue;
+        if (r == nullptr) continue;
         const FVec3 p = nn->Local().position, s = nn->Local().scale, e = r->euler;
         const FVec4 col = NColor(nn);
         const int prim = NPrim(nn);
+        const int parent = ParentId3D(*host, nn);
         char nm[128]; { const FStringView nv = nn->Name(); u32 ln = 0; for (; ln < nv.Size() && ln + 1u < sizeof(nm); ++ln) nm[ln] = nv[ln]; nm[ln] = '\0'; }
         const int w = std::snprintf(out + cur, static_cast<size_t>(cap - cur),
-            "N3D %d %d %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.3f %.3f %.3f %.3f %s\n",
-            r->id, prim, p.x, p.y, p.z, e.x, e.y, e.z,
+            "N3D %d %d %d %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.3f %.3f %.3f %.3f %s\n",
+            r->id, parent, prim, p.x, p.y, p.z, e.x, e.y, e.z,
             s.x, s.y, s.z, col.x, col.y, col.z, col.w, nm);
         if (w < 0 || w >= cap - cur) { out[cap - 1] = '\0'; break; }
         cur += w;
@@ -4489,13 +4515,13 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
             continue;
         }
         if (std::strncmp(line, "N3D ", 4) != 0) continue;
-        int nid = 0, nprim = 0; char nm[64] = {};
+        int nid = 0, nparent = -1, nprim = 0; char nm[64] = {};
         FVec3 pos{ 0, 0, 0 }, rot{ 0, 0, 0 }, scl{ 1, 1, 1 }; FVec4 color{ 0.8f, 0.8f, 0.85f, 1 };
-        const int got = std::sscanf(line, "N3D %d %d %f %f %f %f %f %f %f %f %f %f %f %f %f %63[^\n]",
-            &nid, &nprim, &pos.x, &pos.y, &pos.z, &rot.x, &rot.y, &rot.z,
+        const int got = std::sscanf(line, "N3D %d %d %d %f %f %f %f %f %f %f %f %f %f %f %f %f %63[^\n]",
+            &nid, &nparent, &nprim, &pos.x, &pos.y, &pos.z, &rot.x, &rot.y, &rot.z,
             &scl.x, &scl.y, &scl.z, &color.x, &color.y, &color.z, &color.w, nm);
-        if (got >= 15) {
-            game::FNode3D& nd = AddNode3D(*host, (got >= 16) ? nm : "Node");
+        if (got >= 16) {
+            game::FNode3D& nd = AddNode3D(*host, (got >= 17) ? nm : "Node");
             nd.Local().position = pos; nd.Local().scale = scl; nd.Local().SetEulerDeg(rot);
             EEd3DRec* r = nd.GetComponent<EEd3DRec>(); if (r != nullptr) { r->id = nid; r->euler = rot; }
             game::FMeshComponent3D* m = nd.GetComponent<game::FMeshComponent3D>();
@@ -4503,11 +4529,16 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
                 m->SetPrimitive(static_cast<game::EMeshPrimitive3D>((nprim >= 0 && nprim <= 3) ? nprim : 0));
                 m->SetColor(color);
             }
+            if (nparent >= 0) {   // DFS 順なので親は既に存在 (root 下に居る pending も含め見つかる)
+                if (game::FNode3D* par = FindNode3DNode(*host, nparent)) nd.Reparent(*par);
+            }
             if (nid > maxId) maxId = nid;
         }
     }
+    host->scene3d.Update(0.0f);         // 保留中の reparent を一括解決 (階層を確定)
     host->next_id3d = maxId + 1;
-    EEd3DRec* fr = Rec3D(Node3DNodeAt(*host, 0));
+    TArray<game::FNode3D*> all; Dfs3DCollect(&host->scene3d.Root(), all);
+    EEd3DRec* fr = (all.Size() > 0) ? Rec3D(all[0]) : nullptr;
     if (fr != nullptr) host->sel3d = fr->id;
     return 1;
 }

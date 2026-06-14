@@ -630,6 +630,21 @@ public partial class MainWindow : Window
         e.Handled = true;
         if (dragged == target) return;
 
+        if (_view3d)   // 3D: 中央=子化 / 前後=兄弟(target の親へ) / 空白=root。順序付けは無し。
+        {
+            int newParent = target < 0 ? -1
+                          : (mode == 2 ? target : EngineInterop.acs_editor_node3d_parent(Engine, target));
+            if (EngineInterop.acs_editor_reparent3d(Engine, dragged, newParent) != 0)
+            {
+                Build3DHierarchy();
+                EngineInterop.acs_editor_select3d(Engine, dragged);
+                Select3DInHierarchy(dragged);
+                Populate3DInspector(dragged);
+                Log($"3D: reparented {dragged} → {(newParent < 0 ? "root" : newParent.ToString())}");
+            }
+            return;
+        }
+
         int rc; string what;
         if (target < 0) { rc = EngineInterop.acs_editor_node_reparent(Engine, dragged, -1); what = "→ root"; }
         else
