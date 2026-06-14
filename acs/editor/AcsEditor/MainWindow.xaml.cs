@@ -32,6 +32,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        InitLog();              // ConsoleList をタグ付きログビューに束縛
         Loaded += OnLoaded;
 
         // Inspector フィールドの編集 → エンジンへ反映 (Enter / フォーカス喪失で確定)。
@@ -1708,12 +1709,11 @@ public partial class MainWindow : Window
     }
 
     // ===== misc =====
+    // 自動分類してログ追加 (実体は MainWindow.Log.cs)。明示タグは Log(msg, tag, level)。
     private void Log(string msg)
     {
-        // ビルドプロセスの出力など UI 以外のスレッドから来る場合は UI スレッドへ回す。
-        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(() => Log(msg)); return; }
-        ConsoleList.Items.Add($"[{DateTime.Now:HH:mm:ss}] {msg}");
-        ConsoleList.ScrollIntoView(ConsoleList.Items[ConsoleList.Items.Count - 1]);
+        var (tag, level) = ClassifyLog(msg);
+        Log(msg, tag, level);
     }
 
     // ===== File メニュー: シーンの新規 / 開く / 保存 =====
@@ -1825,6 +1825,20 @@ public partial class MainWindow : Window
     }
 
     private void OnExit(object sender, RoutedEventArgs e) => Close();
+
+    // ===== カスタムタイトルバー (WindowChrome) =====
+    private void OnMinimizeWin(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+    private void OnMaximizeRestoreWin(object sender, RoutedEventArgs e) =>
+        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+    private void OnCloseWin(object sender, RoutedEventArgs e) => Close();
+
+    protected override void OnStateChanged(EventArgs e)
+    {
+        base.OnStateChanged(e);
+        // 最大化中は「元に戻す」グリフ、通常は「最大化」グリフに切替。
+        if (MaxRestoreBtn != null)
+            MaxRestoreBtn.Content = WindowState == WindowState.Maximized ? "❐" : "□";
+    }
 
     private void OnAbout(object sender, RoutedEventArgs e) =>
         MessageBox.Show(this,
