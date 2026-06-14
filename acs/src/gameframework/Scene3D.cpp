@@ -1,11 +1,59 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar B — FScene3D 実装
 #include "gameframework/Scene3D.h"
+#include "gameframework/MeshComponent3D.h"   // FMeshComponent3D (Raycast の bounds)
+#include "asset/MeshAsset.h"                 // FMeshAsset (Mesh 種別の頂点 AABB)
+#include "math/Mat.h"                        // Inverse / TransformPoint / TransformVector
 #include "memory/UniquePtr.h"
 
 namespace acs::game {
 
 namespace {
+
+/** const ノードから FMeshComponent3D を探す (ComponentAt 経由)。 */
+const FMeshComponent3D* FindMeshC(const FNode3D& n) noexcept {
+    const void* k = Component3DKindOf<FMeshComponent3D>();
+    for (u32 i = 0; i < n.ComponentCount(); ++i) {
+        const FComponent3D* c = n.ComponentAt(i);
+        if (c != nullptr && c->Kind() == k) return static_cast<const FMeshComponent3D*>(c);
+    }
+    return nullptr;
+}
+
+/** プリミティブ種別ごとのローカル空間 AABB (Mesh は頂点から)。 */
+Aabb3 LocalBounds3D(const FMeshComponent3D& m) noexcept {
+    if (m.Primitive() == EMeshPrimitive3D::Plane) {
+        return Aabb3{ FVec3{ 0, 0, 0 }, FVec3{ 0.5f, 0.02f, 0.5f } };   // 薄い板
+    }
+    if (m.Primitive() == EMeshPrimitive3D::Mesh) {
+        const FMeshAsset* a = m.Mesh();
+        if (a != nullptr && a->Vertices().Size() > 0) {
+            FVec3 mn = a->Vertices()[0].position, mx = mn;
+            for (u32 i = 1; i < a->Vertices().Size(); ++i) {
+                const FVec3 p = a->Vertices()[i].position;
+                mn.x = p.x < mn.x ? p.x : mn.x; mx.x = p.x > mx.x ? p.x : mx.x;
+                mn.y = p.y < mn.y ? p.y : mn.y; mx.y = p.y > mx.y ? p.y : mx.y;
+                mn.z = p.z < mn.z ? p.z : mn.z; mx.z = p.z > mx.z ? p.z : mx.z;
+            }
+            return Aabb3::FromMinMax(mn, mx);
+        }
+    }
+    return Aabb3{ FVec3{ 0, 0, 0 }, FVec3{ 0.5f, 0.5f, 0.5f } };        // Cube/Sphere/フォールバック
+}
+
+/** subtree を DFS し、レイと «最も手前で» 交わるメッシュノードを探す。 */
+void RaycastRec(const FNode3D* n, const Ray3& ray, FNodeId& best, f32& bestT) noexcept {
+    if (n == nullptr) return;
+    if (const FMeshComponent3D* m = FindMeshC(*n)) {
+        const FMat4 M    = n->World().ToMat4();
+        const FMat4 Minv = Inverse(M);
+        // レイをノードのローカル空間へ (point/vector で別変換)。t は world レイと共通。
+        const Ray3 lr{ TransformPoint(ray.origin, Minv), TransformVector(ray.direction, Minv) };
+        const RayHit3 hit = RaycastAabb(lr, LocalBounds3D(*m));
+        if (hit.hit && hit.t >= 0.0f && hit.t < bestT) { bestT = hit.t; best = n->Id(); }
+    }
+    for (u32 i = 0; i < n->ChildCount(); ++i) RaycastRec(n->Child(i), ray, best, bestT);
+}
 
 /** subtree を深さ優先で走査し name に一致する最初のノードを返す (root から再帰)。 */
 FNode3D* FindByNameRec(FNode3D* n, FStringView name) noexcept {
@@ -55,6 +103,14 @@ FNode3D* FScene3D::FindByName(FStringView name) noexcept {
 
 u32 FScene3D::NodeCount() const noexcept {
     return CountRec(&m_Root);
+}
+
+FNodeId FScene3D::Raycast(const Ray3& ray, f32* out_t) const noexcept {
+    FNodeId best{};
+    f32 bestT = 3.4028235e38f;
+    RaycastRec(&m_Root, ray, best, bestT);
+    if (out_t != nullptr && best.IsValid()) *out_t = bestT;
+    return best;
 }
 
 void FScene3D::Clear() noexcept {

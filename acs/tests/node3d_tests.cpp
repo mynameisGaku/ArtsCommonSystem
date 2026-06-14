@@ -459,6 +459,82 @@ ACS_TEST(Scene3D, DirectDestroyAlsoPurged) {
     EXPECT_EQ(scene.RegisteredCount(), 1u);
 }
 
+// === FScene3D::Raycast ======================================================
+
+// --- 上からのレイが原点の cube に当たり、t が正しい --------------------------
+ACS_TEST(Scene3DRaycast, HitsCubeFromAbove) {
+    FScene3D scene;
+    FNode3D& cube = scene.Spawn(FStringView("Cube"));
+    cube.AddComponent<FMeshComponent3D>(EMeshPrimitive3D::Cube);
+    cube.Local().position = FVec3{ 0, 0, 0 };
+
+    Ray3 ray{ FVec3{ 0, 5, 0 }, FVec3{ 0, -1, 0 } };   // 真上から下向き
+    f32 t = -1.0f;
+    const FNodeId hit = scene.Raycast(ray, &t);
+    EXPECT_TRUE(hit == cube.Id());
+    EXPECT_NEAR(t, 4.5f, 1e-3f);                        // 上面 y=0.5 に y=5 から → t=4.5
+}
+
+// --- 外れるレイは invalid を返す --------------------------------------------
+ACS_TEST(Scene3DRaycast, MissReturnsInvalid) {
+    FScene3D scene;
+    FNode3D& cube = scene.Spawn(FStringView("Cube"));
+    cube.AddComponent<FMeshComponent3D>(EMeshPrimitive3D::Cube);
+    Ray3 ray{ FVec3{ 10, 5, 10 }, FVec3{ 0, -1, 0 } };  // cube から遠い
+    EXPECT_TRUE(!scene.Raycast(ray).IsValid());
+}
+
+// --- 2 つのうち手前のノードを返す -------------------------------------------
+ACS_TEST(Scene3DRaycast, ReturnsNearest) {
+    FScene3D scene;
+    FNode3D& near_ = scene.Spawn(FStringView("Near"));
+    near_.AddComponent<FMeshComponent3D>(EMeshPrimitive3D::Cube);
+    near_.Local().position = FVec3{ 0, 0, 2 };
+    FNode3D& far_ = scene.Spawn(FStringView("Far"));
+    far_.AddComponent<FMeshComponent3D>(EMeshPrimitive3D::Cube);
+    far_.Local().position = FVec3{ 0, 0, 5 };
+
+    Ray3 ray{ FVec3{ 0, 0, -5 }, FVec3{ 0, 0, 1 } };    // +Z 方向
+    f32 t = -1.0f;
+    const FNodeId hit = scene.Raycast(ray, &t);
+    EXPECT_TRUE(hit == near_.Id());
+    EXPECT_NEAR(t, 6.5f, 1e-3f);                        // near 手前面 z=1.5 に z=-5 から → 6.5
+}
+
+// --- スケールで AABB が拡大し、単位 cube なら外れるレイが当たる (OBB) --------
+ACS_TEST(Scene3DRaycast, RespectsScale) {
+    FScene3D scene;
+    FNode3D& cube = scene.Spawn(FStringView("Cube"));
+    cube.AddComponent<FMeshComponent3D>(EMeshPrimitive3D::Cube);
+    cube.Local().scale = FVec3{ 3, 3, 3 };              // 半幅 1.5
+
+    Ray3 ray{ FVec3{ 1.2f, 5, 0 }, FVec3{ 0, -1, 0 } }; // x=1.2 は単位(0.5)では外れ、3倍(1.5)で当たる
+    EXPECT_TRUE(scene.Raycast(ray) == cube.Id());
+}
+
+// --- 回転した cube を正しく OBB ピック (90°Z 回転で縦長 box) -----------------
+ACS_TEST(Scene3DRaycast, RespectsRotation) {
+    FScene3D scene;
+    FNode3D& box = scene.Spawn(FStringView("Box"));
+    box.AddComponent<FMeshComponent3D>(EMeshPrimitive3D::Cube);
+    box.Local().scale = FVec3{ 3, 0.5f, 0.5f };        // X に長い棒
+    // 回転なしなら x=±1.5 まで当たる。Z 90° 回転で «Y に長い» 棒になる → x=1.2 は外れる。
+    Ray3 down{ FVec3{ 1.2f, 5, 0 }, FVec3{ 0, -1, 0 } };
+    EXPECT_TRUE(scene.Raycast(down) == box.Id());       // 回転前: x=1.2 は半幅1.5内で当たる
+    box.Local().SetEulerDeg(FVec3{ 0, 0, 90 });
+    EXPECT_TRUE(!scene.Raycast(down).IsValid());        // 回転後: X 半幅が 0.5 になり x=1.2 は外れる
+}
+
+// --- FMeshComponent3D の無いノードはピック対象外 ----------------------------
+ACS_TEST(Scene3DRaycast, IgnoresNodesWithoutMesh) {
+    FScene3D scene;
+    FNode3D& empty = scene.Spawn(FStringView("Empty"));   // mesh component なし
+    empty.Local().position = FVec3{ 0, 0, 0 };
+    Ray3 ray{ FVec3{ 0, 5, 0 }, FVec3{ 0, -1, 0 } };
+    EXPECT_TRUE(!scene.Raycast(ray).IsValid());
+    (void)empty;
+}
+
 // === FMeshComponent3D =======================================================
 
 // --- 既定値 / プリミティブ・色・パスの設定取得 -----------------------------

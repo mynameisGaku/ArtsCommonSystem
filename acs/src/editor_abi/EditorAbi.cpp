@@ -4542,32 +4542,13 @@ ACS_EDITOR_API int acs_editor_pick3d(void* handle, float sx, float sy) {
     const f32 dl = std::sqrt(dir.x*dir.x + dir.y*dir.y + dir.z*dir.z);
     if (dl > 1e-6f) dir = FVec3{ dir.x/dl, dir.y/dl, dir.z/dl };
 
-    int   best = -1; f32 bestT = 1e30f;
-    const u32 pcnt = Node3DNum(*host);
-    for (u32 i = 0; i < pcnt; ++i) {
-        game::FNode3D* nn = Node3DNodeAt(*host, i);
-        EEd3DRec* rr = Rec3D(nn);
-        if (nn == nullptr || rr == nullptr) continue;
-        const FVec3 npos = nn->Local().position, nsc = nn->Local().scale;
-        const int nprim = NPrim(nn);
-        const f32 r = 0.5f * std::max(std::abs(nsc.x), std::max(std::abs(nsc.y), std::abs(nsc.z)));
-        const f32 rad = (nprim == 2) ? 0.0f : r;         // 平面は球近似が弱い → 後段で別途
-        const FVec3 oc{ eye.x - npos.x, eye.y - npos.y, eye.z - npos.z };
-        if (rad > 0.0f) {                                 // レイ vs 球
-            const f32 b = oc.x*dir.x + oc.y*dir.y + oc.z*dir.z;
-            const f32 c = oc.x*oc.x + oc.y*oc.y + oc.z*oc.z - rad*rad;
-            const f32 disc = b*b - c;
-            if (disc >= 0.0f) { const f32 t = -b - std::sqrt(disc); if (t > 0.0f && t < bestT) { bestT = t; best = rr->id; } }
-        } else {                                          // 平面 (y≈pos.y) vs レイ
-            if (std::abs(dir.y) > 1e-5f) {
-                const f32 t = (npos.y - eye.y) / dir.y;
-                if (t > 0.0f && t < bestT) {
-                    const f32 hx = eye.x + dir.x * t, hz = eye.z + dir.z * t;
-                    if (std::abs(hx - npos.x) <= 0.5f * std::abs(nsc.x) &&
-                        std::abs(hz - npos.z) <= 0.5f * std::abs(nsc.z)) { bestT = t; best = rr->id; }
-                }
-            }
-        }
+    // ノード交差は engine の FScene3D::Raycast に委譲 (回転/スケール/階層を扱う OBB ピック)。
+    int best = -1;
+    const Ray3 ray{ eye, dir };
+    const game::FNodeId hitId = host->scene3d.Raycast(ray);
+    if (hitId.IsValid()) {
+        EEd3DRec* hr = Rec3D(host->scene3d.Get(hitId));
+        if (hr != nullptr) best = hr->id;
     }
     if (best >= 0) host->sel3d = best;
     return best;

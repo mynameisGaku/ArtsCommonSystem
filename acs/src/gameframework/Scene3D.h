@@ -12,6 +12,7 @@
 
 #include "foundation/Types.h"
 #include "container/StringView.h"
+#include "math/Collision3D.h"   // Ray3 / Aabb3 (Raycast)
 #include "gameframework/Node3D.h"
 #include "gameframework/Node3DPool.h"
 #include "gameframework/NodeId.h"
@@ -143,6 +144,19 @@ public:
      * @return 最初に一致したノード (無ければ nullptr)。
      */
     FNode3D* FindByName(FStringView name) noexcept;
+
+    /**
+     * ワールド空間レイで最も手前のノードをピックする (FMeshComponent3D を持つノードのみ対象)。
+     *
+     * @details
+     * 各ノードの World() 変形を逆適用してレイをローカル空間へ移し、プリミティブ種別ごとの
+     * ローカル AABB と交差判定する (= 回転/スケール/階層を正しく扱う OBB ピック)。t は元の
+     * world レイ上のパラメータ。Mesh 種別は頂点 AABB を使う。
+     * @param ray ワールド空間のピックレイ (direction は非正規化でも可)。
+     * @param out_t 非 null なら命中 t (world レイ上、`ray.origin + t*ray.direction` が命中点) を書く。
+     * @return 最も手前で命中したノードの FNodeId (外れは invalid)。
+     */
+    FNodeId Raycast(const Ray3& ray, f32* out_t = nullptr) const noexcept;
 
     /**
      * subtree のノード総数を返す (root を含む)。
