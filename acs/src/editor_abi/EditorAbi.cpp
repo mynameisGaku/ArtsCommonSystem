@@ -43,6 +43,7 @@
 #include "asset/MeshPrimitive.h"            // Primitive::MakeCube/MakeSphere/MakePlane
 #include "asset/MeshAsset.h"                // FMeshAsset
 #include "math/Camera.h"                    // FCamera (透視 + lookAt)
+#include "math/CameraRig.h"                 // ScreenPointToRay (透視/正射 両対応のピックレイ)
 #include "math/Mat.h"                       // FMat4 (model 行列の合成)
 #include "math/Math.h"                      // kDeg2Rad
 #include "math/Collision3D.h"               // Aabb3 (選択ハイライト)
@@ -257,6 +258,7 @@ struct EditorHost {
     // --- 3D ビューポート (Phase 1: 軌道カメラ + ライト付きプリミティブ + グリッド) ---
     // 2D シーン (FNode2D) とは別系統。view3d=true でレンダ/入力が 3D に切り替わる。
     bool         view3d        = false;
+    bool         ortho3d       = false;  // true=正射影 (2D ビュー)。透視⇔正射を切り替え
     f32          cam3d_yaw     = 0.78f;   // 軌道 yaw (rad)
     f32          cam3d_pitch   = 0.55f;   // 軌道 pitch (rad、+で見下ろし)
     f32          cam3d_dist    = 14.0f;   // 注視点からの距離 (ドリー)
@@ -2010,6 +2012,19 @@ FVec3 Cam3DEye(const EditorHost& h) noexcept {
                   h.cam3d_target.z + dir.z * h.cam3d_dist };
 }
 
+/** エディタ 3D ビューのカメラを組む (透視 or 正射、軌道 eye + 注視点)。描画/射影/ピックで共通。 */
+FCamera EditorCam3D(const EditorHost& h, f32 aspect) noexcept {
+    FCamera cam;
+    if (h.ortho3d) {
+        const f32 oh = h.cam3d_dist * 0.62f;             // 高さを軌道距離に比例 → ズーム感を保つ
+        cam.SetOrthographic(oh * aspect, oh, 0.05f, 500.0f);
+    } else {
+        cam.SetPerspective(50.0f * 3.14159265f / 180.0f, aspect, 0.05f, 500.0f);
+    }
+    cam.SetLookAt(Cam3DEye(h), h.cam3d_target);
+    return cam;
+}
+
 /** スクリーン点 (sx,sy) を通すワールドレイ (origin=eye, dir 正規化) を返す。 */
 struct EGizRay { FVec3 origin; FVec3 dir; };
 EGizRay Cam3DScreenRay(const EditorHost& h, f32 sx, f32 sy, f32 W, f32 H) noexcept {
@@ -2032,11 +2047,10 @@ EGizRay Cam3DScreenRay(const EditorHost& h, f32 sx, f32 sy, f32 W, f32 H) noexce
 /** ワールド点をスクリーン座標へ射影する (画面内かつ前方なら true)。 */
 bool WorldToScreen3D(const EditorHost& h, FVec3 wp, f32 W, f32 H, f32& outSx, f32& outSy) noexcept {
     const f32 aspect = (H > 0) ? W / H : 1.0f;
-    FCamera cam; cam.SetPerspective(50.0f * 3.14159265f / 180.0f, aspect, 0.05f, 500.0f);
-    cam.SetLookAt(Cam3DEye(h), h.cam3d_target);
+    const FCamera cam = EditorCam3D(h, aspect);          // 透視 or 正射
     const FMat4 vp = cam.ViewProjection();
     const FVec4 clip = Transform(FVec4{ wp.x, wp.y, wp.z, 1.0f }, vp);
-    if (clip.w <= 1e-4f) return false;                  // カメラ後方
+    if (clip.w <= 1e-4f) return false;                  // カメラ後方 (正射では w=1 で常に可視)
     outSx = (clip.x / clip.w * 0.5f + 0.5f) * W;
     outSy = (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * H;
     return true;
@@ -2267,10 +2281,8 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     if (cl == nullptr) return;
 
     const f32 aspect = (scH > 0) ? static_cast<f32>(scW) / static_cast<f32>(scH) : 1.0f;
-    FCamera cam;
-    cam.SetPerspective(50.0f * 3.14159265f / 180.0f, aspect, 0.05f, 500.0f);
+    const FCamera cam = EditorCam3D(h, aspect);          // 透視 or 正射 (ortho3d)
     const FVec3 eye = Cam3DEye(h);
-    cam.SetLookAt(eye, h.cam3d_target);
     const FMat4 vp = cam.ViewProjection();
 
     // --- (1) スカイボックス: フルスクリーン三角形で背景の天空を描く (depth off、最初に描画) ---
@@ -4268,6 +4280,18 @@ ACS_EDITOR_API int acs_editor_get_view3d(void* handle) {
     return (host != nullptr && host->view3d) ? 1 : 0;
 }
 
+/** 3D ビューの投影を 正射(2D ビュー) / 透視 で切り替える。 */
+ACS_EDITOR_API void acs_editor_set_ortho3d(void* handle, int on) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host != nullptr) host->ortho3d = (on != 0);
+}
+
+/** 現在 正射(2D ビュー) か。 */
+ACS_EDITOR_API int acs_editor_get_ortho3d(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr && host->ortho3d) ? 1 : 0;
+}
+
 /** 3D カメラを既定の俯瞰に戻す。 */
 ACS_EDITOR_API void acs_editor_cam3d_reset(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -4553,29 +4577,13 @@ ACS_EDITOR_API int acs_editor_pick3d(void* handle, float sx, float sy) {
     const f32 W = static_cast<f32>(sc->Width()), H = static_cast<f32>(sc->Height());
     if (W <= 0 || H <= 0) return -1;
 
-    // スクリーン → ワールドレイ。カメラ基底を yaw/pitch から再構成する (forward/right/up)。
+    // スクリーン → ワールドレイ。行列ベースの ScreenPointToRay は «透視も正射も» 正しく扱う
+    // (inverse(view_proj) で near/far を逆射影 → 正射では平行レイ、透視では eye からの放射)。
     const f32 aspect = W / H;
-    const FVec3 eye = Cam3DEye(*host);
-    const f32 cpit = std::cos(host->cam3d_pitch), spit = std::sin(host->cam3d_pitch);
-    const f32 cyaw = std::cos(host->cam3d_yaw),   syaw = std::sin(host->cam3d_yaw);
-    const FVec3 fwd{ -cpit * syaw, -spit, -cpit * cyaw };   // eye→target
-    FVec3 right{ cyaw, 0, -syaw };
-    // up = right × fwd
-    FVec3 up{ right.y * fwd.z - right.z * fwd.y,
-              right.z * fwd.x - right.x * fwd.z,
-              right.x * fwd.y - right.y * fwd.x };
-    const f32 tanHalf = std::tan(0.5f * 50.0f * 3.14159265f / 180.0f);
-    const f32 ndcx = (2.0f * sx / W - 1.0f) * tanHalf * aspect;
-    const f32 ndcy = (1.0f - 2.0f * sy / H) * tanHalf;
-    FVec3 dir{ fwd.x + right.x * ndcx + up.x * ndcy,
-               fwd.y + right.y * ndcx + up.y * ndcy,
-               fwd.z + right.z * ndcx + up.z * ndcy };
-    const f32 dl = std::sqrt(dir.x*dir.x + dir.y*dir.y + dir.z*dir.z);
-    if (dl > 1e-6f) dir = FVec3{ dir.x/dl, dir.y/dl, dir.z/dl };
+    const Ray3 ray = acs::ScreenPointToRay(EditorCam3D(*host, aspect).ViewProjection(), sx, sy, W, H);
 
     // ノード交差は engine の FScene3D::Raycast に委譲 (回転/スケール/階層を扱う OBB ピック)。
     int best = -1;
-    const Ray3 ray{ eye, dir };
     const game::FNodeId hitId = host->scene3d.Raycast(ray);
     if (hitId.IsValid()) {
         EEd3DRec* hr = Rec3D(host->scene3d.Get(hitId));

@@ -306,7 +306,17 @@ public partial class MainWindow : Window
         BuildHierarchy();                       // 2D/3D でツリーの中身を切り替える
         if (_view3d) { int s = EngineInterop.acs_editor_selected3d(Engine); if (s >= 0) Populate3DInspector(s); else Clear3DInspector(); }
         else Clear3DInspector();
+        OrthoBtn.Visibility = _view3d ? Visibility.Visible : Visibility.Collapsed;   // Ortho は 3D 時のみ
         Log(_view3d ? "3D ビューポート (右/中ドラッグ=軌道 / ホイール=ドリー / 左クリック=選択)" : "2D ビューポート");
+    }
+
+    // 3D ビューの投影を 正射(2D ビュー) / 透視 で切り替える。
+    private void OnToggleOrtho(object sender, RoutedEventArgs e)
+    {
+        if (Engine == IntPtr.Zero) return;
+        bool on = OrthoBtn.IsChecked == true;
+        EngineInterop.acs_editor_set_ortho3d(Engine, on ? 1 : 0);
+        Log(on ? "3D: 正射影 (2D ビュー)" : "3D: 透視投影");
     }
 
     // プロジェクトの初期シーンをロード (無ければ空シーン)。attach 後に 1 度呼ぶ。
