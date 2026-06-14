@@ -196,6 +196,8 @@ struct EEd3DRec : public acs::game::FComponent3D {
     ACS_GAME_COMPONENT3D_KIND(EEd3DRec)
     int   id    = 0;                          ///< editor 整数 id (ABI/C# 境界・シリアライズ用)。
     FVec3 euler = FVec3{ 0, 0, 0 };           ///< authored オイラー角 (度、XYZ。Local().rotation の編集元)。
+    char  sprite_path[256] = {};              ///< 非空ならスプライト (z=0 テクスチャ付きクアッド)。再読込用の画像パス。
+    TArray<FVec2> poly_pts;                   ///< 3点以上なら手続きポリゴン (z=0)。再生成用の元 2D 頂点列。
 };
 
 /** 1 つのビューポート + エディタ・シーン (実 FNode2D ツリー) を保持する描画ホスト。 */
@@ -4509,7 +4511,9 @@ ACS_EDITOR_API int acs_editor_add_sprite3d(void* handle, const char* path, const
     }
     game::FNode3D& n = AddNode3D(*host, nmbuf);
     const int id = host->next_id3d++;
-    n.GetComponent<EEd3DRec>()->id = id;
+    EEd3DRec* rec = n.GetComponent<EEd3DRec>();
+    rec->id = id;
+    std::snprintf(rec->sprite_path, sizeof(rec->sprite_path), "%s", path);   // 再読込用に画像パスを保持 (シリアライズ)
     // 画像アスペクト比に合わせて scale (長辺 = 2.0 world)。単位クアッドは local XY ±0.5。
     const f32 aspect = static_cast<f32>(iw) / static_cast<f32>(ih);
     const f32 longSide = 2.0f;
@@ -4536,7 +4540,9 @@ ACS_EDITOR_API int acs_editor_add_polygon3d(void* handle, const float* xy, int c
     if (!mesh) return -1;
     game::FNode3D& n = AddNode3D(*host, (name != nullptr && name[0] != '\0') ? name : "Polygon2D");
     const int id = host->next_id3d++;
-    n.GetComponent<EEd3DRec>()->id = id;
+    EEd3DRec* rec = n.GetComponent<EEd3DRec>();
+    rec->id = id;
+    rec->poly_pts = Move(pts);                           // 再生成用に元 2D 頂点列を保持 (シリアライズ。pts は以降不要)
     game::FMeshComponent3D* m = n.GetComponent<game::FMeshComponent3D>();
     m->SetMeshAsset(mesh);                               // prim=Mesh + 所有 (z=0 フラットメッシュ)
     m->SetColor(FVec4{ r, g, b, a });
@@ -4570,11 +4576,13 @@ ACS_EDITOR_API int acs_editor_poly3d_finalize(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr || host->poly3d_pts.Size() < 3) { if (host != nullptr) host->poly3d_pts.Clear(); return -1; }
     TSharedPtr<Asset> mesh = MakeFlatPolygon3D(host->poly3d_pts.Data(), static_cast<u32>(host->poly3d_pts.Size()));
-    host->poly3d_pts.Clear();
-    if (!mesh) return -1;
+    if (!mesh) { host->poly3d_pts.Clear(); return -1; }
     game::FNode3D& n = AddNode3D(*host, "Polygon2D");
     const int id = host->next_id3d++;
-    n.GetComponent<EEd3DRec>()->id = id;
+    EEd3DRec* rec = n.GetComponent<EEd3DRec>();
+    rec->id = id;
+    rec->poly_pts = Move(host->poly3d_pts);              // 再生成用に元 2D 頂点列を保持 (シリアライズ。mesh は構築済み)
+    host->poly3d_pts.Clear();                            // moved-from を明示的に空へ
     game::FMeshComponent3D* m = n.GetComponent<game::FMeshComponent3D>();
     m->SetMeshAsset(mesh);
     m->SetColor(FVec4{ 0.45f, 0.78f, 0.95f, 1 });
@@ -4757,6 +4765,24 @@ ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap
             if (w2 < 0 || w2 >= cap - cur) { out[cap - 1] = '\0'; break; }
             cur += w2;
         }
+        if (r->sprite_path[0] != '\0' && cur < cap) {                                  // スプライト (z=0 画像) の再読込パス
+            const int w2 = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "SPR3D %d %s\n", r->id, r->sprite_path);
+            if (w2 < 0 || w2 >= cap - cur) { out[cap - 1] = '\0'; break; }
+            cur += w2;
+        }
+        if (r->poly_pts.Size() >= 3 && cur < cap) {                                    // 手続きポリゴン (z=0) の元 2D 頂点列
+            int w2 = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "PLY3D %d %u", r->id, static_cast<unsigned>(r->poly_pts.Size()));
+            if (w2 < 0 || w2 >= cap - cur) { out[cap - 1] = '\0'; break; }
+            cur += w2;
+            bool overflow = false;
+            for (u32 k = 0; k < r->poly_pts.Size() && cur < cap; ++k) {
+                const int wk = std::snprintf(out + cur, static_cast<size_t>(cap - cur), " %.4f %.4f", r->poly_pts[k].x, r->poly_pts[k].y);
+                if (wk < 0 || wk >= cap - cur) { overflow = true; break; }
+                cur += wk;
+            }
+            if (overflow) { out[cap - 1] = '\0'; break; }
+            if (cur < cap) out[cur++] = '\n';
+        }
     }
     out[cur < cap ? cur : cap - 1] = '\0';
     return cur;
@@ -4767,11 +4793,12 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr || text == nullptr) return 0;
     host->scene3d.Clear();
+    host->sprite_textures.Clear();                   // 旧シーンのスプライトテクスチャを解放 (もう参照されない)
     host->sel3d = -1;
     host->scene3d_seeded = true;                     // 読み込んだら seed しない
     int maxId = 0;
     const char* p = text;
-    char line[512];
+    char line[4096];                          // ポリゴンの点列 (PLY3D) も収まる広さ
     while (*p != '\0') {
         u32 n = 0;
         while (*p != '\0' && *p != '\n') { if (n + 1 < sizeof(line)) line[n++] = *p; ++p; }
@@ -4784,6 +4811,46 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
                     if (game::FMeshComponent3D* m = Mesh3D(en)) {
                         m->SetMeshAsset(LoadMeshFile(mp));           // 失敗時 null → 描画スキップ
                         m->SetMeshPath(FStringView(mp));             // パス記録 (種別 Mesh に)
+                    }
+                }
+            }
+            continue;
+        }
+        if (std::strncmp(line, "SPR3D ", 6) == 0) {                  // スプライト (z=0 画像) の再読込
+            int sid = 0; char sp[260] = {};
+            if (std::sscanf(line, "SPR3D %d %259[^\n]", &sid, sp) >= 2) {
+                if (game::FNode3D* en = FindNode3DNode(*host, sid)) {
+                    EEd3DRec* rec = Rec3D(en);
+                    if (rec != nullptr) std::snprintf(rec->sprite_path, sizeof(rec->sprite_path), "%s", sp);
+                    u32 iw = 0, ih = 0;
+                    TUniquePtr<IRhiTexture> tex = LoadTexWithSize(*host, sp, iw, ih);   // device 準備済み前提
+                    if (tex && Mesh3D(en) != nullptr) {
+                        IRhiTexture* raw = tex.Get();
+                        host->sprite_textures.PushBack(Move(tex));
+                        Mesh3D(en)->SetRenderHandle(raw);            // 描画パスがスプライトとして扱う
+                    }
+                }
+            }
+            continue;
+        }
+        if (std::strncmp(line, "PLY3D ", 6) == 0) {                  // 手続きポリゴン (z=0) の再生成
+            int pid = 0; unsigned pc = 0; int off = 0;
+            if (std::sscanf(line, "PLY3D %d %u%n", &pid, &pc, &off) >= 2 && pc >= 3 && pc <= 4096) {
+                TArray<FVec2> pts; pts.Reserve(pc);
+                const char* q = line + off;
+                for (unsigned k = 0; k < pc; ++k) {
+                    float x = 0, y = 0; int adv = 0;
+                    if (std::sscanf(q, " %f %f%n", &x, &y, &adv) < 2) break;
+                    pts.PushBack(FVec2{ x, y }); q += adv;
+                }
+                if (pts.Size() == pc) {
+                    if (game::FNode3D* en = FindNode3DNode(*host, pid)) {
+                        if (game::FMeshComponent3D* m = Mesh3D(en)) {
+                            TSharedPtr<Asset> mesh = MakeFlatPolygon3D(pts.Data(), static_cast<u32>(pts.Size()));
+                            if (mesh) m->SetMeshAsset(mesh);         // prim=Mesh + 所有 (z=0 フラット)
+                        }
+                        EEd3DRec* rec = Rec3D(en);
+                        if (rec != nullptr) rec->poly_pts = Move(pts);   // mesh 構築後に移譲 (pts は以降不要)
                     }
                 }
             }
