@@ -234,6 +234,27 @@ public partial class MainWindow
         Log($"3D メッシュを読込: {System.IO.Path.GetFileName(dlg.FileName)} (id {id})");
     }
 
+    /// <summary>画像ファイルをダイアログで選び、z=0 のスプライト (テクスチャ付きクアッド) として 3D シーンに追加する。
+    /// «2D も内部的に 3D 空間にある» の体現 (Phase B)。アスペクト比は画像から自動。</summary>
+    private void OnAddSprite(object sender, RoutedEventArgs e)
+    {
+        if (Engine == IntPtr.Zero) return;
+        if (!_view3d) { View3DBtn.IsChecked = true; OnToggle3D(View3DBtn, new RoutedEventArgs()); }
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Add Sprite (画像)",
+            Filter = "画像 (*.png;*.jpg;*.jpeg;*.bmp;*.tga)|*.png;*.jpg;*.jpeg;*.bmp;*.tga|All files (*.*)|*.*",
+            InitialDirectory = _project?.AssetsDir,
+        };
+        if (dlg.ShowDialog(this) != true) return;
+        int id = EngineInterop.acs_editor_add_sprite3d(Engine, dlg.FileName, "");
+        if (id < 0) { Log($"スプライト読込失敗: {System.IO.Path.GetFileName(dlg.FileName)} (画像形式を確認)"); return; }
+        BuildHierarchy();
+        Select3DInHierarchy(id);
+        Populate3DInspector(id);
+        Log($"スプライトを 3D シーンに追加: {System.IO.Path.GetFileName(dlg.FileName)} (id {id})");
+    }
+
     private void Add3DNode(int prim, string name)
     {
         if (Engine == IntPtr.Zero) return;

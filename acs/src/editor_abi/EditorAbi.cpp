@@ -273,6 +273,11 @@ struct EditorHost {
     TUniquePtr<IRhiBuffer>   m3d_dyn_vb;              // 本体メッシュの動的 VB
     TUniquePtr<IRhiBuffer>   m3d_giz_vb;              // ギズモ用の動的 VB (depth off で描く)
     u32          m3d_dyn_cap  = 0;                    // 動的 VB の頂点容量
+    // 2D スプライト (テクスチャ付きクアッド) を 3D シーンに描く (Phase B)。
+    TUniquePtr<IRhiShader>   spr_vs, spr_ps;
+    TUniquePtr<IRhiPipeline> spr_pipe;                // テクスチャ + アルファブレンド
+    TUniquePtr<IRhiBuffer>   spr_vb;                  // スプライト 1 枚 (6 頂点) の動的 VB
+    TArray<TUniquePtr<IRhiTexture>> sprite_textures;  // ノードの renderHandle が指す GPU テクスチャ群 (所有)
     // スカイボックス (フルスクリーン三角形で天空グラデーション)。
     TUniquePtr<IRhiShader>   sky_vs, sky_ps;
     TUniquePtr<IRhiPipeline> sky_pipe;
@@ -513,6 +518,30 @@ static void LoadTexFromPath(EditorHost& h, const char* utf8_path, TUniquePtr<IRh
     auto tex = UploadTexture(*dev, *img);
     if (tex.IsErr()) return;
     out = Move(tex.Value());
+}
+
+/** path から GPU テクスチャを生成し、画像寸法(px)も返す。失敗で空 + (0,0)。スプライト用。 */
+static TUniquePtr<IRhiTexture> LoadTexWithSize(EditorHost& h, const char* utf8_path, u32& outW, u32& outH) noexcept {
+    outW = outH = 0;
+    TUniquePtr<IRhiTexture> out;
+    if (utf8_path == nullptr || utf8_path[0] == '\0') return out;
+    IRhiDevice* dev = h.renderer.Device();
+    if (dev == nullptr) return out;
+    wchar_t wpath[512];
+    if (MultiByteToWideChar(kCpUtf8, 0, utf8_path, -1, wpath, 512) <= 0) return out;
+    auto bytes = FileSystem::ReadAllBytes(wpath);
+    if (bytes.IsErr()) return out;
+    ImageAssetLoader loader;
+    auto decoded = loader.LoadFromBytes(kInvalidAssetId, bytes.Value());
+    if (decoded.IsErr()) return out;
+    auto asset = decoded.Value();
+    const FImageAsset* img = static_cast<const FImageAsset*>(asset.Get());
+    if (img == nullptr) return out;
+    auto tex = UploadTexture(*dev, *img);
+    if (tex.IsErr()) return out;
+    outW = img->Width(); outH = img->Height();
+    out = Move(tex.Value());
+    return out;
 }
 
 /** PBR マテリアルの法線マップ等を遅延ロードする (device 準備後・1 回)。 */
@@ -1872,6 +1901,23 @@ float4 PSMain(VSOut v) : SV_TARGET {
 struct M3DFrame { FMat4 view_proj; FVec4 light_dir; FVec4 light_col; };
 struct M3DVtx   { f32 px, py, pz, nx, ny, nz, r, g, b; };   // ワールド座標 + 法線 + 色 (36 bytes)
 
+// スプライト: テクスチャ付きクアッド (フラット・アルファブレンド)。2D 内容を 3D シーンに描く。
+const char* kSprite3DHLSL = R"(
+#pragma pack_matrix(row_major)
+cbuffer Frame : register(b0) { float4x4 view_proj; float4 light_dir; float4 light_col; };
+Texture2D    albedo : register(t0);
+SamplerState albedo_sampler : register(s0);
+struct VSIn  { float3 pos : POSITION; float2 uv : TEXCOORD0; };
+struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+VSOut VSMain(VSIn v) { VSOut o; o.pos = mul(float4(v.pos, 1.0), view_proj); o.uv = v.uv; return o; }
+float4 PSMain(VSOut v) : SV_TARGET {
+    float4 c = albedo.Sample(albedo_sampler, v.uv);
+    if (c.a < 0.02) discard;                 // 完全透明は捨てる (深度書き込み防止)
+    return c;                                // テクスチャは sRGB 値そのまま (UNORM RT へ)
+}
+)";
+struct SprVtx { f32 px, py, pz, u, v; };    // ワールド座標 + UV (20 bytes)
+
 // スカイボックス: フルスクリーン三角形でカメラレイ方向から天空グラデーションを描く。
 // 頂点バッファ不要 (SV_VertexID)。深度オフ・最背面 (メッシュが上に描かれる)。
 const char* kSky3DHLSL = R"(
@@ -1963,6 +2009,39 @@ bool Ensure3D(EditorHost& h) noexcept {
     auto skr = CreateRhiPipeline(*dev, skd);
     if (skr.IsErr()) { ACS_LOG_ERROR("[3D] sky パイプライン生成失敗"); return false; }
     h.sky_pipe = Move(skr.Value());
+
+    // スプライト (テクスチャ付きクアッド): t0=albedo + 静的 Linear/Clamp サンプラ、アルファブレンド。
+    // 半透明なので depth_test=on / depth_write=off (背後のメッシュには隠れるが互いの深度は描画順)。
+    {
+        FShaderDesc pvs{}; pvs.stage = EShaderStage::Vertex; pvs.hlsl_source = kSprite3DHLSL; pvs.entry_point = "VSMain"; pvs.debug_name = "Sprite3D.VS";
+        FShaderDesc pps{}; pps.stage = EShaderStage::Pixel;  pps.hlsl_source = kSprite3DHLSL; pps.entry_point = "PSMain"; pps.debug_name = "Sprite3D.PS";
+        auto pvr = CreateRhiShader(*dev, pvs); auto ppr = CreateRhiShader(*dev, pps);
+        if (pvr.IsErr() || ppr.IsErr()) { ACS_LOG_ERROR("[3D] sprite シェーダ生成失敗"); return false; }
+        h.spr_vs = Move(pvr.Value()); h.spr_ps = Move(ppr.Value());
+        FPipelineDesc sd{};
+        sd.vs = h.spr_vs.Get(); sd.ps = h.spr_ps.Get();
+        sd.topology     = EPrimitiveTopology::TriangleList;
+        sd.rt_format    = cf; sd.depth_format = df;
+        sd.depth_test   = true; sd.depth_write = false;
+        sd.cull_mode    = ECullMode::None;
+        sd.blend_mode   = EBlendMode::AlphaBlend;
+        sd.cbuffer_slots = 1; sd.cbuffer_names[0] = "Frame";
+        sd.texture_slots = 1; sd.texture_names[0] = "albedo";
+        sd.static_sampler_count    = 1;
+        sd.static_samplers[0].filter    = ESamplerFilter::Linear;
+        sd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+        sd.static_samplers[0].address_v = ESamplerAddress::Clamp;
+        sd.static_samplers[0].address_w = ESamplerAddress::Clamp;
+        sd.vertex_stride = sizeof(SprVtx);
+        sd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
+        sd.layout[1] = { "TEXCOORD", 0, EFormat::R32G32_Float,    12 };
+        sd.layout_count = 2;
+        auto spl = CreateRhiPipeline(*dev, sd);
+        if (spl.IsErr()) { ACS_LOG_ERROR("[3D] sprite パイプライン生成失敗"); return false; }
+        h.spr_pipe = Move(spl.Value());
+        FBufferDesc vb{}; vb.size = sizeof(SprVtx) * 6 * 1024; vb.usage = EBufferUsage::Vertex; vb.cpu_writable = true;
+        auto vr2 = CreateRhiBuffer(*dev, vb); if (vr2.IsOk()) h.spr_vb = Move(vr2.Value());
+    }
 
     {
         FBufferDesc c{}; c.size = 256; c.usage = EBufferUsage::Uniform; c.cpu_writable = true;
@@ -2347,6 +2426,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     for (u32 i = 0; i < all3d.Size(); ++i) {
         game::FNode3D* nn = all3d[i];
         if (Mesh3D(nn) == nullptr) continue;
+        if (Mesh3D(nn)->RenderHandle() != nullptr) continue;     // スプライトは (2.5) で別パス描画
         const int prim = NPrim(nn);
         const FMeshAsset* cm = (prim == 3) ? NMesh(nn)
                              : (prim == 1) ? h.cpu_sphere.Get()
@@ -2362,6 +2442,42 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         cl->Draw(static_cast<u32>(dv.Size()), 0);
     }
     delete &dv;
+
+    // --- (2.5) スプライト (テクスチャ付きクアッド): RenderHandle にテクスチャを持つノードを別パスで。
+    //          ローカル XY 単位クアッド (z=0) を World 行列で変換。テクスチャ毎に SetTexture → Draw(6)。
+    if (h.spr_pipe && h.spr_vb && h.m3d_frame_cb) {
+        TArray<SprVtx> sv; sv.Reserve(256);
+        TArray<IRhiTexture*> stex; stex.Reserve(64);
+        // ローカルクアッドの 4 隅 (中心原点・1x1)。Ortho 2D ビュー (カメラ +Z→原点) では
+        // world +X が «画面左» に写る (ギズモ赤 X 軸で実測)。画像が元の見た目どおり (左右非反転・
+        // 上下正立) になるよう、画像左端 U=0 を world +X 側、V=0 を world +Y 側に割り当てる。
+        const FVec3 lTL{ -0.5f,  0.5f, 0 }, lTR{ 0.5f,  0.5f, 0 };
+        const FVec3 lBL{ -0.5f, -0.5f, 0 }, lBR{ 0.5f, -0.5f, 0 };
+        const FVec2 uTL{ 1, 0 }, uTR{ 0, 0 }, uBL{ 1, 1 }, uBR{ 0, 1 };
+        const u32 kMaxSpr = 1024;
+        for (u32 i = 0; i < all3d.Size() && stex.Size() < kMaxSpr; ++i) {
+            game::FMeshComponent3D* mc = Mesh3D(all3d[i]);
+            if (mc == nullptr || mc->RenderHandle() == nullptr) continue;
+            const FMat4 m = all3d[i]->World().ToMat4();
+            auto wv = [&](FVec3 lp, FVec2 uv) {
+                const FVec4 w = Transform(FVec4{ lp.x, lp.y, lp.z, 1.0f }, m);
+                SprVtx o; o.px = w.x; o.py = w.y; o.pz = w.z; o.u = uv.x; o.v = uv.y; sv.PushBack(o);
+            };
+            wv(lTL, uTL); wv(lBL, uBL); wv(lBR, uBR);     // 三角形 1
+            wv(lTL, uTL); wv(lBR, uBR); wv(lTR, uTR);     // 三角形 2
+            stex.PushBack(static_cast<IRhiTexture*>(mc->RenderHandle()));
+        }
+        if (stex.Size() > 0) {
+            h.spr_vb->Update(sv.Data(), sizeof(SprVtx) * sv.Size());
+            cl->SetPipeline(*h.spr_pipe);
+            cl->SetConstantBuffer(0, *h.m3d_frame_cb);    // Frame レイアウトはメッシュと同一
+            cl->SetVertexBuffer(*h.spr_vb, sizeof(SprVtx));
+            for (u32 i = 0; i < stex.Size(); ++i) {
+                cl->SetTexture(0, *stex[i]);
+                cl->Draw(6, i * 6);                       // クアッド i は頂点 [6i, 6i+6)
+            }
+        }
+    }
 
     // --- (3) 選択ノードの変形ギズモ (Unity/Unreal 風: 軸シャフト + 矢じり + 平面ハンドル + 中心)。
     //         depth off のオーバーレイで常に手前。サイズはカメラ距離で一定 (角度で破綻しない)。
@@ -2710,6 +2826,8 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->dbg3d.Shutdown();
     host->m3d_pipe.Reset(); host->m3d_overlay_pipe.Reset(); host->m3d_vs.Reset(); host->m3d_ps.Reset();
     host->sky_pipe.Reset(); host->sky_vs.Reset(); host->sky_ps.Reset(); host->sky_cb.Reset();
+    host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
+    host->sprite_textures.Clear();
     host->m3d_frame_cb.Reset(); host->m3d_giz_cb.Reset(); host->m3d_dyn_vb.Reset(); host->m3d_giz_vb.Reset();
     host->gm_cube = GpuMesh{}; host->gm_sphere = GpuMesh{}; host->gm_plane = GpuMesh{};
     host->renderer.Shutdown();
@@ -4370,6 +4488,39 @@ ACS_EDITOR_API int acs_editor_add_mesh3d(void* handle, const char* path, const c
     m->SetMeshAsset(mesh);                          // 種別 Mesh + 所有 (ノード破棄で解放)
     m->SetColor(FVec4{ 0.78f, 0.78f, 0.82f, 1 });
     m->SetMeshPath(FStringView(path));              // 元ファイルパスを記録 (保存/再読込用)
+    host->sel3d = id;
+    return id;
+}
+
+/** 画像ファイルを z=0 のスプライト (テクスチャ付きクアッド) として 3D シーンに追加。新 id (失敗 -1)。 */
+ACS_EDITOR_API int acs_editor_add_sprite3d(void* handle, const char* path, const char* name) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || path == nullptr || path[0] == '\0') return -1;
+    if (!Ensure3D(*host)) return -1;                // sprite パイプライン / device を準備
+    u32 iw = 0, ih = 0;
+    TUniquePtr<IRhiTexture> tex = LoadTexWithSize(*host, path, iw, ih);
+    if (!tex || iw == 0 || ih == 0) { ACS_LOG_WARN("[3D] スプライト画像の読込に失敗: %s", path); return -1; }
+    char nmbuf[64];
+    if (name != nullptr && name[0] != '\0') std::snprintf(nmbuf, sizeof(nmbuf), "%s", name);
+    else {
+        const char* base = std::strrchr(path, '\\'); const char* base2 = std::strrchr(path, '/');
+        if (base2 != nullptr && base2 > base) base = base2;
+        std::snprintf(nmbuf, sizeof(nmbuf), "%s", (base != nullptr) ? base + 1 : path);
+    }
+    game::FNode3D& n = AddNode3D(*host, nmbuf);
+    const int id = host->next_id3d++;
+    n.GetComponent<EEd3DRec>()->id = id;
+    // 画像アスペクト比に合わせて scale (長辺 = 2.0 world)。単位クアッドは local XY ±0.5。
+    const f32 aspect = static_cast<f32>(iw) / static_cast<f32>(ih);
+    const f32 longSide = 2.0f;
+    n.Local().scale    = FVec3{ (aspect >= 1.0f) ? longSide : longSide * aspect,
+                                (aspect >= 1.0f) ? longSide / aspect : longSide, 1.0f };
+    n.Local().position = FVec3{ 0, 1.0f, 0 };       // 原点より少し上 (床に埋まらない)
+    game::FMeshComponent3D* m = n.GetComponent<game::FMeshComponent3D>();
+    m->SetColor(FVec4{ 1, 1, 1, 1 });
+    IRhiTexture* raw = tex.Get();                   // 所有は host->sprite_textures に移す (heap 上の実体は不動)
+    host->sprite_textures.PushBack(Move(tex));
+    m->SetRenderHandle(raw);                        // 描画パスが参照する «非所有» テクスチャポインタ
     host->sel3d = id;
     return id;
 }

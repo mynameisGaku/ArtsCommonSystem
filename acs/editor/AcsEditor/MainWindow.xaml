@@ -98,6 +98,7 @@
                 <MenuItem Header="3D Sphere" Click="OnAdd3DSphere"/>
                 <MenuItem Header="3D Plane"  Click="OnAdd3DPlane"/>
                 <MenuItem Header="2D Polygon (z=0)" Click="OnAdd2DPolygon"/>
+                <MenuItem Header="Sprite… (z=0 画像)" Click="OnAddSprite"/>
                 <MenuItem Header="3D Mesh… (.gltf/.obj)" Click="OnImport3DMesh"/>
             </MenuItem>
             <MenuItem Header="_Build">
