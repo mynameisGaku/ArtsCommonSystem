@@ -99,6 +99,18 @@ FSubsystemCollection* FNode2D::Subsystems() const noexcept {
     return n->m_Subsystems;
 }
 
+/** subtree (this + 子孫) を DFS して SerialId 一致のノードを返す (無ければ nullptr)。 */
+FNode2D* FNode2D::FindBySerialId(i32 id) noexcept {
+    if (id < 0) return nullptr;
+    if (m_SerialId == id) return this;
+    for (u32 i = 0; i < m_Children.Size(); ++i) {
+        if (m_Children[i]) {
+            if (FNode2D* hit = m_Children[i]->FindBySerialId(id)) return hit;
+        }
+    }
+    return nullptr;
+}
+
 /** コンポーネント → owner ツリーの services 解決 (owner 未設定なら nullptr)。 */
 FSceneServices* FComponent2D::SceneServices() const noexcept {
     return (m_Owner != nullptr) ? m_Owner->SceneServices() : nullptr;

@@ -99,6 +99,7 @@ FSceneBounds LoadAcsceneText(const char* text, FNode2D& root,
         if (got < 12) continue;
         FNode2D& child = root.AddChild(MakeUnique<FNode2D>());
         child.Local() = FTransform2D{ FVec2{ x, y }, rot, FVec2{ sx, sy } };
+        child._SetSerialId(ln.id);   // オブジェクト参照の解決キー (.acscene の id)
         ln.node = &child; ln.base = base; ln.color = FVec4{ r, g, b, a };
         nodes.PushBack(ln);
     }

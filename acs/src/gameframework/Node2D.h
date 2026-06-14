@@ -378,6 +378,27 @@ public:
     void   _SetId(FNodeId id) noexcept { m_Id = id; }
 
     /**
+     * シーン直列化 ID(エディタ id)を返す(-1 = 未設定)。
+     *
+     * @details FNodeId(generational)と別の «保存される安定 ID»。オブジェクト参照
+     * プロパティの解決先キーに使う(ローダが .acscene の id から設定する)。
+     * @return 直列化 ID。
+     */
+    i32 SerialId() const noexcept { return m_SerialId; }
+
+    /** シーン直列化 ID を設定する(内部用。ローダ/エディタが割り当てる)。 */
+    void _SetSerialId(i32 id) noexcept { m_SerialId = id; }
+
+    /**
+     * subtree (this + 子孫) から直列化 ID 一致のノードを探す(DFS、無ければ nullptr)。
+     *
+     * @details オブジェクト参照の実行時解決に使う(通常は root から呼ぶ)。
+     * @param id 探す SerialId。
+     * @return 一致ノード(無ければ nullptr)。id<0 は常に nullptr。
+     */
+    FNode2D* FindBySerialId(i32 id) noexcept;
+
+    /**
      * T の FComponent2D を構築・attach し、参照を返す。
      *
      * @details OnAttach は即時呼出。依存コンポーネントは OnRequire で先に確保される。
@@ -642,6 +663,9 @@ private:
 
     /** 配線された World サブシステム束 (root にのみ設定、非所有。子は walk-to-root で解決)。 */
     FSubsystemCollection* m_Subsystems = nullptr;
+
+    /** シーン直列化 ID(エディタ id、-1=未設定)。オブジェクト参照の解決キー。 */
+    i32 m_SerialId = -1;
 
     /** 直接の子 (所有権を持つ)。 */
     TArray<TUniquePtr<FNode2D>>      m_Children;
