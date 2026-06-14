@@ -15,6 +15,8 @@
 #include "gameframework/Component3D.h"
 #include "gameframework/Scene3D.h"
 #include "gameframework/MeshComponent3D.h"
+#include "asset/MeshAsset.h"
+#include "memory/SharedPtr.h"
 #include "math/Mat.h"
 #include "math/Quat.h"
 #include "math/Math.h"
@@ -488,4 +490,35 @@ ACS_TEST(MeshComponent3D, ConstructWithPrimitive) {
     FNode3D node;
     auto& m = node.AddComponent<FMeshComponent3D>(EMeshPrimitive3D::Plane);
     EXPECT_TRUE(m.Primitive() == EMeshPrimitive3D::Plane);
+}
+
+// --- メッシュアセットを所有し、外部参照を捨てても生存する -------------------
+ACS_TEST(MeshComponent3D, OwnsMeshAsset) {
+    FNode3D node(FStringView("Mesh"));
+    auto& m = node.AddComponent<FMeshComponent3D>();
+    EXPECT_TRUE(!m.HasMeshAsset());
+    EXPECT_TRUE(m.Mesh() == nullptr);
+
+    // メッシュを作って 2 頂点入れる
+    TSharedPtr<FMeshAsset> mesh = MakeShared<FMeshAsset>();
+    mesh->Vertices().PushBack(MeshVertex{ FVec3{0,0,0}, FVec3{0,1,0}, 0.0f, 0.0f });
+    mesh->Vertices().PushBack(MeshVertex{ FVec3{1,0,0}, FVec3{0,1,0}, 1.0f, 0.0f });
+    FMeshAsset* raw = mesh.Get();
+
+    // Asset 基底へアップキャストして所有させる (種別が Mesh に切り替わる)
+    m.SetMeshAsset(TSharedPtr<Asset>(mesh));
+    EXPECT_TRUE(m.HasMeshAsset());
+    EXPECT_TRUE(m.Primitive() == EMeshPrimitive3D::Mesh);
+    EXPECT_TRUE(m.Mesh() == raw);
+    EXPECT_EQ(m.Mesh()->Vertices().Size(), 2u);
+
+    // 外部の共有参照を捨てる → コンポーネントが強参照を持つので生存
+    mesh.Reset();
+    EXPECT_TRUE(m.Mesh() == raw);
+    EXPECT_EQ(m.Mesh()->Vertices().Size(), 2u);
+
+    // null を渡すと外れる (種別はそのまま Mesh)
+    m.SetMeshAsset(TSharedPtr<Asset>{});
+    EXPECT_TRUE(!m.HasMeshAsset());
+    EXPECT_TRUE(m.Mesh() == nullptr);
 }

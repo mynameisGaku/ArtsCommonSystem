@@ -14,6 +14,8 @@
 #include "math/Vec.h"
 #include "container/String.h"
 #include "container/StringView.h"
+#include "memory/SharedPtr.h"
+#include "asset/MeshAsset.h"   // FMeshAsset / Asset (Render→Asset 経由で gameframework から可視)
 #include "gameframework/Component3D.h"
 
 namespace acs::game {
@@ -125,6 +127,42 @@ public:
      */
     void SetRenderHandle(void* h) noexcept { m_RenderHandle = h; }
 
+    /**
+     * CPU メッシュアセット (頂点/インデックス) を «所有» して設定する。
+     *
+     * @details
+     * editor の ENode3D.mesh (TSharedPtr<Asset>) と同じ所有モデル。non-null を渡すと種別も
+     * Mesh に切り替える。コンポーネントが強参照を持つので、ノードが生きている間メッシュは
+     * 解放されない (= 描画/ピックの side-table 不要)。
+     * @param a 所有するメッシュアセット (FMeshAsset を指す Asset。null で外す)。
+     */
+    void SetMeshAsset(TSharedPtr<Asset> a) noexcept {
+        m_MeshAsset = static_cast<TSharedPtr<Asset>&&>(a);
+        if (m_MeshAsset) m_Prim = EMeshPrimitive3D::Mesh;
+    }
+
+    /**
+     * 所有しているメッシュアセット (Asset 基底) への共有ポインタを返す。
+     *
+     * @return 所有メッシュアセット (未設定なら空)。
+     */
+    const TSharedPtr<Asset>& MeshAsset() const noexcept { return m_MeshAsset; }
+
+    /**
+     * メッシュアセットを所有しているかを返す。
+     *
+     * @return 非 null のメッシュアセットを持つなら true。
+     */
+    bool HasMeshAsset() const noexcept { return static_cast<bool>(m_MeshAsset); }
+
+    /**
+     * 所有メッシュを FMeshAsset 型として返す (頂点/インデックスへの直接アクセス)。
+     *
+     * @details 本コンポーネントが保持する Asset は常に FMeshAsset 前提 (ローダ出力)。
+     * @return FMeshAsset へのポインタ (未設定なら nullptr)。
+     */
+    FMeshAsset* Mesh() const noexcept { return static_cast<FMeshAsset*>(m_MeshAsset.Get()); }
+
 private:
     /** 描くプリミティブ種別 (既定 Cube)。 */
     EMeshPrimitive3D m_Prim = EMeshPrimitive3D::Cube;
@@ -137,6 +175,9 @@ private:
 
     /** アルベド色 (RGBA、既定 白)。 */
     FVec4            m_Color{ 1, 1, 1, 1 };
+
+    /** 所有する CPU メッシュアセット (FMeshAsset。prim==Mesh で描画/ピックに使う)。 */
+    TSharedPtr<Asset> m_MeshAsset;
 
     /** 外部レンダラが紐付ける非所有ポインタ (GPU メッシュ等、エンジンは非解釈)。 */
     void*            m_RenderHandle = nullptr;
