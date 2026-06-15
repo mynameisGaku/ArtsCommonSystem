@@ -142,6 +142,12 @@ public partial class MainWindow : Window
             case "prefab":
                 InstantiatePrefab(e.FullPath, _selectedId);   // 選択ノード配下へ (無ければ root)
                 break;
+            case "blueprint":
+                // .acsbp をダブルクリック → Blueprint タブへ切替えてグラフを読込。
+                OnBlueprintTab(this, new RoutedEventArgs());
+                BlueprintHost.LoadFromFile(e.FullPath);
+                Log($"Blueprint ← {System.IO.Path.GetFileName(e.FullPath)}");
+                break;
             case "material":
                 // .acsmat をダブルクリック → マテリアルエディタを開く。選択ノードがあれば割当も。
                 if (_selectedId >= 0)

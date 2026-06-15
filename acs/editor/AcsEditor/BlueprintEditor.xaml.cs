@@ -544,7 +544,13 @@ public partial class BlueprintEditor : UserControl
         var dlg = new Microsoft.Win32.OpenFileDialog {
             Filter = "ACS Blueprint (*.acsbp)|*.acsbp", DefaultExt = ".acsbp" };
         if (DefaultDir != null && System.IO.Directory.Exists(DefaultDir)) dlg.InitialDirectory = DefaultDir;
-        if (dlg.ShowDialog() == true) Deserialize(System.IO.File.ReadAllText(dlg.FileName));
+        if (dlg.ShowDialog() == true) LoadFromFile(dlg.FileName);
+    }
+
+    /// <summary>.acsbp ファイルを読み込んでグラフを復元する (アセットブラウザのダブルクリック等から)。</summary>
+    public void LoadFromFile(string path)
+    {
+        if (System.IO.File.Exists(path)) Deserialize(System.IO.File.ReadAllText(path));
     }
 
     // ----- 実行 (BP5: イベントから exec チェーンを辿る簡易インタプリタ) -----

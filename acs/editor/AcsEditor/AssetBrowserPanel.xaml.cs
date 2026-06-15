@@ -203,13 +203,15 @@ public partial class AssetBrowserPanel : UserControl
         ".acsproject" => "project",
         ".acsmat" => "material",
         ".acsprefab" => "prefab",
+        ".acsbp" => "blueprint",
         _ => "file",
     };
 
     private static string GlyphFor(string kind) => kind switch
     {
         "image" => "IMG", "audio" => "AUD", "mesh" => "MESH", "text" => "TXT",
-        "scene" => "SCN", "project" => "PROJ", "material" => "MAT", "prefab" => "PREF", _ => "FILE",
+        "scene" => "SCN", "project" => "PROJ", "material" => "MAT", "prefab" => "PREF",
+        "blueprint" => "BP", _ => "FILE",
     };
 
     private static Brush BrushFor(string kind) => kind switch
@@ -221,6 +223,8 @@ public partial class AssetBrowserPanel : UserControl
         "scene" => MakeBrush(0xD8, 0x8A, 0x3C),
         "project" => MakeBrush(0xC9, 0x55, 0x55),
         "material" => MakeBrush(0x5C, 0xC2, 0xC9),
+        "blueprint" => MakeBrush(0x6B, 0xD0, 0x8A),
+        "prefab" => MakeBrush(0xC2, 0x9A, 0x5A),
         _ => MakeBrush(0x60, 0x68, 0x74),
     };
 
