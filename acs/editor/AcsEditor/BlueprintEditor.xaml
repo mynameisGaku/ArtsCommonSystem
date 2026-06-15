@@ -4,7 +4,7 @@
     <!-- ノードグラフ・キャンバス。背景をドラッグでパン、ノードをドラッグで移動。 -->
     <Grid Background="#FF15191F" ClipToBounds="True">
         <Canvas x:Name="GraphCanvas" Background="Transparent"/>
-        <TextBlock x:Name="HintText" Text="Blueprint — ノードをドラッグで移動 / 背景ドラッグでパン"
+        <TextBlock x:Name="HintText" Text="Blueprint — ノード=ドラッグ移動 / ピン=ドラッグ接続(空きへ離して切断) / 背景=パン / ホイール=ズーム"
                    Foreground="#FF55606E" FontSize="11" Margin="10,8" VerticalAlignment="Top" HorizontalAlignment="Left"
                    IsHitTestVisible="False"/>
     </Grid>

@@ -9,8 +9,10 @@ using System.Windows.Shapes;
 namespace AcsEditor;
 
 /// <summary>
-/// ビジュアル Blueprint グラフエディタ (BP1: ノード/ピン/接続線の描画 + ノードドラッグ + 背景パン)。
-/// 実行/シリアライズ/ノード追加は後続フェーズ。今はデモグラフを表示・編集できる。
+/// ビジュアル Blueprint グラフエディタ。
+/// BP1: ノード/ピン/接続線の描画 + ノードドラッグ + 背景パン。
+/// BP2: ピンをドラッグして接続を生成/切断 + ホイールでズーム。
+/// 実行/シリアライズ/パレットからのノード追加は後続フェーズ。
 /// </summary>
 public partial class BlueprintEditor : UserControl
 {
@@ -19,6 +21,7 @@ public partial class BlueprintEditor : UserControl
     private const double HeaderH = 26;
     private const double RowH    = 22;
     private const double PinR    = 5;
+    private const double HitR    = 12;   // ピンのクリック判定半径 (グラフ座標)
 
     private enum PinKind { Exec, Data }
     private sealed record Pin(string Name, PinKind Kind);
@@ -36,15 +39,23 @@ public partial class BlueprintEditor : UserControl
 
     private sealed record BpConn(int FromNode, int FromPin, int ToNode, int ToPin);
 
+    /// <summary>ヒットしたピンの参照 (どのノードの・何番目の・入出力どちらの・種別)。</summary>
+    private sealed record PinRef(BpNode Node, int Index, bool Output, PinKind Kind);
+
     private readonly List<BpNode> _nodes = new();
     private readonly List<BpConn> _conns = new();
     private readonly List<Path>   _wires = new();
-    private readonly TranslateTransform _pan = new();
+
+    // 表示変換: 先にズーム、続いてパン (RenderTransform = Translate * Scale)。
+    private readonly ScaleTransform     _zoom = new(1, 1);
+    private readonly TranslateTransform _pan  = new();
 
     // ドラッグ状態。
-    private BpNode? _dragNode;
-    private bool    _panning;
-    private Point   _lastMouse;
+    private BpNode?  _dragNode;     // ノード移動中
+    private bool     _panning;      // 背景パン中
+    private PinRef?  _wireSource;   // ピンからのワイヤ生成中 (アンカー側ピン)
+    private Path?    _ghost;        // 生成中ワイヤのプレビュー
+    private Point    _lastMouse;
 
     // 配色。
     private static readonly Brush ExecWire = new SolidColorBrush(Color.FromRgb(0xE6, 0xE9, 0xEF));
@@ -58,10 +69,12 @@ public partial class BlueprintEditor : UserControl
     public BlueprintEditor()
     {
         InitializeComponent();
-        GraphCanvas.RenderTransform = _pan;
-        GraphCanvas.MouseLeftButtonDown += OnCanvasDown;
-        GraphCanvas.MouseMove           += OnCanvasMove;
-        GraphCanvas.MouseUp             += OnCanvasUp;
+        GraphCanvas.RenderTransform = new TransformGroup { Children = { _zoom, _pan } };
+        GraphCanvas.PreviewMouseLeftButtonDown += OnPreviewDown;   // ピンドラッグを最優先で奪う
+        GraphCanvas.MouseLeftButtonDown        += OnCanvasDown;    // 空き場所 = パン
+        GraphCanvas.MouseMove                  += OnCanvasMove;
+        GraphCanvas.MouseUp                    += OnCanvasUp;
+        GraphCanvas.MouseWheel                 += OnWheel;
         Loaded += (_, __) => { if (_nodes.Count == 0) BuildDemoGraph(); };
     }
 
@@ -156,16 +169,11 @@ public partial class BlueprintEditor : UserControl
             CornerRadius = new CornerRadius(5), Child = inner, Cursor = Cursors.SizeAll,
         };
         Canvas.SetLeft(border, n.X); Canvas.SetTop(border, n.Y);
-        border.MouseLeftButtonDown += (s, e) => { _dragNode = n; _lastMouse = e.GetPosition(this);
-                                                  border.CaptureMouse(); e.Handled = true; };
-        border.MouseMove += (s, e) => {
-            if (_dragNode != n) return;
-            var p = e.GetPosition(this);
-            n.X += p.X - _lastMouse.X; n.Y += p.Y - _lastMouse.Y; _lastMouse = p;
-            Canvas.SetLeft(border, n.X); Canvas.SetTop(border, n.Y);
-            RedrawWires();
+        // ノード本体のドラッグ (ピン上は OnPreviewDown が先取りして e.Handled にするのでここへ来ない)。
+        border.MouseLeftButtonDown += (s, e) => {
+            _dragNode = n; _lastMouse = e.GetPosition(GraphCanvas);
+            GraphCanvas.CaptureMouse(); e.Handled = true;
         };
-        border.MouseUp += (s, e) => { if (_dragNode == n) { _dragNode = null; border.ReleaseMouseCapture(); } };
         return border;
     }
 
@@ -183,6 +191,15 @@ public partial class BlueprintEditor : UserControl
 
     private static Path MakeWire() => new() { StrokeThickness = 2.4, Fill = null, SnapsToDevicePixels = true };
 
+    /// <summary>2 ピン間のベジエ (出力→入力。水平に張り出してから繋ぐ)。</summary>
+    private static PathGeometry Bez(Point p0, Point p1)
+    {
+        double dx = Math.Max(50.0, Math.Abs(p1.X - p0.X) * 0.5);
+        var fig = new PathFigure { StartPoint = p0, IsClosed = false };
+        fig.Segments.Add(new BezierSegment(new Point(p0.X + dx, p0.Y), new Point(p1.X - dx, p1.Y), p1, true));
+        return new PathGeometry(new[] { fig });
+    }
+
     private void RedrawWires()
     {
         for (int i = 0; i < _conns.Count; i++)
@@ -193,28 +210,151 @@ public partial class BlueprintEditor : UserControl
             Point p0 = PinPos(from, output: true, c.FromPin);
             Point p1 = PinPos(to, output: false, c.ToPin);
             bool exec = from.Outputs.Count > c.FromPin && from.Outputs[c.FromPin].Kind == PinKind.Exec;
-            double dx = Math.Max(50.0, Math.Abs(p1.X - p0.X) * 0.5);
-            var fig = new PathFigure { StartPoint = p0, IsClosed = false };
-            fig.Segments.Add(new BezierSegment(new Point(p0.X + dx, p0.Y), new Point(p1.X - dx, p1.Y), p1, true));
-            _wires[i].Data   = new PathGeometry(new[] { fig });
+            _wires[i].Data   = Bez(p0, p1);
             _wires[i].Stroke = exec ? ExecWire : DataWire;
         }
+    }
+
+    // ----- ピン判定 / 接続編集 -----
+    private static double Dist2(Point a, Point b) { double dx = a.X - b.X, dy = a.Y - b.Y; return dx * dx + dy * dy; }
+
+    /// <summary>グラフ座標 g に最も近いピン (HitR 以内)。無ければ null。</summary>
+    private PinRef? PinHitTest(Point g)
+    {
+        PinRef? best = null; double bd = HitR * HitR;
+        foreach (var n in _nodes)
+        {
+            for (int i = 0; i < n.Inputs.Count; i++)
+            {
+                double d = Dist2(PinPos(n, false, i), g);
+                if (d < bd) { bd = d; best = new PinRef(n, i, false, n.Inputs[i].Kind); }
+            }
+            for (int j = 0; j < n.Outputs.Count; j++)
+            {
+                double d = Dist2(PinPos(n, true, j), g);
+                if (d < bd) { bd = d; best = new PinRef(n, j, true, n.Outputs[j].Kind); }
+            }
+        }
+        return best;
+    }
+
+    /// <summary>接続を追加 (単数制約を満たすよう既存を除去: exec は出力側・data は入力側が単数)。</summary>
+    private void AddConnection(BpNode fn, int fp, BpNode tn, int tp, PinKind kind)
+    {
+        if (kind == PinKind.Exec) _conns.RemoveAll(c => c.FromNode == fn.Id && c.FromPin == fp);
+        else                      _conns.RemoveAll(c => c.ToNode   == tn.Id && c.ToPin   == tp);
+        _conns.RemoveAll(c => c.FromNode == fn.Id && c.FromPin == fp && c.ToNode == tn.Id && c.ToPin == tp);
+        _conns.Add(new BpConn(fn.Id, fp, tn.Id, tp));
+    }
+
+    private Path MakeGhost(PinKind kind) => new()
+    {
+        StrokeThickness = 2.4, Fill = null, IsHitTestVisible = false, Opacity = 0.85,
+        Stroke = kind == PinKind.Exec ? ExecWire : DataWire,
+        StrokeDashArray = new DoubleCollection { 4, 3 },
+    };
+
+    private void UpdateGhost(Point g)
+    {
+        if (_ghost == null || _wireSource == null) return;
+        Point sp = PinPos(_wireSource.Node, _wireSource.Output, _wireSource.Index);
+        Point p0 = _wireSource.Output ? sp : g;   // 出力→入力 の向きで描く
+        Point p1 = _wireSource.Output ? g  : sp;
+        _ghost.Data = Bez(p0, p1);
+    }
+
+    private void FinishWire(Point g)
+    {
+        var tgt = PinHitTest(g);
+        if (tgt != null && _wireSource != null &&
+            tgt.Node != _wireSource.Node &&         // 自ノードへは繋がない
+            tgt.Output != _wireSource.Output &&     // 出力↔入力
+            tgt.Kind == _wireSource.Kind)           // exec↔exec / data↔data
+        {
+            var outRef = _wireSource.Output ? _wireSource : tgt;
+            var inRef  = _wireSource.Output ? tgt : _wireSource;
+            AddConnection(outRef.Node, outRef.Index, inRef.Node, inRef.Index, outRef.Kind);
+        }
+        if (_ghost != null) { GraphCanvas.Children.Remove(_ghost); _ghost = null; }
+        _wireSource = null;
+        Rebuild();   // 空き場所へ落とした場合 (= 切断) も反映
+    }
+
+    // ----- 入力 -----
+    /// <summary>ピン上で押した場合のみワイヤ生成を開始 (ノードドラッグ/パンより優先)。</summary>
+    private void OnPreviewDown(object sender, MouseButtonEventArgs e)
+    {
+        Point g = e.GetPosition(GraphCanvas);
+        var hit = PinHitTest(g);
+        if (hit == null) return;   // ピン以外はノードドラッグ/パンに委ねる
+
+        PinRef source = hit;
+        bool picked = false;
+        // 既存の «単数側» ピンを掴んだら、その線を «持ち上げて» 反対端から張り直す (空き場所へ落とせば切断)。
+        if (!hit.Output && hit.Kind == PinKind.Data)
+        {
+            int idx = _conns.FindIndex(c => c.ToNode == hit.Node.Id && c.ToPin == hit.Index);
+            if (idx >= 0) { var c = _conns[idx]; _conns.RemoveAt(idx);
+                var fn = NodeById(c.FromNode); if (fn != null) { source = new PinRef(fn, c.FromPin, true, PinKind.Data); picked = true; } }
+        }
+        else if (hit.Output && hit.Kind == PinKind.Exec)
+        {
+            int idx = _conns.FindIndex(c => c.FromNode == hit.Node.Id && c.FromPin == hit.Index);
+            if (idx >= 0) { var c = _conns[idx]; _conns.RemoveAt(idx);
+                var tn = NodeById(c.ToNode); if (tn != null) { source = new PinRef(tn, c.ToPin, false, PinKind.Exec); picked = true; } }
+        }
+
+        _wireSource = source;
+        if (picked) Rebuild();   // 持ち上げた線を消してから描き直す
+        _ghost = MakeGhost(source.Kind);
+        GraphCanvas.Children.Add(_ghost);
+        UpdateGhost(g);
+        GraphCanvas.CaptureMouse();
+        e.Handled = true;
     }
 
     // ----- 背景パン (空き場所のドラッグ) -----
     private void OnCanvasDown(object sender, MouseButtonEventArgs e)
     {
-        if (_dragNode != null) return;
+        if (_wireSource != null || _dragNode != null) return;
         _panning = true; _lastMouse = e.GetPosition(this); GraphCanvas.CaptureMouse();
     }
+
     private void OnCanvasMove(object sender, MouseEventArgs e)
     {
-        if (!_panning) return;
-        var p = e.GetPosition(this);
-        _pan.X += p.X - _lastMouse.X; _pan.Y += p.Y - _lastMouse.Y; _lastMouse = p;
+        if (_wireSource != null) { UpdateGhost(e.GetPosition(GraphCanvas)); return; }
+        if (_dragNode != null)
+        {
+            var p = e.GetPosition(GraphCanvas);
+            _dragNode.X += p.X - _lastMouse.X; _dragNode.Y += p.Y - _lastMouse.Y; _lastMouse = p;
+            if (_dragNode.Visual is { } b) { Canvas.SetLeft(b, _dragNode.X); Canvas.SetTop(b, _dragNode.Y); }
+            RedrawWires();
+            return;
+        }
+        if (_panning)
+        {
+            var p = e.GetPosition(this);
+            _pan.X += p.X - _lastMouse.X; _pan.Y += p.Y - _lastMouse.Y; _lastMouse = p;
+        }
     }
+
     private void OnCanvasUp(object sender, MouseButtonEventArgs e)
     {
-        if (_panning) { _panning = false; GraphCanvas.ReleaseMouseCapture(); }
+        if (_wireSource != null) { FinishWire(e.GetPosition(GraphCanvas)); GraphCanvas.ReleaseMouseCapture(); return; }
+        if (_dragNode != null)   { _dragNode = null; GraphCanvas.ReleaseMouseCapture(); return; }
+        if (_panning)            { _panning = false; GraphCanvas.ReleaseMouseCapture(); }
+    }
+
+    // ----- ホイールズーム (カーソル位置を中心に) -----
+    private void OnWheel(object sender, MouseWheelEventArgs e)
+    {
+        double s0 = _zoom.ScaleX;
+        double s1 = Math.Clamp(s0 * (e.Delta > 0 ? 1.1 : 1.0 / 1.1), 0.3, 2.5);
+        if (Math.Abs(s1 - s0) < 1e-6) return;
+        Point c = e.GetPosition(this);                    // 制御座標
+        double gx = (c.X - _pan.X) / s0, gy = (c.Y - _pan.Y) / s0;   // カーソル下のグラフ点
+        _zoom.ScaleX = _zoom.ScaleY = s1;
+        _pan.X = c.X - s1 * gx; _pan.Y = c.Y - s1 * gy;   // その点が動かないようパンを補正
+        e.Handled = true;
     }
 }
