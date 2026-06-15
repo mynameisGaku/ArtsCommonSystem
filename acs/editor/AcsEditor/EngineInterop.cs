@@ -497,6 +497,14 @@ internal static class EngineInterop
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_clear_instances(IntPtr handle);
 
+    // ----- Preview (DLL ビルド不要のエンジンコンポーネント ライブ実行) -----
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_preview_start(IntPtr handle);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_preview_stop(IntPtr handle);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_preview_state(IntPtr handle);
+
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_instance_count(IntPtr handle);
 

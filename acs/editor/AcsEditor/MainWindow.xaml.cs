@@ -830,6 +830,23 @@ public partial class MainWindow : Window
         EngineInterop.acs_editor_play_step(Engine);        // 一時停止中のみ 1 フレーム進む
     }
 
+    /// <summary>Preview: DLL ビルド不要でエンジンコンポーネントを editor 内ライブ実行(参照解決込み)。</summary>
+    private void OnTogglePreview(object sender, RoutedEventArgs e)
+    {
+        if (Engine == IntPtr.Zero) { PreviewBtn.IsChecked = false; return; }
+        if (PreviewBtn.IsChecked == true)
+        {
+            int n = EngineInterop.acs_editor_preview_start(Engine);
+            Log($"Preview 開始 (実コンポーネント {n} 個をライブ実行)", "Play", LogLevel.Success);
+        }
+        else
+        {
+            EngineInterop.acs_editor_preview_stop(Engine);
+            BuildHierarchy();
+            Log("Preview 停止 (位置を復元)", "Play", LogLevel.Info);
+        }
+    }
+
     // ===== Scene / Game ビュータブ =====
     // Scene = 編集ビュー (グリッド/ギズモ等)。Game = ゲーム画面のみ (chrome 無し) で Play を再生。
     private void OnSceneTab(object sender, RoutedEventArgs e) => SetGameView(false);

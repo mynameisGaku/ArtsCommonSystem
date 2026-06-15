@@ -333,6 +333,10 @@ struct EditorHost {
     // シーン実体化 (authored 値で実コンポーネントを attach し tick する) が有効か。
     bool instances_live = false;
 
+    // Preview (DLL ビルド不要のエンジンコンポーネント実行: instantiate→tick を毎フレーム回す)。
+    bool preview_live = false;
+    TArray<game::FTransform2D> preview_snap;   // Preview 開始時の各ノード transform (停止で復元)
+
     // ゲームビュー (Game View タブ): true で editor chrome (グリッド/軸/リンク/選択/ギズモ) を描かず
     // ノードの見た目 + Play の OnDraw だけを描く (= スタンドアロンに近い「ゲーム画面」)。
     bool game_view = false;
@@ -589,6 +593,7 @@ FEditorNode* CreateNode(EditorHost& h, int id, int parent_id, const char* nm,
     auto child = MakeUnique<FEditorNode>();
     FEditorNode* p = child.Get();
     p->editor_id = id;
+    p->_SetSerialId(id);   // FNode2D の SerialId = editor_id → ObjectRef を instantiate/tick で解決可
     std::snprintf(p->name, sizeof(p->name), "%s", nm);
     p->Local().position = FVec2{ x, y };
     p->Local().rotation = rot;
@@ -2660,6 +2665,11 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
 
     if (host->play_state == 1) EditorStepPlay(*host, dt);   // 再生中は物理を進める
     if (host->logic_play)      EditorTickLogic(*host, dt);  // インプロセス Play: ユーザーロジックを進める
+    if (host->preview_live && host->root.Get() != nullptr) {   // Preview: エンジンコンポーネントの実 OnUpdate
+        f32 cdt = (dt > 0.05f) ? 0.05f : dt;
+        host->root->UpdateTree(cdt);
+        host->root->ResolveStructuralChanges();
+    }
 
     // MSAA サンプル数の変更を適用する (PSO はサンプル数を焼き込むためバッチごと再生成)。
     if (host->msaa_pending != host->msaa_samples && host->renderer.Device() != nullptr) {
@@ -4010,6 +4020,36 @@ ACS_EDITOR_API void acs_editor_clear_instances(void* handle) {
     if (host == nullptr) return;
     for (u32 i = 0; i < host->nodes.Size(); ++i) host->nodes[i]->RemoveAllComponents();
     host->instances_live = false;
+}
+
+// ===== Preview (DLL ビルド不要のライブ実行: エンジンコンポーネントを editor 内で tick) =====
+
+/** Preview を開始する。各ノード transform を退避 → 実体化 → 毎フレーム tick で実 OnUpdate が走る。成功 1。 */
+ACS_EDITOR_API int acs_editor_preview_start(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || host->preview_live) return 0;
+    host->preview_snap.Clear();                                   // 開始時の transform を退避 (停止で復元)
+    for (u32 i = 0; i < host->nodes.Size(); ++i) host->preview_snap.PushBack(host->nodes[i]->Local());
+    acs_editor_instantiate_scene(handle);                         // 実コンポーネントを attach + authored 値適用
+    host->preview_live = true;
+    return 1;
+}
+
+/** Preview を停止する。実体を除去し、開始時の transform へ復元する。 */
+ACS_EDITOR_API void acs_editor_preview_stop(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || !host->preview_live) return;
+    host->preview_live = false;
+    acs_editor_clear_instances(handle);
+    const u32 n = (host->preview_snap.Size() < host->nodes.Size()) ? host->preview_snap.Size() : host->nodes.Size();
+    for (u32 i = 0; i < n; ++i) host->nodes[i]->Local() = host->preview_snap[i];   // 非破壊: 位置を戻す
+    host->preview_snap.Clear();
+}
+
+/** Preview 中なら 1。 */
+ACS_EDITOR_API int acs_editor_preview_state(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr && host->preview_live) ? 1 : 0;
 }
 
 /** 現在 attach されている «実» コンポーネントの総数 (= 実体化できた数。検証/表示用)。 */
