@@ -1665,6 +1665,28 @@ public partial class MainWindow : Window
                     if (row != null) inner.Children.Add(row);   // null = Hidden 指定子 → 出さない
                 }
 
+            // CallInEditor (ACS_FUNCTION) メソッドをボタンで出す → クリックで invoke。
+            int mc = EngineInterop.acs_editor_component_method_count(cname);
+            int curSlot = idx;
+            for (int mi = 0; mi < mc; mi++)
+            {
+                int mflags = EngineInterop.acs_editor_component_method_flags_at(cname, mi);
+                if ((mflags & 0x2) == 0) continue;            // CallInEditor 指定のみボタン化
+                string mname = EngineInterop.ComponentMethodName(cname, mi);
+                var btn = new Button
+                {
+                    Content = "▶ " + mname, FontSize = 11, Padding = new Thickness(8, 2, 8, 2),
+                    Margin = new Thickness(0, 4, 0, 0), HorizontalAlignment = HorizontalAlignment.Left,
+                };
+                btn.Click += (_, __) =>
+                {
+                    if (EngineInterop.acs_editor_node_invoke_method(Engine, id, curSlot, mname) != 0)
+                        Log($"{cname}.{mname}() を呼び出し", "General", LogLevel.Info);
+                    else Log($"{cname}.{mname}() の呼び出しに失敗");
+                };
+                inner.Children.Add(btn);
+            }
+
             // コンポーネントをカードにまとめる (視覚的グルーピング)。
             CompList.Children.Add(new Border
             {

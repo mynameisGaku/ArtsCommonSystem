@@ -9,6 +9,7 @@
 #include "test/Expect.h"
 #include "gameframework/Reflect.h"
 #include "gameframework/ReflectApply.h"
+#include "gameframework/ReflectMethod.h"
 #include "math/Vec.h"
 
 using namespace acs;
@@ -148,4 +149,32 @@ ACS_TEST(ReflectApply, ObjectRefApplyAndRead) {
     f32 out[4] = { 0, 0, 0, 0 };
     ReadFieldValue(&h, *f, out);
     EXPECT_TRUE(out[0] == 42.0f);
+}
+
+// ----- 関数リフレクション (ACS_FUNCTION / BlueprintCallable / CallInEditor) -----
+// 引数なし void メソッドを登録 → 名前で呼べ、フラグが取れる (= 将来の Blueprint/ボタンの土台)。
+struct FMethodHost {
+    virtual ~FMethodHost() noexcept = default;
+    int counter = 0;
+    void Bump() noexcept { counter += 10; }
+};
+
+ACS_REGISTER_METHOD(FMethodHost, Bump,
+    ::acs::game::METHOD_BP_CALLABLE | ::acs::game::METHOD_CALL_IN_EDITOR)
+
+ACS_TEST(ReflectMethod, RegisterAndInvoke) {
+    FTypeId owner = AcsTypeHash("FMethodHost");
+    auto& reg = FMethodRegistry::Get();
+    EXPECT_TRUE(reg.CountOfOwner(owner) >= 1u);
+    const FReflectMethod* m = reg.Find(owner, "Bump");
+    EXPECT_TRUE(m != nullptr);
+    EXPECT_TRUE((m->flags & METHOD_BP_CALLABLE) != 0u);
+    EXPECT_TRUE((m->flags & METHOD_CALL_IN_EDITOR) != 0u);
+
+    FMethodHost host;
+    EXPECT_TRUE(InvokeMethodByName(owner, &host, "Bump"));
+    EXPECT_EQ(host.counter, 10);
+    EXPECT_TRUE(InvokeMethodByName(owner, &host, "Bump"));
+    EXPECT_EQ(host.counter, 20);
+    EXPECT_TRUE(!InvokeMethodByName(owner, &host, "Nope"));   // 不明メソッドは false
 }

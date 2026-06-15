@@ -8,6 +8,8 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "foundation/Log.h"
+#include "gameframework/AcsClass.h"   // ACS_FUNCTION マーカー
 #include "gameframework/Component2D.h"
 #include "gameframework/Node2D.h"
 
@@ -53,6 +55,12 @@ public:
         if (len <= step || len < 1e-5f) { owner->Local().position = dst; arrived = true; }   // 到達
         else { owner->Local().position = FVec2{ cur.x + d.x / len * step,
                                                 cur.y + d.y / len * step }; arrived = false; }
+    }
+
+    /** 現在の参照/速度をログ出力する(BlueprintCallable + CallInEditor のデモ関数)。 */
+    ACS_FUNCTION(BlueprintCallable, CallInEditor)
+    void Ping() noexcept {
+        ACS_LOG_INFO("[Follow] Ping! target=%d speed=%.1f arrived=%d", target, static_cast<double>(speed), arrived ? 1 : 0);
     }
 
 private:

@@ -18,3 +18,6 @@
 
 #define ACS_CLASS(...)
 #define ACS_PROPERTY(...)
+// ACS_FUNCTION(BlueprintCallable, CallInEditor, ...) — 引数なし void メソッドに付けると、
+// codegen が ACS_REGISTER_METHOD 相当を生成し、エディタのボタンや将来の Blueprint から呼べる。
+#define ACS_FUNCTION(...)

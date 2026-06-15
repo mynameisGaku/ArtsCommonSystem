@@ -31,6 +31,7 @@
 #include "gameframework/Light2DComponent.h" // ComputeLightDirCone (ライト角度→方向/円錐)
 #include "gameframework/ComponentFactory.h" // CreateComponentByName (反射名→実コンポーネント)
 #include "gameframework/ReflectApply.h"     // ApplyFieldValue (authored 値を実体へ適用)
+#include "gameframework/ReflectMethod.h"    // FMethodRegistry / InvokeMethodByName (関数リフレクション)
 #include "gameframework/Scene3D.h"          // FScene3D (3D シーングラフ = 3D ノードの実コンテナ)
 #include "gameframework/Node3D.h"           // FNode3D / FComponent3D
 #include "gameframework/MeshComponent3D.h"  // FMeshComponent3D (prim/color/mesh の native 保持)
@@ -5678,6 +5679,55 @@ ACS_EDITOR_API int acs_editor_component_prop_flags_at(const char* type_name, int
     const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName(type_name);
     if (d == nullptr || index >= static_cast<int>(CompPropCount(d))) return 0;
     return static_cast<int>(d->fields[static_cast<u32>(index)].flags);
+}
+
+// ----- 反射メソッド (ACS_FUNCTION / BlueprintCallable / CallInEditor) -----
+
+/** 型の «反射メソッド» 数を返す (引数なし void メソッド)。 */
+ACS_EDITOR_API int acs_editor_component_method_count(const char* type_name) {
+    if (type_name == nullptr) return 0;
+    game::AcsRegisterEngineTypes();
+    return static_cast<int>(game::FMethodRegistry::Get().CountOfOwner(game::AcsTypeHash(type_name)));
+}
+
+/** 型の index 番目の反射メソッド名 (範囲外は "")。 */
+ACS_EDITOR_API const char* acs_editor_component_method_name_at(const char* type_name, int index) {
+    if (type_name == nullptr || index < 0) return "";
+    game::AcsRegisterEngineTypes();
+    const game::FReflectMethod* m = game::FMethodRegistry::Get().AtOfOwner(game::AcsTypeHash(type_name), static_cast<u32>(index));
+    return (m != nullptr && m->name != nullptr) ? m->name : "";
+}
+
+/** 型の index 番目の反射メソッドのフラグ (bit0=BlueprintCallable, bit1=CallInEditor)。 */
+ACS_EDITOR_API int acs_editor_component_method_flags_at(const char* type_name, int index) {
+    if (type_name == nullptr || index < 0) return 0;
+    game::AcsRegisterEngineTypes();
+    const game::FReflectMethod* m = game::FMethodRegistry::Get().AtOfOwner(game::AcsTypeHash(type_name), static_cast<u32>(index));
+    return (m != nullptr) ? static_cast<int>(m->flags) : 0;
+}
+
+/** ノードの slot 番コンポーネントの反射メソッドを «その場で» 呼ぶ。成功 1。
+ *  コンポーネント型を一時実体化し、ノードの編集値(comp_props)を適用してからメソッドを起動する
+ *  (= CallInEditor: 副作用/ログをエディタで観測できる)。実体は呼び出し後に破棄する。 */
+ACS_EDITOR_API int acs_editor_node_invoke_method(void* handle, int id, int slot, const char* method_name) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || method_name == nullptr) return 0;
+    FEditorNode* n = FindNode(*host, id);
+    if (n == nullptr || slot < 0 || slot >= static_cast<int>(n->component_count)) return 0;
+    const game::FTypeId tid = n->components[static_cast<u32>(slot)];
+    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(tid);
+    if (d == nullptr) return 0;
+    void* obj = game::FTypeRegistry::Get().CreateById(tid);   // 一時実体化 (factory)
+    if (obj == nullptr) return 0;
+    game::ApplyDefaults(obj, *d);                             // C++ 既定値で初期化
+    const u32 nf = CompPropCount(d);                          // 編集値 (authored) を実体へ適用
+    for (u32 p = 0; p < nf; ++p) {
+        const f32* v = n->comp_props[static_cast<u32>(slot)][p];
+        game::ApplyFieldValue(obj, d->fields[p], v);
+    }
+    const bool ok = game::InvokeMethodByName(tid, obj, method_name);   // メソッド起動
+    game::FTypeRegistry::Get().Destroy(tid, obj);             // 一時実体を破棄
+    return ok ? 1 : 0;
 }
 
 /** ノードの slot 番コンポーネントの prop 番プロパティ値 (4 成分) を取得する (成功 1)。 */

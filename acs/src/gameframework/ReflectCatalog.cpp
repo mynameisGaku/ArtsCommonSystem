@@ -30,6 +30,7 @@
 #include "gameframework/Effects2D.h"   // FWater2D / FFire2D / FTrail2D / FStencilClip2D
 #include "gameframework/Light2DComponent.h"  // FLight2DComponent (2D 点光源)
 #include "gameframework/Follow2DComponent.h"  // FFollow2DComponent (オブジェクト参照デモ)
+#include "gameframework/ReflectMethod.h"      // ACS_REGISTER_METHOD (関数リフレクション)
 
 // ----- Scene -----
 #include "gameframework/Scene2D.h"
@@ -150,6 +151,8 @@ ACS_REGISTER_COMPONENT(FFollow2DComponent,
     ACS_RFIELD_REF(FFollow2DComponent, target),                             // 参照先ノード ID (ピッカーで設定)
     ACS_RFIELD_D(FFollow2DComponent, speed, EFieldKind::F32, 3.0f, 0.0f, 0.0f, 0.0f),
     ACS_RFIELD_DF(FFollow2DComponent, arrived, EFieldKind::Bool, FIELD_READONLY, 0.0f, 0.0f, 0.0f, 0.0f))
+// BlueprintCallable + CallInEditor メソッド(エディタのボタン / 将来の Blueprint から呼べる)。
+ACS_REGISTER_METHOD(FFollow2DComponent, Ping, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
 
 // ----- Scene -----
 ACS_REGISTER_SCENE(FScene2D)

@@ -632,6 +632,20 @@ internal static class EngineInterop
     public static extern int acs_editor_component_prop_flags_at(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string typeName, int index);
 
+    // 反射メソッド (ACS_FUNCTION / BlueprintCallable / CallInEditor)。
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_component_method_count([MarshalAs(UnmanagedType.LPUTF8Str)] string typeName);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr acs_editor_component_method_name_at([MarshalAs(UnmanagedType.LPUTF8Str)] string typeName, int index);
+    /// <summary>メソッドフラグ (bit0=BlueprintCallable, bit1=CallInEditor)。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_component_method_flags_at([MarshalAs(UnmanagedType.LPUTF8Str)] string typeName, int index);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node_invoke_method(IntPtr handle, int id, int slot, [MarshalAs(UnmanagedType.LPUTF8Str)] string method);
+    /// <summary>反射メソッド名 (UTF-8)。</summary>
+    public static string ComponentMethodName(string typeName, int index) =>
+        Marshal.PtrToStringUTF8(acs_editor_component_method_name_at(typeName, index)) ?? "";
+
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node_component_prop_get(IntPtr handle, int id, int slot, int prop,
         out float x, out float y, out float z, out float w);
