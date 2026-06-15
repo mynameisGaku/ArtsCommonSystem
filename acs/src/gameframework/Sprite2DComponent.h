@@ -6,6 +6,8 @@
 // supplies position/rotation/scale.
 #pragma once
 
+#include "foundation/Log.h"          // ACS_LOG_INFO (LogState のデモ出力)
+#include "gameframework/AcsClass.h"   // ACS_FUNCTION マーカー
 #include "gameframework/Component2D.h"
 #include "math/Vec.h"
 
@@ -135,6 +137,16 @@ public:
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
     void OnDraw(RenderContext& rc) noexcept override;
+
+    /** 現在のサイズ/tint をログ出力する(BlueprintCallable + CallInEditor のデモ関数)。
+     *  Blueprint グラフの «関数» ノードから実ノードへ作用させる検証に使う。 */
+    ACS_FUNCTION(BlueprintCallable, CallInEditor)
+    void LogState() noexcept {
+        ACS_LOG_INFO("[Sprite] LogState size=(%.2f,%.2f) tint=(%.2f,%.2f,%.2f,%.2f)",
+            static_cast<double>(m_Size.x), static_cast<double>(m_Size.y),
+            static_cast<double>(m_Tint.x), static_cast<double>(m_Tint.y),
+            static_cast<double>(m_Tint.z), static_cast<double>(m_Tint.w));
+    }
 
 private:
     /** 描画するテクスチャ (非所有。nullptr なら塗り潰し矩形)。 */

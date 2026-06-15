@@ -154,8 +154,12 @@ ACS_REGISTER_COMPONENT(FFollow2DComponent,
     ACS_RFIELD_DFC(FFollow2DComponent, target,  EFieldKind::ObjectRef, FIELD_NONE,     "Follow", -1, 0, 0, 0),  // 参照先 (ピッカー)
     ACS_RFIELD_DFC(FFollow2DComponent, speed,   EFieldKind::F32,       FIELD_NONE,     "Follow", 3.0f, 0, 0, 0),
     ACS_RFIELD_DFC(FFollow2DComponent, arrived, EFieldKind::Bool,      FIELD_READONLY, "Status", 0, 0, 0, 0))
-// BlueprintCallable + CallInEditor メソッド(エディタのボタン / 将来の Blueprint から呼べる)。
+// BlueprintCallable + CallInEditor メソッド(エディタのボタン / Blueprint グラフから呼べる)。
 ACS_REGISTER_METHOD(FFollow2DComponent, Ping, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
+// FSprite2DComponent / FPrimitiveRenderer2D: 描画ノードに常在するので Blueprint の
+// «関数» ノード→実ノード作用の実例 (どちらのノードを選んでも呼べるよう両方登録)。
+ACS_REGISTER_METHOD(FSprite2DComponent,   LogState, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
+ACS_REGISTER_METHOD(FPrimitiveRenderer2D, LogState, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
 
 // ----- Subsystem (エンジン提供。各 World に自動生成される) -----
 // FEventBus: ワールド内オブジェクト間の疎結合通信 (名前付きイベント pub/sub)。
