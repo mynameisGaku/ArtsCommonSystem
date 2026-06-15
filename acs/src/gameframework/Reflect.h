@@ -252,6 +252,19 @@ template<class T> inline const FTypeDesc* AcsTypeDescOf() noexcept { return null
         static_cast<::acs::f32>(d1), static_cast<::acs::f32>(d2),               \
         static_cast<::acs::f32>(d3) } }
 
+/**
+ * offset + 既定値 + «フラグ» 付きフィールド記述子 (codegen が UPROPERTY 指定子から出力)。
+ *
+ * @details flags = EFieldFlags の OR。VisibleAnywhere→FIELD_READONLY、Hidden→FIELD_HIDDEN 等。
+ */
+#define ACS_RFIELD_DF(Type, member, fieldkind, flags, d0, d1, d2, d3)            \
+    ::acs::game::FReflectField{ #member, (fieldkind),                           \
+        static_cast<::acs::u32>(offsetof(Type, member)),                        \
+        static_cast<::acs::u32>(sizeof(((Type*)0)->member)),                    \
+        static_cast<::acs::u32>(flags), { static_cast<::acs::f32>(d0),          \
+        static_cast<::acs::f32>(d1), static_cast<::acs::f32>(d2),               \
+        static_cast<::acs::f32>(d3) } }
+
 // ----- 名前のみの反射プロパティ (offsetof 不使用) ------------------------------
 // private メンバや多態 (非 standard-layout) 型は offsetof が使えない。そこで「編集可能
 // フィールドのスキーマ (名前 + 種別 + 既定値)」だけを反射する。値の実体はメンバではなく
@@ -285,6 +298,12 @@ template<class T> inline const FTypeDesc* AcsTypeDescOf() noexcept { return null
 #define ACS_RPROP_REF(propname)               ACS_RPROP(propname, ::acs::game::EFieldKind::ObjectRef, -1, 0, 0, 0)
 /** オブジェクト参照のフィールド (offset 反射。実メンバ = i32 の参照先 ID。実行時 apply される)。 */
 #define ACS_RFIELD_REF(Type, member)          ACS_RFIELD_D(Type, member, ::acs::game::EFieldKind::ObjectRef, -1, 0, 0, 0)
+/** 名前のみ反射プロパティ + フラグ (FIELD_READONLY 等。種別 + 4 成分既定値 + flags を明示)。 */
+#define ACS_RPROP_FLAGS(propname, fieldkind, flags, d0, d1, d2, d3)              \
+    ::acs::game::FReflectField{ (propname), (fieldkind), 0u, 0u,                \
+        static_cast<::acs::u32>(flags), { static_cast<::acs::f32>(d0),          \
+        static_cast<::acs::f32>(d1), static_cast<::acs::f32>(d2),               \
+        static_cast<::acs::f32>(d3) } }
 
 /** 列挙値記述子 (EnumType::val)。 */
 #define ACS_EVAL(EnumType, val)                                                 \

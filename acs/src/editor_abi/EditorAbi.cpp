@@ -5670,6 +5670,16 @@ ACS_EDITOR_API int acs_editor_component_prop_kind_at(const char* type_name, int 
     return static_cast<int>(d->fields[static_cast<u32>(index)].kind);
 }
 
+/** 型名と index で、編集プロパティのフラグ (EFieldFlags の OR) を返す (範囲外は 0)。
+ *  bit0=READONLY (表示のみ・編集不可)、bit1=HIDDEN (非表示)、bit2=TRANSIENT。 */
+ACS_EDITOR_API int acs_editor_component_prop_flags_at(const char* type_name, int index) {
+    if (type_name == nullptr || index < 0) return 0;
+    game::AcsRegisterEngineTypes();
+    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName(type_name);
+    if (d == nullptr || index >= static_cast<int>(CompPropCount(d))) return 0;
+    return static_cast<int>(d->fields[static_cast<u32>(index)].flags);
+}
+
 /** ノードの slot 番コンポーネントの prop 番プロパティ値 (4 成分) を取得する (成功 1)。 */
 ACS_EDITOR_API int acs_editor_node_component_prop_get(void* handle, int id, int slot, int prop,
                                                       float* x, float* y, float* z, float* w) {

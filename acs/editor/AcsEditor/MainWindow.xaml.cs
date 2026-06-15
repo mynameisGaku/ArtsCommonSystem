@@ -1660,7 +1660,10 @@ public partial class MainWindow : Window
                 });
             else
                 for (int p = 0; p < pc; p++)
-                    inner.Children.Add(BuildPropEditor(id, idx, cname, p));
+                {
+                    var row = BuildPropEditor(id, idx, cname, p);
+                    if (row != null) inner.Children.Add(row);   // null = Hidden 指定子 → 出さない
+                }
 
             // コンポーネントをカードにまとめる (視覚的グルーピング)。
             CompList.Children.Add(new Border
@@ -1676,16 +1679,21 @@ public partial class MainWindow : Window
     /// checkbox (Bool) / 整数 box (I32,U32) / 数値 box×N (F32,FVec2-4) を出す。
     /// 編集確定で acs_editor_node_component_prop_set を呼ぶ。
     /// </summary>
-    private FrameworkElement BuildPropEditor(int id, int slot, string typeName, int prop)
+    private FrameworkElement? BuildPropEditor(int id, int slot, string typeName, int prop)
     {
         string pname = EngineInterop.ComponentPropName(typeName, prop);
         int kind = EngineInterop.acs_editor_component_prop_kind_at(typeName, prop);
+        int flags = EngineInterop.acs_editor_component_prop_flags_at(typeName, prop);
+        bool hidden   = (flags & 0x2) != 0;   // FIELD_HIDDEN → 出さない
+        bool readOnly = (flags & 0x1) != 0;   // FIELD_READONLY (VisibleAnywhere) → 表示のみ
+        if (hidden) return null;
         EngineInterop.acs_editor_node_component_prop_get(Engine, id, slot, prop,
             out float vx, out float vy, out float vz, out float vw);
         float[] vals = { vx, vy, vz, vw };
         float[] committed = { vx, vy, vz, vw };   // 最後に ABI へ送った値
 
         var panel = new DockPanel { Margin = new Thickness(0, 2, 0, 1) };
+        if (readOnly) panel.IsEnabled = false;    // 編集不可 (グレー表示)。値は見える
         var label = new TextBlock
         {
             Text = pname, Width = 78, VerticalAlignment = VerticalAlignment.Center,

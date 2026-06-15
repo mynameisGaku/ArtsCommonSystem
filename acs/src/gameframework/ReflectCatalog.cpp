@@ -144,10 +144,12 @@ ACS_REGISTER_COMPONENT(FShadowCaster2DComponent,
     ACS_RFIELD_D(FShadowCaster2DComponent, m_RadiusScale, EFieldKind::F32, 1.0f, 0.0f, 0.0f, 0.0f),
     ACS_RFIELD_D(FShadowCaster2DComponent, m_Shape,       EFieldKind::F32, 0.0f, 0.0f, 0.0f, 0.0f),  // 0=円,1=箱
     ACS_RFIELD_D(FShadowCaster2DComponent, m_SelfShadow,  EFieldKind::Bool, 0.0f, 0.0f, 0.0f, 0.0f))  // false=自己影スキップ (既定)
-// 追従コンポーネント。target は «オブジェクト参照»(他ノードへの参照を渡す UPROPERTY 風)のデモ。
+// 追従コンポーネント。target は «オブジェクト参照»(他ノードへの参照を渡す UPROPERTY 風)、
+// arrived は «読み取り専用»(VisibleAnywhere 風 = FIELD_READONLY)のデモ。
 ACS_REGISTER_COMPONENT(FFollow2DComponent,
     ACS_RFIELD_REF(FFollow2DComponent, target),                             // 参照先ノード ID (ピッカーで設定)
-    ACS_RFIELD_D(FFollow2DComponent, speed, EFieldKind::F32, 3.0f, 0.0f, 0.0f, 0.0f))
+    ACS_RFIELD_D(FFollow2DComponent, speed, EFieldKind::F32, 3.0f, 0.0f, 0.0f, 0.0f),
+    ACS_RFIELD_DF(FFollow2DComponent, arrived, EFieldKind::Bool, FIELD_READONLY, 0.0f, 0.0f, 0.0f, 0.0f))
 
 // ----- Scene -----
 ACS_REGISTER_SCENE(FScene2D)

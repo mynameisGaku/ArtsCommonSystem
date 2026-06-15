@@ -627,6 +627,11 @@ internal static class EngineInterop
     public static extern int acs_editor_component_prop_kind_at(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string typeName, int index);
 
+    /// <summary>編集プロパティのフラグ (bit0=READONLY, bit1=HIDDEN, bit2=TRANSIENT)。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_component_prop_flags_at(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string typeName, int index);
+
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node_component_prop_get(IntPtr handle, int id, int slot, int prop,
         out float x, out float y, out float z, out float w);

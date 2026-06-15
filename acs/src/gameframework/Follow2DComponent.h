@@ -33,6 +33,9 @@ public:
     /** 追従速度(units/sec)。 */
     f32 speed  = 3.0f;
 
+    /** target に到達したか(実行時の «読み取り専用» ステータス = VisibleAnywhere のデモ)。 */
+    bool arrived = false;
+
     void OnUpdate(f32 dt) noexcept override {
         if (target < 0 || speed <= 0.0f || dt <= 0.0f) return;
         if (!HasOwner()) return;
@@ -47,9 +50,9 @@ public:
         const FVec2 d{ dst.x - cur.x, dst.y - cur.y };
         const f32 len  = std::sqrt(d.x * d.x + d.y * d.y);
         const f32 step = speed * dt;
-        if (len <= step || len < 1e-5f) owner->Local().position = dst;            // 到達
-        else owner->Local().position = FVec2{ cur.x + d.x / len * step,
-                                              cur.y + d.y / len * step };
+        if (len <= step || len < 1e-5f) { owner->Local().position = dst; arrived = true; }   // 到達
+        else { owner->Local().position = FVec2{ cur.x + d.x / len * step,
+                                                cur.y + d.y / len * step }; arrived = false; }
     }
 
 private:

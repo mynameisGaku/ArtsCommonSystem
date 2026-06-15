@@ -17,7 +17,7 @@ public static class ReflectionCodegen
 {
     public const string GenFileName = "__acs_reflect.gen.cpp";
 
-    private sealed record PropInfo(string Type, string Name, string Default);
+    private sealed record PropInfo(string Type, string Name, string Default, string Specifiers);
     private sealed record ClassInfo(string Name, string Base, List<PropInfo> Props);
 
     // ACS_CLASS(...) の後の  class [API] Name : public Base {   を捉える。
@@ -25,9 +25,9 @@ public static class ReflectionCodegen
         @"ACS_CLASS\s*\([^)]*\)\s*class\s+(?:\w+\s+)?(\w+)\s*:\s*public\s+([\w:]+)\s*\{",
         RegexOptions.Compiled);
 
-    // ACS_PROPERTY(...)  Type name [= default];
+    // ACS_PROPERTY(specifiers...)  Type name [= default];  — group1=指定子, 2=型, 3=名前, 4=既定
     private static readonly Regex PropRe = new(
-        @"ACS_PROPERTY\s*\([^)]*\)\s*([\w:]+)\s+(\w+)\s*(?:=\s*([^;{]+?))?\s*;",
+        @"ACS_PROPERTY\s*\(([^)]*)\)\s*([\w:]+)\s+(\w+)\s*(?:=\s*([^;{]+?))?\s*;",
         RegexOptions.Compiled);
 
     /// <summary>プロジェクトの Source を走査して登録コードを生成する。新規にファイルを作ったら true。</summary>
@@ -81,7 +81,8 @@ public static class ReflectionCodegen
             string body = ExtractBraceBody(text, open);
             var props = new List<PropInfo>();
             foreach (Match pm in PropRe.Matches(body))
-                props.Add(new PropInfo(pm.Groups[1].Value, pm.Groups[2].Value, pm.Groups[3].Value.Trim()));
+                props.Add(new PropInfo(pm.Groups[2].Value, pm.Groups[3].Value,
+                                       pm.Groups[4].Value.Trim(), pm.Groups[1].Value));
             result.Add(new ClassInfo(name, baseName, props));
         }
         return result;
@@ -111,24 +112,28 @@ public static class ReflectionCodegen
         return sb.ToString();
     }
 
-    // C++ 型 + 既定値 → ACS_RFIELD_D (offset + 既定値の両方)。これにより authored 値を実メンバへ
-    // 適用できる (ReflectApply)。member は public であること。対応外の型は null (登録しない)。
+    // C++ 型 + 既定値 + UPROPERTY 指定子 → ACS_RFIELD_DF (offset + 既定値 + フラグ)。これにより
+    // authored 値を実メンバへ適用でき (ReflectApply)、VisibleAnywhere 等の指定子がインスペクタに効く。
+    // member は public であること。対応外の型は null (登録しない)。
     private static string? EmitProp(string cls, PropInfo p)
     {
         string t = p.Type.Replace("acs::", "").Replace("game::", "");
         string name = p.Name;
         string d = p.Default;
+        string flagsExpr = FlagsFor(p.Specifiers);
+        bool isRef = Regex.IsMatch(p.Specifiers ?? "", @"\bObjectRef\b");   // 指定子で参照プロパティ化
         string Field(string kind, params string[] defs)
         {
-            var args = new[] { cls, name, "::acs::game::EFieldKind::" + kind }.Concat(defs);
-            return "ACS_RFIELD_D(" + string.Join(", ", args) + ")";
+            var args = new[] { cls, name, "::acs::game::EFieldKind::" + kind, flagsExpr }.Concat(defs);
+            return "ACS_RFIELD_DF(" + string.Join(", ", args) + ")";
         }
         switch (t)
         {
             case "float": case "f32": case "double":
                 return Field("F32", FloatLit(d, "0.0f"), "0", "0", "0");
             case "int": case "i32": case "u32": case "int32_t": case "uint32_t": case "unsigned":
-                return Field(t is "u32" or "uint32_t" or "unsigned" ? "U32" : "I32", IntLit(d, "0"), "0", "0", "0");
+                return Field(isRef ? "ObjectRef" : (t is "u32" or "uint32_t" or "unsigned" ? "U32" : "I32"),
+                             IntLit(d, isRef ? "-1" : "0"), "0", "0", "0");
             case "bool":
                 return Field("Bool", BoolLit(d), "0", "0", "0");
             case "FVec2": { var v = Vec(d, 2); return Field("FVec2", v[0], v[1], "0", "0"); }
@@ -136,6 +141,21 @@ public static class ReflectionCodegen
             case "FVec4": { var v = Vec(d, 4); return Field("FVec4", v[0], v[1], v[2], v[3]); }
             default: return null;   // 未対応型はスキップ
         }
+    }
+
+    // ACS_PROPERTY の指定子文字列 → EFieldFlags 式。VisibleAnywhere/ReadOnly=READONLY、
+    // Hidden=HIDDEN、Transient=TRANSIENT。EditAnywhere や指定なしは編集可 (FIELD_NONE)。
+    // BlueprintReadWrite/ReadOnly/Callable・Category=... は受理して «今は» エディタフラグに影響させない
+    // (将来の Blueprint/スクリプト層が使う)。
+    private static string FlagsFor(string specifiers)
+    {
+        string s = specifiers ?? "";
+        var parts = new List<string>();
+        if (Regex.IsMatch(s, @"\b(VisibleAnywhere|VisibleDefaultsOnly|VisibleInstanceOnly|ReadOnly)\b"))
+            parts.Add("::acs::game::FIELD_READONLY");
+        if (Regex.IsMatch(s, @"\bHidden\b"))    parts.Add("::acs::game::FIELD_HIDDEN");
+        if (Regex.IsMatch(s, @"\bTransient\b")) parts.Add("::acs::game::FIELD_TRANSIENT");
+        return parts.Count == 0 ? "::acs::game::FIELD_NONE" : string.Join(" | ", parts);
     }
 
     private static string FloatLit(string d, string fallback)
