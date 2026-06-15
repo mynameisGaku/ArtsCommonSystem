@@ -99,7 +99,8 @@ struct FSceneBounds {
 FSceneBounds LoadAcsceneText(const char* text, FNode2D& root,
                              TArray<FSpriteRequest>* out_sprites = nullptr,
                              TArray<FRigidBodyRequest>* out_bodies = nullptr,
-                             TArray<FMaterialTexRequest>* out_mat_tex = nullptr) noexcept;
+                             TArray<FMaterialTexRequest>* out_mat_tex = nullptr,
+                             FNode2D** out_root = nullptr) noexcept;
 
 /**
  * ACSCENE ファイルを読み込んで root 配下へ復元する。
@@ -113,6 +114,27 @@ FSceneBounds LoadAcsceneFile(const char* path, FNode2D& root,
                              TArray<FSpriteRequest>* out_sprites = nullptr,
                              TArray<FRigidBodyRequest>* out_bodies = nullptr,
                              TArray<FMaterialTexRequest>* out_mat_tex = nullptr) noexcept;
+
+/**
+ * プレハブ(.acsprefab = サブツリーの ACSCENE 直列化テキスト)を実行時に parent 配下へ
+ * 生成し、生成したサブツリーの «ルートノード» を返す(失敗 nullptr)。
+ *
+ * @details 実コンポーネントを attach + authored 値適用 + SerialId 設定済み(オブジェクト参照も
+ * 解決される)。返り値の root を Local().position 等で配置/操作する。敵・弾などの動的生成に使う。
+ * @param text NUL 終端の .acsprefab テキスト。
+ * @param parent 生成先の親ノード(通常はシーンの Root)。
+ * @return 生成したサブツリーのルートノード(parent の子。失敗で nullptr)。
+ */
+FNode2D* SpawnPrefabText(const char* text, FNode2D& parent) noexcept;
+
+/**
+ * プレハブファイル(.acsprefab)を実行時に parent 配下へ生成し、ルートノードを返す。
+ *
+ * @param path .acsprefab ファイルパス。
+ * @param parent 生成先の親ノード。
+ * @return 生成したサブツリーのルートノード(失敗で nullptr)。
+ */
+FNode2D* SpawnPrefabFile(const char* path, FNode2D& parent) noexcept;
 
 /**
  * マテリアル法線マップ要求を GPU テクスチャ化し、各ノードへ非所有ポインタで配線する。

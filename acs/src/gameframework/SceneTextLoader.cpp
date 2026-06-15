@@ -66,8 +66,10 @@ FPrimitiveRenderer2D* AsPrimitive(FComponent2D* c) noexcept {
 FSceneBounds LoadAcsceneText(const char* text, FNode2D& root,
                              TArray<FSpriteRequest>* out_sprites,
                              TArray<FRigidBodyRequest>* out_bodies,
-                             TArray<FMaterialTexRequest>* out_mat_tex) noexcept {
+                             TArray<FMaterialTexRequest>* out_mat_tex,
+                             FNode2D** out_root) noexcept {
     FSceneBounds bounds;
+    if (out_root != nullptr) *out_root = nullptr;
     if (text == nullptr) return bounds;
 
     const char* p = text;
@@ -270,6 +272,13 @@ FSceneBounds LoadAcsceneText(const char* text, FNode2D& root,
     }
     if (reparented) root.ResolveStructuralChanges();
 
+    // プレハブ生成用: サブツリーのルート (= 親が無い最初のノード) を返す。
+    if (out_root != nullptr) {
+        for (u32 i = 0; i < nodes.Size(); ++i) {
+            if (nodes[i].parent < 0) { *out_root = nodes[i].node; break; }
+        }
+    }
+
     // --- NFLG (ノードフラグ) を適用 ---
     for (u32 i = 0; i < nodes.Size(); ++i) {
         if (!nodes[i].hasNflg) continue;
@@ -366,6 +375,29 @@ FSceneBounds LoadAcsceneFile(const char* path, FNode2D& root,
     std::fclose(f);
     buf[static_cast<u32>(rd)] = '\0';
     return LoadAcsceneText(buf.Data(), root, out_sprites, out_bodies, out_mat_tex);
+}
+
+FNode2D* SpawnPrefabText(const char* text, FNode2D& parent) noexcept {
+    if (text == nullptr) return nullptr;
+    FNode2D* spawned = nullptr;
+    LoadAcsceneText(text, parent, nullptr, nullptr, nullptr, &spawned);   // 実コンポーネント attach + SerialId 設定済み
+    return spawned;
+}
+
+FNode2D* SpawnPrefabFile(const char* path, FNode2D& parent) noexcept {
+    if (path == nullptr) return nullptr;
+    std::FILE* f = std::fopen(path, "rb");
+    if (f == nullptr) return nullptr;
+    std::fseek(f, 0, SEEK_END);
+    long sz = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    if (sz <= 0) { std::fclose(f); return nullptr; }
+    TArray<char> buf;
+    buf.Resize(static_cast<u32>(sz) + 1);
+    const usize rd = std::fread(buf.Data(), 1, static_cast<usize>(sz), f);
+    std::fclose(f);
+    buf[static_cast<u32>(rd)] = '\0';
+    return SpawnPrefabText(buf.Data(), parent);
 }
 
 void BuildSceneRigidBodies(FRigidWorld2D& world, const TArray<FRigidBodyRequest>& reqs,

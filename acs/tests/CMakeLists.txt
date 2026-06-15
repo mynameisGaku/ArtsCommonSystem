@@ -38,6 +38,7 @@ add_executable(acs_unit_tests
     node3d_tests.cpp
     subsystem_tests.cpp
     objectref_runtime_tests.cpp
+    prefab_spawn_tests.cpp
     camerarig_tests.cpp
     spritesortlist_tests.cpp
     editor_play_draw_tests.cpp
