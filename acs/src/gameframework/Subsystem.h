@@ -75,6 +75,29 @@ public:
 
     /** 型名(デバッグ/ログ用)。 */
     virtual const char* Name() const noexcept { return "FSubsystem"; }
+
+    /**
+     * 所有コンテキスト(UE の Outer 相当)を返す。World サブシステムは所属 Scene、
+     * GameInstance/Engine サブシステムは FGame が設定される(非所有・生ポインタ)。
+     *
+     * @return 所有コンテキスト(未設定なら nullptr)。OnInitialize 時点で有効。
+     */
+    void* Owner() const noexcept { return m_Owner; }
+
+    /**
+     * 所有コンテキストを型付きで取り出す(例: World サブシステムから OwnerAs<FScene2D>())。
+     *
+     * @tparam T キャスト先の型(呼び出し側が正しいスコープ型を保証する)。
+     * @return T*(未設定なら nullptr)。
+     */
+    template<typename T>
+    T* OwnerAs() const noexcept { return static_cast<T*>(m_Owner); }
+
+    /** 所有コンテキストを設定する(内部用。コレクションが OnInitialize 前に呼ぶ)。 */
+    void _SetOwner(void* owner) noexcept { m_Owner = owner; }
+
+private:
+    void* m_Owner = nullptr;   ///< 所有コンテキスト(Scene / FGame、非所有)。
 };
 
 /**

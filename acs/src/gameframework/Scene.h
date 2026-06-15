@@ -210,7 +210,7 @@ public:
      * @param parent GameInstance スコープのコレクション(フォールバック先)。
      */
     void _InitWorldSubsystems(FSubsystemCollection* parent) noexcept {
-        m_WorldSubsystems.Initialize(ESubsystemScope::World, parent);
+        m_WorldSubsystems.Initialize(ESubsystemScope::World, parent, this);   // owner = この Scene
         _OnWorldSubsystemsReady();
     }
 

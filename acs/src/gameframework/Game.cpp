@@ -15,9 +15,9 @@ namespace acs::game {
 /** 起動時に InitialScene() を push して即時適用する。 */
 void FGame::OnStart() noexcept {
     // サブシステムを先に初期化(最初のシーンの World サブシステム/OnEnter が参照できるように)。
-    // Engine が最上位、GameInstance はその子(Get<T> が Engine へフォールバックする)。
-    m_EngineSubsystems.Initialize(ESubsystemScope::Engine);
-    m_GameInstanceSubsystems.Initialize(ESubsystemScope::GameInstance, &m_EngineSubsystems);
+    // Engine が最上位、GameInstance はその子(Get<T> が Engine へフォールバックする)。owner=FGame。
+    m_EngineSubsystems.Initialize(ESubsystemScope::Engine, nullptr, this);
+    m_GameInstanceSubsystems.Initialize(ESubsystemScope::GameInstance, &m_EngineSubsystems, this);
 
     TUniquePtr<Scene> first = InitialScene();
     if (!first) {

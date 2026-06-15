@@ -57,11 +57,20 @@ struct TProbeComp : public FComponent2D {
     ACS_GAME_COMPONENT_KIND(TProbeComp)
 };
 
+// OnInitialize 時点で Owner() を読み取って記録するサブシステム (World)。
+class TOwnerSub : public FSubsystem {
+public:
+    ACS_GAME_SUBSYSTEM_KIND(TOwnerSub)
+    void* seenOwner = reinterpret_cast<void*>(0x1);   // 初期値は «未設定» と区別できる値
+    void OnInitialize() noexcept override { seenOwner = Owner(); }
+};
+
 } // namespace
 
 ACS_REGISTER_SUBSYSTEM(TScoreSub,  ESubsystemScope::World)
 ACS_REGISTER_SUBSYSTEM(TConfigSub, ESubsystemScope::GameInstance)
 ACS_REGISTER_SUBSYSTEM(TEngineSub, ESubsystemScope::Engine)
+ACS_REGISTER_SUBSYSTEM(TOwnerSub,  ESubsystemScope::World)
 
 namespace {
 
@@ -145,4 +154,21 @@ ACS_TEST(Subsystem, NodeAndComponentAccess) {
     // 未配線ノードは nullptr。
     FNode2D lonely;
     EXPECT_TRUE(lonely.GetSubsystem<TScoreSub>() == nullptr);
+}
+
+// Owner() が Initialize で渡したコンテキストになる(OnInitialize 時点で有効)。
+ACS_TEST(Subsystem, OwnerContextIsSet) {
+    int dummyOwner = 0;
+    void* owner = &dummyOwner;
+    FSubsystemCollection world;
+    world.Initialize(ESubsystemScope::World, nullptr, owner);
+    TOwnerSub* s = world.Get<TOwnerSub>();
+    EXPECT_TRUE(s != nullptr);
+    EXPECT_TRUE(s->Owner() == owner);            // 取得 API
+    EXPECT_TRUE(s->seenOwner == owner);          // OnInitialize 時点で既に配線済み
+    EXPECT_TRUE(s->OwnerAs<int>() == &dummyOwner);
+    // owner 未指定なら nullptr。
+    FSubsystemCollection w2;
+    w2.Initialize(ESubsystemScope::World);
+    EXPECT_TRUE(w2.Get<TOwnerSub>()->Owner() == nullptr);
 }

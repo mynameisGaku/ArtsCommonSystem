@@ -39,8 +39,9 @@ public:
      *
      * @param scope  このコレクションのスコープ。
      * @param parent 上位スコープのコレクション(Get<T> のフォールバック先。null 可)。
+     * @param owner  所有コンテキスト(World=Scene, GameInstance/Engine=FGame。各 subsystem の Owner())。
      */
-    void Initialize(ESubsystemScope scope, FSubsystemCollection* parent = nullptr) noexcept {
+    void Initialize(ESubsystemScope scope, FSubsystemCollection* parent = nullptr, void* owner = nullptr) noexcept {
         if (m_Initialized) return;
         m_Scope  = scope;
         m_Parent = parent;
@@ -52,6 +53,7 @@ public:
             if (!s) continue;
             FSubsystem* raw = s.Get();
             m_Subsystems.PushBack(Move(s));
+            raw->_SetOwner(owner);           // OnInitialize で Owner() が使えるよう先に配線
             raw->OnInitialize();             // 生成順に初期化(リスト末尾に積んでから fire)
         }
         m_Initialized = true;
