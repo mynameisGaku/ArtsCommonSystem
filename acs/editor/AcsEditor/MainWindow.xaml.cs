@@ -915,6 +915,7 @@ public partial class MainWindow : Window
         BlueprintHost.SetPalette(pal);
         BlueprintHost.DefaultDir = _project != null
             ? System.IO.Path.Combine(_project.RootDir, "Assets") : null;   // 保存/開くダイアログの初期位置
+        BlueprintHost.LogSink = Log;   // 実行トレースをコンソールへ
     }
 
     private void SetGameView(bool game)

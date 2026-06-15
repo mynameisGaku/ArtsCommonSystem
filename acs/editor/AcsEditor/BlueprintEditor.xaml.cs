@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -37,6 +38,7 @@ public partial class BlueprintEditor : UserControl
         public List<Pin> Inputs  = new();
         public List<Pin> Outputs = new();
         public Border? Visual;
+        public bool Executed;   // 直近の実行で起動されたか (ハイライト用)
     }
 
     private sealed record BpConn(int FromNode, int FromPin, int ToNode, int ToPin);
@@ -77,6 +79,7 @@ public partial class BlueprintEditor : UserControl
     private static readonly Brush PinExec  = new SolidColorBrush(Color.FromRgb(0xE6, 0xE9, 0xEF));
     private static readonly Brush PinData  = new SolidColorBrush(Color.FromRgb(0x5B, 0xC8, 0x9A));
     private static readonly Brush LabelFg  = new SolidColorBrush(Color.FromRgb(0xC2, 0xC9, 0xD4));
+    private static readonly Brush ExecHi   = new SolidColorBrush(Color.FromRgb(0xE0, 0xB8, 0x4A));   // 実行済みノードの枠
 
     public BlueprintEditor()
     {
@@ -178,7 +181,8 @@ public partial class BlueprintEditor : UserControl
         }
 
         var border = new Border {
-            Width = NodeW, Height = h, Background = NodeBg, BorderBrush = NodeEdge, BorderThickness = new Thickness(1.2),
+            Width = NodeW, Height = h, Background = NodeBg,
+            BorderBrush = n.Executed ? ExecHi : NodeEdge, BorderThickness = new Thickness(n.Executed ? 2.4 : 1.2),
             CornerRadius = new CornerRadius(5), Child = inner, Cursor = Cursors.SizeAll,
         };
         Canvas.SetLeft(border, n.X); Canvas.SetTop(border, n.Y);
@@ -541,6 +545,105 @@ public partial class BlueprintEditor : UserControl
             Filter = "ACS Blueprint (*.acsbp)|*.acsbp", DefaultExt = ".acsbp" };
         if (DefaultDir != null && System.IO.Directory.Exists(DefaultDir)) dlg.InitialDirectory = DefaultDir;
         if (dlg.ShowDialog() == true) Deserialize(System.IO.File.ReadAllText(dlg.FileName));
+    }
+
+    // ----- 実行 (BP5: イベントから exec チェーンを辿る簡易インタプリタ) -----
+    /// <summary>実行トレースの出力先 (MainWindow のコンソール)。</summary>
+    public Action<string>? LogSink;
+    private void Trace(string s) => LogSink?.Invoke(s);
+
+    private readonly Dictionary<int, string> _spawnHandles = new();   // ノード ID → spawn ハンドル (実行内で一意)
+    private int _spawnSeq;
+    private int _execBudget;
+
+    private void OnRun(object sender, RoutedEventArgs e) => RunGraph();
+
+    /// <summary>
+    /// イベントノード (exec 出力を持ち exec 入力を持たないノード) を起点に exec を辿って実行する。
+    /// データ入力は «プル評価» で上流をたどる (例: Spawn の spawned → SetPosition の target)。
+    /// 個々のノードの作用は今はトレース出力 (将来はエンジンの反射メソッド/サブシステムへ束縛)。
+    /// </summary>
+    public void RunGraph()
+    {
+        foreach (var n in _nodes) n.Executed = false;
+        _spawnHandles.Clear(); _spawnSeq = 0; _execBudget = 1000;
+
+        var entries = _nodes
+            .Where(n => n.Outputs.Any(p => p.Kind == PinKind.Exec) && !n.Inputs.Any(p => p.Kind == PinKind.Exec))
+            .OrderBy(n => n.Id).ToList();
+
+        Trace($"▶ Blueprint 実行開始 ({entries.Count} イベント)");
+        foreach (var ev in entries) ExecFrom(ev);
+        Trace("■ Blueprint 実行終了");
+        Rebuild();   // 実行済みノードを枠ハイライト
+    }
+
+    private void ExecFrom(BpNode n)
+    {
+        if (_execBudget-- <= 0) { Trace("  … (ステップ上限に達したため停止)"); return; }
+        n.Executed = true;
+        Trace("  → " + ActionLine(n));
+
+        bool branch = n.Title.StartsWith("Branch");
+        bool tookBranch = false;
+        for (int po = 0; po < n.Outputs.Count; po++)
+        {
+            if (n.Outputs[po].Kind != PinKind.Exec) continue;
+            if (branch) { if (tookBranch) break; tookBranch = true; }   // cond 未評価のため True のみ発火
+            foreach (var c in _conns)
+                if (c.FromNode == n.Id && c.FromPin == po)
+                {
+                    var to = NodeById(c.ToNode);
+                    if (to != null) ExecFrom(to);
+                }
+        }
+    }
+
+    private string ActionLine(BpNode n)
+    {
+        string t = n.Title;
+        if (t.StartsWith("On ") || t.StartsWith("Event")) return "イベント " + t.Trim();
+        if (t.StartsWith("Spawn"))
+            return $"Spawn Prefab(path={EvalInputByName(n, "path")}, pos={EvalInputByName(n, "pos")}) ⇒ {SpawnHandle(n)}";
+        if (t.StartsWith("Set Position"))
+            return $"Set Position(target={EvalInputByName(n, "target")}, value={EvalInputByName(n, "value")})";
+        if (t.StartsWith("Publish"))  return t.Trim();
+        if (t.StartsWith("Print"))    return "Print: " + EvalInputByName(n, "text");
+        if (t.StartsWith("Branch"))   return $"Branch(cond={EvalInputByName(n, "cond")}) → True";
+        if (t.StartsWith("Sequence")) return "Sequence";
+        if (n.Inputs.Any(p => p.Name == "target")) return $"Call {t}(target={EvalInputByName(n, "target")})";   // 反射関数
+        return t;
+    }
+
+    private string SpawnHandle(BpNode n)
+    {
+        if (!_spawnHandles.TryGetValue(n.Id, out var h)) { h = "spawned#" + (++_spawnSeq); _spawnHandles[n.Id] = h; }
+        return h;
+    }
+
+    private string EvalInputByName(BpNode n, string pinName)
+    {
+        int idx = n.Inputs.FindIndex(p => p.Name == pinName);
+        return idx < 0 ? "(なし)" : EvalInput(n, idx);
+    }
+
+    /// <summary>入力ピンへ繋がる上流出力を評価して文字列値を返す (未接続は印を返す)。</summary>
+    private string EvalInput(BpNode n, int inPin)
+    {
+        foreach (var c in _conns)
+            if (c.ToNode == n.Id && c.ToPin == inPin)
+            {
+                var from = NodeById(c.FromNode);
+                if (from != null) return EvalOutput(from, c.FromPin);
+            }
+        return "(未接続)";
+    }
+
+    private string EvalOutput(BpNode from, int outPin)
+    {
+        if (from.Title.StartsWith("Spawn")) return SpawnHandle(from);
+        string pin = outPin >= 0 && outPin < from.Outputs.Count ? from.Outputs[outPin].Name : "out";
+        return $"{from.Title.Trim()}.{pin}";
     }
 
     // ----- ホイールズーム (カーソル位置を中心に) -----
