@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -435,6 +437,110 @@ public partial class BlueprintEditor : UserControl
         _conns.RemoveAll(c => c.FromNode == n.Id || c.ToNode == n.Id);
         _nodes.Remove(n);
         Rebuild();
+    }
+
+    // ----- シリアライズ (.acsbp。行ベースのテキスト形式) -----
+    //   ACSBP 1
+    //   N <id> <x> <y> <RRGGBB> <title...>     ← title は行末まで (空白可)
+    //   I <E|D> <name...>                       ← 直前 N の入力ピン
+    //   O <E|D> <name...>                       ← 直前 N の出力ピン
+    //   C <fromNode> <fromPin> <toNode> <toPin>
+
+    /// <summary>初期ディレクトリ (保存/開くダイアログ)。MainWindow がプロジェクトの Assets を設定。</summary>
+    public string? DefaultDir { get; set; }
+
+    /// <summary>現在のグラフを .acsbp テキストへ直列化する。</summary>
+    public string Serialize()
+    {
+        var sb = new StringBuilder();
+        sb.Append("ACSBP 1\n");
+        foreach (var n in _nodes)
+        {
+            var c = (n.Header as SolidColorBrush)?.Color ?? Colors.SteelBlue;
+            sb.Append("N ").Append(n.Id).Append(' ')
+              .Append(n.X.ToString("0.##", CultureInfo.InvariantCulture)).Append(' ')
+              .Append(n.Y.ToString("0.##", CultureInfo.InvariantCulture)).Append(' ')
+              .Append($"{c.R:X2}{c.G:X2}{c.B:X2}").Append(' ').Append(n.Title).Append('\n');
+            foreach (var p in n.Inputs)  sb.Append("I ").Append(p.Kind == PinKind.Exec ? 'E' : 'D').Append(' ').Append(p.Name).Append('\n');
+            foreach (var p in n.Outputs) sb.Append("O ").Append(p.Kind == PinKind.Exec ? 'E' : 'D').Append(' ').Append(p.Name).Append('\n');
+        }
+        foreach (var k in _conns)
+            sb.Append("C ").Append(k.FromNode).Append(' ').Append(k.FromPin).Append(' ')
+              .Append(k.ToNode).Append(' ').Append(k.ToPin).Append('\n');
+        return sb.ToString();
+    }
+
+    /// <summary>.acsbp テキストからグラフを復元する (既存は破棄)。</summary>
+    public void Deserialize(string text)
+    {
+        _nodes.Clear(); _conns.Clear();
+        BpNode? cur = null;
+        foreach (var raw in text.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            if (line.Length == 0 || line.StartsWith("ACSBP")) continue;
+            switch (line[0])
+            {
+                case 'N':
+                {
+                    var t = line.Split(new[] { ' ' }, 6);
+                    if (t.Length < 5) break;
+                    cur = new BpNode {
+                        Id = ParseInt(t[1]), X = ParseDouble(t[2]), Y = ParseDouble(t[3]),
+                        Header = new SolidColorBrush(ParseHex(t[4])),
+                        Title = t.Length >= 6 ? t[5] : "",
+                    };
+                    _nodes.Add(cur);
+                    break;
+                }
+                case 'I':
+                case 'O':
+                {
+                    if (cur == null) break;
+                    var t = line.Split(new[] { ' ' }, 3);
+                    if (t.Length < 3) break;
+                    var pin = new Pin(t[2], t[1] == "E" ? PinKind.Exec : PinKind.Data);
+                    if (line[0] == 'I') cur.Inputs.Add(pin); else cur.Outputs.Add(pin);
+                    break;
+                }
+                case 'C':
+                {
+                    var t = line.Split(' ');
+                    if (t.Length < 5) break;
+                    _conns.Add(new BpConn(ParseInt(t[1]), ParseInt(t[2]), ParseInt(t[3]), ParseInt(t[4])));
+                    break;
+                }
+            }
+        }
+        int maxId = 0; foreach (var n in _nodes) if (n.Id > maxId) maxId = n.Id;
+        _nextId = Math.Max(_nextId, maxId + 1);   // 以後の生成 ID が読込ノードと衝突しないように
+        Rebuild();
+    }
+
+    private static int    ParseInt(string s)    => int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : 0;
+    private static double ParseDouble(string s) => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : 0.0;
+    private static Color  ParseHex(string h)
+    {
+        if (h.Length < 6) return Colors.SteelBlue;
+        return Color.FromRgb(Convert.ToByte(h.Substring(0, 2), 16),
+                             Convert.ToByte(h.Substring(2, 2), 16),
+                             Convert.ToByte(h.Substring(4, 2), 16));
+    }
+
+    private void OnSave(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog {
+            Filter = "ACS Blueprint (*.acsbp)|*.acsbp", DefaultExt = ".acsbp", FileName = "graph.acsbp" };
+        if (DefaultDir != null && System.IO.Directory.Exists(DefaultDir)) dlg.InitialDirectory = DefaultDir;
+        if (dlg.ShowDialog() == true) System.IO.File.WriteAllText(dlg.FileName, Serialize());
+    }
+
+    private void OnOpen(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog {
+            Filter = "ACS Blueprint (*.acsbp)|*.acsbp", DefaultExt = ".acsbp" };
+        if (DefaultDir != null && System.IO.Directory.Exists(DefaultDir)) dlg.InitialDirectory = DefaultDir;
+        if (dlg.ShowDialog() == true) Deserialize(System.IO.File.ReadAllText(dlg.FileName));
     }
 
     // ----- ホイールズーム (カーソル位置を中心に) -----

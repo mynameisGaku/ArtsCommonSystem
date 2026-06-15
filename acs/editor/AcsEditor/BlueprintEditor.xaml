@@ -4,8 +4,14 @@
     <!-- ノードグラフ・キャンバス。背景をドラッグでパン、ノードをドラッグで移動。 -->
     <Grid Background="#FF15191F" ClipToBounds="True">
         <Canvas x:Name="GraphCanvas" Background="Transparent"/>
-        <TextBlock x:Name="HintText" Text="Blueprint — ノード=ドラッグ移動 / ピン=ドラッグ接続(空きへ離して切断) / 背景=パン / ホイール=ズーム"
+        <TextBlock x:Name="HintText" Text="Blueprint — ノード=ドラッグ移動 / ピン=ドラッグ接続(空きへ離して切断) / 背景=パン / ホイール=ズーム / 右クリック=ノード追加"
                    Foreground="#FF55606E" FontSize="11" Margin="10,8" VerticalAlignment="Top" HorizontalAlignment="Left"
                    IsHitTestVisible="False"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,12,0">
+            <Button x:Name="SaveBtn" Content="保存" Click="OnSave" Width="58" Height="24" Margin="0,0,6,0"
+                    Background="#FF2A3340" Foreground="#FFD8DEE9" BorderBrush="#FF3A4452"/>
+            <Button x:Name="OpenBtn" Content="開く" Click="OnOpen" Width="58" Height="24"
+                    Background="#FF2A3340" Foreground="#FFD8DEE9" BorderBrush="#FF3A4452"/>
+        </StackPanel>
     </Grid>
 </UserControl>

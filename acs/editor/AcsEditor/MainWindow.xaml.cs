@@ -913,6 +913,8 @@ public partial class MainWindow : Window
         catch (Exception ex) { Log("Blueprint パレット: 反射メソッド列挙をスキップ (" + ex.GetType().Name + ")"); }
 
         BlueprintHost.SetPalette(pal);
+        BlueprintHost.DefaultDir = _project != null
+            ? System.IO.Path.Combine(_project.RootDir, "Assets") : null;   // 保存/開くダイアログの初期位置
     }
 
     private void SetGameView(bool game)
