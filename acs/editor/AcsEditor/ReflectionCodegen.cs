@@ -144,11 +144,12 @@ public static class ReflectionCodegen
         string name = p.Name;
         string d = p.Default;
         string flagsExpr = FlagsFor(p.Specifiers);
+        string catExpr = CategoryFor(p.Specifiers);   // Category="…" → "…" / nullptr
         bool isRef = Regex.IsMatch(p.Specifiers ?? "", @"\bObjectRef\b");   // 指定子で参照プロパティ化
         string Field(string kind, params string[] defs)
         {
-            var args = new[] { cls, name, "::acs::game::EFieldKind::" + kind, flagsExpr }.Concat(defs);
-            return "ACS_RFIELD_DF(" + string.Join(", ", args) + ")";
+            var args = new[] { cls, name, "::acs::game::EFieldKind::" + kind, flagsExpr, catExpr }.Concat(defs);
+            return "ACS_RFIELD_DFC(" + string.Join(", ", args) + ")";
         }
         switch (t)
         {
@@ -179,6 +180,13 @@ public static class ReflectionCodegen
         if (Regex.IsMatch(s, @"\bHidden\b"))    parts.Add("::acs::game::FIELD_HIDDEN");
         if (Regex.IsMatch(s, @"\bTransient\b")) parts.Add("::acs::game::FIELD_TRANSIENT");
         return parts.Count == 0 ? "::acs::game::FIELD_NONE" : string.Join(" | ", parts);
+    }
+
+    // Category="Movement" / Category=Movement → C++ 文字列リテラル "Movement"。未指定は nullptr。
+    private static string CategoryFor(string specifiers)
+    {
+        var m = Regex.Match(specifiers ?? "", "\\bCategory\\s*=\\s*\"?([\\w \\-/]+)\"?");
+        return m.Success ? "\"" + m.Groups[1].Value.Trim() + "\"" : "nullptr";
     }
 
     private static string FloatLit(string d, string fallback)

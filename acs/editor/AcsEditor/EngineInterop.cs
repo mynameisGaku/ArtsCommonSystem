@@ -640,6 +640,13 @@ internal static class EngineInterop
     public static extern int acs_editor_component_prop_flags_at(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string typeName, int index);
 
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr acs_editor_component_prop_category_at(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string typeName, int index);
+    /// <summary>編集プロパティのカテゴリ名 (UPROPERTY(Category=…)、未指定は "")。</summary>
+    public static string ComponentPropCategory(string typeName, int index) =>
+        Marshal.PtrToStringUTF8(acs_editor_component_prop_category_at(typeName, index)) ?? "";
+
     // 反射メソッド (ACS_FUNCTION / BlueprintCallable / CallInEditor)。
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_component_method_count([MarshalAs(UnmanagedType.LPUTF8Str)] string typeName);

@@ -1676,11 +1676,25 @@ public partial class MainWindow : Window
                     Text = "(編集可能なプロパティなし)", Foreground = dim, FontSize = 11, Margin = new Thickness(0, 1, 0, 0),
                 });
             else
+            {
+                // カテゴリ (UPROPERTY(Category=…)) ごとにグループ化して小見出しを挟む。
+                string lastCat = "\0";   // 初回必ず不一致
                 for (int p = 0; p < pc; p++)
                 {
+                    string cat = EngineInterop.ComponentPropCategory(cname, p);
+                    if (cat != lastCat && cat.Length > 0)        // カテゴリが変わったら見出し
+                    {
+                        inner.Children.Add(new TextBlock
+                        {
+                            Text = cat, Foreground = dim, FontSize = 10, FontWeight = FontWeights.SemiBold,
+                            Margin = new Thickness(0, p == 0 ? 0 : 5, 0, 1),
+                        });
+                    }
+                    lastCat = cat;
                     var row = BuildPropEditor(id, idx, cname, p);
                     if (row != null) inner.Children.Add(row);   // null = Hidden 指定子 → 出さない
                 }
+            }
 
             // CallInEditor (ACS_FUNCTION) メソッドをボタンで出す → クリックで invoke。
             int mc = EngineInterop.acs_editor_component_method_count(cname);

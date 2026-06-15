@@ -5721,6 +5721,16 @@ ACS_EDITOR_API int acs_editor_component_prop_flags_at(const char* type_name, int
     return static_cast<int>(d->fields[static_cast<u32>(index)].flags);
 }
 
+/** 型名と index で、編集プロパティのカテゴリ名を返す (UPROPERTY(Category="…")。未指定は "")。 */
+ACS_EDITOR_API const char* acs_editor_component_prop_category_at(const char* type_name, int index) {
+    if (type_name == nullptr || index < 0) return "";
+    game::AcsRegisterEngineTypes();
+    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName(type_name);
+    if (d == nullptr || index >= static_cast<int>(CompPropCount(d))) return "";
+    const char* c = d->fields[static_cast<u32>(index)].category;
+    return (c != nullptr) ? c : "";
+}
+
 // ----- 反射メソッド (ACS_FUNCTION / BlueprintCallable / CallInEditor) -----
 
 /** 型の «反射メソッド» 数を返す (引数なし void メソッド)。 */

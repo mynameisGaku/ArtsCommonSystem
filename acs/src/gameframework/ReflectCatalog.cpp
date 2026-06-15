@@ -148,9 +148,9 @@ ACS_REGISTER_COMPONENT(FShadowCaster2DComponent,
 // 追従コンポーネント。target は «オブジェクト参照»(他ノードへの参照を渡す UPROPERTY 風)、
 // arrived は «読み取り専用»(VisibleAnywhere 風 = FIELD_READONLY)のデモ。
 ACS_REGISTER_COMPONENT(FFollow2DComponent,
-    ACS_RFIELD_REF(FFollow2DComponent, target),                             // 参照先ノード ID (ピッカーで設定)
-    ACS_RFIELD_D(FFollow2DComponent, speed, EFieldKind::F32, 3.0f, 0.0f, 0.0f, 0.0f),
-    ACS_RFIELD_DF(FFollow2DComponent, arrived, EFieldKind::Bool, FIELD_READONLY, 0.0f, 0.0f, 0.0f, 0.0f))
+    ACS_RFIELD_DFC(FFollow2DComponent, target,  EFieldKind::ObjectRef, FIELD_NONE,     "Follow", -1, 0, 0, 0),  // 参照先 (ピッカー)
+    ACS_RFIELD_DFC(FFollow2DComponent, speed,   EFieldKind::F32,       FIELD_NONE,     "Follow", 3.0f, 0, 0, 0),
+    ACS_RFIELD_DFC(FFollow2DComponent, arrived, EFieldKind::Bool,      FIELD_READONLY, "Status", 0, 0, 0, 0))
 // BlueprintCallable + CallInEditor メソッド(エディタのボタン / 将来の Blueprint から呼べる)。
 ACS_REGISTER_METHOD(FFollow2DComponent, Ping, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
 

@@ -93,7 +93,7 @@ enum EFieldFlags : u32 {
     FIELD_TRANSIENT = 1u << 2,   /**< シリアライズ対象外。 */
 };
 
-/** 反射された 1 フィールド (名前 + 種別 + オフセット + サイズ + フラグ + 既定値)。 */
+/** 反射された 1 フィールド (名前 + 種別 + オフセット + サイズ + フラグ + 既定値 + カテゴリ)。 */
 struct FReflectField {
     const char* name;          /**< フィールド名 (例: "hp")。 */
     EFieldKind  kind;          /**< データ種別 (Bool/I32/.../Enum)。 */
@@ -101,6 +101,7 @@ struct FReflectField {
     u32         size;          /**< フィールドのバイトサイズ (名前のみ反射では 0)。 */
     u32         flags;         /**< EFieldFlags の OR。 */
     f32         defaults[4];   /**< スキーマ既定値 (最大 4 成分。ACS_RPROP* 用、offsetof 反射は 0)。 */
+    const char* category = nullptr;  /**< UPROPERTY(Category="…") の分類名。インスペクタのグループ見出し (既定 nullptr)。 */
 };
 
 /** 反射された列挙値 1 件 (名前 + 整数値)。 */
@@ -264,6 +265,15 @@ template<class T> inline const FTypeDesc* AcsTypeDescOf() noexcept { return null
         static_cast<::acs::u32>(flags), { static_cast<::acs::f32>(d0),          \
         static_cast<::acs::f32>(d1), static_cast<::acs::f32>(d2),               \
         static_cast<::acs::f32>(d3) } }
+
+/** offset + 既定値 + フラグ + «カテゴリ» 付きフィールド記述子 (codegen が Category 指定子から出力)。 */
+#define ACS_RFIELD_DFC(Type, member, fieldkind, flags, category, d0, d1, d2, d3)  \
+    ::acs::game::FReflectField{ #member, (fieldkind),                           \
+        static_cast<::acs::u32>(offsetof(Type, member)),                        \
+        static_cast<::acs::u32>(sizeof(((Type*)0)->member)),                    \
+        static_cast<::acs::u32>(flags), { static_cast<::acs::f32>(d0),          \
+        static_cast<::acs::f32>(d1), static_cast<::acs::f32>(d2),               \
+        static_cast<::acs::f32>(d3) }, (category) }
 
 // ----- 名前のみの反射プロパティ (offsetof 不使用) ------------------------------
 // private メンバや多態 (非 standard-layout) 型は offsetof が使えない。そこで「編集可能
