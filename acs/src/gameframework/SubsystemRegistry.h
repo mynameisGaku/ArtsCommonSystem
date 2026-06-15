@@ -61,10 +61,11 @@ private:
 
 /**
  * サブシステム型 T を スコープ SCOPE で自動生成するよう登録する(静的初期化時)。
- * 翻訳単位の末尾(クラス定義後)に 1 回書く。
+ * 翻訳単位の末尾(クラス定義後)に 1 回書く。namespace acs::game を開くので、T は
+ * 外側ルックアップで acs::game 内型もグローバルなユーザー型も解決される。
  */
 #define ACS_REGISTER_SUBSYSTEM(T, SCOPE)                                              \
-    namespace {                                                                       \
+    namespace acs::game { namespace {                                                 \
         struct AcsSubsysReg_##T {                                                     \
             AcsSubsysReg_##T() noexcept {                                             \
                 ::acs::game::FSubsystemRegistry::Get().Register(                      \
@@ -75,4 +76,4 @@ private:
                         } });                                                         \
             }                                                                         \
         } g_AcsSubsysReg_##T;                                                         \
-    }
+    } }

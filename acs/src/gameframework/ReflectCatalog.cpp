@@ -31,6 +31,8 @@
 #include "gameframework/Light2DComponent.h"  // FLight2DComponent (2D 点光源)
 #include "gameframework/Follow2DComponent.h"  // FFollow2DComponent (オブジェクト参照デモ)
 #include "gameframework/ReflectMethod.h"      // ACS_REGISTER_METHOD (関数リフレクション)
+#include "gameframework/SubsystemRegistry.h"  // ACS_REGISTER_SUBSYSTEM
+#include "gameframework/EventBus.h"           // FEventBus (オブジェクト間 pub/sub)
 
 // ----- Scene -----
 #include "gameframework/Scene2D.h"
@@ -153,6 +155,10 @@ ACS_REGISTER_COMPONENT(FFollow2DComponent,
     ACS_RFIELD_DFC(FFollow2DComponent, arrived, EFieldKind::Bool,      FIELD_READONLY, "Status", 0, 0, 0, 0))
 // BlueprintCallable + CallInEditor メソッド(エディタのボタン / 将来の Blueprint から呼べる)。
 ACS_REGISTER_METHOD(FFollow2DComponent, Ping, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
+
+// ----- Subsystem (エンジン提供。各 World に自動生成される) -----
+// FEventBus: ワールド内オブジェクト間の疎結合通信 (名前付きイベント pub/sub)。
+ACS_REGISTER_SUBSYSTEM(FEventBus, ::acs::game::ESubsystemScope::World)
 
 // ----- Scene -----
 ACS_REGISTER_SCENE(FScene2D)
