@@ -190,6 +190,8 @@
                                       Padding="12,4" Margin="2" Background="Transparent" Foreground="{StaticResource Text}"/>
                         <ToggleButton x:Name="GameTabBtn" Content="▶ Game" Click="OnGameTab"
                                       Padding="12,4" Margin="2" Background="Transparent" Foreground="{StaticResource Text}"/>
+                        <ToggleButton x:Name="BlueprintTabBtn" Content="⛓ Blueprint" Click="OnBlueprintTab"
+                                      Padding="12,4" Margin="2" Background="Transparent" Foreground="{StaticResource Text}"/>
                         <!-- シーンビュー専用の編集ツール (右寄せ。グローバルツールバーから移動) -->
                         <StackPanel x:Name="SceneTools" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0">
                             <ToggleButton x:Name="View3DBtn" Content="⬗ 3D" Click="OnToggle3D" Padding="8,3" Margin="1,0" ToolTip="2D / 3D 編集の切り替え"/>
@@ -220,7 +222,10 @@
                             </Menu>
                         </StackPanel>
                     </DockPanel>
-                    <Border x:Name="ViewportHost" Background="#FF0E1116" Margin="0"/>
+                    <Grid>
+                        <Border x:Name="ViewportHost" Background="#FF0E1116" Margin="0"/>
+                        <local:BlueprintEditor x:Name="BlueprintHost" Visibility="Collapsed"/>
+                    </Grid>
                 </DockPanel>
 
                 <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch" Background="{StaticResource Edge}"/>

@@ -1,0 +1,11 @@
+<UserControl x:Class="AcsEditor.BlueprintEditor"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- ノードグラフ・キャンバス。背景をドラッグでパン、ノードをドラッグで移動。 -->
+    <Grid Background="#FF15191F" ClipToBounds="True">
+        <Canvas x:Name="GraphCanvas" Background="Transparent"/>
+        <TextBlock x:Name="HintText" Text="Blueprint — ノードをドラッグで移動 / 背景ドラッグでパン"
+                   Foreground="#FF55606E" FontSize="11" Margin="10,8" VerticalAlignment="Top" HorizontalAlignment="Left"
+                   IsHitTestVisible="False"/>
+    </Grid>
+</UserControl>

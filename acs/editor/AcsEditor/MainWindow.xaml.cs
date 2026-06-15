@@ -852,8 +852,25 @@ public partial class MainWindow : Window
     private void OnSceneTab(object sender, RoutedEventArgs e) => SetGameView(false);
     private void OnGameTab(object sender, RoutedEventArgs e)  => SetGameView(true);
 
+    /// <summary>Blueprint タブ: 中央をノードグラフエディタへ切り替える(HWND ビューポートは隠す)。</summary>
+    private void OnBlueprintTab(object sender, RoutedEventArgs e)
+    {
+        BlueprintTabBtn.IsChecked = true;
+        SceneTabBtn.IsChecked     = false;
+        GameTabBtn.IsChecked      = false;
+        SceneTools.Visibility     = Visibility.Collapsed;     // シーン編集ツールは不要
+        ViewportHost.Visibility   = Visibility.Collapsed;     // HWND ビューポートを隠す (airspace 回避)
+        BlueprintHost.Visibility  = Visibility.Visible;
+        Log("⛓ Blueprint エディタ — ノードグラフ (BP1: 表示/ドラッグ移動/パン)。");
+    }
+
     private void SetGameView(bool game)
     {
+        // Blueprint から戻る場合の復帰: ビューポートとシーンツールを出す。
+        BlueprintTabBtn.IsChecked = false;
+        BlueprintHost.Visibility  = Visibility.Collapsed;
+        ViewportHost.Visibility   = Visibility.Visible;
+        SceneTools.Visibility     = Visibility.Visible;
         if (Engine == IntPtr.Zero) { SceneTabBtn.IsChecked = true; GameTabBtn.IsChecked = false; return; }
         SceneTabBtn.IsChecked = !game;
         GameTabBtn.IsChecked  = game;
