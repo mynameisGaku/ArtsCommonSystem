@@ -33,6 +33,7 @@
 #include "gameframework/ReflectMethod.h"      // ACS_REGISTER_METHOD (関数リフレクション)
 #include "gameframework/SubsystemRegistry.h"  // ACS_REGISTER_SUBSYSTEM
 #include "gameframework/EventBus.h"           // FEventBus (オブジェクト間 pub/sub)
+#include "gameframework/Spawn2DSubsystem.h"   // FSpawn2DSubsystem (プレハブ生成)
 
 // ----- Scene -----
 #include "gameframework/Scene2D.h"
@@ -159,6 +160,8 @@ ACS_REGISTER_METHOD(FFollow2DComponent, Ping, METHOD_BP_CALLABLE | METHOD_CALL_I
 // ----- Subsystem (エンジン提供。各 World に自動生成される) -----
 // FEventBus: ワールド内オブジェクト間の疎結合通信 (名前付きイベント pub/sub)。
 ACS_REGISTER_SUBSYSTEM(FEventBus, ::acs::game::ESubsystemScope::World)
+// FSpawn2DSubsystem: どこからでもプレハブをワールドへ生成 (Owner=FScene2D の root へ)。
+ACS_REGISTER_SUBSYSTEM(FSpawn2DSubsystem, ::acs::game::ESubsystemScope::World)
 
 // ----- Scene -----
 ACS_REGISTER_SCENE(FScene2D)

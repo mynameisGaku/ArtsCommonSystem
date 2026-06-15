@@ -40,6 +40,7 @@ add_executable(acs_unit_tests
     objectref_runtime_tests.cpp
     prefab_spawn_tests.cpp
     eventbus_tests.cpp
+    spawn_subsystem_tests.cpp
     camerarig_tests.cpp
     spritesortlist_tests.cpp
     editor_play_draw_tests.cpp
