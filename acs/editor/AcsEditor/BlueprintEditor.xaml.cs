@@ -42,9 +42,19 @@ public partial class BlueprintEditor : UserControl
     /// <summary>ヒットしたピンの参照 (どのノードの・何番目の・入出力どちらの・種別)。</summary>
     private sealed record PinRef(BpNode Node, int Index, bool Output, PinKind Kind);
 
-    private readonly List<BpNode> _nodes = new();
-    private readonly List<BpConn> _conns = new();
-    private readonly List<Path>   _wires = new();
+    // ----- ノードパレット (右クリック生成のテンプレ。外部=MainWindow から供給) -----
+    /// <summary>ピン定義 (名前 + exec/data)。Exec=true で実行ピン。</summary>
+    public sealed record BpPinSpec(string Name, bool Exec);
+    /// <summary>パレットの 1 エントリ (分類 + タイトル + ヘッダ色 + 入出力ピン)。</summary>
+    public sealed record BpNodeTemplate(string Category, string Title, Color Header,
+                                        BpPinSpec[] Inputs, BpPinSpec[] Outputs);
+
+    private readonly List<BpNode>         _nodes   = new();
+    private readonly List<BpConn>         _conns   = new();
+    private readonly List<Path>           _wires   = new();
+    private readonly List<BpNodeTemplate> _palette = new();
+    private int   _nextId = 100;        // 生成ノードの ID (デモの 1..4 と衝突しない起点)
+    private Point _menuGraphPos;        // 右クリック位置 (生成先のグラフ座標)
 
     // 表示変換: 先にズーム、続いてパン (RenderTransform = Translate * Scale)。
     private readonly ScaleTransform     _zoom = new(1, 1);
@@ -75,6 +85,7 @@ public partial class BlueprintEditor : UserControl
         GraphCanvas.MouseMove                  += OnCanvasMove;
         GraphCanvas.MouseUp                    += OnCanvasUp;
         GraphCanvas.MouseWheel                 += OnWheel;
+        GraphCanvas.MouseRightButtonUp         += OnContextMenu;   // 右クリック = ノードパレット / 削除
         Loaded += (_, __) => { if (_nodes.Count == 0) BuildDemoGraph(); };
     }
 
@@ -343,6 +354,87 @@ public partial class BlueprintEditor : UserControl
         if (_wireSource != null) { FinishWire(e.GetPosition(GraphCanvas)); GraphCanvas.ReleaseMouseCapture(); return; }
         if (_dragNode != null)   { _dragNode = null; GraphCanvas.ReleaseMouseCapture(); return; }
         if (_panning)            { _panning = false; GraphCanvas.ReleaseMouseCapture(); }
+    }
+
+    // ----- ノードパレット / 右クリック -----
+    /// <summary>パレット (生成可能なノードテンプレ) を差し替える。MainWindow がリフレクションから構築。</summary>
+    public void SetPalette(IReadOnlyList<BpNodeTemplate> templates)
+    {
+        _palette.Clear();
+        _palette.AddRange(templates);
+    }
+
+    /// <summary>グラフ座標 g を含むノード (最前面優先)。無ければ null。</summary>
+    private BpNode? NodeAt(Point g)
+    {
+        for (int i = _nodes.Count - 1; i >= 0; i--)
+        {
+            var n = _nodes[i];
+            double h = HeaderH + Math.Max(n.Inputs.Count, n.Outputs.Count) * RowH + 6;
+            if (g.X >= n.X && g.X <= n.X + NodeW && g.Y >= n.Y && g.Y <= n.Y + h) return n;
+        }
+        return null;
+    }
+
+    private void OnContextMenu(object sender, MouseButtonEventArgs e)
+    {
+        if (_wireSource != null || _dragNode != null || _panning) return;
+        Point g = e.GetPosition(GraphCanvas);
+        var menu = new ContextMenu();
+
+        var hit = NodeAt(g);
+        if (hit != null)
+        {
+            var del = new MenuItem { Header = $"ノードを削除   ({hit.Title})" };
+            del.Click += (_, __) => DeleteNode(hit);
+            menu.Items.Add(del);
+        }
+        else
+        {
+            _menuGraphPos = g;
+            if (_palette.Count == 0)
+            {
+                menu.Items.Add(new MenuItem { Header = "(パレットが空です)", IsEnabled = false });
+            }
+            else
+            {
+                // 分類ごとにサブメニューへまとめる (登場順を維持)。
+                var byCat = new Dictionary<string, MenuItem>();
+                var order = new List<string>();
+                foreach (var t in _palette)
+                {
+                    if (!byCat.TryGetValue(t.Category, out var parent))
+                    {
+                        parent = new MenuItem { Header = t.Category };
+                        byCat[t.Category] = parent; order.Add(t.Category);
+                    }
+                    var captured = t;
+                    var item = new MenuItem { Header = t.Title };
+                    item.Click += (_, __) => SpawnFromTemplate(captured, _menuGraphPos);
+                    parent.Items.Add(item);
+                }
+                foreach (var c in order) menu.Items.Add(byCat[c]);
+            }
+        }
+        menu.PlacementTarget = GraphCanvas;
+        menu.IsOpen = true;
+        e.Handled = true;
+    }
+
+    private void SpawnFromTemplate(BpNodeTemplate t, Point g)
+    {
+        var n = new BpNode { Id = _nextId++, Title = t.Title, X = g.X, Y = g.Y, Header = new SolidColorBrush(t.Header) };
+        foreach (var p in t.Inputs)  n.Inputs.Add(new Pin(p.Name, p.Exec ? PinKind.Exec : PinKind.Data));
+        foreach (var p in t.Outputs) n.Outputs.Add(new Pin(p.Name, p.Exec ? PinKind.Exec : PinKind.Data));
+        _nodes.Add(n);
+        Rebuild();
+    }
+
+    private void DeleteNode(BpNode n)
+    {
+        _conns.RemoveAll(c => c.FromNode == n.Id || c.ToNode == n.Id);
+        _nodes.Remove(n);
+        Rebuild();
     }
 
     // ----- ホイールズーム (カーソル位置を中心に) -----

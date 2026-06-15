@@ -861,7 +861,58 @@ public partial class MainWindow : Window
         SceneTools.Visibility     = Visibility.Collapsed;     // シーン編集ツールは不要
         ViewportHost.Visibility   = Visibility.Collapsed;     // HWND ビューポートを隠す (airspace 回避)
         BlueprintHost.Visibility  = Visibility.Visible;
-        Log("⛓ Blueprint エディタ — ノードグラフ (BP1: 表示/ドラッグ移動/パン)。");
+        BuildBlueprintPalette();                              // リフレクションからパレットを構築 (ホットリロード後も最新)
+        Log("⛓ Blueprint エディタ — ノードグラフ (右クリックでノード追加 / ピンドラッグで接続 / ホイールでズーム)。");
+    }
+
+    /// <summary>
+    /// Blueprint のノードパレットを構築して BlueprintHost へ渡す。
+    /// ビルトインのイベント/フロー/サブシステムに加え、リフレクトされた BlueprintCallable
+    /// メソッド (エンジン型 + ロード済みユーザー型) を «関数» ノードとして列挙する。
+    /// </summary>
+    private void BuildBlueprintPalette()
+    {
+        var ev   = System.Windows.Media.Color.FromRgb(0xB0, 0x3A, 0x46);   // イベント = 赤
+        var flow = System.Windows.Media.Color.FromRgb(0x5A, 0x64, 0x72);   // フロー   = 灰
+        var bus  = System.Windows.Media.Color.FromRgb(0x35, 0x7A, 0x55);   // サブシステム = 緑
+        var fn   = System.Windows.Media.Color.FromRgb(0x2E, 0x5C, 0x8A);   // 関数     = 青
+
+        static BlueprintEditor.BpPinSpec Ex(string n) => new(n, true);
+        static BlueprintEditor.BpPinSpec Da(string n) => new(n, false);
+        var none = Array.Empty<BlueprintEditor.BpPinSpec>();
+
+        var pal = new List<BlueprintEditor.BpNodeTemplate>
+        {
+            // イベント (実行の起点)。
+            new("イベント", "On BeginPlay", ev, none, new[] { Ex("▶") }),
+            new("イベント", "On Tick",      ev, none, new[] { Ex("▶"), Da("dt") }),
+            new("イベント", "On Destroy",   ev, none, new[] { Ex("▶") }),
+            // フロー制御。
+            new("フロー", "Branch",       flow, new[] { Ex("▶"), Da("cond") }, new[] { Ex("True"), Ex("False") }),
+            new("フロー", "Sequence",     flow, new[] { Ex("▶") },             new[] { Ex("0"), Ex("1"), Ex("2") }),
+            new("フロー", "Print String", flow, new[] { Ex("▶"), Da("text") }, new[] { Ex("▶") }),
+            // サブシステム。
+            new("サブシステム", "Publish Event", bus, new[] { Ex("▶"), Da("channel") },          new[] { Ex("▶") }),
+            new("サブシステム", "Spawn Prefab",  bus, new[] { Ex("▶"), Da("path"), Da("pos") },   new[] { Ex("▶"), Da("spawned") }),
+        };
+
+        // リフレクトされた BlueprintCallable メソッド (古い ABI だと EntryPointNotFound → ビルトインのみ)。
+        try
+        {
+            int mc = EngineInterop.acs_editor_method_count();
+            for (int i = 0; i < mc; i++)
+            {
+                if ((EngineInterop.acs_editor_method_flags_at(i) & 1) == 0) continue;   // bit0 = BlueprintCallable
+                string name  = EngineInterop.MethodName(i);
+                if (string.IsNullOrEmpty(name)) continue;
+                string owner = EngineInterop.MethodOwner(i);
+                string title = string.IsNullOrEmpty(owner) ? name : $"{owner}.{name}";
+                pal.Add(new("関数", title, fn, new[] { Ex("▶"), Da("target") }, new[] { Ex("▶") }));
+            }
+        }
+        catch (Exception ex) { Log("Blueprint パレット: 反射メソッド列挙をスキップ (" + ex.GetType().Name + ")"); }
+
+        BlueprintHost.SetPalette(pal);
     }
 
     private void SetGameView(bool game)

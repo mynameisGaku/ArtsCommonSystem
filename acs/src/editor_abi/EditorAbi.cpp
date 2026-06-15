@@ -5840,6 +5840,40 @@ ACS_EDITOR_API int acs_editor_node_invoke_method(void* handle, int id, int slot,
     return ok ? 1 : 0;
 }
 
+// ----- グローバル反射メソッド列挙 (Blueprint ノードパレット用) -----
+
+/** 登録済み «全» 反射メソッド数 (所有型を問わない)。 */
+ACS_EDITOR_API int acs_editor_method_count() {
+    game::AcsRegisterEngineTypes();
+    return static_cast<int>(game::FMethodRegistry::Get().Count());
+}
+
+/** i 番目の反射メソッド名 (範囲外は "")。 */
+ACS_EDITOR_API const char* acs_editor_method_name_at(int i) {
+    game::AcsRegisterEngineTypes();
+    auto& r = game::FMethodRegistry::Get();
+    if (i < 0 || static_cast<u32>(i) >= r.Count()) return "";
+    const char* nm = r.At(static_cast<u32>(i)).name;
+    return (nm != nullptr) ? nm : "";
+}
+
+/** i 番目の反射メソッドの所有型名 (ハッシュ→型名を解決。未登録型は "")。 */
+ACS_EDITOR_API const char* acs_editor_method_owner_at(int i) {
+    game::AcsRegisterEngineTypes();
+    auto& r = game::FMethodRegistry::Get();
+    if (i < 0 || static_cast<u32>(i) >= r.Count()) return "";
+    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(r.At(static_cast<u32>(i)).owner);
+    return (d != nullptr && d->name != nullptr) ? d->name : "";
+}
+
+/** i 番目の反射メソッドのフラグ (bit0=BlueprintCallable, bit1=CallInEditor)。 */
+ACS_EDITOR_API int acs_editor_method_flags_at(int i) {
+    game::AcsRegisterEngineTypes();
+    auto& r = game::FMethodRegistry::Get();
+    if (i < 0 || static_cast<u32>(i) >= r.Count()) return 0;
+    return static_cast<int>(r.At(static_cast<u32>(i)).flags);
+}
+
 /** ノードの slot 番コンポーネントの prop 番プロパティ値 (4 成分) を取得する (成功 1)。 */
 ACS_EDITOR_API int acs_editor_node_component_prop_get(void* handle, int id, int slot, int prop,
                                                       float* x, float* y, float* z, float* w) {

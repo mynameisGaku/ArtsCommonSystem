@@ -670,6 +670,22 @@ internal static class EngineInterop
     public static string ComponentMethodName(string typeName, int index) =>
         Marshal.PtrToStringUTF8(acs_editor_component_method_name_at(typeName, index)) ?? "";
 
+    // グローバル反射メソッド列挙 (Blueprint ノードパレット用)。
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_method_count();
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr acs_editor_method_name_at(int index);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr acs_editor_method_owner_at(int index);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_method_flags_at(int index);
+    /// <summary>i 番目のグローバル反射メソッド名 (UTF-8)。</summary>
+    public static string MethodName(int index) =>
+        Marshal.PtrToStringUTF8(acs_editor_method_name_at(index)) ?? "";
+    /// <summary>i 番目のグローバル反射メソッドの所有型名 (UTF-8)。</summary>
+    public static string MethodOwner(int index) =>
+        Marshal.PtrToStringUTF8(acs_editor_method_owner_at(index)) ?? "";
+
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node_component_prop_get(IntPtr handle, int id, int slot, int prop,
         out float x, out float y, out float z, out float w);
