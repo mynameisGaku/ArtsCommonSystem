@@ -1616,7 +1616,37 @@ public partial class MainWindow : Window
         else Log("プレハブのインスタンス化に失敗: " + System.IO.Path.GetFileName(path));
     }
 
-    /// <summary>インスタンスの編集をプレハブ側へ反映する(instance → prefab。全インスタンスは再インスタンス化で更新)。</summary>
+    /// <summary>インスタンスを prefabText から再生成する(位置/親は維持)。UI 更新はしない。新 id を返す。</summary>
+    private int ReinstantiateInstance(int id, string src, string prefabText)
+    {
+        int parent = EngineInterop.acs_editor_node_parent(Engine, id);
+        EngineInterop.acs_editor_node_get_transform(Engine, id, out float x, out float y, out float r, out float sx, out float sy);
+        EngineInterop.acs_editor_node_delete(Engine, id);
+        int nid = EngineInterop.acs_editor_paste_subtree(Engine, prefabText, parent);
+        if (nid >= 0)
+        {
+            EngineInterop.acs_editor_node_set_transform(Engine, nid, x, y, r, sx, sy);   // 位置は維持
+            EngineInterop.acs_editor_node_set_prefab_src(Engine, nid, src);
+        }
+        return nid;
+    }
+
+    /// <summary>src と同じプレハブを指す «他の» インスタンスの id を集める。</summary>
+    private System.Collections.Generic.List<int> FindPrefabInstances(string src, int except)
+    {
+        var list = new System.Collections.Generic.List<int>();
+        int cnt = EngineInterop.acs_editor_node_count(Engine);
+        for (int i = 0; i < cnt; i++)
+        {
+            int nid = EngineInterop.acs_editor_node_id_at(Engine, i);
+            if (nid == except) continue;
+            if (string.Equals(EngineInterop.NodePrefabSrc(Engine, nid), src, StringComparison.OrdinalIgnoreCase))
+                list.Add(nid);
+        }
+        return list;
+    }
+
+    /// <summary>この編集をプレハブへ反映し、«シーン内の全インスタンス» を新プレハブで更新する(位置は維持)。</summary>
     private void ApplyToPrefab(int id)
     {
         if (Engine == IntPtr.Zero) return;
@@ -1624,31 +1654,33 @@ public partial class MainWindow : Window
         if (string.IsNullOrEmpty(src)) return;
         string text = EngineInterop.CopySubtree(Engine, id);
         if (string.IsNullOrEmpty(text)) { Log("Apply 失敗 (直列化が空)。"); return; }
-        try
-        {
-            System.IO.File.WriteAllText(src, StripPrefabLinks(text), System.Text.Encoding.UTF8);
-            Log($"プレハブへ反映 (Apply) → {System.IO.Path.GetFileName(src)}", "Asset", LogLevel.Success);
-        }
-        catch (Exception ex) { Log("Apply エラー: " + ex.Message); }
+        string fileText = StripPrefabLinks(text);
+        try { System.IO.File.WriteAllText(src, fileText, System.Text.Encoding.UTF8); }
+        catch (Exception ex) { Log("Apply エラー: " + ex.Message); return; }
+
+        // 他の全インスタンスを新プレハブで再生成 (id を先に集めてから処理 = 走査中の構造変更を回避)。
+        var targets = FindPrefabInstances(src, id);
+        int updated = 0;
+        foreach (int t in targets) if (ReinstantiateInstance(t, src, fileText) >= 0) updated++;
+        BuildHierarchy();
+        _selectedId = id;
+        SelectHierarchyItem(id);
+        Log($"プレハブへ反映 (Apply) → {System.IO.Path.GetFileName(src)} ({updated} 個のインスタンスを更新)",
+            "Asset", LogLevel.Success);
     }
 
-    /// <summary>インスタンスをプレハブの状態へ戻す(prefab → instance。編集を破棄して再インスタンス化)。</summary>
+    /// <summary>このインスタンスをプレハブの状態へ戻す(prefab → instance。編集を破棄して再生成)。</summary>
     private void RevertToPrefab(int id)
     {
         if (Engine == IntPtr.Zero) return;
         string src = EngineInterop.NodePrefabSrc(Engine, id);
         if (string.IsNullOrEmpty(src) || !System.IO.File.Exists(src)) { Log("Revert 失敗 (プレハブが見つからない)。"); return; }
-        int parent = EngineInterop.acs_editor_node_parent(Engine, id);
-        EngineInterop.acs_editor_node_get_transform(Engine, id, out float x, out float y, out float r, out float sx, out float sy);
-        EngineInterop.acs_editor_node_delete(Engine, id);            // 旧インスタンスを除去
         string text;
         try { text = System.IO.File.ReadAllText(src, System.Text.Encoding.UTF8); }
         catch (Exception ex) { Log("Revert 読込エラー: " + ex.Message); return; }
-        int nid = EngineInterop.acs_editor_paste_subtree(Engine, text, parent);
+        int nid = ReinstantiateInstance(id, src, text);
         if (nid >= 0)
         {
-            EngineInterop.acs_editor_node_set_transform(Engine, nid, x, y, r, sx, sy);   // 位置は維持
-            EngineInterop.acs_editor_node_set_prefab_src(Engine, nid, src);
             BuildHierarchy();
             _selectedId = nid;
             SelectHierarchyItem(nid);
