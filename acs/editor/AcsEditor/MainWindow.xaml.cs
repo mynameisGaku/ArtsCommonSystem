@@ -1583,12 +1583,19 @@ public partial class MainWindow : Window
         if (dlg.ShowDialog(this) != true) return;
         try
         {
-            System.IO.File.WriteAllText(dlg.FileName, text, System.Text.Encoding.UTF8);
+            System.IO.File.WriteAllText(dlg.FileName, StripPrefabLinks(text), System.Text.Encoding.UTF8);
+            EngineInterop.acs_editor_node_set_prefab_src(Engine, id, dlg.FileName);   // 保存元もこのプレハブのインスタンスにする
             AssetBrowser.Refresh();
+            PopulateInspector(id);
             Log($"プレハブを保存 → {System.IO.Path.GetFileName(dlg.FileName)}");
         }
         catch (Exception ex) { Log("プレハブ保存エラー: " + ex.Message); }
     }
+
+    /// <summary>プレハブテンプレートは自己リンクを持たない → PFAB 行を除去する。</summary>
+    private static string StripPrefabLinks(string text) =>
+        System.Text.RegularExpressions.Regex.Replace(text, @"^PFAB .*\r?\n?", "",
+            System.Text.RegularExpressions.RegexOptions.Multiline);
 
     /// <summary>.acsprefab を読み、parentId 配下にインスタンス化する(id 再マップは ABI 側)。</summary>
     private void InstantiatePrefab(string path, int parentId)
@@ -1600,12 +1607,53 @@ public partial class MainWindow : Window
         int id = EngineInterop.acs_editor_paste_subtree(Engine, text, parentId);
         if (id >= 0)
         {
+            EngineInterop.acs_editor_node_set_prefab_src(Engine, id, path);   // instance-of リンクを張る
             BuildHierarchy();
             _selectedId = id;
             SelectHierarchyItem(id);
             Log($"プレハブをインスタンス化: {System.IO.Path.GetFileName(path)} → node {id}");
         }
         else Log("プレハブのインスタンス化に失敗: " + System.IO.Path.GetFileName(path));
+    }
+
+    /// <summary>インスタンスの編集をプレハブ側へ反映する(instance → prefab。全インスタンスは再インスタンス化で更新)。</summary>
+    private void ApplyToPrefab(int id)
+    {
+        if (Engine == IntPtr.Zero) return;
+        string src = EngineInterop.NodePrefabSrc(Engine, id);
+        if (string.IsNullOrEmpty(src)) return;
+        string text = EngineInterop.CopySubtree(Engine, id);
+        if (string.IsNullOrEmpty(text)) { Log("Apply 失敗 (直列化が空)。"); return; }
+        try
+        {
+            System.IO.File.WriteAllText(src, StripPrefabLinks(text), System.Text.Encoding.UTF8);
+            Log($"プレハブへ反映 (Apply) → {System.IO.Path.GetFileName(src)}", "Asset", LogLevel.Success);
+        }
+        catch (Exception ex) { Log("Apply エラー: " + ex.Message); }
+    }
+
+    /// <summary>インスタンスをプレハブの状態へ戻す(prefab → instance。編集を破棄して再インスタンス化)。</summary>
+    private void RevertToPrefab(int id)
+    {
+        if (Engine == IntPtr.Zero) return;
+        string src = EngineInterop.NodePrefabSrc(Engine, id);
+        if (string.IsNullOrEmpty(src) || !System.IO.File.Exists(src)) { Log("Revert 失敗 (プレハブが見つからない)。"); return; }
+        int parent = EngineInterop.acs_editor_node_parent(Engine, id);
+        EngineInterop.acs_editor_node_get_transform(Engine, id, out float x, out float y, out float r, out float sx, out float sy);
+        EngineInterop.acs_editor_node_delete(Engine, id);            // 旧インスタンスを除去
+        string text;
+        try { text = System.IO.File.ReadAllText(src, System.Text.Encoding.UTF8); }
+        catch (Exception ex) { Log("Revert 読込エラー: " + ex.Message); return; }
+        int nid = EngineInterop.acs_editor_paste_subtree(Engine, text, parent);
+        if (nid >= 0)
+        {
+            EngineInterop.acs_editor_node_set_transform(Engine, nid, x, y, r, sx, sy);   // 位置は維持
+            EngineInterop.acs_editor_node_set_prefab_src(Engine, nid, src);
+            BuildHierarchy();
+            _selectedId = nid;
+            SelectHierarchyItem(nid);
+            Log($"プレハブへ復元 (Revert) ← {System.IO.Path.GetFileName(src)}", "Asset", LogLevel.Info);
+        }
     }
 
     // ===== Components: 登録 Component 型のアタッチ表示 / 編集 =====
@@ -1628,6 +1676,33 @@ public partial class MainWindow : Window
         var panel2 = (System.Windows.Media.Brush)FindResource("Panel2");
         var dim    = (System.Windows.Media.Brush)FindResource("TextDim");
         var text   = (System.Windows.Media.Brush)FindResource("Text");
+
+        // プレハブ・インスタンスなら「Prefab: X」+ Apply/Revert バナーを先頭に出す。
+        string prefabSrc = EngineInterop.NodePrefabSrc(Engine, id);
+        if (!string.IsNullOrEmpty(prefabSrc))
+        {
+            var banner = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
+            banner.Children.Add(new TextBlock
+            {
+                Text = "◆ Prefab: " + System.IO.Path.GetFileName(prefabSrc),
+                Foreground = (System.Windows.Media.Brush)FindResource("Accent"), FontSize = 11, FontWeight = FontWeights.SemiBold,
+            });
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 0) };
+            var apply  = new Button { Content = "Apply", FontSize = 11, Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 4, 0),
+                                      ToolTip = "この編集をプレハブ側へ反映 (instance → prefab)" };
+            var revert = new Button { Content = "Revert", FontSize = 11, Padding = new Thickness(10, 2, 10, 2),
+                                      ToolTip = "編集を破棄しプレハブの状態へ戻す (prefab → instance)" };
+            int curId = id;
+            apply.Click  += (_, __) => ApplyToPrefab(curId);
+            revert.Click += (_, __) => RevertToPrefab(curId);
+            row.Children.Add(apply); row.Children.Add(revert);
+            banner.Children.Add(row);
+            CompList.Children.Add(new Border
+            {
+                Background = panel2, CornerRadius = new CornerRadius(5),
+                Padding = new Thickness(8, 6, 8, 7), Margin = new Thickness(0, 0, 0, 6), Child = banner,
+            });
+        }
 
         int count = EngineInterop.acs_editor_node_component_count(Engine, id);
         if (count == 0)

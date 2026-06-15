@@ -106,6 +106,9 @@ struct FEditorNode : public game::FNode2D {
     char                  sprite_path[256] = {};
     TUniquePtr<IRhiTexture> sprite_tex;
 
+    // プレハブ・インスタンス: 元 .acsprefab のパス (空 = 通常ノード)。インスペクタの Apply/Revert に使う。
+    char                  prefab_src[256] = {};
+
     // 使用マテリアル (.acsmat)。path が設定されていれば、このノードの描画を効果プリセットで
     // 包む (SetEffect→draw→ClearEffect)。material は path から解析した結果のキャッシュ。
     char                  material_path[256] = {};
@@ -725,6 +728,7 @@ FEditorNode* CloneSubtree(EditorHost& h, FEditorNode* src, int parent_id, bool t
     clone->SetEnabled(src->IsEnabled());
     clone->SetSortLayer(src->SortLayer());
     std::memcpy(clone->sprite_path, src->sprite_path, sizeof(clone->sprite_path));   // tex は描画時に遅延ロード
+    std::memcpy(clone->prefab_src, src->prefab_src, sizeof(clone->prefab_src));      // プレハブリンクも複製
     std::memcpy(clone->material_path, src->material_path, sizeof(clone->material_path)); // material は描画時に遅延ロード
     clone->poly_count = src->poly_count;                                             // カスタムポリゴン (コライダー)
     for (u32 pv = 0; pv < src->poly_count; ++pv) clone->poly_verts[pv] = src->poly_verts[pv];
@@ -884,6 +888,16 @@ const char* SerializeScene(EditorHost& h) noexcept {
             cur += w;
         }
     }
+    // プレハブリンク (インスタンスのみ): PFAB <id> <utf8_path>。
+    for (u32 i = 0; i < h.nodes.Size() && cur < cap; ++i) {
+        const FEditorNode* n = h.nodes[i];
+        if (n->prefab_src[0] != '\0') {
+            const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
+                                        "PFAB %d %s\n", n->editor_id, n->prefab_src);
+            if (w < 0 || w >= cap - cur) { buf[cap - 1] = '\0'; return buf; }
+            cur += w;
+        }
+    }
     // 使用マテリアル (.acsmat パス): MAT <id> <utf8_path> (path は行末まで)。
     for (u32 i = 0; i < h.nodes.Size() && cur < cap; ++i) {
         const FEditorNode* n = h.nodes[i];
@@ -1012,6 +1026,16 @@ int LoadSceneText(EditorHost& h, const char* text) noexcept {
                     std::snprintf(n->sprite_path, sizeof(n->sprite_path), "%s", path);
                     LoadNodeSprite(h, n);                 // device 未準備なら DrawScene で再試行
                 }
+            }
+            continue;
+        }
+        if (std::strncmp(line, "PFAB ", 5) == 0) {        // PFAB <id> <utf8_path> (プレハブリンク)
+            int nid = 0, consumed = 0;
+            if (std::sscanf(line, "PFAB %d %n", &nid, &consumed) >= 1) {
+                const char* path = line + consumed;
+                while (*path == ' ') ++path;
+                FEditorNode* n = FindNode(h, nid);
+                if (n != nullptr) std::snprintf(n->prefab_src, sizeof(n->prefab_src), "%s", path);
             }
             continue;
         }
@@ -1144,6 +1168,15 @@ const char* SerializeSubtree(EditorHost& h, FEditorNode* root) noexcept {
             cur += w;
         }
     }
+    for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {   // プレハブリンク (copy/paste で維持)
+        const FEditorNode* n = sub[i];
+        if (n->prefab_src[0] != '\0') {
+            const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
+                                        "PFAB %d %s\n", n->editor_id, n->prefab_src);
+            if (w < 0 || w >= cap - cur) { buf[cap - 1] = '\0'; return buf; }
+            cur += w;
+        }
+    }
     for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {   // 使用マテリアル
         const FEditorNode* n = sub[i];
         if (n->material_path[0] != '\0') {
@@ -1245,6 +1278,17 @@ int PasteSubtree(EditorHost& h, const char* text, int target_parent) noexcept {
                     std::snprintf(node->sprite_path, sizeof(node->sprite_path), "%s", path);
                     LoadNodeSprite(h, node);
                 }
+            }
+            continue;
+        }
+        if (std::strncmp(line, "PFAB ", 5) == 0) {            // PFAB <old_id> <utf8_path> (プレハブリンク)
+            int onid = 0, consumed = 0;
+            if (std::sscanf(line, "PFAB %d %n", &onid, &consumed) >= 1) {
+                const char* path = line + consumed;
+                while (*path == ' ') ++path;
+                const int nn = MapId(onid);
+                FEditorNode* node = (nn >= 0) ? FindNode(h, nn) : nullptr;
+                if (node != nullptr) std::snprintf(node->prefab_src, sizeof(node->prefab_src), "%s", path);
             }
             continue;
         }
@@ -4360,6 +4404,22 @@ ACS_EDITOR_API int acs_editor_paste_subtree(void* handle, const char* text, int 
     if (host == nullptr || text == nullptr) return -1;
     PushUndo(*host);
     return PasteSubtree(*host, text, parent_id);
+}
+
+/** ノードのプレハブリンク (.acsprefab パス) を設定する (空でクリア)。成功 1。 */
+ACS_EDITOR_API int acs_editor_node_set_prefab_src(void* handle, int id, const char* path) {
+    auto* host = static_cast<EditorHost*>(handle);
+    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    if (n == nullptr) return 0;
+    std::snprintf(n->prefab_src, sizeof(n->prefab_src), "%s", (path != nullptr) ? path : "");
+    return 1;
+}
+
+/** ノードのプレハブリンク (.acsprefab パス) を返す (インスタンスでなければ "")。 */
+ACS_EDITOR_API const char* acs_editor_node_get_prefab_src(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    return (n != nullptr) ? n->prefab_src : "";
 }
 
 // =============================================================================

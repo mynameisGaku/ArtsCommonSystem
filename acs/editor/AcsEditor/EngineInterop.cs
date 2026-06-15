@@ -590,6 +590,15 @@ internal static class EngineInterop
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node_duplicate(IntPtr handle, int id);
 
+    // ----- プレハブ・インスタンスのリンク (.acsprefab パス) -----
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node_set_prefab_src(IntPtr handle, int id, [MarshalAs(UnmanagedType.LPUTF8Str)] string path);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr acs_editor_node_get_prefab_src(IntPtr handle, int id);
+    /// <summary>ノードのプレハブリンク (.acsprefab パス、インスタンスでなければ "")。</summary>
+    public static string NodePrefabSrc(IntPtr handle, int id) =>
+        Marshal.PtrToStringUTF8(acs_editor_node_get_prefab_src(handle, id)) ?? "";
+
     // ----- copy / paste (subtree。クリップボードは C# 側が保持) -----
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern IntPtr acs_editor_copy_subtree(IntPtr handle, int id);
