@@ -174,24 +174,25 @@ public partial class BlueprintEditor : UserControl
             if (pin.Kind == PinKind.Data && !IsInputConnected(n, i))
             {
                 int idx = i;
+                // 定数欄は左寄りの専用帯 (50..104) に置き、出力ラベル帯 (108..) と重ねない。
                 var tb = new TextBox {
-                    Width = 70, Height = 17, FontSize = 10, Padding = new Thickness(2, 0, 2, 0),
+                    Width = 54, Height = 17, FontSize = 10, Padding = new Thickness(2, 0, 2, 0),
                     Background = new SolidColorBrush(Color.FromRgb(0x18, 0x1C, 0x23)), Foreground = Brushes.White,
                     BorderBrush = NodeEdge, BorderThickness = new Thickness(1), VerticalContentAlignment = VerticalAlignment.Center,
                     Text = n.Literals.TryGetValue(i, out var lv) ? lv : "",
                 };
                 tb.TextChanged += (_, __) => { if (string.IsNullOrEmpty(tb.Text)) n.Literals.Remove(idx); else n.Literals[idx] = tb.Text; };
-                inner.Children.Add(Place(tb, 88, py - 9));
+                inner.Children.Add(Place(tb, 50, py - 9));
             }
         }
-        // 出力ピン (右辺、右寄せ)。
+        // 出力ピン (右辺、右寄せ)。ラベルは右側の専用帯に限定し、定数欄と重ねない。
         for (int j = 0; j < n.Outputs.Count; j++)
         {
             double py = HeaderH + j * RowH + RowH / 2.0;
             inner.Children.Add(Place(MakePinDot(n.Outputs[j].Kind), NodeW - 2 * PinR, py - PinR));   // 枠の内側に収める
             inner.Children.Add(Place(new TextBlock {
                 Text = n.Outputs[j].Name, Foreground = LabelFg, FontSize = 11,
-                Width = NodeW - 26, TextAlignment = TextAlignment.Right }, 9, py - 9));
+                Width = 54, TextAlignment = TextAlignment.Right }, NodeW - 68, py - 9));
         }
 
         var border = new Border {
