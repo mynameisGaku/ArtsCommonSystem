@@ -70,6 +70,7 @@ namespace AcsEditor
             ["Material"] = B(0xFFD98BB0),
             ["Asset"]    = B(0xFF67C7B8),
             ["Settings"] = B(0xFFC2A86A),
+            ["Engine"]   = B(0xFFB58BD8),
             ["General"]  = B(0xFF8B93A0),
         };
         public static Brush ChipBg(string tag) => _tagBg.TryGetValue(tag, out var b) ? b : _tagBg["General"];

@@ -686,6 +686,19 @@ internal static class EngineInterop
     public static string MethodOwner(int index) =>
         Marshal.PtrToStringUTF8(acs_editor_method_owner_at(index)) ?? "";
 
+    // エンジンログ取り込み (エディタのコンソールへ)。
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_log_poll(out int severity, byte[] buf, int buflen);
+    /// <summary>キューのエンジンログを 1 件取り出す。空なら false。message は UTF-8 デコード。</summary>
+    public static bool LogPoll(out int severity, out string message)
+    {
+        var buf = new byte[256];
+        if (acs_editor_log_poll(out severity, buf, buf.Length) == 0) { message = ""; return false; }
+        int n = Array.IndexOf(buf, (byte)0); if (n < 0) n = buf.Length;
+        message = System.Text.Encoding.UTF8.GetString(buf, 0, n);
+        return true;
+    }
+
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node_component_prop_get(IntPtr handle, int id, int slot, int prop,
         out float x, out float y, out float z, out float w);

@@ -251,6 +251,25 @@ public partial class MainWindow : Window
         BuildHierarchy();
         PopulateComponentCombo();
         RefreshCreateMenus();   // 右クリック生成メニュー (ビルトイン / ユーザー定義) を構築
+        StartEngineLogPump();   // エンジンログ (ACS_LOG) をコンソールへ取り込む
+    }
+
+    private System.Windows.Threading.DispatcherTimer? _engineLogTimer;
+
+    /// <summary>エンジン側 ACS_LOG をキューから定期的に引いてコンソールへ流す。</summary>
+    private void StartEngineLogPump()
+    {
+        if (_engineLogTimer != null) return;
+        _engineLogTimer = new System.Windows.Threading.DispatcherTimer {
+            Interval = TimeSpan.FromMilliseconds(250) };
+        _engineLogTimer.Tick += (_, __) => {
+            for (int i = 0; i < 200 && EngineInterop.LogPoll(out int sev, out string msg); i++)   // tick 毎に上限
+            {
+                var level = sev >= 4 ? LogLevel.Error : sev == 3 ? LogLevel.Warn : LogLevel.Info;
+                Log(msg, "Engine", level);
+            }
+        };
+        _engineLogTimer.Start();
     }
 
     // ===== プロジェクト設定 (Config/ProjectSettings.ini) =====

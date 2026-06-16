@@ -100,6 +100,9 @@ struct LoggerState {
     /** OutputDebugStringA 出力が有効か。 */
     bool    use_dbgout  = false;
 
+    /** 追加のログシンク (コールバック)。EmitOne が各レコードで呼ぶ (null=無効)。 */
+    void* volatile sink = nullptr;
+
     /** QPC の周波数 (ティック → 秒の換算用)。 */
     LARGE_INTEGER qpc_freq {};
 
@@ -218,6 +221,10 @@ void EmitOne(const Cell& c) noexcept {
             ::OutputDebugStringA(line);
         }
     }
+
+    // 追加シンク (エディタのログコンソール取り込み等)。message は null 終端。
+    auto sink = reinterpret_cast<void (*)(ELogSeverity, const char*)>(g_state.sink);
+    if (sink != nullptr) sink(c.severity, c.message);
 }
 
 /**
@@ -395,6 +402,10 @@ void FLogger::Flush() noexcept {
 
 void FLogger::SetMinSeverity(ELogSeverity s) noexcept {
     ::_InterlockedExchange(&g_state.min_severity, static_cast<LONG>(s));
+}
+
+void FLogger::SetSink(void (*sink)(ELogSeverity, const char*)) noexcept {
+    ::_InterlockedExchangePointer(&g_state.sink, reinterpret_cast<void*>(sink));
 }
 
 bool FLogger::Enabled(ELogSeverity s) noexcept {

@@ -105,6 +105,16 @@ public:
     static void SetMinSeverity(ELogSeverity s) noexcept;
 
     /**
+     * 追加のログシンク (コールバック) を設定する。各レコードを writer スレッドが
+     * コンソール/ファイルへ出した後に sink(severity, message) も呼ぶ。nullptr で解除。
+     *
+     * @details エディタがエンジンログを自前のコンソールへ取り込む等に使う。sink は
+     *          writer スレッドから呼ばれるため、実装側でスレッド安全にすること。
+     * @param sink レコード毎に呼ぶコールバック (message は null 終端)。
+     */
+    static void SetSink(void (*sink)(ELogSeverity severity, const char* message)) noexcept;
+
+    /**
      * 指定レベルが現在の設定で出力対象かを返す。
      *
      * @param s 判定するレベル。

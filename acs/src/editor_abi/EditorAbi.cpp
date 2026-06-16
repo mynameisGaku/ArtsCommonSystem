@@ -59,6 +59,7 @@
 #include <cmath>    // sinf / cosf
 #include <algorithm> // std::max / std::abs (3D ピック)
 #include <new>      // std::nothrow
+#include <atomic>   // std::atomic (エンジンログ取り込み用 SPSC リング)
 
 #define ACS_EDITOR_API extern "C" __declspec(dllexport)
 
@@ -1913,6 +1914,47 @@ int PickNode(const EditorHost& h, f32 screen_x, f32 screen_y) noexcept {
     return -1;
 }
 
+// エンジンログをエディタの C# コンソールへ橋渡しする SPSC リング。
+// producer = FLogger の writer スレッド (EditorLogSink 経由)、consumer = C# UI の poll。
+namespace {
+struct LogRing {
+    static constexpr unsigned N   = 512;    // 2 のべき乗
+    static constexpr int      MSG = 240;
+    struct Item { int sev; char msg[MSG]; };
+    Item                  items[N];
+    std::atomic<unsigned> head{0};   // consumer (poll)
+    std::atomic<unsigned> tail{0};   // producer (writer thread)
+
+    void push(int sev, const char* m) noexcept {
+        const unsigned t = tail.load(std::memory_order_relaxed);
+        const unsigned h = head.load(std::memory_order_acquire);
+        if (t - h >= N) return;      // 満杯 → 破棄 (UI が追いつくまで古い順に欠落)
+        Item& it = items[t & (N - 1)];
+        it.sev = sev;
+        int i = 0;
+        for (; m != nullptr && m[i] != '\0' && i < MSG - 1; ++i) it.msg[i] = m[i];
+        it.msg[i] = '\0';
+        tail.store(t + 1, std::memory_order_release);
+    }
+    bool pop(int& sev, char* out, int cap) noexcept {
+        const unsigned h = head.load(std::memory_order_relaxed);
+        const unsigned t = tail.load(std::memory_order_acquire);
+        if (h == t) return false;
+        Item& it = items[h & (N - 1)];
+        sev = it.sev;
+        int i = 0;
+        for (; it.msg[i] != '\0' && i < cap - 1; ++i) out[i] = it.msg[i];
+        if (cap > 0) out[i] = '\0';
+        head.store(h + 1, std::memory_order_release);
+        return true;
+    }
+};
+LogRing g_log_ring;
+void EditorLogSink(acs::ELogSeverity sev, const char* msg) noexcept {
+    g_log_ring.push(static_cast<int>(sev), msg);
+}
+} // namespace
+
 /** ロガー/メモリ/スレッドプールをプロセスで 1 度だけ初期化する。 */
 bool g_subsystems_ready = false;
 void EnsureSubsystems() noexcept {
@@ -1921,6 +1963,7 @@ void EnsureSubsystems() noexcept {
     lc.console      = true;
     lc.debug_output = true;
     FLogger::Init(lc);
+    FLogger::SetSink(&EditorLogSink);   // エンジンログをエディタのコンソールへ取り込む
     (void)FMemorySystem::Init(FMemorySystem::DefaultConfig());
     (void)FThreadPool::Init(0);
     // エンジン同梱型のリフレクション登録を確定する (この呼び出しで ReflectCatalog の
@@ -5872,6 +5915,18 @@ ACS_EDITOR_API int acs_editor_method_flags_at(int i) {
     auto& r = game::FMethodRegistry::Get();
     if (i < 0 || static_cast<u32>(i) >= r.Count()) return 0;
     return static_cast<int>(r.At(static_cast<u32>(i)).flags);
+}
+
+// ----- エンジンログ取り込み (エディタの C# コンソールへ) -----
+
+/** キューに溜まったエンジンログを 1 件取り出す。成功 1 (severity と message を書く)、空 0。
+ *  C# 側はタイマーで 0 が返るまで繰り返し呼ぶ。severity は ELogSeverity (2=Info,3=Warn,4=Error...)。 */
+ACS_EDITOR_API int acs_editor_log_poll(int* out_severity, char* buf, int buflen) {
+    if (buf == nullptr || buflen <= 0) return 0;
+    int s = 0;
+    if (!g_log_ring.pop(s, buf, buflen)) return 0;
+    if (out_severity != nullptr) *out_severity = s;
+    return 1;
 }
 
 /** ノードの slot 番コンポーネントの prop 番プロパティ値 (4 成分) を取得する (成功 1)。 */
