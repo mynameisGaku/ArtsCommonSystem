@@ -923,7 +923,12 @@ public partial class MainWindow : Window
             // シーン操作 (実ノードを編集=永続)。target はノード ID。
             new("シーン操作", "Set Position", scn, new[] { Ex("▶"), Da("target"), Da("x"), Da("y") }, new[] { Ex("▶") }),
             new("シーン操作", "Get Position", scn, new[] { Ex("▶"), Da("target") },                 new[] { Ex("▶"), Da("pos") }),
+            new("シーン操作", "Set Color",    scn, new[] { Ex("▶"), Da("target"), Da("r"), Da("g"), Da("b") }, new[] { Ex("▶") }),
+            new("シーン操作", "Set Visible",  scn, new[] { Ex("▶"), Da("target"), Da("visible") },  new[] { Ex("▶") }),
+            new("シーン操作", "Set Scale",    scn, new[] { Ex("▶"), Da("target"), Da("sx"), Da("sy") }, new[] { Ex("▶") }),
+            new("シーン操作", "Set Rotation", scn, new[] { Ex("▶"), Da("target"), Da("deg") },      new[] { Ex("▶") }),
             new("シーン操作", "Destroy",      scn, new[] { Ex("▶"), Da("target") },                 new[] { Ex("▶") }),
+            new("シーン操作", "Reparent",     scn, new[] { Ex("▶"), Da("target"), Da("parent") },   new[] { Ex("▶") }),
         };
 
         // リフレクトされた BlueprintCallable メソッド (古い ABI だと EntryPointNotFound → ビルトインのみ)。
@@ -981,9 +986,42 @@ public partial class MainWindow : Window
                 EngineInterop.acs_editor_node_delete(Engine, id);
                 BuildHierarchy();
                 return "ok";
+            case "SetColor":
+                if (args.Length < 4 || !ParseF(args[1], out float cr) || !ParseF(args[2], out float cg) || !ParseF(args[3], out float cb)) return null;
+                EngineInterop.acs_editor_node_get_color(Engine, id, out _, out _, out _, out float ca);   // alpha は維持
+                EngineInterop.acs_editor_node_set_color(Engine, id, cr, cg, cb, ca);
+                if (_selectedId == id) PopulateInspector(id);
+                return "ok";
+            case "SetVisible":
+                if (args.Length < 2) return null;
+                string vs = args[1].Trim().ToLowerInvariant();
+                EngineInterop.acs_editor_node_set_visible(Engine, id, (vs == "1" || vs == "true" || vs == "on" || vs == "yes") ? 1 : 0);
+                if (_selectedId == id) PopulateInspector(id);
+                return "ok";
+            case "SetScale":
+                if (args.Length < 3 || !ParseF(args[1], out float ssx) || !ParseF(args[2], out float ssy)) return null;
+                EngineInterop.acs_editor_node_get_transform(Engine, id, out float kx, out float ky, out float krot, out _, out _);
+                EngineInterop.acs_editor_node_set_transform(Engine, id, kx, ky, krot, ssx, ssy);   // 位置/回転は維持
+                if (_selectedId == id) PopulateInspector(id);
+                return "ok";
+            case "SetRotation":
+                if (args.Length < 2 || !ParseF(args[1], out float deg)) return null;
+                EngineInterop.acs_editor_node_get_transform(Engine, id, out float rx, out float ry, out _, out float rsx, out float rsy);
+                EngineInterop.acs_editor_node_set_transform(Engine, id, rx, ry, deg, rsx, rsy);   // 位置/スケールは維持
+                if (_selectedId == id) PopulateInspector(id);
+                return "ok";
+            case "Reparent":
+                int parentId = -1;
+                if (args.Length >= 2) int.TryParse(args[1].Trim(), out parentId);   // 無効/空は root(-1)
+                EngineInterop.acs_editor_node_reparent(Engine, id, parentId);
+                BuildHierarchy();
+                return "ok";
         }
         return null;
     }
+
+    private static bool ParseF(string s, out float v) =>
+        float.TryParse(s.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out v);
 
     /// <summary>
     /// Blueprint の «Spawn Prefab» ノード実行時に呼ばれる束縛。path のプレハブ (絶対 or

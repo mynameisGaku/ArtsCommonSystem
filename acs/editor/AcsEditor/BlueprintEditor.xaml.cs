@@ -701,6 +701,37 @@ public partial class BlueprintEditor : UserControl
             string? r = BuiltinOp?.Invoke("Destroy", new[] { target });   // 実ノードを削除
             return $"Destroy(target={target}) [{(r != null ? "削除 OK" : "対象なし")}]";
         }
+        if (t.StartsWith("Set Color"))
+        {
+            string target = EvalInputByName(n, "target");
+            string cr = EvalInputByName(n, "r"), cg = EvalInputByName(n, "g"), cb = EvalInputByName(n, "b");
+            string? r = BuiltinOp?.Invoke("SetColor", new[] { target, cr, cg, cb });
+            return $"Set Color(target={target}, r={cr}, g={cg}, b={cb}) [{(r != null ? "適用 OK" : "対象なし")}]";
+        }
+        if (t.StartsWith("Set Visible"))
+        {
+            string target = EvalInputByName(n, "target"), v = EvalInputByName(n, "visible");
+            string? r = BuiltinOp?.Invoke("SetVisible", new[] { target, v });
+            return $"Set Visible(target={target}, visible={v}) [{(r != null ? "適用 OK" : "対象なし")}]";
+        }
+        if (t.StartsWith("Set Scale"))
+        {
+            string target = EvalInputByName(n, "target"), a = EvalInputByName(n, "sx"), b = EvalInputByName(n, "sy");
+            string? r = BuiltinOp?.Invoke("SetScale", new[] { target, a, b });
+            return $"Set Scale(target={target}, sx={a}, sy={b}) [{(r != null ? "適用 OK" : "対象なし")}]";
+        }
+        if (t.StartsWith("Set Rotation"))
+        {
+            string target = EvalInputByName(n, "target"), d = EvalInputByName(n, "deg");
+            string? r = BuiltinOp?.Invoke("SetRotation", new[] { target, d });
+            return $"Set Rotation(target={target}, deg={d}) [{(r != null ? "適用 OK" : "対象なし")}]";
+        }
+        if (t.StartsWith("Reparent"))
+        {
+            string target = EvalInputByName(n, "target"), p = EvalInputByName(n, "parent");
+            string? r = BuiltinOp?.Invoke("Reparent", new[] { target, p });
+            return $"Reparent(target={target}, parent={p}) [{(r != null ? "OK" : "対象なし")}]";
+        }
         if (t.StartsWith("Publish"))  return t.Trim();
         if (t.StartsWith("Print"))    return "Print: " + EvalInputByName(n, "text");
         if (t.StartsWith("Branch"))   return $"Branch(cond={EvalInputByName(n, "cond")}) → True";
