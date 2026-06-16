@@ -913,6 +913,7 @@ public partial class MainWindow : Window
             new("イベント", "On BeginPlay", ev, none, new[] { Ex("▶") }),
             new("イベント", "On Tick",      ev, none, new[] { Ex("▶"), Da("dt") }),
             new("イベント", "On Destroy",   ev, none, new[] { Ex("▶") }),
+            new("イベント", "On Event",     ev, new[] { Da("channel") }, new[] { Ex("▶") }),
             // フロー制御。
             new("フロー", "Branch",       flow, new[] { Ex("▶"), Da("cond") }, new[] { Ex("True"), Ex("False") }),
             new("フロー", "Compare",      flow, new[] { Ex("▶"), Da("a"), Da("op"), Da("b") }, new[] { Ex("▶"), Da("result") }),

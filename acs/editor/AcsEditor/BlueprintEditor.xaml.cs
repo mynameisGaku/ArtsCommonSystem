@@ -724,7 +724,8 @@ public partial class BlueprintEditor : UserControl
         _spawnHandles.Clear(); _returns.Clear(); _spawnSeq = 0; _execBudget = 1000;
 
         var entries = _nodes
-            .Where(n => n.Outputs.Any(p => p.Kind == PinKind.Exec) && !n.Inputs.Any(p => p.Kind == PinKind.Exec))
+            .Where(n => n.Outputs.Any(p => p.Kind == PinKind.Exec) && !n.Inputs.Any(p => p.Kind == PinKind.Exec)
+                     && !n.Title.StartsWith("On Event"))   // On Event は自動起動せず Publish 受信でのみ発火
             .OrderBy(n => n.Inherited ? 0 : 1).ThenBy(n => n.Id).ToList();   // 親(継承)→子の順 = Super 相当
 
         Trace($"▶ Blueprint 実行開始 ({entries.Count} イベント)");
@@ -795,9 +796,20 @@ public partial class BlueprintEditor : UserControl
         return op == "!=" ? sa != sb : sa == sb;
     }
 
+    /// <summary>channel に一致する On Event ノードをすべて発火する (Publish からの 1対多 通知)。発火数を返す。</summary>
+    private int FireEventSubscribers(string channel)
+    {
+        channel = (channel ?? "").Trim();
+        int count = 0;
+        foreach (var ev in _nodes.Where(x => x.Title.StartsWith("On Event")).ToList())
+            if (EvalInputByName(ev, "channel").Trim() == channel) { ExecFrom(ev); count++; }
+        return count;
+    }
+
     private string ActionLine(BpNode n)
     {
         string t = n.Title;
+        if (t.StartsWith("On Event")) return $"イベント On Event(channel={EvalInputByName(n, "channel")})";
         if (t.StartsWith("On ") || t.StartsWith("Event")) return "イベント " + t.Trim();
         if (t.StartsWith("Spawn"))
         {
@@ -858,7 +870,13 @@ public partial class BlueprintEditor : UserControl
             string? r = BuiltinOp?.Invoke("Reparent", new[] { target, p });
             return $"Reparent(target={target}, parent={p}) [{(r != null ? "OK" : "対象なし")}]";
         }
-        if (t.StartsWith("Publish"))  return t.Trim();
+        if (t.StartsWith("Publish"))
+        {
+            string ch = EvalInputByName(n, "channel");
+            if (ch == "(なし)") return t.Trim();   // channel 入力の無い旧 Publish ノードは従来通り
+            int fired = FireEventSubscribers(ch);
+            return $"Publish Event(channel={ch}) → {fired} 購読";
+        }
         if (t.StartsWith("Print"))    return "Print: " + EvalInputByName(n, "text");
         if (t.StartsWith("Compare"))
         {
