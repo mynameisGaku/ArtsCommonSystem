@@ -1157,7 +1157,7 @@ public partial class MainWindow : Window
     private void OnNewClass(object sender, RoutedEventArgs e)
     {
         if (_project == null) { Log("プロジェクトがありません。"); return; }
-        var dlg = new NewClassDialog { Owner = this };
+        var dlg = new NewClassDialog(_project) { Owner = this };
         if (dlg.ShowDialog() != true) return;
         try
         {

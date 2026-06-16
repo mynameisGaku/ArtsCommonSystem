@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace AcsEditor;
 
@@ -147,6 +148,35 @@ public static class ProjectManager
     // ===== クラス/ソース生成 (基底選択。Empty=空クラス、それ以外は <IDENT>_API エクスポート) =====
 
     public static readonly string[] BaseClassOptions = { "Empty", "FComponent2D", "FNode2D", "FScene2D" };
+
+    // class [API] Name : public Base { を捉える (基底ピッカーの階層構築用)。
+    private static readonly Regex UserClassRe = new(
+        @"class\s+(?:\w+\s+)?(\w+)\s*:\s*public\s+([\w:]+)\s*\{", RegexOptions.Compiled);
+
+    /// <summary>
+    /// プロジェクトの Source/*.h を走査し、ユーザークラスの (名前, 基底名) を返す。
+    /// 基底名の名前空間修飾 (acs::game:: 等) は除去する。基底ピッカーの階層表示に使う。
+    /// </summary>
+    public static List<(string Name, string Base)> ScanUserClasses(Project p)
+    {
+        var list = new List<(string, string)>();
+        string dir = p.SourceDir;
+        if (!Directory.Exists(dir)) return list;
+        foreach (string h in Directory.GetFiles(dir, "*.h"))
+        {
+            string text;
+            try { text = File.ReadAllText(h); } catch { continue; }
+            foreach (Match m in UserClassRe.Matches(text))
+            {
+                string name = m.Groups[1].Value;
+                string bas  = m.Groups[2].Value;
+                int c = bas.LastIndexOf("::", StringComparison.Ordinal);
+                if (c >= 0) bas = bas.Substring(c + 2);
+                if (name != bas) list.Add((name, bas));
+            }
+        }
+        return list;
+    }
 
     private static string ApiHeaderName(string projName) => SanitizeIdent(projName) + "API.h";
     private static string ApiMacro(string ident) => ident.ToUpperInvariant() + "_API";
