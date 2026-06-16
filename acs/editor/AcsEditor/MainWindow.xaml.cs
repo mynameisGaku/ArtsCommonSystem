@@ -877,17 +877,32 @@ public partial class MainWindow : Window
     private void OnSceneTab(object sender, RoutedEventArgs e) => SetGameView(false);
     private void OnGameTab(object sender, RoutedEventArgs e)  => SetGameView(true);
 
-    /// <summary>Blueprint タブ: 中央をノードグラフエディタへ切り替える(HWND ビューポートは隠す)。</summary>
+    private BlueprintWindow? _bpWindow;
+
+    /// <summary>Blueprint の独立ウィンドウを (必要なら作って) 返す。中央 HWND ビューポートとは別ウィンドウ。</summary>
+    private BlueprintWindow EnsureBlueprintWindow()
+    {
+        if (_bpWindow == null)
+        {
+            _bpWindow = new BlueprintWindow { Owner = this };
+            _bpWindow.Closed += (_, __) => _bpWindow = null;
+        }
+        return _bpWindow;
+    }
+
+    /// <summary>BlueprintWindow 内のグラフエディタ (配線/読込先)。アクセス時にウィンドウを用意する。</summary>
+    private BlueprintEditor BlueprintHost => EnsureBlueprintWindow().Editor;
+
+    /// <summary>「⛓ Blueprint」: 独立ウィンドウでノードグラフ + ブラックボードを開く。</summary>
     private void OnBlueprintTab(object sender, RoutedEventArgs e)
     {
-        BlueprintTabBtn.IsChecked = true;
-        SceneTabBtn.IsChecked     = false;
-        GameTabBtn.IsChecked      = false;
-        SceneTools.Visibility     = Visibility.Collapsed;     // シーン編集ツールは不要
-        ViewportHost.Visibility   = Visibility.Collapsed;     // HWND ビューポートを隠す (airspace 回避)
-        BlueprintHost.Visibility  = Visibility.Visible;
-        BuildBlueprintPalette();                              // リフレクションからパレットを構築 (ホットリロード後も最新)
-        Log("⛓ Blueprint エディタ — ノードグラフ (右クリックでノード追加 / ピンドラッグで接続 / ホイールでズーム)。");
+        BlueprintTabBtn.IsChecked = false;   // モーメンタリ (中央タブではなく別ウィンドウ)
+        var win = EnsureBlueprintWindow();
+        BuildBlueprintPalette();             // リフレクションからパレット構築 + 配線 (ホットリロード後も最新)
+        win.Show();
+        if (win.WindowState == WindowState.Minimized) win.WindowState = WindowState.Normal;
+        win.Activate();
+        Log("⛓ Blueprint ウィンドウを開きました (左=ブラックボード / 中央=ノードグラフ)。");
     }
 
     /// <summary>
@@ -1074,9 +1089,8 @@ public partial class MainWindow : Window
 
     private void SetGameView(bool game)
     {
-        // Blueprint から戻る場合の復帰: ビューポートとシーンツールを出す。
+        // Blueprint は独立ウィンドウなので中央は常にビューポート。
         BlueprintTabBtn.IsChecked = false;
-        BlueprintHost.Visibility  = Visibility.Collapsed;
         ViewportHost.Visibility   = Visibility.Visible;
         SceneTools.Visibility     = Visibility.Visible;
         if (Engine == IntPtr.Zero) { SceneTabBtn.IsChecked = true; GameTabBtn.IsChecked = false; return; }

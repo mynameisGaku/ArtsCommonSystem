@@ -1,0 +1,39 @@
+<Window x:Class="AcsEditor.BlueprintWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:AcsEditor"
+        Title="Blueprint" Height="660" Width="1080"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource Win}">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="230"/>
+            <ColumnDefinition Width="4"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- ブラックボード: 宣言済みの名前付き変数 -->
+        <DockPanel Grid.Column="0" Background="#FF1B1F27">
+            <TextBlock DockPanel.Dock="Top" Text="ブラックボード" FontWeight="SemiBold" Foreground="#FFD8DEE9"
+                       FontSize="12" Margin="10,8,10,2"/>
+            <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Foreground="#FF7A8494" FontSize="10" Margin="10,0,10,6"
+                       Text="名前付き変数を宣言。実行開始時に変数へ種まきされ、実行後に現在値(緑)を表示。Get/Set Variable から参照。"/>
+            <Grid DockPanel.Dock="Bottom" Margin="8,6,8,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="BbName"  Grid.Column="0" Margin="0,0,4,0" ToolTip="キー名"/>
+                <TextBox x:Name="BbValue" Grid.Column="1" Margin="0,0,4,0" ToolTip="既定値"/>
+                <Button  Grid.Column="2" Content="＋ 追加" Padding="8,2" Click="OnAddKey"/>
+            </Grid>
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="BbList" Margin="6,2,6,2"/>
+            </ScrollViewer>
+        </DockPanel>
+
+        <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch" Background="{DynamicResource Edge}"/>
+
+        <local:BlueprintEditor x:Name="GraphHost" Grid.Column="2"/>
+    </Grid>
+</Window>

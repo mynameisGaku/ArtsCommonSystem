@@ -224,7 +224,6 @@
                     </DockPanel>
                     <Grid>
                         <Border x:Name="ViewportHost" Background="#FF0E1116" Margin="0"/>
-                        <local:BlueprintEditor x:Name="BlueprintHost" Visibility="Collapsed"/>
                     </Grid>
                 </DockPanel>
 
