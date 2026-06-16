@@ -39,6 +39,7 @@ public partial class BlueprintEditor : UserControl
         public List<Pin> Outputs = new();
         public Border? Visual;
         public bool Executed;   // 直近の実行で起動されたか (ハイライト用)
+        public bool Inherited;  // 親 (継承元) .acsbp から来たノードか (淡色・読取専用)
         public Dictionary<int, string> Literals = new();   // 未接続データ入力ピンの定数値 (入力index→文字列)
     }
 
@@ -60,6 +61,8 @@ public partial class BlueprintEditor : UserControl
     private readonly List<BpNodeTemplate> _palette = new();
     private int   _nextId = 100;        // 生成ノードの ID (デモの 1..4 と衝突しない起点)
     private Point _menuGraphPos;        // 右クリック位置 (生成先のグラフ座標)
+    private const int InheritOffset = 100000;   // 継承元ノードの ID オフセット (子と衝突しないように)
+    private string? _parentPath;        // 親 (継承元) .acsbp の相対パス (null = 継承なし)
 
     // 表示変換: 先にズーム、続いてパン (RenderTransform = Translate * Scale)。
     private readonly ScaleTransform     _zoom = new(1, 1);
@@ -81,6 +84,7 @@ public partial class BlueprintEditor : UserControl
     private static readonly Brush PinData  = new SolidColorBrush(Color.FromRgb(0x5B, 0xC8, 0x9A));
     private static readonly Brush LabelFg  = new SolidColorBrush(Color.FromRgb(0xC2, 0xC9, 0xD4));
     private static readonly Brush ExecHi   = new SolidColorBrush(Color.FromRgb(0xE0, 0xB8, 0x4A));   // 実行済みノードの枠
+    private static readonly Brush InheritEdge = new SolidColorBrush(Color.FromRgb(0x7A, 0x8A, 0xB0)); // 継承ノードの枠
 
     public BlueprintEditor()
     {
@@ -197,10 +201,20 @@ public partial class BlueprintEditor : UserControl
 
         var border = new Border {
             Width = NodeW, Height = h, Background = NodeBg,
-            BorderBrush = n.Executed ? ExecHi : NodeEdge, BorderThickness = new Thickness(n.Executed ? 2.4 : 1.2),
-            CornerRadius = new CornerRadius(5), Child = inner, Cursor = Cursors.SizeAll,
+            BorderBrush = n.Executed ? ExecHi : (n.Inherited ? InheritEdge : NodeEdge),
+            BorderThickness = new Thickness(n.Executed ? 2.4 : 1.2),
+            CornerRadius = new CornerRadius(5), Child = inner,
+            Cursor = n.Inherited ? Cursors.Arrow : Cursors.SizeAll,
+            Opacity = n.Inherited ? 0.55 : 1.0,   // 継承ノードは淡色で読取専用
         };
         Canvas.SetLeft(border, n.X); Canvas.SetTop(border, n.Y);
+        if (n.Inherited)
+        {
+            // 継承元の «継承» バッジ。
+            inner.Children.Add(Place(new TextBlock {
+                Text = "継承", Foreground = InheritEdge, FontSize = 9 }, NodeW - 34, 1));
+            return border;   // 継承ノードはドラッグ/編集不可
+        }
         // ノード本体のドラッグ (ピン上は OnPreviewDown が先取りして e.Handled にするのでここへ来ない)。
         // 定数入力欄の上で押した場合はドラッグせず編集に委ねる (パンも抑止)。
         border.MouseLeftButtonDown += (s, e) => {
@@ -273,6 +287,7 @@ public partial class BlueprintEditor : UserControl
         PinRef? best = null; double bd = HitR * HitR;
         foreach (var n in _nodes)
         {
+            if (n.Inherited) continue;   // 継承ノードへは接続できない (読取専用)
             for (int i = 0; i < n.Inputs.Count; i++)
             {
                 double d = Dist2(PinPos(n, false, i), g);
@@ -408,6 +423,7 @@ public partial class BlueprintEditor : UserControl
         for (int i = _nodes.Count - 1; i >= 0; i--)
         {
             var n = _nodes[i];
+            if (n.Inherited) continue;   // 継承ノードは削除/複製不可
             double h = HeaderH + Math.Max(n.Inputs.Count, n.Outputs.Count) * RowH + 6;
             if (g.X >= n.X && g.X <= n.X + NodeW && g.Y >= n.Y && g.Y <= n.Y + h) return n;
         }
@@ -504,8 +520,10 @@ public partial class BlueprintEditor : UserControl
     {
         var sb = new StringBuilder();
         sb.Append("ACSBP 1\n");
+        if (!string.IsNullOrEmpty(_parentPath)) sb.Append("PARENT ").Append(_parentPath).Append('\n');   // 継承元
         foreach (var n in _nodes)
         {
+            if (n.Inherited) continue;   // 継承ノードは親側が持つので保存しない
             var c = (n.Header as SolidColorBrush)?.Color ?? Colors.SteelBlue;
             sb.Append("N ").Append(n.Id).Append(' ')
               .Append(n.X.ToString("0.##", CultureInfo.InvariantCulture)).Append(' ')
@@ -517,20 +535,45 @@ public partial class BlueprintEditor : UserControl
                 if (!string.IsNullOrEmpty(kv.Value)) sb.Append("V ").Append(kv.Key).Append(' ').Append(kv.Value).Append('\n');
         }
         foreach (var k in _conns)
-            sb.Append("C ").Append(k.FromNode).Append(' ').Append(k.FromPin).Append(' ')
-              .Append(k.ToNode).Append(' ').Append(k.ToPin).Append('\n');
+            if (k.FromNode < InheritOffset && k.ToNode < InheritOffset)   // 継承ノード間の線は親側が持つ
+                sb.Append("C ").Append(k.FromNode).Append(' ').Append(k.FromPin).Append(' ')
+                  .Append(k.ToNode).Append(' ').Append(k.ToPin).Append('\n');
         return sb.ToString();
     }
 
-    /// <summary>.acsbp テキストからグラフを復元する (既存は破棄)。</summary>
+    /// <summary>.acsbp テキストからグラフを復元する (既存は破棄)。PARENT 行があれば親グラフを継承ノードとして読み込む。</summary>
     public void Deserialize(string text)
     {
-        _nodes.Clear(); _conns.Clear();
+        _nodes.Clear(); _conns.Clear(); _parentPath = null;
+
+        // PARENT 行を先に処理し、親グラフを «継承ノード» (id +InheritOffset, 読取専用) として読み込む。
+        foreach (var raw in text.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            if (line.StartsWith("PARENT "))
+            {
+                _parentPath = line.Substring(7).Trim();
+                string? full = ResolveParentPath(_parentPath);
+                if (full != null && System.IO.File.Exists(full))
+                    ParseGraph(System.IO.File.ReadAllText(full), InheritOffset, inherited: true);
+                break;
+            }
+        }
+        ParseGraph(text, 0, inherited: false);   // 子 (自分) のノード
+
+        int maxId = 0; foreach (var n in _nodes) if (!n.Inherited && n.Id > maxId) maxId = n.Id;
+        _nextId = Math.Max(_nextId, maxId + 1);   // 以後の生成 ID が読込ノードと衝突しないように
+        Rebuild();
+    }
+
+    // .acsbp の N/I/O/V/C 行を解析して _nodes/_conns へ追加する。idOffset/inherited で継承ノードに使う。
+    private void ParseGraph(string text, int idOffset, bool inherited)
+    {
         BpNode? cur = null;
         foreach (var raw in text.Split('\n'))
         {
             var line = raw.TrimEnd('\r');
-            if (line.Length == 0 || line.StartsWith("ACSBP")) continue;
+            if (line.Length == 0 || line.StartsWith("ACSBP") || line.StartsWith("PARENT")) continue;
             switch (line[0])
             {
                 case 'N':
@@ -538,9 +581,9 @@ public partial class BlueprintEditor : UserControl
                     var t = line.Split(new[] { ' ' }, 6);
                     if (t.Length < 5) break;
                     cur = new BpNode {
-                        Id = ParseInt(t[1]), X = ParseDouble(t[2]), Y = ParseDouble(t[3]),
+                        Id = ParseInt(t[1]) + idOffset, X = ParseDouble(t[2]), Y = ParseDouble(t[3]),
                         Header = new SolidColorBrush(ParseHex(t[4])),
-                        Title = t.Length >= 6 ? t[5] : "",
+                        Title = t.Length >= 6 ? t[5] : "", Inherited = inherited,
                     };
                     _nodes.Add(cur);
                     break;
@@ -567,14 +610,19 @@ public partial class BlueprintEditor : UserControl
                 {
                     var t = line.Split(' ');
                     if (t.Length < 5) break;
-                    _conns.Add(new BpConn(ParseInt(t[1]), ParseInt(t[2]), ParseInt(t[3]), ParseInt(t[4])));
+                    _conns.Add(new BpConn(ParseInt(t[1]) + idOffset, ParseInt(t[2]), ParseInt(t[3]) + idOffset, ParseInt(t[4])));
                     break;
                 }
             }
         }
-        int maxId = 0; foreach (var n in _nodes) if (n.Id > maxId) maxId = n.Id;
-        _nextId = Math.Max(_nextId, maxId + 1);   // 以後の生成 ID が読込ノードと衝突しないように
-        Rebuild();
+    }
+
+    /// <summary>親 (継承元) の相対/絶対パスを実ファイルへ解決 (相対は DefaultDir 基準)。</summary>
+    private string? ResolveParentPath(string path)
+    {
+        if (System.IO.File.Exists(path)) return path;
+        if (DefaultDir != null) { string p = System.IO.Path.Combine(DefaultDir, path); if (System.IO.File.Exists(p)) return p; }
+        return null;
     }
 
     private static int    ParseInt(string s)    => int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : 0;
@@ -609,6 +657,29 @@ public partial class BlueprintEditor : UserControl
         if (System.IO.File.Exists(path)) Deserialize(System.IO.File.ReadAllText(path));
     }
 
+    /// <summary>継承元 (親) の .acsbp を選んで «継承» する。子ノードは保ったまま親を継承ノードとして読み込む。</summary>
+    private void OnSetParent(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog {
+            Filter = "ACS Blueprint (*.acsbp)|*.acsbp", DefaultExt = ".acsbp", Title = "継承元 (親) の .acsbp を選択" };
+        if (DefaultDir != null && System.IO.Directory.Exists(DefaultDir)) dlg.InitialDirectory = DefaultDir;
+        if (dlg.ShowDialog() != true) return;
+        _parentPath = MakeRelative(dlg.FileName);
+        Deserialize(Serialize());   // 現在の子 (継承ノードは保存対象外) を保ったまま、新しい親を継承ノードとして読み直す
+    }
+
+    /// <summary>DefaultDir 直下なら名前のみ、そうでなければ絶対パスを返す (PARENT 行に書く相対パス)。</summary>
+    private string MakeRelative(string full)
+    {
+        if (DefaultDir != null)
+        {
+            string d = System.IO.Path.GetFullPath(DefaultDir);
+            string f = System.IO.Path.GetFullPath(full);
+            if (f.StartsWith(d, StringComparison.OrdinalIgnoreCase)) return System.IO.Path.GetFileName(f);
+        }
+        return full;
+    }
+
     // ----- 実行 (BP5: イベントから exec チェーンを辿る簡易インタプリタ) -----
     /// <summary>実行トレースの出力先 (MainWindow のコンソール)。</summary>
     public Action<string>? LogSink;
@@ -640,7 +711,7 @@ public partial class BlueprintEditor : UserControl
 
         var entries = _nodes
             .Where(n => n.Outputs.Any(p => p.Kind == PinKind.Exec) && !n.Inputs.Any(p => p.Kind == PinKind.Exec))
-            .OrderBy(n => n.Id).ToList();
+            .OrderBy(n => n.Inherited ? 0 : 1).ThenBy(n => n.Id).ToList();   // 親(継承)→子の順 = Super 相当
 
         Trace($"▶ Blueprint 実行開始 ({entries.Count} イベント)");
         foreach (var ev in entries) ExecFrom(ev);
