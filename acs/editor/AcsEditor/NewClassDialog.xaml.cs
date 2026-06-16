@@ -14,6 +14,7 @@ public partial class NewClassDialog : Window
 {
     public string ClassName { get; private set; } = "";
     public string BaseClass { get; private set; } = "Empty";
+    public bool   BuildAfter { get; private set; } = true;   // 生成後に即ビルドして型を反映するか
 
     private static readonly Brush RootFg = new SolidColorBrush(Color.FromRgb(0x9F, 0xC6, 0xF0));   // エンジン基底
     private static readonly Brush UserFg = new SolidColorBrush(Color.FromRgb(0x8B, 0xD0, 0x9A));   // ユーザークラス
@@ -94,6 +95,7 @@ public partial class NewClassDialog : Window
         if (string.IsNullOrEmpty(name)) { HintText.Text = "クラス名を入力してください。"; return; }
         ClassName = name;
         BaseClass = SelectedBase();
+        BuildAfter = BuildAfterBox.IsChecked == true;
         DialogResult = true;
         Close();
     }

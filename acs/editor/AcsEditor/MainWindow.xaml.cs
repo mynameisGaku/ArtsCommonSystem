@@ -1226,7 +1226,7 @@ public partial class MainWindow : Window
 
     // ===== プロジェクトのビルド / 実行 (スタンドアロン) =====
     // 新規クラス/ソースを生成する (基底選択。Empty=空クラス、それ以外は <IDENT>_API エクスポート)。
-    private void OnNewClass(object sender, RoutedEventArgs e)
+    private async void OnNewClass(object sender, RoutedEventArgs e)
     {
         if (_project == null) { Log("プロジェクトがありません。"); return; }
         var dlg = new NewClassDialog(_project) { Owner = this };
@@ -1237,7 +1237,13 @@ public partial class MainWindow : Window
             _pendingReconfigure = true;   // 新ファイルを CMake に拾わせる (次ビルドで再 configure)
             ShowBottomTab("build");
             BuildLog($"生成: {string.Join(", ", made.ConvertAll(System.IO.Path.GetFileName))}");
-            if (dlg.BaseClass == "FComponent2D")
+            if (dlg.BuildAfter)
+            {
+                // VS を開かずに «生成 → ビルド → 型反映» を 1 アクションで完結 (codegen + reflect DLL + LoadUserTypes)。
+                BuildLog("生成後ビルドを開始します…");
+                await DoBuild(run: false);
+            }
+            else if (dlg.BaseClass == "FComponent2D")
                 BuildLog("Build または Hot Reload で『ユーザー定義のオブジェクト』に追加されます。");
         }
         catch (Exception ex)
