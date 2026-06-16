@@ -901,6 +901,7 @@ public partial class MainWindow : Window
         var flow = System.Windows.Media.Color.FromRgb(0x5A, 0x64, 0x72);   // フロー   = 灰
         var bus  = System.Windows.Media.Color.FromRgb(0x35, 0x7A, 0x55);   // サブシステム = 緑
         var fn   = System.Windows.Media.Color.FromRgb(0x2E, 0x5C, 0x8A);   // 関数     = 青
+        var scn  = System.Windows.Media.Color.FromRgb(0x8A, 0x5C, 0x2E);   // シーン操作 = 茶
 
         static BlueprintEditor.BpPinSpec Ex(string n) => new(n, true);
         static BlueprintEditor.BpPinSpec Da(string n) => new(n, false);
@@ -919,6 +920,10 @@ public partial class MainWindow : Window
             // サブシステム。
             new("サブシステム", "Publish Event", bus, new[] { Ex("▶"), Da("channel") },          new[] { Ex("▶") }),
             new("サブシステム", "Spawn Prefab",  bus, new[] { Ex("▶"), Da("path"), Da("pos") },   new[] { Ex("▶"), Da("spawned") }),
+            // シーン操作 (実ノードを編集=永続)。target はノード ID。
+            new("シーン操作", "Set Position", scn, new[] { Ex("▶"), Da("target"), Da("x"), Da("y") }, new[] { Ex("▶") }),
+            new("シーン操作", "Get Position", scn, new[] { Ex("▶"), Da("target") },                 new[] { Ex("▶"), Da("pos") }),
+            new("シーン操作", "Destroy",      scn, new[] { Ex("▶"), Da("target") },                 new[] { Ex("▶") }),
         };
 
         // リフレクトされた BlueprintCallable メソッド (古い ABI だと EntryPointNotFound → ビルトインのみ)。
@@ -949,6 +954,35 @@ public partial class MainWindow : Window
         BlueprintHost.LogSink = Log;   // 実行トレースをコンソールへ
         BlueprintHost.InvokeMethod = InvokeBound;   // 関数ノード→target (無指定なら選択) ノードへ実呼出
         BlueprintHost.SpawnPrefab = SpawnPrefabFromGraph;   // Spawn Prefab ノード→実シーンへ生成
+        BlueprintHost.BuiltinOp = BuiltinSceneOp;           // Set Position / Get Position / Destroy 等
+    }
+
+    /// <summary>
+    /// Blueprint の組込シーン操作ノード実行時に呼ばれる束縛。反射 invoke と違い «実ノード» を
+    /// 直接編集するので変更が永続する (Spawn Prefab と同系)。args[0] は対象ノード ID 文字列。
+    /// </summary>
+    private string? BuiltinSceneOp(string op, string[] args)
+    {
+        if (Engine == IntPtr.Zero || args.Length < 1 || !int.TryParse(args[0].Trim(), out int id) || id < 0) return null;
+        switch (op)
+        {
+            case "SetPosition":
+                if (args.Length < 3
+                    || !float.TryParse(args[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float px)
+                    || !float.TryParse(args[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float py)) return null;
+                EngineInterop.acs_editor_node_get_transform(Engine, id, out _, out _, out float rot, out float sx, out float sy);
+                EngineInterop.acs_editor_node_set_transform(Engine, id, px, py, rot, sx, sy);   // 回転/スケールは維持
+                if (_selectedId == id) PopulateInspector(id);
+                return "ok";
+            case "GetPosition":
+                EngineInterop.acs_editor_node_get_transform(Engine, id, out float gx, out float gy, out _, out _, out _);
+                return $"{gx.ToString("0.##", CultureInfo.InvariantCulture)},{gy.ToString("0.##", CultureInfo.InvariantCulture)}";
+            case "Destroy":
+                EngineInterop.acs_editor_node_delete(Engine, id);
+                BuildHierarchy();
+                return "ok";
+        }
+        return null;
     }
 
     /// <summary>

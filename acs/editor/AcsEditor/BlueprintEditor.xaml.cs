@@ -109,7 +109,7 @@ public partial class BlueprintEditor : UserControl
             ins:  new[] { new Pin("▶", PinKind.Exec), new Pin("path", PinKind.Data), new Pin("pos", PinKind.Data) },
             outs: new[] { new Pin("▶", PinKind.Exec), new Pin("spawned", PinKind.Data) });
         var setp = AddNode(3, "Set Position", 620, 110, fn,
-            ins:  new[] { new Pin("▶", PinKind.Exec), new Pin("target", PinKind.Data), new Pin("value", PinKind.Data) },
+            ins:  new[] { new Pin("▶", PinKind.Exec), new Pin("target", PinKind.Data), new Pin("x", PinKind.Data), new Pin("y", PinKind.Data) },
             outs: new[] { new Pin("▶", PinKind.Exec) });
         var pub  = AddNode(4, "Publish  \"Spawned\"", 620, 270, bus,
             ins:  new[] { new Pin("▶", PinKind.Exec) },
@@ -617,6 +617,8 @@ public partial class BlueprintEditor : UserControl
     public Func<string, string, string, string, string?>? InvokeMethod;
     /// <summary>Spawn Prefab ノードの実生成 (path, pos) → 生成ノード ID 文字列 (失敗 null)。MainWindow が束縛。</summary>
     public Func<string, string, string?>? SpawnPrefab;
+    /// <summary>組込シーン操作ノード (op, args) → 結果文字列 (void は "", 失敗 null)。MainWindow が束縛。</summary>
+    public Func<string, string[], string?>? BuiltinOp;
     private void Trace(string s) => LogSink?.Invoke(s);
 
     private readonly Dictionary<int, string> _spawnHandles = new();   // ノード ID → spawn ハンドル (実行内で一意)
@@ -681,7 +683,24 @@ public partial class BlueprintEditor : UserControl
             return $"Spawn Prefab(path={path}, pos={pos}) ⇒ {handle}{(newId != null ? " [生成 OK]" : "")}";
         }
         if (t.StartsWith("Set Position"))
-            return $"Set Position(target={EvalInputByName(n, "target")}, value={EvalInputByName(n, "value")})";
+        {
+            string target = EvalInputByName(n, "target"), x = EvalInputByName(n, "x"), y = EvalInputByName(n, "y");
+            string? r = BuiltinOp?.Invoke("SetPosition", new[] { target, x, y });   // 実ノードへ適用 (永続)
+            return $"Set Position(target={target}, x={x}, y={y}) [{(r != null ? "適用 OK" : "対象なし")}]";
+        }
+        if (t.StartsWith("Get Position"))
+        {
+            string target = EvalInputByName(n, "target");
+            string? r = BuiltinOp?.Invoke("GetPosition", new[] { target });
+            if (r != null) _returns[n.Id] = r;   // "x,y" を pos 出力→下流へ
+            return $"Get Position(target={target}) ⇒ {r ?? "対象なし"}";
+        }
+        if (t.StartsWith("Destroy"))
+        {
+            string target = EvalInputByName(n, "target");
+            string? r = BuiltinOp?.Invoke("Destroy", new[] { target });   // 実ノードを削除
+            return $"Destroy(target={target}) [{(r != null ? "削除 OK" : "対象なし")}]";
+        }
         if (t.StartsWith("Publish"))  return t.Trim();
         if (t.StartsWith("Print"))    return "Print: " + EvalInputByName(n, "text");
         if (t.StartsWith("Branch"))   return $"Branch(cond={EvalInputByName(n, "cond")}) → True";
