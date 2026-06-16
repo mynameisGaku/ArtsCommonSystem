@@ -932,7 +932,10 @@ public partial class MainWindow : Window
                 if (string.IsNullOrEmpty(name)) continue;
                 string owner = EngineInterop.MethodOwner(i);
                 string title = string.IsNullOrEmpty(owner) ? name : $"{owner}.{name}";
-                pal.Add(new("関数", title, fn, new[] { Ex("▶"), Da("target") }, new[] { Ex("▶") }));
+                var ins = EngineInterop.acs_editor_method_argkind_at(i) != 0   // 引数ありなら arg ピンを足す
+                    ? new[] { Ex("▶"), Da("target"), Da("arg") }
+                    : new[] { Ex("▶"), Da("target") };
+                pal.Add(new("関数", title, fn, ins, new[] { Ex("▶") }));
             }
         }
         catch (Exception ex) { Log("Blueprint パレット: 反射メソッド列挙をスキップ (" + ex.GetType().Name + ")"); }
@@ -947,16 +950,16 @@ public partial class MainWindow : Window
     /// <summary>
     /// Blueprint の «関数» ノード実行時に呼ばれる束縛。target ピンにノード ID があればその
     /// ノード、無ければ現在の選択ノード (=self) のコンポーネントから owner 型名が一致する
-    /// slot を探し、その反射メソッドを実呼出する。
+    /// slot を探し、その反射メソッドを arg 付きで実呼出する (引数なしメソッドは arg 無視)。
     /// </summary>
-    private bool InvokeBound(string ownerType, string method, string target)
+    private bool InvokeBound(string ownerType, string method, string target, string arg)
     {
         int nodeId = (int.TryParse(target, out var tid) && tid >= 0) ? tid : _selectedId;   // target 優先
         if (Engine == IntPtr.Zero || nodeId < 0) return false;
         int cc = EngineInterop.acs_editor_node_component_count(Engine, nodeId);
         for (int s = 0; s < cc; s++)
             if (EngineInterop.ComponentName(Engine, nodeId, s) == ownerType)
-                return EngineInterop.acs_editor_node_invoke_method(Engine, nodeId, s, method) != 0;
+                return EngineInterop.acs_editor_node_invoke_method_arg(Engine, nodeId, s, method, arg ?? "") != 0;
         return false;
     }
 

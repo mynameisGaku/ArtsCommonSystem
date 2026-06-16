@@ -679,6 +679,13 @@ internal static class EngineInterop
     public static extern IntPtr acs_editor_method_owner_at(int index);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_method_flags_at(int index);
+    /// <summary>反射メソッドの引数種別 (0=None,1=F32,2=I32,3=Str)。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_method_argkind_at(int index);
+    /// <summary>反射メソッドを文字列引数付きで実呼出 (引数なしメソッドは arg 無視)。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node_invoke_method_arg(IntPtr handle, int id, int slot,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string method, [MarshalAs(UnmanagedType.LPUTF8Str)] string arg);
     /// <summary>i 番目のグローバル反射メソッド名 (UTF-8)。</summary>
     public static string MethodName(int index) =>
         Marshal.PtrToStringUTF8(acs_editor_method_name_at(index)) ?? "";

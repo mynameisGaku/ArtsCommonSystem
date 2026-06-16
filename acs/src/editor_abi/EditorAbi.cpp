@@ -5883,6 +5883,30 @@ ACS_EDITOR_API int acs_editor_node_invoke_method(void* handle, int id, int slot,
     return ok ? 1 : 0;
 }
 
+/** node_invoke_method の «文字列引数» 版。引数ありメソッドは arg をパースして渡し、
+ *  引数なしメソッドは arg を無視する (Blueprint の関数ノードから実引数を渡す経路)。 */
+ACS_EDITOR_API int acs_editor_node_invoke_method_arg(void* handle, int id, int slot,
+                                                     const char* method_name, const char* arg) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || method_name == nullptr) return 0;
+    FEditorNode* n = FindNode(*host, id);
+    if (n == nullptr || slot < 0 || slot >= static_cast<int>(n->component_count)) return 0;
+    const game::FTypeId tid = n->components[static_cast<u32>(slot)];
+    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(tid);
+    if (d == nullptr) return 0;
+    void* obj = game::FTypeRegistry::Get().CreateById(tid);
+    if (obj == nullptr) return 0;
+    game::ApplyDefaults(obj, *d);
+    const u32 nf = CompPropCount(d);
+    for (u32 p = 0; p < nf; ++p) {
+        const f32* v = n->comp_props[static_cast<u32>(slot)][p];
+        game::ApplyFieldValue(obj, d->fields[p], v);
+    }
+    const bool ok = game::InvokeMethodByNameArg(tid, obj, method_name, arg != nullptr ? arg : "");
+    game::FTypeRegistry::Get().Destroy(tid, obj);
+    return ok ? 1 : 0;
+}
+
 // ----- グローバル反射メソッド列挙 (Blueprint ノードパレット用) -----
 
 /** 登録済み «全» 反射メソッド数 (所有型を問わない)。 */
@@ -5915,6 +5939,14 @@ ACS_EDITOR_API int acs_editor_method_flags_at(int i) {
     auto& r = game::FMethodRegistry::Get();
     if (i < 0 || static_cast<u32>(i) >= r.Count()) return 0;
     return static_cast<int>(r.At(static_cast<u32>(i)).flags);
+}
+
+/** i 番目の反射メソッドの引数種別 (0=None,1=F32,2=I32,3=Str)。 */
+ACS_EDITOR_API int acs_editor_method_argkind_at(int i) {
+    game::AcsRegisterEngineTypes();
+    auto& r = game::FMethodRegistry::Get();
+    if (i < 0 || static_cast<u32>(i) >= r.Count()) return 0;
+    return static_cast<int>(r.At(static_cast<u32>(i)).argKind);
 }
 
 // ----- エンジンログ取り込み (エディタの C# コンソールへ) -----

@@ -66,6 +66,12 @@ public:
             static_cast<double>(m_Color.z), static_cast<double>(m_Color.w));
     }
 
+    /** f32 引数を 1 個取りログ出力する(BlueprintCallable + 引数ありメソッドのデモ)。 */
+    ACS_FUNCTION(BlueprintCallable, CallInEditor)
+    void LogValue(f32 v) noexcept {
+        ACS_LOG_INFO("[Prim] LogValue v=%.3f", static_cast<double>(v));
+    }
+
     /** owner の world transform で形状を FSpriteBatch へ積む。 */
     void OnDraw(RenderContext& rc) noexcept override {
         if (!rc.HasSprites()) return;

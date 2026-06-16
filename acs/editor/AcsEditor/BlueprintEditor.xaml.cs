@@ -597,9 +597,9 @@ public partial class BlueprintEditor : UserControl
     // ----- 実行 (BP5: イベントから exec チェーンを辿る簡易インタプリタ) -----
     /// <summary>実行トレースの出力先 (MainWindow のコンソール)。</summary>
     public Action<string>? LogSink;
-    /// <summary>反射関数ノードの実呼出 (ownerType, method, target) → 実行できたか。
-    /// target はノード ID 文字列 (空/非数値なら選択ノード=self)。MainWindow が束縛。</summary>
-    public Func<string, string, string, bool>? InvokeMethod;
+    /// <summary>反射関数ノードの実呼出 (ownerType, method, target, arg) → 実行できたか。
+    /// target はノード ID 文字列 (空/非数値なら選択ノード=self)、arg は文字列引数。MainWindow が束縛。</summary>
+    public Func<string, string, string, string, bool>? InvokeMethod;
     private void Trace(string s) => LogSink?.Invoke(s);
 
     private readonly Dictionary<int, string> _spawnHandles = new();   // ノード ID → spawn ハンドル (実行内で一意)
@@ -666,8 +666,11 @@ public partial class BlueprintEditor : UserControl
             var parts = t.Split('.', 2);
             string owner = parts[0], method = parts[1];
             string target = EvalInputByName(n, "target");
-            bool ok = InvokeMethod?.Invoke(owner, method, target) ?? false;   // target ノード (無指定なら選択) へ実呼出
-            return $"Call {t}(target={target}) [{(ok ? "実呼出 OK" : "未束縛")}]";
+            bool hasArg = n.Inputs.Any(p => p.Name == "arg");
+            string arg = hasArg ? EvalInputByName(n, "arg") : "";
+            bool ok = InvokeMethod?.Invoke(owner, method, target, arg) ?? false;   // target ノード (無指定なら選択) へ実呼出
+            string argStr = hasArg ? $", arg={arg}" : "";
+            return $"Call {t}(target={target}{argStr}) [{(ok ? "実呼出 OK" : "未束縛")}]";
         }
         return t;
     }
