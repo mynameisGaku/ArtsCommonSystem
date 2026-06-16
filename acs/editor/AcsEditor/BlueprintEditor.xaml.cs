@@ -39,6 +39,7 @@ public partial class BlueprintEditor : UserControl
         public List<Pin> Outputs = new();
         public Border? Visual;
         public bool Executed;   // 直近の実行で起動されたか (ハイライト用)
+        public Dictionary<int, string> Literals = new();   // 未接続データ入力ピンの定数値 (入力index→文字列)
     }
 
     private sealed record BpConn(int FromNode, int FromPin, int ToNode, int ToPin);
@@ -162,13 +163,26 @@ public partial class BlueprintEditor : UserControl
             CornerRadius = new CornerRadius(5, 5, 0, 0) }, 0, 0));
         inner.Children.Add(Place(new TextBlock {
             Text = n.Title, Foreground = Brushes.White, FontSize = 11, FontWeight = FontWeights.SemiBold }, 9, 5));
-        // 入力ピン (左辺)。
+        // 入力ピン (左辺)。未接続のデータ入力にはインライン定数入力欄を出す。
         for (int i = 0; i < n.Inputs.Count; i++)
         {
             double py = HeaderH + i * RowH + RowH / 2.0;
-            inner.Children.Add(Place(MakePinDot(n.Inputs[i].Kind), -PinR, py - PinR));
+            var pin = n.Inputs[i];
+            inner.Children.Add(Place(MakePinDot(pin.Kind), -PinR, py - PinR));
             inner.Children.Add(Place(new TextBlock {
-                Text = n.Inputs[i].Name, Foreground = LabelFg, FontSize = 11 }, 9, py - 9));
+                Text = pin.Name, Foreground = LabelFg, FontSize = 11 }, 9, py - 9));
+            if (pin.Kind == PinKind.Data && !IsInputConnected(n, i))
+            {
+                int idx = i;
+                var tb = new TextBox {
+                    Width = 78, Height = 17, FontSize = 10, Padding = new Thickness(2, 0, 2, 0),
+                    Background = new SolidColorBrush(Color.FromRgb(0x18, 0x1C, 0x23)), Foreground = Brushes.White,
+                    BorderBrush = NodeEdge, BorderThickness = new Thickness(1), VerticalContentAlignment = VerticalAlignment.Center,
+                    Text = n.Literals.TryGetValue(i, out var lv) ? lv : "",
+                };
+                tb.TextChanged += (_, __) => { if (string.IsNullOrEmpty(tb.Text)) n.Literals.Remove(idx); else n.Literals[idx] = tb.Text; };
+                inner.Children.Add(Place(tb, 88, py - 9));
+            }
         }
         // 出力ピン (右辺、右寄せ)。
         for (int j = 0; j < n.Outputs.Count; j++)
@@ -187,11 +201,28 @@ public partial class BlueprintEditor : UserControl
         };
         Canvas.SetLeft(border, n.X); Canvas.SetTop(border, n.Y);
         // ノード本体のドラッグ (ピン上は OnPreviewDown が先取りして e.Handled にするのでここへ来ない)。
+        // 定数入力欄の上で押した場合はドラッグせず編集に委ねる (パンも抑止)。
         border.MouseLeftButtonDown += (s, e) => {
+            if (IsTextBoxOrigin(e.OriginalSource)) { e.Handled = true; return; }
             _dragNode = n; _lastMouse = e.GetPosition(GraphCanvas);
             GraphCanvas.CaptureMouse(); e.Handled = true;
         };
         return border;
+    }
+
+    /// <summary>入力ピン inPin に接続があるか。</summary>
+    private bool IsInputConnected(BpNode n, int inPin)
+    {
+        foreach (var c in _conns) if (c.ToNode == n.Id && c.ToPin == inPin) return true;
+        return false;
+    }
+
+    /// <summary>クリック元が TextBox (または配下) かを視覚ツリーを遡って判定。</summary>
+    private static bool IsTextBoxOrigin(object src)
+    {
+        var d = src as DependencyObject;
+        while (d != null) { if (d is TextBox) return true; d = VisualTreeHelper.GetParent(d); }
+        return false;
     }
 
     private static Ellipse MakePinDot(PinKind kind) => new()
@@ -467,6 +498,8 @@ public partial class BlueprintEditor : UserControl
               .Append($"{c.R:X2}{c.G:X2}{c.B:X2}").Append(' ').Append(n.Title).Append('\n');
             foreach (var p in n.Inputs)  sb.Append("I ").Append(p.Kind == PinKind.Exec ? 'E' : 'D').Append(' ').Append(p.Name).Append('\n');
             foreach (var p in n.Outputs) sb.Append("O ").Append(p.Kind == PinKind.Exec ? 'E' : 'D').Append(' ').Append(p.Name).Append('\n');
+            foreach (var kv in n.Literals)
+                if (!string.IsNullOrEmpty(kv.Value)) sb.Append("V ").Append(kv.Key).Append(' ').Append(kv.Value).Append('\n');
         }
         foreach (var k in _conns)
             sb.Append("C ").Append(k.FromNode).Append(' ').Append(k.FromPin).Append(' ')
@@ -505,6 +538,14 @@ public partial class BlueprintEditor : UserControl
                     if (t.Length < 3) break;
                     var pin = new Pin(t[2], t[1] == "E" ? PinKind.Exec : PinKind.Data);
                     if (line[0] == 'I') cur.Inputs.Add(pin); else cur.Outputs.Add(pin);
+                    break;
+                }
+                case 'V':
+                {
+                    if (cur == null) break;
+                    var t = line.Split(new[] { ' ' }, 3);
+                    if (t.Length < 3) break;
+                    cur.Literals[ParseInt(t[1])] = t[2];   // 入力ピンの定数値
                     break;
                 }
                 case 'C':
@@ -641,7 +682,7 @@ public partial class BlueprintEditor : UserControl
         return idx < 0 ? "(なし)" : EvalInput(n, idx);
     }
 
-    /// <summary>入力ピンへ繋がる上流出力を評価して文字列値を返す (未接続は印を返す)。</summary>
+    /// <summary>入力ピンの値を評価する: 接続があれば上流出力、無ければ定数、それも無ければ印。</summary>
     private string EvalInput(BpNode n, int inPin)
     {
         foreach (var c in _conns)
@@ -650,6 +691,7 @@ public partial class BlueprintEditor : UserControl
                 var from = NodeById(c.FromNode);
                 if (from != null) return EvalOutput(from, c.FromPin);
             }
+        if (n.Literals.TryGetValue(inPin, out var lit) && lit.Length > 0) return lit;   // 定数
         return "(未接続)";
     }
 
