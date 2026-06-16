@@ -682,10 +682,27 @@ internal static class EngineInterop
     /// <summary>反射メソッドの引数種別 (0=None,1=F32,2=I32,3=Str)。</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_method_argkind_at(int index);
+    /// <summary>反射メソッドの戻り値種別 (0=None/void,1=F32,2=I32,3=Str)。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_method_retkind_at(int index);
     /// <summary>反射メソッドを文字列引数付きで実呼出 (引数なしメソッドは arg 無視)。</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node_invoke_method_arg(IntPtr handle, int id, int slot,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string method, [MarshalAs(UnmanagedType.LPUTF8Str)] string arg);
+    /// <summary>反射メソッドを arg 付きで実呼出し、戻り値を文字列で受ける (void は空)。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node_invoke_method_ret(IntPtr handle, int id, int slot,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string method, [MarshalAs(UnmanagedType.LPUTF8Str)] string arg,
+        byte[] outBuf, int outCap);
+    /// <summary>戻り値付き実呼出。成功なら true で out に戻り値文字列 (UTF-8 デコード)。</summary>
+    public static bool InvokeMethodRet(IntPtr handle, int id, int slot, string method, string arg, out string ret)
+    {
+        var buf = new byte[256];
+        if (acs_editor_node_invoke_method_ret(handle, id, slot, method, arg, buf, buf.Length) == 0) { ret = ""; return false; }
+        int n = Array.IndexOf(buf, (byte)0); if (n < 0) n = buf.Length;
+        ret = System.Text.Encoding.UTF8.GetString(buf, 0, n);
+        return true;
+    }
     /// <summary>i 番目のグローバル反射メソッド名 (UTF-8)。</summary>
     public static string MethodName(int index) =>
         Marshal.PtrToStringUTF8(acs_editor_method_name_at(index)) ?? "";

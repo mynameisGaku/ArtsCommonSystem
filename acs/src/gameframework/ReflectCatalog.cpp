@@ -162,6 +162,8 @@ ACS_REGISTER_METHOD(FSprite2DComponent,   LogState, METHOD_BP_CALLABLE | METHOD_
 ACS_REGISTER_METHOD(FPrimitiveRenderer2D, LogState, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
 // 引数あり(f32)メソッドのデモ: Blueprint の定数ピンから実引数を渡せる。
 ACS_REGISTER_METHOD_F32(FPrimitiveRenderer2D, LogValue, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
+// 戻り値あり(f32)メソッドのデモ: 結果が data 出力ピンへ流れ下流ノードが消費できる。
+ACS_REGISTER_METHOD_RET_F32(FPrimitiveRenderer2D, GetArea, METHOD_BP_CALLABLE)
 
 // ----- Subsystem (エンジン提供。各 World に自動生成される) -----
 // FEventBus: ワールド内オブジェクト間の疎結合通信 (名前付きイベント pub/sub)。

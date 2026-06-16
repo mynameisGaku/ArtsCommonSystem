@@ -597,12 +597,13 @@ public partial class BlueprintEditor : UserControl
     // ----- 実行 (BP5: イベントから exec チェーンを辿る簡易インタプリタ) -----
     /// <summary>実行トレースの出力先 (MainWindow のコンソール)。</summary>
     public Action<string>? LogSink;
-    /// <summary>反射関数ノードの実呼出 (ownerType, method, target, arg) → 実行できたか。
-    /// target はノード ID 文字列 (空/非数値なら選択ノード=self)、arg は文字列引数。MainWindow が束縛。</summary>
-    public Func<string, string, string, string, bool>? InvokeMethod;
+    /// <summary>反射関数ノードの実呼出 (ownerType, method, target, arg) → 戻り値文字列 (void は "")。
+    /// 束縛できなければ null。target はノード ID 文字列 (空/非数値なら選択ノード=self)。MainWindow が束縛。</summary>
+    public Func<string, string, string, string, string?>? InvokeMethod;
     private void Trace(string s) => LogSink?.Invoke(s);
 
     private readonly Dictionary<int, string> _spawnHandles = new();   // ノード ID → spawn ハンドル (実行内で一意)
+    private readonly Dictionary<int, string> _returns = new();        // ノード ID → 関数の戻り値 (data 出力のプル用)
     private int _spawnSeq;
     private int _execBudget;
 
@@ -616,7 +617,7 @@ public partial class BlueprintEditor : UserControl
     public void RunGraph()
     {
         foreach (var n in _nodes) n.Executed = false;
-        _spawnHandles.Clear(); _spawnSeq = 0; _execBudget = 1000;
+        _spawnHandles.Clear(); _returns.Clear(); _spawnSeq = 0; _execBudget = 1000;
 
         var entries = _nodes
             .Where(n => n.Outputs.Any(p => p.Kind == PinKind.Exec) && !n.Inputs.Any(p => p.Kind == PinKind.Exec))
@@ -668,9 +669,12 @@ public partial class BlueprintEditor : UserControl
             string target = EvalInputByName(n, "target");
             bool hasArg = n.Inputs.Any(p => p.Name == "arg");
             string arg = hasArg ? EvalInputByName(n, "arg") : "";
-            bool ok = InvokeMethod?.Invoke(owner, method, target, arg) ?? false;   // target ノード (無指定なら選択) へ実呼出
+            string? ret = InvokeMethod?.Invoke(owner, method, target, arg);   // target ノード (無指定なら選択) へ実呼出
+            bool ok = ret != null;
+            if (ok && ret!.Length > 0) _returns[n.Id] = ret;                  // 戻り値を data 出力プル用に保持
             string argStr = hasArg ? $", arg={arg}" : "";
-            return $"Call {t}(target={target}{argStr}) [{(ok ? "実呼出 OK" : "未束縛")}]";
+            string retStr = ok && ret!.Length > 0 ? $" = {ret}" : "";
+            return $"Call {t}(target={target}{argStr}){retStr} [{(ok ? "実呼出 OK" : "未束縛")}]";
         }
         return t;
     }
@@ -702,6 +706,9 @@ public partial class BlueprintEditor : UserControl
 
     private string EvalOutput(BpNode from, int outPin)
     {
+        // 関数ノードの data 出力 = 実行時に得た戻り値 (キャッシュ) を返す。
+        if (outPin >= 0 && outPin < from.Outputs.Count && from.Outputs[outPin].Kind == PinKind.Data
+            && _returns.TryGetValue(from.Id, out var rv)) return rv;
         if (from.Title.StartsWith("Spawn")) return SpawnHandle(from);
         string pin = outPin >= 0 && outPin < from.Outputs.Count ? from.Outputs[outPin].Name : "out";
         return $"{from.Title.Trim()}.{pin}";

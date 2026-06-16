@@ -935,7 +935,10 @@ public partial class MainWindow : Window
                 var ins = EngineInterop.acs_editor_method_argkind_at(i) != 0   // 引数ありなら arg ピンを足す
                     ? new[] { Ex("▶"), Da("target"), Da("arg") }
                     : new[] { Ex("▶"), Da("target") };
-                pal.Add(new("関数", title, fn, ins, new[] { Ex("▶") }));
+                var outs = EngineInterop.acs_editor_method_retkind_at(i) != 0   // 戻り値ありなら ret ピンを足す
+                    ? new[] { Ex("▶"), Da("ret") }
+                    : new[] { Ex("▶") };
+                pal.Add(new("関数", title, fn, ins, outs));
             }
         }
         catch (Exception ex) { Log("Blueprint パレット: 反射メソッド列挙をスキップ (" + ex.GetType().Name + ")"); }
@@ -950,17 +953,18 @@ public partial class MainWindow : Window
     /// <summary>
     /// Blueprint の «関数» ノード実行時に呼ばれる束縛。target ピンにノード ID があればその
     /// ノード、無ければ現在の選択ノード (=self) のコンポーネントから owner 型名が一致する
-    /// slot を探し、その反射メソッドを arg 付きで実呼出する (引数なしメソッドは arg 無視)。
+    /// slot を探し、その反射メソッドを arg 付きで実呼出する。戻り値文字列を返す (void は "")。
+    /// 束縛できなければ null。
     /// </summary>
-    private bool InvokeBound(string ownerType, string method, string target, string arg)
+    private string? InvokeBound(string ownerType, string method, string target, string arg)
     {
         int nodeId = (int.TryParse(target, out var tid) && tid >= 0) ? tid : _selectedId;   // target 優先
-        if (Engine == IntPtr.Zero || nodeId < 0) return false;
+        if (Engine == IntPtr.Zero || nodeId < 0) return null;
         int cc = EngineInterop.acs_editor_node_component_count(Engine, nodeId);
         for (int s = 0; s < cc; s++)
             if (EngineInterop.ComponentName(Engine, nodeId, s) == ownerType)
-                return EngineInterop.acs_editor_node_invoke_method_arg(Engine, nodeId, s, method, arg ?? "") != 0;
-        return false;
+                return EngineInterop.InvokeMethodRet(Engine, nodeId, s, method, arg ?? "", out var ret) ? ret : null;
+        return null;
     }
 
     private void SetGameView(bool game)

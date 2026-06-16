@@ -22,6 +22,7 @@
 #include "gameframework/Reflect.h"   // FTypeId / AcsTypeHash / ACS_RCAT
 
 #include <cstdlib>   // atof / atoi (文字列引数のパース)
+#include <cstdio>    // snprintf (戻り値の文字列化)
 
 namespace acs::game {
 
@@ -40,13 +41,15 @@ enum EMethodArgKind : u32 {
     METHOD_ARG_STR  = 3u,   /**< const char* 1 個。 */
 };
 
-/** 反射された 1 メソッド(所有型 + 名前 + 呼び出しサンク + フラグ)。引数なし or 単一引数 void。 */
+/** 反射された 1 メソッド(所有型 + 名前 + 呼び出しサンク群 + フラグ)。引数なし/単一引数/戻り値あり。 */
 struct FReflectMethod {
     FTypeId      owner;                              ///< 所有型の ID(AcsTypeHash)。
     const char*  name;                               ///< メソッド名。
-    void       (*invoke)(void* self);                ///< 引数なしサンク(argKind==None のとき使用)。
-    void       (*invokeArg)(void* self, const char* arg);  ///< 単一引数サンク(文字列を内部でパース)。
-    u32          argKind;                            ///< EMethodArgKind。
+    void       (*invoke)(void* self);                ///< 引数なし void サンク。
+    void       (*invokeArg)(void* self, const char* arg);  ///< 単一引数 void サンク(文字列をパース)。
+    void       (*invokeRet)(void* self, const char* arg, char* out, int outcap);  ///< 戻り値ありサンク(結果を文字列化)。
+    u32          argKind;                            ///< EMethodArgKind(引数の型)。
+    u32          retKind;                            ///< EMethodArgKind(戻り値の型。None=void)。
     u32          flags;                              ///< EMethodFlags の OR。
 };
 
@@ -145,6 +148,30 @@ inline bool InvokeMethodByNameArg(FTypeId owner, void* obj, const char* name, co
     return false;
 }
 
+/**
+ * 名前で型のメソッドを arg 付きで呼び、戻り値を文字列化して out へ書く。
+ *
+ * @details 戻り値ありメソッドは invokeRet で結果を out に書き、引数あり/なしメソッドは
+ *          従来通り起動して out を空にする。out は呼び出し前に空文字へ初期化される。
+ * @param owner  所有型の ID。
+ * @param obj    対象インスタンス先頭。
+ * @param name   メソッド名。
+ * @param arg    文字列引数(null 可)。
+ * @param out    戻り値文字列の書き込み先(null 可)。
+ * @param outcap out の容量。
+ * @return 呼べたら true。
+ */
+inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
+                                  const char* arg, char* out, int outcap) noexcept {
+    if (out != nullptr && outcap > 0) out[0] = '\0';
+    const FReflectMethod* m = FMethodRegistry::Get().Find(owner, name);
+    if (m == nullptr || obj == nullptr) return false;
+    if (m->retKind != METHOD_ARG_NONE && m->invokeRet != nullptr) { m->invokeRet(obj, arg != nullptr ? arg : "", out, outcap); return true; }
+    if (m->argKind != METHOD_ARG_NONE && m->invokeArg != nullptr) { m->invokeArg(obj, arg != nullptr ? arg : ""); return true; }
+    if (m->invoke != nullptr) { m->invoke(obj); return true; }
+    return false;
+}
+
 } // namespace acs::game
 
 /** 引数なし void メソッド method を self に対して呼ぶサンク(非捕捉ラムダ → 関数ポインタ)。 */
@@ -159,6 +186,21 @@ inline bool InvokeMethodByNameArg(FTypeId owner, void* obj, const char* name, co
 #define ACS_RMETHOD_THUNK_STR(Type, method)                                          \
     [](void* self, const char* a) noexcept { static_cast<Type*>(self)->method(a); }
 
+/** 戻り値ありサンク(引数なし method() を呼び結果を out へ文字列化)。 */
+#define ACS_RMETHOD_THUNK_RET_F32(Type, method)                                      \
+    [](void* self, const char*, char* out, int cap) noexcept {                       \
+        ::snprintf(out, static_cast<size_t>(cap), "%.6g",                            \
+                   static_cast<double>(static_cast<Type*>(self)->method())); }
+#define ACS_RMETHOD_THUNK_RET_I32(Type, method)                                      \
+    [](void* self, const char*, char* out, int cap) noexcept {                       \
+        ::snprintf(out, static_cast<size_t>(cap), "%d",                              \
+                   static_cast<int>(static_cast<Type*>(self)->method())); }
+#define ACS_RMETHOD_THUNK_RET_STR(Type, method)                                      \
+    [](void* self, const char*, char* out, int cap) noexcept {                       \
+        const char* r = static_cast<Type*>(self)->method();                          \
+        int i = 0; for (; r != nullptr && r[i] != '\0' && i < cap - 1; ++i) out[i] = r[i]; \
+        if (cap > 0) out[i] = '\0'; }
+
 /** 型 Type の引数なし void メソッド method を flags 付きで登録する(.cpp に 1 回)。
  *  ACS_REGISTER と同じく namespace acs::game を開く(Type は外側ルックアップで
  *  acs::game 内型もグローバルなユーザー型も解決される)。 */
@@ -166,8 +208,9 @@ inline bool InvokeMethodByNameArg(FTypeId owner, void* obj, const char* name, co
     namespace acs::game { namespace {                                                 \
         const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rm_, __LINE__) {        \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
-                ACS_RMETHOD_THUNK(Type, method), nullptr,                            \
-                ::acs::game::METHOD_ARG_NONE, static_cast<::acs::u32>(flags) } };     \
+                ACS_RMETHOD_THUNK(Type, method), nullptr, nullptr,                   \
+                ::acs::game::METHOD_ARG_NONE, ::acs::game::METHOD_ARG_NONE,           \
+                static_cast<::acs::u32>(flags) } };                                   \
     } }
 
 /** 単一引数(f32 / i32 / const char*)メソッドを登録する。argKind に応じてサンクを選ぶ。 */
@@ -175,20 +218,49 @@ inline bool InvokeMethodByNameArg(FTypeId owner, void* obj, const char* name, co
     namespace acs::game { namespace {                                                 \
         const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
-                nullptr, ACS_RMETHOD_THUNK_F32(Type, method),                        \
-                ::acs::game::METHOD_ARG_F32, static_cast<::acs::u32>(flags) } };      \
+                nullptr, ACS_RMETHOD_THUNK_F32(Type, method), nullptr,               \
+                ::acs::game::METHOD_ARG_F32, ::acs::game::METHOD_ARG_NONE,            \
+                static_cast<::acs::u32>(flags) } };                                   \
     } }
 #define ACS_REGISTER_METHOD_I32(Type, method, flags)                                 \
     namespace acs::game { namespace {                                                 \
         const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
-                nullptr, ACS_RMETHOD_THUNK_I32(Type, method),                        \
-                ::acs::game::METHOD_ARG_I32, static_cast<::acs::u32>(flags) } };      \
+                nullptr, ACS_RMETHOD_THUNK_I32(Type, method), nullptr,               \
+                ::acs::game::METHOD_ARG_I32, ::acs::game::METHOD_ARG_NONE,            \
+                static_cast<::acs::u32>(flags) } };                                   \
     } }
 #define ACS_REGISTER_METHOD_STR(Type, method, flags)                                 \
     namespace acs::game { namespace {                                                 \
         const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
-                nullptr, ACS_RMETHOD_THUNK_STR(Type, method),                        \
-                ::acs::game::METHOD_ARG_STR, static_cast<::acs::u32>(flags) } };      \
+                nullptr, ACS_RMETHOD_THUNK_STR(Type, method), nullptr,               \
+                ::acs::game::METHOD_ARG_STR, ::acs::game::METHOD_ARG_NONE,            \
+                static_cast<::acs::u32>(flags) } };                                   \
+    } }
+
+/** 戻り値あり(引数なし)メソッドを登録する。retKind に結果型を入れ invokeRet を持つ。 */
+#define ACS_REGISTER_METHOD_RET_F32(Type, method, flags)                             \
+    namespace acs::game { namespace {                                                 \
+        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
+            ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
+                nullptr, nullptr, ACS_RMETHOD_THUNK_RET_F32(Type, method),           \
+                ::acs::game::METHOD_ARG_NONE, ::acs::game::METHOD_ARG_F32,            \
+                static_cast<::acs::u32>(flags) } };                                   \
+    } }
+#define ACS_REGISTER_METHOD_RET_I32(Type, method, flags)                             \
+    namespace acs::game { namespace {                                                 \
+        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
+            ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
+                nullptr, nullptr, ACS_RMETHOD_THUNK_RET_I32(Type, method),           \
+                ::acs::game::METHOD_ARG_NONE, ::acs::game::METHOD_ARG_I32,            \
+                static_cast<::acs::u32>(flags) } };                                   \
+    } }
+#define ACS_REGISTER_METHOD_RET_STR(Type, method, flags)                             \
+    namespace acs::game { namespace {                                                 \
+        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
+            ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
+                nullptr, nullptr, ACS_RMETHOD_THUNK_RET_STR(Type, method),           \
+                ::acs::game::METHOD_ARG_NONE, ::acs::game::METHOD_ARG_STR,            \
+                static_cast<::acs::u32>(flags) } };                                   \
     } }

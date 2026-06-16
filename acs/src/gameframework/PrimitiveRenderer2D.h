@@ -72,6 +72,10 @@ public:
         ACS_LOG_INFO("[Prim] LogValue v=%.3f", static_cast<double>(v));
     }
 
+    /** 形状の面積 (size.x*size.y) を返す(BlueprintCallable + 戻り値ありメソッドのデモ)。 */
+    ACS_FUNCTION(BlueprintCallable)
+    f32 GetArea() const noexcept { return m_Size.x * m_Size.y; }
+
     /** owner の world transform で形状を FSpriteBatch へ積む。 */
     void OnDraw(RenderContext& rc) noexcept override {
         if (!rc.HasSprites()) return;
