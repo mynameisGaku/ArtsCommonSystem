@@ -708,6 +708,7 @@ public partial class BlueprintEditor : UserControl
 
     private readonly Dictionary<int, string> _spawnHandles = new();   // ノード ID → spawn ハンドル (実行内で一意)
     private readonly Dictionary<int, string> _returns = new();        // ノード ID → 関数の戻り値 (data 出力のプル用)
+    private readonly Dictionary<string, string> _vars = new();        // 名前付き変数 (Set/Get Variable。実行ごとにクリア)
     private int _spawnSeq;
     private int _execBudget;
 
@@ -721,7 +722,7 @@ public partial class BlueprintEditor : UserControl
     public void RunGraph()
     {
         foreach (var n in _nodes) n.Executed = false;
-        _spawnHandles.Clear(); _returns.Clear(); _spawnSeq = 0; _execBudget = 1000;
+        _spawnHandles.Clear(); _returns.Clear(); _vars.Clear(); _spawnSeq = 0; _execBudget = 1000;
 
         var entries = _nodes
             .Where(n => n.Outputs.Any(p => p.Kind == PinKind.Exec) && !n.Inputs.Any(p => p.Kind == PinKind.Exec)
@@ -870,6 +871,12 @@ public partial class BlueprintEditor : UserControl
             string? r = BuiltinOp?.Invoke("Reparent", new[] { target, p });
             return $"Reparent(target={target}, parent={p}) [{(r != null ? "OK" : "対象なし")}]";
         }
+        if (t.StartsWith("Set Variable"))
+        {
+            string name = EvalInputByName(n, "name").Trim(), val = EvalInputByName(n, "value");
+            if (name.Length > 0) _vars[name] = val;
+            return $"Set Variable({name} = {val})";
+        }
         if (t.StartsWith("Publish"))
         {
             string ch = EvalInputByName(n, "channel");
@@ -935,6 +942,9 @@ public partial class BlueprintEditor : UserControl
 
     private string EvalOutput(BpNode from, int outPin)
     {
+        // Get Variable は要求時に変数ストアから読む (pure ノード = exec で実行しない)。
+        if (from.Title.StartsWith("Get Variable"))
+            return _vars.TryGetValue(EvalInputByName(from, "name").Trim(), out var gv) ? gv : "";
         // 関数ノードの data 出力 = 実行時に得た戻り値 (キャッシュ) を返す。
         if (outPin >= 0 && outPin < from.Outputs.Count && from.Outputs[outPin].Kind == PinKind.Data
             && _returns.TryGetValue(from.Id, out var rv)) return rv;

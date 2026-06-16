@@ -902,6 +902,7 @@ public partial class MainWindow : Window
         var bus  = System.Windows.Media.Color.FromRgb(0x35, 0x7A, 0x55);   // サブシステム = 緑
         var fn   = System.Windows.Media.Color.FromRgb(0x2E, 0x5C, 0x8A);   // 関数     = 青
         var scn  = System.Windows.Media.Color.FromRgb(0x8A, 0x5C, 0x2E);   // シーン操作 = 茶
+        var vbl  = System.Windows.Media.Color.FromRgb(0x6A, 0x4C, 0x8C);   // 変数     = 紫
 
         static BlueprintEditor.BpPinSpec Ex(string n) => new(n, true);
         static BlueprintEditor.BpPinSpec Da(string n) => new(n, false);
@@ -931,6 +932,9 @@ public partial class MainWindow : Window
             new("シーン操作", "Set Rotation", scn, new[] { Ex("▶"), Da("target"), Da("deg") },      new[] { Ex("▶") }),
             new("シーン操作", "Destroy",      scn, new[] { Ex("▶"), Da("target") },                 new[] { Ex("▶") }),
             new("シーン操作", "Reparent",     scn, new[] { Ex("▶"), Da("target"), Da("parent") },   new[] { Ex("▶") }),
+            // 変数: 名前付きの値を保持 (Set) / 参照 (Get、pure)。実行ごとにクリア。
+            new("変数", "Set Variable", vbl, new[] { Ex("▶"), Da("name"), Da("value") }, new[] { Ex("▶") }),
+            new("変数", "Get Variable", vbl, new[] { Da("name") }, new[] { Da("value") }),
         };
 
         // リフレクトされた BlueprintCallable メソッド (古い ABI だと EntryPointNotFound → ビルトインのみ)。
