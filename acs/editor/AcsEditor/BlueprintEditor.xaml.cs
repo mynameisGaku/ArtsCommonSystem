@@ -25,6 +25,7 @@ public partial class BlueprintEditor : UserControl
     private const double RowH    = 22;
     private const double PinR    = 5;
     private const double HitR    = 12;   // ピンのクリック判定半径 (グラフ座標)
+    private const double PinInset = 2;   // ピンを枠の内側へわずかに寄せる量 (右枠はみ出し防止)
 
     private enum PinKind { Exec, Data }
     private sealed record Pin(string Name, PinKind Kind);
@@ -37,7 +38,7 @@ public partial class BlueprintEditor : UserControl
         public Brush Header = Brushes.SteelBlue;
         public List<Pin> Inputs  = new();
         public List<Pin> Outputs = new();
-        public Border? Visual;
+        public FrameworkElement? Visual;   // ノードの外枠 (Canvas)。枠と内容を兄弟化し BorderThickness によるはみ出しを防ぐ
         public bool Executed;   // 直近の実行で起動されたか (ハイライト用)
         public bool Inherited;  // 親 (継承元) .acsbp から来たノードか (淡色・読取専用)
         public Dictionary<int, string> Literals = new();   // 未接続データ入力ピンの定数値 (入力index→文字列)
@@ -150,12 +151,12 @@ public partial class BlueprintEditor : UserControl
     /// <summary>ピンの «グラフ座標» 中心位置。枠からはみ出さないよう PinR だけ内側に置く。 </summary>
     private static Point PinPos(BpNode n, bool output, int idx)
     {
-        double x = n.X + (output ? NodeW - PinR : PinR);
+        double x = n.X + (output ? NodeW - PinR - PinInset : PinR + PinInset);
         double y = n.Y + HeaderH + idx * RowH + RowH / 2.0;
         return new Point(x, y);
     }
 
-    private Border MakeNodeVisual(BpNode n)
+    private FrameworkElement MakeNodeVisual(BpNode n)
     {
         int rows = Math.Max(n.Inputs.Count, n.Outputs.Count);
         double h = HeaderH + rows * RowH + 6;
@@ -172,7 +173,7 @@ public partial class BlueprintEditor : UserControl
         {
             double py = HeaderH + i * RowH + RowH / 2.0;
             var pin = n.Inputs[i];
-            inner.Children.Add(Place(MakePinDot(pin.Kind), 0, py - PinR));   // 枠の内側に収める
+            inner.Children.Add(Place(MakePinDot(pin.Kind), PinInset, py - PinR));   // 枠の内側に収める
             inner.Children.Add(Place(new TextBlock {
                 Text = pin.Name, Foreground = LabelFg, FontSize = 11 }, 14, py - 9));
             if (pin.Kind == PinKind.Data && !IsInputConnected(n, i))
@@ -193,36 +194,49 @@ public partial class BlueprintEditor : UserControl
         for (int j = 0; j < n.Outputs.Count; j++)
         {
             double py = HeaderH + j * RowH + RowH / 2.0;
-            inner.Children.Add(Place(MakePinDot(n.Outputs[j].Kind), NodeW - 2 * PinR, py - PinR));   // 枠の内側に収める
+            inner.Children.Add(Place(MakePinDot(n.Outputs[j].Kind), NodeW - 2 * PinR - PinInset, py - PinR));   // 枠の内側に収める
             inner.Children.Add(Place(new TextBlock {
                 Text = n.Outputs[j].Name, Foreground = LabelFg, FontSize = 11,
                 Width = 54, TextAlignment = TextAlignment.Right }, NodeW - 68, py - 9));
         }
 
-        var border = new Border {
-            Width = NodeW, Height = h, Background = NodeBg,
+        // 枠線(outline) と内容(inner) を «兄弟» にして重ねる。Border の子に inner を入れると
+        // BorderThickness ぶん内容が内側へずれ、右の出力ピンが枠外へはみ出す (実行済み枠 2.4px で顕著)。
+        // 背景(body) → 内容(inner) → 枠線(outline) の順に重ね、outline は IsHitTestVisible=false で
+        // 下の TextBox/本体ドラッグへクリックを通す。
+        var body = new Border {
+            Width = NodeW, Height = h, Background = NodeBg, CornerRadius = new CornerRadius(5),
+        };
+        var outline = new Border {
+            Width = NodeW, Height = h, Background = Brushes.Transparent,
             BorderBrush = n.Executed ? ExecHi : (n.Inherited ? InheritEdge : NodeEdge),
             BorderThickness = new Thickness(n.Executed ? 2.4 : 1.2),
-            CornerRadius = new CornerRadius(5), Child = inner,
+            CornerRadius = new CornerRadius(5), IsHitTestVisible = false,
+        };
+        var outer = new Canvas {
+            Width = NodeW, Height = h, ClipToBounds = false,
             Cursor = n.Inherited ? Cursors.Arrow : Cursors.SizeAll,
             Opacity = n.Inherited ? 0.55 : 1.0,   // 継承ノードは淡色で読取専用
         };
-        Canvas.SetLeft(border, n.X); Canvas.SetTop(border, n.Y);
+        outer.Children.Add(body);
+        outer.Children.Add(inner);
+        outer.Children.Add(outline);
+        Canvas.SetLeft(outer, n.X); Canvas.SetTop(outer, n.Y);
         if (n.Inherited)
         {
             // 継承元の «継承» バッジ。
             inner.Children.Add(Place(new TextBlock {
                 Text = "継承", Foreground = InheritEdge, FontSize = 9 }, NodeW - 34, 1));
-            return border;   // 継承ノードはドラッグ/編集不可
+            return outer;   // 継承ノードはドラッグ/編集不可
         }
         // ノード本体のドラッグ (ピン上は OnPreviewDown が先取りして e.Handled にするのでここへ来ない)。
         // 定数入力欄の上で押した場合はドラッグせず編集に委ねる (パンも抑止)。
-        border.MouseLeftButtonDown += (s, e) => {
+        outer.MouseLeftButtonDown += (s, e) => {
             if (IsTextBoxOrigin(e.OriginalSource)) { e.Handled = true; return; }
             _dragNode = n; _lastMouse = e.GetPosition(GraphCanvas);
             GraphCanvas.CaptureMouse(); e.Handled = true;
         };
-        return border;
+        return outer;
     }
 
     /// <summary>入力ピン inPin に接続があるか。</summary>
