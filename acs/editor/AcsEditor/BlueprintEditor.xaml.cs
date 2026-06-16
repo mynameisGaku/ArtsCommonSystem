@@ -614,6 +614,8 @@ public partial class BlueprintEditor : UserControl
     /// <summary>反射関数ノードの実呼出 (ownerType, method, target, arg) → 戻り値文字列 (void は "")。
     /// 束縛できなければ null。target はノード ID 文字列 (空/非数値なら選択ノード=self)。MainWindow が束縛。</summary>
     public Func<string, string, string, string, string?>? InvokeMethod;
+    /// <summary>Spawn Prefab ノードの実生成 (path, pos) → 生成ノード ID 文字列 (失敗 null)。MainWindow が束縛。</summary>
+    public Func<string, string, string?>? SpawnPrefab;
     private void Trace(string s) => LogSink?.Invoke(s);
 
     private readonly Dictionary<int, string> _spawnHandles = new();   // ノード ID → spawn ハンドル (実行内で一意)
@@ -669,7 +671,14 @@ public partial class BlueprintEditor : UserControl
         string t = n.Title;
         if (t.StartsWith("On ") || t.StartsWith("Event")) return "イベント " + t.Trim();
         if (t.StartsWith("Spawn"))
-            return $"Spawn Prefab(path={EvalInputByName(n, "path")}, pos={EvalInputByName(n, "pos")}) ⇒ {SpawnHandle(n)}";
+        {
+            string path = EvalInputByName(n, "path");
+            string pos  = EvalInputByName(n, "pos");
+            string? newId = SpawnPrefab?.Invoke(path, pos);   // 実プレハブを生成し新ノード id を得る
+            if (newId != null) _returns[n.Id] = newId;        // spawned 出力 = 実ノード id (下流へ流れる)
+            string handle = newId ?? SpawnHandle(n);
+            return $"Spawn Prefab(path={path}, pos={pos}) ⇒ {handle}{(newId != null ? " [生成 OK]" : "")}";
+        }
         if (t.StartsWith("Set Position"))
             return $"Set Position(target={EvalInputByName(n, "target")}, value={EvalInputByName(n, "value")})";
         if (t.StartsWith("Publish"))  return t.Trim();

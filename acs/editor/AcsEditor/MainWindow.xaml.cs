@@ -948,6 +948,33 @@ public partial class MainWindow : Window
             ? System.IO.Path.Combine(_project.RootDir, "Assets") : null;   // 保存/開くダイアログの初期位置
         BlueprintHost.LogSink = Log;   // 実行トレースをコンソールへ
         BlueprintHost.InvokeMethod = InvokeBound;   // 関数ノード→target (無指定なら選択) ノードへ実呼出
+        BlueprintHost.SpawnPrefab = SpawnPrefabFromGraph;   // Spawn Prefab ノード→実シーンへ生成
+    }
+
+    /// <summary>
+    /// Blueprint の «Spawn Prefab» ノード実行時に呼ばれる束縛。path のプレハブ (絶対 or
+    /// プロジェクトの Assets 相対) を実シーンの root 配下へ生成し、pos "x,y" を適用して
+    /// 生成ノードの id 文字列を返す (spawned 出力に流れる)。失敗は null。
+    /// </summary>
+    private string? SpawnPrefabFromGraph(string path, string pos)
+    {
+        if (Engine == IntPtr.Zero || string.IsNullOrWhiteSpace(path) || path.StartsWith("(")) return null;
+        string full = path;
+        if (!System.IO.File.Exists(full) && _project != null)
+            full = System.IO.Path.Combine(_project.RootDir, "Assets", path);
+        string text;
+        try { text = System.IO.File.ReadAllText(full, System.Text.Encoding.UTF8); }
+        catch { return null; }
+        int id = EngineInterop.acs_editor_paste_subtree(Engine, text, -1);   // root 配下
+        if (id < 0) return null;
+        EngineInterop.acs_editor_node_set_prefab_src(Engine, id, full);
+        var xy = pos.Split(',');
+        if (xy.Length >= 2
+            && float.TryParse(xy[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float px)
+            && float.TryParse(xy[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float py))
+            EngineInterop.acs_editor_node_set_transform(Engine, id, px, py, 0f, 1f, 1f);
+        BuildHierarchy();
+        return id.ToString();
     }
 
     /// <summary>
