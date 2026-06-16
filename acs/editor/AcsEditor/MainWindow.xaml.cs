@@ -915,6 +915,7 @@ public partial class MainWindow : Window
             new("イベント", "On Destroy",   ev, none, new[] { Ex("▶") }),
             // フロー制御。
             new("フロー", "Branch",       flow, new[] { Ex("▶"), Da("cond") }, new[] { Ex("True"), Ex("False") }),
+            new("フロー", "Compare",      flow, new[] { Ex("▶"), Da("a"), Da("op"), Da("b") }, new[] { Ex("▶"), Da("result") }),
             new("フロー", "Sequence",     flow, new[] { Ex("▶") },             new[] { Ex("0"), Ex("1"), Ex("2") }),
             new("フロー", "Print String", flow, new[] { Ex("▶"), Da("text") }, new[] { Ex("▶") }),
             // サブシステム。

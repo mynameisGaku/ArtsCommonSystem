@@ -739,19 +739,60 @@ public partial class BlueprintEditor : UserControl
         n.Executed = true;
         Trace("  → " + ActionLine(n));
 
-        bool branch = n.Title.StartsWith("Branch");
-        bool tookBranch = false;
-        for (int po = 0; po < n.Outputs.Count; po++)
+        // Branch は cond を評価し True / False 出力のうち «一方だけ» を発火する。
+        if (n.Title.StartsWith("Branch"))
         {
-            if (n.Outputs[po].Kind != PinKind.Exec) continue;
-            if (branch) { if (tookBranch) break; tookBranch = true; }   // cond 未評価のため True のみ発火
-            foreach (var c in _conns)
-                if (c.FromNode == n.Id && c.FromPin == po)
-                {
-                    var to = NodeById(c.ToNode);
-                    if (to != null) ExecFrom(to);
-                }
+            string want = Truthy(EvalInputByName(n, "cond")) ? "True" : "False";
+            for (int po = 0; po < n.Outputs.Count; po++)
+                if (n.Outputs[po].Kind == PinKind.Exec && n.Outputs[po].Name == want)
+                    FireExec(n, po);
+            return;
         }
+        // 通常ノード: 全 exec 出力を上から順に発火 (Sequence 等)。
+        for (int po = 0; po < n.Outputs.Count; po++)
+            if (n.Outputs[po].Kind == PinKind.Exec)
+                FireExec(n, po);
+    }
+
+    /// <summary>ノード n の po 番出力 exec ピンに繋がる下流をすべて実行する。</summary>
+    private void FireExec(BpNode n, int po)
+    {
+        foreach (var c in _conns)
+            if (c.FromNode == n.Id && c.FromPin == po)
+            {
+                var to = NodeById(c.ToNode);
+                if (to != null) ExecFrom(to);
+            }
+    }
+
+    /// <summary>文字列を真偽として評価 (空/false/0/no/off/未接続=偽、数値は非0=真、他は真)。</summary>
+    private static bool Truthy(string s)
+    {
+        s = (s ?? "").Trim().ToLowerInvariant();
+        if (s.Length == 0 || s == "false" || s == "0" || s == "no" || s == "off" || s == "(未接続)") return false;
+        if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d)) return d != 0;
+        return true;
+    }
+
+    /// <summary>a op b を比較して真偽を返す (両方数値なら数値比較、それ以外は ==/!= の文字列比較)。</summary>
+    private static bool EvalCompare(string a, string op, string b)
+    {
+        op = (op ?? "").Trim();
+        if (op.Length == 0) op = "==";
+        bool na = double.TryParse((a ?? "").Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var da);
+        bool nb = double.TryParse((b ?? "").Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var db);
+        if (na && nb)
+            switch (op)
+            {
+                case "==": return da == db;
+                case "!=": return da != db;
+                case "<":  return da <  db;
+                case "<=": return da <= db;
+                case ">":  return da >  db;
+                case ">=": return da >= db;
+            }
+        string sa = (a ?? "").Trim(), sb = (b ?? "").Trim();
+        return op == "!=" ? sa != sb : sa == sb;
     }
 
     private string ActionLine(BpNode n)
@@ -819,7 +860,18 @@ public partial class BlueprintEditor : UserControl
         }
         if (t.StartsWith("Publish"))  return t.Trim();
         if (t.StartsWith("Print"))    return "Print: " + EvalInputByName(n, "text");
-        if (t.StartsWith("Branch"))   return $"Branch(cond={EvalInputByName(n, "cond")}) → True";
+        if (t.StartsWith("Compare"))
+        {
+            string ca = EvalInputByName(n, "a"), cop = EvalInputByName(n, "op"), cb = EvalInputByName(n, "b");
+            bool res = EvalCompare(ca, cop, cb);
+            _returns[n.Id] = res ? "true" : "false";   // result 出力 → 下流 (Branch.cond 等) へ
+            return $"Compare({ca} {cop} {cb}) ⇒ {(res ? "true" : "false")}";
+        }
+        if (t.StartsWith("Branch"))
+        {
+            string cv = EvalInputByName(n, "cond");
+            return $"Branch(cond={cv}) → {(Truthy(cv) ? "True" : "False")}";
+        }
         if (t.StartsWith("Sequence")) return "Sequence";
         if (n.Inputs.Any(p => p.Name == "target") && t.Contains('.'))   // 反射関数ノード "Owner.Method"
         {
