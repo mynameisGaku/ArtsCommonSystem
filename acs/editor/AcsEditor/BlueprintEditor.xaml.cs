@@ -422,6 +422,9 @@ public partial class BlueprintEditor : UserControl
         var hit = NodeAt(g);
         if (hit != null)
         {
+            var dup = new MenuItem { Header = $"ノードを複製   ({hit.Title})" };
+            dup.Click += (_, __) => DuplicateNode(hit);
+            menu.Items.Add(dup);
             var del = new MenuItem { Header = $"ノードを削除   ({hit.Title})" };
             del.Click += (_, __) => DeleteNode(hit);
             menu.Items.Add(del);
@@ -471,6 +474,17 @@ public partial class BlueprintEditor : UserControl
     {
         _conns.RemoveAll(c => c.FromNode == n.Id || c.ToNode == n.Id);
         _nodes.Remove(n);
+        Rebuild();
+    }
+
+    /// <summary>ノードを複製する (少しずらして配置、ピン/定数を複製、接続は引き継がない)。</summary>
+    private void DuplicateNode(BpNode n)
+    {
+        var c = new BpNode { Id = _nextId++, Title = n.Title, X = n.X + 26, Y = n.Y + 26, Header = n.Header };
+        c.Inputs.AddRange(n.Inputs);    // Pin は record(不変)なので参照共有で安全
+        c.Outputs.AddRange(n.Outputs);
+        foreach (var kv in n.Literals) c.Literals[kv.Key] = kv.Value;
+        _nodes.Add(c);
         Rebuild();
     }
 
