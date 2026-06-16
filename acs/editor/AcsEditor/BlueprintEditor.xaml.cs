@@ -143,10 +143,10 @@ public partial class BlueprintEditor : UserControl
 
     private BpNode? NodeById(int id) { foreach (var n in _nodes) if (n.Id == id) return n; return null; }
 
-    /// <summary>ピンの «グラフ座標» 中心位置(入力=左辺, 出力=右辺)。 </summary>
+    /// <summary>ピンの «グラフ座標» 中心位置。枠からはみ出さないよう PinR だけ内側に置く。 </summary>
     private static Point PinPos(BpNode n, bool output, int idx)
     {
-        double x = n.X + (output ? NodeW : 0.0);
+        double x = n.X + (output ? NodeW - PinR : PinR);
         double y = n.Y + HeaderH + idx * RowH + RowH / 2.0;
         return new Point(x, y);
     }
@@ -168,14 +168,14 @@ public partial class BlueprintEditor : UserControl
         {
             double py = HeaderH + i * RowH + RowH / 2.0;
             var pin = n.Inputs[i];
-            inner.Children.Add(Place(MakePinDot(pin.Kind), -PinR, py - PinR));
+            inner.Children.Add(Place(MakePinDot(pin.Kind), 0, py - PinR));   // 枠の内側に収める
             inner.Children.Add(Place(new TextBlock {
-                Text = pin.Name, Foreground = LabelFg, FontSize = 11 }, 9, py - 9));
+                Text = pin.Name, Foreground = LabelFg, FontSize = 11 }, 14, py - 9));
             if (pin.Kind == PinKind.Data && !IsInputConnected(n, i))
             {
                 int idx = i;
                 var tb = new TextBox {
-                    Width = 78, Height = 17, FontSize = 10, Padding = new Thickness(2, 0, 2, 0),
+                    Width = 70, Height = 17, FontSize = 10, Padding = new Thickness(2, 0, 2, 0),
                     Background = new SolidColorBrush(Color.FromRgb(0x18, 0x1C, 0x23)), Foreground = Brushes.White,
                     BorderBrush = NodeEdge, BorderThickness = new Thickness(1), VerticalContentAlignment = VerticalAlignment.Center,
                     Text = n.Literals.TryGetValue(i, out var lv) ? lv : "",
@@ -188,10 +188,10 @@ public partial class BlueprintEditor : UserControl
         for (int j = 0; j < n.Outputs.Count; j++)
         {
             double py = HeaderH + j * RowH + RowH / 2.0;
-            inner.Children.Add(Place(MakePinDot(n.Outputs[j].Kind), NodeW - PinR, py - PinR));
+            inner.Children.Add(Place(MakePinDot(n.Outputs[j].Kind), NodeW - 2 * PinR, py - PinR));   // 枠の内側に収める
             inner.Children.Add(Place(new TextBlock {
                 Text = n.Outputs[j].Name, Foreground = LabelFg, FontSize = 11,
-                Width = NodeW - 22, TextAlignment = TextAlignment.Right }, 9, py - 9));
+                Width = NodeW - 26, TextAlignment = TextAlignment.Right }, 9, py - 9));
         }
 
         var border = new Border {
