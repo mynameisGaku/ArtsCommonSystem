@@ -597,8 +597,9 @@ public partial class BlueprintEditor : UserControl
     // ----- 実行 (BP5: イベントから exec チェーンを辿る簡易インタプリタ) -----
     /// <summary>実行トレースの出力先 (MainWindow のコンソール)。</summary>
     public Action<string>? LogSink;
-    /// <summary>反射関数ノードの実呼出 (ownerType, method) → 実行できたか。MainWindow が選択ノードへ束縛。</summary>
-    public Func<string, string, bool>? InvokeMethod;
+    /// <summary>反射関数ノードの実呼出 (ownerType, method, target) → 実行できたか。
+    /// target はノード ID 文字列 (空/非数値なら選択ノード=self)。MainWindow が束縛。</summary>
+    public Func<string, string, string, bool>? InvokeMethod;
     private void Trace(string s) => LogSink?.Invoke(s);
 
     private readonly Dictionary<int, string> _spawnHandles = new();   // ノード ID → spawn ハンドル (実行内で一意)
@@ -664,8 +665,9 @@ public partial class BlueprintEditor : UserControl
         {
             var parts = t.Split('.', 2);
             string owner = parts[0], method = parts[1];
-            bool ok = InvokeMethod?.Invoke(owner, method) ?? false;   // 選択ノードの該当コンポーネントへ実呼出
-            return $"Call {t}(target={EvalInputByName(n, "target")}) [{(ok ? "実呼出 OK" : "未束縛")}]";
+            string target = EvalInputByName(n, "target");
+            bool ok = InvokeMethod?.Invoke(owner, method, target) ?? false;   // target ノード (無指定なら選択) へ実呼出
+            return $"Call {t}(target={target}) [{(ok ? "実呼出 OK" : "未束縛")}]";
         }
         return t;
     }

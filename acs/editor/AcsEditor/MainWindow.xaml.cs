@@ -922,20 +922,22 @@ public partial class MainWindow : Window
         BlueprintHost.DefaultDir = _project != null
             ? System.IO.Path.Combine(_project.RootDir, "Assets") : null;   // 保存/開くダイアログの初期位置
         BlueprintHost.LogSink = Log;   // 実行トレースをコンソールへ
-        BlueprintHost.InvokeMethod = InvokeOnSelected;   // 関数ノード→選択ノードの該当コンポーネントへ実呼出
+        BlueprintHost.InvokeMethod = InvokeBound;   // 関数ノード→target (無指定なら選択) ノードへ実呼出
     }
 
     /// <summary>
-    /// Blueprint の «関数» ノード実行時に呼ばれる束縛。現在の選択ノードのコンポーネントから
-    /// owner 型名が一致する slot を探し、その反射メソッドを実呼出する (UE の «self» 相当)。
+    /// Blueprint の «関数» ノード実行時に呼ばれる束縛。target ピンにノード ID があればその
+    /// ノード、無ければ現在の選択ノード (=self) のコンポーネントから owner 型名が一致する
+    /// slot を探し、その反射メソッドを実呼出する。
     /// </summary>
-    private bool InvokeOnSelected(string ownerType, string method)
+    private bool InvokeBound(string ownerType, string method, string target)
     {
-        if (Engine == IntPtr.Zero || _selectedId < 0) return false;
-        int cc = EngineInterop.acs_editor_node_component_count(Engine, _selectedId);
+        int nodeId = (int.TryParse(target, out var tid) && tid >= 0) ? tid : _selectedId;   // target 優先
+        if (Engine == IntPtr.Zero || nodeId < 0) return false;
+        int cc = EngineInterop.acs_editor_node_component_count(Engine, nodeId);
         for (int s = 0; s < cc; s++)
-            if (EngineInterop.ComponentName(Engine, _selectedId, s) == ownerType)
-                return EngineInterop.acs_editor_node_invoke_method(Engine, _selectedId, s, method) != 0;
+            if (EngineInterop.ComponentName(Engine, nodeId, s) == ownerType)
+                return EngineInterop.acs_editor_node_invoke_method(Engine, nodeId, s, method) != 0;
         return false;
     }
 
