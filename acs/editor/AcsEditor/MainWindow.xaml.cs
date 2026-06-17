@@ -1892,6 +1892,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(comp)) { Log("この Blueprint はコンポーネントを持たないため配置できません (ロジックのみ)。"); return; }
         int id = EngineInterop.acs_editor_paste_subtree(Engine, comp, parentId);
         if (id < 0) { Log("Blueprint の配置に失敗しました。"); return; }
+        EngineInterop.acs_editor_node_set_prefab_src(Engine, id, path);   // instance-of リンク (.acsbp。Apply/Revert 対応済)
         BuildHierarchy();
         _selectedId = id;
         SelectHierarchyItem(id);
@@ -1911,6 +1912,54 @@ public partial class MainWindow : Window
                 return sb.ToString();
             }
         return "";
+    }
+
+    /// <summary>prefab_src が Blueprint(.acsbp) か (= CMP ブロックを持つ統合資産)。</summary>
+    private static bool IsBlueprint(string src) => src.EndsWith(".acsbp", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>src から «インスタンス化に使うコンポーネント木テキスト» を読む (.acsbp は CMP 抽出、.acsprefab は全文)。</summary>
+    private static string ReadComponentsFor(string src)
+    {
+        string text = System.IO.File.ReadAllText(src, System.Text.Encoding.UTF8);
+        return IsBlueprint(src) ? ExtractComponents(text) : text;
+    }
+
+    /// <summary>コンポーネント木 comp を src へ書き戻す (.acsbp は CMP ブロックだけ差し替えて VAR/graph を温存)。</summary>
+    private static void WriteComponentsTo(string src, string comp)
+    {
+        if (IsBlueprint(src) && System.IO.File.Exists(src))
+        {
+            string existing = System.IO.File.ReadAllText(src, System.Text.Encoding.UTF8);
+            System.IO.File.WriteAllText(src, ReplaceCmpBlock(existing, comp), new System.Text.UTF8Encoding(false));
+        }
+        else System.IO.File.WriteAllText(src, comp, new System.Text.UTF8Encoding(false));
+    }
+
+    /// <summary>existing(.acsbp テキスト)の CMP ブロックを comp で差し替える (無ければ追加)。VAR/graph は温存。</summary>
+    private static string ReplaceCmpBlock(string existing, string comp)
+    {
+        var all = existing.Replace("\r", "").Split('\n');
+        var sb = new System.Text.StringBuilder();
+        bool wrote = false;
+        for (int i = 0; i < all.Length; i++)
+        {
+            if (all[i].StartsWith("CMP ") && int.TryParse(all[i].Substring(4).Trim(), out int cn))
+            {
+                i += cn;   // 古い CMP 行 + cn 行をスキップ
+                AppendCmpBlock(sb, comp); wrote = true;
+                continue;
+            }
+            sb.Append(all[i]).Append('\n');
+        }
+        if (!wrote) AppendCmpBlock(sb, comp);
+        return sb.ToString();
+    }
+
+    private static void AppendCmpBlock(System.Text.StringBuilder sb, string comp)
+    {
+        var lines = comp.Replace("\r", "").TrimEnd('\n').Split('\n');
+        sb.Append("CMP ").Append(lines.Length).Append('\n');
+        foreach (var l in lines) sb.Append(l).Append('\n');
     }
 
     /// <summary>プレハブテンプレートは自己リンクを持たない → PFAB 行を除去する。</summary>
@@ -1973,20 +2022,19 @@ public partial class MainWindow : Window
         if (Engine == IntPtr.Zero) return;
         string src = EngineInterop.NodePrefabSrc(Engine, id);
         if (string.IsNullOrEmpty(src)) return;
-        string text = EngineInterop.CopySubtree(Engine, id);
-        if (string.IsNullOrEmpty(text)) { Log("Apply 失敗 (直列化が空)。"); return; }
-        string fileText = StripPrefabLinks(text);
-        try { System.IO.File.WriteAllText(src, fileText, System.Text.Encoding.UTF8); }
+        string comp = StripPrefabLinks(EngineInterop.CopySubtree(Engine, id));
+        if (string.IsNullOrEmpty(comp)) { Log("Apply 失敗 (直列化が空)。"); return; }
+        try { WriteComponentsTo(src, comp); }   // .acsbp は CMP だけ差し替え (VAR/graph 温存)、.acsprefab は全文
         catch (Exception ex) { Log("Apply エラー: " + ex.Message); return; }
 
-        // 他の全インスタンスを新プレハブで再生成 (id を先に集めてから処理 = 走査中の構造変更を回避)。
+        // 他の全インスタンスを再生成 (id を先に集めてから処理 = 走査中の構造変更を回避)。
         var targets = FindPrefabInstances(src, id);
         int updated = 0;
-        foreach (int t in targets) if (ReinstantiateInstance(t, src, fileText) >= 0) updated++;
+        foreach (int t in targets) if (ReinstantiateInstance(t, src, comp) >= 0) updated++;
         BuildHierarchy();
         _selectedId = id;
         SelectHierarchyItem(id);
-        Log($"プレハブへ反映 (Apply) → {System.IO.Path.GetFileName(src)} ({updated} 個のインスタンスを更新)",
+        Log($"{(IsBlueprint(src) ? "Blueprint" : "プレハブ")}へ反映 (Apply) → {System.IO.Path.GetFileName(src)} ({updated} 個のインスタンスを更新)",
             "Asset", LogLevel.Success);
     }
 
@@ -1996,16 +2044,17 @@ public partial class MainWindow : Window
         if (Engine == IntPtr.Zero) return;
         string src = EngineInterop.NodePrefabSrc(Engine, id);
         if (string.IsNullOrEmpty(src) || !System.IO.File.Exists(src)) { Log("Revert 失敗 (プレハブが見つからない)。"); return; }
-        string text;
-        try { text = System.IO.File.ReadAllText(src, System.Text.Encoding.UTF8); }
+        string comp;
+        try { comp = ReadComponentsFor(src); }
         catch (Exception ex) { Log("Revert 読込エラー: " + ex.Message); return; }
-        int nid = ReinstantiateInstance(id, src, text);
+        if (string.IsNullOrWhiteSpace(comp)) { Log("Revert 失敗 (コンポーネント木が空)。"); return; }
+        int nid = ReinstantiateInstance(id, src, comp);
         if (nid >= 0)
         {
             BuildHierarchy();
             _selectedId = nid;
             SelectHierarchyItem(nid);
-            Log($"プレハブへ復元 (Revert) ← {System.IO.Path.GetFileName(src)}", "Asset", LogLevel.Info);
+            Log($"{(IsBlueprint(src) ? "Blueprint" : "プレハブ")}へ復元 (Revert) ← {System.IO.Path.GetFileName(src)}", "Asset", LogLevel.Info);
         }
     }
 
@@ -2037,7 +2086,7 @@ public partial class MainWindow : Window
             var banner = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
             banner.Children.Add(new TextBlock
             {
-                Text = "◆ Prefab: " + System.IO.Path.GetFileName(prefabSrc),
+                Text = (IsBlueprint(prefabSrc) ? "◆ Blueprint: " : "◆ Prefab: ") + System.IO.Path.GetFileName(prefabSrc),
                 Foreground = (System.Windows.Media.Brush)FindResource("Accent"), FontSize = 11, FontWeight = FontWeights.SemiBold,
             });
             var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 0) };
