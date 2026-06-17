@@ -44,6 +44,8 @@ public partial class BlueprintWindow : Window
         InitializeComponent();
         GraphHost.VariablesChanged  = RefreshVars;        // 変数が変わったら再描画
         GraphHost.ComponentsChanged = RefreshComponents;  // コンポーネント木が変わったら再描画
+        GraphHost.PathChanged = () => Title = string.IsNullOrEmpty(GraphHost.CurrentPath)
+            ? "Blueprint" : "Blueprint — " + System.IO.Path.GetFileName(GraphHost.CurrentPath);
         Loaded += (_, __) => { RefreshComponents(); RefreshVars(); };
     }
 

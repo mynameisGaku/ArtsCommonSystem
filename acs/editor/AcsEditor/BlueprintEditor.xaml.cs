@@ -528,6 +528,9 @@ public partial class BlueprintEditor : UserControl
 
     /// <summary>初期ディレクトリ (保存/開くダイアログ)。MainWindow がプロジェクトの Assets を設定。</summary>
     public string? DefaultDir { get; set; }
+    /// <summary>現在開いている .acsbp のパス (保存ダイアログを省いて上書き保存するため)。</summary>
+    public string? CurrentPath { get; private set; }
+    public Action? PathChanged;   // CurrentPath が変わった → ウィンドウタイトル更新用
 
     /// <summary>現在のグラフを .acsbp テキストへ直列化する。</summary>
     public string Serialize()
@@ -697,10 +700,17 @@ public partial class BlueprintEditor : UserControl
 
     private void OnSave(object sender, RoutedEventArgs e)
     {
+        if (SaveToCurrent()) return;   // 開いているファイルへ上書き
         var dlg = new Microsoft.Win32.SaveFileDialog {
             Filter = "ACS Blueprint (*.acsbp)|*.acsbp", DefaultExt = ".acsbp", FileName = "graph.acsbp" };
         if (DefaultDir != null && System.IO.Directory.Exists(DefaultDir)) dlg.InitialDirectory = DefaultDir;
-        if (dlg.ShowDialog() == true) System.IO.File.WriteAllText(dlg.FileName, Serialize());
+        if (dlg.ShowDialog() == true)
+        {
+            System.IO.File.WriteAllText(dlg.FileName, Serialize(), new System.Text.UTF8Encoding(false));
+            CurrentPath = dlg.FileName;
+            PathChanged?.Invoke();
+            LogSink?.Invoke($"Blueprint を保存: {System.IO.Path.GetFileName(dlg.FileName)}");
+        }
     }
 
     private void OnOpen(object sender, RoutedEventArgs e)
@@ -714,7 +724,20 @@ public partial class BlueprintEditor : UserControl
     /// <summary>.acsbp ファイルを読み込んでグラフを復元する (アセットブラウザのダブルクリック等から)。</summary>
     public void LoadFromFile(string path)
     {
-        if (System.IO.File.Exists(path)) Deserialize(System.IO.File.ReadAllText(path));
+        if (!System.IO.File.Exists(path)) return;
+        Deserialize(System.IO.File.ReadAllText(path));
+        CurrentPath = path;
+        PathChanged?.Invoke();
+    }
+
+    /// <summary>開いているファイルへ上書き保存する (CurrentPath が無ければ false)。</summary>
+    public bool SaveToCurrent()
+    {
+        if (string.IsNullOrEmpty(CurrentPath)) return false;
+        try { System.IO.File.WriteAllText(CurrentPath, Serialize(), new System.Text.UTF8Encoding(false)); }
+        catch { return false; }
+        LogSink?.Invoke($"Blueprint を保存: {System.IO.Path.GetFileName(CurrentPath)}");
+        return true;
     }
 
     /// <summary>継承元 (親) の .acsbp を選んで «継承» する。子ノードは保ったまま親を継承ノードとして読み込む。</summary>
