@@ -28,6 +28,8 @@
                 <ContextMenu>
                     <MenuItem Header="シーンに配置 (Place)" Click="OnCtxPlace"/>
                     <MenuItem Header="開く (Open)" Click="OnCtxOpen"/>
+                    <Separator/>
+                    <MenuItem Header="Blueprint に変換 (旧 Prefab→新)" Click="OnCtxConvert"/>
                 </ContextMenu>
             </ListBox.ContextMenu>
             <ListBox.ItemsPanel>

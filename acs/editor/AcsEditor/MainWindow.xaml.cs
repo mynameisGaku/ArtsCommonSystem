@@ -87,6 +87,7 @@ public partial class MainWindow : Window
         // アセットブラウザ: ダブルクリック/ドラッグでの割当とログを受ける。
         AssetBrowser.AssetActivated += OnAssetActivated;
         AssetBrowser.AssetPlace += OnAssetPlace;   // 右クリック「シーンに配置」
+        AssetBrowser.AssetConvert += OnAssetConvert;   // 右クリック「Blueprint に変換」
         AssetBrowser.Log += Log;
 
         // 終了時: ソース監視を止め、起動中のゲームプロセスを終了させる。
@@ -1879,6 +1880,30 @@ public partial class MainWindow : Window
             case "prefab":    InstantiatePrefab(e.FullPath, _selectedId); break;   // 旧 Prefab (レガシー)
             default: Log("このアセットはシーンに配置できません: " + System.IO.Path.GetFileName(e.FullPath)); break;
         }
+    }
+
+    /// <summary>右クリック「Blueprint に変換」: 旧 .acsprefab の ACSCENE を .acsbp の CMP に包んで保存する。</summary>
+    private void OnAssetConvert(object? sender, AssetActivatedEventArgs e)
+    {
+        if (e.Kind != "prefab") { Log("変換は旧 Prefab(.acsprefab) のみ対応です: " + System.IO.Path.GetFileName(e.FullPath)); return; }
+        ConvertPrefabToBlueprint(e.FullPath);
+    }
+
+    private void ConvertPrefabToBlueprint(string prefabPath)
+    {
+        if (!System.IO.File.Exists(prefabPath)) { Log("変換元が見つかりません。"); return; }
+        string acscene;
+        try { acscene = StripPrefabLinks(System.IO.File.ReadAllText(prefabPath, System.Text.Encoding.UTF8)); }
+        catch (Exception ex) { Log("変換読込エラー: " + ex.Message); return; }
+        var lines = acscene.Replace("\r", "").TrimEnd('\n').Split('\n');
+        var sb = new System.Text.StringBuilder();
+        sb.Append("ACSBP 1\nCMP ").Append(lines.Length).Append('\n');
+        foreach (var l in lines) sb.Append(l).Append('\n');
+        string bpPath = System.IO.Path.ChangeExtension(prefabPath, ".acsbp");
+        try { System.IO.File.WriteAllText(bpPath, sb.ToString(), new System.Text.UTF8Encoding(false)); }
+        catch (Exception ex) { Log("変換書込エラー: " + ex.Message); return; }
+        AssetBrowser.Refresh();
+        Log($"Blueprint に変換 → {System.IO.Path.GetFileName(bpPath)} (コンポーネント木 {lines.Length} 行)");
     }
 
     /// <summary>Blueprint(.acsbp) の Components(CMP) をシーンへ実体化する (= BP オブジェクトをスポーン)。</summary>

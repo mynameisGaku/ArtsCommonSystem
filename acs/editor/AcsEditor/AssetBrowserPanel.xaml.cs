@@ -49,6 +49,8 @@ public partial class AssetBrowserPanel : UserControl
     public event EventHandler<AssetActivatedEventArgs>? AssetActivated;
     /// <summary>右クリック「シーンに配置」。Blueprint/Prefab をシーンへ実体化する要求。</summary>
     public event EventHandler<AssetActivatedEventArgs>? AssetPlace;
+    /// <summary>右クリック「Blueprint に変換」。旧 Prefab を .acsbp へ移行する要求。</summary>
+    public event EventHandler<AssetActivatedEventArgs>? AssetConvert;
     /// <summary>コンソールへのログ出力。</summary>
     public event Action<string>? Log;
 
@@ -162,6 +164,12 @@ public partial class AssetBrowserPanel : UserControl
     {
         if (Tiles.SelectedItem is AssetItem item && !item.IsDirectory)
             AssetPlace?.Invoke(this, new AssetActivatedEventArgs(item.FullPath, item.Kind));
+    }
+
+    private void OnCtxConvert(object sender, RoutedEventArgs e)
+    {
+        if (Tiles.SelectedItem is AssetItem item && !item.IsDirectory)
+            AssetConvert?.Invoke(this, new AssetActivatedEventArgs(item.FullPath, item.Kind));
     }
 
     // ===== インポート (Assets/現在フォルダへコピー) =====
