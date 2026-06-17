@@ -535,8 +535,9 @@ public partial class BlueprintEditor : UserControl
         var sb = new StringBuilder();
         sb.Append("ACSBP 1\n");
         if (!string.IsNullOrEmpty(_parentPath)) sb.Append("PARENT ").Append(_parentPath).Append('\n');   // 継承元
-        foreach (var bb in Blackboard)   // ブラックボード: BB <name> <value…>
-            if (!string.IsNullOrWhiteSpace(bb.Name)) sb.Append("BB ").Append(bb.Name.Trim()).Append(' ').Append(bb.Value ?? "").Append('\n');
+        foreach (var v in Variables)   // BP 変数: VAR <type> <name> <value…>
+            if (!string.IsNullOrWhiteSpace(v.Name)) sb.Append("VAR ").Append(string.IsNullOrEmpty(v.Type) ? "String" : v.Type)
+                .Append(' ').Append(v.Name.Trim()).Append(' ').Append(v.Value ?? "").Append('\n');
         foreach (var n in _nodes)
         {
             if (n.Inherited) continue;   // 継承ノードは親側が持つので保存しない
@@ -561,13 +562,20 @@ public partial class BlueprintEditor : UserControl
     public void Deserialize(string text)
     {
         _nodes.Clear(); _conns.Clear(); _parentPath = null;
-        Blackboard.Clear();
-        foreach (var raw in text.Split('\n'))   // BB <name> <value…> (グラフ単位のブラックボード)
+        Variables.Clear();
+        foreach (var raw in text.Split('\n'))   // VAR <type> <name> <value…> (旧 BB <name> <value…> も読む)
         {
             var l = raw.TrimEnd('\r');
-            if (!l.StartsWith("BB ")) continue;
-            var bt = l.Split(new[] { ' ' }, 3);
-            if (bt.Length >= 2) Blackboard.Add(new BbEntry(bt[1], bt.Length >= 3 ? bt[2] : ""));
+            if (l.StartsWith("VAR "))
+            {
+                var t = l.Split(new[] { ' ' }, 4);
+                if (t.Length >= 3) Variables.Add(new BpVar(t[2], t[1], t.Length >= 4 ? t[3] : ""));
+            }
+            else if (l.StartsWith("BB "))
+            {
+                var t = l.Split(new[] { ' ' }, 3);
+                if (t.Length >= 2) Variables.Add(new BpVar(t[1], "String", t.Length >= 3 ? t[2] : ""));
+            }
         }
 
         // PARENT 行を先に処理し、親グラフを «継承ノード» (id +InheritOffset, 読取専用) として読み込む。
@@ -588,7 +596,7 @@ public partial class BlueprintEditor : UserControl
         int maxId = 0; foreach (var n in _nodes) if (!n.Inherited && n.Id > maxId) maxId = n.Id;
         _nextId = Math.Max(_nextId, maxId + 1);   // 以後の生成 ID が読込ノードと衝突しないように
         Rebuild();
-        BlackboardChanged?.Invoke();   // パネルを新しい BB で再描画
+        VariablesChanged?.Invoke();   // パネルを新しい変数で再描画
     }
 
     // .acsbp の N/I/O/V/C 行を解析して _nodes/_conns へ追加する。idOffset/inherited で継承ノードに使う。
@@ -719,14 +727,14 @@ public partial class BlueprintEditor : UserControl
 
     private readonly Dictionary<int, string> _spawnHandles = new();   // ノード ID → spawn ハンドル (実行内で一意)
     private readonly Dictionary<int, string> _returns = new();        // ノード ID → 関数の戻り値 (data 出力のプル用)
-    private readonly Dictionary<string, string> _vars = new();        // 名前付き変数 (Set/Get Variable。実行開始時に Blackboard で種まき)
+    private readonly Dictionary<string, string> _vars = new();        // 名前付き変数 (Set/Get Variable。実行開始時に Variables で種まき)
 
-    /// <summary>ブラックボードの 1 キー (名前 + 既定値)。実行開始時に変数へ種まきされる。</summary>
-    public sealed class BbEntry { public string Name; public string Value; public BbEntry(string n, string v) { Name = n; Value = v; } }
-    /// <summary>ブラックボード (宣言済みの名前付き変数。BlueprintWindow のパネルが編集)。</summary>
-    public List<BbEntry> Blackboard { get; } = new();
-    public Action? BlackboardChanged;   // BB が変わった (Deserialize 等) → パネル再描画
-    public Action? AfterRun;            // RunGraph 終了 → パネルへ live 値表示を促す
+    /// <summary>BP クラスが持つ変数 (名前 + 型 + 既定値)。実行開始時に値へ種まきされる (UE5 の Variables 相当)。</summary>
+    public sealed class BpVar { public string Name; public string Type; public string Value; public BpVar(string n, string t, string v) { Name = n; Type = t; Value = v; } }
+    /// <summary>この BP の変数一覧 (My Blueprint パネルが編集)。</summary>
+    public List<BpVar> Variables { get; } = new();
+    public Action? VariablesChanged;   // 変数が変わった (Deserialize 等) → パネル再描画
+    public Action? AfterRun;            // RunGraph 終了 (予約)
     public IReadOnlyDictionary<string, string> LiveVars => _vars;
     private int _spawnSeq;
     private int _execBudget;
@@ -743,8 +751,8 @@ public partial class BlueprintEditor : UserControl
         foreach (var n in _nodes) n.Executed = false;
         _spawnHandles.Clear(); _returns.Clear(); _spawnSeq = 0; _execBudget = 1000;
         _vars.Clear();
-        foreach (var bb in Blackboard)   // ブラックボードを変数へ種まき (Get Variable が既定値を読める)
-            if (!string.IsNullOrWhiteSpace(bb.Name)) _vars[bb.Name.Trim()] = bb.Value ?? "";
+        foreach (var v in Variables)   // BP 変数を _vars へ種まき (Get Variable が既定値を読める)
+            if (!string.IsNullOrWhiteSpace(v.Name)) _vars[v.Name.Trim()] = v.Value ?? "";
 
         var entries = _nodes
             .Where(n => n.Outputs.Any(p => p.Kind == PinKind.Exec) && !n.Inputs.Any(p => p.Kind == PinKind.Exec)

@@ -1,80 +1,184 @@
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace AcsEditor;
 
 /// <summary>
-/// Blueprint を独立ウィンドウで表示する。左に «ブラックボード» (宣言済みの名前付き
-/// 変数) パネル、中央にノードグラフ。ブラックボードは実行開始時に変数へ種まきされ、
-/// 実行後は現在値 (live) を表示する。Get/Set Variable ノードから参照できる。
+/// Blueprint を独立ウィンドウで表示する。左に «My Blueprint» (この BP が持つ変数) パネル、
+/// 中央にノードグラフ。UE5 風に、各変数を «型ごとの色ピル + 名前» で並べ、選択すると下の
+/// Details で 名前 / 型 / 既定値 を編集できる。変数は実行開始時に値へ種まきされ、Get/Set
+/// Variable ノードから参照される。
 /// </summary>
 public partial class BlueprintWindow : Window
 {
     /// <summary>このウィンドウが保持するグラフエディタ (MainWindow が配線/読込先に使う)。</summary>
     public BlueprintEditor Editor => GraphHost;
 
-    private static readonly Brush Fg     = new SolidColorBrush(Color.FromRgb(0xD8, 0xDE, 0xE9));
-    private static readonly Brush LiveFg = new SolidColorBrush(Color.FromRgb(0x6B, 0xD0, 0x8A));
+    private static readonly Brush Fg      = new SolidColorBrush(Color.FromRgb(0xDD, 0xE2, 0xEA));
+    private static readonly Brush Dim     = new SolidColorBrush(Color.FromRgb(0x8B, 0x93, 0xA0));
+    private static readonly Brush RowSel  = new SolidColorBrush(Color.FromArgb(0x66, 0x4C, 0x9E, 0xE8));
+    private static readonly Brush RowHover = new SolidColorBrush(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF));
+
+    // UE5 の型カラーに寄せた変数型パレット。
+    private static readonly string[] Types = { "Bool", "Int", "Float", "String", "Vector", "Object" };
+    private static Brush TypeBrush(string t) => t switch
+    {
+        "Bool"   => Rgb(0xC0, 0x39, 0x2B),   // 赤
+        "Int"    => Rgb(0x2B, 0xD1, 0xB4),   // ティール
+        "Float"  => Rgb(0x8F, 0xD1, 0x4F),   // 緑
+        "String" => Rgb(0xD1, 0x56, 0xB0),   // マゼンタ
+        "Vector" => Rgb(0xE0, 0xB8, 0x4A),   // 金
+        "Object" => Rgb(0x4C, 0x9E, 0xE8),   // 青
+        _        => Rgb(0x8F, 0xD1, 0x4F),
+    };
+    private static SolidColorBrush Rgb(byte r, byte g, byte b) => new(Color.FromRgb(r, g, b));
+
+    private BlueprintEditor.BpVar? _sel;
 
     public BlueprintWindow()
     {
         InitializeComponent();
-        GraphHost.BlackboardChanged = RefreshBlackboard;   // .acsbp 読込で BB が変わったら再描画
-        GraphHost.AfterRun          = RefreshLiveValues;   // 実行後に現在値を更新
-        Loaded += (_, __) => RefreshBlackboard();
+        GraphHost.VariablesChanged = RefreshVars;   // .acsbp 読込で変数が変わったら再描画
+        Loaded += (_, __) => RefreshVars();
     }
 
-    // 「＋ 追加」: 入力欄のキーを追加 (既存名は値を更新)。
-    private void OnAddKey(object sender, RoutedEventArgs e)
+    /// <summary>外部から特定の変数を選択して Details を表示する。</summary>
+    public void SelectVariable(BlueprintEditor.BpVar v) { _sel = v; RefreshVars(); }
+
+    // 「＋ 変数」: 新しい変数を追加して選択する (UE5 風に既定 Float)。
+    private void OnAddVar(object sender, RoutedEventArgs e)
     {
-        string name = BbName.Text.Trim();
-        if (name.Length == 0) return;
-        var ex = Editor.Blackboard.Find(k => k.Name.Trim() == name);
-        if (ex != null) ex.Value = BbValue.Text;
-        else Editor.Blackboard.Add(new BlueprintEditor.BbEntry(name, BbValue.Text));
-        BbName.Clear(); BbValue.Clear();
-        RefreshBlackboard();
+        var v = new BlueprintEditor.BpVar(UniqueName("NewVar"), "Float", "0");
+        Editor.Variables.Add(v);
+        _sel = v;
+        RefreshVars();
     }
 
-    // ブラックボードのキー一覧を再描画する (名前/値の編集 + 削除 + live 値ラベル)。
-    private void RefreshBlackboard()
+    private string UniqueName(string baseName)
     {
-        BbList.Children.Clear();
-        foreach (var key in Editor.Blackboard)
+        string n = baseName; int i = 1;
+        while (Editor.Variables.Exists(x => x.Name == n)) n = baseName + (++i);
+        return n;
+    }
+
+    // 変数リスト + Details を再描画する。
+    private void RefreshVars()
+    {
+        if (_sel != null && !Editor.Variables.Contains(_sel)) _sel = null;
+
+        VarList.Children.Clear();
+        foreach (var var in Editor.Variables)
         {
-            var k = key;
-            var row = new Grid { Margin = new Thickness(0, 2, 0, 0) };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            var nameBox = new TextBox { Text = k.Name, FontSize = 11, Margin = new Thickness(0, 0, 4, 0), Foreground = Fg };
-            nameBox.TextChanged += (_, __) => k.Name = nameBox.Text;
-            Grid.SetColumn(nameBox, 0); row.Children.Add(nameBox);
-
-            var valBox = new TextBox { Text = k.Value, FontSize = 11, Margin = new Thickness(0, 0, 4, 0), Foreground = Fg };
-            valBox.TextChanged += (_, __) => k.Value = valBox.Text;
-            Grid.SetColumn(valBox, 1); row.Children.Add(valBox);
-
-            var del = new Button { Content = "✕", Width = 22, FontSize = 10, Padding = new Thickness(0) };
-            del.Click += (_, __) => { Editor.Blackboard.Remove(k); RefreshBlackboard(); };
-            Grid.SetColumn(del, 2); row.Children.Add(del);
-
-            BbList.Children.Add(row);
-
-            // 直近の実行結果 (live) を小さく表示。Tag にキーを持たせ RefreshLiveValues で更新する。
-            var live = new TextBlock { FontSize = 10, Foreground = LiveFg, Margin = new Thickness(2, 0, 0, 4), Tag = k };
-            live.Text = Editor.LiveVars.TryGetValue(k.Name.Trim(), out var lv) ? "= " + lv : "";
-            BbList.Children.Add(live);
+            var v = var;
+            var row = new Border
+            {
+                Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(0, 1, 0, 1), Cursor = Cursors.Hand,
+                Background = v == _sel ? RowSel : Brushes.Transparent,
+            };
+            var g = new Grid();
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            // 型カラーのピル (UE5 の変数アイコン相当)。
+            var pill = new Border
+            {
+                Width = 17, Height = 12, CornerRadius = new CornerRadius(3), Background = TypeBrush(v.Type),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 9, 0),
+            };
+            Grid.SetColumn(pill, 0); g.Children.Add(pill);
+            var nm = new TextBlock
+            {
+                Text = v.Name, Foreground = Fg, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+            Grid.SetColumn(nm, 1); g.Children.Add(nm);
+            var ty = new TextBlock
+            {
+                Text = v.Type, Foreground = Dim, FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(6, 0, 0, 0),
+            };
+            Grid.SetColumn(ty, 2); g.Children.Add(ty);
+            row.Child = g;
+            row.MouseLeftButtonUp += (_, __) => { _sel = v; RefreshVars(); };
+            row.MouseEnter += (_, __) => { if (v != _sel) row.Background = RowHover; };
+            row.MouseLeave += (_, __) => { if (v != _sel) row.Background = Brushes.Transparent; };
+            VarList.Children.Add(row);
         }
+        if (Editor.Variables.Count == 0)
+            VarList.Children.Add(new TextBlock { Text = "（変数なし — ＋ 変数 で追加）", Foreground = Dim, FontSize = 11, Margin = new Thickness(6, 4, 0, 0) });
+
+        BuildDetails();
     }
 
-    // 実行後: 各キーの現在値 (live) ラベルだけ更新する (編集中の TextBox を壊さない)。
-    private void RefreshLiveValues()
+    // 選択中の変数の Name / Type / Default を編集する Details パネル。
+    private void BuildDetails()
     {
-        foreach (var child in BbList.Children)
-            if (child is TextBlock tb && tb.Tag is BlueprintEditor.BbEntry k)
-                tb.Text = Editor.LiveVars.TryGetValue(k.Name.Trim(), out var lv) ? "= " + lv : "";
+        DetailsPanel.Children.Clear();
+        DetailsPanel.Children.Add(SectionRule("DETAILS"));
+
+        if (_sel == null)
+        {
+            DetailsPanel.Children.Add(new TextBlock { Text = "変数を選択してください。", Foreground = Dim, FontSize = 11 });
+            return;
+        }
+        var s = _sel;
+
+        var nameBox = MakeBox(s.Name);
+        nameBox.TextChanged += (_, __) => s.Name = nameBox.Text;
+        nameBox.LostFocus += (_, __) => RefreshVars();   // リストの表示名を更新
+        DetailsPanel.Children.Add(LabeledRow("名前", nameBox));
+
+        var combo = new ComboBox { FontSize = 11, Height = 26 };
+        foreach (var t in Types) combo.Items.Add(t);
+        combo.SelectedItem = Types.Contains(s.Type) ? s.Type : "Float";
+        combo.SelectionChanged += (_, __) => { if (combo.SelectedItem is string t) { s.Type = t; RefreshVars(); } };
+        DetailsPanel.Children.Add(LabeledRow("型", combo));
+
+        var valBox = MakeBox(s.Value);
+        valBox.TextChanged += (_, __) => s.Value = valBox.Text;
+        DetailsPanel.Children.Add(LabeledRow("既定値", valBox));
+
+        var del = new Button
+        {
+            Content = "🗑 削除", Foreground = (Brush)FindResource("WarnFg"), Padding = new Thickness(10, 3, 10, 3),
+            HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 0),
+        };
+        del.Click += (_, __) => { Editor.Variables.Remove(s); _sel = null; RefreshVars(); };
+        DetailsPanel.Children.Add(del);
     }
+
+    // 「ラベル + 罫線」のセクション見出し (インスペクタと同じ流儀)。
+    private Grid SectionRule(string text)
+    {
+        var g = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var t = new TextBlock
+        {
+            Text = text, FontWeight = FontWeights.SemiBold, FontSize = 10.5,
+            Foreground = (Brush)FindResource("SectionFg"), VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        Grid.SetColumn(t, 0); g.Children.Add(t);
+        var rule = new Border { Height = 1, Background = (Brush)FindResource("Hairline"), VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(rule, 1); g.Children.Add(rule);
+        return g;
+    }
+
+    // ラベル(固定幅) + コントロール の 1 行。
+    private FrameworkElement LabeledRow(string label, FrameworkElement control)
+    {
+        var g = new Grid { Margin = new Thickness(0, 0, 0, 6) };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(54) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var lab = new TextBlock { Text = label, Foreground = Dim, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(lab, 0); g.Children.Add(lab);
+        Grid.SetColumn(control, 1); g.Children.Add(control);
+        return g;
+    }
+
+    private TextBox MakeBox(string text) => new() { Text = text, FontSize = 11, Padding = new Thickness(6, 3, 6, 3), Foreground = Fg };
 }
