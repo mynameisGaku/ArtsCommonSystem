@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -41,8 +42,61 @@ public partial class BlueprintWindow : Window
     public BlueprintWindow()
     {
         InitializeComponent();
-        GraphHost.VariablesChanged = RefreshVars;   // .acsbp 読込で変数が変わったら再描画
-        Loaded += (_, __) => RefreshVars();
+        GraphHost.VariablesChanged  = RefreshVars;        // 変数が変わったら再描画
+        GraphHost.ComponentsChanged = RefreshComponents;  // コンポーネント木が変わったら再描画
+        Loaded += (_, __) => { RefreshComponents(); RefreshVars(); };
+    }
+
+    // この BP の «コンポーネント木» (ACSCENE サブツリー) を解析してノード/コンポーネントを表示する。
+    private void RefreshComponents()
+    {
+        CompTree.Children.Clear();
+        var text = Editor.ComponentsText ?? "";
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            CompTree.Children.Add(new TextBlock { Text = "（コンポーネントなし）", Foreground = Dim, FontSize = 11 });
+            CompTree.Children.Add(new TextBlock
+            {
+                Text = "シーンのノードを右クリック →「Blueprint として保存」で作成。",
+                Foreground = Dim, FontSize = 10.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0),
+            });
+            return;
+        }
+        var order = new List<int>();
+        var names = new Dictionary<int, string>();
+        var comps = new Dictionary<int, List<string>>();
+        foreach (var raw in text.Replace("\r", "").Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0) continue;
+            if (line.StartsWith("COMP "))
+            {
+                var t = line.Split(' ');
+                if (t.Length >= 3 && int.TryParse(t[1], out int cid))
+                {
+                    if (!comps.ContainsKey(cid)) comps[cid] = new List<string>();
+                    comps[cid].Add(t[2]);
+                }
+            }
+            else if (char.IsDigit(line[0]) && line.Split(' ') is var t && t.Length >= 3 && int.TryParse(t[0], out int nid))
+            {
+                names[nid] = t[t.Length - 1];   // ノード行: <id> <parent> … <name> (最終トークン=名前)
+                if (!order.Contains(nid)) order.Add(nid);
+            }
+        }
+        foreach (var id in order)
+        {
+            CompTree.Children.Add(new TextBlock
+            {
+                Text = "▸ " + (names.TryGetValue(id, out var nm) ? nm : "#" + id),
+                Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 2, 0, 0),
+            });
+            if (comps.TryGetValue(id, out var cl))
+                foreach (var c in cl)
+                    CompTree.Children.Add(new TextBlock { Text = "     ● " + c, Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 0, 0, 1) });
+        }
+        if (order.Count == 0)
+            CompTree.Children.Add(new TextBlock { Text = "（解析できるノードなし）", Foreground = Dim, FontSize = 11 });
     }
 
     /// <summary>外部から特定の変数を選択して Details を表示する。</summary>

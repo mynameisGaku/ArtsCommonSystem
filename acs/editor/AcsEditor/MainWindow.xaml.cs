@@ -1837,6 +1837,38 @@ public partial class MainWindow : Window
         catch (Exception ex) { Log("プレハブ保存エラー: " + ex.Message); }
     }
 
+    private void OnCtxSaveBlueprint(object sender, RoutedEventArgs e) => SaveAsBlueprint(_contextNodeId);
+
+    /// <summary>ノード(とサブツリー)を «Blueprint» (.acsbp) として保存する。コンポーネント木を CMP ブロックに
+    /// 入れる (変数/グラフは空)。UE5 風の «1 つのオブジェクト» = 再利用可能な Blueprint Class。</summary>
+    private void SaveAsBlueprint(int id)
+    {
+        if (Engine == IntPtr.Zero || id < 0 || _project == null) return;
+        string comp = StripPrefabLinks(EngineInterop.CopySubtree(Engine, id));
+        if (string.IsNullOrEmpty(comp)) { Log("Blueprint 化に失敗 (サブツリーの直列化が空)。"); return; }
+        string nm = EngineInterop.NodeName(Engine, id);
+        if (string.IsNullOrWhiteSpace(nm)) nm = "Blueprint";
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Blueprint を保存",
+            Filter = "ACS Blueprint (*.acsbp)|*.acsbp",
+            InitialDirectory = _project.AssetsDir,
+            FileName = nm + ".acsbp",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+        try
+        {
+            var lines = comp.Replace("\r", "").TrimEnd('\n').Split('\n');
+            var sb = new System.Text.StringBuilder();
+            sb.Append("ACSBP 1\n").Append("CMP ").Append(lines.Length).Append('\n');
+            foreach (var l in lines) sb.Append(l).Append('\n');
+            System.IO.File.WriteAllText(dlg.FileName, sb.ToString(), new System.Text.UTF8Encoding(false));
+            AssetBrowser.Refresh();
+            Log($"Blueprint を保存 → {System.IO.Path.GetFileName(dlg.FileName)} (コンポーネント木 {lines.Length} 行)");
+        }
+        catch (Exception ex) { Log("Blueprint 保存エラー: " + ex.Message); }
+    }
+
     /// <summary>プレハブテンプレートは自己リンクを持たない → PFAB 行を除去する。</summary>
     private static string StripPrefabLinks(string text) =>
         System.Text.RegularExpressions.Regex.Replace(text, @"^PFAB .*\r?\n?", "",

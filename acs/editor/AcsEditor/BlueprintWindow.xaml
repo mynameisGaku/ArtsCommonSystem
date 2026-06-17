@@ -8,14 +8,26 @@
         TextOptions.TextFormattingMode="Display" FontSize="12.5">
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="256"/>
+            <ColumnDefinition Width="262"/>
             <ColumnDefinition Width="4"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- My Blueprint: BP クラスが持つ変数 (UE5 風) -->
+        <!-- 左: My Blueprint (この BP オブジェクト = コンポーネント木 + 変数) -->
         <DockPanel Grid.Column="0" Background="{DynamicResource Panel}">
             <TextBlock DockPanel.Dock="Top" Text="My Blueprint" Style="{DynamicResource PanelHeader}"/>
+            <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
+
+            <!-- COMPONENTS (この BP が生成するコンポーネント木) -->
+            <Border DockPanel.Dock="Top" Background="{DynamicResource HeaderBg}" Padding="11,5">
+                <TextBlock Text="COMPONENTS" Style="{DynamicResource Section}"/>
+            </Border>
+            <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
+            <Border DockPanel.Dock="Top" Height="132">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="CompTree" Margin="9,5,9,6"/>
+                </ScrollViewer>
+            </Border>
             <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
 
             <!-- VARIABLES 見出し + 追加 -->
@@ -34,7 +46,7 @@
                 <StackPanel x:Name="DetailsPanel" Margin="11,9,11,12"/>
             </Border>
 
-            <!-- 変数リスト -->
+            <!-- 変数リスト (残り) -->
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel x:Name="VarList" Margin="5,4,5,6"/>
             </ScrollViewer>

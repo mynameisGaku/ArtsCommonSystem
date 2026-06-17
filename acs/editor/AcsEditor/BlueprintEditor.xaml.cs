@@ -538,6 +538,12 @@ public partial class BlueprintEditor : UserControl
         foreach (var v in Variables)   // BP 変数: VAR <type> <name> <value…>
             if (!string.IsNullOrWhiteSpace(v.Name)) sb.Append("VAR ").Append(string.IsNullOrEmpty(v.Type) ? "String" : v.Type)
                 .Append(' ').Append(v.Name.Trim()).Append(' ').Append(v.Value ?? "").Append('\n');
+        if (!string.IsNullOrEmpty(ComponentsText))   // コンポーネント木: CMP <行数> + 逐語の ACSCENE 行
+        {
+            var clines = ComponentsText.Replace("\r", "").TrimEnd('\n').Split('\n');
+            sb.Append("CMP ").Append(clines.Length).Append('\n');
+            foreach (var cl in clines) sb.Append(cl).Append('\n');
+        }
         foreach (var n in _nodes)
         {
             if (n.Inherited) continue;   // 継承ノードは親側が持つので保存しない
@@ -563,6 +569,26 @@ public partial class BlueprintEditor : UserControl
     {
         _nodes.Clear(); _conns.Clear(); _parentPath = null;
         Variables.Clear();
+        ComponentsText = "";
+
+        // CMP <n> (コンポーネント木の逐語 ACSCENE) を抜き出し、残り行をグラフ/変数として解析する
+        // (ACSCENE の COMP/数値行が グラフ parser の C/N と衝突するため先に除去する)。
+        {
+            var all = text.Replace("\r", "").Split('\n');
+            var kept = new StringBuilder();
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i].StartsWith("CMP ") && int.TryParse(all[i].Substring(4).Trim(), out int cn))
+                {
+                    var cb = new StringBuilder();
+                    for (int j = 0; j < cn && i + 1 < all.Length; j++) cb.Append(all[++i]).Append('\n');
+                    ComponentsText = cb.ToString();
+                }
+                else kept.Append(all[i]).Append('\n');
+            }
+            text = kept.ToString();
+        }
+
         foreach (var raw in text.Split('\n'))   // VAR <type> <name> <value…> (旧 BB <name> <value…> も読む)
         {
             var l = raw.TrimEnd('\r');
@@ -597,6 +623,7 @@ public partial class BlueprintEditor : UserControl
         _nextId = Math.Max(_nextId, maxId + 1);   // 以後の生成 ID が読込ノードと衝突しないように
         Rebuild();
         VariablesChanged?.Invoke();   // パネルを新しい変数で再描画
+        ComponentsChanged?.Invoke();  // Components パネルを再描画
     }
 
     // .acsbp の N/I/O/V/C 行を解析して _nodes/_conns へ追加する。idOffset/inherited で継承ノードに使う。
@@ -736,6 +763,11 @@ public partial class BlueprintEditor : UserControl
     public Action? VariablesChanged;   // 変数が変わった (Deserialize 等) → パネル再描画
     public Action? AfterRun;            // RunGraph 終了 (予約)
     public IReadOnlyDictionary<string, string> LiveVars => _vars;
+
+    /// <summary>この BP の «コンポーネント木» (= 生成される実体。ACSCENE サブツリー逐語テキスト)。
+    /// 空ならロジックのみの BP。UE5 の Blueprint Class の Components 相当 (旧 Prefab を内包)。</summary>
+    public string ComponentsText = "";
+    public Action? ComponentsChanged;   // ComponentsText が変わった (Deserialize 等) → Components パネル再描画
     private int _spawnSeq;
     private int _execBudget;
 
