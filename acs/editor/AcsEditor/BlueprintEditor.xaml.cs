@@ -792,26 +792,63 @@ public partial class BlueprintEditor : UserControl
     public string ComponentsText = "";
     public Action? ComponentsChanged;   // ComponentsText が変わった (Deserialize 等) → Components パネル再描画
 
-    /// <summary>この BP の «root ノード» へコンポーネント型を 1 つ追加する (ACSCENE に COMP 行を挿入)。成功で true。</summary>
+    /// <summary>この BP の «root ノード» へコンポーネント型を 1 つ追加する。root の «最後の COMP 行» の直後へ
+    /// 挿入し、新コンポーネントを最後の slot にして既存 CPROP の slot 対応を壊さない。成功で true。</summary>
     public bool AddComponentToRoot(string type)
     {
         if (string.IsNullOrWhiteSpace(ComponentsText) || string.IsNullOrWhiteSpace(type)) return false;
         var lines = ComponentsText.Replace("\r", "").Split('\n').ToList();
+        int rootId = -1, insertAt = -1;
         for (int i = 0; i < lines.Count; i++)
         {
             var l = lines[i].Trim();
-            if (l.Length == 0 || !char.IsDigit(l[0])) continue;   // 最初のノード行 (= root) を探す
+            if (l.Length == 0 || !char.IsDigit(l[0])) continue;   // 最初のノード行 (= root)
             var t = l.Split(' ');
-            if (t.Length >= 3 && int.TryParse(t[0], out int rootId))
+            if (t.Length >= 3 && int.TryParse(t[0], out rootId)) { insertAt = i + 1; break; }
+        }
+        if (rootId < 0) return false;
+        for (int i = insertAt; i < lines.Count; i++)   // root の最後の COMP 行直後へ
+        {
+            var t = lines[i].Trim().Split(' ');
+            if (t.Length >= 2 && t[0] == "COMP" && t[1] == rootId.ToString()) insertAt = i + 1;
+        }
+        lines.Insert(insertAt, $"COMP {rootId} {type}");
+        ComponentsText = string.Join("\n", lines);
+        if (!ComponentsText.EndsWith("\n")) ComponentsText += "\n";
+        ComponentsChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>ノード nodeId の slot 番コンポーネントを削除する (COMP 行 + 該当 CPROP を除去し、後続 slot を 1 詰める)。</summary>
+    public bool RemoveComponentFromNode(int nodeId, int slot)
+    {
+        if (string.IsNullOrWhiteSpace(ComponentsText)) return false;
+        var lines = ComponentsText.Replace("\r", "").Split('\n').ToList();
+        int seen = 0, removeIdx = -1;
+        for (int i = 0; i < lines.Count; i++)
+        {
+            var t = lines[i].Trim().Split(' ');
+            if (t.Length >= 3 && t[0] == "COMP" && int.TryParse(t[1], out int nid) && nid == nodeId)
             {
-                lines.Insert(i + 1, $"COMP {rootId} {type}");
-                ComponentsText = string.Join("\n", lines);
-                if (!ComponentsText.EndsWith("\n")) ComponentsText += "\n";
-                ComponentsChanged?.Invoke();
-                return true;
+                if (seen == slot) { removeIdx = i; break; }
+                seen++;
             }
         }
-        return false;
+        if (removeIdx < 0) return false;
+        lines.RemoveAt(removeIdx);
+        for (int i = lines.Count - 1; i >= 0; i--)   // CPROP の slot 補正 (=削除 / >削除なら -1)
+        {
+            var t = lines[i].Trim().Split(' ');
+            if (t.Length >= 3 && t[0] == "CPROP" && int.TryParse(t[1], out int nid) && nid == nodeId && int.TryParse(t[2], out int s))
+            {
+                if (s == slot) lines.RemoveAt(i);
+                else if (s > slot) { t[2] = (s - 1).ToString(); lines[i] = string.Join(" ", t); }
+            }
+        }
+        ComponentsText = string.Join("\n", lines);
+        if (!ComponentsText.EndsWith("\n")) ComponentsText += "\n";
+        ComponentsChanged?.Invoke();
+        return true;
     }
     private int _spawnSeq;
     private int _execBudget;

@@ -94,8 +94,24 @@ public partial class BlueprintWindow : Window
                 Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 2, 0, 0),
             });
             if (comps.TryGetValue(id, out var cl))
-                foreach (var c in cl)
-                    CompTree.Children.Add(new TextBlock { Text = "     ● " + c, Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 0, 0, 1) });
+                for (int s = 0; s < cl.Count; s++)
+                {
+                    int nodeId = id, slot = s;
+                    var row = new Grid { Margin = new Thickness(0, 0, 0, 1) };
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    var lbl = new TextBlock { Text = "     ● " + cl[s], Foreground = Dim, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+                    Grid.SetColumn(lbl, 0); row.Children.Add(lbl);
+                    var x = new Button
+                    {
+                        Content = "✕", FontSize = 9, Padding = new Thickness(5, 0, 5, 0), Background = Brushes.Transparent,
+                        BorderThickness = new Thickness(0), Foreground = (Brush)FindResource("WarnFg"),
+                        VerticalAlignment = VerticalAlignment.Center, ToolTip = "コンポーネントを削除",
+                    };
+                    x.Click += (_, __) => Editor.RemoveComponentFromNode(nodeId, slot);
+                    Grid.SetColumn(x, 1); row.Children.Add(x);
+                    CompTree.Children.Add(row);
+                }
         }
         if (order.Count == 0)
             CompTree.Children.Add(new TextBlock { Text = "（解析できるノードなし）", Foreground = Dim, FontSize = 11 });
