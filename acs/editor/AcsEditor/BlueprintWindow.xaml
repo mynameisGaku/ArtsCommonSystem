@@ -3,32 +3,41 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:AcsEditor"
         Title="Blueprint" Height="660" Width="1080"
-        WindowStartupLocation="CenterOwner" Background="{DynamicResource Win}">
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource Win}"
+        Foreground="{DynamicResource Text}" UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display" FontSize="12.5">
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="230"/>
+            <ColumnDefinition Width="236"/>
             <ColumnDefinition Width="4"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
         <!-- ブラックボード: 宣言済みの名前付き変数 -->
-        <DockPanel Grid.Column="0" Background="#FF1B1F27">
-            <TextBlock DockPanel.Dock="Top" Text="ブラックボード" FontWeight="SemiBold" Foreground="#FFD8DEE9"
-                       FontSize="12" Margin="10,8,10,2"/>
-            <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Foreground="#FF7A8494" FontSize="10" Margin="10,0,10,6"
-                       Text="名前付き変数を宣言。実行開始時に変数へ種まきされ、実行後に現在値(緑)を表示。Get/Set Variable から参照。"/>
-            <Grid DockPanel.Dock="Bottom" Margin="8,6,8,8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBox x:Name="BbName"  Grid.Column="0" Margin="0,0,4,0" ToolTip="キー名"/>
-                <TextBox x:Name="BbValue" Grid.Column="1" Margin="0,0,4,0" ToolTip="既定値"/>
-                <Button  Grid.Column="2" Content="＋ 追加" Padding="8,2" Click="OnAddKey"/>
-            </Grid>
+        <DockPanel Grid.Column="0" Background="{DynamicResource Panel}">
+            <TextBlock DockPanel.Dock="Top" Text="Blackboard" Style="{DynamicResource PanelHeader}"/>
+            <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
+            <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Foreground="{DynamicResource TextDim}" FontSize="10.5"
+                       Margin="11,9,11,9" LineHeight="15"
+                       Text="名前付き変数を宣言します。実行開始時に変数へ種まきされ、実行後は現在値を緑で表示。Get / Set Variable ノードから参照できます。"/>
+
+            <!-- 追加フォーム (下部に固定) -->
+            <Border DockPanel.Dock="Bottom" Background="{DynamicResource Panel2}" BorderBrush="{DynamicResource Hairline}"
+                    BorderThickness="0,1,0,0" Padding="9,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="BbName"  Grid.Column="0" Margin="0,0,5,0" ToolTip="キー名"/>
+                    <TextBox x:Name="BbValue" Grid.Column="1" Margin="0,0,5,0" ToolTip="既定値"/>
+                    <Button  Grid.Column="2" Content="＋ 追加" Padding="9,3" Click="OnAddKey" Foreground="{DynamicResource OkFg}"/>
+                </Grid>
+            </Border>
+
             <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <StackPanel x:Name="BbList" Margin="6,2,6,2"/>
+                <StackPanel x:Name="BbList" Margin="9,6,9,6"/>
             </ScrollViewer>
         </DockPanel>
 

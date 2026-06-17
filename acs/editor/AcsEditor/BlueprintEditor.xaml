@@ -1,21 +1,27 @@
 <UserControl x:Class="AcsEditor.BlueprintEditor"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <!-- ノードグラフ・キャンバス。背景をドラッグでパン、ノードをドラッグで移動。 -->
-    <Grid Background="#FF15191F" ClipToBounds="True">
-        <Canvas x:Name="GraphCanvas" Background="Transparent"/>
-        <TextBlock x:Name="HintText" Text="Blueprint — ノード=ドラッグ移動 / ピン=ドラッグ接続(空きへ離して切断) / 背景=パン / ホイール=ズーム / 右クリック=ノード追加"
-                   Foreground="#FF55606E" FontSize="11" Margin="10,8" VerticalAlignment="Top" HorizontalAlignment="Left"
-                   IsHitTestVisible="False"/>
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,12,0">
-            <Button x:Name="RunBtn" Content="▶ 実行" Click="OnRun" Width="64" Height="24" Margin="0,0,6,0"
-                    Background="#FF2E6B3E" Foreground="#FFE6F2E9" BorderBrush="#FF3A4452"/>
-            <Button x:Name="ParentBtn" Content="継承元…" Click="OnSetParent" Width="66" Height="24" Margin="0,0,6,0"
-                    Background="#FF2A3340" Foreground="#FFD8DEE9" BorderBrush="#FF3A4452"/>
-            <Button x:Name="SaveBtn" Content="保存" Click="OnSave" Width="58" Height="24" Margin="0,0,6,0"
-                    Background="#FF2A3340" Foreground="#FFD8DEE9" BorderBrush="#FF3A4452"/>
-            <Button x:Name="OpenBtn" Content="開く" Click="OnOpen" Width="58" Height="24"
-                    Background="#FF2A3340" Foreground="#FFD8DEE9" BorderBrush="#FF3A4452"/>
-        </StackPanel>
-    </Grid>
+    <DockPanel Background="#FF14181E">
+        <!-- 上部ツールバー -->
+        <Border DockPanel.Dock="Top" Background="{DynamicResource Panel2}" BorderBrush="{DynamicResource Hairline}"
+                BorderThickness="0,0,0,1">
+            <DockPanel Margin="9,5">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button x:Name="RunBtn" Content="▶ 実行" Click="OnRun" Padding="13,3" Margin="0,0,8,0"
+                            Foreground="{DynamicResource OkFg}"/>
+                    <Separator/>
+                    <Button x:Name="ParentBtn" Content="継承元…" Click="OnSetParent" Padding="10,3" Margin="2,0"/>
+                    <Button x:Name="SaveBtn" Content="保存" Click="OnSave" Padding="11,3" Margin="2,0"/>
+                    <Button x:Name="OpenBtn" Content="開く" Click="OnOpen" Padding="11,3" Margin="2,0"/>
+                </StackPanel>
+                <TextBlock x:Name="HintText" VerticalAlignment="Center" Foreground="{DynamicResource TextDim}" FontSize="11"
+                           Text="ノード=ドラッグ移動 / ピン=ドラッグ接続(空きへ離して切断) / 背景=パン / ホイール=ズーム / 右クリック=ノード追加"/>
+            </DockPanel>
+        </Border>
+
+        <!-- ノードグラフ・キャンバス -->
+        <Grid ClipToBounds="True">
+            <Canvas x:Name="GraphCanvas" Background="Transparent"/>
+        </Grid>
+    </DockPanel>
 </UserControl>

@@ -38,6 +38,14 @@
     <SolidColorBrush x:Key="TextDim"         Color="{StaticResource C.TextDim}"/>
     <SolidColorBrush x:Key="ScrollThumb"     Color="{StaticResource C.Scroll}"/>
     <SolidColorBrush x:Key="ScrollThumbHover" Color="{StaticResource C.ScrollHover}"/>
+    <SolidColorBrush x:Key="Hairline" Color="#FF2C333E"/>   <!-- 区切り線 (パネル背景より少し明るい hairline) -->
+    <SolidColorBrush x:Key="HeaderBg" Color="#FF20252E"/>   <!-- パネル見出しバーの背景 -->
+    <SolidColorBrush x:Key="SectionFg" Color="#FF8791A0"/>  <!-- セクション見出しの文字 -->
+    <SolidColorBrush x:Key="OkFg"   Color="#FF8BE0A0"/>     <!-- 肯定アクション (Play/Add/+) -->
+    <SolidColorBrush x:Key="InfoFg" Color="#FF8FBDF0"/>     <!-- 情報アクション (Run/編集) -->
+    <SolidColorBrush x:Key="WarnFg" Color="#FFE39AA0"/>     <!-- 破壊アクション (Delete/✕) -->
+    <SolidColorBrush x:Key="LiveFg" Color="#FF6BD08A"/>     <!-- ライブ値・成功 -->
+    <SolidColorBrush x:Key="LinkFg" Color="#FFA8CDEA"/>     <!-- 補助アクション (Duplicate 等) -->
 
     <!-- ============ ScrollBar (細身・暗色・丸み) ============ -->
     <Style x:Key="ScrollThumbStyle" TargetType="Thumb">
@@ -619,6 +627,30 @@
         <Setter Property="MinWidth" Value="52"/>
         <Setter Property="Height" Value="15"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- ============ パネル/インスペクタ共通 (全ウィンドウで使う) ============ -->
+    <!-- パネル見出しバー (Hierarchy / Inspector / Console / ブラックボード 等) -->
+    <Style x:Key="PanelHeader" TargetType="TextBlock">
+        <Setter Property="Padding" Value="11,7"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="#FFB4BCC8"/>
+        <Setter Property="Background" Value="{StaticResource HeaderBg}"/>
+    </Style>
+    <!-- セクション見出し (TRANSFORM / DISPLAY 等)。SectionHeader (ラベル+罫線) と組で使う。 -->
+    <Style x:Key="Section" TargetType="TextBlock">
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="FontSize" Value="10.5"/>
+        <Setter Property="Foreground" Value="{StaticResource SectionFg}"/>
+    </Style>
+    <Style x:Key="FieldLabel" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="FontSize" Value="11.5"/>
+    </Style>
+    <Style x:Key="NumBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+        <Setter Property="Padding" Value="6,3"/>
     </Style>
 
 </ResourceDictionary>

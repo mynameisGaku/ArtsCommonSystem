@@ -18,26 +18,9 @@
             <Setter Property="Foreground" Value="{StaticResource Text}"/>
             <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
         </Style>
-        <Style x:Key="PanelHeader" TargetType="TextBlock">
-            <Setter Property="Padding" Value="9,6"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Foreground" Value="#FFAEB6C2"/>
-            <Setter Property="Background" Value="{StaticResource Panel2}"/>
-        </Style>
-        <Style x:Key="Section" TargetType="TextBlock">
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontSize" Value="11"/>
-            <Setter Property="Foreground" Value="#FF7E8794"/>
-            <Setter Property="Margin" Value="0,14,0,5"/>
-        </Style>
-        <Style x:Key="FieldLabel" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-        </Style>
-        <!-- 小型数値ボックス (Inspector)。テーマ TextBox を継承 (BasedOn が無いと WPF 既定=白に落ちる)。 -->
-        <Style x:Key="NumBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
-            <Setter Property="Padding" Value="6,3"/>
+        <!-- PanelHeader / Section / FieldLabel / NumBox は Themes/Dark.xaml に共通定義 (全ウィンドウ共有) -->
+        <Style x:Key="SectionHeader" TargetType="Grid">
+            <Setter Property="Margin" Value="0,15,0,7"/>
         </Style>
     </Window.Resources>
 
@@ -156,6 +139,7 @@
             <!-- 左カラム: Hierarchy -->
             <DockPanel Grid.Column="0" Background="{StaticResource Panel}">
                 <TextBlock DockPanel.Dock="Top" Text="Hierarchy" Style="{StaticResource PanelHeader}"/>
+                <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource Hairline}"/>
                 <TreeView x:Name="HierarchyTree" Background="{StaticResource Panel}" Foreground="{StaticResource Text}"
                           BorderThickness="0" Margin="4,4,2,4"
                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -308,6 +292,7 @@
             <!-- Inspector -->
             <DockPanel Grid.Column="4" Background="{StaticResource Panel}">
                 <TextBlock DockPanel.Dock="Top" Text="Inspector" Style="{StaticResource PanelHeader}"/>
+                <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource Hairline}"/>
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0">
                     <StackPanel Margin="12,10">
                         <!-- 選択ノードのヘッダ -->
@@ -322,8 +307,11 @@
                         <StackPanel x:Name="Insp3DPanel" Visibility="Collapsed"/>
 
                         <StackPanel x:Name="InspFields" IsEnabled="False">
-                            <TextBlock Text="TRANSFORM" Style="{StaticResource Section}"/>
-                            <Border Height="1" Background="{StaticResource Edge}" Margin="0,0,0,6"/>
+                            <Grid Style="{StaticResource SectionHeader}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="TRANSFORM" Style="{StaticResource Section}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                <Border Grid.Column="1" Height="1" Background="{StaticResource Hairline}" VerticalAlignment="Center"/>
+                            </Grid>
 
                             <Grid Margin="0,3">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="64"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -348,8 +336,11 @@
                                 <TextBox x:Name="ScaleY" Grid.Column="2" Style="{StaticResource NumBox}" Margin="3,0,0,0"/>
                             </Grid>
 
-                            <TextBlock Text="DISPLAY" Style="{StaticResource Section}"/>
-                            <Border Height="1" Background="{StaticResource Edge}" Margin="0,0,0,6"/>
+                            <Grid Style="{StaticResource SectionHeader}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="DISPLAY" Style="{StaticResource Section}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                <Border Grid.Column="1" Height="1" Background="{StaticResource Hairline}" VerticalAlignment="Center"/>
+                            </Grid>
                             <StackPanel Orientation="Horizontal" Margin="0,2,0,4">
                                 <CheckBox x:Name="DispVisible" Content="Visible" Margin="0,0,18,0" Click="OnDispVisible"/>
                                 <CheckBox x:Name="DispEnabled" Content="Enabled" Click="OnDispEnabled"/>
@@ -396,8 +387,11 @@
                                 </StackPanel>
                             </Grid>
 
-                            <TextBlock Text="COMPONENTS" Style="{StaticResource Section}"/>
-                            <Border Height="1" Background="{StaticResource Edge}" Margin="0,0,0,6"/>
+                            <Grid Style="{StaticResource SectionHeader}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="COMPONENTS" Style="{StaticResource Section}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                <Border Grid.Column="1" Height="1" Background="{StaticResource Hairline}" VerticalAlignment="Center"/>
+                            </Grid>
                             <StackPanel x:Name="CompList"/>
                             <Grid Margin="0,6,0,0">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
