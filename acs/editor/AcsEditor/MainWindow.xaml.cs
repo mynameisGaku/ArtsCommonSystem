@@ -86,6 +86,7 @@ public partial class MainWindow : Window
 
         // アセットブラウザ: ダブルクリック/ドラッグでの割当とログを受ける。
         AssetBrowser.AssetActivated += OnAssetActivated;
+        AssetBrowser.AssetPlace += OnAssetPlace;   // 右クリック「シーンに配置」
         AssetBrowser.Log += Log;
 
         // 終了時: ソース監視を止め、起動中のゲームプロセスを終了させる。
@@ -1867,6 +1868,49 @@ public partial class MainWindow : Window
             Log($"Blueprint を保存 → {System.IO.Path.GetFileName(dlg.FileName)} (コンポーネント木 {lines.Length} 行)");
         }
         catch (Exception ex) { Log("Blueprint 保存エラー: " + ex.Message); }
+    }
+
+    /// <summary>アセットの右クリック「シーンに配置」: Blueprint/Prefab をシーンへ実体化する。</summary>
+    private void OnAssetPlace(object? sender, AssetActivatedEventArgs e)
+    {
+        switch (e.Kind)
+        {
+            case "blueprint": PlaceBlueprint(e.FullPath, _selectedId); break;
+            case "prefab":    InstantiatePrefab(e.FullPath, _selectedId); break;   // 旧 Prefab (レガシー)
+            default: Log("このアセットはシーンに配置できません: " + System.IO.Path.GetFileName(e.FullPath)); break;
+        }
+    }
+
+    /// <summary>Blueprint(.acsbp) の Components(CMP) をシーンへ実体化する (= BP オブジェクトをスポーン)。</summary>
+    private void PlaceBlueprint(string path, int parentId)
+    {
+        if (Engine == IntPtr.Zero) return;
+        string text;
+        try { text = System.IO.File.ReadAllText(path); }
+        catch (Exception ex) { Log("Blueprint 読込エラー: " + ex.Message); return; }
+        string comp = ExtractComponents(text);
+        if (string.IsNullOrWhiteSpace(comp)) { Log("この Blueprint はコンポーネントを持たないため配置できません (ロジックのみ)。"); return; }
+        int id = EngineInterop.acs_editor_paste_subtree(Engine, comp, parentId);
+        if (id < 0) { Log("Blueprint の配置に失敗しました。"); return; }
+        BuildHierarchy();
+        _selectedId = id;
+        SelectHierarchyItem(id);
+        PopulateInspector(id);
+        Log($"Blueprint をシーンに配置 → {System.IO.Path.GetFileName(path)} (node {id})");
+    }
+
+    /// <summary>.acsbp テキストから CMP ブロック (コンポーネント木の ACSCENE 逐語) を取り出す。</summary>
+    private static string ExtractComponents(string text)
+    {
+        var all = text.Replace("\r", "").Split('\n');
+        for (int i = 0; i < all.Length; i++)
+            if (all[i].StartsWith("CMP ") && int.TryParse(all[i].Substring(4).Trim(), out int cn))
+            {
+                var sb = new System.Text.StringBuilder();
+                for (int j = 0; j < cn && i + 1 < all.Length; j++) sb.Append(all[++i]).Append('\n');
+                return sb.ToString();
+            }
+        return "";
     }
 
     /// <summary>プレハブテンプレートは自己リンクを持たない → PFAB 行を除去する。</summary>

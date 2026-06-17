@@ -47,6 +47,8 @@ public partial class AssetBrowserPanel : UserControl
 
     /// <summary>画像/音声などのアセットがアクティブ化されたとき (MainWindow が割当を担う)。</summary>
     public event EventHandler<AssetActivatedEventArgs>? AssetActivated;
+    /// <summary>右クリック「シーンに配置」。Blueprint/Prefab をシーンへ実体化する要求。</summary>
+    public event EventHandler<AssetActivatedEventArgs>? AssetPlace;
     /// <summary>コンソールへのログ出力。</summary>
     public event Action<string>? Log;
 
@@ -142,6 +144,24 @@ public partial class AssetBrowserPanel : UserControl
         if (Tiles.SelectedItem is not AssetItem item) return;
         if (item.IsDirectory) { _currentDir = item.FullPath; Refresh(); return; }
         AssetActivated?.Invoke(this, new AssetActivatedEventArgs(item.FullPath, item.Kind));
+    }
+
+    // 右クリックで対象タイルを選択する (コンテキストメニューが選択アイテムに作用するように)。
+    private void OnTileRightDown(object sender, MouseButtonEventArgs e)
+    {
+        if ((e.OriginalSource as FrameworkElement)?.DataContext is AssetItem it) Tiles.SelectedItem = it;
+    }
+
+    private void OnCtxOpen(object sender, RoutedEventArgs e)
+    {
+        if (Tiles.SelectedItem is AssetItem item && !item.IsDirectory)
+            AssetActivated?.Invoke(this, new AssetActivatedEventArgs(item.FullPath, item.Kind));
+    }
+
+    private void OnCtxPlace(object sender, RoutedEventArgs e)
+    {
+        if (Tiles.SelectedItem is AssetItem item && !item.IsDirectory)
+            AssetPlace?.Invoke(this, new AssetActivatedEventArgs(item.FullPath, item.Kind));
     }
 
     // ===== インポート (Assets/現在フォルダへコピー) =====

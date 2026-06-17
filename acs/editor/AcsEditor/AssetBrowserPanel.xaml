@@ -23,7 +23,13 @@
                  Margin="4,0,4,4" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                  ScrollViewer.VerticalScrollBarVisibility="Auto"
                  MouseDoubleClick="OnTileDoubleClick" PreviewMouseMove="OnTilePreviewMouseMove"
-                 PreviewMouseLeftButtonDown="OnTileMouseDown">
+                 PreviewMouseLeftButtonDown="OnTileMouseDown" PreviewMouseRightButtonDown="OnTileRightDown">
+            <ListBox.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="シーンに配置 (Place)" Click="OnCtxPlace"/>
+                    <MenuItem Header="開く (Open)" Click="OnCtxOpen"/>
+                </ContextMenu>
+            </ListBox.ContextMenu>
             <ListBox.ItemsPanel>
                 <ItemsPanelTemplate>
                     <WrapPanel Orientation="Horizontal"/>
