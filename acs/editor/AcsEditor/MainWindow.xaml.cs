@@ -1860,13 +1860,10 @@ public partial class MainWindow : Window
         if (dlg.ShowDialog(this) != true) return;
         try
         {
-            var lines = comp.Replace("\r", "").TrimEnd('\n').Split('\n');
-            var sb = new System.Text.StringBuilder();
-            sb.Append("ACSBP 1\n").Append("CMP ").Append(lines.Length).Append('\n');
-            foreach (var l in lines) sb.Append(l).Append('\n');
-            System.IO.File.WriteAllText(dlg.FileName, sb.ToString(), new System.Text.UTF8Encoding(false));
+            int cmpLines = comp.Replace("\r", "").TrimEnd('\n').Split('\n').Length;   // ログ表示用の行数
+            AcsbpFormat.Write(dlg.FileName, AcsbpFormat.WrapComponents(comp));
             AssetBrowser.Refresh();
-            Log($"Blueprint を保存 → {System.IO.Path.GetFileName(dlg.FileName)} (コンポーネント木 {lines.Length} 行)");
+            Log($"Blueprint を保存 → {System.IO.Path.GetFileName(dlg.FileName)} (コンポーネント木 {cmpLines} 行)");
         }
         catch (Exception ex) { Log("Blueprint 保存エラー: " + ex.Message); }
     }
@@ -1895,15 +1892,12 @@ public partial class MainWindow : Window
         string acscene;
         try { acscene = StripPrefabLinks(System.IO.File.ReadAllText(prefabPath, System.Text.Encoding.UTF8)); }
         catch (Exception ex) { Log("変換読込エラー: " + ex.Message); return; }
-        var lines = acscene.Replace("\r", "").TrimEnd('\n').Split('\n');
-        var sb = new System.Text.StringBuilder();
-        sb.Append("ACSBP 1\nCMP ").Append(lines.Length).Append('\n');
-        foreach (var l in lines) sb.Append(l).Append('\n');
+        int cmpLines = acscene.Replace("\r", "").TrimEnd('\n').Split('\n').Length;   // ログ表示用の行数
         string bpPath = System.IO.Path.ChangeExtension(prefabPath, ".acsbp");
-        try { System.IO.File.WriteAllText(bpPath, sb.ToString(), new System.Text.UTF8Encoding(false)); }
+        try { AcsbpFormat.Write(bpPath, AcsbpFormat.WrapComponents(acscene)); }
         catch (Exception ex) { Log("変換書込エラー: " + ex.Message); return; }
         AssetBrowser.Refresh();
-        Log($"Blueprint に変換 → {System.IO.Path.GetFileName(bpPath)} (コンポーネント木 {lines.Length} 行)");
+        Log($"Blueprint に変換 → {System.IO.Path.GetFileName(bpPath)} (コンポーネント木 {cmpLines} 行)");
     }
 
     /// <summary>Blueprint(.acsbp) の Components(CMP) をシーンへ実体化する (= BP オブジェクトをスポーン)。</summary>
@@ -1913,7 +1907,7 @@ public partial class MainWindow : Window
         string text;
         try { text = System.IO.File.ReadAllText(path); }
         catch (Exception ex) { Log("Blueprint 読込エラー: " + ex.Message); return; }
-        string comp = ExtractComponents(text);
+        string comp = AcsbpFormat.ExtractCmp(text);
         if (string.IsNullOrWhiteSpace(comp)) { Log("この Blueprint はコンポーネントを持たないため配置できません (ロジックのみ)。"); return; }
         int id = EngineInterop.acs_editor_paste_subtree(Engine, comp, parentId);
         if (id < 0) { Log("Blueprint の配置に失敗しました。"); return; }
@@ -1925,20 +1919,6 @@ public partial class MainWindow : Window
         Log($"Blueprint をシーンに配置 → {System.IO.Path.GetFileName(path)} (node {id})");
     }
 
-    /// <summary>.acsbp テキストから CMP ブロック (コンポーネント木の ACSCENE 逐語) を取り出す。</summary>
-    private static string ExtractComponents(string text)
-    {
-        var all = text.Replace("\r", "").Split('\n');
-        for (int i = 0; i < all.Length; i++)
-            if (all[i].StartsWith("CMP ") && int.TryParse(all[i].Substring(4).Trim(), out int cn))
-            {
-                var sb = new System.Text.StringBuilder();
-                for (int j = 0; j < cn && i + 1 < all.Length; j++) sb.Append(all[++i]).Append('\n');
-                return sb.ToString();
-            }
-        return "";
-    }
-
     /// <summary>prefab_src が Blueprint(.acsbp) か (= CMP ブロックを持つ統合資産)。</summary>
     private static bool IsBlueprint(string src) => src.EndsWith(".acsbp", StringComparison.OrdinalIgnoreCase);
 
@@ -1946,7 +1926,7 @@ public partial class MainWindow : Window
     private static string ReadComponentsFor(string src)
     {
         string text = System.IO.File.ReadAllText(src, System.Text.Encoding.UTF8);
-        return IsBlueprint(src) ? ExtractComponents(text) : text;
+        return IsBlueprint(src) ? AcsbpFormat.ExtractCmp(text) : text;
     }
 
     /// <summary>コンポーネント木 comp を src へ書き戻す (.acsbp は CMP ブロックだけ差し替えて VAR/graph を温存)。</summary>
@@ -1955,36 +1935,9 @@ public partial class MainWindow : Window
         if (IsBlueprint(src) && System.IO.File.Exists(src))
         {
             string existing = System.IO.File.ReadAllText(src, System.Text.Encoding.UTF8);
-            System.IO.File.WriteAllText(src, ReplaceCmpBlock(existing, comp), new System.Text.UTF8Encoding(false));
+            AcsbpFormat.Write(src, AcsbpFormat.ReplaceCmp(existing, comp));
         }
-        else System.IO.File.WriteAllText(src, comp, new System.Text.UTF8Encoding(false));
-    }
-
-    /// <summary>existing(.acsbp テキスト)の CMP ブロックを comp で差し替える (無ければ追加)。VAR/graph は温存。</summary>
-    private static string ReplaceCmpBlock(string existing, string comp)
-    {
-        var all = existing.Replace("\r", "").Split('\n');
-        var sb = new System.Text.StringBuilder();
-        bool wrote = false;
-        for (int i = 0; i < all.Length; i++)
-        {
-            if (all[i].StartsWith("CMP ") && int.TryParse(all[i].Substring(4).Trim(), out int cn))
-            {
-                i += cn;   // 古い CMP 行 + cn 行をスキップ
-                AppendCmpBlock(sb, comp); wrote = true;
-                continue;
-            }
-            sb.Append(all[i]).Append('\n');
-        }
-        if (!wrote) AppendCmpBlock(sb, comp);
-        return sb.ToString();
-    }
-
-    private static void AppendCmpBlock(System.Text.StringBuilder sb, string comp)
-    {
-        var lines = comp.Replace("\r", "").TrimEnd('\n').Split('\n');
-        sb.Append("CMP ").Append(lines.Length).Append('\n');
-        foreach (var l in lines) sb.Append(l).Append('\n');
+        else AcsbpFormat.Write(src, comp);
     }
 
     /// <summary>プレハブテンプレートは自己リンクを持たない → PFAB 行を除去する。</summary>

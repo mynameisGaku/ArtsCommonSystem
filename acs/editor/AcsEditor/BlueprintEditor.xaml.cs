@@ -542,11 +542,7 @@ public partial class BlueprintEditor : UserControl
             if (!string.IsNullOrWhiteSpace(v.Name)) sb.Append("VAR ").Append(string.IsNullOrEmpty(v.Type) ? "String" : v.Type)
                 .Append(' ').Append(v.Name.Trim()).Append(' ').Append(v.Value ?? "").Append('\n');
         if (!string.IsNullOrEmpty(ComponentsText))   // コンポーネント木: CMP <行数> + 逐語の ACSCENE 行
-        {
-            var clines = ComponentsText.Replace("\r", "").TrimEnd('\n').Split('\n');
-            sb.Append("CMP ").Append(clines.Length).Append('\n');
-            foreach (var cl in clines) sb.Append(cl).Append('\n');
-        }
+            AcsbpFormat.AppendCmpBlock(sb, ComponentsText);
         foreach (var n in _nodes)
         {
             if (n.Inherited) continue;   // 継承ノードは親側が持つので保存しない
@@ -574,23 +570,9 @@ public partial class BlueprintEditor : UserControl
         Variables.Clear();
         ComponentsText = "";
 
-        // CMP <n> (コンポーネント木の逐語 ACSCENE) を抜き出し、残り行をグラフ/変数として解析する
+        // CMP (コンポーネント木の逐語 ACSCENE) を抜き出し、残り行をグラフ/変数として解析する
         // (ACSCENE の COMP/数値行が グラフ parser の C/N と衝突するため先に除去する)。
-        {
-            var all = text.Replace("\r", "").Split('\n');
-            var kept = new StringBuilder();
-            for (int i = 0; i < all.Length; i++)
-            {
-                if (all[i].StartsWith("CMP ") && int.TryParse(all[i].Substring(4).Trim(), out int cn))
-                {
-                    var cb = new StringBuilder();
-                    for (int j = 0; j < cn && i + 1 < all.Length; j++) cb.Append(all[++i]).Append('\n');
-                    ComponentsText = cb.ToString();
-                }
-                else kept.Append(all[i]).Append('\n');
-            }
-            text = kept.ToString();
-        }
+        (ComponentsText, text) = AcsbpFormat.SplitCmp(text);
 
         foreach (var raw in text.Split('\n'))   // VAR <type> <name> <value…> (旧 BB <name> <value…> も読む)
         {
@@ -706,7 +688,7 @@ public partial class BlueprintEditor : UserControl
         if (DefaultDir != null && System.IO.Directory.Exists(DefaultDir)) dlg.InitialDirectory = DefaultDir;
         if (dlg.ShowDialog() == true)
         {
-            System.IO.File.WriteAllText(dlg.FileName, Serialize(), new System.Text.UTF8Encoding(false));
+            AcsbpFormat.Write(dlg.FileName, Serialize());
             CurrentPath = dlg.FileName;
             PathChanged?.Invoke();
             LogSink?.Invoke($"Blueprint を保存: {System.IO.Path.GetFileName(dlg.FileName)}");
@@ -734,7 +716,7 @@ public partial class BlueprintEditor : UserControl
     public bool SaveToCurrent()
     {
         if (string.IsNullOrEmpty(CurrentPath)) return false;
-        try { System.IO.File.WriteAllText(CurrentPath, Serialize(), new System.Text.UTF8Encoding(false)); }
+        try { AcsbpFormat.Write(CurrentPath, Serialize()); }
         catch { return false; }
         LogSink?.Invoke($"Blueprint を保存: {System.IO.Path.GetFileName(CurrentPath)}");
         return true;
@@ -784,8 +766,6 @@ public partial class BlueprintEditor : UserControl
     /// <summary>この BP の変数一覧 (My Blueprint パネルが編集)。</summary>
     public List<BpVar> Variables { get; } = new();
     public Action? VariablesChanged;   // 変数が変わった (Deserialize 等) → パネル再描画
-    public Action? AfterRun;            // RunGraph 終了 (予約)
-    public IReadOnlyDictionary<string, string> LiveVars => _vars;
 
     /// <summary>この BP の «コンポーネント木» (= 生成される実体。ACSCENE サブツリー逐語テキスト)。
     /// 空ならロジックのみの BP。UE5 の Blueprint Class の Components 相当 (旧 Prefab を内包)。</summary>
@@ -877,7 +857,6 @@ public partial class BlueprintEditor : UserControl
         foreach (var ev in entries) ExecFrom(ev);
         Trace("■ Blueprint 実行終了");
         Rebuild();   // 実行済みノードを枠ハイライト
-        AfterRun?.Invoke();   // パネルへ live 値の更新を促す
     }
 
     private void ExecFrom(BpNode n)

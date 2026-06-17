@@ -117,9 +117,6 @@ public partial class BlueprintWindow : Window
             CompTree.Children.Add(new TextBlock { Text = "（解析できるノードなし）", Foreground = Dim, FontSize = 11 });
     }
 
-    /// <summary>外部から特定の変数を選択して Details を表示する。</summary>
-    public void SelectVariable(BlueprintEditor.BpVar v) { _sel = v; RefreshVars(); }
-
     // 「＋ 追加」: 登録済みコンポーネント型のメニューを出し、選んだ型を root へ追加する。
     private void OnAddComponent(object sender, RoutedEventArgs e)
     {
