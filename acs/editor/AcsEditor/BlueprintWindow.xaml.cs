@@ -102,6 +102,31 @@ public partial class BlueprintWindow : Window
     /// <summary>外部から特定の変数を選択して Details を表示する。</summary>
     public void SelectVariable(BlueprintEditor.BpVar v) { _sel = v; RefreshVars(); }
 
+    // 「＋ 追加」: 登録済みコンポーネント型のメニューを出し、選んだ型を root へ追加する。
+    private void OnAddComponent(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = sender as UIElement };
+        if (string.IsNullOrWhiteSpace(Editor.ComponentsText))
+        {
+            menu.Items.Add(new MenuItem { Header = "(先にノードから「Blueprint として保存」が必要)", IsEnabled = false });
+            menu.IsOpen = true;
+            return;
+        }
+        bool any = false;
+        int cnt = EngineInterop.acs_editor_type_count();
+        for (int i = 0; i < cnt; i++)
+        {
+            if (EngineInterop.CategoryLabel(EngineInterop.acs_editor_type_category_at(i)) != "Component") continue;
+            string tn = EngineInterop.TypeName(i);
+            var mi = new MenuItem { Header = tn };
+            mi.Click += (_, __) => Editor.AddComponentToRoot(tn);
+            menu.Items.Add(mi);
+            any = true;
+        }
+        if (!any) menu.Items.Add(new MenuItem { Header = "(コンポーネント型なし)", IsEnabled = false });
+        menu.IsOpen = true;
+    }
+
     // 「＋ 変数」: 新しい変数を追加して選択する (UE5 風に既定 Float)。
     private void OnAddVar(object sender, RoutedEventArgs e)
     {

@@ -19,8 +19,13 @@
             <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
 
             <!-- COMPONENTS (この BP が生成するコンポーネント木) -->
-            <Border DockPanel.Dock="Top" Background="{DynamicResource HeaderBg}" Padding="11,5">
-                <TextBlock Text="COMPONENTS" Style="{DynamicResource Section}"/>
+            <Border DockPanel.Dock="Top" Background="{DynamicResource HeaderBg}" Padding="11,5,7,5">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="COMPONENTS" Style="{DynamicResource Section}" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="＋ 追加" Padding="9,2" FontSize="11" Click="OnAddComponent"
+                            Foreground="{DynamicResource OkFg}" ToolTip="root ノードにコンポーネントを追加"/>
+                </Grid>
             </Border>
             <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
             <Border DockPanel.Dock="Top" Height="132">

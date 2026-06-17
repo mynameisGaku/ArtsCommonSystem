@@ -768,6 +768,28 @@ public partial class BlueprintEditor : UserControl
     /// 空ならロジックのみの BP。UE5 の Blueprint Class の Components 相当 (旧 Prefab を内包)。</summary>
     public string ComponentsText = "";
     public Action? ComponentsChanged;   // ComponentsText が変わった (Deserialize 等) → Components パネル再描画
+
+    /// <summary>この BP の «root ノード» へコンポーネント型を 1 つ追加する (ACSCENE に COMP 行を挿入)。成功で true。</summary>
+    public bool AddComponentToRoot(string type)
+    {
+        if (string.IsNullOrWhiteSpace(ComponentsText) || string.IsNullOrWhiteSpace(type)) return false;
+        var lines = ComponentsText.Replace("\r", "").Split('\n').ToList();
+        for (int i = 0; i < lines.Count; i++)
+        {
+            var l = lines[i].Trim();
+            if (l.Length == 0 || !char.IsDigit(l[0])) continue;   // 最初のノード行 (= root) を探す
+            var t = l.Split(' ');
+            if (t.Length >= 3 && int.TryParse(t[0], out int rootId))
+            {
+                lines.Insert(i + 1, $"COMP {rootId} {type}");
+                ComponentsText = string.Join("\n", lines);
+                if (!ComponentsText.EndsWith("\n")) ComponentsText += "\n";
+                ComponentsChanged?.Invoke();
+                return true;
+            }
+        }
+        return false;
+    }
     private int _spawnSeq;
     private int _execBudget;
 
