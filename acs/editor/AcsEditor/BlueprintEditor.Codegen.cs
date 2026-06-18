@@ -58,11 +58,11 @@ public partial class BlueprintEditor
     private static string CppType(string t) => t switch
     {
         "Bool" => "bool", "Int" => "int", "Float" => "float",
-        "String" => "acs::FString", "Vector" => "acs::FVec2", "Object" => "FNode2D*", _ => "float",
+        "String" => "acs::FString", "Vector" => "acs::FVec2", "Vector3" => "acs::FVec3", "Object" => "FNode2D*", _ => "float",
     };
     private static string CppDefault(string t, string v)
     {
-        if (string.IsNullOrEmpty(v)) return t switch { "Bool" => "false", "String" => "{}", "Vector" => "{}", "Object" => "nullptr", _ => "0" };
+        if (string.IsNullOrEmpty(v)) return t switch { "Bool" => "false", "String" => "{}", "Vector" => "{}", "Vector3" => "{}", "Object" => "nullptr", _ => "0" };
         return CppLiteral(v, t);
     }
     private static string CppLiteral(string lit, string type)
@@ -73,6 +73,7 @@ public partial class BlueprintEditor
             case "Bool":   return Truthy(lit) ? "true" : "false";
             case "String": return "\"" + lit.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
             case "Vector": { var p = lit.Split(','); return $"acs::FVec2({(p.Length > 0 ? p[0].Trim() : "0")}f, {(p.Length > 1 ? p[1].Trim() : "0")}f)"; }
+            case "Vector3": { var p = lit.Split(','); return $"acs::FVec3({(p.Length > 0 ? p[0].Trim() : "0")}f, {(p.Length > 1 ? p[1].Trim() : "0")}f, {(p.Length > 2 ? p[2].Trim() : "0")}f)"; }
             case "Object": return double.TryParse(lit, out _) ? lit : "nullptr";
             default:       return double.TryParse(lit, NumberStyles.Float, CultureInfo.InvariantCulture, out _) ? lit : "0";
         }
@@ -326,6 +327,37 @@ public partial class BlueprintEditor
             case "Max":    { var a = GenArg(n, "a", depth); var b = GenArg(n, "b", depth); return $"(({a}) > ({b}) ? ({a}) : ({b}))"; }
             case "Clamp":  { var v = GenArg(n, "value", depth); var lo = GenArg(n, "min", depth); var hi = GenArg(n, "max", depth); return $"(({v}) < ({lo}) ? ({lo}) : (({v}) > ({hi}) ? ({hi}) : ({v})))"; }
             case "Lerp":   { var a = GenArg(n, "a", depth); var b = GenArg(n, "b", depth); var tt = GenArg(n, "t", depth); return $"(({a}) + (({b}) - ({a})) * ({tt}))"; }
+            // 比較 (各演算子)。
+            case "Greater":       return $"(({GenArg(n, "a", depth)}) >  ({GenArg(n, "b", depth)}))";
+            case "Less":          return $"(({GenArg(n, "a", depth)}) <  ({GenArg(n, "b", depth)}))";
+            case "Greater Equal": return $"(({GenArg(n, "a", depth)}) >= ({GenArg(n, "b", depth)}))";
+            case "Less Equal":    return $"(({GenArg(n, "a", depth)}) <= ({GenArg(n, "b", depth)}))";
+            case "Equal":         return $"(({GenArg(n, "a", depth)}) == ({GenArg(n, "b", depth)}))";
+            case "Not Equal":     return $"(({GenArg(n, "a", depth)}) != ({GenArg(n, "b", depth)}))";
+            // 数学 追加。
+            case "Tan":    return $"std::tan((float)({GenArg(n, "value", depth)}))";
+            case "Atan2":  return $"std::atan2((float)({GenArg(n, "y", depth)}), (float)({GenArg(n, "x", depth)}))";
+            case "Exp":    return $"std::exp((float)({GenArg(n, "value", depth)}))";
+            case "Log":    return $"std::log((float)({GenArg(n, "value", depth)}))";
+            case "Deg To Rad": return $"((float)({GenArg(n, "deg", depth)}) * 0.01745329252f)";
+            case "Rad To Deg": return $"((float)({GenArg(n, "rad", depth)}) * 57.2957795131f)";
+            case "Map Range": { var v = GenArg(n, "value", depth); var i0 = GenArg(n, "inMin", depth); var i1 = GenArg(n, "inMax", depth); var o0 = GenArg(n, "outMin", depth); var o1 = GenArg(n, "outMax", depth); return $"(({o0}) + (({o1}) - ({o0})) * ((float)(({v}) - ({i0})) / (float)(({i1}) - ({i0}))))"; }
+            case "Move Towards": { var c = GenArg(n, "current", depth); var t = GenArg(n, "target", depth); var s = GenArg(n, "step", depth); return $"(std::fabs((float)(({t}) - ({c}))) <= (float)({s}) ? (float)({t}) : (float)({c}) + ((({t}) > ({c})) ? (float)({s}) : -(float)({s})))"; }
+            case "SmoothStep": { var a = GenArg(n, "a", depth); var b = GenArg(n, "b", depth); var tt = GenArg(n, "t", depth); return $"(({a}) + (({b}) - ({a})) * (((float)({tt}) * (float)({tt})) * (3.0f - 2.0f * (float)({tt}))))"; }
+            // ベクトル (FVec2 = «Vector»、成分ごとに構築。FVec3 は «Vector3»)。
+            case "Make Vector3": return $"acs::FVec3((float)({GenArg(n, "x", depth)}), (float)({GenArg(n, "y", depth)}), (float)({GenArg(n, "z", depth)}))";
+            case "Break Vector3": { var v = GenArg(n, "in", depth); return $"(({v}).{(outPin == 0 ? "x" : outPin == 1 ? "y" : "z")})"; }
+            case "Break Vector":  { var v = GenArg(n, "in", depth); return $"(({v}).{(outPin == 0 ? "x" : "y")})"; }
+            case "To Vector3": { var v = GenArg(n, "in", depth); return $"acs::FVec3(({v}).x, ({v}).y, 0.0f)"; }
+            case "To Vector2": { var v = GenArg(n, "in", depth); return $"acs::FVec2(({v}).x, ({v}).y)"; }
+            case "Vector Add":      { var a = GenArg(n, "a", depth); var b = GenArg(n, "b", depth); return $"acs::FVec2(({a}).x + ({b}).x, ({a}).y + ({b}).y)"; }
+            case "Vector Subtract": { var a = GenArg(n, "a", depth); var b = GenArg(n, "b", depth); return $"acs::FVec2(({a}).x - ({b}).x, ({a}).y - ({b}).y)"; }
+            case "Vector Scale":    { var v = GenArg(n, "v", depth); var s = GenArg(n, "s", depth); return $"acs::FVec2(({v}).x * (float)({s}), ({v}).y * (float)({s}))"; }
+            case "Vector Length":   { var v = GenArg(n, "v", depth); return $"std::sqrt(({v}).x * ({v}).x + ({v}).y * ({v}).y)"; }
+            case "Vector Distance": { var a = GenArg(n, "a", depth); var b = GenArg(n, "b", depth); return $"std::sqrt((({a}).x - ({b}).x) * (({a}).x - ({b}).x) + (({a}).y - ({b}).y) * (({a}).y - ({b}).y))"; }
+            case "Vector Dot":      { var a = GenArg(n, "a", depth); var b = GenArg(n, "b", depth); return $"(({a}).x * ({b}).x + ({a}).y * ({b}).y)"; }
+            // 時間。
+            case "Get Delta Time": return "dt";
         }
         if (n.Title.StartsWith("Spawn")) return $"spawned{n.Id}";
         return $"/*{SanitizeIdent(n.Title)}*/0";

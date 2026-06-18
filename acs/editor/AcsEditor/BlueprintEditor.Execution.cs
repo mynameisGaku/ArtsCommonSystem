@@ -541,6 +541,7 @@ public partial class BlueprintEditor
         double B() => ParseNum(EvalInputByName(from, "b"));
         double V() => ParseNum(EvalInputByName(from, "value"));
         string Clean(string s) => (s == "(未接続)" || s == "(なし)") ? "" : s;
+        (double x, double y) V2Of(string name) { var p = EvalInputByName(from, name).Split(','); return (p.Length > 0 ? ParseNum(p[0]) : 0, p.Length > 1 ? ParseNum(p[1]) : 0); }
         switch (from.Title)
         {
             case "Add":      return Fmt(A() + B());
@@ -590,11 +591,52 @@ public partial class BlueprintEditor
             case "Power":    return Fmt(Math.Pow(ParseNum(EvalInputByName(from, "base")), ParseNum(EvalInputByName(from, "exp"))));
             case "Clamp":    { double v = V(), lo = ParseNum(EvalInputByName(from, "min")), hi = ParseNum(EvalInputByName(from, "max")); return Fmt(Math.Min(Math.Max(v, lo), hi)); }
             case "Lerp":     { double a = A(), b = B(), t = ParseNum(EvalInputByName(from, "t")); return Fmt(a + (b - a) * t); }
+            // 比較 (各演算子ごとの独立ノード)。
+            case "Greater":       return A() >  B() ? "true" : "false";
+            case "Less":          return A() <  B() ? "true" : "false";
+            case "Greater Equal": return A() >= B() ? "true" : "false";
+            case "Less Equal":    return A() <= B() ? "true" : "false";
+            case "Equal":         return A() == B() ? "true" : "false";
+            case "Not Equal":     return A() != B() ? "true" : "false";
+            // 数学 追加。
+            case "Tan":   return Fmt(Math.Tan(V()));
+            case "Atan2": return Fmt(Math.Atan2(ParseNum(EvalInputByName(from, "y")), ParseNum(EvalInputByName(from, "x"))));
+            case "Exp":   return Fmt(Math.Exp(V()));
+            case "Log":   { double v = V(); return Fmt(v <= 0 ? 0 : Math.Log(v)); }
+            case "Deg To Rad": return Fmt(ParseNum(EvalInputByName(from, "deg")) * Math.PI / 180.0);
+            case "Rad To Deg": return Fmt(ParseNum(EvalInputByName(from, "rad")) * 180.0 / Math.PI);
+            case "Map Range":  { double v = V(), i0 = ParseNum(EvalInputByName(from, "inMin")), i1 = ParseNum(EvalInputByName(from, "inMax")), o0 = ParseNum(EvalInputByName(from, "outMin")), o1 = ParseNum(EvalInputByName(from, "outMax")); double t = i1 == i0 ? 0 : (v - i0) / (i1 - i0); return Fmt(o0 + (o1 - o0) * t); }
+            case "Move Towards": { double c = ParseNum(EvalInputByName(from, "current")), tg = ParseNum(EvalInputByName(from, "target")), st = ParseNum(EvalInputByName(from, "step")); double d = tg - c; return Fmt(Math.Abs(d) <= st ? tg : c + Math.Sign(d) * st); }
+            case "Wrap":     { double v = V(), lo = ParseNum(EvalInputByName(from, "min")), hi = ParseNum(EvalInputByName(from, "max")); double r = hi - lo; return Fmt(r <= 0 ? lo : lo + (((v - lo) % r) + r) % r); }
+            case "PingPong": { double t = ParseNum(EvalInputByName(from, "t")), len = ParseNum(EvalInputByName(from, "length")); if (len <= 0) return "0"; double m = ((t % (2 * len)) + 2 * len) % (2 * len); return Fmt(m <= len ? m : 2 * len - m); }
+            case "SmoothStep": { double a = A(), b = B(), t = ParseNum(EvalInputByName(from, "t")); double x = Math.Min(Math.Max(t, 0), 1); return Fmt(a + (b - a) * (x * x * (3 - 2 * x))); }
+            // ベクトル (Vector=Vec2 / Vector3=Vec3。カンマ区切り文字列で表現)。
+            case "Make Vector3": return $"{Fmt(ParseNum(EvalInputByName(from, "x")))},{Fmt(ParseNum(EvalInputByName(from, "y")))},{Fmt(ParseNum(EvalInputByName(from, "z")))}";
+            case "Break Vector3": { var v = EvalInputByName(from, "in").Split(','); double x = v.Length > 0 ? ParseNum(v[0]) : 0, y = v.Length > 1 ? ParseNum(v[1]) : 0, z = v.Length > 2 ? ParseNum(v[2]) : 0; return Fmt(outPin == 0 ? x : outPin == 1 ? y : z); }
+            case "To Vector3": { var (vx, vy) = V2Of("in"); return $"{Fmt(vx)},{Fmt(vy)},0"; }
+            case "To Vector2": { var (vx, vy) = V2Of("in"); return $"{Fmt(vx)},{Fmt(vy)}"; }
+            case "Vector Add":      { var (ax, ay) = V2Of("a"); var (bx, by) = V2Of("b"); return $"{Fmt(ax + bx)},{Fmt(ay + by)}"; }
+            case "Vector Subtract": { var (ax, ay) = V2Of("a"); var (bx, by) = V2Of("b"); return $"{Fmt(ax - bx)},{Fmt(ay - by)}"; }
+            case "Vector Scale":    { var (vx, vy) = V2Of("v"); double s = ParseNum(EvalInputByName(from, "s")); return $"{Fmt(vx * s)},{Fmt(vy * s)}"; }
+            case "Vector Length":   { var (vx, vy) = V2Of("v"); return Fmt(Math.Sqrt(vx * vx + vy * vy)); }
+            case "Vector Distance": { var (ax, ay) = V2Of("a"); var (bx, by) = V2Of("b"); return Fmt(Math.Sqrt((ax - bx) * (ax - bx) + (ay - by) * (ay - by))); }
+            case "Vector Dot":      { var (ax, ay) = V2Of("a"); var (bx, by) = V2Of("b"); return Fmt(ax * bx + ay * by); }
+            case "Vector Normalize":{ var (vx, vy) = V2Of("v"); double l = Math.Sqrt(vx * vx + vy * vy); return l == 0 ? "0,0" : $"{Fmt(vx / l)},{Fmt(vy / l)}"; }
             // 文字列。
             case "Append":      return Clean(EvalInputByName(from, "a")) + Clean(EvalInputByName(from, "b"));
             case "String Length": return Clean(EvalInputByName(from, "in")).Length.ToString(CultureInfo.InvariantCulture);
             case "To Upper":    return Clean(EvalInputByName(from, "in")).ToUpperInvariant();
             case "To Lower":    return Clean(EvalInputByName(from, "in")).ToLowerInvariant();
+            case "Contains":    return Clean(EvalInputByName(from, "in")).Contains(Clean(EvalInputByName(from, "sub"))) ? "true" : "false";
+            case "Replace":     return Clean(EvalInputByName(from, "in")).Replace(Clean(EvalInputByName(from, "from")), Clean(EvalInputByName(from, "to")));
+            case "Substring":   { var s = Clean(EvalInputByName(from, "in")); int st = (int)ParseNum(EvalInputByName(from, "start")), ct = (int)ParseNum(EvalInputByName(from, "count")); st = Math.Min(Math.Max(st, 0), s.Length); ct = Math.Min(Math.Max(ct, 0), s.Length - st); return s.Substring(st, ct); }
+            // 乱数 (デバッグ実行は固定シード)。
+            case "Random Float": { double lo = ParseNum(EvalInputByName(from, "min")), hi = ParseNum(EvalInputByName(from, "max")); return Fmt(lo + _rng.NextDouble() * (hi - lo)); }
+            case "Random Int":   { int lo = (int)ParseNum(EvalInputByName(from, "min")), hi = (int)ParseNum(EvalInputByName(from, "max")); return (hi <= lo ? lo : _rng.Next(lo, hi + 1)).ToString(CultureInfo.InvariantCulture); }
+            case "Random Bool":  return _rng.Next(2) == 0 ? "false" : "true";
+            // 時間 (デバッグ実行は代表値。codegen は実 dt/時刻)。
+            case "Get Delta Time": return "0.016";
+            case "Get Time":       return "0";
         }
         return null;
     }

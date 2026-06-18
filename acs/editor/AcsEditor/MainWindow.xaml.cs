@@ -924,6 +924,8 @@ public partial class MainWindow : Window
         var lgc  = System.Windows.Media.Color.FromRgb(0x70, 0x50, 0x3E);   // 論理     = 橙茶
         var cvt  = System.Windows.Media.Color.FromRgb(0x4A, 0x55, 0x6E);   // 変換     = 青灰
         var str  = System.Windows.Media.Color.FromRgb(0x8C, 0x3E, 0x74);   // 文字列   = 暗マゼンタ
+        var cmp  = System.Windows.Media.Color.FromRgb(0x4E, 0x6E, 0x4A);   // 比較     = 緑
+        var tim  = System.Windows.Media.Color.FromRgb(0x35, 0x6E, 0x7A);   // 時間/乱数 = 青緑
 
         static BlueprintEditor.BpPinSpec Ex(string n) => new(n, true);
         static BlueprintEditor.BpPinSpec Da(string n, string ty = "") => new(n, false, ty);   // ty="" = ワイルドカード
@@ -938,7 +940,6 @@ public partial class MainWindow : Window
             new("イベント", "On Event",     ev, new[] { Da("channel", "String") }, new[] { Ex("▶") }),
             // フロー制御。
             new("フロー", "Branch",       flow, new[] { Ex("▶"), Da("cond", "Bool") }, new[] { Ex("True"), Ex("False") }),
-            new("フロー", "Compare",      flow, new[] { Ex("▶"), Da("a"), Da("op", "String"), Da("b") }, new[] { Ex("▶"), Da("result", "Bool") }),
             new("フロー", "Sequence",     flow, new[] { Ex("▶") },             new[] { Ex("0"), Ex("1"), Ex("2") }),
             new("フロー", "Print String", flow, new[] { Ex("▶"), Da("text", "String") }, new[] { Ex("▶") }),
             // サブシステム。
@@ -977,23 +978,62 @@ public partial class MainWindow : Window
             new("演算", "Sign",     mth, new[] { Da("value", "Float") }, new[] { Da("result", "Float") }),
             new("演算", "Sin",      mth, new[] { Da("value", "Float") }, new[] { Da("result", "Float") }),
             new("演算", "Cos",      mth, new[] { Da("value", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Tan",      mth, new[] { Da("value", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Atan2",    mth, new[] { Da("y", "Float"), Da("x", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Exp",      mth, new[] { Da("value", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Log",      mth, new[] { Da("value", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Deg To Rad", mth, new[] { Da("deg", "Float") }, new[] { Da("rad", "Float") }),
+            new("演算", "Rad To Deg", mth, new[] { Da("rad", "Float") }, new[] { Da("deg", "Float") }),
+            new("演算", "Map Range",  mth, new[] { Da("value", "Float"), Da("inMin", "Float"), Da("inMax", "Float"), Da("outMin", "Float"), Da("outMax", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Move Towards", mth, new[] { Da("current", "Float"), Da("target", "Float"), Da("step", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Wrap",     mth, new[] { Da("value", "Float"), Da("min", "Float"), Da("max", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "PingPong", mth, new[] { Da("t", "Float"), Da("length", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "SmoothStep", mth, new[] { Da("a", "Float"), Da("b", "Float"), Da("t", "Float") }, new[] { Da("result", "Float") }),
             // 文字列 (pure)。
             new("文字列", "Append",        str, new[] { Da("a", "String"), Da("b", "String") }, new[] { Da("result", "String") }),
             new("文字列", "String Length", str, new[] { Da("in", "String") },                   new[] { Da("length", "Int") }),
             new("文字列", "To Upper",      str, new[] { Da("in", "String") },                   new[] { Da("result", "String") }),
             new("文字列", "To Lower",      str, new[] { Da("in", "String") },                   new[] { Da("result", "String") }),
+            new("文字列", "Contains",      str, new[] { Da("in", "String"), Da("sub", "String") }, new[] { Da("result", "Bool") }),
+            new("文字列", "Replace",       str, new[] { Da("in", "String"), Da("from", "String"), Da("to", "String") }, new[] { Da("result", "String") }),
+            new("文字列", "Substring",     str, new[] { Da("in", "String"), Da("start", "Int"), Da("count", "Int") }, new[] { Da("result", "String") }),
+            // 乱数 (pure)。
+            new("乱数", "Random Float", tim, new[] { Da("min", "Float"), Da("max", "Float") }, new[] { Da("result", "Float") }),
+            new("乱数", "Random Int",   tim, new[] { Da("min", "Int"), Da("max", "Int") },     new[] { Da("result", "Int") }),
+            new("乱数", "Random Bool",  tim, none,                                             new[] { Da("result", "Bool") }),
+            // 時間 (pure)。
+            new("時間", "Get Delta Time", tim, none, new[] { Da("dt", "Float") }),
+            new("時間", "Get Time",       tim, none, new[] { Da("time", "Float") }),
             // 論理 (pure)。
             new("論理", "And", lgc, new[] { Da("a", "Bool"), Da("b", "Bool") }, new[] { Da("result", "Bool") }),
             new("論理", "Or",  lgc, new[] { Da("a", "Bool"), Da("b", "Bool") }, new[] { Da("result", "Bool") }),
             new("論理", "Not", lgc, new[] { Da("in", "Bool") },                 new[] { Da("result", "Bool") }),
+            // 比較 (pure: 各演算子ごとに独立ノード。a,b は Float)。
+            new("比較", "Greater",       cmp, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Bool") }),
+            new("比較", "Less",          cmp, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Bool") }),
+            new("比較", "Greater Equal", cmp, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Bool") }),
+            new("比較", "Less Equal",    cmp, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Bool") }),
+            new("比較", "Equal",         cmp, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Bool") }),
+            new("比較", "Not Equal",     cmp, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Bool") }),
             // ベクトル (pure)。
             new("ベクトル", "Make Vector",  mth, new[] { Da("x", "Float"), Da("y", "Float") }, new[] { Da("vector", "Vector") }),
             new("ベクトル", "Break Vector", mth, new[] { Da("in", "Vector") },                 new[] { Da("x", "Float"), Da("y", "Float") }),
+            new("ベクトル", "Make Vector3",  mth, new[] { Da("x", "Float"), Da("y", "Float"), Da("z", "Float") }, new[] { Da("vector", "Vector3") }),
+            new("ベクトル", "Break Vector3", mth, new[] { Da("in", "Vector3") }, new[] { Da("x", "Float"), Da("y", "Float"), Da("z", "Float") }),
+            new("ベクトル", "Vector Add",      mth, new[] { Da("a", "Vector"), Da("b", "Vector") }, new[] { Da("result", "Vector") }),
+            new("ベクトル", "Vector Subtract", mth, new[] { Da("a", "Vector"), Da("b", "Vector") }, new[] { Da("result", "Vector") }),
+            new("ベクトル", "Vector Scale",    mth, new[] { Da("v", "Vector"), Da("s", "Float") },   new[] { Da("result", "Vector") }),
+            new("ベクトル", "Vector Length",   mth, new[] { Da("v", "Vector") },                     new[] { Da("length", "Float") }),
+            new("ベクトル", "Vector Distance", mth, new[] { Da("a", "Vector"), Da("b", "Vector") }, new[] { Da("distance", "Float") }),
+            new("ベクトル", "Vector Dot",      mth, new[] { Da("a", "Vector"), Da("b", "Vector") }, new[] { Da("result", "Float") }),
+            new("ベクトル", "Vector Normalize",mth, new[] { Da("v", "Vector") },                     new[] { Da("result", "Vector") }),
             // 型変換 (pure)。
-            new("変換", "To String", cvt, new[] { Da("in") },          new[] { Da("out", "String") }),
-            new("変換", "To Float",  cvt, new[] { Da("in") },          new[] { Da("out", "Float") }),
-            new("変換", "To Int",    cvt, new[] { Da("in") },          new[] { Da("out", "Int") }),
-            new("変換", "To Bool",   cvt, new[] { Da("in") },          new[] { Da("out", "Bool") }),
+            new("変換", "To String", cvt, new[] { Da("in") },             new[] { Da("out", "String") }),
+            new("変換", "To Float",  cvt, new[] { Da("in") },             new[] { Da("out", "Float") }),
+            new("変換", "To Int",    cvt, new[] { Da("in") },             new[] { Da("out", "Int") }),
+            new("変換", "To Bool",   cvt, new[] { Da("in") },             new[] { Da("out", "Bool") }),
+            new("変換", "To Vector3",cvt, new[] { Da("in", "Vector") },   new[] { Da("out", "Vector3") }),
+            new("変換", "To Vector2",cvt, new[] { Da("in", "Vector3") },  new[] { Da("out", "Vector") }),
             // ループ。
             new("ループ", "For Loop", flow, new[] { Ex("▶"), Da("first", "Int"), Da("last", "Int") }, new[] { Ex("Loop Body"), Da("index", "Int"), Ex("Completed") }),
             new("ループ", "While",    flow, new[] { Ex("▶"), Da("cond", "Bool") },                    new[] { Ex("Loop Body"), Ex("Completed") }),

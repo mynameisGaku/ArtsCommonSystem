@@ -147,6 +147,7 @@ public partial class BlueprintEditor : UserControl
     private static readonly Brush TFloat  = new SolidColorBrush(Color.FromRgb(0x8F, 0xD1, 0x4F));
     private static readonly Brush TString = new SolidColorBrush(Color.FromRgb(0xD1, 0x56, 0xB0));
     private static readonly Brush TVector = new SolidColorBrush(Color.FromRgb(0xE0, 0xB8, 0x4A));
+    private static readonly Brush TVector3 = new SolidColorBrush(Color.FromRgb(0xE8, 0x8A, 0x3A));
     private static readonly Brush TObject = new SolidColorBrush(Color.FromRgb(0x4C, 0x9E, 0xE8));
 
     private static Brush DataTypeBrush(string type) => type switch
@@ -156,6 +157,7 @@ public partial class BlueprintEditor : UserControl
         "Float"  => TFloat,
         "String" => TString,
         "Vector" => TVector,
+        "Vector3" => TVector3,
         "Object" => TObject,
         _        => PinData,   // 空/未知 = ワイルドカード
     };
@@ -723,17 +725,46 @@ public partial class BlueprintEditor : UserControl
         CommitEdit();
     }
 
-    /// <summary>出力ピン (型 outType) → 入力ピン (型 inType) のデータ接続が許されるか。
-    /// 空=ワイルドカードは何でも可。String 入力は何でも受ける (文字列化)。数値は Int↔Float 相互可。</summary>
-    private static bool CanConnectData(string outType, string inType)
+    /// <summary>出力(outType) → 入力(inType) の接続可否と «必要な変換ノード名»。
+    /// 戻り値: ok=false=拒否 / (true,null)=直結 / (true,"To X")=その変換ノードを自動挿入。
+    /// 空=ワイルドカードと同型は直結。それ以外は型が完全一致しない限り変換ノードを挟む (厳密型)。</summary>
+    private static (bool ok, string? conv) ConnectInfo(string outType, string inType)
     {
         outType = (outType ?? "").Trim(); inType = (inType ?? "").Trim();
-        if (outType.Length == 0 || inType.Length == 0) return true;   // ワイルドカード
-        if (inType == "String") return true;                          // 文字列はすべて受ける
-        if (outType == inType) return true;
-        bool on = outType == "Int" || outType == "Float";
-        bool inn = inType == "Int" || inType == "Float";
-        return on && inn;                                             // Int↔Float 暗黙変換
+        if (outType.Length == 0 || inType.Length == 0) return (true, null);   // ワイルドカードは直結
+        if (outType == inType) return (true, null);
+        var conv = ConversionNodeFor(outType, inType);
+        return conv != null ? (true, conv) : (false, null);
+    }
+
+    /// <summary>from → to の変換に使うノード名 (無ければ null)。</summary>
+    private static string? ConversionNodeFor(string from, string to)
+    {
+        if (to == "String" && (from is "Int" or "Float" or "Bool" or "Vector" or "Vector3")) return "To String";
+        if (from == "Int"     && to == "Float")   return "To Float";
+        if (from == "Float"   && to == "Int")     return "To Int";
+        if (from == "Vector"  && to == "Vector3") return "To Vector3";
+        if (from == "Vector3" && to == "Vector")  return "To Vector2";
+        return null;
+    }
+
+    /// <summary>接続可能か (直結 or 変換可)。ピン強調・検索フィルタ用。</summary>
+    private static bool CanConnectData(string outType, string inType) => ConnectInfo(outType, inType).ok;
+
+    /// <summary>out と in の間に型変換ノードを生成して挟む (out→conv→in)。</summary>
+    private void InsertConversion(PinRef outRef, PinRef inRef, string convTitle)
+    {
+        var op = PinPos(outRef.Node, true, outRef.Index);
+        var ip = PinPos(inRef.Node, false, inRef.Index);
+        var pos = new Point((op.X + ip.X) / 2 - NodeW / 2, (op.Y + ip.Y) / 2 - 12);
+        var col = new SolidColorBrush(Color.FromRgb(0x4A, 0x55, 0x6E));   // 変換ノード色
+        var conv = new BpNode { Id = _nextId++, Title = convTitle, X = pos.X, Y = pos.Y, Header = col };
+        conv.Inputs.Add(new Pin("in", PinKind.Data, outRef.Pin.Type));    // 入力=ソース型 (直結)
+        conv.Outputs.Add(new Pin("out", PinKind.Data, inRef.Pin.Type));   // 出力=宛先型 (直結)
+        _nodes.Add(conv);
+        AddConnection(outRef.Node, outRef.Index, conv, 0, PinKind.Data);
+        AddConnection(conv, 0, inRef.Node, inRef.Index, PinKind.Data);
+        LogSink?.Invoke($"型変換ノード «{convTitle}» を自動挿入 ({outRef.Pin.Type} → {inRef.Pin.Type})");
     }
 
     /// <summary>接続を追加 (単数制約を満たすよう既存を除去: exec は出力側・data は入力側が単数)。</summary>
@@ -772,15 +803,17 @@ public partial class BlueprintEditor : UserControl
         {
             var outRef = _wireSource.Output ? _wireSource : tgt;
             var inRef  = _wireSource.Output ? tgt : _wireSource;
-            // データは型互換のときだけ繋ぐ。exec は常に可。
-            if (outRef.Kind == PinKind.Exec || CanConnectData(outRef.Pin.Type, inRef.Pin.Type))
+            if (outRef.Kind == PinKind.Exec)
             {
-                AddConnection(outRef.Node, outRef.Index, inRef.Node, inRef.Index, outRef.Kind);
+                AddConnection(outRef.Node, outRef.Index, inRef.Node, inRef.Index, PinKind.Exec);
                 connected = true;
             }
             else
             {
-                LogSink?.Invoke($"型が一致しない接続を拒否: {outRef.Pin.Type} → {inRef.Pin.Type}");
+                var (ok, conv) = ConnectInfo(outRef.Pin.Type, inRef.Pin.Type);
+                if (ok && conv == null) { AddConnection(outRef.Node, outRef.Index, inRef.Node, inRef.Index, PinKind.Data); connected = true; }
+                else if (ok)            { InsertConversion(outRef, inRef, conv!); connected = true; }   // 変換ノードを自動挿入
+                else LogSink?.Invoke($"型が一致しない接続を拒否: {outRef.Pin.Type} → {inRef.Pin.Type}");
             }
         }
         if (_ghost != null) { GraphCanvas.Children.Remove(_ghost); _ghost = null; }
@@ -1741,6 +1774,23 @@ public partial class BlueprintEditor : UserControl
         Check("Lerp",       Calc("N 50 0 0 1 Lerp\nI D:Float a\nI D:Float b\nI D:Float t\nO D:Float result\nV 0 0\nV 1 10\nV 2 0.5\n", 0), "r", "5");
         Check("Abs",        Calc("N 50 0 0 1 Abs\nI D:Float value\nO D:Float result\nV 0 -7\n", 0), "r", "7");
         Check("Append",     Calc("N 50 0 0 1 Append\nI D:String a\nI D:String b\nO D:String result\nV 0 foo\nV 1 bar\n", 0), "r", "foobar");
+        // 比較 (個別演算子)。
+        Check("Greater",    Calc("N 50 0 0 1 Greater\nI D:Float a\nI D:Float b\nO D:Bool result\nV 0 5\nV 1 3\n", 0), "r", "true");
+        Check("LessEqual",  Calc("N 50 0 0 1 Less Equal\nI D:Float a\nI D:Float b\nO D:Bool result\nV 0 3\nV 1 3\n", 0), "r", "true");
+        Check("NotEqual",   Calc("N 50 0 0 1 Not Equal\nI D:Float a\nI D:Float b\nO D:Bool result\nV 0 2\nV 1 2\n", 0), "r", "false");
+        // 数学 追加。
+        Check("Deg2Rad",    Calc("N 50 0 0 1 Deg To Rad\nI D:Float deg\nO D:Float rad\nV 0 180\n", 0), "r", "3.141593");
+        Check("MapRange",   Calc("N 50 0 0 1 Map Range\nI D:Float value\nI D:Float inMin\nI D:Float inMax\nI D:Float outMin\nI D:Float outMax\nO D:Float result\nV 0 5\nV 1 0\nV 2 10\nV 3 0\nV 4 100\n", 0), "r", "50");
+        Check("MoveToward", Calc("N 50 0 0 1 Move Towards\nI D:Float current\nI D:Float target\nI D:Float step\nO D:Float result\nV 0 0\nV 1 10\nV 2 3\n", 0), "r", "3");
+        // ベクトル。
+        Check("VecAdd",     Calc("N 50 0 0 1 Vector Add\nI D:Vector a\nI D:Vector b\nO D:Vector result\nV 0 1,2\nV 1 3,4\n", 0), "r", "4,6");
+        Check("VecLength",  Calc("N 50 0 0 1 Vector Length\nI D:Vector v\nO D:Float length\nV 0 3,4\n", 0), "r", "5");
+        Check("VecDot",     Calc("N 50 0 0 1 Vector Dot\nI D:Vector a\nI D:Vector b\nO D:Float result\nV 0 1,2\nV 1 3,4\n", 0), "r", "11");
+        Check("MakeVec3",   Calc("N 50 0 0 1 Make Vector3\nI D:Float x\nI D:Float y\nI D:Float z\nO D:Vector3 vector\nV 0 1\nV 1 2\nV 2 3\n", 0), "r", "1,2,3");
+        Check("ToVector3",  Calc("N 50 0 0 1 To Vector3\nI D:Vector in\nO D:Vector3 out\nV 0 7,8\n", 0), "r", "7,8,0");
+        // 文字列。
+        Check("Contains",   Calc("N 50 0 0 1 Contains\nI D:String in\nI D:String sub\nO D:Bool result\nV 0 hello\nV 1 ell\n", 0), "r", "true");
+        Check("Substring",  Calc("N 50 0 0 1 Substring\nI D:String in\nI D:Int start\nI D:Int count\nO D:String result\nV 0 hello\nV 1 1\nV 2 3\n", 0), "r", "ell");
 
         // For Loop: 最終 index = 3
         Check("ForLoop", "ACSBP 1\nVAR Float r 0\nN 1 0 0 1 Event BeginPlay\nO E ▶\n" +
@@ -2868,6 +2918,7 @@ public partial class BlueprintEditor : UserControl
     private readonly Dictionary<int, string> _spawnHandles = new();   // ノード ID → spawn ハンドル (実行内で一意)
     private readonly Dictionary<int, string> _returns = new();        // ノード ID → 関数の戻り値 (data 出力のプル用)
     private readonly Dictionary<string, string> _vars = new();        // 名前付き変数 (Set/Get Variable。実行開始時に Variables で種まき)
+    private readonly Random _rng = new(12345);                         // Random ノードのデバッグ実行用 (シード固定で再現性)
     private readonly Dictionary<(int, int), string> _watch = new();   // (ノードID, 出力ピン) → 直近に流れた値 (実行後の表示)
     private readonly HashSet<(int, int)> _firedOut = new();           // 発火した (ノードID, 出力exec ピン) → 配線ハイライト
     private bool _showWatch;                                          // 実行後の値ウォッチ表示中
