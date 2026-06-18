@@ -237,7 +237,7 @@ public partial class BlueprintEditor
         string t = n.Title;
         switch (t)
         {
-            case "Set Variable":  return $"{SanitizeIdent(LiteralOf(n, "name"))} = {GenArg(n, "value", 0)};";
+            case "Set Variable":  return $"{SanitizeIdent(n.VarRef)} = {GenArg(n, "value", 0)};";
             case "Print String":  return GenLog(GenArg(n, "text", 0));
             // シーン操作 → 実 API (Owner().Local() の transform)。target は «自ノード» 前提でスケルトン化。
             case "Set Position":  return $"Owner().Local().position = FVec2{{ (f32)({GenArg(n, "x", 0)}), (f32)({GenArg(n, "y", 0)}) }};";
@@ -301,7 +301,7 @@ public partial class BlueprintEditor
             case "Not":      return $"(!{GenArg(n, "in", depth)})";
             case "Compare":  return $"({GenArg(n, "a", depth)} {OpLiteral(n)} {GenArg(n, "b", depth)})";
             case "Make Vector": return $"FVec2{{ (f32)({GenArg(n, "x", depth)}), (f32)({GenArg(n, "y", depth)}) }}";
-            case "Get Variable": return SanitizeIdent(LiteralOf(n, "name"));
+            case "Get Variable": return SanitizeIdent(n.VarRef);
             case "Get Self":  return "(&Owner())";
             case "Get Position": return "Owner().Local().position";
             case "Function Entry": return outPin >= 1 && outPin < n.Outputs.Count ? SanitizeIdent(n.Outputs[outPin].Name) : "0";   // 引数

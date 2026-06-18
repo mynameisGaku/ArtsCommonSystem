@@ -49,6 +49,7 @@ public partial class BlueprintEditor : UserControl
         public bool Disabled;   // 無効化 (実行時に作用をスキップし exec はそのまま通す)
         public bool HasIssue;   // 検証で問題あり (⚠ バッジ表示)
         public string Comment = "";   // ノード個別コメント (UE5 風: ヘッダ上に黄色い帯で表示)
+        public string VarRef = "";    // Get/Set Variable が束縛する変数名 (UE 風: 変数を焼き込む。name ピンは持たない)
         public Dictionary<int, string> Literals = new();   // 未接続データ入力ピンの定数値 (入力index→文字列)
     }
 
@@ -313,8 +314,11 @@ public partial class BlueprintEditor : UserControl
             Width = NodeW, Height = HeaderH, Background = HeaderBrush(headerColor),
             CornerRadius = new CornerRadius(6, 6, 0, 0) }, 0, 0));
         inner.Children.Add(Place(MakeNodeIcon(n), 9, 8));   // 種別アイコン
+        string dispTitle = n.Title;   // UE 風: Get/Set Variable は «Get/Set 変数名» と表示
+        if ((n.Title == "Set Variable" || n.Title == "Get Variable") && !string.IsNullOrEmpty(n.VarRef))
+            dispTitle = (n.Title.StartsWith("Set") ? "Set " : "Get ") + n.VarRef;
         inner.Children.Add(Place(new TextBlock {
-            Text = n.Title, Foreground = Brushes.White, FontSize = 11.5, FontWeight = FontWeights.SemiBold,
+            Text = dispTitle, Foreground = Brushes.White, FontSize = 11.5, FontWeight = FontWeights.SemiBold,
             Width = NodeW - 30, TextTrimming = TextTrimming.CharacterEllipsis }, 24, 5));
         if (!string.IsNullOrEmpty(n.Comment))   // ノード個別コメント (UE5 風: ヘッダ上の黄色い帯)
             inner.Children.Add(Place(new Border {
@@ -480,16 +484,6 @@ public partial class BlueprintEditor : UserControl
             var combo = new ComboBox { Width = 54, Height = 18, FontSize = 10, Padding = new Thickness(3, 0, 0, 0) };
             foreach (var o in CompareOps) combo.Items.Add(o);
             combo.SelectedItem = CompareOps.Contains(cur) ? cur : "==";
-            combo.SelectionChanged += (_, __) => { if (combo.SelectedItem is string s) { BeginEdit(); n.Literals[idx] = s; CommitEdit(); } };
-            return combo;
-        }
-        if (pin.Name == "name" && (n.Title == "Set Variable" || n.Title == "Get Variable"))
-        {
-            // 変数名は «参照できる変数» の一覧から選ぶ (手入力せず選択)。
-            var combo = new ComboBox { Width = 80, Height = 18, FontSize = 10, Padding = new Thickness(3, 0, 0, 0) };
-            foreach (var v in Variables) if (!string.IsNullOrWhiteSpace(v.Name)) combo.Items.Add(v.Name.Trim());
-            if (!string.IsNullOrEmpty(cur) && !combo.Items.Contains(cur)) combo.Items.Add(cur);   // 現在値が一覧に無ければ追加して表示
-            combo.SelectedItem = string.IsNullOrEmpty(cur) ? null : cur;                          // ハンドラ結線前に選択 (初期化で誤発火しない)
             combo.SelectionChanged += (_, __) => { if (combo.SelectedItem is string s) { BeginEdit(); n.Literals[idx] = s; CommitEdit(); } };
             return combo;
         }
@@ -1388,6 +1382,19 @@ public partial class BlueprintEditor : UserControl
             var cmt = new MenuItem { Header = string.IsNullOrEmpty(hit.Comment) ? "コメントを追加…" : "コメントを編集…" };
             cmt.Click += (_, __) => OpenNodeCommentEditor(hit);
             menu.Items.Add(cmt);
+            if (hit.Title == "Set Variable" || hit.Title == "Get Variable")   // 束縛する変数を選び直す
+            {
+                var pick = new MenuItem { Header = "変数を選択" };
+                foreach (var v in Variables)
+                {
+                    var vn = v.Name; if (string.IsNullOrWhiteSpace(vn)) continue;
+                    var mi = new MenuItem { Header = vn, IsChecked = hit.VarRef == vn };
+                    mi.Click += (_, __) => { BeginEdit(); hit.VarRef = vn; RetypeVarNode(hit); Rebuild(); CommitEdit(); };
+                    pick.Items.Add(mi);
+                }
+                if (pick.Items.Count == 0) pick.Items.Add(new MenuItem { Header = "(変数なし — ＋変数 で追加)", IsEnabled = false });
+                menu.Items.Add(new Separator()); menu.Items.Add(pick);
+            }
             if (hit.Title == "Function Entry")   // 関数の入力パラメータ (Entry の data 出力) を足す
             {
                 var add = new MenuItem { Header = "入力パラメータを追加" };
@@ -1932,7 +1939,7 @@ public partial class BlueprintEditor : UserControl
         var newSel = new List<BpNode>();
         foreach (var n in _selected.Where(x => !x.Inherited).ToList())
         {
-            var c = new BpNode { Id = _nextId++, Title = n.Title, X = n.X + 28, Y = n.Y + 28, Header = n.Header };
+            var c = new BpNode { Id = _nextId++, Title = n.Title, X = n.X + 28, Y = n.Y + 28, Header = n.Header, VarRef = n.VarRef, Comment = n.Comment };
             c.Inputs.AddRange(n.Inputs);    // Pin は record(不変)なので参照共有で安全
             c.Outputs.AddRange(n.Outputs);
             foreach (var kv in n.Literals) c.Literals[kv.Key] = kv.Value;
@@ -2106,11 +2113,17 @@ public partial class BlueprintEditor : UserControl
     private void OnDrop(object sender, DragEventArgs e)
     {
         if (!e.Data.GetDataPresent(VarDragFormat)) return;
-        string name = (e.Data.GetData(VarDragFormat) as string) ?? "";
+        string name = ((e.Data.GetData(VarDragFormat) as string) ?? "").Trim();
         if (string.IsNullOrWhiteSpace(name)) return;
         Point g = e.GetPosition(GraphCanvas);
-        bool set = (e.KeyStates & DragDropKeyStates.ControlKey) != 0;   // Ctrl 併用で Set
-        DropVariable(name.Trim(), set, g);
+        // UE 風: ドロップ時に Get / Set を選ぶメニュー。
+        var menu = new ContextMenu();
+        var get = new MenuItem { Header = $"Get {name}" };
+        get.Click += (_, __) => DropVariable(name, false, g);
+        var setm = new MenuItem { Header = $"Set {name}" };
+        setm.Click += (_, __) => DropVariable(name, true, g);
+        menu.Items.Add(get); menu.Items.Add(setm);
+        menu.PlacementTarget = GraphCanvas; menu.IsOpen = true;
     }
 
     /// <summary>変数 name の Get/Set ノードを生成して追加し、返す (接続は呼び元が行う)。</summary>
@@ -2118,21 +2131,17 @@ public partial class BlueprintEditor : UserControl
     {
         var vbl = new SolidColorBrush(Color.FromRgb(0x6A, 0x4C, 0x8C));
         BpNode n;
-        if (set)
+        if (set)   // UE 風: 変数を VarRef に焼き込み、value は変数の型。name ピンは持たない。
         {
-            n = new BpNode { Id = _nextId++, Title = "Set Variable", X = g.X, Y = g.Y, Header = vbl };
+            n = new BpNode { Id = _nextId++, Title = "Set Variable", X = g.X, Y = g.Y, Header = vbl, VarRef = name };
             n.Inputs.Add(new Pin("▶", PinKind.Exec));
-            n.Inputs.Add(new Pin("name", PinKind.Data, "String"));
             n.Inputs.Add(new Pin("value", PinKind.Data, type));
             n.Outputs.Add(new Pin("▶", PinKind.Exec));
-            n.Literals[1] = name;   // name ピンに変数名を焼き込む
         }
         else
         {
-            n = new BpNode { Id = _nextId++, Title = "Get Variable", X = g.X, Y = g.Y, Header = vbl };
-            n.Inputs.Add(new Pin("name", PinKind.Data, "String"));
+            n = new BpNode { Id = _nextId++, Title = "Get Variable", X = g.X, Y = g.Y, Header = vbl, VarRef = name };
             n.Outputs.Add(new Pin("value", PinKind.Data, type));
-            n.Literals[0] = name;
         }
         _nodes.Add(n);
         return n;
@@ -2286,6 +2295,7 @@ public partial class BlueprintEditor : UserControl
                 if (!string.IsNullOrEmpty(kv.Value)) sb.Append("V ").Append(kv.Key).Append(' ').Append(kv.Value).Append('\n');
             if (n.Disabled) sb.Append("X\n");   // 無効化フラグ (直前 N に係る)
             if (!string.IsNullOrEmpty(n.Comment)) sb.Append("NC ").Append(n.Comment.Replace("\n", " ")).Append('\n');   // ノードコメント
+            if (!string.IsNullOrEmpty(n.VarRef)) sb.Append("VR ").Append(n.VarRef).Append('\n');   // 束縛変数 (Get/Set Variable)
         }
         foreach (var k in _conns)
             if (k.FromNode < InheritOffset && k.ToNode < InheritOffset)   // 継承ノード間の線は親側が持つ
@@ -2839,6 +2849,7 @@ public partial class BlueprintEditor : UserControl
             var line = raw.TrimEnd('\r');
             if (line.Length == 0 || line.StartsWith("ACSBP") || line.StartsWith("PARENT")) continue;
             if (line.StartsWith("NC ")) { if (cur != null) cur.Comment = line.Substring(3); continue; }   // ノードコメント
+            if (line.StartsWith("VR ")) { if (cur != null) cur.VarRef = line.Substring(3).Trim(); continue; }   // 束縛変数
             switch (line[0])
             {
                 case 'N':
@@ -2896,6 +2907,42 @@ public partial class BlueprintEditor : UserControl
                 }
             }
         }
+        MigrateVarNodes();   // 旧形式 (name ピン) の Get/Set Variable を «変数焼き込み» 形式へ
+    }
+
+    /// <summary>旧形式 (name ピン + リテラル) の Get/Set Variable を «変数を VarRef に焼き込み・name ピン無し» へ移行。
+    /// 既に新形式なら値ピンの型を変数に同期するだけ。冪等。</summary>
+    private void MigrateVarNodes()
+    {
+        foreach (var n in _nodes)
+        {
+            if (n.Title != "Get Variable" && n.Title != "Set Variable") continue;
+            int ni = n.Inputs.FindIndex(p => p.Name == "name");
+            if (ni >= 0)
+            {
+                if (string.IsNullOrEmpty(n.VarRef) && n.Literals.TryGetValue(ni, out var nm)) n.VarRef = nm.Trim();
+                n.Inputs.RemoveAt(ni);
+                var nl = new Dictionary<int, string>();   // リテラルのキーを詰める
+                foreach (var kv in n.Literals) { if (kv.Key == ni) continue; nl[kv.Key > ni ? kv.Key - 1 : kv.Key] = kv.Value; }
+                n.Literals = nl;
+                for (int ci = _conns.Count - 1; ci >= 0; ci--)   // 接続の入力ピン番号を詰める (name への接続は破棄)
+                {
+                    var c = _conns[ci];
+                    if (c.ToNode != n.Id) continue;
+                    if (c.ToPin == ni) _conns.RemoveAt(ci);
+                    else if (c.ToPin > ni) _conns[ci] = c with { ToPin = c.ToPin - 1 };
+                }
+            }
+            RetypeVarNode(n);
+        }
+    }
+
+    /// <summary>Get/Set Variable の value ピン型を、束縛変数 (VarRef) の型へ同期する。</summary>
+    private void RetypeVarNode(BpNode n)
+    {
+        string ty = Variables.FirstOrDefault(x => x.Name == n.VarRef)?.Type ?? "";
+        if (n.Title == "Set Variable") { int vi = n.Inputs.FindIndex(p => p.Name == "value"); if (vi >= 0) n.Inputs[vi] = n.Inputs[vi] with { Type = ty }; }
+        else { int vi = n.Outputs.FindIndex(p => p.Name == "value"); if (vi >= 0) n.Outputs[vi] = n.Outputs[vi] with { Type = ty }; }
     }
 
     // ピン種別トークン (E / D / D:Type) と名前から Pin を作る。
@@ -2923,6 +2970,7 @@ public partial class BlueprintEditor : UserControl
             foreach (var kv in n.Literals) if (!string.IsNullOrEmpty(kv.Value)) sb.Append("V ").Append(kv.Key).Append(' ').Append(kv.Value).Append('\n');
             if (n.Disabled) sb.Append("X\n");
             if (!string.IsNullOrEmpty(n.Comment)) sb.Append("NC ").Append(n.Comment.Replace("\n", " ")).Append('\n');
+            if (!string.IsNullOrEmpty(n.VarRef)) sb.Append("VR ").Append(n.VarRef).Append('\n');
         }
         foreach (var k in _conns)
             if (ids.Contains(k.FromNode) && ids.Contains(k.ToNode))
@@ -2941,6 +2989,7 @@ public partial class BlueprintEditor : UserControl
             var line = raw.TrimEnd('\r');
             if (line.Length == 0) continue;
             if (line.StartsWith("NC ")) { if (cur != null) cur.Comment = line.Substring(3); continue; }   // ノードコメント
+            if (line.StartsWith("VR ")) { if (cur != null) cur.VarRef = line.Substring(3).Trim(); continue; }   // 束縛変数
             switch (line[0])
             {
                 case 'N':
@@ -2986,6 +3035,7 @@ public partial class BlueprintEditor : UserControl
                 }
             }
         }
+        MigrateVarNodes();
         return added;
     }
 

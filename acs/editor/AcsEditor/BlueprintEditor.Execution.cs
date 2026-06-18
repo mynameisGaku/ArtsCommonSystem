@@ -390,7 +390,7 @@ public partial class BlueprintEditor
         }
         if (t.StartsWith("Set Variable"))
         {
-            string name = EvalInputByName(n, "name").Trim(), val = EvalInputByName(n, "value");
+            string name = n.VarRef.Trim(), val = EvalInputByName(n, "value");
             if (name.Length > 0) _vars[name] = val;
             return $"Set Variable({name} = {val})";
         }
@@ -516,7 +516,7 @@ public partial class BlueprintEditor
         }
         // Get Variable は要求時に変数ストアから読む (pure ノード = exec で実行しない)。
         if (from.Title.StartsWith("Get Variable"))
-            return _vars.TryGetValue(EvalInputByName(from, "name").Trim(), out var gv) ? gv : "";
+            return _vars.TryGetValue(from.VarRef.Trim(), out var gv) ? gv : "";
         // Get Self は «self» マーカーを返す。MainWindow.ResolveTarget が実行中インスタンス(_bpSelfId)へ解決する。
         if (from.Title.StartsWith("Get Self")) return "self";
         // 関数ノードの data 出力 = 実行時に得た戻り値 (キャッシュ) を返す。
