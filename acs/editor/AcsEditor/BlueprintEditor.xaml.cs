@@ -2402,7 +2402,7 @@ public partial class BlueprintEditor : UserControl
     private bool _vp3dOrbiting;     // 空き場所ドラッグでカメラ回転中
     private double _vp3dGrabOX, _vp3dGrabOY;   // コンポーネントドラッグ時の «つかみオフセット» (2D)
     // カメラ基底 (毎描画で更新。Unproject が再利用)。
-    private double _cEyeX, _cEyeY, _cEyeZ, _cFwdX, _cFwdY, _cFwdZ, _cRgtX, _cRgtY, _cRgtZ, _cUpX, _cUpY, _cUpZ, _cFocal, _cVW, _cVH;
+    private double _cEyeX, _cEyeY, _cEyeZ, _cFwdX, _cFwdY, _cFwdZ, _cRgtX, _cRgtY, _cRgtZ, _cUpX, _cUpY, _cUpZ, _cFocal, _cVW, _cVH, _cDist;
 
     /// <summary>COMPONENTS パネルからの選択: ビューポートを開き、そのノードを強調する。</summary>
     public void HighlightViewportNode(int nodeId)
@@ -2551,16 +2551,21 @@ public partial class BlueprintEditor : UserControl
             foreach (var p in pts) poly.Points.Add(new Point(p.sx, p.sy));
             ViewportCanvas.Children.Add(poly);
         }
-        // 地面グリッド (XZ 平面 @ Y=groundY)。
+        // 地面グリッド: «無限平面風» にカメラ距離に応じて広域へ、遠方ほどフェードして地平線へ溶かす。
         double groundY = -maxY;
-        var gridB = new SolidColorBrush(Color.FromArgb(0x3A, 0x6A, 0x76, 0x86));
-        var gridC = new SolidColorBrush(Color.FromArgb(0x70, 0x80, 0x8C, 0x9C));
-        double gstep = Math.Max(20, Math.Round(radius / 5 / 20) * 20);
-        double ext = radius * 1.5;
+        double ext = Math.Max(radius * 3, _cDist * 2.4);
+        double NiceStep(double v) { if (v <= 0) return 20; double ee = Math.Pow(10, Math.Floor(Math.Log10(v))); double m = v / ee; return (m < 1.5 ? 1 : m < 3 ? 2 : m < 7 ? 5 : 10) * ee; }
+        double gstep = NiceStep(ext / 30);
         double gx0 = Math.Floor((cx - ext) / gstep) * gstep, gx1 = Math.Ceiling((cx + ext) / gstep) * gstep;
         double gz0 = Math.Floor(-ext / gstep) * gstep, gz1 = Math.Ceiling(ext / gstep) * gstep;
-        for (double X = gx0; X <= gx1; X += gstep) Line3D(X, groundY, gz0, X, groundY, gz1, Math.Abs(X) < 0.5 ? gridC : gridB, Math.Abs(X) < 0.5 ? 1.2 : 0.7);
-        for (double Z = gz0; Z <= gz1; Z += gstep) Line3D(gx0, groundY, Z, gx1, groundY, Z, Math.Abs(Z) < 0.5 ? gridC : gridB, Math.Abs(Z) < 0.5 ? 1.2 : 0.7);
+        Brush GridBrush(double dist, bool axis)   // 中心からの距離でフェード (端＝透明 → 無限に見える)
+        {
+            double f = Math.Max(0, 1 - dist / ext);
+            byte a = (byte)Math.Min(255, (axis ? 0xC0 : 0x52) * f * f);
+            return axis ? new SolidColorBrush(Color.FromArgb(a, 0x86, 0x92, 0xA2)) : new SolidColorBrush(Color.FromArgb(a, 0x6A, 0x76, 0x86));
+        }
+        for (double X = gx0; X <= gx1; X += gstep) { bool ax = Math.Abs(X) < gstep / 2; var br = GridBrush(Math.Abs(X - cx), ax); if (((SolidColorBrush)br).Color.A > 4) Line3D(X, groundY, gz0, X, groundY, gz1, br, ax ? 1.4 : 0.8); }
+        for (double Z = gz0; Z <= gz1; Z += gstep) { bool ax = Math.Abs(Z) < gstep / 2; var br = GridBrush(Math.Abs(Z), ax); if (((SolidColorBrush)br).Color.A > 4) Line3D(gx0, groundY, Z, gx1, groundY, Z, br, ax ? 1.4 : 0.8); }
         // 原点軸 (X=赤 / Y=緑(上) / Z=青(奥行き))。
         double al = Math.Max(80, radius * 0.5);
         Line3D(0, 0, 0, al, 0, 0, new SolidColorBrush(Color.FromRgb(0xE0, 0x60, 0x60)), 1.8);
@@ -2615,6 +2620,7 @@ public partial class BlueprintEditor : UserControl
     private void SetupCamera3D(double vw, double vh, double cx, double cy, double cz, double baseR)
     {
         double R = baseR * _vp3dZoom;
+        _cDist = R;
         double cosP = Math.Cos(_vp3dPitch), sinP = Math.Sin(_vp3dPitch);
         _cEyeX = cx + R * cosP * Math.Sin(_vp3dYaw);
         _cEyeY = cy + R * sinP;

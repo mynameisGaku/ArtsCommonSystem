@@ -114,7 +114,8 @@ public partial class BlueprintWindow : Window
                     var row = new Grid { Margin = new Thickness(0, 0, 0, 1) };
                     row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                     row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                    var lbl = new TextBlock { Text = "     ● " + cl[s], Foreground = Dim, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+                    string ctype = cl[s].Length > 1 && cl[s][0] == 'F' && char.IsUpper(cl[s][1]) ? cl[s].Substring(1) : cl[s];   // 先頭の «F» クラスプレフィックスを表示しない
+                    var lbl = new TextBlock { Text = "     ● " + ctype, Foreground = Dim, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
                     Grid.SetColumn(lbl, 0); row.Children.Add(lbl);
                     var x = new Button
                     {
