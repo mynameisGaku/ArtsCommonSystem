@@ -342,6 +342,8 @@ public partial class BlueprintEditor : UserControl
                 // 型に応じた定数エディタ (Bool=チェック / op=ドロップダウン / その他=テキスト)。
                 var editor = MakeLiteralEditor(n, i, pin);
                 if (editor != null) inner.Children.Add(Place(editor, 50, py - 10));
+                else if (pin.Type == "Object" && pin.Name == "target")   // 未接続の target は self に既定
+                    inner.Children.Add(Place(new TextBlock { Text = "self", Foreground = new SolidColorBrush(Color.FromRgb(0x6B, 0x74, 0x82)), FontSize = 10, FontStyle = FontStyles.Italic }, 52, py - 8));
             }
         }
         // 出力ピン (右辺、右寄せ)。ラベルは右側の専用帯に限定し、定数欄と重ねない。
@@ -468,8 +470,9 @@ public partial class BlueprintEditor : UserControl
 
     /// <summary>未接続データ入力ピンの «型に応じた» 定数エディタを作る (Bool=チェック / op=ドロップダウン / 他=テキスト)。
     /// ハンドラは初期値設定の «後» に張り、Rebuild 毎の再生成で誤って Literals を書き換えないようにする。</summary>
-    private FrameworkElement MakeLiteralEditor(BpNode n, int i, Pin pin)
+    private FrameworkElement? MakeLiteralEditor(BpNode n, int i, Pin pin)
     {
+        if (pin.Type == "Object") return null;   // UE 風: Object 参照は «接続» で指定 (Self / Get 変数 / spawned)。手入力欄は出さない
         int idx = i;
         string cur = n.Literals.TryGetValue(i, out var lv) ? lv : "";
         if (pin.Type == "Bool")
