@@ -180,6 +180,8 @@ public partial class BlueprintEditor : UserControl
         GraphCanvas.Drop     += OnDrop;
         Minimap.MouseLeftButtonDown += OnMinimapClick;   // ミニマップでパン
         ViewportCanvas.SizeChanged += (_, __) => { if (_viewportMode) RenderViewport(); };   // リサイズで再フィット
+        ViewportCanvas.MouseMove += OnViewportMove;             // コンポーネントのドラッグ移動
+        ViewportCanvas.MouseLeftButtonUp += OnViewportUp;
         Loaded += (_, __) => { if (_nodes.Count == 0) BuildDemoGraph(); BuildGraphTabs(); UpdateGrid(); UpdateMinimap(); };
     }
 
@@ -1485,6 +1487,14 @@ public partial class BlueprintEditor : UserControl
     /// <summary>検証用: ビューポートタブを表示する (--bpshot viewport)。</summary>
     public void ShowViewportForTest() => ShowViewport();
 
+    /// <summary>検証用: ビューポートでノードを (dx,dy) 移動して再描画 (ドラッグ配置の確認。--bpshot vpmove)。</summary>
+    public void MoveComponentForTest(int id, double dx, double dy)
+    {
+        ShowViewport(); _vpSelected = id;
+        MoveComponentRow(id, dx, dy);
+        RenderViewport();
+    }
+
     /// <summary>検証用: 指定ノードだけ選択する (Details の表示確認。--bpshot node&lt;id&gt;)。</summary>
     public void SelectOneForTest(int id)
     {
@@ -2080,6 +2090,10 @@ public partial class BlueprintEditor : UserControl
     // ----- グラフタブ (ビューポート + Event Graph + Function の切替) -----
     private bool _viewportMode;
     private int _vpSelected = -1;   // ビューポートで強調中のコンポーネントノード id
+    private int _vpDragId = -1;     // ビューポートでドラッグ中のノード id
+    private Point _vpDragLast;
+    private double _vpScale = 1, _vpFitCx, _vpFitCy;
+    private bool _vpFreeze;         // ドラッグ中はフィット変換を固定 (1:1 でカーソルに追従)
 
     /// <summary>COMPONENTS パネルからの選択: ビューポートを開き、そのノードを強調する。</summary>
     public void HighlightViewportNode(int nodeId)
@@ -2207,9 +2221,15 @@ public partial class BlueprintEditor : UserControl
         }
         double minX = 0, minY = 0, maxX = 0, maxY = 0;   // 原点を含める
         foreach (var n in nodes) { minX = Math.Min(minX, n.x - n.w / 2); minY = Math.Min(minY, n.y - n.h / 2); maxX = Math.Max(maxX, n.x + n.w / 2); maxY = Math.Max(maxY, n.y + n.h / 2); }
-        double gw = Math.Max(1, maxX - minX), gh = Math.Max(1, maxY - minY), pad = 64;
-        double s = Math.Min(Math.Min((vw - 2 * pad) / gw, (vh - 2 * pad) / gh), 4.0);
-        double cx0 = (minX + maxX) / 2, cy0 = (minY + maxY) / 2;
+        double s, cx0, cy0;
+        if (_vpFreeze) { s = _vpScale; cx0 = _vpFitCx; cy0 = _vpFitCy; }   // ドラッグ中は固定 (1:1 追従)
+        else
+        {
+            double gw = Math.Max(1, maxX - minX), gh = Math.Max(1, maxY - minY), pad = 64;
+            s = Math.Min(Math.Min((vw - 2 * pad) / gw, (vh - 2 * pad) / gh), 4.0);
+            cx0 = (minX + maxX) / 2; cy0 = (minY + maxY) / 2;
+            _vpScale = s; _vpFitCx = cx0; _vpFitCy = cy0;
+        }
         Point M(double wx, double wy) => new(vw / 2 + (wx - cx0) * s, vh / 2 + (wy - cy0) * s);
 
         var o = M(0, 0);   // 原点クロス (赤=+X / 緑=+Y。2D は Y-down)
@@ -2221,8 +2241,10 @@ public partial class BlueprintEditor : UserControl
             var c = M(n.x, n.y);
             double w = n.w * s, h = n.h * s;
             var rect = new Rectangle { Width = w, Height = h, Fill = new SolidColorBrush(n.col),
-                Stroke = new SolidColorBrush(Color.FromArgb(0x70, 0, 0, 0)), StrokeThickness = 1, RenderTransformOrigin = new Point(0.5, 0.5) };
+                Stroke = new SolidColorBrush(Color.FromArgb(0x70, 0, 0, 0)), StrokeThickness = 1, RenderTransformOrigin = new Point(0.5, 0.5), Cursor = Cursors.SizeAll };
             if (n.rot != 0) rect.RenderTransform = new RotateTransform(n.rot);
+            int nid = n.id;   // ドラッグで移動 (UE のビューポート配置)
+            rect.MouseLeftButtonDown += (_, ev) => { BeginEdit(); _vpDragId = nid; _vpSelected = nid; _vpFreeze = true; _vpDragLast = ev.GetPosition(ViewportCanvas); ViewportCanvas.CaptureMouse(); RenderViewport(); ev.Handled = true; };
             ViewportCanvas.Children.Add(Place(rect, c.X - w / 2, c.Y - h / 2));
             if (n.collide)
             {
@@ -2247,7 +2269,46 @@ public partial class BlueprintEditor : UserControl
         legend.Children.Add(new TextBlock { Text = "見た目 = 塗り    ", Foreground = LabelFg, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
         legend.Children.Add(new Rectangle { Width = 13, Height = 11, Stroke = CollideEdge, StrokeThickness = 1.5, StrokeDashArray = new DoubleCollection { 3, 2 }, Fill = Brushes.Transparent, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
         legend.Children.Add(new TextBlock { Text = "= 当たり判定", Foreground = LabelFg, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+        legend.Children.Add(new TextBlock { Text = "    ・ ドラッグで配置", Foreground = new SolidColorBrush(Color.FromRgb(0x6B, 0x74, 0x82)), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
         ViewportCanvas.Children.Add(Place(legend, 14, 12));
+    }
+
+    private void OnViewportMove(object sender, MouseEventArgs e)
+    {
+        if (_vpDragId < 0) return;
+        var p = e.GetPosition(ViewportCanvas);
+        double dx = (p.X - _vpDragLast.X) / _vpScale, dy = (p.Y - _vpDragLast.Y) / _vpScale;
+        if (dx == 0 && dy == 0) return;
+        _vpDragLast = p;
+        MoveComponentRow(_vpDragId, dx, dy);
+        RenderViewport();
+    }
+    private void OnViewportUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_vpDragId < 0) return;
+        _vpDragId = -1; _vpFreeze = false;
+        ViewportCanvas.ReleaseMouseCapture();
+        ComponentsChanged?.Invoke();
+        CommitEdit();
+        RenderViewport();   // 解放後に再フィット
+    }
+
+    /// <summary>ComponentsText のノード行 id の位置 (x,y) を (dx,dy) ずらす。</summary>
+    private void MoveComponentRow(int id, double dx, double dy)
+    {
+        var lines = (ComponentsText ?? "").Replace("\r", "").Split('\n');
+        for (int i = 0; i < lines.Length; i++)
+        {
+            var l = lines[i];
+            if (l.Length == 0 || !char.IsDigit(l[0])) continue;
+            var t = l.Split(' ');
+            if (t.Length < 12 || ParseInt(t[0]) != id) continue;
+            t[2] = (ParseDouble(t[2]) + dx).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture);
+            t[3] = (ParseDouble(t[3]) + dy).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture);
+            lines[i] = string.Join(' ', t);
+            break;
+        }
+        ComponentsText = string.Join("\n", lines);
     }
 
     /// <summary>編集グラフを切り替える (現在を保存し、対象を読み込む)。</summary>

@@ -89,6 +89,7 @@ public partial class App : Application
                     else if (mode == "func") win.Editor.SwitchToFirstFunctionForTest();         // 関数サブグラフへ切替
                     else if (mode == "viewport") win.Editor.ShowViewportForTest();               // ビューポート (見た目+当たり判定)
                     else if (mode.StartsWith("vpnode")) win.Editor.HighlightViewportNode(int.TryParse(mode.Substring(6), out var vid) ? vid : 1);   // ビューポートでノード強調
+                    else if (mode == "vpmove") win.Editor.MoveComponentForTest(1, 70, -30);   // ビューポートのドラッグ配置を検証 (Player を移動)
                     else if (mode.StartsWith("node")) win.Editor.SelectOneForTest(int.TryParse(mode.Substring(4), out var nid) ? nid : 0);   // 単一ノード選択 (Details 確認)
                     else if (mode == "wire") win.Editor.DebugStartWireForTest(2, 1);             // 互換ピン強調 (Object 出力から)
                     else if (mode.StartsWith("zoom")) win.Editor.DebugZoomForTest(double.TryParse(mode.Substring(4), out var zz) ? zz : 2.2);   // 拡大監査
