@@ -1912,6 +1912,7 @@ public partial class BlueprintEditor : UserControl
         Rebuild();
         VariablesChanged?.Invoke();   // パネルを新しい変数で再描画
         ComponentsChanged?.Invoke();  // Components パネルを再描画
+        GraphChanged?.Invoke();       // GRAPHS パネルを再描画
     }
 
     private void LoadInherited()
@@ -1996,6 +1997,16 @@ public partial class BlueprintEditor : UserControl
     }
     public Action? GraphChanged;   // 編集グラフが変わった → ウィンドウ側の表示更新用
 
+    // ----- My Blueprint パネル (BlueprintWindow) 向けの公開アクセサ -----
+    /// <summary>全グラフ名 (Event Graph + Function、登場順)。</summary>
+    public IReadOnlyList<string> GraphNames => _graphOrder;
+    /// <summary>name が Function サブグラフか。</summary>
+    public bool IsFunctionGraph(string name) => _graphIsFunc.Contains(name);
+    /// <summary>編集中グラフ名。</summary>
+    public string ActiveGraphName => _activeName;
+    /// <summary>新しい関数を追加して切り替える (パネルの「＋関数」)。</summary>
+    public void NewFunction() => AddFunction();
+
     private void LoadActiveGraph(string body)
     {
         _nodes.Clear(); _conns.Clear(); _comments.Clear();
@@ -2027,6 +2038,7 @@ public partial class BlueprintEditor : UserControl
         _graphOrder.Remove(name); _graphIsFunc.Remove(name); _graphTexts.Remove(name);
         LoadActiveGraph(_graphTexts.TryGetValue(_activeName, out var b) ? b : "");
         BuildGraphTabs();
+        GraphChanged?.Invoke();
         CommitEdit();
         LogSink?.Invoke($"関数を削除: {name}");
     }

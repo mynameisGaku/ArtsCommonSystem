@@ -50,9 +50,10 @@ public partial class BlueprintWindow : Window
         InitializeComponent();
         GraphHost.VariablesChanged  = RefreshVars;        // 変数が変わったら再描画
         GraphHost.ComponentsChanged = RefreshComponents;  // コンポーネント木が変わったら再描画
+        GraphHost.GraphChanged      = RefreshFunctions;   // グラフ切替/追加で関数一覧を再描画
         GraphHost.PathChanged = () => Title = string.IsNullOrEmpty(GraphHost.CurrentPath)
             ? "Blueprint" : "Blueprint — " + System.IO.Path.GetFileName(GraphHost.CurrentPath);
-        Loaded += (_, __) => { RefreshComponents(); RefreshVars(); };
+        Loaded += (_, __) => { RefreshComponents(); RefreshVars(); RefreshFunctions(); };
     }
 
     // この BP の «コンポーネント木» (ACSCENE サブツリー) を解析してノード/コンポーネントを表示する。
@@ -147,6 +148,34 @@ public partial class BlueprintWindow : Window
         if (!any) menu.Items.Add(new MenuItem { Header = "(コンポーネント型なし)", IsEnabled = false });
         menu.IsOpen = true;
     }
+
+    // GRAPHS パネル: Event Graph + 関数サブグラフを一覧表示 (クリックで切替)。
+    private void RefreshFunctions()
+    {
+        if (FuncList == null) return;
+        FuncList.Children.Clear();
+        foreach (var name in Editor.GraphNames)
+        {
+            var nm = name;
+            bool active = nm == Editor.ActiveGraphName;
+            bool isFunc = Editor.IsFunctionGraph(nm);
+            var row = new Border {
+                Padding = new Thickness(7, 3, 7, 3), Margin = new Thickness(0, 1, 0, 1), Cursor = Cursors.Hand,
+                Background = active ? RowSel : Brushes.Transparent, CornerRadius = new CornerRadius(3),
+            };
+            var sp = new StackPanel { Orientation = Orientation.Horizontal };
+            sp.Children.Add(new TextBlock { Text = isFunc ? "ƒ " : "▦ ",
+                Foreground = isFunc ? (Brush)FindResource("OkFg") : Dim, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center });
+            sp.Children.Add(new TextBlock { Text = nm, Foreground = Fg, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis });
+            row.Child = sp;
+            row.MouseLeftButtonUp += (_, __) => Editor.SwitchGraph(nm);
+            row.MouseEnter += (_, __) => { if (!active) row.Background = RowHover; };
+            row.MouseLeave += (_, __) => { if (!active) row.Background = Brushes.Transparent; };
+            FuncList.Children.Add(row);
+        }
+    }
+    private void OnAddFunctionPanel(object sender, RoutedEventArgs e) => Editor.NewFunction();
 
     // 「＋ 変数」: 新しい変数を追加して選択する (UE5 風に既定 Float)。
     private void OnAddVar(object sender, RoutedEventArgs e)

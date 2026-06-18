@@ -28,9 +28,26 @@
                 </Grid>
             </Border>
             <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
-            <Border DockPanel.Dock="Top" Height="132">
+            <Border DockPanel.Dock="Top" Height="116">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel x:Name="CompTree" Margin="9,5,9,6"/>
+                </ScrollViewer>
+            </Border>
+            <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
+
+            <!-- GRAPHS / FUNCTIONS (Event Graph + 関数サブグラフ) -->
+            <Border DockPanel.Dock="Top" Background="{DynamicResource HeaderBg}" Padding="11,5,7,5">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="GRAPHS" Style="{DynamicResource Section}" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="＋ 関数" Padding="9,2" FontSize="11" Click="OnAddFunctionPanel"
+                            Foreground="{DynamicResource OkFg}" ToolTip="関数グラフを追加"/>
+                </Grid>
+            </Border>
+            <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
+            <Border DockPanel.Dock="Top" Height="92">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="FuncList" Margin="6,4,6,6"/>
                 </ScrollViewer>
             </Border>
             <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
