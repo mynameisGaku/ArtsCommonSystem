@@ -2057,6 +2057,14 @@ public partial class BlueprintEditor : UserControl
 
     // ----- グラフタブ (ビューポート + Event Graph + Function の切替) -----
     private bool _viewportMode;
+    private int _vpSelected = -1;   // ビューポートで強調中のコンポーネントノード id
+
+    /// <summary>COMPONENTS パネルからの選択: ビューポートを開き、そのノードを強調する。</summary>
+    public void HighlightViewportNode(int nodeId)
+    {
+        _vpSelected = nodeId;
+        if (!_viewportMode) ShowViewport(); else RenderViewport();
+    }
 
     private void BuildGraphTabs()
     {
@@ -2159,12 +2167,12 @@ public partial class BlueprintEditor : UserControl
             double lx = n.lx * p.wsx, ly = n.ly * p.wsy;
             return (p.wx + (lx * cr - ly * sr), p.wy + (lx * sr + ly * cr), p.wrot + n.lrot, p.wsx * n.lsx, p.wsy * n.lsy);
         }
-        var nodes = new List<(double x, double y, double rot, double w, double h, Color col, string name, bool collide, bool circle)>();
+        var nodes = new List<(int id, double x, double y, double rot, double w, double h, Color col, string name, bool collide, bool circle)>();
         foreach (var id in order)
         {
             var n = local[id];
             var w = World(id, new HashSet<int>());
-            nodes.Add((w.wx, w.wy, w.wrot, Math.Max(2, n.bs * Math.Abs(w.wsx)), Math.Max(2, n.bs * Math.Abs(w.wsy)), n.col, n.name, n.collide, n.circle));
+            nodes.Add((id, w.wx, w.wy, w.wrot, Math.Max(2, n.bs * Math.Abs(w.wsx)), Math.Max(2, n.bs * Math.Abs(w.wsy)), n.col, n.name, n.collide, n.circle));
         }
         if (nodes.Count == 0)
         {
@@ -2203,7 +2211,14 @@ public partial class BlueprintEditor : UserControl
                 double cw = co.Width, ch = co.Height;
                 ViewportCanvas.Children.Add(Place(co, c.X - cw / 2, c.Y - ch / 2));
             }
-            ViewportCanvas.Children.Add(Place(new TextBlock { Text = n.name, Foreground = LabelFg, FontSize = 10.5 }, c.X - w / 2, c.Y - h / 2 - 15));
+            if (n.id == _vpSelected)   // COMPONENTS パネルから選択 → オレンジの選択枠
+            {
+                var ring = new Rectangle { Width = w + 8, Height = h + 8, Stroke = SelEdge, StrokeThickness = 2, Fill = Brushes.Transparent, RenderTransformOrigin = new Point(0.5, 0.5) };
+                if (n.rot != 0) ring.RenderTransform = new RotateTransform(n.rot);
+                ViewportCanvas.Children.Add(Place(ring, c.X - (w + 8) / 2, c.Y - (h + 8) / 2));
+            }
+            bool selName = n.id == _vpSelected;
+            ViewportCanvas.Children.Add(Place(new TextBlock { Text = n.name, Foreground = selName ? SelEdge : LabelFg, FontSize = 10.5, FontWeight = selName ? FontWeights.SemiBold : FontWeights.Normal }, c.X - w / 2, c.Y - h / 2 - 15));
         }
 
         var legend = new StackPanel { Orientation = Orientation.Horizontal };

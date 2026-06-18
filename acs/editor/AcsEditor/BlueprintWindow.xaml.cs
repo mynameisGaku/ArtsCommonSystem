@@ -96,11 +96,16 @@ public partial class BlueprintWindow : Window
         }
         foreach (var id in order)
         {
-            CompTree.Children.Add(new TextBlock
+            int nid2 = id;
+            var nameRow = new Border { Cursor = Cursors.Hand, Padding = new Thickness(0, 2, 0, 0), Background = Brushes.Transparent };
+            nameRow.Child = new TextBlock
             {
                 Text = "▸ " + (names.TryGetValue(id, out var nm) ? nm : "#" + id),
-                Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 2, 0, 0),
-            });
+                Foreground = Fg, FontSize = 12, FontWeight = FontWeights.SemiBold,
+            };
+            nameRow.ToolTip = "ビューポートで強調";
+            nameRow.MouseLeftButtonUp += (_, __) => Editor.HighlightViewportNode(nid2);   // クリックでビューポートに表示+強調
+            CompTree.Children.Add(nameRow);
             if (comps.TryGetValue(id, out var cl))
                 for (int s = 0; s < cl.Count; s++)
                 {
