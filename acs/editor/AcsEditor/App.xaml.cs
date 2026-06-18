@@ -64,6 +64,103 @@ public partial class App : Application
             return;
         }
 
+        // CLI: --bpshot <out.png> [acsbp]  → BlueprintWindow を画面外で描画し PNG 保存して終了。
+        // GPU 不要 (WPF ソフト描画)。ノードグラフ/グリッド/型付きピン/コメント枠の UI 検証用。
+        if (e.Args.Length >= 2 && e.Args[0] == "--bpshot")
+        {
+            string outPng = e.Args[1];
+            string? bpPath = e.Args.Length >= 3 ? e.Args[2] : null;
+            var win = new BlueprintWindow
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -4000, Top = -4000, Width = 1280, Height = 760,
+            };
+            win.Show();
+            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                try
+                {
+                    if (bpPath != null && File.Exists(bpPath)) win.Editor.LoadFromFile(bpPath);
+                    string mode = e.Args.Length >= 4 ? e.Args[3] : "";
+                    if (mode == "sel") win.Editor.SelectAll();                                  // 選択枠の描画検証
+                    else if (mode == "validate") win.Editor.ValidateForTest();                  // ⚠ バッジ検証
+                    else if (mode == "run") { win.Editor.ValidateForTest(); win.Editor.RunGraph(); }   // 実行=ウォッチ値+発火配線+バッジ
+                    else if (mode == "gencpp") win.Editor.GenerateCppForTest();                 // C++ 生成
+                    else if (mode == "func") win.Editor.SwitchToFirstFunctionForTest();         // 関数サブグラフへ切替
+                    else if (mode == "wire") win.Editor.DebugStartWireForTest(2, 1);             // 互換ピン強調 (Object 出力から)
+                    else if (mode.StartsWith("step")) win.Editor.DebugStepForTest(int.TryParse(mode.Substring(4), out var st) ? st : 3);   // ステップ実行
+                    win.UpdateLayout();
+                    int w = (int)Math.Ceiling(win.ActualWidth);
+                    int h = (int)Math.Ceiling(win.ActualHeight);
+                    var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+                    rtb.Render(win);
+                    var enc = new PngBitmapEncoder();
+                    enc.Frames.Add(BitmapFrame.Create(rtb));
+                    using var fs = File.Create(outPng);
+                    enc.Save(fs);
+                    Console.Error.WriteLine($"bpshot saved: {outPng} ({w}x{h})");
+                }
+                catch (Exception ex) { Console.Error.WriteLine(ex.Message); }
+                Shutdown();
+            }));
+            return;
+        }
+
+        // CLI: --bpsearch  → 検索式ノードパレットを開いた状態の BlueprintWindow を実画面に表示する
+        // (ポップアップは別 HWND のため画面外 RTB では写らない。PowerShell でスクリーンキャプチャして検証)。
+        if (e.Args.Length >= 1 && e.Args[0] == "--bpsearch")
+        {
+            var win = new BlueprintWindow
+            {
+                WindowStartupLocation = WindowStartupLocation.CenterScreen, Width = 1280, Height = 760,
+            };
+            MainWindow = win;
+            win.Show();
+            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                Color C(byte r, byte g, byte b) => Color.FromRgb(r, g, b);
+                BlueprintEditor.BpPinSpec Ex(string n) => new(n, true);
+                BlueprintEditor.BpPinSpec Da(string n, string ty = "") => new(n, false, ty);
+                var none = Array.Empty<BlueprintEditor.BpPinSpec>();
+                var pal = new System.Collections.Generic.List<BlueprintEditor.BpNodeTemplate>
+                {
+                    new("イベント", "On BeginPlay", C(0xB0,0x3A,0x46), none, new[]{ Ex("▶") }),
+                    new("イベント", "On Tick",      C(0xB0,0x3A,0x46), none, new[]{ Ex("▶"), Da("dt","Float") }),
+                    new("フロー", "Branch",   C(0x5A,0x64,0x72), new[]{ Ex("▶"), Da("cond","Bool") }, new[]{ Ex("True"), Ex("False") }),
+                    new("フロー", "Sequence", C(0x5A,0x64,0x72), new[]{ Ex("▶") }, new[]{ Ex("0"), Ex("1") }),
+                    new("シーン操作", "Set Position", C(0x8A,0x5C,0x2E), new[]{ Ex("▶"), Da("target","Object"), Da("x","Float"), Da("y","Float") }, new[]{ Ex("▶") }),
+                    new("シーン操作", "Set Color",    C(0x8A,0x5C,0x2E), new[]{ Ex("▶"), Da("target","Object") }, new[]{ Ex("▶") }),
+                    new("変数", "Get Variable", C(0x6A,0x4C,0x8C), new[]{ Da("name","String") }, new[]{ Da("value") }),
+                    new("変数", "Set Variable", C(0x6A,0x4C,0x8C), new[]{ Ex("▶"), Da("name","String"), Da("value") }, new[]{ Ex("▶") }),
+                };
+                win.Editor.SetPalette(pal);
+                win.Editor.DebugOpenSearch();
+            }));
+            return;
+        }
+
+        // CLI: --bptest [out.txt]  → Blueprint インタプリタ/直列化の自己テストを実行してログ出力 + 終了コード=失敗数。
+        if (e.Args.Length >= 1 && e.Args[0] == "--bptest")
+        {
+            string? outPath = e.Args.Length >= 2 ? e.Args[1] : null;
+            var win = new BlueprintWindow { WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 };
+            win.Show();
+            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                int fail = 1;
+                try
+                {
+                    var (p, f, logText) = win.Editor.SelfTest();
+                    fail = f;
+                    Console.Error.WriteLine(logText);
+                    if (outPath != null) File.WriteAllText(outPath, logText);
+                }
+                catch (Exception ex) { Console.Error.WriteLine("SelfTest 例外: " + ex); }
+                Shutdown(fail);
+            }));
+            return;
+        }
+
         // CLI: --codegen <acsproject>  → ACS_CLASS/ACS_PROPERTY からリフレクション登録を生成して終了。
         if (e.Args.Length >= 2 && e.Args[0] == "--codegen")
         {
