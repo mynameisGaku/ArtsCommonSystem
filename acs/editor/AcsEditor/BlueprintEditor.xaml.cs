@@ -265,8 +265,9 @@ public partial class BlueprintEditor : UserControl
             if (PinIsDropTarget(n, false, pin)) inner.Children.Add(Place(MakePinGlow(pin), PinInset - 4, py - PinR - 4));
             var ishape = MakePinShape(pin, IsInputConnected(n, i)); ishape.ToolTip = PinTip(pin);
             inner.Children.Add(Place(ishape, PinInset, py - PinR));   // 枠の内側に収める
-            inner.Children.Add(Place(new TextBlock {
-                Text = pin.Name, Foreground = LabelFg, FontSize = 11 }, 15, py - 8));
+            if (!(pin.Kind == PinKind.Exec && pin.Name == "▶"))   // 三角ピン自体が示すので「▶」ラベルは出さない
+                inner.Children.Add(Place(new TextBlock {
+                    Text = pin.Name, Foreground = LabelFg, FontSize = 11 }, 15, py - 8));
             if (pin.Kind == PinKind.Data && !IsInputConnected(n, i))
             {
                 // 型に応じた定数エディタ (Bool=チェック / op=ドロップダウン / その他=テキスト)。
@@ -281,9 +282,10 @@ public partial class BlueprintEditor : UserControl
             if (PinIsDropTarget(n, true, n.Outputs[j])) inner.Children.Add(Place(MakePinGlow(n.Outputs[j]), NodeW - 2 * PinR - PinInset - 4, py - PinR - 4));
             var oshape = MakePinShape(n.Outputs[j], IsOutputConnected(n, j)); oshape.ToolTip = PinTip(n.Outputs[j]);
             inner.Children.Add(Place(oshape, NodeW - 2 * PinR - PinInset, py - PinR));   // 枠の内側に収める
-            inner.Children.Add(Place(new TextBlock {
-                Text = n.Outputs[j].Name, Foreground = LabelFg, FontSize = 11,
-                Width = 54, TextAlignment = TextAlignment.Right }, NodeW - 68, py - 8));
+            if (!(n.Outputs[j].Kind == PinKind.Exec && n.Outputs[j].Name == "▶"))   // 「▶」ラベルは省く (三角ピンが示す)
+                inner.Children.Add(Place(new TextBlock {
+                    Text = n.Outputs[j].Name, Foreground = LabelFg, FontSize = 11,
+                    Width = 54, TextAlignment = TextAlignment.Right }, NodeW - 68, py - 8));
             // 実行後の値ウォッチ (data 出力の右外に小さなピルで表示)。
             if (_showWatch && n.Outputs[j].Kind == PinKind.Data && _watch.TryGetValue((n.Id, j), out var wv))
             {
