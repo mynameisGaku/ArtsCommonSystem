@@ -51,6 +51,7 @@ public partial class BlueprintWindow : Window
         GraphHost.VariablesChanged  = RefreshVars;        // 変数が変わったら再描画
         GraphHost.ComponentsChanged = RefreshComponents;  // コンポーネント木が変わったら再描画
         GraphHost.GraphChanged      = RefreshFunctions;   // グラフ切替/追加で関数一覧を再描画
+        GraphHost.SelectionChanged  = RefreshDetails;     // ノード選択で Details を反映 (UE5 風)
         GraphHost.PathChanged = () => Title = string.IsNullOrEmpty(GraphHost.CurrentPath)
             ? "Blueprint" : "Blueprint — " + System.IO.Path.GetFileName(GraphHost.CurrentPath);
         Loaded += (_, __) => { RefreshComponents(); RefreshVars(); RefreshFunctions(); };
@@ -231,7 +232,7 @@ public partial class BlueprintWindow : Window
             };
             Grid.SetColumn(ty, 2); g.Children.Add(ty);
             row.Child = g;
-            row.MouseLeftButtonUp += (_, __) => { if (!_dragging) { _sel = v; RefreshVars(); } };
+            row.MouseLeftButtonUp += (_, __) => { if (!_dragging) { Editor.ClearNodeSelection(); _sel = v; RefreshVars(); } };
             row.MouseEnter += (_, __) => { if (v != _sel) row.Background = RowHover; };
             row.MouseLeave += (_, __) => { if (v != _sel) row.Background = Brushes.Transparent; };
             // 変数をグラフへドラッグ&ドロップ → Get/Set ノード生成 (Ctrl 併用で Set)。
@@ -251,7 +252,55 @@ public partial class BlueprintWindow : Window
         if (Editor.Variables.Count == 0)
             VarList.Children.Add(new TextBlock { Text = "（変数なし — ＋ 変数 で追加）", Foreground = Dim, FontSize = 11, Margin = new Thickness(6, 4, 0, 0) });
 
-        BuildDetails();
+        RefreshDetails();
+    }
+
+    // Details パネル: 選択対象に反応 (ノード選択中 → ノード情報 / それ以外 → 変数)。UE5 の Details 相当。
+    private void RefreshDetails()
+    {
+        var nv = Editor.SelectedNode();
+        if (nv != null) BuildNodeDetails(nv);
+        else BuildDetails();
+    }
+
+    private static Brush PinTypeBrush(string type) => type switch
+    {
+        "exec" => Brushes.White,
+        "any"  => new SolidColorBrush(Color.FromRgb(0x5B, 0xC8, 0x9A)),
+        _      => TypeBrush(type),
+    };
+
+    // 選択中ノードの種別/ピンを Details に表示。
+    private void BuildNodeDetails(BlueprintEditor.BpNodeView nv)
+    {
+        DetailsPanel.Children.Clear();
+        DetailsPanel.Children.Add(SectionRule("DETAILS"));
+        DetailsPanel.Children.Add(new TextBlock { Text = nv.Title, Foreground = Fg, FontSize = 13.5,
+            FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+        DetailsPanel.Children.Add(new TextBlock { Text = (string.IsNullOrEmpty(nv.Category) ? "ノード" : nv.Category + " ノード"),
+            Foreground = Dim, FontSize = 10.5, Margin = new Thickness(0, 0, 0, 6) });
+        var ins = nv.Pins.Where(p => !p.output).ToList();
+        var outs = nv.Pins.Where(p => p.output).ToList();
+        TextBlock Mini(string s) => new() { Text = s, Foreground = (Brush)FindResource("SectionFg"), FontSize = 10, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 6, 0, 2) };
+        if (ins.Count > 0)  { DetailsPanel.Children.Add(Mini("入力")); foreach (var p in ins)  DetailsPanel.Children.Add(PinRow(p)); }
+        if (outs.Count > 0) { DetailsPanel.Children.Add(Mini("出力")); foreach (var p in outs) DetailsPanel.Children.Add(PinRow(p)); }
+    }
+
+    private FrameworkElement PinRow((string name, string type, bool exec, bool output, string literal) p)
+    {
+        var g = new Grid { Margin = new Thickness(0, 1, 0, 1) };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var dot = new Border { Width = 8, Height = 8, CornerRadius = new CornerRadius(4), Background = PinTypeBrush(p.type),
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
+        Grid.SetColumn(dot, 0); g.Children.Add(dot);
+        var nm = new TextBlock { Text = p.name, Foreground = Fg, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+        Grid.SetColumn(nm, 1); g.Children.Add(nm);
+        var info = new TextBlock { Text = p.exec ? "exec" : (string.IsNullOrEmpty(p.literal) ? p.type : $"{p.type} = {p.literal}"),
+            Foreground = Dim, FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
+        Grid.SetColumn(info, 2); g.Children.Add(info);
+        return g;
     }
 
     // 選択中の変数の Name / Type / Default を編集する Details パネル。
@@ -262,7 +311,7 @@ public partial class BlueprintWindow : Window
 
         if (_sel == null)
         {
-            DetailsPanel.Children.Add(new TextBlock { Text = "変数を選択してください。", Foreground = Dim, FontSize = 11 });
+            DetailsPanel.Children.Add(new TextBlock { Text = "ノードか変数を選択してください。", Foreground = Dim, FontSize = 11 });
             return;
         }
         var s = _sel;

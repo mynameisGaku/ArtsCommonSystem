@@ -230,7 +230,33 @@ public partial class BlueprintEditor : UserControl
         RedrawWires();
         UpdateMinimap();
         UpdateStatus();
+        SelectionChanged?.Invoke();   // Details パネルへ選択ノードを反映
     }
+
+    // ----- 選択ノードの Details (UE5 風: 選択対象に Details パネルが反応) -----
+    /// <summary>単一選択中ノードの表示用情報 (BlueprintWindow の Details が描く)。</summary>
+    public sealed class BpNodeView
+    {
+        public string Title = "", Category = "";
+        public List<(string name, string type, bool exec, bool output, string literal)> Pins = new();
+    }
+    public Action? SelectionChanged;   // グラフ選択が変わった → Details 再描画
+
+    /// <summary>ちょうど 1 つノードが選択されていればその情報、そうでなければ null。</summary>
+    public BpNodeView? SelectedNode()
+    {
+        var sel = _selected.Where(n => !n.Inherited).ToList();
+        if (sel.Count != 1) return null;
+        var n = sel[0];
+        string Ty(Pin p) => p.Kind == PinKind.Exec ? "exec" : string.IsNullOrEmpty(p.Type) ? "any" : p.Type;
+        var v = new BpNodeView { Title = n.Title, Category = _palette.FirstOrDefault(t => t.Title == n.Title)?.Category ?? "" };
+        for (int i = 0; i < n.Inputs.Count; i++)
+            v.Pins.Add((n.Inputs[i].Name, Ty(n.Inputs[i]), n.Inputs[i].Kind == PinKind.Exec, false, n.Literals.TryGetValue(i, out var lv) ? lv : ""));
+        foreach (var p in n.Outputs) v.Pins.Add((p.Name, Ty(p), p.Kind == PinKind.Exec, true, ""));
+        return v;
+    }
+    /// <summary>グラフのノード選択を解除する (変数クリック時に Details を変数へ切替えるため)。</summary>
+    public void ClearNodeSelection() { if (_selected.Count > 0) { _selected.Clear(); Rebuild(); } }
 
     private BpNode? NodeById(int id) { foreach (var n in _nodes) if (n.Id == id) return n; return null; }
 
@@ -1379,6 +1405,14 @@ public partial class BlueprintEditor : UserControl
     }
     /// <summary>検証用: ビューポートタブを表示する (--bpshot viewport)。</summary>
     public void ShowViewportForTest() => ShowViewport();
+
+    /// <summary>検証用: 指定ノードだけ選択する (Details の表示確認。--bpshot node&lt;id&gt;)。</summary>
+    public void SelectOneForTest(int id)
+    {
+        var n = NodeById(id) ?? _nodes.FirstOrDefault(x => !x.Inherited);
+        _selected.Clear(); if (n != null) _selected.Add(n);
+        Rebuild();
+    }
 
     /// <summary>検証用: 拡大して先頭ノード付近を中央に寄せる (細部のズレ監査用)。</summary>
     public void DebugZoomForTest(double z)
