@@ -1677,6 +1677,25 @@ public partial class BlueprintEditor : UserControl
     public void DebugStepForTest(int steps) { for (int i = 0; i < steps; i++) OnDebugStep(this, new RoutedEventArgs()); }
     /// <summary>検証用: グラフから C++ を生成して書き出す (--bpshot gencpp)。ビルドは起こさない。</summary>
     public void GenerateCppForTest() => GenerateCppFile(build: false);
+    /// <summary>検証用: Float→String の接続で変換ノードが自動挿入されることを示す (--bpshot autoconv)。</summary>
+    public void AutoConvertForTest()
+    {
+        _nodes.Clear(); _conns.Clear(); _selected.Clear();
+        BeginEdit();
+        var add = AddNode(60, "Add", 130, 150, new SolidColorBrush(Color.FromRgb(0x3E, 0x6E, 0x5E)),
+            new[] { new Pin("a", PinKind.Data, "Float"), new Pin("b", PinKind.Data, "Float") }, new[] { new Pin("result", PinKind.Data, "Float") });
+        add.Literals[0] = "2"; add.Literals[1] = "3";
+        var ev = AddNode(61, "Event  On BeginPlay", 130, 320, new SolidColorBrush(Color.FromRgb(0xB0, 0x3A, 0x46)),
+            Array.Empty<Pin>(), new[] { new Pin("▶", PinKind.Exec) });
+        var pr = AddNode(62, "Print String", 560, 300, new SolidColorBrush(Color.FromRgb(0x4A, 0x8C, 0x5A)),
+            new[] { new Pin("▶", PinKind.Exec), new Pin("text", PinKind.Data, "String") }, new[] { new Pin("▶", PinKind.Exec) });
+        _conns.Add(new BpConn(ev.Id, 0, pr.Id, 0));
+        var (_, conv) = ConnectInfo("Float", "String");   // Float → String は «To String» を挟む
+        if (conv != null) InsertConversion(new PinRef(add, 0, true, PinKind.Data), new PinRef(pr, 1, false, PinKind.Data), conv);
+        Rebuild(); CommitEdit();
+        FrameAll();
+    }
+
     /// <summary>検証用: 最初の Function サブグラフへ切り替える (--bpshot func)。</summary>
     public void SwitchToFirstFunctionForTest()
     {
