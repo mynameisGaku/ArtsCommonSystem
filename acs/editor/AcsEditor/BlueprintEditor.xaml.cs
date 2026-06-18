@@ -2038,22 +2038,41 @@ public partial class BlueprintEditor : UserControl
             var t = l.Split(' ');
             if (t.Length >= 3 && int.TryParse(t[1], out int cid)) { if (!comps.ContainsKey(cid)) comps[cid] = new(); comps[cid].Add(t[2]); }
         }
-        var nodes = new List<(double x, double y, double rot, double w, double h, Color col, string name, bool collide, bool circle)>();
+        // ノード行を «ローカル変換» として読み、親子を合成して «ワールド変換» にする。
+        var local = new Dictionary<int, (int parent, double lx, double ly, double lrot, double lsx, double lsy, double bs, Color col, string name, bool collide, bool circle)>();
+        var order = new List<int>();
         foreach (var raw in text.Split('\n'))
         {
             var l = raw.Trim();
             if (l.Length == 0 || !char.IsDigit(l[0])) continue;
             var t = l.Split(' ');
             if (t.Length < 12) continue;
-            int id = ParseInt(t[0]);
-            double x = ParseDouble(t[2]), y = ParseDouble(t[3]), rot = ParseDouble(t[4]), sx = ParseDouble(t[5]), sy = ParseDouble(t[6]), bs = ParseDouble(t[7]);
+            int id = ParseInt(t[0]), parent = ParseInt(t[1]);
             var col = Color.FromArgb(ColorByte(t[11]), ColorByte(t[8]), ColorByte(t[9]), ColorByte(t[10]));
             string name = t.Length >= 13 ? t[12] : "#" + id;
             bool collide = false, circle = false;
             if (comps.TryGetValue(id, out var cl))
                 foreach (var c in cl)
                     if (c.Contains("RigidBody") || c.Contains("Collid") || c.Contains("Collision") || c.Contains("Physics")) { collide = true; if (c.Contains("Circle")) circle = true; }
-            nodes.Add((x, y, rot, Math.Max(2, bs * Math.Abs(sx)), Math.Max(2, bs * Math.Abs(sy)), col, name, collide, circle));
+            if (!local.ContainsKey(id)) order.Add(id);
+            local[id] = (parent, ParseDouble(t[2]), ParseDouble(t[3]), ParseDouble(t[4]), ParseDouble(t[5]), ParseDouble(t[6]), ParseDouble(t[7]), col, name, collide, circle);
+        }
+        // 親の位置/回転/スケールを子へ適用 (2D ワールド変換。循環は seen で打ち切り)。
+        (double wx, double wy, double wrot, double wsx, double wsy) World(int id, HashSet<int> seen)
+        {
+            var n = local[id];
+            if (n.parent < 0 || !local.ContainsKey(n.parent) || !seen.Add(id)) return (n.lx, n.ly, n.lrot, n.lsx, n.lsy);
+            var p = World(n.parent, seen);
+            double r = p.wrot * Math.PI / 180.0, cr = Math.Cos(r), sr = Math.Sin(r);
+            double lx = n.lx * p.wsx, ly = n.ly * p.wsy;
+            return (p.wx + (lx * cr - ly * sr), p.wy + (lx * sr + ly * cr), p.wrot + n.lrot, p.wsx * n.lsx, p.wsy * n.lsy);
+        }
+        var nodes = new List<(double x, double y, double rot, double w, double h, Color col, string name, bool collide, bool circle)>();
+        foreach (var id in order)
+        {
+            var n = local[id];
+            var w = World(id, new HashSet<int>());
+            nodes.Add((w.wx, w.wy, w.wrot, Math.Max(2, n.bs * Math.Abs(w.wsx)), Math.Max(2, n.bs * Math.Abs(w.wsy)), n.col, n.name, n.collide, n.circle));
         }
         if (nodes.Count == 0)
         {
