@@ -1160,6 +1160,28 @@ public partial class BlueprintEditor : UserControl
     {
         if (_wireSource != null || _dragNode != null || _panning || _selecting) return;
         Point g = e.GetPosition(GraphCanvas);
+        // ピン上の右クリック → 接続を切断 (UE5 風)。
+        var pinHit = PinHitTest(g);
+        if (pinHit != null && !pinHit.Node.Inherited)
+        {
+            int n = pinHit.Output
+                ? _conns.Count(c => c.FromNode == pinHit.Node.Id && c.FromPin == pinHit.Index)
+                : _conns.Count(c => c.ToNode == pinHit.Node.Id && c.ToPin == pinHit.Index);
+            if (n > 0)
+            {
+                var menu = new ContextMenu();
+                var brk = new MenuItem { Header = $"このピンの接続を切断 ({n})" };
+                brk.Click += (_, __) => {
+                    BeginEdit();
+                    if (pinHit.Output) _conns.RemoveAll(c => c.FromNode == pinHit.Node.Id && c.FromPin == pinHit.Index);
+                    else _conns.RemoveAll(c => c.ToNode == pinHit.Node.Id && c.ToPin == pinHit.Index);
+                    Rebuild(); CommitEdit();
+                };
+                menu.Items.Add(brk);
+                menu.PlacementTarget = GraphCanvas; menu.IsOpen = true; e.Handled = true;
+                return;
+            }
+        }
         var hit = NodeAt(g);
         if (hit != null)
         {
