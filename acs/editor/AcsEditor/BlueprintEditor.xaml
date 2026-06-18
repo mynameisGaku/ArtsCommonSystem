@@ -42,10 +42,12 @@
             </DockPanel>
         </Border>
 
-        <!-- ノードグラフ・キャンバス -->
+        <!-- ノードグラフ・キャンバス + ビューポート -->
         <Grid ClipToBounds="True">
             <Rectangle x:Name="GridBg" IsHitTestVisible="False"/>
             <Canvas x:Name="GraphCanvas" Background="Transparent" Focusable="True"/>
+            <!-- ビューポート (コンポーネントの見た目+当たり判定プレビュー)。既定は非表示 -->
+            <Canvas x:Name="ViewportCanvas" Background="#FF0E1216" ClipToBounds="True" Visibility="Collapsed"/>
             <!-- 全体ミニマップ (右下。クリックでパン) -->
             <Border x:Name="MinimapPanel" Width="210" Height="150" HorizontalAlignment="Right" VerticalAlignment="Bottom"
                     Margin="0,0,12,12" Background="#CC0F1318" BorderBrush="#3A4452" BorderThickness="1" CornerRadius="4">

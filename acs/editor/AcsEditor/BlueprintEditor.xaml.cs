@@ -137,6 +137,7 @@ public partial class BlueprintEditor : UserControl
     private static readonly Brush FiredWire = new SolidColorBrush(Color.FromRgb(0xF2, 0xC8, 0x5A));  // 発火した exec 配線
     private static readonly Brush DbgEdge  = new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF));   // ステップ実行の現在ノード枠
     private static readonly Brush BreakDot = new SolidColorBrush(Color.FromRgb(0xE0, 0x44, 0x44));   // ブレークポイントの赤丸
+    private static readonly Brush CollideEdge = new SolidColorBrush(Color.FromRgb(0x4C, 0xE0, 0x6A)); // ビューポートの当たり判定輪郭 (緑)
 
     // データ型 → 配色 (BlueprintWindow の変数ピル色に揃える)。
     private static readonly Brush TBool   = new SolidColorBrush(Color.FromRgb(0xC0, 0x39, 0x2B));
@@ -178,6 +179,7 @@ public partial class BlueprintEditor : UserControl
         GraphCanvas.DragOver += OnDragOver;
         GraphCanvas.Drop     += OnDrop;
         Minimap.MouseLeftButtonDown += OnMinimapClick;   // ミニマップでパン
+        ViewportCanvas.SizeChanged += (_, __) => { if (_viewportMode) RenderViewport(); };   // リサイズで再フィット
         Loaded += (_, __) => { if (_nodes.Count == 0) BuildDemoGraph(); BuildGraphTabs(); UpdateGrid(); UpdateMinimap(); };
     }
 
@@ -1375,6 +1377,9 @@ public partial class BlueprintEditor : UserControl
         var f = _graphOrder.FirstOrDefault(g => _graphIsFunc.Contains(g));
         if (f != null) SwitchGraph(f);
     }
+    /// <summary>検証用: ビューポートタブを表示する (--bpshot viewport)。</summary>
+    public void ShowViewportForTest() => ShowViewport();
+
     /// <summary>検証用: 拡大して先頭ノード付近を中央に寄せる (細部のズレ監査用)。</summary>
     public void DebugZoomForTest(double z)
     {
@@ -1958,30 +1963,143 @@ public partial class BlueprintEditor : UserControl
         return (main.ToString(), graphs);
     }
 
-    // ----- グラフタブ (Event Graph + Function の切替) -----
+    // ----- グラフタブ (ビューポート + Event Graph + Function の切替) -----
+    private bool _viewportMode;
+
     private void BuildGraphTabs()
     {
         if (GraphTabs == null) return;
         GraphTabs.Children.Clear();
+        var activeBg = new SolidColorBrush(Color.FromRgb(0x2E, 0x5C, 0x8A));
+        // ビューポートタブ (UE5 風: コンポーネントの見た目/当たり判定プレビュー)。
+        var vp = new Button {
+            Content = "⊞ ビューポート", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 3, 0), FontSize = 11.5,
+            Background = _viewportMode ? activeBg : Brushes.Transparent, Foreground = Brushes.White,
+            BorderThickness = new Thickness(_viewportMode ? 0 : 1), ToolTip = "BP が生成するコンポーネントの見た目と当たり判定",
+        };
+        vp.Click += (_, __) => ShowViewport();
+        GraphTabs.Children.Add(vp);
         foreach (var name in _graphOrder)
         {
             string n = name;
-            bool active = n == _activeName;
+            bool active = !_viewportMode && n == _activeName;
             var btn = new Button {
                 Content = (_graphIsFunc.Contains(n) ? "ƒ " : "▦ ") + n,
                 Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 3, 0), FontSize = 11.5,
-                Background = active ? new SolidColorBrush(Color.FromRgb(0x2E, 0x5C, 0x8A)) : Brushes.Transparent,
+                Background = active ? activeBg : Brushes.Transparent,
                 Foreground = Brushes.White, BorderThickness = new Thickness(active ? 0 : 1),
             };
-            btn.Click += (_, __) => SwitchGraph(n);
+            btn.Click += (_, __) => { ExitViewport(); SwitchGraph(n); };
             if (_graphIsFunc.Contains(n))   // 関数タブは右クリックで削除
                 btn.MouseRightButtonUp += (_, e) => { DeleteFunction(n); e.Handled = true; };
             GraphTabs.Children.Add(btn);
         }
         var add = new Button { Content = "＋ 関数", Padding = new Thickness(9, 2, 9, 2), FontSize = 11.5,
             Foreground = (Brush)(TryFindResource("OkFg") ?? Brushes.LightGreen), Background = Brushes.Transparent };
-        add.Click += (_, __) => AddFunction();
+        add.Click += (_, __) => { ExitViewport(); AddFunction(); };
         GraphTabs.Children.Add(add);
+    }
+
+    private void ShowViewport()
+    {
+        _viewportMode = true;
+        GridBg.Visibility = Visibility.Collapsed; GraphCanvas.Visibility = Visibility.Collapsed;
+        if (MinimapPanel != null) MinimapPanel.Visibility = Visibility.Collapsed;
+        ViewportCanvas.Visibility = Visibility.Visible;
+        RenderViewport();
+        BuildGraphTabs();
+    }
+    private void ExitViewport()
+    {
+        if (!_viewportMode) return;
+        _viewportMode = false;
+        ViewportCanvas.Visibility = Visibility.Collapsed;
+        GridBg.Visibility = Visibility.Visible; GraphCanvas.Visibility = Visibility.Visible;
+        UpdateMinimap();
+        BuildGraphTabs();
+    }
+
+    private static byte ColorByte(string s) => (byte)Math.Clamp((int)Math.Round(ParseDouble(s) * 255), 0, 255);
+
+    /// <summary>ビューポート: BP のコンポーネント木 (ComponentsText) を «見た目(塗り)» + «当たり判定(緑輪郭)» として描く。</summary>
+    private void RenderViewport()
+    {
+        if (ViewportCanvas == null) return;
+        ViewportCanvas.Children.Clear();
+        double vw = ViewportCanvas.ActualWidth, vh = ViewportCanvas.ActualHeight;
+        if (vw < 10) vw = 900; if (vh < 10) vh = 560;
+
+        var text = (ComponentsText ?? "").Replace("\r", "");
+        var comps = new Dictionary<int, List<string>>();
+        foreach (var raw in text.Split('\n'))
+        {
+            var l = raw.Trim();
+            if (!l.StartsWith("COMP ")) continue;
+            var t = l.Split(' ');
+            if (t.Length >= 3 && int.TryParse(t[1], out int cid)) { if (!comps.ContainsKey(cid)) comps[cid] = new(); comps[cid].Add(t[2]); }
+        }
+        var nodes = new List<(double x, double y, double rot, double w, double h, Color col, string name, bool collide, bool circle)>();
+        foreach (var raw in text.Split('\n'))
+        {
+            var l = raw.Trim();
+            if (l.Length == 0 || !char.IsDigit(l[0])) continue;
+            var t = l.Split(' ');
+            if (t.Length < 12) continue;
+            int id = ParseInt(t[0]);
+            double x = ParseDouble(t[2]), y = ParseDouble(t[3]), rot = ParseDouble(t[4]), sx = ParseDouble(t[5]), sy = ParseDouble(t[6]), bs = ParseDouble(t[7]);
+            var col = Color.FromArgb(ColorByte(t[11]), ColorByte(t[8]), ColorByte(t[9]), ColorByte(t[10]));
+            string name = t.Length >= 13 ? t[12] : "#" + id;
+            bool collide = false, circle = false;
+            if (comps.TryGetValue(id, out var cl))
+                foreach (var c in cl)
+                    if (c.Contains("RigidBody") || c.Contains("Collid") || c.Contains("Collision") || c.Contains("Physics")) { collide = true; if (c.Contains("Circle")) circle = true; }
+            nodes.Add((x, y, rot, Math.Max(2, bs * Math.Abs(sx)), Math.Max(2, bs * Math.Abs(sy)), col, name, collide, circle));
+        }
+        if (nodes.Count == 0)
+        {
+            ViewportCanvas.Children.Add(Place(new TextBlock {
+                Text = "（コンポーネントなし）", Foreground = LabelFg, FontSize = 14 }, 24, 22));
+            ViewportCanvas.Children.Add(Place(new TextBlock {
+                Text = "シーンのノードを右クリック →「Blueprint として保存」で、見た目と当たり判定を持つ BP を作成。",
+                Foreground = new SolidColorBrush(Color.FromRgb(0x8B, 0x93, 0xA0)), FontSize = 11.5 }, 24, 46));
+            return;
+        }
+        double minX = 0, minY = 0, maxX = 0, maxY = 0;   // 原点を含める
+        foreach (var n in nodes) { minX = Math.Min(minX, n.x - n.w / 2); minY = Math.Min(minY, n.y - n.h / 2); maxX = Math.Max(maxX, n.x + n.w / 2); maxY = Math.Max(maxY, n.y + n.h / 2); }
+        double gw = Math.Max(1, maxX - minX), gh = Math.Max(1, maxY - minY), pad = 64;
+        double s = Math.Min(Math.Min((vw - 2 * pad) / gw, (vh - 2 * pad) / gh), 4.0);
+        double cx0 = (minX + maxX) / 2, cy0 = (minY + maxY) / 2;
+        Point M(double wx, double wy) => new(vw / 2 + (wx - cx0) * s, vh / 2 + (wy - cy0) * s);
+
+        var o = M(0, 0);   // 原点クロス (赤=+X / 緑=+Y。2D は Y-down)
+        ViewportCanvas.Children.Add(new Line { X1 = o.X - 16, Y1 = o.Y, X2 = o.X + 16, Y2 = o.Y, Stroke = new SolidColorBrush(Color.FromArgb(0x88, 0xE0, 0x70, 0x70)), StrokeThickness = 1.5 });
+        ViewportCanvas.Children.Add(new Line { X1 = o.X, Y1 = o.Y - 16, X2 = o.X, Y2 = o.Y + 16, Stroke = new SolidColorBrush(Color.FromArgb(0x88, 0x70, 0xE0, 0x70)), StrokeThickness = 1.5 });
+
+        foreach (var n in nodes)
+        {
+            var c = M(n.x, n.y);
+            double w = n.w * s, h = n.h * s;
+            var rect = new Rectangle { Width = w, Height = h, Fill = new SolidColorBrush(n.col),
+                Stroke = new SolidColorBrush(Color.FromArgb(0x70, 0, 0, 0)), StrokeThickness = 1, RenderTransformOrigin = new Point(0.5, 0.5) };
+            if (n.rot != 0) rect.RenderTransform = new RotateTransform(n.rot);
+            ViewportCanvas.Children.Add(Place(rect, c.X - w / 2, c.Y - h / 2));
+            if (n.collide)
+            {
+                Shape co = n.circle
+                    ? new Ellipse { Width = Math.Max(w, h) + 2, Height = Math.Max(w, h) + 2, Stroke = CollideEdge, StrokeThickness = 1.6, Fill = Brushes.Transparent }
+                    : new Rectangle { Width = w + 3, Height = h + 3, Stroke = CollideEdge, StrokeThickness = 1.6, StrokeDashArray = new DoubleCollection { 3, 2 }, Fill = Brushes.Transparent, RenderTransformOrigin = new Point(0.5, 0.5) };
+                if (n.rot != 0 && co is Rectangle) co.RenderTransform = new RotateTransform(n.rot);
+                double cw = co.Width, ch = co.Height;
+                ViewportCanvas.Children.Add(Place(co, c.X - cw / 2, c.Y - ch / 2));
+            }
+            ViewportCanvas.Children.Add(Place(new TextBlock { Text = n.name, Foreground = LabelFg, FontSize = 10.5 }, c.X - w / 2, c.Y - h / 2 - 15));
+        }
+
+        var legend = new StackPanel { Orientation = Orientation.Horizontal };
+        legend.Children.Add(new TextBlock { Text = "見た目 = 塗り    ", Foreground = LabelFg, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+        legend.Children.Add(new Rectangle { Width = 13, Height = 11, Stroke = CollideEdge, StrokeThickness = 1.5, StrokeDashArray = new DoubleCollection { 3, 2 }, Fill = Brushes.Transparent, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
+        legend.Children.Add(new TextBlock { Text = "= 当たり判定", Foreground = LabelFg, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+        ViewportCanvas.Children.Add(Place(legend, 14, 12));
     }
 
     /// <summary>編集グラフを切り替える (現在を保存し、対象を読み込む)。</summary>
@@ -2357,6 +2475,7 @@ public partial class BlueprintEditor : UserControl
         ComponentsText = string.Join("\n", lines);
         if (!ComponentsText.EndsWith("\n")) ComponentsText += "\n";
         ComponentsChanged?.Invoke();
+        if (_viewportMode) RenderViewport();
         CommitEdit();
         return true;
     }
@@ -2391,6 +2510,7 @@ public partial class BlueprintEditor : UserControl
         ComponentsText = string.Join("\n", lines);
         if (!ComponentsText.EndsWith("\n")) ComponentsText += "\n";
         ComponentsChanged?.Invoke();
+        if (_viewportMode) RenderViewport();
         CommitEdit();
         return true;
     }
