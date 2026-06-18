@@ -48,6 +48,7 @@ public partial class BlueprintEditor : UserControl
         public bool Inherited;  // 親 (継承元) .acsbp から来たノードか (淡色・読取専用)
         public bool Disabled;   // 無効化 (実行時に作用をスキップし exec はそのまま通す)
         public bool HasIssue;   // 検証で問題あり (⚠ バッジ表示)
+        public string Comment = "";   // ノード個別コメント (UE5 風: ヘッダ上に黄色い帯で表示)
         public Dictionary<int, string> Literals = new();   // 未接続データ入力ピンの定数値 (入力index→文字列)
     }
 
@@ -287,6 +288,12 @@ public partial class BlueprintEditor : UserControl
         inner.Children.Add(Place(new TextBlock {
             Text = n.Title, Foreground = Brushes.White, FontSize = 11.5, FontWeight = FontWeights.SemiBold,
             Width = NodeW - 30, TextTrimming = TextTrimming.CharacterEllipsis }, 24, 5));
+        if (!string.IsNullOrEmpty(n.Comment))   // ノード個別コメント (UE5 風: ヘッダ上の黄色い帯)
+            inner.Children.Add(Place(new Border {
+                Background = new SolidColorBrush(Color.FromRgb(0xF2, 0xD9, 0x6B)), CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(7, 1, 7, 2), MaxWidth = NodeW + 50,
+                Child = new TextBlock { Text = n.Comment, Foreground = new SolidColorBrush(Color.FromRgb(0x30, 0x29, 0x10)),
+                    FontSize = 10.5, TextTrimming = TextTrimming.CharacterEllipsis } }, 0, -22));
         // 入力ピン (左辺)。未接続のデータ入力にはインライン定数入力欄を出す。
         for (int i = 0; i < n.Inputs.Count; i++)
         {
@@ -1200,6 +1207,9 @@ public partial class BlueprintEditor : UserControl
             var bp = new MenuItem { Header = _breakpoints.Contains(hit.Id) ? "ブレークポイント解除" : "ブレークポイントを置く" };
             bp.Click += (_, __) => ToggleBreakpoint(hit);
             menu.Items.Add(bp);
+            var cmt = new MenuItem { Header = string.IsNullOrEmpty(hit.Comment) ? "コメントを追加…" : "コメントを編集…" };
+            cmt.Click += (_, __) => OpenNodeCommentEditor(hit);
+            menu.Items.Add(cmt);
             if (hit.Title == "Function Entry")   // 関数の入力パラメータ (Entry の data 出力) を足す
             {
                 var add = new MenuItem { Header = "入力パラメータを追加" };
@@ -1465,6 +1475,29 @@ public partial class BlueprintEditor : UserControl
             else if (ke.Key == Key.Escape) { pop.IsOpen = false; ke.Handled = true; }
         };
         pop.Opened += (_, __) => box.Focus();
+        pop.Closed += (_, __) => GraphCanvas.Focus();
+        pop.IsOpen = true;
+    }
+
+    /// <summary>ノード個別コメントを編集する小ポップアップ (UE5 風)。</summary>
+    private void OpenNodeCommentEditor(BpNode n)
+    {
+        var box = new TextBox { Width = 230, FontSize = 12, Padding = new Thickness(6, 3, 6, 3), Text = n.Comment };
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock { Text = "ノードコメント (Enter 確定 / Esc 取消)", Foreground = LabelFg, FontSize = 10, Margin = new Thickness(2, 0, 0, 3) });
+        panel.Children.Add(box);
+        var border = new Border {
+            Background = new SolidColorBrush(Color.FromRgb(0x20, 0x25, 0x2E)), BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x44, 0x52)),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5), Padding = new Thickness(7), Child = panel };
+        var sc = GraphToControl(new Point(n.X, n.Y));
+        var pop = new Popup { Child = border, Placement = PlacementMode.Relative, PlacementTarget = this,
+            HorizontalOffset = sc.X, VerticalOffset = sc.Y - 50, StaysOpen = false, AllowsTransparency = true };
+        void Commit() { BeginEdit(); n.Comment = box.Text.Trim(); Rebuild(); CommitEdit(); pop.IsOpen = false; }
+        box.PreviewKeyDown += (_, ke) => {
+            if (ke.Key == Key.Enter) { Commit(); ke.Handled = true; }
+            else if (ke.Key == Key.Escape) { pop.IsOpen = false; ke.Handled = true; }
+        };
+        pop.Opened += (_, __) => { box.Focus(); box.SelectAll(); };
         pop.Closed += (_, __) => GraphCanvas.Focus();
         pop.IsOpen = true;
     }
@@ -1964,6 +1997,7 @@ public partial class BlueprintEditor : UserControl
             foreach (var kv in n.Literals)
                 if (!string.IsNullOrEmpty(kv.Value)) sb.Append("V ").Append(kv.Key).Append(' ').Append(kv.Value).Append('\n');
             if (n.Disabled) sb.Append("X\n");   // 無効化フラグ (直前 N に係る)
+            if (!string.IsNullOrEmpty(n.Comment)) sb.Append("NC ").Append(n.Comment.Replace("\n", " ")).Append('\n');   // ノードコメント
         }
         foreach (var k in _conns)
             if (k.FromNode < InheritOffset && k.ToNode < InheritOffset)   // 継承ノード間の線は親側が持つ
@@ -2397,6 +2431,7 @@ public partial class BlueprintEditor : UserControl
         {
             var line = raw.TrimEnd('\r');
             if (line.Length == 0 || line.StartsWith("ACSBP") || line.StartsWith("PARENT")) continue;
+            if (line.StartsWith("NC ")) { if (cur != null) cur.Comment = line.Substring(3); continue; }   // ノードコメント
             switch (line[0])
             {
                 case 'N':
@@ -2480,6 +2515,7 @@ public partial class BlueprintEditor : UserControl
             foreach (var p in n.Outputs) sb.Append("O ").Append(PinToken(p)).Append(' ').Append(p.Name).Append('\n');
             foreach (var kv in n.Literals) if (!string.IsNullOrEmpty(kv.Value)) sb.Append("V ").Append(kv.Key).Append(' ').Append(kv.Value).Append('\n');
             if (n.Disabled) sb.Append("X\n");
+            if (!string.IsNullOrEmpty(n.Comment)) sb.Append("NC ").Append(n.Comment.Replace("\n", " ")).Append('\n');
         }
         foreach (var k in _conns)
             if (ids.Contains(k.FromNode) && ids.Contains(k.ToNode))
@@ -2497,6 +2533,7 @@ public partial class BlueprintEditor : UserControl
         {
             var line = raw.TrimEnd('\r');
             if (line.Length == 0) continue;
+            if (line.StartsWith("NC ")) { if (cur != null) cur.Comment = line.Substring(3); continue; }   // ノードコメント
             switch (line[0])
             {
                 case 'N':
