@@ -287,13 +287,17 @@ public partial class BlueprintEditor : UserControl
     /// <summary>ピンの «グラフ座標» 中心位置。枠からはみ出さないよう PinR だけ内側に置く。 </summary>
     private static Point PinPos(BpNode n, bool output, int idx)
     {
+        if (n.Title == "Reroute")   // UE5 風: 小さなドット (in=左端 / out=右端、同じ高さ)
+            return new Point(output ? n.X + RerouteSize - 1 : n.X + 1, n.Y + RerouteSize / 2.0);
         double x = n.X + (output ? NodeW - PinR - PinInset : PinR + PinInset);
         double y = n.Y + HeaderH + idx * RowH + RowH / 2.0;
         return new Point(x, y);
     }
+    private const double RerouteSize = 16;
 
     private FrameworkElement MakeNodeVisual(BpNode n)
     {
+        if (n.Title == "Reroute") return MakeRerouteVisual(n);   // UE5 風: 小さなドット
         int rows = Math.Max(n.Inputs.Count, n.Outputs.Count);
         double h = HeaderH + rows * RowH + 6;
 
@@ -410,6 +414,33 @@ public partial class BlueprintEditor : UserControl
             {
                 _selected.Remove(n); Rebuild(); e.Handled = true; return;   // Ctrl クリックで選択解除 (ドラッグしない)
             }
+            BeginEdit();
+            _dragNode = n; _dragMoved = false; _lastMouse = e.GetPosition(GraphCanvas);
+            GraphCanvas.CaptureMouse(); e.Handled = true;
+        };
+        return outer;
+    }
+
+    /// <summary>Reroute ノードを UE5 風の小さなドットで描く (型色 + 選択時オレンジ枠)。</summary>
+    private FrameworkElement MakeRerouteVisual(BpNode n)
+    {
+        bool isExec = n.Inputs.Count > 0 && n.Inputs[0].Kind == PinKind.Exec;
+        var col = isExec ? PinExec : DataTypeBrush(n.Inputs.Count > 0 ? n.Inputs[0].Type : "");
+        bool sel = _selected.Contains(n);
+        const double D = 13;
+        var outer = new Canvas { Width = RerouteSize, Height = RerouteSize, ClipToBounds = false, Cursor = Cursors.SizeAll,
+            Background = Brushes.Transparent };
+        Canvas.SetLeft(outer, n.X); Canvas.SetTop(outer, n.Y);
+        outer.Children.Add(Place(new Ellipse {
+            Width = D, Height = D, Fill = col,
+            Stroke = sel ? SelEdge : new SolidColorBrush(Color.FromArgb(0xAA, 0, 0, 0)), StrokeThickness = sel ? 2 : 1,
+        }, (RerouteSize - D) / 2, (RerouteSize - D) / 2));
+        if (!string.IsNullOrEmpty(n.Comment))
+            outer.Children.Add(Place(new TextBlock { Text = n.Comment, Foreground = LabelFg, FontSize = 10 }, RerouteSize + 2, -3));
+        outer.MouseLeftButtonDown += (s, e) => {
+            bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+            if (!_selected.Contains(n)) { if (!ctrl) _selected.Clear(); _selected.Add(n); Rebuild(); }
+            else if (ctrl) { _selected.Remove(n); Rebuild(); e.Handled = true; return; }
             BeginEdit();
             _dragNode = n; _dragMoved = false; _lastMouse = e.GetPosition(GraphCanvas);
             GraphCanvas.CaptureMouse(); e.Handled = true;
@@ -772,6 +803,7 @@ public partial class BlueprintEditor : UserControl
         Point g = e.GetPosition(GraphCanvas);
         var hit = PinHitTest(g);
         if (hit == null) return;   // ピン以外はノードドラッグ/パン/マーキーに委ねる
+        if (hit.Node.Title == "Reroute") return;   // Reroute (ドット) はドラッグ移動に委ねる (ドロップ先にはなる)
 
         BeginEdit();
         PinRef source = hit;
