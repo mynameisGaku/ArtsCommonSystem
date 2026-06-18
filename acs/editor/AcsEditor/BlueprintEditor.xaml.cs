@@ -253,8 +253,10 @@ public partial class BlueprintEditor : UserControl
         inner.Children.Add(Place(new Border {
             Width = NodeW, Height = HeaderH, Background = HeaderBrush(headerColor),
             CornerRadius = new CornerRadius(6, 6, 0, 0) }, 0, 0));
+        inner.Children.Add(Place(MakeNodeIcon(n), 9, 8));   // 種別アイコン
         inner.Children.Add(Place(new TextBlock {
-            Text = n.Title, Foreground = Brushes.White, FontSize = 11.5, FontWeight = FontWeights.SemiBold }, 9, 5));
+            Text = n.Title, Foreground = Brushes.White, FontSize = 11.5, FontWeight = FontWeights.SemiBold,
+            Width = NodeW - 30, TextTrimming = TextTrimming.CharacterEllipsis }, 24, 5));
         // 入力ピン (左辺)。未接続のデータ入力にはインライン定数入力欄を出す。
         for (int i = 0; i < n.Inputs.Count; i++)
         {
@@ -466,6 +468,17 @@ public partial class BlueprintEditor : UserControl
     {
         foreach (var c in _conns) if (c.FromNode == n.Id && c.FromPin == outPin) return true;
         return false;
+    }
+
+    /// <summary>ノード種別アイコン (UE5 風): イベント=三角 / pure=円 / 関数・アクション=角丸四角。</summary>
+    private static Shape MakeNodeIcon(BpNode n)
+    {
+        bool execIn = n.Inputs.Any(p => p.Kind == PinKind.Exec);
+        bool execOut = n.Outputs.Any(p => p.Kind == PinKind.Exec);
+        var fill = new SolidColorBrush(Color.FromArgb(0xE0, 0xFF, 0xFF, 0xFF));
+        if (!execIn && !execOut) return new Ellipse { Width = 10, Height = 10, Fill = fill };                       // pure
+        if (execOut && !execIn)  return new Path { Data = Geometry.Parse("M 0,0 L 0,11 L 10,5.5 Z"), Fill = fill }; // イベント
+        return new Rectangle { Width = 10, Height = 10, RadiusX = 2.5, RadiusY = 2.5, Fill = fill };                // 関数/アクション
     }
 
     /// <summary>UE5 風ヘッダ: 上を明るく、下を地色にした縦グラデーション。</summary>
