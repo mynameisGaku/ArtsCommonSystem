@@ -1173,20 +1173,31 @@ public partial class BlueprintEditor : UserControl
         var pinHit = PinHitTest(g);
         if (pinHit != null && !pinHit.Node.Inherited)
         {
+            var pinObj = pinHit.Output ? pinHit.Node.Outputs[pinHit.Index] : pinHit.Node.Inputs[pinHit.Index];
             int n = pinHit.Output
                 ? _conns.Count(c => c.FromNode == pinHit.Node.Id && c.FromPin == pinHit.Index)
                 : _conns.Count(c => c.ToNode == pinHit.Node.Id && c.ToPin == pinHit.Index);
-            if (n > 0)
+            if (n > 0 || pinObj.Kind == PinKind.Data)
             {
                 var menu = new ContextMenu();
-                var brk = new MenuItem { Header = $"このピンの接続を切断 ({n})" };
-                brk.Click += (_, __) => {
-                    BeginEdit();
-                    if (pinHit.Output) _conns.RemoveAll(c => c.FromNode == pinHit.Node.Id && c.FromPin == pinHit.Index);
-                    else _conns.RemoveAll(c => c.ToNode == pinHit.Node.Id && c.ToPin == pinHit.Index);
-                    Rebuild(); CommitEdit();
-                };
-                menu.Items.Add(brk);
+                if (pinObj.Kind == PinKind.Data)   // データピン → 変数に昇格 (UE5 風)
+                {
+                    var prom = new MenuItem { Header = "変数に昇格" };
+                    prom.Click += (_, __) => PromotePinToVariable(pinHit);
+                    menu.Items.Add(prom);
+                }
+                if (n > 0)
+                {
+                    if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+                    var brk = new MenuItem { Header = $"このピンの接続を切断 ({n})" };
+                    brk.Click += (_, __) => {
+                        BeginEdit();
+                        if (pinHit.Output) _conns.RemoveAll(c => c.FromNode == pinHit.Node.Id && c.FromPin == pinHit.Index);
+                        else _conns.RemoveAll(c => c.ToNode == pinHit.Node.Id && c.ToPin == pinHit.Index);
+                        Rebuild(); CommitEdit();
+                    };
+                    menu.Items.Add(brk);
+                }
                 menu.PlacementTarget = GraphCanvas; menu.IsOpen = true; e.Handled = true;
                 return;
             }
@@ -1519,6 +1530,15 @@ public partial class BlueprintEditor : UserControl
     }
     /// <summary>検証用: ビューポートタブを表示する (--bpshot viewport)。</summary>
     public void ShowViewportForTest() => ShowViewport();
+
+    /// <summary>検証用: ノードのデータピンを変数に昇格する (--bpshot promote)。</summary>
+    public void PromotePinForTest(int nodeId, bool output, int index)
+    {
+        var node = NodeById(nodeId); if (node == null) return;
+        var list = output ? node.Outputs : node.Inputs;
+        if (index < 0 || index >= list.Count) return;
+        PromotePinToVariable(new PinRef(node, index, output, list[index].Kind));
+    }
 
     /// <summary>検証用: ビューポートでノードを (dx,dy) 移動して再描画 (ドラッグ配置の確認。--bpshot vpmove)。</summary>
     public void MoveComponentForTest(int id, double dx, double dy)
@@ -1868,12 +1888,10 @@ public partial class BlueprintEditor : UserControl
         DropVariable(name.Trim(), set, g);
     }
 
-    /// <summary>変数 name の Get/Set ノードを生成する (D&D 落下点に)。</summary>
-    private void DropVariable(string name, bool set, Point g)
+    /// <summary>変数 name の Get/Set ノードを生成して追加し、返す (接続は呼び元が行う)。</summary>
+    private BpNode MakeVarNode(string name, bool set, string type, Point g)
     {
-        BeginEdit();
         var vbl = new SolidColorBrush(Color.FromRgb(0x6A, 0x4C, 0x8C));
-        string type = Variables.FirstOrDefault(v => v.Name == name)?.Type ?? "";
         BpNode n;
         if (set)
         {
@@ -1892,7 +1910,52 @@ public partial class BlueprintEditor : UserControl
             n.Literals[0] = name;
         }
         _nodes.Add(n);
+        return n;
+    }
+
+    /// <summary>変数 name の Get/Set ノードを生成する (D&D 落下点に)。</summary>
+    private void DropVariable(string name, bool set, Point g)
+    {
+        BeginEdit();
+        string type = Variables.FirstOrDefault(v => v.Name == name)?.Type ?? "";
+        var n = MakeVarNode(name, set, type, g);
         _selected.Clear(); _selected.Add(n);
+        Rebuild();
+        CommitEdit();
+    }
+
+    /// <summary>一意な変数名を作る (base, base2, base3 …)。</summary>
+    private string UniqueVarName(string baseName)
+    {
+        if (string.IsNullOrWhiteSpace(baseName) || baseName == "value") baseName = "NewVar";
+        string nm = baseName; int k = 2;
+        while (Variables.Any(v => v.Name == nm)) nm = baseName + k++;
+        return nm;
+    }
+
+    /// <summary>データピンを «変数に昇格»: 同型の変数を作り Get/Set ノードを生成して繋ぐ (UE5 風)。</summary>
+    private void PromotePinToVariable(PinRef p)
+    {
+        var pin = p.Output ? p.Node.Outputs[p.Index] : p.Node.Inputs[p.Index];
+        if (pin.Kind != PinKind.Data) return;
+        string type = string.IsNullOrEmpty(pin.Type) ? "Float" : pin.Type;
+        string vname = UniqueVarName(pin.Name);
+        BeginEdit();
+        Variables.Add(new BpVar(vname, type, ""));
+        VariablesChanged?.Invoke();
+        var pp = PinPos(p.Node, p.Output, p.Index);
+        if (p.Output)   // 出力 → Set Variable を右に置き、value へ
+        {
+            var n = MakeVarNode(vname, true, type, new Point(pp.X + 80, pp.Y - 11));
+            _conns.Add(new BpConn(p.Node.Id, p.Index, n.Id, 2));
+        }
+        else            // 入力 → Get Variable を左に置き、value から繋ぐ (既存接続は置換)
+        {
+            var n = MakeVarNode(vname, false, type, new Point(pp.X - 210, pp.Y - 33));
+            _conns.RemoveAll(c => c.ToNode == p.Node.Id && c.ToPin == p.Index);
+            _conns.Add(new BpConn(n.Id, 0, p.Node.Id, p.Index));
+            _selected.Clear(); _selected.Add(n);
+        }
         Rebuild();
         CommitEdit();
     }
