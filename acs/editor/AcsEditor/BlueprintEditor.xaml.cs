@@ -261,6 +261,25 @@ public partial class BlueprintEditor : UserControl
     /// <summary>グラフのノード選択を解除する (変数クリック時に Details を変数へ切替えるため)。</summary>
     public void ClearNodeSelection() { if (_selected.Count > 0) { _selected.Clear(); Rebuild(); } }
 
+    /// <summary>変数 varName を参照する Get/Set ノードを全選択し最初へ寄せる (UE5 の Find References)。件数を返す。</summary>
+    public int SelectVariableReferences(string varName)
+    {
+        varName = (varName ?? "").Trim();
+        _selected.Clear();
+        BpNode? first = null;
+        foreach (var n in _nodes)
+        {
+            if (n.Inherited) continue;
+            bool isGet = n.Title == "Get Variable" && n.Literals.TryGetValue(0, out var g) && g.Trim() == varName;
+            bool isSet = n.Title == "Set Variable" && n.Literals.TryGetValue(1, out var s) && s.Trim() == varName;
+            if (isGet || isSet) { _selected.Add(n); first ??= n; }
+        }
+        if (first != null) CenterOnNode(first);
+        Rebuild();
+        LogSink?.Invoke($"「{varName}」の参照: {_selected.Count} 件");
+        return _selected.Count;
+    }
+
     private BpNode? NodeById(int id) { foreach (var n in _nodes) if (n.Id == id) return n; return null; }
 
     private static double NodeHeight(BpNode n) => HeaderH + Math.Max(n.Inputs.Count, n.Outputs.Count) * RowH + 6;
@@ -570,7 +589,11 @@ public partial class BlueprintEditor : UserControl
         Canvas.SetLeft(el, left); Canvas.SetTop(el, top); return el;
     }
 
-    private static Path MakeWire() => new() { StrokeThickness = 2.4, Fill = null, SnapsToDevicePixels = true };
+    private static Path MakeWire() => new() {
+        StrokeThickness = 2.4, Fill = null, SnapsToDevicePixels = true,
+        StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,   // UE5 風: 丸いキャップ
+        Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 3, ShadowDepth = 1, Opacity = 0.5, Direction = 270 },
+    };
 
     /// <summary>2 ピン間のベジエ (出力→入力。水平に張り出してから繋ぐ)。</summary>
     private static PathGeometry Bez(Point p0, Point p1)

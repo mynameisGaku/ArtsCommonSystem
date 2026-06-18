@@ -357,13 +357,15 @@ public partial class BlueprintWindow : Window
         inst.Unchecked += (_, __) => { s.InstanceEditable = false; RefreshVars(); };
         DetailsPanel.Children.Add(inst);
 
-        var del = new Button
-        {
-            Content = "🗑 削除", Foreground = (Brush)FindResource("WarnFg"), Padding = new Thickness(10, 3, 10, 3),
-            HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 0),
-        };
+        var btns = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
+        var find = new Button { Content = "🔍 参照を検索", Padding = new Thickness(9, 3, 9, 3), Margin = new Thickness(0, 0, 6, 0),
+            ToolTip = "この変数を使う Get/Set ノードを選択" };
+        find.Click += (_, __) => Editor.SelectVariableReferences(s.Name);
+        btns.Children.Add(find);
+        var del = new Button { Content = "🗑 削除", Foreground = (Brush)FindResource("WarnFg"), Padding = new Thickness(10, 3, 10, 3) };
         del.Click += (_, __) => { Editor.Variables.Remove(s); _sel = null; RefreshVars(); };
-        DetailsPanel.Children.Add(del);
+        btns.Children.Add(del);
+        DetailsPanel.Children.Add(btns);
     }
 
     // 「ラベル + 罫線」のセクション見出し (インスペクタと同じ流儀)。
