@@ -483,6 +483,16 @@ public partial class BlueprintEditor : UserControl
             combo.SelectionChanged += (_, __) => { if (combo.SelectedItem is string s) { BeginEdit(); n.Literals[idx] = s; CommitEdit(); } };
             return combo;
         }
+        if (pin.Name == "name" && (n.Title == "Set Variable" || n.Title == "Get Variable"))
+        {
+            // 変数名は «参照できる変数» の一覧から選ぶ (手入力せず選択)。
+            var combo = new ComboBox { Width = 80, Height = 18, FontSize = 10, Padding = new Thickness(3, 0, 0, 0) };
+            foreach (var v in Variables) if (!string.IsNullOrWhiteSpace(v.Name)) combo.Items.Add(v.Name.Trim());
+            if (!string.IsNullOrEmpty(cur) && !combo.Items.Contains(cur)) combo.Items.Add(cur);   // 現在値が一覧に無ければ追加して表示
+            combo.SelectedItem = string.IsNullOrEmpty(cur) ? null : cur;                          // ハンドラ結線前に選択 (初期化で誤発火しない)
+            combo.SelectionChanged += (_, __) => { if (combo.SelectedItem is string s) { BeginEdit(); n.Literals[idx] = s; CommitEdit(); } };
+            return combo;
+        }
         var tb = new TextBox {
             Width = 54, Height = 17, FontSize = 10, Padding = new Thickness(2, 0, 2, 0),
             Background = new SolidColorBrush(Color.FromRgb(0x18, 0x1C, 0x23)), Foreground = Brushes.White,
@@ -1668,6 +1678,25 @@ public partial class BlueprintEditor : UserControl
         pop.Opened += (_, __) => { box.Focus(); box.SelectAll(); };
         pop.Closed += (_, __) => GraphCanvas.Focus();
         pop.IsOpen = true;
+    }
+
+    /// <summary>検証用: 変数名コンボのドロップダウンを開く (--bpshot varcombo)。</summary>
+    public void OpenVarComboForTest()
+    {
+        var cb = FindEditableCombo(GraphCanvas);
+        if (cb != null) { cb.Focus(); cb.IsDropDownOpen = true; }
+    }
+    private static System.Windows.Controls.ComboBox? FindEditableCombo(DependencyObject root)
+    {
+        int cnt = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < cnt; i++)
+        {
+            var c = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (c is System.Windows.Controls.ComboBox cb && cb.IsEditable) return cb;
+            var r = FindEditableCombo(c);
+            if (r != null) return r;
+        }
+        return null;
     }
 
     /// <summary>検証用: 既定位置で検索ポップアップを開く (--bpsearch のスクショ確認)。</summary>
