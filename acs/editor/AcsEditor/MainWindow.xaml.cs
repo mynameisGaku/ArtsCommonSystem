@@ -997,6 +997,7 @@ public partial class MainWindow : Window
             new("文字列", "Contains",      str, new[] { Da("in", "String"), Da("sub", "String") }, new[] { Da("result", "Bool") }),
             new("文字列", "Replace",       str, new[] { Da("in", "String"), Da("from", "String"), Da("to", "String") }, new[] { Da("result", "String") }),
             new("文字列", "Substring",     str, new[] { Da("in", "String"), Da("start", "Int"), Da("count", "Int") }, new[] { Da("result", "String") }),
+            new("文字列", "Format Text",   str, new[] { Da("format", "String"), Da("arg0"), Da("arg1"), Da("arg2") }, new[] { Da("result", "String") }),   // UE: {0}{1}{2} 置換
             // 乱数 (pure)。
             new("乱数", "Random Float", tim, new[] { Da("min", "Float"), Da("max", "Float") }, new[] { Da("result", "Float") }),
             new("乱数", "Random Int",   tim, new[] { Da("min", "Int"), Da("max", "Int") },     new[] { Da("result", "Int") }),
@@ -1008,6 +1009,7 @@ public partial class MainWindow : Window
             new("論理", "And", lgc, new[] { Da("a", "Bool"), Da("b", "Bool") }, new[] { Da("result", "Bool") }),
             new("論理", "Or",  lgc, new[] { Da("a", "Bool"), Da("b", "Bool") }, new[] { Da("result", "Bool") }),
             new("論理", "Not", lgc, new[] { Da("in", "Bool") },                 new[] { Da("result", "Bool") }),
+            new("論理", "Is Valid", lgc, new[] { Da("object", "Object") },       new[] { Da("result", "Bool") }),   // UE: null チェック
             // 比較 (pure: 各演算子ごとに独立ノード。a,b は Float)。
             new("比較", "Greater",       cmp, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Bool") }),
             new("比較", "Less",          cmp, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Bool") }),
@@ -1015,6 +1017,8 @@ public partial class MainWindow : Window
             new("比較", "Less Equal",    cmp, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Bool") }),
             new("比較", "Equal",         cmp, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Bool") }),
             new("比較", "Not Equal",     cmp, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Bool") }),
+            new("比較", "In Range",      cmp, new[] { Da("value", "Float"), Da("min", "Float"), Da("max", "Float") }, new[] { Da("result", "Bool") }),   // UE: min<=x<=max
+            new("比較", "In Range Exclusive", cmp, new[] { Da("value", "Float"), Da("min", "Float"), Da("max", "Float") }, new[] { Da("result", "Bool") }),
             // ベクトル (pure)。
             new("ベクトル", "Make Vector",  mth, new[] { Da("x", "Float"), Da("y", "Float") }, new[] { Da("vector", "Vector") }),
             new("ベクトル", "Break Vector", mth, new[] { Da("in", "Vector") },                 new[] { Da("x", "Float"), Da("y", "Float") }),

@@ -334,6 +334,10 @@ public partial class BlueprintEditor
             case "Less Equal":    return $"(({GenArg(n, "a", depth)}) <= ({GenArg(n, "b", depth)}))";
             case "Equal":         return $"(({GenArg(n, "a", depth)}) == ({GenArg(n, "b", depth)}))";
             case "Not Equal":     return $"(({GenArg(n, "a", depth)}) != ({GenArg(n, "b", depth)}))";
+            case "In Range":           { var v = GenArg(n, "value", depth); return $"(({v}) >= ({GenArg(n, "min", depth)}) && ({v}) <= ({GenArg(n, "max", depth)}))"; }
+            case "In Range Exclusive": { var v = GenArg(n, "value", depth); return $"(({v}) >  ({GenArg(n, "min", depth)}) && ({v}) <  ({GenArg(n, "max", depth)}))"; }
+            case "Is Valid":      return $"(({GenArg(n, "object", depth)}) != nullptr)";
+            case "Format Text":   return "acs::FString(\"\")";   // 文字列整形は実行(interpreter)向け。codegen は空文字 (コンパイル可)
             // 数学 追加。
             case "Tan":    return $"std::tan((float)({GenArg(n, "value", depth)}))";
             case "Atan2":  return $"std::atan2((float)({GenArg(n, "y", depth)}), (float)({GenArg(n, "x", depth)}))";

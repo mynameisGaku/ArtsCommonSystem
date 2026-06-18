@@ -150,6 +150,7 @@ public partial class BlueprintEditor : UserControl
     private static readonly Brush TVector = new SolidColorBrush(Color.FromRgb(0xE0, 0xB8, 0x4A));
     private static readonly Brush TVector3 = new SolidColorBrush(Color.FromRgb(0xE8, 0x8A, 0x3A));
     private static readonly Brush TObject = new SolidColorBrush(Color.FromRgb(0x4C, 0x9E, 0xE8));
+    private static readonly Brush TWildcard = new SolidColorBrush(Color.FromRgb(0xB2, 0xB8, 0xC2));   // ワイルドカード = 中立グレー (UE 風)
 
     private static Brush DataTypeBrush(string type) => type switch
     {
@@ -160,7 +161,7 @@ public partial class BlueprintEditor : UserControl
         "Vector" => TVector,
         "Vector3" => TVector3,
         "Object" => TObject,
-        _        => PinData,   // 空/未知 = ワイルドカード
+        _        => TWildcard,   // 空/未知 = ワイルドカード (中立グレーで型付きと区別)
     };
     private static Brush PinBrush(Pin p) => p.Kind == PinKind.Exec ? PinExec : DataTypeBrush(p.Type);
 
@@ -266,6 +267,19 @@ public partial class BlueprintEditor : UserControl
     }
     /// <summary>グラフのノード選択を解除する (変数クリック時に Details を変数へ切替えるため)。</summary>
     public void ClearNodeSelection() { if (_selected.Count > 0) { _selected.Clear(); Rebuild(); } }
+
+    /// <summary>変数 varName を束縛する Get/Set ノード数。</summary>
+    public int CountVariableReferences(string varName) =>
+        _nodes.Count(n => (n.Title == "Get Variable" || n.Title == "Set Variable") && n.VarRef == varName);
+
+    /// <summary>変数 varName を束縛する Get/Set ノードの value ピン型を更新する (型変更時。接続の型整合を保つ)。</summary>
+    public void RetypeVarReferences(string varName)
+    {
+        bool any = false;
+        foreach (var n in _nodes)
+            if ((n.Title == "Get Variable" || n.Title == "Set Variable") && n.VarRef == varName) { RetypeVarNode(n); any = true; }
+        if (any) Rebuild();
+    }
 
     /// <summary>変数 varName を参照する Get/Set ノードを全選択し最初へ寄せる (UE5 の Find References)。件数を返す。</summary>
     public int SelectVariableReferences(string varName)
@@ -1854,6 +1868,10 @@ public partial class BlueprintEditor : UserControl
         // 文字列。
         Check("Contains",   Calc("N 50 0 0 1 Contains\nI D:String in\nI D:String sub\nO D:Bool result\nV 0 hello\nV 1 ell\n", 0), "r", "true");
         Check("Substring",  Calc("N 50 0 0 1 Substring\nI D:String in\nI D:Int start\nI D:Int count\nO D:String result\nV 0 hello\nV 1 1\nV 2 3\n", 0), "r", "ell");
+        Check("FormatText", Calc("N 50 0 0 1 Format Text\nI D:String format\nI D arg0\nI D arg1\nI D arg2\nO D:String result\nV 0 Hi {0} {1}\nV 1 A\nV 2 B\n", 0), "r", "Hi A B");
+        Check("InRange",    Calc("N 50 0 0 1 In Range\nI D:Float value\nI D:Float min\nI D:Float max\nO D:Bool result\nV 0 5\nV 1 0\nV 2 10\n", 0), "r", "true");
+        Check("InRangeEx",  Calc("N 50 0 0 1 In Range Exclusive\nI D:Float value\nI D:Float min\nI D:Float max\nO D:Bool result\nV 0 0\nV 1 0\nV 2 10\n", 0), "r", "false");
+        Check("IsValid",    Calc("N 50 0 0 1 Is Valid\nI D:Object object\nO D:Bool result\nV 0 self\n", 0), "r", "true");
 
         // For Loop: 最終 index = 3
         Check("ForLoop", "ACSBP 1\nVAR Float r 0\nN 1 0 0 1 Event BeginPlay\nO E ▶\n" +
@@ -2102,6 +2120,7 @@ public partial class BlueprintEditor : UserControl
         _comments.Add(k);
         Rebuild();
         CommitEdit();
+        EditCommentTitle(k);   // UE 風: 作成直後にタイトルを即編集
     }
 
     // ----- 変数 D&D (My Blueprint パネルから) -----

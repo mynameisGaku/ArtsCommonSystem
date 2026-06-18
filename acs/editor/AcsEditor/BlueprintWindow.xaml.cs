@@ -40,6 +40,7 @@ public partial class BlueprintWindow : Window
     private static SolidColorBrush Rgb(byte r, byte g, byte b) => new(Color.FromRgb(r, g, b));
 
     private BlueprintEditor.BpVar? _sel;
+    private readonly System.Collections.Generic.HashSet<string> _collapsedCats = new();   // 折りたたみ中の変数カテゴリ
 
     // 変数 D&D 用の状態 (リスト行から押下→閾値超でグラフへドラッグ開始)。
     private BlueprintEditor.BpVar? _dragVar;
@@ -212,9 +213,17 @@ public partial class BlueprintWindow : Window
         foreach (var x in Editor.Variables) { var cc = x.Category ?? ""; if (!cats.Contains(cc)) cats.Add(cc); }
         foreach (var cat in cats)
         {
-          if (anyCat)   // カテゴリ見出し (UE5 の Category 分類)
-              VarList.Children.Add(new TextBlock { Text = string.IsNullOrEmpty(cat) ? "(未分類)" : cat,
-                  Foreground = (Brush)FindResource("SectionFg"), FontSize = 10, FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 6, 0, 2) });
+          bool collapsed = _collapsedCats.Contains(cat);
+          if (anyCat)   // カテゴリ見出し (UE5 の Category 分類。クリックで折りたたみ)
+          {
+              var hdr = new Border { Cursor = Cursors.Hand, Padding = new Thickness(4, 6, 0, 2), Background = Brushes.Transparent };
+              hdr.Child = new TextBlock { Text = (collapsed ? "▶ " : "▼ ") + (string.IsNullOrEmpty(cat) ? "(未分類)" : cat),
+                  Foreground = (Brush)FindResource("SectionFg"), FontSize = 10, FontWeight = FontWeights.SemiBold };
+              var cc2 = cat;
+              hdr.MouseLeftButtonUp += (_, __) => { if (collapsed) _collapsedCats.Remove(cc2); else _collapsedCats.Add(cc2); RefreshVars(); };
+              VarList.Children.Add(hdr);
+          }
+          if (collapsed) continue;
           foreach (var var in Editor.Variables.Where(x => (x.Category ?? "") == cat))
           {
             var v = var;
@@ -341,7 +350,7 @@ public partial class BlueprintWindow : Window
         var combo = new ComboBox { FontSize = 11, Height = 26 };
         foreach (var t in Types) combo.Items.Add(t);
         combo.SelectedItem = Types.Contains(s.Type) ? s.Type : "Float";
-        combo.SelectionChanged += (_, __) => { if (combo.SelectedItem is string t) { s.Type = t; RefreshVars(); } };
+        combo.SelectionChanged += (_, __) => { if (combo.SelectedItem is string t) { s.Type = t; Editor.RetypeVarReferences(s.Name); RefreshVars(); } };   // 型変更で Get/Set ノードも再型付け
         DetailsPanel.Children.Add(LabeledRow("型", combo));
 
         var valBox = MakeBox(s.Value);
@@ -365,7 +374,12 @@ public partial class BlueprintWindow : Window
         find.Click += (_, __) => Editor.SelectVariableReferences(s.Name);
         btns.Children.Add(find);
         var del = new Button { Content = "🗑 削除", Foreground = (Brush)FindResource("WarnFg"), Padding = new Thickness(10, 3, 10, 3) };
-        del.Click += (_, __) => { Editor.Variables.Remove(s); _sel = null; RefreshVars(); };
+        del.Click += (_, __) => {
+            int refs = Editor.CountVariableReferences(s.Name);
+            var msg = refs > 0 ? $"変数「{s.Name}」を削除しますか？\n{refs} 個の Get/Set ノードが参照しています。" : $"変数「{s.Name}」を削除しますか？";
+            if (MessageBox.Show(msg, "変数の削除", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
+            Editor.Variables.Remove(s); _sel = null; RefreshVars();
+        };
         btns.Children.Add(del);
         DetailsPanel.Children.Add(btns);
     }

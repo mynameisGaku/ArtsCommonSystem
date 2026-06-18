@@ -598,6 +598,9 @@ public partial class BlueprintEditor
             case "Less Equal":    return A() <= B() ? "true" : "false";
             case "Equal":         return A() == B() ? "true" : "false";
             case "Not Equal":     return A() != B() ? "true" : "false";
+            case "In Range":           { double v = V(), lo = ParseNum(EvalInputByName(from, "min")), hi = ParseNum(EvalInputByName(from, "max")); return (v >= lo && v <= hi) ? "true" : "false"; }
+            case "In Range Exclusive": { double v = V(), lo = ParseNum(EvalInputByName(from, "min")), hi = ParseNum(EvalInputByName(from, "max")); return (v >  lo && v <  hi) ? "true" : "false"; }
+            case "Is Valid": { var s = EvalInputByName(from, "object"); return (s != "(未接続)" && s != "(なし)" && s.Length > 0 && s != "0" && s != "nullptr") ? "true" : "false"; }
             // 数学 追加。
             case "Tan":   return Fmt(Math.Tan(V()));
             case "Atan2": return Fmt(Math.Atan2(ParseNum(EvalInputByName(from, "y")), ParseNum(EvalInputByName(from, "x"))));
@@ -630,6 +633,7 @@ public partial class BlueprintEditor
             case "Contains":    return Clean(EvalInputByName(from, "in")).Contains(Clean(EvalInputByName(from, "sub"))) ? "true" : "false";
             case "Replace":     return Clean(EvalInputByName(from, "in")).Replace(Clean(EvalInputByName(from, "from")), Clean(EvalInputByName(from, "to")));
             case "Substring":   { var s = Clean(EvalInputByName(from, "in")); int st = (int)ParseNum(EvalInputByName(from, "start")), ct = (int)ParseNum(EvalInputByName(from, "count")); st = Math.Min(Math.Max(st, 0), s.Length); ct = Math.Min(Math.Max(ct, 0), s.Length - st); return s.Substring(st, ct); }
+            case "Format Text": { var f = Clean(EvalInputByName(from, "format")); for (int k = 0; k < 3; k++) f = f.Replace("{" + k + "}", Clean(EvalInputByName(from, "arg" + k))); return f; }
             // 乱数 (デバッグ実行は固定シード)。
             case "Random Float": { double lo = ParseNum(EvalInputByName(from, "min")), hi = ParseNum(EvalInputByName(from, "max")); return Fmt(lo + _rng.NextDouble() * (hi - lo)); }
             case "Random Int":   { int lo = (int)ParseNum(EvalInputByName(from, "min")), hi = (int)ParseNum(EvalInputByName(from, "max")); return (hi <= lo ? lo : _rng.Next(lo, hi + 1)).ToString(CultureInfo.InvariantCulture); }
