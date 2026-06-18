@@ -1072,6 +1072,8 @@ public partial class BlueprintEditor : UserControl
         // Get Variable は要求時に変数ストアから読む (pure ノード = exec で実行しない)。
         if (from.Title.StartsWith("Get Variable"))
             return _vars.TryGetValue(EvalInputByName(from, "name").Trim(), out var gv) ? gv : "";
+        // Get Self は «self» マーカーを返す。MainWindow.ResolveTarget が実行中インスタンス(_bpSelfId)へ解決する。
+        if (from.Title.StartsWith("Get Self")) return "self";
         // 関数ノードの data 出力 = 実行時に得た戻り値 (キャッシュ) を返す。
         if (outPin >= 0 && outPin < from.Outputs.Count && from.Outputs[outPin].Kind == PinKind.Data
             && _returns.TryGetValue(from.Id, out var rv)) return rv;

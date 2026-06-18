@@ -952,6 +952,7 @@ public partial class MainWindow : Window
             // 変数: 名前付きの値を保持 (Set) / 参照 (Get、pure)。実行ごとにクリア。
             new("変数", "Set Variable", vbl, new[] { Ex("▶"), Da("name"), Da("value") }, new[] { Ex("▶") }),
             new("変数", "Get Variable", vbl, new[] { Da("name") }, new[] { Da("value") }),
+            new("変数", "Get Self",     vbl, none, new[] { Da("self") }),   // self = この BP の配置インスタンス (実行時に解決)
         };
 
         // リフレクトされた BlueprintCallable メソッド (古い ABI だと EntryPointNotFound → ビルトインのみ)。
