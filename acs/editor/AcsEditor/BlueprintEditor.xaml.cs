@@ -454,8 +454,25 @@ public partial class BlueprintEditor : UserControl
             }
         }
         if (verbose) LogSink?.Invoke(issues == 0 ? "✓ 検証 OK (到達不能ノードなし)。" : $"検証: 到達不能ノード {issues} 件。");
+        if (verbose) SetValidateStatus(issues);
         Rebuild();
         return issues;
+    }
+
+    /// <summary>検証ボタンに結果を反映する (UE5 の Compile 状態相当。OK=緑 / 問題=橙)。編集で中立へ戻る。</summary>
+    private void SetValidateStatus(int issues)
+    {
+        if (ValidateBtn == null) return;
+        ValidateBtn.Content = issues == 0 ? "✓ OK" : $"⚠ {issues}";
+        ValidateBtn.Foreground = issues == 0
+            ? (Brush)(TryFindResource("OkFg") ?? Brushes.LightGreen)
+            : WarnEdge;
+    }
+    private void ResetValidateStatus()
+    {
+        if (ValidateBtn == null) return;
+        ValidateBtn.Content = "✓ 検証";
+        ValidateBtn.Foreground = (Brush)(TryFindResource("Text") ?? Brushes.White);
     }
 
     /// <summary>クリック元が TextBox (または配下) かを視覚ツリーを遡って判定。</summary>
@@ -910,6 +927,7 @@ public partial class BlueprintEditor : UserControl
             case Key.V when ctrl: PasteClipboard(); e.Handled = true; break;
             case Key.D when ctrl: DuplicateSelection(); e.Handled = true; break;
             case Key.A when ctrl: SelectAll(); e.Handled = true; break;
+            case Key.F when ctrl: OpenFindInGraph(); e.Handled = true; break;   // グラフ内検索
             case Key.Tab: OpenNodeSearch(new Point(ActualWidth / 2 - 150, 90),
                               new Point((ActualWidth / 2 - _pan.X) / _zoom.ScaleX, (140 - _pan.Y) / _zoom.ScaleY), null); e.Handled = true; break;
             case Key.C: WrapSelectionInComment(); e.Handled = true; break;   // コメント枠で囲む (UE の C)
@@ -1388,11 +1406,50 @@ public partial class BlueprintEditor : UserControl
         pop.IsOpen = true;
     }
 
+    private Popup? _findPopup;
+    /// <summary>グラフ内検索 (Ctrl+F): タイトルに一致するノードを選択し、最初へ寄せる。Enter で次へ巡回。</summary>
+    private void OpenFindInGraph()
+    {
+        _findPopup?.SetCurrentValue(Popup.IsOpenProperty, false);
+        var box = new TextBox { Width = 200, FontSize = 12, Padding = new Thickness(6, 3, 6, 3) };
+        var info = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(0x8B, 0x93, 0xA0)), FontSize = 10.5,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 2, 0), MinWidth = 40 };
+        var sp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 5, 8, 5) };
+        sp.Children.Add(new TextBlock { Text = "🔍", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0), Foreground = LabelFg });
+        sp.Children.Add(box); sp.Children.Add(info);
+        var border = new Border {
+            Background = new SolidColorBrush(Color.FromRgb(0x20, 0x25, 0x2E)), BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x44, 0x52)),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5), Child = sp };
+        var pop = new Popup { Child = border, Placement = PlacementMode.Relative, PlacementTarget = this,
+            HorizontalOffset = ActualWidth / 2 - 140, VerticalOffset = 8, StaysOpen = false, AllowsTransparency = true };
+        _findPopup = pop;
+        var matches = new List<BpNode>(); int mi = 0;
+        void Find()
+        {
+            string q = box.Text.Trim();
+            matches = q.Length == 0 ? new() : _nodes.Where(n => !n.Inherited && n.Title.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
+            mi = 0;
+            _selected.Clear(); foreach (var m in matches) _selected.Add(m);
+            info.Text = q.Length == 0 ? "" : (matches.Count == 0 ? "0 件" : $"{matches.Count} 件");
+            if (matches.Count > 0) CenterOnNode(matches[0]);
+            Rebuild();
+        }
+        box.TextChanged += (_, __) => Find();
+        box.PreviewKeyDown += (_, ke) =>
+        {
+            if (ke.Key == Key.Enter && matches.Count > 0) { mi = (mi + 1) % matches.Count; CenterOnNode(matches[mi]); info.Text = $"{mi + 1}/{matches.Count}"; ke.Handled = true; }
+            else if (ke.Key == Key.Escape) { pop.IsOpen = false; ke.Handled = true; }
+        };
+        pop.Opened += (_, __) => box.Focus();
+        pop.Closed += (_, __) => GraphCanvas.Focus();
+        pop.IsOpen = true;
+    }
+
     /// <summary>検証用: 既定位置で検索ポップアップを開く (--bpsearch のスクショ確認)。</summary>
     public void DebugOpenSearch() => OpenNodeSearch(new Point(200, 70), new Point(220, 150), null);
 
-    /// <summary>検証用: グラフ検証して問題バッジを付ける (--bpshot validate のスクショ確認)。</summary>
-    public void ValidateForTest() => ValidateGraph(false);
+    /// <summary>検証用: グラフ検証して問題バッジ + ボタン状態を付ける (--bpshot validate のスクショ確認)。</summary>
+    public void ValidateForTest() => ValidateGraph(true);
     /// <summary>検証用: ステップ実行を steps 回進める (--bpshot step)。</summary>
     public void DebugStepForTest(int steps) { for (int i = 0; i < steps; i++) OnDebugStep(this, new RoutedEventArgs()); }
     /// <summary>検証用: グラフから C++ を生成して書き出す (--bpshot gencpp)。ビルドは起こさない。</summary>
@@ -1784,6 +1841,7 @@ public partial class BlueprintEditor : UserControl
     private void BeginEdit()
     {
         if (_showWatch) { _showWatch = false; _watch.Clear(); _firedOut.Clear(); }   // 編集を始めたらデバッグ表示を消す
+        ResetValidateStatus();   // 編集で検証結果は古くなる
         if (!_restoring && _pendingUndo == null) _pendingUndo = Serialize();
     }
     private void CancelEdit() { _pendingUndo = null; }
