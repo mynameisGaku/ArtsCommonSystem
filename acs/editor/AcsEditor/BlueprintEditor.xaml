@@ -9,19 +9,38 @@
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                     <Button x:Name="RunBtn" Content="▶ 実行" Click="OnRun" Padding="13,3" Margin="0,0,8,0"
                             Foreground="{DynamicResource OkFg}"/>
+                    <Button x:Name="ValidateBtn" Content="✓ 検証" Click="OnValidate" Padding="11,3" Margin="0,0,8,0"/>
+                    <Button x:Name="GenCppBtn" Content="⚙ C++生成" Click="OnGenerateCpp" Padding="11,3" Margin="0,0,8,0"
+                            ToolTip="グラフを ACS コンポーネント (C++ .h/.cpp) へ生成"/>
+                    <Separator/>
+                    <TextBlock Text="デバッグ" VerticalAlignment="Center" Foreground="{DynamicResource TextDim}" FontSize="10.5" Margin="2,0,4,0"/>
+                    <Button x:Name="StepBtn" Content="⏭" Click="OnDebugStep" Padding="8,3" Margin="0,0,2,0" ToolTip="ステップ実行 (1 ノードずつ)"/>
+                    <Button x:Name="ContinueBtn" Content="▶▶" Click="OnDebugContinue" Padding="8,3" Margin="0,0,2,0" ToolTip="次のブレークポイントまで続行"/>
+                    <Button x:Name="StopDbgBtn" Content="■" Click="OnDebugStop" Padding="8,3" Margin="0,0,8,0" ToolTip="デバッグ終了"/>
                     <Separator/>
                     <Button x:Name="ParentBtn" Content="継承元…" Click="OnSetParent" Padding="10,3" Margin="2,0"/>
                     <Button x:Name="SaveBtn" Content="保存" Click="OnSave" Padding="11,3" Margin="2,0"/>
                     <Button x:Name="OpenBtn" Content="開く" Click="OnOpen" Padding="11,3" Margin="2,0"/>
                 </StackPanel>
                 <TextBlock x:Name="HintText" VerticalAlignment="Center" Foreground="{DynamicResource TextDim}" FontSize="11"
-                           Text="ノード=ドラッグ移動 / ピン=ドラッグ接続(空きへ離して切断) / 背景=パン / ホイール=ズーム / 右クリック=ノード追加"/>
+                           Text="右クリック/ピンを空きへ=ノード検索 / 左ドラッグ=範囲選択 / 中ボタン・Space=パン / Ctrl+Z 取消 / Del 削除 / Ctrl+C/V コピペ / C コメント / F 全体表示"/>
             </DockPanel>
+        </Border>
+
+        <!-- グラフタブ (Event Graph + Function) -->
+        <Border DockPanel.Dock="Top" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource Hairline}" BorderThickness="0,0,0,1">
+            <StackPanel x:Name="GraphTabs" Orientation="Horizontal" Margin="6,3"/>
         </Border>
 
         <!-- ノードグラフ・キャンバス -->
         <Grid ClipToBounds="True">
-            <Canvas x:Name="GraphCanvas" Background="Transparent"/>
+            <Rectangle x:Name="GridBg" IsHitTestVisible="False"/>
+            <Canvas x:Name="GraphCanvas" Background="Transparent" Focusable="True"/>
+            <!-- 全体ミニマップ (右下。クリックでパン) -->
+            <Border x:Name="MinimapPanel" Width="210" Height="150" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                    Margin="0,0,12,12" Background="#CC0F1318" BorderBrush="#3A4452" BorderThickness="1" CornerRadius="4">
+                <Canvas x:Name="Minimap" Background="Transparent" ClipToBounds="True"/>
+            </Border>
         </Grid>
     </DockPanel>
 </UserControl>

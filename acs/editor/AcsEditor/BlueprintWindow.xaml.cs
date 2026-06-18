@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -38,6 +39,11 @@ public partial class BlueprintWindow : Window
     private static SolidColorBrush Rgb(byte r, byte g, byte b) => new(Color.FromRgb(r, g, b));
 
     private BlueprintEditor.BpVar? _sel;
+
+    // 変数 D&D 用の状態 (リスト行から押下→閾値超でグラフへドラッグ開始)。
+    private BlueprintEditor.BpVar? _dragVar;
+    private Point _dragOrigin;
+    private bool  _dragging;
 
     public BlueprintWindow()
     {
@@ -196,9 +202,21 @@ public partial class BlueprintWindow : Window
             };
             Grid.SetColumn(ty, 2); g.Children.Add(ty);
             row.Child = g;
-            row.MouseLeftButtonUp += (_, __) => { _sel = v; RefreshVars(); };
+            row.MouseLeftButtonUp += (_, __) => { if (!_dragging) { _sel = v; RefreshVars(); } };
             row.MouseEnter += (_, __) => { if (v != _sel) row.Background = RowHover; };
             row.MouseLeave += (_, __) => { if (v != _sel) row.Background = Brushes.Transparent; };
+            // 変数をグラフへドラッグ&ドロップ → Get/Set ノード生成 (Ctrl 併用で Set)。
+            row.MouseLeftButtonDown += (_, e) => { _dragOrigin = e.GetPosition(this); _dragVar = v; _dragging = false; };
+            row.MouseMove += (_, e) =>
+            {
+                if (_dragVar == null || e.LeftButton != MouseButtonState.Pressed) return;
+                var p = e.GetPosition(this);
+                if (Math.Abs(p.X - _dragOrigin.X) < 6 && Math.Abs(p.Y - _dragOrigin.Y) < 6) return;
+                _dragging = true;
+                var data = new DataObject(BlueprintEditor.VarDragFormat, _dragVar.Name);
+                DragDrop.DoDragDrop(row, data, DragDropEffects.Copy);
+                _dragVar = null; _dragging = false;
+            };
             VarList.Children.Add(row);
         }
         if (Editor.Variables.Count == 0)

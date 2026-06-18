@@ -920,39 +920,87 @@ public partial class MainWindow : Window
         var fn   = System.Windows.Media.Color.FromRgb(0x2E, 0x5C, 0x8A);   // 関数     = 青
         var scn  = System.Windows.Media.Color.FromRgb(0x8A, 0x5C, 0x2E);   // シーン操作 = 茶
         var vbl  = System.Windows.Media.Color.FromRgb(0x6A, 0x4C, 0x8C);   // 変数     = 紫
+        var mth  = System.Windows.Media.Color.FromRgb(0x3E, 0x6E, 0x5E);   // 演算/ベクトル = 暗緑
+        var lgc  = System.Windows.Media.Color.FromRgb(0x70, 0x50, 0x3E);   // 論理     = 橙茶
+        var cvt  = System.Windows.Media.Color.FromRgb(0x4A, 0x55, 0x6E);   // 変換     = 青灰
 
         static BlueprintEditor.BpPinSpec Ex(string n) => new(n, true);
-        static BlueprintEditor.BpPinSpec Da(string n) => new(n, false);
+        static BlueprintEditor.BpPinSpec Da(string n, string ty = "") => new(n, false, ty);   // ty="" = ワイルドカード
         var none = Array.Empty<BlueprintEditor.BpPinSpec>();
 
         var pal = new List<BlueprintEditor.BpNodeTemplate>
         {
             // イベント (実行の起点)。
             new("イベント", "On BeginPlay", ev, none, new[] { Ex("▶") }),
-            new("イベント", "On Tick",      ev, none, new[] { Ex("▶"), Da("dt") }),
+            new("イベント", "On Tick",      ev, none, new[] { Ex("▶"), Da("dt", "Float") }),
             new("イベント", "On Destroy",   ev, none, new[] { Ex("▶") }),
-            new("イベント", "On Event",     ev, new[] { Da("channel") }, new[] { Ex("▶") }),
+            new("イベント", "On Event",     ev, new[] { Da("channel", "String") }, new[] { Ex("▶") }),
             // フロー制御。
-            new("フロー", "Branch",       flow, new[] { Ex("▶"), Da("cond") }, new[] { Ex("True"), Ex("False") }),
-            new("フロー", "Compare",      flow, new[] { Ex("▶"), Da("a"), Da("op"), Da("b") }, new[] { Ex("▶"), Da("result") }),
+            new("フロー", "Branch",       flow, new[] { Ex("▶"), Da("cond", "Bool") }, new[] { Ex("True"), Ex("False") }),
+            new("フロー", "Compare",      flow, new[] { Ex("▶"), Da("a"), Da("op", "String"), Da("b") }, new[] { Ex("▶"), Da("result", "Bool") }),
             new("フロー", "Sequence",     flow, new[] { Ex("▶") },             new[] { Ex("0"), Ex("1"), Ex("2") }),
-            new("フロー", "Print String", flow, new[] { Ex("▶"), Da("text") }, new[] { Ex("▶") }),
+            new("フロー", "Print String", flow, new[] { Ex("▶"), Da("text", "String") }, new[] { Ex("▶") }),
             // サブシステム。
-            new("サブシステム", "Publish Event", bus, new[] { Ex("▶"), Da("channel") },          new[] { Ex("▶") }),
-            new("サブシステム", "Spawn Prefab",  bus, new[] { Ex("▶"), Da("path"), Da("pos") },   new[] { Ex("▶"), Da("spawned") }),
+            new("サブシステム", "Publish Event", bus, new[] { Ex("▶"), Da("channel", "String") },                  new[] { Ex("▶") }),
+            new("サブシステム", "Spawn Prefab",  bus, new[] { Ex("▶"), Da("path", "String"), Da("pos", "Vector") }, new[] { Ex("▶"), Da("spawned", "Object") }),
             // シーン操作 (実ノードを編集=永続)。target はノード ID。
-            new("シーン操作", "Set Position", scn, new[] { Ex("▶"), Da("target"), Da("x"), Da("y") }, new[] { Ex("▶") }),
-            new("シーン操作", "Get Position", scn, new[] { Ex("▶"), Da("target") },                 new[] { Ex("▶"), Da("pos") }),
-            new("シーン操作", "Set Color",    scn, new[] { Ex("▶"), Da("target"), Da("r"), Da("g"), Da("b") }, new[] { Ex("▶") }),
-            new("シーン操作", "Set Visible",  scn, new[] { Ex("▶"), Da("target"), Da("visible") },  new[] { Ex("▶") }),
-            new("シーン操作", "Set Scale",    scn, new[] { Ex("▶"), Da("target"), Da("sx"), Da("sy") }, new[] { Ex("▶") }),
-            new("シーン操作", "Set Rotation", scn, new[] { Ex("▶"), Da("target"), Da("deg") },      new[] { Ex("▶") }),
-            new("シーン操作", "Destroy",      scn, new[] { Ex("▶"), Da("target") },                 new[] { Ex("▶") }),
-            new("シーン操作", "Reparent",     scn, new[] { Ex("▶"), Da("target"), Da("parent") },   new[] { Ex("▶") }),
+            new("シーン操作", "Set Position", scn, new[] { Ex("▶"), Da("target", "Object"), Da("x", "Float"), Da("y", "Float") }, new[] { Ex("▶") }),
+            new("シーン操作", "Get Position", scn, new[] { Ex("▶"), Da("target", "Object") },                 new[] { Ex("▶"), Da("pos", "Vector") }),
+            new("シーン操作", "Set Color",    scn, new[] { Ex("▶"), Da("target", "Object"), Da("r", "Float"), Da("g", "Float"), Da("b", "Float") }, new[] { Ex("▶") }),
+            new("シーン操作", "Set Visible",  scn, new[] { Ex("▶"), Da("target", "Object"), Da("visible", "Bool") },  new[] { Ex("▶") }),
+            new("シーン操作", "Set Scale",    scn, new[] { Ex("▶"), Da("target", "Object"), Da("sx", "Float"), Da("sy", "Float") }, new[] { Ex("▶") }),
+            new("シーン操作", "Set Rotation", scn, new[] { Ex("▶"), Da("target", "Object"), Da("deg", "Float") },      new[] { Ex("▶") }),
+            new("シーン操作", "Destroy",      scn, new[] { Ex("▶"), Da("target", "Object") },                 new[] { Ex("▶") }),
+            new("シーン操作", "Reparent",     scn, new[] { Ex("▶"), Da("target", "Object"), Da("parent", "Object") },   new[] { Ex("▶") }),
             // 変数: 名前付きの値を保持 (Set) / 参照 (Get、pure)。実行ごとにクリア。
-            new("変数", "Set Variable", vbl, new[] { Ex("▶"), Da("name"), Da("value") }, new[] { Ex("▶") }),
-            new("変数", "Get Variable", vbl, new[] { Da("name") }, new[] { Da("value") }),
-            new("変数", "Get Self",     vbl, none, new[] { Da("self") }),   // self = この BP の配置インスタンス (実行時に解決)
+            new("変数", "Set Variable", vbl, new[] { Ex("▶"), Da("name", "String"), Da("value") }, new[] { Ex("▶") }),
+            new("変数", "Get Variable", vbl, new[] { Da("name", "String") }, new[] { Da("value") }),
+            new("変数", "Get Self",     vbl, none, new[] { Da("self", "Object") }),   // self = この BP の配置インスタンス (実行時に解決)
+            // 演算 (pure: exec なし。要求時に実評価)。
+            new("演算", "Add",      mth, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Subtract", mth, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Multiply", mth, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Divide",   mth, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Modulo",   mth, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Float") }),
+            // 論理 (pure)。
+            new("論理", "And", lgc, new[] { Da("a", "Bool"), Da("b", "Bool") }, new[] { Da("result", "Bool") }),
+            new("論理", "Or",  lgc, new[] { Da("a", "Bool"), Da("b", "Bool") }, new[] { Da("result", "Bool") }),
+            new("論理", "Not", lgc, new[] { Da("in", "Bool") },                 new[] { Da("result", "Bool") }),
+            // ベクトル (pure)。
+            new("ベクトル", "Make Vector",  mth, new[] { Da("x", "Float"), Da("y", "Float") }, new[] { Da("vector", "Vector") }),
+            new("ベクトル", "Break Vector", mth, new[] { Da("in", "Vector") },                 new[] { Da("x", "Float"), Da("y", "Float") }),
+            // 型変換 (pure)。
+            new("変換", "To String", cvt, new[] { Da("in") },          new[] { Da("out", "String") }),
+            new("変換", "To Float",  cvt, new[] { Da("in") },          new[] { Da("out", "Float") }),
+            new("変換", "To Int",    cvt, new[] { Da("in") },          new[] { Da("out", "Int") }),
+            new("変換", "To Bool",   cvt, new[] { Da("in") },          new[] { Da("out", "Bool") }),
+            // ループ。
+            new("ループ", "For Loop", flow, new[] { Ex("▶"), Da("first", "Int"), Da("last", "Int") }, new[] { Ex("Loop Body"), Da("index", "Int"), Ex("Completed") }),
+            new("ループ", "While",    flow, new[] { Ex("▶"), Da("cond", "Bool") },                    new[] { Ex("Loop Body"), Ex("Completed") }),
+            // 関数 (Custom Event = 直接呼び出し専用の入口 / Call Function = 同名を同期呼び出し)。
+            new("関数", "Custom Event",   ev,  new[] { Da("name", "String") },                  new[] { Ex("▶") }),
+            new("関数", "Call Function",  fn,  new[] { Ex("▶"), Da("name", "String") },         new[] { Ex("▶") }),
+            new("関数", "Function Entry", bus, none,                                            new[] { Ex("▶") }),   // 関数グラフの入口 (右クリックで入力ピン追加)
+            new("関数", "Return",         bus, new[] { Ex("▶") },                               none),                // 関数グラフの戻り (右クリックで出力ピン追加)
+            // フロー制御 (状態付き)。
+            new("フロー", "Gate",          flow, new[] { Ex("▶"), Ex("Open"), Ex("Close"), Ex("Toggle"), Da("Start Closed", "Bool") }, new[] { Ex("Exit") }),
+            new("フロー", "DoOnce",        flow, new[] { Ex("▶"), Ex("Reset") },               new[] { Ex("Completed") }),
+            new("フロー", "FlipFlop",      flow, new[] { Ex("▶") },                            new[] { Ex("A"), Ex("B"), Da("is A", "Bool") }),
+            new("フロー", "Switch on Int", flow, new[] { Ex("▶"), Da("selector", "Int") },     new[] { Ex("0"), Ex("1"), Ex("2"), Ex("Default") }),
+            new("フロー", "ForEach",       flow, new[] { Ex("▶"), Da("array") },               new[] { Ex("Loop Body"), Da("element"), Da("index", "Int"), Ex("Completed") }),
+            new("フロー", "Delay",         flow, new[] { Ex("▶"), Da("duration", "Float") },   new[] { Ex("Completed") }),
+            new("フロー", "Cast",          cvt,  new[] { Ex("▶"), Da("object", "Object") },    new[] { Ex("Success"), Ex("Failed"), Da("As", "Object") }),
+            // 配列 (カンマ区切り文字列で表現。pure)。
+            new("配列", "Make Array",   mth, new[] { Da("a"), Da("b"), Da("c") },           new[] { Da("array") }),
+            new("配列", "Array Add",    mth, new[] { Da("array"), Da("element") },          new[] { Da("array") }),
+            new("配列", "Array Get",    mth, new[] { Da("array"), Da("index", "Int") },     new[] { Da("element") }),
+            new("配列", "Array Length", mth, new[] { Da("array") },                         new[] { Da("length", "Int") }),
+            new("論理", "Select",       lgc, new[] { Da("a"), Da("b"), Da("pick", "Bool") }, new[] { Da("result") }),
+            // 入力イベント (実行は real input。シミュレーションでは自動起動しない)。
+            new("入力", "On Key",     ev, new[] { Da("key", "String") }, new[] { Ex("▶") }),
+            new("入力", "On Overlap", ev, new[] { Da("with", "String") }, new[] { Ex("▶"), Da("other", "Object") }),
+            // 整理: Reroute (配線中継。pure passthrough)。
+            new("整理", "Reroute", flow, new[] { Da("in") }, new[] { Da("out") }),
         };
 
         // リフレクトされた BlueprintCallable メソッド (古い ABI だと EntryPointNotFound → ビルトインのみ)。
@@ -967,8 +1015,8 @@ public partial class MainWindow : Window
                 string owner = EngineInterop.MethodOwner(i);
                 string title = string.IsNullOrEmpty(owner) ? name : $"{owner}.{name}";
                 var ins = EngineInterop.acs_editor_method_argkind_at(i) != 0   // 引数ありなら arg ピンを足す
-                    ? new[] { Ex("▶"), Da("target"), Da("arg") }
-                    : new[] { Ex("▶"), Da("target") };
+                    ? new[] { Ex("▶"), Da("target", "Object"), Da("arg") }
+                    : new[] { Ex("▶"), Da("target", "Object") };
                 var outs = EngineInterop.acs_editor_method_retkind_at(i) != 0   // 戻り値ありなら ret ピンを足す
                     ? new[] { Ex("▶"), Da("ret") }
                     : new[] { Ex("▶") };
