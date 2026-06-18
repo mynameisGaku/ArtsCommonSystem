@@ -139,6 +139,28 @@ public partial class App : Application
             return;
         }
 
+        // CLI: --bpsrcgen <acsbp> <srcdir>  → SourceDir を設定して C++ を生成 (エンジン組み込みルーティングの検証)。
+        if (e.Args.Length >= 3 && e.Args[0] == "--bpsrcgen")
+        {
+            string acsbp = e.Args[1], srcdir = e.Args[2];
+            var win = new BlueprintWindow { WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 };
+            win.Show();
+            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                try
+                {
+                    System.IO.Directory.CreateDirectory(srcdir);
+                    if (File.Exists(acsbp)) win.Editor.LoadFromFile(acsbp);
+                    win.Editor.SourceDir = srcdir;
+                    var cp = win.Editor.GenerateCppFile(build: false);
+                    Console.Error.WriteLine("generated to: " + cp);
+                }
+                catch (Exception ex) { Console.Error.WriteLine(ex.Message); }
+                Shutdown();
+            }));
+            return;
+        }
+
         // CLI: --bptest [out.txt]  → Blueprint インタプリタ/直列化の自己テストを実行してログ出力 + 終了コード=失敗数。
         if (e.Args.Length >= 1 && e.Args[0] == "--bptest")
         {

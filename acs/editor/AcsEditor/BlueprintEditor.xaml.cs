@@ -1280,8 +1280,8 @@ public partial class BlueprintEditor : UserControl
     public void ValidateForTest() => ValidateGraph(false);
     /// <summary>検証用: ステップ実行を steps 回進める (--bpshot step)。</summary>
     public void DebugStepForTest(int steps) { for (int i = 0; i < steps; i++) OnDebugStep(this, new RoutedEventArgs()); }
-    /// <summary>検証用: グラフから C++ を生成して .acsbp と同じ場所へ書き出す (--bpshot gencpp)。</summary>
-    public void GenerateCppForTest() => OnGenerateCpp(this, new RoutedEventArgs());
+    /// <summary>検証用: グラフから C++ を生成して書き出す (--bpshot gencpp)。ビルドは起こさない。</summary>
+    public void GenerateCppForTest() => GenerateCppFile(build: false);
     /// <summary>検証用: 最初の Function サブグラフへ切り替える (--bpshot func)。</summary>
     public void SwitchToFirstFunctionForTest()
     {

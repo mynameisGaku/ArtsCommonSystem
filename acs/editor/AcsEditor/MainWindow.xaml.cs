@@ -1028,6 +1028,8 @@ public partial class MainWindow : Window
         BlueprintHost.SetPalette(pal);
         BlueprintHost.DefaultDir = _project != null
             ? System.IO.Path.Combine(_project.RootDir, "Assets") : null;   // 保存/開くダイアログの初期位置
+        BlueprintHost.SourceDir = _project?.SourceDir;                     // C++ 生成先 (エンジン組み込み)
+        BlueprintHost.BuildRequested = () => OnBuildProject(this, new RoutedEventArgs());   // 生成→エンジンビルド
         BlueprintHost.LogSink = Log;   // 実行トレースをコンソールへ
         BlueprintHost.InvokeMethod = InvokeBound;   // 関数ノード→target (無指定なら選択) ノードへ実呼出
         BlueprintHost.SpawnPrefab = SpawnPrefabFromGraph;   // Spawn Prefab ノード→実シーンへ生成

@@ -10,13 +10,21 @@ namespace AcsEditor;
 
 public partial class BlueprintEditor
 {
-    // ===== BP → C++ コード生成 (グラフを ACS コンポーネントの .h/.cpp 雛形へ) =====
-    private void OnGenerateCpp(object sender, RoutedEventArgs e)
+    /// <summary>プロジェクトの Source/ ディレクトリ (MainWindow が設定)。設定時は «エンジンに組み込む» 生成先。</summary>
+    public string? SourceDir { get; set; }
+    /// <summary>生成後にエンジンビルドを要求する (MainWindow が「🔨 Build」へ束縛)。</summary>
+    public Action? BuildRequested;
+
+    // ===== BP → C++ コード生成 (グラフを ACS コンポーネントの .h/.cpp へ) =====
+    /// <summary>C++ を生成して書き出す。プロジェクトが開いていれば Source/ へ置いてエンジンビルドへ繋ぐ。</summary>
+    public string? GenerateCppFile(bool build)
     {
         string baseName = !string.IsNullOrEmpty(CurrentPath) ? System.IO.Path.GetFileNameWithoutExtension(CurrentPath!) : "GeneratedBp";
         string cls = "F" + SanitizeIdent(baseName);
-        string dir = !string.IsNullOrEmpty(CurrentPath) ? System.IO.Path.GetDirectoryName(CurrentPath!)!
-            : (DefaultDir != null && System.IO.Directory.Exists(DefaultDir) ? DefaultDir : System.IO.Path.GetTempPath());
+        bool toSource = !string.IsNullOrEmpty(SourceDir) && System.IO.Directory.Exists(SourceDir);
+        string dir = toSource ? SourceDir!
+            : (!string.IsNullOrEmpty(CurrentPath) ? System.IO.Path.GetDirectoryName(CurrentPath!)!
+            : (DefaultDir != null && System.IO.Directory.Exists(DefaultDir) ? DefaultDir : System.IO.Path.GetTempPath()));
         try
         {
             var (header, source) = GenerateCpp(cls);
@@ -24,10 +32,19 @@ public partial class BlueprintEditor
             string cp = System.IO.Path.Combine(dir, cls + ".cpp");
             System.IO.File.WriteAllText(hp, header);
             System.IO.File.WriteAllText(cp, source);
-            LogSink?.Invoke($"⚙ C++ 生成: {cls}.h / {cls}.cpp → {dir}");
+            if (toSource)
+            {
+                LogSink?.Invoke($"⚙ C++ 生成 → Source/{cls}.h, {cls}.cpp (ACS_CLASS としてエンジンに組み込み)");
+                if (build && BuildRequested != null) { LogSink?.Invoke("🔨 エンジンビルドを開始…"); BuildRequested.Invoke(); }
+                else LogSink?.Invoke("「🔨 Build」でエンジンへ反映 (リフレクション登録 + コンパイル)。");
+            }
+            else LogSink?.Invoke($"⚙ C++ 生成: {cls}.h / {cls}.cpp → {dir} (スタンドアロン)");
+            return cp;
         }
-        catch (Exception ex) { LogSink?.Invoke("C++ 生成エラー: " + ex.Message); }
+        catch (Exception ex) { LogSink?.Invoke("C++ 生成エラー: " + ex.Message); return null; }
     }
+
+    private void OnGenerateCpp(object sender, RoutedEventArgs e) => GenerateCppFile(build: true);
 
     private static string SanitizeIdent(string s)
     {
