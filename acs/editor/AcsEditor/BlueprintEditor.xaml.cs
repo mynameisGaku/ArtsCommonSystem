@@ -183,9 +183,11 @@ public partial class BlueprintEditor : UserControl
         GraphCanvas.DragOver += OnDragOver;
         GraphCanvas.Drop     += OnDrop;
         Minimap.MouseLeftButtonDown += OnMinimapClick;   // ミニマップでパン
-        ViewportCanvas.SizeChanged += (_, __) => { if (_viewportMode) RenderViewport(); };   // リサイズで再フィット
-        ViewportCanvas.MouseMove += OnViewportMove;             // コンポーネントのドラッグ移動
+        ViewportCanvas.SizeChanged += (_, __) => { if (_viewportMode) RenderViewport(); };   // リサイズで再描画
+        ViewportCanvas.MouseLeftButtonDown += OnViewportDown;   // 空き場所 → カメラ回転
+        ViewportCanvas.MouseMove += OnViewportMove;             // 回転 / コンポーネント移動
         ViewportCanvas.MouseLeftButtonUp += OnViewportUp;
+        ViewportCanvas.MouseWheel += OnViewportWheel;           // ズーム
         Loaded += (_, __) => { if (_nodes.Count == 0) BuildDemoGraph(); BuildGraphTabs(); UpdateGrid(); UpdateMinimap(); };
     }
 
@@ -1705,6 +1707,9 @@ public partial class BlueprintEditor : UserControl
     /// <summary>検証用: ビューポートタブを表示する (--bpshot viewport)。</summary>
     public void ShowViewportForTest() => ShowViewport();
 
+    /// <summary>検証用: カメラ方位/仰角を設定してビューポートを表示する (--bpshot vpangle)。</summary>
+    public void ViewportAngleForTest(double yaw, double pitch, double zoom = 1.0) { _vp3dYaw = yaw; _vp3dPitch = pitch; _vp3dZoom = zoom; ShowViewport(); }
+
     /// <summary>検証用: ノードのデータピンを変数に昇格する (--bpshot promote)。</summary>
     public void PromotePinForTest(int nodeId, bool output, int index)
     {
@@ -2392,8 +2397,12 @@ public partial class BlueprintEditor : UserControl
     private int _vpSelected = -1;   // ビューポートで強調中のコンポーネントノード id
     private int _vpDragId = -1;     // ビューポートでドラッグ中のノード id
     private Point _vpDragLast;
-    private double _vpScale = 1, _vpFitCx, _vpFitCy;
-    private bool _vpFreeze;         // ドラッグ中はフィット変換を固定 (1:1 でカーソルに追従)
+    // ----- 3D ビューポート (透視投影 + オービット) -----
+    private double _vp3dYaw = 0.85, _vp3dPitch = 0.5, _vp3dZoom = 1.0;   // カメラ方位/仰角/ズーム
+    private bool _vp3dOrbiting;     // 空き場所ドラッグでカメラ回転中
+    private double _vp3dGrabOX, _vp3dGrabOY;   // コンポーネントドラッグ時の «つかみオフセット» (2D)
+    // カメラ基底 (毎描画で更新。Unproject が再利用)。
+    private double _cEyeX, _cEyeY, _cEyeZ, _cFwdX, _cFwdY, _cFwdZ, _cRgtX, _cRgtY, _cRgtZ, _cUpX, _cUpY, _cUpZ, _cFocal, _cVW, _cVH;
 
     /// <summary>COMPONENTS パネルからの選択: ビューポートを開き、そのノードを強調する。</summary>
     public void HighlightViewportNode(int nodeId)
@@ -2519,81 +2528,172 @@ public partial class BlueprintEditor : UserControl
                 Foreground = new SolidColorBrush(Color.FromRgb(0x8B, 0x93, 0xA0)), FontSize = 11.5 }, 24, 46));
             return;
         }
-        double minX = 0, minY = 0, maxX = 0, maxY = 0;   // 原点を含める
-        foreach (var n in nodes) { minX = Math.Min(minX, n.x - n.w / 2); minY = Math.Min(minY, n.y - n.h / 2); maxX = Math.Max(maxX, n.x + n.w / 2); maxY = Math.Max(maxY, n.y + n.h / 2); }
-        double s, cx0, cy0;
-        if (_vpFreeze) { s = _vpScale; cx0 = _vpFitCx; cy0 = _vpFitCy; }   // ドラッグ中は固定 (1:1 追従)
-        else
+        // ----- 3D 透視ビュー (UE 風: 地面グリッド + オービットカメラ + 立体スラブ) -----
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        foreach (var n in nodes) { minX = Math.Min(minX, n.x - n.w / 2); maxX = Math.Max(maxX, n.x + n.w / 2); minY = Math.Min(minY, n.y - n.h / 2); maxY = Math.Max(maxY, n.y + n.h / 2); }
+        double cx = (minX + maxX) / 2, cy2 = (minY + maxY) / 2;
+        double gw = Math.Max(1, maxX - minX), gh = Math.Max(1, maxY - minY);
+        double radius = 0.5 * Math.Sqrt(gw * gw + gh * gh) + 40;
+        SetupCamera3D(vw, vh, cx, -cy2, 0, radius * 2.4);   // ワールド: X=x, Y=-y(上が+), Z=奥行き
+
+        var Pr = (Func<double, double, double, (double sx, double sy, double z, bool ok)>)((wx, wy, wz) => Project3D(wx, wy, wz));
+        void Line3D(double ax, double ay, double az, double bx, double by, double bz, Brush st, double th, DoubleCollection? dash = null)
         {
-            double gw = Math.Max(1, maxX - minX), gh = Math.Max(1, maxY - minY), pad = 64;
-            s = Math.Min(Math.Min((vw - 2 * pad) / gw, (vh - 2 * pad) / gh), 4.0);
-            cx0 = (minX + maxX) / 2; cy0 = (minY + maxY) / 2;
-            _vpScale = s; _vpFitCx = cx0; _vpFitCy = cy0;
+            var a = Pr(ax, ay, az); var b = Pr(bx, by, bz);
+            if (!a.ok || !b.ok) return;
+            var ln = new Line { X1 = a.sx, Y1 = a.sy, X2 = b.sx, Y2 = b.sy, Stroke = st, StrokeThickness = th, IsHitTestVisible = false };
+            if (dash != null) ln.StrokeDashArray = dash;
+            ViewportCanvas.Children.Add(ln);
         }
-        Point M(double wx, double wy) => new(vw / 2 + (wx - cx0) * s, vh / 2 + (wy - cy0) * s);
-
-        var o = M(0, 0);   // 原点クロス (赤=+X / 緑=+Y。2D は Y-down)
-        ViewportCanvas.Children.Add(new Line { X1 = o.X - 16, Y1 = o.Y, X2 = o.X + 16, Y2 = o.Y, Stroke = new SolidColorBrush(Color.FromArgb(0x88, 0xE0, 0x70, 0x70)), StrokeThickness = 1.5 });
-        ViewportCanvas.Children.Add(new Line { X1 = o.X, Y1 = o.Y - 16, X2 = o.X, Y2 = o.Y + 16, Stroke = new SolidColorBrush(Color.FromArgb(0x88, 0x70, 0xE0, 0x70)), StrokeThickness = 1.5 });
-
-        foreach (var n in nodes)
+        void Poly((double sx, double sy, double z, bool ok)[] pts, Color fill, byte alpha)
         {
-            var c = M(n.x, n.y);
-            double w = n.w * s, h = n.h * s;
-            var rect = new Rectangle { Width = w, Height = h, Fill = new SolidColorBrush(n.col),
-                Stroke = new SolidColorBrush(Color.FromArgb(0x70, 0, 0, 0)), StrokeThickness = 1, RenderTransformOrigin = new Point(0.5, 0.5), Cursor = Cursors.SizeAll };
-            if (n.rot != 0) rect.RenderTransform = new RotateTransform(n.rot);
-            int nid = n.id;   // ドラッグで移動 (UE のビューポート配置)
-            rect.MouseLeftButtonDown += (_, ev) => { BeginEdit(); _vpDragId = nid; _vpSelected = nid; _vpFreeze = true; _vpDragLast = ev.GetPosition(ViewportCanvas); ViewportCanvas.CaptureMouse(); RenderViewport(); ev.Handled = true; };
-            ViewportCanvas.Children.Add(Place(rect, c.X - w / 2, c.Y - h / 2));
-            if (n.collide)
-            {
-                Shape co = n.circle
-                    ? new Ellipse { Width = Math.Max(w, h) + 2, Height = Math.Max(w, h) + 2, Stroke = CollideEdge, StrokeThickness = 1.6, Fill = Brushes.Transparent }
-                    : new Rectangle { Width = w + 3, Height = h + 3, Stroke = CollideEdge, StrokeThickness = 1.6, StrokeDashArray = new DoubleCollection { 3, 2 }, Fill = Brushes.Transparent, RenderTransformOrigin = new Point(0.5, 0.5) };
-                if (n.rot != 0 && co is Rectangle) co.RenderTransform = new RotateTransform(n.rot);
-                double cw = co.Width, ch = co.Height;
-                ViewportCanvas.Children.Add(Place(co, c.X - cw / 2, c.Y - ch / 2));
-            }
-            if (n.id == _vpSelected)   // COMPONENTS パネルから選択 → オレンジの選択枠
-            {
-                var ring = new Rectangle { Width = w + 8, Height = h + 8, Stroke = SelEdge, StrokeThickness = 2, Fill = Brushes.Transparent, RenderTransformOrigin = new Point(0.5, 0.5) };
-                if (n.rot != 0) ring.RenderTransform = new RotateTransform(n.rot);
-                ViewportCanvas.Children.Add(Place(ring, c.X - (w + 8) / 2, c.Y - (h + 8) / 2));
-            }
-            bool selName = n.id == _vpSelected;
-            ViewportCanvas.Children.Add(Place(new TextBlock { Text = n.name, Foreground = selName ? SelEdge : LabelFg, FontSize = 10.5, FontWeight = selName ? FontWeights.SemiBold : FontWeights.Normal }, c.X - w / 2, c.Y - h / 2 - 15));
+            var poly = new System.Windows.Shapes.Polygon { Fill = new SolidColorBrush(Color.FromArgb(alpha, fill.R, fill.G, fill.B)), IsHitTestVisible = false };
+            foreach (var p in pts) poly.Points.Add(new Point(p.sx, p.sy));
+            ViewportCanvas.Children.Add(poly);
+        }
+        // 地面グリッド (XZ 平面 @ Y=groundY)。
+        double groundY = -maxY;
+        var gridB = new SolidColorBrush(Color.FromArgb(0x3A, 0x6A, 0x76, 0x86));
+        var gridC = new SolidColorBrush(Color.FromArgb(0x70, 0x80, 0x8C, 0x9C));
+        double gstep = Math.Max(20, Math.Round(radius / 5 / 20) * 20);
+        double ext = radius * 1.5;
+        double gx0 = Math.Floor((cx - ext) / gstep) * gstep, gx1 = Math.Ceiling((cx + ext) / gstep) * gstep;
+        double gz0 = Math.Floor(-ext / gstep) * gstep, gz1 = Math.Ceiling(ext / gstep) * gstep;
+        for (double X = gx0; X <= gx1; X += gstep) Line3D(X, groundY, gz0, X, groundY, gz1, Math.Abs(X) < 0.5 ? gridC : gridB, Math.Abs(X) < 0.5 ? 1.2 : 0.7);
+        for (double Z = gz0; Z <= gz1; Z += gstep) Line3D(gx0, groundY, Z, gx1, groundY, Z, Math.Abs(Z) < 0.5 ? gridC : gridB, Math.Abs(Z) < 0.5 ? 1.2 : 0.7);
+        // 原点軸 (X=赤 / Y=緑(上) / Z=青(奥行き))。
+        double al = Math.Max(80, radius * 0.5);
+        Line3D(0, 0, 0, al, 0, 0, new SolidColorBrush(Color.FromRgb(0xE0, 0x60, 0x60)), 1.8);
+        Line3D(0, 0, 0, 0, al, 0, new SolidColorBrush(Color.FromRgb(0x60, 0xE0, 0x60)), 1.8);
+        Line3D(0, 0, 0, 0, 0, al, new SolidColorBrush(Color.FromRgb(0x60, 0x98, 0xF0)), 1.8);
+
+        // コンポーネントを «奥→手前» で描く (画家のアルゴリズム)。
+        double Depth(double x, double y) => Pr(x, -y, 0).z;
+        double thick = Math.Max(10, radius * 0.07);
+        foreach (var n in nodes.OrderByDescending(n => Depth(n.x, n.y)))
+        {
+            double hwx = n.w / 2, hhy = n.h / 2;
+            double rr = n.rot * Math.PI / 180.0, cR = Math.Cos(rr), sR = Math.Sin(rr);
+            (double x, double y) C2(double ox, double oy) => (n.x + ox * cR - oy * sR, n.y + ox * sR + oy * cR);
+            var p2 = new[] { C2(-hwx, -hhy), C2(hwx, -hhy), C2(hwx, hhy), C2(-hwx, hhy) };
+            var fp = new (double sx, double sy, double z, bool ok)[4];   // 前面 z=0
+            var bp = new (double sx, double sy, double z, bool ok)[4];   // 背面 z=-thick
+            bool ok = true;
+            for (int i = 0; i < 4; i++) { fp[i] = Pr(p2[i].x, -p2[i].y, 0); bp[i] = Pr(p2[i].x, -p2[i].y, -thick); if (!fp[i].ok || !bp[i].ok) ok = false; }
+            if (!ok) continue;
+            var side = Color.FromRgb((byte)(n.col.R * 0.62), (byte)(n.col.G * 0.62), (byte)(n.col.B * 0.62));
+            Poly(bp, side, 0xFF);                                                    // 背面
+            for (int i = 0; i < 4; i++) { int j = (i + 1) % 4; Poly(new[] { fp[i], fp[j], bp[j], bp[i] }, side, 0xFF); }   // 側面
+            Poly(fp, n.col, 0xFF);                                                   // 前面 (見た目)
+            var edge = new SolidColorBrush(Color.FromArgb(0x90, 0x10, 0x12, 0x16));
+            for (int i = 0; i < 4; i++) { int j = (i + 1) % 4; Line3D(p2[i].x, -p2[i].y, 0, p2[j].x, -p2[j].y, 0, edge, 0.8); }   // 前面の縁
+            if (n.collide) DrawWireBox3D(p2, n.x, n.y, 6, thick + 6, CollideEdge, 1.6, new DoubleCollection { 3, 2 });          // 当たり判定
+            if (n.id == _vpSelected) DrawWireBox3D(p2, n.x, n.y, 11, thick + 11, SelEdge, 2.0, null);                          // 選択枠
+            var top = Pr(n.x, -(n.y - n.h / 2), 0);
+            if (top.ok) ViewportCanvas.Children.Add(Place(new TextBlock { Text = n.name, Foreground = n.id == _vpSelected ? SelEdge : LabelFg, FontSize = 10.5, FontWeight = n.id == _vpSelected ? FontWeights.SemiBold : FontWeights.Normal }, top.sx - n.name.Length * 3, top.sy - 18));
+            // ドラッグ用の透明ヒット矩形 (前面のバウンディング)。
+            double mnx = fp.Min(p => p.sx), mny = fp.Min(p => p.sy), mxx = fp.Max(p => p.sx), mxy = fp.Max(p => p.sy);
+            var hit = new Rectangle { Width = Math.Max(4, mxx - mnx), Height = Math.Max(4, mxy - mny), Fill = Brushes.Transparent, Cursor = Cursors.SizeAll };
+            var nn = n;
+            hit.MouseLeftButtonDown += (_, ev) => {
+                BeginEdit(); _vpDragId = nn.id; _vpSelected = nn.id;
+                var w = Unproject3D(ev.GetPosition(ViewportCanvas));
+                if (w != null) { _vp3dGrabOX = nn.x - w.Value.x; _vp3dGrabOY = nn.y - (-w.Value.y); }
+                ViewportCanvas.CaptureMouse(); RenderViewport(); ev.Handled = true;
+            };
+            ViewportCanvas.Children.Add(Place(hit, mnx, mny));
         }
 
+        // 凡例 + 操作ヒント。
         var legend = new StackPanel { Orientation = Orientation.Horizontal };
-        legend.Children.Add(new TextBlock { Text = "見た目 = 塗り    ", Foreground = LabelFg, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+        legend.Children.Add(new TextBlock { Text = "3D ビュー  ・  見た目 = 塗り    ", Foreground = LabelFg, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
         legend.Children.Add(new Rectangle { Width = 13, Height = 11, Stroke = CollideEdge, StrokeThickness = 1.5, StrokeDashArray = new DoubleCollection { 3, 2 }, Fill = Brushes.Transparent, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
-        legend.Children.Add(new TextBlock { Text = "= 当たり判定", Foreground = LabelFg, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
-        legend.Children.Add(new TextBlock { Text = "    ・ ドラッグで配置", Foreground = new SolidColorBrush(Color.FromRgb(0x6B, 0x74, 0x82)), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+        legend.Children.Add(new TextBlock { Text = "= 当たり判定   ・  ドラッグ=回転 / ホイール=ズーム / コンポーネントをドラッグ=移動", Foreground = new SolidColorBrush(Color.FromRgb(0x6B, 0x74, 0x82)), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
         ViewportCanvas.Children.Add(Place(legend, 14, 12));
     }
 
+    private void SetupCamera3D(double vw, double vh, double cx, double cy, double cz, double baseR)
+    {
+        double R = baseR * _vp3dZoom;
+        double cosP = Math.Cos(_vp3dPitch), sinP = Math.Sin(_vp3dPitch);
+        _cEyeX = cx + R * cosP * Math.Sin(_vp3dYaw);
+        _cEyeY = cy + R * sinP;
+        _cEyeZ = cz + R * cosP * Math.Cos(_vp3dYaw);
+        double fx = cx - _cEyeX, fy = cy - _cEyeY, fz = cz - _cEyeZ; double fl = Math.Sqrt(fx * fx + fy * fy + fz * fz); if (fl < 1e-6) fl = 1;
+        _cFwdX = fx / fl; _cFwdY = fy / fl; _cFwdZ = fz / fl;
+        double rx = -_cFwdZ, rz = _cFwdX; double rl = Math.Sqrt(rx * rx + rz * rz); if (rl < 1e-6) rl = 1;   // right = norm(cross(fwd,(0,1,0)))
+        _cRgtX = rx / rl; _cRgtY = 0; _cRgtZ = rz / rl;
+        _cUpX = _cRgtY * _cFwdZ - _cRgtZ * _cFwdY;   // up = cross(right, fwd)
+        _cUpY = _cRgtZ * _cFwdX - _cRgtX * _cFwdZ;
+        _cUpZ = _cRgtX * _cFwdY - _cRgtY * _cFwdX;
+        _cFocal = (vh / 2) / Math.Tan(0.45);   // fovY ≈ 51.6°
+        _cVW = vw; _cVH = vh;
+    }
+    private (double sx, double sy, double z, bool ok) Project3D(double wx, double wy, double wz)
+    {
+        double dx = wx - _cEyeX, dy = wy - _cEyeY, dz = wz - _cEyeZ;
+        double cz = dx * _cFwdX + dy * _cFwdY + dz * _cFwdZ;
+        if (cz < 1) return (0, 0, cz, false);
+        double cxv = dx * _cRgtX + dy * _cRgtY + dz * _cRgtZ;
+        double cyv = dx * _cUpX + dy * _cUpY + dz * _cUpZ;
+        return (_cVW / 2 + (cxv / cz) * _cFocal, _cVH / 2 - (cyv / cz) * _cFocal, cz, true);
+    }
+    private (double x, double y)? Unproject3D(Point screen)   // z=0 平面上のワールド点 (2D y = -worldY)
+    {
+        double px = (screen.X - _cVW / 2) / _cFocal, py = -(screen.Y - _cVH / 2) / _cFocal;
+        double dx = _cFwdX + px * _cRgtX + py * _cUpX, dy = _cFwdY + px * _cRgtY + py * _cUpY, dz = _cFwdZ + px * _cRgtZ + py * _cUpZ;
+        if (Math.Abs(dz) < 1e-6) return null;
+        double t = -_cEyeZ / dz;
+        return (_cEyeX + t * dx, _cEyeY + t * dy);
+    }
+    /// <summary>2D 矩形 (4隅) を中心からスケール拡張し、前後 (z=zf..-zb) のワイヤボックスを描く。</summary>
+    private void DrawWireBox3D((double x, double y)[] p2, double ccx, double ccy, double zf, double zb, Brush col, double th, DoubleCollection? dash)
+    {
+        var e = new (double x, double y)[4];
+        for (int i = 0; i < 4; i++) e[i] = (ccx + (p2[i].x - ccx) * 1.06 + Math.Sign(p2[i].x - ccx) * 2, ccy + (p2[i].y - ccy) * 1.06 + Math.Sign(p2[i].y - ccy) * 2);
+        var f = new (double sx, double sy, double z, bool ok)[4]; var b = new (double sx, double sy, double z, bool ok)[4];
+        for (int i = 0; i < 4; i++) { f[i] = Project3D(e[i].x, -e[i].y, zf); b[i] = Project3D(e[i].x, -e[i].y, -zb); }
+        void L((double sx, double sy, double z, bool ok) a, (double sx, double sy, double z, bool ok) c) { if (a.ok && c.ok) { var ln = new Line { X1 = a.sx, Y1 = a.sy, X2 = c.sx, Y2 = c.sy, Stroke = col, StrokeThickness = th, IsHitTestVisible = false }; if (dash != null) ln.StrokeDashArray = dash; ViewportCanvas.Children.Add(ln); } }
+        for (int i = 0; i < 4; i++) { int j = (i + 1) % 4; L(f[i], f[j]); L(b[i], b[j]); L(f[i], b[i]); }
+    }
+
+    private void OnViewportDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_vpDragId >= 0) return;                 // コンポーネントヒット矩形が処理済みなら来ない
+        _vp3dOrbiting = true; _vpDragLast = e.GetPosition(ViewportCanvas); ViewportCanvas.CaptureMouse();
+    }
     private void OnViewportMove(object sender, MouseEventArgs e)
     {
-        if (_vpDragId < 0) return;
-        var p = e.GetPosition(ViewportCanvas);
-        double dx = (p.X - _vpDragLast.X) / _vpScale, dy = (p.Y - _vpDragLast.Y) / _vpScale;
-        if (dx == 0 && dy == 0) return;
-        _vpDragLast = p;
-        MoveComponentRow(_vpDragId, dx, dy);
+        if (_vp3dOrbiting)                          // 空き場所ドラッグ → カメラ回転
+        {
+            var p = e.GetPosition(ViewportCanvas);
+            _vp3dYaw -= (p.X - _vpDragLast.X) * 0.01;
+            _vp3dPitch = Math.Min(Math.Max(_vp3dPitch + (p.Y - _vpDragLast.Y) * 0.01, -1.45), 1.45);
+            _vpDragLast = p; RenderViewport(); return;
+        }
+        if (_vpDragId < 0) return;                  // コンポーネント移動 (z=0 平面へレイ投影)
+        var w = Unproject3D(e.GetPosition(ViewportCanvas));
+        if (w == null) return;
+        SetComponentRow(_vpDragId, w.Value.x + _vp3dGrabOX, -w.Value.y + _vp3dGrabOY);
         RenderViewport();
     }
     private void OnViewportUp(object sender, MouseButtonEventArgs e)
     {
+        if (_vp3dOrbiting) { _vp3dOrbiting = false; ViewportCanvas.ReleaseMouseCapture(); return; }
         if (_vpDragId < 0) return;
-        _vpDragId = -1; _vpFreeze = false;
+        _vpDragId = -1;
         ViewportCanvas.ReleaseMouseCapture();
         ComponentsChanged?.Invoke();
         CommitEdit();
-        RenderViewport();   // 解放後に再フィット
+        RenderViewport();
+    }
+    private void OnViewportWheel(object sender, MouseWheelEventArgs e)
+    {
+        _vp3dZoom = Math.Min(Math.Max(_vp3dZoom * (e.Delta > 0 ? 0.9 : 1.111), 0.2), 6.0);
+        if (_viewportMode) RenderViewport();
     }
 
-    /// <summary>ComponentsText のノード行 id の位置 (x,y) を (dx,dy) ずらす。</summary>
+    /// <summary>ComponentsText のノード行 id の位置を (dx,dy) ずらす (検証ハーネス用)。</summary>
     private void MoveComponentRow(int id, double dx, double dy)
     {
         var lines = (ComponentsText ?? "").Replace("\r", "").Split('\n');
@@ -2605,6 +2705,24 @@ public partial class BlueprintEditor : UserControl
             if (t.Length < 12 || ParseInt(t[0]) != id) continue;
             t[2] = (ParseDouble(t[2]) + dx).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture);
             t[3] = (ParseDouble(t[3]) + dy).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture);
+            lines[i] = string.Join(' ', t);
+            break;
+        }
+        ComponentsText = string.Join("\n", lines);
+    }
+
+    /// <summary>ComponentsText のノード行 id の位置を (x,y) に設定する (3D ドラッグの絶対移動)。</summary>
+    private void SetComponentRow(int id, double x, double y)
+    {
+        var lines = (ComponentsText ?? "").Replace("\r", "").Split('\n');
+        for (int i = 0; i < lines.Length; i++)
+        {
+            var l = lines[i];
+            if (l.Length == 0 || !char.IsDigit(l[0])) continue;
+            var t = l.Split(' ');
+            if (t.Length < 12 || ParseInt(t[0]) != id) continue;
+            t[2] = x.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture);
+            t[3] = y.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture);
             lines[i] = string.Join(' ', t);
             break;
         }
