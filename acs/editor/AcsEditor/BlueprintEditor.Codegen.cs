@@ -94,7 +94,11 @@ public partial class BlueprintEditor
             {
                 h.Append("\nprivate:\n");
                 foreach (var c in customs)   h.Append("    void ").Append(c).Append("() noexcept;\n");
-                foreach (var f in functions) h.Append("    void ").Append(SanitizeIdent(f)).Append("() noexcept;   // Blueprint function\n");
+                foreach (var f in functions)
+                {
+                    var (rt, pl, _) = CppFuncSig(f);
+                    h.Append("    ").Append(rt).Append(' ').Append(SanitizeIdent(f)).Append('(').Append(pl).Append(") noexcept;   // Blueprint function\n");
+                }
             }
             h.Append("};\n\n} // namespace acs::game\n");
 
@@ -108,11 +112,12 @@ public partial class BlueprintEditor
                 string nm = SanitizeIdent(LiteralOf(ce, "name"));
                 if (nm.Length > 0) EmitMethod(s, cls, nm, "", ce);
             }
-            // Function サブグラフ: 各グラフをロードして Function Entry から本体を生成。
+            // Function サブグラフ: 各グラフをロードして Function Entry から本体を生成 (型付き引数/戻り値)。
             foreach (var fn in functions)
             {
+                var (rt, pl, _) = CppFuncSig(fn);
                 LoadGraphInto(_graphTexts.TryGetValue(fn, out var fb) ? fb : "");
-                EmitMethod(s, cls, SanitizeIdent(fn), "", _nodes.FirstOrDefault(n => n.Title == "Function Entry"));
+                EmitMethod(s, cls, SanitizeIdent(fn), pl, _nodes.FirstOrDefault(n => n.Title == "Function Entry"), rt);
             }
             s.Append("} // namespace acs::game\n");
         }
@@ -120,11 +125,20 @@ public partial class BlueprintEditor
         return (h.ToString(), s.ToString());
     }
 
-    private void EmitMethod(StringBuilder s, string cls, string method, string args, BpNode? eventNode)
+    /// <summary>関数の C++ シグネチャ (戻り型, 引数並び, 戻り値あり) を求める。引数=Function Entry の出力, 戻り=Return の入力。</summary>
+    private (string retType, string paramList, bool hasRet) CppFuncSig(string fname)
     {
-        s.Append("void ").Append(cls).Append("::").Append(method).Append('(').Append(args).Append(") noexcept {\n");
-        s.Append("    (void)0;\n");   // 空ボディでも警告にならないダミー (引数未使用回避は呼び側)
+        var (args, rets) = FunctionSignature(fname);
+        string rt = rets.Count > 0 ? CppType(rets[0].Type) : "void";
+        string pl = string.Join(", ", args.Select(a => $"{CppType(a.Type)} {SanitizeIdent(a.Name)}"));
+        return (rt, pl, rets.Count > 0);
+    }
+
+    private void EmitMethod(StringBuilder s, string cls, string method, string args, BpNode? eventNode, string retType = "void")
+    {
+        s.Append(retType).Append(' ').Append(cls).Append("::").Append(method).Append('(').Append(args).Append(") noexcept {\n");
         if (eventNode != null) GenStmt(s, ExecNextFirst(eventNode), "    ", new HashSet<int>(), 0);
+        if (retType != "void") s.Append("    return ").Append(CppDefault(retType == "int" ? "Int" : retType == "bool" ? "Bool" : "Float", "")).Append(";\n");   // 既定の戻り (Return 未到達時)
         s.Append("}\n\n");
     }
 
@@ -154,7 +168,13 @@ public partial class BlueprintEditor
     {
         if (n == null || depth > 256 || !visited.Add(n.Id)) return;
         string t = n.Title;
-        if (t == "Return") { s.Append(ind).Append("return;\n"); return; }
+        if (t == "Return")
+        {
+            int di = n.Inputs.FindIndex(p => p.Kind == PinKind.Data);
+            if (di >= 0) s.Append(ind).Append("return ").Append(GenArg(n, n.Inputs[di].Name, 0)).Append(";\n");
+            else s.Append(ind).Append("return;\n");
+            return;
+        }
         if (t == "Branch")
         {
             s.Append(ind).Append("if (").Append(GenArg(n, "cond", 0)).Append(") {\n");
@@ -205,7 +225,14 @@ public partial class BlueprintEditor
             case "Set Position":  return $"Owner().Local().position = FVec2{{ (f32)({GenArg(n, "x", 0)}), (f32)({GenArg(n, "y", 0)}) }};";
             case "Set Scale":     return $"Owner().Local().scale = FVec2{{ (f32)({GenArg(n, "sx", 0)}), (f32)({GenArg(n, "sy", 0)}) }};";
             case "Set Rotation":  return $"Owner().Local().rotation = (f32)({GenArg(n, "deg", 0)});";
-            case "Call Function": return $"{SanitizeIdent(LiteralOf(n, "name"))}();";
+            case "Call Function":
+            {
+                string fname = SanitizeIdent(LiteralOf(n, "name"));
+                var argEx = new List<string>();
+                for (int i = 2; i < n.Inputs.Count; i++) if (n.Inputs[i].Kind == PinKind.Data) argEx.Add(GenArg(n, n.Inputs[i].Name, 0));
+                string call = $"{fname}({string.Join(", ", argEx)})";
+                return n.Outputs.Any(p => p.Kind == PinKind.Data) ? $"auto _r{n.Id} = {call};" : $"{call};";
+            }
             case "Delay":         return $"/* Delay({GenArg(n, "duration", 0)}s) — タイマー実装が必要 */";
             // 以下はエンジン API が未確定なのでコンパイル可能なコメントに留める。
             case "Set Color":     return $"/* Set Color (要 sprite component API) */";
@@ -259,6 +286,8 @@ public partial class BlueprintEditor
             case "Get Variable": return SanitizeIdent(LiteralOf(n, "name"));
             case "Get Self":  return "(&Owner())";
             case "Get Position": return "Owner().Local().position";
+            case "Function Entry": return outPin >= 1 && outPin < n.Outputs.Count ? SanitizeIdent(n.Outputs[outPin].Name) : "0";   // 引数
+            case "Call Function":  return $"_r{n.Id}";   // 呼出結果
             case "Reroute":   return GenArg(n, "in", depth);
             case "To Float":  return $"(float)({GenArg(n, "in", depth)})";
             case "To Int":    return $"(int)({GenArg(n, "in", depth)})";

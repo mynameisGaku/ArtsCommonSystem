@@ -1074,6 +1074,12 @@ public partial class BlueprintEditor : UserControl
                 add.Click += (_, __) => AddParamPin(hit, output: false);
                 menu.Items.Add(new Separator()); menu.Items.Add(add);
             }
+            else if (hit.Title == "Call Function")   // 呼ぶ関数のシグネチャにピンを同期
+            {
+                var sync = new MenuItem { Header = "関数ピンを同期" };
+                sync.Click += (_, __) => SyncCallPins(hit);
+                menu.Items.Add(new Separator()); menu.Items.Add(sync);
+            }
             // 整列 (2 個以上選択時)。
             if (_selected.Count >= 2 && _selected.Contains(hit))
             {
@@ -1115,6 +1121,48 @@ public partial class BlueprintEditor : UserControl
         if (output) n.Outputs.Add(pin); else n.Inputs.Add(pin);
         Rebuild();
         CommitEdit();
+    }
+
+    /// <summary>関数 fname のシグネチャ (Function Entry の data 出力 = 引数 / Return の data 入力 = 戻り値)。</summary>
+    private (List<Pin> args, List<Pin> rets) FunctionSignature(string fname)
+    {
+        var args = new List<Pin>(); var rets = new List<Pin>();
+        if (string.IsNullOrEmpty(fname) || !_graphTexts.TryGetValue(fname, out var body)) return (args, rets);
+        string cur = "";
+        foreach (var raw in body.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            if (line.Length == 0) continue;
+            if (line[0] == 'N') { var t = line.Split(new[] { ' ' }, 6); cur = t.Length >= 6 ? t[5] : ""; }
+            else if ((line[0] == 'O' && cur == "Function Entry") || (line[0] == 'I' && cur == "Return"))
+            {
+                var t = line.Split(new[] { ' ' }, 3);
+                if (t.Length < 3 || t[1] == "E") continue;   // exec は対象外
+                var pin = ParsePin(t[1], t[2]);
+                if (line[0] == 'O') args.Add(pin); else rets.Add(pin);
+            }
+        }
+        return (args, rets);
+    }
+
+    /// <summary>Call Function ノードのピンを、呼ぶ関数のシグネチャ (引数/戻り値) に合わせて再構成する。</summary>
+    private void SyncCallPins(BpNode call)
+    {
+        if (call.Title != "Call Function") return;
+        string fname = call.Literals.TryGetValue(1, out var nm) ? nm.Trim() : "";
+        var (args, rets) = FunctionSignature(fname);
+        BeginEdit();
+        // 既存の «引数/戻り値» ピンへの接続を一旦切る (▶ exec と name は維持: 入力 0,1 / 出力 0)。
+        _conns.RemoveAll(c => (c.ToNode == call.Id && c.ToPin >= 2) || (c.FromNode == call.Id && c.FromPin >= 1));
+        var name = call.Literals.TryGetValue(1, out var nmv) ? nmv : "";
+        call.Inputs.Clear();  call.Inputs.Add(new Pin("▶", PinKind.Exec)); call.Inputs.Add(new Pin("name", PinKind.Data, "String"));
+        foreach (var a in args) call.Inputs.Add(a);
+        call.Outputs.Clear(); call.Outputs.Add(new Pin("▶", PinKind.Exec));
+        foreach (var r in rets) call.Outputs.Add(r);
+        call.Literals.Clear(); if (!string.IsNullOrEmpty(name)) call.Literals[1] = name;   // name 定数のみ残す
+        Rebuild();
+        CommitEdit();
+        LogSink?.Invoke($"Call Function のピンを «{fname}» のシグネチャに同期 (引数{args.Count}/戻り{rets.Count})。");
     }
 
     /// <summary>ノード (選択中なら選択集合) の無効化を切り替える。</summary>
@@ -1311,6 +1359,15 @@ public partial class BlueprintEditor : UserControl
             "N 2 0 0 1 Call Function\nI E ▶\nI D:String name\nO E ▶\nV 1 Compute\n" +
             "C 1 0 2 0\nGRAPH Compute F\nN 100 0 0 1 Function Entry\nO E ▶\n" +
             "N 101 0 0 1 Set Variable\nI E ▶\nI D:String name\nI D value\nO E ▶\nV 1 r\nV 2 99\nC 100 0 101 0\n", "r", "99");
+        // 型付き引数/戻り値: Square(6) = 36 を Call の戻り値から受け取る
+        Check("FuncArgRet", "ACSBP 1\nVAR Float r 0\nN 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Call Function\nI E ▶\nI D:String name\nI D:Float arg0\nO E ▶\nO D:Float ret0\nV 1 Square\nV 2 6\n" +
+            "N 3 0 0 1 Set Variable\nI E ▶\nI D:String name\nI D value\nO E ▶\nV 1 r\n" +
+            "C 1 0 2 0\nC 2 0 3 0\nC 2 1 3 2\n" +
+            "GRAPH Square F\nN 100 0 0 1 Function Entry\nO E ▶\nO D:Float arg0\n" +
+            "N 101 0 0 1 Multiply\nI D:Float a\nI D:Float b\nO D:Float result\n" +
+            "N 102 0 0 1 Return\nI E ▶\nI D:Float ret0\n" +
+            "C 100 0 102 0\nC 100 1 101 0\nC 100 1 101 1\nC 101 0 102 1\n", "r", "36");
 
         // 直列化の往復: Serialize→Deserialize→Serialize が一致する
         {
@@ -2147,6 +2204,9 @@ public partial class BlueprintEditor : UserControl
     private int _debugCurrent = -1; // 現在強調表示しているノードID
     private readonly Dictionary<string, int> _funcEntry = new();      // 関数名 → Function Entry ノードID (実行時に展開)
     private readonly HashSet<int> _runtimeFuncIds = new();            // 実行のため一時展開した関数ノードのID (実行後に除去)
+    private readonly Stack<int> _callStack = new();                  // 呼出中の Call Function ノードID (Return の戻り先)
+    private readonly Stack<string[]> _argStack = new();              // 呼出中の引数値 (Function Entry の出力が読む)
+    private readonly Dictionary<(int, int), string> _callResult = new();  // (Call ノードID, 戻り値index) → Return が書いた値
 
     /// <summary>BP クラスが持つ変数 (名前 + 型 + 既定値)。実行開始時に値へ種まきされる (UE5 の Variables 相当)。</summary>
     public sealed class BpVar { public string Name; public string Type; public string Value; public BpVar(string n, string t, string v) { Name = n; Type = t; Value = v; } }

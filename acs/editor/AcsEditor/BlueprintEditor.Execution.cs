@@ -80,6 +80,7 @@ public partial class BlueprintEditor
         _spawnHandles.Clear(); _returns.Clear(); _spawnSeq = 0; _execBudget = 4000;
         _vars.Clear(); _watch.Clear(); _firedOut.Clear(); _showWatch = true;
         _flowState.Clear(); _trace.Clear();
+        _callStack.Clear(); _argStack.Clear(); _callResult.Clear();
         foreach (var v in Variables)   // BP 変数を _vars へ種まき (Get Variable が既定値を読める)
             if (!string.IsNullOrWhiteSpace(v.Name)) _vars[v.Name.Trim()] = v.Value ?? "";
 
@@ -219,6 +220,17 @@ public partial class BlueprintEditor
         {
             FireExecByName(n, "Completed");
             return;
+        }
+        // Return: data 入力 (戻り値) を呼出元 Call ノードのスロットへ書いて関数を抜ける。
+        if (n.Title == "Return")
+        {
+            if (_callStack.Count > 0)
+            {
+                int callId = _callStack.Peek(); int r = 0;
+                for (int i = 0; i < n.Inputs.Count; i++)
+                    if (n.Inputs[i].Kind == PinKind.Data) _callResult[(callId, r++)] = EvalInput(n, i);
+            }
+            return;   // Return は下流を持たない
         }
         // For Loop: first..last を反復し Loop Body を毎回発火、index を data 出力へ。終わりに Completed。
         if (n.Title == "For Loop")
@@ -390,14 +402,23 @@ public partial class BlueprintEditor
             return $"Publish Event(channel={ch}) → {fired} 購読";
         }
         if (t == "Custom Event") return $"Custom Event({EvalInputByName(n, "name")})";
-        if (t == "Call Function")   // Function サブグラフ / 同名 Custom Event を同期呼び出し
+        if (t == "Call Function")   // Function サブグラフ / 同名 Custom Event を同期呼び出し (型付き引数/戻り値)
         {
             string fn = EvalInputByName(n, "name").Trim();
             int fired = 0;
-            if (_funcEntry.TryGetValue(fn, out int entryId))   // Function サブグラフを実行 (変数を共有してデータ受け渡し)
+            if (_funcEntry.TryGetValue(fn, out int entryId))   // Function サブグラフを実行
             {
                 var ent = NodeById(entryId);
-                if (ent != null) { ExecFrom(ent); fired++; }
+                if (ent != null)
+                {
+                    // «引数» = name の後ろの data 入力 (idx 2..) を評価してフレームへ積む。
+                    var args = new List<string>();
+                    for (int i = 2; i < n.Inputs.Count; i++) if (n.Inputs[i].Kind == PinKind.Data) args.Add(EvalInput(n, i));
+                    _argStack.Push(args.ToArray()); _callStack.Push(n.Id);
+                    ExecFrom(ent);
+                    _callStack.Pop(); _argStack.Pop();
+                    fired++;
+                }
             }
             foreach (var ce in _nodes.Where(x => x.Title == "Custom Event").ToList())   // 同名 Custom Event も発火 (後方互換)
                 if (EvalInputByName(ce, "name").Trim() == fn) { ExecFrom(ce); fired++; }
@@ -477,6 +498,15 @@ public partial class BlueprintEditor
         var pure = ComputePure(from, outPin);
         if (pure != null) return pure;
         if (from.Title.StartsWith("Reroute")) return EvalInputByName(from, "in");   // 配線中継 = 入力素通し
+        // Function Entry の data 出力 (引数) = 現フレームの引数値。
+        if (from.Title == "Function Entry" && outPin >= 1 && _argStack.Count > 0)
+        {
+            var a = _argStack.Peek(); int pi = outPin - 1;
+            return pi >= 0 && pi < a.Length ? a[pi] : "";
+        }
+        // Call Function の data 出力 (戻り値) = Return が書いた値。
+        if (from.Title == "Call Function" && outPin >= 1)
+            return _callResult.TryGetValue((from.Id, outPin - 1), out var cr) ? cr : "";
         // ForEach は element / index の 2 つの data 出力を別管理する。
         if (from.Title == "ForEach")
         {
