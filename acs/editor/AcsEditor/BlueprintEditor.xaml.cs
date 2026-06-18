@@ -1390,6 +1390,11 @@ public partial class BlueprintEditor : UserControl
         Check("ArrayGet",   Calc("N 50 0 0 1 Array Get\nI D array\nI D:Int index\nO D element\nV 0 10,20,30\nV 1 1\n", 0), "r", "20");
         Check("Select",     Calc("N 50 0 0 1 Select\nI D a\nI D b\nI D:Bool pick\nO D result\nV 0 yes\nV 1 no\nV 2 true\n", 0), "r", "yes");
         Check("ToInt",      Calc("N 50 0 0 1 To Int\nI D in\nO D:Int out\nV 0 7.9\n", 0), "r", "7");
+        Check("Max",        Calc("N 50 0 0 1 Max\nI D:Float a\nI D:Float b\nO D:Float result\nV 0 3\nV 1 8\n", 0), "r", "8");
+        Check("Clamp",      Calc("N 50 0 0 1 Clamp\nI D:Float value\nI D:Float min\nI D:Float max\nO D:Float result\nV 0 12\nV 1 0\nV 2 10\n", 0), "r", "10");
+        Check("Lerp",       Calc("N 50 0 0 1 Lerp\nI D:Float a\nI D:Float b\nI D:Float t\nO D:Float result\nV 0 0\nV 1 10\nV 2 0.5\n", 0), "r", "5");
+        Check("Abs",        Calc("N 50 0 0 1 Abs\nI D:Float value\nO D:Float result\nV 0 -7\n", 0), "r", "7");
+        Check("Append",     Calc("N 50 0 0 1 Append\nI D:String a\nI D:String b\nO D:String result\nV 0 foo\nV 1 bar\n", 0), "r", "foobar");
 
         // For Loop: 最終 index = 3
         Check("ForLoop", "ACSBP 1\nVAR Float r 0\nN 1 0 0 1 Event BeginPlay\nO E ▶\n" +

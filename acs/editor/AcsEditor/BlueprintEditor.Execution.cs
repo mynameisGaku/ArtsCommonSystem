@@ -539,6 +539,8 @@ public partial class BlueprintEditor
     {
         double A() => ParseNum(EvalInputByName(from, "a"));
         double B() => ParseNum(EvalInputByName(from, "b"));
+        double V() => ParseNum(EvalInputByName(from, "value"));
+        string Clean(string s) => (s == "(未接続)" || s == "(なし)") ? "" : s;
         switch (from.Title)
         {
             case "Add":      return Fmt(A() + B());
@@ -572,6 +574,27 @@ public partial class BlueprintEditor
             case "Select":       return Truthy(EvalInputByName(from, "pick")) ? EvalInputByName(from, "a") : EvalInputByName(from, "b");
             // Compare は exec でも使うが、result は pull でも評価できるようにする (pure 兼用)。
             case "Compare":      return EvalCompare(EvalInputByName(from, "a"), EvalInputByName(from, "op"), EvalInputByName(from, "b")) ? "true" : "false";
+            // 数学 (単項)。入力は "value"。
+            case "Abs":      return Fmt(Math.Abs(V()));
+            case "Negate":   return Fmt(-V());
+            case "Sqrt":     { double v = V(); return Fmt(v < 0 ? 0 : Math.Sqrt(v)); }
+            case "Floor":    return Fmt(Math.Floor(V()));
+            case "Ceil":     return Fmt(Math.Ceiling(V()));
+            case "Round":    return Fmt(Math.Round(V(), MidpointRounding.AwayFromZero));
+            case "Sign":     return Fmt(Math.Sign(V()));
+            case "Sin":      return Fmt(Math.Sin(V()));
+            case "Cos":      return Fmt(Math.Cos(V()));
+            // 数学 (二項/多項)。
+            case "Min":      return Fmt(Math.Min(A(), B()));
+            case "Max":      return Fmt(Math.Max(A(), B()));
+            case "Power":    return Fmt(Math.Pow(ParseNum(EvalInputByName(from, "base")), ParseNum(EvalInputByName(from, "exp"))));
+            case "Clamp":    { double v = V(), lo = ParseNum(EvalInputByName(from, "min")), hi = ParseNum(EvalInputByName(from, "max")); return Fmt(Math.Min(Math.Max(v, lo), hi)); }
+            case "Lerp":     { double a = A(), b = B(), t = ParseNum(EvalInputByName(from, "t")); return Fmt(a + (b - a) * t); }
+            // 文字列。
+            case "Append":      return Clean(EvalInputByName(from, "a")) + Clean(EvalInputByName(from, "b"));
+            case "String Length": return Clean(EvalInputByName(from, "in")).Length.ToString(CultureInfo.InvariantCulture);
+            case "To Upper":    return Clean(EvalInputByName(from, "in")).ToUpperInvariant();
+            case "To Lower":    return Clean(EvalInputByName(from, "in")).ToLowerInvariant();
         }
         return null;
     }

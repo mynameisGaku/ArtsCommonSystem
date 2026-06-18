@@ -923,6 +923,7 @@ public partial class MainWindow : Window
         var mth  = System.Windows.Media.Color.FromRgb(0x3E, 0x6E, 0x5E);   // 演算/ベクトル = 暗緑
         var lgc  = System.Windows.Media.Color.FromRgb(0x70, 0x50, 0x3E);   // 論理     = 橙茶
         var cvt  = System.Windows.Media.Color.FromRgb(0x4A, 0x55, 0x6E);   // 変換     = 青灰
+        var str  = System.Windows.Media.Color.FromRgb(0x8C, 0x3E, 0x74);   // 文字列   = 暗マゼンタ
 
         static BlueprintEditor.BpPinSpec Ex(string n) => new(n, true);
         static BlueprintEditor.BpPinSpec Da(string n, string ty = "") => new(n, false, ty);   // ty="" = ワイルドカード
@@ -962,6 +963,25 @@ public partial class MainWindow : Window
             new("演算", "Multiply", mth, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Float") }),
             new("演算", "Divide",   mth, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Float") }),
             new("演算", "Modulo",   mth, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Min",      mth, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Max",      mth, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Power",    mth, new[] { Da("base", "Float"), Da("exp", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Clamp",    mth, new[] { Da("value", "Float"), Da("min", "Float"), Da("max", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Lerp",     mth, new[] { Da("a", "Float"), Da("b", "Float"), Da("t", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Abs",      mth, new[] { Da("value", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Negate",   mth, new[] { Da("value", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Sqrt",     mth, new[] { Da("value", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Floor",    mth, new[] { Da("value", "Float") }, new[] { Da("result", "Int") }),
+            new("演算", "Ceil",     mth, new[] { Da("value", "Float") }, new[] { Da("result", "Int") }),
+            new("演算", "Round",    mth, new[] { Da("value", "Float") }, new[] { Da("result", "Int") }),
+            new("演算", "Sign",     mth, new[] { Da("value", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Sin",      mth, new[] { Da("value", "Float") }, new[] { Da("result", "Float") }),
+            new("演算", "Cos",      mth, new[] { Da("value", "Float") }, new[] { Da("result", "Float") }),
+            // 文字列 (pure)。
+            new("文字列", "Append",        str, new[] { Da("a", "String"), Da("b", "String") }, new[] { Da("result", "String") }),
+            new("文字列", "String Length", str, new[] { Da("in", "String") },                   new[] { Da("length", "Int") }),
+            new("文字列", "To Upper",      str, new[] { Da("in", "String") },                   new[] { Da("result", "String") }),
+            new("文字列", "To Lower",      str, new[] { Da("in", "String") },                   new[] { Da("result", "String") }),
             // 論理 (pure)。
             new("論理", "And", lgc, new[] { Da("a", "Bool"), Da("b", "Bool") }, new[] { Da("result", "Bool") }),
             new("論理", "Or",  lgc, new[] { Da("a", "Bool"), Da("b", "Bool") }, new[] { Da("result", "Bool") }),

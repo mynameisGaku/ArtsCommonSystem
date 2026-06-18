@@ -121,7 +121,7 @@ public partial class BlueprintEditor
 
             // ----- 実装 -----
             s.Append("// SPDX-License-Identifier: Apache-2.0\n// Generated from a Blueprint graph by AcsEditor.\n");
-            s.Append("#include \"").Append(cls).Append(".h\"\n#include \"foundation/Log.h\"\n\nnamespace acs::game {\n\n");
+            s.Append("#include \"").Append(cls).Append(".h\"\n#include \"foundation/Log.h\"\n#include <cmath>\n\nnamespace acs::game {\n\n");
             if (beginNode != null) EmitMethod(s, cls, "OnAttach", "FNode2D& node", beginNode);
             if (tickNode  != null) EmitMethod(s, cls, "OnUpdate", "f32 dt", tickNode);
             foreach (var ce in _nodes.Where(n => n.Title == "Custom Event"))
@@ -311,6 +311,21 @@ public partial class BlueprintEditor
             case "To Bool":   return $"(bool)({GenArg(n, "in", depth)})";
             case "To String": return GenArg(n, "in", depth);
             case "For Loop":  return $"i{n.Id}";   // index 出力 = ループ変数
+            // 数学 (std math 関数 / 三項式)。
+            case "Abs":    return $"std::fabs((float)({GenArg(n, "value", depth)}))";
+            case "Negate": return $"(-({GenArg(n, "value", depth)}))";
+            case "Sqrt":   return $"std::sqrt((float)({GenArg(n, "value", depth)}))";
+            case "Floor":  return $"(int)std::floor((float)({GenArg(n, "value", depth)}))";
+            case "Ceil":   return $"(int)std::ceil((float)({GenArg(n, "value", depth)}))";
+            case "Round":  return $"(int)std::lround((float)({GenArg(n, "value", depth)}))";
+            case "Sin":    return $"std::sin((float)({GenArg(n, "value", depth)}))";
+            case "Cos":    return $"std::cos((float)({GenArg(n, "value", depth)}))";
+            case "Power":  return $"std::pow((float)({GenArg(n, "base", depth)}), (float)({GenArg(n, "exp", depth)}))";
+            case "Sign":   { var v = GenArg(n, "value", depth); return $"(({v}) > 0 ? 1.0f : (({v}) < 0 ? -1.0f : 0.0f))"; }
+            case "Min":    { var a = GenArg(n, "a", depth); var b = GenArg(n, "b", depth); return $"(({a}) < ({b}) ? ({a}) : ({b}))"; }
+            case "Max":    { var a = GenArg(n, "a", depth); var b = GenArg(n, "b", depth); return $"(({a}) > ({b}) ? ({a}) : ({b}))"; }
+            case "Clamp":  { var v = GenArg(n, "value", depth); var lo = GenArg(n, "min", depth); var hi = GenArg(n, "max", depth); return $"(({v}) < ({lo}) ? ({lo}) : (({v}) > ({hi}) ? ({hi}) : ({v})))"; }
+            case "Lerp":   { var a = GenArg(n, "a", depth); var b = GenArg(n, "b", depth); var tt = GenArg(n, "t", depth); return $"(({a}) + (({b}) - ({a})) * ({tt}))"; }
         }
         if (n.Title.StartsWith("Spawn")) return $"spawned{n.Id}";
         return $"/*{SanitizeIdent(n.Title)}*/0";
