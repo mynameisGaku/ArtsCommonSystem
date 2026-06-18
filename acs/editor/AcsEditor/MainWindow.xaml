@@ -105,6 +105,8 @@
                 <Button x:Name="StepBtn"  Content="▎▶ Step"  Click="OnStep"  Padding="10,4" Margin="2,0" IsEnabled="False"/>
                 <ToggleButton x:Name="PreviewBtn" Content="⚡ Preview" Click="OnTogglePreview" Padding="9,4" Margin="2,0"
                               ToolTip="DLL ビルド不要でエンジンコンポーネントを editor 内ライブ実行 (参照解決込み)"/>
+                <Button x:Name="BpRunBtn" Content="▶ BP" Click="OnRunBlueprints" Padding="10,4" Margin="2,0" Foreground="#FF8BE0A0"
+                        ToolTip="配置された Blueprint インスタンスのイベントグラフ (BeginPlay) を self バインドで一括実行"/>
                 <Separator/>
                 <Button x:Name="BuildBtn" Content="🔨 Build" Click="OnBuildProject" Padding="10,4" Margin="2,0"/>
                 <Button x:Name="RunBtn" Content="▷ Run" Click="OnBuildAndRun" Padding="10,4" Margin="2,0" Foreground="#FF7FB8FF"/>

@@ -833,6 +833,9 @@ public partial class BlueprintEditor : UserControl
     private int _spawnSeq;
     private int _execBudget;
 
+    /// <summary>実行可能なグラフ (ノード) を持つか。コンポーネントのみ BP の判定に使う。</summary>
+    public bool HasGraph => _nodes.Count > 0;
+
     private void OnRun(object sender, RoutedEventArgs e) => RunGraph();
 
     /// <summary>

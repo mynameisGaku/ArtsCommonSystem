@@ -991,7 +991,8 @@ public partial class MainWindow : Window
     /// </summary>
     private string? BuiltinSceneOp(string op, string[] args)
     {
-        if (Engine == IntPtr.Zero || args.Length < 1 || !int.TryParse(args[0].Trim(), out int id) || id < 0) return null;
+        int id = ResolveTarget(args.Length >= 1 ? args[0] : "");   // 空/無効 target は self(_bpSelfId) へ
+        if (Engine == IntPtr.Zero || id < 0) return null;
         switch (op)
         {
             case "SetPosition":
@@ -1043,6 +1044,61 @@ public partial class MainWindow : Window
         return null;
     }
 
+    /// <summary>BP の «self» (実行中の配置インスタンス)。-1 のときは通常実行 (self バインドなし)。</summary>
+    private int _bpSelfId = -1;
+
+    /// <summary>target 文字列を解決する: 有効な id ならそれ、空/無効なら self(_bpSelfId)。
+    /// 通常実行では _bpSelfId=-1 のため «明示 target 必須» の従来挙動になる。</summary>
+    private int ResolveTarget(string target) =>
+        (int.TryParse((target ?? "").Trim(), out var v) && v >= 0) ? v : _bpSelfId;
+
+    private void OnRunBlueprints(object sender, RoutedEventArgs e) => RunPlacedBlueprints();
+
+    /// <summary>配置された全 Blueprint インスタンス (.acsbp リンクを持つノード) のイベントグラフを、
+    /// «自分自身を self» にして実行する (UE の BeginPlay 相当)。グラフを持たない BP は無視。</summary>
+    private void RunPlacedBlueprints()
+    {
+        if (Engine == IntPtr.Zero) return;
+        // インスタンスを先に集める (実行中に Spawn/Destroy で構造が変わっても走査を壊さない)。
+        var insts = new System.Collections.Generic.List<(int id, string src)>();
+        int cnt = EngineInterop.acs_editor_node_count(Engine);
+        for (int i = 0; i < cnt; i++)
+        {
+            int nid = EngineInterop.acs_editor_node_id_at(Engine, i);
+            string src = EngineInterop.NodePrefabSrc(Engine, nid);
+            if (!string.IsNullOrEmpty(src) && IsBlueprint(src) && System.IO.File.Exists(src))
+                insts.Add((nid, src));
+        }
+        if (insts.Count == 0)
+        {
+            Log("実行できる Blueprint インスタンスがありません (.acsbp をシーンに配置してください)。", "Play", LogLevel.Info);
+            return;
+        }
+
+        // self バインドで各 .acsbp グラフを実行する transient インタプリタ (開いているグラフは触らない)。
+        var bp = new BlueprintEditor { LogSink = Log, BuiltinOp = BuiltinSceneOp, InvokeMethod = InvokeBound, SpawnPrefab = SpawnPrefabFromGraph };
+        int ran = 0;
+        foreach (var (id, src) in insts)
+        {
+            string text;
+            try { text = System.IO.File.ReadAllText(src, System.Text.Encoding.UTF8); }
+            catch { continue; }
+            bp.Deserialize(text);
+            if (!bp.HasGraph) continue;   // コンポーネントのみの BP はスキップ
+            _bpSelfId = id;
+            try
+            {
+                Log($"▶ BP: {System.IO.Path.GetFileName(src)} (self=node {id})", "Play", LogLevel.Info);
+                bp.RunGraph();
+                ran++;
+            }
+            finally { _bpSelfId = -1; }
+        }
+        BuildHierarchy();
+        if (_selectedId >= 0) PopulateInspector(_selectedId);
+        Log($"▶ Blueprint 実行完了 — {ran}/{insts.Count} 個のインスタンスがグラフを実行。", "Play", LogLevel.Success);
+    }
+
     private static bool ParseF(string s, out float v) =>
         float.TryParse(s.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out v);
 
@@ -1080,7 +1136,8 @@ public partial class MainWindow : Window
     /// </summary>
     private string? InvokeBound(string ownerType, string method, string target, string arg)
     {
-        int nodeId = (int.TryParse(target, out var tid) && tid >= 0) ? tid : _selectedId;   // target 優先
+        int nodeId = ResolveTarget(target);            // target → self(_bpSelfId)
+        if (nodeId < 0) nodeId = _selectedId;          // self も無ければ選択ノード (従来挙動)
         if (Engine == IntPtr.Zero || nodeId < 0) return null;
         int cc = EngineInterop.acs_editor_node_component_count(Engine, nodeId);
         for (int s = 0; s < cc; s++)
