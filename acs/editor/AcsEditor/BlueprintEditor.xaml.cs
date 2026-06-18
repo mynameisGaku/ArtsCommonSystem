@@ -1276,31 +1276,39 @@ public partial class BlueprintEditor : UserControl
         // 候補 (wireFrom があれば互換ピンを持つテンプレのみ)。
         var candidates = _palette.Where(t => wireFrom == null || MatchPinIndex(t, wireFrom) >= 0).ToList();
 
+        void AddHeader(string cat) => list.Items.Add(new ListBoxItem {
+            Content = new TextBlock { Text = cat, Foreground = new SolidColorBrush(Color.FromRgb(0x78, 0x86, 0x98)),
+                FontSize = 10, FontWeight = FontWeights.SemiBold }, IsEnabled = false, Focusable = false,
+            Padding = new Thickness(6, 5, 6, 1) });
+        void AddItem(BpNodeTemplate t)
+        {
+            var sp = new StackPanel { Orientation = Orientation.Horizontal };
+            sp.Children.Add(new Rectangle { Width = 9, Height = 9, RadiusX = 2, RadiusY = 2,
+                Fill = new SolidColorBrush(t.Header), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) });
+            sp.Children.Add(new TextBlock { Text = t.Title, Foreground = Brushes.White, FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
+            list.Items.Add(new ListBoxItem { Content = sp, ToolTip = t.Category, Tag = t, Padding = new Thickness(8, 3, 6, 3) });
+        }
         void Refresh()
         {
             string q = box.Text.Trim();
             list.Items.Clear();
-            IEnumerable<BpNodeTemplate> src;
             if (q.Length == 0)
             {
-                // 検索語なし: 最近使ったノードを先頭に、続けて全候補。
+                // 検索語なし: 最近使ったノード → カテゴリ別 (見出し付き)。
                 var recent = _recent.Where(r => candidates.Contains(r)).Take(5).ToList();
-                src = recent.Concat(candidates.Where(c => !recent.Contains(c)));
+                if (recent.Count > 0) { AddHeader("最近使った"); foreach (var t in recent) AddItem(t); }
+                foreach (var grp in candidates.Where(c => !recent.Contains(c)).GroupBy(c => c.Category))
+                {
+                    AddHeader(grp.Key);
+                    foreach (var t in grp) AddItem(t);
+                }
             }
-            else
-            {
-                src = candidates.Where(t => t.Title.Contains(q, StringComparison.OrdinalIgnoreCase)
-                                         || t.Category.Contains(q, StringComparison.OrdinalIgnoreCase));
-            }
-            foreach (var t in src.Take(80))
-            {
-                var item = new ListBoxItem {
-                    Content = new TextBlock { Text = $"{t.Title}", Foreground = Brushes.White, FontSize = 12 },
-                    ToolTip = t.Category, Tag = t, Padding = new Thickness(6, 3, 6, 3),
-                };
-                list.Items.Add(item);
-            }
-            if (list.Items.Count > 0) list.SelectedIndex = 0;
+            else   // 検索語あり: フラットに絞り込み。
+                foreach (var t in candidates.Where(t => t.Title.Contains(q, StringComparison.OrdinalIgnoreCase)
+                                         || t.Category.Contains(q, StringComparison.OrdinalIgnoreCase)).Take(120))
+                    AddItem(t);
+            for (int idx = 0; idx < list.Items.Count; idx++)   // 最初の «選べる» 項目を選択
+                if (list.Items[idx] is ListBoxItem li0 && li0.Tag is BpNodeTemplate) { list.SelectedIndex = idx; break; }
         }
 
         void Commit(BpNodeTemplate t)
@@ -1326,11 +1334,22 @@ public partial class BlueprintEditor : UserControl
             GraphCanvas.Focus();
         }
 
+        // カテゴリ見出し (Tag 無し) を飛ばして «選べる» 項目へ移動する。
+        void Move(int dir)
+        {
+            int i = list.SelectedIndex;
+            for (int step = 0; step < list.Items.Count; step++)
+            {
+                i += dir;
+                if (i < 0 || i >= list.Items.Count) return;
+                if (list.Items[i] is ListBoxItem li && li.Tag is BpNodeTemplate) { list.SelectedIndex = i; list.ScrollIntoView(list.SelectedItem); return; }
+            }
+        }
         box.TextChanged += (_, __) => Refresh();
         box.PreviewKeyDown += (_, ke) =>
         {
-            if (ke.Key == Key.Down && list.Items.Count > 0) { list.SelectedIndex = Math.Min(list.SelectedIndex + 1, list.Items.Count - 1); list.ScrollIntoView(list.SelectedItem); ke.Handled = true; }
-            else if (ke.Key == Key.Up && list.Items.Count > 0) { list.SelectedIndex = Math.Max(list.SelectedIndex - 1, 0); list.ScrollIntoView(list.SelectedItem); ke.Handled = true; }
+            if (ke.Key == Key.Down) { Move(1); ke.Handled = true; }
+            else if (ke.Key == Key.Up) { Move(-1); ke.Handled = true; }
             else if (ke.Key == Key.Enter && list.SelectedItem is ListBoxItem li && li.Tag is BpNodeTemplate t) { Commit(t); ke.Handled = true; }
             else if (ke.Key == Key.Escape) { pop.IsOpen = false; ke.Handled = true; }
         };
