@@ -122,7 +122,7 @@ public partial class BlueprintEditor
 
             // ----- 実装 -----
             s.Append("// SPDX-License-Identifier: Apache-2.0\n// Generated from a Blueprint graph by AcsEditor.\n");
-            s.Append("#include \"").Append(cls).Append(".h\"\n#include \"foundation/Log.h\"\n#include <cmath>\n\nnamespace acs::game {\n\n");
+            s.Append("#include \"").Append(cls).Append(".h\"\n#include \"foundation/Log.h\"\n#include \"gameframework/Random.h\"\n#include <cmath>\n\nnamespace acs::game {\n\n");
             if (beginNode != null) EmitMethod(s, cls, "OnAttach", "FNode2D& node", beginNode);
             if (tickNode  != null) EmitMethod(s, cls, "OnUpdate", "f32 dt", tickNode);
             foreach (var ce in _nodes.Where(n => n.Title == "Custom Event"))
@@ -338,10 +338,12 @@ public partial class BlueprintEditor
             case "Tan":    return $"std::tan((float)({GenArg(n, "value", depth)}))";
             case "Atan2":  return $"std::atan2((float)({GenArg(n, "y", depth)}), (float)({GenArg(n, "x", depth)}))";
             case "Exp":    return $"std::exp((float)({GenArg(n, "value", depth)}))";
-            case "Log":    return $"std::log((float)({GenArg(n, "value", depth)}))";
+            case "Log":    { var v = GenArg(n, "value", depth); return $"(((float)({v}) <= 0.0f) ? 0.0f : std::log((float)({v})))"; }   // 定義域ガード (interpreter と一致)
             case "Deg To Rad": return $"((float)({GenArg(n, "deg", depth)}) * 0.01745329252f)";
             case "Rad To Deg": return $"((float)({GenArg(n, "rad", depth)}) * 57.2957795131f)";
-            case "Map Range": { var v = GenArg(n, "value", depth); var i0 = GenArg(n, "inMin", depth); var i1 = GenArg(n, "inMax", depth); var o0 = GenArg(n, "outMin", depth); var o1 = GenArg(n, "outMax", depth); return $"(({o0}) + (({o1}) - ({o0})) * ((float)(({v}) - ({i0})) / (float)(({i1}) - ({i0}))))"; }
+            case "Map Range": { var v = GenArg(n, "value", depth); var i0 = GenArg(n, "inMin", depth); var i1 = GenArg(n, "inMax", depth); var o0 = GenArg(n, "outMin", depth); var o1 = GenArg(n, "outMax", depth); return $"(((float)(({i1}) - ({i0})) == 0.0f) ? (float)({o0}) : (({o0}) + (({o1}) - ({o0})) * ((float)(({v}) - ({i0})) / (float)(({i1}) - ({i0})))))"; }   // 0 除算ガード
+            case "Wrap": { var v = GenArg(n, "value", depth); var lo = GenArg(n, "min", depth); var hi = GenArg(n, "max", depth); return $"((((float)({hi}) - (float)({lo})) <= 0.0f) ? (float)({lo}) : ((float)({lo}) + std::fmod(std::fmod((float)({v}) - (float)({lo}), (float)({hi}) - (float)({lo})) + ((float)({hi}) - (float)({lo})), (float)({hi}) - (float)({lo}))))"; }
+            case "PingPong": { var t = GenArg(n, "t", depth); var len = GenArg(n, "length", depth); return $"([&]{{ float _L = (float)({len}); if (_L <= 0.0f) return 0.0f; float _m = std::fmod(std::fmod((float)({t}), 2.0f*_L) + 2.0f*_L, 2.0f*_L); return _m <= _L ? _m : 2.0f*_L - _m; }}())"; }
             case "Move Towards": { var c = GenArg(n, "current", depth); var t = GenArg(n, "target", depth); var s = GenArg(n, "step", depth); return $"(std::fabs((float)(({t}) - ({c}))) <= (float)({s}) ? (float)({t}) : (float)({c}) + ((({t}) > ({c})) ? (float)({s}) : -(float)({s})))"; }
             case "SmoothStep": { var a = GenArg(n, "a", depth); var b = GenArg(n, "b", depth); var tt = GenArg(n, "t", depth); return $"(({a}) + (({b}) - ({a})) * (((float)({tt}) * (float)({tt})) * (3.0f - 2.0f * (float)({tt}))))"; }
             // ベクトル (FVec2 = «Vector»、成分ごとに構築。FVec3 は «Vector3»)。
@@ -356,8 +358,14 @@ public partial class BlueprintEditor
             case "Vector Length":   { var v = GenArg(n, "v", depth); return $"std::sqrt(({v}).x * ({v}).x + ({v}).y * ({v}).y)"; }
             case "Vector Distance": { var a = GenArg(n, "a", depth); var b = GenArg(n, "b", depth); return $"std::sqrt((({a}).x - ({b}).x) * (({a}).x - ({b}).x) + (({a}).y - ({b}).y) * (({a}).y - ({b}).y))"; }
             case "Vector Dot":      { var a = GenArg(n, "a", depth); var b = GenArg(n, "b", depth); return $"(({a}).x * ({b}).x + ({a}).y * ({b}).y)"; }
+            case "Vector Normalize": { var v = GenArg(n, "v", depth); return $"([&]{{ auto _v = ({v}); float _l = std::sqrt(_v.x*_v.x + _v.y*_v.y); return _l > 0.0f ? acs::FVec2(_v.x/_l, _v.y/_l) : acs::FVec2(0.0f, 0.0f); }}())"; }
+            // 乱数 (エンジンの FRandom)。
+            case "Random Float": return $"acs::game::FRandom::Global().RangeF32((f32)({GenArg(n, "min", depth)}), (f32)({GenArg(n, "max", depth)}))";
+            case "Random Int":   return $"acs::game::FRandom::Global().RangeInt((i32)({GenArg(n, "min", depth)}), (i32)({GenArg(n, "max", depth)}))";
+            case "Random Bool":  return "acs::game::FRandom::Global().NextBool()";
             // 時間。
             case "Get Delta Time": return "dt";
+            case "Get Time":       return "0.0f";   // 時刻アクセサは未配線 (interpreter も 0)
         }
         if (n.Title.StartsWith("Spawn")) return $"spawned{n.Id}";
         return $"/*{SanitizeIdent(n.Title)}*/0";

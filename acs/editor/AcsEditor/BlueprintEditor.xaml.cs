@@ -2654,7 +2654,7 @@ public partial class BlueprintEditor : UserControl
         var f = new (double sx, double sy, double z, bool ok)[4]; var b = new (double sx, double sy, double z, bool ok)[4];
         for (int i = 0; i < 4; i++) { f[i] = Project3D(e[i].x, -e[i].y, zf); b[i] = Project3D(e[i].x, -e[i].y, -zb); }
         void L((double sx, double sy, double z, bool ok) a, (double sx, double sy, double z, bool ok) c) { if (a.ok && c.ok) { var ln = new Line { X1 = a.sx, Y1 = a.sy, X2 = c.sx, Y2 = c.sy, Stroke = col, StrokeThickness = th, IsHitTestVisible = false }; if (dash != null) ln.StrokeDashArray = dash; ViewportCanvas.Children.Add(ln); } }
-        for (int i = 0; i < 4; i++) { int j = (i + 1) % 4; L(f[i], f[j]); L(b[i], b[j]); L(f[i], b[i]); }
+        for (int i = 0; i < 4; i++) { int j = (i + 1) % 4; L(b[i], b[j]); L(f[i], b[i]); L(f[i], f[j]); }   // 奥→手前 (画家のアルゴリズム)
     }
 
     private void OnViewportDown(object sender, MouseButtonEventArgs e)
@@ -2667,7 +2667,7 @@ public partial class BlueprintEditor : UserControl
         if (_vp3dOrbiting)                          // 空き場所ドラッグ → カメラ回転
         {
             var p = e.GetPosition(ViewportCanvas);
-            _vp3dYaw -= (p.X - _vpDragLast.X) * 0.01;
+            _vp3dYaw += (p.X - _vpDragLast.X) * 0.01;   // 右ドラッグ=反時計回り (直感的な向き)
             _vp3dPitch = Math.Min(Math.Max(_vp3dPitch + (p.Y - _vpDragLast.Y) * 0.01, -1.45), 1.45);
             _vpDragLast = p; RenderViewport(); return;
         }
