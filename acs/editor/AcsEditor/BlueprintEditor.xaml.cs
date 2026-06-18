@@ -1354,6 +1354,15 @@ public partial class BlueprintEditor : UserControl
         var f = _graphOrder.FirstOrDefault(g => _graphIsFunc.Contains(g));
         if (f != null) SwitchGraph(f);
     }
+    /// <summary>検証用: 拡大して先頭ノード付近を中央に寄せる (細部のズレ監査用)。</summary>
+    public void DebugZoomForTest(double z)
+    {
+        var n = _nodes.FirstOrDefault(x => !x.Inherited);
+        _zoom.ScaleX = _zoom.ScaleY = z;
+        if (n != null) { _pan.X = 120 - z * n.X; _pan.Y = 90 - z * n.Y; }
+        UpdateGrid(); Rebuild();
+    }
+
     /// <summary>検証用: ノード nodeId の outPin から配線ドラッグを開始した状態にする (互換ピン強調のスクショ)。</summary>
     public void DebugStartWireForTest(int nodeId, int outPin)
     {

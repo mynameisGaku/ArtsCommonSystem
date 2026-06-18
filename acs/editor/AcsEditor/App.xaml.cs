@@ -88,6 +88,7 @@ public partial class App : Application
                     else if (mode == "gencpp") win.Editor.GenerateCppForTest();                 // C++ 生成
                     else if (mode == "func") win.Editor.SwitchToFirstFunctionForTest();         // 関数サブグラフへ切替
                     else if (mode == "wire") win.Editor.DebugStartWireForTest(2, 1);             // 互換ピン強調 (Object 出力から)
+                    else if (mode.StartsWith("zoom")) win.Editor.DebugZoomForTest(double.TryParse(mode.Substring(4), out var zz) ? zz : 2.2);   // 拡大監査
                     else if (mode.StartsWith("step")) win.Editor.DebugStepForTest(int.TryParse(mode.Substring(4), out var st) ? st : 3);   // ステップ実行
                     win.UpdateLayout();
                     int w = (int)Math.Ceiling(win.ActualWidth);
