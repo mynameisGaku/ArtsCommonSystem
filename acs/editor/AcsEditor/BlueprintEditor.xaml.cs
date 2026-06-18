@@ -963,7 +963,7 @@ public partial class BlueprintEditor : UserControl
         double dh = NodeHeight(d);
         double[] dxs = { d.X, d.X + NodeW / 2, d.X + NodeW };   // 左 / 中央X / 右
         double[] dys = { d.Y, d.Y + dh / 2, d.Y + dh };         // 上 / 中央Y / 下
-        const double Snap = 6;
+        const double Snap = 3.5;   // 磁気スナップは弱めに (効きすぎ防止)
         double? snapDX = null, snapDY = null;
         double gx = 0, gy = 0;
         foreach (var o in _nodes)
