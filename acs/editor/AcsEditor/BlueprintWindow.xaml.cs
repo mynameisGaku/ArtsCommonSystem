@@ -205,8 +205,16 @@ public partial class BlueprintWindow : Window
         if (_sel != null && !Editor.Variables.Contains(_sel)) _sel = null;
 
         VarList.Children.Clear();
-        foreach (var var in Editor.Variables)
+        bool anyCat = Editor.Variables.Any(x => !string.IsNullOrEmpty(x.Category));
+        var cats = new List<string>();
+        foreach (var x in Editor.Variables) { var cc = x.Category ?? ""; if (!cats.Contains(cc)) cats.Add(cc); }
+        foreach (var cat in cats)
         {
+          if (anyCat)   // カテゴリ見出し (UE5 の Category 分類)
+              VarList.Children.Add(new TextBlock { Text = string.IsNullOrEmpty(cat) ? "(未分類)" : cat,
+                  Foreground = (Brush)FindResource("SectionFg"), FontSize = 10, FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 6, 0, 2) });
+          foreach (var var in Editor.Variables.Where(x => (x.Category ?? "") == cat))
+          {
             var v = var;
             var row = new Border
             {
@@ -232,8 +240,9 @@ public partial class BlueprintWindow : Window
             Grid.SetColumn(nm, 1); g.Children.Add(nm);
             var ty = new TextBlock
             {
-                Text = v.Type, Foreground = Dim, FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(6, 0, 0, 0),
+                Text = (v.InstanceEditable ? "👁 " : "") + v.Type, Foreground = Dim, FontSize = 10.5,
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0),
+                ToolTip = v.InstanceEditable ? "インスタンスで編集可" : null,
             };
             Grid.SetColumn(ty, 2); g.Children.Add(ty);
             row.Child = g;
@@ -253,6 +262,7 @@ public partial class BlueprintWindow : Window
                 _dragVar = null; _dragging = false;
             };
             VarList.Children.Add(row);
+          }
         }
         if (Editor.Variables.Count == 0)
             VarList.Children.Add(new TextBlock { Text = "（変数なし — ＋ 変数 で追加）", Foreground = Dim, FontSize = 11, Margin = new Thickness(6, 4, 0, 0) });
@@ -335,6 +345,17 @@ public partial class BlueprintWindow : Window
         var valBox = MakeBox(s.Value);
         valBox.TextChanged += (_, __) => s.Value = valBox.Text;
         DetailsPanel.Children.Add(LabeledRow("既定値", valBox));
+
+        var catBox = MakeBox(s.Category);
+        catBox.TextChanged += (_, __) => s.Category = catBox.Text;
+        catBox.LostFocus += (_, __) => RefreshVars();   // カテゴリ変更でリストを再分類
+        DetailsPanel.Children.Add(LabeledRow("カテゴリ", catBox));
+
+        var inst = new CheckBox { Content = "インスタンスで編集可", IsChecked = s.InstanceEditable, FontSize = 11,
+            Foreground = Fg, Margin = new Thickness(0, 6, 0, 0), VerticalContentAlignment = VerticalAlignment.Center };
+        inst.Checked   += (_, __) => { s.InstanceEditable = true;  RefreshVars(); };
+        inst.Unchecked += (_, __) => { s.InstanceEditable = false; RefreshVars(); };
+        DetailsPanel.Children.Add(inst);
 
         var del = new Button
         {

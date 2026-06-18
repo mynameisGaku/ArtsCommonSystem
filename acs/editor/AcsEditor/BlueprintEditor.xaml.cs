@@ -1926,9 +1926,15 @@ public partial class BlueprintEditor : UserControl
         var sb = new StringBuilder();
         sb.Append("ACSBP 1\n");
         if (!string.IsNullOrEmpty(_parentPath)) sb.Append("PARENT ").Append(_parentPath).Append('\n');   // 継承元
-        foreach (var v in Variables)   // BP 変数: VAR <type> <name> <value…>
-            if (!string.IsNullOrWhiteSpace(v.Name)) sb.Append("VAR ").Append(string.IsNullOrEmpty(v.Type) ? "String" : v.Type)
-                .Append(' ').Append(v.Name.Trim()).Append(' ').Append(v.Value ?? "").Append('\n');
+        foreach (var v in Variables)   // BP 変数: VAR <type> <name> <value…> (+ メタは VMETA <name> <e> <category>)
+            if (!string.IsNullOrWhiteSpace(v.Name))
+            {
+                sb.Append("VAR ").Append(string.IsNullOrEmpty(v.Type) ? "String" : v.Type)
+                  .Append(' ').Append(v.Name.Trim()).Append(' ').Append(v.Value ?? "").Append('\n');
+                if (v.InstanceEditable || !string.IsNullOrEmpty(v.Category))
+                    sb.Append("VMETA ").Append(v.Name.Trim()).Append(' ').Append(v.InstanceEditable ? '1' : '0')
+                      .Append(' ').Append(v.Category ?? "").Append('\n');
+            }
         if (!string.IsNullOrEmpty(ComponentsText))   // コンポーネント木: CMP <行数> + 逐語の ACSCENE 行
             AcsbpFormat.AppendCmpBlock(sb, ComponentsText);
         sb.Append(_graphTexts.TryGetValue(EventGraphName, out var eg) ? eg : "");   // Event Graph 本体
@@ -2019,6 +2025,12 @@ public partial class BlueprintEditor : UserControl
             {
                 var t = l.Split(new[] { ' ' }, 3);
                 if (t.Length >= 2) Variables.Add(new BpVar(t[1], "String", t.Length >= 3 ? t[2] : ""));
+            }
+            else if (l.StartsWith("VMETA "))
+            {
+                var t = l.Split(new[] { ' ' }, 4);
+                var vv = t.Length >= 3 ? Variables.FirstOrDefault(x => x.Name == t[1]) : null;
+                if (vv != null) { vv.InstanceEditable = t[2] == "1"; vv.Category = t.Length >= 4 ? t[3] : ""; }
             }
         }
 
@@ -2649,7 +2661,13 @@ public partial class BlueprintEditor : UserControl
     private readonly Dictionary<(int, int), string> _callResult = new();  // (Call ノードID, 戻り値index) → Return が書いた値
 
     /// <summary>BP クラスが持つ変数 (名前 + 型 + 既定値)。実行開始時に値へ種まきされる (UE5 の Variables 相当)。</summary>
-    public sealed class BpVar { public string Name; public string Type; public string Value; public BpVar(string n, string t, string v) { Name = n; Type = t; Value = v; } }
+    public sealed class BpVar
+    {
+        public string Name; public string Type; public string Value;
+        public string Category = "";        // My Blueprint パネルでの分類 (UE5 の Category)
+        public bool InstanceEditable;       // インスタンスで編集可 (UE5 の Instance Editable)
+        public BpVar(string n, string t, string v) { Name = n; Type = t; Value = v; }
+    }
     /// <summary>この BP の変数一覧 (My Blueprint パネルが編集)。</summary>
     public List<BpVar> Variables { get; } = new();
     public Action? VariablesChanged;   // 変数が変わった (Deserialize 等) → パネル再描画
