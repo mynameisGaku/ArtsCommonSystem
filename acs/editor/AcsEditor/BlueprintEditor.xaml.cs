@@ -108,6 +108,7 @@ public partial class BlueprintEditor : UserControl
     private bool     _spaceDown;    // Space 押下中 (左ドラッグでパン)
     private PinRef?  _wireSource;   // ピンからのワイヤ生成中 (アンカー側ピン)
     private Path?    _ghost;        // 生成中ワイヤのプレビュー
+    private readonly List<Line> _guides = new();   // ドラッグ整列ガイド線 (UE 風)
     private Point    _lastMouse;
 
     // 矩形範囲選択 (マーキー)。
@@ -912,7 +913,9 @@ public partial class BlueprintEditor : UserControl
                 double sy = Math.Round(_dragNode.Y / GridStep) * GridStep - _dragNode.Y;
                 if (sx != 0 || sy != 0)
                     foreach (var n in _selected) { n.X += sx; n.Y += sy; if (n.Visual is { } b) { Canvas.SetLeft(b, n.X); Canvas.SetTop(b, n.Y); } }
+                ClearGuides();
             }
+            else if (_selected.Count == 1) ShowAlignGuides();   // 単一ドラッグ時は整列ガイド+磁気スナップ
             RedrawWires();
             return;
         }
@@ -932,6 +935,69 @@ public partial class BlueprintEditor : UserControl
         }
     }
 
+    // ----- ドラッグ整列ガイド (UE/プロ系エディタ風: 端/中心が他ノードと揃うと線+磁気スナップ) -----
+    private void ClearGuides() { foreach (var g in _guides) GraphCanvas.Children.Remove(g); _guides.Clear(); }
+
+    private void AddGuide(double v, bool vertical)
+    {
+        double lo = -300, hi = 2500;   // ノード範囲に合わせて線の長さを決める (巨大座標は WPF が描かない)
+        if (_nodes.Count > 0)
+        {
+            if (vertical) { lo = _nodes.Min(n => n.Y) - 300; hi = _nodes.Max(n => n.Y + NodeHeight(n)) + 300; }
+            else { lo = _nodes.Min(n => n.X) - 300; hi = _nodes.Max(n => n.X + NodeW) + 300; }
+        }
+        var ln = vertical
+            ? new Line { X1 = v, Y1 = lo, X2 = v, Y2 = hi }
+            : new Line { X1 = lo, Y1 = v, X2 = hi, Y2 = v };
+        ln.Stroke = new SolidColorBrush(Color.FromRgb(0xFF, 0x9E, 0x2D));   // UE オレンジ
+        ln.StrokeThickness = 1.2; ln.IsHitTestVisible = false;
+        ln.StrokeDashArray = new DoubleCollection { 4, 3 };
+        GraphCanvas.Children.Add(ln); _guides.Add(ln);
+    }
+
+    private void ShowAlignGuides()
+    {
+        ClearGuides();
+        if (_dragNode == null) return;
+        var d = _dragNode;
+        double dh = NodeHeight(d);
+        double[] dxs = { d.X, d.X + NodeW / 2, d.X + NodeW };   // 左 / 中央X / 右
+        double[] dys = { d.Y, d.Y + dh / 2, d.Y + dh };         // 上 / 中央Y / 下
+        const double Snap = 6;
+        double? snapDX = null, snapDY = null;
+        double gx = 0, gy = 0;
+        foreach (var o in _nodes)
+        {
+            if (o == d || o.Inherited) continue;
+            double oh = NodeHeight(o);
+            double[] oxs = { o.X, o.X + NodeW / 2, o.X + NodeW };
+            double[] oys = { o.Y, o.Y + oh / 2, o.Y + oh };
+            if (snapDX == null)
+                for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++)
+                    if (Math.Abs(dxs[i] - oxs[j]) < Snap) { snapDX = oxs[j] - dxs[i]; gx = oxs[j]; }
+            if (snapDY == null)
+                for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++)
+                    if (Math.Abs(dys[i] - oys[j]) < Snap) { snapDY = oys[j] - dys[i]; gy = oys[j]; }
+        }
+        if (snapDX is double sx && sx != 0) { d.X += sx; if (d.Visual is { } b) Canvas.SetLeft(b, d.X); }
+        if (snapDY is double sy && sy != 0) { d.Y += sy; if (d.Visual is { } b) Canvas.SetTop(b, d.Y); }
+        if (snapDX != null) AddGuide(gx, true);
+        if (snapDY != null) AddGuide(gy, false);
+    }
+
+    /// <summary>検証用: ノード dragId を refId の左端近くへ置いてガイドを描く (--bpshot align)。</summary>
+    public void AlignGuideForTest(int dragId, int refId)
+    {
+        var d = NodeById(dragId); var r = NodeById(refId);
+        if (d == null || r == null) return;
+        d.X = r.X + 3; d.Y = r.Y + 150;   // 左端を 3px ずらして整列圏内へ
+        if (d.Visual is { } b) { Canvas.SetLeft(b, d.X); Canvas.SetTop(b, d.Y); }
+        _selected.Clear(); _selected.Add(d); _dragNode = d;
+        ShowAlignGuides();
+        _dragNode = null;
+        RedrawWires();
+    }
+
     private void OnCanvasUp(object sender, MouseButtonEventArgs e)
     {
         if (_wireSource != null) { FinishWire(e.GetPosition(GraphCanvas)); GraphCanvas.ReleaseMouseCapture(); return; }
@@ -940,6 +1006,7 @@ public partial class BlueprintEditor : UserControl
         if (_dragNode != null)
         {
             _dragNode = null; GraphCanvas.ReleaseMouseCapture();
+            ClearGuides();
             if (_dragMoved) CommitEdit(); else CancelEdit();
             return;
         }
