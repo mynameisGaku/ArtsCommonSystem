@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 
 namespace AcsEditor;
@@ -131,7 +132,7 @@ public partial class BlueprintEditor : UserControl
     private static readonly Brush LabelFg  = new SolidColorBrush(Color.FromRgb(0xC2, 0xC9, 0xD4));
     private static readonly Brush ExecHi   = new SolidColorBrush(Color.FromRgb(0xE0, 0xB8, 0x4A));   // 実行済みノードの枠
     private static readonly Brush InheritEdge = new SolidColorBrush(Color.FromRgb(0x7A, 0x8A, 0xB0)); // 継承ノードの枠
-    private static readonly Brush SelEdge  = new SolidColorBrush(Color.FromRgb(0x55, 0xC8, 0xF0));   // 選択中ノードの枠
+    private static readonly Brush SelEdge  = new SolidColorBrush(Color.FromRgb(0xFF, 0x9E, 0x2D));   // 選択中ノードの枠 (UE5 風オレンジ)
     private static readonly Brush WarnEdge = new SolidColorBrush(Color.FromRgb(0xE0, 0x8A, 0x3A));   // 検証で問題ありの枠/バッジ
     private static readonly Brush FiredWire = new SolidColorBrush(Color.FromRgb(0xF2, 0xC8, 0x5A));  // 発火した exec 配線
     private static readonly Brush DbgEdge  = new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF));   // ステップ実行の現在ノード枠
@@ -226,6 +227,7 @@ public partial class BlueprintEditor : UserControl
         foreach (var n in _nodes) { n.Visual = MakeNodeVisual(n); GraphCanvas.Children.Add(n.Visual); }
         RedrawWires();
         UpdateMinimap();
+        UpdateStatus();
     }
 
     private BpNode? NodeById(int id) { foreach (var n in _nodes) if (n.Id == id) return n; return null; }
@@ -246,22 +248,23 @@ public partial class BlueprintEditor : UserControl
         double h = HeaderH + rows * RowH + 6;
 
         var inner = new Canvas { ClipToBounds = false, Width = NodeW, Height = h };
-        // ヘッダ。
+        // ヘッダ (UE5 風: 上を明るくした縦グラデ)。
+        var headerColor = (n.Header as SolidColorBrush)?.Color ?? Colors.SteelBlue;
         inner.Children.Add(Place(new Border {
-            Width = NodeW, Height = HeaderH, Background = n.Header,
-            CornerRadius = new CornerRadius(5, 5, 0, 0) }, 0, 0));
+            Width = NodeW, Height = HeaderH, Background = HeaderBrush(headerColor),
+            CornerRadius = new CornerRadius(6, 6, 0, 0) }, 0, 0));
         inner.Children.Add(Place(new TextBlock {
-            Text = n.Title, Foreground = Brushes.White, FontSize = 11, FontWeight = FontWeights.SemiBold }, 9, 5));
+            Text = n.Title, Foreground = Brushes.White, FontSize = 11.5, FontWeight = FontWeights.SemiBold }, 9, 5));
         // 入力ピン (左辺)。未接続のデータ入力にはインライン定数入力欄を出す。
         for (int i = 0; i < n.Inputs.Count; i++)
         {
             double py = HeaderH + i * RowH + RowH / 2.0;
             var pin = n.Inputs[i];
             if (PinIsDropTarget(n, false, pin)) inner.Children.Add(Place(MakePinGlow(pin), PinInset - 4, py - PinR - 4));
-            var idot = MakePinDot(PinBrush(pin)); idot.ToolTip = PinTip(pin);
-            inner.Children.Add(Place(idot, PinInset, py - PinR));   // 枠の内側に収める
+            var ishape = MakePinShape(pin, IsInputConnected(n, i)); ishape.ToolTip = PinTip(pin);
+            inner.Children.Add(Place(ishape, PinInset, py - PinR));   // 枠の内側に収める
             inner.Children.Add(Place(new TextBlock {
-                Text = pin.Name, Foreground = LabelFg, FontSize = 11 }, 14, py - 9));
+                Text = pin.Name, Foreground = LabelFg, FontSize = 11 }, 15, py - 8));
             if (pin.Kind == PinKind.Data && !IsInputConnected(n, i))
             {
                 // 型に応じた定数エディタ (Bool=チェック / op=ドロップダウン / その他=テキスト)。
@@ -274,11 +277,11 @@ public partial class BlueprintEditor : UserControl
         {
             double py = HeaderH + j * RowH + RowH / 2.0;
             if (PinIsDropTarget(n, true, n.Outputs[j])) inner.Children.Add(Place(MakePinGlow(n.Outputs[j]), NodeW - 2 * PinR - PinInset - 4, py - PinR - 4));
-            var odot = MakePinDot(PinBrush(n.Outputs[j])); odot.ToolTip = PinTip(n.Outputs[j]);
-            inner.Children.Add(Place(odot, NodeW - 2 * PinR - PinInset, py - PinR));   // 枠の内側に収める
+            var oshape = MakePinShape(n.Outputs[j], IsOutputConnected(n, j)); oshape.ToolTip = PinTip(n.Outputs[j]);
+            inner.Children.Add(Place(oshape, NodeW - 2 * PinR - PinInset, py - PinR));   // 枠の内側に収める
             inner.Children.Add(Place(new TextBlock {
                 Text = n.Outputs[j].Name, Foreground = LabelFg, FontSize = 11,
-                Width = 54, TextAlignment = TextAlignment.Right }, NodeW - 68, py - 9));
+                Width = 54, TextAlignment = TextAlignment.Right }, NodeW - 68, py - 8));
             // 実行後の値ウォッチ (data 出力の右外に小さなピルで表示)。
             if (_showWatch && n.Outputs[j].Kind == PinKind.Data && _watch.TryGetValue((n.Id, j), out var wv))
             {
@@ -300,13 +303,14 @@ public partial class BlueprintEditor : UserControl
         bool sel = _selected.Contains(n);
         bool dbg = n.Id == _debugCurrent;
         var body = new Border {
-            Width = NodeW, Height = h, Background = NodeBg, CornerRadius = new CornerRadius(5),
+            Width = NodeW, Height = h, Background = NodeBg, CornerRadius = new CornerRadius(6),
+            Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 10, ShadowDepth = 2.5, Opacity = 0.55, Direction = 270 },
         };
         var outline = new Border {
             Width = NodeW, Height = h, Background = Brushes.Transparent,
             BorderBrush = dbg ? DbgEdge : (sel ? SelEdge : (n.HasIssue ? WarnEdge : (n.Executed ? ExecHi : (n.Inherited ? InheritEdge : NodeEdge)))),
-            BorderThickness = new Thickness(dbg ? 3.0 : (sel ? 2.2 : (n.HasIssue ? 2.0 : (n.Executed ? 2.4 : 1.2)))),
-            CornerRadius = new CornerRadius(5), IsHitTestVisible = false,
+            BorderThickness = new Thickness(dbg ? 3.0 : (sel ? 2.4 : (n.HasIssue ? 2.0 : (n.Executed ? 2.2 : 1.2)))),
+            CornerRadius = new CornerRadius(6), IsHitTestVisible = false,
         };
         var outer = new Canvas {
             Width = NodeW, Height = h, ClipToBounds = false,
@@ -435,6 +439,39 @@ public partial class BlueprintEditor : UserControl
         Width = PinR * 2, Height = PinR * 2, Fill = fill,
         Stroke = new SolidColorBrush(Color.FromRgb(0x10, 0x14, 0x1A)), StrokeThickness = 1.0,
     };
+
+    // UE5 風ピン: exec=右向き三角 / data=円。未接続は «中空» (輪郭のみ)、接続済みは «塗り»。
+    private static Shape MakePinShape(Pin pin, bool connected)
+    {
+        if (pin.Kind == PinKind.Exec)
+        {
+            return new Path
+            {
+                Data = Geometry.Parse($"M 0.6,0.4 L 0.6,{PinR * 2 - 0.4} L {PinR * 2 + 0.4},{PinR} Z"),
+                Stroke = PinExec, StrokeThickness = 1.5, StrokeLineJoin = PenLineJoin.Round,
+                Fill = connected ? PinExec : Brushes.Transparent,
+            };
+        }
+        var col = DataTypeBrush(pin.Type);
+        return new Ellipse
+        {
+            Width = PinR * 2, Height = PinR * 2,
+            Stroke = col, StrokeThickness = connected ? 1.0 : 1.8,
+            Fill = connected ? col : Brushes.Transparent,   // 中空 = 輪郭のみ (背景が透ける)
+        };
+    }
+
+    /// <summary>出力ピン (n の outPin) に接続があるか。</summary>
+    private bool IsOutputConnected(BpNode n, int outPin)
+    {
+        foreach (var c in _conns) if (c.FromNode == n.Id && c.FromPin == outPin) return true;
+        return false;
+    }
+
+    /// <summary>UE5 風ヘッダ: 上を明るく、下を地色にした縦グラデーション。</summary>
+    private static Brush HeaderBrush(Color c) => new LinearGradientBrush(Lighten(c, 0.24), c, 90);
+    private static Color Lighten(Color c, double f) => Color.FromRgb(
+        (byte)(c.R + (255 - c.R) * f), (byte)(c.G + (255 - c.G) * f), (byte)(c.B + (255 - c.B) * f));
 
     // ピンのツールチップ (名前 : 型)。
     private static string PinTip(Pin p) => p.Kind == PinKind.Exec ? $"{p.Name} (実行)"
@@ -908,7 +945,7 @@ public partial class BlueprintEditor : UserControl
         double gx = (c.X - _pan.X) / s0, gy = (c.Y - _pan.Y) / s0;   // カーソル下のグラフ点
         _zoom.ScaleX = _zoom.ScaleY = s1;
         _pan.X = c.X - s1 * gx; _pan.Y = c.Y - s1 * gy;   // その点が動かないようパンを補正
-        UpdateGrid(); UpdateMinimap();
+        UpdateGrid(); UpdateMinimap(); UpdateStatus();
         e.Handled = true;
     }
 
@@ -966,10 +1003,26 @@ public partial class BlueprintEditor : UserControl
     // ----- 全体ミニマップ -----
     private const double MmPad = 8;
     private double _mmScale = 1, _mmMinX, _mmMinY;
+    private bool _minimapOn = true;
+
+    private void OnToggleMinimap(object sender, RoutedEventArgs e)
+    {
+        _minimapOn = MinimapToggle.IsChecked == true;
+        UpdateMinimap();
+    }
+
+    /// <summary>下部ステータスバーの情報 (ノード数 / ズーム%) を更新する。</summary>
+    private void UpdateStatus()
+    {
+        if (StatusInfo == null) return;
+        int nc = _nodes.Count(n => !n.Inherited);
+        StatusInfo.Text = $"{nc} ノード ・ {(_zoom.ScaleX * 100):0}%";
+    }
 
     private void UpdateMinimap()
     {
-        if (Minimap == null) return;
+        if (Minimap == null || MinimapPanel == null) return;
+        if (!_minimapOn) { MinimapPanel.Visibility = Visibility.Collapsed; return; }
         Minimap.Children.Clear();
         if (_nodes.Count == 0 && _comments.Count == 0) { MinimapPanel.Visibility = Visibility.Collapsed; return; }
         MinimapPanel.Visibility = Visibility.Visible;
