@@ -165,7 +165,7 @@ public partial class BlueprintEditor
     /// <summary>Timeline のキーフレーム (VarRef の t:v CSV) を C++ の piecewise-linear 補間文として生成する。</summary>
     private void GenTimelineValue(StringBuilder s, BpNode tl, string ind, string valVar, string alphaVar)
     {
-        var kf = ParseKF(tl.VarRef);   // 既定 [(0,0),(1,1)] = ramp
+        var kf = ParseKF(KfCsv(tl.VarRef));   // «@» のイベント部を除いてキーフレームのみ (既定 [(0,0),(1,1)] = ramp)
         string F(double d) => d.ToString("0.0######", System.Globalization.CultureInfo.InvariantCulture) + "f";   // 常に小数点付き (0f は不正)
         if (kf.Count == 1) { s.Append(ind).Append(valVar).Append(" = ").Append(F(kf[0][1])).Append(";\n"); return; }
         s.Append(ind).Append("if (").Append(alphaVar).Append(" <= ").Append(F(kf[0][0])).Append(") ").Append(valVar).Append(" = ").Append(F(kf[0][1])).Append(";\n");
@@ -196,6 +196,15 @@ public partial class BlueprintEditor
             s.Append("        f32 _a = _d > 0.f ? (_tl").Append(tl.Id).Append(" / _d) : 1.f; if (_a > 1.f) _a = 1.f;\n");
             GenTimelineValue(s, tl, "        ", $"_tlval{tl.Id}", "_a");   // キーフレームを piecewise-linear 補間
             GenStmt(s, ExecNext(tl, "Update"), "        ", new HashSet<int>(), 1);
+            var ets = ParseEvtTimes(tl.VarRef);   // イベント時刻を跨いだら Event ブランチ
+            if (ets.Length > 0)
+            {
+                string F(double d) => d.ToString("0.0######", System.Globalization.CultureInfo.InvariantCulture) + "f";
+                var conds = ets.Select(et => $"(_tl{tl.Id} - dt < {F(et)} * _d && _tl{tl.Id} >= {F(et)} * _d)");
+                s.Append("        if (").Append(string.Join(" || ", conds)).Append(") {\n");
+                GenStmt(s, ExecNext(tl, "Event"), "            ", new HashSet<int>(), 1);
+                s.Append("        }\n");
+            }
             s.Append("        if (_tl").Append(tl.Id).Append(" >= _d) { _tl").Append(tl.Id).Append(" = -1.f;\n");
             GenStmt(s, ExecNext(tl, "Finished"), "            ", new HashSet<int>(), 1);
             s.Append("        } }\n");

@@ -420,6 +420,11 @@ public partial class BlueprintEditor : UserControl
             var poly = new System.Windows.Shapes.Polyline { Stroke = new SolidColorBrush(Color.FromRgb(0x5B, 0xC8, 0x9A)), StrokeThickness = 1.5, IsHitTestVisible = false };
             for (int s = 0; s <= S; s++) poly.Points.Add(new Point(cx0 + cw * ((double)s / S), cy0 + ch - ch * ((vals[s] - mn) / range)));
             inner.Children.Add(Place(poly, 0, 0));
+            foreach (var et in ParseEvtTimes(n.VarRef))   // イベント時刻 = 橙の縦線
+            {
+                double ex = cx0 + cw * Math.Clamp(et, 0, 1);
+                inner.Children.Add(Place(new System.Windows.Shapes.Line { X1 = ex, X2 = ex, Y1 = cy0 - 2, Y2 = cy0 + ch + 1, Stroke = new SolidColorBrush(Color.FromRgb(0xE0, 0x6A, 0x4A)), StrokeThickness = 1, IsHitTestVisible = false }, 0, 0));
+            }
         }
 
         // 枠線(outline) と内容(inner) を «兄弟» にして重ねる。Border の子に inner を入れると
@@ -1590,13 +1595,15 @@ public partial class BlueprintEditor : UserControl
                 var ad = new MenuItem { Header = "data 入力を追加" }; ad.Click += (_, __) => AddParamPin(hit, output: false);
                 menu.Items.Add(new Separator()); menu.Items.Add(ae); menu.Items.Add(ad);
             }
-            else if (hit.Title == "Timeline")   // キーフレーム編集 (カーブ or CSV)
+            else if (hit.Title == "Timeline")   // キーフレーム編集 (カーブ or CSV) + イベント時刻
             {
                 var cur = new MenuItem { Header = "カーブ編集" };
                 cur.Click += (_, __) => OpenTimelineCurveEditor(hit);
                 var kf = new MenuItem { Header = "CSV 編集" };
                 kf.Click += (_, __) => OpenTimelineEditor(hit);
-                menu.Items.Add(new Separator()); menu.Items.Add(cur); menu.Items.Add(kf);
+                var ev = new MenuItem { Header = "イベント時刻" };
+                ev.Click += (_, __) => OpenTimelineEventEditor(hit);
+                menu.Items.Add(new Separator()); menu.Items.Add(cur); menu.Items.Add(kf); menu.Items.Add(ev);
             }
             // 関数に折りたたむ (2 個以上選択時。UE の Collapse to Function)。
             if (_selected.Count >= 2 && _selected.Contains(hit))
@@ -2094,6 +2101,14 @@ public partial class BlueprintEditor : UserControl
         pop.IsOpen = true;
     }
 
+    // Timeline VarRef は «keyframes@events» 形式: キーフレーム部とイベント時刻部に分ける。
+    private static string KfCsv(string? vr) { var v = vr ?? ""; int at = v.IndexOf('@'); return at >= 0 ? v.Substring(0, at) : v; }
+    private static string EvtCsv(string? vr) { var v = vr ?? ""; int at = v.IndexOf('@'); return at >= 0 ? v.Substring(at + 1) : ""; }
+    private static double[] ParseEvtTimes(string? vr) =>
+        EvtCsv(vr).Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var t) ? t : -1.0)
+            .Where(t => t >= 0).OrderBy(t => t).ToArray();
+
     private static List<double[]> ParseKF(string? csv)
     {
         var kf = new List<double[]>();
@@ -2123,7 +2138,7 @@ public partial class BlueprintEditor : UserControl
     /// <summary>Timeline のキーフレームをドラッグ編集するミニカーブエディタ。クリック=追加/ドラッグ=移動/右クリック=削除。</summary>
     private void OpenTimelineCurveEditor(BpNode n)
     {
-        var kf = ParseKF(n.VarRef);
+        var kf = ParseKF(KfCsv(n.VarRef));
         double W = 300, H = 168, pad = 16;
         double vmin = Math.Min(0, kf.Min(k => k[1])) - 0.15, vmax = Math.Max(1, kf.Max(k => k[1])) + 0.15;
         var canvas = new Canvas { Width = W, Height = H, Background = new SolidColorBrush(Color.FromRgb(0x16, 0x1A, 0x20)), ClipToBounds = true };
@@ -2182,8 +2197,30 @@ public partial class BlueprintEditor : UserControl
     private void SaveKF(BpNode n, List<double[]> kf)
     {
         BeginEdit();
-        n.VarRef = string.Join(",", kf.Select(k => $"{k[0].ToString("0.##", CultureInfo.InvariantCulture)}:{k[1].ToString("0.##", CultureInfo.InvariantCulture)}"));
+        string kfs = string.Join(",", kf.Select(k => $"{k[0].ToString("0.##", CultureInfo.InvariantCulture)}:{k[1].ToString("0.##", CultureInfo.InvariantCulture)}"));
+        string evt = EvtCsv(n.VarRef);   // イベント部は維持
+        n.VarRef = evt.Length > 0 ? kfs + "@" + evt : kfs;
         Rebuild(); CommitEdit();
+    }
+
+    /// <summary>Timeline のイベント時刻 (t,t) を編集する小ポップアップ。VarRef の «@» 部に保存。</summary>
+    private void OpenTimelineEventEditor(BpNode n)
+    {
+        var box = new TextBox { Width = 250, FontSize = 12, Padding = new Thickness(6, 3, 6, 3), Text = EvtCsv(n.VarRef) };
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock { Text = "イベント時刻 t,t… (0..1)。再生で跨ぐと Event 出力を発火", Foreground = LabelFg, FontSize = 10, Margin = new Thickness(2, 0, 0, 3) });
+        panel.Children.Add(box);
+        var border = new Border {
+            Background = new SolidColorBrush(Color.FromRgb(0x20, 0x25, 0x2E)), BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x44, 0x52)),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5), Padding = new Thickness(7), Child = panel };
+        var sc = GraphToControl(new Point(n.X, n.Y));
+        var pop = new Popup { Child = border, Placement = PlacementMode.Relative, PlacementTarget = this,
+            HorizontalOffset = sc.X, VerticalOffset = sc.Y - 50, StaysOpen = false, AllowsTransparency = true };
+        void Commit() { BeginEdit(); string e = box.Text.Trim(); n.VarRef = e.Length > 0 ? KfCsv(n.VarRef) + "@" + e : KfCsv(n.VarRef); Rebuild(); CommitEdit(); pop.IsOpen = false; }
+        box.PreviewKeyDown += (_, ke) => { if (ke.Key == Key.Enter) { Commit(); ke.Handled = true; } else if (ke.Key == Key.Escape) { pop.IsOpen = false; ke.Handled = true; } };
+        pop.Opened += (_, __) => { box.Focus(); box.SelectAll(); };
+        pop.Closed += (_, __) => GraphCanvas.Focus();
+        pop.IsOpen = true;
     }
 
     /// <summary>Timeline のキーフレーム (t:v,t:v) を編集する小ポップアップ。VarRef に保存。</summary>
@@ -2500,6 +2537,13 @@ public partial class BlueprintEditor : UserControl
             "N 2 0 0 1 Timeline\nI E Play\nI E Stop\nI D:Float duration\nO E Update\nO E Finished\nO D:Float value\nV 2 1.0\nVR 0:3,1:3\n" +
             "N 3 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\n" +
             "C 1 0 2 0\nC 2 0 3 0\nC 2 2 3 1\n", "r", "3");
+
+        // Timeline イベントトラック: 再生で t=0.5 を跨ぐと Event 出力 → r=9。
+        Check("TimelineEvent", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Timeline\nI E Play\nI E Stop\nI D:Float duration\nO E Update\nO E Finished\nO D:Float value\nO E Event\nV 2 1.0\nVR @0.5\n" +
+            "N 3 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\nV 1 9\n" +
+            "C 1 0 2 0\nC 2 3 3 0\n", "r", "9");
 
         // Delay (Latent): 武装→シミュレーションで Completed 発火 → r=7。
         Check("Delay", "ACSBP 1\nVAR Float r 0\n" +

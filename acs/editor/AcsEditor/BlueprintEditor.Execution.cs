@@ -104,7 +104,7 @@ public partial class BlueprintEditor
     private double SampleTimeline(BpNode n, double alpha)
     {
         var pts = new List<(double t, double v)>();
-        foreach (var part in (n.VarRef ?? "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var part in KfCsv(n.VarRef).Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
         {
             var ab = part.Split(':');
             if (ab.Length == 2 && double.TryParse(ab[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var t) && double.TryParse(ab[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var v)) pts.Add((t, v));
@@ -312,11 +312,14 @@ public partial class BlueprintEditor
             string ip = enteredPin >= 0 && enteredPin < n.Inputs.Count ? n.Inputs[enteredPin].Name : "Play";
             if (ip == "Stop") return;
             const int N = 10;
+            var evts = ParseEvtTimes(n.VarRef);   // イベント時刻 (再生で跨いだら Event を発火)
             for (int s = 0; s <= N; s++)
             {
                 if (_execBudget-- <= 0) break;
-                _timelineValue[n.Id] = SampleTimeline(n, (double)s / N);   // alpha 0→1 をキーフレーム補間
+                double a = (double)s / N, pa = (double)(s - 1) / N;
+                _timelineValue[n.Id] = SampleTimeline(n, a);   // alpha 0→1 をキーフレーム補間
                 FireExecByName(n, "Update");
+                foreach (var t in evts) if (t > pa && t <= a) FireExecByName(n, "Event");
             }
             FireExecByName(n, "Finished");
             return;
