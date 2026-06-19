@@ -489,6 +489,18 @@ public partial class BlueprintEditor : UserControl
         if (pin.Type == "Object") return null;   // UE 風: Object 参照は «接続» で指定 (Self / Get 変数 / spawned)。手入力欄は出さない
         int idx = i;
         string cur = n.Literals.TryGetValue(i, out var lv) ? lv : "";
+        if (n.Title == "Call Function" && pin.Name == "name")
+        {
+            // 関数名は «関数一覧から選ぶ» + «文字列入力» の両対応 (編集可コンボ)。値=関数名(その関数の ToString)。
+            var combo = new ComboBox { IsEditable = true, Width = 96, Height = 18, FontSize = 10, Padding = new Thickness(3, 0, 0, 0) };
+            foreach (var g in _graphOrder) if (_graphIsFunc.Contains(g)) combo.Items.Add(g);
+            if (!string.IsNullOrEmpty(cur) && !combo.Items.Contains(cur)) combo.Items.Add(cur);
+            if (combo.Items.Contains(cur)) combo.SelectedItem = cur; else combo.Loaded += (_, __) => combo.Text = cur;
+            void Apply() { var t = combo.Text?.Trim() ?? ""; bool changed = t != cur; if (string.IsNullOrEmpty(t)) n.Literals.Remove(idx); else n.Literals[idx] = t; if (changed) SyncCallPins(n); }   // 選択/入力でシグネチャ同期
+            combo.DropDownClosed += (_, __) => Apply();
+            combo.LostKeyboardFocus += (_, __) => Apply();
+            return combo;
+        }
         if (pin.Type == "Bool")
         {
             var cb = new CheckBox { IsChecked = Truthy(cur), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(3, 1, 0, 0) };
