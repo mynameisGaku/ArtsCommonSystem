@@ -374,17 +374,24 @@ public partial class BlueprintEditor : UserControl
                 inner.Children.Add(Place(new TextBlock {
                     Text = n.Outputs[j].Name, Foreground = LabelFg, FontSize = 11,
                     Width = 54, TextAlignment = TextAlignment.Right }, NodeW - 68, py - 8));
-            // 実行後の値ウォッチ (data 出力の右外に小さなピルで表示)。
-            if (_showWatch && n.Outputs[j].Kind == PinKind.Data && _watch.TryGetValue((n.Id, j), out var wv))
+            // 値ウォッチ: 実行後の一時表示(_showWatch) か «ピン留めウォッチ»(_watchedPins, UE の Watch this value)。
+            bool pinned = n.Outputs[j].Kind == PinKind.Data && _watchedPins.Contains((n.Id, j));
+            if ((_showWatch || pinned) && n.Outputs[j].Kind == PinKind.Data)
             {
-                var pill = new Border {
-                    Background = new SolidColorBrush(Color.FromArgb(0xF0, 0x10, 0x14, 0x1A)),
-                    BorderBrush = DataTypeBrush(n.Outputs[j].Type), BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(3), Padding = new Thickness(4, 0, 4, 1),
-                    Child = new TextBlock { Text = wv.Length > 16 ? wv.Substring(0, 16) + "…" : (wv.Length == 0 ? "\"\"" : wv),
-                        Foreground = Brushes.White, FontSize = 10 },
-                };
-                inner.Children.Add(Place(pill, NodeW + 7, py - 9));
+                bool has = _watch.TryGetValue((n.Id, j), out var wv);
+                if (has || pinned)
+                {
+                    string w2 = wv ?? "";
+                    string txt = has ? (w2.Length > 16 ? w2.Substring(0, 16) + "…" : (w2.Length == 0 ? "\"\"" : w2)) : "(未実行)";
+                    var pill = new Border {
+                        Background = new SolidColorBrush(Color.FromArgb(0xF0, 0x10, 0x14, 0x1A)),
+                        BorderBrush = pinned ? new SolidColorBrush(Color.FromRgb(0xE8, 0xC8, 0x4A)) : DataTypeBrush(n.Outputs[j].Type),
+                        BorderThickness = new Thickness(pinned ? 1.4 : 1),
+                        CornerRadius = new CornerRadius(3), Padding = new Thickness(4, 0, 4, 1),
+                        Child = new TextBlock { Text = (pinned ? "👁 " : "") + txt, Foreground = Brushes.White, FontSize = 10 },
+                    };
+                    inner.Children.Add(Place(pill, NodeW + 7, py - 9));
+                }
             }
         }
 
@@ -1393,6 +1400,14 @@ public partial class BlueprintEditor : UserControl
                     prom.Click += (_, __) => PromotePinToVariable(pinHit);
                     menu.Items.Add(prom);
                 }
+                if (pinHit.Output && pinObj.Kind == PinKind.Data)   // 出力データピン → 値をウォッチ (UE の Watch this value)
+                {
+                    var key = (pinHit.Node.Id, pinHit.Index);
+                    bool watching = _watchedPins.Contains(key);
+                    var w = new MenuItem { Header = watching ? "ウォッチを外す" : "この値をウォッチ" };
+                    w.Click += (_, __) => { if (watching) _watchedPins.Remove(key); else _watchedPins.Add(key); Rebuild(); };
+                    menu.Items.Add(w);
+                }
                 if (n > 0)
                 {
                     if (menu.Items.Count > 0) menu.Items.Add(new Separator());
@@ -1911,6 +1926,13 @@ public partial class BlueprintEditor : UserControl
         ShowViewport(); _vpSelected = id;
         MoveComponentRow(id, dx, dy);
         RenderViewport();
+    }
+
+    /// <summary>検証用: ノード 50 の出力ピン 0 をウォッチして再描画 (--bpshot watch)。</summary>
+    public void WatchPinForTest()
+    {
+        _watchedPins.Add((50, 0));
+        Rebuild();
     }
 
     /// <summary>検証用: ノード 2,3 を選択して関数に折りたたむ (--bpshot collapse)。</summary>
