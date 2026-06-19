@@ -92,6 +92,7 @@ public partial class BlueprintEditor : UserControl
     private readonly Dictionary<string, string> _graphTexts = new();   // グラフ名 → 本体テキスト
     private readonly List<string> _graphOrder = new() { EventGraphName };
     private readonly HashSet<string> _graphIsFunc = new();
+    private readonly HashSet<string> _graphIsPure = new();   // Pure 関数 (exec ピン無し・データのみ・都度評価。UE の BlueprintPure)
     private readonly Dictionary<string, List<BpVar>> _funcLocals = new();   // 関数名 → ローカル変数 (関数スコープ。UE の Local Variables)
     private string _activeName = EventGraphName;
     private const string EventGraphName = "Event Graph";
@@ -1714,20 +1715,26 @@ public partial class BlueprintEditor : UserControl
     private void SyncCallPins(BpNode call)
     {
         if (call.Title != "Call Function") return;
-        string fname = call.Literals.TryGetValue(1, out var nm) ? nm.Trim() : "";
-        var (args, rets) = FunctionSignature(fname);
+        // name は «どの索引にあっても» 読む (pure⇄impure で位置が変わるため)。
+        int oldNameIdx = call.Inputs.FindIndex(p => p.Name == "name");
+        string name = oldNameIdx >= 0 && call.Literals.TryGetValue(oldNameIdx, out var nm) ? nm.Trim() : "";
+        var (args, rets) = FunctionSignature(name);
+        bool pure = _graphIsPure.Contains(name);
         BeginEdit();
-        // 既存の «引数/戻り値» ピンへの接続を一旦切る (▶ exec と name は維持: 入力 0,1 / 出力 0)。
-        _conns.RemoveAll(c => (c.ToNode == call.Id && c.ToPin >= 2) || (c.FromNode == call.Id && c.FromPin >= 1));
-        var name = call.Literals.TryGetValue(1, out var nmv) ? nmv : "";
-        call.Inputs.Clear();  call.Inputs.Add(new Pin("▶", PinKind.Exec)); call.Inputs.Add(new Pin("name", PinKind.Data, "String"));
+        if (pure) _conns.RemoveAll(c => c.ToNode == call.Id || c.FromNode == call.Id);   // pure 化で構造が変わる → 全切断
+        else _conns.RemoveAll(c => (c.ToNode == call.Id && c.ToPin >= 2) || (c.FromNode == call.Id && c.FromPin >= 1));   // 従来: arg/ret のみ
+        call.Inputs.Clear();
+        if (!pure) call.Inputs.Add(new Pin("▶", PinKind.Exec));
+        call.Inputs.Add(new Pin("name", PinKind.Data, "String"));
         foreach (var a in args) call.Inputs.Add(a);
-        call.Outputs.Clear(); call.Outputs.Add(new Pin("▶", PinKind.Exec));
+        call.Outputs.Clear();
+        if (!pure) call.Outputs.Add(new Pin("▶", PinKind.Exec));
         foreach (var r in rets) call.Outputs.Add(r);
-        call.Literals.Clear(); if (!string.IsNullOrEmpty(name)) call.Literals[1] = name;   // name 定数のみ残す
+        int newNameIdx = call.Inputs.FindIndex(p => p.Name == "name");
+        call.Literals.Clear(); if (!string.IsNullOrEmpty(name)) call.Literals[newNameIdx] = name;   // name 定数を新索引へ
         Rebuild();
         CommitEdit();
-        LogSink?.Invoke($"Call Function のピンを «{fname}» のシグネチャに同期 (引数{args.Count}/戻り{rets.Count})。");
+        LogSink?.Invoke($"Call Function のピンを «{name}»{(pure ? " (pure)" : "")} に同期 (引数{args.Count}/戻り{rets.Count})。");
     }
 
     /// <summary>ノード (選択中なら選択集合) の無効化を切り替える。</summary>
@@ -2206,6 +2213,17 @@ public partial class BlueprintEditor : UserControl
             "N 102 0 0 1 Return\nI E ▶\nI D:Float ret0\n" +
             "C 100 0 102 0\nC 100 1 101 0\nC 100 1 101 1\nC 101 0 102 1\n", "r", "36");
 
+        // Pure 関数: exec 無しの Call(都度評価)を Set の value へ pull。Square(6)=36。
+        Check("PureFunc", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\n" +
+            "N 3 0 0 1 Call Function\nI D:String name\nI D:Float arg0\nO D:Float ret0\nV 0 Square\nV 1 6\n" +
+            "C 1 0 2 0\nC 3 0 2 1\n" +
+            "GRAPH Square F P\nN 100 0 0 1 Function Entry\nO E ▶\nO D:Float arg0\n" +
+            "N 101 0 0 1 Multiply\nI D:Float a\nI D:Float b\nO D:Float result\n" +
+            "N 102 0 0 1 Return\nI E ▶\nI D:Float ret0\n" +
+            "C 100 0 102 0\nC 100 1 101 0\nC 100 1 101 1\nC 101 0 102 1\n", "r", "36");
+
         // Find in Blueprint: Square 関数内の «Multiply» を横断検索で見つける (アクティブは Event Graph)。
         {
             Deserialize("ACSBP 1\nN 1 0 0 1 Event BeginPlay\nO E ▶\n" +
@@ -2677,7 +2695,7 @@ public partial class BlueprintEditor : UserControl
         foreach (var name in _graphOrder)   // Function サブグラフ
         {
             if (name == EventGraphName) continue;
-            sb.Append("GRAPH ").Append(name).Append(_graphIsFunc.Contains(name) ? " F" : " E").Append('\n');
+            sb.Append("GRAPH ").Append(name).Append(_graphIsFunc.Contains(name) ? (_graphIsPure.Contains(name) ? " F P" : " F") : " E").Append('\n');
             if (_funcLocals.TryGetValue(name, out var locals))   // ローカル変数 (LVAR <type> <name> <default>)
                 foreach (var lv in locals) if (!string.IsNullOrWhiteSpace(lv.Name))
                     sb.Append("LVAR ").Append(string.IsNullOrEmpty(lv.Type) ? "Float" : lv.Type).Append(' ').Append(lv.Name.Trim()).Append(' ').Append(lv.Value ?? "").Append('\n');
@@ -2748,10 +2766,11 @@ public partial class BlueprintEditor : UserControl
 
         // GRAPH <name> <F|E> セクションを分離する (先頭 = Event Graph、以降 = Function サブグラフ)。
         var (mainText, funcs) = SplitGraphs(text);
-        _funcLocals.Clear();
-        foreach (var (name, isFunc, body) in funcs)
+        _funcLocals.Clear(); _graphIsPure.Clear();
+        foreach (var (name, isFunc, isPure, body) in funcs)
         {
             if (!_graphTexts.ContainsKey(name)) { _graphOrder.Add(name); if (isFunc) _graphIsFunc.Add(name); }
+            if (isPure) _graphIsPure.Add(name);
             // LVAR <type> <name> <default> をローカル変数として抽出し、本体からは除く。
             var locals = new List<BpVar>(); var sb2 = new StringBuilder();
             foreach (var raw in body.Split('\n'))
@@ -2834,26 +2853,28 @@ public partial class BlueprintEditor : UserControl
     }
 
     /// <summary>GRAPH セクションを分離する。先頭 (最初の GRAPH 行より前) = main、以降 = (名前, 関数か, 本体)。</summary>
-    private static (string main, List<(string name, bool func, string body)> graphs) SplitGraphs(string text)
+    private static (string main, List<(string name, bool func, bool pure, string body)> graphs) SplitGraphs(string text)
     {
-        var graphs = new List<(string, bool, string)>();
+        var graphs = new List<(string, bool, bool, string)>();
         var main = new StringBuilder();
-        StringBuilder? cur = null; string curName = ""; bool curFunc = false;
+        StringBuilder? cur = null; string curName = ""; bool curFunc = false, curPure = false;
         foreach (var raw in text.Split('\n'))
         {
             var line = raw.TrimEnd('\r');
             if (line.StartsWith("GRAPH "))
             {
-                if (cur != null) graphs.Add((curName, curFunc, cur.ToString()));
+                if (cur != null) graphs.Add((curName, curFunc, curPure, cur.ToString()));
                 var t = line.Split(new[] { ' ' }, 3);
                 curName = t.Length >= 2 ? t[1] : "Function";
-                curFunc = t.Length < 3 || t[2].Trim() != "E";   // 既定は関数
+                string kind = t.Length >= 3 ? t[2] : "";
+                curFunc = kind.Trim() != "E";   // 既定は関数 (F / F P / 空=関数)
+                curPure = kind.Contains("P");   // F P = Pure 関数
                 cur = new StringBuilder();
             }
             else if (cur != null) cur.Append(line).Append('\n');
             else main.Append(line).Append('\n');
         }
-        if (cur != null) graphs.Add((curName, curFunc, cur.ToString()));
+        if (cur != null) graphs.Add((curName, curFunc, curPure, cur.ToString()));
         return (main.ToString(), graphs);
     }
 
@@ -2900,8 +2921,20 @@ public partial class BlueprintEditor : UserControl
                 Foreground = Brushes.White, BorderThickness = new Thickness(active ? 0 : 1),
             };
             btn.Click += (_, __) => { ExitViewport(); SwitchGraph(n); };
-            if (_graphIsFunc.Contains(n))   // 関数タブは右クリックで削除
-                btn.MouseRightButtonUp += (_, e) => { DeleteFunction(n); e.Handled = true; };
+            if (_graphIsFunc.Contains(n))   // 関数タブ右クリック → Pure トグル / 削除
+            {
+                string gn = n;
+                btn.MouseRightButtonUp += (_, e) =>
+                {
+                    var m = new ContextMenu();
+                    var pure = new MenuItem { Header = "Pure 関数", IsCheckable = true, IsChecked = _graphIsPure.Contains(gn) };
+                    pure.Click += (_, __) => SetFunctionPure(gn, !_graphIsPure.Contains(gn));
+                    var del = new MenuItem { Header = "関数を削除" };
+                    del.Click += (_, __) => DeleteFunction(gn);
+                    m.Items.Add(pure); m.Items.Add(new Separator()); m.Items.Add(del);
+                    m.IsOpen = true; e.Handled = true;
+                };
+            }
             GraphTabs.Children.Add(btn);
         }
         var add = new Button { Content = "＋ 関数", Padding = new Thickness(9, 2, 9, 2), FontSize = 11.5,
@@ -3222,6 +3255,18 @@ public partial class BlueprintEditor : UserControl
     public string ActiveGraphName => _activeName;
     /// <summary>新しい関数を追加して切り替える (パネルの「＋関数」)。</summary>
     public void NewFunction() => AddFunction();
+
+    /// <summary>関数 name の Pure 指定を切替える (exec 無し・データのみ・都度評価)。呼出側ピンを再同期。</summary>
+    public void SetFunctionPure(string name, bool pure)
+    {
+        if (!_graphIsFunc.Contains(name)) return;
+        BeginEdit();
+        if (pure) _graphIsPure.Add(name); else _graphIsPure.Remove(name);
+        foreach (var c in _nodes.Where(x => x.Title == "Call Function").ToList())   // 現グラフの該当 Call を再構成
+            if ((c.Literals.TryGetValue(c.Inputs.FindIndex(p => p.Name == "name"), out var nm) ? nm.Trim() : "") == name) SyncCallPins(c);
+        BuildGraphTabs(); GraphChanged?.Invoke(); CommitEdit();
+        LogSink?.Invoke($"関数 «{name}» を {(pure ? "Pure" : "Impure")} に。呼出側は右クリック「関数ピンを同期」で追従。");
+    }
 
     // ----- イベントディスパッチャ (BP レベルのマルチキャスト。UE の Event Dispatchers) -----
     public List<string> Dispatchers { get; } = new();

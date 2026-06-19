@@ -305,6 +305,15 @@ public partial class BlueprintEditor
                 FireExec(n, po);
     }
 
+    /// <summary>Call Function の引数 = name 以外の data 入力を評価した配列 (pure/impure 両対応)。</summary>
+    private string[] CollectCallArgs(BpNode n)
+    {
+        var args = new List<string>();
+        for (int i = 0; i < n.Inputs.Count; i++)
+            if (n.Inputs[i].Kind == PinKind.Data && n.Inputs[i].Name != "name") args.Add(EvalInput(n, i));
+        return args.ToArray();
+    }
+
     /// <summary>ノード n の po 番出力 exec ピンに繋がる下流をすべて実行する。</summary>
     private void FireExec(BpNode n, int po)
     {
@@ -466,12 +475,10 @@ public partial class BlueprintEditor
                 var ent = NodeById(entryId);
                 if (ent != null)
                 {
-                    // «引数» = name の後ろの data 入力 (idx 2..) を評価してフレームへ積む。
-                    var args = new List<string>();
-                    for (int i = 2; i < n.Inputs.Count; i++) if (n.Inputs[i].Kind == PinKind.Data) args.Add(EvalInput(n, i));
+                    // «引数» = name 以外の data 入力を評価してフレームへ積む。
                     var frame = new Dictionary<string, string>();   // 関数のローカル変数フレーム (既定値で初期化)
                     if (_funcLocals.TryGetValue(fn, out var locals)) foreach (var lv in locals) if (!string.IsNullOrWhiteSpace(lv.Name)) frame[lv.Name.Trim()] = lv.Value ?? "";
-                    _argStack.Push(args.ToArray()); _callStack.Push(n.Id); _localFrame.Push(frame);
+                    _argStack.Push(CollectCallArgs(n)); _callStack.Push(n.Id); _localFrame.Push(frame);
                     ExecFrom(ent);
                     _localFrame.Pop(); _callStack.Pop(); _argStack.Pop();
                     fired++;
@@ -561,9 +568,22 @@ public partial class BlueprintEditor
             var a = _argStack.Peek(); int pi = outPin - 1;
             return pi >= 0 && pi < a.Length ? a[pi] : "";
         }
-        // Call Function の data 出力 (戻り値) = Return が書いた値。
-        if (from.Title == "Call Function" && outPin >= 1)
-            return _callResult.TryGetValue((from.Id, outPin - 1), out var cr) ? cr : "";
+        // Call Function の data 出力 (戻り値) = Return が書いた値。pure 関数は «都度評価»。
+        if (from.Title == "Call Function")
+        {
+            int execOut = 0; for (int i = 0; i < outPin && i < from.Outputs.Count; i++) if (from.Outputs[i].Kind == PinKind.Exec) execOut++;
+            int retIdx = outPin - execOut;
+            string fn = EvalInputByName(from, "name").Trim();
+            if (_graphIsPure.Contains(fn) && _funcEntry.TryGetValue(fn, out int eid) && NodeById(eid) is BpNode ent)
+            {
+                var frame = new Dictionary<string, string>();
+                if (_funcLocals.TryGetValue(fn, out var locals)) foreach (var lv in locals) if (!string.IsNullOrWhiteSpace(lv.Name)) frame[lv.Name.Trim()] = lv.Value ?? "";
+                _argStack.Push(CollectCallArgs(from)); _callStack.Push(from.Id); _localFrame.Push(frame);
+                ExecFrom(ent);
+                _localFrame.Pop(); _callStack.Pop(); _argStack.Pop();
+            }
+            return _callResult.TryGetValue((from.Id, retIdx), out var cr) ? cr : "";
+        }
         // ForEach は element / index の 2 つの data 出力を別管理する。
         if (from.Title == "ForEach")
         {

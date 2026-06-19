@@ -293,7 +293,7 @@ public partial class BlueprintEditor
             {
                 string fname = SanitizeIdent(LiteralOf(n, "name"));
                 var argEx = new List<string>();
-                for (int i = 2; i < n.Inputs.Count; i++) if (n.Inputs[i].Kind == PinKind.Data) argEx.Add(GenArg(n, n.Inputs[i].Name, 0));
+                foreach (var p in n.Inputs) if (p.Kind == PinKind.Data && p.Name != "name") argEx.Add(GenArg(n, p.Name, 0));
                 string call = $"{fname}({string.Join(", ", argEx)})";
                 return n.Outputs.Any(p => p.Kind == PinKind.Data) ? $"auto _r{n.Id} = {call};" : $"{call};";
             }
@@ -351,7 +351,17 @@ public partial class BlueprintEditor
             case "Get Self":  return "(&Owner())";
             case "Get Position": return "Owner().Local().position";
             case "Function Entry": return outPin >= 1 && outPin < n.Outputs.Count ? SanitizeIdent(n.Outputs[outPin].Name) : "0";   // 引数
-            case "Call Function":  return $"_r{n.Id}";   // 呼出結果
+            case "Call Function":   // pure 関数はインライン式 / impure は実行時の結果変数
+            {
+                string fn2 = LiteralOf(n, "name");
+                if (_graphIsPure.Contains(fn2))
+                {
+                    var ae = new List<string>();
+                    foreach (var p in n.Inputs) if (p.Kind == PinKind.Data && p.Name != "name") ae.Add(GenArg(n, p.Name, depth));
+                    return $"{SanitizeIdent(fn2)}({string.Join(", ", ae)})";
+                }
+                return $"_r{n.Id}";
+            }
             case "Reroute":   return GenArg(n, "in", depth);
             case "To Float":  return $"(float)({GenArg(n, "in", depth)})";
             case "To Int":    return $"(int)({GenArg(n, "in", depth)})";
