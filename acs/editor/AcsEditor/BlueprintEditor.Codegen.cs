@@ -94,7 +94,8 @@ public partial class BlueprintEditor
             var beginNode = _nodes.FirstOrDefault(n => n.Title.Contains("BeginPlay"));
             var tickNode  = _nodes.FirstOrDefault(n => n.Title.Contains("On Tick"));
             var delays    = _nodes.Where(n => n.Title is "Delay" or "Retriggerable Delay").ToList();   // Latent
-            bool needUpdate = tickNode != null || delays.Count > 0;
+            var timelines = _nodes.Where(n => n.Title == "Timeline").ToList();
+            bool needUpdate = tickNode != null || delays.Count > 0 || timelines.Count > 0;
             var customs = _nodes.Where(n => n.Title == "Custom Event").Select(n => SanitizeIdent(LiteralOf(n, "name"))).Where(x => x.Length > 0).Distinct().ToList();
 
             // ----- ヘッダ (実 ACS API: FComponent2D / OnAttach / OnUpdate / ACS_GAME_COMPONENT_KIND) -----
@@ -113,7 +114,8 @@ public partial class BlueprintEditor
                      .Append(" = ").Append(CppDefault(v.Type, v.Value)).Append(";\n");
             if (Variables.Any(v => !string.IsNullOrWhiteSpace(v.Name))) h.Append('\n');
             foreach (var d in delays) h.Append("    f32 _delay").Append(d.Id).Append(" = -1.f;   // Latent タイマー\n");
-            if (delays.Count > 0) h.Append('\n');
+            foreach (var tl in timelines) h.Append("    f32 _tl").Append(tl.Id).Append(" = -1.f, _tlval").Append(tl.Id).Append(" = 0.f;   // Timeline 時間/値\n");
+            if (delays.Count > 0 || timelines.Count > 0) h.Append('\n');
             if (beginNode != null) h.Append("    void OnAttach(FNode2D& node) noexcept override;   // Event On BeginPlay\n");
             if (needUpdate)        h.Append("    void OnUpdate(f32 dt) noexcept override;           // On Tick / Latent タイマー\n");
             if (customs.Count > 0 || functions.Count > 0)
@@ -132,7 +134,7 @@ public partial class BlueprintEditor
             s.Append("// SPDX-License-Identifier: Apache-2.0\n// Generated from a Blueprint graph by AcsEditor.\n");
             s.Append("#include \"").Append(cls).Append(".h\"\n#include \"foundation/Log.h\"\n#include \"gameframework/Random.h\"\n#include <cmath>\n\nnamespace acs::game {\n\n");
             if (beginNode != null) EmitMethod(s, cls, "OnAttach", "FNode2D& node", beginNode);
-            if (needUpdate)        EmitUpdateMethod(s, cls, tickNode, delays);
+            if (needUpdate)        EmitUpdateMethod(s, cls, tickNode, delays, timelines);
             foreach (var ce in _nodes.Where(n => n.Title == "Custom Event"))
             {
                 string nm = SanitizeIdent(LiteralOf(ce, "name"));
@@ -160,8 +162,8 @@ public partial class BlueprintEditor
         return (rt, pl, rets.Count > 0);
     }
 
-    /// <summary>OnUpdate を生成: On Tick 本体 + 各 Latent タイマーを dt で減算し、満了で Completed ブランチを実行。</summary>
-    private void EmitUpdateMethod(StringBuilder s, string cls, BpNode? tickNode, List<BpNode> delays)
+    /// <summary>OnUpdate を生成: On Tick 本体 + 各 Latent (Delay/Timeline) を dt で進めて Completed/Update/Finished を実行。</summary>
+    private void EmitUpdateMethod(StringBuilder s, string cls, BpNode? tickNode, List<BpNode> delays, List<BpNode> timelines)
     {
         s.Append("void ").Append(cls).Append("::OnUpdate(f32 dt) noexcept {\n");
         if (tickNode != null) GenStmt(s, ExecNextFirst(tickNode), "    ", new HashSet<int>(), 0);
@@ -170,6 +172,16 @@ public partial class BlueprintEditor
             s.Append("    if (_delay").Append(d.Id).Append(" >= 0.f) { _delay").Append(d.Id).Append(" -= dt; if (_delay").Append(d.Id).Append(" < 0.f) {\n");
             GenStmt(s, ExecNext(d, "Completed"), "        ", new HashSet<int>(), 1);
             s.Append("    } }\n");
+        }
+        foreach (var tl in timelines)   // value は ramp 0→1 (キーフレームは interpreter のみ)。毎フレーム Update、末尾で Finished。
+        {
+            string dur = GenArg(tl, "duration", 0);
+            s.Append("    if (_tl").Append(tl.Id).Append(" >= 0.f) { _tl").Append(tl.Id).Append(" += dt; f32 _d = (f32)(").Append(dur).Append(");\n");
+            s.Append("        _tlval").Append(tl.Id).Append(" = _d > 0.f ? (_tl").Append(tl.Id).Append(" / _d) : 1.f; if (_tlval").Append(tl.Id).Append(" > 1.f) _tlval").Append(tl.Id).Append(" = 1.f;\n");
+            GenStmt(s, ExecNext(tl, "Update"), "        ", new HashSet<int>(), 1);
+            s.Append("        if (_tl").Append(tl.Id).Append(" >= _d) { _tl").Append(tl.Id).Append(" = -1.f;\n");
+            GenStmt(s, ExecNext(tl, "Finished"), "            ", new HashSet<int>(), 1);
+            s.Append("        } }\n");
         }
         s.Append("}\n\n");
     }
@@ -304,6 +316,12 @@ public partial class BlueprintEditor
             s.Append(ind).Append("return;\n");
             return;
         }
+        if (t == "Timeline")   // Play: タイマーを 0 にして再生開始 (Update/Finished は OnUpdate で)。
+        {
+            s.Append(ind).Append("_tl").Append(n.Id).Append(" = 0.f;\n");
+            s.Append(ind).Append("return;\n");
+            return;
+        }
         if (t == "Cast")   // Cast To <型>: dynamic_cast で Success(As)/Failed に分岐。
         {
             string asType = string.IsNullOrEmpty(n.VarRef) ? "FNode2D" : SanitizeIdent(n.VarRef);
@@ -412,6 +430,7 @@ public partial class BlueprintEditor
             case "Make Literal Enum": { string ev = n.Literals.TryGetValue(0, out var le) ? le : ""; return $"{SanitizeIdent(n.VarRef)}::{SanitizeIdent(ev)}"; }
             case "Enum to String": return GenArg(n, "in", depth);
             case "Cast":           return $"_as{n.Id}";   // dynamic_cast 結果 (Success ブランチ内で有効)
+            case "Timeline":       return $"_tlval{n.Id}";   // Timeline の現在値 (Update 中に有効)
             case "Get Class":      return $"/* Get Class */ nullptr";   // 反射 API 依存 (interpreter で動作)
             case "Class is Child Of": return $"({GenArg(n, "class", depth)} == {GenArg(n, "parent", depth)})";
             case "For Loop":  return $"i{n.Id}";   // index 出力 = ループ変数
