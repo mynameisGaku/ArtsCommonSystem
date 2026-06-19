@@ -1459,6 +1459,18 @@ public partial class BlueprintEditor : UserControl
                 sync.Click += (_, __) => SyncCallPins(hit);
                 menu.Items.Add(new Separator()); menu.Items.Add(sync);
             }
+            else if (hit.Title == "Switch on String")   // Case ピンを追加 (ピン名=照合文字列。ダブルクリックで編集)
+            {
+                var add = new MenuItem { Header = "Case ピンを追加" };
+                add.Click += (_, __) => { int k = hit.Outputs.Count(p => p.Kind == PinKind.Exec && p.Name != "Default"); AddExecPin(hit, "Case" + k); LogSink?.Invoke("Case ピンの名前(=照合文字列)はダブルクリックで編集。"); };
+                menu.Items.Add(new Separator()); menu.Items.Add(add);
+            }
+            else if (hit.Title is "Sequence" or "MultiGate")   // exec 出力ピンを動的追加 (Add pin)
+            {
+                var add = new MenuItem { Header = "出力ピンを追加" };
+                add.Click += (_, __) => { int k = hit.Outputs.Count(p => p.Kind == PinKind.Exec); AddExecPin(hit, hit.Title == "MultiGate" ? "Out " + k : k.ToString()); };
+                menu.Items.Add(new Separator()); menu.Items.Add(add);
+            }
             // 関数に折りたたむ (2 個以上選択時。UE の Collapse to Function)。
             if (_selected.Count >= 2 && _selected.Contains(hit))
             {
@@ -1572,6 +1584,14 @@ public partial class BlueprintEditor : UserControl
         if (distinctEntry > 1) LogSink?.Invoke("⚠ 実行入口が複数あるため、関数内では最初の入口のみ接続しました (Entry.▶ は単出力)。");
         if (distinctExit > 1) LogSink?.Invoke("⚠ 実行出口が複数あるため、Call の続きは最初の出口のみ接続しました (Call.▶ は単出力)。");
         LogSink?.Invoke($"ƒ {S.Count} ノードを関数 «{fname}» に折りたたみました (引数{paramType.Count}/戻り{retType.Count})。");
+    }
+
+    /// <summary>Sequence / MultiGate / Switch on String に exec 出力ピンを動的追加する (UE の Add pin)。末尾追加で既存接続を保つ。</summary>
+    private void AddExecPin(BpNode n, string name)
+    {
+        BeginEdit();
+        n.Outputs.Add(new Pin(name, PinKind.Exec));
+        Rebuild(); CommitEdit();
     }
 
     /// <summary>Function Entry / Return に型付きデータピンを追加する (関数の入出力)。</summary>
@@ -2024,6 +2044,20 @@ public partial class BlueprintEditor : UserControl
             "N 101 0 0 1 Multiply\nI D:Float a\nI D:Float b\nO D:Float result\n" +
             "N 102 0 0 1 Return\nI E ▶\nI D:Float ret0\n" +
             "C 100 0 102 0\nC 100 1 101 0\nC 100 1 101 1\nC 101 0 102 1\n", "r", "36");
+
+        // Switch on String: selector="B" → Case "B" 出力が発火して r=9。
+        Check("SwitchString", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Switch on String\nI E ▶\nI D:String selector\nO E Default\nO E A\nO E B\nV 1 B\n" +
+            "N 3 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\nV 1 9\n" +
+            "C 1 0 2 0\nC 2 2 3 0\n", "r", "9");
+
+        // Loop Break: For Loop 5..100、Loop Body で即 Break → 1 反復(index=5)で抜けて r=5。
+        Check("LoopBreak", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 For Loop\nI E ▶\nI D:Int first\nI D:Int last\nI E Break\nO E Loop Body\nO D:Int index\nO E Completed\nV 1 5\nV 2 100\n" +
+            "N 3 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\n" +
+            "C 1 0 2 0\nC 2 0 3 0\nC 2 1 3 1\nC 3 0 2 3\n", "r", "5");
 
         // Event Dispatcher: Call Dispatcher が束縛された Event Dispatcher を発火 (multicast)。
         Check("Dispatcher", "ACSBP 1\nVAR Float r 0\n" +
@@ -3446,6 +3480,8 @@ public partial class BlueprintEditor : UserControl
     private readonly Stack<int> _callStack = new();                  // 呼出中の Call Function ノードID (Return の戻り先)
     private readonly Stack<string[]> _argStack = new();              // 呼出中の引数値 (Function Entry の出力が読む)
     private readonly Stack<Dictionary<string, string>> _localFrame = new();   // 関数呼出フレームのローカル変数 (Get/Set Local Variable)
+    private readonly HashSet<int> _loopBreak = new();                // Break ピンが発火したループノード id (途中脱出)
+    private readonly HashSet<(int, int)> _watchedPins = new();        // 永続ウォッチ中のピン (nodeId, 出力pinIndex)。UE の Watch this value
     private readonly Dictionary<(int, int), string> _callResult = new();  // (Call ノードID, 戻り値index) → Return が書いた値
 
     /// <summary>BP クラスが持つ変数 (名前 + 型 + 既定値)。実行開始時に値へ種まきされる (UE5 の Variables 相当)。</summary>

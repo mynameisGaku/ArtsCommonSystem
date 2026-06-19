@@ -80,7 +80,7 @@ public partial class BlueprintEditor
         _spawnHandles.Clear(); _returns.Clear(); _spawnSeq = 0; _execBudget = 4000;
         _vars.Clear(); _watch.Clear(); _firedOut.Clear(); _showWatch = true;
         _flowState.Clear(); _trace.Clear();
-        _callStack.Clear(); _argStack.Clear(); _callResult.Clear(); _localFrame.Clear();
+        _callStack.Clear(); _argStack.Clear(); _callResult.Clear(); _localFrame.Clear(); _loopBreak.Clear();
         foreach (var v in Variables)   // BP 変数を _vars へ種まき (Get Variable が既定値を読める)
             if (!string.IsNullOrWhiteSpace(v.Name)) _vars[v.Name.Trim()] = v.Value ?? "";
 
@@ -194,6 +194,12 @@ public partial class BlueprintEditor
             _flowState[n.Id] = isA ? 1 : 0;
             return;
         }
+        // Break ピン (For Loop / While / ForEach) から入った → そのループの脱出フラグを立てて戻る。
+        if ((n.Title is "For Loop" or "While" or "ForEach") && enteredPin >= 0 && enteredPin < n.Inputs.Count && n.Inputs[enteredPin].Name == "Break")
+        {
+            _loopBreak.Add(n.Id);
+            return;
+        }
         // Switch on Int: selector に一致する case を、無ければ Default を発火。
         if (n.Title == "Switch on Int")
         {
@@ -202,7 +208,30 @@ public partial class BlueprintEditor
             FireExecByName(n, matched ? sel.ToString() : "Default");
             return;
         }
-        // ForEach: array(カンマ区切り) を反復し、element/index を出力。終わりに Completed。
+        // Switch on String: selector に一致する Case 出力(ピン名=照合文字列)を、無ければ Default を発火。
+        if (n.Title == "Switch on String")
+        {
+            string sel = EvalInputByName(n, "selector");
+            bool matched = n.Outputs.Any(p => p.Kind == PinKind.Exec && p.Name == sel);
+            FireExecByName(n, matched ? sel : "Default");
+            return;
+        }
+        // MultiGate: 入るたびに Out 0,1,2… を «順に / ランダムに» 1 本ずつ発火。Reset で先頭へ。Loop で巡回。
+        if (n.Title == "MultiGate")
+        {
+            string mip = enteredPin >= 0 && enteredPin < n.Inputs.Count ? n.Inputs[enteredPin].Name : "▶";
+            if (mip == "Reset") { _flowState[n.Id] = 0; return; }
+            var outs = n.Outputs.Where(p => p.Kind == PinKind.Exec && p.Name.StartsWith("Out")).Select(p => p.Name).ToList();
+            if (outs.Count == 0) return;
+            int idx = _flowState.TryGetValue(n.Id, out var mg) ? mg : 0;
+            bool loop = Truthy(EvalInputByName(n, "Loop"));
+            if (idx >= outs.Count) { if (!loop) return; idx = 0; }
+            string pick = Truthy(EvalInputByName(n, "Is Random")) ? outs[_rng.Next(outs.Count)] : outs[idx];
+            _flowState[n.Id] = idx + 1;
+            FireExecByName(n, pick);
+            return;
+        }
+        // ForEach: array(カンマ区切り) を反復し、element/index を出力。終わりに Completed。Break で途中脱出。
         if (n.Title == "ForEach")
         {
             var arr = SplitArray(EvalInputByName(n, "array"));
@@ -212,6 +241,7 @@ public partial class BlueprintEditor
                 _returns[n.Id] = arr[i];               // element (outPin の名前で出し分けは EvalOutput が担当)
                 _flowState[n.Id] = i;                  // index
                 FireExecByName(n, "Loop Body");
+                if (_loopBreak.Remove(n.Id)) break;    // Break ピン発火 → 途中脱出
             }
             FireExecByName(n, "Completed");
             return;
@@ -252,17 +282,19 @@ public partial class BlueprintEditor
                 if (_execBudget-- <= 0) { Trace("  … (ステップ上限)"); break; }
                 _returns[n.Id] = i.ToString();   // index 出力 (pull)
                 FireExecByName(n, "Loop Body");
+                if (_loopBreak.Remove(n.Id)) break;   // Break ピン発火 → 途中脱出
             }
             FireExecByName(n, "Completed");
             return;
         }
-        // While: cond が真の間 Loop Body を反復。終わりに Completed (budget で無限ループ防止)。
+        // While: cond が真の間 Loop Body を反復。終わりに Completed (budget で無限ループ防止)。Break で途中脱出。
         if (n.Title == "While")
         {
             while (Truthy(EvalInputByName(n, "cond")))
             {
                 if (_execBudget-- <= 0) { Trace("  … (ステップ上限)"); break; }
                 FireExecByName(n, "Loop Body");
+                if (_loopBreak.Remove(n.Id)) break;   // Break ピン発火 → 途中脱出
             }
             FireExecByName(n, "Completed");
             return;

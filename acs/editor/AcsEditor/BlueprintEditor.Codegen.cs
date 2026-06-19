@@ -180,6 +180,38 @@ public partial class BlueprintEditor
                 foreach (var c in _conns) if (c.FromNode == n.Id && c.FromPin == po) return NodeById(c.ToNode);
         return null;
     }
+    /// <summary>接続先がループの «Break» 入力なら true (codegen で break; を出すため)。</summary>
+    private static bool IsBreakTarget(BpNode to, int toPin)
+        => (to.Title is "For Loop" or "While" or "ForEach") && toPin >= 0 && toPin < to.Inputs.Count && to.Inputs[toPin].Name == "Break";
+    /// <summary>n の名前付き exec 出力を辿る。Break 入力に着地したら break; を出す。</summary>
+    private void GenExecOut(StringBuilder s, BpNode n, string pinName, string ind, HashSet<int> visited, int depth)
+    {
+        int po = n.Outputs.FindIndex(p => p.Kind == PinKind.Exec && p.Name == pinName);
+        if (po < 0) return;
+        foreach (var c in _conns)
+            if (c.FromNode == n.Id && c.FromPin == po)
+            {
+                var to = NodeById(c.ToNode); if (to == null) continue;
+                if (IsBreakTarget(to, c.ToPin)) s.Append(ind).Append("break;\n");
+                else GenStmt(s, to, ind, new HashSet<int>(visited), depth + 1);
+            }
+    }
+    /// <summary>n の «最初の» exec 出力を辿る (線形ノードの続き)。Break 入力なら break;。</summary>
+    private void GenLinearNext(StringBuilder s, BpNode n, string ind, HashSet<int> visited, int depth)
+    {
+        for (int po = 0; po < n.Outputs.Count; po++)
+            if (n.Outputs[po].Kind == PinKind.Exec)
+            {
+                foreach (var c in _conns)
+                    if (c.FromNode == n.Id && c.FromPin == po)
+                    {
+                        var to = NodeById(c.ToNode); if (to == null) return;
+                        if (IsBreakTarget(to, c.ToPin)) { s.Append(ind).Append("break;\n"); return; }
+                        GenStmt(s, to, ind, visited, depth + 1); return;
+                    }
+                return;
+            }
+    }
 
     /// <summary>exec チェーンを C++ 文へ変換 (Branch=if/else, For Loop=for, Sequence=順次)。</summary>
     private void GenStmt(StringBuilder s, BpNode? n, string ind, HashSet<int> visited, int depth)
@@ -196,9 +228,9 @@ public partial class BlueprintEditor
         if (t == "Branch")
         {
             s.Append(ind).Append("if (").Append(GenArg(n, "cond", 0)).Append(") {\n");
-            GenStmt(s, ExecNext(n, "True"), ind + "    ", new HashSet<int>(visited), depth + 1);
+            GenExecOut(s, n, "True", ind + "    ", visited, depth + 1);
             s.Append(ind).Append("} else {\n");
-            GenStmt(s, ExecNext(n, "False"), ind + "    ", new HashSet<int>(visited), depth + 1);
+            GenExecOut(s, n, "False", ind + "    ", visited, depth + 1);
             s.Append(ind).Append("}\n");
             return;
         }
@@ -207,7 +239,7 @@ public partial class BlueprintEditor
             string iv = $"i{n.Id}";
             s.Append(ind).Append("for (int ").Append(iv).Append(" = ").Append(GenArg(n, "first", 0))
              .Append("; ").Append(iv).Append(" <= ").Append(GenArg(n, "last", 0)).Append("; ++").Append(iv).Append(") {\n");
-            GenStmt(s, ExecNext(n, "Loop Body"), ind + "    ", new HashSet<int>(visited), depth + 1);
+            GenExecOut(s, n, "Loop Body", ind + "    ", visited, depth + 1);
             s.Append(ind).Append("}\n");
             GenStmt(s, ExecNext(n, "Completed"), ind, visited, depth + 1);
             return;
@@ -215,9 +247,23 @@ public partial class BlueprintEditor
         if (t == "While")
         {
             s.Append(ind).Append("while (").Append(GenArg(n, "cond", 0)).Append(") {\n");
-            GenStmt(s, ExecNext(n, "Loop Body"), ind + "    ", new HashSet<int>(visited), depth + 1);
+            GenExecOut(s, n, "Loop Body", ind + "    ", visited, depth + 1);
             s.Append(ind).Append("}\n");
             GenStmt(s, ExecNext(n, "Completed"), ind, visited, depth + 1);
+            return;
+        }
+        if (t == "Switch on String")   // selector を Case(ピン名=照合文字列)へ if/else 分岐。Default は最後。
+        {
+            string sel = GenArg(n, "selector", 0); bool first = true;
+            foreach (var p in n.Outputs)
+                if (p.Kind == PinKind.Exec && p.Name != "Default")
+                {
+                    s.Append(ind).Append(first ? "if (" : "else if (").Append(sel).Append(" == ").Append(CppLiteral(p.Name, "String")).Append(") {\n");
+                    GenExecOut(s, n, p.Name, ind + "    ", visited, depth + 1);
+                    s.Append(ind).Append("}\n"); first = false;
+                }
+            if (n.Outputs.Any(p => p.Kind == PinKind.Exec && p.Name == "Default"))
+            { s.Append(ind).Append(first ? "" : "else ").Append("{\n"); GenExecOut(s, n, "Default", ind + "    ", visited, depth + 1); s.Append(ind).Append("}\n"); }
             return;
         }
         if (t == "Sequence")
@@ -229,7 +275,7 @@ public partial class BlueprintEditor
             return;
         }
         s.Append(ind).Append(GenNodeStmt(n)).Append('\n');
-        GenStmt(s, ExecNextFirst(n), ind, visited, depth + 1);   // 線形ノードは次の exec を辿る
+        GenLinearNext(s, n, ind, visited, depth + 1);   // 線形ノードは次の exec を辿る (Break 入力なら break;)
     }
 
     private string GenNodeStmt(BpNode n)

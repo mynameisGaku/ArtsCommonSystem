@@ -1039,8 +1039,8 @@ public partial class MainWindow : Window
             new("変換", "To Vector3",cvt, new[] { Da("in", "Vector") },   new[] { Da("out", "Vector3") }),
             new("変換", "To Vector2",cvt, new[] { Da("in", "Vector3") },  new[] { Da("out", "Vector") }),
             // ループ。
-            new("ループ", "For Loop", flow, new[] { Ex("▶"), Da("first", "Int"), Da("last", "Int") }, new[] { Ex("Loop Body"), Da("index", "Int"), Ex("Completed") }),
-            new("ループ", "While",    flow, new[] { Ex("▶"), Da("cond", "Bool") },                    new[] { Ex("Loop Body"), Ex("Completed") }),
+            new("ループ", "For Loop", flow, new[] { Ex("▶"), Da("first", "Int"), Da("last", "Int"), Ex("Break") }, new[] { Ex("Loop Body"), Da("index", "Int"), Ex("Completed") }),
+            new("ループ", "While",    flow, new[] { Ex("▶"), Da("cond", "Bool"), Ex("Break") },                    new[] { Ex("Loop Body"), Ex("Completed") }),
             // 関数 (Custom Event = 直接呼び出し専用の入口 / Call Function = 同名を同期呼び出し)。
             new("関数", "Custom Event",   ev,  new[] { Da("name", "String") },                  new[] { Ex("▶") }),
             new("関数", "Call Function",  fn,  new[] { Ex("▶"), Da("name", "String") },         new[] { Ex("▶") }),
@@ -1052,7 +1052,9 @@ public partial class MainWindow : Window
             new("フロー", "Do N Times",    flow, new[] { Ex("▶"), Da("n", "Int"), Ex("Reset") }, new[] { Ex("Exit"), Da("count", "Int") }),   // UE: N 回まで発火
             new("フロー", "FlipFlop",      flow, new[] { Ex("▶") },                            new[] { Ex("A"), Ex("B"), Da("is A", "Bool") }),
             new("フロー", "Switch on Int", flow, new[] { Ex("▶"), Da("selector", "Int") },     new[] { Ex("0"), Ex("1"), Ex("2"), Ex("Default") }),
-            new("フロー", "ForEach",       flow, new[] { Ex("▶"), Da("array") },               new[] { Ex("Loop Body"), Da("element"), Da("index", "Int"), Ex("Completed") }),
+            new("フロー", "Switch on String", flow, new[] { Ex("▶"), Da("selector", "String") }, new[] { Ex("Default") }),   // Case ピンは右クリックで追加 (ピン名=照合文字列)
+            new("フロー", "MultiGate",     flow, new[] { Ex("▶"), Ex("Reset"), Da("Is Random", "Bool"), Da("Loop", "Bool") }, new[] { Ex("Out 0"), Ex("Out 1"), Ex("Out 2") }),   // 入るたび 1 本ずつ
+            new("フロー", "ForEach",       flow, new[] { Ex("▶"), Da("array"), Ex("Break") },  new[] { Ex("Loop Body"), Da("element"), Da("index", "Int"), Ex("Completed") }),
             new("フロー", "Delay",         flow, new[] { Ex("▶"), Da("duration", "Float") },   new[] { Ex("Completed") }),
             new("フロー", "Cast",          cvt,  new[] { Ex("▶"), Da("object", "Object") },    new[] { Ex("Success"), Ex("Failed"), Da("As", "Object") }),
             // 配列 (カンマ区切り文字列で表現。pure)。
