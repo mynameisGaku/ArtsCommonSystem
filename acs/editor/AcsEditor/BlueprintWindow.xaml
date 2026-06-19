@@ -52,6 +52,22 @@
             </Border>
             <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
 
+            <!-- LOCAL VARIABLES (関数編集中のみ表示) -->
+            <Border x:Name="LocalHeader" DockPanel.Dock="Top" Background="{DynamicResource HeaderBg}" Padding="11,5,7,5" Visibility="Collapsed">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="LOCAL VARIABLES" Style="{DynamicResource Section}" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="＋ ローカル" Padding="9,2" FontSize="11" Click="OnAddLocalVar"
+                            Foreground="{DynamicResource OkFg}" ToolTip="この関数のローカル変数を追加"/>
+                </Grid>
+            </Border>
+            <Border x:Name="LocalListBox" DockPanel.Dock="Top" Height="84" Visibility="Collapsed">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="LocalList" Margin="5,4,5,6"/>
+                </ScrollViewer>
+            </Border>
+            <Border x:Name="LocalDivider" DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}" Visibility="Collapsed"/>
+
             <!-- VARIABLES 見出し + 追加 -->
             <Border DockPanel.Dock="Top" Background="{DynamicResource HeaderBg}" Padding="11,5,7,5">
                 <Grid>

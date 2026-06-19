@@ -52,11 +52,12 @@ public partial class BlueprintWindow : Window
         InitializeComponent();
         GraphHost.VariablesChanged  = RefreshVars;        // 変数が変わったら再描画
         GraphHost.ComponentsChanged = RefreshComponents;  // コンポーネント木が変わったら再描画
-        GraphHost.GraphChanged      = RefreshFunctions;   // グラフ切替/追加で関数一覧を再描画
+        GraphHost.GraphChanged      = () => { RefreshFunctions(); RefreshLocals(); };   // グラフ切替/追加で関数一覧+ローカル変数を再描画
         GraphHost.SelectionChanged  = RefreshDetails;     // ノード選択で Details を反映 (UE5 風)
+        GraphHost.LocalsChanged     = RefreshLocals;      // ローカル変数の追加/削除で再描画
         GraphHost.PathChanged = () => Title = string.IsNullOrEmpty(GraphHost.CurrentPath)
             ? "Blueprint" : "Blueprint — " + System.IO.Path.GetFileName(GraphHost.CurrentPath);
-        Loaded += (_, __) => { RefreshComponents(); RefreshVars(); RefreshFunctions(); };
+        Loaded += (_, __) => { RefreshComponents(); RefreshVars(); RefreshFunctions(); RefreshLocals(); };
     }
 
     // この BP の «コンポーネント木» (ACSCENE サブツリー) を解析してノード/コンポーネントを表示する。
@@ -185,6 +186,46 @@ public partial class BlueprintWindow : Window
         }
     }
     private void OnAddFunctionPanel(object sender, RoutedEventArgs e) => Editor.NewFunction();
+    private void OnAddLocalVar(object sender, RoutedEventArgs e) => Editor.AddLocalVar();
+
+    // LOCAL VARIABLES セクション (関数編集中のみ表示)。行はピルから D&D で Get/Set Local ノードを作る。
+    private void RefreshLocals()
+    {
+        if (LocalList == null) return;
+        bool show = Editor.ActiveIsFunction;
+        LocalHeader.Visibility = LocalListBox.Visibility = LocalDivider.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        LocalList.Children.Clear();
+        if (!show) return;
+        foreach (var v in Editor.ActiveLocalVars)
+        {
+            var lv = v;
+            var g = new Grid { Margin = new Thickness(2, 1, 2, 1) };
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var pill = new Border { Width = 15, Height = 11, CornerRadius = new CornerRadius(3), Background = TypeBrush(lv.Type),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 6, 0), Cursor = Cursors.SizeAll, ToolTip = "グラフへドラッグで Get/Set Local" };
+            pill.MouseLeftButtonDown += (_, ev) => { DragDrop.DoDragDrop(pill, new DataObject(BlueprintEditor.LocalVarDragFormat, lv.Name), DragDropEffects.Copy); ev.Handled = true; };
+            Grid.SetColumn(pill, 0); g.Children.Add(pill);
+            var nameBox = MakeBox(lv.Name); nameBox.FontSize = 11; nameBox.Height = 20;
+            nameBox.TextChanged += (_, __) => lv.Name = nameBox.Text;
+            nameBox.LostFocus += (_, __) => RefreshLocals();
+            Grid.SetColumn(nameBox, 1); g.Children.Add(nameBox);
+            var tcombo = new ComboBox { FontSize = 10, Height = 20, Margin = new Thickness(4, 0, 4, 0) };
+            foreach (var t in Types) tcombo.Items.Add(t);
+            tcombo.SelectedItem = Types.Contains(lv.Type) ? lv.Type : "Float";
+            tcombo.SelectionChanged += (_, __) => { if (tcombo.SelectedItem is string t) { lv.Type = t; RefreshLocals(); } };
+            Grid.SetColumn(tcombo, 2); g.Children.Add(tcombo);
+            var del = new Button { Content = "✕", FontSize = 9, Padding = new Thickness(5, 0, 5, 0), Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0), Foreground = (Brush)FindResource("WarnFg"), VerticalAlignment = VerticalAlignment.Center };
+            del.Click += (_, __) => Editor.RemoveLocalVar(lv);
+            Grid.SetColumn(del, 3); g.Children.Add(del);
+            LocalList.Children.Add(g);
+        }
+        if (Editor.ActiveLocalVars.Count == 0)
+            LocalList.Children.Add(new TextBlock { Text = "（ローカル変数なし — ＋ローカル で追加）", Foreground = Dim, FontSize = 10.5, Margin = new Thickness(6, 4, 0, 0) });
+    }
 
     // 「＋ 変数」: 新しい変数を追加して選択する (UE5 風に既定 Float)。
     private void OnAddVar(object sender, RoutedEventArgs e)

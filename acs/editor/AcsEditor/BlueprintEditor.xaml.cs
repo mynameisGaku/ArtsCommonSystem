@@ -2283,16 +2283,17 @@ public partial class BlueprintEditor : UserControl
 
     private void OnDrop(object sender, DragEventArgs e)
     {
-        if (!e.Data.GetDataPresent(VarDragFormat)) return;
-        string name = ((e.Data.GetData(VarDragFormat) as string) ?? "").Trim();
+        bool local = e.Data.GetDataPresent(LocalVarDragFormat);
+        if (!local && !e.Data.GetDataPresent(VarDragFormat)) return;
+        string name = ((e.Data.GetData(local ? LocalVarDragFormat : VarDragFormat) as string) ?? "").Trim();
         if (string.IsNullOrWhiteSpace(name)) return;
         Point g = e.GetPosition(GraphCanvas);
         // UE 風: ドロップ時に Get / Set を選ぶメニュー。
         var menu = new ContextMenu();
         var get = new MenuItem { Header = $"Get {name}" };
-        get.Click += (_, __) => DropVariable(name, false, g);
+        get.Click += (_, __) => { if (local) DropLocalVariable(name, false, g); else DropVariable(name, false, g); };
         var setm = new MenuItem { Header = $"Set {name}" };
-        setm.Click += (_, __) => DropVariable(name, true, g);
+        setm.Click += (_, __) => { if (local) DropLocalVariable(name, true, g); else DropVariable(name, true, g); };
         menu.Items.Add(get); menu.Items.Add(setm);
         menu.PlacementTarget = GraphCanvas; menu.IsOpen = true;
     }
@@ -2988,6 +2989,49 @@ public partial class BlueprintEditor : UserControl
     public string ActiveGraphName => _activeName;
     /// <summary>新しい関数を追加して切り替える (パネルの「＋関数」)。</summary>
     public void NewFunction() => AddFunction();
+
+    // ----- ローカル変数 (関数スコープ) の My Blueprint 連携 -----
+    public const string LocalVarDragFormat = "ACSBP_LOCALVAR";
+    /// <summary>編集中が Function グラフか (ローカル変数を持てる)。</summary>
+    public bool ActiveIsFunction => _activeName != EventGraphName && _graphIsFunc.Contains(_activeName);
+    /// <summary>編集中関数のローカル変数 (Event Graph なら空)。</summary>
+    public IReadOnlyList<BpVar> ActiveLocalVars => _funcLocals.TryGetValue(_activeName, out var l) ? l : (IReadOnlyList<BpVar>)Array.Empty<BpVar>();
+    public Action? LocalsChanged;   // ローカル変数が変わった → パネル再描画
+
+    public void AddLocalVar()
+    {
+        if (!ActiveIsFunction) return;
+        BeginEdit();
+        if (!_funcLocals.TryGetValue(_activeName, out var l)) { l = new List<BpVar>(); _funcLocals[_activeName] = l; }
+        string b = "NewLocal"; string nm = b; int k = 2; while (l.Any(v => v.Name == nm)) nm = b + k++;
+        l.Add(new BpVar(nm, "Float", ""));
+        CommitEdit(); LocalsChanged?.Invoke();
+    }
+    public void RemoveLocalVar(BpVar v)
+    {
+        if (_funcLocals.TryGetValue(_activeName, out var l) && l.Remove(v)) { CommitEdit(); LocalsChanged?.Invoke(); }
+    }
+    /// <summary>ローカル変数 name の Get/Set Local Variable ノードを生成 (D&D 落下点に)。</summary>
+    private void DropLocalVariable(string name, bool set, Point g)
+    {
+        BeginEdit();
+        string type = ActiveLocalVars.FirstOrDefault(v => v.Name == name)?.Type ?? "";
+        var col = new SolidColorBrush(Color.FromRgb(0x4C, 0x6A, 0x8C));
+        BpNode n;
+        if (set)
+        {
+            n = new BpNode { Id = _nextId++, Title = "Set Local Variable", X = g.X, Y = g.Y, Header = col, VarRef = name };
+            n.Inputs.Add(new Pin("▶", PinKind.Exec)); n.Inputs.Add(new Pin("value", PinKind.Data, type));
+            n.Outputs.Add(new Pin("▶", PinKind.Exec));
+        }
+        else
+        {
+            n = new BpNode { Id = _nextId++, Title = "Get Local Variable", X = g.X, Y = g.Y, Header = col, VarRef = name };
+            n.Outputs.Add(new Pin("value", PinKind.Data, type));
+        }
+        _nodes.Add(n); _selected.Clear(); _selected.Add(n);
+        Rebuild(); CommitEdit();
+    }
 
     private void LoadActiveGraph(string body)
     {
