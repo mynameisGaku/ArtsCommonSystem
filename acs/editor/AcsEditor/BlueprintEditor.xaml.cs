@@ -1814,26 +1814,88 @@ public partial class BlueprintEditor : UserControl
         var pop = new Popup { Child = border, Placement = PlacementMode.Relative, PlacementTarget = this,
             HorizontalOffset = ActualWidth / 2 - 140, VerticalOffset = 8, StaysOpen = false, AllowsTransparency = true };
         _findPopup = pop;
-        var matches = new List<BpNode>(); int mi = 0;
+        SyncActiveGraph();   // 横断検索のためアクティブグラフ本体を _graphTexts へ反映
+        var results = new List<(string graph, int id)>(); int mi = 0;
+        void Nav(int idx)
+        {
+            if (results.Count == 0) { Rebuild(); return; }
+            mi = ((idx % results.Count) + results.Count) % results.Count;
+            var r = results[mi];
+            if (r.graph != _activeName) SwitchGraph(r.graph);
+            var node = NodeById(r.id);
+            _selected.Clear();
+            if (node != null) { _selected.Add(node); CenterOnNode(node); }
+            info.Text = $"{mi + 1}/{results.Count}  〔{(r.graph == EventGraphName ? "Event Graph" : r.graph)}〕";
+            Rebuild();
+        }
         void Find()
         {
             string q = box.Text.Trim();
-            matches = q.Length == 0 ? new() : _nodes.Where(n => !n.Inherited && n.Title.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
-            mi = 0;
-            _selected.Clear(); foreach (var m in matches) _selected.Add(m);
-            info.Text = q.Length == 0 ? "" : (matches.Count == 0 ? "0 件" : $"{matches.Count} 件");
-            if (matches.Count > 0) CenterOnNode(matches[0]);
-            Rebuild();
+            results.Clear();
+            if (q.Length > 0)
+            {
+                foreach (var n in _nodes) if (!n.Inherited && NodeMatchesQuery(n, q)) results.Add((_activeName, n.Id));   // アクティブ=ライブノード
+                foreach (var kv in _graphTexts) if (kv.Key != _activeName) CollectTextMatches(kv.Key, kv.Value, q, results);   // 他グラフ=テキスト
+            }
+            info.Text = q.Length == 0 ? "" : (results.Count == 0 ? "0 件" : $"{results.Count} 件");
+            if (results.Count > 0) Nav(0); else Rebuild();
         }
         box.TextChanged += (_, __) => Find();
         box.PreviewKeyDown += (_, ke) =>
         {
-            if (ke.Key == Key.Enter && matches.Count > 0) { mi = (mi + 1) % matches.Count; CenterOnNode(matches[mi]); info.Text = $"{mi + 1}/{matches.Count}"; ke.Handled = true; }
+            if (ke.Key == Key.Enter && results.Count > 0) { Nav(mi + 1); ke.Handled = true; }
             else if (ke.Key == Key.Escape) { pop.IsOpen = false; ke.Handled = true; }
         };
         pop.Opened += (_, __) => box.Focus();
         pop.Closed += (_, __) => GraphCanvas.Focus();
         pop.IsOpen = true;
+    }
+
+    /// <summary>検証用: 全グラフ横断検索で q に一致するノード数 (--bptest)。</summary>
+    public int CountFindMatches(string q)
+    {
+        SyncActiveGraph();
+        var results = new List<(string graph, int id)>();
+        foreach (var n in _nodes) if (!n.Inherited && NodeMatchesQuery(n, q)) results.Add((_activeName, n.Id));
+        foreach (var kv in _graphTexts) if (kv.Key != _activeName) CollectTextMatches(kv.Key, kv.Value, q, results);
+        return results.Count;
+    }
+
+    /// <summary>ノード n が検索語 q に一致するか (タイトル/ピン名/リテラル/変数参照/コメント)。</summary>
+    private static bool NodeMatchesQuery(BpNode n, string q)
+    {
+        const StringComparison oic = StringComparison.OrdinalIgnoreCase;
+        if (n.Title.Contains(q, oic)) return true;
+        if (!string.IsNullOrEmpty(n.VarRef) && n.VarRef.Contains(q, oic)) return true;
+        if (!string.IsNullOrEmpty(n.Comment) && n.Comment.Contains(q, oic)) return true;
+        foreach (var p in n.Inputs) if (p.Name.Contains(q, oic)) return true;
+        foreach (var p in n.Outputs) if (p.Name.Contains(q, oic)) return true;
+        foreach (var lit in n.Literals.Values) if (lit != null && lit.Contains(q, oic)) return true;
+        return false;
+    }
+
+    /// <summary>グラフ本体テキストを行解析し、q に一致するノードを (graph, id) として results へ。</summary>
+    private static void CollectTextMatches(string graph, string body, string q, List<(string graph, int id)> results)
+    {
+        const StringComparison oic = StringComparison.OrdinalIgnoreCase;
+        int curId = -1; bool matched = false;
+        void Flush() { if (curId >= 0 && matched) results.Add((graph, curId)); }
+        foreach (var raw in body.Split('\n'))
+        {
+            var l = raw.TrimEnd('\r'); if (l.Length == 0) continue;
+            if (l.StartsWith("N "))
+            {
+                Flush();
+                var t = l.Split(new[] { ' ' }, 6);
+                curId = int.TryParse(t.ElementAtOrDefault(1), out var idv) ? idv : -1;
+                matched = t.Length >= 6 && t[5].Contains(q, oic);   // タイトル
+            }
+            else if (curId >= 0 && !matched &&
+                     (l.StartsWith("I ") || l.StartsWith("O ") || l.StartsWith("V ") || l.StartsWith("NC ") || l.StartsWith("VR ")) &&
+                     l.Contains(q, oic))
+                matched = true;
+        }
+        Flush();
     }
 
     /// <summary>ノード個別コメントを編集する小ポップアップ (UE5 風)。</summary>
@@ -2073,6 +2135,18 @@ public partial class BlueprintEditor : UserControl
             "N 101 0 0 1 Multiply\nI D:Float a\nI D:Float b\nO D:Float result\n" +
             "N 102 0 0 1 Return\nI E ▶\nI D:Float ret0\n" +
             "C 100 0 102 0\nC 100 1 101 0\nC 100 1 101 1\nC 101 0 102 1\n", "r", "36");
+
+        // Find in Blueprint: Square 関数内の «Multiply» を横断検索で見つける (アクティブは Event Graph)。
+        {
+            Deserialize("ACSBP 1\nN 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+                "GRAPH Square F\nN 100 0 0 1 Function Entry\nO E ▶\nO D:Float arg0\n" +
+                "N 101 0 0 1 Multiply\nI D:Float a\nI D:Float b\nO D:Float result\n" +
+                "N 102 0 0 1 Return\nI E ▶\nI D:Float ret0\nC 100 0 102 0\n");
+            int found = CountFindMatches("Multiply");
+            bool ok = found >= 1;
+            if (ok) pass++; else fail++;
+            log.Append(ok ? "  OK   " : "  FAIL ").Append("FindCrossGraph  (Multiply 件数=").Append(found).Append(")\n");
+        }
 
         // To Text: String を FText へ (実行上は文字列が素通し)。
         Check("ToText", Calc("N 50 0 0 1 To Text\nI D:String in\nO D:Text result\nV 0 hello\n", 0), "r", "hello");
