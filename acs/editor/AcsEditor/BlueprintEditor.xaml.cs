@@ -1525,10 +1525,10 @@ public partial class BlueprintEditor : UserControl
         fb.Append($"N {returnId} 820 140 357A55 Return\nI E ▶\n");
         for (int k = 0; k < retType.Count; k++) fb.Append($"I {PinTokType(retType[k])} ret{k}\n");
         fb.Append(SerializeNodes(S));   // S の N/I/O/V/X/NC/VR + 内部接続 C
-        if (execIn.Count > 0) fb.Append($"C {entryId} 0 {execIn[0].ToNode} {execIn[0].ToPin}\n");
+        if (execIn.Count > 0) fb.Append($"C {entryId} 0 {execIn[0].ToNode} {execIn[0].ToPin}\n");   // Entry.▶ は単出力 → 最初の入口へ
         foreach (var c in dataIn) fb.Append($"C {entryId} {1 + paramOf[(c.FromNode, c.FromPin)]} {c.ToNode} {c.ToPin}\n");
-        foreach (var c in dataOut) fb.Append($"C {c.FromNode} {c.FromPin} {returnId} {1 + retOf[(c.FromNode, c.FromPin)]}\n");
-        if (execOut.Count > 0) fb.Append($"C {execOut[0].FromNode} {execOut[0].FromPin} {returnId} 0\n");
+        foreach (var kv in retOf) fb.Append($"C {kv.Key.Item1} {kv.Key.Item2} {returnId} {1 + kv.Value}\n");   // 戻り値は «内部ソースごと» に 1 本 (重複防止)
+        foreach (var c in execOut) fb.Append($"C {c.FromNode} {c.FromPin} {returnId} 0\n");   // 全ての実行出口を Return.▶ へ (入力は多入力可)
 
         BeginEdit();
         _graphTexts[fname] = fb.ToString();
@@ -1546,14 +1546,18 @@ public partial class BlueprintEditor : UserControl
         _nodes.RemoveAll(n => ids.Contains(n.Id));
         _conns.RemoveAll(c => ids.Contains(c.FromNode) || ids.Contains(c.ToNode));
         _nodes.Add(call);
-        if (execIn.Count > 0) _conns.Add(new BpConn(execIn[0].FromNode, execIn[0].FromPin, call.Id, 0));
+        foreach (var c in execIn) _conns.Add(new BpConn(c.FromNode, c.FromPin, call.Id, 0));   // 全ての外部実行ソース → Call.▶ (入力は多入力可)
         foreach (var kv in paramOf) _conns.Add(new BpConn(kv.Key.Item1, kv.Key.Item2, call.Id, 2 + kv.Value));
-        if (execOut.Count > 0) _conns.Add(new BpConn(call.Id, 0, execOut[0].ToNode, execOut[0].ToPin));
+        if (execOut.Count > 0) _conns.Add(new BpConn(call.Id, 0, execOut[0].ToNode, execOut[0].ToPin));   // Call.▶ は単出力 → 最初の出口へ
         foreach (var c in dataOut) _conns.Add(new BpConn(call.Id, 1 + retOf[(c.FromNode, c.FromPin)], c.ToNode, c.ToPin));
 
         _selected.Clear(); _selected.Add(call);
         Rebuild(); BuildGraphTabs(); GraphChanged?.Invoke();
         CommitEdit();
+        int distinctEntry = execIn.Select(c => (c.ToNode, c.ToPin)).Distinct().Count();
+        int distinctExit = execOut.Select(c => (c.ToNode, c.ToPin)).Distinct().Count();
+        if (distinctEntry > 1) LogSink?.Invoke("⚠ 実行入口が複数あるため、関数内では最初の入口のみ接続しました (Entry.▶ は単出力)。");
+        if (distinctExit > 1) LogSink?.Invoke("⚠ 実行出口が複数あるため、Call の続きは最初の出口のみ接続しました (Call.▶ は単出力)。");
         LogSink?.Invoke($"ƒ {S.Count} ノードを関数 «{fname}» に折りたたみました (引数{paramType.Count}/戻り{retType.Count})。");
     }
 
