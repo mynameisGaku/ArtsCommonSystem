@@ -388,7 +388,7 @@ public partial class BlueprintEditor
         string t = n.Title;
         if (t.StartsWith("On Event")) return $"イベント On Event(channel={EvalInputByName(n, "channel")})";
         if (t.StartsWith("On ") || t.StartsWith("Event")) return "イベント " + t.Trim();
-        if (t == "Spawn Actor from Class")   // 生成インスタンスをクラスでタグ付け (後段の Cast が照合)
+        if (t == "Spawn from Class")   // 生成インスタンスをクラスでタグ付け (後段の Cast が照合)
         {
             string cls = EvalInputByName(n, "class");
             string handle = SpawnHandle(n);

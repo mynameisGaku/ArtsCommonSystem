@@ -93,6 +93,7 @@ public partial class BlueprintEditor : UserControl
     private readonly List<string> _graphOrder = new() { EventGraphName };
     private readonly HashSet<string> _graphIsFunc = new();
     private readonly HashSet<string> _graphIsPure = new();   // Pure 関数 (exec ピン無し・データのみ・都度評価。UE の BlueprintPure)
+    private readonly HashSet<string> _graphIsMacro = new();  // Macro (インライン展開・複数 exec 入出力可。UE の Macro)
     private readonly Dictionary<string, List<BpVar>> _funcLocals = new();   // 関数名 → ローカル変数 (関数スコープ。UE の Local Variables)
     private string _activeName = EventGraphName;
     private const string EventGraphName = "Event Graph";
@@ -509,7 +510,7 @@ public partial class BlueprintEditor : UserControl
         string cur = n.Literals.TryGetValue(i, out var lv) ? lv : "";
         if (pin.Type == "Class")   // Class 型入力 → クラス候補のドロップダウン
         {
-            var combo = new ComboBox { Width = 96, Height = 18, FontSize = 10, Padding = new Thickness(3, 0, 0, 0) };
+            var combo = new ComboBox { Width = 54, Height = 18, FontSize = 10, Padding = new Thickness(3, 0, 0, 0) };
             foreach (var cl in CastClassCandidates()) combo.Items.Add(cl);
             if (!string.IsNullOrEmpty(cur) && !combo.Items.Contains(cur)) combo.Items.Add(cur);
             combo.SelectedItem = string.IsNullOrEmpty(cur) ? null : cur;
@@ -519,7 +520,7 @@ public partial class BlueprintEditor : UserControl
         if (pin.Type != null && pin.Type.StartsWith("Enum:"))   // Enum 型入力 → エントリのドロップダウン
         {
             string enm = pin.Type.Substring(5);
-            var combo = new ComboBox { Width = 92, Height = 18, FontSize = 10, Padding = new Thickness(3, 0, 0, 0) };
+            var combo = new ComboBox { Width = 54, Height = 18, FontSize = 10, Padding = new Thickness(3, 0, 0, 0) };
             if (Enums.TryGetValue(enm, out var ents)) foreach (var e in ents) combo.Items.Add(e);
             combo.SelectedItem = string.IsNullOrEmpty(cur) ? null : cur;
             combo.SelectionChanged += (_, __) => { if (combo.SelectedItem is string s && s != cur) { BeginEdit(); n.Literals[idx] = s; CommitEdit(); } };
@@ -528,7 +529,7 @@ public partial class BlueprintEditor : UserControl
         if (n.Title == "Call Function" && pin.Name == "name")
         {
             // 関数名は «関数一覧から選ぶ» 専用の非編集コンボ。文字列指定したい場合は name ピンに String を接続する (別系統)。
-            var combo = new ComboBox { Width = 96, Height = 18, FontSize = 10, Padding = new Thickness(3, 0, 0, 0) };
+            var combo = new ComboBox { Width = 54, Height = 18, FontSize = 10, Padding = new Thickness(3, 0, 0, 0) };
             foreach (var g in _graphOrder) if (_graphIsFunc.Contains(g)) combo.Items.Add(g);
             if (!string.IsNullOrEmpty(cur) && !combo.Items.Contains(cur)) combo.Items.Add(cur);
             combo.SelectedItem = string.IsNullOrEmpty(cur) ? null : cur;   // ハンドラ結線前に選択 (初期化で誤発火しない)
@@ -1529,7 +1530,7 @@ public partial class BlueprintEditor : UserControl
                     menu.Items.Add(val);
                 }
             }
-            else if (hit.Title is "Cast" or "Spawn Actor from Class")   // キャスト先 / 生成クラスを選択
+            else if (hit.Title is "Cast" or "Spawn from Class")   // キャスト先 / 生成クラスを選択
             {
                 var cands = CastClassCandidates().ToList();
                 var pick = new MenuItem { Header = hit.Title == "Cast" ? "Cast 先を選択" : "クラスを選択" };
@@ -2283,14 +2284,14 @@ public partial class BlueprintEditor : UserControl
         // Cast To <Class>: Spawn Actor(Enemy) を Cast To Enemy → Success → r=1。
         Check("CastClass", "ACSBP 1\nVAR Float r 0\n" +
             "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
-            "N 2 0 0 1 Spawn Actor from Class\nI E ▶\nI D:Class class\nI D:Vector pos\nO E ▶\nO D:Object spawned\nV 1 Enemy\n" +
+            "N 2 0 0 1 Spawn from Class\nI E ▶\nI D:Class class\nI D:Vector pos\nO E ▶\nO D:Object spawned\nV 1 Enemy\n" +
             "N 3 0 0 1 Cast\nI E ▶\nI D:Object object\nO E Success\nO E Failed\nO D:Object As\nVR Enemy\n" +
             "N 4 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\nV 1 1\n" +
             "C 1 0 2 0\nC 2 0 3 0\nC 2 1 3 1\nC 3 0 4 0\n", "r", "1");
         // Cast 不一致: Spawn Actor(Enemy) を Cast To Player → Failed → r=2。
         Check("CastMiss", "ACSBP 1\nVAR Float r 0\n" +
             "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
-            "N 2 0 0 1 Spawn Actor from Class\nI E ▶\nI D:Class class\nI D:Vector pos\nO E ▶\nO D:Object spawned\nV 1 Enemy\n" +
+            "N 2 0 0 1 Spawn from Class\nI E ▶\nI D:Class class\nI D:Vector pos\nO E ▶\nO D:Object spawned\nV 1 Enemy\n" +
             "N 3 0 0 1 Cast\nI E ▶\nI D:Object object\nO E Success\nO E Failed\nO D:Object As\nVR Player\n" +
             "N 4 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\nV 1 2\n" +
             "C 1 0 2 0\nC 2 0 3 0\nC 2 1 3 1\nC 3 1 4 0\n", "r", "2");
@@ -3348,7 +3349,7 @@ public partial class BlueprintEditor : UserControl
         if (!string.IsNullOrEmpty(_parentPath)) Add(System.IO.Path.GetFileNameWithoutExtension(_parentPath));
         return set;
     }
-    /// <summary>Cast / Spawn Actor from Class のクラスを束縛し、As / spawned 出力を型付けする。</summary>
+    /// <summary>Cast / Spawn from Class のクラスを束縛し、As / spawned 出力を型付けする。</summary>
     private void BindClass(BpNode n, string cls)
     {
         BeginEdit();
