@@ -152,7 +152,7 @@ public partial class BlueprintEditor
     {
         var (args, rets) = FunctionSignature(fname);
         string rt = rets.Count > 0 ? CppType(rets[0].Type) : "void";
-        string pl = string.Join(", ", args.Select(a => $"{CppType(a.Type)} {SanitizeIdent(a.Name)}"));
+        string pl = string.Join(", ", args.Select(a => $"{CppType(a.Type)}{(a.ByRef ? "&" : "")} {SanitizeIdent(a.Name)}"));   // ByRef = T&
         return (rt, pl, rets.Count > 0);
     }
 

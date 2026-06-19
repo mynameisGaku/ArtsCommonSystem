@@ -33,7 +33,7 @@ public partial class BlueprintEditor : UserControl
 
     private enum PinKind { Exec, Data }
     // データピンの値型 (空 = ワイルドカード/未指定。型安全な配線の判定と配色に使う)。
-    private sealed record Pin(string Name, PinKind Kind, string Type = "");
+    private sealed record Pin(string Name, PinKind Kind, string Type = "", bool ByRef = false);
 
     private sealed class BpNode
     {
@@ -365,7 +365,7 @@ public partial class BlueprintEditor : UserControl
             inner.Children.Add(Place(ishape, PinInset, py - PinR));   // 枠の内側に収める
             if (!(pin.Kind == PinKind.Exec && pin.Name == "▶"))   // 三角ピン自体が示すので「▶」ラベルは出さない
                 inner.Children.Add(Place(new TextBlock {
-                    Text = pin.Name, Foreground = LabelFg, FontSize = 11 }, 15, py - 8));
+                    Text = (pin.ByRef ? "&" : "") + pin.Name, Foreground = LabelFg, FontSize = 11 }, 15, py - 8));   // & = 参照渡し
             if (pin.Kind == PinKind.Data && !IsInputConnected(n, i))
             {
                 // 型に応じた定数エディタ (Bool=チェック / op=ドロップダウン / その他=テキスト)。
@@ -384,7 +384,7 @@ public partial class BlueprintEditor : UserControl
             inner.Children.Add(Place(oshape, NodeW - 2 * PinR - PinInset, py - PinR));   // 枠の内側に収める
             if (!(n.Outputs[j].Kind == PinKind.Exec && n.Outputs[j].Name == "▶"))   // 「▶」ラベルは省く (三角ピンが示す)
                 inner.Children.Add(Place(new TextBlock {
-                    Text = n.Outputs[j].Name, Foreground = LabelFg, FontSize = 11,
+                    Text = (n.Outputs[j].ByRef ? "&" : "") + n.Outputs[j].Name, Foreground = LabelFg, FontSize = 11,
                     Width = 54, TextAlignment = TextAlignment.Right }, NodeW - 68, py - 8));
             // 値ウォッチ: 実行後の一時表示(_showWatch) か «ピン留めウォッチ»(_watchedPins, UE の Watch this value)。
             bool pinned = n.Outputs[j].Kind == PinKind.Data && _watchedPins.Contains((n.Id, j));
@@ -1704,12 +1704,13 @@ public partial class BlueprintEditor : UserControl
     public bool SelectedIsFuncIO() => _selected.Count == 1 && (_selected.First().Title is "Function Entry" or "Return");
     public bool SelectedFuncIOIsEntry() => _selected.Count == 1 && _selected.First().Title == "Function Entry";
     private List<Pin> SelIOList() { var n = _selected.First(); return n.Title == "Function Entry" ? n.Outputs : n.Inputs; }
-    public List<(string name, string type)> SelectedIOPins()
+    public List<(string name, string type, bool byref)> SelectedIOPins()
     {
-        var r = new List<(string, string)>();
-        if (SelectedIsFuncIO()) foreach (var p in SelIOList()) if (p.Kind == PinKind.Data) r.Add((p.Name, p.Type));
+        var r = new List<(string, string, bool)>();
+        if (SelectedIsFuncIO()) foreach (var p in SelIOList()) if (p.Kind == PinKind.Data) r.Add((p.Name, p.Type, p.ByRef));
         return r;
     }
+    public void SetIOPinByRef(int dataIdx, bool byref) => EditIOPin(dataIdx, p => p with { ByRef = byref });
     private static int DataPinActualIndex(List<Pin> list, int dataIdx)
     {
         int seen = 0;
@@ -2918,7 +2919,7 @@ public partial class BlueprintEditor : UserControl
 
     // ピン種別トークン: exec=E / data=D / 型付き data=D:Type。
     private static string PinToken(Pin p) => p.Kind == PinKind.Exec ? "E"
-        : string.IsNullOrEmpty(p.Type) ? "D" : "D:" + p.Type;
+        : (p.ByRef ? "DR" : "D") + (string.IsNullOrEmpty(p.Type) ? "" : ":" + p.Type);   // DR = 参照渡し (ByRef)
 
     /// <summary>.acsbp テキストからグラフを復元する (既存は破棄)。Undo/読込で共通。</summary>
     public void Deserialize(string text) => LoadGraph(text);
@@ -3924,8 +3925,9 @@ public partial class BlueprintEditor : UserControl
     private static Pin ParsePin(string kindTok, string name)
     {
         if (kindTok == "E") return new Pin(name, PinKind.Exec);
-        string type = kindTok.StartsWith("D:") ? kindTok.Substring(2) : "";
-        return new Pin(name, PinKind.Data, type);
+        bool byref = kindTok.StartsWith("DR");
+        string type = kindTok.StartsWith("DR:") ? kindTok.Substring(3) : kindTok.StartsWith("D:") ? kindTok.Substring(2) : "";
+        return new Pin(name, PinKind.Data, type, byref);
     }
 
     /// <summary>選択ノード群を «移植可能» なテキストへ (id を 0..k に正規化)。Copy/Duplicate 用。</summary>

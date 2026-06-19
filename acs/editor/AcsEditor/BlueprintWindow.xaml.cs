@@ -439,11 +439,12 @@ public partial class BlueprintWindow : Window
     }
 
     // 関数の入出力ピン1行の編集 (型コンボ / 名前 / ▲▼ 並べ替え / ✕ 削除)。
-    private FrameworkElement FuncPinEditRow(int idx, (string name, string type) p, int count)
+    private FrameworkElement FuncPinEditRow(int idx, (string name, string type, bool byref) p, int count)
     {
         var g = new Grid { Margin = new Thickness(0, 1, 0, 1) };
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(58) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var tcombo = new ComboBox { FontSize = 10, Height = 20 };
         FillTypes(tcombo);
@@ -453,12 +454,15 @@ public partial class BlueprintWindow : Window
         var nb = MakeBox(p.name); nb.FontSize = 11; nb.Height = 20; nb.Margin = new Thickness(4, 0, 4, 0);
         nb.LostFocus += (_, __) => { if (nb.Text.Trim() != p.name && nb.Text.Trim().Length > 0) Editor.RenameIOPin(idx, nb.Text.Trim()); };
         Grid.SetColumn(nb, 1); g.Children.Add(nb);
+        var byref = new CheckBox { Content = "&", IsChecked = p.byref, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0), ToolTip = "参照渡し (ByRef)", Foreground = Fg, FontSize = 11 };
+        byref.Checked += (_, __) => Editor.SetIOPinByRef(idx, true); byref.Unchecked += (_, __) => Editor.SetIOPinByRef(idx, false);
+        Grid.SetColumn(byref, 2); g.Children.Add(byref);
         var btns = new StackPanel { Orientation = Orientation.Horizontal };
         Button Mb(string t, Action a, bool en) { var b = new Button { Content = t, FontSize = 9, Padding = new Thickness(3, 0, 3, 0), Background = Brushes.Transparent, BorderThickness = new Thickness(0), Foreground = en ? Fg : Dim, IsEnabled = en }; b.Click += (_, __) => a(); return b; }
         btns.Children.Add(Mb("▲", () => Editor.MoveIOPin(idx, -1), idx > 0));
         btns.Children.Add(Mb("▼", () => Editor.MoveIOPin(idx, +1), idx < count - 1));
         btns.Children.Add(Mb("✕", () => Editor.RemoveIOPin(idx), true));
-        Grid.SetColumn(btns, 2); g.Children.Add(btns);
+        Grid.SetColumn(btns, 3); g.Children.Add(btns);
         return g;
     }
 
