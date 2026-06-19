@@ -93,6 +93,8 @@ public partial class BlueprintEditor
             LoadGraphInto(_graphTexts.TryGetValue(EventGraphName, out var eg) ? eg : "");
             var beginNode = _nodes.FirstOrDefault(n => n.Title.Contains("BeginPlay"));
             var tickNode  = _nodes.FirstOrDefault(n => n.Title.Contains("On Tick"));
+            var delays    = _nodes.Where(n => n.Title is "Delay" or "Retriggerable Delay").ToList();   // Latent
+            bool needUpdate = tickNode != null || delays.Count > 0;
             var customs = _nodes.Where(n => n.Title == "Custom Event").Select(n => SanitizeIdent(LiteralOf(n, "name"))).Where(x => x.Length > 0).Distinct().ToList();
 
             // ----- ヘッダ (実 ACS API: FComponent2D / OnAttach / OnUpdate / ACS_GAME_COMPONENT_KIND) -----
@@ -110,8 +112,10 @@ public partial class BlueprintEditor
                     h.Append("    ACS_PROPERTY() ").Append(CppType(v.Type)).Append(' ').Append(SanitizeIdent(v.Name))
                      .Append(" = ").Append(CppDefault(v.Type, v.Value)).Append(";\n");
             if (Variables.Any(v => !string.IsNullOrWhiteSpace(v.Name))) h.Append('\n');
+            foreach (var d in delays) h.Append("    f32 _delay").Append(d.Id).Append(" = -1.f;   // Latent タイマー\n");
+            if (delays.Count > 0) h.Append('\n');
             if (beginNode != null) h.Append("    void OnAttach(FNode2D& node) noexcept override;   // Event On BeginPlay\n");
-            if (tickNode  != null) h.Append("    void OnUpdate(f32 dt) noexcept override;           // Event On Tick\n");
+            if (needUpdate)        h.Append("    void OnUpdate(f32 dt) noexcept override;           // On Tick / Latent タイマー\n");
             if (customs.Count > 0 || functions.Count > 0)
             {
                 h.Append("\nprivate:\n");
@@ -128,7 +132,7 @@ public partial class BlueprintEditor
             s.Append("// SPDX-License-Identifier: Apache-2.0\n// Generated from a Blueprint graph by AcsEditor.\n");
             s.Append("#include \"").Append(cls).Append(".h\"\n#include \"foundation/Log.h\"\n#include \"gameframework/Random.h\"\n#include <cmath>\n\nnamespace acs::game {\n\n");
             if (beginNode != null) EmitMethod(s, cls, "OnAttach", "FNode2D& node", beginNode);
-            if (tickNode  != null) EmitMethod(s, cls, "OnUpdate", "f32 dt", tickNode);
+            if (needUpdate)        EmitUpdateMethod(s, cls, tickNode, delays);
             foreach (var ce in _nodes.Where(n => n.Title == "Custom Event"))
             {
                 string nm = SanitizeIdent(LiteralOf(ce, "name"));
@@ -154,6 +158,20 @@ public partial class BlueprintEditor
         string rt = rets.Count > 0 ? CppType(rets[0].Type) : "void";
         string pl = string.Join(", ", args.Select(a => $"{CppType(a.Type)}{(a.ByRef ? "&" : "")} {SanitizeIdent(a.Name)}"));   // ByRef = T&
         return (rt, pl, rets.Count > 0);
+    }
+
+    /// <summary>OnUpdate を生成: On Tick 本体 + 各 Latent タイマーを dt で減算し、満了で Completed ブランチを実行。</summary>
+    private void EmitUpdateMethod(StringBuilder s, string cls, BpNode? tickNode, List<BpNode> delays)
+    {
+        s.Append("void ").Append(cls).Append("::OnUpdate(f32 dt) noexcept {\n");
+        if (tickNode != null) GenStmt(s, ExecNextFirst(tickNode), "    ", new HashSet<int>(), 0);
+        foreach (var d in delays)
+        {
+            s.Append("    if (_delay").Append(d.Id).Append(" >= 0.f) { _delay").Append(d.Id).Append(" -= dt; if (_delay").Append(d.Id).Append(" < 0.f) {\n");
+            GenStmt(s, ExecNext(d, "Completed"), "        ", new HashSet<int>(), 1);
+            s.Append("    } }\n");
+        }
+        s.Append("}\n\n");
     }
 
     private void EmitMethod(StringBuilder s, string cls, string method, string args, BpNode? eventNode, string retType = "void")
@@ -278,6 +296,12 @@ public partial class BlueprintEditor
                 if (n.Outputs[po].Kind == PinKind.Exec)
                     foreach (var c in _conns) if (c.FromNode == n.Id && c.FromPin == po)
                         GenStmt(s, NodeById(c.ToNode), ind, new HashSet<int>(visited), depth + 1);
+            return;
+        }
+        if (t is "Delay" or "Retriggerable Delay")   // Latent: タイマーを武装してこのチェーンを停止 (Completed は OnUpdate で)。
+        {
+            s.Append(ind).Append("_delay").Append(n.Id).Append(" = (f32)(").Append(GenArg(n, "duration", 0)).Append(");\n");
+            s.Append(ind).Append("return;\n");
             return;
         }
         if (t == "Cast")   // Cast To <型>: dynamic_cast で Success(As)/Failed に分岐。
