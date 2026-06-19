@@ -2109,20 +2109,40 @@ public partial class BlueprintEditor : UserControl
     private static double[] ParseEvtTimes(string? vr) =>
         EvtCsv(vr).Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
             .Select(s => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var t) ? t : -1.0)
-            .Where(t => t >= 0).OrderBy(t => t).ToArray();
+            .Where(t => t >= 0 && t <= 1).OrderBy(t => t).ToArray();   // 0..1 のみ (範囲外は発火しないので除外)
 
-    /// <summary>Timeline の値トラック群を解析する。KfCsv 部は «name=kf|name=kf» (名前省略=「value」)。</summary>
+    private static readonly HashSet<string> TimelineReserved = new() { "Update", "Finished", "Event", "Play", "Stop", "duration" };
+    /// <summary>トラック名を «C++ 識別子として安全» に正規化する (英数_/先頭非数字)。</summary>
+    private static string SanitizeTrackName(string nm)
+    {
+        var sb = new StringBuilder();
+        foreach (var c in nm) sb.Append(char.IsLetterOrDigit(c) ? c : '_');
+        string s = sb.ToString().Trim('_');
+        if (s.Length == 0) s = "track";
+        if (char.IsDigit(s[0])) s = "t" + s;
+        return s;
+    }
+    /// <summary>Timeline の値トラック群を解析する。KfCsv 部は «name=kf|name=kf» (名前省略=「value」)。
+    /// 名前は予約 exec ピン名/重複/sanitize 衝突を避けて一意化する (ピン名 = codegen 識別子)。</summary>
     private static List<(string name, string kf)> ParseValueTracks(string kfCsv)
     {
-        var tracks = new List<(string, string)>();
+        var raw = new List<(string, string)>();
         foreach (var part in (kfCsv ?? "").Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries))
         {
             int eq = part.IndexOf('=');
-            if (eq >= 0) { var nm = part.Substring(0, eq).Trim(); tracks.Add((nm.Length > 0 ? nm : "value", part.Substring(eq + 1))); }
-            else tracks.Add(("value", part));
+            if (eq >= 0) { var nm = part.Substring(0, eq).Trim(); raw.Add((nm.Length > 0 ? nm : "value", part.Substring(eq + 1))); }
+            else raw.Add(("value", part));
         }
-        if (tracks.Count == 0) tracks.Add(("value", ""));   // 既定 = value (ramp)
-        return tracks;
+        if (raw.Count == 0) raw.Add(("value", ""));   // 既定 = value (ramp)
+        var used = new HashSet<string>(); var result = new List<(string, string)>();
+        foreach (var (nm, kf) in raw)
+        {
+            string s = SanitizeTrackName(nm);
+            if (TimelineReserved.Contains(s)) s = "track";   // 予約 exec ピン名との衝突を回避
+            string u = s; int k = 2; while (used.Contains(u)) u = s + k++;   // 重複は連番
+            used.Add(u); result.Add((u, kf));
+        }
+        return result;
     }
 
     private static List<double[]> ParseKF(string? csv)
@@ -2288,7 +2308,7 @@ public partial class BlueprintEditor : UserControl
         var sc = GraphToControl(new Point(n.X, n.Y));
         var pop = new Popup { Child = border, Placement = PlacementMode.Relative, PlacementTarget = this,
             HorizontalOffset = sc.X, VerticalOffset = sc.Y - 50, StaysOpen = false, AllowsTransparency = true };
-        void Commit() { BeginEdit(); n.VarRef = box.Text.Trim(); Rebuild(); CommitEdit(); pop.IsOpen = false; }
+        void Commit() { BeginEdit(); n.VarRef = box.Text.Trim(); Rebuild(); CommitEdit(); SyncTimelinePins(n); pop.IsOpen = false; }   // トラック増減に合わせ出力ピンを同期
         box.PreviewKeyDown += (_, ke) => {
             if (ke.Key == Key.Enter) { Commit(); ke.Handled = true; }
             else if (ke.Key == Key.Escape) { pop.IsOpen = false; ke.Handled = true; }

@@ -249,7 +249,15 @@ public partial class BlueprintEditor
     /// <summary>接続先がループの «Break» 入力なら true (codegen で break; を出すため)。</summary>
     private static bool IsBreakTarget(BpNode to, int toPin)
         => (to.Title is "For Loop" or "While" or "ForEach") && toPin >= 0 && toPin < to.Inputs.Count && to.Inputs[toPin].Name == "Break";
-    /// <summary>n の名前付き exec 出力を辿る。Break 入力に着地したら break; を出す。</summary>
+    /// <summary>着地ピンが «特殊な Latent 入力» (ループ Break / Timeline Stop) なら専用文を出して true。</summary>
+    private bool TryGenLatentTarget(StringBuilder s, BpNode to, int toPin, string ind)
+    {
+        if (IsBreakTarget(to, toPin)) { s.Append(ind).Append("break;\n"); return true; }
+        if (to.Title == "Timeline" && toPin >= 0 && toPin < to.Inputs.Count && to.Inputs[toPin].Name == "Stop")
+        { s.Append(ind).Append("_tl").Append(to.Id).Append(" = -1.f;\n"); return true; }   // Stop = 再生停止 (武装しない)
+        return false;
+    }
+    /// <summary>n の名前付き exec 出力を辿る。Break/Stop 入力に着地したら専用文を出す。</summary>
     private void GenExecOut(StringBuilder s, BpNode n, string pinName, string ind, HashSet<int> visited, int depth)
     {
         int po = n.Outputs.FindIndex(p => p.Kind == PinKind.Exec && p.Name == pinName);
@@ -258,11 +266,11 @@ public partial class BlueprintEditor
             if (c.FromNode == n.Id && c.FromPin == po)
             {
                 var to = NodeById(c.ToNode); if (to == null) continue;
-                if (IsBreakTarget(to, c.ToPin)) s.Append(ind).Append("break;\n");
-                else GenStmt(s, to, ind, new HashSet<int>(visited), depth + 1);
+                if (TryGenLatentTarget(s, to, c.ToPin, ind)) continue;
+                GenStmt(s, to, ind, new HashSet<int>(visited), depth + 1);
             }
     }
-    /// <summary>n の «最初の» exec 出力を辿る (線形ノードの続き)。Break 入力なら break;。</summary>
+    /// <summary>n の «最初の» exec 出力を辿る (線形ノードの続き)。Break/Stop 入力なら専用文。</summary>
     private void GenLinearNext(StringBuilder s, BpNode n, string ind, HashSet<int> visited, int depth)
     {
         for (int po = 0; po < n.Outputs.Count; po++)
@@ -272,7 +280,7 @@ public partial class BlueprintEditor
                     if (c.FromNode == n.Id && c.FromPin == po)
                     {
                         var to = NodeById(c.ToNode); if (to == null) return;
-                        if (IsBreakTarget(to, c.ToPin)) { s.Append(ind).Append("break;\n"); return; }
+                        if (TryGenLatentTarget(s, to, c.ToPin, ind)) return;
                         GenStmt(s, to, ind, visited, depth + 1); return;
                     }
                 return;
@@ -339,7 +347,11 @@ public partial class BlueprintEditor
             for (int po = 0; po < n.Outputs.Count; po++)
                 if (n.Outputs[po].Kind == PinKind.Exec)
                     foreach (var c in _conns) if (c.FromNode == n.Id && c.FromPin == po)
-                        GenStmt(s, NodeById(c.ToNode), ind, new HashSet<int>(visited), depth + 1);
+                    {
+                        var to = NodeById(c.ToNode); if (to == null) continue;
+                        if (TryGenLatentTarget(s, to, c.ToPin, ind)) continue;   // Break / Timeline Stop
+                        GenStmt(s, to, ind, new HashSet<int>(visited), depth + 1);
+                    }
             return;
         }
         if (t is "Delay" or "Retriggerable Delay")   // Latent: タイマーを武装してこのチェーンを停止 (Completed は OnUpdate で)。
