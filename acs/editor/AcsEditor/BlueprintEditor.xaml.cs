@@ -1603,7 +1603,9 @@ public partial class BlueprintEditor : UserControl
                 kf.Click += (_, __) => OpenTimelineEditor(hit);
                 var ev = new MenuItem { Header = "イベント時刻" };
                 ev.Click += (_, __) => OpenTimelineEventEditor(hit);
-                menu.Items.Add(new Separator()); menu.Items.Add(cur); menu.Items.Add(kf); menu.Items.Add(ev);
+                var at = new MenuItem { Header = "値トラックを追加" };
+                at.Click += (_, __) => AddTimelineTrack(hit);
+                menu.Items.Add(new Separator()); menu.Items.Add(cur); menu.Items.Add(kf); menu.Items.Add(ev); menu.Items.Add(at);
             }
             // 関数に折りたたむ (2 個以上選択時。UE の Collapse to Function)。
             if (_selected.Count >= 2 && _selected.Contains(hit))
@@ -2109,6 +2111,20 @@ public partial class BlueprintEditor : UserControl
             .Select(s => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var t) ? t : -1.0)
             .Where(t => t >= 0).OrderBy(t => t).ToArray();
 
+    /// <summary>Timeline の値トラック群を解析する。KfCsv 部は «name=kf|name=kf» (名前省略=「value」)。</summary>
+    private static List<(string name, string kf)> ParseValueTracks(string kfCsv)
+    {
+        var tracks = new List<(string, string)>();
+        foreach (var part in (kfCsv ?? "").Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            int eq = part.IndexOf('=');
+            if (eq >= 0) { var nm = part.Substring(0, eq).Trim(); tracks.Add((nm.Length > 0 ? nm : "value", part.Substring(eq + 1))); }
+            else tracks.Add(("value", part));
+        }
+        if (tracks.Count == 0) tracks.Add(("value", ""));   // 既定 = value (ramp)
+        return tracks;
+    }
+
     private static List<double[]> ParseKF(string? csv)
     {
         var kf = new List<double[]>();
@@ -2138,7 +2154,7 @@ public partial class BlueprintEditor : UserControl
     /// <summary>Timeline のキーフレームをドラッグ編集するミニカーブエディタ。クリック=追加/ドラッグ=移動/右クリック=削除。</summary>
     private void OpenTimelineCurveEditor(BpNode n)
     {
-        var kf = ParseKF(KfCsv(n.VarRef));
+        var kf = ParseKF(ParseValueTracks(KfCsv(n.VarRef))[0].kf);   // 先頭の値トラックを編集
         double W = 300, H = 168, pad = 16;
         double vmin = Math.Min(0, kf.Min(k => k[1])) - 0.15, vmax = Math.Max(1, kf.Max(k => k[1])) + 0.15;
         var canvas = new Canvas { Width = W, Height = H, Background = new SolidColorBrush(Color.FromRgb(0x16, 0x1A, 0x20)), ClipToBounds = true };
@@ -2198,9 +2214,45 @@ public partial class BlueprintEditor : UserControl
     {
         BeginEdit();
         string kfs = string.Join(",", kf.Select(k => $"{k[0].ToString("0.##", CultureInfo.InvariantCulture)}:{k[1].ToString("0.##", CultureInfo.InvariantCulture)}"));
-        string evt = EvtCsv(n.VarRef);   // イベント部は維持
-        n.VarRef = evt.Length > 0 ? kfs + "@" + evt : kfs;
+        var tracks = ParseValueTracks(KfCsv(n.VarRef));
+        tracks[0] = (tracks[0].name, kfs);   // 先頭トラックを差し替え、他トラックは維持
+        n.VarRef = ComposeTimelineVarRef(tracks, EvtCsv(n.VarRef));
         Rebuild(); CommitEdit();
+    }
+    /// <summary>値トラック群 + イベント時刻を Timeline の VarRef 文字列へ合成する。</summary>
+    private static string ComposeTimelineVarRef(List<(string name, string kf)> tracks, string evt)
+    {
+        string kfPart = tracks.Count == 1 && tracks[0].name == "value" ? tracks[0].kf : string.Join("|", tracks.Select(t => t.name + "=" + t.kf));
+        return evt.Length > 0 ? kfPart + "@" + evt : kfPart;
+    }
+    /// <summary>Timeline の値トラックに合わせて出力ピン (Update/Finished/各値/Event) を再構成 (接続は名前で維持)。</summary>
+    private void SyncTimelinePins(BpNode n)
+    {
+        if (n.Title != "Timeline") return;
+        var tracks = ParseValueTracks(KfCsv(n.VarRef));
+        var newOuts = new List<Pin> { new("Update", PinKind.Exec), new("Finished", PinKind.Exec) };
+        foreach (var t in tracks) newOuts.Add(new Pin(t.name, PinKind.Data, "Float"));
+        newOuts.Add(new Pin("Event", PinKind.Exec));
+        var newByName = new Dictionary<string, int>();
+        for (int i = 0; i < newOuts.Count; i++) newByName[newOuts[i].Name] = i;
+        var oldNames = new Dictionary<int, string>();
+        for (int i = 0; i < n.Outputs.Count; i++) oldNames[i] = n.Outputs[i].Name;
+        BeginEdit();
+        _conns.RemoveAll(c => c.FromNode == n.Id && (!oldNames.TryGetValue(c.FromPin, out var nm) || !newByName.ContainsKey(nm)));
+        for (int k = 0; k < _conns.Count; k++)
+        {
+            var c = _conns[k];
+            if (c.FromNode == n.Id && oldNames.TryGetValue(c.FromPin, out var nm) && newByName.TryGetValue(nm, out var ni) && ni != c.FromPin) _conns[k] = c with { FromPin = ni };
+        }
+        n.Outputs.Clear(); n.Outputs.AddRange(newOuts);
+        Rebuild(); CommitEdit();
+    }
+    private void AddTimelineTrack(BpNode n)
+    {
+        var tracks = ParseValueTracks(KfCsv(n.VarRef));
+        tracks.Add(("track" + (tracks.Count + 1), "0:0,1:1"));
+        BeginEdit(); n.VarRef = ComposeTimelineVarRef(tracks, EvtCsv(n.VarRef)); CommitEdit();
+        SyncTimelinePins(n);
     }
 
     /// <summary>Timeline のイベント時刻 (t,t) を編集する小ポップアップ。VarRef の «@» 部に保存。</summary>
@@ -2537,6 +2589,13 @@ public partial class BlueprintEditor : UserControl
             "N 2 0 0 1 Timeline\nI E Play\nI E Stop\nI D:Float duration\nO E Update\nO E Finished\nO D:Float value\nV 2 1.0\nVR 0:3,1:3\n" +
             "N 3 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\n" +
             "C 1 0 2 0\nC 2 0 3 0\nC 2 2 3 1\n", "r", "3");
+
+        // Timeline 複数値トラック: «alpha» トラック(一定 5)を読む → r=5。
+        Check("TimelineTracks", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Timeline\nI E Play\nI E Stop\nI D:Float duration\nO E Update\nO E Finished\nO D:Float value\nO D:Float alpha\nO E Event\nV 2 1.0\nVR value=0:0,1:1|alpha=0:5,1:5\n" +
+            "N 3 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\n" +
+            "C 1 0 2 0\nC 2 0 3 0\nC 2 3 3 1\n", "r", "5");
 
         // Timeline イベントトラック: 再生で t=0.5 を跨ぐと Event 出力 → r=9。
         Check("TimelineEvent", "ACSBP 1\nVAR Float r 0\n" +
@@ -4342,7 +4401,7 @@ public partial class BlueprintEditor : UserControl
     private bool _showWatch;                                          // 実行後の値ウォッチ表示中
     private readonly Dictionary<int, int> _flowState = new();         // 状態付きフローノード (Gate 開閉 / DoOnce 発火済 / FlipFlop 次A) の状態
     private readonly Dictionary<int, double> _pendingDelays = new();  // 武装中の Delay (ノードID → 残り時間)。SimulateDelays が時間順に消化
-    private readonly Dictionary<int, double> _timelineValue = new();  // Timeline の現在値 (ノードID → value 出力。Update 中に下流が読む)
+    private readonly Dictionary<(int, string), double> _timelineTrack = new();  // Timeline の現在値 ((ノードID, トラック名) → value 出力)
     private readonly List<int> _trace = new();                        // 実行順 (ノードID。ライブデバッグのステップ再生に使う)
     private readonly HashSet<int> _breakpoints = new();               // ブレークポイントを置いたノードID
     private int _stepIdx = -1;     // ステップ再生の現在位置 (_trace のindex。-1=デバッグ外)

@@ -81,7 +81,7 @@ public partial class BlueprintEditor
         _vars.Clear(); _watch.Clear(); _firedOut.Clear(); _showWatch = true;
         _flowState.Clear(); _trace.Clear();
         _callStack.Clear(); _argStack.Clear(); _callResult.Clear(); _localFrame.Clear(); _loopBreak.Clear();
-        _macroStack.Clear(); _macroArgs.Clear(); _pendingDelays.Clear();
+        _macroStack.Clear(); _macroArgs.Clear(); _pendingDelays.Clear(); _timelineTrack.Clear();
         foreach (var v in Variables)   // BP 変数を _vars へ種まき (Get Variable が既定値を読める)
             if (!string.IsNullOrWhiteSpace(v.Name)) _vars[v.Name.Trim()] = v.Value ?? "";
 
@@ -101,26 +101,8 @@ public partial class BlueprintEditor
     }
 
     /// <summary>Timeline の value を alpha(0..1) で求める。VarRef の «t:v,t:v» キーフレームを線形補間 (無ければ ramp 0→1)。</summary>
-    private double SampleTimeline(BpNode n, double alpha)
-    {
-        var pts = new List<(double t, double v)>();
-        foreach (var part in KfCsv(n.VarRef).Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var ab = part.Split(':');
-            if (ab.Length == 2 && double.TryParse(ab[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var t) && double.TryParse(ab[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var v)) pts.Add((t, v));
-        }
-        if (pts.Count == 0) return alpha;   // 既定 = ramp 0→1
-        pts.Sort((a, b) => a.t.CompareTo(b.t));
-        if (alpha <= pts[0].t) return pts[0].v;
-        if (alpha >= pts[^1].t) return pts[^1].v;
-        for (int i = 0; i < pts.Count - 1; i++)
-            if (alpha >= pts[i].t && alpha <= pts[i + 1].t)
-            {
-                double span = pts[i + 1].t - pts[i].t;
-                return span < 1e-9 ? pts[i].v : pts[i].v + (pts[i + 1].v - pts[i].v) * ((alpha - pts[i].t) / span);
-            }
-        return pts[^1].v;
-    }
+    /// <summary>Timeline の «先頭» 値トラックを alpha で補間する (ノード内プレビュー用)。</summary>
+    private double SampleTimeline(BpNode n, double alpha) => InterpKF(ParseKF(ParseValueTracks(KfCsv(n.VarRef))[0].kf), alpha);
 
     /// <summary>武装した Delay を «残り時間が短い順» に消化して Completed を発火する (Latent のシミュレーション)。
     /// Completed の先で新たに Delay が武装されれば続けて消化する。budget で無限ループ防止。</summary>
@@ -312,12 +294,13 @@ public partial class BlueprintEditor
             string ip = enteredPin >= 0 && enteredPin < n.Inputs.Count ? n.Inputs[enteredPin].Name : "Play";
             if (ip == "Stop") return;
             const int N = 10;
-            var evts = ParseEvtTimes(n.VarRef);   // イベント時刻 (再生で跨いだら Event を発火)
+            var tracks = ParseValueTracks(KfCsv(n.VarRef));   // 複数の名前付き値トラック
+            var evts = ParseEvtTimes(n.VarRef);               // イベント時刻 (再生で跨いだら Event を発火)
             for (int s = 0; s <= N; s++)
             {
                 if (_execBudget-- <= 0) break;
                 double a = (double)s / N, pa = (double)(s - 1) / N;
-                _timelineValue[n.Id] = SampleTimeline(n, a);   // alpha 0→1 をキーフレーム補間
+                foreach (var tr in tracks) _timelineTrack[(n.Id, tr.name)] = InterpKF(ParseKF(tr.kf), a);   // 各トラックを補間
                 FireExecByName(n, "Update");
                 foreach (var t in evts) if (t > pa && t <= a) FireExecByName(n, "Event");
             }
@@ -715,8 +698,9 @@ public partial class BlueprintEditor
             }
             return "";
         }
-        // Timeline の value 出力 = 現在のサンプル値 (Update 中に下流が読む)。
-        if (from.Title == "Timeline") return Fmt(_timelineValue.TryGetValue(from.Id, out var tv) ? tv : 0);
+        // Timeline の value 出力 = そのトラックの現在のサンプル値 (Update 中に下流が読む)。
+        if (from.Title == "Timeline" && outPin >= 0 && outPin < from.Outputs.Count)
+            return Fmt(_timelineTrack.TryGetValue((from.Id, from.Outputs[outPin].Name), out var tv) ? tv : 0);
         // Get Self は «self» マーカーを返す。MainWindow.ResolveTarget が実行中インスタンス(_bpSelfId)へ解決する。
         if (from.Title.StartsWith("Get Self")) return "self";
         // 関数ノードの data 出力 = 実行時に得た戻り値 (キャッシュ) を返す。

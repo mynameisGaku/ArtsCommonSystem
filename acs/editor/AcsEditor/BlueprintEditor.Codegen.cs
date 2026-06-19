@@ -114,7 +114,12 @@ public partial class BlueprintEditor
                      .Append(" = ").Append(CppDefault(v.Type, v.Value)).Append(";\n");
             if (Variables.Any(v => !string.IsNullOrWhiteSpace(v.Name))) h.Append('\n');
             foreach (var d in delays) h.Append("    f32 _delay").Append(d.Id).Append(" = -1.f;   // Latent タイマー\n");
-            foreach (var tl in timelines) h.Append("    f32 _tl").Append(tl.Id).Append(" = -1.f, _tlval").Append(tl.Id).Append(" = 0.f;   // Timeline 時間/値\n");
+            foreach (var tl in timelines)
+            {
+                h.Append("    f32 _tl").Append(tl.Id).Append(" = -1.f;");
+                foreach (var tr in ParseValueTracks(KfCsv(tl.VarRef))) h.Append(" f32 _tlval").Append(tl.Id).Append('_').Append(SanitizeIdent(tr.name)).Append(" = 0.f;");
+                h.Append("   // Timeline 時間/各トラック値\n");
+            }
             if (delays.Count > 0 || timelines.Count > 0) h.Append('\n');
             if (beginNode != null) h.Append("    void OnAttach(FNode2D& node) noexcept override;   // Event On BeginPlay\n");
             if (needUpdate)        h.Append("    void OnUpdate(f32 dt) noexcept override;           // On Tick / Latent タイマー\n");
@@ -162,10 +167,10 @@ public partial class BlueprintEditor
         return (rt, pl, rets.Count > 0);
     }
 
-    /// <summary>Timeline のキーフレーム (VarRef の t:v CSV) を C++ の piecewise-linear 補間文として生成する。</summary>
-    private void GenTimelineValue(StringBuilder s, BpNode tl, string ind, string valVar, string alphaVar)
+    /// <summary>1 トラックのキーフレーム (t:v CSV) を C++ の piecewise-linear 補間文として生成する。</summary>
+    private void GenTimelineValue(StringBuilder s, string kfStr, string ind, string valVar, string alphaVar)
     {
-        var kf = ParseKF(KfCsv(tl.VarRef));   // «@» のイベント部を除いてキーフレームのみ (既定 [(0,0),(1,1)] = ramp)
+        var kf = ParseKF(kfStr);   // 既定 [(0,0),(1,1)] = ramp
         string F(double d) => d.ToString("0.0######", System.Globalization.CultureInfo.InvariantCulture) + "f";   // 常に小数点付き (0f は不正)
         if (kf.Count == 1) { s.Append(ind).Append(valVar).Append(" = ").Append(F(kf[0][1])).Append(";\n"); return; }
         s.Append(ind).Append("if (").Append(alphaVar).Append(" <= ").Append(F(kf[0][0])).Append(") ").Append(valVar).Append(" = ").Append(F(kf[0][1])).Append(";\n");
@@ -194,7 +199,8 @@ public partial class BlueprintEditor
             string dur = GenArg(tl, "duration", 0);
             s.Append("    if (_tl").Append(tl.Id).Append(" >= 0.f) { _tl").Append(tl.Id).Append(" += dt; f32 _d = (f32)(").Append(dur).Append(");\n");
             s.Append("        f32 _a = _d > 0.f ? (_tl").Append(tl.Id).Append(" / _d) : 1.f; if (_a > 1.f) _a = 1.f;\n");
-            GenTimelineValue(s, tl, "        ", $"_tlval{tl.Id}", "_a");   // キーフレームを piecewise-linear 補間
+            foreach (var tr in ParseValueTracks(KfCsv(tl.VarRef)))   // 各値トラックを補間
+                GenTimelineValue(s, tr.kf, "        ", $"_tlval{tl.Id}_{SanitizeIdent(tr.name)}", "_a");
             GenStmt(s, ExecNext(tl, "Update"), "        ", new HashSet<int>(), 1);
             var ets = ParseEvtTimes(tl.VarRef);   // イベント時刻を跨いだら Event ブランチ
             if (ets.Length > 0)
@@ -456,7 +462,7 @@ public partial class BlueprintEditor
             case "Make Literal Enum": { string ev = n.Literals.TryGetValue(0, out var le) ? le : ""; return $"{SanitizeIdent(n.VarRef)}::{SanitizeIdent(ev)}"; }
             case "Enum to String": return GenArg(n, "in", depth);
             case "Cast":           return $"_as{n.Id}";   // dynamic_cast 結果 (Success ブランチ内で有効)
-            case "Timeline":       return $"_tlval{n.Id}";   // Timeline の現在値 (Update 中に有効)
+            case "Timeline":       return $"_tlval{n.Id}_{SanitizeIdent(n.Outputs[outPin].Name)}";   // そのトラックの現在値 (Update 中に有効)
             case "Get Class":      return $"/* Get Class */ nullptr";   // 反射 API 依存 (interpreter で動作)
             case "Class is Child Of": return $"({GenArg(n, "class", depth)} == {GenArg(n, "parent", depth)})";
             case "For Loop":  return $"i{n.Id}";   // index 出力 = ループ変数
