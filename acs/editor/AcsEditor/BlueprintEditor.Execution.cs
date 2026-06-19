@@ -700,6 +700,8 @@ public partial class BlueprintEditor
             case "To Text":   { var s = EvalInputByName(from, "in"); return s == "(未接続)" ? "" : s; }   // FText も実行上は文字列
             case "Make Literal Enum": return from.Literals.TryGetValue(0, out var me) ? me : "";   // Enum 値 = エントリ名
             case "Enum to String": { var s = EvalInputByName(from, "in"); return s == "(未接続)" ? "" : s; }
+            case "Get Class": return _objClass.TryGetValue(EvalInputByName(from, "object"), out var gc) ? gc : "";   // オブジェクトの実行時クラスタグ
+            case "Class is Child Of": return EvalInputByName(from, "class") == EvalInputByName(from, "parent") ? "true" : "false";   // 階層未対応=完全一致
             case "Make Literal Text": { var s = EvalInputByName(from, "value"); return s == "(未接続)" ? "" : s; }
             case "To Float":  return Fmt(ParseNum(EvalInputByName(from, "in")));
             case "To Int":    return ((long)ParseNum(EvalInputByName(from, "in"))).ToString(CultureInfo.InvariantCulture);

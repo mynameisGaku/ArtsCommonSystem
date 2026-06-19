@@ -1066,6 +1066,8 @@ public partial class MainWindow : Window
             new("フロー", "ForEach",       flow, new[] { Ex("▶"), Da("array"), Ex("Break") },  new[] { Ex("Loop Body"), Da("element"), Da("index", "Int"), Ex("Completed") }),
             new("フロー", "Delay",         flow, new[] { Ex("▶"), Da("duration", "Float") },   new[] { Ex("Completed") }),
             new("フロー", "Cast",          cvt,  new[] { Ex("▶"), Da("object", "Object") },    new[] { Ex("Success"), Ex("Failed"), Da("As", "Object") }),
+            new("クラス", "Get Class",        cvt, new[] { Da("object", "Object") },                       new[] { Da("class", "Class") }),     // オブジェクトの実行時クラス (pure)
+            new("クラス", "Class is Child Of", cvt, new[] { Da("class", "Class"), Da("parent", "Class") }, new[] { Da("result", "Bool") }),     // 型判定 (pure)
             // 配列 (カンマ区切り文字列で表現。pure)。
             new("配列", "Make Array",   mth, new[] { Da("a"), Da("b"), Da("c") },           new[] { Da("array") }),
             new("配列", "Array Add",    mth, new[] { Da("array"), Da("element") },          new[] { Da("array") }),

@@ -1431,6 +1431,12 @@ public partial class BlueprintEditor : UserControl
                     var prom = new MenuItem { Header = "変数に昇格" };
                     prom.Click += (_, __) => PromotePinToVariable(pinHit);
                     menu.Items.Add(prom);
+                    if (ActiveIsFunction)   // 関数内 → ローカル変数にも昇格できる
+                    {
+                        var prl = new MenuItem { Header = "ローカル変数に昇格" };
+                        prl.Click += (_, __) => PromotePinToLocalVariable(pinHit);
+                        menu.Items.Add(prl);
+                    }
                 }
                 if (pinHit.Output && pinObj.Kind == PinKind.Data)   // 出力データピン → 値をウォッチ (UE の Watch this value)
                 {
@@ -2315,6 +2321,14 @@ public partial class BlueprintEditor : UserControl
             if (ok) pass++; else fail++;
             log.Append(ok ? "  OK   " : "  FAIL ").Append("FindCrossGraph  (Multiply 件数=").Append(found).Append(")\n");
         }
+
+        // Get Class: Spawn from Class(Enemy) の実行時クラスを取得して r へ ("Enemy")。
+        Check("GetClass", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Spawn from Class\nI E ▶\nI D:Class class\nI D:Vector pos\nO E ▶\nO D:Object spawned\nV 1 Enemy\n" +
+            "N 3 0 0 1 Get Class\nI D:Object object\nO D:Class class\n" +
+            "N 4 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\n" +
+            "C 1 0 2 0\nC 2 0 4 0\nC 2 1 3 0\nC 3 0 4 1\n", "r", "Enemy");
 
         // Macro: Call Macro が Tunnel Entry→本体→Tunnel Exit をインライン展開 (val=8 を r へ)。
         Check("Macro", "ACSBP 1\nVAR Float r 0\n" +
@@ -3524,24 +3538,58 @@ public partial class BlueprintEditor : UserControl
         if (_funcLocals.TryGetValue(_activeName, out var l) && l.Remove(v)) { CommitEdit(); LocalsChanged?.Invoke(); }
     }
     /// <summary>ローカル変数 name の Get/Set Local Variable ノードを生成 (D&D 落下点に)。</summary>
-    private void DropLocalVariable(string name, bool set, Point g)
+    private BpNode MakeLocalNode(string name, bool set, string type, Point pos)
     {
-        BeginEdit();
-        string type = ActiveLocalVars.FirstOrDefault(v => v.Name == name)?.Type ?? "";
         var col = new SolidColorBrush(Color.FromRgb(0x4C, 0x6A, 0x8C));
         BpNode n;
         if (set)
         {
-            n = new BpNode { Id = _nextId++, Title = "Set Local Variable", X = g.X, Y = g.Y, Header = col, VarRef = name };
+            n = new BpNode { Id = _nextId++, Title = "Set Local Variable", X = pos.X, Y = pos.Y, Header = col, VarRef = name };
             n.Inputs.Add(new Pin("▶", PinKind.Exec)); n.Inputs.Add(new Pin("value", PinKind.Data, type));
             n.Outputs.Add(new Pin("▶", PinKind.Exec));
         }
         else
         {
-            n = new BpNode { Id = _nextId++, Title = "Get Local Variable", X = g.X, Y = g.Y, Header = col, VarRef = name };
+            n = new BpNode { Id = _nextId++, Title = "Get Local Variable", X = pos.X, Y = pos.Y, Header = col, VarRef = name };
             n.Outputs.Add(new Pin("value", PinKind.Data, type));
         }
-        _nodes.Add(n); _selected.Clear(); _selected.Add(n);
+        _nodes.Add(n);
+        return n;
+    }
+    private void DropLocalVariable(string name, bool set, Point g)
+    {
+        BeginEdit();
+        string type = ActiveLocalVars.FirstOrDefault(v => v.Name == name)?.Type ?? "";
+        var n = MakeLocalNode(name, set, type, g);
+        _selected.Clear(); _selected.Add(n);
+        Rebuild(); CommitEdit();
+    }
+
+    /// <summary>データピンを «ローカル変数に昇格»: 関数のローカル変数を作り Get/Set Local を生成して繋ぐ。</summary>
+    private void PromotePinToLocalVariable(PinRef p)
+    {
+        if (!ActiveIsFunction) return;
+        var pin = p.Output ? p.Node.Outputs[p.Index] : p.Node.Inputs[p.Index];
+        if (pin.Kind != PinKind.Data) return;
+        string type = string.IsNullOrEmpty(pin.Type) ? "Float" : pin.Type;
+        if (!_funcLocals.TryGetValue(_activeName, out var locals)) { locals = new List<BpVar>(); _funcLocals[_activeName] = locals; }
+        string bse = string.IsNullOrEmpty(pin.Name) ? "Local" : pin.Name; string vname = bse; int k = 2; while (locals.Any(v => v.Name == vname)) vname = bse + k++;
+        BeginEdit();
+        locals.Add(new BpVar(vname, type, ""));
+        LocalsChanged?.Invoke();
+        var pp = PinPos(p.Node, p.Output, p.Index);
+        if (p.Output)   // 出力 → Set Local を右に置き value(入力1) へ
+        {
+            var n = MakeLocalNode(vname, true, type, new Point(pp.X + 80, pp.Y - 11));
+            _conns.Add(new BpConn(p.Node.Id, p.Index, n.Id, 1));
+        }
+        else            // 入力 → Get Local を左に置き value(出力0) から繋ぐ
+        {
+            var n = MakeLocalNode(vname, false, type, new Point(pp.X - 210, pp.Y - 33));
+            _conns.RemoveAll(c => c.ToNode == p.Node.Id && c.ToPin == p.Index);
+            _conns.Add(new BpConn(n.Id, 0, p.Node.Id, p.Index));
+            _selected.Clear(); _selected.Add(n);
+        }
         Rebuild(); CommitEdit();
     }
 

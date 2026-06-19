@@ -388,6 +388,8 @@ public partial class BlueprintEditor
             case "Make Literal Enum": { string ev = n.Literals.TryGetValue(0, out var le) ? le : ""; return $"{SanitizeIdent(n.VarRef)}::{SanitizeIdent(ev)}"; }
             case "Enum to String": return GenArg(n, "in", depth);
             case "Cast":           return $"_as{n.Id}";   // dynamic_cast 結果 (Success ブランチ内で有効)
+            case "Get Class":      return $"/* Get Class */ nullptr";   // 反射 API 依存 (interpreter で動作)
+            case "Class is Child Of": return $"({GenArg(n, "class", depth)} == {GenArg(n, "parent", depth)})";
             case "For Loop":  return $"i{n.Id}";   // index 出力 = ループ変数
             // 数学 (std math 関数 / 三項式)。
             case "Abs":    return $"std::fabs((float)({GenArg(n, "value", depth)}))";
