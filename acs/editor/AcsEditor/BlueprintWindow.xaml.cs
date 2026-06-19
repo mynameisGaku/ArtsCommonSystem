@@ -57,6 +57,7 @@ public partial class BlueprintWindow : Window
         GraphHost.SelectionChanged  = RefreshDetails;     // ノード選択で Details を反映 (UE5 風)
         GraphHost.LocalsChanged     = RefreshLocals;      // ローカル変数の追加/削除で再描画
         GraphHost.DispatchersChanged = RefreshDispatchers; // ディスパッチャの追加/削除で再描画
+        GraphHost.FuncIOChanged     = RefreshDetails;      // 関数の入出力ピン編集で Details 再描画
         GraphHost.PathChanged = () => Title = string.IsNullOrEmpty(GraphHost.CurrentPath)
             ? "Blueprint" : "Blueprint — " + System.IO.Path.GetFileName(GraphHost.CurrentPath);
         Loaded += (_, __) => { RefreshComponents(); RefreshVars(); RefreshFunctions(); RefreshLocals(); RefreshDispatchers(); };
@@ -380,11 +381,50 @@ public partial class BlueprintWindow : Window
             FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
         DetailsPanel.Children.Add(new TextBlock { Text = (string.IsNullOrEmpty(nv.Category) ? "ノード" : nv.Category + " ノード"),
             Foreground = Dim, FontSize = 10.5, Margin = new Thickness(0, 0, 0, 6) });
+        TextBlock Mini(string s) => new() { Text = s, Foreground = (Brush)FindResource("SectionFg"), FontSize = 10, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 6, 0, 2) };
+        // Function Entry / Return → 入出力ピンを «編集» (型コンボ/名前/並べ替え/削除/追加。UE5.8)。
+        if (Editor.SelectedIsFuncIO())
+        {
+            bool entry = Editor.SelectedFuncIOIsEntry();
+            DetailsPanel.Children.Add(Mini(entry ? "入力 (引数)" : "出力 (戻り値)"));
+            var pins = Editor.SelectedIOPins();
+            for (int idx = 0; idx < pins.Count; idx++) DetailsPanel.Children.Add(FuncPinEditRow(idx, pins[idx], pins.Count));
+            var add = new Button { Content = entry ? "＋ 引数" : "＋ 戻り値", FontSize = 11, Padding = new Thickness(8, 2, 8, 2),
+                Margin = new Thickness(0, 6, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0), Foreground = (Brush)FindResource("OkFg") };
+            add.Click += (_, __) => Editor.AddIOPin();
+            DetailsPanel.Children.Add(add);
+            DetailsPanel.Children.Add(new TextBlock { Text = "※ 変更後、呼出側は右クリック「関数ピンを同期」", Foreground = Dim, FontSize = 9.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
+            return;
+        }
         var ins = nv.Pins.Where(p => !p.output).ToList();
         var outs = nv.Pins.Where(p => p.output).ToList();
-        TextBlock Mini(string s) => new() { Text = s, Foreground = (Brush)FindResource("SectionFg"), FontSize = 10, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 6, 0, 2) };
         if (ins.Count > 0)  { DetailsPanel.Children.Add(Mini("入力")); foreach (var p in ins)  DetailsPanel.Children.Add(PinRow(p)); }
         if (outs.Count > 0) { DetailsPanel.Children.Add(Mini("出力")); foreach (var p in outs) DetailsPanel.Children.Add(PinRow(p)); }
+    }
+
+    // 関数の入出力ピン1行の編集 (型コンボ / 名前 / ▲▼ 並べ替え / ✕ 削除)。
+    private FrameworkElement FuncPinEditRow(int idx, (string name, string type) p, int count)
+    {
+        var g = new Grid { Margin = new Thickness(0, 1, 0, 1) };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(58) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var tcombo = new ComboBox { FontSize = 10, Height = 20 };
+        foreach (var t in Types) tcombo.Items.Add(t);
+        tcombo.SelectedItem = Types.Contains(p.type) ? p.type : "Float";
+        tcombo.SelectionChanged += (_, __) => { if (tcombo.SelectedItem is string t && t != p.type) Editor.RetypeIOPin(idx, t); };
+        Grid.SetColumn(tcombo, 0); g.Children.Add(tcombo);
+        var nb = MakeBox(p.name); nb.FontSize = 11; nb.Height = 20; nb.Margin = new Thickness(4, 0, 4, 0);
+        nb.LostFocus += (_, __) => { if (nb.Text.Trim() != p.name && nb.Text.Trim().Length > 0) Editor.RenameIOPin(idx, nb.Text.Trim()); };
+        Grid.SetColumn(nb, 1); g.Children.Add(nb);
+        var btns = new StackPanel { Orientation = Orientation.Horizontal };
+        Button Mb(string t, Action a, bool en) { var b = new Button { Content = t, FontSize = 9, Padding = new Thickness(3, 0, 3, 0), Background = Brushes.Transparent, BorderThickness = new Thickness(0), Foreground = en ? Fg : Dim, IsEnabled = en }; b.Click += (_, __) => a(); return b; }
+        btns.Children.Add(Mb("▲", () => Editor.MoveIOPin(idx, -1), idx > 0));
+        btns.Children.Add(Mb("▼", () => Editor.MoveIOPin(idx, +1), idx < count - 1));
+        btns.Children.Add(Mb("✕", () => Editor.RemoveIOPin(idx), true));
+        Grid.SetColumn(btns, 2); g.Children.Add(btns);
+        return g;
     }
 
     private FrameworkElement PinRow((string name, string type, bool exec, bool output, string literal) p)

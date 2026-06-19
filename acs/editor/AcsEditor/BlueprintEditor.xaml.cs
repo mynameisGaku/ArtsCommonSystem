@@ -1616,6 +1616,66 @@ public partial class BlueprintEditor : UserControl
         Rebuild(); CommitEdit();
     }
 
+    // ----- 関数 Details: Function Entry / Return のピン編集 (UE5.8 の入出力編集) -----
+    public Action? FuncIOChanged;   // 関数の入出力ピンが変わった → Details 再描画
+    public bool SelectedIsFuncIO() => _selected.Count == 1 && (_selected.First().Title is "Function Entry" or "Return");
+    public bool SelectedFuncIOIsEntry() => _selected.Count == 1 && _selected.First().Title == "Function Entry";
+    private List<Pin> SelIOList() { var n = _selected.First(); return n.Title == "Function Entry" ? n.Outputs : n.Inputs; }
+    public List<(string name, string type)> SelectedIOPins()
+    {
+        var r = new List<(string, string)>();
+        if (SelectedIsFuncIO()) foreach (var p in SelIOList()) if (p.Kind == PinKind.Data) r.Add((p.Name, p.Type));
+        return r;
+    }
+    private static int DataPinActualIndex(List<Pin> list, int dataIdx)
+    {
+        int seen = 0;
+        for (int i = 0; i < list.Count; i++) if (list[i].Kind == PinKind.Data) { if (seen == dataIdx) return i; seen++; }
+        return -1;
+    }
+    public void RetypeIOPin(int dataIdx, string type) => EditIOPin(dataIdx, p => p with { Type = type });
+    public void RenameIOPin(int dataIdx, string name) => EditIOPin(dataIdx, p => p with { Name = name });
+    private void EditIOPin(int dataIdx, Func<Pin, Pin> f)
+    {
+        if (!SelectedIsFuncIO()) return;
+        var list = SelIOList(); int i = DataPinActualIndex(list, dataIdx); if (i < 0) return;
+        BeginEdit(); list[i] = f(list[i]); Rebuild(); SyncActiveGraph(); CommitEdit(); FuncIOChanged?.Invoke();
+    }
+    public void AddIOPin()
+    {
+        if (!SelectedIsFuncIO()) return;
+        AddParamPin(_selected.First(), _selected.First().Title == "Function Entry");   // 末尾追加 (BeginEdit/Rebuild 内包)
+        SyncActiveGraph(); FuncIOChanged?.Invoke();
+    }
+    public void RemoveIOPin(int dataIdx)
+    {
+        if (!SelectedIsFuncIO()) return;
+        var n = _selected.First(); var list = SelIOList(); int i = DataPinActualIndex(list, dataIdx); if (i < 0) return;
+        bool outSide = n.Title == "Function Entry";
+        BeginEdit();
+        if (outSide) { _conns.RemoveAll(c => c.FromNode == n.Id && c.FromPin == i); for (int k = 0; k < _conns.Count; k++) if (_conns[k].FromNode == n.Id && _conns[k].FromPin > i) _conns[k] = _conns[k] with { FromPin = _conns[k].FromPin - 1 }; }
+        else        { _conns.RemoveAll(c => c.ToNode == n.Id && c.ToPin == i);     for (int k = 0; k < _conns.Count; k++) if (_conns[k].ToNode == n.Id && _conns[k].ToPin > i) _conns[k] = _conns[k] with { ToPin = _conns[k].ToPin - 1 }; }
+        list.RemoveAt(i);
+        Rebuild(); SyncActiveGraph(); CommitEdit(); FuncIOChanged?.Invoke();
+    }
+    public void MoveIOPin(int dataIdx, int dir)   // dir = -1 上 / +1 下 (データピン間で入替)
+    {
+        if (!SelectedIsFuncIO()) return;
+        var n = _selected.First(); var list = SelIOList();
+        int a = DataPinActualIndex(list, dataIdx), b = DataPinActualIndex(list, dataIdx + dir);
+        if (a < 0 || b < 0) return;
+        bool outSide = n.Title == "Function Entry";
+        BeginEdit();
+        (list[a], list[b]) = (list[b], list[a]);
+        for (int k = 0; k < _conns.Count; k++)   // 接続のピン番号も入替
+        {
+            var c = _conns[k];
+            if (outSide && c.FromNode == n.Id) { if (c.FromPin == a) _conns[k] = c with { FromPin = b }; else if (c.FromPin == b) _conns[k] = c with { FromPin = a }; }
+            else if (!outSide && c.ToNode == n.Id) { if (c.ToPin == a) _conns[k] = c with { ToPin = b }; else if (c.ToPin == b) _conns[k] = c with { ToPin = a }; }
+        }
+        Rebuild(); SyncActiveGraph(); CommitEdit(); FuncIOChanged?.Invoke();
+    }
+
     /// <summary>Function Entry / Return に型付きデータピンを追加する (関数の入出力)。</summary>
     private void AddParamPin(BpNode n, bool output)
     {
@@ -1995,6 +2055,16 @@ public partial class BlueprintEditor : UserControl
         ShowViewport(); _vpSelected = id;
         MoveComponentRow(id, dx, dy);
         RenderViewport();
+    }
+
+    /// <summary>検証用: 最初の関数へ切替え Function Entry を選択 (Details の入出力編集確認。--bpshot funcio)。</summary>
+    public void FuncIOForTest()
+    {
+        var fn = _graphOrder.FirstOrDefault(g => _graphIsFunc.Contains(g));
+        if (fn != null) SwitchGraph(fn);
+        var entry = _nodes.FirstOrDefault(n => n.Title == "Function Entry");
+        _selected.Clear(); if (entry != null) _selected.Add(entry);
+        Rebuild(); SelectionChanged?.Invoke();
     }
 
     /// <summary>検証用: ノード 50 の出力ピン 0 をウォッチして再描画 (--bpshot watch)。</summary>

@@ -93,6 +93,7 @@ public partial class App : Application
                     else if (mode == "varcombo") win.Editor.OpenVarComboForTest();                // 変数名コンボのドロップダウン
                     else if (mode == "collapse") win.Editor.CollapseForTest();                    // 関数に折りたたむ
                     else if (mode == "watch") win.Editor.WatchPinForTest();                        // ピン留めウォッチ
+                    else if (mode == "funcio") win.Editor.FuncIOForTest();                          // 関数の入出力ピン編集
                     else if (mode.StartsWith("vpnode")) win.Editor.HighlightViewportNode(int.TryParse(mode.Substring(6), out var vid) ? vid : 1);   // ビューポートでノード強調
                     else if (mode == "vpmove") win.Editor.MoveComponentForTest(1, 70, -30);   // ビューポートのドラッグ配置を検証 (Player を移動)
                     else if (mode == "promote") win.Editor.PromotePinForTest(3, false, 1);   // データピンを変数に昇格 (Compare.a)
