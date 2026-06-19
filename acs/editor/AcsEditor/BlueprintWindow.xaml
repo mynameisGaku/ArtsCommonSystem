@@ -52,6 +52,23 @@
             </Border>
             <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
 
+            <!-- EVENT DISPATCHERS (BP レベルのマルチキャスト) -->
+            <Border DockPanel.Dock="Top" Background="{DynamicResource HeaderBg}" Padding="11,5,7,5">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="EVENT DISPATCHERS" Style="{DynamicResource Section}" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="＋ ディスパッチャ" Padding="9,2" FontSize="11" Click="OnAddDispatcher"
+                            Foreground="{DynamicResource OkFg}" ToolTip="マルチキャストのイベントディスパッチャを追加"/>
+                </Grid>
+            </Border>
+            <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
+            <Border DockPanel.Dock="Top" Height="74">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="DispatcherList" Margin="5,4,5,6"/>
+                </ScrollViewer>
+            </Border>
+            <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
+
             <!-- LOCAL VARIABLES (関数編集中のみ表示) -->
             <Border x:Name="LocalHeader" DockPanel.Dock="Top" Background="{DynamicResource HeaderBg}" Padding="11,5,7,5" Visibility="Collapsed">
                 <Grid>

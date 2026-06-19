@@ -329,9 +329,11 @@ public partial class BlueprintEditor : UserControl
             Width = NodeW, Height = HeaderH, Background = HeaderBrush(headerColor),
             CornerRadius = new CornerRadius(6, 6, 0, 0) }, 0, 0));
         inner.Children.Add(Place(MakeNodeIcon(n), 9, 8));   // 種別アイコン
-        string dispTitle = n.Title;   // UE 風: Get/Set (Local) Variable は «Get/Set 変数名» と表示
+        string dispTitle = n.Title;   // UE 風: Get/Set (Local) Variable は «Get/Set 変数名»、ディスパッチャは «Call/Event 名»
         if ((n.Title is "Set Variable" or "Get Variable" or "Set Local Variable" or "Get Local Variable") && !string.IsNullOrEmpty(n.VarRef))
             dispTitle = (n.Title.StartsWith("Set") ? "Set " : "Get ") + n.VarRef;
+        else if (n.Title == "Call Dispatcher" && !string.IsNullOrEmpty(n.VarRef)) dispTitle = "Call " + n.VarRef;
+        else if (n.Title == "Event Dispatcher" && !string.IsNullOrEmpty(n.VarRef)) dispTitle = "Event " + n.VarRef;
         inner.Children.Add(Place(new TextBlock {
             Text = dispTitle, Foreground = Brushes.White, FontSize = 11.5, FontWeight = FontWeights.SemiBold,
             Width = NodeW - 30, TextTrimming = TextTrimming.CharacterEllipsis }, 24, 5));
@@ -2023,6 +2025,14 @@ public partial class BlueprintEditor : UserControl
             "N 102 0 0 1 Return\nI E ▶\nI D:Float ret0\n" +
             "C 100 0 102 0\nC 100 1 101 0\nC 100 1 101 1\nC 101 0 102 1\n", "r", "36");
 
+        // Event Dispatcher: Call Dispatcher が束縛された Event Dispatcher を発火 (multicast)。
+        Check("Dispatcher", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Call Dispatcher\nI E ▶\nO E ▶\nVR OnHit\n" +
+            "N 3 0 0 1 Event Dispatcher\nO E ▶\nVR OnHit\n" +
+            "N 4 0 0 1 Set Variable\nI E ▶\nI D:String name\nI D value\nO E ▶\nV 1 r\nV 2 7\n" +
+            "C 1 0 2 0\nC 3 0 4 0\n", "r", "7");
+
         // Local Variable: 関数のローカル変数を Set→Get して戻り値に。フレームで分離 (既定 100 を arg0=42 で上書き)。
         Check("LocalVar", "ACSBP 1\nVAR Float r 0\n" +
             "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
@@ -2277,17 +2287,28 @@ public partial class BlueprintEditor : UserControl
 
     private void OnDragOver(object sender, DragEventArgs e)
     {
-        e.Effects = e.Data.GetDataPresent(VarDragFormat) ? DragDropEffects.Copy : DragDropEffects.None;
+        bool ok = e.Data.GetDataPresent(VarDragFormat) || e.Data.GetDataPresent(LocalVarDragFormat) || e.Data.GetDataPresent(DispatcherDragFormat);
+        e.Effects = ok ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
 
     private void OnDrop(object sender, DragEventArgs e)
     {
+        Point g = e.GetPosition(GraphCanvas);
+        if (e.Data.GetDataPresent(DispatcherDragFormat))   // イベントディスパッチャ → Call / Event(束縛) を選ぶ
+        {
+            string dn = ((e.Data.GetData(DispatcherDragFormat) as string) ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(dn)) return;
+            var m = new ContextMenu();
+            var call = new MenuItem { Header = $"Call {dn} (broadcast)" }; call.Click += (_, __) => DropDispatcher(dn, true, g);
+            var evt = new MenuItem { Header = $"Event {dn} (束縛ハンドラ)" }; evt.Click += (_, __) => DropDispatcher(dn, false, g);
+            m.Items.Add(call); m.Items.Add(evt); m.PlacementTarget = GraphCanvas; m.IsOpen = true;
+            return;
+        }
         bool local = e.Data.GetDataPresent(LocalVarDragFormat);
         if (!local && !e.Data.GetDataPresent(VarDragFormat)) return;
         string name = ((e.Data.GetData(local ? LocalVarDragFormat : VarDragFormat) as string) ?? "").Trim();
         if (string.IsNullOrWhiteSpace(name)) return;
-        Point g = e.GetPosition(GraphCanvas);
         // UE 風: ドロップ時に Get / Set を選ぶメニュー。
         var menu = new ContextMenu();
         var get = new MenuItem { Header = $"Get {name}" };
@@ -2439,6 +2460,7 @@ public partial class BlueprintEditor : UserControl
                 if (!string.IsNullOrEmpty(v.Tooltip))
                     sb.Append("VTIP ").Append(v.Name.Trim()).Append(' ').Append(v.Tooltip.Replace("\n", " ")).Append('\n');
             }
+        foreach (var d in Dispatchers) if (!string.IsNullOrWhiteSpace(d)) sb.Append("EVDISP ").Append(d.Trim()).Append('\n');   // イベントディスパッチャ
         if (!string.IsNullOrEmpty(ComponentsText))   // コンポーネント木: CMP <行数> + 逐語の ACSCENE 行
             AcsbpFormat.AppendCmpBlock(sb, ComponentsText);
         sb.Append(_graphTexts.TryGetValue(EventGraphName, out var eg) ? eg : "");   // Event Graph 本体
@@ -2504,7 +2526,7 @@ public partial class BlueprintEditor : UserControl
     {
         _nodes.Clear(); _conns.Clear(); _comments.Clear(); _selected.Clear(); _parentPath = null;
         _dragNode = null; _wireSource = null; _ghost = null;
-        Variables.Clear();
+        Variables.Clear(); Dispatchers.Clear();
         ComponentsText = "";
         _graphTexts.Clear(); _graphOrder.Clear(); _graphOrder.Add(EventGraphName);
         _graphIsFunc.Clear(); _activeName = EventGraphName;
@@ -2557,6 +2579,7 @@ public partial class BlueprintEditor : UserControl
                 var vv = t.Length >= 2 ? Variables.FirstOrDefault(x => x.Name == t[1]) : null;
                 if (vv != null && t.Length >= 3) vv.Tooltip = t[2];
             }
+            else if (l.StartsWith("EVDISP ")) { var d = l.Substring(7).Trim(); if (d.Length > 0 && !Dispatchers.Contains(d)) Dispatchers.Add(d); }
         }
 
         // PARENT 行を先に処理し、親グラフを «継承ノード» (id +InheritOffset, 読取専用) として読み込む。
@@ -2989,6 +3012,39 @@ public partial class BlueprintEditor : UserControl
     public string ActiveGraphName => _activeName;
     /// <summary>新しい関数を追加して切り替える (パネルの「＋関数」)。</summary>
     public void NewFunction() => AddFunction();
+
+    // ----- イベントディスパッチャ (BP レベルのマルチキャスト。UE の Event Dispatchers) -----
+    public List<string> Dispatchers { get; } = new();
+    public const string DispatcherDragFormat = "ACSBP_DISP";
+    public Action? DispatchersChanged;
+    public void AddDispatcher()
+    {
+        BeginEdit();
+        string b = "NewDispatcher"; string nm = b; int k = 2; while (Dispatchers.Contains(nm)) nm = b + k++;
+        Dispatchers.Add(nm);
+        CommitEdit(); DispatchersChanged?.Invoke();
+    }
+    public void RemoveDispatcher(string name) { if (Dispatchers.Remove(name)) { CommitEdit(); DispatchersChanged?.Invoke(); } }
+    public void RenameDispatcher(int idx, string newName) { if (idx >= 0 && idx < Dispatchers.Count) { BeginEdit(); Dispatchers[idx] = newName; CommitEdit(); DispatchersChanged?.Invoke(); } }
+    /// <summary>ディスパッチャ name の Call / Event(束縛ハンドラ) ノードを生成する。</summary>
+    private void DropDispatcher(string name, bool call, Point g)
+    {
+        BeginEdit();
+        var col = new SolidColorBrush(Color.FromRgb(0x35, 0x7A, 0x55));
+        BpNode n;
+        if (call)
+        {
+            n = new BpNode { Id = _nextId++, Title = "Call Dispatcher", X = g.X, Y = g.Y, Header = col, VarRef = name };
+            n.Inputs.Add(new Pin("▶", PinKind.Exec)); n.Outputs.Add(new Pin("▶", PinKind.Exec));
+        }
+        else
+        {
+            n = new BpNode { Id = _nextId++, Title = "Event Dispatcher", X = g.X, Y = g.Y, Header = new SolidColorBrush(Color.FromRgb(0xB0, 0x3A, 0x46)), VarRef = name };
+            n.Outputs.Add(new Pin("▶", PinKind.Exec));
+        }
+        _nodes.Add(n); _selected.Clear(); _selected.Add(n);
+        Rebuild(); CommitEdit();
+    }
 
     // ----- ローカル変数 (関数スコープ) の My Blueprint 連携 -----
     public const string LocalVarDragFormat = "ACSBP_LOCALVAR";

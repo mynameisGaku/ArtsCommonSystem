@@ -87,7 +87,7 @@ public partial class BlueprintEditor
         // イベント起点は «関数を展開する前» の Event Graph ノードから集める (Function Entry を auto-run しない)。
         var entries = _nodes
             .Where(n => n.Outputs.Any(p => p.Kind == PinKind.Exec) && !n.Inputs.Any(p => p.Kind == PinKind.Exec)
-                     && !n.Title.StartsWith("On Event") && n.Title != "Custom Event"
+                     && !n.Title.StartsWith("On Event") && n.Title != "Custom Event" && n.Title != "Event Dispatcher"
                      && n.Title != "On Key" && n.Title != "On Overlap")   // 直接呼び出し/入力駆動は自動起動しない
             .OrderBy(n => n.Inherited ? 0 : 1).ThenBy(n => n.Id).ToList();   // 親(継承)→子の順 = Super 相当
 
@@ -331,6 +331,8 @@ public partial class BlueprintEditor
         int count = 0;
         foreach (var ev in _nodes.Where(x => x.Title.StartsWith("On Event")).ToList())
             if (EvalInputByName(ev, "channel").Trim() == channel) { ExecFrom(ev); count++; }
+        foreach (var ev in _nodes.Where(x => x.Title == "Event Dispatcher").ToList())   // ディスパッチャの束縛ハンドラ (multicast)
+            if (ev.VarRef.Trim() == channel) { ExecFrom(ev); count++; }
         return count;
     }
 
@@ -416,6 +418,11 @@ public partial class BlueprintEditor
             if (ch == "(なし)") return t.Trim();   // channel 入力の無い旧 Publish ノードは従来通り
             int fired = FireEventSubscribers(ch);
             return $"Publish Event(channel={ch}) → {fired} 購読";
+        }
+        if (t == "Call Dispatcher")   // ディスパッチャを broadcast (束縛された Event Dispatcher を全発火)
+        {
+            int fired = FireEventSubscribers(n.VarRef.Trim());
+            return $"Call Dispatcher({n.VarRef}) → {fired} 束縛";
         }
         if (t == "Custom Event") return $"Custom Event({EvalInputByName(n, "name")})";
         if (t == "Call Function")   // Function サブグラフ / 同名 Custom Event を同期呼び出し (型付き引数/戻り値)

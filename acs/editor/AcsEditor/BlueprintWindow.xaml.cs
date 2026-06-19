@@ -52,12 +52,13 @@ public partial class BlueprintWindow : Window
         InitializeComponent();
         GraphHost.VariablesChanged  = RefreshVars;        // 変数が変わったら再描画
         GraphHost.ComponentsChanged = RefreshComponents;  // コンポーネント木が変わったら再描画
-        GraphHost.GraphChanged      = () => { RefreshFunctions(); RefreshLocals(); };   // グラフ切替/追加で関数一覧+ローカル変数を再描画
+        GraphHost.GraphChanged      = () => { RefreshFunctions(); RefreshLocals(); RefreshDispatchers(); };   // グラフ切替/追加/読込で再描画
         GraphHost.SelectionChanged  = RefreshDetails;     // ノード選択で Details を反映 (UE5 風)
         GraphHost.LocalsChanged     = RefreshLocals;      // ローカル変数の追加/削除で再描画
+        GraphHost.DispatchersChanged = RefreshDispatchers; // ディスパッチャの追加/削除で再描画
         GraphHost.PathChanged = () => Title = string.IsNullOrEmpty(GraphHost.CurrentPath)
             ? "Blueprint" : "Blueprint — " + System.IO.Path.GetFileName(GraphHost.CurrentPath);
-        Loaded += (_, __) => { RefreshComponents(); RefreshVars(); RefreshFunctions(); RefreshLocals(); };
+        Loaded += (_, __) => { RefreshComponents(); RefreshVars(); RefreshFunctions(); RefreshLocals(); RefreshDispatchers(); };
     }
 
     // この BP の «コンポーネント木» (ACSCENE サブツリー) を解析してノード/コンポーネントを表示する。
@@ -187,6 +188,37 @@ public partial class BlueprintWindow : Window
     }
     private void OnAddFunctionPanel(object sender, RoutedEventArgs e) => Editor.NewFunction();
     private void OnAddLocalVar(object sender, RoutedEventArgs e) => Editor.AddLocalVar();
+    private void OnAddDispatcher(object sender, RoutedEventArgs e) => Editor.AddDispatcher();
+
+    // EVENT DISPATCHERS セクション。アイコンから D&D で Call / Event(束縛) ノードを作る。
+    private void RefreshDispatchers()
+    {
+        if (DispatcherList == null) return;
+        DispatcherList.Children.Clear();
+        var disps = Editor.Dispatchers;
+        for (int idx = 0; idx < disps.Count; idx++)
+        {
+            int di = idx; var dn = disps[idx];
+            var g = new Grid { Margin = new Thickness(2, 1, 2, 1) };
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var icon = new Border { Width = 15, Height = 11, CornerRadius = new CornerRadius(3), Background = Rgb(0x35, 0x7A, 0x55),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 6, 0), Cursor = Cursors.SizeAll, ToolTip = "グラフへドラッグで Call / Event" };
+            icon.MouseLeftButtonDown += (_, ev) => { DragDrop.DoDragDrop(icon, new DataObject(BlueprintEditor.DispatcherDragFormat, dn), DragDropEffects.Copy); ev.Handled = true; };
+            Grid.SetColumn(icon, 0); g.Children.Add(icon);
+            var nameBox = MakeBox(dn); nameBox.FontSize = 11; nameBox.Height = 20;
+            nameBox.LostFocus += (_, __) => { if (nameBox.Text.Trim() != dn) Editor.RenameDispatcher(di, nameBox.Text.Trim()); };
+            Grid.SetColumn(nameBox, 1); g.Children.Add(nameBox);
+            var del = new Button { Content = "✕", FontSize = 9, Padding = new Thickness(5, 0, 5, 0), Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0), Foreground = (Brush)FindResource("WarnFg"), VerticalAlignment = VerticalAlignment.Center };
+            del.Click += (_, __) => Editor.RemoveDispatcher(dn);
+            Grid.SetColumn(del, 2); g.Children.Add(del);
+            DispatcherList.Children.Add(g);
+        }
+        if (disps.Count == 0)
+            DispatcherList.Children.Add(new TextBlock { Text = "（ディスパッチャなし — ＋ で追加）", Foreground = Dim, FontSize = 10.5, Margin = new Thickness(6, 4, 0, 0) });
+    }
 
     // LOCAL VARIABLES セクション (関数編集中のみ表示)。行はピルから D&D で Get/Set Local ノードを作る。
     private void RefreshLocals()
