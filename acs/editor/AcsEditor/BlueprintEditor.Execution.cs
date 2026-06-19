@@ -328,8 +328,12 @@ public partial class BlueprintEditor
         // Tunnel Exit: マクロの出口 → 展開元 Call Macro の同名 exec 出力で外側フローを継続。
         if (n.Title == "Tunnel Exit")
         {
-            string ip = enteredPin >= 0 && enteredPin < n.Inputs.Count ? n.Inputs[enteredPin].Name : "";
-            if (_macroStack.Count > 0 && NodeById(_macroStack.Peek()) is BpNode call) FireExecByName(call, ip);
+            string ip = enteredPin >= 0 && enteredPin < n.Inputs.Count ? n.Inputs[enteredPin].Name : "▶";   // 既定は ▶ (Call と一致)
+            if (_macroStack.Count > 0 && NodeById(_macroStack.Peek()) is BpNode call)
+            {
+                if (!call.Outputs.Any(p => p.Kind == PinKind.Exec && p.Name == ip)) Trace($"  ⚠ Tunnel Exit «{ip}» に対応する Call Macro 出力がありません (同期してください)");
+                FireExecByName(call, ip);
+            }
             return;
         }
         // 通常ノード: 全 exec 出力を上から順に発火 (Sequence 等)。
@@ -640,6 +644,7 @@ public partial class BlueprintEditor
         if (from.Title == "Tunnel Entry")
             return _macroArgs.Count > 0 && outPin >= 0 && outPin < from.Outputs.Count && _macroArgs.Peek().TryGetValue(from.Outputs[outPin].Name, out var ma) ? ma : "";
         // Call Macro の data 出力 = マクロ出口 (Tunnel Exit の同名 data 入力) を評価。
+        // 前提: data 出力は «その Call の継続中»(=自フレームが _macroArgs の top)に pull される。
         if (from.Title == "Call Macro")
         {
             if (_macroExit.TryGetValue(from.VarRef.Trim(), out int txId) && NodeById(txId) is BpNode tx && outPin >= 0 && outPin < from.Outputs.Count)

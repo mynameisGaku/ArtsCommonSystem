@@ -3642,6 +3642,8 @@ public partial class BlueprintEditor : UserControl
             else if (l[0] == 'O' && cur == "Tunnel Entry") { var t = l.Split(new[] { ' ' }, 3); if (t.Length >= 3) entryOuts.Add(ParsePin(t[1], t[2])); }
             else if (l[0] == 'I' && cur == "Tunnel Exit") { var t = l.Split(new[] { ' ' }, 3); if (t.Length >= 3) exitIns.Add(ParsePin(t[1], t[2])); }
         }
+        if (entryOuts.Count == 0 || exitIns.Count == 0)   // Tunnel Entry/Exit が無い不正なマクロ
+        { LogSink?.Invoke($"⚠ マクロ «{mn}» に Tunnel Entry/Exit が見つかりません。同期を中止。"); return; }
         BeginEdit();
         _conns.RemoveAll(c => c.ToNode == call.Id || c.FromNode == call.Id);
         call.Inputs.Clear(); foreach (var p in entryOuts) call.Inputs.Add(p);   // Tunnel Entry の出力 = Call の入力
