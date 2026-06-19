@@ -342,6 +342,7 @@ public partial class BlueprintEditor : UserControl
         else if (n.Title == "Call Dispatcher" && !string.IsNullOrEmpty(n.VarRef)) dispTitle = "Call " + n.VarRef;
         else if (n.Title == "Event Dispatcher" && !string.IsNullOrEmpty(n.VarRef)) dispTitle = "Event " + n.VarRef;
         else if (n.Title == "Cast" && !string.IsNullOrEmpty(n.VarRef)) dispTitle = "Cast To " + n.VarRef;
+        else if (n.Title == "Call Macro" && !string.IsNullOrEmpty(n.VarRef)) dispTitle = "μ " + n.VarRef;
         else if ((n.Title is "Switch on Enum" or "Make Literal Enum") && !string.IsNullOrEmpty(n.VarRef)) dispTitle = n.Title + " (" + n.VarRef + ")";
         inner.Children.Add(Place(new TextBlock {
             Text = dispTitle, Foreground = Brushes.White, FontSize = 11.5, FontWeight = FontWeights.SemiBold,
@@ -1538,6 +1539,26 @@ public partial class BlueprintEditor : UserControl
                 if (cands.Count == 0) pick.Items.Add(new MenuItem { Header = "(候補なし — 親BP/コンポーネント型から)", IsEnabled = false });
                 menu.Items.Add(new Separator()); menu.Items.Add(pick);
             }
+            else if (hit.Title == "Call Macro")   // 展開するマクロを選択
+            {
+                var macros = _graphOrder.Where(g => _graphIsMacro.Contains(g)).ToList();
+                var pick = new MenuItem { Header = "マクロを選択" };
+                foreach (var mg in macros) { var mc = mg; var mi = new MenuItem { Header = mg }; mi.Click += (_, __) => { BeginEdit(); hit.VarRef = mc; CommitEdit(); SyncMacroPins(hit); }; pick.Items.Add(mi); }
+                if (macros.Count == 0) pick.Items.Add(new MenuItem { Header = "(マクロなし — ＋マクロ で追加)", IsEnabled = false });
+                menu.Items.Add(new Separator()); menu.Items.Add(pick);
+            }
+            else if (hit.Title == "Tunnel Entry")   // マクロ入口: exec/data 出力を追加
+            {
+                var ae = new MenuItem { Header = "exec 出力を追加" }; ae.Click += (_, __) => AddExecPin(hit, "In" + hit.Outputs.Count(p => p.Kind == PinKind.Exec));
+                var ad = new MenuItem { Header = "data 出力を追加" }; ad.Click += (_, __) => AddParamPin(hit, output: true);
+                menu.Items.Add(new Separator()); menu.Items.Add(ae); menu.Items.Add(ad);
+            }
+            else if (hit.Title == "Tunnel Exit")   // マクロ出口: exec/data 入力を追加
+            {
+                var ae = new MenuItem { Header = "exec 入力を追加" }; ae.Click += (_, __) => { BeginEdit(); hit.Inputs.Add(new Pin("Exit" + hit.Inputs.Count(p => p.Kind == PinKind.Exec), PinKind.Exec)); Rebuild(); CommitEdit(); };
+                var ad = new MenuItem { Header = "data 入力を追加" }; ad.Click += (_, __) => AddParamPin(hit, output: false);
+                menu.Items.Add(new Separator()); menu.Items.Add(ae); menu.Items.Add(ad);
+            }
             // 関数に折りたたむ (2 個以上選択時。UE の Collapse to Function)。
             if (_selected.Count >= 2 && _selected.Contains(hit))
             {
@@ -2109,6 +2130,13 @@ public partial class BlueprintEditor : UserControl
         RenderViewport();
     }
 
+    /// <summary>検証用: 最初のマクログラフへ切替える (--bpshot macro)。</summary>
+    public void MacroForTest()
+    {
+        var m = _graphOrder.FirstOrDefault(g => _graphIsMacro.Contains(g));
+        if (m != null) SwitchGraph(m);
+    }
+
     /// <summary>検証用: 最初の関数へ切替え Function Entry を選択 (Details の入出力編集確認。--bpshot funcio)。</summary>
     public void FuncIOForTest()
     {
@@ -2280,6 +2308,16 @@ public partial class BlueprintEditor : UserControl
             if (ok) pass++; else fail++;
             log.Append(ok ? "  OK   " : "  FAIL ").Append("FindCrossGraph  (Multiply 件数=").Append(found).Append(")\n");
         }
+
+        // Macro: Call Macro が Tunnel Entry→本体→Tunnel Exit をインライン展開 (val=8 を r へ)。
+        Check("Macro", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Call Macro\nI E ▶\nI D:Float val\nO E ▶\nVR Log2\nV 1 8\n" +
+            "C 1 0 2 0\n" +
+            "GRAPH Log2 M\nN 100 0 0 1 Tunnel Entry\nO E ▶\nO D:Float val\n" +
+            "N 101 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\n" +
+            "N 102 0 0 1 Tunnel Exit\nI E ▶\n" +
+            "C 100 0 101 0\nC 100 1 101 1\nC 101 0 102 0\n", "r", "8");
 
         // Cast To <Class>: Spawn Actor(Enemy) を Cast To Enemy → Success → r=1。
         Check("CastClass", "ACSBP 1\nVAR Float r 0\n" +
@@ -2763,7 +2801,7 @@ public partial class BlueprintEditor : UserControl
         foreach (var name in _graphOrder)   // Function サブグラフ
         {
             if (name == EventGraphName) continue;
-            sb.Append("GRAPH ").Append(name).Append(_graphIsFunc.Contains(name) ? (_graphIsPure.Contains(name) ? " F P" : " F") : " E").Append('\n');
+            sb.Append("GRAPH ").Append(name).Append(_graphIsMacro.Contains(name) ? " M" : _graphIsFunc.Contains(name) ? (_graphIsPure.Contains(name) ? " F P" : " F") : " E").Append('\n');
             if (_funcLocals.TryGetValue(name, out var locals))   // ローカル変数 (LVAR <type> <name> <default>)
                 foreach (var lv in locals) if (!string.IsNullOrWhiteSpace(lv.Name))
                     sb.Append("LVAR ").Append(string.IsNullOrEmpty(lv.Type) ? "Float" : lv.Type).Append(' ').Append(lv.Name.Trim()).Append(' ').Append(lv.Value ?? "").Append('\n');
@@ -2834,11 +2872,12 @@ public partial class BlueprintEditor : UserControl
 
         // GRAPH <name> <F|E> セクションを分離する (先頭 = Event Graph、以降 = Function サブグラフ)。
         var (mainText, funcs) = SplitGraphs(text);
-        _funcLocals.Clear(); _graphIsPure.Clear();
-        foreach (var (name, isFunc, isPure, body) in funcs)
+        _funcLocals.Clear(); _graphIsPure.Clear(); _graphIsMacro.Clear();
+        foreach (var (name, isFunc, isPure, isMacro, body) in funcs)
         {
             if (!_graphTexts.ContainsKey(name)) { _graphOrder.Add(name); if (isFunc) _graphIsFunc.Add(name); }
             if (isPure) _graphIsPure.Add(name);
+            if (isMacro) _graphIsMacro.Add(name);
             // LVAR <type> <name> <default> をローカル変数として抽出し、本体からは除く。
             var locals = new List<BpVar>(); var sb2 = new StringBuilder();
             foreach (var raw in body.Split('\n'))
@@ -2922,28 +2961,29 @@ public partial class BlueprintEditor : UserControl
     }
 
     /// <summary>GRAPH セクションを分離する。先頭 (最初の GRAPH 行より前) = main、以降 = (名前, 関数か, 本体)。</summary>
-    private static (string main, List<(string name, bool func, bool pure, string body)> graphs) SplitGraphs(string text)
+    private static (string main, List<(string name, bool func, bool pure, bool macro, string body)> graphs) SplitGraphs(string text)
     {
-        var graphs = new List<(string, bool, bool, string)>();
+        var graphs = new List<(string, bool, bool, bool, string)>();
         var main = new StringBuilder();
-        StringBuilder? cur = null; string curName = ""; bool curFunc = false, curPure = false;
+        StringBuilder? cur = null; string curName = ""; bool curFunc = false, curPure = false, curMacro = false;
         foreach (var raw in text.Split('\n'))
         {
             var line = raw.TrimEnd('\r');
             if (line.StartsWith("GRAPH "))
             {
-                if (cur != null) graphs.Add((curName, curFunc, curPure, cur.ToString()));
+                if (cur != null) graphs.Add((curName, curFunc, curPure, curMacro, cur.ToString()));
                 var t = line.Split(new[] { ' ' }, 3);
                 curName = t.Length >= 2 ? t[1] : "Function";
-                string kind = t.Length >= 3 ? t[2] : "";
-                curFunc = kind.Trim() != "E";   // 既定は関数 (F / F P / 空=関数)
-                curPure = kind.Contains("P");   // F P = Pure 関数
+                string kind = t.Length >= 3 ? t[2].Trim() : "";
+                curMacro = kind == "M";          // M = Macro
+                curFunc = kind != "E" && !curMacro;   // 既定は関数 (F / F P / 空)
+                curPure = kind.Contains("P");    // F P = Pure 関数
                 cur = new StringBuilder();
             }
             else if (cur != null) cur.Append(line).Append('\n');
             else main.Append(line).Append('\n');
         }
-        if (cur != null) graphs.Add((curName, curFunc, curPure, cur.ToString()));
+        if (cur != null) graphs.Add((curName, curFunc, curPure, curMacro, cur.ToString()));
         return (main.ToString(), graphs);
     }
 
@@ -2984,23 +3024,27 @@ public partial class BlueprintEditor : UserControl
             string n = name;
             bool active = !_viewportMode && n == _activeName;
             var btn = new Button {
-                Content = (_graphIsFunc.Contains(n) ? "ƒ " : "▦ ") + n,
+                Content = (_graphIsMacro.Contains(n) ? "μ " : _graphIsFunc.Contains(n) ? "ƒ " : "▦ ") + n,
                 Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 3, 0), FontSize = 11.5,
                 Background = active ? activeBg : Brushes.Transparent,
                 Foreground = Brushes.White, BorderThickness = new Thickness(active ? 0 : 1),
             };
             btn.Click += (_, __) => { ExitViewport(); SwitchGraph(n); };
-            if (_graphIsFunc.Contains(n))   // 関数タブ右クリック → Pure トグル / 削除
+            if (_graphIsFunc.Contains(n) || _graphIsMacro.Contains(n))   // 関数/マクロタブ右クリック → Pure トグル / 削除
             {
                 string gn = n;
                 btn.MouseRightButtonUp += (_, e) =>
                 {
                     var m = new ContextMenu();
-                    var pure = new MenuItem { Header = "Pure 関数", IsCheckable = true, IsChecked = _graphIsPure.Contains(gn) };
-                    pure.Click += (_, __) => SetFunctionPure(gn, !_graphIsPure.Contains(gn));
-                    var del = new MenuItem { Header = "関数を削除" };
+                    if (_graphIsFunc.Contains(gn))
+                    {
+                        var pure = new MenuItem { Header = "Pure 関数", IsCheckable = true, IsChecked = _graphIsPure.Contains(gn) };
+                        pure.Click += (_, __) => SetFunctionPure(gn, !_graphIsPure.Contains(gn));
+                        m.Items.Add(pure); m.Items.Add(new Separator());
+                    }
+                    var del = new MenuItem { Header = (_graphIsMacro.Contains(gn) ? "マクロ" : "関数") + "を削除" };
                     del.Click += (_, __) => DeleteFunction(gn);
-                    m.Items.Add(pure); m.Items.Add(new Separator()); m.Items.Add(del);
+                    m.Items.Add(del);
                     m.IsOpen = true; e.Handled = true;
                 };
             }
@@ -3010,6 +3054,10 @@ public partial class BlueprintEditor : UserControl
             Foreground = (Brush)(TryFindResource("OkFg") ?? Brushes.LightGreen), Background = Brushes.Transparent };
         add.Click += (_, __) => { ExitViewport(); AddFunction(); };
         GraphTabs.Children.Add(add);
+        var addM = new Button { Content = "＋ マクロ", Padding = new Thickness(9, 2, 9, 2), FontSize = 11.5,
+            Foreground = (Brush)(TryFindResource("OkFg") ?? Brushes.LightGreen), Background = Brushes.Transparent };
+        addM.Click += (_, __) => { ExitViewport(); AddMacro(); };
+        GraphTabs.Children.Add(addM);
     }
 
     private void ShowViewport()
@@ -3502,17 +3550,54 @@ public partial class BlueprintEditor : UserControl
         LogSink?.Invoke($"ƒ 関数を追加: {name}");
     }
 
+    public void NewMacro() => AddMacro();
+    private void AddMacro()
+    {
+        BeginEdit();
+        string name = UniqueGraphName("NewMacro");
+        _graphOrder.Add(name); _graphIsMacro.Add(name);
+        // マクロの入口 (Tunnel Entry) と出口 (Tunnel Exit) を種として置く。
+        _graphTexts[name] = "N 100 80 130 357A55 Tunnel Entry\nO E ▶\nN 101 640 130 8A5C2E Tunnel Exit\nI E ▶\nC 100 0 101 0\n";
+        SwitchGraph(name);
+        BuildGraphTabs();
+        CommitEdit();
+        LogSink?.Invoke($"μ マクロを追加: {name}");
+    }
+
+    /// <summary>Call Macro ノードのピンを、束縛マクロの Tunnel Entry 出力(=入力)/ Tunnel Exit 入力(=出力)に同期する。</summary>
+    private void SyncMacroPins(BpNode call)
+    {
+        if (call.Title != "Call Macro") return;
+        string mn = call.VarRef.Trim();
+        if (!_graphTexts.TryGetValue(mn, out var body)) return;
+        var entryOuts = new List<Pin>(); var exitIns = new List<Pin>();
+        string cur = "";
+        foreach (var raw in body.Split('\n'))
+        {
+            var l = raw.TrimEnd('\r'); if (l.Length == 0) continue;
+            if (l[0] == 'N') { var t = l.Split(new[] { ' ' }, 6); cur = t.Length >= 6 ? t[5] : ""; }
+            else if (l[0] == 'O' && cur == "Tunnel Entry") { var t = l.Split(new[] { ' ' }, 3); if (t.Length >= 3) entryOuts.Add(ParsePin(t[1], t[2])); }
+            else if (l[0] == 'I' && cur == "Tunnel Exit") { var t = l.Split(new[] { ' ' }, 3); if (t.Length >= 3) exitIns.Add(ParsePin(t[1], t[2])); }
+        }
+        BeginEdit();
+        _conns.RemoveAll(c => c.ToNode == call.Id || c.FromNode == call.Id);
+        call.Inputs.Clear(); foreach (var p in entryOuts) call.Inputs.Add(p);   // Tunnel Entry の出力 = Call の入力
+        call.Outputs.Clear(); foreach (var p in exitIns) call.Outputs.Add(p);   // Tunnel Exit の入力 = Call の出力
+        Rebuild(); CommitEdit();
+        LogSink?.Invoke($"Call Macro を «{mn}» に同期 (入力{entryOuts.Count}/出力{exitIns.Count})。");
+    }
+
     private void DeleteFunction(string name)
     {
-        if (!_graphIsFunc.Contains(name)) return;
+        if (!_graphIsFunc.Contains(name) && !_graphIsMacro.Contains(name)) return;
         BeginEdit();
         if (_activeName == name) { _activeName = EventGraphName; }
-        _graphOrder.Remove(name); _graphIsFunc.Remove(name); _graphTexts.Remove(name);
+        _graphOrder.Remove(name); _graphIsFunc.Remove(name); _graphIsMacro.Remove(name); _graphIsPure.Remove(name); _graphTexts.Remove(name);
         LoadActiveGraph(_graphTexts.TryGetValue(_activeName, out var b) ? b : "");
         BuildGraphTabs();
         GraphChanged?.Invoke();
         CommitEdit();
-        LogSink?.Invoke($"関数を削除: {name}");
+        LogSink?.Invoke($"削除: {name}");
     }
 
     private string UniqueGraphName(string baseName)
@@ -3834,6 +3919,10 @@ public partial class BlueprintEditor : UserControl
     private int _debugCurrent = -1; // 現在強調表示しているノードID
     private readonly Dictionary<string, int> _funcEntry = new();      // 関数名 → Function Entry ノードID (実行時に展開)
     private readonly HashSet<int> _runtimeFuncIds = new();            // 実行のため一時展開した関数ノードのID (実行後に除去)
+    private readonly Dictionary<string, int> _macroEntry = new();     // Macro 名 → Tunnel Entry ノードID
+    private readonly Dictionary<string, int> _macroExit = new();      // Macro 名 → Tunnel Exit ノードID
+    private readonly Stack<int> _macroStack = new();                  // 展開中の Call Macro ノードID (Tunnel Exit の戻り先)
+    private readonly Stack<Dictionary<string, string>> _macroArgs = new();   // 展開中の Macro の入力 (Tunnel Entry data 出力が読む)
     private readonly Stack<int> _callStack = new();                  // 呼出中の Call Function ノードID (Return の戻り先)
     private readonly Stack<string[]> _argStack = new();              // 呼出中の引数値 (Function Entry の出力が読む)
     private readonly Stack<Dictionary<string, string>> _localFrame = new();   // 関数呼出フレームのローカル変数 (Get/Set Local Variable)

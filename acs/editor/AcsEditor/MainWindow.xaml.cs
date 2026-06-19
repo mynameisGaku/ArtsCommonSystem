@@ -1049,6 +1049,9 @@ public partial class MainWindow : Window
             new("関数", "Call Function",  fn,  new[] { Ex("▶"), Da("name", "String") },         new[] { Ex("▶") }),
             new("関数", "Function Entry", bus, none,                                            new[] { Ex("▶") }),   // 関数グラフの入口 (右クリックで入力ピン追加)
             new("関数", "Return",         bus, new[] { Ex("▶") },                               none),                // 関数グラフの戻り (右クリックで出力ピン追加)
+            new("マクロ", "Tunnel Entry",  bus, none,                          new[] { Ex("▶") }),   // マクロの入口 (複数 exec/data 出力可)
+            new("マクロ", "Tunnel Exit",   bus, new[] { Ex("▶") },             none),                // マクロの出口 (複数 exec/data 入力可)
+            new("マクロ", "Call Macro",    fn,  new[] { Ex("▶") },             new[] { Ex("▶") }),   // 右クリックでマクロを選択 → インライン展開
             // フロー制御 (状態付き)。
             new("フロー", "Gate",          flow, new[] { Ex("▶"), Ex("Open"), Ex("Close"), Ex("Toggle"), Da("Start Closed", "Bool") }, new[] { Ex("Exit") }),
             new("フロー", "DoOnce",        flow, new[] { Ex("▶"), Ex("Reset") },               new[] { Ex("Completed") }),

@@ -81,6 +81,7 @@ public partial class BlueprintEditor
         _vars.Clear(); _watch.Clear(); _firedOut.Clear(); _showWatch = true;
         _flowState.Clear(); _trace.Clear();
         _callStack.Clear(); _argStack.Clear(); _callResult.Clear(); _localFrame.Clear(); _loopBreak.Clear();
+        _macroStack.Clear(); _macroArgs.Clear();
         foreach (var v in Variables)   // BP 変数を _vars へ種まき (Get Variable が既定値を読める)
             if (!string.IsNullOrWhiteSpace(v.Name)) _vars[v.Name.Trim()] = v.Value ?? "";
 
@@ -103,19 +104,23 @@ public partial class BlueprintEditor
     /// 関数名→Function Entry の id を _funcEntry へ記録する (Call Function から呼ぶため)。</summary>
     private void LoadFunctionsForRun()
     {
-        _funcEntry.Clear(); _runtimeFuncIds.Clear();
+        _funcEntry.Clear(); _macroEntry.Clear(); _macroExit.Clear(); _runtimeFuncIds.Clear();
         SyncActiveGraph();
         int idx = 0;
         foreach (var name in _graphOrder)
         {
-            if (name == EventGraphName || !_graphIsFunc.Contains(name)) continue;
+            bool isFunc = _graphIsFunc.Contains(name), isMacro = _graphIsMacro.Contains(name);
+            if (name == EventGraphName || (!isFunc && !isMacro)) continue;
             int offset = 3_000_000 + (++idx) * 100_000;
             int beforeN = _nodes.Count;
             ParseGraph(_graphTexts.TryGetValue(name, out var b) ? b : "", offset, inherited: false);
             for (int i = beforeN; i < _nodes.Count; i++)
             {
                 _runtimeFuncIds.Add(_nodes[i].Id);
-                if (_nodes[i].Title == "Function Entry" && !_funcEntry.ContainsKey(name)) _funcEntry[name] = _nodes[i].Id;
+                var nd = _nodes[i];
+                if (isFunc && nd.Title == "Function Entry" && !_funcEntry.ContainsKey(name)) _funcEntry[name] = nd.Id;
+                if (isMacro && nd.Title == "Tunnel Entry" && !_macroEntry.ContainsKey(name)) _macroEntry[name] = nd.Id;
+                if (isMacro && nd.Title == "Tunnel Exit" && !_macroExit.ContainsKey(name)) _macroExit[name] = nd.Id;
             }
         }
     }
@@ -124,7 +129,7 @@ public partial class BlueprintEditor
         if (_runtimeFuncIds.Count == 0) return;
         _nodes.RemoveAll(n => _runtimeFuncIds.Contains(n.Id));
         _conns.RemoveAll(c => _runtimeFuncIds.Contains(c.FromNode) || _runtimeFuncIds.Contains(c.ToNode));
-        _runtimeFuncIds.Clear(); _funcEntry.Clear();
+        _runtimeFuncIds.Clear(); _funcEntry.Clear(); _macroEntry.Clear(); _macroExit.Clear();
     }
 
     private int _lastEnteredPin = -1;   // 直前に発火した接続の «入力ピン index» (Gate の Enter/Open/Close 判定用)
@@ -303,6 +308,28 @@ public partial class BlueprintEditor
                 if (_loopBreak.Remove(n.Id)) break;   // Break ピン発火 → 途中脱出
             }
             FireExecByName(n, "Completed");
+            return;
+        }
+        // Call Macro: マクロをインライン展開 (フレーム無し・_vars 共有)。入った入力名で Tunnel Entry の同名 exec を発火。
+        if (n.Title == "Call Macro")
+        {
+            string mn = n.VarRef.Trim();
+            string ip = enteredPin >= 0 && enteredPin < n.Inputs.Count ? n.Inputs[enteredPin].Name : "▶";
+            if (_macroEntry.TryGetValue(mn, out int teId) && NodeById(teId) is BpNode te)
+            {
+                var argd = new Dictionary<string, string>();   // Tunnel Entry の data 出力(マクロ入力)を Call の同名 data 入力で埋める
+                foreach (var p in te.Outputs) if (p.Kind == PinKind.Data) argd[p.Name] = EvalInputByName(n, p.Name);
+                _macroStack.Push(n.Id); _macroArgs.Push(argd);
+                FireExecByName(te, ip);
+                _macroArgs.Pop(); _macroStack.Pop();
+            }
+            return;
+        }
+        // Tunnel Exit: マクロの出口 → 展開元 Call Macro の同名 exec 出力で外側フローを継続。
+        if (n.Title == "Tunnel Exit")
+        {
+            string ip = enteredPin >= 0 && enteredPin < n.Inputs.Count ? n.Inputs[enteredPin].Name : "";
+            if (_macroStack.Count > 0 && NodeById(_macroStack.Peek()) is BpNode call) FireExecByName(call, ip);
             return;
         }
         // 通常ノード: 全 exec 出力を上から順に発火 (Sequence 等)。
@@ -609,6 +636,19 @@ public partial class BlueprintEditor
             return _vars.TryGetValue(from.VarRef.Trim(), out var gv) ? gv : "";
         if (from.Title.StartsWith("Get Local Variable"))   // 関数スコープのローカル変数 (現フレーム)
             return _localFrame.Count > 0 && _localFrame.Peek().TryGetValue(from.VarRef.Trim(), out var lgv) ? lgv : "";
+        // Tunnel Entry の data 出力 = マクロ入力 (展開元 Call Macro の同名 data 入力を _macroArgs から)。
+        if (from.Title == "Tunnel Entry")
+            return _macroArgs.Count > 0 && outPin >= 0 && outPin < from.Outputs.Count && _macroArgs.Peek().TryGetValue(from.Outputs[outPin].Name, out var ma) ? ma : "";
+        // Call Macro の data 出力 = マクロ出口 (Tunnel Exit の同名 data 入力) を評価。
+        if (from.Title == "Call Macro")
+        {
+            if (_macroExit.TryGetValue(from.VarRef.Trim(), out int txId) && NodeById(txId) is BpNode tx && outPin >= 0 && outPin < from.Outputs.Count)
+            {
+                int di = tx.Inputs.FindIndex(p => p.Kind == PinKind.Data && p.Name == from.Outputs[outPin].Name);
+                if (di >= 0) return EvalInput(tx, di);
+            }
+            return "";
+        }
         // Get Self は «self» マーカーを返す。MainWindow.ResolveTarget が実行中インスタンス(_bpSelfId)へ解決する。
         if (from.Title.StartsWith("Get Self")) return "self";
         // 関数ノードの data 出力 = 実行時に得た戻り値 (キャッシュ) を返す。
