@@ -1446,6 +1446,13 @@ public partial class BlueprintEditor : UserControl
                 sync.Click += (_, __) => SyncCallPins(hit);
                 menu.Items.Add(new Separator()); menu.Items.Add(sync);
             }
+            // 関数に折りたたむ (2 個以上選択時。UE の Collapse to Function)。
+            if (_selected.Count >= 2 && _selected.Contains(hit))
+            {
+                var collapse = new MenuItem { Header = "関数に折りたたむ" };
+                collapse.Click += (_, __) => CollapseToFunction();
+                menu.Items.Add(new Separator()); menu.Items.Add(collapse);
+            }
             // 整列 (2 個以上選択時)。
             if (_selected.Count >= 2 && _selected.Contains(hit))
             {
@@ -1475,6 +1482,79 @@ public partial class BlueprintEditor : UserControl
         // 空き場所: 検索パレットを開く (右クリック位置に生成)。
         OpenNodeSearch(GraphToControl(g), g, null);
         e.Handled = true;
+    }
+
+    private static string PinTokType(string ty) => string.IsNullOrEmpty(ty) ? "D" : "D:" + ty;
+
+    /// <summary>選択ノードを新しい関数に折りたたみ、その場所を Call Function ノードに置き換える (UE の Collapse to Function)。
+    /// 境界の «外→S» データ=引数 / «S→外» データ=戻り値 / exec 境界=関数の入口/出口にする。exec を含む選択のみ対応。</summary>
+    private void CollapseToFunction()
+    {
+        var S = _selected.Where(n => !n.Inherited).ToList();
+        if (S.Count < 1) { LogSink?.Invoke("折りたたむノードを選択してください。"); return; }
+        var ids = S.Select(n => n.Id).ToHashSet();
+
+        var dataIn = new List<BpConn>(); var dataOut = new List<BpConn>();
+        var execIn = new List<BpConn>(); var execOut = new List<BpConn>();
+        var internalC = new List<BpConn>();
+        foreach (var c in _conns)
+        {
+            bool fi = ids.Contains(c.FromNode), ti = ids.Contains(c.ToNode);
+            if (fi && ti) { internalC.Add(c); continue; }
+            if (!fi && !ti) continue;
+            var fn = NodeById(c.FromNode); if (fn == null) continue;
+            bool isExec = c.FromPin < fn.Outputs.Count && fn.Outputs[c.FromPin].Kind == PinKind.Exec;
+            if (ti) { if (isExec) execIn.Add(c); else dataIn.Add(c); }     // 外 → S
+            else    { if (isExec) execOut.Add(c); else dataOut.Add(c); }   // S → 外
+        }
+        if (execIn.Count == 0 && execOut.Count == 0) { LogSink?.Invoke("実行(exec)を含む選択のみ折りたたみできます (pure のみは未対応)。"); return; }
+
+        // データ引数: 外部ソースピンごとに 1 つ。戻り値: 内部ソースピンごとに 1 つ。
+        var paramOf = new Dictionary<(int, int), int>(); var paramType = new List<string>();
+        foreach (var c in dataIn) { var k = (c.FromNode, c.FromPin); if (!paramOf.ContainsKey(k)) { var fn = NodeById(c.FromNode)!; paramOf[k] = paramType.Count; paramType.Add(c.FromPin < fn.Outputs.Count ? fn.Outputs[c.FromPin].Type : ""); } }
+        var retOf = new Dictionary<(int, int), int>(); var retType = new List<string>();
+        foreach (var c in dataOut) { var k = (c.FromNode, c.FromPin); if (!retOf.ContainsKey(k)) { var fn = NodeById(c.FromNode)!; retOf[k] = retType.Count; retType.Add(c.FromPin < fn.Outputs.Count ? fn.Outputs[c.FromPin].Type : ""); } }
+
+        string fname = UniqueGraphName("NewFunction");
+        int entryId = _nextId++, returnId = _nextId++;
+
+        // 関数本体テキスト: Entry / Return / S ノード+内部接続 / 境界の配線。
+        var fb = new StringBuilder();
+        fb.Append($"N {entryId} 60 140 357A55 Function Entry\nO E ▶\n");
+        for (int k = 0; k < paramType.Count; k++) fb.Append($"O {PinTokType(paramType[k])} arg{k}\n");
+        fb.Append($"N {returnId} 820 140 357A55 Return\nI E ▶\n");
+        for (int k = 0; k < retType.Count; k++) fb.Append($"I {PinTokType(retType[k])} ret{k}\n");
+        fb.Append(SerializeNodes(S));   // S の N/I/O/V/X/NC/VR + 内部接続 C
+        if (execIn.Count > 0) fb.Append($"C {entryId} 0 {execIn[0].ToNode} {execIn[0].ToPin}\n");
+        foreach (var c in dataIn) fb.Append($"C {entryId} {1 + paramOf[(c.FromNode, c.FromPin)]} {c.ToNode} {c.ToPin}\n");
+        foreach (var c in dataOut) fb.Append($"C {c.FromNode} {c.FromPin} {returnId} {1 + retOf[(c.FromNode, c.FromPin)]}\n");
+        if (execOut.Count > 0) fb.Append($"C {execOut[0].FromNode} {execOut[0].FromPin} {returnId} 0\n");
+
+        BeginEdit();
+        _graphTexts[fname] = fb.ToString();
+        _graphOrder.Add(fname); _graphIsFunc.Add(fname);
+
+        // 現在グラフ: Call Function ノードを作り、S と境界/内部接続を除去して置換。
+        double cx = S.Average(n => n.X), cy = S.Average(n => n.Y);
+        var call = new BpNode { Id = _nextId++, Title = "Call Function", X = cx, Y = cy, Header = new SolidColorBrush(Color.FromRgb(0x2E, 0x5C, 0x8A)) };
+        call.Inputs.Add(new Pin("▶", PinKind.Exec)); call.Inputs.Add(new Pin("name", PinKind.Data, "String"));
+        for (int k = 0; k < paramType.Count; k++) call.Inputs.Add(new Pin($"arg{k}", PinKind.Data, paramType[k]));
+        call.Outputs.Add(new Pin("▶", PinKind.Exec));
+        for (int k = 0; k < retType.Count; k++) call.Outputs.Add(new Pin($"ret{k}", PinKind.Data, retType[k]));
+        call.Literals[1] = fname;
+
+        _nodes.RemoveAll(n => ids.Contains(n.Id));
+        _conns.RemoveAll(c => ids.Contains(c.FromNode) || ids.Contains(c.ToNode));
+        _nodes.Add(call);
+        if (execIn.Count > 0) _conns.Add(new BpConn(execIn[0].FromNode, execIn[0].FromPin, call.Id, 0));
+        foreach (var kv in paramOf) _conns.Add(new BpConn(kv.Key.Item1, kv.Key.Item2, call.Id, 2 + kv.Value));
+        if (execOut.Count > 0) _conns.Add(new BpConn(call.Id, 0, execOut[0].ToNode, execOut[0].ToPin));
+        foreach (var c in dataOut) _conns.Add(new BpConn(call.Id, 1 + retOf[(c.FromNode, c.FromPin)], c.ToNode, c.ToPin));
+
+        _selected.Clear(); _selected.Add(call);
+        Rebuild(); BuildGraphTabs(); GraphChanged?.Invoke();
+        CommitEdit();
+        LogSink?.Invoke($"ƒ {S.Count} ノードを関数 «{fname}» に折りたたみました (引数{paramType.Count}/戻り{retType.Count})。");
     }
 
     /// <summary>Function Entry / Return に型付きデータピンを追加する (関数の入出力)。</summary>
@@ -1796,6 +1876,14 @@ public partial class BlueprintEditor : UserControl
         RenderViewport();
     }
 
+    /// <summary>検証用: ノード 2,3 を選択して関数に折りたたむ (--bpshot collapse)。</summary>
+    public void CollapseForTest()
+    {
+        _selected.Clear();
+        foreach (var id in new[] { 2, 3 }) { var n = NodeById(id); if (n != null) _selected.Add(n); }
+        CollapseToFunction();
+    }
+
     /// <summary>検証用: 指定ノードだけ選択する (Details の表示確認。--bpshot node&lt;id&gt;)。</summary>
     public void SelectOneForTest(int id)
     {
@@ -1919,6 +2007,23 @@ public partial class BlueprintEditor : UserControl
             "N 101 0 0 1 Multiply\nI D:Float a\nI D:Float b\nO D:Float result\n" +
             "N 102 0 0 1 Return\nI E ▶\nI D:Float ret0\n" +
             "C 100 0 102 0\nC 100 1 101 0\nC 100 1 101 1\nC 101 0 102 1\n", "r", "36");
+
+        // Collapse to Function: exec ノード(Set Variable)を関数化しても結果が一致する (Add は外部の引数になる)。
+        {
+            Deserialize("ACSBP 1\nVAR Float r 0\n" +
+                "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+                "N 2 0 0 1 Set Variable\nI E ▶\nI D:String name\nI D value\nO E ▶\nV 1 r\n" +
+                "N 3 0 0 1 Add\nI D:Float a\nI D:Float b\nO D:Float result\nV 0 2\nV 1 3\n" +
+                "C 1 0 2 0\nC 3 0 2 2\n");
+            var setNode = NodeById(2);
+            _selected.Clear(); if (setNode != null) _selected.Add(setNode);
+            CollapseToFunction();
+            RunGraph();
+            string got = _vars.TryGetValue("r", out var cv) ? cv : "(none)";
+            bool ok = got == "5";
+            if (ok) pass++; else fail++;
+            log.Append(ok ? "  OK   " : "  FAIL ").Append("CollapseToFunc  (期待=5 実際=").Append(got).Append(")\n");
+        }
 
         // 直列化の往復: Serialize→Deserialize→Serialize が一致する
         {
