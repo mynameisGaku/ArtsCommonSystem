@@ -55,7 +55,7 @@ public partial class BlueprintEditor
         if (char.IsDigit(r[0])) r = "_" + r;
         return r;
     }
-    private static string CppType(string t) => t switch
+    private static string CppType(string t) => t != null && t.StartsWith("Enum:") ? t.Substring(5) : t switch
     {
         "Bool" => "bool", "Int" => "int", "Float" => "float",
         "String" => "acs::FString", "Text" => "acs::FText", "Vector" => "acs::FVec2", "Vector3" => "acs::FVec3", "Object" => "FNode2D*", _ => "float",
@@ -99,6 +99,10 @@ public partial class BlueprintEditor
             h.Append("// SPDX-License-Identifier: Apache-2.0\n// Generated from a Blueprint graph by AcsEditor — edit the .acsbp, then regenerate.\n#pragma once\n");
             h.Append("#include \"gameframework/Component2D.h\"\n#include \"gameframework/Node2D.h\"\n#include \"gameframework/AcsClass.h\"\n#include \"container/String.h\"\n#include \"math/Vec.h\"\n\n");
             h.Append("namespace acs::game {\n\n");
+            foreach (var en in Enums)   // ユーザー定義 Enum → enum class
+                if (!string.IsNullOrWhiteSpace(en.Key) && en.Value.Count > 0)
+                    h.Append("enum class ").Append(SanitizeIdent(en.Key)).Append(" { ").Append(string.Join(", ", en.Value.Select(SanitizeIdent))).Append(" };\n");
+            if (Enums.Count > 0) h.Append('\n');
             h.Append("ACS_CLASS()\nclass ").Append(cls).Append(" : public FComponent2D {\npublic:\n");
             h.Append("    ACS_GAME_COMPONENT_KIND(").Append(cls).Append(")\n\n");
             foreach (var v in Variables)
@@ -252,13 +256,15 @@ public partial class BlueprintEditor
             GenStmt(s, ExecNext(n, "Completed"), ind, visited, depth + 1);
             return;
         }
-        if (t == "Switch on String")   // selector を Case(ピン名=照合文字列)へ if/else 分岐。Default は最後。
+        if (t is "Switch on String" or "Switch on Enum")   // selector を Case(ピン名=照合文字列/エントリ)へ if/else 分岐。
         {
+            bool isEnum = t == "Switch on Enum"; string enm = n.VarRef;
             string sel = GenArg(n, "selector", 0); bool first = true;
             foreach (var p in n.Outputs)
                 if (p.Kind == PinKind.Exec && p.Name != "Default")
                 {
-                    s.Append(ind).Append(first ? "if (" : "else if (").Append(sel).Append(" == ").Append(CppLiteral(p.Name, "String")).Append(") {\n");
+                    string rhs = isEnum ? $"{SanitizeIdent(enm)}::{SanitizeIdent(p.Name)}" : CppLiteral(p.Name, "String");
+                    s.Append(ind).Append(first ? "if (" : "else if (").Append(sel).Append(" == ").Append(rhs).Append(") {\n");
                     GenExecOut(s, n, p.Name, ind + "    ", visited, depth + 1);
                     s.Append(ind).Append("}\n"); first = false;
                 }
@@ -369,6 +375,8 @@ public partial class BlueprintEditor
             case "To String": return GenArg(n, "in", depth);
             case "To Text":   return $"acs::FText({GenArg(n, "in", depth)})";
             case "Make Literal Text": return $"acs::FText({GenArg(n, "value", depth)})";
+            case "Make Literal Enum": { string ev = n.Literals.TryGetValue(0, out var le) ? le : ""; return $"{SanitizeIdent(n.VarRef)}::{SanitizeIdent(ev)}"; }
+            case "Enum to String": return GenArg(n, "in", depth);
             case "For Loop":  return $"i{n.Id}";   // index 出力 = ループ変数
             // 数学 (std math 関数 / 三項式)。
             case "Abs":    return $"std::fabs((float)({GenArg(n, "value", depth)}))";

@@ -1055,6 +1055,9 @@ public partial class MainWindow : Window
             new("フロー", "FlipFlop",      flow, new[] { Ex("▶") },                            new[] { Ex("A"), Ex("B"), Da("is A", "Bool") }),
             new("フロー", "Switch on Int", flow, new[] { Ex("▶"), Da("selector", "Int") },     new[] { Ex("0"), Ex("1"), Ex("2"), Ex("Default") }),
             new("フロー", "Switch on String", flow, new[] { Ex("▶"), Da("selector", "String") }, new[] { Ex("Default") }),   // Case ピンは右クリックで追加 (ピン名=照合文字列)
+            new("フロー", "Switch on Enum",   flow, new[] { Ex("▶"), Da("selector", "") },        new[] { Ex("Default") }),   // 右クリック「列挙型を選択」でエントリ別 exec 出力を生成
+            new("列挙", "Make Literal Enum", str, none,                  new[] { Da("value", "") }),    // 右クリックで列挙型を選択
+            new("列挙", "Enum to String",   str, new[] { Da("in", "") }, new[] { Da("result", "String") }),
             new("フロー", "MultiGate",     flow, new[] { Ex("▶"), Ex("Reset"), Da("Is Random", "Bool"), Da("Loop", "Bool") }, new[] { Ex("Out 0"), Ex("Out 1"), Ex("Out 2") }),   // 入るたび 1 本ずつ
             new("フロー", "ForEach",       flow, new[] { Ex("▶"), Da("array"), Ex("Break") },  new[] { Ex("Loop Body"), Da("element"), Da("index", "Int"), Ex("Completed") }),
             new("フロー", "Delay",         flow, new[] { Ex("▶"), Da("duration", "Float") },   new[] { Ex("Completed") }),

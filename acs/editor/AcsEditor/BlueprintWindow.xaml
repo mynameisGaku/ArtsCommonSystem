@@ -69,6 +69,23 @@
             </Border>
             <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
 
+            <!-- ENUMERATIONS (ユーザー定義 Enum) -->
+            <Border DockPanel.Dock="Top" Background="{DynamicResource HeaderBg}" Padding="11,5,7,5">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="ENUMERATIONS" Style="{DynamicResource Section}" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="＋ Enum" Padding="9,2" FontSize="11" Click="OnAddEnum"
+                            Foreground="{DynamicResource OkFg}" ToolTip="ユーザー定義の列挙型を追加"/>
+                </Grid>
+            </Border>
+            <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
+            <Border DockPanel.Dock="Top" Height="80">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="EnumList" Margin="5,4,5,6"/>
+                </ScrollViewer>
+            </Border>
+            <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Hairline}"/>
+
             <!-- LOCAL VARIABLES (関数編集中のみ表示) -->
             <Border x:Name="LocalHeader" DockPanel.Dock="Top" Background="{DynamicResource HeaderBg}" Padding="11,5,7,5" Visibility="Collapsed">
                 <Grid>

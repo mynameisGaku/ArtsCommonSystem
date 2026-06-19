@@ -39,6 +39,7 @@ public partial class BlueprintWindow : Window
         _         => Rgb(0x8F, 0xD1, 0x4F),
     };
     private static SolidColorBrush Rgb(byte r, byte g, byte b) => new(Color.FromRgb(r, g, b));
+    private void FillTypes(ComboBox c) { foreach (var t in Types) c.Items.Add(t); foreach (var en in Editor.Enums.Keys) c.Items.Add("Enum:" + en); }
 
     private BlueprintEditor.BpVar? _sel;
     private readonly System.Collections.Generic.HashSet<string> _collapsedCats = new();   // 折りたたみ中の変数カテゴリ
@@ -53,14 +54,15 @@ public partial class BlueprintWindow : Window
         InitializeComponent();
         GraphHost.VariablesChanged  = RefreshVars;        // 変数が変わったら再描画
         GraphHost.ComponentsChanged = RefreshComponents;  // コンポーネント木が変わったら再描画
-        GraphHost.GraphChanged      = () => { RefreshFunctions(); RefreshLocals(); RefreshDispatchers(); };   // グラフ切替/追加/読込で再描画
+        GraphHost.GraphChanged      = () => { RefreshFunctions(); RefreshLocals(); RefreshDispatchers(); RefreshEnums(); };   // グラフ切替/追加/読込で再描画
         GraphHost.SelectionChanged  = RefreshDetails;     // ノード選択で Details を反映 (UE5 風)
         GraphHost.LocalsChanged     = RefreshLocals;      // ローカル変数の追加/削除で再描画
         GraphHost.DispatchersChanged = RefreshDispatchers; // ディスパッチャの追加/削除で再描画
         GraphHost.FuncIOChanged     = RefreshDetails;      // 関数の入出力ピン編集で Details 再描画
+        GraphHost.EnumsChanged      = RefreshEnums;        // Enum の追加/編集で再描画
         GraphHost.PathChanged = () => Title = string.IsNullOrEmpty(GraphHost.CurrentPath)
             ? "Blueprint" : "Blueprint — " + System.IO.Path.GetFileName(GraphHost.CurrentPath);
-        Loaded += (_, __) => { RefreshComponents(); RefreshVars(); RefreshFunctions(); RefreshLocals(); RefreshDispatchers(); };
+        Loaded += (_, __) => { RefreshComponents(); RefreshVars(); RefreshFunctions(); RefreshLocals(); RefreshDispatchers(); RefreshEnums(); };
     }
 
     // この BP の «コンポーネント木» (ACSCENE サブツリー) を解析してノード/コンポーネントを表示する。
@@ -190,6 +192,38 @@ public partial class BlueprintWindow : Window
     }
     private void OnAddFunctionPanel(object sender, RoutedEventArgs e) => Editor.NewFunction();
     private void OnAddLocalVar(object sender, RoutedEventArgs e) => Editor.AddLocalVar();
+    private void OnAddEnum(object sender, RoutedEventArgs e) => Editor.AddEnum();
+
+    // ENUMERATIONS セクション。各行: 名前 + エントリ(カンマ区切り) + 削除。
+    private void RefreshEnums()
+    {
+        if (EnumList == null) return;
+        EnumList.Children.Clear();
+        foreach (var kv in Editor.Enums)
+        {
+            var en = kv.Key;
+            var sp = new StackPanel { Margin = new Thickness(2, 1, 2, 4) };
+            var top = new Grid();
+            top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var pill = new Border { Width = 13, Height = 11, CornerRadius = new CornerRadius(3), Background = Rgb(0x3A, 0xC8, 0xC8), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 6, 0) };
+            Grid.SetColumn(pill, 0); top.Children.Add(pill);
+            var nameBox = MakeBox(en); nameBox.FontSize = 11; nameBox.Height = 20;
+            nameBox.LostFocus += (_, __) => { if (nameBox.Text.Trim() != en && nameBox.Text.Trim().Length > 0) Editor.RenameEnum(en, nameBox.Text.Trim()); };
+            Grid.SetColumn(nameBox, 1); top.Children.Add(nameBox);
+            var del = new Button { Content = "✕", FontSize = 9, Padding = new Thickness(5, 0, 5, 0), Background = Brushes.Transparent, BorderThickness = new Thickness(0), Foreground = (Brush)FindResource("WarnFg"), VerticalAlignment = VerticalAlignment.Center };
+            del.Click += (_, __) => Editor.RemoveEnum(en);
+            Grid.SetColumn(del, 2); top.Children.Add(del);
+            sp.Children.Add(top);
+            var entriesBox = MakeBox(string.Join(", ", kv.Value)); entriesBox.FontSize = 10; entriesBox.Height = 20; entriesBox.Margin = new Thickness(19, 2, 0, 0); entriesBox.ToolTip = "エントリ (カンマ区切り)";
+            entriesBox.LostFocus += (_, __) => Editor.SetEnumEntries(en, entriesBox.Text);
+            sp.Children.Add(entriesBox);
+            EnumList.Children.Add(sp);
+        }
+        if (Editor.Enums.Count == 0)
+            EnumList.Children.Add(new TextBlock { Text = "（列挙型なし — ＋Enum で追加）", Foreground = Dim, FontSize = 10.5, Margin = new Thickness(6, 4, 0, 0) });
+    }
     private void OnAddDispatcher(object sender, RoutedEventArgs e) => Editor.AddDispatcher();
 
     // EVENT DISPATCHERS セクション。アイコンから D&D で Call / Event(束縛) ノードを作る。
@@ -247,7 +281,7 @@ public partial class BlueprintWindow : Window
             nameBox.LostFocus += (_, __) => RefreshLocals();
             Grid.SetColumn(nameBox, 1); g.Children.Add(nameBox);
             var tcombo = new ComboBox { FontSize = 10, Height = 20, Margin = new Thickness(4, 0, 4, 0) };
-            foreach (var t in Types) tcombo.Items.Add(t);
+            FillTypes(tcombo);
             tcombo.SelectedItem = Types.Contains(lv.Type) ? lv.Type : "Float";
             tcombo.SelectionChanged += (_, __) => { if (tcombo.SelectedItem is string t) { lv.Type = t; RefreshLocals(); } };
             Grid.SetColumn(tcombo, 2); g.Children.Add(tcombo);
@@ -411,7 +445,7 @@ public partial class BlueprintWindow : Window
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var tcombo = new ComboBox { FontSize = 10, Height = 20 };
-        foreach (var t in Types) tcombo.Items.Add(t);
+        FillTypes(tcombo);
         tcombo.SelectedItem = Types.Contains(p.type) ? p.type : "Float";
         tcombo.SelectionChanged += (_, __) => { if (tcombo.SelectedItem is string t && t != p.type) Editor.RetypeIOPin(idx, t); };
         Grid.SetColumn(tcombo, 0); g.Children.Add(tcombo);
@@ -463,7 +497,7 @@ public partial class BlueprintWindow : Window
         DetailsPanel.Children.Add(LabeledRow("名前", nameBox));
 
         var combo = new ComboBox { FontSize = 11, Height = 26 };
-        foreach (var t in Types) combo.Items.Add(t);
+        FillTypes(combo);
         combo.SelectedItem = Types.Contains(s.Type) ? s.Type : "Float";
         combo.SelectionChanged += (_, __) => { if (combo.SelectedItem is string t) { s.Type = t; Editor.RetypeVarReferences(s.Name); RefreshVars(); } };   // 型変更で Get/Set ノードも再型付け
         DetailsPanel.Children.Add(LabeledRow("型", combo));

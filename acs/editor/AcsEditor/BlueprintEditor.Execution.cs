@@ -208,12 +208,13 @@ public partial class BlueprintEditor
             FireExecByName(n, matched ? sel.ToString() : "Default");
             return;
         }
-        // Switch on String: selector に一致する Case 出力(ピン名=照合文字列)を、無ければ Default を発火。
-        if (n.Title == "Switch on String")
+        // Switch on String / Switch on Enum: selector に一致する出力(ピン名=照合文字列/エントリ)を、無ければ Default。
+        if (n.Title is "Switch on String" or "Switch on Enum")
         {
             string sel = EvalInputByName(n, "selector");
-            bool matched = n.Outputs.Any(p => p.Kind == PinKind.Exec && p.Name == sel);
-            FireExecByName(n, matched ? sel : "Default");
+            var hit = n.Outputs.FirstOrDefault(p => p.Kind == PinKind.Exec && p.Name == sel);
+            if (hit != null) FireExecByName(n, sel);
+            else if (n.Outputs.Any(p => p.Kind == PinKind.Exec && p.Name == "Default")) FireExecByName(n, "Default");
             return;
         }
         // MultiGate: 入るたびに Out 0,1,2… を «順に / ランダムに» 1 本ずつ発火。Reset で先頭へ。Loop で巡回。
@@ -640,6 +641,8 @@ public partial class BlueprintEditor
             }
             case "To String": { var s = EvalInputByName(from, "in"); return s == "(未接続)" ? "" : s; }
             case "To Text":   { var s = EvalInputByName(from, "in"); return s == "(未接続)" ? "" : s; }   // FText も実行上は文字列
+            case "Make Literal Enum": return from.Literals.TryGetValue(0, out var me) ? me : "";   // Enum 値 = エントリ名
+            case "Enum to String": { var s = EvalInputByName(from, "in"); return s == "(未接続)" ? "" : s; }
             case "Make Literal Text": { var s = EvalInputByName(from, "value"); return s == "(未接続)" ? "" : s; }
             case "To Float":  return Fmt(ParseNum(EvalInputByName(from, "in")));
             case "To Int":    return ((long)ParseNum(EvalInputByName(from, "in"))).ToString(CultureInfo.InvariantCulture);

@@ -154,8 +154,9 @@ public partial class BlueprintEditor : UserControl
     private static readonly Brush TVector3 = new SolidColorBrush(Color.FromRgb(0xE8, 0x8A, 0x3A));
     private static readonly Brush TObject = new SolidColorBrush(Color.FromRgb(0x4C, 0x9E, 0xE8));
     private static readonly Brush TWildcard = new SolidColorBrush(Color.FromRgb(0xB2, 0xB8, 0xC2));   // ワイルドカード = 中立グレー (UE 風)
+    private static readonly Brush TEnum = new SolidColorBrush(Color.FromRgb(0x3A, 0xC8, 0xC8));       // Enum = シアン (UE 風)
 
-    private static Brush DataTypeBrush(string type) => type switch
+    private static Brush DataTypeBrush(string type) => type != null && type.StartsWith("Enum:") ? TEnum : type switch
     {
         "Bool"   => TBool,
         "Int"    => TInt,
@@ -502,6 +503,15 @@ public partial class BlueprintEditor : UserControl
         if (pin.Type == "Object") return null;   // UE 風: Object 参照は «接続» で指定 (Self / Get 変数 / spawned)。手入力欄は出さない
         int idx = i;
         string cur = n.Literals.TryGetValue(i, out var lv) ? lv : "";
+        if (pin.Type != null && pin.Type.StartsWith("Enum:"))   // Enum 型入力 → エントリのドロップダウン
+        {
+            string enm = pin.Type.Substring(5);
+            var combo = new ComboBox { Width = 92, Height = 18, FontSize = 10, Padding = new Thickness(3, 0, 0, 0) };
+            if (Enums.TryGetValue(enm, out var ents)) foreach (var e in ents) combo.Items.Add(e);
+            combo.SelectedItem = string.IsNullOrEmpty(cur) ? null : cur;
+            combo.SelectionChanged += (_, __) => { if (combo.SelectedItem is string s && s != cur) { BeginEdit(); n.Literals[idx] = s; CommitEdit(); } };
+            return combo;
+        }
         if (n.Title == "Call Function" && pin.Name == "name")
         {
             // 関数名は «関数一覧から選ぶ» 専用の非編集コンボ。文字列指定したい場合は name ピンに String を接続する (別系統)。
@@ -1493,6 +1503,19 @@ public partial class BlueprintEditor : UserControl
                 add.Click += (_, __) => { int k = hit.Outputs.Count(p => p.Kind == PinKind.Exec); AddExecPin(hit, hit.Title == "MultiGate" ? "Out " + k : k.ToString()); };
                 menu.Items.Add(new Separator()); menu.Items.Add(add);
             }
+            else if (hit.Title is "Switch on Enum" or "Make Literal Enum" or "Enum to String")   // 列挙型を束縛
+            {
+                var pick = new MenuItem { Header = "列挙型を選択" };
+                foreach (var en in Enums.Keys) { var ec = en; var mi = new MenuItem { Header = en }; mi.Click += (_, __) => BindEnum(hit, ec); pick.Items.Add(mi); }
+                if (Enums.Count == 0) pick.Items.Add(new MenuItem { Header = "(列挙型なし — My Blueprint で追加)", IsEnabled = false });
+                menu.Items.Add(new Separator()); menu.Items.Add(pick);
+                if (hit.Title == "Make Literal Enum" && Enums.TryGetValue(hit.VarRef, out var ents))   // 値を選択
+                {
+                    var val = new MenuItem { Header = "値を選択" };
+                    foreach (var ev in ents) { var ec = ev; var mi = new MenuItem { Header = ev }; mi.Click += (_, __) => { BeginEdit(); hit.Literals[0] = ec; Rebuild(); CommitEdit(); }; val.Items.Add(mi); }
+                    menu.Items.Add(val);
+                }
+            }
             // 関数に折りたたむ (2 個以上選択時。UE の Collapse to Function)。
             if (_selected.Count >= 2 && _selected.Contains(hit))
             {
@@ -2236,6 +2259,13 @@ public partial class BlueprintEditor : UserControl
             log.Append(ok ? "  OK   " : "  FAIL ").Append("FindCrossGraph  (Multiply 件数=").Append(found).Append(")\n");
         }
 
+        // Switch on Enum: selector=Green → Green 出力が発火して r=5 (列挙型 Color)。
+        Check("SwitchEnum", "ACSBP 1\nVAR Float r 0\nENUM Color Red,Green,Blue\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Switch on Enum\nI E ▶\nI D:Enum:Color selector\nO E Red\nO E Green\nO E Blue\nV 1 Green\n" +
+            "N 3 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\nV 1 5\n" +
+            "C 1 0 2 0\nC 2 1 3 0\n", "r", "5");
+
         // To Text: String を FText へ (実行上は文字列が素通し)。
         Check("ToText", Calc("N 50 0 0 1 To Text\nI D:String in\nO D:Text result\nV 0 hello\n", 0), "r", "hello");
 
@@ -2689,6 +2719,7 @@ public partial class BlueprintEditor : UserControl
                     sb.Append("VTIP ").Append(v.Name.Trim()).Append(' ').Append(v.Tooltip.Replace("\n", " ")).Append('\n');
             }
         foreach (var d in Dispatchers) if (!string.IsNullOrWhiteSpace(d)) sb.Append("EVDISP ").Append(d.Trim()).Append('\n');   // イベントディスパッチャ
+        foreach (var en in Enums) if (!string.IsNullOrWhiteSpace(en.Key)) sb.Append("ENUM ").Append(en.Key.Trim()).Append(' ').Append(string.Join(",", en.Value)).Append('\n');   // ユーザー定義 Enum
         if (!string.IsNullOrEmpty(ComponentsText))   // コンポーネント木: CMP <行数> + 逐語の ACSCENE 行
             AcsbpFormat.AppendCmpBlock(sb, ComponentsText);
         sb.Append(_graphTexts.TryGetValue(EventGraphName, out var eg) ? eg : "");   // Event Graph 本体
@@ -2754,7 +2785,7 @@ public partial class BlueprintEditor : UserControl
     {
         _nodes.Clear(); _conns.Clear(); _comments.Clear(); _selected.Clear(); _parentPath = null;
         _dragNode = null; _wireSource = null; _ghost = null;
-        Variables.Clear(); Dispatchers.Clear();
+        Variables.Clear(); Dispatchers.Clear(); Enums.Clear();
         ComponentsText = "";
         _graphTexts.Clear(); _graphOrder.Clear(); _graphOrder.Add(EventGraphName);
         _graphIsFunc.Clear(); _activeName = EventGraphName;
@@ -2809,6 +2840,7 @@ public partial class BlueprintEditor : UserControl
                 if (vv != null && t.Length >= 3) vv.Tooltip = t[2];
             }
             else if (l.StartsWith("EVDISP ")) { var d = l.Substring(7).Trim(); if (d.Length > 0 && !Dispatchers.Contains(d)) Dispatchers.Add(d); }
+            else if (l.StartsWith("ENUM ")) { var t = l.Split(new[] { ' ' }, 3); if (t.Length >= 2) Enums[t[1]] = (t.Length >= 3 ? t[2] : "").Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList(); }
         }
 
         // PARENT 行を先に処理し、親グラフを «継承ノード» (id +InheritOffset, 読取専用) として読み込む。
@@ -3266,6 +3298,52 @@ public partial class BlueprintEditor : UserControl
             if ((c.Literals.TryGetValue(c.Inputs.FindIndex(p => p.Name == "name"), out var nm) ? nm.Trim() : "") == name) SyncCallPins(c);
         BuildGraphTabs(); GraphChanged?.Invoke(); CommitEdit();
         LogSink?.Invoke($"関数 «{name}» を {(pure ? "Pure" : "Impure")} に。呼出側は右クリック「関数ピンを同期」で追従。");
+    }
+
+    // ----- ユーザー定義 Enum (型トークン "Enum:<name>"。UE の Blueprint Enum) -----
+    public Dictionary<string, List<string>> Enums { get; } = new();   // Enum 名 → エントリ列
+    public Action? EnumsChanged;
+    public void AddEnum()
+    {
+        BeginEdit();
+        string b = "NewEnum"; string nm = b; int k = 2; while (Enums.ContainsKey(nm)) nm = b + k++;
+        Enums[nm] = new List<string> { "Entry0", "Entry1" };
+        CommitEdit(); EnumsChanged?.Invoke();
+    }
+    public void RemoveEnum(string name) { if (Enums.Remove(name)) { CommitEdit(); EnumsChanged?.Invoke(); } }
+    public void RenameEnum(string oldName, string newName)
+    {
+        if (!Enums.TryGetValue(oldName, out var e) || string.IsNullOrWhiteSpace(newName) || Enums.ContainsKey(newName)) return;
+        BeginEdit(); Enums.Remove(oldName); Enums[newName] = e; CommitEdit(); EnumsChanged?.Invoke();
+    }
+    public void SetEnumEntries(string name, string csv)
+    {
+        if (!Enums.ContainsKey(name)) return;
+        BeginEdit();
+        Enums[name] = csv.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
+        CommitEdit(); EnumsChanged?.Invoke();
+    }
+    /// <summary>Switch on Enum / Make Literal Enum を列挙型 enumName に束縛し、出力(エントリ)を生成する。</summary>
+    private void BindEnum(BpNode n, string enumName)
+    {
+        if (!Enums.TryGetValue(enumName, out var entries)) return;
+        BeginEdit();
+        n.VarRef = enumName;
+        if (n.Title == "Switch on Enum")
+        {
+            _conns.RemoveAll(c => c.FromNode == n.Id);   // 出力を作り直す
+            n.Outputs.Clear();
+            foreach (var e in entries) n.Outputs.Add(new Pin(e, PinKind.Exec));
+            if (n.Inputs.Count >= 2) n.Inputs[1] = n.Inputs[1] with { Type = "Enum:" + enumName };   // selector 型
+        }
+        else if (n.Title == "Make Literal Enum")
+        {
+            n.Outputs.Clear(); n.Outputs.Add(new Pin("value", PinKind.Data, "Enum:" + enumName));
+            if (entries.Count > 0 && !n.Literals.ContainsKey(0)) n.Literals[0] = entries[0];
+        }
+        else if (n.Title == "Enum to String" && n.Inputs.Count > 0)
+            n.Inputs[0] = n.Inputs[0] with { Type = "Enum:" + enumName };
+        Rebuild(); CommitEdit();
     }
 
     // ----- イベントディスパッチャ (BP レベルのマルチキャスト。UE の Event Dispatchers) -----
