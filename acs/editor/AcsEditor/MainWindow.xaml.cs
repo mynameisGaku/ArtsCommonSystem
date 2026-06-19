@@ -998,6 +998,8 @@ public partial class MainWindow : Window
             new("文字列", "Replace",       str, new[] { Da("in", "String"), Da("from", "String"), Da("to", "String") }, new[] { Da("result", "String") }),
             new("文字列", "Substring",     str, new[] { Da("in", "String"), Da("start", "Int"), Da("count", "Int") }, new[] { Da("result", "String") }),
             new("文字列", "Format Text",   str, new[] { Da("format", "String"), Da("arg0"), Da("arg1"), Da("arg2") }, new[] { Da("result", "String") }),   // UE: {0}{1}{2} 置換
+            new("文字列", "To Text",          str, new[] { Da("in", "String") },     new[] { Da("result", "Text") }),       // FString → FText (表示/ローカライズ用)
+            new("文字列", "Make Literal Text", str, new[] { Da("value", "String") }, new[] { Da("result", "Text") }),       // 定数 FText
             // 乱数 (pure)。
             new("乱数", "Random Float", tim, new[] { Da("min", "Float"), Da("max", "Float") }, new[] { Da("result", "Float") }),
             new("乱数", "Random Int",   tim, new[] { Da("min", "Int"), Da("max", "Int") },     new[] { Da("result", "Int") }),

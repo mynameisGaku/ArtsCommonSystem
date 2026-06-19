@@ -58,7 +58,7 @@ public partial class BlueprintEditor
     private static string CppType(string t) => t switch
     {
         "Bool" => "bool", "Int" => "int", "Float" => "float",
-        "String" => "acs::FString", "Vector" => "acs::FVec2", "Vector3" => "acs::FVec3", "Object" => "FNode2D*", _ => "float",
+        "String" => "acs::FString", "Text" => "acs::FText", "Vector" => "acs::FVec2", "Vector3" => "acs::FVec3", "Object" => "FNode2D*", _ => "float",
     };
     private static string CppDefault(string t, string v)
     {
@@ -357,6 +357,8 @@ public partial class BlueprintEditor
             case "To Int":    return $"(int)({GenArg(n, "in", depth)})";
             case "To Bool":   return $"(bool)({GenArg(n, "in", depth)})";
             case "To String": return GenArg(n, "in", depth);
+            case "To Text":   return $"acs::FText({GenArg(n, "in", depth)})";
+            case "Make Literal Text": return $"acs::FText({GenArg(n, "value", depth)})";
             case "For Loop":  return $"i{n.Id}";   // index 出力 = ループ変数
             // 数学 (std math 関数 / 三項式)。
             case "Abs":    return $"std::fabs((float)({GenArg(n, "value", depth)}))";

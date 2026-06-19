@@ -148,6 +148,7 @@ public partial class BlueprintEditor : UserControl
     private static readonly Brush TInt    = new SolidColorBrush(Color.FromRgb(0x2B, 0xD1, 0xB4));
     private static readonly Brush TFloat  = new SolidColorBrush(Color.FromRgb(0x8F, 0xD1, 0x4F));
     private static readonly Brush TString = new SolidColorBrush(Color.FromRgb(0xD1, 0x56, 0xB0));
+    private static readonly Brush TText = new SolidColorBrush(Color.FromRgb(0xE8, 0xA8, 0xD8));   // FText = 薄ピンク (String と区別)
     private static readonly Brush TVector = new SolidColorBrush(Color.FromRgb(0xE0, 0xB8, 0x4A));
     private static readonly Brush TVector3 = new SolidColorBrush(Color.FromRgb(0xE8, 0x8A, 0x3A));
     private static readonly Brush TObject = new SolidColorBrush(Color.FromRgb(0x4C, 0x9E, 0xE8));
@@ -159,6 +160,7 @@ public partial class BlueprintEditor : UserControl
         "Int"    => TInt,
         "Float"  => TFloat,
         "String" => TString,
+        "Text"   => TText,
         "Vector" => TVector,
         "Vector3" => TVector3,
         "Object" => TObject,
@@ -799,7 +801,9 @@ public partial class BlueprintEditor : UserControl
     /// <summary>from → to の変換に使うノード名 (無ければ null)。</summary>
     private static string? ConversionNodeFor(string from, string to)
     {
-        if (to == "String" && (from is "Int" or "Float" or "Bool" or "Vector" or "Vector3")) return "To String";
+        if (to == "String" && (from is "Int" or "Float" or "Bool" or "Vector" or "Vector3" or "Text")) return "To String";
+        if (from == "String"  && to == "Text")    return "To Text";
+        if (from == "Text"    && to == "String")  return "To String";
         if (from == "Int"     && to == "Float")   return "To Float";
         if (from == "Float"   && to == "Int")     return "To Int";
         if (from == "Vector"  && to == "Vector3") return "To Vector3";
@@ -1186,6 +1190,8 @@ public partial class BlueprintEditor : UserControl
             case "bottom":  { double v = sel.Max(n => n.Y + NodeHeight(n));  foreach (var n in sel) n.Y = v - NodeHeight(n); break; }
             case "hcenter": { double v = sel.Average(n => n.X + NodeW / 2);  foreach (var n in sel) n.X = v - NodeW / 2; break; }
             case "vcenter": { double v = sel.Average(n => n.Y + NodeHeight(n) / 2); foreach (var n in sel) n.Y = v - NodeHeight(n) / 2; break; }
+            case "disth":   { var o = sel.OrderBy(n => n.X).ToList(); if (o.Count >= 3) { double lo = o[0].X, st = (o[^1].X - lo) / (o.Count - 1); for (int i = 0; i < o.Count; i++) o[i].X = lo + st * i; } break; }
+            case "distv":   { var o = sel.OrderBy(n => n.Y).ToList(); if (o.Count >= 3) { double lo = o[0].Y, st = (o[^1].Y - lo) / (o.Count - 1); for (int i = 0; i < o.Count; i++) o[i].Y = lo + st * i; } break; }
         }
         Rebuild();
         CommitEdit();
@@ -1500,6 +1506,7 @@ public partial class BlueprintEditor : UserControl
                 void Add(string h, string m) { var mi = new MenuItem { Header = h }; mi.Click += (_, __) => AlignSelected(m); align.Items.Add(mi); }
                 Add("左そろえ", "left"); Add("右そろえ", "right"); Add("上そろえ", "top");
                 Add("下そろえ", "bottom"); Add("横中央", "hcenter"); Add("縦中央", "vcenter");
+                if (_selected.Count >= 3) { align.Items.Add(new Separator()); Add("横に等間隔", "disth"); Add("縦に等間隔", "distv"); }
                 menu.Items.Add(new Separator());
                 menu.Items.Add(align);
             }
@@ -2066,6 +2073,9 @@ public partial class BlueprintEditor : UserControl
             "N 101 0 0 1 Multiply\nI D:Float a\nI D:Float b\nO D:Float result\n" +
             "N 102 0 0 1 Return\nI E ▶\nI D:Float ret0\n" +
             "C 100 0 102 0\nC 100 1 101 0\nC 100 1 101 1\nC 101 0 102 1\n", "r", "36");
+
+        // To Text: String を FText へ (実行上は文字列が素通し)。
+        Check("ToText", Calc("N 50 0 0 1 To Text\nI D:String in\nO D:Text result\nV 0 hello\n", 0), "r", "hello");
 
         // Switch on String: selector="B" → Case "B" 出力が発火して r=9。
         Check("SwitchString", "ACSBP 1\nVAR Float r 0\n" +

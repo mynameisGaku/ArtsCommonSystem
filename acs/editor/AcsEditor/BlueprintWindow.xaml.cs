@@ -25,13 +25,14 @@ public partial class BlueprintWindow : Window
     private static readonly Brush RowHover = new SolidColorBrush(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF));
 
     // UE5 の型カラーに寄せた変数型パレット。
-    private static readonly string[] Types = { "Bool", "Int", "Float", "String", "Vector", "Vector3", "Object" };
+    private static readonly string[] Types = { "Bool", "Int", "Float", "String", "Text", "Vector", "Vector3", "Object" };
     private static Brush TypeBrush(string t) => t switch
     {
         "Bool"    => Rgb(0xC0, 0x39, 0x2B),   // 赤
         "Int"     => Rgb(0x2B, 0xD1, 0xB4),   // ティール
         "Float"   => Rgb(0x8F, 0xD1, 0x4F),   // 緑
         "String"  => Rgb(0xD1, 0x56, 0xB0),   // マゼンタ
+        "Text"    => Rgb(0xE8, 0xA8, 0xD8),   // 薄ピンク (FText)
         "Vector"  => Rgb(0xE0, 0xB8, 0x4A),   // 金 (Vec2)
         "Vector3" => Rgb(0xE8, 0x8A, 0x3A),   // 橙 (Vec3)
         "Object"  => Rgb(0x4C, 0x9E, 0xE8),   // 青

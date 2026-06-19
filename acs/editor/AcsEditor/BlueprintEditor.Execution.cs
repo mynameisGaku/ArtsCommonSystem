@@ -619,6 +619,8 @@ public partial class BlueprintEditor
                 return Fmt(outPin == 0 ? x : y);
             }
             case "To String": { var s = EvalInputByName(from, "in"); return s == "(未接続)" ? "" : s; }
+            case "To Text":   { var s = EvalInputByName(from, "in"); return s == "(未接続)" ? "" : s; }   // FText も実行上は文字列
+            case "Make Literal Text": { var s = EvalInputByName(from, "value"); return s == "(未接続)" ? "" : s; }
             case "To Float":  return Fmt(ParseNum(EvalInputByName(from, "in")));
             case "To Int":    return ((long)ParseNum(EvalInputByName(from, "in"))).ToString(CultureInfo.InvariantCulture);
             case "To Bool":   return Truthy(EvalInputByName(from, "in")) ? "true" : "false";
