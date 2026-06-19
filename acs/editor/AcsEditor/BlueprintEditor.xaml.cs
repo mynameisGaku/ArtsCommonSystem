@@ -1437,6 +1437,12 @@ public partial class BlueprintEditor : UserControl
                         prl.Click += (_, __) => PromotePinToLocalVariable(pinHit);
                         menu.Items.Add(prl);
                     }
+                    if (pinObj.Type is "Vector" or "Vector3")   // 構造体ピン → x/y/z に分割 (UE の Split Struct Pin)
+                    {
+                        var sp = new MenuItem { Header = "構造体ピンを分割" };
+                        sp.Click += (_, __) => SplitStructPin(pinHit);
+                        menu.Items.Add(sp);
+                    }
                 }
                 if (pinHit.Output && pinObj.Kind == PinKind.Data)   // 出力データピン → 値をウォッチ (UE の Watch this value)
                 {
@@ -2134,6 +2140,16 @@ public partial class BlueprintEditor : UserControl
         ShowViewport(); _vpSelected = id;
         MoveComponentRow(id, dx, dy);
         RenderViewport();
+    }
+
+    /// <summary>検証用: 最初の Vector/Vector3 ピンを構造体分割する (--bpshot split)。</summary>
+    public void SplitForTest()
+    {
+        foreach (var n in _nodes)
+        {
+            for (int i = 0; i < n.Inputs.Count; i++) if (n.Inputs[i].Type is "Vector" or "Vector3") { SplitStructPin(new PinRef(n, i, false, PinKind.Data)); return; }
+            for (int i = 0; i < n.Outputs.Count; i++) if (n.Outputs[i].Type is "Vector" or "Vector3") { SplitStructPin(new PinRef(n, i, true, PinKind.Data)); return; }
+        }
     }
 
     /// <summary>検証用: 親の最初の関数をオーバーライドする (--bpshot override)。</summary>
@@ -3563,6 +3579,41 @@ public partial class BlueprintEditor : UserControl
         var n = MakeLocalNode(name, set, type, g);
         _selected.Clear(); _selected.Add(n);
         Rebuild(); CommitEdit();
+    }
+
+    /// <summary>Vector/Vector3 ピンを «構造体分割»: Make(入力)/Break(出力) ノードをブリッジ挿入して x/y/z を露出する。</summary>
+    private void SplitStructPin(PinRef p)
+    {
+        var pin = p.Output ? p.Node.Outputs[p.Index] : p.Node.Inputs[p.Index];
+        bool v3 = pin.Type == "Vector3"; if (pin.Type != "Vector" && !v3) return;
+        var col = new SolidColorBrush(Color.FromRgb(0x3E, 0x6E, 0x5E));
+        var pp = PinPos(p.Node, p.Output, p.Index);
+        Pin[] Comps() => v3
+            ? new[] { new Pin("x", PinKind.Data, "Float"), new Pin("y", PinKind.Data, "Float"), new Pin("z", PinKind.Data, "Float") }
+            : new[] { new Pin("x", PinKind.Data, "Float"), new Pin("y", PinKind.Data, "Float") };
+        BeginEdit();
+        if (p.Output)   // 出力 Vector → Break ノードを右に挿入し x/y/z を露出
+        {
+            var n = MakeVecNode(v3 ? "Break Vector3" : "Break Vector", new[] { new Pin("in", PinKind.Data, pin.Type) }, Comps(), col, new Point(pp.X + 70, pp.Y - 11));
+            _conns.Add(new BpConn(p.Node.Id, p.Index, n.Id, 0));
+            _selected.Clear(); _selected.Add(n);
+        }
+        else            // 入力 Vector → Make ノードを左に挿入し x/y/z を露出 (既存接続は置換)
+        {
+            var n = MakeVecNode(v3 ? "Make Vector3" : "Make Vector", Comps(), new[] { new Pin("vector", PinKind.Data, pin.Type) }, col, new Point(pp.X - 210, pp.Y - 33));
+            _conns.RemoveAll(c => c.ToNode == p.Node.Id && c.ToPin == p.Index);
+            _conns.Add(new BpConn(n.Id, 0, p.Node.Id, p.Index));
+            _selected.Clear(); _selected.Add(n);
+        }
+        Rebuild(); CommitEdit();
+    }
+    private BpNode MakeVecNode(string title, Pin[] ins, Pin[] outs, Brush col, Point pos)
+    {
+        var n = new BpNode { Id = _nextId++, Title = title, X = pos.X, Y = pos.Y, Header = col };
+        foreach (var p in ins) n.Inputs.Add(p);
+        foreach (var p in outs) n.Outputs.Add(p);
+        _nodes.Add(n);
+        return n;
     }
 
     /// <summary>データピンを «ローカル変数に昇格»: 関数のローカル変数を作り Get/Set Local を生成して繋ぐ。</summary>
