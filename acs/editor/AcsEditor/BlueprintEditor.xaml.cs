@@ -2343,6 +2343,22 @@ public partial class BlueprintEditor : UserControl
             log.Append(ok ? "  OK   " : "  FAIL ").Append("FindCrossGraph  (Multiply 件数=").Append(found).Append(")\n");
         }
 
+        // Delay (Latent): 武装→シミュレーションで Completed 発火 → r=7。
+        Check("Delay", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Delay\nI E ▶\nI D:Float duration\nO E Completed\nV 1 1.5\n" +
+            "N 3 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\nV 1 7\n" +
+            "C 1 0 2 0\nC 2 0 3 0\n", "r", "7");
+        // Delay 順序: 2.0s と 1.0s を並行武装 → 短い方が先に完了、最後に 2.0s 完了 → r=20。
+        Check("DelayOrder", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Sequence\nI E ▶\nO E 0\nO E 1\n" +
+            "N 3 0 0 1 Delay\nI E ▶\nI D:Float duration\nO E Completed\nV 1 2.0\n" +
+            "N 4 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\nV 1 20\n" +
+            "N 5 0 0 1 Delay\nI E ▶\nI D:Float duration\nO E Completed\nV 1 1.0\n" +
+            "N 6 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\nV 1 10\n" +
+            "C 1 0 2 0\nC 2 0 3 0\nC 3 0 4 0\nC 2 1 5 0\nC 5 0 6 0\n", "r", "20");
+
         // Get Class: Spawn from Class(Enemy) の実行時クラスを取得して r へ ("Enemy")。
         Check("GetClass", "ACSBP 1\nVAR Float r 0\n" +
             "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
@@ -4123,6 +4139,7 @@ public partial class BlueprintEditor : UserControl
     private readonly HashSet<(int, int)> _firedOut = new();           // 発火した (ノードID, 出力exec ピン) → 配線ハイライト
     private bool _showWatch;                                          // 実行後の値ウォッチ表示中
     private readonly Dictionary<int, int> _flowState = new();         // 状態付きフローノード (Gate 開閉 / DoOnce 発火済 / FlipFlop 次A) の状態
+    private readonly Dictionary<int, double> _pendingDelays = new();  // 武装中の Delay (ノードID → 残り時間)。SimulateDelays が時間順に消化
     private readonly List<int> _trace = new();                        // 実行順 (ノードID。ライブデバッグのステップ再生に使う)
     private readonly HashSet<int> _breakpoints = new();               // ブレークポイントを置いたノードID
     private int _stepIdx = -1;     // ステップ再生の現在位置 (_trace のindex。-1=デバッグ外)

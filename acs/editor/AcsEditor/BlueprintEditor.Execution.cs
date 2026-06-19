@@ -81,7 +81,7 @@ public partial class BlueprintEditor
         _vars.Clear(); _watch.Clear(); _firedOut.Clear(); _showWatch = true;
         _flowState.Clear(); _trace.Clear();
         _callStack.Clear(); _argStack.Clear(); _callResult.Clear(); _localFrame.Clear(); _loopBreak.Clear();
-        _macroStack.Clear(); _macroArgs.Clear();
+        _macroStack.Clear(); _macroArgs.Clear(); _pendingDelays.Clear();
         foreach (var v in Variables)   // BP 変数を _vars へ種まき (Get Variable が既定値を読める)
             if (!string.IsNullOrWhiteSpace(v.Name)) _vars[v.Name.Trim()] = v.Value ?? "";
 
@@ -94,10 +94,28 @@ public partial class BlueprintEditor
 
         LoadFunctionsForRun();   // Function サブグラフを一時展開 (Call Function から呼べるように)
         Trace($"▶ Blueprint 実行開始 ({entries.Count} イベント)");
-        try { foreach (var ev in entries) ExecFrom(ev); }
+        try { foreach (var ev in entries) ExecFrom(ev); SimulateDelays(); }
         finally { RemoveFunctionsAfterRun(); }
         Trace("■ Blueprint 実行終了");
         Rebuild();   // 実行済みノードを枠ハイライト
+    }
+
+    /// <summary>武装した Delay を «残り時間が短い順» に消化して Completed を発火する (Latent のシミュレーション)。
+    /// Completed の先で新たに Delay が武装されれば続けて消化する。budget で無限ループ防止。</summary>
+    private void SimulateDelays()
+    {
+        int simBudget = 2000;
+        while (_pendingDelays.Count > 0 && simBudget-- > 0)
+        {
+            double soonest = _pendingDelays.Values.Min();
+            foreach (var id in _pendingDelays.Keys.ToList()) _pendingDelays[id] -= soonest;   // 全体を最短ぶん進める
+            foreach (var id in _pendingDelays.Where(kv => kv.Value <= 1e-9).Select(kv => kv.Key).ToList())
+            {
+                _pendingDelays.Remove(id);
+                var dn = NodeById(id);
+                if (dn != null) { Trace($"  ⏱ {dn.Title.Trim()} 完了"); FireExecByName(dn, "Completed"); }
+            }
+        }
     }
 
     /// <summary>全 Function サブグラフを大きな id オフセットで _nodes/_conns へ一時展開し、
@@ -266,11 +284,14 @@ public partial class BlueprintEditor
             FireExecByName(n, ok ? "Success" : "Failed");
             return;
         }
-        // Delay: 同期シミュレーションでは即時 (実コード生成ではタイマー)。Completed を通す。
-        if (n.Title == "Delay")
+        // Delay / Retriggerable Delay: «武装» して後で時間順に Completed を発火 (Latent)。
+        // Retriggerable は再入のたびタイマーをリセット、通常 Delay は武装中の再入を無視。
+        if (n.Title is "Delay" or "Retriggerable Delay")
         {
-            FireExecByName(n, "Completed");
-            return;
+            double dur = ParseNum(EvalInputByName(n, "duration"));
+            if (n.Title == "Retriggerable Delay" || !_pendingDelays.ContainsKey(n.Id))
+                _pendingDelays[n.Id] = dur < 0 ? 0 : dur;
+            return;   // Completed は SimulateDelays で発火
         }
         // Return: data 入力 (戻り値) を呼出元 Call ノードのスロットへ書いて関数を抜ける。
         if (n.Title == "Return")
