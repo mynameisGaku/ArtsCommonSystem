@@ -94,6 +94,7 @@ public partial class BlueprintEditor : UserControl
     private readonly HashSet<string> _graphIsFunc = new();
     private readonly HashSet<string> _graphIsPure = new();   // Pure 関数 (exec ピン無し・データのみ・都度評価。UE の BlueprintPure)
     private readonly HashSet<string> _graphIsMacro = new();  // Macro (インライン展開・複数 exec 入出力可。UE の Macro)
+    private readonly HashSet<string> _graphPrivate = new();  // Private 関数 (自クラス内専用。UE の Access Specifier)
     private readonly Dictionary<string, List<BpVar>> _funcLocals = new();   // 関数名 → ローカル変数 (関数スコープ。UE の Local Variables)
     private string _activeName = EventGraphName;
     private const string EventGraphName = "Event Graph";
@@ -2838,7 +2839,10 @@ public partial class BlueprintEditor : UserControl
         foreach (var name in _graphOrder)   // Function サブグラフ
         {
             if (name == EventGraphName) continue;
-            sb.Append("GRAPH ").Append(name).Append(_graphIsMacro.Contains(name) ? " M" : _graphIsFunc.Contains(name) ? (_graphIsPure.Contains(name) ? " F P" : " F") : " E").Append('\n');
+            string gkind = _graphIsMacro.Contains(name) ? " M"
+                : _graphIsFunc.Contains(name) ? (" F" + (_graphIsPure.Contains(name) ? " P" : "") + (_graphPrivate.Contains(name) ? " R" : ""))
+                : " E";
+            sb.Append("GRAPH ").Append(name).Append(gkind).Append('\n');
             if (_funcLocals.TryGetValue(name, out var locals))   // ローカル変数 (LVAR <type> <name> <default>)
                 foreach (var lv in locals) if (!string.IsNullOrWhiteSpace(lv.Name))
                     sb.Append("LVAR ").Append(string.IsNullOrEmpty(lv.Type) ? "Float" : lv.Type).Append(' ').Append(lv.Name.Trim()).Append(' ').Append(lv.Value ?? "").Append('\n');
@@ -2909,12 +2913,13 @@ public partial class BlueprintEditor : UserControl
 
         // GRAPH <name> <F|E> セクションを分離する (先頭 = Event Graph、以降 = Function サブグラフ)。
         var (mainText, funcs) = SplitGraphs(text);
-        _funcLocals.Clear(); _graphIsPure.Clear(); _graphIsMacro.Clear();
-        foreach (var (name, isFunc, isPure, isMacro, body) in funcs)
+        _funcLocals.Clear(); _graphIsPure.Clear(); _graphIsMacro.Clear(); _graphPrivate.Clear();
+        foreach (var (name, isFunc, isPure, isMacro, isPriv, body) in funcs)
         {
             if (!_graphTexts.ContainsKey(name)) { _graphOrder.Add(name); if (isFunc) _graphIsFunc.Add(name); }
             if (isPure) _graphIsPure.Add(name);
             if (isMacro) _graphIsMacro.Add(name);
+            if (isPriv) _graphPrivate.Add(name);
             // LVAR <type> <name> <default> をローカル変数として抽出し、本体からは除く。
             var locals = new List<BpVar>(); var sb2 = new StringBuilder();
             foreach (var raw in body.Split('\n'))
@@ -2998,29 +3003,30 @@ public partial class BlueprintEditor : UserControl
     }
 
     /// <summary>GRAPH セクションを分離する。先頭 (最初の GRAPH 行より前) = main、以降 = (名前, 関数か, 本体)。</summary>
-    private static (string main, List<(string name, bool func, bool pure, bool macro, string body)> graphs) SplitGraphs(string text)
+    private static (string main, List<(string name, bool func, bool pure, bool macro, bool priv, string body)> graphs) SplitGraphs(string text)
     {
-        var graphs = new List<(string, bool, bool, bool, string)>();
+        var graphs = new List<(string, bool, bool, bool, bool, string)>();
         var main = new StringBuilder();
-        StringBuilder? cur = null; string curName = ""; bool curFunc = false, curPure = false, curMacro = false;
+        StringBuilder? cur = null; string curName = ""; bool curFunc = false, curPure = false, curMacro = false, curPriv = false;
         foreach (var raw in text.Split('\n'))
         {
             var line = raw.TrimEnd('\r');
             if (line.StartsWith("GRAPH "))
             {
-                if (cur != null) graphs.Add((curName, curFunc, curPure, curMacro, cur.ToString()));
+                if (cur != null) graphs.Add((curName, curFunc, curPure, curMacro, curPriv, cur.ToString()));
                 var t = line.Split(new[] { ' ' }, 3);
                 curName = t.Length >= 2 ? t[1] : "Function";
                 string kind = t.Length >= 3 ? t[2].Trim() : "";
                 curMacro = kind == "M";          // M = Macro
                 curFunc = kind != "E" && !curMacro;   // 既定は関数 (F / F P / 空)
                 curPure = kind.Contains("P");    // F P = Pure 関数
+                curPriv = kind.Contains("R");    // F R = Private (Restricted)
                 cur = new StringBuilder();
             }
             else if (cur != null) cur.Append(line).Append('\n');
             else main.Append(line).Append('\n');
         }
-        if (cur != null) graphs.Add((curName, curFunc, curPure, curMacro, cur.ToString()));
+        if (cur != null) graphs.Add((curName, curFunc, curPure, curMacro, curPriv, cur.ToString()));
         return (main.ToString(), graphs);
     }
 
@@ -3061,7 +3067,7 @@ public partial class BlueprintEditor : UserControl
             string n = name;
             bool active = !_viewportMode && n == _activeName;
             var btn = new Button {
-                Content = (_graphIsMacro.Contains(n) ? "μ " : _graphIsFunc.Contains(n) ? "ƒ " : "▦ ") + n,
+                Content = (_graphIsMacro.Contains(n) ? "μ " : _graphIsFunc.Contains(n) ? "ƒ " : "▦ ") + n + (_graphPrivate.Contains(n) ? " 🔒" : ""),
                 Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 3, 0), FontSize = 11.5,
                 Background = active ? activeBg : Brushes.Transparent,
                 Foreground = Brushes.White, BorderThickness = new Thickness(active ? 0 : 1),
@@ -3077,7 +3083,9 @@ public partial class BlueprintEditor : UserControl
                     {
                         var pure = new MenuItem { Header = "Pure 関数", IsCheckable = true, IsChecked = _graphIsPure.Contains(gn) };
                         pure.Click += (_, __) => SetFunctionPure(gn, !_graphIsPure.Contains(gn));
-                        m.Items.Add(pure); m.Items.Add(new Separator());
+                        var priv = new MenuItem { Header = "Private", IsCheckable = true, IsChecked = _graphPrivate.Contains(gn) };
+                        priv.Click += (_, __) => SetFunctionPrivate(gn, !_graphPrivate.Contains(gn));
+                        m.Items.Add(pure); m.Items.Add(priv); m.Items.Add(new Separator());
                     }
                     var del = new MenuItem { Header = (_graphIsMacro.Contains(gn) ? "マクロ" : "関数") + "を削除" };
                     del.Click += (_, __) => DeleteFunction(gn);
@@ -3431,6 +3439,16 @@ public partial class BlueprintEditor : UserControl
             if ((c.Literals.TryGetValue(c.Inputs.FindIndex(p => p.Name == "name"), out var nm) ? nm.Trim() : "") == name) SyncCallPins(c);
         BuildGraphTabs(); GraphChanged?.Invoke(); CommitEdit();
         LogSink?.Invoke($"関数 «{name}» を {(pure ? "Pure" : "Impure")} に。呼出側は右クリック「関数ピンを同期」で追従。");
+    }
+
+    /// <summary>関数 name のアクセス指定を切替える (Private = 自クラス内専用。UE の Access Specifier)。</summary>
+    public void SetFunctionPrivate(string name, bool priv)
+    {
+        if (!_graphIsFunc.Contains(name)) return;
+        BeginEdit();
+        if (priv) _graphPrivate.Add(name); else _graphPrivate.Remove(name);
+        BuildGraphTabs(); GraphChanged?.Invoke(); CommitEdit();
+        LogSink?.Invoke($"関数 «{name}» を {(priv ? "Private" : "Public")} に。");
     }
 
     // ----- Class 参照 / Cast To <Class> (UE の TSubclassOf / Cast) -----
