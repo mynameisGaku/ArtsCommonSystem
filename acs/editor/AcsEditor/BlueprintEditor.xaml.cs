@@ -1575,6 +1575,12 @@ public partial class BlueprintEditor : UserControl
                 var ad = new MenuItem { Header = "data 入力を追加" }; ad.Click += (_, __) => AddParamPin(hit, output: false);
                 menu.Items.Add(new Separator()); menu.Items.Add(ae); menu.Items.Add(ad);
             }
+            else if (hit.Title == "Timeline")   // キーフレーム編集 (t:v,t:v 形式の CSV を VarRef に)
+            {
+                var kf = new MenuItem { Header = "キーフレーム編集" };
+                kf.Click += (_, __) => OpenTimelineEditor(hit);
+                menu.Items.Add(new Separator()); menu.Items.Add(kf);
+            }
             // 関数に折りたたむ (2 個以上選択時。UE の Collapse to Function)。
             if (_selected.Count >= 2 && _selected.Contains(hit))
             {
@@ -2071,6 +2077,29 @@ public partial class BlueprintEditor : UserControl
         pop.IsOpen = true;
     }
 
+    /// <summary>Timeline のキーフレーム (t:v,t:v) を編集する小ポップアップ。VarRef に保存。</summary>
+    private void OpenTimelineEditor(BpNode n)
+    {
+        var box = new TextBox { Width = 250, FontSize = 12, Padding = new Thickness(6, 3, 6, 3), Text = n.VarRef };
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock { Text = "キーフレーム t:v,t:v… (時間 0..1 / 値)。空 = ramp 0→1", Foreground = LabelFg, FontSize = 10, Margin = new Thickness(2, 0, 0, 3) });
+        panel.Children.Add(box);
+        var border = new Border {
+            Background = new SolidColorBrush(Color.FromRgb(0x20, 0x25, 0x2E)), BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x44, 0x52)),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5), Padding = new Thickness(7), Child = panel };
+        var sc = GraphToControl(new Point(n.X, n.Y));
+        var pop = new Popup { Child = border, Placement = PlacementMode.Relative, PlacementTarget = this,
+            HorizontalOffset = sc.X, VerticalOffset = sc.Y - 50, StaysOpen = false, AllowsTransparency = true };
+        void Commit() { BeginEdit(); n.VarRef = box.Text.Trim(); Rebuild(); CommitEdit(); pop.IsOpen = false; }
+        box.PreviewKeyDown += (_, ke) => {
+            if (ke.Key == Key.Enter) { Commit(); ke.Handled = true; }
+            else if (ke.Key == Key.Escape) { pop.IsOpen = false; ke.Handled = true; }
+        };
+        pop.Opened += (_, __) => { box.Focus(); box.SelectAll(); };
+        pop.Closed += (_, __) => GraphCanvas.Focus();
+        pop.IsOpen = true;
+    }
+
     /// <summary>検証用: 変数名コンボのドロップダウンを開く (--bpshot varcombo)。</summary>
     public void OpenVarComboForTest()
     {
@@ -2342,6 +2371,19 @@ public partial class BlueprintEditor : UserControl
             if (ok) pass++; else fail++;
             log.Append(ok ? "  OK   " : "  FAIL ").Append("FindCrossGraph  (Multiply 件数=").Append(found).Append(")\n");
         }
+
+        // Timeline: Play→Update×N(value=ramp 0→1)→Finished。最後の Update で value=1 → r=1。
+        Check("Timeline", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Timeline\nI E Play\nI E Stop\nI D:Float duration\nO E Update\nO E Finished\nO D:Float value\nV 2 1.0\n" +
+            "N 3 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\n" +
+            "C 1 0 2 0\nC 2 0 3 0\nC 2 2 3 1\n", "r", "1");
+        // Timeline キーフレーム: «0:3,1:3» 一定 → value=3 → r=3。
+        Check("TimelineKF", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Timeline\nI E Play\nI E Stop\nI D:Float duration\nO E Update\nO E Finished\nO D:Float value\nV 2 1.0\nVR 0:3,1:3\n" +
+            "N 3 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\n" +
+            "C 1 0 2 0\nC 2 0 3 0\nC 2 2 3 1\n", "r", "3");
 
         // Delay (Latent): 武装→シミュレーションで Completed 発火 → r=7。
         Check("Delay", "ACSBP 1\nVAR Float r 0\n" +
@@ -4140,6 +4182,7 @@ public partial class BlueprintEditor : UserControl
     private bool _showWatch;                                          // 実行後の値ウォッチ表示中
     private readonly Dictionary<int, int> _flowState = new();         // 状態付きフローノード (Gate 開閉 / DoOnce 発火済 / FlipFlop 次A) の状態
     private readonly Dictionary<int, double> _pendingDelays = new();  // 武装中の Delay (ノードID → 残り時間)。SimulateDelays が時間順に消化
+    private readonly Dictionary<int, double> _timelineValue = new();  // Timeline の現在値 (ノードID → value 出力。Update 中に下流が読む)
     private readonly List<int> _trace = new();                        // 実行順 (ノードID。ライブデバッグのステップ再生に使う)
     private readonly HashSet<int> _breakpoints = new();               // ブレークポイントを置いたノードID
     private int _stepIdx = -1;     // ステップ再生の現在位置 (_trace のindex。-1=デバッグ外)

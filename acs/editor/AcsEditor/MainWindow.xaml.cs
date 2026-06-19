@@ -1066,6 +1066,7 @@ public partial class MainWindow : Window
             new("フロー", "ForEach",       flow, new[] { Ex("▶"), Da("array"), Ex("Break") },  new[] { Ex("Loop Body"), Da("element"), Da("index", "Int"), Ex("Completed") }),
             new("フロー", "Delay",         flow, new[] { Ex("▶"), Da("duration", "Float") },   new[] { Ex("Completed") }),
             new("フロー", "Retriggerable Delay", flow, new[] { Ex("▶"), Da("duration", "Float") }, new[] { Ex("Completed") }),   // 再入でタイマーをリセット (デバウンス)
+            new("フロー", "Timeline",      flow, new[] { Ex("Play"), Ex("Stop"), Da("duration", "Float") }, new[] { Ex("Update"), Ex("Finished"), Da("value", "Float") }),   // 値を時間で動かす (右クリックでキーフレーム編集)
             new("フロー", "Cast",          cvt,  new[] { Ex("▶"), Da("object", "Object") },    new[] { Ex("Success"), Ex("Failed"), Da("As", "Object") }),
             new("クラス", "Get Class",        cvt, new[] { Da("object", "Object") },                       new[] { Da("class", "Class") }),     // オブジェクトの実行時クラス (pure)
             new("クラス", "Class is Child Of", cvt, new[] { Da("class", "Class"), Da("parent", "Class") }, new[] { Da("result", "Bool") }),     // 型判定 (pure)

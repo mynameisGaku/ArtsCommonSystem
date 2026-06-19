@@ -100,6 +100,28 @@ public partial class BlueprintEditor
         Rebuild();   // 実行済みノードを枠ハイライト
     }
 
+    /// <summary>Timeline の value を alpha(0..1) で求める。VarRef の «t:v,t:v» キーフレームを線形補間 (無ければ ramp 0→1)。</summary>
+    private double SampleTimeline(BpNode n, double alpha)
+    {
+        var pts = new List<(double t, double v)>();
+        foreach (var part in (n.VarRef ?? "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var ab = part.Split(':');
+            if (ab.Length == 2 && double.TryParse(ab[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var t) && double.TryParse(ab[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var v)) pts.Add((t, v));
+        }
+        if (pts.Count == 0) return alpha;   // 既定 = ramp 0→1
+        pts.Sort((a, b) => a.t.CompareTo(b.t));
+        if (alpha <= pts[0].t) return pts[0].v;
+        if (alpha >= pts[^1].t) return pts[^1].v;
+        for (int i = 0; i < pts.Count - 1; i++)
+            if (alpha >= pts[i].t && alpha <= pts[i + 1].t)
+            {
+                double span = pts[i + 1].t - pts[i].t;
+                return span < 1e-9 ? pts[i].v : pts[i].v + (pts[i + 1].v - pts[i].v) * ((alpha - pts[i].t) / span);
+            }
+        return pts[^1].v;
+    }
+
     /// <summary>武装した Delay を «残り時間が短い順» に消化して Completed を発火する (Latent のシミュレーション)。
     /// Completed の先で新たに Delay が武装されれば続けて消化する。budget で無限ループ防止。</summary>
     private void SimulateDelays()
@@ -282,6 +304,21 @@ public partial class BlueprintEditor
                 : true;                                                        // タグ無し (self/変数) は成功
             if (ok) _returns[n.Id] = obj;
             FireExecByName(n, ok ? "Success" : "Failed");
+            return;
+        }
+        // Timeline: Play で再生 (duration を N サンプルに分割し、各点で value を更新して Update を発火、末尾で Finished)。
+        if (n.Title == "Timeline")
+        {
+            string ip = enteredPin >= 0 && enteredPin < n.Inputs.Count ? n.Inputs[enteredPin].Name : "Play";
+            if (ip == "Stop") return;
+            const int N = 10;
+            for (int s = 0; s <= N; s++)
+            {
+                if (_execBudget-- <= 0) break;
+                _timelineValue[n.Id] = SampleTimeline(n, (double)s / N);   // alpha 0→1 をキーフレーム補間
+                FireExecByName(n, "Update");
+            }
+            FireExecByName(n, "Finished");
             return;
         }
         // Delay / Retriggerable Delay: «武装» して後で時間順に Completed を発火 (Latent)。
@@ -675,6 +712,8 @@ public partial class BlueprintEditor
             }
             return "";
         }
+        // Timeline の value 出力 = 現在のサンプル値 (Update 中に下流が読む)。
+        if (from.Title == "Timeline") return Fmt(_timelineValue.TryGetValue(from.Id, out var tv) ? tv : 0);
         // Get Self は «self» マーカーを返す。MainWindow.ResolveTarget が実行中インスタンス(_bpSelfId)へ解決する。
         if (from.Title.StartsWith("Get Self")) return "self";
         // 関数ノードの data 出力 = 実行時に得た戻り値 (キャッシュ) を返す。
