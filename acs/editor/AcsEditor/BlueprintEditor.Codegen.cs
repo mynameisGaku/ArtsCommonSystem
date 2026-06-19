@@ -55,6 +55,34 @@ public partial class BlueprintEditor
         if (char.IsDigit(r[0])) r = "_" + r;
         return r;
     }
+    /// <summary>Math Expression の式を C++ 式へ (変数→ピン式、関数→std::、定数→数値)。</summary>
+    private string FormulaToCpp(string f, Func<string, string> varToExpr)
+    {
+        var tok = TokenizeExpr(f);
+        var sb = new StringBuilder();
+        for (int i = 0; i < tok.Count; i++)
+        {
+            string s = tok[i];
+            if (s.Length > 0 && (char.IsLetter(s[0]) || s[0] == '_'))
+            {
+                bool isFunc = i + 1 < tok.Count && tok[i + 1] == "(";
+                if (isFunc) sb.Append(MathFuncToCpp(s));
+                else if (s == "pi") sb.Append("3.14159265358979f");
+                else if (s == "e") sb.Append("2.718281828f");
+                else sb.Append('(').Append(varToExpr(s)).Append(')');
+            }
+            else sb.Append(s);
+        }
+        return "(" + sb + ")";
+    }
+    private static string MathFuncToCpp(string id) => id switch
+    {
+        "sin" => "std::sin", "cos" => "std::cos", "tan" => "std::tan", "sqrt" => "std::sqrt", "abs" => "std::abs",
+        "floor" => "std::floor", "ceil" => "std::ceil", "round" => "std::round", "exp" => "std::exp", "log" => "std::log",
+        "min" => "std::min", "max" => "std::max", "pow" => "std::pow", "mod" => "std::fmod", "atan2" => "std::atan2", "clamp" => "std::clamp",
+        _ => id,
+    };
+
     private static string CppType(string t) => t != null && t.StartsWith("Enum:") ? t.Substring(5) : t switch
     {
         "Bool" => "bool", "Int" => "int", "Float" => "float",
@@ -137,7 +165,7 @@ public partial class BlueprintEditor
 
             // ----- 実装 -----
             s.Append("// SPDX-License-Identifier: Apache-2.0\n// Generated from a Blueprint graph by AcsEditor.\n");
-            s.Append("#include \"").Append(cls).Append(".h\"\n#include \"foundation/Log.h\"\n#include \"gameframework/Random.h\"\n#include <cmath>\n\nnamespace acs::game {\n\n");
+            s.Append("#include \"").Append(cls).Append(".h\"\n#include \"foundation/Log.h\"\n#include \"gameframework/Random.h\"\n#include <cmath>\n#include <algorithm>\n\nnamespace acs::game {\n\n");
             if (beginNode != null) EmitMethod(s, cls, "OnAttach", "FNode2D& node", beginNode);
             if (needUpdate)        EmitUpdateMethod(s, cls, tickNode, delays, timelines);
             foreach (var ce in _nodes.Where(n => n.Title == "Custom Event"))
@@ -473,6 +501,7 @@ public partial class BlueprintEditor
             case "Make Literal Text": return $"acs::FText({GenArg(n, "value", depth)})";
             case "Make Literal Enum": { string ev = n.Literals.TryGetValue(0, out var le) ? le : ""; return $"{SanitizeIdent(n.VarRef)}::{SanitizeIdent(ev)}"; }
             case "Enum to String": return GenArg(n, "in", depth);
+            case "Math Expression": return FormulaToCpp(n.VarRef ?? "", v => GenArg(n, v, depth));
             case "Cast":           return $"_as{n.Id}";   // dynamic_cast 結果 (Success ブランチ内で有効)
             case "Timeline":       return $"_tlval{n.Id}_{SanitizeIdent(n.Outputs[outPin].Name)}";   // そのトラックの現在値 (Update 中に有効)
             case "Get Class":      return $"/* Get Class */ nullptr";   // 反射 API 依存 (interpreter で動作)

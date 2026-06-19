@@ -960,6 +960,7 @@ public partial class MainWindow : Window
             new("変数", "Get Variable", vbl, new[] { Da("name", "String") }, new[] { Da("value") }),
             new("変数", "Get Self",     vbl, none, new[] { Da("self", "Object") }),   // self = この BP の配置インスタンス (実行時に解決)
             // 演算 (pure: exec なし。要求時に実評価)。
+            new("演算", "Math Expression", mth, none, new[] { Da("result", "Float") }),   // 右クリック「式を編集」で a*2+b 等 → 変数が入力ピンに
             new("演算", "Add",      mth, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Float") }),
             new("演算", "Subtract", mth, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Float") }),
             new("演算", "Multiply", mth, new[] { Da("a", "Float"), Da("b", "Float") }, new[] { Da("result", "Float") }),

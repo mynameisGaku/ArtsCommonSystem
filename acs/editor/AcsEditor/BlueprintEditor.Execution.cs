@@ -728,6 +728,7 @@ public partial class BlueprintEditor
         (double x, double y) V2Of(string name) { var p = EvalInputByName(from, name).Split(','); return (p.Length > 0 ? ParseNum(p[0]) : 0, p.Length > 1 ? ParseNum(p[1]) : 0); }
         switch (from.Title)
         {
+            case "Math Expression": return Fmt(EvalFormula(from.VarRef ?? "", v => ParseNum(EvalInputByName(from, v))));
             case "Add":      return Fmt(A() + B());
             case "Subtract": return Fmt(A() - B());
             case "Multiply": return Fmt(A() * B());

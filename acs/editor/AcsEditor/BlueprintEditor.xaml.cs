@@ -345,6 +345,7 @@ public partial class BlueprintEditor : UserControl
         else if (n.Title == "Event Dispatcher" && !string.IsNullOrEmpty(n.VarRef)) dispTitle = "Event " + n.VarRef;
         else if (n.Title == "Cast" && !string.IsNullOrEmpty(n.VarRef)) dispTitle = "Cast To " + n.VarRef;
         else if (n.Title == "Call Macro" && !string.IsNullOrEmpty(n.VarRef)) dispTitle = "μ " + n.VarRef;
+        else if (n.Title == "Math Expression" && !string.IsNullOrEmpty(n.VarRef)) dispTitle = "= " + n.VarRef;
         else if ((n.Title is "Switch on Enum" or "Make Literal Enum") && !string.IsNullOrEmpty(n.VarRef)) dispTitle = n.Title + " (" + n.VarRef + ")";
         inner.Children.Add(Place(new TextBlock {
             Text = dispTitle, Foreground = Brushes.White, FontSize = 11.5, FontWeight = FontWeights.SemiBold,
@@ -1607,6 +1608,12 @@ public partial class BlueprintEditor : UserControl
                 at.Click += (_, __) => AddTimelineTrack(hit);
                 menu.Items.Add(new Separator()); menu.Items.Add(cur); menu.Items.Add(kf); menu.Items.Add(ev); menu.Items.Add(at);
             }
+            else if (hit.Title == "Math Expression")   // 式を編集 → 変数が入力ピンに
+            {
+                var em = new MenuItem { Header = "式を編集" };
+                em.Click += (_, __) => OpenMathEditor(hit);
+                menu.Items.Add(new Separator()); menu.Items.Add(em);
+            }
             // 関数に折りたたむ (2 個以上選択時。UE の Collapse to Function)。
             if (_selected.Count >= 2 && _selected.Contains(hit))
             {
@@ -2145,6 +2152,76 @@ public partial class BlueprintEditor : UserControl
         return result;
     }
 
+    // ----- Math Expression: 式を «変数抽出 / 評価 / C++ 変換» する (UE の Make Math Expression) -----
+    private static readonly HashSet<string> MathConsts = new() { "pi", "e" };
+    private static readonly HashSet<string> MathFuncs = new() { "sin", "cos", "tan", "sqrt", "abs", "floor", "ceil", "round", "exp", "log", "sign", "min", "max", "pow", "mod", "atan2", "clamp" };
+    /// <summary>式を字句解析する (数値 / 識別子 / 1文字演算子・括弧・カンマ)。</summary>
+    private static List<string> TokenizeExpr(string f)
+    {
+        var t = new List<string>(); int i = 0;
+        while (i < f.Length)
+        {
+            char c = f[i];
+            if (char.IsWhiteSpace(c)) { i++; continue; }
+            if (char.IsDigit(c) || c == '.') { int s = i; while (i < f.Length && (char.IsDigit(f[i]) || f[i] == '.')) i++; t.Add(f.Substring(s, i - s)); }
+            else if (char.IsLetter(c) || c == '_') { int s = i; while (i < f.Length && (char.IsLetterOrDigit(f[i]) || f[i] == '_')) i++; t.Add(f.Substring(s, i - s)); }
+            else { t.Add(c.ToString()); i++; }
+        }
+        return t;
+    }
+    /// <summary>式に現れる «変数» (関数でも定数でもない識別子) を順序保持で抽出する → 入力ピン。</summary>
+    private static List<string> ExtractVars(string f)
+    {
+        var tok = TokenizeExpr(f); var vars = new List<string>();
+        for (int i = 0; i < tok.Count; i++)
+        {
+            string s = tok[i];
+            if (s.Length == 0 || !(char.IsLetter(s[0]) || s[0] == '_')) continue;
+            bool isFunc = i + 1 < tok.Count && tok[i + 1] == "(";
+            if (isFunc || MathConsts.Contains(s)) continue;
+            if (!vars.Contains(s)) vars.Add(s);
+        }
+        return vars;
+    }
+    /// <summary>式を評価する。変数値は resolveVar で解決 (再帰下降パーサ)。</summary>
+    private static double EvalFormula(string f, Func<string, double> resolveVar)
+    {
+        int pos = 0;
+        char Peek() { while (pos < f.Length && char.IsWhiteSpace(f[pos])) pos++; return pos < f.Length ? f[pos] : '\0'; }
+        double Expr() { double v = Term(); while (true) { char c = Peek(); if (c == '+') { pos++; v += Term(); } else if (c == '-') { pos++; v -= Term(); } else return v; } }
+        double Term() { double v = Factor(); while (true) { char c = Peek(); if (c == '*') { pos++; v *= Factor(); } else if (c == '/') { pos++; double d = Factor(); v = d != 0 ? v / d : 0; } else if (c == '%') { pos++; double d = Factor(); v = d != 0 ? v % d : 0; } else return v; } }
+        double Factor() { char c = Peek(); if (c == '-') { pos++; return -Factor(); } if (c == '+') { pos++; return Factor(); } return Primary(); }
+        double Primary()
+        {
+            char c = Peek();
+            if (c == '(') { pos++; double v = Expr(); if (Peek() == ')') pos++; return v; }
+            if (char.IsDigit(c) || c == '.') { int s = pos; while (pos < f.Length && (char.IsDigit(f[pos]) || f[pos] == '.')) pos++; return double.TryParse(f.Substring(s, pos - s), NumberStyles.Float, CultureInfo.InvariantCulture, out var n) ? n : 0; }
+            if (char.IsLetter(c) || c == '_')
+            {
+                int s = pos; while (pos < f.Length && (char.IsLetterOrDigit(f[pos]) || f[pos] == '_')) pos++;
+                string id = f.Substring(s, pos - s);
+                if (Peek() == '(') { pos++; var a = new List<double>(); if (Peek() != ')') { a.Add(Expr()); while (Peek() == ',') { pos++; a.Add(Expr()); } } if (Peek() == ')') pos++; return ApplyMathFunc(id, a); }
+                if (id == "pi") return Math.PI; if (id == "e") return Math.E;
+                return resolveVar(id);
+            }
+            return 0;
+        }
+        return Expr();
+    }
+    private static double ApplyMathFunc(string id, List<double> a)
+    {
+        double A(int i) => i < a.Count ? a[i] : 0;
+        return id switch
+        {
+            "sin" => Math.Sin(A(0)), "cos" => Math.Cos(A(0)), "tan" => Math.Tan(A(0)), "sqrt" => Math.Sqrt(Math.Max(0, A(0))),
+            "abs" => Math.Abs(A(0)), "floor" => Math.Floor(A(0)), "ceil" => Math.Ceiling(A(0)), "round" => Math.Round(A(0)),
+            "exp" => Math.Exp(A(0)), "log" => A(0) > 0 ? Math.Log(A(0)) : 0, "sign" => Math.Sign(A(0)),
+            "min" => Math.Min(A(0), A(1)), "max" => Math.Max(A(0), A(1)), "pow" => Math.Pow(A(0), A(1)), "mod" => A(1) != 0 ? A(0) % A(1) : 0,
+            "atan2" => Math.Atan2(A(0), A(1)), "clamp" => Math.Min(Math.Max(A(0), A(1)), A(2)),
+            _ => 0,
+        };
+    }
+
     private static List<double[]> ParseKF(string? csv)
     {
         var kf = new List<double[]>();
@@ -2289,6 +2366,42 @@ public partial class BlueprintEditor : UserControl
         var pop = new Popup { Child = border, Placement = PlacementMode.Relative, PlacementTarget = this,
             HorizontalOffset = sc.X, VerticalOffset = sc.Y - 50, StaysOpen = false, AllowsTransparency = true };
         void Commit() { BeginEdit(); string e = box.Text.Trim(); n.VarRef = e.Length > 0 ? KfCsv(n.VarRef) + "@" + e : KfCsv(n.VarRef); Rebuild(); CommitEdit(); pop.IsOpen = false; }
+        box.PreviewKeyDown += (_, ke) => { if (ke.Key == Key.Enter) { Commit(); ke.Handled = true; } else if (ke.Key == Key.Escape) { pop.IsOpen = false; ke.Handled = true; } };
+        pop.Opened += (_, __) => { box.Focus(); box.SelectAll(); };
+        pop.Closed += (_, __) => GraphCanvas.Focus();
+        pop.IsOpen = true;
+    }
+
+    /// <summary>Math Expression の式に現れる変数を入力ピンに同期する (接続は名前で維持)。</summary>
+    private void SyncMathPins(BpNode n)
+    {
+        if (n.Title != "Math Expression") return;
+        var vars = ExtractVars(n.VarRef ?? "");
+        var oldNames = new Dictionary<int, string>();
+        for (int i = 0; i < n.Inputs.Count; i++) oldNames[i] = n.Inputs[i].Name;
+        var newIns = vars.Select(v => new Pin(v, PinKind.Data, "Float")).ToList();
+        var newByName = new Dictionary<string, int>();
+        for (int i = 0; i < newIns.Count; i++) newByName[newIns[i].Name] = i;
+        BeginEdit();
+        _conns.RemoveAll(c => c.ToNode == n.Id && (!oldNames.TryGetValue(c.ToPin, out var nm) || !newByName.ContainsKey(nm)));
+        for (int k = 0; k < _conns.Count; k++) { var c = _conns[k]; if (c.ToNode == n.Id && oldNames.TryGetValue(c.ToPin, out var nm) && newByName.TryGetValue(nm, out var ni) && ni != c.ToPin) _conns[k] = c with { ToPin = ni }; }
+        n.Inputs.Clear(); n.Inputs.AddRange(newIns);
+        Rebuild(); CommitEdit();
+    }
+    /// <summary>Math Expression の式を編集する小ポップアップ。VarRef に保存し変数を入力ピンへ同期。</summary>
+    private void OpenMathEditor(BpNode n)
+    {
+        var box = new TextBox { Width = 250, FontSize = 12, Padding = new Thickness(6, 3, 6, 3), Text = n.VarRef };
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock { Text = "式 (例 a*2 + sin(b))。変数が入力ピンになる", Foreground = LabelFg, FontSize = 10, Margin = new Thickness(2, 0, 0, 3) });
+        panel.Children.Add(box);
+        var border = new Border {
+            Background = new SolidColorBrush(Color.FromRgb(0x20, 0x25, 0x2E)), BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x44, 0x52)),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5), Padding = new Thickness(7), Child = panel };
+        var sc = GraphToControl(new Point(n.X, n.Y));
+        var pop = new Popup { Child = border, Placement = PlacementMode.Relative, PlacementTarget = this,
+            HorizontalOffset = sc.X, VerticalOffset = sc.Y - 50, StaysOpen = false, AllowsTransparency = true };
+        void Commit() { BeginEdit(); n.VarRef = box.Text.Trim(); Rebuild(); CommitEdit(); SyncMathPins(n); pop.IsOpen = false; }
         box.PreviewKeyDown += (_, ke) => { if (ke.Key == Key.Enter) { Commit(); ke.Handled = true; } else if (ke.Key == Key.Escape) { pop.IsOpen = false; ke.Handled = true; } };
         pop.Opened += (_, __) => { box.Focus(); box.SelectAll(); };
         pop.Closed += (_, __) => GraphCanvas.Focus();
@@ -2609,6 +2722,19 @@ public partial class BlueprintEditor : UserControl
             "N 2 0 0 1 Timeline\nI E Play\nI E Stop\nI D:Float duration\nO E Update\nO E Finished\nO D:Float value\nV 2 1.0\nVR 0:3,1:3\n" +
             "N 3 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\n" +
             "C 1 0 2 0\nC 2 0 3 0\nC 2 2 3 1\n", "r", "3");
+
+        // Math Expression: «a*2 + b» (a=3,b=4) → 10。
+        Check("MathExpr", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Math Expression\nI D:Float a\nI D:Float b\nO D:Float result\nVR a*2 + b\nV 0 3\nV 1 4\n" +
+            "N 3 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\n" +
+            "C 1 0 3 0\nC 2 0 3 1\n", "r", "10");
+        // Math Expression 関数: «max(a, b) * 3» (a=2,b=5) → 15。
+        Check("MathExprFn", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Math Expression\nI D:Float a\nI D:Float b\nO D:Float result\nVR max(a, b) * 3\nV 0 2\nV 1 5\n" +
+            "N 3 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\n" +
+            "C 1 0 3 0\nC 2 0 3 1\n", "r", "15");
 
         // Timeline 複数値トラック: «alpha» トラック(一定 5)を読む → r=5。
         Check("TimelineTracks", "ACSBP 1\nVAR Float r 0\n" +
