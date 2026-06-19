@@ -1590,11 +1590,13 @@ public partial class BlueprintEditor : UserControl
                 var ad = new MenuItem { Header = "data 入力を追加" }; ad.Click += (_, __) => AddParamPin(hit, output: false);
                 menu.Items.Add(new Separator()); menu.Items.Add(ae); menu.Items.Add(ad);
             }
-            else if (hit.Title == "Timeline")   // キーフレーム編集 (t:v,t:v 形式の CSV を VarRef に)
+            else if (hit.Title == "Timeline")   // キーフレーム編集 (カーブ or CSV)
             {
-                var kf = new MenuItem { Header = "キーフレーム編集" };
+                var cur = new MenuItem { Header = "カーブ編集" };
+                cur.Click += (_, __) => OpenTimelineCurveEditor(hit);
+                var kf = new MenuItem { Header = "CSV 編集" };
                 kf.Click += (_, __) => OpenTimelineEditor(hit);
-                menu.Items.Add(new Separator()); menu.Items.Add(kf);
+                menu.Items.Add(new Separator()); menu.Items.Add(cur); menu.Items.Add(kf);
             }
             // 関数に折りたたむ (2 個以上選択時。UE の Collapse to Function)。
             if (_selected.Count >= 2 && _selected.Contains(hit))
@@ -2092,6 +2094,98 @@ public partial class BlueprintEditor : UserControl
         pop.IsOpen = true;
     }
 
+    private static List<double[]> ParseKF(string? csv)
+    {
+        var kf = new List<double[]>();
+        foreach (var part in (csv ?? "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var ab = part.Split(':');
+            if (ab.Length == 2 && double.TryParse(ab[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var t) && double.TryParse(ab[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var v)) kf.Add(new[] { t, v });
+        }
+        if (kf.Count == 0) { kf.Add(new[] { 0.0, 0.0 }); kf.Add(new[] { 1.0, 1.0 }); }
+        kf.Sort((a, b) => a[0].CompareTo(b[0]));
+        return kf;
+    }
+    private static double InterpKF(List<double[]> kf, double a)
+    {
+        if (kf.Count == 0) return a;
+        if (a <= kf[0][0]) return kf[0][1];
+        if (a >= kf[^1][0]) return kf[^1][1];
+        for (int i = 0; i < kf.Count - 1; i++)
+            if (a >= kf[i][0] && a <= kf[i + 1][0])
+            {
+                double sp = kf[i + 1][0] - kf[i][0];
+                return sp < 1e-9 ? kf[i][1] : kf[i][1] + (kf[i + 1][1] - kf[i][1]) * ((a - kf[i][0]) / sp);
+            }
+        return kf[^1][1];
+    }
+
+    /// <summary>Timeline のキーフレームをドラッグ編集するミニカーブエディタ。クリック=追加/ドラッグ=移動/右クリック=削除。</summary>
+    private void OpenTimelineCurveEditor(BpNode n)
+    {
+        var kf = ParseKF(n.VarRef);
+        double W = 300, H = 168, pad = 16;
+        double vmin = Math.Min(0, kf.Min(k => k[1])) - 0.15, vmax = Math.Max(1, kf.Max(k => k[1])) + 0.15;
+        var canvas = new Canvas { Width = W, Height = H, Background = new SolidColorBrush(Color.FromRgb(0x16, 0x1A, 0x20)), ClipToBounds = true };
+        Point ToS(double t, double v) => new(pad + (W - 2 * pad) * Math.Clamp(t, 0, 1), H - pad - (H - 2 * pad) * ((v - vmin) / (vmax - vmin)));
+        (double t, double v) ToD(Point p) => (Math.Clamp((p.X - pad) / (W - 2 * pad), 0, 1), Math.Clamp(vmin + (vmax - vmin) * ((H - pad - p.Y) / (H - 2 * pad)), vmin, vmax));
+        int dragIdx = -1;
+        void Redraw()
+        {
+            canvas.Children.Clear();
+            foreach (var gv in new[] { 0.0, 1.0 })   // v=0 / v=1 の基準線
+            { double y = ToS(0, gv).Y; canvas.Children.Add(new Line { X1 = pad, X2 = W - pad, Y1 = y, Y2 = y, Stroke = new SolidColorBrush(Color.FromRgb(0x2A, 0x32, 0x3C)), StrokeThickness = 1 }); }
+            var poly = new System.Windows.Shapes.Polyline { Stroke = new SolidColorBrush(Color.FromRgb(0x5B, 0xC8, 0x9A)), StrokeThickness = 1.6, IsHitTestVisible = false };
+            for (int s = 0; s <= 48; s++) { double a = s / 48.0; poly.Points.Add(ToS(a, InterpKF(kf, a))); }
+            canvas.Children.Add(poly);
+            for (int i = 0; i < kf.Count; i++)
+            {
+                var p = ToS(kf[i][0], kf[i][1]);
+                var dot = new System.Windows.Shapes.Ellipse { Width = 10, Height = 10, Fill = new SolidColorBrush(Color.FromRgb(0xE8, 0xC8, 0x4A)), Stroke = Brushes.White, StrokeThickness = 1 };
+                Canvas.SetLeft(dot, p.X - 5); Canvas.SetTop(dot, p.Y - 5); canvas.Children.Add(dot);
+            }
+        }
+        Redraw();
+        canvas.MouseLeftButtonDown += (_, e) =>
+        {
+            var p = e.GetPosition(canvas); dragIdx = -1; double best = 12;
+            for (int i = 0; i < kf.Count; i++) { var d = (ToS(kf[i][0], kf[i][1]) - p).Length; if (d < best) { best = d; dragIdx = i; } }
+            if (dragIdx < 0) { var (t, v) = ToD(p); kf.Add(new[] { t, v }); dragIdx = kf.Count - 1; Redraw(); }
+            canvas.CaptureMouse(); e.Handled = true;
+        };
+        canvas.MouseMove += (_, e) =>
+        {
+            if (dragIdx < 0 || e.LeftButton != MouseButtonState.Pressed) return;
+            var (t, v) = ToD(e.GetPosition(canvas)); kf[dragIdx][0] = t; kf[dragIdx][1] = v; Redraw();
+        };
+        canvas.MouseLeftButtonUp += (_, e) =>
+        {
+            if (dragIdx >= 0) { kf.Sort((a, b) => a[0].CompareTo(b[0])); SaveKF(n, kf); Redraw(); }
+            dragIdx = -1; canvas.ReleaseMouseCapture();
+        };
+        canvas.MouseRightButtonDown += (_, e) =>
+        {
+            if (kf.Count <= 1) return;
+            var p = e.GetPosition(canvas); int del = -1; double best = 12;
+            for (int i = 0; i < kf.Count; i++) { var d = (ToS(kf[i][0], kf[i][1]) - p).Length; if (d < best) { best = d; del = i; } }
+            if (del >= 0) { kf.RemoveAt(del); SaveKF(n, kf); Redraw(); e.Handled = true; }
+        };
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock { Text = "クリック=点追加 / ドラッグ=移動 / 右クリック=削除", Foreground = LabelFg, FontSize = 10, Margin = new Thickness(2, 0, 0, 4) });
+        panel.Children.Add(canvas);
+        var border = new Border { Background = new SolidColorBrush(Color.FromRgb(0x20, 0x25, 0x2E)), BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x44, 0x52)),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5), Padding = new Thickness(7), Child = panel };
+        var sc = GraphToControl(new Point(n.X, n.Y));
+        var pop = new Popup { Child = border, Placement = PlacementMode.Relative, PlacementTarget = this, HorizontalOffset = sc.X, VerticalOffset = sc.Y - 210, StaysOpen = false, AllowsTransparency = true };
+        pop.IsOpen = true;
+    }
+    private void SaveKF(BpNode n, List<double[]> kf)
+    {
+        BeginEdit();
+        n.VarRef = string.Join(",", kf.Select(k => $"{k[0].ToString("0.##", CultureInfo.InvariantCulture)}:{k[1].ToString("0.##", CultureInfo.InvariantCulture)}"));
+        Rebuild(); CommitEdit();
+    }
+
     /// <summary>Timeline のキーフレーム (t:v,t:v) を編集する小ポップアップ。VarRef に保存。</summary>
     private void OpenTimelineEditor(BpNode n)
     {
@@ -2136,6 +2230,13 @@ public partial class BlueprintEditor : UserControl
 
     /// <summary>検証用: 既定位置で検索ポップアップを開く (--bpsearch のスクショ確認)。</summary>
     public void DebugOpenSearch() => OpenNodeSearch(new Point(200, 70), new Point(220, 150), null);
+
+    /// <summary>検証用: 最初の Timeline ノードのカーブエディタを開く (--bpcurve のスクショ確認)。</summary>
+    public void OpenCurveForTest()
+    {
+        var tl = _nodes.FirstOrDefault(n => n.Title == "Timeline");
+        if (tl != null) OpenTimelineCurveEditor(tl);
+    }
 
     /// <summary>検証用: グラフ検証して問題バッジ + ボタン状態を付ける (--bpshot validate のスクショ確認)。</summary>
     public void ValidateForTest() => ValidateGraph(true);

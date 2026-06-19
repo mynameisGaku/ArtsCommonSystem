@@ -124,6 +124,20 @@ public partial class App : Application
             return;
         }
 
+        // CLI: --bpcurve <acsbp>  → Timeline のカーブエディタを開いた BlueprintWindow を実画面に表示する (ポップアップ検証)。
+        if (e.Args.Length >= 2 && e.Args[0] == "--bpcurve")
+        {
+            string path = e.Args[1];
+            var win = new BlueprintWindow { WindowStartupLocation = WindowStartupLocation.CenterScreen, Width = 1280, Height = 760 };
+            MainWindow = win; win.Show();
+            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                try { win.Editor.LoadFromFile(path); } catch { }
+                win.Editor.OpenCurveForTest();
+            }));
+            return;
+        }
+
         // CLI: --bpsearch  → 検索式ノードパレットを開いた状態の BlueprintWindow を実画面に表示する
         // (ポップアップは別 HWND のため画面外 RTB では写らない。PowerShell でスクリーンキャプチャして検証)。
         if (e.Args.Length >= 1 && e.Args[0] == "--bpsearch")
