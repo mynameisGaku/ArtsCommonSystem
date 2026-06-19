@@ -92,6 +92,7 @@ public partial class BlueprintEditor : UserControl
     private readonly Dictionary<string, string> _graphTexts = new();   // グラフ名 → 本体テキスト
     private readonly List<string> _graphOrder = new() { EventGraphName };
     private readonly HashSet<string> _graphIsFunc = new();
+    private readonly Dictionary<string, List<BpVar>> _funcLocals = new();   // 関数名 → ローカル変数 (関数スコープ。UE の Local Variables)
     private string _activeName = EventGraphName;
     private const string EventGraphName = "Event Graph";
     private Point _menuGraphPos;        // 右クリック位置 (生成先のグラフ座標)
@@ -328,8 +329,8 @@ public partial class BlueprintEditor : UserControl
             Width = NodeW, Height = HeaderH, Background = HeaderBrush(headerColor),
             CornerRadius = new CornerRadius(6, 6, 0, 0) }, 0, 0));
         inner.Children.Add(Place(MakeNodeIcon(n), 9, 8));   // 種別アイコン
-        string dispTitle = n.Title;   // UE 風: Get/Set Variable は «Get/Set 変数名» と表示
-        if ((n.Title == "Set Variable" || n.Title == "Get Variable") && !string.IsNullOrEmpty(n.VarRef))
+        string dispTitle = n.Title;   // UE 風: Get/Set (Local) Variable は «Get/Set 変数名» と表示
+        if ((n.Title is "Set Variable" or "Get Variable" or "Set Local Variable" or "Get Local Variable") && !string.IsNullOrEmpty(n.VarRef))
             dispTitle = (n.Title.StartsWith("Set") ? "Set " : "Get ") + n.VarRef;
         inner.Children.Add(Place(new TextBlock {
             Text = dispTitle, Foreground = Brushes.White, FontSize = 11.5, FontWeight = FontWeights.SemiBold,
@@ -491,14 +492,12 @@ public partial class BlueprintEditor : UserControl
         string cur = n.Literals.TryGetValue(i, out var lv) ? lv : "";
         if (n.Title == "Call Function" && pin.Name == "name")
         {
-            // 関数名は «関数一覧から選ぶ» + «文字列入力» の両対応 (編集可コンボ)。値=関数名(その関数の ToString)。
-            var combo = new ComboBox { IsEditable = true, Width = 96, Height = 18, FontSize = 10, Padding = new Thickness(3, 0, 0, 0) };
+            // 関数名は «関数一覧から選ぶ» 専用の非編集コンボ。文字列指定したい場合は name ピンに String を接続する (別系統)。
+            var combo = new ComboBox { Width = 96, Height = 18, FontSize = 10, Padding = new Thickness(3, 0, 0, 0) };
             foreach (var g in _graphOrder) if (_graphIsFunc.Contains(g)) combo.Items.Add(g);
             if (!string.IsNullOrEmpty(cur) && !combo.Items.Contains(cur)) combo.Items.Add(cur);
-            if (combo.Items.Contains(cur)) combo.SelectedItem = cur; else combo.Loaded += (_, __) => combo.Text = cur;
-            void Apply() { var t = combo.Text?.Trim() ?? ""; bool changed = t != cur; if (string.IsNullOrEmpty(t)) n.Literals.Remove(idx); else n.Literals[idx] = t; if (changed) SyncCallPins(n); }   // 選択/入力でシグネチャ同期
-            combo.DropDownClosed += (_, __) => Apply();
-            combo.LostKeyboardFocus += (_, __) => Apply();
+            combo.SelectedItem = string.IsNullOrEmpty(cur) ? null : cur;   // ハンドラ結線前に選択 (初期化で誤発火しない)
+            combo.SelectionChanged += (_, __) => { if (combo.SelectedItem is string s && s != cur) { BeginEdit(); n.Literals[idx] = s; CommitEdit(); SyncCallPins(n); } };
             return combo;
         }
         if (pin.Type == "Bool")
@@ -2024,6 +2023,19 @@ public partial class BlueprintEditor : UserControl
             "N 102 0 0 1 Return\nI E ▶\nI D:Float ret0\n" +
             "C 100 0 102 0\nC 100 1 101 0\nC 100 1 101 1\nC 101 0 102 1\n", "r", "36");
 
+        // Local Variable: 関数のローカル変数を Set→Get して戻り値に。フレームで分離 (既定 100 を arg0=42 で上書き)。
+        Check("LocalVar", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Call Function\nI E ▶\nI D:String name\nI D:Float arg0\nO E ▶\nO D:Float ret0\nV 1 Acc\nV 2 42\n" +
+            "N 3 0 0 1 Set Variable\nI E ▶\nI D:String name\nI D value\nO E ▶\nV 1 r\n" +
+            "C 1 0 2 0\nC 2 0 3 0\nC 2 1 3 2\n" +
+            "GRAPH Acc F\nLVAR Float sum 100\n" +
+            "N 200 0 0 1 Function Entry\nO E ▶\nO D:Float arg0\n" +
+            "N 201 0 0 1 Set Local Variable\nI E ▶\nI D:Float value\nO E ▶\nVR sum\n" +
+            "N 202 0 0 1 Get Local Variable\nO D:Float value\nVR sum\n" +
+            "N 203 0 0 1 Return\nI E ▶\nI D:Float ret0\n" +
+            "C 200 0 201 0\nC 200 1 201 1\nC 201 0 203 0\nC 202 0 203 1\n", "r", "42");
+
         // Collapse to Function: exec ノード(Set Variable)を関数化しても結果が一致する (Add は外部の引数になる)。
         {
             Deserialize("ACSBP 1\nVAR Float r 0\n" +
@@ -2433,6 +2445,9 @@ public partial class BlueprintEditor : UserControl
         {
             if (name == EventGraphName) continue;
             sb.Append("GRAPH ").Append(name).Append(_graphIsFunc.Contains(name) ? " F" : " E").Append('\n');
+            if (_funcLocals.TryGetValue(name, out var locals))   // ローカル変数 (LVAR <type> <name> <default>)
+                foreach (var lv in locals) if (!string.IsNullOrWhiteSpace(lv.Name))
+                    sb.Append("LVAR ").Append(string.IsNullOrEmpty(lv.Type) ? "Float" : lv.Type).Append(' ').Append(lv.Name.Trim()).Append(' ').Append(lv.Value ?? "").Append('\n');
             sb.Append(_graphTexts.TryGetValue(name, out var gb) ? gb : "");
         }
         return sb.ToString();
@@ -2500,10 +2515,20 @@ public partial class BlueprintEditor : UserControl
 
         // GRAPH <name> <F|E> セクションを分離する (先頭 = Event Graph、以降 = Function サブグラフ)。
         var (mainText, funcs) = SplitGraphs(text);
+        _funcLocals.Clear();
         foreach (var (name, isFunc, body) in funcs)
         {
             if (!_graphTexts.ContainsKey(name)) { _graphOrder.Add(name); if (isFunc) _graphIsFunc.Add(name); }
-            _graphTexts[name] = body;
+            // LVAR <type> <name> <default> をローカル変数として抽出し、本体からは除く。
+            var locals = new List<BpVar>(); var sb2 = new StringBuilder();
+            foreach (var raw in body.Split('\n'))
+            {
+                var l = raw.TrimEnd('\r');
+                if (l.StartsWith("LVAR ")) { var t = l.Split(new[] { ' ' }, 4); if (t.Length >= 3) locals.Add(new BpVar(t[2], t[1], t.Length >= 4 ? t[3] : "")); }
+                else sb2.Append(raw).Append('\n');
+            }
+            if (locals.Count > 0) _funcLocals[name] = locals;
+            _graphTexts[name] = sb2.ToString();
         }
 
         foreach (var raw in mainText.Split('\n'))   // VAR <type> <name> <value…> (旧 BB <name> <value…> も読む)
@@ -3320,6 +3345,7 @@ public partial class BlueprintEditor : UserControl
     private readonly HashSet<int> _runtimeFuncIds = new();            // 実行のため一時展開した関数ノードのID (実行後に除去)
     private readonly Stack<int> _callStack = new();                  // 呼出中の Call Function ノードID (Return の戻り先)
     private readonly Stack<string[]> _argStack = new();              // 呼出中の引数値 (Function Entry の出力が読む)
+    private readonly Stack<Dictionary<string, string>> _localFrame = new();   // 関数呼出フレームのローカル変数 (Get/Set Local Variable)
     private readonly Dictionary<(int, int), string> _callResult = new();  // (Call ノードID, 戻り値index) → Return が書いた値
 
     /// <summary>BP クラスが持つ変数 (名前 + 型 + 既定値)。実行開始時に値へ種まきされる (UE5 の Variables 相当)。</summary>

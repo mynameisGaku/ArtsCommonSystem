@@ -80,7 +80,7 @@ public partial class BlueprintEditor
         _spawnHandles.Clear(); _returns.Clear(); _spawnSeq = 0; _execBudget = 4000;
         _vars.Clear(); _watch.Clear(); _firedOut.Clear(); _showWatch = true;
         _flowState.Clear(); _trace.Clear();
-        _callStack.Clear(); _argStack.Clear(); _callResult.Clear();
+        _callStack.Clear(); _argStack.Clear(); _callResult.Clear(); _localFrame.Clear();
         foreach (var v in Variables)   // BP 変数を _vars へ種まき (Get Variable が既定値を読める)
             if (!string.IsNullOrWhiteSpace(v.Name)) _vars[v.Name.Trim()] = v.Value ?? "";
 
@@ -404,6 +404,12 @@ public partial class BlueprintEditor
             if (name.Length > 0) _vars[name] = val;
             return $"Set Variable({name} = {val})";
         }
+        if (t.StartsWith("Set Local Variable"))   // 関数スコープのローカル変数 (現フレーム)
+        {
+            string name = n.VarRef.Trim(), val = EvalInputByName(n, "value");
+            if (name.Length > 0 && _localFrame.Count > 0) _localFrame.Peek()[name] = val;
+            return $"Set Local({name} = {val})";
+        }
         if (t.StartsWith("Publish"))
         {
             string ch = EvalInputByName(n, "channel");
@@ -424,9 +430,11 @@ public partial class BlueprintEditor
                     // «引数» = name の後ろの data 入力 (idx 2..) を評価してフレームへ積む。
                     var args = new List<string>();
                     for (int i = 2; i < n.Inputs.Count; i++) if (n.Inputs[i].Kind == PinKind.Data) args.Add(EvalInput(n, i));
-                    _argStack.Push(args.ToArray()); _callStack.Push(n.Id);
+                    var frame = new Dictionary<string, string>();   // 関数のローカル変数フレーム (既定値で初期化)
+                    if (_funcLocals.TryGetValue(fn, out var locals)) foreach (var lv in locals) if (!string.IsNullOrWhiteSpace(lv.Name)) frame[lv.Name.Trim()] = lv.Value ?? "";
+                    _argStack.Push(args.ToArray()); _callStack.Push(n.Id); _localFrame.Push(frame);
                     ExecFrom(ent);
-                    _callStack.Pop(); _argStack.Pop();
+                    _localFrame.Pop(); _callStack.Pop(); _argStack.Pop();
                     fired++;
                 }
             }
@@ -527,6 +535,8 @@ public partial class BlueprintEditor
         // Get Variable は要求時に変数ストアから読む (pure ノード = exec で実行しない)。
         if (from.Title.StartsWith("Get Variable"))
             return _vars.TryGetValue(from.VarRef.Trim(), out var gv) ? gv : "";
+        if (from.Title.StartsWith("Get Local Variable"))   // 関数スコープのローカル変数 (現フレーム)
+            return _localFrame.Count > 0 && _localFrame.Peek().TryGetValue(from.VarRef.Trim(), out var lgv) ? lgv : "";
         // Get Self は «self» マーカーを返す。MainWindow.ResolveTarget が実行中インスタンス(_bpSelfId)へ解決する。
         if (from.Title.StartsWith("Get Self")) return "self";
         // 関数ノードの data 出力 = 実行時に得た戻り値 (キャッシュ) を返す。
