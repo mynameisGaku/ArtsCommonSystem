@@ -162,6 +162,22 @@ public partial class BlueprintEditor
         return (rt, pl, rets.Count > 0);
     }
 
+    /// <summary>Timeline のキーフレーム (VarRef の t:v CSV) を C++ の piecewise-linear 補間文として生成する。</summary>
+    private void GenTimelineValue(StringBuilder s, BpNode tl, string ind, string valVar, string alphaVar)
+    {
+        var kf = ParseKF(tl.VarRef);   // 既定 [(0,0),(1,1)] = ramp
+        string F(double d) => d.ToString("0.0######", System.Globalization.CultureInfo.InvariantCulture) + "f";   // 常に小数点付き (0f は不正)
+        if (kf.Count == 1) { s.Append(ind).Append(valVar).Append(" = ").Append(F(kf[0][1])).Append(";\n"); return; }
+        s.Append(ind).Append("if (").Append(alphaVar).Append(" <= ").Append(F(kf[0][0])).Append(") ").Append(valVar).Append(" = ").Append(F(kf[0][1])).Append(";\n");
+        for (int i = 0; i < kf.Count - 1; i++)
+        {
+            double t0 = kf[i][0], v0 = kf[i][1], t1 = kf[i + 1][0], v1 = kf[i + 1][1], span = t1 - t0;
+            string seg = span < 1e-9 ? F(v1) : $"({F(v0)} + ({F(v1)} - {F(v0)}) * (({alphaVar} - {F(t0)}) / {F(span)}))";
+            s.Append(ind).Append("else if (").Append(alphaVar).Append(" <= ").Append(F(t1)).Append(") ").Append(valVar).Append(" = ").Append(seg).Append(";\n");
+        }
+        s.Append(ind).Append("else ").Append(valVar).Append(" = ").Append(F(kf[^1][1])).Append(";\n");
+    }
+
     /// <summary>OnUpdate を生成: On Tick 本体 + 各 Latent (Delay/Timeline) を dt で進めて Completed/Update/Finished を実行。</summary>
     private void EmitUpdateMethod(StringBuilder s, string cls, BpNode? tickNode, List<BpNode> delays, List<BpNode> timelines)
     {
@@ -177,7 +193,8 @@ public partial class BlueprintEditor
         {
             string dur = GenArg(tl, "duration", 0);
             s.Append("    if (_tl").Append(tl.Id).Append(" >= 0.f) { _tl").Append(tl.Id).Append(" += dt; f32 _d = (f32)(").Append(dur).Append(");\n");
-            s.Append("        _tlval").Append(tl.Id).Append(" = _d > 0.f ? (_tl").Append(tl.Id).Append(" / _d) : 1.f; if (_tlval").Append(tl.Id).Append(" > 1.f) _tlval").Append(tl.Id).Append(" = 1.f;\n");
+            s.Append("        f32 _a = _d > 0.f ? (_tl").Append(tl.Id).Append(" / _d) : 1.f; if (_a > 1.f) _a = 1.f;\n");
+            GenTimelineValue(s, tl, "        ", $"_tlval{tl.Id}", "_a");   // キーフレームを piecewise-linear 補間
             GenStmt(s, ExecNext(tl, "Update"), "        ", new HashSet<int>(), 1);
             s.Append("        if (_tl").Append(tl.Id).Append(" >= _d) { _tl").Append(tl.Id).Append(" = -1.f;\n");
             GenStmt(s, ExecNext(tl, "Finished"), "            ", new HashSet<int>(), 1);
