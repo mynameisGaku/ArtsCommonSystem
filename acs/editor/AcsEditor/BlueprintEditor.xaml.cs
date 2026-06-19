@@ -124,6 +124,7 @@ public partial class BlueprintEditor : UserControl
     // コメントのドラッグ/リサイズ。
     private BpComment?            _dragComment;
     private List<BpNode>?         _commentCarry;   // コメントと一緒に動くノード
+    private List<BpComment>?      _commentCarryK;  // コメントと一緒に動く内包コメント (ネスト)
     private BpComment?            _resizeComment;
     private Point                _commentLast;
 
@@ -1015,6 +1016,8 @@ public partial class BlueprintEditor : UserControl
             if (_dragComment.Visual is { } cv) { Canvas.SetLeft(cv, _dragComment.X); Canvas.SetTop(cv, _dragComment.Y); }
             if (_commentCarry != null)
                 foreach (var n in _commentCarry) { n.X += ddx; n.Y += ddy; if (n.Visual is { } b) { Canvas.SetLeft(b, n.X); Canvas.SetTop(b, n.Y); } }
+            if (_commentCarryK != null)   // 内包コメントも一緒に移動 (ネスト)
+                foreach (var sub in _commentCarryK) { sub.X += ddx; sub.Y += ddy; if (sub.Visual is { } cb) { Canvas.SetLeft(cb, sub.X); Canvas.SetTop(cb, sub.Y); } }
             RedrawWires();
             return;
         }
@@ -1125,7 +1128,7 @@ public partial class BlueprintEditor : UserControl
     {
         if (_wireSource != null) { FinishWire(e.GetPosition(GraphCanvas)); GraphCanvas.ReleaseMouseCapture(); return; }
         if (_resizeComment != null) { _resizeComment = null; GraphCanvas.ReleaseMouseCapture(); CommitEdit(); return; }
-        if (_dragComment != null) { _dragComment = null; _commentCarry = null; GraphCanvas.ReleaseMouseCapture(); CommitEdit(); return; }
+        if (_dragComment != null) { _dragComment = null; _commentCarry = null; _commentCarryK = null; GraphCanvas.ReleaseMouseCapture(); CommitEdit(); return; }
         if (_dragNode != null)
         {
             _dragNode = null; GraphCanvas.ReleaseMouseCapture();
@@ -2540,6 +2543,7 @@ public partial class BlueprintEditor : UserControl
                 BeginEdit();
                 _dragComment = k; _commentLast = e.GetPosition(GraphCanvas);
                 _commentCarry = NodesInComment(k);
+                _commentCarryK = CommentsInComment(k);   // 内包コメントも一緒に (ネスト)
                 GraphCanvas.CaptureMouse(); e.Handled = true;
             };
             header.MouseRightButtonUp += (_, e) =>
@@ -2547,8 +2551,13 @@ public partial class BlueprintEditor : UserControl
                 var menu = new ContextMenu();
                 var ren = new MenuItem { Header = "名前を変更" };
                 ren.Click += (_, __) => EditCommentTitle(k);
-                var col = new MenuItem { Header = "色を変える" };
-                col.Click += (_, __) => { BeginEdit(); CycleCommentColor(k); Rebuild(); CommitEdit(); };
+                var col = new MenuItem { Header = "色を選択" };
+                foreach (var sw in CommentPalette)   // スウォッチ (任意色は K 行に hex で保存される)
+                {
+                    var c = sw; var swatch = new MenuItem { Header = "　　　　", Background = new SolidColorBrush(c) };
+                    swatch.Click += (_, __) => { BeginEdit(); k.Color = c; Rebuild(); CommitEdit(); };
+                    col.Items.Add(swatch);
+                }
                 var del = new MenuItem { Header = "コメントを削除" };
                 del.Click += (_, __) => { BeginEdit(); _comments.Remove(k); Rebuild(); CommitEdit(); };
                 menu.Items.Add(ren); menu.Items.Add(col); menu.Items.Add(del);
@@ -2606,6 +2615,23 @@ public partial class BlueprintEditor : UserControl
         }
         return res;
     }
+
+    /// <summary>コメント k の内側に «中心が入っている» 他コメント (ネスト移動の対象)。</summary>
+    private List<BpComment> CommentsInComment(BpComment k)
+    {
+        var rect = new Rect(k.X, k.Y, k.W, k.H);
+        var res = new List<BpComment>();
+        foreach (var c in _comments)
+            if (c != k && !c.Inherited && rect.Contains(c.X + c.W / 2.0, c.Y + c.H / 2.0)) res.Add(c);
+        return res;
+    }
+
+    private static readonly Color[] CommentPalette =
+    {
+        Color.FromRgb(0x2E, 0x6E, 0x8A), Color.FromRgb(0x6A, 0x4C, 0x8C), Color.FromRgb(0x35, 0x7A, 0x55), Color.FromRgb(0x8A, 0x5C, 0x2E),
+        Color.FromRgb(0xB0, 0x3A, 0x46), Color.FromRgb(0x5A, 0x64, 0x72), Color.FromRgb(0xC8, 0x9A, 0x2E), Color.FromRgb(0x2E, 0x8A, 0x8A),
+        Color.FromRgb(0x8A, 0x2E, 0x6E), Color.FromRgb(0x4A, 0x6E, 0x2E), Color.FromRgb(0x3A, 0x3A, 0x4A), Color.FromRgb(0x9A, 0x4A, 0x2E),
+    };
 
     private void EditCommentTitle(BpComment k)
     {
