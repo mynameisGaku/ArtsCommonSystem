@@ -312,7 +312,7 @@ public partial class BlueprintEditor : UserControl
 
     private BpNode? NodeById(int id) { foreach (var n in _nodes) if (n.Id == id) return n; return null; }
 
-    private static double NodeHeight(BpNode n) => HeaderH + Math.Max(n.Inputs.Count, n.Outputs.Count) * RowH + 6;
+    private static double NodeHeight(BpNode n) => HeaderH + Math.Max(n.Inputs.Count, n.Outputs.Count) * RowH + 6 + (n.Title == "Timeline" ? 48 : 0);
 
     /// <summary>ピンの «グラフ座標» 中心位置。枠からはみ出さないよう PinR だけ内側に置く。 </summary>
     private static Point PinPos(BpNode n, bool output, int idx)
@@ -329,7 +329,7 @@ public partial class BlueprintEditor : UserControl
     {
         if (n.Title == "Reroute") return MakeRerouteVisual(n);   // UE5 風: 小さなドット
         int rows = Math.Max(n.Inputs.Count, n.Outputs.Count);
-        double h = HeaderH + rows * RowH + 6;
+        double h = HeaderH + rows * RowH + 6 + (n.Title == "Timeline" ? 48 : 0);
 
         var inner = new Canvas { ClipToBounds = false, Width = NodeW, Height = h };
         // ヘッダ (UE5 風: 上を明るくした縦グラデ)。
@@ -405,6 +405,21 @@ public partial class BlueprintEditor : UserControl
                     inner.Children.Add(Place(pill, NodeW + 7, py - 9));
                 }
             }
+        }
+
+        // Timeline: キーフレーム曲線のスパークラインをノード下部に描く (UE のカーブ表示風)。
+        if (n.Title == "Timeline")
+        {
+            double cy0 = HeaderH + rows * RowH + 8, ch = 34, cx0 = 9, cw = NodeW - 18;
+            const int S = 28;
+            var vals = new double[S + 1]; double mn = double.MaxValue, mx = double.MinValue;
+            for (int s = 0; s <= S; s++) { vals[s] = SampleTimeline(n, (double)s / S); mn = Math.Min(mn, vals[s]); mx = Math.Max(mx, vals[s]); }
+            double range = mx - mn; if (range < 1e-9) range = 1;
+            inner.Children.Add(Place(new Border { Width = cw, Height = ch + 6, Background = new SolidColorBrush(Color.FromArgb(0x55, 0x10, 0x14, 0x1A)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0x33, 0x3C, 0x48)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3) }, cx0, cy0 - 3));
+            var poly = new System.Windows.Shapes.Polyline { Stroke = new SolidColorBrush(Color.FromRgb(0x5B, 0xC8, 0x9A)), StrokeThickness = 1.5, IsHitTestVisible = false };
+            for (int s = 0; s <= S; s++) poly.Points.Add(new Point(cx0 + cw * ((double)s / S), cy0 + ch - ch * ((vals[s] - mn) / range)));
+            inner.Children.Add(Place(poly, 0, 0));
         }
 
         // 枠線(outline) と内容(inner) を «兄弟» にして重ねる。Border の子に inner を入れると
