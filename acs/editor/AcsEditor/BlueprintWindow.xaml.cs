@@ -231,6 +231,7 @@ public partial class BlueprintWindow : Window
             {
                 Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(0, 1, 0, 1), Cursor = Cursors.Hand,
                 Background = v == _sel ? RowSel : Brushes.Transparent,
+                ToolTip = string.IsNullOrEmpty(v.Tooltip) ? null : v.Tooltip,
             };
             var g = new Grid();
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -361,6 +362,11 @@ public partial class BlueprintWindow : Window
         catBox.TextChanged += (_, __) => s.Category = catBox.Text;
         catBox.LostFocus += (_, __) => RefreshVars();   // カテゴリ変更でリストを再分類
         DetailsPanel.Children.Add(LabeledRow("カテゴリ", catBox));
+
+        var tipBox = MakeBox(s.Tooltip);
+        tipBox.TextChanged += (_, __) => s.Tooltip = tipBox.Text;
+        tipBox.LostFocus += (_, __) => RefreshVars();   // ツールチップ更新
+        DetailsPanel.Children.Add(LabeledRow("説明", tipBox));
 
         var inst = new CheckBox { Content = "インスタンスで編集可", IsChecked = s.InstanceEditable, FontSize = 11,
             Foreground = Fg, Margin = new Thickness(0, 6, 0, 0), VerticalContentAlignment = VerticalAlignment.Center };

@@ -175,6 +175,16 @@ public partial class BlueprintEditor
             if (!fired) { _flowState[n.Id] = 1; FireExecByName(n, "Completed"); }
             return;
         }
+        // Do N Times: トリガごとに最大 N 回 Exit を発火。count を出力。Reset で再武装。
+        if (n.Title == "Do N Times")
+        {
+            string ip = enteredPin >= 0 && enteredPin < n.Inputs.Count ? n.Inputs[enteredPin].Name : "▶";
+            if (ip == "Reset") { _flowState[n.Id] = 0; return; }
+            int cnt = _flowState.TryGetValue(n.Id, out var dc) ? dc : 0;
+            int limit = (int)ParseNum(EvalInputByName(n, "n"));
+            if (cnt < limit) { cnt++; _flowState[n.Id] = cnt; _returns[n.Id] = cnt.ToString(CultureInfo.InvariantCulture); FireExecByName(n, "Exit"); }
+            return;
+        }
         // FlipFlop: A と B を交互に発火。is A を data 出力へ。
         if (n.Title == "FlipFlop")
         {

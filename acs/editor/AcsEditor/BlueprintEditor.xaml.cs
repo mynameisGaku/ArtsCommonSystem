@@ -538,7 +538,23 @@ public partial class BlueprintEditor : UserControl
                 if (verbose) LogSink?.Invoke($"⚠ 「{n.Title.Trim()}」(#{n.Id}) は実行入力が未接続のため到達しません。");
             }
         }
-        if (verbose) LogSink?.Invoke(issues == 0 ? "✓ 検証 OK (到達不能ノードなし)。" : $"検証: 到達不能ノード {issues} 件。");
+        // データ接続の型不一致 (変数の型変更後などに発生しうる)。直結で型が違い、数値同士でもワイルドカードでもない場合を問題とする。
+        foreach (var c in _conns)
+        {
+            var fn = NodeById(c.FromNode); var tn = NodeById(c.ToNode);
+            if (fn == null || tn == null || tn.Inherited) continue;
+            if (c.FromPin >= fn.Outputs.Count || c.ToPin >= tn.Inputs.Count) continue;
+            var fp = fn.Outputs[c.FromPin]; var tp = tn.Inputs[c.ToPin];
+            if (fp.Kind != PinKind.Data || tp.Kind != PinKind.Data) continue;
+            string a = fp.Type ?? "", b = tp.Type ?? "";
+            bool numeric = (a == "Int" || a == "Float") && (b == "Int" || b == "Float");
+            if (a.Length > 0 && b.Length > 0 && a != b && !numeric)
+            {
+                tn.HasIssue = true; issues++;
+                if (verbose) LogSink?.Invoke($"⚠ 「{tn.Title.Trim()}」(#{tn.Id}) の «{tp.Name}» に型不一致の接続 ({a} → {b})。");
+            }
+        }
+        if (verbose) LogSink?.Invoke(issues == 0 ? "✓ 検証 OK。" : $"検証: 問題 {issues} 件 (到達不能 / 型不一致)。");
         if (verbose) SetValidateStatus(issues);
         Rebuild();
         return issues;
@@ -2286,6 +2302,8 @@ public partial class BlueprintEditor : UserControl
                 if (v.InstanceEditable || !string.IsNullOrEmpty(v.Category))
                     sb.Append("VMETA ").Append(v.Name.Trim()).Append(' ').Append(v.InstanceEditable ? '1' : '0')
                       .Append(' ').Append(v.Category ?? "").Append('\n');
+                if (!string.IsNullOrEmpty(v.Tooltip))
+                    sb.Append("VTIP ").Append(v.Name.Trim()).Append(' ').Append(v.Tooltip.Replace("\n", " ")).Append('\n');
             }
         if (!string.IsNullOrEmpty(ComponentsText))   // コンポーネント木: CMP <行数> + 逐語の ACSCENE 行
             AcsbpFormat.AppendCmpBlock(sb, ComponentsText);
@@ -2385,6 +2403,12 @@ public partial class BlueprintEditor : UserControl
                 var t = l.Split(new[] { ' ' }, 4);
                 var vv = t.Length >= 3 ? Variables.FirstOrDefault(x => x.Name == t[1]) : null;
                 if (vv != null) { vv.InstanceEditable = t[2] == "1"; vv.Category = t.Length >= 4 ? t[3] : ""; }
+            }
+            else if (l.StartsWith("VTIP "))
+            {
+                var t = l.Split(new[] { ' ' }, 3);
+                var vv = t.Length >= 2 ? Variables.FirstOrDefault(x => x.Name == t[1]) : null;
+                if (vv != null && t.Length >= 3) vv.Tooltip = t[2];
             }
         }
 
@@ -3182,6 +3206,7 @@ public partial class BlueprintEditor : UserControl
     {
         public string Name; public string Type; public string Value;
         public string Category = "";        // My Blueprint パネルでの分類 (UE5 の Category)
+        public string Tooltip = "";         // 変数の説明 (UE5 の Tooltip。ホバーで表示)
         public bool InstanceEditable;       // インスタンスで編集可 (UE5 の Instance Editable)
         public BpVar(string n, string t, string v) { Name = n; Type = t; Value = v; }
     }

@@ -1049,6 +1049,7 @@ public partial class MainWindow : Window
             // フロー制御 (状態付き)。
             new("フロー", "Gate",          flow, new[] { Ex("▶"), Ex("Open"), Ex("Close"), Ex("Toggle"), Da("Start Closed", "Bool") }, new[] { Ex("Exit") }),
             new("フロー", "DoOnce",        flow, new[] { Ex("▶"), Ex("Reset") },               new[] { Ex("Completed") }),
+            new("フロー", "Do N Times",    flow, new[] { Ex("▶"), Da("n", "Int"), Ex("Reset") }, new[] { Ex("Exit"), Da("count", "Int") }),   // UE: N 回まで発火
             new("フロー", "FlipFlop",      flow, new[] { Ex("▶") },                            new[] { Ex("A"), Ex("B"), Da("is A", "Bool") }),
             new("フロー", "Switch on Int", flow, new[] { Ex("▶"), Da("selector", "Int") },     new[] { Ex("0"), Ex("1"), Ex("2"), Ex("Default") }),
             new("フロー", "ForEach",       flow, new[] { Ex("▶"), Da("array") },               new[] { Ex("Loop Body"), Da("element"), Da("index", "Int"), Ex("Completed") }),
