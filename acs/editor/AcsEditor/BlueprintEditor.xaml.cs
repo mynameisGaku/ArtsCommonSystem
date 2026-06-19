@@ -2130,6 +2130,13 @@ public partial class BlueprintEditor : UserControl
         RenderViewport();
     }
 
+    /// <summary>検証用: 親の最初の関数をオーバーライドする (--bpshot override)。</summary>
+    public void OverrideForTest()
+    {
+        var pf = ParentFunctionNames();
+        if (pf.Count > 0) OverrideParentFunction(pf[0]);
+    }
+
     /// <summary>検証用: 最初のマクログラフへ切替える (--bpshot macro)。</summary>
     public void MacroForTest()
     {
@@ -3052,7 +3059,18 @@ public partial class BlueprintEditor : UserControl
         }
         var add = new Button { Content = "＋ 関数", Padding = new Thickness(9, 2, 9, 2), FontSize = 11.5,
             Foreground = (Brush)(TryFindResource("OkFg") ?? Brushes.LightGreen), Background = Brushes.Transparent };
-        add.Click += (_, __) => { ExitViewport(); AddFunction(); };
+        add.Click += (_, __) =>
+        {
+            ExitViewport();
+            var pf = ParentFunctionNames();
+            if (pf.Count == 0) { AddFunction(); return; }   // 親関数なし → 新規関数を直接
+            var m = new ContextMenu();
+            var nw = new MenuItem { Header = "新規関数" }; nw.Click += (_, __) => AddFunction(); m.Items.Add(nw);
+            var ov = new MenuItem { Header = "親をオーバーライド" };
+            foreach (var f in pf) { var fc = f; var mi = new MenuItem { Header = f }; mi.Click += (_, __) => OverrideParentFunction(fc); ov.Items.Add(mi); }
+            m.Items.Add(new Separator()); m.Items.Add(ov);
+            m.PlacementTarget = add; m.IsOpen = true;
+        };
         GraphTabs.Children.Add(add);
         var addM = new Button { Content = "＋ マクロ", Padding = new Thickness(9, 2, 9, 2), FontSize = 11.5,
             Foreground = (Brush)(TryFindResource("OkFg") ?? Brushes.LightGreen), Background = Brushes.Transparent };
@@ -3548,6 +3566,51 @@ public partial class BlueprintEditor : UserControl
         BuildGraphTabs();
         CommitEdit();
         LogSink?.Invoke($"ƒ 関数を追加: {name}");
+    }
+
+    // ----- 親関数のオーバーライド (UE の Override Function) -----
+    /// <summary>親 BP の関数名一覧 (オーバーライド候補。既に子にあるものは除く)。</summary>
+    public List<string> ParentFunctionNames()
+    {
+        var result = new List<string>();
+        if (string.IsNullOrEmpty(_parentPath)) return result;
+        string? full = ResolveParentPath(_parentPath);
+        if (full == null || !System.IO.File.Exists(full)) return result;
+        var (_, graphs) = SplitGraphs(AcsbpFormat.SplitCmp(System.IO.File.ReadAllText(full)).Item2);
+        foreach (var g in graphs) if (g.func && !_graphOrder.Contains(g.name)) result.Add(g.name);
+        return result;
+    }
+    /// <summary>親関数 name と同じシグネチャの «子» 関数グラフを生成して切替える (オーバーライド)。</summary>
+    public void OverrideParentFunction(string name)
+    {
+        if (_graphOrder.Contains(name)) { SwitchGraph(name); return; }
+        string? full = string.IsNullOrEmpty(_parentPath) ? null : ResolveParentPath(_parentPath);
+        if (full == null || !System.IO.File.Exists(full)) return;
+        var (_, graphs) = SplitGraphs(AcsbpFormat.SplitCmp(System.IO.File.ReadAllText(full)).Item2);
+        string body = "";
+        foreach (var g in graphs) if (g.func && g.name == name) { body = g.body; break; }
+        if (body.Length == 0) return;
+        // 親の Function Entry 出力(引数) / Return 入力(戻り値) を読み、同じ空グラフを作る。
+        var args = new List<(string tok, string nm)>(); var rets = new List<(string tok, string nm)>();
+        string cur = "";
+        foreach (var raw in body.Split('\n'))
+        {
+            var l = raw.TrimEnd('\r'); if (l.Length == 0) continue;
+            if (l[0] == 'N') { var t = l.Split(new[] { ' ' }, 6); cur = t.Length >= 6 ? t[5] : ""; }
+            else if (l[0] == 'O' && cur == "Function Entry") { var t = l.Split(new[] { ' ' }, 3); if (t.Length >= 3 && t[1] != "E") args.Add((t[1], t[2])); }
+            else if (l[0] == 'I' && cur == "Return") { var t = l.Split(new[] { ' ' }, 3); if (t.Length >= 3 && t[1] != "E") rets.Add((t[1], t[2])); }
+        }
+        BeginEdit();
+        var sb = new StringBuilder();
+        sb.Append("N 100 80 130 357A55 Function Entry\nO E ▶\n");
+        foreach (var a in args) sb.Append("O ").Append(a.tok).Append(' ').Append(a.nm).Append('\n');
+        sb.Append("N 101 660 130 8A5C2E Return\nI E ▶\n");
+        foreach (var r in rets) sb.Append("I ").Append(r.tok).Append(' ').Append(r.nm).Append('\n');
+        sb.Append("C 100 0 101 0\n");
+        _graphTexts[name] = sb.ToString();
+        _graphOrder.Add(name); _graphIsFunc.Add(name);
+        SwitchGraph(name); BuildGraphTabs(); GraphChanged?.Invoke(); CommitEdit();
+        LogSink?.Invoke($"親関数 «{name}» をオーバーライドしました。");
     }
 
     public void NewMacro() => AddMacro();
