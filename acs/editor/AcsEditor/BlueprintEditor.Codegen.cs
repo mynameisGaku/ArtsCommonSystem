@@ -280,6 +280,16 @@ public partial class BlueprintEditor
                         GenStmt(s, NodeById(c.ToNode), ind, new HashSet<int>(visited), depth + 1);
             return;
         }
+        if (t == "Cast")   // Cast To <型>: dynamic_cast で Success(As)/Failed に分岐。
+        {
+            string asType = string.IsNullOrEmpty(n.VarRef) ? "FNode2D" : SanitizeIdent(n.VarRef);
+            s.Append(ind).Append("if (auto* _as").Append(n.Id).Append(" = dynamic_cast<").Append(asType).Append("*>(").Append(GenArg(n, "object", 0)).Append(")) {\n");
+            GenExecOut(s, n, "Success", ind + "    ", visited, depth + 1);
+            s.Append(ind).Append("} else {\n");
+            GenExecOut(s, n, "Failed", ind + "    ", visited, depth + 1);
+            s.Append(ind).Append("}\n");
+            return;
+        }
         s.Append(ind).Append(GenNodeStmt(n)).Append('\n');
         GenLinearNext(s, n, ind, visited, depth + 1);   // 線形ノードは次の exec を辿る (Break 入力なら break;)
     }
@@ -377,6 +387,7 @@ public partial class BlueprintEditor
             case "Make Literal Text": return $"acs::FText({GenArg(n, "value", depth)})";
             case "Make Literal Enum": { string ev = n.Literals.TryGetValue(0, out var le) ? le : ""; return $"{SanitizeIdent(n.VarRef)}::{SanitizeIdent(ev)}"; }
             case "Enum to String": return GenArg(n, "in", depth);
+            case "Cast":           return $"_as{n.Id}";   // dynamic_cast 結果 (Success ブランチ内で有効)
             case "For Loop":  return $"i{n.Id}";   // index 出力 = ループ変数
             // 数学 (std math 関数 / 三項式)。
             case "Abs":    return $"std::fabs((float)({GenArg(n, "value", depth)}))";

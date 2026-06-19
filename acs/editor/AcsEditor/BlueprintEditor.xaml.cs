@@ -155,6 +155,7 @@ public partial class BlueprintEditor : UserControl
     private static readonly Brush TObject = new SolidColorBrush(Color.FromRgb(0x4C, 0x9E, 0xE8));
     private static readonly Brush TWildcard = new SolidColorBrush(Color.FromRgb(0xB2, 0xB8, 0xC2));   // ワイルドカード = 中立グレー (UE 風)
     private static readonly Brush TEnum = new SolidColorBrush(Color.FromRgb(0x3A, 0xC8, 0xC8));       // Enum = シアン (UE 風)
+    private static readonly Brush TClass = new SolidColorBrush(Color.FromRgb(0x6A, 0x5A, 0xD8));      // Class 参照 = 青紫 (UE の TSubclassOf)
 
     private static Brush DataTypeBrush(string type) => type != null && type.StartsWith("Enum:") ? TEnum : type switch
     {
@@ -163,6 +164,7 @@ public partial class BlueprintEditor : UserControl
         "Float"  => TFloat,
         "String" => TString,
         "Text"   => TText,
+        "Class"  => TClass,
         "Vector" => TVector,
         "Vector3" => TVector3,
         "Object" => TObject,
@@ -338,6 +340,8 @@ public partial class BlueprintEditor : UserControl
             dispTitle = (n.Title.StartsWith("Set") ? "Set " : "Get ") + n.VarRef;
         else if (n.Title == "Call Dispatcher" && !string.IsNullOrEmpty(n.VarRef)) dispTitle = "Call " + n.VarRef;
         else if (n.Title == "Event Dispatcher" && !string.IsNullOrEmpty(n.VarRef)) dispTitle = "Event " + n.VarRef;
+        else if (n.Title == "Cast" && !string.IsNullOrEmpty(n.VarRef)) dispTitle = "Cast To " + n.VarRef;
+        else if ((n.Title is "Switch on Enum" or "Make Literal Enum") && !string.IsNullOrEmpty(n.VarRef)) dispTitle = n.Title + " (" + n.VarRef + ")";
         inner.Children.Add(Place(new TextBlock {
             Text = dispTitle, Foreground = Brushes.White, FontSize = 11.5, FontWeight = FontWeights.SemiBold,
             Width = NodeW - 30, TextTrimming = TextTrimming.CharacterEllipsis }, 24, 5));
@@ -503,6 +507,15 @@ public partial class BlueprintEditor : UserControl
         if (pin.Type == "Object") return null;   // UE 風: Object 参照は «接続» で指定 (Self / Get 変数 / spawned)。手入力欄は出さない
         int idx = i;
         string cur = n.Literals.TryGetValue(i, out var lv) ? lv : "";
+        if (pin.Type == "Class")   // Class 型入力 → クラス候補のドロップダウン
+        {
+            var combo = new ComboBox { Width = 96, Height = 18, FontSize = 10, Padding = new Thickness(3, 0, 0, 0) };
+            foreach (var cl in CastClassCandidates()) combo.Items.Add(cl);
+            if (!string.IsNullOrEmpty(cur) && !combo.Items.Contains(cur)) combo.Items.Add(cur);
+            combo.SelectedItem = string.IsNullOrEmpty(cur) ? null : cur;
+            combo.SelectionChanged += (_, __) => { if (combo.SelectedItem is string s && s != cur) { BeginEdit(); n.Literals[idx] = s; CommitEdit(); } };
+            return combo;
+        }
         if (pin.Type != null && pin.Type.StartsWith("Enum:"))   // Enum 型入力 → エントリのドロップダウン
         {
             string enm = pin.Type.Substring(5);
@@ -1516,6 +1529,14 @@ public partial class BlueprintEditor : UserControl
                     menu.Items.Add(val);
                 }
             }
+            else if (hit.Title is "Cast" or "Spawn Actor from Class")   // キャスト先 / 生成クラスを選択
+            {
+                var cands = CastClassCandidates().ToList();
+                var pick = new MenuItem { Header = hit.Title == "Cast" ? "Cast 先を選択" : "クラスを選択" };
+                foreach (var cl in cands) { var cc = cl; var mi = new MenuItem { Header = cl }; mi.Click += (_, __) => BindClass(hit, cc); pick.Items.Add(mi); }
+                if (cands.Count == 0) pick.Items.Add(new MenuItem { Header = "(候補なし — 親BP/コンポーネント型から)", IsEnabled = false });
+                menu.Items.Add(new Separator()); menu.Items.Add(pick);
+            }
             // 関数に折りたたむ (2 個以上選択時。UE の Collapse to Function)。
             if (_selected.Count >= 2 && _selected.Contains(hit))
             {
@@ -2258,6 +2279,21 @@ public partial class BlueprintEditor : UserControl
             if (ok) pass++; else fail++;
             log.Append(ok ? "  OK   " : "  FAIL ").Append("FindCrossGraph  (Multiply 件数=").Append(found).Append(")\n");
         }
+
+        // Cast To <Class>: Spawn Actor(Enemy) を Cast To Enemy → Success → r=1。
+        Check("CastClass", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Spawn Actor from Class\nI E ▶\nI D:Class class\nI D:Vector pos\nO E ▶\nO D:Object spawned\nV 1 Enemy\n" +
+            "N 3 0 0 1 Cast\nI E ▶\nI D:Object object\nO E Success\nO E Failed\nO D:Object As\nVR Enemy\n" +
+            "N 4 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\nV 1 1\n" +
+            "C 1 0 2 0\nC 2 0 3 0\nC 2 1 3 1\nC 3 0 4 0\n", "r", "1");
+        // Cast 不一致: Spawn Actor(Enemy) を Cast To Player → Failed → r=2。
+        Check("CastMiss", "ACSBP 1\nVAR Float r 0\n" +
+            "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+            "N 2 0 0 1 Spawn Actor from Class\nI E ▶\nI D:Class class\nI D:Vector pos\nO E ▶\nO D:Object spawned\nV 1 Enemy\n" +
+            "N 3 0 0 1 Cast\nI E ▶\nI D:Object object\nO E Success\nO E Failed\nO D:Object As\nVR Player\n" +
+            "N 4 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\nV 1 2\n" +
+            "C 1 0 2 0\nC 2 0 3 0\nC 2 1 3 1\nC 3 1 4 0\n", "r", "2");
 
         // Switch on Enum: selector=Green → Green 出力が発火して r=5 (列挙型 Color)。
         Check("SwitchEnum", "ACSBP 1\nVAR Float r 0\nENUM Color Red,Green,Blue\n" +
@@ -3300,6 +3336,26 @@ public partial class BlueprintEditor : UserControl
         LogSink?.Invoke($"関数 «{name}» を {(pure ? "Pure" : "Impure")} に。呼出側は右クリック「関数ピンを同期」で追従。");
     }
 
+    // ----- Class 参照 / Cast To <Class> (UE の TSubclassOf / Cast) -----
+    public List<string> KnownClasses { get; } = new();   // MainWindow がユーザー定義型から設定
+    /// <summary>Cast 先 / Class 値の候補 (既知クラス + このBPのコンポーネント型 + 親BP名)。</summary>
+    public IEnumerable<string> CastClassCandidates()
+    {
+        var set = new List<string>();
+        void Add(string s) { if (!string.IsNullOrWhiteSpace(s) && !set.Contains(s)) set.Add(s); }
+        foreach (var c in KnownClasses) Add(c);
+        foreach (var line in (ComponentsText ?? "").Split('\n')) { var l = line.Trim(); if (l.StartsWith("COMP ")) { var t = l.Split(' '); if (t.Length >= 3) Add(t[2]); } }
+        if (!string.IsNullOrEmpty(_parentPath)) Add(System.IO.Path.GetFileNameWithoutExtension(_parentPath));
+        return set;
+    }
+    /// <summary>Cast / Spawn Actor from Class のクラスを束縛し、As / spawned 出力を型付けする。</summary>
+    private void BindClass(BpNode n, string cls)
+    {
+        BeginEdit();
+        n.VarRef = cls;
+        Rebuild(); CommitEdit();
+    }
+
     // ----- ユーザー定義 Enum (型トークン "Enum:<name>"。UE の Blueprint Enum) -----
     public Dictionary<string, List<string>> Enums { get; } = new();   // Enum 名 → エントリ列
     public Action? EnumsChanged;
@@ -3763,6 +3819,7 @@ public partial class BlueprintEditor : UserControl
     private void Trace(string s) => LogSink?.Invoke(s);
 
     private readonly Dictionary<int, string> _spawnHandles = new();   // ノード ID → spawn ハンドル (実行内で一意)
+    private readonly Dictionary<string, string> _objClass = new();    // オブジェクトマーカー → クラス名 (Cast の型タグ照合)
     private readonly Dictionary<int, string> _returns = new();        // ノード ID → 関数の戻り値 (data 出力のプル用)
     private readonly Dictionary<string, string> _vars = new();        // 名前付き変数 (Set/Get Variable。実行開始時に Variables で種まき)
     private readonly Random _rng = new(12345);                         // Random ノードのデバッグ実行用 (シード固定で再現性)

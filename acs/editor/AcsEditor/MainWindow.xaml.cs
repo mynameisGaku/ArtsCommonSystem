@@ -945,6 +945,7 @@ public partial class MainWindow : Window
             // サブシステム。
             new("サブシステム", "Publish Event", bus, new[] { Ex("▶"), Da("channel", "String") },                  new[] { Ex("▶") }),
             new("サブシステム", "Spawn Prefab",  bus, new[] { Ex("▶"), Da("path", "String"), Da("pos", "Vector") }, new[] { Ex("▶"), Da("spawned", "Object") }),
+            new("サブシステム", "Spawn Actor from Class", bus, new[] { Ex("▶"), Da("class", "Class"), Da("pos", "Vector") }, new[] { Ex("▶"), Da("spawned", "Object") }),   // 右クリックで生成クラス選択
             // シーン操作 (実ノードを編集=永続)。target はノード ID。
             new("シーン操作", "Set Position", scn, new[] { Ex("▶"), Da("target", "Object"), Da("x", "Float"), Da("y", "Float") }, new[] { Ex("▶") }),
             new("シーン操作", "Get Position", scn, new[] { Ex("▶"), Da("target", "Object") },                 new[] { Ex("▶"), Da("pos", "Vector") }),

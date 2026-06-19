@@ -77,7 +77,7 @@ public partial class BlueprintEditor
     public void RunGraph()
     {
         foreach (var n in _nodes) n.Executed = false;
-        _spawnHandles.Clear(); _returns.Clear(); _spawnSeq = 0; _execBudget = 4000;
+        _spawnHandles.Clear(); _objClass.Clear(); _returns.Clear(); _spawnSeq = 0; _execBudget = 4000;
         _vars.Clear(); _watch.Clear(); _firedOut.Clear(); _showWatch = true;
         _flowState.Clear(); _trace.Clear();
         _callStack.Clear(); _argStack.Clear(); _callResult.Clear(); _localFrame.Clear(); _loopBreak.Clear();
@@ -248,10 +248,15 @@ public partial class BlueprintEditor
             return;
         }
         // Cast: object が «それらしい» 値なら Success(+As)、無ければ Failed。
-        if (n.Title.StartsWith("Cast"))
+        if (n.Title.StartsWith("Cast"))   // Cast To <型>: 型タグを照合 (タグ無しは寛容)。
         {
             string obj = EvalInputByName(n, "object");
-            bool ok = obj.Length > 0 && obj != "(未接続)" && obj != "(なし)";
+            bool nonEmpty = obj.Length > 0 && obj != "(未接続)" && obj != "(なし)";
+            string target = n.VarRef.Trim();
+            bool ok = !nonEmpty ? false
+                : target.Length == 0 ? true                                   // 型未指定 = 汎用 Cast
+                : _objClass.TryGetValue(obj, out var oc) ? oc == target        // タグ照合
+                : true;                                                        // タグ無し (self/変数) は成功
             if (ok) _returns[n.Id] = obj;
             FireExecByName(n, ok ? "Success" : "Failed");
             return;
@@ -383,6 +388,13 @@ public partial class BlueprintEditor
         string t = n.Title;
         if (t.StartsWith("On Event")) return $"イベント On Event(channel={EvalInputByName(n, "channel")})";
         if (t.StartsWith("On ") || t.StartsWith("Event")) return "イベント " + t.Trim();
+        if (t == "Spawn Actor from Class")   // 生成インスタンスをクラスでタグ付け (後段の Cast が照合)
+        {
+            string cls = EvalInputByName(n, "class");
+            string handle = SpawnHandle(n);
+            _objClass[handle] = cls; _returns[n.Id] = handle;
+            return $"Spawn Actor(class={cls}) ⇒ {handle}";
+        }
         if (t.StartsWith("Spawn"))
         {
             string path = EvalInputByName(n, "path");
