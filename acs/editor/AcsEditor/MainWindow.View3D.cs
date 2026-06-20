@@ -127,14 +127,9 @@ public partial class MainWindow
         Insp3DPanel.Children.Add(Vec3Row("Position", tf[0], tf[1], tf[2], (x, y, z) => Set3DTransform(id, 0, x, y, z)));
         Insp3DPanel.Children.Add(Vec3Row("Rotation°", tf[3], tf[4], tf[5], (x, y, z) => Set3DTransform(id, 1, x, y, z)));
         Insp3DPanel.Children.Add(Vec3Row("Scale", tf[6], tf[7], tf[8], (x, y, z) => Set3DTransform(id, 2, x, y, z)));
-        Insp3DPanel.Children.Add(Section("DISPLAY"));
-        Insp3DPanel.Children.Add(Vec3Row("Color", col[0], col[1], col[2], (r, g, b) =>
-            EngineInterop.acs_editor_node3d_set_color(Engine, id, r, g, b, 1.0f)));
-        Insp3DPanel.Children.Add(Bool3DRow("Visible", EngineInterop.acs_editor_node3d_get_visible(Engine, id) != 0,
-            v => EngineInterop.acs_editor_node3d_set_visible(Engine, id, v ? 1 : 0)));
-        Insp3DPanel.Children.Add(Bool3DRow("Enabled", EngineInterop.acs_editor_node3d_get_enabled(Engine, id) != 0,
-            v => EngineInterop.acs_editor_node3d_set_enabled(Engine, id, v ? 1 : 0)));
-
+        // MESH RENDERER (FMeshComponent3D) — «何を・どう» 描くか。シェイプ/色/マテリアルは «ノード固有の特別扱い»
+        // ではなく «メッシュコンポーネントのプロパティ» として 1 つに束ねる (2D の描画コンポーネント方式に対応)。
+        Insp3DPanel.Children.Add(Section("MESH RENDERER"));
         // 形状 / 種別。プリミティブ (Cube/Sphere/Plane) は編集可能ドロップダウン。
         // Mesh/Sprite/Polygon は種別を読み取り専用ラベルで表示 (誤って "Cube" と出さない)。
         if (kind >= 0 && kind <= 2)
@@ -162,10 +157,18 @@ public partial class MainWindow
             Insp3DPanel.Children.Add(LabeledValue3D("Type", typeName));
             if (kind == 4) Insp3DPanel.Children.Add(SpriteRow3D(id));   // スプライト画像の差替え UI
         }
-
-        // MATERIAL — .acsmat アセットを参照する (2D と同様、編集はマテリアルエディタで)。インライン数値編集はしない。
-        Insp3DPanel.Children.Add(Section("MATERIAL"));
+        // 色 (FMeshComponent3D::Color)。material 未設定時のアルベド。
+        Insp3DPanel.Children.Add(Vec3Row("Color", col[0], col[1], col[2], (r, g, b) =>
+            EngineInterop.acs_editor_node3d_set_color(Engine, id, r, g, b, 1.0f)));
+        // マテリアル — .acsmat アセットを参照 (2D と同様、編集はマテリアルエディタで)。インライン数値編集はしない。
         Insp3DPanel.Children.Add(Build3DMaterialSlot(id));
+
+        // NODE — ノード自体 (FNode3D) の状態。
+        Insp3DPanel.Children.Add(Section("NODE"));
+        Insp3DPanel.Children.Add(Bool3DRow("Visible", EngineInterop.acs_editor_node3d_get_visible(Engine, id) != 0,
+            v => EngineInterop.acs_editor_node3d_set_visible(Engine, id, v ? 1 : 0)));
+        Insp3DPanel.Children.Add(Bool3DRow("Enabled", EngineInterop.acs_editor_node3d_get_enabled(Engine, id) != 0,
+            v => EngineInterop.acs_editor_node3d_set_enabled(Engine, id, v ? 1 : 0)));
 
         // COMPONENTS — 3D ノードにも振る舞いコンポーネントを付けられる (2D と同じ反射型・EEd3DRec に保持)。
         Insp3DPanel.Children.Add(Section("COMPONENTS"));
