@@ -1206,6 +1206,7 @@ public partial class BlueprintEditor : UserControl
             case Key.D when ctrl: DuplicateSelection(); e.Handled = true; break;
             case Key.A when ctrl: SelectAll(); e.Handled = true; break;
             case Key.F when ctrl: OpenFindInGraph(); e.Handled = true; break;   // グラフ内検索
+            case Key.L when ctrl: AutoArrange(); e.Handled = true; break;       // 自動整列
             case Key.Tab: OpenNodeSearch(new Point(ActualWidth / 2 - 150, 90),
                               new Point((ActualWidth / 2 - _pan.X) / _zoom.ScaleX, (140 - _pan.Y) / _zoom.ScaleY), null); e.Handled = true; break;
             case Key.C: WrapSelectionInComment(); e.Handled = true; break;   // コメント枠で囲む (UE の C)
@@ -1247,6 +1248,38 @@ public partial class BlueprintEditor : UserControl
         Rebuild();
         CommitEdit();
     }
+
+    /// <summary>ノードを «接続の流れ» に沿って左→右に自動整列する (選択が2個以上ならその集合、なければ全体)。UE の整理。</summary>
+    private void AutoArrange()
+    {
+        var nodes = _selected.Count(n => !n.Inherited) >= 2 ? _selected.Where(n => !n.Inherited).ToList() : _nodes.Where(n => !n.Inherited).ToList();
+        if (nodes.Count < 2) return;
+        var ids = nodes.Select(n => n.Id).ToHashSet();
+        var depth = new Dictionary<int, int>();
+        int Depth(int id, HashSet<int> stack)   // 先行ノード鎖の最長 = 列
+        {
+            if (depth.TryGetValue(id, out var d)) return d;
+            if (!stack.Add(id)) return 0;   // 循環ガード
+            int best = 0;
+            foreach (var c in _conns) if (c.ToNode == id && ids.Contains(c.FromNode)) best = Math.Max(best, Depth(c.FromNode, stack) + 1);
+            stack.Remove(id); depth[id] = best; return best;
+        }
+        foreach (var n in nodes) Depth(n.Id, new HashSet<int>());
+        double x0 = nodes.Min(n => n.X), y0 = nodes.Min(n => n.Y);
+        const double colW = 240, rowH = 132;
+        BeginEdit();
+        foreach (var col in nodes.GroupBy(n => depth[n.Id]).OrderBy(g => g.Key))
+        {
+            double x = x0 + col.Key * colW;
+            var ordered = col.OrderBy(n => n.Y).ThenBy(n => n.Id).ToList();
+            for (int r = 0; r < ordered.Count; r++) { ordered[r].X = x; ordered[r].Y = y0 + r * rowH; }
+        }
+        Rebuild(); CommitEdit();
+        LogSink?.Invoke($"⊞ {nodes.Count} ノードを整列しました。");
+    }
+
+    /// <summary>検証用: 全ノードを自動整列する (--bpshot arrange)。</summary>
+    public void ArrangeForTest() { _selected.Clear(); AutoArrange(); }
 
     private void OnKeyUp(object sender, KeyEventArgs e)
     {
@@ -1619,7 +1652,9 @@ public partial class BlueprintEditor : UserControl
             {
                 var collapse = new MenuItem { Header = "関数に折りたたむ" };
                 collapse.Click += (_, __) => CollapseToFunction();
-                menu.Items.Add(new Separator()); menu.Items.Add(collapse);
+                var tidy = new MenuItem { Header = "整理 (Ctrl+L)" };
+                tidy.Click += (_, __) => AutoArrange();
+                menu.Items.Add(new Separator()); menu.Items.Add(collapse); menu.Items.Add(tidy);
             }
             // 整列 (2 個以上選択時)。
             if (_selected.Count >= 2 && _selected.Contains(hit))
