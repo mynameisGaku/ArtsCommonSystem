@@ -27,6 +27,7 @@
 #include "gameframework/PhysicsBody2D.h"
 #include "gameframework/RigidBody2D.h"          // FRigidBody2D (剛体ボディ・コンポーネント)
 #include "gameframework/PrimitiveRenderer2D.h"  // FPrimitiveRenderer2D (形状描画 + コライダー形状)
+#include "gameframework/MeshComponent3D.h"       // FMeshComponent3D (3D メッシュ: primitive/color を反射プロパティ化)
 #include "gameframework/Effects2D.h"   // FWater2D / FFire2D / FTrail2D / FStencilClip2D
 #include "gameframework/Light2DComponent.h"  // FLight2DComponent (2D 点光源)
 #include "gameframework/Follow2DComponent.h"  // FFollow2DComponent (オブジェクト参照デモ)
@@ -111,6 +112,12 @@ ACS_REGISTER_COMPONENT(FPhysicsBody2D)           // ctor が world& 必須 → A
 // shape: 0=Box, 1=Circle, 2=Triangle。
 ACS_REGISTER_COMPONENT(FPrimitiveRenderer2D,
     ACS_RPROP_I("shape", 0))                // 0=Box, 1=Circle, 2=Triangle
+// 3D メッシュ描画 (シェイプ/色を «ノード直書き» でなくコンポーネントの反射プロパティとして扱う。
+// 2D の FPrimitiveRenderer2D/FSprite2DComponent と同じ «スキーマのみ» 方式。値はエディタが保持)。
+// primitive: 0=Cube, 1=Sphere, 2=Plane, 3=Mesh。
+ACS_REGISTER_COMPONENT(FMeshComponent3D,
+    ACS_RPROP_I ("primitive", 0),                       // m_Prim (EMeshPrimitive3D)
+    ACS_RPROP_V4("color", 1.0f, 1.0f, 1.0f, 1.0f))      // m_Color{1,1,1,1} (RGBA)
 // 剛体ボディ (現実的な剛体物理の dynamics。形状は FPrimitiveRenderer2D の shape を使う)。
 // bodyType: 0=Static, 1=Dynamic。値はエディタが保持し Play で読む。
 ACS_REGISTER_COMPONENT(FRigidBody2D,

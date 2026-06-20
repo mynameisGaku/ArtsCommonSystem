@@ -130,10 +130,13 @@ internal static class EngineInterop
     public static extern int acs_editor_node3d_get_color(IntPtr handle, int id, [Out] float[] out4);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_set_color(IntPtr handle, int id, float r, float g, float b, float a);
+    // 3D ノードの使用マテリアル (.acsmat パス参照。2D の node_set/get/clear_material を鏡映)。
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-    public static extern int acs_editor_node3d_get_material(IntPtr handle, int id, [Out] float[] out2);
+    public static extern int acs_editor_node3d_set_material(IntPtr handle, int id, [MarshalAs(UnmanagedType.LPUTF8Str)] string utf8Path);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-    public static extern int acs_editor_node3d_set_material(IntPtr handle, int id, float metallic, float roughness);
+    public static extern IntPtr acs_editor_node3d_get_material(IntPtr handle, int id);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_clear_material(IntPtr handle, int id);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_selected3d(IntPtr handle);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -361,6 +364,17 @@ internal static class EngineInterop
         float specularLevel, float specularTint,
         float sheen, float sheenRoughness, float sheenR, float sheenG, float sheenB,
         float subsurface, float sssR, float sssG, float sssB);
+
+    /// <summary>3D ノードの使用マテリアルパス (UTF-8、未設定は "")。NodeMaterial(2D) の鏡映。</summary>
+    public static string NodeMaterial3D(IntPtr handle, int id)
+    {
+        IntPtr p = acs_editor_node3d_get_material(handle, id);
+        if (p == IntPtr.Zero) return "";
+        int m = 0; while (Marshal.ReadByte(p, m) != 0) m++;
+        if (m == 0) return "";
+        var bb = new byte[m]; Marshal.Copy(p, bb, 0, m);
+        return System.Text.Encoding.UTF8.GetString(bb);
+    }
 
     /// <summary>ノードの使用マテリアルパス (UTF-8、未設定は "")。</summary>
     public static string NodeMaterial(IntPtr handle, int id)

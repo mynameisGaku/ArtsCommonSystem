@@ -205,8 +205,7 @@ struct EEd3DRec : public acs::game::FComponent3D {
     static constexpr u32 kMaxProps      = 8;
     int   id    = 0;                          ///< editor 整数 id (ABI/C# 境界・シリアライズ用)。
     FVec3 euler = FVec3{ 0, 0, 0 };           ///< authored オイラー角 (度、XYZ。Local().rotation の編集元)。
-    f32   metallic  = 0.0f;                    ///< マテリアル: 金属度 (0=誘電体, 1=金属)。PBR 用。
-    f32   roughness = 0.6f;                    ///< マテリアル: 粗さ (0=鏡面, 1=完全拡散)。PBR 用。
+    // マテリアルは FMeshComponent3D が material_path + FMaterial2D で持つ (.acsmat 参照、2D 鏡映)。
     char  sprite_path[256] = {};              ///< 非空ならスプライト (z=0 テクスチャ付きクアッド)。再読込用の画像パス。
     TArray<FVec2> poly_pts;                   ///< 3点以上なら手続きポリゴン (z=0)。再生成用の元 2D 頂点列。
     // アタッチされた Component 型 (リフレクション type-id)。2D の FEditorNode と同じ «エディタ・メタデータ» 方式。
@@ -2598,6 +2597,22 @@ game::FMeshComponent3D* Mesh3D(game::FNode3D* n) noexcept {
     return (n != nullptr) ? n->GetComponent<game::FMeshComponent3D>() : nullptr;
 }
 
+/** 3D ノードの material_path (.acsmat) を解析して FMeshComponent3D の material キャッシュへ読み込む。
+ *  2D の LoadNodeMaterial 鏡映。path 空ならマテリアル無し (既定) に戻す。GPU テクスチャは当面未使用。 */
+void LoadNode3DMaterial(game::FNode3D* n) noexcept {
+    game::FMeshComponent3D* mc = Mesh3D(n);
+    if (mc == nullptr) return;
+    mc->MaterialMut() = game::FMaterial2D{};                      // 既定にリセット
+    const FStringView mp = mc->MaterialPath();
+    if (mp.Size() > 0) {
+        char path[260];
+        const u32 len = (mp.Size() < 259u) ? mp.Size() : 259u;
+        std::memcpy(path, mp.Data(), len); path[len] = '\0';     // FStringView を NUL 終端化
+        game::LoadAcsmatFile(path, mc->MaterialMut());           // LoadAcsmatFile は生 fopen → 絶対パス前提
+    }
+    mc->SetMaterialLoaded(true);
+}
+
 /** root 配下を DFS pre-order で集める (root 自身は除く)。前方宣言 (FindNode3DNode が使う)。 */
 void Dfs3DCollect(game::FNode3D* n, TArray<game::FNode3D*>& out) noexcept;
 
@@ -2828,10 +2843,18 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         const FMeshAsset* cm = (prim == 3) ? NMesh(nn) : (prim == 1) ? h.cpu_sphere.Get()
                              : (prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
         const FVec4 col = NColor(nn);
-        EEd3DRec* rec = Rec3D(nn);
-        const f32 mtl = (rec != nullptr) ? rec->metallic  : 0.0f;
-        const f32 rgh = (rec != nullptr) ? rec->roughness : 0.6f;
-        AppendMeshTris(dv, cm, nn->World().ToMat4(), FVec3{ col.x, col.y, col.z }, h.m3d_dyn_cap, mtl, rgh);
+        // マテリアル: FMeshComponent3D が参照する .acsmat (FMaterial2D) から metallic/roughness/baseColor を読む。
+        game::FMeshComponent3D* mc = Mesh3D(nn);
+        if (mc != nullptr && !mc->MaterialLoaded() && mc->HasMaterial()) LoadNode3DMaterial(nn);   // 遅延ロード (2D 鏡映)
+        f32 mtl = 0.0f, rgh = 0.5f;
+        FVec3 albedo{ col.x, col.y, col.z };                                          // 既定はノード色 (NColor)
+        if (mc != nullptr) {
+            const game::FMaterial2D& mat = mc->Material();
+            mtl = mat.pbr.metallic; rgh = mat.pbr.roughness;
+            if (mc->HasMaterial() && mat.kind == game::EMaterialKind::Lit)             // material 設定時は baseColor を採用 (二重適用回避)
+                albedo = FVec3{ mat.pbr.baseColor.x, mat.pbr.baseColor.y, mat.pbr.baseColor.z };
+        }
+        AppendMeshTris(dv, cm, nn->World().ToMat4(), albedo, h.m3d_dyn_cap, mtl, rgh);
     }
     for (u32 i = 0; i < dv.Size(); ++i) {
         const M3DVtx& q = dv[i];
@@ -3550,6 +3573,15 @@ ACS_EDITOR_API int acs_editor_reload_material(void* handle, const char* utf8_pat
     for (u32 i = 0; i < host->nodes.Size(); ++i) {
         FEditorNode* n = host->nodes[i];
         if (std::strcmp(n->material_path, utf8_path) == 0) LoadNodeMaterial(n);
+    }
+    // 3D ノードも同じ .acsmat を参照していれば再ロード (material editor 保存→3D ビューポート即反映)。
+    TArray<game::FNode3D*> all3d; Dfs3DCollect(&host->scene3d.Root(), all3d);
+    for (u32 i = 0; i < all3d.Size(); ++i) {
+        game::FMeshComponent3D* mc = Mesh3D(all3d[i]);
+        if (mc == nullptr) continue;
+        const FStringView mp = mc->MaterialPath();
+        if (mp.Size() > 0 && std::strncmp(mp.Data(), utf8_path, mp.Size()) == 0 && utf8_path[mp.Size()] == '\0')
+            LoadNode3DMaterial(all3d[i]);
     }
     return 1;
 }
@@ -5342,24 +5374,38 @@ ACS_EDITOR_API int acs_editor_node3d_set_color(void* handle, int id, float r, fl
     return 1;
 }
 
-/** 3D ノードのマテリアル (out2[0]=metallic, out2[1]=roughness) を取得。成功 1。 */
-ACS_EDITOR_API int acs_editor_node3d_get_material(void* handle, int id, float* out2) {
+// ===== 3D マテリアル (.acsmat アセット参照。2D の node_set/get/clear_material を忠実に鏡映) =====
+
+/** 3D ノードに使用マテリアル (.acsmat パス) を割り当てる。即解析。成功 1 / 不明 0。 */
+ACS_EDITOR_API int acs_editor_node3d_set_material(void* handle, int id, const char* utf8_path) {
     auto* host = static_cast<EditorHost*>(handle);
-    if (host == nullptr || out2 == nullptr) return 0;
-    EEd3DRec* r = Rec3D(FindNode3DNode(*host, id));
-    if (r == nullptr) return 0;
-    out2[0] = r->metallic; out2[1] = r->roughness;
+    if (host == nullptr || utf8_path == nullptr) return 0;
+    game::FNode3D* n = FindNode3DNode(*host, id);
+    game::FMeshComponent3D* mc = Mesh3D(n);
+    if (mc == nullptr) return 0;
+    PushUndo(*host);
+    mc->SetMaterialPath(FStringView{ utf8_path });   // 2D 同様 set_material に渡された絶対パスをそのまま保持
+    LoadNode3DMaterial(n);
     return 1;
 }
 
-/** 3D ノードのマテリアル (metallic, roughness) を設定 (0..1 クランプ)。成功 1。 */
-ACS_EDITOR_API int acs_editor_node3d_set_material(void* handle, int id, float metallic, float roughness) {
+/** 3D ノードの使用マテリアルパス (UTF-8) を返す (未設定/不明は "")。 */
+ACS_EDITOR_API const char* acs_editor_node3d_get_material(void* handle, int id) {
     auto* host = static_cast<EditorHost*>(handle);
-    if (host == nullptr) return 0;
-    EEd3DRec* r = Rec3D(FindNode3DNode(*host, id));
-    if (r == nullptr) return 0;
-    r->metallic  = (metallic  < 0.0f) ? 0.0f : (metallic  > 1.0f) ? 1.0f : metallic;
-    r->roughness = (roughness < 0.0f) ? 0.0f : (roughness > 1.0f) ? 1.0f : roughness;
+    game::FMeshComponent3D* mc = (host != nullptr) ? Mesh3D(FindNode3DNode(*host, id)) : nullptr;
+    if (mc == nullptr || mc->MaterialPath().Size() == 0) return "";
+    return mc->MaterialPath().Data();   // FString の NUL 終端バッファ (C# 側で即コピー)
+}
+
+/** 3D ノードのマテリアルを外す。成功 1 / 不明 0。 */
+ACS_EDITOR_API int acs_editor_node3d_clear_material(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    game::FNode3D* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
+    game::FMeshComponent3D* mc = Mesh3D(n);
+    if (mc == nullptr) return 0;
+    PushUndo(*host);
+    mc->ClearMaterial();
+    LoadNode3DMaterial(n);
     return 1;
 }
 
@@ -5495,9 +5541,17 @@ ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap
             if (wf < 0 || wf >= cap - cur) { out[cap - 1] = '\0'; break; }
             cur += wf;
         }
-        if ((r->metallic != 0.0f || r->roughness != 0.6f) && cur < cap) {                 // マテリアル (非既定のみ。既定=0/0.6)
+        game::FMeshComponent3D* mc3 = Mesh3D(nn);                                         // マテリアル (.acsmat アセット参照)
+        if (mc3 != nullptr && mc3->MaterialPath().Size() > 0 && cur < cap) {              // 新形式: «MAT3D id <path>» (SPR3D 同形式)
+            char mpath[260]; const u32 ml = (mc3->MaterialPath().Size() < 259u) ? static_cast<u32>(mc3->MaterialPath().Size()) : 259u;
+            std::memcpy(mpath, mc3->MaterialPath().Data(), ml); mpath[ml] = '\0';
+            const int wm = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "MAT3D %d %s\n", r->id, mpath);
+            if (wm < 0 || wm >= cap - cur) { out[cap - 1] = '\0'; break; }
+            cur += wm;
+        } else if (mc3 != nullptr && cur < cap &&                                          // 旧データ移行: path 無しで pbr 値のみ → 数値で温存
+                   (mc3->Material().pbr.metallic != 0.0f || mc3->Material().pbr.roughness != 0.5f)) {
             const int wm = std::snprintf(out + cur, static_cast<size_t>(cap - cur),
-                "MAT3D %d %.3f %.3f\n", r->id, r->metallic, r->roughness);
+                "MAT3D %d %.3f %.3f\n", r->id, mc3->Material().pbr.metallic, mc3->Material().pbr.roughness);
             if (wm < 0 || wm >= cap - cur) { out[cap - 1] = '\0'; break; }
             cur += wm;
         }
@@ -5588,10 +5642,24 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
             }
             continue;
         }
-        if (std::strncmp(line, "MAT3D ", 6) == 0) {                  // マテリアル (metallic, roughness) の復元
-            int mid = 0; float mm = 0.0f, mr = 0.6f;
-            if (std::sscanf(line, "MAT3D %d %f %f", &mid, &mm, &mr) >= 3) {
-                if (EEd3DRec* er = Rec3D(FindNode3DNode(*host, mid))) { er->metallic = mm; er->roughness = mr; }
+        if (std::strncmp(line, "MAT3D ", 6) == 0) {                  // マテリアル: «MAT3D id <.acsmatパス>» (新) / «MAT3D id m r» (旧)
+            int mid = 0; char rest[256] = {};
+            if (std::sscanf(line, "MAT3D %d %255[^\n]", &mid, rest) >= 2) {
+                game::FNode3D* mn = FindNode3DNode(*host, mid);
+                game::FMeshComponent3D* mc = Mesh3D(mn);
+                if (mc != nullptr) {
+                    if (std::strstr(rest, ".acsmat") != nullptr) {       // 新形式: .acsmat アセットパス
+                        mc->SetMaterialPath(FStringView{ rest });
+                        LoadNode3DMaterial(mn);
+                    } else {                                              // 旧形式 (後方互換): metallic roughness を pbr へ
+                        float mm = 0.0f, mr = 0.5f;
+                        if (std::sscanf(rest, "%f %f", &mm, &mr) >= 2) {
+                            mc->MaterialMut().pbr.metallic = mm;
+                            mc->MaterialMut().pbr.roughness = mr;
+                            mc->SetMaterialLoaded(true);
+                        }
+                    }
+                }
             }
             continue;
         }

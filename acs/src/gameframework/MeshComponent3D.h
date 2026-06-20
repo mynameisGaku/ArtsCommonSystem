@@ -17,6 +17,7 @@
 #include "memory/SharedPtr.h"
 #include "asset/MeshAsset.h"   // FMeshAsset / Asset (Render→Asset 経由で gameframework から可視)
 #include "gameframework/Component3D.h"
+#include "gameframework/Material2D.h"   // FMaterial2D (.acsmat マテリアルアセット = 2D と共通の材質型)
 
 namespace acs::game {
 
@@ -163,6 +164,41 @@ public:
      */
     FMeshAsset* Mesh() const noexcept { return static_cast<FMeshAsset*>(m_MeshAsset.Get()); }
 
+    // --- マテリアルアセット (.acsmat) 参照 ---------------------------------------------
+    // 2D の FNode2D::m_Mat (ランタイム POD の材質状態) に相当するものをコンポーネントへ持たせる。
+    // ノードは «どの .acsmat を使うか» を material_path で参照し、FMaterial2D へ遅延ロードして
+    // キャッシュする。これがランタイム真実 (standalone/Play も material_path から自前で解決可能)。
+
+    /** 参照中の .acsmat パスを返す (未設定なら空)。 */
+    FStringView MaterialPath() const noexcept { return m_MaterialPath.View(); }
+
+    /** 参照する .acsmat パスを設定する (キャッシュは MarkMaterialDirty で次回再ロード)。 */
+    void SetMaterialPath(FStringView path) noexcept { m_MaterialPath = FString(path); m_MaterialLoaded = false; }
+
+    /** 材質パスを持つか (非空)。 */
+    bool HasMaterial() const noexcept { return !m_MaterialPath.IsEmpty(); }
+
+    /** 材質参照を外す (パス・ロード状態をクリア)。 */
+    void ClearMaterial() noexcept { m_MaterialPath = FString(); m_Material = FMaterial2D{}; m_MaterialLoaded = false; }
+
+    /** キャッシュ済みのマテリアル (読み取り) を返す。 */
+    const FMaterial2D& Material() const noexcept { return m_Material; }
+
+    /** キャッシュ済みのマテリアル (書込み可。ロード結果の格納先) を返す。 */
+    FMaterial2D& MaterialMut() noexcept { return m_Material; }
+
+    /** マテリアル値をコピーして焼き込む (2D の FNode2D::SetMaterial 鏡映)。 */
+    void SetMaterial(const FMaterial2D& m) noexcept { m_Material = m; m_MaterialLoaded = true; }
+
+    /** material_path を解析済み (キャッシュ有効) か。 */
+    bool MaterialLoaded() const noexcept { return m_MaterialLoaded; }
+
+    /** キャッシュ有効フラグを設定する (ロード完了時に true)。 */
+    void SetMaterialLoaded(bool b) noexcept { m_MaterialLoaded = b; }
+
+    /** キャッシュを無効化して次回再ロードさせる (.acsmat 保存後の reload 用)。 */
+    void MarkMaterialDirty() noexcept { m_MaterialLoaded = false; }
+
 private:
     /** 描くプリミティブ種別 (既定 Cube)。 */
     EMeshPrimitive3D m_Prim = EMeshPrimitive3D::Cube;
@@ -181,6 +217,15 @@ private:
 
     /** 外部レンダラが紐付ける非所有ポインタ (GPU メッシュ等、エンジンは非解釈)。 */
     void*            m_RenderHandle = nullptr;
+
+    /** 参照する .acsmat マテリアルアセットのパス (空=未設定)。 */
+    FString          m_MaterialPath;
+
+    /** material_path を解析した FMaterial2D キャッシュ (ランタイム真実)。 */
+    FMaterial2D      m_Material{};
+
+    /** material キャッシュが有効か (false で次回 LoadAcsmatFile し直し)。 */
+    bool             m_MaterialLoaded = false;
 };
 
 } // namespace acs::game

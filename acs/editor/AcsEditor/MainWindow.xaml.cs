@@ -151,8 +151,18 @@ public partial class MainWindow : Window
                 Log($"Blueprint ← {System.IO.Path.GetFileName(e.FullPath)}");
                 break;
             case "material":
-                // .acsmat をダブルクリック → マテリアルエディタを開く。選択ノードがあれば割当も。
-                if (_selectedId >= 0)
+                // .acsmat をダブルクリック → マテリアルエディタを開く。選択ノードがあれば割当も (3D/2D)。
+                if (_view3d)
+                {
+                    int s3 = EngineInterop.acs_editor_selected3d(Engine);
+                    if (s3 >= 0)
+                    {
+                        EngineInterop.acs_editor_node3d_set_material(Engine, s3, e.FullPath);
+                        Populate3DInspector(s3);   // インスペクタの .acsmat ドロップダウンを更新
+                        Log($"Material ← {System.IO.Path.GetFileName(e.FullPath)} (3D node {s3})");
+                    }
+                }
+                else if (_selectedId >= 0)
                 {
                     EngineInterop.acs_editor_node_set_material(Engine, _selectedId, e.FullPath);
                     RefreshMaterialBox(_selectedId);

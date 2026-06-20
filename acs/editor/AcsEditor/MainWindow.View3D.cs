@@ -163,20 +163,9 @@ public partial class MainWindow
             if (kind == 4) Insp3DPanel.Children.Add(SpriteRow3D(id));   // スプライト画像の差替え UI
         }
 
-        // MATERIAL — PBR の金属度/粗さ (per-node)。金属・プラスチック・マットなど見た目を変えられる。
-        var mat = new float[2];
-        EngineInterop.acs_editor_node3d_get_material(Engine, id, mat);
+        // MATERIAL — .acsmat アセットを参照する (2D と同様、編集はマテリアルエディタで)。インライン数値編集はしない。
         Insp3DPanel.Children.Add(Section("MATERIAL"));
-        Insp3DPanel.Children.Add(Slider3DRow("Metallic", mat[0], v =>
-        {
-            var m = new float[2]; EngineInterop.acs_editor_node3d_get_material(Engine, id, m);
-            EngineInterop.acs_editor_node3d_set_material(Engine, id, v, m[1]);
-        }));
-        Insp3DPanel.Children.Add(Slider3DRow("Roughness", mat[1], v =>
-        {
-            var m = new float[2]; EngineInterop.acs_editor_node3d_get_material(Engine, id, m);
-            EngineInterop.acs_editor_node3d_set_material(Engine, id, m[0], v);
-        }));
+        Insp3DPanel.Children.Add(Build3DMaterialSlot(id));
 
         // COMPONENTS — 3D ノードにも振る舞いコンポーネントを付けられる (2D と同じ反射型・EEd3DRec に保持)。
         Insp3DPanel.Children.Add(Section("COMPONENTS"));
@@ -298,20 +287,51 @@ public partial class MainWindow
         return row;
     }
 
-    // 0..1 のスライダ行 (マテリアル等)。右に現在値を表示。ドラッグ中に随時 onChange。
-    private FrameworkElement Slider3DRow(string label, float init, Action<float> onChange)
+    // 3D ノードの «.acsmat マテリアル» 参照スロット。2D の RefreshMaterialBox/OnMaterialSelected を
+    // コード生成方式 (名前付き XAML 不使用) で鏡映。Assets/**/*.acsmat を列挙し、選択で set/clear。
+    private FrameworkElement Build3DMaterialSlot(int id)
     {
         var row = new DockPanel { Margin = new Thickness(0, 3, 0, 1) };
-        var lbl = new TextBlock { Text = label, Width = 64, VerticalAlignment = VerticalAlignment.Center,
+        var lbl = new TextBlock { Text = "Material", Width = 64, VerticalAlignment = VerticalAlignment.Center,
             Foreground = (Brush)FindResource("TextDim") };
         DockPanel.SetDock(lbl, Dock.Left); row.Children.Add(lbl);
-        var val = new TextBlock { Text = init.ToString("0.00"), Width = 34, TextAlignment = TextAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center, Foreground = (Brush)FindResource("TextDim") };
-        DockPanel.SetDock(val, Dock.Right); row.Children.Add(val);
-        var sld = new Slider { Minimum = 0, Maximum = 1, Value = init, VerticalAlignment = VerticalAlignment.Center,
-            SmallChange = 0.05, LargeChange = 0.1 };
-        sld.ValueChanged += (_, e) => { val.Text = e.NewValue.ToString("0.00"); if (!_pop3d) onChange((float)e.NewValue); };
-        row.Children.Add(sld);
+        var combo = new ComboBox { VerticalAlignment = VerticalAlignment.Center };
+        combo.Items.Add(new ComboBoxItem { Content = "(なし)", Tag = null });
+        string cur = EngineInterop.NodeMaterial3D(Engine, id);
+        int sel = 0, idx = 0;
+        if (_project != null && System.IO.Directory.Exists(_project.AssetsDir))
+        {
+            foreach (string f in System.IO.Directory.EnumerateFiles(_project.AssetsDir, "*.acsmat",
+                                                                    System.IO.SearchOption.AllDirectories))
+            {
+                idx++;
+                combo.Items.Add(new ComboBoxItem { Content = AssetRel(f), Tag = f });
+                if (!string.IsNullOrEmpty(cur) && PathEq(f, cur)) sel = idx;
+            }
+        }
+        if (sel == 0 && !string.IsNullOrEmpty(cur))   // Assets 外/未列挙のパスもそのまま 1 項目に
+        {
+            combo.Items.Add(new ComboBoxItem { Content = System.IO.Path.GetFileName(cur), Tag = cur });
+            sel = combo.Items.Count - 1;
+        }
+        combo.SelectedIndex = sel;
+        combo.SelectionChanged += (_, __) =>
+        {
+            if (_pop3d) return;
+            if (combo.SelectedItem is not ComboBoxItem it) return;
+            string? path = it.Tag as string;
+            if (string.IsNullOrEmpty(path))
+            {
+                EngineInterop.acs_editor_node3d_clear_material(Engine, id);
+                Log("3D マテリアルを外した (→ ノード色).");
+            }
+            else
+            {
+                EngineInterop.acs_editor_node3d_set_material(Engine, id, path);
+                Log($"3D ノード {id} にマテリアル {AssetRel(path)} を割当.");
+            }
+        };
+        row.Children.Add(combo);
         return row;
     }
 
