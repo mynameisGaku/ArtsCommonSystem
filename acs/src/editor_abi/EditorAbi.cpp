@@ -4632,7 +4632,15 @@ ACS_EDITOR_API void acs_editor_camera_zoom(void* handle, float factor, float anc
 /** カメラを初期状態 (pan 0 / zoom 1) に戻す。 */
 ACS_EDITOR_API void acs_editor_camera_reset(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
-    if (host != nullptr) { host->cam_pan_x = 0.0f; host->cam_pan_y = 0.0f; host->cam_zoom = 1.0f; }
+    if (host == nullptr) return;
+    if (host->view3d) {                                  // 3D カメラを既定へ (正射=正面維持、透視=既定の俯瞰)
+        host->cam3d_yaw   = host->ortho3d ? 0.0f : 0.78f;
+        host->cam3d_pitch = host->ortho3d ? 0.0f : 0.55f;
+        host->cam3d_dist  = 14.0f;
+        host->cam3d_target = FVec3{ 0.0f, 1.0f, 0.0f };
+        return;
+    }
+    host->cam_pan_x = 0.0f; host->cam_pan_y = 0.0f; host->cam_zoom = 1.0f;
 }
 
 /** 現在のカメラ状態を取得する (UI 表示 / 検証用)。 */
@@ -5534,7 +5542,13 @@ ACS_EDITOR_API int acs_editor_get_snap(void* handle) {
 /** 選択ノードがビューポート中央に来るようカメラを寄せる (ズームは維持)。 */
 ACS_EDITOR_API void acs_editor_camera_focus(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
-    if (host == nullptr || host->selected < 0) return;
+    if (host == nullptr) return;
+    if (host->view3d) {                                  // 3D: 選択ノードへ注視点を寄せる (ギズモと同じ Local 位置基準)
+        game::FNode3D* n = FindNode3DNode(*host, host->sel3d);
+        if (n != nullptr) host->cam3d_target = n->Local().position;
+        return;
+    }
+    if (host->selected < 0) return;
     FEditorNode* n = FindNode(*host, host->selected);
     if (n == nullptr) return;
     const game::FTransform2D w = n->World();
