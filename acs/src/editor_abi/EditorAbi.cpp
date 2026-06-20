@@ -2656,20 +2656,43 @@ void AppendBar(TArray<M3DVtx>& gv, const EditorHost& h, FVec3 center, int axis, 
 }
 
 /** 軸方向の «円錐の矢じり» を gv へ追加する (apex = base + axisDir*len)。 */
+static FVec3 GNorm(FVec3 v) noexcept { const f32 l = std::sqrt(v.x*v.x+v.y*v.y+v.z*v.z); return (l>1e-6f)?FVec3{v.x/l,v.y/l,v.z/l}:FVec3{0,1,0}; }
 void AppendCone(TArray<M3DVtx>& gv, FVec3 base, int axis, f32 len, f32 rad, FVec3 col) noexcept {
     const FVec3 ax = AxisDir(axis);
-    // 軸に直交する 2 基底 u,v。
     FVec3 u = (axis == 2) ? FVec3{ 1, 0, 0 } : FVec3{ 0, 1, 0 };
     FVec3 v{ ax.y*u.z - ax.z*u.y, ax.z*u.x - ax.x*u.z, ax.x*u.y - ax.y*u.x };
     const FVec3 apex{ base.x + ax.x*len, base.y + ax.y*len, base.z + ax.z*len };
-    const int N = 12;
+    const int N = 24;   // 滑らかな矢じり
     auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { M3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z; gv.PushBack(o);} };
     for (int i = 0; i < N; ++i) {
         const f32 a0 = 6.2831853f * i / N, a1 = 6.2831853f * (i + 1) / N;
-        const FVec3 p0{ base.x + (u.x*std::cos(a0)+v.x*std::sin(a0))*rad, base.y + (u.y*std::cos(a0)+v.y*std::sin(a0))*rad, base.z + (u.z*std::cos(a0)+v.z*std::sin(a0))*rad };
-        const FVec3 p1{ base.x + (u.x*std::cos(a1)+v.x*std::sin(a1))*rad, base.y + (u.y*std::cos(a1)+v.y*std::sin(a1))*rad, base.z + (u.z*std::cos(a1)+v.z*std::sin(a1))*rad };
-        pushV(apex, ax); pushV(p0, ax); pushV(p1, ax);     // 側面 (法線は近似で軸方向)
+        const FVec3 rd0{ u.x*std::cos(a0)+v.x*std::sin(a0), u.y*std::cos(a0)+v.y*std::sin(a0), u.z*std::cos(a0)+v.z*std::sin(a0) };
+        const FVec3 rd1{ u.x*std::cos(a1)+v.x*std::sin(a1), u.y*std::cos(a1)+v.y*std::sin(a1), u.z*std::cos(a1)+v.z*std::sin(a1) };
+        const FVec3 p0{ base.x + rd0.x*rad, base.y + rd0.y*rad, base.z + rd0.z*rad };
+        const FVec3 p1{ base.x + rd1.x*rad, base.y + rd1.y*rad, base.z + rd1.z*rad };
+        // 側面の «円錐外向き» 法線 = radial*len + axis*rad (slant に直交、滑らか)。
+        const FVec3 n0 = GNorm(FVec3{ rd0.x*len+ax.x*rad, rd0.y*len+ax.y*rad, rd0.z*len+ax.z*rad });
+        const FVec3 n1 = GNorm(FVec3{ rd1.x*len+ax.x*rad, rd1.y*len+ax.y*rad, rd1.z*len+ax.z*rad });
+        pushV(apex, GNorm(FVec3{n0.x+n1.x,n0.y+n1.y,n0.z+n1.z})); pushV(p0, n0); pushV(p1, n1);   // 側面
         pushV(base, FVec3{-ax.x,-ax.y,-ax.z}); pushV(p1, FVec3{-ax.x,-ax.y,-ax.z}); pushV(p0, FVec3{-ax.x,-ax.y,-ax.z}); // 底
+    }
+}
+/** 軸方向の «円柱» (シャフト)。半径 rad、長さ len、滑らかな外向き法線。 */
+void AppendCylinder(TArray<M3DVtx>& gv, FVec3 base, int axis, f32 len, f32 rad, FVec3 col) noexcept {
+    const FVec3 ax = AxisDir(axis);
+    FVec3 u = (axis == 2) ? FVec3{ 1, 0, 0 } : FVec3{ 0, 1, 0 };
+    FVec3 v{ ax.y*u.z - ax.z*u.y, ax.z*u.x - ax.x*u.z, ax.x*u.y - ax.y*u.x };
+    const FVec3 tip{ base.x + ax.x*len, base.y + ax.y*len, base.z + ax.z*len };
+    const int N = 20;
+    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { M3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z; gv.PushBack(o);} };
+    for (int i = 0; i < N; ++i) {
+        const f32 a0 = 6.2831853f * i / N, a1 = 6.2831853f * (i + 1) / N;
+        const FVec3 n0{ u.x*std::cos(a0)+v.x*std::sin(a0), u.y*std::cos(a0)+v.y*std::sin(a0), u.z*std::cos(a0)+v.z*std::sin(a0) };
+        const FVec3 n1{ u.x*std::cos(a1)+v.x*std::sin(a1), u.y*std::cos(a1)+v.y*std::sin(a1), u.z*std::cos(a1)+v.z*std::sin(a1) };
+        const FVec3 b0{ base.x+n0.x*rad, base.y+n0.y*rad, base.z+n0.z*rad }, b1{ base.x+n1.x*rad, base.y+n1.y*rad, base.z+n1.z*rad };
+        const FVec3 t0{ tip.x+n0.x*rad,  tip.y+n0.y*rad,  tip.z+n0.z*rad  }, t1{ tip.x+n1.x*rad,  tip.y+n1.y*rad,  tip.z+n1.z*rad  };
+        pushV(b0,n0); pushV(t0,n0); pushV(t1,n1);   // 側面 (smooth)
+        pushV(b0,n0); pushV(t1,n1); pushV(b1,n1);
     }
 }
 
@@ -2828,20 +2851,21 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     if (game::FNode3D* sn = FindNode3DNode(h, h.sel3d)) {
         const FVec3 P = sn->Local().position;
         const f32 gl = Gizmo3DScale(h, P);
-        const f32 shaft = gl * 0.022f;     // シャフト半径
-        const f32 head  = gl * 0.075f;     // 矢じり半径
-        const f32 headL = gl * 0.24f;      // 矢じり長
-        const f32 axisL = gl * 0.76f;      // シャフト終端 (= 矢じりの根本)
+        const f32 shaft = gl * 0.020f;     // シャフト半径 (円柱)
+        const f32 head  = gl * 0.085f;     // 矢じり半径
+        const f32 headL = gl * 0.26f;      // 矢じり長
+        const f32 axisL = gl * 0.74f;      // シャフト終端 (= 矢じりの根本)
+        const f32 rootO = gl * 0.13f;      // 中心ハンドルを避ける起点オフセット
         const FVec3 cols[3] = { FVec3{ 0.92f, 0.26f, 0.30f }, FVec3{ 0.40f, 0.86f, 0.34f }, FVec3{ 0.30f, 0.55f, 0.96f } };
         const FVec3 hot{ 1.0f, 0.86f, 0.22f };
-        TArray<M3DVtx>& gv = *(new TArray<M3DVtx>()); gv.Reserve(2048);
+        TArray<M3DVtx>& gv = *(new TArray<M3DVtx>()); gv.Reserve(4096);
 
-        // 3 軸 (シャフト + 矢じり)。
+        // 3 軸 (円柱シャフト + 円錐矢じり)。
         for (int a = 1; a <= 3; ++a) {
             const FVec3 d = AxisDir(a);
             const FVec3 col = (h.giz3d_handle == a) ? hot : cols[a - 1];
-            const FVec3 mid{ P.x + d.x * axisL * 0.5f, P.y + d.y * axisL * 0.5f, P.z + d.z * axisL * 0.5f };
-            AppendBar(gv, h, mid, a, axisL, shaft, col);
+            const FVec3 root{ P.x + d.x * rootO, P.y + d.y * rootO, P.z + d.z * rootO };
+            AppendCylinder(gv, root, a, axisL - rootO, shaft, col);
             AppendCone(gv, FVec3{ P.x + d.x * axisL, P.y + d.y * axisL, P.z + d.z * axisL }, a, headL, head, col);
         }
         // 平面ハンドル (XY=4,YZ=5,XZ=6): 各 2 軸の途中にオフセットした小四角。
@@ -2856,13 +2880,15 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
             if (hpl == 6) col = (h.giz3d_handle==6)?hot:FVec3{0.40f,0.86f,0.34f};
             AppendQuad(gv, c, e1, e2, ph, col);
         }
-        // 中心キューブ (見た目のアクセント)。
-        AppendMeshTris(gv, h.cpu_cube.Get(), FMat4::Scale(FVec3{gl*0.05f,gl*0.05f,gl*0.05f}) * FMat4::Translation(P),
-                       FVec3{ 0.85f, 0.85f, 0.88f }, 4096);
+        // 中心ハンドル (スクリーン移動): 小さな球。
+        AppendMeshTris(gv, h.cpu_sphere.Get(), FMat4::Scale(FVec3{gl*0.06f,gl*0.06f,gl*0.06f}) * FMat4::Translation(P),
+                       (h.giz3d_handle == 0 ? hot : FVec3{ 0.88f, 0.88f, 0.92f }), 4096);
 
         if (gv.Size() > 0 && h.m3d_giz_vb && h.m3d_giz_cb) {
-            // ギズモは «フラットに明るく» (高アンビエント・ライト0) → 法線の裏表に依存せず常に鮮やか。
-            M3DFrame gcb{}; gcb.view_proj = vp; gcb.light_dir = FVec4{ 0, 1, 0, 0.92f }; gcb.light_col = FVec4{ 0.10f, 0.10f, 0.10f, 0 };
+            // ギズモは «立体的に» 陰影付け: 中アンビエント + 強めの直接光(PBR の /PI を補償)で円柱/円錐の形が出る。
+            M3DFrame gcb{}; gcb.view_proj = vp;
+            gcb.light_dir = FVec4{ 0.35f, 0.72f, 0.55f, 0.45f };   // 上前右からの光, w=ambient
+            gcb.light_col = FVec4{ 1.85f, 1.85f, 1.95f, 0 };       // 直接光を強めにしてコントラスト+鏡面ハイライト
             gcb.cam_pos = FVec4{ camPos.x, camPos.y, camPos.z, 0.0f };   // PBR 視線ベクトル (メッシュと同じ)
             h.m3d_giz_cb->Update(&gcb, sizeof(gcb));
             h.m3d_giz_vb->Update(gv.Data(), sizeof(M3DVtx) * gv.Size());
