@@ -295,6 +295,9 @@ struct EditorHost {
     TUniquePtr<IRhiShader>   sky_vs, sky_ps;
     TUniquePtr<IRhiPipeline> sky_pipe;
     TUniquePtr<IRhiBuffer>   sky_cb;                  // カメラ基底 (レイ再構成用)
+    TUniquePtr<IRhiPipeline> grid_pipe;               // 無限グリッド (y=0 / ortho は z=0)
+    TUniquePtr<IRhiShader>   grid_vs, grid_ps;
+    TUniquePtr<IRhiBuffer>   grid_cb, grid_vb;        // b0: view_proj + 中心、大クアッド頂点
     FDebugDraw3D    dbg3d;                // グリッド/選択 AABB/ギズモの線
     bool         r3d_ready     = false;   // 3D リソース初期化済み
     GpuMesh      gm_cube, gm_sphere, gm_plane;   // プリミティブ GPU メッシュ (将来 DrawIndexed 用)
@@ -2165,6 +2168,43 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
 struct SkyCB { FVec4 fwd, right, up, zenith, horizon, ground, sun; };  // 112 bytes
 
+// 無限グリッド: y=0 (ortho では z=0) の «視点中心の大クアッド» をフラグメントで格子化。
+// fwidth でアンチエイリアス線幅を一定に、距離フェードで無限に見せる。minor=1単位 / major=10単位 + 軸色。
+const char* kGrid3DHLSL = R"(
+#pragma pack_matrix(row_major)
+cbuffer Grid : register(b0) {
+    float4x4 view_proj;
+    float4   gctr;   // xy=フェード中心(グリッド平面の2軸), z=フェード距離, w=ortho(1:z=0平面 / 0:y=0平面)
+};
+struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float3 col : COLOR; };
+struct VSOut { float4 pos : SV_POSITION; float3 wpos : TEXCOORD0; };
+VSOut VSMain(VSIn v) { VSOut o; o.pos = mul(float4(v.pos, 1.0), view_proj); o.wpos = v.pos; return o; }
+float GridAA(float2 c, float scale) {
+    float2 cc = c / scale;
+    float2 d  = fwidth(cc);
+    float2 g  = abs(frac(cc - 0.5) - 0.5) / max(d, 1e-6);
+    return 1.0 - min(min(g.x, g.y), 1.0);
+}
+float4 PSMain(VSOut v) : SV_TARGET {
+    float2 coord = (gctr.w > 0.5) ? v.wpos.xy : v.wpos.xz;
+    float  minor = GridAA(coord, 1.0);
+    float  major = GridAA(coord, 10.0);
+    float3 col = lerp(float3(0.42,0.44,0.50), float3(0.60,0.62,0.70), major);
+    float  a   = max(minor * 0.32, major * 0.70);
+    float2 d   = fwidth(coord);
+    float  axisV = 1.0 - min(abs(coord.x) / max(d.x, 1e-6), 1.0);  // coord.x=0 の線
+    float  axisH = 1.0 - min(abs(coord.y) / max(d.y, 1e-6), 1.0);  // coord.y=0 の線 (X 軸)
+    if (axisH > a) { a = axisH; col = float3(0.90, 0.38, 0.40); }                                         // X 軸 = 赤
+    if (axisV > a) { a = axisV; col = (gctr.w > 0.5) ? float3(0.42,0.85,0.40) : float3(0.36,0.56,0.95); } // ortho:Y緑 / persp:Z青
+    float dist = length(gctr.xy - coord);
+    float fade = saturate(1.0 - dist / gctr.z); fade *= fade;
+    a *= fade;
+    if (a < 0.004) discard;
+    return float4(col, a);
+}
+)";
+struct GridCB { FMat4 view_proj; FVec4 gctr; };
+
 bool Ensure3D(EditorHost& h) noexcept {
     if (h.r3d_ready) return true;
     IRhiDevice* dev = h.renderer.Device();
@@ -2251,6 +2291,34 @@ bool Ensure3D(EditorHost& h) noexcept {
         h.spr_pipe = Move(spl.Value());
         FBufferDesc vb{}; vb.size = sizeof(SprVtx) * 6 * 1024; vb.usage = EBufferUsage::Vertex; vb.cpu_writable = true;
         auto vr2 = CreateRhiBuffer(*dev, vb); if (vr2.IsOk()) h.spr_vb = Move(vr2.Value());
+    }
+
+    // 無限グリッド: y=0 (ortho は z=0) の大クアッド。アルファブレンド、depth_test on / write off (シーンに隠れる半透明)。
+    {
+        FShaderDesc gvs{}; gvs.stage = EShaderStage::Vertex; gvs.hlsl_source = kGrid3DHLSL; gvs.entry_point = "VSMain"; gvs.debug_name = "Grid3D.VS";
+        FShaderDesc gps{}; gps.stage = EShaderStage::Pixel;  gps.hlsl_source = kGrid3DHLSL; gps.entry_point = "PSMain"; gps.debug_name = "Grid3D.PS";
+        auto gvr = CreateRhiShader(*dev, gvs); auto gpr = CreateRhiShader(*dev, gps);
+        if (gvr.IsErr() || gpr.IsErr()) { ACS_LOG_ERROR("[3D] grid シェーダ生成失敗"); return false; }
+        h.grid_vs = Move(gvr.Value()); h.grid_ps = Move(gpr.Value());
+        FPipelineDesc gd{};
+        gd.vs = h.grid_vs.Get(); gd.ps = h.grid_ps.Get();
+        gd.topology     = EPrimitiveTopology::TriangleList;
+        gd.rt_format    = cf; gd.depth_format = df;
+        gd.depth_test   = true; gd.depth_write = false;
+        gd.cull_mode    = ECullMode::None; gd.blend_mode = EBlendMode::AlphaBlend;
+        gd.cbuffer_slots = 1; gd.cbuffer_names[0] = "Grid";
+        gd.vertex_stride = sizeof(M3DVtx);
+        gd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
+        gd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 12 };
+        gd.layout[2] = { "COLOR",    0, EFormat::R32G32B32_Float, 24 };
+        gd.layout_count = 3;
+        auto gpl = CreateRhiPipeline(*dev, gd);
+        if (gpl.IsErr()) { ACS_LOG_ERROR("[3D] grid パイプライン生成失敗"); return false; }
+        h.grid_pipe = Move(gpl.Value());
+        FBufferDesc gvbd{}; gvbd.size = sizeof(M3DVtx) * 6; gvbd.usage = EBufferUsage::Vertex; gvbd.cpu_writable = true;
+        auto gvbr = CreateRhiBuffer(*dev, gvbd); if (gvbr.IsOk()) h.grid_vb = Move(gvbr.Value());
+        FBufferDesc gcbd{}; gcbd.size = 256; gcbd.usage = EBufferUsage::Uniform; gcbd.cpu_writable = true;
+        auto gcbr = CreateRhiBuffer(*dev, gcbd); if (gcbr.IsOk()) h.grid_cb = Move(gcbr.Value());
     }
 
     {
@@ -2695,6 +2763,30 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     }
     delete &dv;
 
+    // --- (2b) 無限グリッド: 視点中心の大クアッド (y=0 / ortho は z=0) を半透明描画。距離フェードで無限に見せる。
+    if (h.grid_pipe && h.grid_vb && h.grid_cb) {
+        const f32 S = 800.0f;                    // クアッド半径 (フェード距離より十分大きく)
+        const f32 cx = h.cam3d_target.x;
+        const f32 cy = h.ortho3d ? h.cam3d_target.y : h.cam3d_target.z;
+        auto V = [](f32 x, f32 y, f32 z) { return M3DVtx{ x, y, z, 0, 1, 0, 0, 0, 0 }; };
+        M3DVtx qv[6];
+        if (h.ortho3d) {                         // z=0 平面 (XY)
+            qv[0]=V(cx-S,cy-S,0); qv[1]=V(cx+S,cy-S,0); qv[2]=V(cx+S,cy+S,0);
+            qv[3]=V(cx-S,cy-S,0); qv[4]=V(cx+S,cy+S,0); qv[5]=V(cx-S,cy+S,0);
+        } else {                                 // y=0 平面 (XZ)
+            qv[0]=V(cx-S,0,cy-S); qv[1]=V(cx+S,0,cy-S); qv[2]=V(cx+S,0,cy+S);
+            qv[3]=V(cx-S,0,cy-S); qv[4]=V(cx+S,0,cy+S); qv[5]=V(cx-S,0,cy+S);
+        }
+        GridCB gcb{}; gcb.view_proj = vp;
+        gcb.gctr = FVec4{ cx, cy, 140.0f, h.ortho3d ? 1.0f : 0.0f };   // 中心 + フェード距離 + 平面フラグ
+        h.grid_cb->Update(&gcb, sizeof(gcb));
+        h.grid_vb->Update(qv, sizeof(qv));
+        cl->SetPipeline(*h.grid_pipe);
+        cl->SetConstantBuffer(0, *h.grid_cb);
+        cl->SetVertexBuffer(*h.grid_vb, sizeof(M3DVtx));
+        cl->Draw(6, 0);
+    }
+
     // --- (2.5) スプライト (テクスチャ付きクアッド): RenderHandle にテクスチャを持つノードを別パスで。
     //          ローカル XY 単位クアッド (z=0) を World 行列で変換。テクスチャ毎に SetTexture → Draw(6)。
     if (h.spr_pipe && h.spr_vb && h.m3d_frame_cb) {
@@ -3084,6 +3176,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->dbg3d.Shutdown();
     host->m3d_pipe.Reset(); host->m3d_overlay_pipe.Reset(); host->m3d_vs.Reset(); host->m3d_ps.Reset();
     host->sky_pipe.Reset(); host->sky_vs.Reset(); host->sky_ps.Reset(); host->sky_cb.Reset();
+    host->grid_pipe.Reset(); host->grid_vs.Reset(); host->grid_ps.Reset(); host->grid_cb.Reset(); host->grid_vb.Reset();
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
     host->sprite_textures.Clear();
     host->m3d_frame_cb.Reset(); host->m3d_giz_cb.Reset(); host->m3d_dyn_vb.Reset(); host->m3d_giz_vb.Reset();
