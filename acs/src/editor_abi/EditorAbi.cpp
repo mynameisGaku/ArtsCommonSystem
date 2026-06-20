@@ -44,6 +44,7 @@
 #include "render/IRhiTexture.h"             // IRhiTexture (スプライト)
 #include "render/RenderAssets.h"            // UploadTexture / UploadMesh / GpuMesh
 #include "render/DebugDraw.h"               // FDebugDraw3D (グリッド/ギズモ/選択 AABB の線)
+#include "render/Sky.h"                     // FSky (エンジン標準の手続きスカイ。Phase2: kSky3DHLSL を置換)
 #include "asset/MeshPrimitive.h"            // Primitive::MakeCube/MakeSphere/MakePlane
 #include "asset/MeshAsset.h"                // FMeshAsset
 #include "math/Camera.h"                    // FCamera (透視 + lookAt)
@@ -298,6 +299,8 @@ struct EditorHost {
     TUniquePtr<IRhiShader>   sky_vs, sky_ps;
     TUniquePtr<IRhiPipeline> sky_pipe;
     TUniquePtr<IRhiBuffer>   sky_cb;                  // カメラ基底 (レイ再構成用)
+    acs::FSky                sky3d;                   // Phase2: エンジン標準スカイ (kSky3DHLSL を置換)
+    bool                     sky3d_ready = false;
     TUniquePtr<IRhiPipeline> grid_pipe;               // 無限グリッド (y=0 / ortho は z=0)
     TUniquePtr<IRhiShader>   grid_vs, grid_ps;
     TUniquePtr<IRhiBuffer>   grid_cb, grid_vb;        // b0: view_proj + 中心、大クアッド頂点
@@ -2323,6 +2326,18 @@ bool Ensure3D(EditorHost& h) noexcept {
     if (skr.IsErr()) { ACS_LOG_ERROR("[3D] sky パイプライン生成失敗"); return false; }
     h.sky_pipe = Move(skr.Value());
 
+    // Phase2: エンジン標準スカイ FSky。自前 kSky3DHLSL と同じ «depth off の背景フルスクリーン三角» 方式
+    // (2D の FSpriteBatch と同じ depth-off エンジンパス) なのでこの文脈で描けるはず + 手続き雲つき。
+    { auto skr3 = h.sky3d.Init(*dev, cf, df); h.sky3d_ready = skr3.IsOk();
+      if (h.sky3d_ready) {
+          h.sky3d.PresetDay();
+          h.sky3d.SetSunDirection(FVec3{ 0.40f, 0.85f, -0.35f });   // シーンのライト方向と一致
+          h.sky3d.SetZenithColor (FVec3{ 0.16f, 0.33f, 0.62f });    // メッシュ IBL と同じグラデーション (整合)
+          h.sky3d.SetHorizonColor(FVec3{ 0.62f, 0.70f, 0.80f });
+          h.sky3d.SetGroundColor (FVec3{ 0.20f, 0.19f, 0.21f });
+          ACS_LOG_INFO("[3D] FSky Init OK (Phase2)");
+      } else ACS_LOG_ERROR("[3D] FSky Init 失敗: %s", skr3.Error().message); }
+
     // スプライト (テクスチャ付きクアッド): t0=albedo + 静的 Linear/Clamp サンプラ、アルファブレンド。
     // 半透明なので depth_test=on / depth_write=off (背後のメッシュには隠れるが互いの深度は描画順)。
     {
@@ -2889,9 +2904,11 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         }
     }
 
-    // --- (1) スカイボックス: フルスクリーン三角形で背景の天空を描く (depth off、最初に描画) ---
-    //         視線は «シーンと同じ» view-projection の逆行列で再構成 → 太陽/空がシーンと完全一致 (回転も正しい)。
-    if (h.sky_pipe && h.sky_cb) {
+    // --- (1) スカイ: Phase2 でエンジン標準 FSky に置換 (depth-off の背景フルスクリーン三角。手続き雲つき)。
+    //         FSky Init 失敗時のみ自前 kSky3DHLSL にフォールバック。
+    if (h.sky3d_ready) {
+        h.sky3d.Render(*cl, cam);
+    } else if (h.sky_pipe && h.sky_cb) {
         SkyCB sk{};
         sk.inv_view_proj = Inverse(vp);
         sk.zenith = FVec4{ 0.16f, 0.33f, 0.62f, 0 };     // 天頂 (青)
