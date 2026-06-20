@@ -2135,14 +2135,13 @@ struct SprVtx { f32 px, py, pz, u, v; };    // ワールド座標 + UV (20 bytes
 // スカイボックス: フルスクリーン三角形でカメラレイ方向から天空グラデーションを描く。
 // 頂点バッファ不要 (SV_VertexID)。深度オフ・最背面 (メッシュが上に描かれる)。
 const char* kSky3DHLSL = R"(
+#pragma pack_matrix(row_major)
 cbuffer Sky : register(b0) {
-    float4 cam_fwd;     // xyz = 視線前方
-    float4 cam_right;   // xyz = 右, w = tanHalf*aspect
-    float4 cam_up;      // xyz = 上, w = tanHalf
-    float4 zenith;      // rgb = 天頂色
-    float4 horizon;     // rgb = 地平色
-    float4 ground;      // rgb = 地面側色
-    float4 sun;         // xyz = 太陽方向
+    float4x4 inv_view_proj;   // クリップ→ワールド (シーンと «同じ» 射影で視線を再構成 → 太陽/空がシーンと一致)
+    float4   zenith;          // rgb = 天頂色
+    float4   horizon;         // rgb = 地平色
+    float4   ground;          // rgb = 地面側色
+    float4   sun;             // xyz = 太陽方向 (world)
 };
 struct VSOut { float4 pos : SV_POSITION; float2 ndc : TEXCOORD0; };
 VSOut VSMain(uint id : SV_VertexID) {
@@ -2150,11 +2149,13 @@ VSOut VSMain(uint id : SV_VertexID) {
     VSOut o;
     o.ndc = uv * 2.0 - 1.0;                       // -1..3 の三角形
     o.pos = float4(o.ndc, 1.0, 1.0);             // z=1 (最遠)
-    return o;                                      // ndc.y は NDC のまま (上端=+1) → up 寄与が正しく天頂を向く
+    return o;
 }
 float4 PSMain(VSOut v) : SV_TARGET {
-    float3 dir = normalize(cam_fwd.xyz + cam_right.xyz * (v.ndc.x * cam_right.w)
-                                       + cam_up.xyz    * (v.ndc.y * cam_up.w));
+    // クリップ空間の near/far をワールドへ逆射影し、その差を視線方向とする (透視/正射の両方で正しい)。
+    float4 wn = mul(float4(v.ndc, 0.0, 1.0), inv_view_proj); wn /= wn.w;
+    float4 wf = mul(float4(v.ndc, 1.0, 1.0), inv_view_proj); wf /= wf.w;
+    float3 dir = normalize(wf.xyz - wn.xyz);
     float  t = dir.y;
     float3 sky;
     if (t >= 0.0) sky = lerp(horizon.rgb, zenith.rgb, pow(saturate(t), 0.55));   // 地平→天頂
@@ -2166,7 +2167,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-struct SkyCB { FVec4 fwd, right, up, zenith, horizon, ground, sun; };  // 112 bytes
+struct SkyCB { FMat4 inv_view_proj; FVec4 zenith, horizon, ground, sun; };  // 128 bytes
 
 // 無限グリッド: y=0 (ortho では z=0) の «視点中心の大クアッド» をフラグメントで格子化。
 // fwidth でアンチエイリアス線幅を一定に、距離フェードで無限に見せる。minor=1単位 / major=10単位 + 軸色。
@@ -2726,17 +2727,10 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     const FMat4 vp = cam.ViewProjection();
 
     // --- (1) スカイボックス: フルスクリーン三角形で背景の天空を描く (depth off、最初に描画) ---
+    //         視線は «シーンと同じ» view-projection の逆行列で再構成 → 太陽/空がシーンと完全一致 (回転も正しい)。
     if (h.sky_pipe && h.sky_cb) {
-        const f32 cpit = std::cos(h.cam3d_pitch), spit = std::sin(h.cam3d_pitch);
-        const f32 cyaw = std::cos(h.cam3d_yaw),   syaw = std::sin(h.cam3d_yaw);
-        const FVec3 fwd{ -cpit * syaw, -spit, -cpit * cyaw };
-        const FVec3 right{ cyaw, 0, -syaw };
-        const FVec3 up{ right.y * fwd.z - right.z * fwd.y, right.z * fwd.x - right.x * fwd.z, right.x * fwd.y - right.y * fwd.x };
-        const f32 tanHalf = std::tan(0.5f * 50.0f * 3.14159265f / 180.0f);
         SkyCB sk{};
-        sk.fwd    = FVec4{ fwd.x, fwd.y, fwd.z, 0 };
-        sk.right  = FVec4{ right.x, right.y, right.z, tanHalf * aspect };
-        sk.up     = FVec4{ up.x, up.y, up.z, tanHalf };
+        sk.inv_view_proj = Inverse(vp);
         sk.zenith = FVec4{ 0.16f, 0.33f, 0.62f, 0 };     // 天頂 (青)
         sk.horizon= FVec4{ 0.62f, 0.70f, 0.80f, 0 };     // 地平 (淡い)
         sk.ground = FVec4{ 0.20f, 0.19f, 0.21f, 0 };     // 下半球 (暗いグレー)
