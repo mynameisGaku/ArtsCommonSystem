@@ -2060,9 +2060,12 @@ const char* kMesh3DHLSL = R"(
 #pragma pack_matrix(row_major)
 cbuffer Frame : register(b0) {
     float4x4 view_proj;
-    float4   light_dir;   // xyz=surface→light, w=ambient
-    float4   light_col;   // rgb=light radiance
-    float4   cam_pos;     // xyz=カメラ world 位置 (視線ベクトル用)
+    float4   light_dir;    // xyz=surface→light, w=ベース環境光 (ギズモ用フォールバック)
+    float4   light_col;    // rgb=太陽 radiance
+    float4   cam_pos;      // xyz=カメラ world 位置
+    float4   sky_zenith;   // IBL: 空のグラデーション (環境光源)。0 ならフラット環境光のみ。
+    float4   sky_horizon;
+    float4   sky_ground;
 };
 struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float3 col : COLOR; };
 struct VSOut { float4 pos : SV_POSITION; float3 wpos : TEXCOORD0; float3 nrm : NORMAL; float3 col : COLOR; };
@@ -2075,7 +2078,17 @@ VSOut VSMain(VSIn v) {
     return o;
 }
 static const float PI = 3.14159265359;
+float3 SkyCol(float3 d) {   // 空の放射輝度 (スカイと同じグラデーション)。IBL の環境光源に使う。
+    float t = d.y;
+    if (t >= 0.0) return lerp(sky_horizon.rgb, sky_zenith.rgb, pow(saturate(t), 0.55));
+    return lerp(sky_horizon.rgb, sky_ground.rgb, saturate(-t * 1.6));
+}
+float3 ACESFilm(float3 x) { return saturate((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)); } // フィルミック
 float3 FresnelSchlick(float cosT, float3 F0) { return F0 + (1.0 - F0) * pow(saturate(1.0 - cosT), 5.0); }
+float3 FresnelRough(float cosT, float3 F0, float rough) {   // 環境鏡面用 (粗さで地平 F を抑える)
+    float3 m = max((1.0 - rough).xxx, F0);
+    return F0 + (m - F0) * pow(saturate(1.0 - cosT), 5.0);
+}
 float DistGGX(float ndh, float rough) {
     float a = rough * rough; float a2 = a * a;
     float d = ndh * ndh * (a2 - 1.0) + 1.0;
@@ -2093,26 +2106,33 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float3 H = normalize(V + L);
     float3 albedo   = v.col;
     float  metallic = 0.0;                         // 既定: 誘電体
-    float  rough    = 0.5;                          // 既定: 中程度の粗さ
+    float  rough    = 0.75;                         // 既定: ややマット (鏡面の空反射を抑え自然に)
     float3 F0 = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);
     float ndl = max(dot(N, L), 0.0);
     float ndv = max(dot(N, V), 0.0);
     float ndh = max(dot(N, H), 0.0);
     float vdh = max(dot(V, H), 0.0);
+    // 直接光 (太陽、Cook-Torrance)。
     float  D = DistGGX(ndh, rough);
     float  G = GeomSmith(ndv, ndl, rough);
     float3 F = FresnelSchlick(vdh, F0);
-    float3 spec = (D * G) * F / max(4.0 * ndv * ndl, 1e-4);   // Cook-Torrance 鏡面
-    float3 kd = (1.0 - F) * (1.0 - metallic);                // 拡散の取り分 (エネルギー保存)
+    float3 spec = (D * G) * F / max(4.0 * ndv * ndl, 1e-4);
+    float3 kd = (1.0 - F) * (1.0 - metallic);
     float3 Lo = (kd * albedo / PI + spec) * light_col.rgb * ndl;
-    float3 ambient = light_dir.w * albedo * (1.0 - metallic);  // 簡易拡散環境光 (IBL 近似)
-    float3 col = ambient + Lo;
-    col = col / (col + 1.0.xxx);                              // Reinhard トーンマップ
-    return float4(pow(col, (1.0 / 2.2).xxx), 1.0);            // sRGB ガンマ
+    // 環境光 (IBL): 法線方向の空 = 拡散照度、反射方向の空 = 鏡面反射。フラット環境光が «死んだ» 影を解消。
+    float3 R   = reflect(-V, N);
+    float3 Fr  = FresnelRough(ndv, F0, rough);
+    float3 kdA = (1.0 - Fr) * (1.0 - metallic);
+    float3 ambient = light_dir.w * albedo                  // ベース環境光 (ギズモ等、sky=0 のとき)
+                   + kdA * albedo * SkyCol(N)              // IBL 拡散 (環境照度)
+                   + Fr  * SkyCol(R);                       // IBL 鏡面 (環境反射)
+    float3 col = (ambient + Lo) * 0.78;                     // 露出 (やや絞ってコントラストを出す)
+    col = ACESFilm(col);                                    // ACES フィルミックトーンマップ
+    return float4(pow(col, (1.0 / 2.2).xxx), 1.0);          // sRGB ガンマ
 }
 )";
 
-struct M3DFrame { FMat4 view_proj; FVec4 light_dir; FVec4 light_col; FVec4 cam_pos; };
+struct M3DFrame { FMat4 view_proj; FVec4 light_dir; FVec4 light_col; FVec4 cam_pos; FVec4 sky_zenith, sky_horizon, sky_ground; };
 struct M3DVtx   { f32 px, py, pz, nx, ny, nz, r, g, b; };   // ワールド座標 + 法線 + 色 (36 bytes)
 
 // スプライト: テクスチャ付きクアッド (フラット・アルファブレンド)。2D 内容を 3D シーンに描く。
@@ -2751,9 +2771,12 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     // フレーム CB (view_proj + 光 + 環境光 + カメラ位置)。
     M3DFrame fcb{};
     fcb.view_proj = vp;
-    fcb.light_dir = FVec4{ 0.40f, 0.85f, -0.35f, 0.22f };   // xyz=光方向, w=ambient
-    fcb.light_col = FVec4{ 1.10f, 1.07f, 1.00f, 0.0f };
+    fcb.light_dir = FVec4{ 0.40f, 0.85f, -0.35f, 0.0f };    // 光方向, w=0 (環境光は IBL から取る)
+    fcb.light_col = FVec4{ 2.20f, 2.10f, 1.95f, 0.0f };     // 太陽 = キーライト (暖色)
     fcb.cam_pos   = FVec4{ camPos.x, camPos.y, camPos.z, 0.0f };
+    fcb.sky_zenith  = FVec4{ 0.16f, 0.33f, 0.62f, 0 };      // IBL 環境光源 (スカイと同じグラデーション)
+    fcb.sky_horizon = FVec4{ 0.62f, 0.70f, 0.80f, 0 };
+    fcb.sky_ground  = FVec4{ 0.20f, 0.19f, 0.21f, 0 };
     if (h.m3d_frame_cb) h.m3d_frame_cb->Update(&fcb, sizeof(fcb));
 
     // --- (2) ノードのメッシュ本体 (depth on) ---
