@@ -643,6 +643,16 @@ internal static class EngineInterop
     public static string Component3DName(IntPtr handle, int id, int index) =>
         Marshal.PtrToStringUTF8(acs_editor_node3d_component_name_at(handle, id, index)) ?? "";
 
+    // ----- 3D node visible/enabled (FNode3D の m_Visible/m_Enabled) -----
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_get_visible(IntPtr handle, int id);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_node3d_set_visible(IntPtr handle, int id, int visible);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_get_enabled(IntPtr handle, int id);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_node3d_set_enabled(IntPtr handle, int id, int enabled);
+
     // ----- component property editing (リフレクション・スキーマ駆動のプロパティ編集) -----
     // 型のスキーマ (どの編集フィールドがあるか) は reflection から、インスタンスの値は
     // ノード+slot ごとに ABI が保持する。

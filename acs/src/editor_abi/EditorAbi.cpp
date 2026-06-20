@@ -5036,6 +5036,12 @@ ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap
             if (wc < 0 || wc >= cap - cur) { out[cap - 1] = '\0'; break; }
             cur += wc;
         }
+        if ((!nn->IsVisible() || !nn->IsEnabled()) && cur < cap) {                       // 可視/有効 (非既定のみ。既定=true)
+            const int wf = std::snprintf(out + cur, static_cast<size_t>(cap - cur),
+                "FLG3D %d %d %d\n", r->id, nn->IsVisible() ? 1 : 0, nn->IsEnabled() ? 1 : 0);
+            if (wf < 0 || wf >= cap - cur) { out[cap - 1] = '\0'; break; }
+            cur += wf;
+        }
     }
     out[cur < cap ? cur : cap - 1] = '\0';
     return cur;
@@ -5113,6 +5119,13 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
             int cid = 0; char tn[128] = {};
             if (std::sscanf(line, "CMP3D %d %127[^\n]", &cid, tn) >= 2)
                 AttachComponent3D(Rec3D(FindNode3DNode(*host, cid)), tn);
+            continue;
+        }
+        if (std::strncmp(line, "FLG3D ", 6) == 0) {                  // 可視/有効フラグの復元 (N3D の後)
+            int fid = 0, vis = 1, ena = 1;
+            if (std::sscanf(line, "FLG3D %d %d %d", &fid, &vis, &ena) >= 3) {
+                if (game::FNode3D* en = FindNode3DNode(*host, fid)) { en->SetVisible(vis != 0); en->SetEnabled(ena != 0); }
+            }
             continue;
         }
         if (std::strncmp(line, "N3D ", 4) != 0) continue;
@@ -5847,6 +5860,32 @@ ACS_EDITOR_API int acs_editor_node3d_remove_component_at(void* handle, int id, i
     }
     --r->component_count;
     return 1;
+}
+
+// --- 3D ノードの可視/有効フラグ (FNode3D が m_Visible/m_Enabled を持つ。2D と同じ) ---
+ACS_EDITOR_API int acs_editor_node3d_get_visible(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    game::FNode3D* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
+    return (n != nullptr && n->IsVisible()) ? 1 : 0;
+}
+ACS_EDITOR_API void acs_editor_node3d_set_visible(void* handle, int id, int visible) {
+    auto* host = static_cast<EditorHost*>(handle);
+    game::FNode3D* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
+    if (n == nullptr) return;
+    PushUndo(*host);
+    n->SetVisible(visible != 0);
+}
+ACS_EDITOR_API int acs_editor_node3d_get_enabled(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    game::FNode3D* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
+    return (n != nullptr && n->IsEnabled()) ? 1 : 0;
+}
+ACS_EDITOR_API void acs_editor_node3d_set_enabled(void* handle, int id, int enabled) {
+    auto* host = static_cast<EditorHost*>(handle);
+    game::FNode3D* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
+    if (n == nullptr) return;
+    PushUndo(*host);
+    n->SetEnabled(enabled != 0);
 }
 
 // =============================================================================

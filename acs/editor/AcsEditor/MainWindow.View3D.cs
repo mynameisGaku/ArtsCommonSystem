@@ -107,6 +107,10 @@ public partial class MainWindow
         Insp3DPanel.Children.Add(Section("DISPLAY"));
         Insp3DPanel.Children.Add(Vec3Row("Color", col[0], col[1], col[2], (r, g, b) =>
             EngineInterop.acs_editor_node3d_set_color(Engine, id, r, g, b, 1.0f)));
+        Insp3DPanel.Children.Add(Bool3DRow("Visible", EngineInterop.acs_editor_node3d_get_visible(Engine, id) != 0,
+            v => EngineInterop.acs_editor_node3d_set_visible(Engine, id, v ? 1 : 0)));
+        Insp3DPanel.Children.Add(Bool3DRow("Enabled", EngineInterop.acs_editor_node3d_get_enabled(Engine, id) != 0,
+            v => EngineInterop.acs_editor_node3d_set_enabled(Engine, id, v ? 1 : 0)));
 
         // 形状 / 種別。プリミティブ (Cube/Sphere/Plane) は編集可能ドロップダウン。
         // Mesh/Sprite/Polygon は種別を読み取り専用ラベルで表示 (誤って "Cube" と出さない)。
@@ -240,6 +244,20 @@ public partial class MainWindow
         add.Children.Add(btn); add.Children.Add(combo);
         panel.Children.Add(add);
         return panel;
+    }
+
+    /// <summary>「ラベル + チェックボックス」の bool 行 (3D Inspector の Visible/Enabled 用)。populate 中は発火抑止。</summary>
+    private FrameworkElement Bool3DRow(string label, bool init, Action<bool> onChange)
+    {
+        var row = new DockPanel { Margin = new Thickness(0, 3, 0, 1) };
+        var lbl = new TextBlock { Text = label, Width = 64, VerticalAlignment = VerticalAlignment.Center,
+            Foreground = (Brush)FindResource("TextDim") };
+        DockPanel.SetDock(lbl, Dock.Left); row.Children.Add(lbl);
+        var cb = new CheckBox { IsChecked = init, VerticalAlignment = VerticalAlignment.Center };
+        cb.Checked   += (_, __) => { if (!_pop3d) onChange(true); };
+        cb.Unchecked += (_, __) => { if (!_pop3d) onChange(false); };
+        row.Children.Add(cb);
+        return row;
     }
 
     private void Set3DTransform(int id, int which, float a, float b, float c)
