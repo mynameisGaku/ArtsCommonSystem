@@ -17,6 +17,8 @@
 #include "render/RhiTypes.h"
 #include "render/SpriteBatch.h"
 #include "render/Fxaa.h"
+#include "render/ShadowMap.h"               // 有向光源シャドウマップ (キャスト影)
+#include "math/Mat.h"                        // Inverse (sky/影の行列)
 #include "gameframework/ProjectSettings.h"
 #include "math/Vec.h"
 #include "foundation/Log.h"
@@ -298,6 +300,11 @@ struct EditorHost {
     TUniquePtr<IRhiPipeline> grid_pipe;               // 無限グリッド (y=0 / ortho は z=0)
     TUniquePtr<IRhiShader>   grid_vs, grid_ps;
     TUniquePtr<IRhiBuffer>   grid_cb, grid_vb;        // b0: view_proj + 中心、大クアッド頂点
+    acs::FShadowMap          shadow;                  // 有向光源シャドウマップ (深度テクスチャ + 光VP)
+    TUniquePtr<IRhiPipeline> shadow_caster_pipe;      // M3DVtx 用 depth-only キャスター
+    TUniquePtr<IRhiShader>   shadow_caster_vs;
+    TUniquePtr<IRhiBuffer>   shadow_lvp_cb;           // b0: 光の view-projection
+    bool                     shadow_ready = false;
     FDebugDraw3D    dbg3d;                // グリッド/選択 AABB/ギズモの線
     bool         r3d_ready     = false;   // 3D リソース初期化済み
     GpuMesh      gm_cube, gm_sphere, gm_plane;   // プリミティブ GPU メッシュ (将来 DrawIndexed 用)
@@ -2062,11 +2069,14 @@ cbuffer Frame : register(b0) {
     float4x4 view_proj;
     float4   light_dir;    // xyz=surface→light, w=ベース環境光 (ギズモ用フォールバック)
     float4   light_col;    // rgb=太陽 radiance
-    float4   cam_pos;      // xyz=カメラ world 位置
+    float4   cam_pos;      // xyz=カメラ world 位置, w=影を受けるか(1) / ギズモ等は 0
     float4   sky_zenith;   // IBL: 空のグラデーション (環境光源)。0 ならフラット環境光のみ。
     float4   sky_horizon;
     float4   sky_ground;
+    float4x4 light_vp;     // 光源の view-projection (シャドウマップ空間へ)
 };
+Texture2D    shadow_map   : register(t0);
+SamplerState shadow_samp  : register(s0);
 struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float3 col : COLOR; };
 struct VSOut { float4 pos : SV_POSITION; float3 wpos : TEXCOORD0; float3 nrm : NORMAL; float3 col : COLOR; };
 VSOut VSMain(VSIn v) {
@@ -2099,6 +2109,21 @@ float GeomSmith(float ndv, float ndl, float rough) {
     float k = rough + 1.0; k = (k * k) / 8.0;     // 直接光 (Disney) の k
     return GeomSchlickGGX(ndv, k) * GeomSchlickGGX(ndl, k);
 }
+float ShadowFactor(float3 wpos, float ndl) {   // 1=lit, 0=影。3x3 PCF。
+    float4 lp = mul(float4(wpos, 1.0), light_vp);
+    float3 ndc = lp.xyz / lp.w;
+    if (ndc.x < -1.0 || ndc.x > 1.0 || ndc.y < -1.0 || ndc.y > 1.0 || ndc.z < 0.0 || ndc.z > 1.0) return 1.0;
+    float2 uv = float2(ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5);
+    float  bias = max(0.0012 * (1.0 - ndl), 0.0004);   // 法線依存バイアス (シャドウアクネ回避)
+    float  ts = 1.0 / 2048.0;
+    float lit = 0.0;
+    [unroll] for (int y = -1; y <= 1; ++y)
+    [unroll] for (int x = -1; x <= 1; ++x) {
+        float sd = shadow_map.SampleLevel(shadow_samp, uv + float2(x, y) * ts, 0).r;
+        lit += (sd + bias >= ndc.z) ? 1.0 : 0.0;
+    }
+    return lit / 9.0;
+}
 float4 PSMain(VSOut v) : SV_TARGET {
     float3 N = normalize(v.nrm);
     float3 V = normalize(cam_pos.xyz - v.wpos);
@@ -2118,7 +2143,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float3 F = FresnelSchlick(vdh, F0);
     float3 spec = (D * G) * F / max(4.0 * ndv * ndl, 1e-4);
     float3 kd = (1.0 - F) * (1.0 - metallic);
-    float3 Lo = (kd * albedo / PI + spec) * light_col.rgb * ndl;
+    float  shadow = (cam_pos.w > 0.5) ? ShadowFactor(v.wpos, ndl) : 1.0;   // 影を受けるメッシュのみ (ギズモは 0)
+    float3 Lo = (kd * albedo / PI + spec) * light_col.rgb * ndl * shadow;
     // 環境光 (IBL): 法線方向の空 = 拡散照度、反射方向の空 = 鏡面反射。フラット環境光が «死んだ» 影を解消。
     float3 R   = reflect(-V, N);
     float3 Fr  = FresnelRough(ndv, F0, rough);
@@ -2132,8 +2158,15 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-struct M3DFrame { FMat4 view_proj; FVec4 light_dir; FVec4 light_col; FVec4 cam_pos; FVec4 sky_zenith, sky_horizon, sky_ground; };
+struct M3DFrame { FMat4 view_proj; FVec4 light_dir; FVec4 light_col; FVec4 cam_pos; FVec4 sky_zenith, sky_horizon, sky_ground; FMat4 light_vp; };
 struct M3DVtx   { f32 px, py, pz, nx, ny, nz, r, g, b; };   // ワールド座標 + 法線 + 色 (36 bytes)
+
+// シャドウ・キャスター: M3DVtx (既に world 座標) を «光の view-projection» でクリップへ。depth-only。
+const char* kShadowCaster3DHLSL = R"(
+#pragma pack_matrix(row_major)
+cbuffer LightFrame : register(b0) { float4x4 light_vp; };
+float4 VSMain(float3 pos : POSITION) : SV_POSITION { return mul(float4(pos, 1.0), light_vp); }
+)";
 
 // スプライト: テクスチャ付きクアッド (フラット・アルファブレンド)。2D 内容を 3D シーンに描く。
 const char* kSprite3DHLSL = R"(
@@ -2249,6 +2282,12 @@ bool Ensure3D(EditorHost& h) noexcept {
     pd.cull_mode    = ECullMode::None;          // 表裏どちらの巻きでも確実に出す
     pd.blend_mode   = EBlendMode::Opaque;
     pd.cbuffer_slots = 1; pd.cbuffer_names[0] = "Frame";
+    pd.texture_slots = 1; pd.texture_names[0] = "shadow_map";   // t0 = シャドウ深度 (PCF サンプル)
+    pd.static_sampler_count = 1;
+    pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+    pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_w = ESamplerAddress::Clamp;
     pd.vertex_stride = sizeof(M3DVtx);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
     pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 12 };
@@ -2340,6 +2379,32 @@ bool Ensure3D(EditorHost& h) noexcept {
         auto gvbr = CreateRhiBuffer(*dev, gvbd); if (gvbr.IsOk()) h.grid_vb = Move(gvbr.Value());
         FBufferDesc gcbd{}; gcbd.size = 256; gcbd.usage = EBufferUsage::Uniform; gcbd.cpu_writable = true;
         auto gcbr = CreateRhiBuffer(*dev, gcbd); if (gcbr.IsOk()) h.grid_cb = Move(gcbr.Value());
+    }
+
+    // シャドウマップ (有向光源、single cascade 2048)。深度は D32 / shader-visible。キャスターは M3DVtx 専用 (depth-only)。
+    if (h.shadow.Init(*dev, 2048).IsOk()) {
+        FShaderDesc cvs{}; cvs.stage = EShaderStage::Vertex; cvs.hlsl_source = kShadowCaster3DHLSL; cvs.entry_point = "VSMain"; cvs.debug_name = "ShadowCasterM3D.VS";
+        auto cvr = CreateRhiShader(*dev, cvs);
+        if (cvr.IsOk()) {
+            h.shadow_caster_vs = Move(cvr.Value());
+            FPipelineDesc cpd{};
+            cpd.vs = h.shadow_caster_vs.Get(); cpd.ps = nullptr;       // depth-only
+            cpd.topology     = EPrimitiveTopology::TriangleList;
+            cpd.rt_format    = EFormat::Unknown; cpd.depth_format = EFormat::D32_Float;
+            cpd.depth_test   = true; cpd.depth_write = true;
+            cpd.cull_mode    = ECullMode::None;        // editor メッシュは片面もあるので cull せず (acne はバイアスで回避)
+            cpd.cbuffer_slots = 1; cpd.cbuffer_names[0] = "LightFrame";
+            cpd.vertex_stride = sizeof(M3DVtx);
+            cpd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0 };
+            cpd.layout_count = 1;
+            auto cpl = CreateRhiPipeline(*dev, cpd);
+            if (cpl.IsOk()) {
+                h.shadow_caster_pipe = Move(cpl.Value());
+                FBufferDesc lcb{}; lcb.size = 256; lcb.usage = EBufferUsage::Uniform; lcb.cpu_writable = true;
+                auto lcr = CreateRhiBuffer(*dev, lcb); if (lcr.IsOk()) h.shadow_lvp_cb = Move(lcr.Value());
+                h.shadow_ready = (h.shadow_lvp_cb.Get() != nullptr);
+            }
+        }
     }
 
     {
@@ -2746,6 +2811,52 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     const FVec3 eye = Cam3DEye(h);
     const FMat4 vp = cam.ViewProjection();
 
+    // --- (0) メッシュ頂点を展開 (シャドウパスと本体で共有) + バウンディング ---
+    TArray<M3DVtx>& dv = *(new TArray<M3DVtx>()); dv.Reserve(8192);
+    FVec3 bbMin{ 1e30f, 1e30f, 1e30f }, bbMax{ -1e30f, -1e30f, -1e30f };
+    TArray<game::FNode3D*> all3d; Dfs3DCollect(&h.scene3d.Root(), all3d);   // 階層を平坦化 (sprite パス 2.5 でも使う)
+    for (u32 i = 0; i < all3d.Size(); ++i) {
+        game::FNode3D* nn = all3d[i];
+        if (Mesh3D(nn) == nullptr || Mesh3D(nn)->RenderHandle() != nullptr) continue;   // スプライトは別パス
+        const int prim = NPrim(nn);
+        const FMeshAsset* cm = (prim == 3) ? NMesh(nn) : (prim == 1) ? h.cpu_sphere.Get()
+                             : (prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
+        const FVec4 col = NColor(nn);
+        AppendMeshTris(dv, cm, nn->World().ToMat4(), FVec3{ col.x, col.y, col.z }, h.m3d_dyn_cap);
+    }
+    for (u32 i = 0; i < dv.Size(); ++i) {
+        const M3DVtx& q = dv[i];
+        if (q.px < bbMin.x) bbMin.x = q.px; if (q.py < bbMin.y) bbMin.y = q.py; if (q.pz < bbMin.z) bbMin.z = q.pz;
+        if (q.px > bbMax.x) bbMax.x = q.px; if (q.py > bbMax.y) bbMax.y = q.py; if (q.pz > bbMax.z) bbMax.z = q.pz;
+    }
+    const u32 dvCount = static_cast<u32>(dv.Size());
+    if (dvCount > 0 && h.m3d_dyn_vb) h.m3d_dyn_vb->Update(dv.Data(), sizeof(M3DVtx) * dvCount);
+
+    // --- シャドウパス: 光源 (太陽) 視点で深度を焼く → 本体パスで PCF 比較してキャスト影を落とす ---
+    FMat4 lightVp{};
+    bool  shadowOn = false;
+    if (h.shadow_ready && dvCount > 0) {
+        const FVec3 center{ (bbMin.x+bbMax.x)*0.5f, (bbMin.y+bbMax.y)*0.5f, (bbMin.z+bbMax.z)*0.5f };
+        const f32 ex = bbMax.x-bbMin.x, ey = bbMax.y-bbMin.y, ez = bbMax.z-bbMin.z;
+        const f32 radius = 0.5f * std::sqrt(ex*ex + ey*ey + ez*ez) + 1.0f;
+        h.shadow.SetDirectionalLight(FVec3{ 0.40f, 0.85f, -0.35f }, center, radius);
+        lightVp = h.shadow.LightViewProjection();
+        h.shadow_lvp_cb->Update(&lightVp, sizeof(lightVp));
+        cl->BeginShadowPass(*h.shadow.DepthTexture(), 1.0f);
+        cl->SetPipeline(*h.shadow_caster_pipe);
+        cl->SetConstantBuffer(0, *h.shadow_lvp_cb);
+        cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
+        cl->Draw(dvCount, 0);
+        cl->EndShadowPass(*h.shadow.DepthTexture());
+        IRhiSwapchain* sc = h.renderer.Swapchain();              // backbuffer + 本深度を再 bind (clear。まだ未描画)
+        if (sc != nullptr) {
+            cl->BeginRenderToSwapchain(*sc, h.renderer.CurrentBuffer(), h.clear_color, h.renderer.DepthBuffer(), 1.0f);
+            FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
+            FScissorRect rsr{}; rsr.right = static_cast<i32>(scW); rsr.bottom = static_cast<i32>(scH); cl->SetScissor(rsr);
+            shadowOn = true;
+        }
+    }
+
     // --- (1) スカイボックス: フルスクリーン三角形で背景の天空を描く (depth off、最初に描画) ---
     //         視線は «シーンと同じ» view-projection の逆行列で再構成 → 太陽/空がシーンと完全一致 (回転も正しい)。
     if (h.sky_pipe && h.sky_cb) {
@@ -2773,33 +2884,20 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     fcb.view_proj = vp;
     fcb.light_dir = FVec4{ 0.40f, 0.85f, -0.35f, 0.0f };    // 光方向, w=0 (環境光は IBL から取る)
     fcb.light_col = FVec4{ 2.20f, 2.10f, 1.95f, 0.0f };     // 太陽 = キーライト (暖色)
-    fcb.cam_pos   = FVec4{ camPos.x, camPos.y, camPos.z, 0.0f };
+    fcb.cam_pos   = FVec4{ camPos.x, camPos.y, camPos.z, shadowOn ? 1.0f : 0.0f };   // w=影を受けるか
     fcb.sky_zenith  = FVec4{ 0.16f, 0.33f, 0.62f, 0 };      // IBL 環境光源 (スカイと同じグラデーション)
     fcb.sky_horizon = FVec4{ 0.62f, 0.70f, 0.80f, 0 };
     fcb.sky_ground  = FVec4{ 0.20f, 0.19f, 0.21f, 0 };
+    fcb.light_vp    = lightVp;                              // シャドウマップ空間
     if (h.m3d_frame_cb) h.m3d_frame_cb->Update(&fcb, sizeof(fcb));
 
-    // --- (2) ノードのメッシュ本体 (depth on) ---
-    TArray<M3DVtx>& dv = *(new TArray<M3DVtx>());   // 大容量をスタックに積まない
-    dv.Reserve(8192);
-    TArray<game::FNode3D*> all3d; Dfs3DCollect(&h.scene3d.Root(), all3d);   // 階層を平坦化 (World で合成)
-    for (u32 i = 0; i < all3d.Size(); ++i) {
-        game::FNode3D* nn = all3d[i];
-        if (Mesh3D(nn) == nullptr) continue;
-        if (Mesh3D(nn)->RenderHandle() != nullptr) continue;     // スプライトは (2.5) で別パス描画
-        const int prim = NPrim(nn);
-        const FMeshAsset* cm = (prim == 3) ? NMesh(nn)
-                             : (prim == 1) ? h.cpu_sphere.Get()
-                             : (prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
-        const FVec4 col = NColor(nn);
-        AppendMeshTris(dv, cm, nn->World().ToMat4(), FVec3{ col.x, col.y, col.z }, h.m3d_dyn_cap);   // 親変形を合成
-    }
-    if (dv.Size() > 0 && h.m3d_dyn_vb) {
-        h.m3d_dyn_vb->Update(dv.Data(), sizeof(M3DVtx) * dv.Size());
+    // --- (2) ノードのメッシュ本体 (depth on)。dv は (0) で展開済み。シャドウマップを t0 に bind して PCF 比較。
+    if (dvCount > 0 && h.m3d_dyn_vb) {
         cl->SetPipeline(*h.m3d_pipe);
         cl->SetConstantBuffer(0, *h.m3d_frame_cb);
+        if (h.shadow.DepthTexture() != nullptr) cl->SetTexture(0, *h.shadow.DepthTexture());
         cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
-        cl->Draw(static_cast<u32>(dv.Size()), 0);
+        cl->Draw(dvCount, 0);
     }
     delete &dv;
 
@@ -2911,6 +3009,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
             h.m3d_giz_vb->Update(gv.Data(), sizeof(M3DVtx) * gv.Size());
             cl->SetPipeline(*h.m3d_overlay_pipe);         // depth off → 常に手前
             cl->SetConstantBuffer(0, *h.m3d_giz_cb);
+            if (h.shadow.DepthTexture() != nullptr) cl->SetTexture(0, *h.shadow.DepthTexture());   // 同 PSO の t0 を満たす (cam_pos.w=0 で未サンプル)
             cl->SetVertexBuffer(*h.m3d_giz_vb, sizeof(M3DVtx));
             cl->Draw(static_cast<u32>(gv.Size()), 0);
         }
@@ -3220,6 +3319,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->m3d_pipe.Reset(); host->m3d_overlay_pipe.Reset(); host->m3d_vs.Reset(); host->m3d_ps.Reset();
     host->sky_pipe.Reset(); host->sky_vs.Reset(); host->sky_ps.Reset(); host->sky_cb.Reset();
     host->grid_pipe.Reset(); host->grid_vs.Reset(); host->grid_ps.Reset(); host->grid_cb.Reset(); host->grid_vb.Reset();
+    host->shadow_caster_pipe.Reset(); host->shadow_caster_vs.Reset(); host->shadow_lvp_cb.Reset(); host->shadow.Shutdown(); host->shadow_ready = false;
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
     host->sprite_textures.Clear();
     host->m3d_frame_cb.Reset(); host->m3d_giz_cb.Reset(); host->m3d_dyn_vb.Reset(); host->m3d_giz_vb.Reset();
