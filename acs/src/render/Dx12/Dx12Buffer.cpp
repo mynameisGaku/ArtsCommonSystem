@@ -85,6 +85,36 @@ HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept 
             ::memcpy(m_Mapped, desc.initial_data, desc.size);
         }
     }
+
+    // 静的 (DEFAULT ヒープ、cpu_writable=false) + initial_data: DEFAULT ヒープは map できないため、
+    // ステージング UPLOAD バッファへコピー → CopyBufferRegion で DEFAULT へ転送 → GPU 完了待ち。
+    // これが無いと静的バッファは «空» のままで描画されない (旧バグ。static mesh が全て不可視だった)。
+    if (!desc.cpu_writable && desc.initial_data && desc.size > 0 && m_Resource) {
+        ID3D12Resource* staging = nullptr;
+        D3D12_HEAP_PROPERTIES uh{}; uh.Type = D3D12_HEAP_TYPE_UPLOAD;
+        uh.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN; uh.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+        D3D12_RESOURCE_DESC urd = rd; urd.Width = static_cast<UINT64>(desc.size);
+        if (SUCCEEDED(device.D3DDevice()->CreateCommittedResource(&uh, D3D12_HEAP_FLAG_NONE, &urd,
+                          D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&staging))) && staging) {
+            void* sp = nullptr; D3D12_RANGE rr{ 0, 0 };
+            if (SUCCEEDED(staging->Map(0, &rr, &sp)) && sp) {
+                ::memcpy(sp, desc.initial_data, desc.size);
+                staging->Unmap(0, nullptr);
+            }
+            ID3D12CommandAllocator*    ca = nullptr;
+            ID3D12GraphicsCommandList* uc = nullptr;
+            if (SUCCEEDED(device.D3DDevice()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&ca))) &&
+                SUCCEEDED(device.D3DDevice()->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, ca, nullptr, IID_PPV_ARGS(&uc)))) {
+                // DEFAULT バッファは COMMON で作成済 → CopyBufferRegion で暗黙に COPY_DEST へ昇格、実行後 COMMON へ減衰。
+                uc->CopyBufferRegion(m_Resource, 0, staging, 0, desc.size);
+                uc->Close();
+                ID3D12CommandList* lists[] = { uc };
+                device.GraphicsQueue()->ExecuteCommandLists(1, lists);
+                device.WaitIdle();   // コピー完了を待ってから staging を解放
+            }
+            ACS_SAFE_RELEASE(uc); ACS_SAFE_RELEASE(ca); ACS_SAFE_RELEASE(staging);
+        }
+    }
     return r;
 }
 
