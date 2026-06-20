@@ -2147,8 +2147,7 @@ VSOut VSMain(uint id : SV_VertexID) {
     VSOut o;
     o.ndc = uv * 2.0 - 1.0;                       // -1..3 の三角形
     o.pos = float4(o.ndc, 1.0, 1.0);             // z=1 (最遠)
-    o.ndc.y = -o.ndc.y;
-    return o;
+    return o;                                      // ndc.y は NDC のまま (上端=+1) → up 寄与が正しく天頂を向く
 }
 float4 PSMain(VSOut v) : SV_TARGET {
     float3 dir = normalize(cam_fwd.xyz + cam_right.xyz * (v.ndc.x * cam_right.w)
