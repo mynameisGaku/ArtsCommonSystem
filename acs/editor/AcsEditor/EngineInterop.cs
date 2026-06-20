@@ -131,6 +131,10 @@ internal static class EngineInterop
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_set_color(IntPtr handle, int id, float r, float g, float b, float a);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_get_material(IntPtr handle, int id, [Out] float[] out2);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_set_material(IntPtr handle, int id, float metallic, float roughness);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_selected3d(IntPtr handle);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_select3d(IntPtr handle, int id);

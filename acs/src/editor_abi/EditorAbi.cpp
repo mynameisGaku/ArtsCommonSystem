@@ -205,6 +205,8 @@ struct EEd3DRec : public acs::game::FComponent3D {
     static constexpr u32 kMaxProps      = 8;
     int   id    = 0;                          ///< editor 整数 id (ABI/C# 境界・シリアライズ用)。
     FVec3 euler = FVec3{ 0, 0, 0 };           ///< authored オイラー角 (度、XYZ。Local().rotation の編集元)。
+    f32   metallic  = 0.0f;                    ///< マテリアル: 金属度 (0=誘電体, 1=金属)。PBR 用。
+    f32   roughness = 0.6f;                    ///< マテリアル: 粗さ (0=鏡面, 1=完全拡散)。PBR 用。
     char  sprite_path[256] = {};              ///< 非空ならスプライト (z=0 テクスチャ付きクアッド)。再読込用の画像パス。
     TArray<FVec2> poly_pts;                   ///< 3点以上なら手続きポリゴン (z=0)。再生成用の元 2D 頂点列。
     // アタッチされた Component 型 (リフレクション type-id)。2D の FEditorNode と同じ «エディタ・メタデータ» 方式。
@@ -2077,14 +2079,15 @@ cbuffer Frame : register(b0) {
 };
 Texture2D    shadow_map   : register(t0);
 SamplerState shadow_samp  : register(s0);
-struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float3 col : COLOR; };
-struct VSOut { float4 pos : SV_POSITION; float3 wpos : TEXCOORD0; float3 nrm : NORMAL; float3 col : COLOR; };
+struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float3 col : COLOR; float2 mat : TEXCOORD; };
+struct VSOut { float4 pos : SV_POSITION; float3 wpos : TEXCOORD0; float3 nrm : NORMAL; float3 col : COLOR; float2 mat : TEXCOORD1; };
 VSOut VSMain(VSIn v) {
     VSOut o;
     o.pos  = mul(float4(v.pos, 1.0), view_proj);   // 頂点は既にワールド座標
     o.wpos = v.pos;
     o.nrm  = v.nrm;
     o.col  = v.col;
+    o.mat  = v.mat;                                 // x=metallic, y=roughness
     return o;
 }
 static const float PI = 3.14159265359;
@@ -2130,8 +2133,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float3 L = normalize(light_dir.xyz);
     float3 H = normalize(V + L);
     float3 albedo   = v.col;
-    float  metallic = 0.0;                         // 既定: 誘電体
-    float  rough    = 0.75;                         // 既定: ややマット (鏡面の空反射を抑え自然に)
+    float  metallic = saturate(v.mat.x);           // マテリアル: 頂点から (per-node)
+    float  rough    = clamp(v.mat.y, 0.04, 1.0);    // マテリアル: 頂点から (per-node)
     float3 F0 = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);
     float ndl = max(dot(N, L), 0.0);
     float ndv = max(dot(N, V), 0.0);
@@ -2159,7 +2162,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 struct M3DFrame { FMat4 view_proj; FVec4 light_dir; FVec4 light_col; FVec4 cam_pos; FVec4 sky_zenith, sky_horizon, sky_ground; FMat4 light_vp; };
-struct M3DVtx   { f32 px, py, pz, nx, ny, nz, r, g, b; };   // ワールド座標 + 法線 + 色 (36 bytes)
+struct M3DVtx   { f32 px, py, pz, nx, ny, nz, r, g, b, mt, rg; };   // 座標+法線+色 + metallic/roughness (44 bytes)
 
 // シャドウ・キャスター: M3DVtx (既に world 座標) を «光の view-projection» でクリップへ。depth-only。
 const char* kShadowCaster3DHLSL = R"(
@@ -2292,7 +2295,8 @@ bool Ensure3D(EditorHost& h) noexcept {
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
     pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 12 };
     pd.layout[2] = { "COLOR",    0, EFormat::R32G32B32_Float, 24 };
-    pd.layout_count = 3;
+    pd.layout[3] = { "TEXCOORD", 0, EFormat::R32G32_Float,    36 };   // x=metallic, y=roughness
+    pd.layout_count = 4;
     auto plr = CreateRhiPipeline(*dev, pd);
     if (plr.IsErr()) { ACS_LOG_ERROR("[3D] mesh パイプライン生成失敗"); return false; }
     h.m3d_pipe = Move(plr.Value());
@@ -2710,7 +2714,8 @@ TSharedPtr<Asset> LoadMeshFile(const char* path) noexcept {
 }
 
 /** CPU メッシュ cm の三角形を model 行列でワールド変換し色を付けて dv へ追加する。 */
-void AppendMeshTris(TArray<M3DVtx>& dv, const FMeshAsset* cm, const FMat4& model, FVec3 col, u32 cap) noexcept {
+void AppendMeshTris(TArray<M3DVtx>& dv, const FMeshAsset* cm, const FMat4& model, FVec3 col, u32 cap,
+                    f32 metallic = 0.0f, f32 roughness = 0.6f) noexcept {
     if (cm == nullptr) return;
     const auto& vtx = cm->Vertices();
     const auto& idx = cm->Indices();
@@ -2721,6 +2726,7 @@ void AppendMeshTris(TArray<M3DVtx>& dv, const FMeshAsset* cm, const FMat4& model
             const FVec4 wn = Transform(FVec4{ mv.normal.x, mv.normal.y, mv.normal.z, 0.0f }, model);
             M3DVtx o; o.px = wp.x; o.py = wp.y; o.pz = wp.z;
             o.nx = wn.x; o.ny = wn.y; o.nz = wn.z; o.r = col.x; o.g = col.y; o.b = col.z;
+            o.mt = metallic; o.rg = roughness;
             if (dv.Size() < cap) dv.PushBack(o);
         }
     }
@@ -2749,7 +2755,7 @@ void AppendCone(TArray<M3DVtx>& gv, FVec3 base, int axis, f32 len, f32 rad, FVec
     FVec3 v{ ax.y*u.z - ax.z*u.y, ax.z*u.x - ax.x*u.z, ax.x*u.y - ax.y*u.x };
     const FVec3 apex{ base.x + ax.x*len, base.y + ax.y*len, base.z + ax.z*len };
     const int N = 24;   // 滑らかな矢じり
-    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { M3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z; gv.PushBack(o);} };
+    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { M3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f; gv.PushBack(o);} };
     for (int i = 0; i < N; ++i) {
         const f32 a0 = 6.2831853f * i / N, a1 = 6.2831853f * (i + 1) / N;
         const FVec3 rd0{ u.x*std::cos(a0)+v.x*std::sin(a0), u.y*std::cos(a0)+v.y*std::sin(a0), u.z*std::cos(a0)+v.z*std::sin(a0) };
@@ -2770,7 +2776,7 @@ void AppendCylinder(TArray<M3DVtx>& gv, FVec3 base, int axis, f32 len, f32 rad, 
     FVec3 v{ ax.y*u.z - ax.z*u.y, ax.z*u.x - ax.x*u.z, ax.x*u.y - ax.y*u.x };
     const FVec3 tip{ base.x + ax.x*len, base.y + ax.y*len, base.z + ax.z*len };
     const int N = 20;
-    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { M3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z; gv.PushBack(o);} };
+    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { M3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f; gv.PushBack(o);} };
     for (int i = 0; i < N; ++i) {
         const f32 a0 = 6.2831853f * i / N, a1 = 6.2831853f * (i + 1) / N;
         const FVec3 n0{ u.x*std::cos(a0)+v.x*std::sin(a0), u.y*std::cos(a0)+v.y*std::sin(a0), u.z*std::cos(a0)+v.z*std::sin(a0) };
@@ -2789,7 +2795,7 @@ void AppendQuad(TArray<M3DVtx>& gv, FVec3 c, FVec3 e1, FVec3 e2, f32 hs, FVec3 c
     FVec3 p10{ c.x+(e1.x-e2.x)*hs, c.y+(e1.y-e2.y)*hs, c.z+(e1.z-e2.z)*hs };
     FVec3 p11{ c.x+(e1.x+e2.x)*hs, c.y+(e1.y+e2.y)*hs, c.z+(e1.z+e2.z)*hs };
     FVec3 p01{ c.x-(e1.x-e2.x)*hs, c.y-(e1.y-e2.y)*hs, c.z-(e1.z-e2.z)*hs };
-    auto pv = [&](FVec3 p){ if (gv.Size()<4096){ M3DVtx o;o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;gv.PushBack(o);} };
+    auto pv = [&](FVec3 p){ if (gv.Size()<4096){ M3DVtx o;o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f;gv.PushBack(o);} };
     pv(p00);pv(p10);pv(p11); pv(p00);pv(p11);pv(p01);
 }
 
@@ -2822,7 +2828,10 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         const FMeshAsset* cm = (prim == 3) ? NMesh(nn) : (prim == 1) ? h.cpu_sphere.Get()
                              : (prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
         const FVec4 col = NColor(nn);
-        AppendMeshTris(dv, cm, nn->World().ToMat4(), FVec3{ col.x, col.y, col.z }, h.m3d_dyn_cap);
+        EEd3DRec* rec = Rec3D(nn);
+        const f32 mtl = (rec != nullptr) ? rec->metallic  : 0.0f;
+        const f32 rgh = (rec != nullptr) ? rec->roughness : 0.6f;
+        AppendMeshTris(dv, cm, nn->World().ToMat4(), FVec3{ col.x, col.y, col.z }, h.m3d_dyn_cap, mtl, rgh);
     }
     for (u32 i = 0; i < dv.Size(); ++i) {
         const M3DVtx& q = dv[i];
@@ -2906,7 +2915,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         const f32 S = 800.0f;                    // クアッド半径 (フェード距離より十分大きく)
         const f32 cx = h.cam3d_target.x;
         const f32 cy = h.ortho3d ? h.cam3d_target.y : h.cam3d_target.z;
-        auto V = [](f32 x, f32 y, f32 z) { return M3DVtx{ x, y, z, 0, 1, 0, 0, 0, 0 }; };
+        auto V = [](f32 x, f32 y, f32 z) { return M3DVtx{ x, y, z, 0, 1, 0, 0, 0, 0, 0, 0.5f }; };
         M3DVtx qv[6];
         if (h.ortho3d) {                         // z=0 平面 (XY)
             qv[0]=V(cx-S,cy-S,0); qv[1]=V(cx+S,cy-S,0); qv[2]=V(cx+S,cy+S,0);
@@ -5333,6 +5342,27 @@ ACS_EDITOR_API int acs_editor_node3d_set_color(void* handle, int id, float r, fl
     return 1;
 }
 
+/** 3D ノードのマテリアル (out2[0]=metallic, out2[1]=roughness) を取得。成功 1。 */
+ACS_EDITOR_API int acs_editor_node3d_get_material(void* handle, int id, float* out2) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || out2 == nullptr) return 0;
+    EEd3DRec* r = Rec3D(FindNode3DNode(*host, id));
+    if (r == nullptr) return 0;
+    out2[0] = r->metallic; out2[1] = r->roughness;
+    return 1;
+}
+
+/** 3D ノードのマテリアル (metallic, roughness) を設定 (0..1 クランプ)。成功 1。 */
+ACS_EDITOR_API int acs_editor_node3d_set_material(void* handle, int id, float metallic, float roughness) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return 0;
+    EEd3DRec* r = Rec3D(FindNode3DNode(*host, id));
+    if (r == nullptr) return 0;
+    r->metallic  = (metallic  < 0.0f) ? 0.0f : (metallic  > 1.0f) ? 1.0f : metallic;
+    r->roughness = (roughness < 0.0f) ? 0.0f : (roughness > 1.0f) ? 1.0f : roughness;
+    return 1;
+}
+
 /** 選択中の 3D ノード id (-1=なし)。 */
 ACS_EDITOR_API int acs_editor_selected3d(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -5465,6 +5495,12 @@ ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap
             if (wf < 0 || wf >= cap - cur) { out[cap - 1] = '\0'; break; }
             cur += wf;
         }
+        if ((r->metallic != 0.0f || r->roughness != 0.6f) && cur < cap) {                 // マテリアル (非既定のみ。既定=0/0.6)
+            const int wm = std::snprintf(out + cur, static_cast<size_t>(cap - cur),
+                "MAT3D %d %.3f %.3f\n", r->id, r->metallic, r->roughness);
+            if (wm < 0 || wm >= cap - cur) { out[cap - 1] = '\0'; break; }
+            cur += wm;
+        }
     }
     out[cur < cap ? cur : cap - 1] = '\0';
     return cur;
@@ -5549,6 +5585,13 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
             int fid = 0, vis = 1, ena = 1;
             if (std::sscanf(line, "FLG3D %d %d %d", &fid, &vis, &ena) >= 3) {
                 if (game::FNode3D* en = FindNode3DNode(*host, fid)) { en->SetVisible(vis != 0); en->SetEnabled(ena != 0); }
+            }
+            continue;
+        }
+        if (std::strncmp(line, "MAT3D ", 6) == 0) {                  // マテリアル (metallic, roughness) の復元
+            int mid = 0; float mm = 0.0f, mr = 0.6f;
+            if (std::sscanf(line, "MAT3D %d %f %f", &mid, &mm, &mr) >= 3) {
+                if (EEd3DRec* er = Rec3D(FindNode3DNode(*host, mid))) { er->metallic = mm; er->roughness = mr; }
             }
             continue;
         }

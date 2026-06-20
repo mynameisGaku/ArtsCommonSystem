@@ -163,6 +163,21 @@ public partial class MainWindow
             if (kind == 4) Insp3DPanel.Children.Add(SpriteRow3D(id));   // スプライト画像の差替え UI
         }
 
+        // MATERIAL — PBR の金属度/粗さ (per-node)。金属・プラスチック・マットなど見た目を変えられる。
+        var mat = new float[2];
+        EngineInterop.acs_editor_node3d_get_material(Engine, id, mat);
+        Insp3DPanel.Children.Add(Section("MATERIAL"));
+        Insp3DPanel.Children.Add(Slider3DRow("Metallic", mat[0], v =>
+        {
+            var m = new float[2]; EngineInterop.acs_editor_node3d_get_material(Engine, id, m);
+            EngineInterop.acs_editor_node3d_set_material(Engine, id, v, m[1]);
+        }));
+        Insp3DPanel.Children.Add(Slider3DRow("Roughness", mat[1], v =>
+        {
+            var m = new float[2]; EngineInterop.acs_editor_node3d_get_material(Engine, id, m);
+            EngineInterop.acs_editor_node3d_set_material(Engine, id, m[0], v);
+        }));
+
         // COMPONENTS — 3D ノードにも振る舞いコンポーネントを付けられる (2D と同じ反射型・EEd3DRec に保持)。
         Insp3DPanel.Children.Add(Section("COMPONENTS"));
         Insp3DPanel.Children.Add(Build3DComponents(id));
@@ -280,6 +295,23 @@ public partial class MainWindow
         cb.Checked   += (_, __) => { if (!_pop3d) onChange(true); };
         cb.Unchecked += (_, __) => { if (!_pop3d) onChange(false); };
         row.Children.Add(cb);
+        return row;
+    }
+
+    // 0..1 のスライダ行 (マテリアル等)。右に現在値を表示。ドラッグ中に随時 onChange。
+    private FrameworkElement Slider3DRow(string label, float init, Action<float> onChange)
+    {
+        var row = new DockPanel { Margin = new Thickness(0, 3, 0, 1) };
+        var lbl = new TextBlock { Text = label, Width = 64, VerticalAlignment = VerticalAlignment.Center,
+            Foreground = (Brush)FindResource("TextDim") };
+        DockPanel.SetDock(lbl, Dock.Left); row.Children.Add(lbl);
+        var val = new TextBlock { Text = init.ToString("0.00"), Width = 34, TextAlignment = TextAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center, Foreground = (Brush)FindResource("TextDim") };
+        DockPanel.SetDock(val, Dock.Right); row.Children.Add(val);
+        var sld = new Slider { Minimum = 0, Maximum = 1, Value = init, VerticalAlignment = VerticalAlignment.Center,
+            SmallChange = 0.05, LargeChange = 0.1 };
+        sld.ValueChanged += (_, e) => { val.Text = e.NewValue.ToString("0.00"); if (!_pop3d) onChange((float)e.NewValue); };
+        row.Children.Add(sld);
         return row;
     }
 
