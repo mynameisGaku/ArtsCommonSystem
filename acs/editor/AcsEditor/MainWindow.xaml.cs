@@ -252,9 +252,8 @@ public partial class MainWindow : Window
         UpdateGizmoToggles(EngineInterop.acs_editor_gizmo_get_mode(Engine));   // 初期 active (Move)
         PopulateComponentCombo();
         RefreshCreateMenus();   // 右クリック生成メニュー (ビルトイン / ユーザー定義) を構築
-        // 基本 3D: 既定で 3D モードに入る (2D は Ortho 編集モードとして残す。FNode3D 一本化の第一歩)。
-        if (!_view3d) { View3DBtn.IsChecked = true; OnToggle3D(View3DBtn, new RoutedEventArgs()); }
-        else BuildHierarchy();
+        // 基本 3D: 常に 3D モードで開く (2D は Ortho 編集モード。«3D» トグルは廃止)。
+        EnsureView3D();
         StartEngineLogPump();   // エンジンログ (ACS_LOG) をコンソールへ取り込む
     }
 
@@ -329,17 +328,18 @@ public partial class MainWindow : Window
     }
 
     /// <summary>2D/3D ビューポート切替。3D 時はビューポートのドラッグ=軌道、ホイール=ドリー (ABI側)。</summary>
-    private void OnToggle3D(object sender, RoutedEventArgs e)
+    /// <summary>常に 3D モードに入る (基本3D。«3D» トグルは廃止し、エディタは常時 3D シーンを編集。2D は Ortho モード)。</summary>
+    private void EnsureView3D()
     {
-        if (Engine == IntPtr.Zero) return;
-        _view3d = View3DBtn.IsChecked == true;
-        EngineInterop.acs_editor_set_view3d(Engine, _view3d ? 1 : 0);   // 初回 ON で既定シーンを seed
-        if (_view3d) Load3DSceneIfPresent();    // 保存済み 3D シーンがあれば seed を上書き
-        BuildHierarchy();                       // 2D/3D でツリーの中身を切り替える
-        if (_view3d) { int s = EngineInterop.acs_editor_selected3d(Engine); if (s >= 0) Populate3DInspector(s); else Clear3DInspector(); }
-        else Clear3DInspector();
-        OrthoBtn.Visibility = _view3d ? Visibility.Visible : Visibility.Collapsed;   // Ortho は 3D 時のみ
-        Log(_view3d ? "3D ビューポート (右/中ドラッグ=軌道 / ホイール=ドリー / 左クリック=選択)" : "2D ビューポート");
+        if (Engine == IntPtr.Zero || _view3d) return;
+        _view3d = true;
+        EngineInterop.acs_editor_set_view3d(Engine, 1);   // 初回で既定シーンを seed
+        Load3DSceneIfPresent();                            // 保存済み 3D シーンがあれば seed を上書き
+        BuildHierarchy();
+        int s = EngineInterop.acs_editor_selected3d(Engine);
+        if (s >= 0) Populate3DInspector(s); else Clear3DInspector();
+        OrthoBtn.Visibility = Visibility.Visible;          // Ortho(2Dビュー)は常時利用可
+        Log("3D ビューポート (右/中ドラッグ=軌道・正射でパン / ホイール=ズーム / 左クリック=選択)");
     }
 
     // 3D ビューの投影を 正射(2D ビュー) / 透視 で切り替える。

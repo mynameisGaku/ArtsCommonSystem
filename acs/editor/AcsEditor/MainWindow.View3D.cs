@@ -323,7 +323,7 @@ public partial class MainWindow
     private void OnAdd2DPolygon(object sender, RoutedEventArgs e)
     {
         if (Engine == IntPtr.Zero) return;
-        if (!_view3d) { View3DBtn.IsChecked = true; OnToggle3D(View3DBtn, new RoutedEventArgs()); }
+        EnsureView3D();
         const int sides = 5;                                   // 正五角形 (半径 1、XY 平面)
         var xy = new float[sides * 2];
         for (int i = 0; i < sides; ++i)
@@ -344,7 +344,7 @@ public partial class MainWindow
     private void OnImport3DMesh(object sender, RoutedEventArgs e)
     {
         if (Engine == IntPtr.Zero) return;
-        if (!_view3d) { View3DBtn.IsChecked = true; OnToggle3D(View3DBtn, new RoutedEventArgs()); }
+        EnsureView3D();
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Title = "Import 3D Mesh",
@@ -365,7 +365,7 @@ public partial class MainWindow
     private void OnAddSprite(object sender, RoutedEventArgs e)
     {
         if (Engine == IntPtr.Zero) return;
-        if (!_view3d) { View3DBtn.IsChecked = true; OnToggle3D(View3DBtn, new RoutedEventArgs()); }
+        EnsureView3D();
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Title = "Add Sprite (画像)",
@@ -384,7 +384,7 @@ public partial class MainWindow
     private void Add3DNode(int prim, string name)
     {
         if (Engine == IntPtr.Zero) return;
-        if (!_view3d) { View3DBtn.IsChecked = true; OnToggle3D(View3DBtn, new RoutedEventArgs()); }
+        EnsureView3D();
         int id = EngineInterop.acs_editor_add_node3d(Engine, prim, name);
         if (id < 0) return;
         BuildHierarchy();

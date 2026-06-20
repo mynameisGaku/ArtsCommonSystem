@@ -181,9 +181,8 @@
                                       Padding="12,4" Margin="2" Background="Transparent" Foreground="{StaticResource Text}"/>
                         <!-- シーンビュー専用の編集ツール (右寄せ。グローバルツールバーから移動) -->
                         <StackPanel x:Name="SceneTools" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0">
-                            <ToggleButton x:Name="View3DBtn" Content="⬗ 3D" Click="OnToggle3D" Padding="8,3" Margin="1,0" ToolTip="2D / 3D 編集の切り替え"/>
-                            <ToggleButton x:Name="OrthoBtn" Content="▱ Ortho" Click="OnToggleOrtho" Padding="8,3" Margin="1,0"
-                                          Visibility="Collapsed" ToolTip="正射影 (2D ビュー) ⇔ 透視 を切替"/>
+                            <ToggleButton x:Name="OrthoBtn" Content="▱ 2D" Click="OnToggleOrtho" Padding="8,3" Margin="1,0"
+                                          ToolTip="2D ビュー (正射影・正面) ⇔ 3D 透視 を切替"/>
                             <ToggleButton x:Name="PolyBtn" Content="✎ Polygon" Click="OnPolyToggle" Padding="8,3" Margin="1,0"/>
                             <Separator/>
                             <ToggleButton x:Name="GizMove"   Content="✛" Click="OnGizmoMove"   Padding="8,3" Margin="1,0" ToolTip="移動 (Move)"/>
