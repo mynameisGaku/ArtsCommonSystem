@@ -5336,6 +5336,8 @@ ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
         n->Local().position = FVec3{ host->giz3d_start_pos.x + e1.x*du + e2.x*dv,
                                      host->giz3d_start_pos.y + e1.y*du + e2.y*dv,
                                      host->giz3d_start_pos.z + e1.z*du + e2.z*dv };
+        if (host->snap_enabled) { auto& p = n->Local().position;             // グリッドスナップ
+            p.x = SnapTo(p.x, host->snap_move); p.y = SnapTo(p.y, host->snap_move); p.z = SnapTo(p.z, host->snap_move); }
         if (host->ortho3d) n->Local().position.z = host->giz3d_start_pos.z;   // 2D (正射): z を固定し XY 平面で編集
         return;
     }
@@ -5349,12 +5351,18 @@ ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
         FVec3 s0 = host->giz3d_start_scale;
         f32* comp = (hnd == 1) ? &s0.x : (hnd == 2) ? &s0.y : &s0.z;
         *comp += px * host->giz3d_wpp;
+        if (host->snap_enabled) { *comp = SnapTo(*comp, host->snap_scale); if (*comp < host->snap_scale) *comp = host->snap_scale; }
         if (*comp < 0.05f) *comp = 0.05f;
         n->Local().scale = s0;
     } else if (host->gizmo_mode == 1) {              // Rotate (px → 度)
         FVec3 r0 = host->giz3d_start_rot;
         const f32 ang = px * 0.5f;
         if (hnd == 1) r0.x += ang; else if (hnd == 2) r0.y += ang; else r0.z += ang;
+        if (host->snap_enabled) {                    // 角度スナップ
+            if (hnd == 1) r0.x = SnapTo(r0.x, host->snap_rotate);
+            else if (hnd == 2) r0.y = SnapTo(r0.y, host->snap_rotate);
+            else r0.z = SnapTo(r0.z, host->snap_rotate);
+        }
         n->Local().SetEulerDeg(r0);                  // quat に焼く
         EEd3DRec* rc = Rec3D(n); if (rc != nullptr) rc->euler = r0;   // authored 値も更新
     } else {                                         // Move (px → world、軸方向)
@@ -5362,6 +5370,8 @@ ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
         n->Local().position = FVec3{ host->giz3d_start_pos.x + ad.x*dw,
                                      host->giz3d_start_pos.y + ad.y*dw,
                                      host->giz3d_start_pos.z + ad.z*dw };
+        if (host->snap_enabled) { auto& p = n->Local().position;             // グリッドスナップ
+            p.x = SnapTo(p.x, host->snap_move); p.y = SnapTo(p.y, host->snap_move); p.z = SnapTo(p.z, host->snap_move); }
         if (host->ortho3d) n->Local().position.z = host->giz3d_start_pos.z;   // 2D (正射): z を固定
     }
 }

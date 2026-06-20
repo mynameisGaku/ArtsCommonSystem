@@ -1338,8 +1338,8 @@ public partial class MainWindow : Window
     {
         if (Engine == IntPtr.Zero) return;
         bool on = SnapCheck.IsChecked == true;
-        EngineInterop.acs_editor_set_snap(Engine, on ? 1 : 0, 10f, 15f, 0.25f);   // grid 10 / 15° / 0.25
-        Log(on ? "Snap ON (grid 10, 15°, 0.25)" : "Snap OFF");
+        EngineInterop.acs_editor_set_snap(Engine, on ? 1 : 0, 1f, 15f, 0.25f);   // grid 1 / 15° / 0.25 (単位スケール向け)
+        Log(on ? "Snap ON (grid 1, 15°, 0.25)" : "Snap OFF");
     }
 
     private void OnFocus(object sender, RoutedEventArgs e)
