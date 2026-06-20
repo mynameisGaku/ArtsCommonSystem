@@ -5,6 +5,7 @@ param(
     [int]   $Wait  = 3000,
     [string]$Click    = "",   # "x,y" (ウィンドウ左上からの相対座標) をキャプチャ前にクリック
     [string]$Drag     = "",   # "x1,y1,x2,y2" 左ドラッグ (スクラブ等の検証用)
+    [string]$RightDrag = "",  # "x1,y1,x2,y2" 右ドラッグ (3Dカメラのパン/軌道検証用)
     [int]   $PostWait = 0,    # クリック後・キャプチャ前の待機 ms (アニメ/物理の進行を見る)
     [string]$Keys     = "",   # クリック後に送るキーストローク (SendKeys 形式。例 "{ENTER}")
     [string]$LaunchArgs = "", # exe へ渡す起動引数 (例 プロジェクトの .acsproject パス)
@@ -113,6 +114,22 @@ try {
             [void][Win]::SetCursorPos($xx, $yy); Start-Sleep -Milliseconds 30
         }
         [Win]::mouse_event(0x04, 0, 0, 0, [IntPtr]::Zero)   # LEFTUP
+        Start-Sleep -Milliseconds 600
+    }
+
+    if ($RightDrag -ne "") {
+        $d = $RightDrag -split ','
+        $x1 = $r.Left + [int]$d[0]; $y1 = $r.Top + [int]$d[1]
+        $x2 = $r.Left + [int]$d[2]; $y2 = $r.Top + [int]$d[3]
+        [void][Win]::SetCursorPos($x1, $y1); Start-Sleep -Milliseconds 120
+        [Win]::mouse_event(0x08, 0, 0, 0, [IntPtr]::Zero)   # RIGHTDOWN
+        Start-Sleep -Milliseconds 60
+        for ($k = 1; $k -le 12; $k++) {
+            $xx = [int]($x1 + ($x2 - $x1) * $k / 12.0)
+            $yy = [int]($y1 + ($y2 - $y1) * $k / 12.0)
+            [void][Win]::SetCursorPos($xx, $yy); Start-Sleep -Milliseconds 30
+        }
+        [Win]::mouse_event(0x10, 0, 0, 0, [IntPtr]::Zero)   # RIGHTUP
         Start-Sleep -Milliseconds 600
     }
 

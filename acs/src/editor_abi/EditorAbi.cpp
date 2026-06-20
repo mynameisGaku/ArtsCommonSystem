@@ -4588,8 +4588,16 @@ ACS_EDITOR_API int acs_editor_pick(void* handle, float screen_x, float screen_y)
 ACS_EDITOR_API void acs_editor_camera_pan(void* handle, float dx, float dy) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr) return;
-    if (host->view3d) {                                 // 3D: ドラッグで軌道 (yaw/pitch)
-        host->cam3d_yaw   -= dx * 0.01f;
+    if (host->view3d) {
+        if (host->ortho3d) {                            // 2D (正射): 軌道せず注視点を画面平面で平行移動 (パン)
+            IRhiSwapchain* sc = host->renderer.Swapchain();
+            const f32 H = (sc != nullptr && sc->Height() > 0) ? static_cast<f32>(sc->Height()) : 1080.0f;
+            const f32 wpp = (host->cam3d_dist * 0.62f * 2.0f) / H;   // world / px (正射の縦範囲 = dist*0.62*2)
+            host->cam3d_target.x += dx * wpp;           // world +X が画面左 → ドラッグで内容が指に追従
+            host->cam3d_target.y += dy * wpp;
+            return;
+        }
+        host->cam3d_yaw   -= dx * 0.01f;                // 3D 透視: ドラッグで軌道 (yaw/pitch)
         host->cam3d_pitch += dy * 0.01f;
         const f32 lim = 1.5533f;                        // ±89° で gimbal 回避
         if (host->cam3d_pitch >  lim) host->cam3d_pitch =  lim;
