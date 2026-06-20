@@ -5328,6 +5328,7 @@ ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
         n->Local().position = FVec3{ host->giz3d_start_pos.x + e1.x*du + e2.x*dv,
                                      host->giz3d_start_pos.y + e1.y*du + e2.y*dv,
                                      host->giz3d_start_pos.z + e1.z*du + e2.z*dv };
+        if (host->ortho3d) n->Local().position.z = host->giz3d_start_pos.z;   // 2D (正射): z を固定し XY 平面で編集
         return;
     }
 
@@ -5353,6 +5354,7 @@ ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
         n->Local().position = FVec3{ host->giz3d_start_pos.x + ad.x*dw,
                                      host->giz3d_start_pos.y + ad.y*dw,
                                      host->giz3d_start_pos.z + ad.z*dw };
+        if (host->ortho3d) n->Local().position.z = host->giz3d_start_pos.z;   // 2D (正射): z を固定
     }
 }
 
