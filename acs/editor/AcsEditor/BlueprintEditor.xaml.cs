@@ -1281,6 +1281,9 @@ public partial class BlueprintEditor : UserControl
     /// <summary>検証用: 全ノードを自動整列する (--bpshot arrange)。</summary>
     public void ArrangeForTest() { _selected.Clear(); AutoArrange(); }
 
+    /// <summary>検証用: 最初の Math Expression をノードに展開する (--bpshot expand)。</summary>
+    public void ExpandMathForTest() { var m = _nodes.FirstOrDefault(n => n.Title == "Math Expression"); if (m != null) ExpandMathExpression(m); }
+
     private void OnKeyUp(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Space) { _spaceDown = false; GraphCanvas.Cursor = Cursors.Arrow; }
@@ -1641,11 +1644,13 @@ public partial class BlueprintEditor : UserControl
                 at.Click += (_, __) => AddTimelineTrack(hit);
                 menu.Items.Add(new Separator()); menu.Items.Add(cur); menu.Items.Add(kf); menu.Items.Add(ev); menu.Items.Add(at);
             }
-            else if (hit.Title == "Math Expression")   // 式を編集 → 変数が入力ピンに
+            else if (hit.Title == "Math Expression")   // 式を編集 / ノードに展開
             {
                 var em = new MenuItem { Header = "式を編集" };
                 em.Click += (_, __) => OpenMathEditor(hit);
-                menu.Items.Add(new Separator()); menu.Items.Add(em);
+                var ex = new MenuItem { Header = "ノードに展開" };
+                ex.Click += (_, __) => ExpandMathExpression(hit);
+                menu.Items.Add(new Separator()); menu.Items.Add(em); menu.Items.Add(ex);
             }
             // 関数に折りたたむ (2 個以上選択時。UE の Collapse to Function)。
             if (_selected.Count >= 2 && _selected.Contains(hit))
@@ -2257,6 +2262,91 @@ public partial class BlueprintEditor : UserControl
         };
     }
 
+    private sealed class MathAst { public char Kind; public double Num; public string Name = ""; public char Op; public List<MathAst> Kids = new(); }
+    /// <summary>式を AST に解析する (ノード展開用)。null = 空式。</summary>
+    private static MathAst? ParseAst(string f)
+    {
+        int pos = 0;
+        char Peek() { while (pos < f.Length && char.IsWhiteSpace(f[pos])) pos++; return pos < f.Length ? f[pos] : '\0'; }
+        MathAst Expr() { var v = Term(); while (true) { char c = Peek(); if (c == '+' || c == '-') { pos++; v = new MathAst { Kind = 'o', Op = c, Kids = { v, Term() } }; } else return v; } }
+        MathAst Term() { var v = Factor(); while (true) { char c = Peek(); if (c == '*' || c == '/' || c == '%') { pos++; v = new MathAst { Kind = 'o', Op = c, Kids = { v, Factor() } }; } else return v; } }
+        MathAst Factor() { char c = Peek(); if (c == '-') { pos++; return new MathAst { Kind = 'o', Op = '-', Kids = { new MathAst { Kind = 'n', Num = 0 }, Factor() } }; } if (c == '+') { pos++; return Factor(); } return Primary(); }
+        MathAst Primary()
+        {
+            char c = Peek();
+            if (c == '(') { pos++; var v = Expr(); if (Peek() == ')') pos++; return v; }
+            if (char.IsDigit(c) || c == '.') { int s = pos; while (pos < f.Length && (char.IsDigit(f[pos]) || f[pos] == '.')) pos++; double.TryParse(f.Substring(s, pos - s), NumberStyles.Float, CultureInfo.InvariantCulture, out var n); return new MathAst { Kind = 'n', Num = n }; }
+            if (char.IsLetter(c) || c == '_')
+            {
+                int s = pos; while (pos < f.Length && (char.IsLetterOrDigit(f[pos]) || f[pos] == '_')) pos++;
+                string id = f.Substring(s, pos - s);
+                if (Peek() == '(') { pos++; var node = new MathAst { Kind = 'f', Name = id }; if (Peek() != ')') { node.Kids.Add(Expr()); while (Peek() == ',') { pos++; node.Kids.Add(Expr()); } } if (Peek() == ')') pos++; return node; }
+                if (id == "pi" || id == "e") return new MathAst { Kind = 'c', Name = id };
+                return new MathAst { Kind = 'v', Name = id };
+            }
+            return new MathAst { Kind = 'n', Num = 0 };
+        }
+        return f.Trim().Length == 0 ? null : Expr();
+    }
+    private static string OpToNode(char op) => op switch { '+' => "Add", '-' => "Subtract", '*' => "Multiply", '/' => "Divide", '%' => "Modulo", _ => "Add" };
+    private static (string title, string[] ins)? FuncToNode(string id) => id switch
+    {
+        "sin" => ("Sin", new[] { "value" }), "cos" => ("Cos", new[] { "value" }), "tan" => ("Tan", new[] { "value" }),
+        "sqrt" => ("Sqrt", new[] { "value" }), "abs" => ("Abs", new[] { "value" }), "floor" => ("Floor", new[] { "value" }),
+        "ceil" => ("Ceil", new[] { "value" }), "round" => ("Round", new[] { "value" }), "exp" => ("Exp", new[] { "value" }),
+        "log" => ("Log", new[] { "value" }), "sign" => ("Sign", new[] { "value" }),
+        "min" => ("Min", new[] { "a", "b" }), "max" => ("Max", new[] { "a", "b" }), "pow" => ("Power", new[] { "base", "exp" }),
+        "mod" => ("Modulo", new[] { "a", "b" }), "atan2" => ("Atan2", new[] { "y", "x" }),
+        _ => null,
+    };
+
+    /// <summary>Math Expression を実際の演算/関数ノード群に展開して置き換える (UE の式展開)。</summary>
+    private void ExpandMathExpression(BpNode n)
+    {
+        var ast = ParseAst(n.VarRef ?? "");
+        if (ast == null) { LogSink?.Invoke("式が空です。"); return; }
+        // 変数 → 元の入力ソース (接続 or 定数) を控える。
+        var varSrc = new Dictionary<string, (int node, int pin, string? lit)>();
+        for (int i = 0; i < n.Inputs.Count; i++)
+        {
+            var c = _conns.FirstOrDefault(x => x.ToNode == n.Id && x.ToPin == i);
+            varSrc[n.Inputs[i].Name] = c != null ? (c.FromNode, c.FromPin, null) : (-1, 0, n.Literals.TryGetValue(i, out var lv) ? lv : "0");
+        }
+        int resPinIdx = n.Outputs.FindIndex(p => p.Name == "result"); if (resPinIdx < 0) resPinIdx = 0;
+        var consumers = _conns.Where(x => x.FromNode == n.Id && x.FromPin == resPinIdx).Select(x => (x.ToNode, x.ToPin)).ToList();
+        double baseX = n.X, baseY = n.Y; var rowOf = new Dictionary<int, int>();
+        var col = new SolidColorBrush(Color.FromRgb(0x3E, 0x6E, 0x5E));
+        BeginEdit();
+        (int node, int pin, string? lit) Build(MathAst a, int depth)
+        {
+            if (a.Kind == 'n') return (-1, 0, Fmt(a.Num));
+            if (a.Kind == 'c') return (-1, 0, Fmt(a.Name == "pi" ? Math.PI : Math.E));
+            if (a.Kind == 'v') return varSrc.TryGetValue(a.Name, out var v) ? v : (-1, 0, "0");
+            string title; string[] inNames;
+            if (a.Kind == 'o') { title = OpToNode(a.Op); inNames = new[] { "a", "b" }; }
+            else { var fn = FuncToNode(a.Name); if (fn == null) return (-1, 0, "0"); title = fn.Value.title; inNames = fn.Value.ins; }
+            int row = rowOf.TryGetValue(depth, out var rr) ? rr : 0; rowOf[depth] = row + 1;
+            var node = new BpNode { Id = _nextId++, Title = title, X = baseX - (depth + 1) * 210, Y = baseY + row * 122, Header = col };
+            foreach (var inm in inNames) node.Inputs.Add(new Pin(inm, PinKind.Data, "Float"));
+            node.Outputs.Add(new Pin("result", PinKind.Data, "Float"));
+            _nodes.Add(node);
+            for (int k = 0; k < a.Kids.Count && k < inNames.Length; k++)
+            {
+                var src = Build(a.Kids[k], depth + 1);
+                int inIdx = node.Inputs.FindIndex(p => p.Name == inNames[k]);
+                if (src.node >= 0) _conns.Add(new BpConn(src.node, src.pin, node.Id, inIdx));
+                else if (inIdx >= 0 && src.lit != null) node.Literals[inIdx] = src.lit;
+            }
+            return (node.Id, 0, null);
+        }
+        var root = Build(ast, 0);
+        if (root.node >= 0) foreach (var (cn, cp) in consumers) _conns.Add(new BpConn(root.node, root.pin, cn, cp));
+        _conns.RemoveAll(c => c.FromNode == n.Id || c.ToNode == n.Id);
+        _nodes.Remove(n);
+        Rebuild(); CommitEdit();
+        LogSink?.Invoke("式をノードに展開しました。");
+    }
+
     private static List<double[]> ParseKF(string? csv)
     {
         var kf = new List<double[]>();
@@ -2764,6 +2854,22 @@ public partial class BlueprintEditor : UserControl
             "N 2 0 0 1 Math Expression\nI D:Float a\nI D:Float b\nO D:Float result\nVR a*2 + b\nV 0 3\nV 1 4\n" +
             "N 3 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\n" +
             "C 1 0 3 0\nC 2 0 3 1\n", "r", "10");
+        // Math Expression 展開: «a*2 + b» をノード群に展開しても r=10 (展開前後で一致)。
+        {
+            Deserialize("ACSBP 1\nVAR Float r 0\n" +
+                "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
+                "N 2 0 0 1 Math Expression\nI D:Float a\nI D:Float b\nO D:Float result\nVR a*2 + b\nV 0 3\nV 1 4\n" +
+                "N 3 0 0 1 Set Variable\nI E ▶\nI D value\nO E ▶\nVR r\n" +
+                "C 1 0 3 0\nC 2 0 3 1\n");
+            var mathNode = _nodes.FirstOrDefault(x => x.Title == "Math Expression");
+            if (mathNode != null) ExpandMathExpression(mathNode);
+            RunGraph();
+            string got = _vars.TryGetValue("r", out var mv) ? mv : "(none)";
+            bool ok = got == "10";
+            if (ok) pass++; else fail++;
+            log.Append(ok ? "  OK   " : "  FAIL ").Append("MathExpand  (期待=10 実際=").Append(got).Append(")\n");
+        }
+
         // Math Expression 関数: «max(a, b) * 3» (a=2,b=5) → 15。
         Check("MathExprFn", "ACSBP 1\nVAR Float r 0\n" +
             "N 1 0 0 1 Event BeginPlay\nO E ▶\n" +
