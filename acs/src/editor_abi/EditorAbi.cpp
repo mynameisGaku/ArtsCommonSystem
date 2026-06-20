@@ -199,10 +199,16 @@ struct FGameShim {
  */
 struct EEd3DRec : public acs::game::FComponent3D {
     ACS_GAME_COMPONENT3D_KIND(EEd3DRec)
+    static constexpr u32 kMaxComponents = 8;
+    static constexpr u32 kMaxProps      = 8;
     int   id    = 0;                          ///< editor 整数 id (ABI/C# 境界・シリアライズ用)。
     FVec3 euler = FVec3{ 0, 0, 0 };           ///< authored オイラー角 (度、XYZ。Local().rotation の編集元)。
     char  sprite_path[256] = {};              ///< 非空ならスプライト (z=0 テクスチャ付きクアッド)。再読込用の画像パス。
     TArray<FVec2> poly_pts;                   ///< 3点以上なら手続きポリゴン (z=0)。再生成用の元 2D 頂点列。
+    // アタッチされた Component 型 (リフレクション type-id)。2D の FEditorNode と同じ «エディタ・メタデータ» 方式。
+    game::FTypeId components[kMaxComponents] = {};
+    u32           component_count            = 0;
+    f32           comp_props[kMaxComponents][kMaxProps][4] = {};
 };
 
 /** 1 つのビューポート + エディタ・シーン (実 FNode2D ツリー) を保持する描画ホスト。 */
@@ -5775,6 +5781,56 @@ ACS_EDITOR_API int acs_editor_node_remove_component_at(void* handle, int id, int
             for (u32 k = 0; k < 4; ++k) n->comp_props[i][p][k] = n->comp_props[i + 1][p][k];
     }
     --n->component_count;
+    return 1;
+}
+
+// --- 3D ノードのコンポーネント (2D と同じ «エディタ・メタデータ» 方式。EEd3DRec に保持) ---
+static bool AttachComponent3D(EEd3DRec* r, const char* type_name) noexcept {
+    if (r == nullptr || type_name == nullptr) return false;
+    game::AcsRegisterEngineTypes();
+    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName(type_name);
+    if (d == nullptr || d->category != game::ETypeCategory::Component) return false;
+    for (u32 i = 0; i < r->component_count; ++i) if (r->components[i] == d->id) return true;  // 重複
+    if (r->component_count >= EEd3DRec::kMaxComponents) return false;                          // 容量
+    const u32 slot = r->component_count;
+    r->components[slot] = d->id;
+    for (u32 p = 0; p < EEd3DRec::kMaxProps; ++p) for (u32 k = 0; k < 4; ++k) r->comp_props[slot][p][k] = 0.0f;
+    const u32 nf = d->field_count < EEd3DRec::kMaxProps ? d->field_count : EEd3DRec::kMaxProps;
+    for (u32 p = 0; p < nf; ++p) for (u32 k = 0; k < 4; ++k) r->comp_props[slot][p][k] = d->fields[p].defaults[k];
+    r->component_count = slot + 1;
+    return true;
+}
+ACS_EDITOR_API int acs_editor_node3d_add_component(void* handle, int id, const char* type_name) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return 0;
+    EEd3DRec* r = Rec3D(FindNode3DNode(*host, id));
+    if (r == nullptr) return 0;
+    PushUndo(*host);
+    return AttachComponent3D(r, type_name) ? 1 : 0;
+}
+ACS_EDITOR_API int acs_editor_node3d_component_count(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    EEd3DRec* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    return (r != nullptr) ? static_cast<int>(r->component_count) : 0;
+}
+ACS_EDITOR_API const char* acs_editor_node3d_component_name_at(void* handle, int id, int index) {
+    auto* host = static_cast<EditorHost*>(handle);
+    EEd3DRec* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    if (r == nullptr || index < 0 || index >= static_cast<int>(r->component_count)) return "";
+    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(r->components[static_cast<u32>(index)]);
+    return (d != nullptr && d->name != nullptr) ? d->name : "";
+}
+ACS_EDITOR_API int acs_editor_node3d_remove_component_at(void* handle, int id, int index) {
+    auto* host = static_cast<EditorHost*>(handle);
+    EEd3DRec* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    if (r == nullptr || index < 0 || index >= static_cast<int>(r->component_count)) return 0;
+    PushUndo(*host);
+    for (u32 i = static_cast<u32>(index); i + 1 < r->component_count; ++i) {
+        r->components[i] = r->components[i + 1];
+        for (u32 p = 0; p < EEd3DRec::kMaxProps; ++p)
+            for (u32 k = 0; k < 4; ++k) r->comp_props[i][p][k] = r->comp_props[i + 1][p][k];
+    }
+    --r->component_count;
     return 1;
 }
 

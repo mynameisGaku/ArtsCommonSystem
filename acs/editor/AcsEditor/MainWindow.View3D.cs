@@ -136,6 +136,10 @@ public partial class MainWindow
             if (kind == 4) Insp3DPanel.Children.Add(SpriteRow3D(id));   // スプライト画像の差替え UI
         }
 
+        // COMPONENTS — 3D ノードにも振る舞いコンポーネントを付けられる (2D と同じ反射型・EEd3DRec に保持)。
+        Insp3DPanel.Children.Add(Section("COMPONENTS"));
+        Insp3DPanel.Children.Add(Build3DComponents(id));
+
         // 削除ボタン
         var del = new Button { Content = "🗑 Delete", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 12, 0, 0),
             HorizontalAlignment = HorizontalAlignment.Left };
@@ -193,6 +197,49 @@ public partial class MainWindow
             else Log($"スプライト差替え失敗: {System.IO.Path.GetFileName(dlg.FileName)} (画像形式を確認)");
         };
         return row;
+    }
+
+    /// <summary>3D ノードの COMPONENTS 節 (一覧 + ✕ 取外し + 「+ Add」コンボ)。型候補は CompAddBox を流用。</summary>
+    private FrameworkElement Build3DComponents(int id)
+    {
+        var panel = new StackPanel();
+        var dim  = (Brush)FindResource("TextDim");
+        var text = (Brush)FindResource("Text");
+        int count = EngineInterop.acs_editor_node3d_component_count(Engine, id);
+        if (count == 0)
+            panel.Children.Add(new TextBlock { Text = "（コンポーネントなし）", Foreground = dim, FontSize = 11, Margin = new Thickness(0, 2, 0, 4) });
+        for (int i = 0; i < count; i++)
+        {
+            int idx = i;   // ABI の component slot
+            string cname = EngineInterop.Component3DName(Engine, id, i);
+            var row = new DockPanel { Margin = new Thickness(0, 1, 0, 1) };
+            var rm = new Button
+            {
+                Content = "✕", Width = 22, Height = 20, Padding = new Thickness(0),
+                Foreground = new SolidColorBrush(Color.FromRgb(0xE3, 0x9A, 0xA0)), Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0), Cursor = Cursors.Hand, ToolTip = "コンポーネントを外す",
+            };
+            rm.Click += (_, __) => { EngineInterop.acs_editor_node3d_remove_component_at(Engine, id, idx); Populate3DInspector(id); };
+            DockPanel.SetDock(rm, Dock.Right); row.Children.Add(rm);
+            row.Children.Add(new TextBlock { Text = cname, VerticalAlignment = VerticalAlignment.Center, Foreground = text,
+                FontFamily = new FontFamily("Consolas") });
+            panel.Children.Add(row);
+        }
+        // 「+ Add」行 (型候補は 2D 用 CompAddBox から流用)。
+        var add = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
+        var combo = new ComboBox { VerticalAlignment = VerticalAlignment.Center };
+        foreach (var it in CompAddBox.Items) combo.Items.Add(it);
+        if (combo.Items.Count > 0) combo.SelectedIndex = 0;
+        var btn = new Button { Content = "+ Add", Width = 62, Margin = new Thickness(6, 0, 0, 0) };
+        DockPanel.SetDock(btn, Dock.Right);
+        btn.Click += (_, __) =>
+        {
+            if (combo.SelectedItem is string tn && EngineInterop.acs_editor_node3d_add_component(Engine, id, tn) != 0)
+            { Log($"3D ノード {id} に {tn} を追加"); Populate3DInspector(id); }
+        };
+        add.Children.Add(btn); add.Children.Add(combo);
+        panel.Children.Add(add);
+        return panel;
     }
 
     private void Set3DTransform(int id, int which, float a, float b, float c)

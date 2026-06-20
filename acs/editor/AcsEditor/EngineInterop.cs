@@ -629,6 +629,20 @@ internal static class EngineInterop
     public static string ComponentName(IntPtr handle, int id, int index) =>
         Marshal.PtrToStringUTF8(acs_editor_node_component_name_at(handle, id, index)) ?? "";
 
+    // ----- 3D node components (2D と同じ。EEd3DRec にエディタ・メタデータとして保持) -----
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_add_component(IntPtr handle, int id,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string typeName);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_component_count(IntPtr handle, int id);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr acs_editor_node3d_component_name_at(IntPtr handle, int id, int index);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_remove_component_at(IntPtr handle, int id, int index);
+    /// <summary>3D ノードの index 番目のコンポーネント型名 (UTF-8)。</summary>
+    public static string Component3DName(IntPtr handle, int id, int index) =>
+        Marshal.PtrToStringUTF8(acs_editor_node3d_component_name_at(handle, id, index)) ?? "";
+
     // ----- component property editing (リフレクション・スキーマ駆動のプロパティ編集) -----
     // 型のスキーマ (どの編集フィールドがあるか) は reflection から、インスタンスの値は
     // ノード+slot ごとに ABI が保持する。
