@@ -845,7 +845,7 @@ public partial class MainWindow : Window
             if (EngineInterop.acs_editor_logic_play_active(Engine) != 0)
                 EngineInterop.acs_editor_logic_play_stop(Engine);
             EngineInterop.acs_editor_play_stop(Engine);    // 開始状態へ復元
-            BuildHierarchy();                              // 復元後の位置/選択を UI に反映
+            RefreshAfterSceneChange();                     // 復元後の位置/選択を UI に反映 (3D Inspector も再同期)
             Log("⏹ Stop — 開始状態へ復元。");
         }
         UpdatePlayButtons();
@@ -1318,7 +1318,7 @@ public partial class MainWindow : Window
                 if (EngineInterop.acs_editor_logic_play_active(Engine) != 0)
                     EngineInterop.acs_editor_logic_play_stop(Engine);
                 EngineInterop.acs_editor_play_stop(Engine);
-                BuildHierarchy();
+                RefreshAfterSceneChange();
             }
             Log("◳ Scene View — 編集に戻りました。");
         }

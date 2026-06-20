@@ -1377,12 +1377,17 @@ char* DupSnapshot(EditorHost& h) noexcept {
     char hdr[48];
     const int lh = std::snprintf(hdr, sizeof(hdr), "ACSSNAP3D %d\n", static_cast<int>(l2d));
     if (lh <= 0) return nullptr;
-    constexpr size_t kCap3D = 64 * 1024;
-    char* copy = new (std::nothrow) char[static_cast<size_t>(lh) + l2d + kCap3D];
-    if (copy == nullptr) return nullptr;
+    constexpr size_t kTmp3D = 256 * 1024;                                            // 3D 直列化の一時 (大きめ→実長で確保し直す)
+    char* tmp3d = new (std::nothrow) char[kTmp3D];
+    if (tmp3d == nullptr) return nullptr;
+    acs_editor_scene3d_serialize(&h, tmp3d, static_cast<int>(kTmp3D));
+    const size_t l3d = std::strlen(tmp3d);
+    char* copy = new (std::nothrow) char[static_cast<size_t>(lh) + l2d + l3d + 1];   // 実サイズで確保 (固定 64KB の無駄/切詰を回避)
+    if (copy == nullptr) { delete[] tmp3d; return nullptr; }
     std::memcpy(copy, hdr, static_cast<size_t>(lh));                                 // ヘッダ (2D 長)
     std::memcpy(copy + lh, s2d, l2d);                                                // 2D 部
-    acs_editor_scene3d_serialize(&h, copy + lh + l2d, static_cast<int>(kCap3D));     // 3D 部 (null 終端)
+    std::memcpy(copy + lh + l2d, tmp3d, l3d + 1);                                    // 3D 部 + null 終端
+    delete[] tmp3d;
     return copy;
 }
 
@@ -1392,11 +1397,15 @@ void RestoreSnapshot(EditorHost& h, char* text) noexcept {
     if (text == nullptr) return;
     int l2d = 0, consumed = 0;
     if (std::strncmp(text, "ACSSNAP3D ", 10) != 0 ||
-        std::sscanf(text, "ACSSNAP3D %d%n", &l2d, &consumed) < 1 || l2d < 0) {
+        std::sscanf(text, "ACSSNAP3D %d%n", &l2d, &consumed) < 1) {
         LoadSceneText(h, text); return;                              // 後方互換: 2D のみの旧スナップ
     }
     char* body = text + consumed;
     while (*body == '\n' || *body == '\r') ++body;                   // ヘッダ行の改行をスキップ → 2D 本文の先頭
+    const size_t bodyLen = std::strlen(body);
+    if (l2d <= 0 || static_cast<size_t>(l2d) > bodyLen) {            // 異常な 2D 長 → 全体を 2D として読む (OOB 回避)
+        LoadSceneText(h, body); return;
+    }
     char* s3d = body + l2d;                                          // 2D は body から l2d バイト、その後が 3D
     const char saved = *s3d; *s3d = '\0';                            // 2D 部を一時終端
     LoadSceneText(h, body);                                          // 2D 復元
@@ -5019,6 +5028,8 @@ ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap
     if (host == nullptr || out == nullptr || cap <= 0) return 0;
     int cur = 0;
     cur += std::snprintf(out + cur, static_cast<size_t>(cap - cur), "ACS3D v2\n");
+    if (host->sel3d >= 0 && cur < cap)                   // 選択ノード id (undo/redo/load で復元。2D の SEL 行と同様)
+        cur += std::snprintf(out + cur, static_cast<size_t>(cap - cur), "SEL3D %d\n", host->sel3d);
     TArray<game::FNode3D*> all; Dfs3DCollect(&host->scene3d.Root(), all);   // 親が子より先 (DFS pre-order)
     for (u32 i = 0; i < all.Size() && cur < cap; ++i) {
         game::FNode3D* nn = all[i];
@@ -5089,6 +5100,7 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
     host->sel3d = -1;
     host->scene3d_seeded = true;                     // 読み込んだら seed しない
     int maxId = 0;
+    int restoredSel = -1;                            // SEL3D 行があれば選択を復元 (無ければ先頭)
     const char* p = text;
     char line[4096];                          // ポリゴンの点列 (PLY3D) も収まる広さ
     while (*p != '\0') {
@@ -5161,6 +5173,7 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
             }
             continue;
         }
+        if (std::strncmp(line, "SEL3D ", 6) == 0) { std::sscanf(line, "SEL3D %d", &restoredSel); continue; }   // 選択 id (後で復元)
         if (std::strncmp(line, "N3D ", 4) != 0) continue;
         int nid = 0, nparent = -1, nprim = 0; char nm[64] = {};
         FVec3 pos{ 0, 0, 0 }, rot{ 0, 0, 0 }, scl{ 1, 1, 1 }; FVec4 color{ 0.8f, 0.8f, 0.85f, 1 };
@@ -5184,9 +5197,13 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
     }
     host->scene3d.Update(0.0f);         // 保留中の reparent を一括解決 (階層を確定)
     host->next_id3d = maxId + 1;
-    TArray<game::FNode3D*> all; Dfs3DCollect(&host->scene3d.Root(), all);
-    EEd3DRec* fr = (all.Size() > 0) ? Rec3D(all[0]) : nullptr;
-    if (fr != nullptr) host->sel3d = fr->id;
+    if (restoredSel >= 0 && FindNode3DNode(*host, restoredSel) != nullptr) {
+        host->sel3d = restoredSel;      // SEL3D で保存された選択を復元 (undo/redo で選択維持)
+    } else {                            // 無ければ先頭ノード (新規読込のデフォルト)
+        TArray<game::FNode3D*> all; Dfs3DCollect(&host->scene3d.Root(), all);
+        EEd3DRec* fr = (all.Size() > 0) ? Rec3D(all[0]) : nullptr;
+        if (fr != nullptr) host->sel3d = fr->id;
+    }
     return 1;
 }
 
