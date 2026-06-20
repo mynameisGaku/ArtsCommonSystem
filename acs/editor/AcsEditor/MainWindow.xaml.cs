@@ -250,9 +250,11 @@ public partial class MainWindow : Window
         if (_project != null) LoadUserTypes();         // 先にユーザー型を登録 (シーン内の user component を attach 可能に)
         if (_project != null) LoadProjectScene();      // デモを置き換えてプロジェクトの初期シーンへ
         UpdateGizmoToggles(EngineInterop.acs_editor_gizmo_get_mode(Engine));   // 初期 active (Move)
-        BuildHierarchy();
         PopulateComponentCombo();
         RefreshCreateMenus();   // 右クリック生成メニュー (ビルトイン / ユーザー定義) を構築
+        // 基本 3D: 既定で 3D モードに入る (2D は Ortho 編集モードとして残す。FNode3D 一本化の第一歩)。
+        if (!_view3d) { View3DBtn.IsChecked = true; OnToggle3D(View3DBtn, new RoutedEventArgs()); }
+        else BuildHierarchy();
         StartEngineLogPump();   // エンジンログ (ACS_LOG) をコンソールへ取り込む
     }
 
