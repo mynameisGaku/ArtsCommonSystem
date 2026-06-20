@@ -4981,6 +4981,8 @@ ACS_EDITOR_API void acs_editor_select3d(void* handle, int id) {
 
 /** 3D シーンをテキストへシリアライズする (C# が保存)。書いた文字数を返す。
  *  形式: "N3D <id> <parent> <prim> px py pz rx ry rz sx sy sz r g b a <name>" (DFS、親が先)。 */
+static bool AttachComponent3D(EEd3DRec* r, const char* type_name) noexcept;   // 前方宣言 (load_text が使う)
+
 ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr || out == nullptr || cap <= 0) return 0;
@@ -5026,6 +5028,13 @@ ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap
             }
             if (overflow) { out[cap - 1] = '\0'; break; }
             if (cur < cap) out[cur++] = '\n';
+        }
+        for (u32 c = 0; c < r->component_count && cur < cap; ++c) {                     // アタッチ済みコンポーネント
+            const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(r->components[c]);
+            if (d == nullptr || d->name == nullptr) continue;
+            const int wc = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "CMP3D %d %s\n", r->id, d->name);
+            if (wc < 0 || wc >= cap - cur) { out[cap - 1] = '\0'; break; }
+            cur += wc;
         }
     }
     out[cur < cap ? cur : cap - 1] = '\0';
@@ -5098,6 +5107,12 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
                     }
                 }
             }
+            continue;
+        }
+        if (std::strncmp(line, "CMP3D ", 6) == 0) {                  // アタッチ済みコンポーネントの復元 (N3D の後に来る)
+            int cid = 0; char tn[128] = {};
+            if (std::sscanf(line, "CMP3D %d %127[^\n]", &cid, tn) >= 2)
+                AttachComponent3D(Rec3D(FindNode3DNode(*host, cid)), tn);
             continue;
         }
         if (std::strncmp(line, "N3D ", 4) != 0) continue;
