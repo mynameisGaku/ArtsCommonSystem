@@ -299,7 +299,8 @@ struct EditorHost {
     bool         r3d_ready     = false;   // 3D リソース初期化済み
     GpuMesh      gm_cube, gm_sphere, gm_plane;   // プリミティブ GPU メッシュ (将来 DrawIndexed 用)
     TSharedPtr<FMeshAsset> cpu_cube, cpu_sphere, cpu_plane;   // 動的 VB 展開元の CPU メッシュ
-    int          sel3d         = -1;      // 選択中の 3D ノード id
+    int          sel3d         = -1;      // primary (active) 3D ノード id。常に sel3d_multi の一員、空なら -1。
+    TArray<int>  sel3d_multi;             // 3D 選択集合 (multi-select。空 ⇔ sel3d==-1)
     int          next_id3d     = 1;
     bool         scene3d_seeded = false;  // 初回 3D 切替でデフォルトシーンを置いたか
     game::FScene3D scene3d;               // 3D シーングラフ (各ノード = root の子 FNode3D + EEd3DRec)
@@ -2370,7 +2371,7 @@ void Seed3DScene(EditorHost& h) noexcept {
         game::FNode3D& box = AddNode3D(h, "Cube");
         box.Local().position = FVec3{ -1.4f, 0.5f, 0 };
         const int id = h.next_id3d++;
-        box.GetComponent<EEd3DRec>()->id = id; h.sel3d = id;
+        box.GetComponent<EEd3DRec>()->id = id; h.sel3d_multi.Clear(); h.sel3d_multi.PushBack(id); h.sel3d = id;
         box.GetComponent<game::FMeshComponent3D>()->SetPrimitive(game::EMeshPrimitive3D::Cube);
         box.GetComponent<game::FMeshComponent3D>()->SetColor(FVec4{ 0.85f, 0.45f, 0.35f, 1 });
     }
@@ -2420,6 +2421,40 @@ game::FNode3D* FindNode3DNode(EditorHost& h, int id) noexcept {
         if (r != nullptr && r->id == id) return all[i];
     }
     return nullptr;
+}
+
+// ----- 3D 選択集合の操作 (single/multi。primary = sel3d。2D の Sel* と対称) -----
+bool Sel3DContains(const EditorHost& h, int id) noexcept {
+    for (u32 i = 0; i < h.sel3d_multi.Size(); ++i) if (h.sel3d_multi[i] == id) return true;
+    return false;
+}
+/** 単一選択にする (集合を {id} に。id 不正/未知なら解除)。sel3d を直接いじる各所はこれを使う。 */
+void SetSel3D(EditorHost& h, int id) noexcept {
+    h.sel3d_multi.Clear();
+    if (id >= 0 && FindNode3DNode(h, id) != nullptr) { h.sel3d_multi.PushBack(id); h.sel3d = id; }
+    else h.sel3d = -1;
+}
+/** id の選択を反転する (Ctrl+click)。追加なら primary、primary を外したら別の一員へ。 */
+void ToggleSel3D(EditorHost& h, int id) noexcept {
+    if (id < 0 || FindNode3DNode(h, id) == nullptr) return;
+    for (u32 i = 0; i < h.sel3d_multi.Size(); ++i) {
+        if (h.sel3d_multi[i] == id) {
+            h.sel3d_multi.RemoveAtSwap(i);
+            if (h.sel3d == id) h.sel3d = (h.sel3d_multi.Size() > 0) ? h.sel3d_multi[h.sel3d_multi.Size() - 1] : -1;
+            return;
+        }
+    }
+    h.sel3d_multi.PushBack(id); h.sel3d = id;
+}
+/** 構造変更後、消えた id を除き primary を整える。 */
+void PruneSel3D(EditorHost& h) noexcept {
+    for (u32 i = 0; i < h.sel3d_multi.Size();) {
+        if (FindNode3DNode(h, h.sel3d_multi[i]) == nullptr) h.sel3d_multi.RemoveAtSwap(i);
+        else ++i;
+    }
+    if (h.sel3d >= 0 && !Sel3DContains(h, h.sel3d))
+        h.sel3d = (h.sel3d_multi.Size() > 0) ? h.sel3d_multi[h.sel3d_multi.Size() - 1] : -1;
+    if (h.sel3d_multi.Size() == 0) h.sel3d = -1;
 }
 
 /** ノードの prim 種別 (FMeshComponent3D 無し or 不明は 0=Cube)。 */
@@ -4709,7 +4744,7 @@ ACS_EDITOR_API int acs_editor_add_node3d(void* handle, int prim, const char* nam
     m->SetPrimitive(static_cast<game::EMeshPrimitive3D>(p));
     if (prim == 2) { n.Local().scale = FVec3{ 8, 1, 8 }; m->SetColor(FVec4{ 0.34f, 0.36f, 0.40f, 1 }); }
     else           { n.Local().position = FVec3{ 0, 0.5f, 0 }; }
-    host->sel3d = id;
+    SetSel3D(*host, id);
     return id;
 }
 
@@ -4734,7 +4769,7 @@ ACS_EDITOR_API int acs_editor_add_mesh3d(void* handle, const char* path, const c
     m->SetMeshAsset(mesh);                          // 種別 Mesh + 所有 (ノード破棄で解放)
     m->SetColor(FVec4{ 0.78f, 0.78f, 0.82f, 1 });
     m->SetMeshPath(FStringView(path));              // 元ファイルパスを記録 (保存/再読込用)
-    host->sel3d = id;
+    SetSel3D(*host, id);
     return id;
 }
 
@@ -4769,7 +4804,7 @@ ACS_EDITOR_API int acs_editor_add_sprite3d(void* handle, const char* path, const
     IRhiTexture* raw = tex.Get();                   // 所有は host->sprite_textures に移す (heap 上の実体は不動)
     host->sprite_textures.PushBack(Move(tex));
     m->SetRenderHandle(raw);                        // 描画パスが参照する «非所有» テクスチャポインタ
-    host->sel3d = id;
+    SetSel3D(*host, id);
     return id;
 }
 
@@ -4790,7 +4825,7 @@ ACS_EDITOR_API int acs_editor_add_polygon3d(void* handle, const float* xy, int c
     game::FMeshComponent3D* m = n.GetComponent<game::FMeshComponent3D>();
     m->SetMeshAsset(mesh);                               // prim=Mesh + 所有 (z=0 フラットメッシュ)
     m->SetColor(FVec4{ r, g, b, a });
-    host->sel3d = id;
+    SetSel3D(*host, id);
     return id;
 }
 
@@ -4830,7 +4865,7 @@ ACS_EDITOR_API int acs_editor_poly3d_finalize(void* handle) {
     game::FMeshComponent3D* m = n.GetComponent<game::FMeshComponent3D>();
     m->SetMeshAsset(mesh);
     m->SetColor(FVec4{ 0.45f, 0.78f, 0.95f, 1 });
-    host->sel3d = id;
+    SetSel3D(*host, id);
     return id;
 }
 
@@ -4854,7 +4889,7 @@ ACS_EDITOR_API int acs_editor_delete_node3d(void* handle, int id) {
     if (nn == nullptr) return 0;
     nn->Destroy();
     host->scene3d.Update(0.0f);          // 破棄予定を purge + 即 reap (構造変更を確定)
-    if (host->sel3d == id) host->sel3d = -1;
+    PruneSel3D(*host);                    // 削除されたノードを選択集合から除き primary を整える
     return 1;
 }
 
@@ -5029,10 +5064,63 @@ ACS_EDITOR_API int acs_editor_selected3d(void* handle) {
     return (host != nullptr) ? host->sel3d : -1;
 }
 
-/** 3D ノードを選択する (id<0 で選択解除)。 */
+/** 3D ノードを選択する (id<0 で選択解除)。単一選択 (集合を {id} に)。 */
 ACS_EDITOR_API void acs_editor_select3d(void* handle, int id) {
     auto* host = static_cast<EditorHost*>(handle);
-    if (host != nullptr) host->sel3d = id;
+    if (host != nullptr) SetSel3D(*host, id);
+}
+/** 3D 選択を反転する (Ctrl+click。multi-select)。 */
+ACS_EDITOR_API void acs_editor_select3d_toggle(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host != nullptr) ToggleSel3D(*host, id);
+}
+/** id が 3D 選択集合に含まれるか。 */
+ACS_EDITOR_API int acs_editor_node3d_is_selected(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr && Sel3DContains(*host, id)) ? 1 : 0;
+}
+/** 3D 選択集合の要素数。 */
+ACS_EDITOR_API int acs_editor_selected3d_count(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr) ? static_cast<int>(host->sel3d_multi.Size()) : 0;
+}
+/** 3D 選択集合の index 番目の id (範囲外は -1)。 */
+ACS_EDITOR_API int acs_editor_selected3d_at(void* handle, int index) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || index < 0 || index >= static_cast<int>(host->sel3d_multi.Size())) return -1;
+    return host->sel3d_multi[static_cast<u32>(index)];
+}
+/** 3D 選択ノードを整列する (mode: 0=left/1=right/2=top/3=bottom/4=center-h/5=center-v、X=左右/Y=上下)。
+ *  整列した数を返す (2 未満は 0)。XY 平面で揃える (2D ビュー編集を想定、z は不変)。 */
+ACS_EDITOR_API int acs_editor_align3d_selection(void* handle, int mode) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return 0;
+    f32 minx = 0, maxx = 0, miny = 0, maxy = 0; bool first = true; int cnt = 0;
+    for (u32 i = 0; i < host->sel3d_multi.Size(); ++i) {
+        game::FNode3D* n = FindNode3DNode(*host, host->sel3d_multi[i]);
+        if (n == nullptr) continue;
+        const FVec3 p = n->Local().position;
+        if (first) { minx = maxx = p.x; miny = maxy = p.y; first = false; }
+        else { if (p.x < minx) minx = p.x; if (p.x > maxx) maxx = p.x; if (p.y < miny) miny = p.y; if (p.y > maxy) maxy = p.y; }
+        ++cnt;
+    }
+    if (cnt < 2) return 0;
+    PushUndo(*host);
+    const f32 cx = (minx + maxx) * 0.5f, cy = (miny + maxy) * 0.5f;
+    int applied = 0;
+    for (u32 i = 0; i < host->sel3d_multi.Size(); ++i) {
+        game::FNode3D* n = FindNode3DNode(*host, host->sel3d_multi[i]);
+        if (n == nullptr) continue;
+        FVec3 p = n->Local().position;
+        switch (mode) {
+            case 0: p.x = minx; break; case 1: p.x = maxx; break;     // left / right
+            case 2: p.y = maxy; break; case 3: p.y = miny; break;     // top / bottom (Y+ が上)
+            case 4: p.x = cx;   break; case 5: p.y = cy;   break;     // center-h / center-v
+            default: break;
+        }
+        n->Local().position = p; ++applied;
+    }
+    return applied;
 }
 
 /** 3D シーンをテキストへシリアライズする (C# が保存)。書いた文字数を返す。
@@ -5113,7 +5201,7 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
     if (host == nullptr || text == nullptr) return 0;
     host->scene3d.Clear();
     host->sprite_textures.Clear();                   // 旧シーンのスプライトテクスチャを解放 (もう参照されない)
-    host->sel3d = -1;
+    host->sel3d = -1; host->sel3d_multi.Clear();
     host->scene3d_seeded = true;                     // 読み込んだら seed しない
     int maxId = 0;
     int restoredSel = -1;                            // SEL3D 行があれば選択を復元 (無ければ先頭)
@@ -5214,11 +5302,11 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
     host->scene3d.Update(0.0f);         // 保留中の reparent を一括解決 (階層を確定)
     host->next_id3d = maxId + 1;
     if (restoredSel >= 0 && FindNode3DNode(*host, restoredSel) != nullptr) {
-        host->sel3d = restoredSel;      // SEL3D で保存された選択を復元 (undo/redo で選択維持)
+        SetSel3D(*host, restoredSel);   // SEL3D で保存された選択を復元 (undo/redo で選択維持)
     } else {                            // 無ければ先頭ノード (新規読込のデフォルト)
         TArray<game::FNode3D*> all; Dfs3DCollect(&host->scene3d.Root(), all);
         EEd3DRec* fr = (all.Size() > 0) ? Rec3D(all[0]) : nullptr;
-        if (fr != nullptr) host->sel3d = fr->id;
+        if (fr != nullptr) SetSel3D(*host, fr->id);
     }
     return 1;
 }
@@ -5245,7 +5333,7 @@ ACS_EDITOR_API int acs_editor_pick3d(void* handle, float sx, float sy) {
         EEd3DRec* hr = Rec3D(host->scene3d.Get(hitId));
         if (hr != nullptr) best = hr->id;
     }
-    if (best >= 0) host->sel3d = best;
+    if (best >= 0) SetSel3D(*host, best);
     return best;
 }
 

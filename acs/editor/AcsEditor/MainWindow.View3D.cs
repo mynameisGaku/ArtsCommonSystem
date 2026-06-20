@@ -29,12 +29,15 @@ public partial class MainWindow
         for (int i = 0; i < count; ++i)
         {
             int id = EngineInterop.acs_editor_node3d_id_at(Engine, i);
+            bool inSel = EngineInterop.acs_editor_node3d_is_selected(Engine, id) != 0;
             var tvi = new TreeViewItem
             {
                 Header = Node3DName(id),
                 Tag = id,
                 Foreground = Brushes.Gainsboro,
                 IsSelected = (id == sel),
+                // multi-select: primary 以外の選択メンバは背景ハイライト (WPF TreeView は IsSelected が1個のみのため)
+                Background = (inSel && id != sel) ? new SolidColorBrush(Color.FromArgb(90, 0x4A, 0x90, 0xD9)) : Brushes.Transparent,
                 IsExpanded = !_collapsedNodes.Contains(id),   // 畳み状態を維持
             };
             WireCollapseTracking(tvi);
@@ -64,6 +67,26 @@ public partial class MainWindow
                     tvi.IsSelected = (tid == id);
         }
         finally { _syncingSelection = false; }
+    }
+
+    /// <summary>3D 複数選択を Hierarchy に反映 (primary=IsSelected、集合メンバ=背景ハイライト)。再帰・再描画なしの in-place 更新。</summary>
+    private void Apply3DSelectionHighlight()
+    {
+        int sel = EngineInterop.acs_editor_selected3d(Engine);
+        var hl = new SolidColorBrush(Color.FromArgb(90, 0x4A, 0x90, 0xD9));
+        void Walk(ItemCollection items)
+        {
+            foreach (var o in items)
+                if (o is TreeViewItem tvi && tvi.Tag is int tid)
+                {
+                    tvi.IsSelected = (tid == sel);
+                    bool inSel = EngineInterop.acs_editor_node3d_is_selected(Engine, tid) != 0;
+                    tvi.Background = (inSel && tid != sel) ? hl : Brushes.Transparent;
+                    Walk(tvi.Items);
+                }
+        }
+        _syncingSelection = true;
+        try { Walk(HierarchyTree.Items); } finally { _syncingSelection = false; }
     }
 
     // ===== Inspector: 3D ノードの transform/色/形状を動的生成 =====

@@ -6,6 +6,8 @@ param(
     [string]$Click    = "",   # "x,y" (ウィンドウ左上からの相対座標) をキャプチャ前にクリック
     [string]$Drag     = "",   # "x1,y1,x2,y2" 左ドラッグ (スクラブ等の検証用)
     [string]$RightDrag = "",  # "x1,y1,x2,y2" 右ドラッグ (3Dカメラのパン/軌道検証用)
+    [string]$CtrlClick = "",  # "x,y;x,y" Ctrl を押しながら各点をクリック (複数選択の検証用)
+    [string]$ClickAfter = "", # "x,y;x,y" CtrlClick の後にクリック (メニュー操作など。間隔広め)
     [int]   $PostWait = 0,    # クリック後・キャプチャ前の待機 ms (アニメ/物理の進行を見る)
     [string]$Keys     = "",   # クリック後に送るキーストローク (SendKeys 形式。例 "{ENTER}")
     [string]$LaunchArgs = "", # exe へ渡す起動引数 (例 プロジェクトの .acsproject パス)
@@ -32,6 +34,7 @@ public static class Win {
   [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, IntPtr extra);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, IntPtr extra);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 }
 "@
@@ -115,6 +118,34 @@ try {
         }
         [Win]::mouse_event(0x04, 0, 0, 0, [IntPtr]::Zero)   # LEFTUP
         Start-Sleep -Milliseconds 600
+    }
+
+    if ($CtrlClick -ne "") {
+        [Win]::keybd_event(0x11, 0, 0, [IntPtr]::Zero)   # CTRL down
+        Start-Sleep -Milliseconds 80
+        foreach ($pt in ($CtrlClick -split ';')) {
+            $xy = $pt -split ','
+            $cx = $r.Left + [int]$xy[0]; $cy = $r.Top + [int]$xy[1]
+            [void][Win]::SetCursorPos($cx, $cy); Start-Sleep -Milliseconds 120
+            [Win]::mouse_event(0x02, 0, 0, 0, [IntPtr]::Zero)   # LEFTDOWN
+            Start-Sleep -Milliseconds 60
+            [Win]::mouse_event(0x04, 0, 0, 0, [IntPtr]::Zero)   # LEFTUP
+            Start-Sleep -Milliseconds 400
+        }
+        [Win]::keybd_event(0x11, 0, 2, [IntPtr]::Zero)   # CTRL up (KEYEVENTF_KEYUP)
+        Start-Sleep -Milliseconds 300
+    }
+
+    if ($ClickAfter -ne "") {
+        foreach ($pt in ($ClickAfter -split ';')) {
+            $xy = $pt -split ','
+            $cx = $r.Left + [int]$xy[0]; $cy = $r.Top + [int]$xy[1]
+            [void][Win]::SetCursorPos($cx, $cy); Start-Sleep -Milliseconds 300
+            [Win]::mouse_event(0x02, 0, 0, 0, [IntPtr]::Zero)   # LEFTDOWN
+            Start-Sleep -Milliseconds 60
+            [Win]::mouse_event(0x04, 0, 0, 0, [IntPtr]::Zero)   # LEFTUP
+            Start-Sleep -Milliseconds 500
+        }
     }
 
     if ($RightDrag -ne "") {

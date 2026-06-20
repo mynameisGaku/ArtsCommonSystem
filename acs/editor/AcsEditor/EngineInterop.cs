@@ -134,6 +134,17 @@ internal static class EngineInterop
     public static extern int acs_editor_selected3d(IntPtr handle);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_select3d(IntPtr handle, int id);
+    // 3D 複数選択 (multi-select)
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_select3d_toggle(IntPtr handle, int id);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_is_selected(IntPtr handle, int id);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_selected3d_count(IntPtr handle);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_selected3d_at(IntPtr handle, int index);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_align3d_selection(IntPtr handle, int mode);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_pick3d(IntPtr handle, float sx, float sy);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]

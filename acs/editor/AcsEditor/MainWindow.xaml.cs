@@ -572,7 +572,8 @@ public partial class MainWindow : Window
         if (_view3d)   // 3D モード: 3D 選択 + 3D インスペクター (undo/redo/シーン変更後の再同期)
         {
             int s3 = EngineInterop.acs_editor_selected3d(Engine);
-            if (s3 >= 0) { Select3DInHierarchy(s3); Populate3DInspector(s3); }
+            Apply3DSelectionHighlight();   // multi-select の primary/集合ハイライトを反映
+            if (s3 >= 0) Populate3DInspector(s3);
             else Clear3DInspector();
             return;
         }
@@ -604,17 +605,21 @@ public partial class MainWindow : Window
         _dragNodeId = id;
 
         bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+        int selCount = _view3d ? EngineInterop.acs_editor_selected3d_count(Engine)
+                               : EngineInterop.acs_editor_selection_count(Engine);
         if (ctrl)
         {
-            EngineInterop.acs_editor_select_toggle(Engine, id);
+            if (_view3d) EngineInterop.acs_editor_select3d_toggle(Engine, id);
+            else         EngineInterop.acs_editor_select_toggle(Engine, id);
             SyncSelectionUi();
             e.Handled = true;
         }
-        else if (EngineInterop.acs_editor_selection_count(Engine) > 1)
+        else if (selCount > 1)
         {
             // 複数選択中のメンバを通常クリック → {id} に畳む。既に primary だと
             // SelectedItemChanged が発火しないので、ここで明示的に単一選択する。
-            EngineInterop.acs_editor_select(Engine, id);
+            if (_view3d) EngineInterop.acs_editor_select3d(Engine, id);
+            else         EngineInterop.acs_editor_select(Engine, id);
             SyncSelectionUi();
             e.Handled = true;
         }
@@ -1665,7 +1670,8 @@ public partial class MainWindow : Window
     private void DoAlign(int mode, string name)
     {
         if (Engine == IntPtr.Zero) return;
-        int n = EngineInterop.acs_editor_align_selection(Engine, mode);
+        int n = _view3d ? EngineInterop.acs_editor_align3d_selection(Engine, mode)
+                        : EngineInterop.acs_editor_align_selection(Engine, mode);
         if (n > 0) { Log($"Aligned {n} node(s): {name}."); SyncSelectionUi(); }
         else Log("Align needs 2+ selected nodes.");
     }
@@ -1879,7 +1885,7 @@ public partial class MainWindow : Window
         if (Engine == IntPtr.Zero || _syncingSelection) return;   // 同期中の native 変更は無視
         if (e.NewValue is TreeViewItem item && item.Tag is int id)
         {
-            if (_view3d) { EngineInterop.acs_editor_select3d(Engine, id); Populate3DInspector(id); return; }
+            if (_view3d) { EngineInterop.acs_editor_select3d(Engine, id); SyncSelectionUi(); return; }
             EngineInterop.acs_editor_select(Engine, id);   // 単一選択 (集合を {id} に)
             SyncSelectionUi();
         }
