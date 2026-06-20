@@ -1368,33 +1368,40 @@ int PasteSubtree(EditorHost& h, const char* text, int target_parent) noexcept {
 ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap);
 ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text);
 
-static constexpr char kSnapSep3D[] = "\n===ACS3D===\n";   // スナップショット内の 2D / 3D 区切り
-
-/** 現在のシーン (2D + 3D) をシリアライズして heap コピーを返す。形式 = «2D ACSCENE» + 区切り + «3D ACS3D»。
- *  所有は呼び出し側、失敗 nullptr。undo/redo/play が 2D だけでなく 3D も復元できるようにする。 */
+/** 現在のシーン (2D + 3D) をシリアライズして heap コピーを返す。
+ *  形式 = «ACSSNAP3D <2D byte 長>\n» + «2D ACSCENE» + «3D ACS3D»。長さ前置なので 2D 本文に何が入っても誤分割しない
+ *  (区切り文字探索だとノード名等に同じ文字列が来ると壊れる)。所有は呼び出し側、失敗 nullptr。 */
 char* DupSnapshot(EditorHost& h) noexcept {
-    const char* s2d  = SerializeScene(h);                  // h.scene_text (2D, 最大 64KB)
-    const size_t l2d  = std::strlen(s2d);
-    const size_t lsep = sizeof(kSnapSep3D) - 1;
+    const char* s2d = SerializeScene(h);                   // h.scene_text (2D, 最大 64KB)
+    const size_t l2d = std::strlen(s2d);
+    char hdr[48];
+    const int lh = std::snprintf(hdr, sizeof(hdr), "ACSSNAP3D %d\n", static_cast<int>(l2d));
+    if (lh <= 0) return nullptr;
     constexpr size_t kCap3D = 64 * 1024;
-    char* copy = new (std::nothrow) char[l2d + lsep + kCap3D];
+    char* copy = new (std::nothrow) char[static_cast<size_t>(lh) + l2d + kCap3D];
     if (copy == nullptr) return nullptr;
-    std::memcpy(copy, s2d, l2d);                            // 2D 部
-    std::memcpy(copy + l2d, kSnapSep3D, lsep);              // 区切り
-    acs_editor_scene3d_serialize(&h, copy + l2d + lsep, static_cast<int>(kCap3D));   // 3D 部 (null 終端)
+    std::memcpy(copy, hdr, static_cast<size_t>(lh));                                 // ヘッダ (2D 長)
+    std::memcpy(copy + lh, s2d, l2d);                                                // 2D 部
+    acs_editor_scene3d_serialize(&h, copy + lh + l2d, static_cast<int>(kCap3D));     // 3D 部 (null 終端)
     return copy;
 }
 
-/** DupSnapshot のテキストから 2D + 3D を復元する。区切りが無ければ旧形式 (2D のみ) とみなす。
+/** DupSnapshot のテキストから 2D + 3D を復元する。ヘッダが無ければ旧形式 (2D のみ) とみなす。
  *  text は破壊的に «2D 部» を終端して分割する (呼び出し側はこの後 text を解放する想定)。 */
 void RestoreSnapshot(EditorHost& h, char* text) noexcept {
     if (text == nullptr) return;
-    char* sep = std::strstr(text, "===ACS3D===");
-    if (sep == nullptr) { LoadSceneText(h, text); return; }       // 後方互換: 2D のみの旧スナップ
-    char* p3 = std::strchr(sep, '\n');                            // «===ACS3D===» 行末 → 3D 本文の手前
-    *sep = '\0';                                                  // 2D 部を終端
-    LoadSceneText(h, text);                                       // 2D 復元
-    if (p3 != nullptr) acs_editor_scene3d_load_text(&h, p3 + 1);  // 3D 復元
+    int l2d = 0, consumed = 0;
+    if (std::strncmp(text, "ACSSNAP3D ", 10) != 0 ||
+        std::sscanf(text, "ACSSNAP3D %d%n", &l2d, &consumed) < 1 || l2d < 0) {
+        LoadSceneText(h, text); return;                              // 後方互換: 2D のみの旧スナップ
+    }
+    char* body = text + consumed;
+    while (*body == '\n' || *body == '\r') ++body;                   // ヘッダ行の改行をスキップ → 2D 本文の先頭
+    char* s3d = body + l2d;                                          // 2D は body から l2d バイト、その後が 3D
+    const char saved = *s3d; *s3d = '\0';                            // 2D 部を一時終端
+    LoadSceneText(h, body);                                          // 2D 復元
+    *s3d = saved;
+    acs_editor_scene3d_load_text(&h, s3d);                          // 3D 復元
 }
 
 /** スナップショットスタックを空にして各 heap バッファを解放する。 */
