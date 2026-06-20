@@ -2051,34 +2051,65 @@ const char* CategoryLabel(acs::game::ETypeCategory cat) noexcept {
 // 3D メッシュの自前ライティング HLSL。GpuMesh の DrawIndexed はエディタ深度面コンテキストで
 // 描画が出ないため、DebugDraw3D と同じ «動的 VB + 非インデックス Draw» 方式を採る。頂点は既に
 // ワールド座標 + 法線 + 色 (CPU で展開済み) なので model 行列は不要。
+// 物理ベース (Cook-Torrance) BRDF: GGX 法線分布 + Smith 幾何 + Fresnel-Schlick。
+// アルベド=頂点色、金属度/粗さは既定 (誘電体 metallic=0, roughness=0.5)。1 方向光 + 簡易拡散環境光。
 const char* kMesh3DHLSL = R"(
 #pragma pack_matrix(row_major)
 cbuffer Frame : register(b0) {
     float4x4 view_proj;
     float4   light_dir;   // xyz=surface→light, w=ambient
-    float4   light_col;   // rgb=light color
+    float4   light_col;   // rgb=light radiance
+    float4   cam_pos;     // xyz=カメラ world 位置 (視線ベクトル用)
 };
 struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float3 col : COLOR; };
-struct VSOut { float4 pos : SV_POSITION; float3 nrm : NORMAL; float3 col : COLOR; };
+struct VSOut { float4 pos : SV_POSITION; float3 wpos : TEXCOORD0; float3 nrm : NORMAL; float3 col : COLOR; };
 VSOut VSMain(VSIn v) {
     VSOut o;
-    o.pos = mul(float4(v.pos, 1.0), view_proj);   // 頂点は既にワールド座標
-    o.nrm = v.nrm;
-    o.col = v.col;
+    o.pos  = mul(float4(v.pos, 1.0), view_proj);   // 頂点は既にワールド座標
+    o.wpos = v.pos;
+    o.nrm  = v.nrm;
+    o.col  = v.col;
     return o;
+}
+static const float PI = 3.14159265359;
+float3 FresnelSchlick(float cosT, float3 F0) { return F0 + (1.0 - F0) * pow(saturate(1.0 - cosT), 5.0); }
+float DistGGX(float ndh, float rough) {
+    float a = rough * rough; float a2 = a * a;
+    float d = ndh * ndh * (a2 - 1.0) + 1.0;
+    return a2 / max(PI * d * d, 1e-5);
+}
+float GeomSchlickGGX(float nv, float k) { return nv / (nv * (1.0 - k) + k); }
+float GeomSmith(float ndv, float ndl, float rough) {
+    float k = rough + 1.0; k = (k * k) / 8.0;     // 直接光 (Disney) の k
+    return GeomSchlickGGX(ndv, k) * GeomSchlickGGX(ndl, k);
 }
 float4 PSMain(VSOut v) : SV_TARGET {
     float3 N = normalize(v.nrm);
+    float3 V = normalize(cam_pos.xyz - v.wpos);
     float3 L = normalize(light_dir.xyz);
-    float  ndl  = max(dot(N, L), 0.0);
-    float  fill = max(dot(N, float3(-L.x, L.y * 0.3, -L.z)), 0.0) * 0.25;
-    float3 col  = v.col * (light_dir.w + light_col.rgb * (ndl + fill));
-    col = col / (col + 1.0.xxx);
-    return float4(pow(col, (1.0 / 2.2).xxx), 1.0);
+    float3 H = normalize(V + L);
+    float3 albedo   = v.col;
+    float  metallic = 0.0;                         // 既定: 誘電体
+    float  rough    = 0.5;                          // 既定: 中程度の粗さ
+    float3 F0 = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);
+    float ndl = max(dot(N, L), 0.0);
+    float ndv = max(dot(N, V), 0.0);
+    float ndh = max(dot(N, H), 0.0);
+    float vdh = max(dot(V, H), 0.0);
+    float  D = DistGGX(ndh, rough);
+    float  G = GeomSmith(ndv, ndl, rough);
+    float3 F = FresnelSchlick(vdh, F0);
+    float3 spec = (D * G) * F / max(4.0 * ndv * ndl, 1e-4);   // Cook-Torrance 鏡面
+    float3 kd = (1.0 - F) * (1.0 - metallic);                // 拡散の取り分 (エネルギー保存)
+    float3 Lo = (kd * albedo / PI + spec) * light_col.rgb * ndl;
+    float3 ambient = light_dir.w * albedo * (1.0 - metallic);  // 簡易拡散環境光 (IBL 近似)
+    float3 col = ambient + Lo;
+    col = col / (col + 1.0.xxx);                              // Reinhard トーンマップ
+    return float4(pow(col, (1.0 / 2.2).xxx), 1.0);            // sRGB ガンマ
 }
 )";
 
-struct M3DFrame { FMat4 view_proj; FVec4 light_dir; FVec4 light_col; };
+struct M3DFrame { FMat4 view_proj; FVec4 light_dir; FVec4 light_col; FVec4 cam_pos; };
 struct M3DVtx   { f32 px, py, pz, nx, ny, nz, r, g, b; };   // ワールド座標 + 法線 + 色 (36 bytes)
 
 // スプライト: テクスチャ付きクアッド (フラット・アルファブレンド)。2D 内容を 3D シーンに描く。
@@ -2631,6 +2662,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     fcb.view_proj = vp;
     fcb.light_dir = FVec4{ 0.40f, 0.85f, -0.35f, 0.22f };   // xyz=光方向, w=ambient
     fcb.light_col = FVec4{ 1.10f, 1.07f, 1.00f, 0.0f };
+    fcb.cam_pos   = FVec4{ eye.x, eye.y, eye.z, 0.0f };      // PBR 鏡面の視線ベクトル用
     if (h.m3d_frame_cb) h.m3d_frame_cb->Update(&fcb, sizeof(fcb));
 
     // --- (2) ノードのメッシュ本体 (depth on) ---
