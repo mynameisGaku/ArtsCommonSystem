@@ -569,6 +569,13 @@ public partial class MainWindow : Window
     private void SyncSelectionUi()
     {
         if (Engine == IntPtr.Zero) return;
+        if (_view3d)   // 3D モード: 3D 選択 + 3D インスペクター (undo/redo/シーン変更後の再同期)
+        {
+            int s3 = EngineInterop.acs_editor_selected3d(Engine);
+            if (s3 >= 0) { Select3DInHierarchy(s3); Populate3DInspector(s3); }
+            else Clear3DInspector();
+            return;
+        }
         _selectedId = EngineInterop.acs_editor_selected(Engine);
         SyncHighlightAndNativeSelection();
         if (_selectedId >= 0) PopulateInspector(_selectedId);

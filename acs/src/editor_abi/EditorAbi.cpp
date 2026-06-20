@@ -1364,13 +1364,37 @@ int PasteSubtree(EditorHost& h, const char* text, int target_parent) noexcept {
 
 // ----- Undo/Redo (シーンのスナップショットスタック) -----
 
-/** 現在のシーンをシリアライズして heap コピーを返す (所有は呼び出し側、失敗 nullptr)。 */
+// 3D シーンの直列化/復元 ABI の前方宣言 (スナップショットが 2D と 3D を一緒に積むため)。
+ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap);
+ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text);
+
+static constexpr char kSnapSep3D[] = "\n===ACS3D===\n";   // スナップショット内の 2D / 3D 区切り
+
+/** 現在のシーン (2D + 3D) をシリアライズして heap コピーを返す。形式 = «2D ACSCENE» + 区切り + «3D ACS3D»。
+ *  所有は呼び出し側、失敗 nullptr。undo/redo/play が 2D だけでなく 3D も復元できるようにする。 */
 char* DupSnapshot(EditorHost& h) noexcept {
-    const char* s = SerializeScene(h);
-    const size_t len = std::strlen(s) + 1;
-    char* copy = new (std::nothrow) char[len];
-    if (copy != nullptr) std::memcpy(copy, s, len);
+    const char* s2d  = SerializeScene(h);                  // h.scene_text (2D, 最大 64KB)
+    const size_t l2d  = std::strlen(s2d);
+    const size_t lsep = sizeof(kSnapSep3D) - 1;
+    constexpr size_t kCap3D = 64 * 1024;
+    char* copy = new (std::nothrow) char[l2d + lsep + kCap3D];
+    if (copy == nullptr) return nullptr;
+    std::memcpy(copy, s2d, l2d);                            // 2D 部
+    std::memcpy(copy + l2d, kSnapSep3D, lsep);              // 区切り
+    acs_editor_scene3d_serialize(&h, copy + l2d + lsep, static_cast<int>(kCap3D));   // 3D 部 (null 終端)
     return copy;
+}
+
+/** DupSnapshot のテキストから 2D + 3D を復元する。区切りが無ければ旧形式 (2D のみ) とみなす。
+ *  text は破壊的に «2D 部» を終端して分割する (呼び出し側はこの後 text を解放する想定)。 */
+void RestoreSnapshot(EditorHost& h, char* text) noexcept {
+    if (text == nullptr) return;
+    char* sep = std::strstr(text, "===ACS3D===");
+    if (sep == nullptr) { LoadSceneText(h, text); return; }       // 後方互換: 2D のみの旧スナップ
+    char* p3 = std::strchr(sep, '\n');                            // «===ACS3D===» 行末 → 3D 本文の手前
+    *sep = '\0';                                                  // 2D 部を終端
+    LoadSceneText(h, text);                                       // 2D 復元
+    if (p3 != nullptr) acs_editor_scene3d_load_text(&h, p3 + 1);  // 3D 復元
 }
 
 /** スナップショットスタックを空にして各 heap バッファを解放する。 */
@@ -3720,7 +3744,7 @@ ACS_EDITOR_API int acs_editor_play_stop(void* handle) {
     host->play_body.Clear();
     host->play_node.Clear();
     if (host->play_snapshot != nullptr) {
-        LoadSceneText(*host, host->play_snapshot);       // 開始状態へ復元 (undo は積まない)
+        RestoreSnapshot(*host, host->play_snapshot);     // 開始状態 (2D + 3D) へ復元 (undo は積まない)
         delete[] host->play_snapshot;
         host->play_snapshot = nullptr;
     }
@@ -4486,7 +4510,7 @@ ACS_EDITOR_API int acs_editor_undo(void* handle) {
     if (cur != nullptr) host->redo.PushBack(cur);
     char* prev = host->undo[host->undo.Size() - 1];
     host->undo.PopBack();
-    LoadSceneText(*host, prev);                           // 復元 (スタックは不変)
+    RestoreSnapshot(*host, prev);                         // 2D + 3D を復元 (スタックは不変)
     delete[] prev;
     return 1;
 }
@@ -4499,7 +4523,7 @@ ACS_EDITOR_API int acs_editor_redo(void* handle) {
     if (cur != nullptr) host->undo.PushBack(cur);
     char* next = host->redo[host->redo.Size() - 1];
     host->redo.PopBack();
-    LoadSceneText(*host, next);
+    RestoreSnapshot(*host, next);                         // 2D + 3D を復元
     delete[] next;
     return 1;
 }
