@@ -2161,7 +2161,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     if (t >= 0.0) sky = lerp(horizon.rgb, zenith.rgb, pow(saturate(t), 0.55));   // 地平→天頂
     else          sky = lerp(horizon.rgb, ground.rgb,  saturate(-t * 1.6));       // 地平→地面側
     float  sd = max(dot(dir, normalize(sun.xyz)), 0.0);
-    sky += float3(1.0, 0.92, 0.78) * (pow(sd, 220.0) * 1.2 + pow(sd, 12.0) * 0.10); // 太陽 + グロー
+    sky += float3(1.0, 0.94, 0.80) * (pow(sd, 600.0) * 2.2 + pow(sd, 40.0) * 0.35 + pow(sd, 8.0) * 0.10); // 太陽 (円盤 + 控えめハロ)
     sky = sky / (sky + 1.0.xxx);
     return float4(pow(sky, (1.0/2.2).xxx), 1.0);
 }
@@ -2734,7 +2734,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         sk.zenith = FVec4{ 0.16f, 0.33f, 0.62f, 0 };     // 天頂 (青)
         sk.horizon= FVec4{ 0.62f, 0.70f, 0.80f, 0 };     // 地平 (淡い)
         sk.ground = FVec4{ 0.20f, 0.19f, 0.21f, 0 };     // 下半球 (暗いグレー)
-        sk.sun    = FVec4{ 0.40f, 0.85f, -0.35f, 0 };
+        sk.sun    = FVec4{ 0.40f, 0.85f, -0.35f, 0 };   // 太陽方向 (world)。シーンのライト方向と一致。
         h.sky_cb->Update(&sk, sizeof(sk));
         cl->SetPipeline(*h.sky_pipe);
         cl->SetConstantBuffer(0, *h.sky_cb);
