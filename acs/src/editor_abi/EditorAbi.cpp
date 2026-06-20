@@ -2657,12 +2657,19 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         cl->Draw(3, 0);
     }
 
-    // フレーム CB (view_proj + 光 + 環境光)。
+    // PBR 視線ベクトル用のカメラ位置。正射(ortho)は視線が平行なので、視軸上の «遠点» を渡して
+    // V = normalize(camPos - wpos) を画面全体でほぼ平行にする (透視は実 eye)。
+    FVec3 camPos = eye;
+    if (h.ortho3d) {
+        const FVec3 d{ eye.x - h.cam3d_target.x, eye.y - h.cam3d_target.y, eye.z - h.cam3d_target.z };
+        camPos = FVec3{ h.cam3d_target.x + d.x * 1000.0f, h.cam3d_target.y + d.y * 1000.0f, h.cam3d_target.z + d.z * 1000.0f };
+    }
+    // フレーム CB (view_proj + 光 + 環境光 + カメラ位置)。
     M3DFrame fcb{};
     fcb.view_proj = vp;
     fcb.light_dir = FVec4{ 0.40f, 0.85f, -0.35f, 0.22f };   // xyz=光方向, w=ambient
     fcb.light_col = FVec4{ 1.10f, 1.07f, 1.00f, 0.0f };
-    fcb.cam_pos   = FVec4{ eye.x, eye.y, eye.z, 0.0f };      // PBR 鏡面の視線ベクトル用
+    fcb.cam_pos   = FVec4{ camPos.x, camPos.y, camPos.z, 0.0f };
     if (h.m3d_frame_cb) h.m3d_frame_cb->Update(&fcb, sizeof(fcb));
 
     // --- (2) ノードのメッシュ本体 (depth on) ---
@@ -2716,7 +2723,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         if (stex.Size() > 0) {
             h.spr_vb->Update(sv.Data(), sizeof(SprVtx) * sv.Size());
             cl->SetPipeline(*h.spr_pipe);
-            cl->SetConstantBuffer(0, *h.m3d_frame_cb);    // Frame レイアウトはメッシュと同一
+            cl->SetConstantBuffer(0, *h.m3d_frame_cb);    // 同じ Frame CB を共有 (sprite は先頭3つの float4 のみ宣言・cam_pos 未使用)
             cl->SetVertexBuffer(*h.spr_vb, sizeof(SprVtx));
             for (u32 i = 0; i < stex.Size(); ++i) {
                 cl->SetTexture(0, *stex[i]);
@@ -2765,6 +2772,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         if (gv.Size() > 0 && h.m3d_giz_vb && h.m3d_giz_cb) {
             // ギズモは «フラットに明るく» (高アンビエント・ライト0) → 法線の裏表に依存せず常に鮮やか。
             M3DFrame gcb{}; gcb.view_proj = vp; gcb.light_dir = FVec4{ 0, 1, 0, 0.92f }; gcb.light_col = FVec4{ 0.10f, 0.10f, 0.10f, 0 };
+            gcb.cam_pos = FVec4{ camPos.x, camPos.y, camPos.z, 0.0f };   // PBR 視線ベクトル (メッシュと同じ)
             h.m3d_giz_cb->Update(&gcb, sizeof(gcb));
             h.m3d_giz_vb->Update(gv.Data(), sizeof(M3DVtx) * gv.Size());
             cl->SetPipeline(*h.m3d_overlay_pipe);         // depth off → 常に手前
