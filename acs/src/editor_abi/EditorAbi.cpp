@@ -5029,13 +5029,15 @@ ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap
             if (overflow) { out[cap - 1] = '\0'; break; }
             if (cur < cap) out[cur++] = '\n';
         }
+        bool cmpOverflow = false;
         for (u32 c = 0; c < r->component_count && cur < cap; ++c) {                     // アタッチ済みコンポーネント
             const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(r->components[c]);
             if (d == nullptr || d->name == nullptr) continue;
             const int wc = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "CMP3D %d %s\n", r->id, d->name);
-            if (wc < 0 || wc >= cap - cur) { out[cap - 1] = '\0'; break; }
+            if (wc < 0 || wc >= cap - cur) { cmpOverflow = true; break; }
             cur += wc;
         }
+        if (cmpOverflow) { out[cap - 1] = '\0'; break; }                                // cap 超過は «外側» ノードループも抜ける (PLY3D と同じ)
         if ((!nn->IsVisible() || !nn->IsEnabled()) && cur < cap) {                       // 可視/有効 (非既定のみ。既定=true)
             const int wf = std::snprintf(out + cur, static_cast<size_t>(cap - cur),
                 "FLG3D %d %d %d\n", r->id, nn->IsVisible() ? 1 : 0, nn->IsEnabled() ? 1 : 0);
@@ -5116,8 +5118,8 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
             continue;
         }
         if (std::strncmp(line, "CMP3D ", 6) == 0) {                  // アタッチ済みコンポーネントの復元 (N3D の後に来る)
-            int cid = 0; char tn[128] = {};
-            if (std::sscanf(line, "CMP3D %d %127[^\n]", &cid, tn) >= 2)
+            int cid = 0; char tn[256] = {};                          // 型名上限は他の補助行 (SPR3D/MSH3D) と同じ 256
+            if (std::sscanf(line, "CMP3D %d %255[^\n]", &cid, tn) >= 2)
                 AttachComponent3D(Rec3D(FindNode3DNode(*host, cid)), tn);
             continue;
         }
