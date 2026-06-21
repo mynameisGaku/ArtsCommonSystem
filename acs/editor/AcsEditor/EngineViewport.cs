@@ -60,6 +60,7 @@ public sealed class EngineViewport : HwndHost
     private IntPtr _engine;
     private bool _attached;
     private uint _w, _h;
+    private uint _pendW, _pendH;   // attach 前の «サイズ安定待ち» 用 (起動直後のリサイズ連発を回避)
     private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
     private double _lastSec;
 
@@ -381,6 +382,9 @@ public sealed class EngineViewport : HwndHost
 
         if (!_attached)
         {
+            // 起動直後のサイズが安定 (2 フレーム連続同値) するまで attach を待つ。確定前に attach すると
+            // 直後のリサイズ連発で swapchain 再生成 + WaitIdle がフレームペーシングと競合し間欠クラッシュする。
+            if (w != _pendW || h != _pendH) { _pendW = w; _pendH = h; return; }
             if (EngineInterop.acs_editor_attach(_engine, _hwnd, w, h) != 0)
             {
                 _attached = true; _w = w; _h = h; AttachFailed = false;
