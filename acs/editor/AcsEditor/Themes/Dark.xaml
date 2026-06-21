@@ -6,22 +6,22 @@
     <!-- ACS Editor — ダーク統一テーマ (色 + 全コントロールのテンプレート)  -->
     <!-- ============================================================= -->
 
-    <!-- パレット -->
-    <Color x:Key="C.Win">#FF15181E</Color>
-    <Color x:Key="C.Edge">#FF0D0F14</Color>
-    <Color x:Key="C.Panel">#FF1B1F26</Color>
-    <Color x:Key="C.Panel2">#FF22272F</Color>
-    <Color x:Key="C.Ctrl">#FF2B313B</Color>
-    <Color x:Key="C.CtrlHover">#FF363E4B</Color>
-    <Color x:Key="C.CtrlPress">#FF21262E</Color>
-    <Color x:Key="C.CtrlBorder">#FF3B4350</Color>
-    <Color x:Key="C.CtrlBorderHover">#FF515C6E</Color>
-    <Color x:Key="C.Accent">#FF4C9EE8</Color>
-    <Color x:Key="C.AccentDim">#552F8AD6</Color>
-    <Color x:Key="C.Text">#FFD7DBE2</Color>
-    <Color x:Key="C.TextDim">#FF8B93A0</Color>
-    <Color x:Key="C.Scroll">#FF3A414E</Color>
-    <Color x:Key="C.ScrollHover">#FF525C6D</Color>
+    <!-- パレット (UE5 5.x 流の «中立グレー» ダークテーマ。旧: 青みがかった blue-gray) -->
+    <Color x:Key="C.Win">#FF1B1B1B</Color>
+    <Color x:Key="C.Edge">#FF0F0F0F</Color>
+    <Color x:Key="C.Panel">#FF242424</Color>
+    <Color x:Key="C.Panel2">#FF2B2B2B</Color>
+    <Color x:Key="C.Ctrl">#FF353535</Color>
+    <Color x:Key="C.CtrlHover">#FF414141</Color>
+    <Color x:Key="C.CtrlPress">#FF2C2C2C</Color>
+    <Color x:Key="C.CtrlBorder">#FF3A3A3A</Color>
+    <Color x:Key="C.CtrlBorderHover">#FF4D4D4D</Color>
+    <Color x:Key="C.Accent">#FF2A8CE0</Color>
+    <Color x:Key="C.AccentDim">#552A8CE0</Color>
+    <Color x:Key="C.Text">#FFC8C8C8</Color>
+    <Color x:Key="C.TextDim">#FF8A8A8A</Color>
+    <Color x:Key="C.Scroll">#FF3C3C3C</Color>
+    <Color x:Key="C.ScrollHover">#FF4F4F4F</Color>
 
     <SolidColorBrush x:Key="Win"             Color="{StaticResource C.Win}"/>
     <SolidColorBrush x:Key="Edge"            Color="{StaticResource C.Edge}"/>
@@ -38,14 +38,14 @@
     <SolidColorBrush x:Key="TextDim"         Color="{StaticResource C.TextDim}"/>
     <SolidColorBrush x:Key="ScrollThumb"     Color="{StaticResource C.Scroll}"/>
     <SolidColorBrush x:Key="ScrollThumbHover" Color="{StaticResource C.ScrollHover}"/>
-    <SolidColorBrush x:Key="Hairline" Color="#FF2C333E"/>   <!-- 区切り線 (パネル背景より少し明るい hairline) -->
-    <SolidColorBrush x:Key="HeaderBg" Color="#FF20252E"/>   <!-- パネル見出しバーの背景 -->
-    <SolidColorBrush x:Key="SectionFg" Color="#FF8791A0"/>  <!-- セクション見出しの文字 -->
-    <SolidColorBrush x:Key="OkFg"   Color="#FF8BE0A0"/>     <!-- 肯定アクション (Play/Add/+) -->
-    <SolidColorBrush x:Key="InfoFg" Color="#FF8FBDF0"/>     <!-- 情報アクション (Run/編集) -->
-    <SolidColorBrush x:Key="WarnFg" Color="#FFE39AA0"/>     <!-- 破壊アクション (Delete/✕) -->
-    <SolidColorBrush x:Key="LiveFg" Color="#FF6BD08A"/>     <!-- ライブ値・成功 -->
-    <SolidColorBrush x:Key="LinkFg" Color="#FFA8CDEA"/>     <!-- 補助アクション (Duplicate 等) -->
+    <SolidColorBrush x:Key="Hairline" Color="#FF313131"/>   <!-- 区切り線 (中立グレー hairline) -->
+    <SolidColorBrush x:Key="HeaderBg" Color="#FF2B2B2B"/>   <!-- パネル見出しバーの背景 -->
+    <SolidColorBrush x:Key="SectionFg" Color="#FF8A8A8A"/>  <!-- セクション見出しの文字 -->
+    <SolidColorBrush x:Key="OkFg"   Color="#FF6FCF7C"/>     <!-- 肯定アクション (Play/Add/+) = 緑 -->
+    <SolidColorBrush x:Key="InfoFg" Color="#FF4FA3E3"/>     <!-- 情報アクション (Run/編集) = 青 -->
+    <SolidColorBrush x:Key="WarnFg" Color="#FFE06A6A"/>     <!-- 破壊アクション (Delete/✕) = 赤 -->
+    <SolidColorBrush x:Key="LiveFg" Color="#FF6FCF7C"/>     <!-- ライブ値・成功 = 緑 -->
+    <SolidColorBrush x:Key="LinkFg" Color="#FF7FB3D9"/>     <!-- 補助アクション (Duplicate 等) -->
 
     <!-- ============ ScrollBar (細身・暗色・丸み) ============ -->
     <Style x:Key="ScrollThumbStyle" TargetType="Thumb">
