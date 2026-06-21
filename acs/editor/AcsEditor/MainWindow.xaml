@@ -164,7 +164,7 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="4"/>
-                    <RowDefinition Height="172"/>
+                    <RowDefinition x:Name="BottomDockRow" Height="172"/>
                 </Grid.RowDefinitions>
 
                 <DockPanel Grid.Row="0" Background="{StaticResource Edge}">

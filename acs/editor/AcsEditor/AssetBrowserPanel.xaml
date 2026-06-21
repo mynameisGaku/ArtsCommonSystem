@@ -8,21 +8,31 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- ツールバー: 上へ / 現在パス / 更新 / インポート -->
+        <!-- ツールバー: 上へ / 現在パス / 検索 / 更新 / インポート -->
         <DockPanel Grid.Row="0" Margin="6,5" LastChildFill="True">
             <Button x:Name="UpBtn" DockPanel.Dock="Left" Content="↑" Width="30"
                     ToolTip="親フォルダへ" Click="OnUp"/>
             <Button DockPanel.Dock="Right" Content="インポート…" Margin="6,0,0,0" Click="OnImport"/>
             <Button DockPanel.Dock="Right" Content="更新" Click="OnRefresh"/>
+            <TextBox x:Name="SearchBox" DockPanel.Dock="Right" Width="160" Margin="6,0,0,0"
+                     VerticalContentAlignment="Center" ToolTip="名前で検索" TextChanged="OnSearchChanged"/>
             <TextBlock x:Name="PathText" VerticalAlignment="Center" Margin="10,0"
                        Foreground="{DynamicResource TextDim}" TextTrimming="CharacterEllipsis"/>
         </DockPanel>
 
-        <!-- タイル一覧 -->
-        <ListBox x:Name="Tiles" Grid.Row="1" Background="{DynamicResource Panel2}" BorderThickness="0"
+        <!-- 左: タイル一覧 / 右: プレビュー + 情報 (参考エンジン風) -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="296"/>
+            </Grid.ColumnDefinitions>
+
+        <ListBox x:Name="Tiles" Grid.Column="0" Background="{DynamicResource Panel2}" BorderThickness="0"
                  Margin="4,0,4,4" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                  ScrollViewer.VerticalScrollBarVisibility="Auto"
                  MouseDoubleClick="OnTileDoubleClick" PreviewMouseMove="OnTilePreviewMouseMove"
+                 SelectionChanged="OnTileSelected"
                  PreviewMouseLeftButtonDown="OnTileMouseDown" PreviewMouseRightButtonDown="OnTileRightDown">
             <ListBox.ContextMenu>
                 <ContextMenu>
@@ -78,5 +88,33 @@
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
+
+        <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                      Background="{DynamicResource Hairline}"/>
+
+        <!-- プレビュー + 情報ペイン -->
+        <Grid Grid.Column="2" Background="{DynamicResource Panel}" Margin="0,0,2,4">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="PREVIEW" Style="{DynamicResource Section}" Margin="10,7,0,4"/>
+            <Grid Grid.Row="1" Margin="10,0">
+                <Border x:Name="PreviewGlyphBox" Background="{DynamicResource Ctrl}" CornerRadius="2">
+                    <TextBlock x:Name="PreviewGlyph" Text="" Foreground="{DynamicResource TextDim}"
+                               FontSize="26" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <Image x:Name="PreviewImage" Stretch="Uniform" SnapsToDevicePixels="True"
+                       RenderOptions.BitmapScalingMode="HighQuality" Visibility="Collapsed"/>
+            </Grid>
+            <StackPanel Grid.Row="2" Margin="10,8,10,8">
+                <TextBlock x:Name="PreviewNameText" Foreground="{DynamicResource Text}" FontWeight="SemiBold"
+                           FontSize="12.5" TextTrimming="CharacterEllipsis"/>
+                <TextBlock x:Name="PreviewMetaText" Foreground="{DynamicResource TextDim}" FontSize="11"
+                           TextWrapping="Wrap" Margin="0,4,0,0"/>
+            </StackPanel>
+        </Grid>
+        </Grid>
     </Grid>
 </UserControl>

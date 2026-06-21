@@ -40,6 +40,7 @@ public partial class AssetBrowserPanel : UserControl
 
     private Project? _project;
     private string _currentDir = "";
+    private string _filter = "";   // 検索フィルタ (名前部分一致)
     private FileSystemWatcher? _watcher;
     private readonly DispatcherTimer _debounce;
     private Point _dragStart;
@@ -60,6 +61,7 @@ public partial class AssetBrowserPanel : UserControl
         Tiles.ItemsSource = Items;
         _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _debounce.Tick += (_, _) => { _debounce.Stop(); Refresh(); };
+        ClearPreview();
     }
 
     /// <summary>表示対象のプロジェクトを設定し、Assets フォルダの監視と一覧表示を開始する。</summary>
@@ -109,6 +111,7 @@ public partial class AssetBrowserPanel : UserControl
             foreach (string dir in Directory.GetDirectories(_currentDir))
             {
                 var di = new DirectoryInfo(dir);
+                if (!PassFilter(di.Name)) continue;
                 Items.Add(new AssetItem
                 {
                     FullPath = dir, Name = di.Name, Kind = "dir", IsDirectory = true,
@@ -117,6 +120,7 @@ public partial class AssetBrowserPanel : UserControl
             }
             foreach (string file in Directory.GetFiles(_currentDir))
             {
+                if (!PassFilter(Path.GetFileName(file))) continue;
                 string ext = Path.GetExtension(file).ToLowerInvariant();
                 string kind = ClassifyExt(ext);
                 Items.Add(new AssetItem
@@ -140,6 +144,77 @@ public partial class AssetBrowserPanel : UserControl
     }
 
     private void OnRefresh(object sender, RoutedEventArgs e) => Refresh();
+
+    private bool PassFilter(string name) =>
+        _filter.Length == 0 || name.Contains(_filter, StringComparison.OrdinalIgnoreCase);
+
+    private void OnSearchChanged(object sender, TextChangedEventArgs e)
+    {
+        _filter = SearchBox.Text?.Trim() ?? "";
+        Refresh();
+    }
+
+    // タイル選択でプレビュー + 情報を更新 (参考エンジン風)。
+    private void OnTileSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (Tiles.SelectedItem is not AssetItem item) { ClearPreview(); return; }
+
+        PreviewNameText.Text = item.Name;
+        string meta = item.IsDirectory ? "フォルダ" : KindLabel(item.Kind);
+        if (!item.IsDirectory)
+        {
+            try { meta += "   " + FormatSize(new FileInfo(item.FullPath).Length); } catch { }
+        }
+        meta += "\n" + RelDisplay(item.FullPath);
+        PreviewMetaText.Text = meta;
+
+        // プレビュー画像: マテリアル=球 / 画像=その絵 / それ以外=大きいグリフ。
+        ImageSource? img = null;
+        if (!item.IsDirectory)
+        {
+            if (item.Kind == "material") img = TryMaterialPreview(item.FullPath, 256);
+            else if (item.Kind == "image") img = TryThumb(item.FullPath, 320);
+        }
+        if (img != null)
+        {
+            PreviewImage.Source = img;
+            PreviewImage.Visibility = Visibility.Visible;
+            PreviewGlyphBox.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            PreviewImage.Source = null;
+            PreviewImage.Visibility = Visibility.Collapsed;
+            PreviewGlyphBox.Visibility = Visibility.Visible;
+            PreviewGlyph.Text = item.IsDirectory ? "📁" : item.Glyph;
+        }
+    }
+
+    private void ClearPreview()
+    {
+        PreviewNameText.Text = "";
+        PreviewMetaText.Text = "アセットを選択";
+        PreviewImage.Source = null;
+        PreviewImage.Visibility = Visibility.Collapsed;
+        PreviewGlyphBox.Visibility = Visibility.Visible;
+        PreviewGlyph.Text = "";
+    }
+
+    private static string KindLabel(string kind) => kind switch
+    {
+        "image" => "画像", "audio" => "音声", "mesh" => "メッシュ", "text" => "テキスト",
+        "scene" => "シーン", "project" => "プロジェクト", "material" => "マテリアル",
+        "prefab" => "プレハブ", "blueprint" => "Blueprint", "dir" => "フォルダ", _ => "ファイル",
+    };
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        double kb = bytes / 1024.0;
+        if (kb < 1024) return $"{kb:0.#} KB";
+        double mb = kb / 1024.0;
+        return mb < 1024 ? $"{mb:0.#} MB" : $"{mb / 1024.0:0.#} GB";
+    }
 
     private void OnTileDoubleClick(object sender, MouseButtonEventArgs e)
     {
@@ -263,13 +338,16 @@ public partial class AssetBrowserPanel : UserControl
         return br;
     }
 
-    // .acsmat のサムネイルを生成する (一覧で見分け用)。エンジンがあれば実シェーダ GPU、無ければ CPU。
-    private ImageSource? TryMaterialThumb(string path)
+    // .acsmat のサムネイル (一覧=56)。
+    private ImageSource? TryMaterialThumb(string path) => TryMaterialPreview(path, 56);
+
+    // .acsmat を N×N にレンダリング (一覧サムネ=56 / プレビュー=大)。エンジンがあれば実シェーダ GPU、無ければ CPU。
+    private ImageSource? TryMaterialPreview(string path, int N)
     {
-        const int N = 56;
         try
         {
-            if (Engine != IntPtr.Zero)   // 実シェーダ GPU プレビュー (PBR/Toon/Effect を統合処理)
+            // 小サムネ(≤96)は実シェーダ GPU。大プレビューは GPU が小さく出るため CPU 数式で確実に埋める。
+            if (Engine != IntPtr.Zero && N <= 96)
             {
                 var buf = new byte[N * N * 4];
                 if (EngineInterop.acs_editor_render_preview_material(Engine, path, buf, N) != 0)
@@ -304,7 +382,7 @@ public partial class AssetBrowserPanel : UserControl
         return b;
     }
 
-    private static ImageSource? TryThumb(string path)
+    private static ImageSource? TryThumb(string path, int decodeW = 64)
     {
         try
         {
@@ -312,7 +390,7 @@ public partial class AssetBrowserPanel : UserControl
             var bmp = new BitmapImage();
             bmp.BeginInit();
             bmp.CacheOption = BitmapCacheOption.OnLoad;   // 即デコードしてストリーム依存を断つ
-            bmp.DecodePixelWidth = 64;                    // サムネイルサイズに縮小
+            bmp.DecodePixelWidth = decodeW;               // サムネ=64 / プレビュー=大
             bmp.StreamSource = new MemoryStream(bytes);
             bmp.EndInit();
             bmp.Freeze();

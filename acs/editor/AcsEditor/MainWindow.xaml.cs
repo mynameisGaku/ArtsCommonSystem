@@ -113,6 +113,9 @@ public partial class MainWindow : Window
         ShowBottomTab(tab);
     }
 
+    private double _dockNormal = 172;   // 非アセット時のドック高 (アセットで自動拡張→離脱で復元)
+    private bool _dockExpanded;
+
     private void ShowBottomTab(string tab)
     {
         TabConsole.IsChecked = tab == "console";
@@ -121,6 +124,23 @@ public partial class MainWindow : Window
         ConsoleList.Visibility  = tab == "console" ? Visibility.Visible : Visibility.Collapsed;
         BuildList.Visibility    = tab == "build"   ? Visibility.Visible : Visibility.Collapsed;
         AssetBrowser.Visibility = tab == "assets"  ? Visibility.Visible : Visibility.Collapsed;
+
+        // アセットブラウザはプレビューのため自動で広げ、他タブへ戻ると元の高さに復元する。
+        if (BottomDockRow != null)
+        {
+            bool toAssets = tab == "assets";
+            if (toAssets && !_dockExpanded)
+            {
+                _dockNormal = BottomDockRow.ActualHeight > 1 ? BottomDockRow.ActualHeight : 172;
+                BottomDockRow.Height = new GridLength(Math.Max(380, _dockNormal));
+                _dockExpanded = true;
+            }
+            else if (!toAssets && _dockExpanded)
+            {
+                BottomDockRow.Height = new GridLength(_dockNormal);
+                _dockExpanded = false;
+            }
+        }
     }
 
     // アセットがダブルクリック/ドラッグで起動された: 画像は選択ノードのスプライトに割り当てる。
