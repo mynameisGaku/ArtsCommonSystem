@@ -270,9 +270,9 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
         p.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     }
 
-    // 静的サンプラ
-    D3D12_STATIC_SAMPLER_DESC samplers[4]{};
-    const u32 sampler_count = desc.static_sampler_count > 4 ? 4 : desc.static_sampler_count;
+    // 静的サンプラ (FPipelineDesc.static_samplers は容量 16。FPbrShader は 10 個使うため 4 では不足だった)
+    D3D12_STATIC_SAMPLER_DESC samplers[16]{};
+    const u32 sampler_count = desc.static_sampler_count > 16 ? 16 : desc.static_sampler_count;
     for (u32 i = 0; i < sampler_count; ++i) {
         samplers[i] = MakeStaticSampler(desc.static_samplers[i], i);
     }
