@@ -255,6 +255,18 @@ struct EditorHost {
     f32                         light_height = 90.0f;                          // Rendering.LightHeight
     ClearColor                  clear_color  { 0.07f, 0.08f, 0.10f, 1.0f };    // Rendering.ClearColor
 
+    // 品質プリセット (Rendering/QualityLevel) で駆動するノブのキャッシュ。ApplyQualityPreset が埋める。
+    // 既定は High 相当。S3 では post-process のみ配線、shadow/SSAO/SSGI/SSR/IBL は後続ステップで配線。
+    u32   q_shadow_size      = 2048;  u32  q_shadow_cascades = 2;
+    f32   q_shadow_bias      = 0.0015f; f32 q_shadow_filter   = 1.0f;
+    bool  q_ssao_on          = true;  f32  q_ssao_intensity  = 1.0f;  f32 q_ssao_radius = 0.8f;
+    bool  q_ssgi_on          = false; f32  q_ssgi_intensity  = 1.0f;  f32 q_ssgi_max_dist = 10.0f;
+    bool  q_ssr_on           = true;  f32  q_ssr_intensity   = 0.8f;  bool q_ssr_hiz = false;
+    i32   q_ibl_mode         = 1;     FVec3 q_ambient        = FVec3{ 0.26f, 0.28f, 0.33f };  // 0=flat 1=sh9 2=cubemap
+    bool  q_bloom_on         = true;  f32  q_bloom_intensity = 0.50f; f32 q_bloom_threshold = 0.80f; f32 q_bloom_radius = 1.5f;
+    f32   q_exposure         = 1.05f; f32  q_cg_saturation   = 1.10f; f32 q_cg_contrast = 1.12f;
+    f32   q_cas              = 0.3f;  bool q_taa_on          = false; u32 q_msaa_default = 4;
+
     // マテリアル GPU プレビュー: 実シェーダでサンプルを RT に描き readback する。
     TUniquePtr<IRhiCommandList> preview_cl;            // 専用コマンドリスト (フレーム外で submit)
     TUniquePtr<IRhiTexture>     preview_rt;            // オフスクリーン RT (ColorFormat)
@@ -3219,11 +3231,13 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         // soft-knee でなめらかに立ち上げ。radius は progressive で深い mip ほど広がる(基準 1.0)。
         // 自然な bloom: threshold を «拡散面の明るさ» より上に置き、ハイライト/縁だけ抽出 (オブジェクト
         // 全体が光る «発光感» を回避)。intensity 控えめ + radius 広めで «柔らかく広い» 質感は維持。
-        pp.bloom_enabled = true; pp.bloom_intensity = 0.50f; pp.bloom_threshold = 0.80f; pp.bloom_radius = 1.5f;
+        // 品質プリセット (Rendering/QualityLevel) で bloom / 彩度・コントラスト / CAS シャープを駆動。
+        pp.bloom_enabled = h.q_bloom_on; pp.bloom_intensity = h.q_bloom_intensity;
+        pp.bloom_threshold = h.q_bloom_threshold; pp.bloom_radius = h.q_bloom_radius;
         pp.tonemap_kind = 0;   // 0 = ACES Filmic
-        pp.exposure = 1.05f; pp.gamma = 2.2f;   // 空を暗めにした分を露出で補正
-        // 色補正: コントラストで立体感。彩度は控えめ (上げすぎると青灰の地面が過度に青くなる)。
-        pp.cg_saturation = 1.10f; pp.cg_contrast = 1.12f;
+        pp.exposure = h.q_exposure; pp.gamma = 2.2f;
+        pp.cg_saturation = h.q_cg_saturation; pp.cg_contrast = h.q_cg_contrast;
+        pp.cas_strength = h.q_cas;   // CAS シャープ (品質連動)
         pp.vignette_intensity = 0.0f; pp.chromatic_aberration = 0.0f; pp.grain_intensity = 0.0f;
         h.post3d.Render(*cl, *scSwap, h.renderer.CurrentBuffer(), pp);
     }
@@ -3427,7 +3441,54 @@ ACS_EDITOR_API void acs_editor_resize(void* handle, uint32_t width, uint32_t hei
 // =============================================================================
 
 /** プロジェクト設定をエンジン状態へ反映する (ロード/変更時に呼ぶ)。 */
+/** Rendering/QualityLevel プリセット → 各描画ノブ (h.q_*) を埋める。未知文字列は High にフォールバック。
+ *  knob 値表は «超最高/最高/高/中/低/最低» を DX12 Samples 流の品質階層で設定。 */
+static void ApplyQualityPreset(EditorHost& h, const char* level) noexcept {
+    if (level == nullptr) level = "High";
+    auto eq = [&](const char* s){ return std::strcmp(level, s) == 0; };
+    if (eq("Ultra")) {
+        h.q_shadow_size=4096; h.q_shadow_cascades=4; h.q_shadow_bias=0.0010f; h.q_shadow_filter=2.0f;
+        h.q_ssao_on=true;  h.q_ssao_intensity=1.2f; h.q_ssao_radius=1.5f;
+        h.q_ssgi_on=true;  h.q_ssgi_intensity=1.2f; h.q_ssgi_max_dist=15.0f;
+        h.q_ssr_on=true;   h.q_ssr_intensity=1.0f;  h.q_ssr_hiz=true;   h.q_ibl_mode=2;
+        h.q_bloom_on=true; h.q_bloom_intensity=0.55f; h.q_bloom_threshold=0.70f; h.q_bloom_radius=2.0f;
+        h.q_cg_saturation=1.10f; h.q_cg_contrast=1.15f; h.q_cas=0.6f; h.q_taa_on=true;  h.q_msaa_default=4;
+    } else if (eq("Highest")) {
+        h.q_shadow_size=4096; h.q_shadow_cascades=3; h.q_shadow_bias=0.0012f; h.q_shadow_filter=1.5f;
+        h.q_ssao_on=true;  h.q_ssao_intensity=1.0f; h.q_ssao_radius=1.0f;
+        h.q_ssgi_on=true;  h.q_ssgi_intensity=1.0f; h.q_ssgi_max_dist=10.0f;
+        h.q_ssr_on=true;   h.q_ssr_intensity=1.0f;  h.q_ssr_hiz=true;   h.q_ibl_mode=2;
+        h.q_bloom_on=true; h.q_bloom_intensity=0.50f; h.q_bloom_threshold=0.80f; h.q_bloom_radius=1.5f;
+        h.q_cg_saturation=1.10f; h.q_cg_contrast=1.12f; h.q_cas=0.4f; h.q_taa_on=false; h.q_msaa_default=4;
+    } else if (eq("Medium")) {
+        h.q_shadow_size=2048; h.q_shadow_cascades=1; h.q_shadow_bias=0.0015f; h.q_shadow_filter=1.0f;
+        h.q_ssao_on=true;  h.q_ssao_intensity=0.9f; h.q_ssao_radius=0.6f;
+        h.q_ssgi_on=false; h.q_ssr_on=false; h.q_ibl_mode=1;
+        h.q_bloom_on=true; h.q_bloom_intensity=0.40f; h.q_bloom_threshold=0.90f; h.q_bloom_radius=1.2f;
+        h.q_cg_saturation=1.05f; h.q_cg_contrast=1.08f; h.q_cas=0.3f; h.q_taa_on=false; h.q_msaa_default=2;
+    } else if (eq("Low")) {
+        h.q_shadow_size=1024; h.q_shadow_cascades=1; h.q_shadow_bias=0.0020f; h.q_shadow_filter=0.0f;
+        h.q_ssao_on=false; h.q_ssgi_on=false; h.q_ssr_on=false;
+        h.q_ibl_mode=0; h.q_ambient=FVec3{0.20f,0.22f,0.26f};
+        h.q_bloom_on=true; h.q_bloom_intensity=0.30f; h.q_bloom_threshold=1.00f; h.q_bloom_radius=1.0f;
+        h.q_cg_saturation=1.00f; h.q_cg_contrast=1.00f; h.q_cas=0.0f; h.q_taa_on=false; h.q_msaa_default=2;
+    } else if (eq("Lowest")) {
+        h.q_shadow_size=0; h.q_shadow_cascades=0;
+        h.q_ssao_on=false; h.q_ssgi_on=false; h.q_ssr_on=false;
+        h.q_ibl_mode=0; h.q_ambient=FVec3{0.26f,0.28f,0.33f};
+        h.q_bloom_on=false;
+        h.q_cg_saturation=1.00f; h.q_cg_contrast=1.00f; h.q_cas=0.0f; h.q_taa_on=false; h.q_msaa_default=1;
+    } else {  // High (既定)
+        h.q_shadow_size=2048; h.q_shadow_cascades=2; h.q_shadow_bias=0.0015f; h.q_shadow_filter=1.0f;
+        h.q_ssao_on=true;  h.q_ssao_intensity=1.0f; h.q_ssao_radius=0.8f;
+        h.q_ssgi_on=false; h.q_ssr_on=true; h.q_ssr_intensity=0.8f; h.q_ssr_hiz=false; h.q_ibl_mode=2;
+        h.q_bloom_on=true; h.q_bloom_intensity=0.50f; h.q_bloom_threshold=0.80f; h.q_bloom_radius=1.5f;
+        h.q_cg_saturation=1.10f; h.q_cg_contrast=1.12f; h.q_cas=0.3f; h.q_taa_on=false; h.q_msaa_default=4;
+    }
+}
+
 static void ApplySettings(EditorHost& h) noexcept {
+    ApplyQualityPreset(h, h.settings.GetString("Rendering", "QualityLevel", "High"));   // 先に品質プリセットを展開
     const int msaa = h.settings.GetInt("Rendering", "MsaaSamples", 8);
     h.msaa_pending = (msaa >= 8) ? 8u : (msaa >= 4) ? 4u : (msaa >= 2) ? 2u : 1u;
     h.ambient      = h.settings.GetColor("Rendering", "AmbientColor", FVec3{ 0.10f, 0.11f, 0.13f });

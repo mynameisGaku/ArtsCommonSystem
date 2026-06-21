@@ -20,6 +20,8 @@ namespace {
  */
 const FSettingDesc kSchema[] = {
     // --- Rendering ---
+    { "Rendering", "QualityLevel",  ESettingType::Enum,  "High", "Ultra|Highest|High|Medium|Low|Lowest",
+      "全体グラフィックス品質プリセット。影/SSAO/SSGI/SSR/IBL/ブルーム/シャープ等を一括設定 (個別キーが優先)" },
     { "Rendering", "MsaaSamples",   ESettingType::Enum,  "8",              "1|2|4|8",
       "MSAA サンプル数。1 は FXAA のみ" },
     { "Rendering", "AmbientColor",  ESettingType::Color, "0.10,0.11,0.13", nullptr,
