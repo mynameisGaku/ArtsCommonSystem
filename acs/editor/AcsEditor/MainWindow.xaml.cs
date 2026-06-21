@@ -171,29 +171,68 @@ public partial class MainWindow : Window
                 Log($"Blueprint ← {System.IO.Path.GetFileName(e.FullPath)}");
                 break;
             case "material":
-                // .acsmat をダブルクリック → マテリアルエディタを開く。選択ノードがあれば割当も (3D/2D)。
-                if (_view3d)
-                {
-                    int s3 = EngineInterop.acs_editor_selected3d(Engine);
-                    if (s3 >= 0)
-                    {
-                        EngineInterop.acs_editor_node3d_set_material(Engine, s3, e.FullPath);
-                        Populate3DInspector(s3);   // インスペクタの .acsmat ドロップダウンを更新
-                        Log($"Material ← {System.IO.Path.GetFileName(e.FullPath)} (3D node {s3})");
-                    }
-                }
-                else if (_selectedId >= 0)
-                {
-                    EngineInterop.acs_editor_node_set_material(Engine, _selectedId, e.FullPath);
-                    RefreshMaterialBox(_selectedId);
-                    Log($"Material ← {System.IO.Path.GetFileName(e.FullPath)} (node {_selectedId})");
-                }
+                // .acsmat をダブルクリック → 選択ノードへ割当 (3D/2D) + マテリアルエディタを開く。
+                AssignMaterialToSelection(e.FullPath);
                 OpenMaterialEditor(e.FullPath);
                 break;
             default:
                 Log($"{e.Kind}: {System.IO.Path.GetFileName(e.FullPath)}");
                 break;
         }
+    }
+
+    // 選択ノード (3D/2D) へ .acsmat を割り当てる (エディタは開かない)。ドロップ・ダブルクリック共用。
+    private void AssignMaterialToSelection(string matPath)
+    {
+        if (Engine == IntPtr.Zero) return;
+        if (_view3d)
+        {
+            int s3 = EngineInterop.acs_editor_selected3d(Engine);
+            if (s3 >= 0)
+            {
+                EngineInterop.acs_editor_node3d_set_material(Engine, s3, matPath);
+                Populate3DInspector(s3);   // インスペクタの .acsmat ドロップダウンを更新
+                Log($"Material ← {System.IO.Path.GetFileName(matPath)} (3D node {s3})");
+            }
+        }
+        else if (_selectedId >= 0)
+        {
+            EngineInterop.acs_editor_node_set_material(Engine, _selectedId, matPath);
+            RefreshMaterialBox(_selectedId);
+            Log($"Material ← {System.IO.Path.GetFileName(matPath)} (node {_selectedId})");
+        }
+    }
+
+    // アセットがビューポートへドロップされた (アセットブラウザ or Explorer)。ドロップ点のノードを
+    // pick して選択し、種別ごとの既存ロジック (OnAssetActivated) へ委譲する:
+    //   .acsmat → ドロップ先ノードへマテリアル割当 / 画像 → スプライト割当 / prefab・bp → 実体化。
+    private void OnViewportAssetDropped(string path, int x, int y)
+    {
+        if (Engine == IntPtr.Zero || string.IsNullOrEmpty(path)) return;
+        try
+        {
+            int hit = _view3d ? EngineInterop.acs_editor_pick3d(Engine, x, y)
+                              : EngineInterop.acs_editor_pick(Engine, x, y);
+            if (hit >= 0) OnViewportPicked(hit);   // ドロップ点のノードを選択
+        }
+        catch { /* pick 失敗時は選択ノードへフォールバック */ }
+        string kind = ClassifyDroppedKind(path);
+        if (kind == "material") AssignMaterialToSelection(path);   // ドロップは «割当» のみ (エディタは開かない)
+        else OnAssetActivated(this, new AssetActivatedEventArgs(path, kind));
+    }
+
+    private static string ClassifyDroppedKind(string path)
+    {
+        string ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
+        return ext switch
+        {
+            ".png" or ".jpg" or ".jpeg" or ".bmp" or ".tga" or ".dds" or ".gif" => "image",
+            ".acsmat" => "material",
+            ".acscene" => "scene",
+            ".acsprefab" => "prefab",
+            ".acsbp" => "blueprint",
+            _ => "file",
+        };
     }
 
     // 数値 TextBox を「ドラッグでスクラブ」可能にする。未フォーカス時の左ドラッグで値を
@@ -266,6 +305,7 @@ public partial class MainWindow : Window
         _viewport.Picked += OnViewportPicked;     // ビューポート左クリックで選択
         _viewport.TransformChanged += OnViewportTransformChanged;   // ギズモ移動後に Inspector 更新
         _viewport.PolyKeyFinalize += FinalizePoly;                  // 描画中の Enter/Esc でポリゴン確定
+        _viewport.AssetDropped += OnViewportAssetDropped;           // アセットをビューポートへドロップ → 配置/割当
         _viewport.SizeChanged += (_, args) =>
             ViewportInfo.Text = $"Viewport {(int)args.NewSize.Width} x {(int)args.NewSize.Height}";
     }

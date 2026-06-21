@@ -29,6 +29,13 @@ public sealed class EngineViewport : HwndHost
     [DllImport("user32.dll")] private static extern bool ReleaseCapture();
     [DllImport("user32.dll")] private static extern short GetKeyState(int nVirtKey);
     [DllImport("user32.dll")] private static extern uint GetDoubleClickTime();
+    // アセット/ファイルのドロップ受付 (CF_HDROP → WM_DROPFILES)。アセットブラウザのドラッグも
+    // DataFormats.FileDrop を含むため、これでアプリ内ドラッグ + Explorer ドロップの双方を拾える。
+    [DllImport("shell32.dll")] private static extern void DragAcceptFiles(IntPtr hwnd, bool fAccept);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint DragQueryFileW(IntPtr hDrop, uint iFile, System.Text.StringBuilder? lpszFile, uint cch);
+    [DllImport("shell32.dll")] private static extern bool DragQueryPoint(IntPtr hDrop, ref POINT pt);
+    [DllImport("shell32.dll")] private static extern void DragFinish(IntPtr hDrop);
     private const int VK_CONTROL = 0x11;
     private static bool CtrlDown => (GetKeyState(VK_CONTROL) & 0x8000) != 0;
 
@@ -41,7 +48,7 @@ public sealed class EngineViewport : HwndHost
                       WM_RBUTTONDOWN = 0x0204, WM_RBUTTONUP = 0x0205,
                       WM_MBUTTONDOWN = 0x0207, WM_MBUTTONUP = 0x0208,
                       WM_MOUSEWHEEL = 0x020A, WM_NCHITTEST = 0x0084,
-                      WM_CAPTURECHANGED = 0x0215;
+                      WM_CAPTURECHANGED = 0x0215, WM_DROPFILES = 0x0233;
     private const int HTCLIENT = 1;
 
     private const int WS_CHILD = 0x40000000;
@@ -91,6 +98,9 @@ public sealed class EngineViewport : HwndHost
     /// <summary>ギズモ操作でノードの transform が変わったとき (Inspector 更新用)。</summary>
     public event Action? TransformChanged;
 
+    /// <summary>アセット/ファイルがビューポートへドロップされたとき (パス, クライアント X, Y[物理px])。</summary>
+    public event Action<string, int, int>? AssetDropped;
+
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
         // 子ウィンドウ (予約クラス "STATIC")。DX12 スワップチェインの提示先。
@@ -103,6 +113,7 @@ public sealed class EngineViewport : HwndHost
         // STATIC のウィンドウプロシージャを差し替えてマウス入力 (pick / pan / zoom) を拾う。
         _wndProc = ViewportWndProc;
         _origProc = SetWindowLongPtrW(_hwnd, GWLP_WNDPROC, Marshal.GetFunctionPointerForDelegate(_wndProc));
+        DragAcceptFiles(_hwnd, true);   // アセット/ファイルのドロップを受け付ける
 
         CompositionTarget.Rendering += OnFrame;
         return new HandleRef(this, _hwnd);
@@ -126,6 +137,22 @@ public sealed class EngineViewport : HwndHost
         {
             case WM_NCHITTEST:
                 return (IntPtr)HTCLIENT;   // STATIC を不透明にしてマウスを受け取る
+
+            case WM_DROPFILES:
+            {
+                IntPtr hDrop = wParam;
+                POINT dp = default;
+                DragQueryPoint(hDrop, ref dp);                        // ドロップ点 (クライアント座標)
+                uint n = DragQueryFileW(hDrop, 0xFFFFFFFF, null, 0);  // ファイル数
+                for (uint i = 0; i < n; i++)
+                {
+                    var sb = new System.Text.StringBuilder(520);
+                    DragQueryFileW(hDrop, i, sb, (uint)sb.Capacity);
+                    AssetDropped?.Invoke(sb.ToString(), dp.X, dp.Y);
+                }
+                DragFinish(hDrop);
+                return IntPtr.Zero;
+            }
 
             case WM_KEYDOWN:
                 // 描画モード中の Enter(0x0D)/Esc(0x1B) でポリゴン確定。
