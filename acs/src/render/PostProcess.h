@@ -265,12 +265,13 @@ public:
 
 private:
     /**
-     * Bloom mip chain の段数 (1/2 から 1/32 までの 5 段)。
+     * Bloom mip chain の段数 (1/2 から 1/128 までの 7 段)。
      *
-     * @details Downsample は Jimenez 13-tap。6 段化すると upsample additive pass が 1 回
-     * 増えて bloom 強度が ~25% lift し halo が過剰になるため 5 段にしてある。
+     * @details Downsample は Jimenez 13-tap。段数を増やすと «より低周波 (広い)» の soft glow まで
+     * 届き、UE5 風の広く柔らかい bloom になる。段数増による強度 lift は progressive upsample radius
+     * (深い mip ほど tent を広げる) と bloom_intensity 側で吸収する。各 mip は 1px までクランプ確保。
      */
-    static constexpr u32 kBloomMips = 5;
+    static constexpr u32 kBloomMips = 7;
 
     /**
      * HDR RT と Bloom mip chain を生成する。

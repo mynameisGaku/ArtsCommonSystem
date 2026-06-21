@@ -42,11 +42,14 @@ struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
 float4 PSMain(VSOut v) : SV_TARGET {
     float3 c = src.Sample(src_sampler, v.uv).rgb;
-    // Karis weighted average で firefly 抑制
     float l = max(max(c.r, c.g), c.b);
-    float t = params0.x;
-    float knee = max(l - t, 0.0);
-    float w = knee / max(l, 0.0001);
+    float t = params0.x;                       // threshold
+    // soft-knee prefilter (Unity/UE 風): 閾値付近をなめらかに立ち上げ、bloom の onset を自然に。
+    float knee = max(t * 0.6, 1e-4);           // knee 幅 = threshold の 60%
+    float soft = clamp(l - t + knee, 0.0, 2.0 * knee);
+    soft = soft * soft / (4.0 * knee);
+    float contrib = max(soft, l - t);          // 閾値以下は soft 曲線、以上は線形
+    float w = contrib / max(l, 1e-4);          // over-threshold 比で重み付け (firefly 抑制)
     return float4(c * w, 1.0);
 }
 )";
@@ -1015,9 +1018,12 @@ void FPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 bu
             Pass_Downsample(cmd, i);
         }
 
-        // 3) Upsample (additive): mip[i+1] → mip[i] に上書き加算
+        // 3) Upsample (additive): mip[i+1] → mip[i] に上書き加算。
+        //    progressive radius: 深い mip ほど tent 半径を広げ、段間を滑らかに接続して
+        //    «広く柔らかい» UE5 風 bloom にする (固定半径だと深い段の広がりが不足しブロッキー)。
         for (u32 i = kBloomMips - 1; i > 0; --i) {
-            Pass_Upsample(cmd, i - 1, params.bloom_radius);
+            const f32 r = params.bloom_radius * (1.0f + static_cast<f32>(i - 1) * 0.55f);
+            Pass_Upsample(cmd, i - 1, r);
         }
     }
 
