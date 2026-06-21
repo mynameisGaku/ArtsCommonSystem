@@ -237,10 +237,6 @@ struct EditorHost {
     u32                         scene_rt_w = 0, scene_rt_h = 0;
     u32                         msaa_samples = 8;      // 現在の MSAA サンプル数 (1=FXAA のみ)
     u32                         msaa_pending = 8;      // 次フレーム適用 (acs_editor_set_msaa)
-    // 遅延リサイズ: acs_editor_resize はフラグだけ立て、acs_editor_render 冒頭の «安全な点» で
-    // OnResize する。WPF レイアウト中のリサイズが描画コールバックと交錯してクラッシュするのを防ぐ。
-    bool                        resize_pending = false;
-    u32                         resize_w = 0, resize_h = 0;
 
     // マテリアルプレビュー用の非 MSAA スプライトバッチ (preview_rt は sample_count=1 のため
     // MSAA PSO の本体バッチでは描けない)。EnsurePreviewRt で遅延初期化。
@@ -3345,15 +3341,6 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
         host->root->ResolveStructuralChanges();
     }
 
-    // 遅延リサイズを «描画の安全な点» で適用する (WPF レイアウト中の交錯クラッシュを防ぐ)。
-    if (host->resize_pending) {
-        host->resize_pending = false;
-        if (host->resize_w > 0u && host->resize_h > 0u) {
-            host->renderer.OnResize(host->resize_w, host->resize_h);   // OnResize 内で WaitIdle 済み
-            host->width  = host->resize_w;
-            host->height = host->resize_h;
-        }
-    }
 
     // MSAA サンプル数の変更を適用する (PSO はサンプル数を焼き込むためバッチごと再生成)。
     if (host->msaa_pending != host->msaa_samples && host->renderer.Device() != nullptr) {
@@ -3437,10 +3424,11 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
 ACS_EDITOR_API void acs_editor_resize(void* handle, uint32_t width, uint32_t height) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr || !host->attached || width == 0u || height == 0u) return;
-    // 即時 OnResize せず «次の acs_editor_render 冒頭» で適用する (WPF レイアウト中の交錯を回避)。
-    host->resize_pending = true;
-    host->resize_w = width;
-    host->resize_h = height;
+    // 即時 OnResize (OnResize 内で WaitIdle 済み)。遅延リサイズは実測でクラッシュ率が悪化(4/8 vs 即時6/8)
+    // したため不採用。WPF レイアウト中の交錯はドック自動拡張を無効化することで回避済み。
+    host->renderer.OnResize(width, height);
+    host->width  = width;
+    host->height = height;
 }
 
 // =============================================================================
