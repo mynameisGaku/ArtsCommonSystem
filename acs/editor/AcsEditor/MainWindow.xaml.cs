@@ -326,8 +326,18 @@ public partial class MainWindow : Window
     {
         var buf = new byte[32];
         if (EngineInterop.acs_editor_settings_get_value(Engine, "Rendering", "MsaaSamples", buf, buf.Length) == 0) return;
-        int idx = EngineInterop.Utf8Z(buf) switch { "2" => 1, "4" => 2, "8" => 3, _ => 0 };
-        if (AaBox != null && AaBox.SelectedIndex != idx) { _suppressAa = true; AaBox.SelectedIndex = idx; _suppressAa = false; }
+        int samples = EngineInterop.Utf8Z(buf) switch { "2" => 2, "4" => 4, "8" => 8, _ => 1 };
+        ApplyAaMenuCheck(samples);
+    }
+
+    // View → Anti-aliasing の排他チェック状態を samples に合わせる (発火抑止つき)。
+    private void ApplyAaMenuCheck(int samples)
+    {
+        if (AaFxaa == null) return;
+        _suppressAa = true;
+        AaFxaa.IsChecked = samples == 1; AaMsaa2.IsChecked = samples == 2;
+        AaMsaa4.IsChecked = samples == 4; AaMsaa8.IsChecked = samples == 8;
+        _suppressAa = false;
     }
 
     private void OnProjectSettings(object sender, RoutedEventArgs e)
@@ -802,19 +812,17 @@ public partial class MainWindow : Window
     }
 
     /// <summary>AA コンボ変更: MSAA サンプル数 (FXAA/2x/4x/8x) をエンジンへ反映する。</summary>
-    private void OnAaChanged(object sender, SelectionChangedEventArgs e)
+    // View → Anti-aliasing メニュー: 選んだ MSAA を適用 (Rendering.MsaaSamples 経由で永続化、共有)。
+    private void OnAaMenuClick(object sender, RoutedEventArgs e)
     {
-        if (Engine == IntPtr.Zero || AaBox == null || _suppressAa) return;   // 初期化/同期中は無視
-        int[] map = { 1, 2, 4, 8 };
-        int idx = AaBox.SelectedIndex;
-        if (idx < 0 || idx >= map.Length) return;
-        // プロジェクト設定 (Rendering.MsaaSamples) 経由で適用 + 永続化し、Project Settings と共有する。
-        // プロジェクト未オープン時は ABI へ直接渡す (設定ファイルの保存先が無いため)。
-        if (_project != null && EngineInterop.acs_editor_settings_set(Engine, "Rendering", "MsaaSamples", map[idx].ToString()) != 0)
+        if (Engine == IntPtr.Zero || _suppressAa) return;
+        if (sender is not MenuItem mi || mi.Tag is not string tag || !int.TryParse(tag, out int samples)) return;
+        ApplyAaMenuCheck(samples);   // 排他チェック
+        if (_project != null && EngineInterop.acs_editor_settings_set(Engine, "Rendering", "MsaaSamples", samples.ToString()) != 0)
             SaveProjectSettings();
         else
-            EngineInterop.acs_editor_set_msaa(Engine, map[idx]);
-        Log(map[idx] == 1 ? "AA: FXAA" : $"AA: MSAA {map[idx]}x");
+            EngineInterop.acs_editor_set_msaa(Engine, samples);
+        Log(samples == 1 ? "AA: FXAA" : $"AA: MSAA {samples}x");
     }
 
     // ===== ギズモモード切替 (Move / Rotate / Scale) =====

@@ -90,6 +90,14 @@
                 <MenuItem x:Name="MenuRun"       Header="Run"          Click="OnRunProject"    InputGestureText="Ctrl+F5"/>
                 <MenuItem x:Name="MenuBuildRun"  Header="Build &amp; Run" Click="OnBuildAndRun" InputGestureText="F5"/>
             </MenuItem>
+            <MenuItem Header="_View">
+                <MenuItem Header="Anti-aliasing">
+                    <MenuItem x:Name="AaFxaa"  Header="FXAA"    IsCheckable="True" Tag="1" Click="OnAaMenuClick"/>
+                    <MenuItem x:Name="AaMsaa2" Header="MSAA 2x" IsCheckable="True" Tag="2" Click="OnAaMenuClick"/>
+                    <MenuItem x:Name="AaMsaa4" Header="MSAA 4x" IsCheckable="True" Tag="4" Click="OnAaMenuClick"/>
+                    <MenuItem x:Name="AaMsaa8" Header="MSAA 8x" IsCheckable="True" Tag="8" IsChecked="True" Click="OnAaMenuClick"/>
+                </MenuItem>
+            </MenuItem>
             <MenuItem Header="_Help">
                 <MenuItem Header="About ACS Editor" Click="OnAbout"/>
             </MenuItem>
@@ -108,14 +116,6 @@
                 <Button x:Name="BuildBtn" Content="Build" Click="OnBuildProject" Padding="11,4" Margin="2,0"/>
                 <Button x:Name="RunBtn" Content="Run" Click="OnBuildAndRun" Padding="11,4" Margin="2,0" Foreground="{StaticResource InfoFg}"/>
                 <ToggleButton x:Name="HotReloadBtn" Content="Hot Reload" Click="OnHotReloadToggle" Padding="10,4" Margin="2,0"/>
-                <Separator/>
-                <TextBlock Text="AA" VerticalAlignment="Center" Margin="4,0,6,0" Foreground="{StaticResource TextDim}"/>
-                <ComboBox x:Name="AaBox" Width="84" VerticalAlignment="Center" SelectionChanged="OnAaChanged">
-                    <ComboBoxItem Content="FXAA"/>
-                    <ComboBoxItem Content="MSAA 2x"/>
-                    <ComboBoxItem Content="MSAA 4x"/>
-                    <ComboBoxItem Content="MSAA 8x" IsSelected="True"/>
-                </ComboBox>
             </StackPanel>
         </Border>
 
@@ -150,7 +150,6 @@
                             <MenuItem x:Name="CtxUser" Header="ユーザー定義のオブジェクト"/>
                             <Separator/>
                             <MenuItem Header="Blueprint として保存…" Click="OnCtxSaveBlueprint"/>
-                            <MenuItem Header="プレハブとして保存… (旧)" Click="OnCtxSavePrefab"/>
                             <MenuItem Header="名前を変更" Click="OnCtxRename"/>
                             <MenuItem Header="削除" Click="OnCtxDelete"/>
                         </ContextMenu>

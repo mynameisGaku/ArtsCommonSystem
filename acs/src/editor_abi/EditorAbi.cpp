@@ -3198,7 +3198,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
 // =============================================================================
 
 ACS_EDITOR_API const char* acs_editor_version(void) {
-    return "ACS Editor ABI 0.14 (DX12, reflection, scene I/O, camera+pick, undo, gizmo MRS, copy/paste, component props, multi-select, box-select, align/distribute, node props)";
+    return "ACS Editor 0.14 (DX12)";
 }
 
 ACS_EDITOR_API void* acs_editor_create(void) {

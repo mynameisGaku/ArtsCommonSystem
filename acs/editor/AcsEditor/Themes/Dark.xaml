@@ -632,10 +632,10 @@
     <!-- ============ パネル/インスペクタ共通 (全ウィンドウで使う) ============ -->
     <!-- パネル見出しバー (Hierarchy / Inspector / Console / ブラックボード 等) -->
     <Style x:Key="PanelHeader" TargetType="TextBlock">
-        <Setter Property="Padding" Value="11,7"/>
+        <Setter Property="Padding" Value="11,6"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
-        <Setter Property="FontSize" Value="12"/>
-        <Setter Property="Foreground" Value="#FFB4BCC8"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="Foreground" Value="#FFA8A8A8"/>
         <Setter Property="Background" Value="{StaticResource HeaderBg}"/>
     </Style>
     <!-- セクション見出し (TRANSFORM / DISPLAY 等)。SectionHeader (ラベル+罫線) と組で使う。 -->
