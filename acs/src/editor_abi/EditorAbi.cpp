@@ -3300,6 +3300,12 @@ ACS_EDITOR_API int acs_editor_attach(void* handle, void* hwnd, uint32_t width, u
         ACS_LOG_ERROR("[acs_editor_abi] fxaa init failed: %s", fr.Error().message);
     }
 
+    // 3D パイプライン/バッファ/シェーダを «描画ループの外» で初期化しておく。これを最初の描画フレーム内
+    // (DrawScene3D 冒頭の遅延 Ensure3D) で行うと、内部の GPU アップロード (静的バッファ staging =
+    // Submit + dev->WaitIdle()) が BeginFrame 後のフレームペーシングと競合し «起動時に間欠クラッシュ» する。
+    // GPU マテリアルプレビュー競合と同じパターン。attach 時 (フレーム未開始・GPU アイドル) に先に済ませる。
+    if (!Ensure3D(*host)) ACS_LOG_WARN("[acs_editor_abi] Ensure3D (attach 時) 失敗 — 描画時に再試行する");
+
     ACS_LOG_INFO("[acs_editor_abi] attached to HWND %p (%ux%u)", hwnd, width, height);
     return 1;
 }
@@ -3313,7 +3319,9 @@ static bool EnsureSceneRt(EditorHost& h, u32 w, u32 hgt) noexcept {
     if (h.scene_rt && h.scene_rt_w == w && h.scene_rt_h == hgt) return true;
     IRhiDevice* dev = h.renderer.Device();
     if (dev == nullptr) return false;
-    dev->WaitIdle();                        // 旧 RT が前フレームでまだ参照されている可能性 (リサイズ時のみ)
+    if (h.scene_rt) dev->WaitIdle();        // 旧 RT を安全に解放するため (リサイズ/MSAA変更時のみ)。初回生成は
+                                            // 旧 RT が無く WaitIdle 不要 — 描画ループ初フレームでの不要な WaitIdle が
+                                            // フレームペーシングと競合して間欠クラッシュするのを避ける。
     FTextureDesc td{};
     td.width  = w;
     td.height = hgt;
@@ -3603,6 +3611,17 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->sprite_textures.Clear();
     host->m3d_frame_cb.Reset(); host->m3d_giz_cb.Reset(); host->m3d_dyn_vb.Reset(); host->m3d_giz_vb.Reset();
     host->gm_cube = GpuMesh{}; host->gm_sphere = GpuMesh{}; host->gm_plane = GpuMesh{};
+    // Phase2 で追加した GPU サブシステム/RT は «device 破棄より前» に明示解放する。これを怠ると
+    // delete host のデストラクタが renderer.Shutdown() (device 破棄) の «後» に走り、解放済み device
+    // 上で GPU リソースを Release して «終了時に間欠 access violation (acs_editor_destroy)» を起こす。
+    host->pbr3d.Shutdown();
+    host->post3d.Shutdown();
+    host->sky3d.Shutdown();
+    host->scene_rt.Reset();
+    host->preview_rt.Reset();
+    host->preview_sphere_albedo.Reset();
+    host->preview_sphere_normal.Reset();
+    host->preview_scene.Reset();
     host->renderer.Shutdown();
     delete host;
 }
