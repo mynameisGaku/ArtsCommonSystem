@@ -150,6 +150,21 @@ void Dx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index
 
     const FLOAT col[4] = { clear.r, clear.g, clear.b, clear.a };
     m_CmdList->ClearRenderTargetView(rtv, col, 0, nullptr);
+
+    // ビューポート/シザーをバックバッファ全体へ設定する (BeginShadowPass / BindOffscreenRT と同様)。
+    // これが無いと直前パスの viewport が残り、FPostProcess の最終合成 (Pass_Tonemap) 等が
+    // 画面の一部にしか描かれない。raw DX12 backend のみこの設定が抜けていた。
+    D3D12_VIEWPORT vp{};
+    vp.TopLeftX = 0; vp.TopLeftY = 0;
+    vp.Width    = static_cast<f32>(dx_sc.Width());
+    vp.Height   = static_cast<f32>(dx_sc.Height());
+    vp.MinDepth = 0.0f; vp.MaxDepth = 1.0f;
+    m_CmdList->RSSetViewports(1, &vp);
+    D3D12_RECT sr{};
+    sr.left = 0; sr.top = 0;
+    sr.right  = static_cast<i32>(dx_sc.Width());
+    sr.bottom = static_cast<i32>(dx_sc.Height());
+    m_CmdList->RSSetScissorRects(1, &sr);
 }
 
 void Dx12CommandList::EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index) noexcept {
