@@ -2888,6 +2888,30 @@ void AppendCylinder(TArray<M3DVtx>& gv, FVec3 base, int axis, f32 len, f32 rad, 
         pushV(b0,n0); pushV(t1,n1); pushV(b1,n1);
     }
 }
+/** 軸まわりの «リング» (トーラス)。回転ギズモ用。リング半径 radius、チューブ半径 tube。 */
+void AppendRing(TArray<M3DVtx>& gv, FVec3 center, int axis, f32 radius, f32 tube, FVec3 col) noexcept {
+    const FVec3 ax = AxisDir(axis);
+    FVec3 u = (axis == 2) ? FVec3{ 1, 0, 0 } : FVec3{ 0, 1, 0 };
+    FVec3 v{ ax.y*u.z - ax.z*u.y, ax.z*u.x - ax.x*u.z, ax.x*u.y - ax.y*u.x };   // u,v: リング平面
+    const int N = 24, M = 5;
+    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { M3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f; gv.PushBack(o);} };
+    auto ringDir = [&](f32 a){ return FVec3{ u.x*std::cos(a)+v.x*std::sin(a), u.y*std::cos(a)+v.y*std::sin(a), u.z*std::cos(a)+v.z*std::sin(a) }; };
+    auto tubeN  = [&](FVec3 rd, f32 b){ return FVec3{ rd.x*std::cos(b)+ax.x*std::sin(b), rd.y*std::cos(b)+ax.y*std::sin(b), rd.z*std::cos(b)+ax.z*std::sin(b) }; };
+    for (int i = 0; i < N; ++i) {
+        const f32 a0 = 6.2831853f*i/N, a1 = 6.2831853f*(i+1)/N;
+        const FVec3 rd0 = ringDir(a0), rd1 = ringDir(a1);
+        const FVec3 c0{ center.x+rd0.x*radius, center.y+rd0.y*radius, center.z+rd0.z*radius };
+        const FVec3 c1{ center.x+rd1.x*radius, center.y+rd1.y*radius, center.z+rd1.z*radius };
+        for (int j = 0; j < M; ++j) {
+            const f32 b0 = 6.2831853f*j/M, b1 = 6.2831853f*(j+1)/M;
+            const FVec3 n00=tubeN(rd0,b0), n01=tubeN(rd0,b1), n10=tubeN(rd1,b0), n11=tubeN(rd1,b1);
+            const FVec3 p00{c0.x+n00.x*tube,c0.y+n00.y*tube,c0.z+n00.z*tube}, p01{c0.x+n01.x*tube,c0.y+n01.y*tube,c0.z+n01.z*tube};
+            const FVec3 p10{c1.x+n10.x*tube,c1.y+n10.y*tube,c1.z+n10.z*tube}, p11{c1.x+n11.x*tube,c1.y+n11.y*tube,c1.z+n11.z*tube};
+            pushV(p00,n00); pushV(p10,n10); pushV(p11,n11);
+            pushV(p00,n00); pushV(p11,n11); pushV(p01,n01);
+        }
+    }
+}
 
 /** 平面ハンドルの «小さな四角» を gv へ追加する (中心 c、面内基底 e1,e2、半サイズ hs)。 */
 void AppendQuad(TArray<M3DVtx>& gv, FVec3 c, FVec3 e1, FVec3 e2, f32 hs, FVec3 col) noexcept {
@@ -3130,16 +3154,26 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         const FVec3 hot{ 1.0f, 0.86f, 0.22f };
         TArray<M3DVtx>& gv = *(new TArray<M3DVtx>()); gv.Reserve(4096);
 
-        // 3 軸 (円柱シャフト + 円錐矢じり)。
+        // 3 軸: gizmo_mode で形を変える (0=移動: 矢印 / 1=回転: リング / 2=拡縮: シャフト+箱)。
         for (int a = 1; a <= 3; ++a) {
             const FVec3 d = AxisDir(a);
             const FVec3 col = (h.giz3d_handle == a) ? hot : cols[a - 1];
             const FVec3 root{ P.x + d.x * rootO, P.y + d.y * rootO, P.z + d.z * rootO };
-            AppendCylinder(gv, root, a, axisL - rootO, shaft, col);
-            AppendCone(gv, FVec3{ P.x + d.x * axisL, P.y + d.y * axisL, P.z + d.z * axisL }, a, headL, head, col);
+            const FVec3 end{ P.x + d.x * axisL, P.y + d.y * axisL, P.z + d.z * axisL };
+            if (h.gizmo_mode == 1) {            // 回転: 軸まわりのリング
+                AppendRing(gv, P, a, axisL, shaft * 1.3f, col);
+            } else if (h.gizmo_mode == 2) {     // 拡縮: シャフト + 端の小箱
+                AppendCylinder(gv, root, a, axisL - rootO, shaft, col);
+                AppendMeshTris(gv, h.cpu_cube.Get(),
+                    FMat4::Scale(FVec3{ head*1.6f, head*1.6f, head*1.6f }) * FMat4::Translation(end), col, 4096);
+            } else {                            // 移動: シャフト + 矢じり
+                AppendCylinder(gv, root, a, axisL - rootO, shaft, col);
+                AppendCone(gv, end, a, headL, head, col);
+            }
         }
-        // 平面ハンドル (XY=4,YZ=5,XZ=6): 各 2 軸の途中にオフセットした小四角。
+        // 平面ハンドル (XY=4,YZ=5,XZ=6): 移動/拡縮のみ (回転は不要)。
         const f32 po = gl * 0.34f, ph = gl * 0.11f;
+        if (h.gizmo_mode != 1)
         for (int hpl = 4; hpl <= 6; ++hpl) {
             FVec3 e1, e2, nrm; PlaneAxes(hpl, e1, e2, nrm);
             const FVec3 c{ P.x + (e1.x + e2.x) * po, P.y + (e1.y + e2.y) * po, P.z + (e1.z + e2.z) * po };
