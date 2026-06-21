@@ -86,7 +86,8 @@ public:
      */
     TResult<void> Init(IRhiDevice& device,
                       EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
-                      EFormat depth_format = EFormat::D32_Float) noexcept;
+                      EFormat depth_format = EFormat::D32_Float,
+                      ECullMode cull_mode  = ECullMode::Back) noexcept;
 
     /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
     void Shutdown() noexcept;
@@ -403,7 +404,7 @@ public:
      *
      * @return object CB (b1、model・material 設定)。
      */
-    IRhiBuffer*   PerObjectCB() const noexcept { return m_ObjectCb.Get(); }
+    IRhiBuffer*   PerObjectCB() const noexcept { return m_ObjectCbs[m_ObjRingIdx].Get(); }
 
     /**
      * albedo fallback の 1x1 白テクスチャを返す。
@@ -449,8 +450,14 @@ private:
     /** per-frame 定数バッファ (b0)。 */
     TUniquePtr<IRhiBuffer>   m_FrameCb;
 
-    /** per-object 定数バッファ (b1)。 */
-    TUniquePtr<IRhiBuffer>   m_ObjectCb;
+    /** per-object 定数バッファ (b1) のリング。
+     *  単一の frame-cycled CB だと «フレーム内の複数 SetObject» が同一スロットを上書きし、
+     *  実行時に全 DrawIndexed が «最後の値» を読む (= 全メッシュが最後のノードの model/material に
+     *  なる)。per-object に別バッファを巡回することで各 draw が自分の値を読む。SetLights で
+     *  フレーム頭にリセット、SetObject ごとに次へ進める。 */
+    static constexpr u32     kObjRing = 256;
+    TUniquePtr<IRhiBuffer>   m_ObjectCbs[kObjRing];
+    u32                      m_ObjRingIdx = 0;
 
     /** albedo fallback の 1x1 白テクスチャ。 */
     TUniquePtr<IRhiTexture>  m_White;

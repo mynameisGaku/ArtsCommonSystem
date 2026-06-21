@@ -796,7 +796,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // uniform branching なので片方の TextureCube サンプルは PSO の dead code
     // として削除される (FXC の判断による)。
     float3 col;
-    if (ibl_params.x >= 0.5) {
+    // IBL cubemap が無くても SH9 / probe grid が有れば ambient 経路へ (SH9 standalone を許可)。
+    if (ibl_params.x >= 0.5 || ibl_params.z >= 0.5 || probe_params.x >= 1.0) {
         float3 base_ibl = ComputeIblAmbient(N, V, v.world_p, albedo_rgb, metallic, roughness, ao,
                                             ssr_rgb, ssr_weight, sheen_params.xyz, sheen_params.w,
                                             mat.irid_fresnel, mat.irid_weight);
@@ -1065,7 +1066,7 @@ constexpr usize CBSize() noexcept {
 } // namespace
 
 /** シェーダ・PSO・CB・fallback テクスチャ群を生成する。 */
-TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
+TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format, ECullMode cull_mode) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kPbrHLSL;
@@ -1092,13 +1093,17 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
         return Err<void>(r.Error());
     else m_FrameCb = Move(r.Value());
 
-    FBufferDesc ob{};
-    ob.size = CBSize<ObjectCBLayout>();
-    ob.usage = EBufferUsage::Uniform;
-    ob.cpu_writable = true;
-    if (auto r = CreateRhiBuffer(device, ob); r.IsErr())
-        return Err<void>(r.Error());
-    else m_ObjectCb = Move(r.Value());
+    // object CB はリング (kObjRing 本) を確保し、SetObject ごとに別バッファを使う。
+    for (u32 i = 0; i < kObjRing; ++i) {
+        FBufferDesc ob{};
+        ob.size = CBSize<ObjectCBLayout>();
+        ob.usage = EBufferUsage::Uniform;
+        ob.cpu_writable = true;
+        if (auto r = CreateRhiBuffer(device, ob); r.IsErr())
+            return Err<void>(r.Error());
+        else m_ObjectCbs[i] = Move(r.Value());
+    }
+    m_ObjRingIdx = 0;
 
     // 1x1 白テクスチャ (albedo fallback)
     const u8 white[4] = {255, 255, 255, 255};
@@ -1205,7 +1210,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     pd.depth_format  = depth_format;
     pd.depth_test    = true;
     pd.depth_write   = true;
-    pd.cull_mode     = ECullMode::Back;
+    pd.cull_mode     = cull_mode;
     pd.cbuffer_slots = 2;     // b0=Frame, b1=Object
     pd.texture_slots = 10;    // t0=albedo .. t8=lightmap, t9=ssr_color
     pd.cbuffer_names[0] = "Frame";
@@ -1273,7 +1278,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
 /** 全 GPU リソースと参照ポインタを解放する。 */
 void FPbrShader::Shutdown() noexcept {
     m_Pipeline.Reset();
-    m_ObjectCb.Reset();
+    for (u32 i = 0; i < kObjRing; ++i) m_ObjectCbs[i].Reset();
     m_FrameCb.Reset();
     m_ShadowFb.Reset();
     m_ShadowDepth = nullptr;
@@ -1483,6 +1488,7 @@ void FPbrShader::SetLights(const FMat4& vp, FVec3 eye,
     m_Vp = vp;
     m_Eye = eye;
     m_Ambient = ambient;
+    m_ObjRingIdx = kObjRing - 1;   // フレーム頭でリングをリセット (最初の SetObject が slot 0 を使う)
     if (count > kMaxDirLights) count = kMaxDirLights;
     m_DirCount = count;
     for (u32 i = 0; i < count; ++i) m_DirLights[i] = lights[i];
@@ -1576,7 +1582,8 @@ void FPbrShader::FlushFrameCB() noexcept {
 /** model と PBR/拡張パラメータから ObjectCBLayout を構築して object CB に書き込む。 */
 void FPbrShader::SetObject(const FMat4& model, FVec3 base_color,
                           f32 metallic, f32 roughness, f32 ao) noexcept {
-    if (!m_ObjectCb) return;
+    m_ObjRingIdx = (m_ObjRingIdx + 1) % kObjRing;   // 次のリングバッファ (per-object 分離)
+    if (!m_ObjectCbs[m_ObjRingIdx]) return;
     ObjectCBLayout cb{};
     cb.model = model;
     cb.base_color = FVec4{base_color.x, base_color.y, base_color.z, 1.0f};
@@ -1588,7 +1595,7 @@ void FPbrShader::SetObject(const FMat4& model, FVec3 base_color,
     cb.sheen_rough   = m_SheenRough;
     cb.irid_params   = m_IridParams;
     cb.sss_params    = m_SssParams;
-    m_ObjectCb->Update(&cb, sizeof(cb));
+    m_ObjectCbs[m_ObjRingIdx]->Update(&cb, sizeof(cb));
 }
 
 /** clearcoat/anisotropy パラメータを member に格納する (次の SetObject で反映)。 */
@@ -1643,11 +1650,11 @@ void FPbrShader::SetSubsurface(FVec3 sss_color, f32 weight) noexcept {
 void FPbrShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const FMat4& model,
                         FVec3 base_color, f32 metallic, f32 roughness, f32 ao,
                         IRhiTexture* albedo) noexcept {
-    if (!m_Pipeline || !m_FrameCb || !m_ObjectCb) return;
-    SetObject(model, base_color, metallic, roughness, ao);
+    if (!m_Pipeline || !m_FrameCb || !m_ObjectCbs[0]) return;
+    SetObject(model, base_color, metallic, roughness, ao);   // リングを次へ進め、現在バッファへ書込む
     cmd.SetPipeline(*m_Pipeline);
     cmd.SetConstantBuffer(0, *m_FrameCb);
-    cmd.SetConstantBuffer(1, *m_ObjectCb);
+    cmd.SetConstantBuffer(1, *PerObjectCB());                 // SetObject が書いた «現在» のリングバッファ
     cmd.SetTexture(0, *(albedo ? albedo : m_White.Get()));
     BindIblTextures(cmd);
     cmd.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
