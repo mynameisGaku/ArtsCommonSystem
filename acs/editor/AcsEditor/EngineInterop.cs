@@ -448,6 +448,10 @@ internal static class EngineInterop
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_camera_pan(IntPtr handle, float dx, float dy);
 
+    // 真のパン (平行移動)。3D 透視で中ドラッグ時に使う (camera_pan は透視で軌道回転)。
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_camera_move(IntPtr handle, float dx, float dy);
+
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_camera_zoom(IntPtr handle, float factor, float anchorX, float anchorY);
 

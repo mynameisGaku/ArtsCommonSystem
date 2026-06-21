@@ -6,6 +6,7 @@ param(
     [string]$Click    = "",   # "x,y" (ウィンドウ左上からの相対座標) をキャプチャ前にクリック
     [string]$Drag     = "",   # "x1,y1,x2,y2" 左ドラッグ (スクラブ等の検証用)
     [string]$RightDrag = "",  # "x1,y1,x2,y2" 右ドラッグ (3Dカメラのパン/軌道検証用)
+    [string]$MidDrag   = "",  # "x1,y1,x2,y2" 中ドラッグ (3Dカメラのパン検証用)
     [string]$CtrlClick = "",  # "x,y;x,y" Ctrl を押しながら各点をクリック (複数選択の検証用)
     [string]$ClickAfter = "", # "x,y;x,y" CtrlClick の後にクリック (メニュー操作など。間隔広め)
     [int]   $PostWait = 0,    # クリック後・キャプチャ前の待機 ms (アニメ/物理の進行を見る)
@@ -161,6 +162,22 @@ try {
             [void][Win]::SetCursorPos($xx, $yy); Start-Sleep -Milliseconds 30
         }
         [Win]::mouse_event(0x10, 0, 0, 0, [IntPtr]::Zero)   # RIGHTUP
+        Start-Sleep -Milliseconds 600
+    }
+
+    if ($MidDrag -ne "") {
+        $d = $MidDrag -split ','
+        $x1 = $r.Left + [int]$d[0]; $y1 = $r.Top + [int]$d[1]
+        $x2 = $r.Left + [int]$d[2]; $y2 = $r.Top + [int]$d[3]
+        [void][Win]::SetCursorPos($x1, $y1); Start-Sleep -Milliseconds 120
+        [Win]::mouse_event(0x20, 0, 0, 0, [IntPtr]::Zero)   # MIDDLEDOWN
+        Start-Sleep -Milliseconds 60
+        for ($k = 1; $k -le 12; $k++) {
+            $xx = [int]($x1 + ($x2 - $x1) * $k / 12.0)
+            $yy = [int]($y1 + ($y2 - $y1) * $k / 12.0)
+            [void][Win]::SetCursorPos($xx, $yy); Start-Sleep -Milliseconds 30
+        }
+        [Win]::mouse_event(0x40, 0, 0, 0, [IntPtr]::Zero)   # MIDDLEUP
         Start-Sleep -Milliseconds 600
     }
 

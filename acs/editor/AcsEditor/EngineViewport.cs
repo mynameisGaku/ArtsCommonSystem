@@ -59,6 +59,7 @@ public sealed class EngineViewport : HwndHost
     private WndProcDelegate? _wndProc;   // GC で回収されないよう保持
     private IntPtr _origProc;            // 元の STATIC ウィンドウプロシージャ
     private bool _panning;
+    private int  _panMode;               // ドラッグ中のカメラ操作: 0=軌道(右) / 1=パン(中)
     private bool _gizmoDragging;         // 移動ギズモのドラッグ中
     private bool _giz3dDragging;         // 3D 変形ギズモのドラッグ中
     private int _lastX, _lastY;
@@ -231,7 +232,9 @@ public sealed class EngineViewport : HwndHost
                 // ギズモ/マーキー ドラッグ中はパンを始めない (gizmo/marquee/pan を相互排他に)。
                 if (!_gizmoDragging && !_marqueeDragging)
                 {
-                    _panning = true; _lastX = LoWord(lParam); _lastY = HiWord(lParam); SetCapture(hWnd);
+                    _panning = true;
+                    _panMode = (msg == WM_MBUTTONDOWN) ? 1 : 0;   // 中ボタン=パン(平行移動) / 右ボタン=軌道(回転)
+                    _lastX = LoWord(lParam); _lastY = HiWord(lParam); SetCapture(hWnd);
                 }
                 break;
 
@@ -301,9 +304,10 @@ public sealed class EngineViewport : HwndHost
                     }
                     else if (_panning)
                     {
-                        EngineInterop.acs_editor_camera_pan(_engine, x - _lastX, y - _lastY);
+                        if (_panMode == 1) EngineInterop.acs_editor_camera_move(_engine, x - _lastX, y - _lastY);  // 中ドラッグ = パン
+                        else               EngineInterop.acs_editor_camera_pan (_engine, x - _lastX, y - _lastY);  // 右ドラッグ = 軌道
                         _lastX = x; _lastY = y;
-                        EngineInterop.acs_editor_render(_engine, 0f);   // 即時再描画でパンを滑らかに
+                        EngineInterop.acs_editor_render(_engine, 0f);   // 即時再描画でパン/軌道を滑らかに
                     }
                     else if (_marqueeDragging)
                     {

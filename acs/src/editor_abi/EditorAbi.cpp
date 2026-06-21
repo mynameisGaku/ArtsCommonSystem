@@ -5100,6 +5100,34 @@ ACS_EDITOR_API void acs_editor_camera_pan(void* handle, float dx, float dy) {
     host->cam_pan_x += dx; host->cam_pan_y += dy;
 }
 
+/** カメラを «真に» 平行移動 (パン)。3D 透視は注視点を camera の right/up 平面で移動 (中ドラッグ用)、
+ *  正射は画面平面で移動。camera_pan が透視で «軌道» 回転なのに対し、こちらは平行移動。 */
+ACS_EDITOR_API void acs_editor_camera_move(void* handle, float dx, float dy) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || !host->view3d) return;
+    IRhiSwapchain* sc = host->renderer.Swapchain();
+    const f32 H = (sc != nullptr && sc->Height() > 0) ? static_cast<f32>(sc->Height()) : 1080.0f;
+    if (host->ortho3d) {                                // 正射: 画面平面で平行移動
+        const f32 wpp = host->cam3d_dist * 0.62f * 2.0f / H;
+        host->cam3d_target.x += dx * wpp;
+        host->cam3d_target.y += dy * wpp;
+        return;
+    }
+    // 透視: 注視点を camera の right/up 平面で移動 (grab-pan: 内容がカーソルに追従)。
+    const FVec3 eye = Cam3DEye(*host);
+    auto nrm = [](FVec3 v){ const f32 l = std::sqrt(v.x*v.x+v.y*v.y+v.z*v.z); return l>1e-6f ? FVec3{v.x/l,v.y/l,v.z/l} : FVec3{0,0,1}; };
+    auto crs = [](FVec3 a, FVec3 b){ return FVec3{a.y*b.z-a.z*b.y, a.z*b.x-a.x*b.z, a.x*b.y-a.y*b.x}; };
+    const FVec3 fwd   = nrm(FVec3{ host->cam3d_target.x - eye.x, host->cam3d_target.y - eye.y, host->cam3d_target.z - eye.z });
+    const FVec3 right = nrm(crs(fwd, FVec3{ 0, 1, 0 }));
+    const FVec3 up    = crs(right, fwd);
+    const f32 wpp = host->cam3d_dist * 0.9f / H;        // 距離比例 (注視点深度の world/px ≈ 2*dist*tan(fov/2)/H)
+    // grab-pan: 内容がカーソルに追従するよう target を «ドラッグと逆» の screen 方向へ動かす。
+    // この scene では cross(fwd, up) が screen-左を指すため +right がドラッグ方向、結果 grab-pan になる。
+    host->cam3d_target.x += (right.x * dx + up.x * dy) * wpp;
+    host->cam3d_target.y += (right.y * dx + up.y * dy) * wpp;
+    host->cam3d_target.z += (right.z * dx + up.z * dy) * wpp;
+}
+
 /** アンカー (スクリーン点) を固定して factor 倍ズームする (ホイール)。3D モードではドリー。 */
 ACS_EDITOR_API void acs_editor_camera_zoom(void* handle, float factor, float anchor_x, float anchor_y) {
     auto* host = static_cast<EditorHost*>(handle);
