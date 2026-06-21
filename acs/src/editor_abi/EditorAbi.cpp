@@ -45,6 +45,9 @@
 #include "render/RenderAssets.h"            // UploadTexture / UploadMesh / GpuMesh
 #include "render/DebugDraw.h"               // FDebugDraw3D (グリッド/ギズモ/選択 AABB の線)
 #include "render/Sky.h"                     // FSky (エンジン標準の手続きスカイ。Phase2: kSky3DHLSL を置換)
+#include "render/PbrShader.h"               // FPbrShader (エンジン標準 PBR。Phase2: メッシュ移行先)
+#include "render/StandardShader.h"          // FDirLight (有向光源)
+#include "render/PostProcess.h"             // FPostProcess (HDR→ACES トーンマップ)
 #include "asset/MeshPrimitive.h"            // Primitive::MakeCube/MakeSphere/MakePlane
 #include "asset/MeshAsset.h"                // FMeshAsset
 #include "math/Camera.h"                    // FCamera (透視 + lookAt)
@@ -209,6 +212,8 @@ struct EEd3DRec : public acs::game::FComponent3D {
     // マテリアルは FMeshComponent3D が material_path + FMaterial2D で持つ (.acsmat 参照、2D 鏡映)。
     char  sprite_path[256] = {};              ///< 非空ならスプライト (z=0 テクスチャ付きクアッド)。再読込用の画像パス。
     TArray<FVec2> poly_pts;                   ///< 3点以上なら手続きポリゴン (z=0)。再生成用の元 2D 頂点列。
+    GpuMesh       gm_cache;                    ///< Phase2: prim==Mesh の GPU メッシュキャッシュ (FPbrShader 描画用)。
+    const void*   gm_cache_src = nullptr;      ///< gm_cache の元 FMeshAsset ポインタ (変化時に再アップロード)。
     // アタッチされた Component 型 (リフレクション type-id)。2D の FEditorNode と同じ «エディタ・メタデータ» 方式。
     game::FTypeId components[kMaxComponents] = {};
     u32           component_count            = 0;
@@ -301,6 +306,11 @@ struct EditorHost {
     TUniquePtr<IRhiBuffer>   sky_cb;                  // カメラ基底 (レイ再構成用)
     acs::FSky                sky3d;                   // Phase2: エンジン標準スカイ (kSky3DHLSL を置換)
     bool                     sky3d_ready = false;
+    acs::FPbrShader          pbr3d;                   // Phase2: エンジン標準 PBR (メッシュ移行先)
+    bool                     pbr3d_ready = false;
+    acs::FPostProcess        post3d;                  // Phase2: HDR→ACES トーンマップ
+    bool                     post3d_ready = false;
+    u32                      post3d_w = 0, post3d_h = 0;
     TUniquePtr<IRhiPipeline> grid_pipe;               // 無限グリッド (y=0 / ortho は z=0)
     TUniquePtr<IRhiShader>   grid_vs, grid_ps;
     TUniquePtr<IRhiBuffer>   grid_cb, grid_vb;        // b0: view_proj + 中心、大クアッド頂点
@@ -2158,8 +2168,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
                    + kdA * albedo * SkyCol(N)              // IBL 拡散 (環境照度)
                    + Fr  * SkyCol(R);                       // IBL 鏡面 (環境反射)
     float3 col = (ambient + Lo) * 0.78;                     // 露出 (やや絞ってコントラストを出す)
-    col = ACESFilm(col);                                    // ACES フィルミックトーンマップ
-    return float4(pow(col, (1.0 / 2.2).xxx), 1.0);          // sRGB ガンマ
+    return float4(col, 1.0);                                // Phase2: 線形出力 (FPostProcess が一度だけ ACES+ガンマ)
 }
 )";
 
@@ -2220,8 +2229,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     else          sky = lerp(horizon.rgb, ground.rgb,  saturate(-t * 1.6));       // 地平→地面側
     float  sd = max(dot(dir, normalize(sun.xyz)), 0.0);
     sky += float3(1.0, 0.94, 0.80) * (pow(sd, 600.0) * 2.2 + pow(sd, 40.0) * 0.35 + pow(sd, 8.0) * 0.10); // 太陽 (円盤 + 控えめハロ)
-    sky = sky / (sky + 1.0.xxx);
-    return float4(pow(sky, (1.0/2.2).xxx), 1.0);
+    return float4(sky, 1.0);   // Phase2: 線形出力 (FPostProcess が一度だけ tonemap。Reinhard も除去)
 }
 )";
 
@@ -2264,13 +2272,48 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 struct GridCB { FMat4 view_proj; FVec4 gctr; };
 
+/** 空グラデーション (FSky と同じ y-up) を SH9 放射輝度係数へ射影する (FPbrShader::SetSh9 用)。
+ *  Sh9Irradiance が内部でコサイン畳み込みするので «放射輝度» を渡す。irradiance≈π×平均輝度に
+ *  なるため入力放射輝度は控えめ。係数順序 [0]Y00 [1]y [2]z [3]x [4]xy [5]yz [6]Y20 [7]xz [8]x²-y²
+ *  はシェーダの Sh9Irradiance に一致させる。 */
+void ComputeSkySh9(FVec4 out[9]) noexcept {
+    // 空の放射輝度 (linear)。青みを «抑えめ» に (強い青だと環境光が全面青被り→低彩度 washout)。
+    // やや暗めにして «暖色の直射 vs 青い陰影» のコントラストを出す (暗さは exposure で補正)。
+    const FVec3 zenith { 0.17f, 0.22f, 0.31f };   // 天頂 (淡い青)
+    const FVec3 horizon{ 0.30f, 0.32f, 0.36f };   // 地平 (ほぼ中立)
+    const FVec3 ground { 0.11f, 0.105f, 0.10f };  // 下半球 (暗い暖グレー)
+    for (int i = 0; i < 9; ++i) out[i] = FVec4{ 0, 0, 0, 0 };
+    const int N = 2048; const float PI = 3.14159265f;
+    for (int k = 0; k < N; ++k) {
+        const float t = (k + 0.5f) / static_cast<float>(N);
+        const float z = 1.0f - 2.0f * t;
+        const float r = std::sqrt(std::fmax(0.0f, 1.0f - z * z));
+        const float phi = 2.0f * PI * static_cast<float>(k) * 0.6180339887f;
+        const float x = r * std::cos(phi), y = r * std::sin(phi);   // y = up
+        FVec3 c;
+        if (y >= 0.0f) c = horizon + (zenith - horizon) * std::pow(std::fmin(1.0f, y), 0.55f);
+        else           c = horizon + (ground - horizon) * std::fmin(1.0f, -y * 1.6f);
+        const float b[9] = {
+            0.282095f, 0.488603f * y, 0.488603f * z, 0.488603f * x,
+            1.092548f * x * y, 1.092548f * y * z, 0.315392f * (3.0f * z * z - 1.0f),
+            1.092548f * x * z, 0.546274f * (x * x - y * y)
+        };
+        for (int i = 0; i < 9; ++i) { out[i].x += c.x * b[i]; out[i].y += c.y * b[i]; out[i].z += c.z * b[i]; }
+    }
+    const float w = 4.0f * PI / static_cast<float>(N);
+    for (int i = 0; i < 9; ++i) { out[i].x *= w; out[i].y *= w; out[i].z *= w; }
+}
+
 bool Ensure3D(EditorHost& h) noexcept {
     if (h.r3d_ready) return true;
     IRhiDevice* dev = h.renderer.Device();
     if (dev == nullptr) return false;
     const EFormat cf = h.renderer.ColorFormat();
     const EFormat df = h.renderer.DepthFormat();
-    if (h.dbg3d.Init(*dev, cf).IsErr()) { ACS_LOG_ERROR("[3D] DebugDraw3D init 失敗"); return false; }
+    // Phase2: 3D シーンは «線形 HDR RT» に描いて FPostProcess(ACES) で一度だけ tonemap する。
+    // そのため色を出すパイプは全て HDR フォーマットで作る (cf=backbuffer は FPostProcess の出力のみ)。
+    const EFormat hdrf = EFormat::R16G16B16A16_Float;
+    if (h.dbg3d.Init(*dev, hdrf).IsErr()) { ACS_LOG_ERROR("[3D] DebugDraw3D init 失敗"); return false; }
 
     FShaderDesc vs{}; vs.stage = EShaderStage::Vertex; vs.hlsl_source = kMesh3DHLSL; vs.entry_point = "VSMain"; vs.debug_name = "Mesh3D.VS";
     FShaderDesc ps{}; ps.stage = EShaderStage::Pixel;  ps.hlsl_source = kMesh3DHLSL; ps.entry_point = "PSMain"; ps.debug_name = "Mesh3D.PS";
@@ -2281,7 +2324,7 @@ bool Ensure3D(EditorHost& h) noexcept {
     FPipelineDesc pd{};
     pd.vs = h.m3d_vs.Get(); pd.ps = h.m3d_ps.Get();
     pd.topology     = EPrimitiveTopology::TriangleList;
-    pd.rt_format    = cf;
+    pd.rt_format    = hdrf;
     pd.depth_format = df;
     pd.depth_test   = true; pd.depth_write = true;     // 動的 VB 方式なら深度も効く (重なり解決)
     pd.cull_mode    = ECullMode::None;          // 表裏どちらの巻きでも確実に出す
@@ -2318,7 +2361,7 @@ bool Ensure3D(EditorHost& h) noexcept {
     FPipelineDesc skd{};
     skd.vs = h.sky_vs.Get(); skd.ps = h.sky_ps.Get();
     skd.topology = EPrimitiveTopology::TriangleList;
-    skd.rt_format = cf; skd.depth_format = EFormat::Unknown;
+    skd.rt_format = hdrf; skd.depth_format = EFormat::Unknown;
     skd.depth_test = false; skd.depth_write = false;
     skd.cull_mode = ECullMode::None; skd.blend_mode = EBlendMode::Opaque;
     skd.cbuffer_slots = 1; skd.cbuffer_names[0] = "Sky";
@@ -2328,7 +2371,7 @@ bool Ensure3D(EditorHost& h) noexcept {
 
     // Phase2: エンジン標準スカイ FSky。自前 kSky3DHLSL と同じ «depth off の背景フルスクリーン三角» 方式
     // (2D の FSpriteBatch と同じ depth-off エンジンパス) なのでこの文脈で描けるはず + 手続き雲つき。
-    { auto skr3 = h.sky3d.Init(*dev, cf, df); h.sky3d_ready = skr3.IsOk();
+    { auto skr3 = h.sky3d.Init(*dev, hdrf, df); h.sky3d_ready = skr3.IsOk();
       if (h.sky3d_ready) {
           h.sky3d.PresetDay();
           h.sky3d.SetSunDirection(FVec3{ 0.40f, 0.85f, -0.35f });   // シーンのライト方向と一致
@@ -2337,6 +2380,13 @@ bool Ensure3D(EditorHost& h) noexcept {
           h.sky3d.SetGroundColor (FVec3{ 0.20f, 0.19f, 0.21f });
           ACS_LOG_INFO("[3D] FSky Init OK (Phase2)");
       } else ACS_LOG_ERROR("[3D] FSky Init 失敗: %s", skr3.Error().message); }
+
+    // Phase2: エンジン標準 PBR。HDR フォーマット + cull None (editor の単面 plane/polygon も出す)。
+    { auto pr = h.pbr3d.Init(*dev, hdrf, df, ECullMode::None); h.pbr3d_ready = pr.IsOk();
+      if (h.pbr3d_ready) {
+          FVec4 sh9[9]; ComputeSkySh9(sh9); h.pbr3d.SetSh9(sh9);   // 空を SH9 IBL 環境光にベイク (flat ambient を上書き)
+          ACS_LOG_INFO("[3D] FPbrShader Init OK (Phase2) + SH9 IBL");
+      } else ACS_LOG_ERROR("[3D] FPbrShader Init 失敗: %s", pr.Error().message); }
 
     // スプライト (テクスチャ付きクアッド): t0=albedo + 静的 Linear/Clamp サンプラ、アルファブレンド。
     // 半透明なので depth_test=on / depth_write=off (背後のメッシュには隠れるが互いの深度は描画順)。
@@ -2349,7 +2399,7 @@ bool Ensure3D(EditorHost& h) noexcept {
         FPipelineDesc sd{};
         sd.vs = h.spr_vs.Get(); sd.ps = h.spr_ps.Get();
         sd.topology     = EPrimitiveTopology::TriangleList;
-        sd.rt_format    = cf; sd.depth_format = df;
+        sd.rt_format    = hdrf; sd.depth_format = df;
         sd.depth_test   = true; sd.depth_write = false;
         sd.cull_mode    = ECullMode::None;
         sd.blend_mode   = EBlendMode::AlphaBlend;
@@ -2381,7 +2431,7 @@ bool Ensure3D(EditorHost& h) noexcept {
         FPipelineDesc gd{};
         gd.vs = h.grid_vs.Get(); gd.ps = h.grid_ps.Get();
         gd.topology     = EPrimitiveTopology::TriangleList;
-        gd.rt_format    = cf; gd.depth_format = df;
+        gd.rt_format    = hdrf; gd.depth_format = df;
         gd.depth_test   = true; gd.depth_write = false;
         gd.cull_mode    = ECullMode::None; gd.blend_mode = EBlendMode::AlphaBlend;
         gd.cbuffer_slots = 1; gd.cbuffer_names[0] = "Grid";
@@ -2693,6 +2743,27 @@ const FMeshAsset* NMesh(game::FNode3D* n) noexcept {
     return (m != nullptr) ? m->Mesh() : nullptr;
 }
 
+/** Phase2: ノードを FPbrShader (DrawIndexed) で描くための GpuMesh を返す。
+ *  prim 0/1/2 は共有プリミティブ、prim 3 (Mesh/ポリゴン) はノードの FMeshAsset を on-demand
+ *  アップロードして EEd3DRec にキャッシュ (元メッシュが変われば再アップロード)。失敗は nullptr。 */
+GpuMesh* GpuMeshForNode3D(EditorHost& h, game::FNode3D* nn) noexcept {
+    const int prim = NPrim(nn);
+    if (prim == 1) return &h.gm_sphere;
+    if (prim == 2) return &h.gm_plane;
+    if (prim != 3) return &h.gm_cube;                 // 0=Cube (既定)
+    const FMeshAsset* cm = NMesh(nn);
+    EEd3DRec* rec = Rec3D(nn);
+    if (cm == nullptr || rec == nullptr) return nullptr;
+    if (rec->gm_cache_src != cm || rec->gm_cache.vertex_buffer.Get() == nullptr) {
+        IRhiDevice* dev = h.renderer.Device();
+        if (dev == nullptr) return nullptr;
+        rec->gm_cache = GpuMesh{};
+        if (UploadMesh(*dev, *cm, rec->gm_cache).IsErr()) { rec->gm_cache_src = nullptr; return nullptr; }
+        rec->gm_cache_src = cm;
+    }
+    return &rec->gm_cache;
+}
+
 /** 新規 3D ノードを生成して FNode3D への参照を返す (FNode3D + EEd3DRec + FMeshComponent3D)。 */
 game::FNode3D& AddNode3D(EditorHost& h, const char* name) noexcept {
     game::FNode3D& n = h.scene3d.Spawn(FStringView((name != nullptr && name[0] != '\0') ? name : "Node"));
@@ -2895,14 +2966,23 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
         cl->Draw(dvCount, 0);
         cl->EndShadowPass(*h.shadow.DepthTexture());
-        IRhiSwapchain* sc = h.renderer.Swapchain();              // backbuffer + 本深度を再 bind (clear。まだ未描画)
-        if (sc != nullptr) {
-            cl->BeginRenderToSwapchain(*sc, h.renderer.CurrentBuffer(), h.clear_color, h.renderer.DepthBuffer(), 1.0f);
-            FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
-            FScissorRect rsr{}; rsr.right = static_cast<i32>(scW); rsr.bottom = static_cast<i32>(scH); cl->SetScissor(rsr);
-            shadowOn = true;
-        }
+        shadowOn = true;   // シャドウマップ有効 (本パスで FPbrShader が PCF サンプル)
     }
+
+    // Phase2: 3D シーンを «線形 HDR RT» へ描く → 末尾で FPostProcess(ACES) が一度だけ tonemap。post3d 遅延初期化。
+    IRhiDevice* pdev = h.renderer.Device();
+    if (pdev != nullptr && (h.post3d_w != scW || h.post3d_h != scH)) {
+        if (!h.post3d_ready) { auto pr = h.post3d.Init(*pdev, scW, scH, h.renderer.ColorFormat()); h.post3d_ready = pr.IsOk();
+                               if (!h.post3d_ready) ACS_LOG_ERROR("[3D] FPostProcess Init 失敗: %s", pr.Error().message); }
+        else                 { h.post3d.Resize(scW, scH); }
+        if (h.post3d_ready) { h.post3d_w = scW; h.post3d_h = scH; }
+    }
+    IRhiTexture*   hdrRt  = h.post3d_ready ? h.post3d.HdrRenderTarget() : nullptr;
+    IRhiSwapchain* scSwap = h.renderer.Swapchain();
+    if (hdrRt != nullptr)        cl->BeginRenderToTexture(*hdrRt, h.clear_color, h.renderer.DepthBuffer(), 1.0f);
+    else if (scSwap != nullptr)  cl->BeginRenderToSwapchain(*scSwap, h.renderer.CurrentBuffer(), h.clear_color, h.renderer.DepthBuffer(), 1.0f);
+    { FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
+      FScissorRect rsr{}; rsr.right = static_cast<i32>(scW); rsr.bottom = static_cast<i32>(scH); cl->SetScissor(rsr); }
 
     // --- (1) スカイ: Phase2 でエンジン標準 FSky に置換 (depth-off の背景フルスクリーン三角。手続き雲つき)。
     //         FSky Init 失敗時のみ自前 kSky3DHLSL にフォールバック。
@@ -2940,8 +3020,34 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     fcb.light_vp    = lightVp;                              // シャドウマップ空間
     if (h.m3d_frame_cb) h.m3d_frame_cb->Update(&fcb, sizeof(fcb));
 
-    // --- (2) ノードのメッシュ本体 (depth on)。dv は (0) で展開済み。シャドウマップを t0 に bind して PCF 比較。
-    if (dvCount > 0 && h.m3d_dyn_vb) {
+    // --- (2) ノードのメッシュ本体: エンジン標準 FPbrShader (HDR 線形出力)。per-node DrawMesh で
+    //     model + 材質(metallic/roughness/baseColor + Substrate ロブ + emissive)+ キャスト影。
+    //     DrawMesh が «object CB リングの現在バッファ» を毎draw bind するので per-object が正しく出る。
+    if (h.pbr3d_ready) {
+        FDirLight dl; dl.direction = FVec3{ -0.40f, -0.85f, 0.35f }; dl.color = FVec3{ 2.20f, 2.10f, 1.95f };  // 太陽 (光が向かう方向=上から照らす)
+        h.pbr3d.SetLights(vp, camPos, &dl, 1, FVec3{ 0.26f, 0.28f, 0.33f });   // flat ambient (アルベドを白飛びさせず、暗すぎない範囲)
+        if (shadowOn) h.pbr3d.SetShadowMap(h.shadow.DepthTexture(), lightVp, 0.0015f, 1.0f);
+        else          h.pbr3d.SetShadowMap(nullptr, lightVp);
+        for (u32 i = 0; i < all3d.Size(); ++i) {
+            game::FNode3D* nn = all3d[i];
+            game::FMeshComponent3D* mc = Mesh3D(nn);
+            if (mc == nullptr || mc->RenderHandle() != nullptr) continue;    // スプライトは別パス
+            GpuMesh* gm = GpuMeshForNode3D(h, nn);
+            if (gm == nullptr || gm->vertex_buffer.Get() == nullptr || gm->index_buffer.Get() == nullptr) continue;
+            if (!mc->MaterialLoaded() && mc->HasMaterial()) LoadNode3DMaterial(nn);
+            const FVec4 col = NColor(nn);
+            const game::FPbrParams2D& p = mc->Material().pbr;
+            const bool lit = mc->HasMaterial() && mc->Material().kind == game::EMaterialKind::Lit;
+            const FVec3 albedo = lit ? FVec3{ p.baseColor.x, p.baseColor.y, p.baseColor.z } : FVec3{ col.x, col.y, col.z };
+            // Substrate 拡張ロブ + emissive を DrawMesh(内部で SetObject) の前に member へ設定。
+            h.pbr3d.SetExtParams(p.clearcoat, p.clearcoatRoughness, p.anisotropy);
+            h.pbr3d.SetSheen(p.sheenColor, p.sheen, p.sheenRoughness);
+            h.pbr3d.SetSubsurface(p.subsurfaceColor, p.subsurface);
+            h.pbr3d.SetEmissive(p.emissive, p.emissiveStrength);
+            h.pbr3d.DrawMesh(*cl, *gm, nn->World().ToMat4(), albedo,
+                             lit ? p.metallic : 0.0f, lit ? p.roughness : 0.5f, p.ao, nullptr);
+        }
+    } else if (dvCount > 0 && h.m3d_dyn_vb) {   // フォールバック: 自前 kMesh3DHLSL (FPbrShader 不可時)
         cl->SetPipeline(*h.m3d_pipe);
         cl->SetConstantBuffer(0, *h.m3d_frame_cb);
         if (h.shadow.DepthTexture() != nullptr) cl->SetTexture(0, *h.shadow.DepthTexture());
@@ -3063,6 +3169,23 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
             cl->Draw(static_cast<u32>(gv.Size()), 0);
         }
         delete &gv;
+    }
+
+    // Phase2: HDR RT → FPostProcess(ACES + 軽 Bloom)で backbuffer へ一度だけ tonemap。
+    //         グリッド/ギズモも HDR に線形で乗っているので正しく tonemap される。editor は
+    //         ビネット/色収差/グレイン無効でクリーンに。
+    if (hdrRt != nullptr && scSwap != nullptr) {
+        cl->EndRenderToTexture(*hdrRt);
+        PostProcessParams pp{};
+        // bloom: 7-mip + progressive radius + soft-knee の高品質 bloom。threshold は HDR 1.0 超を抽出、
+        // soft-knee でなめらかに立ち上げ。radius は progressive で深い mip ほど広がる(基準 1.0)。
+        pp.bloom_enabled = true; pp.bloom_intensity = 0.80f; pp.bloom_threshold = 0.42f; pp.bloom_radius = 1.6f;
+        pp.tonemap_kind = 0;   // 0 = ACES Filmic
+        pp.exposure = 1.05f; pp.gamma = 2.2f;   // 空を暗めにした分を露出で補正
+        // 色補正: コントラストで立体感。彩度は控えめ (上げすぎると青灰の地面が過度に青くなる)。
+        pp.cg_saturation = 1.10f; pp.cg_contrast = 1.12f;
+        pp.vignette_intensity = 0.0f; pp.chromatic_aberration = 0.0f; pp.grain_intensity = 0.0f;
+        h.post3d.Render(*cl, *scSwap, h.renderer.CurrentBuffer(), pp);
     }
 }
 
