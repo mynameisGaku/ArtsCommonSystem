@@ -1421,6 +1421,19 @@ public partial class MainWindow : Window
         // F7 = Build / F5 = Build & Run (テキスト編集中でも安全な F キー)。
         if (e.Key == Key.F7) { OnBuildProject(this, new RoutedEventArgs()); e.Handled = true; }
         else if (e.Key == Key.F5) { OnBuildAndRun(this, new RoutedEventArgs()); e.Handled = true; }
+        // 編集中 (Play でない・テキスト入力でない) のギズモ/ビュー ショートカット (UE5/Unity 流:
+        // W=移動 / E=回転 / R=拡縮 / F=選択にフォーカス)。Play 中は下の FeedGameKey へ流す。
+        else if (Engine != IntPtr.Zero
+                 && EngineInterop.acs_editor_logic_play_active(Engine) == 0
+                 && Keyboard.FocusedElement is not System.Windows.Controls.TextBox
+                 && (e.Key == Key.W || e.Key == Key.E || e.Key == Key.R || e.Key == Key.F))
+        {
+            if      (e.Key == Key.W) OnGizmoMove(this, new RoutedEventArgs());
+            else if (e.Key == Key.E) OnGizmoRotate(this, new RoutedEventArgs());
+            else if (e.Key == Key.R) OnGizmoScale(this, new RoutedEventArgs());
+            else if (e.Key == Key.F) OnFocus(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
         // インプロセス Play 中はゲーム入力を DLL の acs::Input へフィードする (オートリピートは無視)。
         else if (!e.IsRepeat) FeedGameKey(e.Key, true);
     }
