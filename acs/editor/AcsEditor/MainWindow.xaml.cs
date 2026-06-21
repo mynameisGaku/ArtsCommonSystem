@@ -125,22 +125,11 @@ public partial class MainWindow : Window
         BuildList.Visibility    = tab == "build"   ? Visibility.Visible : Visibility.Collapsed;
         AssetBrowser.Visibility = tab == "assets"  ? Visibility.Visible : Visibility.Collapsed;
 
-        // アセットブラウザはプレビューのため自動で広げ、他タブへ戻ると元の高さに復元する。
-        if (BottomDockRow != null)
-        {
-            bool toAssets = tab == "assets";
-            if (toAssets && !_dockExpanded)
-            {
-                _dockNormal = BottomDockRow.ActualHeight > 1 ? BottomDockRow.ActualHeight : 172;
-                BottomDockRow.Height = new GridLength(Math.Max(380, _dockNormal));
-                _dockExpanded = true;
-            }
-            else if (!toAssets && _dockExpanded)
-            {
-                BottomDockRow.Height = new GridLength(_dockNormal);
-                _dockExpanded = false;
-            }
-        }
+        // 注: アセットタブでのドック自動拡張は «ビューポートのリサイズ(swapchain 再生成)が
+        //     メインレンダーと競合» して間欠クラッシュするため一旦無効化。描画オーバーホールで
+        //     «安全なリサイズ» を入れてから、大きいアセットプレビュー(3D モデル + 回転/拡縮)と
+        //     共に再導入する。_dockNormal/_dockExpanded はその際に再利用。
+        _ = _dockNormal; _ = _dockExpanded;
     }
 
     // アセットがダブルクリック/ドラッグで起動された: 画像は選択ノードのスプライトに割り当てる。
