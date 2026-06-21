@@ -139,6 +139,9 @@
             <DockPanel Grid.Column="0" Background="{StaticResource Panel}">
                 <TextBlock DockPanel.Dock="Top" Text="Hierarchy" Style="{StaticResource PanelHeader}"/>
                 <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource Hairline}"/>
+                <TextBox x:Name="HierSearchBox" DockPanel.Dock="Top" Margin="4,4,2,2"
+                         VerticalContentAlignment="Center" ToolTip="ノード名で検索/フィルタ (一致ノードとその親を表示)"
+                         TextChanged="OnHierSearchChanged"/>
                 <TreeView x:Name="HierarchyTree" Background="{StaticResource Panel}" Foreground="{StaticResource Text}"
                           BorderThickness="0" Margin="4,4,2,4"
                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"

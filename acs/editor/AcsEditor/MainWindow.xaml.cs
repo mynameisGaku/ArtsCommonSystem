@@ -597,6 +597,49 @@ public partial class MainWindow : Window
 
         // ABI の選択集合をツリーへ反映 (primary も含め全メンバをハイライト)。
         RefreshHierarchyHighlight();
+        ApplyHierarchyFilter();   // 検索フィルタを再適用 (再構築でも維持)
+    }
+
+    // ===== ヒエラルキー検索/フィルタ: 名前部分一致でノードを絞り込み (一致 + その祖先を表示) =====
+    private string _hierFilter = "";
+
+    private void OnHierSearchChanged(object sender, TextChangedEventArgs e)
+    {
+        _hierFilter = HierSearchBox.Text?.Trim() ?? "";
+        ApplyHierarchyFilter();
+    }
+
+    /// <summary>検索フィルタを TreeView に適用する (一致ノードとその祖先を表示、他を Collapsed)。</summary>
+    private void ApplyHierarchyFilter()
+    {
+        foreach (var obj in HierarchyTree.Items)
+            if (obj is TreeViewItem tvi) ApplyHierFilterRec(tvi, _hierFilter);
+    }
+
+    private bool ApplyHierFilterRec(TreeViewItem tvi, string filter)
+    {
+        bool selfMatch = filter.Length == 0 ||
+            TviName(tvi).Contains(filter, StringComparison.OrdinalIgnoreCase);
+        bool childMatch = false;
+        foreach (var obj in tvi.Items)
+            if (obj is TreeViewItem child && ApplyHierFilterRec(child, filter)) childMatch = true;
+        bool visible = selfMatch || childMatch;
+        tvi.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        if (filter.Length == 0)
+            tvi.IsExpanded = !(tvi.Tag is int id && _collapsedNodes.Contains(id));   // 元の畳み状態へ復元
+        else if (childMatch)
+            tvi.IsExpanded = true;                                                   // 子に一致 → 道筋を展開
+        return visible;
+    }
+
+    /// <summary>TreeViewItem の表示名を取り出す (2D=string ヘッダ / 3D=StackPanel 内 TextBlock)。</summary>
+    private static string TviName(TreeViewItem tvi)
+    {
+        if (tvi.Header is string s) return s;
+        if (tvi.Header is StackPanel sp)
+            foreach (var c in sp.Children)
+                if (c is TextBlock tb) return tb.Text ?? "";
+        return tvi.Header?.ToString() ?? "";
     }
 
     // ===== Viewport picking: ビューポートのクリック選択を Hierarchy/Inspector に反映 =====
