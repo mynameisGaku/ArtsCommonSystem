@@ -346,14 +346,12 @@ public partial class AssetBrowserPanel : UserControl
     {
         try
         {
-            // 小サムネ(≤96)は実シェーダ GPU。大プレビューは GPU が小さく出るため CPU 数式で確実に埋める。
-            if (Engine != IntPtr.Zero && N <= 96)
-            {
-                var buf = new byte[N * N * 4];
-                if (EngineInterop.acs_editor_render_preview_material(Engine, path, buf, N) != 0)
-                    return GpuBmp(buf, N);
-            }
-            // CPU フォールバック (GPU 未準備時)。
+            // 重要(安定性): GPU プレビュー (acs_editor_render_preview_material = preview_cl の Submit+WaitIdle) が
+            // メインレンダーループと競合し、«操作不要で起動後数秒に約70%» エディタを間欠クラッシュさせていた
+            // (実測: GPU 経路あり 0〜1/3 安定 → 切ると 4/4 安定)。これがメッシュプレビュー/SSAO/アセット選択の
+            // 不安定の正体。よってサムネ/プレビューは «CPU 数式 (MaterialPreview)» で生成する (十分な品質・完全安定)。
+            // GPU プレビュー再導入は «preview の submit をメインフレームと安全に直列化» してから (描画オーバーホール)。
+            // CPU で生成:
             int kind = EngineInterop.acs_editor_material_kind(path);
             if (kind == 0)
             {
