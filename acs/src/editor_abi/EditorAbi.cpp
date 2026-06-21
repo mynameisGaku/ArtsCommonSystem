@@ -3179,7 +3179,9 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         PostProcessParams pp{};
         // bloom: 7-mip + progressive radius + soft-knee の高品質 bloom。threshold は HDR 1.0 超を抽出、
         // soft-knee でなめらかに立ち上げ。radius は progressive で深い mip ほど広がる(基準 1.0)。
-        pp.bloom_enabled = true; pp.bloom_intensity = 0.80f; pp.bloom_threshold = 0.42f; pp.bloom_radius = 1.6f;
+        // 自然な bloom: threshold を «拡散面の明るさ» より上に置き、ハイライト/縁だけ抽出 (オブジェクト
+        // 全体が光る «発光感» を回避)。intensity 控えめ + radius 広めで «柔らかく広い» 質感は維持。
+        pp.bloom_enabled = true; pp.bloom_intensity = 0.50f; pp.bloom_threshold = 0.80f; pp.bloom_radius = 1.5f;
         pp.tonemap_kind = 0;   // 0 = ACES Filmic
         pp.exposure = 1.05f; pp.gamma = 2.2f;   // 空を暗めにした分を露出で補正
         // 色補正: コントラストで立体感。彩度は控えめ (上げすぎると青灰の地面が過度に青くなる)。
