@@ -109,6 +109,16 @@ public:
     virtual void EndRenderToTexture(class IRhiTexture& rt) noexcept = 0;
 
     /**
+     * 「main pass への自動復帰先」(BeginRenderToSwapchain で記憶した swapchain RTV + depth DSV) を破棄する。
+     *
+     * @details これ以降の EndRenderToTexture は «復帰しない» (noop) になる。フレーム冒頭で
+     * BeginRenderToSwapchain 済みでも、その後に off-screen サブパス (SSAO の motion/GTAO 等) を
+     * «共有 depth を再 bind せずに» 連ねたい場合に呼ぶ。復帰先は次の BeginRenderToSwapchain で再設定される。
+     * 既定は noop (復帰追従を持たない backend 用)。Diligent backend が実装する。
+     */
+    virtual void ClearMainPass() noexcept {}
+
+    /**
      * RT を clear せずに再 bind する load 版の描画開始。
      *
      * @details

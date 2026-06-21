@@ -293,6 +293,13 @@ void DiligentCommandList::EndRenderToTexture(IRhiTexture& /*rt*/) noexcept {
     SetScissor(sr);
 }
 
+void DiligentCommandList::ClearMainPass() noexcept {
+    // 以降の EndRenderToTexture を noop 化 (共有 depth を DSV へ再 bind させない)。
+    // 復帰先は次の BeginRenderToSwapchain で再設定される。
+    m_MainSwapchain = nullptr;
+    m_MainDepth     = nullptr;
+}
+
 void DiligentCommandList::SetViewport(const FViewport& vp) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();

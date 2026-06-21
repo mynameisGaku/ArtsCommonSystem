@@ -116,6 +116,9 @@ public:
      */
     void EndRenderToTexture(IRhiTexture& rt) noexcept override;
 
+    /** main pass 復帰先 (m_MainSwapchain/m_MainDepth) を破棄し、以降の EndRenderToTexture を noop 化する。 */
+    void ClearMainPass() noexcept override;
+
     /**
      * クリアせずに RT を再 bind する load 版 (opaque pass 後に同じ HDR RT へ追加描画する用途)。
      *

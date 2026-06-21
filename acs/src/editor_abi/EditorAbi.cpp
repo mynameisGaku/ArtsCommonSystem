@@ -48,6 +48,8 @@
 #include "render/PbrShader.h"               // FPbrShader (エンジン標準 PBR。Phase2: メッシュ移行先)
 #include "render/StandardShader.h"          // FDirLight (有向光源)
 #include "render/PostProcess.h"             // FPostProcess (HDR→ACES トーンマップ)
+#include "render/MotionVector.h"            // FMotionVector (SSAO 用 法線 G-buffer)
+#include "render/Ssao.h"                    // FSsao (GTAO + 接地影)
 #include "asset/MeshPrimitive.h"            // Primitive::MakeCube/MakeSphere/MakePlane
 #include "asset/MeshAsset.h"                // FMeshAsset
 #include "math/Camera.h"                    // FCamera (透視 + lookAt)
@@ -323,6 +325,13 @@ struct EditorHost {
     acs::FPostProcess        post3d;                  // Phase2: HDR→ACES トーンマップ
     bool                     post3d_ready = false;
     u32                      post3d_w = 0, post3d_h = 0;
+    // --- SSAO(GTAO+接地影): motion(world-normal G-buffer) → ssao(2pass)。destroy で必ず明示 Shutdown する ---
+    acs::FMotionVector       motion3d;                 // 法線 G-buffer 生成 (RGBA16F normal)
+    bool                     motion3d_ready = false;
+    acs::FSsao               ssao3d;                   // GTAO + 接地影 (R8G8B8A8: .r=AO, .g=contact)
+    bool                     ssao3d_ready = false;
+    u32                      ssao_w = 0, ssao_h = 0;   // motion/ssao RT の現サイズ (post3d と同方式の遅延 Resize)
+    bool                     ssao_warm = false;        // 1フレーム遅延: 前フレームに SSAO RT を描いたら true
     TUniquePtr<IRhiPipeline> grid_pipe;               // 無限グリッド (y=0 / ortho は z=0)
     TUniquePtr<IRhiShader>   grid_vs, grid_ps;
     TUniquePtr<IRhiBuffer>   grid_cb, grid_vb;        // b0: view_proj + 中心、大クアッド頂点
@@ -3015,8 +3024,25 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         else                 { h.post3d.Resize(scW, scH); }
         if (h.post3d_ready) { h.post3d_w = scW; h.post3d_h = scH; }
     }
+    // SSAO 用 motion(法線 G-buffer)+ssao を viewport サイズで遅延 Init/Resize (post3d と同方式)。
+    // q_ssao_on のときだけ確保。失敗時は ready=false で以降のパスをスキップ。終了時は destroy で必ず Shutdown。
+    if (pdev != nullptr && h.q_ssao_on && (h.ssao_w != scW || h.ssao_h != scH)) {
+        if (!h.motion3d_ready) { auto r = h.motion3d.Init(*pdev, scW, scH); h.motion3d_ready = r.IsOk();
+                                 if (!h.motion3d_ready) ACS_LOG_ERROR("[3D] FMotionVector Init 失敗: %s", r.Error().message); }
+        else                   { h.motion3d.Resize(scW, scH); }
+        if (!h.ssao3d_ready)   { auto r = h.ssao3d.Init(*pdev, scW, scH); h.ssao3d_ready = r.IsOk();
+                                 if (!h.ssao3d_ready) ACS_LOG_ERROR("[3D] FSsao Init 失敗: %s", r.Error().message); }
+        else                   { h.ssao3d.Resize(scW, scH); }
+        if (h.motion3d_ready && h.ssao3d_ready) { h.ssao_w = scW; h.ssao_h = scH; }
+        else h.ssao_warm = false;   // 確保失敗/再確保中は古い RT を読ませない
+    }
+    if (!h.q_ssao_on) h.ssao_warm = false;   // プリセット OFF で即無効化
     IRhiTexture*   hdrRt  = h.post3d_ready ? h.post3d.HdrRenderTarget() : nullptr;
     IRhiSwapchain* scSwap = h.renderer.Swapchain();
+    // hdr 経路では «swapchain への自動復帰追従» を破棄しておく (27サンプルが cl->Begin() のみで
+    // BeginRenderToSwapchain しないのと同じ状態にする)。これで hdr/motion/ssao の EndRenderToTexture が
+    // 共有 depth を DSV へ再 bind せず、SSAO の depth SRV 読みと衝突しない。復帰先は post3d が再設定。
+    if (hdrRt != nullptr) cl->ClearMainPass();
     if (hdrRt != nullptr)        cl->BeginRenderToTexture(*hdrRt, h.clear_color, h.renderer.DepthBuffer(), 1.0f);
     else if (scSwap != nullptr)  cl->BeginRenderToSwapchain(*scSwap, h.renderer.CurrentBuffer(), h.clear_color, h.renderer.DepthBuffer(), 1.0f);
     { FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
@@ -3069,6 +3095,9 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         dl[1].direction = FVec3{  0.55f, -0.28f, -0.50f }; dl[1].color = FVec3{ 0.40f, 0.48f, 0.62f };  // fill (寒、弱)
         dl[2].direction = FVec3{  0.05f,  0.35f, -0.95f }; dl[2].color = FVec3{ 0.45f, 0.45f, 0.50f };  // rim (背面、輪郭)
         h.pbr3d.SetLights(vp, camPos, dl, 3, FVec3{ 0.22f, 0.24f, 0.30f });   // ambient はやや控えめ(陰のコントラスト確保)
+        // SSAO: 前フレームに描いた AO/接地影 RT を乗算 (1フレーム遅延=warm ガード)。OFF 時は null で安全に無効。
+        if (h.ssao_warm && h.ssao3d_ready) h.pbr3d.SetSsao(h.ssao3d.OutputTexture(), h.q_ssao_intensity, scW, scH);
+        else                               h.pbr3d.SetSsao(nullptr, 0.0f, scW, scH);
         if (shadowOn) h.pbr3d.SetShadowMap(h.shadow.DepthTexture(), lightVp, 0.0015f, 1.0f);
         else          h.pbr3d.SetShadowMap(nullptr, lightVp);
         for (u32 i = 0; i < all3d.Size(); ++i) {
@@ -3229,6 +3258,31 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     //         ビネット/色収差/グレイン無効でクリーンに。
     if (hdrRt != nullptr && scSwap != nullptr) {
         cl->EndRenderToTexture(*hdrRt);
+        // --- SSAO: 共有 depth(PBR が hdrRt 描画中に書いた)の write が解けた後に motion(法線)→GTAO を計算。
+        //     depth を write+read 同時バインドすると過去のクラッシュが再発するため «EndRenderToTexture の後» が肝。
+        //     出力はその場では使わず «次フレームの PBR» が SetSsao で合成する (Showcase と同じ 1-delay)。
+        if (h.q_ssao_on && h.motion3d_ready && h.ssao3d_ready && pdev != nullptr && h.renderer.DepthBuffer() != nullptr) {
+            // 重要: SSAO サブパス前に «main pass=swapchain への自動復帰» を破棄する。これをしないと motion/ssao の
+            // 内部 EndRenderToTexture が共有 depth を DSV へ再 bind し、SSAO の depth SRV 読みと衝突して全面黒になる
+            // (27サンプルは冒頭で BeginRenderToSwapchain せず cl->Begin() のみなので自動復帰が起きず正常)。
+            // 復帰先は直後の post3d.Render の BeginRenderToSwapchain で再設定される。
+            cl->ClearMainPass();
+            h.motion3d.Begin(*cl, vp, vp);   // prev_vp=vp (エディタは静的扱い。SSAO は法線のみ使用)
+            for (u32 i = 0; i < all3d.Size(); ++i) {
+                game::FNode3D* nn = all3d[i];
+                game::FMeshComponent3D* mc = Mesh3D(nn);
+                if (mc == nullptr || mc->RenderHandle() != nullptr) continue;   // スプライト除外 (PBR と同条件)
+                GpuMesh* gm = GpuMeshForNode3D(h, nn);
+                if (gm == nullptr || gm->vertex_buffer.Get() == nullptr || gm->index_buffer.Get() == nullptr) continue;
+                const FMat4 m = nn->World().ToMat4();
+                h.motion3d.DrawMesh(*cl, *gm, m, m);
+            }
+            h.motion3d.End(*cl);
+            const FVec3 sun = FVec3{ 0.40f, 0.85f, -0.35f };   // 太陽 (shadow と同じ向き)。接地影の向きは実測で要確認
+            h.ssao3d.Render(*pdev, *cl, *h.renderer.DepthBuffer(), *h.motion3d.OutputNormalTexture(),
+                            vp, Inverse(vp), cam.View(), eye, sun, h.q_ssao_intensity, h.q_ssao_radius);
+            h.ssao_warm = true;   // 次フレームの SetSsao を有効化
+        }
         PostProcessParams pp{};
         // bloom: 7-mip + progressive radius + soft-knee の高品質 bloom。threshold は HDR 1.0 超を抽出、
         // soft-knee でなめらかに立ち上げ。radius は progressive で深い mip ほど広がる(基準 1.0)。
@@ -3492,6 +3546,7 @@ static void ApplyQualityPreset(EditorHost& h, const char* level) noexcept {
 
 static void ApplySettings(EditorHost& h) noexcept {
     ApplyQualityPreset(h, h.settings.GetString("Rendering", "QualityLevel", "High"));   // 先に品質プリセットを展開
+    h.ssao_warm = false;   // 品質切替で SSAO の warm をリセット (OFF→ON や解像度変化時の stale RT を読まない)
     const int msaa = h.settings.GetInt("Rendering", "MsaaSamples", 8);
     h.msaa_pending = (msaa >= 8) ? 8u : (msaa >= 4) ? 4u : (msaa >= 2) ? 2u : 1u;
     h.ambient      = h.settings.GetColor("Rendering", "AmbientColor", FVec3{ 0.10f, 0.11f, 0.13f });
@@ -3617,6 +3672,9 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->pbr3d.Shutdown();
     host->post3d.Shutdown();
     host->sky3d.Shutdown();
+    host->motion3d.Shutdown();   // SSAO: device 破棄前に GPU リソース解放 (UAF 回避)
+    host->ssao3d.Shutdown();
+    host->motion3d_ready = false; host->ssao3d_ready = false; host->ssao_warm = false;
     host->scene_rt.Reset();
     host->preview_rt.Reset();
     host->preview_sphere_albedo.Reset();
