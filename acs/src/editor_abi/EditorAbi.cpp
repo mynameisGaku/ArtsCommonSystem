@@ -2400,7 +2400,9 @@ bool Ensure3D(EditorHost& h) noexcept {
     // Phase2: エンジン標準 PBR。HDR フォーマット + cull None (editor の単面 plane/polygon も出す)。
     { auto pr = h.pbr3d.Init(*dev, hdrf, df, ECullMode::None); h.pbr3d_ready = pr.IsOk();
       if (h.pbr3d_ready) {
-          FVec4 sh9[9]; ComputeSkySh9(sh9); h.pbr3d.SetSh9(sh9);   // 空を SH9 IBL 環境光にベイク (flat ambient を上書き)
+          FVec4 sh9[9]; ComputeSkySh9(sh9);                        // 空を SH9 IBL 環境光にベイク
+          for (int si = 0; si < 9; ++si) { sh9[si].x *= 0.65f; sh9[si].y *= 0.65f; sh9[si].z *= 0.65f; }  // 環境光を絞り «陰のコントラスト=立体感» を出す (3点ライト側で明るさは確保)
+          h.pbr3d.SetSh9(sh9);
           ACS_LOG_INFO("[3D] FPbrShader Init OK (Phase2) + SH9 IBL");
       } else ACS_LOG_ERROR("[3D] FPbrShader Init 失敗: %s", pr.Error().message); }
 
@@ -3064,8 +3066,13 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     //     model + 材質(metallic/roughness/baseColor + Substrate ロブ + emissive)+ キャスト影。
     //     DrawMesh が «object CB リングの現在バッファ» を毎draw bind するので per-object が正しく出る。
     if (h.pbr3d_ready) {
-        FDirLight dl; dl.direction = FVec3{ -0.40f, -0.85f, 0.35f }; dl.color = FVec3{ 2.20f, 2.10f, 1.95f };  // 太陽 (光が向かう方向=上から照らす)
-        h.pbr3d.SetLights(vp, camPos, &dl, 1, FVec3{ 0.26f, 0.28f, 0.33f });   // flat ambient (アルベドを白飛びさせず、暗すぎない範囲)
+        // 3点ライティング: 主光(暖・強)+ 補助光(寒・弱、影側を持ち上げ立体感)+ リム(背面・輪郭)。
+        // 1灯+SH9 だと陰が埋まりのっぺりするため、補助/リムで «面の向き» が読めるようにする。
+        FDirLight dl[3];
+        dl[0].direction = FVec3{ -0.40f, -0.85f,  0.35f }; dl[0].color = FVec3{ 2.35f, 2.22f, 2.00f };  // key (太陽、暖、強)
+        dl[1].direction = FVec3{  0.55f, -0.28f, -0.50f }; dl[1].color = FVec3{ 0.40f, 0.48f, 0.62f };  // fill (寒、弱)
+        dl[2].direction = FVec3{  0.05f,  0.35f, -0.95f }; dl[2].color = FVec3{ 0.45f, 0.45f, 0.50f };  // rim (背面、輪郭)
+        h.pbr3d.SetLights(vp, camPos, dl, 3, FVec3{ 0.22f, 0.24f, 0.30f });   // ambient はやや控えめ(陰のコントラスト確保)
         if (shadowOn) h.pbr3d.SetShadowMap(h.shadow.DepthTexture(), lightVp, 0.0015f, 1.0f);
         else          h.pbr3d.SetShadowMap(nullptr, lightVp);
         for (u32 i = 0; i < all3d.Size(); ++i) {
