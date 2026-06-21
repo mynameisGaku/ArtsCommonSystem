@@ -30,9 +30,25 @@ public partial class MainWindow
         {
             int id = EngineInterop.acs_editor_node3d_id_at(Engine, i);
             bool inSel = EngineInterop.acs_editor_node3d_is_selected(Engine, id) != 0;
+            // Header = 「Visible トグル + 名前」。Unity/Blender 流にヒエラルキーで可視を切替える。
+            // IsChecked はハンドラ接続より «前» に設定し、初期化時の発火を避ける (build 中の余計な set を防ぐ)。
+            var eye = new CheckBox
+            {
+                IsChecked = EngineInterop.acs_editor_node3d_get_visible(Engine, id) != 0,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0),
+                Focusable = false,
+                ToolTip = "表示 (Visible)",
+            };
+            int vid = id;   // クロージャ捕捉
+            eye.Checked   += (_, __) => { if (Engine != IntPtr.Zero) EngineInterop.acs_editor_node3d_set_visible(Engine, vid, 1); };
+            eye.Unchecked += (_, __) => { if (Engine != IntPtr.Zero) EngineInterop.acs_editor_node3d_set_visible(Engine, vid, 0); };
+            var hdr = new StackPanel { Orientation = Orientation.Horizontal };
+            hdr.Children.Add(eye);
+            hdr.Children.Add(new TextBlock { Text = Node3DName(id), VerticalAlignment = VerticalAlignment.Center });
             var tvi = new TreeViewItem
             {
-                Header = Node3DName(id),
+                Header = hdr,
                 Tag = id,
                 Foreground = Brushes.Gainsboro,
                 IsSelected = (id == sel),
@@ -94,6 +110,7 @@ public partial class MainWindow
     {
         Insp3DPanel.Children.Clear();
         Insp3DPanel.Visibility = Visibility.Collapsed;
+        InspEnabled.Visibility = Visibility.Collapsed;   // ヘッダの Enabled トグルも隠す (選択なし / 2D)
         if (!_view3d)
         {
             // 2D へ戻ったら 2D Inspector の表示を復帰。
@@ -103,6 +120,15 @@ public partial class MainWindow
         }
         InspName.Text = "(no selection)";
         InspSub.Text  = "3D ノードを選択してください";
+    }
+
+    /// <summary>ヘッダの Enabled トグル → 選択中 3D ノードの enabled を切替 (populate 中は抑止)。</summary>
+    private void OnInspEnabledChanged(object sender, System.Windows.RoutedEventArgs e)
+    {
+        if (_pop3d || Engine == IntPtr.Zero) return;
+        int id = EngineInterop.acs_editor_selected3d(Engine);
+        if (id < 0) return;
+        EngineInterop.acs_editor_node3d_set_enabled(Engine, id, InspEnabled.IsChecked == true ? 1 : 0);
     }
 
     private void Populate3DInspector(int id)
@@ -122,6 +148,9 @@ public partial class MainWindow
         int kind = EngineInterop.acs_editor_node3d_kind(Engine, id);   // 0=Cube 1=Sphere 2=Plane 3=Mesh 4=Sprite 5=Polygon
 
         _pop3d = true;
+        // Enabled トグルをヘッダ (オブジェクト名の横) に表示・同期。NODE 節から移動。_pop3d 中なので発火しない。
+        InspEnabled.IsChecked  = EngineInterop.acs_editor_node3d_get_enabled(Engine, id) != 0;
+        InspEnabled.Visibility = Visibility.Visible;
         Insp3DPanel.Children.Clear();
         Insp3DPanel.Children.Add(Section("TRANSFORM"));
         Insp3DPanel.Children.Add(Vec3Row("Position", tf[0], tf[1], tf[2], (x, y, z) => Set3DTransform(id, 0, x, y, z)));
@@ -163,12 +192,7 @@ public partial class MainWindow
         // マテリアル — .acsmat アセットを参照 (2D と同様、編集はマテリアルエディタで)。インライン数値編集はしない。
         Insp3DPanel.Children.Add(Build3DMaterialSlot(id));
 
-        // NODE — ノード自体 (FNode3D) の状態。
-        Insp3DPanel.Children.Add(Section("NODE"));
-        Insp3DPanel.Children.Add(Bool3DRow("Visible", EngineInterop.acs_editor_node3d_get_visible(Engine, id) != 0,
-            v => EngineInterop.acs_editor_node3d_set_visible(Engine, id, v ? 1 : 0)));
-        Insp3DPanel.Children.Add(Bool3DRow("Enabled", EngineInterop.acs_editor_node3d_get_enabled(Engine, id) != 0,
-            v => EngineInterop.acs_editor_node3d_set_enabled(Engine, id, v ? 1 : 0)));
+        // Visible はヒエラルキー (各ノードの目トグル) へ、Enabled はヘッダ (名前の横) へ移動済み。
 
         // COMPONENTS — 3D ノードにも振る舞いコンポーネントを付けられる (2D と同じ反射型・EEd3DRec に保持)。
         Insp3DPanel.Children.Add(Section("COMPONENTS"));

@@ -300,7 +300,13 @@
                         <!-- 選択ノードのヘッダ -->
                         <Border Background="{StaticResource Panel2}" CornerRadius="0" Padding="10,8" Margin="0,0,0,4">
                             <StackPanel>
-                                <TextBlock x:Name="InspName" Text="(no selection)" FontWeight="SemiBold" FontSize="14"/>
+                                <!-- オブジェクト名 + 有効(Enabled) トグル (名前の横)。3D ノード選択時のみ表示。 -->
+                                <DockPanel LastChildFill="True">
+                                    <CheckBox x:Name="InspEnabled" DockPanel.Dock="Right" Content="Enabled" Visibility="Collapsed"
+                                              VerticalAlignment="Center" Foreground="{StaticResource Text}" Margin="8,0,0,0"
+                                              Checked="OnInspEnabledChanged" Unchecked="OnInspEnabledChanged" ToolTip="有効 (Enabled)"/>
+                                    <TextBlock x:Name="InspName" Text="(no selection)" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                                </DockPanel>
                                 <TextBlock x:Name="InspSub" Text="ノードを選択してください" Foreground="{StaticResource TextDim}" FontSize="11" Margin="0,2,0,0"/>
                             </StackPanel>
                         </Border>
