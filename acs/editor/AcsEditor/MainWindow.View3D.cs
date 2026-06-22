@@ -80,6 +80,8 @@ public partial class MainWindow
     /// <summary>ノードの種別 (prim) を表すグリフ + 色を返す (ヒエラルキーのアイコン用)。</summary>
     private (string, Brush) PrimGlyph(int id)
     {
+        if (EngineInterop.acs_editor_node3d_kind(Engine, id) == 6)               // 空ノード (グループ用)
+            return ("⊕", new SolidColorBrush(Color.FromRgb(0x9A, 0x9E, 0xA8)));
         int prim = EngineInterop.acs_editor_node3d_prim(Engine, id);
         return prim switch
         {
@@ -211,6 +213,10 @@ public partial class MainWindow
         Insp3DPanel.Children.Add(Vec3Row("Position", tf[0], tf[1], tf[2], (x, y, z) => Set3DTransform(id, 0, x, y, z)));
         Insp3DPanel.Children.Add(Vec3Row("Rotation°", tf[3], tf[4], tf[5], (x, y, z) => Set3DTransform(id, 1, x, y, z)));
         Insp3DPanel.Children.Add(Vec3Row("Scale", tf[6], tf[7], tf[8], (x, y, z) => Set3DTransform(id, 2, x, y, z)));
+        // 空ノード (kind 6) は描画しないグループ用トランスフォーム → MESH RENDERER 節は出さない。
+        if (kind == 6)
+            Insp3DPanel.Children.Add(LabeledValue3D("Type", "Empty (グループ)"));
+        else {
         // MESH RENDERER (FMeshComponent3D) — «何を・どう» 描くか。シェイプ/色/マテリアルは «ノード固有の特別扱い»
         // ではなく «メッシュコンポーネントのプロパティ» として 1 つに束ねる (2D の描画コンポーネント方式に対応)。
         Insp3DPanel.Children.Add(Section("MESH RENDERER"));
@@ -246,6 +252,7 @@ public partial class MainWindow
             EngineInterop.acs_editor_node3d_set_color(Engine, id, r, g, b, a)));
         // マテリアル — .acsmat アセットを参照 (2D と同様、編集はマテリアルエディタで)。インライン数値編集はしない。
         Insp3DPanel.Children.Add(Build3DMaterialSlot(id));
+        }   // end else (kind != 6)
 
         // Visible はヒエラルキー (各ノードの目トグル) へ、Enabled はヘッダ (名前の横) へ移動済み。
 

@@ -459,11 +459,21 @@ public partial class MainWindow : Window
 
     // GameObject メニュー: 空ノードを生成 (root 直下 / 選択ノードの子)。
     private void OnCreateEmpty(object sender, RoutedEventArgs e) => CreateEmptyNode(-1);
-    private void OnCreateChild(object sender, RoutedEventArgs e) => CreateEmptyNode(_selectedId);
+    private void OnCreateChild(object sender, RoutedEventArgs e) =>
+        CreateEmptyNode(_view3d ? EngineInterop.acs_editor_selected3d(Engine) : _selectedId);
 
     private void CreateEmptyNode(int parentId)
     {
         if (Engine == IntPtr.Zero) return;
+        if (_view3d)   // 3D: 描画しない «空ノード» (グループ用トランスフォーム)。2D の add_node は 3D シーンに出ない
+        {
+            int id3 = EngineInterop.acs_editor_add_empty3d(Engine, "Empty");
+            if (id3 < 0) return;
+            if (parentId >= 0 && parentId != id3) EngineInterop.acs_editor_reparent3d(Engine, id3, parentId);
+            RefreshAfterSceneChange();   // 階層再構築 + 選択 UI 同期 (add_empty3d が新ノードを選択済み)
+            Log(parentId >= 0 ? $"空ノード {id3} を {parentId} の子に作成。" : $"空ノード {id3} を作成。");
+            return;
+        }
         int id = EngineInterop.acs_editor_add_node(Engine, "Empty", parentId);
         if (id < 0) return;
         BuildHierarchy();

@@ -87,6 +87,9 @@ internal static class EngineInterop
     public static extern void acs_editor_cam3d_reset(IntPtr handle);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_add_node3d(IntPtr handle, int prim, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+    /// <summary>«空ノード» (描画しないグループ用トランスフォーム) を追加。新 id / -1。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_add_empty3d(IntPtr handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_duplicate(IntPtr handle, int id);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]

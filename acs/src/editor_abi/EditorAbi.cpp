@@ -212,6 +212,7 @@ struct EEd3DRec : public acs::game::FComponent3D {
     // マテリアルは FMeshComponent3D が material_path + FMaterial2D で持つ (.acsmat 参照、2D 鏡映)。
     char  sprite_path[256] = {};              ///< 非空ならスプライト (z=0 テクスチャ付きクアッド)。再読込用の画像パス。
     char  prefab_src[256]  = {};              ///< 非空なら prefab/blueprint インスタンス (.acsprefab/.acsbp パス。2D FEditorNode 鏡映)。
+    bool  is_empty         = false;           ///< true なら «空ノード» (描画しないグループ用トランスフォーム。2D の空ノード相当)。
     TArray<FVec2> poly_pts;                   ///< 3点以上なら手続きポリゴン (z=0)。再生成用の元 2D 頂点列。
     GpuMesh       gm_cache;                    ///< Phase2: prim==Mesh の GPU メッシュキャッシュ (FPbrShader 描画用)。
     const void*   gm_cache_src = nullptr;      ///< gm_cache の元 FMeshAsset ポインタ (変化時に再アップロード)。
@@ -2964,6 +2965,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     TArray<game::FNode3D*> all3d; Dfs3DCollect(&h.scene3d.Root(), all3d);   // 階層を平坦化 (sprite パス 2.5 でも使う)
     for (u32 i = 0; i < all3d.Size(); ++i) {
         game::FNode3D* nn = all3d[i];
+        { EEd3DRec* er = Rec3D(nn); if (er != nullptr && er->is_empty) continue; }       // 空ノードは描画しない
         if (Mesh3D(nn) == nullptr || Mesh3D(nn)->RenderHandle() != nullptr) continue;   // スプライトは別パス
         const int prim = NPrim(nn);
         const FMeshAsset* cm = (prim == 3) ? NMesh(nn) : (prim == 1) ? h.cpu_sphere.Get()
@@ -3075,6 +3077,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         else          h.pbr3d.SetShadowMap(nullptr, lightVp);
         for (u32 i = 0; i < all3d.Size(); ++i) {
             game::FNode3D* nn = all3d[i];
+            { EEd3DRec* er = Rec3D(nn); if (er != nullptr && er->is_empty) continue; }   // 空ノードは描画しない
             game::FMeshComponent3D* mc = Mesh3D(nn);
             if (mc == nullptr || mc->RenderHandle() != nullptr) continue;    // スプライトは別パス
             GpuMesh* gm = GpuMeshForNode3D(h, nn);
@@ -5370,6 +5373,19 @@ ACS_EDITOR_API int acs_editor_add_node3d(void* handle, int prim, const char* nam
     return id;
 }
 
+/** «空ノード» (描画しないグループ用トランスフォーム。2D の空ノード相当) を追加する。新 id (失敗 -1)。
+ *  メッシュは描画ループでスキップされる (kind=6)。子をぶら下げる/整理する親として使う。 */
+ACS_EDITOR_API int acs_editor_add_empty3d(void* handle, const char* name) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return -1;
+    game::FNode3D& n = AddNode3D(*host, (name != nullptr && name[0] != '\0') ? name : "Empty");
+    const int id = host->next_id3d++;
+    EEd3DRec* r = n.GetComponent<EEd3DRec>();
+    if (r != nullptr) { r->id = id; r->is_empty = true; }
+    SetSel3D(*host, id);
+    return id;
+}
+
 /** 3D ノードの subtree を parent の下にクローンする。transform/euler/prim/color/material/子 を複製。
  *  注: スプライト/手続きポリゴンの «ジオメトリ再生成» は未対応 (prim mesh として複製される)。返り値=トップ複製の id。 */
 static int CloneNode3DSubtree(EditorHost& h, game::FNode3D* src, game::FNode3D* parent) noexcept {
@@ -5384,7 +5400,7 @@ static int CloneNode3DSubtree(EditorHost& h, game::FNode3D* src, game::FNode3D* 
     EEd3DRec* cr = Rec3D(&clone);
     if (cr != nullptr) {
         cr->id = newId;
-        if (sr != nullptr) { cr->euler = sr->euler; std::memcpy(cr->prefab_src, sr->prefab_src, sizeof(cr->prefab_src)); }   // インスタンスリンクも複製
+        if (sr != nullptr) { cr->euler = sr->euler; std::memcpy(cr->prefab_src, sr->prefab_src, sizeof(cr->prefab_src)); cr->is_empty = sr->is_empty; }   // インスタンスリンク/空フラグも複製
     }
     clone.Local() = src->Local();                    // transform をそのまま複製
     game::FMeshComponent3D* sm = Mesh3D(src);
@@ -5658,6 +5674,7 @@ ACS_EDITOR_API int acs_editor_node3d_kind(void* handle, int id) {
     game::FNode3D* n = FindNode3DNode(*host, id);
     if (n == nullptr) return -1;
     EEd3DRec* r = Rec3D(n);
+    if (r != nullptr && r->is_empty)               return 6;       // Empty (描画しないグループ用トランスフォーム)
     if (r != nullptr && r->sprite_path[0] != '\0') return 4;       // Sprite (テクスチャ付きクアッド)
     if (r != nullptr && r->poly_pts.Size() >= 3)   return 5;       // Polygon (z=0 手続きメッシュ)
     return NPrim(n);                                               // 0..3 (Cube/Sphere/Plane/Mesh)
@@ -6010,6 +6027,11 @@ static int EmitNode3DBlock(char* out, int cur, int cap, EditorHost* host,
         if (wp < 0 || wp >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
         cur += wp;
     }
+    if (r->is_empty && cur < cap) {                                                 // 空ノード (描画しないグループ)
+        const int we = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "EMPTY3D %d\n", r->id);
+        if (we < 0 || we >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
+        cur += we;
+    }
     return cur;
 }
 
@@ -6175,6 +6197,14 @@ static int LoadScene3DTextImpl(EditorHost* host, const char* text, bool clear,
             if (std::sscanf(line, "PFAB3D %d %255[^\n]", &fid, fpath) >= 2) {
                 EEd3DRec* rr = Rec3D(FindNode3DNode(*host, fid + idOffset));
                 if (rr != nullptr) std::snprintf(rr->prefab_src, sizeof(rr->prefab_src), "%s", fpath);
+            }
+            continue;
+        }
+        if (std::strncmp(line, "EMPTY3D ", 8) == 0) {                // 空ノードフラグの復元 (N3D の後)
+            int eid = 0;
+            if (std::sscanf(line, "EMPTY3D %d", &eid) >= 1) {
+                EEd3DRec* rr = Rec3D(FindNode3DNode(*host, eid + idOffset));
+                if (rr != nullptr) rr->is_empty = true;
             }
             continue;
         }
