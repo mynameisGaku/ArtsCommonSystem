@@ -2136,14 +2136,29 @@ public partial class MainWindow : Window
     // ===== Copy / Paste (subtree、Ctrl+C / Ctrl+V) =====
     private void OnCopy(object sender, ExecutedRoutedEventArgs e)
     {
-        if (_selectedId < 0 || Engine == IntPtr.Zero) return;
+        if (Engine == IntPtr.Zero) return;
+        if (_view3d)   // 3D モード: 選択 3D ノードをクリップボードへ
+        {
+            int sel = EngineInterop.acs_editor_selected3d(Engine);
+            if (sel >= 0) { EngineInterop.acs_editor_node3d_copy(Engine, sel); Log("Copied 3D node."); }
+            return;
+        }
+        if (_selectedId < 0) return;
         _clipboard = EngineInterop.CopySubtree(Engine, _selectedId);
         Log($"Copied node {_selectedId} (subtree).");
     }
 
     private void OnPaste(object sender, ExecutedRoutedEventArgs e)
     {
-        if (Engine == IntPtr.Zero || string.IsNullOrEmpty(_clipboard)) return;
+        if (Engine == IntPtr.Zero) return;
+        if (_view3d)   // 3D モード: クリップボードの 3D ノードを貼り付け (+X 小オフセット)
+        {
+            int nid = EngineInterop.acs_editor_node3d_paste(Engine);
+            if (nid >= 0) { Log("Pasted 3D node."); Build3DHierarchy(); Select3DInHierarchy(nid); Populate3DInspector(nid); }
+            else Log("3D クリップボードが空です。");
+            return;
+        }
+        if (string.IsNullOrEmpty(_clipboard)) return;
         int parent = _selectedId >= 0 ? EngineInterop.acs_editor_node_parent(Engine, _selectedId) : -1;
         int id = EngineInterop.acs_editor_paste_subtree(Engine, _clipboard, parent);
         if (id >= 0)

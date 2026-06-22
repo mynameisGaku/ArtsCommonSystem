@@ -338,6 +338,7 @@ struct EditorHost {
     int          sel3d         = -1;      // primary (active) 3D ノード id。常に sel3d_multi の一員、空なら -1。
     TArray<int>  sel3d_multi;             // 3D 選択集合 (multi-select。空 ⇔ sel3d==-1)
     int          next_id3d     = 1;
+    int          clip3d        = -1;      // 3D コピー&ペースト用クリップボード (コピー元ノード id)
     bool         scene3d_seeded = false;  // 初回 3D 切替でデフォルトシーンを置いたか
     game::FScene3D scene3d;               // 3D シーングラフ (各ノード = root の子 FNode3D + EEd3DRec)
     TArray<FVec2> poly3d_pts;             // Ortho ポリゴン描画中の頂点 (XY, z=0 平面へ逆射影済み)
@@ -5385,6 +5386,17 @@ static int CloneNode3DSubtree(EditorHost& h, game::FNode3D* src, game::FNode3D* 
     return newId;
 }
 
+/** 3D ノードの subtree を複製し、トップに重なり回避の小オフセットを付けて選択する。返り値=トップ id (失敗 -1)。 */
+static int DuplicateNode3D(EditorHost& h, game::FNode3D* src) noexcept {
+    const int newId = CloneNode3DSubtree(h, src, src->Parent());
+    h.scene3d.Update(0.0f);    // 保留中の reparent を一括解決 (階層を確定)
+    if (newId >= 0) {
+        if (game::FNode3D* c = FindNode3DNode(h, newId)) c->Local().position.x += 1.0f;   // 元と重ならないよう +X
+        SetSel3D(h, newId);
+    }
+    return newId;
+}
+
 /** 3D ノード (とその子孫) を複製する。複製のトップを選択し、その id を返す (失敗 -1)。 */
 ACS_EDITOR_API int acs_editor_node3d_duplicate(void* handle, int id) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -5392,10 +5404,23 @@ ACS_EDITOR_API int acs_editor_node3d_duplicate(void* handle, int id) {
     game::FNode3D* src = FindNode3DNode(*host, id);
     if (src == nullptr) return -1;
     PushUndo(*host);
-    const int newId = CloneNode3DSubtree(*host, src, src->Parent());
-    host->scene3d.Update(0.0f);    // 保留中の reparent を一括解決 (階層を確定)
-    if (newId >= 0) SetSel3D(*host, newId);
-    return newId;
+    return DuplicateNode3D(*host, src);
+}
+
+/** 3D ノードをクリップボードへコピーする (コピー元 id を覚えるだけ)。 */
+ACS_EDITOR_API void acs_editor_node3d_copy(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host != nullptr) host->clip3d = (FindNode3DNode(*host, id) != nullptr) ? id : -1;
+}
+
+/** クリップボードの 3D ノードを (元と同じ親へ) 貼り付ける。貼り付けたトップ id を返す (失敗 -1)。 */
+ACS_EDITOR_API int acs_editor_node3d_paste(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return -1;
+    game::FNode3D* src = FindNode3DNode(*host, host->clip3d);
+    if (src == nullptr) return -1;
+    PushUndo(*host);
+    return DuplicateNode3D(*host, src);
 }
 
 /** メッシュファイル (.gltf/.glb/.obj/.fbx) を 3D ノードとして読み込む。新ノード id (失敗 -1)。 */

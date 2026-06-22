@@ -90,6 +90,10 @@ internal static class EngineInterop
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_duplicate(IntPtr handle, int id);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_node3d_copy(IntPtr handle, int id);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_paste(IntPtr handle);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_delete_node3d(IntPtr handle, int id);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_count(IntPtr handle);
