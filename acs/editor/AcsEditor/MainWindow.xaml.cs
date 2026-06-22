@@ -2847,17 +2847,21 @@ public partial class MainWindow : Window
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Title = "Open ACS Scene",
-            Filter = "ACS Scene (*.acscene)|*.acscene|All files (*.*)|*.*",
-            DefaultExt = ".acscene",
+            Filter = _view3d ? "ACS 3D Scene (*.acs3d)|*.acs3d|All files (*.*)|*.*"
+                             : "ACS Scene (*.acscene)|*.acscene|All files (*.*)|*.*",
+            DefaultExt = _view3d ? ".acs3d" : ".acscene",
         };
         if (dlg.ShowDialog(this) != true) return;
         try
         {
             string text = System.IO.File.ReadAllText(dlg.FileName, System.Text.Encoding.UTF8);
-            if (EngineInterop.acs_editor_scene_load_text(Engine, text) != 0)
+            // Open も New/Save と同様 3D 分岐。従来は常に 2D の scene_load_text で 3D は無言失敗だった。
+            int ok = _view3d ? EngineInterop.acs_editor_scene3d_load_text(Engine, text)
+                             : EngineInterop.acs_editor_scene_load_text(Engine, text);
+            if (ok != 0)
             {
                 RefreshAfterSceneChange();
-                Log($"Loaded scene ← {dlg.FileName}");
+                Log($"Loaded {(_view3d ? "3D " : "")}scene ← {dlg.FileName}");
             }
             else
             {
