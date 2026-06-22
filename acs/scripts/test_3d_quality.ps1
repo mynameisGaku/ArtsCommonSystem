@@ -17,6 +17,7 @@ public static class E {
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_settings_set(IntPtr h, [MarshalAs(UnmanagedType.LPUTF8Str)] string c, [MarshalAs(UnmanagedType.LPUTF8Str)] string k, [MarshalAs(UnmanagedType.LPUTF8Str)] string v);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_shadow_size(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_bloom_x100(IntPtr h);
+    [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_exposure_x100(IntPtr h);
 }
 "@
 Add-Type -TypeDefinition $src
@@ -48,6 +49,15 @@ Write-Host "`n[fallback] unknown level -> High preset"
 [void][E]::acs_editor_settings_set($h,"Rendering","QualityLevel","High")
 [void][E]::acs_editor_settings_set($h,"Rendering","QualityLevel","Bogus")
 Check "unknown/invalid level keeps shadows enabled (size>0)" ([E]::acs_editor_quality_shadow_size($h) -gt 0)
+
+Write-Host "`n[per-key overrides] individual Rendering keys take precedence over preset"
+[void][E]::acs_editor_settings_set($h,"Rendering","QualityLevel","High")
+Check "default exposure = 1.05 (x100=105)" ([E]::acs_editor_quality_exposure_x100($h) -eq 105)
+Check "set Exposure=2.0 -> x100=200" (([E]::acs_editor_settings_set($h,"Rendering","Exposure","2.0") -eq 1) -and ([E]::acs_editor_quality_exposure_x100($h) -eq 200))
+Check "High preset bloom = 50 (before override)" ([E]::acs_editor_quality_bloom_x100($h) -eq 50)
+Check "BloomIntensity=0.25 overrides preset -> 25" (([E]::acs_editor_settings_set($h,"Rendering","BloomIntensity","0.25") -eq 1) -and ([E]::acs_editor_quality_bloom_x100($h) -eq 25))
+Check "BloomIntensity=0 turns bloom off -> 0" (([E]::acs_editor_settings_set($h,"Rendering","BloomIntensity","0") -eq 1) -and ([E]::acs_editor_quality_bloom_x100($h) -eq 0))
+Check "BloomIntensity=-1 falls back to preset -> 50" (([E]::acs_editor_settings_set($h,"Rendering","BloomIntensity","-1") -eq 1) -and ([E]::acs_editor_quality_bloom_x100($h) -eq 50))
 
 [E]::acs_editor_destroy($h)
 Write-Host "`n==== $pass passed, $fail failed ===="

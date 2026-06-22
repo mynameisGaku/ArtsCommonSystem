@@ -3516,9 +3516,21 @@ ACS_EDITOR_API int acs_editor_quality_bloom_x100(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     return (host != nullptr && host->q_bloom_on) ? static_cast<int>(host->q_bloom_intensity * 100.0f + 0.5f) : 0;
 }
+/** 現在の露出 (Rendering/Exposure)。100 倍した整数で返す (例 1.05→105)。設定反映の確認用。 */
+ACS_EDITOR_API int acs_editor_quality_exposure_x100(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr) ? static_cast<int>(host->q_exposure * 100.0f + 0.5f) : 0;
+}
 
 static void ApplySettings(EditorHost& h) noexcept {
     ApplyQualityPreset(h, h.settings.GetString("Rendering", "QualityLevel", "High"));   // 先に品質プリセットを展開
+    // 個別キーはプリセットより «優先» (上書き)。露出はプリセット非依存なので常に設定値、
+    // bloom/影バイアスは -1 でプリセット追従・>=0 で上書き (ProjectSettings の設計コメント通り)。
+    h.q_exposure = h.settings.GetFloat("Rendering", "Exposure", 1.05f);
+    const f32 bi = h.settings.GetFloat("Rendering", "BloomIntensity", -1.0f);
+    if (bi >= 0.0f) { h.q_bloom_intensity = bi; h.q_bloom_on = (bi > 0.0f); }
+    const f32 sb = h.settings.GetFloat("Rendering", "ShadowBias", -1.0f);
+    if (sb >= 0.0f) h.q_shadow_bias = sb;
     const int msaa = h.settings.GetInt("Rendering", "MsaaSamples", 8);
     h.msaa_pending = (msaa >= 8) ? 8u : (msaa >= 4) ? 4u : (msaa >= 2) ? 2u : 1u;
     h.ambient      = h.settings.GetColor("Rendering", "AmbientColor", FVec3{ 0.10f, 0.11f, 0.13f });
