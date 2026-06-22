@@ -265,6 +265,8 @@ struct EditorHost {
     f32   q_exposure         = 1.05f; f32  q_cg_saturation   = 1.10f; f32 q_cg_contrast = 1.12f;
     f32   q_cas              = 0.3f;  bool q_taa_on          = false; u32 q_msaa_default = 4;
     FVec3 sun_dir            = FVec3{ 0.40f, 0.85f, -0.35f };   // 太陽 (光源) 方向 «光へ向かう» 向き。Rendering/SunAzimuth+Elevation で駆動。
+    FVec3 sun_color          = FVec3{ 1.0f, 0.95f, 0.85f };     // 太陽の色 (Rendering/SunColor)。
+    f32   sun_intensity      = 2.35f;                           // 太陽の強度 (Rendering/SunIntensity)。光色 = sun_color * sun_intensity。
 
     // マテリアル GPU プレビュー: 実シェーダでサンプルを RT に描き readback する。
     TUniquePtr<IRhiCommandList> preview_cl;            // 専用コマンドリスト (フレーム外で submit)
@@ -3077,6 +3079,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     //         FSky Init 失敗時のみ自前 kSky3DHLSL にフォールバック。
     if (h.sky3d_ready) {
         h.sky3d.SetSunDirection(h.sun_dir);   // 空の太陽もシーンのライト方向に追従 (設定駆動)
+        h.sky3d.SetSunColor(h.sun_color);     // 太陽の色も追従
         h.sky3d.Render(*cl, cam);
     } else if (h.sky_pipe && h.sky_cb) {
         SkyCB sk{};
@@ -3101,8 +3104,9 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     // フレーム CB (view_proj + 光 + 環境光 + カメラ位置)。
     M3DFrame fcb{};
     fcb.view_proj = vp;
+    const FVec3 sunCol{ h.sun_color.x * h.sun_intensity, h.sun_color.y * h.sun_intensity, h.sun_color.z * h.sun_intensity };
     fcb.light_dir = FVec4{ h.sun_dir.x, h.sun_dir.y, h.sun_dir.z, 0.0f };    // 光方向, w=0 (環境光は IBL から取る)
-    fcb.light_col = FVec4{ 2.20f, 2.10f, 1.95f, 0.0f };     // 太陽 = キーライト (暖色)
+    fcb.light_col = FVec4{ sunCol.x, sunCol.y, sunCol.z, 0.0f };     // 太陽 = キーライト (色×強度、設定駆動)
     fcb.cam_pos   = FVec4{ camPos.x, camPos.y, camPos.z, shadowOn ? 1.0f : 0.0f };   // w=影を受けるか
     fcb.sky_zenith  = FVec4{ 0.16f, 0.33f, 0.62f, 0 };      // IBL 環境光源 (スカイと同じグラデーション)
     fcb.sky_horizon = FVec4{ 0.62f, 0.70f, 0.80f, 0 };
@@ -3117,7 +3121,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         // 3点ライティング: 主光(暖・強)+ 補助光(寒・弱、影側を持ち上げ立体感)+ リム(背面・輪郭)。
         // 1灯+SH9 だと陰が埋まりのっぺりするため、補助/リムで «面の向き» が読めるようにする。
         FDirLight dl[3];
-        dl[0].direction = FVec3{ -h.sun_dir.x, -h.sun_dir.y, -h.sun_dir.z }; dl[0].color = FVec3{ 2.35f, 2.22f, 2.00f };  // key (太陽。光が «進む» 向き = -sun_dir)
+        dl[0].direction = FVec3{ -h.sun_dir.x, -h.sun_dir.y, -h.sun_dir.z }; dl[0].color = sunCol;  // key (太陽。光が «進む» 向き = -sun_dir、色×強度)
         dl[1].direction = FVec3{  0.55f, -0.28f, -0.50f }; dl[1].color = FVec3{ 0.40f, 0.48f, 0.62f };  // fill (寒、弱)
         dl[2].direction = FVec3{  0.05f,  0.35f, -0.95f }; dl[2].color = FVec3{ 0.45f, 0.45f, 0.50f };  // rim (背面、輪郭)
         h.pbr3d.SetLights(vp, camPos, dl, 3, FVec3{ 0.22f, 0.24f, 0.30f });   // ambient はやや控えめ(陰のコントラスト確保)
@@ -3579,6 +3583,14 @@ ACS_EDITOR_API void acs_editor_sun_direction(void* handle, float* out3) {
     if (host == nullptr || out3 == nullptr) return;
     out3[0] = host->sun_dir.x; out3[1] = host->sun_dir.y; out3[2] = host->sun_dir.z;
 }
+/** 実効ライト色 (sun_color × sun_intensity) を out3 へ。設定反映の確認用。 */
+ACS_EDITOR_API void acs_editor_sun_light_color(void* handle, float* out3) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || out3 == nullptr) return;
+    out3[0] = host->sun_color.x * host->sun_intensity;
+    out3[1] = host->sun_color.y * host->sun_intensity;
+    out3[2] = host->sun_color.z * host->sun_intensity;
+}
 
 static void ApplySettings(EditorHost& h) noexcept {
     ApplyQualityPreset(h, h.settings.GetString("Rendering", "QualityLevel", "High"));   // 先に品質プリセットを展開
@@ -3599,6 +3611,8 @@ static void ApplySettings(EditorHost& h) noexcept {
         if (len > 1e-4f) { d.x /= len; d.y /= len; d.z /= len; }
         h.sun_dir = d;
     }
+    h.sun_color     = h.settings.GetColor("Rendering", "SunColor", FVec3{ 1.0f, 0.95f, 0.85f });
+    h.sun_intensity = h.settings.GetFloat("Rendering", "SunIntensity", 2.35f);
     const int msaa = h.settings.GetInt("Rendering", "MsaaSamples", 8);
     h.msaa_pending = (msaa >= 8) ? 8u : (msaa >= 4) ? 4u : (msaa >= 2) ? 2u : 1u;
     h.ambient      = h.settings.GetColor("Rendering", "AmbientColor", FVec3{ 0.10f, 0.11f, 0.13f });
