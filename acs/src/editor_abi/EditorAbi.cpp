@@ -354,6 +354,7 @@ struct EditorHost {
     bool                     ibl_ready = false;        // 全 cubemap 生成済み (true なら SetIbl、false なら SH9)
     bool                     ibl_tried = false;        // 一度試して失敗したか (毎フレーム再試行を避ける)
     bool                     ibl_dirty = true;         // 空(太陽/色)が変わった → env を再キャプチャ
+    bool                     sh9_dirty = true;         // 空が変わった → SH9 環境光(拡散+鏡面)を再計算
     TUniquePtr<IRhiPipeline> grid_pipe;               // 無限グリッド (y=0 / ortho は z=0)
     TUniquePtr<IRhiShader>   grid_vs, grid_ps;
     TUniquePtr<IRhiBuffer>   grid_cb, grid_vb;        // b0: view_proj + 中心、大クアッド頂点
@@ -2333,12 +2334,13 @@ struct GridCB { FMat4 view_proj; FVec4 gctr; };
  *  Sh9Irradiance が内部でコサイン畳み込みするので «放射輝度» を渡す。irradiance≈π×平均輝度に
  *  なるため入力放射輝度は控えめ。係数順序 [0]Y00 [1]y [2]z [3]x [4]xy [5]yz [6]Y20 [7]xz [8]x²-y²
  *  はシェーダの Sh9Irradiance に一致させる。 */
-void ComputeSkySh9(FVec4 out[9]) noexcept {
-    // 空の放射輝度 (linear)。青みを «抑えめ» に (強い青だと環境光が全面青被り→低彩度 washout)。
-    // やや暗めにして «暖色の直射 vs 青い陰影» のコントラストを出す (暗さは exposure で補正)。
-    const FVec3 zenith { 0.17f, 0.22f, 0.31f };   // 天頂 (淡い青)
-    const FVec3 horizon{ 0.30f, 0.32f, 0.36f };   // 地平 (ほぼ中立)
-    const FVec3 ground { 0.11f, 0.105f, 0.10f };  // 下半球 (暗い暖グレー)
+// SH9 環境光の強さ。実際の空色 (FSky と同じ・従来のダミー色より明るい) を使うので控えめに絞り、
+// «暖色の直射 vs 青い陰» のコントラスト=立体感を残す (直射は 3 点ライトが確保)。鏡面 fallback も兼ねる。
+constexpr float kSh9Ambient = 0.55f;
+
+void ComputeSkySh9(FVec4 out[9], FVec3 zenith, FVec3 horizon, FVec3 ground) noexcept {
+    // 空の放射輝度 (linear) を SH9 へ射影。zenith/horizon/ground は «実際に描く FSky と同じ色» を渡し、
+    // 環境光(拡散)と鏡面反射(Sh9Radiance)を背景の空と一致させる。時間帯プリセットにも追従する。
     for (int i = 0; i < 9; ++i) out[i] = FVec4{ 0, 0, 0, 0 };
     const int N = 2048; const float PI = 3.14159265f;
     for (int k = 0; k < N; ++k) {
@@ -2474,10 +2476,11 @@ bool Ensure3D(EditorHost& h) noexcept {
     // Phase2: エンジン標準 PBR。HDR フォーマット + cull None (editor の単面 plane/polygon も出す)。
     { auto pr = h.pbr3d.Init(*dev, hdrf, df, ECullMode::None); h.pbr3d_ready = pr.IsOk();
       if (h.pbr3d_ready) {
-          FVec4 sh9[9]; ComputeSkySh9(sh9);                        // 空を SH9 IBL 環境光にベイク
-          for (int si = 0; si < 9; ++si) { sh9[si].x *= 0.65f; sh9[si].y *= 0.65f; sh9[si].z *= 0.65f; }  // 環境光を絞り «陰のコントラスト=立体感» を出す (3点ライト側で明るさは確保)
-          h.pbr3d.SetSh9(sh9);
-          ACS_LOG_INFO("[3D] FPbrShader Init OK (Phase2) + SH9 IBL");
+          FVec4 sh9[9]; ComputeSkySh9(sh9, h.sky_zenith, h.sky_horizon, h.sky_ground);  // 実際の空色から SH9 環境光
+          for (int si = 0; si < 9; ++si) { sh9[si].x *= kSh9Ambient; sh9[si].y *= kSh9Ambient; sh9[si].z *= kSh9Ambient; }
+          h.pbr3d.SetSh9(sh9);                                     // 拡散 ambient + Sh9Radiance(鏡面 fallback) 兼用
+          h.sh9_dirty = false;
+          ACS_LOG_INFO("[3D] FPbrShader Init OK (Phase2) + SH9 IBL (sky-consistent)");
       } else ACS_LOG_ERROR("[3D] FPbrShader Init 失敗: %s", pr.Error().message); }
 
     // スプライト (テクスチャ付きクアッド): t0=albedo + 静的 Linear/Clamp サンプラ、アルファブレンド。
@@ -3070,6 +3073,16 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     }
     const u32 dvCount = static_cast<u32>(dv.Size());
     if (dvCount > 0 && h.m3d_dyn_vb) h.m3d_dyn_vb->Update(dv.Data(), sizeof(M3DVtx) * dvCount);
+
+    // --- SH9 環境光を «現在の空» に追従させて再計算 (時間帯プリセット切替・空色変更に反応) ---
+    //     拡散 ambient (Sh9Irradiance) と鏡面 fallback (Sh9Radiance) の両方の元データ。背景 FSky と
+    //     同じ色を使うので金属の映り込みが背景と整合する。空が変わらない限り再計算しない (sh9_dirty)。
+    if (h.pbr3d_ready && h.sh9_dirty) {
+        FVec4 sh9[9]; ComputeSkySh9(sh9, h.sky_zenith, h.sky_horizon, h.sky_ground);
+        for (int si = 0; si < 9; ++si) { sh9[si].x *= kSh9Ambient; sh9[si].y *= kSh9Ambient; sh9[si].z *= kSh9Ambient; }
+        h.pbr3d.SetSh9(sh9);
+        h.sh9_dirty = false;
+    }
 
     // --- IBL: FSky を env cubemap 化 → irradiance + specular prefilter + BRDF-LUT を焼き FPbrShader へ ---
     //     init の muted SH9 を «本物の環境光» に置換 (金属/光沢が空を映し陰影が立体的に)。Diligent backend
@@ -3808,6 +3821,7 @@ static void ApplySettings(EditorHost& h) noexcept {
     h.sky_horizon   = h.settings.GetColor("Rendering", "SkyHorizon", FVec3{ 0.62f, 0.70f, 0.80f });
     h.sky_ground    = h.settings.GetColor("Rendering", "SkyGround",  FVec3{ 0.20f, 0.19f, 0.21f });
     h.ibl_dirty     = true;   // 太陽/空が変わった → IBL env cubemap を次フレームで再キャプチャ
+    h.sh9_dirty     = true;   // 〃 → SH9 環境光(拡散+鏡面 fallback)も再計算
     const int msaa = h.settings.GetInt("Rendering", "MsaaSamples", 8);
     h.msaa_pending = (msaa >= 8) ? 8u : (msaa >= 4) ? 4u : (msaa >= 2) ? 2u : 1u;
     h.ambient      = h.settings.GetColor("Rendering", "AmbientColor", FVec3{ 0.10f, 0.11f, 0.13f });
