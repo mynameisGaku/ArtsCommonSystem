@@ -163,7 +163,13 @@ public partial class AssetBrowserPanel : UserControl
         string meta = item.IsDirectory ? "フォルダ" : KindLabel(item.Kind);
         if (!item.IsDirectory)
         {
-            try { meta += "   " + FormatSize(new FileInfo(item.FullPath).Length); } catch { }
+            try
+            {
+                var fi = new FileInfo(item.FullPath);
+                meta += "   " + FormatSize(fi.Length);
+                meta += "   " + fi.LastWriteTime.ToString("yyyy-MM-dd HH:mm");   // 更新日時
+            }
+            catch { }
         }
         meta += "\n" + RelDisplay(item.FullPath);
         PreviewMetaText.Text = meta;
