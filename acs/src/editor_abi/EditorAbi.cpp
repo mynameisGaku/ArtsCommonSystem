@@ -50,6 +50,7 @@
 #include "render/PostProcess.h"             // FPostProcess (HDR→ACES トーンマップ)
 #include "render/Ssao.h"                    // FSsao (GTAO + contact shadow。q_ssao_* を配線)
 #include "render/Ssr.h"                     // FSsr (画面空間反射。q_ssr_* を配線)
+#include "render/Ibl.h"                     // ImageBasedLighting (FSky から env→irradiance/prefilter→SetIbl)
 #include "asset/MeshPrimitive.h"            // Primitive::MakeCube/MakeSphere/MakePlane
 #include "asset/MeshAsset.h"                // FMeshAsset
 #include "math/Camera.h"                    // FCamera (透視 + lookAt)
@@ -348,6 +349,11 @@ struct EditorHost {
     bool                     ssr_ready = false;
     bool                     ssr_computed = false;     // 今フレーム SSR を焼いたか (次フレームの SetSsr 用)
     FMat4                    prev_vp = FMat4::Identity();  // 前フレーム view_proj (SSR temporal reproject)
+    // IBL (鏡面+拡散 環境光)。FSky を env cubemap 化 → irradiance/prefilter/BRDF-LUT → FPbrShader.SetIbl。
+    acs::ImageBasedLighting  ibl3d;                    // Diligent backend 専用 (raw-DX12 は失敗 → SH9 フォールバック)
+    bool                     ibl_ready = false;        // 全 cubemap 生成済み (true なら SetIbl、false なら SH9)
+    bool                     ibl_tried = false;        // 一度試して失敗したか (毎フレーム再試行を避ける)
+    bool                     ibl_dirty = true;         // 空(太陽/色)が変わった → env を再キャプチャ
     TUniquePtr<IRhiPipeline> grid_pipe;               // 無限グリッド (y=0 / ortho は z=0)
     TUniquePtr<IRhiShader>   grid_vs, grid_ps;
     TUniquePtr<IRhiBuffer>   grid_cb, grid_vb;        // b0: view_proj + 中心、大クアッド頂点
@@ -3065,6 +3071,28 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     const u32 dvCount = static_cast<u32>(dv.Size());
     if (dvCount > 0 && h.m3d_dyn_vb) h.m3d_dyn_vb->Update(dv.Data(), sizeof(M3DVtx) * dvCount);
 
+    // --- IBL: FSky を env cubemap 化 → irradiance + specular prefilter + BRDF-LUT を焼き FPbrShader へ ---
+    //     init の muted SH9 を «本物の環境光» に置換 (金属/光沢が空を映し陰影が立体的に)。Diligent backend
+    //     専用なので失敗時は ibl_tried で諦め SH9 フォールバック。空(太陽/色)変更時は ibl_dirty で再キャプチャ。
+    //     キャプチャは per-slice cubemap 描画なので «描画パスの外» (BeginShadowPass より前) で行う。
+    if (h.pbr3d_ready && h.sky3d_ready && (h.ibl_ready ? h.ibl_dirty : !h.ibl_tried)) {
+        IRhiDevice* idev = h.renderer.Device();
+        if (idev != nullptr) {
+            h.sky3d.SetSunDirection(h.sun_dir);   // キャプチャ前に空を «現在のライティング» へ合わせる
+            h.sky3d.SetSunColor(h.sun_color);
+            h.sky3d.SetZenithColor(h.sky_zenith); h.sky3d.SetHorizonColor(h.sky_horizon); h.sky3d.SetGroundColor(h.sky_ground);
+            if (h.ibl_ready && h.ibl_dirty) { idev->WaitIdle(); h.ibl3d.ResetEnvCubemap(); }   // 空変更 → 再キャプチャ
+            const bool ok = h.ibl3d.EnsureBrdfLut(*idev, *cl).IsOk()
+                         && h.ibl3d.EnsureEnvCubemap(*idev, *cl, h.sky3d).IsOk()
+                         && h.ibl3d.EnsureIrradiance(*idev, *cl).IsOk()
+                         && h.ibl3d.EnsurePrefilter(*idev, *cl).IsOk();
+            h.ibl_ready = ok;
+            h.ibl_dirty = false;
+            if (!ok) { h.ibl_tried = true; ACS_LOG_WARN("[3D] IBL 生成失敗 (Diligent backend 必須?)。SH9 にフォールバック"); }
+            else       ACS_LOG_INFO("[3D] IBL 環境光 OK (env→irradiance+prefilter %u mip+BRDF-LUT)", h.ibl3d.PrefilterMips());
+        }
+    }
+
     // --- シャドウパス: 光源 (太陽) 視点で深度を焼く → 本体パスで PCF 比較してキャスト影を落とす ---
     // 品質プリセットの影サイズ/カスケード数に追従 (size 0=影オフ)。CSM は «透視 + cascade>=2» のみ
     // (既定 High=single は実績パス維持・ortho 2D も single)。サイズ/数の変更時はフレーム先頭で
@@ -3253,6 +3281,11 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         // SSR: 前フレームの反射結果を roughness/Fresnel でブレンド (FPbrShader 内)。本フレーム分は本パス後に焼く。
         if (h.q_ssr_on && h.ssr_ready) h.pbr3d.SetSsr(h.ssr3d.OutputTexture(), h.q_ssr_intensity);
         else                           h.pbr3d.SetSsr(nullptr, 0.0f);
+        // IBL: env から焼いた irradiance(拡散) + prefilter(鏡面) + BRDF-LUT。成功時は SH9 を切り cubemap 拡散を使う。
+        if (h.ibl_ready) {
+            h.pbr3d.SetIbl(h.ibl3d.IrradianceMap(), h.ibl3d.PrefilterMap(), h.ibl3d.BrdfLut(), h.ibl3d.PrefilterMips());
+            h.pbr3d.SetSh9(nullptr);   // IBL 有効 → irradiance cubemap を拡散に (init の muted SH9 を無効化)
+        }   // ibl_ready=false の間は init で焼いた SH9 がそのまま効く (フォールバック)
         for (u32 i = 0; i < all3d.Size(); ++i) {
             game::FNode3D* nn = all3d[i];
             { EEd3DRec* er = Rec3D(nn); if (er != nullptr && er->is_empty) continue; }   // 空ノードは描画しない
@@ -3774,6 +3807,7 @@ static void ApplySettings(EditorHost& h) noexcept {
     h.sky_zenith    = h.settings.GetColor("Rendering", "SkyZenith",  FVec3{ 0.16f, 0.33f, 0.62f });
     h.sky_horizon   = h.settings.GetColor("Rendering", "SkyHorizon", FVec3{ 0.62f, 0.70f, 0.80f });
     h.sky_ground    = h.settings.GetColor("Rendering", "SkyGround",  FVec3{ 0.20f, 0.19f, 0.21f });
+    h.ibl_dirty     = true;   // 太陽/空が変わった → IBL env cubemap を次フレームで再キャプチャ
     const int msaa = h.settings.GetInt("Rendering", "MsaaSamples", 8);
     h.msaa_pending = (msaa >= 8) ? 8u : (msaa >= 4) ? 4u : (msaa >= 2) ? 2u : 1u;
     h.ambient      = h.settings.GetColor("Rendering", "AmbientColor", FVec3{ 0.10f, 0.11f, 0.13f });
@@ -3921,6 +3955,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->normal_pipe.Reset(); host->normal_vs.Reset(); host->normal_ps.Reset(); host->normal_cb.Reset(); host->normal_rt.Reset();
     host->ssao3d.Shutdown(); host->ssao_ready = false; host->ssao_pipe_ready = false; host->ssao_w = 0; host->ssao_h = 0;
     host->ssr3d.Shutdown(); host->ssr_ready = false;
+    host->ibl3d.Shutdown(); host->ibl_ready = false; host->ibl_tried = false; host->ibl_dirty = true;
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
     host->sprite_textures.Clear();
     host->m3d_frame_cb.Reset(); host->m3d_giz_cb.Reset(); host->m3d_dyn_vb.Reset(); host->m3d_giz_vb.Reset();
