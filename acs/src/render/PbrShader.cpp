@@ -394,6 +394,22 @@ float3 Sh9Irradiance(float3 N, float4 L[9]) {
              + c1 * L[8].rgb * (x * x - y * y);
     return max(e, float3(0, 0, 0));    // clamp 負値 (アンダーシュート対策)
 }
+// SH 9 «radiance» reconstruction (コサイン畳み込み無しの素の SH 評価)。環境 prefilter cubemap が
+// 無い backend (raw-DX12) で specular IBL の反射元 radiance を SH9 から近似するのに使う。
+// 低周波なので滑らかな空グラデの反射に向く (鋭い反射/太陽 disc は出ないが gradient は再現)。
+float3 Sh9Radiance(float3 d, float4 L[9]) {
+    float x = d.x, y = d.y, z = d.z;
+    float3 r = L[0].rgb * 0.282095
+             + L[1].rgb * (0.488603 * y)
+             + L[2].rgb * (0.488603 * z)
+             + L[3].rgb * (0.488603 * x)
+             + L[4].rgb * (1.092548 * x * y)
+             + L[5].rgb * (1.092548 * y * z)
+             + L[6].rgb * (0.315392 * (3.0 * z * z - 1.0))
+             + L[7].rgb * (1.092548 * x * z)
+             + L[8].rgb * (0.546274 * (x * x - y * y));
+    return max(r, float3(0, 0, 0));    // clamp 負値 (SH ringing 対策)
+}
 )" R"(
 float3 ProbeGridIrradiance(float3 world_p, float3 N) {
     int n = (int)probe_params.x;
@@ -458,10 +474,16 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
                     + irr * sheenColor * sheenWeight * 0.25;
     }
 
-    // prefilter は mip = roughness * (mip_count - 1)。FSample (with HW mip
-    // selection) ではなく SampleLevel で明示することで filtering を確実にする。
-    float mip_lvl = roughness * max(ibl_params.y - 1.0, 0.0);
-    float3 prefilt = prefilter.SampleLevel(prefilter_sampler, R, mip_lvl).rgb;
+    // 環境鏡面の反射元 radiance。prefilter cubemap が無い backend (raw-DX12、SH9 モード) では
+    // SH9 を反射方向で素に評価して «空グラデの反射» を近似する (cubemap 不要・metals が空を映す)。
+    // cubemap 有り (Diligent) では従来通り roughness 段階の prefilter mip を使う。
+    float3 prefilt;
+    if (ibl_params.z >= 0.5) {
+        prefilt = Sh9Radiance(R, sh9);
+    } else {
+        float mip_lvl = roughness * max(ibl_params.y - 1.0, 0.0);
+        prefilt = prefilter.SampleLevel(prefilter_sampler, R, mip_lvl).rgb;
+    }
     float2 lut_xy = brdf_lut.SampleLevel(brdf_lut_sampler, float2(NoV, roughness), 0).rg;
     // Phase 34e-2fix: 反射元の radiance を環境 prefilter (off-screen) から SSR
     // (on-screen の実ジオメトリ) へ blend。BRDF 応答 (split-sum scale+bias) は共通。
