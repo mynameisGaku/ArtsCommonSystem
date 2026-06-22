@@ -101,6 +101,14 @@
                     <MenuItem x:Name="AaMsaa4" Header="MSAA 4x" IsCheckable="True" Tag="4" Click="OnAaMenuClick"/>
                     <MenuItem x:Name="AaMsaa8" Header="MSAA 8x" IsCheckable="True" Tag="8" IsChecked="True" Click="OnAaMenuClick"/>
                 </MenuItem>
+                <MenuItem Header="Graphics Quality">
+                    <MenuItem x:Name="QualUltra"   Header="Ultra (4K 影 + SSAO/SSR + TAA)" IsCheckable="True" Tag="Ultra"   Click="OnQualityMenuClick"/>
+                    <MenuItem x:Name="QualHighest" Header="Highest (4K 影)"                 IsCheckable="True" Tag="Highest" Click="OnQualityMenuClick"/>
+                    <MenuItem x:Name="QualHigh"    Header="High (2K 影・既定)"              IsCheckable="True" Tag="High" IsChecked="True" Click="OnQualityMenuClick"/>
+                    <MenuItem x:Name="QualMedium"  Header="Medium (2K 影)"                  IsCheckable="True" Tag="Medium"  Click="OnQualityMenuClick"/>
+                    <MenuItem x:Name="QualLow"     Header="Low (1K 影)"                     IsCheckable="True" Tag="Low"     Click="OnQualityMenuClick"/>
+                    <MenuItem x:Name="QualLowest"  Header="Lowest (影オフ)"                 IsCheckable="True" Tag="Lowest"  Click="OnQualityMenuClick"/>
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="_Help">
                 <MenuItem Header="About ACS Editor" Click="OnAbout"/>

@@ -349,6 +349,7 @@ public partial class MainWindow : Window
                 ? System.IO.File.ReadAllText(SettingsIniPath, System.Text.Encoding.UTF8) : "";
             EngineInterop.acs_editor_settings_load_text(Engine, text);
             SyncAaCombo();
+            SyncQualityMenu();
             if (text.Length > 0) Log($"Project settings ← {SettingsIniPath}");
         }
         catch (Exception ex) { Log("Project settings load error: " + ex.Message); }
@@ -366,6 +367,7 @@ public partial class MainWindow : Window
             System.IO.Directory.CreateDirectory(dir);
             System.IO.File.WriteAllText(SettingsIniPath, EngineInterop.Utf8Z(buf), System.Text.Encoding.UTF8);
             SyncAaCombo();
+            SyncQualityMenu();
         }
         catch (Exception ex) { Log("Project settings save error: " + ex.Message); }
     }
@@ -388,6 +390,43 @@ public partial class MainWindow : Window
         AaFxaa.IsChecked = samples == 1; AaMsaa2.IsChecked = samples == 2;
         AaMsaa4.IsChecked = samples == 4; AaMsaa8.IsChecked = samples == 8;
         _suppressAa = false;
+    }
+
+    /// <summary>Rendering.QualityLevel の現在値を View → Graphics Quality メニューへ反映する。</summary>
+    private bool _suppressQuality;
+    private void SyncQualityMenu()
+    {
+        var buf = new byte[32];
+        string level = (EngineInterop.acs_editor_settings_get_value(Engine, "Rendering", "QualityLevel", buf, buf.Length) != 0)
+            ? EngineInterop.Utf8Z(buf) : "High";
+        ApplyQualityMenuCheck(level);
+    }
+
+    // View → Graphics Quality の排他チェックを level に合わせる (発火抑止つき)。
+    private void ApplyQualityMenuCheck(string level)
+    {
+        if (QualHigh == null) return;
+        _suppressQuality = true;
+        QualUltra.IsChecked = level == "Ultra"; QualHighest.IsChecked = level == "Highest";
+        QualHigh.IsChecked  = level == "High";  QualMedium.IsChecked  = level == "Medium";
+        QualLow.IsChecked   = level == "Low";   QualLowest.IsChecked  = level == "Lowest";
+        _suppressQuality = false;
+    }
+
+    /// <summary>Graphics Quality メニュー: 品質レベルを Rendering.QualityLevel 経由で即適用 (影/bloom 等が連動)。</summary>
+    private void OnQualityMenuClick(object sender, RoutedEventArgs e)
+    {
+        if (Engine == IntPtr.Zero || _suppressQuality) return;
+        if (sender is not MenuItem mi || mi.Tag is not string level) return;
+        ApplyQualityMenuCheck(level);
+        if (EngineInterop.acs_editor_settings_set(Engine, "Rendering", "QualityLevel", level) != 0)
+        {
+            if (_project != null) SaveProjectSettings();
+            int ss = EngineInterop.acs_editor_quality_shadow_size(Engine);
+            string shadowDesc = ss > 0 ? ss + "px" : "オフ";
+            Log($"Graphics Quality: {level}  (影 {shadowDesc})", "General", LogLevel.Info);
+        }
+        else Log($"品質設定の適用に失敗: {level}");
     }
 
     private void OnProjectSettings(object sender, RoutedEventArgs e)

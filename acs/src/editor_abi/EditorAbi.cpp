@@ -2467,7 +2467,7 @@ bool Ensure3D(EditorHost& h) noexcept {
     }
 
     // シャドウマップ (有向光源、single cascade 2048)。深度は D32 / shader-visible。キャスターは M3DVtx 専用 (depth-only)。
-    if (h.shadow.Init(*dev, 2048).IsOk()) {
+    if (h.shadow.Init(*dev, h.q_shadow_size > 0 ? h.q_shadow_size : 2048u).IsOk()) {
         FShaderDesc cvs{}; cvs.stage = EShaderStage::Vertex; cvs.hlsl_source = kShadowCaster3DHLSL; cvs.entry_point = "VSMain"; cvs.debug_name = "ShadowCasterM3D.VS";
         auto cvr = CreateRhiShader(*dev, cvs);
         if (cvr.IsOk()) {
@@ -2993,9 +2993,15 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     if (dvCount > 0 && h.m3d_dyn_vb) h.m3d_dyn_vb->Update(dv.Data(), sizeof(M3DVtx) * dvCount);
 
     // --- シャドウパス: 光源 (太陽) 視点で深度を焼く → 本体パスで PCF 比較してキャスト影を落とす ---
+    // 品質プリセットの影サイズに追従 (0=影オフ)。サイズ変更時はフレーム先頭で深度テクスチャを作り直す
+    // (描画コマンド記録前なので安全)。これで «品質レベル» が実際に影解像度を変える。
+    if (h.shadow_ready && h.q_shadow_size > 0 && h.q_shadow_size != h.shadow.Size()) {
+        IRhiDevice* sdev = h.renderer.Device();
+        if (sdev != nullptr) { h.shadow.Shutdown(); h.shadow.Init(*sdev, h.q_shadow_size); }
+    }
     FMat4 lightVp{};
     bool  shadowOn = false;
-    if (h.shadow_ready && dvCount > 0) {
+    if (h.shadow_ready && h.q_shadow_size > 0 && h.shadow.DepthTexture() != nullptr && dvCount > 0) {
         const FVec3 center{ (bbMin.x+bbMax.x)*0.5f, (bbMin.y+bbMax.y)*0.5f, (bbMin.z+bbMax.z)*0.5f };
         const f32 ex = bbMax.x-bbMin.x, ey = bbMax.y-bbMin.y, ez = bbMax.z-bbMin.z;
         const f32 radius = 0.5f * std::sqrt(ex*ex + ey*ey + ez*ez) + 1.0f;
@@ -3073,7 +3079,12 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         dl[1].direction = FVec3{  0.55f, -0.28f, -0.50f }; dl[1].color = FVec3{ 0.40f, 0.48f, 0.62f };  // fill (寒、弱)
         dl[2].direction = FVec3{  0.05f,  0.35f, -0.95f }; dl[2].color = FVec3{ 0.45f, 0.45f, 0.50f };  // rim (背面、輪郭)
         h.pbr3d.SetLights(vp, camPos, dl, 3, FVec3{ 0.22f, 0.24f, 0.30f });   // ambient はやや控えめ(陰のコントラスト確保)
-        if (shadowOn) h.pbr3d.SetShadowMap(h.shadow.DepthTexture(), lightVp, 0.0015f, 1.0f);
+        if (shadowOn) {
+            // 品質ノブを配線 (従来は bias 0.0015 固定 + texel_size に 1.0 を渡す «バグ» で PCF が機能不全だった)。
+            const u32 ssz = (h.shadow.Size() > 0) ? h.shadow.Size() : 2048u;
+            h.pbr3d.SetShadowMap(h.shadow.DepthTexture(), lightVp,
+                                 h.q_shadow_bias, 1.0f / static_cast<f32>(ssz), h.q_shadow_filter);
+        }
         else          h.pbr3d.SetShadowMap(nullptr, lightVp);
         for (u32 i = 0; i < all3d.Size(); ++i) {
             game::FNode3D* nn = all3d[i];
@@ -3493,6 +3504,17 @@ static void ApplyQualityPreset(EditorHost& h, const char* level) noexcept {
         h.q_bloom_on=true; h.q_bloom_intensity=0.50f; h.q_bloom_threshold=0.80f; h.q_bloom_radius=1.5f;
         h.q_cg_saturation=1.10f; h.q_cg_contrast=1.12f; h.q_cas=0.3f; h.q_taa_on=false; h.q_msaa_default=4;
     }
+}
+
+/** 現在の品質プリセットが要求する影マップ解像度 (0=影オフ)。設定の反映確認/UI 表示用。 */
+ACS_EDITOR_API int acs_editor_quality_shadow_size(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr) ? static_cast<int>(host->q_shadow_size) : 0;
+}
+/** 現在の品質プリセットの bloom 強度 (0=bloom オフ)。100 倍した整数で返す (例 0.55→55)。 */
+ACS_EDITOR_API int acs_editor_quality_bloom_x100(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr && host->q_bloom_on) ? static_cast<int>(host->q_bloom_intensity * 100.0f + 0.5f) : 0;
 }
 
 static void ApplySettings(EditorHost& h) noexcept {

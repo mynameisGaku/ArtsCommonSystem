@@ -59,6 +59,12 @@ internal static class EngineInterop
     public static extern int acs_editor_settings_get_value(IntPtr handle,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string cat, [MarshalAs(UnmanagedType.LPUTF8Str)] string key,
         [Out] byte[] buf, int cap);
+    /// <summary>現在の品質プリセットが要求する影マップ解像度 (0=影オフ)。設定反映の確認用。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_quality_shadow_size(IntPtr handle);
+    /// <summary>現在の品質プリセットの bloom 強度 ×100 (0=bloom オフ)。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_quality_bloom_x100(IntPtr handle);
 
     /// <summary>NUL 終端 UTF-8 バイト列を string にする (Out バッファのデコード用)。</summary>
     public static string Utf8Z(byte[] buf)
