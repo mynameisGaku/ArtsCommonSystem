@@ -45,6 +45,9 @@ public partial class MainWindow
             eye.Unchecked += (_, __) => { if (Engine != IntPtr.Zero) EngineInterop.acs_editor_node3d_set_visible(Engine, vid, 0); };
             var hdr = new StackPanel { Orientation = Orientation.Horizontal };
             hdr.Children.Add(eye);
+            (string glyph, Brush gcol) = PrimGlyph(id);   // ノード種別アイコン (Cube/Sphere/Plane/Mesh)
+            hdr.Children.Add(new TextBlock { Text = glyph, FontSize = 11, Margin = new Thickness(0, 0, 5, 0),
+                                             VerticalAlignment = VerticalAlignment.Center, Foreground = gcol });
             hdr.Children.Add(new TextBlock { Text = Node3DName(id), VerticalAlignment = VerticalAlignment.Center });
             var tvi = new TreeViewItem
             {
@@ -71,6 +74,20 @@ public partial class MainWindow
         var buf = new byte[64];
         return EngineInterop.acs_editor_node3d_name(Engine, id, buf, buf.Length) != 0
             ? EngineInterop.Utf8Z(buf) : $"Node {id}";
+    }
+
+    /// <summary>ノードの種別 (prim) を表すグリフ + 色を返す (ヒエラルキーのアイコン用)。</summary>
+    private (string, Brush) PrimGlyph(int id)
+    {
+        int prim = EngineInterop.acs_editor_node3d_prim(Engine, id);
+        return prim switch
+        {
+            0 => ("▣", new SolidColorBrush(Color.FromRgb(0x9A, 0xB8, 0xD8))),   // ▣ Cube
+            1 => ("●", new SolidColorBrush(Color.FromRgb(0x86, 0xC0, 0x86))),   // ● Sphere
+            2 => ("▬", new SolidColorBrush(Color.FromRgb(0xC8, 0xB0, 0x80))),   // ▬ Plane
+            3 => ("◆", new SolidColorBrush(Color.FromRgb(0xD8, 0x96, 0x70))),   // ◆ Mesh
+            _ => ("□", new SolidColorBrush(Color.FromRgb(0x80, 0x86, 0x90))),   // □ その他
+        };
     }
 
     /// <summary>ビューポートのピックで選んだ 3D ノードを Hierarchy 上でも選択状態にする。</summary>
