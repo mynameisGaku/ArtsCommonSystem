@@ -1561,6 +1561,14 @@ public partial class MainWindow : Window
             else if (CurSelCount() > 0) { NameBox.Focus(); NameBox.SelectAll(); }
             e.Handled = true;
         }
+        // Esc = 選択解除 (テキスト編集中は除く。PolyMode の Esc は上で処理済み)。2D=select_none / 3D=select3d(-1)。
+        else if (e.Key == Key.Escape && Keyboard.FocusedElement is not System.Windows.Controls.TextBox)
+        {
+            if (_view3d) EngineInterop.acs_editor_select3d(Engine, -1);
+            else         EngineInterop.acs_editor_select_none(Engine);
+            SyncSelectionUi();
+            e.Handled = true;
+        }
         // 編集中 (Play でない・テキスト入力でない) のギズモ/ビュー ショートカット (UE5/Unity 流:
         // W=移動 / E=回転 / R=拡縮 / F=選択にフォーカス)。Play 中は下の FeedGameKey へ流す。
         else if (Engine != IntPtr.Zero
