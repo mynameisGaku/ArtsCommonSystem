@@ -67,6 +67,7 @@ public partial class MainWindow
         }
         Log($"Hierarchy: {count} 個の 3D ノード");
         ApplyHierarchyFilter();   // 検索フィルタを再適用 (再構築でも維持)
+        UpdateStatusBar();        // ノード数をステータスバーへ
     }
 
     private string Node3DName(int id)

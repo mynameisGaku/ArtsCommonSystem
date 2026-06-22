@@ -598,6 +598,7 @@ public partial class MainWindow : Window
         // ABI の選択集合をツリーへ反映 (primary も含め全メンバをハイライト)。
         RefreshHierarchyHighlight();
         ApplyHierarchyFilter();   // 検索フィルタを再適用 (再構築でも維持)
+        UpdateStatusBar();        // ノード数をステータスバーへ
     }
 
     // ===== ヒエラルキー検索/フィルタ: 名前部分一致でノードを絞り込み (一致 + その祖先を表示) =====
@@ -681,6 +682,7 @@ public partial class MainWindow : Window
     private void SyncSelectionUi()
     {
         if (Engine == IntPtr.Zero) return;
+        UpdateStatusBar();   // 2D/3D 共通: ノード数・選択数をステータスバーへ反映 (選択ファネル)
         if (_view3d)   // 3D モード: 3D 選択 + 3D インスペクター (undo/redo/シーン変更後の再同期)
         {
             int s3 = EngineInterop.acs_editor_selected3d(Engine);
@@ -693,6 +695,24 @@ public partial class MainWindow : Window
         SyncHighlightAndNativeSelection();
         if (_selectedId >= 0) PopulateInspector(_selectedId);
         else                  ClearSelectionUi();
+    }
+
+    /// <summary>ステータスバーにシーンのノード数と選択数を表示する (2D/3D 双方)。</summary>
+    private void UpdateStatusBar()
+    {
+        if (Engine == IntPtr.Zero) { StatusText.Text = "Ready"; return; }
+        int total, sel;
+        if (_view3d)
+        {
+            total = EngineInterop.acs_editor_node3d_count(Engine);
+            sel   = EngineInterop.acs_editor_selected3d_count(Engine);
+        }
+        else
+        {
+            total = EngineInterop.acs_editor_node_count(Engine);
+            sel   = EngineInterop.acs_editor_selection_count(Engine);
+        }
+        StatusText.Text = $"Nodes: {total}  |  Selected: {sel}";
     }
 
     /// <summary>ABI の選択集合をツリーのハイライトへ反映する (primary も ABI から読み直す)。</summary>
