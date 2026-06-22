@@ -106,6 +106,8 @@ internal static class EngineInterop
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_name(IntPtr handle, int id, [Out] byte[] buf, int cap);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_set_name(IntPtr handle, int id, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_prim(IntPtr handle, int id);
     /// <summary>ノード種別: 0=Cube 1=Sphere 2=Plane 3=Mesh 4=Sprite 5=Polygon (不明 -1)。</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]

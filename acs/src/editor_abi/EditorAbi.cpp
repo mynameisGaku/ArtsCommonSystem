@@ -5627,6 +5627,17 @@ ACS_EDITOR_API int acs_editor_node3d_name(void* handle, int id, char* out, int c
     return 1;
 }
 
+/** 3D ノードをリネームする。成功 1 / 失敗 0。Undo 可。 */
+ACS_EDITOR_API int acs_editor_node3d_set_name(void* handle, int id, const char* name) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || name == nullptr || name[0] == '\0') return 0;
+    game::FNode3D* n = FindNode3DNode(*host, id);
+    if (n == nullptr) return 0;
+    PushUndo(*host);
+    n->SetName(FStringView(name));
+    return 1;
+}
+
 /** 3D ノードの prim 種別 (0=Cube 1=Sphere 2=Plane 3=Mesh、無効は -1)。 */
 ACS_EDITOR_API int acs_editor_node3d_prim(void* handle, int id) {
     auto* host = static_cast<EditorHost*>(handle);

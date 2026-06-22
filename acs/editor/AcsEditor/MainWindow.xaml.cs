@@ -1554,6 +1554,13 @@ public partial class MainWindow : Window
             OnNewScene(this, new RoutedEventArgs());
             e.Handled = true;
         }
+        // F2 = 選択ノードを Name 欄でリネーム (テキスト編集中は除く)。3D は 3D インスペクタの Name 欄。
+        else if (e.Key == Key.F2 && Keyboard.FocusedElement is not System.Windows.Controls.TextBox)
+        {
+            if (_view3d) { _name3dBox?.Focus(); _name3dBox?.SelectAll(); }
+            else if (CurSelCount() > 0) { NameBox.Focus(); NameBox.SelectAll(); }
+            e.Handled = true;
+        }
         // 編集中 (Play でない・テキスト入力でない) のギズモ/ビュー ショートカット (UE5/Unity 流:
         // W=移動 / E=回転 / R=拡縮 / F=選択にフォーカス)。Play 中は下の FeedGameKey へ流す。
         else if (Engine != IntPtr.Zero
@@ -2123,6 +2130,22 @@ public partial class MainWindow : Window
         {
             InspName.Text = nm + "  (id " + _selectedId + ")";
             BuildHierarchy();   // Hierarchy 表示名を更新 (選択はエンジン側で維持)
+        }
+    }
+
+    // 3D インスペクタの Name 欄 (Populate3DInspector が生成)。F2 でここをフォーカス。
+    private System.Windows.Controls.TextBox? _name3dBox;
+
+    /// <summary>3D ノードをリネームする (3D インスペクタの Name 欄から)。</summary>
+    private void Apply3DRename(int id, string? raw)
+    {
+        if (_pop3d || Engine == IntPtr.Zero) return;
+        string nm = (raw ?? "").Trim();
+        if (nm.Length == 0) return;
+        if (EngineInterop.acs_editor_node3d_set_name(Engine, id, nm) != 0)
+        {
+            InspName.Text = nm;
+            Build3DHierarchy();   // ヒエラルキー表示名を更新
         }
     }
 

@@ -171,6 +171,19 @@ public partial class MainWindow
         InspEnabled.IsChecked  = EngineInterop.acs_editor_node3d_get_enabled(Engine, id) != 0;
         InspEnabled.Visibility = Visibility.Visible;
         Insp3DPanel.Children.Clear();
+        // NODE: 名前 (リネーム可能)。従来 3D ノードには編集可能な Name 欄が無くリネーム不能だった。
+        {
+            var nameRow = new DockPanel { Margin = new Thickness(0, 2, 0, 6) };
+            var lbl = new TextBlock { Text = "Name", Width = 64, VerticalAlignment = VerticalAlignment.Center,
+                Foreground = (Brush)FindResource("TextDim") };
+            DockPanel.SetDock(lbl, Dock.Left); nameRow.Children.Add(lbl);
+            _name3dBox = new TextBox { Text = Node3DName(id), Style = (Style)FindResource("NumBox") };
+            int nid = id;
+            _name3dBox.LostKeyboardFocus += (_, __) => Apply3DRename(nid, _name3dBox?.Text);
+            _name3dBox.KeyDown += (_, ev) => { if (ev.Key == Key.Enter) { Apply3DRename(nid, _name3dBox?.Text); Keyboard.ClearFocus(); } };
+            nameRow.Children.Add(_name3dBox);
+            Insp3DPanel.Children.Add(nameRow);
+        }
         Insp3DPanel.Children.Add(Section("TRANSFORM"));
         Insp3DPanel.Children.Add(Vec3Row("Position", tf[0], tf[1], tf[2], (x, y, z) => Set3DTransform(id, 0, x, y, z)));
         Insp3DPanel.Children.Add(Vec3Row("Rotation°", tf[3], tf[4], tf[5], (x, y, z) => Set3DTransform(id, 1, x, y, z)));
