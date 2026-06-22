@@ -21,6 +21,7 @@ public static class E {
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_shadow_cascades(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern void acs_editor_sun_direction(IntPtr h, float[] o3);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern void acs_editor_sun_light_color(IntPtr h, float[] o3);
+    [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern void acs_editor_sky_colors(IntPtr h, float[] o9);
 }
 "@
 Add-Type -TypeDefinition $src
@@ -89,6 +90,16 @@ Check "intensity 4.0 -> (4.0, 3.8, 3.4)" (([math]::Abs($c[0]-4.0) -lt 0.03) -and
 [void][E]::acs_editor_settings_set($h,"Rendering","SunIntensity","2")
 $c = SunCol
 Check "pure red x2 -> (2,0,0)" (([math]::Abs($c[0]-2.0) -lt 0.03) -and ([math]::Abs($c[1]) -lt 0.03) -and ([math]::Abs($c[2]) -lt 0.03))
+
+Write-Host "`n[sky colors] zenith/horizon/ground drive sky background + IBL gradient"
+function Sky(){ $o=New-Object 'single[]' 9; [E]::acs_editor_sky_colors($h,$o); return $o }
+[void][E]::acs_editor_settings_load_text($h,"")   # defaults
+$s = Sky
+Check "default zenith (0.16,0.33,0.62)" (([math]::Abs($s[0]-0.16) -lt 0.01) -and ([math]::Abs($s[1]-0.33) -lt 0.01) -and ([math]::Abs($s[2]-0.62) -lt 0.01))
+Check "default ground (0.20,0.19,0.21)"  (([math]::Abs($s[6]-0.20) -lt 0.01) -and ([math]::Abs($s[7]-0.19) -lt 0.01) -and ([math]::Abs($s[8]-0.21) -lt 0.01))
+[void][E]::acs_editor_settings_set($h,"Rendering","SkyZenith","1,0.5,0.2")   # sunset-ish orange
+$s = Sky
+Check "SkyZenith=1,0.5,0.2 applied" (([math]::Abs($s[0]-1.0) -lt 0.01) -and ([math]::Abs($s[1]-0.5) -lt 0.01) -and ([math]::Abs($s[2]-0.2) -lt 0.01))
 
 [E]::acs_editor_destroy($h)
 Write-Host "`n==== $pass passed, $fail failed ===="

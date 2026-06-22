@@ -267,6 +267,9 @@ struct EditorHost {
     FVec3 sun_dir            = FVec3{ 0.40f, 0.85f, -0.35f };   // 太陽 (光源) 方向 «光へ向かう» 向き。Rendering/SunAzimuth+Elevation で駆動。
     FVec3 sun_color          = FVec3{ 1.0f, 0.95f, 0.85f };     // 太陽の色 (Rendering/SunColor)。
     f32   sun_intensity      = 2.35f;                           // 太陽の強度 (Rendering/SunIntensity)。光色 = sun_color * sun_intensity。
+    FVec3 sky_zenith         = FVec3{ 0.16f, 0.33f, 0.62f };    // 空グラデ天頂/地平/下半球 (Rendering/Sky*)。IBL 環境光源 + 空背景の両方を駆動。
+    FVec3 sky_horizon        = FVec3{ 0.62f, 0.70f, 0.80f };
+    FVec3 sky_ground         = FVec3{ 0.20f, 0.19f, 0.21f };
 
     // マテリアル GPU プレビュー: 実シェーダでサンプルを RT に描き readback する。
     TUniquePtr<IRhiCommandList> preview_cl;            // 専用コマンドリスト (フレーム外で submit)
@@ -3080,13 +3083,16 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     if (h.sky3d_ready) {
         h.sky3d.SetSunDirection(h.sun_dir);   // 空の太陽もシーンのライト方向に追従 (設定駆動)
         h.sky3d.SetSunColor(h.sun_color);     // 太陽の色も追従
+        h.sky3d.SetZenithColor(h.sky_zenith); // 空グラデも設定駆動 → IBL 環境光と背景を一致
+        h.sky3d.SetHorizonColor(h.sky_horizon);
+        h.sky3d.SetGroundColor(h.sky_ground);
         h.sky3d.Render(*cl, cam);
     } else if (h.sky_pipe && h.sky_cb) {
         SkyCB sk{};
         sk.inv_view_proj = Inverse(vp);
-        sk.zenith = FVec4{ 0.16f, 0.33f, 0.62f, 0 };     // 天頂 (青)
-        sk.horizon= FVec4{ 0.62f, 0.70f, 0.80f, 0 };     // 地平 (淡い)
-        sk.ground = FVec4{ 0.20f, 0.19f, 0.21f, 0 };     // 下半球 (暗いグレー)
+        sk.zenith = FVec4{ h.sky_zenith.x,  h.sky_zenith.y,  h.sky_zenith.z,  0 };   // 天頂 (設定駆動)
+        sk.horizon= FVec4{ h.sky_horizon.x, h.sky_horizon.y, h.sky_horizon.z, 0 };   // 地平
+        sk.ground = FVec4{ h.sky_ground.x,  h.sky_ground.y,  h.sky_ground.z,  0 };   // 下半球
         sk.sun    = FVec4{ h.sun_dir.x, h.sun_dir.y, h.sun_dir.z, 0 };   // 太陽方向 (world)。シーンのライト方向と一致。
         h.sky_cb->Update(&sk, sizeof(sk));
         cl->SetPipeline(*h.sky_pipe);
@@ -3108,9 +3114,9 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     fcb.light_dir = FVec4{ h.sun_dir.x, h.sun_dir.y, h.sun_dir.z, 0.0f };    // 光方向, w=0 (環境光は IBL から取る)
     fcb.light_col = FVec4{ sunCol.x, sunCol.y, sunCol.z, 0.0f };     // 太陽 = キーライト (色×強度、設定駆動)
     fcb.cam_pos   = FVec4{ camPos.x, camPos.y, camPos.z, shadowOn ? 1.0f : 0.0f };   // w=影を受けるか
-    fcb.sky_zenith  = FVec4{ 0.16f, 0.33f, 0.62f, 0 };      // IBL 環境光源 (スカイと同じグラデーション)
-    fcb.sky_horizon = FVec4{ 0.62f, 0.70f, 0.80f, 0 };
-    fcb.sky_ground  = FVec4{ 0.20f, 0.19f, 0.21f, 0 };
+    fcb.sky_zenith  = FVec4{ h.sky_zenith.x,  h.sky_zenith.y,  h.sky_zenith.z,  0 };   // IBL 環境光源 (スカイと同じグラデ・設定駆動)
+    fcb.sky_horizon = FVec4{ h.sky_horizon.x, h.sky_horizon.y, h.sky_horizon.z, 0 };
+    fcb.sky_ground  = FVec4{ h.sky_ground.x,  h.sky_ground.y,  h.sky_ground.z,  0 };
     fcb.light_vp    = lightVp;                              // シャドウマップ空間
     if (h.m3d_frame_cb) h.m3d_frame_cb->Update(&fcb, sizeof(fcb));
 
@@ -3591,6 +3597,14 @@ ACS_EDITOR_API void acs_editor_sun_light_color(void* handle, float* out3) {
     out3[1] = host->sun_color.y * host->sun_intensity;
     out3[2] = host->sun_color.z * host->sun_intensity;
 }
+/** 空グラデ色 (zenith3 + horizon3 + ground3) を out9 へ。設定反映の確認用。 */
+ACS_EDITOR_API void acs_editor_sky_colors(void* handle, float* out9) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || out9 == nullptr) return;
+    out9[0]=host->sky_zenith.x;  out9[1]=host->sky_zenith.y;  out9[2]=host->sky_zenith.z;
+    out9[3]=host->sky_horizon.x; out9[4]=host->sky_horizon.y; out9[5]=host->sky_horizon.z;
+    out9[6]=host->sky_ground.x;  out9[7]=host->sky_ground.y;  out9[8]=host->sky_ground.z;
+}
 
 static void ApplySettings(EditorHost& h) noexcept {
     ApplyQualityPreset(h, h.settings.GetString("Rendering", "QualityLevel", "High"));   // 先に品質プリセットを展開
@@ -3613,6 +3627,9 @@ static void ApplySettings(EditorHost& h) noexcept {
     }
     h.sun_color     = h.settings.GetColor("Rendering", "SunColor", FVec3{ 1.0f, 0.95f, 0.85f });
     h.sun_intensity = h.settings.GetFloat("Rendering", "SunIntensity", 2.35f);
+    h.sky_zenith    = h.settings.GetColor("Rendering", "SkyZenith",  FVec3{ 0.16f, 0.33f, 0.62f });
+    h.sky_horizon   = h.settings.GetColor("Rendering", "SkyHorizon", FVec3{ 0.62f, 0.70f, 0.80f });
+    h.sky_ground    = h.settings.GetColor("Rendering", "SkyGround",  FVec3{ 0.20f, 0.19f, 0.21f });
     const int msaa = h.settings.GetInt("Rendering", "MsaaSamples", 8);
     h.msaa_pending = (msaa >= 8) ? 8u : (msaa >= 4) ? 4u : (msaa >= 2) ? 2u : 1u;
     h.ambient      = h.settings.GetColor("Rendering", "AmbientColor", FVec3{ 0.10f, 0.11f, 0.13f });
