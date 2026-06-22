@@ -154,7 +154,8 @@
                             <Separator/>
                             <MenuItem Header="Blueprint として保存…" Click="OnCtxSaveBlueprint"/>
                             <MenuItem Header="名前を変更" Click="OnCtxRename"/>
-                            <MenuItem Header="削除" Click="OnCtxDelete"/>
+                            <MenuItem Header="複製" Click="OnDuplicateNode" InputGestureText="Ctrl+D"/>
+                            <MenuItem Header="削除" Click="OnCtxDelete" InputGestureText="Del"/>
                         </ContextMenu>
                     </TreeView.ContextMenu>
                 </TreeView>

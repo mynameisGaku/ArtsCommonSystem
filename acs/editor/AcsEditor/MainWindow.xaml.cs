@@ -1513,6 +1513,13 @@ public partial class MainWindow : Window
         // F7 = Build / F5 = Build & Run (テキスト編集中でも安全な F キー)。
         if (e.Key == Key.F7) { OnBuildProject(this, new RoutedEventArgs()); e.Handled = true; }
         else if (e.Key == Key.F5) { OnBuildAndRun(this, new RoutedEventArgs()); e.Handled = true; }
+        // Ctrl+D = 選択ノードを複製 (テキスト編集中は除く)。Duplicate は selection ベースで 2D/3D 両対応。
+        else if (e.Key == Key.D && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control
+                 && Keyboard.FocusedElement is not System.Windows.Controls.TextBox)
+        {
+            OnDuplicateNode(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
         // 編集中 (Play でない・テキスト入力でない) のギズモ/ビュー ショートカット (UE5/Unity 流:
         // W=移動 / E=回転 / R=拡縮 / F=選択にフォーカス)。Play 中は下の FeedGameKey へ流す。
         else if (Engine != IntPtr.Zero
@@ -2087,7 +2094,22 @@ public partial class MainWindow : Window
 
     private void OnDuplicateNode(object sender, RoutedEventArgs e)
     {
-        if (Engine == IntPtr.Zero || EngineInterop.acs_editor_selection_count(Engine) == 0) return;
+        if (Engine == IntPtr.Zero) return;
+        if (_view3d)   // 3D モード: 選択 3D ノードを subtree 複製 (acs_editor_node3d_duplicate)
+        {
+            int sel = EngineInterop.acs_editor_selected3d(Engine);
+            if (sel < 0) return;
+            int nid = EngineInterop.acs_editor_node3d_duplicate(Engine, sel);
+            if (nid >= 0)
+            {
+                Log("Duplicated 3D node (subtree).");
+                Build3DHierarchy();
+                Select3DInHierarchy(nid);
+                Populate3DInspector(nid);
+            }
+            return;
+        }
+        if (EngineInterop.acs_editor_selection_count(Engine) == 0) return;
         int n = EngineInterop.acs_editor_selection_duplicate(Engine);   // 選択全体を一括複製 (1 undo)
         if (n > 0)
         {

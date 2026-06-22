@@ -5358,6 +5358,46 @@ ACS_EDITOR_API int acs_editor_add_node3d(void* handle, int prim, const char* nam
     return id;
 }
 
+/** 3D ノードの subtree を parent の下にクローンする。transform/euler/prim/color/material/子 を複製。
+ *  注: スプライト/手続きポリゴンの «ジオメトリ再生成» は未対応 (prim mesh として複製される)。返り値=トップ複製の id。 */
+static int CloneNode3DSubtree(EditorHost& h, game::FNode3D* src, game::FNode3D* parent) noexcept {
+    char nm[64];
+    const FStringView sn = src->Name();
+    const usize ln = (sn.Size() < sizeof(nm) - 1) ? sn.Size() : sizeof(nm) - 1;
+    if (ln > 0) std::memcpy(nm, sn.Data(), ln);
+    nm[ln] = '\0';
+    game::FNode3D& clone = AddNode3D(h, nm);
+    const int newId = h.next_id3d++;
+    EEd3DRec* sr = Rec3D(src);
+    EEd3DRec* cr = Rec3D(&clone);
+    if (cr != nullptr) { cr->id = newId; if (sr != nullptr) cr->euler = sr->euler; }
+    clone.Local() = src->Local();                    // transform をそのまま複製
+    game::FMeshComponent3D* sm = Mesh3D(src);
+    game::FMeshComponent3D* cm = Mesh3D(&clone);
+    if (sm != nullptr && cm != nullptr) {
+        cm->SetPrimitive(sm->Primitive());
+        cm->SetColor(sm->Color());
+        if (sm->HasMaterial()) { cm->SetMaterialPath(sm->MaterialPath()); LoadNode3DMaterial(&clone); }
+    }
+    if (parent != nullptr && parent != &h.scene3d.Root()) clone.Reparent(*parent);   // 元と同じ親へ
+    for (u32 i = 0; i < src->ChildCount(); ++i)
+        CloneNode3DSubtree(h, src->Child(i), &clone);                                 // 子孫も複製
+    return newId;
+}
+
+/** 3D ノード (とその子孫) を複製する。複製のトップを選択し、その id を返す (失敗 -1)。 */
+ACS_EDITOR_API int acs_editor_node3d_duplicate(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return -1;
+    game::FNode3D* src = FindNode3DNode(*host, id);
+    if (src == nullptr) return -1;
+    PushUndo(*host);
+    const int newId = CloneNode3DSubtree(*host, src, src->Parent());
+    host->scene3d.Update(0.0f);    // 保留中の reparent を一括解決 (階層を確定)
+    if (newId >= 0) SetSel3D(*host, newId);
+    return newId;
+}
+
 /** メッシュファイル (.gltf/.glb/.obj/.fbx) を 3D ノードとして読み込む。新ノード id (失敗 -1)。 */
 ACS_EDITOR_API int acs_editor_add_mesh3d(void* handle, const char* path, const char* name) {
     auto* host = static_cast<EditorHost*>(handle);
