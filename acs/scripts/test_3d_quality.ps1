@@ -23,6 +23,8 @@ public static class E {
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern void acs_editor_sun_light_color(IntPtr h, float[] o3);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern void acs_editor_sky_colors(IntPtr h, float[] o9);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_apply_lighting_preset(IntPtr h, [MarshalAs(UnmanagedType.LPUTF8Str)] string n);
+    [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern void acs_editor_set_show_grid3d(IntPtr h, int on);
+    [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_get_show_grid3d(IntPtr h);
 }
 "@
 Add-Type -TypeDefinition $src
@@ -115,6 +117,13 @@ Check "Night: cool dim light (B > R, dim)" (($c[2] -gt $c[0]) -and ($c[2] -lt 1.
 Check "Night: dark sky zenith (all < 0.2)" (($s[0] -lt 0.2) -and ($s[1] -lt 0.2) -and ($s[2] -lt 0.2))
 Check "apply Noon restores default sun ~0.85 up" ((& { [void][E]::acs_editor_apply_lighting_preset($h,"Noon"); (SunDir)[1] -gt 0.8 }))
 Check "unknown preset -> 0" ([E]::acs_editor_apply_lighting_preset($h,"Bogus") -eq 0)
+
+Write-Host "`n[grid toggle] 3D viewport grid show/hide"
+Check "grid shown by default" ([E]::acs_editor_get_show_grid3d($h) -eq 1)
+[E]::acs_editor_set_show_grid3d($h,0)
+Check "grid hidden after set 0" ([E]::acs_editor_get_show_grid3d($h) -eq 0)
+[E]::acs_editor_set_show_grid3d($h,1)
+Check "grid shown after set 1" ([E]::acs_editor_get_show_grid3d($h) -eq 1)
 
 [E]::acs_editor_destroy($h)
 Write-Host "`n==== $pass passed, $fail failed ===="

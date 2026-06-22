@@ -334,6 +334,7 @@ struct EditorHost {
     TUniquePtr<IRhiPipeline> grid_pipe;               // 無限グリッド (y=0 / ortho は z=0)
     TUniquePtr<IRhiShader>   grid_vs, grid_ps;
     TUniquePtr<IRhiBuffer>   grid_cb, grid_vb;        // b0: view_proj + 中心、大クアッド頂点
+    bool                     show_grid3d = true;      // 3D ビューポートのグリッド表示 (清書/スクショ時に消せる)
     acs::FShadowMap          shadow;                  // 有向光源シャドウマップ (深度テクスチャ + 光VP)
     TUniquePtr<IRhiPipeline> shadow_caster_pipe;      // M3DVtx 用 depth-only キャスター
     TUniquePtr<IRhiShader>   shadow_caster_vs;
@@ -3173,7 +3174,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     delete &dv;
 
     // --- (2b) 無限グリッド: 視点中心の大クアッド (y=0 / ortho は z=0) を半透明描画。距離フェードで無限に見せる。
-    if (h.grid_pipe && h.grid_vb && h.grid_cb) {
+    if (h.show_grid3d && h.grid_pipe && h.grid_vb && h.grid_cb) {
         const f32 S = 800.0f;                    // クアッド半径 (フェード距離より十分大きく)
         const f32 cx = h.cam3d_target.x;
         const f32 cy = h.ortho3d ? h.cam3d_target.y : h.cam3d_target.z;
@@ -3597,6 +3598,17 @@ ACS_EDITOR_API void acs_editor_sun_light_color(void* handle, float* out3) {
     out3[1] = host->sun_color.y * host->sun_intensity;
     out3[2] = host->sun_color.z * host->sun_intensity;
 }
+/** 3D ビューポートのグリッド表示を切替える (清書/スクショ用)。 */
+ACS_EDITOR_API void acs_editor_set_show_grid3d(void* handle, int on) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host != nullptr) host->show_grid3d = (on != 0);
+}
+/** 3D グリッド表示状態 (1=表示)。 */
+ACS_EDITOR_API int acs_editor_get_show_grid3d(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr && host->show_grid3d) ? 1 : 0;
+}
+
 /** 空グラデ色 (zenith3 + horizon3 + ground3) を out9 へ。設定反映の確認用。 */
 ACS_EDITOR_API void acs_editor_sky_colors(void* handle, float* out9) {
     auto* host = static_cast<EditorHost*>(handle);

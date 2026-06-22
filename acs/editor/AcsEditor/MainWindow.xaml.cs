@@ -442,6 +442,15 @@ public partial class MainWindow : Window
         else Log($"照明プリセットの適用に失敗: {preset}");
     }
 
+    /// <summary>View → Show Grid: 3D ビューポートのグリッド表示を切替える (清書/スクショ用)。</summary>
+    private void OnToggleGrid(object sender, RoutedEventArgs e)
+    {
+        if (Engine == IntPtr.Zero) return;
+        bool on = ShowGridItem.IsChecked;
+        EngineInterop.acs_editor_set_show_grid3d(Engine, on ? 1 : 0);
+        Log(on ? "グリッド表示 ON" : "グリッド表示 OFF");
+    }
+
     private void OnProjectSettings(object sender, RoutedEventArgs e)
     {
         if (Engine == IntPtr.Zero) return;

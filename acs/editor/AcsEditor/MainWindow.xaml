@@ -115,6 +115,8 @@
                     <MenuItem Header="☁ Overcast (曇天)"     Tag="Overcast" Click="OnLightingPreset"/>
                     <MenuItem Header="🌙 Night (夜)"          Tag="Night"    Click="OnLightingPreset"/>
                 </MenuItem>
+                <Separator/>
+                <MenuItem x:Name="ShowGridItem" Header="Show Grid (グリッド表示)" IsCheckable="True" IsChecked="True" Click="OnToggleGrid"/>
             </MenuItem>
             <MenuItem Header="_Help">
                 <MenuItem Header="About ACS Editor" Click="OnAbout"/>
