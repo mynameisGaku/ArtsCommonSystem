@@ -218,9 +218,9 @@ public partial class MainWindow
             Insp3DPanel.Children.Add(LabeledValue3D("Type", typeName));
             if (kind == 4) Insp3DPanel.Children.Add(SpriteRow3D(id));   // スプライト画像の差替え UI
         }
-        // 色 (FMeshComponent3D::Color)。material 未設定時のアルベド。
-        Insp3DPanel.Children.Add(Vec3Row("Color", col[0], col[1], col[2], (r, g, b) =>
-            EngineInterop.acs_editor_node3d_set_color(Engine, id, r, g, b, 1.0f)));
+        // 色 (FMeshComponent3D::Color, RGBA)。material 未設定時のアルベド。A=不透明度 (従来 1.0 固定で半透明不可だった)。
+        Insp3DPanel.Children.Add(Vec4Row("Color", col[0], col[1], col[2], col[3], (r, g, b, a) =>
+            EngineInterop.acs_editor_node3d_set_color(Engine, id, r, g, b, a)));
         // マテリアル — .acsmat アセットを参照 (2D と同様、編集はマテリアルエディタで)。インライン数値編集はしない。
         Insp3DPanel.Children.Add(Build3DMaterialSlot(id));
 
@@ -412,6 +412,37 @@ public partial class MainWindow
     };
 
     // 3 成分編集行 (X/Y/Z をテキストボックス、Enter / フォーカス喪失で onChanged)。
+    // RGBA など 4 成分の編集行 (Vec3Row の 4 成分版)。3D 色の Alpha 編集用。
+    private FrameworkElement Vec4Row(string label, float x, float y, float z, float w, Action<float, float, float, float> onChanged)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
+        for (int i = 0; i < 4; ++i) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var lbl = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center,
+            Foreground = (Brush)FindResource("TextDim") };
+        Grid.SetColumn(lbl, 0); grid.Children.Add(lbl);
+        var boxes = new TextBox[4];
+        float[] v = { x, y, z, w };
+        for (int i = 0; i < 4; ++i)
+        {
+            var tb = new TextBox
+            {
+                Text = v[i].ToString("0.###", CultureInfo.InvariantCulture),
+                Margin = new Thickness(i == 0 ? 0 : 3, 0, 0, 0),
+                Style = (Style)FindResource("NumBox"),
+            };
+            Grid.SetColumn(tb, i + 1); grid.Children.Add(tb); boxes[i] = tb;
+        }
+        void Apply() => onChanged(ParseF(boxes[0].Text, v[0]), ParseF(boxes[1].Text, v[1]),
+                                  ParseF(boxes[2].Text, v[2]), ParseF(boxes[3].Text, v[3]));
+        foreach (var tb in boxes)
+        {
+            tb.LostKeyboardFocus += (_, __) => Apply();
+            tb.KeyDown += (_, ev) => { if (ev.Key == Key.Enter) { Apply(); Keyboard.ClearFocus(); } };
+        }
+        return grid;
+    }
+
     private FrameworkElement Vec3Row(string label, float x, float y, float z, Action<float, float, float> onChanged)
     {
         var grid = new Grid { Margin = new Thickness(0, 3, 0, 3) };
