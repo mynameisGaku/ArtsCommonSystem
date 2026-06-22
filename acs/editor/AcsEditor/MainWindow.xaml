@@ -66,9 +66,13 @@
                 <MenuItem Header="Undo" Command="ApplicationCommands.Undo" InputGestureText="Ctrl+Z"/>
                 <MenuItem Header="Redo" Command="ApplicationCommands.Redo" InputGestureText="Ctrl+Y"/>
                 <Separator/>
+                <MenuItem Header="Cut" Click="OnCut" InputGestureText="Ctrl+X"/>
                 <MenuItem Header="Copy"  Command="ApplicationCommands.Copy"  InputGestureText="Ctrl+C"/>
                 <MenuItem Header="Paste" Command="ApplicationCommands.Paste" InputGestureText="Ctrl+V"/>
+                <MenuItem Header="Duplicate" Click="OnDuplicateNode" InputGestureText="Ctrl+D"/>
                 <MenuItem Header="Delete" Command="ApplicationCommands.Delete" InputGestureText="Del"/>
+                <Separator/>
+                <MenuItem Header="Select All" Command="ApplicationCommands.SelectAll" InputGestureText="Ctrl+A"/>
                 <Separator/>
                 <MenuItem Header="Project Settings…" Click="OnProjectSettings"/>
             </MenuItem>

@@ -1554,6 +1554,13 @@ public partial class MainWindow : Window
             OnNewScene(this, new RoutedEventArgs());
             e.Handled = true;
         }
+        // Ctrl+X = カット (テキスト編集中は除く)。Copy は CommandBinding だが Cut は Click ハンドラのため手動配線。
+        else if (e.Key == Key.X && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control
+                 && Keyboard.FocusedElement is not System.Windows.Controls.TextBox)
+        {
+            OnCut(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
         // F2 = 選択ノードを Name 欄でリネーム (テキスト編集中は除く)。3D は 3D インスペクタの Name 欄。
         else if (e.Key == Key.F2 && Keyboard.FocusedElement is not System.Windows.Controls.TextBox)
         {
@@ -2186,7 +2193,21 @@ public partial class MainWindow : Window
 
     private void DeleteSelected()
     {
-        if (Engine == IntPtr.Zero || EngineInterop.acs_editor_selection_count(Engine) == 0) return;
+        if (Engine == IntPtr.Zero) return;
+        if (_view3d)   // 3D モード: selected3d を削除 (Del/コンテキストは従来 2D 専用で 3D 無反応だった)
+        {
+            int sel = EngineInterop.acs_editor_selected3d(Engine);
+            if (sel < 0) return;
+            if (EngineInterop.acs_editor_delete_node3d(Engine, sel) != 0)
+            {
+                Log("Deleted 3D node (and children).");
+                Build3DHierarchy();
+                Clear3DInspector();
+                UpdateStatusBar();
+            }
+            return;
+        }
+        if (EngineInterop.acs_editor_selection_count(Engine) == 0) return;
         int n = EngineInterop.acs_editor_selection_delete(Engine);      // 選択全体を一括削除 (1 undo)
         if (n > 0)
         {
@@ -2197,6 +2218,12 @@ public partial class MainWindow : Window
     }
     private void OnDeleteNode(object sender, RoutedEventArgs e) => DeleteSelected();
     private void OnDeleteCmd(object sender, ExecutedRoutedEventArgs e) => DeleteSelected();
+    private void OnCut(object sender, RoutedEventArgs e)   // Ctrl+X = コピーしてから削除 (OnCopy/DeleteSelected は 2D/3D 分岐済み)
+    {
+        if (Engine == IntPtr.Zero) return;
+        OnCopy(this, null!);
+        DeleteSelected();
+    }
 
     // ===== Copy / Paste (subtree、Ctrl+C / Ctrl+V) =====
     private void OnCopy(object sender, ExecutedRoutedEventArgs e)
