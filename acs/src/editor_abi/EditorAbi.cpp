@@ -49,6 +49,7 @@
 #include "render/StandardShader.h"          // FDirLight (有向光源)
 #include "render/PostProcess.h"             // FPostProcess (HDR→ACES トーンマップ)
 #include "render/Ssao.h"                    // FSsao (GTAO + contact shadow。q_ssao_* を配線)
+#include "render/Ssr.h"                     // FSsr (画面空間反射。q_ssr_* を配線)
 #include "asset/MeshPrimitive.h"            // Primitive::MakeCube/MakeSphere/MakePlane
 #include "asset/MeshAsset.h"                // FMeshAsset
 #include "math/Camera.h"                    // FCamera (透視 + lookAt)
@@ -342,6 +343,11 @@ struct EditorHost {
     TUniquePtr<IRhiPipeline> normal_pipe;              // M3DVtx → world normal 出力
     TUniquePtr<IRhiShader>   normal_vs, normal_ps;
     TUniquePtr<IRhiBuffer>   normal_cb;                // b0: view_proj (プリパス専用・上書き回避)
+    // SSR (画面空間反射)。SSAO と同じ法線+深度 G-buffer + 前フレーム scene color から反射を焼く。
+    acs::FSsr                ssr3d;                    // エンジン SSR。出力は FPbrShader.SetSsr で roughness ブレンド
+    bool                     ssr_ready = false;
+    bool                     ssr_computed = false;     // 今フレーム SSR を焼いたか (次フレームの SetSsr 用)
+    FMat4                    prev_vp = FMat4::Identity();  // 前フレーム view_proj (SSR temporal reproject)
     TUniquePtr<IRhiPipeline> grid_pipe;               // 無限グリッド (y=0 / ortho は z=0)
     TUniquePtr<IRhiShader>   grid_vs, grid_ps;
     TUniquePtr<IRhiBuffer>   grid_cb, grid_vb;        // b0: view_proj + 中心、大クアッド頂点
@@ -3119,23 +3125,27 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         }
     }
 
-    // --- SSAO (GTAO + contact shadow): 法線 G-buffer プリパス → FSsao → 本パスで FPbrShader が ambient に乗算 ---
-    //     q_ssao_on (品質プリセット) で駆動。法線プリパスは depth も焼くが、直後の本パスが depth を
-    //     clear して描き直すので干渉しない (FSsao はここで depth+normal を消費済み)。
+    // --- G-buffer (法線+深度) プリパス: SSAO / SSR の共通入力。q_ssao_on か q_ssr_on で駆動 ---
+    //     法線プリパスは depth も焼くが、直後の本パスが depth を clear して描き直すので干渉しない。
+    //     SSAO はここで消費、SSR は本パス後 (scene color が要るため) に消費する。
     h.ssao_computed = false;
-    if (h.q_ssao_on && h.ssao_pipe_ready && dvCount > 0) {
+    bool gbufReady = false;
+    const bool wantGbuf = (h.q_ssao_on || h.q_ssr_on) && h.ssao_pipe_ready && dvCount > 0;
+    if (wantGbuf) {
         IRhiDevice* sdev = h.renderer.Device();
         if (sdev != nullptr) {
-            if (h.ssao_w != scW || h.ssao_h != scH) {     // 画面サイズに遅延 init / resize
+            if (h.ssao_w != scW || h.ssao_h != scH) {     // 効果群を画面サイズに遅延 init / resize
+                FTextureDesc nd{}; nd.width = scW; nd.height = scH; nd.format = EFormat::R16G16B16A16_Float; nd.is_render_target = true;
+                auto ntr = CreateRhiTexture(*sdev, nd); if (ntr.IsOk()) h.normal_rt = Move(ntr.Value());
                 if (!h.ssao_ready) { auto sr = h.ssao3d.Init(*sdev, scW, scH); h.ssao_ready = sr.IsOk();
                                      if (!h.ssao_ready) ACS_LOG_ERROR("[3D] FSsao Init 失敗: %s", sr.Error().message); }
                 else               { (void)h.ssao3d.Resize(scW, scH); }
-                FTextureDesc nd{}; nd.width = scW; nd.height = scH; nd.format = EFormat::R16G16B16A16_Float; nd.is_render_target = true;
-                auto ntr = CreateRhiTexture(*sdev, nd); if (ntr.IsOk()) h.normal_rt = Move(ntr.Value());
-                if (h.ssao_ready && h.normal_rt) { h.ssao_w = scW; h.ssao_h = scH; }
-                else { h.ssao_w = 0; h.ssao_h = 0; }
+                if (!h.ssr_ready)  { auto rr = h.ssr3d.Init(*sdev, EFormat::R16G16B16A16_Float, scW, scH); h.ssr_ready = rr.IsOk();
+                                     if (!h.ssr_ready) ACS_LOG_ERROR("[3D] FSsr Init 失敗: %s", rr.Error().message); }
+                else               { (void)h.ssr3d.Resize(scW, scH); }
+                if (h.normal_rt) { h.ssao_w = scW; h.ssao_h = scH; } else { h.ssao_w = 0; h.ssao_h = 0; }
             }
-            if (h.ssao_ready && h.normal_rt) {
+            if (h.normal_rt && h.ssao_w == scW) {
                 const ClearColor ncl{ 0.0f, 0.0f, 0.0f, 0.0f };   // 法線+深度プリパス (world normal を RGBA16F へ)
                 cl->BeginRenderToTexture(*h.normal_rt, ncl, h.renderer.DepthBuffer(), 1.0f);
                 { FViewport nvp{}; nvp.width = static_cast<f32>(scW); nvp.height = static_cast<f32>(scH); cl->SetViewport(nvp);
@@ -3146,12 +3156,15 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                 cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
                 cl->Draw(dvCount, 0);
                 cl->EndRenderToTexture(*h.normal_rt);
-                h.ssao3d.Render(*sdev, *cl, *h.renderer.DepthBuffer(), *h.normal_rt,
-                                vp, Inverse(vp), cam.View(), eye, h.sun_dir,
-                                h.q_ssao_intensity, h.q_ssao_radius);   // light_dir = surface→light = sun_dir
-                h.ssao_computed = true;
+                gbufReady = true;
             }
         }
+    }
+    if (gbufReady && h.q_ssao_on && h.ssao_ready) {       // SSAO (GTAO + 接地影) を焼く
+        h.ssao3d.Render(*h.renderer.Device(), *cl, *h.renderer.DepthBuffer(), *h.normal_rt,
+                        vp, Inverse(vp), cam.View(), eye, h.sun_dir,
+                        h.q_ssao_intensity, h.q_ssao_radius);   // light_dir = surface→light = sun_dir
+        h.ssao_computed = true;
     }
 
     // Phase2: 3D シーンを «線形 HDR RT» へ描く → 末尾で FPostProcess(ACES) が一度だけ tonemap。post3d 遅延初期化。
@@ -3237,6 +3250,9 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         // SSAO (GTAO) visibility を ambient へ乗算 (今フレーム焼けていれば)。screen UV でサンプル。
         if (h.ssao_computed) h.pbr3d.SetSsao(h.ssao3d.OutputTexture(), h.q_ssao_intensity, scW, scH);
         else                 h.pbr3d.SetSsao(nullptr, 0.0f, scW, scH);
+        // SSR: 前フレームの反射結果を roughness/Fresnel でブレンド (FPbrShader 内)。本フレーム分は本パス後に焼く。
+        if (h.q_ssr_on && h.ssr_ready) h.pbr3d.SetSsr(h.ssr3d.OutputTexture(), h.q_ssr_intensity);
+        else                           h.pbr3d.SetSsr(nullptr, 0.0f);
         for (u32 i = 0; i < all3d.Size(); ++i) {
             game::FNode3D* nn = all3d[i];
             { EEd3DRec* er = Rec3D(nn); if (er != nullptr && er->is_empty) continue; }   // 空ノードは描画しない
@@ -3396,6 +3412,14 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     //         ビネット/色収差/グレイン無効でクリーンに。
     if (hdrRt != nullptr && scSwap != nullptr) {
         cl->EndRenderToTexture(*hdrRt);
+        // SSR: 本フレームの lit scene color (hdrRt は今 SRV) + 深度 + 法線から反射を焼く。
+        // 結果は ssr3d 内部 RT に残り、«次フレーム» の SetSsr が roughness ブレンドで使う (前フレーム反射方式)。
+        h.ssr_computed = false;
+        if (h.q_ssr_on && h.ssr_ready && gbufReady) {
+            h.ssr3d.Render(*h.renderer.Device(), *cl, *hdrRt, *h.renderer.DepthBuffer(), *h.normal_rt,
+                           vp, Inverse(vp), h.prev_vp, eye, h.q_ssr_intensity);
+            h.ssr_computed = true;
+        }
         PostProcessParams pp{};
         // bloom: 7-mip + progressive radius + soft-knee の高品質 bloom。threshold は HDR 1.0 超を抽出、
         // soft-knee でなめらかに立ち上げ。radius は progressive で深い mip ほど広がる(基準 1.0)。
@@ -3411,6 +3435,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         pp.vignette_intensity = 0.0f; pp.chromatic_aberration = 0.0f; pp.grain_intensity = 0.0f;
         h.post3d.Render(*cl, *scSwap, h.renderer.CurrentBuffer(), pp);
     }
+    h.prev_vp = vp;   // SSR temporal reproject 用に今フレームの view_proj を保持
 }
 
 } // namespace
@@ -3682,6 +3707,11 @@ ACS_EDITOR_API int acs_editor_quality_ssao_x100(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     return (host != nullptr && host->q_ssao_on) ? static_cast<int>(host->q_ssao_intensity * 100.0f + 0.5f) : 0;
 }
+/** 現在の SSR 強度 ×100 (0=SSR オフ)。設定反映の確認用。 */
+ACS_EDITOR_API int acs_editor_quality_ssr_x100(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr && host->q_ssr_on) ? static_cast<int>(host->q_ssr_intensity * 100.0f + 0.5f) : 0;
+}
 /** 太陽 (主光源) 方向 «光へ向かう» 単位ベクトルを out3 (x,y,z) へ。設定反映の確認用。 */
 ACS_EDITOR_API void acs_editor_sun_direction(void* handle, float* out3) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -3727,6 +3757,8 @@ static void ApplySettings(EditorHost& h) noexcept {
     if (sb >= 0.0f) h.q_shadow_bias = sb;
     const f32 si = h.settings.GetFloat("Rendering", "SsaoIntensity", -1.0f);
     if (si >= 0.0f) { h.q_ssao_intensity = si; h.q_ssao_on = (si > 0.0f); }
+    const f32 ri = h.settings.GetFloat("Rendering", "SsrIntensity", -1.0f);
+    if (ri >= 0.0f) { h.q_ssr_intensity = ri; h.q_ssr_on = (ri > 0.0f); }
     // 太陽 (主光源) 方向 = 方位角/仰角 (度) → «光へ向かう» 単位ベクトル。影/陰影/空が一括で追従。
     {
         const f32 az = h.settings.GetFloat("Rendering", "SunAzimuth",   -41.0f) * 3.14159265f / 180.0f;
@@ -3888,6 +3920,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->shadow.Shutdown(); host->shadow_ready = false;
     host->normal_pipe.Reset(); host->normal_vs.Reset(); host->normal_ps.Reset(); host->normal_cb.Reset(); host->normal_rt.Reset();
     host->ssao3d.Shutdown(); host->ssao_ready = false; host->ssao_pipe_ready = false; host->ssao_w = 0; host->ssao_h = 0;
+    host->ssr3d.Shutdown(); host->ssr_ready = false;
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
     host->sprite_textures.Clear();
     host->m3d_frame_cb.Reset(); host->m3d_giz_cb.Reset(); host->m3d_dyn_vb.Reset(); host->m3d_giz_vb.Reset();
