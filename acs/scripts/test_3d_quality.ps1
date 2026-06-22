@@ -18,6 +18,7 @@ public static class E {
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_shadow_size(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_bloom_x100(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_exposure_x100(IntPtr h);
+    [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_shadow_cascades(IntPtr h);
 }
 "@
 Add-Type -TypeDefinition $src
@@ -28,20 +29,22 @@ function Check($n,$c){ if($c){$script:pass++;Write-Host "  PASS  $n"} else {$scr
 $h=[E]::acs_editor_create()
 [E]::acs_editor_settings_load_text($h,"")   # register builtin settings (ResetToDefaults) — headless has no attach
 
-# expected: level -> (shadow size, bloom x100). Must match the ApplyQualityPreset table.
+# expected: level -> (shadow size, bloom x100, cascades). Must match the ApplyQualityPreset table.
+# CSM (cascades>=2) is Ultra/Highest only; default High stays single-cascade for safety.
 $cases = @(
-  @("Ultra",   4096, 55),
-  @("Highest", 4096, 50),
-  @("High",    2048, 50),
-  @("Medium",  2048, 40),
-  @("Low",     1024, 30),
-  @("Lowest",     0,  0)
+  @("Ultra",   4096, 55, 4),
+  @("Highest", 4096, 50, 3),
+  @("High",    2048, 50, 1),
+  @("Medium",  2048, 40, 1),
+  @("Low",     1024, 30, 1),
+  @("Lowest",     0,  0, 0)
 )
 foreach($c in $cases){
-  $lvl=$c[0]; $expSize=[int]$c[1]; $expBloom=[int]$c[2]
+  $lvl=$c[0]; $expSize=[int]$c[1]; $expBloom=[int]$c[2]; $expCasc=[int]$c[3]
   Check "settings_set QualityLevel=$lvl ok" ([E]::acs_editor_settings_set($h,"Rendering","QualityLevel",$lvl) -eq 1)
   Check "$lvl -> shadow size $expSize" ([E]::acs_editor_quality_shadow_size($h) -eq $expSize)
   Check "$lvl -> bloom x100 $expBloom" ([E]::acs_editor_quality_bloom_x100($h) -eq $expBloom)
+  Check "$lvl -> shadow cascades $expCasc" ([E]::acs_editor_quality_shadow_cascades($h) -eq $expCasc)
 }
 
 Write-Host "`n[fallback] unknown level -> High preset"

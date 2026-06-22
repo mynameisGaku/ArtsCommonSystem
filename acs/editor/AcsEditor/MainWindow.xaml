@@ -102,8 +102,8 @@
                     <MenuItem x:Name="AaMsaa8" Header="MSAA 8x" IsCheckable="True" Tag="8" IsChecked="True" Click="OnAaMenuClick"/>
                 </MenuItem>
                 <MenuItem Header="Graphics Quality">
-                    <MenuItem x:Name="QualUltra"   Header="Ultra (4K 影 + SSAO/SSR + TAA)" IsCheckable="True" Tag="Ultra"   Click="OnQualityMenuClick"/>
-                    <MenuItem x:Name="QualHighest" Header="Highest (4K 影)"                 IsCheckable="True" Tag="Highest" Click="OnQualityMenuClick"/>
+                    <MenuItem x:Name="QualUltra"   Header="Ultra (4K 影・CSM 4 カスケード)" IsCheckable="True" Tag="Ultra"   Click="OnQualityMenuClick"/>
+                    <MenuItem x:Name="QualHighest" Header="Highest (4K 影・CSM 3 カスケード)" IsCheckable="True" Tag="Highest" Click="OnQualityMenuClick"/>
                     <MenuItem x:Name="QualHigh"    Header="High (2K 影・既定)"              IsCheckable="True" Tag="High" IsChecked="True" Click="OnQualityMenuClick"/>
                     <MenuItem x:Name="QualMedium"  Header="Medium (2K 影)"                  IsCheckable="True" Tag="Medium"  Click="OnQualityMenuClick"/>
                     <MenuItem x:Name="QualLow"     Header="Low (1K 影)"                     IsCheckable="True" Tag="Low"     Click="OnQualityMenuClick"/>

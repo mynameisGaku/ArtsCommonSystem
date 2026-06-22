@@ -331,7 +331,8 @@ struct EditorHost {
     acs::FShadowMap          shadow;                  // 有向光源シャドウマップ (深度テクスチャ + 光VP)
     TUniquePtr<IRhiPipeline> shadow_caster_pipe;      // M3DVtx 用 depth-only キャスター
     TUniquePtr<IRhiShader>   shadow_caster_vs;
-    TUniquePtr<IRhiBuffer>   shadow_lvp_cb;           // b0: 光の view-projection
+    TUniquePtr<IRhiBuffer>   shadow_lvp_cb;           // b0: 光の view-projection (single cascade)
+    TUniquePtr<IRhiBuffer>   shadow_cascade_cb[acs::FShadowMap::kMaxCascades];  // CSM: cascade 毎に別 CB (1フレーム内の上書き回避)
     bool                     shadow_ready = false;
     FDebugDraw3D    dbg3d;                // グリッド/選択 AABB/ギズモの線
     bool         r3d_ready     = false;   // 3D リソース初期化済み
@@ -2487,6 +2488,10 @@ bool Ensure3D(EditorHost& h) noexcept {
                 h.shadow_caster_pipe = Move(cpl.Value());
                 FBufferDesc lcb{}; lcb.size = 256; lcb.usage = EBufferUsage::Uniform; lcb.cpu_writable = true;
                 auto lcr = CreateRhiBuffer(*dev, lcb); if (lcr.IsOk()) h.shadow_lvp_cb = Move(lcr.Value());
+                for (u32 c = 0; c < acs::FShadowMap::kMaxCascades; ++c) {   // CSM: cascade 毎の light VP 用 CB
+                    FBufferDesc ccb{}; ccb.size = 256; ccb.usage = EBufferUsage::Uniform; ccb.cpu_writable = true;
+                    auto ccr = CreateRhiBuffer(*dev, ccb); if (ccr.IsOk()) h.shadow_cascade_cb[c] = Move(ccr.Value());
+                }
                 h.shadow_ready = (h.shadow_lvp_cb.Get() != nullptr);
             }
         }
@@ -2993,28 +2998,63 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     if (dvCount > 0 && h.m3d_dyn_vb) h.m3d_dyn_vb->Update(dv.Data(), sizeof(M3DVtx) * dvCount);
 
     // --- シャドウパス: 光源 (太陽) 視点で深度を焼く → 本体パスで PCF 比較してキャスト影を落とす ---
-    // 品質プリセットの影サイズに追従 (0=影オフ)。サイズ変更時はフレーム先頭で深度テクスチャを作り直す
-    // (描画コマンド記録前なので安全)。これで «品質レベル» が実際に影解像度を変える。
-    if (h.shadow_ready && h.q_shadow_size > 0 && h.q_shadow_size != h.shadow.Size()) {
+    // 品質プリセットの影サイズ/カスケード数に追従 (size 0=影オフ)。CSM は «透視 + cascade>=2» のみ
+    // (既定 High=single は実績パス維持・ortho 2D も single)。サイズ/数の変更時はフレーム先頭で
+    // 深度テクスチャを作り直す (描画コマンド記録前なので安全)。
+    const bool wantCsm = (h.q_shadow_cascades >= 2) && !h.ortho3d && h.q_shadow_size > 0;
+    const u32  wantCascades = wantCsm ? (h.q_shadow_cascades <= acs::FShadowMap::kMaxCascades
+                                         ? h.q_shadow_cascades : acs::FShadowMap::kMaxCascades) : 1u;
+    if (h.shadow_ready && h.q_shadow_size > 0 &&
+        (h.q_shadow_size != h.shadow.Size() || wantCascades != h.shadow.CascadeCount())) {
         IRhiDevice* sdev = h.renderer.Device();
-        if (sdev != nullptr) { h.shadow.Shutdown(); h.shadow.Init(*sdev, h.q_shadow_size); }
+        if (sdev != nullptr) { h.shadow.Shutdown(); h.shadow.Init(*sdev, h.q_shadow_size, wantCascades); }
     }
     FMat4 lightVp{};
     bool  shadowOn = false;
+    bool  csmActive = false;
+    FMat4 csmVps[acs::FShadowMap::kMaxCascades]    = {};
+    f32   csmSplits[acs::FShadowMap::kMaxCascades] = {};
     if (h.shadow_ready && h.q_shadow_size > 0 && h.shadow.DepthTexture() != nullptr && dvCount > 0) {
         const FVec3 center{ (bbMin.x+bbMax.x)*0.5f, (bbMin.y+bbMax.y)*0.5f, (bbMin.z+bbMax.z)*0.5f };
         const f32 ex = bbMax.x-bbMin.x, ey = bbMax.y-bbMin.y, ez = bbMax.z-bbMin.z;
         const f32 radius = 0.5f * std::sqrt(ex*ex + ey*ey + ez*ez) + 1.0f;
-        h.shadow.SetDirectionalLight(FVec3{ 0.40f, 0.85f, -0.35f }, center, radius);
-        lightVp = h.shadow.LightViewProjection();
-        h.shadow_lvp_cb->Update(&lightVp, sizeof(lightVp));
-        cl->BeginShadowPass(*h.shadow.DepthTexture(), 1.0f);
-        cl->SetPipeline(*h.shadow_caster_pipe);
-        cl->SetConstantBuffer(0, *h.shadow_lvp_cb);
-        cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
-        cl->Draw(dvCount, 0);
-        cl->EndShadowPass(*h.shadow.DepthTexture());
-        shadowOn = true;   // シャドウマップ有効 (本パスで FPbrShader が PCF サンプル)
+        const FVec3 lightDir{ 0.40f, 0.85f, -0.35f };
+        if (h.shadow.CascadeCount() >= 2) {
+            // CSM: カメラ frustum を距離で分割。far は «視点→シーン» に切り詰め (既定 500 のままだと遠景に解像度浪費)。
+            const f32 dx = eye.x-center.x, dy = eye.y-center.y, dz = eye.z-center.z;
+            f32 farZ = std::sqrt(dx*dx+dy*dy+dz*dz) + radius * 2.0f;
+            if (farZ < 20.0f) farZ = 20.0f; else if (farZ > 300.0f) farZ = 300.0f;
+            h.shadow.SetDirectionalLightCascades(lightDir, cam.View(), cam.Projection(), 0.5f, farZ);
+            cl->BeginShadowPass(*h.shadow.DepthTexture(), 1.0f);       // atlas 全体 clear
+            cl->SetPipeline(*h.shadow_caster_pipe);
+            cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
+            const u32 nc = h.shadow.CascadeCount();
+            for (u32 c = 0; c < nc; ++c) {
+                csmVps[c]    = h.shadow.LightViewProjection(c);
+                csmSplits[c] = h.shadow.CascadeSplit(c);
+                if (!h.shadow_cascade_cb[c]) continue;
+                cl->SetViewport(h.shadow.CascadeViewport(c));          // atlas 内の当該 cascade 領域だけに描く
+                cl->SetScissor(h.shadow.CascadeScissor(c));
+                h.shadow_cascade_cb[c]->Update(&csmVps[c], sizeof(FMat4));   // cascade 毎に別 CB (1フレーム上書き回避)
+                cl->SetConstantBuffer(0, *h.shadow_cascade_cb[c]);
+                cl->Draw(dvCount, 0);
+            }
+            cl->EndShadowPass(*h.shadow.DepthTexture());
+            lightVp   = csmVps[0];   // fallback(kMesh3DHLSL)用に cascade0 を残す
+            csmActive = true;
+            shadowOn  = true;
+        } else {
+            h.shadow.SetDirectionalLight(lightDir, center, radius);    // single cascade (実績パス)
+            lightVp = h.shadow.LightViewProjection();
+            h.shadow_lvp_cb->Update(&lightVp, sizeof(lightVp));
+            cl->BeginShadowPass(*h.shadow.DepthTexture(), 1.0f);
+            cl->SetPipeline(*h.shadow_caster_pipe);
+            cl->SetConstantBuffer(0, *h.shadow_lvp_cb);
+            cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
+            cl->Draw(dvCount, 0);
+            cl->EndShadowPass(*h.shadow.DepthTexture());
+            shadowOn = true;   // シャドウマップ有効 (本パスで FPbrShader が PCF サンプル)
+        }
     }
 
     // Phase2: 3D シーンを «線形 HDR RT» へ描く → 末尾で FPostProcess(ACES) が一度だけ tonemap。post3d 遅延初期化。
@@ -3082,8 +3122,13 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         if (shadowOn) {
             // 品質ノブを配線 (従来は bias 0.0015 固定 + texel_size に 1.0 を渡す «バグ» で PCF が機能不全だった)。
             const u32 ssz = (h.shadow.Size() > 0) ? h.shadow.Size() : 2048u;
-            h.pbr3d.SetShadowMap(h.shadow.DepthTexture(), lightVp,
-                                 h.q_shadow_bias, 1.0f / static_cast<f32>(ssz), h.q_shadow_filter);
+            const f32 texel = 1.0f / static_cast<f32>(ssz);
+            if (csmActive)   // CSM: 各 cascade の VP + 分割閾値で。HLSL が view-space z で cascade を選択。
+                h.pbr3d.SetShadowMapCascades(h.shadow.DepthTexture(), csmVps, csmSplits, h.shadow.CascadeCount(),
+                                             h.q_shadow_bias, texel, h.q_shadow_filter);
+            else
+                h.pbr3d.SetShadowMap(h.shadow.DepthTexture(), lightVp,
+                                     h.q_shadow_bias, texel, h.q_shadow_filter);
         }
         else          h.pbr3d.SetShadowMap(nullptr, lightVp);
         for (u32 i = 0; i < all3d.Size(); ++i) {
@@ -3497,8 +3542,8 @@ static void ApplyQualityPreset(EditorHost& h, const char* level) noexcept {
         h.q_ibl_mode=0; h.q_ambient=FVec3{0.26f,0.28f,0.33f};
         h.q_bloom_on=false;
         h.q_cg_saturation=1.00f; h.q_cg_contrast=1.00f; h.q_cas=0.0f; h.q_taa_on=false; h.q_msaa_default=1;
-    } else {  // High (既定)
-        h.q_shadow_size=2048; h.q_shadow_cascades=2; h.q_shadow_bias=0.0015f; h.q_shadow_filter=1.0f;
+    } else {  // High (既定。CSM は Ultra/Highest のみ — 既定は実績ある single cascade を維持)
+        h.q_shadow_size=2048; h.q_shadow_cascades=1; h.q_shadow_bias=0.0015f; h.q_shadow_filter=1.0f;
         h.q_ssao_on=true;  h.q_ssao_intensity=1.0f; h.q_ssao_radius=0.8f;
         h.q_ssgi_on=false; h.q_ssr_on=true; h.q_ssr_intensity=0.8f; h.q_ssr_hiz=false; h.q_ibl_mode=2;
         h.q_bloom_on=true; h.q_bloom_intensity=0.50f; h.q_bloom_threshold=0.80f; h.q_bloom_radius=1.5f;
@@ -3520,6 +3565,11 @@ ACS_EDITOR_API int acs_editor_quality_bloom_x100(void* handle) {
 ACS_EDITOR_API int acs_editor_quality_exposure_x100(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     return (host != nullptr) ? static_cast<int>(host->q_exposure * 100.0f + 0.5f) : 0;
+}
+/** 現在の品質プリセットの影カスケード数 (1=single、>=2=CSM、0=影オフ)。設定反映の確認用。 */
+ACS_EDITOR_API int acs_editor_quality_shadow_cascades(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr) ? static_cast<int>(host->q_shadow_cascades) : 0;
 }
 
 static void ApplySettings(EditorHost& h) noexcept {
@@ -3645,7 +3695,9 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->m3d_pipe.Reset(); host->m3d_overlay_pipe.Reset(); host->m3d_vs.Reset(); host->m3d_ps.Reset();
     host->sky_pipe.Reset(); host->sky_vs.Reset(); host->sky_ps.Reset(); host->sky_cb.Reset();
     host->grid_pipe.Reset(); host->grid_vs.Reset(); host->grid_ps.Reset(); host->grid_cb.Reset(); host->grid_vb.Reset();
-    host->shadow_caster_pipe.Reset(); host->shadow_caster_vs.Reset(); host->shadow_lvp_cb.Reset(); host->shadow.Shutdown(); host->shadow_ready = false;
+    host->shadow_caster_pipe.Reset(); host->shadow_caster_vs.Reset(); host->shadow_lvp_cb.Reset();
+    for (u32 c = 0; c < acs::FShadowMap::kMaxCascades; ++c) host->shadow_cascade_cb[c].Reset();
+    host->shadow.Shutdown(); host->shadow_ready = false;
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
     host->sprite_textures.Clear();
     host->m3d_frame_cb.Reset(); host->m3d_giz_cb.Reset(); host->m3d_dyn_vb.Reset(); host->m3d_giz_vb.Reset();
