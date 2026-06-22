@@ -429,6 +429,19 @@ public partial class MainWindow : Window
         else Log($"品質設定の適用に失敗: {level}");
     }
 
+    /// <summary>Lighting メニュー: 時間帯プリセット (太陽方向/色/強度 + 空の色 + 露出) を一括適用。</summary>
+    private void OnLightingPreset(object sender, RoutedEventArgs e)
+    {
+        if (Engine == IntPtr.Zero) return;
+        if (sender is not MenuItem mi || mi.Tag is not string preset) return;
+        if (EngineInterop.acs_editor_apply_lighting_preset(Engine, preset) != 0)
+        {
+            if (_project != null) SaveProjectSettings();   // Sun*/Sky*/Exposure を INI へ永続化
+            Log($"Lighting preset: {preset} (太陽/空/露出を一括設定)", "General", LogLevel.Info);
+        }
+        else Log($"照明プリセットの適用に失敗: {preset}");
+    }
+
     private void OnProjectSettings(object sender, RoutedEventArgs e)
     {
         if (Engine == IntPtr.Zero) return;

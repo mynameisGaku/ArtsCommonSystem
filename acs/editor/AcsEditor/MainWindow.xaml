@@ -109,6 +109,12 @@
                     <MenuItem x:Name="QualLow"     Header="Low (1K 影)"                     IsCheckable="True" Tag="Low"     Click="OnQualityMenuClick"/>
                     <MenuItem x:Name="QualLowest"  Header="Lowest (影オフ)"                 IsCheckable="True" Tag="Lowest"  Click="OnQualityMenuClick"/>
                 </MenuItem>
+                <MenuItem Header="Lighting (時間帯)">
+                    <MenuItem Header="☀ Noon (正午・既定)"   Tag="Noon"     Click="OnLightingPreset"/>
+                    <MenuItem Header="🌅 Sunset (夕焼け)"     Tag="Sunset"   Click="OnLightingPreset"/>
+                    <MenuItem Header="☁ Overcast (曇天)"     Tag="Overcast" Click="OnLightingPreset"/>
+                    <MenuItem Header="🌙 Night (夜)"          Tag="Night"    Click="OnLightingPreset"/>
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="_Help">
                 <MenuItem Header="About ACS Editor" Click="OnAbout"/>

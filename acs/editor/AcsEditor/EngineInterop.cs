@@ -59,6 +59,9 @@ internal static class EngineInterop
     public static extern int acs_editor_settings_get_value(IntPtr handle,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string cat, [MarshalAs(UnmanagedType.LPUTF8Str)] string key,
         [Out] byte[] buf, int cap);
+    /// <summary>照明 (太陽+空) の時間帯プリセットを適用 (Noon/Sunset/Overcast/Night)。既知名で 1。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_apply_lighting_preset(IntPtr handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
     /// <summary>現在の品質プリセットが要求する影マップ解像度 (0=影オフ)。設定反映の確認用。</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_quality_shadow_size(IntPtr handle);

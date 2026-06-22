@@ -22,6 +22,7 @@ public static class E {
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern void acs_editor_sun_direction(IntPtr h, float[] o3);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern void acs_editor_sun_light_color(IntPtr h, float[] o3);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern void acs_editor_sky_colors(IntPtr h, float[] o9);
+    [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_apply_lighting_preset(IntPtr h, [MarshalAs(UnmanagedType.LPUTF8Str)] string n);
 }
 "@
 Add-Type -TypeDefinition $src
@@ -100,6 +101,20 @@ Check "default ground (0.20,0.19,0.21)"  (([math]::Abs($s[6]-0.20) -lt 0.01) -an
 [void][E]::acs_editor_settings_set($h,"Rendering","SkyZenith","1,0.5,0.2")   # sunset-ish orange
 $s = Sky
 Check "SkyZenith=1,0.5,0.2 applied" (([math]::Abs($s[0]-1.0) -lt 0.01) -and ([math]::Abs($s[1]-0.5) -lt 0.01) -and ([math]::Abs($s[2]-0.2) -lt 0.01))
+
+Write-Host "`n[lighting presets] one-click time-of-day (sun + sky + exposure bundles)"
+Check "apply Sunset ok" ([E]::acs_editor_apply_lighting_preset($h,"Sunset") -eq 1)
+$d = SunDir; $c = SunCol; $s = Sky
+Check "Sunset: sun low (y < 0.25)" ($d[1] -lt 0.25)
+Check "Sunset: warm light (R > G > B)" (($c[0] -gt $c[1]) -and ($c[1] -gt $c[2]))
+Check "Sunset: warm horizon (R high ~0.95)" ([math]::Abs($s[3]-0.95) -lt 0.02)
+Check "Sunset: exposure 1.15" ([E]::acs_editor_quality_exposure_x100($h) -eq 115)
+Check "apply Night ok" ([E]::acs_editor_apply_lighting_preset($h,"Night") -eq 1)
+$c = SunCol; $s = Sky
+Check "Night: cool dim light (B > R, dim)" (($c[2] -gt $c[0]) -and ($c[2] -lt 1.0))
+Check "Night: dark sky zenith (all < 0.2)" (($s[0] -lt 0.2) -and ($s[1] -lt 0.2) -and ($s[2] -lt 0.2))
+Check "apply Noon restores default sun ~0.85 up" ((& { [void][E]::acs_editor_apply_lighting_preset($h,"Noon"); (SunDir)[1] -gt 0.8 }))
+Check "unknown preset -> 0" ([E]::acs_editor_apply_lighting_preset($h,"Bogus") -eq 0)
 
 [E]::acs_editor_destroy($h)
 Write-Host "`n==== $pass passed, $fail failed ===="

@@ -3013,7 +3013,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     if (h.shadow_ready && h.q_shadow_size > 0 &&
         (h.q_shadow_size != h.shadow.Size() || wantCascades != h.shadow.CascadeCount())) {
         IRhiDevice* sdev = h.renderer.Device();
-        if (sdev != nullptr) { h.shadow.Shutdown(); h.shadow.Init(*sdev, h.q_shadow_size, wantCascades); }
+        if (sdev != nullptr) { h.shadow.Shutdown(); (void)h.shadow.Init(*sdev, h.q_shadow_size, wantCascades); }
     }
     FMat4 lightVp{};
     bool  shadowOn = false;
@@ -3656,6 +3656,33 @@ ACS_EDITOR_API int acs_editor_settings_serialize(void* handle, char* out, int ca
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr || out == nullptr || cap <= 0) return 0;
     return static_cast<int>(host->settings.SerializeText(out, static_cast<usize>(cap)));
+}
+
+/** 照明 (太陽 + 空) の «時間帯» プリセットを適用する。Sun/Sky/Exposure 設定を一括設定し即反映。
+ *  既存のグラフィックス設定 (検証済み) を束ねた «1 クリック» 機能。既知名で 1、未知で 0。
+ *  C# はこの後 INI を保存する。Noon=既定 / Sunset=低い暖色太陽+橙空 / Overcast=高位の寒色弱光+灰空 /
+ *  Night=弱い青光+暗青空。値は «良い出発点»、ユーザーは個別設定で微調整できる。 */
+ACS_EDITOR_API int acs_editor_apply_lighting_preset(void* handle, const char* name) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || name == nullptr) return 0;
+    auto S = [&](const char* k, const char* v) { host->settings.Set("Rendering", k, v); };
+    if (std::strcmp(name, "Noon") == 0) {
+        S("SunAzimuth","-41"); S("SunElevation","58"); S("SunColor","1.0,0.95,0.85"); S("SunIntensity","2.35");
+        S("SkyZenith","0.16,0.33,0.62"); S("SkyHorizon","0.62,0.70,0.80"); S("SkyGround","0.20,0.19,0.21"); S("Exposure","1.05");
+    } else if (std::strcmp(name, "Sunset") == 0) {
+        S("SunAzimuth","-85"); S("SunElevation","8");  S("SunColor","1.0,0.55,0.28"); S("SunIntensity","2.1");
+        S("SkyZenith","0.30,0.22,0.42"); S("SkyHorizon","0.95,0.50,0.28"); S("SkyGround","0.16,0.11,0.10"); S("Exposure","1.15");
+    } else if (std::strcmp(name, "Overcast") == 0) {
+        S("SunAzimuth","-41"); S("SunElevation","68"); S("SunColor","0.85,0.88,0.92"); S("SunIntensity","1.5");
+        S("SkyZenith","0.46,0.49,0.54"); S("SkyHorizon","0.58,0.60,0.63"); S("SkyGround","0.32,0.32,0.34"); S("Exposure","1.0");
+    } else if (std::strcmp(name, "Night") == 0) {
+        S("SunAzimuth","-50"); S("SunElevation","42"); S("SunColor","0.55,0.68,1.0"); S("SunIntensity","0.7");
+        S("SkyZenith","0.03,0.05,0.13"); S("SkyHorizon","0.07,0.10,0.18"); S("SkyGround","0.02,0.02,0.05"); S("Exposure","1.25");
+    } else {
+        return 0;
+    }
+    ApplySettings(*host);
+    return 1;
 }
 
 /** 設定エントリ数。 */
