@@ -30,6 +30,8 @@ const FSettingDesc kSchema[] = {
       "3D ブルーム強度の上書き。-1 = 品質プリセットに従う。0 でブルームオフ" },
     { "Rendering", "ShadowBias",    ESettingType::Float, "-1",             nullptr,
       "3D 影のデプスバイアス上書き (アクネ対策)。-1 = 品質プリセットに従う" },
+    { "Rendering", "SsaoIntensity", ESettingType::Float, "-1",             nullptr,
+      "3D SSAO (環境遮蔽) 強度の上書き。-1 = 品質プリセットに従う。0 で SSAO オフ、大きいほど陰が濃い" },
     { "Rendering", "SunAzimuth",    ESettingType::Float, "-41",            nullptr,
       "3D 太陽 (主光源) の方位角 (度)。影/陰影/空の太陽方向を一括で回す" },
     { "Rendering", "SunElevation",  ESettingType::Float, "58",             nullptr,

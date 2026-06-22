@@ -25,6 +25,7 @@ public static class E {
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_apply_lighting_preset(IntPtr h, [MarshalAs(UnmanagedType.LPUTF8Str)] string n);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern void acs_editor_set_show_grid3d(IntPtr h, int on);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_get_show_grid3d(IntPtr h);
+    [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_ssao_x100(IntPtr h);
 }
 "@
 Add-Type -TypeDefinition $src
@@ -124,6 +125,14 @@ Check "grid shown by default" ([E]::acs_editor_get_show_grid3d($h) -eq 1)
 Check "grid hidden after set 0" ([E]::acs_editor_get_show_grid3d($h) -eq 0)
 [E]::acs_editor_set_show_grid3d($h,1)
 Check "grid shown after set 1" ([E]::acs_editor_get_show_grid3d($h) -eq 1)
+
+Write-Host "`n[SSAO intensity override] verified working in-engine (gfx_ao_compare.png); knob wiring here"
+[void][E]::acs_editor_settings_set($h,"Rendering","QualityLevel","High")
+[void][E]::acs_editor_settings_set($h,"Rendering","SsaoIntensity","-1")
+Check "High preset SSAO on (~1.0 => x100=100)" ([E]::acs_editor_quality_ssao_x100($h) -eq 100)
+Check "SsaoIntensity=0 turns SSAO off" (([E]::acs_editor_settings_set($h,"Rendering","SsaoIntensity","0") -eq 1) -and ([E]::acs_editor_quality_ssao_x100($h) -eq 0))
+Check "SsaoIntensity=2.5 override -> 250" (([E]::acs_editor_settings_set($h,"Rendering","SsaoIntensity","2.5") -eq 1) -and ([E]::acs_editor_quality_ssao_x100($h) -eq 250))
+Check "SsaoIntensity=-1 back to preset -> 100" (([E]::acs_editor_settings_set($h,"Rendering","SsaoIntensity","-1") -eq 1) -and ([E]::acs_editor_quality_ssao_x100($h) -eq 100))
 
 [E]::acs_editor_destroy($h)
 Write-Host "`n==== $pass passed, $fail failed ===="

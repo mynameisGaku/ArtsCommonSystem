@@ -48,6 +48,7 @@
 #include "render/PbrShader.h"               // FPbrShader (エンジン標準 PBR。Phase2: メッシュ移行先)
 #include "render/StandardShader.h"          // FDirLight (有向光源)
 #include "render/PostProcess.h"             // FPostProcess (HDR→ACES トーンマップ)
+#include "render/Ssao.h"                    // FSsao (GTAO + contact shadow。q_ssao_* を配線)
 #include "asset/MeshPrimitive.h"            // Primitive::MakeCube/MakeSphere/MakePlane
 #include "asset/MeshAsset.h"                // FMeshAsset
 #include "math/Camera.h"                    // FCamera (透視 + lookAt)
@@ -331,6 +332,16 @@ struct EditorHost {
     acs::FPostProcess        post3d;                  // Phase2: HDR→ACES トーンマップ
     bool                     post3d_ready = false;
     u32                      post3d_w = 0, post3d_h = 0;
+    // SSAO (GTAO + contact shadow)。法線 G-buffer プリパス → FSsao → FPbrShader.SetSsao で ambient に乗算。
+    acs::FSsao               ssao3d;                   // エンジン GTAO。法線 gbuffer + depth を要求
+    bool                     ssao_ready = false;       // FSsao Init 成否
+    bool                     ssao_pipe_ready = false;  // 法線プリパスのパイプライン成否
+    u32                      ssao_w = 0, ssao_h = 0;
+    bool                     ssao_computed = false;    // 今フレーム AO を焼いたか (main パスで SetSsao 判定)
+    TUniquePtr<IRhiTexture>  normal_rt;                // 法線 G-buffer (RGBA16F world normal)
+    TUniquePtr<IRhiPipeline> normal_pipe;              // M3DVtx → world normal 出力
+    TUniquePtr<IRhiShader>   normal_vs, normal_ps;
+    TUniquePtr<IRhiBuffer>   normal_cb;                // b0: view_proj (プリパス専用・上書き回避)
     TUniquePtr<IRhiPipeline> grid_pipe;               // 無限グリッド (y=0 / ortho は z=0)
     TUniquePtr<IRhiShader>   grid_vs, grid_ps;
     TUniquePtr<IRhiBuffer>   grid_cb, grid_vb;        // b0: view_proj + 中心、大クアッド頂点
@@ -2198,6 +2209,17 @@ float4 PSMain(VSOut v) : SV_TARGET {
 struct M3DFrame { FMat4 view_proj; FVec4 light_dir; FVec4 light_col; FVec4 cam_pos; FVec4 sky_zenith, sky_horizon, sky_ground; FMat4 light_vp; };
 struct M3DVtx   { f32 px, py, pz, nx, ny, nz, r, g, b, mt, rg; };   // 座標+法線+色 + metallic/roughness (44 bytes)
 
+// 法線 G-buffer プリパス: M3DVtx (既に world 座標+法線) を world normal として RGBA16F に出す。
+// FSsao が GTAO の slice 計算に world normal を要求する (depth 微分法線はブロック状になるため)。
+const char* kNormalGBuf3DHLSL = R"(
+#pragma pack_matrix(row_major)
+cbuffer NFrame : register(b0) { float4x4 view_proj; };
+struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float3 col : COLOR; float2 mat : TEXCOORD; };
+struct VSOut { float4 pos : SV_POSITION; float3 nrm : NORMAL; };
+VSOut VSMain(VSIn v) { VSOut o; o.pos = mul(float4(v.pos, 1.0), view_proj); o.nrm = v.nrm; return o; }
+float4 PSMain(VSOut i) : SV_TARGET { return float4(normalize(i.nrm), 1.0); }   // world-space normal
+)";
+
 // シャドウ・キャスター: M3DVtx (既に world 座標) を «光の view-projection» でクリップへ。depth-only。
 const char* kShadowCaster3DHLSL = R"(
 #pragma pack_matrix(row_major)
@@ -2368,6 +2390,39 @@ bool Ensure3D(EditorHost& h) noexcept {
     auto plr = CreateRhiPipeline(*dev, pd);
     if (plr.IsErr()) { ACS_LOG_ERROR("[3D] mesh パイプライン生成失敗"); return false; }
     h.m3d_pipe = Move(plr.Value());
+
+    // 法線 G-buffer プリパス用パイプライン (SSAO/FSsao 入力)。M3DVtx → world normal を RGBA16F へ。
+    {
+        FShaderDesc nvs{}; nvs.stage = EShaderStage::Vertex; nvs.hlsl_source = kNormalGBuf3DHLSL; nvs.entry_point = "VSMain"; nvs.debug_name = "NormalGBuf.VS";
+        FShaderDesc nps{}; nps.stage = EShaderStage::Pixel;  nps.hlsl_source = kNormalGBuf3DHLSL; nps.entry_point = "PSMain"; nps.debug_name = "NormalGBuf.PS";
+        auto nvr = CreateRhiShader(*dev, nvs); auto npr = CreateRhiShader(*dev, nps);
+        if (nvr.IsOk() && npr.IsOk()) {
+            h.normal_vs = Move(nvr.Value()); h.normal_ps = Move(npr.Value());
+            FPipelineDesc np{};
+            np.vs = h.normal_vs.Get(); np.ps = h.normal_ps.Get();
+            np.topology     = EPrimitiveTopology::TriangleList;
+            np.rt_format    = hdrf;                 // RGBA16F (FSsao の normal gbuffer 期待形式)
+            np.depth_format = df;
+            np.depth_test   = true; np.depth_write = true;
+            np.cull_mode    = ECullMode::None;
+            np.blend_mode   = EBlendMode::Opaque;
+            np.cbuffer_slots = 1; np.cbuffer_names[0] = "NFrame";
+            np.vertex_stride = sizeof(M3DVtx);
+            np.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
+            np.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 12 };
+            np.layout[2] = { "COLOR",    0, EFormat::R32G32B32_Float, 24 };
+            np.layout[3] = { "TEXCOORD", 0, EFormat::R32G32_Float,    36 };
+            np.layout_count = 4;
+            auto nplr = CreateRhiPipeline(*dev, np);
+            if (nplr.IsOk()) {
+                h.normal_pipe = Move(nplr.Value());
+                FBufferDesc ncb{}; ncb.size = 256; ncb.usage = EBufferUsage::Uniform; ncb.cpu_writable = true;
+                auto ncr = CreateRhiBuffer(*dev, ncb); if (ncr.IsOk()) h.normal_cb = Move(ncr.Value());
+                h.ssao_pipe_ready = (h.normal_pipe.Get() != nullptr && h.normal_cb.Get() != nullptr);
+            }
+        }
+        if (!h.ssao_pipe_ready) ACS_LOG_WARN("[3D] 法線 G-buffer パイプライン生成失敗 (SSAO 無効)");
+    }
 
     // オーバーレイ用 (同シェーダ・depth off): ギズモを常に手前に出す。
     pd.depth_test = false; pd.depth_write = false;
@@ -3064,6 +3119,41 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         }
     }
 
+    // --- SSAO (GTAO + contact shadow): 法線 G-buffer プリパス → FSsao → 本パスで FPbrShader が ambient に乗算 ---
+    //     q_ssao_on (品質プリセット) で駆動。法線プリパスは depth も焼くが、直後の本パスが depth を
+    //     clear して描き直すので干渉しない (FSsao はここで depth+normal を消費済み)。
+    h.ssao_computed = false;
+    if (h.q_ssao_on && h.ssao_pipe_ready && dvCount > 0) {
+        IRhiDevice* sdev = h.renderer.Device();
+        if (sdev != nullptr) {
+            if (h.ssao_w != scW || h.ssao_h != scH) {     // 画面サイズに遅延 init / resize
+                if (!h.ssao_ready) { auto sr = h.ssao3d.Init(*sdev, scW, scH); h.ssao_ready = sr.IsOk();
+                                     if (!h.ssao_ready) ACS_LOG_ERROR("[3D] FSsao Init 失敗: %s", sr.Error().message); }
+                else               { (void)h.ssao3d.Resize(scW, scH); }
+                FTextureDesc nd{}; nd.width = scW; nd.height = scH; nd.format = EFormat::R16G16B16A16_Float; nd.is_render_target = true;
+                auto ntr = CreateRhiTexture(*sdev, nd); if (ntr.IsOk()) h.normal_rt = Move(ntr.Value());
+                if (h.ssao_ready && h.normal_rt) { h.ssao_w = scW; h.ssao_h = scH; }
+                else { h.ssao_w = 0; h.ssao_h = 0; }
+            }
+            if (h.ssao_ready && h.normal_rt) {
+                const ClearColor ncl{ 0.0f, 0.0f, 0.0f, 0.0f };   // 法線+深度プリパス (world normal を RGBA16F へ)
+                cl->BeginRenderToTexture(*h.normal_rt, ncl, h.renderer.DepthBuffer(), 1.0f);
+                { FViewport nvp{}; nvp.width = static_cast<f32>(scW); nvp.height = static_cast<f32>(scH); cl->SetViewport(nvp);
+                  FScissorRect nsr{}; nsr.right = static_cast<i32>(scW); nsr.bottom = static_cast<i32>(scH); cl->SetScissor(nsr); }
+                h.normal_cb->Update(&vp, sizeof(vp));   // NFrame.view_proj
+                cl->SetPipeline(*h.normal_pipe);
+                cl->SetConstantBuffer(0, *h.normal_cb);
+                cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
+                cl->Draw(dvCount, 0);
+                cl->EndRenderToTexture(*h.normal_rt);
+                h.ssao3d.Render(*sdev, *cl, *h.renderer.DepthBuffer(), *h.normal_rt,
+                                vp, Inverse(vp), cam.View(), eye, h.sun_dir,
+                                h.q_ssao_intensity, h.q_ssao_radius);   // light_dir = surface→light = sun_dir
+                h.ssao_computed = true;
+            }
+        }
+    }
+
     // Phase2: 3D シーンを «線形 HDR RT» へ描く → 末尾で FPostProcess(ACES) が一度だけ tonemap。post3d 遅延初期化。
     IRhiDevice* pdev = h.renderer.Device();
     if (pdev != nullptr && (h.post3d_w != scW || h.post3d_h != scH)) {
@@ -3144,6 +3234,9 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                                      h.q_shadow_bias, texel, h.q_shadow_filter);
         }
         else          h.pbr3d.SetShadowMap(nullptr, lightVp);
+        // SSAO (GTAO) visibility を ambient へ乗算 (今フレーム焼けていれば)。screen UV でサンプル。
+        if (h.ssao_computed) h.pbr3d.SetSsao(h.ssao3d.OutputTexture(), h.q_ssao_intensity, scW, scH);
+        else                 h.pbr3d.SetSsao(nullptr, 0.0f, scW, scH);
         for (u32 i = 0; i < all3d.Size(); ++i) {
             game::FNode3D* nn = all3d[i];
             { EEd3DRec* er = Rec3D(nn); if (er != nullptr && er->is_empty) continue; }   // 空ノードは描画しない
@@ -3584,6 +3677,11 @@ ACS_EDITOR_API int acs_editor_quality_shadow_cascades(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     return (host != nullptr) ? static_cast<int>(host->q_shadow_cascades) : 0;
 }
+/** 現在の SSAO 強度 ×100 (0=SSAO オフ)。設定反映の確認用。 */
+ACS_EDITOR_API int acs_editor_quality_ssao_x100(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr && host->q_ssao_on) ? static_cast<int>(host->q_ssao_intensity * 100.0f + 0.5f) : 0;
+}
 /** 太陽 (主光源) 方向 «光へ向かう» 単位ベクトルを out3 (x,y,z) へ。設定反映の確認用。 */
 ACS_EDITOR_API void acs_editor_sun_direction(void* handle, float* out3) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -3627,6 +3725,8 @@ static void ApplySettings(EditorHost& h) noexcept {
     if (bi >= 0.0f) { h.q_bloom_intensity = bi; h.q_bloom_on = (bi > 0.0f); }
     const f32 sb = h.settings.GetFloat("Rendering", "ShadowBias", -1.0f);
     if (sb >= 0.0f) h.q_shadow_bias = sb;
+    const f32 si = h.settings.GetFloat("Rendering", "SsaoIntensity", -1.0f);
+    if (si >= 0.0f) { h.q_ssao_intensity = si; h.q_ssao_on = (si > 0.0f); }
     // 太陽 (主光源) 方向 = 方位角/仰角 (度) → «光へ向かう» 単位ベクトル。影/陰影/空が一括で追従。
     {
         const f32 az = h.settings.GetFloat("Rendering", "SunAzimuth",   -41.0f) * 3.14159265f / 180.0f;
@@ -3786,6 +3886,8 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->shadow_caster_pipe.Reset(); host->shadow_caster_vs.Reset(); host->shadow_lvp_cb.Reset();
     for (u32 c = 0; c < acs::FShadowMap::kMaxCascades; ++c) host->shadow_cascade_cb[c].Reset();
     host->shadow.Shutdown(); host->shadow_ready = false;
+    host->normal_pipe.Reset(); host->normal_vs.Reset(); host->normal_ps.Reset(); host->normal_cb.Reset(); host->normal_rt.Reset();
+    host->ssao3d.Shutdown(); host->ssao_ready = false; host->ssao_pipe_ready = false; host->ssao_w = 0; host->ssao_h = 0;
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
     host->sprite_textures.Clear();
     host->m3d_frame_cb.Reset(); host->m3d_giz_cb.Reset(); host->m3d_dyn_vb.Reset(); host->m3d_giz_vb.Reset();
