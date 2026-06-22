@@ -1541,6 +1541,19 @@ public partial class MainWindow : Window
             OnDuplicateNode(this, new RoutedEventArgs());
             e.Handled = true;
         }
+        // Ctrl+S = シーン保存 / Ctrl+N = 新規シーン (テキスト編集中は除く)。
+        else if (e.Key == Key.S && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control
+                 && Keyboard.FocusedElement is not System.Windows.Controls.TextBox)
+        {
+            OnSaveScene(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        else if (e.Key == Key.N && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control
+                 && Keyboard.FocusedElement is not System.Windows.Controls.TextBox)
+        {
+            OnNewScene(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
         // 編集中 (Play でない・テキスト入力でない) のギズモ/ビュー ショートカット (UE5/Unity 流:
         // W=移動 / E=回転 / R=拡縮 / F=選択にフォーカス)。Play 中は下の FeedGameKey へ流す。
         else if (Engine != IntPtr.Zero
@@ -2764,7 +2777,8 @@ public partial class MainWindow : Window
     private void OnNewScene(object sender, RoutedEventArgs e)
     {
         if (Engine == IntPtr.Zero) return;
-        EngineInterop.acs_editor_scene_new(Engine);
+        if (_view3d) EngineInterop.acs_editor_scene3d_new(Engine);   // 3D シーンを空に (2D の scene_new は 3D を消さない)
+        else         EngineInterop.acs_editor_scene_new(Engine);
         RefreshAfterSceneChange();
         Log("New (empty) scene.");
     }

@@ -5093,6 +5093,16 @@ ACS_EDITOR_API void acs_editor_scene_new(void* handle) {
     ClearScene(*host);
 }
 
+/** 3D シーンを空にする (新規シーン)。選択/クリップボードもリセット。Undo で復元可。 */
+ACS_EDITOR_API void acs_editor_scene3d_new(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return;
+    PushUndo(*host);
+    host->scene3d.Clear();
+    host->scene3d.Update(0.0f);
+    host->sel3d = -1; host->sel3d_multi.Clear(); host->clip3d = -1;
+}
+
 // =============================================================================
 // C ABI — コピー / ペースト (サブツリーのシリアライズ。クリップボードは C# 側が保持)
 // =============================================================================

@@ -590,6 +590,8 @@ internal static class EngineInterop
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_scene_new(IntPtr handle);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_scene3d_new(IntPtr handle);
 
     // ----- undo / redo (シーンスナップショット) -----
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]

@@ -56,9 +56,9 @@
         <!-- メニュー -->
         <Menu DockPanel.Dock="Top" Background="{StaticResource Panel}" Padding="4,2">
             <MenuItem Header="_File">
-                <MenuItem Header="New Scene" Click="OnNewScene"/>
+                <MenuItem Header="New Scene" Click="OnNewScene" InputGestureText="Ctrl+N"/>
                 <MenuItem Header="Open Scene…" Click="OnOpenScene"/>
-                <MenuItem Header="Save Scene…" Click="OnSaveScene"/>
+                <MenuItem Header="Save Scene…" Click="OnSaveScene" InputGestureText="Ctrl+S"/>
                 <Separator/>
                 <MenuItem Header="Exit" Click="OnExit"/>
             </MenuItem>
