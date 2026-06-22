@@ -25,7 +25,8 @@ public partial class MainWindow : Window
     private int  _selectedId = -1;   // primary (active) ノード id。複数選択の集合は ABI 側が保持。
     private bool _populating;        // populate 中は編集ハンドラを無視
     private bool _syncingSelection;  // 選択同期中は OnHierarchySelect の単一選択化を抑止
-    private string? _clipboard;      // コピーした subtree のシリアライズ文字列
+    private string? _clipboard;      // コピーした subtree のシリアライズ文字列 (2D)
+    private bool    _hasClip3d;      // 3D クリップボードに内容があるか (Paste の CanExecute 用)
     private Point _dragStart;        // Hierarchy ドラッグ開始座標 (しきい値判定用)
     private int  _dragNodeId = -1;   // ドラッグ中のノード id (-1 = ドラッグなし)
 
@@ -2160,7 +2161,7 @@ public partial class MainWindow : Window
         if (_view3d)   // 3D モード: 選択 3D ノードをクリップボードへ
         {
             int sel = EngineInterop.acs_editor_selected3d(Engine);
-            if (sel >= 0) { EngineInterop.acs_editor_node3d_copy(Engine, sel); Log("Copied 3D node."); }
+            if (sel >= 0) { EngineInterop.acs_editor_node3d_copy(Engine, sel); _hasClip3d = true; Log("Copied 3D node."); }
             return;
         }
         if (_selectedId < 0) return;
@@ -2189,6 +2190,18 @@ public partial class MainWindow : Window
             SelectHierarchyItem(id);   // ツリー選択 → Inspector 更新
         }
     }
+
+    // ===== コマンドの可否 (CanExecute): 不可時はメニュー/ショートカットを自動グレーアウト =====
+    private int CurSelCount() => Engine == IntPtr.Zero ? 0
+        : (_view3d ? EngineInterop.acs_editor_selected3d_count(Engine) : EngineInterop.acs_editor_selection_count(Engine));
+    private void OnCanUndo(object sender, CanExecuteRoutedEventArgs e)
+        => e.CanExecute = Engine != IntPtr.Zero && EngineInterop.acs_editor_can_undo(Engine) != 0;
+    private void OnCanRedo(object sender, CanExecuteRoutedEventArgs e)
+        => e.CanExecute = Engine != IntPtr.Zero && EngineInterop.acs_editor_can_redo(Engine) != 0;
+    private void OnCanCopyDelete(object sender, CanExecuteRoutedEventArgs e)
+        => e.CanExecute = CurSelCount() > 0;
+    private void OnCanPaste(object sender, CanExecuteRoutedEventArgs e)
+        => e.CanExecute = _view3d ? _hasClip3d : !string.IsNullOrEmpty(_clipboard);
 
     // ===== プレハブ: ノードのサブツリーを .acsprefab として保存 / 再インスタンス化 =====
     //   プレハブ = サブツリーの直列化テキスト (ACSCENE 形式)。copy_subtree で保存し、

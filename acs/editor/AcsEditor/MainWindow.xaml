@@ -25,11 +25,11 @@
     </Window.Resources>
 
     <Window.CommandBindings>
-        <CommandBinding Command="ApplicationCommands.Undo" Executed="OnUndo"/>
-        <CommandBinding Command="ApplicationCommands.Redo" Executed="OnRedo"/>
-        <CommandBinding Command="ApplicationCommands.Copy" Executed="OnCopy"/>
-        <CommandBinding Command="ApplicationCommands.Paste" Executed="OnPaste"/>
-        <CommandBinding Command="ApplicationCommands.Delete" Executed="OnDeleteCmd"/>
+        <CommandBinding Command="ApplicationCommands.Undo" Executed="OnUndo" CanExecute="OnCanUndo"/>
+        <CommandBinding Command="ApplicationCommands.Redo" Executed="OnRedo" CanExecute="OnCanRedo"/>
+        <CommandBinding Command="ApplicationCommands.Copy" Executed="OnCopy" CanExecute="OnCanCopyDelete"/>
+        <CommandBinding Command="ApplicationCommands.Paste" Executed="OnPaste" CanExecute="OnCanPaste"/>
+        <CommandBinding Command="ApplicationCommands.Delete" Executed="OnDeleteCmd" CanExecute="OnCanCopyDelete"/>
         <CommandBinding Command="ApplicationCommands.SelectAll" Executed="OnSelectAll"/>
     </Window.CommandBindings>
 
