@@ -264,6 +264,7 @@ struct EditorHost {
     bool  q_bloom_on         = true;  f32  q_bloom_intensity = 0.50f; f32 q_bloom_threshold = 0.80f; f32 q_bloom_radius = 1.5f;
     f32   q_exposure         = 1.05f; f32  q_cg_saturation   = 1.10f; f32 q_cg_contrast = 1.12f;
     f32   q_cas              = 0.3f;  bool q_taa_on          = false; u32 q_msaa_default = 4;
+    FVec3 sun_dir            = FVec3{ 0.40f, 0.85f, -0.35f };   // 太陽 (光源) 方向 «光へ向かう» 向き。Rendering/SunAzimuth+Elevation で駆動。
 
     // マテリアル GPU プレビュー: 実シェーダでサンプルを RT に描き readback する。
     TUniquePtr<IRhiCommandList> preview_cl;            // 専用コマンドリスト (フレーム外で submit)
@@ -3018,7 +3019,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         const FVec3 center{ (bbMin.x+bbMax.x)*0.5f, (bbMin.y+bbMax.y)*0.5f, (bbMin.z+bbMax.z)*0.5f };
         const f32 ex = bbMax.x-bbMin.x, ey = bbMax.y-bbMin.y, ez = bbMax.z-bbMin.z;
         const f32 radius = 0.5f * std::sqrt(ex*ex + ey*ey + ez*ez) + 1.0f;
-        const FVec3 lightDir{ 0.40f, 0.85f, -0.35f };
+        const FVec3 lightDir = h.sun_dir;   // 太陽方向 (設定駆動)
         if (h.shadow.CascadeCount() >= 2) {
             // CSM: カメラ frustum を距離で分割。far は «視点→シーン» に切り詰め (既定 500 のままだと遠景に解像度浪費)。
             const f32 dx = eye.x-center.x, dy = eye.y-center.y, dz = eye.z-center.z;
@@ -3075,6 +3076,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     // --- (1) スカイ: Phase2 でエンジン標準 FSky に置換 (depth-off の背景フルスクリーン三角。手続き雲つき)。
     //         FSky Init 失敗時のみ自前 kSky3DHLSL にフォールバック。
     if (h.sky3d_ready) {
+        h.sky3d.SetSunDirection(h.sun_dir);   // 空の太陽もシーンのライト方向に追従 (設定駆動)
         h.sky3d.Render(*cl, cam);
     } else if (h.sky_pipe && h.sky_cb) {
         SkyCB sk{};
@@ -3082,7 +3084,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         sk.zenith = FVec4{ 0.16f, 0.33f, 0.62f, 0 };     // 天頂 (青)
         sk.horizon= FVec4{ 0.62f, 0.70f, 0.80f, 0 };     // 地平 (淡い)
         sk.ground = FVec4{ 0.20f, 0.19f, 0.21f, 0 };     // 下半球 (暗いグレー)
-        sk.sun    = FVec4{ 0.40f, 0.85f, -0.35f, 0 };   // 太陽方向 (world)。シーンのライト方向と一致。
+        sk.sun    = FVec4{ h.sun_dir.x, h.sun_dir.y, h.sun_dir.z, 0 };   // 太陽方向 (world)。シーンのライト方向と一致。
         h.sky_cb->Update(&sk, sizeof(sk));
         cl->SetPipeline(*h.sky_pipe);
         cl->SetConstantBuffer(0, *h.sky_cb);
@@ -3099,7 +3101,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     // フレーム CB (view_proj + 光 + 環境光 + カメラ位置)。
     M3DFrame fcb{};
     fcb.view_proj = vp;
-    fcb.light_dir = FVec4{ 0.40f, 0.85f, -0.35f, 0.0f };    // 光方向, w=0 (環境光は IBL から取る)
+    fcb.light_dir = FVec4{ h.sun_dir.x, h.sun_dir.y, h.sun_dir.z, 0.0f };    // 光方向, w=0 (環境光は IBL から取る)
     fcb.light_col = FVec4{ 2.20f, 2.10f, 1.95f, 0.0f };     // 太陽 = キーライト (暖色)
     fcb.cam_pos   = FVec4{ camPos.x, camPos.y, camPos.z, shadowOn ? 1.0f : 0.0f };   // w=影を受けるか
     fcb.sky_zenith  = FVec4{ 0.16f, 0.33f, 0.62f, 0 };      // IBL 環境光源 (スカイと同じグラデーション)
@@ -3115,7 +3117,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         // 3点ライティング: 主光(暖・強)+ 補助光(寒・弱、影側を持ち上げ立体感)+ リム(背面・輪郭)。
         // 1灯+SH9 だと陰が埋まりのっぺりするため、補助/リムで «面の向き» が読めるようにする。
         FDirLight dl[3];
-        dl[0].direction = FVec3{ -0.40f, -0.85f,  0.35f }; dl[0].color = FVec3{ 2.35f, 2.22f, 2.00f };  // key (太陽、暖、強)
+        dl[0].direction = FVec3{ -h.sun_dir.x, -h.sun_dir.y, -h.sun_dir.z }; dl[0].color = FVec3{ 2.35f, 2.22f, 2.00f };  // key (太陽。光が «進む» 向き = -sun_dir)
         dl[1].direction = FVec3{  0.55f, -0.28f, -0.50f }; dl[1].color = FVec3{ 0.40f, 0.48f, 0.62f };  // fill (寒、弱)
         dl[2].direction = FVec3{  0.05f,  0.35f, -0.95f }; dl[2].color = FVec3{ 0.45f, 0.45f, 0.50f };  // rim (背面、輪郭)
         h.pbr3d.SetLights(vp, camPos, dl, 3, FVec3{ 0.22f, 0.24f, 0.30f });   // ambient はやや控えめ(陰のコントラスト確保)
@@ -3571,6 +3573,12 @@ ACS_EDITOR_API int acs_editor_quality_shadow_cascades(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     return (host != nullptr) ? static_cast<int>(host->q_shadow_cascades) : 0;
 }
+/** 太陽 (主光源) 方向 «光へ向かう» 単位ベクトルを out3 (x,y,z) へ。設定反映の確認用。 */
+ACS_EDITOR_API void acs_editor_sun_direction(void* handle, float* out3) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || out3 == nullptr) return;
+    out3[0] = host->sun_dir.x; out3[1] = host->sun_dir.y; out3[2] = host->sun_dir.z;
+}
 
 static void ApplySettings(EditorHost& h) noexcept {
     ApplyQualityPreset(h, h.settings.GetString("Rendering", "QualityLevel", "High"));   // 先に品質プリセットを展開
@@ -3581,6 +3589,16 @@ static void ApplySettings(EditorHost& h) noexcept {
     if (bi >= 0.0f) { h.q_bloom_intensity = bi; h.q_bloom_on = (bi > 0.0f); }
     const f32 sb = h.settings.GetFloat("Rendering", "ShadowBias", -1.0f);
     if (sb >= 0.0f) h.q_shadow_bias = sb;
+    // 太陽 (主光源) 方向 = 方位角/仰角 (度) → «光へ向かう» 単位ベクトル。影/陰影/空が一括で追従。
+    {
+        const f32 az = h.settings.GetFloat("Rendering", "SunAzimuth",   -41.0f) * 3.14159265f / 180.0f;
+        const f32 el = h.settings.GetFloat("Rendering", "SunElevation",  58.0f) * 3.14159265f / 180.0f;
+        const f32 ce = std::cos(el);
+        FVec3 d{ ce * std::cos(az), std::sin(el), ce * std::sin(az) };
+        const f32 len = std::sqrt(d.x*d.x + d.y*d.y + d.z*d.z);
+        if (len > 1e-4f) { d.x /= len; d.y /= len; d.z /= len; }
+        h.sun_dir = d;
+    }
     const int msaa = h.settings.GetInt("Rendering", "MsaaSamples", 8);
     h.msaa_pending = (msaa >= 8) ? 8u : (msaa >= 4) ? 4u : (msaa >= 2) ? 2u : 1u;
     h.ambient      = h.settings.GetColor("Rendering", "AmbientColor", FVec3{ 0.10f, 0.11f, 0.13f });

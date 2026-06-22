@@ -19,6 +19,7 @@ public static class E {
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_bloom_x100(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_exposure_x100(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_shadow_cascades(IntPtr h);
+    [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern void acs_editor_sun_direction(IntPtr h, float[] o3);
 }
 "@
 Add-Type -TypeDefinition $src
@@ -61,6 +62,19 @@ Check "High preset bloom = 50 (before override)" ([E]::acs_editor_quality_bloom_
 Check "BloomIntensity=0.25 overrides preset -> 25" (([E]::acs_editor_settings_set($h,"Rendering","BloomIntensity","0.25") -eq 1) -and ([E]::acs_editor_quality_bloom_x100($h) -eq 25))
 Check "BloomIntensity=0 turns bloom off -> 0" (([E]::acs_editor_settings_set($h,"Rendering","BloomIntensity","0") -eq 1) -and ([E]::acs_editor_quality_bloom_x100($h) -eq 0))
 Check "BloomIntensity=-1 falls back to preset -> 50" (([E]::acs_editor_settings_set($h,"Rendering","BloomIntensity","-1") -eq 1) -and ([E]::acs_editor_quality_bloom_x100($h) -eq 50))
+
+Write-Host "`n[sun direction] azimuth/elevation -> unit light vector (drives shadow/shading/sky)"
+function SunDir(){ $o=New-Object 'single[]' 3; [E]::acs_editor_sun_direction($h,$o); return $o }
+[void][E]::acs_editor_settings_load_text($h,"")   # defaults: az=-41, el=58 -> ~ (0.40, 0.85, -0.35)
+$d = SunDir
+Check "default sun ~ (0.40,0.85,-0.35)" (([math]::Abs($d[0]-0.40) -lt 0.03) -and ([math]::Abs($d[1]-0.85) -lt 0.03) -and ([math]::Abs($d[2]+0.35) -lt 0.03))
+[void][E]::acs_editor_settings_set($h,"Rendering","SunElevation","90")
+$d = SunDir
+Check "elevation 90 -> straight up (0,1,0)" (([math]::Abs($d[0]) -lt 0.02) -and ([math]::Abs($d[1]-1.0) -lt 0.02) -and ([math]::Abs($d[2]) -lt 0.02))
+[void][E]::acs_editor_settings_set($h,"Rendering","SunElevation","0")
+[void][E]::acs_editor_settings_set($h,"Rendering","SunAzimuth","0")
+$d = SunDir
+Check "elevation 0 / azimuth 0 -> (1,0,0)" (([math]::Abs($d[0]-1.0) -lt 0.02) -and ([math]::Abs($d[1]) -lt 0.02) -and ([math]::Abs($d[2]) -lt 0.02))
 
 [E]::acs_editor_destroy($h)
 Write-Host "`n==== $pass passed, $fail failed ===="
