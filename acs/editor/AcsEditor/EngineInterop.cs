@@ -116,6 +116,17 @@ internal static class EngineInterop
     public static extern IntPtr acs_editor_node3d_sprite_get(IntPtr handle, int id);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_set_sprite(IntPtr handle, int id, [MarshalAs(UnmanagedType.LPUTF8Str)] string path);
+    /// <summary>スプライト画像を外し平面プリミティブへ戻す (2D clear_sprite の 3D 版)。成功 1。</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_clear_sprite(IntPtr handle, int id);
+    // 3D ノードの prefab/blueprint インスタンスリンク (2D node_set/get_prefab_src の 3D 版)。
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_set_prefab_src(IntPtr handle, int id, [MarshalAs(UnmanagedType.LPUTF8Str)] string path);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr acs_editor_node3d_get_prefab_src(IntPtr handle, int id);
+    /// <summary>3D ノードの prefab/blueprint リンクパス (UTF-8、インスタンスでなければ "")。</summary>
+    public static string NodePrefabSrc3D(IntPtr handle, int id) =>
+        Marshal.PtrToStringUTF8(acs_editor_node3d_get_prefab_src(handle, id)) ?? "";
     /// <summary>プリミティブ形状を切替 (0=Cube 1=Sphere 2=Plane)。sprite/polygon/mesh は不可。</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_set_prim(IntPtr handle, int id, int prim);
@@ -160,6 +171,8 @@ internal static class EngineInterop
     public static extern int acs_editor_selected3d_at(IntPtr handle, int index);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_align3d_selection(IntPtr handle, int mode);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_distribute3d_selection(IntPtr handle, int axis);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_pick3d(IntPtr handle, float sx, float sy);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -654,6 +667,16 @@ internal static class EngineInterop
     public static string CopySubtree(IntPtr handle, int id) =>
         Marshal.PtrToStringUTF8(acs_editor_copy_subtree(handle, id)) ?? "";
 
+    // ----- 3D copy / paste (subtree。ACS3D テキスト。Prefab/Blueprint 保存・インスタンス化が使う) -----
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr acs_editor_copy_subtree3d(IntPtr handle, int id);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_paste_subtree3d(IntPtr handle,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string text, int parentId);
+    /// <summary>3D ノードの subtree を ACS3D テキストへシリアライズ取得 (UTF-8)。</summary>
+    public static string CopySubtree3D(IntPtr handle, int id) =>
+        Marshal.PtrToStringUTF8(acs_editor_copy_subtree3d(handle, id)) ?? "";
+
     // ----- node components (reflection-registered Component 型のアタッチ記述子) -----
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node_add_component(IntPtr handle, int id,
@@ -685,6 +708,17 @@ internal static class EngineInterop
     /// <summary>3D ノードの index 番目のコンポーネント型名 (UTF-8)。</summary>
     public static string Component3DName(IntPtr handle, int id, int index) =>
         Marshal.PtrToStringUTF8(acs_editor_node3d_component_name_at(handle, id, index)) ?? "";
+    // 3D コンポーネント編集プロパティ値 (2D の node_component_prop_get/set / invoke の 3D 版。
+    // スキーマは 2D と共有の acs_editor_component_prop_* / component_method_* を流用)。
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_component_prop_get(IntPtr handle, int id, int slot, int prop,
+        out float x, out float y, out float z, out float w);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_component_prop_set(IntPtr handle, int id, int slot, int prop,
+        float x, float y, float z, float w);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_invoke_method(IntPtr handle, int id, int slot,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string method);
 
     // ----- 3D node visible/enabled (FNode3D の m_Visible/m_Enabled) -----
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]

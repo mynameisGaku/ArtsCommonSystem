@@ -171,6 +171,29 @@ public partial class MainWindow
         InspEnabled.IsChecked  = EngineInterop.acs_editor_node3d_get_enabled(Engine, id) != 0;
         InspEnabled.Visibility = Visibility.Visible;
         Insp3DPanel.Children.Clear();
+        // プレハブ/Blueprint インスタンスなら «◆ Prefab: X» + Apply/Revert バナーを先頭に出す (2D PopulateComponents 鏡映)。
+        string prefabSrc = EngineInterop.NodePrefabSrc3D(Engine, id);
+        if (!string.IsNullOrEmpty(prefabSrc))
+        {
+            var banner = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
+            banner.Children.Add(new TextBlock {
+                Text = (IsBlueprint(prefabSrc) ? "◆ Blueprint: " : "◆ Prefab: ") + System.IO.Path.GetFileName(prefabSrc),
+                Foreground = (Brush)FindResource("Accent"), FontSize = 11, FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 4) });
+            var brow = new StackPanel { Orientation = Orientation.Horizontal };
+            var apply  = new Button { Content = "Apply",  FontSize = 11, Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 6, 0),
+                ToolTip = "この編集をプレハブ側へ反映 (instance → prefab)" };
+            var revert = new Button { Content = "Revert", FontSize = 11, Padding = new Thickness(10, 2, 10, 2),
+                ToolTip = "編集を破棄しプレハブの状態へ戻す (prefab → instance)" };
+            int curId = id;
+            apply.Click  += (_, __) => ApplyToPrefab(curId);
+            revert.Click += (_, __) => RevertToPrefab(curId);
+            brow.Children.Add(apply); brow.Children.Add(revert);
+            banner.Children.Add(brow);
+            Insp3DPanel.Children.Add(new Border {
+                Background = (Brush)FindResource("Panel2"), CornerRadius = new CornerRadius(5),
+                Padding = new Thickness(8, 6, 8, 7), Margin = new Thickness(0, 0, 0, 6), Child = banner });
+        }
         // NODE: 名前 (リネーム可能)。従来 3D ノードには編集可能な Name 欄が無くリネーム不能だった。
         {
             var nameRow = new DockPanel { Margin = new Thickness(0, 2, 0, 6) };
@@ -264,6 +287,15 @@ public partial class MainWindow
         DockPanel.SetDock(lbl, Dock.Left); row.Children.Add(lbl);
         var browse = new Button { Content = "…", Width = 28, VerticalAlignment = VerticalAlignment.Center };
         DockPanel.SetDock(browse, Dock.Right); row.Children.Add(browse);
+        // 画像を外して平面へ戻す Clear ボタン (2D の clear_sprite に対応)。
+        var clear = new Button { Content = "Clear", Width = 46, Margin = new Thickness(0, 0, 4, 0),
+            VerticalAlignment = VerticalAlignment.Center, ToolTip = "画像を外して平面に戻す" };
+        clear.Click += (_, __) =>
+        {
+            if (EngineInterop.acs_editor_node3d_clear_sprite(Engine, id) != 0)
+            { Log($"スプライト画像を解除 (平面に戻す) (id {id})"); Populate3DInspector(id); }
+        };
+        DockPanel.SetDock(clear, Dock.Right); row.Children.Add(clear);
         string cur = EngineInterop.Node3DSprite(Engine, id);
         var name = new TextBlock {
             Text = string.IsNullOrEmpty(cur) ? "(なし)" : System.IO.Path.GetFileName(cur),
@@ -293,8 +325,9 @@ public partial class MainWindow
     private FrameworkElement Build3DComponents(int id)
     {
         var panel = new StackPanel();
-        var dim  = (Brush)FindResource("TextDim");
-        var text = (Brush)FindResource("Text");
+        var dim    = (Brush)FindResource("TextDim");
+        var text   = (Brush)FindResource("Text");
+        var panel2 = (Brush)FindResource("Panel2");
         int count = EngineInterop.acs_editor_node3d_component_count(Engine, id);
         if (count == 0)
             panel.Children.Add(new TextBlock { Text = "（コンポーネントなし）", Foreground = dim, FontSize = 11, Margin = new Thickness(0, 2, 0, 4) });
@@ -302,7 +335,10 @@ public partial class MainWindow
         {
             int idx = i;   // ABI の component slot
             string cname = EngineInterop.Component3DName(Engine, id, i);
-            var row = new DockPanel { Margin = new Thickness(0, 1, 0, 1) };
+
+            var inner = new StackPanel();
+            // ヘッダ: コンポーネント名 (左) + 取り外し ✕ (右)。
+            var header = new DockPanel { Margin = new Thickness(0, 0, 0, 3) };
             var rm = new Button
             {
                 Content = "✕", Width = 22, Height = 20, Padding = new Thickness(0),
@@ -310,10 +346,52 @@ public partial class MainWindow
                 BorderThickness = new Thickness(0), Cursor = Cursors.Hand, ToolTip = "コンポーネントを外す",
             };
             rm.Click += (_, __) => { EngineInterop.acs_editor_node3d_remove_component_at(Engine, id, idx); Populate3DInspector(id); };
-            DockPanel.SetDock(rm, Dock.Right); row.Children.Add(rm);
-            row.Children.Add(new TextBlock { Text = cname, VerticalAlignment = VerticalAlignment.Center, Foreground = text,
-                FontFamily = new FontFamily("Consolas") });
-            panel.Children.Add(row);
+            DockPanel.SetDock(rm, Dock.Right); header.Children.Add(rm);
+            header.Children.Add(new TextBlock { Text = cname, VerticalAlignment = VerticalAlignment.Center, Foreground = text,
+                FontWeight = FontWeights.SemiBold, FontFamily = new FontFamily("Consolas") });
+            inner.Children.Add(header);
+
+            // 編集プロパティ (reflection スキーマ駆動)。2D と同じ BuildPropEditor を is3d:true で流用。
+            int pc = EngineInterop.acs_editor_component_prop_count(cname);
+            if (pc == 0)
+                inner.Children.Add(new TextBlock { Text = "(編集可能なプロパティなし)", Foreground = dim, FontSize = 11, Margin = new Thickness(0, 1, 0, 0) });
+            else
+            {
+                string lastCat = "\0";   // 初回必ず不一致
+                for (int p = 0; p < pc; p++)
+                {
+                    string cat = EngineInterop.ComponentPropCategory(cname, p);
+                    if (cat != lastCat && cat.Length > 0)        // カテゴリ (UPROPERTY(Category=…)) が変わったら見出し
+                        inner.Children.Add(new TextBlock { Text = cat, Foreground = dim, FontSize = 10, FontWeight = FontWeights.SemiBold,
+                            Margin = new Thickness(0, p == 0 ? 0 : 5, 0, 1) });
+                    lastCat = cat;
+                    var prow = BuildPropEditor(id, idx, cname, p, is3d: true);
+                    if (prow != null) inner.Children.Add(prow);   // null = Hidden 指定子 → 出さない
+                }
+            }
+
+            // CallInEditor (ACS_FUNCTION) メソッドをボタン化 → クリックで 3D invoke。
+            int mc = EngineInterop.acs_editor_component_method_count(cname);
+            int curSlot = idx;
+            for (int mi = 0; mi < mc; mi++)
+            {
+                int mflags = EngineInterop.acs_editor_component_method_flags_at(cname, mi);
+                if ((mflags & 0x2) == 0) continue;            // CallInEditor 指定のみボタン化
+                string mname = EngineInterop.ComponentMethodName(cname, mi);
+                var mbtn = new Button { Content = "▶ " + mname, FontSize = 11, Padding = new Thickness(8, 2, 8, 2),
+                    Margin = new Thickness(0, 4, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+                mbtn.Click += (_, __) =>
+                {
+                    if (EngineInterop.acs_editor_node3d_invoke_method(Engine, id, curSlot, mname) != 0)
+                        Log($"{cname}.{mname}() を呼び出し", "General", LogLevel.Info);
+                    else Log($"{cname}.{mname}() の呼び出しに失敗");
+                };
+                inner.Children.Add(mbtn);
+            }
+
+            // コンポーネントをカードにまとめる (2D PopulateComponents と同じ視覚グルーピング)。
+            panel.Children.Add(new Border { Background = panel2, CornerRadius = new CornerRadius(5),
+                Padding = new Thickness(8, 6, 8, 7), Margin = new Thickness(0, 0, 0, 6), Child = inner });
         }
         // 「+ Add」行 (型候補は 2D 用 CompAddBox から流用)。
         var add = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };

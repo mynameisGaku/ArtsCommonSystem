@@ -211,6 +211,7 @@ struct EEd3DRec : public acs::game::FComponent3D {
     FVec3 euler = FVec3{ 0, 0, 0 };           ///< authored オイラー角 (度、XYZ。Local().rotation の編集元)。
     // マテリアルは FMeshComponent3D が material_path + FMaterial2D で持つ (.acsmat 参照、2D 鏡映)。
     char  sprite_path[256] = {};              ///< 非空ならスプライト (z=0 テクスチャ付きクアッド)。再読込用の画像パス。
+    char  prefab_src[256]  = {};              ///< 非空なら prefab/blueprint インスタンス (.acsprefab/.acsbp パス。2D FEditorNode 鏡映)。
     TArray<FVec2> poly_pts;                   ///< 3点以上なら手続きポリゴン (z=0)。再生成用の元 2D 頂点列。
     GpuMesh       gm_cache;                    ///< Phase2: prim==Mesh の GPU メッシュキャッシュ (FPbrShader 描画用)。
     const void*   gm_cache_src = nullptr;      ///< gm_cache の元 FMeshAsset ポインタ (変化時に再アップロード)。
@@ -5381,7 +5382,10 @@ static int CloneNode3DSubtree(EditorHost& h, game::FNode3D* src, game::FNode3D* 
     const int newId = h.next_id3d++;
     EEd3DRec* sr = Rec3D(src);
     EEd3DRec* cr = Rec3D(&clone);
-    if (cr != nullptr) { cr->id = newId; if (sr != nullptr) cr->euler = sr->euler; }
+    if (cr != nullptr) {
+        cr->id = newId;
+        if (sr != nullptr) { cr->euler = sr->euler; std::memcpy(cr->prefab_src, sr->prefab_src, sizeof(cr->prefab_src)); }   // インスタンスリンクも複製
+    }
     clone.Local() = src->Local();                    // transform をそのまま複製
     game::FMeshComponent3D* sm = Mesh3D(src);
     game::FMeshComponent3D* cm = Mesh3D(&clone);
@@ -5688,6 +5692,38 @@ ACS_EDITOR_API int acs_editor_node3d_set_sprite(void* handle, int id, const char
     return 1;
 }
 
+/** スプライトノードの画像を外し、平面プリミティブへ戻す (2D node_clear_sprite の 3D 版)。成功 1。
+ *  スプライト (sprite_path) でなければ何もせず 0。kind は以降 NPrim (= Plane) を返す。 */
+ACS_EDITOR_API int acs_editor_node3d_clear_sprite(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    game::FNode3D* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
+    if (n == nullptr) return 0;
+    EEd3DRec* r = Rec3D(n);
+    game::FMeshComponent3D* m = Mesh3D(n);
+    if (r == nullptr || m == nullptr || r->sprite_path[0] == '\0') return 0;
+    PushUndo(*host);
+    r->sprite_path[0] = '\0';                                       // スプライト解除 (kind が NPrim に戻る)
+    m->SetRenderHandle(nullptr);                                    // 描画のスプライトパスを無効化
+    m->SetPrimitive(game::EMeshPrimitive3D::Plane);                 // クアッド相当の平面に戻す
+    return 1;
+}
+
+/** 3D ノードに prefab/blueprint インスタンスリンク (.acsprefab/.acsbp パス) を張る (2D 版の 3D 対応)。成功 1。 */
+ACS_EDITOR_API int acs_editor_node3d_set_prefab_src(void* handle, int id, const char* path) {
+    auto* host = static_cast<EditorHost*>(handle);
+    EEd3DRec* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    if (r == nullptr) return 0;
+    std::snprintf(r->prefab_src, sizeof(r->prefab_src), "%s", (path != nullptr) ? path : "");
+    return 1;
+}
+
+/** 3D ノードの prefab/blueprint リンクパスを返す (インスタンスでなければ "")。 */
+ACS_EDITOR_API const char* acs_editor_node3d_get_prefab_src(void* handle, int id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    EEd3DRec* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    return (r != nullptr) ? r->prefab_src : "";
+}
+
 /** プリミティブノードの形状を切り替える (0=Cube 1=Sphere 2=Plane)。sprite/polygon/mesh は対象外。成功 1。 */
 ACS_EDITOR_API int acs_editor_node3d_set_prim(void* handle, int id, int prim) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -5854,9 +5890,128 @@ ACS_EDITOR_API int acs_editor_align3d_selection(void* handle, int mode) {
     return applied;
 }
 
+/** 3D 選択を axis (0=X, 1=Y) で均等分散する (2D distribute_selection の 3D 版)。
+ *  両端は固定し中間ノードを等間隔に。z は不変。3 個未満は何もせず 0。 */
+ACS_EDITOR_API int acs_editor_distribute3d_selection(void* handle, int axis) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return 0;
+    TArray<int> ids; TArray<f32> pos;
+    for (u32 i = 0; i < host->sel3d_multi.Size(); ++i) {
+        game::FNode3D* n = FindNode3DNode(*host, host->sel3d_multi[i]);
+        if (n == nullptr) continue;
+        const FVec3 p = n->Local().position;
+        ids.PushBack(host->sel3d_multi[i]);
+        pos.PushBack(axis == 0 ? p.x : p.y);
+    }
+    const u32 n = ids.Size();
+    if (n < 3) return 0;
+    for (u32 i = 1; i < n; ++i) {                              // axis 位置で昇順 (挿入ソート、parallel)
+        const f32 kp = pos[i]; const int ki = ids[i];
+        u32 j = i;
+        while (j > 0 && pos[j - 1] > kp) { pos[j] = pos[j - 1]; ids[j] = ids[j - 1]; --j; }
+        pos[j] = kp; ids[j] = ki;
+    }
+    PushUndo(*host);
+    const f32 step = (pos[n - 1] - pos[0]) / static_cast<f32>(n - 1);
+    for (u32 i = 1; i + 1 < n; ++i) {                          // 両端固定・中間を均等配置
+        game::FNode3D* node = FindNode3DNode(*host, ids[i]);
+        if (node == nullptr) continue;
+        const f32 target = pos[0] + step * static_cast<f32>(i);
+        if (axis == 0) node->Local().position.x = target;
+        else           node->Local().position.y = target;
+    }
+    return static_cast<int>(n);
+}
+
 /** 3D シーンをテキストへシリアライズする (C# が保存)。書いた文字数を返す。
  *  形式: "N3D <id> <parent> <prim> px py pz rx ry rz sx sy sz r g b a <name>" (DFS、親が先)。 */
 static bool AttachComponent3D(EEd3DRec* r, const char* type_name) noexcept;   // 前方宣言 (load_text が使う)
+
+/** 1 ノード分のブロック (N3D + MSH3D/SPR3D/PLY3D/CMP3D/CPROP3D/FLG3D/MAT3D) を out[cur..] へ追記する。
+ *  parentOverride>=-1 ならその値を親 id として書く (-2 = 実際の親 ParentId3D を使う)。
+ *  容量超過時は out を NUL 終端し *overflow=true として打ち切った cur を返す。返り値=追記後の cur。
+ *  scene3d_serialize (全体) と copy_subtree3d (部分) の «単一ソース»。 */
+static int EmitNode3DBlock(char* out, int cur, int cap, EditorHost* host,
+                           game::FNode3D* nn, int parentOverride, bool* overflow) noexcept {
+    *overflow = false;
+    EEd3DRec* r = Rec3D(nn);
+    if (r == nullptr) return cur;
+    const FVec3 p = nn->Local().position, s = nn->Local().scale, e = r->euler;
+    const FVec4 col = NColor(nn);
+    const int prim = NPrim(nn);
+    const int parent = (parentOverride >= -1) ? parentOverride : ParentId3D(*host, nn);
+    char nm[128]; { const FStringView nv = nn->Name(); u32 ln = 0; for (; ln < nv.Size() && ln + 1u < sizeof(nm); ++ln) nm[ln] = nv[ln]; nm[ln] = '\0'; }
+    const int w = std::snprintf(out + cur, static_cast<size_t>(cap - cur),
+        "N3D %d %d %d %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.3f %.3f %.3f %.3f %s\n",
+        r->id, parent, prim, p.x, p.y, p.z, e.x, e.y, e.z,
+        s.x, s.y, s.z, col.x, col.y, col.z, col.w, nm);
+    if (w < 0 || w >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
+    cur += w;
+    game::FMeshComponent3D* mc = Mesh3D(nn);
+    if (prim == 3 && mc != nullptr && mc->MeshPath().Size() > 0 && cur < cap) {     // カスタムメッシュの元ファイル
+        char mp[300]; { const FStringView pv = mc->MeshPath(); u32 ln = 0; for (; ln < pv.Size() && ln + 1u < sizeof(mp); ++ln) mp[ln] = pv[ln]; mp[ln] = '\0'; }
+        const int w2 = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "MSH3D %d %s\n", r->id, mp);
+        if (w2 < 0 || w2 >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
+        cur += w2;
+    }
+    if (r->sprite_path[0] != '\0' && cur < cap) {                                  // スプライト (z=0 画像) の再読込パス
+        const int w2 = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "SPR3D %d %s\n", r->id, r->sprite_path);
+        if (w2 < 0 || w2 >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
+        cur += w2;
+    }
+    if (r->poly_pts.Size() >= 3 && cur < cap) {                                    // 手続きポリゴン (z=0) の元 2D 頂点列
+        int w2 = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "PLY3D %d %u", r->id, static_cast<unsigned>(r->poly_pts.Size()));
+        if (w2 < 0 || w2 >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
+        cur += w2;
+        for (u32 k = 0; k < r->poly_pts.Size() && cur < cap; ++k) {
+            const int wk = std::snprintf(out + cur, static_cast<size_t>(cap - cur), " %.4f %.4f", r->poly_pts[k].x, r->poly_pts[k].y);
+            if (wk < 0 || wk >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
+            cur += wk;
+        }
+        if (cur < cap) out[cur++] = '\n';
+    }
+    for (u32 c = 0; c < r->component_count && cur < cap; ++c) {                     // アタッチ済みコンポーネント
+        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(r->components[c]);
+        if (d == nullptr || d->name == nullptr) continue;
+        const int wc = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "CMP3D %d %s\n", r->id, d->name);
+        if (wc < 0 || wc >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
+        cur += wc;
+        const u32 nf = CompPropCount(d);                                            // 編集プロパティ値 (2D の CPROP に対応)
+        for (u32 pp = 0; pp < nf && cur < cap; ++pp) {
+            const f32* v = r->comp_props[c][pp];
+            const int wp = std::snprintf(out + cur, static_cast<size_t>(cap - cur),
+                "CPROP3D %d %u %u %.4f %.4f %.4f %.4f\n", r->id, c, pp, v[0], v[1], v[2], v[3]);
+            if (wp < 0 || wp >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
+            cur += wp;
+        }
+    }
+    if ((!nn->IsVisible() || !nn->IsEnabled()) && cur < cap) {                      // 可視/有効 (非既定のみ。既定=true)
+        const int wf = std::snprintf(out + cur, static_cast<size_t>(cap - cur),
+            "FLG3D %d %d %d\n", r->id, nn->IsVisible() ? 1 : 0, nn->IsEnabled() ? 1 : 0);
+        if (wf < 0 || wf >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
+        cur += wf;
+    }
+    game::FMeshComponent3D* mc3 = Mesh3D(nn);                                       // マテリアル (.acsmat アセット参照)
+    if (mc3 != nullptr && mc3->MaterialPath().Size() > 0 && cur < cap) {            // 新形式: «MAT3D id <path>» (SPR3D 同形式)
+        char mpath[260]; const u32 ml = (mc3->MaterialPath().Size() < 259u) ? static_cast<u32>(mc3->MaterialPath().Size()) : 259u;
+        std::memcpy(mpath, mc3->MaterialPath().Data(), ml); mpath[ml] = '\0';
+        const int wm = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "MAT3D %d %s\n", r->id, mpath);
+        if (wm < 0 || wm >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
+        cur += wm;
+    } else if (mc3 != nullptr && cur < cap &&                                       // 旧データ移行: path 無しで pbr 値のみ → 数値で温存
+               (mc3->Material().pbr.metallic != 0.0f || mc3->Material().pbr.roughness != 0.5f)) {
+        const int wm = std::snprintf(out + cur, static_cast<size_t>(cap - cur),
+            "MAT3D %d %.3f %.3f\n", r->id, mc3->Material().pbr.metallic, mc3->Material().pbr.roughness);
+        if (wm < 0 || wm >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
+        cur += wm;
+    }
+    if (r->prefab_src[0] != '\0' && cur < cap) {                                    // prefab/blueprint インスタンスリンク
+        const int wp = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "PFAB3D %d %s\n", r->id, r->prefab_src);
+        if (wp < 0 || wp >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
+        cur += wp;
+    }
+    return cur;
+}
 
 ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -5867,89 +6022,50 @@ ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap
         cur += std::snprintf(out + cur, static_cast<size_t>(cap - cur), "SEL3D %d\n", host->sel3d);
     TArray<game::FNode3D*> all; Dfs3DCollect(&host->scene3d.Root(), all);   // 親が子より先 (DFS pre-order)
     for (u32 i = 0; i < all.Size() && cur < cap; ++i) {
-        game::FNode3D* nn = all[i];
-        EEd3DRec* r = Rec3D(nn);
-        if (r == nullptr) continue;
-        const FVec3 p = nn->Local().position, s = nn->Local().scale, e = r->euler;
-        const FVec4 col = NColor(nn);
-        const int prim = NPrim(nn);
-        const int parent = ParentId3D(*host, nn);
-        char nm[128]; { const FStringView nv = nn->Name(); u32 ln = 0; for (; ln < nv.Size() && ln + 1u < sizeof(nm); ++ln) nm[ln] = nv[ln]; nm[ln] = '\0'; }
-        const int w = std::snprintf(out + cur, static_cast<size_t>(cap - cur),
-            "N3D %d %d %d %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.3f %.3f %.3f %.3f %s\n",
-            r->id, parent, prim, p.x, p.y, p.z, e.x, e.y, e.z,
-            s.x, s.y, s.z, col.x, col.y, col.z, col.w, nm);
-        if (w < 0 || w >= cap - cur) { out[cap - 1] = '\0'; break; }
-        cur += w;
-        game::FMeshComponent3D* mc = Mesh3D(nn);
-        if (prim == 3 && mc != nullptr && mc->MeshPath().Size() > 0 && cur < cap) {     // カスタムメッシュの元ファイル
-            char mp[300]; { const FStringView pv = mc->MeshPath(); u32 ln = 0; for (; ln < pv.Size() && ln + 1u < sizeof(mp); ++ln) mp[ln] = pv[ln]; mp[ln] = '\0'; }
-            const int w2 = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "MSH3D %d %s\n", r->id, mp);
-            if (w2 < 0 || w2 >= cap - cur) { out[cap - 1] = '\0'; break; }
-            cur += w2;
-        }
-        if (r->sprite_path[0] != '\0' && cur < cap) {                                  // スプライト (z=0 画像) の再読込パス
-            const int w2 = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "SPR3D %d %s\n", r->id, r->sprite_path);
-            if (w2 < 0 || w2 >= cap - cur) { out[cap - 1] = '\0'; break; }
-            cur += w2;
-        }
-        if (r->poly_pts.Size() >= 3 && cur < cap) {                                    // 手続きポリゴン (z=0) の元 2D 頂点列
-            int w2 = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "PLY3D %d %u", r->id, static_cast<unsigned>(r->poly_pts.Size()));
-            if (w2 < 0 || w2 >= cap - cur) { out[cap - 1] = '\0'; break; }
-            cur += w2;
-            bool overflow = false;
-            for (u32 k = 0; k < r->poly_pts.Size() && cur < cap; ++k) {
-                const int wk = std::snprintf(out + cur, static_cast<size_t>(cap - cur), " %.4f %.4f", r->poly_pts[k].x, r->poly_pts[k].y);
-                if (wk < 0 || wk >= cap - cur) { overflow = true; break; }
-                cur += wk;
-            }
-            if (overflow) { out[cap - 1] = '\0'; break; }
-            if (cur < cap) out[cur++] = '\n';
-        }
-        bool cmpOverflow = false;
-        for (u32 c = 0; c < r->component_count && cur < cap; ++c) {                     // アタッチ済みコンポーネント
-            const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(r->components[c]);
-            if (d == nullptr || d->name == nullptr) continue;
-            const int wc = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "CMP3D %d %s\n", r->id, d->name);
-            if (wc < 0 || wc >= cap - cur) { cmpOverflow = true; break; }
-            cur += wc;
-        }
-        if (cmpOverflow) { out[cap - 1] = '\0'; break; }                                // cap 超過は «外側» ノードループも抜ける (PLY3D と同じ)
-        if ((!nn->IsVisible() || !nn->IsEnabled()) && cur < cap) {                       // 可視/有効 (非既定のみ。既定=true)
-            const int wf = std::snprintf(out + cur, static_cast<size_t>(cap - cur),
-                "FLG3D %d %d %d\n", r->id, nn->IsVisible() ? 1 : 0, nn->IsEnabled() ? 1 : 0);
-            if (wf < 0 || wf >= cap - cur) { out[cap - 1] = '\0'; break; }
-            cur += wf;
-        }
-        game::FMeshComponent3D* mc3 = Mesh3D(nn);                                         // マテリアル (.acsmat アセット参照)
-        if (mc3 != nullptr && mc3->MaterialPath().Size() > 0 && cur < cap) {              // 新形式: «MAT3D id <path>» (SPR3D 同形式)
-            char mpath[260]; const u32 ml = (mc3->MaterialPath().Size() < 259u) ? static_cast<u32>(mc3->MaterialPath().Size()) : 259u;
-            std::memcpy(mpath, mc3->MaterialPath().Data(), ml); mpath[ml] = '\0';
-            const int wm = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "MAT3D %d %s\n", r->id, mpath);
-            if (wm < 0 || wm >= cap - cur) { out[cap - 1] = '\0'; break; }
-            cur += wm;
-        } else if (mc3 != nullptr && cur < cap &&                                          // 旧データ移行: path 無しで pbr 値のみ → 数値で温存
-                   (mc3->Material().pbr.metallic != 0.0f || mc3->Material().pbr.roughness != 0.5f)) {
-            const int wm = std::snprintf(out + cur, static_cast<size_t>(cap - cur),
-                "MAT3D %d %.3f %.3f\n", r->id, mc3->Material().pbr.metallic, mc3->Material().pbr.roughness);
-            if (wm < 0 || wm >= cap - cur) { out[cap - 1] = '\0'; break; }
-            cur += wm;
-        }
+        bool ov = false;
+        cur = EmitNode3DBlock(out, cur, cap, host, all[i], /*parentOverride=*/-2, &ov);   // -2 = 実際の親を使う
+        if (ov) break;
     }
     out[cur < cap ? cur : cap - 1] = '\0';
     return cur;
 }
 
-/** 3D シーンをテキストから読み込む (既存ノードを置き換える)。成功 1。 */
-ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) {
+/** 3D ノードの subtree を ACS3D テキストへシリアライズして返す (root の親= -1)。失敗/空は ""。
+ *  プレハブ/Blueprint 保存・コピー (2D copy_subtree の 3D 版) が使う。バッファは host->scene_text (64KB)。 */
+ACS_EDITOR_API const char* acs_editor_copy_subtree3d(void* handle, int id) {
     auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return "";
+    game::FNode3D* root = FindNode3DNode(*host, id);
+    if (root == nullptr) return "";
+    TArray<game::FNode3D*> sub; sub.PushBack(root); Dfs3DCollect(root, sub);   // root + 子孫 (pre-order)
+    char* buf = host->scene_text;
+    const int cap = static_cast<int>(sizeof(host->scene_text));
+    int cur = std::snprintf(buf, static_cast<size_t>(cap), "ACS3D v2\n");
+    for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {
+        bool ov = false;
+        const int parentOverride = (sub[i] == root) ? -1 : -2;   // root は親なし、子孫は実親 (subtree 内)
+        cur = EmitNode3DBlock(buf, cur, cap, host, sub[i], parentOverride, &ov);
+        if (ov) break;
+    }
+    buf[cur < cap ? cur : cap - 1] = '\0';
+    return buf;
+}
+
+/** 3D シーンテキストの解析本体。clear=true で全置換 (load_text)、false で追記 (paste_subtree3d)。
+ *  idOffset を読み取った全 id に加算 (paste の id 衝突回避)。reparentRootTo>=0 なら «親 -1 の root» を
+ *  その id 配下へ繋ぐ (paste のドロップ先)。out_root に最初の root の新 id を返す。成功 1。 */
+static int LoadScene3DTextImpl(EditorHost* host, const char* text, bool clear,
+                               int idOffset, int reparentRootTo, int* out_root) noexcept {
     if (host == nullptr || text == nullptr) return 0;
-    host->scene3d.Clear();
-    host->sprite_textures.Clear();                   // 旧シーンのスプライトテクスチャを解放 (もう参照されない)
-    host->sel3d = -1; host->sel3d_multi.Clear();
+    if (clear) {
+        host->scene3d.Clear();
+        host->sprite_textures.Clear();               // 旧シーンのスプライトテクスチャを解放 (もう参照されない)
+        host->sel3d = -1; host->sel3d_multi.Clear();
+    }
     host->scene3d_seeded = true;                     // 読み込んだら seed しない
     int maxId = 0;
     int restoredSel = -1;                            // SEL3D 行があれば選択を復元 (無ければ先頭)
+    int firstRoot = -1;                              // paste: 最初に作った «親 -1» ノードの新 id (選択用)
     const char* p = text;
     char line[4096];                          // ポリゴンの点列 (PLY3D) も収まる広さ
     while (*p != '\0') {
@@ -5960,7 +6076,7 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
         if (std::strncmp(line, "MSH3D ", 6) == 0) {                  // カスタムメッシュの再読込
             int mid = 0; char mp[260] = {};
             if (std::sscanf(line, "MSH3D %d %259[^\n]", &mid, mp) >= 2) {
-                if (game::FNode3D* en = FindNode3DNode(*host, mid)) {
+                if (game::FNode3D* en = FindNode3DNode(*host, mid + idOffset)) {
                     if (game::FMeshComponent3D* m = Mesh3D(en)) {
                         m->SetMeshAsset(LoadMeshFile(mp));           // 失敗時 null → 描画スキップ
                         m->SetMeshPath(FStringView(mp));             // パス記録 (種別 Mesh に)
@@ -5972,7 +6088,7 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
         if (std::strncmp(line, "SPR3D ", 6) == 0) {                  // スプライト (z=0 画像) の再読込
             int sid = 0; char sp[260] = {};
             if (std::sscanf(line, "SPR3D %d %259[^\n]", &sid, sp) >= 2) {
-                if (game::FNode3D* en = FindNode3DNode(*host, sid)) {
+                if (game::FNode3D* en = FindNode3DNode(*host, sid + idOffset)) {
                     EEd3DRec* rec = Rec3D(en);
                     if (rec != nullptr) std::snprintf(rec->sprite_path, sizeof(rec->sprite_path), "%s", sp);
                     u32 iw = 0, ih = 0;
@@ -5997,7 +6113,7 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
                     pts.PushBack(FVec2{ x, y }); q += adv;
                 }
                 if (pts.Size() == pc) {
-                    if (game::FNode3D* en = FindNode3DNode(*host, pid)) {
+                    if (game::FNode3D* en = FindNode3DNode(*host, pid + idOffset)) {
                         if (game::FMeshComponent3D* m = Mesh3D(en)) {
                             TSharedPtr<Asset> mesh = MakeFlatPolygon3D(pts.Data(), static_cast<u32>(pts.Size()));
                             if (mesh) m->SetMeshAsset(mesh);         // prim=Mesh + 所有 (z=0 フラット)
@@ -6012,20 +6128,31 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
         if (std::strncmp(line, "CMP3D ", 6) == 0) {                  // アタッチ済みコンポーネントの復元 (N3D の後に来る)
             int cid = 0; char tn[256] = {};                          // 型名上限は他の補助行 (SPR3D/MSH3D) と同じ 256
             if (std::sscanf(line, "CMP3D %d %255[^\n]", &cid, tn) >= 2)
-                AttachComponent3D(Rec3D(FindNode3DNode(*host, cid)), tn);
+                AttachComponent3D(Rec3D(FindNode3DNode(*host, cid + idOffset)), tn);
+            continue;
+        }
+        if (std::strncmp(line, "CPROP3D ", 8) == 0) {                // コンポーネント編集プロパティ値の復元 (CMP3D の直後)
+            int cid = 0; unsigned cslot = 0, cprop = 0; float a = 0, b = 0, cc = 0, e = 0;
+            if (std::sscanf(line, "CPROP3D %d %u %u %f %f %f %f", &cid, &cslot, &cprop, &a, &b, &cc, &e) >= 3) {
+                EEd3DRec* rr = Rec3D(FindNode3DNode(*host, cid + idOffset));
+                if (rr != nullptr && cslot < rr->component_count && cprop < EEd3DRec::kMaxProps) {
+                    f32* v = rr->comp_props[cslot][cprop];
+                    v[0] = a; v[1] = b; v[2] = cc; v[3] = e;
+                }
+            }
             continue;
         }
         if (std::strncmp(line, "FLG3D ", 6) == 0) {                  // 可視/有効フラグの復元 (N3D の後)
             int fid = 0, vis = 1, ena = 1;
             if (std::sscanf(line, "FLG3D %d %d %d", &fid, &vis, &ena) >= 3) {
-                if (game::FNode3D* en = FindNode3DNode(*host, fid)) { en->SetVisible(vis != 0); en->SetEnabled(ena != 0); }
+                if (game::FNode3D* en = FindNode3DNode(*host, fid + idOffset)) { en->SetVisible(vis != 0); en->SetEnabled(ena != 0); }
             }
             continue;
         }
         if (std::strncmp(line, "MAT3D ", 6) == 0) {                  // マテリアル: «MAT3D id <.acsmatパス>» (新) / «MAT3D id m r» (旧)
             int mid = 0; char rest[256] = {};
             if (std::sscanf(line, "MAT3D %d %255[^\n]", &mid, rest) >= 2) {
-                game::FNode3D* mn = FindNode3DNode(*host, mid);
+                game::FNode3D* mn = FindNode3DNode(*host, mid + idOffset);
                 game::FMeshComponent3D* mc = Mesh3D(mn);
                 if (mc != nullptr) {
                     if (std::strstr(rest, ".acsmat") != nullptr) {       // 新形式: .acsmat アセットパス
@@ -6043,6 +6170,14 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
             }
             continue;
         }
+        if (std::strncmp(line, "PFAB3D ", 7) == 0) {                 // prefab/blueprint インスタンスリンクの復元 (N3D の後)
+            int fid = 0; char fpath[256] = {};
+            if (std::sscanf(line, "PFAB3D %d %255[^\n]", &fid, fpath) >= 2) {
+                EEd3DRec* rr = Rec3D(FindNode3DNode(*host, fid + idOffset));
+                if (rr != nullptr) std::snprintf(rr->prefab_src, sizeof(rr->prefab_src), "%s", fpath);
+            }
+            continue;
+        }
         if (std::strncmp(line, "SEL3D ", 6) == 0) { std::sscanf(line, "SEL3D %d", &restoredSel); continue; }   // 選択 id (後で復元)
         if (std::strncmp(line, "N3D ", 4) != 0) continue;
         int nid = 0, nparent = -1, nprim = 0; char nm[64] = {};
@@ -6051,30 +6186,57 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) 
             &nid, &nparent, &nprim, &pos.x, &pos.y, &pos.z, &rot.x, &rot.y, &rot.z,
             &scl.x, &scl.y, &scl.z, &color.x, &color.y, &color.z, &color.w, nm);
         if (got >= 16) {
+            const int newId = nid + idOffset;
             game::FNode3D& nd = AddNode3D(*host, (got >= 17) ? nm : "Node");
             nd.Local().position = pos; nd.Local().scale = scl; nd.Local().SetEulerDeg(rot);
-            EEd3DRec* r = nd.GetComponent<EEd3DRec>(); if (r != nullptr) { r->id = nid; r->euler = rot; }
+            EEd3DRec* r = nd.GetComponent<EEd3DRec>(); if (r != nullptr) { r->id = newId; r->euler = rot; }
             game::FMeshComponent3D* m = nd.GetComponent<game::FMeshComponent3D>();
             if (m != nullptr) {
                 m->SetPrimitive(static_cast<game::EMeshPrimitive3D>((nprim >= 0 && nprim <= 3) ? nprim : 0));
                 m->SetColor(color);
             }
-            if (nparent >= 0) {   // DFS 順なので親は既に存在 (root 下に居る pending も含め見つかる)
-                if (game::FNode3D* par = FindNode3DNode(*host, nparent)) nd.Reparent(*par);
+            // 親: 内部親 (>=0) は idOffset 付きへ、«親 -1» の root は paste 時 reparentRootTo 配下へ。
+            const int effParent = (nparent >= 0) ? (nparent + idOffset) : reparentRootTo;
+            if (nparent < 0 && firstRoot < 0) firstRoot = newId;            // 最初の root を覚える (選択用)
+            if (effParent >= 0) {   // DFS 順なので親は既に存在 (root 下に居る pending も含め見つかる)
+                if (game::FNode3D* par = FindNode3DNode(*host, effParent)) nd.Reparent(*par);
             }
-            if (nid > maxId) maxId = nid;
+            if (newId > maxId) maxId = newId;
         }
     }
     host->scene3d.Update(0.0f);         // 保留中の reparent を一括解決 (階層を確定)
-    host->next_id3d = maxId + 1;
-    if (restoredSel >= 0 && FindNode3DNode(*host, restoredSel) != nullptr) {
-        SetSel3D(*host, restoredSel);   // SEL3D で保存された選択を復元 (undo/redo で選択維持)
-    } else {                            // 無ければ先頭ノード (新規読込のデフォルト)
-        TArray<game::FNode3D*> all; Dfs3DCollect(&host->scene3d.Root(), all);
-        EEd3DRec* fr = (all.Size() > 0) ? Rec3D(all[0]) : nullptr;
-        if (fr != nullptr) SetSel3D(*host, fr->id);
+    if (maxId + 1 > host->next_id3d) host->next_id3d = maxId + 1;   // paste は既存 next_id3d を後退させない
+    if (out_root != nullptr) *out_root = firstRoot;
+    if (clear) {
+        if (restoredSel >= 0 && FindNode3DNode(*host, restoredSel) != nullptr) {
+            SetSel3D(*host, restoredSel);   // SEL3D で保存された選択を復元 (undo/redo で選択維持)
+        } else {                            // 無ければ先頭ノード (新規読込のデフォルト)
+            TArray<game::FNode3D*> all; Dfs3DCollect(&host->scene3d.Root(), all);
+            EEd3DRec* fr = (all.Size() > 0) ? Rec3D(all[0]) : nullptr;
+            if (fr != nullptr) SetSel3D(*host, fr->id);
+        }
+    } else if (firstRoot >= 0) {
+        SetSel3D(*host, firstRoot);         // paste: 貼り付けた root を選択
     }
     return 1;
+}
+
+/** 3D シーンをテキストから読み込む (既存ノードを置き換える)。成功 1。 */
+ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) {
+    return LoadScene3DTextImpl(static_cast<EditorHost*>(handle), text, /*clear=*/true,
+                               /*idOffset=*/0, /*reparentRootTo=*/-1, nullptr);
+}
+
+/** ACS3D subtree テキストを parent_id 配下へ貼り付ける (id を再採番・親 -1 の root を parent 配下へ。
+ *  2D paste_subtree の 3D 版)。貼り付けたトップ root の新 id / 失敗 -1。 */
+ACS_EDITOR_API int acs_editor_paste_subtree3d(void* handle, const char* text, int parent_id) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || text == nullptr) return -1;
+    PushUndo(*host);
+    int root = -1;
+    const int ok = LoadScene3DTextImpl(host, text, /*clear=*/false, /*idOffset=*/host->next_id3d,
+                                       /*reparentRootTo=*/parent_id, &root);
+    return (ok != 0) ? root : -1;
 }
 
 /** スクリーン点から 3D ノードをレイピックする。最も手前の id を返す (外れは -1)。
@@ -6798,6 +6960,57 @@ ACS_EDITOR_API int acs_editor_node3d_remove_component_at(void* handle, int id, i
     }
     --r->component_count;
     return 1;
+}
+
+// --- 3D コンポーネントの編集プロパティ値 (2D node_component_prop_get/set の 3D 版) ---
+// スキーマ (型名→どの編集フィールドがあるか) は 2D と共有の acs_editor_component_prop_*
+// を流用し、«インスタンス値» のみ EEd3DRec::comp_props が slot×prop×4 で保持する。
+ACS_EDITOR_API int acs_editor_node3d_component_prop_get(void* handle, int id, int slot, int prop,
+                                                        float* x, float* y, float* z, float* w) {
+    auto* host = static_cast<EditorHost*>(handle);
+    EEd3DRec* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    if (r == nullptr || slot < 0 || slot >= static_cast<int>(r->component_count)
+        || prop < 0 || prop >= static_cast<int>(EEd3DRec::kMaxProps)) return 0;
+    const f32* v = r->comp_props[static_cast<u32>(slot)][static_cast<u32>(prop)];
+    if (x != nullptr) *x = v[0];
+    if (y != nullptr) *y = v[1];
+    if (z != nullptr) *z = v[2];
+    if (w != nullptr) *w = v[3];
+    return 1;
+}
+ACS_EDITOR_API int acs_editor_node3d_component_prop_set(void* handle, int id, int slot, int prop,
+                                                        float x, float y, float z, float w) {
+    auto* host = static_cast<EditorHost*>(handle);
+    EEd3DRec* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    if (r == nullptr || slot < 0 || slot >= static_cast<int>(r->component_count)
+        || prop < 0 || prop >= static_cast<int>(EEd3DRec::kMaxProps)) return 0;
+    PushUndo(*host);
+    f32* v = r->comp_props[static_cast<u32>(slot)][static_cast<u32>(prop)];
+    v[0] = x; v[1] = y; v[2] = z; v[3] = w;
+    return 1;
+}
+
+// 3D ノードの slot 番コンポーネントの反射メソッドを «その場で» 呼ぶ (2D node_invoke_method の 3D 版)。
+// 型を一時実体化し editor 値 (comp_props) を適用して起動 → 破棄 (= CallInEditor)。
+ACS_EDITOR_API int acs_editor_node3d_invoke_method(void* handle, int id, int slot, const char* method_name) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr || method_name == nullptr) return 0;
+    EEd3DRec* r = Rec3D(FindNode3DNode(*host, id));
+    if (r == nullptr || slot < 0 || slot >= static_cast<int>(r->component_count)) return 0;
+    const game::FTypeId tid = r->components[static_cast<u32>(slot)];
+    const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(tid);
+    if (d == nullptr) return 0;
+    void* obj = game::FTypeRegistry::Get().CreateById(tid);   // 一時実体化 (factory)
+    if (obj == nullptr) return 0;
+    game::ApplyDefaults(obj, *d);                             // C++ 既定値で初期化
+    const u32 nf = CompPropCount(d);                          // 編集値 (authored) を実体へ適用
+    for (u32 p = 0; p < nf; ++p) {
+        const f32* v = r->comp_props[static_cast<u32>(slot)][p];
+        game::ApplyFieldValue(obj, d->fields[p], v);
+    }
+    const bool ok = game::InvokeMethodByName(tid, obj, method_name);   // メソッド起動
+    game::FTypeRegistry::Get().Destroy(tid, obj);             // 一時実体を破棄
+    return ok ? 1 : 0;
 }
 
 // --- 3D ノードの可視/有効フラグ (FNode3D が m_Visible/m_Enabled を持つ。2D と同じ) ---

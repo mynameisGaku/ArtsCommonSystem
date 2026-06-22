@@ -364,17 +364,20 @@
                                 <TextBlock Text="Base" Grid.Column="2" Style="{StaticResource FieldLabel}"/>
                                 <TextBox x:Name="DispBase" Grid.Column="3" Style="{StaticResource NumBox}"/>
                             </Grid>
+                            <!-- RGBA は固定幅でなく可変 (*) 列にし、狭いインスペクタでも縮んでスウォッチ(末尾 Auto 列)が
+                                 右端で見切れないようにする (旧: 固定 40px×4 で * 列が縮まず swatch が押し出されていた)。 -->
                             <Grid Margin="0,3">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="64"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                 <TextBlock Text="Color" Style="{StaticResource FieldLabel}"/>
-                                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                    <TextBox x:Name="ColR" Width="40" Margin="0,0,3,0" Style="{StaticResource NumBox}"/>
-                                    <TextBox x:Name="ColG" Width="40" Margin="0,0,3,0" Style="{StaticResource NumBox}"/>
-                                    <TextBox x:Name="ColB" Width="40" Margin="0,0,3,0" Style="{StaticResource NumBox}"/>
-                                    <TextBox x:Name="ColA" Width="40" Style="{StaticResource NumBox}"/>
-                                </StackPanel>
+                                <Grid Grid.Column="1" Margin="0,0,6,0">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBox x:Name="ColR" Grid.Column="0" Margin="0,0,3,0" Style="{StaticResource NumBox}"/>
+                                    <TextBox x:Name="ColG" Grid.Column="1" Margin="0,0,3,0" Style="{StaticResource NumBox}"/>
+                                    <TextBox x:Name="ColB" Grid.Column="2" Margin="0,0,3,0" Style="{StaticResource NumBox}"/>
+                                    <TextBox x:Name="ColA" Grid.Column="3" Style="{StaticResource NumBox}"/>
+                                </Grid>
                                 <Border x:Name="ColorSwatch" Grid.Column="2" Width="26" Height="26" CornerRadius="0"
-                                        Background="#FF888888" BorderBrush="{StaticResource Edge}" BorderThickness="1" Margin="6,0,0,0"/>
+                                        Background="#FF888888" BorderBrush="{StaticResource Edge}" BorderThickness="1"/>
                             </Grid>
                             <Grid Margin="0,3">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="64"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>

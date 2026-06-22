@@ -1864,7 +1864,8 @@ public partial class MainWindow : Window
     private void DoDistribute(int axis, string name)
     {
         if (Engine == IntPtr.Zero) return;
-        int n = EngineInterop.acs_editor_distribute_selection(Engine, axis);
+        int n = _view3d ? EngineInterop.acs_editor_distribute3d_selection(Engine, axis)
+                        : EngineInterop.acs_editor_distribute_selection(Engine, axis);
         if (n > 0) { Log($"Distributed {n} node(s): {name}."); SyncSelectionUi(); }
         else Log("Distribute needs 3+ selected nodes.");
     }
@@ -2284,7 +2285,7 @@ public partial class MainWindow : Window
     private void SaveAsPrefab(int id)
     {
         if (Engine == IntPtr.Zero || id < 0 || _project == null) return;
-        string text = EngineInterop.CopySubtree(Engine, id);
+        string text = _view3d ? EngineInterop.CopySubtree3D(Engine, id) : EngineInterop.CopySubtree(Engine, id);
         if (string.IsNullOrEmpty(text)) { Log("プレハブ化に失敗 (サブツリーの直列化が空)。"); return; }
         string nm = EngineInterop.NodeName(Engine, id);
         if (string.IsNullOrWhiteSpace(nm)) nm = "Prefab";
@@ -2299,9 +2300,10 @@ public partial class MainWindow : Window
         try
         {
             System.IO.File.WriteAllText(dlg.FileName, StripPrefabLinks(text), System.Text.Encoding.UTF8);
-            EngineInterop.acs_editor_node_set_prefab_src(Engine, id, dlg.FileName);   // 保存元もこのプレハブのインスタンスにする
+            // 保存元もこのプレハブのインスタンスにする (instance-of リンク)。2D/3D で ABI を切替え。
+            if (_view3d) { EngineInterop.acs_editor_node3d_set_prefab_src(Engine, id, dlg.FileName); Populate3DInspector(id); }
+            else         { EngineInterop.acs_editor_node_set_prefab_src(Engine, id, dlg.FileName);   PopulateInspector(id); }
             AssetBrowser.Refresh();
-            PopulateInspector(id);
             Log($"プレハブを保存 → {System.IO.Path.GetFileName(dlg.FileName)}");
         }
         catch (Exception ex) { Log("プレハブ保存エラー: " + ex.Message); }
@@ -2314,7 +2316,7 @@ public partial class MainWindow : Window
     private void SaveAsBlueprint(int id)
     {
         if (Engine == IntPtr.Zero || id < 0 || _project == null) return;
-        string comp = StripPrefabLinks(EngineInterop.CopySubtree(Engine, id));
+        string comp = StripPrefabLinks(_view3d ? EngineInterop.CopySubtree3D(Engine, id) : EngineInterop.CopySubtree(Engine, id));
         if (string.IsNullOrEmpty(comp)) { Log("Blueprint 化に失敗 (サブツリーの直列化が空)。"); return; }
         string nm = EngineInterop.NodeName(Engine, id);
         if (string.IsNullOrWhiteSpace(nm)) nm = "Blueprint";
@@ -2377,6 +2379,16 @@ public partial class MainWindow : Window
         catch (Exception ex) { Log("Blueprint 読込エラー: " + ex.Message); return; }
         string comp = AcsbpFormat.ExtractCmp(text);
         if (string.IsNullOrWhiteSpace(comp)) { Log("この Blueprint はコンポーネントを持たないため配置できません (ロジックのみ)。"); return; }
+        if (comp.TrimStart().StartsWith("ACS3D"))   // 3D Blueprint (ACS3D テキスト) → 3D サブツリーとして実体化
+        {
+            int parent3d = EngineInterop.acs_editor_selected3d(Engine);
+            int rid = EngineInterop.acs_editor_paste_subtree3d(Engine, comp, parent3d);
+            if (rid < 0) { Log("Blueprint の配置に失敗しました。"); return; }
+            EngineInterop.acs_editor_node3d_set_prefab_src(Engine, rid, path);   // instance-of リンク (Apply/Revert 対応)
+            RefreshAfterSceneChange();   // 3D ヒエラルキー再構築 + 選択 UI 同期 (paste が root を選択済み)
+            Log($"Blueprint をシーンに配置 → {System.IO.Path.GetFileName(path)} (3D node {rid})");
+            return;
+        }
         int id = EngineInterop.acs_editor_paste_subtree(Engine, comp, parentId);
         if (id < 0) { Log("Blueprint の配置に失敗しました。"); return; }
         EngineInterop.acs_editor_node_set_prefab_src(Engine, id, path);   // instance-of リンク (.acsbp。Apply/Revert 対応済)
@@ -2408,9 +2420,9 @@ public partial class MainWindow : Window
         else AcsbpFormat.Write(src, comp);
     }
 
-    /// <summary>プレハブテンプレートは自己リンクを持たない → PFAB 行を除去する。</summary>
+    /// <summary>プレハブテンプレートは自己リンクを持たない → PFAB / PFAB3D 行を除去する。</summary>
     private static string StripPrefabLinks(string text) =>
-        System.Text.RegularExpressions.Regex.Replace(text, @"^PFAB .*\r?\n?", "",
+        System.Text.RegularExpressions.Regex.Replace(text, @"^PFAB(3D)? .*\r?\n?", "",
             System.Text.RegularExpressions.RegexOptions.Multiline);
 
     /// <summary>.acsprefab を読み、parentId 配下にインスタンス化する(id 再マップは ABI 側)。</summary>
@@ -2420,6 +2432,19 @@ public partial class MainWindow : Window
         string text;
         try { text = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8); }
         catch (Exception ex) { Log("プレハブ読込エラー: " + ex.Message); return; }
+        if (text.TrimStart().StartsWith("ACS3D"))   // 3D プレハブ (ACS3D テキスト) → 3D サブツリーとして実体化
+        {
+            int parent3d = EngineInterop.acs_editor_selected3d(Engine);
+            int rid = EngineInterop.acs_editor_paste_subtree3d(Engine, text, parent3d);
+            if (rid >= 0)
+            {
+                EngineInterop.acs_editor_node3d_set_prefab_src(Engine, rid, path);   // instance-of リンク (Apply/Revert 対応)
+                RefreshAfterSceneChange();
+                Log($"プレハブをインスタンス化: {System.IO.Path.GetFileName(path)} → 3D node {rid}");
+            }
+            else Log("プレハブのインスタンス化に失敗: " + System.IO.Path.GetFileName(path));
+            return;
+        }
         int id = EngineInterop.acs_editor_paste_subtree(Engine, text, parentId);
         if (id >= 0)
         {
@@ -2462,24 +2487,55 @@ public partial class MainWindow : Window
         return list;
     }
 
+    /// <summary>ReinstantiateInstance の 3D 版 (transform=pos/euler/scale 9 値を維持して再生成)。新 id / -1。</summary>
+    private int ReinstantiateInstance3D(int id, string src, string prefabText)
+    {
+        int parent = EngineInterop.acs_editor_node3d_parent(Engine, id);
+        var t = new float[9];
+        EngineInterop.acs_editor_node3d_get_transform(Engine, id, t);
+        EngineInterop.acs_editor_delete_node3d(Engine, id);
+        int nid = EngineInterop.acs_editor_paste_subtree3d(Engine, prefabText, parent);
+        if (nid >= 0)
+        {
+            EngineInterop.acs_editor_node3d_set_transform(Engine, nid, t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7], t[8]);
+            EngineInterop.acs_editor_node3d_set_prefab_src(Engine, nid, src);
+        }
+        return nid;
+    }
+
+    /// <summary>FindPrefabInstances の 3D 版 (3D ノードを走査)。</summary>
+    private System.Collections.Generic.List<int> FindPrefabInstances3D(string src, int except)
+    {
+        var list = new System.Collections.Generic.List<int>();
+        int cnt = EngineInterop.acs_editor_node3d_count(Engine);
+        for (int i = 0; i < cnt; i++)
+        {
+            int nid = EngineInterop.acs_editor_node3d_id_at(Engine, i);
+            if (nid == except) continue;
+            if (string.Equals(EngineInterop.NodePrefabSrc3D(Engine, nid), src, StringComparison.OrdinalIgnoreCase))
+                list.Add(nid);
+        }
+        return list;
+    }
+
     /// <summary>この編集をプレハブへ反映し、«シーン内の全インスタンス» を新プレハブで更新する(位置は維持)。</summary>
     private void ApplyToPrefab(int id)
     {
         if (Engine == IntPtr.Zero) return;
-        string src = EngineInterop.NodePrefabSrc(Engine, id);
+        string src = _view3d ? EngineInterop.NodePrefabSrc3D(Engine, id) : EngineInterop.NodePrefabSrc(Engine, id);
         if (string.IsNullOrEmpty(src)) return;
-        string comp = StripPrefabLinks(EngineInterop.CopySubtree(Engine, id));
+        string comp = StripPrefabLinks(_view3d ? EngineInterop.CopySubtree3D(Engine, id) : EngineInterop.CopySubtree(Engine, id));
         if (string.IsNullOrEmpty(comp)) { Log("Apply 失敗 (直列化が空)。"); return; }
         try { WriteComponentsTo(src, comp); }   // .acsbp は CMP だけ差し替え (VAR/graph 温存)、.acsprefab は全文
         catch (Exception ex) { Log("Apply エラー: " + ex.Message); return; }
 
         // 他の全インスタンスを再生成 (id を先に集めてから処理 = 走査中の構造変更を回避)。
-        var targets = FindPrefabInstances(src, id);
+        var targets = _view3d ? FindPrefabInstances3D(src, id) : FindPrefabInstances(src, id);
         int updated = 0;
-        foreach (int t in targets) if (ReinstantiateInstance(t, src, comp) >= 0) updated++;
-        BuildHierarchy();
-        _selectedId = id;
-        SelectHierarchyItem(id);
+        foreach (int t in targets)
+            if ((_view3d ? ReinstantiateInstance3D(t, src, comp) : ReinstantiateInstance(t, src, comp)) >= 0) updated++;
+        if (_view3d) { RefreshAfterSceneChange(); }
+        else { BuildHierarchy(); _selectedId = id; SelectHierarchyItem(id); }
         Log($"{(IsBlueprint(src) ? "Blueprint" : "プレハブ")}へ反映 (Apply) → {System.IO.Path.GetFileName(src)} ({updated} 個のインスタンスを更新)",
             "Asset", LogLevel.Success);
     }
@@ -2488,18 +2544,17 @@ public partial class MainWindow : Window
     private void RevertToPrefab(int id)
     {
         if (Engine == IntPtr.Zero) return;
-        string src = EngineInterop.NodePrefabSrc(Engine, id);
+        string src = _view3d ? EngineInterop.NodePrefabSrc3D(Engine, id) : EngineInterop.NodePrefabSrc(Engine, id);
         if (string.IsNullOrEmpty(src) || !System.IO.File.Exists(src)) { Log("Revert 失敗 (プレハブが見つからない)。"); return; }
         string comp;
         try { comp = ReadComponentsFor(src); }
         catch (Exception ex) { Log("Revert 読込エラー: " + ex.Message); return; }
         if (string.IsNullOrWhiteSpace(comp)) { Log("Revert 失敗 (コンポーネント木が空)。"); return; }
-        int nid = ReinstantiateInstance(id, src, comp);
+        int nid = _view3d ? ReinstantiateInstance3D(id, src, comp) : ReinstantiateInstance(id, src, comp);
         if (nid >= 0)
         {
-            BuildHierarchy();
-            _selectedId = nid;
-            SelectHierarchyItem(nid);
+            if (_view3d) { RefreshAfterSceneChange(); }
+            else { BuildHierarchy(); _selectedId = nid; SelectHierarchyItem(nid); }
             Log($"{(IsBlueprint(src) ? "Blueprint" : "プレハブ")}へ復元 (Revert) ← {System.IO.Path.GetFileName(src)}", "Asset", LogLevel.Info);
         }
     }
@@ -2655,7 +2710,7 @@ public partial class MainWindow : Window
     /// checkbox (Bool) / 整数 box (I32,U32) / 数値 box×N (F32,FVec2-4) を出す。
     /// 編集確定で acs_editor_node_component_prop_set を呼ぶ。
     /// </summary>
-    private FrameworkElement? BuildPropEditor(int id, int slot, string typeName, int prop)
+    private FrameworkElement? BuildPropEditor(int id, int slot, string typeName, int prop, bool is3d = false)
     {
         string pname = EngineInterop.ComponentPropName(typeName, prop);
         int kind = EngineInterop.acs_editor_component_prop_kind_at(typeName, prop);
@@ -2663,8 +2718,14 @@ public partial class MainWindow : Window
         bool hidden   = (flags & 0x2) != 0;   // FIELD_HIDDEN → 出さない
         bool readOnly = (flags & 0x1) != 0;   // FIELD_READONLY (VisibleAnywhere) → 表示のみ
         if (hidden) return null;
-        EngineInterop.acs_editor_node_component_prop_get(Engine, id, slot, prop,
-            out float vx, out float vy, out float vz, out float vw);
+        // スキーマは 2D/3D 共通 (型名駆動)。値の get/set だけ 2D/3D の ABI を切替える。
+        float vx, vy, vz, vw;
+        if (is3d)
+            EngineInterop.acs_editor_node3d_component_prop_get(Engine, id, slot, prop,
+                out vx, out vy, out vz, out vw);
+        else
+            EngineInterop.acs_editor_node_component_prop_get(Engine, id, slot, prop,
+                out vx, out vy, out vz, out vw);
         float[] vals = { vx, vy, vz, vw };
         float[] committed = { vx, vy, vz, vw };   // 最後に ABI へ送った値
 
@@ -2699,8 +2760,12 @@ public partial class MainWindow : Window
                 && vals[2] == committed[2] && vals[3] == committed[3]) return;
             committed[0] = vals[0]; committed[1] = vals[1];
             committed[2] = vals[2]; committed[3] = vals[3];
-            EngineInterop.acs_editor_node_component_prop_set(
-                Engine, id, slot, prop, vals[0], vals[1], vals[2], vals[3]);
+            if (is3d)
+                EngineInterop.acs_editor_node3d_component_prop_set(
+                    Engine, id, slot, prop, vals[0], vals[1], vals[2], vals[3]);
+            else
+                EngineInterop.acs_editor_node_component_prop_set(
+                    Engine, id, slot, prop, vals[0], vals[1], vals[2], vals[3]);
         }
 
         // Bool: チェックボックス。
@@ -2719,12 +2784,12 @@ public partial class MainWindow : Window
             var combo = new ComboBox { MinWidth = 150, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
             var ids = new System.Collections.Generic.List<int> { -1 };   // 先頭 = (None)
             combo.Items.Add("(None)");
-            int count = EngineInterop.acs_editor_node_count(Engine);
+            int count = is3d ? EngineInterop.acs_editor_node3d_count(Engine) : EngineInterop.acs_editor_node_count(Engine);
             for (int i = 0; i < count; i++)
             {
-                int nid = EngineInterop.acs_editor_node_id_at(Engine, i);
+                int nid = is3d ? EngineInterop.acs_editor_node3d_id_at(Engine, i) : EngineInterop.acs_editor_node_id_at(Engine, i);
                 if (nid == id) continue;                                  // 自己参照は除外
-                string nm = EngineInterop.NodeName(Engine, nid);
+                string nm = is3d ? Node3DName(nid) : EngineInterop.NodeName(Engine, nid);
                 ids.Add(nid);
                 combo.Items.Add($"{(string.IsNullOrEmpty(nm) ? "Node" : nm)} (id {nid})");
             }
