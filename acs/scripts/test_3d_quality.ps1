@@ -37,6 +37,7 @@ public static class E {
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_godray_x100(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_cine_x100(IntPtr h, int which);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_motionblur_x100(IntPtr h);
+    [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_cloud_x100(IntPtr h);
 }
 "@
 Add-Type -TypeDefinition $src
@@ -207,6 +208,11 @@ Write-Host "`n[Motion blur]"
 Check "default motion blur off" ([E]::acs_editor_quality_motionblur_x100($h) -eq 0)
 Check "MotionBlur=1.5 -> 150" (([E]::acs_editor_settings_set($h,"Rendering","MotionBlur","1.5") -eq 1) -and ([E]::acs_editor_quality_motionblur_x100($h) -eq 150))
 Check "MotionBlur=0 -> off" (([E]::acs_editor_settings_set($h,"Rendering","MotionBlur","0") -eq 1) -and ([E]::acs_editor_quality_motionblur_x100($h) -eq 0))
+
+Write-Host "`n[Cloud parameters]"
+Check "default cloud coverage 0.5 -> 50" ([E]::acs_editor_quality_cloud_x100($h) -eq 50)
+Check "CloudCoverage=0.9 -> 90" (([E]::acs_editor_settings_set($h,"Rendering","CloudCoverage","0.9") -eq 1) -and ([E]::acs_editor_quality_cloud_x100($h) -eq 90))
+Check "CloudCoverage=0 -> off" (([E]::acs_editor_settings_set($h,"Rendering","CloudCoverage","0") -eq 1) -and ([E]::acs_editor_quality_cloud_x100($h) -eq 0))
 
 [E]::acs_editor_destroy($h)
 Write-Host "`n==== $pass passed, $fail failed ===="

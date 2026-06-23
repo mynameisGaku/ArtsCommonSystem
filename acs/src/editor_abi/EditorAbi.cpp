@@ -275,6 +275,7 @@ struct EditorHost {
     i32   q_tonemap          = 0;     bool q_auto_exposure   = false;  // 0=ACES 1=AgX 2=Reinhard / 自動露出(eye adaptation)
     bool  q_fog_on           = false; f32  q_fog_density     = 0.025f; f32 q_fog_height_falloff = 0.10f;  // 指数ハイトフォグ (色は空の地平色に追従)
     i32   q_sky_mode         = 0;     // 0=FSky(グラデ+雲) / 1=FAtmosphere(物理大気散乱)。要 Diligent (IBL 経路)
+    f32   q_cloud_coverage   = 0.50f; f32 q_cloud_density = 1.6f; f32 q_cloud_wind = 1.0f;  // FSky 雲 (coverage=0 でオフ)
     f32   q_cas              = 0.3f;  bool q_taa_on          = false; u32 q_msaa_default = 4;
     FVec3 sun_dir            = FVec3{ 0.40f, 0.85f, -0.35f };   // 太陽 (光源) 方向 «光へ向かう» 向き。Rendering/SunAzimuth+Elevation で駆動。
     FVec3 sun_color          = FVec3{ 1.0f, 0.95f, 0.85f };     // 太陽の色 (Rendering/SunColor)。
@@ -3585,6 +3586,9 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         h.sky3d.SetZenithColor(h.sky_zenith); // 空グラデも設定駆動 → IBL 環境光と背景を一致
         h.sky3d.SetHorizonColor(h.sky_horizon);
         h.sky3d.SetGroundColor(h.sky_ground);
+        h.sky3d.SetCloudsEnabled(h.q_cloud_coverage > 0.001f);   // 雲は設定駆動 (coverage=0 でオフ)
+        h.sky3d.SetClouds(h.q_cloud_coverage, h.q_cloud_density);
+        h.sky3d.SetCloudWind(h.q_cloud_wind);
         h.sky3d.Render(*cl, cam);
     } else if (h.sky_pipe && h.sky_cb) {
         SkyCB sk{};
@@ -4329,6 +4333,11 @@ ACS_EDITOR_API int acs_editor_quality_sky_mode(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     return (host != nullptr) ? host->q_sky_mode : 0;
 }
+/** 雲の coverage ×100 (0=雲オフ)。設定反映の確認用。 */
+ACS_EDITOR_API int acs_editor_quality_cloud_x100(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr) ? static_cast<int>(host->q_cloud_coverage * 100.0f + 0.5f) : 0;
+}
 /** DoF (被写界深度) の焦点距離 ×100 (0=オフ)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_dof_x100(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -4410,6 +4419,9 @@ static void ApplySettings(EditorHost& h) noexcept {
     const i32 sm = h.settings.GetInt("Rendering", "SkyMode", 0);
     const i32 smc = (sm == 1) ? 1 : 0;
     if (smc != h.q_sky_mode) { h.q_sky_mode = smc; h.ibl_dirty = true; h.ibl_tried = false; }   // モード変更 → env 再焼成
+    h.q_cloud_coverage = h.settings.GetFloat("Rendering", "CloudCoverage", 0.50f);   // 0=雲オフ / 0.1〜1.0
+    h.q_cloud_density  = h.settings.GetFloat("Rendering", "CloudDensity",  1.6f);
+    h.q_cloud_wind     = h.settings.GetFloat("Rendering", "CloudWind",     1.0f);
     const f32 gray = h.settings.GetFloat("Rendering", "GodRays", 0.0f);
     h.q_godray_on = (gray > 0.0f); if (h.q_godray_on) h.q_godray_intensity = gray;   // 0=オフ / >0=光芒の強度
     h.q_vignette  = h.settings.GetFloat("Rendering", "Vignette", 0.0f);              // シネマフィルタ (0=オフ)
