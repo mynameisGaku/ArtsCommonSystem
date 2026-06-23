@@ -36,6 +36,7 @@ public static class E {
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_dof_x100(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_godray_x100(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_cine_x100(IntPtr h, int which);
+    [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_motionblur_x100(IntPtr h);
 }
 "@
 Add-Type -TypeDefinition $src
@@ -199,6 +200,11 @@ Check "Vignette=0.5 -> 50" (([E]::acs_editor_settings_set($h,"Rendering","Vignet
 Check "ChromaticAberration=0.5 -> 50" (([E]::acs_editor_settings_set($h,"Rendering","ChromaticAberration","0.5") -eq 1) -and ([E]::acs_editor_quality_cine_x100($h,1) -eq 50))
 Check "FilmGrain=0.5 -> 50" (([E]::acs_editor_settings_set($h,"Rendering","FilmGrain","0.5") -eq 1) -and ([E]::acs_editor_quality_cine_x100($h,2) -eq 50))
 Check "Vignette=0 -> off" (([E]::acs_editor_settings_set($h,"Rendering","Vignette","0") -eq 1) -and ([E]::acs_editor_quality_cine_x100($h,0) -eq 0))
+
+Write-Host "`n[Motion blur]"
+Check "default motion blur off" ([E]::acs_editor_quality_motionblur_x100($h) -eq 0)
+Check "MotionBlur=1.5 -> 150" (([E]::acs_editor_settings_set($h,"Rendering","MotionBlur","1.5") -eq 1) -and ([E]::acs_editor_quality_motionblur_x100($h) -eq 150))
+Check "MotionBlur=0 -> off" (([E]::acs_editor_settings_set($h,"Rendering","MotionBlur","0") -eq 1) -and ([E]::acs_editor_quality_motionblur_x100($h) -eq 0))
 
 [E]::acs_editor_destroy($h)
 Write-Host "`n==== $pass passed, $fail failed ===="

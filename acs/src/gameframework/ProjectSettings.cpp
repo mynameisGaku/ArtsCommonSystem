@@ -60,6 +60,8 @@ const FSettingDesc kSchema[] = {
       "シネマフィルタ: 色収差 (画面端の RGB ずれ)。0=オフ / 0.002 前後が自然" },
     { "Rendering", "FilmGrain",     ESettingType::Float, "0",              nullptr,
       "シネマフィルタ: フィルムグレイン (粒状ノイズ)。0=オフ / 0.01〜0.03 が自然" },
+    { "Rendering", "MotionBlur",    ESettingType::Float, "0",              nullptr,
+      "3D モーションブラー。0=オフ / >0 で動き/カメラ移動の軌跡方向にぼかす (1.0 が標準)。要 motion vector (Diligent)" },
     { "Rendering", "SunAzimuth",    ESettingType::Float, "-41",            nullptr,
       "3D 太陽 (主光源) の方位角 (度)。影/陰影/空の太陽方向を一括で回す" },
     { "Rendering", "SunElevation",  ESettingType::Float, "58",             nullptr,

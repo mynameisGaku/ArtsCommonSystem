@@ -380,6 +380,12 @@ struct EditorHost {
     // god rays (光芒): 太陽スクリーン位置から bright pass を放射状 march して光の筋を加算。scene 複製は refr_bg 共用。
     bool                     q_godray_on = false; f32 q_godray_intensity = 0.5f; f32 q_godray_decay = 0.96f;
     f32                      q_vignette = 0.0f; f32 q_chromatic = 0.0f; f32 q_grain = 0.0f;  // シネマフィルタ (既定 0=クリーン)
+    // モーションブラー: FMotionVector の UV 空間 motion に沿って scene を多タップ平均。scene 複製は refr_bg 共用。
+    bool                     q_motionblur_on = false; f32 q_motionblur_intensity = 1.0f;
+    TUniquePtr<IRhiPipeline> mblur_pipe;
+    TUniquePtr<IRhiShader>   mblur_vs, mblur_ps;
+    TUniquePtr<IRhiBuffer>   mblur_cb;
+    bool                     mblur_ready = false;
     TUniquePtr<IRhiPipeline> gray_pipe;
     TUniquePtr<IRhiShader>   gray_vs, gray_ps;
     TUniquePtr<IRhiBuffer>   gray_cb;
@@ -2379,6 +2385,33 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
+// モーションブラー: FMotionVector の motion (prev_uv - curr_uv、UV 空間) に沿って scene を多タップ平均。
+// 静止物では motion≈0 でぼけず、動く物/カメラ移動でその軌跡方向にぼける。
+const char* kMotionBlur3DHLSL = R"(
+Texture2D    sceneTex          : register(t0);
+SamplerState sceneTex_sampler  : register(s0);
+Texture2D    motionTex         : register(t1);
+SamplerState motionTex_sampler : register(s1);
+cbuffer MBCB : register(b0) { float4 mbp; };   // x=intensity
+struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+VSOut VSMain(uint id : SV_VertexID) {
+    float2 uv = float2((id << 1) & 2, id & 2);
+    VSOut o; o.uv = uv;
+    o.pos = float4(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), 0.0, 1.0);
+    return o;
+}
+float4 PSMain(VSOut v) : SV_TARGET {
+    float2 vel = motionTex.Sample(motionTex_sampler, v.uv).xy * mbp.x;   // UV 空間 motion * 強度
+    const int N = 12;
+    float3 col = sceneTex.Sample(sceneTex_sampler, v.uv).rgb; float wsum = 1.0;
+    [unroll] for (int i = 1; i < N; ++i) {
+        float t = (float(i) / float(N - 1)) - 0.5;                        // -0.5..0.5 中心
+        col += sceneTex.Sample(sceneTex_sampler, v.uv + vel * t).rgb; wsum += 1.0;
+    }
+    return float4(col / wsum, 1.0);
+}
+)";
+
 // スカイボックス: フルスクリーン三角形でカメラレイ方向から天空グラデーションを描く。
 // 頂点バッファ不要 (SV_VertexID)。深度オフ・最背面 (メッシュが上に描かれる)。
 const char* kSky3DHLSL = R"(
@@ -2665,6 +2698,39 @@ bool Ensure3D(EditorHost& h) noexcept {
             }
         }
         if (!h.gray_ready) ACS_LOG_WARN("[3D] god rays パイプライン生成失敗");
+    }
+
+    // モーションブラー: scene 複製 (t0) + motion (t1) を sample。
+    {
+        FShaderDesc mvs{}; mvs.stage = EShaderStage::Vertex; mvs.hlsl_source = kMotionBlur3DHLSL; mvs.entry_point = "VSMain"; mvs.debug_name = "MBlur.VS";
+        FShaderDesc mps{}; mps.stage = EShaderStage::Pixel;  mps.hlsl_source = kMotionBlur3DHLSL; mps.entry_point = "PSMain"; mps.debug_name = "MBlur.PS";
+        auto mvr = CreateRhiShader(*dev, mvs); auto mpr = CreateRhiShader(*dev, mps);
+        if (mvr.IsOk() && mpr.IsOk()) {
+            h.mblur_vs = Move(mvr.Value()); h.mblur_ps = Move(mpr.Value());
+            FPipelineDesc mp{};
+            mp.vs = h.mblur_vs.Get(); mp.ps = h.mblur_ps.Get();
+            mp.topology     = EPrimitiveTopology::TriangleList;
+            mp.rt_format    = hdrf; mp.depth_format = EFormat::Unknown;
+            mp.depth_test   = false; mp.depth_write = false;
+            mp.cull_mode    = ECullMode::None; mp.blend_mode = EBlendMode::Opaque;
+            mp.texture_slots = 2;
+            mp.cbuffer_slots = 1; mp.cbuffer_names[0] = "MBCB";
+            mp.static_sampler_count = 2;
+            for (int s = 0; s < 2; ++s) {
+                mp.static_samplers[s].filter    = ESamplerFilter::Linear;
+                mp.static_samplers[s].address_u = ESamplerAddress::Clamp;
+                mp.static_samplers[s].address_v = ESamplerAddress::Clamp;
+                mp.static_samplers[s].address_w = ESamplerAddress::Clamp;
+            }
+            auto mplr = CreateRhiPipeline(*dev, mp);
+            if (mplr.IsOk()) {
+                h.mblur_pipe = Move(mplr.Value());
+                FBufferDesc mcb{}; mcb.size = 256; mcb.usage = EBufferUsage::Uniform; mcb.cpu_writable = true;
+                auto mcr = CreateRhiBuffer(*dev, mcb); if (mcr.IsOk()) h.mblur_cb = Move(mcr.Value());
+                h.mblur_ready = (h.mblur_pipe.Get() != nullptr && h.mblur_cb.Get() != nullptr);
+            }
+        }
+        if (!h.mblur_ready) ACS_LOG_WARN("[3D] モーションブラー パイプライン生成失敗");
     }
 
     // オーバーレイ用 (同シェーダ・depth off): ギズモを常に手前に出す。
@@ -3471,7 +3537,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     //     no-jitter の vp/prev で «真の幾何モーション» (カメラ + オブジェクト両方) を出す。静止物は motion≈カメラ分、
     //     動く物 (play/ドラッグ) はその差分も入り ghost が消える。TAA/SSR/SSGI が ON のときだけ焼く。
     h.mv_computed = false;
-    if (gbufReady && h.mv_ready && h.pbr3d_ready && (h.q_taa_on || h.q_ssr_on || h.q_ssgi_on)) {
+    if (gbufReady && h.mv_ready && h.pbr3d_ready && (h.q_taa_on || h.q_ssr_on || h.q_ssgi_on || h.q_motionblur_on)) {
         h.mv3d.Begin(*cl, vp_nojit, h.prev_vp_nojit);
         for (u32 i = 0; i < all3d.Size(); ++i) {
             game::FNode3D* nn = all3d[i];
@@ -3770,6 +3836,37 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                             vp, Inverse(vp), h.prev_vp, eye, h.q_ssgi_intensity, h.q_ssgi_max_dist,
                             h.mv_computed ? h.mv3d.OutputTexture() : nullptr);   // motion で動く物の間接光 ghost を除去
             h.ssgi_computed = true;
+        }
+
+        // --- モーションブラー: motion (UV 空間) に沿って scene を多タップ平均 (静止物はぼけず、動き/カメラ移動でぼける) ---
+        if (h.q_motionblur_on && h.mblur_ready && h.blit_ready && h.mv_computed) {
+            IRhiDevice* mdev = h.renderer.Device();
+            if (mdev != nullptr) {
+                if (h.refr_bg_w != scW || h.refr_bg_h != scH) {   // scene 複製 (refr_bg) 共用・遅延確保
+                    FTextureDesc bd{}; bd.width = scW; bd.height = scH; bd.format = EFormat::R16G16B16A16_Float; bd.is_render_target = true;
+                    auto btr = CreateRhiTexture(*mdev, bd);
+                    if (btr.IsOk()) { h.refr_bg = Move(btr.Value()); h.refr_bg_w = scW; h.refr_bg_h = scH; } else { h.refr_bg_w = 0; }
+                }
+                if (h.refr_bg) {
+                    const ClearColor bc{ 0.0f, 0.0f, 0.0f, 1.0f };
+                    cl->BeginRenderToTexture(*h.refr_bg, bc, nullptr, 1.0f);
+                    { FViewport bvp{}; bvp.width = static_cast<f32>(scW); bvp.height = static_cast<f32>(scH); cl->SetViewport(bvp);
+                      FScissorRect bsr{}; bsr.right = static_cast<i32>(scW); bsr.bottom = static_cast<i32>(scH); cl->SetScissor(bsr); }
+                    cl->SetPipeline(*h.blit_pipe); cl->SetTexture(0, *hdrRt); cl->Draw(3, 0);
+                    cl->EndRenderToTexture(*h.refr_bg);
+                    struct MbCB { FVec4 mbp; } mcb{}; mcb.mbp = FVec4{ h.q_motionblur_intensity, 0.0f, 0.0f, 0.0f };
+                    h.mblur_cb->Update(&mcb, sizeof(mcb));
+                    cl->BeginRenderToTextureLoad(*hdrRt, nullptr);
+                    { FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
+                      FScissorRect rsr{}; rsr.right = static_cast<i32>(scW); rsr.bottom = static_cast<i32>(scH); cl->SetScissor(rsr); }
+                    cl->SetPipeline(*h.mblur_pipe);
+                    cl->SetConstantBuffer(0, *h.mblur_cb);
+                    cl->SetTexture(0, *h.refr_bg);
+                    cl->SetTexture(1, *h.mv3d.OutputTexture());
+                    cl->Draw(3, 0);
+                    cl->EndRenderToTexture(*hdrRt);
+                }
+            }
         }
 
         // --- 屈折 (ガラス/水): transmission>0 のノードを «opaque シーンを IOR で曲げて sample» して描く ---
@@ -4249,6 +4346,11 @@ ACS_EDITOR_API int acs_editor_quality_cine_x100(void* handle, int which) {
     const f32 v = (which == 0) ? host->q_vignette : (which == 1) ? host->q_chromatic : host->q_grain;
     return static_cast<int>(v * 100.0f + 0.5f);
 }
+/** モーションブラー強度 ×100 (0=オフ)。設定反映の確認用。 */
+ACS_EDITOR_API int acs_editor_quality_motionblur_x100(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr && host->q_motionblur_on) ? static_cast<int>(host->q_motionblur_intensity * 100.0f + 0.5f) : 0;
+}
 /** 太陽 (主光源) 方向 «光へ向かう» 単位ベクトルを out3 (x,y,z) へ。設定反映の確認用。 */
 ACS_EDITOR_API void acs_editor_sun_direction(void* handle, float* out3) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -4313,6 +4415,8 @@ static void ApplySettings(EditorHost& h) noexcept {
     h.q_vignette  = h.settings.GetFloat("Rendering", "Vignette", 0.0f);              // シネマフィルタ (0=オフ)
     h.q_chromatic = h.settings.GetFloat("Rendering", "ChromaticAberration", 0.0f);
     h.q_grain     = h.settings.GetFloat("Rendering", "FilmGrain", 0.0f);
+    const f32 mbl = h.settings.GetFloat("Rendering", "MotionBlur", 0.0f);
+    h.q_motionblur_on = (mbl > 0.0f); if (h.q_motionblur_on) h.q_motionblur_intensity = mbl;   // 0=オフ / >0=強度
     const f32 dofF = h.settings.GetFloat("Rendering", "DofFocus", 0.0f);
     h.q_dof_on = (dofF > 0.0f);                    // 0=オフ / >0=焦点距離 (カメラからの view-space z)
     if (h.q_dof_on) {
@@ -4491,6 +4595,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->refr_bg.Reset(); host->refr_bg_w = 0; host->refr_bg_h = 0;
     host->dof_pipe.Reset(); host->dof_vs.Reset(); host->dof_ps.Reset(); host->dof_cb.Reset(); host->dof_ready = false;
     host->gray_pipe.Reset(); host->gray_vs.Reset(); host->gray_ps.Reset(); host->gray_cb.Reset(); host->gray_ready = false;
+    host->mblur_pipe.Reset(); host->mblur_vs.Reset(); host->mblur_ps.Reset(); host->mblur_cb.Reset(); host->mblur_ready = false;
     host->ibl3d.Shutdown(); host->ibl_ready = false; host->ibl_tried = false; host->ibl_dirty = true;
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
     host->sprite_textures.Clear();
