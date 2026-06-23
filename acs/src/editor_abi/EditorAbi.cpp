@@ -2910,14 +2910,20 @@ const GpuMesh& Mesh3DFor(const EditorHost& h, int prim) noexcept {
 }
 
 
-/** 軌道カメラの eye 位置を yaw/pitch/dist/target から求める。 */
+/** 軌道カメラの eye 位置を yaw/pitch/dist/target から求める。
+ *  eye.y を床上にクランプ → 真上を向いても床下に潜らず «空» を見られる (EditorCam3D が pitch 方向を見る)。 */
 FVec3 Cam3DEye(const EditorHost& h) noexcept {
     const f32 cp = std::cos(h.cam3d_pitch), sp = std::sin(h.cam3d_pitch);
     const f32 cy = std::cos(h.cam3d_yaw),   sy = std::sin(h.cam3d_yaw);
     const FVec3 dir{ cp * sy, sp, cp * cy };          // target→eye 方向
-    return FVec3{ h.cam3d_target.x + dir.x * h.cam3d_dist,
-                  h.cam3d_target.y + dir.y * h.cam3d_dist,
-                  h.cam3d_target.z + dir.z * h.cam3d_dist };
+    FVec3 eye{ h.cam3d_target.x + dir.x * h.cam3d_dist,
+               h.cam3d_target.y + dir.y * h.cam3d_dist,
+               h.cam3d_target.z + dir.z * h.cam3d_dist };
+    if (!h.ortho3d) {                                  // 透視のみ: eye が床下に潜らないよう最低高さでクランプ
+        const f32 minY = h.cam3d_target.y + 0.30f;
+        if (eye.y < minY) eye.y = minY;
+    }
+    return eye;
 }
 
 /** エディタ 3D ビューのカメラを組む (透視 or 正射、軌道 eye + 注視点)。描画/射影/ピックで共通。 */
@@ -2929,7 +2935,17 @@ FCamera EditorCam3D(const EditorHost& h, f32 aspect) noexcept {
     } else {
         cam.SetPerspective(50.0f * 3.14159265f / 180.0f, aspect, 0.05f, 500.0f);
     }
-    cam.SetLookAt(Cam3DEye(h), h.cam3d_target);
+    if (h.ortho3d) {
+        cam.SetLookAt(Cam3DEye(h), h.cam3d_target);
+    } else {
+        // 注視点固定でなく «pitch/yaw 方向» を見る。eye 非クランプ時は look-at-target と完全に同一だが、
+        // 真上を向いて eye が床上にクランプされたときは注視点ではなく空を向ける (空/雲/god rays を確認可能に)。
+        const f32 cp = std::cos(h.cam3d_pitch), sp = std::sin(h.cam3d_pitch);
+        const f32 cy = std::cos(h.cam3d_yaw),   sy = std::sin(h.cam3d_yaw);
+        const FVec3 eye = Cam3DEye(h);
+        const FVec3 fwd{ -cp * sy, -sp, -cp * cy };    // pitch/yaw 方向 (pitch 負で上向き)
+        cam.SetLookAt(eye, FVec3{ eye.x + fwd.x, eye.y + fwd.y, eye.z + fwd.z });
+    }
     return cam;
 }
 
