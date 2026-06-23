@@ -75,6 +75,38 @@ float Fbm(float2 p) {
     return sum;
 }
 
+// ---- volumetric clouds 用 3D value noise + FBM (レイマーチ立体雲) ------------
+float Hash3(float3 p) {
+    p = frac(p * 0.3183099 + float3(0.1, 0.2, 0.3));
+    p *= 17.0;
+    return frac(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float ValueNoise3(float3 p) {
+    float3 i = floor(p);
+    float3 f = frac(p);
+    f = f * f * (3.0 - 2.0 * f);                          // smoothstep 補間
+    float n000 = Hash3(i + float3(0,0,0)), n100 = Hash3(i + float3(1,0,0));
+    float n010 = Hash3(i + float3(0,1,0)), n110 = Hash3(i + float3(1,1,0));
+    float n001 = Hash3(i + float3(0,0,1)), n101 = Hash3(i + float3(1,0,1));
+    float n011 = Hash3(i + float3(0,1,1)), n111 = Hash3(i + float3(1,1,1));
+    float nx00 = lerp(n000, n100, f.x), nx10 = lerp(n010, n110, f.x);
+    float nx01 = lerp(n001, n101, f.x), nx11 = lerp(n011, n111, f.x);
+    return lerp(lerp(nx00, nx10, f.y), lerp(nx01, nx11, f.y), f.z);
+}
+float Fbm3(float3 p) {
+    float sum = 0.0, amp = 0.5;
+    [unroll] for (int i = 0; i < 5; ++i) { sum += amp * ValueNoise3(p); p *= 2.03; amp *= 0.5; }
+    return sum;
+}
+// 雲スラブ内の点 p の密度 (0..1)。base FBM を coverage で remap → 高周波 detail で侵食。
+float CloudDensity3(float3 p, float coverage, float windOff) {
+    float3 q = p * 0.45 + float3(windOff, 0.0, windOff * 0.6);
+    float base   = Fbm3(q);
+    float shape  = saturate((base - (1.0 - coverage)) / max(coverage, 0.001));
+    float detail = Fbm3(q * 3.7 + 4.1);
+    return saturate(shape - detail * 0.22) * shape;       // 侵食でもこもこ/wispy に
+}
+
 // IGN ベースの dither (8-bit 量子化前にバンディングを消す)。
 float SkyDither(float2 pix, float t) {
     pix += t * float2(5.588238, 1.715728);
@@ -115,42 +147,42 @@ float4 PSMain(VSOut v) : SV_TARGET {
         sky = lerp(sky, sun_color.xyz, k);
     }
 
-    // 4) 手続き的な雲 (地平線より上のみ)。視線を高さ 1 の雲平面に投影し、base 形状 + 高周波 detail で
-    //    侵食 → 太陽方向への自己影マーチで «擬似ボリューム» の立体感を出す (平坦な 2D 投影から脱却)。
-    if (cloud_params0.w >= 0.5 && dir.y > 0.004) {
-        float  time     = cloud_params0.z;
-        float  wind     = cloud_params1.w;
-        float2 uv       = (dir.xz / (dir.y + 0.12)) * 1.1;
-        uv += float2(time * wind * 0.02, time * wind * 0.013);
-
+    // 4) volumetric clouds: 雲スラブ [h0,h1] を視線方向にレイマーチして密度を積分。各サンプルで太陽へ
+    //    ライトマーチして自己影 (Beer-Lambert) → 立体的な雲。地平線より上のみ。
+    if (cloud_params0.w >= 0.5 && dir.y > 0.02) {
         float coverage  = saturate(cloud_params0.x);
         float density   = max(cloud_params0.y, 0.1);
-        float invCov    = 1.0 / max(coverage, 0.001);
-        // base 形状を高周波 detail で侵食 → もこもこ/wispy な縁に (のっぺり感を解消)
-        float baseN     = Fbm(uv);
-        float detailN   = Fbm(uv * 3.9 + 17.3);
-        float n         = saturate(baseN - detailN * 0.20);
-        float clouds    = saturate((n - (1.0 - coverage)) * invCov);
-        clouds          = pow(clouds, density);
-        float hFade     = smoothstep(0.0, 0.10, dir.y);
-        clouds         *= hFade;
+        float windOff   = cloud_params0.z * cloud_params1.w * 0.03;   // time*wind で流す
 
-        // 擬似ボリューム自己影: 太陽の水平方向へ数タップ march し、上流の雲量で減光 (Beer 則)。
-        // → 雲の «厚み» と陰影が出て立体的に見える。
-        float2 sdir     = normalize(sundn.xz + float2(1e-4, 0.0)) * 0.05;
-        float  shadowAcc = 0.0;
-        [unroll] for (int s = 1; s <= 4; ++s) {
-            float sn = Fbm(uv + sdir * float(s));
-            shadowAcc += saturate((sn - (1.0 - coverage)) * invCov);
-        }
-        float lightT    = exp(-shadowAcc * 0.65);            // 上流に雲が多いほど暗い (Beer-Lambert)
-
-        // ライティング: 影色 ↔ 受光色を自己影で補間 + silver lining (太陽縁の輝き)。
+        const float h0 = 1.0, h1 = 2.6;                  // 雲スラブの仮想高度 (dome 空間)
+        float t0 = h0 / dir.y, t1 = h1 / dir.y;          // ray がスラブに入る/出る距離
+        const int  N  = 28;
+        float dt = (t1 - t0) / float(N);
         float3 litCol   = lerp(cloud_params1.xyz, sun_color.xyz, sun_d * 0.6);
-        float3 shadowCol= cloud_params1.xyz * 0.32;
-        float3 cloudCol = lerp(shadowCol, litCol, lightT);
-        cloudCol       += sun_color.xyz * pow(sun_d, 8.0) * (1.0 - lightT) * 0.6;   // silver lining
-        sky = lerp(sky, cloudCol, clouds);
+        float3 shadowCol= cloud_params1.xyz * 0.30;
+
+        float  transmit = 1.0;                           // 視線方向の透過率 (1=空, 0=厚い雲)
+        float3 scatter  = float3(0,0,0);
+        [loop] for (int i = 0; i < N; ++i) {
+            float3 p = dir * (t0 + dt * (float(i) + 0.5));
+            float dens = CloudDensity3(p, coverage, windOff) * density;
+            if (dens > 0.01) {
+                // 太陽方向へ 3 ステップ light march → 上流の雲量で自己影
+                float lightDens = 0.0;
+                [unroll] for (int l = 1; l <= 3; ++l)
+                    lightDens += CloudDensity3(p + sundn * (0.12 * float(l)), coverage, windOff);
+                float lightT = exp(-lightDens * 0.9);
+                float3 lit   = lerp(shadowCol, litCol, lightT);
+                lit += sun_color.xyz * pow(sun_d, 8.0) * (1.0 - lightT) * 0.5;   // silver lining
+                float a = 1.0 - exp(-dens * dt * 3.5);    // この区間の不透明度
+                scatter  += transmit * a * lit;           // front-to-back 合成
+                transmit *= (1.0 - a);
+                if (transmit < 0.02) break;
+            }
+        }
+        float hFade = smoothstep(0.02, 0.10, dir.y);      // 地平線で雲を消す
+        float cloudA = (1.0 - transmit) * hFade;
+        sky = sky * (1.0 - cloudA) + scatter * hFade;     // 空の上に雲を合成
     }
 
     // 5) Dither: 8-bit 出力時のグラデ縞を消す (HDR 出力時は ±1/255 で実質無影響)。
