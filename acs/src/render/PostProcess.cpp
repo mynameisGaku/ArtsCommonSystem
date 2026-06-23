@@ -119,17 +119,23 @@ struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 float4 PSMain(VSOut v) : SV_TARGET {
     float r = params0.z;
     float2 t = float2(params1.y, params1.z) * r;
-    // 9-tap tent filter
-    float3 sum = float3(0, 0, 0);
-    sum += src.Sample(src_sampler, v.uv + float2(-1,-1) * t).rgb * (1.0/16.0);
-    sum += src.Sample(src_sampler, v.uv + float2( 0,-1) * t).rgb * (2.0/16.0);
-    sum += src.Sample(src_sampler, v.uv + float2( 1,-1) * t).rgb * (1.0/16.0);
-    sum += src.Sample(src_sampler, v.uv + float2(-1, 0) * t).rgb * (2.0/16.0);
-    sum += src.Sample(src_sampler, v.uv + float2( 0, 0) * t).rgb * (4.0/16.0);
-    sum += src.Sample(src_sampler, v.uv + float2( 1, 0) * t).rgb * (2.0/16.0);
-    sum += src.Sample(src_sampler, v.uv + float2(-1, 1) * t).rgb * (1.0/16.0);
-    sum += src.Sample(src_sampler, v.uv + float2( 0, 1) * t).rgb * (2.0/16.0);
-    sum += src.Sample(src_sampler, v.uv + float2( 1, 1) * t).rgb * (1.0/16.0);
+    // 円形カーネル (中心 + 2 リング、計 13 tap)。軸整列の tent/box だと明るい点光源 (太陽) の
+    // ブルームが «四角» に広がるため、円周上に散らして «丸い» ブルームにする。
+    float3 sum = src.Sample(src_sampler, v.uv).rgb * 0.20;
+    // 内リング (半径 1)、6 方向、各 0.085
+    sum += src.Sample(src_sampler, v.uv + float2( 1.000,  0.000) * t).rgb * 0.085;
+    sum += src.Sample(src_sampler, v.uv + float2( 0.500,  0.866) * t).rgb * 0.085;
+    sum += src.Sample(src_sampler, v.uv + float2(-0.500,  0.866) * t).rgb * 0.085;
+    sum += src.Sample(src_sampler, v.uv + float2(-1.000,  0.000) * t).rgb * 0.085;
+    sum += src.Sample(src_sampler, v.uv + float2(-0.500, -0.866) * t).rgb * 0.085;
+    sum += src.Sample(src_sampler, v.uv + float2( 0.500, -0.866) * t).rgb * 0.085;
+    // 外リング (半径 2、30°オフセット)、6 方向、各 0.0483
+    sum += src.Sample(src_sampler, v.uv + float2( 1.732,  1.000) * t).rgb * 0.0483;
+    sum += src.Sample(src_sampler, v.uv + float2( 0.000,  2.000) * t).rgb * 0.0483;
+    sum += src.Sample(src_sampler, v.uv + float2(-1.732,  1.000) * t).rgb * 0.0483;
+    sum += src.Sample(src_sampler, v.uv + float2(-1.732, -1.000) * t).rgb * 0.0483;
+    sum += src.Sample(src_sampler, v.uv + float2( 0.000, -2.000) * t).rgb * 0.0483;
+    sum += src.Sample(src_sampler, v.uv + float2( 1.732, -1.000) * t).rgb * 0.0483;
     return float4(sum, 1.0);
 }
 )";

@@ -271,7 +271,7 @@ private:
      * 届き、UE5 風の広く柔らかい bloom になる。段数増による強度 lift は progressive upsample radius
      * (深い mip ほど tent を広げる) と bloom_intensity 側で吸収する。各 mip は 1px までクランプ確保。
      */
-    static constexpr u32 kBloomMips = 7;
+    static constexpr u32 kBloomMips = 5;   // 7 だと最下層が粗すぎ明点 (太陽) が 1 texel の «四角» に。5 で多 texel 維持 → 丸い
 
     /**
      * HDR RT と Bloom mip chain を生成する。
