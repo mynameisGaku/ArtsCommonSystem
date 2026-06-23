@@ -52,6 +52,8 @@ const FSettingDesc kSchema[] = {
       "3D 被写界深度の合焦幅 (この距離差で最大ぼけ)。小さいほど浅い被写界深度" },
     { "Rendering", "DofMax",        ESettingType::Float, "0.010",          nullptr,
       "3D 被写界深度の最大ぼけ半径 (画面 UV 単位)。大きいほど強いぼけ" },
+    { "Rendering", "GodRays",       ESettingType::Float, "0",              nullptr,
+      "3D god rays (光芒/crepuscular rays)。0=オフ / >0 で太陽から放射状の光の筋を加算 (0.3〜0.8 が自然)" },
     { "Rendering", "SunAzimuth",    ESettingType::Float, "-41",            nullptr,
       "3D 太陽 (主光源) の方位角 (度)。影/陰影/空の太陽方向を一括で回す" },
     { "Rendering", "SunElevation",  ESettingType::Float, "58",             nullptr,

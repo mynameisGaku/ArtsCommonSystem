@@ -377,6 +377,12 @@ struct EditorHost {
     TUniquePtr<IRhiShader>   dof_vs, dof_ps;
     TUniquePtr<IRhiBuffer>   dof_cb;
     bool                     dof_ready = false;
+    // god rays (光芒): 太陽スクリーン位置から bright pass を放射状 march して光の筋を加算。scene 複製は refr_bg 共用。
+    bool                     q_godray_on = false; f32 q_godray_intensity = 0.5f; f32 q_godray_decay = 0.96f;
+    TUniquePtr<IRhiPipeline> gray_pipe;
+    TUniquePtr<IRhiShader>   gray_vs, gray_ps;
+    TUniquePtr<IRhiBuffer>   gray_cb;
+    bool                     gray_ready = false;
     FMat4                    prev_vp = FMat4::Identity();  // 前フレーム view_proj (SSR/SSGI temporal reproject 共用、jitter 込み)
     FMat4                    prev_vp_nojit = FMat4::Identity();  // 前フレーム view_proj (jitter 無し、TAA history reproject 用)
     u32                      taa_frame = 0;                // TAA Halton ジッタ列のフレームインデックス
@@ -2337,6 +2343,41 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
+// god rays (光芒/crepuscular rays): 太陽スクリーン位置へ向かって bright pass を放射状に march し、
+// 減衰しながら蓄積した光の筋を scene へ加算 (Mitchell GPU Gems 3 風)。geometry が暗い=遮蔽で筋ができる。
+const char* kGodRays3DHLSL = R"(
+Texture2D    sceneTex         : register(t0);
+SamplerState sceneTex_sampler : register(s0);
+cbuffer GRCB : register(b0) {
+    float4 grp;    // xy=sun_uv, z=intensity, w=decay
+    float4 grp2;   // x=density(全体の歩幅), y=weight(1タップ重み), z=bright threshold
+};
+struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+VSOut VSMain(uint id : SV_VertexID) {
+    float2 uv = float2((id << 1) & 2, id & 2);
+    VSOut o; o.uv = uv;
+    o.pos = float4(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), 0.0, 1.0);
+    return o;
+}
+float4 PSMain(VSOut v) : SV_TARGET {
+    float3 scene = sceneTex.Sample(sceneTex_sampler, v.uv).rgb;
+    const int N = 48;
+    float2 delta = (v.uv - grp.xy) * (grp2.x / float(N));   // 太陽へ向かう 1 ステップ
+    float2 uv = v.uv;
+    float  illum = 1.0;
+    float3 shaft = float3(0, 0, 0);
+    [loop] for (int i = 0; i < N; ++i) {
+        uv -= delta;
+        float3 s   = sceneTex.Sample(sceneTex_sampler, uv).rgb;
+        float  lum = dot(s, float3(0.299, 0.587, 0.114));
+        float  bright = max(lum - grp2.z, 0.0);             // bright pass (明るい空/太陽のみ寄与)
+        shaft += s * bright * illum * grp2.y;
+        illum *= grp.w;                                     // 距離減衰
+    }
+    return float4(scene + shaft * grp.z, 1.0);
+}
+)";
+
 // スカイボックス: フルスクリーン三角形でカメラレイ方向から天空グラデーションを描く。
 // 頂点バッファ不要 (SV_VertexID)。深度オフ・最背面 (メッシュが上に描かれる)。
 const char* kSky3DHLSL = R"(
@@ -2592,6 +2633,37 @@ bool Ensure3D(EditorHost& h) noexcept {
             }
         }
         if (!h.dof_ready) ACS_LOG_WARN("[3D] DoF パイプライン生成失敗 (被写界深度無効)");
+    }
+
+    // god rays (光芒): scene 複製 (t0) を太陽へ放射状 march。
+    {
+        FShaderDesc gvs{}; gvs.stage = EShaderStage::Vertex; gvs.hlsl_source = kGodRays3DHLSL; gvs.entry_point = "VSMain"; gvs.debug_name = "GodRays.VS";
+        FShaderDesc gps{}; gps.stage = EShaderStage::Pixel;  gps.hlsl_source = kGodRays3DHLSL; gps.entry_point = "PSMain"; gps.debug_name = "GodRays.PS";
+        auto gvr = CreateRhiShader(*dev, gvs); auto gpr = CreateRhiShader(*dev, gps);
+        if (gvr.IsOk() && gpr.IsOk()) {
+            h.gray_vs = Move(gvr.Value()); h.gray_ps = Move(gpr.Value());
+            FPipelineDesc gp{};
+            gp.vs = h.gray_vs.Get(); gp.ps = h.gray_ps.Get();
+            gp.topology     = EPrimitiveTopology::TriangleList;
+            gp.rt_format    = hdrf; gp.depth_format = EFormat::Unknown;
+            gp.depth_test   = false; gp.depth_write = false;
+            gp.cull_mode    = ECullMode::None; gp.blend_mode = EBlendMode::Opaque;
+            gp.texture_slots = 1;
+            gp.cbuffer_slots = 1; gp.cbuffer_names[0] = "GRCB";
+            gp.static_sampler_count = 1;
+            gp.static_samplers[0].filter    = ESamplerFilter::Linear;
+            gp.static_samplers[0].address_u = ESamplerAddress::Clamp;
+            gp.static_samplers[0].address_v = ESamplerAddress::Clamp;
+            gp.static_samplers[0].address_w = ESamplerAddress::Clamp;
+            auto gplr = CreateRhiPipeline(*dev, gp);
+            if (gplr.IsOk()) {
+                h.gray_pipe = Move(gplr.Value());
+                FBufferDesc gcb{}; gcb.size = 256; gcb.usage = EBufferUsage::Uniform; gcb.cpu_writable = true;
+                auto gcr = CreateRhiBuffer(*dev, gcb); if (gcr.IsOk()) h.gray_cb = Move(gcr.Value());
+                h.gray_ready = (h.gray_pipe.Get() != nullptr && h.gray_cb.Get() != nullptr);
+            }
+        }
+        if (!h.gray_ready) ACS_LOG_WARN("[3D] god rays パイプライン生成失敗");
     }
 
     // オーバーレイ用 (同シェーダ・depth off): ギズモを常に手前に出す。
@@ -3744,6 +3816,44 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
             }
         }
 
+        // --- god rays (光芒): 太陽スクリーン位置から bright pass を放射状 march して光の筋を加算 ---
+        //     太陽がカメラ前方にあるときのみ。scene を refr_bg へ blit → load 再オープン → 放射状ブラー加算。
+        if (h.q_godray_on && h.gray_ready && h.blit_ready) {
+            const FVec3 sunPt{ eye.x + h.sun_dir.x * 1000.0f, eye.y + h.sun_dir.y * 1000.0f, eye.z + h.sun_dir.z * 1000.0f };
+            const FVec4 sc = Transform(FVec4{ sunPt.x, sunPt.y, sunPt.z, 1.0f }, vp_nojit);
+            IRhiDevice* gdev = h.renderer.Device();
+            if (sc.w > 1e-3f && gdev != nullptr) {     // 太陽がカメラ前方
+                const f32 su = 0.5f + 0.5f * (sc.x / sc.w);
+                const f32 sv = 0.5f - 0.5f * (sc.y / sc.w);
+                if (h.refr_bg_w != scW || h.refr_bg_h != scH) {   // scene 複製 (refr_bg) 共用・遅延確保
+                    FTextureDesc bd{}; bd.width = scW; bd.height = scH; bd.format = EFormat::R16G16B16A16_Float; bd.is_render_target = true;
+                    auto btr = CreateRhiTexture(*gdev, bd);
+                    if (btr.IsOk()) { h.refr_bg = Move(btr.Value()); h.refr_bg_w = scW; h.refr_bg_h = scH; } else { h.refr_bg_w = 0; }
+                }
+                if (h.refr_bg) {
+                    const ClearColor bc{ 0.0f, 0.0f, 0.0f, 1.0f };   // 1. 現 HDR → refr_bg へ複製
+                    cl->BeginRenderToTexture(*h.refr_bg, bc, nullptr, 1.0f);
+                    { FViewport bvp{}; bvp.width = static_cast<f32>(scW); bvp.height = static_cast<f32>(scH); cl->SetViewport(bvp);
+                      FScissorRect bsr{}; bsr.right = static_cast<i32>(scW); bsr.bottom = static_cast<i32>(scH); cl->SetScissor(bsr); }
+                    cl->SetPipeline(*h.blit_pipe); cl->SetTexture(0, *hdrRt); cl->Draw(3, 0);
+                    cl->EndRenderToTexture(*h.refr_bg);
+                    // 2. hdrRt を load 再オープン → 放射状ブラーで光の筋を加算
+                    struct GrCB { FVec4 grp; FVec4 grp2; } gcb{};
+                    gcb.grp  = FVec4{ su, sv, h.q_godray_intensity, h.q_godray_decay };
+                    gcb.grp2 = FVec4{ 1.0f, 0.30f, 0.55f, 0.0f };   // density, weight, bright threshold
+                    h.gray_cb->Update(&gcb, sizeof(gcb));
+                    cl->BeginRenderToTextureLoad(*hdrRt, nullptr);
+                    { FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
+                      FScissorRect rsr{}; rsr.right = static_cast<i32>(scW); rsr.bottom = static_cast<i32>(scH); cl->SetScissor(rsr); }
+                    cl->SetPipeline(*h.gray_pipe);
+                    cl->SetConstantBuffer(0, *h.gray_cb);
+                    cl->SetTexture(0, *h.refr_bg);
+                    cl->Draw(3, 0);
+                    cl->EndRenderToTexture(*hdrRt);
+                }
+            }
+        }
+
         // --- 被写界深度 (DoF): depth から CoC を出して焦点外をディスクぼかし (屈折の後＝ガラスも DoF に乗る) ---
         //     opaque+glass の HDR を refr_bg へ blit → hdrRt を load 再オープン (depth は DSV にせず SRV で sample) →
         //     DoF シェーダで焦点距離に応じてぼかす。
@@ -4124,6 +4234,11 @@ ACS_EDITOR_API int acs_editor_quality_dof_x100(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     return (host != nullptr && host->q_dof_on) ? static_cast<int>(host->q_dof_focus * 100.0f + 0.5f) : 0;
 }
+/** god rays (光芒) の強度 ×100 (0=オフ)。設定反映の確認用。 */
+ACS_EDITOR_API int acs_editor_quality_godray_x100(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr && host->q_godray_on) ? static_cast<int>(host->q_godray_intensity * 100.0f + 0.5f) : 0;
+}
 /** 太陽 (主光源) 方向 «光へ向かう» 単位ベクトルを out3 (x,y,z) へ。設定反映の確認用。 */
 ACS_EDITOR_API void acs_editor_sun_direction(void* handle, float* out3) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -4183,6 +4298,8 @@ static void ApplySettings(EditorHost& h) noexcept {
     const i32 sm = h.settings.GetInt("Rendering", "SkyMode", 0);
     const i32 smc = (sm == 1) ? 1 : 0;
     if (smc != h.q_sky_mode) { h.q_sky_mode = smc; h.ibl_dirty = true; h.ibl_tried = false; }   // モード変更 → env 再焼成
+    const f32 gray = h.settings.GetFloat("Rendering", "GodRays", 0.0f);
+    h.q_godray_on = (gray > 0.0f); if (h.q_godray_on) h.q_godray_intensity = gray;   // 0=オフ / >0=光芒の強度
     const f32 dofF = h.settings.GetFloat("Rendering", "DofFocus", 0.0f);
     h.q_dof_on = (dofF > 0.0f);                    // 0=オフ / >0=焦点距離 (カメラからの view-space z)
     if (h.q_dof_on) {
@@ -4360,6 +4477,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->blit_pipe.Reset(); host->blit_vs.Reset(); host->blit_ps.Reset(); host->blit_ready = false;
     host->refr_bg.Reset(); host->refr_bg_w = 0; host->refr_bg_h = 0;
     host->dof_pipe.Reset(); host->dof_vs.Reset(); host->dof_ps.Reset(); host->dof_cb.Reset(); host->dof_ready = false;
+    host->gray_pipe.Reset(); host->gray_vs.Reset(); host->gray_ps.Reset(); host->gray_cb.Reset(); host->gray_ready = false;
     host->ibl3d.Shutdown(); host->ibl_ready = false; host->ibl_tried = false; host->ibl_dirty = true;
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
     host->sprite_textures.Clear();

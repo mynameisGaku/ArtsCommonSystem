@@ -34,6 +34,7 @@ public static class E {
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_fog_x1000(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_sky_mode(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_dof_x100(IntPtr h);
+    [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_godray_x100(IntPtr h);
 }
 "@
 Add-Type -TypeDefinition $src
@@ -186,6 +187,11 @@ Write-Host "`n[Depth of field]"
 Check "default DoF off" ([E]::acs_editor_quality_dof_x100($h) -eq 0)
 Check "DofFocus=9 -> 900" (([E]::acs_editor_settings_set($h,"Rendering","DofFocus","9") -eq 1) -and ([E]::acs_editor_quality_dof_x100($h) -eq 900))
 Check "DofFocus=0 -> off" (([E]::acs_editor_settings_set($h,"Rendering","DofFocus","0") -eq 1) -and ([E]::acs_editor_quality_dof_x100($h) -eq 0))
+
+Write-Host "`n[God rays (light shafts)]"
+Check "default god rays off" ([E]::acs_editor_quality_godray_x100($h) -eq 0)
+Check "GodRays=0.8 -> 80" (([E]::acs_editor_settings_set($h,"Rendering","GodRays","0.8") -eq 1) -and ([E]::acs_editor_quality_godray_x100($h) -eq 80))
+Check "GodRays=0 -> off" (([E]::acs_editor_settings_set($h,"Rendering","GodRays","0") -eq 1) -and ([E]::acs_editor_quality_godray_x100($h) -eq 0))
 
 [E]::acs_editor_destroy($h)
 Write-Host "`n==== $pass passed, $fail failed ===="
