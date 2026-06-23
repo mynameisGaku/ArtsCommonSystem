@@ -2335,19 +2335,35 @@ VSOut VSMain(uint id : SV_VertexID) {
     o.pos = float4(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), 0.0, 1.0);
     return o;
 }
+float Linearize(float ndc, float nearZ, float farZ) {
+    return (nearZ * farZ) / max(farZ - ndc * (farZ - nearZ), 1e-4);   // LH [0,1] depth → view z
+}
+float CoCAt(float2 uv, float nearZ, float farZ) {
+    float ndc = depthTex.Sample(depthTex_sampler, uv).r;
+    float viewZ = Linearize(ndc, nearZ, farZ);
+    return saturate(abs(viewZ - dofp.x) / max(dofp.y, 1e-3));         // 0=焦点 .. 1=最大ぼけ
+}
 float4 PSMain(VSOut v) : SV_TARGET {
-    float ndc  = depthTex.Sample(depthTex_sampler, v.uv).r;
     float nearZ = dofp.w, farZ = dofp2.x;
-    float viewZ = (nearZ * farZ) / max(farZ - ndc * (farZ - nearZ), 1e-4);   // LH [0,1] depth → view z
-    float coc   = saturate(abs(viewZ - dofp.x) / max(dofp.y, 1e-3));         // 0=焦点 .. 1=最大ぼけ
-    float radius = coc * dofp.z;
-    float3 col = sceneTex.Sample(sceneTex_sampler, v.uv).rgb; float wsum = 1.0;
-    [unroll] for (int i = 0; i < 16; ++i) {
-        float ang = (float(i) / 16.0) * 6.28318530;
-        float2 off = float2(cos(ang), sin(ang)) * radius;
-        col += sceneTex.Sample(sceneTex_sampler, v.uv + off).rgb; wsum += 1.0;
+    float centerCoC = CoCAt(v.uv, nearZ, farZ);
+    float radius = centerCoC * dofp.z;
+    float3 center = sceneTex.Sample(sceneTex_sampler, v.uv).rgb;
+    if (radius < 0.0006) return float4(center, 1.0);                  // ほぼ合焦 → ボケ無しで return
+    // Vogel ディスク (golden-angle スパイラル) で «円板全体» を均一密度サンプル。
+    // 単一リングだと輪っか状ボケになるが、これは中まで埋まった滑らかな bokeh になる。
+    // 各サンプルを «自身の CoC» で重み付け → ピント面の前景が背景ボケへ滲むのを抑制。
+    const int N = 24;
+    const float GA = 2.39996323;     // golden angle (rad)
+    float3 sum = center; float wsum = 1.0;
+    [unroll] for (int i = 0; i < N; ++i) {
+        float r = sqrt((float(i) + 0.5) / float(N)) * radius;        // sqrt → 円板の面積均一分布
+        float a = float(i) * GA;
+        float2 off = float2(cos(a), sin(a)) * r;
+        float3 s = sceneTex.Sample(sceneTex_sampler, v.uv + off).rgb;
+        float w  = CoCAt(v.uv + off, nearZ, farZ);                   // ボケてるサンプルほど寄与大
+        sum += s * w; wsum += w;
     }
-    return float4(col / wsum, 1.0);
+    return float4(sum / wsum, 1.0);
 }
 )";
 
