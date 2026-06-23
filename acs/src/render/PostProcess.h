@@ -271,7 +271,7 @@ private:
      * 届き、UE5 風の広く柔らかい bloom になる。段数増による強度 lift は progressive upsample radius
      * (深い mip ほど tent を広げる) と bloom_intensity 側で吸収する。各 mip は 1px までクランプ確保。
      */
-    static constexpr u32 kBloomMips = 5;   // 7 だと最下層が粗すぎ明点 (太陽) が 1 texel の «四角» に。5 で多 texel 維持 → 丸い
+    static constexpr u32 kBloomMips = 7;   // progressive accumulation (no-clear upsample) が効けば多段ほど広く滑らか
 
     /**
      * HDR RT と Bloom mip chain を生成する。
@@ -315,6 +315,18 @@ private:
      * @param radius upsample 時の半径スケール。
      */
     void Pass_Upsample (IRhiCommandList& cmd, u32 to_mip, f32 radius) noexcept;
+
+    /**
+     * Bloom separable Gaussian blur: 1 つの mip を H or V 方向に 1 次元ガウスぼかしする。
+     * H パス (mip→tmp) と V パス (tmp→mip) を続けて呼ぶと «円形» の 2D ガウスになる。
+     * box mip チェーンと違い点光源が四角くならない (DirectXTK 風)。
+     *
+     * @param cmd コマンドリスト。
+     * @param mip 対象 mip 段 (m_BloomMips[mip] ↔ m_BloomTmp[mip])。
+     * @param horizontal true=水平パス (mip→tmp)、false=垂直パス (tmp→mip)。
+     * @param amount ガウスの広がり (texel 単位の step スケール)。
+     */
+    void Pass_GaussianBlur(IRhiCommandList& cmd, u32 mip, bool horizontal, f32 amount) noexcept;
 
     /**
      * TAA resolve パス: 現フレームと history を neighborhood-clamp blend する。
@@ -386,6 +398,9 @@ private:
     /** Bloom mip chain (各段は HDR、解像度は半分ずつ)。 */
     TUniquePtr<IRhiTexture> m_BloomMips[kBloomMips];
 
+    /** Bloom separable Gaussian の ping-pong 用テンポラリ (各 mip と同サイズ)。 */
+    TUniquePtr<IRhiTexture> m_BloomTmp[kBloomMips];
+
     /** 共通の全画面三角形 VS。 */
     TUniquePtr<IRhiShader>   m_VsFullscreen;
 
@@ -398,6 +413,9 @@ private:
     /** Bloom upsample パスのピクセルシェーダ。 */
     TUniquePtr<IRhiShader>   m_PsUpsample;
 
+    /** Bloom separable Gaussian blur パスのピクセルシェーダ (DirectXTK 風、H/V 2 パスで円形)。 */
+    TUniquePtr<IRhiShader>   m_PsGaussian;
+
     /** Tonemap パスのピクセルシェーダ。 */
     TUniquePtr<IRhiShader>   m_PsTonemap;
 
@@ -409,6 +427,9 @@ private:
 
     /** Bloom upsample パイプライン (bloom_mips[i+1] + bloom_mips[i] → bloom_mips[i])。 */
     TUniquePtr<IRhiPipeline> m_PipeUpsample;
+
+    /** Bloom Gaussian blur パイプライン (separable、Opaque)。 */
+    TUniquePtr<IRhiPipeline> m_PipeGaussian;
 
     /** Tonemap パイプライン (HDR + bloom_mips[0] → backbuffer)。 */
     TUniquePtr<IRhiPipeline> m_PipeTonemap;

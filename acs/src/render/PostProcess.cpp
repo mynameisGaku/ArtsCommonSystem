@@ -140,6 +140,42 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
+// Separable Gaussian blur (DirectXTK 風): 1 次元 13-tap ガウス。H パス + V パスで «円形» の
+// 2D ガウスになる。box mip と違い点光源 (発光体/太陽) が «四角» にならない。
+// オフセット方向は params1.yz (H=(texel_w,0)/V=(0,texel_h))、広がりは params0.z。
+const char* kGaussianBlurPS = R"(
+cbuffer Post : register(b0) {
+    float4 params0;   // z = blur amount (texel step スケール)
+    float4 params1;   // y,z = directional texel offset (H or V)
+    float4 params2; float4 params3;
+    float4 cg0; float4 cg_lift; float4 cg_gain; float4 cas_params; float4 taa_params;
+};
+Texture2D    src : register(t0);
+SamplerState src_sampler : register(s0);
+struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+float4 PSMain(VSOut v) : SV_TARGET {
+    float2 step = float2(params1.y, params1.z) * max(params0.z, 0.01);
+    // sigma~3 の正規化 13-tap ガウス重み (中心 + 6 対)
+    const float w0 = 0.137000;
+    const float w1 = 0.130000, w2 = 0.110000, w3 = 0.083000;
+    const float w4 = 0.056000, w5 = 0.034000, w6 = 0.018500;
+    float3 c = src.Sample(src_sampler, v.uv).rgb * w0;
+    c += src.Sample(src_sampler, v.uv + step * 1.0).rgb * w1;
+    c += src.Sample(src_sampler, v.uv - step * 1.0).rgb * w1;
+    c += src.Sample(src_sampler, v.uv + step * 2.0).rgb * w2;
+    c += src.Sample(src_sampler, v.uv - step * 2.0).rgb * w2;
+    c += src.Sample(src_sampler, v.uv + step * 3.0).rgb * w3;
+    c += src.Sample(src_sampler, v.uv - step * 3.0).rgb * w3;
+    c += src.Sample(src_sampler, v.uv + step * 4.0).rgb * w4;
+    c += src.Sample(src_sampler, v.uv - step * 4.0).rgb * w4;
+    c += src.Sample(src_sampler, v.uv + step * 5.0).rgb * w5;
+    c += src.Sample(src_sampler, v.uv - step * 5.0).rgb * w5;
+    c += src.Sample(src_sampler, v.uv + step * 6.0).rgb * w6;
+    c += src.Sample(src_sampler, v.uv - step * 6.0).rgb * w6;
+    return float4(c, 1.0);
+}
+)";
+
 // TAA resolve: current HDR + history HDR + depth →
 // reprojected & neighborhood-clamped blend。
 //
@@ -633,6 +669,7 @@ void FPostProcess::Shutdown() noexcept {
     m_PipeLumaExtract.Reset();
     m_PipeTonemap.Reset();
     m_PipeTaaResolve.Reset();
+    m_PipeGaussian.Reset();
     m_PipeUpsample.Reset();
     m_PipeDownsample.Reset();
     m_PipeExtract.Reset();
@@ -642,6 +679,7 @@ void FPostProcess::Shutdown() noexcept {
     m_PsLumaExtract.Reset();
     m_PsTonemap.Reset();
     m_PsTaaResolve.Reset();
+    m_PsGaussian.Reset();
     m_PsUpsample.Reset();
     m_PsDownsample.Reset();
     m_PsExtract.Reset();
@@ -652,6 +690,7 @@ void FPostProcess::Shutdown() noexcept {
     m_LumaMipCount = 0;
     for (auto& t : m_Taa) t.Reset();
     for (auto& m : m_BloomMips) m.Reset();
+    for (auto& m : m_BloomTmp)  m.Reset();
     m_HdrRt.Reset();
     m_TaaFrame  = 0;
     m_AutoFrame = 0;
@@ -663,6 +702,7 @@ TResult<void> FPostProcess::Resize(u32 width, u32 height) noexcept {
     if (width == m_Width && height == m_Height) return Ok();
     m_HdrRt.Reset();
     for (auto& m : m_BloomMips) m.Reset();
+    for (auto& m : m_BloomTmp)  m.Reset();
     for (auto& t : m_Taa) t.Reset();
     for (auto& m : m_LumaMips) m.Reset();
     for (auto& e : m_Exposure)  e.Reset();
@@ -699,6 +739,9 @@ TResult<void> FPostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h
         auto br = CreateRhiTexture(device, bd);
         if (br.IsErr()) return Err<void>(br.Error());
         m_BloomMips[i] = Move(br.Value());
+        auto btr = CreateRhiTexture(device, bd);                 // separable Gaussian の ping-pong 用 (同サイズ)
+        if (btr.IsErr()) return Err<void>(btr.Error());
+        m_BloomTmp[i] = Move(btr.Value());
     }
 
     // TAA history ping-pong RT: HDR と同サイズ + 同フォーマット
@@ -789,6 +832,7 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     if (auto r = compile_ps(kExtractPS,     "Bloom.Extract",    m_PsExtract);     r.IsErr()) return r;
     if (auto r = compile_ps(kDownsamplePS,  "Bloom.Downsample", m_PsDownsample);  r.IsErr()) return r;
     if (auto r = compile_ps(kUpsamplePS,    "Bloom.Upsample",   m_PsUpsample);    r.IsErr()) return r;
+    if (auto r = compile_ps(kGaussianBlurPS,"Bloom.Gaussian",   m_PsGaussian);    r.IsErr()) return r;
     if (auto r = compile_ps(kTaaResolvePS,  "Taa.Resolve",      m_PsTaaResolve); r.IsErr()) return r;
     if (auto r = compile_ps(kTonemapPS,     "Tonemap",          m_PsTonemap);     r.IsErr()) return r;
     if (auto r = compile_ps(kLumaExtractPS,    "Luma.Extract",   m_PsLumaExtract); r.IsErr()) return r;
@@ -854,6 +898,25 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         auto r = CreateRhiPipeline(device, pd);
         if (r.IsErr()) return Err<void>(r.Error());
         m_PipeUpsample = Move(r.Value());
+    }
+    // Gaussian blur: separable (H/V)、Opaque (置換)。各 mip を円形にぼかす。
+    {
+        FPipelineDesc pd{};
+        FillFullscreenLayout(pd);
+        pd.vs = m_VsFullscreen.Get();
+        pd.ps = m_PsGaussian.Get();
+        pd.rt_format = m_HdrFormat;
+        pd.cbuffer_slots = 1;
+        pd.texture_slots = 1;
+        pd.cbuffer_names[0] = "Post";
+        pd.texture_names[0] = "src";
+        pd.static_sampler_count = 1;
+        pd.static_samplers[0].filter    = ESamplerFilter::Linear;
+        pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+        pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
+        auto r = CreateRhiPipeline(device, pd);
+        if (r.IsErr()) return Err<void>(r.Error());
+        m_PipeGaussian = Move(r.Value());
     }
     // TAA Resolve: current HDR + history HDR + scene_depth → resolved HDR (新 RT)、Opaque
     {
@@ -1019,9 +1082,17 @@ void FPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 bu
         // 1) Extract: HDR (もしくは TAA resolved) → mip[0]
         Pass_Extract(cmd, params);
 
-        // 2) Downsample: mip[i] → mip[i+1]
+        // 2) Downsample: mip[i] → mip[i+1] (スケール生成用。box で可、後段ガウスが整形)
         for (u32 i = 0; i + 1 < kBloomMips; ++i) {
             Pass_Downsample(cmd, i);
+        }
+
+        // 2.5) 各 mip を separable Gaussian (H→V) で «円形» にぼかす (DirectXTK 風)。
+        //      これが核心: box mip だと点光源が四角く残るが、ガウスは点を必ず丸い分布に広げる。
+        //      mip ごとに同じ texel 半径 → 低 mip ほど広い実効ガウス → 多スケールで «広く丸い» bloom。
+        for (u32 i = 0; i < kBloomMips; ++i) {
+            Pass_GaussianBlur(cmd, i, true,  1.0f);    // 水平
+            Pass_GaussianBlur(cmd, i, false, 1.0f);    // 垂直
         }
 
         // 3) Upsample (additive): mip[i+1] → mip[i] に上書き加算。
@@ -1112,11 +1183,35 @@ void FPostProcess::Pass_Upsample(IRhiCommandList& cmd, u32 to_mip, f32 radius) n
     p.bloom_radius = radius;
     UpdatePostCB(m_CbPost.Get(), p, 1.0f / src->Width(), 1.0f / src->Height());
 
-    // additive blend、clear はせず既存内容に加算
+    // additive blend、clear «せず» 既存 (downsample された mip[to_mip]) に加算 → 真の progressive
+    // accumulation。★以前は BeginRenderToTexture で黒クリアしていたため downsample 内容が毎回消え、
+    // «最下層 mip (点光源=四角) だけ» が上へ伝播して四角いブルームになっていた (根本バグ)。
+    // BeginRenderToTextureLoad で既存内容を保持 → 全スケールが混ざり丸く滑らかに。
     cmd.SetPipeline(*m_PipeUpsample);
     cmd.SetConstantBuffer(0, *m_CbPost);
     cmd.SetTexture(0, *src);
+    cmd.BeginRenderToTextureLoad(*dst, nullptr);
+    cmd.Draw(3, 0);
+    cmd.EndRenderToTexture(*dst);
+}
+
+void FPostProcess::Pass_GaussianBlur(IRhiCommandList& cmd, u32 mip, bool horizontal, f32 amount) noexcept {
+    auto* tex = m_BloomMips[mip].Get();
+    auto* tmp = m_BloomTmp[mip].Get();
+    if (!tex || !tmp) return;
+    IRhiTexture* src = horizontal ? tex : tmp;   // H: mip→tmp、V: tmp→mip
+    IRhiTexture* dst = horizontal ? tmp : tex;
+    PostProcessParams p{};
+    p.bloom_radius = amount;                     // → params0.z (step スケール)
+    // 方向: H=(texel_w,0)、V=(0,texel_h) を params1.yz へ
+    const f32 tw = 1.0f / static_cast<f32>(tex->Width());
+    const f32 th = 1.0f / static_cast<f32>(tex->Height());
+    UpdatePostCB(m_CbPost.Get(), p, horizontal ? tw : 0.0f, horizontal ? 0.0f : th);
+
     cmd.BeginRenderToTexture(*dst, ClearColor{0,0,0,1}, nullptr, 1.0f);
+    cmd.SetPipeline(*m_PipeGaussian);
+    cmd.SetConstantBuffer(0, *m_CbPost);
+    cmd.SetTexture(0, *src);
     cmd.Draw(3, 0);
     cmd.EndRenderToTexture(*dst);
 }
