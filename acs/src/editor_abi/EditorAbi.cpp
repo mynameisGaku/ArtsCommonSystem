@@ -352,7 +352,9 @@ struct EditorHost {
     acs::FSsgi               ssgi3d;                   // エンジン SSGI (1 バウンス間接光)。出力は FPbrShader.SetSsgi で ambient に加算
     bool                     ssgi_ready = false;
     bool                     ssgi_computed = false;    // 今フレーム SSGI を焼いたか (次フレームの SetSsgi 用)
-    FMat4                    prev_vp = FMat4::Identity();  // 前フレーム view_proj (SSR/SSGI temporal reproject 共用)
+    FMat4                    prev_vp = FMat4::Identity();  // 前フレーム view_proj (SSR/SSGI temporal reproject 共用、jitter 込み)
+    FMat4                    prev_vp_nojit = FMat4::Identity();  // 前フレーム view_proj (jitter 無し、TAA history reproject 用)
+    u32                      taa_frame = 0;                // TAA Halton ジッタ列のフレームインデックス
     // IBL (鏡面+拡散 環境光)。FSky を env cubemap 化 → irradiance/prefilter/BRDF-LUT → FPbrShader.SetIbl。
     acs::ImageBasedLighting  ibl3d;                    // Diligent backend 専用 (raw-DX12 は失敗 → SH9 フォールバック)
     bool                     ibl_ready = false;        // 全 cubemap 生成済み (true なら SetIbl、false なら SH9)
@@ -2338,6 +2340,19 @@ struct GridCB { FMat4 view_proj; FVec4 gctr; };
  *  Sh9Irradiance が内部でコサイン畳み込みするので «放射輝度» を渡す。irradiance≈π×平均輝度に
  *  なるため入力放射輝度は控えめ。係数順序 [0]Y00 [1]y [2]z [3]x [4]xy [5]yz [6]Y20 [7]xz [8]x²-y²
  *  はシェーダの Sh9Irradiance に一致させる。 */
+// TAA 用 Halton(2,3) low-discrepancy ジッタ列 (16 サンプル)。各成分 [0,1) を返す。
+inline float HaltonSeq(u32 i, u32 base) noexcept {
+    float f = 1.0f, r = 0.0f;
+    while (i > 0) { f /= static_cast<float>(base); r += f * static_cast<float>(i % base); i /= base; }
+    return r;
+}
+// view_proj (DirectXMath 行ベクトル規約: clip = world · VP) に «サブピクセル NDC ジッタ» を加える。
+// clip.x += jx*clip.w となるよう column0 に jx*column3 を、column1 に jy*column3 を足す。
+inline FMat4 ApplyTaaJitter(FMat4 vp, float jx, float jy) noexcept {
+    for (int k = 0; k < 4; ++k) { vp.m[k][0] += jx * vp.m[k][3]; vp.m[k][1] += jy * vp.m[k][3]; }
+    return vp;
+}
+
 // SH9 環境光の強さ。実際の空色 (FSky と同じ・従来のダミー色より明るい) を使うので控えめに絞り、
 // «暖色の直射 vs 青い陰» のコントラスト=立体感を残す (直射は 3 点ライトが確保)。鏡面 fallback も兼ねる。
 constexpr float kSh9Ambient = 0.55f;
@@ -3043,7 +3058,17 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     const f32 aspect = (scH > 0) ? static_cast<f32>(scW) / static_cast<f32>(scH) : 1.0f;
     const FCamera cam = EditorCam3D(h, aspect);          // 透視 or 正射 (ortho3d)
     const FVec3 eye = Cam3DEye(h);
-    const FMat4 vp = cam.ViewProjection();
+    const FMat4 vp_nojit = cam.ViewProjection();
+    // TAA: 透視時のみ Halton サブピクセルジッタを毎フレーム与える (color+depth+normal+SS が同じ vp で整合)。
+    // TAA history reproject だけは «jitter 無し» の vp/prev で行う (jitter が reproject を汚さないように)。
+    FMat4 vp = vp_nojit;
+    const bool taaOn = h.q_taa_on && !h.ortho3d && h.width > 0 && h.height > 0;
+    if (taaOn) {
+        const u32 fi = (h.taa_frame % 16u) + 1u;         // Halton は i>=1
+        const float jx = (HaltonSeq(fi, 2u) - 0.5f) * 2.0f / static_cast<float>(h.width);
+        const float jy = (HaltonSeq(fi, 3u) - 0.5f) * 2.0f / static_cast<float>(h.height);
+        vp = ApplyTaaJitter(vp_nojit, jx, jy);
+    }
 
     // --- (0) メッシュ頂点を展開 (シャドウパスと本体で共有) + バウンディング ---
     TArray<M3DVtx>& dv = *(new TArray<M3DVtx>()); dv.Reserve(8192);
@@ -3497,9 +3522,20 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         pp.cg_saturation = h.q_cg_saturation; pp.cg_contrast = h.q_cg_contrast;
         pp.cas_strength = h.q_cas;   // CAS シャープ (品質連動)
         pp.vignette_intensity = 0.0f; pp.chromatic_aberration = 0.0f; pp.grain_intensity = 0.0f;
+        // TAA: Halton ジッタ + history の neighborhood-clamp blend でテンポラル AA。reproject は «jitter 無し»
+        // の vp/prev で行う (camera motion 由来。depth から history を offset sample)。motion_texture は未使用。
+        if (taaOn) {
+            pp.taa_enabled = true;
+            pp.taa_blend_factor = 0.1f;                              // 10% current + 90% history
+            pp.taa_depth_texture = h.renderer.DepthBuffer();
+            pp.taa_view_proj_no_jitter      = vp_nojit;
+            pp.taa_prev_view_proj_no_jitter = h.prev_vp_nojit;
+        }
         h.post3d.Render(*cl, *scSwap, h.renderer.CurrentBuffer(), pp);
     }
-    h.prev_vp = vp;   // SSR temporal reproject 用に今フレームの view_proj を保持
+    h.prev_vp = vp;               // SSR/SSGI temporal reproject 用 (jitter 込み)
+    h.prev_vp_nojit = vp_nojit;   // TAA history reproject 用 (jitter 無し)
+    if (taaOn) ++h.taa_frame;     // ジッタ列を進める (TAA 無効時は固定)
 }
 
 } // namespace
@@ -3718,7 +3754,7 @@ static void ApplyQualityPreset(EditorHost& h, const char* level) noexcept {
         h.q_ssgi_on=true;  h.q_ssgi_intensity=1.0f; h.q_ssgi_max_dist=10.0f;
         h.q_ssr_on=true;   h.q_ssr_intensity=1.0f;  h.q_ssr_hiz=true;   h.q_ibl_mode=2;
         h.q_bloom_on=true; h.q_bloom_intensity=0.50f; h.q_bloom_threshold=0.80f; h.q_bloom_radius=1.5f;
-        h.q_cg_saturation=1.10f; h.q_cg_contrast=1.12f; h.q_cas=0.4f; h.q_taa_on=false; h.q_msaa_default=4;
+        h.q_cg_saturation=1.10f; h.q_cg_contrast=1.12f; h.q_cas=0.4f; h.q_taa_on=true;  h.q_msaa_default=4;
     } else if (eq("Medium")) {
         h.q_shadow_size=2048; h.q_shadow_cascades=1; h.q_shadow_bias=0.0015f; h.q_shadow_filter=1.0f;
         h.q_ssao_on=true;  h.q_ssao_intensity=0.9f; h.q_ssao_radius=0.6f;
@@ -3781,6 +3817,11 @@ ACS_EDITOR_API int acs_editor_quality_ssgi_x100(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     return (host != nullptr && host->q_ssgi_on) ? static_cast<int>(host->q_ssgi_intensity * 100.0f + 0.5f) : 0;
 }
+/** TAA (テンポラル AA) が有効か (1/0)。設定反映の確認用。 */
+ACS_EDITOR_API int acs_editor_quality_taa(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr && host->q_taa_on) ? 1 : 0;
+}
 /** 太陽 (主光源) 方向 «光へ向かう» 単位ベクトルを out3 (x,y,z) へ。設定反映の確認用。 */
 ACS_EDITOR_API void acs_editor_sun_direction(void* handle, float* out3) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -3830,6 +3871,8 @@ static void ApplySettings(EditorHost& h) noexcept {
     if (ri >= 0.0f) { h.q_ssr_intensity = ri; h.q_ssr_on = (ri > 0.0f); }
     const f32 gi = h.settings.GetFloat("Rendering", "SsgiIntensity", -1.0f);
     if (gi >= 0.0f) { h.q_ssgi_intensity = gi; h.q_ssgi_on = (gi > 0.0f); }
+    const f32 taa = h.settings.GetFloat("Rendering", "Taa", -1.0f);
+    if (taa >= 0.0f) h.q_taa_on = (taa > 0.0f);   // -1=プリセット追従 / 0=オフ / >0=オン (テンポラル AA)
     // 太陽 (主光源) 方向 = 方位角/仰角 (度) → «光へ向かう» 単位ベクトル。影/陰影/空が一括で追従。
     {
         const f32 az = h.settings.GetFloat("Rendering", "SunAzimuth",   -41.0f) * 3.14159265f / 180.0f;

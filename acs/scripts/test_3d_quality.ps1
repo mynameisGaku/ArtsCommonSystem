@@ -28,6 +28,7 @@ public static class E {
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_ssao_x100(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_ssr_x100(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_ssgi_x100(IntPtr h);
+    [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_taa(IntPtr h);
 }
 "@
 Add-Type -TypeDefinition $src
@@ -149,6 +150,15 @@ Write-Host "`n[SSGI intensity override] (engine FSsgi; 1-bounce indirect, Dilige
 Check "Highest preset SSGI on (~1.0 => x100=100)" ([E]::acs_editor_quality_ssgi_x100($h) -eq 100)
 Check "SsgiIntensity=0 turns SSGI off" (([E]::acs_editor_settings_set($h,"Rendering","SsgiIntensity","0") -eq 1) -and ([E]::acs_editor_quality_ssgi_x100($h) -eq 0))
 Check "SsgiIntensity=2 override -> 200" (([E]::acs_editor_settings_set($h,"Rendering","SsgiIntensity","2") -eq 1) -and ([E]::acs_editor_quality_ssgi_x100($h) -eq 200))
+
+Write-Host "`n[TAA temporal anti-aliasing] (Halton jitter + history blend)"
+[void][E]::acs_editor_settings_set($h,"Rendering","QualityLevel","Highest")
+[void][E]::acs_editor_settings_set($h,"Rendering","Taa","-1")
+Check "Highest preset TAA on" ([E]::acs_editor_quality_taa($h) -eq 1)
+[void][E]::acs_editor_settings_set($h,"Rendering","QualityLevel","High")
+Check "High preset TAA off" ([E]::acs_editor_quality_taa($h) -eq 0)
+Check "Taa=1 override forces on" (([E]::acs_editor_settings_set($h,"Rendering","Taa","1") -eq 1) -and ([E]::acs_editor_quality_taa($h) -eq 1))
+Check "Taa=0 override forces off" (([E]::acs_editor_settings_set($h,"Rendering","Taa","0") -eq 1) -and ([E]::acs_editor_quality_taa($h) -eq 0))
 
 [E]::acs_editor_destroy($h)
 Write-Host "`n==== $pass passed, $fail failed ===="
