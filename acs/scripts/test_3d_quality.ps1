@@ -29,6 +29,8 @@ public static class E {
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_ssr_x100(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_ssgi_x100(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_taa(IntPtr h);
+    [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_tonemap(IntPtr h);
+    [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_auto_exposure(IntPtr h);
 }
 "@
 Add-Type -TypeDefinition $src
@@ -159,6 +161,13 @@ Check "Highest preset TAA on" ([E]::acs_editor_quality_taa($h) -eq 1)
 Check "High preset TAA off" ([E]::acs_editor_quality_taa($h) -eq 0)
 Check "Taa=1 override forces on" (([E]::acs_editor_settings_set($h,"Rendering","Taa","1") -eq 1) -and ([E]::acs_editor_quality_taa($h) -eq 1))
 Check "Taa=0 override forces off" (([E]::acs_editor_settings_set($h,"Rendering","Taa","0") -eq 1) -and ([E]::acs_editor_quality_taa($h) -eq 0))
+
+Write-Host "`n[Tonemap + auto-exposure]"
+Check "default tonemap = ACES (0)" ([E]::acs_editor_quality_tonemap($h) -eq 0)
+Check "Tonemap=1 -> AgX" (([E]::acs_editor_settings_set($h,"Rendering","Tonemap","1") -eq 1) -and ([E]::acs_editor_quality_tonemap($h) -eq 1))
+Check "Tonemap=2 -> Reinhard" (([E]::acs_editor_settings_set($h,"Rendering","Tonemap","2") -eq 1) -and ([E]::acs_editor_quality_tonemap($h) -eq 2))
+Check "AutoExposure=1 -> on" (([E]::acs_editor_settings_set($h,"Rendering","AutoExposure","1") -eq 1) -and ([E]::acs_editor_quality_auto_exposure($h) -eq 1))
+Check "AutoExposure=0 -> off" (([E]::acs_editor_settings_set($h,"Rendering","AutoExposure","0") -eq 1) -and ([E]::acs_editor_quality_auto_exposure($h) -eq 0))
 
 [E]::acs_editor_destroy($h)
 Write-Host "`n==== $pass passed, $fail failed ===="

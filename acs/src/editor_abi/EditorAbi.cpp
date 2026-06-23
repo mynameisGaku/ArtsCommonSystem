@@ -267,6 +267,7 @@ struct EditorHost {
     i32   q_ibl_mode         = 1;     FVec3 q_ambient        = FVec3{ 0.26f, 0.28f, 0.33f };  // 0=flat 1=sh9 2=cubemap
     bool  q_bloom_on         = true;  f32  q_bloom_intensity = 0.50f; f32 q_bloom_threshold = 0.80f; f32 q_bloom_radius = 1.5f;
     f32   q_exposure         = 1.05f; f32  q_cg_saturation   = 1.10f; f32 q_cg_contrast = 1.12f;
+    i32   q_tonemap          = 0;     bool q_auto_exposure   = false;  // 0=ACES 1=AgX 2=Reinhard / 自動露出(eye adaptation)
     f32   q_cas              = 0.3f;  bool q_taa_on          = false; u32 q_msaa_default = 4;
     FVec3 sun_dir            = FVec3{ 0.40f, 0.85f, -0.35f };   // 太陽 (光源) 方向 «光へ向かう» 向き。Rendering/SunAzimuth+Elevation で駆動。
     FVec3 sun_color          = FVec3{ 1.0f, 0.95f, 0.85f };     // 太陽の色 (Rendering/SunColor)。
@@ -3517,8 +3518,13 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         // 品質プリセット (Rendering/QualityLevel) で bloom / 彩度・コントラスト / CAS シャープを駆動。
         pp.bloom_enabled = h.q_bloom_on; pp.bloom_intensity = h.q_bloom_intensity;
         pp.bloom_threshold = h.q_bloom_threshold; pp.bloom_radius = h.q_bloom_radius;
-        pp.tonemap_kind = 0;   // 0 = ACES Filmic
+        pp.tonemap_kind = h.q_tonemap;   // 0=ACES Filmic / 1=AgX (Sobotka) / 2=Reinhard 拡張
         pp.exposure = h.q_exposure; pp.gamma = 2.2f;
+        if (h.q_auto_exposure) {   // eye adaptation: シーン輝度から露出を自動算出 (q_exposure は EV 補正に)
+            pp.auto_exposure_enabled = true; pp.auto_exposure_speed = 2.0f;
+            pp.auto_exposure_key = 0.5f; pp.auto_exposure_min = 0.05f; pp.auto_exposure_max = 12.0f;
+            pp.delta_time = 0.0166f;
+        }
         pp.cg_saturation = h.q_cg_saturation; pp.cg_contrast = h.q_cg_contrast;
         pp.cas_strength = h.q_cas;   // CAS シャープ (品質連動)
         pp.vignette_intensity = 0.0f; pp.chromatic_aberration = 0.0f; pp.grain_intensity = 0.0f;
@@ -3822,6 +3828,16 @@ ACS_EDITOR_API int acs_editor_quality_taa(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     return (host != nullptr && host->q_taa_on) ? 1 : 0;
 }
+/** 現在のトーンマッパー (0=ACES 1=AgX 2=Reinhard)。設定反映の確認用。 */
+ACS_EDITOR_API int acs_editor_quality_tonemap(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr) ? host->q_tonemap : 0;
+}
+/** auto-exposure が有効か (1/0)。設定反映の確認用。 */
+ACS_EDITOR_API int acs_editor_quality_auto_exposure(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr && host->q_auto_exposure) ? 1 : 0;
+}
 /** 太陽 (主光源) 方向 «光へ向かう» 単位ベクトルを out3 (x,y,z) へ。設定反映の確認用。 */
 ACS_EDITOR_API void acs_editor_sun_direction(void* handle, float* out3) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -3873,6 +3889,9 @@ static void ApplySettings(EditorHost& h) noexcept {
     if (gi >= 0.0f) { h.q_ssgi_intensity = gi; h.q_ssgi_on = (gi > 0.0f); }
     const f32 taa = h.settings.GetFloat("Rendering", "Taa", -1.0f);
     if (taa >= 0.0f) h.q_taa_on = (taa > 0.0f);   // -1=プリセット追従 / 0=オフ / >0=オン (テンポラル AA)
+    const i32 tm = h.settings.GetInt("Rendering", "Tonemap", 0);
+    h.q_tonemap = (tm >= 0 && tm <= 2) ? tm : 0;  // 0=ACES 1=AgX 2=Reinhard
+    h.q_auto_exposure = (h.settings.GetFloat("Rendering", "AutoExposure", 0.0f) > 0.0f);
     // 太陽 (主光源) 方向 = 方位角/仰角 (度) → «光へ向かう» 単位ベクトル。影/陰影/空が一括で追従。
     {
         const f32 az = h.settings.GetFloat("Rendering", "SunAzimuth",   -41.0f) * 3.14159265f / 180.0f;
