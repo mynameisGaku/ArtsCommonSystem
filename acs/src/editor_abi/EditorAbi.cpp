@@ -2374,14 +2374,17 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float2 uv = v.uv;
     float  illum = 1.0;
     float3 shaft = float3(0, 0, 0);
+    float  wsum  = 0.0;
     [loop] for (int i = 0; i < N; ++i) {
         uv -= delta;
         float3 s   = sceneTex.Sample(sceneTex_sampler, uv).rgb;
         float  lum = dot(s, float3(0.299, 0.587, 0.114));
         float  bright = max(lum - grp2.z, 0.0);             // bright pass (明るい空/太陽のみ寄与)
-        shaft += s * bright * illum * grp2.y;
+        shaft += s * bright * illum;
+        wsum  += illum;                                     // decay 合計で正規化 → 有界 (明るい空でも白飛びしない)
         illum *= grp.w;                                     // 距離減衰
     }
+    shaft /= max(wsum, 1e-3);                               // 光線方向の平均輝度 (遮蔽があればシャフトが残る)
     return float4(scene + shaft * grp.z, 1.0);
 }
 )";
