@@ -229,6 +229,10 @@ FMaterial2D ParseAcsmatText(const char* text) noexcept {
         } else if (IEquals(key, "subsurfaceColor")) {
             FVec3 c = mat.pbr.subsurfaceColor;
             if (std::sscanf(s, "%f %f %f", &c.x, &c.y, &c.z) == 3) mat.pbr.subsurfaceColor = c;
+        } else if (IEquals(key, "transmission")) {
+            std::sscanf(s, "%f", &mat.pbr.transmission);
+        } else if (IEquals(key, "ior")) {
+            std::sscanf(s, "%f", &mat.pbr.ior);
         } else if (IEquals(key, "albedo")) {
             std::snprintf(mat.pbr.albedoPath, sizeof(mat.pbr.albedoPath), "%s", s);
         } else if (IEquals(key, "normal")) {
@@ -280,7 +284,9 @@ u32 WriteAcsmatText(const FMaterial2D& mat, char* buf, u32 buf_size) noexcept {
         "sheenRoughness %.4f\n"
         "sheenColor %.4f %.4f %.4f\n"
         "subsurface %.4f\n"
-        "subsurfaceColor %.4f %.4f %.4f\n",
+        "subsurfaceColor %.4f %.4f %.4f\n"
+        "transmission %.4f\n"
+        "ior %.4f\n",
         mat.name,
         mat.kind == EMaterialKind::Lit ? "pbr" : "effect",
         SpriteEffectName(mat.effect),
@@ -302,7 +308,8 @@ u32 WriteAcsmatText(const FMaterial2D& mat, char* buf, u32 buf_size) noexcept {
         mat.pbr.sheen, mat.pbr.sheenRoughness,
         mat.pbr.sheenColor.x, mat.pbr.sheenColor.y, mat.pbr.sheenColor.z,
         mat.pbr.subsurface,
-        mat.pbr.subsurfaceColor.x, mat.pbr.subsurfaceColor.y, mat.pbr.subsurfaceColor.z);
+        mat.pbr.subsurfaceColor.x, mat.pbr.subsurfaceColor.y, mat.pbr.subsurfaceColor.z,
+        mat.pbr.transmission, mat.pbr.ior);
     if (cur < 0) return 0;
     if (static_cast<u32>(cur) >= buf_size) return buf_size - 1;
     // テクスチャパスは設定済みのときだけ書く (行末まで)。

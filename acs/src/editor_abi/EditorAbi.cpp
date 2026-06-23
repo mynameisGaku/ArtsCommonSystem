@@ -52,6 +52,7 @@
 #include "render/Ssr.h"                     // FSsr (画面空間反射。q_ssr_* を配線)
 #include "render/Ssgi.h"                    // FSsgi (画面空間 1 バウンス GI。q_ssgi_* を配線)
 #include "render/MotionVector.h"            // FMotionVector (motion+normal G-buffer。TAA/SSR/SSGI の reproject 用)
+#include "render/RefractionShader.h"        // FRefractionShader (ガラス/水の屈折。opaque シーンを IOR で曲げて sample)
 #include "render/Ibl.h"                     // ImageBasedLighting (FSky から env→irradiance/prefilter→SetIbl)
 #include "render/Atmosphere.h"              // FAtmosphere (物理大気散乱を equirect に焼く → IBL/背景)
 #include "asset/MeshPrimitive.h"            // Primitive::MakeCube/MakeSphere/MakePlane
@@ -362,6 +363,14 @@ struct EditorHost {
     acs::FMotionVector       mv3d;                     // motion + world normal G-buffer。motion を TAA/SSR/SSGI へ供給 (動く物の ghost 除去)
     bool                     mv_ready = false;
     bool                     mv_computed = false;      // 今フレーム motion を焼いたか
+    // 屈折 (ガラス/水): opaque シーンを複製 (blit) → FRefractionShader が IOR で曲げて sample。要 env cubemap (Diligent)。
+    acs::FRefractionShader   refr3d;
+    bool                     refr_ready = false;
+    TUniquePtr<IRhiTexture>  refr_bg;                  // opaque HDR シーンの複製 (同一 RT read+write 不可のため)
+    u32                      refr_bg_w = 0, refr_bg_h = 0;
+    TUniquePtr<IRhiPipeline> blit_pipe;                // hdrRt → refr_bg のフルスクリーン複製
+    TUniquePtr<IRhiShader>   blit_vs, blit_ps;
+    bool                     blit_ready = false;
     FMat4                    prev_vp = FMat4::Identity();  // 前フレーム view_proj (SSR/SSGI temporal reproject 共用、jitter 込み)
     FMat4                    prev_vp_nojit = FMat4::Identity();  // 前フレーム view_proj (jitter 無し、TAA history reproject 用)
     u32                      taa_frame = 0;                // TAA Halton ジッタ列のフレームインデックス
@@ -2273,6 +2282,21 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 struct SprVtx { f32 px, py, pz, u, v; };    // ワールド座標 + UV (20 bytes)
 
+// フルスクリーン複製: opaque HDR シーンを refr_bg へコピー (屈折オブジェクトが背景として sample)。
+// 頂点バッファ不要 (SV_VertexID の大三角形)、深度オフ。
+const char* kBlit3DHLSL = R"(
+Texture2D    srcTex         : register(t0);
+SamplerState srcTex_sampler : register(s0);
+struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+VSOut VSMain(uint id : SV_VertexID) {
+    float2 uv = float2((id << 1) & 2, id & 2);
+    VSOut o; o.uv = uv;
+    o.pos = float4(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), 0.0, 1.0);
+    return o;
+}
+float4 PSMain(VSOut v) : SV_TARGET { return srcTex.Sample(srcTex_sampler, v.uv); }
+)";
+
 // スカイボックス: フルスクリーン三角形でカメラレイ方向から天空グラデーションを描く。
 // 頂点バッファ不要 (SV_VertexID)。深度オフ・最背面 (メッシュが上に描かれる)。
 const char* kSky3DHLSL = R"(
@@ -2468,6 +2492,33 @@ bool Ensure3D(EditorHost& h) noexcept {
             }
         }
         if (!h.ssao_pipe_ready) ACS_LOG_WARN("[3D] 法線 G-buffer パイプライン生成失敗 (SSAO 無効)");
+    }
+
+    // 屈折 (ガラス/水): FRefractionShader + opaque シーン複製 blit パイプライン。要 env cubemap (Diligent IBL)。
+    { auto rr = h.refr3d.Init(*dev, hdrf, df); h.refr_ready = rr.IsOk();
+      if (!h.refr_ready) ACS_LOG_WARN("[3D] FRefractionShader Init 失敗 (屈折無効): %s", rr.Error().message); }
+    {
+        FShaderDesc bvs{}; bvs.stage = EShaderStage::Vertex; bvs.hlsl_source = kBlit3DHLSL; bvs.entry_point = "VSMain"; bvs.debug_name = "Blit.VS";
+        FShaderDesc bps{}; bps.stage = EShaderStage::Pixel;  bps.hlsl_source = kBlit3DHLSL; bps.entry_point = "PSMain"; bps.debug_name = "Blit.PS";
+        auto bvr = CreateRhiShader(*dev, bvs); auto bpr = CreateRhiShader(*dev, bps);
+        if (bvr.IsOk() && bpr.IsOk()) {
+            h.blit_vs = Move(bvr.Value()); h.blit_ps = Move(bpr.Value());
+            FPipelineDesc bp{};
+            bp.vs = h.blit_vs.Get(); bp.ps = h.blit_ps.Get();
+            bp.topology     = EPrimitiveTopology::TriangleList;
+            bp.rt_format    = hdrf; bp.depth_format = EFormat::Unknown;
+            bp.depth_test   = false; bp.depth_write = false;
+            bp.cull_mode    = ECullMode::None; bp.blend_mode = EBlendMode::Opaque;
+            bp.texture_slots = 1;
+            bp.static_sampler_count = 1;
+            bp.static_samplers[0].filter    = ESamplerFilter::Linear;
+            bp.static_samplers[0].address_u = ESamplerAddress::Clamp;
+            bp.static_samplers[0].address_v = ESamplerAddress::Clamp;
+            bp.static_samplers[0].address_w = ESamplerAddress::Clamp;
+            auto bplr = CreateRhiPipeline(*dev, bp);
+            if (bplr.IsOk()) { h.blit_pipe = Move(bplr.Value()); h.blit_ready = true; }
+        }
+        if (!h.blit_ready) ACS_LOG_WARN("[3D] blit パイプライン生成失敗 (屈折無効)");
     }
 
     // オーバーレイ用 (同シェーダ・depth off): ギズモを常に手前に出す。
@@ -3574,6 +3625,51 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                             h.mv_computed ? h.mv3d.OutputTexture() : nullptr);   // motion で動く物の間接光 ghost を除去
             h.ssgi_computed = true;
         }
+
+        // --- 屈折 (ガラス/水): transmission>0 のノードを «opaque シーンを IOR で曲げて sample» して描く ---
+        //     opaque HDR を refr_bg へ blit → hdrRt を clear せず load 再オープン (opaque+depth 保持) →
+        //     FRefractionShader で描画。env cubemap で Fresnel 反射 (要 Diligent IBL)。
+        if (h.refr_ready && h.blit_ready && h.ibl_ready && h.ibl3d.EnvCubemap() != nullptr) {
+            bool anyRefr = false;
+            for (u32 i = 0; i < all3d.Size(); ++i) {
+                game::FMeshComponent3D* mc = Mesh3D(all3d[i]);
+                if (mc != nullptr && mc->MaterialLoaded() && mc->Material().pbr.transmission > 0.0f) { anyRefr = true; break; }
+            }
+            IRhiDevice* rdev = h.renderer.Device();
+            if (anyRefr && rdev != nullptr) {
+                if (h.refr_bg_w != scW || h.refr_bg_h != scH) {   // refr_bg を画面サイズに遅延確保 (HDR)
+                    FTextureDesc bd{}; bd.width = scW; bd.height = scH; bd.format = EFormat::R16G16B16A16_Float; bd.is_render_target = true;
+                    auto btr = CreateRhiTexture(*rdev, bd);
+                    if (btr.IsOk()) { h.refr_bg = Move(btr.Value()); h.refr_bg_w = scW; h.refr_bg_h = scH; } else { h.refr_bg_w = 0; }
+                }
+                if (h.refr_bg) {
+                    const ClearColor bc{ 0.0f, 0.0f, 0.0f, 1.0f };   // 1. opaque HDR → refr_bg へ複製 (fullscreen blit)
+                    cl->BeginRenderToTexture(*h.refr_bg, bc, nullptr, 1.0f);
+                    { FViewport bvp{}; bvp.width = static_cast<f32>(scW); bvp.height = static_cast<f32>(scH); cl->SetViewport(bvp);
+                      FScissorRect bsr{}; bsr.right = static_cast<i32>(scW); bsr.bottom = static_cast<i32>(scH); cl->SetScissor(bsr); }
+                    cl->SetPipeline(*h.blit_pipe); cl->SetTexture(0, *hdrRt); cl->Draw(3, 0);
+                    cl->EndRenderToTexture(*h.refr_bg);
+                    // 2. hdrRt を clear せず load 再オープン (opaque + depth 保持) して屈折オブジェクトを上描き
+                    cl->BeginRenderToTextureLoad(*hdrRt, h.renderer.DepthBuffer());
+                    { FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
+                      FScissorRect rsr{}; rsr.right = static_cast<i32>(scW); rsr.bottom = static_cast<i32>(scH); cl->SetScissor(rsr); }
+                    h.refr3d.SetFrame(vp, eye);   // opaque と同じ vp (TAA 時はジッタ込み) で整合
+                    for (u32 i = 0; i < all3d.Size(); ++i) {
+                        game::FNode3D* nn = all3d[i];
+                        game::FMeshComponent3D* mc = Mesh3D(nn);
+                        if (mc == nullptr || mc->RenderHandle() != nullptr) continue;
+                        if (!mc->MaterialLoaded() || mc->Material().pbr.transmission <= 0.0f) continue;
+                        GpuMesh* gm = GpuMeshForNode3D(h, nn);
+                        if (gm == nullptr || gm->vertex_buffer.Get() == nullptr || gm->index_buffer.Get() == nullptr) continue;
+                        const game::FPbrParams2D& p = mc->Material().pbr;
+                        const FVec3 tint{ p.baseColor.x, p.baseColor.y, p.baseColor.z };
+                        h.refr3d.DrawMesh(*cl, *gm, nn->World().ToMat4(), *h.refr_bg, *h.ibl3d.EnvCubemap(),
+                                          p.ior, 0.5f, tint, p.roughness, 0.0f);
+                    }
+                    cl->EndRenderToTexture(*hdrRt);
+                }
+            }
+        }
         PostProcessParams pp{};
         // bloom: 7-mip + progressive radius + soft-knee の高品質 bloom。threshold は HDR 1.0 超を抽出、
         // soft-knee でなめらかに立ち上げ。radius は progressive で深い mip ほど広がる(基準 1.0)。
@@ -4139,6 +4235,9 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->ssr3d.Shutdown(); host->ssr_ready = false;
     host->ssgi3d.Shutdown(); host->ssgi_ready = false;
     host->mv3d.Shutdown(); host->mv_ready = false;
+    host->refr3d.Shutdown(); host->refr_ready = false;
+    host->blit_pipe.Reset(); host->blit_vs.Reset(); host->blit_ps.Reset(); host->blit_ready = false;
+    host->refr_bg.Reset(); host->refr_bg_w = 0; host->refr_bg_h = 0;
     host->ibl3d.Shutdown(); host->ibl_ready = false; host->ibl_tried = false; host->ibl_dirty = true;
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
     host->sprite_textures.Clear();

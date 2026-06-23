@@ -75,6 +75,9 @@ struct FPbrParams2D {
     FVec3 sheenColor         = FVec3{ 1, 1, 1 };   ///< シーン色。
     f32   subsurface         = 0.0f;               ///< サブサーフェス量。
     FVec3 subsurfaceColor    = FVec3{ 1.0f, 0.3f, 0.2f }; ///< 透過部の色。
+    // --- 屈折 (ガラス/水、glTF KHR_materials_transmission 風) ---
+    f32   transmission       = 0.0f;               ///< 透過量 (0=不透明、>0 で屈折ガラスとして描画)。
+    f32   ior                = 1.5f;               ///< 屈折率 (ガラス~1.5、水~1.33、ダイヤ~2.4)。
 };
 
 /**
