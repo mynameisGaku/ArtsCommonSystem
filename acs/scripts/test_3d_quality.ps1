@@ -96,9 +96,9 @@ Check "elevation 0 / azimuth 0 -> (1,0,0)" (([math]::Abs($d[0]-1.0) -lt 0.02) -a
 
 Write-Host "`n[sun color/intensity] effective light color = SunColor * SunIntensity"
 function SunCol(){ $o=New-Object 'single[]' 3; [E]::acs_editor_sun_light_color($h,$o); return $o }
-[void][E]::acs_editor_settings_load_text($h,"")   # defaults: color (1,0.95,0.85) * 2.35
+[void][E]::acs_editor_settings_load_text($h,"")   # defaults: color (1,0.95,0.85) * 4.5 (WickedEngine 流キーライト)
 $c = SunCol
-Check "default light color ~ (2.35,2.23,2.00)" (([math]::Abs($c[0]-2.35) -lt 0.03) -and ([math]::Abs($c[1]-2.23) -lt 0.03) -and ([math]::Abs($c[2]-2.00) -lt 0.03))
+Check "default light color ~ (4.5,4.28,3.83)" (([math]::Abs($c[0]-4.5) -lt 0.03) -and ([math]::Abs($c[1]-4.28) -lt 0.03) -and ([math]::Abs($c[2]-3.83) -lt 0.03))
 [void][E]::acs_editor_settings_set($h,"Rendering","SunIntensity","4.0")
 $c = SunCol
 Check "intensity 4.0 -> (4.0, 3.8, 3.4)" (([math]::Abs($c[0]-4.0) -lt 0.03) -and ([math]::Abs($c[1]-3.8) -lt 0.03) -and ([math]::Abs($c[2]-3.4) -lt 0.03))

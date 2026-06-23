@@ -74,8 +74,9 @@ const FSettingDesc kSchema[] = {
       "3D 太陽 (主光源) の仰角 (度、0=地平・90=真上)。低いほど影が長く夕方らしい" },
     { "Rendering", "SunColor",      ESettingType::Color, "1.0,0.95,0.85",  nullptr,
       "3D 太陽 (主光源) の色。暖色=夕日寄り、寒色=曇天寄り" },
-    { "Rendering", "SunIntensity",  ESettingType::Float, "2.35",           nullptr,
-      "3D 太陽 (主光源) の強度 (明るさ)。実効ライト色 = SunColor × SunIntensity" },
+    { "Rendering", "SunIntensity",  ESettingType::Float, "4.5",            nullptr,
+      "3D 太陽 (主光源) の強度。実効ライト色 = SunColor × SunIntensity。WickedEngine 流に太陽を強いキーライト"
+      "にし、IBL 拡散フィル(×0.45)と合わせ «影が見える=接地» する立体的ライティングに" },
     { "Rendering", "SkyZenith",     ESettingType::Color, "0.16,0.33,0.62", nullptr,
       "3D 空グラデの天頂色。空背景 + IBL 環境光の両方を駆動 (夕焼けはここをオレンジに)" },
     { "Rendering", "SkyHorizon",    ESettingType::Color, "0.62,0.70,0.80", nullptr,

@@ -497,7 +497,9 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
     float3 specF0 = lerp(F0, iridFresnel, iridWeight);
     float3 specular_ibl = reflected * (specF0 * lut_xy.x + lut_xy.y);
 
-    return (diffuse_ibl + specular_ibl) * ao;
+    // [WickedEngine 流 key/fill] 拡散 IBL を «フィル» 量へ抑える。明るすぎる空 IBL が太陽の影を
+    // 埋めて立体感を消していたため。鏡面 IBL (金属の映り込み) は据え置き。太陽キーは SunIntensity で。
+    return (diffuse_ibl * 0.45 + specular_ibl) * ao;
 }
 
 // IBL specular for clear-coat layer (split-sum、F0=0.04 固定の dielectric)。
