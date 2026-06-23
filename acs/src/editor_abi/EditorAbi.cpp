@@ -368,9 +368,15 @@ struct EditorHost {
     bool                     refr_ready = false;
     TUniquePtr<IRhiTexture>  refr_bg;                  // opaque HDR シーンの複製 (同一 RT read+write 不可のため)
     u32                      refr_bg_w = 0, refr_bg_h = 0;
-    TUniquePtr<IRhiPipeline> blit_pipe;                // hdrRt → refr_bg のフルスクリーン複製
+    TUniquePtr<IRhiPipeline> blit_pipe;                // hdrRt → refr_bg のフルスクリーン複製 (屈折/DoF 共用)
     TUniquePtr<IRhiShader>   blit_vs, blit_ps;
     bool                     blit_ready = false;
+    // 被写界深度 (DoF): depth から CoC を出し、焦点外をディスクぼかし。scene 複製は refr_bg を共用。
+    bool                     q_dof_on = false; f32 q_dof_focus = 4.0f; f32 q_dof_range = 5.0f; f32 q_dof_max = 0.010f;
+    TUniquePtr<IRhiPipeline> dof_pipe;
+    TUniquePtr<IRhiShader>   dof_vs, dof_ps;
+    TUniquePtr<IRhiBuffer>   dof_cb;
+    bool                     dof_ready = false;
     FMat4                    prev_vp = FMat4::Identity();  // 前フレーム view_proj (SSR/SSGI temporal reproject 共用、jitter 込み)
     FMat4                    prev_vp_nojit = FMat4::Identity();  // 前フレーム view_proj (jitter 無し、TAA history reproject 用)
     u32                      taa_frame = 0;                // TAA Halton ジッタ列のフレームインデックス
@@ -2297,6 +2303,40 @@ VSOut VSMain(uint id : SV_VertexID) {
 float4 PSMain(VSOut v) : SV_TARGET { return srcTex.Sample(srcTex_sampler, v.uv); }
 )";
 
+// 被写界深度 (DoF): depth から view-z を線形化 → 焦点距離との差で CoC → ディスクぼかし (1 リング 16 タップ)。
+// scene 複製 (t0) + depth (t1) を sample。フルスクリーン・深度オフ。
+const char* kDof3DHLSL = R"(
+Texture2D    sceneTex         : register(t0);
+SamplerState sceneTex_sampler : register(s0);
+Texture2D    depthTex         : register(t1);
+SamplerState depthTex_sampler : register(s1);
+cbuffer DOFCB : register(b0) {
+    float4 dofp;   // x=focus_dist(view z), y=focus_range, z=max_blur(uv 半径), w=near
+    float4 dofp2;  // x=far
+};
+struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+VSOut VSMain(uint id : SV_VertexID) {
+    float2 uv = float2((id << 1) & 2, id & 2);
+    VSOut o; o.uv = uv;
+    o.pos = float4(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), 0.0, 1.0);
+    return o;
+}
+float4 PSMain(VSOut v) : SV_TARGET {
+    float ndc  = depthTex.Sample(depthTex_sampler, v.uv).r;
+    float nearZ = dofp.w, farZ = dofp2.x;
+    float viewZ = (nearZ * farZ) / max(farZ - ndc * (farZ - nearZ), 1e-4);   // LH [0,1] depth → view z
+    float coc   = saturate(abs(viewZ - dofp.x) / max(dofp.y, 1e-3));         // 0=焦点 .. 1=最大ぼけ
+    float radius = coc * dofp.z;
+    float3 col = sceneTex.Sample(sceneTex_sampler, v.uv).rgb; float wsum = 1.0;
+    [unroll] for (int i = 0; i < 16; ++i) {
+        float ang = (float(i) / 16.0) * 6.28318530;
+        float2 off = float2(cos(ang), sin(ang)) * radius;
+        col += sceneTex.Sample(sceneTex_sampler, v.uv + off).rgb; wsum += 1.0;
+    }
+    return float4(col / wsum, 1.0);
+}
+)";
+
 // スカイボックス: フルスクリーン三角形でカメラレイ方向から天空グラデーションを描く。
 // 頂点バッファ不要 (SV_VertexID)。深度オフ・最背面 (メッシュが上に描かれる)。
 const char* kSky3DHLSL = R"(
@@ -2519,6 +2559,39 @@ bool Ensure3D(EditorHost& h) noexcept {
             if (bplr.IsOk()) { h.blit_pipe = Move(bplr.Value()); h.blit_ready = true; }
         }
         if (!h.blit_ready) ACS_LOG_WARN("[3D] blit パイプライン生成失敗 (屈折無効)");
+    }
+
+    // 被写界深度 (DoF): scene 複製 (t0) + depth (t1) を sample してディスクぼかし。
+    {
+        FShaderDesc dvs{}; dvs.stage = EShaderStage::Vertex; dvs.hlsl_source = kDof3DHLSL; dvs.entry_point = "VSMain"; dvs.debug_name = "Dof.VS";
+        FShaderDesc dps{}; dps.stage = EShaderStage::Pixel;  dps.hlsl_source = kDof3DHLSL; dps.entry_point = "PSMain"; dps.debug_name = "Dof.PS";
+        auto dvr = CreateRhiShader(*dev, dvs); auto dpr = CreateRhiShader(*dev, dps);
+        if (dvr.IsOk() && dpr.IsOk()) {
+            h.dof_vs = Move(dvr.Value()); h.dof_ps = Move(dpr.Value());
+            FPipelineDesc dp{};
+            dp.vs = h.dof_vs.Get(); dp.ps = h.dof_ps.Get();
+            dp.topology     = EPrimitiveTopology::TriangleList;
+            dp.rt_format    = hdrf; dp.depth_format = EFormat::Unknown;
+            dp.depth_test   = false; dp.depth_write = false;
+            dp.cull_mode    = ECullMode::None; dp.blend_mode = EBlendMode::Opaque;
+            dp.texture_slots = 2;
+            dp.cbuffer_slots = 1; dp.cbuffer_names[0] = "DOFCB";
+            dp.static_sampler_count = 2;
+            for (int s = 0; s < 2; ++s) {
+                dp.static_samplers[s].filter    = ESamplerFilter::Linear;
+                dp.static_samplers[s].address_u = ESamplerAddress::Clamp;
+                dp.static_samplers[s].address_v = ESamplerAddress::Clamp;
+                dp.static_samplers[s].address_w = ESamplerAddress::Clamp;
+            }
+            auto dplr = CreateRhiPipeline(*dev, dp);
+            if (dplr.IsOk()) {
+                h.dof_pipe = Move(dplr.Value());
+                FBufferDesc dcb{}; dcb.size = 256; dcb.usage = EBufferUsage::Uniform; dcb.cpu_writable = true;
+                auto dcr = CreateRhiBuffer(*dev, dcb); if (dcr.IsOk()) h.dof_cb = Move(dcr.Value());
+                h.dof_ready = (h.dof_pipe.Get() != nullptr && h.dof_cb.Get() != nullptr);
+            }
+        }
+        if (!h.dof_ready) ACS_LOG_WARN("[3D] DoF パイプライン生成失敗 (被写界深度無効)");
     }
 
     // オーバーレイ用 (同シェーダ・depth off): ギズモを常に手前に出す。
@@ -3670,6 +3743,42 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                 }
             }
         }
+
+        // --- 被写界深度 (DoF): depth から CoC を出して焦点外をディスクぼかし (屈折の後＝ガラスも DoF に乗る) ---
+        //     opaque+glass の HDR を refr_bg へ blit → hdrRt を load 再オープン (depth は DSV にせず SRV で sample) →
+        //     DoF シェーダで焦点距離に応じてぼかす。
+        if (h.q_dof_on && h.dof_ready && h.blit_ready) {
+            IRhiDevice* ddev = h.renderer.Device();
+            if (ddev != nullptr) {
+                if (h.refr_bg_w != scW || h.refr_bg_h != scH) {   // scene 複製 (refr_bg) を共用・遅延確保
+                    FTextureDesc bd{}; bd.width = scW; bd.height = scH; bd.format = EFormat::R16G16B16A16_Float; bd.is_render_target = true;
+                    auto btr = CreateRhiTexture(*ddev, bd);
+                    if (btr.IsOk()) { h.refr_bg = Move(btr.Value()); h.refr_bg_w = scW; h.refr_bg_h = scH; } else { h.refr_bg_w = 0; }
+                }
+                if (h.refr_bg) {
+                    const ClearColor bc{ 0.0f, 0.0f, 0.0f, 1.0f };   // 1. 現 HDR → refr_bg へ複製
+                    cl->BeginRenderToTexture(*h.refr_bg, bc, nullptr, 1.0f);
+                    { FViewport bvp{}; bvp.width = static_cast<f32>(scW); bvp.height = static_cast<f32>(scH); cl->SetViewport(bvp);
+                      FScissorRect bsr{}; bsr.right = static_cast<i32>(scW); bsr.bottom = static_cast<i32>(scH); cl->SetScissor(bsr); }
+                    cl->SetPipeline(*h.blit_pipe); cl->SetTexture(0, *hdrRt); cl->Draw(3, 0);
+                    cl->EndRenderToTexture(*h.refr_bg);
+                    // 2. hdrRt を load 再オープン (depth は DSV にせず) → DoF ぼかしを書き戻す
+                    struct DofCB { FVec4 dofp; FVec4 dofp2; } dcb{};
+                    dcb.dofp  = FVec4{ h.q_dof_focus, h.q_dof_range, h.q_dof_max, 0.05f };  // near=0.05 (EditorCam3D)
+                    dcb.dofp2 = FVec4{ 500.0f, 0.0f, 0.0f, 0.0f };                          // far=500
+                    h.dof_cb->Update(&dcb, sizeof(dcb));
+                    cl->BeginRenderToTextureLoad(*hdrRt, nullptr);
+                    { FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
+                      FScissorRect rsr{}; rsr.right = static_cast<i32>(scW); rsr.bottom = static_cast<i32>(scH); cl->SetScissor(rsr); }
+                    cl->SetPipeline(*h.dof_pipe);
+                    cl->SetConstantBuffer(0, *h.dof_cb);
+                    cl->SetTexture(0, *h.refr_bg);
+                    cl->SetTexture(1, *h.renderer.DepthBuffer());
+                    cl->Draw(3, 0);
+                    cl->EndRenderToTexture(*hdrRt);
+                }
+            }
+        }
         PostProcessParams pp{};
         // bloom: 7-mip + progressive radius + soft-knee の高品質 bloom。threshold は HDR 1.0 超を抽出、
         // soft-knee でなめらかに立ち上げ。radius は progressive で深い mip ほど広がる(基準 1.0)。
@@ -4010,6 +4119,11 @@ ACS_EDITOR_API int acs_editor_quality_sky_mode(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     return (host != nullptr) ? host->q_sky_mode : 0;
 }
+/** DoF (被写界深度) の焦点距離 ×100 (0=オフ)。設定反映の確認用。 */
+ACS_EDITOR_API int acs_editor_quality_dof_x100(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr && host->q_dof_on) ? static_cast<int>(host->q_dof_focus * 100.0f + 0.5f) : 0;
+}
 /** 太陽 (主光源) 方向 «光へ向かう» 単位ベクトルを out3 (x,y,z) へ。設定反映の確認用。 */
 ACS_EDITOR_API void acs_editor_sun_direction(void* handle, float* out3) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -4069,6 +4183,13 @@ static void ApplySettings(EditorHost& h) noexcept {
     const i32 sm = h.settings.GetInt("Rendering", "SkyMode", 0);
     const i32 smc = (sm == 1) ? 1 : 0;
     if (smc != h.q_sky_mode) { h.q_sky_mode = smc; h.ibl_dirty = true; h.ibl_tried = false; }   // モード変更 → env 再焼成
+    const f32 dofF = h.settings.GetFloat("Rendering", "DofFocus", 0.0f);
+    h.q_dof_on = (dofF > 0.0f);                    // 0=オフ / >0=焦点距離 (カメラからの view-space z)
+    if (h.q_dof_on) {
+        h.q_dof_focus = dofF;
+        h.q_dof_range = h.settings.GetFloat("Rendering", "DofRange", 5.0f);
+        h.q_dof_max   = h.settings.GetFloat("Rendering", "DofMax",   0.010f);
+    }
     // 太陽 (主光源) 方向 = 方位角/仰角 (度) → «光へ向かう» 単位ベクトル。影/陰影/空が一括で追従。
     {
         const f32 az = h.settings.GetFloat("Rendering", "SunAzimuth",   -41.0f) * 3.14159265f / 180.0f;
@@ -4238,6 +4359,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->refr3d.Shutdown(); host->refr_ready = false;
     host->blit_pipe.Reset(); host->blit_vs.Reset(); host->blit_ps.Reset(); host->blit_ready = false;
     host->refr_bg.Reset(); host->refr_bg_w = 0; host->refr_bg_h = 0;
+    host->dof_pipe.Reset(); host->dof_vs.Reset(); host->dof_ps.Reset(); host->dof_cb.Reset(); host->dof_ready = false;
     host->ibl3d.Shutdown(); host->ibl_ready = false; host->ibl_tried = false; host->ibl_dirty = true;
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
     host->sprite_textures.Clear();

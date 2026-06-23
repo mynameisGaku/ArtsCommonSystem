@@ -33,6 +33,7 @@ public static class E {
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_auto_exposure(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_fog_x1000(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_sky_mode(IntPtr h);
+    [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_dof_x100(IntPtr h);
 }
 "@
 Add-Type -TypeDefinition $src
@@ -180,6 +181,11 @@ Write-Host "`n[Sky mode] (0=FSky / 1=physical atmosphere)"
 Check "default sky = FSky (0)" ([E]::acs_editor_quality_sky_mode($h) -eq 0)
 Check "SkyMode=1 -> atmosphere" (([E]::acs_editor_settings_set($h,"Rendering","SkyMode","1") -eq 1) -and ([E]::acs_editor_quality_sky_mode($h) -eq 1))
 Check "SkyMode=0 -> FSky" (([E]::acs_editor_settings_set($h,"Rendering","SkyMode","0") -eq 1) -and ([E]::acs_editor_quality_sky_mode($h) -eq 0))
+
+Write-Host "`n[Depth of field]"
+Check "default DoF off" ([E]::acs_editor_quality_dof_x100($h) -eq 0)
+Check "DofFocus=9 -> 900" (([E]::acs_editor_settings_set($h,"Rendering","DofFocus","9") -eq 1) -and ([E]::acs_editor_quality_dof_x100($h) -eq 900))
+Check "DofFocus=0 -> off" (([E]::acs_editor_settings_set($h,"Rendering","DofFocus","0") -eq 1) -and ([E]::acs_editor_quality_dof_x100($h) -eq 0))
 
 [E]::acs_editor_destroy($h)
 Write-Host "`n==== $pass passed, $fail failed ===="
