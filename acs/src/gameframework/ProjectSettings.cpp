@@ -44,6 +44,8 @@ const FSettingDesc kSchema[] = {
       "3D 自動露出 (eye adaptation)。0=オフ (Exposure を直接使用) / 1=オン (シーン輝度から自動、Exposure は EV 補正)" },
     { "Rendering", "FogDensity",    ESettingType::Float, "0",              nullptr,
       "3D ボリュメトリック指数ハイトフォグの密度。0=オフ / 0.02〜0.05 で自然な大気感。色は空の地平色に追従" },
+    { "Rendering", "SkyMode",       ESettingType::Int,   "0",              nullptr,
+      "3D 空モデル。0=FSky (グラデ+手続き雲) / 1=FAtmosphere (物理大気散乱 Rayleigh+Mie、背景と IBL が物理ベースに。要 Diligent)" },
     { "Rendering", "SunAzimuth",    ESettingType::Float, "-41",            nullptr,
       "3D 太陽 (主光源) の方位角 (度)。影/陰影/空の太陽方向を一括で回す" },
     { "Rendering", "SunElevation",  ESettingType::Float, "58",             nullptr,

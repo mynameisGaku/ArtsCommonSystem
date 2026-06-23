@@ -53,6 +53,7 @@
 #include "render/Ssgi.h"                    // FSsgi (画面空間 1 バウンス GI。q_ssgi_* を配線)
 #include "render/MotionVector.h"            // FMotionVector (motion+normal G-buffer。TAA/SSR/SSGI の reproject 用)
 #include "render/Ibl.h"                     // ImageBasedLighting (FSky から env→irradiance/prefilter→SetIbl)
+#include "render/Atmosphere.h"              // FAtmosphere (物理大気散乱を equirect に焼く → IBL/背景)
 #include "asset/MeshPrimitive.h"            // Primitive::MakeCube/MakeSphere/MakePlane
 #include "asset/MeshAsset.h"                // FMeshAsset
 #include "math/Camera.h"                    // FCamera (透視 + lookAt)
@@ -272,6 +273,7 @@ struct EditorHost {
     f32   q_exposure         = 1.05f; f32  q_cg_saturation   = 1.10f; f32 q_cg_contrast = 1.12f;
     i32   q_tonemap          = 0;     bool q_auto_exposure   = false;  // 0=ACES 1=AgX 2=Reinhard / 自動露出(eye adaptation)
     bool  q_fog_on           = false; f32  q_fog_density     = 0.025f; f32 q_fog_height_falloff = 0.10f;  // 指数ハイトフォグ (色は空の地平色に追従)
+    i32   q_sky_mode         = 0;     // 0=FSky(グラデ+雲) / 1=FAtmosphere(物理大気散乱)。要 Diligent (IBL 経路)
     f32   q_cas              = 0.3f;  bool q_taa_on          = false; u32 q_msaa_default = 4;
     FVec3 sun_dir            = FVec3{ 0.40f, 0.85f, -0.35f };   // 太陽 (光源) 方向 «光へ向かう» 向き。Rendering/SunAzimuth+Elevation で駆動。
     FVec3 sun_color          = FVec3{ 1.0f, 0.95f, 0.85f };     // 太陽の色 (Rendering/SunColor)。
@@ -2365,6 +2367,9 @@ inline FMat4 ApplyTaaJitter(FMat4 vp, float jx, float jy) noexcept {
 // «暖色の直射 vs 青い陰» のコントラスト=立体感を残す (直射は 3 点ライトが確保)。鏡面 fallback も兼ねる。
 constexpr float kSh9Ambient = 0.55f;
 
+// 物理大気 (FAtmosphere) の equirect をエディタ露出レンジへ持ち上げる一様スケール (実測調整)。
+constexpr float kAtmosScale = 4.0f;
+
 void ComputeSkySh9(FVec4 out[9], FVec3 zenith, FVec3 horizon, FVec3 ground) noexcept {
     // 空の放射輝度 (linear) を SH9 へ射影。zenith/horizon/ground は «実際に描く FSky と同じ色» を渡し、
     // 環境光(拡散)と鏡面反射(Sh9Radiance)を背景の空と一致させる。時間帯プリセットにも追従する。
@@ -3132,14 +3137,28 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
             h.sky3d.SetSunColor(h.sun_color);
             h.sky3d.SetZenithColor(h.sky_zenith); h.sky3d.SetHorizonColor(h.sky_horizon); h.sky3d.SetGroundColor(h.sky_ground);
             if (h.ibl_ready && h.ibl_dirty) { idev->WaitIdle(); h.ibl3d.ResetEnvCubemap(); }   // 空変更 → 再キャプチャ
-            const bool ok = h.ibl3d.EnsureBrdfLut(*idev, *cl).IsOk()
-                         && h.ibl3d.EnsureEnvCubemap(*idev, *cl, h.sky3d).IsOk()
-                         && h.ibl3d.EnsureIrradiance(*idev, *cl).IsOk()
-                         && h.ibl3d.EnsurePrefilter(*idev, *cl).IsOk();
+            bool ok = h.ibl3d.EnsureBrdfLut(*idev, *cl).IsOk();
+            if (ok) {
+                if (h.q_sky_mode == 1) {
+                    // 物理大気: CPU で equirect を焼き env cubemap へ (Hillaire/Bruneton 単散乱)。太陽方角は h.sun_dir。
+                    acs::AtmosphereParams ap; ap.sun_dir = h.sun_dir;
+                    ap.sun_intensity = FVec3{ 22.0f, 22.0f, 22.0f };
+                    acs::TArray<f32> sky = acs::FAtmosphere::BakeEquirect(256, 128, ap);
+                    // 物理放射輝度はエディタの露出(ACES, exposure≈1)に対し桁が小さいので一様スケールして
+                    // 背景(skybox)と IBL を表示レンジへ持ち上げる (係数は実測調整)。
+                    for (u32 si = 0; si < sky.Size(); ++si) sky[si] *= kAtmosScale;
+                    ok = h.ibl3d.LoadEquirectHdrFromMemory(*idev, *cl, sky.Data(), 256, 128).IsOk();
+                } else {
+                    ok = h.ibl3d.EnsureEnvCubemap(*idev, *cl, h.sky3d).IsOk();   // FSky 手続き式を env cubemap に
+                }
+                ok = ok && h.ibl3d.EnsureIrradiance(*idev, *cl).IsOk()
+                        && h.ibl3d.EnsurePrefilter(*idev, *cl).IsOk();
+            }
             h.ibl_ready = ok;
             h.ibl_dirty = false;
             if (!ok) { h.ibl_tried = true; ACS_LOG_WARN("[3D] IBL 生成失敗 (Diligent backend 必須?)。SH9 にフォールバック"); }
-            else       ACS_LOG_INFO("[3D] IBL 環境光 OK (env→irradiance+prefilter %u mip+BRDF-LUT)", h.ibl3d.PrefilterMips());
+            else       ACS_LOG_INFO("[3D] IBL 環境光 OK (%s→irradiance+prefilter %u mip+BRDF-LUT)",
+                                    h.q_sky_mode == 1 ? "物理大気" : "FSky", h.ibl3d.PrefilterMips());
         }
     }
 
@@ -3289,9 +3308,15 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     { FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
       FScissorRect rsr{}; rsr.right = static_cast<i32>(scW); rsr.bottom = static_cast<i32>(scH); cl->SetScissor(rsr); }
 
-    // --- (1) スカイ: Phase2 でエンジン標準 FSky に置換 (depth-off の背景フルスクリーン三角。手続き雲つき)。
-    //         FSky Init 失敗時のみ自前 kSky3DHLSL にフォールバック。
-    if (h.sky3d_ready) {
+    // --- (1) スカイ: 物理大気モード(q_sky_mode==1 + IBL 焼成済)は env cubemap を skybox 描画して «背景=IBL=一致»。
+    //         それ以外はエンジン標準 FSky (グラデ + 手続き雲)。FSky Init 失敗時のみ自前 kSky3DHLSL。
+    if (h.q_sky_mode == 1 && h.ibl_ready) {
+        IRhiDevice* sdev = h.renderer.Device();
+        if (sdev != nullptr) {
+            const EFormat skyRt = hdrRt ? EFormat::R16G16B16A16_Float : h.renderer.ColorFormat();
+            h.ibl3d.DrawEnvSkybox(*sdev, *cl, vp, eye, skyRt, h.renderer.DepthFormat());
+        }
+    } else if (h.sky3d_ready) {
         h.sky3d.SetSunDirection(h.sun_dir);   // 空の太陽もシーンのライト方向に追従 (設定駆動)
         h.sky3d.SetSunColor(h.sun_color);     // 太陽の色も追従
         h.sky3d.SetZenithColor(h.sky_zenith); // 空グラデも設定駆動 → IBL 環境光と背景を一致
@@ -3884,6 +3909,11 @@ ACS_EDITOR_API int acs_editor_quality_fog_x1000(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     return (host != nullptr && host->q_fog_on) ? static_cast<int>(host->q_fog_density * 1000.0f + 0.5f) : 0;
 }
+/** 空モード (0=FSky / 1=物理大気)。設定反映の確認用。 */
+ACS_EDITOR_API int acs_editor_quality_sky_mode(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr) ? host->q_sky_mode : 0;
+}
 /** 太陽 (主光源) 方向 «光へ向かう» 単位ベクトルを out3 (x,y,z) へ。設定反映の確認用。 */
 ACS_EDITOR_API void acs_editor_sun_direction(void* handle, float* out3) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -3940,6 +3970,9 @@ static void ApplySettings(EditorHost& h) noexcept {
     h.q_auto_exposure = (h.settings.GetFloat("Rendering", "AutoExposure", 0.0f) > 0.0f);
     const f32 fogd = h.settings.GetFloat("Rendering", "FogDensity", 0.0f);
     h.q_fog_on = (fogd > 0.0f); if (h.q_fog_on) h.q_fog_density = fogd;   // 0=オフ / >0=密度 (色は空の地平色)
+    const i32 sm = h.settings.GetInt("Rendering", "SkyMode", 0);
+    const i32 smc = (sm == 1) ? 1 : 0;
+    if (smc != h.q_sky_mode) { h.q_sky_mode = smc; h.ibl_dirty = true; h.ibl_tried = false; }   // モード変更 → env 再焼成
     // 太陽 (主光源) 方向 = 方位角/仰角 (度) → «光へ向かう» 単位ベクトル。影/陰影/空が一括で追従。
     {
         const f32 az = h.settings.GetFloat("Rendering", "SunAzimuth",   -41.0f) * 3.14159265f / 180.0f;
