@@ -4247,7 +4247,7 @@ static void ApplyQualityPreset(EditorHost& h, const char* level) noexcept {
         h.q_ssao_on=true;  h.q_ssao_intensity=0.9f; h.q_ssao_radius=0.6f;
         h.q_ssgi_on=false; h.q_ssr_on=false; h.q_ibl_mode=1;
         h.q_bloom_on=true; h.q_bloom_intensity=0.40f; h.q_bloom_threshold=0.90f; h.q_bloom_radius=1.2f;
-        h.q_cg_saturation=1.05f; h.q_cg_contrast=1.08f; h.q_cas=0.3f; h.q_taa_on=false; h.q_msaa_default=2;
+        h.q_cg_saturation=1.05f; h.q_cg_contrast=1.08f; h.q_cas=0.3f; h.q_taa_on=true;  h.q_msaa_default=2;  // Medium も AA 一貫性のため TAA on
     } else if (eq("Low")) {
         h.q_shadow_size=1024; h.q_shadow_cascades=1; h.q_shadow_bias=0.0020f; h.q_shadow_filter=0.0f;
         h.q_ssao_on=false; h.q_ssgi_on=false; h.q_ssr_on=false;
