@@ -115,30 +115,41 @@ float4 PSMain(VSOut v) : SV_TARGET {
         sky = lerp(sky, sun_color.xyz, k);
     }
 
-    // 4) 手続き的な雲 (地平線より上のみ)。視線を高さ 1 の雲平面に投影して FBM を引く。
+    // 4) 手続き的な雲 (地平線より上のみ)。視線を高さ 1 の雲平面に投影し、base 形状 + 高周波 detail で
+    //    侵食 → 太陽方向への自己影マーチで «擬似ボリューム» の立体感を出す (平坦な 2D 投影から脱却)。
     if (cloud_params0.w >= 0.5 && dir.y > 0.004) {
         float  time     = cloud_params0.z;
         float  wind     = cloud_params1.w;
-        // 平面投影。地平線方向 (dir.y 小) で遠近感が出るよう dir.y を少し持ち上げて
-        // uv の発散を抑える (地平線でも雲が潰れず層状に見える)。
         float2 uv       = (dir.xz / (dir.y + 0.12)) * 1.1;
         uv += float2(time * wind * 0.02, time * wind * 0.013);
 
         float coverage  = saturate(cloud_params0.x);
         float density   = max(cloud_params0.y, 0.1);
-        float n         = Fbm(uv);
-        // coverage で remap: coverage が高いほど薄い部分も雲になる
-        float clouds    = saturate((n - (1.0 - coverage)) / max(coverage, 0.001));
+        float invCov    = 1.0 / max(coverage, 0.001);
+        // base 形状を高周波 detail で侵食 → もこもこ/wispy な縁に (のっぺり感を解消)
+        float baseN     = Fbm(uv);
+        float detailN   = Fbm(uv * 3.9 + 17.3);
+        float n         = saturate(baseN - detailN * 0.20);
+        float clouds    = saturate((n - (1.0 - coverage)) * invCov);
         clouds          = pow(clouds, density);
-        // 地平線のすぐ上から雲を出し、天頂へ向けてしっかり乗せる。
         float hFade     = smoothstep(0.0, 0.10, dir.y);
         clouds         *= hFade;
 
-        // 簡易ライティング: 雲の濃い所を影色、薄い縁を明色 + 太陽方向で明るく。
-        // contrast を上げて空との分離をはっきりさせる。
-        float3 litCol   = lerp(cloud_params1.xyz, sun_color.xyz, sun_d * 0.5);
-        float3 shadow   = cloud_params1.xyz * 0.45;
-        float3 cloudCol = lerp(shadow, litCol, saturate(n * 1.4));
+        // 擬似ボリューム自己影: 太陽の水平方向へ数タップ march し、上流の雲量で減光 (Beer 則)。
+        // → 雲の «厚み» と陰影が出て立体的に見える。
+        float2 sdir     = normalize(sundn.xz + float2(1e-4, 0.0)) * 0.05;
+        float  shadowAcc = 0.0;
+        [unroll] for (int s = 1; s <= 4; ++s) {
+            float sn = Fbm(uv + sdir * float(s));
+            shadowAcc += saturate((sn - (1.0 - coverage)) * invCov);
+        }
+        float lightT    = exp(-shadowAcc * 0.65);            // 上流に雲が多いほど暗い (Beer-Lambert)
+
+        // ライティング: 影色 ↔ 受光色を自己影で補間 + silver lining (太陽縁の輝き)。
+        float3 litCol   = lerp(cloud_params1.xyz, sun_color.xyz, sun_d * 0.6);
+        float3 shadowCol= cloud_params1.xyz * 0.32;
+        float3 cloudCol = lerp(shadowCol, litCol, lightT);
+        cloudCol       += sun_color.xyz * pow(sun_d, 8.0) * (1.0 - lightT) * 0.6;   // silver lining
         sky = lerp(sky, cloudCol, clouds);
     }
 
