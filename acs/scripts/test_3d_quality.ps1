@@ -164,7 +164,9 @@ Write-Host "`n[TAA temporal anti-aliasing] (Halton jitter + history blend)"
 [void][E]::acs_editor_settings_set($h,"Rendering","Taa","-1")
 Check "Highest preset TAA on" ([E]::acs_editor_quality_taa($h) -eq 1)
 [void][E]::acs_editor_settings_set($h,"Rendering","QualityLevel","High")
-Check "High preset TAA off" ([E]::acs_editor_quality_taa($h) -eq 0)
+Check "High preset TAA on (default AA)" ([E]::acs_editor_quality_taa($h) -eq 1)
+[void][E]::acs_editor_settings_set($h,"Rendering","QualityLevel","Medium")
+Check "Medium preset TAA off" ([E]::acs_editor_quality_taa($h) -eq 0)
 Check "Taa=1 override forces on" (([E]::acs_editor_settings_set($h,"Rendering","Taa","1") -eq 1) -and ([E]::acs_editor_quality_taa($h) -eq 1))
 Check "Taa=0 override forces off" (([E]::acs_editor_settings_set($h,"Rendering","Taa","0") -eq 1) -and ([E]::acs_editor_quality_taa($h) -eq 0))
 

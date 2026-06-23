@@ -4265,7 +4265,7 @@ static void ApplyQualityPreset(EditorHost& h, const char* level) noexcept {
         h.q_ssao_on=true;  h.q_ssao_intensity=1.0f; h.q_ssao_radius=0.8f;
         h.q_ssgi_on=false; h.q_ssr_on=true; h.q_ssr_intensity=0.8f; h.q_ssr_hiz=false; h.q_ibl_mode=2;
         h.q_bloom_on=true; h.q_bloom_intensity=0.50f; h.q_bloom_threshold=0.80f; h.q_bloom_radius=1.5f;
-        h.q_cg_saturation=1.10f; h.q_cg_contrast=1.12f; h.q_cas=0.3f; h.q_taa_on=false; h.q_msaa_default=4;
+        h.q_cg_saturation=1.10f; h.q_cg_contrast=1.12f; h.q_cas=0.3f; h.q_taa_on=true;  h.q_msaa_default=4;  // 既定で TAA = 3D ビューポートのジャギー解消
     }
 }
 
