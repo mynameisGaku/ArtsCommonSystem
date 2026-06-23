@@ -208,6 +208,25 @@ SamplerState scene_depth_sampler : register(s2);
 
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
+// YCoCg 変換 + AABB clip (Karis TAA 2014)。RGB の per-channel clamp はクロマゴーストを通すが、
+// 輝度/色差を分離した YCoCg で AABB の «中心へ向けて clip» すると色のにじみ尾を強く抑えられる。
+float3 RGB2YCoCg(float3 c) {
+    return float3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b,
+                  0.5  * c.r            - 0.5  * c.b,
+                 -0.25 * c.r + 0.5 * c.g - 0.25 * c.b);
+}
+float3 YCoCg2RGB(float3 c) {
+    return float3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z);
+}
+float3 ClipAABB(float3 amin, float3 amax, float3 p) {
+    float3 center = 0.5 * (amax + amin);
+    float3 ext    = 0.5 * (amax - amin) + 1e-5;
+    float3 d      = p - center;
+    float3 ad     = abs(d / ext);
+    float  m      = max(ad.x, max(ad.y, ad.z));
+    return (m > 1.0) ? center + d / m : p;   // AABB 外なら中心へ向けて境界まで clip
+}
+
 float2 ComputeMotionUv(float2 uv) {
     // 現フレームの depth から world pos を復元、前フレームの VP で clip pos を計算、
     // ndc → uv に戻して motion vec を作る。camera 動きのみ反映 (object 動きは見えない)。
@@ -246,21 +265,22 @@ float4 PSMain(VSOut v) : SV_TARGET {
     if (offscreen) hist_uv = v.uv;
     float3 hist = history_hdr.SampleLevel(history_hdr_sampler, hist_uv, 0).rgb;
 
-    // Neighborhood AABB clamp: 3x3 neighborhood の current min/max を取り、
-    // history がその範囲外なら clamp で抑える。motion 時の古い色を排除する。
+    // Neighborhood AABB clip (YCoCg): 3x3 の current min/max を YCoCg で取り、history を
+    // その AABB の «中心へ向けて» clip する (Karis)。RGB per-channel clamp よりクロマゴーストに強い。
     float2 tx = float2(params1.y, params1.z);
-    float3 nmin = cur, nmax = cur;
+    float3 curY = RGB2YCoCg(cur);
+    float3 nmin = curY, nmax = curY;
     [unroll]
     for (int dy = -1; dy <= 1; ++dy) {
         [unroll]
         for (int dx = -1; dx <= 1; ++dx) {
             if (dx == 0 && dy == 0) continue;
-            float3 c = current_hdr.SampleLevel(current_hdr_sampler, v.uv + float2(dx, dy) * tx, 0).rgb;
+            float3 c = RGB2YCoCg(current_hdr.SampleLevel(current_hdr_sampler, v.uv + float2(dx, dy) * tx, 0).rgb);
             nmin = min(nmin, c);
             nmax = max(nmax, c);
         }
     }
-    hist = clamp(hist, nmin, nmax);
+    hist = YCoCg2RGB(ClipAABB(nmin, nmax, RGB2YCoCg(hist)));
 
     float a = saturate(taa_params.x);
     if (a < 1e-4) a = 0.1;          // ガード (CB 0 で全 history になるのを避ける)

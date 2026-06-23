@@ -106,10 +106,14 @@ float4 PSMain(VSOut v) : SV_TARGET {
         // (P.z) で割る。透視投影では screen size ∝ world size / view_z なので
         // これが次元的に正しい。0.5 は fov/aspect 由来の proj scale の粗い近似。
         float screen_r = kRadius * 0.5 / max(P.z, 0.1);
+        // aspect 補正: UV は非正方 (texel_w≠texel_h)。off.x を aspect(W/H) で割らないと横長に
+        // サンプルされ AO が異方的になる。これでワールド空間で «円形» の遮蔽サンプルになる。
+        float aspectWH = params.w / max(params.z, 1e-6);   // (1/H)/(1/W) = W/H
         [unroll]
         for (int t = 1; t <= kSteps; ++t) {
             float tt = (float(t) - 0.5 + jitter * 0.5) / float(kSteps);
             float2 off = dir * screen_r * tt;
+            off.x /= aspectWH;
 
             float2 uvA = v.uv + off;     // +omega 側
             if (uvA.x >= 0.0 && uvA.x <= 1.0 && uvA.y >= 0.0 && uvA.y <= 1.0) {
