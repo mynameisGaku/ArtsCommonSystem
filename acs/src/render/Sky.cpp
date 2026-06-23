@@ -98,13 +98,22 @@ float Fbm3(float3 p) {
     [unroll] for (int i = 0; i < 5; ++i) { sum += amp * ValueNoise3(p); p *= 2.03; amp *= 0.5; }
     return sum;
 }
-// 雲スラブ内の点 p の密度 (0..1)。base FBM を coverage で remap → 高周波 detail で侵食。
+// 雲スラブ内の点 p の密度 (0..1)。高周波 base + 高度プロファイル + 多段 detail 侵食で «くっきりした»
+// 立体雲に (低周波の大きい塊だとボケて低解像度に見えるため、周波数とコントラストを上げる)。
 float CloudDensity3(float3 p, float coverage, float windOff) {
-    float3 q = p * 0.45 + float3(windOff, 0.0, windOff * 0.6);
-    float base   = Fbm3(q);
-    float shape  = saturate((base - (1.0 - coverage)) / max(coverage, 0.001));
-    float detail = Fbm3(q * 3.7 + 4.1);
-    return saturate(shape - detail * 0.22) * shape;       // 侵食でもこもこ/wispy に
+    // 高度プロファイル: スラブ中央で濃く上下で薄い → 丸みのある雲塊 (cumulus)。p.y はスラブ高度。
+    float hf = saturate((p.y - 1.0) / 1.6);
+    float profile = smoothstep(0.0, 0.22, hf) * smoothstep(1.0, 0.5, hf);
+    if (profile <= 0.001) return 0.0;
+    float3 q = p * 2.4 + float3(windOff, windOff * 0.2, windOff * 0.6);   // 高周波化 → 雲の数とディテール増
+    float base  = Fbm3(q);
+    float shape = saturate((base - (1.0 - coverage)) / max(coverage, 0.001)) * profile;
+    if (shape <= 0.0) return 0.0;
+    // 2 段の高周波 detail で縁を侵食 → もこもこ + wispy なディテール
+    float d1 = Fbm3(q * 3.0 + 11.3);
+    float d2 = Fbm3(q * 8.0 + 27.1);
+    float d  = saturate(shape - (1.0 - shape) * (d1 * 0.45 + d2 * 0.25));
+    return d * d * (3.0 - 2.0 * d);                       // smoothstep でコントラスト強調 (くっきり)
 }
 
 // IGN ベースの dither (8-bit 量子化前にバンディングを消す)。
@@ -156,7 +165,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
         const float h0 = 1.0, h1 = 2.6;                  // 雲スラブの仮想高度 (dome 空間)
         float t0 = h0 / dir.y, t1 = h1 / dir.y;          // ray がスラブに入る/出る距離
-        const int  N  = 28;
+        const int  N  = 48;                              // 高周波ノイズを拾うためステップ増 (undersample 回避)
         float dt = (t1 - t0) / float(N);
         float3 litCol   = lerp(cloud_params1.xyz, sun_color.xyz, sun_d * 0.6);
         float3 shadowCol= cloud_params1.xyz * 0.30;
@@ -174,7 +183,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
                 float lightT = exp(-lightDens * 0.9);
                 float3 lit   = lerp(shadowCol, litCol, lightT);
                 lit += sun_color.xyz * pow(sun_d, 8.0) * (1.0 - lightT) * 0.5;   // silver lining
-                float a = 1.0 - exp(-dens * dt * 3.5);    // この区間の不透明度
+                float a = 1.0 - exp(-dens * dt * 6.0);    // この区間の不透明度 (消衰を上げ縁をくっきり)
                 scatter  += transmit * a * lit;           // front-to-back 合成
                 transmit *= (1.0 - a);
                 if (transmit < 0.02) break;
