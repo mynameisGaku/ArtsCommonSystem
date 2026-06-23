@@ -51,6 +51,7 @@
 #include "render/Ssao.h"                    // FSsao (GTAO + contact shadow。q_ssao_* を配線)
 #include "render/Ssr.h"                     // FSsr (画面空間反射。q_ssr_* を配線)
 #include "render/Ssgi.h"                    // FSsgi (画面空間 1 バウンス GI。q_ssgi_* を配線)
+#include "render/MotionVector.h"            // FMotionVector (motion+normal G-buffer。TAA/SSR/SSGI の reproject 用)
 #include "render/Ibl.h"                     // ImageBasedLighting (FSky から env→irradiance/prefilter→SetIbl)
 #include "asset/MeshPrimitive.h"            // Primitive::MakeCube/MakeSphere/MakePlane
 #include "asset/MeshAsset.h"                // FMeshAsset
@@ -220,6 +221,8 @@ struct EEd3DRec : public acs::game::FComponent3D {
     TArray<FVec2> poly_pts;                   ///< 3点以上なら手続きポリゴン (z=0)。再生成用の元 2D 頂点列。
     GpuMesh       gm_cache;                    ///< Phase2: prim==Mesh の GPU メッシュキャッシュ (FPbrShader 描画用)。
     const void*   gm_cache_src = nullptr;      ///< gm_cache の元 FMeshAsset ポインタ (変化時に再アップロード)。
+    FMat4         prev_world = FMat4::Identity(); ///< 前フレームの world 行列 (FMotionVector のモーションベクタ用、実行時のみ・非シリアライズ)。
+    bool          prev_world_valid = false;       ///< prev_world が前フレーム値を持つか (新規ノードは初回 motion=0)。
     // アタッチされた Component 型 (リフレクション type-id)。2D の FEditorNode と同じ «エディタ・メタデータ» 方式。
     game::FTypeId components[kMaxComponents] = {};
     u32           component_count            = 0;
@@ -354,6 +357,9 @@ struct EditorHost {
     acs::FSsgi               ssgi3d;                   // エンジン SSGI (1 バウンス間接光)。出力は FPbrShader.SetSsgi で ambient に加算
     bool                     ssgi_ready = false;
     bool                     ssgi_computed = false;    // 今フレーム SSGI を焼いたか (次フレームの SetSsgi 用)
+    acs::FMotionVector       mv3d;                     // motion + world normal G-buffer。motion を TAA/SSR/SSGI へ供給 (動く物の ghost 除去)
+    bool                     mv_ready = false;
+    bool                     mv_computed = false;      // 今フレーム motion を焼いたか
     FMat4                    prev_vp = FMat4::Identity();  // 前フレーム view_proj (SSR/SSGI temporal reproject 共用、jitter 込み)
     FMat4                    prev_vp_nojit = FMat4::Identity();  // 前フレーム view_proj (jitter 無し、TAA history reproject 用)
     u32                      taa_frame = 0;                // TAA Halton ジッタ列のフレームインデックス
@@ -3218,6 +3224,9 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                 if (!h.ssgi_ready) { auto gr = h.ssgi3d.Init(*sdev, scW, scH); h.ssgi_ready = gr.IsOk();
                                      if (!h.ssgi_ready) ACS_LOG_ERROR("[3D] FSsgi Init 失敗: %s", gr.Error().message); }
                 else               { (void)h.ssgi3d.Resize(scW, scH); }
+                if (!h.mv_ready)   { auto mr = h.mv3d.Init(*sdev, scW, scH); h.mv_ready = mr.IsOk();
+                                     if (!h.mv_ready) ACS_LOG_ERROR("[3D] FMotionVector Init 失敗: %s", mr.Error().message); }
+                else               { (void)h.mv3d.Resize(scW, scH); }
                 if (h.normal_rt) { h.ssao_w = scW; h.ssao_h = scH; } else { h.ssao_w = 0; h.ssao_h = 0; }
             }
             if (h.normal_rt && h.ssao_w == scW) {
@@ -3240,6 +3249,29 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                         vp, Inverse(vp), cam.View(), eye, h.sun_dir,
                         h.q_ssao_intensity, h.q_ssao_radius);   // light_dir = surface→light = sun_dir
         h.ssao_computed = true;
+    }
+
+    // --- FMotionVector: motion G-buffer を per-node (主パスと同型) で焼き TAA/SSR/SSGI の reproject に供給 ---
+    //     no-jitter の vp/prev で «真の幾何モーション» (カメラ + オブジェクト両方) を出す。静止物は motion≈カメラ分、
+    //     動く物 (play/ドラッグ) はその差分も入り ghost が消える。TAA/SSR/SSGI が ON のときだけ焼く。
+    h.mv_computed = false;
+    if (gbufReady && h.mv_ready && h.pbr3d_ready && (h.q_taa_on || h.q_ssr_on || h.q_ssgi_on)) {
+        h.mv3d.Begin(*cl, vp_nojit, h.prev_vp_nojit);
+        for (u32 i = 0; i < all3d.Size(); ++i) {
+            game::FNode3D* nn = all3d[i];
+            EEd3DRec* er = Rec3D(nn);
+            if (er != nullptr && er->is_empty) continue;
+            game::FMeshComponent3D* mc = Mesh3D(nn);
+            if (mc == nullptr || mc->RenderHandle() != nullptr) continue;
+            GpuMesh* gm = GpuMeshForNode3D(h, nn);
+            if (gm == nullptr || gm->vertex_buffer.Get() == nullptr || gm->index_buffer.Get() == nullptr) continue;
+            const FMat4 world = nn->World().ToMat4();
+            const FMat4 prevW = (er != nullptr && er->prev_world_valid) ? er->prev_world : world;
+            h.mv3d.DrawMesh(*cl, *gm, world, prevW);
+            if (er != nullptr) { er->prev_world = world; er->prev_world_valid = true; }
+        }
+        h.mv3d.End(*cl);
+        h.mv_computed = true;
     }
 
     // Phase2: 3D シーンを «線形 HDR RT» へ描く → 末尾で FPostProcess(ACES) が一度だけ tonemap。post3d 遅延初期化。
@@ -3504,7 +3536,8 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         h.ssr_computed = false;
         if (h.q_ssr_on && h.ssr_ready && gbufReady) {
             h.ssr3d.Render(*h.renderer.Device(), *cl, *hdrRt, *h.renderer.DepthBuffer(), *h.normal_rt,
-                           vp, Inverse(vp), h.prev_vp, eye, h.q_ssr_intensity);
+                           vp, Inverse(vp), h.prev_vp, eye, h.q_ssr_intensity,
+                           h.mv_computed ? h.mv3d.OutputTexture() : nullptr);   // motion で動く物の反射 ghost を除去
             h.ssr_computed = true;
         }
         // SSGI: 同じ lit scene color + 深度 + 法線から 1 バウンス間接光を焼く (raw→blur→temporal)。
@@ -3512,7 +3545,8 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         h.ssgi_computed = false;
         if (h.q_ssgi_on && h.ssgi_ready && gbufReady) {
             h.ssgi3d.Render(*h.renderer.Device(), *cl, *hdrRt, *h.renderer.DepthBuffer(), *h.normal_rt,
-                            vp, Inverse(vp), h.prev_vp, eye, h.q_ssgi_intensity, h.q_ssgi_max_dist);
+                            vp, Inverse(vp), h.prev_vp, eye, h.q_ssgi_intensity, h.q_ssgi_max_dist,
+                            h.mv_computed ? h.mv3d.OutputTexture() : nullptr);   // motion で動く物の間接光 ghost を除去
             h.ssgi_computed = true;
         }
         PostProcessParams pp{};
@@ -3541,6 +3575,8 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
             pp.taa_depth_texture = h.renderer.DepthBuffer();
             pp.taa_view_proj_no_jitter      = vp_nojit;
             pp.taa_prev_view_proj_no_jitter = h.prev_vp_nojit;
+            // motion vector があれば depth reproject の代わりに使う (動く mesh も ghost せず追従)。
+            if (h.mv_computed) pp.taa_motion_texture = h.mv3d.OutputTexture();
         }
         h.post3d.Render(*cl, *scSwap, h.renderer.CurrentBuffer(), pp);
     }
@@ -4069,6 +4105,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->ssao3d.Shutdown(); host->ssao_ready = false; host->ssao_pipe_ready = false; host->ssao_w = 0; host->ssao_h = 0;
     host->ssr3d.Shutdown(); host->ssr_ready = false;
     host->ssgi3d.Shutdown(); host->ssgi_ready = false;
+    host->mv3d.Shutdown(); host->mv_ready = false;
     host->ibl3d.Shutdown(); host->ibl_ready = false; host->ibl_tried = false; host->ibl_dirty = true;
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
     host->sprite_textures.Clear();
