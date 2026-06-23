@@ -87,7 +87,7 @@ TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& cfg) noexcept {
     }
     constexpr Diligent::Uint32 kMaxAdapters = 8;
     Diligent::GraphicsAdapterInfo adapters[kMaxAdapters]{};
-    const Diligent::Uint32 enumerate = num_adapters > kMaxAdapters ? kMaxAdapters : num_adapters;
+    Diligent::Uint32 enumerate = num_adapters > kMaxAdapters ? kMaxAdapters : num_adapters;  // 非 const: EnumerateAdapters が in/out 参照で個数を受ける
     m_Factory->EnumerateAdapters(eci.GraphicsAPIVersion, enumerate, adapters);
     Diligent::Uint32 selected = 0;
     if (cfg.prefer_high_perf) {

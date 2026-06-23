@@ -22,11 +22,13 @@ TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainCon
     m_BufferCount = (cfg.buffer_count >= 2 && cfg.buffer_count <= 3) ? cfg.buffer_count : 2;
     m_bVsync  = cfg.vsync;
     m_Format = cfg.format;
-    m_Width  = cfg.window ? cfg.window->Width()  : 0;
-    m_Height = cfg.window ? cfg.window->Height() : 0;
+    // window オブジェクト優先。無ければ external_hwnd 経路 (エディタの WPF child HWND attach) を使う。
+    void* native_hwnd = cfg.window ? cfg.window->NativeHandle() : cfg.external_hwnd;
+    m_Width  = cfg.window ? cfg.window->Width()  : cfg.external_width;
+    m_Height = cfg.window ? cfg.window->Height() : cfg.external_height;
 
-    if (!cfg.window || !cfg.window->NativeHandle()) {
-        return ACS_ERR(Render, 110, "DiligentSwapchain::Init requires a valid window");
+    if (!native_hwnd) {
+        return ACS_ERR(Render, 110, "DiligentSwapchain::Init requires a valid window or external_hwnd");
     }
 
     Diligent::SwapChainDesc sd;
@@ -39,7 +41,7 @@ TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainCon
     sd.Usage             = Diligent::SWAP_CHAIN_USAGE_RENDER_TARGET;
 
     Diligent::Win32NativeWindow win{};
-    win.hWnd = cfg.window->NativeHandle();
+    win.hWnd = native_hwnd;
 
     Diligent::FullScreenModeDesc fs{};
 
