@@ -35,6 +35,7 @@ public static class E {
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_sky_mode(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_dof_x100(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_godray_x100(IntPtr h);
+    [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_quality_cine_x100(IntPtr h, int which);
 }
 "@
 Add-Type -TypeDefinition $src
@@ -192,6 +193,12 @@ Write-Host "`n[God rays (light shafts)]"
 Check "default god rays off" ([E]::acs_editor_quality_godray_x100($h) -eq 0)
 Check "GodRays=0.8 -> 80" (([E]::acs_editor_settings_set($h,"Rendering","GodRays","0.8") -eq 1) -and ([E]::acs_editor_quality_godray_x100($h) -eq 80))
 Check "GodRays=0 -> off" (([E]::acs_editor_settings_set($h,"Rendering","GodRays","0") -eq 1) -and ([E]::acs_editor_quality_godray_x100($h) -eq 0))
+
+Write-Host "`n[Cinematic filters: vignette / chromatic / grain]"
+Check "Vignette=0.5 -> 50" (([E]::acs_editor_settings_set($h,"Rendering","Vignette","0.5") -eq 1) -and ([E]::acs_editor_quality_cine_x100($h,0) -eq 50))
+Check "ChromaticAberration=0.5 -> 50" (([E]::acs_editor_settings_set($h,"Rendering","ChromaticAberration","0.5") -eq 1) -and ([E]::acs_editor_quality_cine_x100($h,1) -eq 50))
+Check "FilmGrain=0.5 -> 50" (([E]::acs_editor_settings_set($h,"Rendering","FilmGrain","0.5") -eq 1) -and ([E]::acs_editor_quality_cine_x100($h,2) -eq 50))
+Check "Vignette=0 -> off" (([E]::acs_editor_settings_set($h,"Rendering","Vignette","0") -eq 1) -and ([E]::acs_editor_quality_cine_x100($h,0) -eq 0))
 
 [E]::acs_editor_destroy($h)
 Write-Host "`n==== $pass passed, $fail failed ===="

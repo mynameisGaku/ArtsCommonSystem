@@ -379,6 +379,7 @@ struct EditorHost {
     bool                     dof_ready = false;
     // god rays (光芒): 太陽スクリーン位置から bright pass を放射状 march して光の筋を加算。scene 複製は refr_bg 共用。
     bool                     q_godray_on = false; f32 q_godray_intensity = 0.5f; f32 q_godray_decay = 0.96f;
+    f32                      q_vignette = 0.0f; f32 q_chromatic = 0.0f; f32 q_grain = 0.0f;  // シネマフィルタ (既定 0=クリーン)
     TUniquePtr<IRhiPipeline> gray_pipe;
     TUniquePtr<IRhiShader>   gray_vs, gray_ps;
     TUniquePtr<IRhiBuffer>   gray_cb;
@@ -3906,7 +3907,9 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         }
         pp.cg_saturation = h.q_cg_saturation; pp.cg_contrast = h.q_cg_contrast;
         pp.cas_strength = h.q_cas;   // CAS シャープ (品質連動)
-        pp.vignette_intensity = 0.0f; pp.chromatic_aberration = 0.0f; pp.grain_intensity = 0.0f;
+        // シネマフィルタ (既定 0=クリーンなエディタ表示。ゲーム出力プレビュー用に設定で有効化可)。
+        pp.vignette_intensity = h.q_vignette; pp.chromatic_aberration = h.q_chromatic;
+        pp.grain_intensity = h.q_grain; pp.grain_time = h.time;
         // TAA: Halton ジッタ + history の neighborhood-clamp blend でテンポラル AA。reproject は «jitter 無し»
         // の vp/prev で行う (camera motion 由来。depth から history を offset sample)。motion_texture は未使用。
         if (taaOn) {
@@ -4239,6 +4242,13 @@ ACS_EDITOR_API int acs_editor_quality_godray_x100(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     return (host != nullptr && host->q_godray_on) ? static_cast<int>(host->q_godray_intensity * 100.0f + 0.5f) : 0;
 }
+/** シネマフィルタ ×100 (which: 0=vignette 1=chromatic 2=grain)。設定反映の確認用。 */
+ACS_EDITOR_API int acs_editor_quality_cine_x100(void* handle, int which) {
+    auto* host = static_cast<EditorHost*>(handle);
+    if (host == nullptr) return 0;
+    const f32 v = (which == 0) ? host->q_vignette : (which == 1) ? host->q_chromatic : host->q_grain;
+    return static_cast<int>(v * 100.0f + 0.5f);
+}
 /** 太陽 (主光源) 方向 «光へ向かう» 単位ベクトルを out3 (x,y,z) へ。設定反映の確認用。 */
 ACS_EDITOR_API void acs_editor_sun_direction(void* handle, float* out3) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -4300,6 +4310,9 @@ static void ApplySettings(EditorHost& h) noexcept {
     if (smc != h.q_sky_mode) { h.q_sky_mode = smc; h.ibl_dirty = true; h.ibl_tried = false; }   // モード変更 → env 再焼成
     const f32 gray = h.settings.GetFloat("Rendering", "GodRays", 0.0f);
     h.q_godray_on = (gray > 0.0f); if (h.q_godray_on) h.q_godray_intensity = gray;   // 0=オフ / >0=光芒の強度
+    h.q_vignette  = h.settings.GetFloat("Rendering", "Vignette", 0.0f);              // シネマフィルタ (0=オフ)
+    h.q_chromatic = h.settings.GetFloat("Rendering", "ChromaticAberration", 0.0f);
+    h.q_grain     = h.settings.GetFloat("Rendering", "FilmGrain", 0.0f);
     const f32 dofF = h.settings.GetFloat("Rendering", "DofFocus", 0.0f);
     h.q_dof_on = (dofF > 0.0f);                    // 0=オフ / >0=焦点距離 (カメラからの view-space z)
     if (h.q_dof_on) {
