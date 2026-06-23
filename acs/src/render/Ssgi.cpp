@@ -93,6 +93,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float step_len = kMaxDist / float(kSteps);
         bool hit = false;
         float3 hit_color = float3(0, 0, 0);
+        float  hit_t = 1.0;                            // hit までの正規化距離 (1=最遠) → 減衰用
         [unroll]
         for (int s = 1; s <= kSteps; ++s) {
             ray_pos += ray_dir * step_len;
@@ -108,14 +109,18 @@ float4 PSMain(VSOut v) : SV_TARGET {
             // depth hit 判定: ray の現在 depth が scene depth より奥なら遮蔽
             if (ndc.z > scene_d + 0.0005) {
                 hit_color = scene_color.SampleLevel(scene_color_sampler, hit_uv, 0).rgb;
+                hit_t = float(s) / float(kSteps);
                 hit = true;
                 break;
             }
         }
         if (hit) {
-            // cos-weighted contribution (Lambert): N . ray_dir でフィルタ
+            // cos-weighted contribution (Lambert): N . ray_dir でフィルタ。
+            // 距離減衰 (1-t)^2 で寄与を滑らかに 0 へ → kMaxDist でのハード cutoff が作る
+            // «四角い» footprint 縁を消し、間接光を距離に応じて自然に減衰させる。
             float ndot = max(dot(N, ray_dir), 0.0);
-            gi_sum += hit_color * ndot;
+            float falloff = (1.0 - hit_t) * (1.0 - hit_t);
+            gi_sum += hit_color * ndot * falloff;
             gi_cnt += 1;
         }
     }
