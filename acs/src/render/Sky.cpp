@@ -170,10 +170,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float3 litCol   = lerp(cloud_params1.xyz, sun_color.xyz, sun_d * 0.6);
         float3 shadowCol= cloud_params1.xyz * 0.30;
 
+        // per-pixel ジッタ: 全ピクセルで march 位相が揃うと縦縞バンドが出るため、開始位相を画素ごとに散らす
+        // (Bayer/blue-noise ディザ相当)。TAA + 出力ディザが残差を均す。
+        float jit = SkyDither(v.pos.xy, cloud_params0.z);   // [0,1)
         float  transmit = 1.0;                           // 視線方向の透過率 (1=空, 0=厚い雲)
         float3 scatter  = float3(0,0,0);
         [loop] for (int i = 0; i < N; ++i) {
-            float3 p = dir * (t0 + dt * (float(i) + 0.5));
+            float3 p = dir * (t0 + dt * (float(i) + jit));
             float dens = CloudDensity3(p, coverage, windOff) * density;
             if (dens > 0.01) {
                 // 太陽方向へ 3 ステップ light march → 上流の雲量で自己影
