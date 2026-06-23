@@ -56,8 +56,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float3 V = normalize(eye.xyz - wp);
     if (dot(N, V) < 0.0) N = -N;
 
-    // hemisphere 内に 4 本 ray、各 ray を 8 step で march
-    const int   kRays  = 4;
+    // hemisphere 内に 8 本 ray、各 ray を 8 step で march (4→8 でサンプリングノイズ半減)
+    const int   kRays  = 8;
     const int   kSteps = 8;
     const float kMaxDist = max(params.y, 0.1);
     const float kIntensity = params.x;
@@ -126,8 +126,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-// depth-aware bilateral blur (RGB)。SSGI raw は 4 ray のみで
-// 強ノイズなので、depth 不連続を跨がない 5x5 blur で平滑化する。
+// depth-aware bilateral blur (RGB)。SSGI raw は 8 ray でも残るサンプリング
+// ノイズを、depth 不連続を跨がない 5x5 blur で平滑化する。
 const char* kSsgiBlurHLSL = R"(
 #pragma pack_matrix(row_major)
 
