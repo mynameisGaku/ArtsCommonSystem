@@ -34,6 +34,8 @@ const FSettingDesc kSchema[] = {
       "3D SSAO (環境遮蔽) 強度の上書き。-1 = 品質プリセットに従う。0 で SSAO オフ、大きいほど陰が濃い" },
     { "Rendering", "SsrIntensity",  ESettingType::Float, "-1",             nullptr,
       "3D SSR (画面空間反射) 強度の上書き。-1 = 品質プリセットに従う。0 で SSR オフ、大きいほど反射が強い" },
+    { "Rendering", "SsgiIntensity", ESettingType::Float, "-1",             nullptr,
+      "3D SSGI (画面空間 1 バウンス間接光) 強度の上書き。-1 = 品質プリセットに従う。0 で SSGI オフ (要 Diligent backend)" },
     { "Rendering", "SunAzimuth",    ESettingType::Float, "-41",            nullptr,
       "3D 太陽 (主光源) の方位角 (度)。影/陰影/空の太陽方向を一括で回す" },
     { "Rendering", "SunElevation",  ESettingType::Float, "58",             nullptr,

@@ -50,6 +50,7 @@
 #include "render/PostProcess.h"             // FPostProcess (HDR→ACES トーンマップ)
 #include "render/Ssao.h"                    // FSsao (GTAO + contact shadow。q_ssao_* を配線)
 #include "render/Ssr.h"                     // FSsr (画面空間反射。q_ssr_* を配線)
+#include "render/Ssgi.h"                    // FSsgi (画面空間 1 バウンス GI。q_ssgi_* を配線)
 #include "render/Ibl.h"                     // ImageBasedLighting (FSky から env→irradiance/prefilter→SetIbl)
 #include "asset/MeshPrimitive.h"            // Primitive::MakeCube/MakeSphere/MakePlane
 #include "asset/MeshAsset.h"                // FMeshAsset
@@ -348,7 +349,10 @@ struct EditorHost {
     acs::FSsr                ssr3d;                    // エンジン SSR。出力は FPbrShader.SetSsr で roughness ブレンド
     bool                     ssr_ready = false;
     bool                     ssr_computed = false;     // 今フレーム SSR を焼いたか (次フレームの SetSsr 用)
-    FMat4                    prev_vp = FMat4::Identity();  // 前フレーム view_proj (SSR temporal reproject)
+    acs::FSsgi               ssgi3d;                   // エンジン SSGI (1 バウンス間接光)。出力は FPbrShader.SetSsgi で ambient に加算
+    bool                     ssgi_ready = false;
+    bool                     ssgi_computed = false;    // 今フレーム SSGI を焼いたか (次フレームの SetSsgi 用)
+    FMat4                    prev_vp = FMat4::Identity();  // 前フレーム view_proj (SSR/SSGI temporal reproject 共用)
     // IBL (鏡面+拡散 環境光)。FSky を env cubemap 化 → irradiance/prefilter/BRDF-LUT → FPbrShader.SetIbl。
     acs::ImageBasedLighting  ibl3d;                    // Diligent backend 専用 (raw-DX12 は失敗 → SH9 フォールバック)
     bool                     ibl_ready = false;        // 全 cubemap 生成済み (true なら SetIbl、false なら SH9)
@@ -3166,12 +3170,12 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         }
     }
 
-    // --- G-buffer (法線+深度) プリパス: SSAO / SSR の共通入力。q_ssao_on か q_ssr_on で駆動 ---
+    // --- G-buffer (法線+深度) プリパス: SSAO / SSR / SSGI の共通入力。いずれか ON で駆動 ---
     //     法線プリパスは depth も焼くが、直後の本パスが depth を clear して描き直すので干渉しない。
-    //     SSAO はここで消費、SSR は本パス後 (scene color が要るため) に消費する。
+    //     SSAO はここで消費、SSR / SSGI は本パス後 (scene color が要るため) に消費する。
     h.ssao_computed = false;
     bool gbufReady = false;
-    const bool wantGbuf = (h.q_ssao_on || h.q_ssr_on) && h.ssao_pipe_ready && dvCount > 0;
+    const bool wantGbuf = (h.q_ssao_on || h.q_ssr_on || h.q_ssgi_on) && h.ssao_pipe_ready && dvCount > 0;
     if (wantGbuf) {
         IRhiDevice* sdev = h.renderer.Device();
         if (sdev != nullptr) {
@@ -3184,6 +3188,9 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                 if (!h.ssr_ready)  { auto rr = h.ssr3d.Init(*sdev, EFormat::R16G16B16A16_Float, scW, scH); h.ssr_ready = rr.IsOk();
                                      if (!h.ssr_ready) ACS_LOG_ERROR("[3D] FSsr Init 失敗: %s", rr.Error().message); }
                 else               { (void)h.ssr3d.Resize(scW, scH); }
+                if (!h.ssgi_ready) { auto gr = h.ssgi3d.Init(*sdev, scW, scH); h.ssgi_ready = gr.IsOk();
+                                     if (!h.ssgi_ready) ACS_LOG_ERROR("[3D] FSsgi Init 失敗: %s", gr.Error().message); }
+                else               { (void)h.ssgi3d.Resize(scW, scH); }
                 if (h.normal_rt) { h.ssao_w = scW; h.ssao_h = scH; } else { h.ssao_w = 0; h.ssao_h = 0; }
             }
             if (h.normal_rt && h.ssao_w == scW) {
@@ -3294,6 +3301,9 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         // SSR: 前フレームの反射結果を roughness/Fresnel でブレンド (FPbrShader 内)。本フレーム分は本パス後に焼く。
         if (h.q_ssr_on && h.ssr_ready) h.pbr3d.SetSsr(h.ssr3d.OutputTexture(), h.q_ssr_intensity);
         else                           h.pbr3d.SetSsr(nullptr, 0.0f);
+        // SSGI: 前フレームの 1 バウンス間接光を ambient に加算 (FPbrShader 内)。本フレーム分は本パス後に焼く。
+        if (h.q_ssgi_on && h.ssgi_ready) h.pbr3d.SetSsgi(h.ssgi3d.OutputTexture(), h.q_ssgi_intensity);
+        else                             h.pbr3d.SetSsgi(nullptr, 0.0f);
         // IBL: env から焼いた irradiance(拡散) + prefilter(鏡面) + BRDF-LUT。成功時は SH9 を切り cubemap 拡散を使う。
         if (h.ibl_ready) {
             h.pbr3d.SetIbl(h.ibl3d.IrradianceMap(), h.ibl3d.PrefilterMap(), h.ibl3d.BrdfLut(), h.ibl3d.PrefilterMips());
@@ -3465,6 +3475,14 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
             h.ssr3d.Render(*h.renderer.Device(), *cl, *hdrRt, *h.renderer.DepthBuffer(), *h.normal_rt,
                            vp, Inverse(vp), h.prev_vp, eye, h.q_ssr_intensity);
             h.ssr_computed = true;
+        }
+        // SSGI: 同じ lit scene color + 深度 + 法線から 1 バウンス間接光を焼く (raw→blur→temporal)。
+        // 結果は ssgi3d 内部 RT に残り «次フレーム» の SetSsgi が ambient に加算 (前フレーム間接光方式)。
+        h.ssgi_computed = false;
+        if (h.q_ssgi_on && h.ssgi_ready && gbufReady) {
+            h.ssgi3d.Render(*h.renderer.Device(), *cl, *hdrRt, *h.renderer.DepthBuffer(), *h.normal_rt,
+                            vp, Inverse(vp), h.prev_vp, eye, h.q_ssgi_intensity, h.q_ssgi_max_dist);
+            h.ssgi_computed = true;
         }
         PostProcessParams pp{};
         // bloom: 7-mip + progressive radius + soft-knee の高品質 bloom。threshold は HDR 1.0 超を抽出、
@@ -3758,6 +3776,11 @@ ACS_EDITOR_API int acs_editor_quality_ssr_x100(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     return (host != nullptr && host->q_ssr_on) ? static_cast<int>(host->q_ssr_intensity * 100.0f + 0.5f) : 0;
 }
+/** 現在の SSGI 強度 ×100 (0=SSGI オフ)。設定反映の確認用。 */
+ACS_EDITOR_API int acs_editor_quality_ssgi_x100(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr && host->q_ssgi_on) ? static_cast<int>(host->q_ssgi_intensity * 100.0f + 0.5f) : 0;
+}
 /** 太陽 (主光源) 方向 «光へ向かう» 単位ベクトルを out3 (x,y,z) へ。設定反映の確認用。 */
 ACS_EDITOR_API void acs_editor_sun_direction(void* handle, float* out3) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -3805,6 +3828,8 @@ static void ApplySettings(EditorHost& h) noexcept {
     if (si >= 0.0f) { h.q_ssao_intensity = si; h.q_ssao_on = (si > 0.0f); }
     const f32 ri = h.settings.GetFloat("Rendering", "SsrIntensity", -1.0f);
     if (ri >= 0.0f) { h.q_ssr_intensity = ri; h.q_ssr_on = (ri > 0.0f); }
+    const f32 gi = h.settings.GetFloat("Rendering", "SsgiIntensity", -1.0f);
+    if (gi >= 0.0f) { h.q_ssgi_intensity = gi; h.q_ssgi_on = (gi > 0.0f); }
     // 太陽 (主光源) 方向 = 方位角/仰角 (度) → «光へ向かう» 単位ベクトル。影/陰影/空が一括で追従。
     {
         const f32 az = h.settings.GetFloat("Rendering", "SunAzimuth",   -41.0f) * 3.14159265f / 180.0f;
@@ -3969,6 +3994,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->normal_pipe.Reset(); host->normal_vs.Reset(); host->normal_ps.Reset(); host->normal_cb.Reset(); host->normal_rt.Reset();
     host->ssao3d.Shutdown(); host->ssao_ready = false; host->ssao_pipe_ready = false; host->ssao_w = 0; host->ssao_h = 0;
     host->ssr3d.Shutdown(); host->ssr_ready = false;
+    host->ssgi3d.Shutdown(); host->ssgi_ready = false;
     host->ibl3d.Shutdown(); host->ibl_ready = false; host->ibl_tried = false; host->ibl_dirty = true;
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
     host->sprite_textures.Clear();
