@@ -170,7 +170,10 @@ if ($AllSamples) {
 } else {
     $cmakeArgs += "-DACS_ONLY_SAMPLE=$Sample"
 }
-if ($Diligent      -or $AllBackends) { $cmakeArgs += "-DACS_RENDER_DILIGENT=ON" }
+if ($Diligent      -or $AllBackends) { $cmakeArgs += "-DACS_RENDER_DILIGENT=ON"; $cmakeArgs += "-DACS_Render_DILIGENT=ON" }
+# ↑ Render モジュール feature (ACS_Render_DILIGENT → WITH_RENDER_DILIGENT 定義) も明示 ON にする。これが無いと
+#   再 configure 時に stale cache の ACS_Render_DILIGENT=OFF が残り、editor の render lib が Diligent の
+#   CreateRhiDevice をリンクせず raw-DX12 のまま (= engine IBL/SSGI が使えない) になる。
 if ($Scripting     -or $AllBackends) { $cmakeArgs += "-DACS_BUILD_SCRIPTING=ON" }
 if ($Steamworks    -or $AllBackends) { $cmakeArgs += "-DACS_BUILD_STEAMWORKS=ON" }
 if ($Onnx          -or $AllBackends) { $cmakeArgs += "-DACS_BUILD_ML_ONNX=ON" }
