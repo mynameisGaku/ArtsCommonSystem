@@ -127,10 +127,10 @@ float2 PSMain(VSOut v) : SV_TARGET {
 )";
 
 constexpr u32 kBrdfLutSize    = 256;
-constexpr u32 kEnvCubeSize    = 256;
-constexpr u32 kIrradianceSize = 32;
-constexpr u32 kPrefilterSize  = 128;
-constexpr u32 kPrefilterMips  = 5;     // 128/64/32/16/8 → roughness 0/0.25/0.5/0.75/1.0
+constexpr u32 kEnvCubeSize    = 1024;  // 背景 skybox + 鏡面反射の元。低解像度だと金属面に «ドット» が出るため高解像度化
+constexpr u32 kIrradianceSize = 64;    // 拡散 (低周波だが 32 だとバンディングが出るため 64)
+constexpr u32 kPrefilterSize  = 512;   // 鏡面反射の先鋭度。128 では金属面に明確なブロックが見えた → 512
+constexpr u32 kPrefilterMips  = 7;     // 512/256/128/64/32/16/8 → roughness 0..1 をなめらかに
 
 // ---- 環境 cubemap キャプチャ (FSky procedural を 6 face に焼く) ----
 //

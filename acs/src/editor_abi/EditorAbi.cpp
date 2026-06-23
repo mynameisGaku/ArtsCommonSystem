@@ -3340,11 +3340,11 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                     // 物理大気: CPU で equirect を焼き env cubemap へ (Hillaire/Bruneton 単散乱)。太陽方角は h.sun_dir。
                     acs::AtmosphereParams ap; ap.sun_dir = h.sun_dir;
                     ap.sun_intensity = FVec3{ 22.0f, 22.0f, 22.0f };
-                    acs::TArray<f32> sky = acs::FAtmosphere::BakeEquirect(256, 128, ap);
+                    acs::TArray<f32> sky = acs::FAtmosphere::BakeEquirect(512, 256, ap);   // env 1024 cube に焼くので equirect も高解像度化
                     // 物理放射輝度はエディタの露出(ACES, exposure≈1)に対し桁が小さいので一様スケールして
                     // 背景(skybox)と IBL を表示レンジへ持ち上げる (係数は実測調整)。
                     for (u32 si = 0; si < sky.Size(); ++si) sky[si] *= kAtmosScale;
-                    ok = h.ibl3d.LoadEquirectHdrFromMemory(*idev, *cl, sky.Data(), 256, 128).IsOk();
+                    ok = h.ibl3d.LoadEquirectHdrFromMemory(*idev, *cl, sky.Data(), 512, 256).IsOk();
                 } else {
                     ok = h.ibl3d.EnsureEnvCubemap(*idev, *cl, h.sky3d).IsOk();   // FSky 手続き式を env cubemap に
                 }
