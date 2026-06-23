@@ -3929,8 +3929,12 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                         if (gm == nullptr || gm->vertex_buffer.Get() == nullptr || gm->index_buffer.Get() == nullptr) continue;
                         const game::FPbrParams2D& p = mc->Material().pbr;
                         const FVec3 tint{ p.baseColor.x, p.baseColor.y, p.baseColor.z };
+                        // thickness は «屈折先までの world 距離» = レンズ歪みの強さ。固定 0.5 だと小さく
+                        // 背景がほぼ曲がらず «ガラスに見えない» → オブジェクトサイズ(world scale)に比例させる。
+                        const FVec3 ws = nn->World().scale;
+                        const f32 thick = ((ws.x + ws.y + ws.z) / 3.0f) * 1.4f;
                         h.refr3d.DrawMesh(*cl, *gm, nn->World().ToMat4(), *h.refr_bg, *h.ibl3d.EnvCubemap(),
-                                          p.ior, 0.5f, tint, p.roughness, 0.0f);
+                                          p.ior, thick, tint, p.roughness, 0.0f);
                     }
                     cl->EndRenderToTexture(*hdrRt);
                 }
