@@ -97,6 +97,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float n = acos(clamp(dot(projNn, V), -1.0, 1.0));
         float3 omegaIn = normalize(omega - sliceN * dot(omega, sliceN));
         if (dot(projNn, omegaIn) < 0.0) n = -n;
+        n = clamp(n, -1.5707963, 1.5707963);   // GTAO 弧積分は n∈[-π/2,π/2] 前提。投影で傾くと範囲外→過暗/負値になるのを防ぐ
 
         // 両側の horizon cos を screen-march で探す
         float cH1 = -1.0;   // -omega 側 (init = 最も低い地平)

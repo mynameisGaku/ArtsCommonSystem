@@ -210,7 +210,8 @@ float SamplePcssCascade(int cascade, float3 world_p) {
     for (int by = -kBlockerN/2; by < kBlockerN/2; ++by) {
         [unroll]
         for (int bx = -kBlockerN/2; bx < kBlockerN/2; ++bx) {
-            float2 off       = float2(bx, by) * (search_r * 0.5);
+            // +0.5 で中心化: {-2,-1,0,1} だと半 tap 偏心して penumbra が方向に偏る → {-1.5,-0.5,0.5,1.5}
+            float2 off       = (float2(bx, by) + 0.5) * (search_r * 0.5);
             float2 atlas_uv  = (base_uv + off) * float2(scale_x, 1.0) + float2(ofs_x, 0);
             atlas_uv.x = clamp(atlas_uv.x, ofs_x + kHalfTexelInset,
                                             ofs_x + scale_x - kHalfTexelInset);
@@ -230,24 +231,28 @@ float SamplePcssCascade(int cascade, float3 world_p) {
     float penumbra = max((my_d - blocker_avg) / max(blocker_avg, 1e-3), 0.0);
     float filter_r = max(penumbra * 0.01 * kFilt, ts);
 
-    // ---- 4x4 PCF (stratified) で penumbra-sized blur ----
+    // ---- PCF: 回転 Vogel ディスク 16 tap で penumbra-sized blur ----
+    // 軸整列 4x4 グリッドだとブロック状/段差の penumbra になる。golden-angle の Vogel ディスク
+    // (円板を均一サンプル) を «画素ごとに回転» (base_uv ハッシュ) して滑らかなノイズ状の penumbra に。
+    // 残る粒は TAA が時間方向に均す。
+    float ang = 6.2831853 * frac(52.9829189 * frac(dot(base_uv, float2(0.06711056, 0.00583715))));
+    float ca = cos(ang), sa = sin(ang);
     float lit = 0;
-    const int kPcfN = 4;
+    const int kPcfN = 16;
     [unroll]
-    for (int py = 0; py < kPcfN; ++py) {
-        [unroll]
-        for (int px = 0; px < kPcfN; ++px) {
-            float2 jitter = float2((float)px / (kPcfN-1) - 0.5,
-                                   (float)py / (kPcfN-1) - 0.5);
-            float2 off      = jitter * filter_r * 2.0;
-            float2 atlas_uv = (base_uv + off) * float2(scale_x, 1.0) + float2(ofs_x, 0);
-            atlas_uv.x = clamp(atlas_uv.x, ofs_x + kHalfTexelInset,
-                                            ofs_x + scale_x - kHalfTexelInset);
-            float sd = shadow_map.SampleLevel(shadow_map_sampler, atlas_uv, 0).r;
-            lit += (sd + bias >= my_d) ? 1.0 : 0.0;
-        }
+    for (int s = 0; s < kPcfN; ++s) {
+        float rr = sqrt((float(s) + 0.5) / float(kPcfN));        // sqrt → 円板面積均一
+        float ta = float(s) * 2.39996323;                        // golden angle
+        float2 vd = float2(cos(ta), sin(ta)) * rr;
+        float2 jitter = float2(vd.x * ca - vd.y * sa, vd.x * sa + vd.y * ca);   // per-pixel 回転
+        float2 off      = jitter * filter_r * 2.0;
+        float2 atlas_uv = (base_uv + off) * float2(scale_x, 1.0) + float2(ofs_x, 0);
+        atlas_uv.x = clamp(atlas_uv.x, ofs_x + kHalfTexelInset,
+                                        ofs_x + scale_x - kHalfTexelInset);
+        float sd = shadow_map.SampleLevel(shadow_map_sampler, atlas_uv, 0).r;
+        lit += (sd + bias >= my_d) ? 1.0 : 0.0;
     }
-    return lit / float(kPcfN * kPcfN);
+    return lit / float(kPcfN);
 }
 
 // CSM 全体 (cascade 選択 + boundary blending)。

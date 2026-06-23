@@ -239,10 +239,11 @@ float4 PSMain(VSOut v) : SV_TARGET {
     } else if (taa_params.y >= 0.5) {
         hist_uv = ComputeMotionUv(v.uv);
     }
-    // 画面外に飛んだ場合は clamp (border の history が出ないように)
-    if (any(hist_uv < 0.0) || any(hist_uv > 1.0)) {
-        hist_uv = v.uv;            // fallback: 静的 reprojection
-    }
+    // 画面外に飛んだ (disocclusion / 画面端進入) 場合は history を «棄却» する。
+    // ★以前は v.uv に resample して 90% history を blend していたが、それは «間違った位置の» 古い色を
+    // 混ぜて端でゴースト/スメアになる。Karis TAA に倣い off-screen は current 100% にする。
+    bool offscreen = any(hist_uv < 0.0) || any(hist_uv > 1.0);
+    if (offscreen) hist_uv = v.uv;
     float3 hist = history_hdr.SampleLevel(history_hdr_sampler, hist_uv, 0).rgb;
 
     // Neighborhood AABB clamp: 3x3 neighborhood の current min/max を取り、
@@ -263,6 +264,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
     float a = saturate(taa_params.x);
     if (a < 1e-4) a = 0.1;          // ガード (CB 0 で全 history になるのを避ける)
+    if (offscreen) a = 1.0;         // disocclusion: history 棄却 → current 100% (ゴースト防止)
     return float4(lerp(hist, cur, a), 1.0);
 }
 )";

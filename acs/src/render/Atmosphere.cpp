@@ -173,6 +173,8 @@ FVec3 SingleScatter(FVec3 ro, FVec3 rd, FVec3 sun_dir, FVec3 sun_intensity,
     // view ray 沿いに伝播した累積光学厚さ (T_view)
     f32 view_od_r = 0, view_od_m = 0;
 
+    // 注: ray_steps=32 は十分でリング状バンドはほぼ出ず、出力側 TPDF ディザが 8bit バンドを処理する。
+    // ここに per-direction ジッタを入れるとベイク (時間平滑化されない) にグレインが残るため midpoint を維持。
     for (u32 i = 0; i < ray_steps; ++i) {
         const FVec3 sample_pos = ro + rd * (step_len * (static_cast<f32>(i) + 0.5f));
         const f32 alt = Sqrt(Dot(sample_pos, sample_pos)) - kGroundRadius;

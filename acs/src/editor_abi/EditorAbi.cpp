@@ -2422,13 +2422,16 @@ VSOut VSMain(uint id : SV_VertexID) {
 }
 float4 PSMain(VSOut v) : SV_TARGET {
     float2 vel = motionTex.Sample(motionTex_sampler, v.uv).xy * mbp.x;   // UV 空間 motion * 強度
-    const int N = 12;
-    float3 col = sceneTex.Sample(sceneTex_sampler, v.uv).rgb; float wsum = 1.0;
-    [unroll] for (int i = 1; i < N; ++i) {
-        float t = (float(i) / float(N - 1)) - 0.5;                        // -0.5..0.5 中心
+    const int N = 16;
+    // per-pixel ジッタで tap 位置を散らす (McGuire 風)。固定 tap だと大速度時に «ゴースト/縞»
+    // (離散コピー) が見えるが、ジッタ + 平均で滑らかなブラーになる。
+    float jitter = frac(sin(dot(v.uv, float2(12.9898, 78.233))) * 43758.5453);
+    float3 col = float3(0,0,0); float wsum = 0.0;
+    [unroll] for (int i = 0; i < N; ++i) {
+        float t = ((float(i) + jitter) / float(N)) - 0.5;                // -0.5..0.5 ジッタ付き
         col += sceneTex.Sample(sceneTex_sampler, v.uv + vel * t).rgb; wsum += 1.0;
     }
-    return float4(col / wsum, 1.0);
+    return float4(col / max(wsum, 1.0), 1.0);
 }
 )";
 
