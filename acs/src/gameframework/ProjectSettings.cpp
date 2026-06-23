@@ -42,6 +42,8 @@ const FSettingDesc kSchema[] = {
       "3D トーンマッパー。0=ACES Filmic / 1=AgX (彩度・ハイライトが自然) / 2=Reinhard 拡張" },
     { "Rendering", "AutoExposure",  ESettingType::Float, "0",              nullptr,
       "3D 自動露出 (eye adaptation)。0=オフ (Exposure を直接使用) / 1=オン (シーン輝度から自動、Exposure は EV 補正)" },
+    { "Rendering", "FogDensity",    ESettingType::Float, "0",              nullptr,
+      "3D ボリュメトリック指数ハイトフォグの密度。0=オフ / 0.02〜0.05 で自然な大気感。色は空の地平色に追従" },
     { "Rendering", "SunAzimuth",    ESettingType::Float, "-41",            nullptr,
       "3D 太陽 (主光源) の方位角 (度)。影/陰影/空の太陽方向を一括で回す" },
     { "Rendering", "SunElevation",  ESettingType::Float, "58",             nullptr,

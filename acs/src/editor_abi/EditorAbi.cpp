@@ -268,6 +268,7 @@ struct EditorHost {
     bool  q_bloom_on         = true;  f32  q_bloom_intensity = 0.50f; f32 q_bloom_threshold = 0.80f; f32 q_bloom_radius = 1.5f;
     f32   q_exposure         = 1.05f; f32  q_cg_saturation   = 1.10f; f32 q_cg_contrast = 1.12f;
     i32   q_tonemap          = 0;     bool q_auto_exposure   = false;  // 0=ACES 1=AgX 2=Reinhard / 自動露出(eye adaptation)
+    bool  q_fog_on           = false; f32  q_fog_density     = 0.025f; f32 q_fog_height_falloff = 0.10f;  // 指数ハイトフォグ (色は空の地平色に追従)
     f32   q_cas              = 0.3f;  bool q_taa_on          = false; u32 q_msaa_default = 4;
     FVec3 sun_dir            = FVec3{ 0.40f, 0.85f, -0.35f };   // 太陽 (光源) 方向 «光へ向かう» 向き。Rendering/SunAzimuth+Elevation で駆動。
     FVec3 sun_color          = FVec3{ 1.0f, 0.95f, 0.85f };     // 太陽の色 (Rendering/SunColor)。
@@ -3335,6 +3336,10 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
             h.pbr3d.SetIbl(h.ibl3d.IrradianceMap(), h.ibl3d.PrefilterMap(), h.ibl3d.BrdfLut(), h.ibl3d.PrefilterMips());
             h.pbr3d.SetSh9(nullptr);   // IBL 有効 → irradiance cubemap を拡散に (init の muted SH9 を無効化)
         }   // ibl_ready=false の間は init で焼いた SH9 がそのまま効く (フォールバック)
+        // ボリュメトリック指数ハイトフォグ: 遠方を空の «地平色» に溶かして大気感・奥行きを出す
+        // (フォグ色を sky_horizon に追従させ時間帯プリセットと自然に馴染む)。density=0 で実質オフ。
+        if (h.q_fog_on) h.pbr3d.SetFog(h.sky_horizon, h.q_fog_density, h.q_fog_height_falloff, 0.0f);
+        else            h.pbr3d.SetFog(FVec3{ 0, 0, 0 }, 0.0f, 0.0f, 0.0f);
         for (u32 i = 0; i < all3d.Size(); ++i) {
             game::FNode3D* nn = all3d[i];
             { EEd3DRec* er = Rec3D(nn); if (er != nullptr && er->is_empty) continue; }   // 空ノードは描画しない
@@ -3838,6 +3843,11 @@ ACS_EDITOR_API int acs_editor_quality_auto_exposure(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     return (host != nullptr && host->q_auto_exposure) ? 1 : 0;
 }
+/** フォグ密度 ×1000 (0=オフ)。設定反映の確認用。 */
+ACS_EDITOR_API int acs_editor_quality_fog_x1000(void* handle) {
+    auto* host = static_cast<EditorHost*>(handle);
+    return (host != nullptr && host->q_fog_on) ? static_cast<int>(host->q_fog_density * 1000.0f + 0.5f) : 0;
+}
 /** 太陽 (主光源) 方向 «光へ向かう» 単位ベクトルを out3 (x,y,z) へ。設定反映の確認用。 */
 ACS_EDITOR_API void acs_editor_sun_direction(void* handle, float* out3) {
     auto* host = static_cast<EditorHost*>(handle);
@@ -3892,6 +3902,8 @@ static void ApplySettings(EditorHost& h) noexcept {
     const i32 tm = h.settings.GetInt("Rendering", "Tonemap", 0);
     h.q_tonemap = (tm >= 0 && tm <= 2) ? tm : 0;  // 0=ACES 1=AgX 2=Reinhard
     h.q_auto_exposure = (h.settings.GetFloat("Rendering", "AutoExposure", 0.0f) > 0.0f);
+    const f32 fogd = h.settings.GetFloat("Rendering", "FogDensity", 0.0f);
+    h.q_fog_on = (fogd > 0.0f); if (h.q_fog_on) h.q_fog_density = fogd;   // 0=オフ / >0=密度 (色は空の地平色)
     // 太陽 (主光源) 方向 = 方位角/仰角 (度) → «光へ向かう» 単位ベクトル。影/陰影/空が一括で追従。
     {
         const f32 az = h.settings.GetFloat("Rendering", "SunAzimuth",   -41.0f) * 3.14159265f / 180.0f;
