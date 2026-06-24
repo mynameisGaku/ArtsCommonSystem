@@ -367,13 +367,66 @@ ATMO_COMMON_HLSL
 "  transOut[id.xy]=float4(exp(-tau),1.0);\n"
 "}\n";
 
-// Equirect bake。view dir 毎に Rayleigh+Mie+ozone 単散乱 + 等方多重散乱を積分。Transmittance LUT で太陽透過率を引く。
+// Multi-scattering LUT (32x32)。WickedEngine skyAtmosphere_multiScatteredLuminanceLutCS の忠実移植。
+// texel=(cosSunZenith=uv.x*2-1, viewHeight=bottom+uv.y*(top-bottom))。64 方向 (8x8) を球面サンプルし、
+// 各方向を march して «太陽からの 2 次 in-scatter L» と «等方 transfer multiScatAs1» を蓄積。sphereSolidAngle/64
+// × isotropicPhase(1/4π) = 1/64 平均。Fms = (L/64)/(1-(multiScatAs1/64)) で無限多重散乱を幾何級数和。
+// ★前回失敗の正規化ミス (球平均/Tsun 二重掛け) を排除し WE と厳密一致。
+const char* kMultiCS =
+ATMO_COMMON_HLSL
+"Texture2D<float4> transLut : register(t0);\n"
+"RWTexture2D<float4> msOut : register(u0);\n"
+"float3 SampleTrans(float r,float mu){ float2 uv=saturate(TransParamsToUv(r,mu)); int2 px=int2(uv*float2(255.0,63.0)+0.5); return transLut.Load(int3(px,0)).rgb; }\n"
+"float RaySphereNear(float3 ro,float3 rd,float rad){ float b=dot(ro,rd); float c=dot(ro,ro)-rad*rad; float disc=b*b-c; if(disc<0.0)return -1.0; return -b-sqrt(disc); }\n"
+"[numthreads(8,8,1)]\n"
+"void CSMulti(uint3 id : SV_DispatchThreadID){\n"
+"  const uint W=32,H=32; if(id.x>=W||id.y>=H) return;\n"
+"  float2 uv=(float2(id.xy)+0.5)/float2(W,H);\n"
+"  float cosSun=uv.x*2.0-1.0;\n"
+"  float r=kBottom + uv.y*(kTop-kBottom);\n"
+"  float3 P0=float3(0.0,r,0.0);\n"
+"  float3 sun=float3(sqrt(saturate(1.0-cosSun*cosSun)), cosSun, 0.0);\n"
+"  float3 Lsum=float3(0,0,0); float3 MSsum=float3(0,0,0);\n"
+"  const int SQ=8;\n"
+"  [loop] for(int s=0;s<64;s++){\n"
+"    float fi=0.5+float(s/SQ); float fj=0.5+float(s%SQ);\n"
+"    float theta=2.0*PI*(fi/8.0); float phi=PI*(fj/8.0);\n"
+"    float3 dir=float3(cos(theta)*sin(phi), sin(theta)*sin(phi), cos(phi));\n"
+"    float tTop=RaySphere(P0,dir,kTop); float tGround=RaySphereNear(P0,dir,kBottom);\n"
+"    float tMax=tTop; bool hitGround=false; if(tGround>0.0 && tGround<tMax){ tMax=tGround; hitGround=true; }\n"
+"    if(tMax<=0.0) continue;\n"
+"    const int N=20; float dt=tMax/float(N);\n"
+"    float cosVS=dot(dir,sun); float phR=RayleighPhase(cosVS); float phM=HgPhase(cosVS,kMieG);\n"
+"    float3 L=float3(0,0,0); float3 ms=float3(0,0,0); float3 Tput=float3(1,1,1);\n"
+"    [loop] for(int i=0;i<N;i++){\n"
+"      float3 P=P0+dir*(dt*(float(i)+0.5)); float rr=length(P); float alt=rr-kBottom; if(alt<0.0) break;\n"
+"      float3 sR; float sM; float3 ext; SampleMedium(alt,sR,sM,ext); float3 scat=sR+sM;\n"
+"      float muSun=dot(P/rr,sun); float3 Tsun=SampleTrans(rr,muSun);\n"
+"      float3 sampleT=exp(-ext*dt);\n"
+"      float3 S=Tsun*(sR*phR+sM*phM);\n"                  // globalL=1, MS=0 (1次のみ)
+"      float3 Sint=(S - S*sampleT)/max(ext,1e-7); L+=Tput*Sint;\n"
+"      float3 MSc=scat;\n"                                // 等方 transfer (位相/太陽なし)
+"      float3 MSint=(MSc - MSc*sampleT)/max(ext,1e-7); ms+=Tput*MSint;\n"
+"      Tput*=sampleT;\n"
+"    }\n"
+"    if(hitGround){ float3 Pg=P0+dir*tMax; float rg=length(Pg); float3 ng=Pg/rg; float muG=dot(ng,sun);\n"
+"      if(muG>0.0){ float3 TsunG=SampleTrans(rg,muG); L += Tput * TsunG * float3(0.3,0.3,0.3) * (muG/PI); } }\n"
+"    Lsum+=L; MSsum+=ms;\n"
+"  }\n"
+"  float3 InScat=Lsum/64.0; float3 MultiScatAs1=MSsum/64.0;\n"
+"  float3 Fms=InScat/max(float3(1,1,1)-MultiScatAs1, 1e-4);\n"
+"  msOut[id.xy]=float4(Fms,1.0);\n"
+"}\n";
+
+// Equirect bake。view dir 毎に Rayleigh+Mie+ozone 単散乱 + 多重散乱 LUT を積分。Transmittance LUT で太陽透過率を引く。
 const char* kBakeCS =
 ATMO_COMMON_HLSL
 "cbuffer AtmoCB : register(b0){ float4 sunDir; float4 sunInt; };\n"
 "Texture2D<float4> transLut : register(t0);\n"
+"Texture2D<float4> multiLut : register(t1);\n"
 "RWTexture2D<float4> bakeOut : register(u0);\n"
 "float3 SampleTrans(float r,float mu){ float2 uv=saturate(TransParamsToUv(r,mu)); int2 px=int2(uv*float2(255.0,63.0)+0.5); return transLut.Load(int3(px,0)).rgb; }\n"
+"float3 SampleMulti(float r,float mu){ float2 uv=float2(mu*0.5+0.5, saturate((r-kBottom)/(kTop-kBottom))); int2 px=int2(uv*float2(31.0,31.0)+0.5); return multiLut.Load(int3(px,0)).rgb; }\n"
 "[numthreads(8,8,1)]\n"
 "void CSBake(uint3 id : SV_DispatchThreadID){\n"
 "  uint W,H; bakeOut.GetDimensions(W,H); if(id.x>=W||id.y>=H) return;\n"
@@ -391,9 +444,9 @@ ATMO_COMMON_HLSL
 "      float3 P=P0+dir*(dt*(i+0.5)); float r=length(P); float alt=r-kBottom; if(alt<0) break;\n"
 "      float3 sR; float sM; float3 ext; SampleMedium(alt,sR,sM,ext);\n"
 "      float muSun=dot(P/r,sd); float3 Tsun=SampleTrans(r,muSun);\n"
+"      float3 MS=SampleMulti(r,muSun);\n"                 // 多重散乱 LUT (WE GetMultipleScattering)
 "      float3 Sdir=sR*phR + sM*phM;\n"
-"      float3 Sms=(sR+sM)*(0.18/(4.0*PI));\n"
-"      float3 sampleScatter=(Sdir+Sms)*Tsun;\n"
+"      float3 sampleScatter=Sdir*Tsun + MS*(sR+sM);\n"    // WE: S=Tsun*phaseScat + MS*scattering
 "      float3 sampleT=exp(-ext*dt);\n"
 "      float3 Sint=(sampleScatter - sampleScatter*sampleT)/max(ext,1e-7);\n"
 "      L+=Tview*Sint; Tview*=sampleT;\n"
@@ -413,8 +466,10 @@ const char* kApCS =
 ATMO_COMMON_HLSL
 "cbuffer ApCB : register(b0){ float4x4 invViewProj; float4 camPos; float4 sunDir; float4 sunInt; float4 apParams; };\n"
 "Texture2D<float4> transLut : register(t0);\n"
+"Texture2D<float4> multiLut : register(t1);\n"
 "RWTexture3D<float4> apOut : register(u0);\n"
 "float3 SampleTrans(float r,float mu){ float2 uv=saturate(TransParamsToUv(r,mu)); int2 px=int2(uv*float2(255.0,63.0)+0.5); return transLut.Load(int3(px,0)).rgb; }\n"
+"float3 SampleMulti(float r,float mu){ float2 uv=float2(mu*0.5+0.5, saturate((r-kBottom)/(kTop-kBottom))); int2 px=int2(uv*float2(31.0,31.0)+0.5); return multiLut.Load(int3(px,0)).rgb; }\n"
 "[numthreads(4,4,4)]\n"
 "void CSAp(uint3 id : SV_DispatchThreadID){\n"
 "  uint W,H,D; apOut.GetDimensions(W,H,D); if(id.x>=W||id.y>=H||id.z>=D) return;\n"
@@ -432,9 +487,9 @@ ATMO_COMMON_HLSL
 "  [loop] for(int i=0;i<N;i++){\n"
 "    float3 P=P0+dir*(dtKm*(float(i)+0.5)); float r=length(P); float alt=r-kBottom; if(alt<0.0) alt=0.0;\n"
 "    float3 sR; float sM; float3 ext; SampleMedium(alt,sR,sM,ext);\n"
-"    float muSun=dot(P/r,sd); float3 Tsun=SampleTrans(r,muSun);\n"
-"    float3 Sdir=sR*phR + sM*phM; float3 Sms=(sR+sM)*(0.18/(4.0*PI));\n"
-"    float3 sampleScatter=(Sdir+Sms)*Tsun; float3 sampleT=exp(-ext*dtKm);\n"
+"    float muSun=dot(P/r,sd); float3 Tsun=SampleTrans(r,muSun); float3 MS=SampleMulti(r,muSun);\n"
+"    float3 Sdir=sR*phR + sM*phM;\n"
+"    float3 sampleScatter=Sdir*Tsun + MS*(sR+sM); float3 sampleT=exp(-ext*dtKm);\n"
 "    float3 Sint=(sampleScatter - sampleScatter*sampleT)/max(ext,1e-7);\n"
 "    L+=Tview*Sint; Tview*=sampleT;\n"
 "  }\n"
@@ -455,10 +510,19 @@ TResult<void> FSkyAtmosphere::Init(IRhiDevice& device) noexcept {
         sd.entry_point = "CSBake"; sd.debug_name = "Atmo.BakeCS";
         auto r = CreateRhiShader(device, sd); if (r.IsErr()) return Err<void>(r.Error()); m_BakeCs = Move(r.Value()); }
     {   FComputePipelineDesc pd{}; pd.cs = m_BakeCs.Get(); pd.cbuffer_slots = 1; pd.cbuffer_names[0] = "AtmoCB";
-        pd.srv_slots = 1; pd.srv_names[0] = "transLut"; pd.uav_slots = 1; pd.uav_names[0] = "bakeOut";
+        pd.srv_slots = 2; pd.srv_names[0] = "transLut"; pd.srv_names[1] = "multiLut"; pd.uav_slots = 1; pd.uav_names[0] = "bakeOut";
         auto r = CreateRhiComputePipeline(device, pd); if (r.IsErr()) return Err<void>(r.Error()); m_BakePipe = Move(r.Value()); }
     {   FTextureDesc td{}; td.width = 256; td.height = 64; td.format = EFormat::R16G16B16A16_Float; td.is_uav = true;
         auto r = CreateRhiTexture(device, td); if (r.IsErr()) return Err<void>(r.Error()); m_TransLut = Move(r.Value()); }
+    // Multi-scattering LUT (32x32 RGBA16F UAV/SRV) + compute pipeline (WE multiScatteredLuminanceLut)。
+    {   FShaderDesc sd{}; sd.stage = EShaderStage::Compute; sd.hlsl_source = kMultiCS;
+        sd.entry_point = "CSMulti"; sd.debug_name = "Atmo.MultiCS";
+        auto r = CreateRhiShader(device, sd); if (r.IsErr()) return Err<void>(r.Error()); m_MultiCs = Move(r.Value()); }
+    {   FComputePipelineDesc pd{}; pd.cs = m_MultiCs.Get(); pd.srv_slots = 1; pd.srv_names[0] = "transLut";
+        pd.uav_slots = 1; pd.uav_names[0] = "msOut";
+        auto r = CreateRhiComputePipeline(device, pd); if (r.IsErr()) return Err<void>(r.Error()); m_MultiPipe = Move(r.Value()); }
+    {   FTextureDesc td{}; td.width = 32; td.height = 32; td.format = EFormat::R16G16B16A16_Float; td.is_uav = true;
+        auto r = CreateRhiTexture(device, td); if (r.IsErr()) return Err<void>(r.Error()); m_MultiLut = Move(r.Value()); }
     {   FBufferDesc bd{}; bd.size = 256; bd.usage = EBufferUsage::Uniform; bd.cpu_writable = true;
         auto r = CreateRhiBuffer(device, bd); if (r.IsErr()) return Err<void>(r.Error()); m_Cb = Move(r.Value()); }
     // Aerial perspective: froxel volume (32^3 RGBA16F UAV+SRV) + compute pipeline + CB。
@@ -466,7 +530,7 @@ TResult<void> FSkyAtmosphere::Init(IRhiDevice& device) noexcept {
         sd.entry_point = "CSAp"; sd.debug_name = "Atmo.ApCS";
         auto r = CreateRhiShader(device, sd); if (r.IsErr()) return Err<void>(r.Error()); m_ApCs = Move(r.Value()); }
     {   FComputePipelineDesc pd{}; pd.cs = m_ApCs.Get(); pd.cbuffer_slots = 1; pd.cbuffer_names[0] = "ApCB";
-        pd.srv_slots = 1; pd.srv_names[0] = "transLut"; pd.uav_slots = 1; pd.uav_names[0] = "apOut";
+        pd.srv_slots = 2; pd.srv_names[0] = "transLut"; pd.srv_names[1] = "multiLut"; pd.uav_slots = 1; pd.uav_names[0] = "apOut";
         auto r = CreateRhiComputePipeline(device, pd); if (r.IsErr()) return Err<void>(r.Error()); m_ApPipe = Move(r.Value()); }
     {   FTextureDesc td{}; td.width = kApRes; td.height = kApRes; td.depth = kApRes;
         td.format = EFormat::R16G16B16A16_Float; td.is_uav = true;
@@ -498,10 +562,16 @@ IRhiTexture* FSkyAtmosphere::BuildAerialPerspective(IRhiDevice& /*device*/, IRhi
     cl.SetComputePipeline(*m_TransPipe);
     cl.BindUav(0, *m_TransLut);
     cl.Dispatch(32, 8, 1);
-    // 2) AP froxel volume を焼く。
+    // 2) Multi-scattering LUT を焼く (transLut を読む)。
+    cl.SetComputePipeline(*m_MultiPipe);
+    cl.SetTexture(0, *m_TransLut);
+    cl.BindUav(0, *m_MultiLut);
+    cl.Dispatch(4, 4, 1);
+    // 3) AP froxel volume を焼く (transLut + multiLut を読む)。
     cl.SetComputePipeline(*m_ApPipe);
     cl.SetConstantBuffer(0, *m_ApCb);
     cl.SetTexture(0, *m_TransLut);
+    cl.SetTexture(1, *m_MultiLut);
     cl.BindUav(0, *m_ApVol);
     cl.Dispatch(kApRes / 4, kApRes / 4, kApRes / 4);
     return m_ApVol.Get();
@@ -523,6 +593,11 @@ bool FSkyAtmosphere::BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
     cl.SetComputePipeline(*m_TransPipe);
     cl.BindUav(0, *m_TransLut);
     cl.Dispatch(32, 8, 1);
+    // 1b) Multi-scattering LUT を焼く (32x32 → 4x4 グループ、transLut を読む)。
+    cl.SetComputePipeline(*m_MultiPipe);
+    cl.SetTexture(0, *m_TransLut);
+    cl.BindUav(0, *m_MultiLut);
+    cl.Dispatch(4, 4, 1);
 
     // 2) equirect texture を (再) 確保 (RGBA32F、readback 用)。
     if (m_EqW != width || m_EqH != height || !m_Equirect) {
@@ -535,6 +610,7 @@ bool FSkyAtmosphere::BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
     cl.SetComputePipeline(*m_BakePipe);
     cl.SetConstantBuffer(0, *m_Cb);
     cl.SetTexture(0, *m_TransLut);
+    cl.SetTexture(1, *m_MultiLut);
     cl.BindUav(0, *m_Equirect);
     cl.Dispatch((width + 7) / 8, (height + 7) / 8, 1);
 
@@ -547,6 +623,7 @@ bool FSkyAtmosphere::BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
 void FSkyAtmosphere::Shutdown() noexcept {
     m_TransPipe.Reset(); m_BakePipe.Reset();
     m_TransCs.Reset();   m_BakeCs.Reset();
+    m_MultiPipe.Reset(); m_MultiCs.Reset(); m_MultiLut.Reset();   // 多重散乱 LUT (UAF 防止)
     m_TransLut.Reset();  m_Equirect.Reset(); m_Cb.Reset();
     m_ApPipe.Reset();    m_ApCs.Reset();     m_ApVol.Reset(); m_ApCb.Reset();   // aerial perspective (UAF 防止)
     m_EqW = 0; m_EqH = 0; m_Ready = false;

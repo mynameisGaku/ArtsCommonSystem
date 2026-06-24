@@ -146,6 +146,9 @@ private:
     TUniquePtr<IRhiPipeline> m_TransPipe;
     TUniquePtr<IRhiPipeline> m_BakePipe;
     TUniquePtr<IRhiTexture>  m_TransLut;    // 256x64 RGBA16F UAV/SRV
+    TUniquePtr<IRhiShader>   m_MultiCs;     // 多重散乱 LUT CS (WE multiScatteredLuminanceLut)
+    TUniquePtr<IRhiPipeline> m_MultiPipe;
+    TUniquePtr<IRhiTexture>  m_MultiLut;    // 32x32 RGBA16F UAV/SRV (Fms)
     TUniquePtr<IRhiTexture>  m_Equirect;    // width x height RGBA32F UAV (readback source)
     TUniquePtr<IRhiBuffer>   m_Cb;          // sun dir + intensity
     TUniquePtr<IRhiShader>   m_ApCs;        // aerial perspective froxel CS
