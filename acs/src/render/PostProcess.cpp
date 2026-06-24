@@ -312,9 +312,22 @@ SamplerState ssr_sampler   : register(s2);
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
 float3 ACESFilm(float3 x) {
-    // Narkowicz 2016 の近似
-    float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
-    return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
+    // Stephen Hill (@self_shadow) ACES fit = WickedEngine の ACESFitted と同形。
+    // Narkowicz 2016 近似は過飽和＆色相シフト (赤→橙、ハイライトが白に抜けない) で «filmic でない»
+    // 見た目だったため、hue 保存の input/output マトリクス版へ。行列は pack_matrix 非依存にするため
+    // 明示 dot 積で展開 (転置の曖昧さを排除)。
+    float3 v;
+    v.r = dot(x, float3(0.59719, 0.35458, 0.04823));   // ACESInputMat
+    v.g = dot(x, float3(0.07600, 0.90834, 0.01566));
+    v.b = dot(x, float3(0.02840, 0.13383, 0.83777));
+    float3 na = v * (v + 0.0245786) - 0.000090537;       // RRTAndODTFit
+    float3 nb = v * (0.983729 * v + 0.4329510) + 0.238081;
+    v = na / nb;
+    float3 o;
+    o.r = dot(v, float3( 1.60475, -0.53108, -0.07367));  // ACESOutputMat
+    o.g = dot(v, float3(-0.10208,  1.10813, -0.00605));
+    o.b = dot(v, float3(-0.00327, -0.07276,  1.07602));
+    return saturate(o);
 }
 
 // AgX (Troy Sobotka 2024、Filament の実装に近い形)。
@@ -471,8 +484,17 @@ float4 PSMain(VSOut v) : SV_TARGET {
         mapped += n * g_i * (0.35 + 0.65 * luma);
     }
 
-    // 5) Gamma
-    mapped = pow(max(mapped, 0.0), 1.0 / max(params1.x, 0.0001));
+    // 5) sRGB encode: 真の sRGB OETF (WickedEngine ApplySRGBCurve と同形)。swapchain は plain UNORM
+    //    なので HW sRGB は無く、ここで一度だけエンコード。pow(1/2.2) は shadow の toe が無く darks を
+    //    僅かに潰す (muddy) ので、線形 toe + 1/2.4 ガンマの正規 sRGB 曲線へ。
+    {
+        float3 lin = max(mapped, 0.0);
+        float3 hi  = 1.055 * pow(lin, 1.0 / 2.4) - 0.055;
+        float3 lo  = 12.92 * lin;
+        mapped = float3(lin.r < 0.0031308 ? lo.r : hi.r,
+                        lin.g < 0.0031308 ? lo.g : hi.g,
+                        lin.b < 0.0031308 ? lo.b : hi.b);
+    }
 
     // 6) Dither: 8-bit 量子化前に ±1 LSB の三角分布 (TPDF) ノイズを足し、空・bloom の裾・
     //    vignette・グレーディングのシャドウに出る等高線状バンディングを消す。ほぼゼロコスト

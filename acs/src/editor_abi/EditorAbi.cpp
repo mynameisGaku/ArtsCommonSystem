@@ -273,7 +273,7 @@ struct EditorHost {
     bool  q_bloom_on         = true;  f32  q_bloom_intensity = 0.50f; f32 q_bloom_threshold = 0.80f; f32 q_bloom_radius = 1.5f;
     f32   q_exposure         = 1.05f; f32  q_cg_saturation   = 1.10f; f32 q_cg_contrast = 1.12f;
     i32   q_tonemap          = 0;     bool q_auto_exposure   = false;  // 0=ACES 1=AgX 2=Reinhard / 自動露出(eye adaptation)
-    bool  q_fog_on           = false; f32  q_fog_density     = 0.025f; f32 q_fog_height_falloff = 0.10f;  // 指数ハイトフォグ (色は空の地平色に追従)
+    bool  q_fog_on           = true;  f32  q_fog_density     = 0.015f; f32 q_fog_height_falloff = 0.10f;  // 既定ON: 微量ハイトフォグ (色は視線方向の空=aerial perspective)。WickedEngine 流にシーンを空へ統合
     i32   q_sky_mode         = 0;     // 0=FSky(グラデ+雲) / 1=FAtmosphere(物理大気散乱)。要 Diligent (IBL 経路)
     f32   q_cloud_coverage   = 0.50f; f32 q_cloud_density = 1.6f; f32 q_cloud_wind = 1.0f;  // FSky 雲 (coverage=0 でオフ)
     f32   q_cas              = 0.3f;  bool q_taa_on          = false; u32 q_msaa_default = 4;
@@ -4732,8 +4732,10 @@ static void ApplySettings(EditorHost& h) noexcept {
     const i32 tm = h.settings.GetInt("Rendering", "Tonemap", 0);
     h.q_tonemap = (tm >= 0 && tm <= 2) ? tm : 0;  // 0=ACES 1=AgX 2=Reinhard
     h.q_auto_exposure = (h.settings.GetFloat("Rendering", "AutoExposure", 0.0f) > 0.0f);
-    const f32 fogd = h.settings.GetFloat("Rendering", "FogDensity", 0.0f);
-    h.q_fog_on = (fogd > 0.0f); if (h.q_fog_on) h.q_fog_density = fogd;   // 0=オフ / >0=密度 (色は空の地平色)
+    const f32 fogd = h.settings.GetFloat("Rendering", "FogDensity", -1.0f);   // -1/未指定=既定ON / 0=明示オフ / >0=密度
+    if (fogd == 0.0f)      h.q_fog_on = false;                            // プロジェクトが明示的にオフ
+    else if (fogd > 0.0f) { h.q_fog_on = true; h.q_fog_density = fogd; }  // 明示密度
+    // fogd<0 (未指定): 既定の微量フォグ ON のまま (aerial perspective でシーンを空へ統合)
     const i32 sm = h.settings.GetInt("Rendering", "SkyMode", 0);
     const i32 smc = (sm == 1) ? 1 : 0;
     if (smc != h.q_sky_mode) { h.q_sky_mode = smc; h.ibl_dirty = true; h.ibl_tried = false; }   // モード変更 → env 再焼成

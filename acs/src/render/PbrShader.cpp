@@ -152,12 +152,22 @@ float D_GGX(float NdotH, float a2) {
 }
 
 // Smith joint geometry (Schlick-GGX). k = (roughness+1)^2 / 8 for direct light.
+// (clearcoat 等の別ローブ用に残置。主鏡面は V_SmithGGXCorrelated を使う)
 float G_Smith(float NdotV, float NdotL, float roughness) {
     float k = (roughness + 1.0);
     k = k * k * 0.125;
     float Gv = NdotV / max(NdotV * (1.0 - k) + k, 1e-7);
     float Gl = NdotL / max(NdotL * (1.0 - k) + k, 1e-7);
     return Gv * Gl;
+}
+
+// Smith height-correlated visibility (Heitz 2014、WickedEngine brdf.hlsli と同形)。
+// 戻り値は «可視性» V = G / (4 NoV NoL) で、分母 1/(4 NoV NoL) を内包する。
+// a2 = alpha^2 (= roughness^4)。分離型 Schlick-GGX より grazing/高roughness の遮蔽が正確。
+float V_SmithGGXCorrelated(float NdotV, float NdotL, float a2) {
+    float gv = NdotL * sqrt((NdotV - a2 * NdotV) * NdotV + a2);
+    float gl = NdotV * sqrt((NdotL - a2 * NdotL) * NdotL + a2);
+    return 0.5 / max(gv + gl, 1e-5);
 }
 
 // Schlick Fresnel approximation
@@ -497,9 +507,10 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
     float3 specF0 = lerp(F0, iridFresnel, iridWeight);
     float3 specular_ibl = reflected * (specF0 * lut_xy.x + lut_xy.y);
 
-    // [WickedEngine 流 key/fill] 拡散 IBL を «フィル» 量へ抑える。明るすぎる空 IBL が太陽の影を
-    // 埋めて立体感を消していたため。鏡面 IBL (金属の映り込み) は据え置き。太陽キーは SunIntensity で。
-    return (diffuse_ibl * 0.45 + specular_ibl) * ao;
+    // 拡散 IBL: WickedEngine は間接拡散を削らない (GIBoost>=1 で寧ろ増す)。以前の ×0.45 は «浮く»
+    // 対策の local hack で影/環境光領域が ~55% 暗く dull/flat だった。接地は AO + 強い太陽キー
+    // (SunIntensity) + 接地影/キャスト影で担保し、IBL は ~0.85 (ほぼ等倍) へ戻す。鏡面 IBL は据え置き。
+    return (diffuse_ibl * 0.85 + specular_ibl) * ao;
 }
 
 // IBL specular for clear-coat layer (split-sum、F0=0.04 固定の dielectric)。
@@ -652,15 +663,15 @@ float3 BrdfCookTorrance(float3 N, float3 V, float3 L,
         float ToV = dot(T_unit, V), BoV = dot(B_unit, V);
         float ToL = dot(T_unit, L), BoL = dot(B_unit, L);
         D = D_GGX_Aniso(NdotH, ToH, BoH, ax, ay);
-        G = G_Smith_Aniso(NdotV, ToV, BoV, NdotL, ToL, BoL, ax, ay) * 4.0 * NdotV * NdotL;
-        // 注: G_Smith_Aniso は (G / (4 NoV NoL)) 形式 (Heitz 2014) なので、
-        //   spec = D F G_native / (4 NoV NoL) に揃えるため逆スケール
+        // G_Smith_Aniso は既に可視性形 V = G/(4 NoV NoL) (Heitz 2014) を返す
+        G = G_Smith_Aniso(NdotV, ToV, BoV, NdotL, ToL, BoL, ax, ay);
     } else {
         D = D_GGX(NdotH, a * a);
-        G = G_Smith(NdotV, NdotL, roughness);
+        G = V_SmithGGXCorrelated(NdotV, NdotL, a * a);   // height-correlated 可視性 (1/4NoVNoL 内包)
     }
 
-    float3 specular = (D * G * F) / max(4.0 * NdotV * NdotL, 1e-7);
+    // G は可視性 V (= G/(4 NoV NoL)) なので分母の別掛けは不要 (WickedEngine 同形)
+    float3 specular = D * G * F;
     float3 kd = (1.0 - F) * (1.0 - metallic);
     float3 diffuse = kd * base / PI;
     return (diffuse + specular) * NdotL;
@@ -933,7 +944,16 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float h = v.world_p.y - fog_height_params.y;
         float density = fog_color_density.w * exp(-fog_height_params.x * max(h, 0.0));
         float transmittance = exp(-density * dist);
-        col = col * transmittance + fog_color_density.xyz * (1.0 - transmittance);
+        // [aerial perspective 実用近似] in-scatter 色は «視線方向の実際の空»。IBL 鏡面用に焼いた
+        // prefilter cubemap を視線方向×最高mip(ボケ)でサンプル → 距離 geometry が背後の空色 (天頂=青、
+        // 地平=暖色) に溶け、空のグラデと馴染む。単一 horizon 色だと方向が逆で seam が出ていた。
+        // cubemap 無し backend (SH9/raw-DX12) では従来の単一 fog 色へフォールバック。
+        float3 inscatter = fog_color_density.xyz;
+        if (ibl_params.x >= 0.5 && ibl_params.z < 0.5) {
+            float3 viewDir = normalize(to_cam);
+            inscatter = prefilter.SampleLevel(prefilter_sampler, viewDir, max(ibl_params.y - 1.0, 0.0)).rgb;
+        }
+        col = col * transmittance + inscatter * (1.0 - transmittance);
     }
 
     return float4(col, base_color.w);
