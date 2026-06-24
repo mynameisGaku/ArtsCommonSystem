@@ -952,13 +952,16 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float density = fog_color_density.w * exp(-fog_height_params.x * max(h, 0.0));
         float transmittance = exp(-density * dist);
         // [aerial perspective 実用近似] in-scatter 色は «視線方向の実際の空»。IBL 鏡面用に焼いた
-        // prefilter cubemap を視線方向×最高mip(ボケ)でサンプル → 距離 geometry が背後の空色 (天頂=青、
-        // 地平=暖色) に溶け、空のグラデと馴染む。単一 horizon 色だと方向が逆で seam が出ていた。
+        // prefilter cubemap を視線方向でサンプル → 距離 geometry が背後の空色 (天頂=青、地平=暖色) に
+        // 溶け、空のグラデと馴染む。単一 horizon 色だと方向が逆で seam が出ていた。
+        // ★mip は «中間» (mip2≈128px) を使う。最高mip(8px)だと視線方向の変化で 8px テクセル境界が
+        //   表面に «斜めの段(バンディング)» として出る。128px なら滑らかな空グラデのまま段が出ない。
         // cubemap 無し backend (SH9/raw-DX12) では従来の単一 fog 色へフォールバック。
         float3 inscatter = fog_color_density.xyz;
         if (ibl_params.x >= 0.5 && ibl_params.z < 0.5) {
             float3 viewDir = normalize(to_cam);
-            inscatter = prefilter.SampleLevel(prefilter_sampler, viewDir, max(ibl_params.y - 1.0, 0.0)).rgb;
+            float fogMip = min(2.0, max(ibl_params.y - 1.0, 0.0));
+            inscatter = prefilter.SampleLevel(prefilter_sampler, viewDir, fogMip).rgb;
         }
         col = col * transmittance + inscatter * (1.0 - transmittance);
     }
