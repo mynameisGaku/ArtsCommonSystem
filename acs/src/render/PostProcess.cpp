@@ -41,7 +41,10 @@ SamplerState src_sampler : register(s0);
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
 float4 PSMain(VSOut v) : SV_TARGET {
-    float3 c = src.Sample(src_sampler, v.uv).rgb;
+    // firefly クランプ (WickedEngine bloomseparateCS の min(color,10))。閾値抽出前に極端な高輝度
+    // (鋭い鏡面/エミッシブ/太陽の disc) を上限で抑え、1 画素が bloom を支配して «hot な blob/halo»
+    // になるのを防ぐ。soft-knee 比重みだけでは firefly は w→1 でほぼ素通りしていた。
+    float3 c = min(src.Sample(src_sampler, v.uv).rgb, 10.0);
     float l = max(max(c.r, c.g), c.b);
     float t = params0.x;                       // threshold
     // soft-knee prefilter (Unity/UE 風): 閾値付近をなめらかに立ち上げ、bloom の onset を自然に。
