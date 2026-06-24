@@ -814,22 +814,29 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float  ssr_weight = 0.0;
     if (ssr_params.x >= 0.5) {
         float2 ssr_uv = v.pos.xy * float2(ssao_params.z, ssao_params.w);
-        float  blur   = roughness * 0.015;
-        float3 sum    = float3(0, 0, 0);
-        float  amask  = 0.0;
+        // roughness 連動の «滑らかな» 反射ブラー。疎な 3x3 box gather (半径 roughness*0.015) は
+        // タップ間に隙間が空き反射がブロック状/低解像に見えていた。Vogel ディスク 12 tap (golden
+        // angle, sqrt で面積均一, 画素毎回転) で隙間なく平滑化。半径は roughness^2 で立ち上げ →
+        // glossy 面は半径≈0 でほぼ素通り (crisp/フル解像)、rough 面のみ広くぼかす (WickedEngine の
+        // roughness-aware resolve に相当)。
+        float  rough2  = roughness * roughness;
+        float  radius  = rough2 * 0.010;
+        float  rot     = frac(sin(dot(ssr_uv, float2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
+        float3 sum     = float3(0, 0, 0);
+        float  amask   = 0.0;
+        const int kSsrTaps = 12;
         [unroll]
-        for (int sy = -1; sy <= 1; ++sy) {
-            [unroll]
-            for (int sx = -1; sx <= 1; ++sx) {
-                float4 s = ssr_color.SampleLevel(ssr_color_sampler,
-                              ssr_uv + float2(sx, sy) * blur, 0);
-                sum   += s.rgb;
-                amask += s.a;
-            }
+        for (int i = 0; i < kSsrTaps; ++i) {
+            float  t   = (float(i) + 0.5) / float(kSsrTaps);
+            float  ang = rot + float(i) * 2.39996323;          // golden angle
+            float2 off = float2(cos(ang), sin(ang)) * (sqrt(t) * radius);
+            float4 s   = ssr_color.SampleLevel(ssr_color_sampler, ssr_uv + off, 0);
+            sum   += s.rgb;
+            amask += s.a;
         }
-        ssr_rgb    = sum * (1.0 / 9.0);
+        ssr_rgb    = sum * (1.0 / float(kSsrTaps));
         // hit mask * intensity * (1-roughness) で rough 面ほど SSR を弱める
-        ssr_weight = (amask / 9.0) * ssr_params.y * (1.0 - roughness);
+        ssr_weight = (amask / float(kSsrTaps)) * ssr_params.y * (1.0 - roughness);
     }
 
     // 環境光: ibl_params.x が 1 なら IBL ambient、0 なら flat ambient。

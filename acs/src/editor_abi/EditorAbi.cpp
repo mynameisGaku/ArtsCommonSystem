@@ -268,6 +268,7 @@ struct EditorHost {
     f32   q_shadow_bias      = 0.0015f; f32 q_shadow_filter   = 1.0f;
     bool  q_ssao_on          = true;  f32  q_ssao_intensity  = 1.0f;  f32 q_ssao_radius = 0.8f;
     bool  q_ssgi_on          = false; f32  q_ssgi_intensity  = 1.0f;  f32 q_ssgi_max_dist = 10.0f;
+    bool  q_vxgi_on          = false;  // VXGI(voxel GI)。64³ ボクセルの blocky な色のにじみが目立つため既定OFF→滑らかな screen-space SSGI を使用。VxgiOn=1 で実験的に有効化可
     bool  q_ssr_on           = true;  f32  q_ssr_intensity   = 0.8f;  bool q_ssr_hiz = false;
     i32   q_ibl_mode         = 1;     FVec3 q_ambient        = FVec3{ 0.26f, 0.28f, 0.33f };  // 0=flat 1=sh9 2=cubemap
     bool  q_bloom_on         = true;  f32  q_bloom_intensity = 0.50f; f32 q_bloom_threshold = 0.80f; f32 q_bloom_radius = 1.5f;
@@ -3407,7 +3408,7 @@ void CSMain(uint3 tid : SV_DispatchThreadID){
     Vtx a=verts[tri*3+0], b=verts[tri*3+1], c=verts[tri*3+2];
     float3 N=normalize(float3(a.nx,a.ny,a.nz)+float3(b.nx,b.ny,b.nz)+float3(c.nx,c.ny,c.nz));
     float ndl=max(dot(N, normalize(sunDir.xyz)), 0.0);
-    float3 lit=float3(a.r,a.g,a.b) * (sunCol.rgb*(ndl+0.45));   // 直接光 (影なし) + floor↑ で色面の inject 増
+    float3 lit=float3(a.r,a.g,a.b) * (sunCol.rgb*(ndl+0.18));   // 直接光 (影なし) + floor
     float res=gridExt.w;
     [unroll] for(int u=0;u<=4;u++){ [unroll] for(int w=0;w+u<=4;w++){
         float bu=u/4.0, bw=w/4.0, bv=1.0-bu-bw;
@@ -3453,8 +3454,8 @@ void CSMain(uint3 tid : SV_DispatchThreadID){
     float3 indirect=float3(0,0,0); float wsum=0.0;
     [unroll] for(int c=0;c<5;c++){
         float3 dir=dirs[c]; float3 sp=P+N*voxel*1.5; float transp=1.0; float3 acc=float3(0,0,0);
-        [unroll] for(int s=0;s<14;s++){                 // reach 拡大: より遠くの色面も拾う → bleed 可視
-            sp += dir*voxel*1.7;
+        [unroll] for(int s=0;s<8;s++){
+            sp += dir*voxel*1.6;
             float3 uvw=(sp-gridMin.xyz)/max(gridExt.xyz,1e-4);
             if(any(uvw<0.0)||any(uvw>1.0)) break;
             float4 v=vol.SampleLevel(vol_sampler, uvw, 0);
@@ -3464,7 +3465,7 @@ void CSMain(uint3 tid : SV_DispatchThreadID){
         float cw=max(dot(dir,N),0.0); indirect += acc*cw; wsum += cw;
     }
     indirect /= max(wsum,1e-3);
-    outI[tid.xy]=float4(indirect*dims.z*2.5, 1.0);       // gain 増で «色のにじみ» をはっきり見せる
+    outI[tid.xy]=float4(indirect*dims.z, 1.0);           // 64³ ボクセルの blocky な過剰にじみを避け subtle に
 }
 )";
 
@@ -3746,8 +3747,8 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     //     volume は PBR の cone trace (SetVxgi) で消費予定。本コミットは voxelize パイプラインまで。
     IRhiTexture* vxgiVol = nullptr;
     IRhiTexture* vxgiResolveTex = nullptr;   // VXGI resolve (cone trace) 結果 → SetSsgi へ
-    if (!h.ortho3d && dvCount >= 3 && h.q_ssgi_on) {
-        vxgiVol = VxgiVoxelize(h, cl, dv, bbMin, bbMax);
+    if (!h.ortho3d && dvCount >= 3 && h.q_ssgi_on && h.q_vxgi_on) {
+        vxgiVol = VxgiVoxelize(h, cl, dv, bbMin, bbMax);   // 既定OFF: VXGI(64³)は blocky。OFF時は vxgiVol=null → SetSsgi が滑らかな screen-space SSGI を使う
     }
 
     // --- SH9 環境光を «現在の空» に追従させて再計算 (時間帯プリセット切替・空色変更に反応) ---
@@ -4727,6 +4728,7 @@ static void ApplySettings(EditorHost& h) noexcept {
     if (ri >= 0.0f) { h.q_ssr_intensity = ri; h.q_ssr_on = (ri > 0.0f); }
     const f32 gi = h.settings.GetFloat("Rendering", "SsgiIntensity", -1.0f);
     if (gi >= 0.0f) { h.q_ssgi_intensity = gi; h.q_ssgi_on = (gi > 0.0f); }
+    h.q_vxgi_on = (h.settings.GetInt("Rendering", "VxgiOn", 0) > 0);   // 既定OFF (64³ blocky)。VxgiOn=1 で実験的に voxel GI 有効化
     const f32 taa = h.settings.GetFloat("Rendering", "Taa", -1.0f);
     if (taa >= 0.0f) h.q_taa_on = (taa > 0.0f);   // -1=プリセット追従 / 0=オフ / >0=オン (テンポラル AA)
     const i32 tm = h.settings.GetInt("Rendering", "Tonemap", 0);
