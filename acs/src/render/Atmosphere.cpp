@@ -109,6 +109,23 @@ ACS_FORCEINLINE f32 DensityRayleigh(f32 h) noexcept { return Exp(-h / kRayleighH
 ACS_FORCEINLINE f32 DensityMie(f32 h)      noexcept { return Exp(-h / kMieH); }
 
 /**
+ * 高度 h でのオゾン密度比 (Hillaire/Bruneton)。25km をピークとするテント (10〜40km)。
+ * オゾン層は «吸収のみ»。これが «正しい青» と薄明の色 (sunset の青紫帯) を生む。
+ * @param h 地表を 0 とした高度 (m)。
+ */
+ACS_FORCEINLINE f32 DensityOzone(f32 h) noexcept {
+    const f32 km = h * 0.001f;
+    const f32 dist = (km >= 25.0f) ? (km - 25.0f) : (25.0f - km);
+    const f32 d = 1.0f - dist / 15.0f;
+    return d < 0.0f ? 0.0f : (d > 1.0f ? 1.0f : d);
+}
+
+/** オゾン吸収係数 β (RGB、m⁻¹)。Hillaire 標準 (0.650, 1.881, 0.085)×10⁻⁶。散乱はしない (吸収のみ)。 */
+inline FVec3 OzoneAbsorption() noexcept {
+    return FVec3{0.650e-6f, 1.881e-6f, 0.085e-6f};
+}
+
+/**
  * 点 P から方向 dir に距離 t_max 進んだ点までの透過率 T(P, Q) を計算する。
  *
  * @details 累積光学厚さを steps 段で中点積分し、Rayleigh + Mie 消衰から透過率を求める。
@@ -123,19 +140,22 @@ FVec3 Transmittance(FVec3 P_earth_centered, FVec3 dir, f32 t_max, u32 steps) noe
     const f32 step_len = t_max / static_cast<f32>(steps);
     f32 optical_depth_r = 0;
     f32 optical_depth_m = 0;
+    f32 optical_depth_o = 0;   // オゾン
     for (u32 i = 0; i < steps; ++i) {
         const FVec3 sample_pos = P_earth_centered + dir * (step_len * (static_cast<f32>(i) + 0.5f));
         f32 alt = Sqrt(Dot(sample_pos, sample_pos)) - kGroundRadius;
         if (alt < 0) alt = 0;
         optical_depth_r += DensityRayleigh(alt) * step_len;
         optical_depth_m += DensityMie(alt)      * step_len;
+        optical_depth_o += DensityOzone(alt)    * step_len;
     }
     const FVec3 beta_r = RayleighBeta();
     const f32  beta_m_ext = MieBeta() + MieAbsorption();
+    const FVec3 beta_o = OzoneAbsorption();
     const FVec3 tau{
-        beta_r.x * optical_depth_r + beta_m_ext * optical_depth_m,
-        beta_r.y * optical_depth_r + beta_m_ext * optical_depth_m,
-        beta_r.z * optical_depth_r + beta_m_ext * optical_depth_m,
+        beta_r.x * optical_depth_r + beta_m_ext * optical_depth_m + beta_o.x * optical_depth_o,
+        beta_r.y * optical_depth_r + beta_m_ext * optical_depth_m + beta_o.y * optical_depth_o,
+        beta_r.z * optical_depth_r + beta_m_ext * optical_depth_m + beta_o.z * optical_depth_o,
     };
     return FVec3{Exp(-tau.x), Exp(-tau.y), Exp(-tau.z)};
 }
@@ -171,7 +191,8 @@ FVec3 SingleScatter(FVec3 ro, FVec3 rd, FVec3 sun_dir, FVec3 sun_intensity,
     FVec3 inscatter_r{0, 0, 0};
     FVec3 inscatter_m{0, 0, 0};
     // view ray 沿いに伝播した累積光学厚さ (T_view)
-    f32 view_od_r = 0, view_od_m = 0;
+    f32 view_od_r = 0, view_od_m = 0, view_od_o = 0;
+    const FVec3 beta_o = OzoneAbsorption();
 
     // 注: ray_steps=32 は十分でリング状バンドはほぼ出ず、出力側 TPDF ディザが 8bit バンドを処理する。
     // ここに per-direction ジッタを入れるとベイク (時間平滑化されない) にグレインが残るため midpoint を維持。
@@ -184,20 +205,22 @@ FVec3 SingleScatter(FVec3 ro, FVec3 rd, FVec3 sun_dir, FVec3 sun_intensity,
         }
         const f32 d_r = DensityRayleigh(alt) * step_len;
         const f32 d_m = DensityMie(alt)      * step_len;
+        const f32 d_o = DensityOzone(alt)    * step_len;
         view_od_r += d_r;
         view_od_m += d_m;
+        view_od_o += d_o;
 
         // 太陽光線が sample_pos へ届く透過率
         const f32 t_sun = RaySphereOuter(sample_pos, sun_dir, kAtmosphereRadius);
         if (t_sun <= 0) continue;
         const FVec3 T_sun = Transmittance(sample_pos, sun_dir, t_sun, sun_steps);
 
-        // view side 透過率 (現位置までの累積)
+        // view side 透過率 (現位置までの累積、オゾン消衰込み)
         const f32 beta_m_ext = beta_m + MieAbsorption();
         const FVec3 tau_view{
-            beta_r.x * view_od_r + beta_m_ext * view_od_m,
-            beta_r.y * view_od_r + beta_m_ext * view_od_m,
-            beta_r.z * view_od_r + beta_m_ext * view_od_m,
+            beta_r.x * view_od_r + beta_m_ext * view_od_m + beta_o.x * view_od_o,
+            beta_r.y * view_od_r + beta_m_ext * view_od_m + beta_o.y * view_od_o,
+            beta_r.z * view_od_r + beta_m_ext * view_od_m + beta_o.z * view_od_o,
         };
         const FVec3 T_view{Exp(-tau_view.x), Exp(-tau_view.y), Exp(-tau_view.z)};
 
@@ -206,10 +229,15 @@ FVec3 SingleScatter(FVec3 ro, FVec3 rd, FVec3 sun_dir, FVec3 sun_intensity,
         inscatter_m = inscatter_m + T_combined * (d_m);
     }
 
+    // 多重散乱 (Hillaire 近似): 2 次以降の散乱は方向依存が薄れ «等方» に近い。単散乱の蓄積
+    // (inscatter_r/m) を等方位相 1/4π で再評価し ms 強度を掛けて加算 → 空が暗くなりすぎず、
+    // 地平線/薄明が自然に満ちる (Rayleigh+Mie+ozone の完全 LUT は将来の GPU 化で)。
+    const f32 kIso = 1.0f / (4.0f * kPi);
+    const f32 kMs  = 0.18f;                  // 多重散乱の強さ (視覚調整、控えめにして白飛び回避)
     const FVec3 result{
-        sun_intensity.x * (beta_r.x * phase_r * inscatter_r.x + beta_m * phase_m * inscatter_m.x),
-        sun_intensity.y * (beta_r.y * phase_r * inscatter_r.y + beta_m * phase_m * inscatter_m.y),
-        sun_intensity.z * (beta_r.z * phase_r * inscatter_r.z + beta_m * phase_m * inscatter_m.z),
+        sun_intensity.x * (beta_r.x * (phase_r + kMs * kIso) * inscatter_r.x + beta_m * (phase_m + kMs * kIso) * inscatter_m.x),
+        sun_intensity.y * (beta_r.y * (phase_r + kMs * kIso) * inscatter_r.y + beta_m * (phase_m + kMs * kIso) * inscatter_m.y),
+        sun_intensity.z * (beta_r.z * (phase_r + kMs * kIso) * inscatter_r.z + beta_m * (phase_m + kMs * kIso) * inscatter_m.z),
     };
     return result;
 }

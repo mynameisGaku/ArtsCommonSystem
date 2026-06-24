@@ -2530,7 +2530,7 @@ inline FMat4 ApplyTaaJitter(FMat4 vp, float jx, float jy) noexcept {
 constexpr float kSh9Ambient = 0.55f;
 
 // 物理大気 (FAtmosphere) の equirect をエディタ露出レンジへ持ち上げる一様スケール (実測調整)。
-constexpr float kAtmosScale = 4.0f;
+constexpr float kAtmosScale = 2.2f;
 
 void ComputeSkySh9(FVec4 out[9], FVec3 zenith, FVec3 horizon, FVec3 ground) noexcept {
     // 空の放射輝度 (linear) を SH9 へ射影。zenith/horizon/ground は «実際に描く FSky と同じ色» を渡し、
