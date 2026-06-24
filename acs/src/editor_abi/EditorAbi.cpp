@@ -3407,7 +3407,7 @@ void CSMain(uint3 tid : SV_DispatchThreadID){
     Vtx a=verts[tri*3+0], b=verts[tri*3+1], c=verts[tri*3+2];
     float3 N=normalize(float3(a.nx,a.ny,a.nz)+float3(b.nx,b.ny,b.nz)+float3(c.nx,c.ny,c.nz));
     float ndl=max(dot(N, normalize(sunDir.xyz)), 0.0);
-    float3 lit=float3(a.r,a.g,a.b) * (sunCol.rgb*(ndl+0.18));   // 直接光 (影なし) + floor
+    float3 lit=float3(a.r,a.g,a.b) * (sunCol.rgb*(ndl+0.45));   // 直接光 (影なし) + floor↑ で色面の inject 増
     float res=gridExt.w;
     [unroll] for(int u=0;u<=4;u++){ [unroll] for(int w=0;w+u<=4;w++){
         float bu=u/4.0, bw=w/4.0, bv=1.0-bu-bw;
@@ -3453,8 +3453,8 @@ void CSMain(uint3 tid : SV_DispatchThreadID){
     float3 indirect=float3(0,0,0); float wsum=0.0;
     [unroll] for(int c=0;c<5;c++){
         float3 dir=dirs[c]; float3 sp=P+N*voxel*1.5; float transp=1.0; float3 acc=float3(0,0,0);
-        [unroll] for(int s=0;s<8;s++){
-            sp += dir*voxel*1.6;
+        [unroll] for(int s=0;s<14;s++){                 // reach 拡大: より遠くの色面も拾う → bleed 可視
+            sp += dir*voxel*1.7;
             float3 uvw=(sp-gridMin.xyz)/max(gridExt.xyz,1e-4);
             if(any(uvw<0.0)||any(uvw>1.0)) break;
             float4 v=vol.SampleLevel(vol_sampler, uvw, 0);
@@ -3464,7 +3464,7 @@ void CSMain(uint3 tid : SV_DispatchThreadID){
         float cw=max(dot(dir,N),0.0); indirect += acc*cw; wsum += cw;
     }
     indirect /= max(wsum,1e-3);
-    outI[tid.xy]=float4(indirect*dims.z, 1.0);
+    outI[tid.xy]=float4(indirect*dims.z*2.5, 1.0);       // gain 増で «色のにじみ» をはっきり見せる
 }
 )";
 
