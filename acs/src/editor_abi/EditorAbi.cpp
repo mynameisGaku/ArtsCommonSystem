@@ -361,6 +361,16 @@ struct EditorHost {
     acs::FSsgi               ssgi3d;                   // エンジン SSGI (1 バウンス間接光)。出力は FPbrShader.SetSsgi で ambient に加算
     bool                     ssgi_ready = false;
     bool                     ssgi_computed = false;    // 今フレーム SSGI を焼いたか (次フレームの SetSsgi 用)
+    // --- Phase 5 VXGI (voxel global illumination、色のにじみ): 三角形を radiance volume に voxelize →
+    //     画面空間で cone trace して間接光を resolve → SSGI スロット (ssgi_color) に流す。compute (Phase 0)。
+    TUniquePtr<IRhiTexture>  vxgi_vol;                 // radiance volume (64^3 RGBA16F、UAV+SRV)
+    TUniquePtr<IRhiTexture>  vxgi_resolve;             // 画面空間 間接光 (half-res、UAV+SRV) → SetSsgi
+    TUniquePtr<IRhiBuffer>   vxgi_tri;  u32 vxgi_tri_cap = 0;   // 三角形 SoA (M3DVtx StructuredBuffer)
+    TUniquePtr<IRhiShader>   vxgi_cs_clear, vxgi_cs_vox, vxgi_cs_res;
+    TUniquePtr<IRhiPipeline> vxgi_pipe_clear, vxgi_pipe_vox, vxgi_pipe_res;
+    TUniquePtr<IRhiBuffer>   vxgi_cb_vox, vxgi_cb_res;
+    bool                     vxgi_ready = false, vxgi_tried = false;
+    u32                      vxgi_rw = 0, vxgi_rh = 0;
     acs::FMotionVector       mv3d;                     // motion + world normal G-buffer。motion を TAA/SSR/SSGI へ供給 (動く物の ghost 除去)
     bool                     mv_ready = false;
     bool                     mv_computed = false;      // 今フレーム motion を焼いたか
@@ -3370,6 +3380,193 @@ void PlaneAxes(int handle, FVec3& e1, FVec3& e2, FVec3& n) noexcept {
     else                  { e1 = FVec3{1,0,0}; e2 = FVec3{0,0,1}; n = FVec3{0,1,0}; }  // XZ
 }
 
+// ===== Phase 5 VXGI: voxel global illumination =====================================
+// 三角形 (M3DVtx の StructuredBuffer) を 64^3 radiance volume に voxelize (compute)。
+// 各 voxel = albedo * 直射太陽 (影なし、色のにじみ proof には十分)。PBR が volume を cone trace。
+constexpr u32 kVxgiRes = 64;
+
+const char* kVxgiClearCS = R"(
+RWTexture3D<float4> vol : register(u0);
+[numthreads(4,4,4)]
+void CSMain(uint3 id : SV_DispatchThreadID){ if(id.x>=64u||id.y>=64u||id.z>=64u) return; vol[id]=float4(0,0,0,0); }
+)";
+
+const char* kVxgiVoxCS = R"(
+struct Vtx { float px,py,pz, nx,ny,nz, r,g,b, mt,rg; };
+StructuredBuffer<Vtx> verts : register(t0);
+RWTexture3D<float4> vol : register(u0);
+cbuffer VoxCB : register(b0) {
+    float4 gridMin;   // xyz, w=triCount
+    float4 gridExt;   // xyz=extent, w=res
+    float4 sunDir;    // xyz
+    float4 sunCol;    // rgb
+};
+[numthreads(64,1,1)]
+void CSMain(uint3 tid : SV_DispatchThreadID){
+    uint tri=tid.x; if(tri>=(uint)gridMin.w) return;
+    Vtx a=verts[tri*3+0], b=verts[tri*3+1], c=verts[tri*3+2];
+    float3 N=normalize(float3(a.nx,a.ny,a.nz)+float3(b.nx,b.ny,b.nz)+float3(c.nx,c.ny,c.nz));
+    float ndl=max(dot(N, normalize(sunDir.xyz)), 0.0);
+    float3 lit=float3(a.r,a.g,a.b) * (sunCol.rgb*(ndl+0.18));   // 直接光 (影なし) + floor
+    float res=gridExt.w;
+    [unroll] for(int u=0;u<=4;u++){ [unroll] for(int w=0;w+u<=4;w++){
+        float bu=u/4.0, bw=w/4.0, bv=1.0-bu-bw;
+        float3 p=float3(a.px,a.py,a.pz)*bv + float3(b.px,b.py,b.pz)*bu + float3(c.px,c.py,c.pz)*bw;
+        float3 uvw=(p-gridMin.xyz)/max(gridExt.xyz,1e-4);
+        if(any(uvw<0.0)||any(uvw>1.0)) continue;
+        vol[int3(uvw*res)]=float4(lit,1.0);   // last-write-wins (粗い GI)
+    }}
+}
+)";
+
+// VXGI resolve: 画面ごとに world pos+normal を復元し radiance volume を hemisphere cone trace →
+// 間接光 (色のにじみ) を half-res 2D へ。SetSsgi で ambient に加算 (PBR 無改変、既存スロット流用)。
+const char* kVxgiResolveCS = R"(
+#pragma pack_matrix(row_major)
+Texture3D<float4> vol : register(t0);
+SamplerState vol_sampler : register(s0);
+Texture2D<float> depthTex : register(t1);
+SamplerState depthTex_sampler : register(s1);
+Texture2D<float4> normalTex : register(t2);
+SamplerState normalTex_sampler : register(s2);
+RWTexture2D<float4> outI : register(u0);
+cbuffer ResCB : register(b0) {
+    float4x4 invVP;
+    float4 gridMin;   // xyz
+    float4 gridExt;   // xyz, w=res
+    float4 dims;      // xy=resolve res, z=intensity
+};
+[numthreads(8,8,1)]
+void CSMain(uint3 tid : SV_DispatchThreadID){
+    if(tid.x>=(uint)dims.x || tid.y>=(uint)dims.y) return;
+    float2 uv=(float2(tid.xy)+0.5)/dims.xy;
+    float d=depthTex.SampleLevel(depthTex_sampler, uv, 0);
+    if(d>=0.9999){ outI[tid.xy]=float4(0,0,0,0); return; }
+    float4 clip=float4(uv.x*2.0-1.0, -(uv.y*2.0-1.0), d, 1.0);
+    float4 wp=mul(clip, invVP); float3 P=wp.xyz/wp.w;
+    float3 N=normalize(normalTex.SampleLevel(normalTex_sampler, uv, 0).xyz);
+    float3 up=abs(N.y)<0.9?float3(0,1,0):float3(1,0,0);
+    float3 T=normalize(cross(up,N)), Bt=cross(N,T);
+    float voxel=gridExt.x/max(gridExt.w,1.0);
+    float3 dirs[5]={ N, normalize(N*0.6+T*0.8), normalize(N*0.6-T*0.8),
+                     normalize(N*0.6+Bt*0.8), normalize(N*0.6-Bt*0.8) };
+    float3 indirect=float3(0,0,0); float wsum=0.0;
+    [unroll] for(int c=0;c<5;c++){
+        float3 dir=dirs[c]; float3 sp=P+N*voxel*1.5; float transp=1.0; float3 acc=float3(0,0,0);
+        [unroll] for(int s=0;s<8;s++){
+            sp += dir*voxel*1.6;
+            float3 uvw=(sp-gridMin.xyz)/max(gridExt.xyz,1e-4);
+            if(any(uvw<0.0)||any(uvw>1.0)) break;
+            float4 v=vol.SampleLevel(vol_sampler, uvw, 0);
+            acc += transp*v.rgb*v.a; transp *= (1.0-v.a);
+            if(transp<0.05) break;
+        }
+        float cw=max(dot(dir,N),0.0); indirect += acc*cw; wsum += cw;
+    }
+    indirect /= max(wsum,1e-3);
+    outI[tid.xy]=float4(indirect*dims.z, 1.0);
+}
+)";
+
+// 三角形を SB へ詰めて clear→voxelize。volume を返す (PBR の SetVxgi へ)。失敗時 nullptr。
+IRhiTexture* VxgiVoxelize(EditorHost& h, IRhiCommandList* cl, const TArray<M3DVtx>& dv,
+                          FVec3 bbMin, FVec3 bbMax) noexcept {
+    IRhiDevice* dev = h.renderer.Device();
+    if (dev == nullptr || cl == nullptr || dv.Size() < 3) return nullptr;
+    if (!h.vxgi_tried) {
+        h.vxgi_tried = true;
+        // volume 64^3 RGBA16F (UAV+SRV)
+        FTextureDesc vd{}; vd.width=kVxgiRes; vd.height=kVxgiRes; vd.depth=kVxgiRes;
+        vd.format=EFormat::R16G16B16A16_Float; vd.is_uav=true;
+        if (auto r=CreateRhiTexture(*dev, vd); r.IsOk()) h.vxgi_vol=Move(r.Value());
+        // clear + voxelize compute pipelines
+        FShaderDesc cs0{}; cs0.stage=EShaderStage::Compute; cs0.hlsl_source=kVxgiClearCS; cs0.entry_point="CSMain"; cs0.debug_name="Vxgi.Clear";
+        FShaderDesc cs1{}; cs1.stage=EShaderStage::Compute; cs1.hlsl_source=kVxgiVoxCS;   cs1.entry_point="CSMain"; cs1.debug_name="Vxgi.Vox";
+        if (auto r=CreateRhiShader(*dev, cs0); r.IsOk()) h.vxgi_cs_clear=Move(r.Value());
+        if (auto r=CreateRhiShader(*dev, cs1); r.IsOk()) h.vxgi_cs_vox=Move(r.Value());
+        if (h.vxgi_cs_clear) { FComputePipelineDesc pd{}; pd.cs=h.vxgi_cs_clear.Get(); pd.uav_slots=1; pd.uav_names[0]="vol";
+            if (auto r=CreateRhiComputePipeline(*dev, pd); r.IsOk()) h.vxgi_pipe_clear=Move(r.Value()); }
+        if (h.vxgi_cs_vox) { FComputePipelineDesc pd{}; pd.cs=h.vxgi_cs_vox.Get(); pd.cbuffer_slots=1; pd.cbuffer_names[0]="VoxCB";
+            pd.srv_slots=1; pd.srv_names[0]="verts"; pd.uav_slots=1; pd.uav_names[0]="vol";
+            if (auto r=CreateRhiComputePipeline(*dev, pd); r.IsOk()) h.vxgi_pipe_vox=Move(r.Value()); }
+        FBufferDesc cbd{}; cbd.size=64; cbd.usage=EBufferUsage::Uniform; cbd.cpu_writable=true;
+        if (auto r=CreateRhiBuffer(*dev, cbd); r.IsOk()) h.vxgi_cb_vox=Move(r.Value());
+        h.vxgi_ready = (h.vxgi_vol && h.vxgi_pipe_clear && h.vxgi_pipe_vox && h.vxgi_cb_vox);
+        ACS_LOG_INFO("[VXGI] setup vol=%d clear=%d vox=%d", (int)(h.vxgi_vol.Get()!=nullptr),
+                     (int)(h.vxgi_pipe_clear.Get()!=nullptr), (int)(h.vxgi_pipe_vox.Get()!=nullptr));
+    }
+    if (!h.vxgi_ready) return nullptr;
+    // 三角形 SB を (再)確保 + upload
+    const u32 vcount = dv.Size();
+    if (h.vxgi_tri_cap < vcount) {
+        FBufferDesc bd{}; bd.size=sizeof(M3DVtx)*vcount; bd.usage=EBufferUsage::Storage;
+        bd.cpu_writable=true; bd.struct_stride=sizeof(M3DVtx);
+        if (auto r=CreateRhiBuffer(*dev, bd); r.IsOk()) { h.vxgi_tri=Move(r.Value()); h.vxgi_tri_cap=vcount; }
+        else return nullptr;
+    }
+    h.vxgi_tri->Update(dv.Data(), sizeof(M3DVtx)*vcount);
+    // CB
+    const FVec3 ext{ bbMax.x-bbMin.x+0.01f, bbMax.y-bbMin.y+0.01f, bbMax.z-bbMin.z+0.01f };
+    struct VoxCB { FVec4 gmin, gext, sdir, scol; } cb{};
+    cb.gmin = FVec4{ bbMin.x, bbMin.y, bbMin.z, static_cast<f32>(vcount/3) };
+    cb.gext = FVec4{ ext.x, ext.y, ext.z, static_cast<f32>(kVxgiRes) };
+    cb.sdir = FVec4{ h.sun_dir.x, h.sun_dir.y, h.sun_dir.z, 0 };
+    cb.scol = FVec4{ h.sun_color.x*h.sun_intensity, h.sun_color.y*h.sun_intensity, h.sun_color.z*h.sun_intensity, 0 };
+    h.vxgi_cb_vox->Update(&cb, sizeof(cb));
+    // clear → voxelize
+    cl->SetComputePipeline(*h.vxgi_pipe_clear);
+    cl->BindUav(0, *h.vxgi_vol);
+    cl->Dispatch(kVxgiRes/4, kVxgiRes/4, kVxgiRes/4);
+    cl->SetComputePipeline(*h.vxgi_pipe_vox);
+    cl->SetConstantBuffer(0, *h.vxgi_cb_vox);
+    cl->BindStructuredSrv(0, *h.vxgi_tri);
+    cl->BindUav(0, *h.vxgi_vol);
+    cl->Dispatch((vcount/3 + 63)/64, 1, 1);
+    return h.vxgi_vol.Get();
+}
+
+// volume を画面空間で cone trace → 間接光 (half-res)。SetSsgi 用テクスチャを返す。失敗時 nullptr。
+IRhiTexture* VxgiResolve(EditorHost& h, IRhiCommandList* cl, IRhiTexture* vol,
+                         IRhiTexture* depthTex, IRhiTexture* normalTex,
+                         const FMat4& invVP, FVec3 bbMin, FVec3 bbMax,
+                         u32 scW, u32 scH, f32 intensity) noexcept {
+    IRhiDevice* dev = h.renderer.Device();
+    if (dev == nullptr || cl == nullptr || vol == nullptr || depthTex == nullptr || normalTex == nullptr) return nullptr;
+    const u32 rw = scW / 2 > 0 ? scW / 2 : 1, rh = scH / 2 > 0 ? scH / 2 : 1;
+    if (!h.vxgi_pipe_res) {   // 遅延生成 (pipeline + CB)
+        FShaderDesc cs{}; cs.stage=EShaderStage::Compute; cs.hlsl_source=kVxgiResolveCS; cs.entry_point="CSMain"; cs.debug_name="Vxgi.Resolve";
+        if (auto r=CreateRhiShader(*dev, cs); r.IsOk()) h.vxgi_cs_res=Move(r.Value()); else return nullptr;
+        FComputePipelineDesc pd{}; pd.cs=h.vxgi_cs_res.Get();
+        pd.cbuffer_slots=1; pd.cbuffer_names[0]="ResCB";
+        pd.srv_slots=3; pd.srv_names[0]="vol"; pd.srv_names[1]="depthTex"; pd.srv_names[2]="normalTex";
+        pd.uav_slots=1; pd.uav_names[0]="outI";
+        pd.static_sampler_count=3;
+        for (u32 s=0;s<3;++s){ pd.static_samplers[s].filter=ESamplerFilter::Linear;
+            pd.static_samplers[s].address_u=ESamplerAddress::Clamp; pd.static_samplers[s].address_v=ESamplerAddress::Clamp; }
+        if (auto r=CreateRhiComputePipeline(*dev, pd); r.IsOk()) h.vxgi_pipe_res=Move(r.Value()); else return nullptr;
+        FBufferDesc cbd{}; cbd.size=sizeof(FMat4)+48; cbd.usage=EBufferUsage::Uniform; cbd.cpu_writable=true;
+        if (auto r=CreateRhiBuffer(*dev, cbd); r.IsOk()) h.vxgi_cb_res=Move(r.Value()); else return nullptr;
+    }
+    if (h.vxgi_rw != rw || h.vxgi_rh != rh) {   // half-res 出力 texture (UAV+SRV)
+        FTextureDesc td{}; td.width=rw; td.height=rh; td.format=EFormat::R16G16B16A16_Float; td.is_uav=true;
+        if (auto r=CreateRhiTexture(*dev, td); r.IsOk()) { h.vxgi_resolve=Move(r.Value()); h.vxgi_rw=rw; h.vxgi_rh=rh; } else return nullptr;
+    }
+    if (!h.vxgi_pipe_res || !h.vxgi_resolve || !h.vxgi_cb_res) return nullptr;
+    const FVec3 ext{ bbMax.x-bbMin.x+0.01f, bbMax.y-bbMin.y+0.01f, bbMax.z-bbMin.z+0.01f };
+    struct ResCB { FMat4 invVP; FVec4 gmin, gext, dims; } cb{};
+    cb.invVP = invVP;
+    cb.gmin  = FVec4{ bbMin.x, bbMin.y, bbMin.z, 0 };
+    cb.gext  = FVec4{ ext.x, ext.y, ext.z, static_cast<f32>(kVxgiRes) };
+    cb.dims  = FVec4{ static_cast<f32>(rw), static_cast<f32>(rh), intensity, 0 };
+    h.vxgi_cb_res->Update(&cb, sizeof(cb));
+    cl->SetComputePipeline(*h.vxgi_pipe_res);
+    cl->SetConstantBuffer(0, *h.vxgi_cb_res);
+    cl->SetTexture(0, *vol); cl->SetTexture(1, *depthTex); cl->SetTexture(2, *normalTex);
+    cl->BindUav(0, *h.vxgi_resolve);
+    cl->Dispatch((rw+7)/8, (rh+7)/8, 1);
+    return h.vxgi_resolve.Get();
+}
+
 /** 3D シーンを描画する (スカイ + ライト付きメッシュ + 選択ハイライト/太いギズモ)。 */
 void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     if (!Ensure3D(h)) return;
@@ -3423,6 +3620,15 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     }
     const u32 dvCount = static_cast<u32>(dv.Size());
     if (dvCount > 0 && h.m3d_dyn_vb) h.m3d_dyn_vb->Update(dv.Data(), sizeof(M3DVtx) * dvCount);
+
+    // --- Phase 5 VXGI: 三角形を radiance volume へ voxelize (色のにじみ。Diligent compute、Ultra=q_ssgi_on)。
+    //     Dx12 では CreateRhiComputePipeline が err → vxgi_ready=false で graceful skip。
+    //     volume は PBR の cone trace (SetVxgi) で消費予定。本コミットは voxelize パイプラインまで。
+    IRhiTexture* vxgiVol = nullptr;
+    IRhiTexture* vxgiResolveTex = nullptr;   // VXGI resolve (cone trace) 結果 → SetSsgi へ
+    if (!h.ortho3d && dvCount >= 3 && h.q_ssgi_on) {
+        vxgiVol = VxgiVoxelize(h, cl, dv, bbMin, bbMax);
+    }
 
     // --- SH9 環境光を «現在の空» に追従させて再計算 (時間帯プリセット切替・空色変更に反応) ---
     //     拡散 ambient (Sh9Irradiance) と鏡面 fallback (Sh9Radiance) の両方の元データ。背景 FSky と
@@ -3581,6 +3787,12 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         h.ssao_computed = true;
     }
 
+    // --- VXGI resolve: voxel volume を画面空間 cone trace → 間接光 (色のにじみ)。depth+normal+volume が揃った今 ---
+    if (vxgiVol != nullptr && gbufReady && h.normal_rt) {
+        vxgiResolveTex = VxgiResolve(h, cl, vxgiVol, h.renderer.DepthBuffer(), h.normal_rt.Get(),
+                                     Inverse(vp), bbMin, bbMax, scW, scH, h.q_ssgi_intensity);
+    }
+
     // --- FMotionVector: motion G-buffer を per-node (主パスと同型) で焼き TAA/SSR/SSGI の reproject に供給 ---
     //     no-jitter の vp/prev で «真の幾何モーション» (カメラ + オブジェクト両方) を出す。静止物は motion≈カメラ分、
     //     動く物 (play/ドラッグ) はその差分も入り ghost が消える。TAA/SSR/SSGI が ON のときだけ焼く。
@@ -3731,9 +3943,11 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         // SSR: 前フレームの反射結果を roughness/Fresnel でブレンド (FPbrShader 内)。本フレーム分は本パス後に焼く。
         if (h.q_ssr_on && h.ssr_ready) h.pbr3d.SetSsr(h.ssr3d.OutputTexture(), h.q_ssr_intensity);
         else                           h.pbr3d.SetSsr(nullptr, 0.0f);
-        // SSGI: 前フレームの 1 バウンス間接光を ambient に加算 (FPbrShader 内)。本フレーム分は本パス後に焼く。
-        if (h.q_ssgi_on && h.ssgi_ready) h.pbr3d.SetSsgi(h.ssgi3d.OutputTexture(), h.q_ssgi_intensity);
-        else                             h.pbr3d.SetSsgi(nullptr, 0.0f);
+        // 間接光を ambient に加算。VXGI (voxel GI、色のにじみ) が焼けていれば «今フレーム» の VXGI を優先、
+        // 無ければ前フレームの screen-space SSGI。SetSsgi スロットを共用 (intensity は resolve で適用済み→1.0)。
+        if (vxgiResolveTex != nullptr)        h.pbr3d.SetSsgi(vxgiResolveTex, 1.0f);
+        else if (h.q_ssgi_on && h.ssgi_ready) h.pbr3d.SetSsgi(h.ssgi3d.OutputTexture(), h.q_ssgi_intensity);
+        else                                  h.pbr3d.SetSsgi(nullptr, 0.0f);
         // IBL: env から焼いた irradiance(拡散) + prefilter(鏡面) + BRDF-LUT。成功時は SH9 を切り cubemap 拡散を使う。
         if (h.ibl_ready) {
             h.pbr3d.SetIbl(h.ibl3d.IrradianceMap(), h.ibl3d.PrefilterMap(), h.ibl3d.BrdfLut(), h.ibl3d.PrefilterMips());
@@ -4693,6 +4907,11 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->dof_pipe.Reset(); host->dof_vs.Reset(); host->dof_ps.Reset(); host->dof_cb.Reset(); host->dof_ready = false;
     host->gray_pipe.Reset(); host->gray_vs.Reset(); host->gray_ps.Reset(); host->gray_cb.Reset(); host->gray_ready = false;
     host->mblur_pipe.Reset(); host->mblur_vs.Reset(); host->mblur_ps.Reset(); host->mblur_cb.Reset(); host->mblur_ready = false;
+    // Phase 5 VXGI teardown (UAF 防止: device 破棄前に GPU リソース Release)
+    host->vxgi_vol.Reset(); host->vxgi_resolve.Reset(); host->vxgi_tri.Reset();
+    host->vxgi_pipe_clear.Reset(); host->vxgi_pipe_vox.Reset(); host->vxgi_pipe_res.Reset();
+    host->vxgi_cs_clear.Reset(); host->vxgi_cs_vox.Reset(); host->vxgi_cs_res.Reset();
+    host->vxgi_cb_vox.Reset(); host->vxgi_cb_res.Reset(); host->vxgi_ready = false;
     host->ibl3d.Shutdown(); host->ibl_ready = false; host->ibl_tried = false; host->ibl_dirty = true;
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
     host->sprite_textures.Clear();
