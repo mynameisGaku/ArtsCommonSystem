@@ -16,6 +16,13 @@
 #include "foundation/Result.h"
 #include "container/Array.h"
 #include "math/Vec.h"
+#include "memory/UniquePtr.h"
+#include "render/IRhiDevice.h"
+#include "render/IRhiCommandList.h"
+#include "render/IRhiTexture.h"
+#include "render/IRhiPipeline.h"
+#include "render/IRhiShader.h"
+#include "render/IRhiBuffer.h"
 
 namespace acs {
 
@@ -67,6 +74,55 @@ public:
      */
     static TArray<f32> BakeEquirect(u32 width, u32 height,
                                     const AtmosphereParams& params) noexcept;
+};
+
+/**
+ * GPU 物理大気 (WickedEngine / Hillaire 2020 流の GPU compute パイプライン)。
+ *
+ * @details
+ * Transmittance LUT (256x64) を compute で焼き、equirect bake compute がそれを使って
+ * Rayleigh+Mie+ozone の単散乱 + 等方多重散乱を per-direction で評価して equirect texture
+ * (RGBA32F) に書く。ReadTexture で CPU へ読み戻し、ImageBasedLighting::LoadEquirectHdrFromMemory
+ * に通せば既存の env cubemap → irradiance → prefilter の IBL chain と背景描画がそのまま動く。
+ * CPU 版 FAtmosphere::BakeEquirect の置き換え (GPU で高速 + ozone/multiscatter で物理的に正しい空)。
+ * 要 Phase 0 compute コア + DiligentDevice::ReadTexture。Diligent backend 専用。
+ */
+class FSkyAtmosphere {
+public:
+    /** compute パイプライン (transmittance / equirect bake) と Transmittance LUT・CB を生成。 */
+    TResult<void> Init(IRhiDevice& device) noexcept;
+
+    /** 初期化済みか。 */
+    bool Ready() const noexcept { return m_Ready; }
+
+    /**
+     * GPU で大気 equirect を焼き CPU の RGBA float 配列へ読み戻す (LoadEquirectHdrFromMemory 互換)。
+     *
+     * @param device RHI デバイス。
+     * @param cl コマンドリスト。
+     * @param params 太陽方向・強度。
+     * @param width  equirect 幅。
+     * @param height equirect 高さ。
+     * @param out    出力 (width*height*4 個の f32、move せず resize して埋める)。
+     * @return 成功で true (失敗時 out は不定、呼び出し側で CPU fallback)。
+     */
+    bool BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
+                      const AtmosphereParams& params,
+                      u32 width, u32 height, TArray<f32>& out) noexcept;
+
+    /** 全 GPU リソースを解放 (acs_editor_destroy から呼ぶ。UAF 防止)。 */
+    void Shutdown() noexcept;
+
+private:
+    bool                     m_Ready = false;
+    TUniquePtr<IRhiShader>   m_TransCs;
+    TUniquePtr<IRhiShader>   m_BakeCs;
+    TUniquePtr<IRhiPipeline> m_TransPipe;
+    TUniquePtr<IRhiPipeline> m_BakePipe;
+    TUniquePtr<IRhiTexture>  m_TransLut;    // 256x64 RGBA16F UAV/SRV
+    TUniquePtr<IRhiTexture>  m_Equirect;    // width x height RGBA32F UAV (readback source)
+    TUniquePtr<IRhiBuffer>   m_Cb;          // sun dir + intensity
+    u32                      m_EqW = 0, m_EqH = 0;
 };
 
 } // namespace acs

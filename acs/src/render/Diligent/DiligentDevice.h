@@ -73,6 +73,19 @@ public:
     void        WaitIdle()    noexcept override;
 
     /**
+     * テクスチャ内容を CPU へ読み戻す (staging texture 経由、遅い・同期)。
+     *
+     * @details USAGE_STAGING + CPU_ACCESS_READ の一時テクスチャへ CopyTexture → Flush →
+     * WaitIdle → MapTextureSubresource で取り出す。行は stride 詰めして out へ密に書く。
+     * out_size はテクスチャの密サイズ (w*h*bpp) 以上が必要。任意フォーマット対応 (bpp は format から算出)。
+     * @param tex 読み戻すテクスチャ。
+     * @param out_pixels 書き込み先 (密 row-major)。
+     * @param out_size out_pixels のバイト数。
+     * @return 成功で true。
+     */
+    bool ReadTexture(IRhiTexture& tex, void* out_pixels, u32 out_size) noexcept override;
+
+    /**
      * 実際に選ばれたバックエンド種別を返す。
      *
      * @return Init で確定した ERhiBackendKind (D3D12 / Vulkan)。

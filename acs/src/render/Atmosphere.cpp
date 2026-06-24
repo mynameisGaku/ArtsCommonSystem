@@ -316,4 +316,153 @@ TArray<f32> FAtmosphere::BakeEquirect(u32 width, u32 height,
     return out;
 }
 
+// ===================== GPU Hillaire 大気 (FSkyAtmosphere) =====================
+namespace {
+
+/** AtmoCB レイアウト (HLSL の cbuffer AtmoCB と一致)。 */
+struct AtmoCB { FVec4 sunDir; FVec4 sunInt; };
+
+// 共通 HLSL (km 単位、Hillaire/Bruneton Earth)。各 CS に inline する。
+#define ATMO_COMMON_HLSL \
+"static const float PI = 3.14159265;\n" \
+"static const float kBottom = 6360.0;\n" \
+"static const float kTop    = 6460.0;\n" \
+"static const float3 kRayS  = float3(5.802, 13.558, 33.1) * 0.001;\n" \
+"static const float  kRayH  = 8.0;\n" \
+"static const float  kMieS  = 3.996 * 0.001;\n" \
+"static const float  kMieE  = 4.440 * 0.001;\n" \
+"static const float  kMieH  = 1.2;\n" \
+"static const float  kMieG  = 0.8;\n" \
+"static const float3 kOzoneA = float3(0.650, 1.881, 0.085) * 0.001;\n" \
+"void SampleMedium(float altKm, out float3 sR, out float sM, out float3 ext){\n" \
+"  float dR=exp(-altKm/kRayH); float dM=exp(-altKm/kMieH);\n" \
+"  float dO=saturate(1.0-abs(altKm-25.0)/15.0);\n" \
+"  sR=kRayS*dR; sM=kMieS*dM; ext=sR + (kMieE*dM) + (kOzoneA*dO);\n" \
+"}\n" \
+"float RayleighPhase(float c){ return 3.0/(16.0*PI)*(1.0+c*c); }\n" \
+"float HgPhase(float c,float g){ float g2=g*g; float d=1.0+g2-2.0*g*c; return (1.0-g2)/(4.0*PI*max(pow(max(d,1e-4),1.5),1e-6)); }\n" \
+"float RaySphere(float3 ro,float3 rd,float r){ float b=dot(ro,rd); float c=dot(ro,ro)-r*r; float disc=b*b-c; if(disc<0)return -1.0; return -b+sqrt(disc); }\n" \
+"float2 TransParamsToUv(float r,float mu){ float H=sqrt(max(kTop*kTop-kBottom*kBottom,0.0)); float rho=sqrt(max(r*r-kBottom*kBottom,0.0)); float disc=r*r*(mu*mu-1.0)+kTop*kTop; float d=max(0.0,-r*mu+sqrt(max(disc,0.0))); float dMin=kTop-r; float dMax=rho+H; float xMu=(dMax>dMin)?(d-dMin)/(dMax-dMin):0.0; float xR=(H>0.0)?rho/H:0.0; return float2(xMu,xR); }\n" \
+"void TransUvToParams(float2 uv,out float r,out float mu){ float H=sqrt(max(kTop*kTop-kBottom*kBottom,0.0)); float rho=H*uv.y; r=sqrt(max(rho*rho+kBottom*kBottom,0.0)); float dMin=kTop-r; float dMax=rho+H; float d=dMin+uv.x*(dMax-dMin); mu=(d<=0.0)?1.0:(H*H-rho*rho-d*d)/(2.0*r*d); mu=clamp(mu,-1.0,1.0); }\n"
+
+// Transmittance LUT (256x64)。各 texel = (viewHeight, cosZenith) → 大気上端への透過率。
+const char* kTransCS =
+ATMO_COMMON_HLSL
+"RWTexture2D<float4> transOut : register(u0);\n"
+"[numthreads(8,8,1)]\n"
+"void CSTrans(uint3 id : SV_DispatchThreadID){\n"
+"  const uint W=256,H=64; if(id.x>=W||id.y>=H) return;\n"
+"  float2 uv=(float2(id.xy)+0.5)/float2(W,H);\n"
+"  float r,mu; TransUvToParams(uv,r,mu);\n"
+"  float3 P=float3(0,r,0); float3 dir=float3(sqrt(saturate(1.0-mu*mu)),mu,0);\n"
+"  float tTop=RaySphere(P,dir,kTop); if(tTop<=0){ transOut[id.xy]=float4(1,1,1,1); return; }\n"
+"  const int N=40; float dt=tTop/N; float3 tau=0;\n"
+"  [loop] for(int i=0;i<N;i++){ float3 sp=P+dir*(dt*(i+0.5)); float alt=length(sp)-kBottom; float3 sR; float sM; float3 ext; SampleMedium(max(alt,0.0),sR,sM,ext); tau+=ext*dt; }\n"
+"  transOut[id.xy]=float4(exp(-tau),1.0);\n"
+"}\n";
+
+// Equirect bake。view dir 毎に Rayleigh+Mie+ozone 単散乱 + 等方多重散乱を積分。Transmittance LUT で太陽透過率を引く。
+const char* kBakeCS =
+ATMO_COMMON_HLSL
+"cbuffer AtmoCB : register(b0){ float4 sunDir; float4 sunInt; };\n"
+"Texture2D<float4> transLut : register(t0);\n"
+"RWTexture2D<float4> bakeOut : register(u0);\n"
+"float3 SampleTrans(float r,float mu){ float2 uv=saturate(TransParamsToUv(r,mu)); int2 px=int2(uv*float2(255.0,63.0)+0.5); return transLut.Load(int3(px,0)).rgb; }\n"
+"[numthreads(8,8,1)]\n"
+"void CSBake(uint3 id : SV_DispatchThreadID){\n"
+"  uint W,H; bakeOut.GetDimensions(W,H); if(id.x>=W||id.y>=H) return;\n"
+"  float2 uv=(float2(id.xy)+0.5)/float2(W,H);\n"
+"  float theta=uv.y*PI; float phi=uv.x*2.0*PI-PI; float st=sin(theta),ct=cos(theta);\n"
+"  float3 dir=float3(st*sin(phi),ct,st*cos(phi)); float3 sd=normalize(sunDir.xyz);\n"
+"  float3 col;\n"
+"  if(dir.y<-0.02){ col=float3(0.02,0.02,0.03); }\n"
+"  else{\n"
+"    float3 P0=float3(0,kBottom+0.005,0); float tAtm=RaySphere(P0,dir,kTop);\n"
+"    const int N=32; float dt=tAtm/N; float cosVS=dot(dir,sd);\n"
+"    float phR=RayleighPhase(cosVS); float phM=HgPhase(cosVS,kMieG);\n"
+"    float3 L=0; float3 Tview=float3(1,1,1);\n"
+"    [loop] for(int i=0;i<N;i++){\n"
+"      float3 P=P0+dir*(dt*(i+0.5)); float r=length(P); float alt=r-kBottom; if(alt<0) break;\n"
+"      float3 sR; float sM; float3 ext; SampleMedium(alt,sR,sM,ext);\n"
+"      float muSun=dot(P/r,sd); float3 Tsun=SampleTrans(r,muSun);\n"
+"      float3 Sdir=sR*phR + sM*phM;\n"
+"      float3 Sms=(sR+sM)*(0.18/(4.0*PI));\n"
+"      float3 sampleScatter=(Sdir+Sms)*Tsun;\n"
+"      float3 sampleT=exp(-ext*dt);\n"
+"      float3 Sint=(sampleScatter - sampleScatter*sampleT)/max(ext,1e-7);\n"
+"      L+=Tview*Sint; Tview*=sampleT;\n"
+"    }\n"
+"    col=L*sunInt.xyz;\n"
+"    float cosToSun=dot(dir,sd);\n"
+"    if(cosToSun>0.9995){ float3 Td=SampleTrans(kBottom+0.005, sd.y); float t=saturate((cosToSun-0.9995)/(0.99995-0.9995)); float fade=t*t*(3.0-2.0*t); col+=sunInt.xyz*Td*30.0*fade; }\n"
+"  }\n"
+"  bakeOut[id.xy]=float4(col,1.0);\n"
+"}\n";
+
+} // namespace
+
+TResult<void> FSkyAtmosphere::Init(IRhiDevice& device) noexcept {
+    {   FShaderDesc sd{}; sd.stage = EShaderStage::Compute; sd.hlsl_source = kTransCS;
+        sd.entry_point = "CSTrans"; sd.debug_name = "Atmo.TransCS";
+        auto r = CreateRhiShader(device, sd); if (r.IsErr()) return Err<void>(r.Error()); m_TransCs = Move(r.Value()); }
+    {   FComputePipelineDesc pd{}; pd.cs = m_TransCs.Get(); pd.uav_slots = 1; pd.uav_names[0] = "transOut";
+        auto r = CreateRhiComputePipeline(device, pd); if (r.IsErr()) return Err<void>(r.Error()); m_TransPipe = Move(r.Value()); }
+    {   FShaderDesc sd{}; sd.stage = EShaderStage::Compute; sd.hlsl_source = kBakeCS;
+        sd.entry_point = "CSBake"; sd.debug_name = "Atmo.BakeCS";
+        auto r = CreateRhiShader(device, sd); if (r.IsErr()) return Err<void>(r.Error()); m_BakeCs = Move(r.Value()); }
+    {   FComputePipelineDesc pd{}; pd.cs = m_BakeCs.Get(); pd.cbuffer_slots = 1; pd.cbuffer_names[0] = "AtmoCB";
+        pd.srv_slots = 1; pd.srv_names[0] = "transLut"; pd.uav_slots = 1; pd.uav_names[0] = "bakeOut";
+        auto r = CreateRhiComputePipeline(device, pd); if (r.IsErr()) return Err<void>(r.Error()); m_BakePipe = Move(r.Value()); }
+    {   FTextureDesc td{}; td.width = 256; td.height = 64; td.format = EFormat::R16G16B16A16_Float; td.is_uav = true;
+        auto r = CreateRhiTexture(device, td); if (r.IsErr()) return Err<void>(r.Error()); m_TransLut = Move(r.Value()); }
+    {   FBufferDesc bd{}; bd.size = 256; bd.usage = EBufferUsage::Uniform; bd.cpu_writable = true;
+        auto r = CreateRhiBuffer(device, bd); if (r.IsErr()) return Err<void>(r.Error()); m_Cb = Move(r.Value()); }
+    m_Ready = true;
+    return Ok();
+}
+
+bool FSkyAtmosphere::BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
+                                  const AtmosphereParams& params,
+                                  u32 width, u32 height, TArray<f32>& out) noexcept {
+    if (!m_Ready) return false;
+    FVec3 sd = params.sun_dir;
+    {   f32 l2 = sd.x*sd.x + sd.y*sd.y + sd.z*sd.z;
+        if (l2 < 1e-12f) sd = FVec3{0, 1, 0};
+        else { f32 inv = 1.0f / Sqrt(l2); sd = FVec3{sd.x*inv, sd.y*inv, sd.z*inv}; } }
+    AtmoCB cb{}; cb.sunDir = FVec4{sd.x, sd.y, sd.z, 0.0f};
+    cb.sunInt = FVec4{params.sun_intensity.x, params.sun_intensity.y, params.sun_intensity.z, 0.0f};
+    m_Cb->Update(&cb, sizeof(cb));
+
+    // 1) Transmittance LUT を焼く (256x64 → 32x8 グループ)。
+    cl.SetComputePipeline(*m_TransPipe);
+    cl.BindUav(0, *m_TransLut);
+    cl.Dispatch(32, 8, 1);
+
+    // 2) equirect texture を (再) 確保 (RGBA32F、readback 用)。
+    if (m_EqW != width || m_EqH != height || !m_Equirect) {
+        FTextureDesc td{}; td.width = width; td.height = height;
+        td.format = EFormat::R32G32B32A32_Float; td.is_uav = true;
+        auto r = CreateRhiTexture(device, td); if (r.IsErr()) return false;
+        m_Equirect = Move(r.Value()); m_EqW = width; m_EqH = height;
+    }
+    // 3) equirect bake (transLut SRV を読みつつ)。
+    cl.SetComputePipeline(*m_BakePipe);
+    cl.SetConstantBuffer(0, *m_Cb);
+    cl.SetTexture(0, *m_TransLut);
+    cl.BindUav(0, *m_Equirect);
+    cl.Dispatch((width + 7) / 8, (height + 7) / 8, 1);
+
+    // 4) CPU へ読み戻す (ReadTexture が Flush+WaitIdle → 上の dispatch を実行してから copy)。
+    out.Resize(static_cast<usize>(width) * height * 4u);
+    return device.ReadTexture(*m_Equirect, out.Data(),
+                              static_cast<u32>(out.Size() * sizeof(f32)));
+}
+
+void FSkyAtmosphere::Shutdown() noexcept {
+    m_TransPipe.Reset(); m_BakePipe.Reset();
+    m_TransCs.Reset();   m_BakeCs.Reset();
+    m_TransLut.Reset();  m_Equirect.Reset(); m_Cb.Reset();
+    m_EqW = 0; m_EqH = 0; m_Ready = false;
+}
+
 } // namespace acs

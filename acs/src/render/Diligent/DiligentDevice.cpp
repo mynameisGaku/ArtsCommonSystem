@@ -5,6 +5,7 @@
 #if WITH_RENDER_DILIGENT
 
 #include "render/Diligent/DiligentCommon.h"
+#include "render/Diligent/DiligentTexture.h"   // ReadTexture: Native()/cast
 #include "render/Diligent/DiligentMemoryAdapter.h"
 #include "foundation/Log.h"
 #include "foundation/Platform.h"
@@ -187,6 +188,58 @@ void DiligentDevice::WaitIdle() noexcept {
         m_Context->Flush();
         m_Context->WaitForIdle();
     }
+}
+
+bool DiligentDevice::ReadTexture(IRhiTexture& tex, void* out_pixels, u32 out_size) noexcept {
+    if (!m_Device || !m_Context || out_pixels == nullptr) return false;
+    auto* dtex = static_cast<DiligentTexture*>(&tex);
+    Diligent::ITexture* src = dtex->Native();
+    if (src == nullptr) return false;
+    const Diligent::TextureDesc& sd = src->GetDesc();
+    const u32 w = sd.Width, h = sd.Height;
+    u32 bpp = 4;
+    switch (dtex->EPixelFormat()) {
+        case EFormat::R32G32B32A32_Float: bpp = 16; break;
+        case EFormat::R16G16B16A16_Float: bpp = 8;  break;
+        case EFormat::R32G32_Float:       bpp = 8;  break;
+        case EFormat::R11G11B10_Float:    bpp = 4;  break;
+        case EFormat::R16G16_Float:       bpp = 4;  break;
+        default:                          bpp = 4;  break;   // RGBA8/BGRA8 等
+    }
+    if (w == 0 || h == 0 || out_size < w * h * bpp) return false;
+
+    // staging texture (USAGE_STAGING + CPU_ACCESS_READ) を作って CopyTexture → Map で読む。
+    Diligent::TextureDesc stg = sd;
+    stg.Name           = "ReadbackStaging";
+    stg.Usage          = Diligent::USAGE_STAGING;
+    stg.CPUAccessFlags = Diligent::CPU_ACCESS_READ;
+    stg.BindFlags      = Diligent::BIND_NONE;
+    stg.MiscFlags      = Diligent::MISC_TEXTURE_FLAG_NONE;
+    Diligent::RefCntAutoPtr<Diligent::ITexture> staging;
+    m_Device->CreateTexture(stg, nullptr, &staging);
+    if (!staging) return false;
+
+    Diligent::CopyTextureAttribs cta;
+    cta.pSrcTexture              = src;
+    cta.SrcTextureTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+    cta.pDstTexture              = staging;
+    cta.DstTextureTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+    m_Context->CopyTexture(cta);
+    m_Context->Flush();
+    WaitIdle();
+
+    Diligent::MappedTextureSubresource mapped;
+    m_Context->MapTextureSubresource(staging, 0, 0, Diligent::MAP_READ,
+                                     Diligent::MAP_FLAG_DO_NOT_WAIT, nullptr, mapped);
+    if (mapped.pData == nullptr) return false;
+    auto* dst        = static_cast<u8*>(out_pixels);
+    const auto* srcp = static_cast<const u8*>(mapped.pData);
+    for (u32 y = 0; y < h; ++y) {
+        std::memcpy(dst + static_cast<usize>(y) * w * bpp,
+                    srcp + static_cast<usize>(y) * mapped.Stride, w * bpp);
+    }
+    m_Context->UnmapTextureSubresource(staging, 0, 0);
+    return true;
 }
 
 u64 DiligentDevice::SignalGraphicsQueue() noexcept {

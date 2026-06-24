@@ -396,6 +396,8 @@ struct EditorHost {
     u32                      taa_frame = 0;                // TAA Halton ジッタ列のフレームインデックス
     // IBL (鏡面+拡散 環境光)。FSky を env cubemap 化 → irradiance/prefilter/BRDF-LUT → FPbrShader.SetIbl。
     acs::ImageBasedLighting  ibl3d;                    // Diligent backend 専用 (raw-DX12 は失敗 → SH9 フォールバック)
+    acs::FSkyAtmosphere      sky_atmo;                 // GPU Hillaire 大気 (compute LUT)。SkyMode==1 で CPU FAtmosphere を置換
+    bool                     sky_atmo_tried = false;   // Init を一度試したか
     bool                     ibl_ready = false;        // 全 cubemap 生成済み (true なら SetIbl、false なら SH9)
     bool                     ibl_tried = false;        // 一度試して失敗したか (毎フレーム再試行を避ける)
     bool                     ibl_dirty = true;         // 空(太陽/色)が変わった → env を再キャプチャ
@@ -3442,10 +3444,13 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
             bool ok = h.ibl3d.EnsureBrdfLut(*idev, *cl).IsOk();
             if (ok) {
                 if (h.q_sky_mode == 1) {
-                    // 物理大気: CPU で equirect を焼き env cubemap へ (Hillaire/Bruneton 単散乱)。太陽方角は h.sun_dir。
+                    // 物理大気 (WickedEngine/Hillaire 流 GPU compute LUT)。太陽方角は h.sun_dir。
                     acs::AtmosphereParams ap; ap.sun_dir = h.sun_dir;
                     ap.sun_intensity = FVec3{ 22.0f, 22.0f, 22.0f };
-                    acs::TArray<f32> sky = acs::FAtmosphere::BakeEquirect(512, 256, ap);   // env 1024 cube に焼くので equirect も高解像度化
+                    if (!h.sky_atmo_tried) { h.sky_atmo_tried = true; (void)h.sky_atmo.Init(*idev); }
+                    acs::TArray<f32> sky;
+                    bool gpu = h.sky_atmo.Ready() && h.sky_atmo.BakeEquirect(*idev, *cl, ap, 512, 256, sky);
+                    if (!gpu) sky = acs::FAtmosphere::BakeEquirect(512, 256, ap);   // compute 不可なら CPU fallback
                     // 物理放射輝度はエディタの露出(ACES, exposure≈1)に対し桁が小さいので一様スケールして
                     // 背景(skybox)と IBL を表示レンジへ持ち上げる (係数は実測調整)。
                     for (u32 si = 0; si < sky.Size(); ++si) sky[si] *= kAtmosScale;
@@ -4633,6 +4638,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->preview_sprites.Shutdown();
     host->fxaa.Shutdown();
     host->dbg3d.Shutdown();
+    host->sky_atmo.Shutdown();   // GPU Hillaire 大気 (UAF 防止)
     host->m3d_pipe.Reset(); host->m3d_overlay_pipe.Reset(); host->m3d_vs.Reset(); host->m3d_ps.Reset();
     host->sky_pipe.Reset(); host->sky_vs.Reset(); host->sky_ps.Reset(); host->sky_cb.Reset();
     host->grid_pipe.Reset(); host->grid_vs.Reset(); host->grid_ps.Reset(); host->grid_cb.Reset(); host->grid_vb.Reset();
