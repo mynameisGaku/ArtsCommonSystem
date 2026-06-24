@@ -51,7 +51,8 @@ public:
      * @param desc シェーダ記述 (HLSL source・エントリポイント・ステージ等)。
      * @return 成功なら空の TResult、device 未初期化・source 欠落・コンパイル失敗ならエラー。
      */
-    TResult<void> Init(DiligentDevice& device, const FShaderDesc& desc) noexcept;
+    TResult<void> Init(DiligentDevice& device, const FShaderDesc& desc,
+                       bool combined_samplers = true) noexcept;
 
     /**
      * シェーダステージを返す。

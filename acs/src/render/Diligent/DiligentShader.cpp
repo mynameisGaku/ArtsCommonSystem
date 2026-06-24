@@ -92,7 +92,8 @@ DiligentShader::~DiligentShader() noexcept {
 }
 
 /** HLSL source をコンパイルしてシェーダを生成し、register binding を抽出する。 */
-TResult<void> DiligentShader::Init(DiligentDevice& device, const FShaderDesc& desc) noexcept {
+TResult<void> DiligentShader::Init(DiligentDevice& device, const FShaderDesc& desc,
+                                   bool combined_samplers) noexcept {
     m_Device = &device;
     m_Stage  = desc.stage;
 
@@ -119,8 +120,14 @@ TResult<void> DiligentShader::Init(DiligentDevice& device, const FShaderDesc& de
     Diligent::ShaderDesc sd;
     sd.Name                       = desc.debug_name ? desc.debug_name : "ACS_Shader";
     sd.ShaderType                 = diligent_detail::ToDiligent(desc.stage);
-    sd.UseCombinedTextureSamplers = true;
-    sd.CombinedSamplerSuffix      = "m_Sampler";
+    // compute (combined_samplers=false) では UAV / RWStructuredBuffer のリソース名が
+    // m_Sampler suffix で mangle されないよう combined sampler を無効化する。graphics は従来通り。
+    if (combined_samplers) {
+        sd.UseCombinedTextureSamplers = true;
+        sd.CombinedSamplerSuffix      = "m_Sampler";
+    } else {
+        sd.UseCombinedTextureSamplers = false;
+    }
     sci.Desc                      = sd;
 
     dev->CreateShader(sci, &m_Shader);

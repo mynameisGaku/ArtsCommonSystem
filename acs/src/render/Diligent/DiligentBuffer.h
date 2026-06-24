@@ -7,6 +7,7 @@
 
 namespace Diligent {
     struct IBuffer;
+    struct IBufferView;
 }
 
 namespace acs {
@@ -82,6 +83,12 @@ public:
      */
     Diligent::IBuffer* Native() const noexcept { return m_Buffer; }
 
+    /** 構造化バッファ SRV (struct_stride>0 のとき。compute の StructuredBuffer)。 */
+    Diligent::IBufferView* SrvView() const noexcept { return m_Srv; }
+
+    /** 構造化バッファ UAV (struct_stride>0 + Storage のとき。compute の RWStructuredBuffer)。 */
+    Diligent::IBufferView* UavView() const noexcept { return m_Uav; }
+
 private:
     /** Update でコンテキストを引くために保持する生成元デバイス。 */
     DiligentDevice*    m_Device = nullptr;
@@ -94,6 +101,12 @@ private:
 
     /** バッファの用途 (bind flag と Update 経路の選択に使う)。 */
     EBufferUsage        m_Usage  = EBufferUsage::Vertex;
+
+    /** 構造化バッファ SRV (m_Buffer 所有、Phase 0)。 */
+    Diligent::IBufferView* m_Srv = nullptr;
+
+    /** 構造化バッファ UAV (m_Buffer 所有、Phase 0)。 */
+    Diligent::IBufferView* m_Uav = nullptr;
 };
 
 } // namespace acs

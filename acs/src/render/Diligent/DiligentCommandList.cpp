@@ -367,6 +367,11 @@ void DiligentCommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
 
     // Pipeline が保持してる名前 (cbuffer_names[slot]) で lookup
     const char* name = m_Pipeline->CbufferName(slot);
+    if (m_Pipeline->IsCompute()) {
+        auto* var = srb->GetVariableByName(Diligent::SHADER_TYPE_COMPUTE, name);
+        if (var) var->Set(b.Native());
+        return;
+    }
     auto* var = srb->GetVariableByName(Diligent::SHADER_TYPE_VERTEX, name);
     if (var) var->Set(b.Native());
     var = srb->GetVariableByName(Diligent::SHADER_TYPE_PIXEL, name);
@@ -381,7 +386,9 @@ void DiligentCommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
     if (!t.SrvView()) return;
 
     const char* name = m_Pipeline->TextureName(slot);
-    auto* var = srb->GetVariableByName(Diligent::SHADER_TYPE_PIXEL, name);
+    const auto stage = m_Pipeline->IsCompute() ? Diligent::SHADER_TYPE_COMPUTE
+                                               : Diligent::SHADER_TYPE_PIXEL;
+    auto* var = srb->GetVariableByName(stage, name);
     if (var) var->Set(t.SrvView());
 }
 
@@ -419,6 +426,68 @@ void DiligentCommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base
     dia.BaseVertex   = base_vertex;
     dia.Flags = Diligent::DRAW_FLAG_NONE;
     ctx->DrawIndexed(dia);
+}
+
+// ---- Compute (Phase 0) ----
+
+void DiligentCommandList::SetComputePipeline(IRhiPipeline& pipeline) noexcept {
+    if (!m_Device) return;
+    auto* ctx = m_Device->Context();
+    if (!ctx) return;
+    auto& p = static_cast<DiligentPipeline&>(pipeline);
+    m_Pipeline = &p;
+    m_BoundUavTexCount = 0;
+    if (p.Native()) ctx->SetPipelineState(p.Native());
+}
+
+void DiligentCommandList::BindUav(u32 slot, IRhiTexture& tex) noexcept {
+    if (!m_Pipeline || !m_Device) return;
+    auto* srb = m_Pipeline->Srb();
+    if (!srb) return;
+    auto& t = static_cast<DiligentTexture&>(tex);
+    if (!t.UavView()) return;
+    const char* name = m_Pipeline->UavName(slot);
+    auto* var = srb->GetVariableByName(Diligent::SHADER_TYPE_COMPUTE, name);
+    if (var) var->Set(t.UavView());
+}
+
+void DiligentCommandList::BindUav(u32 slot, IRhiBuffer& buf) noexcept {
+    if (!m_Pipeline || !m_Device) return;
+    auto* srb = m_Pipeline->Srb();
+    if (!srb) return;
+    auto& b = static_cast<DiligentBuffer&>(buf);
+    if (!b.UavView()) return;
+    const char* name = m_Pipeline->UavName(slot);
+    auto* var = srb->GetVariableByName(Diligent::SHADER_TYPE_COMPUTE, name);
+    if (var) var->Set(b.UavView());
+}
+
+void DiligentCommandList::BindStructuredSrv(u32 slot, IRhiBuffer& buf) noexcept {
+    if (!m_Pipeline || !m_Device) return;
+    auto* srb = m_Pipeline->Srb();
+    if (!srb) return;
+    auto& b = static_cast<DiligentBuffer&>(buf);
+    if (!b.SrvView()) return;
+    const char* name = m_Pipeline->TextureName(slot);   // SRV は texture スロットと同管理
+    auto* var = srb->GetVariableByName(Diligent::SHADER_TYPE_COMPUTE, name);
+    if (var) var->Set(b.SrvView());
+}
+
+void DiligentCommandList::Dispatch(u32 gx, u32 gy, u32 gz) noexcept {
+    if (!m_Device || !m_Pipeline) return;
+    auto* ctx = m_Device->Context();
+    if (!ctx) return;
+    // TRANSITION モードで commit → Diligent が UAV を UNORDERED_ACCESS、SRV を SHADER_RESOURCE へ
+    // 自動遷移する。手動遷移と混ぜると UAV<->SRV state race (旧 SSAO-WIP 全黒) を招くので統一する。
+    if (m_Pipeline->Srb()) {
+        ctx->CommitShaderResources(m_Pipeline->Srb(),
+                                   Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    }
+    Diligent::DispatchComputeAttribs dca;
+    dca.ThreadGroupCountX = gx;
+    dca.ThreadGroupCountY = gy;
+    dca.ThreadGroupCountZ = gz;
+    ctx->DispatchCompute(dca);
 }
 
 void* DiligentCommandList::NativeHandle() noexcept {

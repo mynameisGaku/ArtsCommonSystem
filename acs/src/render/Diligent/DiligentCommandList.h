@@ -241,9 +241,26 @@ public:
      */
     void* NativeHandle() noexcept override;
 
+    // ---- Compute (Phase 0) ----
+    /** compute パイプラインを設定する (次の Dispatch で使う CS + SRB)。 */
+    void SetComputePipeline(IRhiPipeline& pipeline) noexcept override;
+    /** compute dispatch (スレッドグループ数)。bind 済み UAV を UNORDERED_ACCESS へ遷移してから発行。 */
+    void Dispatch(u32 gx, u32 gy, u32 gz) noexcept override;
+    /** UAV テクスチャ (RWTexture) を slot に bind。 */
+    void BindUav(u32 slot, IRhiTexture& tex) noexcept override;
+    /** UAV バッファ (RWStructuredBuffer) を slot に bind。 */
+    void BindUav(u32 slot, IRhiBuffer& buf) noexcept override;
+    /** 構造化バッファ SRV (StructuredBuffer) を slot に bind。 */
+    void BindStructuredSrv(u32 slot, IRhiBuffer& buf) noexcept override;
+
 private:
     /** コマンドを積む先の Diligent デバイス。 */
     DiligentDevice*    m_Device   = nullptr;
+
+    /** Dispatch 前に UNORDERED_ACCESS へ遷移する、現在 bind 中の UAV テクスチャ。 */
+    DiligentTexture*   m_BoundUavTex[16] = {};
+    /** bind 中 UAV テクスチャ数。 */
+    u32                m_BoundUavTexCount = 0;
 
     /** 現在 bind 中のパイプライン (SetConstantBuffer/SetTexture の名前 lookup に使う)。 */
     DiligentPipeline*  m_Pipeline = nullptr;

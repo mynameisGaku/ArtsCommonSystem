@@ -49,6 +49,21 @@ public:
     TResult<void> Init(DiligentDevice& device, const FPipelineDesc& desc) noexcept;
 
     /**
+     * FComputePipelineDesc から compute PSO と SRB を生成する (Phase 0)。
+     *
+     * @param device PSO 生成に使う Diligent デバイス。
+     * @param desc compute パイプラインの記述 (CS・cbuffer/SRV/UAV slot と名前)。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> InitCompute(DiligentDevice& device, const FComputePipelineDesc& desc) noexcept;
+
+    /** compute パイプラインか (Dispatch 用)。 */
+    bool IsCompute() const noexcept { return m_IsCompute; }
+
+    /** slot に対応する UAV の HLSL リソース名を返す (compute、未指定なら "uN")。 */
+    const char* UavName(u32 slot) const noexcept;
+
+    /**
      * ネイティブの PSO を返す。
      *
      * @return Diligent の IPipelineState (未初期化なら nullptr)。
@@ -120,6 +135,15 @@ private:
 
     /** slot 別のテクスチャ名 (null なら fallback 名を返す)。 */
     const char* m_TexNames[kMaxResourceSlots] = {};
+
+    /** compute パイプラインか。 */
+    bool        m_IsCompute = false;
+
+    /** UAV のスロット数 (compute)。 */
+    u32         m_UavSlots  = 0;
+
+    /** slot 別の UAV 名 (compute)。 */
+    const char* m_UavNames[kMaxResourceSlots] = {};
 
     /**
      * 定数バッファのフォールバック名を返す。

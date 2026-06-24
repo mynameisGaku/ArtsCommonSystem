@@ -41,6 +41,8 @@ TResult<void> DiligentTexture::Init(DiligentDevice& device, const FTextureDesc& 
     m_IsDepth = desc.is_depth_target;
     m_DepthSrv = desc.shader_visible_depth;
     m_IsCubemap = desc.is_cubemap;
+    m_IsUav   = desc.is_uav;
+    m_Depth   = desc.depth > 0 ? desc.depth : 1;
     if (m_IsCubemap) {
         // cubemap は array_size 6 のみ許可。0 (= デフォルト省略) は許容して 6 に正規化。
         if (desc.array_size != 0 && desc.array_size != 6) {
@@ -55,7 +57,9 @@ TResult<void> DiligentTexture::Init(DiligentDevice& device, const FTextureDesc& 
 
     Diligent::TextureDesc td;
     td.Name      = "ACS_Texture";
-    if (m_IsCubemap)
+    if (m_Depth > 1)
+        td.Type = Diligent::RESOURCE_DIM_TEX_3D;        // volumetric clouds の shape/detail noise 等
+    else if (m_IsCubemap)
         td.Type = Diligent::RESOURCE_DIM_TEX_CUBE;
     else if (m_ArraySize > 1)
         td.Type = Diligent::RESOURCE_DIM_TEX_2D_ARRAY;
@@ -63,7 +67,8 @@ TResult<void> DiligentTexture::Init(DiligentDevice& device, const FTextureDesc& 
         td.Type = Diligent::RESOURCE_DIM_TEX_2D;
     td.Width     = m_Width;
     td.Height    = m_Height;
-    td.ArraySize = m_ArraySize;        // cubemap も含めて Diligent はここで指定
+    if (m_Depth > 1) td.Depth = m_Depth;                // 3D の奥行き (Diligent では ArraySize と union)
+    else td.ArraySize = m_ArraySize;   // cubemap も含めて Diligent はここで指定
     td.Format    = diligent_detail::ToDiligent(m_Format);
     td.MipLevels = m_Mips;
     td.SampleCount = 1;
@@ -71,6 +76,9 @@ TResult<void> DiligentTexture::Init(DiligentDevice& device, const FTextureDesc& 
     td.BindFlags = Diligent::BIND_SHADER_RESOURCE;
     if (m_IsRt) {
         td.BindFlags = static_cast<Diligent::BIND_FLAGS>(td.BindFlags | Diligent::BIND_RENDER_TARGET);
+    }
+    if (m_IsUav) {   // compute から RWTexture として書ける (Phase 0)
+        td.BindFlags = static_cast<Diligent::BIND_FLAGS>(td.BindFlags | Diligent::BIND_UNORDERED_ACCESS);
     }
     if (m_IsDepth) {
         td.BindFlags = static_cast<Diligent::BIND_FLAGS>(
@@ -120,6 +128,9 @@ TResult<void> DiligentTexture::Init(DiligentDevice& device, const FTextureDesc& 
     }
     if (td.BindFlags & Diligent::BIND_DEPTH_STENCIL) {
         m_Dsv = m_Texture->GetDefaultView(Diligent::TEXTURE_VIEW_DEPTH_STENCIL);
+    }
+    if (td.BindFlags & Diligent::BIND_UNORDERED_ACCESS) {
+        m_Uav = m_Texture->GetDefaultView(Diligent::TEXTURE_VIEW_UNORDERED_ACCESS);
     }
 
     // per-slice RTV を要求された場合は array_size × mip_levels 個生成する。

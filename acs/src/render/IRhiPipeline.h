@@ -279,4 +279,41 @@ public:
 TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
                                                        const FPipelineDesc& desc) noexcept;
 
+/**
+ * compute パイプライン生成パラメータ (Phase 0)。
+ *
+ * @details CS + binding slot 数/名前。cbuffer(b#)・SRV(t#、StructuredBuffer/Texture)・UAV(u#、
+ * RWTexture/RWStructuredBuffer) を名前ベースで Diligent SRB に割り当てる。
+ */
+struct FComputePipelineDesc {
+    /** compute シェーダ。 */
+    IRhiShader* cs            = nullptr;
+    /** 定数バッファ slot 数 b0..。 */
+    u32         cbuffer_slots = 0;
+    /** SRV slot 数 t0.. (Texture / StructuredBuffer 読み取り)。 */
+    u32         srv_slots     = 0;
+    /** UAV slot 数 u0.. (RWTexture / RWStructuredBuffer 書き込み)。 */
+    u32         uav_slots     = 0;
+    /** 各 cbuffer slot の HLSL 名 (Diligent の名前 lookup 用)。 */
+    const char* cbuffer_names[16] = {};
+    /** 各 SRV slot の HLSL 名。 */
+    const char* srv_names[16]     = {};
+    /** 各 UAV slot の HLSL 名。 */
+    const char* uav_names[16]     = {};
+    /** static サンプラ数。 */
+    u32         static_sampler_count = 0;
+    /** static サンプラ s0..。 */
+    SamplerDesc static_samplers[16] = {};
+};
+
+/**
+ * compute パイプライン (PSO) を生成する。
+ *
+ * @param device パイプライン生成に使う RHI デバイス。
+ * @param desc compute パイプライン生成パラメータ。
+ * @return 成功なら所有権付きパイプライン、生成失敗ならエラー (Diligent backend のみ実装)。
+ */
+TResult<TUniquePtr<IRhiPipeline>> CreateRhiComputePipeline(IRhiDevice& device,
+                                                              const FComputePipelineDesc& desc) noexcept;
+
 } // namespace acs

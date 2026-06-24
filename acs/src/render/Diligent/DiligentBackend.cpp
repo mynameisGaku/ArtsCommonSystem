@@ -104,13 +104,27 @@ TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
     return TResult<TUniquePtr<IRhiPipeline>>(OkInit, Move(base));
 }
 
+TResult<TUniquePtr<IRhiPipeline>> CreateRhiComputePipeline(IRhiDevice& device,
+                                                  const FComputePipelineDesc& desc) noexcept {
+    if (!IsDiligentDevice(device))
+        return ACS_ERR(Render, 252, "CreateRhiComputePipeline: device is not Diligent");
+    auto p = MakeUnique<DiligentPipeline>();
+    if (!p) return ACS_ERR(Memory, 253, "DiligentPipeline(compute) alloc failed");
+    const auto r = p->InitCompute(static_cast<DiligentDevice&>(device), desc);
+    if (r.IsErr()) return r.Error();
+    TUniquePtr<IRhiPipeline> base(p.Release(), p.GetAllocator());
+    return TResult<TUniquePtr<IRhiPipeline>>(OkInit, Move(base));
+}
+
 TResult<TUniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice& device, const FShaderDesc& desc) noexcept {
     if (!IsDiligentDevice(device))
         return ACS_ERR(Render, 260, "CreateRhiShader: device is not Diligent");
     auto s = MakeUnique<DiligentShader>();
     // MakeUnique は確保失敗時に null を返し得るため、Init で null-deref する前に検査する
     if (!s) return ACS_ERR(Memory, 261, "DiligentShader alloc failed");
-    const auto r = s->Init(static_cast<DiligentDevice&>(device), desc);
+    // compute シェーダは combined-sampler OFF (UAV/RWStructuredBuffer 名が mangle されないように)。
+    const bool combined = (desc.stage != EShaderStage::Compute);
+    const auto r = s->Init(static_cast<DiligentDevice&>(device), desc, combined);
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiShader> base(s.Release(), s.GetAllocator());
     return TResult<TUniquePtr<IRhiShader>>(OkInit, Move(base));

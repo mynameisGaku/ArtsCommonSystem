@@ -53,6 +53,11 @@ struct FBufferDesc {
 
     /** 初期データへのポインタ (任意、不要なら nullptr)。 */
     const void* initial_data = nullptr;
+
+    /** 構造化バッファの 1 要素のバイト数 (Phase 0)。>0 で BUFFER_MODE_STRUCTURED + ElementByteStride
+     *  → SRV/UAV view が作られ compute から StructuredBuffer / RWStructuredBuffer として読み書き可能に。
+     *  usage=Storage と併用する (light culling のタイルバケット等)。 */
+    u32         struct_stride = 0;
 };
 
 /**

@@ -248,6 +248,25 @@ public:
      * @return バックエンド固有のネイティブコマンドリストハンドル。
      */
     virtual void* NativeHandle() noexcept = 0;
+
+    // ---- Compute (Phase 0: WickedEngine 流レンダラ移植の基盤) ----
+    // 非 pure virtual + 既定空実装 → Dx12 raw backend は override せず no-op で済む
+    // (Diligent のみ実装)。compute PSO は CreateRhiComputePipeline で生成。
+
+    /** compute パイプラインを設定する (次の Dispatch で使う CS + リソース binding)。 */
+    virtual void SetComputePipeline(class IRhiPipeline& /*pipeline*/) noexcept {}
+
+    /** compute dispatch を発行する (スレッドグループ数 gx*gy*gz)。 */
+    virtual void Dispatch(u32 /*gx*/, u32 /*gy*/, u32 /*gz*/) noexcept {}
+
+    /** UAV テクスチャ (RWTexture) を指定 slot にバインドする。is_uav=true で作成済みが前提。 */
+    virtual void BindUav(u32 /*slot*/, class IRhiTexture& /*tex*/) noexcept {}
+
+    /** UAV バッファ (RWStructuredBuffer 等) を指定 slot にバインドする。struct_stride>0 が前提。 */
+    virtual void BindUav(u32 /*slot*/, class IRhiBuffer& /*buf*/) noexcept {}
+
+    /** 構造化バッファ SRV (StructuredBuffer) を指定 slot にバインドする。struct_stride>0 が前提。 */
+    virtual void BindStructuredSrv(u32 /*slot*/, class IRhiBuffer& /*buf*/) noexcept {}
 };
 
 /**

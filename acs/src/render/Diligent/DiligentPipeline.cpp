@@ -270,6 +270,71 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc
     return Ok();
 }
 
+namespace {
+const char* const kUavFallback[16] = {
+    "u0","u1","u2","u3","u4","u5","u6","u7",
+    "u8","u9","u10","u11","u12","u13","u14","u15"
+};
+} // namespace
+
+const char* DiligentPipeline::UavName(u32 slot) const noexcept {
+    if (slot >= kMaxResourceSlots) return "u_invalid";
+    return m_UavNames[slot] ? m_UavNames[slot] : kUavFallback[slot];
+}
+
+TResult<void> DiligentPipeline::InitCompute(DiligentDevice& device,
+                                            const FComputePipelineDesc& desc) noexcept {
+    m_Device    = &device;
+    m_IsCompute = true;
+    m_CbSlots   = desc.cbuffer_slots;
+    m_TexSlots  = desc.srv_slots;
+    m_UavSlots  = desc.uav_slots;
+    for (u32 i = 0; i < kMaxResourceSlots; ++i) {
+        m_CbNames[i]  = desc.cbuffer_names[i];
+        m_TexNames[i] = desc.srv_names[i];
+        m_UavNames[i] = desc.uav_names[i];
+    }
+
+    auto* dev = device.RenderDev();
+    if (!dev) return ACS_ERR(Render, 156, "DiligentPipeline(compute): device not initialized");
+    auto* cs = static_cast<DiligentShader*>(desc.cs);
+    if (!cs || !cs->Native()) return ACS_ERR(Render, 157, "DiligentPipeline(compute): CS missing");
+
+    Diligent::ComputePipelineStateCreateInfo psoCI;
+    psoCI.PSODesc.Name         = "ACS_ComputePSO";
+    psoCI.PSODesc.PipelineType = Diligent::PIPELINE_TYPE_COMPUTE;
+    psoCI.pCS                  = cs->Native();
+    psoCI.PSODesc.ResourceLayout.DefaultVariableType =
+        Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC;
+
+    // static サンプラ (compute で SRV をサンプルする LUT 等。combined-sampler は OFF なので
+    // SamplerOrTextureName は別宣言の SamplerState 名。Phase 1 で SRV 名 = サンプラ名規約を使う)。
+    constexpr u32 kMaxStaticSamplers = 16;
+    Diligent::ImmutableSamplerDesc samplers[kMaxStaticSamplers]{};
+    const u32 ns = desc.static_sampler_count > kMaxStaticSamplers
+                 ? kMaxStaticSamplers : desc.static_sampler_count;
+    for (u32 i = 0; i < ns; ++i) {
+        const auto& s = desc.static_samplers[i];
+        samplers[i].SamplerOrTextureName = desc.srv_names[i] ? desc.srv_names[i] : kUavFallback[i];
+        samplers[i].ShaderStages   = Diligent::SHADER_TYPE_COMPUTE;
+        samplers[i].Desc.Name      = "ACS_CsStaticSampler";
+        samplers[i].Desc.MinFilter = diligent_detail::ToDiligentFilter(s.filter);
+        samplers[i].Desc.MagFilter = diligent_detail::ToDiligentFilter(s.filter);
+        samplers[i].Desc.MipFilter = diligent_detail::ToDiligentFilter(s.filter);
+        samplers[i].Desc.AddressU  = diligent_detail::ToDiligentAddress(s.address_u);
+        samplers[i].Desc.AddressV  = diligent_detail::ToDiligentAddress(s.address_v);
+        samplers[i].Desc.AddressW  = diligent_detail::ToDiligentAddress(s.address_w);
+    }
+    psoCI.PSODesc.ResourceLayout.ImmutableSamplers    = ns > 0 ? samplers : nullptr;
+    psoCI.PSODesc.ResourceLayout.NumImmutableSamplers = ns;
+
+    dev->CreateComputePipelineState(psoCI, &m_Pso);
+    if (!m_Pso) return ACS_ERR(Render, 158, "CreateComputePipelineState failed");
+    m_Pso->CreateShaderResourceBinding(&m_Srb, true);
+    if (!m_Srb) return ACS_ERR(Render, 159, "CreateShaderResourceBinding(compute) failed");
+    return Ok();
+}
+
 } // namespace acs
 
 #endif // WITH_RENDER_DILIGENT

@@ -58,6 +58,10 @@ TResult<void> DiligentBuffer::Init(DiligentDevice& device, const FBufferDesc& de
     bd.Name      = "ACS_Buffer";
     bd.Size      = static_cast<Diligent::Uint64>(desc.size);
     bd.BindFlags = BindFromUsage(desc.usage);
+    if (desc.struct_stride > 0) {   // 構造化バッファ (Phase 0): SRV/UAV view が作られる
+        bd.Mode             = Diligent::BUFFER_MODE_STRUCTURED;
+        bd.ElementByteStride = desc.struct_stride;
+    }
 
     if (desc.usage == EBufferUsage::Staging) {
         // CPU 読み戻し用
@@ -89,6 +93,13 @@ TResult<void> DiligentBuffer::Init(DiligentDevice& device, const FBufferDesc& de
     dev->CreateBuffer(bd, p_init, &m_Buffer);
     if (!m_Buffer) {
         return ACS_ERR(Render, 121, "CreateBuffer failed");
+    }
+
+    // 構造化バッファの default SRV/UAV view (compute の StructuredBuffer / RWStructuredBuffer)。
+    if (desc.struct_stride > 0) {
+        m_Srv = m_Buffer->GetDefaultView(Diligent::BUFFER_VIEW_SHADER_RESOURCE);
+        if (bd.BindFlags & Diligent::BIND_UNORDERED_ACCESS)
+            m_Uav = m_Buffer->GetDefaultView(Diligent::BUFFER_VIEW_UNORDERED_ACCESS);
     }
 
     // STAGING は別途 Update で書く (USAGE_DEFAULT は CreateBuffer 時に流し込み済)

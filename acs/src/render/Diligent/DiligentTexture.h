@@ -125,6 +125,13 @@ public:
     Diligent::ITextureView* DsvView()   const noexcept { return m_Dsv; }
 
     /**
+     * 順序なしアクセスビュー (UAV) を返す (Phase 0、compute の RWTexture 用)。
+     *
+     * @return デフォルト UAV (is_uav=false なら nullptr)。
+     */
+    Diligent::ITextureView* UavView()   const noexcept { return m_Uav; }
+
+    /**
      * per_slice_rtv で生成した slice/mip ごとの RTV を返す。
      *
      * @param slice 配列スライス (cubemap face) のインデックス。
@@ -180,6 +187,15 @@ private:
 
     /** 深度ステンシルビュー (m_Texture 所有)。 */
     Diligent::ITextureView* m_Dsv     = nullptr;
+
+    /** 順序なしアクセスビュー (UAV、m_Texture 所有、Phase 0)。 */
+    Diligent::ITextureView* m_Uav     = nullptr;
+
+    /** UAV (RWTexture) として生成されたか。 */
+    bool                    m_IsUav   = false;
+
+    /** 3D テクスチャの奥行き (1 = 2D)。 */
+    u32                     m_Depth   = 1;
 
     /**
      * per_slice_rtv 指定時に生成する slice/mip ごとの RTV 群。
