@@ -16,6 +16,7 @@
 #include "foundation/Result.h"
 #include "container/Array.h"
 #include "math/Vec.h"
+#include "math/Mat.h"      // FMat4 (BuildAerialPerspective の inv_view_proj)
 #include "memory/UniquePtr.h"
 #include "render/IRhiDevice.h"
 #include "render/IRhiCommandList.h"
@@ -110,6 +111,31 @@ public:
                       const AtmosphereParams& params,
                       u32 width, u32 height, TArray<f32>& out) noexcept;
 
+    /**
+     * Aerial perspective camera-volume LUT (32^3 froxel) を焼いて返す (WickedEngine 流)。
+     *
+     * @details
+     * 各 froxel = camera→その距離までの大気 in-scatter (.rgb) と opacity (.a=1-平均透過率)。
+     * PBR で screen uv + 深度→スライスで trilinear サンプルし col = col*(1-ap.a)+ap.rgb で適用。
+     * 3D LUT を物理積分するため滑らか (cubemap サンプルのような «斜めの段» が出ない)。
+     * @param inv_view_proj 逆 view-projection (froxel の world ray 復元用)。
+     * @param cam_pos カメラ world position (scene 単位)。
+     * @param sun_dir 太陽方角 (+Y up)。
+     * @param sun_intensity 太陽ピーク輝度。
+     * @param max_dist_scene volume がカバーする最大距離 (scene 単位)。
+     * @param scene_to_km scene 単位 → 大気 km の換算 (見た目調整。小さいシーンで霞を可視化)。
+     * @param cam_alt_km カメラの大気高度 (km、地表 ≈ 0)。
+     * @return AP volume (失敗時 nullptr、非所有)。
+     */
+    IRhiTexture* BuildAerialPerspective(IRhiDevice& device, IRhiCommandList& cl,
+                                        const FMat4& inv_view_proj, FVec3 cam_pos,
+                                        FVec3 sun_dir, FVec3 sun_intensity,
+                                        f32 max_dist_scene, f32 scene_to_km,
+                                        f32 cam_alt_km) noexcept;
+
+    /** 直近に焼いた AP volume (BuildAerialPerspective 後に有効、非所有)。 */
+    IRhiTexture* ApVolume() const noexcept { return m_ApVol.Get(); }
+
     /** 全 GPU リソースを解放 (acs_editor_destroy から呼ぶ。UAF 防止)。 */
     void Shutdown() noexcept;
 
@@ -122,6 +148,10 @@ private:
     TUniquePtr<IRhiTexture>  m_TransLut;    // 256x64 RGBA16F UAV/SRV
     TUniquePtr<IRhiTexture>  m_Equirect;    // width x height RGBA32F UAV (readback source)
     TUniquePtr<IRhiBuffer>   m_Cb;          // sun dir + intensity
+    TUniquePtr<IRhiShader>   m_ApCs;        // aerial perspective froxel CS
+    TUniquePtr<IRhiPipeline> m_ApPipe;
+    TUniquePtr<IRhiTexture>  m_ApVol;       // 32^3 RGBA16F UAV/SRV (camera-volume AP LUT)
+    TUniquePtr<IRhiBuffer>   m_ApCb;        // AP cbuffer (invVP/cam/sun/params)
     u32                      m_EqW = 0, m_EqH = 0;
 };
 

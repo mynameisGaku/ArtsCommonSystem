@@ -3747,6 +3747,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     //     volume は PBR の cone trace (SetVxgi) で消費予定。本コミットは voxelize パイプラインまで。
     IRhiTexture* vxgiVol = nullptr;
     IRhiTexture* vxgiResolveTex = nullptr;   // VXGI resolve (cone trace) 結果 → SetSsgi へ
+    IRhiTexture* apVol = nullptr;            // aerial perspective camera-volume LUT → SetAerialPerspective へ
     if (!h.ortho3d && dvCount >= 3 && h.q_ssgi_on && h.q_vxgi_on) {
         vxgiVol = VxgiVoxelize(h, cl, dv, bbMin, bbMax);   // 既定OFF: VXGI(64³)は blocky。OFF時は vxgiVol=null → SetSsgi が滑らかな screen-space SSGI を使う
     }
@@ -3813,6 +3814,22 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     if (vxgiVol != nullptr && gbufReady && h.normal_rt) {
         vxgiResolveTex = VxgiResolve(h, cl, vxgiVol, h.renderer.DepthBuffer(), h.normal_rt.Get(),
                                      Inverse(vp), bbMin, bbMax, scW, scH, h.q_ssgi_intensity);
+    }
+
+    // --- Aerial perspective: 物理大気の camera-volume froxel LUT (WickedEngine 流)。PBR が screen uv +
+    //     深度→スライスで trilinear サンプルし col=col*(1-ap.a)+ap.rgb。3D 物理積分なので滑らか
+    //     (cubemap サンプル由来の «斜めの段» が出ない)。compute 不可(Dx12)なら Ready()=false で自動 skip。
+    if (!h.ortho3d) {
+        IRhiDevice* adev = h.renderer.Device();
+        if (adev != nullptr) {
+            if (!h.sky_atmo_tried) { h.sky_atmo_tried = true; (void)h.sky_atmo.Init(*adev); }
+            if (h.sky_atmo.Ready()) {
+                const f32 kApSunInt = 22.0f * kAtmosScale;   // 空 bake と同じ放射輝度スケールに合わせる
+                apVol = h.sky_atmo.BuildAerialPerspective(*adev, *cl, Inverse(vp), eye, h.sun_dir,
+                            FVec3{ kApSunInt, kApSunInt, kApSunInt },
+                            100.0f /*max_dist (scene)*/, 0.10f /*scene→km*/, 0.5f /*cam_alt_km*/);
+            }
+        }
     }
 
     // --- FMotionVector: motion G-buffer を per-node (主パスと同型) で焼き TAA/SSR/SSGI の reproject に供給 ---
@@ -3979,6 +3996,8 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         // (フォグ色を sky_horizon に追従させ時間帯プリセットと自然に馴染む)。density=0 で実質オフ。
         if (h.q_fog_on) h.pbr3d.SetFog(h.sky_horizon, h.q_fog_density, h.q_fog_height_falloff, 0.0f);
         else            h.pbr3d.SetFog(FVec3{ 0, 0, 0 }, 0.0f, 0.0f, 0.0f);
+        // Aerial perspective (物理大気の距離霞)。apVol が焼けていれば適用、無ければ無効。max_dist は build と一致 (100)。
+        h.pbr3d.SetAerialPerspective(apVol, 100.0f);
         for (u32 i = 0; i < all3d.Size(); ++i) {
             game::FNode3D* nn = all3d[i];
             { EEd3DRec* er = Rec3D(nn); if (er != nullptr && er->is_empty) continue; }   // 空ノードは描画しない

@@ -322,6 +322,12 @@ namespace {
 /** AtmoCB レイアウト (HLSL の cbuffer AtmoCB と一致)。 */
 struct AtmoCB { FVec4 sunDir; FVec4 sunInt; };
 
+/** ApCB レイアウト (HLSL の cbuffer ApCB と一致)。 */
+struct ApCB { FMat4 invViewProj; FVec4 camPos; FVec4 sunDir; FVec4 sunInt; FVec4 apParams; };
+
+/** Aerial perspective froxel volume の解像度 (32^3、WickedEngine の AP LUT 相当)。 */
+constexpr u32 kApRes = 32;
+
 // 共通 HLSL (km 単位、Hillaire/Bruneton Earth)。各 CS に inline する。
 #define ATMO_COMMON_HLSL \
 "static const float PI = 3.14159265;\n" \
@@ -399,6 +405,44 @@ ATMO_COMMON_HLSL
 "  bakeOut[id.xy]=float4(col,1.0);\n"
 "}\n";
 
+// Aerial perspective camera-volume LUT (WickedEngine skyAtmosphere_cameraVolumeLutCS 相当)。
+// 32^3 froxel: xy=screen uv、z=距離スライス (squared 分布で近傍に精度を寄せる)。各 froxel に
+// camera→その距離までの大気 in-scatter (Rayleigh+Mie+ozone, sun透過) と平均透過率(.a=1-T) を積分。
+// 3D trilinear サンプルなので滑らか = cubemap テクセル境界由来の «斜めの段» が原理的に出ない。
+const char* kApCS =
+ATMO_COMMON_HLSL
+"cbuffer ApCB : register(b0){ float4x4 invViewProj; float4 camPos; float4 sunDir; float4 sunInt; float4 apParams; };\n"
+"Texture2D<float4> transLut : register(t0);\n"
+"RWTexture3D<float4> apOut : register(u0);\n"
+"float3 SampleTrans(float r,float mu){ float2 uv=saturate(TransParamsToUv(r,mu)); int2 px=int2(uv*float2(255.0,63.0)+0.5); return transLut.Load(int3(px,0)).rgb; }\n"
+"[numthreads(4,4,4)]\n"
+"void CSAp(uint3 id : SV_DispatchThreadID){\n"
+"  uint W,H,D; apOut.GetDimensions(W,H,D); if(id.x>=W||id.y>=H||id.z>=D) return;\n"
+"  float2 uv=(float2(id.xy)+0.5)/float2(W,H);\n"
+"  float sliceN=(float(id.z)+0.5)/float(D); sliceN*=sliceN;          // squared 分布 (近傍密)\n"
+"  float tScene=sliceN*apParams.z;                                   // この froxel までの距離 (scene 単位)\n"
+"  float4 clip=float4(uv.x*2.0-1.0, -(uv.y*2.0-1.0), 1.0, 1.0);\n"
+"  float4 wp=mul(clip, invViewProj); float3 dir=normalize(wp.xyz/wp.w - camPos.xyz);\n"
+"  float kmTotal=max(tScene*apParams.x, 1e-4);                       // scene→km\n"
+"  float3 P0=float3(0.0, kBottom+apParams.y, 0.0);                   // 大気空間のカメラ高度 (km)\n"
+"  float3 sd=normalize(sunDir.xyz); float cosVS=dot(dir,sd);\n"
+"  float phR=RayleighPhase(cosVS); float phM=HgPhase(cosVS,kMieG);\n"
+"  const int N=16; float dtKm=kmTotal/float(N);\n"
+"  float3 L=float3(0,0,0); float3 Tview=float3(1,1,1);\n"
+"  [loop] for(int i=0;i<N;i++){\n"
+"    float3 P=P0+dir*(dtKm*(float(i)+0.5)); float r=length(P); float alt=r-kBottom; if(alt<0.0) alt=0.0;\n"
+"    float3 sR; float sM; float3 ext; SampleMedium(alt,sR,sM,ext);\n"
+"    float muSun=dot(P/r,sd); float3 Tsun=SampleTrans(r,muSun);\n"
+"    float3 Sdir=sR*phR + sM*phM; float3 Sms=(sR+sM)*(0.18/(4.0*PI));\n"
+"    float3 sampleScatter=(Sdir+Sms)*Tsun; float3 sampleT=exp(-ext*dtKm);\n"
+"    float3 Sint=(sampleScatter - sampleScatter*sampleT)/max(ext,1e-7);\n"
+"    L+=Tview*Sint; Tview*=sampleT;\n"
+"  }\n"
+"  float3 inScatter=L*sunInt.xyz;\n"
+"  float meanT=dot(Tview, float3(1.0/3.0,1.0/3.0,1.0/3.0));\n"
+"  apOut[id]=float4(inScatter, 1.0-meanT);\n"             // .rgb=in-scatter, .a=opacity
+"}\n";
+
 } // namespace
 
 TResult<void> FSkyAtmosphere::Init(IRhiDevice& device) noexcept {
@@ -417,8 +461,50 @@ TResult<void> FSkyAtmosphere::Init(IRhiDevice& device) noexcept {
         auto r = CreateRhiTexture(device, td); if (r.IsErr()) return Err<void>(r.Error()); m_TransLut = Move(r.Value()); }
     {   FBufferDesc bd{}; bd.size = 256; bd.usage = EBufferUsage::Uniform; bd.cpu_writable = true;
         auto r = CreateRhiBuffer(device, bd); if (r.IsErr()) return Err<void>(r.Error()); m_Cb = Move(r.Value()); }
+    // Aerial perspective: froxel volume (32^3 RGBA16F UAV+SRV) + compute pipeline + CB。
+    {   FShaderDesc sd{}; sd.stage = EShaderStage::Compute; sd.hlsl_source = kApCS;
+        sd.entry_point = "CSAp"; sd.debug_name = "Atmo.ApCS";
+        auto r = CreateRhiShader(device, sd); if (r.IsErr()) return Err<void>(r.Error()); m_ApCs = Move(r.Value()); }
+    {   FComputePipelineDesc pd{}; pd.cs = m_ApCs.Get(); pd.cbuffer_slots = 1; pd.cbuffer_names[0] = "ApCB";
+        pd.srv_slots = 1; pd.srv_names[0] = "transLut"; pd.uav_slots = 1; pd.uav_names[0] = "apOut";
+        auto r = CreateRhiComputePipeline(device, pd); if (r.IsErr()) return Err<void>(r.Error()); m_ApPipe = Move(r.Value()); }
+    {   FTextureDesc td{}; td.width = kApRes; td.height = kApRes; td.depth = kApRes;
+        td.format = EFormat::R16G16B16A16_Float; td.is_uav = true;
+        auto r = CreateRhiTexture(device, td); if (r.IsErr()) return Err<void>(r.Error()); m_ApVol = Move(r.Value()); }
+    {   FBufferDesc bd{}; bd.size = sizeof(ApCB); bd.usage = EBufferUsage::Uniform; bd.cpu_writable = true;
+        auto r = CreateRhiBuffer(device, bd); if (r.IsErr()) return Err<void>(r.Error()); m_ApCb = Move(r.Value()); }
     m_Ready = true;
     return Ok();
+}
+
+IRhiTexture* FSkyAtmosphere::BuildAerialPerspective(IRhiDevice& /*device*/, IRhiCommandList& cl,
+                                                    const FMat4& inv_view_proj, FVec3 cam_pos,
+                                                    FVec3 sun_dir, FVec3 sun_intensity,
+                                                    f32 max_dist_scene, f32 scene_to_km,
+                                                    f32 cam_alt_km) noexcept {
+    if (!m_Ready || !m_ApVol || !m_TransLut) return nullptr;
+    FVec3 sd = sun_dir;
+    {   f32 l2 = sd.x*sd.x + sd.y*sd.y + sd.z*sd.z;
+        if (l2 < 1e-12f) sd = FVec3{0, 1, 0};
+        else { f32 inv = 1.0f / Sqrt(l2); sd = FVec3{sd.x*inv, sd.y*inv, sd.z*inv}; } }
+    ApCB cb{};
+    cb.invViewProj = inv_view_proj;
+    cb.camPos = FVec4{cam_pos.x, cam_pos.y, cam_pos.z, 0.0f};
+    cb.sunDir = FVec4{sd.x, sd.y, sd.z, 0.0f};
+    cb.sunInt = FVec4{sun_intensity.x, sun_intensity.y, sun_intensity.z, 0.0f};
+    cb.apParams = FVec4{scene_to_km, cam_alt_km, max_dist_scene, static_cast<f32>(kApRes)};
+    m_ApCb->Update(&cb, sizeof(cb));
+    // 1) Transmittance LUT を (再)焼く (sun 非依存・定数だが安価)。
+    cl.SetComputePipeline(*m_TransPipe);
+    cl.BindUav(0, *m_TransLut);
+    cl.Dispatch(32, 8, 1);
+    // 2) AP froxel volume を焼く。
+    cl.SetComputePipeline(*m_ApPipe);
+    cl.SetConstantBuffer(0, *m_ApCb);
+    cl.SetTexture(0, *m_TransLut);
+    cl.BindUav(0, *m_ApVol);
+    cl.Dispatch(kApRes / 4, kApRes / 4, kApRes / 4);
+    return m_ApVol.Get();
 }
 
 bool FSkyAtmosphere::BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
@@ -462,6 +548,7 @@ void FSkyAtmosphere::Shutdown() noexcept {
     m_TransPipe.Reset(); m_BakePipe.Reset();
     m_TransCs.Reset();   m_BakeCs.Reset();
     m_TransLut.Reset();  m_Equirect.Reset(); m_Cb.Reset();
+    m_ApPipe.Reset();    m_ApCs.Reset();     m_ApVol.Reset(); m_ApCb.Reset();   // aerial perspective (UAF 防止)
     m_EqW = 0; m_EqH = 0; m_Ready = false;
 }
 

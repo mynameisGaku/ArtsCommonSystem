@@ -85,6 +85,11 @@ cbuffer Frame : register(b0) {
     // SSR (Phase 34e-2fix): screen-space reflection を IBL specular に blend。
     //   x = enabled (0/1)、y = intensity、zw = pad。screen UV は ssao_params.zw を流用。
     float4   ssr_params;
+
+    // Aerial perspective (WickedEngine 流 camera-volume LUT)。物理大気の froxel volume を
+    // screen uv + 深度→スライスで trilinear サンプルし col = col*(1-ap.a)+ap.rgb で適用。
+    //   x = enabled (0/1)、y = max_dist (scene 単位、深度→スライス逆変換用)、zw = pad
+    float4   ap_params;
 };
 
 cbuffer Object : register(b1) {
@@ -111,6 +116,7 @@ Texture2D    ssao_map          : register(t6);
 Texture2D    ssgi_color        : register(t7);
 Texture2D    lightmap          : register(t8);
 Texture2D    ssr_color         : register(t9);
+Texture3D    ap_volume         : register(t10);   // aerial perspective camera-volume LUT (32^3)
 SamplerState albedo_sampler     : register(s0);
 SamplerState irradiance_sampler : register(s1);
 SamplerState prefilter_sampler  : register(s2);
@@ -121,6 +127,7 @@ SamplerState ssao_map_sampler   : register(s6);
 SamplerState ssgi_color_sampler : register(s7);
 SamplerState lightmap_sampler   : register(s8);
 SamplerState ssr_color_sampler  : register(s9);
+SamplerState ap_volume_sampler  : register(s10);   // linear clamp (3D trilinear)
 
 struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float2 uv : TEXCOORD0; };
 struct VSOut {
@@ -958,6 +965,17 @@ float4 PSMain(VSOut v) : SV_TARGET {
         col = col * transmittance + fog_color_density.xyz * (1.0 - transmittance);
     }
 
+    // Aerial perspective (WickedEngine camera-volume LUT)。screen uv + 深度→スライス (LUT 焼きの
+    // squared 分布の逆 = sqrt) で froxel volume を trilinear サンプル → col = col*(1-ap.a) + ap.rgb。
+    // 物理大気を積分した滑らかな 3D LUT なので、cubemap サンプル由来の «斜めの段» が原理的に出ない。
+    if (ap_params.x > 0.5) {
+        float apDist = length(v.world_p - camera_pos.xyz);
+        float zc = sqrt(saturate(apDist / max(ap_params.y, 1e-3)));
+        float2 sUv = v.pos.xy * float2(ssao_params.z, ssao_params.w);
+        float4 ap = ap_volume.SampleLevel(ap_volume_sampler, float3(sUv, zc), 0);
+        col = col * (1.0 - ap.a) + ap.rgb;
+    }
+
     return float4(col, base_color.w);
 }
 )";
@@ -1063,6 +1081,9 @@ struct FrameCBLayout {
 
     /** SSR パラメータ (x=enabled、y=intensity)。 */
     FVec4 ssr_params;
+
+    /** Aerial perspective パラメータ (x=enabled、y=max_dist scene)。 */
+    FVec4 ap_params;
 };
 
 /**
@@ -1230,6 +1251,15 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
         return Err<void>(r.Error());
     else m_SsrFb = Move(r.Value());
 
+    // Aerial perspective fallback: 1x1x1 RGBA16F (in-scatter 0 / opacity 0)。ap_params.x=0 で
+    // shader が sample しないが、SRB に valid な Texture3D を bind する必要があるので作る。
+    FTextureDesc apt{};
+    apt.width = 1; apt.height = 1; apt.depth = 1;
+    apt.format = EFormat::R16G16B16A16_Float;
+    if (auto r = CreateRhiTexture(device, apt); r.IsErr())
+        return Err<void>(r.Error());
+    else m_ApFb = Move(r.Value());
+
     // IBL fallback: 1x1x6 R11G11B10F cubemap + 1x1 RG16F 2D。
     // shader が ibl_enabled=0 で uniform branch して sample しない想定だが、
     // SRB に valid な texture を bind する必要があるので作っておく。内容は
@@ -1263,7 +1293,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     pd.depth_write   = true;
     pd.cull_mode     = cull_mode;
     pd.cbuffer_slots = 2;     // b0=Frame, b1=Object
-    pd.texture_slots = 10;    // t0=albedo .. t8=lightmap, t9=ssr_color
+    pd.texture_slots = 11;    // t0=albedo .. t9=ssr_color, t10=ap_volume
     pd.cbuffer_names[0] = "Frame";
     pd.cbuffer_names[1] = "Object";
     pd.texture_names[0] = "albedo";
@@ -1276,7 +1306,8 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     pd.texture_names[7] = "ssgi_color";
     pd.texture_names[8] = "lightmap";
     pd.texture_names[9] = "ssr_color";
-    pd.static_sampler_count = 10;
+    pd.texture_names[10] = "ap_volume";
+    pd.static_sampler_count = 11;
     pd.static_samplers[0].filter    = ESamplerFilter::Linear;
     pd.static_samplers[0].address_u = ESamplerAddress::Wrap;
     pd.static_samplers[0].address_v = ESamplerAddress::Wrap;
@@ -1310,6 +1341,10 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     pd.static_samplers[9].filter    = ESamplerFilter::Linear;       // SSR も linear、画面外参照は clamp
     pd.static_samplers[9].address_u = ESamplerAddress::Clamp;
     pd.static_samplers[9].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[10].filter    = ESamplerFilter::Linear;      // AP volume: 3D trilinear、clamp
+    pd.static_samplers[10].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[10].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[10].address_w = ESamplerAddress::Clamp;
     pd.vertex_stride = sizeof(MeshVertex);
     // MeshVertex の FVec3 は alignas(16) で 16 バイト境界。
     // → position@0, normal@16, uv@32 (Standard と一致)。
@@ -1453,6 +1488,12 @@ void FPbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
     } else if (m_SsrFb) {
         cmd.SetTexture(9, *m_SsrFb);
     }
+    // Aerial perspective volume: slot 10 (3D)。無効時は 1x1x1 fallback (ap_params.x=0 で sample しない)
+    if (m_ApVol) {
+        cmd.SetTexture(10, *m_ApVol);
+    } else if (m_ApFb) {
+        cmd.SetTexture(10, *m_ApFb);
+    }
 }
 
 /** normal map テクスチャ参照を差し替える。 */
@@ -1481,6 +1522,13 @@ void FPbrShader::SetSsgi(IRhiTexture* ssgi_tex, f32 intensity) noexcept {
 void FPbrShader::SetSsr(IRhiTexture* ssr_tex, f32 intensity) noexcept {
     m_SsrTex       = ssr_tex;
     m_SsrIntensity = intensity < 0 ? 0.0f : intensity;
+    FlushFrameCB();
+}
+
+/** aerial perspective volume と max_dist を記録して frame CB を更新する。 */
+void FPbrShader::SetAerialPerspective(IRhiTexture* ap_vol, f32 max_dist) noexcept {
+    m_ApVol    = ap_vol;
+    m_ApParams = FVec4{ ap_vol ? 1.0f : 0.0f, max_dist > 0.0f ? max_dist : 1.0f, 0.0f, 0.0f };
     FlushFrameCB();
 }
 
@@ -1626,6 +1674,7 @@ void FPbrShader::FlushFrameCB() noexcept {
         m_SsrIntensity,
         0, 0
     };
+    cb.ap_params = m_ApParams;
     for (u32 i = 0; i < 9; ++i) cb.sh9[i] = m_Sh9[i];
     m_FrameCb->Update(&cb, sizeof(cb));
 }

@@ -213,6 +213,14 @@ public:
     void SetSsr(IRhiTexture* ssr_tex, f32 intensity) noexcept;
 
     /**
+     * Aerial perspective camera-volume LUT を設定する (WickedEngine 流の大気の距離霞)。
+     *
+     * @param ap_vol AP froxel volume (FSkyAtmosphere::BuildAerialPerspective の出力)。nullptr で無効。
+     * @param max_dist volume がカバーする最大距離 (scene 単位、深度→スライス逆変換に使う)。
+     */
+    void SetAerialPerspective(IRhiTexture* ap_vol, f32 max_dist) noexcept;
+
+    /**
      * Lightmap (baked static GI) を mesh の uv で sample する設定をする。
      *
      * @details mesh の uv が global lightmap 座標系として作られている前提。本実装は
@@ -577,6 +585,15 @@ private:
 
     /** SSR 無効時に bind する fallback (1x1 RGBA8 黒、hit mask 0)。 */
     TUniquePtr<IRhiTexture> m_SsrFb;
+
+    /** Aerial perspective camera-volume LUT (非所有、SetAerialPerspective で差し替え)。 */
+    IRhiTexture* m_ApVol = nullptr;
+
+    /** AP パラメータ (x=enabled、y=max_dist scene)。 */
+    FVec4 m_ApParams = FVec4{0, 0, 0, 0};
+
+    /** AP 無効時に bind する fallback (1x1x1 RGBA16F、in-scatter 0 / opacity 0)。 */
+    TUniquePtr<IRhiTexture> m_ApFb;
 
     /** lightmap テクスチャ (非所有、SetLightmap で差し替え)。 */
     IRhiTexture* m_LightmapTex       = nullptr;
