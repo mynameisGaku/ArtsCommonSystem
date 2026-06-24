@@ -24,6 +24,7 @@
 #include "render/IRhiPipeline.h"
 #include "render/IRhiBuffer.h"
 #include "render/IRhiCommandList.h"
+#include "render/IRhiTexture.h"
 
 namespace acs {
 
@@ -276,6 +277,52 @@ private:
 
     /** 雲の基本 RGB 色。 */
     FVec3 m_CloudColor   = FVec3{1.0f, 1.0f, 1.0f};
+};
+
+/**
+ * GPU レイマーチ volumetric clouds (WickedEngine / Nubis 流)。
+ *
+ * @details
+ * compute シェーダで全画面の視線ごとに雲スラブをレイマーチし、3D 手続きノイズ (Worley FBM) の
+ * 密度を coverage/height-gradient で remap、太陽方向へ light-march して Beer 透過率を求め、
+ * dual-lobe Henyey-Greenstein 位相 + powder 項でエネルギー保存散乱を積分する。出力 (premult 散乱色
+ * + alpha) を hdrRt の «空» の上に合成する。FSky の 2D-FBM 雲より遥かにディテール/立体感が高い。
+ * 要 Phase 0 compute コア (RWTexture2D UAV)。Diligent backend 専用。half-res で描き composite で upscale。
+ */
+class FVolumetricClouds {
+public:
+    /** compute (雲レイマーチ) + composite (全画面 alpha blend) パイプラインを生成。 */
+    TResult<void> Init(IRhiDevice& device, EFormat hdr_format) noexcept;
+
+    /** 初期化済みか。 */
+    bool Ready() const noexcept { return m_Ready; }
+
+    /** 出力解像度 (半分) を確保/再確保。scW/scH は full-res。 */
+    bool EnsureSize(IRhiDevice& device, u32 scW, u32 scH) noexcept;
+
+    /**
+     * 雲を compute でレイマーチして内部 UAV テクスチャへ書く (render pass の «外» で呼ぶ)。
+     */
+    void RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos,
+                       FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color,
+                       f32 coverage, f32 density, f32 wind, f32 time) noexcept;
+
+    /** 雲 (premult 散乱+alpha) を現在の RT へ全画面 alpha blend で合成する (render pass の «中» で呼ぶ)。 */
+    void Composite(IRhiCommandList& cl, u32 scW, u32 scH) noexcept;
+
+    /** 全 GPU リソースを解放 (acs_editor_destroy から呼ぶ。UAF 防止)。 */
+    void Shutdown() noexcept;
+
+private:
+    bool                     m_Ready = false;
+    EFormat                  m_HdrFormat = EFormat::R16G16B16A16_Float;
+    TUniquePtr<IRhiShader>   m_CloudCs;
+    TUniquePtr<IRhiPipeline> m_CloudPipe;     // compute
+    TUniquePtr<IRhiShader>   m_CompVs, m_CompPs;
+    TUniquePtr<IRhiPipeline> m_CompPipe;      // graphics (alpha blend)
+    TUniquePtr<IRhiBuffer>   m_Cb;
+    TUniquePtr<IRhiTexture>  m_CloudTex;       // half-res RGBA16F UAV/SRV
+    u32                      m_W = 0, m_H = 0; // half-res dims
 };
 
 } // namespace acs

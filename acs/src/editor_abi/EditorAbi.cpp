@@ -398,6 +398,10 @@ struct EditorHost {
     acs::ImageBasedLighting  ibl3d;                    // Diligent backend 専用 (raw-DX12 は失敗 → SH9 フォールバック)
     acs::FSkyAtmosphere      sky_atmo;                 // GPU Hillaire 大気 (compute LUT)。SkyMode==1 で CPU FAtmosphere を置換
     bool                     sky_atmo_tried = false;   // Init を一度試したか
+    acs::FVolumetricClouds   vclouds3d;                // GPU レイマーチ volumetric clouds (Phase4)。FSky 2D 雲を置換
+    bool                     vclouds_ready = false;    // Init 済み
+    bool                     vclouds_tried = false;    // Init を一度試したか
+    f32                      vclouds_time  = 0.0f;     // 雲アニメ用時間
     bool                     ibl_ready = false;        // 全 cubemap 生成済み (true なら SetIbl、false なら SH9)
     bool                     ibl_tried = false;        // 一度試して失敗したか (毎フレーム再試行を避ける)
     bool                     ibl_dirty = true;         // 空(太陽/色)が変わった → env を再キャプチャ
@@ -3610,6 +3614,23 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     }
     IRhiTexture*   hdrRt  = h.post3d_ready ? h.post3d.HdrRenderTarget() : nullptr;
     IRhiSwapchain* scSwap = h.renderer.Swapchain();
+
+    // --- Phase4 volumetric clouds: render pass の «外» で雲を compute レイマーチ (UAV へ書く)。
+    //     空 (FSky/大気) を描いた «後» に composite で合成する。FSky の 2D 雲は無効化して二重描画回避。
+    bool cloudsActive = false;
+    if (h.q_cloud_coverage > 0.001f && !h.ortho3d && hdrRt != nullptr) {
+        IRhiDevice* cdev = h.renderer.Device();
+        if (cdev != nullptr) {
+            if (!h.vclouds_tried) { h.vclouds_tried = true;
+                h.vclouds_ready = h.vclouds3d.Init(*cdev, EFormat::R16G16B16A16_Float).IsOk();
+                if (!h.vclouds_ready) ACS_LOG_WARN("[3D] FVolumetricClouds Init 失敗 (FSky 2D 雲にフォールバック)"); }
+            // 雲は «空 pass を End → compute dispatch (pass 外で UAV→SRV 遷移が成立) → load pass で
+            // composite» する。compute をここ (pass 前) で dispatch すると、pass «内» の composite SRV
+            // 読みへの UAV→SRV 遷移が pass を跨げず書込みが見えない (実測)。よってここでは gate のみ。
+            if (h.vclouds_ready && h.vclouds3d.EnsureSize(*cdev, scW, scH)) cloudsActive = true;
+        }
+    }
+
     if (hdrRt != nullptr)        cl->BeginRenderToTexture(*hdrRt, h.clear_color, h.renderer.DepthBuffer(), 1.0f);
     else if (scSwap != nullptr)  cl->BeginRenderToSwapchain(*scSwap, h.renderer.CurrentBuffer(), h.clear_color, h.renderer.DepthBuffer(), 1.0f);
     { FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
@@ -3629,7 +3650,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         h.sky3d.SetZenithColor(h.sky_zenith); // 空グラデも設定駆動 → IBL 環境光と背景を一致
         h.sky3d.SetHorizonColor(h.sky_horizon);
         h.sky3d.SetGroundColor(h.sky_ground);
-        h.sky3d.SetCloudsEnabled(h.q_cloud_coverage > 0.001f);   // 雲は設定駆動 (coverage=0 でオフ)
+        h.sky3d.SetCloudsEnabled(h.q_cloud_coverage > 0.001f && !cloudsActive);   // volumetric 雲が動くなら FSky 2D 雲は無効 (二重回避)
         h.sky3d.SetClouds(h.q_cloud_coverage, h.q_cloud_density);
         h.sky3d.SetCloudWind(h.q_cloud_wind);
         h.sky3d.Render(*cl, cam);
@@ -3644,6 +3665,21 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         cl->SetPipeline(*h.sky_pipe);
         cl->SetConstantBuffer(0, *h.sky_cb);
         cl->Draw(3, 0);
+    }
+
+    // --- Phase4 volumetric clouds: 空 pass を一旦 End → 雲 compute を pass «外» で dispatch (UAV→SRV
+    //     遷移が成立) → load pass を開いて空 (背景) の «上» に AlphaBlend 合成。シーンメッシュはこの load
+    //     pass で depth 付き描画されるので雲の手前に正しく出る (雲=遠景=背景)。
+    if (cloudsActive && hdrRt != nullptr) {
+        cl->EndRenderToTexture(*hdrRt);
+        h.vclouds_time += 1.0f / 60.0f;
+        const FVec3 sunC{ h.sun_color.x * h.sun_intensity, h.sun_color.y * h.sun_intensity, h.sun_color.z * h.sun_intensity };
+        h.vclouds3d.RenderCompute(*cl, Inverse(vp_nojit), eye, h.sun_dir, sunC, h.sky_horizon,
+                                  h.q_cloud_coverage, h.q_cloud_density, h.q_cloud_wind, h.vclouds_time);
+        cl->BeginRenderToTextureLoad(*hdrRt, h.renderer.DepthBuffer());
+        { FViewport rvp2{}; rvp2.width = static_cast<f32>(scW); rvp2.height = static_cast<f32>(scH); cl->SetViewport(rvp2);
+          FScissorRect rsr2{}; rsr2.right = static_cast<i32>(scW); rsr2.bottom = static_cast<i32>(scH); cl->SetScissor(rsr2); }
+        h.vclouds3d.Composite(*cl, scW, scH);
     }
 
     // PBR 視線ベクトル用のカメラ位置。正射(ortho)は視線が平行なので、視軸上の «遠点» を渡して
@@ -4639,6 +4675,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->fxaa.Shutdown();
     host->dbg3d.Shutdown();
     host->sky_atmo.Shutdown();   // GPU Hillaire 大気 (UAF 防止)
+    host->vclouds3d.Shutdown();  // GPU volumetric clouds (UAF 防止)
     host->m3d_pipe.Reset(); host->m3d_overlay_pipe.Reset(); host->m3d_vs.Reset(); host->m3d_ps.Reset();
     host->sky_pipe.Reset(); host->sky_vs.Reset(); host->sky_ps.Reset(); host->sky_cb.Reset();
     host->grid_pipe.Reset(); host->grid_vs.Reset(); host->grid_ps.Reset(); host->grid_cb.Reset(); host->grid_vb.Reset();

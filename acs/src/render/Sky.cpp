@@ -402,4 +402,206 @@ void FSky::Render(IRhiCommandList& cl, const FCamera& camera) noexcept {
     m_Time += 1.0f / 60.0f;
 }
 
+// ===================== FVolumetricClouds (GPU レイマーチ) =====================
+namespace {
+
+// 雲レイマーチ compute。視線ごとに雲スラブを march、Worley FBM 密度を coverage/height で remap、
+// 太陽へ light-march (Beer) + dual-lobe HG + powder でエネルギー保存散乱を積分。出力=非premult色+alpha。
+const char* kCloudCS = R"(
+#pragma pack_matrix(row_major)
+cbuffer CloudCB : register(b0) {
+    float4x4 invViewProj;
+    float4 camPos;     // xyz
+    float4 sunDir;     // xyz (world)
+    float4 sunCol;     // rgb (color*intensity)
+    float4 skyCol;     // rgb ambient
+    float4 params;     // x=coverage, y=density, z=wind*time
+    float4 dims;       // xy = half-res dims
+};
+RWTexture2D<float4> cloudOut : register(u0);
+
+float hash13(float3 p){ p=frac(p*0.1031); p+=dot(p,p.zyx+31.32); return frac((p.x+p.y)*p.z); }
+// 8-tap trilinear value noise (worley 27-cell より遥かに安い → per-sample march で実用速度)。
+float vnoise(float3 p){
+    float3 i=floor(p), f=frac(p); f=f*f*(3.0-2.0*f);
+    float n000=hash13(i+float3(0,0,0)), n100=hash13(i+float3(1,0,0));
+    float n010=hash13(i+float3(0,1,0)), n110=hash13(i+float3(1,1,0));
+    float n001=hash13(i+float3(0,0,1)), n101=hash13(i+float3(1,0,1));
+    float n011=hash13(i+float3(0,1,1)), n111=hash13(i+float3(1,1,1));
+    float nx00=lerp(n000,n100,f.x), nx10=lerp(n010,n110,f.x);
+    float nx01=lerp(n001,n101,f.x), nx11=lerp(n011,n111,f.x);
+    return lerp(lerp(nx00,nx10,f.y), lerp(nx01,nx11,f.y), f.z);
+}
+float fbm3(float3 p){ return vnoise(p)*0.5 + vnoise(p*2.03)*0.27 + vnoise(p*4.01)*0.13; }       // shape (3 oct)
+float fbm2(float3 p){ return vnoise(p)*0.6 + vnoise(p*2.07)*0.3; }                                 // light march 用 (安い 2 oct)
+float hg(float c,float g){ float g2=g*g; return (1.0-g2)/(12.566370*pow(max(1.0+g2-2.0*g*c,1e-3),1.5)); }
+
+// shape のみの密度 (light march 用、detail 無しで安い)。
+float cloudShape(float3 p, float coverage){
+    float hf = saturate((p.y - 1.0)/1.6);
+    float profile = smoothstep(0.0,0.2,hf)*smoothstep(1.0,0.5,hf);
+    if(profile<=0.001) return 0.0;
+    float3 wp = p*1.7 + float3(params.z, params.z*0.2, params.z*0.6);
+    float base = fbm2(wp);
+    return saturate((base - (1.0 - coverage))/max(coverage,0.001))*profile;
+}
+// view march 用の密度 (shape + 高周波 detail 侵食)。
+float cloudDensity(float3 p, float coverage){
+    float hf = saturate((p.y - 1.0)/1.6);
+    float profile = smoothstep(0.0,0.2,hf)*smoothstep(1.0,0.5,hf);
+    if(profile<=0.001) return 0.0;
+    float3 wp = p*1.7 + float3(params.z, params.z*0.2, params.z*0.6);
+    float base = fbm3(wp);
+    float shape = saturate((base - (1.0 - coverage))/max(coverage,0.001))*profile;
+    if(shape<=0.0) return 0.0;
+    float detail = vnoise(wp*5.0 + 9.7);
+    return saturate(shape - (1.0-shape)*detail*0.45);
+}
+
+[numthreads(8,8,1)]
+void CSCloud(uint3 tid : SV_DispatchThreadID){
+    uint W=(uint)dims.x, H=(uint)dims.y;
+    if(tid.x>=W || tid.y>=H) return;
+    float2 uv=(float2(tid.xy)+0.5)/dims.xy;
+    float4 clip=float4(uv.x*2-1, -(uv.y*2-1), 1, 1);
+    float4 wp=mul(clip, invViewProj); wp/=wp.w;
+    float3 dir=normalize(wp.xyz - camPos.xyz);
+    if(dir.y < 0.03){ cloudOut[tid.xy]=float4(0,0,0,0); return; }
+    float coverage=params.x, density=params.y;
+    float t0=1.0/dir.y, t1=2.6/dir.y;     // 雲スラブ [1, 2.6] (dome space)
+    const int N=28; float dt=(t1-t0)/float(N);
+    float jit=hash13(float3(uv*dims.xy, 0.0));
+    float3 sun=normalize(sunDir.xyz);
+    float cosA=dot(dir,sun);
+    float phase=max(hg(cosA,0.75), hg(cosA,-0.25)*0.6);
+    float hFade=smoothstep(0.03,0.12,dir.y);
+    float transmit=1.0; float3 scatter=float3(0,0,0);
+    [loop] for(int i=0;i<N;i++){
+        float3 p=dir*(t0+dt*(float(i)+jit));
+        float dens=cloudDensity(p,coverage)*density;
+        if(dens>0.01){
+            float lt=0.0;
+            [unroll] for(int l=1;l<=4;l++) lt += cloudShape(p+sun*(0.13*float(l)), coverage);   // shape のみで安く
+            float lightT=exp(-lt*density*0.85);
+            float powder=1.0 - exp(-dens*2.0);
+            float3 sunL=sunCol.rgb * lightT * phase * (powder*0.8+0.2);
+            float3 ambL=skyCol.rgb * (0.35 + 0.65*saturate(p.y/2.6));
+            float a=1.0 - exp(-dens*dt*6.0);
+            scatter += transmit * a * (sunL+ambL);
+            transmit *= (1.0-a);
+            if(transmit<0.02) break;
+        }
+    }
+    float baseA = 1.0 - transmit;
+    float3 col = baseA>1e-4 ? scatter/baseA : float3(0,0,0);   // 非premult (AlphaBlend 用)
+    cloudOut[tid.xy]=float4(col, baseA*hFade);
+}
+)";
+
+// 雲合成: 全画面三角形で cloudTex を AlphaBlend 合成 (sky の上に)。
+const char* kCloudCompVS = R"(
+struct VSOut { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; };
+VSOut VSMain(uint id:SV_VertexID){
+    float2 uv=float2((id<<1)&2, id&2);
+    VSOut o; o.uv=uv; o.pos=float4(uv.x*2.0-1.0, -(uv.y*2.0-1.0), 0.0, 1.0); return o;
+}
+)";
+const char* kCloudCompPS = R"(
+Texture2D cloudTex : register(t0);
+SamplerState cloudTex_sampler : register(s0);
+struct VSOut { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; };
+float4 PSMain(VSOut v):SV_TARGET { return cloudTex.Sample(cloudTex_sampler, v.uv); }
+)";
+
+struct CloudCB {
+    FMat4 invViewProj;
+    FVec4 camPos;
+    FVec4 sunDir;
+    FVec4 sunCol;
+    FVec4 skyCol;
+    FVec4 params;
+    FVec4 dims;
+};
+
+} // namespace
+
+TResult<void> FVolumetricClouds::Init(IRhiDevice& device, EFormat hdr_format) noexcept {
+    m_HdrFormat = hdr_format;
+    {   FShaderDesc sd{}; sd.stage = EShaderStage::Compute; sd.hlsl_source = kCloudCS;
+        sd.entry_point = "CSCloud"; sd.debug_name = "Clouds.CS";
+        auto r = CreateRhiShader(device, sd); if (r.IsErr()) return Err<void>(r.Error()); m_CloudCs = Move(r.Value()); }
+    {   FComputePipelineDesc pd{}; pd.cs = m_CloudCs.Get();
+        pd.cbuffer_slots = 1; pd.cbuffer_names[0] = "CloudCB";
+        pd.uav_slots = 1; pd.uav_names[0] = "cloudOut";
+        auto r = CreateRhiComputePipeline(device, pd); if (r.IsErr()) return Err<void>(r.Error()); m_CloudPipe = Move(r.Value()); }
+    {   FShaderDesc vd{}; vd.stage = EShaderStage::Vertex; vd.hlsl_source = kCloudCompVS;
+        vd.entry_point = "VSMain"; vd.debug_name = "Clouds.CompVS";
+        auto r = CreateRhiShader(device, vd); if (r.IsErr()) return Err<void>(r.Error()); m_CompVs = Move(r.Value()); }
+    {   FShaderDesc pd{}; pd.stage = EShaderStage::Pixel; pd.hlsl_source = kCloudCompPS;
+        pd.entry_point = "PSMain"; pd.debug_name = "Clouds.CompPS";
+        auto r = CreateRhiShader(device, pd); if (r.IsErr()) return Err<void>(r.Error()); m_CompPs = Move(r.Value()); }
+    {   FPipelineDesc pd{};
+        pd.vs = m_CompVs.Get(); pd.ps = m_CompPs.Get();
+        pd.topology = EPrimitiveTopology::TriangleList;
+        pd.rt_format = hdr_format; pd.depth_format = EFormat::Unknown;
+        pd.depth_test = false; pd.depth_write = false;
+        pd.cull_mode = ECullMode::None; pd.blend_mode = EBlendMode::AlphaBlend;
+        pd.cbuffer_slots = 0; pd.texture_slots = 1; pd.texture_names[0] = "cloudTex";
+        pd.static_sampler_count = 1;
+        pd.static_samplers[0].filter = ESamplerFilter::Linear;
+        pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+        pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
+        pd.layout_count = 0; pd.vertex_stride = 0;
+        auto r = CreateRhiPipeline(device, pd); if (r.IsErr()) return Err<void>(r.Error()); m_CompPipe = Move(r.Value()); }
+    {   FBufferDesc bd{}; bd.size = 256; bd.usage = EBufferUsage::Uniform; bd.cpu_writable = true;
+        auto r = CreateRhiBuffer(device, bd); if (r.IsErr()) return Err<void>(r.Error()); m_Cb = Move(r.Value()); }
+    m_Ready = true;
+    return Ok();
+}
+
+bool FVolumetricClouds::EnsureSize(IRhiDevice& device, u32 scW, u32 scH) noexcept {
+    if (!m_Ready) return false;
+    const u32 hw = scW > 1 ? scW / 2 : 1;
+    const u32 hh = scH > 1 ? scH / 2 : 1;
+    if (m_CloudTex && m_W == hw && m_H == hh) return true;
+    FTextureDesc td{}; td.width = hw; td.height = hh;
+    td.format = EFormat::R16G16B16A16_Float; td.is_uav = true;
+    auto r = CreateRhiTexture(device, td); if (r.IsErr()) { m_CloudTex.Reset(); m_W = 0; return false; }
+    m_CloudTex = Move(r.Value()); m_W = hw; m_H = hh;
+    return true;
+}
+
+void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos,
+                                      FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color,
+                                      f32 coverage, f32 density, f32 wind, f32 time) noexcept {
+    if (!m_Ready || !m_CloudTex || !m_Cb) return;
+    CloudCB cb{};
+    cb.invViewProj = inv_view_proj;
+    cb.camPos = FVec4{ cam_pos.x, cam_pos.y, cam_pos.z, 0.0f };
+    cb.sunDir = FVec4{ sun_dir.x, sun_dir.y, sun_dir.z, 0.0f };
+    cb.sunCol = FVec4{ sun_color.x, sun_color.y, sun_color.z, 0.0f };
+    cb.skyCol = FVec4{ sky_color.x, sky_color.y, sky_color.z, 0.0f };
+    cb.params = FVec4{ coverage, density, time * wind * 0.03f, 0.0f };
+    cb.dims   = FVec4{ static_cast<f32>(m_W), static_cast<f32>(m_H), 0.0f, 0.0f };
+    m_Cb->Update(&cb, sizeof(cb));
+    cl.SetComputePipeline(*m_CloudPipe);
+    cl.SetConstantBuffer(0, *m_Cb);
+    cl.BindUav(0, *m_CloudTex);
+    cl.Dispatch((m_W + 7) / 8, (m_H + 7) / 8, 1);
+}
+
+void FVolumetricClouds::Composite(IRhiCommandList& cl, u32 scW, u32 scH) noexcept {
+    if (!m_Ready || !m_CloudTex || !m_CompPipe) return;
+    FViewport vp{}; vp.width = static_cast<f32>(scW); vp.height = static_cast<f32>(scH); cl.SetViewport(vp);
+    FScissorRect sr{}; sr.right = static_cast<i32>(scW); sr.bottom = static_cast<i32>(scH); cl.SetScissor(sr);
+    cl.SetPipeline(*m_CompPipe);
+    cl.SetTexture(0, *m_CloudTex);   // UAV→SRV 遷移は CommitShaderResources(TRANSITION) が処理
+    cl.Draw(3, 0);
+}
+
+void FVolumetricClouds::Shutdown() noexcept {
+    m_CloudTex.Reset(); m_Cb.Reset(); m_CompPipe.Reset(); m_CompPs.Reset(); m_CompVs.Reset();
+    m_CloudPipe.Reset(); m_CloudCs.Reset(); m_Ready = false; m_W = 0; m_H = 0;
+}
+
 } // namespace acs
