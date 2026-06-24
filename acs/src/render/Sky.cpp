@@ -407,6 +407,62 @@ namespace {
 
 // 雲レイマーチ compute。視線ごとに雲スラブを march、Worley FBM 密度を coverage/height で remap、
 // 太陽へ light-march (Beer) + dual-lobe HG + powder でエネルギー保存散乱を積分。出力=非premult色+alpha。
+// ---- Phase 4.5: Perlin-Worley 3D noise を init で 1 回焼く (WickedEngine/Nubis 流) ----
+// 128^3 RGBA16F: R=Perlin-Worley (dilate), G/B/A=Worley FBM @ 増加周波数。tileable。
+// per-voxel に worley 27-cell を計算するのは «高価» だが init 1 回だけなので実用 (per-frame march では
+// この焼き上がりテクスチャを 1 fetch する → 速くて crisp)。
+const char* kNoiseGenCS = R"(
+RWTexture3D<float4> noiseOut : register(u0);
+float3 h33(float3 p){
+    p = float3(dot(p,float3(127.1,311.7,74.7)), dot(p,float3(269.5,183.3,246.1)), dot(p,float3(113.5,271.9,124.6)));
+    return frac(sin(p)*43758.5453123);
+}
+// tileable gradient (Perlin) noise。freq = 整数セル数。
+float gnoise(float3 x, float freq){
+    float3 p=floor(x), f=frac(x);
+    float3 u=f*f*(3.0-2.0*f);
+    float n=0.0;
+    [unroll] for(int dz=0;dz<2;dz++) [unroll] for(int dy=0;dy<2;dy++) [unroll] for(int dx=0;dx<2;dx++){
+        float3 o=float3(dx,dy,dz);
+        float3 g=h33(fmod(p+o,freq))*2.0-1.0;          // gradient [-1,1]
+        float w=lerp(1.0-u.x,u.x,o.x)*lerp(1.0-u.y,u.y,o.y)*lerp(1.0-u.z,u.z,o.z);
+        n += w*dot(g, f-o);
+    }
+    return n*0.5+0.5;
+}
+float perlinFbm(float3 p, float freq){
+    return gnoise(p*freq,freq)*0.5 + gnoise(p*freq*2.0,freq*2.0)*0.25 + gnoise(p*freq*4.0,freq*4.0)*0.125
+         + gnoise(p*freq*8.0,freq*8.0)*0.0625;
+}
+// tileable worley (cellular)。1 - 最近接点距離 → セルが明るい «もくもく» 特性。
+float worley(float3 x, float freq){
+    float3 p=floor(x*freq), f=frac(x*freq);
+    float md=1.0;
+    [unroll] for(int dz=-1;dz<=1;dz++) [unroll] for(int dy=-1;dy<=1;dy++) [unroll] for(int dx=-1;dx<=1;dx++){
+        float3 o=float3(dx,dy,dz);
+        float3 fp=h33(fmod(p+o+freq,freq));            // tileable wrap
+        float3 d=o+fp-f;
+        md=min(md, dot(d,d));
+    }
+    return 1.0-sqrt(saturate(md));
+}
+float worleyFbm(float3 p, float freq){
+    return worley(p,freq)*0.625 + worley(p,freq*2.0)*0.25 + worley(p,freq*4.0)*0.125;
+}
+float remap(float v,float a,float b,float c,float d){ return c + (saturate((v-a)/(b-a)))*(d-c); }
+[numthreads(4,4,4)]
+void CSNoise(uint3 id : SV_DispatchThreadID){
+    if(id.x>=128u||id.y>=128u||id.z>=128u) return;
+    float3 uvw=(float3(id)+0.5)/128.0;
+    float pf = perlinFbm(uvw, 4.0);                    // 低周波 Perlin
+    float w0 = worleyFbm(uvw, 6.0);
+    float w1 = worleyFbm(uvw, 12.0);
+    float w2 = worleyFbm(uvw, 24.0);
+    float pw = remap(pf, w0-1.0, 1.0, 0.0, 1.0);       // Perlin を Worley で dilate (Nubis)
+    noiseOut[id]=float4(pw, w0, w1, w2);
+}
+)";
+
 const char* kCloudCS = R"(
 #pragma pack_matrix(row_major)
 cbuffer CloudCB : register(b0) {
@@ -419,7 +475,10 @@ cbuffer CloudCB : register(b0) {
     float4 dims;       // xy = half-res dims
 };
 RWTexture2D<float4> cloudOut : register(u0);
+Texture3D    shapeNoise         : register(t0);   // Phase 4.5: 焼いた Perlin-Worley 3D noise
+SamplerState shapeNoise_sampler : register(s0);   // wrap (tileable)
 
+float remapc(float v,float a,float b,float c,float d){ return c + saturate((v-a)/max(b-a,1e-5))*(d-c); }
 float hash13(float3 p){ p=frac(p*0.1031); p+=dot(p,p.zyx+31.32); return frac((p.x+p.y)*p.z); }
 // 8-tap trilinear value noise (worley 27-cell より遥かに安い → per-sample march で実用速度)。
 float vnoise(float3 p){
@@ -436,26 +495,33 @@ float fbm3(float3 p){ return vnoise(p)*0.5 + vnoise(p*2.03)*0.27 + vnoise(p*4.01
 float fbm2(float3 p){ return vnoise(p)*0.6 + vnoise(p*2.07)*0.3; }                                 // light march 用 (安い 2 oct)
 float hg(float c,float g){ float g2=g*g; return (1.0-g2)/(12.566370*pow(max(1.0+g2-2.0*g*c,1e-3),1.5)); }
 
-// shape のみの密度 (light march 用、detail 無しで安い)。
+// 高度プロファイル + tile 座標 (アニメ)。
+float cloudProfile(float3 p){ float hf=saturate((p.y-1.0)/1.6); return smoothstep(0.0,0.2,hf)*smoothstep(1.0,0.5,hf); }
+float3 cloudUVW(float3 p){ return p*0.62 + float3(params.z*0.05, 0.0, params.z*0.035); }   // 周波数↑で雲形を細かく(crisp)
+// coverage→閾値。base(Perlin-Worley) の平均は高め(~0.6)なので閾値を高域に寄せて «散らばった» 雲に。
+float cloudThr(float coverage){ return 1.0 - coverage*0.55; }   // cov0.5→0.725, cov1→0.45
+// shape のみの密度 (light march 用、detail 無しで安い)。Perlin-Worley を 1 fetch。
 float cloudShape(float3 p, float coverage){
-    float hf = saturate((p.y - 1.0)/1.6);
-    float profile = smoothstep(0.0,0.2,hf)*smoothstep(1.0,0.5,hf);
-    if(profile<=0.001) return 0.0;
-    float3 wp = p*1.7 + float3(params.z, params.z*0.2, params.z*0.6);
-    float base = fbm2(wp);
-    return saturate((base - (1.0 - coverage))/max(coverage,0.001))*profile;
+    float profile=cloudProfile(p); if(profile<=0.001) return 0.0;
+    float4 ns = shapeNoise.SampleLevel(shapeNoise_sampler, cloudUVW(p), 0);
+    float wfbm = ns.g*0.625 + ns.b*0.25 + ns.a*0.125;
+    float base = remapc(ns.r, wfbm-1.0, 1.0, 0.0, 1.0);   // Perlin-Worley (Nubis dilate)
+    float thr = cloudThr(coverage);
+    return saturate((base - thr)/max(1.0-thr, 0.05) * 1.6)*profile;   // 境界鋭く (cloudDensity と整合)
 }
-// view march 用の密度 (shape + 高周波 detail 侵食)。
+// view march 用の密度 (shape + 高周波 worley detail 侵食 → crisp billowy)。
 float cloudDensity(float3 p, float coverage){
-    float hf = saturate((p.y - 1.0)/1.6);
-    float profile = smoothstep(0.0,0.2,hf)*smoothstep(1.0,0.5,hf);
-    if(profile<=0.001) return 0.0;
-    float3 wp = p*1.7 + float3(params.z, params.z*0.2, params.z*0.6);
-    float base = fbm3(wp);
-    float shape = saturate((base - (1.0 - coverage))/max(coverage,0.001))*profile;
+    float profile=cloudProfile(p); if(profile<=0.001) return 0.0;
+    float3 uvw=cloudUVW(p);
+    float4 ns = shapeNoise.SampleLevel(shapeNoise_sampler, uvw, 0);
+    float wfbm = ns.g*0.625 + ns.b*0.25 + ns.a*0.125;
+    float base = remapc(ns.r, wfbm-1.0, 1.0, 0.0, 1.0);
+    float thr = cloudThr(coverage);
+    float shape = saturate((base - thr)/max(1.0-thr, 0.05) * 1.6)*profile;       // ×1.6 で境界を鋭く (crisp)
     if(shape<=0.0) return 0.0;
-    float detail = vnoise(wp*5.0 + 9.7);
-    return saturate(shape - (1.0-shape)*detail*0.45);
+    float4 nd = shapeNoise.SampleLevel(shapeNoise_sampler, uvw*4.0 + 9.7, 0);    // 高周波 worley で細かい縁を削る
+    float detail = nd.b*0.5 + nd.a*0.5;                                          // 高域 worley = fine cauliflower edge
+    return saturate(remapc(shape, detail*0.85, 1.0, 0.0, 1.0));                  // 縁を強めに削り出す → crisp billowy
 }
 
 [numthreads(8,8,1)]
@@ -482,10 +548,10 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         if(dens>0.01){
             float lt=0.0;
             [unroll] for(int l=1;l<=4;l++) lt += cloudShape(p+sun*(0.13*float(l)), coverage);   // shape のみで安く
-            float lightT=exp(-lt*density*0.85);
-            float powder=1.0 - exp(-dens*2.0);
-            float3 sunL=sunCol.rgb * lightT * phase * (powder*0.8+0.2);
-            float3 ambL=skyCol.rgb * (0.35 + 0.65*saturate(p.y/2.6));
+            float lightT=exp(-lt*density*1.4);                       // 自己影を強め深部を暗く → 立体コントラスト
+            float powder=1.0 - exp(-dens*3.0);                       // powder 効果を強め縁を締める
+            float3 sunL=sunCol.rgb * lightT * phase * (powder*0.9+0.1);
+            float3 ambL=skyCol.rgb * (0.22 + 0.45*saturate(p.y/2.6));// 環境光フィルを抑え影を残す
             float a=1.0 - exp(-dens*dt*6.0);
             scatter += transmit * a * (sunL+ambL);
             transmit *= (1.0-a);
@@ -533,7 +599,23 @@ TResult<void> FVolumetricClouds::Init(IRhiDevice& device, EFormat hdr_format) no
     {   FComputePipelineDesc pd{}; pd.cs = m_CloudCs.Get();
         pd.cbuffer_slots = 1; pd.cbuffer_names[0] = "CloudCB";
         pd.uav_slots = 1; pd.uav_names[0] = "cloudOut";
+        pd.srv_slots = 1; pd.srv_names[0] = "shapeNoise";   // Phase 4.5: 焼いた 3D noise を sample
+        pd.static_sampler_count = 1;
+        pd.static_samplers[0].filter = ESamplerFilter::Linear;
+        pd.static_samplers[0].address_u = ESamplerAddress::Wrap;   // tileable noise
+        pd.static_samplers[0].address_v = ESamplerAddress::Wrap;
+        pd.static_samplers[0].address_w = ESamplerAddress::Wrap;
         auto r = CreateRhiComputePipeline(device, pd); if (r.IsErr()) return Err<void>(r.Error()); m_CloudPipe = Move(r.Value()); }
+    // Phase 4.5: Perlin-Worley 生成 compute + 128^3 shape テクスチャ。
+    {   FShaderDesc sd{}; sd.stage = EShaderStage::Compute; sd.hlsl_source = kNoiseGenCS;
+        sd.entry_point = "CSNoise"; sd.debug_name = "Clouds.NoiseCS";
+        auto r = CreateRhiShader(device, sd); if (r.IsErr()) return Err<void>(r.Error()); m_NoiseCs = Move(r.Value()); }
+    {   FComputePipelineDesc pd{}; pd.cs = m_NoiseCs.Get();
+        pd.uav_slots = 1; pd.uav_names[0] = "noiseOut";
+        auto r = CreateRhiComputePipeline(device, pd); if (r.IsErr()) return Err<void>(r.Error()); m_NoisePipe = Move(r.Value()); }
+    {   FTextureDesc td{}; td.width = 128; td.height = 128; td.depth = 128;
+        td.format = EFormat::R16G16B16A16_Float; td.is_uav = true;
+        auto r = CreateRhiTexture(device, td); if (r.IsErr()) return Err<void>(r.Error()); m_ShapeTex = Move(r.Value()); }
     {   FShaderDesc vd{}; vd.stage = EShaderStage::Vertex; vd.hlsl_source = kCloudCompVS;
         vd.entry_point = "VSMain"; vd.debug_name = "Clouds.CompVS";
         auto r = CreateRhiShader(device, vd); if (r.IsErr()) return Err<void>(r.Error()); m_CompVs = Move(r.Value()); }
@@ -561,8 +643,8 @@ TResult<void> FVolumetricClouds::Init(IRhiDevice& device, EFormat hdr_format) no
 
 bool FVolumetricClouds::EnsureSize(IRhiDevice& device, u32 scW, u32 scH) noexcept {
     if (!m_Ready) return false;
-    const u32 hw = scW > 1 ? scW / 2 : 1;
-    const u32 hh = scH > 1 ? scH / 2 : 1;
+    const u32 hw = scW > 1 ? scW : 1;   // Phase 4.5: full-res で crisp に (half-res は upscale で柔らかい)
+    const u32 hh = scH > 1 ? scH : 1;
     if (m_CloudTex && m_W == hw && m_H == hh) return true;
     FTextureDesc td{}; td.width = hw; td.height = hh;
     td.format = EFormat::R16G16B16A16_Float; td.is_uav = true;
@@ -584,8 +666,16 @@ void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     cb.params = FVec4{ coverage, density, time * wind * 0.03f, 0.0f };
     cb.dims   = FVec4{ static_cast<f32>(m_W), static_cast<f32>(m_H), 0.0f, 0.0f };
     m_Cb->Update(&cb, sizeof(cb));
+    // Phase 4.5: 初回に Perlin-Worley shape noise (128^3) を焼く (1 回のみ、以降 SRV で sample)。
+    if (!m_NoiseBaked && m_NoisePipe && m_ShapeTex) {
+        cl.SetComputePipeline(*m_NoisePipe);
+        cl.BindUav(0, *m_ShapeTex);
+        cl.Dispatch(32, 32, 32);   // 128/4
+        m_NoiseBaked = true;
+    }
     cl.SetComputePipeline(*m_CloudPipe);
     cl.SetConstantBuffer(0, *m_Cb);
+    if (m_ShapeTex) cl.SetTexture(0, *m_ShapeTex);   // shape noise SRV (UAV→SRV は Dispatch の TRANSITION commit)
     cl.BindUav(0, *m_CloudTex);
     cl.Dispatch((m_W + 7) / 8, (m_H + 7) / 8, 1);
 }
@@ -600,6 +690,7 @@ void FVolumetricClouds::Composite(IRhiCommandList& cl, u32 scW, u32 scH) noexcep
 }
 
 void FVolumetricClouds::Shutdown() noexcept {
+    m_ShapeTex.Reset(); m_NoisePipe.Reset(); m_NoiseCs.Reset(); m_NoiseBaked = false;
     m_CloudTex.Reset(); m_Cb.Reset(); m_CompPipe.Reset(); m_CompPs.Reset(); m_CompVs.Reset();
     m_CloudPipe.Reset(); m_CloudCs.Reset(); m_Ready = false; m_W = 0; m_H = 0;
 }

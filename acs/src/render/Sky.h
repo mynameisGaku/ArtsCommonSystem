@@ -315,7 +315,11 @@ public:
 
 private:
     bool                     m_Ready = false;
+    bool                     m_NoiseBaked = false;       // Phase 4.5: shape noise を焼いたか
     EFormat                  m_HdrFormat = EFormat::R16G16B16A16_Float;
+    TUniquePtr<IRhiShader>   m_NoiseCs;                  // Phase 4.5: Perlin-Worley 生成 compute
+    TUniquePtr<IRhiPipeline> m_NoisePipe;                // compute (noise gen)
+    TUniquePtr<IRhiTexture>  m_ShapeTex;                 // 128^3 RGBA16F Perlin-Worley (UAV gen + SRV sample)
     TUniquePtr<IRhiShader>   m_CloudCs;
     TUniquePtr<IRhiPipeline> m_CloudPipe;     // compute
     TUniquePtr<IRhiShader>   m_CompVs, m_CompPs;
