@@ -269,6 +269,7 @@ struct EditorHost {
     bool  q_ssao_on          = true;  f32  q_ssao_intensity  = 1.0f;  f32 q_ssao_radius = 0.8f;
     bool  q_ssgi_on          = false; f32  q_ssgi_intensity  = 1.0f;  f32 q_ssgi_max_dist = 10.0f;
     bool  q_vxgi_on          = false;  // VXGI(voxel GI)。64³ ボクセルの blocky な色のにじみが目立つため既定OFF→滑らかな screen-space SSGI を使用。VxgiOn=1 で実験的に有効化可
+    bool  q_ap_on            = false;  // aerial perspective (大気距離霞)。km スケール遠景用で、エディタの数m スケール至近では 32 スライス froxel の段が近接面に出るため既定OFF。大シーンでは AerialPerspective=1 で有効化可
     bool  q_ssr_on           = true;  f32  q_ssr_intensity   = 0.8f;  bool q_ssr_hiz = false;
     i32   q_ibl_mode         = 1;     FVec3 q_ambient        = FVec3{ 0.26f, 0.28f, 0.33f };  // 0=flat 1=sh9 2=cubemap
     bool  q_bloom_on         = true;  f32  q_bloom_intensity = 0.50f; f32 q_bloom_threshold = 0.80f; f32 q_bloom_radius = 1.5f;
@@ -3819,7 +3820,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     // --- Aerial perspective: 物理大気の camera-volume froxel LUT (WickedEngine 流)。PBR が screen uv +
     //     深度→スライスで trilinear サンプルし col=col*(1-ap.a)+ap.rgb。3D 物理積分なので滑らか
     //     (cubemap サンプル由来の «斜めの段» が出ない)。compute 不可(Dx12)なら Ready()=false で自動 skip。
-    if (!h.ortho3d) {
+    if (!h.ortho3d && h.q_ap_on) {   // 既定OFF: 小シーンでは AP の froxel スライスが近接面に段を出す
         IRhiDevice* adev = h.renderer.Device();
         if (adev != nullptr) {
             if (!h.sky_atmo_tried) { h.sky_atmo_tried = true; (void)h.sky_atmo.Init(*adev); }
@@ -3996,7 +3997,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         // (フォグ色を sky_horizon に追従させ時間帯プリセットと自然に馴染む)。density=0 で実質オフ。
         if (h.q_fog_on) h.pbr3d.SetFog(h.sky_horizon, h.q_fog_density, h.q_fog_height_falloff, 0.0f);
         else            h.pbr3d.SetFog(FVec3{ 0, 0, 0 }, 0.0f, 0.0f, 0.0f);
-        // Aerial perspective (物理大気の距離霞)。apVol が焼けていれば適用、無ければ無効。max_dist は build と一致 (100)。
+        // Aerial perspective (物理大気の距離霞)。q_ap_on=false (既定) なら apVol=null で無効。max_dist は build と一致 (100)。
         h.pbr3d.SetAerialPerspective(apVol, 100.0f);
         for (u32 i = 0; i < all3d.Size(); ++i) {
             game::FNode3D* nn = all3d[i];
@@ -4748,6 +4749,7 @@ static void ApplySettings(EditorHost& h) noexcept {
     const f32 gi = h.settings.GetFloat("Rendering", "SsgiIntensity", -1.0f);
     if (gi >= 0.0f) { h.q_ssgi_intensity = gi; h.q_ssgi_on = (gi > 0.0f); }
     h.q_vxgi_on = (h.settings.GetInt("Rendering", "VxgiOn", 0) > 0);   // 既定OFF (64³ blocky)。VxgiOn=1 で実験的に voxel GI 有効化
+    h.q_ap_on   = (h.settings.GetInt("Rendering", "AerialPerspective", 0) > 0);   // 既定OFF (小シーンで froxel 段)。大スケール屋外シーンで AerialPerspective=1
     const f32 taa = h.settings.GetFloat("Rendering", "Taa", -1.0f);
     if (taa >= 0.0f) h.q_taa_on = (taa > 0.0f);   // -1=プリセット追従 / 0=オフ / >0=オン (テンポラル AA)
     const i32 tm = h.settings.GetInt("Rendering", "Tonemap", 0);
