@@ -3568,6 +3568,151 @@ IRhiTexture* VxgiResolve(EditorHost& h, IRhiCommandList* cl, IRhiTexture* vol,
 }
 
 /** 3D シーンを描画する (スカイ + ライト付きメッシュ + 選択ハイライト/太いギズモ)。 */
+// ===== DrawScene3D の pass 関数群 (WickedEngine 風 named pass。挙動はインライン時と完全一致) =====
+
+// シーンのメッシュ頂点を M3DVtx へ展開 + AABB を求める (シャドウ/本体/VXGI が共有)。
+void BuildSceneMeshVerts(EditorHost& h, const TArray<game::FNode3D*>& all3d,
+                         TArray<M3DVtx>& dv, FVec3& bbMin, FVec3& bbMax) noexcept {
+    for (u32 i = 0; i < all3d.Size(); ++i) {
+        game::FNode3D* nn = all3d[i];
+        { EEd3DRec* er = Rec3D(nn); if (er != nullptr && er->is_empty) continue; }       // 空ノードは描画しない
+        if (Mesh3D(nn) == nullptr || Mesh3D(nn)->RenderHandle() != nullptr) continue;   // スプライトは別パス
+        const int prim = NPrim(nn);
+        const FMeshAsset* cm = (prim == 3) ? NMesh(nn) : (prim == 1) ? h.cpu_sphere.Get()
+                             : (prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
+        const FVec4 col = NColor(nn);
+        game::FMeshComponent3D* mc = Mesh3D(nn);
+        if (mc != nullptr && !mc->MaterialLoaded() && mc->HasMaterial()) LoadNode3DMaterial(nn);   // 遅延ロード (2D 鏡映)
+        f32 mtl = 0.0f, rgh = 0.5f;
+        FVec3 albedo{ col.x, col.y, col.z };                                          // 既定はノード色 (NColor)
+        if (mc != nullptr) {
+            const game::FMaterial2D& mat = mc->Material();
+            mtl = mat.pbr.metallic; rgh = mat.pbr.roughness;
+            if (mc->HasMaterial() && mat.kind == game::EMaterialKind::Lit)             // material 設定時は baseColor を採用
+                albedo = FVec3{ mat.pbr.baseColor.x, mat.pbr.baseColor.y, mat.pbr.baseColor.z };
+        }
+        AppendMeshTris(dv, cm, nn->World().ToMat4(), albedo, h.m3d_dyn_cap, mtl, rgh);
+    }
+    for (u32 i = 0; i < dv.Size(); ++i) {
+        const M3DVtx& q = dv[i];
+        if (q.px < bbMin.x) bbMin.x = q.px; if (q.py < bbMin.y) bbMin.y = q.py; if (q.pz < bbMin.z) bbMin.z = q.pz;
+        if (q.px > bbMax.x) bbMax.x = q.px; if (q.py > bbMax.y) bbMax.y = q.py; if (q.pz > bbMax.z) bbMax.z = q.pz;
+    }
+}
+
+// SH9 環境光を現在の空に追従して再計算 (拡散 ambient + 鏡面 fallback の元データ)。sh9_dirty 時のみ。
+void Pass_UpdateSh9(EditorHost& h) noexcept {
+    if (h.pbr3d_ready && h.sh9_dirty) {
+        FVec4 sh9[9]; ComputeSkySh9(sh9, h.sky_zenith, h.sky_horizon, h.sky_ground);
+        for (int si = 0; si < 9; ++si) { sh9[si].x *= kSh9Ambient; sh9[si].y *= kSh9Ambient; sh9[si].z *= kSh9Ambient; }
+        h.pbr3d.SetSh9(sh9);
+        h.sh9_dirty = false;
+    }
+}
+
+// IBL: FSky/物理大気を env cubemap 化 → irradiance + specular prefilter + BRDF-LUT を焼き FPbrShader へ。
+// per-slice cubemap 描画なので «描画パスの外» (BeginShadowPass より前) で呼ぶこと。
+void Pass_AtmosphereIbl(EditorHost& h, IRhiCommandList* cl) noexcept {
+    if (h.pbr3d_ready && h.sky3d_ready && (h.ibl_ready ? h.ibl_dirty : !h.ibl_tried)) {
+        IRhiDevice* idev = h.renderer.Device();
+        if (idev != nullptr) {
+            h.sky3d.SetSunDirection(h.sun_dir);   // キャプチャ前に空を «現在のライティング» へ合わせる
+            h.sky3d.SetSunColor(h.sun_color);
+            h.sky3d.SetZenithColor(h.sky_zenith); h.sky3d.SetHorizonColor(h.sky_horizon); h.sky3d.SetGroundColor(h.sky_ground);
+            if (h.ibl_ready && h.ibl_dirty) { idev->WaitIdle(); h.ibl3d.ResetEnvCubemap(); }   // 空変更 → 再キャプチャ
+            bool ok = h.ibl3d.EnsureBrdfLut(*idev, *cl).IsOk();
+            if (ok) {
+                if (h.q_sky_mode == 1) {
+                    acs::AtmosphereParams ap; ap.sun_dir = h.sun_dir;
+                    ap.sun_intensity = FVec3{ 22.0f, 22.0f, 22.0f };
+                    if (!h.sky_atmo_tried) { h.sky_atmo_tried = true; (void)h.sky_atmo.Init(*idev); }
+                    acs::TArray<f32> sky;
+                    bool gpu = h.sky_atmo.Ready() && h.sky_atmo.BakeEquirect(*idev, *cl, ap, 512, 256, sky);
+                    if (!gpu) sky = acs::FAtmosphere::BakeEquirect(512, 256, ap);   // compute 不可なら CPU fallback
+                    for (u32 si = 0; si < sky.Size(); ++si) sky[si] *= kAtmosScale;
+                    ok = h.ibl3d.LoadEquirectHdrFromMemory(*idev, *cl, sky.Data(), 512, 256).IsOk();
+                } else {
+                    ok = h.ibl3d.EnsureEnvCubemap(*idev, *cl, h.sky3d).IsOk();   // FSky 手続き式を env cubemap に
+                }
+                ok = ok && h.ibl3d.EnsureIrradiance(*idev, *cl).IsOk()
+                        && h.ibl3d.EnsurePrefilter(*idev, *cl).IsOk();
+            }
+            h.ibl_ready = ok;
+            h.ibl_dirty = false;
+            if (!ok) { h.ibl_tried = true; ACS_LOG_WARN("[3D] IBL 生成失敗 (Diligent backend 必須?)。SH9 にフォールバック"); }
+            else       ACS_LOG_INFO("[3D] IBL 環境光 OK (%s→irradiance+prefilter %u mip+BRDF-LUT)",
+                                    h.q_sky_mode == 1 ? "物理大気" : "FSky", h.ibl3d.PrefilterMips());
+        }
+    }
+}
+
+// シャドウパスの出力 (本体パスが PCF/CSM 比較に使う)。
+struct FShadowOut {
+    FMat4 lightVp{};
+    bool  shadowOn = false;
+    bool  csmActive = false;
+    FMat4 csmVps[acs::FShadowMap::kMaxCascades]    = {};
+    f32   csmSplits[acs::FShadowMap::kMaxCascades] = {};
+};
+
+// シャドウパス: 光源 (太陽) 視点で深度を焼く → 本体パスで PCF 比較してキャスト影を落とす。
+// 品質プリセットの影サイズ/カスケード数に追従 (size 0=影オフ)。CSM は «透視 + cascade>=2» のみ。
+FShadowOut Pass_Shadows(EditorHost& h, IRhiCommandList* cl, u32 dvCount,
+                        const FVec3& bbMin, const FVec3& bbMax, const FVec3& eye, const FCamera& cam) noexcept {
+    const bool wantCsm = (h.q_shadow_cascades >= 2) && !h.ortho3d && h.q_shadow_size > 0;
+    const u32  wantCascades = wantCsm ? (h.q_shadow_cascades <= acs::FShadowMap::kMaxCascades
+                                         ? h.q_shadow_cascades : acs::FShadowMap::kMaxCascades) : 1u;
+    if (h.shadow_ready && h.q_shadow_size > 0 &&
+        (h.q_shadow_size != h.shadow.Size() || wantCascades != h.shadow.CascadeCount())) {
+        IRhiDevice* sdev = h.renderer.Device();
+        if (sdev != nullptr) { h.shadow.Shutdown(); (void)h.shadow.Init(*sdev, h.q_shadow_size, wantCascades); }
+    }
+    FShadowOut o;
+    if (h.shadow_ready && h.q_shadow_size > 0 && h.shadow.DepthTexture() != nullptr && dvCount > 0) {
+        const FVec3 center{ (bbMin.x+bbMax.x)*0.5f, (bbMin.y+bbMax.y)*0.5f, (bbMin.z+bbMax.z)*0.5f };
+        const f32 ex = bbMax.x-bbMin.x, ey = bbMax.y-bbMin.y, ez = bbMax.z-bbMin.z;
+        const f32 radius = 0.5f * std::sqrt(ex*ex + ey*ey + ez*ez) + 1.0f;
+        const FVec3 lightDir = h.sun_dir;   // 太陽方向 (設定駆動)
+        if (h.shadow.CascadeCount() >= 2) {
+            // CSM: カメラ frustum を距離で分割。far は «視点→シーン» に切り詰め (既定 500 のままだと遠景に解像度浪費)。
+            const f32 dx = eye.x-center.x, dy = eye.y-center.y, dz = eye.z-center.z;
+            f32 farZ = std::sqrt(dx*dx+dy*dy+dz*dz) + radius * 2.0f;
+            if (farZ < 20.0f) farZ = 20.0f; else if (farZ > 300.0f) farZ = 300.0f;
+            h.shadow.SetDirectionalLightCascades(lightDir, cam.View(), cam.Projection(), 0.5f, farZ);
+            cl->BeginShadowPass(*h.shadow.DepthTexture(), 1.0f);       // atlas 全体 clear
+            cl->SetPipeline(*h.shadow_caster_pipe);
+            cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
+            const u32 nc = h.shadow.CascadeCount();
+            for (u32 c = 0; c < nc; ++c) {
+                o.csmVps[c]    = h.shadow.LightViewProjection(c);
+                o.csmSplits[c] = h.shadow.CascadeSplit(c);
+                if (!h.shadow_cascade_cb[c]) continue;
+                cl->SetViewport(h.shadow.CascadeViewport(c));          // atlas 内の当該 cascade 領域だけに描く
+                cl->SetScissor(h.shadow.CascadeScissor(c));
+                h.shadow_cascade_cb[c]->Update(&o.csmVps[c], sizeof(FMat4));   // cascade 毎に別 CB (1フレーム上書き回避)
+                cl->SetConstantBuffer(0, *h.shadow_cascade_cb[c]);
+                cl->Draw(dvCount, 0);
+            }
+            cl->EndShadowPass(*h.shadow.DepthTexture());
+            o.lightVp   = o.csmVps[0];   // fallback(kMesh3DHLSL)用に cascade0 を残す
+            o.csmActive = true;
+            o.shadowOn  = true;
+        } else {
+            h.shadow.SetDirectionalLight(lightDir, center, radius);    // single cascade (実績パス)
+            o.lightVp = h.shadow.LightViewProjection();
+            h.shadow_lvp_cb->Update(&o.lightVp, sizeof(o.lightVp));
+            cl->BeginShadowPass(*h.shadow.DepthTexture(), 1.0f);
+            cl->SetPipeline(*h.shadow_caster_pipe);
+            cl->SetConstantBuffer(0, *h.shadow_lvp_cb);
+            cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
+            cl->Draw(dvCount, 0);
+            cl->EndShadowPass(*h.shadow.DepthTexture());
+            o.shadowOn = true;   // シャドウマップ有効 (本パスで FPbrShader が PCF サンプル)
+        }
+    }
+    return o;
+}
+
 void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     if (!Ensure3D(h)) return;
     IRhiCommandList* cl = h.renderer.CommandList();
@@ -3592,32 +3737,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     TArray<M3DVtx>& dv = *(new TArray<M3DVtx>()); dv.Reserve(8192);
     FVec3 bbMin{ 1e30f, 1e30f, 1e30f }, bbMax{ -1e30f, -1e30f, -1e30f };
     TArray<game::FNode3D*> all3d; Dfs3DCollect(&h.scene3d.Root(), all3d);   // 階層を平坦化 (sprite パス 2.5 でも使う)
-    for (u32 i = 0; i < all3d.Size(); ++i) {
-        game::FNode3D* nn = all3d[i];
-        { EEd3DRec* er = Rec3D(nn); if (er != nullptr && er->is_empty) continue; }       // 空ノードは描画しない
-        if (Mesh3D(nn) == nullptr || Mesh3D(nn)->RenderHandle() != nullptr) continue;   // スプライトは別パス
-        const int prim = NPrim(nn);
-        const FMeshAsset* cm = (prim == 3) ? NMesh(nn) : (prim == 1) ? h.cpu_sphere.Get()
-                             : (prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
-        const FVec4 col = NColor(nn);
-        // マテリアル: FMeshComponent3D が参照する .acsmat (FMaterial2D) から metallic/roughness/baseColor を読む。
-        game::FMeshComponent3D* mc = Mesh3D(nn);
-        if (mc != nullptr && !mc->MaterialLoaded() && mc->HasMaterial()) LoadNode3DMaterial(nn);   // 遅延ロード (2D 鏡映)
-        f32 mtl = 0.0f, rgh = 0.5f;
-        FVec3 albedo{ col.x, col.y, col.z };                                          // 既定はノード色 (NColor)
-        if (mc != nullptr) {
-            const game::FMaterial2D& mat = mc->Material();
-            mtl = mat.pbr.metallic; rgh = mat.pbr.roughness;
-            if (mc->HasMaterial() && mat.kind == game::EMaterialKind::Lit)             // material 設定時は baseColor を採用 (二重適用回避)
-                albedo = FVec3{ mat.pbr.baseColor.x, mat.pbr.baseColor.y, mat.pbr.baseColor.z };
-        }
-        AppendMeshTris(dv, cm, nn->World().ToMat4(), albedo, h.m3d_dyn_cap, mtl, rgh);
-    }
-    for (u32 i = 0; i < dv.Size(); ++i) {
-        const M3DVtx& q = dv[i];
-        if (q.px < bbMin.x) bbMin.x = q.px; if (q.py < bbMin.y) bbMin.y = q.py; if (q.pz < bbMin.z) bbMin.z = q.pz;
-        if (q.px > bbMax.x) bbMax.x = q.px; if (q.py > bbMax.y) bbMax.y = q.py; if (q.pz > bbMax.z) bbMax.z = q.pz;
-    }
+    BuildSceneMeshVerts(h, all3d, dv, bbMin, bbMax);
     const u32 dvCount = static_cast<u32>(dv.Size());
     if (dvCount > 0 && h.m3d_dyn_vb) h.m3d_dyn_vb->Update(dv.Data(), sizeof(M3DVtx) * dvCount);
 
@@ -3633,111 +3753,12 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     // --- SH9 環境光を «現在の空» に追従させて再計算 (時間帯プリセット切替・空色変更に反応) ---
     //     拡散 ambient (Sh9Irradiance) と鏡面 fallback (Sh9Radiance) の両方の元データ。背景 FSky と
     //     同じ色を使うので金属の映り込みが背景と整合する。空が変わらない限り再計算しない (sh9_dirty)。
-    if (h.pbr3d_ready && h.sh9_dirty) {
-        FVec4 sh9[9]; ComputeSkySh9(sh9, h.sky_zenith, h.sky_horizon, h.sky_ground);
-        for (int si = 0; si < 9; ++si) { sh9[si].x *= kSh9Ambient; sh9[si].y *= kSh9Ambient; sh9[si].z *= kSh9Ambient; }
-        h.pbr3d.SetSh9(sh9);
-        h.sh9_dirty = false;
-    }
+    Pass_UpdateSh9(h);
 
-    // --- IBL: FSky を env cubemap 化 → irradiance + specular prefilter + BRDF-LUT を焼き FPbrShader へ ---
-    //     init の muted SH9 を «本物の環境光» に置換 (金属/光沢が空を映し陰影が立体的に)。Diligent backend
-    //     専用なので失敗時は ibl_tried で諦め SH9 フォールバック。空(太陽/色)変更時は ibl_dirty で再キャプチャ。
-    //     キャプチャは per-slice cubemap 描画なので «描画パスの外» (BeginShadowPass より前) で行う。
-    if (h.pbr3d_ready && h.sky3d_ready && (h.ibl_ready ? h.ibl_dirty : !h.ibl_tried)) {
-        IRhiDevice* idev = h.renderer.Device();
-        if (idev != nullptr) {
-            h.sky3d.SetSunDirection(h.sun_dir);   // キャプチャ前に空を «現在のライティング» へ合わせる
-            h.sky3d.SetSunColor(h.sun_color);
-            h.sky3d.SetZenithColor(h.sky_zenith); h.sky3d.SetHorizonColor(h.sky_horizon); h.sky3d.SetGroundColor(h.sky_ground);
-            if (h.ibl_ready && h.ibl_dirty) { idev->WaitIdle(); h.ibl3d.ResetEnvCubemap(); }   // 空変更 → 再キャプチャ
-            bool ok = h.ibl3d.EnsureBrdfLut(*idev, *cl).IsOk();
-            if (ok) {
-                if (h.q_sky_mode == 1) {
-                    // 物理大気 (WickedEngine/Hillaire 流 GPU compute LUT)。太陽方角は h.sun_dir。
-                    acs::AtmosphereParams ap; ap.sun_dir = h.sun_dir;
-                    ap.sun_intensity = FVec3{ 22.0f, 22.0f, 22.0f };
-                    if (!h.sky_atmo_tried) { h.sky_atmo_tried = true; (void)h.sky_atmo.Init(*idev); }
-                    acs::TArray<f32> sky;
-                    bool gpu = h.sky_atmo.Ready() && h.sky_atmo.BakeEquirect(*idev, *cl, ap, 512, 256, sky);
-                    if (!gpu) sky = acs::FAtmosphere::BakeEquirect(512, 256, ap);   // compute 不可なら CPU fallback
-                    // 物理放射輝度はエディタの露出(ACES, exposure≈1)に対し桁が小さいので一様スケールして
-                    // 背景(skybox)と IBL を表示レンジへ持ち上げる (係数は実測調整)。
-                    for (u32 si = 0; si < sky.Size(); ++si) sky[si] *= kAtmosScale;
-                    ok = h.ibl3d.LoadEquirectHdrFromMemory(*idev, *cl, sky.Data(), 512, 256).IsOk();
-                } else {
-                    ok = h.ibl3d.EnsureEnvCubemap(*idev, *cl, h.sky3d).IsOk();   // FSky 手続き式を env cubemap に
-                }
-                ok = ok && h.ibl3d.EnsureIrradiance(*idev, *cl).IsOk()
-                        && h.ibl3d.EnsurePrefilter(*idev, *cl).IsOk();
-            }
-            h.ibl_ready = ok;
-            h.ibl_dirty = false;
-            if (!ok) { h.ibl_tried = true; ACS_LOG_WARN("[3D] IBL 生成失敗 (Diligent backend 必須?)。SH9 にフォールバック"); }
-            else       ACS_LOG_INFO("[3D] IBL 環境光 OK (%s→irradiance+prefilter %u mip+BRDF-LUT)",
-                                    h.q_sky_mode == 1 ? "物理大気" : "FSky", h.ibl3d.PrefilterMips());
-        }
-    }
+    Pass_AtmosphereIbl(h, cl);
 
-    // --- シャドウパス: 光源 (太陽) 視点で深度を焼く → 本体パスで PCF 比較してキャスト影を落とす ---
-    // 品質プリセットの影サイズ/カスケード数に追従 (size 0=影オフ)。CSM は «透視 + cascade>=2» のみ
-    // (既定 High=single は実績パス維持・ortho 2D も single)。サイズ/数の変更時はフレーム先頭で
-    // 深度テクスチャを作り直す (描画コマンド記録前なので安全)。
-    const bool wantCsm = (h.q_shadow_cascades >= 2) && !h.ortho3d && h.q_shadow_size > 0;
-    const u32  wantCascades = wantCsm ? (h.q_shadow_cascades <= acs::FShadowMap::kMaxCascades
-                                         ? h.q_shadow_cascades : acs::FShadowMap::kMaxCascades) : 1u;
-    if (h.shadow_ready && h.q_shadow_size > 0 &&
-        (h.q_shadow_size != h.shadow.Size() || wantCascades != h.shadow.CascadeCount())) {
-        IRhiDevice* sdev = h.renderer.Device();
-        if (sdev != nullptr) { h.shadow.Shutdown(); (void)h.shadow.Init(*sdev, h.q_shadow_size, wantCascades); }
-    }
-    FMat4 lightVp{};
-    bool  shadowOn = false;
-    bool  csmActive = false;
-    FMat4 csmVps[acs::FShadowMap::kMaxCascades]    = {};
-    f32   csmSplits[acs::FShadowMap::kMaxCascades] = {};
-    if (h.shadow_ready && h.q_shadow_size > 0 && h.shadow.DepthTexture() != nullptr && dvCount > 0) {
-        const FVec3 center{ (bbMin.x+bbMax.x)*0.5f, (bbMin.y+bbMax.y)*0.5f, (bbMin.z+bbMax.z)*0.5f };
-        const f32 ex = bbMax.x-bbMin.x, ey = bbMax.y-bbMin.y, ez = bbMax.z-bbMin.z;
-        const f32 radius = 0.5f * std::sqrt(ex*ex + ey*ey + ez*ez) + 1.0f;
-        const FVec3 lightDir = h.sun_dir;   // 太陽方向 (設定駆動)
-        if (h.shadow.CascadeCount() >= 2) {
-            // CSM: カメラ frustum を距離で分割。far は «視点→シーン» に切り詰め (既定 500 のままだと遠景に解像度浪費)。
-            const f32 dx = eye.x-center.x, dy = eye.y-center.y, dz = eye.z-center.z;
-            f32 farZ = std::sqrt(dx*dx+dy*dy+dz*dz) + radius * 2.0f;
-            if (farZ < 20.0f) farZ = 20.0f; else if (farZ > 300.0f) farZ = 300.0f;
-            h.shadow.SetDirectionalLightCascades(lightDir, cam.View(), cam.Projection(), 0.5f, farZ);
-            cl->BeginShadowPass(*h.shadow.DepthTexture(), 1.0f);       // atlas 全体 clear
-            cl->SetPipeline(*h.shadow_caster_pipe);
-            cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
-            const u32 nc = h.shadow.CascadeCount();
-            for (u32 c = 0; c < nc; ++c) {
-                csmVps[c]    = h.shadow.LightViewProjection(c);
-                csmSplits[c] = h.shadow.CascadeSplit(c);
-                if (!h.shadow_cascade_cb[c]) continue;
-                cl->SetViewport(h.shadow.CascadeViewport(c));          // atlas 内の当該 cascade 領域だけに描く
-                cl->SetScissor(h.shadow.CascadeScissor(c));
-                h.shadow_cascade_cb[c]->Update(&csmVps[c], sizeof(FMat4));   // cascade 毎に別 CB (1フレーム上書き回避)
-                cl->SetConstantBuffer(0, *h.shadow_cascade_cb[c]);
-                cl->Draw(dvCount, 0);
-            }
-            cl->EndShadowPass(*h.shadow.DepthTexture());
-            lightVp   = csmVps[0];   // fallback(kMesh3DHLSL)用に cascade0 を残す
-            csmActive = true;
-            shadowOn  = true;
-        } else {
-            h.shadow.SetDirectionalLight(lightDir, center, radius);    // single cascade (実績パス)
-            lightVp = h.shadow.LightViewProjection();
-            h.shadow_lvp_cb->Update(&lightVp, sizeof(lightVp));
-            cl->BeginShadowPass(*h.shadow.DepthTexture(), 1.0f);
-            cl->SetPipeline(*h.shadow_caster_pipe);
-            cl->SetConstantBuffer(0, *h.shadow_lvp_cb);
-            cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
-            cl->Draw(dvCount, 0);
-            cl->EndShadowPass(*h.shadow.DepthTexture());
-            shadowOn = true;   // シャドウマップ有効 (本パスで FPbrShader が PCF サンプル)
-        }
-    }
+    // --- シャドウパス (光源視点で深度を焼く)。出力 sh を本体パスが PCF/CSM 比較に使う ---
+    const FShadowOut sh = Pass_Shadows(h, cl, dvCount, bbMin, bbMax, eye, cam);
 
     // --- G-buffer (法線+深度) プリパス: SSAO / SSR / SSGI の共通入力。いずれか ON で駆動 ---
     //     法線プリパスは depth も焼くが、直後の本パスが depth を clear して描き直すので干渉しない。
@@ -3907,11 +3928,11 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     const FVec3 sunCol{ h.sun_color.x * h.sun_intensity, h.sun_color.y * h.sun_intensity, h.sun_color.z * h.sun_intensity };
     fcb.light_dir = FVec4{ h.sun_dir.x, h.sun_dir.y, h.sun_dir.z, 0.0f };    // 光方向, w=0 (環境光は IBL から取る)
     fcb.light_col = FVec4{ sunCol.x, sunCol.y, sunCol.z, 0.0f };     // 太陽 = キーライト (色×強度、設定駆動)
-    fcb.cam_pos   = FVec4{ camPos.x, camPos.y, camPos.z, shadowOn ? 1.0f : 0.0f };   // w=影を受けるか
+    fcb.cam_pos   = FVec4{ camPos.x, camPos.y, camPos.z, sh.shadowOn ? 1.0f : 0.0f };   // w=影を受けるか
     fcb.sky_zenith  = FVec4{ h.sky_zenith.x,  h.sky_zenith.y,  h.sky_zenith.z,  0 };   // IBL 環境光源 (スカイと同じグラデ・設定駆動)
     fcb.sky_horizon = FVec4{ h.sky_horizon.x, h.sky_horizon.y, h.sky_horizon.z, 0 };
     fcb.sky_ground  = FVec4{ h.sky_ground.x,  h.sky_ground.y,  h.sky_ground.z,  0 };
-    fcb.light_vp    = lightVp;                              // シャドウマップ空間
+    fcb.light_vp    = sh.lightVp;                           // シャドウマップ空間
     if (h.m3d_frame_cb) h.m3d_frame_cb->Update(&fcb, sizeof(fcb));
 
     // --- (2) ノードのメッシュ本体: エンジン標準 FPbrShader (HDR 線形出力)。per-node DrawMesh で
@@ -3925,18 +3946,18 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         dl[1].direction = FVec3{  0.55f, -0.28f, -0.50f }; dl[1].color = FVec3{ 0.40f, 0.48f, 0.62f };  // fill (寒、弱)
         dl[2].direction = FVec3{  0.05f,  0.35f, -0.95f }; dl[2].color = FVec3{ 0.45f, 0.45f, 0.50f };  // rim (背面、輪郭)
         h.pbr3d.SetLights(vp, camPos, dl, 3, FVec3{ 0.22f, 0.24f, 0.30f });   // ambient はやや控えめ(陰のコントラスト確保)
-        if (shadowOn) {
+        if (sh.shadowOn) {
             // 品質ノブを配線 (従来は bias 0.0015 固定 + texel_size に 1.0 を渡す «バグ» で PCF が機能不全だった)。
             const u32 ssz = (h.shadow.Size() > 0) ? h.shadow.Size() : 2048u;
             const f32 texel = 1.0f / static_cast<f32>(ssz);
-            if (csmActive)   // CSM: 各 cascade の VP + 分割閾値で。HLSL が view-space z で cascade を選択。
-                h.pbr3d.SetShadowMapCascades(h.shadow.DepthTexture(), csmVps, csmSplits, h.shadow.CascadeCount(),
+            if (sh.csmActive)   // CSM: 各 cascade の VP + 分割閾値で。HLSL が view-space z で cascade を選択。
+                h.pbr3d.SetShadowMapCascades(h.shadow.DepthTexture(), sh.csmVps, sh.csmSplits, h.shadow.CascadeCount(),
                                              h.q_shadow_bias, texel, h.q_shadow_filter);
             else
-                h.pbr3d.SetShadowMap(h.shadow.DepthTexture(), lightVp,
+                h.pbr3d.SetShadowMap(h.shadow.DepthTexture(), sh.lightVp,
                                      h.q_shadow_bias, texel, h.q_shadow_filter);
         }
-        else          h.pbr3d.SetShadowMap(nullptr, lightVp);
+        else          h.pbr3d.SetShadowMap(nullptr, sh.lightVp);
         // SSAO (GTAO) visibility を ambient へ乗算 (今フレーム焼けていれば)。screen UV でサンプル。
         if (h.ssao_computed) h.pbr3d.SetSsao(h.ssao3d.OutputTexture(), h.q_ssao_intensity, scW, scH);
         else                 h.pbr3d.SetSsao(nullptr, 0.0f, scW, scH);
