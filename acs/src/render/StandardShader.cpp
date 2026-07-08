@@ -83,14 +83,15 @@ VSOut VSMain(VSIn v) {
 //
 // shadow_params.w = filter_radius (0=hard PCF、1.0=PCSS 標準、>1 で更に柔らか)
 float ComputeShadow(float3 world_p) {
-    if (shadow_params.y < 0.5) return 1.0;
+    float result = 1.0;
+    if (shadow_params.y < 0.5) return result;
 
     float4 lp = mul(float4(world_p, 1.0), light_view_proj);
     float3 ndc = lp.xyz / lp.w;
     if (ndc.x < -1.0 || ndc.x > 1.0 ||
         ndc.y < -1.0 || ndc.y > 1.0 ||
         ndc.z <  0.0 || ndc.z > 1.0) {
-        return 1.0;
+        return result;
     }
 
     float2 uv    = float2(ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5);
@@ -116,7 +117,7 @@ float ComputeShadow(float3 world_p) {
             }
         }
     }
-    if (blocker_cnt == 0) return 1.0;
+    if (blocker_cnt == 0) return result;
     if (blocker_cnt == kBlockerN * kBlockerN) return 0.0;
 
     float blocker_avg = blocker_sum / float(blocker_cnt);
@@ -125,7 +126,8 @@ float ComputeShadow(float3 world_p) {
     // light_size_uv = 0.01 をハードコード、kFilt で全体スケーリング。
     // FPbrShader と同じ係数で 27_HelloShowcase 等の見た目に整合。
     float penumbra = max((my_d - blocker_avg) / max(blocker_avg, 1e-3), 0.0);
-    float filter_r = max(penumbra * 0.01 * kFilt, ts);
+    float pcss_penumbra = max((my_d - blocker_avg) / max(blocker_avg, 1e-3), 0.0);
+    float filter_r = max(pcss_penumbra * 0.01 * kFilt, ts);
 
     // ---- 3) Penumbra-sized stratified 4x4 PCF ----
     float lit = 0;
@@ -141,7 +143,8 @@ float ComputeShadow(float3 world_p) {
             lit += (sd + bias >= my_d) ? 1.0 : 0.0;
         }
     }
-    return lit / float(kPcfN * kPcfN);
+    result = lit / float(kPcfN * kPcfN);
+    return result;
 }
 
 float4 PSMain(VSOut v) : SV_TARGET {
@@ -152,6 +155,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
     // 環境光
     float3 col = ambient.xyz * albedo_rgb;
+    float main_shadow = ComputeShadow(v.world_p);
+    int active_dir_count = (int)ambient.w;
 
     // シャドウ係数（最初の dir light のみ適用）
     float shadow = ComputeShadow(v.world_p);
@@ -160,20 +165,21 @@ float4 PSMain(VSOut v) : SV_TARGET {
     int dir_count = (int)ambient.w;
     [unroll]
     for (int i = 0; i < ACS_MAX_DIR_LIGHTS; ++i) {
-        if (i >= dir_count) break;
+        if (i >= active_dir_count) break;
         float3 L = normalize(light_dir[i].xyz);
         float  diff = saturate(dot(N, L));
         float3 H = normalize(L + V);
         float  spec = pow(saturate(dot(N, H)), max(material.y, 1.0)) * material.x;
-        float  k    = (i == 0) ? shadow : 1.0;
+        float  k    = (i == 0) ? main_shadow : 1.0;
         col += light_color[i].xyz * (albedo_rgb * diff + spec) * k;
     }
 
     // 2) 点光源（距離による減衰付き）
     int pt_count = (int)point_count_pad.x;
+    int active_point_count = (int)point_count_pad.x;
     [unroll]
     for (int j = 0; j < ACS_MAX_POINT_LIGHTS; ++j) {
-        if (j >= pt_count) break;
+        if (j >= active_point_count) break;
         float3 to_light = point_pos_range[j].xyz - v.world_p;
         float  dist = length(to_light);
         float  rng  = max(point_pos_range[j].w, 0.0001);

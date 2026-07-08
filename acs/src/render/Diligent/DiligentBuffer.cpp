@@ -58,6 +58,10 @@ TResult<void> DiligentBuffer::Init(DiligentDevice& device, const FBufferDesc& de
     bd.Name      = "ACS_Buffer";
     bd.Size      = static_cast<Diligent::Uint64>(desc.size);
     bd.BindFlags = BindFromUsage(desc.usage);
+    if (desc.indirect_args) {   // DispatchIndirect の引数バッファにも使う
+        bd.BindFlags = static_cast<Diligent::BIND_FLAGS>(
+            bd.BindFlags | Diligent::BIND_INDIRECT_DRAW_ARGS);
+    }
     if (desc.struct_stride > 0) {   // 構造化バッファ (Phase 0): SRV/UAV view が作られる
         bd.Mode             = Diligent::BUFFER_MODE_STRUCTURED;
         bd.ElementByteStride = desc.struct_stride;

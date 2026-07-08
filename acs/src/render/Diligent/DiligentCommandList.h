@@ -246,6 +246,8 @@ public:
     void SetComputePipeline(IRhiPipeline& pipeline) noexcept override;
     /** compute dispatch (スレッドグループ数)。bind 済み UAV を UNORDERED_ACCESS へ遷移してから発行。 */
     void Dispatch(u32 gx, u32 gy, u32 gz) noexcept override;
+    /** indirect compute dispatch。args バッファ(u32x3)の byte_offset から ThreadGroupCount を読む。 */
+    void DispatchIndirect(IRhiBuffer& args, u32 byte_offset = 0) noexcept override;
     /** UAV テクスチャ (RWTexture) を slot に bind。 */
     void BindUav(u32 slot, IRhiTexture& tex) noexcept override;
     /** UAV バッファ (RWStructuredBuffer) を slot に bind。 */

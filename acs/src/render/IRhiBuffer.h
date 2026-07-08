@@ -58,6 +58,11 @@ struct FBufferDesc {
      *  → SRV/UAV view が作られ compute から StructuredBuffer / RWStructuredBuffer として読み書き可能に。
      *  usage=Storage と併用する (light culling のタイルバケット等)。 */
     u32         struct_stride = 0;
+
+    /** true で BIND_INDIRECT_DRAW_ARGS を追加し、DispatchIndirect の引数バッファに使える。
+     *  compute が結果を書き込む場合は usage=Storage + struct_stride>0 と併用する
+     *  (ThreadGroupCountX/Y/Z を RWStructuredBuffer<uint> で書き、そのまま indirect 引数に使う)。 */
+    bool        indirect_args = false;
 };
 
 /**

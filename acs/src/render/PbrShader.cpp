@@ -122,7 +122,7 @@ SamplerState irradiance_sampler : register(s1);
 SamplerState prefilter_sampler  : register(s2);
 SamplerState brdf_lut_sampler   : register(s3);
 SamplerState normal_map_sampler : register(s4);
-SamplerState shadow_map_sampler : register(s5);
+SamplerComparisonState shadow_map_sampler : register(s5);   // HW 比較 PCF (SampleCmpLevelZero、WickedEngine sampler_cmp_depth 相当)
 SamplerState ssao_map_sampler   : register(s6);
 SamplerState ssgi_color_sampler : register(s7);
 SamplerState lightmap_sampler   : register(s8);
@@ -217,6 +217,10 @@ float SamplePcssCascade(int cascade, float3 world_p) {
     // 隣接 cascade に kernel が漏れて偽の影/光が混入するのを防ぐ (atlas-boundary PCF leak)。
     // 半 texel の inset で隣接 cascade 0 と完全に分離する。
     const float kHalfTexelInset = ts * 0.5 * scale_x;
+    // shadow_map_sampler は比較サンプラ (SampleCmpLevelZero 用) なので生 depth は読めない。
+    // blocker search の raw depth は .Load() (サンプラ不要の point fetch) で読む。
+    uint smw, smh; shadow_map.GetDimensions(smw, smh);
+    float2 smSize = float2(smw, smh);
 
     // ---- Blocker search (PCSS Fernando 2005、16 tap、半径 = 4 * texel) ----
     float blocker_sum = 0;
@@ -232,7 +236,7 @@ float SamplePcssCascade(int cascade, float3 world_p) {
             float2 atlas_uv  = (base_uv + off) * float2(scale_x, 1.0) + float2(ofs_x, 0);
             atlas_uv.x = clamp(atlas_uv.x, ofs_x + kHalfTexelInset,
                                             ofs_x + scale_x - kHalfTexelInset);
-            float sd = shadow_map.SampleLevel(shadow_map_sampler, atlas_uv, 0).r;
+            float sd = shadow_map.Load(int3(int2(atlas_uv * smSize), 0)).r;   // 生 depth は Load (比較サンプラは SampleCmp 専用)
             if (sd + bias < my_d) {
                 blocker_sum += sd;
                 blocker_cnt += 1;
@@ -266,8 +270,9 @@ float SamplePcssCascade(int cascade, float3 world_p) {
         float2 atlas_uv = (base_uv + off) * float2(scale_x, 1.0) + float2(ofs_x, 0);
         atlas_uv.x = clamp(atlas_uv.x, ofs_x + kHalfTexelInset,
                                         ofs_x + scale_x - kHalfTexelInset);
-        float sd = shadow_map.SampleLevel(shadow_map_sampler, atlas_uv, 0).r;
-        lit += (sd + bias >= my_d) ? 1.0 : 0.0;
+        // HW 比較 PCF: タップごとに 2x2 バイリニア深度比較で 0..1 を返す (lit ⇔ my_d-bias ≤ stored)。
+        // 手動の二値比較 (point sample) より penumbra が滑らか。WickedEngine の SampleCmpLevelZero 相当。
+        lit += shadow_map.SampleCmpLevelZero(shadow_map_sampler, atlas_uv, my_d - bias);
     }
     return lit / float(kPcfN);
 }
@@ -1326,9 +1331,10 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     pd.static_samplers[4].filter    = ESamplerFilter::Linear;
     pd.static_samplers[4].address_u = ESamplerAddress::Wrap;       // normal map は wrap (tileable)
     pd.static_samplers[4].address_v = ESamplerAddress::Wrap;
-    pd.static_samplers[5].filter    = ESamplerFilter::Linear;
-    pd.static_samplers[5].address_u = ESamplerAddress::Clamp;       // shadow map は clamp
-    pd.static_samplers[5].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[5].filter     = ESamplerFilter::Linear;
+    pd.static_samplers[5].address_u  = ESamplerAddress::Clamp;       // shadow map は clamp
+    pd.static_samplers[5].address_v  = ESamplerAddress::Clamp;
+    pd.static_samplers[5].comparison = true;                        // HW 比較 PCF (SampleCmpLevelZero、LessEqual)
     pd.static_samplers[6].filter    = ESamplerFilter::Linear;       // SSAO は linear で smooth
     pd.static_samplers[6].address_u = ESamplerAddress::Clamp;
     pd.static_samplers[6].address_v = ESamplerAddress::Clamp;

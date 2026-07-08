@@ -210,7 +210,12 @@ D3D12_STATIC_SAMPLER_DESC MakeStaticSampler(const SamplerDesc& s, u32 reg) noexc
     d.AddressW = ToD3DAddress(s.address_w);
     d.MipLODBias = 0.0f;
     d.MaxAnisotropy = (s.filter == ESamplerFilter::Anisotropic) ? s.max_anisotropy : 0;
-    d.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+    if (s.comparison) {   // HW 比較 PCF サンプラ (シャドウ SampleCmpLevelZero、lit ⇔ cmp ≤ stored)
+        d.Filter = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+        d.ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    } else {
+        d.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+    }
     d.BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
     d.MinLOD = s.min_lod;
     d.MaxLOD = s.max_lod;

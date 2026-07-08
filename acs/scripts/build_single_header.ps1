@@ -45,6 +45,25 @@ foreach ($cfg in $Configs) {
     & $libexe "@$rsp" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "lib.exe failed for $cfg" }
     Write-Host ("    {0:N1} MB" -f ((Get-Item $outlib).Length/1MB))
+
+    # bundle Diligent backend + xxhash static libs next to acs.lib so the
+    # consumer's #pragma comment(lib,...) (see amalgamate.py banner) auto-links
+    # them. Required because Sky/Atmosphere call CreateRhiComputePipeline and the
+    # device factory GetEngineFactoryD3D12, both implemented only in Diligent.
+    $diligentNames = @(
+        'Diligent-Archiver-static','Diligent-BasicPlatform','Diligent-Common',
+        'Diligent-GraphicsAccessories','Diligent-GraphicsEngine','Diligent-GraphicsEngineD3D12-static',
+        'Diligent-GraphicsEngineD3DBase','Diligent-GraphicsEngineNextGenBase','Diligent-GraphicsTools',
+        'Diligent-Primitives','Diligent-ShaderTools','Diligent-Win32Platform','xxhash')
+    $depsRoot = Join-Path $build '_deps'
+    $copied = 0
+    foreach ($n in $diligentNames) {
+        $src = Get-ChildItem $depsRoot -Recurse -File -Filter "$n.lib" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "\\$cfg\\" } | Select-Object -First 1
+        if ($src) { Copy-Item $src.FullName (Join-Path $outdir "$n.lib") -Force; $copied++ }
+        else { Write-Warning "  Diligent dep not found for ${cfg}: $n.lib" }
+    }
+    Write-Host "    bundled $copied/$($diligentNames.Count) Diligent/xxhash libs"
 }
 
 # 3) optional: mirror dist/ to a consumer location (e.g. C:\acs)

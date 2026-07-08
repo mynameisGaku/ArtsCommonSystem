@@ -32,6 +32,24 @@
   #pragma comment(lib, "winmm.lib")
   #pragma comment(lib, "user32.lib")
   #pragma comment(lib, "gdi32.lib")
+  // ---- Diligent RHI backend (built with ACS_RENDER_DILIGENT=ON). These static
+  //      libs are shipped in dist/lib/x64/<cfg> next to acs.lib; the consumer's
+  //      library search path picks them up. Sky/Atmosphere compute pipelines and
+  //      the Diligent device factory live here.
+  #pragma comment(lib, "Diligent-GraphicsEngineD3D12-static.lib")
+  #pragma comment(lib, "Diligent-GraphicsEngineD3DBase.lib")
+  #pragma comment(lib, "Diligent-GraphicsEngineNextGenBase.lib")
+  #pragma comment(lib, "Diligent-GraphicsEngine.lib")
+  #pragma comment(lib, "Diligent-GraphicsTools.lib")
+  #pragma comment(lib, "Diligent-Archiver-static.lib")
+  #pragma comment(lib, "Diligent-ShaderTools.lib")
+  #pragma comment(lib, "Diligent-GraphicsAccessories.lib")
+  #pragma comment(lib, "Diligent-Common.lib")
+  #pragma comment(lib, "Diligent-Win32Platform.lib")
+  #pragma comment(lib, "Diligent-BasicPlatform.lib")
+  #pragma comment(lib, "Diligent-Primitives.lib")
+  #pragma comment(lib, "xxhash.lib")
+  #pragma comment(lib, "Shlwapi.lib")
 #endif
 
 // ===================== app/AppConfig.h =====================
@@ -447,6 +465,16 @@ public:
      * @param s 新しい最小レベル (これ未満は破棄される)。
      */
     static void SetMinSeverity(ELogSeverity s) noexcept;
+
+    /**
+     * 追加のログシンク (コールバック) を設定する。各レコードを writer スレッドが
+     * コンソール/ファイルへ出した後に sink(severity, message) も呼ぶ。nullptr で解除。
+     *
+     * @details エディタがエンジンログを自前のコンソールへ取り込む等に使う。sink は
+     *          writer スレッドから呼ばれるため、実装側でスレッド安全にすること。
+     * @param sink レコード毎に呼ぶコールバック (message は null 終端)。
+     */
+    static void SetSink(void (*sink)(ELogSeverity severity, const char* message)) noexcept;
 
     /**
      * 指定レベルが現在の設定で出力対象かを返す。
@@ -1277,6 +1305,21 @@ ACS_NORETURN void FPanic(FSourceLoc loc, const char* expr, const char* fmt, ...)
 #define ACS_NOTREACHED()                                                        \
     ::acs::FPanic(::acs::FSourceLoc::Current(), "<not reached>",                  \
                  "supposedly unreachable code was reached")
+
+// =============================================================================
+// Unreal 互換の小文字エイリアス — checkf
+// -----------------------------------------------------------------------------
+//   checkf(expr, fmt, ...) == ACS_CHECKF(expr, fmt, ...)  (常時有効・メッセージ付き)
+//
+// Unreal から来た人が手癖で書けるように用意する。
+// ※ bare `check` / `verify` はあえて提供しない: これらは一般的な識別子
+//   (ローカル関数・変数名) と衝突するため (例: tests が check(p, sz, sd) を使用)。
+//   メッセージ無しの常時検査は ACS_CHECK を、debug 検査は ACS_VERIFY を直接使う。
+//   `checkf` は十分に珍しい綴りなので衝突しにくく、グローバルに提供する。
+// =============================================================================
+#ifndef checkf
+    #define checkf(expr, fmt, ...)      ACS_CHECKF(expr, fmt, ##__VA_ARGS__)
+#endif
 
 namespace acs {
 
@@ -7892,6 +7935,7 @@ namespace acs {
 
 class IRhiSwapchain;
 class IRhiCommandList;
+class IRhiTexture;
 class FWindow;
 
 /**
@@ -7920,6 +7964,23 @@ public:
 
     /** GPU の処理が完了するまで待つ (Shutdown 前などに必要)。 */
     virtual void WaitIdle() noexcept = 0;
+
+    // 注: 以降に virtual を追加する場合は «末尾追加» すること (vtable スロット安定化)。
+
+    /**
+     * レンダーターゲットテクスチャの内容を CPU メモリへ読み戻す (同期、GPU→CPU)。
+     *
+     * @details
+     * tex は描画済み (caller が render + WaitIdle 済み) であること。out_pixels に行優先で
+     * 詰める (4 バイト/ピクセル = RGBA8/BGRA8 前提)。サムネイル/スクリーンショット用の一度きり
+     * 操作で、内部で readback ヒープ + コピー + fence 待ち + de-pad を行う (遅い)。
+     * 既定は未対応 (false)。DX12 バックエンドが実装する。
+     * @param tex 読み戻し元のテクスチャ (render target)。
+     * @param out_pixels 書き込み先 (>= width*height*4 バイト)。
+     * @param out_size out_pixels のバイト数。
+     * @return 成功なら true、未対応/失敗なら false。
+     */
+    virtual bool ReadTexture(IRhiTexture& /*tex*/, void* /*out_pixels*/, u32 /*out_size*/) noexcept { return false; }
 };
 
 /**
@@ -7983,8 +8044,24 @@ class FWindow;
  * CreateRhiSwapchain に渡してスワップチェインを生成する。
  */
 struct SwapchainConfig {
-    /** 提示先のウィンドウ。 */
+    /** 提示先のウィンドウ（window と external_hwnd は二者択一。window 優先）。 */
     FWindow* window      = nullptr;
+
+    /**
+     * 提示先の外部 HWND（window==nullptr のとき使用）。
+     *
+     * @details
+     * エディタ（C# WPF 等）が用意した既存の HWND にスワップチェインを作って描画する
+     * ホスティング用途。FWindow を経由せず生 HWND を渡せる。external_width /
+     * external_height で初期サイズを指定する（HWND から取得しない）。
+     */
+    void*    external_hwnd   = nullptr;
+
+    /** external_hwnd 使用時の初期幅（ピクセル）。 */
+    u32      external_width  = 0;
+
+    /** external_hwnd 使用時の初期高さ（ピクセル）。 */
+    u32      external_height = 0;
 
     /** バックバッファのピクセルフォーマット。 */
     EFormat  format      = EFormat::B8G8R8A8_UNorm;
@@ -8118,6 +8195,20 @@ public:
      * @param buffer_index 描画したバックバッファのインデックス。
      */
     virtual void EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index) noexcept = 0;
+
+    /**
+     * MSAA レンダーターゲットをスワップチェインのバックバッファへ解決 (resolve) する。
+     *
+     * @details
+     * sample_count>1 で作成した RT をフレームの最後にバックバッファへ ResolveSubresource する。
+     * 呼出し後バックバッファは RENDER_TARGET 状態に戻る (続けて描画 / EndRenderToSwapchain 可)。
+     * 既定実装は no-op (現状 Dx12 backend のみ実装)。
+     * @param src 解決元の MSAA レンダーターゲット (描画済み)。
+     * @param sc 解決先のスワップチェイン。
+     * @param buffer_index 解決先バックバッファのインデックス。
+     */
+    virtual void ResolveToSwapchain(class IRhiTexture& /*src*/, IRhiSwapchain& /*sc*/,
+                                    u32 /*buffer_index*/) noexcept {}
 
     /**
      * シャドウパスを開始する (depth-only RT を bind + clear)。
@@ -8297,6 +8388,30 @@ public:
      * @return バックエンド固有のネイティブコマンドリストハンドル。
      */
     virtual void* NativeHandle() noexcept = 0;
+
+    // ---- Compute (Phase 0: WickedEngine 流レンダラ移植の基盤) ----
+    // 非 pure virtual + 既定空実装 → Dx12 raw backend は override せず no-op で済む
+    // (Diligent のみ実装)。compute PSO は CreateRhiComputePipeline で生成。
+
+    /** compute パイプラインを設定する (次の Dispatch で使う CS + リソース binding)。 */
+    virtual void SetComputePipeline(class IRhiPipeline& /*pipeline*/) noexcept {}
+
+    /** compute dispatch を発行する (スレッドグループ数 gx*gy*gz)。 */
+    virtual void Dispatch(u32 /*gx*/, u32 /*gy*/, u32 /*gz*/) noexcept {}
+
+    /** indirect compute dispatch。args バッファの byte_offset から u32x3
+     *  (ThreadGroupCountX/Y/Z) を読んで dispatch する。args は indirect_args=true
+     *  で作成したバッファ (compute が書いた ThreadGroupCount をそのまま使える)。 */
+    virtual void DispatchIndirect(class IRhiBuffer& /*args*/, u32 /*byte_offset*/ = 0) noexcept {}
+
+    /** UAV テクスチャ (RWTexture) を指定 slot にバインドする。is_uav=true で作成済みが前提。 */
+    virtual void BindUav(u32 /*slot*/, class IRhiTexture& /*tex*/) noexcept {}
+
+    /** UAV バッファ (RWStructuredBuffer 等) を指定 slot にバインドする。struct_stride>0 が前提。 */
+    virtual void BindUav(u32 /*slot*/, class IRhiBuffer& /*buf*/) noexcept {}
+
+    /** 構造化バッファ SRV (StructuredBuffer) を指定 slot にバインドする。struct_stride>0 が前提。 */
+    virtual void BindStructuredSrv(u32 /*slot*/, class IRhiBuffer& /*buf*/) noexcept {}
 };
 
 /**
@@ -8367,11 +8482,21 @@ struct FTextureDesc {
     /** is_render_target=true のとき array_size*mip_levels 個の RTV を per-slice 作成するか（cubemap 面／ミップ別パスを書くのに必要）。 */
     bool        per_slice_rtv    = false;
 
+    /** MSAA サンプル数 (1=非 MSAA)。>1 は is_render_target=true 専用で SRV は作られない
+     *  (MS テクスチャは通常 sample 不可)。描画後に IRhiCommandList::ResolveToSwapchain で解決する。 */
+    u32         sample_count     = 1;
+
     /** 初期ピクセルデータ（RGBA 等、tightly-packed。cubemap/array 初期化は未サポート）。 */
     const void* initial_data     = nullptr;
 
     /** 初期ピクセルデータのバイト数。 */
     usize       initial_data_size = 0;
+
+    /** UAV (RWTexture) として compute から書き込み可能にするか (Phase 0)。BIND_UNORDERED_ACCESS + UAV view。 */
+    bool        is_uav           = false;
+
+    /** 深度 (3D テクスチャ用。>1 で RESOURCE_DIM_TEX_3D。volumetric clouds の shape/detail noise 用)。 */
+    u32         depth            = 1;
 };
 
 /**
@@ -8480,6 +8605,23 @@ public:
      * @return 成功なら空の TResult、初期化失敗ならエラー。
      */
     TResult<void> Init(FWindow& w, bool enable_debug = false, bool enable_depth = true) noexcept;
+
+    /**
+     * 外部 HWND に紐付けて初期化する (FWindow を経由せず生 HWND をホストする)。
+     *
+     * @details
+     * C# WPF エディタ等が用意した既存ウィンドウの HWND にスワップチェインを作る。
+     * FWindow 版 Init と同様に Device + Swapchain + CommandList (+深度) を確保する。
+     * リサイズは OnResize(w,h) を呼ぶ (HWND からサイズは取得しない)。
+     * @param hwnd 描画先の生 HWND (void*)。
+     * @param width 初期バックバッファ幅。
+     * @param height 初期バックバッファ高さ。
+     * @param enable_debug デバッグレイヤを有効にするか。
+     * @param enable_depth true なら深度バッファを自動作成する。
+     * @return 成功なら空の TResult、初期化失敗ならエラー。
+     */
+    TResult<void> InitExternal(void* hwnd, u32 width, u32 height,
+                               bool enable_debug = false, bool enable_depth = true) noexcept;
 
     /** 確保した全リソースを解放する。 */
     void Shutdown() noexcept;
@@ -18529,6 +18671,170 @@ private:
 
 } // namespace acs
 
+// ===================== foundation/Cast.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// ACS Foundation — Cast<T> / CastChecked<T> (RTTI 不使用の安全ダウンキャスト)
+// -----------------------------------------------------------------------------
+// ACS は RTTI 無効 (dynamic_cast 不可) なので、Unreal 風の `Cast<T>` /
+// `CastChecked<T>` を「軽量な侵入型 (intrusive) RTTI」で提供する。階層側が
+// マクロで型 ID と IsA を opt-in 宣言し、Cast はそれを使って実行時に安全な
+// ダウンキャストを行う。
+//
+//   提供物:
+//     Cast<To>(From* p)        — p が To (またはその派生) なら To*、違えば nullptr
+//     CastChecked<To>(From* p) — 同上だが、失敗時は ACS_CHECKF で panic (非 null 前提)
+//     IsA<To>(const From* p)   — p が To 互換かを bool で返す
+//     ACS_RTTI_ROOT(Type)      — 階層のルートクラスに置く (virtual な型 ID を導入)
+//     ACS_RTTI(Type, Parent)   — 派生クラスに置く (IsA を親へ連鎖)
+//
+// 使い方:
+//   class FShape { public: virtual ~FShape() = default; ACS_RTTI_ROOT(FShape) };
+//   class FCircle : public FShape { public: ACS_RTTI(FCircle, FShape) };
+//   FShape* s = ...;
+//   if (FCircle* c = acs::Cast<FCircle>(s)) { ... }   // 安全 (違えば nullptr)
+//   FCircle* c2 = acs::CastChecked<FCircle>(s);        // 確信があるとき (違えば panic)
+//
+// 仕組み:
+//   ・型 ID は「型ごとに一意な static 変数のアドレス」(FClassId = const void*)。
+//     RTTI / typeid 不使用。TypeTag<T>() (gameframework) と同じ手法。
+//   ・各クラスは StaticClassId() (= 自分の ID) と、virtual IsA(id) を持つ。IsA は
+//     「自分の ID か?」を見て、違えば親の IsA に委譲する。これで単一継承チェーンの
+//     祖先判定 (= dynamic_cast 相当の多態ダウンキャスト) ができる。
+//   ・Cast は p->IsA(To::StaticClassId()) が真のときだけ static_cast する。To が From
+//     の派生でない (= static_cast 不可能) 組み合わせはコンパイルエラーになる
+//     (単一継承チェーン内の up/down cast を対象とする)。
+//
+// 制約:
+//   ・対象階層は ACS_RTTI_ROOT / ACS_RTTI で opt-in する必要がある (侵入型)。
+//   ・多重継承の sibling cast は非対応 (static_cast が成立する単一チェーン用)。
+//   ・スマートポインタは raw を取り出して使う: Cast<T>(ptr.Get())
+//     (foundation は memory に依存しないため、ここでは raw ポインタのみ対応)。
+// =============================================================================
+
+
+namespace acs {
+
+/** RTTI 不使用の型 ID (型ごとに一意な static アドレス、null 不可)。 */
+using FClassId = const void*;
+
+namespace cast_detail {
+
+/**
+ * 型 T に一意な FClassId を返す (RTTI 不使用、static 変数のアドレス)。
+ *
+ * @details 各 T のインスタンス化ごとに別 static = 別アドレスになるため一意。
+ * @tparam T ID を取りたい型。
+ * @return 型 T を一意に識別する不透明ポインタ。
+ */
+template<class T>
+ACS_FORCEINLINE FClassId ClassTagOf() noexcept {
+    static const char s_tag = 0;
+    return static_cast<FClassId>(&s_tag);
+}
+
+} // namespace cast_detail
+
+// =============================================================================
+// 侵入型 RTTI 宣言マクロ
+// =============================================================================
+
+/**
+ * 階層のルートクラスに置く。virtual な型 ID 機構 (StaticClassId / GetClassId / IsA) を導入する。
+ *
+ * @param Type このクラス自身の型名。
+ */
+#define ACS_RTTI_ROOT(Type)                                                     \
+    /** この型の static な型 ID。 */                                            \
+    static ::acs::FClassId StaticClassId() noexcept {                           \
+        return ::acs::cast_detail::ClassTagOf<Type>();                          \
+    }                                                                           \
+    /** この instance の最派生型 ID。 */                                        \
+    virtual ::acs::FClassId GetClassId() const noexcept {                       \
+        return StaticClassId();                                                 \
+    }                                                                           \
+    /** id がこの型 (またはその祖先) と一致するか。 */                         \
+    virtual bool IsA(::acs::FClassId id) const noexcept {                       \
+        return id == StaticClassId();                                           \
+    }
+
+/**
+ * 派生クラスに置く。IsA を親クラスへ連鎖させ、祖先判定を可能にする。
+ *
+ * @param Type このクラス自身の型名。
+ * @param Parent 直接の親クラス名 (ACS_RTTI_ROOT / ACS_RTTI 済みであること)。
+ */
+#define ACS_RTTI(Type, Parent)                                                  \
+    static ::acs::FClassId StaticClassId() noexcept {                           \
+        return ::acs::cast_detail::ClassTagOf<Type>();                          \
+    }                                                                           \
+    ::acs::FClassId GetClassId() const noexcept override {                      \
+        return StaticClassId();                                                 \
+    }                                                                           \
+    bool IsA(::acs::FClassId id) const noexcept override {                      \
+        return id == StaticClassId() || Parent::IsA(id);                        \
+    }
+
+// =============================================================================
+// Cast / CastChecked / IsA
+// =============================================================================
+
+/**
+ * p が To (またはその派生) かを返す。
+ *
+ * @tparam To 問い合わせる型 (ACS_RTTI_* 宣言済み)。
+ * @param p 検査する non-owning ポインタ (nullptr 可)。
+ * @return p が非 null かつ To 互換なら true。
+ */
+template<class To, class From>
+ACS_FORCEINLINE bool IsA(const From* p) noexcept {
+    return p != nullptr && p->IsA(To::StaticClassId());
+}
+
+/**
+ * p を To* へ安全にダウンキャストする (失敗は nullptr)。
+ *
+ * @details p が To (またはその派生) のときだけ static_cast する。null や型不一致は nullptr。
+ * @tparam To キャスト先の型 (ACS_RTTI_* 宣言済み)。
+ * @param p キャストする non-owning ポインタ (nullptr 可)。
+ * @return To*、または不一致/null なら nullptr。
+ */
+template<class To, class From>
+ACS_FORCEINLINE To* Cast(From* p) noexcept {
+    return (p != nullptr && p->IsA(To::StaticClassId())) ? static_cast<To*>(p) : nullptr;
+}
+
+/** const 版 Cast。 */
+template<class To, class From>
+ACS_FORCEINLINE const To* Cast(const From* p) noexcept {
+    return (p != nullptr && p->IsA(To::StaticClassId())) ? static_cast<const To*>(p) : nullptr;
+}
+
+/**
+ * p を To* へキャストする。失敗時 (null / 型不一致) は ACS_CHECKF で panic する。
+ *
+ * @details 「ここは必ず To のはず」という確信がある場面で使う (Unreal の CastChecked 相当)。
+ * @tparam To キャスト先の型 (ACS_RTTI_* 宣言済み)。
+ * @param p キャストする non-owning ポインタ。
+ * @return To* (必ず非 null。さもなくば panic)。
+ */
+template<class To, class From>
+ACS_FORCEINLINE To* CastChecked(From* p) noexcept {
+    To* r = Cast<To>(p);
+    ACS_CHECKF(r != nullptr, "CastChecked failed: source is null or not the requested type");
+    return r;
+}
+
+/** const 版 CastChecked。 */
+template<class To, class From>
+ACS_FORCEINLINE const To* CastChecked(const From* p) noexcept {
+    const To* r = Cast<To>(p);
+    ACS_CHECKF(r != nullptr, "CastChecked failed: source is null or not the requested type");
+    return r;
+}
+
+} // namespace acs
+
 // ===================== foundation/Limits.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
@@ -19428,6 +19734,30 @@ private:
 };
 
 } // namespace acs::game
+
+// ===================== gameframework/AcsClass.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// ACS_CLASS / ACS_PROPERTY — UE 風のリフレクションマーカー。
+//
+// 使い方:
+//   ACS_CLASS()
+//   class MYGAME_API FMover : public acs::game::FComponent2D {
+//   public:
+//       ACS_GAME_COMPONENT_KIND(FMover)
+//       ACS_PROPERTY() float speed = 3.0f;     // インスペクタに出すプロパティ
+//       void OnUpdate(acs::f32 dt) noexcept override {}
+//   };
+//
+// これらのマクロ自体は «何も生成しない» (UHT の UCLASS/UPROPERTY と同じ)。エディタの
+// リフレクション・コードジェネレータが Source/*.h を走査してこのマーカーを見つけ、
+// ACS_REGISTER_COMPONENT(FMover, ACS_RPROP_F("speed", 3.0f)) 相当の登録コードを自動生成する。
+// 従来の手書き ACS_REGISTER_COMPONENT も引き続き使える (併用可)。
+
+#define ACS_CLASS(...)
+#define ACS_PROPERTY(...)
+// ACS_FUNCTION(BlueprintCallable, CallInEditor, ...) — 引数なし void メソッドに付けると、
+// codegen が ACS_REGISTER_METHOD 相当を生成し、エディタのボタンや将来の Blueprint から呼べる。
+#define ACS_FUNCTION(...)
 
 // ===================== gameframework/AmbientDirector.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -22316,6 +22646,96 @@ enum class EBtStatus : u8 {
 };
 
 /**
+ * FBtDecorator が子の結果をどう変換するか。
+ *
+ * @details
+ * decorator は子を 1 つだけ持ち、その Tick 結果に下記の変換を施す。Running は
+ * いずれの op でも素通し (子がまだ進行中なら decorator も進行中) する規約で統一する。
+ * editor 側 (btedit) のメタミラーも本 enum を共有する (= 単一の真実点)。
+ */
+enum class EBtDecoratorOp : u8 {
+    /** 子の Success↔Failure を反転する (Running は素通し)。条件の否定に使う。 */
+    Inverter     = 0,
+
+    /** 子が Failure でも Success に倒す (Running は素通し)。任意分岐を必ず成功扱い。 */
+    ForceSuccess = 1,
+
+    /** 子が Success でも Failure に倒す (Running は素通し)。常に失敗させる。 */
+    ForceFailure = 2,
+
+    /** 子が Success を返したら Running に変えて繰り返させる (Failure/Running は素通し)。 */
+    Repeat       = 3,
+};
+
+/**
+ * 子の status に decorator op を適用する純関数 (Running は全 op 素通し)。
+ *
+ * @details
+ * FBtDecorator::Tick と editor (btedit) のグラフインタプリタが同じ意味論を共有する
+ * ための単一実装。runtime とエディタの decorator 挙動が乖離しないことを保証する。
+ * @param op 適用する変換種別。
+ * @param child 子ノードの Tick 結果。
+ * @return 変換後の status。
+ */
+EBtStatus ApplyDecorator(EBtDecoratorOp op, EBtStatus child) noexcept;
+
+/**
+ * blackboard 変数の型 (no-code 比較条件 / スキーマで使う基本スカラ型)。
+ *
+ * @details
+ * ブラックボード上のフィールドをエディタから「名前 + 型 + オフセット」で参照し、
+ * 値を f32 に正規化して定数と比較するための最小型集合。pointer/struct は対象外。
+ */
+enum class EBtVarType : u8 {
+    /** bool (1 byte)。0=false / 非0=true。 */
+    Bool = 0,
+    /** 32bit 符号付き整数。 */
+    I32  = 1,
+    /** 32bit 浮動小数。 */
+    F32  = 2,
+};
+
+/**
+ * 比較条件の演算子 (variable <op> constant)。
+ */
+enum class EBtCompareOp : u8 {
+    Less      = 0, /**< <  */
+    LessEq    = 1, /**< <= */
+    Equal     = 2, /**< == */
+    NotEqual  = 3, /**< != */
+    GreaterEq = 4, /**< >= */
+    Greater   = 5, /**< >  */
+};
+
+/**
+ * blackboard の指定フィールドを定数と比較する純関数 (no-code 比較条件の評価本体)。
+ *
+ * @details
+ * `bb` を char* とみなして `offset` バイト先を `type` で読み、f32 に正規化して
+ * `rhs` と `op` で比較する。bb が null の場合は false。Equal/NotEqual は f32 では
+ * 厳密一致になりがちな点に注意 (整数/bool 比較で使う想定)。editor インタプリタと
+ * (将来の) runtime 条件ノードが同じ意味論を共有するための単一実装。
+ * @param bb     ブラックボード先頭ポインタ (user 構造体)。
+ * @param offset bb 先頭からのバイトオフセット。
+ * @param type   読み取る型。
+ * @param op     比較演算子。
+ * @param rhs    比較対象の定数 (f32 に正規化済み)。
+ * @return 比較結果 (bb が null なら false)。
+ */
+bool BtCompareVar(const void* bb, u32 offset, EBtVarType type, EBtCompareOp op, f32 rhs) noexcept;
+
+/**
+ * f32 同士を比較演算子で比べる純関数 (比較条件のスカラ比較本体)。
+ *
+ * @details BtCompareVar と editor の動的ブラックボード比較が共有する単一実装。
+ * @param lhs 左辺 (変数値を f32 に正規化したもの)。
+ * @param op  比較演算子。
+ * @param rhs 右辺の定数。
+ * @return 比較結果。
+ */
+bool BtCompareF32(f32 lhs, EBtCompareOp op, f32 rhs) noexcept;
+
+/**
  * 全 BT ノードの抽象基底。
  *
  * @details tick は noexcept、blackboard は void* で型を持たない。
@@ -22340,6 +22760,9 @@ public:
     /** ムーブ代入も禁止。 */
     FBtNode& operator=(FBtNode&&)      = delete;
 
+    // RTTI 不使用の型判定 (Cast<FBtSelector>(node) 等を可能にする)。階層のルート。
+    ACS_RTTI_ROOT(FBtNode)
+
     /**
      * 1 フレーム分の評価を行う。
      *
@@ -22359,6 +22782,8 @@ public:
  */
 class FBtSelector : public FBtNode {
 public:
+    ACS_RTTI(FBtSelector, FBtNode)
+
     /** 空の selector を構築する。 */
     FBtSelector() noexcept = default;
 
@@ -22402,6 +22827,8 @@ private:
  */
 class FBtSequence : public FBtNode {
 public:
+    ACS_RTTI(FBtSequence, FBtNode)
+
     /** 空の sequence を構築する。 */
     FBtSequence() noexcept = default;
 
@@ -22445,6 +22872,8 @@ private:
  */
 class FBtAction : public FBtNode {
 public:
+    ACS_RTTI(FBtAction, FBtNode)
+
     /** leaf が呼ぶ評価関数の型。 */
     using Fn = EBtStatus(*)(void* blackboard, f32 dt) noexcept;
 
@@ -22470,6 +22899,63 @@ public:
 private:
     /** 評価に使う関数ポインタ (未設定なら nullptr)。 */
     Fn m_Fn = nullptr;
+};
+
+/**
+ * 子を 1 つだけ持ち、その結果を EBtDecoratorOp で変換する装飾ノード。
+ *
+ * @details
+ * Inverter / ForceSuccess / ForceFailure / Repeat の 4 種を提供する。Running は
+ * いずれの op でも素通しする (子が進行中なら decorator も進行中)。子が未設定の
+ * 場合は Failure を返す (= 装飾対象が無いのでソフトフェイル)。子の所有権は
+ * decorator が握る (SetChild で move-in、既存の子は破棄して差し替え)。
+ */
+class FBtDecorator : public FBtNode {
+public:
+    ACS_RTTI(FBtDecorator, FBtNode)
+
+    /**
+     * 変換 op を指定して decorator を構築する。
+     *
+     * @param op 子の結果に施す変換種別。
+     */
+    explicit FBtDecorator(EBtDecoratorOp op) noexcept : m_Op(op) {}
+
+    /** 破棄する (子は TUniquePtr が解放)。 */
+    ~FBtDecorator() noexcept override = default;
+
+    /**
+     * 装飾する子を設定する (既存の子は破棄して差し替え)。
+     *
+     * @param child 装飾対象の子ノード (nullptr で子を外す)。
+     */
+    void SetChild(TUniquePtr<FBtNode> child) noexcept;
+
+    /**
+     * 現在の変換 op を差し替える。
+     *
+     * @param op 新しい変換種別。
+     */
+    void SetOp(EBtDecoratorOp op) noexcept { m_Op = op; }
+
+    /**
+     * 子を Tick し、結果に op の変換を施して返す。
+     *
+     * @param blackboard user 定義の状態。
+     * @param dt 前フレームからの経過秒。
+     * @return 変換後の status (子が未設定なら Failure)。
+     */
+    EBtStatus Tick(void* blackboard, f32 dt) noexcept override;
+
+    /** 子が設定済みかを返す。 */
+    bool HasChild() const noexcept { return static_cast<bool>(m_Child); }
+
+private:
+    /** 変換種別。 */
+    EBtDecoratorOp      m_Op;
+
+    /** 装飾する子ノード (所有権を持つ)。 */
+    TUniquePtr<FBtNode> m_Child;
 };
 
 /**
@@ -23244,6 +23730,24 @@ public:
     bool HasBounds() const noexcept { return m_HasBounds; }
 
     /**
+     * デッドゾーン (追従しない箱) を設定する。target が camera 周りの ±half_extents 内に
+     * いる間はカメラを動かさず、箱を出たら target を箱の縁に保つよう追従する (プラットフォーマ向け)。
+     *
+     * @param half_extents カメラ中心からの箱の半サイズ (x/y)。
+     */
+    void SetDeadzone(FVec2 half_extents) noexcept { m_Deadzone = half_extents; m_HasDeadzone = true; }
+
+    /** デッドゾーンを解除する (中心追従に戻る)。 */
+    void ClearDeadzone() noexcept { m_HasDeadzone = false; }
+
+    /**
+     * デッドゾーンが有効かを返す。
+     *
+     * @return 有効なら true。
+     */
+    bool HasDeadzone() const noexcept { return m_HasDeadzone; }
+
+    /**
      * 画面ピクセル座標を world 座標へ変換する。
      *
      * @details 画面中心を view center、zoom > 1 で拡大、rotation を逆回転して合成する。
@@ -23300,12 +23804,24 @@ public:
         if (dt < 0.0f) dt = 0.0f;
         // 1) target follow (framerate-independent exponential smoothing)
         if (m_HasTarget) {
+            // デッドゾーン: target が箱の中なら現状維持、外なら target を箱の縁に保つ位置を狙う。
+            FVec2 eff = m_TargetPos;
+            if (m_HasDeadzone) {
+                const f32 dx = m_TargetPos.x - m_Position.x;
+                const f32 dy = m_TargetPos.y - m_Position.y;
+                const f32 ax = dx < 0.0f ? -dx : dx;
+                const f32 ay = dy < 0.0f ? -dy : dy;
+                eff.x = (ax > m_Deadzone.x) ? (m_TargetPos.x - (dx > 0.0f ? m_Deadzone.x : -m_Deadzone.x))
+                                            : m_Position.x;
+                eff.y = (ay > m_Deadzone.y) ? (m_TargetPos.y - (dy > 0.0f ? m_Deadzone.y : -m_Deadzone.y))
+                                            : m_Position.y;
+            }
             if (m_Smoothing <= 0.0f) {
-                m_Position = m_TargetPos;
+                m_Position = eff;
             } else {
                 const f32 t = 1.0f - Exp(-m_Smoothing * dt);
-                m_Position.x += (m_TargetPos.x - m_Position.x) * t;
-                m_Position.y += (m_TargetPos.y - m_Position.y) * t;
+                m_Position.x += (eff.x - m_Position.x) * t;
+                m_Position.y += (eff.y - m_Position.y) * t;
             }
         }
         // 2) bounds clamp
@@ -23366,6 +23882,12 @@ private:
 
     /** bounds clamp が有効かどうか。 */
     bool m_HasBounds       = false;
+
+    /** デッドゾーン箱の半サイズ (カメラ中心から)。 */
+    FVec2 m_Deadzone       {0.0f, 0.0f};
+
+    /** デッドゾーンが有効かどうか。 */
+    bool m_HasDeadzone     = false;
 };
 
 } // namespace acs::game
@@ -26073,10 +26595,323 @@ private:
 //     対応フックの後に呼ばれる。
 
 
+// ===================== gameframework/SubsystemCollection.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework — FSubsystemCollection (1 スコープぶんのサブシステム束)
+//
+// 1 つのスコープ(Engine / GameInstance / World)に属するサブシステム群を所有する。
+// Initialize() で登録簿から該当スコープのサブシステムを «全て» 生成し OnInitialize。
+// Get<T>() は自スコープに無ければ parent(上位スコープ)へフォールバック検索する
+// (World → GameInstance → Engine)。Deinitialize() は生成の逆順で OnDeinitialize。
+
+
+// ===================== gameframework/Subsystem.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework — FSubsystem (UE 風サブシステム基底)
+//
+// 「特定スコープ(寿命)に 1 つだけ存在し、そのスコープ内のオブジェクトから
+// 取得して使える管理オブジェクト」の基底。シングルトン/サービスの置き場であり、
+// ワールドに居るオブジェクト同士のやり取り(スコア・イベントバス・スポーン管理 等)
+// のハブになる。スコープは Engine / GameInstance / World の 3 種(将来拡張可)。
+//
+// 使い方(利用者):
+//   ACS_CLASS()
+//   class FScoreSubsystem : public acs::game::FSubsystem {
+//   public:
+//       ACS_GAME_SUBSYSTEM_KIND(FScoreSubsystem)
+//       void OnInitialize() noexcept override { m_Score = 0; }
+//       void Add(int n) noexcept { m_Score += n; }
+//       int  Score() const noexcept { return m_Score; }
+//   private:
+//       int m_Score = 0;
+//   };
+//   ACS_REGISTER_SUBSYSTEM(FScoreSubsystem, acs::game::ESubsystemScope::World)
+//
+//   // 取得 (Scene / FGame / FNode2D / FComponent2D の GetSubsystem<T>() から):
+//   GetSubsystem<FScoreSubsystem>()->Add(10);
+
+
+namespace acs::game {
+
+/**
+ * サブシステムの «スコープ»(生存期間)。下位スコープから上位スコープを参照できる
+ * (World → GameInstance → Engine の順にフォールバック検索される)。
+ */
+enum class ESubsystemScope : u8 {
+    /** アプリ全体(プロセス寿命)。最も長寿命の共有サービス。 */
+    Engine       = 0,
+    /** ゲームセッション(FGame 寿命)。シーンを跨いで保持したいシングルトン。 */
+    GameInstance = 1,
+    /** ロード中の World/Scene 寿命。シーン固有の管理オブジェクト。 */
+    World        = 2,
+};
+
+/**
+ * スコープ管理オブジェクトの基底。スコープ開始時に 1 つ生成され、終了時に破棄される。
+ *
+ * @details
+ * 種別 ID は RTTI 不使用の `SubsystemKindOf<T>()` 型タグ(コンポーネントと同方式)で識別する。
+ * 派生は `ACS_GAME_SUBSYSTEM_KIND(T)` を 1 行入れること。
+ */
+class FSubsystem {
+public:
+    /** 仮想デストラクタ(派生を base ポインタで破棄するため)。 */
+    virtual ~FSubsystem() noexcept = default;
+
+    /** スコープ開始時(生成直後)に 1 度呼ばれる初期化フック。 */
+    virtual void OnInitialize() noexcept {}
+
+    /** スコープ終了時(破棄直前)に 1 度呼ばれる後始末フック。 */
+    virtual void OnDeinitialize() noexcept {}
+
+    /**
+     * 毎フレーム呼ばれる更新フック(任意)。
+     *
+     * @param dt 経過秒(World サブシステムはシーンと同じスケール済み dt、
+     *           GameInstance/Engine は生 dt)。
+     */
+    virtual void OnTick(f32 /*dt*/) noexcept {}
+
+    /**
+     * この型固有の種別 ID を返す(派生は ACS_GAME_SUBSYSTEM_KIND で実装)。
+     *
+     * @return SubsystemKindOf<派生型>() の安定ポインタ。
+     */
+    virtual const void* Kind() const noexcept = 0;
+
+    /** 型名(デバッグ/ログ用)。 */
+    virtual const char* Name() const noexcept { return "FSubsystem"; }
+
+    /**
+     * 所有コンテキスト(UE の Outer 相当)を返す。World サブシステムは所属 Scene、
+     * GameInstance/Engine サブシステムは FGame が設定される(非所有・生ポインタ)。
+     *
+     * @return 所有コンテキスト(未設定なら nullptr)。OnInitialize 時点で有効。
+     */
+    void* Owner() const noexcept { return m_Owner; }
+
+    /**
+     * 所有コンテキストを型付きで取り出す(例: World サブシステムから OwnerAs<FScene2D>())。
+     *
+     * @tparam T キャスト先の型(呼び出し側が正しいスコープ型を保証する)。
+     * @return T*(未設定なら nullptr)。
+     */
+    template<typename T>
+    T* OwnerAs() const noexcept { return static_cast<T*>(m_Owner); }
+
+    /** 所有コンテキストを設定する(内部用。コレクションが OnInitialize 前に呼ぶ)。 */
+    void _SetOwner(void* owner) noexcept { m_Owner = owner; }
+
+private:
+    void* m_Owner = nullptr;   ///< 所有コンテキスト(Scene / FGame、非所有)。
+};
+
+/**
+ * 型 T 固有の安定したポインタ ID を返す(RTTI 不使用の種別タグ)。
+ *
+ * @tparam T 種別 ID を取りたい FSubsystem 派生型。
+ * @return T に固有の安定したポインタ。
+ */
+template<typename T>
+const void* SubsystemKindOf() noexcept {
+    static const int s_tag = 0;
+    return static_cast<const void*>(&s_tag);
+}
+
+} // namespace acs::game
+
+/** FSubsystem 派生に種別 ID と型名を実装するマクロ(クラス本体に 1 行)。 */
+#define ACS_GAME_SUBSYSTEM_KIND(T)                                                   \
+    const void* Kind() const noexcept override                                       \
+    { return ::acs::game::SubsystemKindOf<T>(); }                                     \
+    const char* Name() const noexcept override { return #T; }
+
+// ===================== gameframework/SubsystemRegistry.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework — FSubsystemRegistry (サブシステム型のファクトリ登録簿)
+//
+// ACS_REGISTER_SUBSYSTEM(T, scope) で「この型をこのスコープで自動生成する」ことを
+// 静的初期化時に登録する。スコープ開始時に FSubsystemCollection がこの登録簿を走査して
+// 該当スコープのサブシステムを «全て» 生成する(UE の自動インスタンス化と同じ思想)。
+//
+// ヘッダオンリー: 登録簿は inline 関数内 static で 1 インスタンス。マクロは無名名前空間に
+// 静的オブジェクトを置き、その ctor で登録する(TU ごとに 1 回)。
+
+
+namespace acs::game {
+
+/** サブシステム 1 体を生成するファクトリ関数(非捕捉ラムダ → 関数ポインタ)。 */
+using FSubsystemCreateFn = TUniquePtr<FSubsystem> (*)();
+
+/** 1 つのサブシステム型の登録情報(種別 ID・スコープ・名前・生成関数)。 */
+struct FSubsystemFactory {
+    const void*        kind   = nullptr;                    ///< SubsystemKindOf<T>()。
+    ESubsystemScope    scope  = ESubsystemScope::World;     ///< 生成スコープ。
+    const char*        name   = "";                         ///< 型名(デバッグ用)。
+    FSubsystemCreateFn create = nullptr;                    ///< 1 体生成する関数。
+};
+
+/**
+ * サブシステム型のファクトリ登録簿(グローバル単一)。ACS_REGISTER_SUBSYSTEM が登録する。
+ */
+class FSubsystemRegistry {
+public:
+    /** 単一インスタンスを返す(初回呼び出しで遅延構築 = 静的初期化順に非依存)。 */
+    static FSubsystemRegistry& Get() noexcept {
+        static FSubsystemRegistry s_instance;
+        return s_instance;
+    }
+
+    /** ファクトリを登録する(同じ kind が既にあれば無視 = 二重登録防止)。 */
+    void Register(const FSubsystemFactory& f) noexcept {
+        for (u32 i = 0; i < m_Factories.Size(); ++i) {
+            if (m_Factories[i].kind == f.kind) return;
+        }
+        m_Factories.PushBack(f);
+    }
+
+    /** 登録数。 */
+    u32 Count() const noexcept { return static_cast<u32>(m_Factories.Size()); }
+
+    /** i 番目の登録情報。 */
+    const FSubsystemFactory& At(u32 i) const noexcept { return m_Factories[i]; }
+
+private:
+    FSubsystemRegistry() noexcept = default;
+    TArray<FSubsystemFactory> m_Factories;
+};
+
+} // namespace acs::game
+
+/**
+ * サブシステム型 T を スコープ SCOPE で自動生成するよう登録する(静的初期化時)。
+ * 翻訳単位の末尾(クラス定義後)に 1 回書く。namespace acs::game を開くので、T は
+ * 外側ルックアップで acs::game 内型もグローバルなユーザー型も解決される。
+ */
+#define ACS_REGISTER_SUBSYSTEM(T, SCOPE)                                              \
+    namespace acs::game { namespace {                                                 \
+        struct AcsSubsysReg_##T {                                                     \
+            AcsSubsysReg_##T() noexcept {                                             \
+                ::acs::game::FSubsystemRegistry::Get().Register(                      \
+                    ::acs::game::FSubsystemFactory{                                   \
+                        ::acs::game::SubsystemKindOf<T>(), (SCOPE), #T,               \
+                        []() noexcept -> ::acs::TUniquePtr<::acs::game::FSubsystem> { \
+                            return ::acs::MakeUnique<T>();                            \
+                        } });                                                         \
+            }                                                                         \
+        } g_AcsSubsysReg_##T;                                                         \
+    } }
+
+namespace acs::game {
+
+/**
+ * 1 スコープぶんのサブシステムを所有・駆動するコレクション。
+ *
+ * @details
+ * FGame が Engine / GameInstance を、各 Scene が World を 1 つずつ持つ。parent を辿る
+ * フォールバック検索で、下位スコープから上位スコープのサブシステムも透過的に取得できる。
+ */
+class FSubsystemCollection {
+public:
+    /** 空(未初期化)で構築する。 */
+    FSubsystemCollection() noexcept = default;
+
+    /** 破棄時に Deinitialize する。 */
+    ~FSubsystemCollection() noexcept { Deinitialize(); }
+
+    FSubsystemCollection(const FSubsystemCollection&)            = delete;
+    FSubsystemCollection& operator=(const FSubsystemCollection&) = delete;
+
+    /**
+     * 指定スコープのサブシステムを登録簿から全て生成し、順に OnInitialize する。
+     *
+     * @param scope  このコレクションのスコープ。
+     * @param parent 上位スコープのコレクション(Get<T> のフォールバック先。null 可)。
+     * @param owner  所有コンテキスト(World=Scene, GameInstance/Engine=FGame。各 subsystem の Owner())。
+     */
+    void Initialize(ESubsystemScope scope, FSubsystemCollection* parent = nullptr, void* owner = nullptr) noexcept {
+        if (m_Initialized) return;
+        m_Scope  = scope;
+        m_Parent = parent;
+        FSubsystemRegistry& reg = FSubsystemRegistry::Get();
+        for (u32 i = 0; i < reg.Count(); ++i) {
+            const FSubsystemFactory& f = reg.At(i);
+            if (f.scope != scope || f.create == nullptr) continue;
+            TUniquePtr<FSubsystem> s = f.create();
+            if (!s) continue;
+            FSubsystem* raw = s.Get();
+            m_Subsystems.PushBack(Move(s));
+            raw->_SetOwner(owner);           // OnInitialize で Owner() が使えるよう先に配線
+            raw->OnInitialize();             // 生成順に初期化(リスト末尾に積んでから fire)
+        }
+        m_Initialized = true;
+    }
+
+    /** 生成の逆順で OnDeinitialize して破棄する(依存の逆解体)。冪等。 */
+    void Deinitialize() noexcept {
+        if (!m_Initialized) return;
+        for (u32 i = m_Subsystems.Size(); i > 0; --i) {
+            if (m_Subsystems[i - 1]) m_Subsystems[i - 1]->OnDeinitialize();
+        }
+        m_Subsystems.Clear();
+        m_Initialized = false;
+        m_Parent = nullptr;
+    }
+
+    /** 所有する全サブシステムを 1 フレーム進める。 */
+    void Tick(f32 dt) noexcept {
+        for (u32 i = 0; i < m_Subsystems.Size(); ++i) {
+            if (m_Subsystems[i]) m_Subsystems[i]->OnTick(dt);
+        }
+    }
+
+    /**
+     * 種別 ID でサブシステムを引く。自スコープに無ければ parent を辿る。
+     *
+     * @param kind SubsystemKindOf<T>()。
+     * @return 見つかったサブシステム(無ければ nullptr)。
+     */
+    FSubsystem* GetByKind(const void* kind) const noexcept {
+        for (u32 i = 0; i < m_Subsystems.Size(); ++i) {
+            if (m_Subsystems[i] && m_Subsystems[i]->Kind() == kind) return m_Subsystems[i].Get();
+        }
+        return (m_Parent != nullptr) ? m_Parent->GetByKind(kind) : nullptr;
+    }
+
+    /**
+     * 型でサブシステムを引く(自 → 上位スコープへフォールバック)。
+     *
+     * @tparam T FSubsystem 派生型。
+     * @return T*(未登録/未初期化なら nullptr)。
+     */
+    template<typename T>
+    T* Get() const noexcept {
+        return static_cast<T*>(GetByKind(SubsystemKindOf<T>()));
+    }
+
+    /** このスコープで生成済みのサブシステム数(parent は含まない)。 */
+    u32 Count() const noexcept { return static_cast<u32>(m_Subsystems.Size()); }
+
+    /** このコレクションのスコープ。 */
+    ESubsystemScope Scope() const noexcept { return m_Scope; }
+
+    /** 初期化済みか。 */
+    bool IsInitialized() const noexcept { return m_Initialized; }
+
+private:
+    TArray<TUniquePtr<FSubsystem>> m_Subsystems;                  ///< 所有するサブシステム群。
+    FSubsystemCollection*          m_Parent      = nullptr;       ///< 上位スコープ(フォールバック先)。
+    ESubsystemScope                m_Scope       = ESubsystemScope::World;
+    bool                           m_Initialized = false;
+};
+
+} // namespace acs::game
+
 namespace acs::game {
 
 class FNode2D;
 class RenderContext;
+class FSceneServices;
 
 /**
  * 型 T ごとに一意なコンポーネント種別 ID を返す (RTTI 不使用)。
@@ -26092,6 +26927,19 @@ const void* ComponentKindOf() noexcept {
     static const int s_tag = 0;
     return static_cast<const void*>(&s_tag);
 }
+
+/**
+ * 2D ライトの記述子 (FComponent2D::QueryLight が埋める。位置は呼び出し側が owner world から)。
+ */
+struct FLightDesc2D {
+    i32   type      = 0;            ///< 0=Point, 1=Spot, 2=Directional。
+    f32   radius    = 256.0f;       ///< 届く半径 (px、Point/Spot)。
+    FVec3 color{ 1, 1, 1 };         ///< 光の色。
+    f32   intensity = 1.5f;         ///< 明るさ。
+    FVec2 dir{ 0, 1 };              ///< スポット軸 / 平行光方向 (正規化)。
+    f32   coneInner = 0.92f;        ///< スポット内円錐 (cos)。
+    f32   coneOuter = 0.70f;        ///< スポット外円錐 (cos)。
+};
 
 /**
  * FNode2D に attach する「振る舞いパーツ」の基底。
@@ -26128,6 +26976,18 @@ public:
      * @return ComponentKindOf<派生型>() の安定ポインタ ID。
      */
     virtual const void* Kind() const noexcept = 0;
+
+    /**
+     * リフレクション登録名 (= クラス名) を返す。インスタンス→FTypeRegistry の橋渡し。
+     *
+     * @details
+     * Kind() は per-process の void* タグで実行をまたいで安定せず、FTypeId (名前ハッシュ)
+     * とも別物。シリアライズ / Play モード実体化は「生きたコンポーネント → 反射型」を
+     * 名前で解決する必要があるため、ACS_GAME_COMPONENT_KIND が #T を返す ReflectName を
+     * 自動実装する。未対応 (この基底のまま) は nullptr。
+     * @return クラス名文字列 (反射カタログの登録名と一致)。未対応は nullptr。
+     */
+    virtual const char* ReflectName() const noexcept { return nullptr; }
 
     /**
      * 依存コンポーネント宣言フック (Unity の [RequireComponent] 相当)。
@@ -26186,11 +27046,101 @@ public:
     virtual void OnDrawPostChildren(RenderContext& /*rc*/) noexcept {}
 
     /**
+     * シーンサービスが配線され Play 開始されたとき 1 回呼ばれる opt-in フック。
+     *
+     * @details
+     * OnAttach の後・services が存在するときだけ発火する (通常 FScene2D Play でも editor の
+     * インプロセス Play でも同一)。ここで `services.Input()/Physics()/Camera()` の参照を
+     * キャッシュしておけば、OnUpdate は分岐なしで使える。既定 no-op。1 コンポーネントにつき
+     * 高々 1 回 (二重発火しない)。
+     * @param services 配線済みの FSceneServices。
+     */
+    virtual void OnAttachServices(FSceneServices& /*services*/) noexcept {}
+
+    /**
      * detach (owner 破棄) 直前に 1 回呼ばれる後始末フック。
      *
      * @details 既定 no-op。
      */
     virtual void OnDetach()                  noexcept {}
+
+    // 注: 以下の 2 つは «末尾に追加» すること。途中に挿入すると後続 virtual の vtable
+    // スロットがずれ、古いヘッダでビルドされた game DLL と ABI 不整合になる (append-only)。
+
+    /**
+     * 2D 点光源コンポーネントなら、その半径/色/強度を返す (FLight2DComponent が override)。
+     *
+     * @details シーンが lit スプライトのためにライトを収集するのに使う。位置は owner ノードの world。
+     * @param out ライト記述子の出力 (type/radius/color/intensity/dir/cone)。
+     * @return ライトコンポーネントなら true。
+     */
+    virtual bool QueryLight(FLightDesc2D& /*out*/) const noexcept { return false; }
+
+    /**
+     * 影を落とすコンポーネントなら占有半径スケールを返す (FShadowCaster2DComponent が override)。
+     *
+     * @param radius_scale ノード半径に対する占有半径スケールの出力。
+     * @param shape 影の形状の出力 (0=円, 1=箱)。
+     * @param self_shadow 自分自身にも影を落とすか (false=自己影スキップ、既定)。
+     * @return 影キャスターなら true。
+     */
+    virtual bool QueryShadowCaster(f32& /*radius_scale*/, i32& /*shape*/,
+                                   bool& /*self_shadow*/) const noexcept { return false; }
+
+    /**
+     * プリミティブ形状コンポーネントなら shape(0=Box,1=Circle,2=Triangle) とローカル半サイズを返す。
+     *
+     * @details 影オクルーダーを «見た目の形» に合わせるため、影収集が同じノードのこれを問い合わせる。
+     *   末尾に追加 (append-only。途中挿入禁止)。
+     * @return プリミティブレンダラなら true。
+     */
+    virtual bool QueryPrimitive(i32& /*shape*/, FVec2& /*half_size*/) const noexcept { return false; }
+
+    /**
+     * owner ツリーに配線された FSceneServices を返す (未配線なら nullptr)。
+     *
+     * @return 配線済み services ポインタ (owner 未設定/未配線は nullptr)。
+     */
+    FSceneServices* SceneServices() const noexcept;
+
+    /**
+     * services が配線済みかを返す。
+     *
+     * @return SceneServices() が非 null なら true。
+     */
+    bool HasSceneServices() const noexcept;
+
+    /**
+     * owner ツリーに配線された World サブシステム束を返す (未配線なら nullptr)。
+     *
+     * @return World スコープのコレクション (GameInstance → Engine へフォールバック)。
+     */
+    FSubsystemCollection* Subsystems() const noexcept;
+
+    /**
+     * 型でサブシステムを取得する (World → GameInstance → Engine の順に検索)。
+     *
+     * @details オブジェクト同士のやり取り(スコア加算・イベント送出 等)はこれ経由で行う。
+     * @tparam T FSubsystem 派生型。
+     * @return T*(未配線/未登録なら nullptr)。
+     */
+    template<typename T>
+    T* GetSubsystem() const noexcept {
+        FSubsystemCollection* s = Subsystems();
+        return (s != nullptr) ? s->Get<T>() : nullptr;
+    }
+
+    /**
+     * services が利用可能なら OnAttachServices を一度だけ発火する (内部用、ガード付き)。
+     *
+     * @param svc 配線された services (nullptr なら何もしない)。
+     */
+    void _MaybeAttachServices(FSceneServices* svc) noexcept {
+        if (svc != nullptr && !m_ServicesAttached) {
+            m_ServicesAttached = true;
+            OnAttachServices(*svc);
+        }
+    }
 
     /**
      * owner ノードへの可変参照を返す。
@@ -26223,12 +27173,203 @@ public:
 private:
     /** owner ノード (attach 前は nullptr)。 */
     FNode2D* m_Owner = nullptr;
+
+    /** OnAttachServices 発火済みフラグ (二重発火防止)。 */
+    bool     m_ServicesAttached = false;
 };
 
-/** 派生クラスで Kind() を 1 行で override するためのマクロ。 */
+/** 派生クラスで Kind() + ReflectName() を 1 行で override するためのマクロ。 */
 #define ACS_GAME_COMPONENT_KIND(T)                                                  \
     const void* Kind() const noexcept override                                       \
-    { return ::acs::game::ComponentKindOf<T>(); }
+    { return ::acs::game::ComponentKindOf<T>(); }                                     \
+    const char* ReflectName() const noexcept override { return #T; }
+
+} // namespace acs::game
+
+// ===================== gameframework/Component3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar B — FComponent3D
+//
+// FNode3D に attach する「振る舞いパーツ」の基底 (FComponent2D の 3D 版)。
+// メッシュ描画 / カスタムロジック / カメラ などを継承ではなく合成で組む。
+//
+// 設計選択 (FComponent2D と同一):
+//   ・RTTI 不使用の型 ID: `ComponentKindOf<T>()` (template static のアドレス)。
+//   ・Owner& アクセス: OnAttach(FNode3D&) で owner を保存、以降 Owner() で取得。
+//   ・同じ型を 1 ノードに複数 attach 可能。GetComponent<T>() は最初の一致を返す。
+//   ・lifecycle: AddComponent 即時 OnAttach、Node 破棄時に OnDetach。
+//
+// 注: この基底はピュアロジック (GPU/描画コンテキストに依存しない)。3D 描画は将来
+//     導入する 3D レンダーコンテキストで OnDraw を «末尾に追加» する (vtable 安定性)。
+
+
+namespace acs::game {
+
+class FNode3D;
+
+/**
+ * 型 T ごとに一意なコンポーネント種別 ID を返す (RTTI 不使用、FComponent3D 用)。
+ *
+ * @details
+ * `template static int` のアドレスを ID に使う。T ごとに別 instantiation = 別アドレス
+ * となるため、static_cast の安全性チェックに使える。FComponent2D 側の同名関数とは
+ * 別 namespace スコープではなくシグネチャ (戻り値) で区別する必要はない (型引数で別物)。
+ * @tparam T 種別 ID を取りたい FComponent3D 派生型。
+ * @return T に固有の安定したポインタ ID。
+ */
+template<typename T>
+const void* Component3DKindOf() noexcept {
+    static const int s_tag = 0;
+    return static_cast<const void*>(&s_tag);
+}
+
+/**
+ * FNode3D に attach する「振る舞いパーツ」の基底 (FComponent2D の 3D 版)。
+ *
+ * @details
+ * メッシュ描画 / カスタムロジック / カメラ等を継承ではなく合成で組み上げる。owner ノードを
+ * `Owner()` で参照し、必要な lifecycle フックだけ override する。同じ型を 1 ノードに複数
+ * attach 可能で、種別 ID は Component3DKindOf<T>() による RTTI 不使用の型タグで識別する。
+ */
+class FComponent3D {
+public:
+    /** 空のコンポーネントを構築する (owner は attach 時に設定)。 */
+    FComponent3D() noexcept = default;
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
+    virtual ~FComponent3D() noexcept = default;
+
+    /** コピー禁止 (コンポーネントは TUniquePtr で単独所有するため)。 */
+    FComponent3D(const FComponent3D&)            = delete;
+
+    /** コピー代入も禁止。 */
+    FComponent3D& operator=(const FComponent3D&) = delete;
+
+    /** ムーブ禁止 (owner が保持するポインタの安定性を保つため)。 */
+    FComponent3D(FComponent3D&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
+    FComponent3D& operator=(FComponent3D&&)      = delete;
+
+    /**
+     * このコンポーネントの種別 ID を返す (派生は ACS_GAME_COMPONENT3D_KIND で実装)。
+     *
+     * @return Component3DKindOf<派生型>() の安定ポインタ ID。
+     */
+    virtual const void* Kind() const noexcept = 0;
+
+    /**
+     * リフレクション登録名 (= クラス名) を返す。未対応は nullptr。
+     *
+     * @return クラス名文字列 (反射カタログの登録名と一致)。未対応は nullptr。
+     */
+    virtual const char* ReflectName() const noexcept { return nullptr; }
+
+    /**
+     * 依存コンポーネント宣言フック (Unity の [RequireComponent] 相当)。
+     *
+     * @details AddComponent が OnAttach の前に 1 度だけ呼ぶ。既定 no-op。
+     * @param owner このコンポーネントが attach される先のノード。
+     */
+    virtual void OnRequire(FNode3D& /*owner*/) noexcept {}
+
+    /**
+     * attach 直後に 1 回呼ばれる初期化フック。
+     *
+     * @details 既定 no-op。
+     * @param owner このコンポーネントの owner ノード。
+     */
+    virtual void OnAttach(FNode3D& /*owner*/) noexcept {}
+
+    /**
+     * 毎フレーム呼ばれる可変刻み update フック。
+     *
+     * @details Node の OnUpdate の後に呼ばれる。既定 no-op。
+     * @param dt 前フレームからの経過秒。
+     */
+    virtual void OnUpdate(f32 /*dt*/) noexcept {}
+
+    /**
+     * 固定刻み update フック (物理・決定論ロジック)。
+     *
+     * @details 既定 no-op。
+     * @param fixed_dt 固定刻みの秒。
+     */
+    virtual void OnFixedUpdate(f32 /*fixed_dt*/) noexcept {}
+
+    /**
+     * detach (owner 破棄) 直前に 1 回呼ばれる後始末フック。
+     *
+     * @details 既定 no-op。
+     */
+    virtual void OnDetach() noexcept {}
+
+    /**
+     * owner ノードへの可変参照を返す。
+     *
+     * @return owner ノードへの参照。
+     */
+    FNode3D& Owner() noexcept { return *m_Owner; }
+
+    /**
+     * owner ノードへの const 参照を返す。
+     *
+     * @return owner ノードへの const 参照。
+     */
+    const FNode3D& Owner() const noexcept { return *m_Owner; }
+
+    /**
+     * owner が設定済みかを返す。
+     *
+     * @return owner が非 null なら true。
+     */
+    bool HasOwner() const noexcept { return m_Owner != nullptr; }
+
+    /**
+     * owner ポインタを設定する (内部用。FNode3D::AddComponent が呼ぶ)。
+     *
+     * @param o 設定する owner ノード。
+     */
+    void _SetOwner(FNode3D* o) noexcept { m_Owner = o; }
+
+private:
+    /** owner ノード (attach 前は nullptr)。 */
+    FNode3D* m_Owner = nullptr;
+};
+
+/** 派生クラスで Kind() + ReflectName() を 1 行で override するためのマクロ。 */
+#define ACS_GAME_COMPONENT3D_KIND(T)                                                 \
+    const void* Kind() const noexcept override                                       \
+    { return ::acs::game::Component3DKindOf<T>(); }                                   \
+    const char* ReflectName() const noexcept override { return #T; }
+
+} // namespace acs::game
+
+// ===================== gameframework/ComponentFactory.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// GameFramework — リフレクション名による Component 実体化 (ComponentFactory)
+// -----------------------------------------------------------------------------
+// 「反射名 → 生きた FComponent2D」を埋める enabling layer の要。reflection factory
+// (FTypeRegistry::Create) はエンジンアロケータ確保になったので、その生成物を
+// FNode2D が所有できる TUniquePtr<FComponent2D> に安全に包んで返す。これにより
+// データ駆動のシーン復元 / Play モードが「型を知らずに」コンポーネントを取り付けられる。
+//
+// 前提: コンポーネントは FComponent2D を単一継承する (基底が offset 0 → void*==FComponent2D*)。
+// =============================================================================
+
+
+namespace acs::game {
+
+class FComponent2D;
+
+/**
+ * 反射名で Component を生成し TUniquePtr<FComponent2D> で返す (FNode2D::AttachComponent 用)。
+ *
+ * @param name 反射カタログの登録名 (= クラス名、FComponent2D::ReflectName と一致)。
+ * @return 生成したコンポーネント。未登録 / 非 Component / default 構築不可 (Abstract) は空。
+ */
+TUniquePtr<FComponent2D> CreateComponentByName(const char* name) noexcept;
 
 } // namespace acs::game
 
@@ -27598,6 +28739,16 @@ public:
      * @param color 線分の RGBA 色。
      */
     void DrawCross(FVec2 pos, f32 size, FVec4 color) noexcept;
+
+    /**
+     * a→b の矢印 (軸 1 本 + 矢じり 2 本 = 計 3 線) を蓄積する。速度/法線ベクトルの可視化に使う。
+     *
+     * @param a 矢印の始点。
+     * @param b 矢印の終点 (矢じりが付く)。
+     * @param color 線分の RGBA 色。
+     * @param head_len 矢じりの長さ (0 で軸長の 20%)。
+     */
+    void DrawArrow(FVec2 a, FVec2 b, FVec4 color, f32 head_len = 0.0f) noexcept;
 
     /** 蓄積した線分をクリアする (容量は保持)。フレーム頭か描画消費後に呼ぶ。 */
     void Clear() noexcept { m_Lines.Clear(); }
@@ -32106,6 +33257,995 @@ private:
  */
 #define ACS_GAME_MAIN(GameClass) ACS_DEFINE_MAIN(GameClass)
 
+// ===================== gameframework/EventBus.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework — FEventBus (ワールド内オブジェクト間の疎結合な通信)
+//
+// 「名前付きイベントの pub/sub」を提供する World サブシステム。発火側と購読側が
+// «互いを知らずに» やり取りできる(プレイヤー死亡・スコア加算・ドア開放 等)。
+// 直接参照(ObjectRef)が «1対1の固い結線» なのに対し、こちらは «1対多の緩い通知»。
+//
+// ACS 規約: std::function / std::string 不使用。イベントはコンパイル時ハッシュ ID、
+// ハンドラは «関数ポインタ + listener コンテキスト»(captureless ラムダ or 静的関数)。
+//
+// 使い方:
+//   // 購読 (例: コンポーネントの OnAttach で)
+//   auto* bus = GetSubsystem<acs::game::FEventBus>();
+//   m_Sub = bus->Subscribe(acs::game::FEventBus::Id("PlayerDied"),
+//       [](void* self, const void* payload) noexcept {
+//           static_cast<MyComp*>(self)->OnPlayerDied();
+//       }, this);
+//   // 発火 (どこからでも)
+//   bus->Publish(acs::game::FEventBus::Id("PlayerDied"));
+//   // 解除 (OnDetach 等で)
+//   bus->Unsubscribe(m_Sub);
+
+
+// ===================== gameframework/Reflect.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// GameFramework — 統一リフレクション / 型レジストリ (Reflect)
+// -----------------------------------------------------------------------------
+// 「エンジンの型 (Object / Component / Node / Scene / Asset / System / Enum /
+// Interface / Event / Command …) をマーク + 反射 (名前・サイズ・フィールド・列挙値・
+// ファクトリ・カテゴリ・能力) して、エンジン全体から 1 つのレジストリで列挙・
+// 名前/ID 検索・生成できる」土台。
+//
+// 設計の要点 (ACS の型は Object/Component に留まらない — 実コードから網羅):
+//   ・**カテゴリ** ETypeCategory … 何の種類か。Struct/Enum/Object/Component/Node/
+//     Scene/Asset/System/Prefab/Interface/Event/Command/Resource/Service/Custom。
+//     新種は Custom + category_name で拡張できる (将来の種類に耐える)。
+//   ・**能力トレイト** ETypeTraits … 何ができるか (直交)。Serializable/Networked/
+//     EditorVisible/Scriptable/Abstract/Instantiable のビット OR。
+//   ・**Enum 反射** … 列挙体は value↔name を持つ (editor コンボ/シリアライズ/スクリプト)。
+//   ・既存の TypeInfo.h (TU ローカル・コンパイル時のみ) を補完し、グローバル自動登録の
+//     FTypeRegistry を提供。フィールド種別は InspectorSeam.h の EFieldKind を共通利用。
+//
+// 使い方:
+//   struct FHealth { acs::f32 hp; acs::f32 max_hp; bool alive; };
+//   ACS_COMPONENT(FHealth,
+//       ACS_RFIELD(FHealth, hp,     acs::game::EFieldKind::F32),
+//       ACS_RFIELD(FHealth, max_hp, acs::game::EFieldKind::F32),
+//       ACS_RFIELD(FHealth, alive,  acs::game::EFieldKind::Bool))
+//
+//   enum class EWeapon : acs::u8 { Sword, Bow, Staff };
+//   ACS_REFLECT_ENUM(EWeapon,
+//       ACS_EVAL(EWeapon, Sword), ACS_EVAL(EWeapon, Bow), ACS_EVAL(EWeapon, Staff))
+//
+//   auto& reg = acs::game::FTypeRegistry::Get();
+//   const auto* d = reg.FindByName("FHealth");      // 名前で型
+//   void* obj     = reg.Create("FHealth");          // factory 生成
+//   reg.Destroy(d->id, obj);
+//
+// 規約: no-STL / no-exceptions / 固定長 / 全 noexcept。型 ID は型名の FNV-1a (u32)。
+// マクロは C++20 inline 変数で生成し、生成シンボルは __LINE__ ではなく「型名」でキー付け
+// する → 別ヘッダで同名・同種別の型を反射しても全 TU 単一実体 = 1 度だけ登録 (同名衝突や
+// ODR 違反が起きない。同じ型を 2 ヘッダで反射した場合も token 一致で inline マージされる)。
+// =============================================================================
+
+
+// ===================== gameframework/InspectorSeam.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar K — FInspectorSeam
+//
+// reflection-driven debug inspector の「シーム (seam)」インターフェース。
+// ゲーム内の任意のオブジェクト (Player / Enemy / FCamera / FSettings 等) が
+// 自身のフィールドを `IInspectableProvider` 経由で公開し、上位レイヤ
+// (ImGui / ACS::Ui / 外部 DevTool) がそれを描画 / 編集する形を取る。
+//
+// 使い方:
+//   class Player : public acs::game::IInspectableProvider {
+//       f32  m_Speed = 5.0f;
+//       i32  m_Hp    = 100;
+//       bool m_bInvincible = false;
+//
+//       u32 ObjectCount() noexcept override { return 1; }
+//       InspectableObject GetObject(u32) noexcept override {
+//           static InspectableField fields[] = {
+//               { "speed",      EFieldKind::F32,  &m_Speed,      0, nullptr },
+//               { "hp",         EFieldKind::I32,  &m_Hp,         0, nullptr },
+//               { "invincible", EFieldKind::Bool, &m_bInvincible, 0, nullptr },
+//           };
+//           return { "Player", "P1", fields, 3 };
+//       }
+//       void OnFieldChanged(u32, u32) noexcept override { /* re-validate */ }
+//   };
+//
+//   // 起動時:
+//   FInspectorSeam inspector;
+//   inspector.Init();
+//   inspector.RegisterProvider(&player);
+//
+//   // UI レイヤ:
+//   for (u32 p = 0; p < inspector.ProviderCount(); ++p) {
+//       auto* prov = inspector.GetProvider(p);
+//       for (u32 o = 0; o < prov->ObjectCount(); ++o) {
+//           auto obj = prov->GetObject(o);
+//           // ImGui::Text("[%s] %s", obj.type_name, obj.instance_name);
+//           // for (u32 f = 0; f < obj.field_count; ++f) ...
+//       }
+//   }
+//
+// 設計選択:
+//   ・**シーム化 (= I/F + 集中点) で UI と切り離す**: `FInspectorSeam` 本体は
+//     Provider レジストリだけを持ち、ImGui / Ui 描画は別レイヤから
+//     呼ぶ。Ship build では Provider 登録自体を #ifdef で消す前提。
+//   ・**Provider は non-owning**: ゲーム側の生存期間に従う。RegisterProvider 後に
+//     Provider を destruct する場合は呼び出し側で必ず Unregister すること。
+//     `FInspectorSeam::ClearAll()` でも Provider は破棄しない。
+//   ・**field は POD 4-tuple**: name + kind + data ポインタ + (enum 専用) ラベル配列。
+//     描画側は kind で switch し、data を該当型にキャストして表示 / 編集する。
+//   ・**fields 配列は Provider 所有**: `GetObject()` の戻り値が指す `fields` は
+//     Provider が永続所有する (static 配列 / メンバ配列 を想定)。FInspectorSeam は
+//     コピーしない。
+//   ・**OnFieldChanged は通知のみ**: UI 側で値を書き換えた後に呼ばれる。Provider は
+//     再バリデーション (clamp / 派生値の再計算 / dirty flag) をここで行う。
+//   ・**non-copy / non-move**: 内部の TArray<Provider*> 所有を曖昧にしない。
+//   ・**全 noexcept**: ACS 規約。エラーは現状なし (登録 / 取得のみ)。
+//   ・**STL 不使用**: `acs::TArray<IInspectableProvider*>` で保持。
+
+
+// ===================== gameframework/NodeId.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar B — FNodeId (シーングラフ用 generational handle)
+//
+// シーングラフ内の FNode2D / Node を一意に識別する 32bit パック handle。
+// 1 個の `u32` に **24bit index + 8bit generation** を pack する設計で、
+// `FShapeId` (FCollisionWorld2D.h) と完全に同じパターンを採用している。
+//
+// 使い方:
+//   FNodeId id = scene.CreateNode();          // 何らかのファクトリ経由で取得
+//   if (id.IsValid()) {
+//       u32 slot = id.Index();               // SoA / プール配列の index
+//       u8  gen  = id.Generation();          // 世代カウンタで stale handle 検出
+//   }
+//   if (a == b) { ... }                       // 比較も constexpr noexcept
+//
+// 設計選択 (なぜこの形か):
+//   ・**RTTI / dynamic_cast 不使用**: ACS は STL / 例外 / RTTI 禁止。型情報は
+//     呼び出し側 (Scene 等) が別 array で持つ責務。FNodeId は純粋に「どの slot
+//     のどの世代か」だけを表現する POD handle。
+//   ・**24bit index = 約 16M slot で十分**: 2D ゲームのシーングラフで同時存在
+//     する Node 数は実用上 10K 〜 100K オーダー。16M (= 16,777,216) なら数桁
+//     余裕があり、将来 ECS-lite に拡張しても枯渇しない。
+//   ・**8bit generation = 256 世代**: slot を recycle してもラップアラウンドで
+//     stale handle と区別できる確率が 1/256 と十分高い。**generation == 0 は
+//     "初期状態 / 未使用 slot"** を意味し、`packed == 0` がそのまま invalid を
+//     表すよう設計されている (`FNodeId()` のデフォルトと一致)。
+//   ・**ヘッダオンリ + 全関数 constexpr noexcept**: コンパイル時計算 / 例外
+//     伝播ゼロ。`.cpp` 不要なので Module.cmake 改変ゼロでドロップイン可能。
+//   ・**operator==/!= のみ**: ハンドルの順序付け (< 等) は仕様として持たない。
+//     必要なら呼び出し側が `Index()` を取り出して比較すべき。
+//   ・**STL / `<cstdint>` 不使用**: `foundation/Types.h` の `u32 / u8` のみ。
+//     ACS 全体の規約に準拠。
+//
+// 注意:
+//   ・index が 24bit を超える値で構築された場合、上位 bit は黙って捨てられる
+//     (`& 0x00FFFFFFu`)。これは FShapeId と完全に同じ挙動。生成側 (FNodePool 等)
+//     で assert / TResult<E> を入れて 16M 越えを検出する責務。
+
+
+namespace acs::game {
+
+/**
+ * シーングラフ Node を識別する packed 32bit handle (generational)。
+ *
+ * @details
+ * 1 個の u32 に low24=index + high8=generation を pack する POD handle。
+ * packed == 0 をそのまま invalid とし、FNodeId() の既定構築と一致させる。
+ * 全関数 constexpr noexcept のヘッダオンリ型。
+ */
+struct FNodeId {
+    /** pack 済みの 32bit 値 (0 = invalid、layout: low24=index, high8=generation)。 */
+    u32 m_Packed = 0;
+
+    /** 既定構築 = invalid handle (packed == 0)。 */
+    constexpr FNodeId() noexcept = default;
+
+    /**
+     * index (24bit) と generation (8bit) を pack して構築する。
+     *
+     * @details index は & 0x00FFFFFFu でマスクされるため、24bit 超の値は上位が落ちる。
+     * @param index pool / SoA 配列の index (0 〜 16,777,215)。
+     * @param gen slot の世代カウンタ (0 〜 255)。
+     */
+    constexpr FNodeId(u32 index, u8 gen) noexcept
+        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
+
+    /**
+     * pool / SoA 配列の index を取り出す。
+     *
+     * @return packed の low24 bit (0 〜 16,777,215)。
+     */
+    constexpr u32  Index() const noexcept { return m_Packed & 0x00FFFFFFu; }
+
+    /**
+     * slot の世代カウンタを取り出す (stale handle 検出用)。
+     *
+     * @return packed の high8 bit (0 〜 255)。
+     */
+    constexpr u8   Generation() const noexcept {
+        return static_cast<u8>(m_Packed >> 24);
+    }
+
+    /**
+     * invalid (= packed == 0) でなければ true を返す。
+     *
+     * @details 「pool に該当 slot が生きているか」は呼び出し側で別途検証すること。
+     * @return packed != 0 なら true。
+     */
+    constexpr bool IsValid() const noexcept { return m_Packed != 0; }
+
+    /**
+     * 完全一致比較 (index + generation の両方が一致した時のみ true)。
+     *
+     * @param o 比較相手のハンドル。
+     * @return packed が一致すれば true。
+     */
+    constexpr bool operator==(FNodeId o) const noexcept { return m_Packed == o.m_Packed; }
+
+    /**
+     * 不一致比較 (index または generation が違えば true)。
+     *
+     * @param o 比較相手のハンドル。
+     * @return packed が不一致なら true。
+     */
+    constexpr bool operator!=(FNodeId o) const noexcept { return m_Packed != o.m_Packed; }
+};
+
+} // namespace acs::game
+
+namespace acs::game {
+
+/**
+ * フィールド種別 (描画 / 編集レイヤが扱うデータの型タグ)。
+ *
+ * @details
+ * 描画 / 編集レイヤが switch して扱う。現状は最小セット: スカラ + FVec2-4 +
+ * 文字列 (read-only) + Enum (整数 + ラベル配列)。
+ */
+enum class EFieldKind : u8 {
+    /** bool* を指す。 */
+    Bool,
+
+    /** i32* を指す。 */
+    I32,
+
+    /** u32* を指す。 */
+    U32,
+
+    /** f32* を指す。 */
+    F32,
+
+    /** acs::FVec2* を指す (描画側は data を FVec2* にキャスト)。 */
+    FVec2,
+
+    /** acs::FVec3* を指す。 */
+    FVec3,
+
+    /** acs::FVec4* を指す。 */
+    FVec4,
+
+    /** const char** を指す (read-only 想定)。 */
+    FString,
+
+    /** i32* + enum_values[0..enum_value_count) のラベルを持つ。 */
+    Enum,
+
+    /** i32* (= 参照先オブジェクトの安定 ID、-1 で «なし»)。エディタはノードピッカーで編集する。 */
+    ObjectRef,
+};
+
+/**
+ * Provider が公開する 1 フィールド。
+ *
+ * @details
+ * Provider が `InspectableObject` 経由で配列を返す 1 件。配列の寿命は
+ * Provider が保持する (static / メンバ)。FInspectorSeam はコピーしない。
+ */
+struct InspectableField {
+    /** フィールド表示名 (caller 所有、リテラル想定)。 */
+    const char*  name             = nullptr;
+
+    /** このフィールドのデータ型タグ。 */
+    EFieldKind    kind             = EFieldKind::Bool;
+
+    /** 該当型へのポインタ。kind に応じてキャストする。 */
+    void*        data             = nullptr;
+
+    /** kind == Enum のときの有効ラベル数。 */
+    u32          enum_value_count = 0;
+
+    /** kind == Enum のときの値 → ラベル配列。 */
+    const char** enum_values      = nullptr;
+};
+
+/**
+ * Provider が公開する 1 オブジェクト (例: 1 体の Player、1 つの FCamera)。
+ *
+ * @details `fields` 配列の寿命は Provider 所有。
+ */
+struct InspectableObject {
+    /** クラス名相当 ("Player" 等)。 */
+    const char*       type_name     = nullptr;
+
+    /** インスタンス名 ("P1" / "Boss" 等)。 */
+    const char*       instance_name = nullptr;
+
+    /** 公開フィールド配列 (Provider 所有)。 */
+    InspectableField* fields        = nullptr;
+
+    /** fields の要素数。 */
+    u32               field_count   = 0;
+};
+
+/**
+ * Inspectable な対象を提供する抽象インターフェース。
+ *
+ * @details
+ * ゲーム側オブジェクトが自身 (または管理下のリスト) を Inspector に公開する。
+ * 1 Provider = 1 オブジェクトでも、1 Provider = N オブジェクト (Manager 型) でも OK。
+ */
+class IInspectableProvider {
+public:
+    /** 既定構築。 */
+    IInspectableProvider() noexcept = default;
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
+    virtual ~IInspectableProvider() noexcept = default;
+
+    /** コピー禁止。 */
+    IInspectableProvider(const IInspectableProvider&)            = delete;
+
+    /** コピー代入も禁止。 */
+    IInspectableProvider& operator=(const IInspectableProvider&) = delete;
+
+    /** ムーブ禁止。 */
+    IInspectableProvider(IInspectableProvider&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
+    IInspectableProvider& operator=(IInspectableProvider&&)      = delete;
+
+    /**
+     * この Provider が公開するオブジェクト数を返す。
+     *
+     * @return 公開オブジェクト数 (0 なら何も描画されない)。
+     */
+    virtual u32 ObjectCount() noexcept = 0;
+
+    /**
+     * index 番目のオブジェクトを返す。
+     *
+     * @details
+     * index >= ObjectCount() は呼び出し側で弾く前提 (UB を許容)。fields 配列の
+     * 所有権は Provider 側に残る。
+     * @param index 取得するオブジェクトの添字。
+     * @return index 番目の公開オブジェクト。
+     */
+    virtual InspectableObject GetObject(u32 index) noexcept = 0;
+
+    /**
+     * UI 側が field の値を書き換えた直後に呼ばれる通知フック。
+     *
+     * @details Provider は clamp / 派生値再計算 / dirty flag のセット等をここで行う。
+     * @param obj_index GetObject() の添字に対応するオブジェクト番号。
+     * @param field_index fields 配列の添字に対応するフィールド番号。
+     */
+    virtual void OnFieldChanged(u32 obj_index, u32 field_index) noexcept = 0;
+};
+
+/**
+ * Provider の登録 / 列挙 / 変更通知のハブ (Provider レジストリ)。
+ *
+ * @details
+ * 描画レイヤ (ImGui or ACS::Ui) はこのインスタンスから ProviderCount() /
+ * GetProvider() を回して描画する。
+ */
+class FInspectorSeam {
+public:
+    /** 空のレジストリで構築する。 */
+    FInspectorSeam() noexcept = default;
+
+    /** 破棄する (Provider は non-owning なので破棄しない)。 */
+    ~FInspectorSeam() noexcept = default;
+
+    /** コピー禁止 (内部 TArray<Provider*> の所有を曖昧にしないため)。 */
+    FInspectorSeam(const FInspectorSeam&)            = delete;
+
+    /** コピー代入も禁止。 */
+    FInspectorSeam& operator=(const FInspectorSeam&) = delete;
+
+    /** ムーブ禁止。 */
+    FInspectorSeam(FInspectorSeam&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
+    FInspectorSeam& operator=(FInspectorSeam&&)      = delete;
+
+    /**
+     * 初期化する (多重呼び出し可)。
+     *
+     * @details 現状は何もしない (ImGui コンテキスト等のセットアップを足す想定の予約点)。
+     */
+    void Init() noexcept;
+
+    /**
+     * node 紐付けなしで Provider を登録する。
+     *
+     * @details
+     * non-owning: provider の生存期間は呼び出し側責務。同一ポインタの多重登録は
+     * 許可しない (重複は無視)。nullptr は無視。紐付く FNodeId は invalid となるため、
+     * FNodeId からの逆引きを使いたい場合は RegisterProviderForNode を使うこと。
+     * @param provider 登録する Provider (non-owning)。
+     */
+    void RegisterProvider(IInspectableProvider* provider) noexcept;
+
+    /**
+     * node 紐付きで Provider を登録する。
+     *
+     * @details
+     * `node_id` をキーに後で GetProviderForNode で逆引きできる。non-owning は
+     * RegisterProvider と同じ。同一 provider ポインタの多重登録は弾く
+     * (この場合 node_id の更新も行わない)。nullptr は無視。FNodeId は
+     * 「slot index + generation」を表すハンドルで provider レジストリの登録順
+     * index とは別物のため、node→provider の対応をここで明示的に記録する。
+     * @param node_id 逆引きキーにする FNodeId。
+     * @param provider 登録する Provider (non-owning)。
+     */
+    void RegisterProviderForNode(FNodeId node_id, IInspectableProvider* provider) noexcept;
+
+    /**
+     * Provider 登録を解除する。
+     *
+     * @details
+     * 未登録 / nullptr は無視 (no-op)。解除後、Provider オブジェクト自体は破棄
+     * しない (non-owning なので)。
+     * @param provider 解除する Provider。
+     */
+    void UnregisterProvider(IInspectableProvider* provider) noexcept;
+
+    /**
+     * 登録済み Provider 数を返す。
+     *
+     * @return 登録されている Provider の個数。
+     */
+    u32 ProviderCount() const noexcept;
+
+    /**
+     * 登録順 index で Provider を取得する。
+     *
+     * @details
+     * 範囲外 (index >= ProviderCount()) は nullptr 安全。ここでの index は
+     * 登録順 (provider レジストリ上の位置) であり、FNodeId の Index() ではない。
+     * FNodeId から引きたい場合は GetProviderForNode を使う。
+     * @param index 登録順の添字。
+     * @return index 番目の Provider (範囲外なら nullptr)。
+     */
+    IInspectableProvider* GetProvider(u32 index) const noexcept;
+
+    /**
+     * FNodeId をキーに紐付く Provider を逆引きする。
+     *
+     * @details
+     * RegisterProviderForNode で登録した node_id に完全一致 (index + generation)
+     * する provider を返す。これが node-keyed lookup の正しい入口。
+     * @param node_id 逆引きする FNodeId。
+     * @return 一致する Provider (一致なし / invalid id なら nullptr)。
+     */
+    IInspectableProvider* GetProviderForNode(FNodeId node_id) const noexcept;
+
+    /**
+     * 指定 Provider の OnFieldChanged() に変更を forward する。
+     *
+     * @details 範囲外 (provider_index >= ProviderCount()) は no-op。
+     * @param provider_index 通知先 Provider の登録順 index。
+     * @param obj_index 変更されたオブジェクトの添字。
+     * @param field_index 変更されたフィールドの添字。
+     */
+    void NotifyFieldChanged(u32 provider_index, u32 obj_index, u32 field_index) noexcept;
+
+    /** 全 Provider 登録を破棄する (Provider 自体は破棄しない)。 */
+    void ClearAll() noexcept;
+
+private:
+    /**
+     * 登録済み Provider (non-owning)。m_NodeIds と同じ index で対応する。
+     *
+     * @details
+     * m_Providers[i] と m_NodeIds[i] は常に同じ index で対応する parallel array。
+     * 追加 / swap-remove / Clear は両者を必ず揃えて操作すること。
+     */
+    TArray<IInspectableProvider*> m_Providers;
+
+    /**
+     * 各 Provider に紐付く FNodeId (node 紐付けなしは invalid FNodeId{})。
+     *
+     * @details m_Providers と同じ index で対応する parallel array。
+     */
+    TArray<FNodeId>               m_NodeIds;
+};
+
+} // namespace acs::game
+
+#include <cstddef>   // offsetof
+#include <cstring>   // std::strcmp
+
+namespace acs::game {
+
+/** 型 ID (型名の FNV-1a ハッシュ、実行をまたいで安定)。 */
+using FTypeId = u32;
+
+/**
+ * 型のカテゴリ (何の種類の型か)。ACS の実型から網羅。新種は Custom で拡張する。
+ */
+enum class ETypeCategory : u8 {
+    Struct    = 0,   /**< 単純な値型 / POD (PlayerState, material params)。 */
+    Enum      = 1,   /**< 列挙体 (value↔name の反射を持つ)。 */
+    Object    = 2,   /**< FObject 派生のエンジンオブジェクト。 */
+    Component = 3,   /**< ECS / 2D コンポーネント。 */
+    Node      = 4,   /**< シーングラフのノード (FNode2D)。 */
+    Scene     = 5,   /**< ゲームシーン。 */
+    Asset     = 6,   /**< アセット型 (Image/Mesh/Audio/Text/Binary…)。 */
+    System    = 7,   /**< ゲームプレイ / ECS システム。 */
+    Prefab    = 8,   /**< ノードテンプレート。 */
+    Interface = 9,   /**< 差し替え可能なバックエンド interface (IRhiDevice, IAssetLoader…)。 */
+    Event     = 10,  /**< イベント / メッセージ型。 */
+    Command   = 11,  /**< undo/redo コマンド。 */
+    Resource  = 12,  /**< GPU/RHI リソース (texture/buffer/pipeline)。 */
+    Service   = 13,  /**< エンジンのサブシステム / サービス。 */
+    Custom    = 255, /**< ユーザー定義カテゴリ (category_name を併用)。 */
+};
+
+/** 型の能力 (カテゴリと直交するビットフラグ)。 */
+enum ETypeTraits : u32 {
+    TRAIT_NONE           = 0u,
+    TRAIT_SERIALIZABLE   = 1u << 0,  /**< save/load 対象。 */
+    TRAIT_NETWORKED      = 1u << 1,  /**< レプリケーション対象。 */
+    TRAIT_EDITOR_VISIBLE = 1u << 2,  /**< editor に表示する。 */
+    TRAIT_SCRIPTABLE     = 1u << 3,  /**< スクリプトへ公開する。 */
+    TRAIT_ABSTRACT       = 1u << 4,  /**< default 構築不可 (interface/基底)。 */
+    TRAIT_INSTANTIABLE   = 1u << 5,  /**< default 構築できる (factory あり)。 */
+};
+
+/** フィールド属性フラグ (editor / serializer のヒント)。 */
+enum EFieldFlags : u32 {
+    FIELD_NONE      = 0u,
+    FIELD_READONLY  = 1u << 0,   /**< 編集不可 (表示のみ)。 */
+    FIELD_HIDDEN    = 1u << 1,   /**< UI に出さない。 */
+    FIELD_TRANSIENT = 1u << 2,   /**< シリアライズ対象外。 */
+};
+
+/** 反射された 1 フィールド (名前 + 種別 + オフセット + サイズ + フラグ + 既定値 + カテゴリ)。 */
+struct FReflectField {
+    const char* name;          /**< フィールド名 (例: "hp")。 */
+    EFieldKind  kind;          /**< データ種別 (Bool/I32/.../Enum)。 */
+    u32         offset;        /**< 型先頭からのバイトオフセット (名前のみ反射では 0)。 */
+    u32         size;          /**< フィールドのバイトサイズ (名前のみ反射では 0)。 */
+    u32         flags;         /**< EFieldFlags の OR。 */
+    f32         defaults[4];   /**< スキーマ既定値 (最大 4 成分。ACS_RPROP* 用、offsetof 反射は 0)。 */
+    const char* category = nullptr;  /**< UPROPERTY(Category="…") の分類名。インスペクタのグループ見出し (既定 nullptr)。 */
+};
+
+/** 反射された列挙値 1 件 (名前 + 整数値)。 */
+struct FEnumValue {
+    const char* name;      /**< 列挙子名 (例: "Sword")。 */
+    i64         value;     /**< 整数値。 */
+};
+
+/** 1 つの型のメタ情報 (レジストリに 1 件登録される)。 */
+struct FTypeDesc {
+    const char*          name;          /**< 型名。 */
+    FTypeId              id;            /**< 型名ハッシュ。 */
+    u32                  size;          /**< sizeof(T)。 */
+    u32                  align;         /**< alignof(T)。 */
+    ETypeCategory        category;      /**< 型カテゴリ。 */
+    u32                  traits;        /**< ETypeTraits の OR。 */
+    FTypeId              base;          /**< 基底型 ID (無ければ 0)。 */
+    const FReflectField* fields;        /**< フィールド配列 (Enum 以外)。 */
+    u32                  field_count;   /**< フィールド数。 */
+    const FEnumValue*    enum_values;   /**< 列挙値配列 (Enum のみ、他は nullptr)。 */
+    u32                  enum_count;    /**< 列挙値数。 */
+    void* (*construct)();              /**< default 構築 (不可なら nullptr)。 */
+    void  (*destruct)(void*);          /**< construct の戻り値を破棄。 */
+    const char*          category_name; /**< Custom カテゴリ名 (他は nullptr)。 */
+};
+
+/** 型名の FNV-1a ハッシュ (FTypeId 生成、コンパイル時可)。 */
+constexpr FTypeId AcsTypeHash(const char* s) noexcept {
+    u32 h = 2166136261u;
+    for (; *s != '\0'; ++s) h = (h ^ static_cast<u32>(static_cast<unsigned char>(*s))) * 16777619u;
+    return h;
+}
+
+/** 型 T を default 構築して void* で返す (不可なら nullptr)。エンジンアロケータで確保する。 */
+template<class T> inline void* AcsConstruct() noexcept {
+    if constexpr (__is_constructible(T)) return New<T>(DefaultAllocator());
+    else                                 return nullptr;
+}
+/** 型 T のインスタンスを破棄する (AcsConstruct と同じエンジンアロケータで解放)。 */
+template<class T> inline void AcsDestruct(void* p) noexcept { Delete(DefaultAllocator(), static_cast<T*>(p)); }
+
+/** 型 T の既定トレイト (構築可否で Instantiable/Abstract を決める)。 */
+template<class T> constexpr u32 AcsAutoTraits() noexcept {
+    u32 t = TRAIT_SERIALIZABLE | TRAIT_EDITOR_VISIBLE;
+    if constexpr (__is_constructible(T)) t |= TRAIT_INSTANTIABLE;
+    else                                 t |= TRAIT_ABSTRACT;
+    return t;
+}
+
+/**
+ * エンジン全体で 1 つの型レジストリ。全 ACS_REFLECT* 型が静的初期化時に自動登録される。
+ *
+ * @details
+ * 名前 / ID で型を引き、フィールド / 列挙値を列挙し、ファクトリで生成できる。固定長
+ * (kMax) で STL 不使用。エディタ・シリアライザ・スクリプト束縛・ネットワークなどが
+ * 「型を知らずに」横断的に使うための単一の真実点。
+ */
+class FTypeRegistry {
+public:
+    /** 登録できる型数の上限。 */
+    static constexpr u32 kMax = 2048u;
+
+    /** プロセス唯一のレジストリを返す (Meyers singleton)。 */
+    static FTypeRegistry& Get() noexcept;
+
+    /**
+     * 型を登録する (ACS_REFLECT* の自動登録から呼ばれる。同 ID は無視)。
+     *
+     * @param d 登録する型記述 (静的寿命、非所有)。
+     * @return 登録 (または既存) なら true、上限到達で false。
+     */
+    bool Register(const FTypeDesc* d) noexcept;
+
+    /** 登録型数。 */
+    u32 Count() const noexcept { return m_Count; }
+
+    /** i 番目の型記述 (範囲外は nullptr)。 */
+    const FTypeDesc* At(u32 i) const noexcept { return (i < m_Count) ? m_Types[i] : nullptr; }
+
+    /** 名前で型を引く (無ければ nullptr)。 */
+    const FTypeDesc* FindByName(const char* name) const noexcept;
+
+    /** ID で型を引く (無ければ nullptr)。 */
+    const FTypeDesc* FindById(FTypeId id) const noexcept;
+
+    /** カテゴリの型数を数える。 */
+    u32 CountOfCategory(ETypeCategory cat) const noexcept;
+
+    /** カテゴリで絞って nth 番目を返す (列挙用、無ければ nullptr)。 */
+    const FTypeDesc* AtOfCategory(ETypeCategory cat, u32 nth) const noexcept;
+
+    /** 名前で型を default 構築する (factory、不可/未登録は nullptr)。 */
+    void* Create(const char* name) const noexcept;
+
+    /** ID で型を default 構築する。 */
+    void* CreateById(FTypeId id) const noexcept;
+
+    /** ID の型のインスタンスを破棄する (Create の戻り値を渡す)。 */
+    void Destroy(FTypeId id, void* obj) const noexcept;
+
+private:
+    FTypeRegistry() noexcept = default;
+    const FTypeDesc* m_Types[kMax] = {};
+    u32              m_Count       = 0u;
+};
+
+/** ACS_REFLECT* が生成する自動登録ヘルパ (静的初期化時に Register を呼ぶ)。 */
+struct FTypeAutoRegister {
+    explicit FTypeAutoRegister(const FTypeDesc* d) noexcept { FTypeRegistry::Get().Register(d); }
+};
+
+/** 型 T の FTypeDesc を返す (ACS_REFLECT* が特殊化する。未反射型は nullptr)。 */
+template<class T> inline const FTypeDesc* AcsTypeDescOf() noexcept { return nullptr; }
+
+} // namespace acs::game
+
+// =============================================================================
+// マクロ
+// =============================================================================
+
+/** トークン連結 (内部用)。 */
+#define ACS_RCAT2(a, b) a##b
+#define ACS_RCAT(a, b)  ACS_RCAT2(a, b)
+
+/** 反射フィールド記述子を作る (Type のメンバ member、種別 fieldkind)。 */
+#define ACS_RFIELD(Type, member, fieldkind)                                     \
+    ::acs::game::FReflectField{ #member, (fieldkind),                           \
+        static_cast<::acs::u32>(offsetof(Type, member)),                        \
+        static_cast<::acs::u32>(sizeof(((Type*)0)->member)), ::acs::game::FIELD_NONE }
+
+/** フラグ付き反射フィールド記述子。 */
+#define ACS_RFIELD_F(Type, member, fieldkind, flags)                            \
+    ::acs::game::FReflectField{ #member, (fieldkind),                           \
+        static_cast<::acs::u32>(offsetof(Type, member)),                        \
+        static_cast<::acs::u32>(sizeof(((Type*)0)->member)), (flags), {0.0f,0.0f,0.0f,0.0f} }
+
+/**
+ * offsetof で «実体メンバ» を反射しつつ «既定値» も持つフィールド記述子 (codegen 用)。
+ *
+ * @details ACS_RFIELD は defaults=0、ACS_RPROP は offset=0。両方が欲しい (= エディタの
+ * 既定値表示 + 実インスタンスへの値書き込み) 場合に使う。member は public、Type は単一継承
+ * (多態でも MSVC の offsetof は安定) であること。ACS_CLASS/ACS_PROPERTY のコード生成が出力する。
+ */
+#define ACS_RFIELD_D(Type, member, fieldkind, d0, d1, d2, d3)                   \
+    ::acs::game::FReflectField{ #member, (fieldkind),                           \
+        static_cast<::acs::u32>(offsetof(Type, member)),                        \
+        static_cast<::acs::u32>(sizeof(((Type*)0)->member)),                    \
+        ::acs::game::FIELD_NONE, { static_cast<::acs::f32>(d0),                 \
+        static_cast<::acs::f32>(d1), static_cast<::acs::f32>(d2),               \
+        static_cast<::acs::f32>(d3) } }
+
+/**
+ * offset + 既定値 + «フラグ» 付きフィールド記述子 (codegen が UPROPERTY 指定子から出力)。
+ *
+ * @details flags = EFieldFlags の OR。VisibleAnywhere→FIELD_READONLY、Hidden→FIELD_HIDDEN 等。
+ */
+#define ACS_RFIELD_DF(Type, member, fieldkind, flags, d0, d1, d2, d3)            \
+    ::acs::game::FReflectField{ #member, (fieldkind),                           \
+        static_cast<::acs::u32>(offsetof(Type, member)),                        \
+        static_cast<::acs::u32>(sizeof(((Type*)0)->member)),                    \
+        static_cast<::acs::u32>(flags), { static_cast<::acs::f32>(d0),          \
+        static_cast<::acs::f32>(d1), static_cast<::acs::f32>(d2),               \
+        static_cast<::acs::f32>(d3) } }
+
+/** offset + 既定値 + フラグ + «カテゴリ» 付きフィールド記述子 (codegen が Category 指定子から出力)。 */
+#define ACS_RFIELD_DFC(Type, member, fieldkind, flags, category, d0, d1, d2, d3)  \
+    ::acs::game::FReflectField{ #member, (fieldkind),                           \
+        static_cast<::acs::u32>(offsetof(Type, member)),                        \
+        static_cast<::acs::u32>(sizeof(((Type*)0)->member)),                    \
+        static_cast<::acs::u32>(flags), { static_cast<::acs::f32>(d0),          \
+        static_cast<::acs::f32>(d1), static_cast<::acs::f32>(d2),               \
+        static_cast<::acs::f32>(d3) }, (category) }
+
+// ----- 名前のみの反射プロパティ (offsetof 不使用) ------------------------------
+// private メンバや多態 (非 standard-layout) 型は offsetof が使えない。そこで「編集可能
+// フィールドのスキーマ (名前 + 種別 + 既定値)」だけを反射する。値の実体はメンバではなく
+// 利用側 (エディタ) がスキーマ順に保持する。型ヘッダを書き換えずに editor へ公開できる。
+//   ACS_RPROP_V2("size", 1.0f, 1.0f)   // FVec2、既定 (1,1)
+//   ACS_RPROP_V4("tint", 1,1,1,1)      // FVec4 (RGBA)、既定 白
+//   ACS_RPROP_F ("intensity", 1.0f)    // F32
+//   ACS_RPROP_I ("points", 24)         // I32
+//   ACS_RPROP_B ("enabled", true)      // Bool (既定 1/0)
+
+/** 名前のみ反射プロパティ (種別 + 4 成分既定値を明示)。通常は下の種別別ラッパを使う。 */
+#define ACS_RPROP(propname, fieldkind, d0, d1, d2, d3)                          \
+    ::acs::game::FReflectField{ (propname), (fieldkind), 0u, 0u,                \
+        ::acs::game::FIELD_NONE, { static_cast<::acs::f32>(d0),                 \
+        static_cast<::acs::f32>(d1), static_cast<::acs::f32>(d2),               \
+        static_cast<::acs::f32>(d3) } }
+
+/** F32 スカラのプロパティ。 */
+#define ACS_RPROP_F(propname, d0)        ACS_RPROP(propname, ::acs::game::EFieldKind::F32,  d0, 0, 0, 0)
+/** I32 整数のプロパティ。 */
+#define ACS_RPROP_I(propname, d0)        ACS_RPROP(propname, ::acs::game::EFieldKind::I32,  d0, 0, 0, 0)
+/** bool のプロパティ (既定は 1/0)。 */
+#define ACS_RPROP_B(propname, d0)        ACS_RPROP(propname, ::acs::game::EFieldKind::Bool, (d0) ? 1 : 0, 0, 0, 0)
+/** FVec2 のプロパティ。 */
+#define ACS_RPROP_V2(propname, dx, dy)        ACS_RPROP(propname, ::acs::game::EFieldKind::FVec2, dx, dy, 0, 0)
+/** FVec3 のプロパティ。 */
+#define ACS_RPROP_V3(propname, dx, dy, dz)    ACS_RPROP(propname, ::acs::game::EFieldKind::FVec3, dx, dy, dz, 0)
+/** FVec4 のプロパティ (色なら RGBA)。 */
+#define ACS_RPROP_V4(propname, dx, dy, dz, dw) ACS_RPROP(propname, ::acs::game::EFieldKind::FVec4, dx, dy, dz, dw)
+/** オブジェクト参照のプロパティ (値 = 参照先の安定 ID、既定 -1 = «なし»)。エディタはノードピッカーで編集。 */
+#define ACS_RPROP_REF(propname)               ACS_RPROP(propname, ::acs::game::EFieldKind::ObjectRef, -1, 0, 0, 0)
+/** オブジェクト参照のフィールド (offset 反射。実メンバ = i32 の参照先 ID。実行時 apply される)。 */
+#define ACS_RFIELD_REF(Type, member)          ACS_RFIELD_D(Type, member, ::acs::game::EFieldKind::ObjectRef, -1, 0, 0, 0)
+/** 名前のみ反射プロパティ + フラグ (FIELD_READONLY 等。種別 + 4 成分既定値 + flags を明示)。 */
+#define ACS_RPROP_FLAGS(propname, fieldkind, flags, d0, d1, d2, d3)              \
+    ::acs::game::FReflectField{ (propname), (fieldkind), 0u, 0u,                \
+        static_cast<::acs::u32>(flags), { static_cast<::acs::f32>(d0),          \
+        static_cast<::acs::f32>(d1), static_cast<::acs::f32>(d2),               \
+        static_cast<::acs::f32>(d3) } }
+
+/** 列挙値記述子 (EnumType::val)。 */
+#define ACS_EVAL(EnumType, val)                                                 \
+    ::acs::game::FEnumValue{ #val, static_cast<::acs::i64>(EnumType::val) }
+
+/**
+ * 型を反射 + グローバル自動登録する (グローバル空間に置く)。通常は下の種類別マクロを使う。
+ *
+ * @param Type 反射する型。
+ * @param Category ::acs::game::ETypeCategory の値。
+ * @param ... ACS_RFIELD(...) のリスト (0 個でも可)。
+ */
+#define ACS_REFLECT(Type, Category, ...)                                                          \
+    namespace acs::game {                                                                          \
+        /* 先頭にセンチネル 1 件を置き、フィールド 0 個でも 0 長配列にならないようにする      */ \
+        /* (MSVC は 0 長配列を拒否)。fields は +1、count は -1 で実フィールドのみを公開する。 */ \
+        inline const ::acs::game::FReflectField ACS_RCAT(s_acs_rf_, Type)[] = {                \
+            ::acs::game::FReflectField{ nullptr, ::acs::game::EFieldKind::Bool, 0u, 0u,            \
+                                        ::acs::game::FIELD_NONE }, __VA_ARGS__ };                  \
+        inline const ::acs::game::FTypeDesc ACS_RCAT(s_acs_rd_, Type) = {                       \
+            #Type, ::acs::game::AcsTypeHash(#Type),                                                 \
+            static_cast<::acs::u32>(sizeof(Type)), static_cast<::acs::u32>(alignof(Type)),          \
+            (Category), ::acs::game::AcsAutoTraits<Type>(), 0u,                                      \
+            ACS_RCAT(s_acs_rf_, Type) + 1,                                                      \
+            static_cast<::acs::u32>(sizeof(ACS_RCAT(s_acs_rf_, Type)) /                          \
+                                    sizeof(::acs::game::FReflectField) - 1u),                       \
+            nullptr, 0u,                                                                             \
+            &::acs::game::AcsConstruct<Type>, &::acs::game::AcsDestruct<Type>, nullptr };           \
+        inline const ::acs::game::FTypeAutoRegister ACS_RCAT(s_acs_rr_, Type){                  \
+            &ACS_RCAT(s_acs_rd_, Type) };                                                       \
+        template<> inline const ::acs::game::FTypeDesc* AcsTypeDescOf<Type>() noexcept {            \
+            return &ACS_RCAT(s_acs_rd_, Type); }                                                \
+    } // namespace acs::game
+
+/**
+ * 列挙体を反射 + 登録する (グローバル空間)。
+ *
+ * @param Type enum 型。
+ * @param ... ACS_EVAL(Type, value) のリスト。
+ */
+#define ACS_REFLECT_ENUM(Type, ...)                                                                \
+    namespace acs::game {                                                                          \
+        /* 先頭センチネルで 0 長配列を回避 (ACS_REFLECT と同様)。enum_values は +1、count は -1。*/ \
+        inline const ::acs::game::FEnumValue ACS_RCAT(s_acs_ev_, Type)[] = {                    \
+            ::acs::game::FEnumValue{ nullptr, 0 }, __VA_ARGS__ };                                   \
+        inline const ::acs::game::FTypeDesc ACS_RCAT(s_acs_ed_, Type) = {                       \
+            #Type, ::acs::game::AcsTypeHash(#Type),                                                 \
+            static_cast<::acs::u32>(sizeof(Type)), static_cast<::acs::u32>(alignof(Type)),          \
+            ::acs::game::ETypeCategory::Enum,                                                       \
+            ::acs::game::TRAIT_SERIALIZABLE | ::acs::game::TRAIT_EDITOR_VISIBLE                      \
+                | ::acs::game::TRAIT_SCRIPTABLE, 0u,                                                 \
+            nullptr, 0u,                                                                             \
+            ACS_RCAT(s_acs_ev_, Type) + 1,                                                      \
+            static_cast<::acs::u32>(sizeof(ACS_RCAT(s_acs_ev_, Type)) /                          \
+                                    sizeof(::acs::game::FEnumValue) - 1u),                          \
+            nullptr, nullptr, nullptr };                                                            \
+        inline const ::acs::game::FTypeAutoRegister ACS_RCAT(s_acs_er_, Type){                  \
+            &ACS_RCAT(s_acs_ed_, Type) };                                                       \
+        template<> inline const ::acs::game::FTypeDesc* AcsTypeDescOf<Type>() noexcept {            \
+            return &ACS_RCAT(s_acs_ed_, Type); }                                                \
+    } // namespace acs::game
+
+// ----- 種類別の便利マクロ (クラスを「その種類」としてマーク + 反射 + 登録) ------
+#define ACS_STRUCT(Type, ...)     ACS_REFLECT(Type, ::acs::game::ETypeCategory::Struct,    __VA_ARGS__)
+#define ACS_OBJECT(Type, ...)     ACS_REFLECT(Type, ::acs::game::ETypeCategory::Object,    __VA_ARGS__)
+#define ACS_COMPONENT(Type, ...)  ACS_REFLECT(Type, ::acs::game::ETypeCategory::Component, __VA_ARGS__)
+#define ACS_NODE(Type, ...)       ACS_REFLECT(Type, ::acs::game::ETypeCategory::Node,      __VA_ARGS__)
+#define ACS_SCENE(Type, ...)      ACS_REFLECT(Type, ::acs::game::ETypeCategory::Scene,     __VA_ARGS__)
+#define ACS_ASSET_T(Type, ...)    ACS_REFLECT(Type, ::acs::game::ETypeCategory::Asset,     __VA_ARGS__)
+#define ACS_SYSTEM(Type, ...)     ACS_REFLECT(Type, ::acs::game::ETypeCategory::System,    __VA_ARGS__)
+#define ACS_PREFAB(Type, ...)     ACS_REFLECT(Type, ::acs::game::ETypeCategory::Prefab,    __VA_ARGS__)
+#define ACS_INTERFACE(Type, ...)  ACS_REFLECT(Type, ::acs::game::ETypeCategory::Interface, __VA_ARGS__)
+#define ACS_EVENT(Type, ...)      ACS_REFLECT(Type, ::acs::game::ETypeCategory::Event,     __VA_ARGS__)
+#define ACS_COMMAND(Type, ...)    ACS_REFLECT(Type, ::acs::game::ETypeCategory::Command,   __VA_ARGS__)
+#define ACS_SERVICE(Type, ...)    ACS_REFLECT(Type, ::acs::game::ETypeCategory::Service,   __VA_ARGS__)
+
+// =============================================================================
+// 集約カタログ用の登録マクロ (型ヘッダ非侵襲)
+// -----------------------------------------------------------------------------
+// ACS_REFLECT は型ヘッダに置く前提で AcsTypeDescOf<T>() の特殊化も生成するが、
+// 既存のエンジン型に「型ヘッダを書き換えずに」リフレクションを後付けしたい場合、
+// 専用の 1 つの .cpp (ReflectCatalog.cpp) に型を include して ACS_REGISTER* を
+// 並べる。AcsTypeDescOf<T>() の特殊化は生成しない (登録 TU でしか見えない特殊化は
+// 別 TU でプライマリ実体化されると ODR 違反になるため)。実行時の FindByName /
+// FindById / カテゴリ列挙 / factory は完全に機能する (ここがエンジン横断利用の本筋)。
+//
+// 静的初期化の確実化: 静的ライブラリ内の自動登録子はリンカに落とされ得るので、
+// 利用側 (テスト / エンジン起動 / editor ABI) は AcsRegisterEngineTypes() を 1 度
+// 呼んでカタログ TU を確実にリンクへ引き込むこと (ReflectCatalog.h)。
+// =============================================================================
+
+/** カタログ用: 型を反射 + 自動登録する (AcsTypeDescOf 特殊化なし)。 */
+#define ACS_REGISTER(Type, Category, ...)                                                          \
+    namespace acs::game {                                                                          \
+        inline const ::acs::game::FReflectField ACS_RCAT(s_acs_gf_, Type)[] = {                \
+            ::acs::game::FReflectField{ nullptr, ::acs::game::EFieldKind::Bool, 0u, 0u,            \
+                                        ::acs::game::FIELD_NONE }, __VA_ARGS__ };                  \
+        inline const ::acs::game::FTypeDesc ACS_RCAT(s_acs_gd_, Type) = {                       \
+            #Type, ::acs::game::AcsTypeHash(#Type),                                                 \
+            static_cast<::acs::u32>(sizeof(Type)), static_cast<::acs::u32>(alignof(Type)),          \
+            (Category), ::acs::game::AcsAutoTraits<Type>(), 0u,                                      \
+            ACS_RCAT(s_acs_gf_, Type) + 1,                                                      \
+            static_cast<::acs::u32>(sizeof(ACS_RCAT(s_acs_gf_, Type)) /                          \
+                                    sizeof(::acs::game::FReflectField) - 1u),                       \
+            nullptr, 0u,                                                                             \
+            &::acs::game::AcsConstruct<Type>, &::acs::game::AcsDestruct<Type>, nullptr };           \
+        inline const ::acs::game::FTypeAutoRegister ACS_RCAT(s_acs_gr_, Type){                  \
+            &ACS_RCAT(s_acs_gd_, Type) };                                                       \
+    } // namespace acs::game
+
+/** カタログ用: 列挙体を反射 + 自動登録する (AcsTypeDescOf 特殊化なし)。 */
+#define ACS_REGISTER_ENUM(Type, ...)                                                               \
+    namespace acs::game {                                                                          \
+        inline const ::acs::game::FEnumValue ACS_RCAT(s_acs_gv_, Type)[] = {                    \
+            ::acs::game::FEnumValue{ nullptr, 0 }, __VA_ARGS__ };                                   \
+        inline const ::acs::game::FTypeDesc ACS_RCAT(s_acs_gve_, Type) = {                      \
+            #Type, ::acs::game::AcsTypeHash(#Type),                                                 \
+            static_cast<::acs::u32>(sizeof(Type)), static_cast<::acs::u32>(alignof(Type)),          \
+            ::acs::game::ETypeCategory::Enum,                                                       \
+            ::acs::game::TRAIT_SERIALIZABLE | ::acs::game::TRAIT_EDITOR_VISIBLE                      \
+                | ::acs::game::TRAIT_SCRIPTABLE, 0u,                                                 \
+            nullptr, 0u,                                                                             \
+            ACS_RCAT(s_acs_gv_, Type) + 1,                                                      \
+            static_cast<::acs::u32>(sizeof(ACS_RCAT(s_acs_gv_, Type)) /                          \
+                                    sizeof(::acs::game::FEnumValue) - 1u),                          \
+            nullptr, nullptr, nullptr };                                                            \
+        inline const ::acs::game::FTypeAutoRegister ACS_RCAT(s_acs_gvr_, Type){                 \
+            &ACS_RCAT(s_acs_gve_, Type) };                                                      \
+    } // namespace acs::game
+
+// 種類別の集約登録ラッパ (フィールドは可変長、省略可)。
+#define ACS_REGISTER_STRUCT(Type, ...)     ACS_REGISTER(Type, ::acs::game::ETypeCategory::Struct,    __VA_ARGS__)
+#define ACS_REGISTER_OBJECT(Type, ...)     ACS_REGISTER(Type, ::acs::game::ETypeCategory::Object,    __VA_ARGS__)
+#define ACS_REGISTER_COMPONENT(Type, ...)  ACS_REGISTER(Type, ::acs::game::ETypeCategory::Component, __VA_ARGS__)
+#define ACS_REGISTER_NODE(Type, ...)       ACS_REGISTER(Type, ::acs::game::ETypeCategory::Node,      __VA_ARGS__)
+#define ACS_REGISTER_SCENE(Type, ...)      ACS_REGISTER(Type, ::acs::game::ETypeCategory::Scene,     __VA_ARGS__)
+#define ACS_REGISTER_ASSET(Type, ...)      ACS_REGISTER(Type, ::acs::game::ETypeCategory::Asset,     __VA_ARGS__)
+#define ACS_REGISTER_SYSTEM(Type, ...)     ACS_REGISTER(Type, ::acs::game::ETypeCategory::System,    __VA_ARGS__)
+#define ACS_REGISTER_PREFAB(Type, ...)     ACS_REGISTER(Type, ::acs::game::ETypeCategory::Prefab,    __VA_ARGS__)
+#define ACS_REGISTER_INTERFACE(Type, ...)  ACS_REGISTER(Type, ::acs::game::ETypeCategory::Interface, __VA_ARGS__)
+#define ACS_REGISTER_EVENT(Type, ...)      ACS_REGISTER(Type, ::acs::game::ETypeCategory::Event,     __VA_ARGS__)
+#define ACS_REGISTER_COMMAND(Type, ...)    ACS_REGISTER(Type, ::acs::game::ETypeCategory::Command,   __VA_ARGS__)
+#define ACS_REGISTER_SERVICE(Type, ...)    ACS_REGISTER(Type, ::acs::game::ETypeCategory::Service,   __VA_ARGS__)
+
+namespace acs::game {
+
+/**
+ * 名前付きイベントの pub/sub を行う World サブシステム(オブジェクト間の疎結合通信)。
+ */
+class FEventBus : public FSubsystem {
+public:
+    ACS_GAME_SUBSYSTEM_KIND(FEventBus)
+
+    /** イベント識別子(名前の FNV-1a ハッシュ)。 */
+    using EventId   = u32;
+
+    /** イベントハンドラ(listener=Subscribe で渡したコンテキスト、payload=Publish のデータ)。 */
+    using HandlerFn = void (*)(void* listener, const void* payload);
+
+    /** イベント名 → 安定 ID(コンパイル時)。Publish/Subscribe で同じ名前を使う。 */
+    static constexpr EventId Id(const char* name) noexcept { return AcsTypeHash(name); }
+
+    /**
+     * イベント ev を購読する。発火時に fn(listener, payload) が呼ばれる。
+     *
+     * @param ev       購読するイベント ID(FEventBus::Id("...") )。
+     * @param fn       ハンドラ(captureless。null は無視)。
+     * @param listener ハンドラへ渡すコンテキスト(通常は this)。
+     * @return 解除用ハンドル(>=0)。失敗で -1。
+     */
+    int Subscribe(EventId ev, HandlerFn fn, void* listener = nullptr) noexcept {
+        if (fn == nullptr) return -1;
+        for (u32 i = 0; i < m_Subs.Size(); ++i) {                 // 空きスロット再利用
+            if (m_Subs[i].fn == nullptr) { m_Subs[i] = Sub{ ev, fn, listener }; return static_cast<int>(i); }
+        }
+        m_Subs.PushBack(Sub{ ev, fn, listener });
+        return static_cast<int>(m_Subs.Size() - 1);
+    }
+
+    /** Subscribe が返したハンドルで購読を解除する。 */
+    void Unsubscribe(int handle) noexcept {
+        if (handle >= 0 && static_cast<u32>(handle) < m_Subs.Size()) m_Subs[static_cast<u32>(handle)].fn = nullptr;
+    }
+
+    /**
+     * イベント ev を発火し、購読中の全ハンドラを payload 付きで呼ぶ。
+     *
+     * @details ハンドラ内からの Subscribe/Unsubscribe にも耐える(各スロットを «値コピー» してから
+     * 呼ぶので、配列が再確保されても安全。発火中に追加された購読は呼ばれる場合がある)。
+     * @param ev      発火するイベント ID。
+     * @param payload ハンドラへ渡すデータ(任意、既定 nullptr)。
+     */
+    void Publish(EventId ev, const void* payload = nullptr) noexcept {
+        for (u32 i = 0; i < m_Subs.Size(); ++i) {
+            const Sub s = m_Subs[i];   // 値コピー(ハンドラ内で m_Subs が再確保されても安全)
+            if (s.ev == ev && s.fn != nullptr) s.fn(s.listener, payload);
+        }
+    }
+
+    /** 現在の購読数(空きスロット含む。デバッグ/検証用)。 */
+    u32 SubscriptionSlots() const noexcept { return static_cast<u32>(m_Subs.Size()); }
+
+    void OnDeinitialize() noexcept override { m_Subs.Clear(); }
+
+private:
+    struct Sub { EventId ev; HandlerFn fn; void* listener; };
+    TArray<Sub> m_Subs;
+};
+
+} // namespace acs::game
+
 // ===================== gameframework/FadeTransition.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // FFadeTransition — シーン切替フェード演出の state holder
@@ -32345,6 +34485,892 @@ private:
 
     /** MidPause を 1 Tick 観測済みか (mid_pause=0 でも 1 Tick 保証用)。 */
     bool m_MidPauseConsumed = false;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/Follow2DComponent.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework — FFollow2DComponent (オブジェクト参照プロパティのデモ + 実用コンポーネント)
+//
+// 「別のノードを参照して、そこへ向かって追従する」コンポーネント。インスペクタの
+// «オブジェクト参照» プロパティ(他オブジェクトへの参照を渡す UE 風 UPROPERTY)の実例。
+// target は参照先ノードの «安定 ID»(SerialId = エディタ id)を保持する。実行時に
+// id → 生きた FNode2D* へ解決して追従する(解決は FindBySerialId、結果はキャッシュ)。
+
+
+// ===================== gameframework/Node2D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar B — FNode2D
+//
+// シーンの中身を表す唯一のノードクラス (2D 専用、抽象 Node 基底は作らない)。
+// 親子ツリーで階層的な transform を持ち、各ノードが OnSpawn/OnUpdate/OnDraw/
+// OnDespawn を override してロジック・描画を書く。
+//
+// 設計選択:
+//   ・**non-copy / non-move**: `TUniquePtr<FNode2D>` で所有、`FNode2D*` で参照。
+//     `AddChild(MakeUnique<MyNode>(args))` が標準パターン。
+//   ・**lifecycle**: `AddChild` 即時 `OnSpawn`、`Destroy()` で
+//     `m_PendingDestroy` をマーク、フレーム境界の `ResolveStructuralChanges()`
+//     で OnDespawn を呼んで TArray から除去。子ツリーが先に reap される。
+//   ・**transform**: `m_Local` を真値、`World()` は親をたどってオンザフライ計算。
+//   ・**iteration safety**: UpdateTree/DrawTree は index ベースで走査。
+//     AddChild が走査中に呼ばれた場合の新規子は同フレームで走らせる (Unity 互換)。
+//     Destroy は遅延 reap なので走査中の即時除去はしない。
+
+
+// ===================== gameframework/Transform2D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar B — FTransform2D
+//
+// 2D ノードの位置/回転/スケールを 20 byte の値型で表す。`FMat4` 直接保持より
+// 小さく合成が速い、かつ分解が非可逆でない (= 親 transform の rotation/scale を
+// 取り出して使える)。
+//
+// 合成規約:
+//   `world = parent.Compose(local)` で「親の座標系に local を載せる」。
+//   ・world.scale    = parent.scale * local.scale  (component-wise)
+//   ・world.rotation = parent.rotation + local.rotation
+//   ・world.position = parent.position + Rotate(parent.scale * local.position, parent.rotation)
+//
+// ToMat4() は FSpriteBatch::SetView や 4x4 行列が必要な場面でだけ使う (合成内では
+// 使わない、誤差/コストを避けるため)。
+
+
+namespace acs::game {
+
+/**
+ * 2D ノードの位置/回転/スケールを表す 20 byte の値型 transform。
+ *
+ * @details
+ * FMat4 を直接保持するより小さく合成が速く、かつ分解が可逆 (親の rotation/scale を
+ * 取り出して使える)。合成は `world = parent.Compose(local)` の規約で行い、scale は
+ * component-wise 積、rotation は和、position は親 scale でスケール後に親 rotation で
+ * 回して親 position を加算する。
+ */
+struct FTransform2D {
+    /** 位置 (親座標系での平行移動)。 */
+    FVec2 position{0.0f, 0.0f};
+
+    /** 回転 (ラジアン、反時計回り)。 */
+    f32  rotation = 0.0f;
+
+    /** スケール (X/Y 個別)。 */
+    FVec2 scale{1.0f, 1.0f};
+
+    /** 単位 transform を構築する (位置 0、回転 0、スケール 1)。 */
+    constexpr FTransform2D() noexcept = default;
+
+    /**
+     * 位置・回転・スケールを指定して構築する。
+     *
+     * @param pos 位置。
+     * @param rot 回転 (ラジアン)。
+     * @param sca スケール (X/Y)。
+     */
+    constexpr FTransform2D(FVec2 pos, f32 rot, FVec2 sca) noexcept
+        : position(pos), rotation(rot), scale(sca) {}
+
+    /**
+     * 親の座標系に local を載せた world transform を合成して返す。
+     *
+     * @details
+     * `world = parent.Compose(local)` の規約。子 position を親 scale でスケールし、
+     * 親 rotation で回転して親 position を加算する。rotation は親子の和、scale は
+     * component-wise 積になる。
+     * @param local 親 (this) の座標系に載せるローカル transform。
+     * @return 合成後の world transform。
+     */
+    FTransform2D Compose(const FTransform2D& local) const noexcept {
+        // 親 scale で子 position をスケール → 親 rotation で回転 → 親 position を加算
+        const f32 sx = scale.x * local.position.x;
+        const f32 sy = scale.y * local.position.y;
+        const f32 c  = Cos(rotation);
+        const f32 s  = Sin(rotation);
+        FTransform2D out;
+        out.position.x = position.x + (sx * c - sy * s);
+        out.position.y = position.y + (sx * s + sy * c);
+        out.rotation   = rotation + local.rotation;
+        out.scale.x    = scale.x * local.scale.x;
+        out.scale.y    = scale.y * local.scale.y;
+        return out;
+    }
+
+    /**
+     * 4x4 行列に変換する (FSpriteBatch::SetView 等で 4x4 が必要なとき用)。
+     *
+     * @details Z=0 平面で T * R * S を row-major (acs/Math 規約) で展開する。合成内では誤差/コストを避けるため使わない。
+     * @return この transform を表す 4x4 行列。
+     */
+    FMat4 ToMat4() const noexcept {
+        const f32 c = Cos(rotation);
+        const f32 s = Sin(rotation);
+        // T * R * S を row-major で展開 (acs/Math 規約)
+        FMat4 m{};
+        m.m[0][0] = scale.x * c;   m.m[0][1] = scale.x * s;   m.m[0][2] = 0.0f; m.m[0][3] = 0.0f;
+        m.m[1][0] = -scale.y * s;  m.m[1][1] = scale.y * c;   m.m[1][2] = 0.0f; m.m[1][3] = 0.0f;
+        m.m[2][0] = 0.0f;          m.m[2][1] = 0.0f;          m.m[2][2] = 1.0f; m.m[2][3] = 0.0f;
+        m.m[3][0] = position.x;    m.m[3][1] = position.y;    m.m[3][2] = 0.0f; m.m[3][3] = 1.0f;
+        return m;
+    }
+
+    /**
+     * 単位 transform を返す (位置 0、回転 0、スケール 1)。
+     *
+     * @return 単位 transform。
+     */
+    static constexpr FTransform2D Identity() noexcept { return {}; }
+};
+
+} // namespace acs::game
+
+namespace acs::game {
+
+class RenderContext;
+class FSceneServices;   // 非所有ポインタで参照 (include しない = ノードヘッダを軽く保つ)
+struct FMaterial2D;     // 使用マテリアル (効果プリセット)。実体は TUniquePtr で所有 (ヘッダを軽く保つ)
+
+/**
+ * シーンの中身を表す唯一のノード (2D 専用)。
+ *
+ * @details
+ * 親子ツリーで階層的な transform を持ち、各ノードが OnSpawn/OnUpdate/OnDraw/
+ * OnDespawn を override してロジック・描画を書く。`TUniquePtr<FNode2D>` で所有し
+ * `FNode2D*` で参照する non-copy / non-move 型で、`AddChild(MakeUnique<MyNode>())`
+ * が標準パターン。transform は m_Local を真値とし、World() は親をたどって合成する。
+ */
+class FNode2D {
+public:
+    /** 空のノードを構築する (transform は単位、親なし)。 */
+    FNode2D() noexcept = default;
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
+    virtual ~FNode2D() noexcept = default;
+
+    /** コピー禁止 (ノードは TUniquePtr で単独所有するため)。 */
+    FNode2D(const FNode2D&)            = delete;
+
+    /** コピー代入も禁止。 */
+    FNode2D& operator=(const FNode2D&) = delete;
+
+    /** ムーブ禁止 (親が保持するポインタの安定性を保つため)。 */
+    FNode2D(FNode2D&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
+    FNode2D& operator=(FNode2D&&)      = delete;
+
+    /** AddChild でツリーに入った直後に 1 回呼ばれる初期化フック。 */
+    virtual void OnSpawn()                noexcept {}
+
+    /**
+     * 毎フレーム呼ばれる可変刻み update フック。
+     *
+     * @param dt 前フレームからの経過秒。
+     */
+    virtual void OnUpdate(f32 /*dt*/)     noexcept {}
+
+    /**
+     * 固定刻み update フック (物理・決定論ロジック)。
+     *
+     * @details
+     * 同フレームで 0..max_fixed_steps 回呼ばれる。FGame::SetFixedTimeStep が 0 のとき
+     * (= 固定 update 無効) は呼ばれない。
+     * @param fixed_dt 固定刻みの秒 (SetFixedTimeStep で指定した値)。
+     */
+    virtual void OnFixedUpdate(f32 /*fixed_dt*/) noexcept {}
+
+    /**
+     * 描画フック。スプライト等を積む。
+     *
+     * @param rc 描画コマンドを積む先のレンダーコンテキスト。
+     */
+    virtual void OnDraw(RenderContext& /*rc*/) noexcept {}
+
+    /** ツリーから除去される直前に 1 回呼ばれる後始末フック。 */
+    virtual void OnDespawn()              noexcept {}
+
+    /**
+     * ローカル transform への可変参照を返す (位置・回転・スケールを直接書き換える)。
+     *
+     * @return ローカル transform への参照。
+     */
+    FTransform2D&       Local()       noexcept { return m_Local; }
+
+    /**
+     * ローカル transform への const 参照を返す。
+     *
+     * @return ローカル transform への const 参照。
+     */
+    const FTransform2D& Local() const noexcept { return m_Local; }
+
+    /**
+     * 親をたどって world transform を合成して返す (オンザフライ計算、キャッシュなし)。
+     *
+     * @return root からこのノードまで合成した world transform。
+     */
+    FTransform2D World() const noexcept;
+
+    /**
+     * 有効フラグを設定する。
+     *
+     * @param b false なら subtree ごと update をスキップする。
+     */
+    void SetEnabled(bool b) noexcept { m_Enabled = b; }
+
+    /**
+     * 有効フラグを返す。
+     *
+     * @return 有効なら true。
+     */
+    bool IsEnabled() const noexcept { return m_Enabled; }
+
+    /**
+     * 可視フラグを設定する。
+     *
+     * @param b false なら subtree ごと描画をスキップする。
+     */
+    void SetVisible(bool b) noexcept { m_Visible = b; }
+
+    /**
+     * 可視フラグを返す。
+     *
+     * @return 可視なら true。
+     */
+    bool IsVisible() const noexcept { return m_Visible; }
+
+    /**
+     * 子の描画順モード。
+     *
+     * @details
+     * 既定 Tree = 配列追加順 (従来挙動・ゼロオーバーヘッド)。見下ろしゲームの Y 遮蔽や、
+     * 背景/ワールド/前景/HUD のレイヤ分離に使う。
+     */
+    enum class EChildDrawOrder : u8 {
+        /** 配列追加順 (従来)。ソートしない。 */
+        Tree       = 0,
+
+        /** SortLayer 昇順 (低い層が奥=先に描画)。同層は配列順で安定。 */
+        Layer      = 1,
+
+        /** SortLayer 昇順 → 同層内は (world.y + YSortBias) 昇順。+Y=画面下なので小さい y を先に描画 = 見下ろし遮蔽。 */
+        LayerThenY = 2,
+    };
+
+    /**
+     * この node が「自分の子」を描画する順序を設定する (兄弟間のみ。木の階層は維持)。
+     *
+     * @param o 適用する子描画順モード。
+     */
+    void            SetChildDrawOrder(EChildDrawOrder o) noexcept { m_ChildOrder = o; }
+
+    /**
+     * 現在の子描画順モードを返す。
+     *
+     * @return 設定済みの EChildDrawOrder。
+     */
+    EChildDrawOrder ChildDrawOrder() const noexcept { return m_ChildOrder; }
+
+    /**
+     * この node に焼き込んだマテリアル効果の状態 (SpriteBatch 型に依存しない軽量 POD)。
+     *
+     * @details Node2D.h を軽く保つため、効果プリセットの値だけをここに持つ
+     *          (ESpriteEffect の整数値 + パラメータ)。DrawTree が rc.Sprites().SetEffect へ渡す。
+     */
+    struct FMaterialState {
+        i32   kind     = 0;            ///< 0 = Lit/PBR, 1 = Effect。
+        bool  active   = false;        ///< マテリアルが設定されているか。
+        // --- Effect ---
+        i32   effect   = 0;            ///< ESpriteEffect の整数値 (0 = None)。
+        f32   strength = 1.0f;         ///< 主効果量。
+        f32   p0 = 0.0f, p1 = 0.0f, p2 = 0.0f;  ///< 補助パラメータ。
+        FVec4 color{ 1, 1, 1, 1 };     ///< 染め色 / 縁色。
+        bool  animated = false;        ///< true で描画時に MaterialClock() を time に流す。
+        // --- Lit (PBR) ---
+        FVec4 baseColor{ 1, 1, 1, 1 }; ///< アルベド tint + 不透明度。
+        f32   metallic = 0.0f, roughness = 0.5f, normalStrength = 1.0f, ao = 1.0f;
+        FVec3 emissive{ 0, 0, 0 };     ///< 自己発光色。
+        f32   emissiveStrength = 0.0f; ///< 発光強度。
+        void* normalTex = nullptr;     ///< 法線マップ (非所有 IRhiTexture*、シーンが所有)。null=平面。
+        // --- シェーディングモード + トゥーン ---
+        i32   shadingMode = 0;         ///< 0=PBR, 1=Toon。
+        FVec3 shadow1Color{ 0.55f, 0.52f, 0.62f }; f32 shadow1Threshold = 0.5f;
+        FVec3 shadow2Color{ 0.32f, 0.30f, 0.40f }; f32 shadow2Threshold = 0.2f;
+        FVec3 rimColor{ 1, 1, 1 };     f32 rimPower = 4.0f;
+        FVec3 specColor{ 1, 1, 1 };    f32 specThreshold = 0.85f;
+        f32   toonSoftness = 0.05f;
+        // --- Substrate 風 拡張ロブ (PBR のみ) ---
+        f32   clearcoat = 0.0f, clearcoatRoughness = 0.1f, anisotropy = 0.0f;
+        f32   specularLevel = 0.5f, specularTint = 0.0f;
+        f32   sheen = 0.0f, sheenRoughness = 0.3f;   FVec3 sheenColor{ 1, 1, 1 };
+        f32   subsurface = 0.0f;                       FVec3 subsurfaceColor{ 1.0f, 0.3f, 0.2f };
+    };
+
+    /**
+     * この node に使用マテリアル (効果プリセット) を設定する。
+     *
+     * @details
+     * DrawTree がこの node 自身の描画 (OnDraw + 自分の component の OnDraw) を効果で包む
+     * (子には及ばない = 各 node が自分のマテリアルを持つ)。アニメ付き効果は MaterialClock()
+     * を参照する。マテリアルの値はコピーして焼き込む。
+     * @param mat 設定するマテリアル。
+     */
+    void SetMaterial(const FMaterial2D& mat) noexcept;
+
+    /** 使用マテリアルを外す (効果なしに戻す)。 */
+    void ClearMaterial() noexcept { m_Mat.active = false; }
+
+    /** PBR マテリアルの法線マップ (非所有 IRhiTexture*) を設定する。シーンが所有・遅延ロードする。 */
+    void SetMaterialNormalTex(void* tex) noexcept { m_Mat.normalTex = tex; }
+
+    /** この node の使用マテリアルの法線マップパス長が 0 でないか (シーンの遅延ロード判定用)。 */
+    const FMaterialState& MaterialState() const noexcept { return m_Mat; }
+
+    /** マテリアルが設定されているか。 */
+    bool HasMaterial() const noexcept { return m_Mat.active; }
+
+    /** PBR (Lit) マテリアルが設定されているか (シーンのライト収集要否の判定用)。 */
+    bool IsLitMaterial() const noexcept { return m_Mat.active && m_Mat.kind == 0; }
+
+    /** 自分自身のオクルーダー番号を設定する (シーンの影収集が毎フレーム設定。-1=自分は影源でない)。
+     *  lit 描画時にこの番号のオクルーダーをスキップし、自スプライトの自己影 (リング/直線) を防ぐ。 */
+    void SetSelfOccluder(i32 k) noexcept { m_SelfOccluder = k; }
+    /** 自分自身のオクルーダー番号 (-1=無し)。 */
+    i32  SelfOccluder() const noexcept { return m_SelfOccluder; }
+
+
+    /**
+     * この node の描画レイヤを設定する。
+     *
+     * @details 親が Layer/LayerThenY のとき兄弟ソートの第1キー。低いほど奥 (先に描画)。
+     * @param layer 描画レイヤ (既定 0)。
+     */
+    void SetSortLayer(i32 layer) noexcept { m_SortLayer = layer; }
+
+    /**
+     * 描画レイヤを返す。
+     *
+     * @return 設定済みの描画レイヤ。
+     */
+    i32  SortLayer() const noexcept { return m_SortLayer; }
+
+    /**
+     * Y-sort の pivot バイアスを設定する。
+     *
+     * @details world.y に加算してソートキーにする。足元で遮蔽したいときは正値 (+Y=画面下=足元)。
+     * @param bias world.y に加算するバイアス (既定 0)。
+     */
+    void SetYSortBias(f32 bias) noexcept { m_YSortBias = bias; }
+
+    /**
+     * Y-sort の pivot バイアスを返す。
+     *
+     * @return 設定済みのバイアス。
+     */
+    f32  YSortBias() const noexcept { return m_YSortBias; }
+
+    /**
+     * 親ノードを返す。
+     *
+     * @return 親ノード (root なら nullptr)。
+     */
+    FNode2D* Parent() const noexcept { return m_Parent; }
+
+    /**
+     * 直接の子の数を返す。
+     *
+     * @return 子の数。
+     */
+    u32     ChildCount() const noexcept { return static_cast<u32>(m_Children.Size()); }
+
+    /**
+     * i 番目の子を返す。
+     *
+     * @param i 子のインデックス。
+     * @return i 番目の子 (範囲外なら nullptr)。
+     */
+    FNode2D* Child(u32 i) const noexcept {
+        return i < m_Children.Size() ? m_Children[i].Get() : nullptr;
+    }
+
+    /**
+     * 直接の子 `child` を、子配列内のインデックス `to` の位置へ即時に移動する (兄弟の並べ替え)。
+     *
+     * @details エディタのヒエラルキーで兄弟順を入れ替える / 隙間へ挿入するのに使う。他の子の相対
+     * 順序は保たれる。`child` が直接の子でなければ false。`to` は配列サイズ-1 にクランプされる。
+     * 構造変更の予約ではなく即時適用 (描画/更新ループ外から呼ぶこと)。
+     * @param child 移動する直接の子。
+     * @param to 移動先インデックス。
+     * @return 移動したら true、`child` が子でなければ false。
+     */
+    bool MoveChild(FNode2D& child, u32 to) noexcept {
+        const u32 n = static_cast<u32>(m_Children.Size());
+        u32 from = n;
+        for (u32 i = 0; i < n; ++i) { if (m_Children[i].Get() == &child) { from = i; break; } }
+        if (from >= n) return false;
+        if (to >= n) to = n - 1;
+        if (from == to) return true;
+        TUniquePtr<FNode2D> moved = static_cast<TUniquePtr<FNode2D>&&>(m_Children[from]);
+        if (from < to) { for (u32 i = from; i < to; ++i) m_Children[i] = static_cast<TUniquePtr<FNode2D>&&>(m_Children[i + 1]); }
+        else           { for (u32 i = from; i > to; --i) m_Children[i] = static_cast<TUniquePtr<FNode2D>&&>(m_Children[i - 1]); }
+        m_Children[to] = static_cast<TUniquePtr<FNode2D>&&>(moved);
+        return true;
+    }
+
+    /**
+     * 子を追加して所有権を奪い、OnSpawn を即時に呼ぶ。
+     *
+     * @param child 追加する子 (所有権が移る)。
+     * @return 追加した子への参照 (チェイン記述用)。
+     */
+    FNode2D& AddChild(TUniquePtr<FNode2D> child) noexcept;
+
+    /**
+     * 自身を「破棄予定」にマークする。
+     *
+     * @details
+     * 実際の破棄は次の ResolveStructuralChanges で起こる
+     * (OnDespawn 呼出 → TArray から除去 → デストラクタで memory release)。
+     */
+    void Destroy() noexcept { m_PendingDestroy = true; }
+
+    /**
+     * 破棄予定フラグが立っているかを返す。
+     *
+     * @return 破棄予定なら true。
+     */
+    bool IsPendingDestroy() const noexcept { return m_PendingDestroy; }
+
+    /**
+     * 自分を `new_parent` の子に移動するよう要求する (フレーム境界で適用)。
+     *
+     * @details
+     * new_parent == nullptr は不正 (警告ログ + 無視)、自分自身 or 子孫を指定した場合も
+     * 不正 (cycle 検出、警告 + 無視)。ResolveStructuralChanges 内で m_Children TArray 間を
+     * Move し、parent ポインタを書き換える。OnSpawn/OnDespawn は呼ばれない
+     * (= 既に生きているノードの移動)。
+     * @param new_parent 移動先の親ノード。
+     */
+    void Reparent(FNode2D& new_parent) noexcept;
+
+    /**
+     * 親付け替え予定が立っているかを返す。
+     *
+     * @return 付け替え予定なら true。
+     */
+    bool IsPendingReparent() const noexcept { return m_PendingReparentTarget != nullptr; }
+
+    /**
+     * ノード単位に振られる generational handle を返す。
+     *
+     * @details
+     * Scene 内で唯一であることは保証されない (生成側が一意性を管理)。
+     * default は invalid (m_Packed == 0)。
+     * @return ノードの FNodeId。
+     */
+    FNodeId Id() const noexcept { return m_Id; }
+
+    /**
+     * ノード ID を設定する (内部用。生成側が割り当てる)。
+     *
+     * @param id 割り当てる FNodeId。
+     */
+    void   _SetId(FNodeId id) noexcept { m_Id = id; }
+
+    /**
+     * シーン直列化 ID(エディタ id)を返す(-1 = 未設定)。
+     *
+     * @details FNodeId(generational)と別の «保存される安定 ID»。オブジェクト参照
+     * プロパティの解決先キーに使う(ローダが .acscene の id から設定する)。
+     * @return 直列化 ID。
+     */
+    i32 SerialId() const noexcept { return m_SerialId; }
+
+    /** シーン直列化 ID を設定する(内部用。ローダ/エディタが割り当てる)。 */
+    void _SetSerialId(i32 id) noexcept { m_SerialId = id; }
+
+    /**
+     * subtree (this + 子孫) から直列化 ID 一致のノードを探す(DFS、無ければ nullptr)。
+     *
+     * @details オブジェクト参照の実行時解決に使う(通常は root から呼ぶ)。
+     * @param id 探す SerialId。
+     * @return 一致ノード(無ければ nullptr)。id<0 は常に nullptr。
+     */
+    FNode2D* FindBySerialId(i32 id) noexcept;
+
+    /**
+     * T の FComponent2D を構築・attach し、参照を返す。
+     *
+     * @details OnAttach は即時呼出。依存コンポーネントは OnRequire で先に確保される。
+     * @tparam T 追加する FComponent2D 派生型。
+     * @tparam Args T のコンストラクタ引数型。
+     * @param args T のコンストラクタへ転送する引数。
+     * @return attach した T への参照。
+     */
+    template<typename T, typename... Args>
+    T& AddComponent(Args&&... args) noexcept {
+        TUniquePtr<T> comp = MakeUnique<T>(Forward<Args>(args)...);
+        T* ref = comp.Get();
+        ref->_SetOwner(this);
+        // 依存コンポーネントを先に確保 (Unity の RequireComponent 相当)。
+        // 依存が m_Components に先に積まれるので、この後の OnAttach から
+        // GetComponent<Dep>() で確実に取得できる。
+        ref->OnRequire(*this);
+        m_Components.PushBack(TUniquePtr<FComponent2D>(comp.Release(), comp.GetAllocator()));
+        ref->OnAttach(*this);
+        ref->_MaybeAttachServices(SceneServices());   // ツリーが既に services 配線済なら即 fire
+        return *ref;
+    }
+
+    /**
+     * T があれば返し、無ければ追加して返す (RequireComponent の自動追加に使う)。
+     *
+     * @tparam T 取得または追加する FComponent2D 派生型。
+     * @tparam Args 新規追加時に T のコンストラクタへ渡す引数型。
+     * @param args 新規追加時に T のコンストラクタへ転送する引数。
+     * @return 既存または新規に追加した T への参照。
+     */
+    template<typename T, typename... Args>
+    T& GetOrAddComponent(Args&&... args) noexcept {
+        if (T* existing = GetComponent<T>()) return *existing;
+        return AddComponent<T>(Forward<Args>(args)...);
+    }
+
+    /**
+     * 最初に見つかった T 型コンポーネントを返す。
+     *
+     * @tparam T 探す FComponent2D 派生型。
+     * @return 見つかった T へのポインタ (無ければ nullptr)。
+     */
+    template<typename T>
+    T* GetComponent() noexcept {
+        const void* k = ComponentKindOf<T>();
+        for (u32 i = 0; i < m_Components.Size(); ++i) {
+            if (m_Components[i] && m_Components[i]->Kind() == k) {
+                return static_cast<T*>(m_Components[i].Get());
+            }
+        }
+        return nullptr;
+    }
+
+    /**
+     * T 型コンポーネントを持っているかを返す。
+     *
+     * @tparam T 探す FComponent2D 派生型。
+     * @return 持っていれば true。
+     */
+    template<typename T>
+    bool HasComponent() const noexcept {
+        const void* k = ComponentKindOf<T>();
+        for (u32 i = 0; i < m_Components.Size(); ++i) {
+            if (m_Components[i] && m_Components[i]->Kind() == k) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 最初に見つかった T 型コンポーネントを 1 つ除去する (OnDetach → 破棄)。
+     *
+     * @tparam T 除去する FComponent2D 派生型。
+     * @return 除去したら true、見つからなければ false。
+     */
+    template<typename T>
+    bool RemoveComponent() noexcept {
+        const void* k = ComponentKindOf<T>();
+        for (u32 i = 0; i < m_Components.Size(); ++i) {
+            if (m_Components[i] && m_Components[i]->Kind() == k) {
+                m_Components[i]->OnDetach();
+                m_Components[i].Reset();
+                // compact: 末尾を i に詰める (順序は壊れる)
+                if (i + 1 < m_Components.Size()) {
+                    m_Components[i] = Move(m_Components[m_Components.Size() - 1]);
+                }
+                m_Components.PopBack();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 全コンポーネントを除去する (各 OnDetach → 破棄)。Play 終了時のクリーンアップ等に使う。
+     */
+    void RemoveAllComponents() noexcept {
+        for (u32 i = 0; i < m_Components.Size(); ++i)
+            if (m_Components[i]) { m_Components[i]->OnDetach(); m_Components[i].Reset(); }
+        m_Components.Clear();
+    }
+
+    /**
+     * attach 済みコンポーネントの数を返す。
+     *
+     * @return コンポーネント数。
+     */
+    u32 ComponentCount() const noexcept { return static_cast<u32>(m_Components.Size()); }
+
+    /**
+     * i 番目のコンポーネントを返す (型を知らない汎用列挙。範囲外は nullptr)。
+     *
+     * @details シリアライズ / Play モード等が `Kind()`/`ReflectName()` 越しに横断利用する。
+     * @param i コンポーネントのインデックス。
+     * @return i 番目のコンポーネント (範囲外なら nullptr)。
+     */
+    FComponent2D*       ComponentAt(u32 i)       noexcept {
+        return i < m_Components.Size() ? m_Components[i].Get() : nullptr;
+    }
+
+    /** i 番目のコンポーネントを返す (const 版)。 */
+    const FComponent2D* ComponentAt(u32 i) const noexcept {
+        return i < m_Components.Size() ? m_Components[i].Get() : nullptr;
+    }
+
+    /**
+     * 構築済みのコンポーネントを非テンプレートで attach する (factory 生成物の取り付けに使う)。
+     *
+     * @details
+     * AddComponent<T> はコンパイル時に型が要るため、reflection factory で生成した
+     * `TUniquePtr<FComponent2D>` を取り付けられない。これはその受け口。OnRequire→OnAttach の
+     * lifecycle は AddComponent と同じ。`comp` はエンジンアロケータ所有であること
+     * (CreateComponentByName が満たす)。
+     * @param comp 取り付けるコンポーネント (所有権が移る、非 null 前提)。
+     * @return attach したコンポーネントへの参照。
+     */
+    FComponent2D& AttachComponent(TUniquePtr<FComponent2D> comp) noexcept {
+        FComponent2D* ref = comp.Get();
+        ref->_SetOwner(this);
+        ref->OnRequire(*this);
+        m_Components.PushBack(Move(comp));
+        ref->OnAttach(*this);
+        ref->_MaybeAttachServices(SceneServices());   // ツリーが既に services 配線済なら即 fire
+        return *ref;
+    }
+
+    /**
+     * ツリーに配線された FSceneServices を返す (root まで遡る。未配線なら nullptr)。
+     *
+     * @details services は root ノードにのみ設定され、子は root まで歩いて解決する
+     * (m_Owner/m_Parent と同じ「親が pointee を生かす」非所有ポインタ規約)。
+     * @return 配線済み FSceneServices ポインタ (未配線は nullptr)。
+     */
+    FSceneServices* SceneServices() const noexcept;
+
+    /**
+     * services ポインタを設定する (内部用。root ノードでのみ意味を持つ)。
+     *
+     * @param svc 設定する FSceneServices (非所有、nullptr で解除)。
+     */
+    void _SetSceneServices(FSceneServices* svc) noexcept { m_Services = svc; }
+
+    /**
+     * ツリーに配線された World サブシステム束を返す (root まで遡る。未配線なら nullptr)。
+     *
+     * @details services と同じく root にのみ設定され、子は walk-to-root で解決する。
+     * @return World スコープのコレクション (未配線は nullptr)。
+     */
+    FSubsystemCollection* Subsystems() const noexcept;
+
+    /**
+     * 型でサブシステムを取得する (World → GameInstance → Engine の順に検索)。
+     *
+     * @tparam T FSubsystem 派生型。
+     * @return T*(未配線/未登録なら nullptr)。
+     */
+    template<typename T>
+    T* GetSubsystem() const noexcept {
+        FSubsystemCollection* s = Subsystems();
+        return (s != nullptr) ? s->Get<T>() : nullptr;
+    }
+
+    /**
+     * サブシステム束ポインタを設定する (内部用。root ノードでのみ意味を持つ)。
+     *
+     * @param subs 設定する FSubsystemCollection (非所有、nullptr で解除)。
+     */
+    void _SetSubsystems(FSubsystemCollection* subs) noexcept { m_Subsystems = subs; }
+
+    /**
+     * root に services を設定し、subtree の全コンポーネントの OnAttachServices を一度発火する。
+     *
+     * @details ツリー構築完了後・services 生成後に 1 回呼ぶ (FScene2D / editor Play)。
+     * 既に発火済のコンポーネントは二重発火しない (各コンポーネントの内部フラグでガード)。
+     * @param svc 配線する FSceneServices。
+     */
+    void _ActivateServices(FSceneServices& svc) noexcept;
+
+    /**
+     * subtree 全体に可変刻み update を伝播する (root から呼ぶ)。
+     *
+     * @param dt 前フレームからの経過秒。
+     */
+    void UpdateTree(f32 dt) noexcept;
+
+    /**
+     * subtree 全体に固定刻み update を伝播する。
+     *
+     * @details Scene の OnFixedUpdate から root に対して 1 回呼ぶ。
+     * @param fixed_dt 固定刻みの秒。
+     */
+    void FixedUpdateTree(f32 fixed_dt) noexcept;
+
+    /**
+     * subtree 全体を描画する (root から呼ぶ)。
+     *
+     * @param rc 描画コマンドを積む先のレンダーコンテキスト。
+     */
+    void DrawTree(RenderContext& rc) noexcept;
+
+    /**
+     * フレーム境界で 1 回呼び、保留中の構造変更を適用する。
+     *
+     * @details
+     * pending_destroy なノードを subtree ごと OnDespawn 呼んで子配列から除去する
+     * (子から先に reap、その後に自分が抜ける)。また pending_reparent_target が
+     * セットされた子があれば、その子を target の m_Children へ Move する (cycle 検出済)。
+     */
+    void ResolveStructuralChanges() noexcept;
+
+private:
+    /**
+     * Reparent 操作で cycle が生じないかを確認する。
+     *
+     * @param candidate 移動先候補のノード。
+     * @return candidate が自分の子孫 (= cycle になる) なら true。
+     */
+    bool IsAncestorOf(const FNode2D* candidate) const noexcept;
+
+    /**
+     * m_ChildOrder != Tree のとき、子を (SortLayer, world.y) で安定ソートして描画する。
+     *
+     * @param rc 描画コマンドを積む先のレンダーコンテキスト。
+     */
+    void DrawChildrenSorted(RenderContext& rc) noexcept;
+
+    /** ローカル transform (真値。world は親から合成)。 */
+    FTransform2D m_Local{};
+
+    /**
+     * subtree に services を発火だけする (ポインタは設定しない、_ActivateServices の再帰部)。
+     *
+     * @param svc 発火に使う FSceneServices ポインタ。
+     */
+    void _ActivateSubtreeServices(FSceneServices* svc) noexcept;
+
+    /** 親ノード (root なら nullptr)。 */
+    FNode2D*     m_Parent          = nullptr;
+
+    /** 配線された FSceneServices (root にのみ設定、非所有。子は walk-to-root で解決)。 */
+    FSceneServices* m_Services     = nullptr;
+
+    /** 配線された World サブシステム束 (root にのみ設定、非所有。子は walk-to-root で解決)。 */
+    FSubsystemCollection* m_Subsystems = nullptr;
+
+    /** シーン直列化 ID(エディタ id、-1=未設定)。オブジェクト参照の解決キー。 */
+    i32 m_SerialId = -1;
+
+    /** 直接の子 (所有権を持つ)。 */
+    TArray<TUniquePtr<FNode2D>>      m_Children;
+
+    /** attach されたコンポーネント (所有権を持つ)。 */
+    TArray<TUniquePtr<FComponent2D>> m_Components;
+
+    /** ノードの generational handle (default = invalid)。 */
+    FNodeId      m_Id{};
+
+    /** 非 null なら次の resolve でこの target 配下へ移動する。 */
+    FNode2D*     m_PendingReparentTarget = nullptr;
+
+    /** 描画レイヤ (親ソート時の第1キー)。 */
+    i32          m_SortLayer       = 0;
+
+    /** Y-sort の pivot バイアス。 */
+    f32          m_YSortBias       = 0.0f;
+
+    /** 子の描画順モード。 */
+    EChildDrawOrder m_ChildOrder   = EChildDrawOrder::Tree;
+
+    /** 使用マテリアル (効果プリセット) の焼き込み状態。active=false なら効果なし。 */
+    FMaterialState m_Mat;
+
+    /** 自分自身のオクルーダー番号 (シーンの影収集が毎フレーム設定。-1=影源でない)。自己影スキップ用。 */
+    i32 m_SelfOccluder = -1;
+
+    /** 有効フラグ (false で subtree の update をスキップ)。 */
+    bool        m_Enabled         = true;
+
+    /** 可視フラグ (false で subtree の描画をスキップ)。 */
+    bool        m_Visible         = true;
+
+    /** OnSpawn 済みフラグ (二重 spawn 防止)。 */
+    bool        m_Spawned         = false;
+
+    /** 破棄予定フラグ (次の resolve で reap)。 */
+    bool        m_PendingDestroy = false;
+};
+
+} // namespace acs::game
+
+#include <cmath>
+
+namespace acs::game {
+
+/**
+ * 参照したノードへ追従する 2D コンポーネント(オブジェクト参照プロパティのデモ)。
+ *
+ * @details
+ * public メンバ + 単一継承なので ACS_RFIELD_REF / ACS_RFIELD_D で offset 反射でき、
+ * authored 値(target ID / speed)が実体へ apply される(Play/standalone でも一致)。
+ * OnUpdate で target ID を FNode2D* へ解決し、speed[units/sec] で近づく。
+ */
+class FFollow2DComponent : public FComponent2D {
+public:
+    ACS_GAME_COMPONENT_KIND(FFollow2DComponent)
+
+    /** 追従先ノードの安定 ID(-1 = «なし»)。エディタの «オブジェクト参照» ピッカーで設定。 */
+    i32 target = -1;
+
+    /** 追従速度(units/sec)。 */
+    f32 speed  = 3.0f;
+
+    /** target に到達したか(実行時の «読み取り専用» ステータス = VisibleAnywhere のデモ)。 */
+    bool arrived = false;
+
+    void OnUpdate(f32 dt) noexcept override {
+        if (target < 0 || speed <= 0.0f || dt <= 0.0f) return;
+        if (!HasOwner()) return;
+        FNode2D* owner = &Owner();
+
+        FNode2D* tgt = ResolveTarget(owner);
+        if (tgt == nullptr || tgt == owner) return;
+
+        // 同階層前提の簡易追従(owner/target が同じ親 = local が比較可能)。
+        const FVec2 cur = owner->Local().position;
+        const FVec2 dst = tgt->Local().position;
+        const FVec2 d{ dst.x - cur.x, dst.y - cur.y };
+        const f32 len  = std::sqrt(d.x * d.x + d.y * d.y);
+        const f32 step = speed * dt;
+        if (len <= step || len < 1e-5f) { owner->Local().position = dst; arrived = true; }   // 到達
+        else { owner->Local().position = FVec2{ cur.x + d.x / len * step,
+                                                cur.y + d.y / len * step }; arrived = false; }
+    }
+
+    /** 現在の参照/速度をログ出力する(BlueprintCallable + CallInEditor のデモ関数)。 */
+    ACS_FUNCTION(BlueprintCallable, CallInEditor)
+    void Ping() noexcept {
+        ACS_LOG_INFO("[Follow] Ping! target=%d speed=%.1f arrived=%d", target, static_cast<double>(speed), arrived ? 1 : 0);
+    }
+
+private:
+    /** target ID を root から解決して返す(結果は target 変化までキャッシュ)。 */
+    FNode2D* ResolveTarget(FNode2D* owner) noexcept {
+        if (m_Cached != nullptr && m_CachedFor == target) return m_Cached;
+        FNode2D* root = owner;
+        while (root->Parent() != nullptr) root = root->Parent();
+        m_Cached    = root->FindBySerialId(target);
+        m_CachedFor = target;
+        return m_Cached;
+    }
+
+    FNode2D* m_Cached    = nullptr;   ///< 解決済み参照先(キャッシュ)。
+    i32      m_CachedFor = -2;        ///< キャッシュ時の target(変化検出用、初期値は target と不一致）。
 };
 
 } // namespace acs::game
@@ -32788,6 +35814,17 @@ struct SamplerDesc {
 
     /** 異方性度数（ESamplerFilter::Anisotropic のときのみ有効）。 */
     u32            max_anisotropy = 16;
+
+    /**
+     * 比較サンプラにするか（シャドウの SampleCmpLevelZero 用）。
+     *
+     * @details
+     * true にすると HW 深度比較 PCF サンプラになる（フィルタは比較版＝タップごとに 2x2
+     * バイリニア比較）。比較関数は LessEqual 固定（lit ⇔ cmp ≤ stored_depth）。シェーダ側は
+     * SamplerComparisonState で受け、SampleCmpLevelZero(s, uv, my_d - bias) で滑らかな
+     * penumbra を得る。WickedEngine の sampler_cmp_depth 相当。通常テクスチャには使わない。
+     */
+    bool           comparison  = false;
 };
 
 } // namespace acs
@@ -33034,6 +36071,9 @@ struct FPipelineDesc {
      * stencil テスト/書込みが効く。
      */
     FStencilDesc      stencil    = {};
+
+    /** MSAA サンプル数 (1=非 MSAA)。描画先 RT の sample_count と一致させること。 */
+    u32               sample_count = 1;
 };
 
 /**
@@ -33058,6 +36098,43 @@ public:
  */
 TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
                                                        const FPipelineDesc& desc) noexcept;
+
+/**
+ * compute パイプライン生成パラメータ (Phase 0)。
+ *
+ * @details CS + binding slot 数/名前。cbuffer(b#)・SRV(t#、StructuredBuffer/Texture)・UAV(u#、
+ * RWTexture/RWStructuredBuffer) を名前ベースで Diligent SRB に割り当てる。
+ */
+struct FComputePipelineDesc {
+    /** compute シェーダ。 */
+    IRhiShader* cs            = nullptr;
+    /** 定数バッファ slot 数 b0..。 */
+    u32         cbuffer_slots = 0;
+    /** SRV slot 数 t0.. (Texture / StructuredBuffer 読み取り)。 */
+    u32         srv_slots     = 0;
+    /** UAV slot 数 u0.. (RWTexture / RWStructuredBuffer 書き込み)。 */
+    u32         uav_slots     = 0;
+    /** 各 cbuffer slot の HLSL 名 (Diligent の名前 lookup 用)。 */
+    const char* cbuffer_names[16] = {};
+    /** 各 SRV slot の HLSL 名。 */
+    const char* srv_names[16]     = {};
+    /** 各 UAV slot の HLSL 名。 */
+    const char* uav_names[16]     = {};
+    /** static サンプラ数。 */
+    u32         static_sampler_count = 0;
+    /** static サンプラ s0..。 */
+    SamplerDesc static_samplers[16] = {};
+};
+
+/**
+ * compute パイプライン (PSO) を生成する。
+ *
+ * @param device パイプライン生成に使う RHI デバイス。
+ * @param desc compute パイプライン生成パラメータ。
+ * @return 成功なら所有権付きパイプライン、生成失敗ならエラー (Diligent backend のみ実装)。
+ */
+TResult<TUniquePtr<IRhiPipeline>> CreateRhiComputePipeline(IRhiDevice& device,
+                                                              const FComputePipelineDesc& desc) noexcept;
 
 } // namespace acs
 
@@ -33112,6 +36189,16 @@ struct FBufferDesc {
 
     /** 初期データへのポインタ (任意、不要なら nullptr)。 */
     const void* initial_data = nullptr;
+
+    /** 構造化バッファの 1 要素のバイト数 (Phase 0)。>0 で BUFFER_MODE_STRUCTURED + ElementByteStride
+     *  → SRV/UAV view が作られ compute から StructuredBuffer / RWStructuredBuffer として読み書き可能に。
+     *  usage=Storage と併用する (light culling のタイルバケット等)。 */
+    u32         struct_stride = 0;
+
+    /** true で BIND_INDIRECT_DRAW_ARGS を追加し、DispatchIndirect の引数バッファに使える。
+     *  compute が結果を書き込む場合は usage=Storage + struct_stride>0 と併用する
+     *  (ThreadGroupCountX/Y/Z を RWStructuredBuffer<uint> で書き、そのまま indirect 引数に使う)。 */
+    bool        indirect_args = false;
 };
 
 /**
@@ -33184,6 +36271,112 @@ enum class EStencilMode : u8 {
 };
 
 /**
+ * スプライトのピクセル効果プリセット (マテリアルアセットが参照する基本シェーダ)。
+ *
+ * @details
+ * SetEffect で切り替える。マテリアルアセット (.acsmat) は「どのプリセットを使うか + パラメータ」
+ * を保持し、ノードはそのマテリアルを参照するだけ。シェーダを書けない人でも見た目を変えられる。
+ * UV 歪み系 (Wave/Pixelate) はサンプル前、色系 (Grayscale/Tint/...) はサンプル後に適用される。
+ */
+enum class ESpriteEffect : u8 {
+    None       = 0,   ///< 効果なし (通常描画)。
+    Grayscale  = 1,   ///< グレースケール (strength=度合い 0..1)。
+    Tint       = 2,   ///< 色染め (strength=度合い 0..1, color=染め色)。
+    Vignette   = 3,   ///< 周辺減光 (strength=強さ, p0=開始半径, p1=終了半径, color=縁色)。
+    Wave       = 4,   ///< 波打ち UV 歪み (strength=振幅, p0=周波数, p1=速度, time)。
+    Pixelate   = 5,   ///< モザイク (p0=セル数X, p1=セル数Y)。
+    HueShift   = 6,   ///< 色相回転 (strength=角度°, p0=回転速度°/s, time)。
+    Brightness = 7,   ///< 明るさ/コントラスト (strength=明るさ, p0=コントラスト)。
+    Invert     = 8,   ///< 色反転 (strength=度合い 0..1)。
+    Sepia      = 9,   ///< セピア調 (strength=度合い 0..1)。
+    Posterize  = 10,  ///< 階調化/ポスタリゼーション (strength=度合い, p0=階調数)。
+    Scanline   = 11,  ///< 走査線/CRT風 (strength=濃さ, p0=線の本数)。
+    Chromatic  = 12,  ///< 色収差 (strength=度合い, p0=ずれ量)。要テクスチャ。
+};
+
+/** 2D ライトの種類。 */
+enum class ELightType : u8 {
+    Point       = 0,   ///< 点光源 (位置 + 半径減衰、全方向)。
+    Spot        = 1,   ///< スポット (位置 + 半径 + 円錐方向)。
+    Directional = 2,   ///< 平行光 (方向のみ、減衰なし。太陽光)。
+};
+
+/** 2D ライト (lit スプライト用)。座標はスプライトと同じピクセル空間 (左上原点)。 */
+struct FSpriteLight {
+    FVec2 pos{ 0, 0 };           ///< 光源位置 (px、Point/Spot)。
+    f32   radius   = 256.0f;     ///< 届く半径 (px、Point/Spot)。
+    FVec3 color{ 1, 1, 1 };      ///< 光の色 (RGB)。
+    f32   intensity = 1.0f;      ///< 明るさ倍率。
+    i32   type      = 0;         ///< ELightType (0=Point, 1=Spot, 2=Directional)。
+    FVec2 dir{ 0, 1 };           ///< スポット軸 / 平行光の進行方向 (正規化)。
+    f32   coneInner = 0.92f;     ///< スポット内円錐 (cos、1=細い)。
+    f32   coneOuter = 0.70f;     ///< スポット外円錐 (cos、< inner)。
+};
+
+/** 影を落とすオクルーダー (lit スプライトのソフト影用)。中心/サイズは screen px。 */
+/** 影オクルーダーの多角形頂点の最大数 (三角形=3、クラウン/星等の複雑形状まで。超は切り詰め)。 */
+inline constexpr u32 kMaxOccPolyVerts = 32;
+
+struct FSpriteOccluder {
+    FVec2 center{ 0, 0 };       ///< 中心 (px)。
+    f32   radius = 32.0f;       ///< 円の半径 / 外接半径 (px、penumbra 幅算出にも使用)。
+    i32   shape  = 0;           ///< 0=円, 1=箱, 2=多角形。
+    FVec2 halfExtents{ 16, 16 };///< 箱の半サイズ (px、shape=1)。
+    f32   rotation = 0.0f;      ///< 箱の回転 (ラジアン、shape=1)。
+    // --- 多角形 (shape=2: 三角形/ポリゴン) ---
+    FVec2 polyVerts[kMaxOccPolyVerts] = {};  ///< 多角形の頂点 (px、world/screen 空間)。
+    i32   polyCount = 0;                     ///< 多角形の頂点数 (3..kMaxOccPolyVerts)。
+};
+
+/** lit スプライトのマテリアルパラメータ (b1 の cbuffer LitMaterial)。PBR/トゥーン両対応。 */
+struct FLitMaterialParams {
+    FVec4 baseColor       = FVec4{ 1, 1, 1, 1 };  ///< アルベド tint (rgb) + 不透明度 (a)。
+    f32   metallic        = 0.0f;                 ///< 0=誘電体 .. 1=金属 (PBR)。
+    f32   roughness       = 0.5f;                 ///< 0=鏡面 .. 1=拡散 (PBR)。
+    f32   normalStrength  = 1.0f;                 ///< 法線マップの強さ。
+    f32   ao              = 1.0f;                 ///< アンビエントオクルージョン。
+    FVec3 emissive        = FVec3{ 0, 0, 0 };     ///< 自己発光色。
+    f32   emissiveStrength = 0.0f;                ///< 発光強度。
+    // --- シェーディングモード ---
+    i32   shadingMode     = 0;                    ///< 0=PBR, 1=Toon。
+    // --- トゥーン (shadingMode=1) ---
+    FVec3 shadow1Color    = FVec3{ 0.55f, 0.52f, 0.62f }; ///< 1影の色。
+    f32   shadow1Threshold = 0.5f;                ///< 1影のしきい値 (lum)。
+    FVec3 shadow2Color    = FVec3{ 0.32f, 0.30f, 0.40f }; ///< 2影 (より暗い) の色。
+    f32   shadow2Threshold = 0.2f;                ///< 2影のしきい値 (lum)。
+    FVec3 rimColor        = FVec3{ 1, 1, 1 };     ///< リムライト色。
+    f32   rimPower        = 4.0f;                  ///< リムの鋭さ。
+    FVec3 specColor       = FVec3{ 1, 1, 1 };     ///< トゥーンスペキュラ色。
+    f32   specThreshold   = 0.85f;                ///< スペキュラのステップしきい値。
+    f32   toonSoftness    = 0.05f;                ///< 影境界の柔らかさ。
+    // --- Substrate 風 拡張ロブ (shadingMode=0 PBR のみ有効) ---
+    f32   clearcoat          = 0.0f;              ///< クリアコート層の強さ (上層 GGX、IOR1.5)。
+    f32   clearcoatRoughness = 0.1f;              ///< クリアコート層のラフネス。
+    f32   anisotropy         = 0.0f;              ///< 異方性 -1..1 (横/縦に伸びるハイライト、T=画面X)。
+    f32   specularLevel      = 0.5f;              ///< 誘電体反射率 (0.5→F0=0.04、glTF KHR_specular)。
+    f32   specularTint       = 0.0f;              ///< 鏡面を base 色へ寄せる量 (0=白)。
+    f32   sheen              = 0.0f;              ///< シーン (布の逆反射リム) の強さ。
+    f32   sheenRoughness     = 0.3f;              ///< シーンのラフネス (Charlie 分布)。
+    FVec3 sheenColor         = FVec3{ 1, 1, 1 };  ///< シーン色。
+    f32   subsurface         = 0.0f;              ///< サブサーフェス (wrap 拡散 + 影色付け) の量。
+    FVec3 subsurfaceColor    = FVec3{ 1.0f, 0.3f, 0.2f }; ///< 透過部の色 (肌/蝋)。
+    // --- 描画コンテキスト (マテリアル値ではない。描画側が設定) ---
+    i32   selfOccluder       = -1;                ///< 自分自身のオクルーダー番号 (-1=無し)。自己影スキップ。
+    i32   selfShadowOccluder = -1;                ///< 自己影 (m_SelfShadow=1) の自分の番号 (-1=無し)。内部=umbra。
+    u32   occluderSkipMask   = 0;                 ///< 自分より下 (先描画) のキャスターのスキップマスク (bit j=occluder j)。
+};
+
+/** ESpriteEffect のパラメータ (b1 の cbuffer Effect に対応)。 */
+struct FEffectParams {
+    f32   strength = 1.0f;               ///< 主効果量。
+    f32   p0       = 0.0f;               ///< 補助パラメータ 0。
+    f32   p1       = 0.0f;               ///< 補助パラメータ 1。
+    f32   p2       = 0.0f;               ///< 補助パラメータ 2 (予備)。
+    f32   time     = 0.0f;               ///< アニメ用の経過秒。
+    FVec4 color    = FVec4{ 1, 1, 1, 1 };///< 染め色 / 縁色。
+};
+
+/**
  * ピクセル座標で 2D スプライト・矩形を描くバッチ式ヘルパ。
  *
  * @details
@@ -33215,7 +36408,8 @@ public:
      */
     TResult<void> Init(IRhiDevice& device,
                       EFormat rt_format     = EFormat::B8G8R8A8_UNorm,
-                      u32 max_sprites      = 4096) noexcept;
+                      u32 max_sprites      = 4096,
+                      u32 msaa_samples     = 1) noexcept;
 
     /** 確保した GPU リソースを解放する。 */
     void Shutdown() noexcept;
@@ -33425,6 +36619,61 @@ public:
      */
     void SetStencilMode(EStencilMode mode, u8 ref = 1) noexcept;
 
+    /**
+     * ピクセル効果 (マテリアルプリセット) を適用する。
+     *
+     * @details
+     * SetBlendMode と同じ要領でバッチを flush してから効果 PSO + b1 パラメータへ切り替える。
+     * 以降の Draw 系はすべてこの効果で描かれる。ClearEffect (または Begin) で解除する。
+     * effect == None を渡すと ClearEffect と同じ動作。効果 PSO/シェーダ/CB は初回呼び出し時に
+     * 遅延生成される (効果を使わないシーンでは作らない)。stencil / additive とは併用しない。
+     * @param effect 適用する効果プリセット。
+     * @param params 効果のパラメータ。
+     */
+    void SetEffect(ESpriteEffect effect, const FEffectParams& params) noexcept;
+
+    /** ピクセル効果を解除し、通常 (アルファブレンド) パイプラインへ戻す。 */
+    void ClearEffect() noexcept;
+
+    /**
+     * lit スプライト用の 2D 点光源を設定する (フレーム内で一度、lit 描画の前に呼ぶ)。
+     *
+     * @details
+     * 以降の SetLitMaterial → Draw は、ここで渡したライト群で陰影付けされる。light_height は
+     * 光源の «高さ» (法線が効くよう平面より上に置く)。count は kMaxLitLights で頭打ち。
+     * @param lights 点光源配列。
+     * @param count ライト数。
+     * @param ambient 環境光 (RGB)。
+     * @param light_height 光源の高さ (px、N·L のため平面より上)。
+     * @param occluders 影を落とす円オクルーダー配列 (null=影なし)。
+     * @param occ_count オクルーダー数 (kMaxLitLights で頭打ち)。
+     */
+    void SetLights(const FSpriteLight* lights, u32 count, FVec3 ambient,
+                   f32 light_height = 80.0f,
+                   const FSpriteOccluder* occluders = nullptr, u32 occ_count = 0) noexcept;
+
+    /** シーンに有効な 2D ライトがあるか (直近の SetLights の count>0)。
+     *  マテリアル無しノードを既定 Lit で陰影付けするかの判定に使う。 */
+    bool LightsActive() const noexcept { return m_SceneLightCount > 0; }
+
+    /** ライト状態を「無し」に戻す (SetLights を呼ばないパスで前フレームの残留を防ぐ)。 */
+    void ClearLights() noexcept { m_SceneLightCount = 0; }
+
+    /**
+     * lit (PBR) マテリアルを適用する。以降の Draw は法線マップ + ライトで陰影付けされる。
+     *
+     * @details
+     * SetEffect と同じ要領でバッチを flush してから lit PSO + b1 (マテリアル) + 法線テクスチャ (t1)
+     * へ切り替える。アルベドは通常どおり t0 (Draw に渡すテクスチャ)。事前に SetLights が必要。
+     * normal_tex が null なら平面法線 (凹凸なし) になる。ClearLit (または Begin) で解除。
+     * @param mat PBR マテリアルパラメータ。
+     * @param normal_tex 法線マップ (null=平面)。
+     */
+    void SetLitMaterial(const FLitMaterialParams& mat, IRhiTexture* normal_tex) noexcept;
+
+    /** lit を解除し、通常 (アンリット) パイプラインへ戻す。 */
+    void ClearLit() noexcept;
+
     /** 描画を終了し、残りのバッチを GPU に送る。 */
     void End() noexcept;
 
@@ -33499,6 +36748,20 @@ private:
     bool EnsureAdditivePipeline() noexcept;
 
     /**
+     * ピクセル効果 PS + PSO + 効果用 CB リングを遅延生成する。
+     *
+     * @return 生成済み or 生成成功なら true。
+     */
+    bool EnsureEffectPipeline() noexcept;
+
+    /**
+     * lit (PBR) スプライトの VS/PS + PSO + マテリアル/ライト CB + 平面法線テクスチャを遅延生成する。
+     *
+     * @return 生成済み or 生成成功なら true。
+     */
+    bool EnsureLitPipeline() noexcept;
+
+    /**
      * vs/ps/layout 等のパイプライン共通部を埋める。
      *
      * @param pd 埋める対象のパイプライン記述。
@@ -33541,6 +36804,86 @@ private:
 
     /** 現在のブレンドモード。 */
     EBlendMode               m_BlendMode = EBlendMode::AlphaBlend;
+
+    /** ピクセル効果用ピクセルシェーダ (全プリセットを id 分岐で内包)。初回 SetEffect で遅延生成。 */
+    TUniquePtr<IRhiShader>   m_EffectPs;
+
+    /** ピクセル効果用 PSO (b1 に cbuffer Effect、DSV 無し・AlphaBlend)。初回 SetEffect で遅延生成。 */
+    TUniquePtr<IRhiPipeline> m_EffectPipe;
+
+    /** 効果 PS/PSO/CB が生成済みかのフラグ。 */
+    bool                     m_EffectReady  = false;
+
+    /** 現在ピクセル効果が有効か (ClearEffect/Begin で false)。 */
+    bool                     m_EffectActive = false;
+
+    /**
+     * 効果パラメータ CB のリング本数。
+     *
+     * @details
+     * view CB と同じく、1 フレーム内で複数ノードが別効果を使うと単一アドレスを上書きし合う
+     * (DX12 は即時 memcpy、GPU が読むのは draw 実行時) ため、SetEffect ごとに別スロットへ書く。
+     * ただし view 切替がフレーム内 ~6 回なのに対し、効果は «マテリアル付きノード 1 つにつき
+     * 1 回» 消費する (DrawScene / DrawTree が per-node で SetEffect) ので桁が大きく異なる。
+     * リングがフレーム内で一周すると、まだ GPU 実行されていないスロットを上書きして効果
+     * パラメータが化けるため、想定される «同時表示マテリアルノード数» を十分上回る本数にする。
+     * 256 を超える効果ノードを 1 フレームで描く極端なシーンではこの値を増やすこと。
+     */
+    static constexpr u32     kEffectRing = 256;
+
+    /** 効果パラメータ CB のリング (cbuffer Effect)。 */
+    TUniquePtr<IRhiBuffer>   m_EffectCb[kEffectRing];
+
+    /** 現在使用中の効果 CB インデックス。 */
+    u32                      m_EffectCbCur = 0;
+
+    /** lit スプライトの同時ライト上限。 */
+    static constexpr u32     kMaxLitLights = 16;
+
+    /**
+     * lit マテリアル CB のリング本数。
+     *
+     * @details
+     * 効果 CB (kEffectRing) と同じく «マテリアル付き lit ノード 1 つにつき 1 回» 消費する
+     * (DrawScene / DrawTree が per-node で SetLitMaterial)。フレーム内で一周すると未実行
+     * スロットを上書きしてマテリアルパラメータが化けるため、同時表示 lit ノード数を十分
+     * 上回る本数にする。これを超える極端なシーンではこの値を増やすこと。
+     */
+    static constexpr u32     kLitMatRing = 256;
+
+    /** lit スプライト VS (world pos を出力)。初回 SetLitMaterial で遅延生成。 */
+    TUniquePtr<IRhiShader>   m_LitVs;
+
+    /** lit スプライト PS (法線マップ + ライトで BRDF)。 */
+    TUniquePtr<IRhiShader>   m_LitPs;
+
+    /** lit スプライト PSO (t0=albedo, t1=normal, b1=material, b2=lights)。 */
+    TUniquePtr<IRhiPipeline> m_LitPipe;
+
+    /** lit リソースが生成済みか。 */
+    bool                     m_LitReady  = false;
+
+    /** 現在 lit が有効か (ClearLit/Begin で false)。 */
+    bool                     m_LitActive = false;
+
+    /** マテリアル CB のリング (cbuffer LitMaterial、per-node 消費)。 */
+    TUniquePtr<IRhiBuffer>   m_LitMatCb[kLitMatRing];
+
+    /** 現在使用中のマテリアル CB インデックス。 */
+    u32                      m_LitMatCbCur = 0;
+
+    /** ライト CB (cbuffer Lights、フレーム内で SetLights が一度書く)。 */
+    TUniquePtr<IRhiBuffer>   m_LightsCb;
+
+    /** 直近の SetLights で渡されたライト数 (LightsActive 判定用)。 */
+    u32                      m_SceneLightCount = 0;
+
+    /** MSAA サンプル数 (1=非 MSAA)。全 PSO に焼き込まれるため Init 時に決める。
+     *  描画先 RT の sample_count と一致させること。 */
+    u32                      m_MsaaSamples = 1;
+
+    /** 法線マップ未指定時の平面法線 1x1 テクスチャ ((128,128,255)=+Z)。 */
+    TUniquePtr<IRhiTexture>  m_FlatNormal;
 
     /** 頂点バッファ。 */
     TUniquePtr<IRhiBuffer>   m_Vb;
@@ -35258,6 +38601,54 @@ public:
      */
     FSceneServices* _ServicesOrNull() const noexcept { return m_Services.Get(); }
 
+    // ===== サブシステム (World スコープ) =====
+
+    /**
+     * このシーン(World スコープ)のサブシステム束を返す。
+     *
+     * @details World に無いサブシステムは GameInstance → Engine へフォールバックする
+     * (FSceneManager が parent を配線する)。
+     * @return World スコープのコレクション。
+     */
+    FSubsystemCollection& Subsystems() noexcept { return m_WorldSubsystems; }
+
+    /**
+     * 型でサブシステムを取得する (World → GameInstance → Engine の順に検索)。
+     *
+     * @tparam T FSubsystem 派生型。
+     * @return T*(未登録なら nullptr)。
+     */
+    template<typename T>
+    T* GetSubsystem() noexcept { return m_WorldSubsystems.Get<T>(); }
+
+    /**
+     * World サブシステムを初期化する (内部用。FSceneManager が push 時に呼ぶ)。
+     *
+     * @param parent GameInstance スコープのコレクション(フォールバック先)。
+     */
+    void _InitWorldSubsystems(FSubsystemCollection* parent) noexcept {
+        m_WorldSubsystems.Initialize(ESubsystemScope::World, parent, this);   // owner = この Scene
+        _OnWorldSubsystemsReady();
+    }
+
+    /** World サブシステムを 1 フレーム進める (内部用)。 */
+    void _TickWorldSubsystems(f32 dt) noexcept { m_WorldSubsystems.Tick(dt); }
+
+    /** World サブシステムを解体する (内部用。FSceneManager が pop 時に呼ぶ)。 */
+    void _DeinitWorldSubsystems() noexcept { m_WorldSubsystems.Deinitialize(); }
+
+    /** World サブシステムへのポインタ (内部用。派生がノードへ配線するのに使う)。 */
+    FSubsystemCollection* _WorldSubsystemsPtr() noexcept { return &m_WorldSubsystems; }
+
+protected:
+    /**
+     * World サブシステムの初期化直後に呼ばれる内部フック(OnEnter より前)。
+     *
+     * @details FScene2D が override してルートノードへサブシステム束を配線し、
+     * 配下のノード/コンポーネントから GetSubsystem<T>() を使えるようにする。
+     */
+    virtual void _OnWorldSubsystemsReady() noexcept {}
+
 private:
     /** 所属する FGame (default = nullptr、_SetContext で配線)。 */
     FGame*                    m_Game     = nullptr;
@@ -35267,6 +38658,9 @@ private:
 
     /** attach されたサービス束 (WantedServices に応じて FSceneManager が確保、所有権を持つ)。 */
     TUniquePtr<FSceneServices> m_Services;
+
+    /** World スコープのサブシステム束 (push 時に FSceneManager が Initialize)。 */
+    FSubsystemCollection m_WorldSubsystems;
 };
 
 } // namespace game
@@ -35799,6 +39193,30 @@ public:
      */
     FFadeTransition& Fade() noexcept { return m_Fade; }
 
+    /**
+     * GameInstance スコープのサブシステム束を返す(Engine スコープへフォールバックする)。
+     *
+     * @details Scene の World サブシステム束はこれを parent にする。
+     * @return GameInstance スコープのコレクション。
+     */
+    FSubsystemCollection& GameInstanceSubsystems() noexcept { return m_GameInstanceSubsystems; }
+
+    /**
+     * Engine スコープ(アプリ全体寿命)のサブシステム束を返す。
+     *
+     * @return Engine スコープのコレクション。
+     */
+    FSubsystemCollection& EngineSubsystems() noexcept { return m_EngineSubsystems; }
+
+    /**
+     * 型でサブシステムを取得する(GameInstance → Engine の順に検索)。
+     *
+     * @tparam T FSubsystem 派生型。
+     * @return T*(未登録なら nullptr)。
+     */
+    template<typename T>
+    T* GetSubsystem() noexcept { return m_GameInstanceSubsystems.Get<T>(); }
+
 protected:
     /**
      * 最初に push される Scene を返す (派生クラスで実装必須)。
@@ -35862,6 +39280,12 @@ private:
 
     /** シーン跨ぎの型消去永続状態 (1 個固定)。 */
     FAppStateSlot  m_AppState;
+
+    /** Engine スコープ(アプリ全体寿命)のサブシステム束。 */
+    FSubsystemCollection m_EngineSubsystems;
+
+    /** GameInstance スコープ(ゲームセッション寿命、シーン跨ぎ)のサブシステム束。 */
+    FSubsystemCollection m_GameInstanceSubsystems;
 
     /** 全シーン共有の HUD フォント (game 寿命)。 */
     Font          m_UiFont;
@@ -36248,689 +39672,6 @@ private:
 // re-implementing the same root/update/render plumbing in every scene.
 
 
-// ===================== gameframework/Node2D.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — FNode2D
-//
-// シーンの中身を表す唯一のノードクラス (2D 専用、抽象 Node 基底は作らない)。
-// 親子ツリーで階層的な transform を持ち、各ノードが OnSpawn/OnUpdate/OnDraw/
-// OnDespawn を override してロジック・描画を書く。
-//
-// 設計選択:
-//   ・**non-copy / non-move**: `TUniquePtr<FNode2D>` で所有、`FNode2D*` で参照。
-//     `AddChild(MakeUnique<MyNode>(args))` が標準パターン。
-//   ・**lifecycle**: `AddChild` 即時 `OnSpawn`、`Destroy()` で
-//     `m_PendingDestroy` をマーク、フレーム境界の `ResolveStructuralChanges()`
-//     で OnDespawn を呼んで TArray から除去。子ツリーが先に reap される。
-//   ・**transform**: `m_Local` を真値、`World()` は親をたどってオンザフライ計算。
-//   ・**iteration safety**: UpdateTree/DrawTree は index ベースで走査。
-//     AddChild が走査中に呼ばれた場合の新規子は同フレームで走らせる (Unity 互換)。
-//     Destroy は遅延 reap なので走査中の即時除去はしない。
-
-
-// ===================== gameframework/Transform2D.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — FTransform2D
-//
-// 2D ノードの位置/回転/スケールを 20 byte の値型で表す。`FMat4` 直接保持より
-// 小さく合成が速い、かつ分解が非可逆でない (= 親 transform の rotation/scale を
-// 取り出して使える)。
-//
-// 合成規約:
-//   `world = parent.Compose(local)` で「親の座標系に local を載せる」。
-//   ・world.scale    = parent.scale * local.scale  (component-wise)
-//   ・world.rotation = parent.rotation + local.rotation
-//   ・world.position = parent.position + Rotate(parent.scale * local.position, parent.rotation)
-//
-// ToMat4() は FSpriteBatch::SetView や 4x4 行列が必要な場面でだけ使う (合成内では
-// 使わない、誤差/コストを避けるため)。
-
-
-namespace acs::game {
-
-/**
- * 2D ノードの位置/回転/スケールを表す 20 byte の値型 transform。
- *
- * @details
- * FMat4 を直接保持するより小さく合成が速く、かつ分解が可逆 (親の rotation/scale を
- * 取り出して使える)。合成は `world = parent.Compose(local)` の規約で行い、scale は
- * component-wise 積、rotation は和、position は親 scale でスケール後に親 rotation で
- * 回して親 position を加算する。
- */
-struct FTransform2D {
-    /** 位置 (親座標系での平行移動)。 */
-    FVec2 position{0.0f, 0.0f};
-
-    /** 回転 (ラジアン、反時計回り)。 */
-    f32  rotation = 0.0f;
-
-    /** スケール (X/Y 個別)。 */
-    FVec2 scale{1.0f, 1.0f};
-
-    /** 単位 transform を構築する (位置 0、回転 0、スケール 1)。 */
-    constexpr FTransform2D() noexcept = default;
-
-    /**
-     * 位置・回転・スケールを指定して構築する。
-     *
-     * @param pos 位置。
-     * @param rot 回転 (ラジアン)。
-     * @param sca スケール (X/Y)。
-     */
-    constexpr FTransform2D(FVec2 pos, f32 rot, FVec2 sca) noexcept
-        : position(pos), rotation(rot), scale(sca) {}
-
-    /**
-     * 親の座標系に local を載せた world transform を合成して返す。
-     *
-     * @details
-     * `world = parent.Compose(local)` の規約。子 position を親 scale でスケールし、
-     * 親 rotation で回転して親 position を加算する。rotation は親子の和、scale は
-     * component-wise 積になる。
-     * @param local 親 (this) の座標系に載せるローカル transform。
-     * @return 合成後の world transform。
-     */
-    FTransform2D Compose(const FTransform2D& local) const noexcept {
-        // 親 scale で子 position をスケール → 親 rotation で回転 → 親 position を加算
-        const f32 sx = scale.x * local.position.x;
-        const f32 sy = scale.y * local.position.y;
-        const f32 c  = Cos(rotation);
-        const f32 s  = Sin(rotation);
-        FTransform2D out;
-        out.position.x = position.x + (sx * c - sy * s);
-        out.position.y = position.y + (sx * s + sy * c);
-        out.rotation   = rotation + local.rotation;
-        out.scale.x    = scale.x * local.scale.x;
-        out.scale.y    = scale.y * local.scale.y;
-        return out;
-    }
-
-    /**
-     * 4x4 行列に変換する (FSpriteBatch::SetView 等で 4x4 が必要なとき用)。
-     *
-     * @details Z=0 平面で T * R * S を row-major (acs/Math 規約) で展開する。合成内では誤差/コストを避けるため使わない。
-     * @return この transform を表す 4x4 行列。
-     */
-    FMat4 ToMat4() const noexcept {
-        const f32 c = Cos(rotation);
-        const f32 s = Sin(rotation);
-        // T * R * S を row-major で展開 (acs/Math 規約)
-        FMat4 m{};
-        m.m[0][0] = scale.x * c;   m.m[0][1] = scale.x * s;   m.m[0][2] = 0.0f; m.m[0][3] = 0.0f;
-        m.m[1][0] = -scale.y * s;  m.m[1][1] = scale.y * c;   m.m[1][2] = 0.0f; m.m[1][3] = 0.0f;
-        m.m[2][0] = 0.0f;          m.m[2][1] = 0.0f;          m.m[2][2] = 1.0f; m.m[2][3] = 0.0f;
-        m.m[3][0] = position.x;    m.m[3][1] = position.y;    m.m[3][2] = 0.0f; m.m[3][3] = 1.0f;
-        return m;
-    }
-
-    /**
-     * 単位 transform を返す (位置 0、回転 0、スケール 1)。
-     *
-     * @return 単位 transform。
-     */
-    static constexpr FTransform2D Identity() noexcept { return {}; }
-};
-
-} // namespace acs::game
-
-// ===================== gameframework/NodeId.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — FNodeId (シーングラフ用 generational handle)
-//
-// シーングラフ内の FNode2D / Node を一意に識別する 32bit パック handle。
-// 1 個の `u32` に **24bit index + 8bit generation** を pack する設計で、
-// `FShapeId` (FCollisionWorld2D.h) と完全に同じパターンを採用している。
-//
-// 使い方:
-//   FNodeId id = scene.CreateNode();          // 何らかのファクトリ経由で取得
-//   if (id.IsValid()) {
-//       u32 slot = id.Index();               // SoA / プール配列の index
-//       u8  gen  = id.Generation();          // 世代カウンタで stale handle 検出
-//   }
-//   if (a == b) { ... }                       // 比較も constexpr noexcept
-//
-// 設計選択 (なぜこの形か):
-//   ・**RTTI / dynamic_cast 不使用**: ACS は STL / 例外 / RTTI 禁止。型情報は
-//     呼び出し側 (Scene 等) が別 array で持つ責務。FNodeId は純粋に「どの slot
-//     のどの世代か」だけを表現する POD handle。
-//   ・**24bit index = 約 16M slot で十分**: 2D ゲームのシーングラフで同時存在
-//     する Node 数は実用上 10K 〜 100K オーダー。16M (= 16,777,216) なら数桁
-//     余裕があり、将来 ECS-lite に拡張しても枯渇しない。
-//   ・**8bit generation = 256 世代**: slot を recycle してもラップアラウンドで
-//     stale handle と区別できる確率が 1/256 と十分高い。**generation == 0 は
-//     "初期状態 / 未使用 slot"** を意味し、`packed == 0` がそのまま invalid を
-//     表すよう設計されている (`FNodeId()` のデフォルトと一致)。
-//   ・**ヘッダオンリ + 全関数 constexpr noexcept**: コンパイル時計算 / 例外
-//     伝播ゼロ。`.cpp` 不要なので Module.cmake 改変ゼロでドロップイン可能。
-//   ・**operator==/!= のみ**: ハンドルの順序付け (< 等) は仕様として持たない。
-//     必要なら呼び出し側が `Index()` を取り出して比較すべき。
-//   ・**STL / `<cstdint>` 不使用**: `foundation/Types.h` の `u32 / u8` のみ。
-//     ACS 全体の規約に準拠。
-//
-// 注意:
-//   ・index が 24bit を超える値で構築された場合、上位 bit は黙って捨てられる
-//     (`& 0x00FFFFFFu`)。これは FShapeId と完全に同じ挙動。生成側 (FNodePool 等)
-//     で assert / TResult<E> を入れて 16M 越えを検出する責務。
-
-
-namespace acs::game {
-
-/**
- * シーングラフ Node を識別する packed 32bit handle (generational)。
- *
- * @details
- * 1 個の u32 に low24=index + high8=generation を pack する POD handle。
- * packed == 0 をそのまま invalid とし、FNodeId() の既定構築と一致させる。
- * 全関数 constexpr noexcept のヘッダオンリ型。
- */
-struct FNodeId {
-    /** pack 済みの 32bit 値 (0 = invalid、layout: low24=index, high8=generation)。 */
-    u32 m_Packed = 0;
-
-    /** 既定構築 = invalid handle (packed == 0)。 */
-    constexpr FNodeId() noexcept = default;
-
-    /**
-     * index (24bit) と generation (8bit) を pack して構築する。
-     *
-     * @details index は & 0x00FFFFFFu でマスクされるため、24bit 超の値は上位が落ちる。
-     * @param index pool / SoA 配列の index (0 〜 16,777,215)。
-     * @param gen slot の世代カウンタ (0 〜 255)。
-     */
-    constexpr FNodeId(u32 index, u8 gen) noexcept
-        : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
-
-    /**
-     * pool / SoA 配列の index を取り出す。
-     *
-     * @return packed の low24 bit (0 〜 16,777,215)。
-     */
-    constexpr u32  Index() const noexcept { return m_Packed & 0x00FFFFFFu; }
-
-    /**
-     * slot の世代カウンタを取り出す (stale handle 検出用)。
-     *
-     * @return packed の high8 bit (0 〜 255)。
-     */
-    constexpr u8   Generation() const noexcept {
-        return static_cast<u8>(m_Packed >> 24);
-    }
-
-    /**
-     * invalid (= packed == 0) でなければ true を返す。
-     *
-     * @details 「pool に該当 slot が生きているか」は呼び出し側で別途検証すること。
-     * @return packed != 0 なら true。
-     */
-    constexpr bool IsValid() const noexcept { return m_Packed != 0; }
-
-    /**
-     * 完全一致比較 (index + generation の両方が一致した時のみ true)。
-     *
-     * @param o 比較相手のハンドル。
-     * @return packed が一致すれば true。
-     */
-    constexpr bool operator==(FNodeId o) const noexcept { return m_Packed == o.m_Packed; }
-
-    /**
-     * 不一致比較 (index または generation が違えば true)。
-     *
-     * @param o 比較相手のハンドル。
-     * @return packed が不一致なら true。
-     */
-    constexpr bool operator!=(FNodeId o) const noexcept { return m_Packed != o.m_Packed; }
-};
-
-} // namespace acs::game
-
-namespace acs::game {
-
-class RenderContext;
-
-/**
- * シーンの中身を表す唯一のノード (2D 専用)。
- *
- * @details
- * 親子ツリーで階層的な transform を持ち、各ノードが OnSpawn/OnUpdate/OnDraw/
- * OnDespawn を override してロジック・描画を書く。`TUniquePtr<FNode2D>` で所有し
- * `FNode2D*` で参照する non-copy / non-move 型で、`AddChild(MakeUnique<MyNode>())`
- * が標準パターン。transform は m_Local を真値とし、World() は親をたどって合成する。
- */
-class FNode2D {
-public:
-    /** 空のノードを構築する (transform は単位、親なし)。 */
-    FNode2D() noexcept = default;
-
-    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
-    virtual ~FNode2D() noexcept = default;
-
-    /** コピー禁止 (ノードは TUniquePtr で単独所有するため)。 */
-    FNode2D(const FNode2D&)            = delete;
-
-    /** コピー代入も禁止。 */
-    FNode2D& operator=(const FNode2D&) = delete;
-
-    /** ムーブ禁止 (親が保持するポインタの安定性を保つため)。 */
-    FNode2D(FNode2D&&)                 = delete;
-
-    /** ムーブ代入も禁止。 */
-    FNode2D& operator=(FNode2D&&)      = delete;
-
-    /** AddChild でツリーに入った直後に 1 回呼ばれる初期化フック。 */
-    virtual void OnSpawn()                noexcept {}
-
-    /**
-     * 毎フレーム呼ばれる可変刻み update フック。
-     *
-     * @param dt 前フレームからの経過秒。
-     */
-    virtual void OnUpdate(f32 /*dt*/)     noexcept {}
-
-    /**
-     * 固定刻み update フック (物理・決定論ロジック)。
-     *
-     * @details
-     * 同フレームで 0..max_fixed_steps 回呼ばれる。FGame::SetFixedTimeStep が 0 のとき
-     * (= 固定 update 無効) は呼ばれない。
-     * @param fixed_dt 固定刻みの秒 (SetFixedTimeStep で指定した値)。
-     */
-    virtual void OnFixedUpdate(f32 /*fixed_dt*/) noexcept {}
-
-    /**
-     * 描画フック。スプライト等を積む。
-     *
-     * @param rc 描画コマンドを積む先のレンダーコンテキスト。
-     */
-    virtual void OnDraw(RenderContext& /*rc*/) noexcept {}
-
-    /** ツリーから除去される直前に 1 回呼ばれる後始末フック。 */
-    virtual void OnDespawn()              noexcept {}
-
-    /**
-     * ローカル transform への可変参照を返す (位置・回転・スケールを直接書き換える)。
-     *
-     * @return ローカル transform への参照。
-     */
-    FTransform2D&       Local()       noexcept { return m_Local; }
-
-    /**
-     * ローカル transform への const 参照を返す。
-     *
-     * @return ローカル transform への const 参照。
-     */
-    const FTransform2D& Local() const noexcept { return m_Local; }
-
-    /**
-     * 親をたどって world transform を合成して返す (オンザフライ計算、キャッシュなし)。
-     *
-     * @return root からこのノードまで合成した world transform。
-     */
-    FTransform2D World() const noexcept;
-
-    /**
-     * 有効フラグを設定する。
-     *
-     * @param b false なら subtree ごと update をスキップする。
-     */
-    void SetEnabled(bool b) noexcept { m_Enabled = b; }
-
-    /**
-     * 有効フラグを返す。
-     *
-     * @return 有効なら true。
-     */
-    bool IsEnabled() const noexcept { return m_Enabled; }
-
-    /**
-     * 可視フラグを設定する。
-     *
-     * @param b false なら subtree ごと描画をスキップする。
-     */
-    void SetVisible(bool b) noexcept { m_Visible = b; }
-
-    /**
-     * 可視フラグを返す。
-     *
-     * @return 可視なら true。
-     */
-    bool IsVisible() const noexcept { return m_Visible; }
-
-    /**
-     * 子の描画順モード。
-     *
-     * @details
-     * 既定 Tree = 配列追加順 (従来挙動・ゼロオーバーヘッド)。見下ろしゲームの Y 遮蔽や、
-     * 背景/ワールド/前景/HUD のレイヤ分離に使う。
-     */
-    enum class EChildDrawOrder : u8 {
-        /** 配列追加順 (従来)。ソートしない。 */
-        Tree       = 0,
-
-        /** SortLayer 昇順 (低い層が奥=先に描画)。同層は配列順で安定。 */
-        Layer      = 1,
-
-        /** SortLayer 昇順 → 同層内は (world.y + YSortBias) 昇順。+Y=画面下なので小さい y を先に描画 = 見下ろし遮蔽。 */
-        LayerThenY = 2,
-    };
-
-    /**
-     * この node が「自分の子」を描画する順序を設定する (兄弟間のみ。木の階層は維持)。
-     *
-     * @param o 適用する子描画順モード。
-     */
-    void            SetChildDrawOrder(EChildDrawOrder o) noexcept { m_ChildOrder = o; }
-
-    /**
-     * 現在の子描画順モードを返す。
-     *
-     * @return 設定済みの EChildDrawOrder。
-     */
-    EChildDrawOrder ChildDrawOrder() const noexcept { return m_ChildOrder; }
-
-    /**
-     * この node の描画レイヤを設定する。
-     *
-     * @details 親が Layer/LayerThenY のとき兄弟ソートの第1キー。低いほど奥 (先に描画)。
-     * @param layer 描画レイヤ (既定 0)。
-     */
-    void SetSortLayer(i32 layer) noexcept { m_SortLayer = layer; }
-
-    /**
-     * 描画レイヤを返す。
-     *
-     * @return 設定済みの描画レイヤ。
-     */
-    i32  SortLayer() const noexcept { return m_SortLayer; }
-
-    /**
-     * Y-sort の pivot バイアスを設定する。
-     *
-     * @details world.y に加算してソートキーにする。足元で遮蔽したいときは正値 (+Y=画面下=足元)。
-     * @param bias world.y に加算するバイアス (既定 0)。
-     */
-    void SetYSortBias(f32 bias) noexcept { m_YSortBias = bias; }
-
-    /**
-     * Y-sort の pivot バイアスを返す。
-     *
-     * @return 設定済みのバイアス。
-     */
-    f32  YSortBias() const noexcept { return m_YSortBias; }
-
-    /**
-     * 親ノードを返す。
-     *
-     * @return 親ノード (root なら nullptr)。
-     */
-    FNode2D* Parent() const noexcept { return m_Parent; }
-
-    /**
-     * 直接の子の数を返す。
-     *
-     * @return 子の数。
-     */
-    u32     ChildCount() const noexcept { return static_cast<u32>(m_Children.Size()); }
-
-    /**
-     * i 番目の子を返す。
-     *
-     * @param i 子のインデックス。
-     * @return i 番目の子 (範囲外なら nullptr)。
-     */
-    FNode2D* Child(u32 i) const noexcept {
-        return i < m_Children.Size() ? m_Children[i].Get() : nullptr;
-    }
-
-    /**
-     * 子を追加して所有権を奪い、OnSpawn を即時に呼ぶ。
-     *
-     * @param child 追加する子 (所有権が移る)。
-     * @return 追加した子への参照 (チェイン記述用)。
-     */
-    FNode2D& AddChild(TUniquePtr<FNode2D> child) noexcept;
-
-    /**
-     * 自身を「破棄予定」にマークする。
-     *
-     * @details
-     * 実際の破棄は次の ResolveStructuralChanges で起こる
-     * (OnDespawn 呼出 → TArray から除去 → デストラクタで memory release)。
-     */
-    void Destroy() noexcept { m_PendingDestroy = true; }
-
-    /**
-     * 破棄予定フラグが立っているかを返す。
-     *
-     * @return 破棄予定なら true。
-     */
-    bool IsPendingDestroy() const noexcept { return m_PendingDestroy; }
-
-    /**
-     * 自分を `new_parent` の子に移動するよう要求する (フレーム境界で適用)。
-     *
-     * @details
-     * new_parent == nullptr は不正 (警告ログ + 無視)、自分自身 or 子孫を指定した場合も
-     * 不正 (cycle 検出、警告 + 無視)。ResolveStructuralChanges 内で m_Children TArray 間を
-     * Move し、parent ポインタを書き換える。OnSpawn/OnDespawn は呼ばれない
-     * (= 既に生きているノードの移動)。
-     * @param new_parent 移動先の親ノード。
-     */
-    void Reparent(FNode2D& new_parent) noexcept;
-
-    /**
-     * 親付け替え予定が立っているかを返す。
-     *
-     * @return 付け替え予定なら true。
-     */
-    bool IsPendingReparent() const noexcept { return m_PendingReparentTarget != nullptr; }
-
-    /**
-     * ノード単位に振られる generational handle を返す。
-     *
-     * @details
-     * Scene 内で唯一であることは保証されない (生成側が一意性を管理)。
-     * default は invalid (m_Packed == 0)。
-     * @return ノードの FNodeId。
-     */
-    FNodeId Id() const noexcept { return m_Id; }
-
-    /**
-     * ノード ID を設定する (内部用。生成側が割り当てる)。
-     *
-     * @param id 割り当てる FNodeId。
-     */
-    void   _SetId(FNodeId id) noexcept { m_Id = id; }
-
-    /**
-     * T の FComponent2D を構築・attach し、参照を返す。
-     *
-     * @details OnAttach は即時呼出。依存コンポーネントは OnRequire で先に確保される。
-     * @tparam T 追加する FComponent2D 派生型。
-     * @tparam Args T のコンストラクタ引数型。
-     * @param args T のコンストラクタへ転送する引数。
-     * @return attach した T への参照。
-     */
-    template<typename T, typename... Args>
-    T& AddComponent(Args&&... args) noexcept {
-        TUniquePtr<T> comp = MakeUnique<T>(Forward<Args>(args)...);
-        T* ref = comp.Get();
-        ref->_SetOwner(this);
-        // 依存コンポーネントを先に確保 (Unity の RequireComponent 相当)。
-        // 依存が m_Components に先に積まれるので、この後の OnAttach から
-        // GetComponent<Dep>() で確実に取得できる。
-        ref->OnRequire(*this);
-        m_Components.PushBack(TUniquePtr<FComponent2D>(comp.Release(), comp.GetAllocator()));
-        ref->OnAttach(*this);
-        return *ref;
-    }
-
-    /**
-     * T があれば返し、無ければ追加して返す (RequireComponent の自動追加に使う)。
-     *
-     * @tparam T 取得または追加する FComponent2D 派生型。
-     * @tparam Args 新規追加時に T のコンストラクタへ渡す引数型。
-     * @param args 新規追加時に T のコンストラクタへ転送する引数。
-     * @return 既存または新規に追加した T への参照。
-     */
-    template<typename T, typename... Args>
-    T& GetOrAddComponent(Args&&... args) noexcept {
-        if (T* existing = GetComponent<T>()) return *existing;
-        return AddComponent<T>(Forward<Args>(args)...);
-    }
-
-    /**
-     * 最初に見つかった T 型コンポーネントを返す。
-     *
-     * @tparam T 探す FComponent2D 派生型。
-     * @return 見つかった T へのポインタ (無ければ nullptr)。
-     */
-    template<typename T>
-    T* GetComponent() noexcept {
-        const void* k = ComponentKindOf<T>();
-        for (u32 i = 0; i < m_Components.Size(); ++i) {
-            if (m_Components[i] && m_Components[i]->Kind() == k) {
-                return static_cast<T*>(m_Components[i].Get());
-            }
-        }
-        return nullptr;
-    }
-
-    /**
-     * T 型コンポーネントを持っているかを返す。
-     *
-     * @tparam T 探す FComponent2D 派生型。
-     * @return 持っていれば true。
-     */
-    template<typename T>
-    bool HasComponent() const noexcept {
-        const void* k = ComponentKindOf<T>();
-        for (u32 i = 0; i < m_Components.Size(); ++i) {
-            if (m_Components[i] && m_Components[i]->Kind() == k) return true;
-        }
-        return false;
-    }
-
-    /**
-     * 最初に見つかった T 型コンポーネントを 1 つ除去する (OnDetach → 破棄)。
-     *
-     * @tparam T 除去する FComponent2D 派生型。
-     * @return 除去したら true、見つからなければ false。
-     */
-    template<typename T>
-    bool RemoveComponent() noexcept {
-        const void* k = ComponentKindOf<T>();
-        for (u32 i = 0; i < m_Components.Size(); ++i) {
-            if (m_Components[i] && m_Components[i]->Kind() == k) {
-                m_Components[i]->OnDetach();
-                m_Components[i].Reset();
-                // compact: 末尾を i に詰める (順序は壊れる)
-                if (i + 1 < m_Components.Size()) {
-                    m_Components[i] = Move(m_Components[m_Components.Size() - 1]);
-                }
-                m_Components.PopBack();
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * attach 済みコンポーネントの数を返す。
-     *
-     * @return コンポーネント数。
-     */
-    u32 ComponentCount() const noexcept { return static_cast<u32>(m_Components.Size()); }
-
-    /**
-     * subtree 全体に可変刻み update を伝播する (root から呼ぶ)。
-     *
-     * @param dt 前フレームからの経過秒。
-     */
-    void UpdateTree(f32 dt) noexcept;
-
-    /**
-     * subtree 全体に固定刻み update を伝播する。
-     *
-     * @details Scene の OnFixedUpdate から root に対して 1 回呼ぶ。
-     * @param fixed_dt 固定刻みの秒。
-     */
-    void FixedUpdateTree(f32 fixed_dt) noexcept;
-
-    /**
-     * subtree 全体を描画する (root から呼ぶ)。
-     *
-     * @param rc 描画コマンドを積む先のレンダーコンテキスト。
-     */
-    void DrawTree(RenderContext& rc) noexcept;
-
-    /**
-     * フレーム境界で 1 回呼び、保留中の構造変更を適用する。
-     *
-     * @details
-     * pending_destroy なノードを subtree ごと OnDespawn 呼んで子配列から除去する
-     * (子から先に reap、その後に自分が抜ける)。また pending_reparent_target が
-     * セットされた子があれば、その子を target の m_Children へ Move する (cycle 検出済)。
-     */
-    void ResolveStructuralChanges() noexcept;
-
-private:
-    /**
-     * Reparent 操作で cycle が生じないかを確認する。
-     *
-     * @param candidate 移動先候補のノード。
-     * @return candidate が自分の子孫 (= cycle になる) なら true。
-     */
-    bool IsAncestorOf(const FNode2D* candidate) const noexcept;
-
-    /**
-     * m_ChildOrder != Tree のとき、子を (SortLayer, world.y) で安定ソートして描画する。
-     *
-     * @param rc 描画コマンドを積む先のレンダーコンテキスト。
-     */
-    void DrawChildrenSorted(RenderContext& rc) noexcept;
-
-    /** ローカル transform (真値。world は親から合成)。 */
-    FTransform2D m_Local{};
-
-    /** 親ノード (root なら nullptr)。 */
-    FNode2D*     m_Parent          = nullptr;
-
-    /** 直接の子 (所有権を持つ)。 */
-    TArray<TUniquePtr<FNode2D>>      m_Children;
-
-    /** attach されたコンポーネント (所有権を持つ)。 */
-    TArray<TUniquePtr<FComponent2D>> m_Components;
-
-    /** ノードの generational handle (default = invalid)。 */
-    FNodeId      m_Id{};
-
-    /** 非 null なら次の resolve でこの target 配下へ移動する。 */
-    FNode2D*     m_PendingReparentTarget = nullptr;
-
-    /** 描画レイヤ (親ソート時の第1キー)。 */
-    i32          m_SortLayer       = 0;
-
-    /** Y-sort の pivot バイアス。 */
-    f32          m_YSortBias       = 0.0f;
-
-    /** 子の描画順モード。 */
-    EChildDrawOrder m_ChildOrder   = EChildDrawOrder::Tree;
-
-    /** 有効フラグ (false で subtree の update をスキップ)。 */
-    bool        m_Enabled         = true;
-
-    /** 可視フラグ (false で subtree の描画をスキップ)。 */
-    bool        m_Visible         = true;
-
-    /** OnSpawn 済みフラグ (二重 spawn 防止)。 */
-    bool        m_Spawned         = false;
-
-    /** 破棄予定フラグ (次の resolve で reap)。 */
-    bool        m_PendingDestroy = false;
-};
-
-} // namespace acs::game
-
 namespace acs::game {
 
 /**
@@ -37094,6 +39835,9 @@ public:
 protected:
     /** シーンが top に来たとき 1 度だけ呼ばれる初期化フック (派生で override)。 */
     virtual void OnReady() noexcept {}
+
+    /** World サブシステム初期化直後、root ノードへ束を配線する (配下から GetSubsystem<T>() 可に)。 */
+    void _OnWorldSubsystemsReady() noexcept override { m_Root._SetSubsystems(_WorldSubsystemsPtr()); }
 
     /**
      * 毎フレームのゲームロジックフック (root の更新前に呼ばれる)。
@@ -37727,6 +40471,16 @@ public:
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
     void OnDraw(RenderContext& rc) noexcept override;
+
+    /** 現在のサイズ/tint をログ出力する(BlueprintCallable + CallInEditor のデモ関数)。
+     *  Blueprint グラフの «関数» ノードから実ノードへ作用させる検証に使う。 */
+    ACS_FUNCTION(BlueprintCallable, CallInEditor)
+    void LogState() noexcept {
+        ACS_LOG_INFO("[Sprite] LogState size=(%.2f,%.2f) tint=(%.2f,%.2f,%.2f,%.2f)",
+            static_cast<double>(m_Size.x), static_cast<double>(m_Size.y),
+            static_cast<double>(m_Tint.x), static_cast<double>(m_Tint.y),
+            static_cast<double>(m_Tint.z), static_cast<double>(m_Tint.w));
+    }
 
 private:
     /** 描画するテクスチャ (非所有。nullptr なら塗り潰し矩形)。 */
@@ -47166,335 +49920,6 @@ private:
 
     /** 初回ダイアログを提示済みかどうか。 */
     bool          m_bInitialConsentShown  = false;
-};
-
-} // namespace acs::game
-
-// ===================== gameframework/InspectorSeam.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — FInspectorSeam
-//
-// reflection-driven debug inspector の「シーム (seam)」インターフェース。
-// ゲーム内の任意のオブジェクト (Player / Enemy / FCamera / FSettings 等) が
-// 自身のフィールドを `IInspectableProvider` 経由で公開し、上位レイヤ
-// (ImGui / ACS::Ui / 外部 DevTool) がそれを描画 / 編集する形を取る。
-//
-// 使い方:
-//   class Player : public acs::game::IInspectableProvider {
-//       f32  m_Speed = 5.0f;
-//       i32  m_Hp    = 100;
-//       bool m_bInvincible = false;
-//
-//       u32 ObjectCount() noexcept override { return 1; }
-//       InspectableObject GetObject(u32) noexcept override {
-//           static InspectableField fields[] = {
-//               { "speed",      EFieldKind::F32,  &m_Speed,      0, nullptr },
-//               { "hp",         EFieldKind::I32,  &m_Hp,         0, nullptr },
-//               { "invincible", EFieldKind::Bool, &m_bInvincible, 0, nullptr },
-//           };
-//           return { "Player", "P1", fields, 3 };
-//       }
-//       void OnFieldChanged(u32, u32) noexcept override { /* re-validate */ }
-//   };
-//
-//   // 起動時:
-//   FInspectorSeam inspector;
-//   inspector.Init();
-//   inspector.RegisterProvider(&player);
-//
-//   // UI レイヤ:
-//   for (u32 p = 0; p < inspector.ProviderCount(); ++p) {
-//       auto* prov = inspector.GetProvider(p);
-//       for (u32 o = 0; o < prov->ObjectCount(); ++o) {
-//           auto obj = prov->GetObject(o);
-//           // ImGui::Text("[%s] %s", obj.type_name, obj.instance_name);
-//           // for (u32 f = 0; f < obj.field_count; ++f) ...
-//       }
-//   }
-//
-// 設計選択:
-//   ・**シーム化 (= I/F + 集中点) で UI と切り離す**: `FInspectorSeam` 本体は
-//     Provider レジストリだけを持ち、ImGui / Ui 描画は別レイヤから
-//     呼ぶ。Ship build では Provider 登録自体を #ifdef で消す前提。
-//   ・**Provider は non-owning**: ゲーム側の生存期間に従う。RegisterProvider 後に
-//     Provider を destruct する場合は呼び出し側で必ず Unregister すること。
-//     `FInspectorSeam::ClearAll()` でも Provider は破棄しない。
-//   ・**field は POD 4-tuple**: name + kind + data ポインタ + (enum 専用) ラベル配列。
-//     描画側は kind で switch し、data を該当型にキャストして表示 / 編集する。
-//   ・**fields 配列は Provider 所有**: `GetObject()` の戻り値が指す `fields` は
-//     Provider が永続所有する (static 配列 / メンバ配列 を想定)。FInspectorSeam は
-//     コピーしない。
-//   ・**OnFieldChanged は通知のみ**: UI 側で値を書き換えた後に呼ばれる。Provider は
-//     再バリデーション (clamp / 派生値の再計算 / dirty flag) をここで行う。
-//   ・**non-copy / non-move**: 内部の TArray<Provider*> 所有を曖昧にしない。
-//   ・**全 noexcept**: ACS 規約。エラーは現状なし (登録 / 取得のみ)。
-//   ・**STL 不使用**: `acs::TArray<IInspectableProvider*>` で保持。
-
-
-namespace acs::game {
-
-/**
- * フィールド種別 (描画 / 編集レイヤが扱うデータの型タグ)。
- *
- * @details
- * 描画 / 編集レイヤが switch して扱う。現状は最小セット: スカラ + FVec2-4 +
- * 文字列 (read-only) + Enum (整数 + ラベル配列)。
- */
-enum class EFieldKind : u8 {
-    /** bool* を指す。 */
-    Bool,
-
-    /** i32* を指す。 */
-    I32,
-
-    /** u32* を指す。 */
-    U32,
-
-    /** f32* を指す。 */
-    F32,
-
-    /** acs::FVec2* を指す (描画側は data を FVec2* にキャスト)。 */
-    FVec2,
-
-    /** acs::FVec3* を指す。 */
-    FVec3,
-
-    /** acs::FVec4* を指す。 */
-    FVec4,
-
-    /** const char** を指す (read-only 想定)。 */
-    FString,
-
-    /** i32* + enum_values[0..enum_value_count) のラベルを持つ。 */
-    Enum,
-};
-
-/**
- * Provider が公開する 1 フィールド。
- *
- * @details
- * Provider が `InspectableObject` 経由で配列を返す 1 件。配列の寿命は
- * Provider が保持する (static / メンバ)。FInspectorSeam はコピーしない。
- */
-struct InspectableField {
-    /** フィールド表示名 (caller 所有、リテラル想定)。 */
-    const char*  name             = nullptr;
-
-    /** このフィールドのデータ型タグ。 */
-    EFieldKind    kind             = EFieldKind::Bool;
-
-    /** 該当型へのポインタ。kind に応じてキャストする。 */
-    void*        data             = nullptr;
-
-    /** kind == Enum のときの有効ラベル数。 */
-    u32          enum_value_count = 0;
-
-    /** kind == Enum のときの値 → ラベル配列。 */
-    const char** enum_values      = nullptr;
-};
-
-/**
- * Provider が公開する 1 オブジェクト (例: 1 体の Player、1 つの FCamera)。
- *
- * @details `fields` 配列の寿命は Provider 所有。
- */
-struct InspectableObject {
-    /** クラス名相当 ("Player" 等)。 */
-    const char*       type_name     = nullptr;
-
-    /** インスタンス名 ("P1" / "Boss" 等)。 */
-    const char*       instance_name = nullptr;
-
-    /** 公開フィールド配列 (Provider 所有)。 */
-    InspectableField* fields        = nullptr;
-
-    /** fields の要素数。 */
-    u32               field_count   = 0;
-};
-
-/**
- * Inspectable な対象を提供する抽象インターフェース。
- *
- * @details
- * ゲーム側オブジェクトが自身 (または管理下のリスト) を Inspector に公開する。
- * 1 Provider = 1 オブジェクトでも、1 Provider = N オブジェクト (Manager 型) でも OK。
- */
-class IInspectableProvider {
-public:
-    /** 既定構築。 */
-    IInspectableProvider() noexcept = default;
-
-    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
-    virtual ~IInspectableProvider() noexcept = default;
-
-    /** コピー禁止。 */
-    IInspectableProvider(const IInspectableProvider&)            = delete;
-
-    /** コピー代入も禁止。 */
-    IInspectableProvider& operator=(const IInspectableProvider&) = delete;
-
-    /** ムーブ禁止。 */
-    IInspectableProvider(IInspectableProvider&&)                 = delete;
-
-    /** ムーブ代入も禁止。 */
-    IInspectableProvider& operator=(IInspectableProvider&&)      = delete;
-
-    /**
-     * この Provider が公開するオブジェクト数を返す。
-     *
-     * @return 公開オブジェクト数 (0 なら何も描画されない)。
-     */
-    virtual u32 ObjectCount() noexcept = 0;
-
-    /**
-     * index 番目のオブジェクトを返す。
-     *
-     * @details
-     * index >= ObjectCount() は呼び出し側で弾く前提 (UB を許容)。fields 配列の
-     * 所有権は Provider 側に残る。
-     * @param index 取得するオブジェクトの添字。
-     * @return index 番目の公開オブジェクト。
-     */
-    virtual InspectableObject GetObject(u32 index) noexcept = 0;
-
-    /**
-     * UI 側が field の値を書き換えた直後に呼ばれる通知フック。
-     *
-     * @details Provider は clamp / 派生値再計算 / dirty flag のセット等をここで行う。
-     * @param obj_index GetObject() の添字に対応するオブジェクト番号。
-     * @param field_index fields 配列の添字に対応するフィールド番号。
-     */
-    virtual void OnFieldChanged(u32 obj_index, u32 field_index) noexcept = 0;
-};
-
-/**
- * Provider の登録 / 列挙 / 変更通知のハブ (Provider レジストリ)。
- *
- * @details
- * 描画レイヤ (ImGui or ACS::Ui) はこのインスタンスから ProviderCount() /
- * GetProvider() を回して描画する。
- */
-class FInspectorSeam {
-public:
-    /** 空のレジストリで構築する。 */
-    FInspectorSeam() noexcept = default;
-
-    /** 破棄する (Provider は non-owning なので破棄しない)。 */
-    ~FInspectorSeam() noexcept = default;
-
-    /** コピー禁止 (内部 TArray<Provider*> の所有を曖昧にしないため)。 */
-    FInspectorSeam(const FInspectorSeam&)            = delete;
-
-    /** コピー代入も禁止。 */
-    FInspectorSeam& operator=(const FInspectorSeam&) = delete;
-
-    /** ムーブ禁止。 */
-    FInspectorSeam(FInspectorSeam&&)                 = delete;
-
-    /** ムーブ代入も禁止。 */
-    FInspectorSeam& operator=(FInspectorSeam&&)      = delete;
-
-    /**
-     * 初期化する (多重呼び出し可)。
-     *
-     * @details 現状は何もしない (ImGui コンテキスト等のセットアップを足す想定の予約点)。
-     */
-    void Init() noexcept;
-
-    /**
-     * node 紐付けなしで Provider を登録する。
-     *
-     * @details
-     * non-owning: provider の生存期間は呼び出し側責務。同一ポインタの多重登録は
-     * 許可しない (重複は無視)。nullptr は無視。紐付く FNodeId は invalid となるため、
-     * FNodeId からの逆引きを使いたい場合は RegisterProviderForNode を使うこと。
-     * @param provider 登録する Provider (non-owning)。
-     */
-    void RegisterProvider(IInspectableProvider* provider) noexcept;
-
-    /**
-     * node 紐付きで Provider を登録する。
-     *
-     * @details
-     * `node_id` をキーに後で GetProviderForNode で逆引きできる。non-owning は
-     * RegisterProvider と同じ。同一 provider ポインタの多重登録は弾く
-     * (この場合 node_id の更新も行わない)。nullptr は無視。FNodeId は
-     * 「slot index + generation」を表すハンドルで provider レジストリの登録順
-     * index とは別物のため、node→provider の対応をここで明示的に記録する。
-     * @param node_id 逆引きキーにする FNodeId。
-     * @param provider 登録する Provider (non-owning)。
-     */
-    void RegisterProviderForNode(FNodeId node_id, IInspectableProvider* provider) noexcept;
-
-    /**
-     * Provider 登録を解除する。
-     *
-     * @details
-     * 未登録 / nullptr は無視 (no-op)。解除後、Provider オブジェクト自体は破棄
-     * しない (non-owning なので)。
-     * @param provider 解除する Provider。
-     */
-    void UnregisterProvider(IInspectableProvider* provider) noexcept;
-
-    /**
-     * 登録済み Provider 数を返す。
-     *
-     * @return 登録されている Provider の個数。
-     */
-    u32 ProviderCount() const noexcept;
-
-    /**
-     * 登録順 index で Provider を取得する。
-     *
-     * @details
-     * 範囲外 (index >= ProviderCount()) は nullptr 安全。ここでの index は
-     * 登録順 (provider レジストリ上の位置) であり、FNodeId の Index() ではない。
-     * FNodeId から引きたい場合は GetProviderForNode を使う。
-     * @param index 登録順の添字。
-     * @return index 番目の Provider (範囲外なら nullptr)。
-     */
-    IInspectableProvider* GetProvider(u32 index) const noexcept;
-
-    /**
-     * FNodeId をキーに紐付く Provider を逆引きする。
-     *
-     * @details
-     * RegisterProviderForNode で登録した node_id に完全一致 (index + generation)
-     * する provider を返す。これが node-keyed lookup の正しい入口。
-     * @param node_id 逆引きする FNodeId。
-     * @return 一致する Provider (一致なし / invalid id なら nullptr)。
-     */
-    IInspectableProvider* GetProviderForNode(FNodeId node_id) const noexcept;
-
-    /**
-     * 指定 Provider の OnFieldChanged() に変更を forward する。
-     *
-     * @details 範囲外 (provider_index >= ProviderCount()) は no-op。
-     * @param provider_index 通知先 Provider の登録順 index。
-     * @param obj_index 変更されたオブジェクトの添字。
-     * @param field_index 変更されたフィールドの添字。
-     */
-    void NotifyFieldChanged(u32 provider_index, u32 obj_index, u32 field_index) noexcept;
-
-    /** 全 Provider 登録を破棄する (Provider 自体は破棄しない)。 */
-    void ClearAll() noexcept;
-
-private:
-    /**
-     * 登録済み Provider (non-owning)。m_NodeIds と同じ index で対応する。
-     *
-     * @details
-     * m_Providers[i] と m_NodeIds[i] は常に同じ index で対応する parallel array。
-     * 追加 / swap-remove / Clear は両者を必ず揃えて操作すること。
-     */
-    TArray<IInspectableProvider*> m_Providers;
-
-    /**
-     * 各 Provider に紐付く FNodeId (node 紐付けなしは invalid FNodeId{})。
-     *
-     * @details m_Providers と同じ index で対応する parallel array。
-     */
-    TArray<FNodeId>               m_NodeIds;
 };
 
 } // namespace acs::game
@@ -57650,6 +60075,535 @@ private:
 } // namespace acs::game
 
 
+// ===================== gameframework/Light2DComponent.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// FLight2DComponent — ノードを 2D 点光源にするコンポーネント。
+//
+// ノードに付けると、その world 位置を光源として lit スプライト (PBR マテリアル) を
+// 照らす。半径・色・強度を持つ。エディタでは Add Component で付けて gizmo で動かせる。
+// 値はリフレクション (ACS_RPROP) でエディタが保持し、DrawScene がライトを集めて
+// FSpriteBatch::SetLights に渡す。
+
+
+#include <cmath>
+
+namespace acs::game {
+
+/** ライトの角度(度)+円錐角(度)から方向ベクトルと円錐 cos を計算する (エディタ/ランタイム共通)。 */
+inline void ComputeLightDirCone(f32 angle_deg, f32 cone_deg,
+                                FVec2& dir, f32& cone_inner, f32& cone_outer) noexcept {
+    const f32 a = angle_deg * 0.01745329252f;   // deg→rad
+    dir = FVec2{ std::cos(a), std::sin(a) };
+    const f32 half = cone_deg * 0.01745329252f;
+    cone_outer = std::cos(half);
+    cone_inner = std::cos(half * 0.6f);          // 内側はやや細く
+}
+
+/**
+ * ノードを 2D 点光源にするコンポーネント。
+ *
+ * @details
+ * 光源位置は owner ノードの world 位置。radius (届く範囲 px)、color (RGB)、intensity
+ * (明るさ) を持つ。lit スプライト (PBR マテリアル) の陰影付けに使う。エディタ DrawScene が
+ * このコンポーネントを持つノードからライトを収集する。
+ */
+class FLight2DComponent : public FComponent2D {
+public:
+    ACS_GAME_COMPONENT_KIND(FLight2DComponent)
+
+    /** 届く半径 (px)。 */
+    f32   m_Radius = 256.0f;
+
+    /** 光の色 (RGB)。 */
+    FVec3 m_Color{ 1.0f, 0.95f, 0.85f };
+
+    /** 明るさ倍率。 */
+    f32   m_Intensity = 1.5f;
+
+    /** 種類 (0=Point, 1=Spot, 2=Directional)。 */
+    f32   m_Type = 0.0f;
+
+    /** 方向角 (度、Spot/Directional)。0=+X, 90=+Y。 */
+    f32   m_Angle = 90.0f;
+
+    /** スポット円錐の半角 (度、Spot)。 */
+    f32   m_ConeAngle = 35.0f;
+
+    /** 半径を設定する。 */
+    void SetRadius(f32 r) noexcept { m_Radius = r; }
+
+    /** 色を設定する。 */
+    void SetColor(FVec3 c) noexcept { m_Color = c; }
+
+    /** 強度を設定する。 */
+    void SetIntensity(f32 i) noexcept { m_Intensity = i; }
+
+    /** 種類を設定する (ELightType の整数値)。 */
+    void SetType(i32 t) noexcept { m_Type = static_cast<f32>(t); }
+
+    /** シーンのライト収集用: 種類/半径/色/強度/方向/円錐を返す。 */
+    bool QueryLight(FLightDesc2D& out) const noexcept override {
+        out.type      = static_cast<i32>(m_Type);
+        out.radius    = m_Radius;
+        out.color     = m_Color;
+        out.intensity = m_Intensity;
+        ComputeLightDirCone(m_Angle, m_ConeAngle, out.dir, out.coneInner, out.coneOuter);
+        return true;
+    }
+};
+
+/**
+ * ノードを «影を落とすもの (occluder)» にするタグコンポーネント。
+ *
+ * @details
+ * これを付けたノードのシルエット (円近似) が lit スプライトに対してソフト影を落とす。
+ * radiusScale で占有半径 (ノードサイズ比) を微調整できる。床/背景には付けない (受け手)。
+ */
+class FShadowCaster2DComponent : public FComponent2D {
+public:
+    ACS_GAME_COMPONENT_KIND(FShadowCaster2DComponent)
+
+    /** 影の占有半径スケール (ノード半径に対する倍率)。 */
+    f32 m_RadiusScale = 1.0f;
+
+    /** 影の形状 (0=円, 1=箱)。 */
+    f32 m_Shape = 0.0f;
+
+    /** 自分自身にも影を落とすか (false=自己影スキップ・既定)。
+     *  スプライトは «カメラ側を向いた面» なので通常はスキップが自然だが、
+     *  厳密な 2D 平面世界として自分の落ち影で自分を暗くしたい場合に有効にする。 */
+    bool m_SelfShadow = false;
+
+    /** シーンの影オクルーダー収集用: 占有半径スケール・形状・自己影の有無を返す。 */
+    bool QueryShadowCaster(f32& radius_scale, i32& shape, bool& self_shadow) const noexcept override {
+        radius_scale = m_RadiusScale; shape = static_cast<i32>(m_Shape);
+        self_shadow = m_SelfShadow;
+        return true;
+    }
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/Material2D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// マテリアルアセット (.acsmat) — シェーダプリセット + パラメータの束ね。
+//
+// 用途: シェーダを書けない人でも見た目を変えられるよう、ピクセル効果プリセット
+//       (ESpriteEffect) とそのパラメータを「マテリアルアセット」として外部ファイルに
+//       保存する。ノードは「どのマテリアルを使うか」を参照するだけ (material_path)。
+//       効果の切替やパラメータ編集はマテリアルエディタ側で行う。
+//
+// .acsmat テキスト形式 (v1、行指向):
+//   ACSMAT 1
+//   name MyMaterial
+//   effect Vignette          ; ESpriteEffect の名前
+//   strength 0.8
+//   p0 0.30
+//   p1 1.00
+//   p2 0.00
+//   color 0 0 0 1            ; 染め色 / 縁色 (RGBA)
+//   animated 0               ; 1 なら描画時に経過秒を time に流す (Wave/HueShift 用)
+
+
+namespace acs::game {
+
+/**
+/**
+ * マテリアルの種別。
+ *
+ * @details Lit (PBR/BRDF) が既定。Effect は従来の 2D ポストプロセス効果プリセット。
+ */
+enum class EMaterialKind : u8 {
+    Lit    = 0,   ///< PBR (BRDF) サーフェスマテリアル。ベースカラー/法線/メタリック/ラフネス/エミッシブ。
+    Effect = 1,   ///< 2D ポストプロセス効果プリセット (ESpriteEffect)。
+};
+
+/**
+ * PBR (BRDF) サーフェスマテリアルのプロパティ。metallic-roughness ワークフロー。
+ *
+ * @details
+ * ベースカラー (アルベド) はテクスチャ + tint、法線マップ、メタリック/ラフネス、エミッシブ、
+ * AO を持つ。テクスチャはパス参照 (sprite_path と同様にランタイムが遅延ロード)。2D の
+ * 動的ライト (FLighting2D) で陰影付けされる lit スプライト用。
+ */
+struct FPbrParams2D {
+    FVec4 baseColor       = FVec4{ 1, 1, 1, 1 };  ///< アルベド tint (rgb) + 不透明度 (a)。
+    f32   metallic        = 0.0f;                 ///< 0=誘電体 .. 1=金属。
+    f32   roughness       = 0.5f;                 ///< 0=鏡面 .. 1=完全拡散。
+    FVec3 emissive        = FVec3{ 0, 0, 0 };     ///< 自己発光色 (rgb)。
+    f32   emissiveStrength = 0.0f;                ///< 発光強度倍率。
+    f32   normalStrength   = 1.0f;                ///< 法線マップの強さ (0=平面)。
+    f32   ao               = 1.0f;                ///< アンビエントオクルージョン (1=遮蔽なし)。
+    char  albedoPath[256]  = {};                  ///< ベースカラー画像パス (UTF-8、空=tint のみ)。
+    char  normalPath[256]  = {};                  ///< 法線マップ画像パス (UTF-8、空=平面)。
+    // --- シェーディングモード + トゥーン (UTS 風 cel) ---
+    i32   shadingMode      = 0;                    ///< 0=PBR, 1=Toon。
+    FVec3 shadow1Color     = FVec3{ 0.55f, 0.52f, 0.62f }; ///< 1影の色。
+    f32   shadow1Threshold = 0.5f;                ///< 1影しきい値 (lum)。
+    FVec3 shadow2Color     = FVec3{ 0.32f, 0.30f, 0.40f }; ///< 2影の色。
+    f32   shadow2Threshold = 0.2f;                ///< 2影しきい値 (lum)。
+    FVec3 rimColor         = FVec3{ 1, 1, 1 };     ///< リムライト色。
+    f32   rimPower         = 4.0f;                  ///< リムの鋭さ。
+    FVec3 specColor        = FVec3{ 1, 1, 1 };     ///< トゥーンスペキュラ色。
+    f32   specThreshold    = 0.85f;                ///< スペキュラのステップしきい値。
+    f32   toonSoftness     = 0.05f;                ///< 影境界の柔らかさ。
+    // --- Substrate 風 拡張ロブ (shadingMode=0 PBR のみ) ---
+    f32   clearcoat          = 0.0f;               ///< クリアコート層の強さ。
+    f32   clearcoatRoughness = 0.1f;               ///< クリアコート層のラフネス。
+    f32   anisotropy         = 0.0f;               ///< 異方性 -1..1。
+    f32   specularLevel      = 0.5f;               ///< 誘電体反射率 (0.5→F0=0.04)。
+    f32   specularTint       = 0.0f;               ///< 鏡面を base 色へ寄せる量。
+    f32   sheen              = 0.0f;               ///< シーン強さ。
+    f32   sheenRoughness     = 0.3f;               ///< シーンのラフネス。
+    FVec3 sheenColor         = FVec3{ 1, 1, 1 };   ///< シーン色。
+    f32   subsurface         = 0.0f;               ///< サブサーフェス量。
+    FVec3 subsurfaceColor    = FVec3{ 1.0f, 0.3f, 0.2f }; ///< 透過部の色。
+    // --- 屈折 (ガラス/水、glTF KHR_materials_transmission 風) ---
+    f32   transmission       = 0.0f;               ///< 透過量 (0=不透明、>0 で屈折ガラスとして描画)。
+    f32   ior                = 1.5f;               ///< 屈折率 (ガラス~1.5、水~1.33、ダイヤ~2.4)。
+};
+
+/**
+ * マテリアルアセット (.acsmat) のランタイム表現。
+ *
+ * @details
+ * kind で «PBR サーフェス (Lit)» か «効果プリセット (Effect)» を切り替える。既定は Lit (BRDF)。
+ * ノードはこれを参照するだけで、編集はマテリアル側 (マテリアルエディタ) で行う。Effect の
+ * animated が true なら描画時に経過秒を params.time へ流す (Wave/HueShift 等)。
+ */
+struct FMaterial2D {
+    char          name[64] = "Material";   ///< 表示名。
+    EMaterialKind kind     = EMaterialKind::Lit;  ///< マテリアル種別 (既定 = PBR)。
+    // --- Effect 種別 ---
+    ESpriteEffect effect   = ESpriteEffect::None;  ///< 使用する効果プリセット。
+    FEffectParams params   = {};           ///< 効果パラメータ (color は染め色/縁色)。
+    bool          animated = false;        ///< true で描画時に経過秒を time に流す。
+    // --- Lit (PBR) 種別 ---
+    FPbrParams2D  pbr      = {};            ///< PBR サーフェスプロパティ。
+};
+
+/** PBR/トゥーンの永続パラメータ (FPbrParams2D) を描画パラメータ (FLitMaterialParams) へ変換する。
+ *  editor の DrawScene・Node2D・GPU プレビューが共通で使う (DRY)。 */
+FLitMaterialParams ToLitParams(const FPbrParams2D& pbr) noexcept;
+
+/** 効果プリセットの総数 (None を含む)。エディタのドロップダウン用。 */
+u32 SpriteEffectCount() noexcept;
+
+/** 効果 enum → 名前 ("None"/"Grayscale"/...)。未知は "None"。 */
+const char* SpriteEffectName(ESpriteEffect e) noexcept;
+
+/** index 番目 (0..SpriteEffectCount-1) の効果名。範囲外は "None"。 */
+const char* SpriteEffectNameAt(u32 index) noexcept;
+
+/** index 番目の効果 enum。範囲外は None。 */
+ESpriteEffect SpriteEffectAt(u32 index) noexcept;
+
+/** 名前 → 効果 enum (大文字小文字無視)。未知は None。 */
+ESpriteEffect SpriteEffectFromName(const char* name) noexcept;
+
+/**
+ * 効果プリセットの「見栄えのする既定パラメータ」を返す。
+ *
+ * @details
+ * 効果ごとに意味のあるパラメータ範囲が違う (Vignette の半径は 0..1、Pixelate のセル数は
+ * 数十、HueShift の速度は度/秒…)。マテリアル新規作成時やエディタで効果を切り替えたときに
+ * これを入れておくと、いきなり破綻した値にならず「選んだ瞬間にそれっぽく見える」。
+ * @param e 効果プリセット。
+ * @return その効果に適した既定パラメータ。
+ */
+FEffectParams DefaultEffectParams(ESpriteEffect e) noexcept;
+
+/** その効果が既定でアニメーション (時間駆動) すべきか (Wave/HueShift)。 */
+bool EffectAnimatedByDefault(ESpriteEffect e) noexcept;
+
+/**
+ * .acsmat テキストを解析する。
+ *
+ * @param text .acsmat の本文 (NUL 終端)。
+ * @return 解析結果。ヘッダ不正や text==nullptr のときは既定 (None) を返す。
+ */
+FMaterial2D ParseAcsmatText(const char* text) noexcept;
+
+/**
+ * マテリアルを .acsmat テキストへ書き出す。
+ *
+ * @param mat 書き出すマテリアル。
+ * @param buf 出力バッファ。
+ * @param buf_size buf のバイト数。
+ * @return 書き込んだ文字数 (NUL を除く)。
+ */
+u32 WriteAcsmatText(const FMaterial2D& mat, char* buf, u32 buf_size) noexcept;
+
+/**
+ * .acsmat ファイルを読み込む。
+ *
+ * @param path ファイルパス (UTF-8)。
+ * @param out 解析結果の格納先。
+ * @return 読み込み + 解析に成功したら true。
+ */
+bool LoadAcsmatFile(const char* path, FMaterial2D& out) noexcept;
+
+/**
+ * マテリアルを .acsmat ファイルへ書き出す。
+ *
+ * @param path ファイルパス (UTF-8)。
+ * @param mat 書き出すマテリアル。
+ * @return 書き込みに成功したら true。
+ */
+bool SaveAcsmatFile(const char* path, const FMaterial2D& mat) noexcept;
+
+/**
+ * アニメーション付きマテリアルの「経過秒」を設定する (プロセス全体で共有)。
+ *
+ * @details
+ * FNode2D::DrawTree がマテリアルを適用するとき、RenderContext には時刻が無いため、
+ * この共有クロックを参照する。スタンドアロンのシーンが毎フレーム OnTick で
+ * SetMaterialClock(累積秒) を呼ぶ。エディタは host->time を直接渡すのでこれは使わない。
+ * @param seconds 起動からの経過秒。
+ */
+void SetMaterialClock(f32 seconds) noexcept;
+
+/** 共有マテリアルクロック (秒) を返す。 */
+f32 MaterialClock() noexcept;
+
+/**
+ * マテリアルの効果を SpriteBatch へ適用する。
+ *
+ * @details effect == None なら何もしない。animated が true なら time_sec を params.time
+ *          に差し込んで適用する。適用したら戻り値 true → 描画後に sb.ClearEffect() を呼ぶこと。
+ * @param sb 適用先のスプライトバッチ。
+ * @param mat 適用するマテリアル。
+ * @param time_sec animated 効果のアニメ時間 (秒)。
+ * @return 効果を適用したら true (要 ClearEffect)、None で未適用なら false。
+ */
+bool ApplyMaterial(FSpriteBatch& sb, const FMaterial2D& mat, f32 time_sec) noexcept;
+
+} // namespace acs::game
+
+// ===================== gameframework/MeshComponent3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar B — FMeshComponent3D
+//
+// FNode3D に attach する «描画データ» コンポーネント (データのみ・GPU 非依存)。
+// 「このノードが何を描くか」(プリミティブ種別 or メッシュアセットパス、色) を保持
+// するだけで、実際の描画は外部のレンダラ (editor_abi の 3D ビューポート等) がノード
+// ツリーを走査してこのコンポーネントを読み取って行う。
+//
+// editor_abi の ENode3D のデータモデル (prim 0=Cube/1=Sphere/2=Plane/3=Mesh, color,
+// mesh_path) と 1:1 対応させ、将来エンジン側シーングラフを編集対象の実体にできる橋渡し。
+
+
+namespace acs::game {
+
+/**
+ * メッシュコンポーネントが描くプリミティブ種別 (editor_abi の ENode3D.prim と一致)。
+ */
+enum class EMeshPrimitive3D : u8 {
+    /** 立方体。 */
+    Cube   = 0,
+    /** 球。 */
+    Sphere = 1,
+    /** 平面 (床)。 */
+    Plane  = 2,
+    /** 外部メッシュアセット (MeshPath() を読む)。 */
+    Mesh   = 3,
+};
+
+/**
+ * FNode3D に「何を描くか」を持たせるデータのみのコンポーネント (GPU 非依存)。
+ *
+ * @details
+ * プリミティブ種別 / メッシュパス / 色を保持するだけで描画はしない。外部レンダラが
+ * シーンを走査して読み取る。editor_abi の ENode3D と同じデータモデルなので、エンジンの
+ * 3D シーングラフをエディタの編集対象に昇格させる土台になる。
+ */
+class FMeshComponent3D : public FComponent3D {
+public:
+    ACS_GAME_COMPONENT3D_KIND(FMeshComponent3D)
+
+    /** 既定 (Cube・白) で構築する。 */
+    FMeshComponent3D() noexcept = default;
+
+    /**
+     * プリミティブ種別を指定して構築する。
+     *
+     * @param prim 描くプリミティブ種別。
+     */
+    explicit FMeshComponent3D(EMeshPrimitive3D prim) noexcept : m_Prim(prim) {}
+
+    /**
+     * プリミティブ種別を返す。
+     *
+     * @return 現在のプリミティブ種別。
+     */
+    EMeshPrimitive3D Primitive() const noexcept { return m_Prim; }
+
+    /**
+     * プリミティブ種別を設定する。
+     *
+     * @param p 設定するプリミティブ種別。
+     */
+    void SetPrimitive(EMeshPrimitive3D p) noexcept { m_Prim = p; }
+
+    /**
+     * 外部メッシュアセットのパスを返す (Primitive() == Mesh のときに有効)。
+     *
+     * @return メッシュパスの文字列ビュー。
+     */
+    FStringView MeshPath() const noexcept { return m_MeshPath.View(); }
+
+    /**
+     * 外部メッシュアセットのパスを設定する (種別も Mesh に切り替える)。
+     *
+     * @param path メッシュアセットのパス。
+     */
+    void SetMeshPath(FStringView path) noexcept { m_MeshPath = FString(path); m_Prim = EMeshPrimitive3D::Mesh; }
+
+    /**
+     * アルベド色 (RGBA) を返す。
+     *
+     * @return 現在の色。
+     */
+    FVec4 Color() const noexcept { return m_Color; }
+
+    /**
+     * アルベド色 (RGBA) を設定する。
+     *
+     * @param c 設定する色。
+     */
+    void SetColor(FVec4 c) noexcept { m_Color = c; }
+
+    /**
+     * 影を落とすかのフラグを返す。
+     *
+     * @return 影キャスターなら true。
+     */
+    bool CastsShadow() const noexcept { return m_CastShadow; }
+
+    /**
+     * 影を落とすかのフラグを設定する。
+     *
+     * @param b true で影キャスターにする。
+     */
+    void SetCastsShadow(bool b) noexcept { m_CastShadow = b; }
+
+    /**
+     * 外部レンダラが GPU メッシュ等を紐付けるための非所有ポインタを返す。
+     *
+     * @details エンジンは中身を解釈しない (レンダラ/エディタが意味付けする)。
+     * @return 紐付けられた非所有ポインタ (未設定なら nullptr)。
+     */
+    void* RenderHandle() const noexcept { return m_RenderHandle; }
+
+    /**
+     * 外部レンダラ用の非所有ポインタを設定する。
+     *
+     * @param h 紐付ける非所有ポインタ。
+     */
+    void SetRenderHandle(void* h) noexcept { m_RenderHandle = h; }
+
+    /**
+     * CPU メッシュアセット (頂点/インデックス) を «所有» して設定する。
+     *
+     * @details
+     * editor の ENode3D.mesh (TSharedPtr<Asset>) と同じ所有モデル。non-null を渡すと種別も
+     * Mesh に切り替える。コンポーネントが強参照を持つので、ノードが生きている間メッシュは
+     * 解放されない (= 描画/ピックの side-table 不要)。
+     * @param a 所有するメッシュアセット (FMeshAsset を指す Asset。null で外す)。
+     */
+    void SetMeshAsset(TSharedPtr<Asset> a) noexcept {
+        m_MeshAsset = static_cast<TSharedPtr<Asset>&&>(a);
+        if (m_MeshAsset) m_Prim = EMeshPrimitive3D::Mesh;
+    }
+
+    /**
+     * 所有しているメッシュアセット (Asset 基底) への共有ポインタを返す。
+     *
+     * @return 所有メッシュアセット (未設定なら空)。
+     */
+    const TSharedPtr<Asset>& MeshAsset() const noexcept { return m_MeshAsset; }
+
+    /**
+     * メッシュアセットを所有しているかを返す。
+     *
+     * @return 非 null のメッシュアセットを持つなら true。
+     */
+    bool HasMeshAsset() const noexcept { return static_cast<bool>(m_MeshAsset); }
+
+    /**
+     * 所有メッシュを FMeshAsset 型として返す (頂点/インデックスへの直接アクセス)。
+     *
+     * @details 本コンポーネントが保持する Asset は常に FMeshAsset 前提 (ローダ出力)。
+     * @return FMeshAsset へのポインタ (未設定なら nullptr)。
+     */
+    FMeshAsset* Mesh() const noexcept { return static_cast<FMeshAsset*>(m_MeshAsset.Get()); }
+
+    // --- マテリアルアセット (.acsmat) 参照 ---------------------------------------------
+    // 2D の FNode2D::m_Mat (ランタイム POD の材質状態) に相当するものをコンポーネントへ持たせる。
+    // ノードは «どの .acsmat を使うか» を material_path で参照し、FMaterial2D へ遅延ロードして
+    // キャッシュする。これがランタイム真実 (standalone/Play も material_path から自前で解決可能)。
+
+    /** 参照中の .acsmat パスを返す (未設定なら空)。 */
+    FStringView MaterialPath() const noexcept { return m_MaterialPath.View(); }
+
+    /** 参照する .acsmat パスを設定する (キャッシュは MarkMaterialDirty で次回再ロード)。 */
+    void SetMaterialPath(FStringView path) noexcept { m_MaterialPath = FString(path); m_MaterialLoaded = false; }
+
+    /** 材質パスを持つか (非空)。 */
+    bool HasMaterial() const noexcept { return !m_MaterialPath.IsEmpty(); }
+
+    /** 材質参照を外す (パス・ロード状態をクリア)。 */
+    void ClearMaterial() noexcept { m_MaterialPath = FString(); m_Material = FMaterial2D{}; m_MaterialLoaded = false; }
+
+    /** キャッシュ済みのマテリアル (読み取り) を返す。 */
+    const FMaterial2D& Material() const noexcept { return m_Material; }
+
+    /** キャッシュ済みのマテリアル (書込み可。ロード結果の格納先) を返す。 */
+    FMaterial2D& MaterialMut() noexcept { return m_Material; }
+
+    /** マテリアル値をコピーして焼き込む (2D の FNode2D::SetMaterial 鏡映)。 */
+    void SetMaterial(const FMaterial2D& m) noexcept { m_Material = m; m_MaterialLoaded = true; }
+
+    /** material_path を解析済み (キャッシュ有効) か。 */
+    bool MaterialLoaded() const noexcept { return m_MaterialLoaded; }
+
+    /** キャッシュ有効フラグを設定する (ロード完了時に true)。 */
+    void SetMaterialLoaded(bool b) noexcept { m_MaterialLoaded = b; }
+
+    /** キャッシュを無効化して次回再ロードさせる (.acsmat 保存後の reload 用)。 */
+    void MarkMaterialDirty() noexcept { m_MaterialLoaded = false; }
+
+private:
+    /** 描くプリミティブ種別 (既定 Cube)。 */
+    EMeshPrimitive3D m_Prim = EMeshPrimitive3D::Cube;
+
+    /** 影キャスターか (既定 true)。 */
+    bool             m_CastShadow = true;
+
+    /** 外部メッシュアセットのパス (Mesh 種別で使用)。 */
+    FString          m_MeshPath;
+
+    /** アルベド色 (RGBA、既定 白)。 */
+    FVec4            m_Color{ 1, 1, 1, 1 };
+
+    /** 所有する CPU メッシュアセット (FMeshAsset。prim==Mesh で描画/ピックに使う)。 */
+    TSharedPtr<Asset> m_MeshAsset;
+
+    /** 外部レンダラが紐付ける非所有ポインタ (GPU メッシュ等、エンジンは非解釈)。 */
+    void*            m_RenderHandle = nullptr;
+
+    /** 参照する .acsmat マテリアルアセットのパス (空=未設定)。 */
+    FString          m_MaterialPath;
+
+    /** material_path を解析した FMaterial2D キャッシュ (ランタイム真実)。 */
+    FMaterial2D      m_Material{};
+
+    /** material キャッシュが有効か (false で次回 LoadAcsmatFile し直し)。 */
+    bool             m_MaterialLoaded = false;
+};
+
+} // namespace acs::game
+
 // ===================== gameframework/NetSnapshot.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar M — FNetSnapshot
@@ -58448,6 +61402,2441 @@ private:
 
 } // namespace acs::game
 
+// ===================== gameframework/Node3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar B — FNode3D
+//
+// 3D シーングラフのノード (FNode2D の 3D 版)。親子ツリーで階層 transform を持ち、
+// 各ノードが OnSpawn/OnUpdate/OnFixedUpdate/OnDespawn を override してロジックを書く。
+// メッシュ描画などは FComponent3D を attach して合成する。
+//
+// 設計選択 (FNode2D と同一):
+//   ・non-copy / non-move: `TUniquePtr<FNode3D>` で所有、`FNode3D*` で参照。
+//   ・lifecycle: AddChild 即時 OnSpawn、Destroy() で pending マーク → フレーム境界の
+//     ResolveStructuralChanges() で OnDespawn → 配列除去。子ツリーが先に reap。
+//   ・transform: m_Local を真値、World() は親をたどってオンザフライ合成。
+//   ・iteration safety: UpdateTree は index ベース走査 (走査中 AddChild は同フレーム実行)。
+
+
+// ===================== gameframework/Transform3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar B — FTransform3D
+//
+// 3D ノードの位置/回転/スケールを値型で表す (FTransform2D の 3D 版)。`FMat4` を
+// 直接保持するより小さく合成が速く、分解が可逆 (親の rotation/scale を取り出せる)。
+// 回転は FQuat (16B 整列) を使う。
+//
+// 合成規約 (FTransform2D と同じ「親の座標系に local を載せる」):
+//   `world = parent.Compose(local)`
+//   ・world.scale    = parent.scale * local.scale  (component-wise)
+//   ・world.rotation = parent.rotation * local.rotation  (quat 合成: 先に local、次に parent)
+//   ・world.position = parent.position + Rotate(parent.rotation, parent.scale * local.position)
+//
+// ToMat4() は描画/カメラ等で 4x4 が必要なときだけ使う (合成内では使わない)。
+// row-major (acs/Math 規約)、v * M の行ベクトル順 = S * R * T。
+
+
+namespace acs::game {
+
+/**
+ * 3D ノードの位置/回転/スケールを表す値型 transform (FTransform2D の 3D 版)。
+ *
+ * @details
+ * FMat4 を直接保持するより小さく合成が速く、分解が可逆 (親の rotation/scale を取り
+ * 出せる)。回転は FQuat。合成は `world = parent.Compose(local)` の規約で、scale は
+ * component-wise 積、rotation は quat 合成 (先に local・次に parent)、position は親
+ * scale でスケール後に親 rotation で回して親 position を加算する。
+ */
+struct FTransform3D {
+    /** 位置 (親座標系での平行移動)。 */
+    FVec3 position{0.0f, 0.0f, 0.0f};
+
+    /** 回転 (クォータニオン、既定は恒等)。 */
+    FQuat rotation{};
+
+    /** スケール (X/Y/Z 個別)。 */
+    FVec3 scale{1.0f, 1.0f, 1.0f};
+
+    /** 単位 transform を構築する (位置 0、回転 恒等、スケール 1)。 */
+    FTransform3D() noexcept = default;
+
+    /**
+     * 位置・回転・スケールを指定して構築する。
+     *
+     * @param pos 位置。
+     * @param rot 回転 (クォータニオン)。
+     * @param sca スケール (X/Y/Z)。
+     */
+    FTransform3D(FVec3 pos, FQuat rot, FVec3 sca) noexcept
+        : position(pos), rotation(rot), scale(sca) {}
+
+    /**
+     * 親の座標系に local を載せた world transform を合成して返す。
+     *
+     * @details
+     * `world = parent.Compose(local)` の規約。子 position を親 scale で
+     * component-wise スケール → 親 rotation で回転 → 親 position を加算する。rotation は
+     * `parent.rotation * local.rotation` (先に local・次に parent)、scale は component-wise 積。
+     * @param local 親 (this) の座標系に載せるローカル transform。
+     * @return 合成後の world transform。
+     */
+    FTransform3D Compose(const FTransform3D& local) const noexcept {
+        FTransform3D out;
+        // 親 scale で子 position を component-wise スケール → 親 rotation で回転 → 親 position 加算
+        const FVec3 scaled{ scale.x * local.position.x,
+                            scale.y * local.position.y,
+                            scale.z * local.position.z };
+        out.position = position + Rotate(rotation, scaled);
+        // world 向き: 子ローカル回転を先に、親回転を後に適用 = local * parent
+        // (codebase の a*b は «a を先に・b を後に» 適用するため。Rotate(a*b,v)=Rotate(b,Rotate(a,v)))。
+        out.rotation = local.rotation * rotation;
+        out.scale    = FVec3{ scale.x * local.scale.x,
+                              scale.y * local.scale.y,
+                              scale.z * local.scale.z };
+        return out;
+    }
+
+    /**
+     * 4x4 行列に変換する (描画/カメラ等で 4x4 が必要なとき用)。
+     *
+     * @details
+     * row-major (acs/Math 規約)、行ベクトル v*M 順で S * R * T を展開する。基底ベクトル
+     * (rows 0-2) を scale で行ごとにスケールし、row 3 に position を置く。合成内では誤差/
+     * コストを避けるため使わない。
+     * @return この transform を表す 4x4 行列。
+     */
+    FMat4 ToMat4() const noexcept {
+        const FMat4 r = ToMatrix(rotation);   // row-major 回転 (rows 0-2 = 回転基底, row3/col3 = identity)
+        FMat4 m{};
+        m.m[0][0] = scale.x * r.m[0][0]; m.m[0][1] = scale.x * r.m[0][1]; m.m[0][2] = scale.x * r.m[0][2]; m.m[0][3] = 0.0f;
+        m.m[1][0] = scale.y * r.m[1][0]; m.m[1][1] = scale.y * r.m[1][1]; m.m[1][2] = scale.y * r.m[1][2]; m.m[1][3] = 0.0f;
+        m.m[2][0] = scale.z * r.m[2][0]; m.m[2][1] = scale.z * r.m[2][1]; m.m[2][2] = scale.z * r.m[2][2]; m.m[2][3] = 0.0f;
+        m.m[3][0] = position.x;          m.m[3][1] = position.y;          m.m[3][2] = position.z;          m.m[3][3] = 1.0f;
+        return m;
+    }
+
+    /**
+     * オイラー角 (度、XYZ 順) から rotation を設定する。
+     *
+     * @details
+     * editor_abi の Node3DModel と同じ合成順 `Rx * Ry * Rz` (row-vector で点に X→Y→Z の順で
+     * 適用) になるよう quaternion を組む: `rotation = qx * qy * qz` (codebase の `a*b` は a を
+     * 先に適用するため、ToMatrix が Rx*Ry*Rz と一致する)。エディタの度数オイラー編集を
+     * クォータニオン保持の transform に橋渡しする。
+     * @param deg X/Y/Z 各軸のオイラー角 (度)。
+     */
+    void SetEulerDeg(FVec3 deg) noexcept {
+        const FQuat qx = FQuat::AxisAngle(FVec3{1, 0, 0}, deg.x * kDeg2Rad);
+        const FQuat qy = FQuat::AxisAngle(FVec3{0, 1, 0}, deg.y * kDeg2Rad);
+        const FQuat qz = FQuat::AxisAngle(FVec3{0, 0, 1}, deg.z * kDeg2Rad);
+        // a*b は «a 先 / b 後» 適用なので、Rx→Ry→Rz の順に v へ効かせるには qx*qy*qz。
+        // → Rotate(rotation, v) == v * (Rx*Ry*Rz) (editor Node3DModel と一致)。
+        rotation = Normalize(qx * qy * qz);
+    }
+
+    /**
+     * 現在の rotation をオイラー角 (度、XYZ 順) に分解して返す。
+     *
+     * @details
+     * `Rx * Ry * Rz` 分解 (SetEulerDeg の逆)。回転行列 (row-major) から
+     * β=asin(-m02)、α=atan2(m12,m22)、γ=atan2(m01,m00) を取り出す。Y が ±90° 近傍
+     * (ジンバルロック) では γ=0 に縮退させ α に寄せる。|Y|<90° では SetEulerDeg と往復一致。
+     * @return X/Y/Z 各軸のオイラー角 (度)。
+     */
+    FVec3 EulerDeg() const noexcept {
+        const FMat4 m = ToMatrix(rotation);          // row-major、Rotate(q,v)=v*m
+        f32 sy = -m.m[0][2];                          // -sin(Y)
+        sy = (sy < -1.0f) ? -1.0f : (sy > 1.0f ? 1.0f : sy);   // asin 用にクランプ
+        const f32 beta = ASin(sy);                   // Y
+        const f32 cy   = Sqrt(1.0f - sy * sy);       // cos(Y) >= 0 (|Y|<=90°)
+        f32 alpha, gamma;
+        if (cy > 1e-4f) {
+            alpha = ATan2(m.m[1][2], m.m[2][2]);     // X = atan2(sx*cy, cx*cy)
+            gamma = ATan2(m.m[0][1], m.m[0][0]);     // Z = atan2(cy*sz, cy*cz)
+        } else {
+            // ジンバルロック (cos Y ≈ 0): Z を 0 に固定し X へ寄せる
+            alpha = ATan2(-m.m[2][1], m.m[1][1]);
+            gamma = 0.0f;
+        }
+        return FVec3{ alpha * kRad2Deg, beta * kRad2Deg, gamma * kRad2Deg };
+    }
+
+    /**
+     * 単位 transform を返す (位置 0、回転 恒等、スケール 1)。
+     *
+     * @return 単位 transform。
+     */
+    static FTransform3D Identity() noexcept { return {}; }
+};
+
+} // namespace acs::game
+
+namespace acs::game {
+
+/**
+ * 3D シーングラフのノード (FNode2D の 3D 版)。
+ *
+ * @details
+ * 親子ツリーで階層 transform を持ち、各ノードが OnSpawn/OnUpdate/OnFixedUpdate/OnDespawn
+ * を override してロジックを書く。`TUniquePtr<FNode3D>` 所有・`FNode3D*` 参照の
+ * non-copy / non-move 型で、`AddChild(MakeUnique<FNode3D>())` が標準パターン。transform は
+ * m_Local を真値とし、World() は親をたどって FTransform3D::Compose で合成する。
+ */
+class FNode3D {
+public:
+    /** 空のノードを構築する (transform は単位、親なし)。 */
+    FNode3D() noexcept = default;
+
+    /**
+     * 名前を指定してノードを構築する。
+     *
+     * @param name ノード名 (ヒエラルキー表示やルックアップに使う)。
+     */
+    explicit FNode3D(FStringView name) noexcept : m_Name(name) {}
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
+    virtual ~FNode3D() noexcept = default;
+
+    /** コピー禁止 (ノードは TUniquePtr で単独所有するため)。 */
+    FNode3D(const FNode3D&)            = delete;
+
+    /** コピー代入も禁止。 */
+    FNode3D& operator=(const FNode3D&) = delete;
+
+    /** ムーブ禁止 (親が保持するポインタの安定性を保つため)。 */
+    FNode3D(FNode3D&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
+    FNode3D& operator=(FNode3D&&)      = delete;
+
+    /** AddChild でツリーに入った直後に 1 回呼ばれる初期化フック。 */
+    virtual void OnSpawn() noexcept {}
+
+    /**
+     * 毎フレーム呼ばれる可変刻み update フック。
+     *
+     * @param dt 前フレームからの経過秒。
+     */
+    virtual void OnUpdate(f32 /*dt*/) noexcept {}
+
+    /**
+     * 固定刻み update フック (物理・決定論ロジック)。
+     *
+     * @param fixed_dt 固定刻みの秒。
+     */
+    virtual void OnFixedUpdate(f32 /*fixed_dt*/) noexcept {}
+
+    /** ツリーから除去される直前に 1 回呼ばれる後始末フック。 */
+    virtual void OnDespawn() noexcept {}
+
+    /**
+     * ローカル transform への可変参照を返す (位置・回転・スケールを直接書き換える)。
+     *
+     * @return ローカル transform への参照。
+     */
+    FTransform3D&       Local()       noexcept { return m_Local; }
+
+    /**
+     * ローカル transform への const 参照を返す。
+     *
+     * @return ローカル transform への const 参照。
+     */
+    const FTransform3D& Local() const noexcept { return m_Local; }
+
+    /**
+     * 親をたどって world transform を合成して返す (オンザフライ計算、キャッシュなし)。
+     *
+     * @return root からこのノードまで合成した world transform。
+     */
+    FTransform3D World() const noexcept;
+
+    /**
+     * ノード名を返す。
+     *
+     * @return ノード名の文字列ビュー。
+     */
+    FStringView Name() const noexcept { return m_Name.View(); }
+
+    /**
+     * ノード名を設定する。
+     *
+     * @param name 新しいノード名。
+     */
+    void SetName(FStringView name) noexcept { m_Name = FString(name); }
+
+    /**
+     * 有効フラグを設定する。
+     *
+     * @param b false なら subtree ごと update をスキップする。
+     */
+    void SetEnabled(bool b) noexcept { m_Enabled = b; }
+
+    /**
+     * 有効フラグを返す。
+     *
+     * @return 有効なら true。
+     */
+    bool IsEnabled() const noexcept { return m_Enabled; }
+
+    /**
+     * 可視フラグを設定する。
+     *
+     * @param b false なら subtree ごと描画をスキップする (描画側が参照)。
+     */
+    void SetVisible(bool b) noexcept { m_Visible = b; }
+
+    /**
+     * 可視フラグを返す。
+     *
+     * @return 可視なら true。
+     */
+    bool IsVisible() const noexcept { return m_Visible; }
+
+    /**
+     * 親ノードを返す。
+     *
+     * @return 親ノード (root なら nullptr)。
+     */
+    FNode3D* Parent() const noexcept { return m_Parent; }
+
+    /**
+     * 直接の子の数を返す。
+     *
+     * @return 子の数。
+     */
+    u32 ChildCount() const noexcept { return static_cast<u32>(m_Children.Size()); }
+
+    /**
+     * i 番目の子を返す。
+     *
+     * @param i 子のインデックス。
+     * @return i 番目の子 (範囲外なら nullptr)。
+     */
+    FNode3D* Child(u32 i) const noexcept {
+        return i < m_Children.Size() ? m_Children[i].Get() : nullptr;
+    }
+
+    /**
+     * 直接の子 `child` を、子配列内のインデックス `to` の位置へ即時に移動する (兄弟並べ替え)。
+     *
+     * @param child 移動する直接の子。
+     * @param to 移動先インデックス (配列サイズ-1 にクランプ)。
+     * @return 移動したら true、`child` が子でなければ false。
+     */
+    bool MoveChild(FNode3D& child, u32 to) noexcept {
+        const u32 n = static_cast<u32>(m_Children.Size());
+        u32 from = n;
+        for (u32 i = 0; i < n; ++i) { if (m_Children[i].Get() == &child) { from = i; break; } }
+        if (from >= n) return false;
+        if (to >= n) to = n - 1;
+        if (from == to) return true;
+        TUniquePtr<FNode3D> moved = static_cast<TUniquePtr<FNode3D>&&>(m_Children[from]);
+        if (from < to) { for (u32 i = from; i < to; ++i) m_Children[i] = static_cast<TUniquePtr<FNode3D>&&>(m_Children[i + 1]); }
+        else           { for (u32 i = from; i > to; --i) m_Children[i] = static_cast<TUniquePtr<FNode3D>&&>(m_Children[i - 1]); }
+        m_Children[to] = static_cast<TUniquePtr<FNode3D>&&>(moved);
+        return true;
+    }
+
+    /**
+     * 子を追加して所有権を奪い、OnSpawn を即時に呼ぶ。
+     *
+     * @param child 追加する子 (所有権が移る)。
+     * @return 追加した子への参照 (チェイン記述用)。
+     */
+    FNode3D& AddChild(TUniquePtr<FNode3D> child) noexcept;
+
+    /**
+     * 自身を「破棄予定」にマークする (実際の破棄は次の ResolveStructuralChanges)。
+     */
+    void Destroy() noexcept { m_PendingDestroy = true; }
+
+    /**
+     * 破棄予定フラグが立っているかを返す。
+     *
+     * @return 破棄予定なら true。
+     */
+    bool IsPendingDestroy() const noexcept { return m_PendingDestroy; }
+
+    /**
+     * 自分を `new_parent` の子に移動するよう要求する (フレーム境界で適用、ワールド位置保持なし)。
+     *
+     * @details
+     * new_parent が自分自身 or 子孫 (cycle) / root の reparent は不正 (警告 + 無視)。
+     * ResolveStructuralChanges 内で m_Children 間を Move し parent を書き換える。OnSpawn/
+     * OnDespawn は呼ばれない。
+     * @param new_parent 移動先の親ノード。
+     */
+    void Reparent(FNode3D& new_parent) noexcept;
+
+    /**
+     * 親付け替え予定が立っているかを返す。
+     *
+     * @return 付け替え予定なら true。
+     */
+    bool IsPendingReparent() const noexcept { return m_PendingReparentTarget != nullptr; }
+
+    /**
+     * ノード単位に振られる generational handle を返す。
+     *
+     * @return ノードの FNodeId (既定は invalid)。
+     */
+    FNodeId Id() const noexcept { return m_Id; }
+
+    /**
+     * ノード ID を設定する (内部用。生成側が割り当てる)。
+     *
+     * @param id 割り当てる FNodeId。
+     */
+    void _SetId(FNodeId id) noexcept { m_Id = id; }
+
+    /**
+     * T の FComponent3D を構築・attach し、参照を返す。
+     *
+     * @details OnAttach は即時呼出。依存コンポーネントは OnRequire で先に確保される。
+     * @tparam T 追加する FComponent3D 派生型。
+     * @tparam Args T のコンストラクタ引数型。
+     * @param args T のコンストラクタへ転送する引数。
+     * @return attach した T への参照。
+     */
+    template<typename T, typename... Args>
+    T& AddComponent(Args&&... args) noexcept {
+        TUniquePtr<T> comp = MakeUnique<T>(Forward<Args>(args)...);
+        T* ref = comp.Get();
+        ref->_SetOwner(this);
+        ref->OnRequire(*this);   // 依存を先に確保 (Unity の RequireComponent 相当)
+        m_Components.PushBack(TUniquePtr<FComponent3D>(comp.Release(), comp.GetAllocator()));
+        ref->OnAttach(*this);
+        return *ref;
+    }
+
+    /**
+     * T があれば返し、無ければ追加して返す (RequireComponent の自動追加に使う)。
+     *
+     * @tparam T 取得または追加する FComponent3D 派生型。
+     * @tparam Args 新規追加時に T のコンストラクタへ渡す引数型。
+     * @param args 新規追加時に T のコンストラクタへ転送する引数。
+     * @return 既存または新規に追加した T への参照。
+     */
+    template<typename T, typename... Args>
+    T& GetOrAddComponent(Args&&... args) noexcept {
+        if (T* existing = GetComponent<T>()) return *existing;
+        return AddComponent<T>(Forward<Args>(args)...);
+    }
+
+    /**
+     * 最初に見つかった T 型コンポーネントを返す。
+     *
+     * @tparam T 探す FComponent3D 派生型。
+     * @return 見つかった T へのポインタ (無ければ nullptr)。
+     */
+    template<typename T>
+    T* GetComponent() noexcept {
+        const void* k = Component3DKindOf<T>();
+        for (u32 i = 0; i < m_Components.Size(); ++i) {
+            if (m_Components[i] && m_Components[i]->Kind() == k) {
+                return static_cast<T*>(m_Components[i].Get());
+            }
+        }
+        return nullptr;
+    }
+
+    /**
+     * T 型コンポーネントを持っているかを返す。
+     *
+     * @tparam T 探す FComponent3D 派生型。
+     * @return 持っていれば true。
+     */
+    template<typename T>
+    bool HasComponent() const noexcept {
+        const void* k = Component3DKindOf<T>();
+        for (u32 i = 0; i < m_Components.Size(); ++i) {
+            if (m_Components[i] && m_Components[i]->Kind() == k) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 最初に見つかった T 型コンポーネントを 1 つ除去する (OnDetach → 破棄)。
+     *
+     * @tparam T 除去する FComponent3D 派生型。
+     * @return 除去したら true、見つからなければ false。
+     */
+    template<typename T>
+    bool RemoveComponent() noexcept {
+        const void* k = Component3DKindOf<T>();
+        for (u32 i = 0; i < m_Components.Size(); ++i) {
+            if (m_Components[i] && m_Components[i]->Kind() == k) {
+                m_Components[i]->OnDetach();
+                m_Components[i].Reset();
+                if (i + 1 < m_Components.Size()) {
+                    m_Components[i] = Move(m_Components[m_Components.Size() - 1]);
+                }
+                m_Components.PopBack();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 全コンポーネントを除去する (各 OnDetach → 破棄)。 */
+    void RemoveAllComponents() noexcept {
+        for (u32 i = 0; i < m_Components.Size(); ++i)
+            if (m_Components[i]) { m_Components[i]->OnDetach(); m_Components[i].Reset(); }
+        m_Components.Clear();
+    }
+
+    /**
+     * attach 済みコンポーネントの数を返す。
+     *
+     * @return コンポーネント数。
+     */
+    u32 ComponentCount() const noexcept { return static_cast<u32>(m_Components.Size()); }
+
+    /**
+     * i 番目のコンポーネントを返す (型を知らない汎用列挙。範囲外は nullptr)。
+     *
+     * @param i コンポーネントのインデックス。
+     * @return i 番目のコンポーネント (範囲外なら nullptr)。
+     */
+    FComponent3D*       ComponentAt(u32 i)       noexcept {
+        return i < m_Components.Size() ? m_Components[i].Get() : nullptr;
+    }
+
+    /** i 番目のコンポーネントを返す (const 版)。 */
+    const FComponent3D* ComponentAt(u32 i) const noexcept {
+        return i < m_Components.Size() ? m_Components[i].Get() : nullptr;
+    }
+
+    /**
+     * 構築済みのコンポーネントを非テンプレートで attach する (factory 生成物の取り付け)。
+     *
+     * @param comp 取り付けるコンポーネント (所有権が移る、非 null 前提)。
+     * @return attach したコンポーネントへの参照。
+     */
+    FComponent3D& AttachComponent(TUniquePtr<FComponent3D> comp) noexcept {
+        FComponent3D* ref = comp.Get();
+        ref->_SetOwner(this);
+        ref->OnRequire(*this);
+        m_Components.PushBack(Move(comp));
+        ref->OnAttach(*this);
+        return *ref;
+    }
+
+    /**
+     * subtree 全体に可変刻み update を伝播する (root から呼ぶ)。
+     *
+     * @param dt 前フレームからの経過秒。
+     */
+    void UpdateTree(f32 dt) noexcept;
+
+    /**
+     * subtree 全体に固定刻み update を伝播する。
+     *
+     * @param fixed_dt 固定刻みの秒。
+     */
+    void FixedUpdateTree(f32 fixed_dt) noexcept;
+
+    /**
+     * フレーム境界で 1 回呼び、保留中の構造変更 (destroy / reparent) を適用する。
+     *
+     * @details
+     * pending_destroy なノードを subtree ごと OnDespawn 呼んで子配列から除去 (子から先に
+     * reap)。pending_reparent_target がセットされた子は target の m_Children へ Move する。
+     */
+    void ResolveStructuralChanges() noexcept;
+
+private:
+    /**
+     * Reparent 操作で cycle が生じないかを確認する。
+     *
+     * @param candidate 移動先候補のノード。
+     * @return candidate が自分の子孫 (= cycle になる) なら true。
+     */
+    bool IsAncestorOf(const FNode3D* candidate) const noexcept;
+
+    /** ローカル transform (真値。world は親から合成)。 */
+    FTransform3D m_Local{};
+
+    /** ノード名 (ヒエラルキー表示 / ルックアップ用)。 */
+    FString      m_Name;
+
+    /** 親ノード (root なら nullptr)。 */
+    FNode3D*     m_Parent = nullptr;
+
+    /** 直接の子 (所有権を持つ)。 */
+    TArray<TUniquePtr<FNode3D>>      m_Children;
+
+    /** attach されたコンポーネント (所有権を持つ)。 */
+    TArray<TUniquePtr<FComponent3D>> m_Components;
+
+    /** ノードの generational handle (default = invalid)。 */
+    FNodeId      m_Id{};
+
+    /** 非 null なら次の resolve でこの target 配下へ移動する。 */
+    FNode3D*     m_PendingReparentTarget = nullptr;
+
+    /** 有効フラグ (false で subtree の update をスキップ)。 */
+    bool         m_Enabled = true;
+
+    /** 可視フラグ (false で subtree の描画をスキップ)。 */
+    bool         m_Visible = true;
+
+    /** OnSpawn 済みフラグ (二重 spawn 防止)。 */
+    bool         m_Spawned = false;
+
+    /** 破棄予定フラグ (次の resolve で reap)。 */
+    bool         m_PendingDestroy = false;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/Node3DPool.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar B — FNode3DPool (FNode3D の generational pool)
+//
+// FNodePool (FNode2D 版) の 3D 版。FNode3D インスタンスは親の m_Children
+// (TUniquePtr) が所有し続け、本 pool は **参照のみ** を保持して安定した FNodeId を
+// 発行 + stale 検出する。設計は FNodePool と完全に同一 (index 0 予約 / generation 0
+// スキップ / 24bit index 上限 / free stack で O(1) 再利用 / 非所有)。
+//
+// 追加: PurgePendingDestroy() — 登録済みノードのうち Destroy() 済み (IsPendingDestroy)
+// のものを一括 Unregister する。FScene3D が ResolveStructuralChanges の «前» に呼ぶことで、
+// どの経路で破棄されてもダングリング参照を残さない (self-healing)。
+
+
+namespace acs::game {
+
+class FNode3D;   // forward decl — full include は .cpp 側 (_SetId / IsPendingDestroy 呼出のため)
+
+/**
+ * FNode3D 群を pool で管理し、安定した FNodeId を発行 + stale 検出する (FNodePool の 3D 版)。
+ *
+ * @details
+ * FNode3D の所有権は持たない (親の TUniquePtr が所有)。raw ポインタだけを保持し、
+ * generational handle (FNodeId) の発行と stale 検出を担う。Slot = {ptr, gen, active}、
+ * index 0 は invalid 用に予約、空き slot は free stack で O(1) 再利用する。
+ */
+class FNode3DPool {
+public:
+    /** 空の pool を構築する。 */
+    FNode3DPool()  noexcept = default;
+
+    /** 破棄する (FNode3D は非所有なので何も delete しない)。 */
+    ~FNode3DPool() noexcept = default;
+
+    /** コピー禁止。 */
+    FNode3DPool(const FNode3DPool&)            = delete;
+
+    /** コピー代入も禁止。 */
+    FNode3DPool& operator=(const FNode3DPool&) = delete;
+
+    /** ムーブ禁止。 */
+    FNode3DPool(FNode3DPool&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
+    FNode3DPool& operator=(FNode3DPool&&)      = delete;
+
+    /**
+     * 初期容量を予約する (index 0 dummy slot を確保し、配列を reserve する)。
+     *
+     * @param initial_capacity 予約する slot 数 (0 なら dummy 確保のみ)。
+     */
+    void Init(u32 initial_capacity = 256) noexcept;
+
+    /**
+     * 既存の生 FNode3D を pool に登録し、新しい FNodeId を発行する。
+     *
+     * @details 発行した FNodeId は node->_SetId() で node 自身にも書き込む。
+     * @param node 登録する FNode3D (nullptr / 16M 超過時は登録しない)。
+     * @return 発行した FNodeId。失敗時は invalid。
+     */
+    FNodeId RegisterExistingNode(FNode3D* node) noexcept;
+
+    /**
+     * slot を free 化し、対応 FNode3D の Id を invalid にリセットする (二重 Unregister 安全)。
+     *
+     * @param id 解放する slot の FNodeId。
+     */
+    void Unregister(FNodeId id) noexcept;
+
+    /**
+     * 登録済みノードのうち Destroy() 済み (IsPendingDestroy) のものを一括 Unregister する。
+     *
+     * @details FScene3D が ResolveStructuralChanges の «前» に呼ぶ。これによりノードが reap
+     * (= メモリ解放) される前に pool 参照が外れ、ダングリングを残さない。
+     * @return Unregister したノード数。
+     */
+    u32 PurgePendingDestroy() noexcept;
+
+    /**
+     * id が指す slot が active かつ generation 一致かを返す。
+     *
+     * @param id 検証する FNodeId。
+     * @return 生きていて世代も一致すれば true。
+     */
+    bool IsValid(FNodeId id) const noexcept;
+
+    /**
+     * id 経由で FNode3D* を取り出す。
+     *
+     * @param id 取り出す FNodeId。
+     * @return 対応する FNode3D。stale / invalid なら nullptr。
+     */
+    FNode3D* Get(FNodeId id) const noexcept;
+
+    /**
+     * node ポインタから FNodeId を逆引きする (線形探索 O(N))。
+     *
+     * @param node 逆引きする FNode3D。
+     * @return 対応する FNodeId。存在しなければ invalid。
+     */
+    FNodeId IdOf(FNode3D* node) const noexcept;
+
+    /**
+     * 現在 active な slot 数を返す。
+     *
+     * @return active な slot 数。
+     */
+    u32 ActiveCount() const noexcept { return m_ActiveCount; }
+
+    /**
+     * 全 slot を一括 free する (各 FNode3D の Id を invalid に。gen は維持)。
+     */
+    void ClearAll() noexcept;
+
+private:
+    /** 1 つの slot エントリ (登録された FNode3D の参照と世代)。 */
+    struct Slot {
+        /** 登録された FNode3D (非所有)。 */
+        FNode3D* ptr    = nullptr;
+
+        /** 世代カウンタ (0 は予約 = invalid handle と一致)。 */
+        u8      gen    = 0;
+
+        /** この slot が現在使用中か。 */
+        bool    active = false;
+    };
+
+    /**
+     * 空き slot を 1 つ取得する (free stack → 末尾追加)。
+     *
+     * @return 取得した slot の index。確保不能なら 0。
+     */
+    u32 AcquireSlot() noexcept;
+
+    /** 24bit index 上限 (= 16,777,215)。 */
+    static constexpr u32 kMaxIndex = 0x00FFFFFFu;
+
+    /** slot 配列 (index 0 は dummy = invalid 用予約)。 */
+    TArray<Slot> m_Slots;
+
+    /** 空き slot index の LIFO stack。 */
+    TArray<u32>  m_FreeIndices;
+
+    /** 現在 active な slot 数。 */
+    u32         m_ActiveCount = 0;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/PolygonRenderer2D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework — FPolygonRenderer2D (任意凸ポリゴンの塗りつぶし描画コンポーネント)
+//
+// FPrimitiveRenderer2D が Box/Circle/Triangle のみなのに対し、本コンポーネントは
+// «ローカル頂点列» を持ち owner の world transform を適用して三角形ファンで塗る。
+// エディタのポリゴンノード (ACSCENE の POLY 行) をスタンドアロンで再現するのに使う。
+// 凹ポリゴンは fan が破綻し得る (best-effort、凸前提)。
+
+
+namespace acs::game {
+
+/**
+ * ローカル頂点列を owner の world transform で変換して塗りつぶす凸ポリゴン描画コンポーネント。
+ */
+class FPolygonRenderer2D : public FComponent2D {
+public:
+    ACS_GAME_COMPONENT_KIND(FPolygonRenderer2D)
+
+    /** 保持できる頂点数の上限。 */
+    static constexpr u32 kMaxVerts = 64u;
+
+    /** 塗り色を設定する。 */
+    void SetColor(FVec4 c) noexcept { m_Color = c; }
+
+    /**
+     * ローカル頂点列 (node 原点基準) を設定する。
+     *
+     * @param v 頂点配列。
+     * @param count 頂点数 (kMaxVerts で頭打ち)。
+     */
+    void SetVerts(const FVec2* v, u32 count) noexcept {
+        m_Count = count < kMaxVerts ? count : kMaxVerts;
+        for (u32 i = 0; i < m_Count; ++i) m_Verts[i] = v[i];
+    }
+
+    /** 頂点数。 */
+    u32 VertCount() const noexcept { return m_Count; }
+
+    /** 指定インデックスのローカル頂点 (境界外は原点)。 */
+    FVec2 Vert(u32 i) const noexcept { return (i < m_Count) ? m_Verts[i] : FVec2{ 0.0f, 0.0f }; }
+
+    /** owner の world transform でローカル頂点を変換し、三角形ファンで塗る。 */
+    void OnDraw(RenderContext& rc) noexcept override {
+        if (!rc.HasSprites() || m_Count < 3u || !HasOwner()) return;
+        const FTransform2D wt = Owner().World();
+        const f32 c = Cos(wt.rotation), s = Sin(wt.rotation);
+        FVec2 w[kMaxVerts];
+        for (u32 i = 0; i < m_Count; ++i) {
+            const f32 lx = m_Verts[i].x * wt.scale.x;
+            const f32 ly = m_Verts[i].y * wt.scale.y;
+            w[i] = FVec2{ wt.position.x + lx * c - ly * s, wt.position.y + lx * s + ly * c };
+        }
+        FSpriteBatch& sb = rc.Sprites();
+        for (u32 i = 1u; i + 1u < m_Count; ++i)   // vert 0 を扇の中心に三角形ファン
+            sb.DrawTriangle(w[0].x, w[0].y, w[i].x, w[i].y, w[i + 1u].x, w[i + 1u].y, m_Color);
+    }
+
+private:
+    /** ローカル頂点 (node 原点基準)。 */
+    FVec2 m_Verts[kMaxVerts]{};
+
+    /** 頂点数。 */
+    u32   m_Count = 0u;
+
+    /** 塗り色。 */
+    FVec4 m_Color{ 0.6f, 0.7f, 0.9f, 1.0f };
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/PrimitiveRenderer2D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework — FPrimitiveRenderer2D
+//
+// プリミティブ形状 (箱 / 円 / 三角) を描画する FComponent2D。shape で形状を選ぶ。
+// エディタはこの shape を読んで viewport 描画 + コライダー形状を合わせる
+// (= 選んだ形状で見た目もアタリも決まる)。ゲーム実行時はこの OnDraw が
+// FSpriteBatch に積む。色/サイズはコンポーネント側に持つ (owner の scale で拡縮)。
+
+
+#include <cmath>   // std::cos / std::sin
+
+namespace acs::game {
+
+/**
+ * プリミティブ形状を描く FComponent2D。
+ *
+ * @details shape (Box / Circle / Triangle) を owner の world transform で配置・回転して
+ * FSpriteBatch へ積む。円・三角は三角形ファンで塗る。エディタは shape を読んで描画と
+ * コライダー形状を一致させる。
+ */
+class FPrimitiveRenderer2D : public FComponent2D {
+public:
+    ACS_GAME_COMPONENT_KIND(FPrimitiveRenderer2D)
+
+    /** 形状種別。 */
+    enum class EShape : u8 { Box = 0, Circle = 1, Triangle = 2 };
+
+    FPrimitiveRenderer2D() noexcept = default;
+
+    /** 形状を設定する。 */
+    void   SetShape(EShape s) noexcept { m_Shape = s; }
+    /** 現在の形状。 */
+    EShape Shape() const noexcept { return m_Shape; }
+    /** 塗り色を設定する。 */
+    void   SetColor(FVec4 c) noexcept { m_Color = c; }
+    /** 塗り色。 */
+    FVec4  Color() const noexcept { return m_Color; }
+    /** ローカルサイズ (owner scale で拡縮) を設定する。 */
+    void   SetSize(FVec2 s) noexcept { m_Size = s; }
+    /** ローカルサイズ。 */
+    FVec2  Size() const noexcept { return m_Size; }
+
+    /** 影オクルーダーを形状に合わせるため、shape + ローカル半サイズを返す。 */
+    bool QueryPrimitive(i32& shape, FVec2& half_size) const noexcept override {
+        shape = static_cast<i32>(m_Shape);
+        half_size = FVec2{ m_Size.x * 0.5f, m_Size.y * 0.5f };
+        return true;
+    }
+
+    /** 現在の形状/サイズ/色をログ出力する(BlueprintCallable + CallInEditor のデモ関数)。
+     *  Blueprint グラフの «関数» ノード→実ノード作用の実例。 */
+    ACS_FUNCTION(BlueprintCallable, CallInEditor)
+    void LogState() noexcept {
+        ACS_LOG_INFO("[Prim] LogState shape=%d size=(%.2f,%.2f) color=(%.2f,%.2f,%.2f,%.2f)",
+            static_cast<int>(m_Shape), static_cast<double>(m_Size.x), static_cast<double>(m_Size.y),
+            static_cast<double>(m_Color.x), static_cast<double>(m_Color.y),
+            static_cast<double>(m_Color.z), static_cast<double>(m_Color.w));
+    }
+
+    /** f32 引数を 1 個取りログ出力する(BlueprintCallable + 引数ありメソッドのデモ)。 */
+    ACS_FUNCTION(BlueprintCallable, CallInEditor)
+    void LogValue(f32 v) noexcept {
+        ACS_LOG_INFO("[Prim] LogValue v=%.3f", static_cast<double>(v));
+    }
+
+    /** 形状の面積 (size.x*size.y) を返す(BlueprintCallable + 戻り値ありメソッドのデモ)。 */
+    ACS_FUNCTION(BlueprintCallable)
+    f32 GetArea() const noexcept { return m_Size.x * m_Size.y; }
+
+    /** owner の world transform で形状を FSpriteBatch へ積む。 */
+    void OnDraw(RenderContext& rc) noexcept override {
+        if (!rc.HasSprites()) return;
+        const FTransform2D wt = Owner().World();
+        const f32 w = m_Size.x * wt.scale.x;
+        const f32 h = m_Size.y * wt.scale.y;
+        DrawShape(rc.Sprites(), static_cast<int>(m_Shape),
+                  wt.position.x, wt.position.y, w, h, wt.rotation, m_Color);
+    }
+
+    /**
+     * プリミティブ形状を FSpriteBatch に塗る (エディタ viewport と共用のヘルパ)。
+     *
+     * @param sb 積み先の SpriteBatch。
+     * @param shape 0=Box, 1=Circle, 2=Triangle。
+     * @param cx 中心 X。 @param cy 中心 Y。 @param w 幅。 @param h 高さ。
+     * @param rot 回転 (rad)。 @param col 塗り色。
+     */
+    static void DrawShape(FSpriteBatch& sb, int shape, f32 cx, f32 cy,
+                          f32 w, f32 h, f32 rot, FVec4 col) noexcept {
+        const f32 c = std::cos(rot), s = std::sin(rot);
+        if (shape == 1) {                                   // 円/楕円 (三角ファン)
+            constexpr int N = 28;
+            const f32 rx = w * 0.5f, ry = h * 0.5f;
+            f32 px = 0.0f, py = 0.0f;
+            for (int i = 0; i <= N; ++i) {
+                const f32 a = 6.2831853f * static_cast<f32>(i) / static_cast<f32>(N);
+                const f32 lx = rx * std::cos(a), ly = ry * std::sin(a);
+                const f32 vx = cx + lx * c - ly * s;
+                const f32 vy = cy + lx * s + ly * c;
+                if (i > 0) sb.DrawTriangle(cx, cy, px, py, vx, vy, col);
+                px = vx; py = vy;
+            }
+        } else if (shape == 2) {                            // 三角形 (上頂点)
+            const f32 hx = w * 0.5f, hy = h * 0.5f;
+            const f32 ax = cx + (0.0f) * c - (-hy) * s, ay = cy + (0.0f) * s + (-hy) * c;
+            const f32 bx = cx + (-hx) * c - (hy) * s,   by = cy + (-hx) * s + (hy) * c;
+            const f32 dx = cx + (hx) * c - (hy) * s,    dy = cy + (hx) * s + (hy) * c;
+            sb.DrawTriangle(ax, ay, bx, by, dx, dy, col);
+        } else {                                            // 箱
+            sb.DrawRectRotated(cx, cy, w, h, rot, col);
+        }
+    }
+
+private:
+    EShape m_Shape = EShape::Box;
+    FVec4  m_Color{ 0.6f, 0.7f, 0.9f, 1.0f };
+    FVec2  m_Size { 1.0f, 1.0f };
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/ProjectSettings.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// プロジェクト設定 (UE の Project Settings 相当)
+//
+// 用途: プロジェクトごとの設定 (レンダリング / エディタ / 物理 / ゲーム / ユーザー定義) を
+//       カテゴリ分けして INI テキスト (<project>/Config/ProjectSettings.ini) で永続化する。
+//       ビルトイン項目はスキーマ (型・既定値・説明) を持ち、ユーザー定義項目は任意の
+//       カテゴリ/キー/値 (文字列) を追加できる。エディタ (editor_abi) とランタイム
+//       (スタンドアロンゲーム) の両方から同じファイルを読める。
+//
+// ファイル形式:
+//   ; コメント
+//   [Rendering]
+//   MsaaSamples=8
+//   AmbientColor=0.10,0.11,0.13
+
+
+namespace acs::game {
+
+/** 設定値の型 (エディタ UI のエディタ選択と検証に使う)。 */
+enum class ESettingType : u8 {
+    Float,    ///< 単一の実数。
+    Int,      ///< 整数。
+    Bool,     ///< true/false (INI では 1/0)。
+    Color,    ///< "r,g,b" (0..1 の実数 3 つ)。
+    String,   ///< 任意文字列 (ユーザー定義項目の既定)。
+    Enum,     ///< options ("A|B|C") から選ぶ。値は選択肢の文字列。
+};
+
+/** ビルトイン設定項目のスキーマ (静的テーブル)。 */
+struct FSettingDesc {
+    const char*  category;   ///< カテゴリ名 (INI のセクション)。
+    const char*  key;        ///< キー名。
+    ESettingType type;       ///< 値の型。
+    const char*  def;        ///< 既定値 (文字列表現)。
+    const char*  options;    ///< Enum の選択肢 "A|B|C" (Enum 以外は nullptr)。
+    const char*  desc;       ///< 説明 (エディタのツールチップ)。
+};
+
+/** 1 つの設定エントリ (ビルトイン or ユーザー定義)。 */
+struct FSettingEntry {
+    char         category[32] = {};
+    char         key[64]      = {};
+    char         value[192]   = {};
+    ESettingType type         = ESettingType::String;
+    const char*  options      = nullptr;   ///< ビルトインスキーマ参照 (カスタムは nullptr)。
+    const char*  desc         = nullptr;   ///< 同上。
+    bool         builtin      = false;     ///< false=ユーザー定義 (削除可)。
+};
+
+/**
+ * プロジェクト設定のストア (ビルトインスキーマ + ユーザー定義、INI 読み書き)。
+ *
+ * @details
+ * ResetToDefaults でスキーマ全項目を既定値で持ち、Load で INI の値を上書き +
+ * 未知のキーをユーザー定義として取り込む。値は全て文字列で保持し、型付き Get*
+ * でパースして返す (パース失敗は既定値)。
+ */
+class FProjectSettings {
+public:
+    /** ビルトインスキーマの全項目を既定値で再構築する (ユーザー定義は消える)。 */
+    void ResetToDefaults() noexcept;
+
+    /**
+     * INI ファイルから読み込む。
+     *
+     * @details 先に ResetToDefaults 相当を行い、ファイルの値で上書きする。スキーマに
+     * 無い [カテゴリ] キー はユーザー定義 (String) として追加する。ファイルが無い
+     * 場合は既定値のまま true を返す (初回起動)。
+     * @param ini_path 読み込む INI のパス (UTF-8)。
+     * @return パスが開けたか既定値で初期化できたら true。
+     */
+    bool Load(const char* ini_path) noexcept;
+
+    /**
+     * INI ファイルへ保存する (カテゴリごとにセクション出力)。
+     *
+     * @param ini_path 書き込む INI のパス (UTF-8。親ディレクトリは呼び出し側が用意)。
+     * @return 書き込みに成功したら true。
+     */
+    bool Save(const char* ini_path) const noexcept;
+
+    /**
+     * INI テキスト (メモリ上) から読み込む。
+     *
+     * @details Load(path) と同じ規則。エディタは C# がファイル I/O を担うため、
+     * テキストを受け取ってここでパースする。
+     * @param text INI 全文 (UTF-8、NUL 終端)。
+     * @return text が非 null なら true。
+     */
+    bool LoadText(const char* text) noexcept;
+
+    /**
+     * INI テキストへシリアライズする。
+     *
+     * @param out 出力バッファ (NUL 終端される)。
+     * @param cap out の容量 (バイト)。
+     * @return 書いた文字数 (NUL 除く。cap 不足時は cap-1 で打ち切り)。
+     */
+    u32 SerializeText(char* out, usize cap) const noexcept;
+
+    /** エントリ数を返す。 */
+    u32 Count() const noexcept { return m_Entries.Size(); }
+
+    /** index 番目のエントリを返す (範囲外は触らないこと)。 */
+    const FSettingEntry& At(u32 i) const noexcept { return m_Entries[i]; }
+
+    /** カテゴリ+キーでエントリを探す (無ければ nullptr)。 */
+    const FSettingEntry* Find(const char* cat, const char* key) const noexcept;
+
+    /** 既存エントリの値を設定する (無ければ false)。 */
+    bool Set(const char* cat, const char* key, const char* value) noexcept;
+
+    /** ユーザー定義エントリを追加する (既存キーと重複したら値更新)。 */
+    bool Add(const char* cat, const char* key, const char* value) noexcept;
+
+    /** ユーザー定義エントリを削除する (ビルトインは削除不可 → false)。 */
+    bool Remove(const char* cat, const char* key) noexcept;
+
+    /** 実数として取得する (無い/パース不能は def)。 */
+    f32 GetFloat(const char* cat, const char* key, f32 def) const noexcept;
+
+    /** 整数として取得する (無い/パース不能は def)。 */
+    i32 GetInt(const char* cat, const char* key, i32 def) const noexcept;
+
+    /** 真偽として取得する ("1"/"true" = true)。 */
+    bool GetBool(const char* cat, const char* key, bool def) const noexcept;
+
+    /** 色 "r,g,b" として取得する (無い/パース不能は def)。 */
+    FVec3 GetColor(const char* cat, const char* key, FVec3 def) const noexcept;
+
+    /** 文字列として取得する (無ければ def)。 */
+    const char* GetString(const char* cat, const char* key, const char* def) const noexcept;
+
+private:
+    /** スキーマからエントリを作る (Load/ResetToDefaults 用)。 */
+    void AppendBuiltin(const FSettingDesc& d) noexcept;
+
+    TArray<FSettingEntry> m_Entries;
+};
+
+/**
+ * ビルトイン設定スキーマを返す (静的テーブル)。
+ *
+ * @param out_count テーブルの項目数の出力。
+ * @return スキーマ配列の先頭 (静的寿命)。
+ */
+const FSettingDesc* BuiltinSettingSchema(u32& out_count) noexcept;
+
+} // namespace acs::game
+
+// ===================== gameframework/ReflectApply.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// ACS GameFramework — ReflectApply
+//   反射フィールド (offset 付き) を介して «実インスタンスへ値を読み書き» する。
+// -----------------------------------------------------------------------------
+// 長年保留だった「エディタで編集した値 (authored values) を、実体化したコンポーネント
+// インスタンスへ適用する」ブリッジ。ACS_CLASS/ACS_PROPERTY のコード生成は ACS_RFIELD_D
+// (offset + 既定値) で反射するため、ここで offset を使って値を実メンバへ書き込める。
+//
+//   void* obj = reg.CreateById(typeId);          // 実体化
+//   ApplyDefaults(obj, *desc);                    // C++ 既定値で初期化
+//   f32 v[4] = { 7.5f, 0, 0, 0 };
+//   ApplyValueByName(obj, *desc, "speed", v);     // authored 値を上書き
+//
+// offset==0 && size==0 のフィールド (ACS_RPROP = スキーマのみ) は実メンバが無いので skip。
+// =============================================================================
+
+
+namespace acs::game {
+
+/** フィールドが実メンバ (offset 付き) を持つか (ACS_RPROP のスキーマのみは false)。 */
+inline bool FieldHasStorage(const FReflectField& f) noexcept { return f.size != 0u; }
+
+/**
+ * 1 フィールドの値 (f32 4 成分ソース) を obj の実メンバへ書き込む。
+ *
+ * @param obj 対象インスタンス先頭。
+ * @param f 反射フィールド (offset/size/kind 付き)。
+ * @param v 4 成分の値ソース (スカラは v[0] のみ使用)。
+ */
+inline void ApplyFieldValue(void* obj, const FReflectField& f, const f32 v[4]) noexcept {
+    if (obj == nullptr || !FieldHasStorage(f)) return;
+    auto* const p = static_cast<unsigned char*>(obj) + f.offset;
+    switch (f.kind) {
+        case EFieldKind::Bool:  *reinterpret_cast<bool*>(p) = (v[0] != 0.0f); break;
+        case EFieldKind::I32:   *reinterpret_cast<i32*>(p)  = static_cast<i32>(v[0]); break;
+        case EFieldKind::ObjectRef: *reinterpret_cast<i32*>(p) = static_cast<i32>(v[0]); break;  // 参照先 ID (実行時に解決)
+        case EFieldKind::U32:   *reinterpret_cast<u32*>(p)  = static_cast<u32>(v[0]); break;
+        case EFieldKind::F32:   *reinterpret_cast<f32*>(p)  = v[0]; break;
+        case EFieldKind::FVec2: { auto* d = reinterpret_cast<f32*>(p); d[0]=v[0]; d[1]=v[1]; } break;
+        case EFieldKind::FVec3: { auto* d = reinterpret_cast<f32*>(p); d[0]=v[0]; d[1]=v[1]; d[2]=v[2]; } break;
+        case EFieldKind::FVec4: { auto* d = reinterpret_cast<f32*>(p); d[0]=v[0]; d[1]=v[1]; d[2]=v[2]; d[3]=v[3]; } break;
+        default: break;   // FString / Enum などは未対応 (skip)
+    }
+}
+
+/**
+ * 1 フィールドの値を obj の実メンバから f32 4 成分へ読み出す。
+ *
+ * @param obj 対象インスタンス先頭。
+ * @param f 反射フィールド。
+ * @param out 4 成分の出力 (未使用成分は 0)。
+ */
+inline void ReadFieldValue(const void* obj, const FReflectField& f, f32 out[4]) noexcept {
+    out[0] = out[1] = out[2] = out[3] = 0.0f;
+    if (obj == nullptr || !FieldHasStorage(f)) return;
+    const auto* const p = static_cast<const unsigned char*>(obj) + f.offset;
+    switch (f.kind) {
+        case EFieldKind::Bool:  out[0] = *reinterpret_cast<const bool*>(p) ? 1.0f : 0.0f; break;
+        case EFieldKind::I32:   out[0] = static_cast<f32>(*reinterpret_cast<const i32*>(p)); break;
+        case EFieldKind::ObjectRef: out[0] = static_cast<f32>(*reinterpret_cast<const i32*>(p)); break;
+        case EFieldKind::U32:   out[0] = static_cast<f32>(*reinterpret_cast<const u32*>(p)); break;
+        case EFieldKind::F32:   out[0] = *reinterpret_cast<const f32*>(p); break;
+        case EFieldKind::FVec2: { auto* d = reinterpret_cast<const f32*>(p); out[0]=d[0]; out[1]=d[1]; } break;
+        case EFieldKind::FVec3: { auto* d = reinterpret_cast<const f32*>(p); out[0]=d[0]; out[1]=d[1]; out[2]=d[2]; } break;
+        case EFieldKind::FVec4: { auto* d = reinterpret_cast<const f32*>(p); out[0]=d[0]; out[1]=d[1]; out[2]=d[2]; out[3]=d[3]; } break;
+        default: break;
+    }
+}
+
+/**
+ * 型の全フィールドを «スキーマ既定値 (defaults[])» で初期化する。
+ *
+ * @details C++ のメンバ初期化子とは別に、反射の defaults を実メンバへ書く。CreateById 直後に
+ * 呼べば「反射上の既定値」と実体を一致させられる。offset 無しフィールドは skip。
+ */
+inline void ApplyDefaults(void* obj, const FTypeDesc& desc) noexcept {
+    if (obj == nullptr || desc.fields == nullptr) return;
+    for (u32 i = 0; i < desc.field_count; ++i) ApplyFieldValue(obj, desc.fields[i], desc.fields[i].defaults);
+}
+
+/**
+ * 名前でフィールドを探し、値 (f32 4 成分) を実メンバへ書き込む。
+ *
+ * @return 該当フィールドへ書けたら true、無ければ false。
+ */
+inline bool ApplyValueByName(void* obj, const FTypeDesc& desc, const char* name, const f32 v[4]) noexcept {
+    if (obj == nullptr || desc.fields == nullptr || name == nullptr) return false;
+    for (u32 i = 0; i < desc.field_count; ++i) {
+        const FReflectField& f = desc.fields[i];
+        if (f.name == nullptr) continue;
+        const char* a = f.name; const char* b = name;
+        while (*a != '\0' && *a == *b) { ++a; ++b; }
+        if (*a == '\0' && *b == '\0') {
+            if (!FieldHasStorage(f)) return false;   // スキーマのみ → 書けない
+            ApplyFieldValue(obj, f, v);
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace acs::game
+
+// ===================== gameframework/ReflectCatalog.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// GameFramework — エンジン同梱型のリフレクションカタログ (エントリ)
+// -----------------------------------------------------------------------------
+// ReflectCatalog.cpp が、エンジンが標準で持つ型 (Component / System / Scene /
+// Asset / 主要 enum) を「型ヘッダを書き換えずに」FTypeRegistry へ一括登録する。
+//
+// 静的初期化の確実化:
+//   登録は ACS_REGISTER* マクロの静的初期化子で行うが、静的ライブラリ
+//   (acs_gameframework) に置いた初期化子はリンカに落とされ得る。そこで利用側
+//   (テスト / エンジン起動 / editor ABI) は起動時に 1 度 AcsRegisterEngineTypes()
+//   を呼び、カタログ TU を確実にリンクへ引き込むこと。冪等。
+// =============================================================================
+
+
+namespace acs::game {
+
+/**
+ * エンジン同梱型のリフレクション登録を確定する (冪等)。
+ *
+ * @details
+ * この関数を ODR-use することでカタログ TU がリンクへ引き込まれ、同 TU 内の
+ * ACS_REGISTER* 自動登録子が静的初期化時に走る。複数回呼んでも二重登録は起きない
+ * (FTypeRegistry::Register が ID で重複排除する)。
+ * @return 呼び出し後の FTypeRegistry の総登録型数。
+ */
+u32 AcsRegisterEngineTypes() noexcept;
+
+} // namespace acs::game
+
+// ===================== gameframework/ReflectMethod.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework — 関数リフレクション (ACS_FUNCTION / BlueprintCallable の土台)
+//
+// 「型に属する引数なし void メソッド」を名前 + 呼び出しサンク(関数ポインタ)として
+// 登録する軽量レジストリ。UE の UFUNCTION(BlueprintCallable / CallInEditor) に相当する
+// «名前で呼べる関数» を、reflection 経由でエディタのボタンや将来のスクリプト/Blueprint
+// グラフから起動できるようにする土台。
+//
+//   // クラス側 (引数なし void メソッド):
+//   void Ping() noexcept { ACS_LOG_INFO("ping"); }
+//   // 登録 (.cpp で 1 回):
+//   ACS_REGISTER_METHOD(FMyComp, Ping, ::acs::game::METHOD_BP_CALLABLE | ::acs::game::METHOD_CALL_IN_EDITOR)
+//   // 呼び出し:
+//   InvokeMethodByName(AcsTypeHash("FMyComp"), instance, "Ping");
+//
+// 設計: フィールド(FReflectField)とは別レジストリにして FTypeDesc / ACS_REGISTER を
+// 触らない(追加のみ)。引数あり / 戻り値ありは将来拡張(Blueprint グラフ実装時)。
+
+
+#include <cstdlib>   // atof / atoi (文字列引数のパース)
+#include <cstdio>    // snprintf (戻り値の文字列化)
+
+namespace acs::game {
+
+/** メソッド指定子フラグ(UFUNCTION 相当)。 */
+enum EMethodFlags : u32 {
+    METHOD_NONE           = 0u,
+    METHOD_BP_CALLABLE    = 1u << 0,   /**< Blueprint/スクリプトから呼べる。 */
+    METHOD_CALL_IN_EDITOR = 1u << 1,   /**< エディタのボタンから呼べる。 */
+};
+
+/** メソッド引数の種別(単一引数のみ対応。文字列で受けて内部でパースする)。 */
+enum EMethodArgKind : u32 {
+    METHOD_ARG_NONE = 0u,   /**< 引数なし void。 */
+    METHOD_ARG_F32  = 1u,   /**< f32 1 個。 */
+    METHOD_ARG_I32  = 2u,   /**< i32 1 個。 */
+    METHOD_ARG_STR  = 3u,   /**< const char* 1 個。 */
+};
+
+/** 反射された 1 メソッド(所有型 + 名前 + 呼び出しサンク群 + フラグ)。引数なし/単一引数/戻り値あり。 */
+struct FReflectMethod {
+    FTypeId      owner;                              ///< 所有型の ID(AcsTypeHash)。
+    const char*  name;                               ///< メソッド名。
+    void       (*invoke)(void* self);                ///< 引数なし void サンク。
+    void       (*invokeArg)(void* self, const char* arg);  ///< 単一引数 void サンク(文字列をパース)。
+    void       (*invokeRet)(void* self, const char* arg, char* out, int outcap);  ///< 戻り値ありサンク(結果を文字列化)。
+    u32          argKind;                            ///< EMethodArgKind(引数の型)。
+    u32          retKind;                            ///< EMethodArgKind(戻り値の型。None=void)。
+    u32          flags;                              ///< EMethodFlags の OR。
+};
+
+/** 反射メソッドのグローバル登録簿(ACS_REGISTER_METHOD が登録)。 */
+class FMethodRegistry {
+public:
+    /** 単一インスタンス(初回呼び出しで遅延構築)。 */
+    static FMethodRegistry& Get() noexcept {
+        static FMethodRegistry s_instance;
+        return s_instance;
+    }
+
+    /** 登録する(同 owner+name が既にあれば無視)。 */
+    void Register(const FReflectMethod& m) noexcept {
+        for (u32 i = 0; i < m_Methods.Size(); ++i)
+            if (m_Methods[i].owner == m.owner && StrEq(m_Methods[i].name, m.name)) return;
+        m_Methods.PushBack(m);
+    }
+
+    /** 全登録数。 */
+    u32 Count() const noexcept { return static_cast<u32>(m_Methods.Size()); }
+
+    /** i 番目。 */
+    const FReflectMethod& At(u32 i) const noexcept { return m_Methods[i]; }
+
+    /** owner 型の n 番目のメソッド(無ければ nullptr)。 */
+    const FReflectMethod* AtOfOwner(FTypeId owner, u32 nth) const noexcept {
+        u32 seen = 0;
+        for (u32 i = 0; i < m_Methods.Size(); ++i) {
+            if (m_Methods[i].owner != owner) continue;
+            if (seen == nth) return &m_Methods[i];
+            ++seen;
+        }
+        return nullptr;
+    }
+
+    /** owner 型のメソッド数。 */
+    u32 CountOfOwner(FTypeId owner) const noexcept {
+        u32 c = 0;
+        for (u32 i = 0; i < m_Methods.Size(); ++i) if (m_Methods[i].owner == owner) ++c;
+        return c;
+    }
+
+    /** owner + 名前で引く(無ければ nullptr)。 */
+    const FReflectMethod* Find(FTypeId owner, const char* name) const noexcept {
+        for (u32 i = 0; i < m_Methods.Size(); ++i)
+            if (m_Methods[i].owner == owner && StrEq(m_Methods[i].name, name)) return &m_Methods[i];
+        return nullptr;
+    }
+
+private:
+    FMethodRegistry() noexcept = default;
+    static bool StrEq(const char* a, const char* b) noexcept {
+        if (a == nullptr || b == nullptr) return a == b;
+        while (*a != '\0' && *a == *b) { ++a; ++b; }
+        return *a == *b;
+    }
+    TArray<FReflectMethod> m_Methods;
+};
+
+/** ACS_REGISTER_METHOD が生成する自動登録ヘルパ。 */
+struct FMethodAutoRegister {
+    explicit FMethodAutoRegister(const FReflectMethod& m) noexcept { FMethodRegistry::Get().Register(m); }
+};
+
+/**
+ * 名前で型のメソッドを呼ぶ(引数なし void)。
+ *
+ * @param owner 所有型の ID(AcsTypeHash)。
+ * @param obj   呼び出し対象インスタンス先頭。
+ * @param name  メソッド名。
+ * @return 見つかって呼べたら true。
+ */
+inline bool InvokeMethodByName(FTypeId owner, void* obj, const char* name) noexcept {
+    const FReflectMethod* m = FMethodRegistry::Get().Find(owner, name);
+    if (m == nullptr || m->invoke == nullptr || obj == nullptr) return false;
+    m->invoke(obj);
+    return true;
+}
+
+/**
+ * 名前で型のメソッドを «文字列引数» 付きで呼ぶ。引数ありメソッドは invokeArg で
+ * arg をパースして起動し、引数なしメソッドは arg を無視して invoke を起動する。
+ *
+ * @param owner 所有型の ID。
+ * @param obj   呼び出し対象インスタンス先頭。
+ * @param name  メソッド名。
+ * @param arg   文字列引数(引数なしメソッドでは無視。null 可)。
+ * @return 見つかって呼べたら true。
+ */
+inline bool InvokeMethodByNameArg(FTypeId owner, void* obj, const char* name, const char* arg) noexcept {
+    const FReflectMethod* m = FMethodRegistry::Get().Find(owner, name);
+    if (m == nullptr || obj == nullptr) return false;
+    if (m->argKind != METHOD_ARG_NONE && m->invokeArg != nullptr) { m->invokeArg(obj, arg != nullptr ? arg : ""); return true; }
+    if (m->invoke != nullptr) { m->invoke(obj); return true; }
+    return false;
+}
+
+/**
+ * 名前で型のメソッドを arg 付きで呼び、戻り値を文字列化して out へ書く。
+ *
+ * @details 戻り値ありメソッドは invokeRet で結果を out に書き、引数あり/なしメソッドは
+ *          従来通り起動して out を空にする。out は呼び出し前に空文字へ初期化される。
+ * @param owner  所有型の ID。
+ * @param obj    対象インスタンス先頭。
+ * @param name   メソッド名。
+ * @param arg    文字列引数(null 可)。
+ * @param out    戻り値文字列の書き込み先(null 可)。
+ * @param outcap out の容量。
+ * @return 呼べたら true。
+ */
+inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
+                                  const char* arg, char* out, int outcap) noexcept {
+    if (out != nullptr && outcap > 0) out[0] = '\0';
+    const FReflectMethod* m = FMethodRegistry::Get().Find(owner, name);
+    if (m == nullptr || obj == nullptr) return false;
+    if (m->retKind != METHOD_ARG_NONE && m->invokeRet != nullptr) { m->invokeRet(obj, arg != nullptr ? arg : "", out, outcap); return true; }
+    if (m->argKind != METHOD_ARG_NONE && m->invokeArg != nullptr) { m->invokeArg(obj, arg != nullptr ? arg : ""); return true; }
+    if (m->invoke != nullptr) { m->invoke(obj); return true; }
+    return false;
+}
+
+} // namespace acs::game
+
+/** 引数なし void メソッド method を self に対して呼ぶサンク(非捕捉ラムダ → 関数ポインタ)。 */
+#define ACS_RMETHOD_THUNK(Type, method)                                              \
+    [](void* self) noexcept { static_cast<Type*>(self)->method(); }
+
+/** 単一引数サンク(文字列 a をパースして method へ渡す)。 */
+#define ACS_RMETHOD_THUNK_F32(Type, method)                                          \
+    [](void* self, const char* a) noexcept { static_cast<Type*>(self)->method(static_cast<::acs::f32>(::atof(a))); }
+#define ACS_RMETHOD_THUNK_I32(Type, method)                                          \
+    [](void* self, const char* a) noexcept { static_cast<Type*>(self)->method(static_cast<::acs::i32>(::atoi(a))); }
+#define ACS_RMETHOD_THUNK_STR(Type, method)                                          \
+    [](void* self, const char* a) noexcept { static_cast<Type*>(self)->method(a); }
+
+/** 戻り値ありサンク(引数なし method() を呼び結果を out へ文字列化)。 */
+#define ACS_RMETHOD_THUNK_RET_F32(Type, method)                                      \
+    [](void* self, const char*, char* out, int cap) noexcept {                       \
+        ::snprintf(out, static_cast<size_t>(cap), "%.6g",                            \
+                   static_cast<double>(static_cast<Type*>(self)->method())); }
+#define ACS_RMETHOD_THUNK_RET_I32(Type, method)                                      \
+    [](void* self, const char*, char* out, int cap) noexcept {                       \
+        ::snprintf(out, static_cast<size_t>(cap), "%d",                              \
+                   static_cast<int>(static_cast<Type*>(self)->method())); }
+#define ACS_RMETHOD_THUNK_RET_STR(Type, method)                                      \
+    [](void* self, const char*, char* out, int cap) noexcept {                       \
+        const char* r = static_cast<Type*>(self)->method();                          \
+        int i = 0; for (; r != nullptr && r[i] != '\0' && i < cap - 1; ++i) out[i] = r[i]; \
+        if (cap > 0) out[i] = '\0'; }
+
+/** 型 Type の引数なし void メソッド method を flags 付きで登録する(.cpp に 1 回)。
+ *  ACS_REGISTER と同じく namespace acs::game を開く(Type は外側ルックアップで
+ *  acs::game 内型もグローバルなユーザー型も解決される)。 */
+#define ACS_REGISTER_METHOD(Type, method, flags)                                     \
+    namespace acs::game { namespace {                                                 \
+        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rm_, __LINE__) {        \
+            ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
+                ACS_RMETHOD_THUNK(Type, method), nullptr, nullptr,                   \
+                ::acs::game::METHOD_ARG_NONE, ::acs::game::METHOD_ARG_NONE,           \
+                static_cast<::acs::u32>(flags) } };                                   \
+    } }
+
+/** 単一引数(f32 / i32 / const char*)メソッドを登録する。argKind に応じてサンクを選ぶ。 */
+#define ACS_REGISTER_METHOD_F32(Type, method, flags)                                 \
+    namespace acs::game { namespace {                                                 \
+        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
+            ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
+                nullptr, ACS_RMETHOD_THUNK_F32(Type, method), nullptr,               \
+                ::acs::game::METHOD_ARG_F32, ::acs::game::METHOD_ARG_NONE,            \
+                static_cast<::acs::u32>(flags) } };                                   \
+    } }
+#define ACS_REGISTER_METHOD_I32(Type, method, flags)                                 \
+    namespace acs::game { namespace {                                                 \
+        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
+            ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
+                nullptr, ACS_RMETHOD_THUNK_I32(Type, method), nullptr,               \
+                ::acs::game::METHOD_ARG_I32, ::acs::game::METHOD_ARG_NONE,            \
+                static_cast<::acs::u32>(flags) } };                                   \
+    } }
+#define ACS_REGISTER_METHOD_STR(Type, method, flags)                                 \
+    namespace acs::game { namespace {                                                 \
+        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
+            ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
+                nullptr, ACS_RMETHOD_THUNK_STR(Type, method), nullptr,               \
+                ::acs::game::METHOD_ARG_STR, ::acs::game::METHOD_ARG_NONE,            \
+                static_cast<::acs::u32>(flags) } };                                   \
+    } }
+
+/** 戻り値あり(引数なし)メソッドを登録する。retKind に結果型を入れ invokeRet を持つ。 */
+#define ACS_REGISTER_METHOD_RET_F32(Type, method, flags)                             \
+    namespace acs::game { namespace {                                                 \
+        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
+            ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
+                nullptr, nullptr, ACS_RMETHOD_THUNK_RET_F32(Type, method),           \
+                ::acs::game::METHOD_ARG_NONE, ::acs::game::METHOD_ARG_F32,            \
+                static_cast<::acs::u32>(flags) } };                                   \
+    } }
+#define ACS_REGISTER_METHOD_RET_I32(Type, method, flags)                             \
+    namespace acs::game { namespace {                                                 \
+        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
+            ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
+                nullptr, nullptr, ACS_RMETHOD_THUNK_RET_I32(Type, method),           \
+                ::acs::game::METHOD_ARG_NONE, ::acs::game::METHOD_ARG_I32,            \
+                static_cast<::acs::u32>(flags) } };                                   \
+    } }
+#define ACS_REGISTER_METHOD_RET_STR(Type, method, flags)                             \
+    namespace acs::game { namespace {                                                 \
+        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
+            ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
+                nullptr, nullptr, ACS_RMETHOD_THUNK_RET_STR(Type, method),           \
+                ::acs::game::METHOD_ARG_NONE, ::acs::game::METHOD_ARG_STR,            \
+                static_cast<::acs::u32>(flags) } };                                   \
+    } }
+
+// ===================== gameframework/ReflectSerialize.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// GameFramework — リフレクション駆動シリアライザ (ReflectSerialize)
+// -----------------------------------------------------------------------------
+// FReflectField のメタデータ (name / offset / size / kind) を実行時に走査して、
+// 任意の ACS_REFLECT* 型を「型を知らずに」バイト列へ往復させる土台。これにより
+// scene save/load・editor play mode・ゲーム進行セーブ・prefab 永続化が、すべて
+// この 1 プリミティブの薄い利用側として実装できる。
+//
+// フォーマット (自己記述・name-keyed → フィールドの追加/削除/並べ替えに耐える):
+//   [u32 magic][u32 type_id][u32 field_count]
+//   per field: [u8 name_len][name…][u8 kind][u8 size][size bytes raw value]
+// 復元時は「保存された各フィールド名」を生きた型の FReflectField から探し、name+kind+
+// size が一致したものだけ offset へ memcpy する (未知フィールドは読み飛ばし、消えた
+// フィールドは factory の既定値が残る)。
+//
+// 対象外フィールド (スキップ):
+//   ・size == 0 … 名前のみ反射 (ACS_RPROP。実体メモリを持たないエディタ用スキーマ)。
+//   ・kind == FString … メンバはポインタ (const char**) なので生バイト保存は無意味。
+//
+// 規約: no-STL / no-exceptions / 全 noexcept / 固定バッファ。エンディアン/アラインは
+// 同一マシンの生バイト前提 (将来クロスプラットフォーム対応の余地あり)。
+// =============================================================================
+
+
+namespace acs::game {
+
+/** フォーマット識別 + バージョン (上位でフォーマット変更時に上げる)。 */
+inline constexpr u32 kReflectSerializeMagic = 0xAC5F0001u;
+
+/**
+ * 反射メタデータに従って obj を buf[0..cap) へ直列化する。
+ *
+ * @param d   反射記述子 (FTypeRegistry から得る)。
+ * @param obj 直列化するインスタンスの先頭ポインタ。
+ * @param buf 出力バッファ。
+ * @param cap buf の容量 (バイト)。
+ * @return 書き込んだ総バイト数。引数不正や cap 不足なら 0。
+ */
+u32 SerializeReflected(const FTypeDesc* d, const void* obj, u8* buf, u32 cap) noexcept;
+
+/** 型名でレジストリを引いてから SerializeReflected する (未登録は 0)。 */
+u32 SerializeByName(const char* type_name, const void* obj, u8* buf, u32 cap) noexcept;
+
+/**
+ * data[0..size) を d の型の obj へ書き戻す (名前一致フィールドのみ復元、未知は無視)。
+ *
+ * @return 適用できたフィールド数。magic 不正 / 型 id 不一致 / 破損は 0。
+ */
+u32 DeserializeReflected(const FTypeDesc* d, void* obj, const u8* data, u32 size) noexcept;
+
+/**
+ * data 先頭ヘッダの type_id から型を特定し、factory で生成して復元する。
+ *
+ * @param data        直列化データ。
+ * @param size        data のバイト数。
+ * @param out_type_id 生成した型の id を返す (破棄に使う、非 null 推奨)。
+ * @return 生成・復元したインスタンス (失敗 nullptr)。破棄は FTypeRegistry::Get().Destroy(*out_type_id, p)。
+ */
+void* CreateFromBytes(const u8* data, u32 size, FTypeId* out_type_id) noexcept;
+
+} // namespace acs::game
+
+// ===================== gameframework/RigidBody2D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// GameFramework Pillar F — FRigidBody2D (剛体ボディ・コンポーネント)
+// -----------------------------------------------------------------------------
+// FRigidWorld2D の剛体を FNode2D に結びつける FComponent2D。owner ノードに attach
+// すると共有ワールドへ円/箱ボディを登録し、物理ステップ後にボディ位置を owner の
+// Local 位置へ書き戻す。これで「ノードに付けたら落ちて衝突する」がゲームから書ける。
+//
+// 使い方:
+//   FRigidWorld2D world;
+//   world.AddStaticAabb({0, 12}, {20, 0.5f});             // 床
+//   auto crate = MakeUnique<FNode2D>();
+//   crate->Local().position = FVec2{0, 0};
+//   auto& rb = crate->AddComponent<FRigidBody2D>(world);   // 共有ワールドを渡す
+//   rb.SetBox({0.5f, 0.5f}, /*mass=*/1.0f);
+//   root.AddChild(Move(crate));
+//   // 毎フレーム:
+//   StepRigidBodies(world, root, dt, FVec2{0, 10});        // step + ノード同期
+//
+// 注意:
+//   ・ボディ位置は world 座標。owner の Local へ書き戻すため、物理ノードは identity
+//     transform の親 (シーン root 等) 直下に置くこと (親に回転/スケールがあると
+//     Local==World が崩れる。world→local 逆変換は今後の拡張点)。
+//   ・1 ノードにつき FRigidBody2D は 1 つ (複数付けると同じ Local 位置を奪い合う)。
+//   ・SetCircle/SetBox を再呼び出しすると古いボディを置き換える (ghost を残さない)。
+//   ・owner ノード破棄時に OnDetach でボディをワールドから除去する (ghost/leak 防止)。
+// =============================================================================
+
+
+// ===================== gameframework/RigidWorld2D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// GameFramework Pillar F — FRigidWorld2D (2D 剛体ダイナミクス、線形インパルス)
+// -----------------------------------------------------------------------------
+// FPhysicsBody2D (swept kinematic) とは別の「本物の剛体」。質量を持つ動的ボディが
+// 衝突時に**運動量を交換**する (跳ね返り / 積み重ね / 押し合い)。インパルスベースの
+// 接触ソルバ + 位置補正で、落下・反発・静止を再現する。
+//
+// 範囲:
+//   ・形状は **円 / 有向ボックス (OBB) / 凸ポリゴン**、動的・静的いずれも。回転ダイナミクス対応。
+//   ・接触は円-円 / 円-凸 / 凸-凸 (SAT + 面クリッピング) を自前マニフォルド (法線 + めり込み深さ +
+//     最大 2 接触点) で解く。AABB は angle=0 の OBB、有向ボックスは SetAngle で回す。
+//   ・restitution (反発係数) + Coulomb 摩擦 + 角運動 (慣性モーメント) に対応。
+//   ・**CCD (連続衝突判定)** は SetCcd でボディ単位に opt-in。高速な動的円が薄い静的形状を
+//     すり抜けるトンネリングを、位置積分前のスウィープ (TOI クランプ) で防ぐ。既定 off。
+//
+// 使い方:
+//   FRigidWorld2D w;
+//   u32 floor = w.AddStaticAabb({0, 10}, {10, 0.5f});      // 上端 y=9.5 の床
+//   u32 ball  = w.AddCircle({0, 0}, 0.5f, /*mass=*/1.0f, /*restitution=*/0.2f);
+//   for (...) w.Step(1.0f/60.0f, FVec2{0, 10});            // +Y=下: 重力は +Y
+//   FVec2 p = w.Position(ball);                            // 落ちて床上で静止
+//
+// 規約: no-STL / no-exceptions / 全 noexcept / 固定長 TArray。
+// =============================================================================
+
+
+namespace acs::game {
+
+/**
+ * 剛体ボディ 1 つの状態 (円 or AABB、動的 or 静的)。
+ *
+ * @details 角運動 (angle/ang_vel/inv_inertia) はダイナミクスと transform に効く。
+ * 衝突形状は回転しない (円は回転不変、AABB は軸並行のまま = 近似。OBB は今後)。
+ */
+/** 凸ポリゴンコライダーの最大頂点数。 */
+inline constexpr u32 kMaxPolyVerts = 8u;
+
+struct FRigidBodyState {
+    FVec2 pos{0.0f, 0.0f};       // 中心位置
+    FVec2 vel{0.0f, 0.0f};       // 速度 (静的は 0 固定)
+    FVec2 half{0.0f, 0.0f};      // AABB 半サイズ (is_circle のとき未使用)
+    f32   radius      = 0.0f;    // 円半径 (is_circle のとき)
+    f32   angle       = 0.0f;    // 回転角 (rad)
+    f32   ang_vel     = 0.0f;    // 角速度 (rad/s)
+    f32   inv_mass    = 0.0f;    // 質量の逆数 (0 = 静的 / 無限質量)
+    f32   inv_inertia = 0.0f;    // 慣性モーメントの逆数 (0 = 回転不可 / 静的)
+    f32   restitution = 0.0f;    // 反発係数 [0,1]
+    f32   friction    = 0.3f;    // 摩擦係数 (接触ペアで sqrt 合成)
+    f32   lin_damp    = 0.0f;    // 線形減衰 (1/s)。0 = 減衰なし (運動量保存)
+    f32   ang_damp    = 0.0f;    // 角減衰 (1/s)。回転が時間で自然に弱まる
+    bool  is_circle   = true;    // true=円, false=AABB/Polygon
+    bool  active      = true;    // false=削除済み (tombstone、再利用待ち)
+    bool  is_sensor   = false;   // true=センサ (衝突応答せず素通り、重なりは検出可能)
+    bool  ccd         = false;   // true=連続衝突判定 (高速移動でも静的形状をすり抜けない)
+    // 凸ポリゴンコライダー (poly_count>0 のとき box の代わりに使う。CCW、body 原点基準のローカル頂点)。
+    u8    poly_count  = 0u;
+    FVec2 poly[kMaxPolyVerts]{};
+};
+
+/** レイキャストの結果 (hit=false でヒットなし)。 */
+struct FRayHit2D {
+    bool  hit      = false;
+    f32   distance = 0.0f;       // origin からヒット点までの距離
+    FVec2 point{0.0f, 0.0f};     // ヒット点 (world)
+    FVec2 normal{0.0f, 0.0f};    // ヒット面の外向き法線 (単位)
+    u32   body     = 0u;         // ヒットしたボディ index
+};
+
+/**
+ * 2D 剛体ワールド。動的円ボディと静的 AABB を保持し、毎ステップで重力積分 →
+ * 接触検出 → インパルス解決 → 位置補正を行う。空間クエリ (point / ray / overlap) も提供する。
+ */
+class FRigidWorld2D {
+public:
+    FRigidWorld2D() noexcept = default;
+
+    /**
+     * 動的な円ボディを追加する。
+     * @param pos 中心位置。
+     * @param radius 半径。
+     * @param mass 質量 (<=0 で静的 = 無限質量)。
+     * @param restitution 反発係数 [0,1]。
+     * @return ボディindex。
+     */
+    u32 AddCircle(FVec2 pos, f32 radius, f32 mass, f32 restitution = 0.0f, f32 friction = 0.3f) noexcept;
+
+    /**
+     * 動的な AABB ボディ (箱・クレート) を追加する。
+     * @param pos 中心位置。
+     * @param half 半サイズ。
+     * @param mass 質量 (<=0 で静的)。
+     * @param restitution 反発係数 [0,1]。
+     * @param friction 摩擦係数。
+     * @return ボディ index。
+     */
+    u32 AddDynamicAabb(FVec2 pos, FVec2 half, f32 mass, f32 restitution = 0.0f, f32 friction = 0.3f) noexcept;
+
+    /**
+     * 静的な AABB (床・壁) を追加する (無限質量・不動)。
+     * @param center 中心。
+     * @param half 半サイズ。
+     * @param restitution 反発係数 [0,1]。
+     * @param friction 摩擦係数。
+     * @return ボディ index。
+     */
+    u32 AddStaticAabb(FVec2 center, FVec2 half, f32 restitution = 0.0f, f32 friction = 0.3f) noexcept;
+
+    /**
+     * 凸ポリゴンボディを追加する (動的 or 静的)。
+     *
+     * @details local_verts は body 原点 (= pos) 基準のローカル頂点 (CCW、凸が前提)。
+     * 頂点数は kMaxPolyVerts で頭打ち。mass<=0 で静的。慣性はポリゴン公式で算出。
+     * @param pos 中心位置 (ローカル原点)。
+     * @param local_verts ローカル頂点配列 (CCW 凸)。
+     * @param count 頂点数 (3..kMaxPolyVerts)。
+     * @param mass 質量 (<=0 で静的)。
+     * @param restitution 反発係数 [0,1]。
+     * @param friction 摩擦係数。
+     * @return ボディ index (頂点不足は静的扱いの index)。
+     */
+    u32 AddPolygon(FVec2 pos, const FVec2* local_verts, u32 count, f32 mass,
+                   f32 restitution = 0.0f, f32 friction = 0.3f) noexcept;
+
+    /**
+     * センサ円を追加する (衝突応答せず素通り。OverlapBody で重なりを検出)。
+     * @param pos 中心。
+     * @param radius 半径。
+     * @return ボディ index。
+     */
+    u32 AddSensorCircle(FVec2 pos, f32 radius) noexcept;
+
+    /**
+     * センサ AABB (トリガ域) を追加する。
+     * @param center 中心。
+     * @param half 半サイズ。
+     * @return ボディ index。
+     */
+    u32 AddSensorAabb(FVec2 center, FVec2 half) noexcept;
+
+    /**
+     * 1 ステップ進める (重力積分 → 位置更新 → 接触解決 → 位置補正)。
+     * @param dt 時間刻み (秒)。
+     * @param gravity 重力加速度 (+Y=画面下なら下向きは正の Y)。
+     */
+    void Step(f32 dt, FVec2 gravity) noexcept;
+
+    /** アクティブ (未削除) ボディ数。 */
+    u32   Count() const noexcept { return m_ActiveCount; }
+
+    /** i 番ボディの位置 (範囲外は原点)。 */
+    FVec2 Position(u32 i) const noexcept { return i < m_Bodies.Size() ? m_Bodies[i].pos : FVec2{0.0f, 0.0f}; }
+
+    /** i 番ボディの速度 (範囲外は 0)。 */
+    FVec2 Velocity(u32 i) const noexcept { return i < m_Bodies.Size() ? m_Bodies[i].vel : FVec2{0.0f, 0.0f}; }
+
+    /** i 番ボディの速度を設定する。 */
+    void  SetVelocity(u32 i, FVec2 v) noexcept { if (i < m_Bodies.Size()) m_Bodies[i].vel = v; }
+
+    /** i 番ボディの回転角 [rad] (範囲外は 0)。 */
+    f32   Angle(u32 i) const noexcept { return i < m_Bodies.Size() ? m_Bodies[i].angle : 0.0f; }
+
+    /** i 番ボディの角速度 [rad/s] (範囲外は 0)。 */
+    f32   AngularVelocity(u32 i) const noexcept { return i < m_Bodies.Size() ? m_Bodies[i].ang_vel : 0.0f; }
+
+    /** i 番ボディの角速度を設定する。 */
+    void  SetAngularVelocity(u32 i, f32 w) noexcept { if (i < m_Bodies.Size()) m_Bodies[i].ang_vel = w; }
+
+    /** i 番ボディの初期回転角 [rad] を設定する (有向ボックス OBB の向き)。生成直後に呼ぶ。 */
+    void  SetAngle(u32 i, f32 a) noexcept { if (i < m_Bodies.Size()) m_Bodies[i].angle = a; }
+
+    /** i 番ボディの減衰を設定する (linear / angular、1/s)。回転や速度を時間で自然に弱める。 */
+    void  SetDamping(u32 i, f32 linear, f32 angular) noexcept {
+        if (i < m_Bodies.Size()) { m_Bodies[i].lin_damp = (linear > 0.0f) ? linear : 0.0f;
+                                   m_Bodies[i].ang_damp = (angular > 0.0f) ? angular : 0.0f; }
+    }
+
+    /** i 番ボディ (read-only、非アクティブも返る)。 */
+    const FRigidBodyState* Body(u32 i) const noexcept { return i < m_Bodies.Size() ? &m_Bodies[i] : nullptr; }
+
+    /** index のボディがアクティブ (未削除) か。 */
+    bool IsActive(u32 i) const noexcept { return i < m_Bodies.Size() && m_Bodies[i].active; }
+
+    /**
+     * i 番ボディの連続衝突判定 (CCD) を有効/無効にする。
+     *
+     * @details
+     * 既定は off。on にすると、そのボディは Step の位置積分でスウィープ判定され、1 ステップの
+     * 移動量が大きくても静的形状を貫通せず接触面 (TOI) で止まる。弾丸・高速ボールなど薄い壁を
+     * すり抜けやすい動的ボディに使う。CCD 対象は **静的ボディ (円 / 軸並行ボックス)** のみで、
+     * 動的同士・回転静的・凸ポリゴン静的は離散判定にフォールバックする (本ボディは bounding 円で近似)。
+     * @param i ボディ index。
+     * @param on true で CCD 有効。
+     */
+    void SetCcd(u32 i, bool on) noexcept { if (i < m_Bodies.Size()) m_Bodies[i].ccd = on; }
+
+    /** i 番ボディの CCD が有効か (範囲外は false)。 */
+    bool IsCcd(u32 i) const noexcept { return i < m_Bodies.Size() && m_Bodies[i].ccd; }
+
+    /**
+     * index のボディを削除する (tombstone 化し、slot を再利用待ちにする)。
+     *
+     * @details index は安定 (詰め直さない) ので他ボディの index は無効化されない。
+     * 削除後はシミュレーション・衝突・クエリ対象から外れ、次の Add* が slot を再利用する。
+     * @param index 削除するボディ index。
+     */
+    void RemoveBody(u32 index) noexcept;
+
+    // ----- 空間クエリ (視線 / 接地 / クリック選択 / 範囲) -----
+
+    /** point を含む最初のアクティブボディ index を返す (無ければ -1)。 */
+    i32 QueryPoint(FVec2 p) const noexcept;
+
+    /**
+     * origin から dir 方向へ max_dist までレイキャストし、最近接ヒットを返す。
+     * @param origin レイ始点。
+     * @param dir レイ方向 (内部で正規化、ゼロは miss)。
+     * @param max_dist 最大距離。
+     * @return 最近接ヒット (hit=false でなし)。
+     */
+    FRayHit2D Raycast(FVec2 origin, FVec2 dir, f32 max_dist) const noexcept;
+
+    /**
+     * 中心 center 半径 radius の円に重なるアクティブボディ index を out へ集める。
+     * @param center クエリ円の中心。
+     * @param radius クエリ円の半径。
+     * @param out_indices 結果を書く配列。
+     * @param cap out_indices の容量。
+     * @return 重なったボディ数 (cap で頭打ち)。
+     */
+    u32 OverlapCircle(FVec2 center, f32 radius, u32* out_indices, u32 cap) const noexcept;
+
+    /**
+     * body[index] に重なっている他のアクティブボディを集める (センサのトリガ判定に使う)。
+     * @param index 基準ボディ (センサ等)。
+     * @param out_indices 結果を書く配列。
+     * @param cap out_indices の容量。
+     * @return 重なったボディ数 (自身は除く、cap で頭打ち)。
+     */
+    u32 OverlapBody(u32 index, u32* out_indices, u32 cap) const noexcept;
+
+private:
+    /** 速度反復回数 (逐次インパルス。積み重ね/同時接触の収束)。 */
+    static constexpr u32 kVelIters = 8u;
+    /** 位置反復回数 (NGS。めり込みを位置のみで除去、エネルギーを注入しない)。 */
+    static constexpr u32 kPosIters = 3u;
+
+    /** ボディ群 (静的・動的・tombstone 混在、index は安定)。 */
+    TArray<FRigidBodyState> m_Bodies;
+
+    /** 削除済み slot の再利用フリーリスト。 */
+    TArray<u32> m_FreeList;
+
+    /** アクティブ (未削除) ボディ数。 */
+    u32 m_ActiveCount = 0u;
+
+    /** state を新規 slot か再利用 slot に格納して index を返す。 */
+    u32 AllocBody(const FRigidBodyState& state) noexcept;
+};
+
+} // namespace acs::game
+
+namespace acs::game {
+
+class FNode2D;
+
+/**
+ * FRigidWorld2D の剛体を owner ノードに結びつける FComponent2D。
+ *
+ * @details
+ * ctor で共有ワールドを受け取り、SetCircle/SetBox で owner の現在位置にボディを登録する。
+ * PullFromWorld でボディ位置を owner の Local 位置へ反映する (通常は StepRigidBodies が呼ぶ)。
+ */
+class FRigidBody2D : public FComponent2D {
+public:
+    ACS_GAME_COMPONENT_KIND(FRigidBody2D)
+
+    /**
+     * 共有ワールドを指定して構築する (AddComponent<FRigidBody2D>(world))。
+     * @param world このボディが属する剛体ワールド。
+     */
+    explicit FRigidBody2D(FRigidWorld2D& world) noexcept : m_World(&world) {}
+
+    /**
+     * 円ボディとしてワールドへ登録する (owner の現在 Local 位置で)。
+     * @param radius 半径。
+     * @param mass 質量 (<=0 で静的)。
+     * @param restitution 反発係数 [0,1]。
+     * @param friction 摩擦係数。
+     */
+    void SetCircle(f32 radius, f32 mass, f32 restitution = 0.0f, f32 friction = 0.3f) noexcept;
+
+    /**
+     * 箱 (AABB) ボディとしてワールドへ登録する。
+     * @param half 半サイズ。
+     * @param mass 質量 (<=0 で静的)。
+     * @param restitution 反発係数 [0,1]。
+     * @param friction 摩擦係数。
+     */
+    void SetBox(FVec2 half, f32 mass, f32 restitution = 0.0f, f32 friction = 0.3f) noexcept;
+
+    /** ワールドのボディ位置を owner の Local 位置へ反映する。 */
+    void PullFromWorld() noexcept;
+
+    /** owner ノード破棄時にボディをワールドから除去する (ghost/leak 防止)。 */
+    void OnDetach() noexcept override;
+
+    /** ボディが登録済みか。 */
+    bool IsRegistered() const noexcept { return m_Registered; }
+
+    /** ワールド内のボディ index (未登録時は不定)。 */
+    u32 BodyIndex() const noexcept { return m_BodyIndex; }
+
+    /** ボディの速度。 */
+    FVec2 Velocity() const noexcept {
+        return (m_Registered && m_World != nullptr) ? m_World->Velocity(m_BodyIndex) : FVec2{0.0f, 0.0f};
+    }
+
+    /** ボディの速度を設定する (発射・ジャンプ等)。 */
+    void SetVelocity(FVec2 v) noexcept {
+        if (m_Registered && m_World != nullptr) m_World->SetVelocity(m_BodyIndex, v);
+    }
+
+    /** 連続衝突判定 (CCD) を切り替える。弾丸・高速ボール等が薄い壁をすり抜けるのを防ぐ。 */
+    void SetCcd(bool on) noexcept {
+        if (m_Registered && m_World != nullptr) m_World->SetCcd(m_BodyIndex, on);
+    }
+
+    /** このボディの CCD が有効か。 */
+    bool IsCcd() const noexcept {
+        return m_Registered && m_World != nullptr && m_World->IsCcd(m_BodyIndex);
+    }
+
+private:
+    FRigidWorld2D* m_World      = nullptr;
+    u32            m_BodyIndex  = 0u;
+    bool           m_Registered = false;
+};
+
+/**
+ * ワールドを 1 ステップ進め、root 配下の全 FRigidBody2D を owner ノードへ同期する。
+ *
+ * @details world.Step → ツリー走査で各 FRigidBody2D.PullFromWorld()。ゲームループから毎フレーム呼ぶ。
+ * @param world 進める剛体ワールド。
+ * @param root 同期対象ツリーの根。
+ * @param dt 時間刻み (秒)。
+ * @param gravity 重力加速度。
+ */
+void StepRigidBodies(FRigidWorld2D& world, FNode2D& root, f32 dt, FVec2 gravity) noexcept;
+
+} // namespace acs::game
+
+// ===================== gameframework/RigidWorldDebug.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// GameFramework — FRigidWorld2D のデバッグ可視化 (RigidWorldDebug)
+// -----------------------------------------------------------------------------
+// 剛体ワールドの全アクティブボディ (円/箱) の輪郭と、動的ボディの速度ベクトルを
+// FDebugDraw へ積む。物理の挙動を目で確認するための薄いブリッジ (描画は呼び出し側)。
+// =============================================================================
+
+
+namespace acs::game {
+
+class FRigidWorld2D;
+class FDebugDraw;
+
+/**
+ * ワールドの全アクティブボディ輪郭 + 速度矢印を dd へ積む。
+ *
+ * @param world 可視化する剛体ワールド。
+ * @param dd 線分を積む先のデバッグ描画バッファ。
+ * @param color ボディ輪郭の色。
+ * @param vel_color 速度ベクトル矢印の色。
+ * @param vel_scale 速度ベクトルの長さ倍率 (world 単位/(単位速度))。
+ */
+void DebugDrawRigidWorld(const FRigidWorld2D& world, FDebugDraw& dd,
+                         FVec4 color, FVec4 vel_color, f32 vel_scale = 0.1f) noexcept;
+
+} // namespace acs::game
+
+// ===================== gameframework/Scene3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar B — FScene3D
+//
+// 3D シーングラフの実用コンテナ (FScene2D の軽量 3D 版)。root FNode3D ツリーを所有し、
+// update/fixed-update の伝播 + 構造変更の解決をまとめて行う。描画は «3D レンダラ» が
+// 別途このツリーを走査して FMeshComponent3D 等を読む (本クラスは GPU 非依存)。
+//
+// 注: 本クラスは Scene 基底 (2D の描画/サービス前提) を継承せず、純粋なシーングラフ
+//     コンテナとして独立させている。3D レンダーパイプラインがエンジンに入った段階で
+//     描画フックを «末尾に追加» する。
+
+
+namespace acs::game {
+
+/**
+ * 3D シーングラフを所有・駆動する実用コンテナ (FScene2D の軽量 3D 版)。
+ *
+ * @details
+ * root FNode3D ツリーを所有し、Update/FixedUpdate で subtree 全体に伝播 + フレーム境界の
+ * 構造変更 (destroy/reparent) を解決する。名前によるノード検索とノード数集計を提供する。
+ * 描画は外部の 3D レンダラがツリーを走査して行う (本クラスは GPU 非依存)。
+ */
+class FScene3D {
+public:
+    /** 空のシーンを構築する (root のみ。pool を初期化し root も登録する)。 */
+    FScene3D() noexcept {
+        m_Pool.Init(256);
+        m_Pool.RegisterExistingNode(&m_Root);   // root にも有効な FNodeId を振る
+    }
+
+    /** シーンを破棄する (root ツリーごと解放。pool は非所有なので何も delete しない)。 */
+    ~FScene3D() noexcept = default;
+
+    /** コピー禁止 (FNode3D ツリーを単独所有するため)。 */
+    FScene3D(const FScene3D&)            = delete;
+
+    /** コピー代入も禁止。 */
+    FScene3D& operator=(const FScene3D&) = delete;
+
+    /** ムーブ禁止。 */
+    FScene3D(FScene3D&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
+    FScene3D& operator=(FScene3D&&)      = delete;
+
+    /**
+     * シーンの root ノードへの可変参照を返す (ここに子を AddChild してツリーを組む)。
+     *
+     * @return root FNode3D への参照。
+     */
+    FNode3D&       Root()       noexcept { return m_Root; }
+
+    /**
+     * シーンの root ノードへの const 参照を返す。
+     *
+     * @return root FNode3D への const 参照。
+     */
+    const FNode3D& Root() const noexcept { return m_Root; }
+
+    /**
+     * 名前を付けて子ノードを生成し、generational id を振って参照を返す簡易ヘルパ。
+     *
+     * @details parent==nullptr のときは root の子にする。OnSpawn は AddChild 内で即時発火し、
+     * 生成ノードは pool に登録される (= 戻り値の `node.Id()` が有効になる)。
+     * @param name 新規ノードの名前。
+     * @param parent 親ノード (nullptr なら root)。
+     * @return 生成した子ノードへの参照。
+     */
+    FNode3D& Spawn(FStringView name, FNode3D* parent = nullptr) noexcept;
+
+    /**
+     * generational id から FNode3D を取り出す (stale / invalid なら nullptr)。
+     *
+     * @param id 取り出す FNodeId。
+     * @return 対応するノード (stale なら nullptr)。
+     */
+    FNode3D* Get(FNodeId id) noexcept { return m_Pool.Get(id); }
+
+    /**
+     * id が現在も生きているか (stale 検出)。
+     *
+     * @param id 検証する FNodeId。
+     * @return 生きていれば true。
+     */
+    bool IsValid(FNodeId id) const noexcept { return m_Pool.IsValid(id); }
+
+    /**
+     * ノードポインタから FNodeId を逆引きする。
+     *
+     * @param node 逆引きするノード。
+     * @return 対応する FNodeId (未登録なら invalid)。
+     */
+    FNodeId IdOf(FNode3D* node) noexcept { return m_Pool.IdOf(node); }
+
+    /**
+     * id 指定でノードを破棄予定にする (実際の reap は次の Update)。
+     *
+     * @details root は破棄できない (false を返す)。pool からの登録解除は次の Update の
+     * PurgePendingDestroy が行う (= 破棄予定の間も id は valid のまま、reap 前に外れる)。
+     * @param id 破棄するノードの FNodeId。
+     * @return 破棄予定にしたら true、未登録 / root なら false。
+     */
+    bool Destroy(FNodeId id) noexcept {
+        FNode3D* n = m_Pool.Get(id);
+        if (n == nullptr || n == &m_Root) return false;
+        n->Destroy();
+        return true;
+    }
+
+    /**
+     * pool に登録されている (生きている) ノード数を返す (root を含む)。
+     *
+     * @return active なノード数。
+     */
+    u32 RegisteredCount() const noexcept { return m_Pool.ActiveCount(); }
+
+    /**
+     * 毎フレームの update。
+     *
+     * @details root の UpdateTree → 構造変更の解決 の順で実行する。
+     * @param dt 経過秒。
+     */
+    void Update(f32 dt) noexcept;
+
+    /**
+     * 固定刻みの update。
+     *
+     * @details root の FixedUpdateTree → 構造変更の解決 の順で実行する。
+     * @param fixed_dt 固定刻みの秒。
+     */
+    void FixedUpdate(f32 fixed_dt) noexcept;
+
+    /**
+     * 名前でノードを検索する (root を含む subtree の深さ優先探索、最初の一致)。
+     *
+     * @param name 検索するノード名。
+     * @return 最初に一致したノード (無ければ nullptr)。
+     */
+    FNode3D* FindByName(FStringView name) noexcept;
+
+    /**
+     * ワールド空間レイで最も手前のノードをピックする (FMeshComponent3D を持つノードのみ対象)。
+     *
+     * @details
+     * 各ノードの World() 変形を逆適用してレイをローカル空間へ移し、プリミティブ種別ごとの
+     * ローカル AABB と交差判定する (= 回転/スケール/階層を正しく扱う OBB ピック)。t は元の
+     * world レイ上のパラメータ。Mesh 種別は頂点 AABB を使う。
+     * @param ray ワールド空間のピックレイ (direction は非正規化でも可)。
+     * @param out_t 非 null なら命中 t (world レイ上、`ray.origin + t*ray.direction` が命中点) を書く。
+     * @return 最も手前で命中したノードの FNodeId (外れは invalid)。
+     */
+    FNodeId Raycast(const Ray3& ray, f32* out_t = nullptr) const noexcept;
+
+    /**
+     * subtree のノード総数を返す (root を含む)。
+     *
+     * @return ノード総数。
+     */
+    u32 NodeCount() const noexcept;
+
+    /**
+     * root の全子孫を破棄してシーンを空にする (root 自身は残し、transform/名前を既定へ戻す)。
+     *
+     * @details
+     * 各 top-level 子を Destroy → pool を purge → 即時 reap する (Update を待たない)。
+     * シーン読み込み (LoadScene3DText) の «置き換え» 前処理に使う。
+     */
+    void Clear() noexcept;
+
+private:
+    /** シーンの root ノード (ツリーの起点、名前 "Root")。 */
+    FNode3D m_Root{ FStringView("Root") };
+
+    /** generational id レジストリ (非所有。Spawn で登録、Update で破棄予定を purge)。 */
+    FNode3DPool m_Pool;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/Scene3DSerialize.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// GameFramework — 3D シーン (FNode3D ツリー) のテキストシリアライズ
+// -----------------------------------------------------------------------------
+// FScene3D の階層 + 各ノードの FTransform3D (pos/euler/scale) + FMeshComponent3D
+// (prim/color/mesh path) を行ベースのテキストへ往復させる。editor_abi の 3D ビュー
+// ポートの scene3d_serialize/load_text が委譲する «正準フォーマット» (移行後)。
+//
+// フォーマット (行ベース、editor の N3D/MSH3D を階層対応に拡張):
+//   N3D <id> <parent> <prim> <px py pz> <rx ry rz(度)> <sx sy sz> <r g b a> <name>
+//   MSH3D <id> <mesh_path>
+//   ・id        = DFS pre-order の通し番号 (root=0)。
+//   ・parent    = 親の id (-1 = root 自身)。
+//   ・prim      = EMeshPrimitive3D の整数 (FMeshComponent3D 無しは -1)。
+//   ・rot       = FTransform3D::EulerDeg() (度、XYZ。|Y|<90° で往復一致)。
+//   ・MSH3D     = prim==Mesh かつ mesh path を持つノードのみ (アセット実体のロードは
+//                 呼び出し側の責務。本シリアライザはパスのみ往復する)。
+//
+// 規約: no-STL (C stdio の sscanf/snprintf のみ) / 全 noexcept / 固定バッファ。
+// =============================================================================
+
+
+namespace acs::game {
+
+class FScene3D;
+
+/**
+ * FScene3D をテキストへ直列化する (root + 全子孫、構造 + transform + メッシュ記述)。
+ *
+ * @param scene 直列化するシーン。
+ * @param out 出力バッファ (null 終端される)。
+ * @param cap out の容量。
+ * @return 書き込んだ文字数 (null 終端を除く)。引数不正 / cap 不足は途中で打ち切る。
+ */
+u32 SaveScene3DText(const FScene3D& scene, char* out, u32 cap) noexcept;
+
+/**
+ * SaveScene3DText のテキストから FScene3D を復元する (既存内容を置き換える)。
+ *
+ * @details
+ * scene.Clear() で空にしてから N3D / MSH3D 行を解析して再構築する。メッシュアセットの
+ * 実体ロードは行わず、FMeshComponent3D にパスを設定するのみ (呼び出し側が SetMeshAsset)。
+ * @param scene 復元先のシーン (内容は置き換わる)。
+ * @param text 直列化テキスト。
+ * @return 解析が成立したら true (text==null は false)。
+ */
+bool LoadScene3DText(FScene3D& scene, const char* text) noexcept;
+
+} // namespace acs::game
+
+// ===================== gameframework/SceneSerialize.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// GameFramework — シーン (FNode2D ツリー) のシリアライズ (SceneSerialize)
+// -----------------------------------------------------------------------------
+// FNode2D の階層構造 + 各ノードの FTransform2D + 描画フラグ (enabled/visible/
+// sortLayer/ySortBias/childOrder) を自己記述バイト列へ往復させる「シーンの骨格」永続化。
+// レベル配置 (どこに何があるか) をディスク/メモリに保存・復元する土台。
+//
+// フォーマット (version 2):
+//   [u32 magic][u32 version][u32 node_count]
+//   per node (DFS pre-order = 親が子より先):
+//     [i32 parent_index (-1=root)]
+//     [f32 px][f32 py][f32 rot][f32 sx][f32 sy]
+//     [u8 enabled][u8 visible][i32 sortLayer][f32 ySortBias][u8 childOrder]
+//     [u32 component_count]
+//     per component (ReflectName を持つもののみ):
+//       [u8 name_len][reflect_name…][u32 payload_len][payload (ReflectSerialize の出力)]
+//
+// コンポーネント:
+//   ・ComponentFactory + 非テンプレート attach + ReflectName 橋で「型を知らずに」復元する。
+//   ・値は ReflectSerialize で往復する。public フィールドを ACS_RFIELD 反射した
+//     コンポーネントは値も完全に復元される。private メンバのみ (ACS_RPROP スキーマ) の
+//     同梱コンポーネントは payload が空となり factory 既定値で復元される (attach は保つ)。
+//   ・ReflectName を持たない (未対応の) コンポーネント / Abstract で実体化できない型は
+//     save 時にスキップ (= 復元されない)。
+//
+// 範囲:
+//   ・ノードは素の FNode2D として復元する (派生ノード型のロジックは持たない。
+//     データ駆動シーン = 素ノード + コンポーネントを想定)。
+//
+// 規約: no-STL / no-exceptions / 全 noexcept / 固定バッファ。
+// =============================================================================
+
+
+namespace acs::game {
+
+class FNode2D;
+
+/** シーン骨格フォーマットの識別 + バージョン。 */
+inline constexpr u32 kSceneSerializeMagic   = 0xAC5F2002u;
+inline constexpr u32 kSceneSerializeVersion = 2u;   // v2: コンポーネント (attach + 値) を含む
+
+/**
+ * root とその子孫を骨格バイト列へ直列化する (構造 + transform + 描画フラグ)。
+ *
+ * @param root 直列化するツリーの根 (この root 自身も含む)。
+ * @param buf  出力バッファ。
+ * @param cap  buf の容量。
+ * @return 書き込んだバイト数。引数不正 / cap 不足なら 0。
+ */
+u32 SaveNodeTree(const FNode2D* root, u8* buf, u32 cap) noexcept;
+
+/**
+ * SaveNodeTree のバイト列からツリーを復元する (素の FNode2D で再構築)。
+ *
+ * @param data 直列化データ。
+ * @param size data のバイト数。
+ * @return 復元したツリーの根 (所有権は呼び出し側)。失敗 / 空は null。
+ */
+TUniquePtr<FNode2D> LoadNodeTree(const u8* data, u32 size) noexcept;
+
+} // namespace acs::game
+
+// ===================== gameframework/SceneTextLoader.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework — エディタの ACSCENE テキスト形式をランタイムで読み込むローダ
+//
+// エディタ (editor_abi の SerializeScene) が保存する `*.acscene` (ACSCENE v1 テキスト) を
+// «スタンドアロン実行ファイル» 側で読み込み、FNode2D ツリー + コンポーネント (反射 factory)
+// として復元する。これで「エディタで編集したシーン」と「Build & Run で立ち上がるシーン」が
+// 一致する。座標は editor が world=pixel で扱うので、読込側は PixelsPerUnit=1 を想定。
+//
+// 対応行: ノード行 (id parent x y rot sx sy base r g b a name) / COMP <id> <type> /
+//         CPROP <id> <slot> <prop> <x y z w> / POLY <id> <count> <x y ...> /
+//         RPLY <id> <count> <x y ...> (描画用滑らか頂点) /
+//         NFLG <id> <visible> <enabled> <sortLayer> /
+//         SPRT <id> <path> / MAT <id> <path>。
+//
+// 使い方 (FScene2D 派生の OnReady から):
+//   SetPixelsPerUnit(1.0f);
+//   FSceneBounds b = LoadAcsceneFile("main.acscene", Root());
+//   if (b.valid) { Services().Camera().SetPosition(b.Center()); /* zoom はフレーム後合わせる */ }
+
+
+namespace acs { class IRhiDevice; class IRhiTexture; }
+
+namespace acs::game {
+
+class FNode2D;
+
+/** FRigidBody2D を持つノードの剛体パラメータ (シーン側で FRigidWorld2D に積む)。 */
+struct FRigidBodyRequest {
+    FNode2D* node        = nullptr;
+    int      bodyType    = 1;       // 0=Static, 1=Dynamic
+    f32      restitution = 0.1f;
+    f32      friction    = 0.5f;
+    f32      mass        = 1.0f;
+    f32      linDamp     = 0.05f;
+    f32      angDamp     = 0.1f;
+    int      shape       = 0;       // 0=Box, 1=Circle, 3=Polygon (FPrimitiveRenderer2D の shape)
+    f32      base        = 48.0f;   // ノードの base (= ピクセルサイズ)
+    FVec2    poly[kMaxPolyVerts]{};  // shape==3 のローカル頂点
+    u32      polyCount   = 0u;
+};
+
+/** SPRT 行で要求されたスプライト (テクスチャは GPU upload が要るので後段で解決)。 */
+struct FSpriteRequest {
+    /** スプライトを付ける対象ノード。 */
+    FNode2D* node = nullptr;
+
+    /** 画像ファイルパス (UTF-8、通常は絶対パス)。 */
+    char     path[260] = {};
+
+    /** スプライトサイズ (node の base、world=pixel)。 */
+    FVec2    size{ 48.0f, 48.0f };
+};
+
+/** PBR (Lit) マテリアルの法線マップ要求 (GPU upload が要るので後段で解決)。 */
+struct FMaterialTexRequest {
+    /** 法線マップを付ける対象ノード。 */
+    FNode2D* node = nullptr;
+
+    /** 法線マップ画像パス (UTF-8)。 */
+    char     normalPath[260] = {};
+};
+
+/** 読み込んだノード群の world 位置の境界 (カメラのフレーミング用)。 */
+struct FSceneBounds {
+    /** 最小 (左上)。 */
+    FVec2 min{ 0.0f, 0.0f };
+
+    /** 最大 (右下)。 */
+    FVec2 max{ 0.0f, 0.0f };
+
+    /** 1 つ以上ノードがあり境界が有効か。 */
+    bool  valid = false;
+
+    /** 境界中心。 */
+    FVec2 Center() const noexcept { return FVec2{ (min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f }; }
+
+    /** 境界サイズ (幅, 高さ)。 */
+    FVec2 Size() const noexcept { return FVec2{ max.x - min.x, max.y - min.y }; }
+};
+
+/**
+ * ACSCENE テキストを root 配下へ復元する。
+ *
+ * @details
+ * ノードを root 直下に平坦生成してから親 id で付け替える (順序非依存)。COMP は
+ * CreateComponentByName で実体化し、CPROP は反射フィールド (offset 付き=ユーザー型) へ適用、
+ * FPrimitiveRenderer2D は shape/color/size を typed setter で設定する (ノードの color/base を使用)。
+ * @param text NUL 終端の ACSCENE テキスト。
+ * @param root 子を追加する先の root ノード。
+ * @param out_sprites 非 null なら SPRT 行を集める (テクスチャ解決は LoadSceneSprites で後段)。
+ * @return 読み込んだノードの world 境界 (空シーンは valid=false)。
+ */
+FSceneBounds LoadAcsceneText(const char* text, FNode2D& root,
+                             TArray<FSpriteRequest>* out_sprites = nullptr,
+                             TArray<FRigidBodyRequest>* out_bodies = nullptr,
+                             TArray<FMaterialTexRequest>* out_mat_tex = nullptr,
+                             FNode2D** out_root = nullptr) noexcept;
+
+/**
+ * ACSCENE ファイルを読み込んで root 配下へ復元する。
+ *
+ * @param path 読み込む .acscene ファイルパス。
+ * @param root 子を追加する先の root ノード。
+ * @param out_sprites 非 null なら SPRT 行を集める。
+ * @return 読み込んだノードの world 境界 (読込失敗/空は valid=false)。
+ */
+FSceneBounds LoadAcsceneFile(const char* path, FNode2D& root,
+                             TArray<FSpriteRequest>* out_sprites = nullptr,
+                             TArray<FRigidBodyRequest>* out_bodies = nullptr,
+                             TArray<FMaterialTexRequest>* out_mat_tex = nullptr) noexcept;
+
+/**
+ * プレハブ(.acsprefab = サブツリーの ACSCENE 直列化テキスト)を実行時に parent 配下へ
+ * 生成し、生成したサブツリーの «ルートノード» を返す(失敗 nullptr)。
+ *
+ * @details 実コンポーネントを attach + authored 値適用 + SerialId 設定済み(オブジェクト参照も
+ * 解決される)。返り値の root を Local().position 等で配置/操作する。敵・弾などの動的生成に使う。
+ * @param text NUL 終端の .acsprefab テキスト。
+ * @param parent 生成先の親ノード(通常はシーンの Root)。
+ * @return 生成したサブツリーのルートノード(parent の子。失敗で nullptr)。
+ */
+FNode2D* SpawnPrefabText(const char* text, FNode2D& parent) noexcept;
+
+/**
+ * プレハブファイル(.acsprefab)を実行時に parent 配下へ生成し、ルートノードを返す。
+ *
+ * @param path .acsprefab ファイルパス。
+ * @param parent 生成先の親ノード。
+ * @return 生成したサブツリーのルートノード(失敗で nullptr)。
+ */
+FNode2D* SpawnPrefabFile(const char* path, FNode2D& parent) noexcept;
+
+/**
+ * マテリアル法線マップ要求を GPU テクスチャ化し、各ノードへ非所有ポインタで配線する。
+ *
+ * @param device テクスチャ生成に使う RHI デバイス。
+ * @param reqs LoadAcscene* が集めた法線マップ要求。
+ * @param out_textures 生成したテクスチャの所有先 (呼び出し側が保持する)。
+ */
+void LoadSceneMaterialTextures(IRhiDevice& device, const TArray<FMaterialTexRequest>& reqs,
+                               TArray<TUniquePtr<IRhiTexture>>& out_textures) noexcept;
+
+/**
+ * 剛体要求から FRigidWorld2D にボディを積む (editor の物理 Play と同じ形状/サイズ規約)。
+ *
+ * @details circle: radius=base*0.5*max(scale)。box: half=base*0.5*scale。polygon: ローカル頂点に
+ * scale を焼き込む。Static は質量 0。動的ボディだけ out_nodes/out_bodies に記録 (毎フレーム書き戻し用)。
+ * @param world ボディを積む剛体ワールド。
+ * @param reqs 剛体要求。
+ * @param out_nodes 動的ボディの対応ノード (書き戻し先)。
+ * @param out_bodies 動的ボディの index。
+ */
+void BuildSceneRigidBodies(FRigidWorld2D& world, const TArray<FRigidBodyRequest>& reqs,
+                           TArray<FNode2D*>& out_nodes, TArray<u32>& out_bodies) noexcept;
+
+/**
+ * 剛体ワールドを 1 ステップ進め、動的ボディの位置/角度を対応ノードへ書き戻す。
+ *
+ * @param world 剛体ワールド。
+ * @param nodes 動的ボディ対応ノード。
+ * @param bodies 動的ボディ index。
+ * @param dt 時間刻み。
+ * @param gravity 重力 (+Y=下、ピクセルスケールなら ~900)。
+ */
+void StepSceneRigidBodies(FRigidWorld2D& world, const TArray<FNode2D*>& nodes,
+                          const TArray<u32>& bodies, f32 dt, FVec2 gravity) noexcept;
+
+/**
+ * SPRT 要求の画像をロードして FSprite2DComponent を attach する (device が要るので render 中に呼ぶ)。
+ *
+ * @details 各 path を読み込み→デコード→GPU テクスチャ化し、req.node に FSprite2DComponent を付けて
+ * テクスチャを bind する。生成テクスチャは out_textures が所有する (シーン寿命で保持すること)。
+ * 失敗 (ファイル無し/デコード不可) のエントリは静かにスキップ。非 ASCII パスは未対応。
+ * @param device GPU デバイス (rc.GetRenderer().Device())。
+ * @param reqs LoadAcscene* が集めたスプライト要求。
+ * @param out_textures 生成テクスチャの所有先 (シーンが保持)。
+ */
+void LoadSceneSprites(IRhiDevice& device, const TArray<FSpriteRequest>& reqs,
+                      TArray<TUniquePtr<IRhiTexture>>& out_textures) noexcept;
+
+} // namespace acs::game
+
 // ===================== gameframework/ScriptHost.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar N — FScriptHost (Lua / Wren / Python scripting seam)
@@ -59080,6 +64469,606 @@ private:
     /** エラー callback の第 1 引数に渡すコンテキストポインタ。 */
     void*                m_OnErrorUser = nullptr;
 };
+
+} // namespace acs::game
+
+// ===================== gameframework/SpatialAudio2D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar H — FSpatialAudio2D (2D 平面向け位置情報オーディオ)
+//
+// FSpatialAudio (3D) の 2D ゲーム特化版。3D の up/forward 三次元姿勢の代わりに
+// 「位置 (FVec2) + 向き角 (ラジアン)」だけで距離減衰 / 左右パンを算出する。
+// 計算は **純数学** で in-repo 完結し、外部依存 (HRTF IR 等) は持たない。
+//
+// 3D 版との関係:
+//   ・距離減衰カーブ (EAttenuationCurve) と各式は SpatialAudio.h と**完全に共有**する
+//     (Linear / Inverse(ref_d = max/8 + tail blend) / Exponential(k = 4/max + tail))。
+//     3D の ComputeAttenuationGain と同一の数値を返す。
+//   ・パンは 3D が「right = up × forward への射影」だったのを、2D では
+//     「listener の右手ベクトル (= forward を時計回り 90° 回転) への射影」に縮約する。
+//   ・constant-power (等パワー / -3dB) パン則も 3D 版と同式。
+//
+// 座標系: **Y+ が上 (math 慣習)**。向き角 θ の forward = (cosθ, sinθ)。
+//   listener の右手ベクトル right = (forward.y, -forward.x) (forward を CW 90°)。
+//   → 東 (+X) を向くと北 (+Y) は左 (pan<0)、南 (-Y) は右 (pan>0)。
+//   Y+ が下のスクリーン座標系を使う場合は angle の符号を反転して渡す。
+//
+// 使い方 (free function 直叩き — Scene が独自に source を持つ場合):
+//   const f32 d   = ComputeDistance2D(ear_pos, enemy_pos);
+//   const f32 vol = ComputeVolume2D(d, 20.0f, EAttenuationCurve::Linear);
+//   const f32 pan = ComputePan2D(ear_pos, ear_angle, enemy_pos);
+//   f32 l, r; ComputeConstantPowerStereo2D(pan, l, r);
+//
+// 使い方 (FSpatialAudio2D マネージャ — listener 1 + source N を集中管理):
+//   acs::game::FSpatialAudio2D spatial;
+//   spatial.SetListener({{0,0}, 0.0f});
+//   u32 s = spatial.RegisterSource({5, 3}, 20.0f, EAttenuationCurve::Linear);
+//   spatial.UpdateSource(s, enemy.Pos());
+//   f32 vol = spatial.ComputeAttenuatedVolume(s);
+//   f32 pan = spatial.ComputePan(s);
+//
+// 範囲外: Doppler / occlusion / 複数 listener / reverb (3D 版と同様)。
+
+
+namespace acs::game {
+
+/**
+ * 2D 平面上の listener (耳位置 + 向き)。
+ *
+ * @details 3D の forward/up 三次元姿勢を「向き角 1 つ」へ縮約したもの。
+ */
+struct FAudioListener2D {
+    /** 世界座標 (pan / 距離の基準点)。 */
+    FVec2 position = FVec2::Zero();
+
+    /** 向き角 (ラジアン)。forward = (cos, sin)。Y+ up 慣習。 */
+    f32   angle    = 0.0f;
+};
+
+/**
+ * 2D 平面上の 1 音源。FAudioSource3D の 2D 版。
+ */
+struct FAudioSource2D {
+    /** FSpatialAudio2D が払い出す一意 ID (0 = 無効、1.. = 有効)。 */
+    u32   source_id    = 0;
+
+    /** 世界座標。 */
+    FVec2 position     = FVec2::Zero();
+
+    /** 速度 (Doppler 用に保持のみ、現状未使用)。 */
+    FVec2 velocity     = FVec2::Zero();
+
+    /** 基準ゲイン [0, 1] (距離減衰前の素の音量)。 */
+    f32   volume       = 1.0f;
+
+    /** culling 距離 (これより遠いと vol=0)。 */
+    f32   max_distance = 20.0f;
+
+    /** false なら減衰 / パン計算をスキップ。 */
+    bool  active       = true;
+
+    /** 距離減衰カーブ種別 (既定 Linear)。 */
+    u8    curve        = 0; // = EAttenuationCurve::Linear
+};
+
+// =============================================================================
+// 純数学 free function 群 (state を持たない。Scene が独自に source 配列を持つ場合に直叩き)
+// =============================================================================
+
+/**
+ * listener と source の平面距離を返す。
+ *
+ * @param a 基準点 (典型: listener 耳位置)。
+ * @param b 対象点 (典型: source 位置)。
+ * @return |b - a| (ユークリッド距離、ピタゴラス)。
+ */
+ACS_FORCEINLINE f32 ComputeDistance2D(FVec2 a, FVec2 b) noexcept {
+    return Length(b - a);
+}
+
+/**
+ * 距離と curve から減衰ゲイン [0, 1] を返す (3D ComputeAttenuationGain と同一式)。
+ *
+ * @details
+ * Linear:      gain = 1 - d/max。
+ * Inverse:     ref_d = max/8、base = 1/(1 + d/ref_d)、tail = (1 - d/max) を乗じ max で 0 収束。
+ * Exponential: k = 4/max、base = e^(-k·d)、同じく tail blend で max で 0 到達。
+ * d <= 0 は 1、d >= max_range は 0 (culling)、max_range <= 0 は 0。
+ * @param distance listener からの距離 (>= 0 を想定)。
+ * @param max_range culling 距離。
+ * @param curve 減衰カーブ種別。
+ * @return [0, 1] の減衰ゲイン。
+ */
+ACS_FORCEINLINE f32 ComputeVolume2D(f32 distance, f32 max_range,
+                                    EAttenuationCurve curve) noexcept {
+    if (max_range <= 0.0f) return 0.0f;
+    if (distance <= 0.0f)  return 1.0f;
+    if (distance >= max_range) return 0.0f;   // culling
+
+    f32 atten = 1.0f;
+    switch (curve) {
+    case EAttenuationCurve::Linear:
+        atten = 1.0f - (distance / max_range);
+        break;
+    case EAttenuationCurve::Inverse: {
+        const f32 ref_d = max_range * 0.125f;          // 半減距離の目安 = max/8
+        const f32 base  = 1.0f / (1.0f + distance / ref_d);
+        const f32 t     = distance / max_range;        // 0..1
+        atten = base * (1.0f - t);                     // tail で 0 へ収束
+        break;
+    }
+    case EAttenuationCurve::Exponential: {
+        const f32 k    = 4.0f / max_range;             // max で約 e^-4
+        const f32 base = Exp(-k * distance);
+        const f32 t    = distance / max_range;
+        atten = base * (1.0f - t);
+        break;
+    }
+    }
+    return Saturate(atten);
+}
+
+/**
+ * listener の向きを基準にした左右パン [-1, +1] を返す。
+ *
+ * @details
+ * forward = (cos angle, sin angle)、右手ベクトル right = (forward.y, -forward.x)
+ * (forward を時計回り 90° 回転)。pan = dot(normalize(to_src), right) を [-1,1] に clamp。
+ * 真正面 / 真後ろ = 0、真右 = +1、真左 = -1。listener に重なる点は 0。
+ * @param listener_pos listener の世界座標。
+ * @param listener_angle_rad listener の向き角 (ラジアン、Y+ up)。
+ * @param source_pos source の世界座標。
+ * @return パン値 (-1=完全左, 0=正面/真後ろ, +1=完全右)。
+ */
+ACS_FORCEINLINE f32 ComputePan2D(FVec2 listener_pos, f32 listener_angle_rad,
+                                 FVec2 source_pos) noexcept {
+    const FVec2 to_src = source_pos - listener_pos;
+    if (LengthSq(to_src) <= kEpsilon) return 0.0f;       // 重なり → 中央
+
+    const FVec2 fwd   = { Cos(listener_angle_rad), Sin(listener_angle_rad) };
+    const FVec2 right = { fwd.y, -fwd.x };               // forward を CW 90° = 右手
+    const FVec2 dir   = Normalize(to_src);
+    f32 pan = Dot(dir, right);
+    if (pan < -1.0f) pan = -1.0f;                         // 丸め誤差クランプ
+    if (pan >  1.0f) pan =  1.0f;
+    return pan;
+}
+
+/**
+ * pan ∈ [-1, +1] を constant-power (等パワー / -3dB) の左右ステレオゲインに変換する。
+ *
+ * @details θ = (pan + 1)·π/4、left = cos θ、right = sin θ。中央でも left²+right² = 1。
+ * 3D ComputeConstantPowerGains と同式。pan は内部で [-1, +1] に clamp。
+ * @param pan パンニング位置 [-1=左, 0=中央, +1=右]。
+ * @param left 左チャンネルゲインの書き戻し先。
+ * @param right 右チャンネルゲインの書き戻し先。
+ */
+ACS_FORCEINLINE void ComputeConstantPowerStereo2D(f32 pan, f32& left, f32& right) noexcept {
+    if (pan < -1.0f) pan = -1.0f;
+    if (pan >  1.0f) pan =  1.0f;
+    const f32 theta = (pan + 1.0f) * (kPi * 0.25f);
+    left  = Cos(theta);
+    right = Sin(theta);
+}
+
+// =============================================================================
+// FSpatialAudio2D — listener 1 + source N の集中管理 (FSpatialAudio の 2D 版、header-only)
+// =============================================================================
+
+/**
+ * 2D listener + source を集中管理する空間化レイヤ (FSpatialAudio の 2D 版)。
+ *
+ * @details
+ * Scene 局所 instance としての所有を想定。1 listener + N source を AoS で保持し、
+ * 毎フレーム distance / volume / pan を pull で取得する。source_id は単調増加で
+ * 再利用しない (stale ID 検出が単純)。全メソッド inline (header-only)。
+ */
+class FSpatialAudio2D {
+public:
+    /** source 配列の初期容量。 */
+    static constexpr u32 kInitialSourceCapacity = 16;
+
+    /** source 配列を初期容量で Reserve して構築する。 */
+    FSpatialAudio2D() noexcept { m_Sources.Reserve(kInitialSourceCapacity); }
+
+    /** 破棄する。 */
+    ~FSpatialAudio2D() noexcept = default;
+
+    /** コピー禁止 (シーン局所 instance として単独所有)。 */
+    FSpatialAudio2D(const FSpatialAudio2D&)            = delete;
+    FSpatialAudio2D& operator=(const FSpatialAudio2D&) = delete;
+    FSpatialAudio2D(FSpatialAudio2D&&)                 = delete;
+    FSpatialAudio2D& operator=(FSpatialAudio2D&&)      = delete;
+
+    /**
+     * listener (耳位置 + 向き) を設定する。
+     *
+     * @param l 新しい listener 状態。
+     */
+    void SetListener(const FAudioListener2D& l) noexcept { m_Listener = l; }
+
+    /**
+     * 現在の listener への const 参照を返す。
+     *
+     * @return 保持中の listener。
+     */
+    const FAudioListener2D& GetListener() const noexcept { return m_Listener; }
+
+    /**
+     * 新規 source を登録する。
+     *
+     * @param pos 初期世界座標。
+     * @param max_distance culling 距離 (<= 0 は既定 20m にクランプ)。
+     * @param curve 距離減衰カーブ種別。
+     * @return 払い出した source_id (1.. の単調増加)。
+     */
+    u32 RegisterSource(FVec2 pos, f32 max_distance, EAttenuationCurve curve) noexcept {
+        FAudioSource2D s{};
+        s.source_id    = m_NextSourceId++;
+        s.position     = pos;
+        s.max_distance = (max_distance > 0.0f) ? max_distance : 20.0f;
+        s.curve        = static_cast<u8>(curve);
+        s.active       = true;
+        m_Sources.PushBack(s);
+        return s.source_id;
+    }
+
+    /**
+     * source の位置 / 速度を更新する (stale ID は no-op)。
+     *
+     * @param id 更新対象の source_id。
+     * @param pos 新しい世界座標。
+     * @param vel 新しい速度 (既定ゼロ)。
+     */
+    void UpdateSource(u32 id, FVec2 pos, FVec2 vel = FVec2::Zero()) noexcept {
+        const usize idx = FindIndex(id);
+        if (idx >= m_Sources.Size()) return;
+        m_Sources[idx].position = pos;
+        m_Sources[idx].velocity = vel;
+    }
+
+    /**
+     * source の基準ゲインを [0,1] に clamp して設定する (stale ID は no-op)。
+     *
+     * @param id 対象の source_id。
+     * @param v 新しい基準ゲイン。
+     */
+    void SetSourceVolume(u32 id, f32 v) noexcept {
+        const usize idx = FindIndex(id);
+        if (idx >= m_Sources.Size()) return;
+        m_Sources[idx].volume = Saturate(v);
+    }
+
+    /**
+     * source を削除する (末尾と swap 除去、slot は再利用しない、stale ID は無視)。
+     *
+     * @param id 削除対象の source_id。
+     */
+    void RemoveSource(u32 id) noexcept {
+        const usize idx = FindIndex(id);
+        if (idx >= m_Sources.Size()) return;
+        const usize last = m_Sources.Size() - 1;
+        if (idx != last) m_Sources[idx] = m_Sources[last];
+        m_Sources.PopBack();
+    }
+
+    /**
+     * listener との距離と curve から算出した最終 volume を返す。
+     *
+     * @param id 対象の source_id。
+     * @return source.volume × 減衰ゲイン。無効 ID / inactive / dist >= max では 0。
+     */
+    f32 ComputeAttenuatedVolume(u32 id) const noexcept {
+        const usize idx = FindIndex(id);
+        if (idx >= m_Sources.Size()) return 0.0f;
+        const FAudioSource2D& s = m_Sources[idx];
+        if (!s.active) return 0.0f;
+        const f32 d = ComputeDistance2D(m_Listener.position, s.position);
+        const f32 g = ComputeVolume2D(d, s.max_distance,
+                                      static_cast<EAttenuationCurve>(s.curve));
+        return s.volume * g;
+    }
+
+    /**
+     * listener 基準の左右パン [-1, +1] を返す。
+     *
+     * @param id 対象の source_id。
+     * @return パン値。無効 ID / inactive で 0。
+     */
+    f32 ComputePan(u32 id) const noexcept {
+        const usize idx = FindIndex(id);
+        if (idx >= m_Sources.Size()) return 0.0f;
+        const FAudioSource2D& s = m_Sources[idx];
+        if (!s.active) return 0.0f;
+        return ComputePan2D(m_Listener.position, m_Listener.angle, s.position);
+    }
+
+    /**
+     * active な source の数を返す。
+     *
+     * @return active==true の source 数。
+     */
+    u32 SourceCount() const noexcept {
+        u32 n = 0;
+        for (usize i = 0; i < m_Sources.Size(); ++i) {
+            if (m_Sources[i].active) ++n;
+        }
+        return n;
+    }
+
+    /** 全 source を空にする (listener は保持、source_id カウンタは継続)。 */
+    void Clear() noexcept { m_Sources.Clear(); }
+
+private:
+    /**
+     * source_id を index に線形検索で変換する。
+     *
+     * @param id 検索する source_id (0 は無効予約)。
+     * @return 見つかった index、無ければ m_Sources.Size()。
+     */
+    usize FindIndex(u32 id) const noexcept {
+        if (id == 0) return m_Sources.Size();
+        for (usize i = 0; i < m_Sources.Size(); ++i) {
+            if (m_Sources[i].source_id == id) return i;
+        }
+        return m_Sources.Size();
+    }
+
+    /** 保持中の listener 状態。 */
+    FAudioListener2D       m_Listener {};
+
+    /** 登録済み 2D 音源の配列。 */
+    TArray<FAudioSource2D> m_Sources;
+
+    /** 次に払い出す source_id (0 = 無効予約)。 */
+    u32                    m_NextSourceId = 1;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/Spawn2DSubsystem.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework — FSpawn2DSubsystem (どこからでもプレハブをワールドへ生成する)
+//
+// World サブシステム。Owner()(= 所属 FScene2D)経由でシーンの root に手が届くので、
+// «ノードを持たない側»(他のサブシステム・ゲームロジック・スクリプト)からでも
+// プレハブをスポーンできる。敵・弾・拾い物の動的生成のハブ。
+//
+//   auto* spawner = GetSubsystem<acs::game::FSpawn2DSubsystem>();
+//   spawner->SpawnPrefabFile("Assets/Enemy.acsprefab", FVec2{ 100, 0 });
+
+
+namespace acs::game {
+
+/**
+ * プレハブをワールド(所属 FScene2D の root)へ生成する World サブシステム。
+ *
+ * @details Owner() が FScene2D を指す(Scene が World サブシステムへ this を渡す)。
+ * 2D 以外のシーンに対しては Owner が FScene2D でないため Spawn* は nullptr を返す。
+ */
+class FSpawn2DSubsystem : public FSubsystem {
+public:
+    ACS_GAME_SUBSYSTEM_KIND(FSpawn2DSubsystem)
+
+    /**
+     * プレハブテキスト(.acsprefab 直列化)をシーンへ生成し pos に配置する。
+     *
+     * @param text プレハブテキスト。
+     * @param pos  生成位置(生成ルートの local position)。
+     * @return 生成サブツリーのルート(失敗で nullptr)。
+     */
+    FNode2D* SpawnPrefabText(const char* text, FVec2 pos) noexcept {
+        FScene2D* scene = OwnerAs<FScene2D>();
+        if (scene == nullptr || text == nullptr) return nullptr;
+        FNode2D* n = ::acs::game::SpawnPrefabText(text, scene->Root());
+        if (n != nullptr) n->Local().position = pos;
+        return n;
+    }
+
+    /**
+     * プレハブファイル(.acsprefab)をシーンへ生成し pos に配置する。
+     *
+     * @param path .acsprefab パス。
+     * @param pos  生成位置。
+     * @return 生成サブツリーのルート(失敗で nullptr)。
+     */
+    FNode2D* SpawnPrefabFile(const char* path, FVec2 pos) noexcept {
+        FScene2D* scene = OwnerAs<FScene2D>();
+        if (scene == nullptr || path == nullptr) return nullptr;
+        FNode2D* n = ::acs::game::SpawnPrefabFile(path, scene->Root());
+        if (n != nullptr) n->Local().position = pos;
+        return n;
+    }
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/Steering2D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// GameFramework — 2D 操舵ビヘイビア (Steering2D)
+// -----------------------------------------------------------------------------
+// エージェントの「目標へ向かう/止まる/逃げる/経路を辿る」操舵力を計算する純関数群。
+// 利用側が pos/vel を保持し、戻りの操舵力で速度を更新する (本モジュールは状態を持たない)。
+// NavGrid/TilemapNav の waypoint 列と組み合わせて敵 AI の移動を駆動する。
+//
+// 使い方:
+//   FSteerParams sp{ .max_speed = 4.0f, .max_force = 8.0f };
+//   FVec2 steer = SteerArrive(pos, vel, target, sp, /*slow_radius=*/2.0f);
+//   vel += steer * dt; clamp(|vel|, max_speed); pos += vel * dt;
+// =============================================================================
+
+
+namespace acs::game {
+
+/** 操舵パラメータ (最大速度・最大操舵力)。 */
+struct FSteerParams {
+    f32 max_speed = 4.0f;   // 最大移動速度
+    f32 max_force = 8.0f;   // 1 ステップで加えられる操舵力の上限
+};
+
+/** target へ最大速度で向かう操舵力 (Seek)。 */
+FVec2 SteerSeek(FVec2 pos, FVec2 vel, FVec2 target, FSteerParams p) noexcept;
+
+/** target から最大速度で離れる操舵力 (Flee)。 */
+FVec2 SteerFlee(FVec2 pos, FVec2 vel, FVec2 target, FSteerParams p) noexcept;
+
+/** target に近づくと減速して停止する操舵力 (Arrive)。slow_radius 内で速度を線形に落とす。 */
+FVec2 SteerArrive(FVec2 pos, FVec2 vel, FVec2 target, FSteerParams p, f32 slow_radius) noexcept;
+
+/**
+ * waypoint 列を順に辿る経路追従。現在の目標 waypoint への Arrive 操舵を返し、
+ * arrive_radius 内に入ったら次へ進む。最後に到達したら done=true。
+ *
+ * @details 状態 (現在 index) は m_Index で保持する non-pure。points は外部所有 (寿命に注意)。
+ */
+class FPathFollower {
+public:
+    FPathFollower() noexcept = default;
+
+    /**
+     * 追従する waypoint 列を設定する (index リセット)。
+     * @param points waypoint 配列 (外部所有、寿命は呼び出し側責務)。
+     * @param count 要素数。
+     * @param arrive_radius この距離内で waypoint 到達とみなす。
+     */
+    void SetPath(const FVec2* points, u32 count, f32 arrive_radius = 0.5f) noexcept;
+
+    /**
+     * 現在位置に応じた操舵力を返し、到達した waypoint を消化する。
+     * @param pos エージェント現在位置。
+     * @param vel エージェント現在速度。
+     * @param p 操舵パラメータ。
+     * @param[out] done 全 waypoint 到達なら true。
+     * @return 操舵力。done のときは現在速度を打ち消す停止操舵 (= -vel を max_force でクランプ;
+     *         速度ゼロなら結果もゼロ)。
+     */
+    FVec2 Steer(FVec2 pos, FVec2 vel, FSteerParams p, bool& done) noexcept;
+
+    /** 現在の目標 waypoint index。 */
+    u32 Index() const noexcept { return m_Index; }
+
+private:
+    const FVec2* m_Points       = nullptr;
+    u32          m_Count        = 0u;
+    u32          m_Index        = 0u;
+    f32          m_ArriveRadius = 0.5f;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/TilemapNav.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// GameFramework — FTilemap → NavGrid 経路探索ブリッジ (TilemapNav)
+// -----------------------------------------------------------------------------
+// タイルマップの指定レイヤから NavGrid (A*) を構築し (非空タイル = 非歩行可能)、
+// world 座標の start→goal を探索して world 中心の waypoint 列を返す。
+// タイル地形上の敵 AI ナビゲーションに使う (FTilemap + NavGrid の合成)。
+// =============================================================================
+
+
+namespace acs::game {
+
+class FTilemap;
+class NavGrid;
+
+/**
+ * タイルマップの layer から NavGrid を構築する (非空タイル = 非歩行可能)。
+ *
+ * @param map 元タイルマップ。
+ * @param layer 障害物判定に使うレイヤ。
+ * @param nav 構築先 NavGrid (Init + SetWalkable される)。
+ */
+void BuildNavGridFromTilemap(const FTilemap& map, u32 layer, NavGrid& nav) noexcept;
+
+/**
+ * world 座標の start→goal を nav で探索し、world 中心の waypoint 列を返す。
+ *
+ * @details nav は事前に BuildNavGridFromTilemap 済みであること。start/goal の tile 変換は
+ * map で行う。範囲外 / 経路なしは false。
+ * @param map 座標変換用タイルマップ。
+ * @param nav 探索に使う NavGrid (構築済み)。
+ * @param start_world 始点 (world)。
+ * @param goal_world 終点 (world)。
+ * @param out_path 結果の world waypoint 列 (tile 中心、start→goal 順)。
+ * @return 経路が見つかれば true。
+ */
+bool FindTilemapPath(const FTilemap& map, NavGrid& nav,
+                     FVec2 start_world, FVec2 goal_world, TArray<FVec2>& out_path) noexcept;
+
+} // namespace acs::game
+
+// ===================== gameframework/TilemapPhysics.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// GameFramework — FTilemap → FRigidWorld2D 静的コライダ生成 (TilemapPhysics)
+// -----------------------------------------------------------------------------
+// タイルマップの指定レイヤの「埋まっている (非空) タイル」を、剛体ワールドへ静的
+// AABB として登録する。これで I 作った FRigidWorld2D の動的ボディ (箱/ボール) が
+// タイル地形と衝突できる (プラットフォーマ / 物理パズルの地形当たり)。
+//
+// 効率のため横方向の連続タイルを 1 つの幅広 AABB にまとめる (greedy 行マージ)。
+// =============================================================================
+
+
+namespace acs::game {
+
+class FTilemap;
+class FRigidWorld2D;
+
+/**
+ * タイルマップの layer の非空タイルを world へ静的 AABB として登録する (行ごと greedy マージ)。
+ *
+ * @param map 元タイルマップ。
+ * @param layer 対象レイヤ。
+ * @param world 追加先の剛体ワールド。
+ * @param restitution 生成コライダの反発係数。
+ * @param friction 生成コライダの摩擦係数。
+ * @return 生成した静的 AABB コライダ数 (連続タイルはマージ済み)。
+ */
+u32 BuildRigidColliders(const FTilemap& map, u32 layer, FRigidWorld2D& world,
+                        f32 restitution = 0.0f, f32 friction = 0.5f) noexcept;
+
+} // namespace acs::game
+
+// ===================== gameframework/TilemapQuery.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// GameFramework — タイルマップ空間クエリ (TilemapQuery)
+// -----------------------------------------------------------------------------
+// FTilemap の指定レイヤに対するレイキャスト (グリッド DDA, Amanatides-Woo)。
+// AI の視線判定 (line-of-sight)・弾道・レーザー照準・視界コーン等に使う。
+// 「非空タイル = 遮蔽」とみなし、最初に当たったタイルのセル・world 交点・面法線を返す。
+// =============================================================================
+
+
+namespace acs::game {
+
+class FTilemap;
+
+/** タイルマップ・レイキャストの結果 (hit=false でヒットなし)。 */
+struct FTileRayHit {
+    bool  hit      = false;
+    u32   tile_x   = 0u;          // ヒットしたタイルのセル
+    u32   tile_y   = 0u;
+    FVec2 point{0.0f, 0.0f};      // world 交点
+    FVec2 normal{0.0f, 0.0f};     // ヒット面の外向き法線 (軸並行、始点が壁内なら 0)
+    f32   distance = 0.0f;        // origin からの距離
+};
+
+/**
+ * 指定レイヤの非空タイルに対してレイキャストする (グリッド DDA)。
+ *
+ * @param map 対象タイルマップ。
+ * @param layer 遮蔽判定に使うレイヤ。
+ * @param origin レイ始点 (world)。
+ * @param dir レイ方向 (内部で正規化、ゼロは miss)。
+ * @param max_dist 最大距離 (world)。
+ * @return 最初に当たったタイルの情報 (hit=false でなし)。始点が壁内なら距離 0 でヒット。
+ */
+FTileRayHit RaycastTilemap(const FTilemap& map, u32 layer,
+                           FVec2 origin, FVec2 dir, f32 max_dist) noexcept;
 
 } // namespace acs::game
 
@@ -59911,6 +65900,483 @@ private:
 //   ・履歴の長さ可変 (現状 60 frame 固定)
 
 
+// ===================== gameframework/tools/btedit/BtActionRegistry.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar — btedit / FBtActionRegistry
+//
+// ノードグラフの Action ノード (= 名前) を、実行時の関数ポインタへ解決するための
+// 名前→Fn テーブル。ゲーム側が起動時に Register("MoveToPlayer", &MoveToPlayer) のように
+// 登録し、エディタ/インタプリタが Action ノードの表示名をキーに Find して呼ぶ。
+// これにより「コードを書かずにノードグラフを組む → 実行時はゲームが登録した関数が走る」
+// という no-code オーサリングが成立する。
+//
+// 設計選択: STL 不使用 / 例外なし / 固定長配列。name は内部の固定バッファへコピーする
+// (= 呼び出し側のリテラル寿命に依存しない)。Fn は FBtAction::Fn と同型。
+
+
+#include <cstdio>    // std::snprintf
+#include <cstring>   // std::strcmp
+
+namespace acs::game::btedit {
+
+/**
+ * Action 名 → 関数ポインタ の解決テーブル。
+ *
+ * @details ゲーム側がアクション関数を名前付きで登録し、グラフインタプリタが Action
+ *          ノードの名前をキーに引いて呼ぶ。固定長 (kMax) で STL 不使用。
+ */
+class FBtActionRegistry {
+public:
+    /** Action 関数の型 (FBtAction と同型: EBtStatus(*)(void* bb, f32 dt) noexcept)。 */
+    using Fn = FBtAction::Fn;
+
+    /** 登録できるアクションの上限。 */
+    static constexpr u32 kMax = 64u;
+
+    /** 1 アクション名の最大長 (NUL 含む)。 */
+    static constexpr u32 kNameLen = 48u;
+
+    /** 空のレジストリを構築する。 */
+    FBtActionRegistry() noexcept = default;
+
+    /** 全登録を消す。 */
+    void Clear() noexcept { m_Count = 0u; }
+
+    /**
+     * アクションを名前付きで登録する (同名は上書き)。
+     *
+     * @param name アクション名 (グラフの Action ノード名と一致させる)。
+     * @param fn 実行する関数ポインタ。
+     * @return 登録できたら true (name/fn が null、または上限到達で false)。
+     */
+    bool Register(const char* name, Fn fn) noexcept {
+        if (name == nullptr || fn == nullptr) return false;
+        for (u32 i = 0; i < m_Count; ++i) {
+            if (std::strcmp(m_Names[i], name) == 0) { m_Fns[i] = fn; return true; }
+        }
+        if (m_Count >= kMax) return false;
+        std::snprintf(m_Names[m_Count], kNameLen, "%s", name);
+        m_Fns[m_Count] = fn;
+        ++m_Count;
+        return true;
+    }
+
+    /**
+     * 名前からアクション関数を引く。
+     *
+     * @param name 探すアクション名。
+     * @return 一致する関数ポインタ (無ければ nullptr)。
+     */
+    Fn Find(const char* name) const noexcept {
+        if (name == nullptr) return nullptr;
+        for (u32 i = 0; i < m_Count; ++i) {
+            if (std::strcmp(m_Names[i], name) == 0) return m_Fns[i];
+        }
+        return nullptr;
+    }
+
+    /** 登録数を返す。 */
+    u32 Count() const noexcept { return m_Count; }
+
+    /**
+     * i 番目の登録名を返す (UI の候補リスト用)。
+     *
+     * @param i インデックス。
+     * @return 登録名 (範囲外は "")。
+     */
+    const char* NameAt(u32 i) const noexcept { return (i < m_Count) ? m_Names[i] : ""; }
+
+private:
+    /** 登録名 (固定バッファへコピー)。 */
+    char m_Names[kMax][kNameLen] = {};
+
+    /** 登録関数ポインタ (m_Names と同 index)。 */
+    Fn   m_Fns[kMax] = {};
+
+    /** 登録数。 */
+    u32  m_Count = 0u;
+};
+
+} // namespace acs::game::btedit
+
+// ===================== gameframework/tools/btedit/BtCatalog.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar — btedit / no-code オーサリング・カタログ
+//
+// ノードグラフを「コードを書かずに組む → ロード時にソースコードの関数/変数へ結ぶ」
+// no-code オーサリングを成立させるための 2 つの軽量カタログを提供する。
+//
+//   ・FBtConditionRegistry … Condition デコレーター用。名前 → bool(*)(void* bb)。
+//     ゲーム側が `Register("CanSeePlayer", &CanSeePlayer)` で登録し、エディタ/
+//     インタプリタが Condition ノードの名前をキーに引いて評価する (true なら子を
+//     実行、false なら子をスキップして Failure)。FBtActionRegistry の bool 版。
+//
+//   ・FBtBlackboardSchema … 比較条件 (variable <op> constant) 用。ブラックボードの
+//     フィールドを「名前 + 型 + バイトオフセット」で宣言するスキーマ。ゲーム側が
+//     `schema.Add("health", EBtVarType::F32, offsetof(Bb, health))` で登録すると、
+//     エディタは変数候補をドロップダウン表示でき、インタプリタはロード時に解決した
+//     オフセットで BtCompareVar により値を読んで定数と比較する。
+//
+// 設計選択: FBtActionRegistry と同形 (STL 不使用 / 例外なし / 固定長配列 / name は
+// 内部バッファへコピー / 全 noexcept)。
+
+
+#include <cstdio>    // std::snprintf
+#include <cstring>   // std::strcmp
+
+namespace acs::game::btedit {
+
+/**
+ * Condition 名 → bool 関数 の解決テーブル (Condition デコレーター用)。
+ *
+ * @details ゲーム側が条件関数 (bool(*)(void* bb)) を名前付きで登録し、グラフ
+ *          インタプリタが Condition ノードの名前をキーに引いて評価する。
+ */
+class FBtConditionRegistry {
+public:
+    /** 条件関数の型 (blackboard を受け取り bool を返す)。 */
+    using Fn = bool(*)(void* blackboard) noexcept;
+
+    /** 登録できる条件の上限。 */
+    static constexpr u32 kMax = 64u;
+
+    /** 1 条件名の最大長 (NUL 含む)。 */
+    static constexpr u32 kNameLen = 48u;
+
+    /** 空のレジストリを構築する。 */
+    FBtConditionRegistry() noexcept = default;
+
+    /** 全登録を消す。 */
+    void Clear() noexcept { m_Count = 0u; }
+
+    /**
+     * 条件を名前付きで登録する (同名は上書き)。
+     *
+     * @param name 条件名 (グラフの Condition ノード名と一致させる)。
+     * @param fn 評価する bool 関数ポインタ。
+     * @return 登録できたら true (name/fn が null、または上限到達で false)。
+     */
+    bool Register(const char* name, Fn fn) noexcept {
+        if (name == nullptr || fn == nullptr) return false;
+        for (u32 i = 0; i < m_Count; ++i) {
+            if (std::strcmp(m_Names[i], name) == 0) { m_Fns[i] = fn; return true; }
+        }
+        if (m_Count >= kMax) return false;
+        std::snprintf(m_Names[m_Count], kNameLen, "%s", name);
+        m_Fns[m_Count] = fn;
+        ++m_Count;
+        return true;
+    }
+
+    /**
+     * 名前から条件関数を引く。
+     *
+     * @param name 探す条件名。
+     * @return 一致する関数ポインタ (無ければ nullptr)。
+     */
+    Fn Find(const char* name) const noexcept {
+        if (name == nullptr) return nullptr;
+        for (u32 i = 0; i < m_Count; ++i) {
+            if (std::strcmp(m_Names[i], name) == 0) return m_Fns[i];
+        }
+        return nullptr;
+    }
+
+    /** 登録数を返す。 */
+    u32 Count() const noexcept { return m_Count; }
+
+    /**
+     * i 番目の登録名を返す (UI の候補リスト用)。
+     *
+     * @param i インデックス。
+     * @return 登録名 (範囲外は "")。
+     */
+    const char* NameAt(u32 i) const noexcept { return (i < m_Count) ? m_Names[i] : ""; }
+
+private:
+    /** 登録名 (固定バッファへコピー)。 */
+    char m_Names[kMax][kNameLen] = {};
+
+    /** 登録関数ポインタ (m_Names と同 index)。 */
+    Fn   m_Fns[kMax] = {};
+
+    /** 登録数。 */
+    u32  m_Count = 0u;
+};
+
+/**
+ * ブラックボード変数の宣言テーブル (名前 + 型 + バイトオフセット)。
+ *
+ * @details
+ * ゲーム側が blackboard 構造体のフィールドを名前付きで登録し、エディタが変数候補を
+ * 提示・インタプリタが BtCompareVar でオフセット読みするための schema。
+ * offsetof で登録する想定。
+ */
+class FBtBlackboardSchema {
+public:
+    /** 登録できる変数の上限。 */
+    static constexpr u32 kMax = 64u;
+
+    /** 1 変数名の最大長 (NUL 含む)。 */
+    static constexpr u32 kNameLen = 48u;
+
+    /** 空のスキーマを構築する。 */
+    FBtBlackboardSchema() noexcept = default;
+
+    /** 全登録を消す。 */
+    void Clear() noexcept { m_Count = 0u; }
+
+    /**
+     * 変数を登録する (同名は上書き)。
+     *
+     * @param name 変数名 (グラフの比較条件で参照する)。
+     * @param type 変数の型。
+     * @param offset blackboard 先頭からのバイトオフセット (offsetof 推奨)。
+     * @return 登録できたら true (name が null、または上限到達で false)。
+     */
+    bool Add(const char* name, EBtVarType type, u32 offset) noexcept {
+        if (name == nullptr) return false;
+        for (u32 i = 0; i < m_Count; ++i) {
+            if (std::strcmp(m_Names[i], name) == 0) { m_Types[i] = type; m_Offsets[i] = offset; return true; }
+        }
+        if (m_Count >= kMax) return false;
+        std::snprintf(m_Names[m_Count], kNameLen, "%s", name);
+        m_Types[m_Count]   = type;
+        m_Offsets[m_Count] = offset;
+        ++m_Count;
+        return true;
+    }
+
+    /**
+     * 名前から変数のインデックスを引く。
+     *
+     * @param name 探す変数名。
+     * @return 見つかったインデックス (無ければ kInvalid)。
+     */
+    u32 IndexOf(const char* name) const noexcept {
+        if (name == nullptr) return kInvalid;
+        for (u32 i = 0; i < m_Count; ++i) {
+            if (std::strcmp(m_Names[i], name) == 0) return i;
+        }
+        return kInvalid;
+    }
+
+    /** 登録数を返す。 */
+    u32 Count() const noexcept { return m_Count; }
+
+    /** i 番目の変数名を返す (範囲外は "")。 */
+    const char* NameAt(u32 i) const noexcept { return (i < m_Count) ? m_Names[i] : ""; }
+
+    /** i 番目の変数型を返す (範囲外は F32)。 */
+    EBtVarType TypeAt(u32 i) const noexcept { return (i < m_Count) ? m_Types[i] : EBtVarType::F32; }
+
+    /** i 番目の変数オフセットを返す (範囲外は 0)。 */
+    u32 OffsetAt(u32 i) const noexcept { return (i < m_Count) ? m_Offsets[i] : 0u; }
+
+    /** IndexOf の "見つからない" シグナル。 */
+    static constexpr u32 kInvalid = 0xFFFFFFFFu;
+
+private:
+    /** 変数名 (固定バッファへコピー)。 */
+    char       m_Names[kMax][kNameLen] = {};
+
+    /** 変数型 (m_Names と同 index)。 */
+    EBtVarType m_Types[kMax] = {};
+
+    /** バイトオフセット (m_Names と同 index)。 */
+    u32        m_Offsets[kMax] = {};
+
+    /** 登録数。 */
+    u32        m_Count = 0u;
+};
+
+/**
+ * エディタ所有の動的ブラックボード (名前+型+値を自前で保持する変数ストア)。
+ *
+ * @details
+ * FBtBlackboardSchema が「C++ 構造体のフィールドへの offset 参照 (= コード所有・
+ * エディタは読み取り専用)」なのに対し、本クラスは値そのものを内部に持つため、
+ * エディタから変数の追加 / リネーム / 削除 / 型変更 / 値編集ができる。コード側は
+ * 名前で Get/Set してアクセスし (`bb.SetF32("hp", 100)`)、グラフの Compare
+ * デコレーターは名前で値を引いて比較する。これにより「コードに無い変数をエディタ
+ * だけで足して条件に使う」完全な no-code オーサリングが成立する。
+ *
+ * void* blackboard として渡せば、Action/Condition 関数からは
+ * `static_cast<FBtBlackboard*>(bb)` で取り回せる。
+ */
+class FBtBlackboard {
+public:
+    /** 保持できる変数の上限。 */
+    static constexpr u32 kMax = 64u;
+
+    /** 1 変数名の最大長 (NUL 含む)。 */
+    static constexpr u32 kNameLen = 48u;
+
+    /** IndexOf / Add の "無効" シグナル。 */
+    static constexpr u32 kInvalid = 0xFFFFFFFFu;
+
+    /** 空のブラックボードを構築する。 */
+    FBtBlackboard() noexcept = default;
+
+    /** 全変数を消す。 */
+    void Clear() noexcept { m_Count = 0u; }
+
+    // ===== schema 編集 (エディタ / コードから) =====
+
+    /**
+     * 変数を追加する (値は 0 初期化)。
+     *
+     * @param name 変数名 (nullptr なら "var<N>" を自動生成)。同名があればそれを返す。
+     * @param type 変数の型。
+     * @return 追加 / 既存のインデックス (上限到達は kInvalid)。
+     */
+    u32 Add(const char* name, EBtVarType type) noexcept {
+        if (name != nullptr) {
+            const u32 ex = IndexOf(name);
+            if (ex != kInvalid) return ex;
+        }
+        if (m_Count >= kMax) return kInvalid;
+        const u32 idx = m_Count;
+        if (name != nullptr) {
+            std::snprintf(m_Vars[idx].name, kNameLen, "%s", name);
+        } else {
+            // 既存と衝突しない自動名を生成 ("var0", "var1", …)。Remove で index が
+            // 詰まっても名前は据え置きなので、suffix==idx が既存名と被り得る → 空きを探す。
+            char cand[kNameLen];
+            u32 suffix = idx;
+            do {
+                std::snprintf(cand, kNameLen, "var%u", suffix);
+                ++suffix;
+            } while (IndexOf(cand) != kInvalid);   // 既存 (0..m_Count-1) に無いものを採用
+            std::snprintf(m_Vars[idx].name, kNameLen, "%s", cand);
+        }
+        m_Vars[idx].type  = type;
+        m_Vars[idx].val.i = 0;    // 全ビット 0 = false / 0 / 0.0f
+        ++m_Count;
+        return idx;
+    }
+
+    /**
+     * idx の変数をリネームする。
+     *
+     * @param idx 対象インデックス。
+     * @param newname 新しい名前 (nullptr / 空は無視)。
+     * @return 成功なら true。
+     */
+    bool Rename(u32 idx, const char* newname) noexcept {
+        if (idx >= m_Count || newname == nullptr || newname[0] == '\0') return false;
+        std::snprintf(m_Vars[idx].name, kNameLen, "%s", newname);
+        return true;
+    }
+
+    /**
+     * idx の変数を削除する (後続を詰める)。
+     *
+     * @param idx 対象インデックス。
+     * @return 成功なら true。
+     */
+    bool Remove(u32 idx) noexcept {
+        if (idx >= m_Count) return false;
+        for (u32 i = idx; i + 1 < m_Count; ++i) m_Vars[i] = m_Vars[i + 1];
+        --m_Count;
+        return true;
+    }
+
+    /**
+     * idx の変数の型を変更する (現在値を新型へ値変換して保持)。
+     *
+     * @param idx 対象インデックス。
+     * @param type 新しい型。
+     * @return 成功なら true。
+     */
+    bool SetType(u32 idx, EBtVarType type) noexcept {
+        if (idx >= m_Count) return false;
+        const f32 cur = ValueAsF32(idx);     // 現在値を f32 で取得してから付け替え
+        m_Vars[idx].type = type;
+        switch (type) {
+            case EBtVarType::Bool: m_Vars[idx].val.b = (cur != 0.0f); break;
+            case EBtVarType::I32:  m_Vars[idx].val.i = static_cast<i32>(cur); break;
+            case EBtVarType::F32:  m_Vars[idx].val.f = cur; break;
+        }
+        return true;
+    }
+
+    // ===== 問い合わせ =====
+
+    /** 名前からインデックスを引く (無ければ kInvalid)。 */
+    u32 IndexOf(const char* name) const noexcept {
+        if (name == nullptr) return kInvalid;
+        for (u32 i = 0; i < m_Count; ++i) {
+            if (std::strcmp(m_Vars[i].name, name) == 0) return i;
+        }
+        return kInvalid;
+    }
+
+    /** 変数が存在するか。 */
+    bool Has(const char* name) const noexcept { return IndexOf(name) != kInvalid; }
+
+    /** 変数数。 */
+    u32 Count() const noexcept { return m_Count; }
+
+    /** idx の変数名 (範囲外は "")。 */
+    const char* NameAt(u32 idx) const noexcept { return (idx < m_Count) ? m_Vars[idx].name : ""; }
+
+    /** idx の変数名の編集可能バッファ (UI のインライン rename 用、範囲外は nullptr)。 */
+    char* NameBufAt(u32 idx) noexcept { return (idx < m_Count) ? m_Vars[idx].name : nullptr; }
+
+    /** idx の型 (範囲外は F32)。 */
+    EBtVarType TypeAt(u32 idx) const noexcept { return (idx < m_Count) ? m_Vars[idx].type : EBtVarType::F32; }
+
+    // ===== 値アクセス (名前指定、コードから) =====
+
+    bool GetBool(const char* name) const noexcept { const u32 i = IndexOf(name); return (i != kInvalid) && m_Vars[i].val.b; }
+    i32  GetI32 (const char* name) const noexcept { const u32 i = IndexOf(name); return (i != kInvalid) ? m_Vars[i].val.i : 0; }
+    f32  GetF32 (const char* name) const noexcept { const u32 i = IndexOf(name); return (i != kInvalid) ? m_Vars[i].val.f : 0.0f; }
+
+    void SetBool(const char* name, bool v) noexcept { const u32 i = IndexOf(name); if (i != kInvalid) m_Vars[i].val.b = v; }
+    void SetI32 (const char* name, i32  v) noexcept { const u32 i = IndexOf(name); if (i != kInvalid) m_Vars[i].val.i = v; }
+    void SetF32 (const char* name, f32  v) noexcept { const u32 i = IndexOf(name); if (i != kInvalid) m_Vars[i].val.f = v; }
+
+    /** 名前指定で値を f32 に正規化して返す (Compare 評価用、無ければ 0)。 */
+    f32 GetAsF32(const char* name) const noexcept {
+        const u32 i = IndexOf(name);
+        return (i != kInvalid) ? ValueAsF32(i) : 0.0f;
+    }
+
+    // ===== 値アクセス (インデックス指定の生ポインタ、UI のインライン編集用) =====
+    // 型が一致するときだけ非 null を返す (呼び出し側は TypeAt で分岐すること)。
+
+    bool* BoolPtrAt(u32 idx) noexcept { return (idx < m_Count && m_Vars[idx].type == EBtVarType::Bool) ? &m_Vars[idx].val.b : nullptr; }
+    i32*  I32PtrAt (u32 idx) noexcept { return (idx < m_Count && m_Vars[idx].type == EBtVarType::I32)  ? &m_Vars[idx].val.i : nullptr; }
+    f32*  F32PtrAt (u32 idx) noexcept { return (idx < m_Count && m_Vars[idx].type == EBtVarType::F32)  ? &m_Vars[idx].val.f : nullptr; }
+
+private:
+    /** 1 変数 = 名前 + 型 + 値 (型に応じて union のいずれかを使う)。 */
+    struct Var {
+        char       name[kNameLen] = {};
+        EBtVarType type           = EBtVarType::F32;
+        union { bool b; i32 i; f32 f; } val { };
+    };
+
+    /** idx の現在値を f32 に正規化して返す (内部ヘルパ)。 */
+    f32 ValueAsF32(u32 idx) const noexcept {
+        switch (m_Vars[idx].type) {
+            case EBtVarType::Bool: return m_Vars[idx].val.b ? 1.0f : 0.0f;
+            case EBtVarType::I32:  return static_cast<f32>(m_Vars[idx].val.i);
+            case EBtVarType::F32:  return m_Vars[idx].val.f;
+        }
+        return 0.0f;
+    }
+
+    /** 変数配列。 */
+    Var m_Vars[kMax] = {};
+
+    /** 変数数。 */
+    u32 m_Count = 0u;
+};
+
+} // namespace acs::game::btedit
+
 namespace acs::game::btedit {
 
 /**
@@ -59922,13 +66388,51 @@ namespace acs::game::btedit {
  */
 enum class EBtKind : u8 {
     /** Selector composite (子を順に試し、最初に成功した子で成功)。 */
-    Selector = 0,
+    Selector  = 0,
 
     /** Sequence composite (子を順に実行し、最初に失敗した子で失敗)。 */
-    Sequence = 1,
+    Sequence  = 1,
 
-    /** Action leaf (関数を実行する末端ノード、子を持たない)。 */
-    Action   = 2,
+    /** Action leaf (関数を実行する末端ノード、子を持たない。条件/即時判定向き)。 */
+    Action    = 2,
+
+    /** Decorator (子を 1 つ持ち、その結果を deco op で変換する単子ノード)。 */
+    Decorator = 3,
+
+    /** Task leaf (関数を実行する末端ノード。Action と同じくレジストリ解決、"仕事"系)。 */
+    Task      = 4,
+};
+
+/**
+ * EBtKind が末端 leaf (Action / Task = 子を持たない実行ノード) かを返す。
+ *
+ * @details
+ * leaf はグラフ上で出力ポートを持たず、TickGraph ではレジストリ解決した関数を呼ぶ。
+ * Selector / Sequence (composite) と Decorator (単子) は非 leaf で子を持てる。
+ * @param k 判定する種別。
+ * @return Action または Task なら true。
+ */
+inline bool BtKindIsLeaf(EBtKind k) noexcept {
+    return k == EBtKind::Action || k == EBtKind::Task;
+}
+
+/**
+ * Decorator ノードの動作モード (kind==Decorator のときのみ意味を持つ)。
+ *
+ * @details
+ * 1 つの Decorator 種別の中で「結果変換」と「条件ガード」を切り替えるための区別。
+ * Transform は子の結果を deco op で変換、Condition/Compare は条件を評価し、true の
+ * ときだけ子を実行してその結果を返す (false なら子をスキップして Failure) ガード。
+ */
+enum class EBtDecoMode : u8 {
+    /** 子の結果を EBtDecoratorOp で変換する (Inverter / ForceSuccess / …)。 */
+    Transform = 0,
+
+    /** Condition レジストリの bool 関数 (ノード名で解決) で子をガードする。 */
+    Condition = 1,
+
+    /** ブラックボード変数と定数の比較 (var <op> const) で子をガードする。 */
+    Compare   = 2,
 };
 
 /**
@@ -60092,6 +66596,37 @@ public:
     void SetNodeStatus(u32 node_id, EBtStatus status) noexcept;
 
     /**
+     * Decorator node の変換 op を設定する (kind!=Decorator の node は no-op)。
+     *
+     * @details AddNode(EBtKind::Decorator, ...) で作った node に op を後付けするための API。
+     * @param node_id 対象 node の id。
+     * @param op 設定する変換 op (Inverter / ForceSuccess / ForceFailure / Repeat)。
+     * @return 設定できたら true (範囲外 / Decorator 以外は false)。
+     */
+    bool SetNodeDecoratorOp(u32 node_id, EBtDecoratorOp op) noexcept;
+
+    /**
+     * Decorator node の動作モードを設定する (kind!=Decorator は no-op)。
+     *
+     * @param node_id 対象 node の id。
+     * @param mode Transform / Condition / Compare。
+     * @return 設定できたら true (範囲外 / Decorator 以外は false)。
+     */
+    bool SetNodeDecoratorMode(u32 node_id, EBtDecoMode mode) noexcept;
+
+    /**
+     * Decorator node を Compare モードに設定し、比較条件 (var <op> const) を与える。
+     *
+     * @details mode を Compare に切り替え、var/op/rhs を設定する。kind!=Decorator は no-op。
+     * @param node_id 対象 node の id。
+     * @param var 比較する blackboard 変数名 (schema のキー)。
+     * @param op 比較演算子。
+     * @param rhs 比較定数 (右辺)。
+     * @return 設定できたら true (範囲外 / Decorator 以外は false)。
+     */
+    bool SetNodeCompare(u32 node_id, const char* var, EBtCompareOp op, f32 rhs) noexcept;
+
+    /**
      * メタミラーを全削除し、selection を解除する。
      *
      * @details BT 構造を組み直す前に呼ぶ。history / step counter / autorun は触らない (Reset を別途呼ぶ)。
@@ -60121,6 +66656,131 @@ public:
      * @param user callback の第一引数として戻すユーザポインタ。
      */
     void SetOnStepCallback(StepCallback cb, void* user) noexcept;
+
+    // ===== no-code 実行 (グラフを直接インタプリトする) =====
+
+    /**
+     * Action 名を関数へ解決するレジストリを設定する (no-code 実行を有効化)。
+     *
+     * @details 非 null をセットすると Step / Continuous はハンドビルドの FBehaviorTree では
+     *          なく「メタミラーのグラフを直接インタプリト」して実行する。Action ノードの
+     *          表示名をキーに registry から関数を引いて呼ぶ。null で従来動作に戻る。
+     * @param reg アクションレジストリ (非所有、null で解除)。
+     */
+    void SetActionRegistry(const FBtActionRegistry* reg) noexcept { m_Registry = reg; }
+
+    /**
+     * Condition デコレーター用の bool 関数レジストリを設定する (no-code 条件を有効化)。
+     *
+     * @details Condition モードの Decorator が、ノード名をキーに bool 関数を引いて子をガードする。
+     * @param reg 条件レジストリ (非所有、null で解除)。
+     */
+    void SetConditionRegistry(const FBtConditionRegistry* reg) noexcept { m_CondReg = reg; }
+
+    /**
+     * 比較条件用の blackboard スキーマを設定する (変数リンクを有効化)。
+     *
+     * @details Compare モードの Decorator が、変数名→(型・オフセット) を schema で解決して
+     *          BtCompareVar で値を読み、定数と比較する。エディタは変数候補の提示にも使う。
+     * @param schema blackboard スキーマ (非所有、null で解除)。
+     */
+    void SetBlackboardSchema(const FBtBlackboardSchema* schema) noexcept { m_Schema = schema; }
+
+    /**
+     * エディタ所有の動的ブラックボードを設定する (変数のエディタ編集を有効化)。
+     *
+     * @details
+     * 非 null をセットすると、エディタの Blackboard パネルで変数の追加 / リネーム /
+     * 削除 / 型変更 / 値編集ができ、Compare デコレーターは変数名をここから引いて評価する
+     * (offset スキーマより優先)。通常はこの動的 BB を SetGraphBlackboard にも渡し、
+     * Action/Condition 関数が同じインスタンスを名前アクセスする。
+     * @param bb 動的ブラックボード (非所有、null で解除)。
+     */
+    void SetDynamicBlackboard(FBtBlackboard* bb) noexcept { m_DynBb = bb; }
+
+    /** 設定済みの Condition レジストリを返す (UI 用、未設定は nullptr)。 */
+    const FBtConditionRegistry* ConditionRegistry() const noexcept { return m_CondReg; }
+
+    /** 設定済みの blackboard スキーマを返す (UI 用、未設定は nullptr)。 */
+    const FBtBlackboardSchema* BlackboardSchema() const noexcept { return m_Schema; }
+
+    /** 設定済みの動的ブラックボードを返す (UI 用、未設定は nullptr)。 */
+    FBtBlackboard* DynamicBlackboard() const noexcept { return m_DynBb; }
+
+    /**
+     * グラフインタプリト時に Action 関数へ渡す blackboard を設定する。
+     *
+     * @param bb ゲーム状態へのポインタ (非所有)。
+     */
+    void SetGraphBlackboard(void* bb) noexcept { m_GraphBb = bb; }
+
+    /** レジストリ設定済みで「グラフ直接実行」モードかを返す。 */
+    bool IsGraphRunnable() const noexcept { return m_Registry != nullptr; }
+
+    /**
+     * メタミラーのグラフを 1 tick 直接インタプリトする (selector/sequence/action 意味論)。
+     *
+     * @details 各ノードの last_status と visit_order を更新し、root status を履歴へ push する。
+     *          Action は registry から名前で引いた関数を blackboard 付きで呼ぶ。ゲーム側の
+     *          毎フレームループから直接呼べば、エディタにライブ実行フローが流れる。
+     * @param dt この tick の経過秒。
+     * @return root の status (root 不在/未解決は Failure)。
+     */
+    EBtStatus TickGraph(f32 dt) noexcept;
+
+    /**
+     * 現在のグラフをテキストファイルへ保存する。
+     *
+     * @param path 保存先パス。
+     * @return 成功なら true。
+     */
+    bool SaveGraph(const char* path) const noexcept;
+
+    /**
+     * テキストファイルからグラフを読み込む (既存ノードはクリアされる)。
+     *
+     * @param path 読み込み元パス。
+     * @return 成功なら true。
+     */
+    bool LoadGraph(const char* path) noexcept;
+
+    /**
+     * 現在のグラフを実行可能な FBehaviorTree ノードツリーへ bake する。
+     *
+     * @details
+     * メタミラーを walk し、Selector/Sequence/Action(Task)/Decorator(Transform) は core
+     * ランタイムノードへ、Condition/Compare デコレーターは btedit の FBtConditionNode /
+     * FBtCompareNode へ変換した 1 本のツリーを構築して返す。Action/Condition 名は
+     * 設定済みレジストリ (SetActionRegistry / SetConditionRegistry) で解決し、Compare の
+     * 変数は実行時に FBtBlackboard 名前アクセスで解決する。返り値を FBehaviorTree::SetRoot
+     * に渡せば、エディタ外 (通常のゲームループ) で `bt.Tick(&blackboard, dt)` として走らせられる。
+     * @return root ノード (root 不在なら空の TUniquePtr)。
+     */
+    TUniquePtr<FBtNode> BuildRuntimeTree() const noexcept;
+
+    // ===== undo / redo (ユーザ操作。ホストがメニュー/ツールバーに束縛してもよい) =====
+
+    /** 1 手戻す (undo 履歴が空なら no-op)。 */
+    void Undo() noexcept;
+
+    /** 1 手やり直す (redo 履歴が空なら no-op)。 */
+    void Redo() noexcept;
+
+    /** undo 可能か。 */
+    bool CanUndo() const noexcept { return !m_UndoStack.IsEmpty(); }
+
+    /** redo 可能か。 */
+    bool CanRedo() const noexcept { return !m_RedoStack.IsEmpty(); }
+
+    /**
+     * 現在のグラフ状態を undo 履歴へ明示的にコミットする (チェックポイント)。
+     *
+     * @details
+     * 通常は DrawUI 内の自動追跡 (編集確定時) でコミットされるが、ホストがバッチ操作の
+     * 前に明示チェックポイントを打ちたい場合や、ImGui frame を回さずにプログラム的に
+     * 編集して undo 単位を区切りたい場合に使う。初回は baseline 初期化のみ。
+     */
+    void PushUndoCheckpoint() noexcept;
 
     /**
      * ImGui::Begin に渡す window タイトルを返す。
@@ -60165,14 +66825,58 @@ private:
         /** 親 node の id (root は kInvalidId)。 */
         u32         parent_id   = kInvalidId;
 
-        /** node 種別 (Selector / Sequence / Action)。 */
+        /** node 種別 (Selector / Sequence / Action / Decorator / Task)。 */
         EBtKind     kind        = EBtKind::Action;
+
+        /** kind==Decorator のときの変換 op (decoMode==Transform でのみ使用)。 */
+        EBtDecoratorOp deco     = EBtDecoratorOp::Inverter;
+
+        /** kind==Decorator の動作モード (Transform / Condition / Compare)。 */
+        EBtDecoMode    decoMode = EBtDecoMode::Transform;
+
+        /** decoMode==Compare の比較対象 blackboard 変数名 (schema のキー)。 */
+        char           var[48]  = { 0 };
+
+        /** decoMode==Compare の比較演算子。 */
+        EBtCompareOp   cmpOp    = EBtCompareOp::Less;
+
+        /** decoMode==Compare の比較定数 (右辺)。 */
+        f32            cmpRhs   = 0.0f;
 
         /** ImGui 表示名 (リテラル / 永続領域、非所有)。 */
         const char* name        = nullptr;
 
         /** 直近の tick での status (初期値 Failure)。 */
         EBtStatus   last_status = EBtStatus::Failure;
+
+        /** エディタで付けた名前 (空なら name を使う)。エディタ作成/リネーム用。 */
+        char        ename[48]   = { 0 };
+
+        /** グラフ canvas 上の位置 (world 座標。auto-layout / ドラッグで決まる)。 */
+        f32         x           = 0.0f;
+        f32         y           = 0.0f;
+
+        /** false = 削除済み (tombstone)。id==index を保つため配列からは消さない。 */
+        bool        alive       = true;
+
+        /** 直近 tick でこのノードが訪問された順番 (0=未訪問。実行フロー可視化用)。 */
+        u32         visit_order = 0u;
+    };
+
+    /**
+     * undo/redo 用のグラフ状態スナップショット (ノード配列 + 動的 BB のコピー)。
+     *
+     * @details TArray はコピー不可なので move-only。要素 (NodeMeta) は値コピーで詰める。
+     */
+    struct GraphSnapshot {
+        /** ノード配列のコピー。 */
+        TArray<NodeMeta> nodes;
+
+        /** 動的ブラックボードのコピー (hasBb のときのみ有効)。 */
+        FBtBlackboard    bb;
+
+        /** bb が有効か (m_DynBb 設定時に true)。 */
+        bool             hasBb = false;
     };
 
     /**
@@ -60193,6 +66897,86 @@ private:
      * @param depth 表示インデント兼暴走防止用の再帰深度。
      */
     void DrawTreeRecursive(u32 node_id, u32 depth) noexcept;
+
+    /** ノードグラフ canvas を描画 + 操作 (pan/zoom/ドラッグ/追加/接続/削除)。 */
+    void DrawGraph() noexcept;
+
+    /**
+     * 「ノード追加」メニュー項目群を描画する (popup / submenu 内から共通利用)。
+     *
+     * @details
+     * Selector / Sequence / Decorator(op) / Condition(catalog) / Compare / Task(catalog) /
+     * Task / Action を列挙し、選択で AddNodeGraph する。catalog 系は登録済み name を一覧する。
+     * @param parent_id 追加先の親 (kInvalidId で root)。
+     * @param wx,wy 配置 world 座標。
+     */
+    void DrawAddMenu(u32 parent_id, f32 wx, f32 wy) noexcept;
+
+    /** tree 構造から各 node の x,y を自動配置する (tidy layout)。 */
+    void AutoLayout() noexcept;
+
+    /** node の表示名を返す (ename が空でなければそれ、無ければ name)。 */
+    const char* DisplayName(const NodeMeta& n) const noexcept;
+
+    /**
+     * エディタからノードを追加する (グラフ上に配置)。
+     *
+     * @param kind 種別。
+     * @param parent_id 親 (kInvalidId で root)。
+     * @param wx,wy 配置 world 座標。
+     * @return 払い出した id (上限到達は kInvalidId)。
+     */
+    u32  AddNodeGraph(EBtKind kind, u32 parent_id, f32 wx, f32 wy) noexcept;
+
+    /** ノードを tombstone 削除し、子を祖父へ付け替える。 */
+    void DeleteNodeGraph(u32 id) noexcept;
+
+    /** maybe_ancestor が node の祖先 (自分含む) かを返す (循環接続ガード用)。 */
+    bool IsAncestor(u32 maybe_ancestor, u32 node) const noexcept;
+
+    /**
+     * グラフ 1 ノードを再帰インタプリトする (TickGraph の本体)。
+     *
+     * @param id ノード id。
+     * @param dt 経過秒。
+     * @param guard 再帰深度ガード。
+     * @return このノードの status。
+     */
+    EBtStatus TickGraphNode(u32 id, f32 dt, u32 guard) noexcept;
+
+    /**
+     * id の生存子を x 座標 (= 左→右の見た目順) に並べて out へ集める。
+     *
+     * @param id 親ノード id。
+     * @param out 子 id の出力先 (最大 cap 個)。
+     * @param cap out の容量。
+     * @return 集めた子の数。
+     */
+    u32 CollectChildrenSorted(u32 id, u32* out, u32 cap) const noexcept;
+
+    /**
+     * メタミラー 1 ノードを実行可能な FBtNode へ再帰変換する (BuildRuntimeTree の本体)。
+     *
+     * @param id 変換するノード id。
+     * @param guard 再帰深度ガード。
+     * @return 構築した FBtNode (不正/未解決は空の TUniquePtr)。
+     */
+    TUniquePtr<FBtNode> BuildRuntimeNode(u32 id, u32 guard) const noexcept;
+
+    /** 現在のグラフ状態 (ノード + 動的 BB) を out へコピーする (undo 用)。 */
+    void CaptureSnapshot(GraphSnapshot& out) const noexcept;
+
+    /** スナップショットから現在のグラフ状態を復元する (selection 等はリセット)。 */
+    void RestoreSnapshot(const GraphSnapshot& s) noexcept;
+
+    /** 現在のグラフ状態の変更検出用シグネチャ (ノード + 動的 BB を畳み込む)。 */
+    u64 GraphSignature() const noexcept;
+
+    /** 毎フレーム呼び、編集が「確定」したら baseline を undo stack へ積む。 */
+    void UpdateUndoTracking() noexcept;
+
+    /** 現在の baseline を undo stack へ積み、baseline を現在状態へ更新する (redo はクリア)。 */
+    void CommitBaseline() noexcept;
 
     /**
      * status を ImGui 文字色 (RGBA float) に変換するヘルパ。
@@ -60235,6 +67019,220 @@ private:
 
     /** StepCallback に渡すユーザポインタ。 */
     void*         m_StepUser    = nullptr;
+
+    // ===== ノードグラフ表示の状態 =====
+    /** グラフ表示モード (false = 従来のツリーリスト表示)。 */
+    bool m_GraphMode  = true;
+
+    /** auto-layout 済みフラグ (node 構成が変わると false に戻して再配置)。 */
+    bool m_DidLayout  = false;
+
+    /** canvas のパン (スクリーン px) とズーム。 */
+    f32  m_PanX       = 40.0f;
+    f32  m_PanY       = 40.0f;
+    f32  m_Zoom       = 1.0f;
+
+    /** ドラッグ中ノード (kInvalidId = なし)。 */
+    u32  m_DragNode   = kInvalidId;
+
+    /** 接続ドラッグの元ノード (出力ポートから引く、kInvalidId = なし)。 */
+    u32  m_LinkSrc    = kInvalidId;
+
+    /** 右クリックメニューの対象ノード。 */
+    u32  m_CtxNode    = kInvalidId;
+
+    /** 空所での左ドラッグによるパン中フラグ。 */
+    bool m_PanningBg  = false;
+
+    /** Add ポップアップで配置する world 座標。 */
+    f32  m_AddX       = 0.0f;
+    f32  m_AddY       = 0.0f;
+
+    // ===== no-code 実行 / 実行フロー可視化 =====
+    /** Action 名→関数のレジストリ (非所有、非 null でグラフ直接実行モード)。 */
+    const FBtActionRegistry* m_Registry = nullptr;
+
+    /** Condition 名→bool 関数のレジストリ (非所有、Condition デコレーター用)。 */
+    const FBtConditionRegistry* m_CondReg = nullptr;
+
+    /** blackboard 変数スキーマ (非所有、offset 参照型。Compare / 変数候補提示用)。 */
+    const FBtBlackboardSchema* m_Schema = nullptr;
+
+    /** エディタ所有の動的ブラックボード (非所有、Compare 優先解決 + 変数のエディタ編集用)。 */
+    FBtBlackboard* m_DynBb = nullptr;
+
+    /** グラフ実行時に Action へ渡す blackboard (非所有)。 */
+    void* m_GraphBb   = nullptr;
+
+    /** 直近 tick の訪問順カウンタ (visit_order 採番用)。 */
+    u32   m_VisitSeq  = 0u;
+
+    // ===== undo / redo =====
+    /** undo スタック (古い→新しい順。top が直前の確定状態)。 */
+    TArray<GraphSnapshot> m_UndoStack;
+
+    /** redo スタック (undo で押し戻された状態)。 */
+    TArray<GraphSnapshot> m_RedoStack;
+
+    /** 現在の確定状態のスナップショット (変更検出の基準)。 */
+    GraphSnapshot m_UndoBaseline;
+
+    /** m_UndoBaseline のシグネチャ (現在状態と比較して変更を検出)。 */
+    u64  m_BaselineSig = 0u;
+
+    /** baseline 初期化済みか (最初の DrawUI で 1 度キャプチャ)。 */
+    bool m_UndoInit    = false;
+};
+
+} // namespace acs::game::btedit
+
+// ===================== gameframework/tools/btedit/BtGuardNodes.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar — btedit / bake 用ガードノード
+//
+// エディタのグラフ (メタミラー) を「実行可能な FBehaviorTree」に焼く (bake) とき、
+// composite / transform-decorator / action は core ランタイムノード
+// (FBtSelector / FBtSequence / FBtDecorator / FBtAction) にそのまま対応するが、
+// Condition / Compare デコレーターには core 側に対応物が無い。そこで btedit 側に
+// FBtNode のサブクラスとして「条件ガードノード」を定義する。これらは core FBtNode を
+// 継承するので、core の composite と混在した 1 本のツリーを構成できる。
+//
+//   FBtConditionNode : 条件 bool 関数が true のときだけ子を実行 (= Condition デコレーター)
+//   FBtCompareNode   : 動的ブラックボード変数の比較が true のときだけ子を実行 (= Compare デコレーター)
+//
+// blackboard は FBtBlackboard* 前提 (bake は動的ブラックボードモデル)。core 層に
+// FBtBlackboard 依存を持ち込まないため、これらは btedit 層に置く。
+
+
+#include <cstdio>    // std::snprintf
+
+namespace acs::game::btedit {
+
+/**
+ * 条件 bool 関数で子をガードする FBtNode (bake された Condition デコレーター)。
+ *
+ * @details fn(bb) が true のときだけ子を Tick し、その結果を返す。false (または fn 未設定)
+ *          なら子を実行せず Failure。
+ */
+class FBtConditionNode : public FBtNode {
+public:
+    ACS_RTTI(FBtConditionNode, FBtNode)
+
+    /** 条件関数の型 (FBtConditionRegistry と同型: bool(*)(void*) noexcept)。 */
+    using Fn = FBtConditionRegistry::Fn;
+
+    /**
+     * 条件関数を指定して構築する。
+     *
+     * @param fn 評価する条件関数 (nullptr なら常に Failure)。
+     */
+    explicit FBtConditionNode(Fn fn) noexcept : m_Fn(fn) {}
+
+    /** 破棄する (子は TUniquePtr が解放)。 */
+    ~FBtConditionNode() noexcept override = default;
+
+    /** ガードする子を設定する。 */
+    void SetChild(TUniquePtr<FBtNode> child) noexcept { m_Child = Move(child); }
+
+    /** 条件 true のときだけ子を Tick して返す (false / 子なし / fn 未設定は Failure)。 */
+    EBtStatus Tick(void* blackboard, f32 dt) noexcept override {
+        if (m_Fn == nullptr || !m_Fn(blackboard)) return EBtStatus::Failure;
+        return m_Child ? m_Child->Tick(blackboard, dt) : EBtStatus::Failure;
+    }
+
+private:
+    /** 条件関数。 */
+    Fn                  m_Fn;
+
+    /** ガードされる子ノード。 */
+    TUniquePtr<FBtNode> m_Child;
+};
+
+/**
+ * 変数と定数の比較で子をガードする FBtNode (bake された Compare デコレーター)。
+ *
+ * @details
+ * editor インタプリタと同じ 2 つの変数解決モデルを bake 時に固定する:
+ *   ・dynamic モード … blackboard を FBtBlackboard* とみなし、変数「名」で値を引く
+ *     (FBtBlackboard モデル)。変数が無ければ Failure。
+ *   ・schema モード  … blackboard を raw 構造体とみなし、bake 時に解決した
+ *     「オフセット+型」で BtCompareVar により読む (FBtBlackboardSchema モデル)。
+ * どちらのモードを使うかは bake 時 (BuildRuntimeNode) に変数の解決先で決める。これにより
+ * 「schema 変数を使った Compare が bake すると常に Failure / 不正キャスト」になる乖離を防ぐ。
+ * 注意: 1 本の baked ツリーは単一の blackboard モデルで tick すること
+ * (dynamic なら FBtBlackboard、schema なら対応する raw 構造体)。
+ */
+class FBtCompareNode : public FBtNode {
+public:
+    ACS_RTTI(FBtCompareNode, FBtNode)
+
+    /**
+     * dynamic モードで構築する (FBtBlackboard を変数名で引く)。
+     *
+     * @param var 比較する変数名 (FBtBlackboard のキー)。
+     * @param op 比較演算子。
+     * @param rhs 比較定数 (右辺)。
+     */
+    FBtCompareNode(const char* var, EBtCompareOp op, f32 rhs) noexcept
+        : m_Op(op), m_Rhs(rhs), m_UseSchema(false), m_Offset(0u), m_Type(EBtVarType::F32) {
+        std::snprintf(m_Var, sizeof(m_Var), "%s", (var != nullptr) ? var : "");
+    }
+
+    /**
+     * schema モードで構築する (raw 構造体を offset+type で読む)。
+     *
+     * @param offset blackboard 先頭からのバイトオフセット。
+     * @param type 読み取る型。
+     * @param op 比較演算子。
+     * @param rhs 比較定数 (右辺)。
+     */
+    FBtCompareNode(u32 offset, EBtVarType type, EBtCompareOp op, f32 rhs) noexcept
+        : m_Op(op), m_Rhs(rhs), m_UseSchema(true), m_Offset(offset), m_Type(type) {
+        m_Var[0] = '\0';
+    }
+
+    /** 破棄する (子は TUniquePtr が解放)。 */
+    ~FBtCompareNode() noexcept override = default;
+
+    /** ガードする子を設定する。 */
+    void SetChild(TUniquePtr<FBtNode> child) noexcept { m_Child = Move(child); }
+
+    /** 比較 true のときだけ子を Tick して返す (false / 子なしは Failure)。 */
+    EBtStatus Tick(void* blackboard, f32 dt) noexcept override {
+        bool pass;
+        if (m_UseSchema) {
+            // raw 構造体 + offset 読み (FBtBlackboard へのキャストはしない)。
+            pass = BtCompareVar(blackboard, m_Offset, m_Type, m_Op, m_Rhs);
+        } else {
+            auto* board = static_cast<FBtBlackboard*>(blackboard);
+            pass = (board != nullptr) && board->Has(m_Var)
+                   && BtCompareF32(board->GetAsF32(m_Var), m_Op, m_Rhs);
+        }
+        if (!pass) return EBtStatus::Failure;
+        return m_Child ? m_Child->Tick(blackboard, dt) : EBtStatus::Failure;
+    }
+
+private:
+    /** 比較する変数名 (dynamic モードで使用)。 */
+    char                m_Var[48] = {};
+
+    /** 比較演算子。 */
+    EBtCompareOp        m_Op;
+
+    /** 比較定数 (右辺)。 */
+    f32                 m_Rhs;
+
+    /** true=schema モード (offset+type 読み) / false=dynamic モード (名前読み)。 */
+    bool                m_UseSchema;
+
+    /** schema モードのバイトオフセット。 */
+    u32                 m_Offset;
+
+    /** schema モードの読み取り型。 */
+    EBtVarType          m_Type;
+
+    /** ガードされる子ノード。 */
+    TUniquePtr<FBtNode> m_Child;
 };
 
 } // namespace acs::game::btedit
@@ -68223,6 +75221,153 @@ private:
 
 } // namespace acs
 
+// ===================== math/CameraRig.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// ACS Math — CameraRig (軌道カメラ + 射影/逆射影ヘルパ)
+// -----------------------------------------------------------------------------
+// FCamera (view/projection 行列) の «周辺» でよく要る計算をエンジンの正準実装として
+// 集約する。これらは符号・ハンドネス・スクリーンY向きを取り違えやすい «逆になりがち»
+// な部分なので、行列ベースで実装し world→screen と screen→ray が数学的に厳密一致する
+// (= 往復テストで自己検証できる) ようにした。
+//
+// 規約 (editor_abi の 3D ビューポートと一致、左手系 DirectX):
+//   ・orbit: target→eye 方向 dir = (cosP*sinY, sinP, cosP*cosY)、eye = target + dir*dist
+//            (pitch+ で見下ろし、yaw は +Y まわり)。
+//   ・screen: 左上原点・Y 下向き。NDC z は [0,1] (near=0, far=1)。
+//   ・projection は左手系 (FMat4::PerspectiveFovLH / FCamera)。
+// =============================================================================
+
+
+namespace acs {
+
+/**
+ * 軌道カメラの eye 位置を返す (注視点まわりを yaw/pitch/距離で回す)。
+ *
+ * @details
+ * target→eye 方向 dir = (cosP*sinY, sinP, cosP*cosY)、eye = target + dir*dist。
+ * pitch+ で見下ろし (eye が上)、yaw は +Y 軸まわり。editor_abi の Cam3DEye と同式。
+ * @param target 注視点。
+ * @param yaw_rad ヨー (rad、+Y 軸まわり)。
+ * @param pitch_rad ピッチ (rad、+ で見下ろし)。
+ * @param dist 注視点からの距離。
+ * @return カメラの eye ワールド座標。
+ */
+inline FVec3 OrbitEye(FVec3 target, f32 yaw_rad, f32 pitch_rad, f32 dist) noexcept {
+    const f32 cp = Cos(pitch_rad), sp = Sin(pitch_rad);
+    const f32 cy = Cos(yaw_rad),   sy = Sin(yaw_rad);
+    const FVec3 dir{ cp * sy, sp, cp * cy };   // target→eye 方向
+    return FVec3{ target.x + dir.x * dist,
+                  target.y + dir.y * dist,
+                  target.z + dir.z * dist };
+}
+
+/**
+ * 軌道カメラを組み立てて返す (OrbitEye + SetLookAt + SetPerspective)。
+ *
+ * @param target 注視点。
+ * @param yaw_rad ヨー (rad)。
+ * @param pitch_rad ピッチ (rad、+ で見下ろし)。
+ * @param dist 注視点からの距離。
+ * @param fov_y_rad 垂直視野角 (rad)。
+ * @param aspect アスペクト比 (幅/高さ)。
+ * @param near_z 近クリップ面距離。
+ * @param far_z 遠クリップ面距離。
+ * @return view/projection を設定済みの FCamera。
+ */
+inline FCamera MakeOrbitCamera(FVec3 target, f32 yaw_rad, f32 pitch_rad, f32 dist,
+                               f32 fov_y_rad, f32 aspect, f32 near_z, f32 far_z) noexcept {
+    FCamera cam;
+    cam.SetPerspective(fov_y_rad, aspect, near_z, far_z);
+    cam.SetLookAt(OrbitEye(target, yaw_rad, pitch_rad, dist), target);
+    return cam;
+}
+
+/**
+ * ワールド点をスクリーンピクセル座標へ射影する (左上原点・Y 下向き)。
+ *
+ * @details
+ * clip.w <= 0 (カメラ後方) のときは false を返し out_px は書き換えない。
+ * @param view_proj view × projection 行列 (FCamera::ViewProjection())。
+ * @param world 射影するワールド点。
+ * @param screen_w スクリーン幅 (px)。
+ * @param screen_h スクリーン高さ (px)。
+ * @param out_px 射影結果のスクリーン座標 (左上原点)。
+ * @return カメラ前方で射影できたら true。
+ */
+inline bool WorldToScreen(const FMat4& view_proj, FVec3 world,
+                          f32 screen_w, f32 screen_h, FVec2& out_px) noexcept {
+    const FVec4 clip = Transform(FVec4{ world.x, world.y, world.z, 1.0f }, view_proj);
+    if (clip.w <= 1e-4f) return false;               // カメラ後方 / 退化
+    const f32 ndc_x = clip.x / clip.w;
+    const f32 ndc_y = clip.y / clip.w;
+    out_px = FVec2{ (ndc_x * 0.5f + 0.5f) * screen_w,
+                    (1.0f - (ndc_y * 0.5f + 0.5f)) * screen_h };   // Y 反転 (NDC up → screen down)
+    return true;
+}
+
+/**
+ * ワールド点をスクリーンピクセル座標へ射影する (FCamera 版)。
+ *
+ * @param cam ビュー/プロジェクションを持つカメラ。
+ * @param world 射影するワールド点。
+ * @param screen_w スクリーン幅 (px)。
+ * @param screen_h スクリーン高さ (px)。
+ * @param out_px 射影結果のスクリーン座標 (左上原点)。
+ * @return カメラ前方で射影できたら true。
+ */
+inline bool WorldToScreen(const FCamera& cam, FVec3 world,
+                          f32 screen_w, f32 screen_h, FVec2& out_px) noexcept {
+    return WorldToScreen(cam.ViewProjection(), world, screen_w, screen_h, out_px);
+}
+
+/**
+ * スクリーンピクセル座標を通すワールドレイを返す (逆射影、左上原点・Y 下向き)。
+ *
+ * @details
+ * inverse(view*proj) で NDC near (z=0) / far (z=1) を逆射影し、その 2 点を結ぶレイを作る。
+ * 同じ view_proj から作る WorldToScreen と数学的に厳密一致する (往復で自己検証可能)。
+ * direction は正規化済み。origin は near 平面上の点。
+ * @param view_proj view × projection 行列。
+ * @param px スクリーン X (左上原点)。
+ * @param py スクリーン Y (左上原点)。
+ * @param screen_w スクリーン幅 (px)。
+ * @param screen_h スクリーン高さ (px)。
+ * @return ワールド空間のピックレイ (origin=near 平面点, direction=正規化)。
+ */
+inline Ray3 ScreenPointToRay(const FMat4& view_proj, f32 px, f32 py,
+                             f32 screen_w, f32 screen_h) noexcept {
+    const FMat4 inv = Inverse(view_proj);
+    const f32 ndc_x = 2.0f * px / screen_w - 1.0f;
+    const f32 ndc_y = 1.0f - 2.0f * py / screen_h;   // screen down → NDC up
+    // near (z=0) と far (z=1) を逆射影 (w 除算で透視を戻す)
+    const FVec4 cn = Transform(FVec4{ ndc_x, ndc_y, 0.0f, 1.0f }, inv);
+    const FVec4 cf = Transform(FVec4{ ndc_x, ndc_y, 1.0f, 1.0f }, inv);
+    const FVec3 pn{ cn.x / cn.w, cn.y / cn.w, cn.z / cn.w };
+    const FVec3 pf{ cf.x / cf.w, cf.y / cf.w, cf.z / cf.w };
+    FVec3 d{ pf.x - pn.x, pf.y - pn.y, pf.z - pn.z };
+    const f32 len = Sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+    if (len > 1e-8f) d = FVec3{ d.x / len, d.y / len, d.z / len };
+    return Ray3{ pn, d };
+}
+
+/**
+ * スクリーンピクセル座標を通すワールドレイを返す (FCamera 版)。
+ *
+ * @param cam ビュー/プロジェクションを持つカメラ。
+ * @param px スクリーン X (左上原点)。
+ * @param py スクリーン Y (左上原点)。
+ * @param screen_w スクリーン幅 (px)。
+ * @param screen_h スクリーン高さ (px)。
+ * @return ワールド空間のピックレイ。
+ */
+inline Ray3 ScreenPointToRay(const FCamera& cam, f32 px, f32 py,
+                             f32 screen_w, f32 screen_h) noexcept {
+    return ScreenPointToRay(cam.ViewProjection(), px, py, screen_w, screen_h);
+}
+
+} // namespace acs
+
 // ===================== math/Cpu.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
@@ -68660,6 +75805,230 @@ public:
      * メモリ使用状況をコンソールへテキスト表として出力する (CI ログ/ターミナル用)。
      */
     static void DumpToStdOut() noexcept;
+};
+
+} // namespace acs
+
+// ===================== memory/ObjectPool.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// ACS Memory — TObjectPool<T> / FObjectHandle / TPoolRef<T>
+//   世代付きスロットマッププール (generational slot map)。
+// -----------------------------------------------------------------------------
+// 「GC の代替となる、速いオブジェクト寿命管理」。UE の UObject GC のような mark-sweep
+// ではなく、ハンドル + プール方式で:
+//   ・Create / Destroy が O(1) (フリーリスト再利用)
+//   ・GC のような «ポーズ» が一切無い (決定的)
+//   ・オブジェクトのアドレスが安定 (チャンク格納。TArray 再確保で動かない)
+//   ・解放後の参照は «世代カウンタ» で安全に無効化 (dangling を検出して nullptr)
+//   ・生存オブジェクトを密な配列で反復 (キャッシュ効率)
+//
+// 例:
+//   TObjectPool<FEnemy> pool;
+//   FObjectHandle h = pool.Create(/*ctor args*/);
+//   if (FEnemy* e = pool.Get(h)) e->Update(dt);   // 生きていれば取得
+//   pool.Destroy(h);                              // 解放 → 以後 Get(h) は nullptr
+//   pool.ForEach([](FEnemy& e, FObjectHandle){ e.Tick(); });
+//
+// ACS_CLASS で定義したユーザー型もそのまま T に使える (リフレクションとは独立)。
+// =============================================================================
+
+
+namespace acs {
+
+/**
+ * プール内オブジェクトへの世代付きハンドル。
+ *
+ * @details index = スロット番号、gen = そのスロットの世代。スロットが解放/再利用されると
+ * 世代が進み、古い (gen 不一致) ハンドルは無効と判定される (use-after-free を安全に検出)。
+ * 8 バイトで値渡し可能。
+ */
+struct FObjectHandle {
+    static constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
+
+    u32 index = kInvalidIndex;   /**< スロット番号 (未設定は kInvalidIndex)。 */
+    u32 gen   = 0;               /**< スロットの世代 (確保/解放で進む)。 */
+
+    /** 何らかのスロットを指していれば true (生存判定ではない)。 */
+    bool IsSet() const noexcept { return index != kInvalidIndex; }
+    bool operator==(const FObjectHandle& o) const noexcept { return index == o.index && gen == o.gen; }
+    bool operator!=(const FObjectHandle& o) const noexcept { return !(*this == o); }
+};
+
+/**
+ * 世代付きスロットマッププール。任意の T を O(1) で確保/解放し、ハンドルで安全に参照する。
+ *
+ * @tparam T 格納するオブジェクト型 (FObject 継承や reflection は不要。任意の型)。
+ */
+template<class T>
+class TObjectPool {
+public:
+    using Handle = FObjectHandle;
+
+    /** 1 チャンクのスロット数 (チャンク単位で確保 → アドレス安定)。 */
+    static constexpr u32 kChunkSize = 256u;
+
+    /** 確保元アロケータを指定して空のプールを作る。 */
+    explicit TObjectPool(FAllocator& alloc = DefaultAllocator()) noexcept : m_Alloc(&alloc) {}
+
+    /** 生存オブジェクトを破棄し、チャンクを解放する。 */
+    ~TObjectPool() noexcept { Clear(); FreeChunks(); }
+
+    TObjectPool(const TObjectPool&) = delete;
+    TObjectPool& operator=(const TObjectPool&) = delete;
+
+    /**
+     * オブジェクトを 1 つ構築してハンドルを返す。
+     *
+     * @details フリーリストに空きがあれば再利用、無ければ新スロットを足す (チャンクは必要時のみ確保)。
+     * @param args T のコンストラクタへ転送する引数。
+     * @return 構築したオブジェクトの世代付きハンドル。
+     */
+    template<class... Args>
+    Handle Create(Args&&... args) noexcept {
+        u32 slot;
+        if (m_Free.Size() > 0) {
+            slot = m_Free[m_Free.Size() - 1];
+            m_Free.PopBack();
+        } else {
+            slot = static_cast<u32>(m_SlotCount);
+            EnsureChunkFor(slot);
+            ++m_SlotCount;
+        }
+        Slot& s = SlotRef(slot);
+        s.alive   = true;
+        s.liveIdx = static_cast<u32>(m_Live.Size());
+        m_Live.PushBack(slot);
+        ::new (static_cast<void*>(s.storage)) T(Forward<Args>(args)...);
+        return Handle{ slot, s.gen };
+    }
+
+    /**
+     * ハンドルの指すオブジェクトを破棄する (既に死んでいれば何もしない)。
+     *
+     * @details デストラクタを呼び、スロットの世代を進めて (古いハンドルを無効化し)、スロットを
+     * フリーリストへ返す。密な生存リストからは swap-remove で O(1) に外す。
+     * @param h 破棄するオブジェクトのハンドル。
+     * @return 破棄したら true、無効ハンドルなら false。
+     */
+    bool Destroy(Handle h) noexcept {
+        Slot* s = Resolve(h);
+        if (s == nullptr) return false;
+        reinterpret_cast<T*>(s->storage)->~T();
+        s->alive = false;
+        ++s->gen;                                   // 世代を進める → 既存ハンドルは無効に
+        const u32 last = m_Live[m_Live.Size() - 1]; // 密な生存リストから swap-remove
+        m_Live[s->liveIdx]      = last;
+        SlotRef(last).liveIdx   = s->liveIdx;
+        m_Live.PopBack();
+        m_Free.PushBack(h.index);
+        return true;
+    }
+
+    /** ハンドルが今も生きていれば対象ポインタを、死んでいれば nullptr を返す。 */
+    T* Get(Handle h) noexcept {
+        Slot* s = Resolve(h);
+        return (s != nullptr) ? reinterpret_cast<T*>(s->storage) : nullptr;
+    }
+    const T* Get(Handle h) const noexcept {
+        const Slot* s = Resolve(h);
+        return (s != nullptr) ? reinterpret_cast<const T*>(s->storage) : nullptr;
+    }
+
+    /** ハンドルが生存しているか。 */
+    bool IsAlive(Handle h) const noexcept { return Resolve(h) != nullptr; }
+
+    /** 生存オブジェクト数。 */
+    u32 Count() const noexcept { return static_cast<u32>(m_Live.Size()); }
+
+    /**
+     * 生存オブジェクトを密に反復する (キャッシュ効率の良い順)。fn(T&, Handle)。
+     *
+     * @details 反復中に Create/Destroy しないこと (生存リストを変更するため)。
+     */
+    template<class Fn>
+    void ForEach(Fn&& fn) noexcept {
+        for (usize i = 0; i < m_Live.Size(); ++i) {
+            const u32 slot = m_Live[i];
+            Slot& s = SlotRef(slot);
+            fn(*reinterpret_cast<T*>(s.storage), Handle{ slot, s.gen });
+        }
+    }
+
+    /** 全生存オブジェクトを破棄する (チャンクは保持。再利用可能)。 */
+    void Clear() noexcept {
+        for (usize i = 0; i < m_Live.Size(); ++i) {
+            const u32 slot = m_Live[i];
+            Slot& s = SlotRef(slot);
+            reinterpret_cast<T*>(s.storage)->~T();
+            s.alive = false;
+            ++s.gen;
+            m_Free.PushBack(slot);
+        }
+        m_Live.Clear();
+    }
+
+private:
+    struct Slot {
+        u32  gen     = 0;
+        u32  liveIdx = 0;
+        bool alive   = false;
+        alignas(T) unsigned char storage[sizeof(T)];
+    };
+    struct Chunk { Slot slots[kChunkSize]; };
+
+    void EnsureChunkFor(u32 slot) noexcept {
+        const u32 chunk = slot / kChunkSize;
+        while (static_cast<u32>(m_Chunks.Size()) <= chunk) {
+            Chunk* c = New<Chunk>(*m_Alloc);   // チャンクはアドレス固定 (移動しない)
+            m_Chunks.PushBack(c);
+        }
+    }
+    Slot&       SlotRef(u32 slot)       noexcept { return m_Chunks[slot / kChunkSize]->slots[slot % kChunkSize]; }
+    const Slot& SlotRef(u32 slot) const noexcept { return m_Chunks[slot / kChunkSize]->slots[slot % kChunkSize]; }
+
+    Slot* Resolve(Handle h) noexcept {
+        if (h.index >= m_SlotCount) return nullptr;
+        Slot& s = SlotRef(h.index);
+        return (s.alive && s.gen == h.gen) ? &s : nullptr;
+    }
+    const Slot* Resolve(Handle h) const noexcept {
+        if (h.index >= m_SlotCount) return nullptr;
+        const Slot& s = SlotRef(h.index);
+        return (s.alive && s.gen == h.gen) ? &s : nullptr;
+    }
+    void FreeChunks() noexcept {
+        for (usize i = 0; i < m_Chunks.Size(); ++i) Delete(*m_Alloc, m_Chunks[i]);
+        m_Chunks.Clear();
+    }
+
+    FAllocator*    m_Alloc;
+    TArray<Chunk*> m_Chunks;     /**< チャンク (各 kChunkSize スロット)。ポインタは固定。 */
+    TArray<u32>    m_Free;       /**< 再利用可能なスロット番号。 */
+    TArray<u32>    m_Live;       /**< 生存スロット番号の密な配列 (反復用)。 */
+    usize          m_SlotCount = 0;   /**< これまでに確保したスロット総数。 */
+};
+
+/**
+ * プールとハンドルを束ねた「安全な弱参照」ポインタ。アクセスごとにハンドルを解決する
+ * (対象が破棄されていれば nullptr)。GC の所有グラフ無しで dangling を防ぐ。
+ *
+ * @tparam T 参照先の型。
+ */
+template<class T>
+struct TPoolRef {
+    TObjectPool<T>* pool   = nullptr;
+    FObjectHandle   handle {};
+
+    TPoolRef() noexcept = default;
+    TPoolRef(TObjectPool<T>& p, FObjectHandle h) noexcept : pool(&p), handle(h) {}
+
+    /** 生きていれば対象ポインタ、死んでいれば nullptr。 */
+    T*   Get()        const noexcept { return pool ? pool->Get(handle) : nullptr; }
+    T*   operator->() const noexcept { return Get(); }
+    T&   operator*()  const noexcept { return *Get(); }
+    bool IsValid()    const noexcept { return Get() != nullptr; }
+    explicit operator bool() const noexcept { return IsValid(); }
 };
 
 } // namespace acs
@@ -74139,6 +81508,87 @@ public:
                                     const AtmosphereParams& params) noexcept;
 };
 
+/**
+ * GPU 物理大気 (WickedEngine / Hillaire 2020 流の GPU compute パイプライン)。
+ *
+ * @details
+ * Transmittance LUT (256x64) を compute で焼き、equirect bake compute がそれを使って
+ * Rayleigh+Mie+ozone の単散乱 + 等方多重散乱を per-direction で評価して equirect texture
+ * (RGBA32F) に書く。ReadTexture で CPU へ読み戻し、ImageBasedLighting::LoadEquirectHdrFromMemory
+ * に通せば既存の env cubemap → irradiance → prefilter の IBL chain と背景描画がそのまま動く。
+ * CPU 版 FAtmosphere::BakeEquirect の置き換え (GPU で高速 + ozone/multiscatter で物理的に正しい空)。
+ * 要 Phase 0 compute コア + DiligentDevice::ReadTexture。Diligent backend 専用。
+ */
+class FSkyAtmosphere {
+public:
+    /** compute パイプライン (transmittance / equirect bake) と Transmittance LUT・CB を生成。 */
+    TResult<void> Init(IRhiDevice& device) noexcept;
+
+    /** 初期化済みか。 */
+    bool Ready() const noexcept { return m_Ready; }
+
+    /**
+     * GPU で大気 equirect を焼き CPU の RGBA float 配列へ読み戻す (LoadEquirectHdrFromMemory 互換)。
+     *
+     * @param device RHI デバイス。
+     * @param cl コマンドリスト。
+     * @param params 太陽方向・強度。
+     * @param width  equirect 幅。
+     * @param height equirect 高さ。
+     * @param out    出力 (width*height*4 個の f32、move せず resize して埋める)。
+     * @return 成功で true (失敗時 out は不定、呼び出し側で CPU fallback)。
+     */
+    bool BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
+                      const AtmosphereParams& params,
+                      u32 width, u32 height, TArray<f32>& out) noexcept;
+
+    /**
+     * Aerial perspective camera-volume LUT (32^3 froxel) を焼いて返す (WickedEngine 流)。
+     *
+     * @details
+     * 各 froxel = camera→その距離までの大気 in-scatter (.rgb) と opacity (.a=1-平均透過率)。
+     * PBR で screen uv + 深度→スライスで trilinear サンプルし col = col*(1-ap.a)+ap.rgb で適用。
+     * 3D LUT を物理積分するため滑らか (cubemap サンプルのような «斜めの段» が出ない)。
+     * @param inv_view_proj 逆 view-projection (froxel の world ray 復元用)。
+     * @param cam_pos カメラ world position (scene 単位)。
+     * @param sun_dir 太陽方角 (+Y up)。
+     * @param sun_intensity 太陽ピーク輝度。
+     * @param max_dist_scene volume がカバーする最大距離 (scene 単位)。
+     * @param scene_to_km scene 単位 → 大気 km の換算 (見た目調整。小さいシーンで霞を可視化)。
+     * @param cam_alt_km カメラの大気高度 (km、地表 ≈ 0)。
+     * @return AP volume (失敗時 nullptr、非所有)。
+     */
+    IRhiTexture* BuildAerialPerspective(IRhiDevice& device, IRhiCommandList& cl,
+                                        const FMat4& inv_view_proj, FVec3 cam_pos,
+                                        FVec3 sun_dir, FVec3 sun_intensity,
+                                        f32 max_dist_scene, f32 scene_to_km,
+                                        f32 cam_alt_km) noexcept;
+
+    /** 直近に焼いた AP volume (BuildAerialPerspective 後に有効、非所有)。 */
+    IRhiTexture* ApVolume() const noexcept { return m_ApVol.Get(); }
+
+    /** 全 GPU リソースを解放 (acs_editor_destroy から呼ぶ。UAF 防止)。 */
+    void Shutdown() noexcept;
+
+private:
+    bool                     m_Ready = false;
+    TUniquePtr<IRhiShader>   m_TransCs;
+    TUniquePtr<IRhiShader>   m_BakeCs;
+    TUniquePtr<IRhiPipeline> m_TransPipe;
+    TUniquePtr<IRhiPipeline> m_BakePipe;
+    TUniquePtr<IRhiTexture>  m_TransLut;    // 256x64 RGBA16F UAV/SRV
+    TUniquePtr<IRhiShader>   m_MultiCs;     // 多重散乱 LUT CS (WE multiScatteredLuminanceLut)
+    TUniquePtr<IRhiPipeline> m_MultiPipe;
+    TUniquePtr<IRhiTexture>  m_MultiLut;    // 32x32 RGBA16F UAV/SRV (Fms)
+    TUniquePtr<IRhiTexture>  m_Equirect;    // width x height RGBA32F UAV (readback source)
+    TUniquePtr<IRhiBuffer>   m_Cb;          // sun dir + intensity
+    TUniquePtr<IRhiShader>   m_ApCs;        // aerial perspective froxel CS
+    TUniquePtr<IRhiPipeline> m_ApPipe;
+    TUniquePtr<IRhiTexture>  m_ApVol;       // 32^3 RGBA16F UAV/SRV (camera-volume AP LUT)
+    TUniquePtr<IRhiBuffer>   m_ApCb;        // AP cbuffer (invVP/cam/sun/params)
+    u32                      m_EqW = 0, m_EqH = 0;
+};
+
 } // namespace acs
 
 // ===================== render/Blit.h =====================
@@ -74464,6 +81914,83 @@ private:
 
     /** 頂点バッファに収まる頂点数の上限 (max_lines * 2)。 */
     u32                      m_MaxVerts = 0;
+};
+
+} // namespace acs
+
+// ===================== render/Fxaa.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// FXAA (Fast Approximate Anti-Aliasing) フルスクリーンパス
+//
+// 用途: ジオメトリ AA (MSAA) を持たないパスの後段で、輝度ベースのエッジ平滑化を
+//       1 パスで掛ける。2D スプライト/ポリゴン描画 (エディタビューポート等) の
+//       ジャギー低減が主目的。
+//
+// 使い方:
+//   FFxaa fxaa;
+//   fxaa.Init(*device, backbuffer_format);             // 1 度だけ
+//   // フレーム中: シーンをオフスクリーン RT に描いた後、出力先 (backbuffer 等) を
+//   // bind した状態で:
+//   fxaa.Apply(*cl, *scene_rt);                        // FXAA 解決しつつ全画面描画
+
+
+namespace acs {
+
+/**
+ * FXAA をフルスクリーン三角形 1 パスで掛けるポストエフェクト。
+ *
+ * @details
+ * FXAA 3.11 の簡易品質版。中心+対角 4 近傍の輝度からエッジ方向を推定し、
+ * エッジに沿って 2/4 タップのブレンドを行う。低コントラスト画素は早期 return で
+ * 素通しするため、ベタ塗り領域やテキストのにじみは最小限。入力サイズは
+ * GetDimensions で取得するので cbuffer 不要。
+ */
+class FFxaa {
+public:
+    /** 空状態で構築する (GPU リソースは Init で確保)。 */
+    FFxaa() noexcept = default;
+
+    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
+    ~FFxaa() noexcept = default;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    FFxaa(const FFxaa&)            = delete;
+
+    /** コピー代入も禁止。 */
+    FFxaa& operator=(const FFxaa&) = delete;
+
+    /**
+     * シェーダとパイプラインを生成して初期化する。
+     *
+     * @param device シェーダ・パイプライン生成に使う RHI デバイス。
+     * @param rt_format 出力先 RT のフォーマット (PSO に焼き込む)。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device, EFormat rt_format) noexcept;
+
+    /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
+    void Shutdown() noexcept;
+
+    /**
+     * 現在 bind 中のターゲットへ src を FXAA 解決しつつ全画面描画する。
+     *
+     * @details
+     * FBlit::Copy と違い出力 RT の bind は行わない。呼ぶ前に BeginRenderToSwapchain
+     * 等で出力先を bind し、viewport を設定しておくこと (全 pixel を上書きする)。
+     * @param cmd コマンドを積むコマンドリスト。
+     * @param src FXAA を掛けるシーンテクスチャ (SRV 状態であること)。
+     */
+    void Apply(IRhiCommandList& cmd, IRhiTexture& src) noexcept;
+
+private:
+    /** フルスクリーン三角形の頂点シェーダ。 */
+    TUniquePtr<IRhiShader>   m_Vs;
+
+    /** FXAA ピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_Ps;
+
+    /** FXAA 描画のパイプライン。 */
+    TUniquePtr<IRhiPipeline> m_Pipeline;
 };
 
 } // namespace acs
@@ -76281,7 +83808,8 @@ public:
      */
     TResult<void> Init(IRhiDevice& device,
                       EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
-                      EFormat depth_format = EFormat::D32_Float) noexcept;
+                      EFormat depth_format = EFormat::D32_Float,
+                      ECullMode cull_mode  = ECullMode::Back) noexcept;
 
     /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
     void Shutdown() noexcept;
@@ -76405,6 +83933,14 @@ public:
      * @param intensity 0=OFF、1=通常。
      */
     void SetSsr(IRhiTexture* ssr_tex, f32 intensity) noexcept;
+
+    /**
+     * Aerial perspective camera-volume LUT を設定する (WickedEngine 流の大気の距離霞)。
+     *
+     * @param ap_vol AP froxel volume (FSkyAtmosphere::BuildAerialPerspective の出力)。nullptr で無効。
+     * @param max_dist volume がカバーする最大距離 (scene 単位、深度→スライス逆変換に使う)。
+     */
+    void SetAerialPerspective(IRhiTexture* ap_vol, f32 max_dist) noexcept;
 
     /**
      * Lightmap (baked static GI) を mesh の uv で sample する設定をする。
@@ -76598,7 +84134,7 @@ public:
      *
      * @return object CB (b1、model・material 設定)。
      */
-    IRhiBuffer*   PerObjectCB() const noexcept { return m_ObjectCb.Get(); }
+    IRhiBuffer*   PerObjectCB() const noexcept { return m_ObjectCbs[m_ObjRingIdx].Get(); }
 
     /**
      * albedo fallback の 1x1 白テクスチャを返す。
@@ -76644,8 +84180,14 @@ private:
     /** per-frame 定数バッファ (b0)。 */
     TUniquePtr<IRhiBuffer>   m_FrameCb;
 
-    /** per-object 定数バッファ (b1)。 */
-    TUniquePtr<IRhiBuffer>   m_ObjectCb;
+    /** per-object 定数バッファ (b1) のリング。
+     *  単一の frame-cycled CB だと «フレーム内の複数 SetObject» が同一スロットを上書きし、
+     *  実行時に全 DrawIndexed が «最後の値» を読む (= 全メッシュが最後のノードの model/material に
+     *  なる)。per-object に別バッファを巡回することで各 draw が自分の値を読む。SetLights で
+     *  フレーム頭にリセット、SetObject ごとに次へ進める。 */
+    static constexpr u32     kObjRing = 256;
+    TUniquePtr<IRhiBuffer>   m_ObjectCbs[kObjRing];
+    u32                      m_ObjRingIdx = 0;
 
     /** albedo fallback の 1x1 白テクスチャ。 */
     TUniquePtr<IRhiTexture>  m_White;
@@ -76765,6 +84307,15 @@ private:
 
     /** SSR 無効時に bind する fallback (1x1 RGBA8 黒、hit mask 0)。 */
     TUniquePtr<IRhiTexture> m_SsrFb;
+
+    /** Aerial perspective camera-volume LUT (非所有、SetAerialPerspective で差し替え)。 */
+    IRhiTexture* m_ApVol = nullptr;
+
+    /** AP パラメータ (x=enabled、y=max_dist scene)。 */
+    FVec4 m_ApParams = FVec4{0, 0, 0, 0};
+
+    /** AP 無効時に bind する fallback (1x1x1 RGBA16F、in-scatter 0 / opacity 0)。 */
+    TUniquePtr<IRhiTexture> m_ApFb;
 
     /** lightmap テクスチャ (非所有、SetLightmap で差し替え)。 */
     IRhiTexture* m_LightmapTex       = nullptr;
@@ -77076,12 +84627,13 @@ public:
 
 private:
     /**
-     * Bloom mip chain の段数 (1/2 から 1/32 までの 5 段)。
+     * Bloom mip chain の段数 (1/2 から 1/128 までの 7 段)。
      *
-     * @details Downsample は Jimenez 13-tap。6 段化すると upsample additive pass が 1 回
-     * 増えて bloom 強度が ~25% lift し halo が過剰になるため 5 段にしてある。
+     * @details Downsample は Jimenez 13-tap。段数を増やすと «より低周波 (広い)» の soft glow まで
+     * 届き、UE5 風の広く柔らかい bloom になる。段数増による強度 lift は progressive upsample radius
+     * (深い mip ほど tent を広げる) と bloom_intensity 側で吸収する。各 mip は 1px までクランプ確保。
      */
-    static constexpr u32 kBloomMips = 5;
+    static constexpr u32 kBloomMips = 7;   // progressive accumulation (no-clear upsample) が効けば多段ほど広く滑らか
 
     /**
      * HDR RT と Bloom mip chain を生成する。
@@ -77125,6 +84677,18 @@ private:
      * @param radius upsample 時の半径スケール。
      */
     void Pass_Upsample (IRhiCommandList& cmd, u32 to_mip, f32 radius) noexcept;
+
+    /**
+     * Bloom separable Gaussian blur: 1 つの mip を H or V 方向に 1 次元ガウスぼかしする。
+     * H パス (mip→tmp) と V パス (tmp→mip) を続けて呼ぶと «円形» の 2D ガウスになる。
+     * box mip チェーンと違い点光源が四角くならない (DirectXTK 風)。
+     *
+     * @param cmd コマンドリスト。
+     * @param mip 対象 mip 段 (m_BloomMips[mip] ↔ m_BloomTmp[mip])。
+     * @param horizontal true=水平パス (mip→tmp)、false=垂直パス (tmp→mip)。
+     * @param amount ガウスの広がり (texel 単位の step スケール)。
+     */
+    void Pass_GaussianBlur(IRhiCommandList& cmd, u32 mip, bool horizontal, f32 amount) noexcept;
 
     /**
      * TAA resolve パス: 現フレームと history を neighborhood-clamp blend する。
@@ -77196,6 +84760,9 @@ private:
     /** Bloom mip chain (各段は HDR、解像度は半分ずつ)。 */
     TUniquePtr<IRhiTexture> m_BloomMips[kBloomMips];
 
+    /** Bloom separable Gaussian の ping-pong 用テンポラリ (各 mip と同サイズ)。 */
+    TUniquePtr<IRhiTexture> m_BloomTmp[kBloomMips];
+
     /** 共通の全画面三角形 VS。 */
     TUniquePtr<IRhiShader>   m_VsFullscreen;
 
@@ -77208,6 +84775,9 @@ private:
     /** Bloom upsample パスのピクセルシェーダ。 */
     TUniquePtr<IRhiShader>   m_PsUpsample;
 
+    /** Bloom separable Gaussian blur パスのピクセルシェーダ (DirectXTK 風、H/V 2 パスで円形)。 */
+    TUniquePtr<IRhiShader>   m_PsGaussian;
+
     /** Tonemap パスのピクセルシェーダ。 */
     TUniquePtr<IRhiShader>   m_PsTonemap;
 
@@ -77219,6 +84789,9 @@ private:
 
     /** Bloom upsample パイプライン (bloom_mips[i+1] + bloom_mips[i] → bloom_mips[i])。 */
     TUniquePtr<IRhiPipeline> m_PipeUpsample;
+
+    /** Bloom Gaussian blur パイプライン (separable、Opaque)。 */
+    TUniquePtr<IRhiPipeline> m_PipeGaussian;
 
     /** Tonemap パイプライン (HDR + bloom_mips[0] → backbuffer)。 */
     TUniquePtr<IRhiPipeline> m_PipeTonemap;
@@ -78277,6 +85850,313 @@ private:
     FVec3 m_CloudColor   = FVec3{1.0f, 1.0f, 1.0f};
 };
 
+/**
+ * GPU レイマーチ volumetric clouds (WickedEngine / Nubis 流)。
+ *
+ * @details
+ * compute シェーダで全画面の視線ごとに雲スラブをレイマーチし、3D 手続きノイズ (Worley FBM) の
+ * 密度を coverage/height-gradient で remap、太陽方向へ light-march して Beer 透過率を求め、
+ * dual-lobe Henyey-Greenstein 位相 + powder 項でエネルギー保存散乱を積分する。出力 (premult 散乱色
+ * + alpha) を hdrRt の «空» の上に合成する。FSky の 2D-FBM 雲より遥かにディテール/立体感が高い。
+ * 要 Phase 0 compute コア (RWTexture2D UAV)。Diligent backend 専用。half-res で描き composite で upscale。
+ */
+class FVolumetricClouds {
+public:
+    /** compute (雲レイマーチ) + composite (全画面 alpha blend) パイプラインを生成。 */
+    TResult<void> Init(IRhiDevice& device, EFormat hdr_format) noexcept;
+
+    /** 初期化済みか。 */
+    bool Ready() const noexcept { return m_Ready; }
+
+    /** 出力解像度 (半分) を確保/再確保。scW/scH は full-res。 */
+    bool EnsureSize(IRhiDevice& device, u32 scW, u32 scH) noexcept;
+
+    /**
+     * 雲を compute でレイマーチして内部 UAV テクスチャへ書く (render pass の «外» で呼ぶ)。
+     */
+    void RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos,
+                       FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color,
+                       f32 coverage, f32 density, f32 wind, f32 time) noexcept;
+
+    /** 雲 (premult 散乱+alpha) を現在の RT へ全画面 alpha blend で合成する (render pass の «中» で呼ぶ)。 */
+    void Composite(IRhiCommandList& cl, u32 scW, u32 scH) noexcept;
+
+    /** 全 GPU リソースを解放 (acs_editor_destroy から呼ぶ。UAF 防止)。 */
+    void Shutdown() noexcept;
+
+private:
+    bool                     m_Ready = false;
+    bool                     m_NoiseBaked = false;       // Phase 4.5: shape noise を焼いたか
+    EFormat                  m_HdrFormat = EFormat::R16G16B16A16_Float;
+    TUniquePtr<IRhiShader>   m_NoiseCs;                  // Phase 4.5: Perlin-Worley 生成 compute
+    TUniquePtr<IRhiPipeline> m_NoisePipe;                // compute (noise gen)
+    TUniquePtr<IRhiTexture>  m_ShapeTex;                 // 128^3 RGBA16F Perlin-Worley (UAV gen + SRV sample)
+    TUniquePtr<IRhiShader>   m_CloudCs;
+    TUniquePtr<IRhiPipeline> m_CloudPipe;     // compute
+    TUniquePtr<IRhiShader>   m_CompVs, m_CompPs;
+    TUniquePtr<IRhiPipeline> m_CompPipe;      // graphics (alpha blend)
+    TUniquePtr<IRhiBuffer>   m_Cb;
+    TUniquePtr<IRhiTexture>  m_CloudTex;       // half-res RGBA16F UAV/SRV
+    u32                      m_W = 0, m_H = 0; // half-res dims
+};
+
+} // namespace acs
+
+// ===================== render/SpriteSortList.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// FSpriteSortList — FSpriteBatch 用の明示的 depth/layer 順序レイヤ
+//
+// 動機:
+//   FSpriteBatch は immediate-mode の「提出順」バッチャで、同テクスチャの連続描画を
+//   自動バッチし、SetView / SetBlendMode / SetClipRect / SetStencilMode 等の状態切替は
+//   呼び出し順に依存する。ここに「深度ソート」を後付けすると texture-run バッチや
+//   状態切替の順序が壊れる。そこで **opt-in の上位レイヤ** として本クラスを用意する。
+//
+//   使い方: 描画コマンドを layer/depth 付きで Submit* に貯め、Sort() で安定ソートし、
+//   Replay(batch) で sorted 順に FSpriteBatch へ流す。FSpriteBatch 自体は無改変。
+//
+// ソート規約 (エンジンの FNode2D::SortLayer と一致):
+//   第1キー layer 昇順 (小さい層 = 奥 = 先に描画)、
+//   第2キー depth 昇順 (小さい depth = 奥 = 先に描画)、
+//   同一キーは **挿入順を保持** (安定)。seq を総順序に含めるので決定的。
+//
+// 使い方:
+//   FSpriteSortList list;
+//   list.SubmitRect(0,0, w,32, bg,   /*layer*/0, /*depth*/0);   // 背景
+//   list.Submit(tex, px,py, 64,64,   /*layer*/1, /*depth*/py);  // キャラ (y で前後)
+//   list.Submit(hud, 8,8,  120,32,   /*layer*/10,/*depth*/0);   // HUD 前面
+//   list.Sort();
+//   sb.Begin(*cl, w, h);
+//   list.Replay(sb);                 // layer/depth 昇順で描画
+//   sb.End();
+
+
+namespace acs {
+
+class IRhiTexture;   // 前方宣言 (コマンドはポインタのみ保持)
+class FSpriteBatch;  // Replay の対象 (定義は .cpp 側)
+
+/**
+ * ソートリストに積む 1 コマンドの種別。
+ */
+enum class ESpriteCmdKind : u8 {
+    /** テクスチャ付きスプライト (UV 部分 + tint)。 */
+    Textured,
+
+    /** 単色矩形 (テクスチャ無し)。 */
+    Rect,
+};
+
+/**
+ * ソート可能な 1 描画コマンド (テクスチャ付きスプライト or 単色矩形)。
+ *
+ * @details layer/depth がソートキー、seq は同キー時の安定 tie-break (挿入順)。
+ */
+struct FSpriteCmd {
+    /** コマンド種別。 */
+    ESpriteCmdKind kind  = ESpriteCmdKind::Rect;
+
+    /** 第1ソートキー (昇順: 小さい層が奥)。 */
+    i32   layer = 0;
+
+    /** 第2ソートキー (昇順: 小さい depth が奥)。 */
+    f32   depth = 0.0f;
+
+    /** 左上 X (ピクセル)。 */
+    f32   x = 0.0f;
+
+    /** 左上 Y (ピクセル)。 */
+    f32   y = 0.0f;
+
+    /** 幅 (ピクセル)。 */
+    f32   w = 0.0f;
+
+    /** 高さ (ピクセル)。 */
+    f32   h = 0.0f;
+
+    /** サンプル領域の左 U (Textured のみ)。 */
+    f32   u0 = 0.0f;
+
+    /** サンプル領域の上 V (Textured のみ)。 */
+    f32   v0 = 0.0f;
+
+    /** サンプル領域の右 U (Textured のみ)。 */
+    f32   u1 = 1.0f;
+
+    /** サンプル領域の下 V (Textured のみ)。 */
+    f32   v1 = 1.0f;
+
+    /** Rect=塗り色 / Textured=乗算 tint。 */
+    FVec4 color{ 1, 1, 1, 1 };
+
+    /** 貼り付けるテクスチャ (Textured のみ、Rect は nullptr)。 */
+    IRhiTexture* tex = nullptr;
+
+    /** 安定 tie-break 用の挿入シーケンス番号。 */
+    u32   seq = 0;
+};
+
+/**
+ * FSpriteBatch 用の明示的 depth/layer 順序レイヤ (opt-in)。
+ *
+ * @details
+ * 描画コマンドを layer/depth 付きで貯め、安定ソートして FSpriteBatch に sorted 順で流す。
+ * FSpriteBatch は無改変のまま「提出順」を保つので、本クラスを使わない経路は一切変わらない。
+ * 非コピー (コマンド配列を単独所有)。
+ */
+class FSpriteSortList {
+public:
+    /** 空状態で構築する。 */
+    FSpriteSortList() noexcept = default;
+
+    /** 破棄する。 */
+    ~FSpriteSortList() noexcept = default;
+
+    /** コピー禁止。 */
+    FSpriteSortList(const FSpriteSortList&)            = delete;
+    FSpriteSortList& operator=(const FSpriteSortList&) = delete;
+
+    /**
+     * コマンドバッファを空にする (毎フレーム先頭で呼ぶ)。
+     *
+     * @details seq カウンタも 0 に戻す。
+     */
+    void Clear() noexcept {
+        m_Cmds.Clear();
+        m_Order.Clear();
+        m_Seq = 0;
+    }
+
+    /**
+     * コマンド配列の容量を予約する。
+     *
+     * @param n 予約するコマンド数。
+     */
+    void Reserve(u32 n) noexcept {
+        m_Cmds.Reserve(n);
+        m_Order.Reserve(n);
+    }
+
+    /**
+     * 積まれたコマンド数を返す。
+     *
+     * @return コマンド総数。
+     */
+    u32 Count() const noexcept { return static_cast<u32>(m_Cmds.Size()); }
+
+    /**
+     * テクスチャ全体のスプライトを積む。
+     *
+     * @param tex 描画テクスチャ。
+     * @param x 左上 X (px)。
+     * @param y 左上 Y (px)。
+     * @param w 幅 (px)。
+     * @param h 高さ (px)。
+     * @param layer ソート層 (昇順: 小=奥)。
+     * @param depth 層内 depth (昇順: 小=奥)。
+     * @param tint 乗算色 (既定は白)。
+     */
+    void Submit(IRhiTexture& tex, f32 x, f32 y, f32 w, f32 h,
+                i32 layer, f32 depth, FVec4 tint = FVec4{1, 1, 1, 1}) noexcept {
+        SubmitSub(tex, x, y, w, h, 0, 0, 1, 1, layer, depth, tint);
+    }
+
+    /**
+     * テクスチャの一部 (UV 0..1) のスプライトを積む。
+     *
+     * @param tex 描画テクスチャ。
+     * @param x 左上 X (px)。
+     * @param y 左上 Y (px)。
+     * @param w 幅 (px)。
+     * @param h 高さ (px)。
+     * @param u0 左 U。
+     * @param v0 上 V。
+     * @param u1 右 U。
+     * @param v1 下 V。
+     * @param layer ソート層 (昇順: 小=奥)。
+     * @param depth 層内 depth (昇順: 小=奥)。
+     * @param tint 乗算色 (既定は白)。
+     */
+    void SubmitSub(IRhiTexture& tex, f32 x, f32 y, f32 w, f32 h,
+                   f32 u0, f32 v0, f32 u1, f32 v1,
+                   i32 layer, f32 depth, FVec4 tint = FVec4{1, 1, 1, 1}) noexcept {
+        FSpriteCmd c;
+        c.kind  = ESpriteCmdKind::Textured;
+        c.layer = layer; c.depth = depth;
+        c.x = x; c.y = y; c.w = w; c.h = h;
+        c.u0 = u0; c.v0 = v0; c.u1 = u1; c.v1 = v1;
+        c.color = tint;
+        c.tex = &tex;
+        c.seq = m_Seq++;
+        m_Cmds.PushBack(c);
+    }
+
+    /**
+     * 単色矩形を積む。
+     *
+     * @param x 左上 X (px)。
+     * @param y 左上 Y (px)。
+     * @param w 幅 (px)。
+     * @param h 高さ (px)。
+     * @param color 塗りつぶし色。
+     * @param layer ソート層 (昇順: 小=奥)。
+     * @param depth 層内 depth (昇順: 小=奥)。
+     */
+    void SubmitRect(f32 x, f32 y, f32 w, f32 h, FVec4 color,
+                    i32 layer, f32 depth) noexcept {
+        FSpriteCmd c;
+        c.kind  = ESpriteCmdKind::Rect;
+        c.layer = layer; c.depth = depth;
+        c.x = x; c.y = y; c.w = w; c.h = h;
+        c.color = color;
+        c.tex = nullptr;
+        c.seq = m_Seq++;
+        m_Cmds.PushBack(c);
+    }
+
+    /**
+     * (layer 昇順, depth 昇順, seq 昇順) で安定ソートしてソート順を確定する。
+     *
+     * @details
+     * index 配列を安定挿入ソートする (コマンド本体は動かさない)。seq を最終キーに含めるため
+     * 同一 layer/depth は挿入順を保つ。挿入ソートなので大量コマンドでは O(n²) — ソートリストは
+     * 動的スプライトの前後関係付け用で、想定規模 (数百) では十分。静的大量描画は Scene2D 経路へ。
+     */
+    void Sort() noexcept;
+
+    /**
+     * ソート済み順で i 番目のコマンドへの const 参照を返す (検証用)。
+     *
+     * @details Sort() 前は提出順、Sort() 後はソート順。範囲外は未定義 (呼び出し側責務)。
+     * @param i ソート順インデックス。
+     * @return i 番目のコマンド。
+     */
+    const FSpriteCmd& Ordered(u32 i) const noexcept {
+        // Sort() 済み (m_Order が全コマンドを覆う) ならソート順、未ソートなら提出順。
+        return (m_Order.Size() == m_Cmds.Size()) ? m_Cmds[m_Order[i]] : m_Cmds[i];
+    }
+
+    /**
+     * ソート済み順に全コマンドを FSpriteBatch へ流す。
+     *
+     * @details
+     * Sort() 済みであることが前提 (未ソートなら提出順で流す)。Begin/End は呼び出し側で行う。
+     * Textured は DrawSub、Rect は DrawRect を呼ぶ。
+     * @param sb 描画先の (Begin 済み) スプライトバッチ。
+     */
+    void Replay(FSpriteBatch& sb) const noexcept;
+
+private:
+    /** 積まれたコマンド (提出順、ソートで動かさない)。 */
+    TArray<FSpriteCmd> m_Cmds;
+
+    /** ソート結果のインデックス順 (Sort で確定、Clear/Submit 後は Sort まで未確定)。 */
+    TArray<u32>        m_Order;
+
+    /** 次に振る挿入シーケンス番号。 */
+    u32                m_Seq = 0;
+};
+
 } // namespace acs
 
 // ===================== render/Ssao.h =====================
@@ -78806,6 +86686,100 @@ private:
 
     /** temporal フレームカウンタ (history ping-pong と jitter に使う)。 */
     u32                     m_TemporalFrame = 0;
+};
+
+} // namespace acs
+
+// ===================== render/VertexScatter.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// 頂点空間サブサーフェススキャタリング (Vertex-Space Subsurface Scattering)
+//
+// 概要:
+//   メッシュ表面の放射照度 (irradiance) を «頂点空間» (= メッシュの接続グラフ上) で拡散し、
+//   皮膚/ロウ/玉のような内部散乱の «にじみ» を作る。スクリーン空間 SSS と違い、深度不連続を
+//   越えた光漏れが無く、視点非依存。拡散はメッシュ隣接グラフ上の熱拡散 (ヤコビ反復) で行い、
+//   RGB チャンネルごとに反復回数を変えることで波長依存の散乱 (赤が最も遠くまで散る) を再現する。
+//
+// パイプライン:
+//   1. Build(mesh): 頂点を位置で溶接 (UV シーム/極の重複頂点を 1 ノードに) し、辺長の逆数を
+//      正規化した拡散演算子 (CSR) を構築する。1 メッシュにつき 1 度。
+//   2. 毎フレーム: 各頂点の Lambert 放射照度 (Σ ライト) を計算 → Scatter() で頂点空間拡散 →
+//      得られた «散乱後の放射照度» を頂点カラー等として描画に渡す (内部散乱項)。
+//
+// 設計: GPU 非依存・決定的 (ユニットテスト可)。重い前計算は Build に閉じ、Scatter は軽い反復。
+
+
+namespace acs {
+
+/**
+ * RGB チャンネル別の散乱プロファイル (反復回数で拡散半径を表す)。
+ *
+ * @details 値が大きいほど遠くまで散る。皮膚は赤 > 緑 > 青 (例 {12,5,3})。各反復は隣接平均への
+ * 緩和 (α=0.5 ヤコビ) で、半径は概ね sqrt(iterations) に比例する。0 はそのチャンネル無散乱。
+ */
+struct FScatterProfile {
+    u32 iterR = 12;   ///< 赤チャンネルの拡散反復回数。
+    u32 iterG = 5;    ///< 緑チャンネルの拡散反復回数。
+    u32 iterB = 3;    ///< 青チャンネルの拡散反復回数。
+};
+
+/**
+ * 頂点空間 SSS の拡散演算子 (メッシュ隣接グラフ + 正規化辺重み)。
+ *
+ * @details
+ * Build でメッシュから «位置溶接済み» の隣接グラフ (CSR) を構築し、Scatter で per-vertex の
+ * RGB 放射照度をグラフ上で拡散する。拡散ステップは行確率的 (各頂点の隣接重みの総和=1) な
+ * 凸結合なので無条件安定かつ大域平均を保存する (= エネルギー保存)。
+ */
+class FVertexScatter {
+public:
+    /** 空状態で構築する (Build で確保)。 */
+    FVertexScatter() noexcept = default;
+
+    /**
+     * メッシュから拡散演算子を構築する。
+     *
+     * @details 同位置の頂点 (UV シーム/極で複製されたもの) を溶接して 1 ノードに束ね、辺長の
+     * 逆数を頂点ごとに正規化した重みを持つ隣接 (CSR) を作る。孤立頂点は隣接 0 = 無散乱。
+     * @param mesh 対象メッシュ (頂点位置とインデックスを使う)。
+     * @param weld_epsilon 位置溶接のしきい値 (これ以下の距離の頂点を同一ノードに束ねる)。
+     * @return 頂点数 >= 1 かつ三角形が 1 つ以上あれば true。
+     */
+    bool Build(const FMeshAsset& mesh, f32 weld_epsilon = 1e-4f) noexcept;
+
+    /** 頂点配列・インデックス配列から直接構築する (アセット非依存の検証/汎用用)。 */
+    bool Build(const FVec3* positions, u32 vcount, const u32* indices, u32 icount,
+               f32 weld_epsilon = 1e-4f) noexcept;
+
+    /** 構築済みか (頂点数 >= 1)。 */
+    bool IsBuilt() const noexcept { return m_VertexCount > 0; }
+
+    /** 元メッシュの頂点数。 */
+    u32 VertexCount() const noexcept { return m_VertexCount; }
+
+    /**
+     * per-vertex の放射照度を頂点空間で拡散する。
+     *
+     * @details in[i] (頂点 i の RGB 放射照度) を隣接グラフ上で profile に従い拡散し out[i] へ書く。
+     * in==out (in-place) も可。RGB それぞれ独立に反復するため波長依存の «にじみ» が出る。
+     * @param in 入力放射照度配列 (要素数 = VertexCount)。
+     * @param out 出力配列 (要素数 = VertexCount。in と同一可)。
+     * @param profile RGB 別の拡散反復回数。
+     */
+    void Scatter(const FVec3* in, FVec3* out, const FScatterProfile& profile) const noexcept;
+
+private:
+    /** 1 チャンネルを iters 回拡散する (src→dst、ping-pong バッファ work を使う)。 */
+    void DiffuseChannel(const f32* src, f32* dst, f32* work, u32 iters) const noexcept;
+
+    u32          m_VertexCount = 0;   ///< 元メッシュの頂点数。
+    TArray<i32>  m_Weld;              ///< 頂点 i → 溶接ノード番号 (0..node_count-1)。
+    u32          m_NodeCount = 0;     ///< 溶接後のノード数。
+    TArray<u32>  m_Offset;            ///< CSR: ノード i の隣接は [Offset[i], Offset[i+1])。
+    TArray<u32>  m_Neighbor;          ///< CSR: 隣接ノード番号。
+    TArray<f32>  m_Weight;            ///< CSR: 対称辺重み (辺長の逆数。正規化なし)。
+    TArray<f32>  m_Degree;            ///< ノードごとの次数 D_n = Σ_e w (安定 λ の算出に使用)。
+    f32          m_Lambda = 0.0f;     ///< 拡散係数 0.5/max(D_n) (λ·D ≤ 0.5 で安定)。
 };
 
 } // namespace acs
@@ -79749,6 +87723,110 @@ struct FUiPadding {
 };
 
 /**
+ * アンカー (Unity RectTransform 風): 親矩形に対する正規化アンカー + ピクセルオフセット。
+ *
+ * @details
+ * 子の各辺を「親矩形の正規化点 (anchor) からのピクセルオフセット」で決める。
+ * これにより画面 / 親のリサイズに対して **レスポンシブ** に追従する。
+ *   child.left   = parent.x + min.x*parent.w + offset_l
+ *   child.top    = parent.y + min.y*parent.h + offset_t
+ *   child.right  = parent.x + max.x*parent.w + offset_r
+ *   child.bottom = parent.y + max.y*parent.h + offset_b
+ * min==max (点アンカー) なら固定サイズ配置、min!=max ならその軸が親に追従して伸縮する。
+ * 既定は「親全体を埋める」(min=0, max=1, offset=0)。プリセットは下の static ヘルパ参照。
+ */
+struct FUiAnchor {
+    /** アンカー最小点 (正規化 [0,1]、親矩形の左上=0 / 右下=1)。 */
+    FVec2 min{ 0.0f, 0.0f };
+
+    /** アンカー最大点 (正規化 [0,1])。min と等しいと点アンカー (固定サイズ)。 */
+    FVec2 max{ 1.0f, 1.0f };
+
+    /** 左辺オフセット (px、min.x のアンカー点から右が正)。 */
+    f32 offset_l = 0.0f;
+
+    /** 上辺オフセット (px、min.y のアンカー点から下が正)。 */
+    f32 offset_t = 0.0f;
+
+    /** 右辺オフセット (px、max.x のアンカー点から右が正、内側マージンは負)。 */
+    f32 offset_r = 0.0f;
+
+    /** 下辺オフセット (px、max.y のアンカー点から下が正、内側マージンは負)。 */
+    f32 offset_b = 0.0f;
+
+    /**
+     * 点アンカー: 親の正規化点 ap に対し、サイズ (w,h) の矩形を (ox,oy) ずらして置く。
+     *
+     * @details 矩形の左上 = アンカー点 + (ox,oy)。角・端固定 UI (HUD 等) に使う。
+     * @param ap 親矩形上の正規化アンカー点 ([0,0]=左上, [1,1]=右下, [0.5,0.5]=中央)。
+     * @param w 矩形の幅 (px)。
+     * @param h 矩形の高さ (px)。
+     * @param ox X オフセット (px、既定 0)。
+     * @param oy Y オフセット (px、既定 0)。
+     * @return 構築した FUiAnchor。
+     */
+    static FUiAnchor Point(FVec2 ap, f32 w, f32 h, f32 ox = 0.0f, f32 oy = 0.0f) noexcept {
+        FUiAnchor a;
+        a.min = ap; a.max = ap;
+        a.offset_l = ox;       a.offset_t = oy;
+        a.offset_r = ox + w;   a.offset_b = oy + h;
+        return a;
+    }
+
+    /**
+     * 親中央に固定サイズで配置する点アンカー。
+     *
+     * @param w 幅 (px)。
+     * @param h 高さ (px)。
+     * @return アンカー点 (0.5,0.5)・矩形中心が親中心に来る FUiAnchor。
+     */
+    static FUiAnchor Centered(f32 w, f32 h) noexcept {
+        FUiAnchor a;
+        a.min = { 0.5f, 0.5f }; a.max = { 0.5f, 0.5f };
+        a.offset_l = -w * 0.5f; a.offset_t = -h * 0.5f;
+        a.offset_r =  w * 0.5f; a.offset_b =  h * 0.5f;
+        return a;
+    }
+
+    /**
+     * 親全体を四辺マージン付きで埋めるストレッチアンカー。
+     *
+     * @param l 左マージン (px)。
+     * @param t 上マージン (px)。
+     * @param r 右マージン (px)。
+     * @param b 下マージン (px)。
+     * @return 親に追従して伸縮する FUiAnchor。
+     */
+    static FUiAnchor Stretch(f32 l = 0.0f, f32 t = 0.0f, f32 r = 0.0f, f32 b = 0.0f) noexcept {
+        FUiAnchor a;
+        a.min = { 0.0f, 0.0f }; a.max = { 1.0f, 1.0f };
+        a.offset_l =  l; a.offset_t =  t;
+        a.offset_r = -r; a.offset_b = -b;
+        return a;
+    }
+};
+
+/**
+ * 親矩形 + アンカーから子の絶対矩形を算出する。
+ *
+ * @details FUiAnchor の式をそのまま適用。負幅 / 負高さは 0 にクランプしない (呼び出し側責務)。
+ * @param parent 親の絶対矩形。
+ * @param a 子のアンカー設定。
+ * @return 子の絶対矩形 (left/top/width/height)。
+ */
+inline FUiRect ComputeAnchoredRect(const FUiRect& parent, const FUiAnchor& a) noexcept {
+    const f32 ax0 = parent.x + a.min.x * parent.w;
+    const f32 ay0 = parent.y + a.min.y * parent.h;
+    const f32 ax1 = parent.x + a.max.x * parent.w;
+    const f32 ay1 = parent.y + a.max.y * parent.h;
+    const f32 left   = ax0 + a.offset_l;
+    const f32 top    = ay0 + a.offset_t;
+    const f32 right  = ax1 + a.offset_r;
+    const f32 bottom = ay1 + a.offset_b;
+    return { left, top, right - left, bottom - top };
+}
+
+/**
  * retained-mode UI ツリーの基底ウィジェット。
  *
  * @details
@@ -79817,6 +87895,9 @@ public:
 
     /** 要望サイズ (0 の成分はレイアウトに任せる)。 */
     FUiRect requested;
+
+    /** アンカー設定 (AnchorPanel の子のときのみ使われる。既定は親全体を埋める)。 */
+    FUiAnchor anchor;
 
     /** ポインタが上にあるか (FUiInput が更新)。 */
     bool hovered = false;
@@ -80012,6 +88093,43 @@ public:
         for (usize i = 0; i < m_Children.Size(); ++i) {
             Widget* const c = m_Children[i].Get();
             if (c && c->visible) c->Layout(x, y, w, h);
+        }
+    }
+};
+
+/**
+ * 各子を自身の anchor (RectTransform 風) に従って配置するレスポンシブパネル。
+ *
+ * @details
+ * Container が全子に同じ矩形を渡すのに対し、AnchorPanel は子ごとの `anchor` を
+ * ComputeAnchoredRect で解決して個別配置する。パネルの rect が変わる (画面リサイズ等)
+ * と全子が追従するため、HUD やオーバーレイの解像度非依存レイアウトに使う。
+ *
+ * 使い方:
+ *   AnchorPanel hud;
+ *   auto* score = hud.Add<Label>("0");
+ *   score->anchor = FUiAnchor::Point({1,0}, 120, 32, -128, 8);  // 右上に固定サイズ
+ *   auto* bar = hud.Add<Container>();
+ *   bar->anchor = FUiAnchor::Stretch(16, 0, 16, 8);             // 下端を左右いっぱい
+ *   hud.Layout(0, 0, screen_w, screen_h);
+ */
+class AnchorPanel : public Widget {
+public:
+    /**
+     * 自身の rect を確定し、各 visible な子を anchor に従って配置する。
+     *
+     * @param x 左上 X 座標 (px)。
+     * @param y 左上 Y 座標 (px)。
+     * @param w 幅 (px)。
+     * @param h 高さ (px)。
+     */
+    void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
+        rect = { x, y, w, h };
+        for (usize i = 0; i < m_Children.Size(); ++i) {
+            Widget* const c = m_Children[i].Get();
+            if (!c || !c->visible) continue;
+            const FUiRect cr = ComputeAnchoredRect(rect, c->anchor);
+            c->Layout(cr.x, cr.y, cr.w, cr.h);
         }
     }
 };

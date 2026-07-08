@@ -259,6 +259,11 @@ public:
     /** compute dispatch を発行する (スレッドグループ数 gx*gy*gz)。 */
     virtual void Dispatch(u32 /*gx*/, u32 /*gy*/, u32 /*gz*/) noexcept {}
 
+    /** indirect compute dispatch。args バッファの byte_offset から u32x3
+     *  (ThreadGroupCountX/Y/Z) を読んで dispatch する。args は indirect_args=true
+     *  で作成したバッファ (compute が書いた ThreadGroupCount をそのまま使える)。 */
+    virtual void DispatchIndirect(class IRhiBuffer& /*args*/, u32 /*byte_offset*/ = 0) noexcept {}
+
     /** UAV テクスチャ (RWTexture) を指定 slot にバインドする。is_uav=true で作成済みが前提。 */
     virtual void BindUav(u32 /*slot*/, class IRhiTexture& /*tex*/) noexcept {}
 

@@ -490,6 +490,24 @@ void DiligentCommandList::Dispatch(u32 gx, u32 gy, u32 gz) noexcept {
     ctx->DispatchCompute(dca);
 }
 
+void DiligentCommandList::DispatchIndirect(IRhiBuffer& args, u32 byte_offset) noexcept {
+    if (!m_Device || !m_Pipeline) return;
+    auto* ctx = m_Device->Context();
+    if (!ctx) return;
+    auto& a = static_cast<DiligentBuffer&>(args);
+    if (!a.Native()) return;
+    // Dispatch と同じく TRANSITION モードで commit → UAV/SRV state を自動整合。
+    if (m_Pipeline->Srb()) {
+        ctx->CommitShaderResources(m_Pipeline->Srb(),
+                                   Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    }
+    Diligent::DispatchComputeIndirectAttribs dcia;
+    dcia.pAttribsBuffer                   = a.Native();
+    dcia.AttribsBufferStateTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+    dcia.DispatchArgsByteOffset           = static_cast<Diligent::Uint64>(byte_offset);
+    ctx->DispatchComputeIndirect(dcia);
+}
+
 void* DiligentCommandList::NativeHandle() noexcept {
     return m_Device ? m_Device->Context() : nullptr;
 }

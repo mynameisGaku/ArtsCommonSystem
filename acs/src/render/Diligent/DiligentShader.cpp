@@ -124,14 +124,19 @@ TResult<void> DiligentShader::Init(DiligentDevice& device, const FShaderDesc& de
     // m_Sampler suffix で mangle されないよう combined sampler を無効化する。graphics は従来通り。
     if (combined_samplers) {
         sd.UseCombinedTextureSamplers = true;
-        sd.CombinedSamplerSuffix      = "m_Sampler";
+        sd.CombinedSamplerSuffix      = "_sampler";
     } else {
         sd.UseCombinedTextureSamplers = false;
     }
     sci.Desc                      = sd;
 
-    dev->CreateShader(sci, &m_Shader);
+    Diligent::RefCntAutoPtr<Diligent::IDataBlob> compiler_output;
+    dev->CreateShader(sci, &m_Shader, &compiler_output);
     if (!m_Shader) {
+        if (compiler_output) {
+            const char* msg = static_cast<const char*>(compiler_output->GetDataPtr());
+            if (msg && msg[0]) ACS_LOG_ERROR("Diligent shader compiler output: %s", msg);
+        }
         ACS_LOG_ERROR("Diligent: CreateShader failed (entry=%s, name=%s)",
                       sci.EntryPoint, sd.Name);
         return ACS_ERR(Render, 142, "CreateShader failed");

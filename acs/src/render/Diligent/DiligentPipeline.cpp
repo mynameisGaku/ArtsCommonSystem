@@ -253,6 +253,12 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc
         samplers[i].Desc.MaxAnisotropy = s.max_anisotropy;
         samplers[i].Desc.MinLOD = s.min_lod;
         samplers[i].Desc.MaxLOD = s.max_lod;
+        if (s.comparison) {   // HW 比較 PCF サンプラ (シャドウ SampleCmpLevelZero 用、lit ⇔ cmp ≤ stored)
+            samplers[i].Desc.MinFilter = Diligent::FILTER_TYPE_COMPARISON_LINEAR;
+            samplers[i].Desc.MagFilter = Diligent::FILTER_TYPE_COMPARISON_LINEAR;
+            samplers[i].Desc.MipFilter = Diligent::FILTER_TYPE_COMPARISON_LINEAR;
+            samplers[i].Desc.ComparisonFunc = Diligent::COMPARISON_FUNC_LESS_EQUAL;
+        }
     }
     psoCI.PSODesc.ResourceLayout.ImmutableSamplers    = ns > 0 ? samplers : nullptr;
     psoCI.PSODesc.ResourceLayout.NumImmutableSamplers = ns;

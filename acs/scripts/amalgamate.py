@@ -115,6 +115,24 @@ if "--write" in sys.argv:
   #pragma comment(lib, "winmm.lib")
   #pragma comment(lib, "user32.lib")
   #pragma comment(lib, "gdi32.lib")
+  // ---- Diligent RHI backend (built with ACS_RENDER_DILIGENT=ON). These static
+  //      libs are shipped in dist/lib/x64/<cfg> next to acs.lib; the consumer's
+  //      library search path picks them up. Sky/Atmosphere compute pipelines and
+  //      the Diligent device factory live here.
+  #pragma comment(lib, "Diligent-GraphicsEngineD3D12-static.lib")
+  #pragma comment(lib, "Diligent-GraphicsEngineD3DBase.lib")
+  #pragma comment(lib, "Diligent-GraphicsEngineNextGenBase.lib")
+  #pragma comment(lib, "Diligent-GraphicsEngine.lib")
+  #pragma comment(lib, "Diligent-GraphicsTools.lib")
+  #pragma comment(lib, "Diligent-Archiver-static.lib")
+  #pragma comment(lib, "Diligent-ShaderTools.lib")
+  #pragma comment(lib, "Diligent-GraphicsAccessories.lib")
+  #pragma comment(lib, "Diligent-Common.lib")
+  #pragma comment(lib, "Diligent-Win32Platform.lib")
+  #pragma comment(lib, "Diligent-BasicPlatform.lib")
+  #pragma comment(lib, "Diligent-Primitives.lib")
+  #pragma comment(lib, "xxhash.lib")
+  #pragma comment(lib, "Shlwapi.lib")
 #endif
 '''
     with open(ROOT + "/dist/acs.h", "w", encoding="utf-8") as f:
