@@ -105,7 +105,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float  dist = length(to_light);
         float  rng  = max(point_pos_range[j].w, 0.0001);
         if (dist >= rng) continue;
-        float3 L = to_light / dist;
+        // dist=0 (光源位置と一致する画素) の 0 除算 → NaN を防ぐ (FPbrShader と同じガード)
+        float3 L = to_light / max(dist, 1e-4);
         float  att = 1.0 - dist / rng; att = att * att;
         float  diff = saturate(dot(N, L)) * att;
         float3 H = normalize(L + V);

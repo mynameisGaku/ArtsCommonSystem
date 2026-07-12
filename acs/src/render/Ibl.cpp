@@ -358,7 +358,7 @@ struct IrradianceCBLayout {
 // Karis の "V = N" 近似で V 依存を取り除いている (split-sum の片側、もう片方が BRDF LUT)。
 //
 // mip 0 = roughness 0 (鏡面、env をそのままコピー)
-// mip 4 = roughness 1 (極限ぼかし)
+// mip (kPrefilterMips-1) = roughness 1 (極限ぼかし)
 const char* kPrefilterHLSL = R"(
 #pragma pack_matrix(row_major)
 
@@ -1084,7 +1084,7 @@ TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     m_PrefilterCube.Reset();
     m_PrefilterMips = 0;
 
-    // 1) prefilter cubemap (6 face, 128x128, 5 mips, R11G11B10_Float, per-slice RTV)
+    // 1) prefilter cubemap (6 face, kPrefilterSize^2, kPrefilterMips mips, R11G11B10_Float, per-slice RTV)
     FTextureDesc td{};
     td.width            = kPrefilterSize;
     td.height           = kPrefilterSize;
@@ -1152,7 +1152,7 @@ TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
     else pipeline = Move(r.Value());
 
-    // 3) 5 mip × 6 face = 30 render
+    // 3) kPrefilterMips mip × 6 face render
     ClearColor black{0, 0, 0, 1};
     cl.SetPipeline(*pipeline);
     cl.SetConstantBuffer(0, *cb);

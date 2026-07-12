@@ -258,8 +258,8 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
         }
         if (radius < 1e-3f) radius = 1e-3f;
 
-        // Light VP: center を見るカメラ、ortho 幅は半径×2.5 (10% margin、large caster の
-        // edge clip 防止。single-cascade SetDirectionalLight と同じ margin)。
+        // Light VP: center を見るカメラ、ortho 幅は半径×2.5 (= 直径 2r に対し 25% margin、
+        // large caster の edge clip 防止。single-cascade SetDirectionalLight と同じ margin)。
         const FVec3 light_pos{
             center.x + dir.x * radius * 2.5f,
             center.y + dir.y * radius * 2.5f,

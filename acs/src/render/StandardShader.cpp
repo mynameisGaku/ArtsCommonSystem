@@ -109,7 +109,9 @@ float ComputeShadow(float3 world_p) {
     for (int by = -kBlockerN/2; by < kBlockerN/2; ++by) {
         [unroll]
         for (int bx = -kBlockerN/2; bx < kBlockerN/2; ++bx) {
-            float2 off = float2(bx, by) * (search_r * 0.5);
+            // +0.5 で中心化: {-2,-1,0,1} のままだと半 tap 偏心して penumbra が
+            // -x/-y 方向に偏る (FPbrShader の blocker search と同じ補正)。
+            float2 off = (float2(bx, by) + 0.5) * (search_r * 0.5);
             float sd = shadow_map.SampleLevel(shadow_map_sampler, uv + off, 0).r;
             if (sd + bias < my_d) {
                 blocker_sum += sd;
@@ -126,8 +128,7 @@ float ComputeShadow(float3 world_p) {
     // light_size_uv = 0.01 をハードコード、kFilt で全体スケーリング。
     // FPbrShader と同じ係数で 27_HelloShowcase 等の見た目に整合。
     float penumbra = max((my_d - blocker_avg) / max(blocker_avg, 1e-3), 0.0);
-    float pcss_penumbra = max((my_d - blocker_avg) / max(blocker_avg, 1e-3), 0.0);
-    float filter_r = max(pcss_penumbra * 0.01 * kFilt, ts);
+    float filter_r = max(penumbra * 0.01 * kFilt, ts);
 
     // ---- 3) Penumbra-sized stratified 4x4 PCF ----
     float lit = 0;
@@ -155,14 +156,14 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
     // 環境光
     float3 col = ambient.xyz * albedo_rgb;
+
+    // シャドウ係数（最初の dir light のみ適用）。
+    // 旧実装は同一引数の ComputeShadow を 2 回呼んでいた (PCSS = blocker 16 tap +
+    // PCF 16 tap がピクセルあたり 2 重)。結果は同じなので 1 回に統合。
     float main_shadow = ComputeShadow(v.world_p);
     int active_dir_count = (int)ambient.w;
 
-    // シャドウ係数（最初の dir light のみ適用）
-    float shadow = ComputeShadow(v.world_p);
-
     // 1) 有向光源（Lambert + Blinn-Phong）。i==0 にのみシャドウを乗算
-    int dir_count = (int)ambient.w;
     [unroll]
     for (int i = 0; i < ACS_MAX_DIR_LIGHTS; ++i) {
         if (i >= active_dir_count) break;
@@ -175,7 +176,6 @@ float4 PSMain(VSOut v) : SV_TARGET {
     }
 
     // 2) 点光源（距離による減衰付き）
-    int pt_count = (int)point_count_pad.x;
     int active_point_count = (int)point_count_pad.x;
     [unroll]
     for (int j = 0; j < ACS_MAX_POINT_LIGHTS; ++j) {
@@ -184,7 +184,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float  dist = length(to_light);
         float  rng  = max(point_pos_range[j].w, 0.0001);
         if (dist >= rng) continue;
-        float3 L = to_light / dist;
+        // dist=0 (光源位置と一致する画素) の 0 除算 → NaN を防ぐ (FPbrShader と同じガード)
+        float3 L = to_light / max(dist, 1e-4);
         float  att = 1.0 - dist / rng;
         att = att * att;                                  // smooth falloff
         float  diff = saturate(dot(N, L)) * att;

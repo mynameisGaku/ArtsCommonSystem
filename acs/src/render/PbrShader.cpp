@@ -346,6 +346,18 @@ float3 FresnelSchlickRoughness(float cosTheta, float3 F0, float roughness) {
     return F0 + (max(r, F0) - F0) * pow(saturate(1.0 - cosTheta), 5.0);
 }
 
+// 解析的 split-sum env BRDF (Karis mobile / Lazarov 2013)。
+// 実 BRDF LUT が bind されていない SH9 / probe-grid standalone モード
+// (ibl_params.x=0) では、slot 3 は «内容未定義の 1x1 fallback» なので読んではいけない。
+// その場合はこの解析近似で scale/bias を得る (LUT との誤差は視覚上ごく僅か)。
+float2 EnvBRDFApprox(float NoV, float roughness) {
+    const float4 c0 = float4(-1.0, -0.0275, -0.572, 0.022);
+    const float4 c1 = float4( 1.0,  0.0425,  1.04, -0.04);
+    float4 r = roughness * c0 + c1;
+    float a004 = min(r.x * r.x, exp2(-9.28 * NoV)) * r.x + r.y;
+    return float2(-1.04, 1.04) * a004 + r.zw;
+}
+
 // Anisotropic GGX (Walter / Heitz)。
 // αx, αy は tangent / bitangent 方向別の roughness² (アスペクト比は anisotropy で制御)。
 float D_GGX_Aniso(float NoH, float ToH, float BoH, float ax, float ay) {
@@ -507,11 +519,22 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
     float3 prefilt;
     if (ibl_params.z >= 0.5) {
         prefilt = Sh9Radiance(R, sh9);
-    } else {
+    } else if (ibl_params.x >= 0.5) {
         float mip_lvl = roughness * max(ibl_params.y - 1.0, 0.0);
         prefilt = prefilter.SampleLevel(prefilter_sampler, R, mip_lvl).rgb;
+    } else {
+        // probe-grid standalone (実 prefilter cubemap 未バインド): slot 2 は
+        // 内容未定義の fallback なので読まない (旧実装は driver 依存の garbage を
+        // 反射元にし得た)。鏡面環境反射は無し = 0。
+        prefilt = float3(0.0, 0.0, 0.0);
     }
-    float2 lut_xy = brdf_lut.SampleLevel(brdf_lut_sampler, float2(NoV, roughness), 0).rg;
+    // BRDF LUT: 実 LUT (ibl_params.x=1) のみ sample。SH9/probe standalone では
+    // slot 3 は未定義 fallback なので解析近似 (EnvBRDFApprox) を使う。
+    // 旧実装は fallback を読んでいたため、driver 依存で specular_ibl が 0 になり
+    // «SH9 モードで金属が空を映さない» / 逆に garbage が乗る可能性があった。
+    float2 lut_xy = (ibl_params.x >= 0.5)
+        ? brdf_lut.SampleLevel(brdf_lut_sampler, float2(NoV, roughness), 0).rg
+        : EnvBRDFApprox(NoV, roughness);
     // Phase 34e-2fix: 反射元の radiance を環境 prefilter (off-screen) から SSR
     // (on-screen の実ジオメトリ) へ blend。BRDF 応答 (split-sum scale+bias) は共通。
     float3 reflected = lerp(prefilt, ssr_radiance, saturate(ssr_weight));
@@ -537,9 +560,21 @@ IblCoatTerm ComputeIblClearcoat(float3 N, float3 V, float clearcoat, float coat_
     float3 R  = reflect(-V, N);
     float3 F0c = float3(0.04, 0.04, 0.04);
     float3 Fc  = FresnelSchlickRoughness(NoV, F0c, coat_roughness);
-    float mip_lvl = coat_roughness * max(ibl_params.y - 1.0, 0.0);
-    float3 prefilt = prefilter.SampleLevel(prefilter_sampler, R, mip_lvl).rgb;
-    float2 lut_xy = brdf_lut.SampleLevel(brdf_lut_sampler, float2(NoV, coat_roughness), 0).rg;
+    // 反射元 radiance / BRDF 応答は base 層 (ComputeIblAmbient) と同じ規約で選ぶ。
+    // 旧実装は SH9 モードでも fallback prefilter cubemap / fallback LUT (内容未定義) を
+    // sample しており、clearcoat + SH9 の組み合わせで結果が backend 依存だった。
+    float3 prefilt;
+    if (ibl_params.z >= 0.5) {
+        prefilt = Sh9Radiance(R, sh9);
+    } else if (ibl_params.x >= 0.5) {
+        float mip_lvl = coat_roughness * max(ibl_params.y - 1.0, 0.0);
+        prefilt = prefilter.SampleLevel(prefilter_sampler, R, mip_lvl).rgb;
+    } else {
+        prefilt = float3(0.0, 0.0, 0.0);   // 実 prefilter 未バインド (probe standalone)
+    }
+    float2 lut_xy = (ibl_params.x >= 0.5)
+        ? brdf_lut.SampleLevel(brdf_lut_sampler, float2(NoV, coat_roughness), 0).rg
+        : EnvBRDFApprox(NoV, coat_roughness);
     o.spec = prefilt * (F0c * lut_xy.x + lut_xy.y) * clearcoat;
     // base 透過: Fresnel * clearcoat 強度ぶんを引く
     o.attenuation = 1.0 - max(Fc.r, max(Fc.g, Fc.b)) * clearcoat;

@@ -182,7 +182,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // 距離フェード: 遠くまで march した反射ほど薄める。長い反射の急な打ち切りや
     // 量子化ノイズを目立たなくし、広い水面で反射が不自然に途切れない。
     float  dist_fade = saturate(1.0 - hitFrac * hitFrac);
-    return float4(hit_color * params.x * edge_fade * dist_fade, 1.0);
+    // フェードは hit mask (.a) にも反映する。旧実装は rgb のみ減衰して .a=1 を返して
+    // いたため、FPbrShader の lerp(prefilt, ssr, weight) が画面端/遠距離で «黒くなった
+    // SSR» をフル weight で採用し、smooth 面の反射が暗い帯に落ちていた。.a を同じ
+    // fade にすることで環境 prefilter へ滑らかにフォールバックする (tonemap の加算
+    // 合成経路は rgb 側の減衰で従来どおり)。
+    float fade = edge_fade * dist_fade;
+    return float4(hit_color * params.x * fade, fade);
 }
 )";
 
