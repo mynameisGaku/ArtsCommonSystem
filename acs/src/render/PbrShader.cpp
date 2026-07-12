@@ -869,6 +869,10 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float  rough2  = roughness * roughness;
         float  radius  = rough2 * 0.010;
         float  rot     = frac(sin(dot(ssr_uv, float2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
+        // aspect 補正: UV は非正方 (W≠H) なので、円形ディスクを UV に等倍で適用すると
+        // 画面上で横長の楕円ブラーになる。x を (1/W)/(1/H) = H/W で縮めて画面上の «円形» に。
+        // (ssao_params.zw 未設定 = SSR の screen UV 自体が無効な構成では 1 に落とす)
+        float  aspect_hw = (ssao_params.w > 0.0) ? (ssao_params.z / ssao_params.w) : 1.0;
         float3 sum     = float3(0, 0, 0);
         float  amask   = 0.0;
         const int kSsrTaps = 12;
@@ -876,7 +880,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
         for (int i = 0; i < kSsrTaps; ++i) {
             float  t   = (float(i) + 0.5) / float(kSsrTaps);
             float  ang = rot + float(i) * 2.39996323;          // golden angle
-            float2 off = float2(cos(ang), sin(ang)) * (sqrt(t) * radius);
+            float2 off = float2(cos(ang) * aspect_hw, sin(ang)) * (sqrt(t) * radius);
             float4 s   = ssr_color.SampleLevel(ssr_color_sampler, ssr_uv + off, 0);
             sum   += s.rgb;
             amask += s.a;

@@ -2344,7 +2344,7 @@ Texture2D    depthTex         : register(t1);
 SamplerState depthTex_sampler : register(s1);
 cbuffer DOFCB : register(b0) {
     float4 dofp;   // x=focus_dist(view z), y=focus_range, z=max_blur(uv 半径), w=near
-    float4 dofp2;  // x=far
+    float4 dofp2;  // x=far, y=aspect(W/H、ボケ円の真円化)
 };
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 VSOut VSMain(uint id : SV_VertexID) {
@@ -2372,11 +2372,14 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // 各サンプルを «自身の CoC» で重み付け → ピント面の前景が背景ボケへ滲むのを抑制。
     const int N = 24;
     const float GA = 2.39996323;     // golden angle (rad)
+    // aspect 補正: UV 等倍の円形ディスクは 16:9 で横に ~1.78 倍伸びた楕円ボケになる。
+    // x を aspect(W/H) で割って画面上の «真円» bokeh に (未設定 0 なら 1 に落とす)。
+    float invAspect = (dofp2.y > 1e-3) ? (1.0 / dofp2.y) : 1.0;
     float3 sum = center; float wsum = 1.0;
     [unroll] for (int i = 0; i < N; ++i) {
         float r = sqrt((float(i) + 0.5) / float(N)) * radius;        // sqrt → 円板の面積均一分布
         float a = float(i) * GA;
-        float2 off = float2(cos(a), sin(a)) * r;
+        float2 off = float2(cos(a) * invAspect, sin(a)) * r;
         float3 s = sceneTex.Sample(sceneTex_sampler, v.uv + off).rgb;
         float w  = CoCAt(v.uv + off, nearZ, farZ);                   // ボケてるサンプルほど寄与大
         sum += s * w; wsum += w;
@@ -4316,7 +4319,8 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                     // 2. hdrRt を load 再オープン (depth は DSV にせず) → DoF ぼかしを書き戻す
                     struct DofCB { FVec4 dofp; FVec4 dofp2; } dcb{};
                     dcb.dofp  = FVec4{ h.q_dof_focus, h.q_dof_range, h.q_dof_max, 0.05f };  // near=0.05 (EditorCam3D)
-                    dcb.dofp2 = FVec4{ 500.0f, 0.0f, 0.0f, 0.0f };                          // far=500
+                    const f32 dofAspect = (scH > 0u) ? (static_cast<f32>(scW) / static_cast<f32>(scH)) : 1.0f;
+                    dcb.dofp2 = FVec4{ 500.0f, dofAspect, 0.0f, 0.0f };                     // far=500, aspect=W/H (真円 bokeh)
                     h.dof_cb->Update(&dcb, sizeof(dcb));
                     cl->BeginRenderToTextureLoad(*hdrRt, nullptr);
                     { FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);

@@ -126,13 +126,16 @@ float4 PSMain(VSOut v) : SV_TARGET {
         const float kGoldenAngle = 2.39996323;
         const int   kTaps        = 8;
         const float kRadius      = roughness * 0.02;
+        // aspect 補正: UV 等倍の円形ディスクは画面上で横長の楕円になる。
+        // x を (1/W)/(1/H) = H/W で縮めて画面上の円形ブラーに (screen 未設定なら 1)。
+        float aspect_hw = (screen_params.y > 0.0) ? (screen_params.x / screen_params.y) : 1.0;
         float3 sum = 0;
         [unroll]
         for (int t = 0; t < kTaps; ++t) {
             float ft = (float(t) + 0.5) / float(kTaps);
             float r2 = sqrt(ft) * kRadius;
             float a  = float(t) * kGoldenAngle;
-            float2 off = float2(cos(a), sin(a)) * r2;
+            float2 off = float2(cos(a) * aspect_hw, sin(a)) * r2;
             float rv = background.SampleLevel(background_sampler, saturate(refractUV_r + off), 0).r;
             float gv = background.SampleLevel(background_sampler, saturate(refractUV_g + off), 0).g;
             float bv = background.SampleLevel(background_sampler, saturate(refractUV_b + off), 0).b;
