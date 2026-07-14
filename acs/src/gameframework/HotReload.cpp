@@ -91,10 +91,17 @@ struct WatchEntry {
     /** 発行中の I/O を取り消し、HANDLE を閉じる (多重呼び出し安全)。 */
     void Close() noexcept {
         if (m_Dir != INVALID_HANDLE_VALUE) {
-            // 発行中の ReadDirectoryChangesW を取り消す (CloseHandle でも暗黙に
-            // 取り消されるが、明示しておく)。
+            // CancelIoEx は「取り消し要求」を出すだけで、OVERLAPPED と受信
+            // バッファを直ちに解放してよい保証はない。完了通知を回収せずに
+            // WatchEntry を破棄すると、カーネルが解放済み m_Overlapped /
+            // m_Buffer へ書き戻す可能性があるため、キャンセル完了まで待つ。
             if (m_ReadPending) {
                 ::CancelIoEx(m_Dir, &m_Overlapped);
+                DWORD ignored = 0;
+                // 成功、または ERROR_OPERATION_ABORTED で戻れば I/O は完了済み。
+                // CancelIoEx が ERROR_NOT_FOUND を返す競合でも、ここで既完了の
+                // 結果を回収してからメモリを破棄する。
+                (void)::GetOverlappedResult(m_Dir, &m_Overlapped, &ignored, TRUE);
                 m_ReadPending = false;
             }
             ::CloseHandle(m_Dir);
@@ -237,6 +244,9 @@ void JoinPath(const char* dir, FString& rel_inout) noexcept {
 }
 
 } // namespace
+
+/** 空状態で構築する (WatchEntry の完全型が見える本 TU で定義)。 */
+HotReloadWatcher::HotReloadWatcher() noexcept = default;
 
 /** デストラクタ (WatchEntry が完全型になる本 TU で実体化し Shutdown を呼ぶ)。 */
 HotReloadWatcher::~HotReloadWatcher() noexcept {
@@ -550,6 +560,9 @@ void HotReloadWatcher::ClearEvents() noexcept {
 
 // Ship build (ACS_GAME_SHIPPING) では全 method を no-op にする。シンボル定義は残し、
 // 呼び出し側コードが #ifdef だらけにならないようにする。戻り値は安全な既定値 (0 / false)。
+
+/** ship build の既定コンストラクタ (no-op)。 */
+HotReloadWatcher::HotReloadWatcher() noexcept = default;
 
 /** ship build のデストラクタ (no-op)。 */
 HotReloadWatcher::~HotReloadWatcher() noexcept {}

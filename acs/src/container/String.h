@@ -158,6 +158,13 @@ public:
     void Clear() noexcept;
 
     /**
+     * 空文字列にし、ヒープ容量も確保元へ返す。
+     *
+     * @details 設定済みアロケータは維持するため、次回の Append も同じ確保元を使う。
+     */
+    void ReleaseStorage() noexcept;
+
+    /**
      * 容量を予約する (必要なら SSO からヒープへ遷移)。
      *
      * @param new_capacity 確保する最小容量。

@@ -6,6 +6,7 @@
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "memory/SharedPtr.h"
+#include "memory/UniquePtr.h"
 #include "memory/ObjectPtr.h"
 #include "memory/Rc.h"
 
@@ -36,6 +37,33 @@ struct Obj : FObject {
 };
 
 } // namespace
+
+ACS_TEST(SmartPtr, UniqueDefaultResetCapturesAllocator)
+{
+    g_live = 0;
+    {
+        TUniquePtr<Tracked> pointer;
+        Tracked* raw = New<Tracked>(DefaultAllocator(), 17);
+        EXPECT_TRUE(raw != nullptr);
+        pointer.Reset(raw);
+        EXPECT_EQ(pointer->value, 17);
+        EXPECT_EQ(g_live, 1);
+    }
+    EXPECT_EQ(g_live, 0);
+}
+
+ACS_TEST(SmartPtr, UniqueSelfResetKeepsOwnership)
+{
+    g_live = 0;
+    {
+        auto pointer = MakeUnique<Tracked>(23);
+        Tracked* raw = pointer.Get();
+        pointer.Reset(raw);
+        EXPECT_TRUE(pointer.Get() == raw);
+        EXPECT_EQ(g_live, 1);
+    }
+    EXPECT_EQ(g_live, 0);
+}
 
 // ---- TSharedPtr -------------------------------------------------------------
 

@@ -25,39 +25,50 @@ ImGuiCtx::~ImGuiCtx() noexcept {
 
 /** ImGui コンテキストと Win32/DX12 backend を初期化する。 */
 TResult<void> ImGuiCtx::Init(FWindow& window, FRenderer& renderer) noexcept {
-    m_Window = &window;
-    m_Renderer = &renderer;
+    if (m_Initialized || m_Context != nullptr || m_SrvHeap != nullptr || m_Win32Initialized || m_Dx12Initialized) {
+        return ACS_ERR(Render, 104, "ImGuiCtx::Init: already initialized");
+    }
+
+    HWND hwnd = static_cast<HWND>(window.NativeHandle());
+    Dx12Device* dev = static_cast<Dx12Device*>(renderer.Device());
+    Dx12Swapchain* sc = static_cast<Dx12Swapchain*>(renderer.Swapchain());
+    if (hwnd == nullptr || dev == nullptr || sc == nullptr || dev->D3DDevice() == nullptr) {
+        return ACS_ERR(Render, 101, "ImGuiCtx::Init: window or renderer not initialized");
+    }
+
+    ImGuiContext* const previous_context = ImGui::GetCurrentContext();
 
     // ImGui コンテキスト作成 + キーボード/ナビゲーション有効化
     IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
+    ImGuiContext* const context = ImGui::CreateContext();
+    if (context == nullptr) {
+        if (previous_context != nullptr) ImGui::SetCurrentContext(previous_context);
+        return ACS_ERR(Render, 105, "ImGui::CreateContext failed");
+    }
+    m_Context = context;
+    m_Window = &window;
+    m_Renderer = &renderer;
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsDark();
 
     // Win32 backend 初期化（HWND を渡す）
-    HWND hwnd = static_cast<HWND>(window.NativeHandle());
     if (!ImGui_ImplWin32_Init(hwnd)) {
+        Shutdown();
+        if (previous_context != nullptr) ImGui::SetCurrentContext(previous_context);
         return ACS_ERR(Render, 100, "ImGui_ImplWin32_Init failed");
     }
+    m_Win32Initialized = true;
 
     // DX12 backend に必要な SRV ヒープを作成（フォントテクスチャ等を置く場所）
-    Dx12Device* dev = static_cast<Dx12Device*>(renderer.Device());
-    Dx12Swapchain* sc = static_cast<Dx12Swapchain*>(renderer.Swapchain());
-    if (!dev || !sc) {
-        ImGui_ImplWin32_Shutdown();
-        ImGui::DestroyContext();
-        return ACS_ERR(Render, 101, "ImGuiCtx::Init: FRenderer not initialized");
-    }
-
     D3D12_DESCRIPTOR_HEAP_DESC hd{};
     hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     hd.NumDescriptors = 64;  // フォント + 任意のユーザーテクスチャ用余裕
     hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ID3D12DescriptorHeap* srv_heap = nullptr;
     if (FAILED(dev->D3DDevice()->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&srv_heap)))) {
-        ImGui_ImplWin32_Shutdown();
-        ImGui::DestroyContext();
+        Shutdown();
+        if (previous_context != nullptr) ImGui::SetCurrentContext(previous_context);
         return ACS_ERR(Render, 102, "ImGui SRV heap create failed");
     }
     m_SrvHeap = srv_heap;
@@ -70,12 +81,11 @@ TResult<void> ImGuiCtx::Init(FWindow& window, FRenderer& renderer) noexcept {
             srv_heap,
             srv_heap->GetCPUDescriptorHandleForHeapStart(),
             srv_heap->GetGPUDescriptorHandleForHeapStart())) {
-        srv_heap->Release();
-        m_SrvHeap = nullptr;
-        ImGui_ImplWin32_Shutdown();
-        ImGui::DestroyContext();
+        Shutdown();
+        if (previous_context != nullptr) ImGui::SetCurrentContext(previous_context);
         return ACS_ERR(Render, 103, "ImGui_ImplDX12_Init failed");
     }
+    m_Dx12Initialized = true;
 
     m_Initialized = true;
     ACS_LOG_INFO("ImGui initialized (Win32 + DX12)");
@@ -84,20 +94,33 @@ TResult<void> ImGuiCtx::Init(FWindow& window, FRenderer& renderer) noexcept {
 
 /** DX12/Win32 backend と ImGui コンテキスト・SRV ヒープを解放する。 */
 void ImGuiCtx::Shutdown() noexcept {
-    if (!m_Initialized) return;
-    ImGui_ImplDX12_Shutdown();
-    ImGui_ImplWin32_Shutdown();
-    ImGui::DestroyContext();
+    ImGuiContext* const context = static_cast<ImGuiContext*>(m_Context);
+    ImGuiContext* const previous_context = ImGui::GetCurrentContext();
+    if (context != nullptr) ImGui::SetCurrentContext(context);
+
+    if (m_Dx12Initialized && context != nullptr) ImGui_ImplDX12_Shutdown();
+    if (m_Win32Initialized && context != nullptr) ImGui_ImplWin32_Shutdown();
     if (m_SrvHeap) {
         static_cast<ID3D12DescriptorHeap*>(m_SrvHeap)->Release();
         m_SrvHeap = nullptr;
     }
+    if (context != nullptr) ImGui::DestroyContext(context);
+    if (previous_context != nullptr && previous_context != context) {
+        ImGui::SetCurrentContext(previous_context);
+    }
+
+    m_Context = nullptr;
+    m_Window = nullptr;
+    m_Renderer = nullptr;
+    m_Dx12Initialized = false;
+    m_Win32Initialized = false;
     m_Initialized = false;
 }
 
 /** 新しい ImGui フレームを開始する。 */
 void ImGuiCtx::NewFrame() noexcept {
-    if (!m_Initialized) return;
+    if (!m_Initialized || m_Context == nullptr) return;
+    ImGui::SetCurrentContext(static_cast<ImGuiContext*>(m_Context));
     ImGui_ImplDX12_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
@@ -105,7 +128,8 @@ void ImGuiCtx::NewFrame() noexcept {
 
 /** 構築済み ImGui の描画コマンドを現在のコマンドリストへ発行する。 */
 void ImGuiCtx::Render() noexcept {
-    if (!m_Initialized || !m_Renderer) return;
+    if (!m_Initialized || !m_Renderer || m_Context == nullptr) return;
+    ImGui::SetCurrentContext(static_cast<ImGuiContext*>(m_Context));
     ImGui::Render();
 
     // 現在のコマンドリストに ImGui の描画コマンドを発行。
@@ -125,7 +149,8 @@ void ImGuiCtx::Render() noexcept {
 
 /** ウィンドウイベントを ImGui の IO に転送する。 */
 void ImGuiCtx::OnEvent(const Event& e) noexcept {
-    if (!m_Initialized || !m_Window) return;
+    if (!m_Initialized || !m_Window || m_Context == nullptr) return;
+    ImGui::SetCurrentContext(static_cast<ImGuiContext*>(m_Context));
     // ImGui の Win32 backend は WndProc 経由でメッセージを受け取る設計。
     // ACS は独自イベントを使っているため、ここで Win32 メッセージに復元するか、
     // ImGui の IO に直接書き込む必要がある。

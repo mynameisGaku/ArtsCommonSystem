@@ -526,8 +526,15 @@ IVoiceChatBackend& GetVoiceStub() noexcept;
  */
 class FVoiceChatLoopbackBackend final : public IVoiceChatBackend {
 public:
-    /** デフォルト構築する。 */
-    FVoiceChatLoopbackBackend() noexcept = default;
+    /** DefaultAllocator を使って構築する。 */
+    FVoiceChatLoopbackBackend() noexcept;
+
+    /**
+     * 指定 allocator をチャンネル・参加者・受信キューに使って構築する。
+     *
+     * @param allocator 可変長状態の確保に使う allocator。
+     */
+    explicit FVoiceChatLoopbackBackend(FAllocator& allocator) noexcept;
 
     /** 破棄する。 */
     ~FVoiceChatLoopbackBackend() noexcept override = default;
@@ -743,6 +750,15 @@ private:
      * (各 frame = VoiceFrameHeader + payload)。
      */
     struct FLoopParticipant {
+        /** DefaultAllocator を使う空の参加者を構築する。 */
+        FLoopParticipant() noexcept = default;
+
+        /** 指定 allocator を文字列と受信キューへ固定する。 */
+        explicit FLoopParticipant(FAllocator& allocator) noexcept
+            : user_id(allocator), display_name(allocator), rx_frames(allocator)
+        {
+        }
+
         /** 参加者 ID (非所有 const char* を受けて所有コピー)。 */
         FString        user_id;
 
@@ -764,6 +780,14 @@ private:
 
     /** 1 チャンネル分の状態 (参加者テーブル + pump 対象)。 */
     struct FChannel {
+        /** DefaultAllocator を使う空のチャンネルを構築する。 */
+        FChannel() noexcept = default;
+
+        /** 指定 allocator を ID と参加者配列へ固定する。 */
+        explicit FChannel(FAllocator& allocator) noexcept : channel_id(allocator), participants(allocator)
+        {
+        }
+
         /** チャンネルに join 済みか。 */
         bool                      joined       = false;
 
@@ -826,8 +850,11 @@ private:
     /** 直近 push のピーク。 */
     f32           m_LastLocalPeak= 0.0f;
 
+    /** チャンネル内の可変長状態が使う allocator。 */
+    FAllocator* m_Allocator = nullptr;
+
     /** チャンネル状態 (Party/Team/Global/Custom の 4 種固定)。 */
-    FChannel      m_Channels[4]  = {};
+    FChannel m_Channels[4];
 };
 
 /**

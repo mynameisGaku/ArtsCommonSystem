@@ -15,7 +15,7 @@ acs_enable_module(Threading REQUIRED
 
 acs_enable_module(Memory REQUIRED
     FEATURES LINEAR_ALLOCATOR POOL_ALLOCATOR ARENA_ALLOCATOR
-             VIRTUAL_MEMORY TLSF SEGMENT_SYSTEM SNAPSHOT
+             VIRTUAL_MEMORY TLSF MIMALLOC SEGMENT_SYSTEM SNAPSHOT
 )
 
 acs_enable_module(Container REQUIRED
@@ -54,9 +54,29 @@ acs_enable_module(Asset)
 # するため数分〜十数分かかる。CMake のキャッシュを保持していれば 2 回目以降は
 # 高速。
 #
+set(_acs_render_features)
+set(_acs_render_disabled_features)
+if(ACS_RENDER_DX12_RAW)
+    list(APPEND _acs_render_features DX12_RAW)
+else()
+    list(APPEND _acs_render_disabled_features DX12_RAW)
+endif()
+if(ACS_RENDER_DILIGENT)
+    list(APPEND _acs_render_features DILIGENT)
+else()
+    list(APPEND _acs_render_disabled_features DILIGENT)
+endif()
+if(ACS_DILIGENT_VULKAN)
+    list(APPEND _acs_render_features DILIGENT_VULKAN)
+else()
+    list(APPEND _acs_render_disabled_features DILIGENT_VULKAN)
+endif()
 acs_enable_module(Render
-    FEATURES DX12_RAW
+    FEATURES ${_acs_render_features}
+    DISABLED_FEATURES ${_acs_render_disabled_features}
 )
+unset(_acs_render_features)
+unset(_acs_render_disabled_features)
 
 acs_enable_module(App)
 
@@ -67,8 +87,10 @@ acs_enable_module(Audio
 
 acs_enable_module(Network)
 
-# ---- ImGui (任意): ImGui を使いたいときだけ有効化 ----
-acs_enable_module(Imgui)
+# ---- ImGui (任意): raw DX12 バックエンドでだけ利用できる ----
+if(ACS_RENDER_DX12_RAW)
+    acs_enable_module(Imgui)
+endif()
 
 # Mvvm は ACS_MVVM_IMGUI_BINDINGS=ON のときだけ Imgui に依存する。
 # 普通のビルドでは Imgui の後に Mvvm を入れておくと依存解決が素直。

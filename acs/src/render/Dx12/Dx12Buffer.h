@@ -80,6 +80,9 @@ public:
     D3D12_GPU_VIRTUAL_ADDRESS Gpu()      const noexcept;
 
 private:
+    /** 永続マップと GPU リソースを解放し、再初期化可能な空状態へ戻す。 */
+    void Reset() noexcept;
+
     /** フレームスロット問い合わせに使う DX12 デバイス。 */
     Dx12Device*     m_Device       = nullptr;
 

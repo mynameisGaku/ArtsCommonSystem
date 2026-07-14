@@ -85,3 +85,34 @@ ACS_TEST(InputFeed, PressedEdgeAfterUpdate) {
     Input::OnEvent(KeyEvt(EKey::W, false));         // 後始末
     Input::Update();
 }
+
+// 未接続扱いのplayerと不正なbutton値は、安全な既定値を返す。
+ACS_TEST(InputFeed, InvalidGamepadInputIsRejected)
+{
+    constexpr u32 invalid_player = 99;
+    const auto invalid_button = static_cast<EGamepadButton>(255);
+    EXPECT_FALSE(Input::IsGamepadConnected(invalid_player));
+    EXPECT_FALSE(Input::IsGamepadButtonDown(invalid_player, EGamepadButton::A));
+    EXPECT_FALSE(Input::IsGamepadButtonPressed(invalid_player, EGamepadButton::A));
+    EXPECT_FALSE(Input::IsGamepadButtonReleased(invalid_player, EGamepadButton::A));
+    EXPECT_FALSE(Input::IsGamepadButtonDown(0, invalid_button));
+    EXPECT_FALSE(Input::IsGamepadButtonPressed(0, invalid_button));
+    EXPECT_FALSE(Input::IsGamepadButtonReleased(0, invalid_button));
+}
+
+// analog bindingが存在しても、他のaxis bindingとの合成規則を維持する。
+ACS_TEST(InputFeed, GamepadAxisBindingComposesWithKeys)
+{
+    Input::Update();
+    FInputMap input_map;
+    const ActionId move("MoveX");
+    input_map.BindAxisKeys(move, EKey::A, EKey::D);
+    input_map.BindGamepadAxis(move, EGamepadAxis::LeftX, 99, 0.5f);
+
+    EXPECT_NEAR(input_map.Axis(move), 0.0f, 1e-4f);
+    EXPECT_FALSE(input_map.IsHeld(move));
+    Input::OnEvent(KeyEvt(EKey::D, true));
+    EXPECT_NEAR(input_map.Axis(move), 1.0f, 1e-4f);
+    EXPECT_TRUE(input_map.IsHeld(move));
+    Input::OnEvent(KeyEvt(EKey::D, false));
+}

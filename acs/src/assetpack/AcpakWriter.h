@@ -52,7 +52,14 @@ namespace acs::assetpack {
 class FAcpakWriter {
 public:
     /** 空状態で構築する (出力は Open で開く)。 */
-    FAcpakWriter() noexcept = default;
+    FAcpakWriter() noexcept;
+
+    /**
+     * 指定 allocator で pending list を持つ空状態を構築する。
+     *
+     * @param allocator pending list の確保に使う allocator。
+     */
+    explicit FAcpakWriter(FAllocator& allocator) noexcept;
 
     /** 破棄する (Open 済なら Close 相当の後始末を行う)。 */
     ~FAcpakWriter() noexcept;

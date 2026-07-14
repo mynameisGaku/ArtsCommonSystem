@@ -239,6 +239,9 @@ public:
     void* NativeHandle() noexcept override { return m_CmdList; }
 
 private:
+    /** 必要なら投入済み fence を待ち、COM 所有物と記録状態を空に戻す。 */
+    void Reset(bool wait_for_gpu) noexcept;
+
     /** Init で受け取った DX12 デバイス (fence 待ち・キュー投入に使う)。 */
     Dx12Device*                     m_Device      = nullptr;
 

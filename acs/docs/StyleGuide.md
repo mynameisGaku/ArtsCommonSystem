@@ -105,10 +105,15 @@ static TUniquePtr<FRenderer> Create(/* ... */);
 - `operator==` / `operator[]` 等: 言語規定により小文字。
 - HLSL シェーダ内 pass を C++ 側から呼ぶ場合の `Pass_<Stage>` 形式 (e.g. `Pass_Tonemap`, `Pass_TaaResolve`) は許可。
 
+公開 API の型名・関数名・フィールド名・引数名は省略しない。`Manager` を `Mgr`、
+`Configuration` を `Cfg`、`Texture` を `Tex` のように縮めず、検索と補完だけで意味が分かる名前にする。
+実装内の短いローカル変数と数学上の慣用名はこの制約の対象外とする。
+
 ### 2.3 ローカル変数 / 引数 — `PascalCase`
 
 ```cpp
-void Foo(u32 FrameIndex, const FMat4& ViewProj) noexcept {
+void Foo(u32 FrameIndex, const FMat4& ViewProjection) noexcept
+{
     const f32 Dt = ...;
     bool bHasChanged = false;
 }
@@ -134,8 +139,14 @@ void Foo(u32 FrameIndex, const FMat4& ViewProj) noexcept {
 class FFoo {
 public:
     void Bar() noexcept;
-    i32  Count() const noexcept { return m_Count; }
-    bool IsReady() const noexcept { return m_bIsReady; }
+    i32 Count() const noexcept
+    {
+        return m_Count;
+    }
+    bool IsReady() const noexcept
+    {
+        return m_bIsReady;
+    }
 private:
     i32           m_Count    = 0;        // member, m_ prefix
     bool          m_bIsReady = false;    // bool member, m_b prefix
@@ -237,7 +248,8 @@ bool bIsActive = false;
 bool bHasPendingDestroy = true;
 bool bShouldQuit = false;
 
-void Foo(bool bEnabled) noexcept {
+void Foo(bool bEnabled) noexcept
+{
     bool bResult = Compute();
 }
 
@@ -257,9 +269,10 @@ bool has_pending_destroy;      // snake_case
 
 タブ禁止。4 スペース。`.editorconfig` が IDE を制御し、`.clang-format` が CI を制御する。
 
-### 3.2 ブレース — K&R / Egyptian
+### 3.2 ブレース — 関数定義は Allman、制御構文は K&R
 
-開きブレースは同じ行に置く。`else` / `catch` は閉じブレース同行。
+関数定義の開きブレースは次の行に置く。空関数や短い関数も 1 行には畳まない。
+制御構文・クラス・名前空間の開きブレースは同じ行に置き、`else` / `catch` は閉じブレース同行とする。
 
 ```cpp
 if (condition) {
@@ -270,7 +283,8 @@ if (condition) {
 
 class Foo {
 public:
-    void Bar() {
+    void Bar()
+    {
         for (usize i = 0; i < n; ++i) {
             Step(i);
         }
@@ -426,7 +440,8 @@ constexpr u32 kMessageMax = 480;       // file-local constant
 struct Cell { /* ... */ };              // file-local type
 LoggerState g_state;                    // file-local global
 
-void WriteAll(HANDLE h, /* ... */) noexcept {  // file-local function
+void WriteAll(HANDLE h, /* ... */) noexcept  // file-local function
+{
     /* ... */
 }
 
@@ -531,7 +546,8 @@ EXPECT_TRUE(r.IsOk());
 ### 5.3 `ACS_TRY` / `ACS_TRY_ASSIGN` マクロ
 
 ```cpp
-TResult<void> Process() noexcept {
+TResult<void> Process() noexcept
+{
     ACS_TRY(ValidateInput());                       // 失敗時に early-return
     ACS_TRY_ASSIGN(File f, OpenFile("data.bin"));   // 値を bind
     /* ... */
@@ -587,7 +603,8 @@ TResult<void> Process() noexcept {
 
 ```cpp
 // OK — Allocator& を引数として渡す (Bitsquid 流)
-TArray<u32> Build(Allocator& alloc) noexcept {
+TArray<u32> Build(Allocator& alloc) noexcept
+{
     TArray<u32> a(alloc);
     a.Reserve(100);
     return a;
@@ -613,7 +630,8 @@ TArray<u32> Build(Allocator& alloc) noexcept {
 ### 7.2 スレッドエントリは `noexcept` 必須
 
 ```cpp
-void WorkerEntry(void* user) noexcept {  // noexcept 必須
+void WorkerEntry(void* user) noexcept  // noexcept 必須
+{
     /* ... */
 }
 ```
@@ -647,7 +665,8 @@ template<class T>              // NG
 ```cpp
 // OK
 template<typename T>
-void Foo(T& result, T x) noexcept {
+void Foo(T& result, T x) noexcept
+{
     if constexpr (IsTriviallyCopyableV<T>) {
         MemCopy(&result, &x, sizeof(T));
     } else {
@@ -807,7 +826,8 @@ Doxygen `///` / `/** */` は採用しない (R045-c)。
 
 ### 12.1 `.clang-format` (repo root)
 
-K&R, 4-space, 100 col target, west-const, west-pointer, include preserve。 [`.clang-format`](../.clang-format) 参照。
+関数定義 Allman・その他 K&R、4-space、100 col target、west-const、west-pointer、include preserve。
+[`.clang-format`](../.clang-format) 参照。
 
 ### 12.2 `.clang-tidy` (repo root)
 

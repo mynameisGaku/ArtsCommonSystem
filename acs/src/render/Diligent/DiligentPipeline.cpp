@@ -43,11 +43,27 @@ const char* DiligentPipeline::TextureName(u32 slot) const noexcept {
 }
 
 DiligentPipeline::~DiligentPipeline() noexcept {
+    Reset();
+}
+
+void DiligentPipeline::Reset() noexcept
+{
     if (m_Srb) { m_Srb->Release(); m_Srb = nullptr; }
     if (m_Pso) { m_Pso->Release(); m_Pso = nullptr; }
+    m_Device = nullptr;
+    m_CbSlots = 0;
+    m_TexSlots = 0;
+    m_IsCompute = false;
+    m_UavSlots = 0;
+    for (u32 i = 0; i < kMaxResourceSlots; ++i) {
+        m_CbNames[i] = nullptr;
+        m_TexNames[i] = nullptr;
+        m_UavNames[i] = nullptr;
+    }
 }
 
 TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc& desc) noexcept {
+    Reset();
     m_Device = &device;
     m_CbSlots  = desc.cbuffer_slots;
     m_TexSlots = desc.texture_slots;
@@ -270,6 +286,7 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc
 
     m_Pso->CreateShaderResourceBinding(&m_Srb, true);
     if (!m_Srb) {
+        Reset();
         return ACS_ERR(Render, 153, "CreateShaderResourceBinding failed");
     }
 
@@ -290,6 +307,7 @@ const char* DiligentPipeline::UavName(u32 slot) const noexcept {
 
 TResult<void> DiligentPipeline::InitCompute(DiligentDevice& device,
                                             const FComputePipelineDesc& desc) noexcept {
+    Reset();
     m_Device    = &device;
     m_IsCompute = true;
     m_CbSlots   = desc.cbuffer_slots;
@@ -337,7 +355,10 @@ TResult<void> DiligentPipeline::InitCompute(DiligentDevice& device,
     dev->CreateComputePipelineState(psoCI, &m_Pso);
     if (!m_Pso) return ACS_ERR(Render, 158, "CreateComputePipelineState failed");
     m_Pso->CreateShaderResourceBinding(&m_Srb, true);
-    if (!m_Srb) return ACS_ERR(Render, 159, "CreateShaderResourceBinding(compute) failed");
+    if (!m_Srb) {
+        Reset();
+        return ACS_ERR(Render, 159, "CreateShaderResourceBinding(compute) failed");
+    }
     return Ok();
 }
 

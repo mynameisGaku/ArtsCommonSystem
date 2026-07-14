@@ -239,18 +239,34 @@ bool Input::IsGamepadConnected(u32 idx) noexcept {
 
 bool Input::IsGamepadButtonDown(u32 idx, EGamepadButton b) noexcept {
     if (idx >= 4 || !g_input.pad_connected[idx]) return false;
-    const WORD bit = kPadBits[(usize)b];
+    const usize button_index = static_cast<usize>(b);
+    if (button_index >= static_cast<usize>(EGamepadButton::_Count)) return false;
+    const WORD bit = kPadBits[button_index];
     if (bit == 0) return false;
     return (g_input.pad_now[idx].Gamepad.wButtons & bit) != 0;
 }
 
 bool Input::IsGamepadButtonPressed(u32 idx, EGamepadButton b) noexcept {
     if (idx >= 4 || !g_input.pad_connected[idx]) return false;
-    const WORD bit = kPadBits[(usize)b];
+    const usize button_index = static_cast<usize>(b);
+    if (button_index >= static_cast<usize>(EGamepadButton::_Count)) return false;
+    const WORD bit = kPadBits[button_index];
     if (bit == 0) return false;
     const bool now  = (g_input.pad_now[idx].Gamepad.wButtons  & bit) != 0;
     const bool prev = (g_input.pad_prev[idx].Gamepad.wButtons & bit) != 0;
     return now && !prev;
+}
+
+bool Input::IsGamepadButtonReleased(u32 idx, EGamepadButton b) noexcept
+{
+    if (idx >= 4) return false;
+    const usize button_index = static_cast<usize>(b);
+    if (button_index >= static_cast<usize>(EGamepadButton::_Count)) return false;
+    const WORD bit = kPadBits[button_index];
+    if (bit == 0) return false;
+    const bool now = (g_input.pad_now[idx].Gamepad.wButtons & bit) != 0;
+    const bool prev = (g_input.pad_prev[idx].Gamepad.wButtons & bit) != 0;
+    return !now && prev;
 }
 
 f32 Input::GamepadAxisValue(u32 idx, EGamepadAxis axis) noexcept {

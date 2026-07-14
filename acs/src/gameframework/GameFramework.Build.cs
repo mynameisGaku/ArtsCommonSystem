@@ -14,9 +14,14 @@ public sealed class GameFramework : AcsModule
         Type = ModuleType.Runtime;
         PublicDeps.AddRange(new[]
         {
-            "Foundation", "Memory", "Container", "Math", "Platform", "Render", "App",
-            "Imgui",   // editor panel が .cpp で ImGui を使うため
+            "Foundation", "Memory", "Container", "Threading", "Math", "Platform", "Render", "App",
         });
+
+        // tools/** は ImGui ベースのエディタ群なので、raw DX12 と一緒にだけ組み込む。
+        // Diligent 構成ではランタイム基盤を残し、DX12 専用 Imgui への依存を持ち込まない。
+        When("ACS_RENDER_DX12_RAW")
+            .SubdirSrc("tools")
+            .Dep("Imgui");
         // XAudio2Backend.cpp (xaudio2/ole32) と NetSnapshot.cpp の Winsock2 (ws2_32)。
         PublicLibs.AddRange(new[] { "xaudio2", "ole32", "ws2_32" });
     }

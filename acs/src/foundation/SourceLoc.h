@@ -78,6 +78,26 @@ public:
         return s;
     }
 
+    /**
+     * 外部ライブラリなどが渡すファイル・関数・行・列から位置情報を明示生成する。
+     *
+     * @details 文字列は FSourceLoc より長く生存する必要がある。デバッグ情報を持たない引数は空文字列または 0 でよい。
+     * @param file ソースファイルパス。
+     * @param function 関数名または外部ライブラリの割り当て説明。
+     * @param line 行番号。
+     * @param column 列番号。
+     * @return 指定値を保持する FSourceLoc。
+     */
+    static constexpr FSourceLoc Create(const char* file, const char* function, u32 line, u32 column = 0) noexcept
+    {
+        FSourceLoc location;
+        location.m_File = file ? file : "";
+        location.m_Func = function ? function : "";
+        location.m_Line = line;
+        location.m_Col = column;
+        return location;
+    }
+
 private:
     /** ソースファイルパス (既定は空文字列)。 */
     const char* m_File = "";

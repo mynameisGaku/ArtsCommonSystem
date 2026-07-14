@@ -43,6 +43,18 @@ void FInputMap::BindAxisKeys(ActionId action, EKey neg, EKey pos) noexcept {
     m_Bindings.PushBack(b);
 }
 
+/** ゲームパッドのアナログ軸 binding を倍率付きで末尾へ追加する。 */
+void FInputMap::BindGamepadAxis(ActionId action, EGamepadAxis axis, u32 player_index, f32 scale) noexcept
+{
+    Binding b;
+    b.action = action;
+    b.kind = BindKind::EGamepadAxis;
+    b.code = static_cast<u32>(axis);
+    b.player = player_index;
+    b.scale = scale;
+    m_Bindings.PushBack(b);
+}
+
 /** 指定アクションの binding を in-place の compaction で全削除する。 */
 void FInputMap::Unbind(ActionId action) noexcept {
     u32 w = 0;
@@ -75,6 +87,8 @@ bool FInputMap::IsPressed(ActionId action) const noexcept {
         case BindKind::EGamepadButton:
             if (Input::IsGamepadButtonPressed(b.player, static_cast<EGamepadButton>(b.code))) return true;
             break;
+        case BindKind::EGamepadAxis:
+            break;
         case BindKind::Axis1D:
             // axis は Pressed の概念なし (常に false)
             break;
@@ -98,6 +112,11 @@ bool FInputMap::IsHeld(ActionId action) const noexcept {
         case BindKind::EGamepadButton:
             if (Input::IsGamepadButtonDown(b.player, static_cast<EGamepadButton>(b.code))) return true;
             break;
+        case BindKind::EGamepadAxis: {
+            const f32 value = Input::GamepadAxisValue(b.player, static_cast<EGamepadAxis>(b.code)) * b.scale;
+            if (value < -0.0001f || value > 0.0001f) return true;
+            break;
+        }
         case BindKind::Axis1D:
             // axis は |Axis| > 0 で Held とみなす
             if (Input::IsKeyDown(static_cast<EKey>(b.code)) ||
@@ -121,7 +140,9 @@ bool FInputMap::IsReleased(ActionId action) const noexcept {
             if (Input::IsMouseButtonReleased(static_cast<EMouseButton>(b.code))) return true;
             break;
         case BindKind::EGamepadButton:
-            // GamepadButtonReleased が無いので Released は未対応 (always false)
+            if (Input::IsGamepadButtonReleased(b.player, static_cast<EGamepadButton>(b.code))) return true;
+            break;
+        case BindKind::EGamepadAxis:
             break;
         case BindKind::Axis1D:
             break;
@@ -136,12 +157,17 @@ f32 FInputMap::Axis(ActionId action) const noexcept {
     for (u32 i = 0; i < m_Bindings.Size(); ++i) {
         const Binding& b = m_Bindings[i];
         if (b.action != action) continue;
-        if (b.kind != BindKind::Axis1D) continue;
-        const bool n = Input::IsKeyDown(static_cast<EKey>(b.code));
-        const bool p = Input::IsKeyDown(static_cast<EKey>(b.code_pos));
-        // 両方押下は 0 (相殺)、片方なら ±1
-        if (n && !p) acc -= 1.0f;
-        else if (p && !n) acc += 1.0f;
+        if (b.kind == BindKind::Axis1D) {
+            const bool n = Input::IsKeyDown(static_cast<EKey>(b.code));
+            const bool p = Input::IsKeyDown(static_cast<EKey>(b.code_pos));
+            // 両方押下は 0 (相殺)、片方なら ±1
+            if (n && !p)
+                acc -= 1.0f;
+            else if (p && !n)
+                acc += 1.0f;
+        } else if (b.kind == BindKind::EGamepadAxis) {
+            acc += Input::GamepadAxisValue(b.player, static_cast<EGamepadAxis>(b.code)) * b.scale;
+        }
     }
     if (acc >  1.0f) acc =  1.0f;
     if (acc < -1.0f) acc = -1.0f;

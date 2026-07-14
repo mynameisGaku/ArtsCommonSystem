@@ -10,13 +10,40 @@ namespace acs {
 
 /** 永続マップを解除し GPU リソースを解放する。 */
 Dx12Buffer::~Dx12Buffer() noexcept {
+    Reset();
+}
+
+void Dx12Buffer::Reset() noexcept
+{
     if (m_Mapped && m_Resource) m_Resource->Unmap(0, nullptr);
+    m_Mapped = nullptr;
     ACS_SAFE_RELEASE(m_Resource);
+    m_Device = nullptr;
+    m_Size = 0;
+    m_SlotStride = 0;
+    m_Usage = EBufferUsage::Vertex;
+    m_bCpuWritable = false;
+    m_bFrameCycled = false;
 }
 
 /** desc に従って GPU バッファを確保し、必要なら永続マップして初期データを複製する。 */
 HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept {
     HrResult r{};
+    Reset();
+
+    if (!device.D3DDevice() || !device.GraphicsQueue() || desc.size == 0) {
+        r.hr = E_INVALIDARG;
+        return r;
+    }
+
+    // 256 バイト切り上げとフレーム数倍の計算を先に検証し、折り返した
+    // 小さいサイズで GPU リソースを作ってしまうことを防ぐ。
+    const usize max_size = static_cast<usize>(-1);
+    if (desc.cpu_writable && desc.size > max_size - 255u) {
+        r.hr = E_INVALIDARG;
+        return r;
+    }
+
     m_Device = &device;
     m_Size  = desc.size;
     m_Usage = desc.usage;
@@ -31,6 +58,11 @@ HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept 
     // 1 スロットあたりのストライド（最大の Uniform 要件 256B にアライン）
     if (m_bFrameCycled) {
         m_SlotStride = (desc.size + 255u) & ~static_cast<usize>(255u);
+        if (m_SlotStride > max_size / Dx12Device::kFramesInFlight) {
+            r.hr = E_INVALIDARG;
+            Reset();
+            return r;
+        }
     }
     const usize total_size = m_bFrameCycled
         ? m_SlotStride * Dx12Device::kFramesInFlight
@@ -65,13 +97,21 @@ HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept 
     r.hr = device.D3DDevice()->CreateCommittedResource(
         &hp, D3D12_HEAP_FLAG_NONE, &rd, init_state, nullptr,
         IID_PPV_ARGS(&m_Resource));
-    if (r.IsErr()) return r;
+    if (r.IsErr() || !m_Resource) {
+        if (r.IsOk()) r.hr = E_FAIL;
+        Reset();
+        return r;
+    }
 
     // CPU 書込み可なら永続マップしてポインタを保持
     if (desc.cpu_writable) {
         D3D12_RANGE read_range{ 0, 0 };  // 読まない
         r.hr = m_Resource->Map(0, &read_range, &m_Mapped);
-        if (r.IsErr()) return r;
+        if (r.IsErr() || !m_Mapped) {
+            if (r.IsOk()) r.hr = E_FAIL;
+            Reset();
+            return r;
+        }
     }
 
     // 初期データを全スロットに複製（フレームリング時は両スロットへ）
@@ -94,25 +134,68 @@ HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept 
         D3D12_HEAP_PROPERTIES uh{}; uh.Type = D3D12_HEAP_TYPE_UPLOAD;
         uh.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN; uh.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
         D3D12_RESOURCE_DESC urd = rd; urd.Width = static_cast<UINT64>(desc.size);
-        if (SUCCEEDED(device.D3DDevice()->CreateCommittedResource(&uh, D3D12_HEAP_FLAG_NONE, &urd,
-                          D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&staging))) && staging) {
-            void* sp = nullptr; D3D12_RANGE rr{ 0, 0 };
-            if (SUCCEEDED(staging->Map(0, &rr, &sp)) && sp) {
-                ::memcpy(sp, desc.initial_data, desc.size);
-                staging->Unmap(0, nullptr);
-            }
-            ID3D12CommandAllocator*    ca = nullptr;
-            ID3D12GraphicsCommandList* uc = nullptr;
-            if (SUCCEEDED(device.D3DDevice()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&ca))) &&
-                SUCCEEDED(device.D3DDevice()->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, ca, nullptr, IID_PPV_ARGS(&uc)))) {
-                // DEFAULT バッファは COMMON で作成済 → CopyBufferRegion で暗黙に COPY_DEST へ昇格、実行後 COMMON へ減衰。
-                uc->CopyBufferRegion(m_Resource, 0, staging, 0, desc.size);
-                uc->Close();
-                ID3D12CommandList* lists[] = { uc };
-                device.GraphicsQueue()->ExecuteCommandLists(1, lists);
-                device.WaitIdle();   // コピー完了を待ってから staging を解放
-            }
-            ACS_SAFE_RELEASE(uc); ACS_SAFE_RELEASE(ca); ACS_SAFE_RELEASE(staging);
+        r.hr = device.D3DDevice()->CreateCommittedResource(&uh, D3D12_HEAP_FLAG_NONE, &urd,
+                                                           D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                                           IID_PPV_ARGS(&staging));
+        if (r.IsErr() || !staging) {
+            if (r.IsOk()) r.hr = E_FAIL;
+            ACS_SAFE_RELEASE(staging);
+            Reset();
+            return r;
+        }
+
+        void* staging_data = nullptr;
+        D3D12_RANGE read_range{0, 0};
+        r.hr = staging->Map(0, &read_range, &staging_data);
+        if (r.IsErr() || !staging_data) {
+            if (r.IsOk()) r.hr = E_FAIL;
+            if (staging_data) staging->Unmap(0, nullptr);
+            ACS_SAFE_RELEASE(staging);
+            Reset();
+            return r;
+        }
+        ::memcpy(staging_data, desc.initial_data, desc.size);
+        staging->Unmap(0, nullptr);
+
+        ID3D12CommandAllocator* allocator = nullptr;
+        ID3D12GraphicsCommandList* command_list = nullptr;
+        r.hr = device.D3DDevice()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
+        if (r.IsErr()) {
+            ACS_SAFE_RELEASE(allocator);
+            ACS_SAFE_RELEASE(staging);
+            Reset();
+            return r;
+        }
+        r.hr = device.D3DDevice()->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr,
+                                                     IID_PPV_ARGS(&command_list));
+        if (r.IsErr()) {
+            ACS_SAFE_RELEASE(command_list);
+            ACS_SAFE_RELEASE(allocator);
+            ACS_SAFE_RELEASE(staging);
+            Reset();
+            return r;
+        }
+
+        // DEFAULT バッファは COMMON で作成済み。コピー時の暗黙昇格と
+        // コマンド完了後の減衰を使い、ステージング解放前に fence を待つ。
+        command_list->CopyBufferRegion(m_Resource, 0, staging, 0, desc.size);
+        r.hr = command_list->Close();
+        if (r.IsOk()) {
+            ID3D12CommandList* lists[] = {command_list};
+            device.GraphicsQueue()->ExecuteCommandLists(1, lists);
+            const u64 fence_value = device.SignalGraphicsQueue();
+            if (fence_value == 0)
+                r.hr = E_FAIL;
+            else
+                device.WaitForFenceValue(fence_value);
+        }
+
+        ACS_SAFE_RELEASE(command_list);
+        ACS_SAFE_RELEASE(allocator);
+        ACS_SAFE_RELEASE(staging);
+        if (r.IsErr()) {
+            Reset();
+            return r;
         }
     }
     return r;
@@ -121,7 +204,7 @@ HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept 
 /** 現在フレームスロットの領域へ CPU からデータを書き込む。 */
 void Dx12Buffer::Update(const void* data, usize size, usize offset) noexcept {
     if (!m_Mapped || !data) return;
-    if (offset + size > m_Size) return;
+    if (offset > m_Size || size > m_Size - offset) return;
     u8* base = static_cast<u8*>(m_Mapped);
     if (m_bFrameCycled) {
         const u32 slot = m_Device ? m_Device->CurrentFrameSlot() : 0;

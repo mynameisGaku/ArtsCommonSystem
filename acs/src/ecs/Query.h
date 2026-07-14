@@ -36,7 +36,9 @@ public:
      *
      * @param w 走査対象の World (参照を保持)。
      */
-    explicit QueryView(World& w) noexcept : m_World(w) {}
+    explicit QueryView(World& w) noexcept : m_World(w)
+    {
+    }
 
     /**
      * 全 Comps を持つ各エンティティにラムダを呼ぶ (逐次)。
@@ -49,7 +51,8 @@ public:
      * @param fn 各エンティティに適用するラムダ (値で受け取る)。
      */
     template<typename Fn>
-    void Each(Fn fn) noexcept {
+    void Each(Fn fn) noexcept
+    {
         SparseSetBase* primary = nullptr;
         if (!ResolvePrimary(primary)) return;
         const usize count = primary->Size();
@@ -61,7 +64,8 @@ public:
         TArray<u32> snapshot;
         snapshot.Resize(count);
         const u32* dense = primary->DenseEntities();
-        for (usize i = 0; i < count; ++i) snapshot[i] = dense[i];
+        for (usize i = 0; i < count; ++i)
+            snapshot[i] = dense[i];
 
         for (usize i = 0; i < count; ++i) {
             const EntityId e = m_World.MakeIdFromIndex(snapshot[i]);
@@ -84,7 +88,8 @@ public:
      *              相対的に増える。1024 前後が経験的に良いバランス)。
      */
     template<typename Fn>
-    void EachParallel(Fn fn, u32 grain = 1024) noexcept {
+    void EachParallel(Fn fn, u32 grain = 1024) noexcept
+    {
         SparseSetBase* primary = nullptr;
         if (!ResolvePrimary(primary)) return;
         const u32 count = static_cast<u32>(primary->Size());
@@ -96,17 +101,18 @@ public:
         snapshot.Resize(count);
         {
             const u32* dense = primary->DenseEntities();
-            for (u32 i = 0; i < count; ++i) snapshot[i] = dense[i];
+            for (u32 i = 0; i < count; ++i)
+                snapshot[i] = dense[i];
         }
 
         // FThreadPool::ParallelFor は stateless 関数ポインタしか受け取れないので
         // ctx を user data に乗せ、thunk で QueryView の処理に戻す。
         struct Ctx {
-            QueryView*  self;
-            Fn*         fn;
-            const u32*  dense;
+            QueryView* self;
+            Fn* fn;
+            const u32* dense;
         };
-        Ctx ctx{ this, &fn, snapshot.Data() };
+        Ctx ctx{this, &fn, snapshot.Data()};
 
         auto thunk = [](u32 i, u32 /*worker*/, void* user) {
             auto* c = static_cast<Ctx*>(user);
@@ -118,7 +124,7 @@ public:
         };
 
         // ParallelFor は完了まで block する (内部で Wait)。
-        FThreadPool::ParallelFor(0, count, grain, +thunk, &ctx);
+        (void)FThreadPool::ParallelFor(0, count, grain, +thunk, &ctx);
     }
 
 private:
@@ -130,9 +136,9 @@ private:
      * @param out_primary 選んだ主軸 SparseSet を書き戻す出力先。
      * @return 全コンポーネントが揃って主軸を選べたら true。
      */
-    bool ResolvePrimary(SparseSetBase*& out_primary) noexcept {
-        SparseSetBase* sets[sizeof...(Comps)] = {
-            static_cast<SparseSetBase*>(m_World.template TryGetSet<Comps>())... };
+    bool ResolvePrimary(SparseSetBase*& out_primary) noexcept
+    {
+        SparseSetBase* sets[sizeof...(Comps)] = {static_cast<SparseSetBase*>(m_World.template TryGetSet<Comps>())...};
         for (usize i = 0; i < sizeof...(Comps); ++i) {
             if (!sets[i]) return false;
         }
@@ -150,7 +156,8 @@ private:
      * @param e 判定するエンティティ。
      * @return 全コンポーネントを持っていれば true。
      */
-    bool AllPresent(EntityId e) noexcept {
+    bool AllPresent(EntityId e) noexcept
+    {
         bool all = true;
         ((all = all && (m_World.template Get<Comps>(e) != nullptr)), ...);
         return all;
@@ -164,7 +171,8 @@ private:
      * @param e 対象エンティティ。
      */
     template<typename Fn>
-    void InvokeWith(Fn fn, EntityId e) noexcept {
+    void InvokeWith(Fn fn, EntityId e) noexcept
+    {
         fn(e, *m_World.template Get<Comps>(e)...);
     }
 
@@ -179,7 +187,8 @@ private:
  * @return この World を束ねた QueryView<Comps...>。
  */
 template<typename... Comps>
-auto World::Query() noexcept {
+auto World::Query() noexcept
+{
     return QueryView<Comps...>(*this);
 }
 

@@ -50,6 +50,13 @@ public:
     /** 空の Null 値を構築する (特殊メンバは再帰所有のため .cpp で定義)。 */
     FJsonValue() noexcept;
 
+    /**
+     * 指定 allocator を使う空の Null 値を構築する。
+     *
+     * @param allocator 文字列と子配列の確保に使う allocator。
+     */
+    explicit FJsonValue(FAllocator& allocator) noexcept;
+
     /** 子要素ごと破棄する。 */
     ~FJsonValue() noexcept;
 

@@ -80,7 +80,15 @@ using CommandFn = void(*)(void* user, u32 argc, const ConsoleArg* args) noexcept
 class FDevConsole {
 public:
     /** 空状態で構築する。 */
-    FDevConsole() noexcept = default;
+    FDevConsole() noexcept : FDevConsole(DefaultAllocator())
+    {
+    }
+
+    /** 履歴・ログ・内部配列の確保元を明示して構築する。 */
+    explicit FDevConsole(FAllocator& allocator) noexcept
+        : m_Allocator(&allocator), m_Commands(allocator), m_History(allocator), m_Log(allocator)
+    {
+    }
 
     /** 履歴 / ログのヒープバッファを Free して破棄する。 */
     ~FDevConsole() noexcept;
@@ -227,14 +235,14 @@ private:
      * @param src 複製元 (nullptr は nullptr を返す)。
      * @return 複製した文字列。確保失敗時は nullptr。
      */
-    static const char* DupString(const char* src) noexcept;
+    const char* DupString(const char* src) noexcept;
 
     /**
      * DupString で確保した文字列を Free する。
      *
      * @param s 解放する文字列 (nullptr 安全)。
      */
-    static void FreeString(const char* s) noexcept;
+    void FreeString(const char* s) noexcept;
 
     /**
      * line を複製して buf 末尾に push する (cap 到達時は最古を drop)。
@@ -244,14 +252,17 @@ private:
      * @param buf 追加先のバッファ。
      * @param line 追加する文字列。
      */
-    static void PushLine(TArray<const char*>& buf, const char* line) noexcept;
+    void PushLine(TArray<const char*>& buf, const char* line) noexcept;
 
     /**
      * buf の全エントリを Free して Clear する。
      *
      * @param buf クリアするバッファ。
      */
-    static void ClearLines(TArray<const char*>& buf) noexcept;
+    void ClearLines(TArray<const char*>& buf) noexcept;
+
+    /** 文字列と内部配列を確保するアロケータ。 */
+    FAllocator* m_Allocator = nullptr;
 
     /** 登録済みコマンド列。 */
     TArray<Command>     m_Commands;

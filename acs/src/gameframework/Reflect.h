@@ -135,13 +135,61 @@ constexpr FTypeId AcsTypeHash(const char* s) noexcept {
     return h;
 }
 
-/** 型 T を default 構築して void* で返す (不可なら nullptr)。エンジンアロケータで確保する。 */
+namespace reflect_internal {
+
+/** 反射 factory が生成時の確保元をオブジェクト末尾に保持する内部ヘッダ。 */
+struct FFactoryAllocationHeader {
+    /** 生成時に使ったアロケータ。 */
+    FAllocator* allocator = nullptr;
+
+    /** allocator::Alloc が返した、解放時に渡す元ポインタ。 */
+    void* allocation = nullptr;
+};
+
+} // namespace reflect_internal
+
+/**
+ * 型 T を default 構築して void* で返す (不可なら nullptr)。
+ *
+ * @details 生成時のアロケータをオブジェクト末尾の内部ヘッダへ保存するため、Create と
+ * Destroy の間に DefaultAllocator が切り替わっても、必ず元の確保元へ返せる。
+ * オブジェクト自体は確保領域の先頭に置くため、生成直後にアロケータを記録する既存の
+ * TUniquePtr 所有経路とも互換性を保つ。
+ */
 template<class T> inline void* AcsConstruct() noexcept {
-    if constexpr (__is_constructible(T)) return New<T>(DefaultAllocator());
-    else                                 return nullptr;
+    if constexpr (!__is_constructible(T)) {
+        return nullptr;
+    } else {
+        using Header = reflect_internal::FFactoryAllocationHeader;
+        constexpr usize allocation_alignment = alignof(T) > alignof(Header) ? alignof(T) : alignof(Header);
+        constexpr usize header_offset = (sizeof(T) + alignof(Header) - 1u) & ~(alignof(Header) - 1u);
+        constexpr usize allocation_size = header_offset + sizeof(Header);
+
+        FAllocator& allocator = DefaultAllocator();
+        void* const allocation = allocator.Alloc(allocation_size, allocation_alignment, FSourceLoc::Current());
+        if (allocation == nullptr) return nullptr;
+
+        auto* const header = reinterpret_cast<Header*>(reinterpret_cast<byte*>(allocation) + header_offset);
+        header->allocator = &allocator;
+        header->allocation = allocation;
+        return ::new (allocation) T();
+    }
 }
-/** 型 T のインスタンスを破棄する (AcsConstruct と同じエンジンアロケータで解放)。 */
-template<class T> inline void AcsDestruct(void* p) noexcept { Delete(DefaultAllocator(), static_cast<T*>(p)); }
+
+/** 型 T のインスタンスを破棄し、AcsConstruct が記録した生成時アロケータへ返す。 */
+template<class T>
+inline void AcsDestruct(void* p) noexcept
+{
+    if (p == nullptr) return;
+    using Header = reflect_internal::FFactoryAllocationHeader;
+    auto* const object = static_cast<T*>(p);
+    constexpr usize header_offset = (sizeof(T) + alignof(Header) - 1u) & ~(alignof(Header) - 1u);
+    auto* const header = reinterpret_cast<Header*>(reinterpret_cast<byte*>(object) + header_offset);
+    FAllocator* const allocator = header->allocator;
+    void* const allocation = header->allocation;
+    if constexpr (!IsTriviallyDestructibleV<T>) object->~T();
+    allocator->Free(allocation);
+}
 
 /** 型 T の既定トレイト (構築可否で Instantiable/Abstract を決める)。 */
 template<class T> constexpr u32 AcsAutoTraits() noexcept {
@@ -168,12 +216,26 @@ public:
     static FTypeRegistry& Get() noexcept;
 
     /**
-     * 型を登録する (ACS_REFLECT* の自動登録から呼ばれる。同 ID は無視)。
+     * 型を登録する (ACS_REFLECT* の自動登録から呼ばれる)。
+     *
+     * @details 同じ ID の別記述子も登録元として保持する。先に登録された記述子を検索結果に
+     * 使い、その登録解除後は次の記述子へ切り替える。複数エディタホストが同じユーザー型を
+     * 保持するときも、一方の破棄で他方の記述子を失わない。
      *
      * @param d 登録する型記述 (静的寿命、非所有)。
      * @return 登録 (または既存) なら true、上限到達で false。
      */
     bool Register(const FTypeDesc* d) noexcept;
+
+    /**
+     * 指定した型記述子の登録だけを解除する。
+     *
+     * @details ID ではなくポインタ一致で解除する。同じ ID の別記述子が残っていれば検索結果を
+     * その記述子へ切り替え、最後の登録元なら型自体を列挙対象から除く。
+     * @param descriptor 解除する型記述子。nullptr は失敗。
+     * @return 登録されていた記述子を解除したなら true。
+     */
+    bool Unregister(const FTypeDesc* descriptor) noexcept;
 
     /** 登録型数。 */
     u32 Count() const noexcept { return m_Count; }
@@ -203,14 +265,35 @@ public:
     void Destroy(FTypeId id, void* obj) const noexcept;
 
 private:
+    /** 同じ型 ID に保持できる独立した記述子の上限。 */
+    static constexpr u32 kMaxSourcesPerType = 8u;
+
     FTypeRegistry() noexcept = default;
     const FTypeDesc* m_Types[kMax] = {};
+    const FTypeDesc* m_Sources[kMax][kMaxSourcesPerType] = {};
+    u8 m_SourceCounts[kMax] = {};
     u32              m_Count       = 0u;
 };
 
-/** ACS_REFLECT* が生成する自動登録ヘルパ (静的初期化時に Register を呼ぶ)。 */
+/** ACS_REFLECT* が生成する自動登録ヘルパ。登録元の寿命終了時に同じ記述子だけを解除する。 */
 struct FTypeAutoRegister {
-    explicit FTypeAutoRegister(const FTypeDesc* d) noexcept { FTypeRegistry::Get().Register(d); }
+    explicit FTypeAutoRegister(const FTypeDesc* descriptor) noexcept : m_Descriptor(descriptor)
+    {
+        FTypeRegistry::Get().Register(m_Descriptor);
+    }
+
+    ~FTypeAutoRegister() noexcept
+    {
+        if (m_Descriptor != nullptr) {
+            (void)FTypeRegistry::Get().Unregister(m_Descriptor);
+        }
+    }
+
+    FTypeAutoRegister(const FTypeAutoRegister&) = delete;
+    FTypeAutoRegister& operator=(const FTypeAutoRegister&) = delete;
+
+private:
+    const FTypeDesc* m_Descriptor = nullptr;
 };
 
 /** 型 T の FTypeDesc を返す (ACS_REFLECT* が特殊化する。未反射型は nullptr)。 */

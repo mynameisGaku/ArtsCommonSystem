@@ -39,12 +39,32 @@
             "displayName": "Diligent Engine — Release",
             "binaryDir": "${sourceDir}/cmake-build-diligent-release",
             "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+        },
+        {
+            "name": "diligent-address-sanitizer",
+            "inherits": "diligent-debug",
+            "displayName": "Diligent Engine — AddressSanitizer",
+            "description": "ACS と Diligent を MSVC AddressSanitizer で計装する診断専用ビルド。",
+            "binaryDir": "${sourceDir}/../Intermediate/address-sanitizer-diligent",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "ACS_LAYOUT_ROOT": "${sourceDir}/../Intermediate/address-sanitizer-diligent/layout",
+                "ACS_ENABLE_ADDRESS_SANITIZER": "ON",
+                "ACS_RENDER_DX12_RAW": "ON",
+                "ACS_BUILD_SAMPLES": "OFF",
+                "ACS_BUILD_TOOLS": "OFF"
+            }
         }
     ],
     "buildPresets": [
         { "name": "dx12-debug",       "configurePreset": "dx12-debug" },
         { "name": "dx12-release",     "configurePreset": "dx12-release" },
         { "name": "diligent-debug",   "configurePreset": "diligent-debug" },
-        { "name": "diligent-release", "configurePreset": "diligent-release" }
+        { "name": "diligent-release", "configurePreset": "diligent-release" },
+        {
+            "name": "diligent-address-sanitizer",
+            "configurePreset": "diligent-address-sanitizer",
+            "targets": [ "acs_unit_tests" ]
+        }
     ]
 }

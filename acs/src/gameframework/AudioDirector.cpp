@@ -10,7 +10,9 @@
 #include "asset/AudioAsset.h"
 #include "memory/SharedPtr.h"
 
-#define WIN32_LEAN_AND_MEAN
+#ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 
 namespace acs::game {
@@ -23,9 +25,13 @@ namespace {
  * @param b 比較対象の文字列 2。
  * @return 内容一致なら true。どちらかが nullptr なら false。
  */
-bool StrEq(const char* a, const char* b) noexcept {
+bool StrEq(const char* a, const char* b) noexcept
+{
     if (a == nullptr || b == nullptr) return false;
-    while (*a != '\0' && *a == *b) { ++a; ++b; }
+    while (*a != '\0' && *a == *b) {
+        ++a;
+        ++b;
+    }
     return *a == *b;
 }
 
@@ -41,8 +47,8 @@ bool StrEq(const char* a, const char* b) noexcept {
  * @param keep ロードした asset を保持して生存させる出力先。
  * @return 成功なら true。registry 未設定 / 非音声 / load 失敗は false。
  */
-bool ResolveAudioClip(FAssetRegistry* reg, const char* name,
-                      AudioClipDesc& out, TSharedPtr<Asset>& keep) noexcept {
+bool ResolveAudioClip(FAssetRegistry* reg, const char* name, AudioClipDesc& out, TSharedPtr<Asset>& keep) noexcept
+{
     if (reg == nullptr || name == nullptr) return false;
     wchar_t wpath[260];
     if (::MultiByteToWideChar(CP_UTF8, 0, name, -1, wpath, 260) <= 0) return false;
@@ -52,31 +58,33 @@ bool ResolveAudioClip(FAssetRegistry* reg, const char* name,
     Asset* a = keep.Get();
     if (a == nullptr || a->Type() != FAudioAsset::StaticType()) return false;
     const FAudioAsset* audio = static_cast<const FAudioAsset*>(a);
-    out.pcm_data      = audio->Samples();
-    out.pcm_size      = audio->SampleByteCount();
-    out.sample_rate   = audio->SampleRate();
+    out.pcm_data = audio->Samples();
+    out.pcm_size = audio->SampleByteCount();
+    out.sample_rate = audio->SampleRate();
     out.channel_count = audio->Channels();
-    out.format        = (audio->EFormat() == ESampleFormat::PCM_S16)
-                        ? EAudioFormat::Pcm16 : EAudioFormat::Pcm32Float;
+    out.format = (audio->EFormat() == ESampleFormat::PCM_S16) ? EAudioFormat::Pcm16 : EAudioFormat::Pcm32Float;
     return true;
 }
 } // namespace
 
 /** 値を [0, 1] にクランプする。 */
-f32 FAudioDirector::Clamp01(f32 v) noexcept {
+f32 FAudioDirector::Clamp01(f32 v) noexcept
+{
     if (v < 0.0f) return 0.0f;
     if (v > 1.0f) return 1.0f;
     return v;
 }
 
 /** SFX ring を固定容量で予約して構築する。 */
-FAudioDirector::FAudioDirector() noexcept {
+FAudioDirector::FAudioDirector() noexcept
+{
     // SFX ring を固定容量で予約。Resize で SfxEntry をデフォルト構築 (active=false)。
     m_Sfx.Resize(kMaxSfxVoices);
 }
 
 /** Master ボリュームを clamp して設定する (backend には Tick で voice 単位反映)。 */
-void FAudioDirector::SetMasterVolume(f32 v) noexcept {
+void FAudioDirector::SetMasterVolume(f32 v) noexcept
+{
     const f32 c = Clamp01(v);
     if (c != v) {
         ACS_LOG_WARN("FAudioDirector::SetMasterVolume: out-of-range %.3f → clamped to %.3f", v, c);
@@ -90,7 +98,8 @@ void FAudioDirector::SetMasterVolume(f32 v) noexcept {
 }
 
 /** BGM バスのボリュームを clamp して設定する。 */
-void FAudioDirector::SetBgmVolume(f32 v) noexcept {
+void FAudioDirector::SetBgmVolume(f32 v) noexcept
+{
     const f32 c = Clamp01(v);
     if (c != v) {
         ACS_LOG_WARN("FAudioDirector::SetBgmVolume: out-of-range %.3f → clamped to %.3f", v, c);
@@ -99,7 +108,8 @@ void FAudioDirector::SetBgmVolume(f32 v) noexcept {
 }
 
 /** SFX バスのボリュームを clamp して設定する。 */
-void FAudioDirector::SetSfxVolume(f32 v) noexcept {
+void FAudioDirector::SetSfxVolume(f32 v) noexcept
+{
     const f32 c = Clamp01(v);
     if (c != v) {
         ACS_LOG_WARN("FAudioDirector::SetSfxVolume: out-of-range %.3f → clamped to %.3f", v, c);
@@ -108,7 +118,8 @@ void FAudioDirector::SetSfxVolume(f32 v) noexcept {
 }
 
 /** BGM をクロスフェード再生する (backend+registry があれば実音、無ければ state-only)。 */
-void FAudioDirector::PlayBgm(const char* name, f32 fade_in_sec, bool loop) noexcept {
+void FAudioDirector::PlayBgm(const char* name, f32 fade_in_sec, bool loop) noexcept
+{
     if (name == nullptr) {
         ACS_LOG_WARN("FAudioDirector::PlayBgm: name=nullptr → ignored");
         return;
@@ -120,7 +131,8 @@ void FAudioDirector::PlayBgm(const char* name, f32 fade_in_sec, bool loop) noexc
 
     // 実 backend + registry があれば name(=asset path) → clip を解決して実音再生する。
     if (m_Backend != nullptr && m_Registry != nullptr) {
-        AudioClipDesc clip; TSharedPtr<Asset> keep;
+        AudioClipDesc clip;
+        TSharedPtr<Asset> keep;
         if (ResolveAudioClip(m_Registry, name, clip, keep)) {
             const AudioVoiceHandle h = PlayBgmClip(clip, fade_in_sec, loop);
             if (h.IsValid()) {
@@ -150,33 +162,34 @@ void FAudioDirector::PlayBgm(const char* name, f32 fade_in_sec, bool loop) noexc
         if (m_Backend != nullptr && m_Bgm[0].voice.IsValid()) {
             m_Backend->StopVoice(m_Bgm[0].voice);
         }
-        m_Bgm[0].name         = name;
-        m_Bgm[0].gain         = 1.0f;
-        m_Bgm[0].target       = 1.0f;
+        m_Bgm[0].name = name;
+        m_Bgm[0].gain = 1.0f;
+        m_Bgm[0].target = 1.0f;
         m_Bgm[0].fade_per_sec = 0.0f;
-        m_Bgm[0].loop         = loop;
-        m_Bgm[0].active       = true;
-        m_Bgm[0].voice        = kInvalidAudioVoice;  // 名前ベースは voice 未紐付
-        m_Bgm[1]              = FBgmSlot{};
+        m_Bgm[0].loop = loop;
+        m_Bgm[0].active = true;
+        m_Bgm[0].voice = kInvalidAudioVoice; // 名前ベースは voice 未紐付
+        m_Bgm[1] = FBgmSlot{};
         return;
     }
 
     // クロスフェード開始: current は fade out、new は fade in。
     if (m_Bgm[0].active) {
-        m_Bgm[0].target       = 0.0f;
-        m_Bgm[0].fade_per_sec = m_Bgm[0].gain / fade_in_sec;  // 現在 gain から 0 まで
+        m_Bgm[0].target = 0.0f;
+        m_Bgm[0].fade_per_sec = m_Bgm[0].gain / fade_in_sec; // 現在 gain から 0 まで
     }
-    m_Bgm[1].name         = name;
-    m_Bgm[1].gain         = 0.0f;
-    m_Bgm[1].target       = 1.0f;
+    m_Bgm[1].name = name;
+    m_Bgm[1].gain = 0.0f;
+    m_Bgm[1].target = 1.0f;
     m_Bgm[1].fade_per_sec = 1.0f / fade_in_sec;
-    m_Bgm[1].loop         = loop;
-    m_Bgm[1].active       = true;
-    m_Bgm[1].voice        = kInvalidAudioVoice;  // 名前ベースは voice 未紐付
+    m_Bgm[1].loop = loop;
+    m_Bgm[1].active = true;
+    m_Bgm[1].voice = kInvalidAudioVoice; // 名前ベースは voice 未紐付
 }
 
 /** 再生中の BGM を fade out して停止する (<= 0 で即時)。 */
-void FAudioDirector::StopBgm(f32 fade_out_sec) noexcept {
+void FAudioDirector::StopBgm(f32 fade_out_sec) noexcept
+{
     if (!m_Bgm[0].active && !m_Bgm[1].active) return;
 
     if (fade_out_sec <= 0.0f) {
@@ -187,13 +200,14 @@ void FAudioDirector::StopBgm(f32 fade_out_sec) noexcept {
     // 現行 + 遷移中ともに fade out。
     for (u32 i = 0; i < 2; ++i) {
         if (!m_Bgm[i].active) continue;
-        m_Bgm[i].target       = 0.0f;
+        m_Bgm[i].target = 0.0f;
         m_Bgm[i].fade_per_sec = m_Bgm[i].gain / fade_out_sec;
     }
 }
 
 /** SFX one-shot を再生する (実音再生 or state ring へ、満杯は最古を上書き)。 */
-void FAudioDirector::PlaySfx(const char* name, f32 volume_scale) noexcept {
+void FAudioDirector::PlaySfx(const char* name, f32 volume_scale) noexcept
+{
     if (name == nullptr) {
         ACS_LOG_WARN("FAudioDirector::PlaySfx: name=nullptr → ignored");
         return;
@@ -206,7 +220,8 @@ void FAudioDirector::PlaySfx(const char* name, f32 volume_scale) noexcept {
     // 実 backend + registry があれば name(=asset path) → clip を解決して実音再生する。
     // backend が voice を管理するので、成功時は state ring に積まない。
     if (m_Backend != nullptr && m_Registry != nullptr) {
-        AudioClipDesc clip; TSharedPtr<Asset> keep;
+        AudioClipDesc clip;
+        TSharedPtr<Asset> keep;
         if (ResolveAudioClip(m_Registry, name, clip, keep)) {
             PlaySfxClip(clip, volume_scale, 1.0f);
             return;
@@ -217,20 +232,24 @@ void FAudioDirector::PlaySfx(const char* name, f32 volume_scale) noexcept {
     // 空きを探す。なければ ring 先頭 (= 最古) を上書き。
     u32 slot = kMaxSfxVoices;
     for (u32 i = 0; i < kMaxSfxVoices; ++i) {
-        if (!m_Sfx[i].active) { slot = i; break; }
+        if (!m_Sfx[i].active) {
+            slot = i;
+            break;
+        }
     }
     if (slot == kMaxSfxVoices) {
         slot = m_SfxHead;
         m_SfxHead = (m_SfxHead + 1u) % kMaxSfxVoices;
         ACS_LOG_WARN("FAudioDirector::PlaySfx: ring full → overwriting slot %u", slot);
     }
-    m_Sfx[slot].name         = name;
+    m_Sfx[slot].name = name;
     m_Sfx[slot].volume_scale = volume_scale;
-    m_Sfx[slot].active       = true;
+    m_Sfx[slot].active = true;
 }
 
 /** ダッキング state を設定する (既存を上書き、depth>=0.999 は実質 no-op)。 */
-void FAudioDirector::Duck(f32 duration_sec, f32 depth) noexcept {
+void FAudioDirector::Duck(f32 duration_sec, f32 depth) noexcept
+{
     if (duration_sec <= 0.0f) {
         ACS_LOG_WARN("FAudioDirector::Duck: duration_sec=%.3f <= 0 → ignored", duration_sec);
         return;
@@ -242,14 +261,15 @@ void FAudioDirector::Duck(f32 duration_sec, f32 depth) noexcept {
         return;
     }
     // 既存 Duck を上書き (スタックしない設計)。
-    m_bDuckActive     = true;
-    m_DuckDepth      = clamped_depth;
-    m_DuckTotal      = duration_sec + 2.0f * kDuckFadeWindow;
-    m_DuckRemaining  = m_DuckTotal;
+    m_bDuckActive = true;
+    m_DuckDepth = clamped_depth;
+    m_DuckTotal = duration_sec + 2.0f * kDuckFadeWindow;
+    m_DuckRemaining = m_DuckTotal;
 }
 
 /** 現在の duck timer から BGM に掛けるゲイン係数 (fade in/hold/fade out) を計算する。 */
-f32 FAudioDirector::ComputeDuckEnvelope() const noexcept {
+f32 FAudioDirector::ComputeDuckEnvelope() const noexcept
+{
     if (!m_bDuckActive) return 1.0f;
     // m_DuckRemaining は m_DuckTotal から減っていく。
     //   [total .. total - fade_window]                = fade in  (1.0 → depth)
@@ -257,19 +277,20 @@ f32 FAudioDirector::ComputeDuckEnvelope() const noexcept {
     //   [fade_window .. 0]                            = fade out (depth → 1.0)
     const f32 elapsed = m_DuckTotal - m_DuckRemaining;
     if (elapsed < kDuckFadeWindow) {
-        const f32 t = elapsed / kDuckFadeWindow;  // 0..1
+        const f32 t = elapsed / kDuckFadeWindow; // 0..1
         return 1.0f + (m_DuckDepth - 1.0f) * t;
     }
     const f32 remain_for_out = m_DuckRemaining;
     if (remain_for_out < kDuckFadeWindow) {
-        const f32 t = remain_for_out / kDuckFadeWindow;  // 1..0 (残り少→0)
+        const f32 t = remain_for_out / kDuckFadeWindow; // 1..0 (残り少→0)
         return m_DuckDepth + (1.0f - m_DuckDepth) * (1.0f - t);
     }
     return m_DuckDepth;
 }
 
 /** 一時停止フラグを立てる (state-only。backend は鳴り続ける可能性あり)。 */
-void FAudioDirector::Pause() noexcept {
+void FAudioDirector::Pause() noexcept
+{
     if (m_Paused) return;
     m_Paused = true;
     // backend に Pause API は無いので「全 BGM voice の volume を 0 に落とす」で
@@ -281,13 +302,15 @@ void FAudioDirector::Pause() noexcept {
 }
 
 /** 一時停止を解除する。 */
-void FAudioDirector::Resume() noexcept {
+void FAudioDirector::Resume() noexcept
+{
     if (!m_Paused) return;
     m_Paused = false;
 }
 
 /** 全 voice を実停止して BGM/SFX/duck state をリセットする (volume バスは保持)。 */
-void FAudioDirector::StopAll() noexcept {
+void FAudioDirector::StopAll() noexcept
+{
     // backend が居れば全 voice を実停止 (clip 再生のもの含む)。
     if (m_Backend != nullptr) {
         m_Backend->StopAllVoices();
@@ -297,14 +320,15 @@ void FAudioDirector::StopAll() noexcept {
     for (u32 i = 0; i < kMaxSfxVoices; ++i) {
         m_Sfx[i] = SfxEntry{};
     }
-    m_SfxHead        = 0;
-    m_bDuckActive     = false;
-    m_DuckRemaining  = 0.0f;
-    m_DuckTotal      = 0.0f;
+    m_SfxHead = 0;
+    m_bDuckActive = false;
+    m_DuckRemaining = 0.0f;
+    m_DuckTotal = 0.0f;
 }
 
 /** クロスフェード / swap / ダッキング timer を進め、BGM voice の実 volume を反映する。 */
-void FAudioDirector::Tick(f32 dt) noexcept {
+void FAudioDirector::Tick(f32 dt) noexcept
+{
     // backend tick は pause 中でも呼ぶ (完了 voice の slot 回収を止めると
     // 復帰時に古い voice が残るため)。
     if (m_Backend != nullptr) {
@@ -348,7 +372,7 @@ void FAudioDirector::Tick(f32 dt) noexcept {
     if (m_bDuckActive) {
         m_DuckRemaining -= dt;
         if (m_DuckRemaining <= 0.0f) {
-            m_bDuckActive    = false;
+            m_bDuckActive = false;
             m_DuckRemaining = 0.0f;
         }
     }
@@ -369,7 +393,8 @@ void FAudioDirector::Tick(f32 dt) noexcept {
 }
 
 /** master*bgm*duck に current+next の gain 合計を掛けた合成 BGM volume を返す。 */
-f32 FAudioDirector::EffectiveBgmVolume() const noexcept {
+f32 FAudioDirector::EffectiveBgmVolume() const noexcept
+{
     if (m_Paused) return 0.0f;
     // 現行 + 遷移中の bgm ゲイン合計 (クロスフェード中は 0..1+0..1 だが
     // 概ね 1.0 を保つように fade_per_sec が組まれている)。
@@ -378,15 +403,15 @@ f32 FAudioDirector::EffectiveBgmVolume() const noexcept {
 }
 
 /** master*sfx の合成 SFX volume を返す (Pause 中は 0)。 */
-f32 FAudioDirector::EffectiveSfxVolume() const noexcept {
+f32 FAudioDirector::EffectiveSfxVolume() const noexcept
+{
     if (m_Paused) return 0.0f;
     return m_MasterVolume * m_SfxVolume;
 }
 
 /** PCM clip を backend で BGM 再生し、fade/loop に応じて slot state を更新する。 */
-AudioVoiceHandle FAudioDirector::PlayBgmClip(const AudioClipDesc& clip,
-                                            f32 fade_in_sec,
-                                            bool loop) noexcept {
+AudioVoiceHandle FAudioDirector::PlayBgmClip(const AudioClipDesc& clip, f32 fade_in_sec, bool loop) noexcept
+{
     if (m_Backend == nullptr) {
         // backend 未設定: state 更新もスキップ (clip API は backend 必須の契約)。
         return kInvalidAudioVoice;
@@ -419,28 +444,28 @@ AudioVoiceHandle FAudioDirector::PlayBgmClip(const AudioClipDesc& clip,
         if (fade_in_sec <= 0.0f) {
             // 即時切替: slot[0] = 新 voice、gain=1。
             if (m_Bgm[0].voice.IsValid()) m_Backend->StopVoice(m_Bgm[0].voice);
-            m_Bgm[0]              = FBgmSlot{};
-            m_Bgm[0].gain         = 1.0f;
-            m_Bgm[0].target       = 1.0f;
+            m_Bgm[0] = FBgmSlot{};
+            m_Bgm[0].gain = 1.0f;
+            m_Bgm[0].target = 1.0f;
             m_Bgm[0].fade_per_sec = 0.0f;
-            m_Bgm[0].loop         = false;
-            m_Bgm[0].active       = true;
-            m_Bgm[0].voice        = one;
-            m_Bgm[1]              = FBgmSlot{};
+            m_Bgm[0].loop = false;
+            m_Bgm[0].active = true;
+            m_Bgm[0].voice = one;
+            m_Bgm[1] = FBgmSlot{};
             // 初回 volume はこの場で反映 (Tick を待たない)。
             m_Backend->SetVoiceVolume(one, m_MasterVolume * m_BgmVolume * ComputeDuckEnvelope());
             return one;
         }
-        m_Bgm[1]              = FBgmSlot{};
-        m_Bgm[1].gain         = 0.0f;
-        m_Bgm[1].target       = 1.0f;
+        m_Bgm[1] = FBgmSlot{};
+        m_Bgm[1].gain = 0.0f;
+        m_Bgm[1].target = 1.0f;
         m_Bgm[1].fade_per_sec = 1.0f / fade_in_sec;
-        m_Bgm[1].loop         = false;
-        m_Bgm[1].active       = true;
-        m_Bgm[1].voice        = one;
+        m_Bgm[1].loop = false;
+        m_Bgm[1].active = true;
+        m_Bgm[1].voice = one;
         // 既存 BGM は fade out
         if (m_Bgm[0].active) {
-            m_Bgm[0].target       = 0.0f;
+            m_Bgm[0].target = 0.0f;
             m_Bgm[0].fade_per_sec = m_Bgm[0].gain / fade_in_sec;
         }
         return one;
@@ -450,37 +475,36 @@ AudioVoiceHandle FAudioDirector::PlayBgmClip(const AudioClipDesc& clip,
     if (fade_in_sec <= 0.0f) {
         // 即時切替: 既存 slot[0] voice を止めて新規を slot[0] に。
         if (m_Bgm[0].voice.IsValid()) m_Backend->StopVoice(m_Bgm[0].voice);
-        m_Bgm[0]              = FBgmSlot{};
-        m_Bgm[0].gain         = 1.0f;
-        m_Bgm[0].target       = 1.0f;
+        m_Bgm[0] = FBgmSlot{};
+        m_Bgm[0].gain = 1.0f;
+        m_Bgm[0].target = 1.0f;
         m_Bgm[0].fade_per_sec = 0.0f;
-        m_Bgm[0].loop         = true;
-        m_Bgm[0].active       = true;
-        m_Bgm[0].voice        = handle;
-        m_Bgm[1]              = FBgmSlot{};
+        m_Bgm[0].loop = true;
+        m_Bgm[0].active = true;
+        m_Bgm[0].voice = handle;
+        m_Bgm[1] = FBgmSlot{};
         m_Backend->SetVoiceVolume(handle, m_MasterVolume * m_BgmVolume * ComputeDuckEnvelope());
         return handle;
     }
 
     // cross-fade: 既存は fade out、新規は slot[1] で fade in。
     if (m_Bgm[0].active) {
-        m_Bgm[0].target       = 0.0f;
+        m_Bgm[0].target = 0.0f;
         m_Bgm[0].fade_per_sec = m_Bgm[0].gain / fade_in_sec;
     }
-    m_Bgm[1]              = FBgmSlot{};
-    m_Bgm[1].gain         = 0.0f;
-    m_Bgm[1].target       = 1.0f;
+    m_Bgm[1] = FBgmSlot{};
+    m_Bgm[1].gain = 0.0f;
+    m_Bgm[1].target = 1.0f;
     m_Bgm[1].fade_per_sec = 1.0f / fade_in_sec;
-    m_Bgm[1].loop         = true;
-    m_Bgm[1].active       = true;
-    m_Bgm[1].voice        = handle;
+    m_Bgm[1].loop = true;
+    m_Bgm[1].active = true;
+    m_Bgm[1].voice = handle;
     return handle;
 }
 
 /** PCM clip を master*sfx*volume_scale の volume で backend に one-shot 再生させる。 */
-AudioVoiceHandle FAudioDirector::PlaySfxClip(const AudioClipDesc& clip,
-                                            f32 volume_scale,
-                                            f32 pitch) noexcept {
+AudioVoiceHandle FAudioDirector::PlaySfxClip(const AudioClipDesc& clip, f32 volume_scale, f32 pitch) noexcept
+{
     if (m_Backend == nullptr) return kInvalidAudioVoice;
     if (volume_scale <= 0.0f) return kInvalidAudioVoice;
 

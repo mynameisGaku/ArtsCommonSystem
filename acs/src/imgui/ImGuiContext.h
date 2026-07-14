@@ -88,6 +88,15 @@ private:
     /** DX12 backend 用の SHADER_VISIBLE な SRV ヒープ (ID3D12DescriptorHeap*)。 */
     void*      m_SrvHeap  = nullptr;
 
+    /** このラッパが所有する ImGuiContext。複数コンテキスト時の切替にも使う。 */
+    void* m_Context = nullptr;
+
+    /** Win32 backend の初期化に成功したか。部分失敗時の巻き戻し判定用。 */
+    bool m_Win32Initialized = false;
+
+    /** DX12 backend の初期化に成功したか。部分失敗時の巻き戻し判定用。 */
+    bool m_Dx12Initialized = false;
+
     /** 初期化済みフラグ (NewFrame/Render/Shutdown のガードに使う)。 */
     bool       m_Initialized = false;
 };

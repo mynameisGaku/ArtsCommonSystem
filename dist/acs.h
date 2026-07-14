@@ -158,85 +158,93 @@ static_assert(sizeof(usize) == sizeof(void*), "usize must match pointer size");
 // コンパイラ固有のマクロ群（_MSC_VER, __clang__, __GNUC__）を見て
 // ACS_COMPILER_MSVC / ACS_COMPILER_CLANG / ACS_COMPILER_GCC のいずれかを 1 にする。
 #if defined(__clang__)
-    #define ACS_COMPILER_CLANG 1
-    #define ACS_COMPILER_NAME "clang"
+#    define ACS_COMPILER_CLANG 1
+#    define ACS_COMPILER_NAME  "clang"
 #elif defined(_MSC_VER)
-    #define ACS_COMPILER_MSVC 1
-    #define ACS_COMPILER_NAME "msvc"
+#    define ACS_COMPILER_MSVC 1
+#    define ACS_COMPILER_NAME "msvc"
 #elif defined(__GNUC__)
-    #define ACS_COMPILER_GCC 1
-    #define ACS_COMPILER_NAME "gcc"
+#    define ACS_COMPILER_GCC  1
+#    define ACS_COMPILER_NAME "gcc"
 #else
-    #error "ACS: 未対応のコンパイラ"
+#    error "ACS: 未対応のコンパイラ"
 #endif
 
 // 未定義のフラグは 0 で埋めて、`#if ACS_COMPILER_*` を常に成立させる。
 #ifndef ACS_COMPILER_CLANG
-    #define ACS_COMPILER_CLANG 0
+#    define ACS_COMPILER_CLANG 0
 #endif
 #ifndef ACS_COMPILER_MSVC
-    #define ACS_COMPILER_MSVC 0
+#    define ACS_COMPILER_MSVC 0
 #endif
 #ifndef ACS_COMPILER_GCC
-    #define ACS_COMPILER_GCC 0
+#    define ACS_COMPILER_GCC 0
 #endif
 
 // ACS は Windows / DX12 をターゲットとする。
 #if defined(_WIN32) || defined(_WIN64)
-    #define ACS_PLATFORM_WINDOWS 1
-    #define ACS_PLATFORM_NAME "windows"
+#    define ACS_PLATFORM_WINDOWS 1
+#    define ACS_PLATFORM_NAME    "windows"
 #else
-    #error "ACS currently targets Windows only"
+#    error "ACS currently targets Windows only"
 #endif
 
 // x86-64 と ARM64 をサポート。SIMD やスレッド原語の選択に使用。
 #if defined(_M_X64) || defined(__x86_64__)
-    #define ACS_ARCH_X64 1
-    #define ACS_ARCH_NAME "x64"
+#    define ACS_ARCH_X64  1
+#    define ACS_ARCH_NAME "x64"
 #elif defined(_M_ARM64) || defined(__aarch64__)
-    #define ACS_ARCH_ARM64 1
-    #define ACS_ARCH_NAME "arm64"
+#    define ACS_ARCH_ARM64 1
+#    define ACS_ARCH_NAME  "arm64"
 #else
-    #error "ACS: 未対応のアーキテクチャ"
+#    error "ACS: 未対応のアーキテクチャ"
 #endif
 
 #ifndef ACS_ARCH_X64
-    #define ACS_ARCH_X64 0
+#    define ACS_ARCH_X64 0
 #endif
 #ifndef ACS_ARCH_ARM64
-    #define ACS_ARCH_ARM64 0
+#    define ACS_ARCH_ARM64 0
 #endif
 
 // Debug / Release を統一的に判定するためのフラグ。
 #if defined(_DEBUG) || defined(DEBUG)
-    #define ACS_BUILD_DEBUG 1
+#    define ACS_BUILD_DEBUG 1
 #else
-    #define ACS_BUILD_DEBUG 0
+#    define ACS_BUILD_DEBUG 0
+#endif
+
+// ASan 有効時はコンパイラとランタイムが通常のヒープ API を差し替える。
+// CRT デバッグヒープなど、別の割り当て追跡機構との排他判定にも使用する。
+#if defined(__SANITIZE_ADDRESS__)
+#    define ACS_ADDRESS_SANITIZER 1
+#else
+#    define ACS_ADDRESS_SANITIZER 0
 #endif
 
 // コンパイラ間の方言差を吸収し、ポータブルな属性マクロを提供する。
 #if ACS_COMPILER_MSVC
-    #define ACS_FORCEINLINE     __forceinline                 // 強制インライン化（MSVC）
-    #define ACS_NEVERINLINE     __declspec(noinline)          // インライン抑制
-    #define ACS_RESTRICT        __restrict                    // restrict 修飾子
-    #define ACS_NORETURN        [[noreturn]]                  // 戻らない関数
-    #define ACS_DEBUGBREAK()    __debugbreak()                // デバッガでブレーク
-    #define ACS_PRETTY_FUNC     __FUNCSIG__                   // 関数シグネチャ文字列
-    #define ACS_THREAD_LOCAL    __declspec(thread)            // スレッドローカル変数
-    #define ACS_CACHELINE_ALIGN __declspec(align(64))         // キャッシュライン整列（64B）
-    #define ACS_DLLEXPORT       __declspec(dllexport)         // DLL シンボルエクスポート
-    #define ACS_DLLIMPORT       __declspec(dllimport)         // DLL シンボルインポート
+#    define ACS_FORCEINLINE     __forceinline         // 強制インライン化（MSVC）
+#    define ACS_NEVERINLINE     __declspec(noinline)  // インライン抑制
+#    define ACS_RESTRICT        __restrict            // restrict 修飾子
+#    define ACS_NORETURN        [[noreturn]]          // 戻らない関数
+#    define ACS_DEBUGBREAK()    __debugbreak()        // デバッガでブレーク
+#    define ACS_PRETTY_FUNC     __FUNCSIG__           // 関数シグネチャ文字列
+#    define ACS_THREAD_LOCAL    __declspec(thread)    // スレッドローカル変数
+#    define ACS_CACHELINE_ALIGN __declspec(align(64)) // キャッシュライン整列（64B）
+#    define ACS_DLLEXPORT       __declspec(dllexport) // DLL シンボルエクスポート
+#    define ACS_DLLIMPORT       __declspec(dllimport) // DLL シンボルインポート
 #else
-    #define ACS_FORCEINLINE     inline __attribute__((always_inline))
-    #define ACS_NEVERINLINE     __attribute__((noinline))
-    #define ACS_RESTRICT        __restrict__
-    #define ACS_NORETURN        [[noreturn]]
-    #define ACS_DEBUGBREAK()    __builtin_trap()
-    #define ACS_PRETTY_FUNC     __PRETTY_FUNCTION__
-    #define ACS_THREAD_LOCAL    __thread
-    #define ACS_CACHELINE_ALIGN __attribute__((aligned(64)))
-    #define ACS_DLLEXPORT       __attribute__((visibility("default")))
-    #define ACS_DLLIMPORT
+#    define ACS_FORCEINLINE     inline __attribute__((always_inline))
+#    define ACS_NEVERINLINE     __attribute__((noinline))
+#    define ACS_RESTRICT        __restrict__
+#    define ACS_NORETURN        [[noreturn]]
+#    define ACS_DEBUGBREAK()    __builtin_trap()
+#    define ACS_PRETTY_FUNC     __PRETTY_FUNCTION__
+#    define ACS_THREAD_LOCAL    __thread
+#    define ACS_CACHELINE_ALIGN __attribute__((aligned(64)))
+#    define ACS_DLLEXPORT       __attribute__((visibility("default")))
+#    define ACS_DLLIMPORT
 #endif
 
 // 特定の関数だけ AVX / AVX2 を有効化するための属性。
@@ -246,27 +254,27 @@ static_assert(sizeof(usize) == sizeof(void*), "usize must match pointer size");
 // 用途: ランタイム CPU 判定で AVX 経路を選ぶコードで、AVX 組み込み関数を使う
 //       関数に付与する（ベースラインは SSE2 のまま、その関数だけ AVX 許可）。
 #if ACS_COMPILER_MSVC
-    #define ACS_TARGET_AVX
-    #define ACS_TARGET_AVX2
+#    define ACS_TARGET_AVX
+#    define ACS_TARGET_AVX2
 #else
-    #define ACS_TARGET_AVX   __attribute__((target("avx")))
-    #define ACS_TARGET_AVX2  __attribute__((target("avx2,fma")))
+#    define ACS_TARGET_AVX  __attribute__((target("avx")))
+#    define ACS_TARGET_AVX2 __attribute__((target("avx2,fma")))
 #endif
 
 // CPU の分岐予測器に「成立／不成立」のヒントを与え、ホットパスを最適化する。
 // MSVC は __builtin_expect 相当を持たないため、PGO に依存して恒等マクロ化。
 #if ACS_COMPILER_MSVC
-    #define ACS_LIKELY(x)   (x)
-    #define ACS_UNLIKELY(x) (x)
+#    define ACS_LIKELY(x)   (x)
+#    define ACS_UNLIKELY(x) (x)
 #else
-    #define ACS_LIKELY(x)   __builtin_expect(!!(x), 1)
-    #define ACS_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#    define ACS_LIKELY(x)   __builtin_expect(!!(x), 1)
+#    define ACS_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #endif
 
 // x64 / Apple Silicon では 64 バイト。POWER 系は 128 だが現状非対応。
 #define ACS_CACHELINE_SIZE 64
 
-#define ACS_UNUSED(x) ((void)(x))                              // 未使用警告抑制
+#define ACS_UNUSED(x)      ((void)(x)) // 未使用警告抑制
 
 // トークン連結／文字列化マクロ（Assert 等のマクロで使用）
 #define ACS_CONCAT_INNER(a, b) a##b
@@ -352,6 +360,26 @@ public:
         return s;
     }
 
+    /**
+     * 外部ライブラリなどが渡すファイル・関数・行・列から位置情報を明示生成する。
+     *
+     * @details 文字列は FSourceLoc より長く生存する必要がある。デバッグ情報を持たない引数は空文字列または 0 でよい。
+     * @param file ソースファイルパス。
+     * @param function 関数名または外部ライブラリの割り当て説明。
+     * @param line 行番号。
+     * @param column 列番号。
+     * @return 指定値を保持する FSourceLoc。
+     */
+    static constexpr FSourceLoc Create(const char* file, const char* function, u32 line, u32 column = 0) noexcept
+    {
+        FSourceLoc location;
+        location.m_File = file ? file : "";
+        location.m_Func = function ? function : "";
+        location.m_Line = line;
+        location.m_Col = column;
+        return location;
+    }
+
 private:
     /** ソースファイルパス (既定は空文字列)。 */
     const char* m_File = "";
@@ -383,10 +411,10 @@ enum class ELogSeverity : u8 {
     Debug = 1,
 
     /** 通常情報。 */
-    Info  = 2,
+    Info = 2,
 
     /** 警告。 */
-    Warn  = 3,
+    Warn = 3,
 
     /** エラー。 */
     Error = 4,
@@ -395,7 +423,7 @@ enum class ELogSeverity : u8 {
     Fatal = 5,
 
     /** 出力停止 (この値を最小レベルにすると何も出力しない)。 */
-    Off   = 6,
+    Off = 6,
 };
 
 /**
@@ -404,15 +432,23 @@ enum class ELogSeverity : u8 {
  * @param s 文字列化するレベル。
  * @return レベル名の文字列 (未知の値は "?")。
  */
-constexpr const char* ToString(ELogSeverity s) noexcept {
+constexpr const char* ToString(ELogSeverity s) noexcept
+{
     switch (s) {
-        case ELogSeverity::Trace: return "TRACE";
-        case ELogSeverity::Debug: return "DEBUG";
-        case ELogSeverity::Info:  return "INFO";
-        case ELogSeverity::Warn:  return "WARN";
-        case ELogSeverity::Error: return "ERROR";
-        case ELogSeverity::Fatal: return "FATAL";
-        case ELogSeverity::Off:   return "OFF";
+    case ELogSeverity::Trace:
+        return "TRACE";
+    case ELogSeverity::Debug:
+        return "DEBUG";
+    case ELogSeverity::Info:
+        return "INFO";
+    case ELogSeverity::Warn:
+        return "WARN";
+    case ELogSeverity::Error:
+        return "ERROR";
+    case ELogSeverity::Fatal:
+        return "FATAL";
+    case ELogSeverity::Off:
+        return "OFF";
     }
     return "?";
 }
@@ -422,19 +458,19 @@ constexpr const char* ToString(ELogSeverity s) noexcept {
  */
 struct FLogConfig {
     /** ログファイルのパス (nullptr ならファイル出力を無効化)。 */
-    const wchar_t* file_path     = nullptr;
+    const wchar_t* file_path = nullptr;
 
     /** 出力する最小レベル (これ未満は破棄)。 */
-    ELogSeverity    min_severity  = ELogSeverity::Info;
+    ELogSeverity min_severity = ELogSeverity::Info;
 
-    /** リングバッファ長 (2 のべき乗、16 未満は 16 に切り上げ)。 */
-    u32            ring_capacity = 4096;
+    /** リングバッファ長 (16～65536 の 2 のべき乗へ切り上げ・範囲制限)。 */
+    u32 ring_capacity = 4096;
 
     /** stdout へ出力するか。 */
-    bool           console       = true;
+    bool console = true;
 
     /** OutputDebugStringA へ出力するか。 */
-    bool           debug_output  = true;
+    bool debug_output = true;
 };
 
 /**
@@ -449,22 +485,36 @@ public:
     /**
      * ロガーを初期化する (多重呼び出しは無視)。
      *
-     * @param cfg リング容量・出力先・最小レベルなどの設定。
+     * @param configuration リング容量・出力先・最小レベルなどの設定。
      */
-    static void Init(const FLogConfig& cfg) noexcept;
+    static void Init(const FLogConfig& configuration) noexcept;
 
-    /** ライタースレッドを停止し、リング・ファイルなどのリソースを解放する (再 Init 可能になる)。 */
+    /**
+     * ロガーの全資源が初期化済みで、Write を受け付ける状態かを返す。
+     *
+     * @return 初期化完了から Shutdown 開始までの間は true。それ以外は false。
+     */
+    static bool IsInitialized() noexcept;
+
+    /**
+     * ライタースレッドを停止し、リング・ファイルなどのリソースを解放する (再 Init 可能になる)。
+     * sink callback 内からの呼び出しは、writer 自身の join を避けるため無視される。
+     */
     static void Shutdown() noexcept;
 
-    /** リングに残ったレコードがすべて書き出されるまで待つ (最大約 1 秒)。 */
+    /**
+     * 呼び出し時点で受理済みのレコードが、追加シンクへの通知を含めてすべて書き出されるまで待つ
+     * (最大約 1 秒)。
+     * sink callback 内からの呼び出しは無視される。
+     */
     static void Flush() noexcept;
 
     /**
      * 最小ログレベルを動的に変更する (スレッドセーフ)。
      *
-     * @param s 新しい最小レベル (これ未満は破棄される)。
+     * @param severity 新しい最小レベル (これ未満は破棄される)。
      */
-    static void SetMinSeverity(ELogSeverity s) noexcept;
+    static void SetMinSeverity(ELogSeverity severity) noexcept;
 
     /**
      * 追加のログシンク (コールバック) を設定する。各レコードを writer スレッドが
@@ -472,6 +522,10 @@ public:
      *
      * @details エディタがエンジンログを自前のコンソールへ取り込む等に使う。sink は
      *          writer スレッドから呼ばれるため、実装側でスレッド安全にすること。
+     *          通常スレッドから呼んだ場合、交換前の sink callback が完了してから戻る。
+     *          sink callback 自身から呼んだ場合は現在実行中の自身を待たず、後続レコード用の
+     *          pointer だけを交換する。
+     *          ロガーの初期化前または終了後に呼んだ場合は無視される。
      * @param sink レコード毎に呼ぶコールバック (message は null 終端)。
      */
     static void SetSink(void (*sink)(ELogSeverity severity, const char* message)) noexcept;
@@ -479,10 +533,10 @@ public:
     /**
      * 指定レベルが現在の設定で出力対象かを返す。
      *
-     * @param s 判定するレベル。
-     * @return 初期化済みかつ s が最小レベル以上なら true。
+     * @param severity 判定するレベル。
+     * @return 初期化済みかつ severity が最小レベル以上なら true。
      */
-    static bool Enabled(ELogSeverity s) noexcept;
+    static bool Enabled(ELogSeverity severity) noexcept;
 
     /**
      * リング満杯で破棄されたレコードの累積総数を返す。
@@ -495,37 +549,33 @@ public:
      * 1 レコードをリングに積む実書き込み関数 (printf 互換)。
      *
      * @details ホットパスの肥大化を避けるため NEVERINLINE。通常は ACS_LOG_* マクロ経由で呼ぶ。
-     * @param sev レコードの重大度。
-     * @param loc 呼び出し位置。
-     * @param fmt printf 形式のメッセージ書式。
-     * @param ... fmt に対応する可変長引数。
+     * @param severity レコードの重大度。
+     * @param location 呼び出し位置。
+     * @param format printf 形式のメッセージ書式。
+     * @param ... format に対応する可変長引数。
      */
-    ACS_NEVERINLINE static void Write(ELogSeverity sev,
-                                      FSourceLoc   loc,
-                                      const char* fmt,
-                                      ...) noexcept;
+    ACS_NEVERINLINE static void Write(ELogSeverity severity, FSourceLoc location, const char* format, ...) noexcept;
 };
 
 } // namespace acs
 
 // 内部マクロ: 指定レベルが有効ならログを出力
-#define ACS_LOG(sev, fmt, ...)                                                 \
-    do {                                                                       \
-        if (::acs::FLogger::Enabled(sev))                                       \
-            ::acs::FLogger::Write(sev, ::acs::FSourceLoc::Current(),             \
-                                 fmt, ##__VA_ARGS__);                          \
+#define ACS_LOG(sev, fmt, ...)                                                            \
+    do {                                                                                  \
+        if (::acs::FLogger::Enabled(sev))                                                 \
+            ::acs::FLogger::Write(sev, ::acs::FSourceLoc::Current(), fmt, ##__VA_ARGS__); \
     } while (0)
 
 #define ACS_LOG_TRACE(fmt, ...) ACS_LOG(::acs::ELogSeverity::Trace, fmt, ##__VA_ARGS__)
 #define ACS_LOG_DEBUG(fmt, ...) ACS_LOG(::acs::ELogSeverity::Debug, fmt, ##__VA_ARGS__)
-#define ACS_LOG_INFO(fmt, ...)  ACS_LOG(::acs::ELogSeverity::Info,  fmt, ##__VA_ARGS__)
-#define ACS_LOG_WARN(fmt, ...)  ACS_LOG(::acs::ELogSeverity::Warn,  fmt, ##__VA_ARGS__)
+#define ACS_LOG_INFO(fmt, ...)  ACS_LOG(::acs::ELogSeverity::Info, fmt, ##__VA_ARGS__)
+#define ACS_LOG_WARN(fmt, ...)  ACS_LOG(::acs::ELogSeverity::Warn, fmt, ##__VA_ARGS__)
 #define ACS_LOG_ERROR(fmt, ...) ACS_LOG(::acs::ELogSeverity::Error, fmt, ##__VA_ARGS__)
 #define ACS_LOG_FATAL(fmt, ...) ACS_LOG(::acs::ELogSeverity::Fatal, fmt, ##__VA_ARGS__)
 
 // ===================== memory/MemorySystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// セグメント別メモリ管理ファサード（VM 予約 + アロケータ + 予算）
+// セグメント別メモリ管理ファサード（mimalloc / frame arena + 予算 + 診断）
 
 
 // ===================== foundation/Result.h =====================
@@ -1825,96 +1875,135 @@ public:
      *
      * @param size 確保するバイト数。
      * @param alignment 要求アライメント (2 のべき乗)。
-     * @param loc 診断用の呼び出し位置 (リーク追跡やプロファイラに渡される)。
+     * @param location 診断用の呼び出し位置 (リーク追跡やプロファイラに渡される)。
      * @return 確保した領域の先頭ポインタ。失敗時は nullptr。
      */
-    virtual void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept = 0;
+    virtual void* Alloc(usize size, usize alignment, FSourceLoc location) noexcept = 0;
 
     /**
-     * ptr を解放する。
+     * pointer を解放する。
      *
-     * @param ptr 解放する領域 (nullptr は no-op)。
+     * @param pointer 解放する領域 (nullptr は no-op)。
      */
-    virtual void Free(void* ptr) noexcept = 0;
+    virtual void Free(void* pointer) noexcept = 0;
 
     /**
      * 既存ポインタを new_size に拡張・縮小する。
      *
      * @details 既定実装は Alloc + memcpy + Free (Memory.cpp で定義)。
-     * @param ptr 既存の確保領域 (nullptr なら新規確保扱い)。
-     * @param old_size ptr の現在のバイト数。
+     * @param pointer 既存の確保領域 (nullptr なら新規確保扱い)。
+     * @param old_size pointer の現在のバイト数。
      * @param new_size 確保し直す新しいバイト数。
      * @param alignment 要求アライメント (2 のべき乗)。
-     * @param loc 診断用の呼び出し位置。
+     * @param location 診断用の呼び出し位置。
      * @return 再確保した領域の先頭ポインタ。失敗時は nullptr。
      */
-    virtual void* Realloc(void* ptr, usize old_size, usize new_size,
-                          usize alignment, FSourceLoc loc) noexcept;
+    virtual void* Realloc(void* pointer, usize old_size, usize new_size, usize alignment, FSourceLoc location) noexcept;
 
     /**
      * 現在の使用バイト数を返す。
      *
      * @return 現在の確保済みバイト数 (既定は 0。実装側で上書き)。
      */
-    virtual u64 BytesAllocated() const noexcept { return 0; }
+    virtual u64 BytesAllocated() const noexcept
+    {
+        return 0;
+    }
+
+    /**
+     * 現在生存している確保の件数を返す。
+     *
+     * @details アロケータが件数追跡を提供しない場合は 0 を返す。
+     * @return 呼び出し側がまだ解放していない確保の件数。
+     */
+    virtual u64 AllocationCount() const noexcept
+    {
+        return 0;
+    }
 
     /**
      * ピーク使用バイト数を返す。
      *
      * @return これまでの最大確保済みバイト数 (既定は 0。実装側で上書き)。
      */
-    virtual u64 PeakBytes()      const noexcept { return 0; }
+    virtual u64 PeakBytes() const noexcept
+    {
+        return 0;
+    }
+
+    /**
+     * 現在利用できるアロケータ寿命の世代を返す。
+     *
+     * @details
+     * backing allocator を長寿命アダプタへ結び付ける際、同一アドレスの再利用や
+     * Shutdown/再初期化を別寿命として識別するために使う。0 は世代追跡を提供しない、
+     * または現在無効な寿命を表す。寿命管理を提供する実装は有効期間ごとに異なる非0値を返す。
+     * @return 現在の寿命世代。追跡非対応または無効なら0。
+     */
+    virtual u64 LifetimeGeneration() const noexcept
+    {
+        return 0;
+    }
 
     /**
      * アロケータの識別名を返す。
      *
      * @return アロケータ名 (既定は "FAllocator"。実装側で上書き)。
      */
-    virtual const char* Name()   const noexcept { return "FAllocator"; }
+    virtual const char* Name() const noexcept
+    {
+        return "FAllocator";
+    }
 
     /**
      * 既定アライメントで size バイトを確保する利便性オーバーロード。
      *
      * @param size 確保するバイト数。
-     * @param loc 診断用の呼び出し位置 (既定で呼び出し元を自動キャプチャ)。
+     * @param location 診断用の呼び出し位置 (既定で呼び出し元を自動キャプチャ)。
      * @return 確保した領域の先頭ポインタ。失敗時は nullptr。
      */
-    ACS_FORCEINLINE void* Alloc(usize size, FSourceLoc loc = FSourceLoc::Current()) noexcept {
-        return Alloc(size, kDefaultAlignment, loc);
+    ACS_FORCEINLINE void* Alloc(usize size, FSourceLoc location = FSourceLoc::Current()) noexcept
+    {
+        return Alloc(size, kDefaultAlignment, location);
     }
 };
 
 /**
- * v が 2 のべき乗かを判定する。
+ * value が 2 のべき乗かを判定する。
  *
- * @param v 判定する値。
+ * @param value 判定する値。
  * @return 2 のべき乗 (0 は除く) なら true。
  */
-ACS_FORCEINLINE bool IsPow2(usize v) noexcept { return v != 0 && (v & (v - 1)) == 0; }
-
-/**
- * n を a の倍数に切り上げる。
- *
- * @details a は 2 のべき乗である必要があり、(n + a-1) がラップしないことを assert する。
- * @param n 切り上げる値。
- * @param a アライメント (2 のべき乗)。
- * @return a の倍数に切り上げた値。
- */
-ACS_FORCEINLINE usize AlignUp(usize n, usize a) noexcept {
-    ACS_ASSERT(a != 0 && (a & (a - 1)) == 0);  // a はマスクが成立する 2 のべき乗である必要
-    ACS_ASSERT(n <= (~usize(0)) - (a - 1));     // (n + a-1) がラップしてはならない
-    return (n + (a - 1)) & ~(a - 1);
+ACS_FORCEINLINE bool IsPow2(usize value) noexcept
+{
+    return value != 0 && (value & (value - 1)) == 0;
 }
 
 /**
- * ポインタ p を a の倍数アドレスに切り上げる。
+ * value を alignment の倍数に切り上げる。
  *
- * @param p 切り上げるポインタ。
- * @param a アライメント (2 のべき乗)。
- * @return a 整列に切り上げたポインタ。
+ * @details alignment は 2 のべき乗である必要があり、(value + alignment-1) がラップしないことを assert する。
+ * @param value 切り上げる値。
+ * @param alignment アライメント (2 のべき乗)。
+ * @return alignment の倍数に切り上げた値。
  */
-ACS_FORCEINLINE void* AlignUp(void* p, usize a) noexcept {
-    return reinterpret_cast<void*>(AlignUp(reinterpret_cast<uptr>(p), a));
+ACS_FORCEINLINE usize AlignUp(usize value, usize alignment) noexcept
+{
+    ACS_ASSERT(alignment != 0 && (alignment & (alignment - 1)) == 0); // alignment は 2 のべき乗である必要
+    ACS_ASSERT(value <= (~usize(0)) - (alignment - 1));               // 加算がラップしてはならない
+    return (value + (alignment - 1)) & ~(alignment - 1);
+}
+
+/**
+ * pointer を alignment の倍数アドレスに切り上げる。
+ *
+ * @param pointer 切り上げるポインタ。
+ * @param alignment アライメント (2 のべき乗)。
+ * @return alignment 整列に切り上げたポインタ。
+ */
+ACS_FORCEINLINE void* AlignUp(void* pointer, usize alignment) noexcept
+{
+    return reinterpret_cast<void*>(AlignUp(reinterpret_cast<uptr>(pointer), alignment));
 }
 
 } // namespace acs
@@ -2020,19 +2109,13 @@ namespace acs {
 /** 1 セグメントの初期化設定。 */
 struct SegmentConfig {
     /** 対象セグメントの種別。 */
-    ESegment      segment;
+    ESegment segment = ESegment::Default;
 
-    /** 仮想予約サイズ (バイト)。 */
-    usize        reserve_bytes;
+    /** 要求バイト合計のハード上限。0 は無制限。 */
+    usize hard_budget_bytes = 0;
 
-    /** 初回コミット量 (バイト)。 */
-    usize        commit_initial;
-
-    /** ハード予算 (バイト、超過すると alloc が失敗する)。 */
-    usize        budget_hard_cap;
-
-    /** true ならフレーム/スクラッチ用途 (lock-free arena)、false なら汎用シャード化 TLSF。 */
-    bool         use_linear;
+    /** true なら一括 Reset する frame arena、false なら mimalloc first-class heap。 */
+    bool use_frame_allocator = false;
 };
 
 /** FMemorySystem 全体の初期化設定。 */
@@ -2044,71 +2127,189 @@ struct MemorySystemConfig {
      * true なら Init で既定アロケータを Default セグメントへ差し替える。
      *
      * @details
-     * コンテナ等の既定確保をシャード化 VM アロケータ (MT スケール / 安全ガード / 予算 / 可観測性) に
-     * 通し、Shutdown で元へ確実に復元する。Default セグメントは reserve 上限を持つ (HeapAlloc のように
-     * 無制限には増えない) ため、有効化する場合は reserve をゲームのピーク汎用使用量に十分に取ること。
+     * コンテナ等の既定確保を mimalloc first-class heap (MT スケール / 予算 / 可観測性) に
+     * 通し、Shutdown で元へ確実に復元する。Default セグメントの hard_budget_bytes は
+     * ゲームのピーク汎用使用量に十分な値を設定すること。
      * 既定 false (= 従来どおり HeapAlloc)。
      */
-    bool make_default = false;
+    bool install_as_default_allocator = false;
 };
 
 /** 1 セグメントの統計スナップショット。 */
 struct SegmentStats {
     /** セグメント種別。 */
-    ESegment     segment;
+    ESegment segment;
 
     /** セグメント名 (ToString による静的文字列)。 */
-    const char* name;
+    const char* segment_name = "";
 
-    /** 仮想予約サイズ (バイト)。 */
-    u64         reserve;
+    /** 実際に使われている具象アロケータ名。 */
+    const char* allocator_name = "";
 
-    /** コミット量 (バイト、設定値)。 */
-    u64         committed;
+    /** 現在生存している確保の要求バイト合計。 */
+    u64 requested_bytes = 0;
 
-    /** 現在の使用バイト数。 */
-    u64         used;
+    /** 過去に同時生存した要求バイト合計の最大値。 */
+    u64 peak_requested_bytes = 0;
 
-    /** ピーク使用バイト数。 */
-    u64         peak;
+    /** 要求バイト合計のハード上限。0 は無制限。 */
+    u64 hard_budget_bytes = 0;
 
-    /** ハード予算 (バイト)。 */
-    u64         budget;
+    /** 現在の未解放割り当て件数。 */
+    u64 outstanding_allocation_count = 0;
 };
 
-/** セグメント別メモリ管理のファサード (VM 予約 + アロケータ + 予算、全 static)。 */
+/** 保守点でバックエンドを独立走査した 1 セグメントの診断結果。 */
+struct MemorySegmentInspection {
+    /** 検査対象セグメント。 */
+    ESegment segment = ESegment::Default;
+
+    /** 実際に使われている具象アロケータ名。 */
+    const char* allocator_name = "";
+
+    /** バックエンド走査で列挙した仮想予約バイト数。 */
+    u64 reserved_bytes = 0;
+
+    /** バックエンド走査で列挙したコミット済みバイト数。 */
+    u64 committed_bytes = 0;
+
+    /** バックエンドが報告した生存ブロックの usable size 合計。 */
+    u64 usable_bytes = 0;
+
+    /** バックエンド走査で復元した生存確保の要求バイト合計。 */
+    u64 requested_bytes = 0;
+
+    /** バックエンド走査で列挙した生存確保件数。 */
+    u64 outstanding_allocation_count = 0;
+
+    /** この具象アロケータが独立走査を提供するか。 */
+    bool backend_inspection_supported = false;
+
+    /** バックエンド走査が完走したか。 */
+    bool visit_succeeded = false;
+
+    /** 全ブロックの ACS 管理メタデータが正しかったか。 */
+    bool metadata_valid = false;
+
+    /** 独立走査値が通常の atomic 統計と一致したか。 */
+    bool matches_authoritative_statistics = false;
+};
+
+/** MemorySystem の終了診断に使う未解放メモリ集計。 */
+struct MemoryLeakSummary {
+    /** Temp を除く全セグメントの未解放バイト数。 */
+    u64 outstanding_bytes = 0;
+
+    /** 未解放メモリが存在するセグメント数。 */
+    u32 leaking_segment_count = 0;
+
+    /** Temp を除く全セグメントの未解放割り当て件数。 */
+    u64 outstanding_allocation_count = 0;
+
+    /** 未解放メモリが1バイト以上あるかを返す。 */
+    constexpr bool HasLeaks() const noexcept
+    {
+        return outstanding_bytes != 0 || outstanding_allocation_count != 0;
+    }
+};
+
+/** 割り当て元追跡の差分開始位置。 */
+struct MemoryTrackingCheckpoint {
+    /** チェックポイント取得時点で最後に発行済みの割り当て番号。 */
+    u64 allocation_sequence = 0;
+};
+
+/** デバッグ追跡表から取得する未解放割り当て情報。 */
+struct OutstandingMemoryAllocation {
+    /** 利用者へ返したメモリアドレス。 */
+    const void* address = nullptr;
+
+    /** 呼び出し元が要求したバイト数。 */
+    u64 requested_bytes = 0;
+
+    /** 呼び出し元が要求したアライメント。 */
+    u64 alignment = 0;
+
+    /** この確保へ一意に付与した単調増加番号。 */
+    u64 allocation_sequence = 0;
+
+    /** 確保先のメモリセグメント。 */
+    ESegment segment = ESegment::Default;
+
+    /** 確保を呼び出したソースファイル。 */
+    const char* source_file = "";
+
+    /** 確保を呼び出した関数。 */
+    const char* source_function = "";
+
+    /** 確保を呼び出した行番号。 */
+    u32 source_line = 0;
+
+    /** 確保を呼び出した列番号。 */
+    u32 source_column = 0;
+};
+
+/** 割り当て元追跡の収集結果。 */
+struct MemoryTrackingReport {
+    /** チェックポイントより後に残っている割り当て件数。 */
+    u64 outstanding_allocation_count = 0;
+
+    /** 上記割り当ての要求サイズ合計。 */
+    u64 outstanding_requested_bytes = 0;
+
+    /** 出力配列へ実際に書き込んだ件数。 */
+    u64 written_allocation_count = 0;
+
+    /** これまでに発行した最新の割り当て番号。 */
+    u64 newest_allocation_sequence = 0;
+
+    /** 追跡表の確保失敗などで記録できなかったイベント数。 */
+    u64 dropped_tracking_event_count = 0;
+
+    /** このビルドで割り当て元追跡が有効か。 */
+    bool tracking_enabled = false;
+
+    /** 追跡イベントの欠落がなく、一覧を完全とみなせるか。 */
+    constexpr bool IsComplete() const noexcept
+    {
+        return tracking_enabled && dropped_tracking_event_count == 0;
+    }
+};
+
+/** セグメント別メモリ管理のファサード (mimalloc / frame arena + 予算 + 診断、全 static)。 */
 class FMemorySystem {
 public:
     /**
      * 全セグメントを設定で初期化する。
      *
-     * @details 多重 Init はエラー。途中で失敗した場合は確保済みスロットをロールバックする。make_default 時は既定アロケータも差し替える。
-     * @param cfg セグメントごとの設定。
+     * @details 多重 Init はエラー。途中で失敗した場合は確保済みスロットをロールバックする。
+     * install_as_default_allocator 時は既定アロケータも差し替える。
+     * @param configuration セグメントごとの設定。
      * @return 成功なら空の TResult、初期化失敗ならエラー。
      */
-    static TResult<void> Init(const MemorySystemConfig& cfg) noexcept;
+    static TResult<void> Init(const MemorySystemConfig& configuration) noexcept;
 
     /**
      * 全セグメントを解放する。
      *
-     * @details make_default で差し替えた既定アロケータを最初に復元してから各セグメントを破棄する。未初期化なら no-op。
+     * @details install_as_default_allocator で差し替えた既定アロケータを最初に復元してから各セグメントを破棄する。未初期化なら no-op。
      */
     static void Shutdown() noexcept;
 
     /**
      * 小規模テスト・すぐ動かす用の既定設定を返す。
      *
-     * @return 各セグメントに無難な reserve/commit/budget を設定した MemorySystemConfig。
+     * @return 各セグメントに実用的なハード予算を設定した MemorySystemConfig。
      */
     static MemorySystemConfig DefaultConfig() noexcept;
 
     /**
      * 指定セグメントのアロケータを返す。
      *
-     * @param s セグメント種別。
+     * @param segment セグメント種別。
      * @return セグメントのアロケータ (Init 前は nullptr)。
      */
-    static FAllocator* Get(ESegment s) noexcept;
+    static FAllocator* Get(ESegment segment) noexcept;
 
     /**
      * 現在のセグメント (ScopedMemorySegment が設定した TLS の値) を返す。
@@ -2127,29 +2328,94 @@ public:
     /**
      * Temp セグメントを巻き戻す (フレーム先頭で 1 回呼ぶ)。
      *
-     * @details Temp の arena をページ保持のまま Reset し、次フレームで再確保なしに再利用できるようにする。
+     * @details
+     * Temp の arena をページ保持のまま Reset し、予算予約と割り当て追跡も同じ排他区間で巻き戻す。
+     * 開始済みの Temp Alloc/Free/Realloc が完了するまで待ち、Reset 開始後の新しい操作は失敗として返す。
+     * Reset 後は以前の Temp ポインタがすべて無効になるため、データを利用するジョブは呼び出し前に停止すること。
      */
     static void ResetTemp() noexcept;
 
     /**
      * 全セグメントの統計を out に詰める。
      *
-     * @param out 統計を書き込む配列。
-     * @param max_count out の容量。
+     * @param output 統計を書き込む配列。
+     * @param output_capacity output の容量。
      * @return 実際に書き込んだ要素数。
      */
-    static u32 GetStats(SegmentStats* out, u32 max_count) noexcept;
+    static u32 GetStats(SegmentStats* output, u32 output_capacity) noexcept;
+
+    /**
+     * 指定セグメントの具象アロケータを独立走査する。
+     *
+     * @details 保守操作のため、対象セグメントへの Alloc / Free / Realloc を止めた状態で呼ぶこと。
+     * frame arena は独立ブロック走査を提供しないため、通常統計だけを返す。
+     * @param segment 検査対象セグメント。
+     * @return 仮想予約・コミット・生存ブロックと通常統計の整合結果。
+     */
+    static MemorySegmentInspection InspectSegmentMemory(ESegment segment) noexcept;
+
+    /**
+     * 一括Resetされるframe arenaを除く、通常ヒープの未解放メモリを集計する。
+     * @return 終了時リーク判定に使える集計値。未初期化時はゼロ。
+     */
+    static MemoryLeakSummary CaptureLeakSummary() noexcept;
+
+    /**
+     * 現在の割り当て番号を差分追跡の開始位置として取得する。
+     *
+     * @details Debug はこの後に確保・再確保された領域だけを収集できる。追跡無効ビルドではゼロを返す。
+     * @return 差分収集へ渡せるチェックポイント。
+     */
+    static MemoryTrackingCheckpoint CaptureMemoryTrackingCheckpoint() noexcept;
+
+    /**
+     * チェックポイントより後に残る割り当て元情報を、呼び出し側の固定長配列へ収集する。
+     *
+     * @details 追跡表自身は Win32 プロセスヒープを使うため、MemorySystem へ再帰確保しない。
+     * @param checkpoint 差分開始位置。ゼロなら現在の全未解放割り当てを対象にする。
+     * @param output 書き込み先配列。件数だけ調べる場合は nullptr。
+     * @param output_capacity output の要素容量。
+     * @return 総件数・要求バイト数・追跡完全性を含むレポート。
+     */
+    static MemoryTrackingReport CollectOutstandingMemoryAllocations(MemoryTrackingCheckpoint checkpoint,
+                                                                    OutstandingMemoryAllocation* output,
+                                                                    u32 output_capacity) noexcept;
+
+    /**
+     * チェックポイントより後の未解放割り当てを ACS ログへ出力する。
+     *
+     * @param checkpoint 差分開始位置。ゼロなら現在の全未解放割り当てを対象にする。
+     * @param maximum_logged_allocation_count 詳細行の最大件数。ゼロなら集計行だけを出す。
+     * @return ログ対象の総件数・要求バイト数・追跡完全性を含むレポート。
+     */
+    static MemoryTrackingReport DumpOutstandingMemoryAllocations(MemoryTrackingCheckpoint checkpoint = {},
+                                                                 u32 maximum_logged_allocation_count = 256) noexcept;
+
+    /**
+     * 指定した割り当て番号の確保時に、デバッガ接続中だけブレークするよう設定する。
+     *
+     * @details 0 を渡すと解除する。追跡無効ビルドでは no-op。
+     * @param allocation_sequence ブレーク対象の割り当て番号。
+     */
+    static void SetBreakOnAllocationSequence(u64 allocation_sequence) noexcept;
+
+    /**
+     * このビルドでファイル・行・関数を含む割り当て元追跡が有効かを返す。
+     *
+     * @return 有効なら true。標準設定では Debug のみ true。
+     */
+    static bool IsAllocationSiteTrackingEnabled() noexcept;
 };
 
 /** RAII でカレントセグメントを切り替える (スコープ脱出で元に戻す)。 */
 class ScopedMemorySegment {
 public:
     /**
-     * カレントセグメントを s に切り替える (旧値を退避)。
+     * カレントセグメントを segment に切り替える (旧値を退避)。
      *
-     * @param s スコープ内で使うセグメント種別。
+     * @param segment スコープ内で使うセグメント種別。
      */
-    explicit ScopedMemorySegment(ESegment s) noexcept;
+    explicit ScopedMemorySegment(ESegment segment) noexcept;
 
     /** カレントセグメントを退避していた値に戻す。 */
     ~ScopedMemorySegment() noexcept;
@@ -2238,7 +2504,7 @@ struct FAppConfig {
 //       void OnStart() noexcept override {
 //           ACS_LOG_INFO("ゲーム開始");
 //       }
-//       void OnUpdate(f32 dt) noexcept override {
+//       void OnUpdate(f32 delta_time) noexcept override {
 //           if (Input::IsKeyPressed(EKey::Escape)) Quit();
 //       }
 //       void OnRender() noexcept override {
@@ -3036,47 +3302,47 @@ FAllocator& DefaultAllocator() noexcept;
  * @details
  * nullptr を渡すと内部の FSystemAllocator に戻る。起動初期 (コンテナ等が確保を
  * 始める前) に呼ぶこと。スレッドセーフではない。
- * @param a 新しいデフォルトアロケータ (nullptr で FSystemAllocator に戻す)。
+ * @param allocator 新しいデフォルトアロケータ (nullptr で FSystemAllocator に戻す)。
  */
-void SetDefaultAllocator(FAllocator* a) noexcept;
+void SetDefaultAllocator(FAllocator* allocator) noexcept;
 
 /**
  * 領域非重複コピー (::memcpy への薄いラッパ)。
  *
- * @details dst と src が重複する場合の動作は未定義。重複可能性があれば MemMove を使う。
- * @param dst コピー先 (src と重複してはならない)。
- * @param src コピー元。
- * @param n コピーするバイト数。
+ * @details destination と source が重複する場合の動作は未定義。重複可能性があれば MemMove を使う。
+ * @param destination コピー先 (source と重複してはならない)。
+ * @param source コピー元。
+ * @param size コピーするバイト数。
  */
-void MemCopy(void* dst, const void* src, usize n) noexcept;
+void MemCopy(void* destination, const void* source, usize size) noexcept;
 
 /**
  * 領域重複可能コピー (::memmove への薄いラッパ)。
  *
- * @param dst コピー先 (src と重複してもよい)。
- * @param src コピー元。
- * @param n コピーするバイト数。
+ * @param destination コピー先 (source と重複してもよい)。
+ * @param source コピー元。
+ * @param size コピーするバイト数。
  */
-void MemMove(void* dst, const void* src, usize n) noexcept;
+void MemMove(void* destination, const void* source, usize size) noexcept;
 
 /**
  * バイト単位フィル (::memset への薄いラッパ)。
  *
- * @param dst 書き込み先。
+ * @param destination 書き込み先。
  * @param value 各バイトに書き込む値 (unsigned char に切り詰められる)。
- * @param n 書き込むバイト数。
+ * @param size 書き込むバイト数。
  */
-void MemSet (void* dst, int   value,    usize n) noexcept;
+void MemSet(void* destination, int value, usize size) noexcept;
 
 /**
  * バイト比較 (::memcmp への薄いラッパ)。
  *
- * @param a 比較対象 A。
- * @param b 比較対象 B。
- * @param n 比較するバイト数。
- * @return a<b なら負、等しければ 0、a>b なら正。
+ * @param left 比較対象の左辺。
+ * @param right 比較対象の右辺。
+ * @param size 比較するバイト数。
+ * @return left<right なら負、等しければ 0、left>right なら正。
  */
-int  MemCmp (const void* a, const void* b, usize n) noexcept;
+int MemCmp(const void* left, const void* right, usize size) noexcept;
 
 } // namespace acs
 
@@ -3347,6 +3613,20 @@ public:
             for (usize i = m_Size; i-- > 0;) m_Data[i].~T();
         }
         m_Size = 0;
+    }
+
+    /**
+     * 全要素を破棄し、確保済みの連続バッファも解放する。
+     *
+     * @details
+     * Clear() と異なり容量を 0 に戻す。配列に設定されたアロケータは維持するため、
+     * 次回の Reserve/Resize/PushBack も同じ確保元を使用する。大きな一時データを
+     * 明示的に手放したい長寿命オブジェクト向け。
+     */
+    void ReleaseStorage() noexcept
+    {
+        Clear();
+        Free();
     }
 
     /** 余剰容量を解放してサイズちょうどに縮める。 */
@@ -3975,6 +4255,24 @@ public:
 
     /** バケット配列を解放する (値配列は m_Values のデストラクタが解放)。 */
     ~THashMap() noexcept { if (m_Buckets) m_Alloc->Free(m_Buckets); }
+
+    /**
+     * 全要素と確保済みストレージを解放する。
+     *
+     * @details 値配列とバケット容量を 0 に戻すが、構築時に指定されたアロケータは
+     * 維持する。長寿命オブジェクトを終了後に再利用する場合に、確保元が意図せず
+     * DefaultAllocator へ変わることを防ぐ。
+     */
+    void ReleaseStorage() noexcept
+    {
+        m_Values.ReleaseStorage();
+        if (m_Buckets) {
+            m_Alloc->Free(m_Buckets);
+            m_Buckets = nullptr;
+        }
+        m_BucketCount = 0;
+        m_BucketMask = 0;
+    }
 
     /**
      * 要素数を返す。
@@ -5202,6 +5500,14 @@ public:
     void Destroy(EntityId e) noexcept;
 
     /**
+     * 全エンティティとコンポーネントストレージを解放し、空の World に戻す。
+     *
+     * @details MemorySystem の終了前に、実行中に選ばれた既定アロケータを使う
+     * SparseSet を確実に破棄するためにも使用する。繰り返し呼んでも安全。
+     */
+    void Clear() noexcept;
+
+    /**
      * エンティティが現在も生存しているかを返す (世代チェック)。
      *
      * @param e 判定するエンティティ。
@@ -5357,6 +5663,9 @@ private:
 
     /** 生存中のエンティティ数。 */
     u32                   m_AliveCount = 0;
+
+    /** Clear 前の EntityId が再生成後に一致しないよう、新規スロットへ与える世代。 */
+    u32 m_GenerationSeed = 0;
 };
 
 } // namespace acs
@@ -6461,7 +6770,15 @@ public:
      */
     static TResult<void> Init(u32 worker_count = 0) noexcept;
 
-    /** 全ワーカーを停止・Join し、プールのリソースを解放する (未初期化なら何もしない)。 */
+    /**
+     * 受付を閉じ、受理済みタスクとその子タスクを完了させてから全ワーカーを停止・Join する。
+     *
+     * @details
+     * 外部スレッドから終了開始後に行われた Submit はエラーとなり、counter 加算も所有権移動も
+     * 発生しない。実行中タスクから派生する Submit は依存グラフを完走させるため受理される。
+     * タスク自身から呼ぶと自己 Join を避けるため何もせず戻るので、所有者スレッドから改めて
+     * 呼ぶこと。未初期化なら何もしない。
+     */
     static void         Shutdown() noexcept;
 
     /**
@@ -6485,8 +6802,9 @@ public:
      * タスクを投入する。
      *
      * @details
-     * counter が非 null なら自動で Add(1) される。ワーカースレッドからの投入は
+     * counter が非 null なら受理が確定したタスクだけ自動で Add(1) される。ワーカースレッドからの投入は
      * 自分のローカル deque へ、それ以外はグローバル投入キュー経由で入る。
+     * エラー時はタスクを保持しないため、user の所有権は呼び出し側に残る。
      * @param t 投入するタスク (fn が null なら Threading エラー)。
      * @return 成功なら空の TResult。未初期化・null fn・ノード確保失敗時はエラー。
      */
@@ -6617,8 +6935,17 @@ public:
     /** 空のレジストリを構築する (ローダ未登録)。 */
     FAssetRegistry() noexcept = default;
 
-    /** レジストリを破棄する (キャッシュは TSharedPtr が解放、ローダは非所有)。 */
-    ~FAssetRegistry() noexcept = default;
+    /**
+     * 指定アロケータを使う空のレジストリを構築する。
+     *
+     * @param allocator キャッシュ・ローダ配列のストレージ確保元。
+     */
+    explicit FAssetRegistry(FAllocator& allocator) noexcept : m_Cache(allocator), m_Loaders(allocator)
+    {
+    }
+
+    /** 実行中の同期・非同期ロードを待ってからキャッシュを解放する。 */
+    ~FAssetRegistry() noexcept;
 
     /** コピー禁止 (Mutex とキャッシュを単独保持するため)。 */
     FAssetRegistry(const FAssetRegistry&) = delete;
@@ -6629,7 +6956,8 @@ public:
     /**
      * ローダを登録する。
      *
-     * @details 拡張子マッチで使われる。所有権はレジストリに渡らない (呼び出し側が寿命を管理)。
+     * @details 拡張子マッチで使われる。所有権はレジストリに渡らない。登録したローダは
+     * レジストリの Shutdown 完了まで呼び出し側が生存させること。Shutdown 開始後は無視される。
      * @param loader 登録するローダ (null は無視)。
      */
     void RegisterLoader(IAssetLoader* loader) noexcept;
@@ -6655,6 +6983,22 @@ public:
      * @return 完了確認用の FAssetFuture。
      */
     FAssetFuture LoadAsync(const wchar_t* path) noexcept;
+
+    /**
+     * 新規ロード受付を閉じ、処理中の同期・非同期ロードを待って全キャッシュを解放する。
+     *
+     * @details 冪等。終了開始後の Load/LoadAsync はエラーとなる。ロードコールバック自身から
+     * 呼ぶと自己待機になるため、レジストリを所有するスレッドから呼ぶこと。
+     */
+    void Shutdown() noexcept;
+
+    /**
+     * 現在のロードを終了してストレージを解放し、新規ロード受付を再開する。
+     *
+     * @details Shutdown 済みでも呼べる。構築時のアロケータは維持される。
+     * Shutdown と同じく、ロードコールバック自身から呼んではならない。
+     */
+    void Restart() noexcept;
 
     /**
      * キャッシュからのみアセットを取得する (ロードはしない)。
@@ -6699,6 +7043,15 @@ private:
 
     /** 登録済みローダ (非所有ポインタ)。 */
     TArray<IAssetLoader*>           m_Loaders;
+
+    /** Shutdown が新規ロード受付を閉じた後は true (m_Lock で保護)。 */
+    bool m_Closing = false;
+
+    /** Shutdown が待機と全ストレージ解放まで完了した後は true (m_Lock で保護)。 */
+    bool m_ShutdownComplete = false;
+
+    /** ロック外でレジストリまたは登録ローダを参照しているロード処理数。 */
+    CompletionCounter m_ActiveOperations;
 };
 
 } // namespace acs
@@ -6767,8 +7120,9 @@ public:
      * @param p 所有する対象 (この後の解放責任を引き受ける)。
      * @param a 解放に使うアロケータ (nullptr なら DefaultAllocator)。
      */
-    explicit TUniquePtr(T* p, FAllocator* a = nullptr) noexcept
-        : m_Ptr(p), m_Alloc(a ? a : &DefaultAllocator()) {}
+    explicit TUniquePtr(T* p, FAllocator* a = nullptr) noexcept : m_Ptr(p), m_Alloc(a ? a : &DefaultAllocator())
+    {
+    }
 
     /** コピー禁止 (対象を単独所有するため)。 */
     TUniquePtr(const TUniquePtr&) = delete;
@@ -6781,7 +7135,8 @@ public:
      *
      * @param o 所有権の移動元 (この後は空になる)。
      */
-    TUniquePtr(TUniquePtr&& o) noexcept : m_Ptr(o.m_Ptr), m_Alloc(o.m_Alloc) {
+    TUniquePtr(TUniquePtr&& o) noexcept : m_Ptr(o.m_Ptr), m_Alloc(o.m_Alloc)
+    {
         o.m_Ptr = nullptr;
     }
 
@@ -6793,7 +7148,9 @@ public:
      * @param o 所有権の移動元 (この後は空になる)。
      */
     template<typename U>
-    TUniquePtr(TUniquePtr<U>&& o) noexcept : m_Ptr(o.Release()), m_Alloc(o.GetAllocator()) {}
+    TUniquePtr(TUniquePtr<U>&& o) noexcept : m_Ptr(o.Release()), m_Alloc(o.GetAllocator())
+    {
+    }
 
     /**
      * ムーブ代入。現在の対象を破棄してから o の所有権を奪う。
@@ -6801,7 +7158,8 @@ public:
      * @param o 所有権の移動元 (この後は空になる)。
      * @return 自身への参照。
      */
-    TUniquePtr& operator=(TUniquePtr&& o) noexcept {
+    TUniquePtr& operator=(TUniquePtr&& o) noexcept
+    {
         if (this == &o) return *this;
         Reset();
         m_Ptr = o.m_Ptr;
@@ -6811,7 +7169,10 @@ public:
     }
 
     /** 破棄時に保持中の対象を解放する。 */
-    ~TUniquePtr() noexcept { Reset(); }
+    ~TUniquePtr() noexcept
+    {
+        Reset();
+    }
 
     /**
      * 所有している生ポインタを返す (所有権は手放さない)。
@@ -6819,28 +7180,40 @@ public:
      * @details std::unique_ptr<T>::get() と同じ意味論。TUniquePtr の const 性と T の const 性は独立。
      * @return 保持中の生ポインタ (空なら nullptr)。
      */
-    T* Get() const noexcept { return m_Ptr; }
+    T* Get() const noexcept
+    {
+        return m_Ptr;
+    }
 
     /**
      * 対象への参照を返す。
      *
      * @return 保持中の対象への参照 (空のとき呼ぶのは未定義)。
      */
-    T& operator*()  const noexcept { return *m_Ptr; }
+    T& operator*() const noexcept
+    {
+        return *m_Ptr;
+    }
 
     /**
      * 対象のメンバへアクセスするためのポインタを返す。
      *
      * @return 保持中の生ポインタ。
      */
-    T* operator->() const noexcept { return m_Ptr; }
+    T* operator->() const noexcept
+    {
+        return m_Ptr;
+    }
 
     /**
      * 対象を所有しているかを返す。
      *
      * @return 非 null を所有していれば true。
      */
-    explicit operator bool() const noexcept { return m_Ptr != nullptr; }
+    explicit operator bool() const noexcept
+    {
+        return m_Ptr != nullptr;
+    }
 
     /**
      * 所有権を放棄して生ポインタを返す。
@@ -6848,7 +7221,8 @@ public:
      * @details 解放は行わない。呼び出し側が以後の解放責任を持つ。自身は空になる。
      * @return それまで保持していた生ポインタ。
      */
-    T* Release() noexcept {
+    T* Release() noexcept
+    {
         T* p = m_Ptr;
         m_Ptr = nullptr;
         return p;
@@ -6858,10 +7232,29 @@ public:
      * 既存の対象を破棄し、新しい対象を保持する (または空にする)。
      *
      * @param p 新たに保持する対象 (既定 nullptr で空にする)。
+     * @param allocator p の解放に使うアロケータ。省略時は現在の保持先、空なら DefaultAllocator。
      */
-    void Reset(T* p = nullptr) noexcept {
-        if (m_Ptr) Delete(*m_Alloc, m_Ptr);
+    void Reset(T* p = nullptr, FAllocator* allocator = nullptr) noexcept
+    {
+        // 同じポインタを渡した場合に、解放済みポインタを再保持しない。
+        if (p == m_Ptr) {
+            if (p == nullptr && allocator != nullptr) m_Alloc = allocator;
+            return;
+        }
+
+        if (m_Ptr) {
+            ACS_ASSERT(m_Alloc != nullptr);
+            Delete(*m_Alloc, m_Ptr);
+        }
+
         m_Ptr = p;
+        if (p != nullptr) {
+            // 既定構築した空ポインタから Reset(raw) した場合も、解放元を必ず記録する。
+            // 別アロケータ由来の raw pointer は第2引数で明示する。
+            m_Alloc = allocator ? allocator : (m_Alloc ? m_Alloc : &DefaultAllocator());
+        } else if (allocator != nullptr) {
+            m_Alloc = allocator;
+        }
     }
 
     /**
@@ -6869,11 +7262,14 @@ public:
      *
      * @return 保持中のアロケータ。
      */
-    FAllocator* GetAllocator() const noexcept { return m_Alloc; }
+    FAllocator* GetAllocator() const noexcept
+    {
+        return m_Alloc;
+    }
 
 private:
     /** 所有している対象 (空なら nullptr)。 */
-    T*         m_Ptr   = nullptr;
+    T* m_Ptr = nullptr;
 
     /** 対象の解放に使うアロケータ。 */
     FAllocator* m_Alloc = nullptr;
@@ -6888,7 +7284,8 @@ private:
  * @return 構築した対象を所有する TUniquePtr (確保失敗時は空)。
  */
 template<typename T, typename... Args>
-ACS_FORCEINLINE TUniquePtr<T> MakeUnique(Args&&... args) noexcept {
+ACS_FORCEINLINE TUniquePtr<T> MakeUnique(Args&&... args) noexcept
+{
     FAllocator& a = DefaultAllocator();
     T* const p = New<T>(a, Forward<Args>(args)...);
     return TUniquePtr<T>(p, &a);
@@ -6904,7 +7301,8 @@ ACS_FORCEINLINE TUniquePtr<T> MakeUnique(Args&&... args) noexcept {
  * @return 構築した対象を所有する TUniquePtr (確保失敗時は空)。
  */
 template<typename T, typename... Args>
-ACS_FORCEINLINE TUniquePtr<T> MakeUniqueIn(FAllocator& a, Args&&... args) noexcept {
+ACS_FORCEINLINE TUniquePtr<T> MakeUniqueIn(FAllocator& a, Args&&... args) noexcept
+{
     T* const p = New<T>(a, Forward<Args>(args)...);
     return TUniquePtr<T>(p, &a);
 }
@@ -7971,16 +8369,22 @@ public:
      * レンダーターゲットテクスチャの内容を CPU メモリへ読み戻す (同期、GPU→CPU)。
      *
      * @details
-     * tex は描画済み (caller が render + WaitIdle 済み) であること。out_pixels に行優先で
+     * texture は描画済み (呼び出し側が render + WaitIdle 済み) であること。destination_pixels に行優先で
      * 詰める (4 バイト/ピクセル = RGBA8/BGRA8 前提)。サムネイル/スクリーンショット用の一度きり
      * 操作で、内部で readback ヒープ + コピー + fence 待ち + de-pad を行う (遅い)。
      * 既定は未対応 (false)。DX12 バックエンドが実装する。
-     * @param tex 読み戻し元のテクスチャ (render target)。
-     * @param out_pixels 書き込み先 (>= width*height*4 バイト)。
-     * @param out_size out_pixels のバイト数。
+     * @param texture 読み戻し元のテクスチャ (render target)。
+     * @param destination_pixels 書き込み先 (>= width*height*4 バイト)。
+     * @param destination_size destination_pixels のバイト数。
      * @return 成功なら true、未対応/失敗なら false。
      */
-    virtual bool ReadTexture(IRhiTexture& /*tex*/, void* /*out_pixels*/, u32 /*out_size*/) noexcept { return false; }
+    virtual bool ReadTexture(IRhiTexture& texture, void* destination_pixels, u32 destination_size) noexcept
+    {
+        (void)texture;
+        (void)destination_pixels;
+        (void)destination_size;
+        return false;
+    }
 };
 
 /**
@@ -7990,13 +8394,13 @@ public:
  */
 enum class ERhiBackendKind : u8 {
     /** 利用可能な中で最良を選ぶ (Diligent: D3D12 を優先)。 */
-    Auto    = 0,
+    Auto = 0,
 
     /** 強制的に DX12 を使う。 */
-    D3D12   = 1,
+    D3D12 = 1,
 
     /** 強制的に Vulkan を使う (要 ACS_DILIGENT_VULKAN=ON)。 */
-    Vulkan  = 2,
+    Vulkan = 2,
 };
 
 /**
@@ -8006,23 +8410,23 @@ enum class ERhiBackendKind : u8 {
  */
 struct DeviceConfig {
     /** デバッグレイヤを有効化するか (Debug ビルドのみ ON 推奨)。 */
-    bool           enable_debug_layer = false;
+    bool enable_debug_layer = false;
 
     /** 統合 GPU よりディスクリート GPU を優先するか。 */
-    bool           prefer_high_perf   = true;
+    bool prefer_high_perf = true;
 
     /** 使用するバックエンドの種類。 */
-    ERhiBackendKind backend            = ERhiBackendKind::Auto;
+    ERhiBackendKind backend = ERhiBackendKind::Auto;
 };
 
 /**
  * デバイスを作成する。
  *
- * @details バックエンドはビルド設定と cfg.backend で決まる。
- * @param cfg デバイス作成オプション。
+     * @details バックエンドはビルド設定と configuration.backend で決まる。
+     * @param configuration デバイス作成オプション。
  * @return 成功なら所有権付きデバイス、生成失敗ならエラー。
  */
-TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& cfg) noexcept;
+TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& configuration) noexcept;
 
 } // namespace acs
 
@@ -8808,7 +9212,7 @@ using TimerCallback = void (*)(void* user);
  * @details
  * 全タイマを線形配列の slot で持ち、Tick で dt を減算して発火させる。SetTimeout は
  * 1 回限り、SetInterval は self-rearm 方式で周期発火する。slot は世代付きで再利用し、
- * 古いハンドルでの誤操作を防ぐ。コールバック中の追加・Cancel は安全。non-copy 型。
+ * 古いハンドルでの誤操作を防ぐ。コールバック中の追加・Cancel・Clear は安全。non-copy 型。
  */
 class FTimerManager {
 public:
@@ -8851,6 +9255,15 @@ public:
      * @return 該当タイマが見つかり解除できたら true (既に発火 / 解放済みなら false)。
      */
     bool Cancel(FTimerHandle h) noexcept;
+
+    /**
+     * 全タイマを破棄し、空のマネージャに戻す。
+     *
+     * @details 登録済みの user pointer を終了後に保持しない。繰り返し呼んでも安全。
+     *          コールバック内から呼んだ場合、全 slot は直ちに無効化し、配列容量の解放だけを
+     *          最外周 Tick の終了まで延期する。その Tick が戻るまで新規登録は受け付けない。
+     */
+    void Clear() noexcept;
 
     /**
      * 毎フレーム呼び、dt を経過させて発火条件を満たしたタイマを呼ぶ。
@@ -8899,6 +9312,15 @@ private:
         void*           user        = nullptr;
     };
 
+    /** 次の登録へ割り当てる、0 以外の世代番号を取得する。 */
+    u32 AcquireGeneration() noexcept;
+
+    /** 全 slot のコールバックと user pointer を破棄し、論理的に空にする。 */
+    void InvalidateAllSlots() noexcept;
+
+    /** slot 配列と再利用配列の容量を解放し、保留中の Clear を完了する。 */
+    void ReleaseClearedStorage() noexcept;
+
     /** タイマ slot の配列。 */
     TArray<Slot> m_Slots;
 
@@ -8907,6 +9329,15 @@ private:
 
     /** 次に割り当てる 1-based slot id。 */
     u32         m_NextId = 1;
+
+    /** 登録ごとに進め、Clear 前後でも古いハンドルと一致させない世代番号。 */
+    u32 m_NextGeneration = 1;
+
+    /** 再入 Tick を含む現在の Tick 呼び出し深度。 */
+    u32 m_TickDepth = 0;
+
+    /** Tick 中の Clear により、配列容量の解放を最外周 Tick まで保留しているか。 */
+    bool m_ClearPending = false;
 };
 
 } // namespace acs
@@ -9031,6 +9462,15 @@ public:
     /** 全チャンネルを解放して破棄する。 */
     ~MessageBroker() noexcept;
 
+    /**
+     * 全購読とチャンネルを解放し、空のブローカに戻す。
+     *
+     * @details 実行中の既定アロケータで作られたチャンネルを MemorySystem より先に
+     * 破棄するため、アプリケーション終了処理からも呼ばれる。繰り返し呼んでも安全。
+     * Publish のコールバック内からは呼ばないこと。
+     */
+    void Clear() noexcept;
+
     /** コピー禁止 (チャンネルを所有するため)。 */
     MessageBroker(const MessageBroker&) = delete;
 
@@ -9116,6 +9556,9 @@ private:
         /** Publish 中のネストレベル (>0 のとき解除を遅延)。 */
         i32          publish_depth = 0;
 
+        /** Clear 前の購読ハンドルを無効化するため、新規 slot へ与える世代。 */
+        u32 generation_seed = 0;
+
         /** publish_depth>0 の間に貯めた解除対象 slot 添字。 */
         TArray<u32>   pending_cancel;
     };
@@ -9150,11 +9593,239 @@ private:
 
     /** チャンネル配列 (EventTypeId → Channel*、所有権を持つ)。 */
     TArray<Channel*> m_Channels;
+
+    /** Clear のたびに進める、新規チャンネル用の世代。 */
+    u32 m_GenerationSeed = 0;
+};
+
+} // namespace acs
+
+// ===================== memory/CrtDebugHeapDiagnostics.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// ACS Memory - MSVC CRT デバッグヒープ診断
+// -----------------------------------------------------------------------------
+// Debug/MSVC では CRT デバッグヒープのチェックポイント、差分、終了時リーク検査を
+// 扱う。Release または非 MSVC では同じ API を安全な no-op として提供する。
+// =============================================================================
+
+
+namespace acs {
+
+/** CRT デバッグヒープ診断スコープの動作設定。 */
+struct CrtDebugHeapScopeConfiguration {
+    /** 機械可読ログに載せるスコープ名。Begin 時に内部へコピーされる。 */
+    const char* scope_name = "unnamed";
+
+    /** Begin と End で CRT ヒープの整合性を検査する。 */
+    bool check_heap_integrity = true;
+
+    /** リーク検出時にチェックポイント以後の全オブジェクトを CRT へダンプする。 */
+    bool dump_objects_on_leak = false;
+
+    /** CRT 自身の内部ブロックもリーク判定へ含める。通常は false を推奨する。 */
+    bool include_crt_blocks_in_leak_result = false;
+
+    /** End 時に一行の機械可読ログを標準エラーとデバッガへ出力する。 */
+    bool write_machine_readable_log = true;
+};
+
+/** CRT デバッグヒープのチェックポイント差分。 */
+struct CrtDebugHeapScopeReport {
+    /** このビルドで MSVC CRT デバッグヒープが利用可能か。 */
+    bool supported = false;
+
+    /** 有効な Begin に対応する End だったか。 */
+    bool was_active = false;
+
+    /** Begin と End の両方で CRT の割り当て追跡が有効だったか。 */
+    bool allocation_tracking_enabled = false;
+
+    /** Begin/End のヒープ整合性検査がすべて成功したか。 */
+    bool heap_valid = true;
+
+    /** CRT がチェックポイント間に何らかの差分を検出したか。 */
+    bool difference_detected = false;
+
+    /** 判定対象ブロックの正味増加が残っているか。 */
+    bool leak_detected = false;
+
+    /** 判定対象となった未解放ブロック数。 */
+    u64 outstanding_allocation_count = 0;
+
+    /** 判定対象となった未解放バイト数。 */
+    u64 outstanding_bytes = 0;
+
+    /** 通常ブロックの正味増加件数。 */
+    u64 normal_allocation_count = 0;
+
+    /** 通常ブロックの正味増加バイト数。 */
+    u64 normal_bytes = 0;
+
+    /** クライアントブロックの正味増加件数。 */
+    u64 client_allocation_count = 0;
+
+    /** クライアントブロックの正味増加バイト数。 */
+    u64 client_bytes = 0;
+
+    /** CRT 内部ブロックの正味増加件数。 */
+    u64 crt_allocation_count = 0;
+
+    /** CRT 内部ブロックの正味増加バイト数。 */
+    u64 crt_bytes = 0;
+
+    /** Begin から End まで追跡設定とヒープが有効で、リーク判定を信頼できるか。 */
+    bool measurement_conclusive = false;
+
+    /** Begin から End まで CRT デバッグヒープ設定が変化しなかったか。 */
+    bool configuration_stable = false;
+};
+
+/** CRT のヒープ検査頻度。高頻度ほど診断精度と実行コストが上がる。 */
+enum class ECrtDebugHeapCheckFrequency : u8 {
+    Default,
+    Every16Operations,
+    Every128Operations,
+    Every1024Operations,
+    EveryOperation,
+};
+
+/** プロセス全体へ一時適用する CRT デバッグヒープ設定。 */
+struct CrtDebugHeapProcessConfiguration {
+    /** デバッグヒープによる割り当て追跡を有効にする。 */
+    bool enable_allocation_tracking = true;
+
+    /** プロセス正常終了時に CRT のリークダンプを実行する。 */
+    bool enable_process_exit_leak_check = true;
+
+    /** 解放済みブロックを保持し、書き込み破壊の検出に利用する。 */
+    bool retain_freed_blocks = false;
+
+    /** CRT 自身の内部ブロックをリーク検査へ含める。 */
+    bool include_crt_blocks = false;
+
+    /** ヒープ検査の頻度。 */
+    ECrtDebugHeapCheckFrequency check_frequency = ECrtDebugHeapCheckFrequency::Default;
+
+    /** CRT の警告、エラー、アサートをデバッガへ送る。 */
+    bool report_to_debugger = true;
+
+    /** CRT の警告、エラー、アサートを標準エラーへ送る。 */
+    bool report_to_standard_error = true;
+
+    /** break_on_allocation_sequence をこの設定スコープで適用する。 */
+    bool configure_break_on_allocation_sequence = false;
+
+    /** ブレークする CRT 割り当て通し番号。-1 はブレークを無効にする。 */
+    i64 break_on_allocation_sequence = -1;
+};
+
+/**
+ * CRT ヒープのチェックポイント間に残る正味増加を検出する再利用可能スコープ。
+ *
+ * @details Begin は多重呼び出しと、別の診断スコープとの重複を拒否する。End 後は同じインスタンスを
+ * 再利用できる。プロセス設定スコープ内で開始した場合、その設定は End のチェックポイントまで固定される。
+ * デストラクタは有効なスコープを自動的に End する。
+ */
+class FCrtDebugHeapScope final {
+public:
+    FCrtDebugHeapScope() noexcept = default;
+    ~FCrtDebugHeapScope() noexcept;
+
+    FCrtDebugHeapScope(const FCrtDebugHeapScope&) = delete;
+    FCrtDebugHeapScope& operator=(const FCrtDebugHeapScope&) = delete;
+    FCrtDebugHeapScope(FCrtDebugHeapScope&&) = delete;
+    FCrtDebugHeapScope& operator=(FCrtDebugHeapScope&&) = delete;
+
+    /** 現在位置を基準チェックポイントとして診断を開始する。追跡無効時は false。 */
+    bool Begin(const CrtDebugHeapScopeConfiguration& configuration = {}) noexcept;
+
+    /** 現在位置との差分を収集し、必要ならダンプと機械可読ログを出力する。 */
+    CrtDebugHeapScopeReport End() noexcept;
+
+    /** Begin 済みか。 */
+    bool IsActive() const noexcept
+    {
+        return m_Active;
+    }
+
+private:
+    /** CRT 型を公開ヘッダへ漏らさないための Win32 ヒープ上の内部状態。 */
+    void* m_Implementation = nullptr;
+
+    bool m_Active = false;
+};
+
+/**
+ * プロセス全体の CRT デバッグヒープ設定を一時変更するスコープ。
+ *
+ * @details 対応ビルドでは同時に有効化できるインスタンスは一つだけ。診断スコープが先に有効な場合は
+ * Begin を拒否する。設定スコープ内で始めた診断が残る間に End した場合は、そのチェックポイントが完了するまで
+ * debug flags、break allocation、全 report mode/file の復元を遅延する。
+ */
+class FCrtDebugHeapProcessConfigurationScope final {
+public:
+    FCrtDebugHeapProcessConfigurationScope() noexcept = default;
+    ~FCrtDebugHeapProcessConfigurationScope() noexcept;
+
+    FCrtDebugHeapProcessConfigurationScope(const FCrtDebugHeapProcessConfigurationScope&) = delete;
+    FCrtDebugHeapProcessConfigurationScope& operator=(const FCrtDebugHeapProcessConfigurationScope&) = delete;
+    FCrtDebugHeapProcessConfigurationScope(FCrtDebugHeapProcessConfigurationScope&&) = delete;
+    FCrtDebugHeapProcessConfigurationScope& operator=(FCrtDebugHeapProcessConfigurationScope&&) = delete;
+
+    /** 設定を退避して一時設定を適用する。 */
+    bool Begin(const CrtDebugHeapProcessConfiguration& configuration = {}) noexcept;
+
+    /** Begin 前の設定を復元する。診断中の場合は、その診断の End まで復元を遅延する。 */
+    void End() noexcept;
+
+    /** 設定が現在適用中か。 */
+    bool IsActive() const noexcept
+    {
+        return m_Active;
+    }
+
+private:
+    /** CRT 型と report file 型を公開ヘッダへ漏らさない内部状態。 */
+    void* m_Implementation = nullptr;
+
+    bool m_Active = false;
+};
+
+/** MSVC CRT デバッグヒープの単発診断 API。 */
+class FCrtDebugHeapDiagnostics final {
+public:
+    FCrtDebugHeapDiagnostics() = delete;
+
+    /** MSVC の Debug CRT 診断が利用可能か。 */
+    static bool IsSupported() noexcept;
+
+    /** CRT ヒープを検査する。report hook からの再入時は false。非対応ビルドでは true。 */
+    static bool CheckHeapIntegrity() noexcept;
+
+    /** 現在生存する全 CRT ヒープオブジェクトを出力する。report hook からの再入は何もせず戻る。 */
+    static void DumpAllLiveObjects() noexcept;
+
+    /**
+     * 指定した CRT 割り当て通し番号でブレークする。
+     * @return 変更前の通し番号。非対応ビルドでは -1。
+     */
+    static i64 SetBreakOnAllocationSequence(i64 allocation_sequence) noexcept;
+
+    /**
+     * プロセス正常終了時の CRT リーク検査を切り替える。
+     * @return 変更前に有効だった場合 true。非対応ビルドでは false。
+     */
+    static bool SetProcessExitLeakCheckEnabled(bool enabled) noexcept;
 };
 
 } // namespace acs
 
 namespace acs {
+
+namespace app_internal {
+class FApplicationTestAccess;
+}
 
 /**
  * ゲーム/サンプルが継承するアプリケーション基底クラス。
@@ -9184,26 +9855,33 @@ public:
      *
      * @details
      * ロガー→メモリ→スレッドプール→ウィンドウ→レンダラの順に立ち上げ、OnStart を呼び、
-     * Quit() か OnClose まで毎フレーム update/描画を回す。終了時は逆順に後始末する。
-     * @param cfg ウィンドウ・ロガー・レンダラ等の起動オプション。
-     * @return 正常終了で 0、初期化失敗で非 0 のエラーコード。
+     * Quit() か OnClose まで毎フレーム update/描画を回す。正常終了後も派生メンバの安全な
+     * 破棄に必要なレンダラと、この Run が所有するプロセス基盤はデストラクタまで生存する。
+     * 再度 Run する場合は前回のレンダラを先に閉じるため、派生側の前回 GPU 所有物は
+     * OnShutdown で解放しておくこと。
+     * @param configuration ウィンドウ・ロガー・レンダラ等の起動オプション。
+     * @return 正常終了で 0、初期化失敗で 1〜4、同一オブジェクトへの再入で 5。
      */
-    int Run(const FAppConfig& cfg) noexcept;
+    int Run(const FAppConfig& configuration) noexcept;
 
     /** メインループを抜けて終了するよう要求する (OnShutdown が呼ばれる)。 */
-    void Quit() noexcept { m_bRunning = false; }
+    void Quit() noexcept
+    {
+        m_bRunning = false;
+    }
 
     /**
      * 背景クリア色を動的に変更する (次フレームの描画から反映)。
      *
      * @details 既定値は起動時 FAppConfig の clear_r/g/b/a。
-     * @param r 赤成分 (0..1)。
-     * @param g 緑成分 (0..1)。
-     * @param b 青成分 (0..1)。
-     * @param a アルファ成分 (0..1、既定 1.0)。
+     * @param red 赤成分 (0..1)。
+     * @param green 緑成分 (0..1)。
+     * @param blue 青成分 (0..1)。
+     * @param alpha アルファ成分 (0..1、既定 1.0)。
      */
-    void SetClearColor(f32 r, f32 g, f32 b, f32 a = 1.0f) noexcept {
-        m_ClearColor = ClearColor{ r, g, b, a };
+    void SetClearColor(f32 red, f32 green, f32 blue, f32 alpha = 1.0f) noexcept
+    {
+        m_ClearColor = ClearColor{red, green, blue, alpha};
     }
 
     /**
@@ -9212,94 +9890,134 @@ public:
      * @details マルチパス描画で RT 再バインド時のクリアに使う。
      * @return 現在のクリア色への const 参照。
      */
-    const ClearColor& GetClearColor() const noexcept { return m_ClearColor; }
+    const ClearColor& GetClearColor() const noexcept
+    {
+        return m_ClearColor;
+    }
 
     /**
      * ウィンドウへの参照を返す。
      *
      * @return アプリが所有する FWindow への参照。
      */
-    FWindow&         GetWindow()        noexcept { return m_Window; }
+    FWindow& GetWindow() noexcept
+    {
+        return m_Window;
+    }
 
     /**
      * レンダラへの参照を返す。
      *
      * @return アプリが所有する FRenderer への参照。
      */
-    FRenderer&       GetRenderer()      noexcept { return m_Renderer; }
+    FRenderer& GetRenderer() noexcept
+    {
+        return m_Renderer;
+    }
 
     /**
      * ECS World への参照を返す。
      *
      * @return アプリが所有する World への参照。
      */
-    World&          GetWorld()         noexcept { return m_World; }
+    World& GetWorld() noexcept
+    {
+        return m_World;
+    }
 
     /**
      * アセットレジストリへの参照を返す。
      *
      * @return アプリが所有する FAssetRegistry への参照。
      */
-    FAssetRegistry&  GetAssets()        noexcept { return m_Assets; }
+    FAssetRegistry& GetAssets() noexcept
+    {
+        return m_Assets;
+    }
 
     /**
      * タイマーマネージャへの参照を返す。
      *
      * @return アプリが所有する FTimerManager への参照。
      */
-    FTimerManager&   GetTimers()        noexcept { return m_Timers; }
+    FTimerManager& GetTimers() noexcept
+    {
+        return m_Timers;
+    }
 
     /**
      * イベントブローカーへの参照を返す。
      *
      * @return アプリが所有する MessageBroker への参照。
      */
-    MessageBroker&  GetEvents()        noexcept { return m_Events; }
+    MessageBroker& GetEvents() noexcept
+    {
+        return m_Events;
+    }
 
     /**
      * 直近フレームの経過時間を返す。
      *
      * @return 前フレームからの経過秒。
      */
-    f32             DeltaTime()  const noexcept { return m_Dt; }
+    f32 DeltaTime() const noexcept
+    {
+        return m_Dt;
+    }
 
     /**
      * 起動からの総フレーム数を返す。
      *
      * @return 描画したフレームの累計数。
      */
-    u64             FrameCount() const noexcept { return m_FrameTimer.FrameCount(); }
+    u64 FrameCount() const noexcept
+    {
+        return m_FrameTimer.FrameCount();
+    }
 
     /**
      * 平滑化された現在の FPS を返す。
      *
      * @return 平滑化済みのフレームレート。
      */
-    f32             FPS()        const noexcept { return m_FrameTimer.SmoothedFPS(); }
+    f32 FPS() const noexcept
+    {
+        return m_FrameTimer.SmoothedFPS();
+    }
 
 protected:
     /** 起動時に 1 回呼ばれる初期化フック (派生クラスで override)。 */
-    virtual void OnStart() noexcept   {}
+    virtual void OnStart() noexcept
+    {
+    }
 
     /**
      * 毎フレーム呼ばれる更新フック (派生クラスで override)。
      *
-     * @param dt 前フレームからの経過秒。
+     * @param delta_time 前フレームからの経過秒。
      */
-    virtual void OnUpdate(f32 /*dt*/) noexcept {}
+    virtual void OnUpdate(f32 /*delta_time*/) noexcept
+    {
+    }
 
     /** 毎フレーム呼ばれる描画フック (BeginFrame/EndFrame は基底が囲む)。 */
-    virtual void OnRender() noexcept   {}
+    virtual void OnRender() noexcept
+    {
+    }
 
     /** 終了時に 1 回呼ばれる後始末フック (派生クラスで override)。 */
-    virtual void OnShutdown() noexcept {}
+    virtual void OnShutdown() noexcept
+    {
+    }
 
     /**
      * ウィンドウ/入力イベントを受信したときに呼ばれるフック。
      *
-     * @param e 受信したイベント。
+     * @param event 受信したイベント。
      */
-    virtual void OnEvent(const Event& /*e*/) noexcept {}
+    virtual void OnEvent(const Event& /*event*/) noexcept
+    {
+    }
 
     /**
      * フレーム描画を派生クラスで完全に差し替えるためのフック。
@@ -9310,49 +10028,110 @@ protected:
      * パイプラインを自前で組む場合 (HelloBloom 等) に使う。
      * @return フルカスタム描画を行ったなら true、標準描画に任せるなら false (既定)。
      */
-    virtual bool OnCustomFrame() noexcept { return false; }
+    virtual bool OnCustomFrame() noexcept
+    {
+        return false;
+    }
 
 private:
     /**
+     * Run が起動したプロセス基盤だけを保持し、FApplication の全メンバより後に停止する。
+     *
+     * @details この型のインスタンスを最初のデータメンバに置くことで、派生メンバ、レンダラ、
+     * ウィンドウ、基底コンテナの破棄後に ThreadPool、MemorySystem、Logger を停止できる。
+     */
+    struct RuntimeFoundationLifetime {
+        /** 所有中の基盤を逆順で停止する。 */
+        ~RuntimeFoundationLifetime() noexcept;
+
+        /** 未起動なら Logger を起動し、成功時だけ所有権を記録する。 */
+        void InitializeLogger(const FLogConfig& config) noexcept;
+
+        /** Debug CRT のプロセス設定と基盤寿命スコープ診断を開始する。 */
+        void InitializeMemoryDiagnostics() noexcept;
+
+        /** 未起動なら MemorySystem を起動し、成功時だけ所有権を記録する。 */
+        TResult<void> InitializeMemorySystem(const MemorySystemConfig& config) noexcept;
+
+        /** 未起動なら ThreadPool を起動し、成功時だけ所有権を記録する。 */
+        TResult<void> InitializeThreadPool(u32 worker_count) noexcept;
+
+        /** 起動途中の失敗時にも使える冪等な明示解放。 */
+        void Release() noexcept;
+
+        /** このガードが Logger の終了責任を持つ。 */
+        bool logger_owned = false;
+
+        /** このガードが MemorySystem の終了責任を持つ。 */
+        bool memory_system_owned = false;
+
+        /** このガードが ThreadPool の終了責任を持つ。 */
+        bool thread_pool_owned = false;
+
+        /** Run の基盤所有権を追跡中である。 */
+        bool lifetime_active = false;
+
+        /** 追跡開始前から DbgHelp シンボルリゾルバが外部で初期化済みだった。 */
+        bool symbol_resolver_preexisting = false;
+
+        /** 基盤寿命中だけ適用する Debug CRT プロセス設定。 */
+        FCrtDebugHeapProcessConfigurationScope crt_process_configuration;
+
+        /** 基盤寿命中の CRT ヒープ正味増加を終了時に検査する。 */
+        FCrtDebugHeapScope crt_heap_scope;
+    };
+
+    friend class app_internal::FApplicationTestAccess;
+
+    /**
      * FWindow のイベントを Input に流しつつ OnEvent も呼ぶ静的ブリッジ。
      *
-     * @param user this を指すユーザポインタ (SetEventCallback で登録)。
-     * @param e 受信したイベント。
+     * @param user_data this を指すユーザポインタ (SetEventCallback で登録)。
+     * @param event 受信したイベント。
      */
-    static void EventBridge(void* user, const Event& e) noexcept;
+    static void EventBridge(void* user_data, const Event& event) noexcept;
+
+    // 最初に構築して最後に破棄する。以降のメンバを dead allocator/device より先に解放する。
+    RuntimeFoundationLifetime m_RuntimeFoundationLifetime;
 
     /** OS ウィンドウ。 */
-    FWindow         m_Window;
+    FWindow m_Window;
 
     /** レンダラ。 */
-    FRenderer       m_Renderer;
+    FRenderer m_Renderer;
 
     /** ECS World。 */
-    World          m_World;
+    World m_World;
 
     /** アセットレジストリ。 */
-    FAssetRegistry  m_Assets;
+    FAssetRegistry m_Assets;
 
     /** タイマーマネージャ。 */
-    FTimerManager   m_Timers;
+    FTimerManager m_Timers;
 
     /** イベントブローカー。 */
-    MessageBroker  m_Events;
+    MessageBroker m_Events;
 
     /** フレーム計時 (dt・FPS・フレーム数を提供)。 */
-    FrameTimer     m_FrameTimer;
+    FrameTimer m_FrameTimer;
 
     /** 直近フレームの経過秒。 */
-    f32            m_Dt       = 0.0f;
+    f32 m_Dt = 0.0f;
 
     /** メインループ継続フラグ (Quit で false)。 */
-    bool           m_bRunning  = true;
+    bool m_bRunning = true;
+
+    /** Run の再入を防ぐ。 */
+    bool m_RunActive = false;
+
+    /** 正常 Run 後のレンダラとウィンドウが派生デストラクタ待ちで残っている。 */
+    bool m_RunCompleted = false;
 
     /** Run に渡された起動オプションの控え。 */
-    FAppConfig      m_Cfg;
+    FAppConfig m_Cfg;
 
     /** BeginFrame に渡す現在のクリア色。 */
-    ClearColor     m_ClearColor{};
+    ClearColor m_ClearColor{};
 };
 
 } // namespace acs
@@ -11083,6 +11862,13 @@ public:
     void Clear() noexcept;
 
     /**
+     * 空文字列にし、ヒープ容量も確保元へ返す。
+     *
+     * @details 設定済みアロケータは維持するため、次回の Append も同じ確保元を使う。
+     */
+    void ReleaseStorage() noexcept;
+
+    /**
      * 容量を予約する (必要なら SSO からヒープへ遷移)。
      *
      * @param new_capacity 確保する最小容量。
@@ -12040,7 +12826,14 @@ namespace acs::assetpack {
 class FAcpakReader {
 public:
     /** 空状態で構築する (ファイルは Open で開く)。 */
-    FAcpakReader() noexcept = default;
+    FAcpakReader() noexcept;
+
+    /**
+     * 指定 allocator で file table と文字列 pool を持つ空状態を構築する。
+     *
+     * @param allocator 内部配列の確保に使う allocator。
+     */
+    explicit FAcpakReader(FAllocator& allocator) noexcept;
 
     /** 破棄する (Open 済なら Close 相当の後始末を行う)。 */
     ~FAcpakReader() noexcept;
@@ -12252,7 +13045,14 @@ namespace acs::assetpack {
 class FAcpakWriter {
 public:
     /** 空状態で構築する (出力は Open で開く)。 */
-    FAcpakWriter() noexcept = default;
+    FAcpakWriter() noexcept;
+
+    /**
+     * 指定 allocator で pending list を持つ空状態を構築する。
+     *
+     * @param allocator pending list の確保に使う allocator。
+     */
+    explicit FAcpakWriter(FAllocator& allocator) noexcept;
 
     /** 破棄する (Open 済なら Close 相当の後始末を行う)。 */
     ~FAcpakWriter() noexcept;
@@ -12780,6 +13580,11 @@ public:
     /** 空状態で構築する (pak は Mount で開く)。 */
     FAcpakGameReader() noexcept = default;
 
+    /** 指定 allocator を内部 Reader の配列に使う空状態で構築する。 */
+    explicit FAcpakGameReader(acs::FAllocator& allocator) noexcept : m_Reader(allocator)
+    {
+    }
+
     /** 破棄する (FAcpakReader が開いていれば自動 Close)。 */
     ~FAcpakGameReader() noexcept override = default;
 
@@ -12892,6 +13697,11 @@ class FAcpakGameWriter final : public acs::game::IAssetPackWriter {
 public:
     /** 空状態で構築する (pak は BeginPack で開く)。 */
     FAcpakGameWriter() noexcept = default;
+
+    /** 指定 allocator を内部 Writer の pending list に使う空状態で構築する。 */
+    explicit FAcpakGameWriter(acs::FAllocator& allocator) noexcept : m_Writer(allocator)
+    {
+    }
 
     /** 破棄する (FAcpakWriter が開いていれば自動 Close)。 */
     ~FAcpakGameWriter() noexcept override = default;
@@ -13208,11 +14018,14 @@ public:
     /**
      * COM とマスタリングボイスを含む XAudio2 エンジンを初期化する。
      *
+     * @details
+     * COM の参照数を正しく釣り合わせるため、Shutdown とデストラクタは Init を
+     * 呼んだスレッドで実行する。
      * @return 成功なら空の TResult、二重初期化や XAudio2 生成失敗ならエラー。
      */
     TResult<void> Init() noexcept;
 
-    /** 全ボイスを停止・解放し、XAudio2 と COM を後始末する (多重呼び出し安全)。 */
+    /** 全ボイスを停止・解放し、XAudio2 と COM を後始末する (多重呼び出し安全、Init と同一スレッド必須)。 */
     void Shutdown() noexcept;
 
     /**
@@ -14950,6 +15763,13 @@ public:
     /** 空の Null 値を構築する (特殊メンバは再帰所有のため .cpp で定義)。 */
     FJsonValue() noexcept;
 
+    /**
+     * 指定 allocator を使う空の Null 値を構築する。
+     *
+     * @param allocator 文字列と子配列の確保に使う allocator。
+     */
+    explicit FJsonValue(FAllocator& allocator) noexcept;
+
     /** 子要素ごと破棄する。 */
     ~FJsonValue() noexcept;
 
@@ -16008,7 +16828,7 @@ public:
     /** 空のジョブグラフを構築する。 */
     FJobGraph() noexcept = default;
 
-    /** Add で確保したすべての Job を解放する (Wait 完了後に破棄すること)。 */
+    /** 実行中なら Wait してから、Add で確保したすべての Job を解放する。 */
     ~FJobGraph() noexcept;
 
     /** コピー禁止。 */
@@ -16037,15 +16857,16 @@ public:
     /**
      * 全ジョブを FThreadPool に投入する。依存 0 のジョブが即座に走り始める。
      *
-     * @details Kahn 法でサイクル検知し、循環があればエラーで投入しない。
-     * @return 成功なら空の TResult。二重 Submit・サイクル検出・投入失敗時はエラー。
+     * @details Kahn 法でサイクル検知し、循環があれば一件も投入しない。ThreadPool への
+     * 個別投入が失敗した場合はそのジョブだけを同期実行し、部分投入による二重実行を防ぐ。
+     * @return 成功なら空の TResult。二重 Submit・サイクル検出時はエラー。
      */
     TResult<void> Submit() noexcept;
 
     /** 全ジョブの完了までブロックして待つ (待機中もスティーリングに参加)。 */
     void Wait() noexcept;
 
-    /** 同じグラフを再実行できるよう、各ジョブの deps_remaining を初期値に戻す。 */
+    /** 実行中なら Wait し、同じグラフを再実行できるよう依存カウンタを初期値に戻す。 */
     void Reset() noexcept;
 
     /**
@@ -17732,6 +18553,12 @@ namespace jobdetail {
      * 実装詳細であり初学者が直接触る必要はない。
      */
     struct Closure {
+        /** このクロージャを確保したアロケータ。 */
+        FAllocator* allocation_allocator;
+
+        /** allocation_allocator へ返す確保領域の先頭。 */
+        void* allocation_base;
+
         /** 格納したラムダ本体を呼び出す関数ポインタ。 */
         void (*invoke)(Closure*);
 
@@ -17764,13 +18591,34 @@ namespace jobdetail {
     template<typename Fn> inline Closure* MakeClosure(const Fn& fn) noexcept {
         const usize a   = alignof(Fn) > alignof(Closure) ? alignof(Fn) : alignof(Closure);
         const usize off = PayloadOffset<Fn>();
-        void* mem = acs::DefaultAllocator().Alloc(off + sizeof(Fn), a, acs::FSourceLoc::Current());
+        if (off > (~usize(0)) - sizeof(Fn)) return nullptr;
+
+        FAllocator& allocator = acs::DefaultAllocator();
+        void* mem = allocator.Alloc(off + sizeof(Fn), a, acs::FSourceLoc::Current());
         if (!mem) return nullptr;
         Closure* c = static_cast<Closure*>(mem);
         ::new (static_cast<u8*>(mem) + off) Fn(fn);   // ラムダをコピー構築 (元 fn は呼び出し側で生存)
+        c->allocation_allocator = &allocator;
+        c->allocation_base = mem;
         c->invoke  = [](Closure* s) { (*reinterpret_cast<Fn*>(reinterpret_cast<u8*>(s) + PayloadOffset<Fn>()))(); };
         c->destroy = [](Closure* s) {  reinterpret_cast<Fn*>(reinterpret_cast<u8*>(s) + PayloadOffset<Fn>())->~Fn(); };
         return c;
+    }
+
+    /**
+     * クロージャ本体を破棄し、生成時に記録した確保元へ領域を返す。
+     *
+     * @param closure 破棄するクロージャ。nullptr は no-op。
+     */
+    inline void DestroyClosure(Closure* closure) noexcept
+    {
+        if (closure == nullptr) return;
+        FAllocator* const allocator = closure->allocation_allocator;
+        void* const allocation_base = closure->allocation_base;
+        closure->destroy(closure);
+        if (allocator != nullptr && allocation_base != nullptr) {
+            allocator->Free(allocation_base);
+        }
     }
 
     /**
@@ -18059,7 +18907,9 @@ public:
      *
      * @param w 走査対象の World (参照を保持)。
      */
-    explicit QueryView(World& w) noexcept : m_World(w) {}
+    explicit QueryView(World& w) noexcept : m_World(w)
+    {
+    }
 
     /**
      * 全 Comps を持つ各エンティティにラムダを呼ぶ (逐次)。
@@ -18072,7 +18922,8 @@ public:
      * @param fn 各エンティティに適用するラムダ (値で受け取る)。
      */
     template<typename Fn>
-    void Each(Fn fn) noexcept {
+    void Each(Fn fn) noexcept
+    {
         SparseSetBase* primary = nullptr;
         if (!ResolvePrimary(primary)) return;
         const usize count = primary->Size();
@@ -18084,7 +18935,8 @@ public:
         TArray<u32> snapshot;
         snapshot.Resize(count);
         const u32* dense = primary->DenseEntities();
-        for (usize i = 0; i < count; ++i) snapshot[i] = dense[i];
+        for (usize i = 0; i < count; ++i)
+            snapshot[i] = dense[i];
 
         for (usize i = 0; i < count; ++i) {
             const EntityId e = m_World.MakeIdFromIndex(snapshot[i]);
@@ -18107,7 +18959,8 @@ public:
      *              相対的に増える。1024 前後が経験的に良いバランス)。
      */
     template<typename Fn>
-    void EachParallel(Fn fn, u32 grain = 1024) noexcept {
+    void EachParallel(Fn fn, u32 grain = 1024) noexcept
+    {
         SparseSetBase* primary = nullptr;
         if (!ResolvePrimary(primary)) return;
         const u32 count = static_cast<u32>(primary->Size());
@@ -18119,17 +18972,18 @@ public:
         snapshot.Resize(count);
         {
             const u32* dense = primary->DenseEntities();
-            for (u32 i = 0; i < count; ++i) snapshot[i] = dense[i];
+            for (u32 i = 0; i < count; ++i)
+                snapshot[i] = dense[i];
         }
 
         // FThreadPool::ParallelFor は stateless 関数ポインタしか受け取れないので
         // ctx を user data に乗せ、thunk で QueryView の処理に戻す。
         struct Ctx {
-            QueryView*  self;
-            Fn*         fn;
-            const u32*  dense;
+            QueryView* self;
+            Fn* fn;
+            const u32* dense;
         };
-        Ctx ctx{ this, &fn, snapshot.Data() };
+        Ctx ctx{this, &fn, snapshot.Data()};
 
         auto thunk = [](u32 i, u32 /*worker*/, void* user) {
             auto* c = static_cast<Ctx*>(user);
@@ -18141,7 +18995,7 @@ public:
         };
 
         // ParallelFor は完了まで block する (内部で Wait)。
-        FThreadPool::ParallelFor(0, count, grain, +thunk, &ctx);
+        (void)FThreadPool::ParallelFor(0, count, grain, +thunk, &ctx);
     }
 
 private:
@@ -18153,9 +19007,9 @@ private:
      * @param out_primary 選んだ主軸 SparseSet を書き戻す出力先。
      * @return 全コンポーネントが揃って主軸を選べたら true。
      */
-    bool ResolvePrimary(SparseSetBase*& out_primary) noexcept {
-        SparseSetBase* sets[sizeof...(Comps)] = {
-            static_cast<SparseSetBase*>(m_World.template TryGetSet<Comps>())... };
+    bool ResolvePrimary(SparseSetBase*& out_primary) noexcept
+    {
+        SparseSetBase* sets[sizeof...(Comps)] = {static_cast<SparseSetBase*>(m_World.template TryGetSet<Comps>())...};
         for (usize i = 0; i < sizeof...(Comps); ++i) {
             if (!sets[i]) return false;
         }
@@ -18173,7 +19027,8 @@ private:
      * @param e 判定するエンティティ。
      * @return 全コンポーネントを持っていれば true。
      */
-    bool AllPresent(EntityId e) noexcept {
+    bool AllPresent(EntityId e) noexcept
+    {
         bool all = true;
         ((all = all && (m_World.template Get<Comps>(e) != nullptr)), ...);
         return all;
@@ -18187,7 +19042,8 @@ private:
      * @param e 対象エンティティ。
      */
     template<typename Fn>
-    void InvokeWith(Fn fn, EntityId e) noexcept {
+    void InvokeWith(Fn fn, EntityId e) noexcept
+    {
         fn(e, *m_World.template Get<Comps>(e)...);
     }
 
@@ -18202,7 +19058,8 @@ private:
  * @return この World を束ねた QueryView<Comps...>。
  */
 template<typename... Comps>
-auto World::Query() noexcept {
+auto World::Query() noexcept
+{
     return QueryView<Comps...>(*this);
 }
 
@@ -18990,6 +19847,22 @@ public:
      * @details DbgHelp は非スレッドセーフのため内部 SRWLOCK で直列化する。多重呼び出しは無害。
      */
     void Resolve() noexcept;
+
+    /**
+     * DbgHelp の共有シンボルリゾルバを終了する。
+     *
+     * @details
+     * Resolve が遅延初期化した `SymInitialize` と対になる終了 API。未初期化時と
+     * 多重呼び出しは no-op で、終了後に Resolve を呼ぶと再初期化される。
+     */
+    static void ShutdownSymbolResolver() noexcept;
+
+    /**
+     * DbgHelp の共有シンボルリゾルバが初期化済みかを返す。
+     *
+     * @return SymInitialize が成功済みで ShutdownSymbolResolver 前なら true。
+     */
+    static bool IsSymbolResolverInitialized() noexcept;
 
     /**
      * 取得したフレーム数を返す。
@@ -21202,9 +22075,8 @@ private:
 //   (CoreAudio / ALSA / OpenAL / WebAudio …) で差し替える。
 //
 // 設計選択:
-//   ・**voice handle 方式**: BGM / SFX を統一的に「voice」として扱い、24bit
-//     index + 8bit generation で一意化する。slot 再利用時の use-after-free
-//     を generation で検出。
+//   ・**voice handle 方式**: BGM / SFX を統一的に「voice」として扱い、32bit の
+//     不透明値で一意化する。0 は無効値として予約する。
 //   ・**TResult<void, FErrorCode> for Init**: backend 初期化のみ失敗ありえる
 //     (COM init / device 取得失敗等)。Play 系は noexcept で「鳴らせなければ
 //     InvalidHandle を返す」設計 (1 フレで何度も呼ぶ hot path なので TResult
@@ -21289,22 +22161,16 @@ struct AudioClipDesc {
 };
 
 /**
- * 再生中の voice を一意に指す generational handle。
+ * 再生中の voice を一意に指す 32bit ハンドル。
  *
  * @details
- * 内部表現は下位 24bit = voice index、上位 8bit = generation。再利用された slot を
- * 古いハンドルで参照する事故を generation で検出する。全 0 (= m_Packed == 0) は無効
- * ハンドル (kInvalidAudioVoice) を意味する。
- *
- * 重要な不変条件 (backend 実装側の契約): 有効ハンドルの packed 値は決して 0 に
- * なってはならない。pack は `(index & 0x00FFFFFF) | (gen << 24)` なので index==0 かつ
- * gen==0 だと packed==0 となり kInvalidAudioVoice と区別不能になる。これを避けるため
- * backend は generation を必ず 1 以上で配る (slot 初期 gen=1、ラップ時は 0 をスキップ
- * して 1 にする)。これで最初の voice (index=0) でも packed が非 0 になり、確保成功を
- * IsValid()==false と誤判定しない。この規約は FNodeId / FShapeId と同一。
+ * 全 0 (= m_Packed == 0) は無効ハンドル (kInvalidAudioVoice) を意味する。
+ * index + generation 形式を使う独自 backend 向けの互換コンストラクタを残しつつ、
+ * FXAudio2Backend は 8bit generation の早期衝突を避けるため 32bit 全体を
+ * プロセス通算の不透明チケットとして扱う。呼び出し側は値を分解せず保持して返す。
  */
 struct AudioVoiceHandle {
-    /** 下位 24bit=index、上位 8bit=generation を詰めた packed 値 (0=無効)。 */
+    /** backend が発行する 32bit 値 (0=無効、互換形式では index + generation)。 */
     u32 m_Packed = 0;
 
     /** 無効ハンドル (m_Packed=0) を構築する。 */
@@ -21320,6 +22186,22 @@ struct AudioVoiceHandle {
         : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
     /**
+     * backend が生成した 32bit の不透明値からハンドルを構築する。
+     *
+     * @details
+     * m_Packed のサイズと配置を変えずに、backend が 32bit 全体を衝突回避用の
+     * チケットとして利用できる。0 は常に無効値として予約される。
+     * @param packed_value 0 以外の不透明なハンドル値。
+     * @return 指定値を保持するハンドル。
+     */
+    static constexpr AudioVoiceHandle FromPackedValue(u32 packed_value) noexcept
+    {
+        AudioVoiceHandle handle;
+        handle.m_Packed = packed_value;
+        return handle;
+    }
+
+    /**
      * 有効なハンドルかを返す。
      *
      * @return packed 値が非 0 (= 有効) なら true。
@@ -21327,19 +22209,33 @@ struct AudioVoiceHandle {
     bool IsValid() const noexcept { return m_Packed != 0u; }
 
     /**
-     * voice の slot インデックスを返す。
+     * 互換形式における下位 24bit を返す。
      *
      * @return packed 値の下位 24bit。
      */
     u32 Index() const noexcept { return m_Packed & 0x00FFFFFFu; }
 
     /**
-     * slot の世代カウンタを返す。
+     * 互換形式における上位 8bit を返す。
      *
      * @return packed 値の上位 8bit。
      */
     u8  Generation() const noexcept { return static_cast<u8>(m_Packed >> 24); }
+
+    /** backend 間の受け渡しに使う 32bit の不透明値を返す。 */
+    u32 PackedValue() const noexcept
+    {
+        return m_Packed;
+    }
+
+    /** 2 つのハンドルが同じ発音を表すか比較する。 */
+    constexpr bool operator==(AudioVoiceHandle other) const noexcept
+    {
+        return m_Packed == other.m_Packed;
+    }
 };
+
+static_assert(sizeof(AudioVoiceHandle) == sizeof(u32), "AudioVoiceHandle must retain its 32-bit ABI");
 
 /** 無効を表す voice ハンドル定数 (m_Packed=0)。 */
 inline constexpr AudioVoiceHandle kInvalidAudioVoice {};
@@ -26738,6 +27634,215 @@ const void* SubsystemKindOf() noexcept {
 // 静的オブジェクトを置き、その ctor で登録する(TU ごとに 1 回)。
 
 
+// ===================== memory/SystemAllocator.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// ACS Memory — システムアロケータ（Win32 プロセスヒープ）
+// -----------------------------------------------------------------------------
+// HeapAlloc / HeapFree を使った汎用アロケータ。プロセスヒープは OS が
+// 内部でロックを取って直列化するため、スレッドセーフ（HEAP_NO_SERIALIZE
+// は意図的に未指定）。
+//
+// アライメント:
+//   HeapAlloc 自体は MEMORY_ALLOCATION_ALIGNMENT (x64 で 16B) しか保証しない。
+//   それを超えるアライメントが必要な場合は、内部で「アラインド確保 +
+//   ヘッダで元ポインタを覚える」方式（AlignedAlloc）を使う。
+//
+// 性能注意:
+//   HeapAlloc は数百 ns のオーバーヘッドがある。フレーム内で何千回も呼ぶ
+//   ようなホットパスでは、専用プールやアリーナを別途用意すべき。
+// =============================================================================
+
+
+namespace acs {
+
+/** プロセス内に存在する FSystemAllocator 全体の統計スナップショット。 */
+struct SystemAllocatorProcessStatistics {
+    /** 現在生存し、侵入レジストリへ登録されているアロケータ数。 */
+    u64 live_allocator_count = 0;
+
+    /** 生存中アロケータが現在保持する実ヒープ確保量の合計。 */
+    u64 outstanding_bytes = 0;
+
+    /** 生存中アロケータが現在保持する未解放確保件数の合計。 */
+    u64 outstanding_allocation_count = 0;
+
+    /** 未解放確保を残したまま破棄されたアロケータ数のプロセス累積。 */
+    u64 destroyed_with_live_allocations_count = 0;
+
+    /** 破棄時に残っていた実ヒープ確保量のプロセス累積。 */
+    u64 destroyed_outstanding_bytes = 0;
+
+    /** 破棄時に残っていた未解放確保件数のプロセス累積。 */
+    u64 destroyed_outstanding_allocation_count = 0;
+
+    /** 生存中アロケータに未解放確保があるかを返す。 */
+    constexpr bool HasOutstandingAllocations() const noexcept
+    {
+        return outstanding_bytes != 0 || outstanding_allocation_count != 0;
+    }
+
+    /** 未解放確保を残したアロケータ破棄を過去に検出したかを返す。 */
+    constexpr bool HasDestroyedWithLiveAllocations() const noexcept
+    {
+        return destroyed_with_live_allocations_count != 0;
+    }
+};
+
+/**
+ * Win32 プロセスヒープ (HeapAlloc/HeapFree) を使う汎用スレッドセーフアロケータ。
+ *
+ * @details
+ * プロセスヒープは OS が内部でロックを取って直列化するためスレッドセーフ
+ * (HEAP_NO_SERIALIZE は意図的に未指定)。HeapAlloc は 16B しか整列を保証しないため、
+ * それを超えるアライメント要求は内部で「余裕を持って確保 + ヘッダに元ポインタを退避」する
+ * 方式で満たす。確保量・ピークはアトミックに集計する。HeapAlloc は数百 ns のコストがあるため、
+ * フレーム内で何千回も呼ぶホットパスでは専用プール/アリーナを使うこと。
+ * アロケータは自身が払い出した全確保より長く生存しなければならない。異なる確保に対する操作は
+ * 並行実行できるが、同じ確保に対する Free/Realloc は呼び出し側で同期すること。
+ */
+class FSystemAllocator final : public FAllocator {
+public:
+    /** 既定構築し、プロセス内の侵入レジストリへ登録する。 */
+    FSystemAllocator() noexcept;
+
+    /**
+     * 侵入レジストリから登録解除して破棄する。
+     *
+     * @details 未解放確保があれば Logger に依存しない機械可読ログをデバッグ出力と標準エラーへ出す。
+     * 未解放領域は自動回収しないため、破棄後にそのポインタを別のアロケータへ渡してはならない。
+     */
+    ~FSystemAllocator() noexcept override;
+
+    /** コピー禁止 (侵入レジストリの単一ノードとして管理するため)。 */
+    FSystemAllocator(const FSystemAllocator&) = delete;
+
+    /** コピー代入も禁止。 */
+    FSystemAllocator& operator=(const FSystemAllocator&) = delete;
+
+    /** ムーブ禁止 (登録済みノードのアドレスを固定するため)。 */
+    FSystemAllocator(FSystemAllocator&&) = delete;
+
+    /** ムーブ代入も禁止。 */
+    FSystemAllocator& operator=(FSystemAllocator&&) = delete;
+
+    /**
+     * プロセス内に存在する全 FSystemAllocator の統計を取得する。
+     *
+     * @details 動的確保を行わず、侵入レジストリを共有ロックして各アトミック統計を集計する。
+     * 並行して確保・解放している間のバイト数と件数は弱整合スナップショットとなるため、
+     * リーク有無の確定判定には全ワーカを停止した静止点で呼び出すこと。
+     * @return 現在値と、未解放を伴う過去の破棄の累積値。
+     */
+    static SystemAllocatorProcessStatistics CaptureProcessStatistics() noexcept;
+
+    /**
+     * size バイトを alignment 整列で確保する。
+     *
+     * @details 16B 超の alignment はヘッダ退避方式で満たす。size==0 や確保失敗時は nullptr。
+     * @param size 確保するバイト数。
+     * @param alignment 要求アライメント (2 のべき乗)。
+     * @param location 診断用の呼び出し位置 (本実装では未使用)。
+     * @return 確保した領域 (失敗時 nullptr)。
+     */
+    void* Alloc(usize size, usize alignment, FSourceLoc location) noexcept override;
+
+    /**
+     * pointer を解放する。
+     *
+     * @details ヘッダから所有者・構築世代・元ポインタを検証して HeapFree に渡す。別インスタンスや
+     * 過去世代のポインタ、破損ヘッダは解放せず、機械可読エラーを出す。nullptr は no-op。
+     * @param pointer このインスタンスの Alloc で得た正確な生存ポインタ (nullptr 可)。
+     */
+    void Free(void* pointer) noexcept override;
+
+    /**
+     * pointer を new_size に再確保する。
+     *
+     * @details
+     * HeapReAlloc はヘッダ退避方式と相性が悪いため、新規確保・コピー・旧領域解放を行う。
+     * コピー量にはヘッダへ記録した要求サイズを使い、誤った old_size による範囲外読み取りを
+     * 防ぐ。別インスタンスのポインタは拒否し、旧領域を保持する。new_size==0 の解放が
+     * 拒否または失敗した場合だけは、所有権喪失を防ぐため元の pointer を返す。
+     * @param pointer このインスタンスの Alloc で得た正確な生存ポインタ (nullptr なら新規確保)。
+     * @param old_size 呼び出し側が認識している旧サイズ。本実装は安全のためコピー量に使用しない。
+     * @param new_size 新サイズ (0 なら解放)。
+     * @param alignment 新領域のアライメント。
+     * @param location 診断用の呼び出し位置。
+     * @return new_size が非 0 なら新しい確保 (失敗時 nullptr、旧領域は保持)。new_size が 0 なら
+     * 解放成功時 nullptr、解放拒否または失敗時は所有権を保持する元の pointer。
+     */
+    void* Realloc(void* pointer, usize old_size, usize new_size, usize alignment,
+                  FSourceLoc location) noexcept override;
+
+    /**
+     * 現在の総割当バイト数を返す。
+     *
+     * @return 生存中の確保の合計バイト数 (ヘッダ・アライメント余裕込みの実ヒープ確保量)。
+     */
+    u64 BytesAllocated() const noexcept override
+    {
+        return m_Bytes.Load(EMemoryOrder::Acquire);
+    }
+
+    /**
+     * 現在生存している確保の件数を返す。
+     *
+     * @return Free されていない確保の件数。
+     */
+    u64 AllocationCount() const noexcept override
+    {
+        return m_AllocationCount.Load(EMemoryOrder::Acquire);
+    }
+
+    /**
+     * 過去のピーク割当バイト数を返す。
+     *
+     * @return これまでの最大割当バイト数。
+     */
+    u64 PeakBytes() const noexcept override
+    {
+        return m_Peak.Load(EMemoryOrder::Acquire);
+    }
+
+    /** このインスタンスの構築寿命を識別する非0世代を返す。 */
+    u64 LifetimeGeneration() const noexcept override
+    {
+        return m_Generation;
+    }
+
+    /**
+     * 識別名を返す。
+     *
+     * @return 文字列 "System"。
+     */
+    const char* Name() const noexcept override
+    {
+        return "System";
+    }
+
+private:
+    /** アドレス再利用後の別インスタンスを識別するプロセス内構築世代。 */
+    u64 m_Generation = 0;
+
+    /** 現在の総割当バイト数 (実ヒープ確保量、アトミック集計)。 */
+    mutable TAtomic<u64> m_Bytes{0};
+
+    /** 過去ピークの割当バイト数 (CAS で更新)。 */
+    mutable TAtomic<u64> m_Peak{0};
+
+    /** 現在生存している確保の件数 (アトミック集計)。 */
+    mutable TAtomic<u64> m_AllocationCount{0};
+
+    /** プロセス内侵入レジストリの次ノード。動的確保を避けるため本体に保持する。 */
+    FSystemAllocator* m_RegistryNext = nullptr;
+
+    /** 侵入レジストリへ登録済みなら true。 */
+    bool m_RegistryRegistered = false;
+};
+
+} // namespace acs
+
 namespace acs::game {
 
 /** サブシステム 1 体を生成するファクトリ関数(非捕捉ラムダ → 関数ポインタ)。 */
@@ -26751,6 +27856,8 @@ struct FSubsystemFactory {
     FSubsystemCreateFn create = nullptr;                    ///< 1 体生成する関数。
 };
 
+struct FSubsystemAutoRegister;
+
 /**
  * サブシステム型のファクトリ登録簿(グローバル単一)。ACS_REGISTER_SUBSYSTEM が登録する。
  */
@@ -26762,23 +27869,151 @@ public:
         return s_instance;
     }
 
-    /** ファクトリを登録する(同じ kind が既にあれば無視 = 二重登録防止)。 */
+    /** ファクトリを登録する。同じ kind の異なる登録元は併存させる。 */
     void Register(const FSubsystemFactory& f) noexcept {
-        for (u32 i = 0; i < m_Factories.Size(); ++i) {
-            if (m_Factories[i].kind == f.kind) return;
-        }
-        m_Factories.PushBack(f);
+        RegisterSource(f, nullptr);
+    }
+
+    /**
+     * 手動登録したファクトリを解除する。
+     *
+     * @return 一致する手動登録を 1 件解除できたら true。
+     */
+    bool Unregister(const FSubsystemFactory& factory) noexcept
+    {
+        return UnregisterSource(factory, nullptr);
     }
 
     /** 登録数。 */
-    u32 Count() const noexcept { return static_cast<u32>(m_Factories.Size()); }
+    u32 Count() const noexcept
+    {
+        return static_cast<u32>(m_Entries.Size());
+    }
 
     /** i 番目の登録情報。 */
-    const FSubsystemFactory& At(u32 i) const noexcept { return m_Factories[i]; }
+    const FSubsystemFactory& At(u32 i) const noexcept
+    {
+        return m_Entries[i].sources[0].factory;
+    }
 
 private:
-    FSubsystemRegistry() noexcept = default;
-    TArray<FSubsystemFactory> m_Factories;
+    friend struct FSubsystemAutoRegister;
+
+    /** 同じ kind へ同時登録できる module/source 数。 */
+    static constexpr u32 kMaxSourcesPerFactory = 8;
+
+    struct FactorySource {
+        FSubsystemFactory factory{};
+        const void* token = nullptr;
+    };
+
+    struct FactoryEntry {
+        FactorySource sources[kMaxSourcesPerFactory]{};
+        u8 source_count = 0;
+    };
+
+    /** process lifetime の登録簿が一時的な DefaultAllocator を捕捉しないようにする。 */
+    FSubsystemRegistry() noexcept : m_Entries(m_Allocator)
+    {
+    }
+
+    static bool StrEq(const char* a, const char* b) noexcept
+    {
+        if (a == nullptr || b == nullptr) return a == b;
+        while (*a != '\0' && *a == *b) {
+            ++a;
+            ++b;
+        }
+        return *a == *b;
+    }
+
+    static bool SameImplementation(const FSubsystemFactory& a, const FSubsystemFactory& b) noexcept
+    {
+        return a.kind == b.kind && a.scope == b.scope && a.create == b.create && StrEq(a.name, b.name);
+    }
+
+    void RegisterSource(const FSubsystemFactory& factory, const void* token) noexcept
+    {
+        for (u32 entry_index = 0; entry_index < m_Entries.Size(); ++entry_index) {
+            FactoryEntry& entry = m_Entries[entry_index];
+            if (entry.sources[0].factory.kind != factory.kind) continue;
+
+            for (u32 source = 0; source < entry.source_count; ++source) {
+                if (token != nullptr && entry.sources[source].token == token) return;
+                if (token == nullptr && entry.sources[source].token == nullptr &&
+                    SameImplementation(entry.sources[source].factory, factory))
+                    return;
+            }
+            if (entry.source_count >= kMaxSourcesPerFactory) return;
+            entry.sources[entry.source_count++] = FactorySource{factory, token};
+            return;
+        }
+
+        FactoryEntry entry{};
+        entry.sources[0] = FactorySource{factory, token};
+        entry.source_count = 1;
+        m_Entries.PushBack(entry);
+    }
+
+    bool UnregisterSource(const FSubsystemFactory& factory, const void* token) noexcept
+    {
+        for (u32 entry_index = 0; entry_index < m_Entries.Size(); ++entry_index) {
+            FactoryEntry& entry = m_Entries[entry_index];
+            if (entry.sources[0].factory.kind != factory.kind) continue;
+
+            u32 source_index = entry.source_count;
+            for (u32 source = 0; source < entry.source_count; ++source) {
+                const bool token_matches = token != nullptr
+                                               ? entry.sources[source].token == token
+                                               : entry.sources[source].token == nullptr &&
+                                                     SameImplementation(entry.sources[source].factory, factory);
+                if (token_matches) {
+                    source_index = source;
+                    break;
+                }
+            }
+            if (source_index == entry.source_count) return false;
+
+            for (u32 source = source_index; source + 1u < entry.source_count; ++source) {
+                entry.sources[source] = entry.sources[source + 1u];
+            }
+            entry.sources[entry.source_count - 1u] = FactorySource{};
+            --entry.source_count;
+            if (entry.source_count != 0) return true;
+
+            for (u32 remaining = entry_index; remaining + 1u < m_Entries.Size(); ++remaining) {
+                m_Entries[remaining] = m_Entries[remaining + 1u];
+            }
+            m_Entries.PopBack();
+            return true;
+        }
+        return false;
+    }
+
+    /** 登録簿より後に破棄される、登録簿専用の process-lifetime allocator。 */
+    FSystemAllocator m_Allocator;
+
+    /** kind ごとに登録元を束ねた factory 一覧。 */
+    TArray<FactoryEntry> m_Entries;
+};
+
+/** ACS_REGISTER_SUBSYSTEM が生成する登録元追跡付き RAII helper。 */
+struct FSubsystemAutoRegister {
+    explicit FSubsystemAutoRegister(const FSubsystemFactory& factory) noexcept : m_Factory(factory)
+    {
+        FSubsystemRegistry::Get().RegisterSource(m_Factory, this);
+    }
+
+    ~FSubsystemAutoRegister() noexcept
+    {
+        (void)FSubsystemRegistry::Get().UnregisterSource(m_Factory, this);
+    }
+
+    FSubsystemAutoRegister(const FSubsystemAutoRegister&) = delete;
+    FSubsystemAutoRegister& operator=(const FSubsystemAutoRegister&) = delete;
+
+private:
+    FSubsystemFactory m_Factory{};
 };
 
 } // namespace acs::game
@@ -26788,19 +28023,14 @@ private:
  * 翻訳単位の末尾(クラス定義後)に 1 回書く。namespace acs::game を開くので、T は
  * 外側ルックアップで acs::game 内型もグローバルなユーザー型も解決される。
  */
-#define ACS_REGISTER_SUBSYSTEM(T, SCOPE)                                              \
-    namespace acs::game { namespace {                                                 \
-        struct AcsSubsysReg_##T {                                                     \
-            AcsSubsysReg_##T() noexcept {                                             \
-                ::acs::game::FSubsystemRegistry::Get().Register(                      \
-                    ::acs::game::FSubsystemFactory{                                   \
-                        ::acs::game::SubsystemKindOf<T>(), (SCOPE), #T,               \
-                        []() noexcept -> ::acs::TUniquePtr<::acs::game::FSubsystem> { \
-                            return ::acs::MakeUnique<T>();                            \
-                        } });                                                         \
-            }                                                                         \
-        } g_AcsSubsysReg_##T;                                                         \
-    } }
+#define ACS_REGISTER_SUBSYSTEM(T, SCOPE)                                                                  \
+    namespace acs::game {                                                                                 \
+    namespace {                                                                                           \
+    const ::acs::game::FSubsystemAutoRegister g_AcsSubsysReg_##T{::acs::game::FSubsystemFactory{          \
+        ::acs::game::SubsystemKindOf<T>(), (SCOPE), #T,                                                   \
+        []() noexcept -> ::acs::TUniquePtr<::acs::game::FSubsystem> { return ::acs::MakeUnique<T>(); }}}; \
+    }                                                                                                     \
+    }
 
 namespace acs::game {
 
@@ -29499,7 +30729,15 @@ using CommandFn = void(*)(void* user, u32 argc, const ConsoleArg* args) noexcept
 class FDevConsole {
 public:
     /** 空状態で構築する。 */
-    FDevConsole() noexcept = default;
+    FDevConsole() noexcept : FDevConsole(DefaultAllocator())
+    {
+    }
+
+    /** 履歴・ログ・内部配列の確保元を明示して構築する。 */
+    explicit FDevConsole(FAllocator& allocator) noexcept
+        : m_Allocator(&allocator), m_Commands(allocator), m_History(allocator), m_Log(allocator)
+    {
+    }
 
     /** 履歴 / ログのヒープバッファを Free して破棄する。 */
     ~FDevConsole() noexcept;
@@ -29646,14 +30884,14 @@ private:
      * @param src 複製元 (nullptr は nullptr を返す)。
      * @return 複製した文字列。確保失敗時は nullptr。
      */
-    static const char* DupString(const char* src) noexcept;
+    const char* DupString(const char* src) noexcept;
 
     /**
      * DupString で確保した文字列を Free する。
      *
      * @param s 解放する文字列 (nullptr 安全)。
      */
-    static void FreeString(const char* s) noexcept;
+    void FreeString(const char* s) noexcept;
 
     /**
      * line を複製して buf 末尾に push する (cap 到達時は最古を drop)。
@@ -29663,14 +30901,17 @@ private:
      * @param buf 追加先のバッファ。
      * @param line 追加する文字列。
      */
-    static void PushLine(TArray<const char*>& buf, const char* line) noexcept;
+    void PushLine(TArray<const char*>& buf, const char* line) noexcept;
 
     /**
      * buf の全エントリを Free して Clear する。
      *
      * @param buf クリアするバッファ。
      */
-    static void ClearLines(TArray<const char*>& buf) noexcept;
+    void ClearLines(TArray<const char*>& buf) noexcept;
+
+    /** 文字列と内部配列を確保するアロケータ。 */
+    FAllocator* m_Allocator = nullptr;
 
     /** 登録済みコマンド列。 */
     TArray<Command>     m_Commands;
@@ -33856,13 +35097,61 @@ constexpr FTypeId AcsTypeHash(const char* s) noexcept {
     return h;
 }
 
-/** 型 T を default 構築して void* で返す (不可なら nullptr)。エンジンアロケータで確保する。 */
+namespace reflect_internal {
+
+/** 反射 factory が生成時の確保元をオブジェクト末尾に保持する内部ヘッダ。 */
+struct FFactoryAllocationHeader {
+    /** 生成時に使ったアロケータ。 */
+    FAllocator* allocator = nullptr;
+
+    /** allocator::Alloc が返した、解放時に渡す元ポインタ。 */
+    void* allocation = nullptr;
+};
+
+} // namespace reflect_internal
+
+/**
+ * 型 T を default 構築して void* で返す (不可なら nullptr)。
+ *
+ * @details 生成時のアロケータをオブジェクト末尾の内部ヘッダへ保存するため、Create と
+ * Destroy の間に DefaultAllocator が切り替わっても、必ず元の確保元へ返せる。
+ * オブジェクト自体は確保領域の先頭に置くため、生成直後にアロケータを記録する既存の
+ * TUniquePtr 所有経路とも互換性を保つ。
+ */
 template<class T> inline void* AcsConstruct() noexcept {
-    if constexpr (__is_constructible(T)) return New<T>(DefaultAllocator());
-    else                                 return nullptr;
+    if constexpr (!__is_constructible(T)) {
+        return nullptr;
+    } else {
+        using Header = reflect_internal::FFactoryAllocationHeader;
+        constexpr usize allocation_alignment = alignof(T) > alignof(Header) ? alignof(T) : alignof(Header);
+        constexpr usize header_offset = (sizeof(T) + alignof(Header) - 1u) & ~(alignof(Header) - 1u);
+        constexpr usize allocation_size = header_offset + sizeof(Header);
+
+        FAllocator& allocator = DefaultAllocator();
+        void* const allocation = allocator.Alloc(allocation_size, allocation_alignment, FSourceLoc::Current());
+        if (allocation == nullptr) return nullptr;
+
+        auto* const header = reinterpret_cast<Header*>(reinterpret_cast<byte*>(allocation) + header_offset);
+        header->allocator = &allocator;
+        header->allocation = allocation;
+        return ::new (allocation) T();
+    }
 }
-/** 型 T のインスタンスを破棄する (AcsConstruct と同じエンジンアロケータで解放)。 */
-template<class T> inline void AcsDestruct(void* p) noexcept { Delete(DefaultAllocator(), static_cast<T*>(p)); }
+
+/** 型 T のインスタンスを破棄し、AcsConstruct が記録した生成時アロケータへ返す。 */
+template<class T>
+inline void AcsDestruct(void* p) noexcept
+{
+    if (p == nullptr) return;
+    using Header = reflect_internal::FFactoryAllocationHeader;
+    auto* const object = static_cast<T*>(p);
+    constexpr usize header_offset = (sizeof(T) + alignof(Header) - 1u) & ~(alignof(Header) - 1u);
+    auto* const header = reinterpret_cast<Header*>(reinterpret_cast<byte*>(object) + header_offset);
+    FAllocator* const allocator = header->allocator;
+    void* const allocation = header->allocation;
+    if constexpr (!IsTriviallyDestructibleV<T>) object->~T();
+    allocator->Free(allocation);
+}
 
 /** 型 T の既定トレイト (構築可否で Instantiable/Abstract を決める)。 */
 template<class T> constexpr u32 AcsAutoTraits() noexcept {
@@ -33889,12 +35178,26 @@ public:
     static FTypeRegistry& Get() noexcept;
 
     /**
-     * 型を登録する (ACS_REFLECT* の自動登録から呼ばれる。同 ID は無視)。
+     * 型を登録する (ACS_REFLECT* の自動登録から呼ばれる)。
+     *
+     * @details 同じ ID の別記述子も登録元として保持する。先に登録された記述子を検索結果に
+     * 使い、その登録解除後は次の記述子へ切り替える。複数エディタホストが同じユーザー型を
+     * 保持するときも、一方の破棄で他方の記述子を失わない。
      *
      * @param d 登録する型記述 (静的寿命、非所有)。
      * @return 登録 (または既存) なら true、上限到達で false。
      */
     bool Register(const FTypeDesc* d) noexcept;
+
+    /**
+     * 指定した型記述子の登録だけを解除する。
+     *
+     * @details ID ではなくポインタ一致で解除する。同じ ID の別記述子が残っていれば検索結果を
+     * その記述子へ切り替え、最後の登録元なら型自体を列挙対象から除く。
+     * @param descriptor 解除する型記述子。nullptr は失敗。
+     * @return 登録されていた記述子を解除したなら true。
+     */
+    bool Unregister(const FTypeDesc* descriptor) noexcept;
 
     /** 登録型数。 */
     u32 Count() const noexcept { return m_Count; }
@@ -33924,14 +35227,35 @@ public:
     void Destroy(FTypeId id, void* obj) const noexcept;
 
 private:
+    /** 同じ型 ID に保持できる独立した記述子の上限。 */
+    static constexpr u32 kMaxSourcesPerType = 8u;
+
     FTypeRegistry() noexcept = default;
     const FTypeDesc* m_Types[kMax] = {};
+    const FTypeDesc* m_Sources[kMax][kMaxSourcesPerType] = {};
+    u8 m_SourceCounts[kMax] = {};
     u32              m_Count       = 0u;
 };
 
-/** ACS_REFLECT* が生成する自動登録ヘルパ (静的初期化時に Register を呼ぶ)。 */
+/** ACS_REFLECT* が生成する自動登録ヘルパ。登録元の寿命終了時に同じ記述子だけを解除する。 */
 struct FTypeAutoRegister {
-    explicit FTypeAutoRegister(const FTypeDesc* d) noexcept { FTypeRegistry::Get().Register(d); }
+    explicit FTypeAutoRegister(const FTypeDesc* descriptor) noexcept : m_Descriptor(descriptor)
+    {
+        FTypeRegistry::Get().Register(m_Descriptor);
+    }
+
+    ~FTypeAutoRegister() noexcept
+    {
+        if (m_Descriptor != nullptr) {
+            (void)FTypeRegistry::Get().Unregister(m_Descriptor);
+        }
+    }
+
+    FTypeAutoRegister(const FTypeAutoRegister&) = delete;
+    FTypeAutoRegister& operator=(const FTypeAutoRegister&) = delete;
+
+private:
+    const FTypeDesc* m_Descriptor = nullptr;
 };
 
 /** 型 T の FTypeDesc を返す (ACS_REFLECT* が特殊化する。未反射型は nullptr)。 */
@@ -35486,7 +36810,8 @@ public:
      *
      * @details
      * include_cjk=true で漢字 (CJK 統合 U+4E00..U+9FAF) も含めて焼く。その場合
-     * アトラスは自動で 2048 にバンプされる。
+     * アトラスは自動で 2048 にバンプされる。再ロードに失敗した場合は旧フォントを
+     * 保持せず、アトラス・グリフ・全メトリクスを空状態へ戻す。
      * @param device テクスチャアトラス生成に使う RHI デバイス。
      * @param ttf_data TTF/OTF/TTC のバイト列先頭。
      * @param ttf_size ttf_data のバイト数。
@@ -35519,7 +36844,7 @@ public:
                               u32 atlas_size = 1024,
                               bool include_cjk = false) noexcept;
 
-    /** 確保した GPU リソースとグリフ表を解放する。 */
+    /** 確保した GPU リソースとグリフ表を解放し、全メトリクスを 0 に戻す。 */
     void Shutdown() noexcept;
 
     /**
@@ -36121,7 +37446,7 @@ struct FComputePipelineDesc {
     /** 各 UAV slot の HLSL 名。 */
     const char* uav_names[16]     = {};
     /** static サンプラ数。 */
-    u32         static_sampler_count = 0;
+    u32 static_sampler_count = 0;
     /** static サンプラ s0..。 */
     SamplerDesc static_samplers[16] = {};
 };
@@ -36134,7 +37459,7 @@ struct FComputePipelineDesc {
  * @return 成功なら所有権付きパイプライン、生成失敗ならエラー (Diligent backend のみ実装)。
  */
 TResult<TUniquePtr<IRhiPipeline>> CreateRhiComputePipeline(IRhiDevice& device,
-                                                              const FComputePipelineDesc& desc) noexcept;
+                                                           const FComputePipelineDesc& description) noexcept;
 
 } // namespace acs
 
@@ -36389,8 +37714,8 @@ public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FSpriteBatch() noexcept = default;
 
-    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FSpriteBatch() noexcept = default;
+    /** 破棄する (GPU リソースと CPU ステージング領域を解放)。 */
+    ~FSpriteBatch() noexcept;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
     FSpriteBatch(const FSpriteBatch&)            = delete;
@@ -36411,7 +37736,7 @@ public:
                       u32 max_sprites      = 4096,
                       u32 msaa_samples     = 1) noexcept;
 
-    /** 確保した GPU リソースを解放する。 */
+    /** GPU の完了を待ち、確保した GPU/CPU リソースを解放する。 */
     void Shutdown() noexcept;
 
     /**
@@ -36768,6 +38093,9 @@ private:
      */
     void FillCommonPipelineDesc(struct FPipelineDesc& pd) const noexcept;
 
+    /** 非所有 device を参照せず、保持している CPU/GPU リソースと状態を破棄する。 */
+    void ReleaseResources() noexcept;
+
     /** Init で受け取った device (ステンシル/加算 PSO の遅延生成用)。 */
     IRhiDevice*              m_Device  = nullptr;
 
@@ -36915,6 +38243,9 @@ private:
 
     /** CPU 側の頂点バッファステージ (Flush で GPU へコピー)。 */
     Vertex*          m_VertexCpu    = nullptr;
+
+    /** CPU 側の頂点バッファステージを確保したアロケータ。 */
+    FAllocator* m_VertexAllocator = nullptr;
 
     /** 1 フレームで描けるスプライト総数の上限。 */
     u32              m_MaxSprites   = 0;
@@ -37645,12 +38976,11 @@ private:
 //     は配置で完結 (実行時 string compare なし)。衝突は 32bit hash で実用上無視。
 //   ・**複数 bind OR セマンティクス**: 1 アクションに複数の物理入力を bind 可能。
 //     1 つでも該当すれば Pressed/Held/Released は true。
-//   ・**1D axis**: neg/pos キー 2 つで -1/+1 を返す。両方押下は 0 (相殺)。複数の
-//     axis binding は累積 + clamp(-1, +1) (例: AD + LStick で同方向に重ねられる)。
+//   ・**1D axis**: neg/pos キーまたはゲームパッド軸を束ねる。複数の axis binding は
+//     累積 + clamp(-1, +1) (例: AD + LStick で同方向に重ねられる)。
 //   ・**poll-based**: 状態取得時に `acs::Input::*` を呼ぶ。アクション側に状態は持たない。
 //
 // 範囲外:
-//   ・analog axis (gamepad stick の生 f32 値、現状はキー → -1/+1 のみ)
 //   ・player_index 完全対応 (現状は gamepad bind 時のみ受ける、digital は 0 固定)
 //   ・FSettings (`Storage`) への永続化
 //   ・input context スタック (gameplay/menu/dialogue でバインド集を push/pop)
@@ -37776,6 +39106,16 @@ public:
     void BindAxisKeys    (ActionId action, EKey neg, EKey pos) noexcept;
 
     /**
+     * アクションにゲームパッドのアナログ軸を bind する。
+     *
+     * @param action 対象アクション。
+     * @param axis bind する物理軸。
+     * @param player_index 対象プレイヤー番号 (既定 0)。
+     * @param scale 値へ乗算する倍率。負値で軸を反転できる。
+     */
+    void BindGamepadAxis(ActionId action, EGamepadAxis axis, u32 player_index = 0, f32 scale = 1.0f) noexcept;
+
+    /**
      * 指定アクションの全 binding を削除する。
      *
      * @param action binding を削除するアクション。
@@ -37804,7 +39144,7 @@ public:
     /**
      * このフレームで離されたかを返す (Input::* を内部で poll)。
      *
-     * @details ゲームパッドボタンには Released の概念がなく常に対象外。
+     * @details キーボード、マウス、ゲームパッドのデジタル入力を対象とする。
      * @param action 判定するアクション。
      * @return bind 済み入力のいずれかがこのフレームで離されたら true。
      */
@@ -37831,6 +39171,9 @@ private:
         /** ゲームパッドボタン。 */
         EGamepadButton,
 
+        /** ゲームパッドのアナログ軸。 */
+        EGamepadAxis,
+
         /** 1D axis (neg/pos キーのペア)。 */
         Axis1D,
     };
@@ -37851,6 +39194,9 @@ private:
 
         /** Gamepad 専用: 対象プレイヤー番号。 */
         u32      player    = 0;
+
+        /** アナログ軸へ乗算する倍率。 */
+        f32 scale = 1.0f;
     };
 
     /** 登録済み binding の配列。 */
@@ -51665,8 +53011,15 @@ IVoiceChatBackend& GetVoiceStub() noexcept;
  */
 class FVoiceChatLoopbackBackend final : public IVoiceChatBackend {
 public:
-    /** デフォルト構築する。 */
-    FVoiceChatLoopbackBackend() noexcept = default;
+    /** DefaultAllocator を使って構築する。 */
+    FVoiceChatLoopbackBackend() noexcept;
+
+    /**
+     * 指定 allocator をチャンネル・参加者・受信キューに使って構築する。
+     *
+     * @param allocator 可変長状態の確保に使う allocator。
+     */
+    explicit FVoiceChatLoopbackBackend(FAllocator& allocator) noexcept;
 
     /** 破棄する。 */
     ~FVoiceChatLoopbackBackend() noexcept override = default;
@@ -51882,6 +53235,15 @@ private:
      * (各 frame = VoiceFrameHeader + payload)。
      */
     struct FLoopParticipant {
+        /** DefaultAllocator を使う空の参加者を構築する。 */
+        FLoopParticipant() noexcept = default;
+
+        /** 指定 allocator を文字列と受信キューへ固定する。 */
+        explicit FLoopParticipant(FAllocator& allocator) noexcept
+            : user_id(allocator), display_name(allocator), rx_frames(allocator)
+        {
+        }
+
         /** 参加者 ID (非所有 const char* を受けて所有コピー)。 */
         FString        user_id;
 
@@ -51903,6 +53265,14 @@ private:
 
     /** 1 チャンネル分の状態 (参加者テーブル + pump 対象)。 */
     struct FChannel {
+        /** DefaultAllocator を使う空のチャンネルを構築する。 */
+        FChannel() noexcept = default;
+
+        /** 指定 allocator を ID と参加者配列へ固定する。 */
+        explicit FChannel(FAllocator& allocator) noexcept : channel_id(allocator), participants(allocator)
+        {
+        }
+
         /** チャンネルに join 済みか。 */
         bool                      joined       = false;
 
@@ -51965,8 +53335,11 @@ private:
     /** 直近 push のピーク。 */
     f32           m_LastLocalPeak= 0.0f;
 
+    /** チャンネル内の可変長状態が使う allocator。 */
+    FAllocator* m_Allocator = nullptr;
+
     /** チャンネル状態 (Party/Team/Global/Custom の 4 種固定)。 */
-    FChannel      m_Channels[4]  = {};
+    FChannel m_Channels[4];
 };
 
 /**
@@ -52610,8 +53983,13 @@ struct WatchEntry;
  */
 class HotReloadWatcher {
 public:
-    /** 空状態で構築する (OS watcher ハンドルは Init で開く)。 */
-    HotReloadWatcher() noexcept = default;
+    /**
+     * 空状態で構築する (OS watcher ハンドルは Init で開く)。
+     *
+     * @details WatchEntry の完全型が見える `.cpp` で定義し、コンストラクタの
+     * 失敗後始末が不完全型の TUniquePtr 破棄を外部 TU で実体化しないようにする。
+     */
+    HotReloadWatcher() noexcept;
 
     /**
      * 破棄する (out-of-line)。
@@ -60706,16 +62084,16 @@ namespace acs::game {
  */
 enum class ENetRole : u8 {
     /** 受信のみ。AddEntitySnapshot / CommitSnapshot は no-op。 */
-    Client         = 0,
+    Client = 0,
 
     /** 送信のみ。TryGetInterpolatedSnapshot は false を返す。 */
-    Server         = 1,
+    Server = 1,
 
     /** Server + Client 同居 (listen-server)。host が自機画面用に補間も使うため両方有効。 */
     ServerListener = 2,
 
     /** ネット通信なし。transport=nullptr を許容し全 API は no-op (リンク互換 fallback)。 */
-    Standalone     = 3,
+    Standalone = 3,
 };
 
 /**
@@ -60728,19 +62106,19 @@ enum class ENetRole : u8 {
  */
 struct SnapshotHeader {
     /** server tick (1 simulation step = 1 tick)。 */
-    u32 tick               = 0;
+    u32 tick = 0;
 
     /** 送信側でモノトニック増加する sequence 番号 (loss / 重複検知用)。 */
-    u32 sequence           = 0;
+    u32 sequence = 0;
 
     /** server 計測時の Unix microseconds。 */
     u64 server_timestamp_us = 0;
 
     /** 後続 payload のバイト数。 */
-    u32 payload_size       = 0;
+    u32 payload_size = 0;
 
     /** frame footer に格納される CRC32 (DecodeSnapshot が復元)。 */
-    u32 crc32              = 0;
+    u32 crc32 = 0;
 };
 
 /**
@@ -60753,16 +62131,16 @@ struct SnapshotHeader {
  */
 struct EntitySnapshot {
     /** ゲーム内 entity ID (0 = invalid)。 */
-    u32         entity_id           = 0;
+    u32 entity_id = 0;
 
     /** どの component が含まれるかの bitmask。 */
-    u32         component_mask      = 0;
+    u32 component_mask = 0;
 
     /** component データへの非所有 view。 */
-    const void* component_data      = nullptr;
+    const void* component_data = nullptr;
 
     /** component データのバイト数。 */
-    u32         component_data_size = 0;
+    u32 component_data_size = 0;
 };
 
 /**
@@ -60775,16 +62153,16 @@ struct EntitySnapshot {
  */
 struct NetSnapshotConfig {
     /** server 側の目標 commit Hz (注: 自動 throttle はしない)。 */
-    u32 snapshot_rate_hz          = 30;
+    u32 snapshot_rate_hz = 30;
 
     /** client 側 ring buffer 件数 (>= 2 が必要)。 */
     u32 buffer_capacity_snapshots = 64;
 
     /** client 補間の遅延秒 (= jitter buffer の深さ)。 */
-    f32 interpolation_delay_sec   = 0.1f;
+    f32 interpolation_delay_sec = 0.1f;
 
     /** 1 snapshot あたりの payload 上限バイト数。 */
-    u32 max_payload_bytes         = 8192;
+    u32 max_payload_bytes = 8192;
 };
 
 /**
@@ -60806,16 +62184,16 @@ public:
     virtual ~INetTransport() noexcept = default;
 
     /** コピー禁止。 */
-    INetTransport(const INetTransport&)            = delete;
+    INetTransport(const INetTransport&) = delete;
 
     /** コピー代入も禁止。 */
     INetTransport& operator=(const INetTransport&) = delete;
 
     /** ムーブ禁止。 */
-    INetTransport(INetTransport&&)                 = delete;
+    INetTransport(INetTransport&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    INetTransport& operator=(INetTransport&&)      = delete;
+    INetTransport& operator=(INetTransport&&) = delete;
 
     /**
      * 接続する。
@@ -60885,55 +62263,58 @@ struct NetSnapshotError {
      */
     enum SubCode : u16 {
         /** Send 前に Connect されていない。 */
-        kSub_NotConnected   = 1,
+        kSub_NotConnected = 1,
 
         /** size == 0 / address == nullptr 等の不正引数。 */
-        kSub_BadArgument    = 2,
+        kSub_BadArgument = 2,
 
         /** Send: 送信 buffer 満杯 / Receive: out_buffer 不足。 */
-        kSub_BufferFull     = 3,
+        kSub_BufferFull = 3,
 
         /** CommitSnapshot: payload が max_payload_bytes 超。 */
-        kSub_PayloadTooBig  = 4,
+        kSub_PayloadTooBig = 4,
 
         /** Encode/DecodeSnapshot: buffer == nullptr。 */
-        kSub_NullBuffer     = 5,
+        kSub_NullBuffer = 5,
 
         /** EncodeSnapshot: out_buffer が frame 長未満。 */
         kSub_BufferTooSmall = 6,
 
         /** DecodeSnapshot: frame 長がフィールドと矛盾。 */
-        kSub_BadSize        = 7,
+        kSub_BadSize = 7,
 
         /** DecodeSnapshot: magic 不一致 ('ACSN' でない)。 */
-        kSub_BadMagic       = 8,
+        kSub_BadMagic = 8,
 
         /** DecodeSnapshot: version 不一致。 */
-        kSub_BadVersion     = 9,
+        kSub_BadVersion = 9,
 
         /** DecodeSnapshot: CRC32 mismatch (破損 / 改竄)。 */
-        kSub_BadCrc         = 10,
+        kSub_BadCrc = 10,
 
         /** FUdpTransport: WSAStartup 失敗。 */
-        kSub_WsaStartup     = 20,
+        kSub_WsaStartup = 20,
 
         /** FUdpTransport: socket() 失敗。 */
-        kSub_SocketCreate   = 21,
+        kSub_SocketCreate = 21,
 
         /** FUdpTransport: ioctlsocket(FIONBIO) 失敗。 */
         kSub_SetNonBlocking = 22,
 
         /** FUdpTransport: bind() 失敗 (local port 衝突等)。 */
-        kSub_Bind           = 23,
+        kSub_Bind = 23,
 
         /** FUdpTransport: address 文字列が IPv4 dotted-quad として不正。 */
-        kSub_BadAddress     = 24,
+        kSub_BadAddress = 24,
 
         /** FUdpTransport: sendto() 失敗 (WSAEWOULDBLOCK 以外)。 */
-        kSub_SendFailed     = 25,
+        kSub_SendFailed = 25,
 
         /** FUdpTransport: recvfrom() 失敗 (WSAEWOULDBLOCK 以外)。 */
-        kSub_RecvFailed     = 26,
+        kSub_RecvFailed = 26,
+
+        /** FUdpTransport: 既存 socket または WSA 参照の回収に失敗。 */
+        kSub_CloseFailed = 27,
 
         /** stub: 未実装。 */
         kSub_NotImplemented = 99,
@@ -60973,7 +62354,10 @@ public:
      *
      * @return 常に false。
      */
-    bool IsConnected() const noexcept override { return false; }
+    bool IsConnected() const noexcept override
+    {
+        return false;
+    }
 
     /**
      * 常に kSub_NotImplemented を返す。
@@ -60998,14 +62382,20 @@ public:
      *
      * @return 常に 0。
      */
-    u32 PendingBytesIn() const noexcept override { return 0; }
+    u32 PendingBytesIn() const noexcept override
+    {
+        return 0;
+    }
 
     /**
      * 常に 0 を返す。
      *
      * @return 常に 0。
      */
-    u32 PendingBytesOut() const noexcept override { return 0; }
+    u32 PendingBytesOut() const noexcept override
+    {
+        return 0;
+    }
 };
 
 /**
@@ -61014,6 +62404,27 @@ public:
  * @return 常に NotImplemented を返す NetTransportStub への参照。
  */
 INetTransport& GetTransportStub() noexcept;
+
+/** FUdpTransport が共有する Winsock 資源の診断スナップショット。 */
+struct UdpTransportDiagnostics {
+    /** 現在 FUdpTransport 群が所有する WSAStartup 参照数。 */
+    u32 active_winsock_reference_count = 0;
+
+    /** 再試行を待っている WSACleanup エラー。0 は保留なし。 */
+    u32 pending_cleanup_error = 0;
+
+    /** pending_cleanup_error の WSA 参照を生存中 instance ではなく共有回収処理が所有するか。 */
+    bool cleanup_debt_orphaned = false;
+
+    /** 破棄後も共有回収表が所有し、closesocket の再試行を待っている socket 数。 */
+    u32 orphaned_socket_count = 0;
+
+    /** orphaned_socket_count のうち仮想メモリ overflow 表で追跡している socket 数。 */
+    u32 overflow_orphaned_socket_count = 0;
+
+    /** プロセス寿命中に観測した資源解放または所有権検証の失敗イベント累積数。 */
+    u64 resource_release_failure_count = 0;
+};
 
 /**
  * INetTransport の実 Winsock2 UDP 実装。
@@ -61025,15 +62436,29 @@ INetTransport& GetTransportStub() noexcept;
  * 非ブロッキング化 → local port に bind → remote endpoint 保持を行う。Winsock 型を
  * header に漏らさないため socket は uptr、remote endpoint は raw octets + port で保持し
  * .cpp 内でのみ Winsock 型に復元する。1 セッション 1 オブジェクトで non-copy /
- * non-move (INetTransport 由来)。
+ * non-move (INetTransport 由来)。全公開操作はインスタンス単位の排他で直列化され、
+ * Connect / Disconnect / Send / Receive を異なるスレッドから呼んでも所有状態を失わない。
  */
 class FUdpTransport final : public INetTransport {
 public:
     /** 既定構築 (socket は未接続)。 */
     FUdpTransport() noexcept = default;
 
-    /** Disconnect を呼んで socket を確実に閉じてから破棄する。 */
+    /** Disconnect を試み、未回収資源は共有回収処理へ移して再試行可能な状態で破棄する。 */
     ~FUdpTransport() noexcept override;
+
+    /** 全 FUdpTransport が共有する Winsock 参照・解放失敗の現在値を返す。 */
+    static UdpTransportDiagnostics CaptureDiagnostics() noexcept;
+
+    /**
+     * 破棄済み transport から共有回収処理へ移された socket と WSA 参照を再回収する。
+     *
+     * @details 生存中 transport が所有する cleanup debt には触れない。回収完了時も
+     * `deferred_cleanup_resolved` の機械可読ログを出し、以前の cleanup_pending が
+     * 解決済みであることを明示する。Application 終了前の明示 drain にも使用できる。
+     * @return 全共有 debt を回収できれば成功。残存時は kSub_CloseFailed。
+     */
+    static TResult<void> DrainDeferredResources() noexcept;
 
     /**
      * bind する local port を指定する。
@@ -61043,14 +62468,14 @@ public:
      * Connect 前に呼ぶ。Connect 後の変更は次回 Connect まで反映されない。
      * @param local_port bind する local port (0 で ephemeral)。
      */
-    void SetLocalPort(u16 local_port) noexcept { m_LocalPort = local_port; }
+    void SetLocalPort(u16 local_port) noexcept;
 
     /**
      * 設定済みの local port を返す。
      *
      * @return SetLocalPort で指定した値 (既定 0)。
      */
-    u16  LocalPort() const noexcept { return m_LocalPort; }
+    u16 LocalPort() const noexcept;
 
     /**
      * UDP socket を用意し、送信先 endpoint を確定する。
@@ -61065,14 +62490,14 @@ public:
     TResult<void> Connect(const char* address, u16 port) noexcept override;
 
     /** closesocket + WSACleanup (ref を戻す)。多重 / 未接続呼出は no-op。 */
-    void          Disconnect() noexcept override;
+    void Disconnect() noexcept override;
 
     /**
      * socket が open かを返す。
      *
      * @return open な socket を持つなら true。
      */
-    bool          IsConnected() const noexcept override { return m_Socket != kInvalidSocket; }
+    bool IsConnected() const noexcept override;
 
     /**
      * remote endpoint へ 1 datagram を sendto() する。
@@ -61092,40 +62517,60 @@ public:
      * @param capacity out_buffer の容量。
      * @return 受信バイト数 (受信なしなら 0) を持つ TResult、失敗ならエラー。
      */
-    TResult<u32>  Receive(void* out_buffer, u32 capacity) noexcept override;
+    TResult<u32> Receive(void* out_buffer, u32 capacity) noexcept override;
 
     /**
      * recv 待ちバイト数を ioctlsocket(FIONREAD) で問い合わせる。
      *
      * @return 次に取り出せる datagram のバイト数 (失敗 / 未接続なら 0)。
      */
-    u32           PendingBytesIn() const noexcept override;
+    u32 PendingBytesIn() const noexcept override;
 
     /**
      * 常に 0 を返す (UDP は OS が即送出し内部バッファを持たない)。
      *
      * @return 常に 0。
      */
-    u32           PendingBytesOut() const noexcept override { return 0; }
+    u32 PendingBytesOut() const noexcept override
+    {
+        return 0;
+    }
 
 private:
+    /** socket の利用可否と解放保留を区別する内部状態。 */
+    enum class EState : u8 {
+        Disconnected,
+        Configuring,
+        Established,
+        CleanupPending,
+    };
+
     /** 無効な socket 値 (全 bit 1 = INVALID_SOCKET と同値)。 */
     static constexpr uptr kInvalidSocket = ~uptr{0};
 
+    /** m_StateLock を保持した状態で socket と WSA 参照を回収する。0 は完全解放。 */
+    u32 DisconnectLocked() noexcept;
+
+    /** 全公開操作から内部状態を保護する。 */
+    mutable FMutex m_StateLock;
+
+    /** 現在の接続・解放状態。 */
+    EState m_State = EState::Disconnected;
+
     /** open な UDP socket を uptr で保持 (未接続なら kInvalidSocket)。 */
-    uptr m_Socket     = kInvalidSocket;
+    uptr m_Socket = kInvalidSocket;
 
     /** bind する local port (0 = ephemeral)。 */
-    u16  m_LocalPort  = 0;
+    u16 m_LocalPort = 0;
 
     /** この instance が WSAStartup を 1 回計上したか。 */
     bool m_WsaStarted = false;
 
     /** remote endpoint の IPv4 dotted-quad (Winsock 型を header に出さない raw 保持)。 */
-    u8   m_RemoteOctets[4] = {0, 0, 0, 0};
+    u8 m_RemoteOctets[4] = {0, 0, 0, 0};
 
     /** remote endpoint のポート。 */
-    u16  m_RemotePort      = 0;
+    u16 m_RemotePort = 0;
 };
 
 /**
@@ -61147,16 +62592,16 @@ public:
     ~FNetSnapshot() noexcept = default;
 
     /** コピー禁止 (1 セッション 1 オブジェクト)。 */
-    FNetSnapshot(const FNetSnapshot&)            = delete;
+    FNetSnapshot(const FNetSnapshot&) = delete;
 
     /** コピー代入も禁止。 */
     FNetSnapshot& operator=(const FNetSnapshot&) = delete;
 
     /** ムーブ禁止。 */
-    FNetSnapshot(FNetSnapshot&&)                 = delete;
+    FNetSnapshot(FNetSnapshot&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FNetSnapshot& operator=(FNetSnapshot&&)      = delete;
+    FNetSnapshot& operator=(FNetSnapshot&&) = delete;
 
     /**
      * 設定をコピーし ring buffer を確保して初期化する。
@@ -61168,8 +62613,7 @@ public:
      * @param role 動作役割。
      * @param transport 使用する transport (Standalone なら nullptr 可)。
      */
-    void Init(const NetSnapshotConfig& config, ENetRole role,
-              INetTransport* transport) noexcept;
+    void Init(const NetSnapshotConfig& config, ENetRole role, INetTransport* transport) noexcept;
 
     /** ring buffer / pending entities / 統計値をリセットする (transport は触らない)。 */
     void Shutdown() noexcept;
@@ -61179,28 +62623,37 @@ public:
      *
      * @return Init で設定した ENetRole。
      */
-    ENetRole Role()                       const noexcept { return m_Role; }
+    ENetRole Role() const noexcept
+    {
+        return m_Role;
+    }
 
     /**
      * ring buffer に貯まっている snapshot 件数を返す。
      *
      * @return 有効な snapshot 件数。
      */
-    u32      BufferedSnapshotCount()      const noexcept;
+    u32 BufferedSnapshotCount() const noexcept;
 
     /**
      * 現在の補間遅延秒を返す。
      *
      * @return config.interpolation_delay_sec。
      */
-    f32      CurrentInterpolationDelay()  const noexcept { return m_Config.interpolation_delay_sec; }
+    f32 CurrentInterpolationDelay() const noexcept
+    {
+        return m_Config.interpolation_delay_sec;
+    }
 
     /**
      * 最後に受信した snapshot の tick を返す。
      *
      * @return 直近受信 snapshot の tick (未受信なら 0)。
      */
-    u32      LastReceivedTick()           const noexcept { return m_LastReceivedTick; }
+    u32 LastReceivedTick() const noexcept
+    {
+        return m_LastReceivedTick;
+    }
 
     /**
      * 1 entity の現在 state を pending list に積む。
@@ -61212,8 +62665,7 @@ public:
      * @param data 積む component データ (コピーされる)。
      * @param data_size data のバイト数。
      */
-    void AddEntitySnapshot(u32 entity_id, u32 component_mask,
-                           const void* data, u32 data_size) noexcept;
+    void AddEntitySnapshot(u32 entity_id, u32 component_mask, const void* data, u32 data_size) noexcept;
 
     /**
      * pending list を 1 payload に concat し、header を付けて transport.Send する。
@@ -61238,9 +62690,7 @@ public:
      * @param out_actual_count 書き出した entity 数を返す (max_count で clamp)。
      * @return 有効データを書いたら true、buffer 空 / 範囲外なら false。
      */
-    bool TryGetInterpolatedSnapshot(f32 client_time_sec,
-                                    EntitySnapshot* out_snapshots,
-                                    u32 max_count,
+    bool TryGetInterpolatedSnapshot(f32 client_time_sec, EntitySnapshot* out_snapshots, u32 max_count,
                                     u32& out_actual_count) noexcept;
 
     /**
@@ -61256,28 +62706,40 @@ public:
      *
      * @return 累積 packet 送信数。
      */
-    u32 PacketsSent()     const noexcept { return m_PacketsSent;     }
+    u32 PacketsSent() const noexcept
+    {
+        return m_PacketsSent;
+    }
 
     /**
      * 受信した packet 数を返す。
      *
      * @return 累積 packet 受信数 (検証失敗 frame も含む)。
      */
-    u32 PacketsReceived() const noexcept { return m_PacketsReceived; }
+    u32 PacketsReceived() const noexcept
+    {
+        return m_PacketsReceived;
+    }
 
     /**
      * 送信した総バイト数を返す。
      *
      * @return 累積送信バイト数。
      */
-    u32 BytesSent()       const noexcept { return m_BytesSent;       }
+    u32 BytesSent() const noexcept
+    {
+        return m_BytesSent;
+    }
 
     /**
      * 受信した総バイト数を返す。
      *
      * @return 累積受信バイト数。
      */
-    u32 BytesReceived()   const noexcept { return m_BytesReceived;   }
+    u32 BytesReceived() const noexcept
+    {
+        return m_BytesReceived;
+    }
 
     /**
      * 1 frame に必要な総バイト数を返す。
@@ -61303,10 +62765,8 @@ public:
      * @param out_written 書き込みバイト数を返す (= EncodedSnapshotSize)。
      * @return 成功なら空の TResult、引数不正 / 容量不足ならエラー。
      */
-    static TResult<void> EncodeSnapshot(const SnapshotHeader& header,
-                                        const u8* payload, u32 payload_size,
-                                        u8* out_buffer, u32 out_capacity,
-                                        u32& out_written) noexcept;
+    static TResult<void> EncodeSnapshot(const SnapshotHeader& header, const u8* payload, u32 payload_size,
+                                        u8* out_buffer, u32 out_capacity, u32& out_written) noexcept;
 
     /**
      * frame wire bytes を検証し、header を復元 + payload を複製する。
@@ -61320,8 +62780,7 @@ public:
      * @param out_payload payload を複製する先。
      * @return 成功なら空の TResult、検証失敗なら対応するエラー。
      */
-    static TResult<void> DecodeSnapshot(const u8* buffer, u32 size,
-                                        SnapshotHeader& out_header,
+    static TResult<void> DecodeSnapshot(const u8* buffer, u32 size, SnapshotHeader& out_header,
                                         TArray<u8>& out_payload) noexcept;
 
 private:
@@ -61332,10 +62791,10 @@ private:
      */
     struct BufferedSnapshot {
         /** この snapshot の header。 */
-        SnapshotHeader header {};
+        SnapshotHeader header{};
 
         /** 全 entity record を concat した payload。 */
-        TArray<u8>      payload;
+        TArray<u8> payload;
     };
 
     /**
@@ -61345,10 +62804,10 @@ private:
      */
     struct PendingEntity {
         /** ゲーム内 entity ID。 */
-        u32       entity_id      = 0;
+        u32 entity_id = 0;
 
         /** どの component が含まれるかの bitmask。 */
-        u32       component_mask = 0;
+        u32 component_mask = 0;
 
         /** component データのコピー保持。 */
         TArray<u8> data;
@@ -61361,43 +62820,43 @@ private:
     TArray<u8> m_InterpScratch;
 
     /** ランタイム設定 (Init でコピー)。 */
-    NetSnapshotConfig          m_Config         {};
+    NetSnapshotConfig m_Config{};
 
     /** 動作役割。 */
-    ENetRole                   m_Role           = ENetRole::Standalone;
+    ENetRole m_Role = ENetRole::Standalone;
 
     /** 使用する transport (非所有。Standalone 以外は nullptr なら stub に差し替え)。 */
-    INetTransport*             m_Transport      = nullptr;
+    INetTransport* m_Transport = nullptr;
 
     /** server 側で送信待ちの entity list。 */
-    TArray<PendingEntity>       m_PendingEntities;
+    TArray<PendingEntity> m_PendingEntities;
 
     /** client 側の受信 snapshot ring buffer (capacity = buffer_capacity_snapshots)。 */
-    TArray<BufferedSnapshot>    m_RingBuffer;
+    TArray<BufferedSnapshot> m_RingBuffer;
 
     /** ring buffer の次の挿入位置 (FIFO)。 */
-    u32                        m_RingHead      = 0;
+    u32 m_RingHead = 0;
 
     /** ring buffer 内の現在の有効件数 (<= capacity)。 */
-    u32                        m_RingCount     = 0;
+    u32 m_RingCount = 0;
 
     /** server 送信時の次 sequence 番号 (0 は無効値として予約)。 */
-    u32                        m_NextSequence  = 1;
+    u32 m_NextSequence = 1;
 
     /** 最後に受信した snapshot の tick。 */
-    u32                        m_LastReceivedTick = 0;
+    u32 m_LastReceivedTick = 0;
 
     /** 送信に成功した packet 数。 */
-    u32 m_PacketsSent     = 0;
+    u32 m_PacketsSent = 0;
 
     /** 受信した packet 数 (検証失敗 frame も含む)。 */
     u32 m_PacketsReceived = 0;
 
     /** 送信した総バイト数。 */
-    u32 m_BytesSent       = 0;
+    u32 m_BytesSent = 0;
 
     /** 受信した総バイト数。 */
-    u32 m_BytesReceived   = 0;
+    u32 m_BytesReceived = 0;
 };
 
 } // namespace acs::game
@@ -62671,6 +64130,8 @@ struct FReflectMethod {
     u32          flags;                              ///< EMethodFlags の OR。
 };
 
+struct FMethodAutoRegister;
+
 /** 反射メソッドのグローバル登録簿(ACS_REGISTER_METHOD が登録)。 */
 class FMethodRegistry {
 public:
@@ -62680,25 +64141,40 @@ public:
         return s_instance;
     }
 
-    /** 登録する(同 owner+name が既にあれば無視)。 */
+    /** 登録する。同じ owner+name の異なる実装は登録元として併存させる。 */
     void Register(const FReflectMethod& m) noexcept {
-        for (u32 i = 0; i < m_Methods.Size(); ++i)
-            if (m_Methods[i].owner == m.owner && StrEq(m_Methods[i].name, m.name)) return;
-        m_Methods.PushBack(m);
+        RegisterSource(m, nullptr);
+    }
+
+    /**
+     * 手動登録したメソッドを解除する。
+     *
+     * @return 一致する手動登録を 1 件解除できたら true。
+     */
+    bool Unregister(const FReflectMethod& m) noexcept
+    {
+        return UnregisterSource(m, nullptr);
     }
 
     /** 全登録数。 */
-    u32 Count() const noexcept { return static_cast<u32>(m_Methods.Size()); }
+    u32 Count() const noexcept
+    {
+        return static_cast<u32>(m_Entries.Size());
+    }
 
     /** i 番目。 */
-    const FReflectMethod& At(u32 i) const noexcept { return m_Methods[i]; }
+    const FReflectMethod& At(u32 i) const noexcept
+    {
+        return m_Entries[i].sources[0].method;
+    }
 
     /** owner 型の n 番目のメソッド(無ければ nullptr)。 */
     const FReflectMethod* AtOfOwner(FTypeId owner, u32 nth) const noexcept {
         u32 seen = 0;
-        for (u32 i = 0; i < m_Methods.Size(); ++i) {
-            if (m_Methods[i].owner != owner) continue;
-            if (seen == nth) return &m_Methods[i];
+        for (u32 i = 0; i < m_Entries.Size(); ++i) {
+            const FReflectMethod& method = m_Entries[i].sources[0].method;
+            if (method.owner != owner) continue;
+            if (seen == nth) return &method;
             ++seen;
         }
         return nullptr;
@@ -62707,30 +64183,138 @@ public:
     /** owner 型のメソッド数。 */
     u32 CountOfOwner(FTypeId owner) const noexcept {
         u32 c = 0;
-        for (u32 i = 0; i < m_Methods.Size(); ++i) if (m_Methods[i].owner == owner) ++c;
+        for (u32 i = 0; i < m_Entries.Size(); ++i) {
+            if (m_Entries[i].sources[0].method.owner == owner) ++c;
+        }
         return c;
     }
 
     /** owner + 名前で引く(無ければ nullptr)。 */
     const FReflectMethod* Find(FTypeId owner, const char* name) const noexcept {
-        for (u32 i = 0; i < m_Methods.Size(); ++i)
-            if (m_Methods[i].owner == owner && StrEq(m_Methods[i].name, name)) return &m_Methods[i];
+        for (u32 i = 0; i < m_Entries.Size(); ++i) {
+            const FReflectMethod& method = m_Entries[i].sources[0].method;
+            if (method.owner == owner && StrEq(method.name, name)) return &method;
+        }
         return nullptr;
     }
 
 private:
-    FMethodRegistry() noexcept = default;
+    friend struct FMethodAutoRegister;
+
+    /** 同じ owner+name へ同時登録できる module/source 数。 */
+    static constexpr u32 kMaxSourcesPerMethod = 8;
+
+    struct MethodSource {
+        FReflectMethod method{};
+        const void* token = nullptr;
+    };
+
+    struct MethodEntry {
+        MethodSource sources[kMaxSourcesPerMethod]{};
+        u8 source_count = 0;
+    };
+
+    /** process lifetime の登録簿が一時的な DefaultAllocator を捕捉しないようにする。 */
+    FMethodRegistry() noexcept : m_Entries(m_Allocator)
+    {
+    }
+
     static bool StrEq(const char* a, const char* b) noexcept {
         if (a == nullptr || b == nullptr) return a == b;
         while (*a != '\0' && *a == *b) { ++a; ++b; }
         return *a == *b;
     }
-    TArray<FReflectMethod> m_Methods;
+
+    static bool SameImplementation(const FReflectMethod& a, const FReflectMethod& b) noexcept
+    {
+        return a.owner == b.owner && StrEq(a.name, b.name) && a.invoke == b.invoke && a.invokeArg == b.invokeArg &&
+               a.invokeRet == b.invokeRet && a.argKind == b.argKind && a.retKind == b.retKind && a.flags == b.flags;
+    }
+
+    void RegisterSource(const FReflectMethod& method, const void* token) noexcept
+    {
+        for (u32 entry_index = 0; entry_index < m_Entries.Size(); ++entry_index) {
+            MethodEntry& entry = m_Entries[entry_index];
+            const FReflectMethod& active = entry.sources[0].method;
+            if (active.owner != method.owner || !StrEq(active.name, method.name)) continue;
+
+            for (u32 source = 0; source < entry.source_count; ++source) {
+                if (token != nullptr && entry.sources[source].token == token) return;
+                if (token == nullptr && entry.sources[source].token == nullptr &&
+                    SameImplementation(entry.sources[source].method, method))
+                    return;
+            }
+            if (entry.source_count >= kMaxSourcesPerMethod) return;
+            entry.sources[entry.source_count++] = MethodSource{method, token};
+            return;
+        }
+
+        MethodEntry entry{};
+        entry.sources[0] = MethodSource{method, token};
+        entry.source_count = 1;
+        m_Entries.PushBack(entry);
+    }
+
+    bool UnregisterSource(const FReflectMethod& method, const void* token) noexcept
+    {
+        for (u32 entry_index = 0; entry_index < m_Entries.Size(); ++entry_index) {
+            MethodEntry& entry = m_Entries[entry_index];
+            const FReflectMethod& active = entry.sources[0].method;
+            if (active.owner != method.owner || !StrEq(active.name, method.name)) continue;
+
+            u32 source_index = entry.source_count;
+            for (u32 source = 0; source < entry.source_count; ++source) {
+                const bool token_matches = token != nullptr
+                                               ? entry.sources[source].token == token
+                                               : entry.sources[source].token == nullptr &&
+                                                     SameImplementation(entry.sources[source].method, method);
+                if (token_matches) {
+                    source_index = source;
+                    break;
+                }
+            }
+            if (source_index == entry.source_count) return false;
+
+            for (u32 source = source_index; source + 1u < entry.source_count; ++source) {
+                entry.sources[source] = entry.sources[source + 1u];
+            }
+            entry.sources[entry.source_count - 1u] = MethodSource{};
+            --entry.source_count;
+            if (entry.source_count != 0) return true;
+
+            for (u32 remaining = entry_index; remaining + 1u < m_Entries.Size(); ++remaining) {
+                m_Entries[remaining] = m_Entries[remaining + 1u];
+            }
+            m_Entries.PopBack();
+            return true;
+        }
+        return false;
+    }
+
+    /** 登録簿より後に破棄される、登録簿専用の process-lifetime allocator。 */
+    FSystemAllocator m_Allocator;
+
+    /** owner+name ごとに登録元を束ねた method 一覧。 */
+    TArray<MethodEntry> m_Entries;
 };
 
 /** ACS_REGISTER_METHOD が生成する自動登録ヘルパ。 */
 struct FMethodAutoRegister {
-    explicit FMethodAutoRegister(const FReflectMethod& m) noexcept { FMethodRegistry::Get().Register(m); }
+    explicit FMethodAutoRegister(const FReflectMethod& method) noexcept : m_Method(method)
+    {
+        FMethodRegistry::Get().RegisterSource(m_Method, this);
+    }
+
+    ~FMethodAutoRegister() noexcept
+    {
+        (void)FMethodRegistry::Get().UnregisterSource(m_Method, this);
+    }
+
+    FMethodAutoRegister(const FMethodAutoRegister&) = delete;
+    FMethodAutoRegister& operator=(const FMethodAutoRegister&) = delete;
+
+private:
+    FReflectMethod m_Method{};
 };
 
 /**
@@ -65104,11 +66688,11 @@ FTileRayHit RaycastTilemap(const FTilemap& map, u32 layer,
 //   ・**固定容量 voice pool**: `Init(max_voices)` 時に確保。再 init 不可。
 //     PlayOneShot / PlayLooped で空きを線形探索 (max_voices は通常 ≦ 128 で、
 //     ホットパス影響は無視できる)。
-//   ・**generation 付き handle**: slot 再利用時に古いハンドルで操作されても
-//     generation 不一致で no-op 化、use-after-free を防ぐ。
-//   ・**COM init は本 backend が責任を持つ**: 既に他所で `CoInitializeEx` 済
-//     なら HRESULT が `RPC_E_CHANGED_MODE` 等で戻るので、その場合は「他所が
-//     init 済」とみなして自分では Uninitialize しない (フラグで覚える)。
+//   ・**一意 handle**: slot 再利用時に古いハンドルで操作されても不一致で
+//     no-op 化し、use-after-free を防ぐ。
+//   ・**COM init は本 backend が責任を持つ**: `S_OK` と `S_FALSE` はどちらも
+//     Shutdown で `CoUninitialize` を呼び、参照数を釣り合わせる。
+//     `RPC_E_CHANGED_MODE` のときだけ他所の apartment を借り、自分では解除しない。
 //   ・**Pcm32Float / Pcm16 のみ実音再生対応**: Wav 形式は asset layer
 //     側で事前デコードしてから raw PCM として渡す前提 (本 backend 内に
 //     wav parser を追加するなら拡張可)。
@@ -65129,10 +66713,10 @@ namespace acs::game {
  * @details
  * `FAudioDirector::SetBackend(&xaudio2)` で差し込んで使う。pimpl で `<xaudio2.h>`
  * (+ COM) の重ヘッダを .cpp に閉じ込め、固定容量 voice pool を `Init(max_voices)`
- * で確保する。voice handle は 24bit index + 8bit generation で一意化し、slot 再利用
- * 時の use-after-free を generation 不一致で no-op 化して防ぐ。一発再生は Tick で
+ * で確保する。voice handle は ABI を 32bit に保ったプロセス通算チケットで一意化し、
+ * slot 再利用時の use-after-free をハンドル不一致で no-op 化して防ぐ。一発再生は Tick で
  * `BuffersQueued == 0` を見て自然回収される。COM 初期化は本 backend が責任を持ち、
- * 自分で成功したときだけ Shutdown で CoUninitialize する。
+ * `CoInitializeEx` が `S_OK` または `S_FALSE` なら Shutdown で CoUninitialize する。
  */
 class FXAudio2Backend final : public IAudioBackend {
 public:
@@ -65160,7 +66744,8 @@ public:
      * @details
      * 多重 Init は kSubAudioAlreadyInitialized、max_voices=0 や 2^24 以上は
      * kSubAudioInvalidArgs を返す。COM は既に他所が init 済でも続行し、自分で
-     * CoInitializeEx に成功したときだけ Shutdown で CoUninitialize する。
+     * CoInitializeEx が S_OK または S_FALSE なら Shutdown で CoUninitialize する。
+     * COM の参照数はスレッド単位なので、Init と Shutdown は同じスレッドから呼ぶこと。
      * @param max_voices 同時発音数の上限 (= slot 数。0 は不正)。
      * @return 成功なら空の TResult、初期化失敗ならエラー。
      */
@@ -65207,7 +66792,7 @@ public:
     /**
      * 指定 voice を停止して slot を解放する。
      *
-     * @details 無効ハンドル / 既に解放済 / generation 不一致 (古いハンドル) は no-op。
+     * @details 無効ハンドル / 既に解放済 / ハンドル不一致 (古いハンドル) は no-op。
      * @param voice 停止する voice のハンドル。
      */
     void StopVoice(AudioVoiceHandle voice) noexcept override;
@@ -65215,7 +66800,7 @@ public:
     /**
      * 指定 voice の音量を変更する。
      *
-     * @details 無効ハンドル / 解放済 / generation 不一致は no-op。範囲外は clamp。
+     * @details 無効ハンドル / 解放済 / ハンドル不一致は no-op。範囲外は clamp。
      * @param voice 対象 voice のハンドル。
      * @param volume 新しい音量 (0.0〜1.0、範囲外は clamp)。
      */
@@ -68475,7 +70060,7 @@ private:
 //   // editor 側:
 //   acs::TUniquePtr<MoveNodeCommand> cmd = acs::MakeUnique<MoveNodeCommand>(
 //       &node, old_pos, new_pos);
-//   undo_stack.Push(cmd.Release());   // 所有権を渡す + Execute 実行
+//   undo_stack.Push(acs::Move(cmd));   // 確保元ごと所有権を渡す + Execute 実行
 //
 // 設計選択:
 //   ・**純粋抽象 + virtual dtor**: ベース型を `TUniquePtr<FEditorCommand>` で
@@ -70282,9 +71867,8 @@ private:
 //   stack.Init(64);
 //
 //   // 1 操作: Push に所有権を渡す
-//   auto* cmd = acs::New<MoveNodeCommand>(acs::DefaultAllocator(),
-//                                          &node, old_pos, new_pos);
-//   stack.Push(cmd);
+//   auto command = acs::MakeUnique<MoveNodeCommand>(&node, old_pos, new_pos);
+//   stack.Push(acs::Move(command));
 //
 //   if (ImGui::MenuItem("Undo", "Ctrl+Z", false, stack.CanUndo())) {
 //       stack.Undo();
@@ -70294,11 +71878,10 @@ private:
 //   ・**TUniquePtr<FEditorCommand> を 2 本の TArray に積む**: undo / redo の
 //     LIFO スタック。基底ポインタなので polymorphic dispatch (virtual Execute /
 //     Undo / Description) で派生型を意識せず巻き戻せる。
-//   ・**Push で所有権を奪う (raw pointer 引数 + delete 責任)**: 既存サンプル
-//     (FHierarchyPanel 等) と同じく ImGui 連携の単純な C-API 風シグネチャに
-//     揃える。caller は `cmd.Release()` で渡す or 自分で New してそのまま渡す。
-//     Push 内で TUniquePtr に詰め直してから m_UndoStack に PushBack することで
-//     その後の代入 / pop で自動 delete される。
+//   ・**Push で所有権を奪う**: TUniquePtr の確保元を保ったまま Move する経路を
+//     標準とし、既定アロケータ由来の既存コード向けに raw pointer 経路も残す。
+//     m_UndoStack に TUniquePtr のまま積むため、代入 / pop でも生成時の確保元へ
+//     自動的に返される。
 //   ・**Push 内で Execute も実行**: GUI コードが「new FEditorCommand → Push」
 //     しか書かなくて済む (= Execute 忘れを構造的に防ぐ)。Redo 経路でも
 //     FEditorCommand::Execute() を呼ぶので、Execute は何度呼ばれても idempotent
@@ -70410,6 +71993,23 @@ public:
      * @param cmd 積む command (所有権が移る。nullptr は no-op)。
      */
     void Push(class FEditorCommand* cmd) noexcept;
+
+    /**
+     * 解放元を保持した command を 1 件積む。
+     *
+     * @details MakeUniqueIn などで既定以外のアロケータから生成した command は、
+     * このオーバーロードへ Move することで生成時の解放元を維持できる。
+     * @param command 積む command。所有権が移る。空なら no-op。
+     */
+    void Push(TUniquePtr<FEditorCommand> command) noexcept;
+
+    /**
+     * 生ポインタとその確保元を明示して command を 1 件積む。
+     *
+     * @param command 積む command。所有権が移る。nullptr は no-op。
+     * @param allocator command を解放するアロケータ。
+     */
+    void Push(class FEditorCommand* command, FAllocator& allocator) noexcept;
 
     /**
      * undo を 1 件巻き戻す。
@@ -74831,6 +76431,15 @@ private:
     /** DX12 backend 用の SHADER_VISIBLE な SRV ヒープ (ID3D12DescriptorHeap*)。 */
     void*      m_SrvHeap  = nullptr;
 
+    /** このラッパが所有する ImGuiContext。複数コンテキスト時の切替にも使う。 */
+    void* m_Context = nullptr;
+
+    /** Win32 backend の初期化に成功したか。部分失敗時の巻き戻し判定用。 */
+    bool m_Win32Initialized = false;
+
+    /** DX12 backend の初期化に成功したか。部分失敗時の巻き戻し判定用。 */
+    bool m_Dx12Initialized = false;
+
     /** 初期化済みフラグ (NewFrame/Render/Shutdown のガードに使う)。 */
     bool       m_Initialized = false;
 };
@@ -75524,7 +77133,8 @@ namespace acs {
  * 通常確保は現在ページ内をアトミック CAS 1 回で前進させる (lock-free)。ページが満杯に
  * なったときだけ FMutex で排他して backing から新ページを確保する。page_size より大きい
  * 要求には専用ページを割り当てる。個別 Free は非対応 (no-op)。Reset でカーソルを巻き戻すか
- * (ページ保持)、全ページを backing に返す。
+ * (ページ保持)、全ページを backing に返す。Reset は開始済みの Alloc が完了するまで待ち、
+ * Reset 開始後の Alloc は nullptr で拒否する。
  */
 class FArenaAllocator final : public FAllocator {
 public:
@@ -75532,10 +77142,9 @@ public:
      * 1 ページあたりのサイズと backing を指定して構築する (ページは遅延確保)。
      *
      * @param page_size 1 ページのデータ領域サイズ (既定 64KiB)。
-     * @param backing ページの確保元 (nullptr なら DefaultAllocator)。
+     * @param backing_allocator ページの確保元 (nullptr なら DefaultAllocator)。
      */
-    FArenaAllocator(usize page_size = 64 * 1024,
-                   FAllocator* backing = nullptr) noexcept;
+    FArenaAllocator(usize page_size = 64 * 1024, FAllocator* backing_allocator = nullptr) noexcept;
 
     /** 全ページを backing に返して破棄する。 */
     ~FArenaAllocator() noexcept override;
@@ -75549,28 +77158,32 @@ public:
     /**
      * 現在ページから alignment 整列で size バイトを切り出す (満杯なら新ページを確保)。
      *
-     * @details lock-free CAS による確保。新ページ確保時のみ GrowLock を取る。size==0 や OOM 時は nullptr。
+     * @details
+     * lock-free CAS による確保。新ページ確保時のみ GrowLock を取る。size==0、OOM、または
+     * Reset 実行中は nullptr。Reset と競合して nullptr になった場合は次のフレームで再試行できる。
      * @param size 確保するバイト数。
      * @param alignment 要求アライメント (1 未満なら 1 に補正)。
-     * @param loc 診断用の呼び出し位置 (本実装では未使用)。
+     * @param location 診断用の呼び出し位置 (本実装では未使用)。
      * @return 確保した領域 (失敗時 nullptr)。
      */
-    void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override;
+    void* Alloc(usize size, usize alignment, FSourceLoc location) noexcept override;
 
     /**
      * 個別解放は非対応 (no-op)。
      *
      * @details まとめて Reset で破棄する。
-     * @param ptr 無視される。
+     * @param pointer 無視される。
      */
-    void  Free (void* ptr) noexcept override;
+    void Free(void* pointer) noexcept override;
 
     /**
      * 全確保を無効化する。
      *
      * @details
      * release_pages=false なら全ページのカーソルを 0 に巻き戻してページを再利用する
-     * (再確保なし)。true なら全ページを backing に返却する。GrowLock を取って排他する。
+     * (再確保なし)。true なら全ページを backing に返却する。新しい Alloc の入場を閉じ、
+     * 開始済みの Alloc が完了してから GrowLock を取るため、並行実行でもページへ競合アクセスしない。
+     * Reset 後はそれ以前に払い出した全ポインタが無効になるため、呼び出し側はデータ利用者を別途停止すること。
      * @param release_pages true でページを backing に返却、false でカーソルだけ巻き戻し。
      */
     void Reset(bool release_pages = false) noexcept;
@@ -75580,33 +77193,53 @@ public:
      *
      * @return 全ページ累計の確保バイト数 (Reset で 0 に戻る)。
      */
-    u64 BytesAllocated() const noexcept override { return m_Bytes.Load(EMemoryOrder::Acquire); }
+    u64 BytesAllocated() const noexcept override
+    {
+        return m_Bytes.Load(EMemoryOrder::Acquire);
+    }
+
+    /**
+     * 最後の Reset 以降に払い出した領域の件数を返す。
+     *
+     * @details 個別 Free は非対応なので、Reset するまで件数は減らない。
+     * @return 現在の一括寿命に属する確保件数。
+     */
+    u64 AllocationCount() const noexcept override
+    {
+        return m_AllocationCount.Load(EMemoryOrder::Acquire);
+    }
 
     /**
      * 過去ピークの割当バイト数を返す。
      *
      * @return これまでの最大割当バイト数。
      */
-    u64 PeakBytes()      const noexcept override { return m_Peak.Load(EMemoryOrder::Acquire); }
+    u64 PeakBytes() const noexcept override
+    {
+        return m_Peak.Load(EMemoryOrder::Acquire);
+    }
 
     /**
      * 識別名を返す。
      *
      * @return 文字列 "Arena"。
      */
-    const char* Name()   const noexcept override { return "Arena"; }
+    const char* Name() const noexcept override
+    {
+        return "Arena";
+    }
 
 private:
     /** 1 ページの管理ヘッダ (ページ先頭に置かれ、直後にデータ領域が続く)。 */
     struct Page {
         /** 次ページへの単方向リンク (全ページリスト用)。 */
-        Page*       next;
+        Page* next;
 
         /** データ領域の先頭 (ヘッダ直後を 64B 整列した位置)。 */
-        u8*         base;
+        u8* base;
 
         /** データ領域のサイズ (バイト)。 */
-        u64         size;
+        u64 size;
 
         /** 現在のカーソル位置 (このページ内の確保済みバイト数)。 */
         TAtomic<u64> used;
@@ -75621,26 +77254,41 @@ private:
      */
     Page* AllocPage(usize size) noexcept;
 
+    /** Reset と競合しない確保操作として入場できれば true を返す。 */
+    bool TryBeginAllocation() noexcept;
+
+    /** TryBeginAllocation に成功した確保操作の完了を通知する。 */
+    void EndAllocation() noexcept;
+
     /** ページの確保元アロケータ。 */
-    FAllocator*    m_Backing  = nullptr;
+    FAllocator* m_Backing = nullptr;
 
     /** 1 ページのデータ領域サイズ。 */
-    usize         m_PageSize = 0;
+    usize m_PageSize = 0;
 
     /** 現在書き込み中のページ (Acquire/Release で公開)。 */
-    TAtomic<Page*> m_Current  {nullptr};
+    TAtomic<Page*> m_Current{nullptr};
 
     /** 確保した全ページの単方向リスト (Reset での返却に使う)。 */
-    Page*         m_Pages    = nullptr;
+    Page* m_Pages = nullptr;
 
     /** 新ページ確保とリスト操作を排他するロック。 */
-    FMutex         m_GrowLock;
+    FMutex m_GrowLock;
+
+    /** 1 の間は Reset がページ群を操作中で、新しい Alloc を拒否する。 */
+    TAtomic<u32> m_ResetInProgress{0};
+
+    /** Reset が完了を待つ、入場済み Alloc の件数。 */
+    TAtomic<u32> m_ActiveAllocations{0};
 
     /** 現在の総割当バイト数。 */
-    TAtomic<u64>   m_Bytes {0};
+    TAtomic<u64> m_Bytes{0};
+
+    /** 最後の Reset 以降に成功した確保件数。 */
+    TAtomic<u64> m_AllocationCount{0};
 
     /** 過去ピークの割当バイト数 (CAS で更新)。 */
-    mutable TAtomic<u64> m_Peak  {0};
+    mutable TAtomic<u64> m_Peak{0};
 };
 
 } // namespace acs
@@ -75666,9 +77314,9 @@ public:
      * capacity バイトのバッファを backing から 1 回確保して構築する。
      *
      * @param capacity 確保するバッファの総バイト数。
-     * @param backing バッキングアロケータ (nullptr なら DefaultAllocator)。
+     * @param backing_allocator バッキングアロケータ (nullptr なら DefaultAllocator)。
      */
-    FLinearAllocator(usize capacity, FAllocator* backing = nullptr) noexcept;
+    FLinearAllocator(usize capacity, FAllocator* backing_allocator = nullptr) noexcept;
 
     /** バッキングバッファを backing に返して破棄する。 */
     ~FLinearAllocator() noexcept override;
@@ -75685,18 +77333,18 @@ public:
      * @details CAS リトライによる lock-free 確保。容量超過・size==0・未構築時は nullptr。
      * @param size 確保するバイト数。
      * @param alignment 要求アライメント (1 未満なら 1 に補正)。
-     * @param loc 診断用の呼び出し位置 (本実装では未使用)。
+     * @param location 診断用の呼び出し位置 (本実装では未使用)。
      * @return 確保した領域 (失敗時 nullptr)。
      */
-    void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override;
+    void* Alloc(usize size, usize alignment, FSourceLoc location) noexcept override;
 
     /**
      * 個別解放は非対応 (no-op)。
      *
      * @details リニアアロケータは個別解放できない。全体は Reset() で巻き戻す。
-     * @param ptr 無視される。
+     * @param pointer 無視される。
      */
-    void  Free (void* ptr) noexcept override;
+    void Free(void* pointer) noexcept override;
 
     /**
      * カーソルを 0 に戻して全確保を無効化する。
@@ -75710,47 +77358,73 @@ public:
      *
      * @return 確保済みバイト数 (アライメント詰め込み込み)。
      */
-    u64 BytesAllocated() const noexcept override { return m_Used.Load(EMemoryOrder::Acquire); }
+    u64 BytesAllocated() const noexcept override
+    {
+        return m_Used.Load(EMemoryOrder::Acquire);
+    }
+
+    /**
+     * 最後の Reset 以降に払い出した領域の件数を返す。
+     *
+     * @details 個別 Free は非対応なので、Reset するまで件数は減らない。
+     * @return 現在の一括寿命に属する確保件数。
+     */
+    u64 AllocationCount() const noexcept override
+    {
+        return m_AllocationCount.Load(EMemoryOrder::Acquire);
+    }
 
     /**
      * 過去ピークのカーソル位置を返す。
      *
      * @return これまでに到達した最大カーソル位置。
      */
-    u64 PeakBytes()      const noexcept override { return m_Peak.Load(EMemoryOrder::Acquire); }
+    u64 PeakBytes() const noexcept override
+    {
+        return m_Peak.Load(EMemoryOrder::Acquire);
+    }
 
     /**
      * バッファ総容量を返す。
      *
      * @return 構築時に確保したバイト数。
      */
-    u64 Capacity()       const noexcept          { return m_Capacity; }
+    u64 Capacity() const noexcept
+    {
+        return m_Capacity;
+    }
 
     /**
      * 識別名を返す。
      *
      * @return 文字列 "Linear"。
      */
-    const char* Name()   const noexcept override { return "Linear"; }
+    const char* Name() const noexcept override
+    {
+        return "Linear";
+    }
 
 private:
     /** バッファ先頭 (backing から確保、失敗時 nullptr)。 */
-    u8*           m_Base     = nullptr;
+    u8* m_Base = nullptr;
 
     /** バッファ総容量 (バイト)。 */
-    u64           m_Capacity = 0;
+    u64 m_Capacity = 0;
 
     /** バッファの確保元アロケータ。 */
-    FAllocator*    m_Backing  = nullptr;
+    FAllocator* m_Backing = nullptr;
 
     /** backing を所有しているか (現状常に false)。 */
-    bool          m_bOwnsBacking = false;
+    bool m_bOwnsBacking = false;
 
     /** 現在のカーソル位置 (確保済みバイト数、CAS で前進)。 */
-    TAtomic<u64>   m_Used {0};
+    TAtomic<u64> m_Used{0};
+
+    /** 最後の Reset 以降に成功した確保件数。 */
+    TAtomic<u64> m_AllocationCount{0};
 
     /** 過去ピークのカーソル位置 (CAS で更新)。 */
-    mutable TAtomic<u64> m_Peak {0};
+    mutable TAtomic<u64> m_Peak{0};
 };
 
 } // namespace acs
@@ -75809,6 +77483,272 @@ public:
 
 } // namespace acs
 
+// ===================== memory/MimallocAllocator.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// ACS Memory - mimalloc first-class heap アロケータ
+// -----------------------------------------------------------------------------
+// mimalloc の first-class heap を ACS の FAllocator 契約へ接続する。
+// 要求サイズ、件数、ハード予算、サイズ分布は ACS 側で追跡し、mimalloc の
+// usable size やプロセス全体統計には依存しない。
+// =============================================================================
+
+
+namespace acs {
+
+/** 1 つの要求サイズ帯に現在存在する確保の統計。 */
+struct MimallocAllocationSizeStatistics {
+    /** 現在生存している確保の件数。 */
+    u64 allocation_count = 0;
+
+    /** 現在生存している確保の要求バイト合計。 */
+    u64 requested_bytes = 0;
+};
+
+/** 要求サイズ別の現在値。サイズ境界は利用者が調整せず、全ヒープで共通とする。 */
+struct MimallocAllocationHistogram {
+    /** 4 KiB 以下の確保。 */
+    MimallocAllocationSizeStatistics small;
+
+    /** 4 KiB 超 1 MiB 以下の確保。 */
+    MimallocAllocationSizeStatistics medium;
+
+    /** 1 MiB 超の確保。 */
+    MimallocAllocationSizeStatistics large;
+};
+
+/** mi_heap_visit_blocks から再構築した、追跡カウンタとは独立したヒープ統計。 */
+struct MimallocHeapInspectionStatistics {
+    /** 列挙した mimalloc ページ領域の数。 */
+    u64 area_count = 0;
+
+    /** ページ領域が予約している仮想アドレス空間の合計。 */
+    u64 reserved_bytes = 0;
+
+    /** ページ領域がコミットしているバイト数の合計。 */
+    u64 committed_bytes = 0;
+
+    /** 列挙した生存ブロックの件数。 */
+    u64 allocation_count = 0;
+
+    /** ブロックヘッダから復元した要求バイト合計。 */
+    u64 requested_bytes = 0;
+
+    /** mimalloc が報告した生存ブロックの usable size 合計。 */
+    u64 usable_bytes = 0;
+
+    /** mimalloc の列挙処理自体が完走したか。 */
+    bool visit_succeeded = false;
+
+    /** 全ブロックがこのアロケータの正しいヘッダを持っていたか。 */
+    bool metadata_valid = false;
+
+    /** 独立列挙結果が ACS の atomic カウンタと一致したか。 */
+    bool matches_authoritative_statistics = false;
+};
+
+/**
+ * mimalloc v3 first-class heap を 1 つ所有する、汎用スレッドセーフアロケータ。
+ *
+ * @details
+ * Alloc / Free / Realloc は別スレッドから同時に呼べる。要求サイズは独自ヘッダで
+ * 保持するため、BytesAllocated は mimalloc の丸め後サイズではなく利用者が要求した
+ * 正確な合計を返す。Init / Shutdown / Collect / InspectHeap は保守操作なので、対象
+ * アロケータへの Alloc / Free / Realloc が止まった状態で呼ぶこと。
+ *
+ * ハード予算は atomic な予約カウンタで守る。生存中の要求量に確保処理中の要求量も
+ * 加えた値が上限を超える操作は、mimalloc を呼ぶ前に失敗する。
+ */
+class FMimallocAllocator final : public FAllocator {
+public:
+    /** 小サイズ帯の上限 (4 KiB、境界を含む)。 */
+    static constexpr u64 kSmallAllocationMaximumBytes = 4ull * 1024ull;
+
+    /** 中サイズ帯の上限 (1 MiB、境界を含む)。 */
+    static constexpr u64 kMediumAllocationMaximumBytes = 1024ull * 1024ull;
+
+    /** 未初期化状態で構築する。使用前に Init を呼ぶこと。 */
+    FMimallocAllocator() noexcept = default;
+
+    /** ヒープを破棄する。未解放確保があれば Logger 非依存の診断を出す。 */
+    ~FMimallocAllocator() noexcept override;
+
+    /** ヒープを単独所有するためコピーしない。 */
+    FMimallocAllocator(const FMimallocAllocator&) = delete;
+
+    /** ヒープを単独所有するためコピー代入しない。 */
+    FMimallocAllocator& operator=(const FMimallocAllocator&) = delete;
+
+    /** ライフサイクルと atomic カウンタの所有者を固定するためムーブしない。 */
+    FMimallocAllocator(FMimallocAllocator&&) = delete;
+
+    /** ライフサイクルと atomic カウンタの所有者を固定するためムーブ代入しない。 */
+    FMimallocAllocator& operator=(FMimallocAllocator&&) = delete;
+
+    /**
+     * first-class heap を作成し、利用可能状態にする。
+     *
+     * @param hard_budget_bytes 要求バイト合計の上限。0 は無制限。
+     * @return 成功なら空の TResult。多重初期化またはヒープ作成失敗ならエラー。
+     */
+    TResult<void> Init(u64 hard_budget_bytes = 0) noexcept;
+
+    /**
+     * ヒープを強制収集して破棄し、再 Init 可能な未初期化状態へ戻す。
+     *
+     * @details 未解放確保は機械可読ログへ記録してから mi_heap_destroy で回収する。
+     */
+    void Shutdown() noexcept;
+
+    /** size バイトを alignment 整列で確保する。不正値、予算超過、OOM は nullptr。 */
+    void* Alloc(usize size, usize alignment, FSourceLoc location) noexcept override;
+
+    /** このアロケータが払い出した領域を解放する。nullptr は何もしない。 */
+    void Free(void* pointer) noexcept override;
+
+    /**
+     * 確保を new_size バイトへ変更する。
+     *
+     * @details 失敗時は旧領域と統計を保持する。old_size は互換引数であり、実際の
+     * コピー量と統計には割り当てヘッダの要求サイズを使う。
+     */
+    void* Realloc(void* pointer, usize old_size, usize new_size, usize alignment,
+                  FSourceLoc location) noexcept override;
+
+    /** 現在生存している確保の要求バイト合計を返す。 */
+    u64 BytesAllocated() const noexcept override
+    {
+        return m_RequestedBytes.Load(EMemoryOrder::Acquire);
+    }
+
+    /** 現在生存している確保の件数を返す。 */
+    u64 AllocationCount() const noexcept override
+    {
+        return m_AllocationCount.Load(EMemoryOrder::Acquire);
+    }
+
+    /** 過去に同時生存した要求バイト合計の最大値を返す。 */
+    u64 PeakBytes() const noexcept override
+    {
+        return m_PeakRequestedBytes.Load(EMemoryOrder::Acquire);
+    }
+
+    /** 現在の first-class heap 寿命を識別する世代を返す。未初期化なら0。 */
+    u64 LifetimeGeneration() const noexcept override
+    {
+        return m_Generation;
+    }
+
+    /** 識別名を返す。 */
+    const char* Name() const noexcept override
+    {
+        return "Mimalloc";
+    }
+
+    /** 初期化済みなら true。 */
+    bool IsInitialized() const noexcept
+    {
+        return m_Heap != nullptr;
+    }
+
+    /** Init で指定したハード予算を返す。0 は無制限。 */
+    u64 HardBudgetBytes() const noexcept
+    {
+        return m_HardBudgetBytes;
+    }
+
+    /**
+     * pointer が現在の世代のこのアロケータから払い出された利用者ポインタかを検証する。
+     *
+     * @details
+     * pointer は nullptr、または生存中の FMimallocAllocator が返した正規の先頭ポインタに
+     * 限る。任意アドレスや領域内部のポインタを調べる一般的なアドレス範囲 API ではない。
+     *
+     * @return 正しい所有ポインタなら true。nullptr、他ヒープ、破損ヘッダは false。
+     */
+    bool OwnsAllocation(const void* pointer) const noexcept;
+
+    /**
+     * 現在のヒープに対して mimalloc の収集処理を実行する。
+     *
+     * @details Alloc / Free / Realloc が停止した保守点で呼ぶこと。
+     */
+    void Collect(bool force) noexcept;
+
+    /** 現在生存している確保のサイズ分布を atomic カウンタから取得する。 */
+    MimallocAllocationHistogram CaptureAllocationHistogram() const noexcept;
+
+    /**
+     * mimalloc のブロック列挙から独立統計を再構築する。
+     *
+     * @details mimalloc の列挙契約に従い、Alloc / Free / Realloc が停止した状態で呼ぶこと。
+     */
+    MimallocHeapInspectionStatistics InspectHeap() noexcept;
+
+    /** リンク中の mimalloc 実行時バージョン番号を返す。未初期化でも呼べる。 */
+    static int RuntimeVersion() noexcept;
+
+private:
+    /** 予算カウンタへ amount を CAS 予約する。 */
+    bool TryReserveBudget(u64 amount) noexcept;
+
+    /** 予算カウンタから amount を返却する。 */
+    void ReleaseBudget(u64 amount) noexcept;
+
+    /** 成功した確保を要求量・件数・ピーク・ヒストグラムへ反映する。 */
+    void RecordAllocation(u64 requested_bytes) noexcept;
+
+    /** 解放した確保を要求量・件数・ヒストグラムへ反映する。 */
+    void RecordFree(u64 requested_bytes) noexcept;
+
+    /** Realloc 成功時の要求量とヒストグラムを更新する。件数は変えない。 */
+    void RecordReallocation(u64 old_requested_bytes, u64 new_requested_bytes) noexcept;
+
+    /** 同時生存要求バイトのピークを CAS で更新する。 */
+    void UpdatePeak(u64 candidate) noexcept;
+
+    /** first-class mi_heap_t。公開ヘッダへ mimalloc 型を漏らさないため void* で保持する。 */
+    void* m_Heap = nullptr;
+
+    /** Init ごとに変わる所有世代。古いヘッダの誤受理を防ぐ。 */
+    u64 m_Generation = 0;
+
+    /** 0 は無制限、それ以外は要求バイト合計の厳密な上限。 */
+    u64 m_HardBudgetBytes = 0;
+
+    /** 生存中に加え、mimalloc 呼び出し中の仮予約も含む予算消費量。 */
+    TAtomic<u64> m_BudgetReservedBytes{0};
+
+    /** 現在生存している要求バイト合計。 */
+    TAtomic<u64> m_RequestedBytes{0};
+
+    /** 過去の同時生存要求バイト最大値。 */
+    TAtomic<u64> m_PeakRequestedBytes{0};
+
+    /** 現在生存している確保件数。 */
+    TAtomic<u64> m_AllocationCount{0};
+
+    /** 小サイズ確保の現在件数。 */
+    TAtomic<u64> m_SmallAllocationCount{0};
+
+    /** 小サイズ確保の現在要求バイト合計。 */
+    TAtomic<u64> m_SmallRequestedBytes{0};
+
+    /** 中サイズ確保の現在件数。 */
+    TAtomic<u64> m_MediumAllocationCount{0};
+
+    /** 中サイズ確保の現在要求バイト合計。 */
+    TAtomic<u64> m_MediumRequestedBytes{0};
+
+    /** 大サイズ確保の現在件数。 */
+    TAtomic<u64> m_LargeAllocationCount{0};
+
+    /** 大サイズ確保の現在要求バイト合計。 */
+    TAtomic<u64> m_LargeRequestedBytes{0};
+};
+
+} // namespace acs
+
 // ===================== memory/ObjectPool.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
@@ -75846,13 +77786,22 @@ namespace acs {
 struct FObjectHandle {
     static constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 
-    u32 index = kInvalidIndex;   /**< スロット番号 (未設定は kInvalidIndex)。 */
-    u32 gen   = 0;               /**< スロットの世代 (確保/解放で進む)。 */
+    u32 index = kInvalidIndex; /**< スロット番号 (未設定は kInvalidIndex)。 */
+    u32 gen = 0;               /**< スロットの世代 (確保/解放で進む)。 */
 
     /** 何らかのスロットを指していれば true (生存判定ではない)。 */
-    bool IsSet() const noexcept { return index != kInvalidIndex; }
-    bool operator==(const FObjectHandle& o) const noexcept { return index == o.index && gen == o.gen; }
-    bool operator!=(const FObjectHandle& o) const noexcept { return !(*this == o); }
+    bool IsSet() const noexcept
+    {
+        return index != kInvalidIndex;
+    }
+    bool operator==(const FObjectHandle& o) const noexcept
+    {
+        return index == o.index && gen == o.gen;
+    }
+    bool operator!=(const FObjectHandle& o) const noexcept
+    {
+        return !(*this == o);
+    }
 };
 
 /**
@@ -75869,10 +77818,16 @@ public:
     static constexpr u32 kChunkSize = 256u;
 
     /** 確保元アロケータを指定して空のプールを作る。 */
-    explicit TObjectPool(FAllocator& alloc = DefaultAllocator()) noexcept : m_Alloc(&alloc) {}
+    explicit TObjectPool(FAllocator& alloc = DefaultAllocator()) noexcept
+        : m_Alloc(&alloc), m_Chunks(alloc), m_Free(alloc), m_Live(alloc)
+    {
+    }
 
-    /** 生存オブジェクトを破棄し、チャンクを解放する。 */
-    ~TObjectPool() noexcept { Clear(); FreeChunks(); }
+    /** 生存オブジェクトを破棄し、全ての保持領域を解放する。 */
+    ~TObjectPool() noexcept
+    {
+        ReleaseStorage();
+    }
 
     TObjectPool(const TObjectPool&) = delete;
     TObjectPool& operator=(const TObjectPool&) = delete;
@@ -75885,22 +77840,23 @@ public:
      * @return 構築したオブジェクトの世代付きハンドル。
      */
     template<class... Args>
-    Handle Create(Args&&... args) noexcept {
+    Handle Create(Args&&... args) noexcept
+    {
         u32 slot;
         if (m_Free.Size() > 0) {
             slot = m_Free[m_Free.Size() - 1];
             m_Free.PopBack();
         } else {
             slot = static_cast<u32>(m_SlotCount);
-            EnsureChunkFor(slot);
+            if (!EnsureChunkFor(slot)) return {};
             ++m_SlotCount;
         }
         Slot& s = SlotRef(slot);
-        s.alive   = true;
+        s.alive = true;
         s.liveIdx = static_cast<u32>(m_Live.Size());
         m_Live.PushBack(slot);
         ::new (static_cast<void*>(s.storage)) T(Forward<Args>(args)...);
-        return Handle{ slot, s.gen };
+        return Handle{slot, s.gen};
     }
 
     /**
@@ -75911,35 +77867,44 @@ public:
      * @param h 破棄するオブジェクトのハンドル。
      * @return 破棄したら true、無効ハンドルなら false。
      */
-    bool Destroy(Handle h) noexcept {
+    bool Destroy(Handle h) noexcept
+    {
         Slot* s = Resolve(h);
         if (s == nullptr) return false;
         reinterpret_cast<T*>(s->storage)->~T();
         s->alive = false;
-        ++s->gen;                                   // 世代を進める → 既存ハンドルは無効に
+        s->gen = AdvanceGeneration(s->gen);         // 世代を進める → 既存ハンドルは無効に
         const u32 last = m_Live[m_Live.Size() - 1]; // 密な生存リストから swap-remove
-        m_Live[s->liveIdx]      = last;
-        SlotRef(last).liveIdx   = s->liveIdx;
+        m_Live[s->liveIdx] = last;
+        SlotRef(last).liveIdx = s->liveIdx;
         m_Live.PopBack();
         m_Free.PushBack(h.index);
         return true;
     }
 
     /** ハンドルが今も生きていれば対象ポインタを、死んでいれば nullptr を返す。 */
-    T* Get(Handle h) noexcept {
+    T* Get(Handle h) noexcept
+    {
         Slot* s = Resolve(h);
         return (s != nullptr) ? reinterpret_cast<T*>(s->storage) : nullptr;
     }
-    const T* Get(Handle h) const noexcept {
+    const T* Get(Handle h) const noexcept
+    {
         const Slot* s = Resolve(h);
         return (s != nullptr) ? reinterpret_cast<const T*>(s->storage) : nullptr;
     }
 
     /** ハンドルが生存しているか。 */
-    bool IsAlive(Handle h) const noexcept { return Resolve(h) != nullptr; }
+    bool IsAlive(Handle h) const noexcept
+    {
+        return Resolve(h) != nullptr;
+    }
 
     /** 生存オブジェクト数。 */
-    u32 Count() const noexcept { return static_cast<u32>(m_Live.Size()); }
+    u32 Count() const noexcept
+    {
+        return static_cast<u32>(m_Live.Size());
+    }
 
     /**
      * 生存オブジェクトを密に反復する (キャッシュ効率の良い順)。fn(T&, Handle)。
@@ -75947,66 +77912,126 @@ public:
      * @details 反復中に Create/Destroy しないこと (生存リストを変更するため)。
      */
     template<class Fn>
-    void ForEach(Fn&& fn) noexcept {
+    void ForEach(Fn&& fn) noexcept
+    {
         for (usize i = 0; i < m_Live.Size(); ++i) {
             const u32 slot = m_Live[i];
             Slot& s = SlotRef(slot);
-            fn(*reinterpret_cast<T*>(s.storage), Handle{ slot, s.gen });
+            fn(*reinterpret_cast<T*>(s.storage), Handle{slot, s.gen});
         }
     }
 
     /** 全生存オブジェクトを破棄する (チャンクは保持。再利用可能)。 */
-    void Clear() noexcept {
+    void Clear() noexcept
+    {
         for (usize i = 0; i < m_Live.Size(); ++i) {
             const u32 slot = m_Live[i];
             Slot& s = SlotRef(slot);
             reinterpret_cast<T*>(s.storage)->~T();
             s.alive = false;
-            ++s.gen;
+            s.gen = AdvanceGeneration(s.gen);
             m_Free.PushBack(slot);
         }
         m_Live.Clear();
     }
 
+    /**
+     * 全オブジェクトとチャンク、管理配列の容量を確保元へ返す。
+     *
+     * @details Clear() と異なりチャンクを再利用しない完全解放。解放前のハンドルは
+     * 世代 seed を進めて無効のままにする。
+     */
+    void ReleaseStorage() noexcept
+    {
+        // 全スロットの現在世代より先を次チャンクの初期世代にする。単純な seed + 1 では、
+        // 同じスロットが複数回再利用済みのときに過去ハンドルと早期一致し得る。
+        u32 latest_generation = m_GenerationSeed;
+        for (usize slot_index = 0; slot_index < m_SlotCount; ++slot_index) {
+            const u32 generation = SlotRef(static_cast<u32>(slot_index)).gen;
+            if (generation > latest_generation) latest_generation = generation;
+        }
+        m_GenerationSeed = AdvanceGeneration(latest_generation);
+
+        // 完全解放中はフリーリストへ戻さない。Clear() 経由だと破棄処理中に
+        // m_Free が拡張され、不要な再確保や確保失敗を招く可能性がある。
+        for (usize i = 0; i < m_Live.Size(); ++i) {
+            Slot& s = SlotRef(m_Live[i]);
+            reinterpret_cast<T*>(s.storage)->~T();
+            s.alive = false;
+        }
+        m_Live.Clear();
+        FreeChunks();
+        m_Chunks.ReleaseStorage();
+        m_Free.ReleaseStorage();
+        m_Live.ReleaseStorage();
+        m_SlotCount = 0;
+    }
+
 private:
     struct Slot {
-        u32  gen     = 0;
-        u32  liveIdx = 0;
-        bool alive   = false;
+        u32 gen = 0;
+        u32 liveIdx = 0;
+        bool alive = false;
         alignas(T) unsigned char storage[sizeof(T)];
     };
-    struct Chunk { Slot slots[kChunkSize]; };
+    struct Chunk {
+        Slot slots[kChunkSize];
+    };
 
-    void EnsureChunkFor(u32 slot) noexcept {
+    /** 世代を 1 つ進め、wrap 後は初期世代との即時一致を避けるため 0 を飛ばす。 */
+    static u32 AdvanceGeneration(u32 generation) noexcept
+    {
+        ++generation;
+        if (generation == 0u) ++generation;
+        return generation;
+    }
+
+    bool EnsureChunkFor(u32 slot) noexcept
+    {
         const u32 chunk = slot / kChunkSize;
         while (static_cast<u32>(m_Chunks.Size()) <= chunk) {
-            Chunk* c = New<Chunk>(*m_Alloc);   // チャンクはアドレス固定 (移動しない)
+            Chunk* c = New<Chunk>(*m_Alloc); // チャンクはアドレス固定 (移動しない)
+            if (c == nullptr) return false;
+            for (u32 i = 0; i < kChunkSize; ++i)
+                c->slots[i].gen = m_GenerationSeed;
             m_Chunks.PushBack(c);
         }
+        return true;
     }
-    Slot&       SlotRef(u32 slot)       noexcept { return m_Chunks[slot / kChunkSize]->slots[slot % kChunkSize]; }
-    const Slot& SlotRef(u32 slot) const noexcept { return m_Chunks[slot / kChunkSize]->slots[slot % kChunkSize]; }
+    Slot& SlotRef(u32 slot) noexcept
+    {
+        return m_Chunks[slot / kChunkSize]->slots[slot % kChunkSize];
+    }
+    const Slot& SlotRef(u32 slot) const noexcept
+    {
+        return m_Chunks[slot / kChunkSize]->slots[slot % kChunkSize];
+    }
 
-    Slot* Resolve(Handle h) noexcept {
+    Slot* Resolve(Handle h) noexcept
+    {
         if (h.index >= m_SlotCount) return nullptr;
         Slot& s = SlotRef(h.index);
         return (s.alive && s.gen == h.gen) ? &s : nullptr;
     }
-    const Slot* Resolve(Handle h) const noexcept {
+    const Slot* Resolve(Handle h) const noexcept
+    {
         if (h.index >= m_SlotCount) return nullptr;
         const Slot& s = SlotRef(h.index);
         return (s.alive && s.gen == h.gen) ? &s : nullptr;
     }
-    void FreeChunks() noexcept {
-        for (usize i = 0; i < m_Chunks.Size(); ++i) Delete(*m_Alloc, m_Chunks[i]);
+    void FreeChunks() noexcept
+    {
+        for (usize i = 0; i < m_Chunks.Size(); ++i)
+            Delete(*m_Alloc, m_Chunks[i]);
         m_Chunks.Clear();
     }
 
-    FAllocator*    m_Alloc;
-    TArray<Chunk*> m_Chunks;     /**< チャンク (各 kChunkSize スロット)。ポインタは固定。 */
-    TArray<u32>    m_Free;       /**< 再利用可能なスロット番号。 */
-    TArray<u32>    m_Live;       /**< 生存スロット番号の密な配列 (反復用)。 */
-    usize          m_SlotCount = 0;   /**< これまでに確保したスロット総数。 */
+    FAllocator* m_Alloc;
+    TArray<Chunk*> m_Chunks;  /**< チャンク (各 kChunkSize スロット)。ポインタは固定。 */
+    TArray<u32> m_Free;       /**< 再利用可能なスロット番号。 */
+    TArray<u32> m_Live;       /**< 生存スロット番号の密な配列 (反復用)。 */
+    usize m_SlotCount = 0;    /**< これまでに確保したスロット総数。 */
+    u32 m_GenerationSeed = 0; /**< ReleaseStorage 後の旧ハンドル復活を防ぐ初期世代。 */
 };
 
 /**
@@ -76017,18 +78042,35 @@ private:
  */
 template<class T>
 struct TPoolRef {
-    TObjectPool<T>* pool   = nullptr;
-    FObjectHandle   handle {};
+    TObjectPool<T>* pool = nullptr;
+    FObjectHandle handle{};
 
     TPoolRef() noexcept = default;
-    TPoolRef(TObjectPool<T>& p, FObjectHandle h) noexcept : pool(&p), handle(h) {}
+    TPoolRef(TObjectPool<T>& p, FObjectHandle h) noexcept : pool(&p), handle(h)
+    {
+    }
 
     /** 生きていれば対象ポインタ、死んでいれば nullptr。 */
-    T*   Get()        const noexcept { return pool ? pool->Get(handle) : nullptr; }
-    T*   operator->() const noexcept { return Get(); }
-    T&   operator*()  const noexcept { return *Get(); }
-    bool IsValid()    const noexcept { return Get() != nullptr; }
-    explicit operator bool() const noexcept { return IsValid(); }
+    T* Get() const noexcept
+    {
+        return pool ? pool->Get(handle) : nullptr;
+    }
+    T* operator->() const noexcept
+    {
+        return Get();
+    }
+    T& operator*() const noexcept
+    {
+        return *Get();
+    }
+    bool IsValid() const noexcept
+    {
+        return Get() != nullptr;
+    }
+    explicit operator bool() const noexcept
+    {
+        return IsValid();
+    }
 };
 
 } // namespace acs
@@ -76517,11 +78559,10 @@ public:
      * @param block_size 1 ブロックの要求サイズ (内部で切り上げ)。
      * @param block_count ブロック総数。
      * @param alignment 各ブロックのアライメント (既定 kDefaultAlignment)。
-     * @param backing ストレージの確保元 (nullptr なら DefaultAllocator)。
+     * @param backing_allocator ストレージの確保元 (nullptr なら DefaultAllocator)。
      */
-    FPoolAllocator(usize block_size, usize block_count,
-                  usize alignment = kDefaultAlignment,
-                  FAllocator* backing = nullptr) noexcept;
+    FPoolAllocator(usize block_size, usize block_count, usize alignment = kDefaultAlignment,
+                   FAllocator* backing_allocator = nullptr) noexcept;
 
     /** ストレージを backing に返して破棄する。 */
     ~FPoolAllocator() noexcept override;
@@ -76538,40 +78579,57 @@ public:
      * @details size がブロックサイズ超、alignment がプールの整列超、プール枯渇時は nullptr。返す領域は常に 1 ブロック分。
      * @param size 要求サイズ (m_BlockSize 以下であること)。
      * @param alignment 要求アライメント (プールの整列以下であること)。
-     * @param loc 診断用の呼び出し位置 (本実装では未使用)。
+     * @param location 診断用の呼び出し位置 (本実装では未使用)。
      * @return 確保した 1 ブロック (失敗時 nullptr)。
      */
-    void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override;
+    void* Alloc(usize size, usize alignment, FSourceLoc location) noexcept override;
 
     /**
      * ブロックをフリーリストへ push して返す (Treiber スタックの push)。
      *
      * @details nullptr は no-op。このプール由来でないポインタを渡すと UB (検証は Contains で行う)。
-     * @param ptr このプールが払い出したブロック (nullptr 可)。
+     * @param pointer このプールが払い出したブロック (nullptr 可)。
      */
-    void  Free (void* ptr)                                  noexcept override;
+    void Free(void* pointer) noexcept override;
 
     /**
      * 1 ブロックのサイズを返す (切り上げ後)。
      *
      * @return 切り上げ済みのブロックサイズ (バイト)。
      */
-    u64 BlockSize()      const noexcept { return m_BlockSize; }
+    u64 BlockSize() const noexcept
+    {
+        return m_BlockSize;
+    }
 
     /**
      * ブロック総数を返す。
      *
      * @return プールが保持するブロック数 (確保失敗時 0)。
      */
-    u64 BlockCount()     const noexcept { return m_BlockCount; }
+    u64 BlockCount() const noexcept
+    {
+        return m_BlockCount;
+    }
 
     /**
      * 現在の使用バイト数を返す。
      *
      * @return 生存ブロック数 × ブロックサイズ。
      */
-    u64 BytesAllocated() const noexcept override {
+    u64 BytesAllocated() const noexcept override
+    {
         return m_Live.Load(EMemoryOrder::Acquire) * m_BlockSize;
+    }
+
+    /**
+     * 現在払い出し中のブロック件数を返す。
+     *
+     * @return Free されていないプールブロック数。
+     */
+    u64 AllocationCount() const noexcept override
+    {
+        return m_Live.Load(EMemoryOrder::Acquire);
     }
 
     /**
@@ -76579,18 +78637,22 @@ public:
      *
      * @return 文字列 "TPool"。
      */
-    const char* Name()   const noexcept override { return "TPool"; }
+    const char* Name() const noexcept override
+    {
+        return "TPool";
+    }
 
     /**
-     * ptr がこのプールのストレージ範囲内かを判定する。
+     * pointer がこのプールのストレージ範囲内かを判定する。
      *
      * @details Heap フォールバック等との区別に使う。アライメント (= 実ブロック先頭) までは検証しない。
-     * @param ptr 判定対象のポインタ。
+     * @param pointer 判定対象のポインタ。
      * @return プールのストレージ範囲内なら true。
      */
-    bool Contains(const void* ptr) const noexcept {
-        if (!m_Storage || !ptr) return false;
-        const u8* const p = static_cast<const u8*>(ptr);
+    bool Contains(const void* pointer) const noexcept
+    {
+        if (!m_Storage || !pointer) return false;
+        const u8* const p = static_cast<const u8*>(pointer);
         const u8* const end = m_Storage + m_BlockSize * m_BlockCount;
         return p >= m_Storage && p < end;
     }
@@ -76608,29 +78670,29 @@ private:
         Node* ptr;
 
         /** ABA 検出用の世代タグ。 */
-        u64   tag;
+        u64 tag;
     };
 
     /** ブロック配列の先頭 (backing から 1 回確保、失敗時 nullptr)。 */
-    u8*               m_Storage    = nullptr;
+    u8* m_Storage = nullptr;
 
     /** 切り上げ済みの 1 ブロックサイズ。 */
-    u64               m_BlockSize = 0;
+    u64 m_BlockSize = 0;
 
     /** ブロック総数 (確保失敗時 0)。 */
-    u64               m_BlockCount= 0;
+    u64 m_BlockCount = 0;
 
     /** 各ブロックのアライメント (切り上げ済み)。 */
-    u64               m_Alignment  = 0;
+    u64 m_Alignment = 0;
 
     /** ストレージの確保元アロケータ。 */
-    FAllocator*        m_Backing    = nullptr;
+    FAllocator* m_Backing = nullptr;
 
     /** 現在使用中のブロック数 (統計用)。 */
-    TAtomic<u64>       m_Live {0};
+    TAtomic<u64> m_Live{0};
 
     /** フリーリスト head と ABA タグを 1 ワードにパックしたもの (上位 17bit=タグ、下位 47bit=ポインタ)。 */
-    TAtomic<u64>       m_HeadPacked {0};
+    TAtomic<u64> m_HeadPacked{0};
 };
 
 } // namespace acs
@@ -76966,13 +79028,13 @@ private:
 namespace acs {
 
 /** 論理的な小ページサイズ (16 KiB)。 */
-inline constexpr usize kVmSmallPageSize  = 16 * 1024;
+inline constexpr usize kVmSmallPageSize = 16 * 1024;
 
 /** 論理的な中ページサイズ (128 KiB)。 */
 inline constexpr usize kVmMediumPageSize = 128 * 1024;
 
 /** 論理的なセグメントサイズ (8 MiB)。 */
-inline constexpr usize kVmSegmentSize    = 8 * 1024 * 1024;
+inline constexpr usize kVmSegmentSize = 8 * 1024 * 1024;
 
 /**
  * OS のページサイズを返す。
@@ -76991,25 +79053,29 @@ usize VmAllocGranularity() noexcept;
 /**
  * アドレスが指定アライメントに整列しているかを返す。
  *
- * @param addr 判定するアドレス。
- * @param alignment アライメント (2 のべき乗)。
- * @return 整列していれば true。
+     * @param address 判定するアドレス。
+ * @param alignment アライメント (0 以外の 2 のべき乗)。
+ * @return 整列していれば true。0 または 2 のべき乗でなければ false。
  */
-bool  VmIsAligned(uptr addr, usize alignment) noexcept;
+bool VmIsAligned(uptr address, usize alignment) noexcept;
 
-/** マップ済み領域を 8 バイトに圧縮した記述子 (LRU エントリ用)。 */
+/**
+ * マップ済み領域を 8 バイトに圧縮した互換記述子。
+ *
+ * @warning 表現できるアドレスとページ数に上限があるため、所有権や LRU の内部管理には使用しない。
+ */
 struct mapped_t {
     /** 仮想アドレス (64KiB 整列前提で上位ビットをパック)。 */
     u64 packed_virtual_addr : 44;
 
     /** ページ数。 */
-    u64 page_count          : 16;
+    u64 page_count : 16;
 
     /** スパース管理フラグ。 */
-    u64 sparse              :  1;
+    u64 sparse : 1;
 
     /** その他フラグ (予約)。 */
-    u64 misc                :  3;
+    u64 misc : 3;
 };
 static_assert(sizeof(mapped_t) == 8, "mapped_t must be 8 bytes");
 
@@ -77019,10 +79085,10 @@ struct page_t {
     u64 continuous_page_count : 12;
 
     /** その他フラグ (予約)。 */
-    u64 misc                  :  4;
+    u64 misc : 4;
 
     /** 仮想アドレス (ページ整列前提でパック)。 */
-    u64 packed_virtual_addr   : 48;
+    u64 packed_virtual_addr : 48;
 };
 static_assert(sizeof(page_t) == 8, "page_t must be 8 bytes");
 
@@ -77031,12 +79097,21 @@ static_assert(sizeof(page_t) == 8, "page_t must be 8 bytes");
  *
  * @details
  * Reserve(N) で N バイトの仮想範囲を予約し (物理ページ未割当)、デストラクタ/Release で返す。
- * Commit(offset, size) で必要な部分だけ物理ページを割り当てる。Decommit は実 VirtualFree を
- * すぐ行わず、まず内部 LRU キャッシュ (16 エントリ) に入れ、再 Commit がヒットすればシステム
- * コールを省略する。エビクト時とリリース時に実際に decommit する。move のみ可能 (copy 禁止)。
+ * Commit(offset, size) で必要な部分だけ物理ページを割り当てる。offset と size は OS ページ
+ * サイズの倍数でなければならない。Decommit は実 VirtualFree を
+ * すぐ行わず、まず内部 LRU キャッシュ (16 エントリ、既定の総保持上限 64 MiB) に入れ、
+ * 再 Commit がヒットすればシステムコールを省略する。エビクト、明示 Flush、リリース時に
+ * 実際に decommit する。総保持上限を超える単一範囲はキャッシュせず直ちに OS へ返す。
+ * 既に利用中の範囲への Commit は統計を変えない冪等操作とする。二重/重複 Decommit と
+ * キャッシュ範囲への部分重複操作はエラーにする。
+ * Base() に対する VirtualAlloc/VirtualFree の直接呼び出しは統計を破壊するため禁止する。
+ * move のみ可能 (copy 禁止)。同一インスタンスの並行操作には対応しない。
  */
 class VmReservation {
 public:
+    /** 遅延デコミットキャッシュが既定で保持できる最大バイト数 (64 MiB)。 */
+    static constexpr usize kDefaultMaximumCachedDecommitBytes = 64 * 1024 * 1024;
+
     /** 空の予約として構築する (Base()==nullptr)。 */
     VmReservation() noexcept = default;
 
@@ -77052,168 +79127,293 @@ public:
     /**
      * ムーブ構築する (予約と LRU を奪い、相手を空にする)。
      *
-     * @param o 所有権を奪う元 (奪取後は空)。
+     * @param other 所有権を奪う元 (奪取後は空)。
      */
-    VmReservation(VmReservation&& o) noexcept;
+    VmReservation(VmReservation&& other) noexcept;
 
     /**
      * ムーブ代入する (自身の予約を解放してから奪う)。
      *
-     * @param o 所有権を奪う元 (奪取後は空)。
+     * @param other 所有権を奪う元 (奪取後は空)。
      * @return *this。
      */
-    VmReservation& operator=(VmReservation&& o) noexcept;
+    VmReservation& operator=(VmReservation&& other) noexcept;
 
     /**
      * 仮想範囲を予約する (VirtualAlloc MEM_RESERVE、物理ページ未割当)。
      *
-     * @param capacity_bytes 予約サイズ (内部で予約粒度に切り上げ)。
+     * @details 返される Base() と Capacity() は VirtualAlloc の予約粒度
+     * (Windows では通常 64 KiB) に整列する。切り上げが usize を超える要求は拒否する。
+     * @param capacity_bytes 予約サイズ (1 以上、内部で予約粒度に安全に切り上げ)。
      * @return 予約ハンドルを持つ TResult (失敗時は OS エラー)。
      */
     static TResult<VmReservation> Reserve(usize capacity_bytes) noexcept;
 
-    /** 予約を解放する (LRU を全て実 decommit してから MEM_RELEASE、多重呼び出し安全)。 */
-    void Release() noexcept;
+    /**
+     * 予約を解放する (LRU を全て実 decommit してから MEM_RELEASE、多重呼び出し安全)。
+     *
+     * @details MEM_RELEASE が失敗した場合は所有状態を保持するため、呼び出し側は再試行できる。
+     * @return 成功なら空の TResult、MEM_RELEASE 失敗なら所有状態を保持したエラー。
+     */
+    TResult<void> Release() noexcept;
 
     /**
      * 指定範囲に物理ページを割り当てる (MEM_COMMIT)。
      *
-     * @details LRU ヒット時は VirtualAlloc を省略して再利用する。範囲が予約外ならエラー。
-     * @param offset 予約先頭からのオフセット。
-     * @param size コミットするバイト数。
-     * @return 成功なら空の TResult、範囲外/OS 失敗ならエラー。
+     * @details LRU ヒット時は VirtualAlloc を省略して再利用する。
+     * @param offset 予約先頭からのオフセット (OS ページサイズの倍数)。
+     * @param size コミットするバイト数 (1 ページ以上、OS ページサイズの倍数)。
+     * @return 成功なら空の TResult、不正範囲、キャッシュとの部分重複、OS 失敗ならエラー。
      */
-    TResult<void> Commit  (usize offset, usize size) noexcept;
+    TResult<void> Commit(usize offset, usize size) noexcept;
 
     /**
      * 指定範囲の物理ページを返却する。
      *
-     * @details 実 VirtualFree は行わず LRU に入れる (エビクト時に実 decommit)。範囲が予約外ならエラー。
-     * @param offset 予約先頭からのオフセット。
-     * @param size デコミットするバイト数。
-     * @return 成功なら空の TResult、範囲外ならエラー。
+     * @details 実 VirtualFree は行わず LRU に入れる (エビクト時に実 decommit)。
+     * @param offset 予約先頭からのオフセット (OS ページサイズの倍数)。
+     * @param size デコミットするバイト数 (1 ページ以上、OS ページサイズの倍数)。
+     * @return 成功なら空の TResult、不正範囲、重複、OS 失敗ならエラー。
      */
     TResult<void> Decommit(usize offset, usize size) noexcept;
+
+    /**
+     * 遅延デコミットキャッシュが保持できる最大バイト数を変更する。
+     *
+     * @details 現在の保持量が新しい上限を超える場合は、LRU 末尾から直ちに実デコミットする。
+     * 0 を指定すると以降の Decommit はキャッシュせず、物理ページを直ちに OS へ返す。
+     * @param maximum_cached_decommit_bytes キャッシュ全体の最大保持バイト数。
+     * @return 成功なら空の TResult、既存範囲の VirtualFree に失敗した場合はエラー。
+     */
+    TResult<void> SetMaximumCachedDecommitBytes(usize maximum_cached_decommit_bytes) noexcept;
+
+    /**
+     * キャッシュ末尾から実デコミットし、保持量を指定値以下へ縮小する。
+     *
+     * @param target_cached_bytes 許容するキャッシュ保持量。エントリ単位で縮小するため厳密一致は保証しない。
+     * @return 成功なら空の TResult、VirtualFree 失敗ならエラー。
+     */
+    TResult<void> TrimDecommitCache(usize target_cached_bytes) noexcept;
+
+    /**
+     * キャッシュ中の全範囲を直ちに実デコミットする。
+     *
+     * @return 成功なら空の TResult、VirtualFree 失敗ならエラー。
+     */
+    TResult<void> FlushDecommitCache() noexcept;
 
     /**
      * 予約の先頭アドレスを返す。
      *
      * @return 予約先頭 (未予約なら nullptr)。
      */
-    void* Base()      const noexcept { return m_Base; }
+    void* Base() const noexcept
+    {
+        return m_Base;
+    }
 
     /**
      * 予約の総容量を返す。
      *
      * @return 予約バイト数。
      */
-    usize Capacity()  const noexcept { return m_Capacity; }
+    usize Capacity() const noexcept
+    {
+        return m_Capacity;
+    }
 
     /**
-     * 現在コミット済みのバイト数を返す。
+     * 現在利用中のコミット済みバイト数を返す。
      *
-     * @return コミット済みバイト数。
+     * @details 既存 API 互換のため名称を維持する。遅延デコミットキャッシュ分は含まない。
+     * @return 利用中のコミット済みバイト数。
      */
-    usize Committed() const noexcept { return m_Committed; }
+    usize Committed() const noexcept
+    {
+        return m_ActiveCommittedBytes;
+    }
+
+    /** 現在利用中のコミット済みバイト数を返す。 */
+    usize ActiveCommittedBytes() const noexcept
+    {
+        return m_ActiveCommittedBytes;
+    }
+
+    /** 遅延デコミットキャッシュが物理的に保持しているバイト数を返す。 */
+    usize CachedCommittedBytes() const noexcept
+    {
+        return m_CachedCommittedBytes;
+    }
+
+    /** OS 上で実際にコミット状態にある合計バイト数を返す。 */
+    usize ActualCommittedBytes() const noexcept
+    {
+        return m_ActiveCommittedBytes + m_CachedCommittedBytes;
+    }
+
+    /** 遅延デコミットキャッシュ全体の最大保持バイト数を返す。 */
+    usize MaximumCachedDecommitBytes() const noexcept
+    {
+        return m_MaximumCachedDecommitBytes;
+    }
+
+    /** 遅延デコミットキャッシュの有効範囲数を返す。 */
+    u32 DecommitCacheEntryCount() const noexcept
+    {
+        return m_DecommitCacheCount;
+    }
+
+    /** 遅延デコミットキャッシュの累積ヒット回数を返す。 */
+    u64 DecommitCacheHitCount() const noexcept
+    {
+        return m_DecommitCacheHits;
+    }
+
+    /** 遅延デコミットキャッシュの累積ミス回数を返す。 */
+    u64 DecommitCacheMissCount() const noexcept
+    {
+        return m_DecommitCacheMisses;
+    }
 
     /**
      * LRU キャッシュのヒット回数を返す (プロファイラ用)。
      *
      * @return これまでの LRU ヒット数。
      */
-    u32   LruHitCount()  const noexcept { return m_LruHits; }
+    u32 LruHitCount() const noexcept
+    {
+        constexpr u64 maximum = static_cast<u64>(~static_cast<u32>(0));
+        return static_cast<u32>(m_DecommitCacheHits > maximum ? maximum : m_DecommitCacheHits);
+    }
 
     /**
      * LRU キャッシュのミス回数を返す (プロファイラ用)。
      *
      * @return これまでの LRU ミス数。
      */
-    u32   LruMissCount() const noexcept { return m_LruMisses; }
+    u32 LruMissCount() const noexcept
+    {
+        constexpr u64 maximum = static_cast<u64>(~static_cast<u32>(0));
+        return static_cast<u32>(m_DecommitCacheMisses > maximum ? maximum : m_DecommitCacheMisses);
+    }
 
 private:
     /** LRU キャッシュのエントリ数。 */
-    static constexpr u32 kLruEntries = 16;
+    static constexpr u32 kDecommitCacheCapacity = 16;
+
+    /** 圧縮せず完全な範囲を保持し、アドレスやページ数の切り捨てを防ぐ。 */
+    struct DecommitCacheEntry {
+        usize offset = 0;
+        usize size = 0;
+    };
 
     /**
      * デコミット範囲を LRU 先頭に挿入する (満杯なら末尾を実 decommit して空ける)。
      *
      * @param offset 予約先頭からのオフセット。
-     * @param page_count ページ数。
+     * @param size 範囲のバイト数。
+     * @return 成功なら空の TResult、エビクトの VirtualFree 失敗ならエラー。
      */
-    void  LruInsert(u64 offset, u32 page_count) noexcept;
+    TResult<void> InsertDecommitCache(usize offset, usize size) noexcept;
 
     /**
      * LRU から一致エントリを取り出す (再 Commit のヒット判定)。
      *
      * @param offset 予約先頭からのオフセット。
-     * @param page_count ページ数。
+     * @param size 範囲のバイト数。
      * @return 一致して取り出せたら true (ヒット)、なければ false (ミス)。
      */
-    bool  LruTake(u64 offset, u32 page_count) noexcept;
+    bool TakeDecommitCache(usize offset, usize size) noexcept;
 
-    /** LRU 内の全エントリを実 decommit して空にする。 */
-    void  LruEvictAll() noexcept;
+    /** 指定範囲がキャッシュ中の範囲と一部でも重なるかを返す。 */
+    bool OverlapsDecommitCache(usize offset, usize size) const noexcept;
+
+    /** 指定したキャッシュエントリを実デコミットし、配列から除去する。 */
+    TResult<void> EvictDecommitCacheEntry(u32 index) noexcept;
+
+    /** 指定したキャッシュエントリを OS 操作なしで配列から除去する。 */
+    void RemoveDecommitCacheEntry(u32 index) noexcept;
+
+    /** 全メンバを未予約状態へ戻す。 */
+    void ResetState() noexcept;
 
     /** 予約の先頭アドレス。 */
-    void*       m_Base       = nullptr;
+    void* m_Base = nullptr;
 
     /** 予約の総容量。 */
-    usize       m_Capacity   = 0;
+    usize m_Capacity = 0;
 
     /** コミット済みバイト数。 */
-    usize       m_Committed  = 0;
+    usize m_ActiveCommittedBytes = 0;
+
+    /** 遅延デコミットキャッシュが物理的に保持しているバイト数。 */
+    usize m_CachedCommittedBytes = 0;
+
+    /** 遅延デコミットキャッシュ全体の最大保持バイト数。 */
+    usize m_MaximumCachedDecommitBytes = kDefaultMaximumCachedDecommitBytes;
 
     /** デコミット待ちの LRU キャッシュ (再 Commit でヒットすれば再利用)。 */
-    mapped_t    m_Lru[kLruEntries] {};
+    DecommitCacheEntry m_DecommitCache[kDecommitCacheCapacity]{};
 
     /** LRU の有効エントリ数。 */
-    u32         m_LruCount = 0;
+    u32 m_DecommitCacheCount = 0;
 
     /** LRU ヒット数 (統計)。 */
-    u32         m_LruHits = 0;
+    u64 m_DecommitCacheHits = 0;
 
     /** LRU ミス数 (統計)。 */
-    u32         m_LruMisses = 0;
+    u64 m_DecommitCacheMisses = 0;
 };
 
 /**
  * Non-Temporal ストアで領域をゼロクリアする (L1/L2 を汚染せず DDR へ直書き)。
  *
- * @details 32B 整列かつ 256B 倍数ならアンロールした _mm256_stream_si256 版を使い、それ以外や端数は memset にフォールバックする。
- * @param dst ゼロクリア先。
+ * @details x64 では CPU と OS の AVX 対応を実行時に確認し、32B 整列かつ 256B 以上なら
+ * アンロールした _mm256_stream_si256 版を使う。端数、未整列、AVX 非対応 CPU、ARM64 は
+ * memset にフォールバックする。
+ * @param destination ゼロクリア先。
  * @param size バイト数。
  */
-void VmZeroFastNT(void* dst, usize size) noexcept;
+void VmZeroFastNT(void* destination, usize size) noexcept;
 
 } // namespace acs
 
 namespace acs {
 
+class FShardedTlsfAllocator;
+
 namespace tlsf {
 
 /** 第 1 レベル (FL) インデックスの最大ビット数 (= 最大単一ブロック 4GiB に対応)。 */
-constexpr int FL_INDEX_MAX     = 32;
+constexpr int FL_INDEX_MAX = 32;
 
 /** 第 2 レベル (SL) の細分割を表す log2 (= 各 FL を 32 サブバケットに分ける)。 */
-constexpr int SL_INDEX_LOG2    = 5;
+constexpr int SL_INDEX_LOG2 = 5;
 
 /** 第 2 レベルのサブバケット数 (2^SL_INDEX_LOG2)。 */
-constexpr int SL_INDEX_COUNT   = 1 << SL_INDEX_LOG2;
+constexpr int SL_INDEX_COUNT = 1 << SL_INDEX_LOG2;
 
 /** 線形領域と対数領域の境界となる FL インデックスのシフト量。 */
-constexpr int FL_INDEX_SHIFT   = SL_INDEX_LOG2 + 2;
+constexpr int FL_INDEX_SHIFT = SL_INDEX_LOG2 + 2;
 
 /** 第 1 レベルのバケット数 (m_Blocks / m_SlBitmap の第 1 次元サイズ)。 */
-constexpr int FL_INDEX_COUNT   = FL_INDEX_MAX - FL_INDEX_SHIFT + 1;
+constexpr int FL_INDEX_COUNT = FL_INDEX_MAX - FL_INDEX_SHIFT + 1;
 
 /** 小ブロック領域 (線形割り当て) と対数割り当て領域の境界サイズ。 */
 constexpr int SMALL_BLOCK_SIZE = 1 << FL_INDEX_SHIFT;
 
 /** payload の保証アライメント (バイト)。 */
-constexpr int ALIGN_SIZE       = 16;
+constexpr int ALIGN_SIZE = 16;
 
 /** フリーポインタ 2 本を収容できる最小ブロックサイズ (バイト)。 */
-constexpr int MIN_BLOCK_SIZE   = 32;
+constexpr int MIN_BLOCK_SIZE = 32;
+
+/** FL/SL 表現で保持できる最大ブロックサイズ。下位はヘッダ連鎖の整列量を空ける。 */
+constexpr usize MAXIMUM_BLOCK_SIZE = static_cast<usize>((u64(1) << FL_INDEX_MAX) - sizeof(usize));
+
+/** MappingSearch が次の SL 境界へ切り上げても FL 配列内に収まる最大探索サイズ。 */
+constexpr usize MAXIMUM_SEARCHABLE_BLOCK_SIZE = static_cast<usize>((u64(1) << FL_INDEX_MAX) -
+                                                                   (u64(1) << (FL_INDEX_MAX - 1 - SL_INDEX_LOG2)));
 
 /** TLSF のブロックヘッダ (フリー時のみ next_free/prev_free が payload 領域とオーバーレイする)。 */
 struct FBlockHeader {
@@ -77221,7 +79421,7 @@ struct FBlockHeader {
     FBlockHeader* prev_phys_block;
 
     /** 上位ビット=ブロックサイズ、bit0=this_free、bit1=prev_free のパック値。 */
-    usize        size_and_flags;
+    usize size_and_flags;
 
     /** 同一バケットの次のフリーブロック (フリー時のみ有効)。 */
     FBlockHeader* next_free;
@@ -77247,7 +79447,7 @@ public:
     /** 未初期化状態で構築する (使用前に Init/InitWithReservation を呼ぶこと)。 */
     FTlsfAllocator() noexcept = default;
 
-    /** 破棄する (予約を所有する場合の解放は Reset で行う)。 */
+    /** 破棄する。所有する VM 予約は Reset とメンバ破棄の二段階で解放を試みる。 */
     ~FTlsfAllocator() noexcept override;
 
     /** コピー禁止 (ヒープ状態を単独所有するため)。 */
@@ -77267,17 +79467,16 @@ public:
     TResult<void> Init(void* pool_base, usize pool_size) noexcept;
 
     /**
-     * VM 予約を所有しつつ、その先頭 commit_initial バイトをプールとして初期化する。
+     * VM 予約を所有しつつ、その先頭 initial_commit_bytes バイトをプールとして初期化する。
      *
      * @details
      * 予約の所有権を奪い、OOM 時の auto-grow を有効化する。以後の OOM では予約末尾まで
      * 段階的に commit + AddPool して拡張する。
      * @param reservation 所有権を移す VM 予約。
-     * @param commit_initial 初回にコミットしてプール登録するバイト数。
+     * @param initial_commit_bytes 初回にコミットしてプール登録するバイト数。
      * @return 成功なら空の TResult、コミット/初期化失敗ならエラー。
      */
-    TResult<void> InitWithReservation(VmReservation&& reservation,
-                                     usize commit_initial) noexcept;
+    TResult<void> InitWithReservation(VmReservation&& reservation, usize initial_commit_bytes) noexcept;
 
     /**
      * 既存ヒープに追加のプールを登録する。
@@ -77298,58 +79497,77 @@ public:
      * 不可なら nullptr。size==0 や非現実的な size/alignment も nullptr。
      * @param size 確保するバイト数。
      * @param alignment 要求アライメント (16B 未満は 16 に引き上げ、2 のべき乗必須)。
-     * @param loc 診断用の呼び出し位置 (本実装では未使用)。
+     * @param location 診断用の呼び出し位置 (本実装では未使用)。
      * @return 確保した領域 (失敗時 nullptr)。
      */
-    void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override;
+    void* Alloc(usize size, usize alignment, FSourceLoc location) noexcept override;
 
     /**
-     * ptr を解放し、隣接フリーブロックがあれば統合する。
+     * pointer を解放し、隣接フリーブロックがあれば統合する。
      *
      * @details
      * nullptr は no-op。非整列・所属プール範囲外・二重 free・サイズ 0 の破損ブロックは
      * 安全ガードで弾く (Debug は assert、Release は no-op)。
-     * @param ptr このアロケータが払い出した領域 (nullptr 可)。
+     * @param pointer このアロケータが払い出した領域 (nullptr 可)。
      */
-    void  Free (void* ptr)                                  noexcept override;
+    void Free(void* pointer) noexcept override;
 
     /**
-     * ptr を new_size に再確保する (可能なら in-place)。
+     * pointer を new_size に再確保する (可能なら in-place)。
      *
      * @details
-     * 縮小・物理次が十分大きいフリーブロックなら ptr を保ったまま in-place で済ませる。
+     * 縮小・物理次が十分大きいフリーブロックなら pointer を保ったまま in-place で済ませる。
      * over-alignment で境界を満たせない場合や in-place 不能なら移動 (新規確保+コピー+解放)。
      * 不正/解放済みポインタは旧領域に触れず新規確保のみで安全側に倒す。
-     * @param ptr 既存の確保 (nullptr なら新規確保)。
+     * @param pointer 既存の確保 (nullptr なら新規確保)。
      * @param old_size 旧サイズ (移動時のコピー量決定に使う)。
      * @param new_size 新サイズ (0 なら解放)。
      * @param alignment 要求アライメント (16B 未満は 16 に引き上げ)。
-     * @param loc 診断用の呼び出し位置。
+     * @param location 診断用の呼び出し位置。
      * @return 再確保した領域 (失敗時や new_size==0 のとき nullptr)。
      */
-    void* Realloc(void* ptr, usize old_size, usize new_size,
-                  usize alignment, FSourceLoc loc)           noexcept override;
+    void* Realloc(void* pointer, usize old_size, usize new_size, usize alignment,
+                  FSourceLoc location) noexcept override;
 
     /**
      * 現在の使用バイト数を返す。
      *
      * @return 確保中ブロックのサイズ合計 (ヘッダ込みのブロックサイズ基準)。
      */
-    u64 BytesAllocated() const noexcept override { return m_BytesUsed; }
+    u64 BytesAllocated() const noexcept override
+    {
+        return m_BytesUsed;
+    }
+
+    /**
+     * 現在生存している確保の件数を返す。
+     *
+     * @return Free されていない使用中ブロックの件数。
+     */
+    u64 AllocationCount() const noexcept override
+    {
+        return m_AllocationCount;
+    }
 
     /**
      * 過去ピークの使用バイト数を返す。
      *
      * @return これまでの最大使用バイト数。
      */
-    u64 PeakBytes()      const noexcept override { return m_BytesPeak; }
+    u64 PeakBytes() const noexcept override
+    {
+        return m_BytesPeak;
+    }
 
     /**
      * 識別名を返す。
      *
      * @return 文字列 "TLSF"。
      */
-    const char* Name()   const noexcept override { return "TLSF"; }
+    const char* Name() const noexcept override
+    {
+        return "TLSF";
+    }
 
     /** GetStats が返す統計値。 */
     struct Stats {
@@ -77362,7 +79580,7 @@ public:
         /** フリーブロック数 (現状未集計、0)。 */
         u64 free_blocks;
 
-        /** 使用中ブロック数 (現状未集計、0)。 */
+        /** 使用中ブロック数。 */
         u64 used_blocks;
 
         /** 最大フリーブロックのサイズ (現状未集計、0)。 */
@@ -77372,7 +79590,7 @@ public:
     /**
      * 統計のスナップショットを返す。
      *
-     * @details bytes_used / bytes_peak のみ実値。ブロック数系は現状未集計で 0。
+     * @details used_blocks は現在生存している確保の件数。free_blocks と largest_free_block は現状未集計で 0。
      * @return 統計値の Stats。
      */
     Stats GetStats() const noexcept;
@@ -77388,24 +79606,25 @@ public:
     bool ValidateHeap() const noexcept;
 
     /**
-     * ptr がこのアロケータの管理範囲に属するかを返す。
+     * pointer がこのアロケータの管理範囲に属するかを返す。
      *
      * @details
      * シャード化アロケータが Free 時に所有シャードを特定するのに使う。予約所有時は予約レンジで
      * O(1) 判定、それ以外 (HeapAlloc プール等) は登録プールスパンで判定する。
-     * @param p 判定対象のポインタ。
+     * @param pointer 判定対象のポインタ。
      * @return 管理範囲内なら true。
      */
-    bool ContainsPtr(const void* p) const noexcept;
+    bool ContainsPtr(const void* pointer) const noexcept;
 
     /**
      * アロケータを未初期化状態へ戻す。
      *
      * @details
-     * 予約を所有していれば解放する。再 Init を可能にする
+     * 予約を所有していれば解放する。解放失敗時は所有状態を保持する。再 Init を可能にする
      * (FShardedTlsfAllocator の Shutdown→再 Init や FMemorySystem の再初期化で使う)。
+     * @return 成功なら空の TResult、VM 予約の解放失敗なら状態を保持したエラー。
      */
-    void Reset() noexcept;
+    TResult<void> Reset() noexcept;
 
     /**
      * payload ポインタからブロックサイズをロック無しで読む静的ヘルパ。
@@ -77414,44 +79633,66 @@ public:
      * size_and_flags は payload の手前 sizeof(usize) に在り確保中は不変なので、ロック無しで
      * 安全に読める。thread-cache のサイズクラス判定に使う。このアロケータが払い出した
      * ポインタにのみ有効。
-     * @param ptr このアロケータが払い出した payload ポインタ。
-     * @return ブロックサイズ (下位 2bit のフラグを除いた値)。
+     * @param pointer このアロケータが払い出した payload ポインタ。
+     * @return ブロックサイズ (下位 3bit の内部フラグを除いた値)。
      */
-    static usize PayloadBlockSize(const void* ptr) noexcept {
-        const usize saf = *reinterpret_cast<const usize*>(
-            static_cast<const u8*>(ptr) - sizeof(usize));
-        return saf & ~usize(3);   // 下位 2bit (free/prev_free フラグ) を落とす
+    static usize PayloadBlockSize(const void* pointer) noexcept
+    {
+        const volatile usize* const state = reinterpret_cast<const volatile usize*>(static_cast<const u8*>(pointer) -
+                                                                                    sizeof(usize));
+        return atomic_detail::LoadAcquire(state) & ~usize(7);
     }
 
 private:
+    /** シャード化ラッパーだけに thread-local キャッシュ状態の遷移を許可する。 */
+    friend class FShardedTlsfAllocator;
+
+    /** 使用中ブロックを thread-local キャッシュ保管中へ原子的に遷移させる。 */
+    bool TryMarkThreadCacheBlock(void* pointer) noexcept;
+
+    /** thread-local キャッシュ保管中ブロックを使用中へ原子的に戻す。 */
+    bool TryRestoreThreadCacheBlock(void* pointer) noexcept;
+
+    /** ポインタが公開 API の呼び出し元に払い出し中の有効ブロックかを返す。 */
+    bool IsClientOwnedBlock(const void* pointer) const noexcept;
+
+    /** ガードを通過して実際に解放できた場合だけ true を返す内部解放経路。 */
+    bool TryFree(void* pointer) noexcept;
+
+    /** Init 成功後から Reset 成功まで true。所有中の再初期化を拒否する。 */
+    bool m_Initialized = false;
+
     /** 第 1 レベルビットマップ (どの FL バケットが非空か)。 */
-    u32              m_FlBitmap = 0;
+    u32 m_FlBitmap = 0;
 
     /** 第 2 レベルビットマップ (各 FL について、どの SL サブバケットが非空か)。 */
-    u32              m_SlBitmap[tlsf::FL_INDEX_COUNT] = {};
+    u32 m_SlBitmap[tlsf::FL_INDEX_COUNT] = {};
 
     /** (FL, SL) ごとのフリーリスト先頭。 */
     tlsf::FBlockHeader* m_Blocks[tlsf::FL_INDEX_COUNT][tlsf::SL_INDEX_COUNT] = {};
 
     /** リスト末端を表す番兵ブロック (自己循環)。 */
-    tlsf::FBlockHeader  m_NullBlock {};
+    tlsf::FBlockHeader m_NullBlock{};
 
     /** 所有する VM 予約 (InitWithReservation 時のみ)。 */
-    VmReservation    m_Reservation;
+    VmReservation m_Reservation;
 
     /** m_Reservation の所有権を持つか (true なら Reset で解放する)。 */
-    bool             m_bOwnsReservation = false;
+    bool m_bOwnsReservation = false;
 
     /** 予約のうちコミット済みでプール登録された総バイト数 (= 次に commit する offset、auto-grow 用)。 */
-    usize            m_CommittedBytes = 0;
+    usize m_CommittedBytes = 0;
 
     /** 現在の使用バイト数。 */
-    u64              m_BytesUsed = 0;
+    u64 m_BytesUsed = 0;
 
     /** 過去ピークの使用バイト数。 */
-    u64              m_BytesPeak = 0;
+    u64 m_BytesPeak = 0;
 
-    /** 追跡できる登録プールの上限数 (超えると範囲検証を諦める)。 */
+    /** 現在生存している確保の件数。 */
+    u64 m_AllocationCount = 0;
+
+    /** 追跡できる登録プールの上限数 (超過する AddPool は拒否する)。 */
     static constexpr int kMaxTrackedPools = 64;
 
     /** 登録プール 1 つの範囲 [lo, hi) (= pool_base .. pool_base+pool_size)。 */
@@ -77461,25 +79702,40 @@ private:
 
         /** 範囲の上端 (pool_base + pool_size、排他)。 */
         uptr hi;
+
+        /** 正規 payload 先頭を O(1) で照合する外部ビットマップ。 */
+        u8* allocation_start_bitmap;
+
+        /** allocation_start_bitmap のバイト数。 */
+        usize allocation_start_bitmap_bytes;
     };
 
     /** 登録済みプールの範囲配列 (Free 時の所属検証用)。 */
-    PoolSpan         m_PoolSpans[kMaxTrackedPools] = {};
+    PoolSpan m_PoolSpans[kMaxTrackedPools] = {};
 
     /** 記録済みプール範囲の数。 */
-    int              m_PoolSpanCount   = 0;
-
-    /** プール数が上限を超え範囲追跡を諦めたか (true なら範囲検証を無効化)。 */
-    bool             m_PoolTrackOverflow = false;
+    int m_PoolSpanCount = 0;
 
     /**
-     * ptr がいずれかの登録プール範囲内かを返す。
+     * pointer が登録プール内の正規 payload 先頭かを返す。
      *
-     * @details overflow 時は全プールを追跡できていないので検証不能 → true 扱い (正当な Free を誤って弾かない)。
-     * @param p 判定対象のポインタ。
-     * @return 範囲内 (または overflow 時) なら true。
+     * @details 範囲だけでなく、前後ブロックの物理リンクとサイズ不変条件も検証する。
+     * @param pointer 判定対象のポインタ。
+     * @return 正規ブロックの payload 先頭なら true。
      */
-    bool OwnsPointer(const void* p) const noexcept;
+    bool OwnsPointer(const void* pointer) const noexcept;
+
+    /** pointer が登録プール内でヘッダを安全に読める payload 候補かを返す。 */
+    bool IsPointerWithinPoolPayloadRange(const void* pointer) const noexcept;
+
+    /** pointer が現在確保中またはキャッシュ保管中の正規 payload 先頭かを返す。 */
+    bool IsAllocationStartTracked(const void* pointer) const noexcept;
+
+    /** 確保した正規 payload 先頭を外部ビットマップへ登録する。 */
+    bool TrackAllocationStart(const void* pointer) noexcept;
+
+    /** 実解放する正規 payload 先頭を外部ビットマップから除去する。 */
+    bool UntrackAllocationStart(const void* pointer) noexcept;
 
     /**
      * OOM 時に予約から commit + AddPool して needed_bytes 以上を収容できるよう拡張する。
@@ -77554,8 +79810,12 @@ private:
 
 namespace acs {
 
+namespace memory_detail {
+struct FShardedTlsfThreadCache;
+}
+
 /**
- * ロック競合を排した N-way シャード化 TLSF アロケータ (mimalloc の per-thread ヒープ相当)。
+ * ロック競合を抑えた N-way シャード化 TLSF アロケータ (mimalloc の per-thread ヒープ相当)。
  *
  * @details
  * 独立した FTlsfAllocator シャード (各々 VM 予約 + 専用ロック) に分散する。確保はスレッドごとに
@@ -77586,16 +79846,21 @@ public:
      *
      * @details
      * total_reserve_bytes をシャード数で割り、粒度整列して各シャードに reserve/N を割り当てる
-     * (最低 1MiB/shard)。commit_initial_bytes も同様に分配する。多重 Init はエラー。
+     * (最低 1MiB/shard)。commit_initial_bytes も同様に分配する。整列加算のオーバーフローと多重 Init は
+     * VM 予約前にエラーとして拒否し、未初期化状態を維持する。
      * @param total_reserve_bytes 全シャード合計の VM 予約サイズ。
      * @param commit_initial_bytes 全シャード合計の初期コミット量。
      * @param shard_count シャード数 (0 なら論理コア数から自動決定、最大 kMaxShards)。
      * @return 成功なら空の TResult、予約/初期化失敗ならエラー (途中まではロールバック)。
      */
-    TResult<void> Init(usize total_reserve_bytes, usize commit_initial_bytes,
-                       u32 shard_count = 0) noexcept;
+    TResult<void> Init(usize total_reserve_bytes, usize commit_initial_bytes, u32 shard_count = 0) noexcept;
 
-    /** 全シャードをロックして VM 予約を解放し、未初期化状態へ戻す (再 Init 可能)。 */
+    /**
+     * 全シャードをロックして VM 予約を解放し、未初期化状態へ戻す。
+     *
+     * @details VM 解放に失敗したシャードは保持し、機械可読ログへ記録する。再 Init の前に
+     * Shutdown を再度呼ぶと解放を再試行する。
+     */
     void Shutdown() noexcept;
 
     /**
@@ -77606,44 +79871,57 @@ public:
      * それ以外は割り当てシャードへ向かい、満杯なら隣のシャードへフォールバックする。全シャード満杯で nullptr。
      * @param size 確保するバイト数。
      * @param alignment 要求アライメント。
-     * @param loc 診断用の呼び出し位置。
+     * @param location 診断用の呼び出し位置。
      * @return 確保した領域 (失敗時 nullptr)。
      */
-    void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override;
+    void* Alloc(usize size, usize alignment, FSourceLoc location) noexcept override;
 
     /**
-     * ptr を解放する。
+     * pointer を解放する。
      *
      * @details
-     * 所有シャードを O(N) の範囲判定で特定してから解放する。thread-cache 有効かつ対象サイズなら
-     * マガジンへ push (満杯時は半分を実シャードへ償却返却)。所有不明ポインタは安全に無視する。
-     * @param ptr このアロケータが払い出した領域 (nullptr 可)。
+     * 所有シャードを O(N) の範囲判定で特定し、そのシャードをロックして正規の確保開始位置と状態を
+     * 検証してから解放する。thread-cache 有効かつ対象サイズならマガジンへ push (満杯時は半分を
+     * 実シャードへ償却返却)。所有不明ポインタは安全に無視する。
+     * @param pointer このアロケータが払い出した領域 (nullptr 可)。
      */
-    void  Free (void* ptr)                                  noexcept override;
+    void Free(void* pointer) noexcept override;
 
     /**
-     * ptr を new_size に再確保する。
+     * pointer を new_size に再確保する。
      *
      * @details
      * まず所有シャード内で in-place / 同シャード移動を試み、不可なら別シャードへ移動する
      * (新規確保 + コピー + 旧解放、ロックは重ねずデッドロック回避)。失敗時は旧領域を保持する。
-     * @param ptr 既存の確保 (nullptr なら新規確保)。
+     * new_size==0 は所有権を検証してから解放し、不正ポインタの場合は pointer 自身を返して未解放を通知する。
+     * @param pointer 既存の確保 (nullptr なら新規確保)。
      * @param old_size 旧サイズ (移動時のコピー量決定に使う)。
      * @param new_size 新サイズ (0 なら解放)。
      * @param alignment 要求アライメント。
-     * @param loc 診断用の呼び出し位置。
-     * @return 再確保した領域 (失敗時や new_size==0 のとき nullptr)。
+     * @param location 診断用の呼び出し位置。
+     * @return 再確保した領域。失敗時は nullptr。new_size==0 は解放成功時 nullptr、不正ポインタなら pointer。
      */
-    void* Realloc(void* ptr, usize old_size, usize new_size,
-                  usize alignment, FSourceLoc loc) noexcept override;
+    void* Realloc(void* pointer, usize old_size, usize new_size, usize alignment,
+                  FSourceLoc location) noexcept override;
 
     /**
      * 全シャードの使用バイト数の合計を返す。
      *
-     * @details ロックを取らない近似値 (統計用)。
+     * @details 各シャードを順番にロックしてデータ競合なく読み取る。
      * @return 全シャード合計の使用バイト数。
      */
     u64 BytesAllocated() const noexcept override;
+
+    /**
+     * 現在クライアントが保持している確保の件数を返す。
+     *
+     * @details thread-local マガジン内の再利用待ちブロックは未解放件数に含めない。
+     * @return Free されていない公開 Alloc の成功件数。
+     */
+    u64 AllocationCount() const noexcept override
+    {
+        return m_AllocationCount.Load(EMemoryOrder::Acquire);
+    }
 
     /**
      * 全シャードのピークバイト数の合計を返す。
@@ -77651,39 +79929,51 @@ public:
      * @details 各シャードのピーク合算であり厳密な「同時ピーク」ではないが、上限の目安として有用。
      * @return 全シャード合計のピークバイト数。
      */
-    u64 PeakBytes()      const noexcept override;
+    u64 PeakBytes() const noexcept override;
 
     /**
      * 識別名を返す。
      *
      * @return 文字列 "ShardedTLSF"。
      */
-    const char* Name()   const noexcept override { return "ShardedTLSF"; }
+    const char* Name() const noexcept override
+    {
+        return "ShardedTLSF";
+    }
 
     /**
      * 現在のシャード数を返す。
      *
      * @return Init で決定したシャード数 (未初期化なら 0)。
      */
-    u32  ShardCount() const noexcept { return m_ShardCount; }
+    u32 ShardCount() const noexcept
+    {
+        return m_ShardCount;
+    }
 
     /**
-     * thread-local マガジン (lock-free hot path) を有効化する。
+     * thread-local マガジンを有効化する。
      *
      * @details
-     * 小サイズの alloc/free がスレッドローカル free-list ヒットで完結し、ロック/アトミックを
-     * 一切踏まなくなる (refill/flush 時のみバッチで内部シャードを叩く)。TLS マガジンは 1 アロケータ
-     * 専有なので、プロセス内で 1 つの FShardedTlsfAllocator にのみ有効化すること (通常は最ホットな
-     * Default セグメント)。
+     * 小サイズ Alloc のキャッシュヒットは lock-free。Free は 1 shard をロックして正規の確保開始位置と
+     * 状態を検証してから、payload 外の固定長ポインタ配列へ格納する。同一スレッドが別の
+     * FShardedTlsfAllocator を使う場合は、切替時に旧マガジンを旧 owner へ返してから新 owner へ
+     * 貼り直す。スレッド終了時も、生存中かつ同一世代の owner へ残存ブロックを返す。
      */
     void EnableThreadCache() noexcept;
+
+    /** 現在のスレッドが保持する小サイズキャッシュを、このアロケータへ返す。 */
+    void FlushCurrentThreadCache() noexcept;
 
     /**
      * thread-local マガジンが有効かを返す。
      *
      * @return 有効なら true。
      */
-    bool ThreadCacheEnabled() const noexcept { return m_CacheEnabled; }
+    bool ThreadCacheEnabled() const noexcept
+    {
+        return m_CacheEnabled;
+    }
 
     /**
      * 現在の世代 (epoch) を返す。
@@ -77691,7 +79981,10 @@ public:
      * @details Init ごとに更新され、マガジンが旧世代 (再 Init で消えた VM) を掴むのを検出するのに使う。
      * @return 現在の epoch (未初期化なら 0)。
      */
-    u64  Epoch() const noexcept { return m_Epoch; }
+    u64 Epoch() const noexcept
+    {
+        return m_Epoch;
+    }
 
     /**
      * 全シャードをそれぞれロックして整合性を検証する (デバッグ/診断用)。
@@ -77701,32 +79994,56 @@ public:
     bool ValidateHeap() noexcept;
 
 private:
+    /** thread-local マガジン実装だけに寿命レジストリへのアクセスを許可する。 */
+    friend struct memory_detail::FShardedTlsfThreadCache;
+
     /** 1 シャード分の TLSF アロケータと専用ロック。 */
     struct Shard {
         /** このシャードの TLSF アロケータ (専用 VM 予約を所有)。 */
         FTlsfAllocator alloc;
 
         /** このシャードへの確保/解放を直列化するロック。 */
-        FMutex         lock;
+        mutable FMutex lock;
     };
 
     /** シャードの固定配列 (動的確保を避ける、未使用分は Init しない)。 */
-    Shard         m_Shards[kMaxShards];
+    Shard m_Shards[kMaxShards];
 
     /** 実際に初期化したシャード数。 */
-    u32           m_ShardCount   = 0;
+    u32 m_ShardCount = 0;
 
     /** Init 済みか。 */
-    bool          m_Inited       = false;
+    bool m_Inited = false;
 
     /** thread-local マガジンを使うか。 */
-    bool          m_CacheEnabled = false;
+    bool m_CacheEnabled = false;
 
     /** 現在の世代 (Init ごとに更新、マガジンの世代検証用)。 */
-    u64           m_Epoch        = 0;
+    u64 m_Epoch = 0;
 
     /** スレッドへシャードを配る round-robin カウンタ。 */
-    TAtomic<u32>  m_NextShard {0};
+    TAtomic<u32> m_NextShard{0};
+
+    /** クライアントが現在保持している確保の件数。内部キャッシュ用ブロックは除外する。 */
+    TAtomic<u64> m_AllocationCount{0};
+
+    /** 生存中アロケータの侵入リストにおける次要素。動的確保を避けるため本体に保持する。 */
+    FShardedTlsfAllocator* m_ThreadCacheRegistryNext = nullptr;
+
+    /** thread-local マガジンの寿命レジストリへ登録済みなら true。 */
+    bool m_ThreadCacheLifetimeRegistered = false;
+
+    /** 現在世代を thread-local マガジンの寿命レジストリへ登録する。 */
+    void RegisterThreadCacheLifetime() noexcept;
+
+    /** 寿命レジストリから外し、以後の遅延返却が VM に触れないようにする。 */
+    void UnregisterThreadCacheLifetime() noexcept;
+
+    /** owner と世代がまだ生存中の場合だけ、指定マガジンの全ブロックを返却する。 */
+    static void ReturnThreadCacheIfLifetimeIsActive(memory_detail::FShardedTlsfThreadCache& cache) noexcept;
+
+    /** 寿命レジストリのロック保持中に、指定マガジンを実シャードへ返却する。 */
+    void ReturnThreadCacheBlocks(memory_detail::FShardedTlsfThreadCache& cache) noexcept;
 
     /**
      * 呼び出しスレッドに割り当てるシャード index を返す。
@@ -77760,114 +80077,10 @@ private:
      * ロックを取る素のシャード解放経路 (マガジンの裏側 / 非キャッシュ経路)。
      *
      * @details 所有シャードを特定してそのシャードのみロックして解放する。
-     * @param ptr 解放する領域 (nullptr 可)。
+     * @param pointer 解放する領域 (nullptr 可)。
+     * @return 実際に解放できた場合は true、不正または重複解放なら false。
      */
-    void  FreeSharded (void* ptr) noexcept;
-};
-
-} // namespace acs
-
-// ===================== memory/SystemAllocator.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS Memory — システムアロケータ（Win32 プロセスヒープ）
-// -----------------------------------------------------------------------------
-// HeapAlloc / HeapFree を使った汎用アロケータ。プロセスヒープは OS が
-// 内部でロックを取って直列化するため、スレッドセーフ（HEAP_NO_SERIALIZE
-// は意図的に未指定）。
-//
-// アライメント:
-//   HeapAlloc 自体は MEMORY_ALLOCATION_ALIGNMENT (x64 で 16B) しか保証しない。
-//   それを超えるアライメントが必要な場合は、内部で「アラインド確保 +
-//   ヘッダで元ポインタを覚える」方式（AlignedAlloc）を使う。
-//
-// 性能注意:
-//   HeapAlloc は数百 ns のオーバーヘッドがある。フレーム内で何千回も呼ぶ
-//   ようなホットパスでは、専用プールやアリーナを別途用意すべき。
-// =============================================================================
-
-
-namespace acs {
-
-/**
- * Win32 プロセスヒープ (HeapAlloc/HeapFree) を使う汎用スレッドセーフアロケータ。
- *
- * @details
- * プロセスヒープは OS が内部でロックを取って直列化するためスレッドセーフ
- * (HEAP_NO_SERIALIZE は意図的に未指定)。HeapAlloc は 16B しか整列を保証しないため、
- * それを超えるアライメント要求は内部で「余裕を持って確保 + ヘッダに元ポインタを退避」する
- * 方式で満たす。確保量・ピークはアトミックに集計する。HeapAlloc は数百 ns のコストがあるため、
- * フレーム内で何千回も呼ぶホットパスでは専用プール/アリーナを使うこと。
- */
-class FSystemAllocator final : public FAllocator {
-public:
-    /** 既定構築する (状態は統計カウンタのみ)。 */
-    FSystemAllocator() noexcept = default;
-
-    /** 破棄する (プロセスヒープ自体は OS 所有なので解放しない)。 */
-    ~FSystemAllocator() noexcept override = default;
-
-    /**
-     * size バイトを alignment 整列で確保する。
-     *
-     * @details 16B 超の alignment はヘッダ退避方式で満たす。size==0 や確保失敗時は nullptr。
-     * @param size 確保するバイト数。
-     * @param alignment 要求アライメント (2 のべき乗)。
-     * @param loc 診断用の呼び出し位置 (本実装では未使用)。
-     * @return 確保した領域 (失敗時 nullptr)。
-     */
-    void* Alloc  (usize size, usize alignment, FSourceLoc loc) noexcept override;
-
-    /**
-     * ptr を解放する。
-     *
-     * @details ヘッダから元ポインタを取り出して HeapFree に渡す。nullptr は no-op。
-     * @param ptr Alloc で得た領域 (nullptr 可)。
-     */
-    void  Free   (void* ptr)                                  noexcept override;
-
-    /**
-     * ptr を new_size に再確保する。
-     *
-     * @details
-     * HeapReAlloc はヘッダ退避方式と相性が悪いため、基底の Alloc+copy+Free 実装に委譲する。
-     * @param ptr 既存の確保 (nullptr なら新規確保)。
-     * @param old_size 旧サイズ。
-     * @param new_size 新サイズ (0 なら解放)。
-     * @param alignment 新領域のアライメント。
-     * @param loc 診断用の呼び出し位置。
-     * @return 新しい確保 (失敗時 nullptr)。
-     */
-    void* Realloc(void* ptr, usize old_size, usize new_size,
-                  usize alignment, FSourceLoc loc)             noexcept override;
-
-    /**
-     * 現在の総割当バイト数を返す。
-     *
-     * @return 生存中の確保の合計バイト数 (ヘッダ・アライメント余裕込みの実ヒープ確保量)。
-     */
-    u64 BytesAllocated() const noexcept override { return m_Bytes.Load(EMemoryOrder::Acquire); }
-
-    /**
-     * 過去のピーク割当バイト数を返す。
-     *
-     * @return これまでの最大割当バイト数。
-     */
-    u64 PeakBytes()      const noexcept override { return m_Peak.Load(EMemoryOrder::Acquire); }
-
-    /**
-     * 識別名を返す。
-     *
-     * @return 文字列 "System"。
-     */
-    const char* Name()   const noexcept override { return "System"; }
-
-private:
-    /** 現在の総割当バイト数 (実ヒープ確保量、アトミック集計)。 */
-    mutable TAtomic<u64> m_Bytes {0};
-
-    /** 過去ピークの割当バイト数 (CAS で更新)。 */
-    mutable TAtomic<u64> m_Peak  {0};
+    bool FreeSharded(void* pointer) noexcept;
 };
 
 } // namespace acs
@@ -80191,6 +82404,18 @@ struct IpAddress {
 
 namespace acs {
 
+/** Network が所有する Winsock 資源の診断スナップショット。 */
+struct NetworkDiagnostics {
+    /** 現在の Init 参照数。 */
+    u32 initialization_reference_count = 0;
+
+    /** 再試行を待っている WSACleanup エラー。0 は保留なし。 */
+    u32 pending_cleanup_error = 0;
+
+    /** プロセス寿命中に観測した資源解放失敗の累積数。 */
+    u64 resource_release_failure_count = 0;
+};
+
 /**
  * ネットワークサブシステムの初期化・終了を司る WSAStartup ラッパ。
  *
@@ -80204,8 +82429,8 @@ public:
      * WinSock を初期化する (多重呼び出し可)。
      *
      * @details
-     * 内部の参照カウントを CAS で進め、カウントが 0 のときだけ WSAStartup を呼ぶ。
-     * 既に初期化済みなら相乗りしてカウントのみ +1 する。
+     * 内部の参照カウントと WSAStartup / WSACleanup を排他制御し、カウントが 0 の
+     * ときだけ WSAStartup を呼ぶ。既に初期化済みなら参照数のみ +1 する。
      * @return 成功なら空の TResult、WSAStartup 失敗ならエラー。
      */
     static TResult<void> Init() noexcept;
@@ -80223,6 +82448,9 @@ public:
      * @return 参照カウントが 1 以上なら true。
      */
     static bool IsInitialized() noexcept;
+
+    /** 参照数・cleanup debt・資源解放失敗数を一貫した時点で取得する。 */
+    static NetworkDiagnostics CaptureDiagnostics() noexcept;
 };
 
 } // namespace acs
@@ -81004,6 +83232,16 @@ public:
     static bool IsGamepadButtonPressed(u32 player_index, EGamepadButton b) noexcept;
 
     /**
+     * 指定プレイヤーのゲームパッドボタンがこのフレームで解放されたかを返す。
+     *
+     * @details 押下中にゲームパッドが切断された場合も、一度だけ解放として扱う。
+     * @param player_index プレイヤー番号 (0..3)。
+     * @param b 対象ボタン。
+     * @return 前フレームは押されていて今フレームで離されたなら true。
+     */
+    static bool IsGamepadButtonReleased(u32 player_index, EGamepadButton b) noexcept;
+
+    /**
      * 指定プレイヤーのゲームパッド軸の値を返す。
      *
      * @details スティックはデッドゾーン処理込みで -1.0〜+1.0、トリガーは 0.0〜1.0 に正規化。
@@ -81090,8 +83328,15 @@ namespace acs {
  */
 class Storage {
 public:
-    /** 空のストアを構築する。 */
-    Storage() noexcept = default;
+    /** DefaultAllocator を確保元として空のストアを構築する。 */
+    Storage() noexcept : Storage(DefaultAllocator())
+    {
+    }
+
+    /** 指定した allocator を全エントリの確保元として空のストアを構築する。 */
+    explicit Storage(FAllocator& allocator) noexcept : m_Entries(allocator), m_Allocator(&allocator)
+    {
+    }
 
     /** ストアを破棄する (エントリは TArray が解放)。 */
     ~Storage() noexcept = default;
@@ -81107,7 +83352,9 @@ public:
      *
      * @param o ムーブ元 (奪われて空になる)。
      */
-    Storage(Storage&& o) noexcept : m_Entries(Move(o.m_Entries)) {}
+    Storage(Storage&& o) noexcept : m_Entries(Move(o.m_Entries)), m_Allocator(o.m_Allocator)
+    {
+    }
 
     /**
      * ムーブ代入する (エントリ配列の所有権を奪う)。
@@ -81116,7 +83363,10 @@ public:
      * @return 自身への参照。
      */
     Storage& operator=(Storage&& o) noexcept {
-        if (this != &o) m_Entries = Move(o.m_Entries);
+        if (this != &o) {
+            m_Entries = Move(o.m_Entries);
+            m_Allocator = o.m_Allocator;
+        }
         return *this;
     }
 
@@ -81167,8 +83417,11 @@ public:
      */
     TResult<void> Save(const char*    path_utf8) noexcept;
 
-    /** 全エントリを削除する (ファイルは触らない)。 */
-    void Clear() noexcept { m_Entries.Clear(); }
+    /** 全エントリと予約容量を解放する (ファイルは触らない)。 */
+    void Clear() noexcept
+    {
+        m_Entries = TArray<Entry>(*m_Allocator);
+    }
 
     /**
      * 文字列値を設定する (既存キーは上書き)。
@@ -81320,6 +83573,9 @@ private:
 
     /** 保持している全エントリ。 */
     TArray<Entry> m_Entries;
+
+    /** エントリ配列と key/value 文字列を確保した allocator。 */
+    FAllocator* m_Allocator = nullptr;
 };
 
 } // namespace acs
@@ -83165,6 +85421,7 @@ namespace acs {
 
 class IRhiTexture;
 class FSpriteBatch;
+class FAllocator;
 
 /**
  * エミッタのパラメータ (粒子の初期分布を決める)。
@@ -83406,6 +85663,9 @@ private:
 
     /** 粒子プールの先頭 (容量ぶん確保、所有権を持つ)。 */
     Particle*    m_Pool         = nullptr;
+
+    /** 粒子プールを確保したアロケータ。既定アロケータ切替後も同じ元へ返す。 */
+    FAllocator* m_Allocator = nullptr;
 
     /** プールの最大容量。 */
     u32          m_Capacity     = 0;
@@ -86811,6 +89071,10 @@ private:
 //   ・全 noexcept、STL/<string> 不使用、TResult でエラー伝搬。
 
 
+namespace acs {
+class FAllocator;
+}
+
 namespace acs::scripting {
 
 /**
@@ -86828,6 +89092,13 @@ class FLuaVm final : public acs::game::IScriptVm {
 public:
     /** 空状態で構築する (lua_State は Init で生成)。 */
     FLuaVm() noexcept;
+
+    /**
+     * 指定 allocator を native function 登録簿に使う空状態で構築する。
+     *
+     * @param allocator native function 登録簿の確保に使う allocator。
+     */
+    explicit FLuaVm(acs::FAllocator& allocator) noexcept;
 
     /** 破棄する (Shutdown を呼んで lua_State を解放してから Impl を delete)。 */
     ~FLuaVm() noexcept override;
@@ -87497,7 +89768,7 @@ using ThreadEntry = void (*)(void* user);
 
 /** スレッド生成オプション。 */
 struct ThreadConfig {
-    /** デバッガ表示用のスレッド名 (nullptr で無名)。 */
+    /** デバッガ表示用のスレッド名 (nullptr で無名、Spawn 時に最大 63 UTF-16 単位をコピー)。 */
     const wchar_t* name        = nullptr;
 
     /** スタックサイズ (バイト、0 = OS デフォルト)。 */

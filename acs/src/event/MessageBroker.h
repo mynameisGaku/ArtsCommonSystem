@@ -121,6 +121,15 @@ public:
     /** 全チャンネルを解放して破棄する。 */
     ~MessageBroker() noexcept;
 
+    /**
+     * 全購読とチャンネルを解放し、空のブローカに戻す。
+     *
+     * @details 実行中の既定アロケータで作られたチャンネルを MemorySystem より先に
+     * 破棄するため、アプリケーション終了処理からも呼ばれる。繰り返し呼んでも安全。
+     * Publish のコールバック内からは呼ばないこと。
+     */
+    void Clear() noexcept;
+
     /** コピー禁止 (チャンネルを所有するため)。 */
     MessageBroker(const MessageBroker&) = delete;
 
@@ -206,6 +215,9 @@ private:
         /** Publish 中のネストレベル (>0 のとき解除を遅延)。 */
         i32          publish_depth = 0;
 
+        /** Clear 前の購読ハンドルを無効化するため、新規 slot へ与える世代。 */
+        u32 generation_seed = 0;
+
         /** publish_depth>0 の間に貯めた解除対象 slot 添字。 */
         TArray<u32>   pending_cancel;
     };
@@ -240,6 +252,9 @@ private:
 
     /** チャンネル配列 (EventTypeId → Channel*、所有権を持つ)。 */
     TArray<Channel*> m_Channels;
+
+    /** Clear のたびに進める、新規チャンネル用の世代。 */
+    u32 m_GenerationSeed = 0;
 };
 
 } // namespace acs

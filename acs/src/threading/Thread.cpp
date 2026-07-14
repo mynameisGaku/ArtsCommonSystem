@@ -11,6 +11,9 @@ namespace acs {
 
 namespace {
 
+/** 起動コンテキスト内へ保持するスレッド名の最大長 (終端を含む)。 */
+constexpr usize kThreadNameCapacity = 64;
+
 /** CreateThread に渡す起動コンテキスト (Trampoline 内で消費・解放される一時ヒープ確保)。 */
 struct StartCtx {
     /** スレッドで実行するユーザー関数。 */
@@ -19,9 +22,21 @@ struct StartCtx {
     /** ユーザー関数に渡す任意データ。 */
     void*       user;
 
-    /** デバッガ表示用のスレッド名 (nullptr 可)。 */
-    const wchar_t* name;
+    /** デバッガ表示用のスレッド名。呼び出し側の寿命に依存しない固定長コピー。 */
+    wchar_t name[kThreadNameCapacity];
 };
+
+void CopyThreadName(wchar_t* destination, const wchar_t* source) noexcept
+{
+    usize i = 0;
+    if (source != nullptr) {
+        while (i + 1 < kThreadNameCapacity && source[i] != L'\0') {
+            destination[i] = source[i];
+            ++i;
+        }
+    }
+    destination[i] = L'\0';
+}
 
 /**
  * 各スレッドが最初に実行するトランポリン関数。
@@ -36,8 +51,7 @@ DWORD WINAPI Trampoline(LPVOID arg) noexcept {
     StartCtx* ctx = static_cast<StartCtx*>(arg);
     const ThreadEntry e = ctx->entry;
     void* const u       = ctx->user;
-    const wchar_t* const name = ctx->name;
-    if (name) ::SetThreadDescription(::GetCurrentThread(), name);
+    if (ctx->name[0] != L'\0') ::SetThreadDescription(::GetCurrentThread(), ctx->name);
     ::HeapFree(::GetProcessHeap(), 0, ctx);  // ctx はもう不要
     e(u);                                     // ユーザー関数本体
     return 0;
@@ -94,7 +108,7 @@ TResult<FThread> FThread::Spawn(ThreadEntry entry, void* user, const ThreadConfi
     if (!ctx) return ACS_ERR(Memory, 1, "FThread::Spawn HeapAlloc failed");
     ctx->entry = entry;
     ctx->user  = user;
-    ctx->name  = cfg.name;
+    CopyThreadName(ctx->name, cfg.name);
 
     DWORD tid = 0;
     HANDLE h = ::CreateThread(nullptr,

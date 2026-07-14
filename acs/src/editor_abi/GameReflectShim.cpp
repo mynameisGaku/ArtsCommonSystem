@@ -18,7 +18,6 @@
 #include "platform/Input.h"                 // acs::Input (この DLL の g_input を FInputMap が poll)
 #include "platform/Event.h"                 // acs::Event (キーイベント合成)
 #include "memory/UniquePtr.h"
-#include "memory/New.h"
 #include "container/Array.h"
 
 using namespace acs;
@@ -97,7 +96,8 @@ struct GamePlayScene {
 
 /** Play シーンを作る (空の root + DLL 所有 services)。戻り値は不透明ハンドル。 */
 GR_API void* acs_game_scene_create() noexcept {
-    auto* s = New<GamePlayScene>(DefaultAllocator());
+    // リフレクション共通の生成ヘルパで確保元を記録し、既定アロケータ切替を跨げるようにする。
+    auto* s = static_cast<GamePlayScene*>(AcsConstruct<GamePlayScene>());
     if (s != nullptr) {
         s->root = MakeUnique<FNode2D>();
         // Default2D(Clock/Tweens/Sequences/Input) + Camera2D + Physics2D。services は DLL 内で生成・所有
@@ -292,5 +292,6 @@ GR_API void acs_game_scene_get_camera(void* scene, float* cx, float* cy, float* 
 /** Play シーンを破棄する (全実コンポーネントも DLL 側で安全に破棄)。 */
 GR_API void acs_game_scene_destroy(void* scene) noexcept {
     auto* s = static_cast<GamePlayScene*>(scene);
-    if (s != nullptr) Delete(DefaultAllocator(), s);   // root の TUniquePtr が tree+components を破棄
+    // AcsConstruct が記録した生成時アロケータへ返す。メンバは先にデストラクタで破棄される。
+    AcsDestruct<GamePlayScene>(s);
 }

@@ -1384,6 +1384,7 @@ void FPbrShader::Shutdown() noexcept {
     m_LightmapTex = nullptr;
     m_SsrFb.Reset();
     m_SsrTex = nullptr;
+    m_ApFb.Reset();
     m_IblBrdfFb.Reset();
     m_IblPrefilterFb.Reset();
     m_IblIrradianceFb.Reset();

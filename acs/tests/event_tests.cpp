@@ -15,6 +15,28 @@ struct TimeoutCtx { int hits = 0; };
 void OnTimeout(void* user) {
     static_cast<TimeoutCtx*>(user)->hits++;
 }
+
+struct ClearFromCallbackContext {
+    FTimerManager* manager = nullptr;
+    int clear_hits = 0;
+    int later_hits = 0;
+    FTimerHandle registration_during_clear{};
+};
+
+void OnLaterTimer(void* user)
+{
+    ++static_cast<ClearFromCallbackContext*>(user)->later_hits;
+}
+
+void OnClearFromCallback(void* user)
+{
+    auto& context = *static_cast<ClearFromCallbackContext*>(user);
+    ++context.clear_hits;
+    context.manager->Clear();
+    context.registration_during_clear = context.manager->SetTimeout(0.0f, &OnLaterTimer, &context);
+    // Clear 保留中の再入 Tick は何も発火せず、最外周 Tick が容量解放を担当する。
+    context.manager->Tick(1.0f);
+}
 } // namespace
 
 ACS_TEST(Event, TimerSetTimeoutFires) {
@@ -59,6 +81,68 @@ ACS_TEST(Event, TimerCancel) {
     EXPECT_EQ(ctx.hits, 0);
 }
 
+ACS_TEST(Event, TimerClearRemovesCallbacksAndAllowsReuse)
+{
+    FTimerManager timers;
+    TimeoutCtx context;
+    const FTimerHandle old_handle = timers.SetTimeout(0.0f, &OnTimeout, &context);
+    EXPECT_TRUE(old_handle.IsValid());
+
+    timers.Clear();
+    timers.Clear();
+    EXPECT_EQ(timers.ActiveCount(), 0u);
+    EXPECT_TRUE(!timers.Cancel(old_handle));
+    timers.Tick(1.0f);
+    EXPECT_EQ(context.hits, 0);
+
+    const FTimerHandle new_handle = timers.SetTimeout(0.0f, &OnTimeout, &context);
+    EXPECT_TRUE(new_handle.IsValid());
+    EXPECT_TRUE(!timers.Cancel(old_handle));
+    timers.Tick(0.0f);
+    EXPECT_EQ(context.hits, 1);
+}
+
+ACS_TEST(Event, TimerClearFromTimeoutCallbackDefersStorageRelease)
+{
+    FTimerManager timers;
+    ClearFromCallbackContext context;
+    context.manager = &timers;
+
+    const FTimerHandle clearing_handle = timers.SetTimeout(0.0f, &OnClearFromCallback, &context);
+    const FTimerHandle later_handle = timers.SetTimeout(0.0f, &OnLaterTimer, &context);
+    EXPECT_TRUE(clearing_handle.IsValid());
+    EXPECT_TRUE(later_handle.IsValid());
+
+    timers.Tick(0.0f);
+    EXPECT_EQ(context.clear_hits, 1);
+    EXPECT_EQ(context.later_hits, 0);
+    EXPECT_TRUE(!context.registration_during_clear.IsValid());
+    EXPECT_EQ(timers.ActiveCount(), 0u);
+    EXPECT_TRUE(!timers.Cancel(clearing_handle));
+    EXPECT_TRUE(!timers.Cancel(later_handle));
+
+    const FTimerHandle after_clear = timers.SetTimeout(0.0f, &OnLaterTimer, &context);
+    EXPECT_TRUE(after_clear.IsValid());
+    EXPECT_TRUE(!timers.Cancel(clearing_handle));
+    timers.Tick(0.0f);
+    EXPECT_EQ(context.later_hits, 1);
+}
+
+ACS_TEST(Event, TimerClearFromIntervalCallbackStopsCatchUp)
+{
+    FTimerManager timers;
+    ClearFromCallbackContext context;
+    context.manager = &timers;
+
+    const FTimerHandle interval = timers.SetInterval(0.01f, &OnClearFromCallback, &context);
+    EXPECT_TRUE(interval.IsValid());
+    timers.Tick(1.0f);
+
+    EXPECT_EQ(context.clear_hits, 1);
+    EXPECT_EQ(timers.ActiveCount(), 0u);
+    EXPECT_TRUE(!timers.Cancel(interval));
+}
+
 // ---- MessageBroker: Subscribe + Publish + Unsubscribe ----------------------
 namespace {
 struct DamageEvent { int amount; };
@@ -97,4 +181,25 @@ ACS_TEST(Event, BrokerMultiSubscribers) {
     EXPECT_EQ(a.total, 7);
     EXPECT_EQ(b.total, 7);
     EXPECT_EQ(c.total, 7);
+}
+
+ACS_TEST(Event, BrokerClearRemovesSubscribersAndAllowsReuse)
+{
+    MessageBroker broker;
+    DamageCtx context;
+    const SubscriptionHandle old_handle = broker.Subscribe<DamageEvent>(&OnDamage, &context);
+    EXPECT_TRUE(old_handle.IsValid());
+
+    broker.Clear();
+    broker.Clear();
+    EXPECT_EQ(broker.SubscriberCount(GetEventTypeId<DamageEvent>()), 0u);
+    EXPECT_TRUE(!broker.Unsubscribe(old_handle));
+    broker.Publish(DamageEvent{1});
+    EXPECT_EQ(context.total, 0);
+
+    const SubscriptionHandle new_handle = broker.Subscribe<DamageEvent>(&OnDamage, &context);
+    EXPECT_TRUE(new_handle.IsValid());
+    EXPECT_TRUE(!broker.Unsubscribe(old_handle));
+    broker.Publish(DamageEvent{2});
+    EXPECT_EQ(context.total, 2);
 }

@@ -68,6 +68,14 @@ public:
     void Destroy(EntityId e) noexcept;
 
     /**
+     * 全エンティティとコンポーネントストレージを解放し、空の World に戻す。
+     *
+     * @details MemorySystem の終了前に、実行中に選ばれた既定アロケータを使う
+     * SparseSet を確実に破棄するためにも使用する。繰り返し呼んでも安全。
+     */
+    void Clear() noexcept;
+
+    /**
      * エンティティが現在も生存しているかを返す (世代チェック)。
      *
      * @param e 判定するエンティティ。
@@ -223,6 +231,9 @@ private:
 
     /** 生存中のエンティティ数。 */
     u32                   m_AliveCount = 0;
+
+    /** Clear 前の EntityId が再生成後に一致しないよう、新規スロットへ与える世代。 */
+    u32 m_GenerationSeed = 0;
 };
 
 } // namespace acs

@@ -98,6 +98,24 @@ public:
     ~THashMap() noexcept { if (m_Buckets) m_Alloc->Free(m_Buckets); }
 
     /**
+     * 全要素と確保済みストレージを解放する。
+     *
+     * @details 値配列とバケット容量を 0 に戻すが、構築時に指定されたアロケータは
+     * 維持する。長寿命オブジェクトを終了後に再利用する場合に、確保元が意図せず
+     * DefaultAllocator へ変わることを防ぐ。
+     */
+    void ReleaseStorage() noexcept
+    {
+        m_Values.ReleaseStorage();
+        if (m_Buckets) {
+            m_Alloc->Free(m_Buckets);
+            m_Buckets = nullptr;
+        }
+        m_BucketCount = 0;
+        m_BucketMask = 0;
+    }
+
+    /**
      * 要素数を返す。
      *
      * @return 格納エントリ数。

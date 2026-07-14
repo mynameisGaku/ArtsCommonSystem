@@ -10,7 +10,9 @@
 #include "gameframework/AssetBundle.h"
 #include "asset/AssetRegistry.h"
 
-#define WIN32_LEAN_AND_MEAN
+#ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 
 namespace acs::game {
@@ -24,32 +26,37 @@ namespace {
  * @param cap out バッファの容量 (wchar_t 数)。
  * @return 変換成功なら true (失敗時は out[0] を 0 にして false)。
  */
-bool WidenPath(const char* utf8, wchar_t* out, int cap) noexcept {
+bool WidenPath(const char* utf8, wchar_t* out, int cap) noexcept
+{
     if (!utf8 || cap <= 0) return false;
     const int n = ::MultiByteToWideChar(CP_UTF8, 0, utf8, -1, out, cap);
-    if (n <= 0) { out[0] = 0; return false; }   // 変換失敗 / バッファ不足
+    if (n <= 0) {
+        out[0] = 0;
+        return false;
+    } // 変換失敗 / バッファ不足
     return true;
 }
 } // namespace
 
-void FAssetBundle::Add(const char* asset_path) noexcept {
+void FAssetBundle::Add(const char* asset_path) noexcept
+{
     if (asset_path == nullptr) {
         ACS_LOG_WARN("FAssetBundle::Add: null path ignored");
         return;
     }
     if (m_bBegun) {
         // BeginLoad 済 bundle への追加はサポートしない (進捗計算の意味が破綻するため)。
-        ACS_LOG_WARN("FAssetBundle::Add: bundle already began loading, ignored '%s'",
-                     asset_path);
+        ACS_LOG_WARN("FAssetBundle::Add: bundle already began loading, ignored '%s'", asset_path);
         return;
     }
     Entry e{};
-    e.path   = asset_path;
+    e.path = asset_path;
     e.status = LoadStatus::Pending;
     m_Entries.PushBack(e);
 }
 
-void FAssetBundle::BeginLoad(FAssetRegistry& registry) noexcept {
+void FAssetBundle::BeginLoad(FAssetRegistry& registry) noexcept
+{
     if (m_bBegun) {
         ACS_LOG_WARN("FAssetBundle::BeginLoad: already begun, ignored");
         return;
@@ -72,30 +79,37 @@ void FAssetBundle::BeginLoad(FAssetRegistry& registry) noexcept {
             e.status = LoadStatus::Failed;
             continue;
         }
-        e.asset  = Move(r.Value());
+        e.asset = Move(r.Value());
         e.status = LoadStatus::Loaded;
     }
 }
 
-TSharedPtr<Asset> FAssetBundle::GetAsset(u32 index) const noexcept {
+TSharedPtr<Asset> FAssetBundle::GetAsset(u32 index) const noexcept
+{
     if (index >= m_Entries.Size()) return TSharedPtr<Asset>();
     return m_Entries[index].asset;
 }
 
-TSharedPtr<Asset> FAssetBundle::FindAsset(const char* asset_path) const noexcept {
+TSharedPtr<Asset> FAssetBundle::FindAsset(const char* asset_path) const noexcept
+{
     if (!asset_path) return TSharedPtr<Asset>();
     for (usize i = 0; i < m_Entries.Size(); ++i) {
         const char* p = m_Entries[i].path;
         if (p) {
-            const char* a = p; const char* b = asset_path;
-            while (*a && *b && *a == *b) { ++a; ++b; }
+            const char* a = p;
+            const char* b = asset_path;
+            while (*a && *b && *a == *b) {
+                ++a;
+                ++b;
+            }
             if (*a == 0 && *b == 0) return m_Entries[i].asset;
         }
     }
     return TSharedPtr<Asset>();
 }
 
-f32 FAssetBundle::Progress() const noexcept {
+f32 FAssetBundle::Progress() const noexcept
+{
     const usize n = m_Entries.Size();
     if (n == 0) {
         // 空 bundle は「読むものが無い = 100%」とみなす (UI のプログレスバー実装を簡潔に)。
@@ -115,10 +129,11 @@ f32 FAssetBundle::Progress() const noexcept {
     return static_cast<f32>(done) / static_cast<f32>(n);
 }
 
-bool FAssetBundle::IsLoaded() const noexcept {
+bool FAssetBundle::IsLoaded() const noexcept
+{
     const usize n = m_Entries.Size();
-    if (n == 0) return true;       // 空 bundle は即 loaded
-    if (!m_bBegun) return false;     // 未開始なら未完了
+    if (n == 0) return true;     // 空 bundle は即 loaded
+    if (!m_bBegun) return false; // 未開始なら未完了
     for (usize i = 0; i < n; ++i) {
         const LoadStatus s = m_Entries[i].status;
         if (s != LoadStatus::Loaded && s != LoadStatus::Failed) {
@@ -128,7 +143,8 @@ bool FAssetBundle::IsLoaded() const noexcept {
     return true;
 }
 
-bool FAssetBundle::HasFailed() const noexcept {
+bool FAssetBundle::HasFailed() const noexcept
+{
     const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
         if (m_Entries[i].status == LoadStatus::Failed) {
@@ -138,11 +154,13 @@ bool FAssetBundle::HasFailed() const noexcept {
     return false;
 }
 
-u32 FAssetBundle::AssetCount() const noexcept {
+u32 FAssetBundle::AssetCount() const noexcept
+{
     return static_cast<u32>(m_Entries.Size());
 }
 
-u32 FAssetBundle::LoadedCount() const noexcept {
+u32 FAssetBundle::LoadedCount() const noexcept
+{
     u32 done = 0;
     const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
@@ -153,7 +171,8 @@ u32 FAssetBundle::LoadedCount() const noexcept {
     return done;
 }
 
-void FAssetBundle::Unload() noexcept {
+void FAssetBundle::Unload() noexcept
+{
     // m_Entries.Clear() で各 Entry が破棄され、保持していた TSharedPtr<Asset> が drop される。
     // 他 bundle / registry cache がまだ参照していれば refcount > 0 で実体は残り、最後の
     // 参照消失時に自動解放される (TSharedPtr の決定的破棄、GC 不要)。registry cache から完全に

@@ -12,20 +12,27 @@
 // =============================================================================
 #include "scripting/LuaVm.h"
 #include "gameframework/ScriptHost.h"
+#include "memory/SystemAllocator.h"
 
 namespace acs::scripting {
 
 acs::game::IScriptVm& GetDefaultLuaVm() noexcept {
-    // Meyers singleton。プロセス内 1 個の Lua VM を既定として共有する。
-    static FLuaVm s_vm;
-    // 初回のみ Init。ACS のこの層は単一スレッド初期化を前提とするため、素朴な
-    // フラグで十分 (function-local static の構築自体は thread-safe)。
-    static bool s_inited = false;
-    if (!s_inited) {
-        (void)s_vm.Init();   // 失敗しても VM 参照は返す (呼び出し側が IsAvailable 等で判断)
-        s_inited = true;
-    }
-    return s_vm;
+    struct DefaultLuaState {
+        DefaultLuaState() noexcept : vm(allocator)
+        {
+        }
+
+        // VM を先に破棄してから allocator を破棄する宣言順にする。
+        acs::FSystemAllocator allocator;
+        FLuaVm vm;
+    };
+
+    // DefaultAllocator はアプリ終了時に失効し得るため、process lifetime の allocator
+    // を singleton 自身に所有させる。Init はべき等なので、失敗後や明示 Shutdown 後も
+    // 次の取得で再試行できる。
+    static DefaultLuaState s_state;
+    (void)s_state.vm.Init();
+    return s_state.vm;
 }
 
 void InstallLuaAsDefault() noexcept {

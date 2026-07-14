@@ -11,9 +11,8 @@
 //   stack.Init(64);
 //
 //   // 1 操作: Push に所有権を渡す
-//   auto* cmd = acs::New<MoveNodeCommand>(acs::DefaultAllocator(),
-//                                          &node, old_pos, new_pos);
-//   stack.Push(cmd);
+//   auto command = acs::MakeUnique<MoveNodeCommand>(&node, old_pos, new_pos);
+//   stack.Push(acs::Move(command));
 //
 //   if (ImGui::MenuItem("Undo", "Ctrl+Z", false, stack.CanUndo())) {
 //       stack.Undo();
@@ -23,11 +22,10 @@
 //   ・**TUniquePtr<FEditorCommand> を 2 本の TArray に積む**: undo / redo の
 //     LIFO スタック。基底ポインタなので polymorphic dispatch (virtual Execute /
 //     Undo / Description) で派生型を意識せず巻き戻せる。
-//   ・**Push で所有権を奪う (raw pointer 引数 + delete 責任)**: 既存サンプル
-//     (FHierarchyPanel 等) と同じく ImGui 連携の単純な C-API 風シグネチャに
-//     揃える。caller は `cmd.Release()` で渡す or 自分で New してそのまま渡す。
-//     Push 内で TUniquePtr に詰め直してから m_UndoStack に PushBack することで
-//     その後の代入 / pop で自動 delete される。
+//   ・**Push で所有権を奪う**: TUniquePtr の確保元を保ったまま Move する経路を
+//     標準とし、既定アロケータ由来の既存コード向けに raw pointer 経路も残す。
+//     m_UndoStack に TUniquePtr のまま積むため、代入 / pop でも生成時の確保元へ
+//     自動的に返される。
 //   ・**Push 内で Execute も実行**: GUI コードが「new FEditorCommand → Push」
 //     しか書かなくて済む (= Execute 忘れを構造的に防ぐ)。Redo 経路でも
 //     FEditorCommand::Execute() を呼ぶので、Execute は何度呼ばれても idempotent
@@ -143,6 +141,23 @@ public:
      * @param cmd 積む command (所有権が移る。nullptr は no-op)。
      */
     void Push(class FEditorCommand* cmd) noexcept;
+
+    /**
+     * 解放元を保持した command を 1 件積む。
+     *
+     * @details MakeUniqueIn などで既定以外のアロケータから生成した command は、
+     * このオーバーロードへ Move することで生成時の解放元を維持できる。
+     * @param command 積む command。所有権が移る。空なら no-op。
+     */
+    void Push(TUniquePtr<FEditorCommand> command) noexcept;
+
+    /**
+     * 生ポインタとその確保元を明示して command を 1 件積む。
+     *
+     * @param command 積む command。所有権が移る。nullptr は no-op。
+     * @param allocator command を解放するアロケータ。
+     */
+    void Push(class FEditorCommand* command, FAllocator& allocator) noexcept;
 
     /**
      * undo を 1 件巻き戻す。

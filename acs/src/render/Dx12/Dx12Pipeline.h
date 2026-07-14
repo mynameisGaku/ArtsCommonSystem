@@ -30,7 +30,7 @@ public:
      *
      * @details
      * cbuffer_slots 個の root CBV と texture_slots 個の SRV descriptor table、
-     * 最大 4 個の静的サンプラを持つルートシグネチャを生成し、ps が null なら
+     * 最大 16 個の静的サンプラを持つルートシグネチャを生成し、ps が null なら
      * depth-only パイプラインとして PSO を作る。
      * @param device PSO・ルートシグネチャ生成に使う DX12 デバイス。
      * @param desc シェーダ・入力レイアウト・各種ステートを指定するパイプライン記述。
@@ -74,6 +74,9 @@ public:
     u32                    TextureSlots()  const noexcept { return m_TextureSlots; }
 
 private:
+    /** PSO とルートシグネチャを解放し、構成値を既定状態へ戻す。 */
+    void Reset() noexcept;
+
     /** 構築済みの PSO。 */
     ID3D12PipelineState* m_Pso      = nullptr;
 

@@ -105,6 +105,12 @@ public:
     u32  Height()      const noexcept override { return m_Height; }
 
 private:
+    /** バックバッファを含む全所有物を解放し、空状態へ戻す。 */
+    void Reset() noexcept;
+
+    /** 全バックバッファを取得済みかを返す。 */
+    bool HasAllBuffers() const noexcept;
+
     /** 取得済みの全バックバッファを解放する。 */
     void ReleaseBuffers() noexcept;
 
@@ -146,6 +152,9 @@ private:
 
     /** vsync 有効フラグ (Present の同期間隔と tearing を決める)。 */
     bool                 m_bVsync        = true;
+
+    /** 実行環境が可変リフレッシュの tearing 表示を許可しているか。 */
+    bool m_bAllowTearing = false;
 };
 
 } // namespace acs

@@ -22,6 +22,11 @@ public:
     /** 空状態で構築する (pak は Mount で開く)。 */
     FAcpakGameReader() noexcept = default;
 
+    /** 指定 allocator を内部 Reader の配列に使う空状態で構築する。 */
+    explicit FAcpakGameReader(acs::FAllocator& allocator) noexcept : m_Reader(allocator)
+    {
+    }
+
     /** 破棄する (FAcpakReader が開いていれば自動 Close)。 */
     ~FAcpakGameReader() noexcept override = default;
 
@@ -134,6 +139,11 @@ class FAcpakGameWriter final : public acs::game::IAssetPackWriter {
 public:
     /** 空状態で構築する (pak は BeginPack で開く)。 */
     FAcpakGameWriter() noexcept = default;
+
+    /** 指定 allocator を内部 Writer の pending list に使う空状態で構築する。 */
+    explicit FAcpakGameWriter(acs::FAllocator& allocator) noexcept : m_Writer(allocator)
+    {
+    }
 
     /** 破棄する (FAcpakWriter が開いていれば自動 Close)。 */
     ~FAcpakGameWriter() noexcept override = default;

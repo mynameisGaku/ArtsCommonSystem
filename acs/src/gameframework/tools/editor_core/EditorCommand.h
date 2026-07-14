@@ -13,7 +13,7 @@
 //   // editor 側:
 //   acs::TUniquePtr<MoveNodeCommand> cmd = acs::MakeUnique<MoveNodeCommand>(
 //       &node, old_pos, new_pos);
-//   undo_stack.Push(cmd.Release());   // 所有権を渡す + Execute 実行
+//   undo_stack.Push(acs::Move(cmd));   // 確保元ごと所有権を渡す + Execute 実行
 //
 // 設計選択:
 //   ・**純粋抽象 + virtual dtor**: ベース型を `TUniquePtr<FEditorCommand>` で

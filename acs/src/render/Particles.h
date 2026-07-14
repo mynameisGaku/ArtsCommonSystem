@@ -40,6 +40,7 @@ namespace acs {
 
 class IRhiTexture;
 class FSpriteBatch;
+class FAllocator;
 
 /**
  * エミッタのパラメータ (粒子の初期分布を決める)。
@@ -281,6 +282,9 @@ private:
 
     /** 粒子プールの先頭 (容量ぶん確保、所有権を持つ)。 */
     Particle*    m_Pool         = nullptr;
+
+    /** 粒子プールを確保したアロケータ。既定アロケータ切替後も同じ元へ返す。 */
+    FAllocator* m_Allocator = nullptr;
 
     /** プールの最大容量。 */
     u32          m_Capacity     = 0;

@@ -7,6 +7,7 @@
 #include "foundation/Result.h"
 #include "foundation/Error.h"
 #include "foundation/Move.h"
+#include "foundation/Assert.h"
 
 namespace acs {
 
@@ -95,23 +96,36 @@ ParticleSystem::~ParticleSystem() noexcept {
 TResult<void> ParticleSystem::Init(u32 max_particles) noexcept {
     if (max_particles == 0) max_particles = 1024;
     Shutdown();
+
+    if (static_cast<usize>(max_particles) > (~usize(0)) / sizeof(Particle)) {
+        return ACS_ERR(Memory, 300, "ParticleSystem: pool size overflow");
+    }
+
+    FAllocator& allocator = DefaultAllocator();
+    Particle* const pool = static_cast<Particle*>(
+        allocator.Alloc(sizeof(Particle) * static_cast<usize>(max_particles)));
+    if (!pool) return ACS_ERR(Memory, 300, "ParticleSystem: pool alloc failed");
+
+    // 成功した確保だけをコミットし、失敗時は常に空状態を保つ。
+    m_Pool = pool;
+    m_Allocator = &allocator;
     m_Capacity = max_particles;
     m_Active = 0;
     m_SpawnAccum = 0;
-    m_Pool = static_cast<Particle*>(
-        DefaultAllocator().Alloc(sizeof(Particle) * max_particles));
-    if (!m_Pool) return ACS_ERR(Memory, 300, "ParticleSystem: pool alloc failed");
     return Ok();
 }
 
 /** プールを解放してカウンタをリセットする。 */
 void ParticleSystem::Shutdown() noexcept {
     if (m_Pool) {
-        DefaultAllocator().Free(m_Pool);
+        ACS_ASSERT(m_Allocator != nullptr);
+        m_Allocator->Free(m_Pool);
         m_Pool = nullptr;
     }
+    m_Allocator = nullptr;
     m_Capacity = 0;
     m_Active = 0;
+    m_SpawnAccum = 0.0f;
 }
 
 /** xorshift で [0,1) の擬似乱数を返す。 */

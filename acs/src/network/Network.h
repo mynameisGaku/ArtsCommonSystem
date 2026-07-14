@@ -10,6 +10,18 @@
 
 namespace acs {
 
+/** Network が所有する Winsock 資源の診断スナップショット。 */
+struct NetworkDiagnostics {
+    /** 現在の Init 参照数。 */
+    u32 initialization_reference_count = 0;
+
+    /** 再試行を待っている WSACleanup エラー。0 は保留なし。 */
+    u32 pending_cleanup_error = 0;
+
+    /** プロセス寿命中に観測した資源解放失敗の累積数。 */
+    u64 resource_release_failure_count = 0;
+};
+
 /**
  * ネットワークサブシステムの初期化・終了を司る WSAStartup ラッパ。
  *
@@ -23,8 +35,8 @@ public:
      * WinSock を初期化する (多重呼び出し可)。
      *
      * @details
-     * 内部の参照カウントを CAS で進め、カウントが 0 のときだけ WSAStartup を呼ぶ。
-     * 既に初期化済みなら相乗りしてカウントのみ +1 する。
+     * 内部の参照カウントと WSAStartup / WSACleanup を排他制御し、カウントが 0 の
+     * ときだけ WSAStartup を呼ぶ。既に初期化済みなら参照数のみ +1 する。
      * @return 成功なら空の TResult、WSAStartup 失敗ならエラー。
      */
     static TResult<void> Init() noexcept;
@@ -42,6 +54,9 @@ public:
      * @return 参照カウントが 1 以上なら true。
      */
     static bool IsInitialized() noexcept;
+
+    /** 参照数・cleanup debt・資源解放失敗数を一貫した時点で取得する。 */
+    static NetworkDiagnostics CaptureDiagnostics() noexcept;
 };
 
 } // namespace acs

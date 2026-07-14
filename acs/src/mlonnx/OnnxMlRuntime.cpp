@@ -33,11 +33,81 @@ acs::TResult<void> OrtStatusToResult(const OrtApi& api, OrtStatus* status,
     if (status == nullptr) {
         return acs::Ok();
     }
+    // GetErrorMessage のポインタは OrtStatus と同時に無効になる。詳細は解放前に
+    // ログへ写し、TResult には寿命が静的な fallback と数値コードだけを保持する。
     const char* const message = api.GetErrorMessage(status);
-    const acs::FErrorCode error = ACS_ERR(Generic, subcode, message ? message : fallback);
+    const OrtErrorCode ort_error = api.GetErrorCode(status);
+    ACS_LOG_ERROR("%s: %s", fallback, message ? message : "ONNX Runtime error");
+    const acs::FErrorCode error = ACS_ERR_OS(Generic, subcode, fallback, static_cast<acs::u32>(ort_error));
     api.ReleaseStatus(status);
     return error;
 }
+
+/** 途中失敗時にも OrtSession を必ず解放する所有ガード。 */
+struct FScopedOrtSession {
+    const OrtApi& api;
+    OrtSession* value = nullptr;
+    ~FScopedOrtSession() noexcept
+    {
+        if (value) api.ReleaseSession(value);
+    }
+    OrtSession* Release() noexcept
+    {
+        OrtSession* result = value;
+        value = nullptr;
+        return result;
+    }
+};
+
+/** 途中失敗時にも OrtTypeInfo を必ず解放する所有ガード。 */
+struct FScopedOrtTypeInfo {
+    const OrtApi& api;
+    OrtTypeInfo* value = nullptr;
+    ~FScopedOrtTypeInfo() noexcept
+    {
+        if (value) api.ReleaseTypeInfo(value);
+    }
+};
+
+/** OrtAllocator が返した名前文字列を必ず同じ allocator へ返す所有ガード。 */
+struct FScopedOrtName {
+    OrtAllocator* allocator = nullptr;
+    char* value = nullptr;
+    ~FScopedOrtName() noexcept
+    {
+        if (allocator && value) allocator->Free(allocator, value);
+    }
+};
+
+/** 推論用 OrtMemoryInfo の所有ガード。 */
+struct FScopedOrtMemoryInfo {
+    const OrtApi& api;
+    OrtMemoryInfo* value = nullptr;
+    ~FScopedOrtMemoryInfo() noexcept
+    {
+        if (value) api.ReleaseMemoryInfo(value);
+    }
+};
+
+/** 入出力 OrtValue の所有ガード。 */
+struct FScopedOrtValue {
+    const OrtApi& api;
+    OrtValue* value = nullptr;
+    ~FScopedOrtValue() noexcept
+    {
+        if (value) api.ReleaseValue(value);
+    }
+};
+
+/** 出力テンソル形状情報の所有ガード。 */
+struct FScopedOrtTensorShapeInfo {
+    const OrtApi& api;
+    OrtTensorTypeAndShapeInfo* value = nullptr;
+    ~FScopedOrtTensorShapeInfo() noexcept
+    {
+        if (value) api.ReleaseTensorTypeAndShapeInfo(value);
+    }
+};
 
 void CopyCString(char* dst, acs::u32 dst_size, const char* src) noexcept {
     if (!dst || dst_size == 0) return;
@@ -120,6 +190,7 @@ TResult<void> FOnnxMlRuntime::Init() noexcept {
     if (auto result = OrtStatusToResult(api,
             api.CreateEnv(ORT_LOGGING_LEVEL_WARNING, "ACS", &m_Impl->m_Env),
             kSubOrtInitFailed, "CreateEnv failed"); result.IsErr()) {
+        Shutdown();
         return result;
     }
     if (auto result = OrtStatusToResult(api,
@@ -128,8 +199,19 @@ TResult<void> FOnnxMlRuntime::Init() noexcept {
         Shutdown();
         return result;
     }
-    api.SetIntraOpNumThreads(m_Impl->m_SessionOptions, 1);
-    api.SetSessionGraphOptimizationLevel(m_Impl->m_SessionOptions, ORT_ENABLE_BASIC);
+    if (auto result = OrtStatusToResult(api, api.SetIntraOpNumThreads(m_Impl->m_SessionOptions, 1), kSubOrtInitFailed,
+                                        "SetIntraOpNumThreads failed");
+        result.IsErr()) {
+        Shutdown();
+        return result;
+    }
+    if (auto result =
+            OrtStatusToResult(api, api.SetSessionGraphOptimizationLevel(m_Impl->m_SessionOptions, ORT_ENABLE_BASIC),
+                              kSubOrtInitFailed, "SetSessionGraphOptimizationLevel failed");
+        result.IsErr()) {
+        Shutdown();
+        return result;
+    }
     if (auto result = OrtStatusToResult(api,
             api.GetAllocatorWithDefaultOptions(&m_Impl->m_Allocator),
             kSubOrtInitFailed, "GetAllocatorWithDefaultOptions failed"); result.IsErr()) {
@@ -193,66 +275,132 @@ TResult<game::MlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) n
     }
 
     const OrtApi& api = *m_Impl->m_Api;
-    OrtSession* session = nullptr;
-    if (auto result = OrtStatusToResult(api,
-            api.CreateSession(m_Impl->m_Env, wpath, m_Impl->m_SessionOptions, &session),
-            kSubOrtLoadFailed, "CreateSession failed"); result.IsErr()) {
+    FScopedOrtSession session{api};
+    if (auto result =
+            OrtStatusToResult(api, api.CreateSession(m_Impl->m_Env, wpath, m_Impl->m_SessionOptions, &session.value),
+                              kSubOrtLoadFailed, "CreateSession failed");
+        result.IsErr()) {
         return TResult<game::MlModelHandle>(result.Error());
     }
 
     size_t input_count = 0;
     size_t output_count = 0;
-    api.SessionGetInputCount(session, &input_count);
-    api.SessionGetOutputCount(session, &output_count);
+    if (auto result = OrtStatusToResult(api, api.SessionGetInputCount(session.value, &input_count), kSubOrtLoadFailed,
+                                        "SessionGetInputCount failed");
+        result.IsErr()) {
+        return TResult<game::MlModelHandle>(result.Error());
+    }
+    if (auto result = OrtStatusToResult(api, api.SessionGetOutputCount(session.value, &output_count), kSubOrtLoadFailed,
+                                        "SessionGetOutputCount failed");
+        result.IsErr()) {
+        return TResult<game::MlModelHandle>(result.Error());
+    }
     if (input_count != 1 || output_count != 1) {
-        api.ReleaseSession(session);
         return TResult<game::MlModelHandle>(ACS_ERR(Generic, kSubOrtShapeMismatch,
             "Only 1-input/1-output ONNX models are supported by this seam"));
     }
 
-    char* input_name = nullptr;
-    char* output_name = nullptr;
-    api.SessionGetInputName(session, 0, m_Impl->m_Allocator, &input_name);
-    api.SessionGetOutputName(session, 0, m_Impl->m_Allocator, &output_name);
-    CopyCString(slot->m_InputName, static_cast<acs::u32>(sizeof(slot->m_InputName)), input_name);
-    CopyCString(slot->m_OutputName, static_cast<acs::u32>(sizeof(slot->m_OutputName)), output_name);
-    if (input_name) m_Impl->m_Allocator->Free(m_Impl->m_Allocator, input_name);
-    if (output_name) m_Impl->m_Allocator->Free(m_Impl->m_Allocator, output_name);
+    FScopedOrtName input_name{m_Impl->m_Allocator};
+    FScopedOrtName output_name{m_Impl->m_Allocator};
+    if (auto result =
+            OrtStatusToResult(api, api.SessionGetInputName(session.value, 0, m_Impl->m_Allocator, &input_name.value),
+                              kSubOrtLoadFailed, "SessionGetInputName failed");
+        result.IsErr()) {
+        return TResult<game::MlModelHandle>(result.Error());
+    }
+    if (auto result =
+            OrtStatusToResult(api, api.SessionGetOutputName(session.value, 0, m_Impl->m_Allocator, &output_name.value),
+                              kSubOrtLoadFailed, "SessionGetOutputName failed");
+        result.IsErr()) {
+        return TResult<game::MlModelHandle>(result.Error());
+    }
+    if (input_name.value == nullptr || output_name.value == nullptr) {
+        return TResult<game::MlModelHandle>(
+            ACS_ERR(Generic, kSubOrtLoadFailed, "ONNX Runtime returned a null input or output name"));
+    }
 
-    OrtTypeInfo* input_type = nullptr;
-    OrtTypeInfo* output_type = nullptr;
-    api.SessionGetInputTypeInfo(session, 0, &input_type);
-    api.SessionGetOutputTypeInfo(session, 0, &output_type);
+    FScopedOrtTypeInfo input_type{api};
+    FScopedOrtTypeInfo output_type{api};
+    if (auto result = OrtStatusToResult(api, api.SessionGetInputTypeInfo(session.value, 0, &input_type.value),
+                                        kSubOrtLoadFailed, "SessionGetInputTypeInfo failed");
+        result.IsErr()) {
+        return TResult<game::MlModelHandle>(result.Error());
+    }
+    if (auto result = OrtStatusToResult(api, api.SessionGetOutputTypeInfo(session.value, 0, &output_type.value),
+                                        kSubOrtLoadFailed, "SessionGetOutputTypeInfo failed");
+        result.IsErr()) {
+        return TResult<game::MlModelHandle>(result.Error());
+    }
+
     const OrtTensorTypeAndShapeInfo* input_tensor = nullptr;
     const OrtTensorTypeAndShapeInfo* output_tensor = nullptr;
-    api.CastTypeInfoToTensorInfo(input_type, &input_tensor);
-    api.CastTypeInfoToTensorInfo(output_type, &output_tensor);
+    if (auto result = OrtStatusToResult(api, api.CastTypeInfoToTensorInfo(input_type.value, &input_tensor),
+                                        kSubOrtShapeMismatch, "Input is not a tensor");
+        result.IsErr()) {
+        return TResult<game::MlModelHandle>(result.Error());
+    }
+    if (auto result = OrtStatusToResult(api, api.CastTypeInfoToTensorInfo(output_type.value, &output_tensor),
+                                        kSubOrtShapeMismatch, "Output is not a tensor");
+        result.IsErr()) {
+        return TResult<game::MlModelHandle>(result.Error());
+    }
+    if (input_tensor == nullptr || output_tensor == nullptr) {
+        return TResult<game::MlModelHandle>(
+            ACS_ERR(Generic, kSubOrtShapeMismatch, "ONNX input or output is not a tensor"));
+    }
+
     size_t input_rank = 0;
     size_t output_rank = 0;
-    api.GetDimensionsCount(input_tensor, &input_rank);
-    api.GetDimensionsCount(output_tensor, &output_rank);
+    if (auto result = OrtStatusToResult(api, api.GetDimensionsCount(input_tensor, &input_rank), kSubOrtLoadFailed,
+                                        "Get input dimensions count failed");
+        result.IsErr()) {
+        return TResult<game::MlModelHandle>(result.Error());
+    }
+    if (auto result = OrtStatusToResult(api, api.GetDimensionsCount(output_tensor, &output_rank), kSubOrtLoadFailed,
+                                        "Get output dimensions count failed");
+        result.IsErr()) {
+        return TResult<game::MlModelHandle>(result.Error());
+    }
     if (input_rank > 8 || output_rank > 8) {
-        if (input_type) api.ReleaseTypeInfo(input_type);
-        if (output_type) api.ReleaseTypeInfo(output_type);
-        api.ReleaseSession(session);
         return TResult<game::MlModelHandle>(ACS_ERR(Generic, kSubOrtShapeMismatch,
             "ONNX tensor rank exceeds ACS fixed limit"));
     }
-    api.GetDimensions(input_tensor, slot->m_InputShape, input_rank);
-    api.GetDimensions(output_tensor, slot->m_OutputShape, output_rank);
-    if (input_type) api.ReleaseTypeInfo(input_type);
-    if (output_type) api.ReleaseTypeInfo(output_type);
 
-    slot->m_Session = session;
+    int64_t input_shape[8] = {};
+    int64_t output_shape[8] = {};
+    if (auto result = OrtStatusToResult(api, api.GetDimensions(input_tensor, input_shape, input_rank),
+                                        kSubOrtLoadFailed, "Get input dimensions failed");
+        result.IsErr()) {
+        return TResult<game::MlModelHandle>(result.Error());
+    }
+    if (auto result = OrtStatusToResult(api, api.GetDimensions(output_tensor, output_shape, output_rank),
+                                        kSubOrtLoadFailed, "Get output dimensions failed");
+        result.IsErr()) {
+        return TResult<game::MlModelHandle>(result.Error());
+    }
+
+    // ここまで全検証に成功してからスロットへ所有権とメタデータを確定する。
+    *slot = FImpl::FModel{};
+    CopyCString(slot->m_InputName, static_cast<acs::u32>(sizeof(slot->m_InputName)), input_name.value);
+    CopyCString(slot->m_OutputName, static_cast<acs::u32>(sizeof(slot->m_OutputName)), output_name.value);
+    for (acs::u32 i = 0; i < 8; ++i) {
+        slot->m_InputShape[i] = input_shape[i];
+        slot->m_OutputShape[i] = output_shape[i];
+    }
+    slot->m_Session = session.Release();
     slot->m_InputRank = static_cast<acs::u32>(input_rank);
     slot->m_OutputRank = static_cast<acs::u32>(output_rank);
     slot->m_InputCount = 1;
     for (acs::u32 i = 0; i < slot->m_InputRank; ++i) {
-        if (slot->m_InputShape[i] > 0) slot->m_InputCount *= static_cast<acs::u32>(slot->m_InputShape[i]);
+        if (slot->m_InputShape[i] > 0) {
+            slot->m_InputCount *= static_cast<acs::u32>(slot->m_InputShape[i]);
+        }
     }
     slot->m_OutputCount = 1;
     for (acs::u32 i = 0; i < slot->m_OutputRank; ++i) {
-        if (slot->m_OutputShape[i] > 0) slot->m_OutputCount *= static_cast<acs::u32>(slot->m_OutputShape[i]);
+        if (slot->m_OutputShape[i] > 0) {
+            slot->m_OutputCount *= static_cast<acs::u32>(slot->m_OutputShape[i]);
+        }
     }
     slot->m_Id = m_Impl->m_NextId++;
     slot->m_bUsed = true;
@@ -304,56 +452,66 @@ TResult<void> FOnnxMlRuntime::RunInference(game::MlModelHandle h,
     }
 
     const OrtApi& api = *m_Impl->m_Api;
-    OrtMemoryInfo* memory_info = nullptr;
-    if (auto result = OrtStatusToResult(api,
-            api.CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory_info),
-            kSubOrtRunFailed, "CreateCpuMemoryInfo failed"); result.IsErr()) {
+    FScopedOrtMemoryInfo memory_info{api};
+    if (auto result =
+            OrtStatusToResult(api, api.CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory_info.value),
+                              kSubOrtRunFailed, "CreateCpuMemoryInfo failed");
+        result.IsErr()) {
         return result;
     }
 
-    OrtValue* input_value = nullptr;
+    FScopedOrtValue input_value{api};
     if (auto result = OrtStatusToResult(api,
-            api.CreateTensorWithDataAsOrtValue(memory_info,
-                const_cast<f32*>(inputs), static_cast<size_t>(in_count) * sizeof(f32),
-                input_shape, model->m_InputRank, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_value),
-            kSubOrtRunFailed, "CreateTensorWithDataAsOrtValue failed"); result.IsErr()) {
-        api.ReleaseMemoryInfo(memory_info);
+                                        api.CreateTensorWithDataAsOrtValue(memory_info.value, const_cast<f32*>(inputs),
+                                                                           static_cast<size_t>(in_count) * sizeof(f32),
+                                                                           input_shape, model->m_InputRank,
+                                                                           ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
+                                                                           &input_value.value),
+                                        kSubOrtRunFailed, "CreateTensorWithDataAsOrtValue failed");
+        result.IsErr()) {
         return result;
     }
 
     const char* input_names[1] = { model->m_InputName };
     const char* output_names[1] = { model->m_OutputName };
-    const OrtValue* input_values[1] = { input_value };
-    OrtValue* output_values[1] = { nullptr };
+    const OrtValue* input_values[1] = {input_value.value};
+    FScopedOrtValue output_value{api};
 
     const TResult<void> run_result = OrtStatusToResult(api,
-        api.Run(model->m_Session, nullptr, input_names, input_values, 1, output_names, 1, output_values),
-        kSubOrtRunFailed, "ONNX Runtime Run failed");
-    api.ReleaseValue(input_value);
-    api.ReleaseMemoryInfo(memory_info);
+                                                       api.Run(model->m_Session, nullptr, input_names, input_values, 1,
+                                                               output_names, 1, &output_value.value),
+                                                       kSubOrtRunFailed, "ONNX Runtime Run failed");
     if (run_result.IsErr()) return run_result;
+    if (output_value.value == nullptr) {
+        return ACS_ERR(Generic, kSubOrtRunFailed, "ONNX Runtime returned no output value");
+    }
 
-    OrtTensorTypeAndShapeInfo* output_info = nullptr;
-    api.GetTensorTypeAndShape(output_values[0], &output_info);
+    FScopedOrtTensorShapeInfo output_info{api};
+    if (auto result = OrtStatusToResult(api, api.GetTensorTypeAndShape(output_value.value, &output_info.value),
+                                        kSubOrtRunFailed, "GetTensorTypeAndShape failed");
+        result.IsErr()) {
+        return result;
+    }
     size_t elem_count = 0;
-    api.GetTensorShapeElementCount(output_info, &elem_count);
-    api.ReleaseTensorTypeAndShapeInfo(output_info);
+    if (auto result = OrtStatusToResult(api, api.GetTensorShapeElementCount(output_info.value, &elem_count),
+                                        kSubOrtRunFailed, "GetTensorShapeElementCount failed");
+        result.IsErr()) {
+        return result;
+    }
     if (elem_count > out_count) {
-        api.ReleaseValue(output_values[0]);
         return ACS_ERR(Generic, kSubOrtShapeMismatch, "Output buffer too small for ONNX result");
     }
 
     f32* ort_output = nullptr;
-    if (auto result = OrtStatusToResult(api,
-            api.GetTensorMutableData(output_values[0], reinterpret_cast<void**>(&ort_output)),
-            kSubOrtRunFailed, "GetTensorMutableData failed"); result.IsErr()) {
-        api.ReleaseValue(output_values[0]);
+    if (auto result =
+            OrtStatusToResult(api, api.GetTensorMutableData(output_value.value, reinterpret_cast<void**>(&ort_output)),
+                              kSubOrtRunFailed, "GetTensorMutableData failed");
+        result.IsErr()) {
         return result;
     }
     for (size_t i = 0; i < elem_count; ++i) {
         outputs[i] = ort_output[i];
     }
-    api.ReleaseValue(output_values[0]);
     return Ok();
 }
 

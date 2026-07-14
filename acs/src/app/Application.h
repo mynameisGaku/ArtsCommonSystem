@@ -9,7 +9,7 @@
 //       void OnStart() noexcept override {
 //           ACS_LOG_INFO("ゲーム開始");
 //       }
-//       void OnUpdate(f32 dt) noexcept override {
+//       void OnUpdate(f32 delta_time) noexcept override {
 //           if (Input::IsKeyPressed(EKey::Escape)) Quit();
 //       }
 //       void OnRender() noexcept override {
@@ -29,8 +29,13 @@
 #include "event/Timer.h"
 #include "event/MessageBroker.h"
 #include "app/AppConfig.h"
+#include "memory/CrtDebugHeapDiagnostics.h"
 
 namespace acs {
+
+namespace app_internal {
+class FApplicationTestAccess;
+}
 
 /**
  * ゲーム/サンプルが継承するアプリケーション基底クラス。
@@ -60,26 +65,33 @@ public:
      *
      * @details
      * ロガー→メモリ→スレッドプール→ウィンドウ→レンダラの順に立ち上げ、OnStart を呼び、
-     * Quit() か OnClose まで毎フレーム update/描画を回す。終了時は逆順に後始末する。
-     * @param cfg ウィンドウ・ロガー・レンダラ等の起動オプション。
-     * @return 正常終了で 0、初期化失敗で非 0 のエラーコード。
+     * Quit() か OnClose まで毎フレーム update/描画を回す。正常終了後も派生メンバの安全な
+     * 破棄に必要なレンダラと、この Run が所有するプロセス基盤はデストラクタまで生存する。
+     * 再度 Run する場合は前回のレンダラを先に閉じるため、派生側の前回 GPU 所有物は
+     * OnShutdown で解放しておくこと。
+     * @param configuration ウィンドウ・ロガー・レンダラ等の起動オプション。
+     * @return 正常終了で 0、初期化失敗で 1〜4、同一オブジェクトへの再入で 5。
      */
-    int Run(const FAppConfig& cfg) noexcept;
+    int Run(const FAppConfig& configuration) noexcept;
 
     /** メインループを抜けて終了するよう要求する (OnShutdown が呼ばれる)。 */
-    void Quit() noexcept { m_bRunning = false; }
+    void Quit() noexcept
+    {
+        m_bRunning = false;
+    }
 
     /**
      * 背景クリア色を動的に変更する (次フレームの描画から反映)。
      *
      * @details 既定値は起動時 FAppConfig の clear_r/g/b/a。
-     * @param r 赤成分 (0..1)。
-     * @param g 緑成分 (0..1)。
-     * @param b 青成分 (0..1)。
-     * @param a アルファ成分 (0..1、既定 1.0)。
+     * @param red 赤成分 (0..1)。
+     * @param green 緑成分 (0..1)。
+     * @param blue 青成分 (0..1)。
+     * @param alpha アルファ成分 (0..1、既定 1.0)。
      */
-    void SetClearColor(f32 r, f32 g, f32 b, f32 a = 1.0f) noexcept {
-        m_ClearColor = ClearColor{ r, g, b, a };
+    void SetClearColor(f32 red, f32 green, f32 blue, f32 alpha = 1.0f) noexcept
+    {
+        m_ClearColor = ClearColor{red, green, blue, alpha};
     }
 
     /**
@@ -88,94 +100,134 @@ public:
      * @details マルチパス描画で RT 再バインド時のクリアに使う。
      * @return 現在のクリア色への const 参照。
      */
-    const ClearColor& GetClearColor() const noexcept { return m_ClearColor; }
+    const ClearColor& GetClearColor() const noexcept
+    {
+        return m_ClearColor;
+    }
 
     /**
      * ウィンドウへの参照を返す。
      *
      * @return アプリが所有する FWindow への参照。
      */
-    FWindow&         GetWindow()        noexcept { return m_Window; }
+    FWindow& GetWindow() noexcept
+    {
+        return m_Window;
+    }
 
     /**
      * レンダラへの参照を返す。
      *
      * @return アプリが所有する FRenderer への参照。
      */
-    FRenderer&       GetRenderer()      noexcept { return m_Renderer; }
+    FRenderer& GetRenderer() noexcept
+    {
+        return m_Renderer;
+    }
 
     /**
      * ECS World への参照を返す。
      *
      * @return アプリが所有する World への参照。
      */
-    World&          GetWorld()         noexcept { return m_World; }
+    World& GetWorld() noexcept
+    {
+        return m_World;
+    }
 
     /**
      * アセットレジストリへの参照を返す。
      *
      * @return アプリが所有する FAssetRegistry への参照。
      */
-    FAssetRegistry&  GetAssets()        noexcept { return m_Assets; }
+    FAssetRegistry& GetAssets() noexcept
+    {
+        return m_Assets;
+    }
 
     /**
      * タイマーマネージャへの参照を返す。
      *
      * @return アプリが所有する FTimerManager への参照。
      */
-    FTimerManager&   GetTimers()        noexcept { return m_Timers; }
+    FTimerManager& GetTimers() noexcept
+    {
+        return m_Timers;
+    }
 
     /**
      * イベントブローカーへの参照を返す。
      *
      * @return アプリが所有する MessageBroker への参照。
      */
-    MessageBroker&  GetEvents()        noexcept { return m_Events; }
+    MessageBroker& GetEvents() noexcept
+    {
+        return m_Events;
+    }
 
     /**
      * 直近フレームの経過時間を返す。
      *
      * @return 前フレームからの経過秒。
      */
-    f32             DeltaTime()  const noexcept { return m_Dt; }
+    f32 DeltaTime() const noexcept
+    {
+        return m_Dt;
+    }
 
     /**
      * 起動からの総フレーム数を返す。
      *
      * @return 描画したフレームの累計数。
      */
-    u64             FrameCount() const noexcept { return m_FrameTimer.FrameCount(); }
+    u64 FrameCount() const noexcept
+    {
+        return m_FrameTimer.FrameCount();
+    }
 
     /**
      * 平滑化された現在の FPS を返す。
      *
      * @return 平滑化済みのフレームレート。
      */
-    f32             FPS()        const noexcept { return m_FrameTimer.SmoothedFPS(); }
+    f32 FPS() const noexcept
+    {
+        return m_FrameTimer.SmoothedFPS();
+    }
 
 protected:
     /** 起動時に 1 回呼ばれる初期化フック (派生クラスで override)。 */
-    virtual void OnStart() noexcept   {}
+    virtual void OnStart() noexcept
+    {
+    }
 
     /**
      * 毎フレーム呼ばれる更新フック (派生クラスで override)。
      *
-     * @param dt 前フレームからの経過秒。
+     * @param delta_time 前フレームからの経過秒。
      */
-    virtual void OnUpdate(f32 /*dt*/) noexcept {}
+    virtual void OnUpdate(f32 /*delta_time*/) noexcept
+    {
+    }
 
     /** 毎フレーム呼ばれる描画フック (BeginFrame/EndFrame は基底が囲む)。 */
-    virtual void OnRender() noexcept   {}
+    virtual void OnRender() noexcept
+    {
+    }
 
     /** 終了時に 1 回呼ばれる後始末フック (派生クラスで override)。 */
-    virtual void OnShutdown() noexcept {}
+    virtual void OnShutdown() noexcept
+    {
+    }
 
     /**
      * ウィンドウ/入力イベントを受信したときに呼ばれるフック。
      *
-     * @param e 受信したイベント。
+     * @param event 受信したイベント。
      */
-    virtual void OnEvent(const Event& /*e*/) noexcept {}
+    virtual void OnEvent(const Event& /*event*/) noexcept
+    {
+    }
 
     /**
      * フレーム描画を派生クラスで完全に差し替えるためのフック。
@@ -186,49 +238,110 @@ protected:
      * パイプラインを自前で組む場合 (HelloBloom 等) に使う。
      * @return フルカスタム描画を行ったなら true、標準描画に任せるなら false (既定)。
      */
-    virtual bool OnCustomFrame() noexcept { return false; }
+    virtual bool OnCustomFrame() noexcept
+    {
+        return false;
+    }
 
 private:
     /**
+     * Run が起動したプロセス基盤だけを保持し、FApplication の全メンバより後に停止する。
+     *
+     * @details この型のインスタンスを最初のデータメンバに置くことで、派生メンバ、レンダラ、
+     * ウィンドウ、基底コンテナの破棄後に ThreadPool、MemorySystem、Logger を停止できる。
+     */
+    struct RuntimeFoundationLifetime {
+        /** 所有中の基盤を逆順で停止する。 */
+        ~RuntimeFoundationLifetime() noexcept;
+
+        /** 未起動なら Logger を起動し、成功時だけ所有権を記録する。 */
+        void InitializeLogger(const FLogConfig& config) noexcept;
+
+        /** Debug CRT のプロセス設定と基盤寿命スコープ診断を開始する。 */
+        void InitializeMemoryDiagnostics() noexcept;
+
+        /** 未起動なら MemorySystem を起動し、成功時だけ所有権を記録する。 */
+        TResult<void> InitializeMemorySystem(const MemorySystemConfig& config) noexcept;
+
+        /** 未起動なら ThreadPool を起動し、成功時だけ所有権を記録する。 */
+        TResult<void> InitializeThreadPool(u32 worker_count) noexcept;
+
+        /** 起動途中の失敗時にも使える冪等な明示解放。 */
+        void Release() noexcept;
+
+        /** このガードが Logger の終了責任を持つ。 */
+        bool logger_owned = false;
+
+        /** このガードが MemorySystem の終了責任を持つ。 */
+        bool memory_system_owned = false;
+
+        /** このガードが ThreadPool の終了責任を持つ。 */
+        bool thread_pool_owned = false;
+
+        /** Run の基盤所有権を追跡中である。 */
+        bool lifetime_active = false;
+
+        /** 追跡開始前から DbgHelp シンボルリゾルバが外部で初期化済みだった。 */
+        bool symbol_resolver_preexisting = false;
+
+        /** 基盤寿命中だけ適用する Debug CRT プロセス設定。 */
+        FCrtDebugHeapProcessConfigurationScope CrtProcessConfiguration;
+
+        /** 基盤寿命中の CRT ヒープ正味増加を終了時に検査する。 */
+        FCrtDebugHeapScope CrtHeapScope;
+    };
+
+    friend class app_internal::FApplicationTestAccess;
+
+    /**
      * FWindow のイベントを Input に流しつつ OnEvent も呼ぶ静的ブリッジ。
      *
-     * @param user this を指すユーザポインタ (SetEventCallback で登録)。
-     * @param e 受信したイベント。
+     * @param user_data this を指すユーザポインタ (SetEventCallback で登録)。
+     * @param event 受信したイベント。
      */
-    static void EventBridge(void* user, const Event& e) noexcept;
+    static void EventBridge(void* user_data, const Event& event) noexcept;
+
+    // 最初に構築して最後に破棄する。以降のメンバを dead allocator/device より先に解放する。
+    RuntimeFoundationLifetime m_RuntimeFoundationLifetime;
 
     /** OS ウィンドウ。 */
-    FWindow         m_Window;
+    FWindow m_Window;
 
     /** レンダラ。 */
-    FRenderer       m_Renderer;
+    FRenderer m_Renderer;
 
     /** ECS World。 */
-    World          m_World;
+    World m_World;
 
     /** アセットレジストリ。 */
-    FAssetRegistry  m_Assets;
+    FAssetRegistry m_Assets;
 
     /** タイマーマネージャ。 */
-    FTimerManager   m_Timers;
+    FTimerManager m_Timers;
 
     /** イベントブローカー。 */
-    MessageBroker  m_Events;
+    MessageBroker m_Events;
 
     /** フレーム計時 (dt・FPS・フレーム数を提供)。 */
-    FrameTimer     m_FrameTimer;
+    FrameTimer m_FrameTimer;
 
     /** 直近フレームの経過秒。 */
-    f32            m_Dt       = 0.0f;
+    f32 m_Dt = 0.0f;
 
     /** メインループ継続フラグ (Quit で false)。 */
-    bool           m_bRunning  = true;
+    bool m_bRunning = true;
+
+    /** Run の再入を防ぐ。 */
+    bool m_RunActive = false;
+
+    /** 正常 Run 後のレンダラとウィンドウが派生デストラクタ待ちで残っている。 */
+    bool m_RunCompleted = false;
 
     /** Run に渡された起動オプションの控え。 */
-    FAppConfig      m_Cfg;
+    FAppConfig m_Cfg;
 
     /** BeginFrame に渡す現在のクリア色。 */
-    ClearColor     m_ClearColor{};
+    ClearColor m_ClearColor{};
 };
 
 } // namespace acs

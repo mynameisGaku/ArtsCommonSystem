@@ -57,11 +57,14 @@ public:
     /**
      * COM とマスタリングボイスを含む XAudio2 エンジンを初期化する。
      *
+     * @details
+     * COM の参照数を正しく釣り合わせるため、Shutdown とデストラクタは Init を
+     * 呼んだスレッドで実行する。
      * @return 成功なら空の TResult、二重初期化や XAudio2 生成失敗ならエラー。
      */
     TResult<void> Init() noexcept;
 
-    /** 全ボイスを停止・解放し、XAudio2 と COM を後始末する (多重呼び出し安全)。 */
+    /** 全ボイスを停止・解放し、XAudio2 と COM を後始末する (多重呼び出し安全、Init と同一スレッド必須)。 */
     void Shutdown() noexcept;
 
     /**

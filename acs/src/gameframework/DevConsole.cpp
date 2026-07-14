@@ -7,6 +7,7 @@
 #include "memory/Allocator.h"
 #include "memory/Memory.h"
 #include "foundation/SourceLoc.h"
+#include "foundation/Assert.h"
 
 #include <cstring>   // strlen, strcmp
 
@@ -19,8 +20,8 @@ const char* FDevConsole::DupString(const char* src) noexcept {
     usize len = 0;
     while (len < kMaxLineLen && src[len] != '\0') ++len;
 
-    FAllocator& a = DefaultAllocator();
-    char* buf = static_cast<char*>(a.Alloc(len + 1, alignof(char), FSourceLoc::Current()));
+    ACS_ASSERT(m_Allocator != nullptr);
+    char* buf = static_cast<char*>(m_Allocator->Alloc(len + 1, alignof(char), FSourceLoc::Current()));
     if (buf == nullptr) return nullptr;
     if (len > 0) MemCopy(buf, src, len);
     buf[len] = '\0';
@@ -31,7 +32,8 @@ const char* FDevConsole::DupString(const char* src) noexcept {
 void FDevConsole::FreeString(const char* s) noexcept {
     if (s == nullptr) return;
     // DupString が確保したものを Free する。const_cast は所有元が分かっているため安全。
-    DefaultAllocator().Free(const_cast<void*>(static_cast<const void*>(s)));
+    ACS_ASSERT(m_Allocator != nullptr);
+    m_Allocator->Free(const_cast<void*>(static_cast<const void*>(s)));
 }
 
 /** line を複製して buf 末尾に追加する (cap 到達時は最古を Free して shift left)。 */

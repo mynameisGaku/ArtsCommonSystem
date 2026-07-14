@@ -103,6 +103,9 @@ public:
     EFormat                ColorFormat() const noexcept { return m_Format; }
 
 private:
+    /** スワップチェインを解放して空状態へ戻す。 */
+    void Reset() noexcept;
+
     /** Init で受け取った Diligent デバイス。 */
     DiligentDevice*       m_Device       = nullptr;
 

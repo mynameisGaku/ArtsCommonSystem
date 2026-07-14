@@ -209,7 +209,11 @@ D3D12_STATIC_SAMPLER_DESC MakeStaticSampler(const SamplerDesc& s, u32 reg) noexc
     d.AddressV = ToD3DAddress(s.address_v);
     d.AddressW = ToD3DAddress(s.address_w);
     d.MipLODBias = 0.0f;
-    d.MaxAnisotropy = (s.filter == ESamplerFilter::Anisotropic) ? s.max_anisotropy : 0;
+    if (s.filter == ESamplerFilter::Anisotropic) {
+        d.MaxAnisotropy = s.max_anisotropy < 1u ? 1u : (s.max_anisotropy > 16u ? 16u : s.max_anisotropy);
+    } else {
+        d.MaxAnisotropy = 1;
+    }
     if (s.comparison) {   // HW 比較 PCF サンプラ (シャドウ SampleCmpLevelZero、lit ⇔ cmp ≤ stored)
         d.Filter = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
         d.ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
@@ -229,27 +233,55 @@ D3D12_STATIC_SAMPLER_DESC MakeStaticSampler(const SamplerDesc& s, u32 reg) noexc
 
 /** PSO と RootSignature を解放する。 */
 Dx12Pipeline::~Dx12Pipeline() noexcept {
+    Reset();
+}
+
+void Dx12Pipeline::Reset() noexcept
+{
     ACS_SAFE_RELEASE(m_Pso);
     ACS_SAFE_RELEASE(m_RootSig);
+    m_Topology = EPrimitiveTopology::TriangleList;
+    m_CbufferSlots = 0;
+    m_TextureSlots = 0;
 }
 
 /** ルートシグネチャ・入力レイアウト・PSO を構築する (CreateRhiPipeline 経由で呼ばれる)。 */
 HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexcept {
     HrResult r{};
+    Reset();
+
+    if (!device.D3DDevice() || !desc.vs || !desc.vs->Bytecode() || desc.vs->BytecodeSize() == 0 ||
+        desc.vs->Stage() != EShaderStage::Vertex) {
+        r.hr = E_INVALIDARG;
+        return r;
+    }
+    if (desc.ps && (!desc.ps->Bytecode() || desc.ps->BytecodeSize() == 0 || desc.ps->Stage() != EShaderStage::Pixel)) {
+        r.hr = E_INVALIDARG;
+        return r;
+    }
+    if (desc.layout_count > 8 || desc.static_sampler_count > 16 || desc.cbuffer_slots > 16 || desc.texture_slots > 16 ||
+        desc.cbuffer_slots > 16u - desc.texture_slots ||
+        ToD3DTopologyType(desc.topology) == D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED) {
+        r.hr = E_INVALIDARG;
+        return r;
+    }
+    if (desc.ps && ToDxgiFormat(desc.rt_format) == DXGI_FORMAT_UNKNOWN) {
+        r.hr = E_INVALIDARG;
+        return r;
+    }
+    if (desc.depth_format != EFormat::Unknown && desc.depth_format != EFormat::D24_UNorm_S8_UInt &&
+        desc.depth_format != EFormat::D32_Float) {
+        r.hr = E_INVALIDARG;
+        return r;
+    }
+
     m_Topology = desc.topology;
     m_CbufferSlots = desc.cbuffer_slots;
     m_TextureSlots = desc.texture_slots;
 
-    if (!desc.vs) { r.hr = E_INVALIDARG; return r; }
-    // ps は省略可（depth-only パイプラインの場合）
-
     // ルートシグネチャを構築する。
     // パラメータ: [N x root CBV (b0..)] + [M x descriptor table (1 SRV @ tN..)]
     constexpr u32 kMaxParams = 16;
-    if (desc.cbuffer_slots + desc.texture_slots > kMaxParams) {
-        r.hr = E_INVALIDARG; return r;
-    }
-
     D3D12_ROOT_PARAMETER params[kMaxParams]{};
     D3D12_DESCRIPTOR_RANGE ranges[kMaxParams]{};   // テクスチャ用、各 1 entry
     u32 param_count = 0;
@@ -277,7 +309,7 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
 
     // 静的サンプラ (FPipelineDesc.static_samplers は容量 16。FPbrShader は 10 個使うため 4 では不足だった)
     D3D12_STATIC_SAMPLER_DESC samplers[16]{};
-    const u32 sampler_count = desc.static_sampler_count > 16 ? 16 : desc.static_sampler_count;
+    const u32 sampler_count = desc.static_sampler_count;
     for (u32 i = 0; i < sampler_count; ++i) {
         samplers[i] = MakeStaticSampler(desc.static_samplers[i], i);
     }
@@ -294,11 +326,19 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
     r.hr = ::D3D12SerializeRootSignature(&rsd, D3D_ROOT_SIGNATURE_VERSION_1,
                                          &sig_blob, &err_blob);
     if (r.IsErr()) {
+        ACS_SAFE_RELEASE(sig_blob);
         if (err_blob) {
             ACS_LOG_ERROR("RootSignature serialize: %s",
                           static_cast<const char*>(err_blob->GetBufferPointer()));
             err_blob->Release();
         }
+        Reset();
+        return r;
+    }
+    if (!sig_blob) {
+        ACS_SAFE_RELEASE(err_blob);
+        r.hr = E_FAIL;
+        Reset();
         return r;
     }
     r.hr = device.D3DDevice()->CreateRootSignature(
@@ -306,11 +346,20 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
         IID_PPV_ARGS(&m_RootSig));
     sig_blob->Release();
     if (err_blob) err_blob->Release();
-    if (r.IsErr()) return r;
+    if (r.IsErr() || !m_RootSig) {
+        if (r.IsOk()) r.hr = E_FAIL;
+        Reset();
+        return r;
+    }
 
     // 入力レイアウトを DX12 形式に変換
     D3D12_INPUT_ELEMENT_DESC ie[8]{};
-    for (u32 i = 0; i < desc.layout_count && i < 8; ++i) {
+    for (u32 i = 0; i < desc.layout_count; ++i) {
+        if (!desc.layout[i].semantic_name || ToDxgiFormat(desc.layout[i].format) == DXGI_FORMAT_UNKNOWN) {
+            r.hr = E_INVALIDARG;
+            Reset();
+            return r;
+        }
         ie[i].SemanticName = desc.layout[i].semantic_name;
         ie[i].SemanticIndex = desc.layout[i].semantic_index;
         ie[i].Format = ToDxgiFormat(desc.layout[i].format);
@@ -348,6 +397,10 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
     pd.InputLayout.NumElements = desc.layout_count;
 
     r.hr = device.D3DDevice()->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&m_Pso));
+    if (r.IsErr() || !m_Pso) {
+        if (r.IsOk()) r.hr = E_FAIL;
+        Reset();
+    }
     return r;
 }
 
@@ -359,21 +412,46 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
  * RTTI 無効のためバックエンド名で DX12 を判定し、Dx12Pipeline を構築・初期化して返す。
  * Diligent バックエンド有効時は別実装が提供される。
  * @param device 生成元のデバイス (DX12 でなければエラー)。
- * @param desc 構築するパイプラインの記述。
+ * @param description 構築するパイプラインの記述。
  * @return 生成したパイプラインを保持する TResult、判定・初期化失敗ならエラー。
  */
-TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device,
-                                                  const FPipelineDesc& desc) noexcept {
-    const char* bn = device.BackendName();
-    if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
+TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device, const FPipelineDesc& description) noexcept
+{
+    const char* const backend_name = device.BackendName();
+    if (!backend_name ||
+        !(backend_name[0] == 'D' && backend_name[1] == 'X' && backend_name[2] == '1' && backend_name[3] == '2')) {
         return ACS_ERR(Render, 50, "CreateRhiPipeline: device is not DX12");
-    Dx12Device* dxd = static_cast<Dx12Device*>(&device);
-    auto p = MakeUnique<Dx12Pipeline>();
-    const HrResult r = p->Init(*dxd, desc);
-    if (r.IsErr())
-        return ACS_ERR_OS(Render, 51, "Dx12Pipeline::Init failed", static_cast<u32>(r.hr));
-    TUniquePtr<IRhiPipeline> base(p.Release(), p.GetAllocator());
+    }
+
+    auto pipeline = MakeUnique<Dx12Pipeline>();
+    if (!pipeline) return ACS_ERR(Memory, 52, "Dx12Pipeline allocation failed");
+
+    const HrResult result = pipeline->Init(static_cast<Dx12Device&>(device), description);
+    if (result.IsErr()) {
+        return ACS_ERR_OS(Render, 51, "Dx12Pipeline::Init failed", static_cast<u32>(result.hr));
+    }
+
+    TUniquePtr<IRhiPipeline> base(pipeline.Release(), pipeline.GetAllocator());
     return TResult<TUniquePtr<IRhiPipeline>>(OkInit, Move(base));
+}
+
+/**
+ * raw DX12 で未対応の compute パイプライン要求を明示的なエラーへ変換する。
+ *
+ * @details compute コマンド群は現在 Diligent バックエンドだけが実装している。
+ * 未定義シンボルにせず、共通レンダラーが機能を安全にスキップできる契約を保つ。
+ */
+TResult<TUniquePtr<IRhiPipeline>> CreateRhiComputePipeline(IRhiDevice& device,
+                                                           const FComputePipelineDesc& description) noexcept
+{
+    (void)description;
+    const char* const backend_name = device.BackendName();
+    if (!backend_name || backend_name[0] != 'D' || backend_name[1] != 'X' || backend_name[2] != '1' ||
+        backend_name[3] != '2') {
+        return ACS_ERR(Render, 52, "CreateRhiComputePipeline: device is not DX12");
+    }
+
+    return ACS_ERR(Render, 53, "CreateRhiComputePipeline: raw DX12 compute is not supported");
 }
 #endif
 

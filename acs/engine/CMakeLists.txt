@@ -30,6 +30,15 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# MSVC の既定 /EHsc は ACS の例外無効化指定 /EHs-c- と競合し、全翻訳単位で
+# D9025 を発生させる。ACS の親スコープからだけ除去し、例外を使うサードパーティは
+# 各 FetchContent スコープで必要な指定を明示する。
+if(MSVC)
+    string(REGEX REPLACE "(^|[ \t])[/\\-]EHsc([ \t]|$)" " "
+           CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    string(STRIP "${CMAKE_CXX_FLAGS}" CMAKE_CXX_FLAGS)
+endif()
+
 # clang-tidy / IDE 言語サーバ (clangd, VS, Rider, CLion) のための compile_commands.json
 # Phase 3c (StyleGuide v1) — リント基盤の最小実装。詳細は docs/StyleGuide.md §12.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "Export compile_commands.json for clang-tidy / IDE.")
@@ -51,6 +60,21 @@ option(ACS_BUILD_TESTS    "Build ACS unit tests"               ON)
 option(ACS_BUILD_SAMPLES  "Build sample applications"          ON)
 option(ACS_BUILD_TOOLS    "Build ACS CLI tools (acs_assetpack)" ON)
 option(ACS_ENABLE_ASSERTS "Enable ACS_ASSERT in all builds"    ON)
+option(ACS_ENABLE_ADDRESS_SANITIZER
+       "Instrument ACS targets with AddressSanitizer"          OFF)
+
+# MSVC の Debug 既定値に含まれる /RTC は AddressSanitizer と併用できない。
+# 個々のターゲットではなくキャッシュ変数から除去し、依存ターゲットにも残さない。
+if(MSVC AND ACS_ENABLE_ADDRESS_SANITIZER)
+    foreach(_acs_flag_variable CMAKE_C_FLAGS_DEBUG CMAKE_CXX_FLAGS_DEBUG)
+        string(REGEX REPLACE "(^| )[/-]RTC[^ ]*" "" ${_acs_flag_variable}
+               "${${_acs_flag_variable}}")
+    endforeach()
+    # FetchContent 配下を含む全ターゲットを同一条件で計装する。境界をまたぐ
+    # 解放後使用を検出するには、ACS本体だけの部分的な計装では不十分なため。
+    add_compile_options(/fsanitize=address /Oy- /Zi)
+    add_link_options(/INCREMENTAL:NO /DEBUG:FULL)
+endif()
 set(ACS_STARTUP_PROJECT "hello_scene2d" CACHE STRING
     "Visual Studio startup project when the single ACS solution is opened.")
 

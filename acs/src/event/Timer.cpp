@@ -4,9 +4,51 @@
 
 namespace acs {
 
+/** 次の登録へ割り当てる世代番号を返し、無効値 0 は飛ばす。 */
+u32 FTimerManager::AcquireGeneration() noexcept
+{
+    u32 generation = m_NextGeneration++;
+    if (generation == 0) generation = m_NextGeneration++;
+    return generation;
+}
+
+/** 全 slot を無効化し、コールバックと user pointer を直ちに切り離す。 */
+void FTimerManager::InvalidateAllSlots() noexcept
+{
+    for (usize i = 0; i < m_Slots.Size(); ++i) {
+        Slot& slot = m_Slots[i];
+        slot.active = false;
+        slot.cb = nullptr;
+        slot.user = nullptr;
+    }
+    m_NextId = 1;
+}
+
+/** Clear 済み slot の確保容量を解放し、再利用可能な空状態に戻す。 */
+void FTimerManager::ReleaseClearedStorage() noexcept
+{
+    m_Slots = TArray<Slot>{*m_Slots.GetAllocator()};
+    m_FreeIndices = TArray<u32>{*m_FreeIndices.GetAllocator()};
+    m_ClearPending = false;
+}
+
+/** 全タイマを無効化し、Tick 中なら配列容量の解放だけを安全な時点まで延期する。 */
+void FTimerManager::Clear() noexcept
+{
+    if (m_ClearPending) return;
+
+    InvalidateAllSlots();
+    if (m_TickDepth != 0) {
+        // Tick が保持し得る Slot& を壊さず、コールバック復帰後の走査を安全に終わらせる。
+        m_ClearPending = true;
+        return;
+    }
+    ReleaseClearedStorage();
+}
+
 /** delay_seconds 後に 1 回だけ呼ぶタイマを登録する (空き slot 再利用 + 世代更新)。 */
 FTimerHandle FTimerManager::SetTimeout(f32 delay_seconds, TimerCallback cb, void* user) noexcept {
-    if (!cb || delay_seconds < 0.0f) return kInvalidTimer;
+    if (!cb || delay_seconds < 0.0f || m_ClearPending) return kInvalidTimer;
 
     u32 idx;
     if (m_FreeIndices.Size() > 0) {
@@ -19,7 +61,7 @@ FTimerHandle FTimerManager::SetTimeout(f32 delay_seconds, TimerCallback cb, void
 
     Slot& s = m_Slots[idx];
     if (s.id == 0) s.id = m_NextId++;
-    s.generation++;        // 再利用の度に generation を進める
+    s.generation = AcquireGeneration();
     s.active    = true;
     s.repeating = false;
     s.remaining = delay_seconds;
@@ -31,7 +73,7 @@ FTimerHandle FTimerManager::SetTimeout(f32 delay_seconds, TimerCallback cb, void
 
 /** period_seconds ごとに繰り返し呼ぶタイマを登録する (空き slot 再利用 + 世代更新)。 */
 FTimerHandle FTimerManager::SetInterval(f32 period_seconds, TimerCallback cb, void* user) noexcept {
-    if (!cb || period_seconds <= 0.0f) return kInvalidTimer;
+    if (!cb || period_seconds <= 0.0f || m_ClearPending) return kInvalidTimer;
 
     u32 idx;
     if (m_FreeIndices.Size() > 0) {
@@ -44,7 +86,7 @@ FTimerHandle FTimerManager::SetInterval(f32 period_seconds, TimerCallback cb, vo
 
     Slot& s = m_Slots[idx];
     if (s.id == 0) s.id = m_NextId++;
-    s.generation++;
+    s.generation = AcquireGeneration();
     s.active    = true;
     s.repeating = true;
     s.remaining = period_seconds;
@@ -73,6 +115,10 @@ bool FTimerManager::Cancel(FTimerHandle h) noexcept {
 
 /** dt を経過させ、発火条件を満たしたタイマを呼ぶ (周期は catch-up で複数回発火し得る)。 */
 void FTimerManager::Tick(f32 dt) noexcept {
+    // 外側のコールバックが Clear 済みなら、配列の解放を担当する最外周 Tick へ戻る。
+    if (m_ClearPending) return;
+    ++m_TickDepth;
+
     // コールバック中にタイマを追加 / Cancel される可能性があるので、
     // ループ中の m_Slots.Size() を毎回読み直す。新規追加は末尾のため安全。
     // 既存スロットを active=false にされても次のループで checked される。
@@ -124,6 +170,9 @@ void FTimerManager::Tick(f32 dt) noexcept {
             cb(user);  // 呼び出し後 cur/s は dangling し得る → 参照を残さずループ先頭で取り直す
         }
     }
+
+    --m_TickDepth;
+    if (m_TickDepth == 0 && m_ClearPending) ReleaseClearedStorage();
 }
 
 /** active な slot を数えて現在のアクティブタイマ数を返す。 */

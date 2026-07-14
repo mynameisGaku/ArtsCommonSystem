@@ -14,6 +14,8 @@
 #include "test/Expect.h"
 #include "gameframework/Reflect.h"
 #include "gameframework/ReflectCatalog.h"   // AcsRegisterEngineTypes (実エンジン型カタログ)
+#include "memory/Memory.h"
+#include "memory/SystemAllocator.h"
 
 #include <cstring>   // std::strcmp
 
@@ -45,6 +47,11 @@ struct IReflBackend {
 
 // 列挙体 (value↔name の反射)。
 enum class EReflWeapon : u8 { Sword, Bow, Staff };
+
+/** factory の内部ヘッダを含めても過剰整列が維持されることを検証する型。 */
+struct alignas(64) FReflAlignedAllocation {
+    u64 value = 42u;
+};
 
 ACS_COMPONENT(FReflHealth,
     ACS_RFIELD(FReflHealth, hp,     acs::game::EFieldKind::F32),
@@ -148,6 +155,27 @@ ACS_TEST(Reflect, FactoryCreateGenericFieldWriteDestroy) {
     reg.Destroy(d->id, obj);
 }
 
+ACS_TEST(Reflect, FactoryDestroyUsesAllocatorCapturedAtCreate)
+{
+    FSystemAllocator first_allocator;
+    FSystemAllocator second_allocator;
+    FAllocator* const original_allocator = &DefaultAllocator();
+
+    SetDefaultAllocator(&first_allocator);
+    void* const object = AcsConstruct<FReflAlignedAllocation>();
+    EXPECT_TRUE(object != nullptr);
+    EXPECT_TRUE((reinterpret_cast<uptr>(object) % alignof(FReflAlignedAllocation)) == 0u);
+    EXPECT_TRUE(first_allocator.BytesAllocated() > 0u);
+
+    // 破棄時の既定値は別物でも、生成時の first_allocator へ返さなければならない。
+    SetDefaultAllocator(&second_allocator);
+    AcsDestruct<FReflAlignedAllocation>(object);
+    EXPECT_EQ(first_allocator.BytesAllocated(), 0ull);
+    EXPECT_EQ(second_allocator.BytesAllocated(), 0ull);
+
+    SetDefaultAllocator(original_allocator);
+}
+
 ACS_TEST(Reflect, EnumReflectsValuesAndNames) {
     auto& reg = FTypeRegistry::Get();
     const FTypeDesc* d = reg.FindByName("EReflWeapon");
@@ -220,6 +248,63 @@ ACS_TEST(Reflect, TypeDescOfMatchesRegistry) {
     EXPECT_TRUE(AcsTypeDescOf<FReflHealth>() == reg.FindByName("FReflHealth"));
     EXPECT_TRUE(AcsTypeDescOf<EReflWeapon>() == reg.FindByName("EReflWeapon"));
     EXPECT_TRUE(AcsTypeDescOf<FReflTransform>() == reg.FindByName("FReflTransform"));
+}
+
+ACS_TEST(Reflect, DynamicRegistrationSourcesRetireWithoutDangling)
+{
+    FTypeRegistry& registry = FTypeRegistry::Get();
+    const u32 count_before = registry.Count();
+
+    FTypeDesc first{};
+    first.name = "FDynamicEditorContract";
+    first.id = AcsTypeHash(first.name);
+    first.category = ETypeCategory::Component;
+
+    FTypeDesc second = first;
+    EXPECT_TRUE(registry.Register(&first));
+    EXPECT_TRUE(registry.Register(&second));
+    EXPECT_EQ(registry.Count(), count_before + 1u);
+    EXPECT_TRUE(registry.FindById(first.id) == &first);
+
+    // 後から登録した同 ID の記述子だけを外しても、先行登録は維持される。
+    EXPECT_TRUE(registry.Unregister(&second));
+    EXPECT_TRUE(registry.FindById(first.id) == &first);
+
+    // 先行登録を外した場合は、残っている次の登録元へ検索結果を切り替える。
+    EXPECT_TRUE(registry.Register(&second));
+    EXPECT_TRUE(registry.Unregister(&first));
+    EXPECT_TRUE(registry.FindById(second.id) == &second);
+
+    // 最後の登録元を外すと型そのものが列挙対象から消える。
+    EXPECT_TRUE(registry.Unregister(&second));
+    EXPECT_TRUE(registry.FindById(second.id) == nullptr);
+    EXPECT_EQ(registry.Count(), count_before);
+    EXPECT_TRUE(!registry.Unregister(&second));
+}
+
+ACS_TEST(Reflect, AutoRegistrationRetiresOnlyItsOwnSource)
+{
+    FTypeRegistry& registry = FTypeRegistry::Get();
+    const u32 count_before = registry.Count();
+
+    FTypeDesc first{};
+    first.name = "FAutoRegistrationContract";
+    first.id = AcsTypeHash(first.name);
+    first.category = ETypeCategory::Component;
+
+    FTypeDesc second = first;
+    {
+        FTypeAutoRegister first_registration(&first);
+        EXPECT_TRUE(registry.Register(&second));
+        EXPECT_EQ(registry.Count(), count_before + 1u);
+        EXPECT_TRUE(registry.FindById(first.id) == &first);
+    }
+
+    // 自動登録元の破棄後も、同じ ID の別登録元を検索結果として維持する。
+    EXPECT_TRUE(registry.FindById(second.id) == &second);
+    EXPECT_TRUE(registry.Unregister(&second));
+    EXPECT_TRUE(registry.FindById(second.id) == nullptr);
+    EXPECT_EQ(registry.Count(), count_before);
 }
 
 // ===== 実エンジン型カタログ (ReflectCatalog) の検証 ==========================

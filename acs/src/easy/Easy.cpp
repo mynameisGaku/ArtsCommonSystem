@@ -16,6 +16,7 @@
 #include "container/Array.h"
 #include "container/String.h"
 #include "memory/MemorySystem.h"
+#include "memory/SystemAllocator.h"
 #include "memory/UniquePtr.h"
 #include "memory/SharedPtr.h"
 #include "threading/ThreadPool.h"
@@ -88,9 +89,22 @@ const FColor FColor::Clear  { 0.0f,  0.0f,  0.0f,  0.0f };
 namespace {
 
 /**
+ * Easy のプロセス寿命状態が使う明示的な確保元。
+ *
+ * @details MemorySystem の起動・停止をまたいで EasyState が生存するため、静的コンテナは
+ * 実行時の DefaultAllocator を保持せず、常にプロセスヒープから確保する。
+ */
+FSystemAllocator g_easy_allocator;
+
+/**
  * LoadSprite が確保する 1 枚分のスプライト情報。
  */
 struct SpriteSlot {
+    /** プロセス寿命状態へ残るパスの確保元を固定する。 */
+    SpriteSlot() noexcept : path(g_easy_allocator)
+    {
+    }
+
     /** GPU テクスチャ (所有権を持つ)。 */
     TUniquePtr<IRhiTexture> tex;
 
@@ -108,6 +122,11 @@ struct SpriteSlot {
  * LoadSound が確保する 1 つ分のサウンド情報。
  */
 struct SoundSlot {
+    /** プロセス寿命状態へ残るパスの確保元を固定する。 */
+    SoundSlot() noexcept : path(g_easy_allocator)
+    {
+    }
+
     /** 音声アセット (再生中ずっと生かしておくため TSharedPtr で保持)。 */
     TSharedPtr<Asset>   asset;
 
@@ -126,11 +145,30 @@ struct SoundSlot {
  * リセットされ、演出 (シェイク/フラッシュ) は NextFrame で駆動される。
  */
 struct EasyState {
+    /** プロセス寿命アロケータを静的コンテナへ固定して構築する。 */
+    EasyState() noexcept
+        : assets(g_easy_allocator),
+          sprites(g_easy_allocator),
+          sounds(g_easy_allocator),
+          graph_closures(g_easy_allocator),
+          graph_handles(g_easy_allocator)
+    {
+    }
+
     /** OpenWindow に成功した。 */
     bool booted      = false;
 
     /** OpenWindow に失敗した。 */
     bool boot_failed = false;
+
+    /** OpenWindow がロガーを起動し、終了責任を持つか。 */
+    bool logger_owned = false;
+
+    /** OpenWindow が MemorySystem を起動し、終了責任を持つか。 */
+    bool memory_system_owned = false;
+
+    /** OpenWindow が ThreadPool を起動または jobs から引き継ぎ、終了責任を持つか。 */
+    bool thread_pool_owned = false;
 
     /** NextFrame が false を返し、後始末も済んだ。 */
     bool finished    = false;
@@ -258,6 +296,11 @@ struct EasyState {
      * @details メインスレッドからのみ操作する。スロットは世代付きで再利用する。
      */
     struct AsyncBatch {
+        /** クロージャ配列の確保元をプロセス寿命アロケータへ固定する。 */
+        AsyncBatch() noexcept : closures(g_easy_allocator)
+        {
+        }
+
         /** このバッチの全ジョブの完了カウンタ (非コピーなので in-place 構築)。 */
         CompletionCounter counter;
 
@@ -288,6 +331,9 @@ struct EasyState {
 
     /** jobs 用 atexit を登録済みか。 */
     bool              jobs_atexit     = false;
+
+    /** Easy 本体の atexit を登録済みか。再起動しても重複登録しない。 */
+    bool shutdown_atexit = false;
 };
 
 /** easy API 全体の唯一のグローバル状態インスタンス。 */
@@ -490,9 +536,7 @@ void RunClosureTask(void* user, u32 /*worker*/) noexcept {
  * @param c 解放するクロージャ (nullptr 可)。
  */
 void FreeClosure(jobdetail::Closure* c) noexcept {
-    if (!c) return;
-    c->destroy(c);
-    DefaultAllocator().Free(c);
+    jobdetail::DestroyClosure(c);
 }
 
 /**
@@ -507,14 +551,14 @@ void CleanupJobs() noexcept {
         FThreadPool::Wait(b.counter);
         for (usize k = 0; k < b.closures.Size(); ++k)
             FreeClosure(static_cast<jobdetail::Closure*>(b.closures[k]));
-        b.closures = TArray<void*>{};
+        b.closures.ReleaseStorage();
         b.live = false;
     }
     if (g_state.pending_graph) {
         for (usize k = 0; k < g_state.graph_closures.Size(); ++k)
             FreeClosure(static_cast<jobdetail::Closure*>(g_state.graph_closures[k]));
-        g_state.graph_closures = TArray<void*>{};
-        g_state.graph_handles  = TArray<JobHandle>{};
+        g_state.graph_closures.ReleaseStorage();
+        g_state.graph_handles.ReleaseStorage();
         delete g_state.pending_graph;
         g_state.pending_graph = nullptr;
     }
@@ -530,6 +574,9 @@ void JobsAtexit() {
     if (g_state.jobs_pool_owned) { FThreadPool::Shutdown(); g_state.jobs_pool_owned = false; }
 }
 
+/** セーブ用の静的コンテナを、メモリシステム停止前に解放する。 */
+void ReleaseSaveStorage() noexcept;
+
 /**
  * easy の全リソースを後始末する (NextFrame がウィンドウ閉鎖を検知したとき 1 度だけ呼ぶ)。
  *
@@ -543,19 +590,48 @@ void ShutdownEasy() noexcept {
     if (g_state.renderer.Device()) g_state.renderer.Device()->WaitIdle();
     g_state.batch.Shutdown();
     g_state.font.Shutdown();
+    g_state.font_ok = false;
     g_state.circle_tex.Reset();
-    g_state.sprites = TArray<SpriteSlot>{};   // 全スプライトのテクスチャを解放
-    if (g_state.audio_ok) g_state.audio.Shutdown();
-    g_state.sounds = TArray<SoundSlot>{};
-    g_state.assets.Clear();
+    // 静的状態が持つ配列の確保元は維持する。空配列のムーブ代入で現在の
+    // MemorySystem アロケータへ差し替えると、停止後の再利用時に無効な確保元を触る。
+    g_state.sprites.ReleaseStorage(); // 全スプライトのテクスチャを解放
+    // 部分初期化で失敗していても Shutdown は安全なので、成功フラグに依存させない。
+    g_state.audio.Shutdown();
+    g_state.audio_ok = false;
+    g_state.sounds.ReleaseStorage();
+    g_state.assets.Shutdown();
+    ReleaseSaveStorage(); // FString の確保元が生きている間に静的容量も返す
     g_state.burn.Shutdown();
-    if (g_state.post_available) g_state.post.Shutdown();
+    g_state.post.Shutdown();
+    g_state.post_available = false;
     g_state.renderer.Shutdown();             // ここで GPU デバイスを破棄する
-    FThreadPool::Shutdown();
-    FMemorySystem::Shutdown();
+    g_state.window = FWindow{};              // HWND をプロセス終了まで保持しない
+
+    if (g_state.thread_pool_owned) {
+        FThreadPool::Shutdown();
+        g_state.thread_pool_owned = false;
+    }
+    if (g_state.memory_system_owned) {
+        FMemorySystem::Shutdown();
+        g_state.memory_system_owned = false;
+    }
     ACS_LOG_INFO("easy: 終了しました");
-    FLogger::Flush();
-    FLogger::Shutdown();
+    if (g_state.logger_owned) {
+        FLogger::Flush();
+        FLogger::Shutdown();
+        g_state.logger_owned = false;
+    }
+
+    g_state.booted = false;
+    g_state.frame_open = false;
+    g_state.quit_req = false;
+}
+
+/** OpenWindow の途中失敗を逆順に巻き戻し、失敗状態を確定する。 */
+void FailEasyStartup() noexcept
+{
+    ShutdownEasy();
+    g_state.boot_failed = true;
 }
 
 /** 起動済みかつ未終了なら ShutdownEasy を 1 度だけ呼ぶ (多重後始末防止)。 */
@@ -593,6 +669,11 @@ void DrawScreenOverlays() noexcept {
  * セーブデータ 1 件分の key=value エントリ。
  */
 struct SaveEntry {
+    /** OpenWindow の有無に依存しないセーブ API 用に確保元を固定する。 */
+    SaveEntry() noexcept : key(g_easy_allocator), value(g_easy_allocator)
+    {
+    }
+
     /** エントリのキー。 */
     FString key;
 
@@ -601,10 +682,17 @@ struct SaveEntry {
 };
 
 /** ロード済みセーブエントリの配列 (save.dat の内容)。 */
-TArray<SaveEntry> g_save;
+TArray<SaveEntry> g_save(g_easy_allocator);
 
 /** save.dat を 1 度ロード済みか (再ロードを避ける)。 */
 bool             g_save_loaded = false;
+
+/** セーブ内容と予約済み容量を解放し、次回アクセス時に再読込できる状態へ戻す。 */
+void ReleaseSaveStorage() noexcept
+{
+    g_save.ReleaseStorage();
+    g_save_loaded = false;
+}
 
 /**
  * save.dat を一度だけ読み込んで g_save に展開する。
@@ -636,8 +724,8 @@ void EnsureSaveLoaded() noexcept {
             if (*eq == '=') {
                 *eq = 0;                             // key 部を NUL 終端
                 SaveEntry e;
-                e.key   = FString{ line };
-                e.value = FString{ eq + 1 };
+                e.key = FString{line, g_easy_allocator};
+                e.value = FString{eq + 1, g_easy_allocator};
                 g_save.PushBack(Move(e));
             }
         }
@@ -693,11 +781,11 @@ void SetSaveValue(const char* key, const char* value) noexcept {
     EnsureSaveLoaded();
     SaveEntry* e = FindSave(key);
     if (e) {
-        e->value = FString{ value };
+        e->value = FString{value, g_easy_allocator};
     } else {
         SaveEntry ne;
-        ne.key   = FString{ key };
-        ne.value = FString{ value };
+        ne.key = FString{key, g_easy_allocator};
+        ne.value = FString{value, g_easy_allocator};
         g_save.PushBack(Move(ne));
     }
     WriteSaveFile();
@@ -728,21 +816,42 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
         return;
     }
 
-    // 1. ロガー
-    FLogConfig lc{};
-    FLogger::Init(lc);
+    // 正常終了後の再起動では前 lifecycle の終了フラグを持ち越さない。
+    g_state.finished = false;
+    g_state.frame_open = false;
+    g_state.quit_req = false;
+    g_state.warned_draw = false;
+    g_state.fs_request = -1;
+    g_state.ui_active = 0;
+
+    // 1. ロガー。呼出側が既に起動している場合は借用し、終了時にも停止しない。
+    if (!FLogger::IsInitialized()) {
+        FLogConfig lc{};
+        FLogger::Init(lc);
+        g_state.logger_owned = FLogger::IsInitialized();
+    }
 
     // 2. メモリシステム
-    if (auto r = FMemorySystem::Init(FMemorySystem::DefaultConfig()); r.IsErr()) {
-        ACS_LOG_ERROR("easy: メモリシステムの初期化に失敗: %s", r.Error().message);
-        g_state.boot_failed = true;
-        return;
+    if (FMemorySystem::Get(ESegment::Default) == nullptr) {
+        if (auto r = FMemorySystem::Init(FMemorySystem::DefaultConfig()); r.IsErr()) {
+            ACS_LOG_ERROR("easy: メモリシステムの初期化に失敗: %s", r.Error().message);
+            FailEasyStartup();
+            return;
+        }
+        g_state.memory_system_owned = true;
     }
     // 3. スレッドプール
-    if (auto r = FThreadPool::Init(); r.IsErr()) {
-        ACS_LOG_ERROR("easy: スレッドプールの初期化に失敗: %s", r.Error().message);
-        g_state.boot_failed = true;
-        return;
+    if (FThreadPool::WorkerCount() == 0) {
+        if (auto r = FThreadPool::Init(); r.IsErr()) {
+            ACS_LOG_ERROR("easy: スレッドプールの初期化に失敗: %s", r.Error().message);
+            FailEasyStartup();
+            return;
+        }
+        g_state.thread_pool_owned = true;
+    } else if (g_state.jobs_pool_owned) {
+        // OpenWindow より先に jobs が起動したプールを Easy 本体へ引き継ぐ。
+        g_state.jobs_pool_owned = false;
+        g_state.thread_pool_owned = true;
     }
     // 4. ウィンドウ
     ToWide(title ? title : "ACS FGame", g_state.title_buf, 256);
@@ -753,7 +862,7 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
     auto wr = FWindow::Create(wc);
     if (wr.IsErr()) {
         ACS_LOG_ERROR("easy: ウィンドウの作成に失敗: %s", wr.Error().message);
-        g_state.boot_failed = true;
+        FailEasyStartup();
         return;
     }
     g_state.window = Move(wr.Value());
@@ -762,7 +871,7 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
     // 5. レンダラ（easy は 2D 専用なので深度バッファは不要）
     if (auto r = g_state.renderer.Init(g_state.window, false, /*enable_depth=*/false); r.IsErr()) {
         ACS_LOG_ERROR("easy: レンダラの初期化に失敗: %s", r.Error().message);
-        g_state.boot_failed = true;
+        FailEasyStartup();
         return;
     }
     IRhiDevice* dev = g_state.renderer.Device();
@@ -788,12 +897,13 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
     }
 
     // 7. アセット・描画ヘルパ（ポスト有効時は FSpriteBatch を HDR RT 向けに作る）
+    g_state.assets.Restart();
     g_state.assets.RegisterDefaultLoaders();
     const EFormat batch_fmt = g_state.post_available
         ? g_state.post.HdrFormat() : g_state.renderer.ColorFormat();
     if (auto r = g_state.batch.Init(*dev, batch_fmt, 16384); r.IsErr()) {
         ACS_LOG_ERROR("easy: 描画系の初期化に失敗: %s", r.Error().message);
-        g_state.boot_failed = true;
+        FailEasyStartup();
         return;
     }
     g_state.circle_tex = MakeCircleTexture(*dev);
@@ -812,7 +922,10 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
     g_rng          = static_cast<u32>(Clock::Ticks());   // 乱数の種を起動時刻で
     if (g_rng == 0) g_rng = 0x9E3779B9u;
     g_state.booted = true;
-    std::atexit(&RunShutdownOnce);
+    if (!g_state.shutdown_atexit) {
+        std::atexit(&RunShutdownOnce);
+        g_state.shutdown_atexit = true;
+    }
     ACS_LOG_INFO("easy: 起動しました (%u x %u)", wc.width, wc.height);
 }
 
@@ -1369,7 +1482,7 @@ Sprite LoadSprite(const char* path) noexcept {
     }
     SpriteSlot slot;
     slot.tex  = Move(tx.Value());
-    slot.path = FString{ path };
+    slot.path = FString{path, g_easy_allocator};
     slot.w    = static_cast<f32>(img->Width());
     slot.h    = static_cast<f32>(img->Height());
     g_state.sprites.PushBack(Move(slot));
@@ -1403,7 +1516,7 @@ Sound LoadSound(const char* path) noexcept {
     }
     SoundSlot slot;
     slot.asset = asset;            // TSharedPtr をコピー保持 -> 再生中ずっと生かす
-    slot.path  = FString{ path };
+    slot.path = FString{path, g_easy_allocator};
     g_state.sounds.PushBack(Move(slot));
     return Sound{ static_cast<u32>(g_state.sounds.Size()) };
 }
@@ -2101,7 +2214,7 @@ bool HasSaveKey(const char* key) noexcept {
 
 /** 保存内容をすべて消去し save.dat も空にする。 */
 void DeleteAllSaves() noexcept {
-    g_save = TArray<SaveEntry>{};
+    g_save.ReleaseStorage();
     g_save_loaded = true;        // 「ロード済み（空）」状態にする
     FILE* f = nullptr;
     if (fopen_s(&f, "save.dat", "wb") == 0 && f) fclose(f);
@@ -2163,7 +2276,7 @@ JobBatch SubmitAsync(Closure* c, JobBatch existing) noexcept {
         if (!b) { RunClosureTask(c, 0); FreeClosure(c); return JobBatch{}; }   // 枯渇 → 同期
         b->gen = static_cast<u16>(b->gen + 1u); if (b->gen == 0u) b->gen = 1u;
         b->live = true;
-        b->closures = TArray<void*>{};
+        b->closures.ReleaseStorage();
     }
     b->closures.PushBack(c);                               // batch がクロージャを所有
     Task t{ &RunClosureTask, c, &b->counter };
@@ -2177,8 +2290,8 @@ JobNode AddNode(Closure* c) noexcept {
     if (!c) return JobNode{};
     if (!g_state.pending_graph) {
         g_state.pending_graph  = new FJobGraph();
-        g_state.graph_closures = TArray<void*>{};
-        g_state.graph_handles  = TArray<JobHandle>{};
+        g_state.graph_closures.ReleaseStorage();
+        g_state.graph_handles.ReleaseStorage();
     }
     const JobHandle h = g_state.pending_graph->Add(&RunClosureTask, c);
     const u32 id = static_cast<u32>(g_state.graph_handles.Size()) + 1u;
@@ -2199,7 +2312,7 @@ void WaitJobs(JobBatch batch) noexcept {
     FThreadPool::Wait(b.counter);
     for (usize k = 0; k < b.closures.Size(); ++k)
         FreeClosure(static_cast<jobdetail::Closure*>(b.closures[k]));
-    b.closures = TArray<void*>{};
+    b.closures.ReleaseStorage();
     b.live = false;
 }
 
@@ -2236,8 +2349,8 @@ void RunJobs() noexcept {
     }
     for (usize k = 0; k < g_state.graph_closures.Size(); ++k)
         FreeClosure(static_cast<jobdetail::Closure*>(g_state.graph_closures[k]));
-    g_state.graph_closures = TArray<void*>{};
-    g_state.graph_handles  = TArray<JobHandle>{};
+    g_state.graph_closures.ReleaseStorage();
+    g_state.graph_handles.ReleaseStorage();
     delete g;
     g_state.pending_graph = nullptr;
 }

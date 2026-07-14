@@ -109,6 +109,9 @@ public:
     }
 
 private:
+    /** シェーダと抽出済み binding 名を空状態へ戻す。 */
+    void Reset() noexcept;
+
     /** Init で受け取った Diligent デバイス。 */
     DiligentDevice*    m_Device = nullptr;
 

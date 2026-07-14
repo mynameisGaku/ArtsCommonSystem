@@ -30,8 +30,14 @@ D3D12_PRIMITIVE_TOPOLOGY ToD3DPrimitive(EPrimitiveTopology t) noexcept {
 } // namespace
 
 Dx12CommandList::~Dx12CommandList() noexcept {
-    // 全 fence の完了を待ってから破棄しないとアロケータ再利用で UB
-    if (m_Device) {
+    Reset(true);
+}
+
+void Dx12CommandList::Reset(bool wait_for_gpu) noexcept
+{
+    // 全 fence の完了を待ってから破棄しないと、投入中のコマンドが
+    // 解放済みアロケータを参照する。Init 途中の失敗時は待機不要。
+    if (wait_for_gpu && m_Device) {
         for (u32 i = 0; i < Dx12Device::kFramesInFlight; ++i) {
             m_Device->WaitForFenceValue(m_FrameFences[i]);
         }
@@ -39,48 +45,73 @@ Dx12CommandList::~Dx12CommandList() noexcept {
     ACS_SAFE_RELEASE(m_CmdList);
     for (u32 i = 0; i < Dx12Device::kFramesInFlight; ++i) {
         ACS_SAFE_RELEASE(_allocators[i]);
+        m_FrameFences[i] = 0;
     }
+    m_Device = nullptr;
+    m_BoundPipe = nullptr;
+    _open = false;
+    m_BackbufferIsRt = false;
 }
 
 HrResult Dx12CommandList::Init(Dx12Device& device) noexcept {
     HrResult r{};
+    Reset(true);
+    if (!device.D3DDevice() || !device.GraphicsQueue()) {
+        r.hr = E_INVALIDARG;
+        return r;
+    }
     m_Device = &device;
     // フレームインフライト数ぶんアロケータを作成（GPU/CPU 並列実行のため）
     for (u32 i = 0; i < Dx12Device::kFramesInFlight; ++i) {
         r.hr = device.D3DDevice()->CreateCommandAllocator(
             D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&_allocators[i]));
-        if (r.IsErr()) return r;
+        if (r.IsErr() || !_allocators[i]) {
+            if (r.IsOk()) r.hr = E_FAIL;
+            Reset(false);
+            return r;
+        }
         m_FrameFences[i] = 0;
     }
     r.hr = device.D3DDevice()->CreateCommandList(
         0, D3D12_COMMAND_LIST_TYPE_DIRECT, _allocators[0], nullptr,
         IID_PPV_ARGS(&m_CmdList));
-    if (r.IsErr()) return r;
-    m_CmdList->Close();  // 作成時は Open 状態 → 閉じておく
+    if (r.IsErr() || !m_CmdList) {
+        if (r.IsOk()) r.hr = E_FAIL;
+        Reset(false);
+        return r;
+    }
+    r.hr = m_CmdList->Close(); // 作成時は Open 状態 → 閉じておく
+    if (r.IsErr()) Reset(false);
     return r;
 }
 
 void Dx12CommandList::Begin() noexcept {
+    if (!m_Device || !m_CmdList) return;
     const u32 slot = m_Device->CurrentFrameSlot();
-    _allocators[slot]->Reset();
-    m_CmdList->Reset(_allocators[slot], nullptr);
+    if (slot >= Dx12Device::kFramesInFlight || !_allocators[slot]) return;
+
+    m_BoundPipe = nullptr;
+    m_BackbufferIsRt = false;
+    _open = false;
+    if (FAILED(_allocators[slot]->Reset())) return;
+    if (FAILED(m_CmdList->Reset(_allocators[slot], nullptr))) return;
 
     // 共有 SRV ヒープを bind（テクスチャをバインドする際に必要）
     if (m_Device && m_Device->SrvHeap()) {
         ID3D12DescriptorHeap* heaps[] = { m_Device->SrvHeap() };
         m_CmdList->SetDescriptorHeaps(1, heaps);
     }
-    m_BoundPipe = nullptr;
     _open = true;
 }
 
 void Dx12CommandList::End() noexcept {
-    if (!_open) return;
-    m_CmdList->Close();
+    if (!_open || !m_CmdList) return;
+    (void)m_CmdList->Close();
     _open = false;
 }
 
 void Dx12CommandList::Submit() noexcept {
+    if (!m_Device || !m_CmdList || !m_Device->GraphicsQueue()) return;
     if (_open) End();
     ID3D12CommandList* lists[] = { m_CmdList };
     m_Device->GraphicsQueue()->ExecuteCommandLists(1, lists);

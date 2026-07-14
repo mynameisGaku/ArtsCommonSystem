@@ -19,12 +19,11 @@
 //     は配置で完結 (実行時 string compare なし)。衝突は 32bit hash で実用上無視。
 //   ・**複数 bind OR セマンティクス**: 1 アクションに複数の物理入力を bind 可能。
 //     1 つでも該当すれば Pressed/Held/Released は true。
-//   ・**1D axis**: neg/pos キー 2 つで -1/+1 を返す。両方押下は 0 (相殺)。複数の
-//     axis binding は累積 + clamp(-1, +1) (例: AD + LStick で同方向に重ねられる)。
+//   ・**1D axis**: neg/pos キーまたはゲームパッド軸を束ねる。複数の axis binding は
+//     累積 + clamp(-1, +1) (例: AD + LStick で同方向に重ねられる)。
 //   ・**poll-based**: 状態取得時に `acs::Input::*` を呼ぶ。アクション側に状態は持たない。
 //
 // 範囲外:
-//   ・analog axis (gamepad stick の生 f32 値、現状はキー → -1/+1 のみ)
 //   ・player_index 完全対応 (現状は gamepad bind 時のみ受ける、digital は 0 固定)
 //   ・FSettings (`Storage`) への永続化
 //   ・input context スタック (gameplay/menu/dialogue でバインド集を push/pop)
@@ -155,6 +154,16 @@ public:
     void BindAxisKeys    (ActionId action, EKey neg, EKey pos) noexcept;
 
     /**
+     * アクションにゲームパッドのアナログ軸を bind する。
+     *
+     * @param action 対象アクション。
+     * @param axis bind する物理軸。
+     * @param player_index 対象プレイヤー番号 (既定 0)。
+     * @param scale 値へ乗算する倍率。負値で軸を反転できる。
+     */
+    void BindGamepadAxis(ActionId action, EGamepadAxis axis, u32 player_index = 0, f32 scale = 1.0f) noexcept;
+
+    /**
      * 指定アクションの全 binding を削除する。
      *
      * @param action binding を削除するアクション。
@@ -183,7 +192,7 @@ public:
     /**
      * このフレームで離されたかを返す (Input::* を内部で poll)。
      *
-     * @details ゲームパッドボタンには Released の概念がなく常に対象外。
+     * @details キーボード、マウス、ゲームパッドのデジタル入力を対象とする。
      * @param action 判定するアクション。
      * @return bind 済み入力のいずれかがこのフレームで離されたら true。
      */
@@ -210,6 +219,9 @@ private:
         /** ゲームパッドボタン。 */
         EGamepadButton,
 
+        /** ゲームパッドのアナログ軸。 */
+        EGamepadAxis,
+
         /** 1D axis (neg/pos キーのペア)。 */
         Axis1D,
     };
@@ -230,6 +242,9 @@ private:
 
         /** Gamepad 専用: 対象プレイヤー番号。 */
         u32      player    = 0;
+
+        /** アナログ軸へ乗算する倍率。 */
+        f32 scale = 1.0f;
     };
 
     /** 登録済み binding の配列。 */

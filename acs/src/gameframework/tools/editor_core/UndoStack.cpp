@@ -28,20 +28,21 @@ void FUndoStack::Init(u32 max_history) noexcept {
 
 /** command を 1 件積む (所有権を奪い、Execute → merge 判定 → redo 破棄を行う)。 */
 void FUndoStack::Push(FEditorCommand* cmd) noexcept {
-    // 1. nullptr ガード: 誤呼び対策。cmd は呼び出し側が責任持って渡すべきだが、
-    //    null だった場合に Execute を呼んで AV することのほうが危険なので
-    //    silent no-op で握り潰す (Log は出さない: editor の UI から頻発し
-    //    得るので)。
-    if (cmd == nullptr) {
-        return;
-    }
+    FAllocator& allocator = DefaultAllocator();
+    Push(TUniquePtr<FEditorCommand>(cmd, &allocator));
+}
 
-    // 所有権を即時に TUniquePtr に詰める (= 例外 / 早期 return 経路で delete 漏れを防ぐ)。
-    // alloc は DefaultAllocator() 前提 (caller が New<T>(DefaultAllocator(), ...)
-    // で作るのが標準パターン)。別 allocator の場合、TUniquePtr が delete する際に
-    // alloc 引数 (= 第二引数) を渡す必要があるが、それは caller 側で個別に
-    // TUniquePtr を作って Release してから渡す。
-    TUniquePtr<FEditorCommand> owned(cmd, &DefaultAllocator());
+/** 生ポインタと確保元を受け取り、解放元を保持した所有権へ変換して積む。 */
+void FUndoStack::Push(FEditorCommand* command, FAllocator& allocator) noexcept
+{
+    Push(TUniquePtr<FEditorCommand>(command, &allocator));
+}
+
+/** 解放元を保持した command の所有権を受け取り、履歴へ積む。 */
+void FUndoStack::Push(TUniquePtr<FEditorCommand> owned) noexcept
+{
+    // 空 command は silent no-op とし、履歴や callback を変更しない。
+    if (!owned) return;
 
     // 2. Execute を呼ぶ (= "Do action")。
     owned->Execute();

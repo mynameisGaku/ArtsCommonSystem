@@ -9,6 +9,12 @@ World::World() noexcept = default;
 
 /** World を破棄し、所有する全 SparseSet を解放する。 */
 World::~World() noexcept {
+    Clear();
+}
+
+/** 全エンティティとコンポーネントストレージを解放して初期状態へ戻す。 */
+void World::Clear() noexcept
+{
     // 全 SparseSet を解放（仮想デストラクタ経由で型ごとの破棄を実行）
     for (usize i = 0; i < m_Sets.Size(); ++i) {
         if (m_Sets[i]) {
@@ -16,6 +22,13 @@ World::~World() noexcept {
             m_Sets[i] = nullptr;
         }
     }
+
+    // Clear() だけでは容量を保持するため、終了処理ではバッファ自体も返す。
+    m_Sets = TArray<SparseSetBase*>{*m_Sets.GetAllocator()};
+    m_Slots = TArray<Slot>{*m_Slots.GetAllocator()};
+    m_FreeIndices = TArray<u32>{*m_FreeIndices.GetAllocator()};
+    m_AliveCount = 0;
+    ++m_GenerationSeed;
 }
 
 /** エンティティを生成する (フリースロット再利用、無ければ新規確保)。 */
@@ -32,9 +45,9 @@ EntityId World::Create() noexcept {
     } else {
         // 新規スロット作成
         const u32 idx = static_cast<u32>(m_Slots.Size());
-        m_Slots.PushBack({0, true});
+        m_Slots.PushBack({m_GenerationSeed, true});
         e.index = idx;
-        e.generation = 0;
+        e.generation = m_GenerationSeed;
     }
     ++m_AliveCount;
     return e;

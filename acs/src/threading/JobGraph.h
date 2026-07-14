@@ -77,7 +77,7 @@ public:
     /** 空のジョブグラフを構築する。 */
     FJobGraph() noexcept = default;
 
-    /** Add で確保したすべての Job を解放する (Wait 完了後に破棄すること)。 */
+    /** 実行中なら Wait してから、Add で確保したすべての Job を解放する。 */
     ~FJobGraph() noexcept;
 
     /** コピー禁止。 */
@@ -106,15 +106,16 @@ public:
     /**
      * 全ジョブを FThreadPool に投入する。依存 0 のジョブが即座に走り始める。
      *
-     * @details Kahn 法でサイクル検知し、循環があればエラーで投入しない。
-     * @return 成功なら空の TResult。二重 Submit・サイクル検出・投入失敗時はエラー。
+     * @details Kahn 法でサイクル検知し、循環があれば一件も投入しない。ThreadPool への
+     * 個別投入が失敗した場合はそのジョブだけを同期実行し、部分投入による二重実行を防ぐ。
+     * @return 成功なら空の TResult。二重 Submit・サイクル検出時はエラー。
      */
     TResult<void> Submit() noexcept;
 
     /** 全ジョブの完了までブロックして待つ (待機中もスティーリングに参加)。 */
     void Wait() noexcept;
 
-    /** 同じグラフを再実行できるよう、各ジョブの deps_remaining を初期値に戻す。 */
+    /** 実行中なら Wait し、同じグラフを再実行できるよう依存カウンタを初期値に戻す。 */
     void Reset() noexcept;
 
     /**

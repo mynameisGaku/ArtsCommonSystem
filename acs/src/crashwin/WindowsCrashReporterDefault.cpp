@@ -20,14 +20,11 @@ namespace acs::crashwin {
 acs::game::ICrashReporterBackend& GetDefaultWindowsCrashReporter() noexcept {
     // Meyers singleton。プロセス内 1 個の Windows backend を既定として共有する。
     static FWindowsCrashReporter s_backend;
-    // 初回のみ Init。ACS のこの層は単一スレッド初期化を前提とするため、素朴な
-    // フラグで十分 (function-local static の構築自体は thread-safe)。Init() は
-    // product id / version の non-empty を要求するので sane な既定を渡す。
-    static bool s_inited = false;
-    if (!s_inited) {
+    // 実際の初期化状態を判定に使い、明示 Shutdown 後や失敗後も再取得で復帰させる。
+    // Init() は product id / version の non-empty を要求するので既定値を渡す。
+    if (!s_backend.IsAvailable()) {
         // 失敗しても backend 参照は返す (呼び出し側が IsAvailable 等で判断)。
         (void)s_backend.Init("com.acs.app", "0.0.0");
-        s_inited = true;
     }
     return s_backend;
 }

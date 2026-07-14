@@ -6,12 +6,20 @@ namespace acs {
 
 /** 全チャンネルを解放して破棄する。 */
 MessageBroker::~MessageBroker() noexcept {
+    Clear();
+}
+
+/** 全購読とチャンネルを解放して初期状態へ戻す。 */
+void MessageBroker::Clear() noexcept
+{
     for (usize i = 0; i < m_Channels.Size(); ++i) {
         if (m_Channels[i]) {
             delete m_Channels[i];
             m_Channels[i] = nullptr;
         }
     }
+    m_Channels = TArray<Channel*>{*m_Channels.GetAllocator()};
+    ++m_GenerationSeed;
 }
 
 /** EventTypeId に対応するチャンネルを返す (create=true なら未生成時に確保)。 */
@@ -24,6 +32,7 @@ MessageBroker::Channel* MessageBroker::GetChannel(EventTypeId id, bool create) n
     }
     if (!m_Channels[id] && create) {
         m_Channels[id] = new Channel();
+        if (m_Channels[id]) m_Channels[id]->generation_seed = m_GenerationSeed;
     }
     return m_Channels[id];
 }
@@ -42,6 +51,7 @@ SubscriptionHandle MessageBroker::SubscribeRaw(EventTypeId channel,
     } else {
         idx = static_cast<u32>(ch->slots.Size());
         ch->slots.PushBack(Slot{});
+        ch->slots[idx].generation = ch->generation_seed;
     }
     Slot& s = ch->slots[idx];
     if (s.id == 0) s.id = ch->next_id++;

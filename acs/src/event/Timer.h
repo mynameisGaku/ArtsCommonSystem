@@ -74,7 +74,7 @@ using TimerCallback = void (*)(void* user);
  * @details
  * 全タイマを線形配列の slot で持ち、Tick で dt を減算して発火させる。SetTimeout は
  * 1 回限り、SetInterval は self-rearm 方式で周期発火する。slot は世代付きで再利用し、
- * 古いハンドルでの誤操作を防ぐ。コールバック中の追加・Cancel は安全。non-copy 型。
+ * 古いハンドルでの誤操作を防ぐ。コールバック中の追加・Cancel・Clear は安全。non-copy 型。
  */
 class FTimerManager {
 public:
@@ -117,6 +117,15 @@ public:
      * @return 該当タイマが見つかり解除できたら true (既に発火 / 解放済みなら false)。
      */
     bool Cancel(FTimerHandle h) noexcept;
+
+    /**
+     * 全タイマを破棄し、空のマネージャに戻す。
+     *
+     * @details 登録済みの user pointer を終了後に保持しない。繰り返し呼んでも安全。
+     *          コールバック内から呼んだ場合、全 slot は直ちに無効化し、配列容量の解放だけを
+     *          最外周 Tick の終了まで延期する。その Tick が戻るまで新規登録は受け付けない。
+     */
+    void Clear() noexcept;
 
     /**
      * 毎フレーム呼び、dt を経過させて発火条件を満たしたタイマを呼ぶ。
@@ -165,6 +174,15 @@ private:
         void*           user        = nullptr;
     };
 
+    /** 次の登録へ割り当てる、0 以外の世代番号を取得する。 */
+    u32 AcquireGeneration() noexcept;
+
+    /** 全 slot のコールバックと user pointer を破棄し、論理的に空にする。 */
+    void InvalidateAllSlots() noexcept;
+
+    /** slot 配列と再利用配列の容量を解放し、保留中の Clear を完了する。 */
+    void ReleaseClearedStorage() noexcept;
+
     /** タイマ slot の配列。 */
     TArray<Slot> m_Slots;
 
@@ -173,6 +191,15 @@ private:
 
     /** 次に割り当てる 1-based slot id。 */
     u32         m_NextId = 1;
+
+    /** 登録ごとに進め、Clear 前後でも古いハンドルと一致させない世代番号。 */
+    u32 m_NextGeneration = 1;
+
+    /** 再入 Tick を含む現在の Tick 呼び出し深度。 */
+    u32 m_TickDepth = 0;
+
+    /** Tick 中の Clear により、配列容量の解放を最外周 Tick まで保留しているか。 */
+    bool m_ClearPending = false;
 };
 
 } // namespace acs

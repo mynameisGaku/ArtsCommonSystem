@@ -301,7 +301,7 @@ struct FComputePipelineDesc {
     /** 各 UAV slot の HLSL 名。 */
     const char* uav_names[16]     = {};
     /** static サンプラ数。 */
-    u32         static_sampler_count = 0;
+    u32 static_sampler_count = 0;
     /** static サンプラ s0..。 */
     SamplerDesc static_samplers[16] = {};
 };
@@ -314,6 +314,6 @@ struct FComputePipelineDesc {
  * @return 成功なら所有権付きパイプライン、生成失敗ならエラー (Diligent backend のみ実装)。
  */
 TResult<TUniquePtr<IRhiPipeline>> CreateRhiComputePipeline(IRhiDevice& device,
-                                                              const FComputePipelineDesc& desc) noexcept;
+                                                           const FComputePipelineDesc& description) noexcept;
 
 } // namespace acs

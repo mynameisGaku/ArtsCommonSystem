@@ -47,16 +47,22 @@ public:
      * レンダーターゲットテクスチャの内容を CPU メモリへ読み戻す (同期、GPU→CPU)。
      *
      * @details
-     * tex は描画済み (caller が render + WaitIdle 済み) であること。out_pixels に行優先で
+     * texture は描画済み (呼び出し側が render + WaitIdle 済み) であること。destination_pixels に行優先で
      * 詰める (4 バイト/ピクセル = RGBA8/BGRA8 前提)。サムネイル/スクリーンショット用の一度きり
      * 操作で、内部で readback ヒープ + コピー + fence 待ち + de-pad を行う (遅い)。
      * 既定は未対応 (false)。DX12 バックエンドが実装する。
-     * @param tex 読み戻し元のテクスチャ (render target)。
-     * @param out_pixels 書き込み先 (>= width*height*4 バイト)。
-     * @param out_size out_pixels のバイト数。
+     * @param texture 読み戻し元のテクスチャ (render target)。
+     * @param destination_pixels 書き込み先 (>= width*height*4 バイト)。
+     * @param destination_size destination_pixels のバイト数。
      * @return 成功なら true、未対応/失敗なら false。
      */
-    virtual bool ReadTexture(IRhiTexture& /*tex*/, void* /*out_pixels*/, u32 /*out_size*/) noexcept { return false; }
+    virtual bool ReadTexture(IRhiTexture& texture, void* destination_pixels, u32 destination_size) noexcept
+    {
+        (void)texture;
+        (void)destination_pixels;
+        (void)destination_size;
+        return false;
+    }
 };
 
 /**
@@ -66,13 +72,13 @@ public:
  */
 enum class ERhiBackendKind : u8 {
     /** 利用可能な中で最良を選ぶ (Diligent: D3D12 を優先)。 */
-    Auto    = 0,
+    Auto = 0,
 
     /** 強制的に DX12 を使う。 */
-    D3D12   = 1,
+    D3D12 = 1,
 
     /** 強制的に Vulkan を使う (要 ACS_DILIGENT_VULKAN=ON)。 */
-    Vulkan  = 2,
+    Vulkan = 2,
 };
 
 /**
@@ -82,22 +88,22 @@ enum class ERhiBackendKind : u8 {
  */
 struct DeviceConfig {
     /** デバッグレイヤを有効化するか (Debug ビルドのみ ON 推奨)。 */
-    bool           enable_debug_layer = false;
+    bool enable_debug_layer = false;
 
     /** 統合 GPU よりディスクリート GPU を優先するか。 */
-    bool           prefer_high_perf   = true;
+    bool prefer_high_perf = true;
 
     /** 使用するバックエンドの種類。 */
-    ERhiBackendKind backend            = ERhiBackendKind::Auto;
+    ERhiBackendKind backend = ERhiBackendKind::Auto;
 };
 
 /**
  * デバイスを作成する。
  *
- * @details バックエンドはビルド設定と cfg.backend で決まる。
- * @param cfg デバイス作成オプション。
+     * @details バックエンドはビルド設定と configuration.backend で決まる。
+     * @param configuration デバイス作成オプション。
  * @return 成功なら所有権付きデバイス、生成失敗ならエラー。
  */
-TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& cfg) noexcept;
+TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& configuration) noexcept;
 
 } // namespace acs

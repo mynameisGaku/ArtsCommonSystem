@@ -33,6 +33,10 @@ endif()";
             .SubdirSrc("Diligent")
             .LinkPrivate("acs_third_party::diligent_core");
 
+        // Live-object 診断用 Windows SDK ライブラリは Windows ビルドだけへ閉じる。
+        When("ACS_RENDER_DILIGENT AND WIN32")
+            .LinkPrivate("d3d12", "dxgi", "dxguid");
+
         Feature("DX12_RAW", "RENDER_DX12_RAW",
             desc: "Use raw DirectX 12 backend", defaultExpr: "${ACS_RENDER_DX12_RAW}");
         Feature("DILIGENT", "RENDER_DILIGENT",

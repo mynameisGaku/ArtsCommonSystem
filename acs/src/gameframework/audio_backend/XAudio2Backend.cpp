@@ -8,20 +8,22 @@
 //   ・PlayOneShot/PlayLooped はサンプルデータを slot 内 TArray<byte> にコピー。
 //     XAudio2 は SourceVoice 再生中に元バッファが消えると爆ぜるため、
 //     ライフタイム管理を完全に自己完結させる。
-//   ・generation 付き handle で slot 再利用時の use-after-free を防ぐ。
+//   ・プロセス通算 handle で slot 再利用時の use-after-free を防ぐ。
 //   ・Tick で BuffersQueued==0 の一発再生 voice を回収。回収しないと
 //     max_voices 回再生で slot 枯渇する。
 //
 // COM 初期化方針:
 //   ・本 backend が `CoInitializeEx(MULTITHREADED)` を呼ぶ。
-//   ・他所が既に init 済 (S_FALSE 戻り) でも問題なく動く ⇒ 自分が成功した
-//     ときだけ Shutdown で `CoUninitialize` を呼ぶ。
+//   ・他所が既に init 済 (S_FALSE 戻り) でも成功扱いにする。S_FALSE でも COM の
+//     参照数は増えるため、Shutdown で必ず `CoUninitialize` を呼ぶ。
 //   ・他所が違うモード (RPC_E_CHANGED_MODE) を確立済なら、警告ログを残して
 //     XAudio2 init はそのまま試みる (XAudio2 は両モードで動く)。
 #include "gameframework/audio_backend/XAudio2Backend.h"
 
 #include "container/Array.h"
+#include "foundation/Assert.h"
 #include "foundation/Log.h"
+#include "threading/Atomic.h"
 
 // Win32 / XAudio2 ヘッダ (本 .cpp ローカル)。
 // <windows.h> マクロ汚染 (min/max など) を最小化するため WIN32_LEAN_AND_MEAN
@@ -79,17 +81,8 @@ struct VoiceSlot {
     /** 再生中ずっと保持する PCM コピー (XAudio2 が参照し続けるため)。 */
     TArray<byte>          buffer;
 
-    /**
-     * handle 検証用 generation (1 始まり、0 は invalid 表現に予約)。
-     *
-     * @details
-     * AudioVoiceHandle は (index | gen<<24) を packed == 0 で invalid とする規約
-     * (FNodeId / FShapeId と同一)。generation=0 のまま index=0 の slot を配ると
-     * packed == 0 = kInvalidAudioVoice と衝突し、確保成功が IsValid()==false となって
-     * StopVoice 不能 → voice リーク + active_count 不整合を起こす。よって初期値を 1 にし、
-     * DestroySlot でのラップ時も 0 をスキップする (1..255 を循環)。
-     */
-    u8                   generation = 1;
+    /** この発音へ割り当てたプロセス一意の不透明ハンドル。 */
+    AudioVoiceHandle handle = {};
 
     /** true なら使用中。 */
     bool                 active    = false;
@@ -97,6 +90,32 @@ struct VoiceSlot {
     /** ループ再生か (一発再生は Tick で自然回収、ループは StopVoice まで残る)。 */
     bool                 looped    = false;
 };
+
+} // namespace
+
+namespace {
+
+/**
+ * 発音ハンドルへ割り当てるプロセス通算チケット。
+ *
+ * @details
+ * 従来の 8bit generation は同一スロットを 255 回再利用すると古いハンドルと
+ * 衝突した。公開 ABI の 32bit 配置を維持したまま 32bit 全体を一度だけ発行し、
+ * 全値を使い切った後は安全側に倒して新規発音を拒否する。
+ */
+TAtomic<u64> g_NextAudioVoiceTicket{1};
+
+AudioVoiceHandle AcquireAudioVoiceHandle() noexcept
+{
+    constexpr u64 kLargestTicket = static_cast<u64>(~u32(0));
+    u64 current = g_NextAudioVoiceTicket.Load();
+    for (;;) {
+        if (current > kLargestTicket) return kInvalidAudioVoice;
+        if (g_NextAudioVoiceTicket.CompareExchange(current, current + 1u)) {
+            return AudioVoiceHandle::FromPackedValue(static_cast<u32>(current));
+        }
+    }
+}
 
 } // namespace
 
@@ -108,8 +127,11 @@ struct FXAudio2Backend::Impl {
     /** マスタリングボイス (最終出力)。 */
     IXAudio2MasteringVoice* mastering        = nullptr;
 
-    /** 自分で CoInitializeEx に成功したか (true のときだけ Shutdown で CoUninitialize)。 */
+    /** CoInitializeEx が成功し、Shutdown で CoUninitialize が必要か。 */
     bool                    com_initialized  = false;
+
+    /** COM 参照数を増やしたスレッド。CoUninitialize は同じスレッドでのみ呼べる。 */
+    DWORD com_thread_identifier = 0;
 
     /** フル init 済か (Init 成功フラグ)。 */
     bool                    initialized      = false;
@@ -139,8 +161,7 @@ TResult<void> FXAudio2Backend::Init(u32 max_voices) noexcept {
         return ACS_ERR(Generic, kSubAudioInvalidArgs,
                        "FXAudio2Backend::Init: max_voices=0 is invalid");
     }
-    // slot index は 24bit に収まる必要 (handle 内で 24bit 制限)。
-    // 1<<24 = 16777216 だが、現実 max_voices はせいぜい数千なので念のため check。
+    // slot 配列自体の現実的な上限として、従来 ABI と同じ 24bit 未満に制限する。
     if (max_voices >= (1u << 24)) {
         return ACS_ERR(Generic, kSubAudioInvalidArgs,
                        "FXAudio2Backend::Init: max_voices too large (must be < 2^24)");
@@ -152,13 +173,11 @@ TResult<void> FXAudio2Backend::Init(u32 max_voices) noexcept {
 
     // COM 初期化。
     // 既に他モジュールが COM init 済の可能性あり (S_FALSE / RPC_E_CHANGED_MODE)。
-    // 自分が成功 (S_OK) したときだけ Shutdown で CoUninitialize を呼ぶ。
+    // S_OK と S_FALSE はどちらも COM 参照数を 1 増やすため、Shutdown で釣り合わせる。
     HRESULT hr = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (hr == S_OK) {
+    if (SUCCEEDED(hr)) {
         m_Impl->com_initialized = true;
-    } else if (hr == S_FALSE) {
-        // 同モードで既に init 済。CoUninitialize は呼ばない。
-        m_Impl->com_initialized = false;
+        m_Impl->com_thread_identifier = ::GetCurrentThreadId();
     } else if (hr == RPC_E_CHANGED_MODE) {
         // 別モードで init 済。XAudio2 は両モードで動くので警告のみ。
         ACS_LOG_WARN("FXAudio2Backend::Init: COM already initialized in a different "
@@ -203,8 +222,7 @@ void FXAudio2Backend::Shutdown() noexcept {
 
     // 全 voice 停止 + destroy。
     StopAllVoices();
-    // slot TArray 自体は Impl のデストラクタで TArray<VoiceSlot> 経由解放される。
-    m_Impl->slots.Clear();
+    m_Impl->slots.ReleaseStorage();
     m_Impl->max_voices = 0;
 
     // mastering voice。
@@ -221,8 +239,18 @@ void FXAudio2Backend::Shutdown() noexcept {
 
     // COM。
     if (m_Impl->com_initialized) {
-        ::CoUninitialize();
+        const DWORD current_thread_identifier = ::GetCurrentThreadId();
+        if (current_thread_identifier == m_Impl->com_thread_identifier) {
+            ::CoUninitialize();
+        } else {
+            ACS_LOG_ERROR("FXAudio2Backend::Shutdown must run on the Init thread "
+                          "(init=%lu, current=%lu)",
+                          static_cast<unsigned long>(m_Impl->com_thread_identifier),
+                          static_cast<unsigned long>(current_thread_identifier));
+            ACS_ASSERT(false && "FXAudio2Backend COM shutdown thread mismatch");
+        }
         m_Impl->com_initialized = false;
+        m_Impl->com_thread_identifier = 0;
     }
 
     m_Impl->initialized = false;
@@ -275,8 +303,8 @@ bool FillWaveFormat(const AudioClipDesc& clip, WAVEFORMATEX& out) noexcept {
  * VoiceSlot を完全破棄する (XAudio2 voice + バッファコピー解放)。
  *
  * @details
- * generation を increment して古いハンドルでの再アクセスを無効化する。0 にラップ
- * したら 1 にスキップする (0 は invalid 表現に予約)。active=false に戻す。
+ * PCM コピーの容量も確保元を維持したまま解放し、長寿命 backend が過去最大の
+ * クリップ容量を各スロットへ保持し続けないようにする。
  * @param slot 破棄する発音 slot。
  */
 void DestroySlot(VoiceSlot& slot) noexcept {
@@ -286,13 +314,19 @@ void DestroySlot(VoiceSlot& slot) noexcept {
         slot.voice->DestroyVoice();
         slot.voice = nullptr;
     }
-    slot.buffer.Clear();
+    slot.buffer.ReleaseStorage();
+    slot.handle = kInvalidAudioVoice;
     slot.active = false;
     slot.looped = false;
-    // generation を進めて古いハンドルを無効化。0 にラップしたら 1 にスキップする
-    // (0 は invalid 表現に予約 = FNodePool::RegisterExistingNode と同じ規約)。
-    ++slot.generation;  // u8 wrap (オーバーフローは UB ではない)
-    if (slot.generation == 0u) slot.generation = 1u;
+}
+
+VoiceSlot* FindVoiceSlot(FXAudio2Backend::Impl& impl, AudioVoiceHandle handle) noexcept
+{
+    for (u32 i = 0; i < impl.max_voices; ++i) {
+        VoiceSlot& slot = impl.slots[i];
+        if (slot.active && slot.handle == handle) return &slot;
+    }
+    return nullptr;
 }
 
 } // namespace
@@ -343,10 +377,17 @@ static AudioVoiceHandle PlayInternal(FXAudio2Backend::Impl& impl,
     }
     VoiceSlot& slot = impl.slots[idx];
 
+    const AudioVoiceHandle handle = AcquireAudioVoiceHandle();
+    if (!handle.IsValid()) {
+        ACS_LOG_ERROR("FXAudio2Backend::Play: 32-bit voice handle space exhausted");
+        return kInvalidAudioVoice;
+    }
+
     // SourceVoice 作成。
     IXAudio2SourceVoice* source = nullptr;
     HRESULT hr = impl.xaudio2->CreateSourceVoice(&source, &wf);
     if (FAILED(hr) || source == nullptr) {
+        if (source != nullptr) source->DestroyVoice();
         ACS_LOG_WARN("FXAudio2Backend::Play: CreateSourceVoice failed hr=0x%08x",
                      static_cast<u32>(hr));
         return kInvalidAudioVoice;
@@ -367,7 +408,7 @@ static AudioVoiceHandle PlayInternal(FXAudio2Backend::Impl& impl,
     hr = source->SubmitSourceBuffer(&xb);
     if (FAILED(hr)) {
         source->DestroyVoice();
-        slot.buffer.Clear();
+        slot.buffer.ReleaseStorage();
         ACS_LOG_WARN("FXAudio2Backend::Play: SubmitSourceBuffer failed hr=0x%08x",
                      static_cast<u32>(hr));
         return kInvalidAudioVoice;
@@ -379,18 +420,19 @@ static AudioVoiceHandle PlayInternal(FXAudio2Backend::Impl& impl,
     hr = source->Start(0);
     if (FAILED(hr)) {
         source->DestroyVoice();
-        slot.buffer.Clear();
+        slot.buffer.ReleaseStorage();
         ACS_LOG_WARN("FXAudio2Backend::Play: Start failed hr=0x%08x",
                      static_cast<u32>(hr));
         return kInvalidAudioVoice;
     }
 
     slot.voice  = source;
+    slot.handle = handle;
     slot.active = true;
     slot.looped = loop;
     ++impl.active_count;
 
-    return AudioVoiceHandle{ idx, slot.generation };
+    return handle;
 }
 
 /** 一発再生する (PlayInternal に loop=false で委譲)。 */
@@ -412,26 +454,20 @@ AudioVoiceHandle FXAudio2Backend::PlayLooped(const AudioClipDesc& clip,
 void FXAudio2Backend::StopVoice(AudioVoiceHandle voice) noexcept {
     if (m_Impl == nullptr || !m_Impl->initialized) return;
     if (!voice.IsValid()) return;
-    const u32 idx = voice.Index();
-    if (idx >= m_Impl->max_voices) return;
-    VoiceSlot& slot = m_Impl->slots[idx];
-    if (!slot.active) return;
-    if (slot.generation != voice.Generation()) return;  // 古いハンドル、無視
+    VoiceSlot* const slot = FindVoiceSlot(*m_Impl, voice);
+    if (slot == nullptr) return;
 
-    DestroySlot(slot);
+    DestroySlot(*slot);
     if (m_Impl->active_count > 0) --m_Impl->active_count;
 }
 
 void FXAudio2Backend::SetVoiceVolume(AudioVoiceHandle voice, f32 volume) noexcept {
     if (m_Impl == nullptr || !m_Impl->initialized) return;
     if (!voice.IsValid()) return;
-    const u32 idx = voice.Index();
-    if (idx >= m_Impl->max_voices) return;
-    VoiceSlot& slot = m_Impl->slots[idx];
-    if (!slot.active || slot.voice == nullptr) return;
-    if (slot.generation != voice.Generation()) return;
+    VoiceSlot* const slot = FindVoiceSlot(*m_Impl, voice);
+    if (slot == nullptr || slot->voice == nullptr) return;
 
-    slot.voice->SetVolume(ClampVolume(volume));
+    slot->voice->SetVolume(ClampVolume(volume));
 }
 
 void FXAudio2Backend::StopAllVoices() noexcept {

@@ -23,7 +23,7 @@ using ThreadEntry = void (*)(void* user);
 
 /** スレッド生成オプション。 */
 struct ThreadConfig {
-    /** デバッガ表示用のスレッド名 (nullptr で無名)。 */
+    /** デバッガ表示用のスレッド名 (nullptr で無名、Spawn 時に最大 63 UTF-16 単位をコピー)。 */
     const wchar_t* name        = nullptr;
 
     /** スタックサイズ (バイト、0 = OS デフォルト)。 */

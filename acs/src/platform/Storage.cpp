@@ -106,11 +106,11 @@ void Storage::SetString(const char* key, const char* value) noexcept {
     if (!key) return;
     Entry* e = FindEntry(key);
     if (e) {
-        e->value = FString(value ? value : "");
+        e->value = FString(value ? value : "", *m_Allocator);
     } else {
         Entry ne;
-        ne.key   = FString(key);
-        ne.value = FString(value ? value : "");
+        ne.key = FString(key, *m_Allocator);
+        ne.value = FString(value ? value : "", *m_Allocator);
         m_Entries.PushBack(Move(ne));
     }
 }
@@ -199,7 +199,7 @@ TResult<void> Storage::Load(const wchar_t* path) noexcept {
 }
 
 TResult<void> Storage::LoadFromBytes(const u8* data, usize size) noexcept {
-    m_Entries.Clear();
+    Clear();
     if (!data) return Ok();
 
     const char* p   = reinterpret_cast<const char*>(data);
@@ -235,8 +235,8 @@ TResult<void> Storage::LoadFromBytes(const u8* data, usize size) noexcept {
         const usize ve = line.Size();
 
         Entry e;
-        e.key   = FString(FStringView(line.Data() + ks, ke - ks));
-        e.value = FString(FStringView(line.Data() + vs, ve - vs));
+        e.key = FString(FStringView(line.Data() + ks, ke - ks), *m_Allocator);
+        e.value = FString(FStringView(line.Data() + vs, ve - vs), *m_Allocator);
         m_Entries.PushBack(Move(e));
     }
     return Ok();
@@ -256,7 +256,7 @@ TResult<void> Storage::Save(const wchar_t* path) noexcept {
         }
     }
 
-    FString out;
+    FString out("", *m_Allocator);
     out.Reserve(64 * (m_Entries.Size() + 1));
     out.Append(FStringView("# acs Storage\n"));
     for (usize i = 0; i < m_Entries.Size(); ++i) {

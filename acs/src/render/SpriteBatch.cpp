@@ -528,8 +528,22 @@ float4 PSLit(VSOut v) : SV_TARGET {
 
 } // namespace
 
+FSpriteBatch::~FSpriteBatch() noexcept
+{
+    // device が先に破棄された場合もあるため、デストラクタでは非所有ポインタを参照しない。
+    ReleaseResources();
+}
+
 TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_sprites,
                                  u32 msaa_samples) noexcept {
+    // 再初期化時も、以前の成功状態や部分初期化状態を残さない。
+    Shutdown();
+
+    const auto fail = [this](const FErrorCode& error) noexcept -> TResult<void> {
+        Shutdown();
+        return Err<void>(error);
+    };
+
     if (max_sprites == 0) max_sprites = 4096;
     m_MaxSprites  = max_sprites;
     m_Device      = &device;     // ステンシル PSO の遅延生成で再利用
@@ -543,7 +557,7 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "Sprite.VS";
     auto vs_r = CreateRhiShader(device, vs_d);
-    if (vs_r.IsErr()) return Err<void>(vs_r.Error());
+    if (vs_r.IsErr()) return fail(vs_r.Error());
     m_Vs = Move(vs_r.Value());
 
     FShaderDesc ps_d{};
@@ -552,7 +566,7 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     ps_d.entry_point = "PSMain";
     ps_d.debug_name  = "Sprite.PS";
     auto ps_r = CreateRhiShader(device, ps_d);
-    if (ps_r.IsErr()) return Err<void>(ps_r.Error());
+    if (ps_r.IsErr()) return fail(ps_r.Error());
     m_Ps = Move(ps_r.Value());
 
     // === 動的頂点バッファ（4 頂点 / sprite）===
@@ -562,18 +576,19 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     vbd.usage = EBufferUsage::Vertex;
     vbd.cpu_writable = true;       // 自動で frame-cycled になる
     auto vb_r = CreateRhiBuffer(device, vbd);
-    if (vb_r.IsErr()) return Err<void>(vb_r.Error());
+    if (vb_r.IsErr()) return fail(vb_r.Error());
     m_Vb = Move(vb_r.Value());
 
     // CPU 側のステージング配列（各フレームここに頂点を積んでから VB へコピー）
-    m_VertexCpu = static_cast<Vertex*>(DefaultAllocator().Alloc(vb_size));
-    if (!m_VertexCpu) return ACS_ERR(Memory, 250, "FSpriteBatch: vertex stage alloc");
+    m_VertexAllocator = &DefaultAllocator();
+    m_VertexCpu = static_cast<Vertex*>(m_VertexAllocator->Alloc(vb_size));
+    if (!m_VertexCpu) return fail(ACS_ERR(Memory, 250, "FSpriteBatch: vertex stage alloc"));
 
     // === インデックスバッファ（quad ごとに 6 indices、固定）===
     const u32 idx_count = max_sprites * 6;
-    u16* idx_ptr = static_cast<u16*>(
-        DefaultAllocator().Alloc(sizeof(u16) * idx_count));
-    if (!idx_ptr) return ACS_ERR(Memory, 251, "FSpriteBatch: index alloc");
+    FAllocator& allocator = DefaultAllocator();
+    u16* idx_ptr = static_cast<u16*>(allocator.Alloc(sizeof(u16) * idx_count));
+    if (!idx_ptr) return fail(ACS_ERR(Memory, 251, "FSpriteBatch: index alloc"));
     for (u32 i = 0; i < max_sprites; ++i) {
         const u16 base = static_cast<u16>(i * 4);
         idx_ptr[i*6 + 0] = base + 0;
@@ -589,8 +604,8 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     ibd.cpu_writable = true;
     ibd.initial_data = idx_ptr;
     auto ib_r = CreateRhiBuffer(device, ibd);
-    DefaultAllocator().Free(idx_ptr);
-    if (ib_r.IsErr()) return Err<void>(ib_r.Error());
+    allocator.Free(idx_ptr);
+    if (ib_r.IsErr()) return fail(ib_r.Error());
     m_Ib = Move(ib_r.Value());
 
     // === 定数バッファ（screen size + view）のリング ===
@@ -602,7 +617,7 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
         cbd.usage = EBufferUsage::Uniform;
         cbd.cpu_writable = true;
         auto cb_r = CreateRhiBuffer(device, cbd);
-        if (cb_r.IsErr()) return Err<void>(cb_r.Error());
+        if (cb_r.IsErr()) return fail(cb_r.Error());
         m_Cb[i] = Move(cb_r.Value());
     }
     m_CbCur = 0;
@@ -615,7 +630,7 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     td.initial_data = white_pixel;
     td.initial_data_size = 4;
     auto wt_r = CreateRhiTexture(device, td);
-    if (wt_r.IsErr()) return Err<void>(wt_r.Error());
+    if (wt_r.IsErr()) return fail(wt_r.Error());
     m_White = Move(wt_r.Value());
 
     // === パイプライン（α ブレンド有効、深度無し、カリング無し）===
@@ -624,7 +639,7 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     pd.depth_format  = EFormat::Unknown;   // 2D は深度無し
     pd.depth_test    = false;
     auto pl_r = CreateRhiPipeline(device, pd);
-    if (pl_r.IsErr()) return Err<void>(pl_r.Error());
+    if (pl_r.IsErr()) return fail(pl_r.Error());
     m_Pipeline = Move(pl_r.Value());
 
     return Ok();
@@ -988,6 +1003,19 @@ void FSpriteBatch::ClearLit() noexcept {
 }
 
 void FSpriteBatch::Shutdown() noexcept {
+    // 再初期化や単独 Shutdown でも、GPU が参照中のリソースを先に破棄しない。
+    // m_Device は本バッチより長く生存するという既存の所有契約に従う。
+    if (m_Device) m_Device->WaitIdle();
+
+    ReleaseResources();
+}
+
+void FSpriteBatch::ReleaseResources() noexcept
+{
+    // 描画中を指す非所有ポインタは、所有リソースより先に無効化する。
+    m_Cl = nullptr;
+    m_CurrentTex = nullptr;
+
     m_Pipeline.Reset();
     for (u32 i = 0; i < 4; ++i) m_StencilPipe[i].Reset();
     m_StencilReady = false;
@@ -1013,9 +1041,28 @@ void FSpriteBatch::Shutdown() noexcept {
     m_Ps.Reset();
     m_Vs.Reset();
     if (m_VertexCpu) {
-        DefaultAllocator().Free(m_VertexCpu);
+        // 確保時と同じアロケータへ返す。DefaultAllocator の差し替えを跨いでも誤解放しない。
+        if (m_VertexAllocator) m_VertexAllocator->Free(m_VertexCpu);
         m_VertexCpu = nullptr;
     }
+    m_VertexAllocator = nullptr;
+    m_Device = nullptr;
+    m_RtFormat = EFormat::B8G8R8A8_UNorm;
+    m_MsaaSamples = 1;
+    m_MaxSprites = 0;
+    m_SpriteCount = 0;
+    m_FlushedCount = 0;
+    m_CbCur = 0;
+    m_EffectCbCur = 0;
+    m_LitMatCbCur = 0;
+    m_SceneLightCount = 0;
+    m_StencilMode = EStencilMode::Off;
+    m_BlendMode = EBlendMode::AlphaBlend;
+    m_ScreenW = 1;
+    m_ScreenH = 1;
+    m_ViewX = 0.0f;
+    m_ViewY = 0.0f;
+    m_ViewZoom = 1.0f;
 }
 
 void FSpriteBatch::Begin(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexcept {

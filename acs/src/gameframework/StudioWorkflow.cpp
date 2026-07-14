@@ -672,11 +672,35 @@ FLocalBuildRunner::PollBuild(u64 build_id) noexcept {
         const DWORD wr = ::WaitForSingleObject(h, 0);  // 0 = poll
         if (wr == WAIT_OBJECT_0) {
             DWORD code = 0;
-            if (::GetExitCodeProcess(h, &code)) {
+            const BOOL got_code = ::GetExitCodeProcess(h, &code);
+            const DWORD code_error = got_code ? 0u : ::GetLastError();
+
+            // 終了済みプロセスの HANDLE は結果ラッチ後に不要。以前は runner の
+            // デストラクタまで保持していたため、完了ジョブ数に比例して HANDLE
+            // が増え続けた。結果と artifact は Job 内へコピー済みなので即時に閉じる。
+            ::CloseHandle(h);
+            job->m_Process = nullptr;
+            if (got_code) {
                 job->m_ExitCode = static_cast<u32>(code);
                 job->m_Success  = (code == 0);
             }
             job->m_Finished = true;
+            if (!got_code) {
+                return TResult<BuildResult>(ACS_ERR_OS(IO, StudioWorkflowError::kSub_PermissionDenied,
+                                                       "FLocalBuildRunner::PollBuild: GetExitCodeProcess failed",
+                                                       code_error));
+            }
+        } else if (wr == WAIT_FAILED) {
+            const DWORD wait_error = ::GetLastError();
+            // 壊れた HANDLE を永続追跡しない。スロットには失敗結果をラッチし、
+            // OS 資源だけはこの呼び出しで確実に手放す。
+            ::CloseHandle(h);
+            job->m_Process = nullptr;
+            job->m_Finished = true;
+            job->m_Success = false;
+            return TResult<BuildResult>(ACS_ERR_OS(IO, StudioWorkflowError::kSub_PermissionDenied,
+                                                   "FLocalBuildRunner::PollBuild: WaitForSingleObject failed",
+                                                   wait_error));
         }
         // WAIT_TIMEOUT = まだ実行中。
     }

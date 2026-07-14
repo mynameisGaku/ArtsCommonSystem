@@ -69,6 +69,9 @@ public:
     }
 
 private:
+    /** コンパイル済み blob を解放し、空状態へ戻す。 */
+    void Reset() noexcept;
+
     /** コンパイル済みバイトコードを保持する blob (単独所有)。 */
     ID3DBlob*    m_Blob  = nullptr;
 

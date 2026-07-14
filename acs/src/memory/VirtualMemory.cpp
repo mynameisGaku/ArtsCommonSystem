@@ -1,203 +1,505 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — VirtualMemory 実装
+// ACS Memory - VirtualMemory 実装
 // =============================================================================
 #include "memory/VirtualMemory.h"
 #include "foundation/Platform.h"
 #include "foundation/Move.h"
-#include "foundation/Compiler.h"   // ACS_TARGET_AVX
+#include "foundation/Compiler.h" // ACS_TARGET_AVX
 
-#include <immintrin.h>
+#if ACS_ARCH_X64
+#    include <immintrin.h>
+#    include <intrin.h>
+#endif
+#include <cstdio>
 #include <cstring>
 
 namespace acs {
 
 namespace {
+
 /** GetSystemInfo の結果を 1 回だけ取得してキャッシュする小ホルダ。 */
 struct SystemInfoCache {
     /** OS から取得したシステム情報 (ページサイズ/予約粒度等)。 */
-    SYSTEM_INFO si;
+    SYSTEM_INFO system_info;
 
     /** 構築時に GetSystemInfo を 1 回呼ぶ。 */
-    SystemInfoCache() noexcept { ::GetSystemInfo(&si); }
+    SystemInfoCache() noexcept
+    {
+        ::GetSystemInfo(&system_info);
+    }
 };
 
-/**
- * キャッシュ済みのシステム情報を返す (初回呼び出しで取得)。
- *
- * @return プロセス唯一の SystemInfoCache への参照。
- */
-const SystemInfoCache& GetSI() noexcept { static SystemInfoCache c; return c; }
+/** キャッシュ済みのシステム情報を返す。 */
+const SystemInfoCache& GetSystemInfoCache() noexcept
+{
+    static SystemInfoCache Cache;
+    return Cache;
+}
+
+#if ACS_ARCH_X64
+/** CPU と OS の双方が AVX の XMM/YMM 状態を有効化しているかを検出する。 */
+bool DetectAvxAvailability() noexcept
+{
+    int Registers[4]{};
+    __cpuid(Registers, 0);
+    if (Registers[0] < 1) {
+        return false;
+    }
+
+    __cpuidex(Registers, 1, 0);
+    constexpr int OperatingSystemXsaveBit = 1 << 27;
+    constexpr int AvxBit = 1 << 28;
+    if ((Registers[2] & OperatingSystemXsaveBit) == 0 || (Registers[2] & AvxBit) == 0) {
+        return false;
+    }
+
+    constexpr unsigned long long XmmAndYmmStateMask = 0x6ull;
+    return (_xgetbv(0) & XmmAndYmmStateMask) == XmmAndYmmStateMask;
+}
+
+/** 検出結果を一度だけ保持し、ホットパスで CPUID を繰り返さない。 */
+bool CanUseAvxStores() noexcept
+{
+    static const bool bAvailable = DetectAvxAvailability();
+    return bAvailable;
+}
+
+/** AVX 命令をベースライン経路へ混入させないため、実装を非インライン関数へ隔離する。 */
+ACS_NEVERINLINE ACS_TARGET_AVX void ZeroWithAvxNonTemporalStores(void* Destination, usize Size) noexcept
+{
+    constexpr usize BlockSize = 256; // 8 x 32B
+    __m256i* Output = static_cast<__m256i*>(Destination);
+    const __m256i Zero = _mm256_setzero_si256();
+    const usize BlockCount = Size / BlockSize;
+    for (usize Index = 0; Index < BlockCount; ++Index) {
+        _mm256_stream_si256(Output + 0, Zero);
+        _mm256_stream_si256(Output + 1, Zero);
+        _mm256_stream_si256(Output + 2, Zero);
+        _mm256_stream_si256(Output + 3, Zero);
+        _mm256_stream_si256(Output + 4, Zero);
+        _mm256_stream_si256(Output + 5, Zero);
+        _mm256_stream_si256(Output + 6, Zero);
+        _mm256_stream_si256(Output + 7, Zero);
+        Output += 8;
+    }
+    _mm_sfence();
+
+    const usize CompletedSize = BlockCount * BlockSize;
+    if (CompletedSize < Size) {
+        ::memset(static_cast<u8*>(Destination) + CompletedSize, 0, Size - CompletedSize);
+    }
+}
+#endif
+
+/** offset と size が OS ページ境界へ整列しているかを返す。 */
+bool IsPageAlignedRange(usize Offset, usize Size) noexcept
+{
+    const usize PageSize = VmPageSize();
+    return Size != 0 && PageSize != 0 && (Offset % PageSize) == 0 && (Size % PageSize) == 0;
+}
+
+/** 指定範囲全体が同じ OS 状態かを VirtualQuery で確認する。 */
+bool RangeHasState(void* ReservationBase, usize Offset, usize Size, DWORD ExpectedState) noexcept
+{
+    if (!ReservationBase || Size == 0) {
+        return false;
+    }
+
+    constexpr uptr MaximumAddress = ~static_cast<uptr>(0);
+    const uptr BaseAddress = reinterpret_cast<uptr>(ReservationBase);
+    if (Offset > MaximumAddress - BaseAddress) {
+        return false;
+    }
+
+    const uptr RangeBegin = BaseAddress + Offset;
+    if (Size > MaximumAddress - RangeBegin) {
+        return false;
+    }
+    const uptr RangeEnd = RangeBegin + Size;
+
+    uptr Cursor = RangeBegin;
+    while (Cursor < RangeEnd) {
+        MEMORY_BASIC_INFORMATION Information{};
+        if (::VirtualQuery(reinterpret_cast<const void*>(Cursor), &Information, sizeof(Information)) == 0) {
+            return false;
+        }
+        if (Information.AllocationBase != ReservationBase || Information.State != ExpectedState) {
+            return false;
+        }
+
+        const uptr RegionBegin = reinterpret_cast<uptr>(Information.BaseAddress);
+        if (Information.RegionSize > MaximumAddress - RegionBegin) {
+            return false;
+        }
+        const uptr RegionEnd = RegionBegin + Information.RegionSize;
+        if (RegionEnd <= Cursor) {
+            return false;
+        }
+        Cursor = RegionEnd < RangeEnd ? RegionEnd : RangeEnd;
+    }
+    return true;
+}
+
+/** MEM_RELEASE 失敗を Logger の寿命に依存せず機械可読出力する。 */
+void EmitReleaseFailure(const void* ReservationBase, usize Capacity, DWORD OperatingSystemError) noexcept
+{
+    char Message[320]{};
+    const int Length = ::snprintf(Message, sizeof(Message),
+                                  "[acs][memory] allocator=VirtualMemory release_failed=true base=%p "
+                                  "capacity_bytes=%llu operating_system_error=%lu\r\n",
+                                  ReservationBase, static_cast<unsigned long long>(Capacity),
+                                  static_cast<unsigned long>(OperatingSystemError));
+    if (Length <= 0) {
+        return;
+    }
+
+    Message[sizeof(Message) - 1u] = '\0';
+    ::OutputDebugStringA(Message);
+    const HANDLE StandardError = ::GetStdHandle(STD_ERROR_HANDLE);
+    if (StandardError && StandardError != INVALID_HANDLE_VALUE) {
+        DWORD Written = 0;
+        const DWORD ByteCount = static_cast<DWORD>(Length < static_cast<int>(sizeof(Message)) ? Length
+                                                                                              : sizeof(Message) - 1u);
+        (void)::WriteFile(StandardError, Message, ByteCount, &Written, nullptr);
+    }
+}
+
 } // namespace
 
-usize VmPageSize() noexcept           { return GetSI().si.dwPageSize; }
-usize VmAllocGranularity() noexcept   { return GetSI().si.dwAllocationGranularity; }
-
-bool VmIsAligned(uptr addr, usize alignment) noexcept {
-    return (addr & (alignment - 1)) == 0;
+usize VmPageSize() noexcept
+{
+    return GetSystemInfoCache().system_info.dwPageSize;
 }
 
-VmReservation::~VmReservation() noexcept {
-    Release();
+usize VmAllocGranularity() noexcept
+{
+    return GetSystemInfoCache().system_info.dwAllocationGranularity;
 }
 
-VmReservation::VmReservation(VmReservation&& o) noexcept
-    : m_Base(o.m_Base), m_Capacity(o.m_Capacity), m_Committed(o.m_Committed),
-      m_LruCount(o.m_LruCount), m_LruHits(o.m_LruHits), m_LruMisses(o.m_LruMisses) {
-    for (u32 i = 0; i < o.m_LruCount; ++i) m_Lru[i] = o.m_Lru[i];
-    o.m_Base = nullptr;
-    o.m_Capacity = 0;
-    o.m_Committed = 0;
-    o.m_LruCount = 0;
+bool VmIsAligned(uptr Address, usize Alignment) noexcept
+{
+    return Alignment != 0 && (Alignment & (Alignment - 1)) == 0 && (Address & (Alignment - 1)) == 0;
 }
 
-VmReservation& VmReservation::operator=(VmReservation&& o) noexcept {
-    if (this == &o) return *this;
-    Release();
-    m_Base = o.m_Base;
-    m_Capacity = o.m_Capacity;
-    m_Committed = o.m_Committed;
-    m_LruCount = o.m_LruCount;
-    m_LruHits = o.m_LruHits;
-    m_LruMisses = o.m_LruMisses;
-    for (u32 i = 0; i < o.m_LruCount; ++i) m_Lru[i] = o.m_Lru[i];
-    o.m_Base = nullptr;
-    o.m_Capacity = 0;
-    o.m_Committed = 0;
-    o.m_LruCount = 0;
+VmReservation::~VmReservation() noexcept
+{
+    (void)Release();
+}
+
+VmReservation::VmReservation(VmReservation&& Other) noexcept
+    : m_Base(Other.m_Base),
+      m_Capacity(Other.m_Capacity),
+      m_ActiveCommittedBytes(Other.m_ActiveCommittedBytes),
+      m_CachedCommittedBytes(Other.m_CachedCommittedBytes),
+      m_MaximumCachedDecommitBytes(Other.m_MaximumCachedDecommitBytes),
+      m_DecommitCacheCount(Other.m_DecommitCacheCount),
+      m_DecommitCacheHits(Other.m_DecommitCacheHits),
+      m_DecommitCacheMisses(Other.m_DecommitCacheMisses)
+{
+    for (u32 Index = 0; Index < Other.m_DecommitCacheCount; ++Index) {
+        m_DecommitCache[Index] = Other.m_DecommitCache[Index];
+    }
+    Other.ResetState();
+}
+
+VmReservation& VmReservation::operator=(VmReservation&& Other) noexcept
+{
+    if (this == &Other) {
+        return *this;
+    }
+
+    if (Release().IsErr()) {
+        return *this;
+    }
+    m_Base = Other.m_Base;
+    m_Capacity = Other.m_Capacity;
+    m_ActiveCommittedBytes = Other.m_ActiveCommittedBytes;
+    m_CachedCommittedBytes = Other.m_CachedCommittedBytes;
+    m_MaximumCachedDecommitBytes = Other.m_MaximumCachedDecommitBytes;
+    m_DecommitCacheCount = Other.m_DecommitCacheCount;
+    m_DecommitCacheHits = Other.m_DecommitCacheHits;
+    m_DecommitCacheMisses = Other.m_DecommitCacheMisses;
+    for (u32 Index = 0; Index < Other.m_DecommitCacheCount; ++Index) {
+        m_DecommitCache[Index] = Other.m_DecommitCache[Index];
+    }
+    Other.ResetState();
     return *this;
 }
 
-// 仮想範囲を予約する（物理ページは未割当）
-TResult<VmReservation> VmReservation::Reserve(usize capacity_bytes) noexcept {
-    if (capacity_bytes == 0) return ACS_ERR(Memory, 10, "VmReservation::Reserve: capacity 0");
-    const usize gran = VmAllocGranularity();
-    capacity_bytes = (capacity_bytes + gran - 1) & ~(gran - 1);
-
-    void* const base = ::VirtualAlloc(nullptr, capacity_bytes, MEM_RESERVE, PAGE_READWRITE);
-    if (!base) {
-        const DWORD err = ::GetLastError();
-        return ACS_ERR_OS(Memory, 11, "VirtualAlloc MEM_RESERVE failed", err);
+// 仮想範囲を予約する。物理ページはまだ割り当てない。
+TResult<VmReservation> VmReservation::Reserve(usize CapacityBytes) noexcept
+{
+    if (CapacityBytes == 0) {
+        return ACS_ERR(Memory, 10, "VmReservation::Reserve: capacity 0");
     }
-    VmReservation r;
-    r.m_Base = base;
-    r.m_Capacity = capacity_bytes;
-    r.m_Committed = 0;
-    return TResult<VmReservation>(OkInit, Move(r));
-}
 
-void VmReservation::Release() noexcept {
-    if (!m_Base) return;
-    LruEvictAll();
-    ::VirtualFree(m_Base, 0, MEM_RELEASE);
-    m_Base = nullptr;
-    m_Capacity = 0;
-    m_Committed = 0;
-    m_LruCount = 0;
-}
-
-// LRU 末尾エントリを実 VirtualFree して新エントリを先頭挿入
-void VmReservation::LruInsert(u64 offset, u32 page_count) noexcept {
-    if (m_LruCount == kLruEntries) {
-        const mapped_t& victim = m_Lru[kLruEntries - 1];
-        void* const addr = static_cast<u8*>(m_Base) + (victim.packed_virtual_addr << 16);
-        const usize bytes = static_cast<usize>(victim.page_count) * VmPageSize();
-        ::VirtualFree(addr, bytes, MEM_DECOMMIT);
-        --m_LruCount;
+    const usize Granularity = VmAllocGranularity();
+    const usize MaximumSize = ~static_cast<usize>(0);
+    if (Granularity == 0 || CapacityBytes > MaximumSize - (Granularity - 1)) {
+        return ACS_ERR(Memory, 17, "VmReservation::Reserve: capacity overflow");
     }
-    for (u32 i = m_LruCount; i > 0; --i) m_Lru[i] = m_Lru[i - 1];
-    mapped_t& head = m_Lru[0];
-    head.packed_virtual_addr = (offset >> 16) & ((1ull << 44) - 1);
-    head.page_count          = page_count;
-    head.sparse              = 0;
-    head.misc                = 0;
-    ++m_LruCount;
-}
+    CapacityBytes = ((CapacityBytes + Granularity - 1) / Granularity) * Granularity;
 
-// 一致エントリを取り除いて true を返す（再利用可能）
-bool VmReservation::LruTake(u64 offset, u32 page_count) noexcept {
-    const u64 packed = (offset >> 16) & ((1ull << 44) - 1);
-    for (u32 i = 0; i < m_LruCount; ++i) {
-        if (m_Lru[i].packed_virtual_addr == packed && m_Lru[i].page_count == page_count) {
-            for (u32 j = i; j + 1 < m_LruCount; ++j) m_Lru[j] = m_Lru[j + 1];
-            --m_LruCount;
-            ++m_LruHits;
-            return true;
-        }
+    void* const Base = ::VirtualAlloc(nullptr, CapacityBytes, MEM_RESERVE, PAGE_READWRITE);
+    if (!Base) {
+        const DWORD Error = ::GetLastError();
+        return ACS_ERR_OS(Memory, 11, "VirtualAlloc MEM_RESERVE failed", Error);
     }
-    ++m_LruMisses;
-    return false;
+
+    VmReservation Reservation;
+    Reservation.m_Base = Base;
+    Reservation.m_Capacity = CapacityBytes;
+    return TResult<VmReservation>(OkInit, Move(Reservation));
 }
 
-// LRU 内のすべてを実 VirtualFree
-void VmReservation::LruEvictAll() noexcept {
-    for (u32 i = 0; i < m_LruCount; ++i) {
-        const mapped_t& v = m_Lru[i];
-        void* const addr = static_cast<u8*>(m_Base) + (v.packed_virtual_addr << 16);
-        const usize bytes = static_cast<usize>(v.page_count) * VmPageSize();
-        ::VirtualFree(addr, bytes, MEM_DECOMMIT);
-    }
-    m_LruCount = 0;
-}
-
-// 物理ページ確保（LRU ヒットなら VirtualAlloc 省略）
-TResult<void> VmReservation::Commit(usize offset, usize size) noexcept {
-    if (!m_Base) return ACS_ERR(Memory, 12, "Commit: reservation released");
-    if (offset + size > m_Capacity) return ACS_ERR(Memory, 13, "Commit: out of reservation");
-    const usize page_size = VmPageSize();
-    const u32 page_count = static_cast<u32>((size + page_size - 1) / page_size);
-
-    if (LruTake(static_cast<u64>(offset), page_count)) {
-        m_Committed += size;
+TResult<void> VmReservation::Release() noexcept
+{
+    if (!m_Base) {
         return Ok();
     }
 
-    void* const addr = static_cast<u8*>(m_Base) + offset;
-    void* const p = ::VirtualAlloc(addr, size, MEM_COMMIT, PAGE_READWRITE);
-    if (!p) {
-        const DWORD err = ::GetLastError();
-        return ACS_ERR_OS(Memory, 14, "VirtualAlloc MEM_COMMIT failed", err);
+    // Flush が失敗しても MEM_RELEASE は予約内の全物理ページをまとめて返せる。
+    (void)FlushDecommitCache();
+    if (!::VirtualFree(m_Base, 0, MEM_RELEASE)) {
+        const DWORD Error = ::GetLastError();
+        EmitReleaseFailure(m_Base, m_Capacity, Error);
+        return ACS_ERR_OS(Memory, 31, "VirtualFree MEM_RELEASE failed", Error);
     }
-    m_Committed += size;
+    ResetState();
     return Ok();
 }
 
-// 物理ページ返却（実 VirtualFree は LRU エビクト時）
-TResult<void> VmReservation::Decommit(usize offset, usize size) noexcept {
-    if (!m_Base) return ACS_ERR(Memory, 15, "Decommit: reservation released");
-    if (offset + size > m_Capacity) return ACS_ERR(Memory, 16, "Decommit: out of reservation");
-    const usize page_size = VmPageSize();
-    const u32 page_count = static_cast<u32>((size + page_size - 1) / page_size);
-    LruInsert(static_cast<u64>(offset), page_count);
-    m_Committed = (m_Committed > size) ? m_Committed - size : 0;
+TResult<void> VmReservation::InsertDecommitCache(usize Offset, usize Size) noexcept
+{
+    if (Size > m_MaximumCachedDecommitBytes) {
+        return ACS_ERR(Memory, 32, "InsertDecommitCache: range exceeds byte limit");
+    }
+
+    while (m_DecommitCacheCount > 0 && (m_DecommitCacheCount == kDecommitCacheCapacity ||
+                                        m_CachedCommittedBytes > m_MaximumCachedDecommitBytes - Size)) {
+        auto Eviction = EvictDecommitCacheEntry(m_DecommitCacheCount - 1);
+        if (Eviction.IsErr()) {
+            return Eviction;
+        }
+    }
+
+    for (u32 Index = m_DecommitCacheCount; Index > 0; --Index) {
+        m_DecommitCache[Index] = m_DecommitCache[Index - 1];
+    }
+    m_DecommitCache[0].offset = Offset;
+    m_DecommitCache[0].size = Size;
+    ++m_DecommitCacheCount;
     return Ok();
 }
 
-// ACS_TARGET_AVX: この関数だけ AVX を許可する（Clang/clang-cl は AVX 組み込み
-// 関数を使う関数に target 属性を要求する。MSVC では空に展開される）。
-ACS_TARGET_AVX void VmZeroFastNT(void* dst, usize size) noexcept {
-    constexpr usize kBlock = 256;  // 8 × 32B
-    if (size < kBlock || (reinterpret_cast<uptr>(dst) & 31) != 0) {
-        ::memset(dst, 0, size);
+bool VmReservation::TakeDecommitCache(usize Offset, usize Size) noexcept
+{
+    for (u32 Index = 0; Index < m_DecommitCacheCount; ++Index) {
+        const DecommitCacheEntry& Entry = m_DecommitCache[Index];
+        if (Entry.offset == Offset && Entry.size == Size) {
+            m_CachedCommittedBytes -= Entry.size;
+            RemoveDecommitCacheEntry(Index);
+            if (m_DecommitCacheHits != ~static_cast<u64>(0)) {
+                ++m_DecommitCacheHits;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+bool VmReservation::OverlapsDecommitCache(usize Offset, usize Size) const noexcept
+{
+    const usize RangeEnd = Offset + Size;
+    for (u32 Index = 0; Index < m_DecommitCacheCount; ++Index) {
+        const DecommitCacheEntry& Entry = m_DecommitCache[Index];
+        const usize EntryEnd = Entry.offset + Entry.size;
+        if (Offset < EntryEnd && Entry.offset < RangeEnd) {
+            return true;
+        }
+    }
+    return false;
+}
+
+TResult<void> VmReservation::EvictDecommitCacheEntry(u32 Index) noexcept
+{
+    if (!m_Base || Index >= m_DecommitCacheCount) {
+        return ACS_ERR(Memory, 24, "EvictDecommitCacheEntry: invalid state");
+    }
+
+    const DecommitCacheEntry Entry = m_DecommitCache[Index];
+    void* const Address = static_cast<u8*>(m_Base) + Entry.offset;
+    if (!::VirtualFree(Address, Entry.size, MEM_DECOMMIT)) {
+        const DWORD Error = ::GetLastError();
+        return ACS_ERR_OS(Memory, 25, "VirtualFree MEM_DECOMMIT failed", Error);
+    }
+
+    m_CachedCommittedBytes -= Entry.size;
+    RemoveDecommitCacheEntry(Index);
+    return Ok();
+}
+
+void VmReservation::RemoveDecommitCacheEntry(u32 Index) noexcept
+{
+    for (u32 MoveIndex = Index; MoveIndex + 1 < m_DecommitCacheCount; ++MoveIndex) {
+        m_DecommitCache[MoveIndex] = m_DecommitCache[MoveIndex + 1];
+    }
+    if (m_DecommitCacheCount > 0) {
+        --m_DecommitCacheCount;
+        m_DecommitCache[m_DecommitCacheCount] = {};
+    }
+}
+
+TResult<void> VmReservation::Commit(usize Offset, usize Size) noexcept
+{
+    if (!m_Base) {
+        return ACS_ERR(Memory, 12, "Commit: reservation released");
+    }
+    if (Size == 0) {
+        return ACS_ERR(Memory, 18, "Commit: size 0");
+    }
+    if (Offset > m_Capacity || Size > m_Capacity - Offset) {
+        return ACS_ERR(Memory, 13, "Commit: out of reservation");
+    }
+    if (!IsPageAlignedRange(Offset, Size)) {
+        return ACS_ERR(Memory, 19, "Commit: offset and size must be page aligned");
+    }
+
+    if (TakeDecommitCache(Offset, Size)) {
+        m_ActiveCommittedBytes += Size;
+        return Ok();
+    }
+    if (OverlapsDecommitCache(Offset, Size)) {
+        return ACS_ERR(Memory, 20, "Commit: partial overlap with decommit cache");
+    }
+    // MEM_COMMIT は本来冪等なので、既に利用中の範囲は統計を変えず成功させる。
+    // TLSF の pool 登録が失敗して同じ範囲を再試行する経路とも互換になる。
+    if (RangeHasState(m_Base, Offset, Size, MEM_COMMIT)) {
+        return Ok();
+    }
+    if (!RangeHasState(m_Base, Offset, Size, MEM_RESERVE)) {
+        return ACS_ERR(Memory, 21, "Commit: range has mixed or invalid state");
+    }
+
+    void* const Address = static_cast<u8*>(m_Base) + Offset;
+    void* const CommittedAddress = ::VirtualAlloc(Address, Size, MEM_COMMIT, PAGE_READWRITE);
+    if (!CommittedAddress) {
+        const DWORD Error = ::GetLastError();
+        return ACS_ERR_OS(Memory, 14, "VirtualAlloc MEM_COMMIT failed", Error);
+    }
+    if (CommittedAddress != Address) {
+        (void)::VirtualFree(CommittedAddress, Size, MEM_DECOMMIT);
+        return ACS_ERR(Memory, 30, "VirtualAlloc MEM_COMMIT returned unexpected address");
+    }
+    m_ActiveCommittedBytes += Size;
+    if (m_DecommitCacheMisses != ~static_cast<u64>(0)) {
+        ++m_DecommitCacheMisses;
+    }
+    return Ok();
+}
+
+TResult<void> VmReservation::Decommit(usize Offset, usize Size) noexcept
+{
+    if (!m_Base) {
+        return ACS_ERR(Memory, 15, "Decommit: reservation released");
+    }
+    if (Size == 0) {
+        return ACS_ERR(Memory, 26, "Decommit: size 0");
+    }
+    if (Offset > m_Capacity || Size > m_Capacity - Offset) {
+        return ACS_ERR(Memory, 16, "Decommit: out of reservation");
+    }
+    if (!IsPageAlignedRange(Offset, Size)) {
+        return ACS_ERR(Memory, 27, "Decommit: offset and size must be page aligned");
+    }
+    if (OverlapsDecommitCache(Offset, Size)) {
+        return ACS_ERR(Memory, 28, "Decommit: duplicate or overlapping cached range");
+    }
+    if (m_ActiveCommittedBytes < Size || !RangeHasState(m_Base, Offset, Size, MEM_COMMIT)) {
+        return ACS_ERR(Memory, 29, "Decommit: range is not actively committed");
+    }
+
+    if (Size > m_MaximumCachedDecommitBytes) {
+        void* const Address = static_cast<u8*>(m_Base) + Offset;
+        if (!::VirtualFree(Address, Size, MEM_DECOMMIT)) {
+            const DWORD Error = ::GetLastError();
+            return ACS_ERR_OS(Memory, 33, "VirtualFree immediate MEM_DECOMMIT failed", Error);
+        }
+        m_ActiveCommittedBytes -= Size;
+        return Ok();
+    }
+
+    auto Insertion = InsertDecommitCache(Offset, Size);
+    if (Insertion.IsErr()) {
+        return Insertion;
+    }
+    m_ActiveCommittedBytes -= Size;
+    m_CachedCommittedBytes += Size;
+    return Ok();
+}
+
+TResult<void> VmReservation::SetMaximumCachedDecommitBytes(usize MaximumCachedDecommitBytes) noexcept
+{
+    auto TrimResult = TrimDecommitCache(MaximumCachedDecommitBytes);
+    if (TrimResult.IsErr()) {
+        return TrimResult;
+    }
+    m_MaximumCachedDecommitBytes = MaximumCachedDecommitBytes;
+    return Ok();
+}
+
+TResult<void> VmReservation::TrimDecommitCache(usize TargetCachedBytes) noexcept
+{
+    while (m_DecommitCacheCount > 0 && m_CachedCommittedBytes > TargetCachedBytes) {
+        auto Eviction = EvictDecommitCacheEntry(m_DecommitCacheCount - 1);
+        if (Eviction.IsErr()) {
+            return Eviction;
+        }
+    }
+    return Ok();
+}
+
+TResult<void> VmReservation::FlushDecommitCache() noexcept
+{
+    return TrimDecommitCache(0);
+}
+
+void VmReservation::ResetState() noexcept
+{
+    m_Base = nullptr;
+    m_Capacity = 0;
+    m_ActiveCommittedBytes = 0;
+    m_CachedCommittedBytes = 0;
+    m_MaximumCachedDecommitBytes = kDefaultMaximumCachedDecommitBytes;
+    for (u32 Index = 0; Index < kDecommitCacheCapacity; ++Index) {
+        m_DecommitCache[Index] = {};
+    }
+    m_DecommitCacheCount = 0;
+    m_DecommitCacheHits = 0;
+    m_DecommitCacheMisses = 0;
+}
+
+void VmZeroFastNT(void* Destination, usize Size) noexcept
+{
+    if (!Destination || Size == 0) {
         return;
     }
-    __m256i* p = static_cast<__m256i*>(dst);
-    const __m256i z = _mm256_setzero_si256();
-    const usize blocks = size / kBlock;
-    for (usize i = 0; i < blocks; ++i) {
-        _mm256_stream_si256(p + 0, z);
-        _mm256_stream_si256(p + 1, z);
-        _mm256_stream_si256(p + 2, z);
-        _mm256_stream_si256(p + 3, z);
-        _mm256_stream_si256(p + 4, z);
-        _mm256_stream_si256(p + 5, z);
-        _mm256_stream_si256(p + 6, z);
-        _mm256_stream_si256(p + 7, z);
-        p += 8;
+
+    constexpr usize BlockSize = 256; // 8 x 32B
+    if (Size < BlockSize || (reinterpret_cast<uptr>(Destination) & 31) != 0) {
+        ::memset(Destination, 0, Size);
+        return;
     }
-    _mm_sfence();
-    const usize done = blocks * kBlock;
-    if (done < size) ::memset(static_cast<u8*>(dst) + done, 0, size - done);
+
+#if ACS_ARCH_X64
+    if (CanUseAvxStores()) {
+        ZeroWithAvxNonTemporalStores(Destination, Size);
+        return;
+    }
+#endif
+
+    ::memset(Destination, 0, Size);
 }
 
 } // namespace acs

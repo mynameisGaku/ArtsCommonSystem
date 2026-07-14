@@ -178,6 +178,9 @@ public:
     void SetCurrentState(D3D12_RESOURCE_STATES s) noexcept { m_CurrentState = s; }
 
 private:
+    /** デスクリプタスロットと GPU/CPU 所有物を解放して空状態へ戻す。 */
+    void Reset() noexcept;
+
     /** 所有元の DX12 デバイス (ディスクリプタ解放に使う)。 */
     Dx12Device*           m_Device   = nullptr;
 

@@ -28,6 +28,10 @@
 #include "foundation/Types.h"
 #include "gameframework/ScriptHost.h"
 
+namespace acs {
+class FAllocator;
+}
+
 namespace acs::scripting {
 
 /**
@@ -45,6 +49,13 @@ class FLuaVm final : public acs::game::IScriptVm {
 public:
     /** 空状態で構築する (lua_State は Init で生成)。 */
     FLuaVm() noexcept;
+
+    /**
+     * 指定 allocator を native function 登録簿に使う空状態で構築する。
+     *
+     * @param allocator native function 登録簿の確保に使う allocator。
+     */
+    explicit FLuaVm(acs::FAllocator& allocator) noexcept;
 
     /** 破棄する (Shutdown を呼んで lua_State を解放してから Impl を delete)。 */
     ~FLuaVm() noexcept override;

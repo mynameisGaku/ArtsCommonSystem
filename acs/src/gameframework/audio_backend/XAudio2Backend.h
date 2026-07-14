@@ -29,11 +29,11 @@
 //   ・**固定容量 voice pool**: `Init(max_voices)` 時に確保。再 init 不可。
 //     PlayOneShot / PlayLooped で空きを線形探索 (max_voices は通常 ≦ 128 で、
 //     ホットパス影響は無視できる)。
-//   ・**generation 付き handle**: slot 再利用時に古いハンドルで操作されても
-//     generation 不一致で no-op 化、use-after-free を防ぐ。
-//   ・**COM init は本 backend が責任を持つ**: 既に他所で `CoInitializeEx` 済
-//     なら HRESULT が `RPC_E_CHANGED_MODE` 等で戻るので、その場合は「他所が
-//     init 済」とみなして自分では Uninitialize しない (フラグで覚える)。
+//   ・**一意 handle**: slot 再利用時に古いハンドルで操作されても不一致で
+//     no-op 化し、use-after-free を防ぐ。
+//   ・**COM init は本 backend が責任を持つ**: `S_OK` と `S_FALSE` はどちらも
+//     Shutdown で `CoUninitialize` を呼び、参照数を釣り合わせる。
+//     `RPC_E_CHANGED_MODE` のときだけ他所の apartment を借り、自分では解除しない。
 //   ・**Pcm32Float / Pcm16 のみ実音再生対応**: Wav 形式は asset layer
 //     側で事前デコードしてから raw PCM として渡す前提 (本 backend 内に
 //     wav parser を追加するなら拡張可)。
@@ -59,10 +59,10 @@ namespace acs::game {
  * @details
  * `FAudioDirector::SetBackend(&xaudio2)` で差し込んで使う。pimpl で `<xaudio2.h>`
  * (+ COM) の重ヘッダを .cpp に閉じ込め、固定容量 voice pool を `Init(max_voices)`
- * で確保する。voice handle は 24bit index + 8bit generation で一意化し、slot 再利用
- * 時の use-after-free を generation 不一致で no-op 化して防ぐ。一発再生は Tick で
+ * で確保する。voice handle は ABI を 32bit に保ったプロセス通算チケットで一意化し、
+ * slot 再利用時の use-after-free をハンドル不一致で no-op 化して防ぐ。一発再生は Tick で
  * `BuffersQueued == 0` を見て自然回収される。COM 初期化は本 backend が責任を持ち、
- * 自分で成功したときだけ Shutdown で CoUninitialize する。
+ * `CoInitializeEx` が `S_OK` または `S_FALSE` なら Shutdown で CoUninitialize する。
  */
 class FXAudio2Backend final : public IAudioBackend {
 public:
@@ -90,7 +90,8 @@ public:
      * @details
      * 多重 Init は kSubAudioAlreadyInitialized、max_voices=0 や 2^24 以上は
      * kSubAudioInvalidArgs を返す。COM は既に他所が init 済でも続行し、自分で
-     * CoInitializeEx に成功したときだけ Shutdown で CoUninitialize する。
+     * CoInitializeEx が S_OK または S_FALSE なら Shutdown で CoUninitialize する。
+     * COM の参照数はスレッド単位なので、Init と Shutdown は同じスレッドから呼ぶこと。
      * @param max_voices 同時発音数の上限 (= slot 数。0 は不正)。
      * @return 成功なら空の TResult、初期化失敗ならエラー。
      */
@@ -137,7 +138,7 @@ public:
     /**
      * 指定 voice を停止して slot を解放する。
      *
-     * @details 無効ハンドル / 既に解放済 / generation 不一致 (古いハンドル) は no-op。
+     * @details 無効ハンドル / 既に解放済 / ハンドル不一致 (古いハンドル) は no-op。
      * @param voice 停止する voice のハンドル。
      */
     void StopVoice(AudioVoiceHandle voice) noexcept override;
@@ -145,7 +146,7 @@ public:
     /**
      * 指定 voice の音量を変更する。
      *
-     * @details 無効ハンドル / 解放済 / generation 不一致は no-op。範囲外は clamp。
+     * @details 無効ハンドル / 解放済 / ハンドル不一致は no-op。範囲外は clamp。
      * @param voice 対象 voice のハンドル。
      * @param volume 新しい音量 (0.0〜1.0、範囲外は clamp)。
      */

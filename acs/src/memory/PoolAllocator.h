@@ -40,14 +40,13 @@ public:
      * block_size は最低 sizeof(Node) かつ alignment の倍数に切り上げられる。alignment は
      * 最低 sizeof(void*)。block_size×block_count のオーバーフローや確保失敗時は空プール
      * (BlockCount()==0) になる。初期フリーリスト連結はシングルスレッド前提。
-     * @param block_size 1 ブロックの要求サイズ (内部で切り上げ)。
-     * @param block_count ブロック総数。
-     * @param alignment 各ブロックのアライメント (既定 kDefaultAlignment)。
-     * @param backing ストレージの確保元 (nullptr なら DefaultAllocator)。
+     * @param RequestedBlockSize 1 ブロックの要求サイズ (内部で切り上げ)。
+     * @param RequestedBlockCount ブロック総数。
+     * @param Alignment 各ブロックのアライメント (既定 kDefaultAlignment)。
+     * @param BackingAllocator ストレージの確保元 (nullptr なら DefaultAllocator)。
      */
-    FPoolAllocator(usize block_size, usize block_count,
-                  usize alignment = kDefaultAlignment,
-                  FAllocator* backing = nullptr) noexcept;
+    FPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCount, usize Alignment = kDefaultAlignment,
+                   FAllocator* BackingAllocator = nullptr) noexcept;
 
     /** ストレージを backing に返して破棄する。 */
     ~FPoolAllocator() noexcept override;
@@ -61,43 +60,60 @@ public:
     /**
      * フリーリストから 1 ブロックを pop して返す (Treiber スタックの pop)。
      *
-     * @details size がブロックサイズ超、alignment がプールの整列超、プール枯渇時は nullptr。返す領域は常に 1 ブロック分。
-     * @param size 要求サイズ (m_BlockSize 以下であること)。
-     * @param alignment 要求アライメント (プールの整列以下であること)。
-     * @param loc 診断用の呼び出し位置 (本実装では未使用)。
+     * @details Size がブロックサイズ超、Alignment がプールの整列超、プール枯渇時は nullptr。返す領域は常に 1 ブロック分。
+     * @param Size 要求サイズ (m_BlockSize 以下であること)。
+     * @param Alignment 要求アライメント (プールの整列以下であること)。
+     * @param Location 診断用の呼び出し位置 (本実装では未使用)。
      * @return 確保した 1 ブロック (失敗時 nullptr)。
      */
-    void* Alloc(usize size, usize alignment, FSourceLoc loc) noexcept override;
+    void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override;
 
     /**
      * ブロックをフリーリストへ push して返す (Treiber スタックの push)。
      *
      * @details nullptr は no-op。このプール由来でないポインタを渡すと UB (検証は Contains で行う)。
-     * @param ptr このプールが払い出したブロック (nullptr 可)。
+     * @param Pointer このプールが払い出したブロック (nullptr 可)。
      */
-    void  Free (void* ptr)                                  noexcept override;
+    void Free(void* Pointer) noexcept override;
 
     /**
      * 1 ブロックのサイズを返す (切り上げ後)。
      *
      * @return 切り上げ済みのブロックサイズ (バイト)。
      */
-    u64 BlockSize()      const noexcept { return m_BlockSize; }
+    u64 BlockSize() const noexcept
+    {
+        return m_BlockSize;
+    }
 
     /**
      * ブロック総数を返す。
      *
      * @return プールが保持するブロック数 (確保失敗時 0)。
      */
-    u64 BlockCount()     const noexcept { return m_BlockCount; }
+    u64 BlockCount() const noexcept
+    {
+        return m_BlockCount;
+    }
 
     /**
      * 現在の使用バイト数を返す。
      *
      * @return 生存ブロック数 × ブロックサイズ。
      */
-    u64 BytesAllocated() const noexcept override {
+    u64 BytesAllocated() const noexcept override
+    {
         return m_Live.Load(EMemoryOrder::Acquire) * m_BlockSize;
+    }
+
+    /**
+     * 現在払い出し中のブロック件数を返す。
+     *
+     * @return Free されていないプールブロック数。
+     */
+    u64 AllocationCount() const noexcept override
+    {
+        return m_Live.Load(EMemoryOrder::Acquire);
     }
 
     /**
@@ -105,20 +121,24 @@ public:
      *
      * @return 文字列 "TPool"。
      */
-    const char* Name()   const noexcept override { return "TPool"; }
+    const char* Name() const noexcept override
+    {
+        return "TPool";
+    }
 
     /**
-     * ptr がこのプールのストレージ範囲内かを判定する。
+     * Pointer がこのプールのストレージ範囲内かを判定する。
      *
      * @details Heap フォールバック等との区別に使う。アライメント (= 実ブロック先頭) までは検証しない。
-     * @param ptr 判定対象のポインタ。
+     * @param Pointer 判定対象のポインタ。
      * @return プールのストレージ範囲内なら true。
      */
-    bool Contains(const void* ptr) const noexcept {
-        if (!m_Storage || !ptr) return false;
-        const u8* const p = static_cast<const u8*>(ptr);
-        const u8* const end = m_Storage + m_BlockSize * m_BlockCount;
-        return p >= m_Storage && p < end;
+    bool Contains(const void* Pointer) const noexcept
+    {
+        if (!m_Storage || !Pointer) return false;
+        const u8* const StoragePointer = static_cast<const u8*>(Pointer);
+        const u8* const StorageEnd = m_Storage + m_BlockSize * m_BlockCount;
+        return StoragePointer >= m_Storage && StoragePointer < StorageEnd;
     }
 
 private:
@@ -134,29 +154,29 @@ private:
         Node* ptr;
 
         /** ABA 検出用の世代タグ。 */
-        u64   tag;
+        u64 tag;
     };
 
     /** ブロック配列の先頭 (backing から 1 回確保、失敗時 nullptr)。 */
-    u8*               m_Storage    = nullptr;
+    u8* m_Storage = nullptr;
 
     /** 切り上げ済みの 1 ブロックサイズ。 */
-    u64               m_BlockSize = 0;
+    u64 m_BlockSize = 0;
 
     /** ブロック総数 (確保失敗時 0)。 */
-    u64               m_BlockCount= 0;
+    u64 m_BlockCount = 0;
 
     /** 各ブロックのアライメント (切り上げ済み)。 */
-    u64               m_Alignment  = 0;
+    u64 m_Alignment = 0;
 
     /** ストレージの確保元アロケータ。 */
-    FAllocator*        m_Backing    = nullptr;
+    FAllocator* m_Backing = nullptr;
 
     /** 現在使用中のブロック数 (統計用)。 */
-    TAtomic<u64>       m_Live {0};
+    TAtomic<u64> m_Live{0};
 
     /** フリーリスト head と ABA タグを 1 ワードにパックしたもの (上位 17bit=タグ、下位 47bit=ポインタ)。 */
-    TAtomic<u64>       m_HeadPacked {0};
+    TAtomic<u64> m_HeadPacked{0};
 };
 
 } // namespace acs

@@ -174,6 +174,16 @@ u32 LenW(const wchar_t* s) noexcept {
 
 } // namespace
 
+/** DefaultAllocator で空の Writer を構築する。 */
+FAcpakWriter::FAcpakWriter() noexcept : FAcpakWriter(DefaultAllocator())
+{
+}
+
+/** 指定 allocator で pending list を構築する。 */
+FAcpakWriter::FAcpakWriter(FAllocator& allocator) noexcept : m_Pending(allocator)
+{
+}
+
 /** 破棄時に Close を呼んで後始末する。 */
 FAcpakWriter::~FAcpakWriter() noexcept {
     Close();
@@ -192,7 +202,7 @@ void FAcpakWriter::Close() noexcept {
 void FAcpakWriter::ResetState() noexcept {
     m_Flags     = 0;
     m_Finalized = false;
-    m_Pending.Clear();
+    m_Pending.ReleaseStorage();
 
     // 鍵 defensive zero
     MemSet(m_Key.bytes, 0, sizeof(m_Key.bytes));

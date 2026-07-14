@@ -1686,6 +1686,12 @@ namespace jobdetail {
      * 実装詳細であり初学者が直接触る必要はない。
      */
     struct Closure {
+        /** このクロージャを確保したアロケータ。 */
+        FAllocator* allocation_allocator;
+
+        /** allocation_allocator へ返す確保領域の先頭。 */
+        void* allocation_base;
+
         /** 格納したラムダ本体を呼び出す関数ポインタ。 */
         void (*invoke)(Closure*);
 
@@ -1718,13 +1724,34 @@ namespace jobdetail {
     template<typename Fn> inline Closure* MakeClosure(const Fn& fn) noexcept {
         const usize a   = alignof(Fn) > alignof(Closure) ? alignof(Fn) : alignof(Closure);
         const usize off = PayloadOffset<Fn>();
-        void* mem = acs::DefaultAllocator().Alloc(off + sizeof(Fn), a, acs::FSourceLoc::Current());
+        if (off > (~usize(0)) - sizeof(Fn)) return nullptr;
+
+        FAllocator& allocator = acs::DefaultAllocator();
+        void* mem = allocator.Alloc(off + sizeof(Fn), a, acs::FSourceLoc::Current());
         if (!mem) return nullptr;
         Closure* c = static_cast<Closure*>(mem);
         ::new (static_cast<u8*>(mem) + off) Fn(fn);   // ラムダをコピー構築 (元 fn は呼び出し側で生存)
+        c->allocation_allocator = &allocator;
+        c->allocation_base = mem;
         c->invoke  = [](Closure* s) { (*reinterpret_cast<Fn*>(reinterpret_cast<u8*>(s) + PayloadOffset<Fn>()))(); };
         c->destroy = [](Closure* s) {  reinterpret_cast<Fn*>(reinterpret_cast<u8*>(s) + PayloadOffset<Fn>())->~Fn(); };
         return c;
+    }
+
+    /**
+     * クロージャ本体を破棄し、生成時に記録した確保元へ領域を返す。
+     *
+     * @param closure 破棄するクロージャ。nullptr は no-op。
+     */
+    inline void DestroyClosure(Closure* closure) noexcept
+    {
+        if (closure == nullptr) return;
+        FAllocator* const allocator = closure->allocation_allocator;
+        void* const allocation_base = closure->allocation_base;
+        closure->destroy(closure);
+        if (allocator != nullptr && allocation_base != nullptr) {
+            allocator->Free(allocation_base);
+        }
     }
 
     /**

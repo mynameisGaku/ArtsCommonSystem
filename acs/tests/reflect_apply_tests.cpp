@@ -178,3 +178,45 @@ ACS_TEST(ReflectMethod, RegisterAndInvoke) {
     EXPECT_EQ(host.counter, 20);
     EXPECT_TRUE(!InvokeMethodByName(owner, &host, "Nope"));   // 不明メソッドは false
 }
+
+namespace {
+
+void FirstDynamicMethod(void* self) noexcept
+{
+    *static_cast<int*>(self) = 1;
+}
+
+void SecondDynamicMethod(void* self) noexcept
+{
+    *static_cast<int*>(self) = 2;
+}
+
+} // namespace
+
+ACS_TEST(ReflectMethod, DuplicateSourcesPromoteOnUnregister)
+{
+    const FTypeId owner = AcsTypeHash("FDynamicMethodLifetimeContract");
+    const FReflectMethod first{owner,   "Run",           &FirstDynamicMethod, nullptr,
+                               nullptr, METHOD_ARG_NONE, METHOD_ARG_NONE,     METHOD_BP_CALLABLE};
+    const FReflectMethod second{owner,   "Run",           &SecondDynamicMethod, nullptr,
+                                nullptr, METHOD_ARG_NONE, METHOD_ARG_NONE,      METHOD_CALL_IN_EDITOR};
+
+    FMethodRegistry& registry = FMethodRegistry::Get();
+    registry.Register(first);
+    registry.Register(second);
+    EXPECT_EQ(registry.CountOfOwner(owner), 1u);
+
+    int value = 0;
+    EXPECT_TRUE(InvokeMethodByName(owner, &value, "Run"));
+    EXPECT_EQ(value, 1);
+
+    // 先に有効だった module/source を外すと、残る登録元へ昇格する。
+    EXPECT_TRUE(registry.Unregister(first));
+    value = 0;
+    EXPECT_TRUE(InvokeMethodByName(owner, &value, "Run"));
+    EXPECT_EQ(value, 2);
+
+    EXPECT_TRUE(registry.Unregister(second));
+    EXPECT_TRUE(registry.Find(owner, "Run") == nullptr);
+    EXPECT_TRUE(!registry.Unregister(second));
+}

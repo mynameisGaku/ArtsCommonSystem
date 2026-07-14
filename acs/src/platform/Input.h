@@ -153,6 +153,16 @@ public:
     static bool IsGamepadButtonPressed(u32 player_index, EGamepadButton b) noexcept;
 
     /**
+     * 指定プレイヤーのゲームパッドボタンがこのフレームで解放されたかを返す。
+     *
+     * @details 押下中にゲームパッドが切断された場合も、一度だけ解放として扱う。
+     * @param player_index プレイヤー番号 (0..3)。
+     * @param b 対象ボタン。
+     * @return 前フレームは押されていて今フレームで離されたなら true。
+     */
+    static bool IsGamepadButtonReleased(u32 player_index, EGamepadButton b) noexcept;
+
+    /**
      * 指定プレイヤーのゲームパッド軸の値を返す。
      *
      * @details スティックはデッドゾーン処理込みで -1.0〜+1.0、トリガーは 0.0〜1.0 に正規化。

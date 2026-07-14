@@ -75,7 +75,8 @@ void FullGameApp::OnShutdown() noexcept {
     FGame::OnShutdown();
 }
 
-void FullGameApp::EnsureSpritesInitialized() noexcept {
+void FullGameApp::EnsureSpritesInitialized() noexcept
+{
     if (m_SpriteInitialized) return;
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) return;
@@ -88,21 +89,27 @@ void FullGameApp::EnsureSpritesInitialized() noexcept {
     ACS_LOG_INFO("[FullGame] FSpriteBatch initialized");
 
     // Font も同じタイミングで遅延 init (Device 必須)。
-    FSample::TryLoadDefaultUIFont(m_FontTitle, *dev, 36.0f, 1024, false);
-    FSample::TryLoadDefaultUIFont(m_FontBody,  *dev, 18.0f, 1024, false);
+    const auto title_font_result = FSample::TryLoadDefaultUIFont(m_FontTitle, *dev, 36.0f, 1024, false);
+    const auto body_font_result = FSample::TryLoadDefaultUIFont(m_FontBody, *dev, 18.0f, 1024, false);
+    if (title_font_result.IsErr() || body_font_result.IsErr()) {
+        ACS_LOG_WARN("[FullGame] UI font initialization failed");
+        m_FontTitle.Shutdown();
+        m_FontBody.Shutdown();
+        return;
+    }
     m_FontInitialized = true;
 }
 
-void FullGameApp::SaveHighScoreIfBetter(u64 final_score) noexcept {
+void FullGameApp::SaveHighScoreIfBetter(u64 final_score) noexcept
+{
     if (final_score <= m_Highscore.best_score) return;
     m_Highscore.best_score = final_score;
-    m_Highscore.timestamp  = static_cast<u64>(0);
+    m_Highscore.timestamp = static_cast<u64>(0);
     auto r = m_HighscoreSlot.Save(m_Highscore);
     if (r.IsErr()) {
         ACS_LOG_WARN("[FullGame] HighScore save failed: %s", r.Error().message);
     } else {
-        ACS_LOG_INFO("[FullGame] HighScore saved (best=%llu)",
-                     static_cast<unsigned long long>(m_Highscore.best_score));
+        ACS_LOG_INFO("[FullGame] HighScore saved (best=%llu)", static_cast<unsigned long long>(m_Highscore.best_score));
     }
 }
 

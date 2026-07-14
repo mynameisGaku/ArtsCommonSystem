@@ -134,8 +134,13 @@ struct WatchEntry;
  */
 class HotReloadWatcher {
 public:
-    /** 空状態で構築する (OS watcher ハンドルは Init で開く)。 */
-    HotReloadWatcher() noexcept = default;
+    /**
+     * 空状態で構築する (OS watcher ハンドルは Init で開く)。
+     *
+     * @details WatchEntry の完全型が見える `.cpp` で定義し、コンストラクタの
+     * 失敗後始末が不完全型の TUniquePtr 破棄を外部 TU で実体化しないようにする。
+     */
+    HotReloadWatcher() noexcept;
 
     /**
      * 破棄する (out-of-line)。

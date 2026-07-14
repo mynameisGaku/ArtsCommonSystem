@@ -7,9 +7,8 @@
 //   (CoreAudio / ALSA / OpenAL / WebAudio …) で差し替える。
 //
 // 設計選択:
-//   ・**voice handle 方式**: BGM / SFX を統一的に「voice」として扱い、24bit
-//     index + 8bit generation で一意化する。slot 再利用時の use-after-free
-//     を generation で検出。
+//   ・**voice handle 方式**: BGM / SFX を統一的に「voice」として扱い、32bit の
+//     不透明値で一意化する。0 は無効値として予約する。
 //   ・**TResult<void, FErrorCode> for Init**: backend 初期化のみ失敗ありえる
 //     (COM init / device 取得失敗等)。Play 系は noexcept で「鳴らせなければ
 //     InvalidHandle を返す」設計 (1 フレで何度も呼ぶ hot path なので TResult
@@ -97,22 +96,16 @@ struct AudioClipDesc {
 };
 
 /**
- * 再生中の voice を一意に指す generational handle。
+ * 再生中の voice を一意に指す 32bit ハンドル。
  *
  * @details
- * 内部表現は下位 24bit = voice index、上位 8bit = generation。再利用された slot を
- * 古いハンドルで参照する事故を generation で検出する。全 0 (= m_Packed == 0) は無効
- * ハンドル (kInvalidAudioVoice) を意味する。
- *
- * 重要な不変条件 (backend 実装側の契約): 有効ハンドルの packed 値は決して 0 に
- * なってはならない。pack は `(index & 0x00FFFFFF) | (gen << 24)` なので index==0 かつ
- * gen==0 だと packed==0 となり kInvalidAudioVoice と区別不能になる。これを避けるため
- * backend は generation を必ず 1 以上で配る (slot 初期 gen=1、ラップ時は 0 をスキップ
- * して 1 にする)。これで最初の voice (index=0) でも packed が非 0 になり、確保成功を
- * IsValid()==false と誤判定しない。この規約は FNodeId / FShapeId と同一。
+ * 全 0 (= m_Packed == 0) は無効ハンドル (kInvalidAudioVoice) を意味する。
+ * index + generation 形式を使う独自 backend 向けの互換コンストラクタを残しつつ、
+ * FXAudio2Backend は 8bit generation の早期衝突を避けるため 32bit 全体を
+ * プロセス通算の不透明チケットとして扱う。呼び出し側は値を分解せず保持して返す。
  */
 struct AudioVoiceHandle {
-    /** 下位 24bit=index、上位 8bit=generation を詰めた packed 値 (0=無効)。 */
+    /** backend が発行する 32bit 値 (0=無効、互換形式では index + generation)。 */
     u32 m_Packed = 0;
 
     /** 無効ハンドル (m_Packed=0) を構築する。 */
@@ -128,6 +121,22 @@ struct AudioVoiceHandle {
         : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
     /**
+     * backend が生成した 32bit の不透明値からハンドルを構築する。
+     *
+     * @details
+     * m_Packed のサイズと配置を変えずに、backend が 32bit 全体を衝突回避用の
+     * チケットとして利用できる。0 は常に無効値として予約される。
+     * @param packed_value 0 以外の不透明なハンドル値。
+     * @return 指定値を保持するハンドル。
+     */
+    static constexpr AudioVoiceHandle FromPackedValue(u32 packed_value) noexcept
+    {
+        AudioVoiceHandle handle;
+        handle.m_Packed = packed_value;
+        return handle;
+    }
+
+    /**
      * 有効なハンドルかを返す。
      *
      * @return packed 値が非 0 (= 有効) なら true。
@@ -135,19 +144,33 @@ struct AudioVoiceHandle {
     bool IsValid() const noexcept { return m_Packed != 0u; }
 
     /**
-     * voice の slot インデックスを返す。
+     * 互換形式における下位 24bit を返す。
      *
      * @return packed 値の下位 24bit。
      */
     u32 Index() const noexcept { return m_Packed & 0x00FFFFFFu; }
 
     /**
-     * slot の世代カウンタを返す。
+     * 互換形式における上位 8bit を返す。
      *
      * @return packed 値の上位 8bit。
      */
     u8  Generation() const noexcept { return static_cast<u8>(m_Packed >> 24); }
+
+    /** backend 間の受け渡しに使う 32bit の不透明値を返す。 */
+    u32 PackedValue() const noexcept
+    {
+        return m_Packed;
+    }
+
+    /** 2 つのハンドルが同じ発音を表すか比較する。 */
+    constexpr bool operator==(AudioVoiceHandle other) const noexcept
+    {
+        return m_Packed == other.m_Packed;
+    }
 };
+
+static_assert(sizeof(AudioVoiceHandle) == sizeof(u32), "AudioVoiceHandle must retain its 32-bit ABI");
 
 /** 無効を表す voice ハンドル定数 (m_Packed=0)。 */
 inline constexpr AudioVoiceHandle kInvalidAudioVoice {};

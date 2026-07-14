@@ -84,6 +84,29 @@ ACS_TEST(FJobGraph, ParallelJobsAllRun) {
     FThreadPool::Shutdown();
 }
 
+ACS_TEST(FJobGraph, SubmitFailureFallsBackExactlyOnce)
+{
+    // ThreadPool が無い状態を確定させ、全 entry の投入失敗を決定的に起こす。
+    FThreadPool::Shutdown();
+
+    JobCtx context_a{};
+    JobCtx context_b{};
+    JobCtx context_c{};
+    FJobGraph graph;
+    JobHandle a = graph.Add(&RecordJob, &context_a);
+    JobHandle b = graph.Add(&RecordJob, &context_b);
+    JobHandle c = graph.Add(&RecordJob, &context_c);
+    c.DependOn(a);
+    c.DependOn(b);
+
+    // 修正前は最初の失敗を Err で返し、Easy の全件フォールバックと部分実行が重複した。
+    EXPECT_TRUE(graph.Submit().IsOk());
+    graph.Wait();
+    EXPECT_EQ(context_a.counter.Load(EMemoryOrder::Acquire), 1u);
+    EXPECT_EQ(context_b.counter.Load(EMemoryOrder::Acquire), 1u);
+    EXPECT_EQ(context_c.counter.Load(EMemoryOrder::Acquire), 1u);
+}
+
 // MessagePipe: Push / TryPop
 ACS_TEST(MessagePipe, BasicPushTryPop) {
     MessagePipe<int> pipe;

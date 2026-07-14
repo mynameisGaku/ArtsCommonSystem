@@ -2136,22 +2136,117 @@ void EditorLogSink(acs::ELogSeverity sev, const char* msg) noexcept {
 }
 } // namespace
 
-/** ロガー/メモリ/スレッドプールをプロセスで 1 度だけ初期化する。 */
-bool g_subsystems_ready = false;
-void EnsureSubsystems() noexcept {
-    if (g_subsystems_ready) return;
-    FLogConfig lc{};
-    lc.console      = true;
-    lc.debug_output = true;
-    FLogger::Init(lc);
-    FLogger::SetSink(&EditorLogSink);   // エンジンログをエディタのコンソールへ取り込む
-    (void)FMemorySystem::Init(FMemorySystem::DefaultConfig());
-    (void)FThreadPool::Init(0);
-    // エンジン同梱型のリフレクション登録を確定する (この呼び出しで ReflectCatalog の
-    // TU がリンクへ引き込まれ、全 ACS_REGISTER* 自動登録子が走る)。
+/** エディタホスト間で共有する基盤の所有権と参照数。 */
+struct EditorSubsystemState {
+    u32 host_count = 0;
+    bool ready = false;
+    bool closing = false;
+    bool logger_owned = false;
+    bool logger_sink_owned = false;
+    bool memory_owned = false;
+    bool thread_pool_owned = false;
+};
+
+EditorSubsystemState g_subsystems;
+std::atomic_flag g_subsystems_lock = ATOMIC_FLAG_INIT;
+
+/** create/destroy の基盤遷移を直列化する短時間ロック。 */
+struct EditorSubsystemGuard {
+    EditorSubsystemGuard() noexcept
+    {
+        while (g_subsystems_lock.test_and_set(std::memory_order_acquire)) {}
+    }
+    ~EditorSubsystemGuard() noexcept
+    {
+        g_subsystems_lock.clear(std::memory_order_release);
+    }
+};
+
+/** ロガー/メモリ/スレッドプールを初回ホスト用に起動し、参照を 1 件取得する。 */
+bool EnsureSubsystems() noexcept
+{
+    EditorSubsystemGuard guard;
+    if (g_subsystems.closing) return false;
+    if (g_subsystems.ready) {
+        ++g_subsystems.host_count;
+        return true;
+    }
+
+    if (!FLogger::IsInitialized()) {
+        FLogConfig lc{};
+        lc.console = true;
+        lc.debug_output = true;
+        FLogger::Init(lc);
+        g_subsystems.logger_owned = FLogger::IsInitialized();
+    }
+    if (g_subsystems.logger_owned) {
+        FLogger::SetSink(&EditorLogSink);
+        g_subsystems.logger_sink_owned = true;
+    }
+
+    if (FMemorySystem::Get(ESegment::Default) == nullptr) {
+        const auto result = FMemorySystem::Init(FMemorySystem::DefaultConfig());
+        if (result.IsErr() && FMemorySystem::Get(ESegment::Default) == nullptr) {
+            if (g_subsystems.logger_sink_owned) FLogger::SetSink(nullptr);
+            if (g_subsystems.logger_owned) FLogger::Shutdown();
+            g_subsystems = EditorSubsystemState{};
+            return false;
+        }
+        g_subsystems.memory_owned = result.IsOk();
+    }
+
+    if (FThreadPool::WorkerCount() == 0) {
+        const auto result = FThreadPool::Init(0);
+        if (result.IsErr() && FThreadPool::WorkerCount() == 0) {
+            if (g_subsystems.memory_owned) FMemorySystem::Shutdown();
+            if (g_subsystems.logger_sink_owned) FLogger::SetSink(nullptr);
+            if (g_subsystems.logger_owned) FLogger::Shutdown();
+            g_subsystems = EditorSubsystemState{};
+            return false;
+        }
+        g_subsystems.thread_pool_owned = result.IsOk();
+    }
+
+    // カタログは固定長の静的レジストリなので、基盤を再起動しても登録内容は有効なまま残る。
     const u32 type_count = acs::game::AcsRegisterEngineTypes();
-    g_subsystems_ready = true;
+    g_subsystems.ready = true;
+    g_subsystems.host_count = 1;
     ACS_LOG_INFO("[acs_editor_abi] subsystems initialized (%u reflected engine types)", type_count);
+    return true;
+}
+
+/** 最終ホストの破棄時に、このABIが所有する基盤だけを逆順で停止する。 */
+void ReleaseSubsystems() noexcept
+{
+    bool logger_owned = false;
+    bool logger_sink_owned = false;
+    bool memory_owned = false;
+    bool thread_pool_owned = false;
+    {
+        EditorSubsystemGuard guard;
+        if (!g_subsystems.ready || g_subsystems.host_count == 0) return;
+        if (--g_subsystems.host_count != 0) return;
+        // 時間のかかる join/flush 中はロックを保持しない。closing 中の新規 create は失敗させる。
+        g_subsystems.ready = false;
+        g_subsystems.closing = true;
+        logger_owned = g_subsystems.logger_owned;
+        logger_sink_owned = g_subsystems.logger_sink_owned;
+        memory_owned = g_subsystems.memory_owned;
+        thread_pool_owned = g_subsystems.thread_pool_owned;
+    }
+
+    ACS_LOG_INFO("[acs_editor_abi] subsystems shutting down");
+    if (logger_sink_owned) FLogger::SetSink(nullptr);
+    if (thread_pool_owned) FThreadPool::Shutdown();
+    if (memory_owned) FMemorySystem::Shutdown();
+    if (logger_owned) {
+        FLogger::Flush();
+        FLogger::Shutdown();
+    }
+    {
+        EditorSubsystemGuard guard;
+        g_subsystems = EditorSubsystemState{};
+    }
 }
 
 /** ETypeCategory を人間可読なラベルに変換する (editor のカテゴリ見出し用)。 */
@@ -3860,8 +3955,10 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     IRhiDevice* pdev = h.renderer.Device();
     if (pdev != nullptr && (h.post3d_w != scW || h.post3d_h != scH)) {
         if (!h.post3d_ready) { auto pr = h.post3d.Init(*pdev, scW, scH, h.renderer.ColorFormat()); h.post3d_ready = pr.IsOk();
-                               if (!h.post3d_ready) ACS_LOG_ERROR("[3D] FPostProcess Init 失敗: %s", pr.Error().message); }
-        else                 { h.post3d.Resize(scW, scH); }
+                               if (!h.post3d_ready) ACS_LOG_ERROR("[3D] FPostProcess Init 失敗: %s", pr.Error().message);
+        } else {
+            (void)h.post3d.Resize(scW, scH);
+        }
         if (h.post3d_ready) { h.post3d_w = scW; h.post3d_h = scH; }
     }
     IRhiTexture*   hdrRt  = h.post3d_ready ? h.post3d.HdrRenderTarget() : nullptr;
@@ -4379,15 +4476,23 @@ ACS_EDITOR_API const char* acs_editor_version(void) {
 }
 
 ACS_EDITOR_API void* acs_editor_create(void) {
-    EnsureSubsystems();
+    if (!EnsureSubsystems()) return nullptr;
     auto* host = new (std::nothrow) EditorHost();
-    if (host != nullptr) InitDemoScene(*host);
+    if (host != nullptr) {
+        InitDemoScene(*host);
+    } else {
+        ReleaseSubsystems();
+    }
     return host;
 }
 
 ACS_EDITOR_API int acs_editor_attach(void* handle, void* hwnd, uint32_t width, uint32_t height) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr || hwnd == nullptr || width == 0u || height == 0u) return 0;
+    if (host->attached) {
+        ACS_LOG_WARN("[acs_editor_abi] attach is only valid once per editor host");
+        return 0;
+    }
     const auto r = host->renderer.InitExternal(hwnd, width, height, /*debug=*/false, /*depth=*/true);
     if (r.IsErr()) {
         ACS_LOG_ERROR("[acs_editor_abi] attach failed: %s", r.Error().message);
@@ -4922,9 +5027,21 @@ ACS_EDITOR_API int acs_editor_get_msaa(void* handle) {
     return (host != nullptr) ? static_cast<int>(host->msaa_samples) : 1;
 }
 
+// destroy より後ろで定義される実行状態の停止 API。GPU 解放前の巻き戻しに使う。
+ACS_EDITOR_API int acs_editor_play_stop(void* handle);
+ACS_EDITOR_API void acs_editor_preview_stop(void* handle);
+ACS_EDITOR_API void acs_editor_logic_play_stop(void* handle);
+ACS_EDITOR_API void acs_editor_clear_instances(void* handle);
+
 ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     auto* host = static_cast<EditorHost*>(handle);
     if (host == nullptr) return;
+    // ユーザー DLL と実コンポーネントは GPU/基盤より先に破棄する。再生中の直接 destroy でも
+    // DLL ハンドル、物理ワールド、開始時スナップショットを残さない。
+    acs_editor_logic_play_stop(handle);
+    acs_editor_preview_stop(handle);
+    acs_editor_clear_instances(handle);
+    (void)acs_editor_play_stop(handle);
     ClearStack(host->undo);   // undo/redo の heap スナップショットを解放
     ClearStack(host->redo);
     if (host->renderer.Device() != nullptr) host->renderer.Device()->WaitIdle();
@@ -4968,12 +5085,23 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->post3d.Shutdown();
     host->sky3d.Shutdown();
     host->scene_rt.Reset();
+    host->preview_cl.Reset();
     host->preview_rt.Reset();
     host->preview_sphere_albedo.Reset();
     host->preview_sphere_normal.Reset();
     host->preview_scene.Reset();
+
+    // ユーザー型記述子はグローバルレジストリからポインタ参照される。ホスト所有領域を
+    // 先に破棄すると次の create/destroy 周回で dangling になるため、登録元だけを外す。
+    game::FTypeRegistry& type_registry = game::FTypeRegistry::Get();
+    for (u32 i = 0; i < host->user_types.Size(); ++i) {
+        (void)type_registry.Unregister(&host->user_types[i]->desc);
+    }
+    host->user_types.ReleaseStorage();
+
     host->renderer.Shutdown();
     delete host;
+    ReleaseSubsystems();
 }
 
 // =============================================================================
@@ -6008,6 +6136,13 @@ static FUserType* FindUserType(EditorHost& h, game::FTypeId id) noexcept {
     return nullptr;
 }
 
+/** DLL から取り込んだメタデータ専用記述子かを判定する。 */
+static bool IsImportedUserType(const game::FTypeDesc* descriptor) noexcept
+{
+    return descriptor != nullptr && descriptor->category == game::ETypeCategory::Component && descriptor->size == 0u &&
+           descriptor->align == 0u && descriptor->construct == nullptr && descriptor->destruct == nullptr;
+}
+
 /**
  * ゲームのリフレクション DLL をロードし、ユーザー定義の Component 型スキーマを取り込む。
  *
@@ -6044,7 +6179,9 @@ ACS_EDITOR_API int acs_editor_load_game_dll(void* handle, const char* path) {
         const game::FTypeId id = game::AcsTypeHash(tn);
         FUserType* ut = FindUserType(*host, id);
         const game::FTypeDesc* eng = game::FTypeRegistry::Get().FindById(id);
-        if (eng != nullptr && ut == nullptr) continue;   // エンジン型 (= editor registry に既存) → skip
+        if (eng != nullptr && ut == nullptr && !IsImportedUserType(eng)) {
+            continue; // 実エンジン型 (= editor registry に既存) は上書きしない。
+        }
 
         const bool isNew = (ut == nullptr);
         if (isNew) {
@@ -6063,7 +6200,11 @@ ACS_EDITOR_API int acs_editor_load_game_dll(void* handle, const char* path) {
             for (int k = 0; k < 4; ++k) ut->fields[j].defaults[k] = d4[k];
         }
         ut->Rebuild(category, fc);
-        if (isNew) game::FTypeRegistry::Get().Register(&ut->desc);   // 既存は in-place 更新で反映済み
+        if (isNew && !game::FTypeRegistry::Get().Register(&ut->desc)) {
+            // 固定長レジストリが満杯なら、未登録の記述子をホストへ残さない。
+            host->user_types.PopBack();
+            continue;
+        }
         ++imported;
     }
     FreeLibrary(dll);   // スキーマはディープコピー済 → 解放 (再ビルドで DLL を上書きできる)

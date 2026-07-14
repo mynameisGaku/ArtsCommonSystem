@@ -64,6 +64,80 @@ function(acs_third_party_ufbx)
     set_target_properties(acs_third_party_ufbx PROPERTIES FOLDER "Engine/ThirdParty")
 endfunction()
 
+# ---- mimalloc -------------------------------------------------------------
+# MemorySystem の仮想メモリヒープとして現行 v3 を静的リンクする。
+# malloc/new のグローバル上書きは行わず、ACS の FAllocator 境界から明示利用する。
+function(acs_third_party_mimalloc)
+    if(TARGET acs_third_party::mimalloc)
+        return()
+    endif()
+
+    set(MI_BUILD_SHARED   OFF CACHE BOOL "" FORCE)
+    set(MI_BUILD_STATIC   ON  CACHE BOOL "" FORCE)
+    set(MI_BUILD_OBJECT   OFF CACHE BOOL "" FORCE)
+    set(MI_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+    set(MI_BUILD_CXX      OFF CACHE BOOL "" FORCE)
+    set(MI_OVERRIDE       OFF CACHE BOOL "" FORCE)
+    set(MI_INSTALL_TOPLEVEL OFF CACHE BOOL "" FORCE)
+    option(ACS_MIMALLOC_RE_ENGINE_PAGE_PROFILE
+           "Use the measured 16 KiB small / 128 KiB medium page profile" ON)
+    if(ACS_ENABLE_ADDRESS_SANITIZER)
+        set(MI_TRACK_ASAN ON CACHE BOOL "" FORCE)
+    else()
+        set(MI_TRACK_ASAN OFF CACHE BOOL "" FORCE)
+    endif()
+
+    FetchContent_Declare(
+        acs_mimalloc
+        GIT_REPOSITORY https://github.com/microsoft/mimalloc.git
+        # v3.3.2 の実体へ固定し、タグの付け替えで依存物が変化しないようにする。
+        GIT_TAG        30b2d9d89099bee08e9f67a1ffb3e12e7ba45227
+        # CMake は commit hash と shallow clone の併用を保証しないため全履歴から取得する。
+        GIT_SHALLOW    FALSE
+    )
+    FetchContent_MakeAvailable(acs_mimalloc)
+
+    if(NOT TARGET mimalloc-static)
+        message(FATAL_ERROR "ACS: mimalloc-static target was not created")
+    endif()
+
+    if(CMAKE_CONFIGURATION_TYPES)
+        # mimalloc v3.3.2 は multi-config generator でも configure 時の
+        # CMAKE_BUILD_TYPE だけを見て MI_DEBUG / MI_CMAKE_BUILD_TYPE を全構成へ
+        # 固定する。上流が追加した 2 定義だけを除去し、実際の構成へ追従させる。
+        get_target_property(_acs_mimalloc_compile_definitions
+                            mimalloc-static COMPILE_DEFINITIONS)
+        if(_acs_mimalloc_compile_definitions)
+            list(FILTER _acs_mimalloc_compile_definitions
+                 EXCLUDE REGEX "^MI_DEBUG=")
+            list(FILTER _acs_mimalloc_compile_definitions
+                 EXCLUDE REGEX "^MI_CMAKE_BUILD_TYPE=")
+            set_property(TARGET mimalloc-static PROPERTY COMPILE_DEFINITIONS
+                         "${_acs_mimalloc_compile_definitions}")
+        endif()
+        target_compile_definitions(mimalloc-static PRIVATE
+            "MI_DEBUG=$<IF:$<CONFIG:Debug>,2,0>"
+            "MI_CMAKE_BUILD_TYPE=$<LOWER_CASE:$<CONFIG>>")
+    endif()
+
+    set_target_properties(mimalloc-static PROPERTIES FOLDER "Engine/ThirdParty")
+    if(ACS_MIMALLOC_RE_ENGINE_PAGE_PROFILE)
+        # mimalloc v3 では旧 segment 構造が arena slice へ置き換わった。
+        # slice=16KiB にすると small=16KiB / medium=128KiB となり、RE ENGINE の
+        # 実測プロファイルと同じ粒度になる。問題切り分けや再計測時は OFF に戻せる。
+        target_compile_definitions(mimalloc-static PRIVATE MI_ARENA_SLICE_SHIFT=14)
+    endif()
+    if(MSVC)
+        target_compile_options(mimalloc-static PRIVATE /W3)
+    endif()
+
+    add_library(acs_third_party_mimalloc INTERFACE)
+    target_link_libraries(acs_third_party_mimalloc INTERFACE mimalloc-static)
+    target_compile_definitions(acs_third_party_mimalloc INTERFACE
+        ACS_MIMALLOC_RE_ENGINE_PAGE_PROFILE=$<BOOL:${ACS_MIMALLOC_RE_ENGINE_PAGE_PROFILE}>)
+    add_library(acs_third_party::mimalloc ALIAS acs_third_party_mimalloc)
+endfunction()
+
 # ---- Steamworks SDK (Phase 26+ 実バックエンド) ----------------------------
 # Valve の SDK は partner.steamgames.com (要パートナー登録) からのみ入手可能で
 # 公開ミラー URL は存在しない。よって以下のいずれかで SDK を確保する:
@@ -439,6 +513,11 @@ function(acs_third_party_diligent)
         GIT_TAG        v2.5.6
         GIT_SHALLOW    TRUE
     )
+    if(MSVC)
+        # 親の ACS ターゲットは例外を無効化しているが、Diligent 自身は上流の
+        # 例外設定でビルドする。function スコープ内だけで /EHsc を復元する。
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc")
+    endif()
     # 注意 (Phase 19a-fix-3): Diligent-Tools / DiligentFX は ACS が一切使って
     # おらず (`src/render/Module.cmake` は `acs_third_party::diligent_core`
     # しかリンクしない)、`MakeAvailable` で取得すると Diligent 内部の相対

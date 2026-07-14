@@ -19,14 +19,12 @@ namespace acs::openxr {
 acs::game::IOpenXrBridge& GetDefaultKhronosOpenXrBridge() noexcept {
     // Meyers singleton。プロセス内 1 個の実 Khronos bridge を既定として共有する。
     static FKhronosOpenXrBridge s_bridge;
-    // 初回のみ Init。ACS のこの層は単一スレッド初期化を前提とするため、素朴な
-    // フラグで十分 (function-local static の構築自体は thread-safe)。
-    static bool s_inited = false;
-    if (!s_inited) {
+    // Init 成功状態そのものを判定に使う。別の所有者が Shutdown した後や、初回に
+    // ランタイム未接続で失敗した後も、次の取得で正しく再試行できる。
+    if (!s_bridge.IsInitialized()) {
         // platform は自動検出に任せる (Unknown)。失敗しても bridge 参照は返す
         // (呼び出し側が IsInitialized() で判断し fallback する)。
         (void)s_bridge.Init();
-        s_inited = true;
     }
     return s_bridge;
 }

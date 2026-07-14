@@ -47,7 +47,14 @@ namespace acs::assetpack {
 class FAcpakReader {
 public:
     /** 空状態で構築する (ファイルは Open で開く)。 */
-    FAcpakReader() noexcept = default;
+    FAcpakReader() noexcept;
+
+    /**
+     * 指定 allocator で file table と文字列 pool を持つ空状態を構築する。
+     *
+     * @param allocator 内部配列の確保に使う allocator。
+     */
+    explicit FAcpakReader(FAllocator& allocator) noexcept;
 
     /** 破棄する (Open 済なら Close 相当の後始末を行う)。 */
     ~FAcpakReader() noexcept;

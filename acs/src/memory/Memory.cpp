@@ -17,45 +17,67 @@ namespace {
 FSystemAllocator g_system_allocator;
 
 /** 現在のデフォルトアロケータを指すポインタ (起動時は g_system_allocator)。 */
-FAllocator*      g_default = &g_system_allocator;
+FAllocator* g_default = &g_system_allocator;
+} // namespace
+
+FAllocator& DefaultAllocator() noexcept
+{
+    return *g_default;
 }
 
-FAllocator& DefaultAllocator() noexcept { return *g_default; }
-
-void SetDefaultAllocator(FAllocator* a) noexcept {
-    g_default = a ? a : &g_system_allocator;
+void SetDefaultAllocator(FAllocator* Allocator) noexcept
+{
+    g_default = Allocator ? Allocator : &g_system_allocator;
 }
 
-void MemCopy(void* dst, const void* src, usize n) noexcept { ::memcpy(dst, src, n); }
-void MemMove(void* dst, const void* src, usize n) noexcept { ::memmove(dst, src, n); }
-void MemSet (void* dst, int v, usize n)            noexcept { ::memset(dst, v, n); }
-int  MemCmp (const void* a, const void* b, usize n) noexcept { return ::memcmp(a, b, n); }
+void MemCopy(void* Destination, const void* Source, usize Size) noexcept
+{
+    ::memcpy(Destination, Source, Size);
+}
+
+void MemMove(void* Destination, const void* Source, usize Size) noexcept
+{
+    ::memmove(Destination, Source, Size);
+}
+
+void MemSet(void* Destination, int Value, usize Size) noexcept
+{
+    ::memset(Destination, Value, Size);
+}
+
+int MemCmp(const void* Left, const void* Right, usize Size) noexcept
+{
+    return ::memcmp(Left, Right, Size);
+}
 
 /**
  * Realloc のデフォルト実装 (Alloc + MemCopy + Free)。
  *
  * @details
- * 派生アロケータが override しない場合のフォールバック。new_size==0 なら Free して
+ * 派生アロケータが override しない場合のフォールバック。NewSize==0 なら Free して
  * nullptr を返す。新規確保に失敗したら旧領域を保持したまま nullptr を返す (旧データは無傷)。
  * 効率的な in-place realloc を持つ実装 (FTlsfAllocator 等) は override すべき。
- * @param ptr 既存の確保 (nullptr なら新規 Alloc 相当)。
- * @param old_size 旧サイズ (コピーするバイト数の決定に使う)。
- * @param new_size 新サイズ (0 なら解放のみ)。
- * @param alignment 新領域のアライメント。
- * @param loc 診断用の呼び出し位置。
- * @return 新しい確保 (失敗時や new_size==0 のとき nullptr)。
+ * @param Pointer 既存の確保 (nullptr なら新規 Alloc 相当)。
+ * @param OldSize 旧サイズ (コピーするバイト数の決定に使う)。
+ * @param NewSize 新サイズ (0 なら解放のみ)。
+ * @param Alignment 新領域のアライメント。
+ * @param Location 診断用の呼び出し位置。
+ * @return 新しい確保 (失敗時や NewSize==0 のとき nullptr)。
  */
-void* FAllocator::Realloc(void* ptr, usize old_size, usize new_size,
-                         usize alignment, FSourceLoc loc) noexcept {
-    if (new_size == 0) { Free(ptr); return nullptr; }
-    void* const p = Alloc(new_size, alignment, loc);
-    if (!p) return nullptr;
-    if (ptr) {
-        const usize copy = old_size < new_size ? old_size : new_size;
-        MemCopy(p, ptr, copy);
-        Free(ptr);
+void* FAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize Alignment, FSourceLoc Location) noexcept
+{
+    if (NewSize == 0) {
+        Free(Pointer);
+        return nullptr;
     }
-    return p;
+    void* const NewPointer = Alloc(NewSize, Alignment, Location);
+    if (!NewPointer) return nullptr;
+    if (Pointer) {
+        const usize CopySize = OldSize < NewSize ? OldSize : NewSize;
+        MemCopy(NewPointer, Pointer, CopySize);
+        Free(Pointer);
+    }
+    return NewPointer;
 }
 
 } // namespace acs

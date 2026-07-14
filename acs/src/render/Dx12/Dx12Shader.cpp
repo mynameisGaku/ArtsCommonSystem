@@ -9,15 +9,24 @@ namespace acs {
 
 /** コンパイル済みバイトコード blob を解放する。 */
 Dx12Shader::~Dx12Shader() noexcept {
+    Reset();
+}
+
+void Dx12Shader::Reset() noexcept
+{
     ACS_SAFE_RELEASE(m_Blob);
+    m_Stage = EShaderStage::Vertex;
 }
 
 /** HLSL ソースを D3DCompile でステージ対応ターゲットへコンパイルし blob を保持する。 */
 HrResult Dx12Shader::Init(Dx12Device& /*device*/, const FShaderDesc& desc) noexcept {
     HrResult r{};
-    m_Stage = desc.stage;
+    Reset();
 
-    if (!desc.hlsl_source) { r.hr = E_INVALIDARG; return r; }
+    if (!desc.hlsl_source || !desc.entry_point || desc.entry_point[0] == '\0') {
+        r.hr = E_INVALIDARG;
+        return r;
+    }
 
     // ステージ → コンパイルターゲット文字列
     const char* target = desc.target;
@@ -26,7 +35,13 @@ HrResult Dx12Shader::Init(Dx12Device& /*device*/, const FShaderDesc& desc) noexc
             case EShaderStage::Vertex:  target = "vs_5_1"; break;
             case EShaderStage::Pixel:   target = "ps_5_1"; break;
             case EShaderStage::Compute: target = "cs_5_1"; break;
-        }
+            default:
+                break;
+            }
+    }
+    if (!target || target[0] == '\0') {
+        r.hr = E_INVALIDARG;
+        return r;
     }
 
     UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
@@ -37,22 +52,27 @@ HrResult Dx12Shader::Init(Dx12Device& /*device*/, const FShaderDesc& desc) noexc
 #endif
 
     ID3DBlob* err_blob = nullptr;
+    ID3DBlob* compiled_blob = nullptr;
     usize source_len = 0;
     while (desc.hlsl_source[source_len]) ++source_len;
 
-    r.hr = ::D3DCompile(
-        desc.hlsl_source, source_len, desc.debug_name,
-        nullptr, nullptr,
-        desc.entry_point, target, flags, 0,
-        &m_Blob, &err_blob);
+    r.hr = ::D3DCompile(desc.hlsl_source, source_len, desc.debug_name, nullptr, nullptr, desc.entry_point, target,
+                        flags, 0, &compiled_blob, &err_blob);
 
     if (r.IsErr() && err_blob) {
         // コンパイルエラーをログに出力（行番号付きメッセージ）
-        ACS_LOG_ERROR("Shader compile failed (%s):\n%s",
-                      desc.debug_name,
+        ACS_LOG_ERROR("Shader compile failed (%s):\n%s", desc.debug_name ? desc.debug_name : "shader",
                       static_cast<const char*>(err_blob->GetBufferPointer()));
     }
     if (err_blob) err_blob->Release();
+    if (r.IsErr() || !compiled_blob) {
+        ACS_SAFE_RELEASE(compiled_blob);
+        if (r.IsOk()) r.hr = E_FAIL;
+        return r;
+    }
+
+    m_Blob = compiled_blob;
+    m_Stage = desc.stage;
     return r;
 }
 

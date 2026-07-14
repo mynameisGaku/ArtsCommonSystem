@@ -89,6 +89,7 @@
 #include "container/Array.h"
 #include "foundation/Result.h"
 #include "foundation/Types.h"
+#include "threading/Mutex.h"
 
 namespace acs::game {
 
@@ -103,16 +104,16 @@ namespace acs::game {
  */
 enum class ENetRole : u8 {
     /** 受信のみ。AddEntitySnapshot / CommitSnapshot は no-op。 */
-    Client         = 0,
+    Client = 0,
 
     /** 送信のみ。TryGetInterpolatedSnapshot は false を返す。 */
-    Server         = 1,
+    Server = 1,
 
     /** Server + Client 同居 (listen-server)。host が自機画面用に補間も使うため両方有効。 */
     ServerListener = 2,
 
     /** ネット通信なし。transport=nullptr を許容し全 API は no-op (リンク互換 fallback)。 */
-    Standalone     = 3,
+    Standalone = 3,
 };
 
 /**
@@ -125,19 +126,19 @@ enum class ENetRole : u8 {
  */
 struct SnapshotHeader {
     /** server tick (1 simulation step = 1 tick)。 */
-    u32 tick               = 0;
+    u32 tick = 0;
 
     /** 送信側でモノトニック増加する sequence 番号 (loss / 重複検知用)。 */
-    u32 sequence           = 0;
+    u32 sequence = 0;
 
     /** server 計測時の Unix microseconds。 */
     u64 server_timestamp_us = 0;
 
     /** 後続 payload のバイト数。 */
-    u32 payload_size       = 0;
+    u32 payload_size = 0;
 
     /** frame footer に格納される CRC32 (DecodeSnapshot が復元)。 */
-    u32 crc32              = 0;
+    u32 crc32 = 0;
 };
 
 /**
@@ -150,16 +151,16 @@ struct SnapshotHeader {
  */
 struct EntitySnapshot {
     /** ゲーム内 entity ID (0 = invalid)。 */
-    u32         entity_id           = 0;
+    u32 entity_id = 0;
 
     /** どの component が含まれるかの bitmask。 */
-    u32         component_mask      = 0;
+    u32 component_mask = 0;
 
     /** component データへの非所有 view。 */
-    const void* component_data      = nullptr;
+    const void* component_data = nullptr;
 
     /** component データのバイト数。 */
-    u32         component_data_size = 0;
+    u32 component_data_size = 0;
 };
 
 /**
@@ -172,16 +173,16 @@ struct EntitySnapshot {
  */
 struct NetSnapshotConfig {
     /** server 側の目標 commit Hz (注: 自動 throttle はしない)。 */
-    u32 snapshot_rate_hz          = 30;
+    u32 snapshot_rate_hz = 30;
 
     /** client 側 ring buffer 件数 (>= 2 が必要)。 */
     u32 buffer_capacity_snapshots = 64;
 
     /** client 補間の遅延秒 (= jitter buffer の深さ)。 */
-    f32 interpolation_delay_sec   = 0.1f;
+    f32 interpolation_delay_sec = 0.1f;
 
     /** 1 snapshot あたりの payload 上限バイト数。 */
-    u32 max_payload_bytes         = 8192;
+    u32 max_payload_bytes = 8192;
 };
 
 /**
@@ -203,16 +204,16 @@ public:
     virtual ~INetTransport() noexcept = default;
 
     /** コピー禁止。 */
-    INetTransport(const INetTransport&)            = delete;
+    INetTransport(const INetTransport&) = delete;
 
     /** コピー代入も禁止。 */
     INetTransport& operator=(const INetTransport&) = delete;
 
     /** ムーブ禁止。 */
-    INetTransport(INetTransport&&)                 = delete;
+    INetTransport(INetTransport&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    INetTransport& operator=(INetTransport&&)      = delete;
+    INetTransport& operator=(INetTransport&&) = delete;
 
     /**
      * 接続する。
@@ -282,55 +283,58 @@ struct NetSnapshotError {
      */
     enum SubCode : u16 {
         /** Send 前に Connect されていない。 */
-        kSub_NotConnected   = 1,
+        kSub_NotConnected = 1,
 
         /** size == 0 / address == nullptr 等の不正引数。 */
-        kSub_BadArgument    = 2,
+        kSub_BadArgument = 2,
 
         /** Send: 送信 buffer 満杯 / Receive: out_buffer 不足。 */
-        kSub_BufferFull     = 3,
+        kSub_BufferFull = 3,
 
         /** CommitSnapshot: payload が max_payload_bytes 超。 */
-        kSub_PayloadTooBig  = 4,
+        kSub_PayloadTooBig = 4,
 
         /** Encode/DecodeSnapshot: buffer == nullptr。 */
-        kSub_NullBuffer     = 5,
+        kSub_NullBuffer = 5,
 
         /** EncodeSnapshot: out_buffer が frame 長未満。 */
         kSub_BufferTooSmall = 6,
 
         /** DecodeSnapshot: frame 長がフィールドと矛盾。 */
-        kSub_BadSize        = 7,
+        kSub_BadSize = 7,
 
         /** DecodeSnapshot: magic 不一致 ('ACSN' でない)。 */
-        kSub_BadMagic       = 8,
+        kSub_BadMagic = 8,
 
         /** DecodeSnapshot: version 不一致。 */
-        kSub_BadVersion     = 9,
+        kSub_BadVersion = 9,
 
         /** DecodeSnapshot: CRC32 mismatch (破損 / 改竄)。 */
-        kSub_BadCrc         = 10,
+        kSub_BadCrc = 10,
 
         /** FUdpTransport: WSAStartup 失敗。 */
-        kSub_WsaStartup     = 20,
+        kSub_WsaStartup = 20,
 
         /** FUdpTransport: socket() 失敗。 */
-        kSub_SocketCreate   = 21,
+        kSub_SocketCreate = 21,
 
         /** FUdpTransport: ioctlsocket(FIONBIO) 失敗。 */
         kSub_SetNonBlocking = 22,
 
         /** FUdpTransport: bind() 失敗 (local port 衝突等)。 */
-        kSub_Bind           = 23,
+        kSub_Bind = 23,
 
         /** FUdpTransport: address 文字列が IPv4 dotted-quad として不正。 */
-        kSub_BadAddress     = 24,
+        kSub_BadAddress = 24,
 
         /** FUdpTransport: sendto() 失敗 (WSAEWOULDBLOCK 以外)。 */
-        kSub_SendFailed     = 25,
+        kSub_SendFailed = 25,
 
         /** FUdpTransport: recvfrom() 失敗 (WSAEWOULDBLOCK 以外)。 */
-        kSub_RecvFailed     = 26,
+        kSub_RecvFailed = 26,
+
+        /** FUdpTransport: 既存 socket または WSA 参照の回収に失敗。 */
+        kSub_CloseFailed = 27,
 
         /** stub: 未実装。 */
         kSub_NotImplemented = 99,
@@ -370,7 +374,10 @@ public:
      *
      * @return 常に false。
      */
-    bool IsConnected() const noexcept override { return false; }
+    bool IsConnected() const noexcept override
+    {
+        return false;
+    }
 
     /**
      * 常に kSub_NotImplemented を返す。
@@ -395,14 +402,20 @@ public:
      *
      * @return 常に 0。
      */
-    u32 PendingBytesIn() const noexcept override { return 0; }
+    u32 PendingBytesIn() const noexcept override
+    {
+        return 0;
+    }
 
     /**
      * 常に 0 を返す。
      *
      * @return 常に 0。
      */
-    u32 PendingBytesOut() const noexcept override { return 0; }
+    u32 PendingBytesOut() const noexcept override
+    {
+        return 0;
+    }
 };
 
 /**
@@ -411,6 +424,27 @@ public:
  * @return 常に NotImplemented を返す NetTransportStub への参照。
  */
 INetTransport& GetTransportStub() noexcept;
+
+/** FUdpTransport が共有する Winsock 資源の診断スナップショット。 */
+struct UdpTransportDiagnostics {
+    /** 現在 FUdpTransport 群が所有する WSAStartup 参照数。 */
+    u32 active_winsock_reference_count = 0;
+
+    /** 再試行を待っている WSACleanup エラー。0 は保留なし。 */
+    u32 pending_cleanup_error = 0;
+
+    /** pending_cleanup_error の WSA 参照を生存中 instance ではなく共有回収処理が所有するか。 */
+    bool cleanup_debt_orphaned = false;
+
+    /** 破棄後も共有回収表が所有し、closesocket の再試行を待っている socket 数。 */
+    u32 orphaned_socket_count = 0;
+
+    /** orphaned_socket_count のうち仮想メモリ overflow 表で追跡している socket 数。 */
+    u32 overflow_orphaned_socket_count = 0;
+
+    /** プロセス寿命中に観測した資源解放または所有権検証の失敗イベント累積数。 */
+    u64 resource_release_failure_count = 0;
+};
 
 /**
  * INetTransport の実 Winsock2 UDP 実装。
@@ -422,15 +456,29 @@ INetTransport& GetTransportStub() noexcept;
  * 非ブロッキング化 → local port に bind → remote endpoint 保持を行う。Winsock 型を
  * header に漏らさないため socket は uptr、remote endpoint は raw octets + port で保持し
  * .cpp 内でのみ Winsock 型に復元する。1 セッション 1 オブジェクトで non-copy /
- * non-move (INetTransport 由来)。
+ * non-move (INetTransport 由来)。全公開操作はインスタンス単位の排他で直列化され、
+ * Connect / Disconnect / Send / Receive を異なるスレッドから呼んでも所有状態を失わない。
  */
 class FUdpTransport final : public INetTransport {
 public:
     /** 既定構築 (socket は未接続)。 */
     FUdpTransport() noexcept = default;
 
-    /** Disconnect を呼んで socket を確実に閉じてから破棄する。 */
+    /** Disconnect を試み、未回収資源は共有回収処理へ移して再試行可能な状態で破棄する。 */
     ~FUdpTransport() noexcept override;
+
+    /** 全 FUdpTransport が共有する Winsock 参照・解放失敗の現在値を返す。 */
+    static UdpTransportDiagnostics CaptureDiagnostics() noexcept;
+
+    /**
+     * 破棄済み transport から共有回収処理へ移された socket と WSA 参照を再回収する。
+     *
+     * @details 生存中 transport が所有する cleanup debt には触れない。回収完了時も
+     * `deferred_cleanup_resolved` の機械可読ログを出し、以前の cleanup_pending が
+     * 解決済みであることを明示する。Application 終了前の明示 drain にも使用できる。
+     * @return 全共有 debt を回収できれば成功。残存時は kSub_CloseFailed。
+     */
+    static TResult<void> DrainDeferredResources() noexcept;
 
     /**
      * bind する local port を指定する。
@@ -440,14 +488,14 @@ public:
      * Connect 前に呼ぶ。Connect 後の変更は次回 Connect まで反映されない。
      * @param local_port bind する local port (0 で ephemeral)。
      */
-    void SetLocalPort(u16 local_port) noexcept { m_LocalPort = local_port; }
+    void SetLocalPort(u16 local_port) noexcept;
 
     /**
      * 設定済みの local port を返す。
      *
      * @return SetLocalPort で指定した値 (既定 0)。
      */
-    u16  LocalPort() const noexcept { return m_LocalPort; }
+    u16 LocalPort() const noexcept;
 
     /**
      * UDP socket を用意し、送信先 endpoint を確定する。
@@ -462,14 +510,14 @@ public:
     TResult<void> Connect(const char* address, u16 port) noexcept override;
 
     /** closesocket + WSACleanup (ref を戻す)。多重 / 未接続呼出は no-op。 */
-    void          Disconnect() noexcept override;
+    void Disconnect() noexcept override;
 
     /**
      * socket が open かを返す。
      *
      * @return open な socket を持つなら true。
      */
-    bool          IsConnected() const noexcept override { return m_Socket != kInvalidSocket; }
+    bool IsConnected() const noexcept override;
 
     /**
      * remote endpoint へ 1 datagram を sendto() する。
@@ -489,40 +537,60 @@ public:
      * @param capacity out_buffer の容量。
      * @return 受信バイト数 (受信なしなら 0) を持つ TResult、失敗ならエラー。
      */
-    TResult<u32>  Receive(void* out_buffer, u32 capacity) noexcept override;
+    TResult<u32> Receive(void* out_buffer, u32 capacity) noexcept override;
 
     /**
      * recv 待ちバイト数を ioctlsocket(FIONREAD) で問い合わせる。
      *
      * @return 次に取り出せる datagram のバイト数 (失敗 / 未接続なら 0)。
      */
-    u32           PendingBytesIn() const noexcept override;
+    u32 PendingBytesIn() const noexcept override;
 
     /**
      * 常に 0 を返す (UDP は OS が即送出し内部バッファを持たない)。
      *
      * @return 常に 0。
      */
-    u32           PendingBytesOut() const noexcept override { return 0; }
+    u32 PendingBytesOut() const noexcept override
+    {
+        return 0;
+    }
 
 private:
+    /** socket の利用可否と解放保留を区別する内部状態。 */
+    enum class EState : u8 {
+        Disconnected,
+        Configuring,
+        Established,
+        CleanupPending,
+    };
+
     /** 無効な socket 値 (全 bit 1 = INVALID_SOCKET と同値)。 */
     static constexpr uptr kInvalidSocket = ~uptr{0};
 
+    /** m_StateLock を保持した状態で socket と WSA 参照を回収する。0 は完全解放。 */
+    u32 DisconnectLocked() noexcept;
+
+    /** 全公開操作から内部状態を保護する。 */
+    mutable FMutex m_StateLock;
+
+    /** 現在の接続・解放状態。 */
+    EState m_State = EState::Disconnected;
+
     /** open な UDP socket を uptr で保持 (未接続なら kInvalidSocket)。 */
-    uptr m_Socket     = kInvalidSocket;
+    uptr m_Socket = kInvalidSocket;
 
     /** bind する local port (0 = ephemeral)。 */
-    u16  m_LocalPort  = 0;
+    u16 m_LocalPort = 0;
 
     /** この instance が WSAStartup を 1 回計上したか。 */
     bool m_WsaStarted = false;
 
     /** remote endpoint の IPv4 dotted-quad (Winsock 型を header に出さない raw 保持)。 */
-    u8   m_RemoteOctets[4] = {0, 0, 0, 0};
+    u8 m_RemoteOctets[4] = {0, 0, 0, 0};
 
     /** remote endpoint のポート。 */
-    u16  m_RemotePort      = 0;
+    u16 m_RemotePort = 0;
 };
 
 /**
@@ -544,16 +612,16 @@ public:
     ~FNetSnapshot() noexcept = default;
 
     /** コピー禁止 (1 セッション 1 オブジェクト)。 */
-    FNetSnapshot(const FNetSnapshot&)            = delete;
+    FNetSnapshot(const FNetSnapshot&) = delete;
 
     /** コピー代入も禁止。 */
     FNetSnapshot& operator=(const FNetSnapshot&) = delete;
 
     /** ムーブ禁止。 */
-    FNetSnapshot(FNetSnapshot&&)                 = delete;
+    FNetSnapshot(FNetSnapshot&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FNetSnapshot& operator=(FNetSnapshot&&)      = delete;
+    FNetSnapshot& operator=(FNetSnapshot&&) = delete;
 
     /**
      * 設定をコピーし ring buffer を確保して初期化する。
@@ -565,8 +633,7 @@ public:
      * @param role 動作役割。
      * @param transport 使用する transport (Standalone なら nullptr 可)。
      */
-    void Init(const NetSnapshotConfig& config, ENetRole role,
-              INetTransport* transport) noexcept;
+    void Init(const NetSnapshotConfig& config, ENetRole role, INetTransport* transport) noexcept;
 
     /** ring buffer / pending entities / 統計値をリセットする (transport は触らない)。 */
     void Shutdown() noexcept;
@@ -576,28 +643,37 @@ public:
      *
      * @return Init で設定した ENetRole。
      */
-    ENetRole Role()                       const noexcept { return m_Role; }
+    ENetRole Role() const noexcept
+    {
+        return m_Role;
+    }
 
     /**
      * ring buffer に貯まっている snapshot 件数を返す。
      *
      * @return 有効な snapshot 件数。
      */
-    u32      BufferedSnapshotCount()      const noexcept;
+    u32 BufferedSnapshotCount() const noexcept;
 
     /**
      * 現在の補間遅延秒を返す。
      *
      * @return config.interpolation_delay_sec。
      */
-    f32      CurrentInterpolationDelay()  const noexcept { return m_Config.interpolation_delay_sec; }
+    f32 CurrentInterpolationDelay() const noexcept
+    {
+        return m_Config.interpolation_delay_sec;
+    }
 
     /**
      * 最後に受信した snapshot の tick を返す。
      *
      * @return 直近受信 snapshot の tick (未受信なら 0)。
      */
-    u32      LastReceivedTick()           const noexcept { return m_LastReceivedTick; }
+    u32 LastReceivedTick() const noexcept
+    {
+        return m_LastReceivedTick;
+    }
 
     /**
      * 1 entity の現在 state を pending list に積む。
@@ -609,8 +685,7 @@ public:
      * @param data 積む component データ (コピーされる)。
      * @param data_size data のバイト数。
      */
-    void AddEntitySnapshot(u32 entity_id, u32 component_mask,
-                           const void* data, u32 data_size) noexcept;
+    void AddEntitySnapshot(u32 entity_id, u32 component_mask, const void* data, u32 data_size) noexcept;
 
     /**
      * pending list を 1 payload に concat し、header を付けて transport.Send する。
@@ -635,9 +710,7 @@ public:
      * @param out_actual_count 書き出した entity 数を返す (max_count で clamp)。
      * @return 有効データを書いたら true、buffer 空 / 範囲外なら false。
      */
-    bool TryGetInterpolatedSnapshot(f32 client_time_sec,
-                                    EntitySnapshot* out_snapshots,
-                                    u32 max_count,
+    bool TryGetInterpolatedSnapshot(f32 client_time_sec, EntitySnapshot* out_snapshots, u32 max_count,
                                     u32& out_actual_count) noexcept;
 
     /**
@@ -653,28 +726,40 @@ public:
      *
      * @return 累積 packet 送信数。
      */
-    u32 PacketsSent()     const noexcept { return m_PacketsSent;     }
+    u32 PacketsSent() const noexcept
+    {
+        return m_PacketsSent;
+    }
 
     /**
      * 受信した packet 数を返す。
      *
      * @return 累積 packet 受信数 (検証失敗 frame も含む)。
      */
-    u32 PacketsReceived() const noexcept { return m_PacketsReceived; }
+    u32 PacketsReceived() const noexcept
+    {
+        return m_PacketsReceived;
+    }
 
     /**
      * 送信した総バイト数を返す。
      *
      * @return 累積送信バイト数。
      */
-    u32 BytesSent()       const noexcept { return m_BytesSent;       }
+    u32 BytesSent() const noexcept
+    {
+        return m_BytesSent;
+    }
 
     /**
      * 受信した総バイト数を返す。
      *
      * @return 累積受信バイト数。
      */
-    u32 BytesReceived()   const noexcept { return m_BytesReceived;   }
+    u32 BytesReceived() const noexcept
+    {
+        return m_BytesReceived;
+    }
 
     /**
      * 1 frame に必要な総バイト数を返す。
@@ -700,10 +785,8 @@ public:
      * @param out_written 書き込みバイト数を返す (= EncodedSnapshotSize)。
      * @return 成功なら空の TResult、引数不正 / 容量不足ならエラー。
      */
-    static TResult<void> EncodeSnapshot(const SnapshotHeader& header,
-                                        const u8* payload, u32 payload_size,
-                                        u8* out_buffer, u32 out_capacity,
-                                        u32& out_written) noexcept;
+    static TResult<void> EncodeSnapshot(const SnapshotHeader& header, const u8* payload, u32 payload_size,
+                                        u8* out_buffer, u32 out_capacity, u32& out_written) noexcept;
 
     /**
      * frame wire bytes を検証し、header を復元 + payload を複製する。
@@ -717,8 +800,7 @@ public:
      * @param out_payload payload を複製する先。
      * @return 成功なら空の TResult、検証失敗なら対応するエラー。
      */
-    static TResult<void> DecodeSnapshot(const u8* buffer, u32 size,
-                                        SnapshotHeader& out_header,
+    static TResult<void> DecodeSnapshot(const u8* buffer, u32 size, SnapshotHeader& out_header,
                                         TArray<u8>& out_payload) noexcept;
 
 private:
@@ -729,10 +811,10 @@ private:
      */
     struct BufferedSnapshot {
         /** この snapshot の header。 */
-        SnapshotHeader header {};
+        SnapshotHeader header{};
 
         /** 全 entity record を concat した payload。 */
-        TArray<u8>      payload;
+        TArray<u8> payload;
     };
 
     /**
@@ -742,10 +824,10 @@ private:
      */
     struct PendingEntity {
         /** ゲーム内 entity ID。 */
-        u32       entity_id      = 0;
+        u32 entity_id = 0;
 
         /** どの component が含まれるかの bitmask。 */
-        u32       component_mask = 0;
+        u32 component_mask = 0;
 
         /** component データのコピー保持。 */
         TArray<u8> data;
@@ -758,43 +840,43 @@ private:
     TArray<u8> m_InterpScratch;
 
     /** ランタイム設定 (Init でコピー)。 */
-    NetSnapshotConfig          m_Config         {};
+    NetSnapshotConfig m_Config{};
 
     /** 動作役割。 */
-    ENetRole                   m_Role           = ENetRole::Standalone;
+    ENetRole m_Role = ENetRole::Standalone;
 
     /** 使用する transport (非所有。Standalone 以外は nullptr なら stub に差し替え)。 */
-    INetTransport*             m_Transport      = nullptr;
+    INetTransport* m_Transport = nullptr;
 
     /** server 側で送信待ちの entity list。 */
-    TArray<PendingEntity>       m_PendingEntities;
+    TArray<PendingEntity> m_PendingEntities;
 
     /** client 側の受信 snapshot ring buffer (capacity = buffer_capacity_snapshots)。 */
-    TArray<BufferedSnapshot>    m_RingBuffer;
+    TArray<BufferedSnapshot> m_RingBuffer;
 
     /** ring buffer の次の挿入位置 (FIFO)。 */
-    u32                        m_RingHead      = 0;
+    u32 m_RingHead = 0;
 
     /** ring buffer 内の現在の有効件数 (<= capacity)。 */
-    u32                        m_RingCount     = 0;
+    u32 m_RingCount = 0;
 
     /** server 送信時の次 sequence 番号 (0 は無効値として予約)。 */
-    u32                        m_NextSequence  = 1;
+    u32 m_NextSequence = 1;
 
     /** 最後に受信した snapshot の tick。 */
-    u32                        m_LastReceivedTick = 0;
+    u32 m_LastReceivedTick = 0;
 
     /** 送信に成功した packet 数。 */
-    u32 m_PacketsSent     = 0;
+    u32 m_PacketsSent = 0;
 
     /** 受信した packet 数 (検証失敗 frame も含む)。 */
     u32 m_PacketsReceived = 0;
 
     /** 送信した総バイト数。 */
-    u32 m_BytesSent       = 0;
+    u32 m_BytesSent = 0;
 
     /** 受信した総バイト数。 */
-    u32 m_BytesReceived   = 0;
+    u32 m_BytesReceived = 0;
 };
 
 } // namespace acs::game

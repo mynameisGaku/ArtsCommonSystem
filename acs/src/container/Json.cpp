@@ -2,6 +2,7 @@
 // ACS Container — FJson 実装 (recursive-descent パーサ)
 #include "container/Json.h"
 #include "foundation/Error.h"
+#include "memory/SystemAllocator.h"
 
 #include <cstdlib>   // _strtod_l
 #include <cstdio>    // snprintf (エラーメッセージ整形)
@@ -25,9 +26,22 @@ thread_local char g_JsonErrBuf[160] = {0};
  * するため _strtod_l に渡す C ロケールを 1 度だけ生成して使い回す。
  * @return C ロケールハンドル (生成失敗時は NULL になり得る)。
  */
+struct JsonLocaleState {
+    JsonLocaleState() noexcept : locale(::_create_locale(LC_ALL, "C"))
+    {
+    }
+    ~JsonLocaleState() noexcept
+    {
+        if (locale != nullptr) ::_free_locale(locale);
+    }
+
+    _locale_t locale = nullptr;
+};
+
 _locale_t JsonCLocale() noexcept {
-    static const _locale_t s_loc = ::_create_locale(LC_ALL, "C");
-    return s_loc;
+    // _create_locale の所有権も process static のデストラクタで対称に戻す。
+    static const JsonLocaleState s_state;
+    return s_state.locale;
 }
 } // namespace
 
@@ -37,14 +51,28 @@ _locale_t JsonCLocale() noexcept {
  * @return const な静的 Null 値への参照 (chain アクセス用)。
  */
 static const FJsonValue& NullValue() noexcept {
-    static const FJsonValue s_null;
-    return s_null;
+    struct NullState {
+        NullState() noexcept : value(allocator)
+        {
+        }
+
+        // value を先に破棄してから allocator を破棄する宣言順にする。
+        FSystemAllocator allocator;
+        FJsonValue value;
+    };
+    static const NullState s_null;
+    return s_null.value;
 }
 
 // 特殊メンバは complete-type の本 TU で定義 (再帰所有のため)。
 
 /** 空の Null 値を構築する。 */
 FJsonValue::FJsonValue() noexcept = default;
+
+/** 指定 allocator を文字列と子配列へ固定して空の Null 値を構築する。 */
+FJsonValue::FJsonValue(FAllocator& allocator) noexcept : m_String(allocator), m_Elems(allocator), m_Keys(allocator)
+{
+}
 
 /** 子要素ごと破棄する。 */
 FJsonValue::~FJsonValue() noexcept = default;

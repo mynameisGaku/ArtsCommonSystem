@@ -143,6 +143,20 @@ public:
         m_Size = 0;
     }
 
+    /**
+     * 全要素を破棄し、確保済みの連続バッファも解放する。
+     *
+     * @details
+     * Clear() と異なり容量を 0 に戻す。配列に設定されたアロケータは維持するため、
+     * 次回の Reserve/Resize/PushBack も同じ確保元を使用する。大きな一時データを
+     * 明示的に手放したい長寿命オブジェクト向け。
+     */
+    void ReleaseStorage() noexcept
+    {
+        Clear();
+        Free();
+    }
+
     /** 余剰容量を解放してサイズちょうどに縮める。 */
     void ShrinkToFit() noexcept {
         if (m_Size == m_Capacity) return;

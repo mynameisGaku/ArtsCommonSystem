@@ -38,8 +38,17 @@ public:
     /** 空のレジストリを構築する (ローダ未登録)。 */
     FAssetRegistry() noexcept = default;
 
-    /** レジストリを破棄する (キャッシュは TSharedPtr が解放、ローダは非所有)。 */
-    ~FAssetRegistry() noexcept = default;
+    /**
+     * 指定アロケータを使う空のレジストリを構築する。
+     *
+     * @param allocator キャッシュ・ローダ配列のストレージ確保元。
+     */
+    explicit FAssetRegistry(FAllocator& allocator) noexcept : m_Cache(allocator), m_Loaders(allocator)
+    {
+    }
+
+    /** 実行中の同期・非同期ロードを待ってからキャッシュを解放する。 */
+    ~FAssetRegistry() noexcept;
 
     /** コピー禁止 (Mutex とキャッシュを単独保持するため)。 */
     FAssetRegistry(const FAssetRegistry&) = delete;
@@ -50,7 +59,8 @@ public:
     /**
      * ローダを登録する。
      *
-     * @details 拡張子マッチで使われる。所有権はレジストリに渡らない (呼び出し側が寿命を管理)。
+     * @details 拡張子マッチで使われる。所有権はレジストリに渡らない。登録したローダは
+     * レジストリの Shutdown 完了まで呼び出し側が生存させること。Shutdown 開始後は無視される。
      * @param loader 登録するローダ (null は無視)。
      */
     void RegisterLoader(IAssetLoader* loader) noexcept;
@@ -76,6 +86,22 @@ public:
      * @return 完了確認用の FAssetFuture。
      */
     FAssetFuture LoadAsync(const wchar_t* path) noexcept;
+
+    /**
+     * 新規ロード受付を閉じ、処理中の同期・非同期ロードを待って全キャッシュを解放する。
+     *
+     * @details 冪等。終了開始後の Load/LoadAsync はエラーとなる。ロードコールバック自身から
+     * 呼ぶと自己待機になるため、レジストリを所有するスレッドから呼ぶこと。
+     */
+    void Shutdown() noexcept;
+
+    /**
+     * 現在のロードを終了してストレージを解放し、新規ロード受付を再開する。
+     *
+     * @details Shutdown 済みでも呼べる。構築時のアロケータは維持される。
+     * Shutdown と同じく、ロードコールバック自身から呼んではならない。
+     */
+    void Restart() noexcept;
 
     /**
      * キャッシュからのみアセットを取得する (ロードはしない)。
@@ -120,6 +146,15 @@ private:
 
     /** 登録済みローダ (非所有ポインタ)。 */
     TArray<IAssetLoader*>           m_Loaders;
+
+    /** Shutdown が新規ロード受付を閉じた後は true (m_Lock で保護)。 */
+    bool m_Closing = false;
+
+    /** Shutdown が待機と全ストレージ解放まで完了した後は true (m_Lock で保護)。 */
+    bool m_ShutdownComplete = false;
+
+    /** ロック外でレジストリまたは登録ローダを参照しているロード処理数。 */
+    CompletionCounter m_ActiveOperations;
 };
 
 } // namespace acs

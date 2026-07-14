@@ -88,12 +88,22 @@ void ParseShaderBindings(
 
 /** Diligent シェーダオブジェクトを解放する。 */
 DiligentShader::~DiligentShader() noexcept {
+    Reset();
+}
+
+void DiligentShader::Reset() noexcept
+{
     if (m_Shader) { m_Shader->Release(); m_Shader = nullptr; }
+    m_Device = nullptr;
+    m_Stage = EShaderStage::Vertex;
+    std::memset(m_CbNames, 0, sizeof(m_CbNames));
+    std::memset(m_TexNames, 0, sizeof(m_TexNames));
 }
 
 /** HLSL source をコンパイルしてシェーダを生成し、register binding を抽出する。 */
 TResult<void> DiligentShader::Init(DiligentDevice& device, const FShaderDesc& desc,
                                    bool combined_samplers) noexcept {
+    Reset();
     m_Device = &device;
     m_Stage  = desc.stage;
 

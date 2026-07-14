@@ -47,6 +47,25 @@ ACS_TEST(Ecs, GenerationInvalidatesOldId) {
     EXPECT_TRUE(w.IsAlive(b));
 }
 
+ACS_TEST(Ecs, ClearReleasesAllStateAndAllowsReuse)
+{
+    World world;
+    const EntityId old_entity = world.Create();
+    world.Add<Position>(old_entity, Position{1.0f, 2.0f, 3.0f});
+    EXPECT_EQ(world.EntityCount(), 1u);
+
+    world.Clear();
+    world.Clear();
+    EXPECT_EQ(world.EntityCount(), 0u);
+    EXPECT_TRUE(!world.IsAlive(old_entity));
+
+    const EntityId new_entity = world.Create();
+    world.Add<Position>(new_entity, Position{4.0f, 5.0f, 6.0f});
+    EXPECT_TRUE(world.IsAlive(new_entity));
+    EXPECT_TRUE(!world.IsAlive(old_entity));
+    EXPECT_TRUE(world.Get<Position>(new_entity) != nullptr);
+}
+
 ACS_TEST(Ecs, QueryIteratesMatching) {
     World w;
     for (int i = 0; i < 100; ++i) {

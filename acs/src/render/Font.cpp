@@ -91,14 +91,17 @@ u32 DecodeUtf8(const char** p) noexcept {
 /** TTF/OTF/TTC バイト列からアトラスを焼いてグリフマップと GPU テクスチャを構築する。 */
 TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize ttf_size,
                                  f32 pixel_size, u32 atlas_size, bool include_cjk) noexcept {
+    // 成否にかかわらず、再ロード開始後は旧フォントを公開しない。
+    Shutdown();
     if (!ttf_data || ttf_size == 0)
         return ACS_ERR(Asset, 200, "Font: empty TTF data");
     if (atlas_size == 0) atlas_size = 1024;
     // CJK を含むなら 2048 未満は自動で 2048 へ
     if (include_cjk && atlas_size < 2048) atlas_size = 2048;
-    m_PixelSize = pixel_size;
-    m_AtlasSize = atlas_size;
-
+    const usize atlas_side = static_cast<usize>(atlas_size);
+    if (atlas_side > (~usize(0)) / atlas_side || atlas_side * atlas_side > (~usize(0)) / 4u) {
+        return ACS_ERR(Memory, 222, "Font: atlas size overflow");
+    }
     // stb_truetype で font 情報を取得
     stbtt_fontinfo info{};
     if (!stbtt_InitFont(&info, ttf_data, stbtt_GetFontOffsetForIndex(ttf_data, 0))) {
@@ -107,13 +110,14 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     const f32 scale = stbtt_ScaleForPixelHeight(&info, pixel_size);
     int ascent = 0, descent = 0, line_gap = 0;
     stbtt_GetFontVMetrics(&info, &ascent, &descent, &line_gap);
-    m_Ascent   = ascent   * scale;
-    m_Descent  = descent  * scale;
-    m_LineGap = line_gap * scale;
+    const f32 loaded_ascent = ascent * scale;
+    const f32 loaded_descent = descent * scale;
+    const f32 loaded_line_gap = line_gap * scale;
 
     // アトラス用ピクセル（R8 single-channel）
-    const usize atlas_bytes = static_cast<usize>(atlas_size) * atlas_size;
-    u8* atlas_r8 = static_cast<u8*>(DefaultAllocator().Alloc(atlas_bytes));
+    const usize atlas_bytes = atlas_side * atlas_side;
+    FAllocator& allocator = DefaultAllocator();
+    u8* atlas_r8 = static_cast<u8*>(allocator.Alloc(atlas_bytes));
     if (!atlas_r8) return ACS_ERR(Memory, 220, "Font: atlas alloc");
     ::memset(atlas_r8, 0, atlas_bytes);
 
@@ -122,7 +126,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     if (!stbtt_PackBegin(&spc, atlas_r8,
                           static_cast<int>(atlas_size), static_cast<int>(atlas_size),
                           0 /* stride = w */, 1 /* padding */, nullptr)) {
-        DefaultAllocator().Free(atlas_r8);
+        allocator.Free(atlas_r8);
         return ACS_ERR(Asset, 202, "Font: stbtt_PackBegin failed");
     }
     stbtt_PackSetOversampling(&spc, 1, 1);
@@ -159,9 +163,9 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
 
     // R8 → RGBA8 変換（アルファのみ、RGB は白）
     const usize rgba_bytes = atlas_bytes * 4;
-    u8* atlas_rgba = static_cast<u8*>(DefaultAllocator().Alloc(rgba_bytes));
+    u8* atlas_rgba = static_cast<u8*>(allocator.Alloc(rgba_bytes));
     if (!atlas_rgba) {
-        DefaultAllocator().Free(atlas_r8);
+        allocator.Free(atlas_r8);
         return ACS_ERR(Memory, 221, "Font: atlas RGBA alloc");
     }
     for (usize i = 0; i < atlas_bytes; ++i) {
@@ -170,7 +174,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
         atlas_rgba[i*4 + 2] = 255;
         atlas_rgba[i*4 + 3] = atlas_r8[i];
     }
-    DefaultAllocator().Free(atlas_r8);
+    allocator.Free(atlas_r8);
 
     // GPU テクスチャ作成
     FTextureDesc td{};
@@ -179,9 +183,16 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     td.initial_data = atlas_rgba;
     td.initial_data_size = rgba_bytes;
     auto tr = CreateRhiTexture(device, td);
-    DefaultAllocator().Free(atlas_rgba);
+    allocator.Free(atlas_rgba);
     if (tr.IsErr()) return Err<void>(tr.Error());
     m_Atlas = Move(tr.Value());
+
+    // 失敗時に半端なメトリクスを残さないため、GPU生成成功後にまとめて公開する。
+    m_AtlasSize = atlas_size;
+    m_PixelSize = pixel_size;
+    m_Ascent = loaded_ascent;
+    m_Descent = loaded_descent;
+    m_LineGap = loaded_line_gap;
 
     // グリフマップ構築
     const f32 inv_size = 1.0f / static_cast<f32>(atlas_size);
@@ -213,7 +224,10 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
 TResult<void> Font::LoadFromFile(IRhiDevice& device, const wchar_t* path,
                                 f32 pixel_size, u32 atlas_size, bool include_cjk) noexcept {
     auto bytes_r = FileSystem::ReadAllBytes(path);
-    if (bytes_r.IsErr()) return Err<void>(bytes_r.Error());
+    if (bytes_r.IsErr()) {
+        Shutdown();
+        return Err<void>(bytes_r.Error());
+    }
     const TArray<byte>& bytes = bytes_r.Value();
     return LoadFromBytes(device, reinterpret_cast<const u8*>(bytes.Data()),
                          bytes.Size(), pixel_size, atlas_size, include_cjk);
@@ -222,9 +236,12 @@ TResult<void> Font::LoadFromFile(IRhiDevice& device, const wchar_t* path,
 /** アトラステクスチャとグリフマップを解放し、メトリクスを 0 に戻す。 */
 void Font::Shutdown() noexcept {
     m_Atlas.Reset();
-    m_Glyphs.Clear();
+    m_Glyphs.ReleaseStorage();
     m_AtlasSize = 0;
     m_PixelSize = 0;
+    m_Ascent = 0;
+    m_Descent = 0;
+    m_LineGap = 0;
 }
 
 /** コードポイントのグリフ情報を取得する (アトラス未収録なら false)。 */

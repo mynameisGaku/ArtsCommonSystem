@@ -112,6 +112,9 @@ public:
     const char* TextureName(u32 slot) const noexcept;
 
 private:
+    /** PSO/SRB と binding 状態を解放して空状態へ戻す。 */
+    void Reset() noexcept;
+
     /** PSO 生成に使った Diligent デバイス。 */
     DiligentDevice*                  m_Device = nullptr;
 

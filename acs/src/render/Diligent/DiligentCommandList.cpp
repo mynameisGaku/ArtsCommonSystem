@@ -17,6 +17,14 @@ namespace acs {
 DiligentCommandList::~DiligentCommandList() noexcept = default;
 
 TResult<void> DiligentCommandList::Init(DiligentDevice& device) noexcept {
+    // 再初期化前に、旧 device/resource への借用参照をすべて失効させる。
+    for (u32 index = 0; index < 16; ++index)
+        m_BoundUavTex[index] = nullptr;
+    m_BoundUavTexCount = 0;
+    m_Pipeline = nullptr;
+    m_bIsIndex32 = false;
+    m_MainSwapchain = nullptr;
+    m_MainDepth = nullptr;
     m_Device = &device;
     return Ok();
 }

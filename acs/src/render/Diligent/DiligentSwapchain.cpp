@@ -13,11 +13,23 @@ namespace acs {
 
 /** Diligent スワップチェインを解放する。 */
 DiligentSwapchain::~DiligentSwapchain() noexcept {
+    Reset();
+}
+
+void DiligentSwapchain::Reset() noexcept
+{
     if (m_Swap) { m_Swap->Release(); m_Swap = nullptr; }
+    m_Device = nullptr;
+    m_Format = EFormat::B8G8R8A8_UNorm;
+    m_Width = 0;
+    m_Height = 0;
+    m_BufferCount = 2;
+    m_bVsync = true;
 }
 
 /** ウィンドウに対してバックエンド別 factory でスワップチェインを生成する。 */
 TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainConfig& cfg) noexcept {
+    Reset();
     m_Device = &device;
     m_BufferCount = (cfg.buffer_count >= 2 && cfg.buffer_count <= 3) ? cfg.buffer_count : 2;
     m_bVsync  = cfg.vsync;

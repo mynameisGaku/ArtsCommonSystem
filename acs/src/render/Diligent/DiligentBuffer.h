@@ -90,6 +90,9 @@ public:
     Diligent::IBufferView* UavView() const noexcept { return m_Uav; }
 
 private:
+    /** 保持リソースと借用参照を空状態へ戻す。 */
+    void Reset() noexcept;
+
     /** Update でコンテキストを引くために保持する生成元デバイス。 */
     DiligentDevice*    m_Device = nullptr;
 

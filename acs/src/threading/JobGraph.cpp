@@ -5,10 +5,10 @@
 
 namespace acs {
 
-/** Add で確保した全 Job を解放する (Wait 完了後の破棄を前提)。 */
+/** Add で確保した全 Job を、実行完了を確認してから解放する。 */
 FJobGraph::~FJobGraph() noexcept {
-    // Add() が new した Job* を解放する。Submit/Wait 完了後の破棄を前提とする
-    // (実行中グラフの破棄は未定義 — Wait してから破棄すること)。
+    // worker が Job* を参照中のままスコープを抜けても UAF にしない。
+    Wait();
     for (usize i = 0; i < m_Jobs.Size(); ++i) delete m_Jobs[i];
     m_Jobs.Clear();
 }
@@ -66,7 +66,11 @@ void FJobGraph::JobThunk(void* user, u32 worker_index) noexcept {
             t.user    = down;
             t.counter = nullptr;  // counter は submit 時 Add(1) / 完了時 Done(1) で会計
             graph->m_Counter.Add(1);
-            if (FThreadPool::Submit(t).IsErr()) graph->m_Counter.Done();  // 走らないので打ち消す
+            if (FThreadPool::Submit(t).IsErr()) {
+                // 最後の依存を解いたこのスレッドが一度だけ同期実行する。終了競合でも
+                // 枝を欠落させず、呼び出し側による全件再実行も不要になる。
+                JobThunk(down, worker_index);
+            }
         }
     }
 
@@ -112,42 +116,42 @@ TResult<void> FJobGraph::Submit() noexcept {
         }
     }
 
+    u32 entry_count = 0;
+    for (usize i = 0; i < m_Jobs.Size(); ++i) {
+        if (m_Jobs[i]->initial_deps == 0) ++entry_count;
+    }
+    if (entry_count == 0) {
+        ACS_LOG_ERROR("FJobGraph::Submit: no entry job after cycle check");
+        return ACS_ERR(Threading, 2, "FJobGraph: no entry job");
+    }
+
     m_bSubmitted = true;
 
-    // カウンタは「submit 時に Add(1) / 完了時に Done(1)」で会計する。upfront Add(N) +
-    // 失敗時の概算巻き戻しは、cascade で実行されるジョブ数を予測できず over/under-Done
-    // して underflow → Wait() ハングや早期完了を招くため採用しない。
+    // 全 entry と Submit 自身のライフタイム障壁を、最初の task 公開より前に計上する。
+    // dependent は実行可能になった時点で個別に Add されるため、全ジョブ数の概算は不要。
+    m_Counter.Add(entry_count + 1);
 
     // 依存 0 の job を FThreadPool に投入
-    bool any_started = false;
-    u32 submitted_count = 0;
     for (usize i = 0; i < m_Jobs.Size(); ++i) {
         Job* const j = m_Jobs[i];
-        if (j->deps_remaining.Load(EMemoryOrder::Acquire) == 0) {
+        // 実行中に依存先が 0 へ遷移しても entry として再投入しない。構築時から
+        // 依存 0 だったジョブだけを起点にすることで高速完了時の二重実行を防ぐ。
+        if (j->initial_deps == 0) {
             Task t{};
             t.fn      = &FJobGraph::JobThunk;
             t.user    = j;
             t.counter = nullptr;
-            m_Counter.Add(1);                       // この job 1 個ぶんを計上
             auto r = FThreadPool::Submit(t);
             if (r.IsErr()) {
-                ACS_LOG_ERROR("FJobGraph::Submit: FThreadPool::Submit failed: %s",
-                              r.Error().message);
-                m_Counter.Done();                   // この job は走らないので計上を打ち消す
-                // 既に submit 済みの entry とその cascade は走り切って各自 Done() するので
-                // 巻き戻し不要。未 submit の entry は Add していないので leak しない。
-                return r;
+                ACS_LOG_WARN("FJobGraph::Submit: pool submit failed; running entry synchronously: %s",
+                             r.Error().message);
+                // 失敗した entry だけを一度実行する。既に投入済みの枝と重複せず、
+                // Submit を成功扱いにできるため Easy 側の全件フォールバックも起きない。
+                JobThunk(j, 0);
             }
-            ++submitted_count;
-            any_started = true;
         }
     }
-
-    if (!any_started && m_Jobs.Size() > 0) {
-        // サイクル検知を抜けてここに来たら、空のグラフ (entry も無い) のはず
-        ACS_LOG_ERROR("FJobGraph::Submit: no entry job after cycle check");
-        return ACS_ERR(Threading, 2, "FJobGraph: no entry job");
-    }
+    m_Counter.Done(); // Submit が m_Jobs を走査し終えたことを通知
     return Ok();
 }
 
@@ -160,6 +164,7 @@ void FJobGraph::Wait() noexcept {
 
 /** deps_remaining を初期値に戻し、同じグラフを再実行可能にする。 */
 void FJobGraph::Reset() noexcept {
+    Wait();
     for (usize i = 0; i < m_Jobs.Size(); ++i) {
         m_Jobs[i]->deps_remaining.Store(m_Jobs[i]->initial_deps);
     }

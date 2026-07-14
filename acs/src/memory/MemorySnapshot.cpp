@@ -17,127 +17,148 @@ namespace acs {
 namespace {
 
 /** RGB の 3 バイト色 (描画/出力共通)。 */
-struct RgbColor { u8 r, g, b; };
+struct RgbColor {
+    u8 r, g, b;
+};
 
 /** セグメントごとの固定色 (バーの色だけで識別できるよう割り当て)。 */
 constexpr RgbColor kSegmentColor[(usize)ESegment::_Count] = {
-    /* Default   */ {  60, 120, 220 },
-    /* Permanent */ { 110, 200, 110 },
-    /* Temp      */ { 240, 180,  60 },
-    /* Resource  */ { 200,  80, 180 },
-    /* Develop   */ { 160, 160, 160 },
+    /* Default   */ {60, 120, 220},
+    /* Permanent */ {110, 200, 110},
+    /* Temp      */ {240, 180, 60},
+    /* Resource  */ {200, 80, 180},
+    /* Develop   */ {160, 160, 160},
 };
 
 /**
  * バッファ全体をファイルハンドルへ書き出す。
  *
- * @param h 書き込み先ファイルハンドル。
- * @param p 書き込むデータ。
- * @param n バイト数。
+ * @param FileHandle 書き込み先ファイルハンドル。
+ * @param Data 書き込むデータ。
+ * @param Size バイト数。
  */
-ACS_FORCEINLINE void WriteAll(HANDLE h, const void* p, usize n) noexcept {
-    DWORD wrote = 0;
-    ::WriteFile(h, p, static_cast<DWORD>(n), &wrote, nullptr);
+ACS_FORCEINLINE void WriteAll(HANDLE FileHandle, const void* Data, usize Size) noexcept
+{
+    DWORD BytesWritten = 0;
+    ::WriteFile(FileHandle, Data, static_cast<DWORD>(Size), &BytesWritten, nullptr);
 }
 
 /**
  * バイト数を "12.3 MB" 形式の文字列に変換する。
  *
- * @param buf 出力先バッファ。
- * @param cap buf の容量。
- * @param b バイト数。
+ * @param Buffer 出力先バッファ。
+ * @param Capacity Buffer の容量。
+ * @param Bytes バイト数。
  * @return snprintf が返した書き込み文字数。
  */
-int FormatBytes(char* buf, usize cap, u64 b) noexcept {
-    const char* unit = "B";
-    double v = static_cast<double>(b);
-    if (v >= 1024.0) { v /= 1024.0; unit = "KB"; }
-    if (v >= 1024.0) { v /= 1024.0; unit = "MB"; }
-    if (v >= 1024.0) { v /= 1024.0; unit = "GB"; }
-    return ::snprintf(buf, cap, "%.1f %s", v, unit);
+int FormatBytes(char* Buffer, usize Capacity, u64 Bytes) noexcept
+{
+    const char* Unit = "B";
+    double Value = static_cast<double>(Bytes);
+    if (Value >= 1024.0) {
+        Value /= 1024.0;
+        Unit = "KB";
+    }
+    if (Value >= 1024.0) {
+        Value /= 1024.0;
+        Unit = "MB";
+    }
+    if (Value >= 1024.0) {
+        Value /= 1024.0;
+        Unit = "GB";
+    }
+    return ::snprintf(Buffer, Capacity, "%.1f %s", Value, Unit);
 }
 
 } // namespace
 
 // SVG 出力: 各セグメントを 1 行のバーとして描画
-TResult<void> FMemorySnapshot::WriteSvg(const wchar_t* path, u32 width, u32 row_height) noexcept {
-    SegmentStats stats[(usize)ESegment::_Count];
-    const u32 n = FMemorySystem::GetStats(stats, (u32)ESegment::_Count);
-    if (n == 0) return ACS_ERR(Memory, 40, "FMemorySystem has no segments");
+TResult<void> FMemorySnapshot::WriteSvg(const wchar_t* Path, u32 Width, u32 RowHeight) noexcept
+{
+    SegmentStats StatisticsArray[(usize)ESegment::_Count];
+    const u32 SegmentCount = FMemorySystem::GetStats(StatisticsArray, (u32)ESegment::_Count);
+    if (SegmentCount == 0) return ACS_ERR(Memory, 40, "FMemorySystem has no segments");
 
     // ファイルを上書き作成
-    const HANDLE h = ::CreateFileW(path, GENERIC_WRITE, 0, nullptr,
-                             CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE)
-        return ACS_ERR_OS(IO, 1, "CreateFileW failed (svg)", ::GetLastError());
+    const HANDLE FileHandle = ::CreateFileW(Path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                                            nullptr);
+    if (FileHandle == INVALID_HANDLE_VALUE) return ACS_ERR_OS(IO, 1, "CreateFileW failed (svg)", ::GetLastError());
 
-    char buf[1024];
-    int len;
+    char Buffer[1024];
+    int Length;
 
     // SVG ルート + スタイル + タイトル
-    const u32 height = (n + 1) * row_height + 40;
-    len = ::snprintf(buf, sizeof(buf),
+    const u32 Height = (SegmentCount + 1) * RowHeight + 40;
+    Length = ::snprintf(
+        Buffer, sizeof(Buffer),
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%u\" height=\"%u\" viewBox=\"0 0 %u %u\">\n"
         "<style>text{font-family:monospace;font-size:14px;fill:#222;}.lbl{font-size:11px;fill:#fff;}</style>\n"
         "<rect width=\"100%%\" height=\"100%%\" fill=\"#f7f7fa\"/>\n"
         "<text x=\"10\" y=\"22\" font-weight=\"bold\">ACS Memory Snapshot</text>\n",
-        width, height, width, height);
-    WriteAll(h, buf, len);
+        Width, Height, Width, Height);
+    WriteAll(FileHandle, Buffer, Length);
 
-    const u32 bar_x = 120;
-    // width が小さいと width - bar_x - 10 が u32 アンダーフローして巨大値になる。下限ガード。
-    const u32 bar_w = (width > bar_x + 10) ? (width - bar_x - 10) : 0;
+    const u32 BarX = 120;
+    // Width が小さいと Width - BarX - 10 が u32 アンダーフローして巨大値になる。下限ガード。
+    const u32 BarWidth = (Width > BarX + 10) ? (Width - BarX - 10) : 0;
 
-    for (u32 i = 0; i < n; ++i) {
-        const SegmentStats& s = stats[i];
-        const u32 y = 30 + i * row_height;
+    for (u32 i = 0; i < SegmentCount; ++i) {
+        const SegmentStats& Statistics = StatisticsArray[i];
+        const u32 y = 30 + i * RowHeight;
 
         // セグメント名ラベル
-        len = ::snprintf(buf, sizeof(buf),
-            "<text x=\"10\" y=\"%u\">%s</text>\n",
-            y + row_height / 2 + 5, s.name);
-        WriteAll(h, buf, len);
+        Length = ::snprintf(Buffer, sizeof(Buffer), "<text x=\"10\" y=\"%u\">%s</text>\n", y + RowHeight / 2 + 5,
+                            Statistics.segment_name);
+        WriteAll(FileHandle, Buffer, Length);
 
         // 背景バー（予約全体、グレー）
-        len = ::snprintf(buf, sizeof(buf),
-            "<rect x=\"%u\" y=\"%u\" width=\"%u\" height=\"%u\" fill=\"#ddd\"/>\n",
-            bar_x, y, bar_w, row_height - 4);
-        WriteAll(h, buf, len);
+        Length = ::snprintf(Buffer, sizeof(Buffer),
+                            "<rect x=\"%u\" y=\"%u\" width=\"%u\" height=\"%u\" fill=\"#ddd\"/>\n", BarX, y, BarWidth,
+                            RowHeight - 4);
+        WriteAll(FileHandle, Buffer, Length);
 
         // 使用量バー（カラー、使用率に比例した幅）
-        u32 used_w = s.reserve > 0
-            ? static_cast<u32>((u64)bar_w * s.used / s.reserve)
-            : 0;
-        if (used_w > bar_w) used_w = bar_w;
-        const RgbColor& c = kSegmentColor[(usize)s.segment];
-        len = ::snprintf(buf, sizeof(buf),
-            "<rect x=\"%u\" y=\"%u\" width=\"%u\" height=\"%u\" fill=\"rgb(%u,%u,%u)\"/>\n",
-            bar_x, y, used_w, row_height - 4, c.r, c.g, c.b);
-        WriteAll(h, buf, len);
+        const u64 BarCapacity = Statistics.hard_budget_bytes > 0
+                                    ? Statistics.hard_budget_bytes
+                                    : (Statistics.peak_requested_bytes > 0 ? Statistics.peak_requested_bytes : 1);
+        u32 UsedWidth = static_cast<u32>(static_cast<u64>(BarWidth) * Statistics.requested_bytes / BarCapacity);
+        if (UsedWidth > BarWidth) UsedWidth = BarWidth;
+        const RgbColor& Color = kSegmentColor[(usize)Statistics.segment];
+        Length = ::snprintf(Buffer, sizeof(Buffer),
+                            "<rect x=\"%u\" y=\"%u\" width=\"%u\" height=\"%u\" fill=\"rgb(%u,%u,%u)\"/>\n", BarX, y,
+                            UsedWidth, RowHeight - 4, Color.r, Color.g, Color.b);
+        WriteAll(FileHandle, Buffer, Length);
 
         // ピーク位置を赤い縦線で示す
-        const u32 peak_x = s.reserve > 0
-            ? bar_x + static_cast<u32>((u64)bar_w * s.peak / s.reserve)
-            : bar_x;
-        len = ::snprintf(buf, sizeof(buf),
-            "<line x1=\"%u\" y1=\"%u\" x2=\"%u\" y2=\"%u\" stroke=\"#c00\" stroke-width=\"2\"/>\n",
-            peak_x, y, peak_x, y + row_height - 4);
-        WriteAll(h, buf, len);
+        u32 PeakOffset = static_cast<u32>(static_cast<u64>(BarWidth) * Statistics.peak_requested_bytes / BarCapacity);
+        if (PeakOffset > BarWidth) PeakOffset = BarWidth;
+        const u32 PeakX = BarX + PeakOffset;
+        Length = ::snprintf(Buffer, sizeof(Buffer),
+                            "<line x1=\"%u\" y1=\"%u\" x2=\"%u\" y2=\"%u\" stroke=\"#c00\" stroke-width=\"2\"/>\n",
+                            PeakX, y, PeakX, y + RowHeight - 4);
+        WriteAll(FileHandle, Buffer, Length);
 
-        // バー右端に「使用 / 予約」を表示
-        char used_s[32], reserve_s[32];
-        FormatBytes(used_s, sizeof(used_s), s.used);
-        FormatBytes(reserve_s, sizeof(reserve_s), s.reserve);
-        len = ::snprintf(buf, sizeof(buf),
-            "<text x=\"%u\" y=\"%u\" text-anchor=\"end\" class=\"lbl\" fill=\"#222\">%s / %s</text>\n",
-            bar_x + bar_w - 4, y + row_height / 2 + 4, used_s, reserve_s);
-        WriteAll(h, buf, len);
+        // バー右端に「要求量 / ハード予算 / 件数」を表示する。
+        char RequestedText[32];
+        char BudgetText[32];
+        FormatBytes(RequestedText, sizeof(RequestedText), Statistics.requested_bytes);
+        if (Statistics.hard_budget_bytes > 0) {
+            FormatBytes(BudgetText, sizeof(BudgetText), Statistics.hard_budget_bytes);
+        } else {
+            ::snprintf(BudgetText, sizeof(BudgetText), "unlimited");
+        }
+        Length = ::snprintf(
+            Buffer, sizeof(Buffer),
+            "<text x=\"%u\" y=\"%u\" text-anchor=\"end\" class=\"lbl\" fill=\"#222\">%s / %s / %llu allocs</text>\n",
+            BarX + BarWidth - 4, y + RowHeight / 2 + 4, RequestedText, BudgetText,
+            static_cast<unsigned long long>(Statistics.outstanding_allocation_count));
+        WriteAll(FileHandle, Buffer, Length);
     }
 
-    const char* const footer = "</svg>\n";
-    WriteAll(h, footer, ::strlen(footer));
-    ::CloseHandle(h);
+    const char* const Footer = "</svg>\n";
+    WriteAll(FileHandle, Footer, ::strlen(Footer));
+    ::CloseHandle(FileHandle);
     return Ok();
 }
 
@@ -203,102 +224,114 @@ struct BmpInfoHeader {
 /**
  * ピクセル行の x 番目に色を書き込む (BMP は 24bpp BGR バイト順)。
  *
- * @param row ピクセル行の先頭。
- * @param x 行内のピクセル位置。
- * @param c 書き込む色。
+ * @param Row ピクセル行の先頭。
+ * @param PixelX 行内のピクセル位置。
+ * @param Color 書き込む色。
  */
-ACS_FORCEINLINE void PutPixel(u8* row, u32 x, RgbColor c) noexcept {
-    row[x * 3 + 0] = c.b;
-    row[x * 3 + 1] = c.g;
-    row[x * 3 + 2] = c.r;
+ACS_FORCEINLINE void PutPixel(u8* Row, u32 PixelX, RgbColor Color) noexcept
+{
+    Row[PixelX * 3 + 0] = Color.b;
+    Row[PixelX * 3 + 1] = Color.g;
+    Row[PixelX * 3 + 2] = Color.r;
 }
 
 } // namespace
 
-TResult<void> FMemorySnapshot::WriteBmp(const wchar_t* path, u32 width, u32 row_height) noexcept {
-    SegmentStats stats[(usize)ESegment::_Count];
-    const u32 n = FMemorySystem::GetStats(stats, (u32)ESegment::_Count);
-    if (n == 0) return ACS_ERR(Memory, 41, "FMemorySystem has no segments");
+TResult<void> FMemorySnapshot::WriteBmp(const wchar_t* Path, u32 Width, u32 RowHeight) noexcept
+{
+    SegmentStats StatisticsArray[(usize)ESegment::_Count];
+    const u32 SegmentCount = FMemorySystem::GetStats(StatisticsArray, (u32)ESegment::_Count);
+    if (SegmentCount == 0) return ACS_ERR(Memory, 41, "FMemorySystem has no segments");
 
-    const u32 height = n * row_height;
+    const u32 Height = SegmentCount * RowHeight;
     // BMP は 1 行を 4 バイト境界にアラインする
-    const u32 stride = (width * 3 + 3) & ~3u;
-    const u32 pixel_bytes = stride * height;
+    const u32 Stride = (Width * 3 + 3) & ~3u;
+    const u32 PixelBytes = Stride * Height;
 
     // ヘッダ初期化
-    BmpFileHeader fh {};
-    BmpInfoHeader ih {};
-    fh.type = 0x4D42;
-    fh.offbits = sizeof(BmpFileHeader) + sizeof(BmpInfoHeader);
-    fh.size = fh.offbits + pixel_bytes;
+    BmpFileHeader FileHeader{};
+    BmpInfoHeader InfoHeader{};
+    FileHeader.type = 0x4D42;
+    FileHeader.offbits = sizeof(BmpFileHeader) + sizeof(BmpInfoHeader);
+    FileHeader.size = FileHeader.offbits + PixelBytes;
 
-    ih.size = sizeof(BmpInfoHeader);
-    ih.width = static_cast<i32>(width);
-    ih.height = -static_cast<i32>(height);  // 負: 上→下スキャン
-    ih.planes = 1;
-    ih.bitcount = 24;
-    ih.compression = 0;
-    ih.sizeImage = pixel_bytes;
+    InfoHeader.size = sizeof(BmpInfoHeader);
+    InfoHeader.width = static_cast<i32>(Width);
+    InfoHeader.height = -static_cast<i32>(Height); // 負: 上→下スキャン
+    InfoHeader.planes = 1;
+    InfoHeader.bitcount = 24;
+    InfoHeader.compression = 0;
+    InfoHeader.sizeImage = PixelBytes;
 
     // ピクセルバッファをゼロクリア確保
-    u8* const pixels = static_cast<u8*>(::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY, pixel_bytes));
-    if (!pixels) return ACS_ERR(Memory, 42, "BMP pixel buffer alloc failed");
+    u8* const Pixels = static_cast<u8*>(::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY, PixelBytes));
+    if (!Pixels) return ACS_ERR(Memory, 42, "BMP pixel buffer alloc failed");
 
     // 全体を浅いグレー (#F7F7F7) で塗る
-    ::memset(pixels, 0xF7, pixel_bytes);
+    ::memset(Pixels, 0xF7, PixelBytes);
 
     // 各セグメントのバーを描画
-    for (u32 i = 0; i < n; ++i) {
-        const SegmentStats& s = stats[i];
-        const RgbColor& c = kSegmentColor[(usize)s.segment];
-        const u32 y_start = i * row_height;
-        const u32 y_end   = (i + 1) * row_height - 2;
-        u32 used_w  = s.reserve > 0
-                     ? static_cast<u32>((u64)width * s.used / s.reserve)
-                     : 0;
-        const u32 reserve_w = width;
-        if (used_w > reserve_w) used_w = reserve_w;
+    for (u32 i = 0; i < SegmentCount; ++i) {
+        const SegmentStats& Statistics = StatisticsArray[i];
+        const RgbColor& Color = kSegmentColor[(usize)Statistics.segment];
+        const u32 YStart = i * RowHeight;
+        const u32 YEnd = (i + 1) * RowHeight - 2;
+        const u64 BarCapacity = Statistics.hard_budget_bytes > 0
+                                    ? Statistics.hard_budget_bytes
+                                    : (Statistics.peak_requested_bytes > 0 ? Statistics.peak_requested_bytes : 1);
+        u32 UsedWidth = static_cast<u32>(static_cast<u64>(Width) * Statistics.requested_bytes / BarCapacity);
+        const u32 ReserveWidth = Width;
+        if (UsedWidth > ReserveWidth) UsedWidth = ReserveWidth;
 
-        for (u32 y = y_start; y < y_end; ++y) {
-            u8* const row = pixels + y * stride;
+        for (u32 y = YStart; y < YEnd; ++y) {
+            u8* const Row = Pixels + y * Stride;
             // 背景色 → 使用量カラーの順に塗る
-            for (u32 x = 0; x < reserve_w; ++x) PutPixel(row, x, RgbColor{0xDD, 0xDD, 0xDD});
-            for (u32 x = 0; x < used_w; ++x)    PutPixel(row, x, c);
+            for (u32 x = 0; x < ReserveWidth; ++x)
+                PutPixel(Row, x, RgbColor{0xDD, 0xDD, 0xDD});
+            for (u32 x = 0; x < UsedWidth; ++x)
+                PutPixel(Row, x, Color);
         }
     }
 
     // ファイル出力
-    const HANDLE h = ::CreateFileW(path, GENERIC_WRITE, 0, nullptr,
-                             CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
-        ::HeapFree(::GetProcessHeap(), 0, pixels);
+    const HANDLE FileHandle = ::CreateFileW(Path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                                            nullptr);
+    if (FileHandle == INVALID_HANDLE_VALUE) {
+        ::HeapFree(::GetProcessHeap(), 0, Pixels);
         return ACS_ERR_OS(IO, 2, "CreateFileW failed (bmp)", ::GetLastError());
     }
-    WriteAll(h, &fh, sizeof(fh));
-    WriteAll(h, &ih, sizeof(ih));
-    WriteAll(h, pixels, pixel_bytes);
-    ::CloseHandle(h);
-    ::HeapFree(::GetProcessHeap(), 0, pixels);
+    WriteAll(FileHandle, &FileHeader, sizeof(FileHeader));
+    WriteAll(FileHandle, &InfoHeader, sizeof(InfoHeader));
+    WriteAll(FileHandle, Pixels, PixelBytes);
+    ::CloseHandle(FileHandle);
+    ::HeapFree(::GetProcessHeap(), 0, Pixels);
     return Ok();
 }
 
 // stdout への簡易テキスト表（CI ログ・コンソール確認用）
-void FMemorySnapshot::DumpToStdOut() noexcept {
-    SegmentStats stats[(usize)ESegment::_Count];
-    const u32 n = FMemorySystem::GetStats(stats, (u32)ESegment::_Count);
+void FMemorySnapshot::DumpToStdOut() noexcept
+{
+    SegmentStats StatisticsArray[(usize)ESegment::_Count];
+    const u32 SegmentCount = FMemorySystem::GetStats(StatisticsArray, (u32)ESegment::_Count);
     ::printf("[ACS Memory Snapshot]\n");
-    ::printf("  %-12s | %-12s | %-12s | %-12s | %-12s\n",
-             "ESegment", "Reserve", "Committed", "Used", "Peak");
-    ::printf("  %s\n", "-----------------------------------------------------------------------------");
-    for (u32 i = 0; i < n; ++i) {
-        const SegmentStats& s = stats[i];
-        char r[16], c[16], u[16], p[16];
-        FormatBytes(r, sizeof(r), s.reserve);
-        FormatBytes(c, sizeof(c), s.committed);
-        FormatBytes(u, sizeof(u), s.used);
-        FormatBytes(p, sizeof(p), s.peak);
-        ::printf("  %-12s | %-12s | %-12s | %-12s | %-12s\n",
-                 s.name, r, c, u, p);
+    ::printf("  %-12s | %-10s | %-12s | %-12s | %-12s | %-12s\n", "ESegment", "Allocator", "Budget", "Requested",
+             "Peak", "Allocations");
+    ::printf("  %s\n", "----------------------------------------------------------------------------------------");
+    for (u32 i = 0; i < SegmentCount; ++i) {
+        const SegmentStats& Statistics = StatisticsArray[i];
+        char BudgetText[16];
+        char RequestedText[16];
+        char PeakText[16];
+        if (Statistics.hard_budget_bytes > 0) {
+            FormatBytes(BudgetText, sizeof(BudgetText), Statistics.hard_budget_bytes);
+        } else {
+            ::snprintf(BudgetText, sizeof(BudgetText), "unlimited");
+        }
+        FormatBytes(RequestedText, sizeof(RequestedText), Statistics.requested_bytes);
+        FormatBytes(PeakText, sizeof(PeakText), Statistics.peak_requested_bytes);
+        ::printf("  %-12s | %-10s | %-12s | %-12s | %-12s | %-12llu\n", Statistics.segment_name,
+                 Statistics.allocator_name, BudgetText, RequestedText, PeakText,
+                 static_cast<unsigned long long>(Statistics.outstanding_allocation_count));
     }
 }
 

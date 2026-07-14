@@ -3,15 +3,20 @@
 # Edit src/memory/Memory.Build.cs, then run:
 #   dotnet run --project tools/acsbuild -- gen
 # ============================================================================
+include(ACSThirdParty)
+acs_third_party_mimalloc()
+
 acs_module(
     NAME    Memory
     TYPE    Runtime
     SOURCES
         ArenaAllocator.cpp
+        CrtDebugHeapDiagnostics.cpp
         LinearAllocator.cpp
         Memory.cpp
         MemorySnapshot.cpp
         MemorySystem.cpp
+        MimallocAllocator.cpp
         PoolAllocator.cpp
         RelocatableAllocator.cpp
         ShardedTlsf.cpp
@@ -21,10 +26,12 @@ acs_module(
     HEADERS
         Allocator.h
         ArenaAllocator.h
+        CrtDebugHeapDiagnostics.h
         LinearAllocator.h
         Memory.h
         MemorySnapshot.h
         MemorySystem.h
+        MimallocAllocator.h
         New.h
         ObjectPool.h
         ObjectPtr.h
@@ -41,6 +48,8 @@ acs_module(
     PUBLIC_DEPS
         Foundation
         Threading
+    LINK_PRIVATE
+        acs_third_party::mimalloc
 )
 
 acs_module_feature(MODULE Memory NAME LINEAR_ALLOCATOR
@@ -66,6 +75,11 @@ acs_module_feature(MODULE Memory NAME VIRTUAL_MEMORY
 acs_module_feature(MODULE Memory NAME TLSF
     DEFINE MEMORY_TLSF
     DESCRIPTION "TLSF allocator"
+    DEFAULT ON)
+
+acs_module_feature(MODULE Memory NAME MIMALLOC
+    DEFINE MEMORY_MIMALLOC
+    DESCRIPTION "mimalloc v3 virtual-memory allocator"
     DEFAULT ON)
 
 acs_module_feature(MODULE Memory NAME SEGMENT_SYSTEM

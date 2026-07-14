@@ -45,8 +45,15 @@ namespace acs {
  */
 class Storage {
 public:
-    /** 空のストアを構築する。 */
-    Storage() noexcept = default;
+    /** DefaultAllocator を確保元として空のストアを構築する。 */
+    Storage() noexcept : Storage(DefaultAllocator())
+    {
+    }
+
+    /** 指定した allocator を全エントリの確保元として空のストアを構築する。 */
+    explicit Storage(FAllocator& allocator) noexcept : m_Entries(allocator), m_Allocator(&allocator)
+    {
+    }
 
     /** ストアを破棄する (エントリは TArray が解放)。 */
     ~Storage() noexcept = default;
@@ -62,7 +69,9 @@ public:
      *
      * @param o ムーブ元 (奪われて空になる)。
      */
-    Storage(Storage&& o) noexcept : m_Entries(Move(o.m_Entries)) {}
+    Storage(Storage&& o) noexcept : m_Entries(Move(o.m_Entries)), m_Allocator(o.m_Allocator)
+    {
+    }
 
     /**
      * ムーブ代入する (エントリ配列の所有権を奪う)。
@@ -71,7 +80,10 @@ public:
      * @return 自身への参照。
      */
     Storage& operator=(Storage&& o) noexcept {
-        if (this != &o) m_Entries = Move(o.m_Entries);
+        if (this != &o) {
+            m_Entries = Move(o.m_Entries);
+            m_Allocator = o.m_Allocator;
+        }
         return *this;
     }
 
@@ -122,8 +134,11 @@ public:
      */
     TResult<void> Save(const char*    path_utf8) noexcept;
 
-    /** 全エントリを削除する (ファイルは触らない)。 */
-    void Clear() noexcept { m_Entries.Clear(); }
+    /** 全エントリと予約容量を解放する (ファイルは触らない)。 */
+    void Clear() noexcept
+    {
+        m_Entries = TArray<Entry>(*m_Allocator);
+    }
 
     /**
      * 文字列値を設定する (既存キーは上書き)。
@@ -275,6 +290,9 @@ private:
 
     /** 保持している全エントリ。 */
     TArray<Entry> m_Entries;
+
+    /** エントリ配列と key/value 文字列を確保した allocator。 */
+    FAllocator* m_Allocator = nullptr;
 };
 
 } // namespace acs

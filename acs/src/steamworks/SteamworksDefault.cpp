@@ -20,12 +20,10 @@ namespace acs::steamworks {
 acs::game::ISteamworksBridge& GetDefaultSteamworksBridge() noexcept {
     // Meyers singleton。プロセス内 1 個の実 Bridge を既定として共有する。
     static FSteamworksBridgeImpl s_bridge;
-    // 初回のみ Init。ACS のこの層は単一スレッド初期化を前提とするため、素朴な
-    // フラグで十分 (function-local static の構築自体は thread-safe)。
-    static bool s_inited = false;
-    if (!s_inited) {
+    // 実際の初期化状態を判定に使い、明示 Shutdown 後や Steam client 未起動による
+    // 失敗後も、次の取得で Init を再試行できるようにする。
+    if (!s_bridge.IsInitialized()) {
         (void)s_bridge.Init();   // 失敗しても Bridge 参照は返す (IsInitialized 等で判断)
-        s_inited = true;
     }
     return s_bridge;
 }

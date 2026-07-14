@@ -53,6 +53,22 @@ public:
     void Resolve() noexcept;
 
     /**
+     * DbgHelp の共有シンボルリゾルバを終了する。
+     *
+     * @details
+     * Resolve が遅延初期化した `SymInitialize` と対になる終了 API。未初期化時と
+     * 多重呼び出しは no-op で、終了後に Resolve を呼ぶと再初期化される。
+     */
+    static void ShutdownSymbolResolver() noexcept;
+
+    /**
+     * DbgHelp の共有シンボルリゾルバが初期化済みかを返す。
+     *
+     * @return SymInitialize が成功済みで ShutdownSymbolResolver 前なら true。
+     */
+    static bool IsSymbolResolverInitialized() noexcept;
+
+    /**
      * 取得したフレーム数を返す。
      *
      * @return Capture で取得できたフレーム数。

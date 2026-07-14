@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // XAudio2 ベースの音声エンジン実装
 #include "audio/AudioEngine.h"
+#include "foundation/Assert.h"
 #include "foundation/Platform.h"
 #include "foundation/Log.h"
 #include "threading/ScopedLock.h"
@@ -46,6 +47,9 @@ struct FAudioEngine::Impl {
     /** このインスタンスが CoInitializeEx を成功させたか (後始末判定用)。 */
     bool                    com_initialized  = false;
 
+    /** COM 参照数を増やしたスレッド。CoUninitialize は同じスレッドでのみ呼べる。 */
+    DWORD com_thread_identifier = 0;
+
     /** スロット表と active_count を保護する mutex。 */
     FMutex                   lock;
 
@@ -66,7 +70,16 @@ TResult<void> FAudioEngine::Init() noexcept {
 
     // COM 初期化（マルチスレッド形式、XAudio2 が要求）
     HRESULT hr = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (SUCCEEDED(hr)) m_Impl->com_initialized = true;
+    if (SUCCEEDED(hr)) {
+        // S_FALSE でも COM の参照数は増えるため、同じスレッドで解放が必要。
+        m_Impl->com_initialized = true;
+        m_Impl->com_thread_identifier = ::GetCurrentThreadId();
+    } else if (hr == RPC_E_CHANGED_MODE) {
+        ACS_LOG_WARN("FAudioEngine::Init: COM already uses a different threading mode");
+    } else {
+        Shutdown();
+        return ACS_ERR_OS(Generic, 4, "CoInitializeEx failed", static_cast<u32>(hr));
+    }
 
     // XAudio2 エンジン作成
     hr = ::XAudio2Create(&m_Impl->xaudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
@@ -98,8 +111,18 @@ void FAudioEngine::Shutdown() noexcept {
         m_Impl->xaudio2 = nullptr;
     }
     if (m_Impl->com_initialized) {
-        ::CoUninitialize();
+        const DWORD current_thread_identifier = ::GetCurrentThreadId();
+        if (current_thread_identifier == m_Impl->com_thread_identifier) {
+            ::CoUninitialize();
+        } else {
+            ACS_LOG_ERROR("FAudioEngine::Shutdown must run on the Init thread "
+                          "(init=%lu, current=%lu)",
+                          static_cast<unsigned long>(m_Impl->com_thread_identifier),
+                          static_cast<unsigned long>(current_thread_identifier));
+            ACS_ASSERT(false && "FAudioEngine COM shutdown thread mismatch");
+        }
         m_Impl->com_initialized = false;
+        m_Impl->com_thread_identifier = 0;
     }
     delete m_Impl;
     m_Impl = nullptr;
@@ -165,8 +188,11 @@ SoundHandle FAudioEngine::Play(const FAudioAsset& asset, f32 volume, bool loop) 
     wf.nAvgBytesPerSec = wf.nSamplesPerSec * wf.nBlockAlign;
     wf.cbSize          = 0;
 
-    const HRESULT hr = m_Impl->xaudio2->CreateSourceVoice(&slot.voice, &wf);
-    if (FAILED(hr)) return kInvalidSound;
+    HRESULT hr = m_Impl->xaudio2->CreateSourceVoice(&slot.voice, &wf);
+    if (FAILED(hr) || slot.voice == nullptr) {
+        if (slot.voice != nullptr) DestroySlot(slot);
+        return kInvalidSound;
+    }
 
     // サンプルデータを再生中保持するためコピー
     slot.buffer_copy.Resize(asset.SampleByteCount());
@@ -182,9 +208,17 @@ SoundHandle FAudioEngine::Play(const FAudioAsset& asset, f32 volume, bool loop) 
     if (volume < 0) volume = 0;
     if (volume > 1) volume = 1;
 
-    slot.voice->SubmitSourceBuffer(&xb);
+    hr = slot.voice->SubmitSourceBuffer(&xb);
+    if (FAILED(hr)) {
+        DestroySlot(slot);
+        return kInvalidSound;
+    }
     slot.voice->SetVolume(volume);
-    slot.voice->Start(0);
+    hr = slot.voice->Start(0);
+    if (FAILED(hr)) {
+        DestroySlot(slot);
+        return kInvalidSound;
+    }
     slot.in_use = true;
     ++m_Impl->active_count;
 
@@ -201,7 +235,7 @@ void DestroySlot(VoiceSlot& slot) noexcept {
         slot.voice->DestroyVoice();
         slot.voice = nullptr;
     }
-    slot.buffer_copy.Clear();
+    slot.buffer_copy.ReleaseStorage();
     ++slot.generation;
     slot.in_use = false;
 }

@@ -17,15 +17,37 @@
 // lazy-init は不要。function-local static の構築自体が thread-safe。
 // =============================================================================
 #include "assetpack/AcpakGameBridge.h"
+#include "memory/SystemAllocator.h"
 
 namespace acs::assetpack {
+
+namespace {
+
+/** 既定 Reader/Writer と同じ長さだけ生存する専用 allocator を束ねる。 */
+struct DefaultAcpakState {
+    DefaultAcpakState() noexcept : reader(allocator), writer(allocator)
+    {
+    }
+
+    // backend を先に破棄してから allocator を破棄する宣言順にする。
+    acs::FSystemAllocator allocator;
+    FAcpakGameReader reader;
+    FAcpakGameWriter writer;
+};
+
+DefaultAcpakState& GetDefaultAcpakState() noexcept
+{
+    static DefaultAcpakState s_state;
+    return s_state;
+}
+
+} // namespace
 
 /** プロセス共有の既定 Acpak Reader を返す (Meyers singleton)。 */
 acs::game::IAssetPackReader& GetDefaultAcpakReader() noexcept {
     // Meyers singleton。プロセス内 1 個の Reader を既定として共有する。
     // 利用側が Mount()/Unmount() でマウント状態を管理する。
-    static FAcpakGameReader s_reader;
-    return s_reader;
+    return GetDefaultAcpakState().reader;
 }
 
 /** GetDefaultAcpakReader を gameframework の既定 Reader provider として登録する。 */
@@ -37,8 +59,7 @@ void InstallAcpakReaderAsDefault() noexcept {
 acs::game::IAssetPackWriter& GetDefaultAcpakWriter() noexcept {
     // Meyers singleton。プロセス内 1 個の Writer を既定として共有する。
     // 利用側が BeginPack()/FinishPack() で書き込みライフサイクルを管理する。
-    static FAcpakGameWriter s_writer;
-    return s_writer;
+    return GetDefaultAcpakState().writer;
 }
 
 /** GetDefaultAcpakWriter を gameframework の既定 Writer provider として登録する。 */

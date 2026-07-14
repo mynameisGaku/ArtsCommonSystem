@@ -1,7 +1,7 @@
 # ============================================================================
 # ACS coding-style formatter config (Phase 0 / Option A+).
-# Calibrated against existing src/ tree so `clang-format --dry-run` is zero-diff.
-# Reference: docs/StyleGuide.md (to be written in Phase 2).
+# 変更対象へ段階適用し、未整形の既存ファイルは個別に移行する。
+# Reference: acs/docs/StyleGuide.md
 # ============================================================================
 ---
 Language: Cpp
@@ -26,10 +26,23 @@ ColumnLimit: 120
 ReflowComments: false                 # do not reflow Japanese banner comments
 PenaltyExcessCharacter: 1000000
 
-# ---- Braces (K&R / Egyptian — same line) -----------------------------------
-BreakBeforeBraces: Attach
+# ---- Braces (function definitions use Allman; other constructs stay attached) ----
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterControlStatement: Never
+  AfterClass: false
+  AfterStruct: false
+  AfterUnion: false
+  AfterEnum: false
+  AfterNamespace: false
+  AfterExternBlock: false
+  BeforeElse: false
+  BeforeCatch: false
+  BeforeLambdaBody: false
+  SplitEmptyFunction: true
 Cpp11BracedListStyle: true
-AllowShortFunctionsOnASingleLine: Inline
+AllowShortFunctionsOnASingleLine: None
 AllowShortIfStatementsOnASingleLine: WithoutElse  # `if (!p) return;` is canonical
 AllowShortLoopsOnASingleLine: false
 AllowShortLambdasOnASingleLine: All

@@ -153,6 +153,16 @@ int CompareW(const wchar_t* a, const wchar_t* b) noexcept {
 
 } // namespace
 
+/** DefaultAllocator で空の Reader を構築する。 */
+FAcpakReader::FAcpakReader() noexcept : FAcpakReader(DefaultAllocator())
+{
+}
+
+/** 指定 allocator で file table と文字列 pool を構築する。 */
+FAcpakReader::FAcpakReader(FAllocator& allocator) noexcept : m_Entries(allocator), m_StringPool(allocator)
+{
+}
+
 /** 破棄時に Close を呼んで後始末する。 */
 FAcpakReader::~FAcpakReader() noexcept {
     Close();
@@ -167,8 +177,8 @@ void FAcpakReader::Close() noexcept {
     m_FileSize    = 0;
     m_Flags        = 0;
     m_TableOffset = 0;
-    m_Entries.Clear();
-    m_StringPool.Clear();
+    m_Entries.ReleaseStorage();
+    m_StringPool.ReleaseStorage();
 
     // 鍵情報の defensive zero (再 Open のときに古い鍵が漏れないよう)。
     MemSet(m_Key.bytes, 0, sizeof(m_Key.bytes));

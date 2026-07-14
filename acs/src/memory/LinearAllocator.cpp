@@ -10,14 +10,16 @@
 
 namespace acs {
 
-FLinearAllocator::FLinearAllocator(usize capacity, FAllocator* backing) noexcept
-    : m_Capacity(capacity)
-    , m_Backing(backing ? backing : &DefaultAllocator())
-    , m_bOwnsBacking(false) {
-    m_Base = static_cast<u8*>(m_Backing->Alloc(capacity, kDefaultAlignment, FSourceLoc::Current()));
+FLinearAllocator::FLinearAllocator(usize BufferCapacity, FAllocator* BackingAllocator) noexcept
+    : m_Capacity(BufferCapacity),
+      m_Backing(BackingAllocator ? BackingAllocator : &DefaultAllocator()),
+      m_bOwnsBacking(false)
+{
+    m_Base = static_cast<u8*>(m_Backing->Alloc(BufferCapacity, kDefaultAlignment, FSourceLoc::Current()));
 }
 
-FLinearAllocator::~FLinearAllocator() noexcept {
+FLinearAllocator::~FLinearAllocator() noexcept
+{
     if (m_Base) m_Backing->Free(m_Base);
 }
 
@@ -26,35 +28,40 @@ FLinearAllocator::~FLinearAllocator() noexcept {
 //   2. アライン後の位置を計算
 //   3. 必要バイトを足した next を求める
 //   4. 容量超過なら nullptr
-//   5. CompareExchange で m_Used を cur → next に交換
+//   5. CompareExchange で m_Used を CurrentUsed → NextUsed に交換
 //   6. 競合した場合は 1 へ戻ってリトライ
-void* FLinearAllocator::Alloc(usize size, usize alignment, FSourceLoc /*loc*/) noexcept {
-    if (size == 0 || !m_Base) return nullptr;
-    if (alignment < 1) alignment = 1;
+void* FLinearAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept
+{
+    if (Size == 0 || !m_Base) return nullptr;
+    if (Alignment < 1) Alignment = 1;
     while (true) {
-        const u64 cur = m_Used.Load(EMemoryOrder::Relaxed);
-        const u64 base_addr = reinterpret_cast<u64>(m_Base);
-        const u64 aligned   = AlignUp(base_addr + cur, alignment) - base_addr;
-        const u64 next      = aligned + size;
-        if (next > m_Capacity) return nullptr;  // 予算超過
-        u64 expected = cur;
-        if (m_Used.CompareExchange(expected, next)) {
+        const u64 CurrentUsed = m_Used.Load(EMemoryOrder::Relaxed);
+        const u64 BaseAddress = reinterpret_cast<u64>(m_Base);
+        const u64 AlignedOffset = AlignUp(BaseAddress + CurrentUsed, Alignment) - BaseAddress;
+        const u64 NextUsed = AlignedOffset + Size;
+        if (NextUsed > m_Capacity) return nullptr; // 予算超過
+        u64 ExpectedUsed = CurrentUsed;
+        if (m_Used.CompareExchange(ExpectedUsed, NextUsed)) {
             // ピーク更新
-            u64 peak = m_Peak.Load(EMemoryOrder::Relaxed);
-            while (next > peak && !m_Peak.CompareExchange(peak, next)) {}
-            return m_Base + aligned;
+            m_AllocationCount.FetchAdd(1u);
+            u64 RecordedPeakBytes = m_Peak.Load(EMemoryOrder::Relaxed);
+            while (NextUsed > RecordedPeakBytes && !m_Peak.CompareExchange(RecordedPeakBytes, NextUsed)) {}
+            return m_Base + AlignedOffset;
         }
         // 他スレッドが先に進めた — 再試行
     }
 }
 
-void FLinearAllocator::Free(void* /*ptr*/) noexcept {
+void FLinearAllocator::Free(void* /*Pointer*/) noexcept
+{
     // リニアアロケータは個別解放をサポートしない（仕様）。
     // 全体の解放は Reset() で行う。
 }
 
-void FLinearAllocator::Reset() noexcept {
+void FLinearAllocator::Reset() noexcept
+{
     m_Used.Store(0, EMemoryOrder::Release);
+    m_AllocationCount.Store(0, EMemoryOrder::Release);
 }
 
 } // namespace acs

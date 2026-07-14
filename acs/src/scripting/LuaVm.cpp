@@ -30,6 +30,11 @@ namespace script_err = acs::game::script_err;
  * 渡せるよう所有 FLuaVm へのポインタも保持する。
  */
 struct FLuaVm::Impl {
+    /** native function 登録簿の allocator を固定して構築する。 */
+    explicit Impl(acs::FAllocator& allocator) noexcept : m_Natives(allocator)
+    {
+    }
+
     /** Lua VM 本体 (Init で生成、Shutdown で lua_close)。 */
     lua_State* m_L = nullptr;
 
@@ -179,8 +184,14 @@ int FLuaVm::Impl::NativeTrampoline(lua_State* L) noexcept {
 }
 
 /** Pimpl を確保し、所有者ポインタを自身に設定する。 */
-FLuaVm::FLuaVm() noexcept {
-    m_Impl = new Impl();
+FLuaVm::FLuaVm() noexcept : FLuaVm(DefaultAllocator())
+{
+}
+
+/** 指定 allocator で Pimpl 内の native function 登録簿を構築する。 */
+FLuaVm::FLuaVm(acs::FAllocator& allocator) noexcept
+{
+    m_Impl = new Impl(allocator);
     m_Impl->m_Owner = this;
 }
 
@@ -206,14 +217,16 @@ acs::TResult<void> FLuaVm::Init() noexcept {
 
 /** lua_State を lua_close で破棄し、native registry と戻り文字列 anchor をリセットする。 */
 void FLuaVm::Shutdown() noexcept {
-    if (m_Impl && m_Impl->m_L) {
+    if (m_Impl == nullptr) return;
+    if (m_Impl->m_L) {
         lua_close(m_Impl->m_L);              // registry ごと破棄されるので ref は無効化
         m_Impl->m_L = nullptr;
-        m_Impl->m_Natives.Clear();
-        // 旧 state の registry ref を持ち越すと再 Init 後に別 state へ
-        // luaL_unref してしまうため、未保持状態にリセットする。
-        m_Impl->m_LastStringRef = LUA_NOREF;
     }
+    // process singleton でも shutdown 時点で容量を返し、再 Init は同じ allocator を使う。
+    m_Impl->m_Natives.ReleaseStorage();
+    // 旧 state の registry ref を持ち越すと再 Init 後に別 state へ
+    // luaL_unref してしまうため、未保持状態にリセットする。
+    m_Impl->m_LastStringRef = LUA_NOREF;
 }
 
 /** ソースを luaL_loadbuffer で parse し lua_pcall で即時実行する。 */

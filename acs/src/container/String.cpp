@@ -145,6 +145,17 @@ void FString::Clear() noexcept {
     }
 }
 
+/** 空文字列にし、ヒープ容量も解放する。 */
+void FString::ReleaseStorage() noexcept
+{
+    if (IsHeap()) {
+        m_Alloc->Free(m_Heap.data);
+        m_Sso.remaining = 0;
+    }
+    m_Sso.data[0] = 0;
+    SetInlineLen(0);
+}
+
 /**
  * 容量を拡大する (必要なら SSO からヒープへ遷移し、NUL 含め内容をコピーする)。
  *

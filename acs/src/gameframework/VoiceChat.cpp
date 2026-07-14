@@ -19,12 +19,25 @@
 //     保証されるため追加同期は不要。
 
 #include "gameframework/VoiceChat.h"
+#include "memory/SystemAllocator.h"
 
 #include "foundation/Error.h"
 #include "foundation/Move.h"
 #include "memory/Memory.h"   // MemCopy / MemSet
 
 namespace acs::game {
+
+/** DefaultAllocator を使うループバック backend を構築する。 */
+FVoiceChatLoopbackBackend::FVoiceChatLoopbackBackend() noexcept : FVoiceChatLoopbackBackend(DefaultAllocator())
+{
+}
+
+/** 指定 allocator を全チャンネルの可変長状態へ固定して構築する。 */
+FVoiceChatLoopbackBackend::FVoiceChatLoopbackBackend(FAllocator& allocator) noexcept
+    : m_Allocator(&allocator),
+      m_Channels{FChannel(allocator), FChannel(allocator), FChannel(allocator), FChannel(allocator)}
+{
+}
 
 /** provider を記録し m_Initialized を立てる (実 SDK 接続はしない)。 */
 TResult<void> FVoiceChatBackendStub::Init(EVoiceProvider p) noexcept {
@@ -230,8 +243,8 @@ TResult<void> FVoiceChatLoopbackBackend::Init(EVoiceProvider p) noexcept {
     for (u32 i = 0; i < 4; ++i) {
         m_Channels[i].joined      = false;
         m_Channels[i].pump_target = 0;
-        m_Channels[i].channel_id.Clear();
-        m_Channels[i].participants.Clear();
+        m_Channels[i].channel_id.ReleaseStorage();
+        m_Channels[i].participants.ReleaseStorage();
     }
     return Ok();
 }
@@ -246,8 +259,8 @@ void FVoiceChatLoopbackBackend::Shutdown() noexcept {
     for (u32 i = 0; i < 4; ++i) {
         m_Channels[i].joined      = false;
         m_Channels[i].pump_target = 0;
-        m_Channels[i].channel_id.Clear();
-        m_Channels[i].participants.Clear();
+        m_Channels[i].channel_id.ReleaseStorage();
+        m_Channels[i].participants.ReleaseStorage();
     }
 }
 
@@ -259,7 +272,10 @@ TResult<void> FVoiceChatLoopbackBackend::JoinChannel(EVoiceChannel ch, const cha
     }
     FChannel& c = Chan(ch);
     c.joined = true;
-    c.channel_id = FString(channel_id ? channel_id : "");
+    // move 代入で一時 FString の DefaultAllocator を取り込まないよう、既存 allocator
+    // のまま内容だけを更新する。
+    c.channel_id.Clear();
+    c.channel_id.Append(channel_id ? channel_id : "");
     return Ok();
 }
 
@@ -408,12 +424,13 @@ TResult<void> FVoiceChatLoopbackBackend::AddParticipant(EVoiceChannel ch, const 
     // 冪等: 既存 user は表示名のみ更新して成功扱い。
     const u32 idx = FindParticipant(c, user_id);
     if (idx < c.participants.Size()) {
-        c.participants[idx].display_name = FString(display_name ? display_name : "");
+        c.participants[idx].display_name.Clear();
+        c.participants[idx].display_name.Append(display_name ? display_name : "");
         return Ok();
     }
-    FLoopParticipant p;
-    p.user_id      = FString(user_id);
-    p.display_name = FString(display_name ? display_name : "");
+    FLoopParticipant p(*m_Allocator);
+    p.user_id.Append(user_id);
+    p.display_name.Append(display_name ? display_name : "");
     p.volume       = 1.0f;
     p.muted_local  = false;
     p.next_seq     = 0;
@@ -651,8 +668,17 @@ u32 FVoiceChatLoopbackBackend::PumpMixedOutput(EVoiceChannel ch, i16* out, u32 o
 
 /** ループバック backend の Meyer's singleton を返す。 */
 FVoiceChatLoopbackBackend& GetVoiceLoopback() noexcept {
-    static FVoiceChatLoopbackBackend m_Instance;
-    return m_Instance;
+    struct VoiceLoopbackState {
+        VoiceLoopbackState() noexcept : backend(allocator)
+        {
+        }
+
+        // backend を先に破棄してから allocator を破棄する宣言順にする。
+        FSystemAllocator allocator;
+        FVoiceChatLoopbackBackend backend;
+    };
+    static VoiceLoopbackState s_state;
+    return s_state.backend;
 }
 
 } // namespace acs::game

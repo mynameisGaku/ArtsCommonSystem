@@ -8,6 +8,7 @@
 #include "asset/MeshAsset.h"
 #include "platform/FileSystem.h"
 #include "threading/ScopedLock.h"
+#include "threading/Thread.h"
 #include "memory/UniquePtr.h"
 #include "foundation/Move.h"
 
@@ -69,11 +70,35 @@ FAssetId MakeIdFromPath(const wchar_t* path) noexcept {
     return MakeAssetId(FStringView(reinterpret_cast<const char*>(path), len * sizeof(wchar_t)));
 }
 
+/** ロック外ロード処理の全 return 経路で処理中カウントを戻す。 */
+class ActiveOperationGuard {
+public:
+    explicit ActiveOperationGuard(CompletionCounter* counter) noexcept : m_Counter(counter)
+    {
+    }
+    ~ActiveOperationGuard() noexcept
+    {
+        if (m_Counter) m_Counter->Done();
+    }
+
+    ActiveOperationGuard(const ActiveOperationGuard&) = delete;
+    ActiveOperationGuard& operator=(const ActiveOperationGuard&) = delete;
+
+private:
+    CompletionCounter* m_Counter = nullptr;
+};
+
 } // namespace
+
+FAssetRegistry::~FAssetRegistry() noexcept
+{
+    Shutdown();
+}
 
 void FAssetRegistry::RegisterLoader(IAssetLoader* loader) noexcept {
     if (!loader) return;
     FScopedLock lk(m_Lock);
+    if (m_Closing) return;
     m_Loaders.PushBack(loader);
 }
 
@@ -93,21 +118,26 @@ TResult<TSharedPtr<Asset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
     if (!path) return ACS_ERR(Asset, 1, "FAssetRegistry::Load: null path");
 
     const FAssetId id = MakeIdFromPath(path);
-
-    // キャッシュにあればそのまま返す
-    {
-        FScopedLock lk(m_Lock);
-        const TSharedPtr<Asset>* hit = m_Cache.Find(id);
-        if (hit && hit->Get()) return TResult<TSharedPtr<Asset>>(OkInit, *hit);
-    }
-
-    // 拡張子から適切なローダを選ぶ
     IAssetLoader* loader = nullptr;
+    TSharedPtr<Asset> cached;
     {
         FScopedLock lk(m_Lock);
-        loader = FindLoader(path);
+        if (m_Closing) return ACS_ERR(Asset, 13, "FAssetRegistry is shutting down");
+
+        const TSharedPtr<Asset>* hit = m_Cache.Find(id);
+        if (hit && hit->Get()) {
+            cached = *hit;
+        } else {
+            loader = FindLoader(path);
+            // loader と this をロック外で参照する前に登録する。Shutdown はこの値が 0 に
+            // 戻るまでキャッシュ・ローダ配列・レジストリ本体を破棄しない。
+            if (loader) m_ActiveOperations.Add(1);
+        }
     }
+
+    if (cached.Get()) return TResult<TSharedPtr<Asset>>(OkInit, Move(cached));
     if (!loader) return ACS_ERR(Asset, 2, "no loader for this asset path");
+    ActiveOperationGuard operation(&m_ActiveOperations);
 
     // ファイルを読み込む
     auto bytes_r = FileSystem::ReadAllBytes(path);
@@ -134,11 +164,17 @@ TResult<TSharedPtr<Asset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
 namespace {
 /** 非同期ロードワーカーに渡すジョブ引数 (heap 確保し所有権をワーカーへ渡す)。 */
 struct AsyncLoadJob {
+    /** このジョブ本体を確保したアロケータ。ワーカースレッドでの解放にも同じものを使う。 */
+    FAllocator* allocator = nullptr;
+
     /** キャッシュ挿入先のレジストリ。 */
     FAssetRegistry*           registry  = nullptr;
 
     /** 結果書き込み先 (worker と future で共有)。 */
     TSharedPtr<AsyncLoadState>       state;
+
+    /** レジストリの Shutdown が待つ処理中カウンタ。 */
+    CompletionCounter* active_operations = nullptr;
 
     /** 実行するローダ。 */
     IAssetLoader*            loader    = nullptr;
@@ -160,7 +196,12 @@ struct AsyncLoadJob {
  * @param worker 呼び出し元ワーカーのインデックス (未使用)。
  */
 void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
-    TUniquePtr<AsyncLoadJob> job(static_cast<AsyncLoadJob*>(user));
+    AsyncLoadJob* const raw_job = static_cast<AsyncLoadJob*>(user);
+    // 処理中カウントはジョブ引数と、その中の共有状態を解放し終えてから戻す。
+    // 先に Done すると Shutdown 後の MemorySystem 停止とジョブ解放が競合する。
+    ActiveOperationGuard operation(raw_job ? raw_job->active_operations : nullptr);
+    TUniquePtr<AsyncLoadJob> job(raw_job, raw_job ? raw_job->allocator : nullptr);
+    if (!job) return;
 
     auto bytes_r = FileSystem::ReadAllBytes(job->path);
     if (bytes_r.IsErr()) {
@@ -199,6 +240,7 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
 
 void FAssetRegistry::AsyncCacheInsert(FAssetId id, TSharedPtr<Asset> a) noexcept {
     FScopedLock lk(m_Lock);
+    if (m_Closing) return;
     m_Cache.Insert(id, Move(a));
 }
 
@@ -216,22 +258,25 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
 
     const FAssetId id = MakeIdFromPath(path);
 
-    // キャッシュにあれば即完了状態で返す
+    // 受付判定・キャッシュ確認・ローダ確保・処理中登録を同じロック区間で行う。
+    IAssetLoader* loader = nullptr;
     {
         FScopedLock lk(m_Lock);
+        if (m_Closing) {
+            state->error = ACS_ERR(Asset, 13, "FAssetRegistry is shutting down");
+            state->has_error = true;
+            state->counter.Done();
+            return FAssetFuture(Move(state));
+        }
+
         const TSharedPtr<Asset>* hit = m_Cache.Find(id);
         if (hit && hit->Get()) {
             state->result = *hit;
             state->counter.Done();
             return FAssetFuture(Move(state));
         }
-    }
-
-    // ローダ選択
-    IAssetLoader* loader = nullptr;
-    {
-        FScopedLock lk(m_Lock);
         loader = FindLoader(path);
+        if (loader) m_ActiveOperations.Add(1);
     }
     if (!loader) {
         state->error = ACS_ERR(Asset, 12, "LoadAsync: no loader");
@@ -243,13 +288,16 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     // ジョブを heap 確保し FThreadPool に投入
     auto job = MakeUnique<AsyncLoadJob>();
     if (!job) {
+        m_ActiveOperations.Done();
         state->error = ACS_ERR(Memory, 200, "LoadAsync: alloc");
         state->has_error = true;
         state->counter.Done();
         return FAssetFuture(Move(state));
     }
+    job->allocator = job.GetAllocator();
     job->registry = this;
     job->state    = state;
+    job->active_operations = &m_ActiveOperations;
     job->loader   = loader;
     job->id       = id;
     // パスをコピー（最大 259 文字）
@@ -285,6 +333,40 @@ void FAssetRegistry::Unload(FAssetId id) noexcept {
 void FAssetRegistry::Clear() noexcept {
     FScopedLock lk(m_Lock);
     m_Cache.Clear();
+}
+
+void FAssetRegistry::Shutdown() noexcept
+{
+    {
+        FScopedLock lk(m_Lock);
+        if (m_ShutdownComplete) return;
+        m_Closing = true;
+    }
+
+    // ThreadPool が生きていれば待機側もキュー排出を手伝う。既に停止済みの場合でも、
+    // 同期 Load が別スレッドで戻るまで待てるよう短時間 sleep で確認を続ける。
+    while (!m_ActiveOperations.Finished()) {
+        if (FThreadPool::WorkerCount() != 0)
+            FThreadPool::Wait(m_ActiveOperations);
+        else
+            SleepMs(1);
+    }
+
+    FScopedLock lk(m_Lock);
+    if (m_ShutdownComplete) return;
+    // 確保元を維持したまま容量を返す。再起動後も同じアロケータを使用する。
+    m_Cache.ReleaseStorage();
+    m_Loaders.ReleaseStorage();
+    m_ShutdownComplete = true;
+}
+
+void FAssetRegistry::Restart() noexcept
+{
+    Shutdown();
+
+    FScopedLock lk(m_Lock);
+    m_Closing = false;
+    m_ShutdownComplete = false;
 }
 
 namespace {

@@ -65,6 +65,34 @@ public:
     void OnInitialize() noexcept override { seenOwner = Owner(); }
 };
 
+class TDynamicSubsystemOne : public FSubsystem {
+public:
+    ACS_GAME_SUBSYSTEM_KIND(TDynamicSubsystemOne)
+};
+
+class TDynamicSubsystemTwo : public FSubsystem {
+public:
+    ACS_GAME_SUBSYSTEM_KIND(TDynamicSubsystemTwo)
+};
+
+TUniquePtr<FSubsystem> CreateDynamicSubsystemOne() noexcept
+{
+    return MakeUnique<TDynamicSubsystemOne>();
+}
+
+TUniquePtr<FSubsystem> CreateDynamicSubsystemTwo() noexcept
+{
+    return MakeUnique<TDynamicSubsystemTwo>();
+}
+
+const FSubsystemFactory* FindFactoryByKind(const FSubsystemRegistry& registry, const void* kind) noexcept
+{
+    for (u32 index = 0; index < registry.Count(); ++index) {
+        if (registry.At(index).kind == kind) return &registry.At(index);
+    }
+    return nullptr;
+}
+
 } // namespace
 
 ACS_REGISTER_SUBSYSTEM(TScoreSub,  ESubsystemScope::World)
@@ -171,4 +199,30 @@ ACS_TEST(Subsystem, OwnerContextIsSet) {
     FSubsystemCollection w2;
     w2.Initialize(ESubsystemScope::World);
     EXPECT_TRUE(w2.Get<TOwnerSub>()->Owner() == nullptr);
+}
+
+ACS_TEST(Subsystem, DuplicateFactorySourcesPromoteOnUnregister)
+{
+    static const int source_kind = 0;
+    const FSubsystemFactory first{&source_kind, ESubsystemScope::World, "DynamicSubsystem", &CreateDynamicSubsystemOne};
+    const FSubsystemFactory second{&source_kind, ESubsystemScope::World, "DynamicSubsystem",
+                                   &CreateDynamicSubsystemTwo};
+
+    FSubsystemRegistry& registry = FSubsystemRegistry::Get();
+    const u32 count_before = registry.Count();
+    registry.Register(first);
+    registry.Register(second);
+    EXPECT_EQ(registry.Count(), count_before + 1u);
+    EXPECT_TRUE(FindFactoryByKind(registry, &source_kind)->create == &CreateDynamicSubsystemOne);
+
+    // 先に有効だった module/source を外すと、残る factory へ昇格する。
+    EXPECT_TRUE(registry.Unregister(first));
+    const FSubsystemFactory* promoted = FindFactoryByKind(registry, &source_kind);
+    EXPECT_TRUE(promoted != nullptr);
+    EXPECT_TRUE(promoted->create == &CreateDynamicSubsystemTwo);
+
+    EXPECT_TRUE(registry.Unregister(second));
+    EXPECT_EQ(registry.Count(), count_before);
+    EXPECT_TRUE(FindFactoryByKind(registry, &source_kind) == nullptr);
+    EXPECT_TRUE(!registry.Unregister(second));
 }

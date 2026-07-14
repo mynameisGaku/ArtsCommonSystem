@@ -23,7 +23,7 @@
 #pragma once
 
 #include "foundation/Types.h"
-#include "foundation/Move.h"      // Forward / 配置 new
+#include "foundation/Move.h" // Forward / 配置 new
 #include "container/Array.h"
 #include "memory/New.h"
 #include "memory/Allocator.h"
@@ -40,13 +40,22 @@ namespace acs {
 struct FObjectHandle {
     static constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 
-    u32 index = kInvalidIndex;   /**< スロット番号 (未設定は kInvalidIndex)。 */
-    u32 gen   = 0;               /**< スロットの世代 (確保/解放で進む)。 */
+    u32 index = kInvalidIndex; /**< スロット番号 (未設定は kInvalidIndex)。 */
+    u32 gen = 0;               /**< スロットの世代 (確保/解放で進む)。 */
 
     /** 何らかのスロットを指していれば true (生存判定ではない)。 */
-    bool IsSet() const noexcept { return index != kInvalidIndex; }
-    bool operator==(const FObjectHandle& o) const noexcept { return index == o.index && gen == o.gen; }
-    bool operator!=(const FObjectHandle& o) const noexcept { return !(*this == o); }
+    bool IsSet() const noexcept
+    {
+        return index != kInvalidIndex;
+    }
+    bool operator==(const FObjectHandle& Other) const noexcept
+    {
+        return index == Other.index && gen == Other.gen;
+    }
+    bool operator!=(const FObjectHandle& Other) const noexcept
+    {
+        return !(*this == Other);
+    }
 };
 
 /**
@@ -63,10 +72,16 @@ public:
     static constexpr u32 kChunkSize = 256u;
 
     /** 確保元アロケータを指定して空のプールを作る。 */
-    explicit TObjectPool(FAllocator& alloc = DefaultAllocator()) noexcept : m_Alloc(&alloc) {}
+    explicit TObjectPool(FAllocator& Allocator = DefaultAllocator()) noexcept
+        : m_Alloc(&Allocator), m_Chunks(Allocator), m_Free(Allocator), m_Live(Allocator)
+    {
+    }
 
-    /** 生存オブジェクトを破棄し、チャンクを解放する。 */
-    ~TObjectPool() noexcept { Clear(); FreeChunks(); }
+    /** 生存オブジェクトを破棄し、全ての保持領域を解放する。 */
+    ~TObjectPool() noexcept
+    {
+        ReleaseStorage();
+    }
 
     TObjectPool(const TObjectPool&) = delete;
     TObjectPool& operator=(const TObjectPool&) = delete;
@@ -75,26 +90,27 @@ public:
      * オブジェクトを 1 つ構築してハンドルを返す。
      *
      * @details フリーリストに空きがあれば再利用、無ければ新スロットを足す (チャンクは必要時のみ確保)。
-     * @param args T のコンストラクタへ転送する引数。
+     * @param Arguments T のコンストラクタへ転送する引数。
      * @return 構築したオブジェクトの世代付きハンドル。
      */
     template<class... Args>
-    Handle Create(Args&&... args) noexcept {
-        u32 slot;
+    Handle Create(Args&&... Arguments) noexcept
+    {
+        u32 SlotIndex;
         if (m_Free.Size() > 0) {
-            slot = m_Free[m_Free.Size() - 1];
+            SlotIndex = m_Free[m_Free.Size() - 1];
             m_Free.PopBack();
         } else {
-            slot = static_cast<u32>(m_SlotCount);
-            EnsureChunkFor(slot);
+            SlotIndex = static_cast<u32>(m_SlotCount);
+            if (!EnsureChunkFor(SlotIndex)) return {};
             ++m_SlotCount;
         }
-        Slot& s = SlotRef(slot);
-        s.alive   = true;
-        s.liveIdx = static_cast<u32>(m_Live.Size());
-        m_Live.PushBack(slot);
-        ::new (static_cast<void*>(s.storage)) T(Forward<Args>(args)...);
-        return Handle{ slot, s.gen };
+        Slot& PoolSlot = SlotRef(SlotIndex);
+        PoolSlot.alive = true;
+        PoolSlot.liveIdx = static_cast<u32>(m_Live.Size());
+        m_Live.PushBack(SlotIndex);
+        ::new (static_cast<void*>(PoolSlot.storage)) T(Forward<Args>(Arguments)...);
+        return Handle{SlotIndex, PoolSlot.gen};
     }
 
     /**
@@ -102,105 +118,174 @@ public:
      *
      * @details デストラクタを呼び、スロットの世代を進めて (古いハンドルを無効化し)、スロットを
      * フリーリストへ返す。密な生存リストからは swap-remove で O(1) に外す。
-     * @param h 破棄するオブジェクトのハンドル。
+     * @param ObjectHandle 破棄するオブジェクトのハンドル。
      * @return 破棄したら true、無効ハンドルなら false。
      */
-    bool Destroy(Handle h) noexcept {
-        Slot* s = Resolve(h);
-        if (s == nullptr) return false;
-        reinterpret_cast<T*>(s->storage)->~T();
-        s->alive = false;
-        ++s->gen;                                   // 世代を進める → 既存ハンドルは無効に
-        const u32 last = m_Live[m_Live.Size() - 1]; // 密な生存リストから swap-remove
-        m_Live[s->liveIdx]      = last;
-        SlotRef(last).liveIdx   = s->liveIdx;
+    bool Destroy(Handle ObjectHandle) noexcept
+    {
+        Slot* PoolSlot = Resolve(ObjectHandle);
+        if (PoolSlot == nullptr) return false;
+        reinterpret_cast<T*>(PoolSlot->storage)->~T();
+        PoolSlot->alive = false;
+        PoolSlot->gen = AdvanceGeneration(PoolSlot->gen);    // 世代を進める → 既存ハンドルは無効に
+        const u32 LastSlotIndex = m_Live[m_Live.Size() - 1]; // 密な生存リストから swap-remove
+        m_Live[PoolSlot->liveIdx] = LastSlotIndex;
+        SlotRef(LastSlotIndex).liveIdx = PoolSlot->liveIdx;
         m_Live.PopBack();
-        m_Free.PushBack(h.index);
+        m_Free.PushBack(ObjectHandle.index);
         return true;
     }
 
     /** ハンドルが今も生きていれば対象ポインタを、死んでいれば nullptr を返す。 */
-    T* Get(Handle h) noexcept {
-        Slot* s = Resolve(h);
-        return (s != nullptr) ? reinterpret_cast<T*>(s->storage) : nullptr;
+    T* Get(Handle ObjectHandle) noexcept
+    {
+        Slot* PoolSlot = Resolve(ObjectHandle);
+        return (PoolSlot != nullptr) ? reinterpret_cast<T*>(PoolSlot->storage) : nullptr;
     }
-    const T* Get(Handle h) const noexcept {
-        const Slot* s = Resolve(h);
-        return (s != nullptr) ? reinterpret_cast<const T*>(s->storage) : nullptr;
+    const T* Get(Handle ObjectHandle) const noexcept
+    {
+        const Slot* PoolSlot = Resolve(ObjectHandle);
+        return (PoolSlot != nullptr) ? reinterpret_cast<const T*>(PoolSlot->storage) : nullptr;
     }
 
     /** ハンドルが生存しているか。 */
-    bool IsAlive(Handle h) const noexcept { return Resolve(h) != nullptr; }
+    bool IsAlive(Handle ObjectHandle) const noexcept
+    {
+        return Resolve(ObjectHandle) != nullptr;
+    }
 
     /** 生存オブジェクト数。 */
-    u32 Count() const noexcept { return static_cast<u32>(m_Live.Size()); }
+    u32 Count() const noexcept
+    {
+        return static_cast<u32>(m_Live.Size());
+    }
 
     /**
-     * 生存オブジェクトを密に反復する (キャッシュ効率の良い順)。fn(T&, Handle)。
+     * 生存オブジェクトを密に反復する (キャッシュ効率の良い順)。Function(T&, Handle)。
      *
      * @details 反復中に Create/Destroy しないこと (生存リストを変更するため)。
      */
     template<class Fn>
-    void ForEach(Fn&& fn) noexcept {
+    void ForEach(Fn&& Function) noexcept
+    {
         for (usize i = 0; i < m_Live.Size(); ++i) {
-            const u32 slot = m_Live[i];
-            Slot& s = SlotRef(slot);
-            fn(*reinterpret_cast<T*>(s.storage), Handle{ slot, s.gen });
+            const u32 SlotIndex = m_Live[i];
+            Slot& PoolSlot = SlotRef(SlotIndex);
+            Function(*reinterpret_cast<T*>(PoolSlot.storage), Handle{SlotIndex, PoolSlot.gen});
         }
     }
 
     /** 全生存オブジェクトを破棄する (チャンクは保持。再利用可能)。 */
-    void Clear() noexcept {
+    void Clear() noexcept
+    {
         for (usize i = 0; i < m_Live.Size(); ++i) {
-            const u32 slot = m_Live[i];
-            Slot& s = SlotRef(slot);
-            reinterpret_cast<T*>(s.storage)->~T();
-            s.alive = false;
-            ++s.gen;
-            m_Free.PushBack(slot);
+            const u32 SlotIndex = m_Live[i];
+            Slot& PoolSlot = SlotRef(SlotIndex);
+            reinterpret_cast<T*>(PoolSlot.storage)->~T();
+            PoolSlot.alive = false;
+            PoolSlot.gen = AdvanceGeneration(PoolSlot.gen);
+            m_Free.PushBack(SlotIndex);
         }
         m_Live.Clear();
     }
 
+    /**
+     * 全オブジェクトとチャンク、管理配列の容量を確保元へ返す。
+     *
+     * @details Clear() と異なりチャンクを再利用しない完全解放。解放前のハンドルは
+     * 世代 seed を進めて無効のままにする。
+     */
+    void ReleaseStorage() noexcept
+    {
+        // 全スロットの現在世代より先を次チャンクの初期世代にする。単純な seed + 1 では、
+        // 同じスロットが複数回再利用済みのときに過去ハンドルと早期一致し得る。
+        u32 LatestGeneration = m_GenerationSeed;
+        for (usize SlotIndex = 0; SlotIndex < m_SlotCount; ++SlotIndex) {
+            const u32 Generation = SlotRef(static_cast<u32>(SlotIndex)).gen;
+            if (Generation > LatestGeneration) LatestGeneration = Generation;
+        }
+        m_GenerationSeed = AdvanceGeneration(LatestGeneration);
+
+        // 完全解放中はフリーリストへ戻さない。Clear() 経由だと破棄処理中に
+        // m_Free が拡張され、不要な再確保や確保失敗を招く可能性がある。
+        for (usize i = 0; i < m_Live.Size(); ++i) {
+            Slot& PoolSlot = SlotRef(m_Live[i]);
+            reinterpret_cast<T*>(PoolSlot.storage)->~T();
+            PoolSlot.alive = false;
+        }
+        m_Live.Clear();
+        FreeChunks();
+        m_Chunks.ReleaseStorage();
+        m_Free.ReleaseStorage();
+        m_Live.ReleaseStorage();
+        m_SlotCount = 0;
+    }
+
 private:
     struct Slot {
-        u32  gen     = 0;
-        u32  liveIdx = 0;
-        bool alive   = false;
+        u32 gen = 0;
+        u32 liveIdx = 0;
+        bool alive = false;
         alignas(T) unsigned char storage[sizeof(T)];
     };
-    struct Chunk { Slot slots[kChunkSize]; };
+    struct Chunk {
+        Slot slots[kChunkSize];
+    };
 
-    void EnsureChunkFor(u32 slot) noexcept {
-        const u32 chunk = slot / kChunkSize;
-        while (static_cast<u32>(m_Chunks.Size()) <= chunk) {
-            Chunk* c = New<Chunk>(*m_Alloc);   // チャンクはアドレス固定 (移動しない)
-            m_Chunks.PushBack(c);
+    /** 世代を 1 つ進め、wrap 後は初期世代との即時一致を避けるため 0 を飛ばす。 */
+    static u32 AdvanceGeneration(u32 Generation) noexcept
+    {
+        ++Generation;
+        if (Generation == 0u) ++Generation;
+        return Generation;
+    }
+
+    bool EnsureChunkFor(u32 SlotIndex) noexcept
+    {
+        const u32 ChunkIndex = SlotIndex / kChunkSize;
+        while (static_cast<u32>(m_Chunks.Size()) <= ChunkIndex) {
+            Chunk* NewChunk = New<Chunk>(*m_Alloc); // チャンクはアドレス固定 (移動しない)
+            if (NewChunk == nullptr) return false;
+            for (u32 i = 0; i < kChunkSize; ++i)
+                NewChunk->slots[i].gen = m_GenerationSeed;
+            m_Chunks.PushBack(NewChunk);
         }
+        return true;
     }
-    Slot&       SlotRef(u32 slot)       noexcept { return m_Chunks[slot / kChunkSize]->slots[slot % kChunkSize]; }
-    const Slot& SlotRef(u32 slot) const noexcept { return m_Chunks[slot / kChunkSize]->slots[slot % kChunkSize]; }
+    Slot& SlotRef(u32 SlotIndex) noexcept
+    {
+        return m_Chunks[SlotIndex / kChunkSize]->slots[SlotIndex % kChunkSize];
+    }
+    const Slot& SlotRef(u32 SlotIndex) const noexcept
+    {
+        return m_Chunks[SlotIndex / kChunkSize]->slots[SlotIndex % kChunkSize];
+    }
 
-    Slot* Resolve(Handle h) noexcept {
-        if (h.index >= m_SlotCount) return nullptr;
-        Slot& s = SlotRef(h.index);
-        return (s.alive && s.gen == h.gen) ? &s : nullptr;
+    Slot* Resolve(Handle ObjectHandle) noexcept
+    {
+        if (ObjectHandle.index >= m_SlotCount) return nullptr;
+        Slot& PoolSlot = SlotRef(ObjectHandle.index);
+        return (PoolSlot.alive && PoolSlot.gen == ObjectHandle.gen) ? &PoolSlot : nullptr;
     }
-    const Slot* Resolve(Handle h) const noexcept {
-        if (h.index >= m_SlotCount) return nullptr;
-        const Slot& s = SlotRef(h.index);
-        return (s.alive && s.gen == h.gen) ? &s : nullptr;
+    const Slot* Resolve(Handle ObjectHandle) const noexcept
+    {
+        if (ObjectHandle.index >= m_SlotCount) return nullptr;
+        const Slot& PoolSlot = SlotRef(ObjectHandle.index);
+        return (PoolSlot.alive && PoolSlot.gen == ObjectHandle.gen) ? &PoolSlot : nullptr;
     }
-    void FreeChunks() noexcept {
-        for (usize i = 0; i < m_Chunks.Size(); ++i) Delete(*m_Alloc, m_Chunks[i]);
+    void FreeChunks() noexcept
+    {
+        for (usize i = 0; i < m_Chunks.Size(); ++i)
+            Delete(*m_Alloc, m_Chunks[i]);
         m_Chunks.Clear();
     }
 
-    FAllocator*    m_Alloc;
-    TArray<Chunk*> m_Chunks;     /**< チャンク (各 kChunkSize スロット)。ポインタは固定。 */
-    TArray<u32>    m_Free;       /**< 再利用可能なスロット番号。 */
-    TArray<u32>    m_Live;       /**< 生存スロット番号の密な配列 (反復用)。 */
-    usize          m_SlotCount = 0;   /**< これまでに確保したスロット総数。 */
+    FAllocator* m_Alloc;
+    TArray<Chunk*> m_Chunks;  /**< チャンク (各 kChunkSize スロット)。ポインタは固定。 */
+    TArray<u32> m_Free;       /**< 再利用可能なスロット番号。 */
+    TArray<u32> m_Live;       /**< 生存スロット番号の密な配列 (反復用)。 */
+    usize m_SlotCount = 0;    /**< これまでに確保したスロット総数。 */
+    u32 m_GenerationSeed = 0; /**< ReleaseStorage 後の旧ハンドル復活を防ぐ初期世代。 */
 };
 
 /**
@@ -211,18 +296,35 @@ private:
  */
 template<class T>
 struct TPoolRef {
-    TObjectPool<T>* pool   = nullptr;
-    FObjectHandle   handle {};
+    TObjectPool<T>* pool = nullptr;
+    FObjectHandle handle{};
 
     TPoolRef() noexcept = default;
-    TPoolRef(TObjectPool<T>& p, FObjectHandle h) noexcept : pool(&p), handle(h) {}
+    TPoolRef(TObjectPool<T>& Pool, FObjectHandle ObjectHandle) noexcept : pool(&Pool), handle(ObjectHandle)
+    {
+    }
 
     /** 生きていれば対象ポインタ、死んでいれば nullptr。 */
-    T*   Get()        const noexcept { return pool ? pool->Get(handle) : nullptr; }
-    T*   operator->() const noexcept { return Get(); }
-    T&   operator*()  const noexcept { return *Get(); }
-    bool IsValid()    const noexcept { return Get() != nullptr; }
-    explicit operator bool() const noexcept { return IsValid(); }
+    T* Get() const noexcept
+    {
+        return pool ? pool->Get(handle) : nullptr;
+    }
+    T* operator->() const noexcept
+    {
+        return Get();
+    }
+    T& operator*() const noexcept
+    {
+        return *Get();
+    }
+    bool IsValid() const noexcept
+    {
+        return Get() != nullptr;
+    }
+    explicit operator bool() const noexcept
+    {
+        return IsValid();
+    }
 };
 
 } // namespace acs

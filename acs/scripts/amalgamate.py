@@ -20,7 +20,7 @@ SRC  = ROOT + "/acs/src"
 EXCLUDE_SUBSTR = ["/Dx12/", "/Diligent/", "/test/"]
 
 def excluded(rel):
-    return any(s in ("/" + rel) for s in EXCLUDE_SUBSTR)
+    return rel.endswith("Internal.h") or any(s in ("/" + rel) for s in EXCLUDE_SUBSTR)
 
 inc_re  = re.compile(r'^\s*#\s*include\s+"([^"]+)"\s*(?://.*)?$')
 ext_re  = re.compile(r'^\s*#\s*include\s+<([^>]+)>\s*(?://.*)?$')

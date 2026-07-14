@@ -121,6 +121,13 @@ if(ACS_RENDER_DILIGENT)
         acs_third_party::diligent_core
     )
 endif()
+if(ACS_RENDER_DILIGENT AND WIN32)
+    list(APPEND _acsgen_render_link_private
+        d3d12
+        dxgi
+        dxguid
+    )
+endif()
 
 acs_module(
     NAME    Render

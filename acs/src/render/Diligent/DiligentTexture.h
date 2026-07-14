@@ -173,6 +173,9 @@ public:
     bool ShaderVisibleDepth() const noexcept { return m_DepthSrv; }
 
 private:
+    /** per-slice view とテクスチャ本体を解放して空状態へ戻す。 */
+    void Reset() noexcept;
+
     /** Init で受け取った所有元デバイス。 */
     DiligentDevice*         m_Device  = nullptr;
 

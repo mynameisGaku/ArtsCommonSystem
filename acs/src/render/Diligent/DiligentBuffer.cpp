@@ -14,7 +14,17 @@ namespace acs {
 
 /** 保持している Diligent バッファを解放する。 */
 DiligentBuffer::~DiligentBuffer() noexcept {
+    Reset();
+}
+
+void DiligentBuffer::Reset() noexcept
+{
+    m_Srv = nullptr;
+    m_Uav = nullptr;
     if (m_Buffer) { m_Buffer->Release(); m_Buffer = nullptr; }
+    m_Device = nullptr;
+    m_Size = 0;
+    m_Usage = EBufferUsage::Vertex;
 }
 
 namespace {
@@ -47,6 +57,7 @@ Diligent::BIND_FLAGS BindFromUsage(EBufferUsage u) noexcept {
 
 /** desc に従って GPU バッファを生成する。 */
 TResult<void> DiligentBuffer::Init(DiligentDevice& device, const FBufferDesc& desc) noexcept {
+    Reset();
     m_Device  = &device;
     m_Size    = desc.size;
     m_Usage   = desc.usage;

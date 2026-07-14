@@ -21,10 +21,10 @@ enum class ELogSeverity : u8 {
     Debug = 1,
 
     /** 通常情報。 */
-    Info  = 2,
+    Info = 2,
 
     /** 警告。 */
-    Warn  = 3,
+    Warn = 3,
 
     /** エラー。 */
     Error = 4,
@@ -33,7 +33,7 @@ enum class ELogSeverity : u8 {
     Fatal = 5,
 
     /** 出力停止 (この値を最小レベルにすると何も出力しない)。 */
-    Off   = 6,
+    Off = 6,
 };
 
 /**
@@ -42,15 +42,23 @@ enum class ELogSeverity : u8 {
  * @param s 文字列化するレベル。
  * @return レベル名の文字列 (未知の値は "?")。
  */
-constexpr const char* ToString(ELogSeverity s) noexcept {
+constexpr const char* ToString(ELogSeverity s) noexcept
+{
     switch (s) {
-        case ELogSeverity::Trace: return "TRACE";
-        case ELogSeverity::Debug: return "DEBUG";
-        case ELogSeverity::Info:  return "INFO";
-        case ELogSeverity::Warn:  return "WARN";
-        case ELogSeverity::Error: return "ERROR";
-        case ELogSeverity::Fatal: return "FATAL";
-        case ELogSeverity::Off:   return "OFF";
+    case ELogSeverity::Trace:
+        return "TRACE";
+    case ELogSeverity::Debug:
+        return "DEBUG";
+    case ELogSeverity::Info:
+        return "INFO";
+    case ELogSeverity::Warn:
+        return "WARN";
+    case ELogSeverity::Error:
+        return "ERROR";
+    case ELogSeverity::Fatal:
+        return "FATAL";
+    case ELogSeverity::Off:
+        return "OFF";
     }
     return "?";
 }
@@ -60,19 +68,19 @@ constexpr const char* ToString(ELogSeverity s) noexcept {
  */
 struct FLogConfig {
     /** ログファイルのパス (nullptr ならファイル出力を無効化)。 */
-    const wchar_t* file_path     = nullptr;
+    const wchar_t* file_path = nullptr;
 
     /** 出力する最小レベル (これ未満は破棄)。 */
-    ELogSeverity    min_severity  = ELogSeverity::Info;
+    ELogSeverity min_severity = ELogSeverity::Info;
 
-    /** リングバッファ長 (2 のべき乗、16 未満は 16 に切り上げ)。 */
-    u32            ring_capacity = 4096;
+    /** リングバッファ長 (16～65536 の 2 のべき乗へ切り上げ・範囲制限)。 */
+    u32 ring_capacity = 4096;
 
     /** stdout へ出力するか。 */
-    bool           console       = true;
+    bool console = true;
 
     /** OutputDebugStringA へ出力するか。 */
-    bool           debug_output  = true;
+    bool debug_output = true;
 };
 
 /**
@@ -87,22 +95,36 @@ public:
     /**
      * ロガーを初期化する (多重呼び出しは無視)。
      *
-     * @param cfg リング容量・出力先・最小レベルなどの設定。
+     * @param configuration リング容量・出力先・最小レベルなどの設定。
      */
-    static void Init(const FLogConfig& cfg) noexcept;
+    static void Init(const FLogConfig& configuration) noexcept;
 
-    /** ライタースレッドを停止し、リング・ファイルなどのリソースを解放する (再 Init 可能になる)。 */
+    /**
+     * ロガーの全資源が初期化済みで、Write を受け付ける状態かを返す。
+     *
+     * @return 初期化完了から Shutdown 開始までの間は true。それ以外は false。
+     */
+    static bool IsInitialized() noexcept;
+
+    /**
+     * ライタースレッドを停止し、リング・ファイルなどのリソースを解放する (再 Init 可能になる)。
+     * sink callback 内からの呼び出しは、writer 自身の join を避けるため無視される。
+     */
     static void Shutdown() noexcept;
 
-    /** リングに残ったレコードがすべて書き出されるまで待つ (最大約 1 秒)。 */
+    /**
+     * 呼び出し時点で受理済みのレコードが、追加シンクへの通知を含めてすべて書き出されるまで待つ
+     * (最大約 1 秒)。
+     * sink callback 内からの呼び出しは無視される。
+     */
     static void Flush() noexcept;
 
     /**
      * 最小ログレベルを動的に変更する (スレッドセーフ)。
      *
-     * @param s 新しい最小レベル (これ未満は破棄される)。
+     * @param severity 新しい最小レベル (これ未満は破棄される)。
      */
-    static void SetMinSeverity(ELogSeverity s) noexcept;
+    static void SetMinSeverity(ELogSeverity severity) noexcept;
 
     /**
      * 追加のログシンク (コールバック) を設定する。各レコードを writer スレッドが
@@ -110,6 +132,10 @@ public:
      *
      * @details エディタがエンジンログを自前のコンソールへ取り込む等に使う。sink は
      *          writer スレッドから呼ばれるため、実装側でスレッド安全にすること。
+     *          通常スレッドから呼んだ場合、交換前の sink callback が完了してから戻る。
+     *          sink callback 自身から呼んだ場合は現在実行中の自身を待たず、後続レコード用の
+     *          pointer だけを交換する。
+     *          ロガーの初期化前または終了後に呼んだ場合は無視される。
      * @param sink レコード毎に呼ぶコールバック (message は null 終端)。
      */
     static void SetSink(void (*sink)(ELogSeverity severity, const char* message)) noexcept;
@@ -117,10 +143,10 @@ public:
     /**
      * 指定レベルが現在の設定で出力対象かを返す。
      *
-     * @param s 判定するレベル。
-     * @return 初期化済みかつ s が最小レベル以上なら true。
+     * @param severity 判定するレベル。
+     * @return 初期化済みかつ severity が最小レベル以上なら true。
      */
-    static bool Enabled(ELogSeverity s) noexcept;
+    static bool Enabled(ELogSeverity severity) noexcept;
 
     /**
      * リング満杯で破棄されたレコードの累積総数を返す。
@@ -133,30 +159,26 @@ public:
      * 1 レコードをリングに積む実書き込み関数 (printf 互換)。
      *
      * @details ホットパスの肥大化を避けるため NEVERINLINE。通常は ACS_LOG_* マクロ経由で呼ぶ。
-     * @param sev レコードの重大度。
-     * @param loc 呼び出し位置。
-     * @param fmt printf 形式のメッセージ書式。
-     * @param ... fmt に対応する可変長引数。
+     * @param severity レコードの重大度。
+     * @param location 呼び出し位置。
+     * @param format printf 形式のメッセージ書式。
+     * @param ... format に対応する可変長引数。
      */
-    ACS_NEVERINLINE static void Write(ELogSeverity sev,
-                                      FSourceLoc   loc,
-                                      const char* fmt,
-                                      ...) noexcept;
+    ACS_NEVERINLINE static void Write(ELogSeverity severity, FSourceLoc location, const char* format, ...) noexcept;
 };
 
 } // namespace acs
 
 // 内部マクロ: 指定レベルが有効ならログを出力
-#define ACS_LOG(sev, fmt, ...)                                                 \
-    do {                                                                       \
-        if (::acs::FLogger::Enabled(sev))                                       \
-            ::acs::FLogger::Write(sev, ::acs::FSourceLoc::Current(),             \
-                                 fmt, ##__VA_ARGS__);                          \
+#define ACS_LOG(sev, fmt, ...)                                                            \
+    do {                                                                                  \
+        if (::acs::FLogger::Enabled(sev))                                                 \
+            ::acs::FLogger::Write(sev, ::acs::FSourceLoc::Current(), fmt, ##__VA_ARGS__); \
     } while (0)
 
 #define ACS_LOG_TRACE(fmt, ...) ACS_LOG(::acs::ELogSeverity::Trace, fmt, ##__VA_ARGS__)
 #define ACS_LOG_DEBUG(fmt, ...) ACS_LOG(::acs::ELogSeverity::Debug, fmt, ##__VA_ARGS__)
-#define ACS_LOG_INFO(fmt, ...)  ACS_LOG(::acs::ELogSeverity::Info,  fmt, ##__VA_ARGS__)
-#define ACS_LOG_WARN(fmt, ...)  ACS_LOG(::acs::ELogSeverity::Warn,  fmt, ##__VA_ARGS__)
+#define ACS_LOG_INFO(fmt, ...)  ACS_LOG(::acs::ELogSeverity::Info, fmt, ##__VA_ARGS__)
+#define ACS_LOG_WARN(fmt, ...)  ACS_LOG(::acs::ELogSeverity::Warn, fmt, ##__VA_ARGS__)
 #define ACS_LOG_ERROR(fmt, ...) ACS_LOG(::acs::ELogSeverity::Error, fmt, ##__VA_ARGS__)
 #define ACS_LOG_FATAL(fmt, ...) ACS_LOG(::acs::ELogSeverity::Fatal, fmt, ##__VA_ARGS__)

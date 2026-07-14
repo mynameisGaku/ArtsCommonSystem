@@ -93,7 +93,8 @@ public:
      *
      * @details
      * include_cjk=true で漢字 (CJK 統合 U+4E00..U+9FAF) も含めて焼く。その場合
-     * アトラスは自動で 2048 にバンプされる。
+     * アトラスは自動で 2048 にバンプされる。再ロードに失敗した場合は旧フォントを
+     * 保持せず、アトラス・グリフ・全メトリクスを空状態へ戻す。
      * @param device テクスチャアトラス生成に使う RHI デバイス。
      * @param ttf_data TTF/OTF/TTC のバイト列先頭。
      * @param ttf_size ttf_data のバイト数。
@@ -126,7 +127,7 @@ public:
                               u32 atlas_size = 1024,
                               bool include_cjk = false) noexcept;
 
-    /** 確保した GPU リソースとグリフ表を解放する。 */
+    /** 確保した GPU リソースとグリフ表を解放し、全メトリクスを 0 に戻す。 */
     void Shutdown() noexcept;
 
     /**

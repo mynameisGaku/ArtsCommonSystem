@@ -22,6 +22,7 @@ u32 BytesPerPixel(EFormat f) noexcept {
     switch (f) {
         case EFormat::R8G8B8A8_UNorm:
         case EFormat::R8G8B8A8_UNorm_sRGB:
+        case EFormat::R8G8B8A8_UInt:
         case EFormat::B8G8R8A8_UNorm:           return 4;
         case EFormat::R16G16_Float:             return 4;
         case EFormat::R16G16B16A16_Float:       return 8;
@@ -39,6 +40,11 @@ u32 BytesPerPixel(EFormat f) noexcept {
 
 /** 割り当て済みの SRV/DSV/RTV スロットを解放しリソースを Release する。 */
 Dx12Texture::~Dx12Texture() noexcept {
+    Reset();
+}
+
+void Dx12Texture::Reset() noexcept
+{
     if (m_Device) {
         if (m_SrvSlot >= 0) m_Device->FreeSrvSlot(m_SrvSlot);
         if (m_DsvSlot >= 0) m_Device->FreeDsvSlot(m_DsvSlot);
@@ -47,13 +53,29 @@ Dx12Texture::~Dx12Texture() noexcept {
     }
     m_SrvSlot = -1;
     m_DsvSlot = -1;
-    m_RtvSlots.Clear();
+    m_RtvSlots.ReleaseStorage();
     ACS_SAFE_RELEASE(m_Resource);
+    m_Device = nullptr;
+    m_Width = 0;
+    m_Height = 0;
+    m_Format = EFormat::Unknown;
+    m_MipLevels = 1;
+    m_ArraySize = 1;
+    m_SampleCount = 1;
+    m_IsCubemap = false;
+    m_IsDepth = false;
+    m_CurrentState = D3D12_RESOURCE_STATE_COMMON;
 }
 
 /** desc に従って DX12 リソースと SRV/DSV/RTV を生成する (詳細はヘッダ参照)。 */
 HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcept {
     HrResult r{};
+    Reset();
+
+    if (!device.D3DDevice() || !device.GraphicsQueue()) {
+        r.hr = E_INVALIDARG;
+        return r;
+    }
     m_Device = &device;
     m_Width  = desc.width;
     m_Height = desc.height;
@@ -66,14 +88,27 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     if (desc.width == 0 || desc.height == 0) {
         ACS_LOG_ERROR("Dx12Texture: zero dimension %ux%u", desc.width, desc.height);
         r.hr = E_INVALIDARG;
+        Reset();
         return r;
     }
 
     const DXGI_FORMAT typed_fmt = ToDxgiFormat(desc.format);
     const u32 bpp = BytesPerPixel(desc.format);
-    if (bpp == 0 && !desc.is_depth_target) {
+    if (typed_fmt == DXGI_FORMAT_UNKNOWN || (bpp == 0 && !desc.is_depth_target)) {
         ACS_LOG_ERROR("Dx12Texture: bpp=0 for fmt=%d", static_cast<int>(desc.format));
-        r.hr = E_INVALIDARG; return r;
+        r.hr = E_INVALIDARG;
+        Reset();
+        return r;
+    }
+
+    if (m_ArraySize > 0xFFFFu || m_MipLevels > 0xFFFFu ||
+        (desc.initial_data == nullptr) != (desc.initial_data_size == 0) ||
+        (desc.is_depth_target && desc.is_render_target) || (desc.shader_visible_depth && !desc.is_depth_target) ||
+        (desc.is_depth_target && desc.format != EFormat::D24_UNorm_S8_UInt && desc.format != EFormat::D32_Float)) {
+        ACS_LOG_ERROR("Dx12Texture: descriptor の組み合わせまたは範囲が不正です");
+        r.hr = E_INVALIDARG;
+        Reset();
+        return r;
     }
 
     // 配列レイヤ / キューブマップ / per-slice RTV / mip を DX12 backend で本実装する
@@ -84,12 +119,14 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         ACS_LOG_ERROR("Dx12Texture: cubemap は array_size を 6 の倍数にしてください (array_size=%u)",
                       req_array);
         r.hr = E_INVALIDARG;
+        Reset();
         return r;
     }
     // per_slice_rtv は RT 用 (各 face/mip を個別の RTV として書く)。RT 以外で立っていたら無効。
     if (desc.per_slice_rtv && !desc.is_render_target) {
         ACS_LOG_ERROR("Dx12Texture: per_slice_rtv は is_render_target=true と併用してください");
         r.hr = E_INVALIDARG;
+        Reset();
         return r;
     }
 
@@ -111,7 +148,13 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
 
     // MSAA は RT 専用 (MS テクスチャは mip 不可・SRV 無し・初期データ不可)
     m_SampleCount = (desc.is_render_target && desc.sample_count > 1) ? desc.sample_count : 1;
-    if (m_SampleCount > 1) m_MipLevels = 1;
+    if (desc.sample_count > 1 && (!desc.is_render_target || desc.initial_data || m_MipLevels != 1 || m_ArraySize != 1 ||
+                                  desc.is_cubemap || desc.per_slice_rtv)) {
+        ACS_LOG_ERROR("Dx12Texture: MSAA は単一スライス・単一 mip の初期データなし RT 専用です");
+        r.hr = E_INVALIDARG;
+        Reset();
+        return r;
+    }
 
     // 1. DEFAULT ヒープにテクスチャを作成
     D3D12_RESOURCE_DESC td{};
@@ -159,19 +202,25 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     r.hr = device.D3DDevice()->CreateCommittedResource(
         &default_hp, D3D12_HEAP_FLAG_NONE, &td, init_state, clear_ptr,
         IID_PPV_ARGS(&m_Resource));
-    if (r.IsErr()) {
+    if (r.IsErr() || !m_Resource) {
+        if (r.IsOk()) r.hr = E_FAIL;
         ACS_LOG_ERROR("Dx12Texture CreateCommittedResource failed: hr=0x%08X "
                       "fmt=%d %ux%u rt=%d depth=%d",
                       static_cast<unsigned>(r.hr), static_cast<int>(desc.format),
                       desc.width, desc.height,
                       desc.is_render_target ? 1 : 0, desc.is_depth_target ? 1 : 0);
+        Reset();
         return r;
     }
 
     // 1b. 深度バッファの DSV + （任意）SRV
     if (desc.is_depth_target) {
         m_DsvSlot = device.AllocateDsvSlot();
-        if (m_DsvSlot < 0) { r.hr = E_OUTOFMEMORY; return r; }
+        if (m_DsvSlot < 0) {
+            r.hr = E_OUTOFMEMORY;
+            Reset();
+            return r;
+        }
         D3D12_DEPTH_STENCIL_VIEW_DESC dsv{};
         dsv.Format = dsv_fmt;
         dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
@@ -182,7 +231,11 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         // シェーダから読みたい場合のみ SRV も作る
         if (desc.shader_visible_depth && depth_srv_fmt != DXGI_FORMAT_UNKNOWN) {
             m_SrvSlot = device.AllocateSrvSlot();
-            if (m_SrvSlot < 0) { r.hr = E_OUTOFMEMORY; return r; }
+            if (m_SrvSlot < 0) {
+                r.hr = E_OUTOFMEMORY;
+                Reset();
+                return r;
+            }
             D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
             srv.Format = depth_srv_fmt;
             srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
@@ -214,6 +267,11 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         UINT   num_rows = 0;
         UINT64 total_bytes = 0;
         dev->GetCopyableFootprints(&td, 0, 1, 0, &fp, &num_rows, &row_size_bytes, &total_bytes);
+        if (total_bytes == 0 || num_rows == 0) {
+            r.hr = E_INVALIDARG;
+            Reset();
+            return r;
+        }
 
         D3D12_HEAP_PROPERTIES upload_hp{};
         upload_hp.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -232,13 +290,24 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         r.hr = dev->CreateCommittedResource(
             &upload_hp, D3D12_HEAP_FLAG_NONE, &ub,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&upload));
-        if (r.IsErr()) return r;
+        if (r.IsErr() || !upload) {
+            if (r.IsOk()) r.hr = E_FAIL;
+            ACS_SAFE_RELEASE(upload);
+            Reset();
+            return r;
+        }
 
         // CPU 側からアップロードバッファに行ごとに書き込む
         u8* mapped = nullptr;
         D3D12_RANGE read_range{ 0, 0 };
         r.hr = upload->Map(0, &read_range, reinterpret_cast<void**>(&mapped));
-        if (r.IsErr()) { upload->Release(); return r; }
+        if (r.IsErr() || !mapped) {
+            if (r.IsOk()) r.hr = E_FAIL;
+            if (mapped) upload->Unmap(0, nullptr);
+            ACS_SAFE_RELEASE(upload);
+            Reset();
+            return r;
+        }
 
         const u8* src = static_cast<const u8*>(desc.initial_data);
         // tightly-packed なソース行ピッチ。これに対し initial_data_size を検証しないと、
@@ -248,7 +317,15 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         const u64 src_row_pitch = static_cast<u64>(desc.width) * bpp;
         // 行ごとに実際にコピーするバイト数 (DEFAULT 側の行サイズと src 行サイズの小さい方)。
         const u64 copy_row_len  = src_row_pitch < row_size_bytes ? src_row_pitch : row_size_bytes;
-        const u64 expected_src  = src_row_pitch * static_cast<u64>(num_rows);
+        const u64 row_count = static_cast<u64>(num_rows);
+        if (row_count == 0 || src_row_pitch > static_cast<u64>(-1) / row_count) {
+            upload->Unmap(0, nullptr);
+            ACS_SAFE_RELEASE(upload);
+            r.hr = E_INVALIDARG;
+            Reset();
+            return r;
+        }
+        const u64 expected_src = src_row_pitch * row_count;
         if (desc.initial_data_size < expected_src) {
             // 不足: 想定サブリソースサイズを満たさない。OOB を避けるためエラーにする
             // (足りないデータで黙って成功扱いにしない)。
@@ -259,8 +336,9 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
                           desc.width, num_rows,
                           static_cast<unsigned long long>(src_row_pitch));
             upload->Unmap(0, nullptr);
-            upload->Release();
+            ACS_SAFE_RELEASE(upload);
             r.hr = E_INVALIDARG;
+            Reset();
             return r;
         }
         u8* dst = mapped + fp.Offset;
@@ -274,11 +352,22 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         // 3. コマンドリストを単発で作って upload → default をコピー
         ID3D12CommandAllocator* alloc = nullptr;
         r.hr = dev->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc));
-        if (r.IsErr()) { upload->Release(); return r; }
+        if (r.IsErr()) {
+            ACS_SAFE_RELEASE(alloc);
+            ACS_SAFE_RELEASE(upload);
+            Reset();
+            return r;
+        }
         ID3D12GraphicsCommandList* cl = nullptr;
         r.hr = dev->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, nullptr,
                                       IID_PPV_ARGS(&cl));
-        if (r.IsErr()) { alloc->Release(); upload->Release(); return r; }
+        if (r.IsErr()) {
+            ACS_SAFE_RELEASE(cl);
+            ACS_SAFE_RELEASE(alloc);
+            ACS_SAFE_RELEASE(upload);
+            Reset();
+            return r;
+        }
 
         D3D12_TEXTURE_COPY_LOCATION src_loc{};
         src_loc.pResource = upload;
@@ -301,20 +390,35 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         cl->ResourceBarrier(1, &b);
 
-        cl->Close();
-        ID3D12CommandList* lists[] = { cl };
-        device.GraphicsQueue()->ExecuteCommandLists(1, lists);
-        device.WaitIdle();    // 完了待ち（簡易）
+        r.hr = cl->Close();
+        if (r.IsOk()) {
+            ID3D12CommandList* lists[] = {cl};
+            device.GraphicsQueue()->ExecuteCommandLists(1, lists);
+            const u64 fence_value = device.SignalGraphicsQueue();
+            if (fence_value == 0)
+                r.hr = E_FAIL;
+            else
+                device.WaitForFenceValue(fence_value);
+        }
 
-        cl->Release();
-        alloc->Release();
-        upload->Release();
+        ACS_SAFE_RELEASE(cl);
+        ACS_SAFE_RELEASE(alloc);
+        ACS_SAFE_RELEASE(upload);
+        if (r.IsErr()) {
+            Reset();
+            return r;
+        }
     }
 
     // 4. SRV ヒープに SRV を作成 (MSAA RT は sample 不可なので SRV を作らない → resolve して使う)
     if (m_SampleCount > 1) {
         const i32 slot = device.AllocateRtvSlot();
-        if (slot < 0) { ACS_LOG_ERROR("Dx12Texture: RTV slot exhausted (MSAA)"); r.hr = E_OUTOFMEMORY; return r; }
+        if (slot < 0) {
+            ACS_LOG_ERROR("Dx12Texture: RTV slot exhausted (MSAA)");
+            r.hr = E_OUTOFMEMORY;
+            Reset();
+            return r;
+        }
         D3D12_RENDER_TARGET_VIEW_DESC rtv{};
         rtv.Format = typed_fmt;
         rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS;
@@ -323,7 +427,12 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         return r;
     }
     m_SrvSlot = device.AllocateSrvSlot();
-    if (m_SrvSlot < 0) { ACS_LOG_ERROR("Dx12Texture: SRV slot exhausted"); r.hr = E_OUTOFMEMORY; return r; }
+    if (m_SrvSlot < 0) {
+        ACS_LOG_ERROR("Dx12Texture: SRV slot exhausted");
+        r.hr = E_OUTOFMEMORY;
+        Reset();
+        return r;
+    }
     m_CurrentState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
@@ -361,7 +470,9 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
                     const i32 slot = device.AllocateRtvSlot();
                     if (slot < 0) {
                         ACS_LOG_ERROR("Dx12Texture: per-slice RTV slot 枯渇 (slice=%u mip=%u)", s, mip);
-                        r.hr = E_OUTOFMEMORY; return r;
+                        r.hr = E_OUTOFMEMORY;
+                        Reset();
+                        return r;
                     }
                     D3D12_RENDER_TARGET_VIEW_DESC rtv{};
                     rtv.Format = typed_fmt;
@@ -377,7 +488,12 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
             }
         } else {
             const i32 slot = device.AllocateRtvSlot();
-            if (slot < 0) { ACS_LOG_ERROR("Dx12Texture: RTV slot exhausted"); r.hr = E_OUTOFMEMORY; return r; }
+            if (slot < 0) {
+                ACS_LOG_ERROR("Dx12Texture: RTV slot exhausted");
+                r.hr = E_OUTOFMEMORY;
+                Reset();
+                return r;
+            }
             D3D12_RENDER_TARGET_VIEW_DESC rtv{};
             rtv.Format = typed_fmt;
             if (m_ArraySize > 1) {
@@ -415,12 +531,12 @@ D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::RtvCpuHandleForSlice(u32 slice, u32 mip
 
 /** SRV の GPU ディスクリプタハンドルを返す。 */
 D3D12_GPU_DESCRIPTOR_HANDLE Dx12Texture::SrvGpuHandle() const noexcept {
-    return m_Device ? m_Device->SrvGpuHandle(m_SrvSlot) : D3D12_GPU_DESCRIPTOR_HANDLE{0};
+    return (m_Device && m_SrvSlot >= 0) ? m_Device->SrvGpuHandle(m_SrvSlot) : D3D12_GPU_DESCRIPTOR_HANDLE{0};
 }
 
 /** DSV の CPU ディスクリプタハンドルを返す。 */
 D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::DsvCpuHandle() const noexcept {
-    return m_Device ? m_Device->DsvCpuHandle(m_DsvSlot) : D3D12_CPU_DESCRIPTOR_HANDLE{0};
+    return (m_Device && m_DsvSlot >= 0) ? m_Device->DsvCpuHandle(m_DsvSlot) : D3D12_CPU_DESCRIPTOR_HANDLE{0};
 }
 
 #if !WITH_RENDER_DILIGENT

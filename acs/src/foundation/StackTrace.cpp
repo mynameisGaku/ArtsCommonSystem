@@ -25,22 +25,22 @@ SRWLOCK   g_sym_lock = SRWLOCK_INIT;
 volatile LONG g_sym_initialized = 0;
 
 /**
- * SymInitialize を一度だけ呼ぶ (多重呼び出しは無害だが無駄なのでガードする)。
+ * 排他ロック保持中に SymInitialize を一度だけ呼ぶ。
  *
- * @details 行番号読み込み・遅延ロード・名前デマングルのオプションを設定してから初期化する。
+ * @details 初期化失敗を成功扱いせず、次回 Resolve で再試行できる状態を保つ。
  */
-void EnsureSymbols() noexcept {
-    if (g_sym_initialized) return;
-    AcquireSRWLockExclusive(&g_sym_lock);
-    if (!g_sym_initialized) {
-        // SYMOPT_LOAD_LINES: 行番号情報も読み込む
-        // SYMOPT_DEFERRED_LOADS: モジュール読み込みは必要時まで遅延
-        // SYMOPT_UNDNAME: C++ 名前マングリングを解除して人間可読に
-        SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME);
-        SymInitialize(GetCurrentProcess(), nullptr, TRUE);
-        InterlockedExchange(&g_sym_initialized, 1);
-    }
-    ReleaseSRWLockExclusive(&g_sym_lock);
+bool EnsureSymbolsLocked() noexcept
+{
+    if (g_sym_initialized != 0) return true;
+
+    // SYMOPT_LOAD_LINES: 行番号情報も読み込む
+    // SYMOPT_DEFERRED_LOADS: モジュール読み込みは必要時まで遅延
+    // SYMOPT_UNDNAME: C++ 名前マングリングを解除して人間可読に
+    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME);
+    if (!::SymInitialize(::GetCurrentProcess(), nullptr, TRUE)) return false;
+
+    InterlockedExchange(&g_sym_initialized, 1);
+    return true;
 }
 
 } // namespace
@@ -55,9 +55,9 @@ void StackTrace::Capture(u32 skip) noexcept {
 /** 取得済みアドレスをシンボル名 / ファイル名 / 行番号に変換する。詳細は宣言を参照。 */
 void StackTrace::Resolve() noexcept {
     if (m_Resolved || m_Count == 0) return;
-    EnsureSymbols();
 
     AcquireSRWLockExclusive(&g_sym_lock);
+    const bool symbols_available = EnsureSymbolsLocked();
     const HANDLE proc = GetCurrentProcess();
 
     // SYMBOL_INFO + 名前用バッファをスタックに確保（ヒープ割り当てを避ける）
@@ -79,20 +79,42 @@ void StackTrace::Resolve() noexcept {
         const DWORD64 addr = reinterpret_cast<DWORD64>(m_Addrs[i]);
         DWORD64 disp64 = 0;
         // シンボル取得（失敗時はアドレスのみ表示）
-        if (SymFromAddr(proc, addr, &disp64, sym)) {
+        if (symbols_available && SymFromAddr(proc, addr, &disp64, sym)) {
             ::strncpy_s(f.symbol, sym->Name, sizeof(f.symbol) - 1);
         } else {
             ::snprintf(f.symbol, sizeof(f.symbol), "??? @ 0x%p", m_Addrs[i]);
         }
         // ファイル名 / 行番号取得
         DWORD disp32 = 0;
-        if (SymGetLineFromAddr64(proc, addr, &disp32, &line) && line.FileName) {
+        if (symbols_available && SymGetLineFromAddr64(proc, addr, &disp32, &line) && line.FileName) {
             ::strncpy_s(f.file, line.FileName, sizeof(f.file) - 1);
             f.line = line.LineNumber;
         }
     }
     ReleaseSRWLockExclusive(&g_sym_lock);
     m_Resolved = true;
+}
+
+/** DbgHelp の共有状態を解放する。終了後の Resolve は再び遅延初期化する。 */
+void StackTrace::ShutdownSymbolResolver() noexcept
+{
+    AcquireSRWLockExclusive(&g_sym_lock);
+    if (g_sym_initialized != 0) {
+        // Cleanup 失敗時は初期化済み扱いを維持し、次回 Shutdown で再試行できる。
+        if (::SymCleanup(::GetCurrentProcess())) {
+            InterlockedExchange(&g_sym_initialized, 0);
+        }
+    }
+    ReleaseSRWLockExclusive(&g_sym_lock);
+}
+
+/** DbgHelp の共有状態をロック下で照会する。 */
+bool StackTrace::IsSymbolResolverInitialized() noexcept
+{
+    AcquireSRWLockShared(&g_sym_lock);
+    const bool initialized = g_sym_initialized != 0;
+    ReleaseSRWLockShared(&g_sym_lock);
+    return initialized;
 }
 
 /** 解決済みフレームを 1 行ずつ整形して sink に渡す (出力先は呼び出し元が決める)。詳細は宣言を参照。 */

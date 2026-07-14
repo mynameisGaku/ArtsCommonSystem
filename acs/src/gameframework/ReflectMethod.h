@@ -18,6 +18,7 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "memory/SystemAllocator.h"
 #include "container/Array.h"
 #include "gameframework/Reflect.h"   // FTypeId / AcsTypeHash / ACS_RCAT
 
@@ -53,6 +54,8 @@ struct FReflectMethod {
     u32          flags;                              ///< EMethodFlags の OR。
 };
 
+struct FMethodAutoRegister;
+
 /** 反射メソッドのグローバル登録簿(ACS_REGISTER_METHOD が登録)。 */
 class FMethodRegistry {
 public:
@@ -62,25 +65,40 @@ public:
         return s_instance;
     }
 
-    /** 登録する(同 owner+name が既にあれば無視)。 */
+    /** 登録する。同じ owner+name の異なる実装は登録元として併存させる。 */
     void Register(const FReflectMethod& m) noexcept {
-        for (u32 i = 0; i < m_Methods.Size(); ++i)
-            if (m_Methods[i].owner == m.owner && StrEq(m_Methods[i].name, m.name)) return;
-        m_Methods.PushBack(m);
+        RegisterSource(m, nullptr);
+    }
+
+    /**
+     * 手動登録したメソッドを解除する。
+     *
+     * @return 一致する手動登録を 1 件解除できたら true。
+     */
+    bool Unregister(const FReflectMethod& m) noexcept
+    {
+        return UnregisterSource(m, nullptr);
     }
 
     /** 全登録数。 */
-    u32 Count() const noexcept { return static_cast<u32>(m_Methods.Size()); }
+    u32 Count() const noexcept
+    {
+        return static_cast<u32>(m_Entries.Size());
+    }
 
     /** i 番目。 */
-    const FReflectMethod& At(u32 i) const noexcept { return m_Methods[i]; }
+    const FReflectMethod& At(u32 i) const noexcept
+    {
+        return m_Entries[i].sources[0].method;
+    }
 
     /** owner 型の n 番目のメソッド(無ければ nullptr)。 */
     const FReflectMethod* AtOfOwner(FTypeId owner, u32 nth) const noexcept {
         u32 seen = 0;
-        for (u32 i = 0; i < m_Methods.Size(); ++i) {
-            if (m_Methods[i].owner != owner) continue;
-            if (seen == nth) return &m_Methods[i];
+        for (u32 i = 0; i < m_Entries.Size(); ++i) {
+            const FReflectMethod& method = m_Entries[i].sources[0].method;
+            if (method.owner != owner) continue;
+            if (seen == nth) return &method;
             ++seen;
         }
         return nullptr;
@@ -89,30 +107,138 @@ public:
     /** owner 型のメソッド数。 */
     u32 CountOfOwner(FTypeId owner) const noexcept {
         u32 c = 0;
-        for (u32 i = 0; i < m_Methods.Size(); ++i) if (m_Methods[i].owner == owner) ++c;
+        for (u32 i = 0; i < m_Entries.Size(); ++i) {
+            if (m_Entries[i].sources[0].method.owner == owner) ++c;
+        }
         return c;
     }
 
     /** owner + 名前で引く(無ければ nullptr)。 */
     const FReflectMethod* Find(FTypeId owner, const char* name) const noexcept {
-        for (u32 i = 0; i < m_Methods.Size(); ++i)
-            if (m_Methods[i].owner == owner && StrEq(m_Methods[i].name, name)) return &m_Methods[i];
+        for (u32 i = 0; i < m_Entries.Size(); ++i) {
+            const FReflectMethod& method = m_Entries[i].sources[0].method;
+            if (method.owner == owner && StrEq(method.name, name)) return &method;
+        }
         return nullptr;
     }
 
 private:
-    FMethodRegistry() noexcept = default;
+    friend struct FMethodAutoRegister;
+
+    /** 同じ owner+name へ同時登録できる module/source 数。 */
+    static constexpr u32 kMaxSourcesPerMethod = 8;
+
+    struct MethodSource {
+        FReflectMethod method{};
+        const void* token = nullptr;
+    };
+
+    struct MethodEntry {
+        MethodSource sources[kMaxSourcesPerMethod]{};
+        u8 source_count = 0;
+    };
+
+    /** process lifetime の登録簿が一時的な DefaultAllocator を捕捉しないようにする。 */
+    FMethodRegistry() noexcept : m_Entries(m_Allocator)
+    {
+    }
+
     static bool StrEq(const char* a, const char* b) noexcept {
         if (a == nullptr || b == nullptr) return a == b;
         while (*a != '\0' && *a == *b) { ++a; ++b; }
         return *a == *b;
     }
-    TArray<FReflectMethod> m_Methods;
+
+    static bool SameImplementation(const FReflectMethod& a, const FReflectMethod& b) noexcept
+    {
+        return a.owner == b.owner && StrEq(a.name, b.name) && a.invoke == b.invoke && a.invokeArg == b.invokeArg &&
+               a.invokeRet == b.invokeRet && a.argKind == b.argKind && a.retKind == b.retKind && a.flags == b.flags;
+    }
+
+    void RegisterSource(const FReflectMethod& method, const void* token) noexcept
+    {
+        for (u32 entry_index = 0; entry_index < m_Entries.Size(); ++entry_index) {
+            MethodEntry& entry = m_Entries[entry_index];
+            const FReflectMethod& active = entry.sources[0].method;
+            if (active.owner != method.owner || !StrEq(active.name, method.name)) continue;
+
+            for (u32 source = 0; source < entry.source_count; ++source) {
+                if (token != nullptr && entry.sources[source].token == token) return;
+                if (token == nullptr && entry.sources[source].token == nullptr &&
+                    SameImplementation(entry.sources[source].method, method))
+                    return;
+            }
+            if (entry.source_count >= kMaxSourcesPerMethod) return;
+            entry.sources[entry.source_count++] = MethodSource{method, token};
+            return;
+        }
+
+        MethodEntry entry{};
+        entry.sources[0] = MethodSource{method, token};
+        entry.source_count = 1;
+        m_Entries.PushBack(entry);
+    }
+
+    bool UnregisterSource(const FReflectMethod& method, const void* token) noexcept
+    {
+        for (u32 entry_index = 0; entry_index < m_Entries.Size(); ++entry_index) {
+            MethodEntry& entry = m_Entries[entry_index];
+            const FReflectMethod& active = entry.sources[0].method;
+            if (active.owner != method.owner || !StrEq(active.name, method.name)) continue;
+
+            u32 source_index = entry.source_count;
+            for (u32 source = 0; source < entry.source_count; ++source) {
+                const bool token_matches = token != nullptr
+                                               ? entry.sources[source].token == token
+                                               : entry.sources[source].token == nullptr &&
+                                                     SameImplementation(entry.sources[source].method, method);
+                if (token_matches) {
+                    source_index = source;
+                    break;
+                }
+            }
+            if (source_index == entry.source_count) return false;
+
+            for (u32 source = source_index; source + 1u < entry.source_count; ++source) {
+                entry.sources[source] = entry.sources[source + 1u];
+            }
+            entry.sources[entry.source_count - 1u] = MethodSource{};
+            --entry.source_count;
+            if (entry.source_count != 0) return true;
+
+            for (u32 remaining = entry_index; remaining + 1u < m_Entries.Size(); ++remaining) {
+                m_Entries[remaining] = m_Entries[remaining + 1u];
+            }
+            m_Entries.PopBack();
+            return true;
+        }
+        return false;
+    }
+
+    /** 登録簿より後に破棄される、登録簿専用の process-lifetime allocator。 */
+    FSystemAllocator m_Allocator;
+
+    /** owner+name ごとに登録元を束ねた method 一覧。 */
+    TArray<MethodEntry> m_Entries;
 };
 
 /** ACS_REGISTER_METHOD が生成する自動登録ヘルパ。 */
 struct FMethodAutoRegister {
-    explicit FMethodAutoRegister(const FReflectMethod& m) noexcept { FMethodRegistry::Get().Register(m); }
+    explicit FMethodAutoRegister(const FReflectMethod& method) noexcept : m_Method(method)
+    {
+        FMethodRegistry::Get().RegisterSource(m_Method, this);
+    }
+
+    ~FMethodAutoRegister() noexcept
+    {
+        (void)FMethodRegistry::Get().UnregisterSource(m_Method, this);
+    }
+
+    FMethodAutoRegister(const FMethodAutoRegister&) = delete;
+    FMethodAutoRegister& operator=(const FMethodAutoRegister&) = delete;
+
+private:
+    FReflectMethod m_Method{};
 };
 
 /**
