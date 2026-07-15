@@ -44,9 +44,15 @@ public:
      * 全 Comps を持つ各エンティティにラムダを呼ぶ (逐次)。
      *
      * @details
-     * primary の dense をローカルへスナップショットしてから反復するため、fn が当該
-     * コンポーネントを Add/Remove して SparseSet が再確保しても use-after-free しない
-     * (構造変更に安全)。fn は (EntityId, Comps&...) を受け取る。
+     * primary の dense をローカルへスナップショットしてから反復するため、fn 内の
+     * Add/Remove/Destroy で **訪問するエンティティ集合** は無効化されない (反復開始時点で固定)。
+     * 反復中に追加したエンティティはこの走査では訪問されず、削除したエンティティは InvokeWith の
+     * 再 Get + AllPresent 再確認でスキップされる。
+     *
+     * ただし fn へ渡す Comps& 参照は Get と同じ無効化規約に従う。fn が **同じコンポーネント型** を
+     * Add/Remove して SparseSet が再確保すると、その参照は dangling になる。fn 内で構造変更した後は
+     * 渡された参照を使わず、必要なら w.Get<T>(e) で取り直すこと (構造変更 → 渡し済み参照の再利用は
+     * use-after-free)。fn は (EntityId, Comps&...) を受け取る。
      * @tparam Fn (EntityId, Comps&...) を受け取る呼び出し可能型。
      * @param fn 各エンティティに適用するラムダ (値で受け取る)。
      */
@@ -82,6 +88,10 @@ public:
      * primary の dense をスナップショットし、FThreadPool::ParallelFor で chunk 分割して
      * fn を呼ぶ (完了まで block)。同じエンティティが複数スレッドから同時に呼ばれること
      * はないが、グローバル資源を触る場合はユーザー側で同期が必要。
+     *
+     * **重要**: fn は World を構造変更 (Add/Remove/Destroy) してはならない。World/SparseSet は
+     * 並行変更に対してスレッドセーフでなく、他スレッドが使用中の Comps& 参照も dangling する。
+     * 構造変更が必要なら逐次 Each を使うか、変更を後段へ遅延すること。
      * @tparam Fn (EntityId, Comps&...) を受け取る呼び出し可能型。
      * @param fn 各エンティティに適用するラムダ。
      * @param grain 1 chunk あたりの最小エンティティ数 (小さすぎると分割オーバーヘッドが
