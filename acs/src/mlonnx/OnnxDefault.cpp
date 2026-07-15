@@ -15,17 +15,14 @@
 
 namespace acs::mlonnx {
 
-acs::game::IMlRuntime& GetDefaultOnnxMlRuntime() noexcept {
+acs::game::IMlRuntime& GetDefaultOnnxMlRuntime() noexcept
+{
     // Meyers singleton。プロセス内 1 個の ONNX runtime を既定として共有する。
-    static FOnnxMlRuntime s_runtime;
-    // 初回のみ Init。ACS のこの層は単一スレッド初期化を前提とするため、素朴な
-    // フラグで十分 (function-local static の構築自体は thread-safe)。
-    static bool s_inited = false;
-    if (!s_inited) {
-        (void)s_runtime.Init();  // 失敗しても runtime 参照は返す (呼び出し側が結果で判断)
-        s_inited = true;
-    }
-    return s_runtime;
+    static FOnnxMlRuntime Runtime;
+    // local static の初期化ガードに Init も含め、並行した初回取得で二重初期化しない。
+    static const bool bInitializationSucceeded = Runtime.Init().IsOk();
+    (void)bInitializationSucceeded;
+    return Runtime;
 }
 
 void InstallOnnxAsDefault() noexcept {

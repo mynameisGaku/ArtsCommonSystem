@@ -208,6 +208,8 @@ public:
     /**
      * 1 ファイルを pak に追加する (実装は compress-then-encrypt 順で構築)。
      *
+     * @details 実装は virtual_name と data を呼び出し中に取り込む。成功後は呼び出し側が
+     * 両方の入力領域を直ちに再利用または解放してよい。
      * @param virtual_name pak 内仮想パス。
      * @param data オリジナル (非圧縮 / 非暗号) バイト列。
      * @param size data のバイトサイズ。

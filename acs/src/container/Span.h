@@ -99,7 +99,7 @@ public:
      *
      * @return 末尾の次を指すポインタ。
      */
-    constexpr T*       end()         noexcept { return m_Data + m_Size; }
+    constexpr T*       end()         noexcept { return m_Size == 0u ? m_Data : m_Data + m_Size; }
 
     /**
      * 先頭 const イテレータを返す。
@@ -113,7 +113,7 @@ public:
      *
      * @return 末尾の次を指す const ポインタ。
      */
-    constexpr const T* end()   const noexcept { return m_Data + m_Size; }
+    constexpr const T* end()   const noexcept { return m_Size == 0u ? m_Data : m_Data + m_Size; }
 
     /**
      * 部分範囲を切り出したビューを返す。
@@ -125,7 +125,7 @@ public:
      */
     constexpr TSpan SubSpan(usize offset, usize count) const noexcept {
         ACS_ASSERT(offset <= m_Size && count <= m_Size - offset);  // 加算ラップしない形で範囲検査
-        return TSpan(m_Data + offset, count);
+        return TSpan(offset == 0u ? m_Data : m_Data + offset, count);
     }
 
 private:

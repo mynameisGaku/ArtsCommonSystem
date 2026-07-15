@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — 固定サイズブロックプール（Treiber スタック方式）
+// ACS Memory — 固定サイズブロックプール
 // -----------------------------------------------------------------------------
 // 同サイズの小オブジェクトを大量に確保・解放するパターンに特化。
 // 例: パーティクル、ノード、コンポーネント、タスクオブジェクト。
@@ -8,28 +8,25 @@
 // アルゴリズム:
 //   - 起動時に N 個分の連続バッファを確保
 //   - フリーリストを「単方向リンクスタック」として管理
-//   - Alloc = head を CAS で取り出し、Free = head に CAS で push
-//
-// ABA 問題対策:
-//   Treiber スタックの古典的問題を、ポインタ上位ビットに ABA タグを
-//   埋め込む方式で回避（Windows x64 のユーザ空間ポインタは下位 47 ビット
-//   しか使わないので、上位 17 ビットがタグ用に空いている）。
+//   - Alloc/Free と所有状態を同一の軽量ロックで保護
+//   - 二重解放、外部ポインタ、ブロック途中のポインタを拒否
 // =============================================================================
 #pragma once
 
 #include "memory/Allocator.h"
 #include "threading/Atomic.h"
+#include "threading/Mutex.h"
 
 namespace acs {
 
 /**
- * 同サイズ小ブロックに特化した lock-free 固定サイズプール (Treiber スタック方式)。
+ * 同サイズ小ブロックに特化したスレッドセーフな固定サイズプール。
  *
  * @details
  * 構築時に block_size×block_count の連続ストレージを 1 回確保し、全ブロックを単方向
- * フリーリストに連結する。Alloc=head の pop、Free=head への push を 64bit CAS 1 回で行う。
- * ABA 問題は head ポインタ (x64 ユーザ空間 47bit) の上位 17bit に世代タグを埋め込む方式で
- * 回避する (DCAS 不要)。パーティクル・ノード・コンポーネント等の大量確保/解放に向く。
+ * フリーリストに連結する。フリーリストとブロックごとの所有状態を同じ軽量ロックで保護し、
+ * 利用者領域へ公開済みのノードを並行して読まない。パーティクル・ノード・コンポーネント等の
+ * 大量確保/解放に向く。
  */
 class FPoolAllocator final : public FAllocator {
 public:
@@ -58,7 +55,7 @@ public:
     FPoolAllocator& operator=(const FPoolAllocator&) = delete;
 
     /**
-     * フリーリストから 1 ブロックを pop して返す (Treiber スタックの pop)。
+     * フリーリストから 1 ブロックを取り出して返す。
      *
      * @details Size がブロックサイズ超、Alignment がプールの整列超、プール枯渇時は nullptr。返す領域は常に 1 ブロック分。
      * @param Size 要求サイズ (m_BlockSize 以下であること)。
@@ -69,9 +66,9 @@ public:
     void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override;
 
     /**
-     * ブロックをフリーリストへ push して返す (Treiber スタックの push)。
+     * ブロックをフリーリストへ返す。
      *
-     * @details nullptr は no-op。このプール由来でないポインタを渡すと UB (検証は Contains で行う)。
+     * @details nullptr、外部ポインタ、ブロック途中のポインタ、二重解放は安全に拒否する。
      * @param Pointer このプールが払い出したブロック (nullptr 可)。
      */
     void Free(void* Pointer) noexcept override;
@@ -127,18 +124,20 @@ public:
     }
 
     /**
-     * Pointer がこのプールのストレージ範囲内かを判定する。
+     * Pointer がこのプールのブロック先頭かを判定する。
      *
-     * @details Heap フォールバック等との区別に使う。アライメント (= 実ブロック先頭) までは検証しない。
+     * @details Heap フォールバック等との区別に使う。払い出し中かどうかは判定しない。
      * @param Pointer 判定対象のポインタ。
-     * @return プールのストレージ範囲内なら true。
+     * @return プールのいずれかのブロック先頭なら true。
      */
     bool Contains(const void* Pointer) const noexcept
     {
         if (!m_Storage || !Pointer) return false;
-        const u8* const StoragePointer = static_cast<const u8*>(Pointer);
-        const u8* const StorageEnd = m_Storage + m_BlockSize * m_BlockCount;
-        return StoragePointer >= m_Storage && StoragePointer < StorageEnd;
+        const uptr StorageAddress = reinterpret_cast<uptr>(m_Storage);
+        const uptr PointerAddress = reinterpret_cast<uptr>(Pointer);
+        const usize StorageSize = static_cast<usize>(m_BlockSize * m_BlockCount);
+        if (PointerAddress < StorageAddress || PointerAddress - StorageAddress >= StorageSize) return false;
+        return ((PointerAddress - StorageAddress) % m_BlockSize) == 0u;
     }
 
 private:
@@ -148,17 +147,11 @@ private:
         Node* next;
     };
 
-    /** ABA タグ付きポインタ (16B、現状未使用。将来 DCAS へ切り替える際用)。 */
-    struct alignas(16) TaggedPtr {
-        /** フリーブロックへのポインタ。 */
-        Node* ptr;
-
-        /** ABA 検出用の世代タグ。 */
-        u64 tag;
-    };
-
     /** ブロック配列の先頭 (backing から 1 回確保、失敗時 nullptr)。 */
     u8* m_Storage = nullptr;
+
+    /** 各ブロックが払い出し中かを保持する所有状態配列。 */
+    u8* m_AllocationStates = nullptr;
 
     /** 切り上げ済みの 1 ブロックサイズ。 */
     u64 m_BlockSize = 0;
@@ -175,8 +168,11 @@ private:
     /** 現在使用中のブロック数 (統計用)。 */
     TAtomic<u64> m_Live{0};
 
-    /** フリーリスト head と ABA タグを 1 ワードにパックしたもの (上位 17bit=タグ、下位 47bit=ポインタ)。 */
-    TAtomic<u64> m_HeadPacked{0};
+    /** フリーリストの先頭。m_Lock の保護下でのみ読み書きする。 */
+    Node* m_FreeHead = nullptr;
+
+    /** フリーリストと所有状態を一体で保護する。 */
+    FMutex m_Lock;
 };
 
 } // namespace acs

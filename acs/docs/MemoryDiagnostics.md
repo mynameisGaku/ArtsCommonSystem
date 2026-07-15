@@ -43,6 +43,27 @@ debt が毎ラウンド 0 に戻ること、明示作成した HANDLE をすべ�
 連続増加が上限内で停止することを別々に検証する。Winsock provider の遅延初期化 HANDLE は
 総数の完全一致だけではリークと断定しない。
 
+## MSVC Debug CRT
+
+MSVC Debug かつ AddressSanitizer 無効の構成では、`FApplication` の基盤寿命を
+`FCrtDebugHeapScope` で囲み、開始時と終了時の正味増加、ヒープ整合性、CRT 設定の安定性を
+1 行の機械可読ログへ出す。`FCrtDebugHeapDiagnostics::DumpProcessMemoryLeaks()` は実際に
+`_CrtDumpMemoryLeaks` を呼び、`supported`、`inspection_succeeded`、`leak_detected` を
+分離して返す。プロセス全体の検査は、意図的に生存させている static/global allocation も
+対象になり得るため、サブシステムを停止した静止点または隔離プロセスで使う。
+
+Debug の CTest には clean と意図的リークの両経路があり、`_CrtDumpMemoryLeaks` の戻り値を
+直接検証する。
+
+```powershell
+ctest --test-dir acs/engine/cmake-build-debug `
+  -R "ACS.CrtDumpMemoryLeaks(Clean|Positive)" --output-on-failure
+```
+
+API の挙動は Microsoft の
+[`_CrtDumpMemoryLeaks` リファレンス](https://learn.microsoft.com/ja-jp/cpp/c-runtime-library/reference/crtdumpmemoryleaks?view=msvc-170)
+に合わせる。Release、非 MSVC、AddressSanitizer 構成では `unsupported` を記録し、成功とは扱わない。
+
 ## AddressSanitizer
 
 Developer PowerShell から次を実行する。
@@ -74,8 +95,19 @@ Heaps / Handles / Locks / Memory / Leak は Networking と別実行にする。m
 カスタムヒープでは OS heap 検査の対象範囲が限定されるため、CRT debug heap、mimalloc
 独立走査、AddressSanitizer の代替にはしない。
 
+```powershell
+foreach ($Layer in 'Heaps', 'Handles', 'Locks', 'Memory', 'Leak') {
+  powershell -ExecutionPolicy Bypass -File scripts/invoke-application-verifier.ps1 `
+    -ExecutablePath acs/Binaries/acs_unit_tests.exe `
+    -Layers $Layer -RequireAvailable
+}
+```
+
+対象の終了コードが 0 でも XML export が欠落・失敗・解析不能なら、検査結果は
+`inconclusive` としてスクリプト自体を失敗させる。
+
 出力先は既定で次の通り。
 
 - `acs/Saved/Diagnostics/AddressSanitizer`
-- `acs/Saved/Diagnostics/ApplicationVerifier`
+- `acs/Saved/Diagnostics/ApplicationVerifier/<UTC時刻>-<対象>-<レイヤー>-<PID>`
 - `acs/Saved/Diagnostics/Memory`

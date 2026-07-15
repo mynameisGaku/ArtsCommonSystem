@@ -101,14 +101,19 @@ public:
      * 生ポインタから強参照を構築する。
      *
      * @details obj は NewObject 経由で生成され逆ポインタを持つこと。逆ポインタが無い
-     * (制御ブロックが無い) 場合は空のまま構築する。逆ポインタがあれば強参照を +1 する。
+     * (制御ブロックが無い) 場合は空のまま構築する。破棄開始前の対象だけを atomic に
+     * 強参照へ昇格し、strong==0 の対象を復活させない。
      * @param obj 所有する対象 (FObject 継承必須。nullptr 可)。
      */
-    explicit TObjectPtr(T* obj) noexcept {
+    explicit TObjectPtr(T* obj) noexcept
+    {
         static_assert(IsBaseOfV<FObject, T>, "TObjectPtr<T>: T は FObject を継承していること");
         if (obj) {
             sp_detail::ControlBlock* const cb = static_cast<FObject*>(obj)->m_Cb;
-            if (cb) { m_Ptr = obj; m_Cb = cb; m_Cb->AddStrong(); }
+            if (cb && cb->TryAddStrong()) {
+                m_Ptr = obj;
+                m_Cb = cb;
+            }
         }
     }
 
@@ -117,7 +122,13 @@ public:
      *
      * @param o コピー元の強参照。
      */
-    TObjectPtr(const TObjectPtr& o) noexcept : m_Ptr(o.m_Ptr), m_Cb(o.m_Cb) { if (m_Cb) m_Cb->AddStrong(); }
+    TObjectPtr(const TObjectPtr& o) noexcept : m_Ptr(o.m_Ptr), m_Cb(o.m_Cb)
+    {
+        if (m_Cb && !m_Cb->TryAddStrong()) {
+            m_Ptr = nullptr;
+            m_Cb = nullptr;
+        }
+    }
 
     /**
      * ムーブ構築。o の所有を奪い o を空にする (カウントは増減しない)。
@@ -132,7 +143,14 @@ public:
      * @tparam U 元の要素型 (U* が T* へ変換可能であること)。
      * @param o コピー元の強参照。
      */
-    template<typename U> TObjectPtr(const TObjectPtr<U>& o) noexcept : m_Ptr(o.m_Ptr), m_Cb(o.m_Cb) { if (m_Cb) m_Cb->AddStrong(); }
+    template<typename U>
+    TObjectPtr(const TObjectPtr<U>& o) noexcept : m_Ptr(o.m_Ptr), m_Cb(o.m_Cb)
+    {
+        if (m_Cb && !m_Cb->TryAddStrong()) {
+            m_Ptr = nullptr;
+            m_Cb = nullptr;
+        }
+    }
 
     /**
      * 派生 U から基底 T へアップキャストするムーブ構築。
@@ -287,7 +305,7 @@ public:
         static_assert(IsBaseOfV<FObject, T>, "TWeakObjectPtr<T>: T は FObject を継承していること");
         if (obj) {
             sp_detail::ControlBlock* const cb = static_cast<FObject*>(obj)->m_Cb;
-            if (cb) { m_Ptr = obj; m_Cb = cb; m_Cb->AddWeak(); }
+            if (cb && cb->TryAddWeak()) { m_Ptr = obj; m_Cb = cb; }
         }
     }
 
@@ -296,14 +314,26 @@ public:
      *
      * @param s 監視対象を所有している強参照。
      */
-    TWeakObjectPtr(const TObjectPtr<T>& s) noexcept : m_Ptr(s.Get()), m_Cb(s.m_Cb) { if (m_Cb) m_Cb->AddWeak(); }
+    TWeakObjectPtr(const TObjectPtr<T>& s) noexcept : m_Ptr(s.Get()), m_Cb(s.m_Cb)
+    {
+        if (m_Cb && !m_Cb->TryAddWeak()) {
+            m_Ptr = nullptr;
+            m_Cb = nullptr;
+        }
+    }
 
     /**
      * コピー構築。同じ対象を監視し弱参照カウントを +1 する。
      *
      * @param o コピー元の弱参照。
      */
-    TWeakObjectPtr(const TWeakObjectPtr& o) noexcept : m_Ptr(o.m_Ptr), m_Cb(o.m_Cb) { if (m_Cb) m_Cb->AddWeak(); }
+    TWeakObjectPtr(const TWeakObjectPtr& o) noexcept : m_Ptr(o.m_Ptr), m_Cb(o.m_Cb)
+    {
+        if (m_Cb && !m_Cb->TryAddWeak()) {
+            m_Ptr = nullptr;
+            m_Cb = nullptr;
+        }
+    }
 
     /**
      * ムーブ構築。o の監視を奪い o を空にする (カウントは増減しない)。

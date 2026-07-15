@@ -35,13 +35,13 @@ namespace acs {
  *
  * @details index = スロット番号、gen = そのスロットの世代。スロットが解放/再利用されると
  * 世代が進み、古い (gen 不一致) ハンドルは無効と判定される (use-after-free を安全に検出)。
- * 8 バイトで値渡し可能。
+ * 世代は 64bit とし、長時間の高 churn でも旧ハンドルが現実的に再一致しない。
  */
 struct FObjectHandle {
     static constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 
     u32 index = kInvalidIndex; /**< スロット番号 (未設定は kInvalidIndex)。 */
-    u32 gen = 0;               /**< スロットの世代 (確保/解放で進む)。 */
+    u64 gen = 0;               /**< スロットの世代 (確保/解放で進む)。 */
 
     /** 何らかのスロットを指していれば true (生存判定ではない)。 */
     bool IsSet() const noexcept
@@ -96,20 +96,28 @@ public:
     template<class... Args>
     Handle Create(Args&&... Arguments) noexcept
     {
-        u32 SlotIndex;
+        u32 SlotIndex = Handle::kInvalidIndex;
+        bool bReusedSlot = false;
         if (m_Free.Size() > 0) {
             SlotIndex = m_Free[m_Free.Size() - 1];
             m_Free.PopBack();
+            bReusedSlot = true;
         } else {
+            if (m_SlotCount >= Handle::kInvalidIndex) return {};
             SlotIndex = static_cast<u32>(m_SlotCount);
             if (!EnsureChunkFor(SlotIndex)) return {};
-            ++m_SlotCount;
         }
+
+        if (!m_Live.TryPushBack(SlotIndex)) {
+            if (bReusedSlot) m_Free.PushBack(SlotIndex);
+            return {};
+        }
+
         Slot& PoolSlot = SlotRef(SlotIndex);
-        PoolSlot.alive = true;
-        PoolSlot.liveIdx = static_cast<u32>(m_Live.Size());
-        m_Live.PushBack(SlotIndex);
+        PoolSlot.liveIdx = static_cast<u32>(m_Live.Size() - 1u);
         ::new (static_cast<void*>(PoolSlot.storage)) T(Forward<Args>(Arguments)...);
+        PoolSlot.alive = true;
+        if (!bReusedSlot) ++m_SlotCount;
         return Handle{SlotIndex, PoolSlot.gen};
     }
 
@@ -125,6 +133,8 @@ public:
     {
         Slot* PoolSlot = Resolve(ObjectHandle);
         if (PoolSlot == nullptr) return false;
+        if (!m_Free.TryReserve(m_Free.Size() + 1u)) return false;
+
         reinterpret_cast<T*>(PoolSlot->storage)->~T();
         PoolSlot->alive = false;
         PoolSlot->gen = AdvanceGeneration(PoolSlot->gen);    // 世代を進める → 既存ハンドルは無効に
@@ -178,6 +188,16 @@ public:
     /** 全生存オブジェクトを破棄する (チャンクは保持。再利用可能)。 */
     void Clear() noexcept
     {
+        ACS_CHECKF(TryClear(), "TObjectPool::Clear failed to reserve free-list storage");
+    }
+
+    /** 全生存オブジェクトの破棄を試み、管理領域の確保失敗時は何も変更しない。 */
+    bool TryClear() noexcept
+    {
+        if (m_Live.Size() > (~usize(0)) - m_Free.Size() ||
+            !m_Free.TryReserve(m_Free.Size() + m_Live.Size())) {
+            return false;
+        }
         for (usize i = 0; i < m_Live.Size(); ++i) {
             const u32 SlotIndex = m_Live[i];
             Slot& PoolSlot = SlotRef(SlotIndex);
@@ -187,6 +207,7 @@ public:
             m_Free.PushBack(SlotIndex);
         }
         m_Live.Clear();
+        return true;
     }
 
     /**
@@ -199,9 +220,9 @@ public:
     {
         // 全スロットの現在世代より先を次チャンクの初期世代にする。単純な seed + 1 では、
         // 同じスロットが複数回再利用済みのときに過去ハンドルと早期一致し得る。
-        u32 LatestGeneration = m_GenerationSeed;
+        u64 LatestGeneration = m_GenerationSeed;
         for (usize SlotIndex = 0; SlotIndex < m_SlotCount; ++SlotIndex) {
-            const u32 Generation = SlotRef(static_cast<u32>(SlotIndex)).gen;
+            const u64 Generation = SlotRef(static_cast<u32>(SlotIndex)).gen;
             if (Generation > LatestGeneration) LatestGeneration = Generation;
         }
         m_GenerationSeed = AdvanceGeneration(LatestGeneration);
@@ -223,7 +244,7 @@ public:
 
 private:
     struct Slot {
-        u32 gen = 0;
+        u64 gen = 0;
         u32 liveIdx = 0;
         bool alive = false;
         alignas(T) unsigned char storage[sizeof(T)];
@@ -233,7 +254,7 @@ private:
     };
 
     /** 世代を 1 つ進め、wrap 後は初期世代との即時一致を避けるため 0 を飛ばす。 */
-    static u32 AdvanceGeneration(u32 Generation) noexcept
+    static u64 AdvanceGeneration(u64 Generation) noexcept
     {
         ++Generation;
         if (Generation == 0u) ++Generation;
@@ -248,7 +269,10 @@ private:
             if (NewChunk == nullptr) return false;
             for (u32 i = 0; i < kChunkSize; ++i)
                 NewChunk->slots[i].gen = m_GenerationSeed;
-            m_Chunks.PushBack(NewChunk);
+            if (!m_Chunks.TryPushBack(NewChunk)) {
+                Delete(*m_Alloc, NewChunk);
+                return false;
+            }
         }
         return true;
     }
@@ -285,7 +309,7 @@ private:
     TArray<u32> m_Free;       /**< 再利用可能なスロット番号。 */
     TArray<u32> m_Live;       /**< 生存スロット番号の密な配列 (反復用)。 */
     usize m_SlotCount = 0;    /**< これまでに確保したスロット総数。 */
-    u32 m_GenerationSeed = 0; /**< ReleaseStorage 後の旧ハンドル復活を防ぐ初期世代。 */
+    u64 m_GenerationSeed = 0; /**< ReleaseStorage 後の旧ハンドル復活を防ぐ初期世代。 */
 };
 
 /**

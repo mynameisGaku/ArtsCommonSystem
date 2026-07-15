@@ -2,12 +2,11 @@
 // ACS Threading — メモリ順序タグとバリア
 //
 // std::memory_order の代替。呼び出し側のコードを std と同じ語彙で書けるよう
-// にしつつ、実装は MSVC の _Interlocked* + サフィックス付き組み込み
-// (_acq / _rel / _nf) を直接使う。
+// にしつつ、実装は MSVC の _Interlocked* と明示的なハードウェアフェンスを使う。
 //
 // 注意: x64 では各 _Interlocked* は完全バリア相当。EMemoryOrder の指定は
-// 主にコンパイラ最適化への抑制ヒントとして機能する。ARM64 ではサフィックス
-// 付きを使い分けて余計な dmb 命令を省く。
+// 主にコンパイラ最適化への抑制ヒントとして機能する。ARM64 では弱いメモリ順序を
+// 補うため、acquire / release の位置に dmb を発行する。
 #pragma once
 
 #include "foundation/Compiler.h"
@@ -63,11 +62,12 @@ ACS_FORCEINLINE void CompilerBarrier() noexcept {
  * 全 RMW 操作を確実に順序付けたい場合に使う。x64 では mfence、ARM64 では
  * dmb ish (Inner Shareable) を発行する。
  */
-ACS_FORCEINLINE void HardwareFence() noexcept {
+ACS_FORCEINLINE void HardwareFence() noexcept
+{
 #if ACS_ARCH_X64
     _mm_mfence();
 #elif ACS_ARCH_ARM64
-    __dmb(0xB); // ISH (Inner Shareable)
+    __dmb(_ARM64_BARRIER_ISH);
 #endif
 }
 

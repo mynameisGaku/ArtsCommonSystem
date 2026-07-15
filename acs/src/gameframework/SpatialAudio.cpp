@@ -87,12 +87,14 @@ TResult<void> HrtfRendererStub::Init() noexcept {
     // 真の HRTF (KEMAR 256-tap convolution) は外部 IR データを要するため
     // seam として保留。本 stub は constant-power パン + 距離減衰を実数学で行う。
     // 一度きりログで「HRTF off (panning は実装済)」を明示。
-    static bool s_logged = false;
-    if (!s_logged) {
-        s_logged = true;
+    // C++ のローカル static 初期化保証を使い、並行 Init でもログを一度だけ出す。
+    static const bool bLogged = []() noexcept
+    {
         ACS_LOG_INFO("HrtfRendererStub::Init: HRTF binaural disabled (seam), "
                      "using real constant-power stereo panning + distance attenuation");
-    }
+        return true;
+    }();
+    (void)bLogged;
     return Ok();
 }
 

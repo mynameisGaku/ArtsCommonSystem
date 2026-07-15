@@ -32,6 +32,7 @@
 #include "gameframework/OpenXrBridge.h"
 
 #include "foundation/Error.h"
+#include "threading/Atomic.h"
 
 namespace acs::game {
 
@@ -65,17 +66,20 @@ IOpenXrBridge& GetXrStub() noexcept {
 
 namespace {
     /** 登録済みの既定 bridge provider (未登録なら nullptr = stub に縮退)。 */
-    OpenXrBridgeProvider g_OpenXrBridgeProvider = nullptr;
+    TAtomic<OpenXrBridgeProvider> g_OpenXrBridgeProvider{nullptr};
 } // namespace
 
 /** 既定 bridge provider を後勝ちで登録する。 */
-void SetOpenXrBridgeProvider(OpenXrBridgeProvider provider) noexcept {
-    g_OpenXrBridgeProvider = provider;
+void SetOpenXrBridgeProvider(OpenXrBridgeProvider Provider) noexcept
+{
+    g_OpenXrBridgeProvider.Store(Provider, EMemoryOrder::Release);
 }
 
 /** provider 登録済みならその実 bridge、未登録なら stub を返す。 */
-IOpenXrBridge& GetDefaultOpenXrBridge() noexcept {
-    return g_OpenXrBridgeProvider ? g_OpenXrBridgeProvider() : GetXrStub();
+IOpenXrBridge& GetDefaultOpenXrBridge() noexcept
+{
+    const OpenXrBridgeProvider Provider = g_OpenXrBridgeProvider.Load(EMemoryOrder::Acquire);
+    return Provider ? Provider() : GetXrStub();
 }
 
 } // namespace acs::game

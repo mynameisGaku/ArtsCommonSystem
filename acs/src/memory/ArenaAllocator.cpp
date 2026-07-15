@@ -15,7 +15,7 @@ namespace acs {
 namespace {
 
 /** arena が直接保証する最大アライメント。Windows の仮想メモリ割り当て粒度に合わせる。 */
-constexpr usize kMaximumArenaAlignment = 64u * 1024u;
+constexpr usize kMaximumArenaAlignment = usize{64u} * 1024u;
 
 /** 短い待機は CPU ヒント、長引いた場合はスケジューラへ実行権を譲る。 */
 void WaitForArenaOperation(u32& SpinCount) noexcept
@@ -132,6 +132,28 @@ void* FArenaAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*
         // ロック取得中に他スレッドが既に Grow している可能性をチェック
         Page* CurrentPageAfterLock = m_Current.Load(EMemoryOrder::Acquire);
         if (CurrentPageAfterLock != CurrentPage) continue;
+
+        // Reset(false) 後に未使用へ戻った既存ページを先に再公開する。
+        // 保持済みページが使える限り backing から追加確保してはならない。
+        for (Page* CandidatePage = m_Pages; CandidatePage; CandidatePage = CandidatePage->next) {
+            if (CandidatePage == CurrentPageAfterLock) continue;
+
+            const u64 CandidateUsed = CandidatePage->used.Load(EMemoryOrder::Acquire);
+            const u64 CandidateBaseAddress = reinterpret_cast<u64>(CandidatePage->base);
+            if (CandidateUsed > (~u64(0)) - CandidateBaseAddress ||
+                CandidateBaseAddress + CandidateUsed > (~u64(0)) - (Alignment - 1u)) {
+                continue;
+            }
+
+            const u64 CandidateOffset = AlignUp(CandidateBaseAddress + CandidateUsed, Alignment) -
+                                        CandidateBaseAddress;
+            if (CandidateOffset <= CandidatePage->size && Size <= CandidatePage->size - CandidateOffset) {
+                m_Current.Store(CandidatePage, EMemoryOrder::Release);
+                break;
+            }
+        }
+        if (m_Current.Load(EMemoryOrder::Acquire) != CurrentPageAfterLock) continue;
+
         // 要求サイズが m_PageSize より大きければ専用ページを作る
         const usize NewPageSize = MinimumPageSize > m_PageSize ? MinimumPageSize : m_PageSize;
         Page* NewPage = AllocPage(NewPageSize);
@@ -146,6 +168,53 @@ void* FArenaAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*
 void FArenaAllocator::Free(void* /*Pointer*/) noexcept
 {
     // 個別解放はサポートしない（Reset で全体破棄）
+}
+
+bool FArenaAllocator::ContainsCurrentAllocationRange(const void* Pointer, usize Size) noexcept
+{
+    if (!Pointer || Size == 0u)
+    {
+        return false;
+    }
+
+    const uptr RangeBegin = reinterpret_cast<uptr>(Pointer);
+    if (RangeBegin > (~uptr{0}) - Size)
+    {
+        return false;
+    }
+    const uptr RangeEnd = RangeBegin + Size;
+
+    if (!TryBeginAllocation())
+    {
+        return false;
+    }
+
+    struct ActiveOperationScope
+    {
+        FArenaAllocator* Allocator = nullptr;
+
+        ~ActiveOperationScope() noexcept
+        {
+            Allocator->EndAllocation();
+        }
+    } OperationScope{this};
+
+    FScopedLock ScopedGrowLock(m_GrowLock);
+    for (Page* CurrentPage = m_Pages; CurrentPage; CurrentPage = CurrentPage->next)
+    {
+        const uptr PageBegin = reinterpret_cast<uptr>(CurrentPage->base);
+        const u64 UsedBytes = CurrentPage->used.Load(EMemoryOrder::Acquire);
+        if (UsedBytes > static_cast<u64>(~uptr{0} - PageBegin))
+        {
+            continue;
+        }
+        const uptr PageEnd = PageBegin + static_cast<uptr>(UsedBytes);
+        if (RangeBegin >= PageBegin && RangeEnd <= PageEnd)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 // 巻き戻し or 全解放

@@ -55,6 +55,25 @@ struct ConcurrentProcessConfigurationEndContext {
     HANDLE start_event = nullptr;
 };
 
+struct ConcurrentHeapCheckContext {
+    HANDLE StartEvent = nullptr;
+    volatile LONG* FailureCount = nullptr;
+};
+
+DWORD WINAPI RunConcurrentHeapChecks(void* OpaqueContext)
+{
+    auto* const Context = static_cast<ConcurrentHeapCheckContext*>(OpaqueContext);
+    if (!Context || !Context->StartEvent || !Context->FailureCount) return 1u;
+    if (::WaitForSingleObject(Context->StartEvent, 5000u) != WAIT_OBJECT_0) return 2u;
+
+    for (usize Iteration = 0u; Iteration < 200u; ++Iteration) {
+        if (!FCrtDebugHeapDiagnostics::CheckHeapIntegrity()) {
+            (void)::InterlockedIncrement(Context->FailureCount);
+        }
+    }
+    return 0u;
+}
+
 DWORD WINAPI EndProcessConfigurationOnWorker(void* opaque_context)
 {
     auto* context = static_cast<ConcurrentProcessConfigurationEndContext*>(opaque_context);
@@ -80,6 +99,42 @@ ACS_TEST(CrtDebugHeapDiagnostics, ReportsBuildSupport)
     EXPECT_FALSE(FCrtDebugHeapDiagnostics::IsSupported());
 #endif
     EXPECT_TRUE(FCrtDebugHeapDiagnostics::CheckHeapIntegrity());
+}
+
+ACS_TEST(CrtDebugHeapDiagnostics, ConcurrentHeapChecksAreSerializedSafely)
+{
+#if ACS_TEST_CRT_DEBUG_HEAP_AVAILABLE
+    constexpr usize kThreadCount = 8u;
+    HANDLE StartEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    HANDLE Workers[kThreadCount] = {};
+    ConcurrentHeapCheckContext Contexts[kThreadCount] = {};
+    volatile LONG FailureCount = 0;
+
+    EXPECT_TRUE(StartEvent != nullptr);
+    for (usize Index = 0u; Index < kThreadCount; ++Index) {
+        Contexts[Index].StartEvent = StartEvent;
+        Contexts[Index].FailureCount = &FailureCount;
+        Workers[Index] = StartEvent
+            ? ::CreateThread(nullptr, 0u, RunConcurrentHeapChecks, &Contexts[Index], 0u, nullptr)
+            : nullptr;
+        EXPECT_TRUE(Workers[Index] != nullptr);
+    }
+
+    if (StartEvent) (void)::SetEvent(StartEvent);
+    for (HANDLE Worker : Workers) {
+        if (!Worker) continue;
+        const DWORD WaitResult = ::WaitForSingleObject(Worker, 30000u);
+        DWORD ExitCode = 3u;
+        if (WaitResult == WAIT_OBJECT_0) (void)::GetExitCodeThread(Worker, &ExitCode);
+        EXPECT_EQ(WaitResult, WAIT_OBJECT_0);
+        EXPECT_EQ(ExitCode, 0u);
+        (void)::CloseHandle(Worker);
+    }
+    if (StartEvent) (void)::CloseHandle(StartEvent);
+    EXPECT_EQ(::InterlockedCompareExchange(&FailureCount, 0, 0), 0l);
+#else
+    EXPECT_TRUE(true);
+#endif
 }
 
 ACS_TEST(CrtDebugHeapDiagnostics, ScopeRejectsMultipleBeginsAndCanBeReused)

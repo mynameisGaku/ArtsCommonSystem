@@ -61,12 +61,6 @@ struct ControlBlock {
     /** ブロック全体を解放する関数 (型消去された解放フック)。 */
     void (*free_self)  (ControlBlock*) noexcept = nullptr;
 
-    /** 強参照カウントを 1 増やす。 */
-    void AddStrong() noexcept { strong.FetchAdd(1); }
-
-    /** 弱参照カウントを 1 増やす。 */
-    void AddWeak()   noexcept { weak.FetchAdd(1); }
-
     /**
      * 強参照カウントを 1 減らし、0 になったら T を破棄する。
      *
@@ -99,7 +93,19 @@ struct ControlBlock {
     bool TryAddStrong() noexcept {
         u32 s = strong.Load(EMemoryOrder::Acquire);
         while (s != 0) {
+            if (s == ~u32(0)) return false;
             if (strong.CompareExchange(s, s + 1)) return true;  // 失敗時 s は実値に更新される
+        }
+        return false;
+    }
+
+    /** 弱参照カウントを wrap させずに 1 増やす。 */
+    bool TryAddWeak() noexcept
+    {
+        u32 Count = weak.Load(EMemoryOrder::Acquire);
+        while (Count != 0u) {
+            if (Count == ~u32(0)) return false;
+            if (weak.CompareExchange(Count, Count + 1u)) return true;
         }
         return false;
     }
@@ -193,7 +199,10 @@ public:
      * @param o コピー元の共有ポインタ。
      */
     TSharedPtr(const TSharedPtr& o) noexcept : m_Ptr(o.m_Ptr), m_Cb(o.m_Cb) {
-        if (m_Cb) m_Cb->AddStrong();
+        if (m_Cb && !m_Cb->TryAddStrong()) {
+            m_Ptr = nullptr;
+            m_Cb = nullptr;
+        }
     }
 
     /**
@@ -214,7 +223,10 @@ public:
      */
     template<typename U>
     TSharedPtr(const TSharedPtr<U>& o) noexcept : m_Ptr(o.m_Ptr), m_Cb(o.m_Cb) {
-        if (m_Cb) m_Cb->AddStrong();
+        if (m_Cb && !m_Cb->TryAddStrong()) {
+            m_Ptr = nullptr;
+            m_Cb = nullptr;
+        }
     }
 
     /**
@@ -356,7 +368,10 @@ public:
      * @param s 監視対象を共有しているポインタ。
      */
     TWeakPtr(const TSharedPtr<T>& s) noexcept : m_Ptr(s.m_Ptr), m_Cb(s.m_Cb) {
-        if (m_Cb) m_Cb->AddWeak();
+        if (m_Cb && !m_Cb->TryAddWeak()) {
+            m_Ptr = nullptr;
+            m_Cb = nullptr;
+        }
     }
 
     /**
@@ -365,7 +380,10 @@ public:
      * @param o コピー元の弱参照。
      */
     TWeakPtr(const TWeakPtr& o) noexcept : m_Ptr(o.m_Ptr), m_Cb(o.m_Cb) {
-        if (m_Cb) m_Cb->AddWeak();
+        if (m_Cb && !m_Cb->TryAddWeak()) {
+            m_Ptr = nullptr;
+            m_Cb = nullptr;
+        }
     }
 
     /**
@@ -385,7 +403,10 @@ public:
      */
     template<typename U>
     TWeakPtr(const TSharedPtr<U>& s) noexcept : m_Ptr(s.m_Ptr), m_Cb(s.m_Cb) {
-        if (m_Cb) m_Cb->AddWeak();
+        if (m_Cb && !m_Cb->TryAddWeak()) {
+            m_Ptr = nullptr;
+            m_Cb = nullptr;
+        }
     }
 
     /**
@@ -396,7 +417,10 @@ public:
      */
     template<typename U>
     TWeakPtr(const TWeakPtr<U>& o) noexcept : m_Ptr(o.m_Ptr), m_Cb(o.m_Cb) {
-        if (m_Cb) m_Cb->AddWeak();
+        if (m_Cb && !m_Cb->TryAddWeak()) {
+            m_Ptr = nullptr;
+            m_Cb = nullptr;
+        }
     }
 
     /**

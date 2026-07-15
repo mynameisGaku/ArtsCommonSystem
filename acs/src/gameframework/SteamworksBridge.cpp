@@ -19,6 +19,7 @@
 #include "gameframework/SteamworksBridge.h"
 
 #include "foundation/Error.h"
+#include "threading/Atomic.h"
 
 namespace acs::game {
 
@@ -255,18 +256,20 @@ SteamworksBridgeStub& SteamworksBridgeStub::GetStub() noexcept {
 
 namespace {
 /** 登録済みの既定 Bridge provider (nullptr なら Stub を使う)。 */
-SteamworksBridgeProvider g_SteamworksBridgeProvider = nullptr;
+TAtomic<SteamworksBridgeProvider> g_SteamworksBridgeProvider{nullptr};
 }
 
 /** 既定 Bridge provider を差し替える (nullptr で Stub に戻す。後勝ち)。 */
-void SetSteamworksBridgeProvider(SteamworksBridgeProvider provider) noexcept {
-    g_SteamworksBridgeProvider = provider;
+void SetSteamworksBridgeProvider(SteamworksBridgeProvider Provider) noexcept
+{
+    g_SteamworksBridgeProvider.Store(Provider, EMemoryOrder::Release);
 }
 
 /** provider 登録済みならその実 Bridge を、未登録なら Stub singleton を返す。 */
-ISteamworksBridge& GetDefaultSteamworksBridge() noexcept {
-    return g_SteamworksBridgeProvider ? g_SteamworksBridgeProvider()
-                                      : SteamworksBridgeStub::GetStub();
+ISteamworksBridge& GetDefaultSteamworksBridge() noexcept
+{
+    const SteamworksBridgeProvider Provider = g_SteamworksBridgeProvider.Load(EMemoryOrder::Acquire);
+    return Provider ? Provider() : SteamworksBridgeStub::GetStub();
 }
 
 } // namespace acs::game

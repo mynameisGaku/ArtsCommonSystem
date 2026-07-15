@@ -158,6 +158,15 @@ inline constexpr usize kAcpakHeaderDiskSize = 36;
  */
 inline constexpr usize kAcpakCipherFieldsDiskSize = 12u + 16u;
 
+/** 1 つの pak に格納できる entry 数の防御的上限。 */
+inline constexpr u32 kAcpakMaxFileCount = 1024u * 1024u;
+
+/** 仮想パス 1 件の UTF-16 コード単位数上限 (NUL は含まない)。 */
+inline constexpr u32 kAcpakMaxPathLength = 4096u;
+
+/** Reader が 1 pak の仮想パス保持に使える最大バイト数。 */
+inline constexpr usize kAcpakMaxPathPoolBytes = 256u * 1024u * 1024u;
+
 static_assert(sizeof(u8) == 1 && sizeof(u32) == 4 && sizeof(u64) == 8,
               "Fixed-width integer types broken");
 static_assert(sizeof(((FAcpakHeader*)0)->magic) == 8,

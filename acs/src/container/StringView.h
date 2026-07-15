@@ -84,7 +84,7 @@ public:
      */
     constexpr FStringView SubView(usize offset, usize count) const noexcept {
         ACS_ASSERT(offset <= m_Size && count <= m_Size - offset);  // 加算ラップしない形で範囲検査
-        return FStringView(m_Data + offset, count);
+        return FStringView(offset == 0u ? m_Data : m_Data + offset, count);
     }
 
     /**
@@ -99,7 +99,7 @@ public:
      *
      * @return 末尾の次を指すポインタ。
      */
-    constexpr const char* end()   const noexcept { return m_Data + m_Size; }
+    constexpr const char* end()   const noexcept { return m_Size == 0u ? m_Data : m_Data + m_Size; }
 
     /**
      * バイト単位で完全一致するかを返す。

@@ -108,8 +108,20 @@ public:
      * @param new_capacity 確保する最小容量。
      */
     void Reserve(usize new_capacity) noexcept {
-        if (new_capacity <= m_Capacity) return;
-        Grow(new_capacity);
+        ACS_CHECKF(TryReserve(new_capacity), "TArray::Reserve failed (cap=%zu, T=%zu)",
+                   new_capacity, sizeof(T));
+    }
+
+    /**
+     * 容量予約を試み、失敗時も元の配列を変更しない。
+     *
+     * @param NewCapacity 確保する最小容量。
+     * @return 予約済みまたは予約成功なら true、サイズoverflow/OOMなら false。
+     */
+    bool TryReserve(usize NewCapacity) noexcept
+    {
+        if (NewCapacity <= m_Capacity) return true;
+        return Grow(NewCapacity);
     }
 
     /**
@@ -120,19 +132,35 @@ public:
      * @param new_size 変更後の要素数。
      */
     void Resize(usize new_size) noexcept {
-        if (new_size > m_Capacity) Grow(NextGrow(new_size));
-        if (new_size > m_Size) {
+        ACS_CHECKF(TryResize(new_size), "TArray::Resize failed (size=%zu, T=%zu)",
+                   new_size, sizeof(T));
+    }
+
+    /**
+     * サイズ変更を試み、拡張用確保に失敗した場合は元の配列を変更しない。
+     *
+     * @param NewSize 変更後の要素数。
+     * @return 成功なら true、サイズoverflow/OOMなら false。
+     */
+    bool TryResize(usize NewSize) noexcept
+    {
+        if (NewSize > m_Capacity) {
+            usize NewCapacity = 0u;
+            if (!TryCalculateNextGrowth(NewSize, NewCapacity) || !Grow(NewCapacity)) return false;
+        }
+        if (NewSize > m_Size) {
             if constexpr (IsTriviallyConstructibleV<T>) {
-                MemSet(static_cast<void*>(m_Data + m_Size), 0, sizeof(T) * (new_size - m_Size));
+                MemSet(static_cast<void*>(m_Data + m_Size), 0, sizeof(T) * (NewSize - m_Size));
             } else {
-                for (usize i = m_Size; i < new_size; ++i) ::new (&m_Data[i]) T();
+                for (usize i = m_Size; i < NewSize; ++i) ::new (&m_Data[i]) T();
             }
-        } else if (new_size < m_Size) {
+        } else if (NewSize < m_Size) {
             if constexpr (!IsTriviallyDestructibleV<T>) {
-                for (usize i = new_size; i < m_Size; ++i) m_Data[i].~T();
+                for (usize i = NewSize; i < m_Size; ++i) m_Data[i].~T();
             }
         }
-        m_Size = new_size;
+        m_Size = NewSize;
+        return true;
     }
 
     /** サイズを 0 にする (全要素をデストラクトするが容量は保持)。 */
@@ -160,7 +188,7 @@ public:
     /** 余剰容量を解放してサイズちょうどに縮める。 */
     void ShrinkToFit() noexcept {
         if (m_Size == m_Capacity) return;
-        Grow(m_Size);
+        (void)Grow(m_Size);
     }
 
     /**
@@ -239,7 +267,7 @@ public:
      *
      * @return 末尾の次を指すポインタ。
      */
-    T*       end()         noexcept { return m_Data + m_Size; }
+    T*       end()         noexcept { return m_Size == 0u ? m_Data : m_Data + m_Size; }
 
     /**
      * 先頭 const イテレータを返す。
@@ -253,7 +281,7 @@ public:
      *
      * @return 末尾の次を指す const ポインタ。
      */
-    const T* end()   const noexcept { return m_Data + m_Size; }
+    const T* end()   const noexcept { return m_Size == 0u ? m_Data : m_Data + m_Size; }
 
     /**
      * 全要素を指す TSpan ビューを返す。
@@ -276,9 +304,16 @@ public:
      * @param v 追加する値 (コピーされる)。
      */
     void PushBack(const T& v) noexcept {
-        if (m_Size == m_Capacity) Grow(NextGrow(m_Size + 1));
-        ::new (&m_Data[m_Size]) T(v);
+        ACS_CHECKF(TryPushBack(v), "TArray::PushBack failed (size=%zu, T=%zu)", m_Size, sizeof(T));
+    }
+
+    /** コピー追加を試み、失敗時は配列を変更しない。 */
+    bool TryPushBack(const T& Value) noexcept
+    {
+        if (!EnsureCapacityForOneMore()) return false;
+        ::new (&m_Data[m_Size]) T(Value);
         ++m_Size;
+        return true;
     }
 
     /**
@@ -288,9 +323,16 @@ public:
      * @param v 追加する値 (ムーブされる)。
      */
     void PushBack(T&& v) noexcept {
-        if (m_Size == m_Capacity) Grow(NextGrow(m_Size + 1));
-        ::new (&m_Data[m_Size]) T(Move(v));
+        ACS_CHECKF(TryPushBack(Move(v)), "TArray::PushBack failed (size=%zu, T=%zu)", m_Size, sizeof(T));
+    }
+
+    /** ムーブ追加を試み、失敗時は配列と引数を変更しない。 */
+    bool TryPushBack(T&& Value) noexcept
+    {
+        if (!EnsureCapacityForOneMore()) return false;
+        ::new (&m_Data[m_Size]) T(Move(Value));
         ++m_Size;
+        return true;
     }
 
     /**
@@ -303,9 +345,18 @@ public:
      */
     template<typename... Args>
     T& EmplaceBack(Args&&... args) noexcept {
-        if (m_Size == m_Capacity) Grow(NextGrow(m_Size + 1));
-        ::new (&m_Data[m_Size]) T(Forward<Args>(args)...);
-        return m_Data[m_Size++];
+        T* const Element = TryEmplaceBack(Forward<Args>(args)...);
+        ACS_CHECKF(Element != nullptr, "TArray::EmplaceBack failed (size=%zu, T=%zu)", m_Size, sizeof(T));
+        return *Element;
+    }
+
+    /** 末尾へのその場構築を試み、失敗時は nullptr を返す。 */
+    template<typename... Args>
+    T* TryEmplaceBack(Args&&... Arguments) noexcept
+    {
+        if (!EnsureCapacityForOneMore()) return nullptr;
+        ::new (&m_Data[m_Size]) T(Forward<Args>(Arguments)...);
+        return &m_Data[m_Size++];
     }
 
     /**
@@ -364,10 +415,28 @@ private:
      * @param required 最低限必要な要素数。
      * @return required 以上の新容量。
      */
-    static usize NextGrow(usize required) noexcept {
-        usize n = 8;
-        while (n < required) n += n / 2 + 1;
-        return n;
+    static bool TryCalculateNextGrowth(usize Required, usize& Capacity) noexcept
+    {
+        Capacity = 8u;
+        while (Capacity < Required) {
+            const usize Increment = Capacity / 2u + 1u;
+            if (Capacity > (~usize(0)) - Increment) {
+                Capacity = Required;
+                break;
+            }
+            Capacity += Increment;
+        }
+        return Capacity >= Required;
+    }
+
+    /** 末尾 1 要素分の容量を、失敗時に状態を変えず確保する。 */
+    bool EnsureCapacityForOneMore() noexcept
+    {
+        if (m_Size < m_Capacity) return true;
+        if (m_Size == ~usize(0)) return false;
+
+        usize NewCapacity = 0u;
+        return TryCalculateNextGrowth(m_Size + 1u, NewCapacity) && Grow(NewCapacity);
     }
 
     /**
@@ -377,13 +446,17 @@ private:
      * 検出する。trivial 型はバルクコピー、そうでなければムーブ構築 + 旧要素の破棄を行う。
      * @param new_capacity 新しい容量。
      */
-    void Grow(usize new_capacity) noexcept {
+    bool Grow(usize new_capacity) noexcept {
+        if (new_capacity == m_Capacity) return true;
+        if (new_capacity < m_Size) return false;
+        if (new_capacity == 0u) {
+            Free();
+            return true;
+        }
         // sizeof(T) * new_capacity の乗算ラップを防ぐ（過小確保 → バッファ外書き込み防止）
-        ACS_ASSERTF(new_capacity == 0 || new_capacity <= (~usize(0)) / sizeof(T),
-                    "TArray::Grow: size overflow (cap=%zu)", new_capacity);
+        if (new_capacity > (~usize(0)) / sizeof(T)) return false;
         T* new_data = static_cast<T*>(m_Alloc->Alloc(sizeof(T) * new_capacity, alignof(T), FSourceLoc::Current()));
-        ACS_ASSERTF(new_data != nullptr, "TArray::Grow: allocator returned null (cap=%zu, T=%zu)",
-                    new_capacity, sizeof(T));
+        if (!new_data) return false;
         if (m_Data) {
             if constexpr (IsTriviallyCopyableV<T>) {
                 MemCopy(new_data, m_Data, sizeof(T) * m_Size);  // POD はバルクコピー
@@ -397,6 +470,7 @@ private:
         }
         m_Data = new_data;
         m_Capacity = new_capacity;
+        return true;
     }
 
     /** 内部バッファを解放してポインタ・容量をリセットする。 */

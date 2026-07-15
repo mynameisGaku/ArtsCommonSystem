@@ -36,6 +36,20 @@ struct Obj : FObject {
     ~Obj() noexcept override { --g_live; }
 };
 
+struct ResurrectionProbe : FObject {
+    TObjectPtr<ResurrectionProbe>* Destination = nullptr;
+
+    explicit ResurrectionProbe(TObjectPtr<ResurrectionProbe>* InDestination) noexcept
+        : Destination(InDestination)
+    {
+    }
+
+    ~ResurrectionProbe() noexcept override
+    {
+        *Destination = TObjectPtr<ResurrectionProbe>(this);
+    }
+};
+
 } // namespace
 
 ACS_TEST(SmartPtr, UniqueDefaultResetCapturesAllocator)
@@ -194,4 +208,27 @@ ACS_TEST(SmartPtr, WeakObjectFromRawPointer) {
     auto pinned = w.Pin();                        // 生きていれば強参照に昇格
     EXPECT_TRUE(pinned.IsValid());
     EXPECT_EQ(o.UseCount(), (u32)2);              // o + pinned
+}
+
+ACS_TEST(SmartPtr, RawObjectPointerCannotResurrectDestroyingObject)
+{
+    TObjectPtr<ResurrectionProbe> Resurrected;
+    TObjectPtr<ResurrectionProbe> Owner = NewObject<ResurrectionProbe>(&Resurrected);
+    EXPECT_TRUE(Owner.IsValid());
+
+    Owner.Reset();
+
+    EXPECT_FALSE(Resurrected.IsValid());
+}
+
+ACS_TEST(SmartPtr, ReferenceCountsRejectOverflowWithoutWrapping)
+{
+    sp_detail::ControlBlock Control;
+    Control.strong.Store(~u32(0), EMemoryOrder::Release);
+    Control.weak.Store(~u32(0), EMemoryOrder::Release);
+
+    EXPECT_FALSE(Control.TryAddStrong());
+    EXPECT_FALSE(Control.TryAddWeak());
+    EXPECT_EQ(Control.strong.Load(EMemoryOrder::Acquire), ~u32(0));
+    EXPECT_EQ(Control.weak.Load(EMemoryOrder::Acquire), ~u32(0));
 }

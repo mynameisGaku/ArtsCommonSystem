@@ -36,6 +36,7 @@
 #include "gameframework/CrashReporter.h"
 
 #include "foundation/Error.h"
+#include "threading/Atomic.h"
 
 namespace acs::game {
 
@@ -99,17 +100,20 @@ ICrashReporterBackend& GetCrashStub() noexcept {
 
 namespace {
 /** 登録済みの既定 backend provider (未登録なら nullptr)。 */
-CrashReporterProvider g_CrashReporterProvider = nullptr;
+TAtomic<CrashReporterProvider> g_CrashReporterProvider{nullptr};
 }
 
 /** 既定 backend provider を差し替える (後勝ち)。 */
-void SetCrashReporterProvider(CrashReporterProvider provider) noexcept {
-    g_CrashReporterProvider = provider;
+void SetCrashReporterProvider(CrashReporterProvider Provider) noexcept
+{
+    g_CrashReporterProvider.Store(Provider, EMemoryOrder::Release);
 }
 
 /** provider 登録済みなら実 backend、未登録なら stub を返す。 */
-ICrashReporterBackend& GetDefaultCrashReporter() noexcept {
-    return g_CrashReporterProvider ? g_CrashReporterProvider() : GetCrashStub();
+ICrashReporterBackend& GetDefaultCrashReporter() noexcept
+{
+    const CrashReporterProvider Provider = g_CrashReporterProvider.Load(EMemoryOrder::Acquire);
+    return Provider ? Provider() : GetCrashStub();
 }
 
 /** 借用 backend を設定する (nullptr は Uninstall と同義、後勝ち)。 */

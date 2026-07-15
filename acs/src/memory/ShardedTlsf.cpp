@@ -170,6 +170,12 @@ SRWLOCK g_thread_cache_registry_lock = SRWLOCK_INIT;
 /** thread-local マガジンを受け取れる生存中アロケータの先頭。 */
 FShardedTlsfAllocator* g_thread_cache_registry_head = nullptr;
 
+/**
+ * ロック取得順は lifecycle control -> registry -> shard とする。
+ * lifecycle drain は control 保持中だけ使い、registry より前に解放する。TLS デストラクタは
+ * registry -> shard だけを取得し、shard 保持中に control / registry を取得してはならない。
+ */
+
 /** 寿命レジストリ用 SRWLOCK のスコープロック。 */
 class FThreadCacheRegistryLock final {
 public:
@@ -189,6 +195,153 @@ public:
 
 } // namespace
 
+/** 公開操作の入場登録をスコープ終了時に必ず解除する。 */
+class FShardedTlsfAllocator::FLifecycleOperation final
+{
+public:
+    explicit FLifecycleOperation(const FShardedTlsfAllocator& Allocator) noexcept
+        : m_Allocator(&Allocator)
+        , m_bAdmitted(Allocator.TryBeginLifecycleOperation())
+    {
+    }
+
+    ~FLifecycleOperation() noexcept
+    {
+        if (m_bAdmitted)
+        {
+            m_Allocator->EndLifecycleOperation();
+        }
+    }
+
+    FLifecycleOperation(const FLifecycleOperation&) = delete;
+    FLifecycleOperation& operator=(const FLifecycleOperation&) = delete;
+
+    bool WasAdmitted() const noexcept
+    {
+        return m_bAdmitted;
+    }
+
+private:
+    /** 入場先アロケータ。ガードより長く生存する。 */
+    const FShardedTlsfAllocator* m_Allocator = nullptr;
+
+    /** Running 中の公開操作として登録済みなら true。 */
+    bool m_bAdmitted = false;
+};
+
+bool FShardedTlsfAllocator::TryBeginLifecycleOperation() const noexcept
+{
+    u64 GateValue = m_LifecycleGate.Load(EMemoryOrder::Acquire);
+    const u64 EntryGeneration = GateValue & kLifecycleGenerationMask;
+    while ((GateValue & kLifecycleAcceptingBit) != 0u)
+    {
+        if ((GateValue & kLifecycleGenerationMask) != EntryGeneration)
+        {
+            // Shutdown をまたいで再初期化された場合、旧世代で始めた入場を新世代へ通さない。
+            return false;
+        }
+
+        const u64 OperationCount = GateValue & kLifecycleOperationCountMask;
+        if (OperationCount == kLifecycleOperationCountMask)
+        {
+            ACS_ASSERT(false && "FShardedTlsfAllocator: lifecycle operation count overflow");
+            return false;
+        }
+
+        const u64 DesiredGateValue = GateValue + 1u;
+        if (m_LifecycleGate.CompareExchange(GateValue, DesiredGateValue))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void FShardedTlsfAllocator::EndLifecycleOperation() const noexcept
+{
+    u64 GateValue = m_LifecycleGate.Load(EMemoryOrder::Acquire);
+    for (;;)
+    {
+        const u64 OperationCount = GateValue & kLifecycleOperationCountMask;
+        ACS_ASSERT(OperationCount > 0u);
+
+        if ((GateValue & kLifecycleAcceptingBit) == 0u && OperationCount == 1u)
+        {
+            // 最後の操作は待機ロック内で 0 にする。Shutdown が 0 を観測した時点では
+            // 完了通知側がこのアロケータへ触れ終えていることを保証できる。
+            FScopedLock DrainLock(m_LifecycleDrainLock);
+            u64 ExpectedGateValue = GateValue;
+            if (!m_LifecycleGate.CompareExchange(ExpectedGateValue, GateValue - 1u))
+            {
+                GateValue = ExpectedGateValue;
+                continue;
+            }
+            m_LifecycleDrainedCondition.NotifyAll();
+            return;
+        }
+
+        u64 ExpectedGateValue = GateValue;
+        if (m_LifecycleGate.CompareExchange(ExpectedGateValue, GateValue - 1u))
+        {
+            return;
+        }
+        GateValue = ExpectedGateValue;
+    }
+}
+
+void FShardedTlsfAllocator::CloseLifecycleGateAndWait() noexcept
+{
+    m_LifecycleGate.FetchAnd(~kLifecycleAcceptingBit);
+
+    FScopedLock DrainLock(m_LifecycleDrainLock);
+    while ((m_LifecycleGate.Load(EMemoryOrder::Acquire) & kLifecycleOperationCountMask) != 0u)
+    {
+        m_LifecycleDrainedCondition.Wait(m_LifecycleDrainLock);
+    }
+}
+
+void FShardedTlsfAllocator::OpenLifecycleGate() noexcept
+{
+    const u64 ClosedGateValue = m_LifecycleGate.Load(EMemoryOrder::Acquire);
+    ACS_ASSERT((ClosedGateValue & kLifecycleAcceptingBit) == 0u);
+    ACS_ASSERT((ClosedGateValue & kLifecycleOperationCountMask) == 0u);
+    ACS_ASSERT(m_Inited && m_ShardCount > 0u);
+
+    u64 NextGeneration = (ClosedGateValue + kLifecycleGenerationIncrement) & kLifecycleGenerationMask;
+    if (NextGeneration == 0u)
+    {
+        NextGeneration = kLifecycleGenerationIncrement;
+    }
+    m_LifecycleGate.Store(kLifecycleAcceptingBit | NextGeneration, EMemoryOrder::Release);
+}
+
+bool FShardedTlsfAllocator::ResetShardsAfterLifecycleClose() noexcept
+{
+    bool bAllReservationsReleased = true;
+    for (u32 ShardIndex = 0u; ShardIndex < m_ShardCount; ++ShardIndex)
+    {
+        FScopedLock ShardLock(m_Shards[ShardIndex].lock);
+        const TResult<void> ResetResult = m_Shards[ShardIndex].alloc.Reset();
+        if (ResetResult.IsErr())
+        {
+            bAllReservationsReleased = false;
+        }
+    }
+
+    m_Inited = false;
+    m_Epoch = 0u;
+    m_NextShard.Store(0u, EMemoryOrder::Relaxed);
+    if (!bAllReservationsReleased)
+    {
+        // 解放失敗した予約を次回 Shutdown で再試行できるよう、シャード数を保持する。
+        return false;
+    }
+
+    m_ShardCount = 0u;
+    m_AllocationCount.Store(0u, EMemoryOrder::Release);
+    return true;
+}
+
 FShardedTlsfAllocator::~FShardedTlsfAllocator() noexcept
 {
     Shutdown();
@@ -197,6 +350,7 @@ FShardedTlsfAllocator::~FShardedTlsfAllocator() noexcept
 TResult<void> FShardedTlsfAllocator::Init(usize TotalReserveBytes, usize CommitInitialBytes,
                                           u32 RequestedShardCount) noexcept
 {
+    FScopedLock LifecycleControlLock(m_LifecycleControlLock);
     if (m_Inited || m_ShardCount != 0u) {
         return ACS_ERR(Memory, 50, "FShardedTlsfAllocator: already initialized or shutdown incomplete");
     }
@@ -226,12 +380,12 @@ TResult<void> FShardedTlsfAllocator::Init(usize TotalReserveBytes, usize CommitI
     for (u32 i = 0; i < EffectiveShardCount; ++i) {
         auto ReservationResult = VmReservation::Reserve(ReserveBytesPerShard);
         if (ReservationResult.IsErr()) {
-            Shutdown();
+            (void)ResetShardsAfterLifecycleClose();
             return Err<void>(ReservationResult.Error());
         }
         auto InitResult = m_Shards[i].alloc.InitWithReservation(Move(ReservationResult.Value()), CommitBytesPerShard);
         if (InitResult.IsErr()) {
-            Shutdown();
+            (void)ResetShardsAfterLifecycleClose();
             return InitResult;
         }
 
@@ -241,19 +395,32 @@ TResult<void> FShardedTlsfAllocator::Init(usize TotalReserveBytes, usize CommitI
     }
     m_Epoch = g_epoch_counter.FetchAdd(1) + 1; // 新しい世代 (再 Init でマガジンを無効化)
     m_Inited = true;
-    if (m_CacheEnabled) RegisterThreadCacheLifetime();
+    if (m_CacheEnabled.Load(EMemoryOrder::Acquire) != 0u) RegisterThreadCacheLifetime();
+    OpenLifecycleGate();
     return Ok();
 }
 
 void FShardedTlsfAllocator::EnableThreadCache() noexcept
 {
-    m_CacheEnabled = true;
+    FScopedLock LifecycleControlLock(m_LifecycleControlLock);
+    m_CacheEnabled.Store(1u, EMemoryOrder::Release);
     if (m_Inited) RegisterThreadCacheLifetime();
 }
 
 void FShardedTlsfAllocator::FlushCurrentThreadCache() noexcept
 {
-    if (t_thread_cache.owner == this) {
+    FLifecycleOperation LifecycleOperation(*this);
+    if (!LifecycleOperation.WasAdmitted())
+    {
+        return;
+    }
+    FlushCurrentThreadCacheWhileLifecycleIsStable();
+}
+
+void FShardedTlsfAllocator::FlushCurrentThreadCacheWhileLifecycleIsStable() noexcept
+{
+    if (t_thread_cache.owner == this)
+    {
         ReturnThreadCacheIfLifetimeIsActive(t_thread_cache);
     }
 }
@@ -331,29 +498,13 @@ void FShardedTlsfAllocator::ReturnThreadCacheBlocks(memory_detail::FShardedTlsfT
 
 void FShardedTlsfAllocator::Shutdown() noexcept
 {
+    FScopedLock LifecycleControlLock(m_LifecycleControlLock);
+    CloseLifecycleGateAndWait();
+
     // 呼び出しスレッド分は VM 解放前に返す。他スレッド分はレジストリ解除後に安全に破棄される。
-    FlushCurrentThreadCache();
+    FlushCurrentThreadCacheWhileLifecycleIsStable();
     UnregisterThreadCacheLifetime();
-
-    bool bAllReservationsReleased = true;
-    for (u32 i = 0; i < m_ShardCount; ++i) {
-        FScopedLock Lock(m_Shards[i].lock);
-        const TResult<void> ResetResult = m_Shards[i].alloc.Reset();
-        if (ResetResult.IsErr()) {
-            bAllReservationsReleased = false;
-        }
-    }
-
-    m_Inited = false;
-    m_Epoch = 0;
-    m_NextShard.Store(0, EMemoryOrder::Relaxed);
-    if (!bAllReservationsReleased) {
-        // m_ShardCount を保持し、次回 Shutdown で解放失敗した予約を再試行する。
-        return;
-    }
-
-    m_ShardCount = 0;
-    m_AllocationCount.Store(0, EMemoryOrder::Release);
+    (void)ResetShardsAfterLifecycleClose();
 }
 
 int FShardedTlsfAllocator::ShardIndexForThread() noexcept
@@ -419,10 +570,21 @@ static ACS_FORCEINLINE memory_detail::FShardedTlsfThreadCache& AcquireCache(FSha
 
 void* FShardedTlsfAllocator::Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept
 {
+    FLifecycleOperation LifecycleOperation(*this);
+    if (!LifecycleOperation.WasAdmitted())
+    {
+        return nullptr;
+    }
+    return AllocateAfterLifecycleAdmission(Size, Alignment, Location);
+}
+
+void* FShardedTlsfAllocator::AllocateAfterLifecycleAdmission(usize Size, usize Alignment,
+                                                              FSourceLoc Location) noexcept
+{
     if (!m_Inited || Size == 0) return nullptr;
 
     // ---- lock-free hot path: thread-local マガジン ----
-    if (m_CacheEnabled && Alignment <= 16 && Size <= kCacheMaxBlock) {
+    if (m_CacheEnabled.Load(EMemoryOrder::Acquire) != 0u && Alignment <= 16 && Size <= kCacheMaxBlock) {
         const usize CacheBlockSize = CacheBlockSizeForRequest(Size);
         const int CacheClass = CacheClassOfBlock(CacheBlockSize);
         if (CacheClass >= 0) {
@@ -493,10 +655,22 @@ void FShardedTlsfAllocator::Free(void* Pointer) noexcept
 {
     if (!Pointer) return;
 
+    FLifecycleOperation LifecycleOperation(*this);
+    if (!LifecycleOperation.WasAdmitted())
+    {
+        return;
+    }
+    FreeAfterLifecycleAdmission(Pointer);
+}
+
+void FShardedTlsfAllocator::FreeAfterLifecycleAdmission(void* Pointer) noexcept
+{
+    if (!Pointer) return;
+
     // ---- thread-local マガジンへ push ----
     // 予約範囲だけでは未コミット領域や payload 内部ポインタも通るため、header を読む前に
     // 所有 shard のロック下で正規ブロック境界と client-owned 状態を検証する。
-    if (m_CacheEnabled && m_Inited) {
+    if (m_CacheEnabled.Load(EMemoryOrder::Acquire) != 0u && m_Inited) {
         const int ShardIndex = ShardIndexForPtr(Pointer);
         if (ShardIndex < 0) {
             ACS_ASSERT(false && "FShardedTlsfAllocator::Free: 所有シャード不明 (野良/別アロケータ由来)");
@@ -584,8 +758,19 @@ void FShardedTlsfAllocator::Free(void* Pointer) noexcept
 void* FShardedTlsfAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize Alignment,
                                      FSourceLoc Location) noexcept
 {
+    FLifecycleOperation LifecycleOperation(*this);
+    if (!LifecycleOperation.WasAdmitted())
+    {
+        return Pointer && NewSize == 0u ? Pointer : nullptr;
+    }
+    return ReallocateAfterLifecycleAdmission(Pointer, OldSize, NewSize, Alignment, Location);
+}
+
+void* FShardedTlsfAllocator::ReallocateAfterLifecycleAdmission(void* Pointer, usize OldSize, usize NewSize,
+                                                                usize Alignment, FSourceLoc Location) noexcept
+{
     if (!m_Inited) return Pointer && NewSize == 0u ? Pointer : nullptr;
-    if (Pointer == nullptr) return Alloc(NewSize, Alignment, Location);
+    if (Pointer == nullptr) return AllocateAfterLifecycleAdmission(NewSize, Alignment, Location);
 
     const int ShardIndex = ShardIndexForPtr(Pointer);
     if (ShardIndex < 0) {
@@ -610,17 +795,42 @@ void* FShardedTlsfAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize
         void* const Result = m_Shards[ShardIndex].alloc.Realloc(Pointer, OldSize, NewSize, Alignment, Location);
         if (Result) return Result;
     }
-    // 同シャードで不可 → 別シャードへ移動。ロックを重ねない (デッドロック回避):
-    // 先に新規確保 (任意シャード) → コピー → 旧を解放。失敗時は旧を保持 (realloc 契約)。
-    void* const NewPointer = Alloc(NewSize, Alignment, Location);
+    // 同シャードで不可 → 別シャードへ移動。先に新規確保を終えてから旧シャードだけを
+    // 再ロックするため、シャードロックは重ならない。並行 Free とコピーを競合させないよう、
+    // 所有状態の再確認・実 payload 容量までのコピー・旧解放を同じロック区間で行う。
+    void* const NewPointer = AllocateAfterLifecycleAdmission(NewSize, Alignment, Location);
     if (!NewPointer) return nullptr;
-    MemCopy(NewPointer, Pointer, OldSize < NewSize ? OldSize : NewSize);
-    Free(Pointer);
+
+    bool bOldAllocationReleased = false;
+    {
+        FScopedLock Lock(m_Shards[ShardIndex].lock);
+        FTlsfAllocator& OldAllocator = m_Shards[ShardIndex].alloc;
+        if (OldAllocator.IsClientOwnedBlock(Pointer)) {
+            usize CopySize = OldSize < NewSize ? OldSize : NewSize;
+            const usize PayloadCapacity = FTlsfAllocator::PayloadCapacity(Pointer);
+            if (CopySize > PayloadCapacity) CopySize = PayloadCapacity;
+            MemCopy(NewPointer, Pointer, CopySize);
+            bOldAllocationReleased = OldAllocator.TryFree(Pointer);
+        }
+    }
+
+    if (!bOldAllocationReleased) {
+        // 競合解放または所有状態の破損を検出した場合、新規領域を返して二重所有にしない。
+        FreeAfterLifecycleAdmission(NewPointer);
+        return nullptr;
+    }
+    m_AllocationCount.FetchSub(1u);
     return NewPointer;
 }
 
 u64 FShardedTlsfAllocator::BytesAllocated() const noexcept
 {
+    FLifecycleOperation LifecycleOperation(*this);
+    if (!LifecycleOperation.WasAdmitted())
+    {
+        return 0u;
+    }
+
     u64 TotalBytes = 0;
     for (u32 i = 0; i < m_ShardCount; ++i) {
         FScopedLock Lock(m_Shards[i].lock);
@@ -629,8 +839,24 @@ u64 FShardedTlsfAllocator::BytesAllocated() const noexcept
     return TotalBytes;
 }
 
+u64 FShardedTlsfAllocator::AllocationCount() const noexcept
+{
+    FLifecycleOperation LifecycleOperation(*this);
+    if (!LifecycleOperation.WasAdmitted())
+    {
+        return 0u;
+    }
+    return m_AllocationCount.Load(EMemoryOrder::Acquire);
+}
+
 u64 FShardedTlsfAllocator::PeakBytes() const noexcept
 {
+    FLifecycleOperation LifecycleOperation(*this);
+    if (!LifecycleOperation.WasAdmitted())
+    {
+        return 0u;
+    }
+
     // 各シャードのピーク合算は厳密な「同時ピーク」ではないが、上限の目安として有用。
     u64 TotalBytes = 0;
     for (u32 i = 0; i < m_ShardCount; ++i) {
@@ -640,8 +866,44 @@ u64 FShardedTlsfAllocator::PeakBytes() const noexcept
     return TotalBytes;
 }
 
+u32 FShardedTlsfAllocator::ShardCount() const noexcept
+{
+    FLifecycleOperation LifecycleOperation(*this);
+    if (!LifecycleOperation.WasAdmitted())
+    {
+        return 0u;
+    }
+    return m_ShardCount;
+}
+
+bool FShardedTlsfAllocator::ThreadCacheEnabled() const noexcept
+{
+    FLifecycleOperation LifecycleOperation(*this);
+    if (!LifecycleOperation.WasAdmitted())
+    {
+        return false;
+    }
+    return m_CacheEnabled.Load(EMemoryOrder::Acquire) != 0u;
+}
+
+u64 FShardedTlsfAllocator::Epoch() const noexcept
+{
+    FLifecycleOperation LifecycleOperation(*this);
+    if (!LifecycleOperation.WasAdmitted())
+    {
+        return 0u;
+    }
+    return m_Epoch;
+}
+
 bool FShardedTlsfAllocator::ValidateHeap() noexcept
 {
+    FLifecycleOperation LifecycleOperation(*this);
+    if (!LifecycleOperation.WasAdmitted())
+    {
+        return false;
+    }
+
     for (u32 i = 0; i < m_ShardCount; ++i) {
         FScopedLock Lock(m_Shards[i].lock);
         if (!m_Shards[i].alloc.ValidateHeap()) return false;

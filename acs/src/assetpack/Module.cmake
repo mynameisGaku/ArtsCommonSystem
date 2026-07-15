@@ -25,6 +25,7 @@ acs_module(
         Container
         Memory
         Platform
+        Threading
         GameFramework
     LINK_PRIVATE
         Bcrypt

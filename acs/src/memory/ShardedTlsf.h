@@ -23,6 +23,7 @@
 #include "memory/Tlsf.h"
 #include "threading/Mutex.h"
 #include "threading/Atomic.h"
+#include "threading/ConditionVar.h"
 
 namespace acs {
 
@@ -75,7 +76,8 @@ public:
      * 全シャードをロックして VM 予約を解放し、未初期化状態へ戻す。
      *
      * @details VM 解放に失敗したシャードは保持し、機械可読ログへ記録する。再 Init の前に
-     * Shutdown を再度呼ぶと解放を再試行する。
+     * Shutdown を再度呼ぶと解放を再試行する。Shutdown 開始後は新しい公開操作を拒否し、
+     * すでに開始済みの公開操作が完了してから VM を解放する。
      */
     void Shutdown() noexcept;
 
@@ -107,11 +109,12 @@ public:
      * pointer を new_size に再確保する。
      *
      * @details
-     * まず所有シャード内で in-place / 同シャード移動を試み、不可なら別シャードへ移動する
-     * (新規確保 + コピー + 旧解放、ロックは重ねずデッドロック回避)。失敗時は旧領域を保持する。
+     * まず所有シャード内で in-place / 同シャード移動を試み、不可なら別シャードへ移動する。
+     * 新規確保後に旧シャードを再ロックし、所有状態の再確認・実 payload 容量までのコピー・
+     * 旧解放を同じロック区間で行う。シャードロックは重ねない。失敗時は旧領域を保持する。
      * new_size==0 は所有権を検証してから解放し、不正ポインタの場合は pointer 自身を返して未解放を通知する。
      * @param Pointer 既存の確保 (nullptr なら新規確保)。
-     * @param OldSize 旧サイズ (移動時のコピー量決定に使う)。
+     * @param OldSize 呼び出し側が認識する旧サイズ。コピー量は実 payload 容量以下へ制限する。
      * @param NewSize 新サイズ (0 なら解放)。
      * @param Alignment 要求アライメント。
      * @param Location 診断用の呼び出し位置。
@@ -133,10 +136,7 @@ public:
      * @details thread-local マガジン内の再利用待ちブロックは未解放件数に含めない。
      * @return Free されていない公開 Alloc の成功件数。
      */
-    u64 AllocationCount() const noexcept override
-    {
-        return m_AllocationCount.Load(EMemoryOrder::Acquire);
-    }
+    u64 AllocationCount() const noexcept override;
 
     /**
      * 全シャードのピークバイト数の合計を返す。
@@ -161,10 +161,7 @@ public:
      *
      * @return Init で決定したシャード数 (未初期化なら 0)。
      */
-    u32 ShardCount() const noexcept
-    {
-        return m_ShardCount;
-    }
+    u32 ShardCount() const noexcept;
 
     /**
      * thread-local マガジンを有効化する。
@@ -177,7 +174,11 @@ public:
      */
     void EnableThreadCache() noexcept;
 
-    /** 現在のスレッドが保持する小サイズキャッシュを、このアロケータへ返す。 */
+    /**
+     * 現在のスレッドが保持する小サイズキャッシュを、このアロケータへ返す。
+     *
+     * @details Shutdown が受付を閉じた後の呼び出しは何もせずに戻る。
+     */
     void FlushCurrentThreadCache() noexcept;
 
     /**
@@ -185,10 +186,7 @@ public:
      *
      * @return 有効なら true。
      */
-    bool ThreadCacheEnabled() const noexcept
-    {
-        return m_CacheEnabled;
-    }
+    bool ThreadCacheEnabled() const noexcept;
 
     /**
      * 現在の世代 (epoch) を返す。
@@ -196,10 +194,7 @@ public:
      * @details Init ごとに更新され、マガジンが旧世代 (再 Init で消えた VM) を掴むのを検出するのに使う。
      * @return 現在の epoch (未初期化なら 0)。
      */
-    u64 Epoch() const noexcept
-    {
-        return m_Epoch;
-    }
+    u64 Epoch() const noexcept;
 
     /**
      * 全シャードをそれぞれロックして整合性を検証する (デバッグ/診断用)。
@@ -211,6 +206,21 @@ public:
 private:
     /** thread-local マガジン実装だけに寿命レジストリへのアクセスを許可する。 */
     friend struct memory_detail::FShardedTlsfThreadCache;
+
+    /** 公開操作の入場登録をスコープ終了時に必ず解除する。 */
+    class FLifecycleOperation;
+
+    /** ライフサイクルゲートの最上位ビット。立っている間だけ新規公開操作を受け付ける。 */
+    static constexpr u64 kLifecycleAcceptingBit = u64(1) << 63u;
+
+    /** ライフサイクルゲート下位 32 bit の実行中操作件数部分。 */
+    static constexpr u64 kLifecycleOperationCountMask = 0xFFFFFFFFull;
+
+    /** 再初期化を古い入場 CAS と区別するライフサイクル世代部分。 */
+    static constexpr u64 kLifecycleGenerationMask = ~(kLifecycleAcceptingBit | kLifecycleOperationCountMask);
+
+    /** ライフサイクル世代を 1 進める値。 */
+    static constexpr u64 kLifecycleGenerationIncrement = u64(1) << 32u;
 
     /** 1 シャード分の TLSF アロケータと専用ロック。 */
     struct Shard {
@@ -230,8 +240,8 @@ private:
     /** Init 済みか。 */
     bool m_Inited = false;
 
-    /** thread-local マガジンを使うか。 */
-    bool m_CacheEnabled = false;
+    /** thread-local マガジンを使うか。Enable と公開操作の並行読み書きを許可する。 */
+    TAtomic<u32> m_CacheEnabled{0u};
 
     /** 現在の世代 (Init ごとに更新、マガジンの世代検証用)。 */
     u64 m_Epoch = 0;
@@ -242,11 +252,55 @@ private:
     /** クライアントが現在保持している確保の件数。内部キャッシュ用ブロックは除外する。 */
     TAtomic<u64> m_AllocationCount{0};
 
+    /** 受付ビット・世代・実行中公開操作件数を一体で更新するライフサイクルゲート。 */
+    mutable TAtomic<u64> m_LifecycleGate{0u};
+
+    /** Init / Shutdown と thread-cache 設定変更を直列化する。 */
+    mutable FMutex m_LifecycleControlLock;
+
+    /** 実行中公開操作の完了条件を確認する間だけ保持する待機専用ロック。 */
+    mutable FMutex m_LifecycleDrainLock;
+
+    /** Shutdown が最後の実行中公開操作の完了通知を待つ条件変数。 */
+    mutable ConditionVar m_LifecycleDrainedCondition;
+
     /** 生存中アロケータの侵入リストにおける次要素。動的確保を避けるため本体に保持する。 */
     FShardedTlsfAllocator* m_ThreadCacheRegistryNext = nullptr;
 
     /** thread-local マガジンの寿命レジストリへ登録済みなら true。 */
     bool m_ThreadCacheLifetimeRegistered = false;
+
+    /** Running 中の公開操作として入場できれば true を返す。 */
+    bool TryBeginLifecycleOperation() const noexcept;
+
+    /** 入場済み公開操作の完了を記録し、必要なら Shutdown を起こす。 */
+    void EndLifecycleOperation() const noexcept;
+
+    /** 新規入場を閉じ、開始済み公開操作がすべて完了するまで待つ。制御ロック保持中に呼ぶ。 */
+    void CloseLifecycleGateAndWait() noexcept;
+
+    /** 完全初期化後に新規公開操作の受付を開始する。制御ロック保持中に呼ぶ。 */
+    void OpenLifecycleGate() noexcept;
+
+    /** ゲート停止中に全シャードを解放する。全予約を解放できた場合は true。 */
+    bool ResetShardsAfterLifecycleClose() noexcept;
+
+    /** 入場済み Alloc の本体。Shutdown が受付を閉じた後も開始済み操作を完了させる。 */
+    void* AllocateAfterLifecycleAdmission(usize Size, usize Alignment, FSourceLoc Location) noexcept;
+
+    /** 入場済み Free の本体。 */
+    void FreeAfterLifecycleAdmission(void* Pointer) noexcept;
+
+    /** 入場済み Realloc の本体。内部の確保・解放ではライフサイクルへ重複入場しない。 */
+    void* ReallocateAfterLifecycleAdmission(void* Pointer, usize OldSize, usize NewSize, usize Alignment,
+                                            FSourceLoc Location) noexcept;
+
+    /**
+     * 現在スレッドのマガジンを返す本体。
+     *
+     * @details 公開操作として入場済みか、制御ロック保持中かつ受付停止・drain 完了後にだけ呼ぶ。
+     */
+    void FlushCurrentThreadCacheWhileLifecycleIsStable() noexcept;
 
     /** 現在世代を thread-local マガジンの寿命レジストリへ登録する。 */
     void RegisterThreadCacheLifetime() noexcept;

@@ -19,6 +19,7 @@
 #include "gameframework/AssetPack.h"
 
 #include "foundation/Error.h"
+#include "threading/Atomic.h"
 
 namespace acs::game {
 
@@ -101,30 +102,36 @@ IAssetPackWriter& GetWriterStub() noexcept {
 
 namespace {
 /** 既定 Reader provider (実 backend の Install* で登録。未登録なら nullptr)。 */
-AssetPackReaderProvider g_ReaderProvider = nullptr;
+TAtomic<AssetPackReaderProvider> g_ReaderProvider{nullptr};
 
 /** 既定 Writer provider (実 backend の Install* で登録。未登録なら nullptr)。 */
-AssetPackWriterProvider g_WriterProvider = nullptr;
+TAtomic<AssetPackWriterProvider> g_WriterProvider{nullptr};
 } // namespace
 
 /** 既定 Reader provider を登録する (nullptr で stub に戻す)。 */
-void SetAssetPackReaderProvider(AssetPackReaderProvider provider) noexcept {
-    g_ReaderProvider = provider;
+void SetAssetPackReaderProvider(AssetPackReaderProvider Provider) noexcept
+{
+    g_ReaderProvider.Store(Provider, EMemoryOrder::Release);
 }
 
 /** provider 登録済みならその実装、未登録なら GetReaderStub() を返す。 */
-IAssetPackReader& GetDefaultAssetPackReader() noexcept {
-    return g_ReaderProvider ? g_ReaderProvider() : GetReaderStub();
+IAssetPackReader& GetDefaultAssetPackReader() noexcept
+{
+    const AssetPackReaderProvider Provider = g_ReaderProvider.Load(EMemoryOrder::Acquire);
+    return Provider ? Provider() : GetReaderStub();
 }
 
 /** 既定 Writer provider を登録する (nullptr で stub に戻す)。 */
-void SetAssetPackWriterProvider(AssetPackWriterProvider provider) noexcept {
-    g_WriterProvider = provider;
+void SetAssetPackWriterProvider(AssetPackWriterProvider Provider) noexcept
+{
+    g_WriterProvider.Store(Provider, EMemoryOrder::Release);
 }
 
 /** provider 登録済みならその実装、未登録なら GetWriterStub() を返す。 */
-IAssetPackWriter& GetDefaultAssetPackWriter() noexcept {
-    return g_WriterProvider ? g_WriterProvider() : GetWriterStub();
+IAssetPackWriter& GetDefaultAssetPackWriter() noexcept
+{
+    const AssetPackWriterProvider Provider = g_WriterProvider.Load(EMemoryOrder::Acquire);
+    return Provider ? Provider() : GetWriterStub();
 }
 
 } // namespace acs::game

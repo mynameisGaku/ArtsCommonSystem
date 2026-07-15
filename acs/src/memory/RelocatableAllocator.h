@@ -29,7 +29,7 @@ struct FRelocHandle {
     u32  index      = 0;
 
     /** 世代 (0 = 無効。Free→再 Alloc で ++ され旧ハンドルを無効化する)。 */
-    u32  generation = 0;
+    u64  generation = 0;
 
     /**
      * ハンドルが有効かを返す。
@@ -191,7 +191,7 @@ private:
         u32  align;
 
         /** 現在の世代 (ハンドルの generation と照合)。 */
-        u32  generation;
+        u64  generation;
 
         /** 生存中か (false なら空きエントリ)。 */
         bool live;
@@ -238,6 +238,9 @@ private:
 
     /** 各種確保元アロケータ。 */
     FAllocator* m_Backing    = nullptr;
+
+    /** Shutdown/Init をまたいでも単調に進めるハンドル世代。 */
+    u64         m_NextGeneration = 1u;
 };
 
 } // namespace acs

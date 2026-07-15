@@ -35,6 +35,7 @@ struct CrtDebugHeapProcessConfigurationImplementation {
 };
 
 SRWLOCK g_ProcessConfigurationLock = SRWLOCK_INIT;
+SRWLOCK g_ReportOperationLock = SRWLOCK_INIT;
 void* g_ProcessConfigurationOwner = nullptr;
 void* g_DiagnosticScopeOwner = nullptr;
 CrtDebugHeapProcessConfigurationImplementation g_PendingProcessConfigurationRestoration{};
@@ -75,6 +76,8 @@ bool TryBeginReportCapableOperation() noexcept
         return false;
     }
 
+    // CRT の走査と report hook 呼び出しをプロセス内で直列化する。
+    ::AcquireSRWLockExclusive(&g_ReportOperationLock);
     ::AcquireSRWLockExclusive(&g_ProcessConfigurationLock);
     ++g_ActiveReportCapableOperationCount;
     g_ReportCapableOperationActiveOnCurrentThread = true;
@@ -95,6 +98,7 @@ void EndReportCapableOperation() noexcept
     }
     RestorePendingProcessConfigurationIfPossible();
     ::ReleaseSRWLockExclusive(&g_ProcessConfigurationLock);
+    ::ReleaseSRWLockExclusive(&g_ReportOperationLock);
 }
 
 template<typename T>
@@ -627,6 +631,57 @@ void FCrtDebugHeapDiagnostics::DumpAllLiveObjects() noexcept
     _CrtMemDumpAllObjectsSince(nullptr);
     EndReportCapableOperation();
 #endif
+}
+
+CrtDebugHeapProcessLeakReport FCrtDebugHeapDiagnostics::DumpProcessMemoryLeaks(
+    bool bWriteMachineReadableLog) noexcept
+{
+    CrtDebugHeapProcessLeakReport Report{};
+    Report.bSupported = IsSupported();
+
+#if ACS_COMPILER_MSVC && ACS_BUILD_DEBUG && !ACS_ADDRESS_SANITIZER
+    if (TryBeginReportCapableOperation()) {
+        Report.bLeakDetected = _CrtDumpMemoryLeaks() != 0;
+        Report.bInspectionSucceeded = true;
+        EndReportCapableOperation();
+    }
+
+    if (bWriteMachineReadableLog) {
+        char Line[384]{};
+        const int Length = std::snprintf(
+            Line, sizeof(Line),
+            "[acs][memory] tracker=msvc_crt_debug_heap scope=process operation=dump_memory_leaks "
+            "supported=true inspection_succeeded=%s leak_detected=%s status=%s reason=%s\n",
+            Report.bInspectionSucceeded ? "true" : "false",
+            Report.bInspectionSucceeded ? (Report.bLeakDetected ? "true" : "false") : "inconclusive",
+            Report.bInspectionSucceeded ? "ok" : "inconclusive",
+            Report.bInspectionSucceeded ? "none" : "report_hook_reentry");
+        if (Length > 0) {
+            Line[sizeof(Line) - 1u] = '\0';
+            WriteDiagnosticLine(Line);
+        }
+    }
+#else
+    if (bWriteMachineReadableLog) {
+        char Line[384]{};
+        const int Length = std::snprintf(
+            Line, sizeof(Line),
+            "[acs][memory] tracker=msvc_crt_debug_heap scope=process operation=dump_memory_leaks "
+            "supported=false inspection_succeeded=false leak_detected=inconclusive "
+            "status=unsupported reason=%s\n",
+            UnsupportedReason());
+        if (Length > 0) {
+            Line[sizeof(Line) - 1u] = '\0';
+            ::OutputDebugStringA(Line);
+            const HANDLE StandardError = ::GetStdHandle(STD_ERROR_HANDLE);
+            if (StandardError && StandardError != INVALID_HANDLE_VALUE) {
+                DWORD Written = 0u;
+                (void)::WriteFile(StandardError, Line, static_cast<DWORD>(std::strlen(Line)), &Written, nullptr);
+            }
+        }
+    }
+#endif
+    return Report;
 }
 
 i64 FCrtDebugHeapDiagnostics::SetBreakOnAllocationSequence(i64 AllocationSequence) noexcept

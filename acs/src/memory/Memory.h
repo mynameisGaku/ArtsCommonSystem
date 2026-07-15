@@ -20,8 +20,9 @@ FAllocator& DefaultAllocator() noexcept;
  * デフォルトアロケータを差し替える。
  *
  * @details
- * nullptr を渡すと内部の FSystemAllocator に戻る。起動初期 (コンテナ等が確保を
- * 始める前) に呼ぶこと。スレッドセーフではない。
+ * nullptr を渡すと内部の FSystemAllocator に戻る。DefaultAllocator との並行呼出でも
+ * ポインタの公開はスレッドセーフ。差し替え前のアロケータを参照中の処理は継続し得るため、
+ * 呼出側は全利用者が停止するまで差し替え先と差し替え前のアロケータを生存させること。
  * @param Allocator 新しいデフォルトアロケータ (nullptr で FSystemAllocator に戻す)。
  */
 void SetDefaultAllocator(FAllocator* Allocator) noexcept;

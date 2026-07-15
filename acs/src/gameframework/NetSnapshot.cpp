@@ -140,19 +140,23 @@ constexpr u32 kFrameFixedOverhead = kMagicSize + kVersionSize + kHeaderWireSize 
  */
 const u32* GetCrc32Table() noexcept
 {
-    static u32 m_Table[256] = {};
-    static bool m_Initialized = false;
-    if (!m_Initialized) {
-        for (u32 i = 0; i < 256; ++i) {
-            u32 c = i;
-            for (u32 k = 0; k < 8; ++k) {
-                c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+    struct FCrc32Table {
+        FCrc32Table() noexcept
+        {
+            for (u32 Index = 0; Index < 256; ++Index) {
+                u32 Value = Index;
+                for (u32 Bit = 0; Bit < 8; ++Bit) {
+                    Value = (Value & 1u) ? (0xEDB88320u ^ (Value >> 1)) : (Value >> 1);
+                }
+                Values[Index] = Value;
             }
-            m_Table[i] = c;
         }
-        m_Initialized = true;
-    }
-    return m_Table;
+
+        u32 Values[256] = {};
+    };
+
+    static const FCrc32Table Table;
+    return Table.Values;
 }
 
 /**

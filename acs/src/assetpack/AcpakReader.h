@@ -29,9 +29,11 @@
 #include "foundation/Result.h"
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "threading/Mutex.h"
+#include "threading/RwLock.h"
 
 #include "assetpack/AcpakFormat.h"
-#include "assetpack/AcpakCrypto.h"  // AcpakKey (暗号化 pak の鍵注入)
+#include "assetpack/AcpakCrypto.h" // AcpakKey (暗号化 pak の鍵注入)
 
 namespace acs::assetpack {
 
@@ -52,24 +54,24 @@ public:
     /**
      * 指定 allocator で file table と文字列 pool を持つ空状態を構築する。
      *
-     * @param allocator 内部配列の確保に使う allocator。
+     * @param Allocator 内部配列の確保に使う allocator。
      */
-    explicit FAcpakReader(FAllocator& allocator) noexcept;
+    explicit FAcpakReader(FAllocator& Allocator) noexcept;
 
     /** 破棄する (Open 済なら Close 相当の後始末を行う)。 */
     ~FAcpakReader() noexcept;
 
     /** コピー禁止 (ハンドル + pool を単独所有するため)。 */
-    FAcpakReader(const FAcpakReader&)            = delete;
+    FAcpakReader(const FAcpakReader&) = delete;
 
     /** コピー代入も禁止。 */
     FAcpakReader& operator=(const FAcpakReader&) = delete;
 
     /** ムーブ禁止 (entry.path が内部 pool を指すため)。 */
-    FAcpakReader(FAcpakReader&&)                 = delete;
+    FAcpakReader(FAcpakReader&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FAcpakReader& operator=(FAcpakReader&&)      = delete;
+    FAcpakReader& operator=(FAcpakReader&&) = delete;
 
     /**
      * `.acpak` ファイルを開き、header と file table を読み出す。
@@ -84,10 +86,10 @@ public:
      * kAcpakSubIOFailure (CreateFileW/ReadFile 失敗) / kAcpakSubBadSize
      * (ヘッダより小さい) / kAcpakSubBadMagic / kAcpakSubBadVersion /
      * kAcpakSubBadFlags (未知 flags bit)。
-     * @param file_path 開く `.acpak` の UTF-16 パス。
+     * @param FilePath 開く `.acpak` の UTF-16 パス。
      * @return 成功なら空の TResult、失敗ならエラー。
      */
-    TResult<void> Open(const wchar_t* file_path) noexcept;
+    TResult<void> Open(const wchar_t* FilePath) noexcept;
 
     /**
      * 暗号化 pak の復号鍵を設定する。
@@ -95,9 +97,9 @@ public:
      * @details
      * Open の前後どちらでも呼べる。ReadFile 内で AES-256-GCM 復号に使われ、
      * flags=0 の pak では無視される。Close すると内部の鍵情報も 0 クリアされる。
-     * @param key 設定する AES-256 鍵。
+     * @param Key 設定する AES-256 鍵。
      */
-    void SetKey(const FAcpakKey& key) noexcept;
+    void SetKey(const FAcpakKey& Key) noexcept;
 
     /**
      * ハンドルを閉じ、文字列 pool + entry 配列を解放する。
@@ -111,33 +113,33 @@ public:
      *
      * @return Open 成功後かつ Close 前なら true。
      */
-    bool IsOpen() const noexcept { return m_FileHandle != nullptr; }
+    bool IsOpen() const noexcept;
 
     /**
      * 現在開いている pak に含まれる仮想ファイル数を返す。
      *
      * @return 仮想ファイル数 (未 Open なら 0)。
      */
-    u32 FileCount() const noexcept { return static_cast<u32>(m_Entries.Size()); }
+    u32 FileCount() const noexcept;
 
     /**
      * index 番目の entry を返す。
      *
      * @details 返り値の寿命は次の Close まで。
-     * @param index 取得する entry のインデックス。
+     * @param Index 取得する entry のインデックス。
      * @return entry へのポインタ (範囲外 / 未 Open なら nullptr)。
      */
-    const FAcpakFileEntry* GetEntry(u32 index) const noexcept;
+    const FAcpakFileEntry* GetEntry(u32 Index) const noexcept;
 
     /**
      * 仮想パスから entry を探す。
      *
      * @details
      * 線形探索 (数百〜数千 entry 想定で十分高速)。比較は wcscmp 相当の完全一致。
-     * @param path 探す仮想パス (UTF-16)。
+     * @param Path 探す仮想パス (UTF-16)。
      * @return 見つかった entry (無い / 未 Open なら nullptr)。
      */
-    const FAcpakFileEntry* FindEntry(const wchar_t* path) const noexcept;
+    const FAcpakFileEntry* FindEntry(const wchar_t* Path) const noexcept;
 
     /**
      * 仮想パスのファイルを out_buffer に読み出す (復号 + 解凍 + CRC 検証)。
@@ -146,23 +148,21 @@ public:
      * buffer_size は GetUncompressedSize() の返す値以上必要 (不足は
      * kAcpakSubBufferTooSmall)。読み出し後 CRC32 を entry.crc32 と照合し、不一致は
      * kAcpakSubBadCrc を返す (エラー時の buffer 内容は使わないこと)。
-     * @param path 読み出す仮想パス (UTF-16)。
-     * @param out_buffer 読み出し先バッファ。
-     * @param buffer_size out_buffer の容量バイト数。
+     * @param Path 読み出す仮想パス (UTF-16)。
+     * @param OutBuffer 読み出し先バッファ。
+     * @param BufferSize OutBuffer の容量バイト数。
      * @return 実際に書き込んだバイト数 (= size_uncompressed)、失敗ならエラー。
      */
-    TResult<u64> ReadFile(const wchar_t* path,
-                         void*          out_buffer,
-                         u64            buffer_size) noexcept;
+    TResult<u64> ReadFile(const wchar_t* Path, void* OutBuffer, u64 BufferSize) noexcept;
 
     /**
      * 仮想パスの復号 + 解凍後のバイト数を返す。
      *
      * @details ReadFile 用バッファの事前確保に使う。
-     * @param path サイズを問い合わせる仮想パス (UTF-16)。
+     * @param Path サイズを問い合わせる仮想パス (UTF-16)。
      * @return size_uncompressed バイト数 (未存在パスは kAcpakSubNotFound)。
      */
-    TResult<u64> GetUncompressedSize(const wchar_t* path) const noexcept;
+    TResult<u64> GetUncompressedSize(const wchar_t* Path) const noexcept;
 
     /**
      * ヘッダから読み取った flags をそのまま返す。
@@ -170,7 +170,7 @@ public:
      * @details encrypted / compressed のどのビットが立っているかを診断する用途。
      * @return header.flags の値。
      */
-    u32 Flags() const noexcept { return m_Flags; }
+    u32 Flags() const noexcept;
 
 private:
     /**
@@ -181,38 +181,41 @@ private:
      */
     TResult<void> LoadHeaderAndTable() noexcept;
 
-    /**
-     * src の wchar_t 列を m_StringPool に NUL 付きで追加し、その先頭を返す。
-     *
-     * @param src 追加する文字列。
-     * @param len src の wchar_t 数。
-     * @return pool 内に確保された文字列の先頭ポインタ。
-     */
-    const wchar_t* InternPath(const wchar_t* src, u32 len) noexcept;
+    /** ライフサイクルロック取得済みで内部状態を空に戻す。 */
+    void CloseUnlocked() noexcept;
+
+    /** ライフサイクル共有ロック取得済みで entry を検索する。 */
+    const FAcpakFileEntry* FindEntryUnlocked(const wchar_t* Path) const noexcept;
+
+    /** Open/Close と読み出し処理の寿命を同期する。 */
+    mutable RwLock m_LifecycleLock;
+
+    /** SetFilePointerEx と ReadFile の組を不可分にする。 */
+    mutable FMutex m_IoLock;
 
     /** Win32 HANDLE 相当 (<windows.h> を header から外すため void* で保持)。 */
-    void*                 m_FileHandle = nullptr;
+    void* m_FileHandle = nullptr;
 
     /** CreateFileW 直後に GetFileSizeEx で得たファイル長。 */
-    u64                   m_FileSize   = 0;
+    u64 m_FileSize = 0;
 
     /** header.flags (encrypted / compressed)。 */
-    u32                   m_Flags       = 0;
+    u32 m_Flags = 0;
 
     /** header.file_table_offset。 */
-    u64                   m_TableOffset = 0;
+    u64 m_TableOffset = 0;
 
     /** file table の in-memory 表現 (entry.path は m_StringPool を指す)。 */
     TArray<FAcpakFileEntry> m_Entries;
 
     /** path 文字列の連結 pool (NUL 区切り)。 */
-    TArray<wchar_t>        m_StringPool;
+    TArray<wchar_t> m_StringPool;
 
     /** 暗号化 pak の復号鍵 (flags=0 のときは未使用、Close で 0 クリア)。 */
-    FAcpakKey              m_Key{};
+    FAcpakKey m_Key{};
 
     /** SetKey で鍵が設定されたか (Close で false にリセット)。 */
-    bool                  m_HasKey     = false;
+    bool m_HasKey = false;
 };
 
 } // namespace acs::assetpack

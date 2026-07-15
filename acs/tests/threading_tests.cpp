@@ -90,6 +90,56 @@ struct SubmitRaceContext {
     TAtomic<u32> executed{0};
 };
 
+struct AtomicPublicationContext
+{
+    static constexpr u32 kIterationCount = 50000u;
+
+    u32 Payload = 0u;
+    TAtomic<u32> Sequence{0u};
+    TAtomic<u32> Acknowledged{0u};
+    TAtomic<u32> FailureCount{0u};
+    TAtomic<u32> StopRequested{0u};
+};
+
+void PublishAtomicPayload(void* User) noexcept
+{
+    auto* const Context = static_cast<AtomicPublicationContext*>(User);
+    for (u32 Iteration = 1u; Iteration <= AtomicPublicationContext::kIterationCount; ++Iteration)
+    {
+        while (Context->Acknowledged.Load(EMemoryOrder::Acquire) != Iteration - 1u)
+        {
+            if (Context->StopRequested.Load(EMemoryOrder::Acquire) != 0u)
+            {
+                return;
+            }
+            Yield();
+        }
+        Context->Payload = Iteration ^ 0xA5A55A5Au;
+        Context->Sequence.Store(Iteration, EMemoryOrder::Release);
+    }
+}
+
+void ConsumeAtomicPayload(void* User) noexcept
+{
+    auto* const Context = static_cast<AtomicPublicationContext*>(User);
+    for (u32 Iteration = 1u; Iteration <= AtomicPublicationContext::kIterationCount; ++Iteration)
+    {
+        while (Context->Sequence.Load(EMemoryOrder::Acquire) != Iteration)
+        {
+            if (Context->StopRequested.Load(EMemoryOrder::Acquire) != 0u)
+            {
+                return;
+            }
+            Yield();
+        }
+        if (Context->Payload != (Iteration ^ 0xA5A55A5Au))
+        {
+            Context->FailureCount.FetchAdd(1u);
+        }
+        Context->Acknowledged.Store(Iteration, EMemoryOrder::Release);
+    }
+}
+
 void CountRaceTask(void* user, u32) noexcept
 {
     static_cast<SubmitRaceContext*>(user)->executed.FetchAdd(1);
@@ -120,6 +170,77 @@ ACS_TEST(Threading, AtomicAddCounts) {
     constexpr u32 N = 100;
     for (u32 i = 0; i < N; ++i) c.FetchAdd(1);
     EXPECT_EQ(c.Load(), N);
+}
+
+ACS_TEST(Threading, AtomicSupportedWidthsAndPointerOperations)
+{
+    TAtomic<u8> Value8{1u};
+    TAtomic<u16> Value16{2u};
+    TAtomic<u32> Value32{3u};
+    TAtomic<u64> Value64{4u};
+
+    Value8.Store(11u, EMemoryOrder::Release);
+    Value16.Store(12u, EMemoryOrder::SeqCst);
+    Value32.Store(13u, EMemoryOrder::Relaxed);
+    Value64.Store(14u, EMemoryOrder::Release);
+    EXPECT_EQ(Value8.Load(EMemoryOrder::Acquire), static_cast<u8>(11u));
+    EXPECT_EQ(Value16.Load(EMemoryOrder::SeqCst), static_cast<u16>(12u));
+    EXPECT_EQ(Value32.Load(EMemoryOrder::Relaxed), 13u);
+    EXPECT_EQ(Value64.Load(EMemoryOrder::Acquire), 14ull);
+
+    EXPECT_EQ(Value8.Exchange(21u), static_cast<u8>(11u));
+    EXPECT_EQ(Value16.Exchange(22u), static_cast<u16>(12u));
+    EXPECT_EQ(Value32.Exchange(23u), 13u);
+    EXPECT_EQ(Value64.Exchange(24u), 14ull);
+
+    u8 Expected8 = 21u;
+    u16 Expected16 = 22u;
+    u32 Expected32 = 23u;
+    u64 Expected64 = 24u;
+    EXPECT_TRUE(Value8.CompareExchange(Expected8, 31u));
+    EXPECT_TRUE(Value16.CompareExchange(Expected16, 32u));
+    EXPECT_TRUE(Value32.CompareExchange(Expected32, 33u));
+    EXPECT_TRUE(Value64.CompareExchange(Expected64, 34u));
+
+    u32 First = 41u;
+    u32 Second = 42u;
+    TAtomic<u32*> Pointer{&First};
+    EXPECT_TRUE(Pointer.Load(EMemoryOrder::Acquire) == &First);
+    EXPECT_TRUE(Pointer.Exchange(&Second) == &First);
+    u32* ExpectedPointer = &Second;
+    EXPECT_TRUE(Pointer.CompareExchange(ExpectedPointer, &First));
+    Pointer.Store(&Second, EMemoryOrder::SeqCst);
+    EXPECT_TRUE(Pointer.Load(EMemoryOrder::SeqCst) == &Second);
+}
+
+ACS_TEST(Threading, AtomicReleaseAcquirePublishesPayload)
+{
+    AtomicPublicationContext Context{};
+    auto Producer = FThread::Spawn(&PublishAtomicPayload, &Context);
+    auto Consumer = FThread::Spawn(&ConsumeAtomicPayload, &Context);
+
+    EXPECT_TRUE(Producer.IsOk());
+    EXPECT_TRUE(Consumer.IsOk());
+    if (Producer.IsErr() || Consumer.IsErr())
+    {
+        Context.StopRequested.Store(1u, EMemoryOrder::Release);
+    }
+    if (Producer.IsOk())
+    {
+        Producer.Value().Join();
+    }
+    if (Consumer.IsOk())
+    {
+        Consumer.Value().Join();
+    }
+
+    EXPECT_EQ(Context.FailureCount.Load(EMemoryOrder::Acquire), 0u);
+    EXPECT_EQ(Context.Acknowledged.Load(), AtomicPublicationContext::kIterationCount);
+
+    u32 Value = 41u;
+    TAtomic<u32*> Pointer{nullptr};
+    Pointer.Store(&Value);
+    EXPECT_TRUE(Pointer.Load() == &Value);
 }
 
 ACS_TEST(Threading, MutexExclusive) {

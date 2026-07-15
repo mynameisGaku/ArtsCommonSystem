@@ -59,6 +59,18 @@ public:
     void Free(void* Pointer) noexcept override;
 
     /**
+     * 指定範囲が、最後の Reset 以降に arena が使用済みにしたページ領域へ完全に含まれるか調べる。
+     *
+     * @details
+     * allocation-start の判定は行わない。呼び出し側がインバンドヘッダを安全に読む前の範囲検査に使う。
+     * Reset とは内部の操作ゲートで直列化し、ページ一覧は GrowLock の保持中だけ走査する。
+     * @param Pointer 検査する範囲の先頭。
+     * @param Size 検査するバイト数。
+     * @return 範囲全体が現在の使用済みページ領域内なら true。
+     */
+    bool ContainsCurrentAllocationRange(const void* Pointer, usize Size) noexcept;
+
+    /**
      * 全確保を無効化する。
      *
      * @details

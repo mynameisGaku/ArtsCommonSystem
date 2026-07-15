@@ -8,7 +8,10 @@
 #include "memory/UniquePtr.h"
 #include "memory/SharedPtr.h"
 #include "memory/New.h"
+#include "memory/Memory.h"
 #include "foundation/Platform.h"
+#include "foundation/Move.h"
+#include "threading/Atomic.h"
 #include "threading/Thread.h"
 
 using namespace acs;
@@ -108,6 +111,29 @@ int RunSystemAllocatorGenerationProbe() noexcept
     return bStatisticsPreserved ? 0 : 82;
 }
 
+struct DefaultAllocatorPublicationContext {
+    FAllocator* First = nullptr;
+    FAllocator* Second = nullptr;
+    TAtomic<u32> Start{0u};
+    TAtomic<u32> FailureCount{0u};
+};
+
+void ToggleAndReadDefaultAllocator(void* User) noexcept
+{
+    auto* const Context = static_cast<DefaultAllocatorPublicationContext*>(User);
+    while (Context->Start.Load(EMemoryOrder::Acquire) == 0u) {
+        Yield();
+    }
+
+    for (u32 Iteration = 0u; Iteration < 50000u; ++Iteration) {
+        SetDefaultAllocator((Iteration & 1u) == 0u ? Context->First : Context->Second);
+        FAllocator* const Observed = &DefaultAllocator();
+        if (Observed != Context->First && Observed != Context->Second) {
+            Context->FailureCount.FetchAdd(1u);
+        }
+    }
+}
+
 } // namespace
 
 ACS_TEST(Memory, SystemAllocatorRoundtrips)
@@ -141,6 +167,37 @@ ACS_TEST(Memory, SystemAllocatorRoundtrips)
     // 基底インターフェイスからも件数を取得できること。
     FAllocator& AllocatorReference = a;
     EXPECT_EQ(AllocatorReference.AllocationCount(), 0ull);
+}
+
+ACS_TEST(Memory, DefaultAllocatorPublicationIsThreadSafe)
+{
+    constexpr u32 kWorkerCount = 8u;
+    FAllocator* const Original = &DefaultAllocator();
+    FSystemAllocator First;
+    FSystemAllocator Second;
+    DefaultAllocatorPublicationContext Context{};
+    Context.First = &First;
+    Context.Second = &Second;
+    SetDefaultAllocator(&First);
+
+    FThread Workers[kWorkerCount];
+    u32 SpawnedWorkerCount = 0u;
+    for (u32 Index = 0u; Index < kWorkerCount; ++Index) {
+        auto Worker = FThread::Spawn(&ToggleAndReadDefaultAllocator, &Context);
+        EXPECT_TRUE(Worker.IsOk());
+        if (Worker.IsOk()) {
+            Workers[SpawnedWorkerCount++] = Move(Worker.Value());
+        }
+    }
+
+    Context.Start.Store(1u, EMemoryOrder::Release);
+    for (u32 Index = 0u; Index < SpawnedWorkerCount; ++Index) {
+        Workers[Index].Join();
+    }
+    SetDefaultAllocator(Original);
+
+    EXPECT_EQ(Context.FailureCount.Load(EMemoryOrder::Acquire), 0u);
+    EXPECT_TRUE(&DefaultAllocator() == Original);
 }
 
 ACS_TEST(Memory, SystemAllocatorProcessStatisticsTrackLiveInstances)
@@ -492,6 +549,18 @@ ACS_TEST(Memory, LinearAllocatorBumps)
     EXPECT_EQ(la.AllocationCount(), 1ull);
 }
 
+ACS_TEST(Memory, LinearAllocatorRejectsOverflowAndInvalidAlignment)
+{
+    FLinearAllocator Allocator(4096u);
+    void* const First = Allocator.Alloc(1u, 1u, FSourceLoc::Current());
+    EXPECT_TRUE(First != nullptr);
+    EXPECT_TRUE(Allocator.Alloc(~usize(0), 1u, FSourceLoc::Current()) == nullptr);
+    EXPECT_TRUE(Allocator.Alloc(16u, 0u, FSourceLoc::Current()) == nullptr);
+    EXPECT_TRUE(Allocator.Alloc(16u, 24u, FSourceLoc::Current()) == nullptr);
+    EXPECT_EQ(Allocator.AllocationCount(), 1ull);
+    EXPECT_EQ(Allocator.BytesAllocated(), 1ull);
+}
+
 ACS_TEST(Memory, PoolAllocatorReusesSlots)
 {
     FPoolAllocator p(64, 16);
@@ -511,6 +580,85 @@ ACS_TEST(Memory, PoolAllocatorReusesSlots)
     EXPECT_EQ(p.AllocationCount(), 0ull);
 }
 
+ACS_TEST(Memory, PoolAllocatorRejectsInvalidAndDuplicateFree)
+{
+    FPoolAllocator Pool(64u, 4u);
+    void* const First = Pool.Alloc(64u, 8u, FSourceLoc::Current());
+    EXPECT_TRUE(First != nullptr);
+    EXPECT_EQ(Pool.AllocationCount(), 1ull);
+
+    Pool.Free(static_cast<u8*>(First) + 1u);
+    EXPECT_EQ(Pool.AllocationCount(), 1ull);
+
+    u8 ForeignStorage[64] = {};
+    Pool.Free(ForeignStorage);
+    EXPECT_EQ(Pool.AllocationCount(), 1ull);
+
+    Pool.Free(First);
+    Pool.Free(First);
+    EXPECT_EQ(Pool.AllocationCount(), 0ull);
+
+    void* Allocations[4] = {};
+    for (usize Index = 0u; Index < 4u; ++Index) {
+        Allocations[Index] = Pool.Alloc(64u, 8u, FSourceLoc::Current());
+        EXPECT_TRUE(Allocations[Index] != nullptr);
+        for (usize PreviousIndex = 0u; PreviousIndex < Index; ++PreviousIndex) {
+            EXPECT_TRUE(Allocations[Index] != Allocations[PreviousIndex]);
+        }
+    }
+    EXPECT_TRUE(Pool.Alloc(64u, 8u, FSourceLoc::Current()) == nullptr);
+
+    for (void* Allocation : Allocations) {
+        Pool.Free(Allocation);
+    }
+    EXPECT_EQ(Pool.AllocationCount(), 0ull);
+}
+
+ACS_TEST(Memory, PoolAllocatorConcurrentAllocAndFreeRemainBalanced)
+{
+    constexpr usize kThreadCount = 8u;
+    constexpr usize kOperationCount = 20000u;
+    FPoolAllocator Pool(64u, 32u);
+    TAtomic<u32> FailureCount{0u};
+
+    struct Context {
+        FPoolAllocator* Pool = nullptr;
+        TAtomic<u32>* FailureCount = nullptr;
+    } Contexts[kThreadCount] = {};
+    FThread Threads[kThreadCount];
+
+    for (usize Index = 0u; Index < kThreadCount; ++Index) {
+        Contexts[Index].Pool = &Pool;
+        Contexts[Index].FailureCount = &FailureCount;
+        auto ThreadResult = FThread::Spawn(
+            [](void* UserData) {
+                auto* ThreadContext = static_cast<Context*>(UserData);
+                for (usize Operation = 0u; Operation < kOperationCount; ++Operation) {
+                    void* Allocation = nullptr;
+                    while (!Allocation) {
+                        Allocation = ThreadContext->Pool->Alloc(64u, 8u, FSourceLoc::Current());
+                        if (!Allocation) Yield();
+                    }
+                    MemSet(Allocation, static_cast<int>(Operation & 0xffu), 64u);
+                    ThreadContext->Pool->Free(Allocation);
+                }
+            },
+            &Contexts[Index]);
+        if (ThreadResult.IsErr()) {
+            FailureCount.FetchAdd(1u);
+            continue;
+        }
+        Threads[Index] = Move(ThreadResult.Value());
+    }
+
+    for (FThread& Thread : Threads) {
+        if (Thread.Joinable()) Thread.Join();
+    }
+
+    EXPECT_EQ(FailureCount.Load(EMemoryOrder::Acquire), 0u);
+    EXPECT_EQ(Pool.AllocationCount(), 0ull);
+}
+
 ACS_TEST(Memory, ArenaGrows)
 {
     FArenaAllocator ar(1024);
@@ -527,6 +675,23 @@ ACS_TEST(Memory, ArenaGrows)
     void* c = ar.Alloc(64, 16, FSourceLoc::Current());
     EXPECT_TRUE(c != nullptr);
     EXPECT_EQ(ar.AllocationCount(), 1ull);
+}
+
+ACS_TEST(Memory, ArenaResetReusesEveryRetainedPage)
+{
+    FSystemAllocator Backing;
+    FArenaAllocator Arena(256u, &Backing);
+
+    for (usize Cycle = 0u; Cycle < 64u; ++Cycle) {
+        EXPECT_TRUE(Arena.Alloc(200u, 16u, FSourceLoc::Current()) != nullptr);
+        EXPECT_TRUE(Arena.Alloc(200u, 16u, FSourceLoc::Current()) != nullptr);
+        EXPECT_TRUE(Arena.Alloc(200u, 16u, FSourceLoc::Current()) != nullptr);
+        EXPECT_EQ(Backing.AllocationCount(), 3ull);
+        Arena.Reset(false);
+    }
+
+    Arena.Reset(true);
+    EXPECT_EQ(Backing.AllocationCount(), 0ull);
 }
 
 ACS_TEST(Memory, ArenaLargeAlignmentIsBounded)

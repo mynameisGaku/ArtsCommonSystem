@@ -4,6 +4,7 @@
 #include "test/Expect.h"
 #include "memory/ObjectPool.h"
 #include "memory/New.h"
+#include "memory/SystemAllocator.h"
 #include "platform/Time.h"
 #include "foundation/Log.h"
 
@@ -17,6 +18,38 @@ struct Thing {
     int value;
     explicit Thing(int v = 0) noexcept : value(v) { ++g_live; }
     ~Thing() noexcept { --g_live; }
+};
+
+/** 指定した次回確保だけを失敗させ、rollback を検証する backing。 */
+class FControllableFailAllocator final : public FAllocator {
+public:
+    void FailNextAllocation() noexcept
+    {
+        m_bFailNext = true;
+    }
+
+    void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override
+    {
+        if (m_bFailNext) {
+            m_bFailNext = false;
+            return nullptr;
+        }
+        return m_Backing.Alloc(Size, Alignment, Location);
+    }
+
+    void Free(void* Pointer) noexcept override
+    {
+        m_Backing.Free(Pointer);
+    }
+
+    u64 AllocationCount() const noexcept override
+    {
+        return m_Backing.AllocationCount();
+    }
+
+private:
+    FSystemAllocator m_Backing;
+    bool m_bFailNext = false;
 };
 
 } // namespace
@@ -109,6 +142,48 @@ ACS_TEST(ObjectPool, ClearDestroysAll) {
     FObjectHandle h = pool.Create(77);
     EXPECT_TRUE(pool.Get(h) != nullptr);
     EXPECT_EQ(pool.Get(h)->value, 77);
+}
+
+ACS_TEST(ObjectPool, AllocationFailuresPreserveOwnershipAndState)
+{
+    g_live = 0;
+    FControllableFailAllocator Allocator;
+
+    {
+        TObjectPool<Thing> Pool(Allocator);
+        Allocator.FailNextAllocation();
+        const FObjectHandle FailedCreate = Pool.Create(1);
+        EXPECT_FALSE(FailedCreate.IsSet());
+        EXPECT_EQ(Pool.Count(), 0u);
+        EXPECT_EQ(g_live, 0);
+        EXPECT_EQ(Allocator.AllocationCount(), 0ull);
+
+        const FObjectHandle First = Pool.Create(10);
+        const FObjectHandle Second = Pool.Create(20);
+        EXPECT_TRUE(First.IsSet());
+        EXPECT_TRUE(Second.IsSet());
+        EXPECT_EQ(Pool.Count(), 2u);
+        EXPECT_EQ(g_live, 2);
+
+        Allocator.FailNextAllocation();
+        EXPECT_FALSE(Pool.Destroy(First));
+        EXPECT_TRUE(Pool.IsAlive(First));
+        EXPECT_EQ(Pool.Count(), 2u);
+        EXPECT_EQ(g_live, 2);
+
+        Allocator.FailNextAllocation();
+        EXPECT_FALSE(Pool.TryClear());
+        EXPECT_TRUE(Pool.IsAlive(First));
+        EXPECT_TRUE(Pool.IsAlive(Second));
+        EXPECT_EQ(Pool.Count(), 2u);
+        EXPECT_EQ(g_live, 2);
+
+        EXPECT_TRUE(Pool.TryClear());
+        EXPECT_EQ(Pool.Count(), 0u);
+        EXPECT_EQ(g_live, 0);
+    }
+
+    EXPECT_EQ(Allocator.AllocationCount(), 0ull);
 }
 
 // 「速い」ことを数値で示す参考ベンチ (assert は churn が壊れないことのみ。数値はログ出力)。

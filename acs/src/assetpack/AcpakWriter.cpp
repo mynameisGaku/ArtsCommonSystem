@@ -14,14 +14,14 @@
 //   4. ヘッダ書き戻し (file_count + file_table_offset)
 //
 // 制約:
-//   ・data の所有権は呼び出し側に残る — Writer はコピーを取らない。
-//     呼び出し側は Finalize 完了まで data ポインタを生かしておくこと。
+//   ・AddFile は path と data を内部 allocator へコピーし、呼び出し側の寿命から分離する。
 // =============================================================================
 #include "assetpack/AcpakWriter.h"
 
 #include "foundation/Platform.h"
 #include "foundation/Log.h"
 #include "memory/Memory.h"
+#include "threading/ScopedLock.h"
 
 #include "assetpack/AcpakCrypto.h" // AES-256-GCM 暗号化
 #include "assetpack/AcpakLz4.h"    // LZ4 圧縮
@@ -38,20 +38,26 @@ namespace {
  * table を最初の呼び出し時に組み立てる (Meyers singleton)。
  * @return 256 要素の CRC32 lookup table。
  */
-const u32* GetCrc32Table() noexcept {
-    static u32 table[256] = {};
-    static bool initialized = false;
-    if (!initialized) {
-        for (u32 i = 0; i < 256; ++i) {
-            u32 c = i;
-            for (u32 k = 0; k < 8; ++k) {
-                c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+const u32* GetCrc32Table() noexcept
+{
+    struct FCrc32Table {
+        FCrc32Table() noexcept
+        {
+            for (u32 Index = 0; Index < 256; ++Index) {
+                u32 Value = Index;
+                for (u32 Bit = 0; Bit < 8; ++Bit) {
+                    Value = (Value & 1u) ? (0xEDB88320u ^ (Value >> 1)) : (Value >> 1);
+                }
+                Values[Index] = Value;
             }
-            table[i] = c;
         }
-        initialized = true;
-    }
-    return table;
+
+        u32 Values[256] = {};
+    };
+
+    // C++11 の関数ローカル static 初期化で並行初回呼び出しを直列化する。
+    static const FCrc32Table Table;
+    return Table.Values;
 }
 
 /**
@@ -62,14 +68,15 @@ const u32* GetCrc32Table() noexcept {
  * @param size data のバイト数。
  * @return 計算した CRC32。
  */
-u32 ComputeCrc32(const void* data, u64 size) noexcept {
-    const u32* table = GetCrc32Table();
-    const u8*  p     = static_cast<const u8*>(data);
-    u32        crc   = 0xFFFFFFFFu;
-    for (u64 i = 0; i < size; ++i) {
-        crc = table[(crc ^ p[i]) & 0xFFu] ^ (crc >> 8);
+u32 ComputeCrc32(const void* Data, u64 Size) noexcept
+{
+    const u32* Table = GetCrc32Table();
+    const u8* Bytes = static_cast<const u8*>(Data);
+    u32 Crc = 0xFFFFFFFFu;
+    for (u64 Index = 0; Index < Size; ++Index) {
+        Crc = Table[(Crc ^ Bytes[Index]) & 0xFFu] ^ (Crc >> 8);
     }
-    return crc ^ 0xFFFFFFFFu;
+    return Crc ^ 0xFFFFFFFFu;
 }
 
 /**
@@ -78,7 +85,8 @@ u32 ComputeCrc32(const void* data, u64 size) noexcept {
  * @param h 対象のファイルハンドル。
  * @return 現在の file pointer のオフセット (取得失敗時は 0)。
  */
-u64 Tell(HANDLE h) noexcept {
+u64 Tell(HANDLE h) noexcept
+{
     const LARGE_INTEGER zero{};
     LARGE_INTEGER cur{};
     if (!::SetFilePointerEx(h, zero, &cur, FILE_CURRENT)) {
@@ -95,7 +103,8 @@ u64 Tell(HANDLE h) noexcept {
  * @param err 失敗時に GetLastError の値を格納する (成功時 0)。
  * @return 成功なら true、失敗なら false。
  */
-bool SeekTo(HANDLE h, u64 offset, DWORD& err) noexcept {
+bool SeekTo(HANDLE h, u64 offset, DWORD& err) noexcept
+{
     err = 0;
     LARGE_INTEGER li{};
     li.QuadPart = static_cast<LONGLONG>(offset);
@@ -118,15 +127,14 @@ bool SeekTo(HANDLE h, u64 offset, DWORD& err) noexcept {
  * @param err 失敗時に GetLastError の値を格納する (成功時 0)。
  * @return 成功なら true、失敗なら false。
  */
-bool WriteAll(HANDLE h, const void* src, u64 size, DWORD& err) noexcept {
+bool WriteAll(HANDLE h, const void* src, u64 size, DWORD& err) noexcept
+{
     err = 0;
     if (size == 0) return true;
     const u8* p = static_cast<const u8*>(src);
     u64 remaining = size;
     while (remaining > 0) {
-        const DWORD chunk = (remaining > 0x7FFFFFFFu)
-                          ? 0x7FFFFFFFu
-                          : static_cast<DWORD>(remaining);
+        const DWORD chunk = (remaining > 0x7FFFFFFFu) ? 0x7FFFFFFFu : static_cast<DWORD>(remaining);
         DWORD wrote = 0;
         if (!::WriteFile(h, p, chunk, &wrote, nullptr) || wrote != chunk) {
             err = ::GetLastError();
@@ -145,7 +153,8 @@ bool WriteAll(HANDLE h, const void* src, u64 size, DWORD& err) noexcept {
  * @param dst 書き込み先 (4 バイト)。
  * @param v 書き込む u32。
  */
-void WriteU32LE(u8* dst, u32 v) noexcept {
+void WriteU32LE(u8* dst, u32 v) noexcept
+{
     MemCopy(dst, &v, sizeof(u32));
 }
 
@@ -155,7 +164,8 @@ void WriteU32LE(u8* dst, u32 v) noexcept {
  * @param dst 書き込み先 (8 バイト)。
  * @param v 書き込む u64。
  */
-void WriteU64LE(u8* dst, u64 v) noexcept {
+void WriteU64LE(u8* dst, u64 v) noexcept
+{
     MemCopy(dst, &v, sizeof(u64));
 }
 
@@ -165,11 +175,16 @@ void WriteU64LE(u8* dst, u64 v) noexcept {
  * @param s 長さを測る文字列 (nullptr なら 0)。
  * @return NUL を含まない wchar_t 数。
  */
-u32 LenW(const wchar_t* s) noexcept {
-    u32 n = 0;
-    if (s == nullptr) return 0;
-    while (s[n]) ++n;
-    return n;
+usize LenWBounded(const wchar_t* Text) noexcept
+{
+    usize Length = 0;
+    if (Text == nullptr) {
+        return 0;
+    }
+    while (Length <= kAcpakMaxPathLength && Text[Length] != L'\0') {
+        ++Length;
+    }
+    return Length;
 }
 
 } // namespace
@@ -180,17 +195,20 @@ FAcpakWriter::FAcpakWriter() noexcept : FAcpakWriter(DefaultAllocator())
 }
 
 /** 指定 allocator で pending list を構築する。 */
-FAcpakWriter::FAcpakWriter(FAllocator& allocator) noexcept : m_Pending(allocator)
+FAcpakWriter::FAcpakWriter(FAllocator& Allocator) noexcept : m_Allocator(&Allocator), m_Pending(Allocator)
 {
 }
 
 /** 破棄時に Close を呼んで後始末する。 */
-FAcpakWriter::~FAcpakWriter() noexcept {
+FAcpakWriter::~FAcpakWriter() noexcept
+{
     Close();
 }
 
 /** ハンドルを閉じ、ResetState で内部状態をクリアする (多重 Close は no-op)。 */
-void FAcpakWriter::Close() noexcept {
+void FAcpakWriter::Close() noexcept
+{
+    FScopedLock Lock(m_LifecycleLock);
     if (m_FileHandle != nullptr) {
         ::CloseHandle(static_cast<HANDLE>(m_FileHandle));
         m_FileHandle = nullptr;
@@ -199,8 +217,9 @@ void FAcpakWriter::Close() noexcept {
 }
 
 /** flags / Finalize フラグ / pending list / 鍵情報をクリアする。 */
-void FAcpakWriter::ResetState() noexcept {
-    m_Flags     = 0;
+void FAcpakWriter::ResetState() noexcept
+{
+    m_Flags = 0;
     m_Finalized = false;
     m_Pending.ReleaseStorage();
 
@@ -210,96 +229,117 @@ void FAcpakWriter::ResetState() noexcept {
 }
 
 /** 暗号化鍵を内部にコピーし、鍵設定済みフラグを立てる。 */
-void FAcpakWriter::SetKey(const FAcpakKey& key) noexcept {
-    MemCopy(m_Key.bytes, key.bytes, sizeof(m_Key.bytes));
+void FAcpakWriter::SetKey(const FAcpakKey& Key) noexcept
+{
+    FScopedLock Lock(m_LifecycleLock);
+    MemCopy(m_Key.bytes, Key.bytes, sizeof(m_Key.bytes));
     m_HasKey = true;
 }
 
 /** 出力ファイルを開き、ヘッダのプレースホルダ (36B) を書き出す。 */
-TResult<void> FAcpakWriter::Open(const wchar_t* output_path, EAcpakFlags flags) noexcept {
+TResult<void> FAcpakWriter::Open(const wchar_t* OutputPath, EAcpakFlags Flags) noexcept
+{
+    FScopedLock Lock(m_LifecycleLock);
     if (m_FileHandle != nullptr) {
-        return ACS_ERR(IO, kAcpakSubAlreadyOpen,
-                       "FAcpakWriter::Open: writer already open");
+        return ACS_ERR(IO, kAcpakSubAlreadyOpen, "FAcpakWriter::Open: writer already open");
     }
-    if (output_path == nullptr) {
-        return ACS_ERR(IO, kAcpakSubIOFailure,
-                       "FAcpakWriter::Open: output_path is null");
+    if (OutputPath == nullptr) {
+        return ACS_ERR(IO, kAcpakSubIOFailure, "FAcpakWriter::Open: output_path is null");
     }
 
     // encrypted / compressed は対応済。未知 flag bit のみ拒否。
-    const u32 known_flags = static_cast<u32>(AcpakFlagEncrypted) |
-                            static_cast<u32>(AcpakFlagCompressed);
-    if ((static_cast<u32>(flags) & ~known_flags) != 0) {
-        return ACS_ERR(Asset, kAcpakSubBadFlags,
-                       "FAcpakWriter::Open: unknown flag bits");
+    const u32 KnownFlags = static_cast<u32>(AcpakFlagEncrypted) | static_cast<u32>(AcpakFlagCompressed);
+    if ((static_cast<u32>(Flags) & ~KnownFlags) != 0) {
+        return ACS_ERR(Asset, kAcpakSubBadFlags, "FAcpakWriter::Open: unknown flag bits");
     }
 
-    const HANDLE h = ::CreateFileW(output_path, GENERIC_WRITE, 0, nullptr,
-                             CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
-        return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "FAcpakWriter::Open: CreateFileW failed",
-                          ::GetLastError());
+    const HANDLE Handle = ::CreateFileW(OutputPath, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                                        nullptr);
+    if (Handle == INVALID_HANDLE_VALUE) {
+        return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakWriter::Open: CreateFileW failed", ::GetLastError());
     }
 
-    m_FileHandle = h;
-    m_Flags       = static_cast<u32>(flags);
-    m_Finalized   = false;
+    m_FileHandle = Handle;
+    m_Flags = static_cast<u32>(Flags);
+    m_Finalized = false;
     m_Pending.Clear();
 
     // ---- ヘッダプレースホルダを書く (Finalize で上書きする) -----------------
     u8 header[kAcpakHeaderDiskSize] = {};
     MemCopy(header, kAcpakMagic, 8);
-    WriteU32LE(header + 8,  kAcpakVersion);
+    WriteU32LE(header + 8, kAcpakVersion);
     WriteU32LE(header + 12, m_Flags);
-    WriteU32LE(header + 16, 0);            // file_count placeholder
-    WriteU32LE(header + 20, 0);            // padding = 0
-    WriteU64LE(header + 24, 0);            // file_table_offset placeholder
-    WriteU32LE(header + 32, 0);            // reserved = 0
+    WriteU32LE(header + 16, 0); // file_count placeholder
+    WriteU32LE(header + 20, 0); // padding = 0
+    WriteU64LE(header + 24, 0); // file_table_offset placeholder
+    WriteU32LE(header + 32, 0); // reserved = 0
 
-    DWORD err = 0;
-    if (!WriteAll(h, header, kAcpakHeaderDiskSize, err)) {
-        ::CloseHandle(h);
+    DWORD Error = 0;
+    if (!WriteAll(Handle, header, kAcpakHeaderDiskSize, Error)) {
+        ::CloseHandle(Handle);
         m_FileHandle = nullptr;
         ResetState();
-        return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "FAcpakWriter::Open: WriteFile (header) failed", err);
+        return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakWriter::Open: WriteFile (header) failed", Error);
     }
 
     return Ok();
 }
 
 /** 1 ファイルを pending list に積む (実書き込みは Finalize)。 */
-TResult<void> FAcpakWriter::AddFile(const wchar_t* virtual_path,
-                                  const void*    data,
-                                  u64            size) noexcept {
+TResult<void> FAcpakWriter::AddFile(const wchar_t* VirtualPath, const void* Data, u64 Size) noexcept
+{
+    FScopedLock Lock(m_LifecycleLock);
     if (m_FileHandle == nullptr) {
-        return ACS_ERR(IO, kAcpakSubNotOpen,
-                       "FAcpakWriter::AddFile: writer not open");
+        return ACS_ERR(IO, kAcpakSubNotOpen, "FAcpakWriter::AddFile: writer not open");
     }
     if (m_Finalized) {
-        return ACS_ERR(IO, kAcpakSubNotOpen,
-                       "FAcpakWriter::AddFile: writer already finalized");
+        return ACS_ERR(IO, kAcpakSubNotOpen, "FAcpakWriter::AddFile: writer already finalized");
     }
-    if (virtual_path == nullptr) {
-        return ACS_ERR(IO, kAcpakSubIOFailure,
-                       "FAcpakWriter::AddFile: virtual_path is null");
+    if (VirtualPath == nullptr) {
+        return ACS_ERR(IO, kAcpakSubIOFailure, "FAcpakWriter::AddFile: virtual_path is null");
     }
-    if (data == nullptr && size > 0) {
-        return ACS_ERR(IO, kAcpakSubIOFailure,
-                       "FAcpakWriter::AddFile: data is null but size > 0");
+    if (Data == nullptr && Size > 0) {
+        return ACS_ERR(IO, kAcpakSubIOFailure, "FAcpakWriter::AddFile: data is null but size > 0");
     }
 
-    PendingEntry e{};
-    e.path = virtual_path;
-    e.data = data;
-    e.size = size;
-    m_Pending.PushBack(e);
+    if (m_Pending.Size() >= kAcpakMaxFileCount) {
+        return ACS_ERR(IO, kAcpakSubBadSize, "FAcpakWriter::AddFile: file count exceeds limit");
+    }
+
+    const usize PathLength = LenWBounded(VirtualPath);
+    if (PathLength > kAcpakMaxPathLength) {
+        return ACS_ERR(IO, kAcpakSubBadSize, "FAcpakWriter::AddFile: virtual path exceeds limit");
+    }
+    const usize PayloadSize = static_cast<usize>(Size);
+    if (static_cast<u64>(PayloadSize) != Size) {
+        return ACS_ERR(IO, kAcpakSubBadSize, "FAcpakWriter::AddFile: payload exceeds address space");
+    }
+
+    PendingEntry* Entry = m_Pending.TryEmplaceBack(*m_Allocator);
+    if (Entry == nullptr) {
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakWriter::AddFile: pending entry allocation failed");
+    }
+
+    if (!Entry->Path.TryResize(PathLength + 1u)) {
+        m_Pending.PopBack();
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakWriter::AddFile: path copy allocation failed");
+    }
+    MemCopy(Entry->Path.Data(), VirtualPath, (PathLength + 1u) * sizeof(wchar_t));
+
+    if (!Entry->Data.TryResize(PayloadSize)) {
+        m_Pending.PopBack();
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakWriter::AddFile: payload copy allocation failed");
+    }
+    if (Size > 0) {
+        MemCopy(Entry->Data.Data(), Data, static_cast<usize>(Size));
+    }
     return Ok();
 }
 
 /** pending entry 群をディスクに書き出し、最後にヘッダを更新して pak を確定する。 */
-TResult<void> FAcpakWriter::Finalize() noexcept {
+TResult<void> FAcpakWriter::Finalize() noexcept
+{
+    FScopedLock Lock(m_LifecycleLock);
     // 各 entry に対し compress-then-encrypt パイプラインを通す:
     //   1. (元データ ptr, size) → CRC32 計算 (元バイト基準)
     //   2. compressed 立ち → LZ4 圧縮
@@ -312,78 +352,74 @@ TResult<void> FAcpakWriter::Finalize() noexcept {
     // たとえ size_stored > size_uncompressed でも保存する。圧縮 + 暗号化が両方
     // 立つ場合も、LZ4 で生格納に倒れた entry を含め暗号化は通常通り行う。
     if (m_FileHandle == nullptr) {
-        return ACS_ERR(IO, kAcpakSubNotOpen,
-                       "FAcpakWriter::Finalize: writer not open");
+        return ACS_ERR(IO, kAcpakSubNotOpen, "FAcpakWriter::Finalize: writer not open");
     }
     if (m_Finalized) {
-        return ACS_ERR(IO, kAcpakSubNotOpen,
-                       "FAcpakWriter::Finalize: already finalized");
+        return ACS_ERR(IO, kAcpakSubNotOpen, "FAcpakWriter::Finalize: already finalized");
     }
 
     const HANDLE h = static_cast<HANDLE>(m_FileHandle);
-    DWORD  err = 0;
+    DWORD err = 0;
 
     // ---- 既にヘッダ 36B は Open で書いてあり、file pointer は 36 にある -----
     // 念のため明示的に seek (古いヘッダ書き込みが flush されていない場合に
     // file pointer が想定外位置にいるリスクを下げる)。
     if (!SeekTo(h, kAcpakHeaderDiskSize, err)) {
-        return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "FAcpakWriter::Finalize: SetFilePointerEx failed", err);
+        return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakWriter::Finalize: SetFilePointerEx failed", err);
     }
 
-    const bool is_encrypted  = (m_Flags & static_cast<u32>(AcpakFlagEncrypted))  != 0u;
+    const bool is_encrypted = (m_Flags & static_cast<u32>(AcpakFlagEncrypted)) != 0u;
     const bool is_compressed = (m_Flags & static_cast<u32>(AcpakFlagCompressed)) != 0u;
 
     // 暗号化が立っているのに鍵未設定なら早期に弾く (失敗のソースを明確化)。
     if (is_encrypted && !m_HasKey) {
-        return ACS_ERR(Asset, kAcpakSubCryptoKey,
-                       "FAcpakWriter::Finalize: encrypted flag set but no key");
+        return ACS_ERR(Asset, kAcpakSubCryptoKey, "FAcpakWriter::Finalize: encrypted flag set but no key");
     }
 
     // 各 entry の (offset, size_unc, size_st, crc32, nonce[12], tag[16]) を控える。
     struct WrittenEntry {
-        u64 offset;
-        u64 size_unc;             // 元データのバイト数
-        u64 size_stored;          // ディスク上のバイト数 (圧縮+暗号化済)
-        u32 crc32;
-        u8  cipher_nonce[12];
-        u8  cipher_tag[16];
+        u64 Offset;
+        u64 UncompressedSize;
+        u64 StoredSize;
+        u32 Crc32;
+        u8 CipherNonce[12];
+        u8 CipherTag[16];
     };
-    TArray<WrittenEntry> written;
-    written.Reserve(m_Pending.Size());
+    TArray<WrittenEntry> written(*m_Allocator);
+    if (!written.TryResize(m_Pending.Size())) {
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakWriter::Finalize: entry result allocation failed");
+    }
 
     // 中間バッファは entry 間で再利用する (TArray<u8> を 2 つ用意)。
-    TArray<u8> stage_compress;   // LZ4 圧縮出力先
-    TArray<u8> stage_encrypt;    // AES-GCM 暗号化出力先 (in-place 可だが安全のため別)
+    TArray<u8> stage_compress(*m_Allocator); // LZ4 圧縮出力先
+    TArray<u8> stage_encrypt(*m_Allocator);  // AES-GCM 暗号化出力先
 
     // ---- ファイルデータ書き出し -------------------------------------------
     for (usize i = 0; i < m_Pending.Size(); ++i) {
         const PendingEntry& p = m_Pending[i];
 
         WrittenEntry w{};
-        w.offset   = Tell(h);
-        w.size_unc = p.size;
-        w.crc32    = ComputeCrc32(p.data, p.size);
+        w.Offset = Tell(h);
+        w.UncompressedSize = static_cast<u64>(p.Data.Size());
+        w.Crc32 = ComputeCrc32(p.Data.Data(), p.Data.Size());
 
         // ステージごとの (data, size) を pipeline で更新していく。
-        const u8* stage_ptr  = static_cast<const u8*>(p.data);
-        u64       stage_size = p.size;
+        const u8* stage_ptr = p.Data.Data();
+        u64 stage_size = static_cast<u64>(p.Data.Size());
 
         // ---- 圧縮 (compress-then-encrypt の 1 段目) --------------------
         if (is_compressed) {
-            if (p.size > 0xFFFFFFFFu) {
-                return ACS_ERR(Asset, kAcpakSubBadSize,
-                               "FAcpakWriter::Finalize: input > 4GiB (LZ4 limit)");
+            if (p.Data.Size() > 0xFFFFFFFFu) {
+                return ACS_ERR(Asset, kAcpakSubBadSize, "FAcpakWriter::Finalize: input > 4GiB (LZ4 limit)");
             }
-            const u32 src_size = static_cast<u32>(p.size);
-            const u32 dst_cap  = FAcpakLz4::MaxCompressedSize(src_size);
-            stage_compress.Resize(dst_cap);
-            const auto cr = FAcpakLz4::Compress(static_cast<const u8*>(p.data),
-                                         src_size,
-                                         stage_compress.Data(),
-                                         dst_cap);
+            const u32 src_size = static_cast<u32>(p.Data.Size());
+            const u32 dst_cap = FAcpakLz4::MaxCompressedSize(src_size);
+            if (!stage_compress.TryResize(dst_cap)) {
+                return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakWriter::Finalize: compression allocation failed");
+            }
+            const auto cr = FAcpakLz4::Compress(p.Data.Data(), src_size, stage_compress.Data(), dst_cap);
             if (cr.IsErr()) return cr.Error();
-            stage_ptr  = stage_compress.Data();
+            stage_ptr = stage_compress.Data();
             stage_size = cr.Value();
         }
 
@@ -392,96 +428,92 @@ TResult<void> FAcpakWriter::Finalize() noexcept {
             // CSPRNG nonce 生成。RNG 失敗時はゼロ nonce での AES-GCM 暗号化
             // (= nonce 再利用 → 認証鍵漏洩) を絶対に避けるため、エラーを伝播し
             // 暗号化を中止する。
-            const auto nr = FAcpakCrypto::GenerateRandomNonce(w.cipher_nonce);
+            const auto nr = FAcpakCrypto::GenerateRandomNonce(w.CipherNonce);
             if (nr.IsErr()) return nr.Error();
 
             // 出力バッファ (= 同 size の別領域、in-place も可だが分離で安全)
-            stage_encrypt.Resize(static_cast<usize>(stage_size));
-            const auto er = FAcpakCrypto::Encrypt(m_Key,
-                                           w.cipher_nonce,
-                                           stage_ptr, stage_size,
-                                           stage_encrypt.Data(),
-                                           w.cipher_tag);
+            if (!stage_encrypt.TryResize(static_cast<usize>(stage_size))) {
+                return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakWriter::Finalize: encryption allocation failed");
+            }
+            const auto er = FAcpakCrypto::Encrypt(m_Key, w.CipherNonce, stage_ptr, stage_size, stage_encrypt.Data(),
+                                                  w.CipherTag);
             if (er.IsErr()) return er.Error();
-            stage_ptr  = stage_encrypt.Data();
+            stage_ptr = stage_encrypt.Data();
             // size 不変 (AES-GCM は size == size)
         }
 
-        w.size_stored = stage_size;
+        w.StoredSize = stage_size;
 
         // ---- ディスク書き出し ----------------------------------------
         if (stage_size > 0) {
             if (!WriteAll(h, stage_ptr, stage_size, err)) {
-                return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                                  "FAcpakWriter::Finalize: WriteFile (data) failed", err);
+                return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakWriter::Finalize: WriteFile (data) failed", err);
             }
         }
 
-        written.PushBack(w);
+        written[i] = w;
     }
 
     // ---- file table 書き出し ---------------------------------------------
     const u64 file_table_offset = Tell(h);
 
     for (usize i = 0; i < m_Pending.Size(); ++i) {
-        const PendingEntry& p    = m_Pending[i];
-        const WrittenEntry&  w   = written[i];
-        const u32            len = LenW(p.path);
+        const PendingEntry& p = m_Pending[i];
+        const WrittenEntry& w = written[i];
+        const u32 len = static_cast<u32>(p.Path.Size() - 1u);
 
         // path_len (4) + path (len*2) + offset (8) + size_unc (8) + size_st (8)
         // + crc32 (4) を 1 つの一時バッファに詰めて書く。
         // 暗号化のとき末尾に cipher_nonce(12) + cipher_tag(16) を続ける。
-        const u64 path_bytes  = static_cast<u64>(len) * sizeof(wchar_t);
-        const u64 tail_bytes  = is_encrypted ? (28u + kAcpakCipherFieldsDiskSize)
-                                              : 28u;
+        const u64 path_bytes = static_cast<u64>(len) * sizeof(wchar_t);
+        const u64 tail_bytes = is_encrypted ? (28u + kAcpakCipherFieldsDiskSize) : 28u;
         const u64 entry_bytes = 4u + path_bytes + tail_bytes;
 
-        u8  stack_buf[1024];
+        u8 stack_buf[1024];
         u8* buf = stack_buf;
-        TArray<u8> heap_buf;
+        TArray<u8> heap_buf(*m_Allocator);
         if (entry_bytes > sizeof(stack_buf)) {
-            heap_buf.Resize(static_cast<usize>(entry_bytes));
+            if (!heap_buf.TryResize(static_cast<usize>(entry_bytes))) {
+                return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakWriter::Finalize: table entry allocation failed");
+            }
             buf = heap_buf.Data();
         }
 
         WriteU32LE(buf + 0, len);
         if (path_bytes > 0) {
-            MemCopy(buf + 4, p.path, static_cast<usize>(path_bytes));
+            MemCopy(buf + 4, p.Path.Data(), static_cast<usize>(path_bytes));
         }
         u8* const tail = buf + 4 + path_bytes;
-        WriteU64LE(tail + 0,  w.offset);
-        WriteU64LE(tail + 8,  w.size_unc);     // size_uncompressed
-        WriteU64LE(tail + 16, w.size_stored);  // size_stored (圧縮+暗号化後)
-        WriteU32LE(tail + 24, w.crc32);
+        WriteU64LE(tail + 0, w.Offset);
+        WriteU64LE(tail + 8, w.UncompressedSize);
+        WriteU64LE(tail + 16, w.StoredSize);
+        WriteU32LE(tail + 24, w.Crc32);
         if (is_encrypted) {
-            MemCopy(tail + 28,      w.cipher_nonce, 12);
-            MemCopy(tail + 28 + 12, w.cipher_tag,   16);
+            MemCopy(tail + 28, w.CipherNonce, 12);
+            MemCopy(tail + 28 + 12, w.CipherTag, 16);
         }
 
         if (!WriteAll(h, buf, entry_bytes, err)) {
-            return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                              "FAcpakWriter::Finalize: WriteFile (entry) failed", err);
+            return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakWriter::Finalize: WriteFile (entry) failed", err);
         }
     }
 
     // ---- ヘッダ書き戻し (file_count + file_table_offset を確定) ------------
     if (!SeekTo(h, 0, err)) {
-        return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "FAcpakWriter::Finalize: SetFilePointerEx (rewind) failed", err);
+        return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakWriter::Finalize: SetFilePointerEx (rewind) failed", err);
     }
 
     u8 header[kAcpakHeaderDiskSize] = {};
     MemCopy(header, kAcpakMagic, 8);
-    WriteU32LE(header + 8,  kAcpakVersion);
+    WriteU32LE(header + 8, kAcpakVersion);
     WriteU32LE(header + 12, m_Flags);
     WriteU32LE(header + 16, static_cast<u32>(m_Pending.Size()));
-    WriteU32LE(header + 20, 0);            // padding = 0
+    WriteU32LE(header + 20, 0); // padding = 0
     WriteU64LE(header + 24, file_table_offset);
-    WriteU32LE(header + 32, 0);            // reserved = 0
+    WriteU32LE(header + 32, 0); // reserved = 0
 
     if (!WriteAll(h, header, kAcpakHeaderDiskSize, err)) {
-        return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "FAcpakWriter::Finalize: WriteFile (header rewrite) failed", err);
+        return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakWriter::Finalize: WriteFile (header rewrite) failed", err);
     }
 
     // ディスクに反映 (クラッシュ耐性は完璧ではないが、最低限 flush 要求)

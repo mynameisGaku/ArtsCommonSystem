@@ -22,6 +22,7 @@
 //   ・引数バリデーション (nullptr 等) は本実装ではしない: NotImplemented を
 //     先に返してしまうため。具象実装側で kSub_BadArgument を返す責務になる。
 #include "gameframework/BackendClient.h"
+#include "threading/Atomic.h"
 
 namespace acs::game {
 
@@ -185,30 +186,36 @@ IMatchmaker& GetMatchmakerStub() noexcept {
 // 関数ポインタ 1 個で保持し、未登録なら stub にフォールバックする。
 namespace {
 /** 既定 IBackendClient provider (未登録なら nullptr で stub にフォールバック)。 */
-BackendClientProvider g_BackendClientProvider = nullptr;
+TAtomic<BackendClientProvider> g_BackendClientProvider{nullptr};
 
 /** 既定 IMatchmaker provider (未登録なら nullptr で stub にフォールバック)。 */
-MatchmakerProvider    g_MatchmakerProvider    = nullptr;
+TAtomic<MatchmakerProvider> g_MatchmakerProvider{nullptr};
 } // namespace
 
 /** 既定 IBackendClient provider を登録する (nullptr で stub に戻す)。 */
-void SetBackendClientProvider(BackendClientProvider provider) noexcept {
-    g_BackendClientProvider = provider;
+void SetBackendClientProvider(BackendClientProvider Provider) noexcept
+{
+    g_BackendClientProvider.Store(Provider, EMemoryOrder::Release);
 }
 
 /** provider 登録済みならその実装、未登録なら GetBackendStub() を返す。 */
-IBackendClient& GetDefaultBackendClient() noexcept {
-    return g_BackendClientProvider ? g_BackendClientProvider() : GetBackendStub();
+IBackendClient& GetDefaultBackendClient() noexcept
+{
+    const BackendClientProvider Provider = g_BackendClientProvider.Load(EMemoryOrder::Acquire);
+    return Provider ? Provider() : GetBackendStub();
 }
 
 /** 既定 IMatchmaker provider を登録する (nullptr で stub に戻す)。 */
-void SetMatchmakerProvider(MatchmakerProvider provider) noexcept {
-    g_MatchmakerProvider = provider;
+void SetMatchmakerProvider(MatchmakerProvider Provider) noexcept
+{
+    g_MatchmakerProvider.Store(Provider, EMemoryOrder::Release);
 }
 
 /** provider 登録済みならその実装、未登録なら GetMatchmakerStub() を返す。 */
-IMatchmaker& GetDefaultMatchmaker() noexcept {
-    return g_MatchmakerProvider ? g_MatchmakerProvider() : GetMatchmakerStub();
+IMatchmaker& GetDefaultMatchmaker() noexcept
+{
+    const MatchmakerProvider Provider = g_MatchmakerProvider.Load(EMemoryOrder::Acquire);
+    return Provider ? Provider() : GetMatchmakerStub();
 }
 
 } // namespace acs::game

@@ -4,6 +4,7 @@
 #include "container/Array.h"
 #include "container/String.h"
 #include "container/StringView.h"
+#include "container/Span.h"
 #include "container/HashMap.h"
 #include "container/Hash.h"
 #include "foundation/Move.h"
@@ -11,6 +12,23 @@
 #include "platform/Storage.h"
 
 using namespace acs;
+
+namespace {
+
+/** 確保失敗時のコンテナ契約を検証する backing。 */
+class FAlwaysFailAllocator final : public FAllocator {
+public:
+    void* Alloc(usize /*Size*/, usize /*Alignment*/, FSourceLoc /*Location*/) noexcept override
+    {
+        return nullptr;
+    }
+
+    void Free(void* /*Pointer*/) noexcept override
+    {
+    }
+};
+
+} // namespace
 
 ACS_TEST(Container, ArrayPushAndIndex) {
     TArray<int> a;
@@ -45,6 +63,50 @@ ACS_TEST(Container, ArrayReleaseStoragePreservesAllocator)
     a.PushBack(42);
     EXPECT_EQ(a[0], 42);
     EXPECT_TRUE(a.GetAllocator() == allocator);
+}
+
+ACS_TEST(Container, ArrayTryOperationsPreserveStateOnOverflowAndOutOfMemory)
+{
+    FAlwaysFailAllocator FailingAllocator;
+    TArray<u64> Array(FailingAllocator);
+
+    EXPECT_FALSE(Array.TryReserve(8u));
+    EXPECT_FALSE(Array.TryResize(8u));
+    EXPECT_FALSE(Array.TryPushBack(42u));
+    EXPECT_TRUE(Array.TryEmplaceBack(7u) == nullptr);
+    EXPECT_EQ(Array.Size(), static_cast<usize>(0));
+    EXPECT_EQ(Array.Capacity(), static_cast<usize>(0));
+    EXPECT_TRUE(Array.Data() == nullptr);
+
+    TArray<u64> OverflowArray;
+    EXPECT_FALSE(OverflowArray.TryReserve(~usize(0)));
+    EXPECT_FALSE(OverflowArray.TryResize(~usize(0)));
+    EXPECT_EQ(OverflowArray.Size(), static_cast<usize>(0));
+    EXPECT_EQ(OverflowArray.Capacity(), static_cast<usize>(0));
+}
+
+ACS_TEST(Container, EmptyArrayIteratorsDoNotPerformNullPointerArithmetic)
+{
+    TArray<u64> Array;
+    EXPECT_TRUE(Array.begin() == nullptr);
+    EXPECT_TRUE(Array.end() == Array.begin());
+
+    const TArray<u64>& ConstArray = Array;
+    EXPECT_TRUE(ConstArray.begin() == nullptr);
+    EXPECT_TRUE(ConstArray.end() == ConstArray.begin());
+}
+
+ACS_TEST(Container, EmptyViewsDoNotPerformNullPointerArithmetic)
+{
+    TSpan<u32> Span;
+    EXPECT_TRUE(Span.begin() == nullptr);
+    EXPECT_TRUE(Span.end() == Span.begin());
+    EXPECT_TRUE(Span.SubSpan(0u, 0u).Data() == nullptr);
+
+    const FStringView StringView;
+    EXPECT_TRUE(StringView.begin() == nullptr);
+    EXPECT_TRUE(StringView.end() == StringView.begin());
+    EXPECT_TRUE(StringView.SubView(0u, 0u).Data() == nullptr);
 }
 
 ACS_TEST(Container, StringInlineAndHeap) {

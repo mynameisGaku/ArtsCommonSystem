@@ -8,10 +8,10 @@
 //   - x64 では「自然整列の 8 バイト以下のロード/ストア」は CPU レベルで
 //     アトミック。さらに普通の MOV が acquire / release セマンティクスを
 //     満たすため、Load/Store はコンパイラバリアだけで足りる。
-//   - ARM64 では弱メモリモデルなので、明示的に _acq / _rel サフィックスを
-//     付けた組み込みを呼んで dmb を最小化する。
-//   - RMW 系（Exchange / CompareExchange / FetchAdd...）は x64 では常に
-//     完全バリア。ARM64 ではサフィックス付き版を使うが現状実装は無印で統一。
+//   - ARM64 では弱メモリモデルなので、acquire load の後と release store の前に
+//     明示的な dmb を置く。
+//   - RMW 系（Exchange / CompareExchange / FetchAdd...）は無印の
+//     _Interlocked* を使い、x64 / ARM64 とも完全バリアとして扱う。
 #pragma once
 
 #include "foundation/Types.h"
@@ -34,7 +34,8 @@ namespace atomic_detail {
  * @return *p の値。
  */
 template<typename T>
-ACS_FORCEINLINE T LoadAcquire(const volatile T* p) noexcept {
+ACS_FORCEINLINE T LoadAcquire(const volatile T* p) noexcept
+{
     static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8,
                   "TAtomic load: unsupported size");
 #if ACS_ARCH_X64
@@ -42,11 +43,37 @@ ACS_FORCEINLINE T LoadAcquire(const volatile T* p) noexcept {
     CompilerBarrier();
     return v;
 #else
-    if constexpr (sizeof(T) == 1) return static_cast<T>(__iso_volatile_load8 ((const volatile __int8 *)p)), CompilerBarrier(), *p;
-    if constexpr (sizeof(T) == 2) return static_cast<T>(__iso_volatile_load16((const volatile __int16*)p)), CompilerBarrier(), *p;
-    if constexpr (sizeof(T) == 4) return static_cast<T>(__iso_volatile_load32((const volatile __int32*)p)), CompilerBarrier(), *p;
-    if constexpr (sizeof(T) == 8) return static_cast<T>(__iso_volatile_load64((const volatile __int64*)p)), CompilerBarrier(), *p;
+    T Value{};
+    if constexpr (sizeof(T) == 1) Value = static_cast<T>(__iso_volatile_load8 ((const volatile __int8 *)p));
+    if constexpr (sizeof(T) == 2) Value = static_cast<T>(__iso_volatile_load16((const volatile __int16*)p));
+    if constexpr (sizeof(T) == 4) Value = static_cast<T>(__iso_volatile_load32((const volatile __int32*)p));
+    if constexpr (sizeof(T) == 8) Value = static_cast<T>(__iso_volatile_load64((const volatile __int64*)p));
+    HardwareFence();
+    CompilerBarrier();
+    return Value;
 #endif
+}
+
+/** seq_cst の全順序に参加するアトミックロード。 */
+template<typename T>
+ACS_FORCEINLINE T LoadSequentiallyConsistent(const volatile T* Pointer) noexcept
+{
+    if constexpr (sizeof(T) == 1) {
+        return static_cast<T>(_InterlockedCompareExchange8(
+            const_cast<volatile char*>(reinterpret_cast<const volatile char*>(Pointer)), 0, 0));
+    }
+    if constexpr (sizeof(T) == 2) {
+        return static_cast<T>(_InterlockedCompareExchange16(
+            const_cast<volatile short*>(reinterpret_cast<const volatile short*>(Pointer)), 0, 0));
+    }
+    if constexpr (sizeof(T) == 4) {
+        return static_cast<T>(_InterlockedCompareExchange(
+            const_cast<volatile long*>(reinterpret_cast<const volatile long*>(Pointer)), 0, 0));
+    }
+    if constexpr (sizeof(T) == 8) {
+        return static_cast<T>(_InterlockedCompareExchange64(
+            const_cast<volatile __int64*>(reinterpret_cast<const volatile __int64*>(Pointer)), 0, 0));
+    }
 }
 
 /**
@@ -70,17 +97,18 @@ ACS_FORCEINLINE T LoadRelaxed(const volatile T* p) noexcept {
  * @param v 書き込む値。
  */
 template<typename T>
-ACS_FORCEINLINE void StoreRelease(volatile T* p, T v) noexcept {
+ACS_FORCEINLINE void StoreRelease(volatile T* p, T v) noexcept
+{
 #if ACS_ARCH_X64
     CompilerBarrier();
     *p = v;
 #else
+    HardwareFence();
     CompilerBarrier();
     if constexpr (sizeof(T) == 1) __iso_volatile_store8 ((volatile __int8 *)p, (__int8 )v);
     if constexpr (sizeof(T) == 2) __iso_volatile_store16((volatile __int16*)p, (__int16)v);
     if constexpr (sizeof(T) == 4) __iso_volatile_store32((volatile __int32*)p, (__int32)v);
     if constexpr (sizeof(T) == 8) __iso_volatile_store64((volatile __int64*)p, (__int64)v);
-    HardwareFence();
 #endif
 }
 
@@ -234,24 +262,31 @@ public:
     /**
      * 値をアトミックにロードする。
      *
-     * @param o メモリ順序 (既定 SeqCst、Relaxed 以外は acquire 扱い)。
+     * @param o メモリ順序 (既定 SeqCst)。Relaxed は順序なし、SeqCst は全順序、その他は acquire 扱い。
      * @return 読み出した値。
      */
-    ACS_FORCEINLINE T Load(EMemoryOrder o = EMemoryOrder::SeqCst) const noexcept {
-        return o == EMemoryOrder::Relaxed
-            ? atomic_detail::LoadRelaxed (&m_V)
-            : atomic_detail::LoadAcquire (&m_V);
+    ACS_FORCEINLINE T Load(EMemoryOrder o = EMemoryOrder::SeqCst) const noexcept
+    {
+        if (o == EMemoryOrder::Relaxed) return atomic_detail::LoadRelaxed(&m_V);
+        if (o == EMemoryOrder::SeqCst) return atomic_detail::LoadSequentiallyConsistent(&m_V);
+        return atomic_detail::LoadAcquire(&m_V);
     }
 
     /**
      * 値をアトミックにストアする。
      *
      * @param v 書き込む値。
-     * @param o メモリ順序 (既定 SeqCst、Relaxed 以外は release 扱い)。
+     * @param o メモリ順序 (既定 SeqCst)。Relaxed は順序なし、SeqCst は全順序、その他は release 扱い。
      */
-    ACS_FORCEINLINE void Store(T v, EMemoryOrder o = EMemoryOrder::SeqCst) noexcept {
-        if (o == EMemoryOrder::Relaxed) atomic_detail::StoreRelaxed(&m_V, v);
-        else                           atomic_detail::StoreRelease(&m_V, v);
+    ACS_FORCEINLINE void Store(T v, EMemoryOrder o = EMemoryOrder::SeqCst) noexcept
+    {
+        if (o == EMemoryOrder::Relaxed) {
+            atomic_detail::StoreRelaxed(&m_V, v);
+        } else if (o == EMemoryOrder::SeqCst) {
+            (void)atomic_detail::Exchange(&m_V, v);
+        } else {
+            atomic_detail::StoreRelease(&m_V, v);
+        }
     }
 
     /**
@@ -368,25 +403,38 @@ public:
     /**
      * ポインタをアトミックにロードする。
      *
-     * @param o メモリ順序 (既定 SeqCst、Relaxed 以外は acquire 扱い)。
+     * @param o メモリ順序 (既定 SeqCst)。Relaxed は順序なし、SeqCst は全順序、その他は acquire 扱い。
      * @return 読み出したポインタ。
      */
-    ACS_FORCEINLINE T* Load(EMemoryOrder o = EMemoryOrder::SeqCst) const noexcept {
-        return reinterpret_cast<T*>(o == EMemoryOrder::Relaxed
-            ? atomic_detail::LoadRelaxed (reinterpret_cast<const volatile uptr*>(&m_V))
-            : atomic_detail::LoadAcquire (reinterpret_cast<const volatile uptr*>(&m_V)));
+    ACS_FORCEINLINE T* Load(EMemoryOrder o = EMemoryOrder::SeqCst) const noexcept
+    {
+        const auto* const Storage = reinterpret_cast<const volatile uptr*>(&m_V);
+        if (o == EMemoryOrder::Relaxed) {
+            return reinterpret_cast<T*>(atomic_detail::LoadRelaxed(Storage));
+        }
+        if (o == EMemoryOrder::SeqCst) {
+            return reinterpret_cast<T*>(atomic_detail::LoadSequentiallyConsistent(Storage));
+        }
+        return reinterpret_cast<T*>(atomic_detail::LoadAcquire(Storage));
     }
 
     /**
      * ポインタをアトミックにストアする。
      *
      * @param v 書き込むポインタ。
-     * @param o メモリ順序 (既定 SeqCst、Relaxed 以外は release 扱い)。
+     * @param o メモリ順序 (既定 SeqCst)。Relaxed は順序なし、SeqCst は全順序、その他は release 扱い。
      */
-    ACS_FORCEINLINE void Store(T* v, EMemoryOrder o = EMemoryOrder::SeqCst) noexcept {
-        uptr p = reinterpret_cast<uptr>(v);
-        if (o == EMemoryOrder::Relaxed) atomic_detail::StoreRelaxed(reinterpret_cast<volatile uptr*>(&m_V), p);
-        else                           atomic_detail::StoreRelease(reinterpret_cast<volatile uptr*>(&m_V), p);
+    ACS_FORCEINLINE void Store(T* v, EMemoryOrder o = EMemoryOrder::SeqCst) noexcept
+    {
+        const uptr PointerValue = reinterpret_cast<uptr>(v);
+        auto* const Storage = reinterpret_cast<volatile uptr*>(&m_V);
+        if (o == EMemoryOrder::Relaxed) {
+            atomic_detail::StoreRelaxed(Storage, PointerValue);
+        } else if (o == EMemoryOrder::SeqCst) {
+            (void)atomic_detail::Exchange(Storage, PointerValue);
+        } else {
+            atomic_detail::StoreRelease(Storage, PointerValue);
+        }
     }
 
     /**

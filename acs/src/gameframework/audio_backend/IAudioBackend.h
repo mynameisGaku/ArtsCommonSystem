@@ -41,7 +41,7 @@ inline constexpr u16 kSubAudioAlreadyInitialized = 1200;
 /** Init() より前に API を呼び出した。 */
 inline constexpr u16 kSubAudioNotInitialized     = 1201;
 
-/** CoInitializeEx に失敗した。 */
+/** COM MTA 利用参照の取得に失敗した。 */
 inline constexpr u16 kSubAudioComInitFailed      = 1202;
 
 /** XAudio2Create または同等の生成呼び出しに失敗した。 */
@@ -52,6 +52,9 @@ inline constexpr u16 kSubAudioMasterVoiceFailed  = 1204;
 
 /** 引数が不正 (Init(max_voices=0) など)。 */
 inline constexpr u16 kSubAudioInvalidArgs        = 1205;
+
+/** backend 内部状態または再生 pool のメモリ確保に失敗した。 */
+inline constexpr u16 kSubAudioOutOfMemory        = 1206;
 
 /**
  * PlayOneShot / PlayLooped に渡す clip の音声フォーマット種別。

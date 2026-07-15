@@ -25,6 +25,7 @@
 #include "foundation/Log.h"
 #include "foundation/Error.h"
 #include "memory/Memory.h"         // DefaultAllocator / MemSet
+#include "threading/Atomic.h"
 
 namespace acs::game {
 
@@ -142,17 +143,20 @@ IScriptVm& GetVmStub() noexcept {
 
 namespace {
 /** 登録済みの既定 VM provider (未登録なら nullptr、実 backend の Install* で設定される)。 */
-ScriptVmProvider g_ScriptVmProvider = nullptr;
+TAtomic<ScriptVmProvider> g_ScriptVmProvider{nullptr};
 }
 
 /** SetScriptVmProvider の実装 (provider を上書き保存、後勝ち)。 */
-void SetScriptVmProvider(ScriptVmProvider provider) noexcept {
-    g_ScriptVmProvider = provider;
+void SetScriptVmProvider(ScriptVmProvider Provider) noexcept
+{
+    g_ScriptVmProvider.Store(Provider, EMemoryOrder::Release);
 }
 
 /** GetDefaultScriptVm の実装 (provider 登録済みならその実 VM、未登録なら GetVmStub)。 */
-IScriptVm& GetDefaultScriptVm() noexcept {
-    return g_ScriptVmProvider ? g_ScriptVmProvider() : GetVmStub();
+IScriptVm& GetDefaultScriptVm() noexcept
+{
+    const ScriptVmProvider Provider = g_ScriptVmProvider.Load(EMemoryOrder::Acquire);
+    return Provider ? Provider() : GetVmStub();
 }
 
 /** Init の実装 (nullptr は Shutdown 相当、既存 vm があれば警告して上書きしキャッシュをクリア)。 */

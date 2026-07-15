@@ -36,6 +36,33 @@ DWORD QueryVirtualMemoryState(const void* Address) noexcept
     return ::VirtualQuery(Address, &Information, sizeof(Information)) != 0 ? Information.State : 0;
 }
 
+/** 16 バイト整列を守りつつ、64 バイト境界から意図的にずらす backing。 */
+class FMisalignedRelocatableBacking final : public FAllocator {
+public:
+    void* Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept override
+    {
+        if (Size == 0u || !IsPow2(Alignment) || Alignment > 64u) return nullptr;
+        const usize EffectiveAlignment = Alignment < alignof(void*) ? alignof(void*) : Alignment;
+        if (Size > (~usize(0)) - EffectiveAlignment - sizeof(void*) - 64u) return nullptr;
+
+        void* const Raw = ::HeapAlloc(
+            ::GetProcessHeap(), 0u, Size + EffectiveAlignment + sizeof(void*) + 64u);
+        if (!Raw) return nullptr;
+
+        uptr Address = AlignUp(reinterpret_cast<uptr>(Raw) + sizeof(void*), EffectiveAlignment);
+        if (EffectiveAlignment <= 16u && (Address & 63u) == 0u) Address += EffectiveAlignment;
+        reinterpret_cast<void**>(Address)[-1] = Raw;
+        return reinterpret_cast<void*>(Address);
+    }
+
+    void Free(void* Pointer) noexcept override
+    {
+        if (!Pointer) return;
+        void* const Raw = reinterpret_cast<void**>(Pointer)[-1];
+        (void)::HeapFree(::GetProcessHeap(), 0u, Raw);
+    }
+};
+
 } // namespace
 
 // VirtualMemory: 予約、遅延デコミット、再コミット、実デコミットを OS 状態まで確認する。
@@ -1170,6 +1197,36 @@ ACS_TEST(MemSystem, RelocatableBasicCompact)
     r.Shutdown();
 }
 
+ACS_TEST(MemSystem, RelocatableUsesAbsoluteAlignmentAndInvalidatesPreviousLifetime)
+{
+    FMisalignedRelocatableBacking Backing;
+    FRelocatableAllocator Allocator;
+    EXPECT_TRUE(Allocator.Init(4096u, 16u, &Backing).IsOk());
+
+    const FRelocHandle OldHandle = Allocator.Alloc(96u, 64u);
+    const FRelocHandle GapHandle = Allocator.Alloc(32u, 16u);
+    const FRelocHandle MovedHandle = Allocator.Alloc(96u, 64u);
+    EXPECT_TRUE(OldHandle.IsValid());
+    EXPECT_TRUE(GapHandle.IsValid());
+    EXPECT_TRUE(MovedHandle.IsValid());
+    EXPECT_TRUE((reinterpret_cast<uptr>(Allocator.Resolve(OldHandle)) & 63u) == 0u);
+    EXPECT_TRUE((reinterpret_cast<uptr>(Allocator.Resolve(MovedHandle)) & 63u) == 0u);
+
+    Allocator.Free(OldHandle);
+    Allocator.Free(GapHandle);
+    (void)Allocator.Compact();
+    EXPECT_TRUE((reinterpret_cast<uptr>(Allocator.Resolve(MovedHandle)) & 63u) == 0u);
+
+    Allocator.Shutdown();
+    EXPECT_TRUE(Allocator.Init(4096u, 16u, &Backing).IsOk());
+    const FRelocHandle NewHandle = Allocator.Alloc(96u, 64u);
+    EXPECT_TRUE(NewHandle.IsValid());
+    EXPECT_TRUE(NewHandle != OldHandle);
+    EXPECT_TRUE(Allocator.Resolve(OldHandle) == nullptr);
+    EXPECT_TRUE((reinterpret_cast<uptr>(Allocator.Resolve(NewHandle)) & 63u) == 0u);
+    Allocator.Shutdown();
+}
+
 // 再配置アロケータ ストレス: ランダム alloc/free + 周期 Compact で、全生存ハンドルの
 // データが移動後も保持されること (再配置の正当性) を検証する。
 ACS_TEST(MemSystem, RelocatableStress)
@@ -1419,6 +1476,256 @@ ACS_TEST(MemSystem, SegmentInitGet)
     FMemorySystem::Shutdown();
 }
 
+ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinitialization)
+{
+    constexpr u32 kWorkerCount = 4u;
+    constexpr u64 kRequiredSuccessfulAllocations = 128u;
+    constexpr u32 kWaitLimit = 200000u;
+
+    const MemorySystemConfig Configuration = FMemorySystem::DefaultConfig();
+    EXPECT_TRUE(FMemorySystem::Init(Configuration).IsOk());
+
+    FAllocator* const CachedAllocator = FMemorySystem::Get(ESegment::Temp);
+    EXPECT_TRUE(CachedAllocator != nullptr);
+    if (!CachedAllocator)
+    {
+        FMemorySystem::Shutdown();
+        return;
+    }
+    const u64 FirstLifetimeGeneration = CachedAllocator->LifetimeGeneration();
+
+    struct AllocationRaceContext
+    {
+        FAllocator* Allocator = nullptr;
+        TAtomic<u32> Ready{0u};
+        TAtomic<u32> Start{0u};
+        TAtomic<u32> Stop{0u};
+        TAtomic<u32> NextWorkerIndex{0u};
+        TAtomic<u32> ShutdownObservedMask{0u};
+        TAtomic<u64> SuccessfulAllocations{0u};
+        TAtomic<u64> RejectedGets{0u};
+    } AllocationContext;
+    AllocationContext.Allocator = CachedAllocator;
+
+    FThread AllocationWorkers[kWorkerCount];
+    u32 SpawnedAllocationWorkers = 0u;
+    for (u32 Index = 0u; Index < kWorkerCount; ++Index)
+    {
+        auto WorkerResult = FThread::Spawn(
+            [](void* User)
+            {
+                auto* Context = static_cast<AllocationRaceContext*>(User);
+                const u32 WorkerIndex = Context->NextWorkerIndex.FetchAdd(1u);
+                Context->Ready.FetchAdd(1u);
+                while (Context->Start.Load(EMemoryOrder::Acquire) == 0u)
+                {
+                    Yield();
+                }
+
+                while (Context->Stop.Load(EMemoryOrder::Acquire) == 0u)
+                {
+                    void* Allocation = Context->Allocator->Alloc(128u, 16u, FSourceLoc::Current());
+                    if (Allocation)
+                    {
+                        void* const Reallocated =
+                            Context->Allocator->Realloc(Allocation, 128u, 256u, 16u, FSourceLoc::Current());
+                        if (Reallocated)
+                        {
+                            Allocation = Reallocated;
+                        }
+                        Context->Allocator->Free(Allocation);
+                        Context->SuccessfulAllocations.FetchAdd(1u);
+                    }
+
+                    (void)Context->Allocator->BytesAllocated();
+                    (void)Context->Allocator->AllocationCount();
+                    (void)Context->Allocator->PeakBytes();
+                    SegmentStats Statistics[static_cast<usize>(ESegment::_Count)]{};
+                    (void)FMemorySystem::GetStats(Statistics, static_cast<u32>(ESegment::_Count));
+                    if (!FMemorySystem::Get(ESegment::Temp))
+                    {
+                        Context->RejectedGets.FetchAdd(1u);
+                        Context->ShutdownObservedMask.FetchOr(1u << WorkerIndex);
+                    }
+                }
+            },
+            &AllocationContext);
+        if (WorkerResult.IsOk())
+        {
+            AllocationWorkers[SpawnedAllocationWorkers++] = Move(WorkerResult.Value());
+        }
+    }
+
+    EXPECT_TRUE(SpawnedAllocationWorkers > 0u);
+    if (SpawnedAllocationWorkers == 0u)
+    {
+        FMemorySystem::Shutdown();
+        return;
+    }
+    while (AllocationContext.Ready.Load(EMemoryOrder::Acquire) < SpawnedAllocationWorkers)
+    {
+        Yield();
+    }
+    AllocationContext.Start.Store(1u, EMemoryOrder::Release);
+    for (u32 WaitIteration = 0u;
+         WaitIteration < kWaitLimit &&
+         AllocationContext.SuccessfulAllocations.Load(EMemoryOrder::Acquire) < kRequiredSuccessfulAllocations;
+         ++WaitIteration)
+    {
+        Yield();
+    }
+    EXPECT_TRUE(AllocationContext.SuccessfulAllocations.Load(EMemoryOrder::Acquire) >=
+                kRequiredSuccessfulAllocations);
+
+    // ワーカーを止めずに終了し、新規操作が backing 破棄後へ到達しないことを確認する。
+    FMemorySystem::Shutdown();
+    const u32 ExpectedShutdownObservedMask = (1u << SpawnedAllocationWorkers) - 1u;
+    for (u32 WaitIteration = 0u;
+         WaitIteration < kWaitLimit &&
+         AllocationContext.ShutdownObservedMask.Load(EMemoryOrder::Acquire) != ExpectedShutdownObservedMask;
+         ++WaitIteration)
+    {
+        Yield();
+    }
+    EXPECT_TRUE(AllocationContext.RejectedGets.Load(EMemoryOrder::Acquire) > 0u);
+    EXPECT_EQ(AllocationContext.ShutdownObservedMask.Load(EMemoryOrder::Acquire), ExpectedShutdownObservedMask);
+    if (AllocationContext.ShutdownObservedMask.Load(EMemoryOrder::Acquire) != ExpectedShutdownObservedMask)
+    {
+        AllocationContext.Stop.Store(1u, EMemoryOrder::Release);
+        for (u32 Index = 0u; Index < SpawnedAllocationWorkers; ++Index)
+        {
+            AllocationWorkers[Index].Join();
+        }
+        return;
+    }
+    EXPECT_TRUE(FMemorySystem::Get(ESegment::Temp) == nullptr);
+    EXPECT_TRUE(CachedAllocator->Alloc(64u, 16u, FSourceLoc::Current()) == nullptr);
+    EXPECT_EQ(CachedAllocator->BytesAllocated(), 0ull);
+    EXPECT_EQ(CachedAllocator->AllocationCount(), 0ull);
+    EXPECT_EQ(CachedAllocator->PeakBytes(), 0ull);
+    EXPECT_EQ(CachedAllocator->LifetimeGeneration(), 0ull);
+
+    const u64 SuccessfulBeforeReinitialization =
+        AllocationContext.SuccessfulAllocations.Load(EMemoryOrder::Acquire);
+    auto ReinitializationResult = FMemorySystem::Init(Configuration);
+    EXPECT_TRUE(ReinitializationResult.IsOk());
+    if (ReinitializationResult.IsErr())
+    {
+        AllocationContext.Stop.Store(1u, EMemoryOrder::Release);
+        for (u32 Index = 0u; Index < SpawnedAllocationWorkers; ++Index)
+        {
+            AllocationWorkers[Index].Join();
+        }
+        return;
+    }
+    EXPECT_TRUE(FMemorySystem::Get(ESegment::Temp) == CachedAllocator);
+    EXPECT_TRUE(CachedAllocator->LifetimeGeneration() != 0u);
+    EXPECT_TRUE(CachedAllocator->LifetimeGeneration() != FirstLifetimeGeneration);
+    for (u32 WaitIteration = 0u;
+         WaitIteration < kWaitLimit &&
+         AllocationContext.SuccessfulAllocations.Load(EMemoryOrder::Acquire) == SuccessfulBeforeReinitialization;
+         ++WaitIteration)
+    {
+        Yield();
+    }
+    EXPECT_TRUE(AllocationContext.SuccessfulAllocations.Load(EMemoryOrder::Acquire) >
+                SuccessfulBeforeReinitialization);
+
+    AllocationContext.Stop.Store(1u, EMemoryOrder::Release);
+    for (u32 Index = 0u; Index < SpawnedAllocationWorkers; ++Index)
+    {
+        AllocationWorkers[Index].Join();
+    }
+    FMemorySystem::ResetTemp();
+
+    struct ResetRaceContext
+    {
+        TAtomic<u32> Ready{0u};
+        TAtomic<u32> Start{0u};
+        TAtomic<u32> Stop{0u};
+        TAtomic<u64> Iterations{0u};
+        TAtomic<u64> RejectedGets{0u};
+    } ResetContext;
+
+    FThread ResetWorkers[kWorkerCount];
+    u32 SpawnedResetWorkers = 0u;
+    for (u32 Index = 0u; Index < kWorkerCount; ++Index)
+    {
+        auto WorkerResult = FThread::Spawn(
+            [](void* User)
+            {
+                auto* Context = static_cast<ResetRaceContext*>(User);
+                Context->Ready.FetchAdd(1u);
+                while (Context->Start.Load(EMemoryOrder::Acquire) == 0u)
+                {
+                    Yield();
+                }
+
+                while (Context->Stop.Load(EMemoryOrder::Acquire) == 0u)
+                {
+                    FMemorySystem::ResetTemp();
+                    SegmentStats Statistics[static_cast<usize>(ESegment::_Count)]{};
+                    (void)FMemorySystem::GetStats(Statistics, static_cast<u32>(ESegment::_Count));
+                    if (!FMemorySystem::Get(ESegment::Temp))
+                    {
+                        Context->RejectedGets.FetchAdd(1u);
+                    }
+                    Context->Iterations.FetchAdd(1u);
+                }
+            },
+            &ResetContext);
+        if (WorkerResult.IsOk())
+        {
+            ResetWorkers[SpawnedResetWorkers++] = Move(WorkerResult.Value());
+        }
+    }
+
+    EXPECT_TRUE(SpawnedResetWorkers > 0u);
+    if (SpawnedResetWorkers == 0u)
+    {
+        FMemorySystem::Shutdown();
+        return;
+    }
+    while (ResetContext.Ready.Load(EMemoryOrder::Acquire) < SpawnedResetWorkers)
+    {
+        Yield();
+    }
+    ResetContext.Start.Store(1u, EMemoryOrder::Release);
+    for (u32 WaitIteration = 0u;
+         WaitIteration < kWaitLimit && ResetContext.Iterations.Load(EMemoryOrder::Acquire) < 128u;
+         ++WaitIteration)
+    {
+        Yield();
+    }
+    EXPECT_TRUE(ResetContext.Iterations.Load(EMemoryOrder::Acquire) >= 128u);
+
+    FMemorySystem::Shutdown();
+    for (u32 WaitIteration = 0u;
+         WaitIteration < kWaitLimit && ResetContext.RejectedGets.Load(EMemoryOrder::Acquire) == 0u;
+         ++WaitIteration)
+    {
+        Yield();
+    }
+    EXPECT_TRUE(ResetContext.RejectedGets.Load(EMemoryOrder::Acquire) > 0u);
+    ResetContext.Stop.Store(1u, EMemoryOrder::Release);
+    for (u32 Index = 0u; Index < SpawnedResetWorkers; ++Index)
+    {
+        ResetWorkers[Index].Join();
+    }
+
+    EXPECT_TRUE(FMemorySystem::Init(Configuration).IsOk());
+    FAllocator* const ReboundAllocator = FMemorySystem::Get(ESegment::Temp);
+    EXPECT_TRUE(ReboundAllocator == CachedAllocator);
+    if (ReboundAllocator)
+    {
+        void* const Allocation = ReboundAllocator->Alloc(512u, 16u, FSourceLoc::Current());
+        EXPECT_TRUE(Allocation != nullptr);
+        ReboundAllocator->Free(Allocation);
+    }
+    FMemorySystem::ResetTemp();
+    FMemorySystem::Shutdown();
+}
+
 ACS_TEST(MemSystem, MimallocBackendBudgetAndIndependentInspection)
 {
     MemorySystemConfig configuration = FMemorySystem::DefaultConfig();
@@ -1515,6 +1822,88 @@ ACS_TEST(MemSystem, FrameArenaBudgetIsAtomicAndResets)
     EXPECT_EQ(allocator->BytesAllocated(), 0ull);
     EXPECT_TRUE(allocator->Alloc(kBudgetBytes, 16u, FSourceLoc::Current()) != nullptr);
     EXPECT_TRUE(allocator->Alloc(1u, 16u, FSourceLoc::Current()) == nullptr);
+    EXPECT_TRUE(!FMemorySystem::CaptureLeakSummary().HasLeaks());
+    FMemorySystem::Shutdown();
+}
+
+ACS_TEST(MemSystem, FrameArenaRejectsForeignInteriorReleasedAndStalePointers)
+{
+    EXPECT_TRUE(FMemorySystem::Init(FMemorySystem::DefaultConfig()).IsOk());
+    FAllocator* const FrameAllocator = FMemorySystem::Get(ESegment::Temp);
+    FAllocator* const DefaultSegmentAllocator = FMemorySystem::Get(ESegment::Default);
+    EXPECT_TRUE(FrameAllocator != nullptr);
+    EXPECT_TRUE(DefaultSegmentAllocator != nullptr);
+    if (!FrameAllocator || !DefaultSegmentAllocator)
+    {
+        FMemorySystem::Shutdown();
+        return;
+    }
+
+    const MemoryTrackingCheckpoint Checkpoint = FMemorySystem::CaptureMemoryTrackingCheckpoint();
+    void* const ForeignAllocation = DefaultSegmentAllocator->Alloc(96u, 16u, FSourceLoc::Current());
+    auto* const FrameAllocation = static_cast<u8*>(FrameAllocator->Alloc(64u, 32u, FSourceLoc::Current()));
+    EXPECT_TRUE(ForeignAllocation != nullptr);
+    EXPECT_TRUE(FrameAllocation != nullptr);
+    if (!ForeignAllocation || !FrameAllocation)
+    {
+        DefaultSegmentAllocator->Free(ForeignAllocation);
+        FMemorySystem::ResetTemp();
+        FMemorySystem::Shutdown();
+        return;
+    }
+
+    for (usize Index = 0u; Index < 64u; ++Index)
+    {
+        FrameAllocation[Index] = static_cast<u8>(Index ^ 0x5au);
+    }
+
+    // foreign / interior pointer は追跡表や allocation 状態へ一切触れず拒否する。
+    FrameAllocator->Free(ForeignAllocation);
+    FrameAllocator->Free(FrameAllocation + 1u);
+    EXPECT_TRUE(FrameAllocator->Realloc(FrameAllocation + 1u, 63u, 128u, 32u, FSourceLoc::Current()) == nullptr);
+
+    OutstandingMemoryAllocation TrackedAllocations[8]{};
+    const MemoryTrackingReport TrackingReport =
+        FMemorySystem::CollectOutstandingMemoryAllocations(Checkpoint, TrackedAllocations, 8u);
+    if (TrackingReport.tracking_enabled)
+    {
+        bool bFoundForeignAllocation = false;
+        bool bFoundFrameAllocation = false;
+        for (u32 Index = 0u; Index < TrackingReport.written_allocation_count; ++Index)
+        {
+            bFoundForeignAllocation = bFoundForeignAllocation || TrackedAllocations[Index].address == ForeignAllocation;
+            bFoundFrameAllocation = bFoundFrameAllocation || TrackedAllocations[Index].address == FrameAllocation;
+        }
+        EXPECT_TRUE(bFoundForeignAllocation);
+        EXPECT_TRUE(bFoundFrameAllocation);
+    }
+
+    // 呼び出し側の OldSize は信用せず、ヘッダに記録した 64 バイトだけをコピーする。
+    auto* const Reallocated = static_cast<u8*>(
+        FrameAllocator->Realloc(FrameAllocation, ~usize{0}, 128u, 64u, FSourceLoc::Current()));
+    EXPECT_TRUE(Reallocated != nullptr);
+    if (Reallocated)
+    {
+        for (usize Index = 0u; Index < 64u; ++Index)
+        {
+            EXPECT_EQ(Reallocated[Index], static_cast<u8>(Index ^ 0x5au));
+        }
+        FrameAllocator->Free(Reallocated);
+        FrameAllocator->Free(Reallocated);
+        EXPECT_TRUE(FrameAllocator->Realloc(Reallocated, 128u, 256u, 16u, FSourceLoc::Current()) == nullptr);
+        EXPECT_TRUE(FrameAllocator->Realloc(Reallocated, 128u, 0u, 16u, FSourceLoc::Current()) == Reallocated);
+    }
+
+    void* const StaleAllocation = FrameAllocator->Alloc(80u, 16u, FSourceLoc::Current());
+    EXPECT_TRUE(StaleAllocation != nullptr);
+    EXPECT_TRUE(FrameAllocator->BytesAllocated() >= 64u + 128u + 80u);
+    FMemorySystem::ResetTemp();
+    EXPECT_EQ(FrameAllocator->BytesAllocated(), 0ull);
+    FrameAllocator->Free(StaleAllocation);
+    EXPECT_TRUE(FrameAllocator->Realloc(StaleAllocation, 80u, 160u, 16u, FSourceLoc::Current()) == nullptr);
+    EXPECT_TRUE(FrameAllocator->Realloc(StaleAllocation, 80u, 0u, 16u, FSourceLoc::Current()) == StaleAllocation);
+
+    DefaultSegmentAllocator->Free(ForeignAllocation);
     EXPECT_TRUE(!FMemorySystem::CaptureLeakSummary().HasLeaks());
     FMemorySystem::Shutdown();
 }
@@ -1719,9 +2108,11 @@ ACS_TEST(MemSystem, SnapshotWrite)
     // 書き出し（書けない環境では失敗するが致命でない）
     auto svg = FMemorySnapshot::WriteSvg(L"acs_memdump.svg");
     auto bmp = FMemorySnapshot::WriteBmp(L"acs_memdump.bmp");
-    (void)svg;
-    (void)bmp;
-    EXPECT_TRUE(true);
+    EXPECT_TRUE(svg.IsOk());
+    EXPECT_TRUE(bmp.IsOk());
+    EXPECT_TRUE(FMemorySnapshot::WriteSvg(L"acs_memdump-invalid.svg", 800u, 3u).IsErr());
+    EXPECT_TRUE(FMemorySnapshot::WriteBmp(L"acs_memdump-invalid.bmp", 1u, 1u).IsErr());
+    EXPECT_TRUE(FMemorySnapshot::WriteBmp(L"acs_memdump-overflow.bmp", 0x55555556u, 3u).IsErr());
 
     FMemorySnapshot::DumpToStdOut();
     if (a) {

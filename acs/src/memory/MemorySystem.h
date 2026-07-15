@@ -185,7 +185,8 @@ public:
     /**
      * 全セグメントを設定で初期化する。
      *
-     * @details 多重 Init はエラー。途中で失敗した場合は確保済みスロットをロールバックする。
+     * @details 多重 Init はエラー。Shutdown とは直列化され、途中で失敗した場合は確保済みスロットをロールバックする。
+     * 初期化が完了するまで、以前取得したセグメントアロケータを含む公開操作は失敗として返す。
      * install_as_default_allocator 時は既定アロケータも差し替える。
      * @param Configuration セグメントごとの設定。
      * @return 成功なら空の TResult、初期化失敗ならエラー。
@@ -195,7 +196,10 @@ public:
     /**
      * 全セグメントを解放する。
      *
-     * @details install_as_default_allocator で差し替えた既定アロケータを最初に復元してから各セグメントを破棄する。未初期化なら no-op。
+     * @details 新しい公開操作を拒否し、開始済みの Alloc / Free / Realloc / 統計取得が完了してから破棄する。
+     * install_as_default_allocator で差し替えた既定アロケータは診断前に復元する。未初期化なら no-op。
+     * 操作間で呼び出し元が保持するポインタの利用期間までは追跡しないため、利用中のジョブを先に停止すること。
+     * 前回の初期化寿命で取得したポインタを、再初期化後の Realloc / Free へ渡してはならない。
      */
     static void Shutdown() noexcept;
 
@@ -210,7 +214,8 @@ public:
      * 指定セグメントのアロケータを返す。
      *
      * @param Segment セグメント種別。
-     * @return セグメントのアロケータ (Init 前は nullptr)。
+     * @return セグメントのアロケータ (Init 前と Shutdown 開始後は nullptr)。
+     * 返したアダプタのアドレスは再初期化後も安定しているが、非稼働中の操作は失敗する。
      */
     static FAllocator* Get(ESegment Segment) noexcept;
 
@@ -234,6 +239,9 @@ public:
      * @details
      * Temp の arena をページ保持のまま Reset し、予算予約と割り当て追跡も同じ排他区間で巻き戻す。
      * 開始済みの Temp Alloc/Free/Realloc が完了するまで待ち、Reset 開始後の新しい操作は失敗として返す。
+     * Temp の Free / Realloc は現在世代の allocation 先頭だけを受理し、foreign / interior / 解放済みを拒否する。
+     * Realloc のコピー量は呼び出し側の旧サイズではなく、確保時ヘッダへ記録したサイズで制限する。
+     * Shutdown 開始後の呼び出しは何もせず、進行中の Reset は Shutdown の破棄前に完了する。
      * Reset 後は以前の Temp ポインタがすべて無効になるため、データを利用するジョブは呼び出し前に停止すること。
      */
     static void ResetTemp() noexcept;
@@ -243,7 +251,7 @@ public:
      *
      * @param Output 統計を書き込む配列。
      * @param OutputCapacity Output の容量。
-     * @return 実際に書き込んだ要素数。
+     * @return 実際に書き込んだ要素数。Init 前と Shutdown 開始後は 0。
      */
     static u32 GetStats(SegmentStats* Output, u32 OutputCapacity) noexcept;
 

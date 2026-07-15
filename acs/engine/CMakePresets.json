@@ -10,6 +10,7 @@
             "binaryDir": "${sourceDir}/cmake-build-debug",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE":      "Debug",
+                "ACS_LAYOUT_ROOT":       "${sourceDir}/../Intermediate/layout/dx12-debug",
                 "ACS_RENDER_DX12_RAW":   "ON",
                 "ACS_RENDER_DILIGENT":   "OFF"
             }
@@ -19,7 +20,10 @@
             "inherits": "dx12-debug",
             "displayName": "DX12 (raw) — Release",
             "binaryDir": "${sourceDir}/cmake-build-release",
-            "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "ACS_LAYOUT_ROOT":  "${sourceDir}/../Intermediate/layout/dx12-release"
+            }
         },
         {
             "name": "diligent-debug",
@@ -29,6 +33,7 @@
             "binaryDir": "${sourceDir}/cmake-build-diligent-debug",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE":      "Debug",
+                "ACS_LAYOUT_ROOT":       "${sourceDir}/../Intermediate/layout/diligent-debug",
                 "ACS_RENDER_DX12_RAW":   "OFF",
                 "ACS_RENDER_DILIGENT":   "ON"
             }
@@ -38,7 +43,10 @@
             "inherits": "diligent-debug",
             "displayName": "Diligent Engine — Release",
             "binaryDir": "${sourceDir}/cmake-build-diligent-release",
-            "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "ACS_LAYOUT_ROOT":  "${sourceDir}/../Intermediate/layout/diligent-release"
+            }
         },
         {
             "name": "diligent-address-sanitizer",

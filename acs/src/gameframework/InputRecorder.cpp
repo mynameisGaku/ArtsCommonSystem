@@ -92,20 +92,25 @@ inline f32 F32FromBits(u32 v) noexcept { f32 out = 0.0f; MemCopy(&out, &v, sizeo
  * 閉じていて外から link できないため、InputRecorder が単体で使えるよう独立に持つ。
  * @return 256 要素の CRC32 テーブルへのポインタ。
  */
-const u32* GetCrc32Table() noexcept {
-    static u32 table[256] = {};
-    static bool initialized = false;
-    if (!initialized) {
-        for (u32 i = 0; i < 256; ++i) {
-            u32 c = i;
-            for (u32 k = 0; k < 8; ++k) {
-                c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+const u32* GetCrc32Table() noexcept
+{
+    struct FCrc32Table {
+        FCrc32Table() noexcept
+        {
+            for (u32 Index = 0; Index < 256; ++Index) {
+                u32 Value = Index;
+                for (u32 Bit = 0; Bit < 8; ++Bit) {
+                    Value = (Value & 1u) ? (0xEDB88320u ^ (Value >> 1)) : (Value >> 1);
+                }
+                Values[Index] = Value;
             }
-            table[i] = c;
         }
-        initialized = true;
-    }
-    return table;
+
+        u32 Values[256] = {};
+    };
+
+    static const FCrc32Table Table;
+    return Table.Values;
 }
 
 /**

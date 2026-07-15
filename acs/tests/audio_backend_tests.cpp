@@ -2,6 +2,7 @@
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "gameframework/audio_backend/IAudioBackend.h"
+#include "gameframework/audio_backend/XAudio2Backend.h"
 
 using namespace acs;
 using namespace acs::game;
@@ -29,4 +30,14 @@ ACS_TEST(AudioBackend, VoiceHandleAcceptsFullWidthOpaqueTickets)
     EXPECT_FALSE(first == after_old_generation_wrap);
     EXPECT_EQ(largest.PackedValue(), static_cast<u32>(~u32(0)));
     EXPECT_FALSE(AudioVoiceHandle::FromPackedValue(0u).IsValid());
+}
+
+ACS_TEST(AudioBackend, XAudio2RejectsUnboundedVoicePoolsBeforeOsInitialization)
+{
+    FXAudio2Backend Backend;
+
+    EXPECT_TRUE(Backend.Init(0u).IsErr());
+    EXPECT_TRUE(Backend.Init(kXAudio2BackendMaximumVoiceCount + 1u).IsErr());
+    EXPECT_FALSE(Backend.IsInitialized());
+    EXPECT_EQ(Backend.ActiveVoiceCount(), 0u);
 }

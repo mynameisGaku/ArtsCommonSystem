@@ -13,7 +13,8 @@ namespace acs {
  * @details
  * 構築時に backing から capacity バイトを 1 回確保し、Alloc はカーソルを CAS で
  * 進めるだけ (lock-free、O(1))。個別 Free はサポートせず (no-op)、まとめて Reset で
- * 巻き戻す。容量を超える確保は nullptr を返す。並行 Alloc 中の Reset は UB。
+ * 巻き戻す。容量を超える確保は nullptr を返す。Reset は新規 Alloc を一時停止し、
+ * 入場済みの Alloc が完了してからカーソルを巻き戻す。
  */
 class FLinearAllocator final : public FAllocator {
 public:
@@ -56,7 +57,8 @@ public:
     /**
      * カーソルを 0 に戻して全確保を無効化する。
      *
-     * @details バッファは保持したまま再利用する。並行 Alloc 中に呼ぶと UB。
+     * @details バッファは保持したまま再利用する。並行 Alloc は一時的に nullptr を返す場合がある。
+     * Reset 前に返した領域を呼び出し側が使用中でないことは、従来どおり呼び出し側が保証する。
      */
     void Reset() noexcept;
 
@@ -112,6 +114,37 @@ public:
     }
 
 private:
+    /** 新規 Alloc を受け付けることを示すビット。 */
+    static constexpr u64 kAllocationGateAcceptingBit = u64{1} << 63u;
+
+    /** 入場済み Alloc 件数を保持する下位ビット。 */
+    static constexpr u64 kAllocationGateOperationCountMask = 0xFFFFFFFFull;
+
+    /** Reset をまたぐ古い CAS を拒否する世代ビット。 */
+    static constexpr u64 kAllocationGateGenerationMask =
+        ~(kAllocationGateAcceptingBit | kAllocationGateOperationCountMask);
+
+    /** 世代を 1 進めるための増分。 */
+    static constexpr u64 kAllocationGateGenerationIncrement = u64{1} << 32u;
+
+    /** Reset と競合しない Alloc として入場できれば true を返す。 */
+    bool TryBeginAllocation() noexcept;
+
+    /** TryBeginAllocation に成功した Alloc の完了を通知する。 */
+    void EndAllocation() noexcept;
+
+    /** 新規 Alloc を拒否し、入場済み Alloc がすべて完了するまで待機する。 */
+    void CloseAllocationGateAndWait() noexcept;
+
+    /** 世代を進め、新規 Alloc の受け付けを再開する。 */
+    void OpenAllocationGate() noexcept;
+
+    /** Reset とデストラクタを直列化する制御権を取得する。 */
+    void LockLifecycleControl() noexcept;
+
+    /** Reset の直列化制御権を解放する。 */
+    void UnlockLifecycleControl() noexcept;
+
     /** バッファ先頭 (backing から確保、失敗時 nullptr)。 */
     u8* m_Base = nullptr;
 
@@ -132,6 +165,13 @@ private:
 
     /** 過去ピークのカーソル位置 (CAS で更新)。 */
     mutable TAtomic<u64> m_Peak{0};
+
+    /** 受け付け状態・世代・入場済み Alloc 件数を一体で管理する。 */
+    TAtomic<u64> m_AllocationGate{
+        kAllocationGateAcceptingBit | kAllocationGateGenerationIncrement};
+
+    /** Reset とデストラクタの制御処理を直列化するスピンロック。 */
+    TAtomic<u32> m_LifecycleControl{0u};
 };
 
 } // namespace acs

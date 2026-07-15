@@ -12,6 +12,22 @@ namespace acs {
 namespace {
 /** 空きエントリリストの終端を表す番兵インデックス。 */
 constexpr u32 kNoIndex = 0xFFFFFFFFu;
+
+/** 絶対アドレス基準で整列したアリーナ内オフセットを安全に計算する。 */
+bool TryCalculateAlignedOffset(const u8* Base, usize Cursor, usize Alignment,
+                               usize Capacity, usize& Offset) noexcept
+{
+    if (!Base || !IsPow2(Alignment) || Cursor > Capacity) return false;
+
+    const uptr BaseAddress = reinterpret_cast<uptr>(Base);
+    if (Cursor > (~uptr(0)) - BaseAddress || BaseAddress + Cursor > (~uptr(0)) - (Alignment - 1u)) {
+        return false;
+    }
+
+    const uptr AlignedAddress = AlignUp(BaseAddress + Cursor, Alignment);
+    Offset = static_cast<usize>(AlignedAddress - BaseAddress);
+    return Offset <= Capacity;
+}
 }
 
 FRelocatableAllocator::~FRelocatableAllocator() noexcept { Shutdown(); }
@@ -26,6 +42,12 @@ TResult<void> FRelocatableAllocator::Init(usize capacity_bytes, u32 max_handles,
 
     m_Base = static_cast<u8*>(m_Backing->Alloc(capacity_bytes, 16, FSourceLoc::Current()));
     if (!m_Base) return ACS_ERR(Memory, 62, "FRelocatableAllocator: arena alloc failed");
+
+    if (max_handles > (~usize(0)) / sizeof(Entry) || max_handles > (~usize(0)) / sizeof(u32)) {
+        m_Backing->Free(m_Base);
+        m_Base = nullptr;
+        return ACS_ERR(Memory, 63, "FRelocatableAllocator: handle table size overflow");
+    }
 
     m_Entries = static_cast<Entry*>(
         m_Backing->Alloc(sizeof(Entry) * max_handles, alignof(Entry), FSourceLoc::Current()));
@@ -86,22 +108,25 @@ FRelocHandle FRelocatableAllocator::Alloc(usize size, usize alignment) noexcept 
     if (size > 0xFFFFFFFFull || alignment > 0xFFFFFFFFull) return {};
     if (m_FreeHead == kNoIndex) return {};        // ハンドル枯渇
 
-    usize off = AlignUp(m_Cursor, alignment);
-    if (off + size > m_Capacity) {
+    usize off = 0u;
+    if (!TryCalculateAlignedOffset(m_Base, m_Cursor, alignment, m_Capacity, off)) return {};
+    if (off > m_Capacity || size > m_Capacity - off) {
         // 末尾に入らない。詰めれば入る (生存量 + 余裕 <= 容量) なら Compact してから再試行。
-        if (m_LiveBytes + size + alignment <= m_Capacity) {
+        if (m_LiveBytes <= m_Capacity && size <= m_Capacity - m_LiveBytes) {
             Compact();
-            off = AlignUp(m_Cursor, alignment);
+            if (!TryCalculateAlignedOffset(m_Base, m_Cursor, alignment, m_Capacity, off)) return {};
         }
-        if (off + size > m_Capacity) return {};   // 真に容量不足
+        if (off > m_Capacity || size > m_Capacity - off) return {};   // 真に容量不足
     }
 
     const u32 idx = m_FreeHead;
     Entry& e = m_Entries[idx];
     m_FreeHead = e.next_free;
 
-    u32 gen = e.generation + 1u;
-    if (gen == 0u) gen = 1u;                       // wrap 時 0 (無効) を避ける
+    u64 gen = m_NextGeneration++;
+    if (gen == 0u) {
+        gen = m_NextGeneration++;
+    }
 
     e.ptr        = m_Base + off;
     e.size       = static_cast<u32>(size);
@@ -118,7 +143,7 @@ FRelocHandle FRelocatableAllocator::Alloc(usize size, usize alignment) noexcept 
 void FRelocatableAllocator::Free(FRelocHandle h) noexcept {
     Entry* e = nullptr;
     if (!ResolveEntry(h, e)) {
-        ACS_ASSERT(h.generation == 0 || true);     // 二重 free / 無効ハンドルは静かに無視
+        // 二重解放や期限切れハンドルは状態を変更せず拒否する。
         return;
     }
     e->live = false;
@@ -172,7 +197,11 @@ usize FRelocatableAllocator::Compact() noexcept {
     usize write = 0;
     for (u32 k = 0; k < cnt; ++k) {
         Entry& e = m_Entries[m_Order[k]];
-        const usize off = AlignUp(write, e.align);
+        usize off = 0u;
+        if (!TryCalculateAlignedOffset(m_Base, write, e.align, m_Capacity, off) ||
+            off > m_Capacity || e.size > m_Capacity - off) {
+            return 0u;
+        }
         u8* const dst = m_Base + off;
         if (dst != e.ptr) {
             MemMove(dst, e.ptr, e.size);

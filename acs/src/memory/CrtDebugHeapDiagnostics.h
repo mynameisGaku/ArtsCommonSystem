@@ -81,6 +81,18 @@ struct CrtDebugHeapScopeReport {
     bool bConfigurationStable = false;
 };
 
+/** `_CrtDumpMemoryLeaks` によるプロセス全体の直接検査結果。 */
+struct CrtDebugHeapProcessLeakReport {
+    /** 現在のビルドで MSVC Debug CRT 診断を利用できるか。 */
+    bool bSupported = false;
+
+    /** 再入拒否を受けず、直接検査を最後まで実行できたか。 */
+    bool bInspectionSucceeded = false;
+
+    /** `_CrtDumpMemoryLeaks` が未解放 Debug CRT ブロックを検出したか。 */
+    bool bLeakDetected = false;
+};
+
 /** CRT のヒープ検査頻度。高頻度ほど診断精度と実行コストが上がる。 */
 enum class ECrtDebugHeapCheckFrequency : u8 {
     Default,
@@ -205,6 +217,17 @@ public:
 
     /** 現在生存する全 CRT ヒープオブジェクトを出力する。report hook からの再入は何もせず戻る。 */
     static void DumpAllLiveObjects() noexcept;
+
+    /**
+     * `_CrtDumpMemoryLeaks` を直接実行し、戻り値を機械判定可能な結果として返す。
+     *
+     * @details MSVC Debug CRT 専用。通常は対象サブシステムを終了した静止点で呼ぶ。
+     * `bWriteMachineReadableLog` が true なら標準エラーとデバッガへ最終判定を1行出力する。
+     * @param bWriteMachineReadableLog 機械可読な最終判定を出力するか。
+     * @return 対応状況、検査完了、リーク検出の各状態。
+     */
+    static CrtDebugHeapProcessLeakReport DumpProcessMemoryLeaks(
+        bool bWriteMachineReadableLog = true) noexcept;
 
     /**
      * 指定した CRT 割り当て通し番号でブレークする。

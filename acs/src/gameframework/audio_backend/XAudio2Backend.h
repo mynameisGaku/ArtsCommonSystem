@@ -31,9 +31,9 @@
 //     ホットパス影響は無視できる)。
 //   ・**一意 handle**: slot 再利用時に古いハンドルで操作されても不一致で
 //     no-op 化し、use-after-free を防ぐ。
-//   ・**COM init は本 backend が責任を持つ**: `S_OK` と `S_FALSE` はどちらも
-//     Shutdown で `CoUninitialize` を呼び、参照数を釣り合わせる。
-//     `RPC_E_CHANGED_MODE` のときだけ他所の apartment を借り、自分では解除しない。
+//   ・**COM MTA 寿命は本 backend が責任を持つ**: `CoIncrementMTAUsage` の
+//     cookie を保持し、Shutdown で `CoDecrementMTAUsage` を呼ぶ。cookie は
+//     スレッドに属さないため、Init と異なるスレッドからも安全に終了できる。
 //   ・**Pcm32Float / Pcm16 のみ実音再生対応**: Wav 形式は asset layer
 //     側で事前デコードしてから raw PCM として渡す前提 (本 backend 内に
 //     wav parser を追加するなら拡張可)。
@@ -50,8 +50,16 @@
 #include "foundation/Result.h"
 #include "foundation/Types.h"
 #include "gameframework/audio_backend/IAudioBackend.h"
+#include "threading/Atomic.h"
+#include "threading/RwLock.h"
 
 namespace acs::game {
+
+/** XAudio2 backend が事前確保を許可する voice slot 数の上限。 */
+inline constexpr u32 kXAudio2BackendMaximumVoiceCount = 4096u;
+
+/** 全再生 slot が保持できる PCM buffer 容量の合計上限。 */
+inline constexpr u64 kXAudio2BackendResidentBufferBudgetBytes = 512ull * 1024ull * 1024ull;
 
 /**
  * Win32 XAudio2 を叩いて実音声を出す IAudioBackend の Windows 実装。
@@ -61,8 +69,8 @@ namespace acs::game {
  * (+ COM) の重ヘッダを .cpp に閉じ込め、固定容量 voice pool を `Init(max_voices)`
  * で確保する。voice handle は ABI を 32bit に保ったプロセス通算チケットで一意化し、
  * slot 再利用時の use-after-free をハンドル不一致で no-op 化して防ぐ。一発再生は Tick で
- * `BuffersQueued == 0` を見て自然回収される。COM 初期化は本 backend が責任を持ち、
- * `CoInitializeEx` が `S_OK` または `S_FALSE` なら Shutdown で CoUninitialize する。
+ * `BuffersQueued == 0` を見て自然回収される。COM MTA の寿命は cookie で保持するため、
+ * Init と異なるスレッドから Shutdown またはデストラクタを実行できる。
  */
 class FXAudio2Backend final : public IAudioBackend {
 public:
@@ -88,16 +96,16 @@ public:
      * COM・XAudio2 エンジン・マスタリングボイス・voice pool を確保する。
      *
      * @details
-     * 多重 Init は kSubAudioAlreadyInitialized、max_voices=0 や 2^24 以上は
-     * kSubAudioInvalidArgs を返す。COM は既に他所が init 済でも続行し、自分で
-     * CoInitializeEx が S_OK または S_FALSE なら Shutdown で CoUninitialize する。
-     * COM の参照数はスレッド単位なので、Init と Shutdown は同じスレッドから呼ぶこと。
-     * @param max_voices 同時発音数の上限 (= slot 数。0 は不正)。
+     * 多重 Init は kSubAudioAlreadyInitialized、MaxVoices=0 または
+     * kXAudio2BackendMaximumVoiceCount 超過は
+     * kSubAudioInvalidArgs を返す。voice pool の確保に失敗した場合は
+     * kSubAudioOutOfMemory を返し、途中まで取得した OS 資源をすべて解放する。
+     * @param MaxVoices 同時発音数の上限 (= slot 数。0 は不正)。
      * @return 成功なら空の TResult、初期化失敗ならエラー。
      */
-    TResult<void> Init(u32 max_voices = 64) noexcept override;
+    TResult<void> Init(u32 MaxVoices = 64) noexcept override;
 
-    /** 全 voice を停止して資源・COM・pimpl を解放する (多重呼び出し安全)。 */
+    /** 全 voice と MTA cookie と pimpl を解放する。任意スレッドからの多重呼び出しに対応する。 */
     void         Shutdown() noexcept override;
 
     /**
@@ -113,44 +121,44 @@ public:
      * @details
      * PCM データを slot 内バッファにコピーしてから SourceVoice を再生する。未 init /
      * 空きスロットなし / 未対応フォーマット (Wav 等) の場合は kInvalidAudioVoice を返す。
-     * @param clip 再生する PCM clip 記述子 (Pcm16 / Pcm32Float のみ対応)。
-     * @param volume 音量 (0.0〜1.0、範囲外は clamp)。
-     * @param pitch 周波数比 (1.0=等倍、範囲外は [0.25, 4.0] に clamp)。
+     * @param Clip 再生する PCM clip 記述子 (Pcm16 / Pcm32Float のみ対応)。
+     * @param Volume 音量 (0.0〜1.0、範囲外は clamp)。
+     * @param Pitch 周波数比 (1.0=等倍、範囲外は [0.25, 4.0] に clamp)。
      * @return 再生中 voice のハンドル (失敗時は kInvalidAudioVoice)。
      */
-    AudioVoiceHandle PlayOneShot(const AudioClipDesc& clip,
-                                 f32 volume,
-                                 f32 pitch) noexcept override;
+    AudioVoiceHandle PlayOneShot(const AudioClipDesc& Clip,
+                                 f32 Volume,
+                                 f32 Pitch) noexcept override;
 
     /**
      * ループ再生する (StopVoice まで鳴り続ける)。
      *
      * @details 引数・失敗時の挙動は PlayOneShot と同様。ループ再生は Tick では回収されない。
-     * @param clip 再生する PCM clip 記述子 (Pcm16 / Pcm32Float のみ対応)。
-     * @param volume 音量 (0.0〜1.0、範囲外は clamp)。
-     * @param pitch 周波数比 (1.0=等倍、範囲外は [0.25, 4.0] に clamp)。
+     * @param Clip 再生する PCM clip 記述子 (Pcm16 / Pcm32Float のみ対応)。
+     * @param Volume 音量 (0.0〜1.0、範囲外は clamp)。
+     * @param Pitch 周波数比 (1.0=等倍、範囲外は [0.25, 4.0] に clamp)。
      * @return 再生中 voice のハンドル (失敗時は kInvalidAudioVoice)。
      */
-    AudioVoiceHandle PlayLooped(const AudioClipDesc& clip,
-                                f32 volume,
-                                f32 pitch) noexcept override;
+    AudioVoiceHandle PlayLooped(const AudioClipDesc& Clip,
+                                f32 Volume,
+                                f32 Pitch) noexcept override;
 
     /**
      * 指定 voice を停止して slot を解放する。
      *
      * @details 無効ハンドル / 既に解放済 / ハンドル不一致 (古いハンドル) は no-op。
-     * @param voice 停止する voice のハンドル。
+     * @param Voice 停止する voice のハンドル。
      */
-    void StopVoice(AudioVoiceHandle voice) noexcept override;
+    void StopVoice(AudioVoiceHandle Voice) noexcept override;
 
     /**
      * 指定 voice の音量を変更する。
      *
      * @details 無効ハンドル / 解放済 / ハンドル不一致は no-op。範囲外は clamp。
-     * @param voice 対象 voice のハンドル。
-     * @param volume 新しい音量 (0.0〜1.0、範囲外は clamp)。
+     * @param Voice 対象 voice のハンドル。
+     * @param Volume 新しい音量 (0.0〜1.0、範囲外は clamp)。
      */
-    void SetVoiceVolume(AudioVoiceHandle voice, f32 volume) noexcept override;
+    void SetVoiceVolume(AudioVoiceHandle Voice, f32 Volume) noexcept override;
 
     /** 全 voice を停止して slot を解放する (Init 前は no-op)。 */
     void StopAllVoices() noexcept override;
@@ -166,17 +174,32 @@ public:
      * 内部状態を進める (毎フレーム呼ぶ)。
      *
      * @details 完了した一発再生 voice (BuffersQueued == 0) の slot を回収する。
-     * @param dt 実時間の経過秒 (本実装では未使用)。
+     * @param DeltaSeconds 実時間の経過秒 (本実装では未使用)。
      */
-    void Tick(f32 dt) noexcept override;
+    void Tick(f32 DeltaSeconds) noexcept override;
 
     /**
      * マスタリングボイス音量 (= 最終出力の master volume) を設定する。
      *
      * @details 0.0〜1.0 推奨。XAudio2 自体は > 1.0 の over-amplification も許容するが歪むので非推奨。
-     * @param volume master volume (0.0〜1.0、範囲外は clamp)。
+     * @param Volume master volume (0.0〜1.0、範囲外は clamp)。
      */
-    void SetMasterVolume(f32 volume) noexcept;
+    void SetMasterVolume(f32 Volume) noexcept;
+
+#if defined(ACS_XAUDIO2_BACKEND_TEST_HOOKS)
+    /** 実デバイスなしで lifecycle と MTA cookie 契約を検証する疑似状態を作る。 */
+    TResult<void> InitializeLifecycleTestState() noexcept;
+
+    /** lifecycle 共有操作を決定的に停止させる専用テスト hook。 */
+    static void ConfigureLifecycleOperationTestGate(TAtomic<u32>* Entered,
+                                                    TAtomic<u32>* Release) noexcept;
+
+    /** Shutdown 要求が新規共有操作を閉じているかを返す。 */
+    bool IsShutdownRequestedForTesting() const noexcept;
+
+    /** pimpl が保持されているかを返す。 */
+    bool HasLifecycleStateForTesting() const noexcept;
+#endif
 
     /**
      * XAudio2 / COM の重ヘッダを .cpp に閉じ込めるための pimpl。
@@ -188,6 +211,18 @@ public:
     struct Impl;
 
 private:
+    /** lifecycle 排他ロック取得済みで全資源を解放する。 */
+    void ShutdownUnlocked() noexcept;
+
+    /** Shutdown 要求中かを返す。 */
+    bool IsShutdownRequested() const noexcept;
+
+    /** pimpl の寿命を Init/Shutdown と共有操作間で同期する。 */
+    mutable RwLock m_LifecycleLock;
+
+    /** 実行開始済み Shutdown 数。0 以外では新規共有操作を拒否する。 */
+    TAtomic<u32> m_ShutdownRequests{0u};
+
     /** pimpl 本体 (Init で確保、Shutdown で解放。未 init は nullptr)。 */
     Impl* m_Impl = nullptr;
 };

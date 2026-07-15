@@ -272,6 +272,22 @@ public:
         return atomic_detail::LoadAcquire(State) & ~usize(7);
     }
 
+    /**
+     * payload ポインタから利用者が読み書きできる実容量を返す。
+     *
+     * @details
+     * TLSF のブロックサイズには次ブロックと共有する size_and_flags 1 ワードが含まれるため、
+     * PayloadBlockSize からその分を除く。Realloc のコピー上限を呼び出し側の OldSize だけに
+     * 委ねないために使う。このアロケータが払い出した有効なポインタにのみ使用できる。
+     * @param Pointer このアロケータが払い出した payload ポインタ。
+     * @return payload の実容量。破損したサイズ値が 1 ワード未満なら 0。
+     */
+    static usize PayloadCapacity(const void* Pointer) noexcept
+    {
+        const usize BlockSize = PayloadBlockSize(Pointer);
+        return BlockSize >= sizeof(usize) ? BlockSize - sizeof(usize) : 0u;
+    }
+
 private:
     /** シャード化ラッパーだけに thread-local キャッシュ状態の遷移を許可する。 */
     friend class FShardedTlsfAllocator;

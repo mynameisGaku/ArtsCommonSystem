@@ -19,6 +19,7 @@
 //   呼ばれたら debug build で assert する仕掛けを `FGame.cpp` 側に入れる予定。
 //   本 stub では何も検出しないが、コメントとして契約を明示しておく。
 #include "gameframework/MlRuntime.h"
+#include "threading/Atomic.h"
 
 namespace acs::game {
 
@@ -87,7 +88,7 @@ IUpscaler& GetUpscalerStub() noexcept {
 
 namespace {
 /** 登録済みの既定 MlRuntime provider (未登録なら nullptr → stub にフォールバック)。 */
-MlRuntimeProvider g_MlRuntimeProvider = nullptr;
+TAtomic<MlRuntimeProvider> g_MlRuntimeProvider{nullptr};
 }
 
 /**
@@ -95,8 +96,9 @@ MlRuntimeProvider g_MlRuntimeProvider = nullptr;
  *
  * @param provider 登録する provider 関数 (nullptr で解除)。
  */
-void SetMlRuntimeProvider(MlRuntimeProvider provider) noexcept {
-    g_MlRuntimeProvider = provider;
+void SetMlRuntimeProvider(MlRuntimeProvider Provider) noexcept
+{
+    g_MlRuntimeProvider.Store(Provider, EMemoryOrder::Release);
 }
 
 /**
@@ -104,8 +106,10 @@ void SetMlRuntimeProvider(MlRuntimeProvider provider) noexcept {
  *
  * @return provider 登録済みならその実 runtime、未登録なら GetMlRuntimeStub()。
  */
-IMlRuntime& GetDefaultMlRuntime() noexcept {
-    return g_MlRuntimeProvider ? g_MlRuntimeProvider() : GetMlRuntimeStub();
+IMlRuntime& GetDefaultMlRuntime() noexcept
+{
+    const MlRuntimeProvider Provider = g_MlRuntimeProvider.Load(EMemoryOrder::Acquire);
+    return Provider ? Provider() : GetMlRuntimeStub();
 }
 
 } // namespace acs::game

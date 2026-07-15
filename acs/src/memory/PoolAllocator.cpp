@@ -2,61 +2,16 @@
 // =============================================================================
 // ACS Memory — FPoolAllocator 実装
 // -----------------------------------------------------------------------------
-// 64-bit パック値: 上位 17 bit に ABA タグ、下位 47 bit にポインタ。
-// x64 ユーザ空間ポインタが 47 bit であることを利用して、64bit CAS 1 回で
-// ポインタとタグを同時に更新する（DCAS 不要）。
+// フリーリストと各ブロックの所有状態を同じロックで保護する。
+// 利用者領域とフリーリストノードを共有するため、pop 中のノードを
+// 別スレッドへ公開しないことが安全性の前提となる。
 // =============================================================================
 #include "memory/PoolAllocator.h"
 #include "memory/Memory.h"
 #include "foundation/Assert.h"
+#include "threading/ScopedLock.h"
 
 namespace acs {
-
-namespace {
-/** ポインタ部のマスク (x64 ユーザ空間ポインタの下位 47bit)。 */
-constexpr u64 kPtrMask = (1ull << 47) - 1ull;
-
-/** ABA タグ部のマスク (上位 17bit)。 */
-constexpr u64 kTagMask = ~kPtrMask;
-
-/** タグ部のシフト量 (ポインタ部のビット幅)。 */
-constexpr u32 kTagShift = 47;
-
-/**
- * ポインタと ABA タグを 1 ワードにパックする。
- *
- * @param Self 未使用 (将来の per-instance 状態参照用に予約)。
- * @param Pointer フリーブロックへのポインタ (下位 47bit のみ使用)。
- * @param Tag 世代タグ (下位 17bit のみ使用)。
- * @return パックした 64bit 値。
- */
-ACS_FORCEINLINE u64 Pack(FPoolAllocator* /*Self*/, void* Pointer, u64 Tag) noexcept
-{
-    return (reinterpret_cast<u64>(Pointer) & kPtrMask) | ((Tag & ((1ull << 17) - 1)) << kTagShift);
-}
-
-/**
- * パック値からポインタ部を取り出す。
- *
- * @param Value パック済み 64bit 値。
- * @return 復元したポインタ。
- */
-ACS_FORCEINLINE void* UnpackPtr(u64 Value) noexcept
-{
-    return reinterpret_cast<void*>(Value & kPtrMask);
-}
-
-/**
- * パック値から ABA タグ部を取り出す。
- *
- * @param Value パック済み 64bit 値。
- * @return 復元した世代タグ。
- */
-ACS_FORCEINLINE u64 UnpackTag(u64 Value) noexcept
-{
-    return (Value & kTagMask) >> kTagShift;
-}
-} // namespace
 
 FPoolAllocator::FPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCount, usize Alignment,
                                FAllocator* BackingAllocator) noexcept
@@ -67,7 +22,15 @@ FPoolAllocator::FPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCou
 {
     // ブロックサイズをフリーリストノードが収まる最低サイズに揃える
     if (m_Alignment < sizeof(void*)) m_Alignment = sizeof(void*);
+    if ((m_Alignment & (m_Alignment - 1u)) != 0u) {
+        m_BlockCount = 0;
+        return;
+    }
     if (m_BlockSize < sizeof(Node)) m_BlockSize = sizeof(Node);
+    if (m_BlockSize > (~usize(0)) - (m_Alignment - 1u)) {
+        m_BlockCount = 0;
+        return;
+    }
     m_BlockSize = AlignUp(m_BlockSize, m_Alignment);
 
     // m_BlockSize * m_BlockCount の乗算ラップを防ぐ（過小確保 → バッファ外アクセス防止）。
@@ -77,6 +40,8 @@ FPoolAllocator::FPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCou
         return;
     }
 
+    if (m_BlockCount == 0u) return;
+
     // ストレージ全体を 1 回確保
     const usize Total = static_cast<usize>(m_BlockSize * m_BlockCount);
     m_Storage = static_cast<u8*>(m_Backing->Alloc(Total, m_Alignment, FSourceLoc::Current()));
@@ -85,6 +50,16 @@ FPoolAllocator::FPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCou
         return;
     }
 
+    m_AllocationStates = static_cast<u8*>(
+        m_Backing->Alloc(static_cast<usize>(m_BlockCount), alignof(u8), FSourceLoc::Current()));
+    if (!m_AllocationStates) {
+        m_Backing->Free(m_Storage);
+        m_Storage = nullptr;
+        m_BlockCount = 0;
+        return;
+    }
+    MemSet(m_AllocationStates, 0, static_cast<usize>(m_BlockCount));
+
     // 全ブロックを単方向リンクで連結（初期化はシングルスレッド前提）
     Node* PreviousNode = nullptr;
     for (u64 i = 0; i < m_BlockCount; ++i) {
@@ -92,56 +67,59 @@ FPoolAllocator::FPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCou
         CurrentNode->next = PreviousNode;
         PreviousNode = CurrentNode;
     }
-    const u64 PackedHead = Pack(this, PreviousNode, 0);
-    m_HeadPacked.Store(PackedHead, EMemoryOrder::Release);
+    m_FreeHead = PreviousNode;
 }
 
 FPoolAllocator::~FPoolAllocator() noexcept
 {
+    if (m_AllocationStates) m_Backing->Free(m_AllocationStates);
     if (m_Storage) m_Backing->Free(m_Storage);
 }
 
-// 確保（Treiber スタックの pop）
+// 確保
 void* FPoolAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept
 {
     if (Size == 0) return nullptr;
     if (Size > m_BlockSize) return nullptr;
-    if (Alignment > m_Alignment) return nullptr;
+    if (Alignment == 0u || (Alignment & (Alignment - 1u)) != 0u || Alignment > m_Alignment) return nullptr;
 
-    while (true) {
-        const u64 Head = m_HeadPacked.Load(EMemoryOrder::Acquire);
-        Node* const TopNode = static_cast<Node*>(UnpackPtr(Head));
-        if (!TopNode) return nullptr; // プール枯渇
-        const u64 Tag = UnpackTag(Head);
-        // TopNode->next を読む（ABA タグで CAS が確実に失敗するため安全）
-        Node* const NextNode = TopNode->next;
-        const u64 DesiredHead = Pack(this, NextNode, Tag + 1); // タグ +1 で世代を進める
-        u64 ExpectedHead = Head;
-        if (m_HeadPacked.CompareExchange(ExpectedHead, DesiredHead)) {
-            m_Live.FetchAdd(1);
-            return TopNode;
-        }
-        // CAS 失敗ならリトライ
-    }
+    FScopedLock Lock(m_Lock);
+    Node* const AllocatedNode = m_FreeHead;
+    if (!AllocatedNode) return nullptr;
+
+    const usize BlockIndex = static_cast<usize>(
+        (reinterpret_cast<uptr>(AllocatedNode) - reinterpret_cast<uptr>(m_Storage)) / m_BlockSize);
+    if (BlockIndex >= m_BlockCount || m_AllocationStates[BlockIndex] != 0u) return nullptr;
+
+    m_FreeHead = AllocatedNode->next;
+    m_AllocationStates[BlockIndex] = 1u;
+    m_Live.FetchAdd(1u);
+    return AllocatedNode;
 }
 
-// 解放（Treiber スタックの push）
+// 解放
 void FPoolAllocator::Free(void* Pointer) noexcept
 {
     if (!Pointer) return;
-    Node* const FreedNode = static_cast<Node*>(Pointer);
-    while (true) {
-        const u64 Head = m_HeadPacked.Load(EMemoryOrder::Acquire);
-        Node* const TopNode = static_cast<Node*>(UnpackPtr(Head));
-        const u64 Tag = UnpackTag(Head);
-        FreedNode->next = TopNode;
-        const u64 DesiredHead = Pack(this, FreedNode, Tag + 1);
-        u64 ExpectedHead = Head;
-        if (m_HeadPacked.CompareExchange(ExpectedHead, DesiredHead)) {
-            m_Live.FetchSub(1);
-            return;
-        }
-    }
+    if (!m_Storage || !m_AllocationStates) return;
+
+    const uptr StorageAddress = reinterpret_cast<uptr>(m_Storage);
+    const uptr PointerAddress = reinterpret_cast<uptr>(Pointer);
+    const usize StorageSize = static_cast<usize>(m_BlockSize * m_BlockCount);
+    if (PointerAddress < StorageAddress || PointerAddress - StorageAddress >= StorageSize) return;
+
+    const usize Offset = static_cast<usize>(PointerAddress - StorageAddress);
+    if ((Offset % m_BlockSize) != 0u) return;
+    const usize BlockIndex = Offset / m_BlockSize;
+
+    FScopedLock Lock(m_Lock);
+    if (m_AllocationStates[BlockIndex] == 0u) return;
+
+    m_AllocationStates[BlockIndex] = 0u;
+    auto* const FreedNode = static_cast<Node*>(Pointer);
+    FreedNode->next = m_FreeHead;
+    m_FreeHead = FreedNode;
+    m_Live.FetchSub(1u);
 }
 
 } // namespace acs

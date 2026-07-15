@@ -320,3 +320,327 @@ ACS_TEST(MimallocAllocator, CollectAndReinitialize)
         EXPECT_FALSE(Allocator.IsInitialized());
     }
 }
+
+ACS_TEST(MimallocAllocator, ConcurrentFreeAndReallocationClaimOwnershipOnce)
+{
+    constexpr u32 kThreadCount = 4u;
+    constexpr u32 kCycleCount = 128u;
+
+    FMimallocAllocator Allocator;
+    EXPECT_TRUE(Allocator.Init().IsOk());
+    if (!Allocator.IsInitialized())
+    {
+        return;
+    }
+
+    for (u32 Cycle = 0u; Cycle < kCycleCount; ++Cycle)
+    {
+        void* const OriginalAllocation = Allocator.Alloc(128u, 16u, FSourceLoc::Current());
+        EXPECT_TRUE(OriginalAllocation != nullptr);
+        if (!OriginalAllocation)
+        {
+            break;
+        }
+
+        struct MutationContext
+        {
+            FMimallocAllocator* Allocator = nullptr;
+            void* OriginalAllocation = nullptr;
+            TAtomic<u32> Start{0u};
+            bool bFreeSucceeded[kThreadCount] = {};
+            MimallocReallocationResult ReallocationResults[kThreadCount] = {};
+        } Context;
+        Context.Allocator = &Allocator;
+        Context.OriginalAllocation = OriginalAllocation;
+
+        struct WorkerInput
+        {
+            MutationContext* Context = nullptr;
+            u32 WorkerIndex = 0u;
+        } Inputs[kThreadCount];
+
+        FThread Threads[kThreadCount];
+        u32 StartedThreadCount = 0u;
+        for (u32 WorkerIndex = 0u; WorkerIndex < kThreadCount; ++WorkerIndex)
+        {
+            Inputs[WorkerIndex].Context = &Context;
+            Inputs[WorkerIndex].WorkerIndex = WorkerIndex;
+            auto ThreadResult = FThread::Spawn(
+                [](void* UserData)
+                {
+                    auto* const Input = static_cast<WorkerInput*>(UserData);
+                    while (Input->Context->Start.Load(EMemoryOrder::Acquire) == 0u)
+                    {
+                        Yield();
+                    }
+
+                    if ((Input->WorkerIndex & 1u) == 0u)
+                    {
+                        Input->Context->bFreeSucceeded[Input->WorkerIndex] =
+                            Input->Context->Allocator->TryFreeAllocation(Input->Context->OriginalAllocation);
+                    }
+                    else
+                    {
+                        Input->Context->ReallocationResults[Input->WorkerIndex] =
+                            Input->Context->Allocator->TryReallocateAllocation(
+                                Input->Context->OriginalAllocation, 256u + Input->WorkerIndex, 16u);
+                    }
+                },
+                &Inputs[WorkerIndex]);
+            EXPECT_TRUE(ThreadResult.IsOk());
+            if (ThreadResult.IsOk())
+            {
+                Threads[WorkerIndex] = Move(ThreadResult.Value());
+                ++StartedThreadCount;
+            }
+        }
+
+        Context.Start.Store(1u, EMemoryOrder::Release);
+        for (u32 WorkerIndex = 0u; WorkerIndex < kThreadCount; ++WorkerIndex)
+        {
+            if (Threads[WorkerIndex].Joinable())
+            {
+                Threads[WorkerIndex].Join();
+            }
+        }
+
+        if (StartedThreadCount == 0u)
+        {
+            Allocator.Free(OriginalAllocation);
+            break;
+        }
+
+        u32 OwnershipAcceptedCount = 0u;
+        void* ReplacementAllocation = nullptr;
+        for (u32 WorkerIndex = 0u; WorkerIndex < kThreadCount; ++WorkerIndex)
+        {
+            if (Context.bFreeSucceeded[WorkerIndex])
+            {
+                ++OwnershipAcceptedCount;
+            }
+            if (Context.ReallocationResults[WorkerIndex].bOwnershipAccepted)
+            {
+                ++OwnershipAcceptedCount;
+                EXPECT_TRUE(Context.ReallocationResults[WorkerIndex].bSucceeded);
+                ReplacementAllocation = Context.ReallocationResults[WorkerIndex].Pointer;
+            }
+        }
+        EXPECT_EQ(OwnershipAcceptedCount, 1u);
+
+        if (ReplacementAllocation)
+        {
+            EXPECT_TRUE(Allocator.TryFreeAllocation(ReplacementAllocation));
+        }
+        else if (Allocator.AllocationCount() != 0u)
+        {
+            // 極端な OOM で再確保だけが失敗した場合、Active に戻った旧確保を回収する。
+            EXPECT_TRUE(Allocator.TryFreeAllocation(OriginalAllocation));
+        }
+        EXPECT_EQ(Allocator.AllocationCount(), 0ull);
+        EXPECT_EQ(Allocator.BytesAllocated(), 0ull);
+
+        // 次サイクルへ古い raw pointer の猶予を持ち越さず、全競合スレッド join 後に物理解放する。
+        Allocator.Collect(false);
+    }
+
+    Allocator.Collect(true);
+    const MimallocHeapInspectionStatistics Inspection = Allocator.InspectHeap();
+    EXPECT_TRUE(Inspection.visit_succeeded);
+    EXPECT_TRUE(Inspection.metadata_valid);
+    EXPECT_TRUE(Inspection.matches_authoritative_statistics);
+    EXPECT_EQ(Inspection.allocation_count, 0ull);
+    Allocator.Shutdown();
+}
+
+ACS_TEST(MimallocAllocator, LifecycleMaintenanceAndShutdownDrainConcurrentOperations)
+{
+    constexpr u32 kWorkerCount = 4u;
+    constexpr u64 kRequiredSuccessfulAllocations = 256u;
+    constexpr u32 kWaitLimit = 500000u;
+
+    FMimallocAllocator Allocator;
+    EXPECT_TRUE(Allocator.Init(8ull * 1024ull * 1024ull).IsOk());
+    if (!Allocator.IsInitialized())
+    {
+        return;
+    }
+
+    struct RaceContext
+    {
+        FMimallocAllocator* Allocator = nullptr;
+        TAtomic<u32> Ready{0u};
+        TAtomic<u32> Start{0u};
+        TAtomic<u32> Stop{0u};
+        TAtomic<u32> QuiesceAllocations{0u};
+        TAtomic<u32> QuiescedWorkerMask{0u};
+        TAtomic<u32> ShutdownObservedMask{0u};
+        TAtomic<u64> SuccessfulAllocations{0u};
+        TAtomic<u64> RejectedOperations{0u};
+    } Context;
+    Context.Allocator = &Allocator;
+
+    struct WorkerInput
+    {
+        RaceContext* Context = nullptr;
+        u32 WorkerIndex = 0u;
+    } Inputs[kWorkerCount];
+
+    FThread Workers[kWorkerCount];
+    u32 SpawnedWorkerCount = 0u;
+    for (u32 Attempt = 0u; Attempt < kWorkerCount; ++Attempt)
+    {
+        Inputs[SpawnedWorkerCount].Context = &Context;
+        Inputs[SpawnedWorkerCount].WorkerIndex = SpawnedWorkerCount;
+        auto ThreadResult = FThread::Spawn(
+            [](void* UserData)
+            {
+                auto* const Input = static_cast<WorkerInput*>(UserData);
+                RaceContext* const WorkerContext = Input->Context;
+                u32 Iteration = 0u;
+                WorkerContext->Ready.FetchAdd(1u);
+                while (WorkerContext->Start.Load(EMemoryOrder::Acquire) == 0u)
+                {
+                    Yield();
+                }
+
+                while (WorkerContext->Stop.Load(EMemoryOrder::Acquire) == 0u)
+                {
+                    if (WorkerContext->QuiesceAllocations.Load(EMemoryOrder::Acquire) != 0u)
+                    {
+                        WorkerContext->QuiescedWorkerMask.FetchOr(1u << Input->WorkerIndex);
+                        if (!WorkerContext->Allocator->IsInitialized())
+                        {
+                            WorkerContext->RejectedOperations.FetchAdd(1u);
+                            WorkerContext->ShutdownObservedMask.FetchOr(1u << Input->WorkerIndex);
+                        }
+                        (void)WorkerContext->Allocator->BytesAllocated();
+                        (void)WorkerContext->Allocator->AllocationCount();
+                        (void)WorkerContext->Allocator->LifetimeGeneration();
+                        Yield();
+                        continue;
+                    }
+
+                    void* Allocation = WorkerContext->Allocator->Alloc(
+                        64u + (Iteration & 127u), 16u, FSourceLoc::Current());
+                    if (!Allocation)
+                    {
+                        WorkerContext->RejectedOperations.FetchAdd(1u);
+                        ++Iteration;
+                        continue;
+                    }
+
+                    WorkerContext->SuccessfulAllocations.FetchAdd(1u);
+                    const MimallocReallocationResult Reallocation =
+                        WorkerContext->Allocator->TryReallocateAllocation(
+                            Allocation, 256u + (Iteration & 255u), 16u);
+                    void* AllocationToFree = Allocation;
+                    if (Reallocation.bSucceeded && Reallocation.Pointer)
+                    {
+                        AllocationToFree = Reallocation.Pointer;
+                    }
+
+                    // Collect / Inspect が呼出間に受付を閉じても、再開後に論理解放を完了させる。
+                    while (!WorkerContext->Allocator->TryFreeAllocation(AllocationToFree))
+                    {
+                        Yield();
+                    }
+
+                    (void)WorkerContext->Allocator->BytesAllocated();
+                    (void)WorkerContext->Allocator->AllocationCount();
+                    (void)WorkerContext->Allocator->PeakBytes();
+                    (void)WorkerContext->Allocator->LifetimeGeneration();
+                    (void)WorkerContext->Allocator->HardBudgetBytes();
+                    (void)WorkerContext->Allocator->CaptureAllocationHistogram();
+                    ++Iteration;
+                }
+            },
+            &Inputs[SpawnedWorkerCount]);
+        EXPECT_TRUE(ThreadResult.IsOk());
+        if (ThreadResult.IsOk())
+        {
+            Workers[SpawnedWorkerCount] = Move(ThreadResult.Value());
+            ++SpawnedWorkerCount;
+        }
+    }
+
+    EXPECT_TRUE(SpawnedWorkerCount > 0u);
+    if (SpawnedWorkerCount == 0u)
+    {
+        Allocator.Shutdown();
+        return;
+    }
+
+    while (Context.Ready.Load(EMemoryOrder::Acquire) < SpawnedWorkerCount)
+    {
+        Yield();
+    }
+    Context.Start.Store(1u, EMemoryOrder::Release);
+    for (u32 WaitIteration = 0u;
+         WaitIteration < kWaitLimit &&
+         Context.SuccessfulAllocations.Load(EMemoryOrder::Acquire) < kRequiredSuccessfulAllocations;
+         ++WaitIteration)
+    {
+        Yield();
+    }
+    EXPECT_TRUE(Context.SuccessfulAllocations.Load(EMemoryOrder::Acquire) >=
+                kRequiredSuccessfulAllocations);
+
+    for (u32 MaintenanceCycle = 0u; MaintenanceCycle < 16u; ++MaintenanceCycle)
+    {
+        Allocator.Collect((MaintenanceCycle & 1u) != 0u);
+        const MimallocHeapInspectionStatistics Inspection = Allocator.InspectHeap();
+        EXPECT_TRUE(Inspection.visit_succeeded);
+        EXPECT_TRUE(Inspection.metadata_valid);
+        EXPECT_TRUE(Inspection.matches_authoritative_statistics);
+    }
+
+    const u32 ExpectedShutdownObservedMask = (1u << SpawnedWorkerCount) - 1u;
+    Context.QuiesceAllocations.Store(1u, EMemoryOrder::Release);
+    for (u32 WaitIteration = 0u;
+         WaitIteration < kWaitLimit &&
+         Context.QuiescedWorkerMask.Load(EMemoryOrder::Acquire) != ExpectedShutdownObservedMask;
+         ++WaitIteration)
+    {
+        Yield();
+    }
+    EXPECT_EQ(Context.QuiescedWorkerMask.Load(EMemoryOrder::Acquire), ExpectedShutdownObservedMask);
+    EXPECT_EQ(Allocator.AllocationCount(), 0ull);
+
+    Context.ShutdownObservedMask.Store(0u, EMemoryOrder::Release);
+    Allocator.Shutdown();
+    for (u32 WaitIteration = 0u;
+         WaitIteration < kWaitLimit &&
+         Context.ShutdownObservedMask.Load(EMemoryOrder::Acquire) != ExpectedShutdownObservedMask;
+         ++WaitIteration)
+    {
+        Yield();
+    }
+    EXPECT_EQ(Context.ShutdownObservedMask.Load(EMemoryOrder::Acquire), ExpectedShutdownObservedMask);
+    EXPECT_TRUE(Context.RejectedOperations.Load(EMemoryOrder::Acquire) > 0u);
+
+    Context.Stop.Store(1u, EMemoryOrder::Release);
+    for (u32 WorkerIndex = 0u; WorkerIndex < SpawnedWorkerCount; ++WorkerIndex)
+    {
+        Workers[WorkerIndex].Join();
+    }
+
+    EXPECT_FALSE(Allocator.IsInitialized());
+    EXPECT_EQ(Allocator.BytesAllocated(), 0ull);
+    EXPECT_EQ(Allocator.AllocationCount(), 0ull);
+    EXPECT_EQ(Allocator.PeakBytes(), 0ull);
+    EXPECT_EQ(Allocator.LifetimeGeneration(), 0ull);
+    EXPECT_EQ(Allocator.HardBudgetBytes(), 0ull);
+    Allocator.Collect(true);
+    const MimallocHeapInspectionStatistics EmptyInspection = Allocator.InspectHeap();
+    EXPECT_FALSE(EmptyInspection.visit_succeeded);
+
+    EXPECT_TRUE(Allocator.Init(1024u).IsOk());
+    void* const ReinitializedAllocation = Allocator.Alloc(512u, 32u, FSourceLoc::Current());
+    EXPECT_TRUE(ReinitializedAllocation != nullptr);
+    EXPECT_TRUE(Allocator.TryFreeAllocation(ReinitializedAllocation));
+    const MimallocHeapInspectionStatistics ReinitializedInspection = Allocator.InspectHeap();
+    EXPECT_TRUE(ReinitializedInspection.visit_succeeded);
+    EXPECT_TRUE(ReinitializedInspection.metadata_valid);
+    EXPECT_TRUE(ReinitializedInspection.matches_authoritative_statistics);
+    Allocator.Shutdown();
+}

@@ -931,19 +931,46 @@ bool FTlsfAllocator::ContainsPtr(const void* Pointer) const noexcept
 bool FTlsfAllocator::ValidateHeap() const noexcept
 {
     using namespace tlsf;
-    for (int i = 0; i < m_PoolSpanCount; ++i) {
-        FBlockHeader* Block = reinterpret_cast<FBlockHeader*>(m_PoolSpans[i].lo);
-        const uptr PoolEnd = m_PoolSpans[i].hi;
+    constexpr usize kMinimumRepresentableBlockSize = MIN_BLOCK_SIZE - kBlockHeaderOverhead;
+
+    for (int PoolIndex = 0; PoolIndex < m_PoolSpanCount; ++PoolIndex) {
+        const PoolSpan& Span = m_PoolSpans[PoolIndex];
+        if (Span.lo >= Span.hi || Span.hi - Span.lo < kBlockStartOffset) return false;
+
+        uptr BlockAddress = Span.lo;
+        const uptr PoolEnd = Span.hi;
         FBlockHeader* PreviousBlock = nullptr;
         for (;;) {
-            if (reinterpret_cast<uptr>(Block) >= PoolEnd) return false; // 番兵前に範囲外 = 破損
+            // size_and_flags を含む固定ヘッダ全体が範囲内だと確認してから読み取る。
+            if (BlockAddress > PoolEnd - kBlockStartOffset) return false;
+
+            FBlockHeader* const Block = reinterpret_cast<FBlockHeader*>(BlockAddress);
             const usize CurrentBlockSize = BlockSize(Block);
-            if (CurrentBlockSize == 0) break; // 終端番兵 (size 0, used)
             if (PreviousBlock != nullptr && Block->prev_phys_block != PreviousBlock) return false;
             if (PreviousBlock != nullptr && (IsPrevFree(Block) != IsFree(PreviousBlock))) return false;
+
+            if (CurrentBlockSize == 0) {
+                // size 0 はプール末尾に置かれた使用中の終端番兵だけが正当。
+                if (BlockAddress != PoolEnd - kBlockStartOffset || IsFree(Block) || IsThreadCached(Block)) {
+                    return false;
+                }
+                break;
+            }
+
+            if (CurrentBlockSize < kMinimumRepresentableBlockSize ||
+                CurrentBlockSize > MAXIMUM_BLOCK_SIZE ||
+                (CurrentBlockSize & (ALIGN_SIZE - 1u)) != kBlockHeaderOverhead) {
+                return false;
+            }
             if (IsAllocationStartTracked(BlockToPtr(Block)) == IsFree(Block)) return false;
+
+            // NextBlock と同じ式を整数上で検証し、wrap・逆行・終端越えを防ぐ。
+            const usize Advance = CurrentBlockSize + (kBlockStartOffset - kBlockHeaderOverhead);
+            const usize RemainingBeforeSentinel = static_cast<usize>(PoolEnd - BlockAddress) - kBlockStartOffset;
+            if (Advance == 0u || Advance > RemainingBeforeSentinel) return false;
+
             PreviousBlock = Block;
-            Block = NextBlock(Block);
+            BlockAddress += Advance;
         }
     }
     return true;
@@ -1108,14 +1135,17 @@ void* FTlsfAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize
     }
     if (IsThreadCached(Block)) return nullptr;
 
+    const usize OldBlockSize = BlockSize(Block);
+    const usize OldPayloadCapacity = OldBlockSize >= kBlockHeaderOverhead ? OldBlockSize - kBlockHeaderOverhead : 0u;
+    const usize SafeOldSize = OldSize < OldPayloadCapacity ? OldSize : OldPayloadCapacity;
+
     // over-alignment 要求で現在の先頭が境界を満たさない場合は in-place できない → 移動。
     if (Alignment > ALIGN_SIZE && (reinterpret_cast<uptr>(Pointer) & (static_cast<uptr>(Alignment) - 1)) != 0) {
-        return FAllocator::Realloc(Pointer, OldSize, NewSize, Alignment, Location);
+        return FAllocator::Realloc(Pointer, SafeOldSize, NewSize, Alignment, Location);
     }
 
     const usize AdjustedSize = AdjustRequestSize(NewSize, ALIGN_SIZE);
     if (AdjustedSize > MAXIMUM_SEARCHABLE_BLOCK_SIZE) return nullptr;
-    const usize OldBlockSize = BlockSize(Block);
 
     if (AdjustedSize > OldBlockSize) {
         // 拡大: 物理的に次のブロックが free で、合算サイズが要求を満たすなら in-place 統合。
@@ -1123,7 +1153,7 @@ void* FTlsfAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize
         FBlockHeader* const NextFreeBlock = NextBlock(Block);
         if (!(IsFree(NextFreeBlock) &&
               (OldBlockSize + BlockSize(NextFreeBlock) + kBlockHeaderOverhead) >= AdjustedSize)) {
-            return FAllocator::Realloc(Pointer, OldSize, NewSize, Alignment, Location);
+            return FAllocator::Realloc(Pointer, SafeOldSize, NewSize, Alignment, Location);
         }
         Block = MergeNext(Block);       // Block は used のまま NextFreeBlock を吸収
         MarkPrevUsed(NextBlock(Block)); // 統合後の次ブロックへ「prev(=Block) は used」を伝達

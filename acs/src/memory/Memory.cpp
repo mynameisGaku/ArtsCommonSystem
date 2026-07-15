@@ -7,27 +7,43 @@
 // =============================================================================
 #include "memory/Memory.h"
 #include "memory/SystemAllocator.h"
+#include "threading/Atomic.h"
 
 #include <cstring>
+#include <new>
 
 namespace acs {
 
 namespace {
-/** プロセス全体のシステムアロケータ (起動時から有効、SetDefaultAllocator の fallback)。 */
-FSystemAllocator g_system_allocator;
+/**
+ * プロセス終了まで破棄しないシステムアロケータを返す。
+ *
+ * @details 別翻訳単位の静的オブジェクトから起動時・終了時に呼ばれても、構築順と
+ * 破棄順に依存しない。OS がプロセスヒープとともに最終回収する。
+ */
+FSystemAllocator& ProcessSystemAllocator() noexcept
+{
+    alignas(FSystemAllocator) static byte Storage[sizeof(FSystemAllocator)] = {};
+    static FSystemAllocator* Allocator = ::new (static_cast<void*>(Storage)) FSystemAllocator();
+    return *Allocator;
+}
 
-/** 現在のデフォルトアロケータを指すポインタ (起動時は g_system_allocator)。 */
-FAllocator* g_default = &g_system_allocator;
+/** 現在の既定アロケータを保持する、初回利用時構築のatomicスロット。 */
+TAtomic<FAllocator*>& DefaultAllocatorSlot() noexcept
+{
+    static TAtomic<FAllocator*> Allocator{&ProcessSystemAllocator()};
+    return Allocator;
+}
 } // namespace
 
 FAllocator& DefaultAllocator() noexcept
 {
-    return *g_default;
+    return *DefaultAllocatorSlot().Load(EMemoryOrder::Acquire);
 }
 
 void SetDefaultAllocator(FAllocator* Allocator) noexcept
 {
-    g_default = Allocator ? Allocator : &g_system_allocator;
+    DefaultAllocatorSlot().Store(Allocator ? Allocator : &ProcessSystemAllocator(), EMemoryOrder::Release);
 }
 
 void MemCopy(void* Destination, const void* Source, usize Size) noexcept

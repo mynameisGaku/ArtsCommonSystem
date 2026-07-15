@@ -37,10 +37,42 @@ constexpr RgbColor kSegmentColor[(usize)ESegment::_Count] = {
  * @param Data 書き込むデータ。
  * @param Size バイト数。
  */
-ACS_FORCEINLINE void WriteAll(HANDLE FileHandle, const void* Data, usize Size) noexcept
+bool WriteAll(HANDLE FileHandle, const void* Data, usize Size) noexcept
 {
-    DWORD BytesWritten = 0;
-    ::WriteFile(FileHandle, Data, static_cast<DWORD>(Size), &BytesWritten, nullptr);
+    if (!Data && Size != 0u) return false;
+
+    const u8* Cursor = static_cast<const u8*>(Data);
+    usize RemainingSize = Size;
+    while (RemainingSize != 0u) {
+        const DWORD ChunkSize = RemainingSize > static_cast<usize>(MAXDWORD)
+                                    ? MAXDWORD
+                                    : static_cast<DWORD>(RemainingSize);
+        DWORD BytesWritten = 0u;
+        if (!::WriteFile(FileHandle, Cursor, ChunkSize, &BytesWritten, nullptr) || BytesWritten == 0u) {
+            return false;
+        }
+        Cursor += BytesWritten;
+        RemainingSize -= BytesWritten;
+    }
+    return true;
+}
+
+/** snprintf の結果を検証してからファイルへ書き込む。 */
+bool WriteFormatted(HANDLE FileHandle, const char* Buffer, usize Capacity, int Length) noexcept
+{
+    if (Length < 0 || static_cast<usize>(Length) >= Capacity) return false;
+    return WriteAll(FileHandle, Buffer, static_cast<usize>(Length));
+}
+
+/** 64bit 統計値から描画幅をオーバーフローなしで求める。 */
+u32 CalculateBarWidth(u32 Width, u64 UsedBytes, u64 CapacityBytes) noexcept
+{
+    if (Width == 0u || UsedBytes == 0u) return 0u;
+    if (CapacityBytes == 0u || UsedBytes >= CapacityBytes) return Width;
+
+    const double Ratio = static_cast<double>(UsedBytes) / static_cast<double>(CapacityBytes);
+    const double ScaledWidth = Ratio * static_cast<double>(Width);
+    return ScaledWidth >= static_cast<double>(Width) ? Width : static_cast<u32>(ScaledWidth);
 }
 
 /**
@@ -75,9 +107,16 @@ int FormatBytes(char* Buffer, usize Capacity, u64 Bytes) noexcept
 // SVG 出力: 各セグメントを 1 行のバーとして描画
 TResult<void> FMemorySnapshot::WriteSvg(const wchar_t* Path, u32 Width, u32 RowHeight) noexcept
 {
+    if (!Path || Path[0] == L'\0' || Width == 0u || RowHeight < 4u) {
+        return ACS_ERR(Memory, 43, "invalid SVG dimensions or path");
+    }
+
     SegmentStats StatisticsArray[(usize)ESegment::_Count];
     const u32 SegmentCount = FMemorySystem::GetStats(StatisticsArray, (u32)ESegment::_Count);
     if (SegmentCount == 0) return ACS_ERR(Memory, 40, "FMemorySystem has no segments");
+    if (SegmentCount + 1u > ((~u32(0)) - 40u) / RowHeight) {
+        return ACS_ERR(Memory, 43, "SVG dimensions overflow");
+    }
 
     // ファイルを上書き作成
     const HANDLE FileHandle = ::CreateFileW(Path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
@@ -97,7 +136,10 @@ TResult<void> FMemorySnapshot::WriteSvg(const wchar_t* Path, u32 Width, u32 RowH
         "<rect width=\"100%%\" height=\"100%%\" fill=\"#f7f7fa\"/>\n"
         "<text x=\"10\" y=\"22\" font-weight=\"bold\">ACS Memory Snapshot</text>\n",
         Width, Height, Width, Height);
-    WriteAll(FileHandle, Buffer, Length);
+    if (!WriteFormatted(FileHandle, Buffer, sizeof(Buffer), Length)) {
+        ::CloseHandle(FileHandle);
+        return ACS_ERR_OS(IO, 3, "WriteFile failed (svg header)", ::GetLastError());
+    }
 
     const u32 BarX = 120;
     // Width が小さいと Width - BarX - 10 が u32 アンダーフローして巨大値になる。下限ガード。
@@ -110,34 +152,44 @@ TResult<void> FMemorySnapshot::WriteSvg(const wchar_t* Path, u32 Width, u32 RowH
         // セグメント名ラベル
         Length = ::snprintf(Buffer, sizeof(Buffer), "<text x=\"10\" y=\"%u\">%s</text>\n", y + RowHeight / 2 + 5,
                             Statistics.segment_name);
-        WriteAll(FileHandle, Buffer, Length);
+        if (!WriteFormatted(FileHandle, Buffer, sizeof(Buffer), Length)) {
+            ::CloseHandle(FileHandle);
+            return ACS_ERR_OS(IO, 3, "WriteFile failed (svg label)", ::GetLastError());
+        }
 
         // 背景バー（予約全体、グレー）
         Length = ::snprintf(Buffer, sizeof(Buffer),
                             "<rect x=\"%u\" y=\"%u\" width=\"%u\" height=\"%u\" fill=\"#ddd\"/>\n", BarX, y, BarWidth,
                             RowHeight - 4);
-        WriteAll(FileHandle, Buffer, Length);
+        if (!WriteFormatted(FileHandle, Buffer, sizeof(Buffer), Length)) {
+            ::CloseHandle(FileHandle);
+            return ACS_ERR_OS(IO, 3, "WriteFile failed (svg background)", ::GetLastError());
+        }
 
         // 使用量バー（カラー、使用率に比例した幅）
         const u64 BarCapacity = Statistics.hard_budget_bytes > 0
                                     ? Statistics.hard_budget_bytes
                                     : (Statistics.peak_requested_bytes > 0 ? Statistics.peak_requested_bytes : 1);
-        u32 UsedWidth = static_cast<u32>(static_cast<u64>(BarWidth) * Statistics.requested_bytes / BarCapacity);
-        if (UsedWidth > BarWidth) UsedWidth = BarWidth;
+        const u32 UsedWidth = CalculateBarWidth(BarWidth, Statistics.requested_bytes, BarCapacity);
         const RgbColor& Color = kSegmentColor[(usize)Statistics.segment];
         Length = ::snprintf(Buffer, sizeof(Buffer),
                             "<rect x=\"%u\" y=\"%u\" width=\"%u\" height=\"%u\" fill=\"rgb(%u,%u,%u)\"/>\n", BarX, y,
                             UsedWidth, RowHeight - 4, Color.r, Color.g, Color.b);
-        WriteAll(FileHandle, Buffer, Length);
+        if (!WriteFormatted(FileHandle, Buffer, sizeof(Buffer), Length)) {
+            ::CloseHandle(FileHandle);
+            return ACS_ERR_OS(IO, 3, "WriteFile failed (svg usage)", ::GetLastError());
+        }
 
         // ピーク位置を赤い縦線で示す
-        u32 PeakOffset = static_cast<u32>(static_cast<u64>(BarWidth) * Statistics.peak_requested_bytes / BarCapacity);
-        if (PeakOffset > BarWidth) PeakOffset = BarWidth;
+        const u32 PeakOffset = CalculateBarWidth(BarWidth, Statistics.peak_requested_bytes, BarCapacity);
         const u32 PeakX = BarX + PeakOffset;
         Length = ::snprintf(Buffer, sizeof(Buffer),
                             "<line x1=\"%u\" y1=\"%u\" x2=\"%u\" y2=\"%u\" stroke=\"#c00\" stroke-width=\"2\"/>\n",
                             PeakX, y, PeakX, y + RowHeight - 4);
-        WriteAll(FileHandle, Buffer, Length);
+        if (!WriteFormatted(FileHandle, Buffer, sizeof(Buffer), Length)) {
+            ::CloseHandle(FileHandle);
+            return ACS_ERR_OS(IO, 3, "WriteFile failed (svg peak)", ::GetLastError());
+        }
 
         // バー右端に「要求量 / ハード予算 / 件数」を表示する。
         char RequestedText[32];
@@ -151,14 +203,20 @@ TResult<void> FMemorySnapshot::WriteSvg(const wchar_t* Path, u32 Width, u32 RowH
         Length = ::snprintf(
             Buffer, sizeof(Buffer),
             "<text x=\"%u\" y=\"%u\" text-anchor=\"end\" class=\"lbl\" fill=\"#222\">%s / %s / %llu allocs</text>\n",
-            BarX + BarWidth - 4, y + RowHeight / 2 + 4, RequestedText, BudgetText,
+            BarWidth >= 4u ? BarX + BarWidth - 4u : BarX, y + RowHeight / 2 + 4u, RequestedText, BudgetText,
             static_cast<unsigned long long>(Statistics.outstanding_allocation_count));
-        WriteAll(FileHandle, Buffer, Length);
+        if (!WriteFormatted(FileHandle, Buffer, sizeof(Buffer), Length)) {
+            ::CloseHandle(FileHandle);
+            return ACS_ERR_OS(IO, 3, "WriteFile failed (svg statistics)", ::GetLastError());
+        }
     }
 
     const char* const Footer = "</svg>\n";
-    WriteAll(FileHandle, Footer, ::strlen(Footer));
-    ::CloseHandle(FileHandle);
+    if (!WriteAll(FileHandle, Footer, ::strlen(Footer))) {
+        ::CloseHandle(FileHandle);
+        return ACS_ERR_OS(IO, 3, "WriteFile failed (svg footer)", ::GetLastError());
+    }
+    if (!::CloseHandle(FileHandle)) return ACS_ERR_OS(IO, 3, "CloseHandle failed (svg)", ::GetLastError());
     return Ok();
 }
 
@@ -239,14 +297,37 @@ ACS_FORCEINLINE void PutPixel(u8* Row, u32 PixelX, RgbColor Color) noexcept
 
 TResult<void> FMemorySnapshot::WriteBmp(const wchar_t* Path, u32 Width, u32 RowHeight) noexcept
 {
+    constexpr u64 kMaximumBitmapDimension = 0x7FFFFFFFull;
+    constexpr u64 kBitmapHeaderBytes = sizeof(BmpFileHeader) + sizeof(BmpInfoHeader);
+    if (!Path || Path[0] == L'\0' || Width == 0u || RowHeight < 3u ||
+        static_cast<u64>(Width) > kMaximumBitmapDimension) {
+        return ACS_ERR(Memory, 44, "invalid BMP dimensions or path");
+    }
+
     SegmentStats StatisticsArray[(usize)ESegment::_Count];
     const u32 SegmentCount = FMemorySystem::GetStats(StatisticsArray, (u32)ESegment::_Count);
     if (SegmentCount == 0) return ACS_ERR(Memory, 41, "FMemorySystem has no segments");
 
-    const u32 Height = SegmentCount * RowHeight;
+    const u64 Height64 = static_cast<u64>(SegmentCount) * RowHeight;
+    const u64 RowBytes64 = static_cast<u64>(Width) * 3u;
+    if (Height64 == 0u || Height64 > kMaximumBitmapDimension || RowBytes64 > (~u64(0)) - 3u) {
+        return ACS_ERR(Memory, 44, "BMP dimensions overflow");
+    }
+
     // BMP は 1 行を 4 バイト境界にアラインする
-    const u32 Stride = (Width * 3 + 3) & ~3u;
-    const u32 PixelBytes = Stride * Height;
+    const u64 Stride64 = (RowBytes64 + 3u) & ~3ull;
+    if (Stride64 == 0u || Height64 > (~u64(0)) / Stride64) {
+        return ACS_ERR(Memory, 44, "BMP pixel size overflow");
+    }
+    const u64 PixelBytes64 = Stride64 * Height64;
+    if (Stride64 > ~u32(0) || PixelBytes64 > ~u32(0) ||
+        PixelBytes64 > static_cast<u64>(~usize(0)) || PixelBytes64 > (~u32(0)) - kBitmapHeaderBytes) {
+        return ACS_ERR(Memory, 44, "BMP file exceeds format limits");
+    }
+
+    const u32 Height = static_cast<u32>(Height64);
+    const u32 Stride = static_cast<u32>(Stride64);
+    const u32 PixelBytes = static_cast<u32>(PixelBytes64);
 
     // ヘッダ初期化
     BmpFileHeader FileHeader{};
@@ -279,7 +360,7 @@ TResult<void> FMemorySnapshot::WriteBmp(const wchar_t* Path, u32 Width, u32 RowH
         const u64 BarCapacity = Statistics.hard_budget_bytes > 0
                                     ? Statistics.hard_budget_bytes
                                     : (Statistics.peak_requested_bytes > 0 ? Statistics.peak_requested_bytes : 1);
-        u32 UsedWidth = static_cast<u32>(static_cast<u64>(Width) * Statistics.requested_bytes / BarCapacity);
+        u32 UsedWidth = CalculateBarWidth(Width, Statistics.requested_bytes, BarCapacity);
         const u32 ReserveWidth = Width;
         if (UsedWidth > ReserveWidth) UsedWidth = ReserveWidth;
 
@@ -300,11 +381,18 @@ TResult<void> FMemorySnapshot::WriteBmp(const wchar_t* Path, u32 Width, u32 RowH
         ::HeapFree(::GetProcessHeap(), 0, Pixels);
         return ACS_ERR_OS(IO, 2, "CreateFileW failed (bmp)", ::GetLastError());
     }
-    WriteAll(FileHandle, &FileHeader, sizeof(FileHeader));
-    WriteAll(FileHandle, &InfoHeader, sizeof(InfoHeader));
-    WriteAll(FileHandle, Pixels, PixelBytes);
-    ::CloseHandle(FileHandle);
+    const bool bWriteSucceeded = WriteAll(FileHandle, &FileHeader, sizeof(FileHeader)) &&
+                                 WriteAll(FileHandle, &InfoHeader, sizeof(InfoHeader)) &&
+                                 WriteAll(FileHandle, Pixels, PixelBytes);
+    const DWORD WriteError = bWriteSucceeded ? ERROR_SUCCESS : ::GetLastError();
+    const bool bCloseSucceeded = ::CloseHandle(FileHandle) != 0;
+    const DWORD CloseError = bCloseSucceeded ? ERROR_SUCCESS : ::GetLastError();
     ::HeapFree(::GetProcessHeap(), 0, Pixels);
+    if (!bWriteSucceeded) {
+        return ACS_ERR_OS(IO, 4, "WriteFile failed (bmp)",
+                          WriteError == ERROR_SUCCESS ? ERROR_WRITE_FAULT : WriteError);
+    }
+    if (!bCloseSucceeded) return ACS_ERR_OS(IO, 4, "CloseHandle failed (bmp)", CloseError);
     return Ok();
 }
 
