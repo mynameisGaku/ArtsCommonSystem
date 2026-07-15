@@ -137,9 +137,23 @@ public:
      * @param value 挿入する値 (ムーブされる)。
      */
     void Insert(const K& key, V value) noexcept {
-        // load factor 超過なら容量倍増
-        if ((Size() + 1) * 100 > m_BucketCount * kLoadFactorPct) Rehash(NextCapacity());
-        InsertImpl(key, Move(value));
+        ACS_CHECKF(TryInsert(key, Move(value)), "THashMap::Insert failed (size=%zu)", Size());
+    }
+
+    /**
+     * キー挿入 / 上書きを試み、拡張確保 (rehash / 値配列) に失敗したら map を変えず false を返す。
+     *
+     * @details OOM 時は map の内容と容量を一切変更しない。失敗時、value はムーブ済みになり得る。
+     * @param key 挿入するキー。
+     * @param value 挿入する値 (ムーブされる)。
+     * @return 挿入 / 上書き成功なら true、サイズ overflow / OOM なら false。
+     */
+    bool TryInsert(const K& key, V value) noexcept {
+        // load factor 超過なら容量倍増 (rehash 失敗時は挿入せず false)。
+        if ((Size() + 1) * 100 > m_BucketCount * kLoadFactorPct) {
+            if (!TryRehash(NextCapacity())) return false;
+        }
+        return TryInsertImpl(key, Move(value));
     }
 
     /**
@@ -257,10 +271,21 @@ public:
      * @param n 収めたいエントリ数。
      */
     void Reserve(usize n) noexcept {
+        ACS_CHECKF(TryReserve(n), "THashMap::Reserve failed (n=%zu)", n);
+    }
+
+    /**
+     * 容量予約を試み、確保に失敗したら map を変えず false を返す。
+     *
+     * @param n 収めたいエントリ数。
+     * @return 予約済みまたは予約成功なら true、OOM なら false。
+     */
+    bool TryReserve(usize n) noexcept {
         const usize need = (n * 100 + kLoadFactorPct - 1) / kLoadFactorPct;
         usize cap = 16;
         while (cap < need) cap <<= 1;
-        if (cap > m_BucketCount) Rehash(cap);
+        if (cap <= m_BucketCount) return true;
+        return TryRehash(cap);
     }
 
     /**
@@ -353,12 +378,22 @@ private:
      * @details new_count は 2 の冪である必要がある (ACS_ASSERT で検査)。
      * @param new_count 新しいバケット数 (2 の冪)。
      */
-    void Rehash(usize new_count) noexcept {
+    /**
+     * バケット配列を new_count で作り直し、全 value を再挿入する (値配列は維持)。確保に失敗
+     * したら map を一切変更せず false を返す。
+     *
+     * @details new_count は 2 の冪である必要がある (ACS_ASSERT で検査)。バケット確保が成功する
+     * までは m_Buckets / m_BucketCount / m_BucketMask を変えないため、OOM 時も map は有効なまま。
+     * @param new_count 新しいバケット数 (2 の冪)。
+     * @return 成功なら true、OOM なら false。
+     */
+    bool TryRehash(usize new_count) noexcept {
         ACS_ASSERT((new_count & (new_count - 1)) == 0);
-        Bucket* const old_buckets = m_Buckets;
 
         void* const mem = m_Alloc->Alloc(sizeof(Bucket) * new_count, alignof(Bucket), FSourceLoc::Current());
-        ACS_ASSERTF(mem, "THashMap::Rehash: alloc failed (cap=%zu)", new_count);
+        if (!mem) return false;  // OOM: map を変更しない
+
+        Bucket* const old_buckets = m_Buckets;
         m_Buckets = static_cast<Bucket*>(mem);
         m_BucketCount = new_count;
         m_BucketMask  = static_cast<u32>(new_count - 1);
@@ -370,6 +405,7 @@ private:
         }
 
         if (old_buckets) m_Alloc->Free(old_buckets);
+        return true;
     }
 
     /**
@@ -415,7 +451,7 @@ private:
      * @param key 挿入するキー。
      * @param value 挿入する値 (ムーブされる)。
      */
-    void InsertImpl(const K& key, V&& value) noexcept {
+    bool TryInsertImpl(const K& key, V&& value) noexcept {
         const u64 h = H{}(key);
         const u32 ideal = static_cast<u32>(h) & m_BucketMask;
         const u32 fp = static_cast<u32>((h >> 56) | 0x01);
@@ -428,17 +464,19 @@ private:
             if (b.dist_fp == 0) break;
             if (b.Distance() < dist) break;
             if (b.Fingerprint() == fp && m_Values[b.value_idx].first == key) {
-                m_Values[b.value_idx].second = Move(value);  // 上書き
-                return;
+                m_Values[b.value_idx].second = Move(value);  // 上書き (確保なし・常に成功)
+                return true;
             }
             probe = (probe + 1) & m_BucketMask;
             ++dist;
         }
 
         // 新規エントリ: 値配列末尾に追加 → Robin Hood 挿入
-        ACS_ASSERT(m_Values.Size() < 0xFFFFFFFFull);  // u32 への切り詰めによる無言の index 破壊を捕捉
+        if (m_Values.Size() >= 0xFFFFFFFFull) return false;  // u32 index 切り詰め防止
+        // 値配列の容量を先に確保する。失敗時 value をムーブしないよう PushBack より前に判定する。
+        if (!m_Values.TryReserve(m_Values.Size() + 1u)) return false;
         const u32 new_idx = static_cast<u32>(m_Values.Size());
-        m_Values.PushBack(EntryType{ key, Move(value) });
+        m_Values.PushBack(EntryType{ key, Move(value) });  // 予約済みなので確保は起きない
         Bucket nb;
         nb.Set(0, fp);
         nb.value_idx = new_idx;
@@ -449,7 +487,7 @@ private:
             if (slot.dist_fp == 0) {
                 slot = nb;
                 slot.SetDistance(d);
-                return;
+                return true;
             }
             if (slot.Distance() < d) {
                 Bucket tmp = slot;

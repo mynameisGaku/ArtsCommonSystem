@@ -163,10 +163,20 @@ void FString::ReleaseStorage() noexcept
  * @param new_capacity 確保する最小容量。
  */
 void FString::Grow(usize new_capacity) noexcept {
-    if (new_capacity <= Capacity()) return;
+    ACS_CHECKF(TryGrow(new_capacity), "FString::Grow failed (cap=%zu)", new_capacity);
+}
+
+/**
+ * 容量拡大を試みる。確保に失敗したら文字列を変えず false を返す。
+ *
+ * @param new_capacity 確保する最小容量。
+ * @return 成功なら true、OOM なら false。
+ */
+bool FString::TryGrow(usize new_capacity) noexcept {
+    if (new_capacity <= Capacity()) return true;
     const usize cap = new_capacity < 32 ? 32 : new_capacity;
     char* p = static_cast<char*>(m_Alloc->Alloc(cap + 1, alignof(char), FSourceLoc::Current()));
-    ACS_ASSERTF(p, "FString::Grow: alloc failed (cap=%zu)", cap);
+    if (!p) return false;  // OOM: 文字列を変更しない
     const usize old_size = Size();
     const char* old = Data();
     // NUL 含めてコピー
@@ -176,6 +186,7 @@ void FString::Grow(usize new_capacity) noexcept {
     m_Heap.size     = old_size;
     m_Heap.capacity = cap;
     m_Sso.remaining = 0x80;  // ヒープフラグ
+    return true;
 }
 
 /**
@@ -184,7 +195,17 @@ void FString::Grow(usize new_capacity) noexcept {
  * @param new_capacity 確保する最小容量。
  */
 void FString::Reserve(usize new_capacity) noexcept {
-    if (new_capacity > Capacity()) Grow(new_capacity);
+    ACS_CHECKF(TryReserve(new_capacity), "FString::Reserve failed (cap=%zu)", new_capacity);
+}
+
+/**
+ * 容量予約を試みる。確保に失敗したら文字列を変えず false を返す。
+ *
+ * @param new_capacity 確保する最小容量。
+ * @return 予約済みまたは予約成功なら true、OOM なら false。
+ */
+bool FString::TryReserve(usize new_capacity) noexcept {
+    return new_capacity <= Capacity() ? true : TryGrow(new_capacity);
 }
 
 /**
@@ -193,7 +214,17 @@ void FString::Reserve(usize new_capacity) noexcept {
  * @param v 追記するビュー。
  */
 void FString::Append(FStringView v) noexcept {
-    if (v.IsEmpty()) return;
+    ACS_CHECKF(TryAppend(v), "FString::Append failed (add=%zu)", v.Size());
+}
+
+/**
+ * 追記を試みる。拡張確保に失敗したら文字列を変えず false を返す。
+ *
+ * @param v 追記するビュー。
+ * @return 成功なら true、OOM なら false。
+ */
+bool FString::TryAppend(FStringView v) noexcept {
+    if (v.IsEmpty()) return true;
     const usize cur  = Size();
     const usize vlen = v.Size();
     const usize req  = cur + vlen;
@@ -216,7 +247,7 @@ void FString::Append(FStringView v) noexcept {
             if (next <= n) { n = req; break; }   // overflow → req に確定
             n = next;
         }
-        Grow(n);   // 旧内容 [0,cur)+NUL を新バッファへコピー (aliasing バイトも移動)
+        if (!TryGrow(n)) return false;   // OOM: 文字列を変更しない (旧バッファも保持)
     }
 
     char* d = Data();
@@ -228,6 +259,7 @@ void FString::Append(FStringView v) noexcept {
     d[req] = 0;
     if (IsHeap()) m_Heap.size = req;
     else          SetInlineLen(static_cast<u8>(req));
+    return true;
 }
 
 /**
@@ -237,6 +269,16 @@ void FString::Append(FStringView v) noexcept {
  */
 void FString::Append(char c) noexcept {
     Append(FStringView(&c, 1));
+}
+
+/**
+ * 1 文字の追記を試みる (TryAppend(FStringView) へ委譲)。
+ *
+ * @param c 追記する文字。
+ * @return 成功なら true、OOM なら false。
+ */
+bool FString::TryAppend(char c) noexcept {
+    return TryAppend(FStringView(&c, 1));
 }
 
 /**

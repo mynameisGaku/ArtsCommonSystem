@@ -172,6 +172,14 @@ public:
     void Reserve(usize new_capacity) noexcept;
 
     /**
+     * 容量予約を試み、確保に失敗したら文字列を変えず false を返す。
+     *
+     * @param new_capacity 確保する最小容量。
+     * @return 予約済みまたは予約成功なら true、OOM なら false。
+     */
+    bool TryReserve(usize new_capacity) noexcept;
+
+    /**
      * 文字列を追記する (容量不足なら約 1.5 倍ずつ拡大)。
      *
      * @details 追記元が自分のバッファを指す self-aliasing も安全に扱う。
@@ -185,6 +193,22 @@ public:
      * @param c 追記する文字。
      */
     void Append(char c)        noexcept;
+
+    /**
+     * 追記を試み、拡張確保に失敗したら文字列を変えず false を返す。
+     *
+     * @param v 追記するビュー。
+     * @return 成功なら true、OOM なら false。
+     */
+    bool TryAppend(FStringView v) noexcept;
+
+    /**
+     * 1 文字の追記を試み、拡張確保に失敗したら false を返す。
+     *
+     * @param c 追記する文字。
+     * @return 成功なら true、OOM なら false。
+     */
+    bool TryAppend(char c) noexcept;
 
     /**
      * 1 文字を末尾に追加する (Append(char) のエイリアス)。
@@ -240,6 +264,15 @@ private:
      * @param new_capacity 確保する最小容量。
      */
     void Grow(usize new_capacity) noexcept;
+
+    /**
+     * 容量拡大を試み、確保に失敗したら文字列を変えず false を返す。
+     *
+     * @details バッファ確保が成功するまで既存の記述子を変えないため、OOM 時も文字列は有効なまま。
+     * @param new_capacity 確保する最小容量。
+     * @return 成功なら true、OOM なら false。
+     */
+    bool TryGrow(usize new_capacity) noexcept;
 
     /** SSO 領域とヒープ記述子を重ねる 24 バイト固定 union。 */
     union {

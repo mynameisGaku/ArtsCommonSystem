@@ -28,6 +28,33 @@ public:
     }
 };
 
+/** 実 backing へ委譲しつつ、フラグを立てた後の確保だけ失敗させる backing。 */
+class FSwitchableFailAllocator final : public FAllocator {
+public:
+    explicit FSwitchableFailAllocator(FAllocator& Backing) noexcept : m_Backing(&Backing)
+    {
+    }
+
+    void SetFailing(bool bFailing) noexcept
+    {
+        m_bFailing = bFailing;
+    }
+
+    void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override
+    {
+        return m_bFailing ? nullptr : m_Backing->Alloc(Size, Alignment, Location);
+    }
+
+    void Free(void* Pointer) noexcept override
+    {
+        m_Backing->Free(Pointer);
+    }
+
+private:
+    FAllocator* m_Backing = nullptr;
+    bool m_bFailing = false;
+};
+
 } // namespace
 
 ACS_TEST(Container, ArrayPushAndIndex) {
@@ -83,6 +110,74 @@ ACS_TEST(Container, ArrayTryOperationsPreserveStateOnOverflowAndOutOfMemory)
     EXPECT_FALSE(OverflowArray.TryResize(~usize(0)));
     EXPECT_EQ(OverflowArray.Size(), static_cast<usize>(0));
     EXPECT_EQ(OverflowArray.Capacity(), static_cast<usize>(0));
+}
+
+ACS_TEST(Container, HashMapTryInsertPreservesStateOnOutOfMemory)
+{
+    // Part A: 空の map + 常時失敗 backing。最初の TryInsert が bucket 確保 (rehash) で失敗し、
+    // map は空・整合のまま。Reserve も false。
+    FAlwaysFailAllocator FailingAllocator;
+    THashMap<u32, u32> EmptyMap(FailingAllocator);
+    EXPECT_FALSE(EmptyMap.TryReserve(8u));
+    EXPECT_FALSE(EmptyMap.TryInsert(1u, 100u));
+    EXPECT_EQ(EmptyMap.Size(), static_cast<usize>(0));
+    EXPECT_FALSE(EmptyMap.Contains(1u));
+
+    // Part B: 実 backing で構築後に確保失敗へ切替え、rehash / 値配列拡張の失敗時も既存
+    // エントリを保つ (OOM で map を破壊しない)。
+    FSystemAllocator Backing;
+    FSwitchableFailAllocator Switchable(Backing);
+    THashMap<u32, u32> Map(Switchable);
+    for (u32 Key = 0; Key < 10u; ++Key) {
+        EXPECT_TRUE(Map.TryInsert(Key, Key * 7u));
+    }
+    const usize SizeBefore = Map.Size();
+
+    Switchable.SetFailing(true);
+    // load factor を超えて rehash / 値配列拡張を強制 → 確保失敗で TryInsert は false を返す。
+    bool bRejected = false;
+    for (u32 Key = 10u; Key < 4096u && !bRejected; ++Key) {
+        bRejected = !Map.TryInsert(Key, Key);
+    }
+    EXPECT_TRUE(bRejected);
+
+    // 既存エントリは保たれ、Find が正しい値を返す。
+    for (u32 Key = 0; Key < 10u; ++Key) {
+        const u32* const Value = Map.Find(Key);
+        EXPECT_TRUE(Value != nullptr);
+        if (Value != nullptr) {
+            EXPECT_EQ(*Value, Key * 7u);
+        }
+    }
+    EXPECT_TRUE(Map.Size() >= SizeBefore);
+    Switchable.SetFailing(false);
+}
+
+ACS_TEST(Container, StringTryAppendPreservesStateOnOutOfMemory)
+{
+    // SSO 内 (<=22 バイト) の間はヒープ確保が起きないので Try 系は成功する。
+    FSystemAllocator Backing;
+    FSwitchableFailAllocator Switchable(Backing);
+    FString Str(Switchable);
+    Str.Append("short");  // SSO
+    EXPECT_TRUE(Str.TryAppend("!"));
+    EXPECT_EQ(Str.Size(), static_cast<usize>(6));
+
+    // 確保失敗へ切替え。SSO 超過で TryGrow が必要になった時点で TryAppend / TryReserve は
+    // false を返し、文字列 (内容・長さ) は変更されない。
+    Switchable.SetFailing(true);
+    EXPECT_FALSE(Str.TryReserve(4096u));
+    const usize SizeBefore = Str.Size();
+    bool bRejected = false;
+    for (u32 i = 0; i < 512u && !bRejected; ++i) {
+        bRejected = !Str.TryAppend("0123456789ABCDEF");
+    }
+    EXPECT_TRUE(bRejected);
+    // 拒否された TryAppend は文字列を壊さない。先頭は "short!" のまま。
+    EXPECT_TRUE(Str.Size() >= SizeBefore);
+    EXPECT_TRUE(Str.View().StartsWith(FStringView("short!", 6)));
+
+    Switchable.SetFailing(false);
 }
 
 ACS_TEST(Container, EmptyArrayIteratorsDoNotPerformNullPointerArithmetic)
