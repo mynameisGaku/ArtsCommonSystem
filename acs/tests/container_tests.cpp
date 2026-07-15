@@ -177,6 +177,12 @@ ACS_TEST(Container, StringTryAppendPreservesStateOnOutOfMemory)
     EXPECT_TRUE(Str.Size() >= SizeBefore);
     EXPECT_TRUE(Str.View().StartsWith(FStringView("short!", 6)));
 
+    // AppendFormat も拡張確保が必要な場合は OOM で 0 を返し、文字列を変えない。
+    const usize SizeBeforeFormat = Str.Size();
+    EXPECT_EQ(Str.AppendFormat("%s", "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"),
+              static_cast<usize>(0));
+    EXPECT_EQ(Str.Size(), SizeBeforeFormat);
+
     Switchable.SetFailing(false);
 }
 

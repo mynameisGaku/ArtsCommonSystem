@@ -284,9 +284,9 @@ bool FString::TryAppend(char c) noexcept {
 /**
  * printf 風フォーマットで追記する。
  *
- * @details vsnprintf(nullptr) で必要長を計算してから Reserve し、本体へ書き込む。
+ * @details vsnprintf(nullptr) で必要長を計算してから容量を確保し、本体へ書き込む。
  * @param fmt printf 形式の書式文字列。
- * @return 追記後の文字列サイズ (失敗時は 0)。
+ * @return 追記後の文字列サイズ (書式エラーまたは OOM の失敗時は 0、文字列は不変)。
  */
 usize FString::AppendFormat(const char* fmt, ...) noexcept {
     va_list ap;
@@ -297,7 +297,7 @@ usize FString::AppendFormat(const char* fmt, ...) noexcept {
     va_end(ap);
     if (needed < 0) { va_end(ap2); return 0; }
     const usize cur = Size();
-    Reserve(cur + static_cast<usize>(needed));
+    if (!TryReserve(cur + static_cast<usize>(needed))) { va_end(ap2); return 0; }  // OOM: 文字列を変えず 0
     char* d = Data();
     const int wrote = ::vsnprintf(d + cur, static_cast<usize>(needed) + 1, fmt, ap2);
     va_end(ap2);
