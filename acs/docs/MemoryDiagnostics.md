@@ -5,6 +5,10 @@ GPU live object、Win32 HANDLE / Winsock、Application Verifier を相互補完�
 機械可読ログの `leak_detected` は `true` / `false` / `inconclusive` の三値で扱い、
 利用できない検査を成功扱いにしない。
 
+本書はリークの**検出**を扱う。アロケータの**スレッド安全設計**（ライフサイクルゲート、
+mimalloc heap-lock、猶予回収、ロック順序、各アロケータの並行契約）は
+[ConcurrencySafety.md](ConcurrencySafety.md) を参照。
+
 ## 通常実行
 
 `FMemorySystem::Shutdown()` はセグメント別の未解放件数・要求バイトと mimalloc の独立走査を
