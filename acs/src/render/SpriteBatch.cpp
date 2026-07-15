@@ -545,6 +545,13 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     };
 
     if (max_sprites == 0) max_sprites = 4096;
+    // u16 インデックスは頂点番号 [0, 65536) しか指せない (1 sprite = 4 頂点)。これを超えると
+    // base=u16(i*4) が wrap して不正インデックスになり、idx_count=u32(max_sprites*6) も
+    // overflow して過小確保 → 索引バッファ書き込みで heap overflow し得る。上限で拒否する。
+    constexpr u32 kMaxSpritesPerBatch = 65536u / 4u;  // = 16384
+    if (max_sprites > kMaxSpritesPerBatch) {
+        return fail(ACS_ERR(Render, 252, "FSpriteBatch::Init: max_sprites exceeds u16 index limit (16384)"));
+    }
     m_MaxSprites  = max_sprites;
     m_Device      = &device;     // ステンシル PSO の遅延生成で再利用
     m_RtFormat    = rt_format;

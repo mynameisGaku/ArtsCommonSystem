@@ -12,6 +12,7 @@
 #include "render/IRhiDevice.h"
 #include "render/IRhiTexture.h"
 #include "render/Font.h"
+#include "render/SpriteBatch.h"
 #if WITH_RENDER_DX12_RAW
 #    include "render/Dx12/Dx12Buffer.h"
 #    include "render/Dx12/Dx12CommandList.h"
@@ -65,6 +66,27 @@ ACS_TEST(Render, FontFailedReloadReturnsToEmptyState)
     EXPECT_EQ(font.LineHeight(), 0.0f);
     GlyphInfo glyph{};
     EXPECT_FALSE(font.GetGlyph(static_cast<u32>('A'), glyph));
+}
+
+ACS_TEST(Render, SpriteBatchRejectsMaxSpritesBeyondU16IndexLimit)
+{
+    DeviceConfig dcfg{};
+    auto dev_r = CreateRhiDevice(dcfg);
+    if (dev_r.IsErr()) {
+        // GPU / D3D12 が無い環境 (CI 等) ではスキップ。
+        return;
+    }
+    IRhiDevice& dev = *dev_r.Value();
+
+    // u16 インデックス上限 (16384 sprite = 65536 頂点) を超える max_sprites は拒否される。
+    // 許すと idx_count=u32(max_sprites*6) の overflow / index wrap で heap overflow し得る。
+    FSpriteBatch OversizedBatch;
+    EXPECT_TRUE(OversizedBatch.Init(dev, EFormat::B8G8R8A8_UNorm, 16385u, 1u).IsErr());
+
+    // 上限ちょうどは許容される。
+    FSpriteBatch BoundaryBatch;
+    EXPECT_TRUE(BoundaryBatch.Init(dev, EFormat::B8G8R8A8_UNorm, 16384u, 1u).IsOk());
+    BoundaryBatch.Shutdown();
 }
 
 ACS_TEST(Render, TextureArrayCubemapMip)
