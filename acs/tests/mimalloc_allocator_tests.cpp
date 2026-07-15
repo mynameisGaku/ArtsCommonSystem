@@ -644,3 +644,117 @@ ACS_TEST(MimallocAllocator, LifecycleMaintenanceAndShutdownDrainConcurrentOperat
     EXPECT_TRUE(ReinitializedInspection.matches_authoritative_statistics);
     Allocator.Shutdown();
 }
+
+// FMimallocAllocator の並行 Alloc/Free 契約を、スレッド churn を強めて検査する。
+// alloc-heavy な worker を生成 → 大量 Alloc/Free → 全 join を複数サイクル繰り返し、
+// スレッド終了 (_mi_thread_done) を多数回起こす。churn 後も件数が 0 に戻り、
+// ゲート閉塞下の走査 (InspectHeap) と統計が整合することを確認する。
+//
+// NOTE: mimalloc first-class heap を無保護で複数スレッドから同時 Alloc すると内部
+// 状態が壊れるが、そのデータ競合はタイミング依存で単一実行では確率的にしか顕在化
+// しない。よって本テストは「並行契約が成立すること」の検査であり、直列化ロック
+// 除去に対する確実な回帰ガードではない (データ競合の確実な検出はストレスループ
+// 反復か ThreadSanitizer を要する)。
+ACS_TEST(MimallocAllocator, ConcurrentAllocationAcrossThreadChurnKeepsHeapConsistent)
+{
+    constexpr u32 kWorkerCount = 8u;
+    constexpr u32 kCycleCount = 5u;
+
+    FMimallocAllocator Allocator;
+    EXPECT_TRUE(Allocator.Init(64ull * 1024ull * 1024ull).IsOk());
+    if (!Allocator.IsInitialized())
+    {
+        return;
+    }
+
+    struct WorkerInput
+    {
+        FMimallocAllocator* Allocator = nullptr;
+        TAtomic<u32>* Ready = nullptr;
+        TAtomic<u32>* Start = nullptr;
+        TAtomic<u64>* FailureCount = nullptr;
+        u32 WorkerIndex = 0u;
+        u32 IterationCount = 0u;
+    };
+
+    for (u32 Cycle = 0u; Cycle < kCycleCount; ++Cycle)
+    {
+        TAtomic<u32> Ready{0u};
+        TAtomic<u32> Start{0u};
+        TAtomic<u64> FailureCount{0u};
+
+        WorkerInput Inputs[kWorkerCount];
+        FThread Workers[kWorkerCount];
+        u32 SpawnedWorkerCount = 0u;
+        for (u32 Index = 0u; Index < kWorkerCount; ++Index)
+        {
+            Inputs[SpawnedWorkerCount].Allocator = &Allocator;
+            Inputs[SpawnedWorkerCount].Ready = &Ready;
+            Inputs[SpawnedWorkerCount].Start = &Start;
+            Inputs[SpawnedWorkerCount].FailureCount = &FailureCount;
+            Inputs[SpawnedWorkerCount].WorkerIndex = SpawnedWorkerCount;
+            Inputs[SpawnedWorkerCount].IterationCount = 2000u;
+            auto ThreadResult = FThread::Spawn(
+                [](void* User)
+                {
+                    auto* const Input = static_cast<WorkerInput*>(User);
+                    Input->Ready->FetchAdd(1u);
+                    while (Input->Start->Load(EMemoryOrder::Acquire) == 0u)
+                    {
+                        Yield();
+                    }
+                    for (u32 Iteration = 0u; Iteration < Input->IterationCount; ++Iteration)
+                    {
+                        const usize Size = 16u + ((Iteration * 24u + Input->WorkerIndex) & 1023u);
+                        const usize Alignment = ((Iteration & 3u) == 0u) ? 32u : 16u;
+                        // 猶予回収が受付を閉じている間は Alloc / Free が拒否される (設計どおり)。
+                        // 全確保を必ず解放してリークさせないよう、成功するまでリトライする。
+                        void* Allocation = nullptr;
+                        while ((Allocation = Input->Allocator->Alloc(Size, Alignment, FSourceLoc::Current())) == nullptr)
+                        {
+                            Input->FailureCount->FetchAdd(1u);
+                            Yield();
+                        }
+                        // 実メモリの端まで書き込み、過小確保でないことも確認する。
+                        u8* const Bytes = static_cast<u8*>(Allocation);
+                        Bytes[0] = static_cast<u8>(Iteration);
+                        Bytes[Size - 1u] = static_cast<u8>(Input->WorkerIndex);
+                        while (!Input->Allocator->TryFreeAllocation(Allocation))
+                        {
+                            Yield();
+                        }
+                    }
+                },
+                &Inputs[SpawnedWorkerCount]);
+            EXPECT_TRUE(ThreadResult.IsOk());
+            if (ThreadResult.IsOk())
+            {
+                Workers[SpawnedWorkerCount] = Move(ThreadResult.Value());
+                ++SpawnedWorkerCount;
+            }
+        }
+
+        while (Ready.Load(EMemoryOrder::Acquire) < SpawnedWorkerCount)
+        {
+            Yield();
+        }
+        Start.Store(1u, EMemoryOrder::Release);
+        for (u32 Index = 0u; Index < SpawnedWorkerCount; ++Index)
+        {
+            Workers[Index].Join();
+        }
+
+        // FailureCount は猶予回収中の一時拒否回数 (0 でなくてよい。契約どおりリトライで解決)。
+        (void)FailureCount.Load(EMemoryOrder::Acquire);
+        // 全 worker が自分の確保をリトライ付きで必ず解放したので生存件数は 0 に戻る。
+        EXPECT_EQ(Allocator.AllocationCount(), 0ull);
+        EXPECT_EQ(Allocator.BytesAllocated(), 0ull);
+        // churn 後も保守経路 (ゲート閉塞下の走査) と統計が整合しているか確認する。
+        const MimallocHeapInspectionStatistics Inspection = Allocator.InspectHeap();
+        EXPECT_TRUE(Inspection.visit_succeeded);
+        EXPECT_TRUE(Inspection.metadata_valid);
+        EXPECT_TRUE(Inspection.matches_authoritative_statistics);
+    }
+
+    Allocator.Shutdown();
+}
