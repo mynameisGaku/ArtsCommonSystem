@@ -18,6 +18,7 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "memory/New.h"
 #include "container/Array.h"
 #include "container/HashMap.h"
 #include "ecs/Entity.h"
@@ -172,7 +173,11 @@ public:
         const ComponentTypeId id = GetComponentTypeId<T>();
         if (id >= m_Sets.Size()) m_Sets.Resize(id + 1);
         if (!m_Sets[id]) {
-            m_Sets[id] = static_cast<SparseSetBase*>(::new SparseSet<T>());
+            // 生 new を避け、MemorySystem 追跡下で確保する (R018 / リーク検出)。SparseSetBase の
+            // 仮想デストラクタで型ごとの破棄が走るため、解放は World::Clear の Delete で型消去できる。
+            SparseSet<T>* const set = New<SparseSet<T>>(*m_Sets.GetAllocator());
+            ACS_CHECKF(set != nullptr, "World::GetOrCreateSet: SparseSet 確保失敗 (id=%u)", id);
+            m_Sets[id] = static_cast<SparseSetBase*>(set);
         }
         return *static_cast<SparseSet<T>*>(m_Sets[id]);
     }

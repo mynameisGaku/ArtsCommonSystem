@@ -15,10 +15,11 @@ World::~World() noexcept {
 /** 全エンティティとコンポーネントストレージを解放して初期状態へ戻す。 */
 void World::Clear() noexcept
 {
-    // 全 SparseSet を解放（仮想デストラクタ経由で型ごとの破棄を実行）
+    // 全 SparseSet を解放（Delete が仮想デストラクタ経由で型ごとの破棄を実行し、確保元
+    // アロケータへ返す）。生 delete を避け、GetOrCreateSet の New と対で MemorySystem 追跡する。
     for (usize i = 0; i < m_Sets.Size(); ++i) {
         if (m_Sets[i]) {
-            ::delete m_Sets[i];
+            Delete(*m_Sets.GetAllocator(), m_Sets[i]);
             m_Sets[i] = nullptr;
         }
     }
