@@ -13,6 +13,7 @@ namespace {
 struct Position { f32 x, y, z; };
 struct Velocity { f32 dx, dy, dz; };
 struct Health   { i32 hp; };
+struct Frozen   { u8 unused; };  // タグ的コンポーネント (除外フィルタ検証用)
 
 /** 常に確保失敗する backing (command buffer の OOM 契約検証用)。 */
 class FEcbFailAllocator final : public FAllocator {
@@ -200,4 +201,28 @@ ACS_TEST(Ecs, EntityCommandBufferGracefullyHandlesOutOfMemory)
 
     cmd.Flush();                 // 記録ゼロなので no-op、クラッシュしない
     EXPECT_TRUE(w.IsAlive(e));    // Destroy は落ちたのでエンティティは生存
+}
+
+ACS_TEST(Ecs, QueryEachExcludingSkipsEntitiesWithExcludedComponents)
+{
+    World w;
+    for (int i = 0; i < 20; ++i) {
+        const EntityId e = w.Create();
+        w.Add<Position>(e, {static_cast<f32>(i), 0, 0});
+        if (i % 5 == 0) w.Add<Frozen>(e, {0});  // 0,5,10,15 を Frozen に
+    }
+
+    u32 visited = 0;
+    u32 frozen_visited = 0;
+    w.Query<Position>().EachExcluding<Frozen>([&](EntityId e, Position&) {
+        ++visited;
+        if (w.Has<Frozen>(e)) ++frozen_visited;  // 除外されるので 0 のはず
+    });
+    EXPECT_EQ(visited, 16u);        // 20 - 4 (Frozen) = 16
+    EXPECT_EQ(frozen_visited, 0u);  // Frozen は 1 つも訪問しない
+
+    // 空の Excludes は Each と同じ (全 Position を訪問)。
+    u32 all = 0;
+    w.Query<Position>().EachExcluding<>([&](EntityId, Position&) { ++all; });
+    EXPECT_EQ(all, 20u);
 }

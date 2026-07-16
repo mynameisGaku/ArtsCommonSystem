@@ -84,6 +84,39 @@ public:
     }
 
     /**
+     * Comps を全て持ち、かつ Excludes を 1 つも持たない各エンティティに fn を呼ぶ (逐次)。
+     *
+     * @details Each と同じく primary の dense をスナップショットしてから反復するため構造変更に
+     * 対して安全。Excludes は 1 つでも持てば除外する (例: 生存かつ «凍結でない» を走査)。fn は
+     * (EntityId, Comps&...) を受け取る (Excludes は参照として渡さない)。反復中の構造変更は
+     * Each と同じ制約 (FEntityCommandBuffer 推奨)。
+     * @tparam Excludes 除外するコンポーネント型 (0 個以上。空なら Each と同じ)。
+     * @tparam Fn (EntityId, Comps&...) を受け取る呼び出し可能型。
+     * @param fn 各エンティティに適用するラムダ (値で受け取る)。
+     */
+    template<typename... Excludes, typename Fn>
+    void EachExcluding(Fn fn) noexcept
+    {
+        SparseSetBase* primary = nullptr;
+        if (!ResolvePrimary(primary)) return;
+        const usize count = primary->Size();
+        if (count == 0) return;
+
+        TArray<u32> snapshot;
+        snapshot.Resize(count);
+        const u32* dense = primary->DenseEntities();
+        for (usize i = 0; i < count; ++i)
+            snapshot[i] = dense[i];
+
+        for (usize i = 0; i < count; ++i) {
+            const EntityId e = m_World.MakeIdFromIndex(snapshot[i]);
+            if (AllPresent(e) && !AnyPresent<Excludes...>(e)) {
+                InvokeWith(fn, e);
+            }
+        }
+    }
+
+    /**
      * 全 Comps を持つ各エンティティに fn を並列で呼ぶ。
      *
      * @details
@@ -173,6 +206,21 @@ private:
         bool all = true;
         ((all = all && (m_World.template Get<Comps>(e) != nullptr)), ...);
         return all;
+    }
+
+    /**
+     * 指定エンティティが Excludes のいずれかを持っているかを返す。
+     *
+     * @tparam Excludes 判定するコンポーネント型 (0 個なら常に false)。
+     * @param e 判定するエンティティ。
+     * @return いずれか 1 つでも持っていれば true。
+     */
+    template<typename... Excludes>
+    bool AnyPresent(EntityId e) noexcept
+    {
+        bool any = false;
+        ((any = any || (m_World.template Get<Excludes>(e) != nullptr)), ...);
+        return any;
     }
 
     /**
