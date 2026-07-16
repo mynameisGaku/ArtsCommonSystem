@@ -35,6 +35,7 @@
 #include "gameframework/SubsystemRegistry.h"  // ACS_REGISTER_SUBSYSTEM
 #include "gameframework/EventBus.h"           // FEventBus (オブジェクト間 pub/sub)
 #include "gameframework/Spawn2DSubsystem.h"   // FSpawn2DSubsystem (プレハブ生成)
+#include "gameframework/WorldClockSubsystem.h" // FWorldClockSubsystem (経過時間/フレーム)
 
 // ----- Scene -----
 #include "gameframework/Scene2D.h"
@@ -177,6 +178,8 @@ ACS_REGISTER_METHOD_RET_F32(FPrimitiveRenderer2D, GetArea, METHOD_BP_CALLABLE)
 ACS_REGISTER_SUBSYSTEM(FEventBus, ::acs::game::ESubsystemScope::World)
 // FSpawn2DSubsystem: どこからでもプレハブをワールドへ生成 (Owner=FScene2D の root へ)。
 ACS_REGISTER_SUBSYSTEM(FSpawn2DSubsystem, ::acs::game::ESubsystemScope::World)
+// FWorldClockSubsystem: シーン開始からの経過時間・フレーム数を OnTick で自動集計。
+ACS_REGISTER_SUBSYSTEM(FWorldClockSubsystem, ::acs::game::ESubsystemScope::World)
 
 // ----- Scene -----
 ACS_REGISTER_SCENE(FScene2D)

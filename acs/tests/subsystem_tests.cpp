@@ -16,6 +16,7 @@
 #include "gameframework/SubsystemCollection.h"
 #include "gameframework/Node2D.h"
 #include "gameframework/Component2D.h"
+#include "gameframework/WorldClockSubsystem.h"
 #include "memory/UniquePtr.h"
 
 using namespace acs;
@@ -225,4 +226,37 @@ ACS_TEST(Subsystem, DuplicateFactorySourcesPromoteOnUnregister)
     EXPECT_EQ(registry.Count(), count_before);
     EXPECT_TRUE(FindFactoryByKind(registry, &source_kind) == nullptr);
     EXPECT_TRUE(!registry.Unregister(second));
+}
+
+// エンジン提供の FWorldClockSubsystem が各 World に自動生成され、OnTick で経過時間と
+// フレーム数を積む。Deinitialize→再 Initialize で 0 から始まる。
+ACS_TEST(Subsystem, WorldClockAccumulatesElapsedAndFrames)
+{
+    FSubsystemCollection world;
+    world.Initialize(ESubsystemScope::World);
+    FWorldClockSubsystem* clock = world.Get<FWorldClockSubsystem>();
+    EXPECT_TRUE(clock != nullptr);
+    if (clock == nullptr) return;
+
+    // OnInitialize 直後は 0。
+    EXPECT_NEAR(clock->ElapsedSeconds(), 0.0, 1e-9);
+    EXPECT_EQ(clock->FrameCount(), 0ull);
+
+    world.Tick(0.5f);
+    world.Tick(0.25f);
+    world.Tick(0.25f);
+    EXPECT_EQ(clock->FrameCount(), 3ull);
+    EXPECT_NEAR(clock->ElapsedSeconds(), 1.0, 1e-6);        // 0.5 + 0.25 + 0.25
+    EXPECT_NEAR(clock->LastDeltaSeconds(), 0.25f, 1e-6f);
+
+    // Deinitialize で消え、再 Initialize で 0 から。
+    world.Deinitialize();
+    EXPECT_TRUE(world.Get<FWorldClockSubsystem>() == nullptr);
+    world.Initialize(ESubsystemScope::World);
+    FWorldClockSubsystem* reinit = world.Get<FWorldClockSubsystem>();
+    EXPECT_TRUE(reinit != nullptr);
+    if (reinit != nullptr) {
+        EXPECT_NEAR(reinit->ElapsedSeconds(), 0.0, 1e-9);
+        EXPECT_EQ(reinit->FrameCount(), 0ull);
+    }
 }
