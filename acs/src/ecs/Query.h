@@ -52,7 +52,9 @@ public:
      * ただし fn へ渡す Comps& 参照は Get と同じ無効化規約に従う。fn が **同じコンポーネント型** を
      * Add/Remove して SparseSet が再確保すると、その参照は dangling になる。fn 内で構造変更した後は
      * 渡された参照を使わず、必要なら w.Get<T>(e) で取り直すこと (構造変更 → 渡し済み参照の再利用は
-     * use-after-free)。fn は (EntityId, Comps&...) を受け取る。
+     * use-after-free)。反復中に Add/Remove/Destroy したい場合は `FEntityCommandBuffer`
+     * (ecs/EntityCommandBuffer.h) へ記録し、Each 後に Flush() するのが安全で推奨。
+     * fn は (EntityId, Comps&...) を受け取る。
      * @tparam Fn (EntityId, Comps&...) を受け取る呼び出し可能型。
      * @param fn 各エンティティに適用するラムダ (値で受け取る)。
      */
