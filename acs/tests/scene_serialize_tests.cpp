@@ -14,6 +14,7 @@
 #include "gameframework/ReflectCatalog.h"
 #include "gameframework/Transform2D.h"
 #include "math/Vec.h"
+#include "container/Array.h"
 
 #include <cstring>
 
@@ -176,4 +177,66 @@ ACS_TEST(SceneSerialize, SingleNodeRoundTrips) {
         EXPECT_EQ(loaded->ChildCount(), 0u);
         EXPECT_NEAR(loaded->Local().rotation, 1.25f, 1e-4f);
     }
+}
+
+namespace {
+
+/** テスト用: LoadNodeTree のバイナリフォーマットでノード 1 件を手書きする簡易ライタ。 */
+struct FSceneBinWriter {
+    TArray<u8> bytes;
+    void U8 (u8 v)  noexcept { bytes.PushBack(v); }
+    void U32(u32 v) noexcept { for (u32 i = 0; i < 4; ++i) bytes.PushBack(static_cast<u8>((v >> (8u * i)) & 0xFFu)); }
+    void I32(i32 v) noexcept { U32(static_cast<u32>(v)); }
+    void F32(f32 v) noexcept { u32 u = 0; std::memcpy(&u, &v, 4u); U32(u); }
+    void Node(i32 parent) noexcept {
+        I32(parent);
+        F32(0.0f); F32(0.0f);   // position
+        F32(0.0f);              // rotation
+        F32(1.0f); F32(1.0f);   // scale
+        U8(1u); U8(1u);         // enabled / visible
+        I32(0);                 // sortLayer
+        F32(0.0f);              // ySortBias
+        U8(0u);                 // childDrawOrder
+        U32(0u);                // component count
+    }
+};
+
+} // namespace
+
+// 回帰テスト: 敵対的なバイト列で数万深の親チェーンを作られても、深度上限 (512) で
+// root 直下へ付け替えて受け付ける。FNode2D の破棄は子 TArray 経由の再帰なので、
+// 上限なしで深いままだとテスト終了時のデストラクタでスタックオーバーフローする。
+ACS_TEST(SceneSerialize, HostileDeepChainIsDepthCappedWithoutLosingNodes) {
+    constexpr u32 kNodes = 20000u;
+    FSceneBinWriter w;
+    w.U32(kSceneSerializeMagic);
+    w.U32(kSceneSerializeVersion);
+    w.U32(kNodes);
+    w.Node(-1);                                              // root
+    for (u32 i = 1; i < kNodes; ++i) w.Node(static_cast<i32>(i - 1));  // 一本鎖
+
+    TUniquePtr<FNode2D> loaded = LoadNodeTree(w.bytes.Data(), static_cast<u32>(w.bytes.Size()));
+    EXPECT_TRUE(loaded.Get() != nullptr);
+    if (loaded.Get() == nullptr) return;
+
+    // 明示スタックで全ノードを数え、最大深度を測る (再帰しない)。
+    u32 total = 0, max_depth = 0;
+    TArray<const FNode2D*> stack_nodes;
+    TArray<u32>            stack_depths;
+    stack_nodes.PushBack(loaded.Get());
+    stack_depths.PushBack(0u);
+    while (stack_nodes.Size() > 0) {
+        const FNode2D* n = stack_nodes[stack_nodes.Size() - 1];
+        const u32      d = stack_depths[stack_depths.Size() - 1];
+        stack_nodes.PopBack();
+        stack_depths.PopBack();
+        ++total;
+        if (d > max_depth) max_depth = d;
+        for (u32 c = 0; c < n->ChildCount(); ++c) {
+            stack_nodes.PushBack(n->Child(c));
+            stack_depths.PushBack(d + 1u);
+        }
+    }
+    EXPECT_EQ(total, kNodes);            // ノードは 1 つも失わない
+    EXPECT_TRUE(max_depth <= 512u);      // 深度は上限以下に畳まれる
 }

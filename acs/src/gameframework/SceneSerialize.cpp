@@ -47,6 +47,17 @@ struct FReader {
     f32 F32() noexcept { f32 v = 0.0f; Bytes(&v, 4u); return v; }
 };
 
+/**
+ * Load が受け付けるツリー深度の上限。
+ *
+ * @details
+ * FNode2D の破棄は子 TArray 経由の再帰なので、敵対的なバイト列で数万深の親チェーンを
+ * 作られるとデストラクタでスタックオーバーフローする (DoS)。上限を超える親付けは
+ * 「壊れた parent index は root 直下へ」と同じ保険で root 直下へ付け替え、ノード自体は
+ * 失わずに深度だけを抑える。正当なシーンで 512 階層を超えることは想定しない。
+ */
+constexpr u32 kMaxTreeDepth = 512;
+
 /** DFS pre-order でノードを平坦化し (親が子より先)、各ノードと親 index を集める。 */
 void Flatten(const FNode2D* n, i32 parent_index,
              TArray<const FNode2D*>& nodes, TArray<i32>& parents) noexcept {
@@ -123,6 +134,7 @@ TUniquePtr<FNode2D> LoadNodeTree(const u8* data, u32 size) noexcept {
 
     // 各ノードを生成し、親 index で木を組む (preorder なので親は子より先に作られる)。
     TArray<FNode2D*> ptrs;   // index → 生きた raw ポインタ
+    TArray<u32>      depths; // index → root からの深度 (深度上限の判定用)
     for (u32 i = 0; i < count && r.ok; ++i) {
         const i32 parent_index = r.I32();
         FTransform2D t{};
@@ -171,14 +183,25 @@ TUniquePtr<FNode2D> LoadNodeTree(const u8* data, u32 size) noexcept {
         if (parent_index < 0 && !root) {
             root = Move(node);                 // 最初の root
             ptrs.PushBack(root.Get());
+            depths.PushBack(0u);
         } else {
             // 親が範囲内ならそこへ、でなければ root 直下へ (壊れた index への保険)。
             FNode2D* parent = (parent_index >= 0 && static_cast<u32>(parent_index) < ptrs.Size())
                               ? ptrs[static_cast<u32>(parent_index)]
                               : root.Get();
-            if (parent == nullptr) { ptrs.PushBack(nullptr); continue; }   // root 未確定の異常入力
+            u32 parent_depth = (parent_index >= 0 && static_cast<u32>(parent_index) < depths.Size())
+                              ? depths[static_cast<u32>(parent_index)]
+                              : 0u;
+            if (parent == nullptr) { ptrs.PushBack(nullptr); depths.PushBack(0u); continue; }   // root 未確定の異常入力
+            // 深度上限: 敵対的な深い親チェーンは root 直下へ付け替える (デストラクタの
+            // 再帰スタックオーバーフロー防止。ノードは失わない)。
+            if (parent_depth + 1u > kMaxTreeDepth) {
+                parent       = root.Get();
+                parent_depth = 0u;
+            }
             FNode2D& added = parent->AddChild(Move(node));
             ptrs.PushBack(&added);
+            depths.PushBack(parent_depth + 1u);
         }
     }
     return root;
