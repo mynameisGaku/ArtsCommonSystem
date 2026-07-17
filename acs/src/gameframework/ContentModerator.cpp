@@ -104,20 +104,6 @@ f32 SkinRatioRgbaF32(const f32* rgba, u64 pixel_count) noexcept {
 }
 
 /**
- * 文字列長を返す (`<string.h>` 不使用、明示ループ)。
- *
- * @details strlen 等価。
- * @param s 対象文字列 (nullptr は 0 を返す)。
- * @return NUL を除いた文字数。
- */
-u64 StrLen(const char* s) noexcept {
-    if (s == nullptr) return 0;
-    u64 n = 0;
-    while (s[n] != '\0') ++n;
-    return n;
-}
-
-/**
  * ASCII 大文字を小文字に変換する。
  *
  * @param c 入力文字 (multibyte は素通し)。
@@ -186,14 +172,11 @@ bool IsSeparator(char c) noexcept {
     return !(is_alpha || is_digit);
 }
 
-/** 入力テキスト正規化バッファ長 (超過分は切り捨て。チャット / ユーザー名想定の上限)。 */
-constexpr u64 kNormalizedBufSize = 512;
-
 /** needle 側 (辞書エントリ) 正規化バッファ長 (NG ワードは短いリテラル前提)。 */
 constexpr u64 kNeedleBufSize = 64;
 
 /**
- * 文字列を正規化して dst へ詰め、NUL 終端する (汎用)。
+ * 文字列を正規化して dst へ詰め、NUL 終端する (needle 側の畳み込み用)。
  *
  * @details 「区切り除去 → leet 置換 → ASCII 小文字化」を行う。容量超過分は切り捨てる。
  * @param src 入力文字列 (nullptr のときは空文字列を書き込む)。
@@ -213,37 +196,50 @@ void NormalizeInto(const char* src, char* dst, u64 cap) noexcept {
 }
 
 /**
- * 入力を正規化して thread_local バッファへ詰め、先頭ポインタを返す。
+ * text の «正規化形» に needle_norm が出現するかを、正規化を実体化せず判定する。
  *
- * @details 常に NUL 終端する。返却ポインタの寿命は次回 NormalizeText() 呼び出しまで
- * (= 1 回の Classify 内で消費する)。
- * @param src 入力文字列。
- * @return 正規化済み文字列を指す thread_local ポインタ。
+ * @details
+ * 以前は入力を固定長バッファへ正規化してから contain していたが、その方式は
+ * 「バッファ長を超えた位置に leet/spaced 変種を置くと照合されない」検閲バイパスを
+ * 許してしまう (ハードコード Block 辞書のガードレールも同様に素通り)。そこで
+ * 正規化文字列を作らず、生 text 上を「区切りを飛ばし leet 置換 + 小文字化しながら」
+ * 直接照合するストリーミング方式にする。入力長の上限が無くなり、切り捨てによる
+ * 取りこぼしが構造的に起きない。素朴 O(n*m) は従来と同じ。
+ * @param text 生入力テキスト (nullptr は常に false)。
+ * @param needle_norm 正規化済みの辞書エントリ (空 "" は常に false)。
+ * @return 正規化形に needle_norm が含まれれば true。
  */
-const char* NormalizeText(const char* src) noexcept {
-    static thread_local char buf[kNormalizedBufSize];
-    NormalizeInto(src, buf, kNormalizedBufSize);
-    return buf;
+bool NormalizedContains(const char* text, const char* needle_norm) noexcept {
+    if (text == nullptr || needle_norm == nullptr || needle_norm[0] == '\0') return false;
+    for (u64 i = 0; text[i] != '\0'; ++i) {
+        if (IsSeparator(text[i])) continue;      // 正規化形の開始位置は非区切り文字のみ
+        u64 k = 0;
+        for (u64 j = i; text[j] != '\0'; ++j) {
+            if (IsSeparator(text[j])) continue;  // 区切りは畳む (= 正規化と同じ扱い)
+            if (ToLowerAscii(DeLeet(text[j])) != needle_norm[k]) break;
+            ++k;
+            if (needle_norm[k] == '\0') return true;   // needle を最後まで照合できた
+        }
+    }
+    return false;
 }
 
 /**
- * 生文字列 or 正規化文字列のいずれかに needle がヒットするかを判定する。
+ * 生文字列 or 正規化形のいずれかに needle がヒットするかを判定する。
  *
  * @details
  * 2 経路で照合する: 生 text への大小文字非感受 contain (素の表記をそのまま捕捉) と、
- * 正規化 normalized への「正規化済み needle」の contain (spaced / leet / 記号挿入の変種を
- * 捕捉)。needle 側も同じ規則で畳むので "kill yourself" 風の空白入りリテラルも一致する。
+ * 正規化形への「正規化済み needle」の contain (spaced / leet / 記号挿入の変種を捕捉)。
+ * needle 側も同じ規則で畳むので "kill yourself" 風の空白入りリテラルも一致する。
  * @param text 生入力テキスト。
- * @param normalized 呼出側が事前に作った正規化済みテキスト (使い回す)。
  * @param needle 辞書エントリ (生 / 正規化の両方で照合)。
  * @return いずれかの経路でヒットすれば true。
  */
-bool MatchesRawOrNormalized(const char* text, const char* normalized, const char* needle) noexcept {
+bool MatchesRawOrNormalized(const char* text, const char* needle) noexcept {
     if (ContainsCaseInsensitive(text, needle)) return true;
     char needle_norm[kNeedleBufSize];
     NormalizeInto(needle, needle_norm, kNeedleBufSize);
-    if (needle_norm[0] == '\0') return false;  // 正規化後に空になる needle は無視
-    return ContainsCaseInsensitive(normalized, needle_norm);
+    return NormalizedContains(text, needle_norm);
 }
 
 /**
@@ -306,13 +302,9 @@ ModerationResult ClassifyText(const char* text) noexcept {
         return r;
     }
 
-    // 正規化文字列を 1 度だけ作り、両辞書の照合で使い回す。
-    // (生表記 + spaced/leet 変種の双方を捕捉するため raw と normalized を併用)
-    const char* normalized = NormalizeText(text);
-
     // ---- (1) ハードコード Block: SexualMinor 関連 keyword -----------------
     for (u64 i = 0; i < kHardcodedBlockWordCount; ++i) {
-        if (MatchesRawOrNormalized(text, normalized, kHardcodedBlockWords[i])) {
+        if (MatchesRawOrNormalized(text, kHardcodedBlockWords[i])) {
             r.verdict = EModerationVerdict::Block;
             r.rating  = EContentRating::SexualMinor_HardcodedBlock;
             r.reason  = "hardcoded block: sexual content involving minors";
@@ -322,7 +314,7 @@ ModerationResult ClassifyText(const char* text) noexcept {
 
     // ---- (2) 一般 NG ワード -------------------------------------------------
     for (u64 i = 0; i < kBlockedWordCount; ++i) {
-        if (MatchesRawOrNormalized(text, normalized, kBlockedWords[i])) {
+        if (MatchesRawOrNormalized(text, kBlockedWords[i])) {
             r.verdict = EModerationVerdict::Block;
             r.rating  = EContentRating::Mature;
             r.reason  = "blocked: contains prohibited word";
