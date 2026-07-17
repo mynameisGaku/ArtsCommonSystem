@@ -13,7 +13,10 @@
 
 #include "foundation/Types.h"
 #include "foundation/Move.h"
+#include "foundation/TypeTraits.h"   // IsCopyConstructibleV (CloneErased の可否判定)
 #include "container/Array.h"
+#include "memory/New.h"              // New/Delete (CloneErased の複製確保)
+#include "memory/Memory.h"           // MemCopy
 #include "ecs/Entity.h"
 
 namespace acs {
@@ -75,7 +78,35 @@ public:
      */
     virtual void RemoveErased(u32 entity_index) noexcept = 0;
 
+    /**
+     * 型を知らずにこの集合の完全な複製を確保して返す (World::CopyFrom から呼ぶ)。
+     *
+     * @details sparse/dense と値配列をすべてコピーした新しい集合を alloc で確保する。
+     * T が非コピー構築型の場合と OOM 時は nullptr を返す (部分複製は返さない)。
+     * @param alloc 複製の確保に使うアロケータ。
+     * @return 複製した集合 (失敗なら nullptr)。所有権は呼び出し側へ移る。
+     */
+    virtual SparseSetBase* CloneErased(FAllocator& alloc) const noexcept = 0;
+
 protected:
+    /**
+     * 基底部分 (sparse/dense) を other からコピーする (CloneErased の実装用)。
+     *
+     * @param other コピー元。
+     * @return 両配列をコピーできたら true (OOM なら false)。
+     */
+    bool CopyBaseFrom(const SparseSetBase& other) noexcept {
+        if (!m_Sparse.TryResize(other.m_Sparse.Size())) return false;
+        if (!m_Dense.TryResize(other.m_Dense.Size())) return false;
+        if (other.m_Sparse.Size() > 0) {
+            MemCopy(m_Sparse.Data(), other.m_Sparse.Data(), other.m_Sparse.Size() * sizeof(u32));
+        }
+        if (other.m_Dense.Size() > 0) {
+            MemCopy(m_Dense.Data(), other.m_Dense.Data(), other.m_Dense.Size() * sizeof(u32));
+        }
+        return true;
+    }
+
     /**
      * entity_index を格納できるよう sparse 配列を必要なら拡張する。
      *
@@ -203,6 +234,32 @@ public:
      * @param entity_index 削除するエンティティのスロット番号。
      */
     void RemoveErased(u32 entity_index) noexcept override { Remove(entity_index); }
+
+    /**
+     * この集合の完全な複製を確保して返す (基底 CloneErased の override)。
+     *
+     * @details T がコピー構築可能な場合のみ複製できる (非コピー型は nullptr)。
+     * OOM 時も nullptr (部分複製は返さない)。
+     * @param alloc 複製の確保に使うアロケータ。
+     * @return 複製した集合 (失敗なら nullptr)。所有権は呼び出し側へ移る。
+     */
+    SparseSetBase* CloneErased(FAllocator& alloc) const noexcept override {
+        if constexpr (!IsCopyConstructibleV<T>) {
+            return nullptr;   // 非コピー型の snapshot は不可 (World::CopyFrom が false を返す)
+        } else {
+            SparseSet<T>* const clone = New<SparseSet<T>>(alloc);
+            if (clone == nullptr) return nullptr;
+            bool ok = clone->CopyBaseFrom(*this) && clone->m_Data.TryReserve(m_Data.Size());
+            for (usize i = 0; ok && i < m_Data.Size(); ++i) {
+                ok = clone->m_Data.TryPushBack(m_Data[i]);   // T のコピー構築
+            }
+            if (!ok) {
+                Delete(alloc, clone);
+                return nullptr;
+            }
+            return clone;
+        }
+    }
 
 private:
     /** コンポーネント値配列 (dense 順、m_Dense と添字を共有)。 */

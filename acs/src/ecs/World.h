@@ -77,6 +77,27 @@ public:
     void Clear() noexcept;
 
     /**
+     * src の完全な複製をこの World に作る (snapshot / rollback 用)。
+     *
+     * @details
+     * エンティティスロット (世代含む)・フリーリスト・全 SparseSet の値をコピーする。
+     * 世代までコピーするため、snapshot 時に取った EntityId は復元後もそのまま有効で、
+     * snapshot 後に生成した EntityId は復元で無効になる (rollback netcode の要件)。
+     *
+     *   World backup;
+     *   backup.CopyFrom(world);    // フレーム N の状態を退避
+     *   ...                        // 予測実行でフレーム N+k まで進める
+     *   world.CopyFrom(backup);    // 権威入力が届いたらフレーム N へ巻き戻す
+     *
+     * 全コンポーネント型がコピー構築可能である必要がある。非コピー型の SparseSet が
+     * あるか OOM の場合は false を返し、this は空 (Clear 済み) の状態になる
+     * (部分複製は残さない)。this == &src は何もせず true。
+     * @param src 複製元の World。
+     * @return 完全に複製できたら true。
+     */
+    bool CopyFrom(const World& src) noexcept;
+
+    /**
      * エンティティが現在も生存しているかを返す (世代チェック)。
      *
      * @param e 判定するエンティティ。

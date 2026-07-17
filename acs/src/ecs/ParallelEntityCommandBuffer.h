@@ -120,6 +120,28 @@ public:
     }
 
     /**
+     * 空エンティティの生成を自スレッド専用スロットへ記録する (Flush 時に生成)。
+     *
+     * @details World::Create はスレッドセーフでないため、EachParallel 中の生成は本記録を使う。
+     */
+    void Create() noexcept
+    {
+        if (FEntityCommandBuffer* const buffer = Slot()) buffer->Create();
+    }
+
+    /**
+     * 「生成 + T を付与」を自スレッド専用スロットへ記録する (Flush 時に生成)。
+     *
+     * @tparam T 生成と同時に付与するコンポーネント型。
+     * @param value 格納する値 (ムーブで退避する)。
+     */
+    template<typename T>
+    void CreateWith(T value) noexcept
+    {
+        if (FEntityCommandBuffer* const buffer = Slot()) buffer->CreateWith<T>(Move(value));
+    }
+
+    /**
      * 全スロットの記録を World へ適用し、空にする (単一スレッドから呼ぶこと)。
      *
      * @details スロット順 (worker 0..N-1, 非ワーカー) に、各スロット内は記録順で適用する。

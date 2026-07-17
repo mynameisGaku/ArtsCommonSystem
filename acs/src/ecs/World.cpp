@@ -1,8 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // ECS World 実装
 #include "ecs/World.h"
+#include "memory/Memory.h"   // MemCopy (CopyFrom の POD 配列コピー)
 
 namespace acs {
+
+namespace {
+
+/**
+ * POD 要素の TArray を丸ごとコピーする (CopyFrom の実装用)。
+ *
+ * @tparam T トリビアルコピー可能な要素型。
+ * @param dst コピー先 (サイズは src に合わせて変更される)。
+ * @param src コピー元。
+ * @return 確保に成功したら true。
+ */
+template<typename T>
+bool CopyPodArray(TArray<T>& dst, const TArray<T>& src) noexcept
+{
+    static_assert(IsTriviallyCopyableV<T>, "CopyPodArray: T must be trivially copyable");
+    if (!dst.TryResize(src.Size())) return false;
+    if (src.Size() > 0) {
+        MemCopy(dst.Data(), src.Data(), src.Size() * sizeof(T));
+    }
+    return true;
+}
+
+} // namespace
 
 /** 空の World を構築する。 */
 World::World() noexcept = default;
@@ -30,6 +54,39 @@ void World::Clear() noexcept
     m_FreeIndices = TArray<u32>{*m_FreeIndices.GetAllocator()};
     m_AliveCount = 0;
     ++m_GenerationSeed;
+}
+
+/** src の完全複製をこの World に作る (詳細な契約は World.h 参照)。 */
+bool World::CopyFrom(const World& src) noexcept
+{
+    if (this == &src) return true;
+    Clear();
+
+    // エンティティスロット (世代含む)・フリーリスト・カウンタをそのままコピーする。
+    // 世代を保つことで snapshot 時の EntityId が復元後も有効になる。
+    if (!CopyPodArray(m_Slots, src.m_Slots) || !CopyPodArray(m_FreeIndices, src.m_FreeIndices)) {
+        Clear();
+        return false;
+    }
+    m_AliveCount     = src.m_AliveCount;
+    m_GenerationSeed = src.m_GenerationSeed;
+
+    // 各 SparseSet を型消去クローンで複製する (非コピー型 or OOM は全体を失敗させる)。
+    if (!m_Sets.TryResize(src.m_Sets.Size())) {
+        Clear();
+        return false;
+    }
+    for (usize i = 0; i < src.m_Sets.Size(); ++i) {
+        m_Sets[i] = nullptr;
+        if (src.m_Sets[i] != nullptr) {
+            m_Sets[i] = src.m_Sets[i]->CloneErased(*m_Sets.GetAllocator());
+            if (m_Sets[i] == nullptr) {
+                Clear();   // 部分複製は残さない (複製済みの set もここで解放される)
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 /** エンティティを生成する (フリースロット再利用、無ければ新規確保)。 */

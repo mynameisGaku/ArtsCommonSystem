@@ -121,6 +121,49 @@ public:
     }
 
     /**
+     * 空エンティティの生成を記録する (Flush 時に World::Create が走る)。
+     *
+     * @details 逐次 Each 中の Create は即時でも安全 (World.h 参照) だが、EachParallel 中は
+     * World::Create がスレッドセーフでないため本記録を使う。生成される EntityId は
+     * Flush 時に確定するので、事前に参照したい用途には使えない。
+     */
+    void Create() noexcept
+    {
+        Command c{};
+        c.kind = ECommandKind::Create;
+        if (!m_Commands.TryPushBack(c)) {
+            m_bOverflowed = true;
+        }
+    }
+
+    /**
+     * 「生成 + T を付与」を記録する (値は安定アドレスへ退避、Flush 時に生成)。
+     *
+     * @details 弾やパーティクル等の並列スポーンに使う。複数コンポーネントを同一エンティティへ
+     * 付けたい場合は Flush 後に World 側で組み立てるか、T を集約構造体にすること。
+     * @tparam T 生成と同時に付与するコンポーネント型。
+     * @param value 格納する値 (ムーブで退避する)。
+     */
+    template<typename T>
+    void CreateWith(T value) noexcept
+    {
+        T* const stored = New<T>(*m_Alloc, Move(value));
+        if (!stored) {
+            m_bOverflowed = true;
+            return;
+        }
+        Command c{};
+        c.kind = ECommandKind::Create;
+        c.value = stored;
+        c.apply = &ApplyAdd<T>;
+        c.destroy = &DestroyValue<T>;
+        if (!m_Commands.TryPushBack(c)) {
+            DestroyValue<T>(*m_Alloc, stored);
+            m_bOverflowed = true;
+        }
+    }
+
+    /**
      * 記録した全操作を記録順に World へ適用し、バッファを空にする。
      *
      * @details Add は退避値を World へムーブしてから退避値を破棄する。適用後は Size()==0。
@@ -140,19 +183,27 @@ public:
                 c.apply(*m_World, c.entity, c.value);   // 退避値を World へムーブ
                 c.destroy(*m_Alloc, c.value);           // ムーブ済み退避値を破棄
                 break;
+            case ECommandKind::Create: {
+                const EntityId created = m_World->Create();
+                if (c.apply != nullptr) {                // CreateWith: 退避値を付与
+                    c.apply(*m_World, created, c.value);
+                    c.destroy(*m_Alloc, c.value);
+                }
+                break;
+            }
             }
         }
         m_Commands.Clear();
     }
 
     /**
-     * 記録を適用せず破棄する (退避した Add 値も解放する)。
+     * 記録を適用せず破棄する (退避した Add / CreateWith 値も解放する)。
      */
     void Clear() noexcept
     {
         for (usize i = 0; i < m_Commands.Size(); ++i) {
             Command& c = m_Commands[i];
-            if (c.kind == ECommandKind::Add) {
+            if (c.destroy != nullptr) {                  // Add / CreateWith の退避値
                 c.destroy(*m_Alloc, c.value);
             }
         }
@@ -187,6 +238,7 @@ private:
         Destroy,
         Add,
         Remove,
+        Create,   // apply==nullptr なら空生成、非 null なら CreateWith (生成 + 付与)
     };
 
     /** 1 つの遅延コマンド。value / thunk は種別に応じて使う。 */

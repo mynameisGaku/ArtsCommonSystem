@@ -218,6 +218,9 @@ template<typename T> inline constexpr bool IsTriviallyDestructibleV = __is_trivi
 /** T がトリビアル構築可能なら true (コンパイラ組み込み __is_trivially_constructible のラッパ)。 */
 template<typename T> inline constexpr bool IsTriviallyConstructibleV= __is_trivially_constructible(T);
 
+/** T が const T& からコピー構築可能なら true (コンパイラ組み込み __is_constructible のラッパ)。 */
+template<typename T> inline constexpr bool IsCopyConstructibleV     = __is_constructible(T, const T&);
+
 /** T が空クラス (非静的メンバを持たない) なら true (コンパイラ組み込み __is_empty のラッパ)。 */
 template<typename T> inline constexpr bool IsEmptyV                 = __is_empty(T);
 

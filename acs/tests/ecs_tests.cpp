@@ -17,6 +17,17 @@ struct Velocity { f32 dx, dy, dz; };
 struct Health   { i32 hp; };
 struct Frozen   { u8 unused; };  // タグ的コンポーネント (除外フィルタ検証用)
 
+/** 非コピー・可ムーブなコンポーネント (World::CopyFrom の拒否契約検証用)。 */
+struct FMoveOnlyComp {
+    u32 v = 0;
+    FMoveOnlyComp() = default;
+    explicit FMoveOnlyComp(u32 x) noexcept : v(x) {}
+    FMoveOnlyComp(const FMoveOnlyComp&) = delete;
+    FMoveOnlyComp& operator=(const FMoveOnlyComp&) = delete;
+    FMoveOnlyComp(FMoveOnlyComp&&) noexcept = default;
+    FMoveOnlyComp& operator=(FMoveOnlyComp&&) noexcept = default;
+};
+
 /** 常に確保失敗する backing (command buffer の OOM 契約検証用)。 */
 class FEcbFailAllocator final : public FAllocator {
 public:
@@ -205,6 +216,94 @@ ACS_TEST(Ecs, EntityCommandBufferGracefullyHandlesOutOfMemory)
     EXPECT_TRUE(w.IsAlive(e));    // Destroy は落ちたのでエンティティは生存
 }
 
+ACS_TEST(Ecs, WorldCopyFromSnapshotAndRollback)
+{
+    // rollback netcode の要件: snapshot 時の EntityId は復元後も有効、snapshot 後に
+    // 作った EntityId は復元で無効、値・コンポーネント構成・生存状態が完全に巻き戻る。
+    World w;
+    const EntityId a = w.Create();
+    w.Add<Position>(a, {1, 2, 3});
+    w.Add<Health>(a, {10});
+    const EntityId b = w.Create();
+    w.Add<Position>(b, {4, 5, 6});
+
+    World snap;
+    EXPECT_TRUE(snap.CopyFrom(w));
+    EXPECT_EQ(snap.EntityCount(), 2u);
+
+    // snapshot は独立コピー: 元 World の変更が snapshot に波及しない。
+    w.Get<Position>(a)->x = 100.0f;
+    w.Destroy(b);
+    const EntityId c = w.Create();       // b のスロット再利用 (世代は進んでいる)
+    w.Add<Health>(c, {77});
+    EXPECT_NEAR(snap.Get<Position>(a)->x, 1.0f, 1e-5f);
+
+    // rollback: フレーム N の状態へ完全に巻き戻す。
+    EXPECT_TRUE(w.CopyFrom(snap));
+    EXPECT_TRUE(w.IsAlive(a));
+    EXPECT_TRUE(w.IsAlive(b));           // snapshot 時点で生存 → 復活
+    EXPECT_FALSE(w.IsAlive(c));          // snapshot 後に作った id は世代不一致で無効
+    EXPECT_EQ(w.EntityCount(), 2u);
+    EXPECT_NEAR(w.Get<Position>(a)->x, 1.0f, 1e-5f);   // 値も巻き戻る
+    Health* const ha = w.Get<Health>(a);
+    EXPECT_TRUE(ha != nullptr);
+    if (ha) EXPECT_EQ(ha->hp, 10);
+    EXPECT_TRUE(w.Has<Position>(b));
+    EXPECT_FALSE(w.Has<Health>(b));
+
+    // 復元後も通常運用できる (Create / Add / Destroy)。
+    const EntityId d = w.Create();
+    w.Add<Velocity>(d, {1, 0, 0});
+    EXPECT_TRUE(w.IsAlive(d));
+    EXPECT_EQ(w.EntityCount(), 3u);
+
+    // 自己コピーは no-op で成功する。
+    EXPECT_TRUE(w.CopyFrom(w));
+    EXPECT_EQ(w.EntityCount(), 3u);
+}
+
+ACS_TEST(Ecs, WorldCopyFromRejectsNonCopyableComponents)
+{
+    // 非コピー型の SparseSet を持つ World は複製できず、部分複製も残さない。
+    World w;
+    const EntityId e = w.Create();
+    w.Add<Position>(e, {1, 2, 3});
+    w.Add<FMoveOnlyComp>(e, FMoveOnlyComp{5});
+
+    World snap;
+    EXPECT_FALSE(snap.CopyFrom(w));
+    EXPECT_EQ(snap.EntityCount(), 0u);   // 失敗時は空 (Clear 済み) に戻る
+    EXPECT_FALSE(snap.IsAlive(e));
+
+    // 元 World は無傷。
+    EXPECT_TRUE(w.IsAlive(e));
+    EXPECT_TRUE(w.Get<FMoveOnlyComp>(e) != nullptr);
+}
+
+ACS_TEST(Ecs, EntityCommandBufferDeferredCreate)
+{
+    World w;
+    FEntityCommandBuffer cmd(w);
+    cmd.Create();
+    cmd.CreateWith<Health>(Health{42});
+    EXPECT_EQ(w.EntityCount(), 0u);      // Flush まで生成されない
+    EXPECT_EQ(cmd.Size(), static_cast<usize>(2));
+
+    cmd.Flush();
+    EXPECT_EQ(w.EntityCount(), 2u);
+    u32 with_health = 0;
+    i32 hp = 0;
+    w.Query<Health>().Each([&](EntityId, Health& h) { ++with_health; hp = h.hp; });
+    EXPECT_EQ(with_health, 1u);
+    EXPECT_EQ(hp, 42);
+
+    // Clear は生成せず退避値も解放する (リークは CRT/ASan 検査で担保)。
+    cmd.CreateWith<Health>(Health{7});
+    cmd.Clear();
+    cmd.Flush();
+    EXPECT_EQ(w.EntityCount(), 2u);
+}
+
 ACS_TEST(Ecs, ParallelCommandBufferRecordsFromWorkersAndApplies)
 {
     // EachParallel の fn 内から FParallelEntityCommandBuffer へロックなしで記録し、
@@ -244,6 +343,37 @@ ACS_TEST(Ecs, ParallelCommandBufferRecordsFromWorkersAndApplies)
         u32 with_velocity = 0;
         w.Query<Velocity>().Each([&with_velocity](EntityId, Velocity&) { ++with_velocity; });
         EXPECT_EQ(with_velocity, kCount - kDestroyed);
+    }
+    FThreadPool::Shutdown();
+}
+
+ACS_TEST(Ecs, ParallelCommandBufferDeferredCreateSpawnsAfterFlush)
+{
+    // EachParallel 中の生成は World::Create がスレッドセーフでないため CreateWith で
+    // 遅延記録し、Flush で一括生成する (並列スポーンの実地確認)。
+    EXPECT_TRUE(FThreadPool::Init(4).IsOk());
+    {
+        World w;
+        constexpr u32 kCount = 500u;
+        for (u32 i = 0; i < kCount; ++i) {
+            const EntityId e = w.Create();
+            w.Add<Position>(e, {static_cast<f32>(i), 0, 0});
+        }
+
+        FParallelEntityCommandBuffer cmd(w);
+        w.Query<Position>().EachParallel([&cmd](EntityId, Position& p) {
+            if ((static_cast<u32>(p.x) % 2u) == 0u) {
+                cmd.CreateWith<Health>(Health{static_cast<i32>(p.x)});
+            }
+        }, 32u);
+
+        EXPECT_EQ(w.EntityCount(), kCount);            // Flush まで生成されない
+        EXPECT_FALSE(cmd.HasOverflowed());
+        cmd.Flush();
+        EXPECT_EQ(w.EntityCount(), kCount + kCount / 2u);
+        u32 spawned = 0;
+        w.Query<Health>().Each([&spawned](EntityId, Health&) { ++spawned; });
+        EXPECT_EQ(spawned, kCount / 2u);
     }
     FThreadPool::Shutdown();
 }
