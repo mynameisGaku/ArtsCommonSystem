@@ -136,6 +136,59 @@ public:
      */
     operator FStringView() const noexcept { return View(); }
 
+    /** Find / FindLast が「見つからない」を表す番兵値 (FStringView::kNpos と同値)。 */
+    static constexpr usize kNpos = static_cast<usize>(-1);
+
+    /**
+     * 部分文字列 needle が最初に現れるバイトオフセットを返す (View への転送)。
+     *
+     * @param needle 探す部分文字列。
+     * @param from 探索を開始するバイトオフセット。
+     * @return 最初に一致した開始オフセット (無ければ kNpos)。
+     */
+    usize Find(FStringView needle, usize from = 0) const noexcept { return View().Find(needle, from); }
+
+    /**
+     * 文字 c が最初に現れるバイトオフセットを返す (View への転送)。
+     *
+     * @param c 探す文字。
+     * @param from 探索を開始するバイトオフセット。
+     * @return 最初に一致したオフセット (無ければ kNpos)。
+     */
+    usize Find(char c, usize from = 0) const noexcept { return View().Find(c, from); }
+
+    /**
+     * 文字 c が最後に現れるバイトオフセットを返す (View への転送)。
+     *
+     * @param c 探す文字。
+     * @return 最後に一致したオフセット (無ければ kNpos)。
+     */
+    usize FindLast(char c) const noexcept { return View().FindLast(c); }
+
+    /**
+     * 部分文字列 needle を含むかを返す (View への転送)。
+     *
+     * @param needle 探す部分文字列。
+     * @return 含めば true。
+     */
+    bool Contains(FStringView needle) const noexcept { return View().Contains(needle); }
+
+    /**
+     * 指定した接頭辞で始まるかを返す (View への転送)。
+     *
+     * @param prefix 判定する接頭辞。
+     * @return prefix で始まれば true。
+     */
+    bool StartsWith(FStringView prefix) const noexcept { return View().StartsWith(prefix); }
+
+    /**
+     * 指定した接尾辞で終わるかを返す (View への転送)。
+     *
+     * @param suffix 判定する接尾辞。
+     * @return suffix で終われば true。
+     */
+    bool EndsWith(FStringView suffix) const noexcept { return View().EndsWith(suffix); }
+
     /**
      * i 番目のバイトへの参照を返す。
      *

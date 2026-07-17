@@ -138,6 +138,59 @@ public:
         return true;
     }
 
+    /** Find / FindLast が「見つからない」を表す番兵値。 */
+    static constexpr usize kNpos = static_cast<usize>(-1);
+
+    /**
+     * 部分文字列 needle が最初に現れるバイトオフセットを返す (素朴 O(n*m))。
+     *
+     * @param needle 探す部分文字列 (空 "" は from を返す)。
+     * @param from 探索を開始するバイトオフセット。
+     * @return 最初に一致した開始オフセット (無ければ kNpos)。
+     */
+    usize Find(FStringView needle, usize from = 0) const noexcept {
+        if (needle.m_Size > m_Size) return kNpos;
+        if (needle.m_Size == 0) return (from <= m_Size) ? from : kNpos;
+        const usize last_start = m_Size - needle.m_Size;   // 引き算形 (ラップしない)
+        for (usize i = from; i <= last_start; ++i) {
+            usize k = 0;
+            while (k < needle.m_Size && m_Data[i + k] == needle.m_Data[k]) ++k;
+            if (k == needle.m_Size) return i;
+        }
+        return kNpos;
+    }
+
+    /**
+     * 文字 c が最初に現れるバイトオフセットを返す。
+     *
+     * @param c 探す文字。
+     * @param from 探索を開始するバイトオフセット。
+     * @return 最初に一致したオフセット (無ければ kNpos)。
+     */
+    usize Find(char c, usize from = 0) const noexcept {
+        for (usize i = from; i < m_Size; ++i) if (m_Data[i] == c) return i;
+        return kNpos;
+    }
+
+    /**
+     * 文字 c が最後に現れるバイトオフセットを返す (拡張子・パス区切りの分解用)。
+     *
+     * @param c 探す文字。
+     * @return 最後に一致したオフセット (無ければ kNpos)。
+     */
+    usize FindLast(char c) const noexcept {
+        for (usize i = m_Size; i > 0; --i) if (m_Data[i - 1] == c) return i - 1;
+        return kNpos;
+    }
+
+    /**
+     * 部分文字列 needle を含むかを返す。
+     *
+     * @param needle 探す部分文字列。
+     * @return 含めば true。
+     */
+    bool Contains(FStringView needle) const noexcept { return Find(needle) != kNpos; }
+
 private:
     /** 参照する文字列の先頭ポインタ。 */
     const char* m_Data = nullptr;

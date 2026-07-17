@@ -384,6 +384,121 @@ public:
     }
 
     /**
+     * i 番目の要素を削除する (後続を前へ詰めて順序を保つ O(n))。
+     *
+     * @details 順序が要らないなら RemoveAtSwap (O(1)) を使う。範囲外は ACS_ASSERT で検出する。
+     * @param i 削除する要素インデックス。
+     */
+    void RemoveAt(usize i) noexcept {
+        ACS_ASSERT(i < m_Size);
+        for (usize k = i + 1; k < m_Size; ++k) m_Data[k - 1] = Move(m_Data[k]);
+        --m_Size;
+        if constexpr (!IsTriviallyDestructibleV<T>) m_Data[m_Size].~T();
+    }
+
+    /** IndexOf / IndexOfIf が「見つからない」を表す番兵値。 */
+    static constexpr usize kNpos = static_cast<usize>(-1);
+
+    /**
+     * value と == で一致する最初の要素のインデックスを返す (線形探索)。
+     *
+     * @param value 探す値。
+     * @return 最初に一致したインデックス (無ければ kNpos)。
+     */
+    usize IndexOf(const T& value) const noexcept {
+        for (usize i = 0; i < m_Size; ++i) {
+            if (m_Data[i] == value) return i;
+        }
+        return kNpos;
+    }
+
+    /**
+     * pred(要素) が true になる最初の要素のインデックスを返す (線形探索)。
+     *
+     * @tparam Pred bool(const T&) 相当の呼び出し可能型。
+     * @param pred 判定述語 (値で受け取る)。
+     * @return 最初に一致したインデックス (無ければ kNpos)。
+     */
+    template<typename Pred>
+    usize IndexOfIf(Pred pred) const noexcept {
+        for (usize i = 0; i < m_Size; ++i) {
+            if (pred(m_Data[i])) return i;
+        }
+        return kNpos;
+    }
+
+    /**
+     * value と == で一致する最初の要素へのポインタを返す (線形探索)。
+     *
+     * @details 返したポインタは再確保・削除で無効化され得るため、構造変更をまたいで保持しない。
+     * @param value 探す値。
+     * @return 最初に一致した要素 (無ければ nullptr)。
+     */
+    T* Find(const T& value) noexcept {
+        const usize i = IndexOf(value);
+        return i == kNpos ? nullptr : &m_Data[i];
+    }
+
+    /**
+     * value と == で一致する最初の要素への const ポインタを返す (線形探索)。
+     *
+     * @param value 探す値。
+     * @return 最初に一致した要素 (無ければ nullptr)。
+     */
+    const T* Find(const T& value) const noexcept {
+        const usize i = IndexOf(value);
+        return i == kNpos ? nullptr : &m_Data[i];
+    }
+
+    /**
+     * pred(要素) が true になる最初の要素へのポインタを返す (線形探索)。
+     *
+     * @details 返したポインタは再確保・削除で無効化され得るため、構造変更をまたいで保持しない。
+     * @tparam Pred bool(const T&) 相当の呼び出し可能型。
+     * @param pred 判定述語 (値で受け取る)。
+     * @return 最初に一致した要素 (無ければ nullptr)。
+     */
+    template<typename Pred>
+    T* FindIf(Pred pred) noexcept {
+        const usize i = IndexOfIf(pred);
+        return i == kNpos ? nullptr : &m_Data[i];
+    }
+
+    /**
+     * pred(要素) が true になる最初の要素への const ポインタを返す (線形探索)。
+     *
+     * @tparam Pred bool(const T&) 相当の呼び出し可能型。
+     * @param pred 判定述語 (値で受け取る)。
+     * @return 最初に一致した要素 (無ければ nullptr)。
+     */
+    template<typename Pred>
+    const T* FindIf(Pred pred) const noexcept {
+        const usize i = IndexOfIf(pred);
+        return i == kNpos ? nullptr : &m_Data[i];
+    }
+
+    /**
+     * value と == で一致する要素が存在するかを返す (線形探索)。
+     *
+     * @param value 探す値。
+     * @return 1 つでも一致すれば true。
+     */
+    bool Contains(const T& value) const noexcept { return IndexOf(value) != kNpos; }
+
+    /**
+     * value と == で一致する最初の要素を swap-remove する (順序は保たれない)。
+     *
+     * @param value 削除する値。
+     * @return 削除できたら true (見つからなければ false)。
+     */
+    bool RemoveFirstSwap(const T& value) noexcept {
+        const usize i = IndexOf(value);
+        if (i == kNpos) return false;
+        RemoveAtSwap(i);
+        return true;
+    }
+
+    /**
      * 配列を明示的に複製する。
      *
      * @details コピーが高コストなため名前付きで意識させる。trivial 型はバルクコピー、

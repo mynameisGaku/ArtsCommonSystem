@@ -302,3 +302,81 @@ ACS_TEST(Container, HashBytesDeterministic) {
     u64 h2 = HashBytes(a, 19);
     EXPECT_EQ(h1, h2);
 }
+
+ACS_TEST(Container, ArrayFindIndexOfContains)
+{
+    TArray<i32> a;
+    a.PushBack(3); a.PushBack(1); a.PushBack(4); a.PushBack(1); a.PushBack(5);
+
+    EXPECT_EQ(a.IndexOf(4), static_cast<usize>(2));
+    EXPECT_EQ(a.IndexOf(1), static_cast<usize>(1));      // 最初の一致
+    EXPECT_EQ(a.IndexOf(9), TArray<i32>::kNpos);
+    EXPECT_TRUE(a.Contains(5));
+    EXPECT_FALSE(a.Contains(0));
+
+    i32* const p = a.Find(4);
+    EXPECT_TRUE(p != nullptr);
+    if (p) { *p = 40; }                                   // 可変アクセスできる
+    EXPECT_EQ(a[2], 40);
+    EXPECT_TRUE(a.Find(999) == nullptr);
+
+    // 述語版。
+    EXPECT_EQ(a.IndexOfIf([](const i32& v) { return v > 10; }), static_cast<usize>(2));
+    const i32* const q = a.FindIf([](const i32& v) { return v % 5 == 0; });
+    EXPECT_TRUE(q != nullptr && *q == 40);
+    EXPECT_TRUE(a.FindIf([](const i32& v) { return v < 0; }) == nullptr);
+}
+
+ACS_TEST(Container, ArrayRemoveAtAndRemoveFirstSwap)
+{
+    TArray<i32> a;
+    a.PushBack(10); a.PushBack(20); a.PushBack(30); a.PushBack(40);
+
+    // RemoveAt は順序を保つ (O(n) シフト)。
+    a.RemoveAt(1);                        // {10, 30, 40}
+    EXPECT_EQ(a.Size(), static_cast<usize>(3));
+    EXPECT_EQ(a[0], 10);
+    EXPECT_EQ(a[1], 30);
+    EXPECT_EQ(a[2], 40);
+
+    // RemoveFirstSwap は O(1) だが順序は入れ替わる。
+    EXPECT_TRUE(a.RemoveFirstSwap(10));   // {40, 30}
+    EXPECT_EQ(a.Size(), static_cast<usize>(2));
+    EXPECT_TRUE(a.Contains(30));
+    EXPECT_TRUE(a.Contains(40));
+    EXPECT_FALSE(a.RemoveFirstSwap(999)); // 見つからなければ false / 変更なし
+    EXPECT_EQ(a.Size(), static_cast<usize>(2));
+}
+
+ACS_TEST(Container, StringViewFindAndContains)
+{
+    const FStringView s("hello world.png");
+    EXPECT_EQ(s.Find(FStringView("world")), static_cast<usize>(6));
+    EXPECT_EQ(s.Find(FStringView("hello")), static_cast<usize>(0));
+    EXPECT_EQ(s.Find(FStringView("xyz")), FStringView::kNpos);
+    EXPECT_EQ(s.Find(FStringView("png"), 13), FStringView::kNpos);   // from を過ぎた一致は拾わない
+    EXPECT_EQ(s.Find('o'), static_cast<usize>(4));
+    EXPECT_EQ(s.Find('o', 5), static_cast<usize>(7));
+    EXPECT_EQ(s.FindLast('.'), static_cast<usize>(11));
+    EXPECT_EQ(s.FindLast('!'), FStringView::kNpos);
+    EXPECT_TRUE(s.Contains(FStringView(".png")));
+    EXPECT_FALSE(s.Contains(FStringView("jpg")));
+
+    // 空 needle は from を返す (std::string::find と同じ規約)。
+    EXPECT_EQ(s.Find(FStringView("")), static_cast<usize>(0));
+    EXPECT_EQ(FStringView("").Find(FStringView("")), static_cast<usize>(0));
+    EXPECT_EQ(FStringView("").Find(FStringView("a")), FStringView::kNpos);
+}
+
+ACS_TEST(Container, StringFindForwarders)
+{
+    FString str;
+    str.Append(FStringView("assets/textures/hero.png"));
+    EXPECT_EQ(str.FindLast('/'), static_cast<usize>(15));
+    EXPECT_EQ(str.FindLast('.'), static_cast<usize>(20));
+    EXPECT_EQ(str.Find(FStringView("textures")), static_cast<usize>(7));
+    EXPECT_TRUE(str.Contains(FStringView("hero")));
+    EXPECT_TRUE(str.StartsWith(FStringView("assets/")));
+    EXPECT_TRUE(str.EndsWith(FStringView(".png")));
+    EXPECT_FALSE(str.EndsWith(FStringView(".jpg")));
+}
