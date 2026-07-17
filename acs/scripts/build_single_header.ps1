@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+﻿# SPDX-License-Identifier: Apache-2.0
 # Regenerate the single-header ACS distribution into dist/:
 #   - dist/acs.h               (via amalgamate.py)
 #   - dist/lib/x64/Debug/acs.lib   and   dist/lib/x64/Release/acs.lib
@@ -36,6 +36,12 @@ foreach ($cfg in $Configs) {
     $libs = Get-ChildItem (Join-Path $libdir 'acs_*.lib') | Where-Object { $_.Name -ne 'acs_test.lib' } | ForEach-Object { $_.FullName }
     $imgui = Join-Path $libdir 'imgui.lib'
     if (Test-Path $imgui) { $libs += $imgui }
+    # mimalloc-static は _deps 配下に独自名 (mimalloc-debug.lib 等) で出力される。
+    # acs_memory が mi_* を参照するため、acs.lib へ統合して consumer 側の
+    # リンク入力を増やさずに解決させる。
+    $mimalloc = Get-ChildItem (Join-Path $build "_deps\acs_mimalloc-build\$cfg") -Filter 'mimalloc*.lib' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notmatch 'redirect' } | Select-Object -First 1
+    if ($mimalloc) { $libs += $mimalloc.FullName } else { Write-Warning "  mimalloc lib not found for ${cfg}" }
     $outdir = Join-Path $dist "lib\x64\$cfg"
     New-Item -ItemType Directory -Force -Path $outdir | Out-Null
     $outlib = Join-Path $outdir 'acs.lib'
