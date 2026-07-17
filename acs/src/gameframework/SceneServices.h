@@ -122,7 +122,7 @@ constexpr bool SvcHas(ESvc mask, ESvc flag) noexcept {
  *
  * @details
  * constructor で wanted bit を見て該当サービスだけ TUniquePtr<T> を作る。未要求のサービスは null
- * のままで、accessor 呼出は ACS_ASSERT で検出する。tick は 2 phase 構成で、PreUpdate (Clock 進行)
+ * のままで、accessor 呼出は ACS_CHECK で検出する (Release でも停止)。tick は 2 phase 構成で、PreUpdate (Clock 進行)
  * → scene.OnUpdate → PostUpdate (Tweens/Sequences/Camera/Triggers tick) の順に駆動される。
  * FGame/FSceneManager がフレームごとに自動で tick + scene 切替に追従する。
  */
@@ -163,7 +163,7 @@ public:
     /**
      * FSceneClock への参照を返す。
      *
-     * @details ESvc::Clock が要求されていなければ ACS_ASSERT で停止する。
+     * @details ESvc::Clock が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return クロックサービスへの参照。
      */
     FSceneClock&          Clock()     noexcept;
@@ -171,7 +171,7 @@ public:
     /**
      * FTweenManager への参照を返す。
      *
-     * @details ESvc::Tweens が要求されていなければ ACS_ASSERT で停止する。
+     * @details ESvc::Tweens が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return tween サービスへの参照。
      */
     FTweenManager&        Tweens()    noexcept;
@@ -179,7 +179,7 @@ public:
     /**
      * FSequenceRunner への参照を返す。
      *
-     * @details ESvc::Sequences が要求されていなければ ACS_ASSERT で停止する。
+     * @details ESvc::Sequences が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return sequence サービスへの参照。
      */
     FSequenceRunner&      Sequences() noexcept;
@@ -187,7 +187,7 @@ public:
     /**
      * FInputMap への参照を返す。
      *
-     * @details ESvc::Input が要求されていなければ ACS_ASSERT で停止する。
+     * @details ESvc::Input が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return 入力サービスへの参照。
      */
     FInputMap&            Input()     noexcept;
@@ -195,7 +195,7 @@ public:
     /**
      * FCamera2D への参照を返す。
      *
-     * @details ESvc::Camera2D が要求されていなければ ACS_ASSERT で停止する。
+     * @details ESvc::Camera2D が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return カメラサービスへの参照。
      */
     acs::game::FCamera2D& Camera()    noexcept;
@@ -203,7 +203,7 @@ public:
     /**
      * FCollisionWorld2D への参照を返す。
      *
-     * @details ESvc::Physics2D が要求されていなければ ACS_ASSERT で停止する。
+     * @details ESvc::Physics2D が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return 物理サービスへの参照。
      */
     FCollisionWorld2D&    Physics()   noexcept;
@@ -211,7 +211,7 @@ public:
     /**
      * FTriggerWorld2D への参照を返す。
      *
-     * @details ESvc::Triggers が要求されていなければ ACS_ASSERT で停止する。
+     * @details ESvc::Triggers が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return トリガサービスへの参照。
      */
     FTriggerWorld2D&      Triggers()  noexcept;

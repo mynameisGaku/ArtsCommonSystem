@@ -23,52 +23,52 @@ FSceneServices::FSceneServices(ESvc wanted) noexcept
     }
 }
 
-/** FSceneClock への参照を返す (未要求なら ACS_ASSERT)。 */
+/** FSceneClock への参照を返す (未要求なら ACS_CHECK で停止)。 */
 FSceneClock& FSceneServices::Clock() noexcept {
-    ACS_ASSERTF(m_Clock.Get() != nullptr,
-                "FSceneServices::Clock() called but ESvc::Clock not requested in WantedServices()");
+    ACS_CHECKF(m_Clock.Get() != nullptr,
+               "FSceneServices::Clock() called but ESvc::Clock not requested in WantedServices()");
     return *m_Clock;
 }
 
-/** FTweenManager への参照を返す (未要求なら ACS_ASSERT)。 */
+/** FTweenManager への参照を返す (未要求なら ACS_CHECK で停止)。 */
 FTweenManager& FSceneServices::Tweens() noexcept {
-    ACS_ASSERTF(m_Tweens.Get() != nullptr,
-                "FSceneServices::Tweens() called but ESvc::Tweens not requested in WantedServices()");
+    ACS_CHECKF(m_Tweens.Get() != nullptr,
+               "FSceneServices::Tweens() called but ESvc::Tweens not requested in WantedServices()");
     return *m_Tweens;
 }
 
-/** FSequenceRunner への参照を返す (未要求なら ACS_ASSERT)。 */
+/** FSequenceRunner への参照を返す (未要求なら ACS_CHECK で停止)。 */
 FSequenceRunner& FSceneServices::Sequences() noexcept {
-    ACS_ASSERTF(m_Sequences.Get() != nullptr,
-                "FSceneServices::Sequences() called but ESvc::Sequences not requested in WantedServices()");
+    ACS_CHECKF(m_Sequences.Get() != nullptr,
+               "FSceneServices::Sequences() called but ESvc::Sequences not requested in WantedServices()");
     return *m_Sequences;
 }
 
-/** FInputMap への参照を返す (未要求なら ACS_ASSERT)。 */
+/** FInputMap への参照を返す (未要求なら ACS_CHECK で停止)。 */
 FInputMap& FSceneServices::Input() noexcept {
-    ACS_ASSERTF(m_Input.Get() != nullptr,
-                "FSceneServices::Input() called but ESvc::Input not requested in WantedServices()");
+    ACS_CHECKF(m_Input.Get() != nullptr,
+               "FSceneServices::Input() called but ESvc::Input not requested in WantedServices()");
     return *m_Input;
 }
 
-/** FCamera2D への参照を返す (未要求なら ACS_ASSERT)。 */
+/** FCamera2D への参照を返す (未要求なら ACS_CHECK で停止)。 */
 acs::game::FCamera2D& FSceneServices::Camera() noexcept {
-    ACS_ASSERTF(m_Camera.Get() != nullptr,
-                "FSceneServices::Camera() called but ESvc::Camera2D not requested in WantedServices()");
+    ACS_CHECKF(m_Camera.Get() != nullptr,
+               "FSceneServices::Camera() called but ESvc::Camera2D not requested in WantedServices()");
     return *m_Camera;
 }
 
-/** FCollisionWorld2D への参照を返す (未要求なら ACS_ASSERT)。 */
+/** FCollisionWorld2D への参照を返す (未要求なら ACS_CHECK で停止)。 */
 FCollisionWorld2D& FSceneServices::Physics() noexcept {
-    ACS_ASSERTF(m_Physics.Get() != nullptr,
-                "FSceneServices::Physics() called but ESvc::Physics2D not requested in WantedServices()");
+    ACS_CHECKF(m_Physics.Get() != nullptr,
+               "FSceneServices::Physics() called but ESvc::Physics2D not requested in WantedServices()");
     return *m_Physics;
 }
 
-/** FTriggerWorld2D への参照を返す (未要求なら ACS_ASSERT)。 */
+/** FTriggerWorld2D への参照を返す (未要求なら ACS_CHECK で停止)。 */
 FTriggerWorld2D& FSceneServices::Triggers() noexcept {
-    ACS_ASSERTF(m_Triggers.Get() != nullptr,
-                "FSceneServices::Triggers() called but ESvc::Triggers not requested in WantedServices()");
+    ACS_CHECKF(m_Triggers.Get() != nullptr,
+               "FSceneServices::Triggers() called but ESvc::Triggers not requested in WantedServices()");
     return *m_Triggers;
 }
 
