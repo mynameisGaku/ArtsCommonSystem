@@ -180,9 +180,12 @@ public:
     /**
      * header だけを読み、payload_size を返す。
      *
-     * @details payload を読み込む前に buffer サイズを allocate する用途。
+     * @details
+     * payload を読み込む前に buffer サイズを allocate する用途。確保に使われる前提なので、
+     * header の申告値は実ファイルサイズと照合済み (申告 > 実サイズ - header は kSubIoError)。
+     * 改竄された巨大値がそのまま返って呼び出し側が巨大確保することはない。
      * @param file_path 入力ファイルパス。
-     * @return 成功なら header.payload_size、不在 / magic 不一致 / io 失敗は対応 subcode。
+     * @return 成功なら header.payload_size、不在 / magic 不一致 / サイズ不整合 / io 失敗は対応 subcode。
      */
     static TResult<u64> PeekPayloadSize(const wchar_t* file_path) noexcept;
 };

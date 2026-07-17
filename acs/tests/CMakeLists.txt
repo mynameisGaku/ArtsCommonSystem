@@ -57,6 +57,7 @@ add_executable(acs_unit_tests
     editor_play_draw_tests.cpp
     material2d_tests.cpp
     asset_registry_tests.cpp
+    save_archive_tests.cpp
     assetpack_lifetime_tests.cpp
     application_lifetime_tests.cpp
     win32_resource_tests.cpp

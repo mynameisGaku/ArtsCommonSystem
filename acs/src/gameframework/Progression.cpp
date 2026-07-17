@@ -127,6 +127,18 @@ constexpr usize kEntrySize  = 16;
 constexpr usize kHeaderPart = 8;
 
 /**
+ * Load が受け付ける payload の上限バイト数 (16 MiB)。
+ *
+ * @details
+ * PeekPayloadSize は実ファイルサイズとの整合しか検証しないので、物理的に巨大な
+ * 改竄ファイルを置かれると申告値がそのまま確保サイズになる。進行状況は
+ * 16 バイト/entry × 数千 milestone 程度で高々数百 KiB のため、16 MiB を超える
+ * ファイルは改竄/破損とみなして確保前に拒否する (OOM/DoS 防止。
+ * ReplayDirector の kMaxContainerBytes = 256 MiB と同じ流儀)。
+ */
+constexpr u64 kMaxLoadPayloadBytes = 16ull * 1024ull * 1024ull;
+
+/**
  * floor(log2(v)) を非負整数ループで算出する。
  *
  * @details v == 0 は呼出側で弾く前提 (log2(0) は未定義)。32bit 値なら最大 31 回ループするだけ。
@@ -364,6 +376,11 @@ TResult<void> FProgression::Load(const wchar_t* file_path) noexcept {
 
     if (payload_size < static_cast<u64>(kHeaderPart)) {
         return ACS_ERR(Asset, 0, "FProgression::Load: payload smaller than header");
+    }
+    // 確保前に上限検査する。物理的に巨大なファイルを置かれても申告サイズで
+    // 巨大確保 (OOM/DoS) しない (CRC 検証は確保・読込後なので防波堤にならない)。
+    if (payload_size > kMaxLoadPayloadBytes) {
+        return ACS_ERR(Asset, 0, "FProgression::Load: payload exceeds 16 MiB sanity limit");
     }
 
     TArray<u8> payload;

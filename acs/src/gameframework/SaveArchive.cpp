@@ -461,11 +461,33 @@ TResult<u32> FSaveArchive::PeekVersion(const wchar_t* file_path) noexcept {
     return TResult<u32>(OkInit, version);
 }
 
-/** header (24B) のみ読み、payload を読まずに payload_size を返す。 */
+/**
+ * header (24B) のみ読み、payload を読まずに payload_size を返す。
+ *
+ * @details
+ * 戻り値は「この値で buffer を確保する」用途 (SaveArchive.h の宣言コメント参照) なので、
+ * header の申告値をそのまま信じず、実ファイルサイズと照合してから返す。改竄で
+ * payload_size に巨大値 (例: 2^63) を書かれても、呼び出し側が巨大確保 (OOM/DoS)
+ * しないようここで fail-fast する (ReadFromFile と同じ検査)。
+ */
 TResult<u64> FSaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
     const auto open_r = OpenForRead(file_path);
     if (open_r.IsErr()) return open_r.Error();
     HANDLE h = open_r.Value();
+
+    LARGE_INTEGER fsize{};
+    if (!::GetFileSizeEx(h, &fsize)) {
+        DWORD size_err = ::GetLastError();
+        ::CloseHandle(h);
+        return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
+                          "FSaveArchive::PeekPayloadSize: GetFileSizeEx failed", size_err);
+    }
+    const u64 file_size = static_cast<u64>(fsize.QuadPart);
+    if (file_size < kHeaderSize) {
+        ::CloseHandle(h);
+        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubBadMagic),
+                       "FSaveArchive::PeekPayloadSize: file smaller than header");
+    }
 
     u8 header_buf[kHeaderSize] = {};
     DWORD err = 0;
@@ -481,6 +503,10 @@ TResult<u64> FSaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
     if (!ParseHeader(header_buf, dummy_version, payload_size, dummy_crc)) {
         return ACS_ERR(Asset, SubU16(ESaveArchiveSubCode::kSubBadMagic),
                        "FSaveArchive::PeekPayloadSize: magic mismatch (not an .acssave)");
+    }
+    if (payload_size > file_size - kHeaderSize) {
+        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
+                       "FSaveArchive::PeekPayloadSize: payload_size > file_size - header");
     }
     return TResult<u64>(OkInit, payload_size);
 }
