@@ -60,6 +60,10 @@ add_executable(acs_unit_tests
     save_archive_tests.cpp
     content_moderator_tests.cpp
     director_reentrancy_tests.cpp
+    rollback_tests.cpp
+    camerastack_tests.cpp
+    collisionworld2d_tests.cpp
+    particleeffect_tests.cpp
     assetpack_lifetime_tests.cpp
     application_lifetime_tests.cpp
     win32_resource_tests.cpp
