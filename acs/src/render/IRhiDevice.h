@@ -106,4 +106,17 @@ struct DeviceConfig {
  */
 TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& configuration) noexcept;
 
+/**
+ * バックエンドのプロセス寿命シングルトンを先に生成しておく。
+ *
+ * @details
+ * Diligent の EngineFactoryD3D12 のような「初回使用時に CRT ヒープへ遅延構築され、
+ * プロセス終了の static デストラクタまで生きる」シングルトンを、CRT デバッグヒープの
+ * リーク計測スコープ (FApplication スコープ) を開く前に確定させるためのフック。
+ * これを呼ばないと、計測スコープ内で構築されたシングルトンがスコープ終了時の
+ * ダンプに残留ブロックとして現れ、実リークが無いのに leak_detected=true になる。
+ * デバイス生成は行わない。何度呼んでも安全 (2 回目以降は no-op)。
+ */
+void PrewarmRhiProcessSingletons() noexcept;
+
 } // namespace acs

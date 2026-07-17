@@ -37,6 +37,12 @@ void FApplication::RuntimeFoundationLifetime::InitializeMemoryDiagnostics() noex
         return;
     }
 
+    // レンダーバックエンドのプロセス寿命シングルトン (Diligent EngineFactory 等) を
+    // 計測スコープの外で確定させる。スコープ内で遅延構築されると、static デストラクタ
+    // でしか解放されないブロックが終了ダンプに残留し、実リーク無しでも
+    // leak_detected=true になる (IRhiDevice.h の PrewarmRhiProcessSingletons 参照)。
+    PrewarmRhiProcessSingletons();
+
     CrtDebugHeapProcessConfiguration ProcessConfiguration{};
     ProcessConfiguration.bEnableAllocationTracking = true;
     ProcessConfiguration.bEnableProcessExitLeakCheck = false;

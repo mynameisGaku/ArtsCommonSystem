@@ -19,6 +19,7 @@
 #    include "render/Diligent/DiligentTexture.h"
 #    include "render/Diligent/DiligentPipeline.h"
 #    include "render/Diligent/DiligentShader.h"
+#    include "render/Diligent/DiligentCommon.h"   // GetEngineFactoryD3D12 (Prewarm 用)
 #    include "memory/UniquePtr.h"
 
 namespace acs {
@@ -41,6 +42,16 @@ TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& configuratio
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiDevice> base(d.Release(), d.GetAllocator());
     return TResult<TUniquePtr<IRhiDevice>>(OkInit, Move(base));
+}
+
+void PrewarmRhiProcessSingletons() noexcept
+{
+    // EngineFactoryD3D12Impl は Meyers シングルトンで、初回呼び出し時にメンバ
+    // std::string が CRT ヒープへ確保される (debug CRT では _Container_proxy 16B)。
+    // デバイス生成前 = CRT リーク計測スコープの外でここを踏んでおくことで、
+    // FApplication スコープの終了ダンプに残留ブロックとして現れるのを防ぐ。
+    // 戻り値は借用参照で、ここでは使わない。
+    (void)Diligent::GetEngineFactoryD3D12();
 }
 
 TResult<TUniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device, const SwapchainConfig& cfg) noexcept

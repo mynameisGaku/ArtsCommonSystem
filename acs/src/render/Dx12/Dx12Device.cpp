@@ -488,6 +488,12 @@ TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& configuratio
     TUniquePtr<IRhiDevice> base(d.Release(), d.GetAllocator());
     return TResult<TUniquePtr<IRhiDevice>>(OkInit, Move(base));
 }
+
+void PrewarmRhiProcessSingletons() noexcept
+{
+    // raw DX12 backend は CRT ヒープへ遅延構築されるプロセス寿命シングルトンを
+    // 持たないため no-op (Diligent 側の実装コメント参照)。
+}
 #endif
 
 } // namespace acs
