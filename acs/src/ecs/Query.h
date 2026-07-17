@@ -126,7 +126,10 @@ public:
      *
      * **重要**: fn は World を構造変更 (Add/Remove/Destroy) してはならない。World/SparseSet は
      * 並行変更に対してスレッドセーフでなく、他スレッドが使用中の Comps& 参照も dangling する。
-     * 構造変更が必要なら逐次 Each を使うか、変更を後段へ遅延すること。
+     * 構造変更が必要なら `FParallelEntityCommandBuffer` (ecs/ParallelEntityCommandBuffer.h)
+     * へロックなしで記録し、EachParallel の完了後に Flush() するのが安全で推奨
+     * (per-worker バッファなので fn 内から並行に記録できる)。逐次 Each + FEntityCommandBuffer
+     * でも良い。
      * @tparam Fn (EntityId, Comps&...) を受け取る呼び出し可能型。
      * @param fn 各エンティティに適用するラムダ。
      * @param grain 1 chunk あたりの最小エンティティ数 (小さすぎると分割オーバーヘッドが

@@ -6,6 +6,8 @@
 #include "ecs/Query.h"
 #include "ecs/System.h"
 #include "ecs/EntityCommandBuffer.h"
+#include "ecs/ParallelEntityCommandBuffer.h"
+#include "threading/ThreadPool.h"
 
 using namespace acs;
 
@@ -201,6 +203,80 @@ ACS_TEST(Ecs, EntityCommandBufferGracefullyHandlesOutOfMemory)
 
     cmd.Flush();                 // 記録ゼロなので no-op、クラッシュしない
     EXPECT_TRUE(w.IsAlive(e));    // Destroy は落ちたのでエンティティは生存
+}
+
+ACS_TEST(Ecs, ParallelCommandBufferRecordsFromWorkersAndApplies)
+{
+    // EachParallel の fn 内から FParallelEntityCommandBuffer へロックなしで記録し、
+    // 完了後の Flush で一括適用できることを検証する (per-worker スロット分離の実地確認)。
+    EXPECT_TRUE(FThreadPool::Init(4).IsOk());
+    {
+        World w;
+        constexpr u32 kCount = 2000u;
+        for (u32 i = 0; i < kCount; ++i) {
+            const EntityId e = w.Create();
+            w.Add<Health>(e, {static_cast<i32>(i % 3u)});   // hp: 0,1,2,0,1,2,...
+        }
+
+        FParallelEntityCommandBuffer cmd(w);
+        EXPECT_TRUE(cmd.IsValid());
+
+        // grain を小さくして複数ワーカー + 呼び出し元 (Wait 中の steal) に分散させる。
+        w.Query<Health>().EachParallel([&cmd](EntityId e, Health& h) {
+            if (h.hp <= 0) {
+                cmd.Destroy(e);                              // hp==0 (1/3) を破棄予約
+            } else {
+                cmd.Add<Velocity>(e, {1.0f, 0.0f, 0.0f});    // 残り 2/3 へ Velocity 追加予約
+            }
+        }, 64u);
+
+        // EachParallel 中は何も適用されない。
+        EXPECT_EQ(w.EntityCount(), kCount);
+        EXPECT_EQ(cmd.Size(), static_cast<usize>(kCount));
+        EXPECT_FALSE(cmd.HasOverflowed());
+
+        cmd.Flush();
+        EXPECT_EQ(cmd.Size(), static_cast<usize>(0));
+
+        // hp==0 は 667 体 (i%3==0: 0,3,...,1998)、残り 1333 体に Velocity。
+        constexpr u32 kDestroyed = (kCount + 2u) / 3u;
+        EXPECT_EQ(w.EntityCount(), kCount - kDestroyed);
+        u32 with_velocity = 0;
+        w.Query<Velocity>().Each([&with_velocity](EntityId, Velocity&) { ++with_velocity; });
+        EXPECT_EQ(with_velocity, kCount - kDestroyed);
+    }
+    FThreadPool::Shutdown();
+}
+
+ACS_TEST(Ecs, ParallelCommandBufferWorksWithoutThreadPool)
+{
+    // プール未初期化でも構築できる (スロット = 非ワーカー用の 1 本)。逐次 Each からの
+    // 記録・Flush が単体の FEntityCommandBuffer と同じに動くことを確認する。
+    World w;
+    const EntityId a = w.Create();
+    const EntityId b = w.Create();
+    w.Add<Health>(a, {5});
+    w.Add<Health>(b, {0});
+
+    FParallelEntityCommandBuffer cmd(w);
+    EXPECT_TRUE(cmd.IsValid());
+    w.Query<Health>().Each([&cmd](EntityId e, Health& h) {
+        if (h.hp <= 0) cmd.Destroy(e);
+        else           cmd.Add<Velocity>(e, {2.0f, 0.0f, 0.0f});
+    });
+    EXPECT_EQ(cmd.Size(), static_cast<usize>(2));
+    cmd.Flush();
+
+    EXPECT_TRUE(w.IsAlive(a));
+    EXPECT_FALSE(w.IsAlive(b));
+    EXPECT_TRUE(w.Has<Velocity>(a));
+
+    // Clear は適用せず破棄する (Add の退避値もリークしない — ASan/CRT リーク検査で担保)。
+    cmd.Add<Health>(a, {99});
+    EXPECT_EQ(cmd.Size(), static_cast<usize>(1));
+    cmd.Clear();
+    EXPECT_EQ(cmd.Size(), static_cast<usize>(0));
+    EXPECT_EQ(w.Get<Health>(a)->hp, 5);
 }
 
 ACS_TEST(Ecs, QueryEachExcludingSkipsEntitiesWithExcludedComponents)
