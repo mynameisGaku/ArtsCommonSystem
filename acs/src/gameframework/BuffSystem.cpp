@@ -284,12 +284,23 @@ void FBuffSystem::SetOnExpireCallback(ExpireCallback cb, void* user) noexcept {
 void FBuffSystem::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
 
+    // コールバックは «全 owner の配列走査を終えてから» 発火する。tick/expire
+    // コールバックが ApplyBuff 等で s.buffs を再確保しても、走査中に保持している
+    // FBuffInstance& が dangling (use-after-realloc) しないようにするため
+    // (RemoveBuff と同じ「配列操作を済ませてから発火」規約を Tick へも適用する)。
+    // 発火に必要な値だけを退避する — id は非所有の文字列リテラル、owner は値なので
+    // 退避後に s.buffs が動いても安全。イベントが無ければ確保も起きない。
+    struct FTickEvent   { FBuffOwnerId owner; const char* id; u32 stack; f32 magnitude; };
+    struct FExpireEvent { FBuffOwnerId owner; const char* id; };
+    TArray<FTickEvent>   tick_events;
+    TArray<FExpireEvent> expire_events;
+
     const usize owner_n = m_Owners.Size();
     for (usize oi = 0; oi < owner_n; ++oi) {
         OwnerSlot& s = m_Owners[oi];
         if (!s.in_use) continue;
 
-        // この owner の handle を再構成 (ExpireCallback で渡すため)。
+        // この owner の handle を再構成 (コールバックで渡すため)。
         const FBuffOwnerId owner_handle = FBuffOwnerId::Pack(static_cast<u32>(oi), s.gen);
 
         // swap-and-pop で消す可能性があるため、index は降順走査が無難。
@@ -303,10 +314,10 @@ void FBuffSystem::Tick(f32 dt) noexcept {
             // remaining_sec を進める。
             b.remaining_sec -= dt;
 
-            // tick callback 発火 — duration が残っている間に、tick_interval を
-            // 消化できる回数分発火する。`def` は registry から find する
-            // (FBuffInstance に kind/magnitude/interval を持たせると registry の
-            // ホットスワップで挙動が変わって混乱するため、常に registry を参照)。
+            // tick 発火予約 — duration が残っている間に、tick_interval を消化できる
+            // 回数分イベントを積む。`def` は registry から find する (FBuffInstance に
+            // kind/magnitude/interval を持たせると registry のホットスワップで挙動が
+            // 変わって混乱するため、常に registry を参照)。
             const u32 def_slot = FindBuffDefSlot(b.id);
             if (def_slot != kNotFound) {
                 const FBuffDef& def = m_Registry[static_cast<usize>(def_slot)];
@@ -315,18 +326,19 @@ void FBuffSystem::Tick(f32 dt) noexcept {
                     while (b.tick_accum >= def.tick_interval_sec) {
                         b.tick_accum -= def.tick_interval_sec;
                         if (m_OnTick != nullptr) {
-                            m_OnTick(m_OnTickUser, owner_handle, b.id, b.stack, def.magnitude);
+                            (void)tick_events.TryPushBack(
+                                FTickEvent{ owner_handle, b.id, b.stack, def.magnitude });
                         }
                     }
                 }
             }
 
-            // 期限切れ判定 → swap-and-pop + ExpireCallback
+            // 期限切れ判定 → swap-and-pop + ExpireCallback 発火予約
             if (b.remaining_sec <= 0.0f) {
                 const char* expired_id = b.id;
                 s.buffs.RemoveAtSwap(bi);
                 if (m_OnExpire != nullptr) {
-                    m_OnExpire(m_OnExpireUser, owner_handle, expired_id);
+                    (void)expire_events.TryPushBack(FExpireEvent{ owner_handle, expired_id });
                 }
                 // bi はここまで「消したばかりの index」を指している。次の
                 // ループ先頭の `--bi` で 1 つ前に進むため、追加の補正は不要。
@@ -334,6 +346,17 @@ void FBuffSystem::Tick(f32 dt) noexcept {
                 // 訪れる予定の位置ではないので問題ない。)
             }
         }
+    }
+
+    // 走査完了後にまとめて発火する。この時点で s.buffs への参照は保持していないので、
+    // コールバックが ApplyBuff / RemoveBuff / DestroyOwner を呼んでも安全。
+    for (usize i = 0; i < tick_events.Size(); ++i) {
+        const FTickEvent& e = tick_events[i];
+        m_OnTick(m_OnTickUser, e.owner, e.id, e.stack, e.magnitude);
+    }
+    for (usize i = 0; i < expire_events.Size(); ++i) {
+        const FExpireEvent& e = expire_events[i];
+        m_OnExpire(m_OnExpireUser, e.owner, e.id);
     }
 }
 

@@ -59,6 +59,7 @@ add_executable(acs_unit_tests
     asset_registry_tests.cpp
     save_archive_tests.cpp
     content_moderator_tests.cpp
+    director_reentrancy_tests.cpp
     assetpack_lifetime_tests.cpp
     application_lifetime_tests.cpp
     win32_resource_tests.cpp

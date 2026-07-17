@@ -126,12 +126,21 @@ void FCinematicsDirector::SetEventCallback(EventCallbackFn cb, void* user) noexc
 }
 
 void FCinematicsDirector::FireUpTo(f32 up_to_time) noexcept {
-    const u32 n = static_cast<u32>(m_Keyframes.Size());
-    while (m_LastFiredIndex < n) {
+    // 発火予定の keyframe を «値で» 退避してから、走査を終えた後にまとめて発火する。
+    // keyframe callback が同 director の AddKeyframe / Clear / Stop を呼んで
+    // m_Keyframes を変更 (再確保・空化) しても、走査中の範囲外アクセスや realloc による
+    // dangling を起こさないようにする (BuffSystem::Tick と同じ「配列操作を済ませてから
+    // 発火」規約)。退避は値コピー — payload は POD union なので所有参照を持たない。
+    // 走査ループ中は callback を呼ばないので、m_Keyframes は不変で index は常に in-bounds。
+    TArray<FTimelineKeyframe> to_fire;
+    while (m_LastFiredIndex < static_cast<u32>(m_Keyframes.Size())) {
         const FTimelineKeyframe& kf = m_Keyframes[m_LastFiredIndex];
         if (kf.time_sec > up_to_time) break;   // 未来の keyframe はまだ発火しない
-        FireOne(kf);
+        (void)to_fire.TryPushBack(kf);
         ++m_LastFiredIndex;
+    }
+    for (usize i = 0; i < to_fire.Size(); ++i) {
+        FireOne(to_fire[i]);
     }
 }
 
