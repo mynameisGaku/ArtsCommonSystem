@@ -32,6 +32,20 @@ f32 FCameraStack::LerpAngle(f32 a, f32 b, f32 t) noexcept {
 
 /** カメラを top に push し、旧 top からの補間を開始する。 */
 void FCameraStack::PushCamera(FCamera2D& cam, f32 blend_duration) noexcept {
+    // Pop フェード中に Push が来た場合 (後勝ち契約): フェードアウト中の top は
+    // 除去が確定済みなので、新 top の下に埋もれて永久残留する前にここで確定
+    // させる (Tick の pop 完了処理と同じ後始末)。放置すると Tick は top しか
+    // 進めないため除去されず、後で上層を pop した際に is_in=true へ戻されて
+    // Pop 要求が静かに取り消される。
+    if (!m_Entries.IsEmpty() && !m_Entries.Back().is_in) {
+        m_Entries.PopBack();
+        if (!m_Entries.IsEmpty()) {
+            CameraEntry& new_top = m_Entries[m_Entries.Size() - 1u];
+            new_top.blend_t        = 1.0f;
+            new_top.blend_duration = 0.0f;
+            new_top.is_in          = true;
+        }
+    }
     if (m_Entries.Size() >= kMaxLayers) {
         ACS_LOG_WARN("FCameraStack::PushCamera: layer cap reached (%u) — ignored",
                      kMaxLayers);

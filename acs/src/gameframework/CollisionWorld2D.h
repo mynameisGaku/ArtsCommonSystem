@@ -421,6 +421,17 @@ private:
     void InsertSlotIntoCells(u32 slot_idx) noexcept;
 
     /**
+     * クエリ AABB のブロードフェーズ候補 slot を m_QueryScratch へ集める。
+     *
+     * @details
+     * m_QueryMarks を初期化し、セル走査 + m_HugeShapes の合算を重複なしで積む。
+     * クエリ範囲自体のセル数が上限を超える場合はセル走査を諦め、全アクティブ
+     * slot の線形走査へフォールバックする (巨大クエリでもハングしない)。
+     * @param box クエリ範囲を囲む AABB。
+     */
+    void CollectCandidates(const Aabb2& box) noexcept;
+
+    /**
      * slot[idx] が AABB と交差するかを判定する (narrow phase)。
      *
      * @param slot_idx 判定する slot のインデックス。
@@ -464,6 +475,18 @@ private:
 
     /** クエリ中の重複除去マーク (slot 数長の bool array)。 */
     TArray<u8>       m_QueryMarks;
+
+    /**
+     * セル範囲が kMaxCellsPerShape を超えた巨大形状 (slot index) の退避先。
+     *
+     * @details 巨大 (inf / 1e30 級) の extent はセル範囲が i32 全域にクランプされ、
+     * セル二重ループが事実上終わらない。グリッドに入れず本リストへ退避し、
+     * 全クエリがセル走査に加えて本リストも検査する (RebuildGridIfDirty で再構築)。
+     */
+    TArray<u32>      m_HugeShapes;
+
+    /** CollectCandidates が積むブロードフェーズ候補 (slot index、クエリ間で使い回す)。 */
+    TArray<u32>      m_QueryScratch;
 };
 
 } // namespace acs::game

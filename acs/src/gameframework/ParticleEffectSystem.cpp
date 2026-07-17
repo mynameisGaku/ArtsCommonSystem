@@ -137,8 +137,12 @@ void FParticleEffectSystem::Burst(FEmitterHandle h) noexcept {
     if (!e.in_use || e.gen != h.Gen()) return;
     if (e.def.burst_count <= 0.0f) return;
 
-    // floor で切り捨て。負値は上で弾いている。
-    const u32 n = static_cast<u32>(Floor(e.def.burst_count));
+    // floor で切り捨て。負値は上で弾いている。pool 容量以上は成功し得ないので
+    // 容量でクランプする (u32 範囲外の f32 を cast する UB と、満杯 pool への
+    // 数十億回の空 EmitOne ループの両方を防ぐ)。
+    const f32 bc  = Floor(e.def.burst_count);
+    const f32 cap = static_cast<f32>(m_Capacity);
+    const u32 n   = static_cast<u32>(bc < cap ? bc : cap);
     for (u32 i = 0; i < n; ++i) {
         EmitOne(e);
     }
