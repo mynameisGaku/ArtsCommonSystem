@@ -4,6 +4,7 @@
 #   dotnet run --project tools/acsbuild -- gen
 # ============================================================================
 set(_acsgen_gameframework_sources
+    ANode.cpp
     AccessibilityProfile.cpp
     AchievementManager.cpp
     AmbientDirector.cpp
@@ -138,6 +139,8 @@ set(_acsgen_gameframework_sources
     audio_backend/XAudio2Backend.cpp
 )
 set(_acsgen_gameframework_headers
+    AComponent.h
+    ANode.h
     AccessibilityProfile.h
     AchievementManager.h
     AcsClass.h

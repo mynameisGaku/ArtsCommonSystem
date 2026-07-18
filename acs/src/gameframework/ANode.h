@@ -1,0 +1,782 @@
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar B — ANode (統一シーンノード)
+//
+// シーンの中身を表す唯一のノードクラス。旧 FNode2D / FNode3D を統一し、2D/3D を
+// 分けない (docs/NodeUnification.md)。親子ツリーで階層 transform を持ち、各ノードが
+// OnSpawn/OnUpdate/OnDraw/OnDespawn を override してロジック・描画を書く。
+//
+// 命名規約: F = 構造体・素のクラス / A = ACS オブジェクト基底 (FObject) 継承。
+//
+// 設計選択:
+//   ・**FObject 基底**: `NewObject<MyNode>()` で生成し、親が `TObjectPtr<ANode>`
+//     (強参照) で所有、ゲームプレイ側は `TWeakObjectPtr<ANode>` で stale 安全に参照
+//     する。`AddChild(NewObject<MyNode>(args))` が標準パターン。non-copy / non-move。
+//   ・**Transform は 3D 一本** (`FTransform3D`)。2D は x,y を使い z を depth に流用
+//     する特殊ケースで、`Position2D()/SetRotation2D()/World2D()` 等のヘルパで従来の
+//     2D の書き味を維持する (Y-down / 左上原点の規約は不変)。
+//   ・**描画順はオブジェクト持ち**: `DrawLayer` (第1キー、小=奥) + `DrawPriority`
+//     (層内順序、小=奥) + ノード別 `YSortEnabled` (同層内で y+bias を priority より
+//     優先 = 見下ろし遮蔽)。シーンの描画パスが可視ノードをフラット収集して
+//     (layer, [y], priority, ツリー出現順) の安定ソートで描く。全キー 0 なら出現順 =
+//     従来ツリー順と一致 (後方互換)。
+//   ・**lifecycle**: `AddChild` 即時 `OnSpawn`、`Destroy()` で pending マーク →
+//     フレーム境界の `ResolveStructuralChanges()` で OnDespawn → 配列から除去。
+//     子ツリーが先に reap される。
+//   ・**iteration safety**: UpdateTree/DrawTree は index ベースで走査。走査中の
+//     AddChild は同フレームで走る (Unity 互換)。Destroy は遅延 reap。
+#pragma once
+
+#include "foundation/Types.h"
+#include "foundation/Move.h"
+#include "memory/UniquePtr.h"
+#include "memory/ObjectPtr.h"
+#include "container/Array.h"
+#include "container/String.h"
+#include "container/StringView.h"
+#include "gameframework/Transform2D.h"
+#include "gameframework/Transform3D.h"
+#include "gameframework/AComponent.h"
+#include "gameframework/NodeId.h"
+#include "math/Math.h"   // Atan2 (Rotation2D 抽出)
+
+namespace acs::game {
+
+class RenderContext;
+class FSceneServices;   // 非所有ポインタで参照 (include しない = ノードヘッダを軽く保つ)
+struct FMaterial2D;     // 使用マテリアル (効果プリセット)。値は m_Mat に焼き込む
+
+/**
+ * シーンの中身を表す唯一の統一ノード (旧 FNode2D / FNode3D を統合)。
+ *
+ * @details
+ * 親子ツリーで階層的な transform (FTransform3D) を持ち、各ノードが
+ * OnSpawn/OnUpdate/OnDraw/OnDespawn を override してロジック・描画を書く。
+ * `NewObject<MyNode>()` で生成して `AddChild` で所有させ、参照は
+ * `TWeakObjectPtr<ANode>` を使う。描画順は DrawLayer / DrawPriority / YSort を
+ * ノードに設定し、シーンが自動で並べる。
+ */
+class ANode : public FObject {
+public:
+    /** 空のノードを構築する (transform は単位、親なし)。 */
+    ANode() noexcept = default;
+
+    /**
+     * 名前を指定してノードを構築する。
+     *
+     * @param name ノード名 (ヒエラルキー表示やルックアップに使う)。
+     */
+    explicit ANode(FStringView name) noexcept : m_Name(name) {}
+
+    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
+    virtual ~ANode() noexcept = default;
+
+    /** コピー禁止 (ノードは親が単独所有するため)。 */
+    ANode(const ANode&)            = delete;
+
+    /** コピー代入も禁止。 */
+    ANode& operator=(const ANode&) = delete;
+
+    /** ムーブ禁止 (親が保持するポインタの安定性を保つため)。 */
+    ANode(ANode&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
+    ANode& operator=(ANode&&)      = delete;
+
+    /** AddChild でツリーに入った直後に 1 回呼ばれる初期化フック。 */
+    virtual void OnSpawn()                noexcept {}
+
+    /**
+     * 毎フレーム呼ばれる可変刻み update フック。
+     *
+     * @param dt 前フレームからの経過秒。
+     */
+    virtual void OnUpdate(f32 /*dt*/)     noexcept {}
+
+    /**
+     * 固定刻み update フック (物理・決定論ロジック)。
+     *
+     * @details
+     * 同フレームで 0..max_fixed_steps 回呼ばれる。FGame::SetFixedTimeStep が 0 のとき
+     * (= 固定 update 無効) は呼ばれない。
+     * @param fixed_dt 固定刻みの秒 (SetFixedTimeStep で指定した値)。
+     */
+    virtual void OnFixedUpdate(f32 /*fixed_dt*/) noexcept {}
+
+    /**
+     * 描画フック。スプライト等を積む。
+     *
+     * @param rc 描画コマンドを積む先のレンダーコンテキスト。
+     */
+    virtual void OnDraw(RenderContext& /*rc*/) noexcept {}
+
+    /** ツリーから除去される直前に 1 回呼ばれる後始末フック。 */
+    virtual void OnDespawn()              noexcept {}
+
+    // ------------------------------------------------------------------ 名前
+
+    /**
+     * ノード名を返す。
+     *
+     * @return ノード名 (未設定なら空)。
+     */
+    FStringView Name() const noexcept { return m_Name.View(); }
+
+    /**
+     * ノード名を設定する。
+     *
+     * @param name 新しいノード名。
+     */
+    void SetName(FStringView name) noexcept { m_Name = FString{name}; }
+
+    // ------------------------------------------------------------- transform
+
+    /**
+     * ローカル transform への可変参照を返す (位置・回転・スケールを直接書き換える)。
+     *
+     * @return ローカル transform への参照。
+     */
+    FTransform3D&       Local()       noexcept { return m_Local; }
+
+    /**
+     * ローカル transform への const 参照を返す。
+     *
+     * @return ローカル transform への const 参照。
+     */
+    const FTransform3D& Local() const noexcept { return m_Local; }
+
+    /**
+     * 親をたどって合成した world transform を返す (キャッシュなし、O(深さ))。
+     *
+     * @return world transform。
+     */
+    FTransform3D World() const noexcept;
+
+    /**
+     * ローカル位置の x,y を返す (2D ヘルパ。z は温存される)。
+     *
+     * @return ローカル位置の 2D 成分。
+     */
+    FVec2 Position2D() const noexcept { return FVec2{m_Local.position.x, m_Local.position.y}; }
+
+    /**
+     * ローカル位置の x,y を設定する (2D ヘルパ。z は温存される)。
+     *
+     * @param p 新しい 2D 位置 (Y-down / 左上原点の 2D 規約)。
+     */
+    void SetPosition2D(FVec2 p) noexcept { m_Local.position.x = p.x; m_Local.position.y = p.y; }
+
+    /**
+     * ローカル回転の Z 軸角を返す (2D ヘルパ)。
+     *
+     * @details クォータニオンから Z-twist (ZYX オイラーの yaw) を抽出する。X/Y 軸の
+     * 回転が混ざった 3D 姿勢では「Z 軸まわり成分」の近似になる。
+     * @return Z 軸回転角 (ラジアン)。
+     */
+    f32 Rotation2D() const noexcept { return RotationZOf(m_Local.rotation); }
+
+    /**
+     * ローカル回転を Z 軸回転で置き換える (2D ヘルパ)。
+     *
+     * @param rad Z 軸回転角 (ラジアン)。
+     */
+    void SetRotation2D(f32 rad) noexcept { m_Local.rotation = FQuat::AxisAngle(FVec3{0, 0, 1}, rad); }
+
+    /**
+     * ローカルスケールの x,y を返す (2D ヘルパ)。
+     *
+     * @return スケールの 2D 成分。
+     */
+    FVec2 Scale2D() const noexcept { return FVec2{m_Local.scale.x, m_Local.scale.y}; }
+
+    /**
+     * ローカルスケールの x,y を設定する (2D ヘルパ。z は温存される)。
+     *
+     * @param s 新しい 2D スケール。
+     */
+    void SetScale2D(FVec2 s) noexcept { m_Local.scale.x = s.x; m_Local.scale.y = s.y; }
+
+    /**
+     * world transform の 2D 射影を返す (2D 描画パス用)。
+     *
+     * @details x,y 位置 / Z 軸回転角 / x,y スケールを FTransform2D に詰める。
+     * @return world の 2D 射影。
+     */
+    FTransform2D World2D() const noexcept {
+        const FTransform3D w = World();
+        FTransform2D out;
+        out.position = FVec2{w.position.x, w.position.y};
+        out.rotation = RotationZOf(w.rotation);
+        out.scale    = FVec2{w.scale.x, w.scale.y};
+        return out;
+    }
+
+    // ------------------------------------------------------------ 有効/可視
+
+    /**
+     * update の有効フラグを設定する。
+     *
+     * @param b false なら subtree ごと update をスキップする。
+     */
+    void SetEnabled(bool b) noexcept { m_Enabled = b; }
+
+    /**
+     * update の有効フラグを返す。
+     *
+     * @return 有効なら true。
+     */
+    bool IsEnabled() const noexcept { return m_Enabled; }
+
+    /**
+     * 可視フラグを設定する。
+     *
+     * @param b false なら subtree ごと描画をスキップする。
+     */
+    void SetVisible(bool b) noexcept { m_Visible = b; }
+
+    /**
+     * 可視フラグを返す。
+     *
+     * @return 可視なら true。
+     */
+    bool IsVisible() const noexcept { return m_Visible; }
+
+    // ------------------------------------------------------------------ 描画順
+
+    /**
+     * 描画レイヤーを設定する (第 1 ソートキー。小さい層 = 奥 = 先に描画)。
+     *
+     * @param layer 描画レイヤー (負値可)。
+     */
+    void SetDrawLayer(i32 layer) noexcept { m_DrawLayer = layer; }
+
+    /**
+     * 描画レイヤーを返す。
+     *
+     * @return 描画レイヤー。
+     */
+    i32  DrawLayer() const noexcept { return m_DrawLayer; }
+
+    /**
+     * 層内の描画プライオリティを設定する (第 2 ソートキー。小さい値 = 奥 = 先に描画)。
+     *
+     * @param priority 層内順序 (負値可)。
+     */
+    void SetDrawPriority(i32 priority) noexcept { m_DrawPriority = priority; }
+
+    /**
+     * 層内の描画プライオリティを返す。
+     *
+     * @return 描画プライオリティ。
+     */
+    i32  DrawPriority() const noexcept { return m_DrawPriority; }
+
+    /**
+     * Y ソート参加フラグを設定する (見下ろし遮蔽)。
+     *
+     * @details 有効なノードは同レイヤー内で (world.y + YSortBias) 昇順が
+     * DrawPriority より優先される (+Y=画面下なので小さい y が奥)。
+     * @param b Y ソートに参加するなら true。
+     */
+    void SetYSortEnabled(bool b) noexcept { m_YSortEnabled = b; }
+
+    /**
+     * Y ソート参加フラグを返す。
+     *
+     * @return 参加するなら true。
+     */
+    bool IsYSortEnabled() const noexcept { return m_YSortEnabled; }
+
+    /**
+     * Y-sort の pivot バイアスを設定する。
+     *
+     * @details 足元基準にしたい場合などに world.y へ加算するオフセット。
+     * @param bias 加算するバイアス (px)。
+     */
+    void SetYSortBias(f32 bias) noexcept { m_YSortBias = bias; }
+
+    /**
+     * Y-sort の pivot バイアスを返す。
+     *
+     * @return 設定済みバイアス。
+     */
+    f32  YSortBias() const noexcept { return m_YSortBias; }
+
+    // ---------------------------------------------------------- マテリアル
+
+    /**
+     * この node に焼き込んだマテリアル効果の状態 (SpriteBatch 型に依存しない軽量 POD)。
+     *
+     * @details ANode.h を軽く保つため、効果プリセットの値だけをここに持つ
+     *          (ESpriteEffect の整数値 + パラメータ)。DrawTree が rc.Sprites().SetEffect へ渡す。
+     */
+    struct FMaterialState {
+        i32   kind     = 0;            ///< 0 = Lit/PBR, 1 = Effect。
+        bool  active   = false;        ///< マテリアルが設定されているか。
+        // --- Effect ---
+        i32   effect   = 0;            ///< ESpriteEffect の整数値 (0 = None)。
+        f32   strength = 1.0f;         ///< 主効果量。
+        f32   p0 = 0.0f, p1 = 0.0f, p2 = 0.0f;  ///< 補助パラメータ。
+        FVec4 color{ 1, 1, 1, 1 };     ///< 染め色 / 縁色。
+        bool  animated = false;        ///< true で描画時に MaterialClock() を time に流す。
+        // --- Lit (PBR) ---
+        FVec4 baseColor{ 1, 1, 1, 1 }; ///< アルベド tint + 不透明度。
+        f32   metallic = 0.0f, roughness = 0.5f, normalStrength = 1.0f, ao = 1.0f;
+        FVec3 emissive{ 0, 0, 0 };     ///< 自己発光色。
+        f32   emissiveStrength = 0.0f; ///< 発光強度。
+        void* normalTex = nullptr;     ///< 法線マップ (非所有 IRhiTexture*、シーンが所有)。null=平面。
+        // --- シェーディングモード + トゥーン ---
+        i32   shadingMode = 0;         ///< 0=PBR, 1=Toon。
+        FVec3 shadow1Color{ 0.55f, 0.52f, 0.62f }; f32 shadow1Threshold = 0.5f;
+        FVec3 shadow2Color{ 0.32f, 0.30f, 0.40f }; f32 shadow2Threshold = 0.2f;
+        FVec3 rimColor{ 1, 1, 1 };     f32 rimPower = 4.0f;
+        FVec3 specColor{ 1, 1, 1 };    f32 specThreshold = 0.85f;
+        f32   toonSoftness = 0.05f;
+        // --- Substrate 風 拡張ロブ (PBR のみ) ---
+        f32   clearcoat = 0.0f, clearcoatRoughness = 0.1f, anisotropy = 0.0f;
+        f32   specularLevel = 0.5f, specularTint = 0.0f;
+        f32   sheen = 0.0f, sheenRoughness = 0.3f;   FVec3 sheenColor{ 1, 1, 1 };
+        f32   subsurface = 0.0f;                       FVec3 subsurfaceColor{ 1.0f, 0.3f, 0.2f };
+    };
+
+    /** この node に使用マテリアル (効果 or PBR) の値を焼き込む。 */
+    void SetMaterial(const FMaterial2D& mat) noexcept;
+
+    /** 使用マテリアルを解除する。 */
+    void ClearMaterial() noexcept { m_Mat.active = false; }
+
+    /** 法線マップテクスチャを差し込む (PBR 用、非所有)。 */
+    void SetMaterialNormalTex(void* tex) noexcept { m_Mat.normalTex = tex; }
+
+    /** 焼き込み済みマテリアル状態を返す。 */
+    const FMaterialState& MaterialState() const noexcept { return m_Mat; }
+
+    /** マテリアルが設定されているかを返す。 */
+    bool HasMaterial() const noexcept { return m_Mat.active; }
+
+    /** Lit (PBR) マテリアルかを返す。 */
+    bool IsLitMaterial() const noexcept { return m_Mat.active && m_Mat.kind == 0; }
+
+    /** 自己影スキップ用のオクルーダー番号を設定する (シーンの影収集が毎フレーム設定)。 */
+    void SetSelfOccluder(i32 k) noexcept { m_SelfOccluder = k; }
+
+    /** 自己オクルーダー番号を返す (-1 = 影源でない)。 */
+    i32  SelfOccluder() const noexcept { return m_SelfOccluder; }
+
+    // ------------------------------------------------------------------ 階層
+
+    /**
+     * 親ノードを返す (root は nullptr)。
+     *
+     * @return 親ノード。
+     */
+    ANode* Parent() const noexcept { return m_Parent; }
+
+    /**
+     * 直接の子の数を返す。
+     *
+     * @return 子の数。
+     */
+    u32     ChildCount() const noexcept { return static_cast<u32>(m_Children.Size()); }
+
+    /**
+     * i 番目の子を返す。
+     *
+     * @param i 子のインデックス。
+     * @return i 番目の子 (範囲外なら nullptr)。
+     */
+    ANode* Child(u32 i) const noexcept {
+        return i < m_Children.Size() ? m_Children[i].Get() : nullptr;
+    }
+
+    /**
+     * 直接の子 `child` を、子配列内のインデックス `to` の位置へ即時に移動する (兄弟の並べ替え)。
+     *
+     * @details エディタのヒエラルキーで兄弟順を入れ替えるのに使う。他の子の相対順序は
+     * 保たれる。`child` が直接の子でなければ false。`to` は配列サイズ-1 にクランプ。
+     * 構造変更の予約ではなく即時適用 (描画/更新ループ外から呼ぶこと)。
+     * @param child 移動する直接の子。
+     * @param to 移動先インデックス。
+     * @return 移動したら true、`child` が子でなければ false。
+     */
+    bool MoveChild(ANode& child, u32 to) noexcept {
+        const u32 n = static_cast<u32>(m_Children.Size());
+        u32 from = n;
+        for (u32 i = 0; i < n; ++i) { if (m_Children[i].Get() == &child) { from = i; break; } }
+        if (from >= n) return false;
+        if (to >= n) to = n - 1;
+        if (from == to) return true;
+        TObjectPtr<ANode> moved = Move(m_Children[from]);
+        if (from < to) { for (u32 i = from; i < to; ++i) m_Children[i] = Move(m_Children[i + 1]); }
+        else           { for (u32 i = from; i > to; --i) m_Children[i] = Move(m_Children[i - 1]); }
+        m_Children[to] = Move(moved);
+        return true;
+    }
+
+    /**
+     * 子を追加して強参照を保持し、未 spawn なら OnSpawn を即時に呼ぶ。
+     *
+     * @details `AddChild(NewObject<MyNode>(args))` が標準パターン。
+     * @param child 追加する子 (強参照が移る)。
+     * @return 追加した子への参照 (チェイン記述用。null 入力時は自身)。
+     */
+    ANode& AddChild(TObjectPtr<ANode> child) noexcept;
+
+    /**
+     * 自身を「破棄予定」にマークする。
+     *
+     * @details
+     * 実際の破棄は次の ResolveStructuralChanges で起こる (OnDespawn 呼出 → 配列から
+     * 除去 → 最後の強参照が切れた時点で破棄)。
+     */
+    void Destroy() noexcept { m_PendingDestroy = true; }
+
+    /**
+     * 破棄予定フラグが立っているかを返す。
+     *
+     * @return 破棄予定なら true。
+     */
+    bool IsPendingDestroy() const noexcept { return m_PendingDestroy; }
+
+    /**
+     * 自分を `new_parent` の子に移動するよう要求する (フレーム境界で適用)。
+     *
+     * @details
+     * 自分自身 / 子孫 / root の指定は不正 (警告ログ + 無視)。OnSpawn/OnDespawn は
+     * 呼ばれない (= 既に生きているノードの移動)。
+     * @param new_parent 移動先の親ノード。
+     */
+    void Reparent(ANode& new_parent) noexcept;
+
+    /**
+     * 親付け替え予定が立っているかを返す。
+     *
+     * @return 付け替え予定なら true。
+     */
+    bool IsPendingReparent() const noexcept { return m_PendingReparentTarget != nullptr; }
+
+    /**
+     * ノード単位に振られる generational handle を返す。
+     *
+     * @return ノードの FNodeId (default は invalid)。
+     */
+    FNodeId Id() const noexcept { return m_Id; }
+
+    /** ノード ID を設定する (内部用。生成側が割り当てる)。 */
+    void   _SetId(FNodeId id) noexcept { m_Id = id; }
+
+    /**
+     * シーン直列化 ID (エディタ id) を返す (-1 = 未設定)。
+     *
+     * @return 直列化 ID。
+     */
+    i32 SerialId() const noexcept { return m_SerialId; }
+
+    /** シーン直列化 ID を設定する (内部用。ローダ/エディタが割り当てる)。 */
+    void _SetSerialId(i32 id) noexcept { m_SerialId = id; }
+
+    /**
+     * subtree (this + 子孫) から直列化 ID 一致のノードを探す (DFS、無ければ nullptr)。
+     *
+     * @param id 探す SerialId。
+     * @return 一致ノード (無ければ nullptr)。id<0 は常に nullptr。
+     */
+    ANode* FindBySerialId(i32 id) noexcept;
+
+    // ------------------------------------------------------ コンポーネント
+
+    /**
+     * T の AComponent を構築・attach し、参照を返す。
+     *
+     * @details OnAttach は即時呼出。依存コンポーネントは OnRequire で先に確保される。
+     * @tparam T 追加する AComponent 派生型。
+     * @tparam Args T のコンストラクタ引数型。
+     * @param args T のコンストラクタへ転送する引数。
+     * @return attach した T への参照。
+     */
+    template<typename T, typename... Args>
+    T& AddComponent(Args&&... args) noexcept {
+        TUniquePtr<T> comp = MakeUnique<T>(Forward<Args>(args)...);
+        T* ref = comp.Get();
+        ref->_SetOwner(this);
+        // 依存コンポーネントを先に確保 (Unity の RequireComponent 相当)。
+        ref->OnRequire(*this);
+        m_Components.PushBack(TUniquePtr<AComponent>(comp.Release(), comp.GetAllocator()));
+        ref->OnAttach(*this);
+        ref->_MaybeAttachServices(SceneServices());   // ツリーが既に services 配線済なら即 fire
+        return *ref;
+    }
+
+    /**
+     * T があれば返し、無ければ追加して返す (RequireComponent の自動追加に使う)。
+     *
+     * @tparam T 取得または追加する AComponent 派生型。
+     * @tparam Args 新規追加時に T のコンストラクタへ渡す引数型。
+     * @param args 新規追加時に T のコンストラクタへ転送する引数。
+     * @return 既存または新規に追加した T への参照。
+     */
+    template<typename T, typename... Args>
+    T& GetOrAddComponent(Args&&... args) noexcept {
+        if (T* existing = GetComponent<T>()) return *existing;
+        return AddComponent<T>(Forward<Args>(args)...);
+    }
+
+    /**
+     * 最初に見つかった T 型コンポーネントを返す。
+     *
+     * @tparam T 探す AComponent 派生型。
+     * @return 見つかった T へのポインタ (無ければ nullptr)。
+     */
+    template<typename T>
+    T* GetComponent() noexcept {
+        const void* k = ComponentKindOf<T>();
+        for (u32 i = 0; i < m_Components.Size(); ++i) {
+            if (m_Components[i] && m_Components[i]->Kind() == k) {
+                return static_cast<T*>(m_Components[i].Get());
+            }
+        }
+        return nullptr;
+    }
+
+    /**
+     * T 型コンポーネントを持っているかを返す。
+     *
+     * @tparam T 探す AComponent 派生型。
+     * @return 持っていれば true。
+     */
+    template<typename T>
+    bool HasComponent() const noexcept {
+        const void* k = ComponentKindOf<T>();
+        for (u32 i = 0; i < m_Components.Size(); ++i) {
+            if (m_Components[i] && m_Components[i]->Kind() == k) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 最初に見つかった T 型コンポーネントを 1 つ除去する (OnDetach → 破棄)。
+     *
+     * @tparam T 除去する AComponent 派生型。
+     * @return 除去したら true、見つからなければ false。
+     */
+    template<typename T>
+    bool RemoveComponent() noexcept {
+        const void* k = ComponentKindOf<T>();
+        for (u32 i = 0; i < m_Components.Size(); ++i) {
+            if (m_Components[i] && m_Components[i]->Kind() == k) {
+                m_Components[i]->OnDetach();
+                m_Components[i].Reset();
+                // compact: 末尾を i に詰める (順序は壊れる)
+                if (i + 1 < m_Components.Size()) {
+                    m_Components[i] = Move(m_Components[m_Components.Size() - 1]);
+                }
+                m_Components.PopBack();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 全コンポーネントを除去する (各 OnDetach → 破棄)。Play 終了時のクリーンアップ等に使う。
+     */
+    void RemoveAllComponents() noexcept {
+        for (u32 i = 0; i < m_Components.Size(); ++i)
+            if (m_Components[i]) { m_Components[i]->OnDetach(); m_Components[i].Reset(); }
+        m_Components.Clear();
+    }
+
+    /**
+     * attach 済みコンポーネントの数を返す。
+     *
+     * @return コンポーネント数。
+     */
+    u32 ComponentCount() const noexcept { return static_cast<u32>(m_Components.Size()); }
+
+    /**
+     * i 番目のコンポーネントを返す (型を知らない汎用列挙。範囲外は nullptr)。
+     *
+     * @param i コンポーネントのインデックス。
+     * @return i 番目のコンポーネント (範囲外なら nullptr)。
+     */
+    AComponent*       ComponentAt(u32 i)       noexcept {
+        return i < m_Components.Size() ? m_Components[i].Get() : nullptr;
+    }
+
+    /** i 番目のコンポーネントを返す (const 版)。 */
+    const AComponent* ComponentAt(u32 i) const noexcept {
+        return i < m_Components.Size() ? m_Components[i].Get() : nullptr;
+    }
+
+    /**
+     * 構築済みのコンポーネントを非テンプレートで attach する (factory 生成物の取り付けに使う)。
+     *
+     * @details
+     * reflection factory で生成した `TUniquePtr<AComponent>` の受け口。
+     * OnRequire→OnAttach の lifecycle は AddComponent と同じ。`comp` はエンジン
+     * アロケータ所有であること (CreateComponentByName が満たす)。
+     * @param comp 取り付けるコンポーネント (所有権が移る、非 null 前提)。
+     * @return attach したコンポーネントへの参照。
+     */
+    AComponent& AttachComponent(TUniquePtr<AComponent> comp) noexcept {
+        AComponent* ref = comp.Get();
+        ref->_SetOwner(this);
+        ref->OnRequire(*this);
+        m_Components.PushBack(Move(comp));
+        ref->OnAttach(*this);
+        ref->_MaybeAttachServices(SceneServices());
+        return *ref;
+    }
+
+    // --------------------------------------------- services / subsystems
+
+    /**
+     * ツリーに配線された FSceneServices を返す (root まで遡る。未配線なら nullptr)。
+     *
+     * @return 配線済み FSceneServices ポインタ (未配線は nullptr)。
+     */
+    FSceneServices* SceneServices() const noexcept;
+
+    /** services ポインタを設定する (内部用。root ノードでのみ意味を持つ)。 */
+    void _SetSceneServices(FSceneServices* svc) noexcept { m_Services = svc; }
+
+    /**
+     * ツリーに配線された World サブシステム束を返す (root まで遡る。未配線なら nullptr)。
+     *
+     * @return 配線済み FSubsystemCollection (未配線は nullptr)。
+     */
+    FSubsystemCollection* Subsystems() const noexcept;
+
+    /** サブシステム束を設定する (内部用。root ノードでのみ意味を持つ)。 */
+    void _SetSubsystems(FSubsystemCollection* subs) noexcept { m_Subsystems = subs; }
+
+    /**
+     * 型でサブシステムを取得する (root のコレクションから解決)。
+     *
+     * @tparam T FSubsystem 派生型。
+     * @return T* (未配線/未登録なら nullptr)。
+     */
+    template<typename T>
+    T* GetSubsystem() const noexcept {
+        FSubsystemCollection* s = Subsystems();
+        return (s != nullptr) ? s->Get<T>() : nullptr;
+    }
+
+    /** root に services を設定し、subtree 全コンポーネントの OnAttachServices を一度発火する。 */
+    void _ActivateServices(FSceneServices& svc) noexcept;
+
+    // ------------------------------------------------------------ ツリー実行
+
+    /**
+     * 自身と components の OnUpdate を呼び、子へ可変刻み update を伝播する。
+     *
+     * @param dt 前フレームからの経過秒。
+     */
+    void UpdateTree(f32 dt) noexcept;
+
+    /**
+     * 自身と components の OnFixedUpdate を呼び、子へ固定刻み update を伝播する。
+     *
+     * @param fixed_dt 固定刻みの秒。
+     */
+    void FixedUpdateTree(f32 fixed_dt) noexcept;
+
+    /**
+     * 自身と components を描画し、子ツリーをツリー順で描く。
+     *
+     * @details 描画順の並べ替え (DrawLayer/DrawPriority/YSort) はシーンの描画パスが
+     * フラット収集 + 安定ソートで行う。DrawTree 自体はツリー順再帰 (原子グループの
+     * 内部描画にも使われる)。
+     * @param rc 描画コマンドを積む先のレンダーコンテキスト。
+     */
+    void DrawTree(RenderContext& rc) noexcept;
+
+    /**
+     * pending 中の Destroy / Reparent をフレーム境界で確定する。
+     */
+    void ResolveStructuralChanges() noexcept;
+
+    /**
+     * this が candidate の祖先かを返す。
+     *
+     * @param candidate 判定対象。
+     * @return 祖先なら true。
+     */
+    bool IsAncestorOf(const ANode* candidate) const noexcept;
+
+private:
+    /**
+     * クォータニオンの Z 軸回転成分 (ZYX オイラーの yaw) を返す。
+     *
+     * @param q 抽出元の回転。
+     * @return Z 軸回転角 (ラジアン)。
+     */
+    static f32 RotationZOf(const FQuat& q) noexcept {
+        return ATan2(2.0f * (q.w * q.z + q.x * q.y),
+                     1.0f - 2.0f * (q.y * q.y + q.z * q.z));
+    }
+
+    /** subtree を DFS し各コンポーネントの OnAttachServices をガード付きで発火する。 */
+    void _ActivateSubtreeServices(FSceneServices* svc) noexcept;
+
+    /** ローカル transform (真値。world は親から合成)。 */
+    FTransform3D m_Local{};
+
+    /** ノード名 (ヒエラルキー表示 / ルックアップ用)。 */
+    FString      m_Name;
+
+    /** 親ノード (root は nullptr。非所有 = 親が自分を所有している)。 */
+    ANode*       m_Parent          = nullptr;
+
+    /** 子ノード群 (強参照所有)。 */
+    TArray<TObjectPtr<ANode>> m_Children;
+
+    /** attach 済みコンポーネント群 (単独所有)。 */
+    TArray<TUniquePtr<AComponent>> m_Components;
+
+    /** update 有効フラグ。 */
+    bool         m_Enabled         = true;
+
+    /** 可視フラグ。 */
+    bool         m_Visible         = true;
+
+    /** OnSpawn 発火済みフラグ。 */
+    bool         m_Spawned         = false;
+
+    /** 破棄予定フラグ (ResolveStructuralChanges で確定)。 */
+    bool         m_PendingDestroy  = false;
+
+    /** Y ソート参加フラグ。 */
+    bool         m_YSortEnabled    = false;
+
+    /** シーン直列化 ID (-1 = 未設定)。 */
+    i32          m_SerialId        = -1;
+
+    /** ノード ID (generational handle)。 */
+    FNodeId      m_Id{};
+
+    /** 親付け替え先 (nullptr = 予定なし)。 */
+    ANode*       m_PendingReparentTarget = nullptr;
+
+    /** 描画レイヤー (第 1 ソートキー、小 = 奥)。 */
+    i32          m_DrawLayer       = 0;
+
+    /** 層内描画プライオリティ (第 2 ソートキー、小 = 奥)。 */
+    i32          m_DrawPriority    = 0;
+
+    /** Y-sort の pivot バイアス。 */
+    f32          m_YSortBias       = 0.0f;
+
+    /** 使用マテリアル (効果プリセット) の焼き込み状態。active=false なら効果なし。 */
+    FMaterialState m_Mat;
+
+    /** 自分自身のオクルーダー番号 (シーンの影収集が毎フレーム設定。-1=影源でない)。 */
+    i32 m_SelfOccluder = -1;
+
+    /** ツリー root に配線される services (root のみ設定、子は walk-to-root)。 */
+    FSceneServices* m_Services = nullptr;
+
+    /** ツリー root に配線されるサブシステム束 (root のみ設定)。 */
+    FSubsystemCollection* m_Subsystems = nullptr;
+};
+
+} // namespace acs::game
