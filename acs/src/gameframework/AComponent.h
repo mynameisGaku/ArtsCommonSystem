@@ -232,6 +232,19 @@ public:
     virtual bool QueryPrimitive(i32& /*shape*/, FVec2& /*half_size*/) const noexcept { return false; }
 
     /**
+     * owner の subtree を «原子的な描画単位» として扱うべきかを返す。
+     *
+     * @details
+     * OnDraw / OnDrawPostChildren で subtree 全体を包む描画状態 (ステンシルマスク等) を
+     * 設定するコンポーネントが true を返す。true のノードはグローバル描画順ソート
+     * (ANode::DrawTreeSorted) でフラット化されず、subtree ごと 1 個の描画単位として
+     * ノード自身の DrawLayer/DrawPriority で整列し、内部は従来のツリー順で描かれる。
+     * 既定 false。末尾に追加 (append-only)。
+     * @return subtree を原子扱いするなら true。
+     */
+    virtual bool WantsAtomicSubtree() const noexcept { return false; }
+
+    /**
      * owner ツリーに配線された FSceneServices を返す (未配線なら nullptr)。
      *
      * @return 配線済み services ポインタ (owner 未設定/未配線は nullptr)。

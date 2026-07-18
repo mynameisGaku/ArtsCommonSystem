@@ -683,12 +683,52 @@ public:
     /**
      * 自身と components を描画し、子ツリーをツリー順で描く。
      *
-     * @details 描画順の並べ替え (DrawLayer/DrawPriority/YSort) はシーンの描画パスが
+     * @details 描画順の並べ替え (DrawLayer/DrawPriority/YSort) は DrawTreeSorted が
      * フラット収集 + 安定ソートで行う。DrawTree 自体はツリー順再帰 (原子グループの
      * 内部描画にも使われる)。
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
     void DrawTree(RenderContext& rc) noexcept;
+
+    /**
+     * subtree をグローバル描画順で描く (シーンの標準描画経路)。
+     *
+     * @details
+     * 可視ノードをフラット収集し `(DrawLayer, DrawPriority, [YSort: world.y+bias],
+     * ツリー出現順)` の安定ソートで並べてから各ノードの自前描画を実行する。階層は
+     * transform 専用になり、描画順はレイヤー+プライオリティで自由に制御できる。
+     *   ・Y ソートは同 layer・同 priority のノード間で適用される (足元遮蔽は
+     *     キャラ群を同 priority + YSortEnabled にする)。
+     *   ・WantsAtomicSubtree なコンポーネントを持つノード (ステンシルマスク等) は
+     *     subtree ごと 1 個の描画単位として整列し、内部はツリー順 (DrawTree)。
+     *   ・全ノードがキー 0 (layer=priority=0, YSort 無効, 原子なし) のフレームは
+     *     ソートを省略してツリー順で描く = 従来挙動と完全一致・ゼロオーバーヘッド。
+     * @param rc 描画コマンドを積む先のレンダーコンテキスト。
+     */
+    void DrawTreeSorted(RenderContext& rc) noexcept;
+
+    /**
+     * このノード自身 (OnDraw + components、子は含まない) を描画する。
+     *
+     * @details
+     * DrawTreeSorted のフラット実行が使う内部寄り API (通常はシーン経由で
+     * DrawTreeSorted を使う)。マテリアル/ライトの包み込みは DrawTree と同一。
+     * 非原子ノードの OnDrawPostChildren は直後に呼ぶ。
+     * @param rc 描画コマンドを積む先のレンダーコンテキスト。
+     */
+    void DrawSelf(RenderContext& rc) noexcept;
+
+    /**
+     * WantsAtomicSubtree なコンポーネントを持つかを返す (DrawTreeSorted の収集用)。
+     *
+     * @return 原子 subtree として扱うなら true。
+     */
+    bool HasAtomicSubtreeComponent() const noexcept {
+        for (u32 i = 0; i < m_Components.Size(); ++i) {
+            if (m_Components[i] && m_Components[i]->WantsAtomicSubtree()) return true;
+        }
+        return false;
+    }
 
     /**
      * pending 中の Destroy / Reparent をフレーム境界で確定する。

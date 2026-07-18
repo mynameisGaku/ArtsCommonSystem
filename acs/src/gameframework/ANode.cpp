@@ -153,13 +153,121 @@ void ANode::FixedUpdateTree(f32 fixed_dt) noexcept {
     }
 }
 
-/** 自身と components を描画し、子ツリーをツリー順で描く。 */
-void ANode::DrawTree(RenderContext& rc) noexcept {
+namespace {
+
+/**
+ * DrawTreeSorted の 1 描画単位 (フラット収集アイテム)。
+ */
+struct FDrawItem {
+    /** 描画するノード (非所有、収集フレーム内でのみ有効)。 */
+    ANode* node    = nullptr;
+
+    /** 第 1 キー: 描画レイヤー (昇順)。 */
+    i32   layer    = 0;
+
+    /** 第 2 キー: 層内プライオリティ (昇順)。 */
+    i32   priority = 0;
+
+    /** 第 3 キー: YSort 有効ノードの world.y + bias (昇順、両者有効時のみ比較)。 */
+    f32   y        = 0.0f;
+
+    /** YSort に参加するか。 */
+    bool  ysort    = false;
+
+    /** 原子 subtree (内部は DrawTree で描く) か。 */
+    bool  atomic   = false;
+
+    /** 安定 tie-break 用のツリー出現順。 */
+    u32   seq      = 0;
+};
+
+/**
+ * a を b より先に描くべきかを返す (厳密弱順序、安定ソート用)。
+ *
+ * @details (layer, priority, [両者 YSort 時のみ y], seq) の辞書式。Y ソートは
+ * 同 layer・同 priority の YSort ノード間でのみ効く (混在時も推移律を保つ)。
+ */
+bool DrawItemBefore(const FDrawItem& a, const FDrawItem& b) noexcept
+{
+    if (a.layer    != b.layer)    return a.layer    < b.layer;
+    if (a.priority != b.priority) return a.priority < b.priority;
+    if (a.ysort && b.ysort && a.y != b.y) return a.y < b.y;
+    return a.seq < b.seq;
+}
+
+/**
+ * 可視 subtree をフラット収集する (原子 subtree は展開しない)。
+ *
+ * @param n 収集ルート。
+ * @param out 収集先。
+ * @param any_keys レイヤー/プライオリティ/YSort/原子のいずれかが使われていたら true。
+ */
+void CollectDrawItems(ANode& n, TArray<FDrawItem>& out, bool& any_keys) noexcept
+{
+    if (!n.IsVisible() || n.IsPendingDestroy()) return;
+    FDrawItem it;
+    it.node     = &n;
+    it.layer    = n.DrawLayer();
+    it.priority = n.DrawPriority();
+    it.ysort    = n.IsYSortEnabled();
+    it.atomic   = n.HasAtomicSubtreeComponent();
+    it.y        = it.ysort ? (n.World().position.y + n.YSortBias()) : 0.0f;
+    it.seq      = static_cast<u32>(out.Size());
+    if (it.layer != 0 || it.priority != 0 || it.ysort || it.atomic) any_keys = true;
+    out.PushBack(it);
+    if (it.atomic) return;   // 内部は DrawTree (ツリー順) で一塊描画
+    for (u32 i = 0; i < n.ChildCount(); ++i) {
+        if (ANode* c = n.Child(i)) CollectDrawItems(*c, out, any_keys);
+    }
+}
+
+/**
+ * FDrawItem 配列のインデックスを安定ボトムアップ merge sort で並べる。
+ *
+ * @details STL 不使用・O(n log n)・安定。挿入ソート (SpriteSortList) と違い
+ * ノード数が数千でも劣化しない。
+ */
+void StableSortDrawOrder(const TArray<FDrawItem>& items, TArray<u32>& order, TArray<u32>& scratch) noexcept
+{
+    const u32 n = static_cast<u32>(items.Size());
+    order.Resize(n);
+    scratch.Resize(n);
+    for (u32 i = 0; i < n; ++i) order[i] = i;
+
+    u32* src = order.Data();
+    u32* dst = scratch.Data();
+    for (u32 width = 1; width < n; width *= 2) {
+        for (u32 lo = 0; lo < n; lo += width * 2) {
+            const u32 mid = (lo + width < n) ? (lo + width) : n;
+            const u32 hi  = (lo + width * 2 < n) ? (lo + width * 2) : n;
+            u32 a = lo, b = mid, w = lo;
+            while (a < mid && b < hi) {
+                // 安定性: 右が左より厳密に前のときだけ右を先に取る。
+                if (DrawItemBefore(items[src[b]], items[src[a]])) dst[w++] = src[b++];
+                else                                              dst[w++] = src[a++];
+            }
+            while (a < mid) dst[w++] = src[a++];
+            while (b < hi)  dst[w++] = src[b++];
+        }
+        u32* t = src; src = dst; dst = t;   // ping-pong
+    }
+    // 最終結果が scratch 側にある場合は order へ書き戻す。
+    if (src != order.Data()) {
+        for (u32 i = 0; i < n; ++i) order[i] = src[i];
+    }
+}
+
+} // namespace
+
+/** このノード自身 (OnDraw + components、子は含まない) を描画する。 */
+void ANode::DrawSelf(RenderContext& rc) noexcept {
     if (!m_Visible || m_PendingDestroy) return;
     // 使用マテリアル (PBR or 効果プリセット) で「この node 自身の描画」を包む。子には及ばない
     // (各 node が自分のマテリアルを持つ)。アニメ付きは共有クロックを参照する。
+    // スプライトバッチ未配線 (ヘッドレス実行) ではマテリアル包み込みをスキップする。
+    const bool has_sb = rc.HasSprites();
     bool fx = false, lit = false;
-    if (m_Mat.active && m_Mat.kind == 0) {          // PBR (Lit): 集めたライト + 法線で BRDF
+    if (has_sb && m_Mat.active && m_Mat.kind == 0) {   // PBR (Lit): 集めたライト + 法線で BRDF
         FLitMaterialParams lm;
         lm.baseColor = m_Mat.baseColor; lm.metallic = m_Mat.metallic; lm.roughness = m_Mat.roughness;
         lm.normalStrength = m_Mat.normalStrength; lm.ao = m_Mat.ao;
@@ -182,14 +290,14 @@ void ANode::DrawTree(RenderContext& rc) noexcept {
         if (selfK > 0) lm.occluderSkipMask = (1u << selfK) - 1u;
         rc.Sprites().SetLitMaterial(lm, static_cast<IRhiTexture*>(m_Mat.normalTex));   // 法線マップ (null=平面)
         lit = true;
-    } else if (m_Mat.active && m_Mat.effect != 0) { // 効果プリセット
+    } else if (has_sb && m_Mat.active && m_Mat.effect != 0) { // 効果プリセット
         FEffectParams p;
         p.strength = m_Mat.strength; p.p0 = m_Mat.p0; p.p1 = m_Mat.p1; p.p2 = m_Mat.p2;
         p.color = m_Mat.color;
         if (m_Mat.animated) p.time = MaterialClock();
         rc.Sprites().SetEffect(static_cast<ESpriteEffect>(m_Mat.effect), p);
         fx = true;
-    } else if (rc.Sprites().LightsActive()) {       // マテリアル無し + ライト有り: 既定 Lit
+    } else if (has_sb && rc.Sprites().LightsActive()) {       // マテリアル無し + ライト有り: 既定 Lit
         // ライトのあるシーンではマテリアル未設定のノードも陰影付けする。
         FLitMaterialParams lm;
         lm.roughness = 0.85f;
@@ -206,9 +314,65 @@ void ANode::DrawTree(RenderContext& rc) noexcept {
         if (m_Components[i]) m_Components[i]->OnDraw(rc);
     }
     if (lit)     rc.Sprites().ClearLit();
+    else if (fx) rc.Sprites().ClearEffect();
+    // フラット実行では子は独立アイテムとして後から描かれるため、非原子ノードの
+    // OnDrawPostChildren (no-op が既定) はここで即時に呼ぶ。
+    for (u32 i = 0; i < m_Components.Size(); ++i) {
+        if (m_Components[i]) m_Components[i]->OnDrawPostChildren(rc);
+    }
+}
+
+/** 自身と components を描画し、子ツリーをツリー順で描く。 */
+void ANode::DrawTree(RenderContext& rc) noexcept {
+    if (!m_Visible || m_PendingDestroy) return;
+    // DrawSelf と同じマテリアル包み込みだが、OnDrawPostChildren は子ツリーの後。
+    const bool has_sb = rc.HasSprites();
+    bool fx = false, lit = false;
+    if (has_sb && m_Mat.active && m_Mat.kind == 0) {
+        FLitMaterialParams lm;
+        lm.baseColor = m_Mat.baseColor; lm.metallic = m_Mat.metallic; lm.roughness = m_Mat.roughness;
+        lm.normalStrength = m_Mat.normalStrength; lm.ao = m_Mat.ao;
+        lm.emissive = m_Mat.emissive; lm.emissiveStrength = m_Mat.emissiveStrength;
+        lm.shadingMode = m_Mat.shadingMode;
+        lm.shadow1Color = m_Mat.shadow1Color; lm.shadow1Threshold = m_Mat.shadow1Threshold;
+        lm.shadow2Color = m_Mat.shadow2Color; lm.shadow2Threshold = m_Mat.shadow2Threshold;
+        lm.rimColor = m_Mat.rimColor; lm.rimPower = m_Mat.rimPower;
+        lm.specColor = m_Mat.specColor; lm.specThreshold = m_Mat.specThreshold;
+        lm.toonSoftness = m_Mat.toonSoftness;
+        lm.clearcoat = m_Mat.clearcoat; lm.clearcoatRoughness = m_Mat.clearcoatRoughness;
+        lm.anisotropy = m_Mat.anisotropy; lm.specularLevel = m_Mat.specularLevel; lm.specularTint = m_Mat.specularTint;
+        lm.sheen = m_Mat.sheen; lm.sheenRoughness = m_Mat.sheenRoughness; lm.sheenColor = m_Mat.sheenColor;
+        lm.subsurface = m_Mat.subsurface; lm.subsurfaceColor = m_Mat.subsurfaceColor;
+        const i32 selfK = (m_SelfOccluder <= -2) ? (-m_SelfOccluder - 2) : m_SelfOccluder;
+        if (m_SelfOccluder <= -2) lm.selfShadowOccluder = selfK;
+        else                      lm.selfOccluder       = selfK;
+        if (selfK > 0) lm.occluderSkipMask = (1u << selfK) - 1u;
+        rc.Sprites().SetLitMaterial(lm, static_cast<IRhiTexture*>(m_Mat.normalTex));
+        lit = true;
+    } else if (has_sb && m_Mat.active && m_Mat.effect != 0) {
+        FEffectParams p;
+        p.strength = m_Mat.strength; p.p0 = m_Mat.p0; p.p1 = m_Mat.p1; p.p2 = m_Mat.p2;
+        p.color = m_Mat.color;
+        if (m_Mat.animated) p.time = MaterialClock();
+        rc.Sprites().SetEffect(static_cast<ESpriteEffect>(m_Mat.effect), p);
+        fx = true;
+    } else if (has_sb && rc.Sprites().LightsActive()) {
+        FLitMaterialParams lm;
+        lm.roughness = 0.85f;
+        const i32 selfK = (m_SelfOccluder <= -2) ? (-m_SelfOccluder - 2) : m_SelfOccluder;
+        if (m_SelfOccluder <= -2) lm.selfShadowOccluder = selfK;
+        else                      lm.selfOccluder       = selfK;
+        if (selfK > 0) lm.occluderSkipMask = (1u << selfK) - 1u;
+        rc.Sprites().SetLitMaterial(lm, nullptr);
+        lit = true;
+    }
+    OnDraw(rc);
+    for (u32 i = 0; i < m_Components.Size(); ++i) {
+        if (m_Components[i]) m_Components[i]->OnDraw(rc);
+    }
+    if (lit)     rc.Sprites().ClearLit();
     else if (fx) rc.Sprites().ClearEffect();   // 子ツリーの前に効果を解除
-    // 子はツリー順で描く。描画順の並べ替え (DrawLayer/DrawPriority/YSort) は
-    // シーンの描画パスがフラット収集 + 安定ソートで行う (docs/NodeUnification.md)。
+    // 子はツリー順。
     for (u32 i = 0; i < m_Children.Size(); ++i) {
         ANode* c = m_Children[i].Get();
         if (c != nullptr) c->DrawTree(rc);
@@ -216,6 +380,34 @@ void ANode::DrawTree(RenderContext& rc) noexcept {
     // 子ツリー描画の後に後処理フックを呼ぶ (ステンシルマスクの解除等)。
     for (u32 i = 0; i < m_Components.Size(); ++i) {
         if (m_Components[i]) m_Components[i]->OnDrawPostChildren(rc);
+    }
+}
+
+/** subtree をグローバル描画順 (layer, priority, [y], 出現順) で描く。 */
+void ANode::DrawTreeSorted(RenderContext& rc) noexcept {
+    if (!m_Visible || m_PendingDestroy) return;
+
+    // 1) フラット収集 (原子 subtree は 1 アイテムに畳む)。
+    TArray<FDrawItem> items;
+    bool any_keys = false;
+    CollectDrawItems(*this, items, any_keys);
+
+    // 2) 全ノードがキー未使用ならソートを省略してツリー順で描く
+    //    (= 従来挙動と完全一致・ゼロオーバーヘッド)。
+    if (!any_keys) {
+        DrawTree(rc);
+        return;
+    }
+
+    // 3) 安定ソート → 4) フラット実行 (原子は subtree ごと DrawTree)。
+    TArray<u32> order;
+    TArray<u32> scratch;
+    StableSortDrawOrder(items, order, scratch);
+    for (u32 i = 0; i < order.Size(); ++i) {
+        const FDrawItem& it = items[order[i]];
+        if (it.node == nullptr) continue;
+        if (it.atomic) it.node->DrawTree(rc);
+        else           it.node->DrawSelf(rc);
     }
 }
 
