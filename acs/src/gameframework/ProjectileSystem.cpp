@@ -344,19 +344,28 @@ void FProjectileSystem::Tick(f32 dt) noexcept {
         s.inst.position.y += s.inst.velocity.y * dt;
 
         // (4) 命中チェック
+        //
+        // HitTestFn / HitCallback / ExpireCallback はユーザーコードで、再入で
+        // Despawn(この弾) や Despawn+Spawn (slot 再利用で gen が進む) を行い得る。
+        // 各コールバックの後に active と gen を再チェックし、既に despawn / 再利用
+        // 済みならこの弾の処理を打ち切る (打ち切らないと despawn の二重実行で
+        // m_AliveCount が二重デクリメントされ、AllAlive が生存弾を取りこぼす)。
         bool consumed = false;
+        const u8 entry_gen = s.gen;
         if (m_HitTestFn != nullptr) {
             u32 target_id   = 0u;
             f32 damage_done = 0.0f;
             const bool hit = m_HitTestFn(m_HitTestUser, s.inst,
                                           target_id, damage_done);
+            if (!s.active || s.gen != entry_gen) continue;
             if (hit) {
                 ++s.inst.hit_count;
-                // HitCallback 発火 (再入安全: state 更新後)
+                // HitCallback 発火 (state 更新後)
                 if (m_OnHit != nullptr) {
                     const FProjectileId pid = FProjectileId::Pack(
                         static_cast<u32>(i), s.gen);
                     m_OnHit(m_OnHitUser, pid, s.inst.def_id, target_id, damage_done);
+                    if (!s.active || s.gen != entry_gen) continue;
                 }
                 // 貫通判定: pierces=false なら 1 hit で消滅。
                 // pierces=true なら max_pierces+1 hit で消滅
@@ -382,6 +391,7 @@ void FProjectileSystem::Tick(f32 dt) noexcept {
                 const FProjectileId pid = FProjectileId::Pack(
                     static_cast<u32>(i), s.gen);
                 m_OnExpire(m_OnExpireUser, pid, s.inst.def_id);
+                if (!s.active || s.gen != entry_gen) continue;  // callback が despawn 済み
             }
             s.active            = false;
             s.has_homing_target = false;

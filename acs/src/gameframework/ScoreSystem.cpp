@@ -254,8 +254,10 @@ void FScoreSystem::CheckMilestones() noexcept {
         return;
     }
 
-    const usize n = m_Milestones.Size();
-    for (usize i = 0; i < n; ++i) {
+    // サイズはキャッシュせず毎周読む: callback (ユーザーコード) が再入で
+    // ClearAll / RegisterMilestone を呼ぶと配列長が変わるため、キャッシュした
+    // 長さで回すと縮小時に範囲外アクセスになる。
+    for (usize i = 0; i < m_Milestones.Size(); ++i) {
         if (m_MilestoneHit[i]) continue;
         if (m_CurrentScore >= m_Milestones[i]) {
             m_MilestoneHit[i] = true;

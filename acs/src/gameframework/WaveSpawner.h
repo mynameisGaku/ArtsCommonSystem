@@ -370,6 +370,24 @@ private:
     /** wave queue (定義 + 進捗)。 */
     TArray<FWaveEntry> m_Waves;
 
+    /**
+     * 1 件の発火予定 spawn (TickSpawning の走査後発火用 scratch)。
+     *
+     * @details spawn callback はユーザーコードで、再入 (AddWave の realloc /
+     * Init / Clear) で m_Waves への参照を無効化し得る。走査中は本リストに積み、
+     * 参照を手放してからまとめて発火する (BuffSystem と同じ規約)。
+     */
+    struct FPendingSpawn {
+        /** 発火する敵 id (rule 由来、caller 所有文字列)。 */
+        const char* enemy_id = nullptr;
+
+        /** 出現位置。 */
+        FVec2       position{};
+    };
+
+    /** TickSpawning が積む発火予定 spawn (走査完了後にまとめて発火)。 */
+    TArray<FPendingSpawn>   m_PendingSpawns;
+
     /** 敵出現 callback (未設定なら nullptr)。 */
     SpawnCallback           m_SpawnCb           = nullptr;
 

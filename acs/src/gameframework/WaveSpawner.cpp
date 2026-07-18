@@ -183,8 +183,14 @@ void FWaveSpawner::TickSpawning(f32 dt) noexcept {
         return;
     }
 
-    // 各 rule を独立に評価し、発火条件を満たすたびに spawn callback を呼ぶ。
+    // 各 rule を独立に評価し、発火条件を満たした spawn を m_PendingSpawns へ積む。
     // 同 Tick 内で複数発火する場合は while ループで carry する。
+    //
+    // spawn callback はここでは呼ばない: callback (ユーザーコード) が再入で
+    // AddWave (m_Waves 再確保) / Init / Clear を行うと entry / rule / spawned の
+    // 参照が dangling になるため、走査を終えて参照を手放してからまとめて発火する
+    // (BuffSystem::Tick と同じ「配列操作を済ませてから発火」規約)。
+    m_PendingSpawns.Clear();
     u32 total_completed_rules = 0u;
     for (u32 i = 0; i < def.rule_count; ++i) {
         const SpawnRule& rule = def.rules[i];
@@ -210,9 +216,7 @@ void FWaveSpawner::TickSpawning(f32 dt) noexcept {
         if (rule.spawn_interval_sec <= 0.0f) {
             if (m_WaveTimer >= rule.initial_delay_sec) {
                 while (spawned < rule.count) {
-                    if (m_SpawnCb != nullptr) {
-                        m_SpawnCb(m_SpawnCbUser, rule.enemy_id, rule.spawn_position);
-                    }
+                    m_PendingSpawns.PushBack({rule.enemy_id, rule.spawn_position});
                     ++spawned;
                     ++m_AliveCount;
                 }
@@ -224,9 +228,7 @@ void FWaveSpawner::TickSpawning(f32 dt) noexcept {
                 const f32 next_fire_time = rule.initial_delay_sec
                                          + static_cast<f32>(spawned) * rule.spawn_interval_sec;
                 if (m_WaveTimer < next_fire_time) break;
-                if (m_SpawnCb != nullptr) {
-                    m_SpawnCb(m_SpawnCbUser, rule.enemy_id, rule.spawn_position);
-                }
+                m_PendingSpawns.PushBack({rule.enemy_id, rule.spawn_position});
                 ++spawned;
                 ++m_AliveCount;
             }
@@ -235,12 +237,24 @@ void FWaveSpawner::TickSpawning(f32 dt) noexcept {
         if (spawned >= rule.count) ++total_completed_rules;
     }
 
+    // 参照を手放した後にまとめて発火する。
+    const bool all_rules_completed = (total_completed_rules >= def.rule_count);
+    for (usize p = 0; p < m_PendingSpawns.Size(); ++p) {
+        if (m_SpawnCb == nullptr) break;
+        m_SpawnCb(m_SpawnCbUser, m_PendingSpawns[p].enemy_id, m_PendingSpawns[p].position);
+    }
+    m_PendingSpawns.Clear();
+
+    // callback が再入で Stop / Init / Clear 等を行い state が Spawning でなくなった
+    // 場合は、この wave の遷移判定を続けない (外側の意思を尊重する)。
+    if (_state != EWaveState::Spawning) return;
+
     // 全 rule が count を満たしたら WaitingClear へ。
     // alive_count が既に 0 なら (= spawn と同 Tick 内で全部キル通知が来た等の
     // 病的ケース or count==0 の wave) WaitingClear を経由して即 Cleared へ
     // 遷移する。これは Tick() のメインループ側で再判定するので、ここでは
     // WaitingClear に上げるだけ。
-    if (total_completed_rules >= def.rule_count) {
+    if (all_rules_completed) {
         TransitionTo(EWaveState::WaitingClear);
     }
 }
