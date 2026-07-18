@@ -15,6 +15,9 @@ public sealed class GameFramework : AcsModule
         PublicDeps.AddRange(new[]
         {
             "Foundation", "Memory", "Container", "Threading", "Math", "Platform", "Render", "App",
+            // RollbackSession (World スナップショット履歴 + 入力台帳の rollback netcode 統合層) が
+            // acs::World / FRollbackBuffer を使う。
+            "Ecs",
         });
 
         // tools/** は ImGui ベースのエディタ群なので、raw DX12 と一緒にだけ組み込む。

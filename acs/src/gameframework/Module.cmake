@@ -89,6 +89,7 @@ set(_acsgen_gameframework_sources
     RigidBody2D.cpp
     RigidWorld2D.cpp
     RigidWorldDebug.cpp
+    RollbackSession.cpp
     SaveArchive.cpp
     SaveSlot.cpp
     Scene2D.cpp
@@ -243,6 +244,7 @@ set(_acsgen_gameframework_headers
     RigidBody2D.h
     RigidWorld2D.h
     RigidWorldDebug.h
+    RollbackSession.h
     SaveArchive.h
     SaveSlot.h
     Scene.h
@@ -310,6 +312,7 @@ set(_acsgen_gameframework_public_deps
     Platform
     Render
     App
+    Ecs
 )
 set(_acsgen_gameframework_link_public
     xaudio2
