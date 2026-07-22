@@ -10,7 +10,7 @@
 namespace acs {
 
 /** 1 セグメントの初期化設定。 */
-struct SegmentConfig {
+struct FSegmentConfig {
     /** 対象セグメントの種別。 */
     ESegment segment = ESegment::Default;
 
@@ -22,9 +22,9 @@ struct SegmentConfig {
 };
 
 /** FMemorySystem 全体の初期化設定。 */
-struct MemorySystemConfig {
+struct FMemorySystemConfig {
     /** セグメント種別ごとの設定 (ESegment::_Count 個)。 */
-    SegmentConfig segments[(usize)ESegment::_Count];
+    FSegmentConfig segments[(usize)ESegment::_Count];
 
     /**
      * true なら Init で既定アロケータを Default セグメントへ差し替える。
@@ -39,7 +39,7 @@ struct MemorySystemConfig {
 };
 
 /** 1 セグメントの統計スナップショット。 */
-struct SegmentStats {
+struct FSegmentStats {
     /** セグメント種別。 */
     ESegment segment;
 
@@ -63,7 +63,7 @@ struct SegmentStats {
 };
 
 /** 保守点でバックエンドを独立走査した 1 セグメントの診断結果。 */
-struct MemorySegmentInspection {
+struct FMemorySegmentInspection {
     /** 検査対象セグメント。 */
     ESegment segment = ESegment::Default;
 
@@ -98,8 +98,8 @@ struct MemorySegmentInspection {
     bool matches_authoritative_statistics = false;
 };
 
-/** MemorySystem の終了診断に使う未解放メモリ集計。 */
-struct MemoryLeakSummary {
+/** FMemorySystem の終了診断に使う未解放メモリ集計。 */
+struct FMemoryLeakSummary {
     /** Temp を除く全セグメントの未解放バイト数。 */
     u64 outstanding_bytes = 0;
 
@@ -117,13 +117,13 @@ struct MemoryLeakSummary {
 };
 
 /** 割り当て元追跡の差分開始位置。 */
-struct MemoryTrackingCheckpoint {
+struct FMemoryTrackingCheckpoint {
     /** チェックポイント取得時点で最後に発行済みの割り当て番号。 */
     u64 allocation_sequence = 0;
 };
 
 /** デバッグ追跡表から取得する未解放割り当て情報。 */
-struct OutstandingMemoryAllocation {
+struct FOutstandingMemoryAllocation {
     /** 利用者へ返したメモリアドレス。 */
     const void* address = nullptr;
 
@@ -153,7 +153,7 @@ struct OutstandingMemoryAllocation {
 };
 
 /** 割り当て元追跡の収集結果。 */
-struct MemoryTrackingReport {
+struct FMemoryTrackingReport {
     /** チェックポイントより後に残っている割り当て件数。 */
     u64 outstanding_allocation_count = 0;
 
@@ -191,7 +191,7 @@ public:
      * @param Configuration セグメントごとの設定。
      * @return 成功なら空の TResult、初期化失敗ならエラー。
      */
-    static TResult<void> Init(const MemorySystemConfig& Configuration) noexcept;
+    static TResult<void> Init(const FMemorySystemConfig& Configuration) noexcept;
 
     /**
      * 全セグメントを解放する。
@@ -206,9 +206,9 @@ public:
     /**
      * 小規模テスト・すぐ動かす用の既定設定を返す。
      *
-     * @return 各セグメントに実用的なハード予算を設定した MemorySystemConfig。
+     * @return 各セグメントに実用的なハード予算を設定した FMemorySystemConfig。
      */
-    static MemorySystemConfig DefaultConfig() noexcept;
+    static FMemorySystemConfig DefaultConfig() noexcept;
 
     /**
      * 指定セグメントのアロケータを返す。
@@ -220,7 +220,7 @@ public:
     static FAllocator* Get(ESegment Segment) noexcept;
 
     /**
-     * 現在のセグメント (ScopedMemorySegment が設定した TLS の値) を返す。
+     * 現在のセグメント (FScopedMemorySegment が設定した TLS の値) を返す。
      *
      * @return 現在のセグメント種別。
      */
@@ -253,7 +253,7 @@ public:
      * @param OutputCapacity Output の容量。
      * @return 実際に書き込んだ要素数。Init 前と Shutdown 開始後は 0。
      */
-    static u32 GetStats(SegmentStats* Output, u32 OutputCapacity) noexcept;
+    static u32 GetStats(FSegmentStats* Output, u32 OutputCapacity) noexcept;
 
     /**
      * 指定セグメントの具象アロケータを独立走査する。
@@ -263,13 +263,13 @@ public:
      * @param Segment 検査対象セグメント。
      * @return 仮想予約・コミット・生存ブロックと通常統計の整合結果。
      */
-    static MemorySegmentInspection InspectSegmentMemory(ESegment Segment) noexcept;
+    static FMemorySegmentInspection InspectSegmentMemory(ESegment Segment) noexcept;
 
     /**
      * 一括Resetされるframe arenaを除く、通常ヒープの未解放メモリを集計する。
      * @return 終了時リーク判定に使える集計値。未初期化時はゼロ。
      */
-    static MemoryLeakSummary CaptureLeakSummary() noexcept;
+    static FMemoryLeakSummary CaptureLeakSummary() noexcept;
 
     /**
      * 現在の割り当て番号を差分追跡の開始位置として取得する。
@@ -277,19 +277,19 @@ public:
      * @details Debug はこの後に確保・再確保された領域だけを収集できる。追跡無効ビルドではゼロを返す。
      * @return 差分収集へ渡せるチェックポイント。
      */
-    static MemoryTrackingCheckpoint CaptureMemoryTrackingCheckpoint() noexcept;
+    static FMemoryTrackingCheckpoint CaptureMemoryTrackingCheckpoint() noexcept;
 
     /**
      * チェックポイントより後に残る割り当て元情報を、呼び出し側の固定長配列へ収集する。
      *
-     * @details 追跡表自身は Win32 プロセスヒープを使うため、MemorySystem へ再帰確保しない。
+     * @details 追跡表自身は Win32 プロセスヒープを使うため、FMemorySystem へ再帰確保しない。
      * @param Checkpoint 差分開始位置。ゼロなら現在の全未解放割り当てを対象にする。
      * @param Output 書き込み先配列。件数だけ調べる場合は nullptr。
      * @param OutputCapacity Output の要素容量。
      * @return 総件数・要求バイト数・追跡完全性を含むレポート。
      */
-    static MemoryTrackingReport CollectOutstandingMemoryAllocations(MemoryTrackingCheckpoint Checkpoint,
-                                                                    OutstandingMemoryAllocation* Output,
+    static FMemoryTrackingReport CollectOutstandingMemoryAllocations(FMemoryTrackingCheckpoint Checkpoint,
+                                                                    FOutstandingMemoryAllocation* Output,
                                                                     u32 OutputCapacity) noexcept;
 
     /**
@@ -299,7 +299,7 @@ public:
      * @param MaximumLoggedAllocationCount 詳細行の最大件数。ゼロなら集計行だけを出す。
      * @return ログ対象の総件数・要求バイト数・追跡完全性を含むレポート。
      */
-    static MemoryTrackingReport DumpOutstandingMemoryAllocations(MemoryTrackingCheckpoint Checkpoint = {},
+    static FMemoryTrackingReport DumpOutstandingMemoryAllocations(FMemoryTrackingCheckpoint Checkpoint = {},
                                                                  u32 MaximumLoggedAllocationCount = 256) noexcept;
 
     /**
@@ -319,23 +319,23 @@ public:
 };
 
 /** RAII でカレントセグメントを切り替える (スコープ脱出で元に戻す)。 */
-class ScopedMemorySegment {
+class FScopedMemorySegment {
 public:
     /**
      * カレントセグメントを Segment に切り替える (旧値を退避)。
      *
      * @param Segment スコープ内で使うセグメント種別。
      */
-    explicit ScopedMemorySegment(ESegment Segment) noexcept;
+    explicit FScopedMemorySegment(ESegment Segment) noexcept;
 
     /** カレントセグメントを退避していた値に戻す。 */
-    ~ScopedMemorySegment() noexcept;
+    ~FScopedMemorySegment() noexcept;
 
     /** コピー禁止 (スコープガードのため)。 */
-    ScopedMemorySegment(const ScopedMemorySegment&) = delete;
+    FScopedMemorySegment(const FScopedMemorySegment&) = delete;
 
     /** コピー代入も禁止。 */
-    ScopedMemorySegment& operator=(const ScopedMemorySegment&) = delete;
+    FScopedMemorySegment& operator=(const FScopedMemorySegment&) = delete;
 
 private:
     /** 構築時のカレントセグメント (デストラクタで復元する)。 */

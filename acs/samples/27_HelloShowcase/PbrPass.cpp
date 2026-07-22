@@ -40,14 +40,14 @@ FMat4 OrbTransform(u32 i, f32 phase) noexcept {
 
 } // namespace
 
-void ExecutePbrPass(Assets& a, IRhiCommandList& cl,
+void ExecutePbrPass(FAssets& a, IRhiCommandList& cl,
                     IRhiTexture& hdr, IRhiTexture& depth,
                     const FCamera& camera,
                     const FMat4& view_proj_jittered,
                     FVec3 cam_pos, f32 orb_phase,
                     bool ssr_warm, bool ssao_warm,
                     FMat4 (&orb_curr_out)[kOrbCount]) noexcept {
-    cl.BeginRenderToTexture(hdr, ClearColor{0, 0, 0, 1}, &depth, 1.0f);
+    cl.BeginRenderToTexture(hdr, FClearColor{0, 0, 0, 1}, &depth, 1.0f);
 
     FViewport vp{};
     vp.width  = static_cast<f32>(hdr.Width());
@@ -89,8 +89,8 @@ void ExecutePbrPass(Assets& a, IRhiCommandList& cl,
 
     // 4 体の sphere (ガラス系は refraction pass で描くため skip)
     for (u32 i = 0; i < kSphereCount; ++i) {
-        const MaterialKind k = kSphereKind[i];
-        if (k == MaterialKind::ClearGlass || k == MaterialKind::FrostedGlass) {
+        const EMaterialKind k = kSphereKind[i];
+        if (k == EMaterialKind::ClearGlass || k == EMaterialKind::FrostedGlass) {
             continue;
         }
         const FMat4 m = FMat4::Scale(FVec3{kSphereScale, kSphereScale, kSphereScale}) *
@@ -98,7 +98,7 @@ void ExecutePbrPass(Assets& a, IRhiCommandList& cl,
         ResetMaterialLobes(a.pbr);
         a.pbr.SetEmissive(FVec3{0, 0, 0}, 0.0f);
 
-        if (k == MaterialKind::Gold) {
+        if (k == EMaterialKind::Gold) {
             // 金: metallic 1.0、low roughness、base color は典型的な金
             a.pbr.DrawMesh(cl, a.gm_sphere, m,
                            FVec3{1.00f, 0.78f, 0.34f}, 1.0f, 0.15f, 1.0f);

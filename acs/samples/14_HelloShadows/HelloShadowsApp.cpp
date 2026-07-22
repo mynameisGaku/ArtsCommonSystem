@@ -16,7 +16,7 @@ using namespace acs;
 
 namespace helloshadows {
 
-void HelloShadowsApp::OnStart() noexcept {
+void FHelloShadowsApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -49,18 +49,18 @@ void HelloShadowsApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloShadows initialized");
 }
 
-void HelloShadowsApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloShadowsApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
     m_Time += dt;
 
-    if (Input::IsKeyDown(EKey::Space)) m_SunYaw += dt * 0.6f;
+    if (FInput::IsKeyDown(EKey::Space)) m_SunYaw += dt * 0.6f;
 
     // カメラ操作 (yaw/pitch + WASD で平行移動、pitch は ±81 度に clamp)
     const f32 mv = 5.0f * dt, tr = 1.5f * dt;
-    if (Input::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
-    if (Input::IsKeyDown(EKey::Right)) m_CamYaw += tr;
-    if (Input::IsKeyDown(EKey::Up))    m_CamPitch -= tr * 0.8f;
-    if (Input::IsKeyDown(EKey::Down))  m_CamPitch += tr * 0.8f;
+    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
+    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw += tr;
+    if (FInput::IsKeyDown(EKey::Up))    m_CamPitch -= tr * 0.8f;
+    if (FInput::IsKeyDown(EKey::Down))  m_CamPitch += tr * 0.8f;
     const f32 limit = 0.45f * kPi;
     if (m_CamPitch >  limit) m_CamPitch =  limit;
     if (m_CamPitch < -limit) m_CamPitch = -limit;
@@ -68,14 +68,14 @@ void HelloShadowsApp::OnUpdate(f32 dt) noexcept {
                  -Sin(m_CamPitch),
                   Cos(m_CamYaw) * Cos(m_CamPitch) };
     FVec3 right{ Cos(m_CamYaw), 0, -Sin(m_CamYaw) };
-    if (Input::IsKeyDown(EKey::W)) m_CamPos += forward * mv;
-    if (Input::IsKeyDown(EKey::S)) m_CamPos -= forward * mv;
-    if (Input::IsKeyDown(EKey::D)) m_CamPos += right   * mv;
-    if (Input::IsKeyDown(EKey::A)) m_CamPos -= right   * mv;
+    if (FInput::IsKeyDown(EKey::W)) m_CamPos += forward * mv;
+    if (FInput::IsKeyDown(EKey::S)) m_CamPos -= forward * mv;
+    if (FInput::IsKeyDown(EKey::D)) m_CamPos += right   * mv;
+    if (FInput::IsKeyDown(EKey::A)) m_CamPos -= right   * mv;
     m_Camera.SetLookAt(m_CamPos, m_CamPos + forward);
 }
 
-void HelloShadowsApp::OnRender() noexcept {
+void FHelloShadowsApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
 
@@ -97,7 +97,7 @@ void HelloShadowsApp::OnRender() noexcept {
         m_Batch.Begin(*cl, sw, sh);
         char buf[160];
         std::snprintf(buf, sizeof(buf),
-                      "シャドウマップ %ux%u  PCSS 4x4+4x4  FPS: %.1f",
+                      "シャドウマップ %ux%u  Vogel PCSS 16+24  FPS: %.1f",
                       m_Shadow.Size(), m_Shadow.Size(), static_cast<double>(FPS()));
         m_Batch.DrawString(m_Font, buf, 20, 20, FVec4{1, 1, 1, 1});
         m_Batch.DrawString(m_Font, "WASD: 移動  矢印: 視点  Space: 太陽回転  Esc: 終了",
@@ -106,13 +106,13 @@ void HelloShadowsApp::OnRender() noexcept {
     }
 }
 
-void HelloShadowsApp::OnShutdown() noexcept {
+void FHelloShadowsApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Batch.Shutdown();
-    m_GmPlane  = GpuMesh{};
-    m_GmSphere = GpuMesh{};
-    m_GmCube   = GpuMesh{};
+    m_GmPlane  = FGpuMesh{};
+    m_GmSphere = FGpuMesh{};
+    m_GmCube   = FGpuMesh{};
     m_Shadow.Shutdown();
     m_Shader.Shutdown();
     m_Sky.Shutdown();

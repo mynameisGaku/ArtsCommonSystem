@@ -15,12 +15,12 @@ using namespace acs;
 
 namespace hellonet {
 
-int HelloNetApp::Run() noexcept {
+int FHelloNetApp::Run() noexcept {
     FLogConfig lc{};
     lc.console = true;
     FLogger::Init(lc);
 
-    if (auto r = Network::Init(); r.IsErr()) {
+    if (auto r = FNetwork::Init(); r.IsErr()) {
         ACS_LOG_ERROR("Network::Init failed: %s", r.Error().message);
         return 1;
     }
@@ -35,14 +35,14 @@ int HelloNetApp::Run() noexcept {
     // 少し待ってから接続 (Listener が起動するまで)
     SleepMs(100);
 
-    auto cr = TcpConnection::Connect(IpAddress::Loopback(), kEchoPort);
+    auto cr = FTcpConnection::Connect(FIpAddress::Loopback(), kEchoPort);
     if (cr.IsErr()) {
         ACS_LOG_ERROR("Connect failed: %s", cr.Error().message);
         server.Join();
-        Network::Shutdown();
+        FNetwork::Shutdown();
         return 3;
     }
-    TcpConnection client = Move(cr.Value());
+    FTcpConnection client = Move(cr.Value());
 
     const char* msg = "Hello, ACS Network!";
     client.Send(msg, ::strlen(msg));
@@ -55,7 +55,7 @@ int HelloNetApp::Run() noexcept {
     }
 
     server.Join();
-    Network::Shutdown();
+    FNetwork::Shutdown();
     FLogger::Shutdown();
     return 0;
 }

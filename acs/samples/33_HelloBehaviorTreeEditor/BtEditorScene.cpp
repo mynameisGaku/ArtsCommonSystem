@@ -18,7 +18,7 @@ using namespace acs::game;
 
 namespace hellobt {
 
-void BtEditorScene::OnEnter() noexcept {
+void FBtEditorScene::OnEnter() noexcept {
     // editor らしいニュートラルグレー (background は ImGui がほぼ覆う)。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
 
@@ -57,7 +57,7 @@ void BtEditorScene::OnEnter() noexcept {
     ACS_LOG_INFO("[BtEditor] entered (graph-run + dynamic blackboard)");
 }
 
-void BtEditorScene::OnExit() noexcept {
+void FBtEditorScene::OnExit() noexcept {
     // registry / blackboard を解除してから Shutdown。
     m_Panel.SetActionRegistry(nullptr);
     m_Panel.SetConditionRegistry(nullptr);
@@ -68,8 +68,8 @@ void BtEditorScene::OnExit() noexcept {
     ACS_LOG_INFO("[BtEditor] exited");
 }
 
-void BtEditorScene::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) {
+void FBtEditorScene::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -83,7 +83,7 @@ void BtEditorScene::OnUpdate(f32 dt) noexcept {
     m_Panel.OnFrameBegin(dt);
 }
 
-void BtEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
+void FBtEditorScene::OnRender(FRenderContext& /*rc*/) noexcept {
     // MainMenuBar: File > Reset Tree / Quit
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {

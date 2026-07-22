@@ -1,4 +1,4 @@
-# Validate the project-template ACSCENE strings load correctly via the editor ABI.
+# プロジェクトテンプレートの ACSCENE 文字列を editor ABI 経由で正しく読めるか検証する。
 $ErrorActionPreference = 'Stop'
 $bin = "C:\dev\acs_github\acs\editor\AcsEditor\bin\Release\net10.0-windows\win-x64"
 Copy-Item "C:\dev\acs_github\acs\Binaries\Release\acs_editor_abi.dll" $bin -Force -ErrorAction SilentlyContinue
@@ -29,12 +29,12 @@ ACSCENE v1
 1 -1 0.0000 220.0000 0.0000 7.0000 0.4000 48.00 0.250 0.280 0.340 1.000 Ground
 2 -1 0.0000 -160.0000 0.0000 1.0000 1.0000 48.00 0.150 0.850 1.000 1.000 Player
 3 -1 -260.0000 40.0000 0.0000 1.2000 3.0000 48.00 0.220 0.240 0.300 1.000 WallLeft
-COMP 1 FPrimitiveRenderer2D
-COMP 1 FRigidBody2D
-COMP 2 FPrimitiveRenderer2D
-COMP 2 FRigidBody2D
-COMP 3 FPrimitiveRenderer2D
-COMP 3 FRigidBody2D
+COMP 1 APrimitiveRenderer2D
+COMP 1 ARigidBody2D
+COMP 2 APrimitiveRenderer2D
+COMP 2 ARigidBody2D
+COMP 3 APrimitiveRenderer2D
+COMP 3 ARigidBody2D
 CPROP 1 1 0 0.000 0.000 0.000 0.000
 CPROP 2 1 0 1.000 0.000 0.000 0.000
 CPROP 3 1 0 0.000 0.000 0.000 0.000
@@ -57,7 +57,7 @@ $s = [EdT]::S([EdT]::acs_editor_scene_serialize($h))
 $comp = @(($s -split "`n") | Where-Object { $_ -like "COMP *" })
 $cpr  = @(($s -split "`n") | Where-Object { $_ -like "CPROP *" })
 Check ($comp.Count -eq 6) "6 COMP lines round-tripped (got $($comp.Count))"
-# bodyType: Ground/Wall static(0), Player dynamic(1)
+# bodyType: Ground/Wall は static(0)、Player は dynamic(1)
 Check (($s -split "`n") -contains "CPROP 1 1 0 0.0000 0.0000 0.0000 0.0000") "Ground bodyType=Static preserved"
 Check (($s -split "`n") -contains "CPROP 2 1 0 1.0000 0.0000 0.0000 0.0000") "Player bodyType=Dynamic preserved"
 Write-Host "  CPROP lines:"; $cpr | ForEach-Object { Write-Host "    $_" }

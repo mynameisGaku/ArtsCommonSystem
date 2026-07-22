@@ -18,17 +18,17 @@ namespace hellowin {
 
 using namespace acs;
 
-void HelloWindowApp::OnStart() noexcept {
+void FHelloWindowApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloWindow started");
 }
 
-void HelloWindowApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloWindowApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
 
-    if (Input::IsKeyDown(EKey::W)) m_R += dt;
-    if (Input::IsKeyDown(EKey::S)) m_R -= dt;
-    if (Input::IsKeyDown(EKey::A)) m_G += dt;
-    if (Input::IsKeyDown(EKey::D)) m_G -= dt;
+    if (FInput::IsKeyDown(EKey::W)) m_R += dt;
+    if (FInput::IsKeyDown(EKey::S)) m_R -= dt;
+    if (FInput::IsKeyDown(EKey::A)) m_G += dt;
+    if (FInput::IsKeyDown(EKey::D)) m_G -= dt;
     // 0..1 にクランプ (SetClearColor は範囲外の値を受け取ると見た目が破綻する)
     if (m_R < 0) m_R = 0; if (m_R > 1) m_R = 1;
     if (m_G < 0) m_G = 0; if (m_G > 1) m_G = 1;
@@ -44,16 +44,16 @@ void HelloWindowApp::OnUpdate(f32 dt) noexcept {
     }
 }
 
-void HelloWindowApp::OnRender() noexcept {
+void FHelloWindowApp::OnRender() noexcept {
     // 描画コマンドを追加するならここ。HelloWindow では背景クリアのみ。
 }
 
-void HelloWindowApp::OnShutdown() noexcept {
+void FHelloWindowApp::OnShutdown() noexcept {
     ACS_LOG_INFO("HelloWindow shutting down");
 }
 
-void HelloWindowApp::OnEvent(const Event& e) noexcept {
-    if (e.type == EventType::WindowResize) {
+void FHelloWindowApp::OnEvent(const FEvent& e) noexcept {
+    if (e.type == EEventType::WindowResize) {
         ACS_LOG_INFO("FWindow resized to %ux%u", e.resize.width, e.resize.height);
     }
 }

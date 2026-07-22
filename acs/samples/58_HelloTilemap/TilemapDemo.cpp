@@ -4,7 +4,7 @@
 //   Title シーン (テキストのみ) ── [Space] ──▶ Level シーン (タイルマップ)
 //          ▲───────────────────── [Esc] ──────────────┘
 //   遷移は FGame::TransitionTo() の FadeInOut で行う (暗転中にシーン差し替え)。
-//   タイルは FTilemapComponent が 2x2 アトラスのセルとして描画する。
+//   タイルは ATilemapComponent が 2x2 アトラスのセルとして描画する。
 #include "gameframework/GameFramework.h"
 #include "render/IRhiTexture.h"
 #include "platform/InputCodes.h"
@@ -14,8 +14,8 @@ using namespace acs::game;
 
 namespace {
 
-constexpr ActionId kStart("Start");
-constexpr ActionId kBack ("Back");
+constexpr FActionId kStart("Start");
+constexpr FActionId kBack ("Back");
 
 class FTitleScene;
 class FLevelScene;
@@ -66,9 +66,9 @@ public:
         IRhiDevice* dev = GetGame().GetRenderer().Device();
         if (dev != nullptr) m_Atlas = MakeTileAtlas(*dev);
 
-        auto node = MakeUnique<FNode2D>();
-        node->Local().position = FVec2{-8.0f, -5.5f};      // マップ原点 (左上寄り。Y-down: row0 が画面上)
-        auto& tm = node->AddComponent<FTilemapComponent>();
+        auto node = NewObject<ANode>();
+        node->SetPosition2D(FVec2{-8.0f, -5.5f});      // マップ原点 (左上寄り。Y-down: row0 が画面上)
+        auto& tm = node->AddComponent<ATilemapComponent>();
         tm.Map().Init(/*w=*/16, /*h=*/11, /*layers=*/1, /*tile_size=*/1.0f);
         tm.Map().Fill(FTileId{1});                          // 全面 草
         tm.Map().FillRect(0, 0, 15, 0,  FTileId{2});        // 上端 石 (row0 = 画面上)
@@ -85,7 +85,7 @@ public:
 
     void OnTick(f32 dt) noexcept override;   // 下で定義 (FTitleScene を参照するため)
 
-    void OnDrawHud(RenderContext& rc, FSpriteBatch& sb) noexcept override {
+    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
         sb.DrawRect(8.0f, 8.0f, 470.0f, 30.0f, FVec4{0, 0, 0, 0.45f});
         if (rc.HasFont()) {
             sb.DrawString(rc.GetFont(), "Level (tilemap)  [Esc] -> title",
@@ -108,7 +108,7 @@ public:
 
     void OnTick(f32 dt) noexcept override;   // 下で定義
 
-    void OnDrawHud(RenderContext& rc, FSpriteBatch& sb) noexcept override {
+    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
         sb.DrawRect(8.0f, 8.0f, 540.0f, 30.0f, FVec4{0, 0, 0, 0.45f});
         if (rc.HasFont()) {
             sb.DrawString(rc.GetFont(), "HelloTilemap Title   [Space] start   [Esc] quit",
@@ -136,7 +136,7 @@ void FTitleScene::OnTick(f32 /*dt*/) noexcept {
 
 class FTilemapGame final : public FGame {
 protected:
-    TUniquePtr<Scene> InitialScene() noexcept override {
+    TUniquePtr<FScene> InitialScene() noexcept override {
         return MakeUnique<FTitleScene>();
     }
 };

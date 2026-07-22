@@ -15,7 +15,7 @@ namespace hellosa {
 // ----------------------------------------------------------------------------
 // OnEnter — workspace 初期化 + dummy FSpritePack 構築 + editor panel 登録
 // ----------------------------------------------------------------------------
-void SpriteAtlasScene::OnEnter() noexcept {
+void FSpriteAtlasScene::OnEnter() noexcept {
     // editor らしいニュートラルグレー (背景は ImGui に隠れるが viewport の
     // 外側のクリア色を編集向けに揃える)。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
@@ -24,7 +24,7 @@ void SpriteAtlasScene::OnEnter() noexcept {
 
     // 実 texture path は文字列リテラルとして渡すだけ (loader 未配線)。
     // panel の viewport は texture を描かず grid placeholder で代用する。
-    SpritePackInfo info{};
+    FSpritePackInfo info{};
     info.atlas_texture_path = "assets/dummy_atlas.png";
     info.atlas_width        = 256u;
     info.atlas_height       = 256u;
@@ -32,7 +32,7 @@ void SpriteAtlasScene::OnEnter() noexcept {
 
     // 3 frame (Idle / Walk / Jump 各 32x32) を登録。
     // name は文字列リテラル (FSpritePack 規約: caller 所有 / リテラル前提)。
-    SpriteFrame f{};
+    FSpriteFrame f{};
     f.w = 32u;
     f.h = 32u;
     f.pivot_x = 0.5f;
@@ -66,7 +66,7 @@ void SpriteAtlasScene::OnEnter() noexcept {
 // ----------------------------------------------------------------------------
 // OnExit — 逆順 shutdown
 // ----------------------------------------------------------------------------
-void SpriteAtlasScene::OnExit() noexcept {
+void FSpriteAtlasScene::OnExit() noexcept {
     // FEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
     // 呼んでから list を Clear するため、個別 UnregisterPanel は不要。
     m_Workspace.Shutdown();
@@ -86,8 +86,8 @@ void SpriteAtlasScene::OnExit() noexcept {
 // ImGui 関連 (Workspace::TickAllPanels が呼ぶ DrawDockSpace / MenuBar / panel
 // DrawUI) はすべて OnRender 側へ。ImGui::Begin 等は NewFrame() と Render() の
 // 間でしか呼べないため、ここで Workspace::TickAllPanels は呼ばない。
-void SpriteAtlasScene::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) {
+void FSpriteAtlasScene::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -97,9 +97,9 @@ void SpriteAtlasScene::OnUpdate(f32 dt) noexcept {
 // ----------------------------------------------------------------------------
 // OnRender — File menu (Save/Load stub) → Workspace 全描画
 // ----------------------------------------------------------------------------
-void SpriteAtlasScene::OnRender(RenderContext& /*rc*/) noexcept {
+void FSpriteAtlasScene::OnRender(FRenderContext& /*rc*/) noexcept {
     // ImGui は同一フレーム内で BeginMainMenuBar を複数回呼んでも 1 個の bar に
-    // マージするので、本 sample 専用の File メニューを Workspace の FWindow/
+    // マージするので、本 sample 専用の File メニューを Workspace の Window/
     // Layout メニューと並べて表示できる。
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {

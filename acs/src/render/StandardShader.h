@@ -22,10 +22,12 @@
 //                FVec3{1,1,1}, 0.5f, 64.0f, /*albedo=*/nullptr);
 //
 // 細かい制御版 (オブジェクト CB を上書きしないとき等):
-//   shd.SetObject(model_mat, FVec3{1,1,1}, /*specular_strength=*/0.5f, /*shininess=*/64.0f);
+//   if (!shd.SetObject(model_mat, FVec3{1,1,1},
+//                      /*specular_strength=*/0.5f, /*shininess=*/64.0f)) return;
 //   auto* cl = renderer.CommandList();
 //   cl->SetPipeline(*shd.Pipeline());
 //   cl->SetConstantBuffer(0, *shd.PerFrameCB());
+//   // SetObject ごとに異なる CB になるため、各 draw の直前に再 bind する。
 //   cl->SetConstantBuffer(1, *shd.PerObjectCB());
 //   cl->SetTexture(0, my_texture_or_shd.DefaultWhiteTexture());
 //   cl->SetVertexBuffer(*gm.vertex_buffer, gm.vertex_stride);
@@ -33,7 +35,7 @@
 //   cl->DrawIndexed(gm.index_count);
 #pragma once
 
-#include "render/RenderAssets.h"   // GpuMesh
+#include "render/RenderAssets.h"   // FGpuMesh
 #include "render/IRhiCommandList.h"
 
 #include "foundation/Result.h"
@@ -67,7 +69,7 @@ struct FDirLight {
 /**
  * 点光源 (ワールド位置 + 到達距離付き)。
  */
-struct PointLight {
+struct FPointLight {
     /** 光源のワールド位置。 */
     FVec3 position = FVec3{0, 0, 0};
 
@@ -90,6 +92,9 @@ struct PointLight {
  */
 class FStandardShader {
 public:
+    /** 1 フレームで安全に記録できる Object CB / draw 数。 */
+    static constexpr u32 kMaxObjectDrawsPerFrame = 256;
+
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FStandardShader() noexcept = default;
 
@@ -158,7 +163,7 @@ public:
      * @param lights 点光源配列の先頭ポインタ。
      * @param count 有効な点光源数 (4 を超える分は切り捨て)。
      */
-    void SetPointLights(const PointLight* lights, u32 count) noexcept;
+    void SetPointLights(const FPointLight* lights, u32 count) noexcept;
 
     /**
      * シャドウマップを設定する (PCSS ソフトシャドウ、最初の有向光源にのみ適用)。
@@ -199,8 +204,9 @@ public:
      * @param base_color ベースカラー (アルベドテクスチャに乗算)。
      * @param specular_strength 鏡面反射の強さ (0=完全マット、1=強いハイライト)。
      * @param shininess 鏡面のシャープさ (8=広い反射、128=シャープなハイライト)。
+     * @return draw 専用 CB を確保・更新できたら true。上限到達時は false。
      */
-    void SetObject(const FMat4& model,
+    bool SetObject(const FMat4& model,
                    FVec3 base_color         = FVec3{1, 1, 1},
                    f32  specular_strength  = 0.0f,
                    f32  shininess          = 32.0f) noexcept;
@@ -224,7 +230,11 @@ public:
      *
      * @return Object 定数バッファ。
      */
-    IRhiBuffer*    PerObjectCB()   const noexcept { return m_ObjectCb.Get(); }
+    IRhiBuffer*    PerObjectCB()   const noexcept {
+        return m_CurrentObjectCb < kMaxObjectDrawsPerFrame
+             ? m_ObjectCbs[m_CurrentObjectCb].Get()
+             : nullptr;
+    }
 
     /**
      * デフォルトの 1x1 白テクスチャを返す (テクスチャを指定したくないとき用)。
@@ -250,7 +260,7 @@ public:
      * @param albedo アルベドテクスチャ (nullptr でデフォルト白テクスチャを使用)。
      */
     void DrawMesh(class IRhiCommandList& cmd,
-                  const struct GpuMesh& mesh,
+                  const struct FGpuMesh& mesh,
                   const FMat4& model,
                   FVec3 base_color        = FVec3{1, 1, 1},
                   f32  specular_strength = 0.0f,
@@ -273,8 +283,16 @@ private:
     /** Frame 定数バッファ (b0)。 */
     TUniquePtr<IRhiBuffer>   m_FrameCb;
 
-    /** Object 定数バッファ (b1)。 */
-    TUniquePtr<IRhiBuffer>   m_ObjectCb;
+    /**
+     * Object 定数バッファ (b1) の非ラップリング。
+     *
+     * Raw DX12 は command list の実行時に upload buffer を読むため、同じ CB を draw 間で
+     * 上書きすると全 draw が最後の model/material を参照する。SetLights をフレーム境界
+     * として cursor を戻し、各 SetObject に固有の GPU address を割り当てる。
+     */
+    TUniquePtr<IRhiBuffer>   m_ObjectCbs[kMaxObjectDrawsPerFrame];
+    u32                      m_ObjectCbCursor = 0;
+    u32                      m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
 
     /** デフォルトの 1x1 白テクスチャ。 */
     TUniquePtr<IRhiTexture>  m_White;
@@ -295,7 +313,7 @@ private:
     u32        m_DirCount = 0;
 
     /** 点光源の配列 (最大 4 灯)。 */
-    PointLight m_PointLights[4];
+    FPointLight m_PointLights[4];
 
     /** 有効な点光源数。 */
     u32        m_PointCount = 0;

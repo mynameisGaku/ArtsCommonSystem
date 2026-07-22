@@ -47,7 +47,7 @@ int main() {
     if (circle.BuildFromAlpha(img, kW, kH, 128, 1.5f).IsErr()) {
         std::puts("circle: build FAILED"); return 2;
     }
-    const Aabb2 cb = circle.Bounds();
+    const FAabb2 cb = circle.Bounds();
     const bool c_in   = circle.ContainsPoint({64, 64});
     const bool c_out  = circle.ContainsPoint({5, 5});
     const bool c_band = Near(cb.center.x, 64, 2) && Near(cb.center.y, 64, 2) &&

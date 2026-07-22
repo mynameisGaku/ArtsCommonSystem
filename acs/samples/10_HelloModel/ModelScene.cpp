@@ -13,7 +13,7 @@ using namespace acs;
 
 namespace hellomodel {
 
-bool ModelScene::Init(IRhiDevice& dev, f32 aspect) noexcept {
+bool FModelScene::Init(IRhiDevice& dev, f32 aspect) noexcept {
     // === プリミティブをアップロード ===
     auto sphere = Primitive::MakeSphere(0.8f, 48, 24);
     auto plane  = Primitive::MakePlane(20.0f, 20.0f);
@@ -29,23 +29,23 @@ bool ModelScene::Init(IRhiDevice& dev, f32 aspect) noexcept {
     return true;
 }
 
-void ModelScene::Shutdown() noexcept {
-    m_GmCube   = GpuMesh{};
-    m_GmPlane  = GpuMesh{};
-    m_GmSphere = GpuMesh{};
+void FModelScene::Shutdown() noexcept {
+    m_GmCube   = FGpuMesh{};
+    m_GmPlane  = FGpuMesh{};
+    m_GmSphere = FGpuMesh{};
 }
 
-void ModelScene::Update(f32 dt, FAssetFuture& async_mesh, bool& async_loaded) noexcept {
+void FModelScene::Update(f32 dt, FAssetFuture& async_mesh, bool& async_loaded) noexcept {
     m_Angle += dt * kSphereSpinSpeed;
 
     // === カメラ操作 ===
     const f32 move_speed = kCamMoveSpeed * dt;
     const f32 turn_speed = kCamTurnSpeed * dt;
 
-    if (Input::IsKeyDown(EKey::Left))  m_CamYaw -= turn_speed;
-    if (Input::IsKeyDown(EKey::Right)) m_CamYaw += turn_speed;
-    if (Input::IsKeyDown(EKey::Up))    m_CamPitch -= turn_speed * 0.8f;
-    if (Input::IsKeyDown(EKey::Down))  m_CamPitch += turn_speed * 0.8f;
+    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw -= turn_speed;
+    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw += turn_speed;
+    if (FInput::IsKeyDown(EKey::Up))    m_CamPitch -= turn_speed * 0.8f;
+    if (FInput::IsKeyDown(EKey::Down))  m_CamPitch += turn_speed * 0.8f;
     // 真上 / 真下を向くと forward の計算が破綻するため上下 81° 弱で頭打ち。
     const f32 limit = 0.45f * kPi;
     if (m_CamPitch >  limit) m_CamPitch =  limit;
@@ -56,10 +56,10 @@ void ModelScene::Update(f32 dt, FAssetFuture& async_mesh, bool& async_loaded) no
                   Cos(m_CamYaw) * Cos(m_CamPitch) };
     FVec3 right{ Cos(m_CamYaw), 0, -Sin(m_CamYaw) };
 
-    if (Input::IsKeyDown(EKey::W)) m_CamPos += forward * move_speed;
-    if (Input::IsKeyDown(EKey::S)) m_CamPos -= forward * move_speed;
-    if (Input::IsKeyDown(EKey::D)) m_CamPos += right   * move_speed;
-    if (Input::IsKeyDown(EKey::A)) m_CamPos -= right   * move_speed;
+    if (FInput::IsKeyDown(EKey::W)) m_CamPos += forward * move_speed;
+    if (FInput::IsKeyDown(EKey::S)) m_CamPos -= forward * move_speed;
+    if (FInput::IsKeyDown(EKey::D)) m_CamPos += right   * move_speed;
+    if (FInput::IsKeyDown(EKey::A)) m_CamPos -= right   * move_speed;
 
     FVec3 target = m_CamPos + forward;
     m_Camera.SetLookAt(m_CamPos, target);
@@ -77,7 +77,7 @@ void ModelScene::Update(f32 dt, FAssetFuture& async_mesh, bool& async_loaded) no
     }
 }
 
-void ModelScene::Render(FStandardShader& shader, IRhiCommandList& cl) noexcept {
+void FModelScene::Render(FStandardShader& shader, IRhiCommandList& cl) noexcept {
     // Frame 共通設定（カメラ + 1 灯方向光 + 環境光）
     shader.SetFrame(m_Camera.ViewProjection(),
                     m_Camera.Eye(),
@@ -87,18 +87,19 @@ void ModelScene::Render(FStandardShader& shader, IRhiCommandList& cl) noexcept {
 
     cl.SetPipeline(*shader.Pipeline());
     cl.SetConstantBuffer(0, *shader.PerFrameCB());
-    cl.SetConstantBuffer(1, *shader.PerObjectCB());
     cl.SetTexture(0, *shader.DefaultWhiteTexture());
     cl.SetTexture(1, *shader.ShadowTextureOrDefault());
 
     // ---- 中央の球 ----
-    shader.SetObject(FMat4::RotationY(m_Angle), kSphereColor);
+    if (!shader.SetObject(FMat4::RotationY(m_Angle), kSphereColor)) return;
+    cl.SetConstantBuffer(1, *shader.PerObjectCB());
     cl.SetVertexBuffer(*m_GmSphere.vertex_buffer, m_GmSphere.vertex_stride);
     cl.SetIndexBuffer(*m_GmSphere.index_buffer);
     cl.DrawIndexed(m_GmSphere.index_count);
 
     // ---- 地面プレーン ----
-    shader.SetObject(FMat4::Translation(FVec3{0, -0.8f, 0}), kPlaneColor);
+    if (!shader.SetObject(FMat4::Translation(FVec3{0, -0.8f, 0}), kPlaneColor)) return;
+    cl.SetConstantBuffer(1, *shader.PerObjectCB());
     cl.SetVertexBuffer(*m_GmPlane.vertex_buffer, m_GmPlane.vertex_stride);
     cl.SetIndexBuffer(*m_GmPlane.index_buffer);
     cl.DrawIndexed(m_GmPlane.index_count);
@@ -111,7 +112,8 @@ void ModelScene::Render(FStandardShader& shader, IRhiCommandList& cl) noexcept {
         const f32 r = 2.5f;
         FVec3 pos{ Sin(a) * r, -0.2f, Cos(a) * r };
         FMat4 m = FMat4::RotationY(m_Angle * 1.2f) * FMat4::Translation(pos);
-        shader.SetObject(m, kCubeColors[i]);
+        if (!shader.SetObject(m, kCubeColors[i])) continue;
+        cl.SetConstantBuffer(1, *shader.PerObjectCB());
         cl.DrawIndexed(m_GmCube.index_count);
     }
 }

@@ -2,13 +2,13 @@
 // GameFramework Pillar N — FModRegistry (Mod 読み込み順管理)
 //
 // ユーザー Mod (= 追加コンテンツパック) の登録・有効化・並び順管理を行う薄い
-// レジストリ。各 Mod は `.acpak` (Pillar G FAssetPack 形式) を 1 つ伴うことが
+// レジストリ。各 Mod は `.acpak` (Pillar G AssetPack 形式) を 1 つ伴うことが
 // 期待され、ロード順に従って top-level の VirtualFileSystem に重ねていく
 // (後勝ち = load_order 大きい方が前段の同名アセットを上書き) 想定。
 //
 // 使い方:
 //   FModRegistry mr;
-//   ModInfo a{};
+//   FModInfo a{};
 //   a.id         = "core";
 //   a.name       = "Core Pack";
 //   a.version    = 0x00010000u;  // 1.0.0
@@ -17,7 +17,7 @@
 //   a.pack_path  = "mods/core.acpak";
 //   mr.Register(a);
 //
-//   ModInfo b{};
+//   FModInfo b{};
 //   b.id         = "weapons-ex";
 //   b.name       = "Weapons EX";
 //   b.version    = 0x00000200u;  // 0.2.0
@@ -29,8 +29,8 @@
 //   mr.Enable("weapons-ex");
 //   mr.SortByLoadOrder();
 //   for (u32 i = 0; i < mr.Count(); ++i) {
-//       const ModInfo& m = mr.All()[i];
-//       if (m.enabled) MountPack(m.pack_path);  // FAssetPack 統合は別途
+//       const FModInfo& m = mr.All()[i];
+//       if (m.enabled) MountPack(m.pack_path);  // AssetPack 統合は別途
 //   }
 //
 // 設計選択:
@@ -52,10 +52,10 @@
 //     許すと "どの Registry が active か" が曖昧になるので禁止 (FInputMap と同じ)。
 //
 // 範囲外:
-//   ・実際の `.acpak` mount (Pillar G FAssetPack 統合) — Mount API 自体が
+//   ・実際の `.acpak` mount (Pillar G AssetPack 統合) — Mount API 自体が
 //     未確定のため、Registry は path を保持するだけ。
 //   ・Mod 間依存解決 (dependency graph、循環検出、欠落警告)。
-//   ・Mod manifest (.toml / .json) のパース — 外部 loader が ModInfo を組み立てる。
+//   ・Mod manifest (.toml / .json) のパース — 外部 loader が FModInfo を組み立てる。
 //   ・hook 適用 (Pillar N の核となる script / DLL ロード)。Lua 5.4 統合や
 //     C++ plugin 動的 load は別レイヤで、Registry は「enabled かどうか」を
 //     公開するだけ。
@@ -79,7 +79,7 @@ namespace acs::game {
  * (major << 24) | (minor << 16) | patch エンコーディングを想定するが、Registry
  * 側は不透明に扱う (比較のみ)。
  */
-struct ModInfo {
+struct FModInfo {
     /** Mod 一意キー (外部所有。空文字や nullptr は Register 時にスキップ)。 */
     const char* id         = nullptr;
 
@@ -103,7 +103,7 @@ struct ModInfo {
  * ユーザー Mod の登録・有効化・並び順を管理する薄いレジストリ。
  *
  * @details
- * 各 Mod を ModInfo の内部 TArray に保持し、load_order 昇順に並べる。文字列は
+ * 各 Mod を FModInfo の内部 TArray に保持し、load_order 昇順に並べる。文字列は
  * 所有せず呼び出し側の寿命に依存する。1 ゲーム寿命に 1 インスタンスのみを想定し
  * non-copy / non-move とする。
  */
@@ -135,7 +135,7 @@ public:
      * 呼び出し側が保証する)。id == nullptr のエントリは無視する (警告ログのみ)。
      * @param info 登録する Mod のメタデータ。
      */
-    void Register(const ModInfo& info) noexcept;
+    void Register(const FModInfo& info) noexcept;
 
     /**
      * id に一致する Mod を有効化する。
@@ -173,16 +173,16 @@ public:
      * id に一致する Mod を検索する。
      *
      * @param mod_id 探す Mod の一意キー。
-     * @return 見つかった ModInfo へのポインタ (無ければ nullptr)。
+     * @return 見つかった FModInfo へのポインタ (無ければ nullptr)。
      */
-    const ModInfo*     Find (const char* mod_id) const noexcept;
+    const FModInfo*     Find (const char* mod_id) const noexcept;
 
     /**
      * 登録済み Mod の生バッファ先頭を返す。
      *
-     * @return ModInfo 配列の先頭 (長さは Count() で確定)。
+     * @return FModInfo 配列の先頭 (長さは Count() で確定)。
      */
-    const ModInfo*     All  () const noexcept;
+    const FModInfo*     All  () const noexcept;
 
     /**
      * load_order 昇順に並べ替える (同値は登録順を保つ安定 sort)。
@@ -205,7 +205,7 @@ private:
     static bool IdEquals(const char* a, const char* b) noexcept;
 
     /** 登録済み Mod の配列 (登録順、SortByLoadOrder で並べ替え)。 */
-    TArray<ModInfo> m_Mods;
+    TArray<FModInfo> m_Mods;
 };
 
 } // namespace acs::game

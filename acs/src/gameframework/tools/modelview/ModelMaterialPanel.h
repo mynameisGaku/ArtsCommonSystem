@@ -4,14 +4,14 @@
 // ModelViewer の中で、現在 load された model の各 submesh / material slot に
 // 対して PBR マテリアル (base color / metallic / roughness / normal strength /
 // AO strength / emissive 等) を **live 編集** するための ImGui ベースパネル。
-// 編集された値は `MaterialOverride` 構造体に保持され、コールバック経由で
+// 編集された値は `FMaterialOverride` 構造体に保持され、コールバック経由で
 // `FPbrShader` / `FStandardShader` の constant buffer に流し込まれる想定。
 //
 // 役割分担:
 //   ・本パネルは **編集 UI + override 値の保持** のみを担当する。
 //     実 shader への反映 (= constant buffer write) は呼び出し側 (ModelViewer
 //     本体 or render integrator) が `MaterialChangeCallback` 経由で受け取った
-//     `MaterialOverride` を見て行う。これにより:
+//     `FMaterialOverride` を見て行う。これにより:
 //       (1) shader / pipeline の選択 (FPbrShader / FStandardShader / FSkinnedShader
 //           / FRefractionShader 等) は ModelViewer 本体が責任を持てる
 //       (2) FUndoStack へ「override 1 件分」を atomic に push できる粒度を提供
@@ -24,11 +24,11 @@
 //   ・**FEditorPanel 基底を継承**: `editor_core::FEditorPanel`
 //     のライフサイクル (OnInit / OnShutdown / OnFrameBegin / DrawUI / WantsFocus
 //     等) を全て継承する。Workspace への登録 → 自動 dispatch が可能。
-//   ・**非コピー / 非ムーブ**: 内部 `TArray<MaterialOverride>` + callback 状態の
+//   ・**非コピー / 非ムーブ**: 内部 `TArray<FMaterialOverride>` + callback 状態の
 //     所有を曖昧にしない (= FEditorPanel の規約と同形、ACS 規約)。
 //   ・**全 noexcept**: ACS 規約。範囲外 index は no-op、nullptr 取得は nullptr
 //     return。例外は投げない。
-//   ・**STL 不使用 / `<string>` 禁止**: override list は `acs::TArray<MaterialOverride>`。
+//   ・**STL 不使用 / `<string>` 禁止**: override list は `acs::TArray<FMaterialOverride>`。
 //     文字列は ImGui に渡すリテラル / スタック char[] のみ。
 //   ・**ImGui ヘッダは .cpp に閉じ込め**: header からは imgui 依存を漏らさず、
 //     FInspectorPanel / FParticleEditorPanel と同パターン。
@@ -41,7 +41,7 @@
 //     保持する。false の slot は ModelViewer 側で「元の material そのまま」と
 //     解釈する。ResetSlot で false に戻す。
 //   ・**ColorEdit3/4 + SliderFloat の値域**:
-//       Base FColor (ColorEdit4)         : [0,1]^4 (= ImGui 既定)
+//       Base Color (ColorEdit4)          : [0,1]^4 (= ImGui 既定)
 //       Metallic / Roughness / AO       : [0, 1]
 //       Normal Strength                 : [0, 2] (1.0 が neutral、< 1 で flatten、
 //                                                > 1 で誇張)
@@ -54,7 +54,7 @@
 //   │ [Reset All]                                             │
 //   │ ┌─ CollapsingHeader "Slot 0" ────────────────────────┐  │
 //   │ │ [x] Override enabled                                │  │
-//   │ │ Base FColor   [ColorEdit4]                           │  │
+//   │ │ Base Color    [ColorEdit4]                           │  │
 //   │ │ Metallic     [SliderFloat]  0..1                    │  │
 //   │ │ Roughness    [SliderFloat]  0..1                    │  │
 //   │ │ Normal Str.  [SliderFloat]  0..2                    │  │
@@ -69,7 +69,7 @@
 //
 // 将来拡張余地:
 //   ・texture override (BaseColorMap / NormalMap / ORM / Emissive 等の path swap、
-//     FAssetBrowser からの drag-drop 連動)。`MaterialOverride` に
+//     FAssetBrowser からの drag-drop 連動)。`FMaterialOverride` に
 //     `const char* base_color_path` 等を追加し、外部 callback で texture 差替を行う。
 //   ・material preset library (= `.acs_matpreset` 1 ファイルに 1 set を保存し、
 //     load / save / apply するボタン群)
@@ -102,9 +102,9 @@ namespace acs::game::modelview {
  * default (= 物理的に neutral な値) で初期化される。is_overridden が true になるのは
  * ユーザーが UI 上のフィールドを 1 つでも触った時点で、Reset ボタンで false に戻す。
  * FVec4 / FVec3 / f32 / bool / u32 は全 trivially-constructible なため、
- * TArray<MaterialOverride> は Resize 時に MemSet ゼロ初期化される経路を安全に通る。
+ * TArray<FMaterialOverride> は Resize 時に MemSet ゼロ初期化される経路を安全に通る。
  */
-struct MaterialOverride {
+struct FMaterialOverride {
     /**
      * slot 番号 (0..SlotCount()-1)。
      *
@@ -175,7 +175,7 @@ struct MaterialOverride {
  * @details
  * 現在 load された model の各 submesh / material slot に対して base color / metallic /
  * roughness / normal strength / AO strength / emissive 等を編集し、値を
- * MaterialOverride として保持する。実 shader への反映 (constant buffer write) は
+ * FMaterialOverride として保持する。実 shader への反映 (constant buffer write) は
  * 行わず、MaterialChangeCallback 経由で呼び出し側に override 1 件分を通知する。
  */
 class FModelMaterialPanel : public editor_core::FEditorPanel {
@@ -193,7 +193,7 @@ public:
      */
     using MaterialChangeCallback = void (*)(void* user,
                                             u32 slot_index,
-                                            const MaterialOverride& override) noexcept;
+                                            const FMaterialOverride& override) noexcept;
 
     /** 空のパネルを構築する (slot list は空、callback 未登録)。 */
     FModelMaterialPanel() noexcept = default;
@@ -259,7 +259,7 @@ public:
      * @param slot_index 取得する slot 番号。
      * @return slot の override (範囲外 / 未 Init は nullptr)。
      */
-    const MaterialOverride* GetOverride(u32 slot_index) const noexcept;
+    const FMaterialOverride* GetOverride(u32 slot_index) const noexcept;
 
     /**
      * 指定 slot の override を返す (mutable)。
@@ -270,7 +270,7 @@ public:
      * @param slot_index 取得する slot 番号。
      * @return slot の override (範囲外 / 未 Init は nullptr)。
      */
-    MaterialOverride* GetOverrideMutable(u32 slot_index) noexcept;
+    FMaterialOverride* GetOverrideMutable(u32 slot_index) noexcept;
 
     /**
      * 現在の slot 数を返す。
@@ -291,7 +291,7 @@ public:
     void SetOnMaterialChangeCallback(MaterialChangeCallback cb, void* user) noexcept;
 
     /**
-     * window タイトルを返す (ImGui ID + FWindow メニュー表記)。
+     * window タイトルを返す (ImGui ID + Window メニュー表記)。
      *
      * @return 固定リテラル "Material Override"。
      */
@@ -352,7 +352,7 @@ private:
     void FireChangeCallback(u32 slot_index) noexcept;
 
     /** override list (slot index と 1:1)。SetMaterialSlotCount で Resize。 */
-    TArray<MaterialOverride> m_Overrides {};
+    TArray<FMaterialOverride> m_Overrides {};
 
     /** 変更通知 callback (nullptr 許容)。 */
     MaterialChangeCallback  m_OnChangeCb   = nullptr;

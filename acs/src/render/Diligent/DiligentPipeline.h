@@ -12,10 +12,10 @@ namespace Diligent {
 
 namespace acs {
 
-class DiligentDevice;
+class FDiligentDevice;
 
 /**
- * Diligent の IPipelineState + ShaderResourceBinding をラップしたパイプライン実装。
+ * Diligent の IPipelineState + IShaderResourceBinding をラップしたパイプライン実装。
  *
  * @details
  * FPipelineDesc から PSO を生成し、定数バッファ / テクスチャの HLSL リソース名を slot 別に
@@ -23,19 +23,19 @@ class DiligentDevice;
  * 名前が未指定の slot は shader の reflection から補完し、それでも無ければ "cbN"/"tN" 形式の
  * フォールバック名を返す。
  */
-class DiligentPipeline final : public IRhiPipeline {
+class FDiligentPipeline final : public IRhiPipeline {
 public:
     /** 空状態で構築する (PSO は Init で生成)。 */
-    DiligentPipeline() noexcept = default;
+    FDiligentPipeline() noexcept = default;
 
     /** PSO と SRB を Release して破棄する。 */
-    ~DiligentPipeline() noexcept override;
+    ~FDiligentPipeline() noexcept override;
 
     /** コピー禁止 (PSO/SRB を単独所有するため)。 */
-    DiligentPipeline(const DiligentPipeline&) = delete;
+    FDiligentPipeline(const FDiligentPipeline&) = delete;
 
     /** コピー代入も禁止。 */
-    DiligentPipeline& operator=(const DiligentPipeline&) = delete;
+    FDiligentPipeline& operator=(const FDiligentPipeline&) = delete;
 
     /**
      * FPipelineDesc から PSO と SRB を生成する。
@@ -46,7 +46,7 @@ public:
      * @param desc パイプラインの記述 (シェーダ・入力レイアウト・ブレンド・深度等)。
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
-    TResult<void> Init(DiligentDevice& device, const FPipelineDesc& desc) noexcept;
+    TResult<void> Init(FDiligentDevice& device, const FPipelineDesc& desc) noexcept;
 
     /**
      * FComputePipelineDesc から compute PSO と SRB を生成する (Phase 0)。
@@ -55,7 +55,7 @@ public:
      * @param desc compute パイプラインの記述 (CS・cbuffer/SRV/UAV slot と名前)。
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
-    TResult<void> InitCompute(DiligentDevice& device, const FComputePipelineDesc& desc) noexcept;
+    TResult<void> InitCompute(FDiligentDevice& device, const FComputePipelineDesc& desc) noexcept;
 
     /** compute パイプラインか (Dispatch 用)。 */
     bool IsCompute() const noexcept { return m_IsCompute; }
@@ -71,7 +71,7 @@ public:
     Diligent::IPipelineState*           Native() const noexcept { return m_Pso; }
 
     /**
-     * ShaderResourceBinding を返す。
+     * IShaderResourceBinding を返す。
      *
      * @return Diligent の IShaderResourceBinding (未初期化なら nullptr)。
      */
@@ -116,7 +116,7 @@ private:
     void Reset() noexcept;
 
     /** PSO 生成に使った Diligent デバイス。 */
-    DiligentDevice*                  m_Device = nullptr;
+    FDiligentDevice*                  m_Device = nullptr;
 
     /** ネイティブのパイプラインステート。 */
     Diligent::IPipelineState*        m_Pso    = nullptr;

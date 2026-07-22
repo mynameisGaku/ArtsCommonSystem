@@ -38,7 +38,7 @@ int main() {
     FMeshCollider hull_col;
     if (hull_col.BuildFromTriangles(hv.Data(), static_cast<u32>(hv.Size()),
                                     hi.Data(), static_cast<u32>(hi.Size())).IsOk()) {
-        RayHit3 h = hull_col.Raycast(Ray3{ {0, 5, 0}, {0, -1, 0} });
+        FRayHit3 h = hull_col.Raycast(FRay3{ {0, 5, 0}, {0, -1, 0} });
         const bool ray_ok = h.hit && Near(h.point.y, 1.0f, 0.01f);
         std::printf("  hull collider: raycast hit=%d y=%.2f\n", h.hit ? 1 : 0, h.point.y);
         ok = ok && ray_ok;

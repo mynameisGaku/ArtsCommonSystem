@@ -58,8 +58,8 @@ inline i32 ClampI32(i32 v, i32 lo, i32 hi) noexcept {
  * @param a 入れ替える一方。
  * @param b 入れ替えるもう一方。
  */
-inline void SwapFaces(FontFaceInfo& a, FontFaceInfo& b) noexcept {
-    const FontFaceInfo tmp = a;
+inline void SwapFaces(FFontFaceInfo& a, FFontFaceInfo& b) noexcept {
+    const FFontFaceInfo tmp = a;
     a = b;
     b = tmp;
 }
@@ -67,7 +67,7 @@ inline void SwapFaces(FontFaceInfo& a, FontFaceInfo& b) noexcept {
 /**
  * utf-8 デコード 1 回分の結果 (codepoint と進めた byte 数)。
  */
-struct U8Decoded {
+struct FU8Decoded {
     /** デコードした codepoint。 */
     u32 cp;
 
@@ -86,7 +86,7 @@ struct U8Decoded {
  * @param p デコード対象の utf-8 文字列先頭ポインタ (nullptr / 空文字列可)。
  * @return デコードした codepoint と消費 byte 数 (終端なら { 0, 0 })。
  */
-inline U8Decoded DecodeUtf8One(const c8* p) noexcept {
+inline FU8Decoded DecodeUtf8One(const c8* p) noexcept {
     if (p == nullptr || *p == '\0') return { 0u, 0u };
     const auto b0 = static_cast<unsigned char>(p[0]);
     if (b0 < 0x80u) return { b0, 1u };
@@ -126,7 +126,7 @@ inline U8Decoded DecodeUtf8One(const c8* p) noexcept {
  * @param cp 判定する codepoint。
  * @return f.char_range_min..f.char_range_max に cp が入れば true。
  */
-inline bool FaceCoversCodepoint(const FontFaceInfo& f, u32 cp) noexcept {
+inline bool FaceCoversCodepoint(const FFontFaceInfo& f, u32 cp) noexcept {
     return cp >= f.char_range_min && cp <= f.char_range_max;
 }
 
@@ -201,13 +201,13 @@ u32 FFontEditorPanel::FontFaceCount() const noexcept {
 }
 
 /** i 番目の font face を返す (範囲外なら nullptr)。 */
-const FontFaceInfo* FFontEditorPanel::GetFontFace(u32 i) const noexcept {
+const FFontFaceInfo* FFontEditorPanel::GetFontFace(u32 i) const noexcept {
     if (i >= static_cast<u32>(m_Faces.Size())) return nullptr;
     return &m_Faces[static_cast<usize>(i)];
 }
 
 /** face を末尾に追加し、fallback_index を index と同期する (上限超過時は無視)。 */
-void FFontEditorPanel::AddFontFace(const FontFaceInfo& info) noexcept {
+void FFontEditorPanel::AddFontFace(const FFontFaceInfo& info) noexcept {
     if (static_cast<u32>(m_Faces.Size()) >= kMaxFontFaces) return;
     // 末尾追加 + fallback_index を TArray index と同期。
     m_Faces.PushBack(info);
@@ -356,7 +356,7 @@ void FFontEditorPanel::DrawUI() noexcept {
             // 空 face (= default 値、family/path は nullptr) を 1 個追加。
             // caller が後で family/path を設定する想定 (実用はサンプル 36 のように
             // AddFontFace(populated_info) を直接呼ぶ)。
-            FontFaceInfo def{};
+            FFontFaceInfo def{};
             AddFontFace(def);
         }
         if (!can_add) ImGui::EndDisabled();
@@ -415,7 +415,7 @@ void FFontEditorPanel::DrawUI() noexcept {
             ImGui::TextDisabled("(no faces)");
         } else {
             for (i32 i = 0; i < count; ++i) {
-                const FontFaceInfo& f = m_Faces[static_cast<usize>(i)];
+                const FFontFaceInfo& f = m_Faces[static_cast<usize>(i)];
                 const c8* nm = (f.family_name != nullptr) ? f.family_name : "(unnamed)";
                 // 表示形式: "[NN] family"
                 c8 row_label[96] = {};
@@ -473,7 +473,7 @@ void FFontEditorPanel::DrawUI() noexcept {
             // scale = preview_size / base_size (= 各 face の atlas pixel size と
             // preview の対比)。base_size_px が 0 / 負なら 1.0 を fallback。
             for (i32 i = 0; i < count; ++i) {
-                const FontFaceInfo& f = m_Faces[static_cast<usize>(i)];
+                const FFontFaceInfo& f = m_Faces[static_cast<usize>(i)];
                 const c8* nm = (f.family_name != nullptr) ? f.family_name : "(unnamed)";
                 ImGui::PushID(i);
                 ImGui::Text("[%02d] %s  (base %.1f px, %s)",
@@ -516,7 +516,7 @@ void FFontEditorPanel::DrawUI() noexcept {
         if (m_Selected < 0 || m_Selected >= count) {
             ImGui::TextDisabled("(no selection)");
         } else {
-            FontFaceInfo& f = m_Faces[static_cast<usize>(m_Selected)];
+            FFontFaceInfo& f = m_Faces[static_cast<usize>(m_Selected)];
 
             ImGui::Text("family:  %s",
                         (f.family_name != nullptr) ? f.family_name : "(null)");
@@ -604,7 +604,7 @@ void FFontEditorPanel::DrawUI() noexcept {
                             // この cp をカバーする face を chain 順に列挙。
                             bool any = false;
                             for (i32 i = 0; i < count; ++i) {
-                                const FontFaceInfo& f =
+                                const FFontFaceInfo& f =
                                     m_Faces[static_cast<usize>(i)];
                                 if (FaceCoversCodepoint(f, cp)) {
                                     const c8* nm = (f.family_name != nullptr)
@@ -627,7 +627,7 @@ void FFontEditorPanel::DrawUI() noexcept {
             // utf-8 input の codepoint デコードを 1 ループだけ走らせて
             // (= 未使用ヘルパ警告を抑え、preview text 内の最初の codepoint を
             //  下部に補助表示)。
-            const U8Decoded first = DecodeUtf8One(m_PreviewText);
+            const FU8Decoded first = DecodeUtf8One(m_PreviewText);
             (void)first;
             ImGui::EndTable();
         }

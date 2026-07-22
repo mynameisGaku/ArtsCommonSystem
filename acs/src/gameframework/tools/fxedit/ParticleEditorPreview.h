@@ -6,7 +6,7 @@
 // ParticleEditor 本体 (curve editor / preset library 等) は別モジュールが担当する。
 //
 // 役割:
-//   ・編集中の `ParticleEmitterDef` を 1 個だけ instance 化して、リアルタイムに
+//   ・編集中の `FParticleEmitterDef` を 1 個だけ instance 化して、リアルタイムに
 //     visual feedback を返すための **preview canvas**。
 //   ・ImGui を使った sub-window で:
 //       - Burst ボタン
@@ -45,7 +45,7 @@
 
 #include "container/Array.h"
 #include "foundation/Types.h"
-#include "gameframework/ParticleEffectSystem.h"   // EmitterHandle 型解決のため必要
+#include "gameframework/ParticleEffectSystem.h"   // FEmitterHandle 型解決のため必要
 #include "math/Vec.h"
 
 namespace acs::game::fxedit {
@@ -56,7 +56,7 @@ namespace acs::game::fxedit {
  * @details
  * 外部の FParticleEffectSystem 上に preview emitter を 1 個立て、ImGui sub-window で
  * Burst ボタン・active particle 数・pool 使用率・spawn 座標・auto-emit toggle・
- * frame budget (平均 fps) を表示する。編集中の ParticleEmitterDef が変わったら
+ * frame budget (平均 fps) を表示する。編集中の FParticleEmitterDef が変わったら
  * RecreatePreviewEmitter で即時再生成し、UI 上の値変更を preview に反映する。
  * FParticleEffectSystem は所有せず、内部に FEmitterHandle と def snapshot、
  * 60-frame の fps 履歴 ring を保持する non-copy / non-move 型。
@@ -123,7 +123,7 @@ public:
      * @param system 操作対象のパーティクルシステム。
      * @param def 表示・再生成に使う編集中の emitter 定義 (nullptr 可)。
      */
-    void DrawUI(class FParticleEffectSystem& system, const struct ParticleEmitterDef* def) noexcept;
+    void DrawUI(class FParticleEffectSystem& system, const struct FParticleEmitterDef* def) noexcept;
 
     /**
      * 編集中 def で preview emitter を即時再生成する。
@@ -136,7 +136,7 @@ public:
      * @param def 再生成元の emitter 定義 (nullptr なら no-op)。
      */
     void RecreatePreviewEmitter(class FParticleEffectSystem& system,
-                                const struct ParticleEmitterDef* def) noexcept;
+                                const struct FParticleEmitterDef* def) noexcept;
 
     /**
      * preview emitter に 1 回 Burst を出す。
@@ -219,7 +219,7 @@ private:
     FEmitterHandle m_PreviewHandle {};
 
     /** 編集中 def の snapshot (RecreatePreviewEmitter 時の copy 元)。 */
-    ParticleEmitterDef m_LastDef {};
+    FParticleEmitterDef m_LastDef {};
 
     /** def snapshot を保持済みかどうか。 */
     bool               m_bHasDefSnapshot = false;

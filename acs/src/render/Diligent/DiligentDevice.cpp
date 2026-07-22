@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// DiligentDevice 実装（D3D12 / Vulkan バックエンド両対応）
+// FDiligentDevice 実装（D3D12 / Vulkan バックエンド両対応）
 #include "render/Diligent/DiligentDevice.h"
 
 #if WITH_RENDER_DILIGENT
@@ -13,6 +13,7 @@
 #    include "memory/MemorySystem.h"
 
 #    include <cstring>
+#    include <thread>
 
 #    if ACS_BUILD_DEBUG
 #        include "render/Dx12/Dx12LiveObjectDiagnosticsInternal.h"
@@ -23,16 +24,47 @@ namespace acs {
 
 namespace {
 
+/**
+ * ReadTexture が密な CPU 行へ変換できる非圧縮 format の bytes-per-pixel。
+ *
+ * 未対応 format を暗黙に 4 bytes と見なすと、RGB32F などで行を途中までしか
+ * 読めないため 0 を返して fail closed にする。
+ */
+u32 ReadbackBytesPerPixel(EFormat format) noexcept
+{
+    switch (format) {
+    case EFormat::R8G8B8A8_UNorm:
+    case EFormat::R8G8B8A8_UNorm_sRGB:
+    case EFormat::R8G8B8A8_UInt:
+    case EFormat::B8G8R8A8_UNorm:
+    case EFormat::R11G11B10_Float:
+    case EFormat::D24_UNorm_S8_UInt:
+    case EFormat::D32_Float:
+        return 4u;
+    case EFormat::R16G16_Float:
+        return 4u;
+    case EFormat::R16G16B16A16_Float:
+    case EFormat::R32G32_Float:
+        return 8u;
+    case EFormat::R32G32B32_Float:
+        return 12u;
+    case EFormat::R32G32B32A32_Float:
+        return 16u;
+    default:
+        return 0u;
+    }
+}
+
 #    if ACS_BUILD_DEBUG
 /** Diligent の D3D12 デバイスから終了後レポート用 Debug Device を取得する。 */
-render_internal::D3D12DebugDeviceReportHandle CaptureDiligentDebugDevice(Diligent::IRenderDevice* device) noexcept
+render_internal::FD3D12DebugDeviceReportHandle CaptureDiligentDebugDevice(Diligent::IRenderDevice* device) noexcept
 {
     if (!device) return {};
     Diligent::IRenderDeviceD3D12* diligent_device = nullptr;
     device->QueryInterface(Diligent::IID_RenderDeviceD3D12, reinterpret_cast<Diligent::IObject**>(&diligent_device));
     if (!diligent_device) return {};
 
-    render_internal::D3D12DebugDeviceReportHandle debug_device{};
+    render_internal::FD3D12DebugDeviceReportHandle debug_device{};
     ID3D12Device* const native_device = diligent_device->GetD3D12Device();
     debug_device = render_internal::CaptureD3D12DebugDeviceReportHandle(native_device);
     diligent_device->Release();
@@ -43,21 +75,21 @@ render_internal::D3D12DebugDeviceReportHandle CaptureDiligentDebugDevice(Diligen
 
 } // namespace
 
-DiligentDevice::~DiligentDevice() noexcept
+FDiligentDevice::~FDiligentDevice() noexcept
 {
     // 直接利用時も、所有 context が投入済みの GPU 処理を完了してから解放する。
     if (m_Context) WaitIdle();
     Reset();
 }
 
-void DiligentDevice::Reset() noexcept
+void FDiligentDevice::Reset() noexcept
 {
 #    if ACS_BUILD_DEBUG
     // D3D12 Factory の取得後に失敗した場合も DXGI 診断を残す。
     const bool report_d3d12_live_objects = m_ActualBackend == ERhiBackendKind::D3D12 && (m_Device || m_Factory);
-    render_internal::D3D12DebugDeviceReportHandle debug_device = m_Device && report_d3d12_live_objects
+    render_internal::FD3D12DebugDeviceReportHandle debug_device = m_Device && report_d3d12_live_objects
                                                                      ? CaptureDiligentDebugDevice(m_Device)
-                                                                     : render_internal::D3D12DebugDeviceReportHandle{};
+                                                                     : render_internal::FD3D12DebugDeviceReportHandle{};
 #    endif
     if (m_IdleFence) {
         m_IdleFence->Release();
@@ -82,10 +114,10 @@ void DiligentDevice::Reset() noexcept
         m_FactoryVk = nullptr;
     }
 #    endif
-    const u64 binding_generation = DiligentMemoryAdapter::BindingGeneration();
-    const u64 backing_lifetime_generation = DiligentMemoryAdapter::BackingLifetimeGeneration();
-    const u64 outstanding_allocation_count = DiligentMemoryAdapter::OutstandingAllocationCount();
-    const u64 outstanding_requested_bytes = DiligentMemoryAdapter::OutstandingRequestedBytes();
+    const u64 binding_generation = FDiligentMemoryAdapter::BindingGeneration();
+    const u64 backing_lifetime_generation = FDiligentMemoryAdapter::BackingLifetimeGeneration();
+    const u64 outstanding_allocation_count = FDiligentMemoryAdapter::OutstandingAllocationCount();
+    const u64 outstanding_requested_bytes = FDiligentMemoryAdapter::OutstandingRequestedBytes();
     if (outstanding_allocation_count != 0 || outstanding_requested_bytes != 0) {
         ACS_LOG_ERROR("[acs][memory] tracker=diligent_memory_adapter record=shutdown device_released=true "
                       "leak_detected=true status=failed binding_generation=%llu backing_lifetime_generation=%llu "
@@ -111,12 +143,15 @@ void DiligentDevice::Reset() noexcept
     m_FactoryGeneric = nullptr;
     m_IdleValue = 0;
     m_FrameSlot = 0;
+    m_FrameSubmissionPending = false;
+    for (u32 slot = 0; slot < kFramesInFlight; ++slot)
+        m_FrameFences[slot] = 0;
     m_ActualBackend = ERhiBackendKind::Auto;
     m_AdapterName[0] = '\0';
     m_BackendName = "Diligent";
 }
 
-TResult<void> DiligentDevice::Init(const DeviceConfig& configuration) noexcept
+TResult<void> FDiligentDevice::Init(const FDeviceConfig& configuration) noexcept
 {
     // 二重 Init では前回の GPU 処理を完了させてから所有物を解放する。
     if (m_Context) WaitIdle();
@@ -144,7 +179,7 @@ TResult<void> DiligentDevice::Init(const DeviceConfig& configuration) noexcept
     return result;
 }
 
-TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& configuration) noexcept
+TResult<void> FDiligentDevice::InitD3D12(const FDeviceConfig& configuration) noexcept
 {
     FAllocator* const memory_segment = FMemorySystem::Get(ESegment::Resource);
     if (!memory_segment) {
@@ -153,7 +188,7 @@ TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& configuration) noexc
         return ACS_ERR(Render, 105, "Diligent requires an initialized MemorySystem Resource segment");
     }
     auto* const diligent_memory_allocator = static_cast<Diligent::IMemoryAllocator*>(
-        DiligentMemoryAdapter::Create(memory_segment));
+        FDiligentMemoryAdapter::Create(memory_segment));
     if (!diligent_memory_allocator) {
         return ACS_ERR(Render, 106, "Diligent memory adapter rejected the allocator lifetime");
     }
@@ -182,6 +217,8 @@ TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& configuration) noexc
     eci.GraphicsAPIVersion = {12, 0};
     eci.EnableValidation = configuration.enable_debug_layer;
     eci.NumDeferredContexts = 0;
+    eci.Features.TimestampQueries =
+        Diligent::DEVICE_FEATURE_STATE_OPTIONAL;
 
     // Diligent の全内部確保を Resource セグメントの mimalloc heap へ集約する。
     eci.pRawMemAllocator = diligent_memory_allocator;
@@ -221,12 +258,16 @@ TResult<void> DiligentDevice::InitD3D12(const DeviceConfig& configuration) noexc
     fd.Name = "ACS_DiligentDevice_IdleFence";
     fd.Type = Diligent::FENCE_TYPE_GENERAL;
     m_Device->CreateFence(fd, &m_IdleFence);
+    if (!m_IdleFence) {
+        ACS_LOG_ERROR("Diligent: CreateFence failed");
+        return ACS_ERR(Render, 107, "CreateFence failed");
+    }
 
     ACS_LOG_INFO("Diligent D3D12 device created: %s", m_AdapterName);
     return Ok();
 }
 
-TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& configuration) noexcept
+TResult<void> FDiligentDevice::InitVulkan(const FDeviceConfig& configuration) noexcept
 {
 #    if WITH_RENDER_DILIGENT_VULKAN
     FAllocator* const memory_segment = FMemorySystem::Get(ESegment::Resource);
@@ -236,7 +277,7 @@ TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& configuration) noex
         return ACS_ERR(Render, 115, "Diligent requires an initialized MemorySystem Resource segment");
     }
     auto* const diligent_memory_allocator = static_cast<Diligent::IMemoryAllocator*>(
-        DiligentMemoryAdapter::Create(memory_segment));
+        FDiligentMemoryAdapter::Create(memory_segment));
     if (!diligent_memory_allocator) {
         return ACS_ERR(Render, 116, "Diligent memory adapter rejected the allocator lifetime");
     }
@@ -256,6 +297,8 @@ TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& configuration) noex
         eci.EnableValidation = true;
     }
     eci.NumDeferredContexts = 0;
+    eci.Features.TimestampQueries =
+        Diligent::DEVICE_FEATURE_STATE_OPTIONAL;
 
     eci.pRawMemAllocator = diligent_memory_allocator;
 
@@ -292,6 +335,10 @@ TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& configuration) noex
     fd.Name = "ACS_DiligentDevice_IdleFence";
     fd.Type = Diligent::FENCE_TYPE_GENERAL;
     m_Device->CreateFence(fd, &m_IdleFence);
+    if (!m_IdleFence) {
+        ACS_LOG_ERROR("Diligent Vulkan: CreateFence failed");
+        return ACS_ERR(Render, 117, "CreateFence failed");
+    }
 
     ACS_LOG_INFO("Diligent Vulkan device created: %s", m_AdapterName);
     return Ok();
@@ -301,50 +348,97 @@ TResult<void> DiligentDevice::InitVulkan(const DeviceConfig& configuration) noex
 #    endif
 }
 
-void DiligentDevice::WaitIdle() noexcept
+void FDiligentDevice::WaitIdle() noexcept
 {
     if (!m_Context) return;
-    if (m_IdleFence) {
-        ++m_IdleValue;
-        m_Context->EnqueueSignal(m_IdleFence, m_IdleValue);
-        m_Context->WaitForIdle();
-        m_IdleFence->Wait(m_IdleValue);
-    } else {
-        m_Context->Flush();
-        m_Context->WaitForIdle();
-    }
+
+    // FinishFrame must precede WaitForIdle: FinishFrame moves dynamic descriptor
+    // chunks to Diligent's stale list, and WaitForIdle's IdleCommandQueue(true)
+    // then maps that list to the release queue and purges it after the GPU is idle.
+    FinishPendingSubmittedFrame();
+
+    m_Context->WaitForIdle();
+    if (m_Device) m_Device->ReleaseStaleResources(false);
 }
 
-bool DiligentDevice::ReadTexture(IRhiTexture& texture, void* destination_pixels, u32 destination_size) noexcept
+void FDiligentDevice::FinishPendingSubmittedFrame() noexcept
+{
+    if (!m_FrameSubmissionPending || !m_Context) return;
+
+    // Submit() already flushed all commands. Close the Diligent frame now so its
+    // dynamic allocations enter the stale list before the next real submission.
+    m_Context->FinishFrame();
+    if (m_Device) m_Device->ReleaseStaleResources(false);
+    QueueFinishedFrameFence();
+    m_FrameSubmissionPending = false;
+}
+
+void FDiligentDevice::PrepareCommandRecording() noexcept
+{
+    if (!m_Context) return;
+
+    // A primary submission that never reached Present still needs a frame boundary.
+    // FinishPendingSubmittedFrame closes it and submits a completion fence after
+    // Diligent's frame-end work before this slot can be reused.
+    FinishPendingSubmittedFrame();
+
+    // 今から書き込む frame slot は kFramesInFlight submissions 前に使ったもの。
+    // 描画（dynamic descriptor allocation）を始める前に GPU 完了を待つ。
+    const u64 reusable_slot_fence = m_FrameFences[m_FrameSlot];
+    if (reusable_slot_fence != 0)
+        WaitForFenceValue(reusable_slot_fence);
+
+    // 完了 fence を観測した後に stale descriptor chunks を実際の free list へ戻す。
+    if (m_Device) m_Device->ReleaseStaleResources(false);
+}
+
+void FDiligentDevice::MarkFrameSubmitted() noexcept
+{
+    if (!m_Context) return;
+
+    // The commands are flushed, but their Diligent frame still needs either an
+    // off-screen FinishFrame or the primary swapchain's Present.
+    m_FrameSubmissionPending = true;
+}
+
+void FDiligentDevice::NotifyPrimaryPresentFinished() noexcept
+{
+    if (!m_FrameSubmissionPending) return;
+
+    // IsPrimary Present has already called FinishFrame and ReleaseStaleResources.
+    QueueFinishedFrameFence();
+    m_FrameSubmissionPending = false;
+}
+
+void FDiligentDevice::QueueFinishedFrameFence() noexcept
+{
+    const u32 submitted_slot = m_FrameSlot;
+    const u64 fence_value = SignalGraphicsQueue();
+    if (fence_value != 0) {
+        // FinishFrame/primary Present may submit Diligent's trailing stale-resource
+        // work internally. Flush the queued signal now so it orders after that work.
+        m_Context->Flush();
+        m_FrameFences[submitted_slot] = fence_value;
+    }
+    AdvanceFrameSlot();
+}
+
+bool FDiligentDevice::ReadTexture(IRhiTexture& texture, void* destination_pixels, u32 destination_size) noexcept
 {
     if (!m_Device || !m_Context || destination_pixels == nullptr) return false;
-    auto* dtex = static_cast<DiligentTexture*>(&texture);
+    auto* dtex = static_cast<FDiligentTexture*>(&texture);
     Diligent::ITexture* src = dtex->Native();
     if (src == nullptr) return false;
     const Diligent::TextureDesc& sd = src->GetDesc();
     const u32 w = sd.Width, h = sd.Height;
-    u32 bpp = 4;
-    switch (dtex->EPixelFormat()) {
-    case EFormat::R32G32B32A32_Float:
-        bpp = 16;
-        break;
-    case EFormat::R16G16B16A16_Float:
-        bpp = 8;
-        break;
-    case EFormat::R32G32_Float:
-        bpp = 8;
-        break;
-    case EFormat::R11G11B10_Float:
-        bpp = 4;
-        break;
-    case EFormat::R16G16_Float:
-        bpp = 4;
-        break;
-    default:
-        bpp = 4;
-        break; // RGBA8/BGRA8 等
-    }
-    if (w == 0 || h == 0 || destination_size < w * h * bpp) return false;
+    const u32 bpp = ReadbackBytesPerPixel(dtex->PixelFormat());
+    if (bpp == 0u) return false;
+    if (w == 0u || h == 0u) return false;
+    const u64 dense_row_bytes = static_cast<u64>(w) * bpp;
+    if (dense_row_bytes > destination_size ||
+        static_cast<u64>(h) >
+            static_cast<u64>(destination_size) / dense_row_bytes)
+        return false;
 
     // staging texture (USAGE_STAGING + CPU_ACCESS_READ) を作って CopyTexture → Map で読む。
     Diligent::TextureDesc stg = sd;
@@ -370,6 +464,20 @@ bool DiligentDevice::ReadTexture(IRhiTexture& texture, void* destination_pixels,
     m_Context->MapTextureSubresource(staging, 0, 0, Diligent::MAP_READ, Diligent::MAP_FLAG_DO_NOT_WAIT, nullptr,
                                      mapped);
     if (mapped.pData == nullptr) return false;
+    if (mapped.Stride < dense_row_bytes ||
+        static_cast<u64>(h - 1u) >
+            (static_cast<u64>(-1) - dense_row_bytes) / mapped.Stride) {
+        m_Context->UnmapTextureSubresource(staging, 0, 0);
+        return false;
+    }
+    const u64 row_offset =
+        static_cast<u64>(h - 1u) * mapped.Stride;
+    const u64 dense_slice_bytes = row_offset + dense_row_bytes;
+    if (mapped.DepthStride != 0u &&
+        mapped.DepthStride < dense_slice_bytes) {
+        m_Context->UnmapTextureSubresource(staging, 0, 0);
+        return false;
+    }
     auto* dst = static_cast<u8*>(destination_pixels);
     const auto* srcp = static_cast<const u8*>(mapped.pData);
     for (u32 y = 0; y < h; ++y) {
@@ -379,7 +487,7 @@ bool DiligentDevice::ReadTexture(IRhiTexture& texture, void* destination_pixels,
     return true;
 }
 
-u64 DiligentDevice::SignalGraphicsQueue() noexcept
+u64 FDiligentDevice::SignalGraphicsQueue() noexcept
 {
     if (!m_Context || !m_IdleFence) return 0;
     ++m_IdleValue;
@@ -387,11 +495,13 @@ u64 DiligentDevice::SignalGraphicsQueue() noexcept
     return m_IdleValue;
 }
 
-void DiligentDevice::WaitForFenceValue(u64 fence_value) noexcept
+void FDiligentDevice::WaitForFenceValue(u64 fence_value) noexcept
 {
     if (!m_IdleFence) return;
-    if (m_IdleFence->GetCompletedValue() >= fence_value) return;
-    m_IdleFence->Wait(fence_value);
+    // Diligent 2.5.6's D3D12 fence uses a manual-reset event without resetting it,
+    // so IFence::Wait may return immediately after the first successful wait.
+    while (m_IdleFence->GetCompletedValue() < fence_value)
+        std::this_thread::yield();
 }
 
 } // namespace acs

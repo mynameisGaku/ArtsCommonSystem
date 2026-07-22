@@ -2,7 +2,7 @@
 // GameFramework Pillar — editor_core / FEditorGizmo
 //
 // 役割:
-//   選択中の FNode2D / Node3D の Transform を viewport 上で直接ドラッグ操作する
+//   選択中の ANode の FTransform3D を viewport 上で直接ドラッグ操作する
 //   「ハンドル」。translate (移動) / rotate (回転) / scale (拡縮) の 3 モードを
 //   持ち、各モードで X / Y / Z 軸ハンドル + 平面 (XY/XZ/YZ) ハンドル + 画面
 //   並列ハンドル (rotate のみ) を提供する。Unity / Godot / UE のシーンビュー上の
@@ -21,7 +21,7 @@
 //   gizmo.ProcessInput(mouse_ray_origin, mouse_ray_direction,
 //                      input.LmbDown(), input.LmbHeld(), input.LmbUp());
 //
-//   // 2) Manipulate: 選択中の Node の transform を渡して、drag 中なら値を
+//   // 2) Manipulate: 選択中の ANode の transform を渡して、drag 中なら値を
 //   //    in-place で更新する。true 戻りなら何か変更があった (= UndoCommand 発火
 //   //    タイミング判定にも使える)。
 //   acs::FVec3 pos = node.WorldPosition();
@@ -45,7 +45,7 @@
 //     enum、`u8` 基底で表のレイアウトに優しい。`None_` は EGizmoAxis 側で
 //     キーワード衝突回避のためアンダースコア付き (foundation/Limits.h 等で
 //     既に確立した方針)。
-//   ・**GizmoState を struct として公開**: テストや editor 上の inspector で
+//   ・**FGizmoState を struct として公開**: テストや editor 上の inspector で
 //     「今 drag 中か」「どの軸が hot か」を読み取れるよう公開する。書き換えは
 //     FEditorGizmo 内部からのみ行うが、struct 全体を public にしておけば
 //     外部から ImGui::Text で覗くのが楽 (= debug / replay 性が高い)。
@@ -83,7 +83,7 @@
 //     ラインバッファ。本ヘッダでは「Z 軸を捨てて XY 平面に
 //     射影する」simple projection を採用する (= 2D top-down view を想定)。
 //   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用 / `<string>` 禁止**:
-//     ACS 規約。state は POD GizmoState + パラメータ群のみ。
+//     ACS 規約。state は POD FGizmoState + パラメータ群のみ。
 //
 // 範囲外:
 //   ・vertex / face 編集 (mesh edit gizmo)
@@ -96,7 +96,7 @@
 #include "math/Vec.h"
 
 namespace acs::game {
-class FDebugDraw;        // 前方宣言 — .cpp で gameframework/FDebugDraw.h を include
+class FDebugDraw;        // 前方宣言 — .cpp で gameframework/DebugDraw.h を include
 }
 
 namespace acs::game::editor_core {
@@ -127,7 +127,7 @@ enum class EGizmoMode : u8 {
  *
  * @details
  * World はワールド軸 (X/Y/Z 固定) を表示してその軸方向に move/scale する。
- * Local は対象 Node の rotation を考慮した「ローカル軸」を表示・操作する。
+ * Local は対象 ANode の rotation を考慮した「ローカル軸」を表示・操作する。
  * Local space は inout_rotation_euler を quat に変換して軸を回転させる実装で、
  * Manipulate / DrawGizmo の両方に効く。
  */
@@ -135,7 +135,7 @@ enum class EGizmoSpace : u8 {
     /** ワールド軸 (X/Y/Z 固定、既定)。 */
     World = 0,
 
-    /** Node の rotation を考慮したローカル軸。 */
+    /** ANode の rotation を考慮したローカル軸。 */
     Local = 1,
 };
 
@@ -181,7 +181,7 @@ enum class EGizmoAxis : u8 {
  * 公開フィールドだが、書き換えは FEditorGizmo 内部からのみ行うこと。
  * drag_start_world は drag 開始時のワールド空間ヒット点 (delta 計算の基点)。
  */
-struct GizmoState {
+struct FGizmoState {
     /** 現在の操作モード。 */
     EGizmoMode mode             = EGizmoMode::Translate;
 
@@ -202,7 +202,7 @@ struct GizmoState {
  * drag 終了時に外部へ delta を通知する callback 型。
  *
  * @details
- * drag 完了時に 1 度だけ呼ばれる (= FUndoStack に MoveNodeCommand 等を push する
+ * drag 完了時に 1 度だけ呼ばれる (= FUndoStack に FMoveNodeCommand 等を push する
  * 適切なタイミング)。delta の意味はモード依存で、Translate は world space の
  * 移動量、Rotate は euler 角度の差分 (radians)、Scale は scale 倍率の差分
  * (1.0 を基準) を表す。user は SetOnManipulateCallback の第二引数で渡した
@@ -214,10 +214,10 @@ struct GizmoState {
 using ManipulateCallback = void (*)(void* user, EGizmoMode mode, acs::FVec3 delta) noexcept;
 
 /**
- * 選択 Node の Transform を viewport 上で直接操作するハンドル。
+ * 選択 ANode の FTransform3D を viewport 上で直接操作するハンドル。
  *
  * @details
- * 1 個のインスタンスを editor が所有し、選択中 Node の transform を毎フレーム
+ * 1 個のインスタンスを editor が所有し、選択中 ANode の transform を毎フレーム
  * 流し込む。ハンドル本体は POD 状態のみで、レンダリングは FDebugDraw 経由
  * (= レンダラ非依存)。ProcessInput → Manipulate → DrawGizmo の 3 段で入力取得 /
  * 値更新 / 描画を完全に分離し、translate / rotate / scale の各モードで X/Y/Z 軸
@@ -362,7 +362,7 @@ public:
      * drag 中でなければ false を返して inout_* は触らない。モード別に、Translate は
      * inout_position に delta を加算、Rotate は inout_rotation_euler に angular delta
      * を加算 (radians)、Scale は inout_scale に倍率 delta を加算する。pivot は
-     * inout_position をそのまま使用する (= Node のローカル原点が pivot)。
+     * inout_position をそのまま使用する (= ANode のローカル原点が pivot)。
      * @param inout_position 更新対象の位置 (Translate で書き換え)。
      * @param inout_rotation_euler 更新対象の euler 回転 (Rotate で書き換え、radians)。
      * @param inout_scale 更新対象のスケール (Scale で書き換え)。
@@ -404,11 +404,11 @@ public:
     EGizmoAxis HotAxis() const noexcept { return _state.hot_axis; }
 
     /**
-     * GizmoState の現値をまるごと参照で返す (テスト / inspector 表示用)。
+     * FGizmoState の現値をまるごと参照で返す (テスト / inspector 表示用)。
      *
-     * @return 現フレームの GizmoState への const 参照。
+     * @return 現フレームの FGizmoState への const 参照。
      */
-    const GizmoState& State() const noexcept { return _state; }
+    const FGizmoState& State() const noexcept { return _state; }
 
     /**
      * drag 終了通知 callback を登録する。
@@ -518,7 +518,7 @@ private:
     void FireDragEnd() noexcept;
 
     /** 現フレームの操作状態 (mode / space / hot_axis / dragging / drag_start_world)。 */
-    GizmoState _state{};
+    FGizmoState _state{};
 
     /** drag 開始時に記録した元の位置 (累積 delta の基点)。 */
     acs::FVec3 m_DragOriginPos{};

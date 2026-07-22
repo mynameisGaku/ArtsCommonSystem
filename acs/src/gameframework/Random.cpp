@@ -47,7 +47,7 @@ inline u32 Rotl32(u32 x, int k) noexcept {
 /** 起動時刻 (Clock::Ticks) を seed にして構築する。 */
 FRandom::FRandom() noexcept {
     // 時刻 (QPC tick) を seed に使う。FrameTimer 起動順に依存せず単独で使える。
-    Seed(Clock::Ticks());
+    Seed(FClock::Ticks());
 }
 
 /** 明示した u64 seed で構築する。 */

@@ -83,7 +83,7 @@ public:
      * @param box 描画する軸並行境界ボックス。
      * @param color 線の色 (RGBA)。
      */
-    void Aabb(const Aabb3& box, FVec4 color) noexcept;
+    void Aabb(const FAabb3& box, FVec4 color) noexcept;
 
     /**
      * 三角形インデックス列の全エッジを線で積む (メッシュ/凸包の wireframe)。
@@ -114,7 +114,7 @@ public:
 
 private:
     /** 1 本のラインを構成する 1 頂点 (位置 + RGBA カラー)。 */
-    struct LineVtx { f32 px, py, pz, r, g, b, a; };
+    struct FLineVtx { f32 px, py, pz, r, g, b, a; };
 
     /** ライン描画の頂点シェーダ。 */
     TUniquePtr<IRhiShader>   m_Vs;
@@ -132,7 +132,7 @@ private:
     TUniquePtr<IRhiBuffer>   m_Cb;
 
     /** CPU 側のライン頂点蓄積 (End で頂点バッファへ転送)。 */
-    TArray<LineVtx>          m_Verts;
+    TArray<FLineVtx>          m_Verts;
 
     /** 頂点バッファに収まる頂点数の上限 (max_lines * 2)。 */
     u32                      m_MaxVerts = 0;

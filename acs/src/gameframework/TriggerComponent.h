@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// FTriggerComponent — FNode2D を FTriggerWorld2D に橋渡しし、overlap の
-// enter / exit を「コンポーネント単位」で受け取れるようにする Component2D。
+// ATriggerComponent — ANode を FTriggerWorld2D に橋渡しし、overlap の
+// enter / exit を「コンポーネント単位」で受け取れるようにする AComponent。
 //
 // FTriggerWorld2D 自体は world 全体で 1 組のコールバックしか持たないため、本
 // コンポーネントは各 trigger に自分自身 (this) を user data として紐付け、world の
@@ -8,38 +8,38 @@
 // これにより player / pickup / hazard などを各ノードのハンドラで個別に処理できる。
 //
 // 使い方 (サブクラスで override):
-//   class FPickup : public FTriggerComponent {
+//   class APickup : public ATriggerComponent {
 //   public:
-//       ACS_GAME_COMPONENT_KIND(FPickup)
-//       using FTriggerComponent::FTriggerComponent;
-//       void OnTriggerEnter(FTriggerComponent* other) noexcept override { /* 取得処理 */ }
+//       ACS_GAME_COMPONENT_KIND(APickup)
+//       using ATriggerComponent::ATriggerComponent;
+//       void OnTriggerEnter(ATriggerComponent* other) noexcept override { /* 取得処理 */ }
 //   };
-//   auto& pk = node->AddComponent<FPickup>(Services().Triggers(),
+//   auto& pk = node->AddComponent<APickup>(Services().Triggers(),
 //                                          /*layer=*/kPickupLayer, /*mask=*/0);
 //   pk.SetCircle(0.4f);
 //
 // 使い方 (関数ポインタ):
-//   auto& tg = node->AddComponent<FTriggerComponent>(world, kPlayerLayer, kPickupLayer);
+//   auto& tg = node->AddComponent<ATriggerComponent>(world, kPlayerLayer, kPickupLayer);
 //   tg.SetCircle(0.45f);
-//   tg.SetOnEnter(+[](FTriggerComponent& self, FTriggerComponent* other, void* user) noexcept {
+//   tg.SetOnEnter(+[](ATriggerComponent& self, ATriggerComponent* other, void* user) noexcept {
 //       // self が mask に合致する other に触れた
 //   }, this);
 //
-// layer / mask 規約 (CollisionWorld2D と同じ bitmask):
+// layer / mask 規約 (FCollisionWorld2D と同じ bitmask):
 //   ・layer = 自分が属するレイヤ。mask = 自分が反応したいレイヤ。
 //   ・this は「other.layer & this.mask != 0」のときだけ自分のハンドラが発火する。
 //     (幾何 overlap 判定自体は FTriggerWorld2D が全 pair で行い、フィルタは本層で適用)
 #pragma once
 
-#include "gameframework/Component2D.h"
+#include "gameframework/AComponent.h"
 #include "gameframework/TriggerWorld2D.h"
 #include "math/Vec.h"
 
 namespace acs::game {
 
 /**
- * FNode2D を FTriggerWorld2D に橋渡しし、overlap の enter / exit をコンポーネント
- * 単位で受け取れるようにする Component2D。
+ * ANode を FTriggerWorld2D に橋渡しし、overlap の enter / exit をコンポーネント
+ * 単位で受け取れるようにする AComponent。
  *
  * @details
  * FTriggerWorld2D 自体は world 全体で 1 組のコールバックしか持たないため、本
@@ -49,9 +49,9 @@ namespace acs::game {
  * は自分が属するレイヤ、mask は反応したいレイヤで、(other.layer & this.mask != 0)
  * のときだけ自分のハンドラが発火する (幾何 overlap 判定自体は world が全 pair で行う)。
  */
-class FTriggerComponent : public FComponent2D {
+class ATriggerComponent : public AComponent {
 public:
-    ACS_GAME_COMPONENT_KIND(FTriggerComponent)
+    ACS_GAME_COMPONENT_KIND(ATriggerComponent)
 
     /** layer / mask の全ビット ON (どのレイヤとも反応する) を表す既定値。 */
     static constexpr u32 kAllLayers = 0xFFFFFFFFu;
@@ -63,7 +63,7 @@ public:
      * @param layer 自分が属するレイヤ bit (既定 kAllLayers)。
      * @param mask 反応したい相手のレイヤ bitmask (既定 kAllLayers)。
      */
-    explicit FTriggerComponent(FTriggerWorld2D& world,
+    explicit ATriggerComponent(FTriggerWorld2D& world,
                                u32 layer = kAllLayers,
                                u32 mask  = kAllLayers) noexcept
         : m_World(&world), m_Layer(layer), m_Mask(mask) {}
@@ -120,7 +120,7 @@ public:
      * @param other 相手のトリガコンポーネント (world 外なら nullptr)。
      * @param user SetOnEnter/SetOnExit で渡した任意ポインタ。
      */
-    using TriggerFn = void(*)(FTriggerComponent& self, FTriggerComponent* other, void* user) noexcept;
+    using TriggerFn = void(*)(ATriggerComponent& self, ATriggerComponent* other, void* user) noexcept;
 
     /**
      * overlap 開始時のコールバックを設定する。
@@ -143,21 +143,21 @@ public:
      *
      * @param other 相手のトリガコンポーネント (world 外なら nullptr)。
      */
-    virtual void OnTriggerEnter(FTriggerComponent* /*other*/) noexcept {}
+    virtual void OnTriggerEnter(ATriggerComponent* /*other*/) noexcept {}
 
     /**
      * overlap 終了時に呼ばれるサブクラス用フック。
      *
      * @param other 相手のトリガコンポーネント (world 外なら nullptr)。
      */
-    virtual void OnTriggerExit (FTriggerComponent* /*other*/) noexcept {}
+    virtual void OnTriggerExit (ATriggerComponent* /*other*/) noexcept {}
 
     /**
      * ノードに attach された直後に呼ばれる (owner 参照を保持する)。
      *
      * @param owner このコンポーネントを所有するノード。
      */
-    void OnAttach(FNode2D& owner) noexcept override;
+    void OnAttach(ANode& owner) noexcept override;
 
     /**
      * 毎フレーム呼ばれ、初回の遅延登録と形状の world への同期を行う。
@@ -190,14 +190,14 @@ private:
      *
      * @param other overlap した相手のトリガコンポーネント。
      */
-    void HandleEnter(FTriggerComponent* other) noexcept;
+    void HandleEnter(ATriggerComponent* other) noexcept;
 
     /**
      * mask フィルタを通過した exit を自身とコールバックへ配送する。
      *
      * @param other overlap が解消した相手のトリガコンポーネント。
      */
-    void HandleExit (FTriggerComponent* other) noexcept;
+    void HandleExit (ATriggerComponent* other) noexcept;
 
     /**
      * world の global enter コールバックに差し込む静的ディスパッチャ。

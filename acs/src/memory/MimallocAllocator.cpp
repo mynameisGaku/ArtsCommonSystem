@@ -57,7 +57,7 @@ enum class EAllocationState : u32
     Released = 3u,
 };
 
-struct AllocationHeader
+struct FAllocationHeader
 {
     /** Active / Reallocating / Released を原子的に遷移させる。 */
     alignas(sizeof(u32)) volatile u32 State = 0u;
@@ -70,16 +70,16 @@ struct AllocationHeader
     usize UserOffset = 0;
 
     /** Released 後、物理解放まで使う侵入リストの次要素。 */
-    AllocationHeader* RetiredNext = nullptr;
+    FAllocationHeader* RetiredNext = nullptr;
 };
 
 /** 利用者ポインタから mimalloc 生ブロックへ戻るための固定長プレフィックス。 */
-struct AllocationPrefix {
+struct FAllocationPrefix {
     void* AllocationBase = nullptr;
     u64 Magic = 0;
 };
 
-static_assert((sizeof(AllocationPrefix) % alignof(void*)) == 0, "AllocationPrefix must preserve pointer alignment");
+static_assert((sizeof(FAllocationPrefix) % alignof(void*)) == 0, "AllocationPrefix must preserve pointer alignment");
 
 /** 固定長かつ動的確保なしで破棄時診断を組み立てる。 */
 class FMimallocDiagnosticBuffer final {
@@ -204,7 +204,7 @@ u64 AllocateGeneration() noexcept
 bool CalculateAllocationSize(usize RequestedSize, usize EffectiveAlignment, usize& AllocationSize) noexcept
 {
     const usize Maximum = ~usize(0);
-    const usize FixedOverhead = sizeof(AllocationHeader) + sizeof(AllocationPrefix);
+    const usize FixedOverhead = sizeof(FAllocationHeader) + sizeof(FAllocationPrefix);
     if (EffectiveAlignment == 0 || FixedOverhead > Maximum - (EffectiveAlignment - 1u)) {
         AllocationSize = 0;
         return false;
@@ -224,11 +224,11 @@ bool CalculateAllocationSize(usize RequestedSize, usize EffectiveAlignment, usiz
 void* InitializeAllocationMetadata(void* AllocationBase, FMimallocAllocator* Owner, u64 Generation, usize RequestedSize,
                                    usize EffectiveAlignment) noexcept
 {
-    auto* Header = static_cast<AllocationHeader*>(AllocationBase);
-    const uptr FirstUserAddress = reinterpret_cast<uptr>(AllocationBase) + sizeof(AllocationHeader) +
-                                  sizeof(AllocationPrefix);
+    auto* Header = static_cast<FAllocationHeader*>(AllocationBase);
+    const uptr FirstUserAddress = reinterpret_cast<uptr>(AllocationBase) + sizeof(FAllocationHeader) +
+                                  sizeof(FAllocationPrefix);
     const uptr UserAddress = AlignUp(FirstUserAddress, EffectiveAlignment);
-    auto* Prefix = reinterpret_cast<AllocationPrefix*>(UserAddress - sizeof(AllocationPrefix));
+    auto* Prefix = reinterpret_cast<FAllocationPrefix*>(UserAddress - sizeof(FAllocationPrefix));
 
     Header->Magic = kAllocationHeaderMagic;
     Header->Owner = Owner;
@@ -245,7 +245,7 @@ void* InitializeAllocationMetadata(void* AllocationBase, FMimallocAllocator* Own
 }
 
 /** 所有者、世代、位置、アライメントを含めてヘッダとプレフィックスを検証する。 */
-const AllocationHeader* ValidateAllocationMetadata(const FMimallocAllocator* Owner, const void* Heap, u64 Generation,
+const FAllocationHeader* ValidateAllocationMetadata(const FMimallocAllocator* Owner, const void* Heap, u64 Generation,
                                                    const void* Pointer) noexcept
 {
     if (!Owner || !Heap || !Pointer) {
@@ -258,26 +258,26 @@ const AllocationHeader* ValidateAllocationMetadata(const FMimallocAllocator* Own
     }
 
     const uptr PointerAddress = reinterpret_cast<uptr>(Pointer);
-    if ((PointerAddress & (alignof(void*) - 1u)) != 0u || PointerAddress < sizeof(AllocationPrefix)) {
+    if ((PointerAddress & (alignof(void*) - 1u)) != 0u || PointerAddress < sizeof(FAllocationPrefix)) {
         return nullptr;
     }
 
-    const uptr PrefixAddress = PointerAddress - sizeof(AllocationPrefix);
-    const auto* Prefix = reinterpret_cast<const AllocationPrefix*>(PrefixAddress);
+    const uptr PrefixAddress = PointerAddress - sizeof(FAllocationPrefix);
+    const auto* Prefix = reinterpret_cast<const FAllocationPrefix*>(PrefixAddress);
     if (!mi_heap_contains(MimallocHeap, Prefix)) {
         return nullptr;
     }
     if (Prefix->Magic != kAllocationPrefixMagic || !Prefix->AllocationBase) {
         return nullptr;
     }
-    if ((reinterpret_cast<uptr>(Prefix->AllocationBase) & (alignof(AllocationHeader) - 1u)) != 0u) {
+    if ((reinterpret_cast<uptr>(Prefix->AllocationBase) & (alignof(FAllocationHeader) - 1u)) != 0u) {
         return nullptr;
     }
     if (!mi_heap_contains(MimallocHeap, Prefix->AllocationBase)) {
         return nullptr;
     }
 
-    const auto* Header = static_cast<const AllocationHeader*>(Prefix->AllocationBase);
+    const auto* Header = static_cast<const FAllocationHeader*>(Prefix->AllocationBase);
     if (atomic_detail::LoadAcquire(&Header->State) != static_cast<u32>(EAllocationState::Active) ||
         Header->Magic != kAllocationHeaderMagic || Header->Owner != Owner || Header->Generation != Generation ||
         Header->RequestedBytes == 0u || !IsPow2(Header->EffectiveAlignment) ||
@@ -286,7 +286,7 @@ const AllocationHeader* ValidateAllocationMetadata(const FMimallocAllocator* Own
     }
 
     const usize UsableSize = mi_usable_size(Prefix->AllocationBase);
-    const usize MinimumUserOffset = sizeof(AllocationHeader) + sizeof(AllocationPrefix);
+    const usize MinimumUserOffset = sizeof(FAllocationHeader) + sizeof(FAllocationPrefix);
     if (Header->UserOffset < MinimumUserOffset || Header->UserOffset > UsableSize ||
         Header->RequestedBytes > static_cast<u64>(UsableSize - Header->UserOffset)) {
         return nullptr;
@@ -330,17 +330,17 @@ void EmitDestroyedWithLiveAllocations(const FMimallocAllocator* Allocator, u64 O
 }
 
 /** ブロック列挙コールバックが更新する内部状態。 */
-struct HeapInspectionContext {
+struct FHeapInspectionContext {
     const FMimallocAllocator* Owner = nullptr;
     u64 Generation = 0;
-    MimallocHeapInspectionStatistics Statistics = {};
+    FMimallocHeapInspectionStatistics Statistics = {};
 };
 
 /** mi_heap_visit_blocks の領域通知と生存ブロック通知を集計する。 */
 bool mi_cdecl VisitHeapBlock(const mi_heap_t*, const mi_heap_area_t* Area, void* Block, size_t BlockSize,
                              void* Argument)
 {
-    auto* Context = static_cast<HeapInspectionContext*>(Argument);
+    auto* Context = static_cast<FHeapInspectionContext*>(Argument);
     if (!Context || !Area) {
         return false;
     }
@@ -357,13 +357,13 @@ bool mi_cdecl VisitHeapBlock(const mi_heap_t*, const mi_heap_area_t* Area, void*
     ++Context->Statistics.allocation_count;
     Context->Statistics.usable_bytes = SaturatingAdd(Context->Statistics.usable_bytes, static_cast<u64>(BlockSize));
 
-    if (BlockSize < sizeof(AllocationHeader)) {
+    if (BlockSize < sizeof(FAllocationHeader)) {
         Context->Statistics.metadata_valid = false;
         return true;
     }
 
-    const auto* Header = static_cast<const AllocationHeader*>(Block);
-    const usize MinimumUserOffset = sizeof(AllocationHeader) + sizeof(AllocationPrefix);
+    const auto* Header = static_cast<const FAllocationHeader*>(Block);
+    const usize MinimumUserOffset = sizeof(FAllocationHeader) + sizeof(FAllocationPrefix);
     if (atomic_detail::LoadAcquire(&Header->State) != static_cast<u32>(EAllocationState::Active) ||
         Header->Magic != kAllocationHeaderMagic || Header->Owner != Context->Owner ||
         Header->Generation != Context->Generation || Header->RequestedBytes == 0u ||
@@ -380,7 +380,7 @@ bool mi_cdecl VisitHeapBlock(const mi_heap_t*, const mi_heap_area_t* Area, void*
         return true;
     }
     const uptr UserAddress = BlockAddress + Header->UserOffset;
-    const auto* Prefix = reinterpret_cast<const AllocationPrefix*>(UserAddress - sizeof(AllocationPrefix));
+    const auto* Prefix = reinterpret_cast<const FAllocationPrefix*>(UserAddress - sizeof(FAllocationPrefix));
     if ((UserAddress & (Header->EffectiveAlignment - 1u)) != 0u || Prefix->Magic != kAllocationPrefixMagic ||
         Prefix->AllocationBase != Block) {
         Context->Statistics.metadata_valid = false;
@@ -666,7 +666,7 @@ bool FMimallocAllocator::TryFreeAllocation(void* Pointer) noexcept
 bool FMimallocAllocator::FreeAfterLifecycleAdmission(void* Pointer, bool& bCollectionRequested) noexcept
 {
     bCollectionRequested = false;
-    const AllocationHeader* ConstHeader = nullptr;
+    const FAllocationHeader* ConstHeader = nullptr;
     {
         FScopedLock HeapLock(m_HeapLock);
         ConstHeader = ValidateAllocationMetadata(this, m_Heap, m_Generation, Pointer);
@@ -676,7 +676,7 @@ bool FMimallocAllocator::FreeAfterLifecycleAdmission(void* Pointer, bool& bColle
         return false;
     }
 
-    auto* const Header = const_cast<AllocationHeader*>(ConstHeader);
+    auto* const Header = const_cast<FAllocationHeader*>(ConstHeader);
     u32 ExpectedState = static_cast<u32>(EAllocationState::Active);
     if (!atomic_detail::CompareExchange(&Header->State, ExpectedState,
                                         static_cast<u32>(EAllocationState::Released)))
@@ -697,7 +697,7 @@ void* FMimallocAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, u
 {
     (void)OldSize;
     (void)Location;
-    const MimallocReallocationResult Result = TryReallocateAllocation(Pointer, NewSize, Alignment);
+    const FMimallocReallocationResult Result = TryReallocateAllocation(Pointer, NewSize, Alignment);
     if (Pointer && NewSize == 0u && !Result.bOwnershipAccepted)
     {
         return Pointer;
@@ -705,11 +705,11 @@ void* FMimallocAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, u
     return Result.Pointer;
 }
 
-MimallocReallocationResult FMimallocAllocator::TryReallocateAllocation(void* Pointer, usize NewSize,
+FMimallocReallocationResult FMimallocAllocator::TryReallocateAllocation(void* Pointer, usize NewSize,
                                                                        usize Alignment) noexcept
 {
     bool bCollectionRequested = false;
-    MimallocReallocationResult Result;
+    FMimallocReallocationResult Result;
     {
         FLifecycleOperation LifecycleOperation(*this);
         if (!LifecycleOperation.WasAdmitted())
@@ -726,10 +726,10 @@ MimallocReallocationResult FMimallocAllocator::TryReallocateAllocation(void* Poi
     return Result;
 }
 
-MimallocReallocationResult FMimallocAllocator::ReallocateAfterLifecycleAdmission(
+FMimallocReallocationResult FMimallocAllocator::ReallocateAfterLifecycleAdmission(
     void* Pointer, usize NewSize, usize Alignment, bool& bCollectionRequested) noexcept
 {
-    MimallocReallocationResult Result;
+    FMimallocReallocationResult Result;
     bCollectionRequested = false;
     if (!Pointer)
     {
@@ -742,7 +742,7 @@ MimallocReallocationResult FMimallocAllocator::ReallocateAfterLifecycleAdmission
         return Result;
     }
 
-    const AllocationHeader* ConstOldHeader = nullptr;
+    const FAllocationHeader* ConstOldHeader = nullptr;
     {
         FScopedLock HeapLock(m_HeapLock);
         ConstOldHeader = ValidateAllocationMetadata(this, m_Heap, m_Generation, Pointer);
@@ -752,7 +752,7 @@ MimallocReallocationResult FMimallocAllocator::ReallocateAfterLifecycleAdmission
         return Result;
     }
 
-    auto* const OldHeader = const_cast<AllocationHeader*>(ConstOldHeader);
+    auto* const OldHeader = const_cast<FAllocationHeader*>(ConstOldHeader);
     u32 ExpectedState = static_cast<u32>(EAllocationState::Active);
     if (!atomic_detail::CompareExchange(&OldHeader->State, ExpectedState,
                                         static_cast<u32>(EAllocationState::Reallocating)))
@@ -857,9 +857,9 @@ u64 FMimallocAllocator::HardBudgetBytes() const noexcept
 
 bool FMimallocAllocator::RetireAllocation(void* AllocationBase, u64 RequestedBytes) noexcept
 {
-    auto* const Header = static_cast<AllocationHeader*>(AllocationBase);
+    auto* const Header = static_cast<FAllocationHeader*>(AllocationBase);
     FScopedLock RetiredAllocationLock(m_RetiredAllocationLock);
-    Header->RetiredNext = static_cast<AllocationHeader*>(m_RetiredAllocationHead);
+    Header->RetiredNext = static_cast<FAllocationHeader*>(m_RetiredAllocationHead);
     m_RetiredAllocationHead = Header;
     ++m_RetiredAllocationCount;
     m_RetiredRequestedBytes = SaturatingAdd(m_RetiredRequestedBytes, RequestedBytes);
@@ -898,7 +898,7 @@ void FMimallocAllocator::CollectRetiredAllocationsIfNeeded() noexcept
 void FMimallocAllocator::FreeRetiredAllocationsWhileLifecycleIsPaused() noexcept
 {
     FScopedLock RetiredAllocationLock(m_RetiredAllocationLock);
-    auto* Header = static_cast<AllocationHeader*>(m_RetiredAllocationHead);
+    auto* Header = static_cast<FAllocationHeader*>(m_RetiredAllocationHead);
     m_RetiredAllocationHead = nullptr;
     m_RetiredAllocationCount = 0u;
     m_RetiredRequestedBytes = 0u;
@@ -906,7 +906,7 @@ void FMimallocAllocator::FreeRetiredAllocationsWhileLifecycleIsPaused() noexcept
 
     while (Header)
     {
-        AllocationHeader* const NextHeader = Header->RetiredNext;
+        FAllocationHeader* const NextHeader = Header->RetiredNext;
         mi_free(Header);
         Header = NextHeader;
     }
@@ -937,9 +937,9 @@ void FMimallocAllocator::Collect(bool bForce) noexcept
     OpenLifecycleGate();
 }
 
-MimallocAllocationHistogram FMimallocAllocator::CaptureAllocationHistogram() const noexcept
+FMimallocAllocationHistogram FMimallocAllocator::CaptureAllocationHistogram() const noexcept
 {
-    MimallocAllocationHistogram Histogram;
+    FMimallocAllocationHistogram Histogram;
     FLifecycleOperation LifecycleOperation(*this);
     if (!LifecycleOperation.WasAdmitted())
     {
@@ -955,9 +955,9 @@ MimallocAllocationHistogram FMimallocAllocator::CaptureAllocationHistogram() con
     return Histogram;
 }
 
-MimallocHeapInspectionStatistics FMimallocAllocator::InspectHeap() noexcept
+FMimallocHeapInspectionStatistics FMimallocAllocator::InspectHeap() noexcept
 {
-    MimallocHeapInspectionStatistics Empty;
+    FMimallocHeapInspectionStatistics Empty;
     FScopedLock LifecycleControlLock(m_LifecycleControlLock);
     CloseLifecycleGateAndWait();
     if (!m_Heap)
@@ -966,7 +966,7 @@ MimallocHeapInspectionStatistics FMimallocAllocator::InspectHeap() noexcept
     }
 
     FreeRetiredAllocationsWhileLifecycleIsPaused();
-    HeapInspectionContext Context;
+    FHeapInspectionContext Context;
     Context.Owner = this;
     Context.Generation = m_Generation;
     Context.Statistics.metadata_valid = true;

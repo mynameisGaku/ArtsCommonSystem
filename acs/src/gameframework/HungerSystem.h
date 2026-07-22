@@ -10,12 +10,12 @@
 //   ・本クラスは HP を直接管理しない。0 到達時の zero_damage_per_sec を
 //     DamageCallback で外部へ通知し、上位 (= GameDirector / SurvivalDirector)
 //     が FHealthSystem::ApplyDamage を呼ぶ「弱結合 bridge」を取る。
-//   ・IsAlive(SurvivorId) は本クラスの世界での生死判定 = 全 stat の何れかが
+//   ・IsAlive(FSurvivorId) は本クラスの世界での生死判定 = 全 stat の何れかが
 //     0 ではない & HealthBridge が「HP > 0」を返すか否か。HealthBridge を
 //     セットしない場合は stat 部分だけで判定する。
 //
 // 設計選択 (Pillar R/I — FHungerSystem):
-//   ・**SurvivorId は 24bit index + 8bit gen の packed handle**: FHealthId /
+//   ・**FSurvivorId は 24bit index + 8bit gen の packed handle**: FHealthId /
 //     FBuffOwnerId / FNodeId と同規約。`m_Packed == 0` を invalid とし gen は
 //     常に 1 以上で配る。AddSurvivor 後に RemoveSurvivor された slot を再利用
 //     しても古い handle は gen 不一致で確実に弾ける。
@@ -25,9 +25,9 @@
 //   ・**各 survivor は固定 7 stat の TArray を保持**: SoA にする旨味は少ない
 //     (1 survivor あたり stat は 7 個固定で、横断クエリは Tick だけなので
 //     dense layout で十分)。AddSurvivor で 7 個ぶん push して以後固定。
-//   ・**StatConfig は stat 種別ごとに 1 個固定** (= 全 survivor で共通): 個体差
+//   ・**FStatConfig は stat 種別ごとに 1 個固定** (= 全 survivor で共通): 個体差
 //     (= 強キャラは空腹に強い等) は将来 Modifier レイヤで載せる想定で、今は
-//     共通 config + per-survivor StatState の単純構造を採る。
+//     共通 config + per-survivor FStatState の単純構造を採る。
 //   ・**Tick の流れ**: 全 survivor × 全 stat を 1 重ループで回し、
 //       1) stat.current -= config.decay_per_sec * dt
 //       2) clamp(0, max)
@@ -42,9 +42,9 @@
 //     独立に attach/detach 可能。
 //   ・**OverallSurvivalHealth(id)** : 全 stat の (current / max) の平均を [0,1]
 //     で返す。UI のキャラ状態バー (= 「生存度メータ」) 表示用。
-//   ・**非コピー・非ムーブ**: 内部 TArray<SurvivorSlot> がさらに TArray<StatState>
+//   ・**非コピー・非ムーブ**: 内部 TArray<FSurvivorSlot> がさらに TArray<FStatState>
 //     を持つ二段ネスト構造で、callback の発火タイミングで外部参照が破綻する
-//     可能性があるため。FGame / Scene 単位で 1 個保持の想定。
+//     可能性があるため。FGame / FScene 単位で 1 個保持の想定。
 //   ・**全 noexcept、STL 不使用、`<string>` 禁止**: ACS 規約。失敗は bool / 哨兵で表現。
 //
 // 使い方:
@@ -53,12 +53,12 @@
 //
 //   // 1) stat ごとに decay/critical/damage を config
 //   hs.ConfigureStat(ESurvivalStat::Hunger,
-//       StatConfig{ /*max*/100.0f, /*decay*/0.5f, /*critical*/20.0f, /*zero_dmg*/2.0f });
+//       FStatConfig{ /*max*/100.0f, /*decay*/0.5f, /*critical*/20.0f, /*zero_dmg*/2.0f });
 //   hs.ConfigureStat(ESurvivalStat::Thirst,
-//       StatConfig{ 100.0f, 1.0f, 25.0f, 3.0f });   // 喉は空腹より速い
+//       FStatConfig{ 100.0f, 1.0f, 25.0f, 3.0f });   // 喉は空腹より速い
 //
 //   // 2) survivor を追加 (= 全 stat が max でスタート)
-//   SurvivorId player = hs.AddSurvivor();
+//   FSurvivorId player = hs.AddSurvivor();
 //
 //   // 3) コールバックを attach (FHealthSystem への bridge)
 //   hs.SetOnCriticalCallback(&MyOnCritical, &game_ctx);
@@ -123,7 +123,7 @@ inline constexpr u32 kSurvivalStatCount = 7u;
  *
  * @details 個体差は将来 Modifier レイヤで載せる想定で、今は共通 config を採る。
  */
-struct StatConfig {
+struct FStatConfig {
     /** stat の上限値 (= AddSurvivor 直後の初期値)。0 以下指定は防御的に 1.0 扱い。 */
     f32 max_value          = 100.0f;
 
@@ -149,11 +149,11 @@ struct StatConfig {
 };
 
 /** ある survivor の 1 stat の実状態。 */
-struct StatState {
+struct FStatState {
     /** 現在値 ([0, max] でクランプ)。 */
     f32  current     = 0.0f;
 
-    /** 上限値 (StatConfig::max_value のコピー)。 */
+    /** 上限値 (FStatConfig::max_value のコピー)。 */
     f32  max         = 0.0f;
 
     /** critical_threshold を下回っているか (Tick 内で更新される)。 */
@@ -167,7 +167,7 @@ struct StatState {
  * m_Packed == 0 を invalid と定義 (gen は常に 1 以上で配る)。FHealthId /
  * FBuffOwnerId と同一規約。
  */
-struct SurvivorId {
+struct FSurvivorId {
     /** index と gen を詰めた packed 値 (0 = invalid)。 */
     u32 m_Packed = 0u;
 
@@ -192,10 +192,10 @@ struct SurvivorId {
      *
      * @param index slot インデックス (下位 24bit)。
      * @param gen 世代番号 (上位 8bit)。
-     * @return 生成した SurvivorId。
+     * @return 生成した FSurvivorId。
      */
-    static SurvivorId Pack(u32 index, u8 gen) noexcept {
-        SurvivorId o;
+    static FSurvivorId Pack(u32 index, u8 gen) noexcept {
+        FSurvivorId o;
         o.m_Packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return o;
     }
@@ -220,7 +220,7 @@ struct SurvivorId {
      * @param o 比較相手。
      * @return packed 値が一致すれば true。
      */
-    bool operator==(SurvivorId o) const noexcept { return m_Packed == o.m_Packed; }
+    bool operator==(FSurvivorId o) const noexcept { return m_Packed == o.m_Packed; }
 
     /**
      * 非等価比較する。
@@ -228,7 +228,7 @@ struct SurvivorId {
      * @param o 比較相手。
      * @return packed 値が異なれば true。
      */
-    bool operator!=(SurvivorId o) const noexcept { return m_Packed != o.m_Packed; }
+    bool operator!=(FSurvivorId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 /**
@@ -237,8 +237,8 @@ struct SurvivorId {
  * @details
  * slot+gen パターンで survivor を管理し、Tick で各 stat を秒単位に decay させて
  * critical 閾値跨ぎを検出し、0 到達時は DamageCallback 経由で HP ダメージを通知する。
- * HP 自体は管理せず弱結合 bridge を取る。非コピー・非ムーブ (TArray<SurvivorSlot> が
- * さらに TArray<StatState> を持つ二段ネスト構造のため)。
+ * HP 自体は管理せず弱結合 bridge を取る。非コピー・非ムーブ (TArray<FSurvivorSlot> が
+ * さらに TArray<FStatState> を持つ二段ネスト構造のため)。
  */
 class FHungerSystem {
 public:
@@ -251,7 +251,7 @@ public:
      * @param stat 遷移した stat 種別。
      * @param entered_critical true で「閾値を割って入った」、false で「復帰した」。
      */
-    using CriticalCallback = void(*)(void* user, SurvivorId id, ESurvivalStat stat,
+    using CriticalCallback = void(*)(void* user, FSurvivorId id, ESurvivalStat stat,
                                       bool entered_critical) noexcept;
 
     /**
@@ -265,7 +265,7 @@ public:
      * @param stat 0 に達した stat 種別。
      * @param damage 今フレームで適用すべきダメージ量。
      */
-    using DamageCallback = void(*)(void* user, SurvivorId id, ESurvivalStat stat,
+    using DamageCallback = void(*)(void* user, FSurvivorId id, ESurvivalStat stat,
                                     f32 damage) noexcept;
 
     /** 空状態で構築する (stat config は Init で確保)。 */
@@ -287,7 +287,7 @@ public:
     FHungerSystem& operator=(FHungerSystem&&)      = delete;
 
     /**
-     * 7 stat 分の StatConfig をデフォルト値で初期化する。
+     * 7 stat 分の FStatConfig をデフォルト値で初期化する。
      *
      * @details
      * コンストラクタでやらないのは Director パターンで明示的に Init/Shutdown を踏ませる
@@ -299,12 +299,12 @@ public:
      * stat 種別ごとの decay / critical / damage 設定を上書きする。
      *
      * @details
-     * Init 後に呼ぶ。既存 survivor の StatState には影響しないため、ゲーム起動時に
+     * Init 後に呼ぶ。既存 survivor の FStatState には影響しないため、ゲーム起動時に
      * 一括設定する想定。
      * @param stat 設定する stat 種別。
      * @param config 上書きする設定値 (負値や max 超過は内部で sanitize される)。
      */
-    void ConfigureStat(ESurvivalStat stat, const StatConfig& config) noexcept;
+    void ConfigureStat(ESurvivalStat stat, const FStatConfig& config) noexcept;
 
     /**
      * 新規 survivor を登録する。
@@ -312,7 +312,7 @@ public:
      * @details 全 stat が config.max_value で初期化される。
      * @return 新しい survivor の handle (24bit index 上限到達時は invalid)。
      */
-    SurvivorId AddSurvivor() noexcept;
+    FSurvivorId AddSurvivor() noexcept;
 
     /**
      * survivor を破棄する (= slot 解放 + gen を進める)。
@@ -320,7 +320,7 @@ public:
      * @details callback は発火しない。invalid / stale / 範囲外 handle は no-op。
      * @param id 破棄する survivor の handle。
      */
-    void RemoveSurvivor(SurvivorId id) noexcept;
+    void RemoveSurvivor(FSurvivorId id) noexcept;
 
     /**
      * stat を加算 (回復) する。
@@ -330,7 +330,7 @@ public:
      * @param stat 回復する stat 種別。
      * @param amount 加算量。
      */
-    void RestoreStat(SurvivorId id, ESurvivalStat stat, f32 amount) noexcept;
+    void RestoreStat(FSurvivorId id, ESurvivalStat stat, f32 amount) noexcept;
 
     /**
      * stat を減算 (消費) する。
@@ -343,7 +343,7 @@ public:
      * @param stat 消費する stat 種別。
      * @param amount 減算量。
      */
-    void DrainStat(SurvivorId id, ESurvivalStat stat, f32 amount) noexcept;
+    void DrainStat(FSurvivorId id, ESurvivalStat stat, f32 amount) noexcept;
 
     /**
      * stat を絶対値で設定する。
@@ -353,7 +353,7 @@ public:
      * @param stat 設定する stat 種別。
      * @param value 設定する値。
      */
-    void SetStat(SurvivorId id, ESurvivalStat stat, f32 value) noexcept;
+    void SetStat(FSurvivorId id, ESurvivalStat stat, f32 value) noexcept;
 
     /**
      * stat の現在値を返す。
@@ -362,7 +362,7 @@ public:
      * @param stat 取得する stat 種別。
      * @return 現在値 (invalid id / 範囲外 stat は 0.0f)。
      */
-    f32 GetStat(SurvivorId id, ESurvivalStat stat) const noexcept;
+    f32 GetStat(FSurvivorId id, ESurvivalStat stat) const noexcept;
 
     /**
      * stat の is_critical フラグを返す。
@@ -371,7 +371,7 @@ public:
      * @param stat 判定する stat 種別。
      * @return critical 状態なら true (invalid id は false)。
      */
-    bool IsCritical(SurvivorId id, ESurvivalStat stat) const noexcept;
+    bool IsCritical(FSurvivorId id, ESurvivalStat stat) const noexcept;
 
     /**
      * この survivor が「生きているか」を返す。
@@ -382,7 +382,7 @@ public:
      * @param id 対象 survivor の handle。
      * @return 生存していれば true (invalid / removed survivor は false)。
      */
-    bool IsAlive(SurvivorId id) const noexcept;
+    bool IsAlive(FSurvivorId id) const noexcept;
 
     /**
      * 総合生存度を [0, 1] で返す。
@@ -391,7 +391,7 @@ public:
      * @param id 対象 survivor の handle。
      * @return 総合生存度 (invalid id / configure 済み stat が無い場合は 0.0f)。
      */
-    f32 OverallSurvivalHealth(SurvivorId id) const noexcept;
+    f32 OverallSurvivalHealth(FSurvivorId id) const noexcept;
 
     /**
      * 全 active survivor 数を返す (生死問わず)。
@@ -439,12 +439,12 @@ private:
      * 内部 survivor slot。
      *
      * @details
-     * 各 survivor の StatState を 7 個固定で持つ。in_use=false の slot は AddSurvivor で
+     * 各 survivor の FStatState を 7 個固定で持つ。in_use=false の slot は AddSurvivor で
      * 再利用される。gen は 1 以上で配り、0 は「未使用」を意味する。
      */
-    struct SurvivorSlot {
+    struct FSurvivorSlot {
         /** この survivor の 7 stat の実状態。 */
-        TArray<StatState> stats {};
+        TArray<FStatState> stats {};
 
         /** 世代番号 (再利用検出用、0 は未使用)。 */
         u8               gen     = 0u;
@@ -460,7 +460,7 @@ private:
      * @param id 解決する survivor の handle。
      * @return 対応する slot へのポインタ (解決失敗時は nullptr)。
      */
-    SurvivorSlot*       ResolveSurvivor(SurvivorId id) noexcept;
+    FSurvivorSlot*       ResolveSurvivor(FSurvivorId id) noexcept;
 
     /**
      * survivor handle から slot を解決する (const)。
@@ -469,7 +469,7 @@ private:
      * @param id 解決する survivor の handle。
      * @return 対応する slot への const ポインタ (解決失敗時は nullptr)。
      */
-    const SurvivorSlot* ResolveSurvivor(SurvivorId id) const noexcept;
+    const FSurvivorSlot* ResolveSurvivor(FSurvivorId id) const noexcept;
 
     /**
      * 値を [lo, hi] に制限する。
@@ -490,10 +490,10 @@ private:
     static u32 StatIndex(ESurvivalStat stat) noexcept;
 
     /** 7 stat の共通 config。 */
-    TArray<StatConfig>    m_Configs   {};
+    TArray<FStatConfig>    m_Configs   {};
 
-    /** SurvivorSlot 配列 (generational、index 0 は dummy)。 */
-    TArray<SurvivorSlot>  m_Survivors {};
+    /** FSurvivorSlot 配列 (generational、index 0 は dummy)。 */
+    TArray<FSurvivorSlot>  m_Survivors {};
 
     /** 現在登録中の active survivor 数。 */
     u32                  m_SurvivorCount = 0u;

@@ -3,7 +3,7 @@
 //   （std::shared_ptr / std::weak_ptr / enable_shared_from_this 代替）
 //
 // ・TSharedPtr<T> … 共有所有。コピーで強参照カウントを atomic 増加、破棄で減少、
-//   0 で対象を破棄する。MakeShared 経由なら ControlBlock と T を 1 アロケーション
+//   0 で対象を破棄する。MakeShared 経由なら FControlBlock と T を 1 アロケーション
 //   に同居させる（make_shared 相当）。
 // ・TWeakPtr<T>   … 弱参照。対象の生存を延ばさない。Lock() で生きていれば
 //   TSharedPtr を得る（循環参照を断ち切る用途）。
@@ -12,8 +12,8 @@
 // 旧名 TRc / MakeRc は memory/Rc.h に互換エイリアスとして残してある（非推奨）。
 //
 // 例:
-//   auto p = MakeShared<Mesh>(args...);   // TSharedPtr<Mesh>
-//   TWeakPtr<Mesh> w = p;                  // 弱参照
+//   auto p = MakeShared<FMesh>(args...);   // TSharedPtr<FMesh>
+//   TWeakPtr<FMesh> w = p;                 // 弱参照
 //   if (auto s = w.Lock()) s->Render();    // 生きていれば使える
 #pragma once
 
@@ -45,7 +45,7 @@ namespace sp_detail {
  * (と同居する T の領域) を解放する。この 2 段構えにより T が破棄されても TWeakPtr が
  * 残っている間は制御ブロックが生き続け、Lock()/Expired() を安全に呼べる。
  */
-struct ControlBlock {
+struct FControlBlock {
     /** 強参照 (TSharedPtr) の数。0 で T を破棄する。 */
     TAtomic<u32> strong {1};
 
@@ -56,10 +56,10 @@ struct ControlBlock {
     FAllocator*  alloc  = nullptr;
 
     /** T のデストラクタを実行する関数 (型消去された破棄フック)。 */
-    void (*destroy_obj)(ControlBlock*) noexcept = nullptr;
+    void (*destroy_obj)(FControlBlock*) noexcept = nullptr;
 
     /** ブロック全体を解放する関数 (型消去された解放フック)。 */
-    void (*free_self)  (ControlBlock*) noexcept = nullptr;
+    void (*free_self)  (FControlBlock*) noexcept = nullptr;
 
     /**
      * 強参照カウントを 1 減らし、0 になったら T を破棄する。
@@ -119,13 +119,13 @@ struct ControlBlock {
 };
 
 /**
- * ControlBlock と T を 1 ブロックに同居させるインライン版 (MakeShared 用)。
+ * FControlBlock と T を 1 ブロックに同居させるインライン版 (MakeShared 用)。
  *
  * @details 制御ブロックの直後に T 用の生ストレージを置き、1 アロケーションで両者を確保する。
  * @tparam T 同居させる対象の型。
  */
 template<typename T>
-struct InlineBlock : ControlBlock {
+struct TInlineBlock : FControlBlock {
     /** T を構築する生ストレージ (T のアライメントを満たす)。 */
     alignas(T) byte storage[sizeof(T)];
 
@@ -140,20 +140,20 @@ struct InlineBlock : ControlBlock {
      * destroy_obj に登録する T 破棄フック。
      *
      * @details トリビアル破棄可能型では ~T() を省略する。
-     * @param cb 破棄対象の制御ブロック (InlineBlock にダウンキャストする)。
+     * @param cb 破棄対象の制御ブロック (TInlineBlock にダウンキャストする)。
      */
-    static void DestroyObj(ControlBlock* cb) noexcept {
+    static void DestroyObj(FControlBlock* cb) noexcept {
         if constexpr (!IsTriviallyDestructibleV<T>)
-            static_cast<InlineBlock*>(cb)->Ptr()->~T();
+            static_cast<TInlineBlock*>(cb)->Ptr()->~T();
     }
 
     /**
      * free_self に登録する領域解放フック。
      *
-     * @param cb 解放対象の制御ブロック (InlineBlock にダウンキャストする)。
+     * @param cb 解放対象の制御ブロック (TInlineBlock にダウンキャストする)。
      */
-    static void FreeSelf(ControlBlock* cb) noexcept {
-        auto* self = static_cast<InlineBlock*>(cb);
+    static void FreeSelf(FControlBlock* cb) noexcept {
+        auto* self = static_cast<TInlineBlock*>(cb);
         FAllocator* const a = self->alloc;
         a->Free(self);
     }
@@ -174,7 +174,7 @@ template<typename T> void HookSharedFromThis(const TSharedPtr<T>& sp) noexcept;
  *
  * @details
  * コピーで強参照カウントを atomic 増加、破棄で減少し、0 で対象を破棄する。MakeShared
- * 経由なら ControlBlock と T を 1 アロケーションに同居させる。
+ * 経由なら FControlBlock と T を 1 アロケーションに同居させる。
  * @tparam T 共有所有する対象の型。
  */
 template<typename T>
@@ -319,7 +319,7 @@ public:
      */
     void Swap(TSharedPtr& o) noexcept {
         T* p = m_Ptr; m_Ptr = o.m_Ptr; o.m_Ptr = p;
-        sp_detail::ControlBlock* c = m_Cb; m_Cb = o.m_Cb; o.m_Cb = c;
+        sp_detail::FControlBlock* c = m_Cb; m_Cb = o.m_Cb; o.m_Cb = c;
     }
 
 private:
@@ -327,7 +327,7 @@ private:
     T*                       m_Ptr = nullptr;
 
     /** 参照カウント制御ブロック (空なら nullptr)。 */
-    sp_detail::ControlBlock* m_Cb  = nullptr;
+    sp_detail::FControlBlock* m_Cb  = nullptr;
 
     /**
      * 既に +1 済みの強参照を採用する内部コンストラクタ (追加で +1 しない)。
@@ -336,7 +336,7 @@ private:
      * @param p 採用する対象ポインタ。
      * @param cb 採用する制御ブロック (強参照は加算済み)。
      */
-    TSharedPtr(T* p, sp_detail::ControlBlock* cb) noexcept : m_Ptr(p), m_Cb(cb) {}
+    TSharedPtr(T* p, sp_detail::FControlBlock* cb) noexcept : m_Ptr(p), m_Cb(cb) {}
 
     /** 別要素型の TSharedPtr から private メンバへアクセスするための friend 宣言。 */
     template<typename U> friend class TSharedPtr;
@@ -485,7 +485,7 @@ public:
      */
     void Swap(TWeakPtr& o) noexcept {
         T* p = m_Ptr; m_Ptr = o.m_Ptr; o.m_Ptr = p;
-        sp_detail::ControlBlock* c = m_Cb; m_Cb = o.m_Cb; o.m_Cb = c;
+        sp_detail::FControlBlock* c = m_Cb; m_Cb = o.m_Cb; o.m_Cb = c;
     }
 
 private:
@@ -493,7 +493,7 @@ private:
     T*                       m_Ptr = nullptr;
 
     /** 参照カウント制御ブロック (空なら nullptr)。 */
-    sp_detail::ControlBlock* m_Cb  = nullptr;
+    sp_detail::FControlBlock* m_Cb  = nullptr;
 
     /** 別要素型の TWeakPtr から private メンバへアクセスするための friend 宣言。 */
     template<typename U> friend class TWeakPtr;
@@ -575,7 +575,7 @@ void HookSharedFromThis(const TSharedPtr<T>& sp) noexcept {
 /**
  * 指定アロケータで T を構築し共有ポインタを返す。
  *
- * @details ControlBlock と T を 1 アロケーションに同居させ、生成直後に
+ * @details FControlBlock と T を 1 アロケーションに同居させ、生成直後に
  * TSharedFromThis 継承時のみ weak-this を仕込む。
  * @tparam T 構築するオブジェクト型。
  * @tparam Args T のコンストラクタ引数型。
@@ -585,7 +585,7 @@ void HookSharedFromThis(const TSharedPtr<T>& sp) noexcept {
  */
 template<typename T, typename... Args>
 ACS_FORCEINLINE TSharedPtr<T> MakeSharedIn(FAllocator& a, Args&&... args) noexcept {
-    using Block = sp_detail::InlineBlock<T>;
+    using Block = sp_detail::TInlineBlock<T>;
     void* const mem = a.Alloc(sizeof(Block), alignof(Block), FSourceLoc::Current());
     if (!mem) return TSharedPtr<T>();
     auto* const blk = ::new (mem) Block();

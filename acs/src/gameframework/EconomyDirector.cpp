@@ -68,7 +68,7 @@ u32 FEconomyDirector::FindItemSlot(const char* item_id) const noexcept {
 }
 
 /** 通貨を登録し残高を 0 で初期化する (id == nullptr / 同 id 重複は no-op)。 */
-void FEconomyDirector::RegisterCurrency(const CurrencyDef& def) noexcept {
+void FEconomyDirector::RegisterCurrency(const FCurrencyDef& def) noexcept {
     // defensive: id == nullptr は意味を持たないので静かに弾く。
     if (def.id == nullptr) return;
 
@@ -124,7 +124,7 @@ bool FEconomyDirector::DeductFromBalance(const char* currency_id, u32 delta) noe
 }
 
 /** 商品を登録する (item_id == nullptr / 同 id 重複は no-op、未登録通貨参照でも受理)。 */
-void FEconomyDirector::RegisterItem(const ShopItem& item) noexcept {
+void FEconomyDirector::RegisterItem(const FShopItem& item) noexcept {
     // defensive: item_id == nullptr は意味を持たないので静かに弾く。
     if (item.item_id == nullptr) return;
 
@@ -165,7 +165,7 @@ bool FEconomyDirector::PurchaseItem(const char* item_id) noexcept {
 
     // 以降は内部状態を参照する。失敗判定をすべて済ませてから side effect を
     // 起こすことで「失敗時 side effect なし」を保証する。
-    ShopItem& item = m_Items[item_slot];
+    FShopItem& item = m_Items[item_slot];
 
     // 在庫切れ判定 (~0u は無制限の哨兵値)。
     if (item.stock_remaining != kStockUnlimited && item.stock_remaining == 0) {
@@ -209,7 +209,7 @@ bool FEconomyDirector::PurchaseItem(const char* item_id) noexcept {
 }
 
 /** item_id に対応する商品を返す (未発見は nullptr)。 */
-const ShopItem* FEconomyDirector::FindItem(const char* item_id) const noexcept {
+const FShopItem* FEconomyDirector::FindItem(const char* item_id) const noexcept {
     const u32 slot = FindItemSlot(item_id);
     if (slot == kNotFound) return nullptr;
     return &m_Items[slot];
@@ -221,7 +221,7 @@ u32 FEconomyDirector::ItemCount() const noexcept {
 }
 
 /** 全商品配列の生ポインタを返す (out_count に件数を書き込む)。 */
-const ShopItem* FEconomyDirector::AllItems(u32& out_count) const noexcept {
+const FShopItem* FEconomyDirector::AllItems(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Items.Size());
     return m_Items.Data();
 }

@@ -15,12 +15,12 @@
 
 namespace hellocine {
 
-class CineEditorScene : public acs::game::Scene {
+class FCineEditorScene : public acs::game::FScene {
 public:
     void OnEnter() noexcept override;
     void OnExit()  noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
-    void OnRender(acs::game::RenderContext& rc) noexcept override;
+    void OnRender(acs::game::FRenderContext& rc) noexcept override;
 
 private:
     // ---- File menu stub (実 dialog / serializer は将来予定) ----

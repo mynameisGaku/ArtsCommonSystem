@@ -80,37 +80,67 @@ VSOut VSMain(VSIn v) {
     return o;
 }
 
+float AcsSkinnedSrgbToLinearChannel(float value) {
+    float safe_value = saturate(value);
+    return safe_value <= 0.04045
+        ? safe_value / 12.92
+        : pow(abs((safe_value + 0.055) / 1.055), 2.4);
+}
+
+float3 AcsSkinnedDecodeAlbedo(float3 value) {
+    return float3(
+        AcsSkinnedSrgbToLinearChannel(value.r),
+        AcsSkinnedSrgbToLinearChannel(value.g),
+        AcsSkinnedSrgbToLinearChannel(value.b));
+}
+
 float4 PSMain(VSOut v) : SV_TARGET {
     float3 N = normalize(v.world_n);
     float3 V = normalize(camera_pos.xyz - v.world_p);
-    float3 albedo_rgb = albedo.Sample(albedo_sampler, v.uv).rgb * base_color.xyz;
+    // Decode the sampled color exactly once. The material tint is authored in
+    // linear space and must not receive a second transfer function.
+    float3 albedo_texel_linear = AcsSkinnedDecodeAlbedo(
+        albedo.Sample(albedo_sampler, v.uv).rgb);
+    float3 albedo_rgb = albedo_texel_linear * base_color.xyz;
     float3 col = ambient.xyz * albedo_rgb;
 
     int dir_count = (int)ambient.w;
     [unroll]
-    for (int i = 0; i < ACS_MAX_DIR_LIGHTS; ++i) {
-        if (i >= dir_count) break;
-        float3 L = normalize(light_dir[i].xyz);
+    for (int dir_light_index = 0;
+         dir_light_index < ACS_MAX_DIR_LIGHTS;
+         ++dir_light_index) {
+        if (dir_light_index >= dir_count) break;
+        float3 L = normalize(light_dir[dir_light_index].xyz);
         float  diff = saturate(dot(N, L));
         float3 H    = normalize(L + V);
-        float  spec = pow(saturate(dot(N, H)), max(material.y, 1.0)) * material.x;
-        col += light_color[i].xyz * (albedo_rgb * diff + spec);
+        float dir_spec_base = abs(saturate(dot(N, H)));
+        float spec =
+            pow(abs(dir_spec_base), max(material.y, 1.0)) * material.x;
+        col += light_color[dir_light_index].xyz
+             * (albedo_rgb * diff + spec);
     }
 
     int pt_count = (int)point_count_pad.x;
     [unroll]
-    for (int j = 0; j < ACS_MAX_POINT_LIGHTS; ++j) {
-        if (j >= pt_count) break;
-        float3 to_light = point_pos_range[j].xyz - v.world_p;
+    for (int point_light_index = 0;
+         point_light_index < ACS_MAX_POINT_LIGHTS;
+         ++point_light_index) {
+        if (point_light_index >= pt_count) break;
+        float3 to_light =
+            point_pos_range[point_light_index].xyz - v.world_p;
         float  dist = length(to_light);
-        float  rng  = max(point_pos_range[j].w, 0.0001);
+        float  rng =
+            max(point_pos_range[point_light_index].w, 0.0001);
         if (dist >= rng) continue;
         float3 L = to_light / dist;
         float  att = 1.0 - dist / rng; att = att * att;
         float  diff = saturate(dot(N, L)) * att;
         float3 H = normalize(L + V);
-        float  spec = pow(saturate(dot(N, H)), max(material.y, 1.0)) * material.x * att;
-        col += point_color[j].xyz * (albedo_rgb * diff + spec);
+        float point_spec_base = abs(saturate(dot(N, H)));
+        float spec = pow(abs(point_spec_base), max(material.y, 1.0))
+                   * material.x * att;
+        col += point_color[point_light_index].xyz
+             * (albedo_rgb * diff + spec);
     }
 
     return float4(col, base_color.w);
@@ -119,7 +149,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
 constexpr u32 kMaxDirLights   = 4;
 constexpr u32 kMaxPointLights = 4;
-struct FrameCBLayout {
+struct FFrameCBLayout {
     FMat4 view_proj;
     FVec4 camera_pos;
     FVec4 ambient;
@@ -130,13 +160,13 @@ struct FrameCBLayout {
     FVec4 point_color[kMaxPointLights];
 };
 
-struct ObjectCBLayout {
+struct FObjectCbLayout {
     FMat4 model;
     FVec4 base_color;
     FVec4 material;
 };
 
-struct BonesCBLayout {
+struct FBonesCbLayout {
     FMat4 palette[FSkinnedShader::kMaxBones];
 };
 
@@ -169,7 +199,7 @@ TResult<void> FSkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EForma
 
     // === 定数バッファ ===
     FBufferDesc fcb{};
-    fcb.size = CBSize<FrameCBLayout>();
+    fcb.size = CBSize<FFrameCBLayout>();
     fcb.usage = EBufferUsage::Uniform;
     fcb.cpu_writable = true;
     auto fcb_r = CreateRhiBuffer(device, fcb);
@@ -177,25 +207,31 @@ TResult<void> FSkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EForma
     m_FrameCb = Move(fcb_r.Value());
 
     FBufferDesc ocb{};
-    ocb.size = CBSize<ObjectCBLayout>();
+    ocb.size = CBSize<FObjectCbLayout>();
     ocb.usage = EBufferUsage::Uniform;
     ocb.cpu_writable = true;
-    auto ocb_r = CreateRhiBuffer(device, ocb);
-    if (ocb_r.IsErr()) return Err<void>(ocb_r.Error());
-    m_ObjectCb = Move(ocb_r.Value());
-
     FBufferDesc bcb{};
-    bcb.size = CBSize<BonesCBLayout>();        // 64 * 64 = 4096B、256 アラインで 4096
+    bcb.size = CBSize<FBonesCbLayout>();        // 64 * 64 = 4096B、256 アラインで 4096
     bcb.usage = EBufferUsage::Uniform;
     bcb.cpu_writable = true;
-    auto bcb_r = CreateRhiBuffer(device, bcb);
-    if (bcb_r.IsErr()) return Err<void>(bcb_r.Error());
-    m_BonesCb = Move(bcb_r.Value());
 
-    // ボーンを最初は単位行列で初期化しておく（SetBonePalette 前に Draw されてもおかしくならない）
-    BonesCBLayout initial{};
+    // SetObject ごとに Object/Bones の同じ index を使う。先行 draw が後続
+    // SetObject/SetBonePalette の Update で上書きされないよう、リングは非ラップ。
+    FBonesCbLayout initial{};
     for (u32 i = 0; i < kMaxBones; ++i) initial.palette[i] = FMat4::Identity();
-    m_BonesCb->Update(&initial, sizeof(initial));
+    for (u32 i = 0; i < kMaxObjectDrawsPerFrame; ++i) {
+        auto ocb_r = CreateRhiBuffer(device, ocb);
+        if (ocb_r.IsErr()) return Err<void>(ocb_r.Error());
+        m_ObjectCbs[i] = Move(ocb_r.Value());
+
+        auto bcb_r = CreateRhiBuffer(device, bcb);
+        if (bcb_r.IsErr()) return Err<void>(bcb_r.Error());
+        m_BonesCbs[i] = Move(bcb_r.Value());
+        m_BonesCbs[i]->Update(&initial, sizeof(initial));
+    }
+    m_ObjectCbCursor = 0;
+    // 最初の SetObject が slot 0 を使うので、legacy の事前 bind も維持できる。
+    m_CurrentObjectCb = 0;
 
     // === 1×1 白テクスチャ ===
     const u8 white_pixel[4] = { 255, 255, 255, 255 };
@@ -245,8 +281,10 @@ TResult<void> FSkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EForma
 void FSkinnedShader::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_White.Reset();
-    m_BonesCb.Reset();
-    m_ObjectCb.Reset();
+    for (auto& cb : m_BonesCbs) cb.Reset();
+    for (auto& cb : m_ObjectCbs) cb.Reset();
+    m_ObjectCbCursor = 0;
+    m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
     m_FrameCb.Reset();
     m_Ps.Reset();
     m_Vs.Reset();
@@ -267,12 +305,14 @@ void FSkinnedShader::SetLights(const FMat4& vp, FVec3 cam,
     m_Vp = vp;
     m_Eye = cam;
     m_Ambient = ambient;
+    m_ObjectCbCursor = 0;
+    m_CurrentObjectCb = 0;
     m_DirCount = count;
     for (u32 i = 0; i < count; ++i) m_DirLights[i] = lights[i];
     FlushFrameCB();
 }
 
-void FSkinnedShader::SetPointLights(const PointLight* lights, u32 count) noexcept {
+void FSkinnedShader::SetPointLights(const FPointLight* lights, u32 count) noexcept {
     if (count > kMaxPointLights) count = kMaxPointLights;
     m_PointCount = count;
     for (u32 i = 0; i < count; ++i) m_PointLights[i] = lights[i];
@@ -281,7 +321,7 @@ void FSkinnedShader::SetPointLights(const PointLight* lights, u32 count) noexcep
 
 void FSkinnedShader::FlushFrameCB() noexcept {
     if (!m_FrameCb) return;
-    FrameCBLayout cb{};
+    FFrameCBLayout cb{};
     cb.view_proj  = m_Vp;
     cb.camera_pos = FVec4{m_Eye.x, m_Eye.y, m_Eye.z, 1.0f};
     cb.ambient    = FVec4{m_Ambient.x, m_Ambient.y, m_Ambient.z, static_cast<f32>(m_DirCount)};
@@ -301,23 +341,41 @@ void FSkinnedShader::FlushFrameCB() noexcept {
     m_FrameCb->Update(&cb, sizeof(cb));
 }
 
-void FSkinnedShader::SetObject(const FMat4& model, FVec3 base_color,
+bool FSkinnedShader::SetObject(const FMat4& model, FVec3 base_color,
                               f32 specular_strength, f32 shininess) noexcept {
-    if (!m_ObjectCb) return;
-    ObjectCBLayout cb{};
+    if (m_ObjectCbCursor >= kMaxObjectDrawsPerFrame) {
+        if (m_ObjectCbCursor == kMaxObjectDrawsPerFrame) {
+            ACS_LOG_WARN("FSkinnedShader: per-frame object limit (%u) exceeded; "
+                         "remaining skinned draws are skipped",
+                         kMaxObjectDrawsPerFrame);
+            ++m_ObjectCbCursor;
+        }
+        m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
+        return false;
+    }
+    m_CurrentObjectCb = m_ObjectCbCursor++;
+    IRhiBuffer* object_cb = m_ObjectCbs[m_CurrentObjectCb].Get();
+    if (!object_cb || !m_BonesCbs[m_CurrentObjectCb]) {
+        m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
+        return false;
+    }
+    FObjectCbLayout cb{};
     cb.model      = model;
     cb.base_color = FVec4{base_color.x, base_color.y, base_color.z, 1.0f};
     cb.material   = FVec4{specular_strength, shininess, 0, 0};
-    m_ObjectCb->Update(&cb, sizeof(cb));
+    object_cb->Update(&cb, sizeof(cb));
+    return true;
 }
 
-void FSkinnedShader::SetBonePalette(const FMat4* palette, u32 count) noexcept {
-    if (!m_BonesCb) return;
+bool FSkinnedShader::SetBonePalette(const FMat4* palette, u32 count) noexcept {
+    IRhiBuffer* bones_cb = BonesCB();
+    if (!bones_cb || (palette == nullptr && count > 0)) return false;
     if (count > kMaxBones) count = kMaxBones;
-    BonesCBLayout cb{};
+    FBonesCbLayout cb{};
     for (u32 i = 0; i < count; ++i) cb.palette[i] = palette[i];
     for (u32 i = count; i < kMaxBones; ++i) cb.palette[i] = FMat4::Identity();
-    m_BonesCb->Update(&cb, sizeof(cb));
+    bones_cb->Update(&cb, sizeof(cb));
+    return true;
 }
 
 } // namespace acs

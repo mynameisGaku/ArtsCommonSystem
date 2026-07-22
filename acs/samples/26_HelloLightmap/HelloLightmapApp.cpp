@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloLightmap — HelloLightmapApp の実装。
+// HelloLightmap — FHelloLightmapApp の実装。
 //
 // シーン: Cornell box (床 / 天井 / 奥壁 / 左壁(赤) / 右壁(緑))。
 // 焼き: OnStart で BakeLightmaps を呼んで各面の lightmap texture を生成。
@@ -19,7 +19,7 @@ using namespace acs;
 
 namespace hellolightmap {
 
-void HelloLightmapApp::OnStart() noexcept {
+void FHelloLightmapApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
     IRhiSwapchain* sc = GetRenderer().Swapchain();
@@ -52,15 +52,15 @@ void HelloLightmapApp::OnStart() noexcept {
     m_PostParams.ssr_intensity      = 0.0f;   // SSR 未使用 (fallback mip の誤加算防止)
 }
 
-void HelloLightmapApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
-    if (Input::IsKeyPressed(EKey::L)) m_bShowLightmap = !m_bShowLightmap;
+void FHelloLightmapApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (FInput::IsKeyPressed(EKey::L)) m_bShowLightmap = !m_bShowLightmap;
 
     const f32 mv = 2.0f * dt, tr = 1.4f * dt;
-    if (Input::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
-    if (Input::IsKeyDown(EKey::Right)) m_CamYaw += tr;
-    if (Input::IsKeyDown(EKey::Up))    m_CamPitch -= tr * 0.8f;
-    if (Input::IsKeyDown(EKey::Down))  m_CamPitch += tr * 0.8f;
+    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
+    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw += tr;
+    if (FInput::IsKeyDown(EKey::Up))    m_CamPitch -= tr * 0.8f;
+    if (FInput::IsKeyDown(EKey::Down))  m_CamPitch += tr * 0.8f;
     const f32 limit = 0.45f * kPi;
     if (m_CamPitch >  limit) m_CamPitch =  limit;
     if (m_CamPitch < -limit) m_CamPitch = -limit;
@@ -68,16 +68,16 @@ void HelloLightmapApp::OnUpdate(f32 dt) noexcept {
                  -Sin(m_CamPitch),
                   Cos(m_CamYaw) * Cos(m_CamPitch) };
     FVec3 right{ Cos(m_CamYaw), 0, -Sin(m_CamYaw) };
-    if (Input::IsKeyDown(EKey::W)) m_CamPos += forward * mv;
-    if (Input::IsKeyDown(EKey::S)) m_CamPos -= forward * mv;
-    if (Input::IsKeyDown(EKey::D)) m_CamPos += right   * mv;
-    if (Input::IsKeyDown(EKey::A)) m_CamPos -= right   * mv;
+    if (FInput::IsKeyDown(EKey::W)) m_CamPos += forward * mv;
+    if (FInput::IsKeyDown(EKey::S)) m_CamPos -= forward * mv;
+    if (FInput::IsKeyDown(EKey::D)) m_CamPos += right   * mv;
+    if (FInput::IsKeyDown(EKey::A)) m_CamPos -= right   * mv;
     m_Camera.SetLookAt(m_CamPos, m_CamPos + forward);
 }
 
 // OnCustomFrame: HDR RT にシーンを描き、FPostProcess (Bloom + ACES tonemap)
 // で LDR backbuffer へ。HDR lightmap の高輝度が tonemap で自然にロールオフする。
-bool HelloLightmapApp::OnCustomFrame() noexcept {
+bool FHelloLightmapApp::OnCustomFrame() noexcept {
     IRhiDevice*      dev   = GetRenderer().Device();
     IRhiCommandList* cl    = GetRenderer().CommandList();
     IRhiSwapchain*   sc    = GetRenderer().Swapchain();
@@ -89,7 +89,7 @@ bool HelloLightmapApp::OnCustomFrame() noexcept {
     cl->Begin();
 
     // ===== HDR RT に Cornell box を描画 =====
-    cl->BeginRenderToTexture(*hdr, ClearColor{0, 0, 0, 1}, depth, 1.0f);
+    cl->BeginRenderToTexture(*hdr, FClearColor{0, 0, 0, 1}, depth, 1.0f);
     FViewport vp{}; vp.width  = static_cast<f32>(hdr->Width());
                    vp.height = static_cast<f32>(hdr->Height());
     cl->SetViewport(vp);
@@ -108,7 +108,7 @@ bool HelloLightmapApp::OnCustomFrame() noexcept {
     cl->SetTexture(0, *m_Pbr.DefaultWhiteTexture());
 
     for (u32 i = 0; i < kQuadCount; ++i) {
-        Quad& q = m_Quads[i];
+        FQuad& q = m_Quads[i];
         // L キーで OFF にすると flat ambient のみになり、間接光の寄与が消える。
         if (m_bShowLightmap && q.lightmap) {
             m_Pbr.SetLightmap(q.lightmap.Get(), 1.0f);
@@ -152,13 +152,13 @@ bool HelloLightmapApp::OnCustomFrame() noexcept {
     return true;
 }
 
-void HelloLightmapApp::OnShutdown() noexcept {
+void FHelloLightmapApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Batch.Shutdown();
     for (u32 i = 0; i < kQuadCount; ++i) {
         m_Quads[i].lightmap.Reset();
-        m_Quads[i].mesh = GpuMesh{};
+        m_Quads[i].mesh = FGpuMesh{};
     }
     m_Pbr.Shutdown();
     m_Post.Shutdown();

@@ -6,20 +6,20 @@
 // FGame/FSceneManager が自動で tick + scene 切替に追従。
 //
 // 使い方:
-//   class GameplayScene : public Scene {
+//   class FGameplayScene : public FScene {
 //   public:
 //       ESvc WantedServices() const noexcept override {
 //           return ESvc::Default2D;  // Clock | Tweens | Sequences | Input
 //       }
 //       void OnEnter() noexcept override {
-//           Services().Input().BindKey(ActionId("Jump"), EKey::Space);
+//           Services().Input().BindKey(FActionId("Jump"), EKey::Space);
 //           Services().Tweens().Tween(&m_Color, c1, c2, 2.0f, Easing::InOutSine);
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           // dt は Clock 経由 scaled (services 有効時)。Tweens/Sequences は
 //           // この OnUpdate の **後** に自動 tick されるので、ここで新規スケジュール
 //           // した tween は次フレームから進行する。
-//           if (Services().Input().IsPressed(ActionId("Jump"))) DoJump();
+//           if (Services().Input().IsPressed(FActionId("Jump"))) DoJump();
 //       }
 //   };
 //

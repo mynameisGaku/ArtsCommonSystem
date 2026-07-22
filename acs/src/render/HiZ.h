@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
-// Hi-Z (Hierarchical-Z) coarse min-depth buffer
+// Hi-Z (Hierarchical-Z) min-depth pyramid
 //
-// scene_depth から 1/8 解像度の "min depth" RT を一発で焼く。各 pixel は元の
-// 8x8 ブロック中の 最近接 (= camera から最も近い) NDC depth を持つ。SSR 等の
-// screen-space ray march で「ray より遠くに surface が無い」と分かった場合に
-// 複数 texel を一気にスキップする (skip-ahead) のに使う。
+// level 0 は scene_depth の 8x8 ブロックごとの最近接 NDC depth、level N は
+// level N-1 の厳密な 2x2 min 縮約で、最終 level は 1x1 になる。SSR 等の
+// screen-space ray march が空の大領域を粗い level からスキップするために使う。
 //
 // 設計上の選択:
-//   ・mip_levels=1 の単独 RT を採用 (true Hi-Z mip chain は Diligent の
-//     whole-resource transition との相性が悪いため、同一テクスチャ内 mip 間
-//     read-write を避ける)
-//   ・EFormat は R16G16_Float (=BRDF LUT と同じ)。.r に min depth、.g は未使用。
-//     16-bit half は [0,1] NDC depth に対し ~0.1% 精度 → skip 用途十分。
+//   ・同じ mip chain を持つ physical texture を 2 本確保し、even level と odd
+//     level を交互に書く。同一 resource 内の mip を SRV/RTV 同時利用しないため、
+//     whole-resource transition の Raw DX12 / Diligent 双方で安全。
+//   ・physical base size は logical 1/8 size を各軸 NextPowerOfTwo に padding。
+//     padding depth=1.0 とすることで、全 level の cell が 8<<level pixel の
+//     一様な領域に対応し、odd resolution の可変幅 cell を作らない。
+//   ・EFormat は R32G32_Float。.r に min depth、.g は未使用。多段縮約で half の
+//     round-up が累積して min depth を過大評価することを避け、skip を保守的に保つ。
 //   ・sky pixel (depth >= 0.9999) は無視 — 屋外シーンで「ground - sky」の
 //     skip が大きく走るのは安全 (空には反射先が無い)
 //
@@ -20,7 +22,9 @@
 //   hiz.Init(*dev, w, h);
 //   // 毎フレーム main pass の depth が完成したあと、SSR 前に:
 //   hiz.Build(*dev, *cl, scene_depth);
-//   ssr.Render(..., hiz.Texture());     // SSR shader が hiz_min を読む
+//   ssr.Render(..., hiz.Texture());     // 旧 1/8 coarse path (level 0)
+//   // hierarchical path は EvenTexture/OddTexture を両方 bind し、
+//   // even level を EvenTexture、odd level を OddTexture の同じ mip から読む。
 //
 // 上位の SSR shader 側で skip-ahead する具体実装 (FSsr.cpp) と一体で機能する。
 // Hi-Z を渡さない場合も FSsr で OK (nullptr fallback)。
@@ -39,13 +43,12 @@
 namespace acs {
 
 /**
- * scene_depth から 1/8 解像度の粗い min-depth バッファを焼く Hi-Z。
+ * scene_depth から 1/8 解像度を level 0 とする min-depth pyramid を焼く Hi-Z。
  *
  * @details
- * 各 texel は元の 8x8 ブロック中の最近接 (= camera から最も近い) NDC depth を持つ。
- * SSR の screen-space ray march で「ray より遠くに surface が無い」と分かった場合に
- * 複数 texel を一気にスキップする (skip-ahead) のに使う。RT は mip_levels=1 の
- * R16G16_Float (.r=min depth、.g 未使用) を単独所有する。
+ * level 0 の各 texel は元 depth の 8x8 ブロック中の最近接値を持ち、後続 level は
+ * 直前 level の厳密な 2x2 min 縮約になる。2 本の R32G32_Float texture に level を
+ * 偶奇で分けることで、同一 resource の SRV/RTV 同時利用を避ける。
  */
 class FHiZ {
 public:
@@ -85,7 +88,7 @@ public:
     TResult<void> Resize(u32 src_width, u32 src_height) noexcept;
 
     /**
-     * scene_depth から coarse min-depth を焼く。
+     * scene_depth から min-depth pyramid 全 level を焼く。
      *
      * @param device 描画に使う RHI デバイス。
      * @param cl コマンドを積むコマンドリスト。
@@ -95,11 +98,34 @@ public:
                IRhiTexture& scene_depth) noexcept;
 
     /**
-     * 1/8 解像度の min-depth RT を返す。
+     * level 0 を保持する physical texture を返す。
      *
-     * @return min-depth RT (R16G16_Float、.r=min depth)。SSR が skip-ahead で sample する。
+     * @details 旧 coarse-only SSR との互換 API。返値は EvenTexture() と同じで、
+     * level 0 は mip 0 に格納される。それ以外の even mip も有効だが odd mip は未定義。
+     * @return even-level texture (R32G32_Float、.r=min depth)。
      */
-    IRhiTexture* Texture() const noexcept { return m_Hiz.Get(); }
+    IRhiTexture* Texture() const noexcept { return m_HizEven.Get(); }
+
+    /**
+     * 偶数 level を保持する physical texture を返す。
+     *
+     * @return level 0,2,4,... が同番号 mip に格納された texture。
+     */
+    IRhiTexture* EvenTexture() const noexcept { return m_HizEven.Get(); }
+
+    /**
+     * 奇数 level を保持する physical texture を返す。
+     *
+     * @return level 1,3,5,... が同番号 mip に格納された texture。
+     */
+    IRhiTexture* OddTexture() const noexcept { return m_HizOdd.Get(); }
+
+    /**
+     * pyramid の有効 level 数を返す。
+     *
+     * @return level 0 を含み、最終 1x1 level までの段数。
+     */
+    u32 MipCount() const noexcept { return m_MipCount; }
 
     /**
      * 入力 scene_depth の幅を返す。
@@ -129,12 +155,34 @@ public:
      */
     u32 Height() const noexcept { return m_HizH; }
 
+    /**
+     * padded physical texture の幅を返す。
+     *
+     * @return NextPowerOfTwo(Width())。SSR の mip texel address 計算に使う。
+     */
+    u32 PhysicalWidth() const noexcept { return m_PhysicalW; }
+
+    /**
+     * padded physical texture の高さを返す。
+     *
+     * @return NextPowerOfTwo(Height())。SSR の mip texel address 計算に使う。
+     */
+    u32 PhysicalHeight() const noexcept { return m_PhysicalH; }
+
     /** 1 Hi-Z texel が覆う元 depth のブロック辺長。 */
     static constexpr u32 kBlockSize = 8;
 
+    /**
+     * RHI texture に確保する最大 level 数。
+     *
+     * @details level 0 が 1/8 解像度なので、D3D12 の最大 16384px texture でも
+     * 必要なのは 12 level。16 は十分な余裕を持つ。
+     */
+    static constexpr u32 kMaxMipLevels = 16;
+
 private:
     /**
-     * min-depth RT を生成する。
+     * 偶奇 2 本の min-depth mip texture を生成する。
      *
      * @param device RT 生成に使う RHI デバイス。
      * @param src_w 入力 scene_depth の幅。
@@ -144,7 +192,7 @@ private:
     TResult<void> CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept;
 
     /**
-     * ダウンサンプル用の VS/PS/PSO を生成する。
+     * level 0 抽出と pyramid 縮約用の VS/PS/PSO を生成する。
      *
      * @param device パイプライン生成に使う RHI デバイス。
      * @return 成功なら空の TResult、生成失敗ならエラー。
@@ -166,20 +214,43 @@ private:
     /** Hi-Z RT の高さ (src/8)。 */
     u32 m_HizH = 0;
 
-    /** 出力 min-depth RT (R16G16_Float, 1 mip, src/8)。 */
-    TUniquePtr<IRhiTexture> m_Hiz;
+    /** power-of-two padding 後の physical texture 幅。 */
+    u32 m_PhysicalW = 0;
+
+    /** power-of-two padding 後の physical texture 高さ。 */
+    u32 m_PhysicalH = 0;
+
+    /** level 0 から最終 1x1 までの有効 level 数。 */
+    u32 m_MipCount = 0;
+
+    /** 偶数 level を同番号 mip に保持する physical texture。 */
+    TUniquePtr<IRhiTexture> m_HizEven;
+
+    /** 奇数 level を同番号 mip に保持する physical texture。 */
+    TUniquePtr<IRhiTexture> m_HizOdd;
 
     /** フルスクリーン三角形の頂点シェーダ。 */
     TUniquePtr<IRhiShader> m_Vs;
 
-    /** 8x8 ブロックの最小 depth を求めるピクセルシェーダ。 */
-    TUniquePtr<IRhiShader> m_Ps;
+    /** 8x8 ブロックから level 0 を抽出するピクセルシェーダ。 */
+    TUniquePtr<IRhiShader> m_PsBase;
 
-    /** ダウンサンプル描画のパイプライン。 */
-    TUniquePtr<IRhiPipeline> m_Pipeline;
+    /** 直前 level から次 level を min 縮約するピクセルシェーダ。 */
+    TUniquePtr<IRhiShader> m_PsReduce;
 
-    /** 定数バッファ (Hi-Z 解像度などを渡す)。 */
-    TUniquePtr<IRhiBuffer> m_Cb;
+    /** scene depth から level 0 を作るパイプライン。 */
+    TUniquePtr<IRhiPipeline> m_BasePipeline;
+
+    /** pyramid の level N-1 から N を作るパイプライン。 */
+    TUniquePtr<IRhiPipeline> m_ReducePipeline;
+
+    /**
+     * level ごとの immutable 定数バッファ。
+     *
+     * @details index N は src mip=N-1 / dst mip=N を保持する。各 draw が別 resource
+     * を使うため、Raw DX12 で同一 upload CB を同フレーム中に上書きしない。
+     */
+    TUniquePtr<IRhiBuffer> m_LevelCb[kMaxMipLevels];
 };
 
 } // namespace acs

@@ -12,7 +12,7 @@ using namespace acs;
 
 namespace hellomesh {
 
-void HelloMeshApp::OnStart() noexcept {
+void FHelloMeshApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -75,7 +75,7 @@ void HelloMeshApp::OnStart() noexcept {
     pd.cull_mode     = ECullMode::Back;
     pd.cbuffer_slots = 1;       // b0 = MVP
     pd.cbuffer_names[0] = "Frame";  // Diligent では cbuffer 名で resolve するため必須
-    pd.vertex_stride = sizeof(Vertex);
+    pd.vertex_stride = sizeof(FVertex);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0 };
     pd.layout[1] = { "COLOR",    0, EFormat::R32G32B32_Float, sizeof(f32) * 3 };
     pd.layout_count = 2;
@@ -91,14 +91,14 @@ void HelloMeshApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloMesh initialized");
 }
 
-void HelloMeshApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloMeshApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
 
     m_Angle += dt * 0.8f;
 
     // 矢印キーでカメラを左右回転 (キューブを公転する視点)
-    if (Input::IsKeyDown(EKey::Left))  m_CamYaw -= dt * 1.5f;
-    if (Input::IsKeyDown(EKey::Right)) m_CamYaw += dt * 1.5f;
+    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw -= dt * 1.5f;
+    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw += dt * 1.5f;
 
     const f32 cam_dist = 5.0f;
     FVec3 eye{ Sin(m_CamYaw) * cam_dist, 2.0f, -Cos(m_CamYaw) * cam_dist };
@@ -109,18 +109,18 @@ void HelloMeshApp::OnUpdate(f32 dt) noexcept {
     m_Cb->Update(&mvp, sizeof(FMat4));
 }
 
-void HelloMeshApp::OnRender() noexcept {
+void FHelloMeshApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl || !m_Pipeline) return;
 
     cl->SetPipeline(*m_Pipeline);
     cl->SetConstantBuffer(0, *m_Cb);
-    cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    cl->SetVertexBuffer(*m_Vb, sizeof(FVertex));
     cl->SetIndexBuffer(*m_Ib);
     cl->DrawIndexed(36);
 }
 
-void HelloMeshApp::OnShutdown() noexcept {
+void FHelloMeshApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Pipeline.Reset();
     m_Cb.Reset();

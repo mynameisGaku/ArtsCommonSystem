@@ -1,0 +1,205 @@
+<UserControl x:Class="AcsEditor.ProfilerPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:AcsEditor"
+             Background="{StaticResource Panel2}"
+             Loaded="OnLoaded" Unloaded="OnUnloaded">
+    <UserControl.Resources>
+        <Style x:Key="ProfilerMetricLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
+            <Setter Property="FontSize" Value="10.5"/>
+            <Setter Property="Margin" Value="0,0,0,2"/>
+        </Style>
+        <Style x:Key="ProfilerMetricValue" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style x:Key="ProfilerCard" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Panel}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Edge}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="9,6"/>
+            <Setter Property="Margin" Value="0,0,5,0"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="36"/>
+            <RowDefinition Height="68"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="{StaticResource HeaderBg}"
+                BorderBrush="{StaticResource Edge}" BorderThickness="0,0,0,1">
+            <Grid Margin="8,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal">
+                    <ToggleButton x:Name="PauseButton" Content="Pause"
+                                  Padding="9,3" Margin="0,0,5,0"
+                                  Checked="OnPauseChanged" Unchecked="OnPauseChanged"/>
+                    <Button Content="Reset" Padding="9,3" Margin="0,0,10,0"
+                            Click="OnReset"/>
+                    <CheckBox x:Name="ShowCpuCheck" Content="CPU frame"
+                              IsChecked="True" Margin="0,0,9,0"
+                              VerticalAlignment="Center" Click="OnDisplayChanged"/>
+                    <CheckBox x:Name="ShowGpuCheck" Content="GPU"
+                              IsChecked="True" Margin="0,0,9,0"
+                              VerticalAlignment="Center" Click="OnDisplayChanged"/>
+                    <CheckBox x:Name="ShowPassesCheck" Content="Passes"
+                              IsChecked="True" Margin="0,0,9,0"
+                              VerticalAlignment="Center" Click="OnDisplayChanged"/>
+                    <CheckBox x:Name="ShowCountersCheck" Content="Counters"
+                              IsChecked="True" Margin="0,0,9,0"
+                              VerticalAlignment="Center" Click="OnDisplayChanged"/>
+                    <CheckBox x:Name="ShowCloudCheck" Content="Cloud"
+                              IsChecked="True" VerticalAlignment="Center"
+                              Click="OnDisplayChanged"/>
+                </StackPanel>
+                <TextBlock x:Name="AvailabilityText" Grid.Column="1"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Foreground="{StaticResource TextDim}" FontSize="11"/>
+                <Border Grid.Column="2" Background="{StaticResource Panel2}"
+                        BorderBrush="{StaticResource Edge}" BorderThickness="1"
+                        Padding="8,3">
+                    <TextBlock x:Name="TimingSourceText" Text="CPU record / submit"
+                               Foreground="{StaticResource InfoFg}" FontSize="10.5"/>
+                </Border>
+            </Grid>
+        </Border>
+
+        <UniformGrid Grid.Row="1" Columns="7" Margin="6,5,1,4">
+            <Border Style="{StaticResource ProfilerCard}">
+                <StackPanel>
+                    <TextBlock Text="Editor FPS (avg)" Style="{StaticResource ProfilerMetricLabel}"
+                               ToolTip="Uncapped native viewport submissions. This measures editor cadence, not GPU throughput."/>
+                    <TextBlock x:Name="FpsValue" Text="--" Style="{StaticResource ProfilerMetricValue}"/>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource ProfilerCard}">
+                <StackPanel>
+                    <TextBlock Text="CPU frame (avg)" Style="{StaticResource ProfilerMetricLabel}"/>
+                    <TextBlock x:Name="CpuFrameValue" Text="--" Style="{StaticResource ProfilerMetricValue}"/>
+                    <TextBlock x:Name="CpuPeakValue" Text="peak --"
+                               Foreground="{StaticResource TextDim}" FontFamily="Consolas"
+                               FontSize="9.5"/>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource ProfilerCard}">
+                <StackPanel>
+                    <TextBlock Text="Submit / Present" Style="{StaticResource ProfilerMetricLabel}"/>
+                    <TextBlock x:Name="SubmitValue" Text="--" Style="{StaticResource ProfilerMetricValue}"/>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource ProfilerCard}">
+                <StackPanel>
+                    <TextBlock Text="GPU frame (avg)" Style="{StaticResource ProfilerMetricLabel}"/>
+                    <TextBlock x:Name="GpuFrameValue" Text="N/A" Style="{StaticResource ProfilerMetricValue}"/>
+                    <TextBlock x:Name="GpuThroughputValue" Text="throughput N/A"
+                               Foreground="{StaticResource TextDim}" FontFamily="Consolas"
+                               FontSize="9.5"/>
+                    <TextBlock x:Name="GpuPeakValue" Text="peak N/A"
+                               Foreground="{StaticResource TextDim}" FontFamily="Consolas"
+                               FontSize="9.5"/>
+                </StackPanel>
+            </Border>
+            <Border x:Name="DrawCard" Style="{StaticResource ProfilerCard}">
+                <StackPanel>
+                    <TextBlock Text="Draw calls" Style="{StaticResource ProfilerMetricLabel}"/>
+                    <TextBlock x:Name="DrawCallsValue" Text="--" Style="{StaticResource ProfilerMetricValue}"/>
+                </StackPanel>
+            </Border>
+            <Border x:Name="DispatchCard" Style="{StaticResource ProfilerCard}">
+                <StackPanel>
+                    <TextBlock Text="Dispatch calls" Style="{StaticResource ProfilerMetricLabel}"/>
+                    <TextBlock x:Name="DispatchCallsValue" Text="--" Style="{StaticResource ProfilerMetricValue}"/>
+                </StackPanel>
+            </Border>
+            <Border x:Name="TrianglesCard" Style="{StaticResource ProfilerCard}">
+                <StackPanel>
+                    <TextBlock Text="Triangles (est.)" Style="{StaticResource ProfilerMetricLabel}"/>
+                    <TextBlock x:Name="TrianglesValue" Text="--" Style="{StaticResource ProfilerMetricValue}"/>
+                </StackPanel>
+            </Border>
+        </UniformGrid>
+
+        <Grid Grid.Row="2" Margin="6,0,6,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="4"/>
+                <ColumnDefinition Width="360"/>
+            </Grid.ColumnDefinitions>
+            <Border BorderBrush="{StaticResource Edge}" BorderThickness="1">
+                <local:ProfilerHistoryGraph x:Name="HistoryGraph"/>
+            </Border>
+            <GridSplitter Grid.Column="1" Width="4" Background="{StaticResource Edge}"/>
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="8,1,2,0">
+                    <Grid x:Name="PassMetrics"
+                          ToolTip="CPU RECORD measures command recording inside each named region. GPU AVG / PEAK uses the latest 30 unique valid timestamp-query frames and reports asynchronous latency separately. CPU frame includes all remaining editor and render work. Atmosphere includes sky, IBL and atmosphere/fog-volume construction; Fog is the local-fog composite.">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="128"/>
+                            <ColumnDefinition Width="88"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="MAJOR PASS" Foreground="{StaticResource TextDim}" FontSize="10"/>
+                        <TextBlock Grid.Column="1" Text="CPU RECORD" Foreground="{StaticResource TextDim}" FontSize="10"/>
+                        <TextBlock Grid.Column="2" Text="GPU AVG / PEAK" Foreground="{StaticResource TextDim}" FontSize="10"/>
+                        <TextBlock Grid.Row="1" Text="Opaque meshes"/>
+                        <TextBlock Grid.Row="2" Text="Sky / Atmosphere"/>
+                        <TextBlock Grid.Row="3" Text="Cloud"/>
+                        <TextBlock Grid.Row="4" Text="Fog composite"/>
+                        <TextBlock Grid.Row="5" Text="Post chain"/>
+                        <TextBlock x:Name="OpaqueCpuValue" Grid.Row="1" Grid.Column="1" FontFamily="Consolas"/>
+                        <TextBlock x:Name="AtmosphereCpuValue" Grid.Row="2" Grid.Column="1" FontFamily="Consolas"/>
+                        <TextBlock x:Name="CloudCpuValue" Grid.Row="3" Grid.Column="1" FontFamily="Consolas"/>
+                        <TextBlock x:Name="FogCpuValue" Grid.Row="4" Grid.Column="1" FontFamily="Consolas"/>
+                        <TextBlock x:Name="PostCpuValue" Grid.Row="5" Grid.Column="1" FontFamily="Consolas"/>
+                        <TextBlock x:Name="OpaqueGpuValue" Grid.Row="1" Grid.Column="2" FontFamily="Consolas"/>
+                        <TextBlock x:Name="AtmosphereGpuValue" Grid.Row="2" Grid.Column="2" FontFamily="Consolas"/>
+                        <TextBlock x:Name="CloudGpuValue" Grid.Row="3" Grid.Column="2" FontFamily="Consolas"/>
+                        <TextBlock x:Name="FogGpuValue" Grid.Row="4" Grid.Column="2" FontFamily="Consolas"/>
+                        <TextBlock x:Name="PostGpuValue" Grid.Row="5" Grid.Column="2" FontFamily="Consolas"/>
+                    </Grid>
+
+                    <Border Height="1" Background="{StaticResource Edge}" Margin="0,8"/>
+                    <Grid x:Name="CloudMetrics">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="CLOUD RAY MARCH" Foreground="{StaticResource TextDim}" FontSize="10"/>
+                        <TextBlock x:Name="CloudStateValue" Grid.Column="1" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="1" Text="Viewport / march"/>
+                        <TextBlock x:Name="CloudResolutionValue" Grid.Row="1" Grid.Column="1" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="2" Text="Trace dimension scale"/>
+                        <TextBlock x:Name="CloudScaleValue" Grid.Row="2" Grid.Column="1" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="3" Text="View / light steps"/>
+                        <TextBlock x:Name="CloudStepsValue" Grid.Row="3" Grid.Column="1" FontFamily="Consolas"/>
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</UserControl>

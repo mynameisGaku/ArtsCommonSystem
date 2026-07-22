@@ -42,6 +42,14 @@ namespace acs {
  */
 class FSsgi {
 public:
+    /** CPU-compiled shader bytecode handed to the render-owner thread. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> vertex;
+        TUniquePtr<IRhiShader> main_pixel;
+        TUniquePtr<IRhiShader> blur_pixel;
+        TUniquePtr<IRhiShader> temporal_pixel;
+    };
+
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FSsgi() noexcept = default;
 
@@ -63,6 +71,23 @@ public:
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
     TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
+     * Compile all raw-DX12 SSGI shaders without touching an RHI device.
+     * This is safe to run on a startup worker. Other backends return an
+     * unsupported error and retain the regular owner-thread Init path.
+     */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /**
+     * Install CPU-compiled shaders and create the render targets, constant
+     * buffer and PSOs. Must be called by the render-owner thread.
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        u32 width,
+        u32 height) noexcept;
 
     /** 確保した GPU リソースを解放する。 */
     void Shutdown() noexcept;
@@ -133,7 +158,8 @@ private:
     TResult<void> CreateOutputRT(IRhiDevice& device, u32 w, u32 h) noexcept;
 
     /**
-     * SSGI 本体・blur・temporal のシェーダ・パイプラインを生成する。
+     * Install 済みの SSGI 本体・blur・temporal シェーダから
+     * 各描画パイプラインを生成する。
      *
      * @param device パイプライン生成に使う RHI デバイス。
      * @return 成功なら空の TResult、生成失敗ならエラー。

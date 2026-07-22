@@ -1,5 +1,5 @@
-# Verify acs_editor_instantiate_scene mechanics with an ENGINE component
-# (statically linked in editor_abi -> constructible): attach real components, tick, clear.
+# ENGINE コンポーネントで acs_editor_instantiate_scene の動作を検証する。
+# editor_abi に静的リンクされた実コンポーネントを付与し、tick と clear を確認する。
 $ErrorActionPreference = 'Stop'
 $bin = "C:\dev\acs_github\acs\editor\AcsEditor\bin\Release\net10.0-windows\win-x64"
 Copy-Item "C:\dev\acs_github\acs\Binaries\Release\acs_editor_abi.dll" $bin -Force -ErrorAction SilentlyContinue
@@ -26,23 +26,23 @@ function Check($c,$m){ if($c){Write-Host "  OK  $m"}else{Write-Host "  XX  $m";$
 
 $h=[EdI]::acs_editor_create(); [EdI]::acs_editor_scene_new($h)
 $a=[EdI]::acs_editor_add_node($h,"A",-1)
-[void][EdI]::acs_editor_node_add_component($h,$a,"FPrimitiveRenderer2D")
+[void][EdI]::acs_editor_node_add_component($h,$a,"APrimitiveRenderer2D")
 $b=[EdI]::acs_editor_add_node($h,"B",-1)
-[void][EdI]::acs_editor_node_add_component($h,$b,"FPrimitiveRenderer2D")
+[void][EdI]::acs_editor_node_add_component($h,$b,"APrimitiveRenderer2D")
 
 Check ([EdI]::acs_editor_instance_count($h) -eq 0) "no real components before instantiate"
 $n=[EdI]::acs_editor_instantiate_scene($h)
 Check ($n -eq 2) "instantiate_scene built 2 real engine components (got $n)"
 Check ([EdI]::acs_editor_instance_count($h) -eq 2) "2 real components attached"
 
-# tick should run real OnUpdate without crashing
+# tick が実 OnUpdate をクラッシュせず実行すること
 for($i=0;$i -lt 10;$i++){ [EdI]::acs_editor_tick_instances($h,0.016) }
 Check ($true) "ticked 10 frames without crash"
 
 [EdI]::acs_editor_clear_instances($h)
 Check ([EdI]::acs_editor_instance_count($h) -eq 0) "clear_instances removed all real components"
 
-# re-instantiate works (idempotent)
+# 再 instantiate できること (冪等性)
 $n2=[EdI]::acs_editor_instantiate_scene($h)
 Check ($n2 -eq 2) "re-instantiate works (got $n2)"
 [EdI]::acs_editor_clear_instances($h)

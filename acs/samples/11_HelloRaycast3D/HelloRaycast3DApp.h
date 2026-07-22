@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloRaycast3D — FApplication 派生クラス。
 //
-// FStandardShader / FSpriteBatch / Font を所有し、毎フレームの update / render を
+// FStandardShader / FSpriteBatch / FFont を所有し、毎フレームの update / render を
 // RaycastScene に委譲する。リソース所有とフレームループを分離する典型的な構成。
 #pragma once
 
@@ -15,7 +15,7 @@
 
 namespace helloraycast3d {
 
-class HelloRaycast3DApp : public acs::FApplication {
+class FHelloRaycast3DApp : public acs::FApplication {
 public:
     void OnStart()             noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -25,8 +25,8 @@ public:
 private:
     acs::FStandardShader m_Shader;
     acs::FSpriteBatch    m_Batch;
-    acs::Font           m_Font;
-    RaycastScene        m_Scene;
+    acs::FFont           m_Font;
+    FRaycastScene        m_Scene;
 };
 
 } // namespace helloraycast3d

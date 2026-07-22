@@ -16,7 +16,7 @@
 
 namespace hellomesh {
 
-class HelloMeshApp : public acs::FApplication {
+class FHelloMeshApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;

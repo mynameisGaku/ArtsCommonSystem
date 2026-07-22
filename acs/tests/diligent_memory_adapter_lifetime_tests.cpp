@@ -10,13 +10,13 @@ using namespace acs;
 namespace {
 
 /** 寿命世代と VM 保護をテスト側から制御できる allocator。 */
-class LifetimeTestAllocator final : public FAllocator {
+class FLifetimeTestAllocator final : public FAllocator {
 public:
-    explicit LifetimeTestAllocator(u64 lifetime_generation) noexcept : m_LifetimeGeneration(lifetime_generation)
+    explicit FLifetimeTestAllocator(u64 lifetime_generation) noexcept : m_LifetimeGeneration(lifetime_generation)
     {
     }
 
-    ~LifetimeTestAllocator() noexcept override
+    ~FLifetimeTestAllocator() noexcept override
     {
         if (m_Allocation) {
             (void)::VirtualFree(m_Allocation, 0, MEM_RELEASE);
@@ -104,21 +104,21 @@ bool TextEquals(const char* left, const char* right) noexcept
 
 int RunStaleLifetimeTest()
 {
-    LifetimeTestAllocator allocator(1u);
-    void* const raw_adapter = DiligentMemoryAdapter::Create(&allocator);
+    FLifetimeTestAllocator allocator(1u);
+    void* const raw_adapter = FDiligentMemoryAdapter::Create(&allocator);
     if (!raw_adapter) return 81;
 
     auto* const adapter = static_cast<Diligent::IMemoryAllocator*>(raw_adapter);
     void* const pointer = adapter->Allocate(4096u, "stale-lifetime-test", __FILE__, __LINE__);
     if (!pointer) return 82;
-    if (DiligentMemoryAdapter::OutstandingAllocationCount() != 1u) return 83;
+    if (FDiligentMemoryAdapter::OutstandingAllocationCount() != 1u) return 83;
     if (!allocator.ProtectAllocation(PAGE_NOACCESS)) return 84;
 
     // 利用者領域を読まず、レジストリと backing 世代だけで拒否しなければならない。
     allocator.SetLifetimeGeneration(0);
     adapter->Free(pointer);
-    if (allocator.FreeCallCount() != 0u || DiligentMemoryAdapter::OutstandingAllocationCount() != 1u ||
-        DiligentMemoryAdapter::OutstandingRequestedBytes() != 4096u) {
+    if (allocator.FreeCallCount() != 0u || FDiligentMemoryAdapter::OutstandingAllocationCount() != 1u ||
+        FDiligentMemoryAdapter::OutstandingRequestedBytes() != 4096u) {
         return 85;
     }
 
@@ -126,8 +126,8 @@ int RunStaleLifetimeTest()
     allocator.SetLifetimeGeneration(1u);
     adapter->Free(pointer);
     if (allocator.FreeCallCount() != 1u || allocator.CompletedFreeCount() != 1u ||
-        DiligentMemoryAdapter::OutstandingAllocationCount() != 0u ||
-        DiligentMemoryAdapter::OutstandingRequestedBytes() != 0u) {
+        FDiligentMemoryAdapter::OutstandingAllocationCount() != 0u ||
+        FDiligentMemoryAdapter::OutstandingRequestedBytes() != 0u) {
         return 86;
     }
     return 0;
@@ -135,8 +135,8 @@ int RunStaleLifetimeTest()
 
 int RunGenerationChangeDuringFreeTest()
 {
-    LifetimeTestAllocator allocator(1u);
-    void* const raw_adapter = DiligentMemoryAdapter::Create(&allocator);
+    FLifetimeTestAllocator allocator(1u);
+    void* const raw_adapter = FDiligentMemoryAdapter::Create(&allocator);
     if (!raw_adapter) return 91;
 
     auto* const adapter = static_cast<Diligent::IMemoryAllocator*>(raw_adapter);
@@ -147,16 +147,16 @@ int RunGenerationChangeDuringFreeTest()
     allocator.ChangeGenerationDuringNextFree();
     adapter->Free(pointer);
     if (allocator.FreeCallCount() != 1u || allocator.CompletedFreeCount() != 0u ||
-        DiligentMemoryAdapter::OutstandingAllocationCount() != 1u ||
-        DiligentMemoryAdapter::OutstandingRequestedBytes() != 8192u) {
+        FDiligentMemoryAdapter::OutstandingAllocationCount() != 1u ||
+        FDiligentMemoryAdapter::OutstandingRequestedBytes() != 8192u) {
         return 93;
     }
 
     allocator.SetLifetimeGeneration(1u);
     adapter->Free(pointer);
     if (allocator.FreeCallCount() != 2u || allocator.CompletedFreeCount() != 1u ||
-        DiligentMemoryAdapter::OutstandingAllocationCount() != 0u ||
-        DiligentMemoryAdapter::OutstandingRequestedBytes() != 0u) {
+        FDiligentMemoryAdapter::OutstandingAllocationCount() != 0u ||
+        FDiligentMemoryAdapter::OutstandingRequestedBytes() != 0u) {
         return 94;
     }
     return 0;

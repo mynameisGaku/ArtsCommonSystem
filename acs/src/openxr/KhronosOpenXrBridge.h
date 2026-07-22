@@ -65,21 +65,21 @@ public:
      *
      * @return HMD ポーズ (session 未実装のため常に原点ゼロポーズ)。
      */
-    acs::game::XrPose HeadPose() const noexcept override { return m_HeadPose; }
+    acs::game::FXrPose HeadPose() const noexcept override { return m_HeadPose; }
 
     /**
      * 直近 Tick 時点の左コントローラ state を返す。
      *
      * @return 左コントローラ state (session 未実装のため常にゼロ state)。
      */
-    acs::game::XrControllerState LeftController() const noexcept override { return m_Left; }
+    acs::game::FXrControllerState LeftController() const noexcept override { return m_Left; }
 
     /**
      * 直近 Tick 時点の右コントローラ state を返す。
      *
      * @return 右コントローラ state (session 未実装のため常にゼロ state)。
      */
-    acs::game::XrControllerState RightController() const noexcept override { return m_Right; }
+    acs::game::FXrControllerState RightController() const noexcept override { return m_Right; }
 
     /**
      * ポーズ / 入力の取り込みを進める。
@@ -123,13 +123,13 @@ private:
     void* m_Instance = nullptr;
 
     /** 直近 Tick の HMD ポーズ (session 未実装のため常に原点)。 */
-    acs::game::XrPose m_HeadPose{};
+    acs::game::FXrPose m_HeadPose{};
 
     /** 直近 Tick の左コントローラ state。 */
-    acs::game::XrControllerState m_Left{};
+    acs::game::FXrControllerState m_Left{};
 
     /** 直近 Tick の右コントローラ state。 */
-    acs::game::XrControllerState m_Right{};
+    acs::game::FXrControllerState m_Right{};
 
     /** Init で記録されたプラットフォーム。 */
     acs::game::EXrPlatform m_Platform = acs::game::EXrPlatform::Unknown;

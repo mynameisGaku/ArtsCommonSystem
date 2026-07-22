@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar — spriteatlas / FSpriteAtlasEditorPanel
 //
-// `acs::game::FSpritePack` (gameframework/FSpritePack.h) が保持する atlas メタ情報
+// `acs::game::FSpritePack` (gameframework/SpritePack.h) が保持する atlas メタ情報
 // と名前付き frame 矩形のリストを、ImGui ベースで対話的に編集する **エディタ
 // パネル**。editor 共通基盤
 // (`editor_core::FEditorPanel` / `FEditorWorkspace`) を継承し、ModelViewer
 // と同形の組立方を持つ。
 //
 // 役割:
-//   ・atlas texture path + 名前付き SpriteFrame 列の **編集** のみを担う
+//   ・atlas texture path + 名前付き FSpriteFrame 列の **編集** のみを担う
 //     (atlas texture そのものの読込 / 描画は責務外、FSample 35 側で素のグリッド
 //      placeholder を出す)。
 //   ・toolbar (New Frame / Delete Selected / Pivot プリセット切替) + 中央 viewport
@@ -26,7 +26,7 @@
 //
 // 使い方 (典型):
 //   acs::game::FSpritePack pack;
-//   SpritePackInfo info;
+//   FSpritePackInfo info;
 //   info.atlas_texture_path = "assets/hero_atlas.png";
 //   info.atlas_width  = 256;
 //   info.atlas_height = 256;
@@ -95,13 +95,13 @@
 #include "gameframework/tools/editor_core/EditorPanel.h"
 
 namespace acs::game {
-// FSpritePack の forward-decl。FSpritePack.h は .cpp 側でのみ include する
+// FSpritePack の forward-decl。SpritePack.h は .cpp 側でのみ include する
 // (= ヘッダ依存最小化、利用側が FSpritePack の API 変更で再ビルドさせられない)。
 class FSpritePack;
 } // namespace acs::game
 
 namespace acs::game::editor_core {
-// FEditorWorkspace は FEditorPanel.h から forward-decl 経由で受ける。
+// FEditorWorkspace は EditorPanel.h から forward-decl 経由で受ける。
 class FEditorWorkspace;
 } // namespace acs::game::editor_core
 
@@ -179,7 +179,7 @@ public:
      * @details
      * frame があれば selection を 0 (先頭 frame)、無ければ -1 に設定する。nullptr を
      * 渡すと「pack 未接続」状態になり、UI は gracefully 退化する (Add/Delete ボタンが
-     * disabled、説明文 "(No FSpritePack attached)" を表示)。
+     * disabled、説明文 "(No sprite pack attached)" を表示)。
      * @param pack 注入する FSpritePack (非所有、caller が寿命を管理)。nullptr 可。
      */
     void SetSpritePack(class acs::game::FSpritePack* pack) noexcept;

@@ -1,323 +1,707 @@
 <Window x:Class="AcsEditor.MaterialEditorWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="マテリアルエディタ" Height="560" Width="380"
+        Title="ACS Material Editor"
+        Width="1460" Height="900" MinWidth="1080" MinHeight="680"
         WindowStartupLocation="CenterOwner"
-        Background="#FF1E2127" Foreground="#FFE6E8EC" FontSize="12">
+        Background="{StaticResource Win}" Foreground="{StaticResource Text}"
+        FontFamily="Segoe UI" FontSize="11.5"
+        Loaded="OnMaterialEditorLoaded"
+        Closing="OnMaterialEditorClosing"
+        Closed="OnMaterialEditorClosed"
+        Unloaded="OnMaterialEditorUnloaded"
+        PreviewKeyDown="OnMaterialEditorKeyDown">
     <Window.Resources>
-        <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#FFB8BEC8"/>
+        <Style x:Key="MaterialPanelHeader" TargetType="TextBlock">
+            <Setter Property="Background" Value="#FF20242A"/>
+            <Setter Property="Foreground" Value="#FFB5BBC4"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="10.5"/>
+            <Setter Property="Padding" Value="10,6"/>
+        </Style>
+        <Style x:Key="MaterialSection" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#FF9199A4"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="10.5"/>
+            <Setter Property="Margin" Value="0,10,0,5"/>
+        </Style>
+        <Style x:Key="MaterialFieldLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,7,0"/>
         </Style>
-        <Style TargetType="TextBox">
-            <Setter Property="Background" Value="#FF2A2E36"/>
-            <Setter Property="Foreground" Value="#FFE6E8EC"/>
-            <Setter Property="BorderBrush" Value="#FF3A3F49"/>
-            <Setter Property="Padding" Value="4,2"/>
+        <Style x:Key="MaterialTextBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="MinHeight" Value="25"/>
+            <Setter Property="Padding" Value="6,3"/>
         </Style>
+        <Style x:Key="ToolbarMaterialButton" TargetType="Button" BasedOn="{StaticResource ToolbarButton}">
+            <Setter Property="MinWidth" Value="72"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Margin" Value="2,0"/>
+        </Style>
+        <Style x:Key="InspectorExpander" TargetType="Expander">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="IsExpanded" Value="True"/>
+            <Setter Property="Margin" Value="0,0,0,1"/>
+        </Style>
+        <DrawingBrush x:Key="GraphGrid" TileMode="Tile" Viewport="0,0,24,24"
+                      ViewportUnits="Absolute" Viewbox="0,0,24,24" ViewboxUnits="Absolute">
+            <DrawingBrush.Drawing>
+                <DrawingGroup>
+                    <GeometryDrawing Brush="#FF15181D">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="0,0,24,24"/>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing>
+                        <GeometryDrawing.Pen>
+                            <Pen Brush="#FF252A32" Thickness="1"/>
+                        </GeometryDrawing.Pen>
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup>
+                                <LineGeometry StartPoint="0,0" EndPoint="24,0"/>
+                                <LineGeometry StartPoint="0,0" EndPoint="0,24"/>
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#FF343A44">
+                        <GeometryDrawing.Geometry>
+                            <EllipseGeometry Center="0,0" RadiusX="1.2" RadiusY="1.2"/>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                </DrawingGroup>
+            </DrawingBrush.Drawing>
+        </DrawingBrush>
     </Window.Resources>
-    <Grid Margin="12">
+
+    <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="43"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="142"/>
+            <RowDefinition Height="27"/>
         </Grid.RowDefinitions>
 
-        <!-- ヘッダ: ライブプレビュー + ファイル名 -->
-        <Grid Grid.Row="0" Margin="0,0,0,8">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <Border Grid.Column="0" Width="84" Height="84" CornerRadius="0" Margin="0,0,10,0"
-                    BorderBrush="#FF3A3F49" BorderThickness="1" Background="#FF15171C">
-                <Image x:Name="PreviewImage" Stretch="Fill" RenderOptions.BitmapScalingMode="Linear"
-                       SnapsToDevicePixels="True"/>
+        <!-- UE-style asset toolbar: primary actions are kept left, graph utilities right. -->
+        <Border Grid.Row="0" Background="{StaticResource Panel}" BorderBrush="{StaticResource Hairline}"
+                BorderThickness="0,0,0,1">
+            <Grid Margin="7,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="18"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Content="Apply" Style="{StaticResource ToolbarMaterialButton}"
+                        Foreground="{StaticResource OkFg}" Click="OnApplyClicked"
+                        ToolTip="Compile and apply to every viewport using this material (Ctrl+Enter)"/>
+                <Button Grid.Column="1" Content="Save" Style="{StaticResource ToolbarMaterialButton}"
+                        Click="OnSaveClicked" ToolTip="Save material and graph layout (Ctrl+S)"/>
+                <Button Grid.Column="2" Content="Compile" Style="{StaticResource ToolbarMaterialButton}"
+                        Click="OnCompileClicked" ToolTip="Validate the Substrate closure graph"/>
+                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="MATERIAL" Foreground="{StaticResource TextDim}" FontSize="9.5"
+                               FontWeight="SemiBold" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="FileLabel" Text="material.acsmat" Foreground="{StaticResource Text}"
+                               FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="520"/>
+                </StackPanel>
+                <Button Grid.Column="5" Content="Delete" Style="{StaticResource ToolbarMaterialButton}"
+                        Click="OnDeleteNodeClicked" ToolTip="Delete selected expression (Delete)"/>
+                <Button Grid.Column="6" Content="Fit Graph" Style="{StaticResource ToolbarMaterialButton}"
+                        Click="OnFitGraphClicked" ToolTip="Frame all expressions (F)"/>
+                <Button Grid.Column="7" Content="Home" Style="{StaticResource ToolbarMaterialButton}"
+                        Click="OnHomeGraphClicked" ToolTip="Frame the Front Material output"/>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="232" MinWidth="180"/>
+                <ColumnDefinition Width="4"/>
+                <ColumnDefinition Width="*" MinWidth="420"/>
+                <ColumnDefinition Width="4"/>
+                <ColumnDefinition Width="374" MinWidth="310"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Palette + parameters -->
+            <Border Grid.Column="0" Background="{StaticResource Panel}" BorderBrush="{StaticResource Edge}"
+                    BorderThickness="0,0,1,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="34"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="146"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="PALETTE" Style="{StaticResource MaterialPanelHeader}"/>
+                    <TextBox Grid.Row="1" x:Name="PaletteSearch" Margin="7,5" MinHeight="24"
+                             ToolTip="Search material expressions" TextChanged="OnPaletteSearchChanged"/>
+                    <ListBox Grid.Row="2" x:Name="PaletteList" Margin="0,2,0,0"
+                             PreviewMouseLeftButtonDown="OnPaletteMouseDown"
+                             PreviewMouseMove="OnPaletteMouseMove"
+                             MouseDoubleClick="OnPaletteDoubleClick">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ToolTip="{Binding Description}" Margin="1,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="86"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Category}" Foreground="{StaticResource TextDim}"
+                                               FontSize="9" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="{StaticResource Text}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <TextBlock Grid.Row="3" Text="LIVE PARAMETERS" Style="{StaticResource MaterialPanelHeader}"/>
+                    <ListBox Grid.Row="4" x:Name="ParameterList" Background="#FF191C21"
+                             SelectionChanged="OnParameterSelected">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="3,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource Text}"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Value}" Foreground="{StaticResource TextDim}"
+                                               FontFamily="Consolas" Margin="8,0,0,0"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
             </Border>
-            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                <TextBlock Text="ライブプレビュー" FontSize="11" Foreground="#FF8A93A0"/>
-                <TextBlock x:Name="FileLabel" Text="material.acsmat" FontSize="11" Foreground="#FF6F7681"
-                           TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
-            </StackPanel>
+
+            <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch"/>
+
+            <!-- Material expression graph -->
+            <Border Grid.Column="2" Background="#FF15181D">
+                <Grid>
+                    <ScrollViewer x:Name="GraphViewport" HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Auto" CanContentScroll="False"
+                                  PreviewMouseWheel="OnGraphMouseWheel">
+                        <Canvas x:Name="GraphCanvas" Width="1800" Height="1100" Focusable="True"
+                                FocusVisualStyle="{x:Null}"
+                                Background="{StaticResource GraphGrid}" AllowDrop="True"
+                                Drop="OnGraphDrop"
+                                MouseLeftButtonDown="OnGraphMouseLeftButtonDown"
+                                MouseLeftButtonUp="OnGraphMouseLeftButtonUp"
+                                MouseMove="OnGraphMouseMove"
+                                MouseRightButtonDown="OnGraphMouseRightButtonDown"
+                                MouseRightButtonUp="OnGraphMouseRightButtonUp"/>
+                    </ScrollViewer>
+                    <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10"
+                            Background="#D91B1F25" BorderBrush="#FF343B46" BorderThickness="1"
+                            Padding="8,5">
+                        <StackPanel>
+                            <TextBlock Text="SUBSTRATE GRAPH" FontWeight="SemiBold" Foreground="#FFC8CDD5"/>
+                            <TextBlock x:Name="GraphStatusText" Text="Loading graph…"
+                                       Foreground="{StaticResource TextDim}" FontSize="10.5" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="10"
+                            Background="#D91B1F25" BorderBrush="#FF343B46" BorderThickness="1"
+                            Padding="7,4">
+                        <TextBlock Text="Drag: move  •  Click sockets: connect  •  Wheel: zoom"
+                                   Foreground="{StaticResource TextDim}" FontSize="10"/>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <GridSplitter Grid.Column="3" Width="4" HorizontalAlignment="Stretch"/>
+
+            <!-- Preview + Details -->
+            <Border Grid.Column="4" Background="{StaticResource Panel}" BorderBrush="{StaticResource Edge}"
+                    BorderThickness="1,0,0,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="296"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="PREVIEW" Style="{StaticResource MaterialPanelHeader}"/>
+                    <Grid Grid.Row="1" Background="#FF121419">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="40"/>
+                        </Grid.RowDefinitions>
+                        <Border Grid.Row="0" Width="244" Height="244"
+                                BorderBrush="#FF3A424E" BorderThickness="1"
+                                Background="#FF0C0E12"
+                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Image x:Name="PreviewImage" Stretch="Uniform"
+                                   RenderOptions.BitmapScalingMode="HighQuality"/>
+                        </Border>
+                        <Border Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8"
+                                Background="#E620242A" BorderBrush="#FF424A56" BorderThickness="1"
+                                Padding="7,4">
+                            <TextBlock x:Name="PreviewModeText" Text="HDR · ACES · 2× SSAA"
+                                       Foreground="#FFC6CCD5" FontSize="10"/>
+                        </Border>
+                        <Border Grid.Row="0" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="8"
+                                Background="#E620242A" BorderBrush="#FF424A56" BorderThickness="1"
+                                Padding="7,4">
+                            <TextBlock x:Name="PreviewStateText" Text="Preview: applied asset"
+                                       Foreground="{StaticResource TextDim}" FontSize="10"/>
+                        </Border>
+                        <Grid Grid.Row="1" Margin="7,5,7,7">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <ComboBox Grid.Column="0" x:Name="PreviewModelBox" SelectedIndex="0"
+                                      Margin="0,0,4,0" Height="27"
+                                      ToolTip="Preview mesh" SelectionChanged="OnPreviewOptionChanged">
+                                <ComboBoxItem Content="Sphere"/>
+                                <ComboBoxItem Content="Cube"/>
+                                <ComboBoxItem Content="Plane"/>
+                            </ComboBox>
+                            <ComboBox Grid.Column="1" x:Name="PreviewBackgroundBox" SelectedIndex="0"
+                                      Margin="2,0" Height="27"
+                                      ToolTip="Preview background" SelectionChanged="OnPreviewOptionChanged">
+                                <ComboBoxItem Content="Studio"/>
+                                <ComboBoxItem Content="Checker"/>
+                                <ComboBoxItem Content="Black"/>
+                            </ComboBox>
+                            <ComboBox Grid.Column="2" x:Name="PreviewQualityBox" SelectedIndex="1"
+                                      Margin="4,0,0,0" Height="27"
+                                      ToolTip="Preview quality" SelectionChanged="OnPreviewOptionChanged">
+                                <ComboBoxItem Content="Fast · 1×"/>
+                                <ComboBoxItem Content="High · 2×"/>
+                                <ComboBoxItem Content="Production · 4×"/>
+                            </ComboBox>
+                        </Grid>
+                    </Grid>
+                    <TextBlock Grid.Row="2" Text="DETAILS" Style="{StaticResource MaterialPanelHeader}"/>
+                    <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="9,4,9,12">
+                            <Border Background="#FF242930" BorderBrush="#FF343B46" BorderThickness="1"
+                                    Padding="8" Margin="0,0,0,6">
+                                <StackPanel>
+                                    <TextBlock x:Name="NodeDetailsTitle" Text="Material"
+                                               FontWeight="SemiBold" Foreground="#FFD3D8DF"/>
+                                    <TextBlock x:Name="NodeDetailsText" Text="Select an expression to edit it."
+                                               Foreground="{StaticResource TextDim}" FontSize="10.5"
+                                               TextWrapping="Wrap" Margin="0,3,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <TextBlock Text="ASSET" Style="{StaticResource MaterialSection}"/>
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Name" Style="{StaticResource MaterialFieldLabel}"/>
+                                <TextBox Grid.Column="1" x:Name="NameBox" Style="{StaticResource MaterialTextBox}"
+                                         LostFocus="OnNameCommitted"/>
+                            </Grid>
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Domain" Style="{StaticResource MaterialFieldLabel}"/>
+                                <ComboBox Grid.Column="1" x:Name="KindBox" SelectionChanged="OnKindChanged">
+                                    <ComboBoxItem Content="Surface"/>
+                                    <ComboBoxItem Content="Post Process"/>
+                                </ComboBox>
+                            </Grid>
+
+                            <StackPanel x:Name="SurfaceModePanel">
+                                <TextBlock Text="SHADING" Style="{StaticResource MaterialSection}"/>
+                                <Grid Margin="0,2">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="Model" Style="{StaticResource MaterialFieldLabel}"/>
+                                    <ComboBox Grid.Column="1" x:Name="ShadeBox" SelectionChanged="OnShadeChanged">
+                                        <ComboBoxItem Content="Substrate"/>
+                                        <ComboBoxItem Content="Toon"/>
+                                    </ComboBox>
+                                </Grid>
+                            </StackPanel>
+
+                            <StackPanel x:Name="PbrPanel">
+                                <TextBlock Text="SLAB BASE" Style="{StaticResource MaterialSection}"/>
+                                <Grid Margin="0,2">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="25"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="Diffuse Albedo" Style="{StaticResource MaterialFieldLabel}"/>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                        <TextBox x:Name="BcR" Width="43" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
+                                        <TextBox x:Name="BcG" Width="43" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
+                                        <TextBox x:Name="BcB" Width="43" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
+                                        <TextBox x:Name="BcA" Width="43" TextChanged="OnPbrChanged"/>
+                                    </StackPanel>
+                                    <Border Grid.Column="2" x:Name="BaseSwatch" Width="21" Height="21"
+                                            Background="White" BorderBrush="{StaticResource CtrlBorder}" BorderThickness="1"
+                                            Cursor="Hand" Tag="Base" MouseLeftButtonDown="OnColorSwatchClicked"
+                                            ToolTip="Edit diffuse albedo"/>
+                                </Grid>
+                                <Grid Margin="0,2">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="Base Color Map" Style="{StaticResource MaterialFieldLabel}"/>
+                                    <TextBlock Grid.Column="1" x:Name="AlbedoLabel" Text="None"
+                                               TextTrimming="CharacterEllipsis" Foreground="{StaticResource TextDim}"/>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                        <Button Content="…" Click="OnBrowseAlbedo" Padding="7,2"/>
+                                        <Button Content="×" Click="OnClearAlbedo" Padding="7,2" Margin="3,0,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+                                <Grid Margin="0,2">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="Normal Map" Style="{StaticResource MaterialFieldLabel}"/>
+                                    <TextBlock Grid.Column="1" x:Name="NormalLabel" Text="None"
+                                               TextTrimming="CharacterEllipsis" Foreground="{StaticResource TextDim}"/>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                        <Button Content="…" Click="OnBrowseNormal" Padding="7,2"/>
+                                        <Button Content="×" Click="OnClearNormal" Padding="7,2" Margin="3,0,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid Margin="0,3">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="Metallic" Style="{StaticResource MaterialFieldLabel}"/>
+                                    <Slider Grid.Column="1" x:Name="MetallicSlider" Minimum="0" Maximum="1" ValueChanged="OnPbrSlider"/>
+                                    <TextBox Grid.Column="2" x:Name="Metallic" Margin="5,0,0,0" TextChanged="OnPbrChanged"/>
+                                </Grid>
+                                <Grid Margin="0,3">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="Roughness" Style="{StaticResource MaterialFieldLabel}"/>
+                                    <Slider Grid.Column="1" x:Name="RoughnessSlider" Minimum="0" Maximum="1" ValueChanged="OnPbrSlider"/>
+                                    <TextBox Grid.Column="2" x:Name="Roughness" Margin="5,0,0,0" TextChanged="OnPbrChanged"/>
+                                </Grid>
+                                <Grid Margin="0,3">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="Normal Strength" Style="{StaticResource MaterialFieldLabel}"/>
+                                    <Slider Grid.Column="1" x:Name="NormalStrSlider" Minimum="0" Maximum="2" ValueChanged="OnPbrSlider"/>
+                                    <TextBox Grid.Column="2" x:Name="NormalStr" Margin="5,0,0,0" TextChanged="OnPbrChanged"/>
+                                </Grid>
+                                <Grid Margin="0,3">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="Ambient Occlusion" Style="{StaticResource MaterialFieldLabel}"/>
+                                    <Slider Grid.Column="1" x:Name="AoSlider" Minimum="0" Maximum="1" ValueChanged="OnPbrSlider"/>
+                                    <TextBox Grid.Column="2" x:Name="Ao" Margin="5,0,0,0" TextChanged="OnPbrChanged"/>
+                                </Grid>
+                                <Grid Margin="0,3">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="25"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="Emissive" Style="{StaticResource MaterialFieldLabel}"/>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                        <TextBox x:Name="EmR" Width="48" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
+                                        <TextBox x:Name="EmG" Width="48" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
+                                        <TextBox x:Name="EmB" Width="48" TextChanged="OnPbrChanged"/>
+                                    </StackPanel>
+                                    <Border Grid.Column="2" x:Name="EmSwatch" Width="21" Height="21"
+                                            Background="Black" BorderBrush="{StaticResource CtrlBorder}" BorderThickness="1"
+                                            Cursor="Hand" Tag="Emissive" MouseLeftButtonDown="OnColorSwatchClicked"
+                                            ToolTip="Edit emissive color"/>
+                                </Grid>
+                                <Grid Margin="0,3">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="Emissive Strength" Style="{StaticResource MaterialFieldLabel}"/>
+                                    <Slider Grid.Column="1" x:Name="EmStrSlider" Minimum="0" Maximum="5" ValueChanged="OnPbrSlider"/>
+                                    <TextBox Grid.Column="2" x:Name="EmStr" Margin="5,0,0,0" TextChanged="OnPbrChanged"/>
+                                </Grid>
+
+                                <StackPanel x:Name="SubstratePanel">
+                                    <TextBlock Text="LEGACY SLAB BRIDGE" Style="{StaticResource MaterialSection}"/>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Coat Weight" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <Slider Grid.Column="1" x:Name="ClrCoatSlider" Minimum="0" Maximum="1" ValueChanged="OnExtSlider"/>
+                                        <TextBox Grid.Column="2" x:Name="ClrCoat" Margin="5,0,0,0" TextChanged="OnExtChanged"/>
+                                    </Grid>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Coat Roughness" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <Slider Grid.Column="1" x:Name="CoatRoughSlider" Minimum="0" Maximum="1" ValueChanged="OnExtSlider"/>
+                                        <TextBox Grid.Column="2" x:Name="CoatRough" Margin="5,0,0,0" TextChanged="OnExtChanged"/>
+                                    </Grid>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Anisotropy" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <Slider Grid.Column="1" x:Name="AnisoSlider" Minimum="-1" Maximum="1" ValueChanged="OnExtSlider"/>
+                                        <TextBox Grid.Column="2" x:Name="Aniso" Margin="5,0,0,0" TextChanged="OnExtChanged"/>
+                                    </Grid>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Specular Level" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <Slider Grid.Column="1" x:Name="SpecLvlSlider" Minimum="0" Maximum="1" ValueChanged="OnExtSlider"/>
+                                        <TextBox Grid.Column="2" x:Name="SpecLvl" Margin="5,0,0,0" TextChanged="OnExtChanged"/>
+                                    </Grid>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Specular Tint" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <Slider Grid.Column="1" x:Name="SpecTintSlider" Minimum="0" Maximum="1" ValueChanged="OnExtSlider"/>
+                                        <TextBox Grid.Column="2" x:Name="SpecTint" Margin="5,0,0,0" TextChanged="OnExtChanged"/>
+                                    </Grid>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Fuzz / Sheen" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <Slider Grid.Column="1" x:Name="SheenSlider" Minimum="0" Maximum="1" ValueChanged="OnExtSlider"/>
+                                        <TextBox Grid.Column="2" x:Name="Sheen" Margin="5,0,0,0" TextChanged="OnExtChanged"/>
+                                    </Grid>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Fuzz Roughness" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <Slider Grid.Column="1" x:Name="SheenRoughSlider" Minimum="0" Maximum="1" ValueChanged="OnExtSlider"/>
+                                        <TextBox Grid.Column="2" x:Name="SheenRough" Margin="5,0,0,0" TextChanged="OnExtChanged"/>
+                                    </Grid>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="25"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Fuzz Color" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <TextBox x:Name="ShR" Width="48" Margin="0,0,3,0" TextChanged="OnExtChanged"/>
+                                            <TextBox x:Name="ShG" Width="48" Margin="0,0,3,0" TextChanged="OnExtChanged"/>
+                                            <TextBox x:Name="ShB" Width="48" TextChanged="OnExtChanged"/>
+                                        </StackPanel>
+                                        <Border Grid.Column="2" x:Name="ShSwatch" Width="21" Height="21"
+                                                Background="White" BorderBrush="{StaticResource CtrlBorder}" BorderThickness="1"
+                                                Cursor="Hand" Tag="Fuzz" MouseLeftButtonDown="OnColorSwatchClicked"
+                                                ToolTip="Edit fuzz color"/>
+                                    </Grid>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Subsurface" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <Slider Grid.Column="1" x:Name="SubsurfSlider" Minimum="0" Maximum="1" ValueChanged="OnExtSlider"/>
+                                        <TextBox Grid.Column="2" x:Name="Subsurf" Margin="5,0,0,0" TextChanged="OnExtChanged"/>
+                                    </Grid>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="25"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="SSS Color" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <TextBox x:Name="SsR" Width="48" Margin="0,0,3,0" TextChanged="OnExtChanged"/>
+                                            <TextBox x:Name="SsG" Width="48" Margin="0,0,3,0" TextChanged="OnExtChanged"/>
+                                            <TextBox x:Name="SsB" Width="48" TextChanged="OnExtChanged"/>
+                                        </StackPanel>
+                                        <Border Grid.Column="2" x:Name="SsSwatch" Width="21" Height="21"
+                                                Background="#FFFF4D33" BorderBrush="{StaticResource CtrlBorder}" BorderThickness="1"
+                                                Cursor="Hand" Tag="SSS" MouseLeftButtonDown="OnColorSwatchClicked"
+                                                ToolTip="Edit subsurface color"/>
+                                    </Grid>
+                                </StackPanel>
+
+                                <StackPanel x:Name="ToonSubPanel" Visibility="Collapsed">
+                                    <TextBlock Text="TOON BANDS" Style="{StaticResource MaterialSection}"/>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="25"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="1st Shade" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <TextBox x:Name="S1R" Width="48" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
+                                            <TextBox x:Name="S1G" Width="48" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
+                                            <TextBox x:Name="S1B" Width="48" TextChanged="OnToonChanged"/>
+                                        </StackPanel>
+                                        <Border Grid.Column="2" x:Name="S1Swatch" Width="21" Height="21"
+                                                Background="#FF888888" BorderBrush="{StaticResource CtrlBorder}" BorderThickness="1"
+                                                Cursor="Hand" Tag="Shade1" MouseLeftButtonDown="OnColorSwatchClicked"/>
+                                    </Grid>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="1st Threshold" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <Slider Grid.Column="1" x:Name="S1ThrSlider" Minimum="0" Maximum="1" ValueChanged="OnToonSlider"/>
+                                        <TextBox Grid.Column="2" x:Name="S1Thr" Margin="5,0,0,0" TextChanged="OnToonChanged"/>
+                                    </Grid>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="25"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="2nd Shade" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <TextBox x:Name="S2R" Width="48" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
+                                            <TextBox x:Name="S2G" Width="48" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
+                                            <TextBox x:Name="S2B" Width="48" TextChanged="OnToonChanged"/>
+                                        </StackPanel>
+                                        <Border Grid.Column="2" x:Name="S2Swatch" Width="21" Height="21"
+                                                Background="#FF555555" BorderBrush="{StaticResource CtrlBorder}" BorderThickness="1"
+                                                Cursor="Hand" Tag="Shade2" MouseLeftButtonDown="OnColorSwatchClicked"/>
+                                    </Grid>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="2nd Threshold" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <Slider Grid.Column="1" x:Name="S2ThrSlider" Minimum="0" Maximum="1" ValueChanged="OnToonSlider"/>
+                                        <TextBox Grid.Column="2" x:Name="S2Thr" Margin="5,0,0,0" TextChanged="OnToonChanged"/>
+                                    </Grid>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="25"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Rim Color" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <TextBox x:Name="RimR" Width="48" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
+                                            <TextBox x:Name="RimG" Width="48" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
+                                            <TextBox x:Name="RimB" Width="48" TextChanged="OnToonChanged"/>
+                                        </StackPanel>
+                                        <Border Grid.Column="2" x:Name="RimSwatch" Width="21" Height="21"
+                                                Background="White" BorderBrush="{StaticResource CtrlBorder}" BorderThickness="1"
+                                                Cursor="Hand" Tag="Rim" MouseLeftButtonDown="OnColorSwatchClicked"/>
+                                    </Grid>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Rim Power" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <Slider Grid.Column="1" x:Name="RimPowSlider" Minimum="0.5" Maximum="12" ValueChanged="OnToonSlider"/>
+                                        <TextBox Grid.Column="2" x:Name="RimPow" Margin="5,0,0,0" TextChanged="OnToonChanged"/>
+                                    </Grid>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Spec Threshold" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <Slider Grid.Column="1" x:Name="SpecThrSlider" Minimum="0" Maximum="1" ValueChanged="OnToonSlider"/>
+                                        <TextBox Grid.Column="2" x:Name="SpecThr" Margin="5,0,0,0" TextChanged="OnToonChanged"/>
+                                    </Grid>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="Band Softness" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <Slider Grid.Column="1" x:Name="SoftSlider" Minimum="0.001" Maximum="0.3" ValueChanged="OnToonSlider"/>
+                                        <TextBox Grid.Column="2" x:Name="Soft" Margin="5,0,0,0" TextChanged="OnToonChanged"/>
+                                    </Grid>
+                                </StackPanel>
+                                <TextBlock x:Name="PbrHint" Foreground="{StaticResource TextDim}" TextWrapping="Wrap"
+                                           Margin="0,10,0,0"/>
+                            </StackPanel>
+
+                            <StackPanel x:Name="EffectPanel" Visibility="Collapsed">
+                                <TextBlock Text="POST PROCESS PRESET" Style="{StaticResource MaterialSection}"/>
+                                <Grid Margin="0,2">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="Effect" Style="{StaticResource MaterialFieldLabel}"/>
+                                    <ComboBox Grid.Column="1" x:Name="EffectBox" SelectionChanged="OnEffectChanged"/>
+                                </Grid>
+                                <StackPanel x:Name="ParamPanel">
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="LblStrength" Text="Strength" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <Slider Grid.Column="1" x:Name="StrengthSlider" Minimum="0" Maximum="1" ValueChanged="OnStrengthSlider"/>
+                                        <TextBox Grid.Column="2" x:Name="Strength" Margin="5,0,0,0" TextChanged="OnParamChanged"/>
+                                    </Grid>
+                                    <Grid x:Name="RowP0" Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="LblP0" Text="P0" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <TextBox Grid.Column="1" x:Name="P0" TextChanged="OnParamChanged"/>
+                                    </Grid>
+                                    <Grid x:Name="RowP1" Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="LblP1" Text="P1" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <TextBox Grid.Column="1" x:Name="P1" TextChanged="OnParamChanged"/>
+                                    </Grid>
+                                    <Grid x:Name="RowP2" Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="LblP2" Text="P2" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <TextBox Grid.Column="1" x:Name="P2" TextChanged="OnParamChanged"/>
+                                    </Grid>
+                                    <Grid x:Name="RowColor" Margin="0,3">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="25"/></Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="LblColor" Text="Color" Style="{StaticResource MaterialFieldLabel}"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <TextBox x:Name="ColR" Width="43" Margin="0,0,3,0" TextChanged="OnParamChanged"/>
+                                            <TextBox x:Name="ColG" Width="43" Margin="0,0,3,0" TextChanged="OnParamChanged"/>
+                                            <TextBox x:Name="ColB" Width="43" Margin="0,0,3,0" TextChanged="OnParamChanged"/>
+                                            <TextBox x:Name="ColA" Width="43" TextChanged="OnParamChanged"/>
+                                        </StackPanel>
+                                        <Border Grid.Column="2" x:Name="ColorSwatch" Width="21" Height="21"
+                                                Background="White" BorderBrush="{StaticResource CtrlBorder}" BorderThickness="1"
+                                                Cursor="Hand" Tag="Effect" MouseLeftButtonDown="OnColorSwatchClicked"
+                                                ToolTip="Edit effect color"/>
+                                    </Grid>
+                                </StackPanel>
+                                <CheckBox x:Name="AnimatedBox" Content="Animate with game time" Margin="0,7,0,0"
+                                          Click="OnParamToggled"/>
+                                <TextBlock x:Name="HintText" Foreground="{StaticResource TextDim}"
+                                           TextWrapping="Wrap" Margin="0,9,0,0"/>
+                            </StackPanel>
+
+                            <StackPanel x:Name="SelectedSlabPanel" Visibility="Collapsed">
+                                <TextBlock Text="SELECTED SLAB CLOSURE" Style="{StaticResource MaterialSection}"/>
+                                <StackPanel x:Name="SlabPropertyPanel"/>
+                            </StackPanel>
+                            <StackPanel x:Name="SelectedOperatorPanel" Visibility="Collapsed">
+                                <TextBlock Text="SELECTED OPERATOR" Style="{StaticResource MaterialSection}"/>
+                                <Grid Margin="0,3">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="Input A" Style="{StaticResource MaterialFieldLabel}"/>
+                                    <TextBlock Grid.Column="1" x:Name="OperatorInputAText" Foreground="{StaticResource Text}"/>
+                                </Grid>
+                                <Grid Margin="0,3">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="Input B" Style="{StaticResource MaterialFieldLabel}"/>
+                                    <TextBlock Grid.Column="1" x:Name="OperatorInputBText" Foreground="{StaticResource Text}"/>
+                                </Grid>
+                                <Grid Margin="0,3">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="102"/><ColumnDefinition Width="*"/><ColumnDefinition Width="55"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="Mix / Weight" Style="{StaticResource MaterialFieldLabel}"/>
+                                    <Slider Grid.Column="1" x:Name="OperatorFactorSlider" Minimum="0" Maximum="1"
+                                            ValueChanged="OnOperatorFactorSlider"/>
+                                    <TextBox Grid.Column="2" x:Name="OperatorFactorBox" Margin="5,0,0,0"
+                                             TextChanged="OnOperatorFactorChanged"/>
+                                </Grid>
+                                <CheckBox x:Name="OperatorUseParameter" Content="Use Parameter Blending"
+                                          ToolTip="Collapse compatible closures into one parameter-blended closure to reduce material storage."
+                                          Margin="0,6,0,0" Checked="OnOperatorFlagsChanged" Unchecked="OnOperatorFlagsChanged"/>
+                                <Button Content="Use as Front Material" Margin="0,8,0,0"
+                                        HorizontalAlignment="Left" Click="OnSetRootClicked"/>
+                            </StackPanel>
+                            <StackPanel x:Name="SelectedExpressionPanel" Visibility="Collapsed">
+                                <TextBlock Text="SELECTED SHADER EXPRESSION"
+                                           Style="{StaticResource MaterialSection}"/>
+                                <StackPanel x:Name="ExpressionPropertyPanel"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
         </Grid>
 
-        <!-- 名前 + 種別 (PBR / 効果) -->
-        <Grid Grid.Row="1" Margin="0,0,0,6">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="名前"/>
-            <TextBox   Grid.Row="0" Grid.Column="1" x:Name="NameBox" Margin="0,0,0,4"/>
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="種別"/>
-            <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="KindBox" SelectionChanged="OnKindChanged">
-                <ComboBoxItem Content="PBR (BRDF サーフェス)"/>
-                <ComboBoxItem Content="効果プリセット (ポストプロセス)"/>
-            </ComboBox>
-        </Grid>
+        <!-- Compiler diagnostics and runtime closure statistics -->
+        <Border Grid.Row="2" Background="#FF191C21" BorderBrush="{StaticResource Edge}" BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="350"/>
+                </Grid.ColumnDefinitions>
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <TextBlock Text="COMPILER RESULTS" Style="{StaticResource MaterialPanelHeader}"/>
+                    <ListBox Grid.Row="1" x:Name="DiagnosticsList" Background="#FF171A1F"
+                             MouseDoubleClick="OnDiagnosticDoubleClick"/>
+                </Grid>
+                <Border Grid.Column="1" BorderBrush="{StaticResource Hairline}" BorderThickness="1,0,0,0">
+                    <Grid>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <TextBlock Text="SUBSTRATE STATS" Style="{StaticResource MaterialPanelHeader}"/>
+                        <UniformGrid Grid.Row="1" Columns="2" Margin="10,7">
+                            <StackPanel>
+                                <TextBlock Text="Closures" Foreground="{StaticResource TextDim}" FontSize="10"/>
+                                <TextBlock x:Name="StatClosures" Text="—" FontFamily="Consolas" FontSize="15"/>
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="Complexity" Foreground="{StaticResource TextDim}" FontSize="10"/>
+                                <TextBlock x:Name="StatComplexity" Text="—" FontFamily="Consolas" FontSize="15"/>
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="Material Bytes / px" Foreground="{StaticResource TextDim}" FontSize="10"/>
+                                <TextBlock x:Name="StatBytesPerPixel" Text="—" FontFamily="Consolas" FontSize="15"/>
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="Features" Foreground="{StaticResource TextDim}" FontSize="10"/>
+                                <TextBlock x:Name="StatFeatures" Text="—" FontFamily="Consolas" FontSize="11"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                            </StackPanel>
+                        </UniformGrid>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
 
-        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-        <Grid>
-        <!-- ============ PBR パネル ============ -->
-        <StackPanel x:Name="PbrPanel" Margin="0,4,0,0">
-            <!-- シェーディング (PBR / トゥーン) -->
-            <Grid Margin="0,0,0,4"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                <TextBlock Text="シェーディング"/>
-                <ComboBox Grid.Column="1" x:Name="ShadeBox" SelectionChanged="OnShadeChanged">
-                    <ComboBoxItem Content="PBR (写実)"/>
-                    <ComboBoxItem Content="トゥーン (セル/アニメ調)"/>
-                </ComboBox>
-            </Grid>
-            <!-- ベースカラー -->
-            <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <TextBlock Text="ベースカラー"/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <TextBox x:Name="BcR" Width="40" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
-                    <TextBox x:Name="BcG" Width="40" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
-                    <TextBox x:Name="BcB" Width="40" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
-                    <TextBox x:Name="BcA" Width="40" TextChanged="OnPbrChanged"/>
-                </StackPanel>
-                <Border Grid.Column="2" x:Name="BaseSwatch" Width="24" Height="24" CornerRadius="0"
-                        Background="#FFFFFFFF" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
-            </Grid>
-            <!-- アルベド画像 -->
-            <Grid Margin="0,3"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <TextBlock Text="アルベド画像"/>
-                <TextBlock Grid.Column="1" x:Name="AlbedoLabel" Text="(なし)" Foreground="#FF8A93A0"
-                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="11"/>
-                <StackPanel Grid.Column="2" Orientation="Horizontal">
-                    <Button Content="…" Click="OnBrowseAlbedo" Padding="8,2" Margin="0,0,4,0"/>
-                    <Button Content="✕" Click="OnClearAlbedo" Padding="6,2" Foreground="#FFE39AA0"/>
-                </StackPanel>
-            </Grid>
-            <!-- 法線マップ -->
-            <Grid Margin="0,3"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <TextBlock Text="法線マップ"/>
-                <TextBlock Grid.Column="1" x:Name="NormalLabel" Text="(なし)" Foreground="#FF8A93A0"
-                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="11"/>
-                <StackPanel Grid.Column="2" Orientation="Horizontal">
-                    <Button Content="…" Click="OnBrowseNormal" Padding="8,2" Margin="0,0,4,0"/>
-                    <Button Content="✕" Click="OnClearNormal" Padding="6,2" Foreground="#FFE39AA0"/>
-                </StackPanel>
-            </Grid>
-            <!-- メタリック -->
-            <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                <TextBlock Text="メタリック"/>
-                <Slider Grid.Column="1" x:Name="MetallicSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnPbrSlider"/>
-                <TextBox Grid.Column="2" x:Name="Metallic" TextChanged="OnPbrChanged" Margin="4,0,0,0"/>
-            </Grid>
-            <!-- ラフネス -->
-            <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                <TextBlock Text="ラフネス"/>
-                <Slider Grid.Column="1" x:Name="RoughnessSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnPbrSlider"/>
-                <TextBox Grid.Column="2" x:Name="Roughness" TextChanged="OnPbrChanged" Margin="4,0,0,0"/>
-            </Grid>
-            <!-- 法線の強さ -->
-            <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                <TextBlock Text="法線の強さ"/>
-                <Slider Grid.Column="1" x:Name="NormalStrSlider" Minimum="0" Maximum="2" VerticalAlignment="Center" ValueChanged="OnPbrSlider"/>
-                <TextBox Grid.Column="2" x:Name="NormalStr" TextChanged="OnPbrChanged" Margin="4,0,0,0"/>
-            </Grid>
-            <!-- AO -->
-            <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                <TextBlock Text="AO"/>
-                <Slider Grid.Column="1" x:Name="AoSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnPbrSlider"/>
-                <TextBox Grid.Column="2" x:Name="Ao" TextChanged="OnPbrChanged" Margin="4,0,0,0"/>
-            </Grid>
-            <!-- エミッシブ色 -->
-            <Grid Margin="0,4,0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <TextBlock Text="エミッシブ色"/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <TextBox x:Name="EmR" Width="40" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
-                    <TextBox x:Name="EmG" Width="40" Margin="0,0,3,0" TextChanged="OnPbrChanged"/>
-                    <TextBox x:Name="EmB" Width="40" TextChanged="OnPbrChanged"/>
-                </StackPanel>
-                <Border Grid.Column="2" x:Name="EmSwatch" Width="24" Height="24" CornerRadius="0"
-                        Background="#FF000000" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
-            </Grid>
-            <!-- 発光強度 -->
-            <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                <TextBlock Text="発光強度"/>
-                <Slider Grid.Column="1" x:Name="EmStrSlider" Minimum="0" Maximum="5" VerticalAlignment="Center" ValueChanged="OnPbrSlider"/>
-                <TextBox Grid.Column="2" x:Name="EmStr" TextChanged="OnPbrChanged" Margin="4,0,0,0"/>
-            </Grid>
-            <!-- ============ Substrate 拡張 (シェーディング=PBR のとき表示) ============ -->
-            <StackPanel x:Name="SubstratePanel" Margin="0,2,0,0">
-                <Border Height="1" Background="#FF3A3F49" Margin="0,4"/>
-                <TextBlock Text="Substrate 拡張ロブ" FontSize="11" Foreground="#FF8A93A0" Margin="0,0,0,2"/>
-                <!-- クリアコート -->
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="クリアコート"/>
-                    <Slider Grid.Column="1" x:Name="ClrCoatSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnExtSlider"/>
-                    <TextBox Grid.Column="2" x:Name="ClrCoat" TextChanged="OnExtChanged" Margin="4,0,0,0"/>
-                </Grid>
-                <!-- コート荒さ -->
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="コート荒さ"/>
-                    <Slider Grid.Column="1" x:Name="CoatRoughSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnExtSlider"/>
-                    <TextBox Grid.Column="2" x:Name="CoatRough" TextChanged="OnExtChanged" Margin="4,0,0,0"/>
-                </Grid>
-                <!-- 異方性 -->
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="異方性"/>
-                    <Slider Grid.Column="1" x:Name="AnisoSlider" Minimum="-1" Maximum="1" VerticalAlignment="Center" ValueChanged="OnExtSlider"/>
-                    <TextBox Grid.Column="2" x:Name="Aniso" TextChanged="OnExtChanged" Margin="4,0,0,0"/>
-                </Grid>
-                <!-- 鏡面レベル -->
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="鏡面レベル"/>
-                    <Slider Grid.Column="1" x:Name="SpecLvlSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnExtSlider"/>
-                    <TextBox Grid.Column="2" x:Name="SpecLvl" TextChanged="OnExtChanged" Margin="4,0,0,0"/>
-                </Grid>
-                <!-- 鏡面tint -->
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="鏡面tint"/>
-                    <Slider Grid.Column="1" x:Name="SpecTintSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnExtSlider"/>
-                    <TextBox Grid.Column="2" x:Name="SpecTint" TextChanged="OnExtChanged" Margin="4,0,0,0"/>
-                </Grid>
-                <!-- シーン (布の逆反射) -->
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="シーン"/>
-                    <Slider Grid.Column="1" x:Name="SheenSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnExtSlider"/>
-                    <TextBox Grid.Column="2" x:Name="Sheen" TextChanged="OnExtChanged" Margin="4,0,0,0"/>
-                </Grid>
-                <!-- シーン荒さ -->
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="シーン荒さ"/>
-                    <Slider Grid.Column="1" x:Name="SheenRoughSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnExtSlider"/>
-                    <TextBox Grid.Column="2" x:Name="SheenRough" TextChanged="OnExtChanged" Margin="4,0,0,0"/>
-                </Grid>
-                <!-- シーン色 -->
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="シーン色"/>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal">
-                        <TextBox x:Name="ShR" Width="40" Margin="0,0,3,0" TextChanged="OnExtChanged"/>
-                        <TextBox x:Name="ShG" Width="40" Margin="0,0,3,0" TextChanged="OnExtChanged"/>
-                        <TextBox x:Name="ShB" Width="40" TextChanged="OnExtChanged"/>
-                    </StackPanel>
-                    <Border Grid.Column="2" x:Name="ShSwatch" Width="24" Height="24" CornerRadius="0" Background="#FFFFFFFF" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
-                </Grid>
-                <!-- サブサーフェス -->
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="SSS 量"/>
-                    <Slider Grid.Column="1" x:Name="SubsurfSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnExtSlider"/>
-                    <TextBox Grid.Column="2" x:Name="Subsurf" TextChanged="OnExtChanged" Margin="4,0,0,0"/>
-                </Grid>
-                <!-- SSS 色 -->
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="SSS 色"/>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal">
-                        <TextBox x:Name="SsR" Width="40" Margin="0,0,3,0" TextChanged="OnExtChanged"/>
-                        <TextBox x:Name="SsG" Width="40" Margin="0,0,3,0" TextChanged="OnExtChanged"/>
-                        <TextBox x:Name="SsB" Width="40" TextChanged="OnExtChanged"/>
-                    </StackPanel>
-                    <Border Grid.Column="2" x:Name="SsSwatch" Width="24" Height="24" CornerRadius="0" Background="#FFFF4D33" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
-                </Grid>
-            </StackPanel>
-            <!-- ============ トゥーン項目 (シェーディング=トゥーン のとき表示) ============ -->
-            <StackPanel x:Name="ToonSubPanel" Visibility="Collapsed" Margin="0,2,0,0">
-                <Border Height="1" Background="#FF3A3F49" Margin="0,4"/>
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="1影の色"/>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal">
-                        <TextBox x:Name="S1R" Width="40" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
-                        <TextBox x:Name="S1G" Width="40" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
-                        <TextBox x:Name="S1B" Width="40" TextChanged="OnToonChanged"/>
-                    </StackPanel>
-                    <Border Grid.Column="2" x:Name="S1Swatch" Width="24" Height="24" CornerRadius="0" Background="#FF888888" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
-                </Grid>
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="1影しきい値"/>
-                    <Slider Grid.Column="1" x:Name="S1ThrSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnToonSlider"/>
-                    <TextBox Grid.Column="2" x:Name="S1Thr" TextChanged="OnToonChanged" Margin="4,0,0,0"/>
-                </Grid>
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="2影の色"/>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal">
-                        <TextBox x:Name="S2R" Width="40" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
-                        <TextBox x:Name="S2G" Width="40" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
-                        <TextBox x:Name="S2B" Width="40" TextChanged="OnToonChanged"/>
-                    </StackPanel>
-                    <Border Grid.Column="2" x:Name="S2Swatch" Width="24" Height="24" CornerRadius="0" Background="#FF555555" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
-                </Grid>
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="2影しきい値"/>
-                    <Slider Grid.Column="1" x:Name="S2ThrSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnToonSlider"/>
-                    <TextBox Grid.Column="2" x:Name="S2Thr" TextChanged="OnToonChanged" Margin="4,0,0,0"/>
-                </Grid>
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="リム色"/>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal">
-                        <TextBox x:Name="RimR" Width="40" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
-                        <TextBox x:Name="RimG" Width="40" Margin="0,0,3,0" TextChanged="OnToonChanged"/>
-                        <TextBox x:Name="RimB" Width="40" TextChanged="OnToonChanged"/>
-                    </StackPanel>
-                    <Border Grid.Column="2" x:Name="RimSwatch" Width="24" Height="24" CornerRadius="0" Background="#FFFFFFFF" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
-                </Grid>
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="リム強さ"/>
-                    <Slider Grid.Column="1" x:Name="RimPowSlider" Minimum="0.5" Maximum="12" VerticalAlignment="Center" ValueChanged="OnToonSlider"/>
-                    <TextBox Grid.Column="2" x:Name="RimPow" TextChanged="OnToonChanged" Margin="4,0,0,0"/>
-                </Grid>
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="ハイライト閾"/>
-                    <Slider Grid.Column="1" x:Name="SpecThrSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnToonSlider"/>
-                    <TextBox Grid.Column="2" x:Name="SpecThr" TextChanged="OnToonChanged" Margin="4,0,0,0"/>
-                </Grid>
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                    <TextBlock Text="境界の硬さ"/>
-                    <Slider Grid.Column="1" x:Name="SoftSlider" Minimum="0.001" Maximum="0.3" VerticalAlignment="Center" ValueChanged="OnToonSlider"/>
-                    <TextBox Grid.Column="2" x:Name="Soft" TextChanged="OnToonChanged" Margin="4,0,0,0"/>
-                </Grid>
-            </StackPanel>
-            <TextBlock x:Name="PbrHint" Margin="0,8,0,0" TextWrapping="Wrap" Foreground="#FF7C8694" FontSize="11"
-                       Text="PBR (metallic-roughness)。アルベド+法線マップ+メタリック/ラフネス/エミッシブを 2D ライトで陰影付け。プレビューは球サンプル。"/>
-        </StackPanel>
-
-        <!-- ============ 効果パネル ============ -->
-        <StackPanel x:Name="EffectPanel" Margin="0,4,0,0" Visibility="Collapsed">
-            <Grid Margin="0,0,0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                <TextBlock Text="効果"/>
-                <ComboBox Grid.Column="1" x:Name="EffectBox" SelectionChanged="OnEffectChanged"/>
-            </Grid>
-            <StackPanel x:Name="ParamPanel" Margin="0,4,0,0">
-                <Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="52"/></Grid.ColumnDefinitions>
-                    <TextBlock x:Name="LblStrength" Text="Strength"/>
-                    <Slider Grid.Column="1" x:Name="StrengthSlider" Minimum="0" Maximum="1" VerticalAlignment="Center" ValueChanged="OnStrengthSlider"/>
-                    <TextBox Grid.Column="2" x:Name="Strength" TextChanged="OnParamChanged" Margin="4,0,0,0"/>
-                </Grid>
-                <Grid x:Name="RowP0" Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                    <TextBlock x:Name="LblP0" Text="P0"/>
-                    <TextBox Grid.Column="1" x:Name="P0" TextChanged="OnParamChanged"/>
-                </Grid>
-                <Grid x:Name="RowP1" Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                    <TextBlock x:Name="LblP1" Text="P1"/>
-                    <TextBox Grid.Column="1" x:Name="P1" TextChanged="OnParamChanged"/>
-                </Grid>
-                <Grid x:Name="RowP2" Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                    <TextBlock x:Name="LblP2" Text="P2"/>
-                    <TextBox Grid.Column="1" x:Name="P2" TextChanged="OnParamChanged"/>
-                </Grid>
-                <Grid x:Name="RowColor" Margin="0,4,0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <TextBlock x:Name="LblColor" Text="Color"/>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal">
-                        <TextBox x:Name="ColR" Width="40" Margin="0,0,3,0" TextChanged="OnParamChanged"/>
-                        <TextBox x:Name="ColG" Width="40" Margin="0,0,3,0" TextChanged="OnParamChanged"/>
-                        <TextBox x:Name="ColB" Width="40" Margin="0,0,3,0" TextChanged="OnParamChanged"/>
-                        <TextBox x:Name="ColA" Width="40" TextChanged="OnParamChanged"/>
-                    </StackPanel>
-                    <Border Grid.Column="2" x:Name="ColorSwatch" Width="24" Height="24" CornerRadius="0"
-                            Background="#FF000000" BorderBrush="#FF3A3F49" BorderThickness="1" Margin="6,0,0,0"/>
-                </Grid>
-                <CheckBox x:Name="AnimatedBox" Content="アニメーション (経過時間を流す)" Margin="0,6,0,0"
-                          Foreground="#FFB8BEC8" Click="OnParamToggled"/>
-            </StackPanel>
-            <TextBlock x:Name="HintText" Margin="0,10,0,0" TextWrapping="Wrap" VerticalAlignment="Top"
-                       Foreground="#FF7C8694" FontSize="11"/>
-        </StackPanel>
-        </Grid>
-        </ScrollViewer>
-
-        <!-- ボタン -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-            <TextBlock x:Name="StatusText" Text="" Foreground="#FF6FBF73" VerticalAlignment="Center" Margin="0,0,12,0"/>
-            <Button Content="閉じる" Click="OnClose" Padding="14,4"/>
-        </StackPanel>
+        <StatusBar Grid.Row="3" BorderBrush="{StaticResource Hairline}" BorderThickness="0,1,0,0">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Text="Ready" Foreground="{StaticResource OkFg}"/>
+            </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <TextBlock x:Name="GraphAssetStateText" Text="ACSMAT • legacy compatible"
+                           Foreground="{StaticResource TextDim}"/>
+            </StatusBarItem>
+            <StatusBarItem HorizontalAlignment="Right">
+                <TextBlock Text="Ctrl+S Save   Ctrl+Enter Apply   F Fit   Delete Remove"
+                           Foreground="{StaticResource TextDim}"/>
+            </StatusBarItem>
+        </StatusBar>
     </Grid>
 </Window>

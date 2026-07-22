@@ -11,7 +11,7 @@
 //                               Material Slot)
 //       - Bones             : CollapsingHeader + TreeNode (parent_index < 0 を
 //                               root として再帰展開)
-//       - FAnimation Clips   : CollapsingHeader + Table (Name / Duration / Samples
+//       - Animation Clips    : CollapsingHeader + Table (名前 / 長さ / サンプル数
 //                               / Looping)
 // を実装する。すべて noexcept、STL 不使用、ImGui 依存はこの .cpp に閉じる。
 #include "gameframework/tools/modelview/ModelInspectorPanel.h"
@@ -42,7 +42,7 @@ static const char* SafeName(const char* name) noexcept {
 /** 内部状態を空にする (summary はゼロ初期化、3 配列を Clear、has_model = false)。 */
 void FModelInspectorPanel::Init() noexcept {
     // m_Summary は値型 = ゼロ初期化に戻す。
-    m_Summary    = MeshSummary{};
+    m_Summary    = FMeshSummary{};
     m_Submeshes.Clear();
     m_Bones.Clear();
     m_Clips.Clear();
@@ -53,7 +53,7 @@ void FModelInspectorPanel::Init() noexcept {
 void FModelInspectorPanel::Shutdown() noexcept {
     // TArray は Clear で要素数 0。容量解放は panel 自身の destructor に任せ、
     // ここでは要素破棄のみで十分。
-    m_Summary    = MeshSummary{};
+    m_Summary    = FMeshSummary{};
     m_Submeshes.Clear();
     m_Bones.Clear();
     m_Clips.Clear();
@@ -61,10 +61,10 @@ void FModelInspectorPanel::Shutdown() noexcept {
 }
 
 /** caller から渡された summary + 3 配列を値コピーで全置換し has_model = true にする。 */
-void FModelInspectorPanel::UpdateFromModel(const MeshSummary&        summary,
-                                          const SubmeshInfo*        submeshes,
+void FModelInspectorPanel::UpdateFromModel(const FMeshSummary&        summary,
+                                          const FSubmeshInfo*        submeshes,
                                           u32                       submesh_count,
-                                          const BoneInfo*           bones,
+                                          const FBoneInfo*           bones,
                                           u32                       bone_count,
                                           const FAnimationClipInfo*  clips,
                                           u32                       clip_count) noexcept {
@@ -104,7 +104,7 @@ void FModelInspectorPanel::UpdateFromModel(const MeshSummary&        summary,
 
 /** 表示内容を空に戻し "No model loaded" 状態にする。 */
 void FModelInspectorPanel::Clear() noexcept {
-    m_Summary    = MeshSummary{};
+    m_Summary    = FMeshSummary{};
     m_Submeshes.Clear();
     m_Bones.Clear();
     m_Clips.Clear();
@@ -122,7 +122,7 @@ void FModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept
         return;
     }
 
-    const BoneInfo& bone = m_Bones[static_cast<u32>(bone_index)];
+    const FBoneInfo& bone = m_Bones[static_cast<u32>(bone_index)];
 
     // この bone を親とする子 bone があるかを線形走査で先に確認。
     // (TreeNode の Leaf flag を正確に立てるため = 矢印表示の精度が上がる)。
@@ -192,7 +192,7 @@ void FModelInspectorPanel::DrawUI() noexcept {
     ImGui::Text("Submeshes      : %u", static_cast<unsigned>(m_Summary.submesh_count));
     ImGui::Text("Material slots : %u", static_cast<unsigned>(m_Summary.material_slot_count));
     ImGui::Text("Bones          : %u", static_cast<unsigned>(m_Summary.bone_count));
-    ImGui::Text("FAnimation clips: %u", static_cast<unsigned>(m_Summary.animation_clip_count));
+    ImGui::Text("Animation clips: %u", static_cast<unsigned>(m_Summary.animation_clip_count));
     ImGui::Text("Bounding center: (%.3f, %.3f, %.3f)",
                 static_cast<double>(m_Summary.bounding_center.x),
                 static_cast<double>(m_Summary.bounding_center.y),
@@ -228,7 +228,7 @@ void FModelInspectorPanel::DrawUI() noexcept {
                 ImGui::TableHeadersRow();
 
                 for (u32 i = 0; i < m_Submeshes.Size(); ++i) {
-                    const SubmeshInfo& sm = m_Submeshes[i];
+                    const FSubmeshInfo& sm = m_Submeshes[i];
                     ImGui::TableNextRow();
 
                     ImGui::TableSetColumnIndex(0);
@@ -280,8 +280,8 @@ void FModelInspectorPanel::DrawUI() noexcept {
         }
     }
 
-    // 4) FAnimation Clips セクション — CollapsingHeader + Table。
-    if (ImGui::CollapsingHeader("FAnimation Clips", ImGuiTreeNodeFlags_DefaultOpen)) {
+    // 4) Animation Clips セクション — CollapsingHeader + Table。
+    if (ImGui::CollapsingHeader("Animation Clips", ImGuiTreeNodeFlags_DefaultOpen)) {
         if (m_Clips.IsEmpty()) {
             ImGui::TextDisabled("  (no animation clips)");
         } else {

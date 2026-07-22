@@ -78,7 +78,7 @@ ACS_REF.modules.push({
       when: "失敗を表現する時の標準の入れ物。普段は手書きせず <code>ACS_ERR</code> マクロで作る。受け取った側はカテゴリで分類したり <code>message</code> を出力したりする。",
       sample: "FErrorCode e = ACS_ERR(IO, 42, \"ファイルが見つかりません\");\nif (e) {                                  // bool 変換: エラーあり\n    ACS_LOG_ERROR(\"[%s] %s (%s:%u)\",\n        ToString(e.category), e.message,\n        e.loc.File(), e.loc.Line());\n}",
       members: [
-        { sig: "ErrCategory category", desc: "大分類（<code>IO</code> / <code>Memory</code> / <code>Render</code> 等）。<code>None</code> は成功を意味する。" },
+        { sig: "EErrCategory category", desc: "大分類（<code>IO</code> / <code>Memory</code> / <code>Render</code> 等）。<code>None</code> は成功を意味する。" },
         { sig: "u16 subcode", desc: "モジュール固有の細分化コード。カテゴリ内での区別に使う。" },
         { sig: "u32 os_error", desc: "<code>GetLastError()</code> や <code>HRESULT</code> など OS 由来のエラー値（任意）。" },
         { sig: "const char* message", desc: "人間向けメッセージ。静的文字列リテラル推奨。" },
@@ -88,17 +88,17 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "ErrCategory",
+      name: "EErrCategory",
       kind: "列挙(enum)", header: "foundation/Error.h",
       summary: "エラーの<b>大分類</b>を表す <code>enum class</code>（基底は <code>u16</code>）。ロガーでのフィルタや、原因の大まかな切り分けに使う。",
       when: "<code>ACS_ERR</code> の第 1 引数に渡す。受け取り側はこの値で <code>switch</code> したり <code>ToString</code> でログに出したりする。",
-      sample: "switch (e.category) {\n    case ErrCategory::IO:     /* 入出力 */ break;\n    case ErrCategory::Memory: /* 確保失敗 */ break;\n    default: break;\n}\nconst char* name = ToString(e.category);  // \"IO\" 等",
+      sample: "switch (e.category) {\n    case EErrCategory::IO:     /* 入出力 */ break;\n    case EErrCategory::Memory: /* 確保失敗 */ break;\n    default: break;\n}\nconst char* name = ToString(e.category);  // \"IO\" 等",
       members: [
         { sig: "None = 0", desc: "成功（エラー無し）。" },
         { sig: "Generic / Memory / OS / IO", desc: "一般 / メモリ確保失敗 / OS コール失敗 / ファイル・ネットワーク I/O。" },
         { sig: "Container / Threading / Math", desc: "範囲外・容量超過 / 排他制御・スレッド / 数学領域（NaN・0 除算）。" },
         { sig: "Render / Asset / UserCancel", desc: "描画バックエンド失敗 / アセット読み込み失敗 / ユーザーキャンセル。" },
-        { sig: "const char* ToString(ErrCategory)", desc: "カテゴリを文字列化する（ログ出力用）。" }
+        { sig: "const char* ToString(EErrCategory)", desc: "カテゴリを文字列化する（ログ出力用）。" }
       ]
     },
     {
@@ -207,18 +207,18 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "StackTrace / StackFrame",
+      name: "FStackTrace / FStackFrame",
       kind: "クラス / 構造体", header: "foundation/StackTrace.h",
-      summary: "<b>呼び出し履歴（コールスタック）</b>を取得し、関数名・ファイル・行に解決する。パニック時の診断に使われる。<code>StackFrame</code> は 1 段分の情報。",
+      summary: "<b>呼び出し履歴（コールスタック）</b>を取得し、関数名・ファイル・行に解決する。パニック時の診断に使われる。<code>FStackFrame</code> は 1 段分の情報。",
       when: "クラッシュやアサート失敗の原因を「どの関数から来たか」で追いたい時。普通は <t>FPanic</t> が裏で使う。",
-      sample: "StackTrace st;\nst.Capture();    // 現在のスタックを取得\nst.Resolve();    // シンボル/ファイル/行に解決\nst.Print([](void*, const char* line, acs::usize) {\n    ACS_LOG_INFO(\"%s\", line);\n}, nullptr);",
+      sample: "FStackTrace st;\nst.Capture();    // 現在のスタックを取得\nst.Resolve();    // シンボル/ファイル/行に解決\nst.Print([](void*, const char* line, acs::usize) {\n    ACS_LOG_INFO(\"%s\", line);\n}, nullptr);",
       members: [
         { sig: "void Capture(u32 skip = 1)", desc: "現在のスタックを取得する。<code>skip</code> 段は除外（自身のフレーム等）。" },
         { sig: "void Resolve()", desc: "取得済みアドレスを関数名/ファイル/行に解決する（スレッドセーフ）。" },
-        { sig: "u32 FrameCount() const / const StackFrame& Frame(u32 i) const", desc: "フレーム数と各フレームの取得。" },
+        { sig: "u32 FrameCount() const / const FStackFrame& Frame(u32 i) const", desc: "フレーム数と各フレームの取得。" },
         { sig: "void Print(Sink sink, void* user) const", desc: "1 行ずつテキスト化して <code>sink</code> コールバックに渡す。" },
         { sig: "using Sink = void(*)(void* user, const char* line, usize len)", desc: "<code>Print</code> が 1 行ごとに呼ぶコールバック型。<code>user</code> は呼び出し時に渡したポインタがそのまま渡る。" },
-        { sig: "StackFrame { void* address; u64 line; char symbol[256]; char file[256]; }", desc: "1 フレーム分の情報。命令ポインタ・ソース行番号（失敗時 0）・関数名（失敗時 <code>\"??? @ 0xADDR\"</code>）・ファイルパス。" },
+        { sig: "FStackFrame { void* address; u64 line; char symbol[256]; char file[256]; }", desc: "1 フレーム分の情報。命令ポインタ・ソース行番号（失敗時 0）・関数名（失敗時 <code>\"??? @ 0xADDR\"</code>）・ファイルパス。" },
         { sig: "inline constexpr u32 kStackTraceMaxFrames = 64", desc: "取得する最大フレーム数（名前空間スコープ定数）。" }
       ]
     },

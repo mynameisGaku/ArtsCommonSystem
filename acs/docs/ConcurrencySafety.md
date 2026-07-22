@@ -92,10 +92,10 @@ Free/Realloc は物理 `mi_free` を即時に行わず、ブロックを侵入�
 | `FTlsfAllocator` | ✕ (単体) | 単一インスタンスは非同期。ShardedTlsf のシャードとして専用ロック下で使う前提 |
 | `FLinearAllocator` | ○ | `m_Used` の CAS でロックフリー bump。Reset/寿命は制御スピンロックで直列化 |
 | `FArenaAllocator` | ○ | ページ毎 `used` の CAS でロックフリー bump。新ページ確保時のみ grow ロック |
-| `FPoolAllocator` | ○ | FMutex で Alloc/Free を保護。ThreadPool から並行利用される |
+| `FPoolAllocator` | ○ | FMutex で Alloc/Free を保護。FThreadPool から並行利用される |
 | `FSystemAllocator` | ○ | 侵入ヘッダに owner/magic/世代を持ち、別インスタンス/旧世代の Free/Realloc を拒否 |
 | `FRelocatableAllocator` | ✕ | **設計上単一スレッド専用**。Compact が全ポインタを無効化するため内部同期しない。利用側が保証する |
-| `DiligentMemoryAdapter` | ○ | レジストリを RwLock で保護、bind/寿命を別 RwLock、世代検証で stale free を拒否。backing FAllocator へ委譲 |
+| `FDiligentMemoryAdapter` | ○ | レジストリを FRwLock で保護、bind/寿命を別 FRwLock、世代検証で stale free を拒否。backing FAllocator へ委譲 |
 
 ---
 
@@ -110,7 +110,7 @@ Free/Realloc は物理 `mi_free` を即時に行わず、ブロックを侵入�
   m_HeapLock を取って完了でき、drain は進む。
 - **ShardedTlsf**: `m_LifecycleControlLock` → thread-cache レジストリ → シャードロック。TLS
   デストラクタは「レジストリ → シャード」だけを取り、シャード保持中に上位を取らない。
-- **DiligentMemoryAdapter**: `m_LifetimeLock`（Allocate/Free は共有、bind/shutdown は排他）→
+- **FDiligentMemoryAdapter**: `m_LifetimeLock`（Allocate/Free は共有、bind/shutdown は排他）→
   レジストリ `m_Lock`（排他）。
 
 ---
@@ -120,6 +120,6 @@ Free/Realloc は物理 `mi_free` を即時に行わず、ブロックを侵入�
 並行安全の変更は Debug / Release / AddressSanitizer / Diligent(GPU) の全構成で検証する
 （[MemoryDiagnostics.md](MemoryDiagnostics.md) の検証マトリクス参照）。データ競合は単一実行では
 確率的にしか顕在化しないため、**Debug 全スイートのストレスループ反復**（過去に mimalloc の
-ハングと Logger の Flush 競合を発見）と ASan を併用する。並行契約テストは
+ハングと FLogger の Flush 競合を発見）と ASan を併用する。並行契約テストは
 `acs/tests/mimalloc_allocator_tests.cpp` / `sharded_tlsf_lifecycle_tests.cpp` /
 `linear_allocator_lifecycle_tests.cpp` / `win32_resource_tests.cpp` 等にある。

@@ -81,23 +81,28 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/AnimationCurve.h",
       summary: "編集できる「<b>時間 → 値</b>」の補間曲線 (Unity の AnimationCurve 相当)。キーを打って、任意の <code>f32</code> 値を時間で滑らかに変化させる。Step / Linear / Hermite 補間と前後の折り返し (Clamp/Loop/PingPong) に対応。",
       when: "FOV やフェード、体力バー演出など、固定の <t>イージング</t>式では表せない自由なカーブが欲しい時。",
-      sample: "FAnimationCurve fade;\nfade.AddKey(0.0f, 0.0f);\nfade.AddKey(0.5f, 0.8f);\nfade.AddKey(1.0f, 1.0f, ECurveInterpolation::Hermite);\nfade.SetPostWrap(FAnimationCurve::WrapMode::Clamp);\nf32 alpha = fade.Evaluate(t);  // 毎フレーム",
+      sample: "FAnimationCurve fade;\nfade.TryAddKey(0.0f, 0.0f);\nfade.TryAddKey(0.5f, 0.8f);\nfade.TryAddKey(1.0f, 1.0f, ECurveInterpolation::Hermite);\nfade.TrySetWrapModes(FAnimationCurve::EWrapMode::Clamp, FAnimationCurve::EWrapMode::Clamp);\nf32 alpha = 0.0f;\nfade.TryEvaluate(t, alpha);  // checked 評価",
       members: [
-        { sig: "void AddKey(f32 time, f32 value, ECurveInterpolation interp = Linear)", desc: "キーを追加する (同 time は上書き、それ以外は時間順を保って挿入)。" },
+        { sig: "void AddKey(f32 time, f32 value, ECurveInterpolation interp = ECurveInterpolation::Linear)", desc: "互換追加 API。新規コードでは失敗を診断できる <code>TryAddKey</code> を推奨。" },
         { sig: "void AddKeyHermite(f32 time, f32 value, f32 in_tangent, f32 out_tangent)", desc: "Hermite 用に接線付きでキーを追加する。接線は「1 秒あたりの傾き」。" },
         { sig: "void RemoveKey(u32 index) / void ClearKeys()", desc: "キーを削除する / 全消去する (範囲外は安全に無視)。" },
-        { sig: "f32 Evaluate(f32 time) const", ret: "補間値", desc: "指定時刻の値を補間で求める。定義域外は前後の WrapMode に従う。", when: "毎フレーム、現在時刻の値を取り出す主役メソッド。" },
+        { sig: "f32 Evaluate(f32 time) const", ret: "補間値", desc: "指定時刻の値を補間で求める。定義域外は前後の <code>FAnimationCurve::EWrapMode</code> に従う。", when: "毎フレーム、現在時刻の値を取り出す主役メソッド。" },
         { sig: "f32 Duration() const", ret: "末尾キーの time", desc: "最後のキーの時刻を返す (曲線の長さではなく Unity 同様の仕様)。" },
-        { sig: "void SetPreWrap(WrapMode m) / void SetPostWrap(WrapMode m)", desc: "定義域の前/後に出たときの挙動 (Clamp/Loop/PingPong) を指定する。" },
-        { sig: "u32 KeyCount() const / const CurveKey* EKey(u32 index) const", desc: "キー数 / index 番目のキーを取得する (範囲外は nullptr)。" }
+        { sig: "void SetPreWrap(EWrapMode m) / void SetPostWrap(EWrapMode m)", desc: "定義域の前/後に出たときの挙動 (Clamp/Loop/PingPong) を指定する互換 API。" },
+        { sig: "FAnimationCurveResult TryAddKey(...) / TryAddKeyHermite(...)", desc: "入力と補間 enum を検証して key を追加する。失敗時は既存曲線を変更しない。" },
+        { sig: "FAnimationCurveResult TrySetKeys(const FCurveKey*, u32, EWrapMode, EWrapMode)", desc: "sort 済み key 列と wrap mode を全検証して一括置換する。" },
+        { sig: "FAnimationCurveResult TrySetEasingPreset(Easing::EEasingType, u32 sample_count = 65)", desc: "33 種の型付き easing を線形 key 列へ sampling する。" },
+        { sig: "FAnimationCurveResult TryEvaluate(f32 time, f32&amp; out_value) const", desc: "非有限入力と補間 overflow を診断し、成功時だけ出力を更新する。" },
+        { sig: "FAnimationCurveResult TrySetWrapModes(EWrapMode pre, EWrapMode post)", desc: "Clamp/Loop/PingPong を検証して同時に更新する。" },
+        { sig: "u32 KeyCount() const / const FCurveKey* Key(u32 index) const", desc: "キー数 / index 番目のキーを取得する (範囲外は nullptr)。" }
       ]
     },
     {
-      name: "CurveKey",
+      name: "FCurveKey",
       kind: "構造体", header: "gameframework/AnimationCurve.h",
       summary: "<t>FAnimationCurve</t> の 1 キーを表す値。time / value のほか、入口側・出口側それぞれの接線 (in_tangent / out_tangent) と補間方式 (in_interp / out_interp) を持つ。",
       when: "曲線の中身を直接覗いたり、Hermite 接線を細かく作り込みたい時。",
-      sample: "const CurveKey* k = curve.EKey(0);\nif (k) f32 v = k->value;"
+      sample: "const FCurveKey* k = curve.Key(0);\nif (k) f32 v = k->value;"
     },
     {
       name: "ECurveInterpolation",
@@ -105,6 +110,31 @@ ACS_REF.modules.push({
       summary: "曲線セグメントの補間方式。<b>Step</b>=直前キーの値を保持 (階段)、<b>Linear</b>=線形、<b>Hermite</b>=接線を使う 3 次補間。",
       when: "<code>AddKey()</code> の第 3 引数として補間の種類を選ぶ時。",
       sample: "curve.AddKey(0.2f, 1.0f, ECurveInterpolation::Step);"
+    },
+    {
+      name: "FAnimationCurve::EWrapMode",
+      kind: "列挙(enum)", header: "gameframework/AnimationCurve.h",
+      summary: "定義域外の時間を処理する方式。<b>Clamp</b> は端値を保持、<b>Loop</b> は周期反復、<b>PingPong</b> は端で折り返す。",
+      when: "<code>TrySetKeys</code> または <code>TrySetWrapModes</code> で曲線の前後を設定する時。"
+    },
+    {
+      name: "FAnimationCurveArchive",
+      kind: "クラス", header: "gameframework/AnimationCurveArchive.h",
+      summary: "<t>FAnimationCurve</t> を固定幅 little-endian wire record として保存・復元する bounded codec。CRC、version、exact size、全 key と wrap mode を検証し、失敗時は出力 buffer と復元先曲線を変更しない。",
+      when: "曲線をエディタデータや save file に永続化し、破損・旧 version・過大入力を明示的に診断したい時。",
+      sample: "u64 size = FAnimationCurveArchive::EncodedSize(curve);\nTArray&lt;u8&gt; bytes;\nbytes.TryResize(static_cast&lt;usize&gt;(size));\nu64 written = 0;\nauto saved = FAnimationCurveArchive::Encode(curve, bytes.Data(), size, written);\nFAnimationCurve restored;\nauto loaded = FAnimationCurveArchive::Decode(bytes.Data(), written, restored);",
+      members: [
+        { sig: "u64 EncodedSize(const FAnimationCurve&amp;) noexcept", desc: "正準 wire record の必要 byte 数を返す。" },
+        { sig: "FAnimationCurveArchiveResult Encode(const FAnimationCurve&amp;, void*, u64 capacity, u64&amp; out_size) noexcept", desc: "全入力を検証後に caller buffer へ正準 encoding する。容量不足でも必要量を返し、buffer は変更しない。" },
+        { sig: "FAnimationCurveArchiveResult Decode(const void*, u64 size, FAnimationCurve&amp;) noexcept", desc: "magic/version/size/CRC/key を全検証し、成功時だけ復元先を置換する。trailing data も拒否する。" },
+        { sig: "FAnimationCurveArchiveResult SaveToFile(const wchar_t*, const FAnimationCurve&amp;) / LoadFromFile(const wchar_t*, FAnimationCurve&amp;)", desc: "<code>FSaveArchive</code> の検証済み atomic envelope を介して file 保存/復元する。" },
+        { sig: "kWireVersion / kHeaderSize / kKeyRecordSize / kMaxEncodedSize", desc: "wire format と最大 65,536 keys に対応する公開境界。" }
+      ]
+    },
+    {
+      name: "FAnimationCurveArchiveResult / EAnimationCurveArchiveError",
+      kind: "構造体・列挙(enum)", header: "gameframework/AnimationCurveArchive.h",
+      summary: "buffer 不足、magic/version/header/size/CRC 不正、key 過多、曲線データ不正、OOM、永続化失敗を安定 enum と詳細 field で返す。<code>curve_error</code> は曲線 semantic error、<code>required_size</code> は必要容量を保持する。"
     },
     {
       name: "FAnimationGraph",
@@ -140,18 +170,18 @@ ACS_REF.modules.push({
       sample: "g.TriggerTransition(EAnimationGraphState::Attack);"
     },
     {
-      name: "GraphHandle",
+      name: "FGraphHandle",
       kind: "構造体", header: "gameframework/AnimationGraph.h",
       summary: "将来の複数グラフ管理用の <t>ハンドル</t> (24bit index + 8bit 世代を packed)。現フェーズでは未使用だが API として公開されている。",
       when: "上半身/下半身を別レイヤで持つなど将来拡張時。今は意識しなくてよい。",
-      sample: "GraphHandle h = GraphHandle::Pack(0, 1);\nif (h.IsValid()) { /* ... */ }"
+      sample: "FGraphHandle h = FGraphHandle::Pack(0, 1);\nif (h.IsValid()) { /* ... */ }"
     },
     {
       name: "FAppStateSlot",
       kind: "クラス", header: "gameframework/AppState.h",
       summary: "シーンを跨いで生き残る<b>型消去の永続状態スロット</b>。任意の型 <code>T</code> を 1 つだけ格納し、どのシーンからも取り出せる。<t>RTTI</t> 不使用で、型不一致の取得は nullptr を返す。",
       when: "ハイスコアやプレイヤープロフィールなど、シーン遷移で消えてほしくないデータを 1 箇所に置きたい時 (<code>FGame</code> が 1 個保持する)。",
-      sample: "struct PlayerProfile { int hi_score = 0; };\nslot.Emplace<PlayerProfile>();            // 構築\nauto* p = slot.Get<PlayerProfile>();      // 取り出し (型違いは nullptr)\nif (p) p->hi_score = 9999;",
+      sample: "struct FPlayerProfile { int hi_score = 0; };\nslot.Emplace<FPlayerProfile>();            // 構築\nauto* p = slot.Get<FPlayerProfile>();      // 取り出し (型違いは nullptr)\nif (p) p->hi_score = 9999;",
       members: [
         { sig: "T& Emplace<T>(Args&&... args)", ret: "構築した参照", desc: "既存を破棄して T をその場で構築し、参照を返す。", when: "起動時に永続状態を 1 度だけ作る。" },
         { sig: "T* Get<T>()", ret: "T* または nullptr", desc: "型 T として取り出す。未設定または型不一致なら nullptr。" },
@@ -231,7 +261,7 @@ ACS_REF.modules.push({
         { sig: "void Tick(f32 dt)", desc: "クロスフェード/ダッキングの内部タイマーを進める。毎フレーム呼ぶ (Pause 中は凍結)。" },
         { sig: "void SetBackend(IAudioBackend* backend)", desc: "実音再生 backend (FXAudio2Backend 等) を差し込む。nullptr で無音の状態管理のみ。" },
         { sig: "void SetAssetRegistry(FAssetRegistry* registry)", desc: "name→clip 解決用の registry を差すと、name から実ロードして実音を鳴らせる。" },
-        { sig: "AudioVoiceHandle PlayBgmClip(const AudioClipDesc&, f32 fade=1, bool loop=true) / AudioVoiceHandle PlaySfxClip(const AudioClipDesc&, f32 vol=1, f32 pitch=1)", desc: "raw PCM clip から直接 BGM/SFX を再生する。backend 未設定時は無効ハンドル。" },
+        { sig: "FAudioVoiceHandle PlayBgmClip(const FAudioClipDesc&, f32 fade=1, bool loop=true) / FAudioVoiceHandle PlaySfxClip(const FAudioClipDesc&, f32 vol=1, f32 pitch=1)", desc: "raw PCM clip から直接 BGM/SFX を再生する。backend 未設定時は無効ハンドル。" },
         { sig: "f32 EffectiveBgmVolume() const / f32 EffectiveSfxVolume() const", desc: "master×バス×ダッキングを合成した実際の出力ボリュームを返す (デバッグ/backend 用)。" }
       ]
     },
@@ -254,25 +284,25 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "gameframework/BackendClient.h",
       summary: "対戦相手を探す<b>マッチメイキングの<t>シーム</t></b> (Glicko-2 / TrueSkill 等の rating ベースを想定)。StartSearch で検索開始 → PollStatus で状態確認 → AcceptMatch / CancelSearch で完了、という流れ。",
       when: "オンライン対戦のマッチ検索を実装したい時。実アルゴリズムはプロジェクト側実装に委ねる。",
-      sample: "IMatchmaker& mm = GetDefaultMatchmaker();\nauto t = mm.StartSearch(\"ranked_1v1\", /*elo*/1500);\nif (t.IsOk()) {\n    MatchTicket ticket = t.Value();\n    if (mm.PollStatus(ticket) == EMatchStatus::Matched)\n        mm.AcceptMatch(ticket);\n}",
+      sample: "IMatchmaker& mm = GetDefaultMatchmaker();\nauto t = mm.StartSearch(\"ranked_1v1\", /*elo*/1500);\nif (t.IsOk()) {\n    FMatchTicket ticket = t.Value();\n    if (mm.PollStatus(ticket) == EMatchStatus::Matched)\n        mm.AcceptMatch(ticket);\n}",
       members: [
-        { sig: "TResult<MatchTicket> StartSearch(const char* mode, u32 elo_hint)", ret: "検索チケット", desc: "mode (\"ranked_1v1\" 等) と rating 推定値で検索を開始する。" },
-        { sig: "TResult<void> CancelSearch(MatchTicket t)", desc: "検索をキャンセルする (無効チケットは no-op)。" },
-        { sig: "EMatchStatus PollStatus(MatchTicket t)", ret: "検索状態", desc: "現在の検索状態 (Searching/Matched/Cancelled/Failed) を返す。副作用なし。" },
-        { sig: "TResult<void> AcceptMatch(MatchTicket t)", desc: "Matched 状態のチケットを確定する。失敗時は再検索に戻る設計を許容。" }
+        { sig: "TResult<FMatchTicket> StartSearch(const char* mode, u32 elo_hint)", ret: "検索チケット", desc: "mode (\"ranked_1v1\" 等) と rating 推定値で検索を開始する。" },
+        { sig: "TResult<void> CancelSearch(FMatchTicket t)", desc: "検索をキャンセルする (無効チケットは no-op)。" },
+        { sig: "EMatchStatus PollStatus(FMatchTicket t)", ret: "検索状態", desc: "現在の検索状態 (Searching/Matched/Cancelled/Failed) を返す。副作用なし。" },
+        { sig: "TResult<void> AcceptMatch(FMatchTicket t)", desc: "Matched 状態のチケットを確定する。失敗時は再検索に戻る設計を許容。" }
       ]
     },
     {
-      name: "MatchTicket / EMatchStatus / FBackendError",
+      name: "FMatchTicket / EMatchStatus / FBackendError",
       kind: "構造体・列挙(enum)", header: "gameframework/BackendClient.h",
-      summary: "<b>MatchTicket</b>=マッチ検索 1 件分の不透明ハンドル (u64、0 で無効)。<b>EMatchStatus</b>=検索状態 (Searching/Matched/Cancelled/Failed)。<b>FBackendError</b>=失敗サブコード (NotConnected / Timeout / NetworkFailure / NotImplemented 等)。",
+      summary: "<b>FMatchTicket</b>=マッチ検索 1 件分の不透明ハンドル (u64、0 で無効)。<b>EMatchStatus</b>=検索状態 (Searching/Matched/Cancelled/Failed)。<b>FBackendError</b>=失敗サブコード (NotConnected / Timeout / NetworkFailure / NotImplemented 等)。",
       when: "<t>IMatchmaker</t> の検索状態管理、および backend 系のエラー判別に使う。",
       sample: "if (ticket.IsValid()) { /* StartSearch 成功 */ }\nif (status == EMatchStatus::Failed) ShowError();"
     },
     {
       name: "GetDefaultBackendClient / GetDefaultMatchmaker ほか provider 結線",
       kind: "関数", header: "gameframework/BackendClient.h",
-      summary: "backend 実装を backend 非依存に取得する仕組み。実 backend (TelemetryFile / LocalMatchmaker 等) が provider を登録し、ゲームコードは <code>GetDefaultBackendClient()</code> / <code>GetDefaultMatchmaker()</code> で取得する。未登録なら<t>スタブ</t>を返す。",
+      summary: "backend 実装を backend 非依存に取得する仕組み。実 backend (TelemetryFile / FLocalMatchmaker 等) が provider を登録し、ゲームコードは <code>GetDefaultBackendClient()</code> / <code>GetDefaultMatchmaker()</code> で取得する。未登録なら<t>スタブ</t>を返す。",
       when: "通信実装の有無で挙動を切り替えつつ、ゲームコードを backend に依存させたくない時。",
       sample: "#if WITH_ACS_TELEMETRY_FILE\n  acs::telemetryfile::InstallFileTelemetryAsDefault();\n#endif\nIBackendClient& be = acs::game::GetDefaultBackendClient();",
       members: [
@@ -286,25 +316,28 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/BeatGrid.h",
       summary: "リズムゲームの<b>タイミング判定 + 譜面再生</b>。1 譜面分の note 配列を持ち、再生時刻を進めながらプレイヤーの Tap を最近 note と突き合わせ、Perfect / Great / Good / Miss の 4 段階で判定する。コンボや精度も集計する。",
       when: "音ゲー (DDR/太鼓系) の判定ロジックを組みたい時。音の再生 (FAudioDirector) とは独立に動く軽量 state machine。",
-      sample: "FBeatGrid grid;\ngrid.Init();\ngrid.SetTimingWindows(25.0f, 50.0f, 100.0f); // ms\nFBeatNote notes[] = {\n    { 1.0f, EBeatLane::Left, false, 0.0f },\n    { 1.5f, EBeatLane::Down, false, 0.0f },\n};\ngrid.LoadChart(notes, 2, 120.0f);\ngrid.Start();\n// 毎フレーム:\ngrid.Tick(dt);\n// 入力時:\nEJudgement j = grid.Tap(EBeatLane::Left);",
+      sample: "FBeatGrid grid;\ngrid.Init();\ngrid.TrySetTimingWindows(25.0f, 50.0f, 100.0f); // ms\nFBeatNote notes[] = {\n    { 1.0f, EBeatLane::Left, false, 0.0f },\n    { 1.5f, EBeatLane::Down, true, 0.75f },\n};\nif (grid.TryLoadChart(notes, 2, 120.0f) == EBeatChartLoadResult::Success) grid.Start();\ngrid.Tick(dt);\ngrid.PressLane(EBeatLane::Down);   // hold head\ngrid.ReleaseLane(EBeatLane::Down); // hold tail",
       members: [
         { sig: "void Init()", desc: "統計/状態を初期化する (何度でも呼べる)。" },
-        { sig: "void LoadChart(const FBeatNote* notes, u32 count, f32 bpm)", desc: "譜面をコピーして読み込む (caller の寿命に依存しない)。既存譜面は破棄。" },
-        { sig: "void SetTimingWindows(f32 perfect_ms, f32 great_ms, f32 good_ms)", desc: "Perfect/Great/Good の判定窓を ms で設定する (既定 25/50/100)。" },
+        { sig: "EBeatChartLoadResult TryLoadChart(const FBeatNote* notes, u32 count, f32 bpm)", desc: "譜面・lane・有限 time/hold/BPM・上限を検証して transactional にコピーする。失敗時は既存譜面を保持する。" },
+        { sig: "void LoadChart(const FBeatNote* notes, u32 count, f32 bpm)", desc: "<code>TryLoadChart</code> の互換 wrapper。失敗時は既存譜面を保持する。" },
+        { sig: "bool TrySetTimingWindows(f32 perfect_ms, f32 great_ms, f32 good_ms)", desc: "有限・非負・上限内かつ perfect &lt;= great &lt;= good を満たす時だけ 3 判定窓を更新する。" },
         { sig: "void Start() / void Stop() / void Pause() / void Resume()", desc: "再生制御。Start で時刻 0 から開始、Stop で即停止+リセット。" },
-        { sig: "EJudgement Tap(EBeatLane lane)", ret: "判定結果", desc: "入力を最近 note と突き合わせて判定する。窓外なら統計に影響せず Miss を返す。", when: "ボタン入力のたびに呼ぶ。" },
-        { sig: "void Tick(f32 dt)", desc: "時刻を進め、窓を過ぎた未判定 note を Miss にし、全消化の次フレームで終了 callback を発火する。" },
+        { sig: "EJudgement PressLane(EBeatLane lane) / Tap(EBeatLane lane)", ret: "head 判定", desc: "通常 note は即時確定し、hold note は active state に入る。<code>Tap</code> は互換 alias。" },
+        { sig: "EJudgement ReleaseLane(EBeatLane lane)", ret: "tail/最終判定", desc: "active hold の tail を判定する。早すぎる release は Miss。head と tail の悪い方を最終判定として 1 回だけ集計する。" },
+        { sig: "bool IsLaneHolding(EBeatLane lane) const / u32 ActiveHoldCount() const", desc: "lane または譜面全体の active hold 状態を問い合わせる。" },
+        { sig: "void Tick(f32 dt)", desc: "有限・非負で overflow しない時だけ時間を進め、未入力 note と hold timeout を 1 回だけ確定する。" },
         { sig: "f32 Accuracy() const / u32 MaxCombo() const / u32 CurrentCombo() const", desc: "精度 (0〜1)・最大コンボ・現在コンボを取得する。" },
         { sig: "u32 TotalNotes() const / u32 HitNotes() const / u32 MissedNotes() const", desc: "総 note 数・ヒット数・ミス数を取得する。" },
-        { sig: "void SetOnJudgeCallback(JudgeCallback cb, void* user) / void SetOnEndCallback(BeatEndCallback cb, void* user)", desc: "判定ごと / 譜面終了時に呼ぶ<t>コールバック</t>を登録する。" }
+        { sig: "void SetOnJudgeCallback(FJudgeCallback cb, void* user) / void SetOnEndCallback(FBeatEndCallback cb, void* user)", desc: "判定ごと / 譜面終了時に呼ぶ<t>コールバック</t>を登録する。" }
       ]
     },
     {
-      name: "FBeatNote / EBeatLane / EJudgement",
+      name: "FBeatNote / EBeatLane / EJudgement / EBeatChartLoadResult",
       kind: "構造体・列挙(enum)", header: "gameframework/BeatGrid.h",
-      summary: "<b>FBeatNote</b>=譜面の 1 note (絶対秒 time_sec / lane / hold フラグ)。<b>EBeatLane</b>=入力レーン (Left/Down/Up/Right + Custom1/2)。<b>EJudgement</b>=判定結果 (Perfect/Great/Good/Miss)。",
+      summary: "<b>FBeatNote</b>=譜面の 1 note (絶対秒 time_sec / lane / is_hold / hold_duration_sec)。<b>EBeatLane</b>=入力レーン (Left/Down/Up/Right + Custom1/2)。<b>EJudgement</b>=判定結果。<b>EBeatChartLoadResult</b>=null、上限超過、非有限値、不正 lane/BPM/hold、OOM を区別する checked load 結果。",
       when: "<t>FBeatGrid</t> に譜面を渡したり、判定結果を受け取ったりする時。",
-      sample: "FBeatNote n{ 2.0f, EBeatLane::Up, /*hold*/true, 0.5f };\nif (grid.Tap(EBeatLane::Up) == EJudgement::Perfect) combo++;"
+      sample: "FBeatNote n{ 2.0f, EBeatLane::Up, /*hold*/true, 0.5f };\nif (grid.TryLoadChart(&amp;n, 1, 120.0f) == EBeatChartLoadResult::Success) grid.Start();"
     },
     {
       name: "FBehaviorTree",
@@ -413,21 +446,21 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/CameraShakePresets.h",
       summary: "「爆発 / 地震 / 着弾」などの<b>ジャンル別 shake パラメータを 1 行で流し込む</b> preset ライブラリ。trauma/amplitude/decay を名前付きで提供し、ゲームコードに magic number を書かずに済む。trauma を吸う側は <t>IShakeTarget</t> 抽象で受ける。",
       when: "<code>FCamera2D</code> 等に「爆発っぽい振動」を即座に与えたい時。カスタム preset も名前付きで登録できる。",
-      sample: "FCameraShakePresets presets;\n// 組み込み preset:\nFCameraShakePresets::ApplyPreset(shakeTarget, EShakePreset::ExplosionLarge);\n// カスタム:\npresets.RegisterCustomPreset(\"BossSlam\", ShakeParams{0.7f,1.0f,0.8f,18.0f,1.2f});\npresets.ApplyCustomByName(shakeTarget, \"BossSlam\");",
+      sample: "FCameraShakePresets presets;\n// 組み込み preset:\nFCameraShakePresets::ApplyPreset(shakeTarget, EShakePreset::ExplosionLarge);\n// カスタム:\npresets.RegisterCustomPreset(\"BossSlam\", FShakeParams{0.7f,1.0f,0.8f,18.0f,1.2f});\npresets.ApplyCustomByName(shakeTarget, \"BossSlam\");",
       members: [
-        { sig: "static ShakeParams GetPreset(EShakePreset preset)", ret: "shake パラメータ", desc: "組み込み preset の trauma/amplitude/decay/freq 値を返す (Custom は中立値)。" },
+        { sig: "static FShakeParams GetPreset(EShakePreset preset)", ret: "shake パラメータ", desc: "組み込み preset の trauma/amplitude/decay/freq 値を返す (Custom は中立値)。" },
         { sig: "static void ApplyPreset(IShakeTarget& target, EShakePreset preset)", desc: "preset を target に流し込む (SetAmp→SetDecay→AddShake の順、trauma は加算)。" },
-        { sig: "void RegisterCustomPreset(const char* name, const ShakeParams& params)", desc: "名前付きカスタム preset を登録する (同名は上書き、null は no-op)。" },
+        { sig: "void RegisterCustomPreset(const char* name, const FShakeParams& params)", desc: "名前付きカスタム preset を登録する (同名は上書き、null は no-op)。" },
         { sig: "bool ApplyCustomByName(IShakeTarget& target, const char* name)", ret: "見つかったか", desc: "名前で引いたカスタム preset を target に適用する。" },
         { sig: "u32 CustomCount() const", desc: "登録済みカスタム preset 数を返す。" }
       ]
     },
     {
-      name: "ShakeParams / EShakePreset / IShakeTarget",
+      name: "FShakeParams / EShakePreset / IShakeTarget",
       kind: "構造体・列挙(enum)・インターフェース", header: "gameframework/CameraShakePresets.h",
-      summary: "<b>ShakeParams</b>=preset 1 個分のパラメータ (trauma/amplitude/decay_rate/frequency/duration_hint)。<b>EShakePreset</b>=組み込み種別 (ExplosionSmall/Large, EarthquakeShort/Long, HitImpact, RocketLaunch, MeteorImpact, Custom)。<b>IShakeTarget</b>=trauma を受ける側の純粋仮想 I/F (AddShake / SetShakeAmplitude / SetShakeDecayRate)。",
+      summary: "<b>FShakeParams</b>=preset 1 個分のパラメータ (trauma/amplitude/decay_rate/frequency/duration_hint)。<b>EShakePreset</b>=組み込み種別 (ExplosionSmall/Large, EarthquakeShort/Long, HitImpact, RocketLaunch, MeteorImpact, Custom)。<b>IShakeTarget</b>=trauma を受ける側の純粋仮想 I/F (AddShake / SetShakeAmplitude / SetShakeDecayRate)。",
       when: "preset の値を組み立てたり、自前の振動対象を <t>FCameraShakePresets</t> に渡せるようにする時。",
-      sample: "ShakeParams p{0.9f, 1.2f, 0.6f, 20.0f, 1.5f};\nFCameraShakePresets::ApplyPreset(myTarget, EShakePreset::MeteorImpact);"
+      sample: "FShakeParams p{0.9f, 1.2f, 0.6f, 20.0f, 1.5f};\nFCameraShakePresets::ApplyPreset(myTarget, EShakePreset::MeteorImpact);"
     }
   ]
 });

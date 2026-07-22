@@ -51,7 +51,7 @@ ACS_FORCEINLINE f32 Dot3(acs::FVec3 a, acs::FVec3 b) noexcept {
  *
  * @details World space では単位ベクトル、Local space では rotation_euler を適用した回転後の軸。
  */
-struct AxisBasis {
+struct FAxisBasis {
     /** X 軸ベクトル。 */
     acs::FVec3 x;
 
@@ -70,8 +70,8 @@ struct AxisBasis {
  * @param rot_euler Local space で軸を回転させる euler 角 (radians)。
  * @return 構築した AxisBasis。
  */
-ACS_FORCEINLINE AxisBasis MakeBasis(EGizmoSpace space, acs::FVec3 rot_euler) noexcept {
-    AxisBasis b{};
+ACS_FORCEINLINE FAxisBasis MakeBasis(EGizmoSpace space, acs::FVec3 rot_euler) noexcept {
+    FAxisBasis b{};
     if (space == EGizmoSpace::World) {
         b.x = acs::FVec3{1.0f, 0.0f, 0.0f};
         b.y = acs::FVec3{0.0f, 1.0f, 0.0f};
@@ -94,7 +94,7 @@ ACS_FORCEINLINE AxisBasis MakeBasis(EGizmoSpace space, acs::FVec3 rot_euler) noe
  * @param a 取り出す軸 (X/Y/Z 以外はゼロベクトル)。
  * @return 対応する軸ベクトル (X/Y/Z 以外は (0,0,0))。
  */
-ACS_FORCEINLINE acs::FVec3 PickAxisVec(const AxisBasis& b, EGizmoAxis a) noexcept {
+ACS_FORCEINLINE acs::FVec3 PickAxisVec(const FAxisBasis& b, EGizmoAxis a) noexcept {
     switch (a) {
         case EGizmoAxis::X: return b.x;
         case EGizmoAxis::Y: return b.y;
@@ -110,7 +110,7 @@ ACS_FORCEINLINE acs::FVec3 PickAxisVec(const AxisBasis& b, EGizmoAxis a) noexcep
  * dist_sq は最近接距離の二乗、ray_t は ray 上の最近接パラメータ、line_s は line 上の
  * 最近接パラメータ。line_s が [0, axis_length] の外側かどうかは呼び出し側で判定する。
  */
-struct ClosestRayLine {
+struct FClosestRayLine {
     /** 最近接ペア間の距離の二乗。 */
     f32 dist_sq;
 
@@ -136,9 +136,9 @@ struct ClosestRayLine {
  * @param line_d 直線の方向 (正規化想定)。
  * @return 最近接距離・両パラメータ・平行フラグを格納した ClosestRayLine。
  */
-ClosestRayLine ClosestPointsRayLine(acs::FVec3 ray_o, acs::FVec3 ray_d,
+FClosestRayLine ClosestPointsRayLine(acs::FVec3 ray_o, acs::FVec3 ray_d,
                                     acs::FVec3 line_p, acs::FVec3 line_d) noexcept {
-    // Real-Time Rendering / Eberly "3D FGame Engine Design" 5.1.1 を参照。
+    // Real-Time Rendering / Eberly "3D Game Engine Design" 5.1.1 を参照。
     // 2 直線 L1(t)=ray_o + ray_d*t, L2(s)=line_p + line_d*s の最近接ペアは
     //   d.dd  = dot(ray_d, ray_d)
     //   d.de  = dot(ray_d, line_d)
@@ -148,7 +148,7 @@ ClosestRayLine ClosestPointsRayLine(acs::FVec3 ray_o, acs::FVec3 ray_d,
     //   denom = d.dd * d.ee - d.de * d.de
     //   t = (d.ee * d.dr - d.de * d.er) / denom
     //   s = (d.de * d.dr - d.dd * d.er) / denom
-    ClosestRayLine r{};
+    FClosestRayLine r{};
     const acs::FVec3 diff = line_p - ray_o;
     const f32 a = Dot3(ray_d, ray_d);
     const f32 b = Dot3(ray_d, line_d);
@@ -203,7 +203,7 @@ bool RayPlaneIntersect(acs::FVec3 ray_o, acs::FVec3 ray_d,
 /**
  * 平面ハンドルの法線と平面上の u/v 軸をまとめた構造体。
  */
-struct PlaneFrame {
+struct FPlaneFrame {
     /** 平面の法線。 */
     acs::FVec3 n;
 
@@ -222,8 +222,8 @@ struct PlaneFrame {
  * @param axis 平面ハンドル軸 (XY/XZ/YZ)。
  * @return 構築した PlaneFrame (法線 + u/v 軸)。
  */
-PlaneFrame MakePlaneFrame(const AxisBasis& b, EGizmoAxis axis) noexcept {
-    PlaneFrame f{};
+FPlaneFrame MakePlaneFrame(const FAxisBasis& b, EGizmoAxis axis) noexcept {
+    FPlaneFrame f{};
     switch (axis) {
         case EGizmoAxis::XY: f.n = b.z; f.u = b.x; f.v = b.y; break;
         case EGizmoAxis::XZ: f.n = b.y; f.u = b.x; f.v = b.z; break;
@@ -240,7 +240,7 @@ void FEditorGizmo::Init() noexcept {
     // state を default に戻す (mode = Translate, hot = None_, dragging = false)。
     // callback / snap step / ハンドル形状は意図的に維持 (= editor セッションを
     // またいだ復帰を想定)。完全初期化したい場合は Shutdown を呼ぶ。
-    _state                = GizmoState{};
+    _state                = FGizmoState{};
     m_DragOriginPos      = acs::FVec3{};
     m_DragOriginRot      = acs::FVec3{};
     m_DragOriginScl      = acs::FVec3{};
@@ -252,7 +252,7 @@ void FEditorGizmo::Init() noexcept {
 /** state + callback + snap step + ハンドル形状をすべて default に戻す。 */
 void FEditorGizmo::Shutdown() noexcept {
     // 完全初期化: state + callback + snap step + ハンドル形状をすべて default に。
-    _state                = GizmoState{};
+    _state                = FGizmoState{};
     m_DragOriginPos      = acs::FVec3{};
     m_DragOriginRot      = acs::FVec3{};
     m_DragOriginScl      = acs::FVec3{};
@@ -422,7 +422,7 @@ bool FEditorGizmo::Manipulate(acs::FVec3& inout_position,
     }
 
     const acs::FVec3 raw_delta = hit_now - _state.drag_start_world;
-    const AxisBasis basis     = MakeBasis(_state.space, m_DragOriginRot);
+    const FAxisBasis basis     = MakeBasis(_state.space, m_DragOriginRot);
 
     switch (_state.mode) {
         case EGizmoMode::Translate: {
@@ -520,7 +520,7 @@ void FEditorGizmo::DrawGizmo(FDebugDraw& dd,
     }
     (void)scale;  // 描画スケールは axis_length で固定 (= 対象の scale 値とは独立)。
 
-    const AxisBasis basis = MakeBasis(_state.space, rotation_euler);
+    const FAxisBasis basis = MakeBasis(_state.space, rotation_euler);
 
     // 3D → 2D 射影 (XY 平面、Z 捨てる)。
     auto to2 = [](acs::FVec3 v) noexcept -> acs::FVec2 {
@@ -534,7 +534,7 @@ void FEditorGizmo::DrawGizmo(FDebugDraw& dd,
     constexpr acs::FVec4 kColHot   = {1.0f, 1.0f, 1.0f, 1.0f};   // 白
     constexpr acs::FVec4 kColPlane = {1.0f, 1.0f, 0.0f, 0.5f};   // 半透明黄
 
-    const auto axis_color = [this](EGizmoAxis a, acs::FVec4 base) noexcept -> acs::FVec4 {
+    const auto axis_color = [this, kColHot](EGizmoAxis a, acs::FVec4 base) noexcept -> acs::FVec4 {
         return (_state.hot_axis == a) ? kColHot : base;
     };
 
@@ -610,7 +610,7 @@ void FEditorGizmo::DrawGizmo(FDebugDraw& dd,
 
         // Z 軸まわりの円 (XY 平面)
         {
-            acs::Circle c{};
+            acs::FCircle c{};
             c.center = to2(position);
             c.radius = r;
             dd.DrawCircle(c, axis_color(EGizmoAxis::Z, kColZ), 36u);
@@ -644,7 +644,7 @@ EGizmoAxis FEditorGizmo::PickAxis(acs::FVec3 ray_origin,
         return EGizmoAxis::None_;
     }
 
-    const AxisBasis basis = MakeBasis(_state.space, m_DragOriginRot);
+    const FAxisBasis basis = MakeBasis(_state.space, m_DragOriginRot);
     // 位置中心 (drag 中の origin、または 直近 Manipulate に渡された値) は本関数では
     // 不明なので、相対計算用に world 原点扱い。実用上 PickAxis は ProcessInput の
     // 直前に Manipulate でセットされる「対象 transform の position」が必要だが、
@@ -663,7 +663,7 @@ EGizmoAxis FEditorGizmo::PickAxis(acs::FVec3 ray_origin,
     if (_state.mode == EGizmoMode::Translate) {
         const EGizmoAxis planes[3] = { EGizmoAxis::XY, EGizmoAxis::XZ, EGizmoAxis::YZ };
         for (u32 i = 0; i < 3u; ++i) {
-            const PlaneFrame pf = MakePlaneFrame(basis, planes[i]);
+            const FPlaneFrame pf = MakePlaneFrame(basis, planes[i]);
             f32 t = 0.0f;
             if (!RayPlaneIntersect(ray_origin, ray_direction, center, pf.n, t)) {
                 continue;
@@ -695,7 +695,7 @@ EGizmoAxis FEditorGizmo::PickAxis(acs::FVec3 ray_origin,
     f32 best_dist_sq = 1e30f;
     EGizmoAxis best_axis = EGizmoAxis::None_;
     for (u32 i = 0; i < 3u; ++i) {
-        const ClosestRayLine cr = ClosestPointsRayLine(ray_origin, ray_direction,
+        const FClosestRayLine cr = ClosestPointsRayLine(ray_origin, ray_direction,
                                                        center, axis_vecs[i]);
         if (cr.parallel) {
             continue;
@@ -722,7 +722,7 @@ bool FEditorGizmo::RaycastToHot(acs::FVec3 ray_origin,
     if (_state.hot_axis == EGizmoAxis::None_) {
         return false;
     }
-    const AxisBasis basis  = MakeBasis(_state.space, m_DragOriginRot);
+    const FAxisBasis basis  = MakeBasis(_state.space, m_DragOriginRot);
     const acs::FVec3 center = m_DragOriginPos;
 
     switch (_state.hot_axis) {
@@ -730,7 +730,7 @@ bool FEditorGizmo::RaycastToHot(acs::FVec3 ray_origin,
         case EGizmoAxis::Y:
         case EGizmoAxis::Z: {
             const acs::FVec3 axis = PickAxisVec(basis, _state.hot_axis);
-            const ClosestRayLine cr = ClosestPointsRayLine(ray_origin, ray_direction,
+            const FClosestRayLine cr = ClosestPointsRayLine(ray_origin, ray_direction,
                                                            center, axis);
             if (cr.parallel) {
                 return false;
@@ -742,7 +742,7 @@ bool FEditorGizmo::RaycastToHot(acs::FVec3 ray_origin,
         case EGizmoAxis::XY:
         case EGizmoAxis::XZ:
         case EGizmoAxis::YZ: {
-            const PlaneFrame pf = MakePlaneFrame(basis, _state.hot_axis);
+            const FPlaneFrame pf = MakePlaneFrame(basis, _state.hot_axis);
             f32 t = 0.0f;
             if (!RayPlaneIntersect(ray_origin, ray_direction, center, pf.n, t)) {
                 return false;

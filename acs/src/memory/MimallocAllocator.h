@@ -17,7 +17,7 @@
 namespace acs {
 
 /** 1 つの要求サイズ帯に現在存在する確保の統計。 */
-struct MimallocAllocationSizeStatistics {
+struct FMimallocAllocationSizeStatistics {
     /** 現在生存している確保の件数。 */
     u64 allocation_count = 0;
 
@@ -26,19 +26,19 @@ struct MimallocAllocationSizeStatistics {
 };
 
 /** 要求サイズ別の現在値。サイズ境界は利用者が調整せず、全ヒープで共通とする。 */
-struct MimallocAllocationHistogram {
+struct FMimallocAllocationHistogram {
     /** 4 KiB 以下の確保。 */
-    MimallocAllocationSizeStatistics small;
+    FMimallocAllocationSizeStatistics small;
 
     /** 4 KiB 超 1 MiB 以下の確保。 */
-    MimallocAllocationSizeStatistics medium;
+    FMimallocAllocationSizeStatistics medium;
 
     /** 1 MiB 超の確保。 */
-    MimallocAllocationSizeStatistics large;
+    FMimallocAllocationSizeStatistics large;
 };
 
 /** mi_heap_visit_blocks から再構築した、追跡カウンタとは独立したヒープ統計。 */
-struct MimallocHeapInspectionStatistics {
+struct FMimallocHeapInspectionStatistics {
     /** 列挙した mimalloc ページ領域の数。 */
     u64 area_count = 0;
 
@@ -68,7 +68,7 @@ struct MimallocHeapInspectionStatistics {
 };
 
 /** TryReallocateAllocation の所有権取得結果と再確保結果。 */
-struct MimallocReallocationResult
+struct FMimallocReallocationResult
 {
     /** 成功後の利用者ポインタ。解放成功または失敗時は nullptr。 */
     void* Pointer = nullptr;
@@ -103,7 +103,7 @@ public:
     /** 未初期化状態で構築する。使用前に Init を呼ぶこと。 */
     FMimallocAllocator() noexcept = default;
 
-    /** ヒープを破棄する。未解放確保があれば Logger 非依存の診断を出す。 */
+    /** ヒープを破棄する。未解放確保があれば FLogger 非依存の診断を出す。 */
     ~FMimallocAllocator() noexcept override;
 
     /** ヒープを単独所有するためコピーしない。 */
@@ -166,7 +166,7 @@ public:
      * @details 外部追跡層は OwnsAllocation との check-then-act を行わず、この戻り値の
      * bSucceeded が true の場合だけ追跡を更新する。
      */
-    MimallocReallocationResult TryReallocateAllocation(void* Pointer, usize NewSize, usize Alignment) noexcept;
+    FMimallocReallocationResult TryReallocateAllocation(void* Pointer, usize NewSize, usize Alignment) noexcept;
 
     /** 現在生存している確保の要求バイト合計を返す。 */
     u64 BytesAllocated() const noexcept override;
@@ -213,14 +213,14 @@ public:
     void Collect(bool bForce) noexcept;
 
     /** 現在生存している確保のサイズ分布を atomic カウンタから取得する。 */
-    MimallocAllocationHistogram CaptureAllocationHistogram() const noexcept;
+    FMimallocAllocationHistogram CaptureAllocationHistogram() const noexcept;
 
     /**
      * mimalloc のブロック列挙から独立統計を再構築する。
      *
      * @details 新規公開操作を一時停止し、開始済み操作を待ってから列挙する。
      */
-    MimallocHeapInspectionStatistics InspectHeap() noexcept;
+    FMimallocHeapInspectionStatistics InspectHeap() noexcept;
 
     /** リンク中の mimalloc 実行時バージョン番号を返す。未初期化でも呼べる。 */
     static int RuntimeVersion() noexcept;
@@ -260,7 +260,7 @@ private:
     bool FreeAfterLifecycleAdmission(void* Pointer, bool& bCollectionRequested) noexcept;
 
     /** 入場済み Realloc の本体。猶予回収の要否を bCollectionRequested へ返す。 */
-    MimallocReallocationResult ReallocateAfterLifecycleAdmission(void* Pointer, usize NewSize, usize Alignment,
+    FMimallocReallocationResult ReallocateAfterLifecycleAdmission(void* Pointer, usize NewSize, usize Alignment,
                                                                  bool& bCollectionRequested) noexcept;
 
     /** 解放済み生ブロックを猶予リストへ積み、回収閾値へ達したら true。 */
@@ -331,7 +331,7 @@ private:
     mutable FMutex m_LifecycleDrainLock;
 
     /** 保守操作が最後の実行中公開操作の完了通知を待つ条件変数。 */
-    mutable ConditionVar m_LifecycleDrainedCondition;
+    mutable FConditionVar m_LifecycleDrainedCondition;
 
     /** 解放済み生ブロックの侵入リストと集計値を守る。 */
     FMutex m_RetiredAllocationLock;

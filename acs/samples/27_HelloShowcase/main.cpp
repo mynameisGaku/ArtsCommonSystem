@@ -10,7 +10,7 @@
 //   SsrPass.{h,cpp}           - Hi-Z + SSR + SSAO
 //   BloomPass.{h,cpp}         - FPostProcess (Bloom + ACES + TAA)
 //   HudPass.{h,cpp}           - HUD overlay
-//   ShowcaseApp.{h,cpp}       - FApplication 派生 (上記 pass を順に駆動)
+//   FShowcaseApp.{h,cpp}       - FApplication 派生 (上記 pass を順に駆動)
 //
 // キー:
 //   P  : auto-orbit を pause / resume
@@ -24,4 +24,4 @@
 #include "ShowcaseApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(helloshowcase::ShowcaseApp)
+ACS_DEFINE_MAIN(helloshowcase::FShowcaseApp)

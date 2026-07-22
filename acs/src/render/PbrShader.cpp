@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // FPbrShader 実装 — Cook-Torrance BRDF (GGX + Smith + Schlick)
 #include "render/PbrShader.h"
+#include "render/NormalMatrix.h"
+#if !WITH_RENDER_DILIGENT
+#include "render/Dx12/Dx12Shader.h"
+#endif
 #include "asset/MeshAsset.h"   // MeshVertex
 #include "foundation/Move.h"   // Move
 #include "foundation/Log.h"
 
 #include <cstring>
+#include <cstddef>
+#include <cmath>
 
 namespace acs {
 
@@ -52,7 +58,7 @@ cbuffer Frame : register(b0) {
 
     // Volumetric fog (Phase 33e)
     float4   fog_color_density;       // xyz=fog color, w=density (0=off)
-    float4   fog_height_params;       // x=height_falloff, y=fog_height_base, zw=pad
+    float4   fog_height_params;       // x=高度減衰, y=基準高度, z=HG 異方性, w=太陽散乱
 
     // Shadow map (Phase 34b + CSM = Cascaded Shadow Map)
     // shadow_view_proj[c]: 各 cascade の light VP (最大 4 cascade)
@@ -94,8 +100,11 @@ cbuffer Frame : register(b0) {
 
 cbuffer Object : register(b1) {
     float4x4 model;
+    float4   normal_row0;
+    float4   normal_row1;
+    float4   normal_row2;
     float4   base_color;     // xyz=color, w=alpha
-    float4   pbr_params;     // x=metallic, y=roughness, z=ao, w=pad
+    float4   pbr_params;     // x=metallic, y=roughness, z=ao, w=normal-map strength
     float4   ext_params;     // x=clearcoat (0..1)、y=clearcoat_roughness (0..1)
                              // z=anisotropy (-1..1)、w=enable_flags (bit0=clearcoat, bit1=aniso)
     float4   aniso_tangent;  // xyz=anisotropic tangent direction (world)、w=pad
@@ -104,6 +113,23 @@ cbuffer Object : register(b1) {
     float4   sheen_rough;    // Phase 35-1a: x=sheen roughness, yzw=pad
     float4   irid_params;    // Phase 35-1b: x=weight, y=thickness(nm), z=film IOR, w=pad
     float4   sss_params;     // Phase 35-2: xyz=subsurface color, w=weight (0=OFF)
+    float4   substrate_f0;   // xyz=direct slab F0
+    float4   substrate_f90;  // xyz=direct slab F90
+    float4   substrate_diffuse_coverage; // xyz=DiffuseAlbedo,w=coverage
+    float4   substrate_secondary; // x=roughness2,y=weight,z=phase anisotropy,w=enabled
+    float4   substrate_mfp_thickness; // xyz=MFP cm,w=thickness cm
+    float4   substrate_transmittance; // xyz=normal-incidence transmittance,w=coverage
+    float4   substrate_normal; // xyz=tangent-space normal,w=strength
+    float4   substrate_coat_f0; // xyz=top coat F0
+    // Typed Substrate expression VM. Instructions are 48-byte uint4x3 records.
+    uint4    substrate_expr_instructions[64 * 3];
+    // metadata, asuint(coefficient), asuint(authored literal), reserved.
+    uint4    substrate_expr_bindings[39];
+    uint4    substrate_expr_parameter_meta[32];
+    float4   substrate_expr_parameter_values[32];
+    // x=instruction count,y=binding count,z=parameter count,w=texture mask.
+    uint4    substrate_expr_meta;
+    float4   substrate_expr_context; // x=time seconds
 };
 
 Texture2D    albedo           : register(t0);
@@ -116,7 +142,11 @@ Texture2D    ssao_map          : register(t6);
 Texture2D    ssgi_color        : register(t7);
 Texture2D    lightmap          : register(t8);
 Texture2D    ssr_color         : register(t9);
-Texture3D    ap_volume         : register(t10);   // aerial perspective camera-volume LUT (32^3)
+Texture3D    ap_volume         : register(t10);   // 空気遠近法 + 霧のカメラボリューム LUT
+Texture2D    expression_texture0 : register(t11);
+Texture2D    expression_texture1 : register(t12);
+Texture2D    expression_texture2 : register(t13);
+Texture2D    expression_texture3 : register(t14);
 SamplerState albedo_sampler     : register(s0);
 SamplerState irradiance_sampler : register(s1);
 SamplerState prefilter_sampler  : register(s2);
@@ -128,6 +158,10 @@ SamplerState ssgi_color_sampler : register(s7);
 SamplerState lightmap_sampler   : register(s8);
 SamplerState ssr_color_sampler  : register(s9);
 SamplerState ap_volume_sampler  : register(s10);   // linear clamp (3D trilinear)
+SamplerState expression_texture0_sampler : register(s11);
+SamplerState expression_texture1_sampler : register(s12);
+SamplerState expression_texture2_sampler : register(s13);
+SamplerState expression_texture3_sampler : register(s14);
 
 struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float2 uv : TEXCOORD0; };
 struct VSOut {
@@ -143,7 +177,10 @@ VSOut VSMain(VSIn v) {
     float4 wp = mul(float4(v.pos, 1.0), model);
     o.world_p = wp.xyz;
     o.pos     = mul(wp, view_proj);
-    o.world_n = mul(float4(v.nrm, 0.0), model).xyz;
+    o.world_n = float3(
+        v.nrm.x * normal_row0.x + v.nrm.y * normal_row1.x + v.nrm.z * normal_row2.x,
+        v.nrm.x * normal_row0.y + v.nrm.y * normal_row1.y + v.nrm.z * normal_row2.y,
+        v.nrm.x * normal_row0.z + v.nrm.y * normal_row1.z + v.nrm.z * normal_row2.z);
     o.uv      = v.uv;
     // LH perspective では clip.w == view-space z。CSM cascade 選択に使う。
     o.view_z  = o.pos.w;
@@ -183,6 +220,11 @@ float3 F_Schlick(float VdotH, float3 F0) {
     return F0 + (1.0 - F0) * f;
 }
 
+float3 F_Schlick90(float VdotH, float3 F0, float3 F90) {
+    float f = pow(saturate(1.0 - VdotH), 5.0);
+    return F0 + (F90 - F0) * f;
+}
+
 // PCSS (Percentage-Closer Soft Shadow、Fernando 2005)。
 // 1) blocker search: receiver の周囲で実際の occluder の avg depth を求める
 // 2) penumbra width = (receiver - blocker_avg) / blocker_avg * light_size_uv
@@ -195,13 +237,19 @@ float3 F_Schlick(float VdotH, float3 F0) {
 // 単一 cascade ぶんの PCSS シャドウ係数 (atlas UV へ展開、kernel leak 防止)。
 // 戻り値 1.0 = 完全照明 / 0.0 = 完全遮蔽 / NDC out も 1.0 (cascade 範囲外)。
 float SamplePcssCascade(int cascade, float3 world_p) {
+    float shadow_value = 1.0;
     float4 lp = mul(float4(world_p, 1.0), shadow_view_proj[cascade]);
-    float3 ndc = lp.xyz / lp.w;
-    if (ndc.x < -1.0 || ndc.x > 1.0 ||
-        ndc.y < -1.0 || ndc.y > 1.0 ||
-        ndc.z <  0.0 || ndc.z > 1.0) {
-        return 1.0;
+    float3 ndc = float3(0.0, 0.0, 0.0);
+    bool projection_valid = abs(lp.w) > 1.0e-5;
+    if (projection_valid) {
+        ndc = lp.xyz / lp.w;
     }
+    bool inside_cascade =
+        projection_valid &&
+        ndc.x >= -1.0 && ndc.x <= 1.0 &&
+        ndc.y >= -1.0 && ndc.y <= 1.0 &&
+        ndc.z >=  0.0 && ndc.z <= 1.0;
+    if (inside_cascade) {
 
     // cascade-local UV → atlas UV
     float2 base_uv = float2(ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5);
@@ -216,7 +264,9 @@ float SamplePcssCascade(int cascade, float3 world_p) {
     // atlas_uv.x は cascade 領域 [ofs_x, ofs_x+scale_x] にクランプして
     // 隣接 cascade に kernel が漏れて偽の影/光が混入するのを防ぐ (atlas-boundary PCF leak)。
     // 半 texel の inset で隣接 cascade 0 と完全に分離する。
-    const float kHalfTexelInset = ts * 0.5 * scale_x;
+    const float2 kHalfTexelInset = float2(ts * 0.5 * scale_x, ts * 0.5);
+    const float2 atlasMin = float2(ofs_x, 0.0) + kHalfTexelInset;
+    const float2 atlasMax = float2(ofs_x + scale_x, 1.0) - kHalfTexelInset;
     // shadow_map_sampler は比較サンプラ (SampleCmpLevelZero 用) なので生 depth は読めない。
     // blocker search の raw depth は .Load() (サンプラ不要の point fetch) で読む。
     uint smw, smh; shadow_map.GetDimensions(smw, smh);
@@ -234,8 +284,7 @@ float SamplePcssCascade(int cascade, float3 world_p) {
             // +0.5 で中心化: {-2,-1,0,1} だと半 tap 偏心して penumbra が方向に偏る → {-1.5,-0.5,0.5,1.5}
             float2 off       = (float2(bx, by) + 0.5) * (search_r * 0.5);
             float2 atlas_uv  = (base_uv + off) * float2(scale_x, 1.0) + float2(ofs_x, 0);
-            atlas_uv.x = clamp(atlas_uv.x, ofs_x + kHalfTexelInset,
-                                            ofs_x + scale_x - kHalfTexelInset);
+            atlas_uv = clamp(atlas_uv, atlasMin, atlasMax);
             float sd = shadow_map.Load(int3(int2(atlas_uv * smSize), 0)).r;   // 生 depth は Load (比較サンプラは SampleCmp 専用)
             if (sd + bias < my_d) {
                 blocker_sum += sd;
@@ -244,9 +293,9 @@ float SamplePcssCascade(int cascade, float3 world_p) {
         }
     }
 
-    if (blocker_cnt == 0) return 1.0;
-    if (blocker_cnt == kBlockerN * kBlockerN) return 0.0;
-
+    if (blocker_cnt == kBlockerN * kBlockerN) {
+        shadow_value = 0.0;
+    } else if (blocker_cnt > 0) {
     float blocker_avg = blocker_sum / float(blocker_cnt);
     // penumbra ≒ (receiver - blocker) * light_size / blocker (UV 上の太陽径は固定)
     float penumbra = max((my_d - blocker_avg) / max(blocker_avg, 1e-3), 0.0);
@@ -268,13 +317,15 @@ float SamplePcssCascade(int cascade, float3 world_p) {
         float2 jitter = float2(vd.x * ca - vd.y * sa, vd.x * sa + vd.y * ca);   // per-pixel 回転
         float2 off      = jitter * filter_r * 2.0;
         float2 atlas_uv = (base_uv + off) * float2(scale_x, 1.0) + float2(ofs_x, 0);
-        atlas_uv.x = clamp(atlas_uv.x, ofs_x + kHalfTexelInset,
-                                        ofs_x + scale_x - kHalfTexelInset);
+        atlas_uv = clamp(atlas_uv, atlasMin, atlasMax);
         // HW 比較 PCF: タップごとに 2x2 バイリニア深度比較で 0..1 を返す (lit ⇔ my_d-bias ≤ stored)。
         // 手動の二値比較 (point sample) より penumbra が滑らか。WickedEngine の SampleCmpLevelZero 相当。
         lit += shadow_map.SampleCmpLevelZero(shadow_map_sampler, atlas_uv, my_d - bias);
     }
-    return lit / float(kPcfN);
+    shadow_value = lit / float(kPcfN);
+    }
+    }
+    return shadow_value;
 }
 
 // CSM 全体 (cascade 選択 + boundary blending)。
@@ -282,7 +333,14 @@ float SamplePcssCascade(int cascade, float3 world_p) {
 // 次 cascade と線形ブレンドして「カスケード seam」(解像度切替の影段差) を除去。
 // blend 領域では PCSS を 2 回呼ぶので約 2x コスト、それ以外は単発。
 float ComputeShadow(float3 world_p, float view_z) {
-    if (shadow_params.y < 0.5) return 1.0;
+    float shadow_value = 1.0;
+    if (shadow_params.y >= 0.5) {
+    int cascade_count = clamp((int)(cascade_uv_scale.z + 0.5), 1, 4);
+    float last_split = (cascade_count == 1) ? cascade_splits.x :
+                       (cascade_count == 2) ? cascade_splits.y :
+                       (cascade_count == 3) ? cascade_splits.z :
+                                              cascade_splits.w;
+    if (view_z <= last_split) {
 
     // ---- Cascade selection by view-space z (Phase 34b part 3 CSM) ----
     // single mode では cascade_splits.xyzw = inf なので常に cascade 0、
@@ -291,6 +349,7 @@ float ComputeShadow(float3 world_p, float view_z) {
     if (view_z > cascade_splits.x) cascade = 1;
     if (view_z > cascade_splits.y) cascade = 2;
     if (view_z > cascade_splits.z) cascade = 3;
+    cascade = min(cascade, cascade_count - 1);
 
     float shadow_c = SamplePcssCascade(cascade, world_p);
 
@@ -305,7 +364,7 @@ float ComputeShadow(float3 world_p, float view_z) {
                        (cascade == 2) ? cascade_splits.z :
                                         1e30;
 
-    if (next_split < 1e29) {
+    if (cascade + 1 < cascade_count && next_split < 1e29) {
         const float kBlendRatio = 0.15;
         float cascade_range = max(next_split - prev_split, 1e-3);
         float blend_width   = cascade_range * kBlendRatio;
@@ -315,9 +374,18 @@ float ComputeShadow(float3 world_p, float view_z) {
             float shadow_next = SamplePcssCascade(cascade + 1, world_p);
             shadow_c = lerp(shadow_c, shadow_next, t);
         }
+    } else {
+        const float kFarFadeRatio = 0.10;
+        float cascade_range = max(last_split - prev_split, 1e-3);
+        float fade_width = cascade_range * kFarFadeRatio;
+        float fade_start = last_split - fade_width;
+        shadow_c = lerp(shadow_c, 1.0, saturate((view_z - fade_start) / fade_width));
     }
 
-    return shadow_c;
+    shadow_value = shadow_c;
+    }
+    }
+    return shadow_value;
 }
 
 // ddx/ddy 由来の screen-space TBN を使って tangent-space normal を world-space に変換。
@@ -369,33 +437,36 @@ float G_Smith_Aniso(float NoV, float ToV, float BoV,
 // 戻り値: (1) coat の specular [* NoL]、(2) 入射光が base 層に届く割合 (= 1 - F_coat)
 struct ClearcoatTerm { float3 spec_times_nol; float attenuation; };
 ClearcoatTerm EvalClearcoat(float3 N, float3 V, float3 L,
-                            float clearcoat, float coat_roughness) {
+                            float clearcoat, float coat_roughness, float3 coat_f0) {
     ClearcoatTerm o;
     o.spec_times_nol = float3(0, 0, 0);
     o.attenuation    = 1.0;
-    if (clearcoat <= 0.0) return o;
-
+    if (clearcoat > 0.0) {
     float3 H = normalize(V + L);
     float NdotL = saturate(dot(N, L));
-    if (NdotL <= 0.0) return o;
+    if (NdotL > 0.0) {
     float NdotV = saturate(dot(N, V));
     float NdotH = saturate(dot(N, H));
     float VdotH = saturate(dot(V, H));
 
     float a  = max(coat_roughness * coat_roughness, 1e-3);
     float a2 = a * a;
-    float Dc = a2 / max(PI * pow(NdotH * NdotH * (a2 - 1.0) + 1.0, 2.0), 1e-7);
+    float distribution_base = NdotH * NdotH * (a2 - 1.0) + 1.0;
+    float Dc = a2 / max(
+        PI * distribution_base * distribution_base, 1e-7);
     // 簡易 Smith G (isotropic、coat 層は metallic 不可なので一般 GGX で十分)
     float k = (coat_roughness + 1.0); k = k * k * 0.125;
     float Gv = NdotV / max(NdotV * (1.0 - k) + k, 1e-7);
     float Gl = NdotL / max(NdotL * (1.0 - k) + k, 1e-7);
     float Gc = Gv * Gl;
-    float Fc = 0.04 + (1.0 - 0.04) * pow(saturate(1.0 - VdotH), 5.0);
+    float3 Fc = F_Schlick90(VdotH, coat_f0, float3(1,1,1));
 
-    float spec = (Dc * Gc * Fc) / max(4.0 * NdotV * NdotL, 1e-7);
-    o.spec_times_nol = float3(spec, spec, spec) * NdotL * clearcoat;
+    float3 spec = (Dc * Gc * Fc) / max(4.0 * NdotV * NdotL, 1e-7);
+    o.spec_times_nol = spec * NdotL * clearcoat;
     // base 層への透過: 1 - Fc * clearcoat (energy conservation)
-    o.attenuation = 1.0 - Fc * clearcoat;
+    o.attenuation = 1.0 - max(Fc.r, max(Fc.g, Fc.b)) * clearcoat;
+    }
+    }
     return o;
 }
 
@@ -440,7 +511,8 @@ float3 Sh9Radiance(float3 d, float4 L[9]) {
 )" R"(
 float3 ProbeGridIrradiance(float3 world_p, float3 N) {
     int n = (int)probe_params.x;
-    if (n <= 0) return float3(0, 0, 0);
+    float3 irradiance_value = float3(0, 0, 0);
+    if (n > 0) {
     // IDW: w[i] = 1 / (dist²)²
     float total_w = 0.0;
     float ws[4] = {0, 0, 0, 0};
@@ -465,7 +537,10 @@ float3 ProbeGridIrradiance(float3 world_p, float3 N) {
             blended[k] += probe_sh9[j * 9 + k] * w;
         }
     }
-    return max(Sh9Irradiance(N, blended), float3(0, 0, 0));
+    irradiance_value =
+        max(Sh9Irradiance(N, blended), float3(0, 0, 0));
+    }
+    return irradiance_value;
 }
 
 // IBL ambient (split-sum approximation):
@@ -475,13 +550,15 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
                         float metallic, float roughness, float ao,
                         float3 ssr_radiance, float ssr_weight,
                         float3 sheenColor, float sheenWeight,
-                        float3 iridFresnel, float iridWeight)
+                        float3 iridFresnel, float iridWeight,
+                        float3 directF0, float3 directF90,
+                        float secondRoughness, float secondWeight)
 {
     float NoV = saturate(dot(N, V));
     float3 R  = reflect(-V, N);
 
-    float3 F0 = lerp(float3(0.04, 0.04, 0.04), base, metallic);
-    float3 F  = FresnelSchlickRoughness(NoV, F0, roughness);
+    float3 F0 = directF0;
+    float3 F  = F_Schlick90(NoV, F0, directF90);
 
     float3 kd = (1.0 - F) * (1.0 - metallic);
     // diffuse: probe grid (Phase 33d) > SH9 single (Phase 32c) > cubemap (Phase 31) の優先順
@@ -517,7 +594,18 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
     float3 reflected = lerp(prefilt, ssr_radiance, saturate(ssr_weight));
     // Iridescence (Phase 35-1b): split-sum の F0 を薄膜変調した値へ差し替える
     float3 specF0 = lerp(F0, iridFresnel, iridWeight);
-    float3 specular_ibl = reflected * (specF0 * lut_xy.x + lut_xy.y);
+    float3 specular_ibl = reflected * (specF0 * lut_xy.x + directF90 * lut_xy.y);
+    if (secondWeight > 0.0) {
+        float secondMip = secondRoughness * max(ibl_params.y - 1.0, 0.0);
+        float3 secondPrefilt = (ibl_params.z >= 0.5)
+            ? Sh9Radiance(R, sh9)
+            : prefilter.SampleLevel(prefilter_sampler, R, secondMip).rgb;
+        float2 secondLut = brdf_lut.SampleLevel(
+            brdf_lut_sampler, float2(NoV, secondRoughness), 0).rg;
+        float3 secondSpec = secondPrefilt
+            * (specF0 * secondLut.x + directF90 * secondLut.y);
+        specular_ibl = lerp(specular_ibl, secondSpec, saturate(secondWeight));
+    }
 
     // 拡散 IBL: WickedEngine は間接拡散を削らない (GIBoost>=1 で寧ろ増す)。以前の ×0.45 は «浮く»
     // 対策の local hack で影/環境光領域が ~55% 暗く dull/flat だった。接地は AO + 強い太陽キー
@@ -528,14 +616,14 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
 // IBL specular for clear-coat layer (split-sum、F0=0.04 固定の dielectric)。
 // 戻り値: (1) coat の IBL specular、(2) base 層への透過率 (= 1 - F_coat)。
 struct IblCoatTerm { float3 spec; float attenuation; };
-IblCoatTerm ComputeIblClearcoat(float3 N, float3 V, float clearcoat, float coat_roughness) {
+IblCoatTerm ComputeIblClearcoat(float3 N, float3 V, float clearcoat,
+                                float coat_roughness, float3 F0c) {
     IblCoatTerm o;
     o.spec = float3(0, 0, 0);
     o.attenuation = 1.0;
-    if (clearcoat <= 0.0) return o;
+    if (clearcoat > 0.0) {
     float NoV = saturate(dot(N, V));
     float3 R  = reflect(-V, N);
-    float3 F0c = float3(0.04, 0.04, 0.04);
     float3 Fc  = FresnelSchlickRoughness(NoV, F0c, coat_roughness);
     float mip_lvl = coat_roughness * max(ibl_params.y - 1.0, 0.0);
     float3 prefilt = prefilter.SampleLevel(prefilter_sampler, R, mip_lvl).rgb;
@@ -543,6 +631,7 @@ IblCoatTerm ComputeIblClearcoat(float3 N, float3 V, float clearcoat, float coat_
     o.spec = prefilt * (F0c * lut_xy.x + lut_xy.y) * clearcoat;
     // base 透過: Fresnel * clearcoat 強度ぶんを引く
     o.attenuation = 1.0 - max(Fc.r, max(Fc.g, Fc.b)) * clearcoat;
+    }
     return o;
 }
 )" R"(
@@ -597,13 +686,14 @@ float3 EvalSensitivity(float opd, float3 shift) {
 //   thicknessNm: 膜厚 (nm)、baseF0: 下地マテリアルの F0 (RGB)。
 float3 EvalIridescence(float outsideIor, float filmIor, float cosTheta1,
                        float thicknessNm, float3 baseF0) {
+    float3 iridescence_value = float3(1.0, 1.0, 1.0);
     // 膜厚 0 付近で filmIor を媒質側へ寄せ、効果を滑らかに消す
     float iridIor = lerp(outsideIor, filmIor, smoothstep(0.0, 0.03, thicknessNm));
     // 膜内の屈折角 (Snell の法則)
     float sinTheta2Sq = (outsideIor / iridIor) * (outsideIor / iridIor)
                       * (1.0 - cosTheta1 * cosTheta1);
     float cosTheta2Sq = 1.0 - sinTheta2Sq;
-    if (cosTheta2Sq < 0.0) return float3(1.0, 1.0, 1.0);   // 全反射
+    if (cosTheta2Sq >= 0.0) {
     float cosTheta2 = sqrt(cosTheta2Sq);
 
     // 第 1 界面 (媒質 → 膜): 反射率と位相シフト
@@ -638,7 +728,9 @@ float3 EvalIridescence(float outsideIor, float filmIor, float cosTheta1,
         float3 Sm = 2.0 * EvalSensitivity(float(m) * opd, float(m) * phi);
         I += Cm * Sm;
     }
-    return max(I, float3(0.0, 0.0, 0.0));
+    iridescence_value = max(I, float3(0.0, 0.0, 0.0));
+    }
+    return iridescence_value;
 }
 
 // Cook-Torrance BRDF * NdotL (light vector L is from surface to light source).
@@ -647,19 +739,23 @@ float3 EvalIridescence(float outsideIor, float filmIor, float cosTheta1,
 float3 BrdfCookTorrance(float3 N, float3 V, float3 L,
                        float3 base, float metallic, float roughness,
                        float anisotropy, float3 T_world,
-                       float3 iridFresnel, float iridWeight)
+                       float3 iridFresnel, float iridWeight,
+                       float3 directF0, float3 directF90,
+                       float secondRoughness, float secondWeight)
 {
+    float3 brdf_value = float3(0, 0, 0);
     float3 H = normalize(V + L);
     float NdotL = saturate(dot(N, L));
-    if (NdotL <= 0.0) return float3(0, 0, 0);
+    if (NdotL > 0.0) {
     float NdotV = saturate(dot(N, V));
     float NdotH = saturate(dot(N, H));
     float VdotH = saturate(dot(V, H));
 
-    float3 F0 = lerp(float3(0.04, 0.04, 0.04), base, metallic);
+    float3 F0 = directF0;
     float  a  = roughness * roughness;
-    float  D, G;
-    float3 F = F_Schlick(VdotH, F0);
+    float  D = 0.0;
+    float  G = 0.0;
+    float3 F = F_Schlick90(VdotH, F0, directF90);
     // Iridescence (Phase 35-1b): 薄膜干渉で base Fresnel を変調 (NoV 評価済の値へ blend)。
     F = lerp(F, iridFresnel, iridWeight);
 
@@ -684,9 +780,17 @@ float3 BrdfCookTorrance(float3 N, float3 V, float3 L,
 
     // G は可視性 V (= G/(4 NoV NoL)) なので分母の別掛けは不要 (WickedEngine 同形)
     float3 specular = D * G * F;
+    if (secondWeight > 0.0) {
+        float a_second = max(secondRoughness * secondRoughness, 1e-3);
+        float D_second = D_GGX(NdotH, a_second * a_second);
+        float G_second = V_SmithGGXCorrelated(NdotV, NdotL, a_second * a_second);
+        specular = lerp(specular, D_second * G_second * F, saturate(secondWeight));
+    }
     float3 kd = (1.0 - F) * (1.0 - metallic);
     float3 diffuse = kd * base / PI;
-    return (diffuse + specular) * NdotL;
+    brdf_value = (diffuse + specular) * NdotL;
+    }
+    return brdf_value;
 }
 
 // Charlie sheen distribution (Estevez & Kulla 2017)。布/ベルベットの retro-reflective ローブ。
@@ -719,7 +823,324 @@ struct SurfaceMaterial {
     float  irid_weight;       // 0 = iridescence OFF
     float3 sss_color;         // Phase 35-2: subsurface (内部散乱) の色
     float  sss_weight;        // 0 = SSS OFF
+    float3 f0;
+    float3 f90;
+    float  second_roughness;
+    float  second_weight;
+    float3 mean_free_path_cm;
+    float  phase_anisotropy;
+    float3 coat_f0;
 };
+
+// ---- Typed per-pixel Substrate expression VM -------------------------------
+static const uint ACS_EXPR_CONSTANT = 0u;
+static const uint ACS_EXPR_SCALAR_PARAMETER = 1u;
+static const uint ACS_EXPR_VECTOR_PARAMETER = 2u;
+static const uint ACS_EXPR_TEXTURE_SAMPLE_2D = 3u;
+static const uint ACS_EXPR_UV0 = 4u;
+static const uint ACS_EXPR_TIME = 5u;
+static const uint ACS_EXPR_WORLD_POSITION = 6u;
+static const uint ACS_EXPR_WORLD_NORMAL = 7u;
+static const uint ACS_EXPR_ADD = 8u;
+static const uint ACS_EXPR_MULTIPLY = 9u;
+static const uint ACS_EXPR_LERP = 10u;
+static const uint ACS_EXPR_CLAMP = 11u;
+static const uint ACS_EXPR_POWER = 12u;
+static const uint ACS_EXPR_DOT = 13u;
+static const uint ACS_EXPR_NORMALIZE = 14u;
+static const uint ACS_EXPR_NOISE = 15u;
+static const uint ACS_EXPR_COMPONENT = 16u;
+
+uint4 AcsExprWords0(uint instruction) {
+    return substrate_expr_instructions[instruction * 3u + 0u];
+}
+uint4 AcsExprWords1(uint instruction) {
+    return substrate_expr_instructions[instruction * 3u + 1u];
+}
+uint4 AcsExprWords2(uint instruction) {
+    return substrate_expr_instructions[instruction * 3u + 2u];
+}
+uint AcsExprOp(uint instruction) {
+    return AcsExprWords0(instruction).x & 255u;
+}
+uint AcsExprWidth(uint instruction) {
+    return (AcsExprWords0(instruction).x >> 8u) & 255u;
+}
+int AcsExprSigned16(uint value) {
+    return (value & 32768u) != 0u
+        ? int(value | 4294901760u) : int(value);
+}
+int AcsExprInput(uint instruction, uint slot) {
+    uint4 words = AcsExprWords0(instruction);
+    if (slot == 0u) return AcsExprSigned16(words.y & 65535u);
+    if (slot == 1u) return AcsExprSigned16(words.y >> 16u);
+    return AcsExprSigned16(words.z & 65535u);
+}
+float4 AcsExprLiteral(uint instruction) {
+    uint4 words1 = AcsExprWords1(instruction);
+    uint4 words2 = AcsExprWords2(instruction);
+    return asfloat(uint4(words1.w, words2.x, words2.y, words2.z));
+}
+float4 AcsExprCanonical(float4 value, uint width) {
+    float4 canonical = 0.0.xxxx;
+    if (width == 1u) {
+        canonical = float4(value.x, 0.0, 0.0, 0.0);
+    } else if (width == 2u) {
+        canonical = float4(value.xy, 0.0, 0.0);
+    } else if (width == 3u) {
+        canonical = float4(value.xyz, 0.0);
+    } else {
+        canonical = value;
+    }
+    return canonical;
+}
+float4 AcsExprBroadcast(float4 value, uint source_width) {
+    return source_width == 1u ? value.xxxx : value;
+}
+float AcsExprSafePower(float base, float exponent) {
+    float power_value = 1.0;
+    if (base == 0.0 && exponent > 0.0) {
+        power_value = 0.0;
+    } else if (!(base == 0.0 && exponent == 0.0)) {
+        float p = log2(max(abs(base), 1.0e-6))
+                * clamp(exponent, -32.0, 32.0);
+        power_value = exp2(clamp(p, -126.0, 126.0));
+    }
+    return power_value;
+}
+float4 AcsExprSafePower4(float4 base, float4 exponent) {
+    return float4(
+        AcsExprSafePower(base.x, exponent.x),
+        AcsExprSafePower(base.y, exponent.y),
+        AcsExprSafePower(base.z, exponent.z),
+        AcsExprSafePower(base.w, exponent.w));
+}
+float AcsExprClampScalar(float value, float low, float high) {
+    return value < low ? low : (value > high ? high : value);
+}
+float4 AcsExprClamp4(float4 value, float4 low, float4 high) {
+    return float4(
+        AcsExprClampScalar(value.x, low.x, high.x),
+        AcsExprClampScalar(value.y, low.y, high.y),
+        AcsExprClampScalar(value.z, low.z, high.z),
+        AcsExprClampScalar(value.w, low.w, high.w));
+}
+float4 AcsExprNormalize(float4 value, uint width) {
+    float length_squared = value.x * value.x;
+    if (width > 1u) length_squared += value.y * value.y;
+    if (width > 2u) length_squared += value.z * value.z;
+    if (width > 3u) length_squared += value.w * value.w;
+    return length_squared > 1.0e-20
+        ? value * rsqrt(length_squared) : 0.0.xxxx;
+}
+float AcsExprNoise(float4 sample_position, uint width) {
+    float projection = sample_position.x * 12.9898;
+    if (width > 1u) projection += sample_position.y * 78.233;
+    if (width > 2u) projection += sample_position.z * 37.719;
+    if (width > 3u) projection += sample_position.w * 19.913;
+    return frac(sin(projection) * 43758.5453123);
+}
+float AcsExprSrgbChannel(float value) {
+    float decoded_value = value / 12.92;
+    if (value > 0.04045) {
+        float power_base = max((value + 0.055) / 1.055, 0.0);
+        decoded_value = pow(power_base, 2.4);
+    }
+    return decoded_value;
+}
+float4 AcsExprDecodeSrgb(float4 value, uint flags) {
+    float4 decoded_value = value;
+    if ((flags & 8u) != 0u) {
+        decoded_value = float4(
+            AcsExprSrgbChannel(value.r),
+            AcsExprSrgbChannel(value.g),
+            AcsExprSrgbChannel(value.b),
+            value.a);
+    }
+    return decoded_value;
+}
+float2 AcsExprLinearUv(float2 uv, uint flags, uint2 dimensions) {
+    float2 half_texel =
+        0.5 / max(float2(dimensions), float2(1.0, 1.0));
+    if ((flags & 2u) != 0u) {
+        uv.x = clamp(uv.x, half_texel.x, 1.0 - half_texel.x);
+    }
+    if ((flags & 4u) != 0u) {
+        uv.y = clamp(uv.y, half_texel.y, 1.0 - half_texel.y);
+    }
+    return uv;
+}
+int2 AcsExprPointCoord(float2 uv, uint flags, uint2 dimensions) {
+    uv.x = (flags & 2u) != 0u ? saturate(uv.x) : frac(uv.x);
+    uv.y = (flags & 4u) != 0u ? saturate(uv.y) : frac(uv.y);
+    int2 coord = int2(floor(uv * float2(dimensions)));
+    return clamp(coord, int2(0, 0), int2(dimensions) - int2(1, 1));
+}
+float4 AcsExprSampleTexture0(float2 uv, uint flags) {
+    uint width = 1u, height = 1u;
+    expression_texture0.GetDimensions(width, height);
+    uint2 dimensions = uint2(max(width, 1u), max(height, 1u));
+    float4 value = 0.0.xxxx;
+    if ((flags & 1u) != 0u) {
+        value = expression_texture0.SampleLevel(
+            expression_texture0_sampler,
+            AcsExprLinearUv(uv, flags, dimensions), 0.0);
+    } else {
+        value = expression_texture0.Load(
+            int3(AcsExprPointCoord(uv, flags, dimensions), 0));
+    }
+    return AcsExprDecodeSrgb(value, flags);
+}
+float4 AcsExprSampleTexture1(float2 uv, uint flags) {
+    uint width = 1u, height = 1u;
+    expression_texture1.GetDimensions(width, height);
+    uint2 dimensions = uint2(max(width, 1u), max(height, 1u));
+    float4 value = 0.0.xxxx;
+    if ((flags & 1u) != 0u) {
+        value = expression_texture1.SampleLevel(
+            expression_texture1_sampler,
+            AcsExprLinearUv(uv, flags, dimensions), 0.0);
+    } else {
+        value = expression_texture1.Load(
+            int3(AcsExprPointCoord(uv, flags, dimensions), 0));
+    }
+    return AcsExprDecodeSrgb(value, flags);
+}
+float4 AcsExprSampleTexture2(float2 uv, uint flags) {
+    uint width = 1u, height = 1u;
+    expression_texture2.GetDimensions(width, height);
+    uint2 dimensions = uint2(max(width, 1u), max(height, 1u));
+    float4 value = 0.0.xxxx;
+    if ((flags & 1u) != 0u) {
+        value = expression_texture2.SampleLevel(
+            expression_texture2_sampler,
+            AcsExprLinearUv(uv, flags, dimensions), 0.0);
+    } else {
+        value = expression_texture2.Load(
+            int3(AcsExprPointCoord(uv, flags, dimensions), 0));
+    }
+    return AcsExprDecodeSrgb(value, flags);
+}
+float4 AcsExprSampleTexture3(float2 uv, uint flags) {
+    uint width = 1u, height = 1u;
+    expression_texture3.GetDimensions(width, height);
+    uint2 dimensions = uint2(max(width, 1u), max(height, 1u));
+    float4 value = 0.0.xxxx;
+    if ((flags & 1u) != 0u) {
+        value = expression_texture3.SampleLevel(
+            expression_texture3_sampler,
+            AcsExprLinearUv(uv, flags, dimensions), 0.0);
+    } else {
+        value = expression_texture3.Load(
+            int3(AcsExprPointCoord(uv, flags, dimensions), 0));
+    }
+    return AcsExprDecodeSrgb(value, flags);
+}
+float4 AcsExprSampleTexture(uint slot, float2 uv, uint flags,
+                            float4 fallback_value) {
+    float4 sampled_value = fallback_value;
+    if (slot < 4u &&
+        (substrate_expr_meta.w & (1u << slot)) != 0u) {
+        if (slot == 0u) {
+            sampled_value = AcsExprSampleTexture0(uv, flags);
+        } else if (slot == 1u) {
+            sampled_value = AcsExprSampleTexture1(uv, flags);
+        } else if (slot == 2u) {
+            sampled_value = AcsExprSampleTexture2(uv, flags);
+        } else {
+            sampled_value = AcsExprSampleTexture3(uv, flags);
+        }
+    }
+    return sampled_value;
+}
+float4 AcsExprParameter(uint id, uint type, float4 fallback_value) {
+    [loop]
+    for (uint i = 0u; i < substrate_expr_meta.z && i < 32u; ++i) {
+        if (substrate_expr_parameter_meta[i].x == id &&
+            substrate_expr_parameter_meta[i].y == type) {
+            return AcsExprCanonical(
+                substrate_expr_parameter_values[i], type);
+        }
+    }
+    return fallback_value;
+}
+void AcsEvaluateExpressions(float2 uv, float3 world_position,
+                            float3 world_normal,
+                            out float4 registers[64]) {
+    [unroll]
+    for (uint register_index = 0u; register_index < 64u;
+         ++register_index) {
+        registers[register_index] = 0.0.xxxx;
+    }
+    [loop]
+    for (uint instruction = 0u;
+         instruction < substrate_expr_meta.x && instruction < 64u;
+         ++instruction) {
+        uint op = AcsExprOp(instruction);
+        uint width = AcsExprWidth(instruction);
+        int input0 = AcsExprInput(instruction, 0u);
+        int input1 = AcsExprInput(instruction, 1u);
+        int input2 = AcsExprInput(instruction, 2u);
+        float4 a = input0 >= 0 ? registers[input0] : 0.0.xxxx;
+        float4 b = input1 >= 0 ? registers[input1] : 0.0.xxxx;
+        float4 c = input2 >= 0 ? registers[input2] : 0.0.xxxx;
+        uint width_a = input0 >= 0 ? AcsExprWidth(uint(input0)) : 0u;
+        uint width_b = input1 >= 0 ? AcsExprWidth(uint(input1)) : 0u;
+        uint width_c = input2 >= 0 ? AcsExprWidth(uint(input2)) : 0u;
+        float4 aa = AcsExprBroadcast(a, width_a);
+        float4 bb = AcsExprBroadcast(b, width_b);
+        float4 cc = AcsExprBroadcast(c, width_c);
+        float4 value = 0.0.xxxx;
+        uint4 words0 = AcsExprWords0(instruction);
+        uint4 words1 = AcsExprWords1(instruction);
+        if (op == ACS_EXPR_CONSTANT) {
+            value = AcsExprLiteral(instruction);
+        } else if (op == ACS_EXPR_SCALAR_PARAMETER ||
+                   op == ACS_EXPR_VECTOR_PARAMETER) {
+            value = AcsExprParameter(
+                words0.w, width, AcsExprLiteral(instruction));
+        } else if (op == ACS_EXPR_TEXTURE_SAMPLE_2D) {
+            uint slot = words1.x & 255u;
+            uint flags = (words1.x >> 8u) & 255u;
+            value = AcsExprSampleTexture(
+                slot, a.xy, flags, AcsExprLiteral(instruction));
+        } else if (op == ACS_EXPR_UV0) {
+            value = float4(uv, 0.0, 0.0);
+        } else if (op == ACS_EXPR_TIME) {
+            value = float4(substrate_expr_context.x, 0.0, 0.0, 0.0);
+        } else if (op == ACS_EXPR_WORLD_POSITION) {
+            value = float4(world_position, 0.0);
+        } else if (op == ACS_EXPR_WORLD_NORMAL) {
+            value = float4(world_normal, 0.0);
+        } else if (op == ACS_EXPR_ADD) {
+            value = aa + bb;
+        } else if (op == ACS_EXPR_MULTIPLY) {
+            value = aa * bb;
+        } else if (op == ACS_EXPR_LERP) {
+            value = aa + (bb - aa) * cc;
+        } else if (op == ACS_EXPR_CLAMP) {
+            value = AcsExprClamp4(aa, bb, cc);
+        } else if (op == ACS_EXPR_POWER) {
+            value = AcsExprSafePower4(aa, bb);
+        } else if (op == ACS_EXPR_DOT) {
+            float dot_value = a.x * b.x;
+            if (width_a > 1u) dot_value += a.y * b.y;
+            if (width_a > 2u) dot_value += a.z * b.z;
+            if (width_a > 3u) dot_value += a.w * b.w;
+            value = float4(dot_value, 0.0, 0.0, 0.0);
+        } else if (op == ACS_EXPR_NORMALIZE) {
+            value = AcsExprNormalize(a, width);
+        } else if (op == ACS_EXPR_NOISE) {
+            value = float4(
+                AcsExprNoise(a, width_a), 0.0, 0.0, 0.0);
+        } else if (op == ACS_EXPR_COMPONENT) {
+            uint component = words1.x & 255u;
+            value = float4(a[component], 0.0, 0.0, 0.0);
+        }
+        if (!all(isfinite(value))) value = 0.0.xxxx;
+        registers[instruction] = AcsExprCanonical(value, width);
+    }
+}
 
 // 1 光源ぶんの layered BRDF を評価 (base Cook-Torrance + clearcoat 層 + sheen 層)。
 // L = surface→light、戻り値は放射輝度係数 (光色・距離減衰・shadow は呼び側で乗算)。
@@ -727,9 +1148,51 @@ struct SurfaceMaterial {
 float3 EvalSurfaceForLight(float3 N, float3 V, float3 L, SurfaceMaterial m) {
     float3 base_brdf = BrdfCookTorrance(N, V, L, m.albedo, m.metallic, m.roughness,
                                         m.anisotropy, m.aniso_tangent,
-                                        m.irid_fresnel, m.irid_weight);
-    ClearcoatTerm cc = EvalClearcoat(N, V, L, m.clearcoat, m.coat_roughness);
+                                        m.irid_fresnel, m.irid_weight,
+                                        m.f0, m.f90,
+                                        m.second_roughness, m.second_weight);
+    ClearcoatTerm cc = EvalClearcoat(N, V, L, m.clearcoat, m.coat_roughness,
+                                     m.coat_f0);
     float3 lit = base_brdf * cc.attenuation + cc.spec_times_nol;
+
+    // Thin-material subsurface approximation.  This is deliberately not advertised as
+    // screen-space SSSS: it only redistributes the direct diffuse lobe and adds a small,
+    // bounded back-light response.  Replacing the Lambert lobe (instead of adding on top
+    // of it) keeps the material from creating energy as sss_weight approaches one.
+    if (m.sss_weight > 0.0 && m.metallic < 1.0) {
+        float mfp = dot(m.mean_free_path_cm, float3(0.2126, 0.7152, 0.0722));
+        const float kWrap = lerp(0.20, 0.60, saturate(mfp / (mfp + 1.0)));
+        const float kTransmissionShare = lerp(0.08, 0.24, saturate(mfp / (mfp + 0.5)));
+        const float kDistortion = lerp(0.05, 0.35,
+                                      saturate(m.phase_anisotropy * 0.5 + 0.5));
+        const float kPower = 4.0;
+
+        float rawNoL = dot(N, L);
+        float NoL = saturate(rawNoL);
+
+        float3 halfVector = V + L;
+        float3 H = halfVector * rsqrt(max(dot(halfVector, halfVector), 1e-6));
+        float3 F = F_Schlick90(saturate(dot(V, H)), m.f0, m.f90);
+        F = lerp(F, m.irid_fresnel, m.irid_weight);
+        float3 kd = (1.0 - F) * (1.0 - m.metallic);
+
+        // 1/(1+wrap) normalizes the wrapped cosine over all incident directions.
+        float wrappedResponse = saturate((rawNoL + kWrap) / (1.0 + kWrap))
+                              / (1.0 + kWrap);
+        float3 bentBackLight = normalize(-L + N * kDistortion);
+        float transmission = pow(saturate(dot(V, bentBackLight)), kPower)
+                           * saturate(-rawNoL);
+        float scatterResponse = wrappedResponse * (1.0 - kTransmissionShare)
+                              + transmission * kTransmissionShare;
+
+        // Tint can only absorb channels; it never raises the lobe above the normalized
+        // response.  The delta replaces the exact diffuse term used by the base BRDF.
+        float3 scatterTint = lerp(float3(1.0, 1.0, 1.0), saturate(m.sss_color), 0.75);
+        float3 lambertDiffuse = kd * m.albedo * (NoL / PI);
+        float3 scatteredDiffuse = kd * m.albedo * scatterTint * (scatterResponse / PI);
+        lit += (scatteredDiffuse - lambertDiffuse)
+             * saturate(m.sss_weight) * cc.attenuation;
+    }
 
     // Sheen (Phase 35-1a): 布/ベルベットの fuzz 層を base に加算。エネルギー保存の
     // ため base を簡易減衰 (厳密な sheen directional albedo は将来 LUT 化を検討)。
@@ -745,42 +1208,195 @@ float3 EvalSurfaceForLight(float3 N, float3 V, float3 L, SurfaceMaterial m) {
         // saturate: SetSheen が範囲クランプ済だが、CB を直接書く経路でも負にしない防御。
         lit = lit * saturate(1.0 - m.sheen_weight * maxC * 0.5) + sheen;
     }
-
-    // Subsurface scattering (Phase 35-2): 肌/ロウ/玉 の内部散乱を解析近似で加算。
-    // (1) wrapped diffuse の Lambert 超過分 = terminator の柔らかい回り込み。
-    // (2) 裏面 translucency = 薄い部分を光が透ける逆光グロー (Barre-Brisebois 2011)。
-    // LUT も追加 pass も不要。直接光専用 (IBL は terminator が無いので非適用)。
-    if (m.sss_weight > 0.0) {
-        const float kWrap = 0.5, kDistortion = 0.2, kPower = 3.0, kTransScale = 0.6;
-        float  noL    = dot(N, L);
-        float  noL_w  = saturate((noL + kWrap) / (1.0 + kWrap));
-        float  wrapEx = max(noL_w - saturate(noL), 0.0);          // (1)
-        float3 Lt     = normalize(-L + N * kDistortion);
-        float  trans  = pow(saturate(dot(V, Lt)), kPower);        // (2)
-        lit += m.sss_color * m.albedo
-             * (wrapEx / PI + trans * kTransScale) * m.sss_weight;
-    }
     return lit;
+}
+
+// camera と surface の間の指数 height density を解析積分し、区間平均を返す。
+// fog_base 以下は密度一定なので、区間が基準面を横切る場合も piecewise に厳密積分する。
+float FogHeightAverage(float camera_h, float surface_h, float falloff) {
+    float k = max(falloff, 0.0);
+    float average_density = 1.0;
+    if (k >= 1e-5) {
+        float a = camera_h;
+        float b = surface_h;
+        float d = b - a;
+        if (abs(d) < 1e-4 || abs(k * d) < 1e-4) {
+            average_density =
+                exp(-min(k * max(0.5 * (a + b), 0.0), 80.0));
+        } else if (a <= 0.0 && b <= 0.0) {
+            average_density = 1.0;
+        } else if (a > 0.0 && b > 0.0) {
+            float ea = exp(-min(k * a, 80.0));
+            float eb = exp(-min(k * b, 80.0));
+            average_density = saturate((ea - eb) / (k * d));
+        } else {
+            float crossing = saturate(-a / d);
+            if (a <= 0.0) {
+                float eb = exp(-min(k * max(b, 0.0), 80.0));
+                average_density =
+                    saturate(crossing + (1.0 - eb) / (k * d));
+            } else {
+                float ea = exp(-min(k * max(a, 0.0), 80.0));
+                average_density = saturate(
+                    (ea - 1.0) / (k * d) + (1.0 - crossing));
+            }
+        }
+    }
+    return average_density;
+}
+
+// 1 / (4*pi) を除いた HG 位相関数。g=0 で 1 になり、既存 fog 色の露出を保つ。
+float FogHgPhase(float cos_theta, float g) {
+    g = clamp(g, -0.85, 0.85);
+    float g2 = g * g;
+    float denom = max(1.0 + g2 - 2.0 * g * cos_theta, 1e-3);
+    return (1.0 - g2) / (denom * sqrt(denom));
 }
 )" R"(
 float4 PSMain(VSOut v) : SV_TARGET {
-    float3 N = normalize(v.world_n);
-    // Normal map perturbation (Phase 34g)。fallback 1x1 (0.5,0.5,1.0) なら無変化。
-    float3 nm = normal_map.Sample(normal_map_sampler, v.uv).rgb * 2.0 - 1.0;
-    // 単位長に正規化 (sampler の linear interp で長さズレが起きるため)
-    nm = normalize(nm + float3(0, 0, 1e-6));
+    float3 geometric_normal = normalize(v.world_n);
+    bool substrate_enabled = substrate_secondary.w > 0.5;
+    float slab_values[39];
+    slab_values[0] = substrate_diffuse_coverage.x;
+    slab_values[1] = substrate_diffuse_coverage.y;
+    slab_values[2] = substrate_diffuse_coverage.z;
+    slab_values[3] = substrate_f0.x;
+    slab_values[4] = substrate_f0.y;
+    slab_values[5] = substrate_f0.z;
+    slab_values[6] = substrate_f90.x;
+    slab_values[7] = substrate_f90.y;
+    slab_values[8] = substrate_f90.z;
+    slab_values[9] = pbr_params.y;
+    slab_values[10] = substrate_secondary.x;
+    slab_values[11] = substrate_secondary.y;
+    slab_values[12] = ext_params.z;
+    slab_values[13] = aniso_tangent.x;
+    slab_values[14] = aniso_tangent.y;
+    slab_values[15] = aniso_tangent.z;
+    slab_values[16] = substrate_mfp_thickness.x;
+    slab_values[17] = substrate_mfp_thickness.y;
+    slab_values[18] = substrate_mfp_thickness.z;
+    slab_values[19] = substrate_secondary.z;
+    slab_values[20] = emissive.x;
+    slab_values[21] = emissive.y;
+    slab_values[22] = emissive.z;
+    slab_values[23] = substrate_transmittance.x;
+    slab_values[24] = substrate_transmittance.y;
+    slab_values[25] = substrate_transmittance.z;
+    slab_values[26] = substrate_mfp_thickness.w;
+    slab_values[27] = sheen_params.x;
+    slab_values[28] = sheen_params.y;
+    slab_values[29] = sheen_params.z;
+    slab_values[30] = sheen_params.w;
+    slab_values[31] = sheen_rough.x;
+    slab_values[32] = irid_params.x;
+    slab_values[33] = irid_params.y;
+    slab_values[34] = irid_params.z;
+    slab_values[35] = substrate_normal.x;
+    slab_values[36] = substrate_normal.y;
+    slab_values[37] = substrate_normal.z;
+    slab_values[38] = substrate_normal.w;
+
+    if (substrate_enabled && substrate_expr_meta.x > 0u &&
+        substrate_expr_meta.y > 0u) {
+        float4 expression_registers[64];
+        AcsEvaluateExpressions(
+            v.uv, v.world_p, geometric_normal, expression_registers);
+        [loop]
+        for (uint binding_index = 0u;
+             binding_index < substrate_expr_meta.y &&
+             binding_index < 39u;
+             ++binding_index) {
+            uint4 binding = substrate_expr_bindings[binding_index];
+            uint target = binding.x & 255u;
+            uint instruction = (binding.x >> 8u) & 255u;
+            uint component = (binding.x >> 16u) & 3u;
+            if (target < 39u && instruction < substrate_expr_meta.x) {
+                float coefficient = asfloat(binding.y);
+                float authored_literal = asfloat(binding.z);
+                slab_values[target] += coefficient *
+                    (expression_registers[instruction][component] -
+                     authored_literal);
+            }
+        }
+    }
+
+    float3 dynamic_diffuse = saturate(float3(
+        slab_values[0], slab_values[1], slab_values[2]));
+    float3 dynamic_f0 = saturate(float3(
+        slab_values[3], slab_values[4], slab_values[5]));
+    float3 dynamic_f90 = saturate(float3(
+        slab_values[6], slab_values[7], slab_values[8]));
+    float dynamic_roughness = max(slab_values[9], 0.04);
+    float dynamic_second_roughness = max(slab_values[10], 0.04);
+    float dynamic_second_weight = saturate(slab_values[11]);
+    float dynamic_anisotropy = clamp(slab_values[12], -1.0, 1.0);
+    float3 dynamic_tangent = float3(
+        slab_values[13], slab_values[14], slab_values[15]);
+    float3 dynamic_mfp = max(float3(
+        slab_values[16], slab_values[17], slab_values[18]), 0.0.xxx);
+    float dynamic_phase = clamp(slab_values[19], -0.99, 0.99);
+    float3 dynamic_emissive = max(float3(
+        slab_values[20], slab_values[21], slab_values[22]), 0.0.xxx);
+    float3 dynamic_transmittance = saturate(float3(
+        slab_values[23], slab_values[24], slab_values[25]));
+    float dynamic_thickness = max(slab_values[26], 0.0);
+    float3 dynamic_fuzz_color = saturate(float3(
+        slab_values[27], slab_values[28], slab_values[29]));
+    float dynamic_fuzz_amount = saturate(slab_values[30]);
+    float dynamic_fuzz_roughness = saturate(slab_values[31]);
+    float dynamic_irid_weight = saturate(slab_values[32]);
+    float dynamic_irid_thickness = max(slab_values[33], 0.0);
+    float dynamic_irid_ior = max(slab_values[34], 1.0);
+    float3 dynamic_normal = float3(
+        slab_values[35], slab_values[36], slab_values[37]);
+    float dynamic_normal_strength = clamp(slab_values[38], 0.0, 4.0);
+    float dynamic_coverage = saturate(substrate_diffuse_coverage.w);
+
+    float3 N = geometric_normal;
+    // Blend tangent-space normals as slopes. This preserves a stable positive
+    // Z hemisphere at high strengths instead of merely multiplying a unit
+    // normal and renormalizing it back to the original direction.
+    float3 sampled_nm =
+        normal_map.Sample(normal_map_sampler, v.uv).rgb * 2.0 - 1.0;
+    sampled_nm = normalize(sampled_nm + float3(0, 0, 1e-6));
+    float texture_strength = clamp(pbr_params.w, 0.0, 4.0);
+    float substrate_strength =
+        substrate_enabled ? dynamic_normal_strength : 1.0;
+    float2 texture_slope =
+        sampled_nm.xy / max(abs(sampled_nm.z), 1e-4);
+    texture_slope *= texture_strength * substrate_strength;
+    float2 authored_slope = float2(0, 0);
+    if (substrate_enabled) {
+        float3 authored_nm =
+            normalize(dynamic_normal + float3(0, 0, 1e-6));
+        authored_slope =
+            authored_nm.xy / max(abs(authored_nm.z), 1e-4);
+        authored_slope *= substrate_strength;
+    }
+    float3 nm = normalize(float3(
+        texture_slope + authored_slope, 1.0));
     N = PerturbNormal(v.world_p, N, v.uv, nm);
     float3 V = normalize(camera_pos.xyz - v.world_p);
 
-    float3 albedo_rgb = albedo.Sample(albedo_sampler, v.uv).rgb * base_color.xyz;
-    float  metallic   = pbr_params.x;
-    float  roughness  = max(pbr_params.y, 0.04);     // 0 は数値不安定
+    // Source color textures are uploaded as linear UNORM so expression slots
+    // can choose their own color space. Standard albedo is defined as sRGB:
+    // decode exactly once before multiplying linear material constants.
+    float3 albedo_texel_linear = AcsExprDecodeSrgb(
+        albedo.Sample(albedo_sampler, v.uv), 8u).rgb;
+    float3 albedo_rgb = albedo_texel_linear *
+        (substrate_enabled ? dynamic_diffuse : base_color.xyz);
+    float  metallic   = substrate_enabled ? 0.0 : pbr_params.x;
+    float  roughness  = substrate_enabled
+        ? dynamic_roughness : max(pbr_params.y, 0.04);
     float  ao         = pbr_params.z;
     // 拡張 material
     float  clearcoat       = saturate(ext_params.x);
     float  coat_roughness  = max(ext_params.y, 0.04);
-    float  anisotropy      = ext_params.z;
-    float3 aniso_T_world   = aniso_tangent.xyz;
+    float  anisotropy      = substrate_enabled
+        ? dynamic_anisotropy : ext_params.z;
+    float3 aniso_T_world   = substrate_enabled
+        ? dynamic_tangent : aniso_tangent.xyz;
 
     // 光源ループ 3 種 (dir/area/point) が共有する per-pixel マテリアル
     SurfaceMaterial mat;
@@ -791,19 +1407,51 @@ float4 PSMain(VSOut v) : SV_TARGET {
     mat.coat_roughness = coat_roughness;
     mat.anisotropy     = anisotropy;
     mat.aniso_tangent  = aniso_T_world;
-    mat.sheen_color     = sheen_params.xyz;
-    mat.sheen_weight    = sheen_params.w;
-    mat.sheen_roughness = sheen_rough.x;
+    mat.sheen_color     = substrate_enabled
+        ? dynamic_fuzz_color : sheen_params.xyz;
+    mat.sheen_weight    = substrate_enabled
+        ? dynamic_fuzz_amount : sheen_params.w;
+    mat.sheen_roughness = substrate_enabled
+        ? dynamic_fuzz_roughness : sheen_rough.x;
     // Iridescence (Phase 35-1b): 薄膜 Fresnel を per-pixel に 1 度だけ NoV で評価。
-    mat.irid_weight  = irid_params.x;
+    mat.irid_weight  = substrate_enabled
+        ? dynamic_irid_weight : irid_params.x;
     mat.irid_fresnel = float3(0.0, 0.0, 0.0);
-    if (irid_params.x > 0.0) {
-        float3 F0_base = lerp(float3(0.04, 0.04, 0.04), albedo_rgb, metallic);
-        mat.irid_fresnel = EvalIridescence(1.0, irid_params.z, saturate(dot(N, V)),
-                                           irid_params.y, F0_base);
+    if (mat.irid_weight > 0.0) {
+        float3 F0_base = substrate_enabled
+            ? dynamic_f0
+            : lerp(float3(0.04, 0.04, 0.04), albedo_rgb, metallic);
+        float film_ior = substrate_enabled
+            ? dynamic_irid_ior : irid_params.z;
+        float film_thickness = substrate_enabled
+            ? dynamic_irid_thickness : irid_params.y;
+        mat.irid_fresnel = EvalIridescence(
+            1.0, film_ior, saturate(dot(N, V)),
+            film_thickness, F0_base);
     }
-    mat.sss_color  = sss_params.xyz;          // Phase 35-2
-    mat.sss_weight = sss_params.w;
+    float dynamic_mfp_max = max(
+        dynamic_mfp.x, max(dynamic_mfp.y, dynamic_mfp.z));
+    float dynamic_thickness_response =
+        dynamic_thickness / (dynamic_thickness + 0.01);
+    mat.sss_color = substrate_enabled
+        ? lerp(dynamic_diffuse, dynamic_transmittance, 0.5)
+        : sss_params.xyz;
+    mat.sss_weight = substrate_enabled
+        ? saturate(dynamic_mfp_max) * saturate(dynamic_thickness_response)
+        : sss_params.w;
+    mat.f0 = substrate_enabled
+        ? dynamic_f0
+        : lerp(float3(0.04,0.04,0.04), albedo_rgb, metallic);
+    mat.f90 = substrate_enabled ? dynamic_f90 : float3(1,1,1);
+    mat.second_roughness = substrate_enabled
+        ? dynamic_second_roughness : roughness;
+    mat.second_weight = substrate_enabled ? dynamic_second_weight : 0.0;
+    mat.mean_free_path_cm = substrate_enabled
+        ? dynamic_mfp : float3(0,0,0);
+    mat.phase_anisotropy = substrate_enabled
+        ? dynamic_phase : 0.0;
+    mat.coat_f0 = substrate_enabled
+        ? saturate(substrate_coat_f0.xyz) : float3(0.04,0.04,0.04);
 
     // SSAO modulation factor (Phase 34j-2): screen-space AO テクスチャから visibility を読み、
     // ambient/indirect 項に掛ける。direct light には影響しない (物理的に AO は indirect 専用)。
@@ -858,9 +1506,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // IBL cubemap が無くても SH9 / probe grid が有れば ambient 経路へ (SH9 standalone を許可)。
     if (ibl_params.x >= 0.5 || ibl_params.z >= 0.5 || probe_params.x >= 1.0) {
         float3 base_ibl = ComputeIblAmbient(N, V, v.world_p, albedo_rgb, metallic, roughness, ao,
-                                            ssr_rgb, ssr_weight, sheen_params.xyz, sheen_params.w,
-                                            mat.irid_fresnel, mat.irid_weight);
-        IblCoatTerm cc_ibl = ComputeIblClearcoat(N, V, clearcoat, coat_roughness);
+                                            ssr_rgb, ssr_weight,
+                                            mat.sheen_color, mat.sheen_weight,
+                                            mat.irid_fresnel, mat.irid_weight,
+                                            mat.f0, mat.f90,
+                                            mat.second_roughness, mat.second_weight);
+        IblCoatTerm cc_ibl = ComputeIblClearcoat(N, V, clearcoat, coat_roughness,
+                                                 mat.coat_f0);
         col = (base_ibl * cc_ibl.attenuation + cc_ibl.spec * ao) * ssao_factor;
     } else {
         col = ambient.xyz * albedo_rgb * ao * ssao_factor;
@@ -885,7 +1537,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // 有向光源 (i==0 のみ shadow_map で遮蔽)
     float shadow = ComputeShadow(v.world_p, v.view_z);
     int dir_count = (int)ambient.w;
-    [unroll]
+    [loop]
     for (int i = 0; i < ACS_MAX_DIR_LIGHTS; ++i) {
         if (i >= dir_count) break;
         float3 L = normalize(light_dir[i].xyz);
@@ -898,7 +1550,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // それぞれのサンプル点を point light として扱い、area 全面積で正規化する。
     // (面積光の特徴: 軟らかい highlight elongation、近距離での明るい照り)
     int area_count = (int)point_count_pad.y;
-    [unroll]
+    [loop]
     for (int a = 0; a < ACS_MAX_AREA_LIGHTS; ++a) {
         if (a >= area_count) break;
         float3 area_c = area_center[a].xyz;
@@ -912,10 +1564,10 @@ float4 PSMain(VSOut v) : SV_TARGET {
         if (facing > 0.0) {
             float3 area_sum = float3(0, 0, 0);
             const int kSamples = 4;
-            [unroll]
+            [loop]
             for (int sy = 0; sy < kSamples; ++sy) {
                 float vy = ((float)sy + 0.5) / (float)kSamples * 2.0 - 1.0;
-                [unroll]
+                [loop]
                 for (int sx = 0; sx < kSamples; ++sx) {
                     float vx = ((float)sx + 0.5) / (float)kSamples * 2.0 - 1.0;
                     float3 sample_pos = area_c + axisX * vx + axisY * vy;
@@ -936,7 +1588,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
     // 点光源 (距離減衰)
     int pt_count = (int)point_count_pad.x;
-    [unroll]
+    [loop]
     for (int j = 0; j < ACS_MAX_POINT_LIGHTS; ++j) {
         if (j >= pt_count) break;
         float3 to_light = point_pos_range[j].xyz - v.world_p;
@@ -951,23 +1603,32 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
     // Emissive (Phase 34l): 自己発光。lighting と無関係に加算する。fog より前に
     // 足すので、発光体も距離フォグで減衰する (遠くの発光は霞む)。
-    col += emissive.rgb;
+    col += substrate_enabled ? dynamic_emissive : emissive.rgb;
 
-    // Volumetric fog (Phase 33e): exponential height fog
-    //   density = fog_density * exp(-height_falloff * (world_y - fog_base))
-    //   transmittance = exp(-density * dist)
+    // Volumetric height fog: Beer-Lambert extinction を camera→surface の全区間で解析積分。
+    // endpoint density だけを距離へ掛ける近似と異なり、斜面・谷・俯瞰カメラでも連続する。
     if (fog_color_density.w > 0.0) {
-        float3 to_cam = v.world_p - camera_pos.xyz;
-        float dist = length(to_cam);
-        // height attenuation (h を上にいくと density 減衰、地面近くで濃い)
-        float h = v.world_p.y - fog_height_params.y;
-        float density = fog_color_density.w * exp(-fog_height_params.x * max(h, 0.0));
-        float transmittance = exp(-density * dist);
-        // in-scatter は単一の fog 色 (= 空の地平色)。以前ここで prefilter cubemap を視線方向サンプル
-        // して «aerial perspective» を擬似していたが、cubemap のテクセル境界が表面に «斜めの段
-        // (バンディング)» を生む非忠実なハックだったため撤去。本物の aerial perspective は物理大気の
-        // カメラボリューム LUT で別途実装する (WickedEngine 流)。
-        col = col * transmittance + fog_color_density.xyz * (1.0 - transmittance);
+        float3 camera_to_surface = v.world_p - camera_pos.xyz;
+        float dist = min(length(camera_to_surface), 100000.0);
+        float3 view_ray = camera_to_surface / max(dist, 1e-4);
+        float camera_h = camera_pos.y - fog_height_params.y;
+        float surface_h = v.world_p.y - fog_height_params.y;
+        float average_density = FogHeightAverage(camera_h, surface_h, fog_height_params.x);
+        float optical_depth = min(fog_color_density.w * dist * average_density, 80.0);
+        float transmittance = exp(-optical_depth);
+
+        float3 in_scatter = fog_color_density.xyz;
+        if (dir_count > 0 && fog_height_params.w > 0.0) {
+            // light_dir[0] は surface→sun と同じ向き。太陽を正面に見ると前方散乱が最大。
+            float cos_theta = dot(view_ray, normalize(light_dir[0].xyz));
+            float phase = FogHgPhase(cos_theta, fog_height_params.z);
+            // surface shadow は経路全体の厳密な volumetric shadow ではないため、完全には消さず
+            // direct in-scatter のみを穏やかに減衰する。
+            float sun_visibility = lerp(0.55, 1.0, saturate(shadow));
+            in_scatter += fog_color_density.xyz * max(light_color[0].xyz, 0.0)
+                          * (phase * fog_height_params.w * sun_visibility);
+        }
+        col = col * transmittance + in_scatter * (1.0 - transmittance);
     }
 
     // Aerial perspective (WickedEngine camera-volume LUT)。screen uv + 深度→スライス (LUT 焼きの
@@ -976,12 +1637,16 @@ float4 PSMain(VSOut v) : SV_TARGET {
     if (ap_params.x > 0.5) {
         float apDist = length(v.world_p - camera_pos.xyz);
         float zc = sqrt(saturate(apDist / max(ap_params.y, 1e-3)));
-        float2 sUv = v.pos.xy * float2(ssao_params.z, ssao_params.w);
+        // SSAO の設定有無に依存させず、同じ view-projection から正規化 screen UV を得る。
+        // SV_POSITION / viewport size の組では SetSsao 未使用時に inv size が 0 になっていた。
+        float4 apClip = mul(float4(v.world_p, 1.0), view_proj);
+        float2 apNdc = apClip.xy / max(abs(apClip.w), 1e-6);
+        float2 sUv = saturate(float2(apNdc.x * 0.5 + 0.5, -apNdc.y * 0.5 + 0.5));
         float4 ap = ap_volume.SampleLevel(ap_volume_sampler, float3(sUv, zc), 0);
         col = col * (1.0 - ap.a) + ap.rgb;
     }
 
-    return float4(col, base_color.w);
+    return float4(col, substrate_enabled ? dynamic_coverage : base_color.w);
 }
 )";
 
@@ -1000,7 +1665,7 @@ constexpr u32 kMaxAreaLights  = 2;
  * @details HLSL の cbuffer Frame と完全に一致させる。ライト・環境・probe・fog・
  * shadow (CSM 4 cascade)・SSAO/SSGI/lightmap/SSR の各パラメータを保持する。
  */
-struct FrameCBLayout {
+struct FFrameCBLayout {
     /** カメラの view-projection 行列。 */
     FMat4 view_proj;
 
@@ -1055,7 +1720,7 @@ struct FrameCBLayout {
     /** fog の色と密度 (xyz=color、w=density)。 */
     FVec4 fog_color_density;
 
-    /** fog の高さパラメータ (x=height_falloff、y=fog_height_base)。 */
+    /** fog パラメータ (x=height_falloff、y=base、z=anisotropy、w=sun_scatter)。 */
     FVec4 fog_height_params;
 
     /**
@@ -1097,9 +1762,14 @@ struct FrameCBLayout {
  * @details HLSL の cbuffer Object と完全に一致させる。model 行列と PBR 基本パラメータ +
  * 拡張 lobe (clearcoat/anisotropy/emissive/sheen/iridescence/SSS) を保持する。
  */
-struct ObjectCBLayout {
+struct FObjectCbLayout {
     /** モデル行列。 */
     FMat4 model;
+
+    /** inverse-transpose normal matrix の上位 3 行。 */
+    FVec4 normal_row0;
+    FVec4 normal_row1;
+    FVec4 normal_row2;
 
     /** ベースカラー (xyz=color、w=alpha)。 */
     FVec4 base_color;
@@ -1127,7 +1797,65 @@ struct ObjectCBLayout {
 
     /** subsurface (xyz=color、w=weight)。 */
     FVec4 sss_params;
+
+    /** Direct Substrate interface and medium values. */
+    FVec4 substrate_f0;
+    FVec4 substrate_f90;
+    FVec4 substrate_diffuse_coverage;
+    FVec4 substrate_secondary;
+    FVec4 substrate_mfp_thickness;
+    FVec4 substrate_transmittance;
+    FVec4 substrate_normal;
+    FVec4 substrate_coat_f0;
+    FShaderExpressionInstruction
+        substrate_expr_instructions[kShaderExpressionMaxNodes];
+    FSubstrateExpressionBinding
+        substrate_expr_bindings[kSubstrateSlabScalarCount];
+    u32 substrate_expr_parameter_meta[kShaderExpressionMaxParameters][4];
+    FVec4 substrate_expr_parameter_values[kShaderExpressionMaxParameters];
+    u32 substrate_expr_meta[4];
+    FVec4 substrate_expr_context;
 };
+
+static_assert(
+    offsetof(FObjectCbLayout, substrate_expr_instructions) % 16u == 0u);
+static_assert(
+    offsetof(FObjectCbLayout, substrate_expr_instructions) ==
+    offsetof(FObjectCbLayout, substrate_coat_f0) + sizeof(FVec4));
+static_assert(
+    offsetof(FObjectCbLayout, substrate_expr_bindings) % 16u == 0u);
+static_assert(
+    offsetof(FObjectCbLayout, substrate_expr_bindings) ==
+    offsetof(FObjectCbLayout, substrate_expr_instructions) +
+        sizeof(FShaderExpressionInstruction) * kShaderExpressionMaxNodes);
+static_assert(
+    offsetof(FObjectCbLayout, substrate_expr_parameter_meta) % 16u == 0u);
+static_assert(
+    offsetof(FObjectCbLayout, substrate_expr_parameter_meta) ==
+    offsetof(FObjectCbLayout, substrate_expr_bindings) +
+        sizeof(FSubstrateExpressionBinding) *
+            kSubstrateSlabScalarCount);
+static_assert(
+    offsetof(FObjectCbLayout, substrate_expr_parameter_values) % 16u == 0u);
+static_assert(
+    offsetof(FObjectCbLayout, substrate_expr_parameter_values) ==
+    offsetof(FObjectCbLayout, substrate_expr_parameter_meta) +
+        sizeof(u32) * kShaderExpressionMaxParameters * 4u);
+static_assert(
+    offsetof(FObjectCbLayout, substrate_expr_meta) % 16u == 0u);
+static_assert(
+    offsetof(FObjectCbLayout, substrate_expr_meta) ==
+    offsetof(FObjectCbLayout, substrate_expr_parameter_values) +
+        sizeof(FVec4) * kShaderExpressionMaxParameters);
+static_assert(
+    offsetof(FObjectCbLayout, substrate_expr_context) % 16u == 0u);
+static_assert(
+    offsetof(FObjectCbLayout, substrate_expr_context) ==
+    offsetof(FObjectCbLayout, substrate_expr_meta) + sizeof(u32) * 4u);
+static_assert(
+    sizeof(FObjectCbLayout) ==
+    offsetof(FObjectCbLayout, substrate_expr_context) + sizeof(FVec4));
+static_assert(sizeof(FObjectCbLayout) % 16u == 0u);
 
 /**
  * 定数バッファサイズを 256 バイト境界に切り上げて返す。
@@ -1142,16 +1870,72 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-/** シェーダ・PSO・CB・fallback テクスチャ群を生成する。 */
-TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format, ECullMode cull_mode) noexcept {
+/** Compile raw-DX12 bytecode without accessing the render device. */
+TResult<FPbrShader::FCompiledShaders>
+FPbrShader::CompileShadersCpu() noexcept {
+#if !WITH_RENDER_DILIGENT
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kPbrHLSL;
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "Pbr.VS";
+
+    FShaderDesc ps_d{};
+    ps_d.stage = EShaderStage::Pixel;
+    ps_d.hlsl_source = kPbrHLSL;
+    ps_d.entry_point = "PSMain";
+    ps_d.debug_name  = "Pbr.PS";
+
+    auto vertex = MakeUnique<FDx12Shader>();
+    if (!vertex)
+        return ACS_ERR(Memory, 371, "PBR vertex shader allocation failed");
+    const FHrResult vertex_result = vertex->Init(vs_d);
+    if (vertex_result.IsErr()) {
+        return ACS_ERR_OS(
+            Render, 372, "PBR vertex shader CPU compile failed",
+            static_cast<u32>(vertex_result.hr));
+    }
+
+    auto pixel = MakeUnique<FDx12Shader>();
+    if (!pixel)
+        return ACS_ERR(Memory, 373, "PBR pixel shader allocation failed");
+    const FHrResult pixel_result = pixel->Init(ps_d);
+    if (pixel_result.IsErr()) {
+        return ACS_ERR_OS(
+            Render, 374, "PBR pixel shader CPU compile failed",
+            static_cast<u32>(pixel_result.hr));
+    }
+
+    FCompiledShaders compiled{};
+    compiled.vertex = TUniquePtr<IRhiShader>(
+        vertex.Release(), vertex.GetAllocator());
+    compiled.pixel = TUniquePtr<IRhiShader>(
+        pixel.Release(), pixel.GetAllocator());
+    return TResult<FCompiledShaders>(OkInit, Move(compiled));
+#else
+    return ACS_ERR(
+        Render, 375,
+        "PBR CPU compilation is available only on the raw DX12 backend");
+#endif
+}
+
+/** シェーダ・PSO・CB・fallback テクスチャ群を生成する。 */
+TResult<void> FPbrShader::Init(
+    IRhiDevice& device,
+    EFormat rt_format,
+    EFormat depth_format,
+    ECullMode cull_mode) noexcept {
+    FShaderDesc vs_d{};
+    vs_d.stage = EShaderStage::Vertex;
+    vs_d.hlsl_source = kPbrHLSL;
+    vs_d.entry_point = "VSMain";
+    vs_d.debug_name  = "Pbr.VS";
+
+    FCompiledShaders compiled{};
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr())
         return Err<void>(r.Error());
-    else m_Vs = Move(r.Value());
+    else
+        compiled.vertex = Move(r.Value());
 
     FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
@@ -1160,27 +1944,64 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     ps_d.debug_name  = "Pbr.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr())
         return Err<void>(r.Error());
-    else m_Ps = Move(r.Value());
+    else
+        compiled.pixel = Move(r.Value());
+
+    return InitWithCompiledShaders(
+        device, Move(compiled), rt_format, depth_format, cull_mode);
+}
+
+/** Install CPU-compiled bytecode and create all owner-thread RHI resources. */
+TResult<void> FPbrShader::InitWithCompiledShaders(
+    IRhiDevice& device,
+    FCompiledShaders&& shaders,
+    EFormat rt_format,
+    EFormat depth_format,
+    ECullMode cull_mode) noexcept {
+    if (shaders.vertex.Get() == nullptr || shaders.pixel.Get() == nullptr) {
+        return ACS_ERR(Render, 376, "PBR compiled shader set is incomplete");
+    }
+
+    // Keep the live shader fully usable until every replacement resource,
+    // including the PSO, has been created.  Besides giving re-initialization a
+    // strong failure guarantee, leaving `shaders` untouched until commit lets
+    // a caller retry a transient owner-thread RHI failure without recompiling
+    // the expensive bytecode.
+    struct FInitCandidates {
+        TUniquePtr<IRhiPipeline> pipeline;
+        TUniquePtr<IRhiBuffer> frame_cb;
+        TUniquePtr<IRhiBuffer> object_cbs[kObjRing];
+        TUniquePtr<IRhiTexture> white;
+        TUniquePtr<IRhiTexture> shadow_fb;
+        TUniquePtr<IRhiTexture> normal_map_fb;
+        TUniquePtr<IRhiTexture> ssao_fb;
+        TUniquePtr<IRhiTexture> ssgi_fb;
+        TUniquePtr<IRhiTexture> lightmap_fb;
+        TUniquePtr<IRhiTexture> ssr_fb;
+        TUniquePtr<IRhiTexture> ap_fb;
+        TUniquePtr<IRhiTexture> ibl_irradiance_fb;
+        TUniquePtr<IRhiTexture> ibl_prefilter_fb;
+        TUniquePtr<IRhiTexture> ibl_brdf_fb;
+    } candidates{};
 
     FBufferDesc fb{};
-    fb.size = CBSize<FrameCBLayout>();
+    fb.size = CBSize<FFrameCBLayout>();
     fb.usage = EBufferUsage::Uniform;
     fb.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, fb); r.IsErr())
         return Err<void>(r.Error());
-    else m_FrameCb = Move(r.Value());
+    else candidates.frame_cb = Move(r.Value());
 
     // object CB はリング (kObjRing 本) を確保し、SetObject ごとに別バッファを使う。
     for (u32 i = 0; i < kObjRing; ++i) {
         FBufferDesc ob{};
-        ob.size = CBSize<ObjectCBLayout>();
+        ob.size = CBSize<FObjectCbLayout>();
         ob.usage = EBufferUsage::Uniform;
         ob.cpu_writable = true;
         if (auto r = CreateRhiBuffer(device, ob); r.IsErr())
             return Err<void>(r.Error());
-        else m_ObjectCbs[i] = Move(r.Value());
+        else candidates.object_cbs[i] = Move(r.Value());
     }
-    m_ObjRingIdx = 0;
 
     // 1x1 白テクスチャ (albedo fallback)
     const u8 white[4] = {255, 255, 255, 255};
@@ -1190,7 +2011,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     td.initial_data = white; td.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, td); r.IsErr())
         return Err<void>(r.Error());
-    else m_White = Move(r.Value());
+    else candidates.white = Move(r.Value());
 
     // Shadow map fallback: 1x1 RGBA8 全 255 (.r=1.0 = far、shadow_params.y=0 で
     // shader 側が早期 return するので実際には sample されない。SRB の有効 binding 要件用)。
@@ -1201,7 +2022,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     sd.initial_data = far_depth; sd.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, sd); r.IsErr())
         return Err<void>(r.Error());
-    else m_ShadowFb = Move(r.Value());
+    else candidates.shadow_fb = Move(r.Value());
 
     // Normal map fallback: 1x1 RGBA8 (128,128,255,0) = tangent (0,0,1) → 無変化
     const u8 flat_nrm[4] = { 128, 128, 255, 0 };
@@ -1211,7 +2032,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     nt.initial_data = flat_nrm; nt.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, nt); r.IsErr())
         return Err<void>(r.Error());
-    else m_NormalMapFb = Move(r.Value());
+    else candidates.normal_map_fb = Move(r.Value());
 
     // SSAO fallback: 1x1 全 255 = visibility 1.0 (AO 無し)。ssao_params.x=0 でも
     // SRB に valid texture を bind する要件のため作成しておく。
@@ -1222,7 +2043,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     st.initial_data = full_vis; st.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, st); r.IsErr())
         return Err<void>(r.Error());
-    else m_SsaoFb = Move(r.Value());
+    else candidates.ssao_fb = Move(r.Value());
 
     // SSGI fallback: 1x1 R11G11B10F、初期値 0 (indirect light なし)。SRB binding 用。
     // initial_data 経路は R11G11B10F でサポート無いので、blank RT として作る。
@@ -1233,7 +2054,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     gt.is_render_target = true;     // RT 兼用にすると SRV が自動で付く
     if (auto r = CreateRhiTexture(device, gt); r.IsErr())
         return Err<void>(r.Error());
-    else m_SsgiFb = Move(r.Value());
+    else candidates.ssgi_fb = Move(r.Value());
 
     // Lightmap fallback: 1x1 RGBA8 全 0 (baked light なし)。
     // lightmap_params.x=0 で shader が早期 return するので unused。
@@ -1244,7 +2065,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     lt.initial_data = zero_rgba; lt.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, lt); r.IsErr())
         return Err<void>(r.Error());
-    else m_LightmapFb = Move(r.Value());
+    else candidates.lightmap_fb = Move(r.Value());
 
     // SSR fallback: 1x1 RGBA8 全 0 (.a=0 → hit mask 0 = 反射なし)。
     // ssr_params.x=0 で shader が早期 return するので unused だが SRB binding 用。
@@ -1254,16 +2075,17 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     rt.initial_data = zero_rgba; rt.initial_data_size = 4;
     if (auto r = CreateRhiTexture(device, rt); r.IsErr())
         return Err<void>(r.Error());
-    else m_SsrFb = Move(r.Value());
+    else candidates.ssr_fb = Move(r.Value());
 
-    // Aerial perspective fallback: 1x1x1 RGBA16F (in-scatter 0 / opacity 0)。ap_params.x=0 で
-    // shader が sample しないが、SRB に valid な Texture3D を bind する必要があるので作る。
+    // Aerial perspective fallback: 1x1x2 RGBA16F。RHI は depth > 1 のときだけ
+    // Texture3D を作るため depth=1 では Texture2D SRV になり、Diligent の
+    // Texture3D ap_volume binding validation に失敗する。ap_params.x=0 なので内容は未参照。
     FTextureDesc apt{};
-    apt.width = 1; apt.height = 1; apt.depth = 1;
+    apt.width = 1; apt.height = 1; apt.depth = 2;
     apt.format = EFormat::R16G16B16A16_Float;
     if (auto r = CreateRhiTexture(device, apt); r.IsErr())
         return Err<void>(r.Error());
-    else m_ApFb = Move(r.Value());
+    else candidates.ap_fb = Move(r.Value());
 
     // IBL fallback: 1x1x6 R11G11B10F cubemap + 1x1 RG16F 2D。
     // shader が ibl_enabled=0 で uniform branch して sample しない想定だが、
@@ -1276,21 +2098,21 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     ic.is_cubemap = true;
     if (auto r = CreateRhiTexture(device, ic); r.IsErr())
         return Err<void>(r.Error());
-    else m_IblIrradianceFb = Move(r.Value());
+    else candidates.ibl_irradiance_fb = Move(r.Value());
     if (auto r = CreateRhiTexture(device, ic); r.IsErr())
         return Err<void>(r.Error());
-    else m_IblPrefilterFb = Move(r.Value());
+    else candidates.ibl_prefilter_fb = Move(r.Value());
 
     FTextureDesc bt{};
     bt.width = 1; bt.height = 1;
     bt.format = EFormat::R16G16_Float;
     if (auto r = CreateRhiTexture(device, bt); r.IsErr())
         return Err<void>(r.Error());
-    else m_IblBrdfFb = Move(r.Value());
+    else candidates.ibl_brdf_fb = Move(r.Value());
 
     FPipelineDesc pd{};
-    pd.vs = m_Vs.Get();
-    pd.ps = m_Ps.Get();
+    pd.vs = shaders.vertex.Get();
+    pd.ps = shaders.pixel.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
     pd.depth_format  = depth_format;
@@ -1298,7 +2120,7 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     pd.depth_write   = true;
     pd.cull_mode     = cull_mode;
     pd.cbuffer_slots = 2;     // b0=Frame, b1=Object
-    pd.texture_slots = 11;    // t0=albedo .. t9=ssr_color, t10=ap_volume
+    pd.texture_slots = 15;    // t0..t10 frame inputs, t11..t14 expressions
     pd.cbuffer_names[0] = "Frame";
     pd.cbuffer_names[1] = "Object";
     pd.texture_names[0] = "albedo";
@@ -1312,7 +2134,11 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     pd.texture_names[8] = "lightmap";
     pd.texture_names[9] = "ssr_color";
     pd.texture_names[10] = "ap_volume";
-    pd.static_sampler_count = 11;
+    pd.texture_names[11] = "expression_texture0";
+    pd.texture_names[12] = "expression_texture1";
+    pd.texture_names[13] = "expression_texture2";
+    pd.texture_names[14] = "expression_texture3";
+    pd.static_sampler_count = 15;
     pd.static_samplers[0].filter    = ESamplerFilter::Linear;
     pd.static_samplers[0].address_u = ESamplerAddress::Wrap;
     pd.static_samplers[0].address_v = ESamplerAddress::Wrap;
@@ -1351,7 +2177,15 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     pd.static_samplers[10].address_u = ESamplerAddress::Clamp;
     pd.static_samplers[10].address_v = ESamplerAddress::Clamp;
     pd.static_samplers[10].address_w = ESamplerAddress::Clamp;
-    pd.vertex_stride = sizeof(MeshVertex);
+    // Expression samplers are linear-wrap. ClampU/V is implemented exactly
+    // in shader coordinates and point filtering uses Texture2D.Load.
+    for (u32 i = 11u; i < 15u; ++i) {
+        pd.static_samplers[i].filter = ESamplerFilter::Linear;
+        pd.static_samplers[i].address_u = ESamplerAddress::Wrap;
+        pd.static_samplers[i].address_v = ESamplerAddress::Wrap;
+        pd.static_samplers[i].address_w = ESamplerAddress::Wrap;
+    }
+    pd.vertex_stride = sizeof(FMeshVertex);
     // MeshVertex の FVec3 は alignas(16) で 16 バイト境界。
     // → position@0, normal@16, uv@32 (Standard と一致)。
     // 12/24 にしてしまうと normal が position パディング + normal の途中を読んで
@@ -1362,13 +2196,76 @@ TResult<void> FPbrShader::Init(IRhiDevice& device, EFormat rt_format, EFormat de
     pd.layout_count = 3;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr())
         return Err<void>(r.Error());
-    else m_Pipeline = Move(r.Value());
+    else candidates.pipeline = Move(r.Value());
+
+    const bool device_changed =
+        m_ResourceDevice != nullptr && m_ResourceDevice != &device;
+
+    // Commit cannot fail.  Release the old PSO before its shaders/resources,
+    // then publish the replacement PSO last so no live state can be observed
+    // with mismatched dependencies.
+    m_Pipeline.Reset();
+    m_Vs = Move(shaders.vertex);
+    m_Ps = Move(shaders.pixel);
+    m_FrameCb = Move(candidates.frame_cb);
+    for (u32 i = 0; i < kObjRing; ++i) {
+        m_ObjectCbs[i] = Move(candidates.object_cbs[i]);
+    }
+    m_White = Move(candidates.white);
+    m_ShadowFb = Move(candidates.shadow_fb);
+    m_NormalMapFb = Move(candidates.normal_map_fb);
+    m_SsaoFb = Move(candidates.ssao_fb);
+    m_SsgiFb = Move(candidates.ssgi_fb);
+    m_LightmapFb = Move(candidates.lightmap_fb);
+    m_SsrFb = Move(candidates.ssr_fb);
+    m_ApFb = Move(candidates.ap_fb);
+    m_IblIrradianceFb = Move(candidates.ibl_irradiance_fb);
+    m_IblPrefilterFb = Move(candidates.ibl_prefilter_fb);
+    m_IblBrdfFb = Move(candidates.ibl_brdf_fb);
+    m_Pipeline = Move(candidates.pipeline);
+    m_ObjRingCursor = 0;
+    m_CurrentObjCb = 0; // legacy manual bind path may query before its first SetObject
+
+    // Non-owning texture bindings cannot cross RHI devices.  Preserve them for
+    // a same-device PSO rebuild, but neutralize every dependent enable value
+    // when the resource device changes so fallback textures remain harmless.
+    if (device_changed) {
+        m_IblIrradiance = nullptr;
+        m_IblPrefilter = nullptr;
+        m_IblBrdf = nullptr;
+        m_IblMips = 0;
+        m_IblEnabled = false;
+        m_NormalMap = nullptr;
+        m_NormalMapStrength = 1.0f;
+        m_ShadowDepth = nullptr;
+        m_ShadowParams.y = 0.0f;
+        m_SsaoTex = nullptr;
+        m_SsaoIntensity = 0.0f;
+        m_SsaoInvW = 0.0f;
+        m_SsaoInvH = 0.0f;
+        m_SsgiTex = nullptr;
+        m_SsgiIntensity = 0.0f;
+        m_LightmapTex = nullptr;
+        m_LightmapIntensity = 0.0f;
+        m_SsrTex = nullptr;
+        m_SsrIntensity = 0.0f;
+        m_ApVol = nullptr;
+        m_ApParams = FVec4{0, 0, 0, 0};
+        m_SubstrateExpressionTextureMask = 0u;
+        for (u32 slot = 0u;
+             slot < kShaderExpressionMaxTextureSlots;
+             ++slot) {
+            m_SubstrateExpressionTextures[slot] = nullptr;
+        }
+    }
+    m_ResourceDevice = &device;
 
     return Ok();
 }
 
 /** 全 GPU リソースと参照ポインタを解放する。 */
 void FPbrShader::Shutdown() noexcept {
+    ClearSubstrateSurface();
     m_Pipeline.Reset();
     for (u32 i = 0; i < kObjRing; ++i) m_ObjectCbs[i].Reset();
     m_FrameCb.Reset();
@@ -1376,26 +2273,39 @@ void FPbrShader::Shutdown() noexcept {
     m_ShadowDepth = nullptr;
     m_NormalMapFb.Reset();
     m_NormalMap = nullptr;
+    m_NormalMapStrength = 1.0f;
     m_SsaoFb.Reset();
     m_SsaoTex = nullptr;
+    m_SsaoIntensity = 0.0f;
+    m_SsaoInvW = 0.0f;
+    m_SsaoInvH = 0.0f;
     m_SsgiFb.Reset();
     m_SsgiTex = nullptr;
+    m_SsgiIntensity = 0.0f;
     m_LightmapFb.Reset();
     m_LightmapTex = nullptr;
+    m_LightmapIntensity = 0.0f;
     m_SsrFb.Reset();
     m_SsrTex = nullptr;
+    m_SsrIntensity = 0.0f;
     m_ApFb.Reset();
+    m_ApVol = nullptr;
+    m_ApParams = FVec4{0, 0, 0, 0};
     m_IblBrdfFb.Reset();
     m_IblPrefilterFb.Reset();
     m_IblIrradianceFb.Reset();
     m_White.Reset();
     m_Ps.Reset();
     m_Vs.Reset();
+    m_ResourceDevice = nullptr;
     m_IblIrradiance = nullptr;
     m_IblPrefilter  = nullptr;
     m_IblBrdf       = nullptr;
     m_IblMips       = 0;
     m_IblEnabled    = false;
+    m_ShadowParams.y = 0.0f;
+    m_ObjRingCursor = 0;
+    m_CurrentObjCb  = kObjRing;
 }
 
 /** IBL テクスチャを記録し、3 つ揃っていれば IBL ambient を有効化する。 */
@@ -1412,15 +2322,26 @@ void FPbrShader::SetIbl(IRhiTexture* irradiance,
     FlushFrameCB();
 }
 
-/** fog の色・密度・高さパラメータを記録して frame CB を更新する。 */
+/** 従来 ABI を保ちつつ、高品質 fog の標準位相値を適用する。 */
 void FPbrShader::SetFog(FVec3 color, f32 density, f32 height_falloff, f32 height_base) noexcept {
+    SetFog(color, density, height_falloff, height_base, 0.35f, 0.18f);
+}
+
+/** fog の色・密度・高さ・位相パラメータを記録して frame CB を更新する。 */
+void FPbrShader::SetFog(FVec3 color, f32 density, f32 height_falloff, f32 height_base,
+                        f32 anisotropy, f32 sun_scatter) noexcept {
+    if (density < 0.0f) density = 0.0f;
+    if (height_falloff < 0.0f) height_falloff = 0.0f;
+    if (anisotropy < -0.85f) anisotropy = -0.85f;
+    if (anisotropy >  0.85f) anisotropy =  0.85f;
+    if (sun_scatter < 0.0f) sun_scatter = 0.0f;
     m_FogColorDensity = FVec4{color.x, color.y, color.z, density};
-    m_FogHeightParams = FVec4{height_falloff, height_base, 0, 0};
+    m_FogHeightParams = FVec4{height_falloff, height_base, anisotropy, sun_scatter};
     FlushFrameCB();
 }
 
 /** probe grid (位置 + SH9) を最大 4 個記録し、残りを 0 埋めして frame CB を更新する。 */
-void FPbrShader::SetProbeGrid(const LightProbe* probes, u32 count) noexcept {
+void FPbrShader::SetProbeGrid(const FLightProbe* probes, u32 count) noexcept {
     if (count > 4) count = 4;
     m_ProbeCount = count;
     for (u32 i = 0; i < count; ++i) {
@@ -1501,11 +2422,25 @@ void FPbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
     } else if (m_ApFb) {
         cmd.SetTexture(10, *m_ApFb);
     }
+    for (u32 slot = 0u;
+         slot < kShaderExpressionMaxTextureSlots;
+         ++slot) {
+        IRhiTexture* texture = m_SubstrateExpressionTextures[slot];
+        if (texture != nullptr) {
+            cmd.SetTexture(11u + slot, *texture);
+        } else if (m_White) {
+            cmd.SetTexture(11u + slot, *m_White);
+        }
+    }
 }
 
 /** normal map テクスチャ参照を差し替える。 */
-void FPbrShader::SetNormalMap(IRhiTexture* tex) noexcept {
+void FPbrShader::SetNormalMap(IRhiTexture* tex, f32 strength) noexcept {
     m_NormalMap = tex;
+    m_NormalMapStrength =
+        !std::isfinite(strength) ? 1.0f :
+        (strength < 0.0f ? 0.0f :
+         (strength > 4.0f ? 4.0f : strength));
 }
 
 /** SSAO テクスチャ・強度・viewport inv size を記録して frame CB を更新する。 */
@@ -1556,7 +2491,7 @@ void FPbrShader::SetShadowMap(IRhiTexture* depth, const FMat4& light_vp,
     for (u32 c = 0; c < kMaxShadowCascades; ++c) m_ShadowViewProj[c] = light_vp;
     m_ShadowParams     = FVec4{bias, depth ? 1.0f : 0.0f, texel_size, filter_radius};
     m_CascadeSplits    = FVec4{1e30f, 1e30f, 1e30f, 1e30f};
-    m_CascadeUvScale  = FVec4{1.0f, 1.0f, 0, 0};
+    m_CascadeUvScale  = FVec4{1.0f, 1.0f, 1.0f, 0};
     FlushFrameCB();
 }
 
@@ -1583,7 +2518,7 @@ void FPbrShader::SetShadowMapCascades(IRhiTexture* depth,
     m_ShadowParams    = FVec4{bias, depth ? 1.0f : 0.0f, texel_size, filter_radius};
     // atlas X scale = 1 / cascade_count (single mode は cascade_count=1 で 1)
     const f32 scale_x = 1.0f / static_cast<f32>(cascade_count);
-    m_CascadeUvScale = FVec4{scale_x, 1.0f, 0, 0};
+    m_CascadeUvScale = FVec4{scale_x, 1.0f, static_cast<f32>(cascade_count), 0};
     FlushFrameCB();
 }
 
@@ -1594,7 +2529,8 @@ void FPbrShader::SetLights(const FMat4& vp, FVec3 eye,
     m_Vp = vp;
     m_Eye = eye;
     m_Ambient = ambient;
-    m_ObjRingIdx = kObjRing - 1;   // フレーム頭でリングをリセット (最初の SetObject が slot 0 を使う)
+    m_ObjRingCursor = 0;
+    m_CurrentObjCb = 0; // keep PerObjectCB bindable until the first object consumes slot 0
     if (count > kMaxDirLights) count = kMaxDirLights;
     m_DirCount = count;
     for (u32 i = 0; i < count; ++i) m_DirLights[i] = lights[i];
@@ -1602,7 +2538,7 @@ void FPbrShader::SetLights(const FMat4& vp, FVec3 eye,
 }
 
 /** 点光源を記録して frame CB を更新する。 */
-void FPbrShader::SetPointLights(const PointLight* lights, u32 count) noexcept {
+void FPbrShader::SetPointLights(const FPointLight* lights, u32 count) noexcept {
     if (count > kMaxPointLights) count = kMaxPointLights;
     m_PointCount = count;
     for (u32 i = 0; i < count; ++i) m_PointLights[i] = lights[i];
@@ -1610,7 +2546,7 @@ void FPbrShader::SetPointLights(const PointLight* lights, u32 count) noexcept {
 }
 
 /** 矩形 area light を記録して frame CB を更新する。 */
-void FPbrShader::SetAreaLights(const AreaLight* lights, u32 count) noexcept {
+void FPbrShader::SetAreaLights(const FAreaLight* lights, u32 count) noexcept {
     if (count > kMaxAreaLights) count = kMaxAreaLights;
     m_AreaCount = count;
     for (u32 i = 0; i < count; ++i) m_AreaLights[i] = lights[i];
@@ -1620,7 +2556,7 @@ void FPbrShader::SetAreaLights(const AreaLight* lights, u32 count) noexcept {
 /** 全 member 値から FrameCBLayout を構築して frame CB に書き込む。 */
 void FPbrShader::FlushFrameCB() noexcept {
     if (!m_FrameCb) return;
-    FrameCBLayout cb{};
+    FFrameCBLayout cb{};
     cb.view_proj  = m_Vp;
     cb.camera_pos = FVec4{m_Eye.x, m_Eye.y, m_Eye.z, 1.0f};
     cb.ambient    = FVec4{m_Ambient.x, m_Ambient.y, m_Ambient.z, static_cast<f32>(m_DirCount)};
@@ -1638,7 +2574,7 @@ void FPbrShader::FlushFrameCB() noexcept {
         cb.point_color[i]     = FVec4{c.x, c.y, c.z, 1};
     }
     for (u32 i = 0; i < m_AreaCount; ++i) {
-        const AreaLight& a = m_AreaLights[i];
+        const FAreaLight& a = m_AreaLights[i];
         cb.area_center[i] = FVec4{a.center.x, a.center.y, a.center.z, 0};
         cb.area_axis_x[i] = FVec4{a.axis_x.x, a.axis_x.y, a.axis_x.z, 0};
         cb.area_axis_y[i] = FVec4{a.axis_y.x, a.axis_y.y, a.axis_y.z, 0};
@@ -1689,12 +2625,41 @@ void FPbrShader::FlushFrameCB() noexcept {
 /** model と PBR/拡張パラメータから ObjectCBLayout を構築して object CB に書き込む。 */
 void FPbrShader::SetObject(const FMat4& model, FVec3 base_color,
                           f32 metallic, f32 roughness, f32 ao) noexcept {
-    m_ObjRingIdx = (m_ObjRingIdx + 1) % kObjRing;   // 次のリングバッファ (per-object 分離)
-    if (!m_ObjectCbs[m_ObjRingIdx]) return;
-    ObjectCBLayout cb{};
+    if (m_ObjRingCursor >= kObjRing) {
+        if (m_ObjRingCursor == kObjRing) {
+            ACS_LOG_WARN("FPbrShader: per-frame object limit (%u) exceeded; "
+                         "remaining PBR draws are skipped", kObjRing);
+            ++m_ObjRingCursor;
+        }
+        m_CurrentObjCb = kObjRing;
+        return;
+    }
+    m_CurrentObjCb = m_ObjRingCursor++;
+    IRhiBuffer* object_cb = m_ObjectCbs[m_CurrentObjCb].Get();
+    if (!object_cb) {
+        m_CurrentObjCb = kObjRing;
+        return;
+    }
+    FObjectCbLayout cb{};
     cb.model = model;
-    cb.base_color = FVec4{base_color.x, base_color.y, base_color.z, 1.0f};
-    cb.pbr_params = FVec4{metallic, roughness, ao, 0};
+    const FMat4 normal_matrix = MakeSafeNormalMatrix(model);
+    cb.normal_row0 = FVec4{normal_matrix.m[0][0], normal_matrix.m[0][1],
+                           normal_matrix.m[0][2], 0};
+    cb.normal_row1 = FVec4{normal_matrix.m[1][0], normal_matrix.m[1][1],
+                           normal_matrix.m[1][2], 0};
+    cb.normal_row2 = FVec4{normal_matrix.m[2][0], normal_matrix.m[2][1],
+                           normal_matrix.m[2][2], 0};
+    const bool substrate_enabled = m_SubstrateSecondary.w > 0.5f;
+    cb.base_color = substrate_enabled
+        ? m_SubstrateDiffuseCoverage
+        : FVec4{base_color.x, base_color.y, base_color.z, 1.0f};
+    cb.pbr_params = FVec4{
+        substrate_enabled ? 0.0f : metallic,
+        roughness,
+        ao,
+        m_NormalMap != nullptr
+            ? m_NormalMapStrength
+            : 0.0f};
     cb.ext_params    = m_ExtParams;
     cb.aniso_tangent = m_AnisoTangent;
     cb.emissive      = m_Emissive;
@@ -1702,7 +2667,52 @@ void FPbrShader::SetObject(const FMat4& model, FVec3 base_color,
     cb.sheen_rough   = m_SheenRough;
     cb.irid_params   = m_IridParams;
     cb.sss_params    = m_SssParams;
-    m_ObjectCbs[m_ObjRingIdx]->Update(&cb, sizeof(cb));
+    cb.substrate_f0 = m_SubstrateF0;
+    cb.substrate_f90 = m_SubstrateF90;
+    cb.substrate_diffuse_coverage = m_SubstrateDiffuseCoverage;
+    cb.substrate_secondary = m_SubstrateSecondary;
+    cb.substrate_mfp_thickness = m_SubstrateMfpThickness;
+    cb.substrate_transmittance = m_SubstrateTransmittance;
+    cb.substrate_normal = m_SubstrateNormal;
+    cb.substrate_coat_f0 = m_SubstrateCoatF0;
+    if (m_SubstrateExpressionInstructionCount > 0u) {
+        std::memcpy(
+            cb.substrate_expr_instructions,
+            m_SubstrateExpressionInstructions,
+            sizeof(FShaderExpressionInstruction) *
+                m_SubstrateExpressionInstructionCount);
+    }
+    if (m_SubstrateExpressionBindingCount > 0u) {
+        std::memcpy(
+            cb.substrate_expr_bindings,
+            m_SubstrateExpressionBindings,
+            sizeof(FSubstrateExpressionBinding) *
+                m_SubstrateExpressionBindingCount);
+    }
+    for (u32 i = 0u;
+         i < m_SubstrateExpressionParameterCount;
+         ++i) {
+        cb.substrate_expr_parameter_meta[i][0] =
+            m_SubstrateExpressionParameters[i].id;
+        cb.substrate_expr_parameter_meta[i][1] = static_cast<u32>(
+            m_SubstrateExpressionParameters[i].type);
+        cb.substrate_expr_parameter_values[i] = FVec4{
+            m_SubstrateExpressionParameters[i].value.x,
+            m_SubstrateExpressionParameters[i].value.y,
+            m_SubstrateExpressionParameters[i].value.z,
+            m_SubstrateExpressionParameters[i].value.w};
+    }
+    cb.substrate_expr_meta[0] =
+        m_SubstrateExpressionInstructionCount;
+    cb.substrate_expr_meta[1] =
+        m_SubstrateExpressionBindingCount;
+    cb.substrate_expr_meta[2] =
+        m_SubstrateExpressionParameterCount;
+    cb.substrate_expr_meta[3] =
+        m_SubstrateExpressionTextureMask;
+    cb.substrate_expr_context =
+        FVec4{m_SubstrateExpressionTime, 0, 0, 0};
+    object_cb->Update(&cb, sizeof(cb));
 }
 
 /** clearcoat/anisotropy パラメータを member に格納する (次の SetObject で反映)。 */
@@ -1753,15 +2763,195 @@ void FPbrShader::SetSubsurface(FVec3 sss_color, f32 weight) noexcept {
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
+void FPbrShader::SetSubstrateSurface(
+    const FSubstrateResolvedSurface& surface) noexcept {
+    // SetSubstrateSurface is also a public static-surface path.  It must not
+    // inherit the previous material's per-pixel program or texture bindings.
+    // SetSubstrateMaterial calls this first and installs its freshly compiled
+    // program immediately afterwards.
+    m_SubstrateExpressionInstructionCount = 0u;
+    m_SubstrateExpressionBindingCount = 0u;
+    m_SubstrateExpressionParameterCount = 0u;
+    m_SubstrateExpressionTextureMask = 0u;
+    m_SubstrateExpressionTime = 0.0f;
+    for (u32 slot = 0u;
+         slot < kShaderExpressionMaxTextureSlots;
+         ++slot) {
+        m_SubstrateExpressionTextures[slot] = nullptr;
+    }
+    auto sat = [](f32 v) noexcept {
+        return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+    };
+    m_SubstrateF0 = FVec4{sat(surface.f0.x), sat(surface.f0.y),
+                          sat(surface.f0.z), 0};
+    m_SubstrateF90 = FVec4{sat(surface.f90.x), sat(surface.f90.y),
+                           sat(surface.f90.z), 0};
+    m_SubstrateDiffuseCoverage = FVec4{
+        sat(surface.diffuse_albedo.x), sat(surface.diffuse_albedo.y),
+        sat(surface.diffuse_albedo.z), sat(surface.coverage)};
+    m_SubstrateSecondary = FVec4{
+        sat(surface.second_roughness), sat(surface.second_roughness_weight),
+        surface.phase_anisotropy < -0.99f ? -0.99f :
+            (surface.phase_anisotropy > 0.99f ? 0.99f : surface.phase_anisotropy),
+        1.0f};
+    m_SubstrateMfpThickness = FVec4{
+        surface.mean_free_path_cm.x < 0 ? 0 : surface.mean_free_path_cm.x,
+        surface.mean_free_path_cm.y < 0 ? 0 : surface.mean_free_path_cm.y,
+        surface.mean_free_path_cm.z < 0 ? 0 : surface.mean_free_path_cm.z,
+        surface.thickness_cm < 0 ? 0 : surface.thickness_cm};
+    m_SubstrateTransmittance = FVec4{
+        sat(surface.transmittance.x), sat(surface.transmittance.y),
+        sat(surface.transmittance.z), sat(surface.coverage)};
+    m_SubstrateNormal = FVec4{surface.normal.x, surface.normal.y, surface.normal.z,
+                              surface.normal_strength < 0 ? 0 :
+                              (surface.normal_strength > 4 ? 4 : surface.normal_strength)};
+    m_ExtParams = FVec4{sat(surface.coat_weight), sat(surface.coat_roughness),
+                        surface.anisotropy, 0};
+    m_SubstrateCoatF0 = FVec4{sat(surface.coat_f0.x), sat(surface.coat_f0.y),
+                              sat(surface.coat_f0.z), 0};
+    m_AnisoTangent = FVec4{surface.tangent.x, surface.tangent.y, surface.tangent.z, 0};
+    m_Emissive = FVec4{surface.emissive.x, surface.emissive.y, surface.emissive.z, 0};
+    m_SheenParams = FVec4{sat(surface.fuzz_color.x), sat(surface.fuzz_color.y),
+                          sat(surface.fuzz_color.z), sat(surface.fuzz_amount)};
+    m_SheenRough = FVec4{sat(surface.fuzz_roughness), 0, 0, 0};
+    m_IridParams = FVec4{sat(surface.thin_film_weight),
+                         surface.thin_film_thickness_nm < 0
+                             ? 0 : surface.thin_film_thickness_nm,
+                         surface.thin_film_ior < 1 ? 1 : surface.thin_film_ior, 0};
+    const f32 max_mfp = surface.mean_free_path_cm.x > surface.mean_free_path_cm.y
+        ? (surface.mean_free_path_cm.x > surface.mean_free_path_cm.z
+            ? surface.mean_free_path_cm.x : surface.mean_free_path_cm.z)
+        : (surface.mean_free_path_cm.y > surface.mean_free_path_cm.z
+            ? surface.mean_free_path_cm.y : surface.mean_free_path_cm.z);
+    const f32 sss_weight = sat(max_mfp);
+    m_SssParams = FVec4{sat(surface.diffuse_albedo.x), sat(surface.diffuse_albedo.y),
+                        sat(surface.diffuse_albedo.z), sss_weight};
+}
+
+bool FPbrShader::SetSubstrateMaterial(
+    const FSubstrateMaterial& material,
+    f32 time_seconds) noexcept {
+    FSubstrateResolvedSurface surface{};
+    if (!material.enabled ||
+        !ResolveSubstrateMaterial(material, surface, nullptr)) {
+        ClearSubstrateSurface();
+        return false;
+    }
+    const FSubstrateExpressionLinkResult linked =
+        CompileSubstrateExpressionLinks(material);
+    if (!linked.Succeeded() ||
+        linked.binding_count > kSubstrateSlabScalarCount) {
+        ClearSubstrateSurface();
+        return false;
+    }
+
+    SetSubstrateSurface(surface);
+    m_SubstrateExpressionInstructionCount = 0u;
+    m_SubstrateExpressionBindingCount = 0u;
+    m_SubstrateExpressionParameterCount = 0u;
+    m_SubstrateExpressionTextureMask = 0u;
+    for (u32 slot = 0u;
+         slot < kShaderExpressionMaxTextureSlots;
+         ++slot) {
+        m_SubstrateExpressionTextures[slot] = nullptr;
+    }
+    m_SubstrateExpressionTime =
+        std::isfinite(time_seconds) ? time_seconds : 0.0f;
+
+    // An authored but unreferenced expression graph has zero per-pixel cost.
+    if (linked.binding_count == 0u) return true;
+    if (linked.expression_program.instruction_count == 0u ||
+        linked.expression_program.instruction_count >
+            kShaderExpressionMaxNodes) {
+        ClearSubstrateSurface();
+        return false;
+    }
+    m_SubstrateExpressionInstructionCount =
+        linked.expression_program.instruction_count;
+    m_SubstrateExpressionBindingCount = linked.binding_count;
+    std::memcpy(
+        m_SubstrateExpressionInstructions,
+        linked.expression_program.instructions,
+        sizeof(FShaderExpressionInstruction) *
+            m_SubstrateExpressionInstructionCount);
+    std::memcpy(
+        m_SubstrateExpressionBindings,
+        linked.bindings,
+        sizeof(FSubstrateExpressionBinding) *
+            m_SubstrateExpressionBindingCount);
+    return true;
+}
+
+void FPbrShader::SetSubstrateExpressionParameters(
+    const FShaderExpressionParameter* parameters,
+    u32 count) noexcept {
+    m_SubstrateExpressionParameterCount = 0u;
+    if (parameters == nullptr) return;
+    if (count > kShaderExpressionMaxParameters) {
+        count = kShaderExpressionMaxParameters;
+    }
+    for (u32 i = 0u; i < count; ++i) {
+        const FShaderExpressionParameter& source = parameters[i];
+        const u32 width = static_cast<u32>(source.type);
+        if (width < 1u || width > 4u ||
+            !std::isfinite(source.value.x) ||
+            !std::isfinite(source.value.y) ||
+            !std::isfinite(source.value.z) ||
+            !std::isfinite(source.value.w)) {
+            continue;
+        }
+        FShaderExpressionParameter& destination =
+            m_SubstrateExpressionParameters[
+                m_SubstrateExpressionParameterCount++];
+        destination = source;
+        if (width < 4u) destination.value.w = 0.0f;
+        if (width < 3u) destination.value.z = 0.0f;
+        if (width < 2u) destination.value.y = 0.0f;
+    }
+}
+
+void FPbrShader::SetSubstrateExpressionTime(f32 time_seconds) noexcept {
+    m_SubstrateExpressionTime =
+        std::isfinite(time_seconds) ? time_seconds : 0.0f;
+}
+
+void FPbrShader::SetSubstrateExpressionTexture(
+    u32 slot, IRhiTexture* texture) noexcept {
+    if (slot >= kShaderExpressionMaxTextureSlots) return;
+    m_SubstrateExpressionTextures[slot] = texture;
+    const u32 bit = u32{1} << slot;
+    if (texture != nullptr) {
+        m_SubstrateExpressionTextureMask |= bit;
+    } else {
+        m_SubstrateExpressionTextureMask &= ~bit;
+    }
+}
+
+void FPbrShader::ClearSubstrateSurface() noexcept {
+    m_SubstrateSecondary.w = 0.0f;
+    m_SubstrateExpressionInstructionCount = 0u;
+    m_SubstrateExpressionBindingCount = 0u;
+    m_SubstrateExpressionParameterCount = 0u;
+    m_SubstrateExpressionTextureMask = 0u;
+    m_SubstrateExpressionTime = 0.0f;
+    for (u32 slot = 0u;
+         slot < kShaderExpressionMaxTextureSlots;
+         ++slot) {
+        m_SubstrateExpressionTextures[slot] = nullptr;
+    }
+}
+
 /** SetObject + パイプライン/CB/テクスチャ/VB/IB bind + DrawIndexed をまとめて発行する。 */
-void FPbrShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const FMat4& model,
+void FPbrShader::DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model,
                         FVec3 base_color, f32 metallic, f32 roughness, f32 ao,
                         IRhiTexture* albedo) noexcept {
     if (!m_Pipeline || !m_FrameCb || !m_ObjectCbs[0]) return;
     SetObject(model, base_color, metallic, roughness, ao);   // リングを次へ進め、現在バッファへ書込む
+    IRhiBuffer* object_cb = PerObjectCB();
+    if (!object_cb) return;
     cmd.SetPipeline(*m_Pipeline);
     cmd.SetConstantBuffer(0, *m_FrameCb);
-    cmd.SetConstantBuffer(1, *PerObjectCB());                 // SetObject が書いた «現在» のリングバッファ
+    cmd.SetConstantBuffer(1, *object_cb);                     // SetObject が書いた «現在» のリングバッファ
     cmd.SetTexture(0, *(albedo ? albedo : m_White.Get()));
     BindIblTextures(cmd);
     cmd.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);

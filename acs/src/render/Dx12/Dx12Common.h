@@ -16,7 +16,7 @@ namespace acs {
  *
  * @details DX12 API の HRESULT を持ち回り、既存の TResult との橋渡しに使う軽量型。
  */
-struct HrResult {
+struct FHrResult {
     /** 直近の DX12 呼び出しの HRESULT (既定 S_OK)。 */
     HRESULT hr = S_OK;
 

@@ -7,7 +7,7 @@ namespace acs::game {
 namespace {
 
 /** 範囲外 Get / 初期状態用の空セル (const-ref 返却のため static lifetime)。 */
-const GridCell kEmptyCell{};
+const FGridCell kEmptyCell{};
 
 /**
  * 2 つのセルが 4-近傍で隣接 (横 or 縦に距離 1) しているかを返す。
@@ -43,18 +43,18 @@ void FMatchGrid::Init(u32 width, u32 height, u32 color_count) noexcept {
     m_Cells.Clear();
     m_Cells.Resize(n);   // GridCell は trivially-constructible → 0 埋め (empty=true)
     for (usize i = 0; i < n; ++i) {
-        m_Cells[i] = GridCell{};  // 明示的に既定値 (color=0/special=0/empty=true)
+        m_Cells[i] = FGridCell{};  // 明示的に既定値 (color=0/special=0/empty=true)
     }
 }
 
-const GridCell& FMatchGrid::Get(u32 x, u32 y) const noexcept {
+const FGridCell& FMatchGrid::Get(u32 x, u32 y) const noexcept {
     if (x >= m_Width || y >= m_Height) return kEmptyCell;
     return m_Cells[Idx(x, y)];
 }
 
 void FMatchGrid::Set(u32 x, u32 y, u8 color, ESpecialKind special) noexcept {
     if (x >= m_Width || y >= m_Height) return;
-    GridCell& c = m_Cells[Idx(x, y)];
+    FGridCell& c = m_Cells[Idx(x, y)];
     if (color == 0u) {
         c.color   = 0u;
         c.special = static_cast<u8>(ESpecialKind::Normal);
@@ -68,7 +68,7 @@ void FMatchGrid::Set(u32 x, u32 y, u8 color, ESpecialKind special) noexcept {
 
 void FMatchGrid::ClearAll() noexcept {
     const usize n = m_Cells.Size();
-    for (usize i = 0; i < n; ++i) m_Cells[i] = GridCell{};
+    for (usize i = 0; i < n; ++i) m_Cells[i] = FGridCell{};
 }
 
 void FMatchGrid::ResetChain() noexcept {
@@ -117,7 +117,7 @@ void FMatchGrid::FillRandom(u32 seed) noexcept {
     for (u32 y = 0; y < m_Height; ++y) {
         for (u32 x = 0; x < m_Width; ++x) {
             const u8 c = PickColorAvoidingMatch(x, y, rng);
-            GridCell& cell = m_Cells[Idx(x, y)];
+            FGridCell& cell = m_Cells[Idx(x, y)];
             cell.color   = c;
             cell.special = static_cast<u8>(ESpecialKind::Normal);
             cell.empty   = (c == 0u);
@@ -125,7 +125,7 @@ void FMatchGrid::FillRandom(u32 seed) noexcept {
     }
 }
 
-u32 FMatchGrid::DetectMatches(MatchInfo* out_matches, u32 max_matches) const noexcept {
+u32 FMatchGrid::DetectMatches(FMatchInfo* out_matches, u32 max_matches) const noexcept {
     u32 count = 0;
 
     // 水平 (各行で left→right に同色 run を畳む)
@@ -134,14 +134,14 @@ u32 FMatchGrid::DetectMatches(MatchInfo* out_matches, u32 max_matches) const noe
         u8  run_color = 0;
         u32 run_len   = 0;
         for (u32 x = 0; x < m_Width; ++x) {
-            const GridCell& c = m_Cells[Idx(x, y)];
+            const FGridCell& c = m_Cells[Idx(x, y)];
             const u8 col = c.empty ? 0u : c.color;
             if (col != 0u && col == run_color) {
                 ++run_len;
             } else {
                 if (run_len >= 3u && run_color != 0u) {
                     if (out_matches != nullptr && count < max_matches) {
-                        out_matches[count] = MatchInfo{run_start, y, run_len, true, run_color};
+                        out_matches[count] = FMatchInfo{run_start, y, run_len, true, run_color};
                     }
                     ++count;
                 }
@@ -153,7 +153,7 @@ u32 FMatchGrid::DetectMatches(MatchInfo* out_matches, u32 max_matches) const noe
         // 行末の run を flush
         if (run_len >= 3u && run_color != 0u) {
             if (out_matches != nullptr && count < max_matches) {
-                out_matches[count] = MatchInfo{run_start, y, run_len, true, run_color};
+                out_matches[count] = FMatchInfo{run_start, y, run_len, true, run_color};
             }
             ++count;
         }
@@ -165,14 +165,14 @@ u32 FMatchGrid::DetectMatches(MatchInfo* out_matches, u32 max_matches) const noe
         u8  run_color = 0;
         u32 run_len   = 0;
         for (u32 y = 0; y < m_Height; ++y) {
-            const GridCell& c = m_Cells[Idx(x, y)];
+            const FGridCell& c = m_Cells[Idx(x, y)];
             const u8 col = c.empty ? 0u : c.color;
             if (col != 0u && col == run_color) {
                 ++run_len;
             } else {
                 if (run_len >= 3u && run_color != 0u) {
                     if (out_matches != nullptr && count < max_matches) {
-                        out_matches[count] = MatchInfo{x, run_start, run_len, false, run_color};
+                        out_matches[count] = FMatchInfo{x, run_start, run_len, false, run_color};
                     }
                     ++count;
                 }
@@ -183,7 +183,7 @@ u32 FMatchGrid::DetectMatches(MatchInfo* out_matches, u32 max_matches) const noe
         }
         if (run_len >= 3u && run_color != 0u) {
             if (out_matches != nullptr && count < max_matches) {
-                out_matches[count] = MatchInfo{x, run_start, run_len, false, run_color};
+                out_matches[count] = FMatchInfo{x, run_start, run_len, false, run_color};
             }
             ++count;
         }
@@ -197,13 +197,13 @@ bool FMatchGrid::TrySwap(u32 x1, u32 y1, u32 x2, u32 y2) noexcept {
     if (x2 >= m_Width || y2 >= m_Height) return false;
     if (!IsAdjacent(x1, y1, x2, y2))   return false;
 
-    GridCell& a = m_Cells[Idx(x1, y1)];
-    GridCell& b = m_Cells[Idx(x2, y2)];
+    FGridCell& a = m_Cells[Idx(x1, y1)];
+    FGridCell& b = m_Cells[Idx(x2, y2)];
     // 空 cell は swap 対象外 (落下中とみなす)。
     if (a.empty || b.empty) return false;
 
     // swap
-    GridCell tmp = a;
+    FGridCell tmp = a;
     a = b;
     b = tmp;
 
@@ -211,7 +211,7 @@ bool FMatchGrid::TrySwap(u32 x1, u32 y1, u32 x2, u32 y2) noexcept {
     const u32 cnt = DetectMatches(nullptr, 0u);
     if (cnt == 0u) {
         // 戻す
-        GridCell back = a;
+        FGridCell back = a;
         a = b;
         b = back;
         return false;
@@ -228,7 +228,7 @@ void FMatchGrid::ClearOne(u32 x, u32 y, TArray<u8>& visited) noexcept {
     if (visited[i]) return;
     visited[i] = 1u;
 
-    GridCell& c = m_Cells[i];
+    FGridCell& c = m_Cells[i];
     if (c.empty) return;
 
     const u8 color           = c.color;
@@ -278,7 +278,7 @@ void FMatchGrid::ApplySpecialEffect(u32 x, u32 y, u8 color, ESpecialKind sp,
         if (color == 0u) break;
         for (u32 yy = 0; yy < m_Height; ++yy) {
             for (u32 xx = 0; xx < m_Width; ++xx) {
-                const GridCell& cc = m_Cells[Idx(xx, yy)];
+                const FGridCell& cc = m_Cells[Idx(xx, yy)];
                 if (!cc.empty && cc.color == color) {
                     ClearOne(xx, yy, visited);
                 }
@@ -301,12 +301,12 @@ u32 FMatchGrid::ApplyGravity() noexcept {
         // 上から非空を引き寄せる方式。
         i32 write_y = static_cast<i32>(m_Height) - 1;
         for (i32 read_y = static_cast<i32>(m_Height) - 1; read_y >= 0; --read_y) {
-            GridCell& src = m_Cells[Idx(x, static_cast<u32>(read_y))];
+            FGridCell& src = m_Cells[Idx(x, static_cast<u32>(read_y))];
             if (!src.empty) {
                 if (read_y != write_y) {
-                    GridCell& dst = m_Cells[Idx(x, static_cast<u32>(write_y))];
+                    FGridCell& dst = m_Cells[Idx(x, static_cast<u32>(write_y))];
                     dst = src;
-                    src = GridCell{};  // 空にする
+                    src = FGridCell{};  // 空にする
                     ++moved;
                 }
                 --write_y;
@@ -325,7 +325,7 @@ u32 FMatchGrid::RefillFromTop() noexcept {
     // ここでは「最上段が空なら埋める」だけで十分 (gravity が次サイクルで下に流す)。
     FRandom& rng = FRandom::Global();
     for (u32 x = 0; x < m_Width; ++x) {
-        GridCell& c = m_Cells[Idx(x, 0u)];
+        FGridCell& c = m_Cells[Idx(x, 0u)];
         if (c.empty) {
             c.color   = static_cast<u8>(1u + (rng.NextU32() % m_ColorCount));
             c.special = static_cast<u8>(ESpecialKind::Normal);
@@ -342,7 +342,7 @@ u32 FMatchGrid::ResolveAllMatches() noexcept {
 
     // 一時バッファ: マッチ検出結果 (最大 = 行マッチ + 列マッチ ≒ w+h 個程度)。
     // 余裕を持って w*h を上限にする (実際は遥かに少ない)。
-    TArray<MatchInfo> matches;
+    TArray<FMatchInfo> matches;
     matches.Resize(n);
 
     // visited は ClearOne 再入防止用 (cascade ループ間で reset)。
@@ -362,7 +362,7 @@ u32 FMatchGrid::ResolveAllMatches() noexcept {
 
         // 各マッチ範囲を ClearOne
         for (u32 mi = 0; mi < m && mi < static_cast<u32>(matches.Size()); ++mi) {
-            const MatchInfo& info = matches[mi];
+            const FMatchInfo& info = matches[mi];
             if (info.horizontal) {
                 for (u32 k = 0; k < info.length; ++k) {
                     ClearOne(info.start_x + k, info.start_y, visited);

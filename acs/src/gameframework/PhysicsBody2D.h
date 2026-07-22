@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F — FPhysicsBody2D
+// GameFramework Pillar F — APhysicsBody2D
 //
-// kinematic 物理 body の FComponent2D。velocity + acceleration + gravity を
+// kinematic 物理 body の AComponent。velocity + acceleration + gravity を
 // 統合し、FCollisionWorld2D に登録された他の shape と衝突したら **軸独立で**
 // blocking する (X 軸試行 → overlap なら velocity.x=0 / x 移動キャンセル、
 // 同様に Y 軸)。剛体ソルバではなく「2D プラットフォーマー / トップダウン用の
 // swept kinematic」。
 //
 // 使い方:
-//   auto ball = MakeUnique<FNode2D>();
-//   ball->Local().position = FVec2{0, 5};
-//   auto& body = ball->AddComponent<FPhysicsBody2D>(Services().Physics());
+//   auto ball = NewObject<ANode>();
+//   ball->SetPosition2D(FVec2{0, 5});
+//   auto& body = ball->AddComponent<APhysicsBody2D>(Services().Physics());
 //   body.SetCircle(0.5f);
 //   body.gravity = FVec2{0, 10};   // +Y=画面下: 重力は下向き = 正の Y
 //   body.velocity = FVec2{1, 0};
 //   root.AddChild(Move(ball));
 //
 // 設計選択:
-//   ・**FComponent2D 派生**: AddComponent<FPhysicsBody2D>(world) で attach。
+//   ・**AComponent 派生**: AddComponent<APhysicsBody2D>(world) で attach。
 //     CollisionWorld への参照は constructor で受け取る。
 //   ・**axis-separated movement**: X / Y を独立に試して overlap なら止める。
 //   ・**自己除外**: OverlapAabb/Circle の `exclude` 引数で m_Handle を渡し、
@@ -31,14 +31,14 @@
 #include "math/Vec.h"
 #include "math/Collision2D.h"
 #include "container/Array.h"
-#include "gameframework/Component2D.h"
-#include "gameframework/Node2D.h"
+#include "gameframework/AComponent.h"
+#include "gameframework/ANode.h"
 #include "gameframework/CollisionWorld2D.h"
 
 namespace acs::game {
 
 /**
- * kinematic 物理 body を表す FComponent2D。
+ * kinematic 物理 body を表す AComponent。
  *
  * @details
  * velocity + acceleration + gravity を毎フレーム統合し、FCollisionWorld2D に登録された
@@ -47,16 +47,16 @@ namespace acs::game {
  * ときは X / Y を独立に試して overlap なら軸ごとに止める旧来の軸独立 block。剛体ソルバでは
  * なく 2D プラットフォーマー / トップダウン用の swept kinematic。
  */
-class FPhysicsBody2D : public FComponent2D {
+class APhysicsBody2D : public AComponent {
 public:
-    ACS_GAME_COMPONENT_KIND(FPhysicsBody2D)
+    ACS_GAME_COMPONENT_KIND(APhysicsBody2D)
 
     /**
      * CollisionWorld への参照を受け取って構築する。
      *
      * @param world shape 登録・overlap クエリに使う衝突ワールド (参照を保持)。
      */
-    explicit FPhysicsBody2D(FCollisionWorld2D& world) noexcept : m_World(&world) {}
+    explicit APhysicsBody2D(FCollisionWorld2D& world) noexcept : m_World(&world) {}
 
     /**
      * 形状を円に設定する (再設定で上書き)。
@@ -66,10 +66,10 @@ public:
      * @param radius 円の半径。
      */
     void SetCircle(f32 radius) noexcept {
-        m_Kind = ShapeKind::Circle;
+        m_Kind = EShapeKind::Circle;
         m_Radius = radius > 0.0f ? radius : 0.001f;
         // 既に登録済なら CollisionWorld 側に反映
-        if (HasOwner() && !m_Registered) RegisterShapeAt(Owner().Local().position);
+        if (HasOwner() && !m_Registered) RegisterShapeAt(Owner().Position2D());
         else SyncShapeIfRegistered();
     }
 
@@ -80,9 +80,9 @@ public:
      * @param half_size 矩形の半幅・半高。
      */
     void SetAabb(FVec2 half_size) noexcept {
-        m_Kind = ShapeKind::FAabb;
+        m_Kind = EShapeKind::Aabb;
         m_HalfSize = half_size;
-        if (HasOwner() && !m_Registered) RegisterShapeAt(Owner().Local().position);
+        if (HasOwner() && !m_Registered) RegisterShapeAt(Owner().Position2D());
         else SyncShapeIfRegistered();
     }
 
@@ -93,10 +93,10 @@ public:
      * local 頂点。未登録かつ owner があれば即登録、登録済みなら CollisionWorld 側へ反映する。
      * @param local_poly ボディ原点基準のローカル凸多角形。
      */
-    void SetPolygon(const ConvexPoly2& local_poly) noexcept {
-        m_Kind = ShapeKind::Poly;
+    void SetPolygon(const FConvexPoly2& local_poly) noexcept {
+        m_Kind = EShapeKind::Poly;
         m_LocalPoly = local_poly;
-        if (HasOwner() && !m_Registered) RegisterShapeAt(Owner().Local().position);
+        if (HasOwner() && !m_Registered) RegisterShapeAt(Owner().Position2D());
         else SyncShapeIfRegistered();
     }
 
@@ -108,7 +108,7 @@ public:
      * @param rotation 回転角 (ラジアン)。
      */
     void SetObb(FVec2 half_size, f32 rotation) noexcept {
-        SetPolygon(ToPoly(Obb2{FVec2{0.0f, 0.0f}, half_size, rotation}));
+        SetPolygon(ToPoly(FObb2{FVec2{0.0f, 0.0f}, half_size, rotation}));
     }
 
     /** collide-and-slide を使うか (既定 true)。false で旧来の軸独立 block。 */
@@ -135,7 +135,7 @@ public:
      *
      * @param owner この body を所有するノード。
      */
-    void OnAttach(FNode2D& owner) noexcept override;
+    void OnAttach(ANode& owner) noexcept override;
 
     /**
      * 毎フレーム速度を統合して owner の位置を更新する。
@@ -149,7 +149,7 @@ public:
 
 private:
     /** body の形状種別。 */
-    enum class ShapeKind : u8 { None = 0, Circle, FAabb, Poly };
+    enum class EShapeKind : u8 { None = 0, Circle, Aabb, Poly };
 
     /**
      * 指定位置に shape を置いたとき他 shape と overlap するかを返す。
@@ -175,13 +175,13 @@ private:
      * @param pos 平行移動先の body 位置。
      * @return world 座標の凸多角形。
      */
-    ConvexPoly2 WorldPoly(FVec2 pos) const noexcept;
+    FConvexPoly2 WorldPoly(FVec2 pos) const noexcept;
 
     /** shape 登録・overlap クエリに使う衝突ワールド (非所有)。 */
     FCollisionWorld2D* m_World  = nullptr;
 
     /** 現在の形状種別。 */
-    ShapeKind         m_Kind   = ShapeKind::None;
+    EShapeKind         m_Kind   = EShapeKind::None;
 
     /** 円形状の半径。 */
     f32               m_Radius = 0.5f;
@@ -190,7 +190,7 @@ private:
     FVec2              m_HalfSize{0.5f, 0.5f};
 
     /** 多角形形状のローカル頂点 (body 原点基準)。 */
-    ConvexPoly2       m_LocalPoly{};
+    FConvexPoly2       m_LocalPoly{};
 
     /** CollisionWorld 上の shape handle。 */
     FShapeId           m_Handle;

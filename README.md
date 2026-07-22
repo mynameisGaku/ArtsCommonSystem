@@ -1,110 +1,243 @@
 # Arts Common System (ACS)
 
-> 日本のインディー / 学生開発者向けの、軽量モジュール式 C++20 ゲームフレームワーク。
-> Originally developed by students at [Arts College Yokohama](https://www.kccollege.ac.jp/).
+Windows 64-bit 向けのモジュール式 C++20 ゲームフレームワークです。ウィンドウ・入力・
+2D/3D 描画・ECS・アセット・音声・ネットワーク・UI・GameFramework と、初学者向けの
+`acs::easy` ファサードを同じツリーで提供します。既定の描画バックエンドは raw
+DirectX 12 で、Diligent Engine バックエンドも選択できます。
 
-ACS はウィンドウ・入力・2D/3D 描画・ECS・アセット読み込み・音声・UI までを
-そろえた、Windows / DirectX 12 向けの実用ゲームフレームワークです。
-**「C++ 初学者でも触れる」と「実用的なクオリティ」の両立**を設計目標にしています。
+## 最短の入口
 
----
+最も小さい入口は [`00_HelloEasy`](acs/samples/00_HelloEasy/) です。現行の Easy API
+では、継承や手書きの描画パイプラインなしで次の形から始められます。
 
-## はじめに（初学者の方へ）
+```cpp
+#include "easy/Easy.h"
 
-**まず [`acs/docs/QUICKSTART.md`](acs/docs/QUICKSTART.md) を読んでください。** `Application`
-を継承して 4 つの関数を書くだけでゲームが動く、という流れを最短で説明しています。
+using namespace acs::easy;
 
-下記の手順でビルドすると、最初のサンプル `01_HelloWindow`（ウィンドウを開く
-だけの 73 行の例）が起動します。そのあとは
-[`acs/samples/README.md`](acs/samples/README.md) の学習順に沿ってサンプルを
-読み進めてください。ビルドや実行でつまずいたら
-[`acs/docs/TROUBLESHOOTING.md`](acs/docs/TROUBLESHOOTING.md) を参照してください。
+int main() {
+    OpenWindow(1280, 720, "ACS Easy");
+    float x = 600.0f;
 
-## 必要なもの
+    while (NextFrame()) {
+        if (IsKeyPressed(EKey::Escape)) Quit();
+        x += 180.0f * DeltaTime();
+        DrawRect(x, 320.0f, 80.0f, 80.0f, FColor::Sky);
+    }
+    return 0;
+}
+```
 
-- **Windows 10 / 11（64-bit）**
-- **Visual Studio 2022** — インストール時にワークロード
-  **「C++ によるデスクトップ開発」** を選択してください。これで MSVC コンパイラ・
-  Windows SDK・**Ninja**・CMake が一括で入ります（ACS のビルドにはこれら全部が必要です）。
-- 単体の CMake を使う場合は **3.24 以上**。
-- **Git** — ソースの取得に加え、初回ビルド時に依存ライブラリを GitHub から
-  自動取得するため、ビルドにも必要です（VS の個別コンポーネントにも含まれます）。
+実用的な2Dゲームの土台は、ソリューション生成時の既定サンプル
+[`55_HelloScene2D`](acs/samples/55_HelloScene2D/) です。初学者向けの説明は
+[`QUICKSTART.md`](acs/docs/QUICKSTART.md)、問題が起きた場合は
+[`TROUBLESHOOTING.md`](acs/docs/TROUBLESHOOTING.md) を参照してください。
 
-## ビルドと実行
+## 必要な環境
 
-リポジトリ直下から、`acs/` ディレクトリに入って実行します（PowerShell）：
+- Windows 10 / 11（64-bit）。トップレベルCMakeはWindows以外を明示的に拒否します。
+- Visual Studio 2026 と「C++によるデスクトップ開発」ワークロード。現行
+  `generate.ps1` の既定generatorは `Visual Studio 18 2026` です。
+- CMake 3.24以上。選択したVisual Studio generatorを認識する新しいCMakeを推奨します。
+- Windows SDK、PowerShell、Git、初回依存取得用のインターネット接続。
+
+Ninjaと`CMakePresets.json`は現行の標準生成手順では使用しません。Visual Studio 2022を
+使う場合は、generatorとソリューション拡張子を明示します。
 
 ```pwsh
 cd acs
-cmake --preset dx12-debug          # 構成（初回のみ。CMakePresets.json を使う）
-cmake --build --preset dx12-debug  # ビルド
-.\cmake-build-debug\samples\01_HelloWindow\hello_window.exe   # 実行
+.\generate.ps1 -Generator "Visual Studio 17 2022" -Name ACSGame.sln
 ```
 
-- Rider / CLion / Visual Studio を使う場合は `acs/` を開けば `CMakePresets.json` の
-  プリセット（`dx12-debug` など）が自動で認識されます。
-- ビルド成果物は `acs/cmake-build-debug/` 以下に出力されます（Ninja は単一構成の
-  ため `Debug/` `Release/` のサブフォルダは作られません）。
-- 初回の構成では依存ライブラリ（stb / cgltf / ufbx / dr_libs / Dear ImGui）を
-  GitHub から自動取得します（インターネット接続と Git が必要・数分かかります）。
-- 単体テストの実行: `ctest --preset dx12-debug`
+## 生成・ビルド・実行
 
-## モジュール一覧
+リポジトリ直下から`acs/`へ移動し、PowerShellで実行します。
 
-ACS はモジュールの集合です。どのモジュールをビルドするかは
-[`acs/modules.cmake`](acs/modules.cmake) で選択します（既定で下記すべて有効）。
+```pwsh
+cd acs
+.\generate.ps1 -Open
+```
 
-| モジュール | 役割 | 主なクラス |
+既定では次の構成になります。
+
+- CMake source: `acs/engine/`
+- build tree: `acs/Intermediate/vs/`
+- solution: `acs/ACSGame.slnx`
+- build target / startup project: `hello_scene2d`
+- executable / DLL: `acs/Binaries/<構成>/`
+- configure log: `acs/Saved/generate.log`
+- renderer: raw DirectX 12
+- samples: `55_HelloScene2D`だけ
+- tests / CLI tools / optional backends: 無効
+
+Visual Studioを開かず、CMake CLIでビルド・実行する場合は次のとおりです。
+
+```pwsh
+.\generate.ps1
+cmake --build .\Intermediate\vs --config Debug --target hello_scene2d
+.\Binaries\Debug\hello_scene2d.exe
+```
+
+PowerShellの実行ポリシーで`.ps1`が拒否される場合は、`generate.bat`をダブルクリックするか
+次のコマンドを使えます。
+
+```pwsh
+powershell -NoProfile -ExecutionPolicy Bypass -File .\generate.ps1 -Open
+```
+
+### 主な生成オプション
+
+| オプション | 効果 |
+|---|---|
+| `-Open` | 生成したソリューションをVisual Studioで開く |
+| `-Clean` | `Intermediate/vs`を削除してから再生成する |
+| `-Name MyGame` | 表層のソリューション名を`MyGame.slnx`へ変更する |
+| `-Sample 38_HelloFullGame` | 指定サンプルだけを生成し、targetも自動検出する |
+| `-AllSamples` | 選択したバックエンドで利用可能な全サンプルを追加する |
+| `-Tests` / `-Tools` | tests / `acs_assetpack` CLI targetを追加する |
+| `-Diligent` | raw DX12に加えてDiligent rendererを有効にする |
+| `-Scripting`, `-Steamworks`, `-Onnx`, `-OpenXr` | 対応する任意backendを有効にする |
+| `-CrashReporter`, `-Telemetry`, `-Matchmaker` | Windows crash dump、file telemetry、local matchmakerを有効にする |
+| `-AllBackends` | 上記の任意backendをまとめて有効にする。SDK設定が必要なbackendも含む |
+
+Diligentや任意backendを初めて有効化するconfigureでは、追加のGit repositoryやarchiveを
+取得するため時間がかかります。Steamworksなど、公開URLから自動取得できないSDKは個別設定が
+必要です。
+
+### テスト
+
+```pwsh
+.\generate.ps1 -Tests
+cmake --build .\Intermediate\vs --config Debug
+ctest --test-dir .\Intermediate\vs -C Debug --output-on-failure
+```
+
+## 型名規約
+
+公開型は役割が名前から分かるよう、次のprefixを使います。
+
+| 種別 | Prefix | 例 |
 |---|---|---|
-| `Foundation` | 基本型・エラー処理・ログ | `Result<T,E>`, `Logger`, `ACS_ASSERT`, `Panic` |
-| `Threading`  | 並列処理 | `Atomic<T>`, `Mutex`, `ThreadPool`, `JobGraph` |
-| `Memory`     | メモリ管理 | `Allocator`, `UniquePtr<T>`, `Rc<T>`, `MemorySnapshot` |
-| `Container`  | コンテナ | `Array<T>`, `String`, `HashMap<K,V>`, `Span<T>` |
-| `Math`       | 数学・衝突判定 | `Vec2/3/4`, `Mat4`, `Quat`, `Camera`, `Collision2D/3D` |
-| `Test`       | テストフレームワーク | `ACS_TEST`, `EXPECT_*` |
-| `Platform`   | OS 層 | `Window`, `Input`, `Time`, `FileSystem` |
-| `Ecs`        | エンティティ・コンポーネント | `World`, `EntityId`, `Query<...>` |
-| `Event`      | イベント駆動 | `TimerManager`, `MessageBroker`（pub/sub） |
-| `Asset`      | アセット管理 | `AssetRegistry`, 画像/メッシュ/音声ローダ, 非同期ロード |
-| `Render`     | 描画 | `Renderer`, `StandardShader`, `PbrShader`, `SpriteBatch`, `Font` |
-| `App`        | アプリ枠組み | `Application`, `AppConfig`, `ACS_DEFINE_MAIN` |
-| `Audio`      | 音声 | XAudio2 による WAV / MP3 再生 |
-| `Network`    | 通信 | TCP ソケット |
-| `Imgui`      | デバッグ UI | Dear ImGui 統合 |
-| `Mvvm`       | データバインディング | MVVM（Observable / Binder） |
-| `Ui`         | UI フレームワーク | 純正 Widget + レイアウト |
+| 通常のclass / struct / union | `F` | `FRenderer`, `FErrorCode`, `FVec2` |
+| `FObject`管理class | `A` | `ANode`, `AComponent`, `ASprite2DComponent` |
+| template | `T` | `TArray<T>`, `TResult<T,E>`, `TUniquePtr<T>` |
+| 純粋仮想interface | `I` | `IRhiDevice`, `IAssetLoader` |
+| `enum class` | `E` | `EFormat`, `EKey`, `ELogSeverity` |
 
-詳しい設計は [`acs/docs/ARCHITECTURE.md`](acs/docs/ARCHITECTURE.md) を参照。
+`using` / `typedef`の型alias、delegate、function-pointer callbackにはprefixを強制しません。
+`u32`・`f32`・`usize`などのプリミティブaliasもprefixなしです。詳細は
+[`StyleGuide.md`](acs/docs/StyleGuide.md) を参照してください。
+ACS Editorの新規クラス生成とBlueprint C++生成も同じ規約を適用し、表示名を保ったまま
+`FObject`管理型を`A`、通常型を`F`、列挙型を`E`で始まる安全なC++識別子へ正規化します。
 
-## 設計方針
+## ノード統一
 
-- **STL を使用しない** — `Array<T>`, `String`, `HashMap<K,V>`, `UniquePtr<T>`,
-  `Rc<T>` などを自前実装（`std::vector` 等は使えません。詳細は ARCHITECTURE.md）
-- **例外を使わない** — エラーは `Result<T, ErrorCode>` で戻り値として伝搬
-- **詳細なエラー報告** — `ACS_ASSERT`、ファイル/行/関数名つき `Panic`、
-  シンボル化済みスタックトレース
-- **UE 風モジュールシステム** — `modules.cmake` でモジュールと機能を選択
+シーングラフのノードは2D/3D共通の`ANode`へ統一されています。旧`FNode2D` /
+`FNode3D`は現行APIではなく、`ANode`が`FTransform3D`を1つ持ち、2D向けには
+`SetPosition2D`・`Position2D`・`World2D`などのヘルパを提供します。ノードへ付ける
+`FObject`管理componentは`AComponent`派生です。
 
-## レンダラバックエンド
+```cpp
+auto player = NewObject<ANode>(FStringView("Player"));
+player->SetPosition2D(FVec2{0.0f, 0.0f});
+player->AddComponent<ASprite2DComponent>(
+    FVec2{0.9f, 0.9f}, FVec4{0.15f, 0.85f, 1.0f, 1.0f});
+Root().AddChild(Move(player));
+```
 
-`CMakePresets.json` に 4 つのプリセットがあります：
+親は`TObjectPtr<ANode>`で子を所有し、長期参照には`TWeakObjectPtr<ANode>`を使います。
+移行理由と所有権・transform・描画順の詳細は
+[`NodeUnification.md`](acs/docs/NodeUnification.md) にあります。
 
-| プリセット | バックエンド | 用途 |
+## モジュール
+
+有効化設定は [`acs/engine/modules.cmake`](acs/engine/modules.cmake)、トップレベルCMakeは
+[`acs/engine/CMakeLists.txt`](acs/engine/CMakeLists.txt) です。
+
+| モジュール | 役割 | 代表的な現行API |
 |---|---|---|
-| `dx12-debug` / `dx12-release` | 自前 DX12（既定） | Diligent 非依存で軽量。まずはこれ |
-| `diligent-debug` / `diligent-release` | Diligent Engine 経由 | 将来の Vulkan 等クロス対応。一部の上級サンプル（`24_HelloBloom` / `25_HelloIbl` / `26_HelloLightmap`）で必要 |
+| `Foundation` | 基本型・結果・エラー・ログ | `TResult<T,E>`, `FErrorCode`, `FLogger`, `FStackTrace` |
+| `Threading` | thread・同期・job | `TAtomic<T>`, `FMutex`, `FThreadPool`, `FJobGraph` |
+| `Memory` | allocator・所有権・追跡 | `FAllocator`, `TUniquePtr<T>`, `TSharedPtr<T>`, `TObjectPtr<T>` |
+| `Container` | 配列・文字列・hash・view | `TArray<T>`, `FString`, `THashMap<K,V>`, `TSpan<T>` |
+| `Math` | vector・matrix・camera・衝突基本形状 | `FVec2`, `FMat4`, `FQuat`, `FCamera`, `FAabb3` |
+| `Platform` | window・input・file・time | `FWindow`, `FInput`, `FFileSystem`, `FFrameTimer` |
+| `Ecs` | entity / componentとquery | `FWorld`, `FEntityId`, `TQueryView`, `FEntityCommandBuffer` |
+| `Event` | pub/sub・message pipe・timer | `FMessageBroker`, `TMessagePipe<T>`, `FTimerManager` |
+| `Asset` | asset registryと各loader | `FAssetRegistry`, `IAssetLoader`, `FImageAsset`, `FMeshAsset` |
+| `Render` | RHI・2D/3D描画 | `FRenderer`, `IRhiDevice`, `FSpriteBatch`, `FFont`, `FPbrShader` |
+| `App` | application lifecycleとentry point | `FApplication`, `FAppConfig`, `ACS_DEFINE_MAIN` |
+| `Audio` | XAudio2再生 | `FAudioEngine`, `FSoundHandle` |
+| `Network` | network初期化・TCP・UDP | `FNetwork`, `FTcpConnection`, `FTcpListener`, `FUdpSocket` |
+| `Imgui` | Dear ImGui統合（raw DX12時） | `FImGuiCtx` |
+| `Mvvm` | observableとbinding | `TObservable<T>`, `TTwoWayBinder<T>`, `FCommand` |
+| `Ui` | retained-mode UI | `FWidget`, `FUiRenderer`, `FTextInput` |
+| `Easy` | 初学者向け手続きAPI | `FColor`, `FSprite`, `FSound`, `FJobBatch` |
+| `AssetPack` | `.acpak`読書き・圧縮・暗号化 | `FAcpakReader`, `FAcpakWriter`, `FAcpakCrypto` |
+| `Collision` | sprite / meshからcollider生成 | `FSpriteCollider`, `FMeshCollider` |
+| `GameFramework` | game・scene・統一node / component | `FGame`, `FScene2D`, `FScene3D`, `ANode`, `AComponent` |
+| `Test` | 単体テストframework | `ACS_TEST`, `EXPECT_*` |
 
-> **注意:** `diligent-*` プリセットは初回 configure 時に外部ライブラリを取得する
-> ため **10 分前後かかります**。固まったように見えても待ってください。
+任意module / backendは生成スイッチで追加されます。
+
+| スイッチ | 追加される実装 |
+|---|---|
+| `-Scripting` | Lua 5.4 backend（`FLuaVm`） |
+| `-Steamworks` | Steamworks SDK backend（`FSteamworksBridgeImpl`） |
+| `-Onnx` | ONNX Runtime CPU backend（`FOnnxMlRuntime`） |
+| `-OpenXr` | Khronos OpenXR loader（`FKhronosOpenXrBridge`） |
+| `-CrashReporter` | Windows DbgHelp minidump backend（`FWindowsCrashReporter`） |
+| `-Telemetry` | JSON Lines file backend（`FFileTelemetryBackendClient`） |
+| `-Matchmaker` | deterministic local matchmaker（`FLocalMatchmaker`） |
+
+## サンプル
+
+`acs/samples/`には、`00_HelloEasy`から`66_HelloVertexSSS`まで、CMake targetを持つ
+**67個**の番号付きサンプルディレクトリがあります。backend依存のサンプルは、対応する
+生成スイッチを有効にした時だけCMake targetへ追加されます。
+
+| サンプル | target | 内容 | 追加条件 |
+|---|---|---|---|
+| `00_HelloEasy` | `hello_easy` | Easy APIによる最小2Dループ | 常時 |
+| `01_HelloWindow` | `hello_window` | `FApplication`とwindow / rendererの最小構成 | 常時 |
+| `20_HelloMVVM` | `hello_mvvm` | MVVMとImGui binding | raw DX12 |
+| `24_HelloBloom` | `hello_bloom` | HDR bloom / post process | `-Diligent` |
+| `38_HelloFullGame` | `hello_full_game` | 複数sceneを持つ完結ミニゲーム | raw DX12 |
+| `41_HelloOnnx` | `hello_onnx` | ONNX Runtime smoke test | `-Onnx` |
+| `42_HelloOpenXR` | `hello_openxr` | OpenXR loader smoke test | `-OpenXr` |
+| `46_HelloAssetPackBridge` | `hello_asset_pack_bridge` | `.acpak` write / mount / read | 常時 |
+| `55_HelloScene2D` | `hello_scene2d` | `FScene2D`と統一`ANode`の実用starter | raw DX12・既定 |
+| `63_HelloVerticalSlice` | `hello_vertical_slice` | titleからsaveまでの2D vertical slice | raw DX12 |
+| `64_HelloJobs` | `hello_jobs` | Easy job / parallel API | 常時 |
+| `66_HelloVertexSSS` | `hello_vertex_sss` | `FVertexScatter`による頂点空間SSS | 常時 |
+
+全ソースをソリューションへ加える場合は`.\generate.ps1 -AllSamples`、1件だけなら
+`.\generate.ps1 -Sample 64_HelloJobs`のように指定します。
+
+## 設計上の前提
+
+- ACS targetはC++例外とRTTIを無効化し、失敗を`TResult<T,E>`などで明示的に返します。
+- 公開・コアAPIは`TArray`や`FString`などのallocator対応型を使います。一部のbackend実装は
+  C/C++ runtimeの低レベルutilityを利用しますが、STL containerを公開APIへ要求しません。
+- `ACS_ASSERT`、`FSourceLoc`、`FStackTrace`、各種checked APIで失敗境界を明示します。
+- 生成物は`Binaries`・`Intermediate`・`Saved`へ分離し、ソースツリー表層を保ちます。
+- module / feature依存はCMakeで検証し、利用可能なtargetだけを生成します。
+
+詳しい設計は [`ARCHITECTURE.md`](acs/docs/ARCHITECTURE.md) を参照してください。
 
 ## ドキュメント
 
-- [`acs/docs/QUICKSTART.md`](acs/docs/QUICKSTART.md) — **初学者向け**。ここから始める
-- [`acs/docs/RECIPES.md`](acs/docs/RECIPES.md) — 各機能の逆引きレシピ集（3D描画・音・UI ほか）
-- [`acs/samples/README.md`](acs/samples/README.md) — 26 サンプルの一覧と推奨学習順
-- [`acs/docs/ARCHITECTURE.md`](acs/docs/ARCHITECTURE.md) — 設計思想・モジュール構成
-- [`acs/docs/TROUBLESHOOTING.md`](acs/docs/TROUBLESHOOTING.md) — よくあるエラーと対処
+- [`QUICKSTART.md`](acs/docs/QUICKSTART.md) — 初学者向けの導入
+- [`RECIPES.md`](acs/docs/RECIPES.md) — 3D描画・音・UIなどの逆引き
+- [`samples/README.md`](acs/samples/README.md) — 入門サンプルの学習ガイド
+- [`ARCHITECTURE.md`](acs/docs/ARCHITECTURE.md) — module構成と設計
+- [`StyleGuide.md`](acs/docs/StyleGuide.md) — F / A / T / I / E命名とcoding rule
+- [`NodeUnification.md`](acs/docs/NodeUnification.md) — `ANode`統一と移行指針
+- [`SerializationSafety.md`](acs/docs/SerializationSafety.md) — 外部入力・永続化・checked API
+- [`TROUBLESHOOTING.md`](acs/docs/TROUBLESHOOTING.md) — よくある問題と対処
 
 ## ライセンス
 
-教育目的での使用に限定されています。商用利用・外部配布は事前許可が必要です。
+ACS本体は [Apache License 2.0](acs/LICENSE) です。ライセンス条件に従って、商用利用・
+改変・再配布が可能です。FetchContentや任意SDKで組み込む第三者componentには、それぞれの
+ライセンスと配布条件が適用されます。

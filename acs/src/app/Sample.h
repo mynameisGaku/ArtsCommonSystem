@@ -6,7 +6,7 @@
 //     一掃して、サンプルが「何を見せたいか」だけに集中できるようにする。
 //
 // 使用例 (HelloHelloMVVM 等):
-//   class MyApp : public FApplication {
+//   class FMyApp : public FApplication {
 //       void OnStart() noexcept override {
 //           ACS_SAMPLE_INIT(m_Imgui.Init(GetWindow(), GetRenderer()));
 //           ACS_SAMPLE_INIT(m_Shader.Init(*GetRenderer().Device(),
@@ -34,7 +34,7 @@
 namespace acs {
 
 class FApplication;
-class Font;
+class FFont;
 class IRhiDevice;
 
 namespace FSample {
@@ -50,14 +50,14 @@ const wchar_t* DefaultUIFontPath() noexcept;
 /**
  * 候補フォントを順に試し、最初に読み込めたものを font に展開する。
  *
- * @param font 読み込み先の Font (成功時に内容が構築される)。
+ * @param font 読み込み先の FFont (成功時に内容が構築される)。
  * @param device アトラス生成に使う RHI デバイス。
  * @param size_px フォントのピクセルサイズ (既定 18.0)。
  * @param atlas_size グリフアトラスの一辺サイズ (既定 1024)。
  * @param include_cjk 日本語等を含めるか (true で大きな atlas を使う、既定 false)。
  * @return いずれか成功なら空の TResult、全候補が失敗ならエラー。
  */
-TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device,
+TResult<void> TryLoadDefaultUIFont(FFont& font, IRhiDevice& device,
                                    f32  size_px     = 18.0f,
                                    u32  atlas_size  = 1024,
                                    bool include_cjk = false) noexcept;

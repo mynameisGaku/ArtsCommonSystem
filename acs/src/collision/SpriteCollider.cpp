@@ -19,7 +19,7 @@ constexpr u16 kSubSpriteColEmpty      = 412;
  *
  * @details しきい値 thr 以上のアルファを「不透明」とみなす。範囲外座標は背景扱い。
  */
-struct AlphaImage {
+struct FAlphaImage {
     /** RGBA8 tightly-packed 画素列の先頭 (所有しない)。 */
     const u8* rgba;
 
@@ -93,7 +93,7 @@ f32 PerpDist(FVec2 p, FVec2 a, FVec2 b) noexcept {
 void FSpriteCollider::Clear() noexcept {
     m_HullCount    = 0;
     m_OutlineCount = 0;
-    m_Bounds       = Aabb2{};
+    m_Bounds       = FAabb2{};
 }
 
 /** RGBA8 画像のアルファから凸包・輪郭・AABB を構築する。 */
@@ -103,7 +103,7 @@ TResult<void> FSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 hei
     if (!rgba || width == 0 || height == 0) {
         return ACS_ERR(Generic, kSubSpriteColInvalidArg, "FSpriteCollider: null/empty image");
     }
-    const AlphaImage img{ rgba, width, height, alpha_threshold };
+    const FAlphaImage img{ rgba, width, height, alpha_threshold };
 
     // 1. 境界画素 (不透明 かつ 4 近傍に背景/外がある) を収集
     TArray<FVec2> boundary;
@@ -200,11 +200,11 @@ TResult<void> FSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 hei
         keep.Resize(rn);
         for (u32 i = 0; i < rn; ++i) keep[i] = 0;
         keep[0] = 1; keep[rn - 1] = 1;
-        struct Seg { u32 lo, hi; };
-        TArray<Seg> stack;
-        stack.PushBack(Seg{ 0, rn - 1 });
+        struct FSeg { u32 lo, hi; };
+        TArray<FSeg> stack;
+        stack.PushBack(FSeg{ 0, rn - 1 });
         while (stack.Size() > 0) {
-            const Seg s = stack[stack.Size() - 1];
+            const FSeg s = stack[stack.Size() - 1];
             stack.PopBack();
             if (s.hi <= s.lo + 1) continue;
             f32 max_d = 0.0f; u32 max_i = s.lo;
@@ -214,8 +214,8 @@ TResult<void> FSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 hei
             }
             if (max_d > simplify_epsilon) {
                 keep[max_i] = 1;
-                stack.PushBack(Seg{ s.lo, max_i });
-                stack.PushBack(Seg{ max_i, s.hi });
+                stack.PushBack(FSeg{ s.lo, max_i });
+                stack.PushBack(FSeg{ max_i, s.hi });
             }
         }
         for (u32 i = 0; i < rn && m_OutlineCount < kMaxVertices; ++i) {
@@ -237,20 +237,20 @@ TResult<void> FSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 hei
         if (boundary[i].x > mx.x) mx.x = boundary[i].x;
         if (boundary[i].y > mx.y) mx.y = boundary[i].y;
     }
-    m_Bounds = Aabb2::FromMinMax(mn, mx);
+    m_Bounds = FAabb2::FromMinMax(mn, mx);
     return Ok();
 }
 
 /** 凸包を ConvexPoly2 (物理用) に変換する。 */
-ConvexPoly2 FSpriteCollider::HullPolygon() const noexcept {
-    ConvexPoly2 poly;
+FConvexPoly2 FSpriteCollider::HullPolygon() const noexcept {
+    FConvexPoly2 poly;
     const u32 n = m_HullCount;
     if (n == 0) return poly;
-    if (n <= ConvexPoly2::kMaxVerts) {
+    if (n <= FConvexPoly2::kMaxVerts) {
         for (u32 i = 0; i < n; ++i) poly.Add(m_Hull[i]);
     } else {
-        for (u32 i = 0; i < ConvexPoly2::kMaxVerts; ++i) {
-            poly.Add(m_Hull[(i * n) / ConvexPoly2::kMaxVerts]);
+        for (u32 i = 0; i < FConvexPoly2::kMaxVerts; ++i) {
+            poly.Add(m_Hull[(i * n) / FConvexPoly2::kMaxVerts]);
         }
     }
     return poly;

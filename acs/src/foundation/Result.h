@@ -13,12 +13,12 @@
 //   - TResult<void, E> 特殊化を提供（成功 / エラーのみを返す関数用）
 //
 // 典型的な使用例:
-//   TResult<File, FErrorCode> r = OpenFile("foo");
+//   TResult<FFile, FErrorCode> r = OpenFile("foo");
 //   if (!r) {
 //       FLogger::Error("open failed: %s", r.Error().message);
 //       return;
 //   }
-//   File& f = r.Value();
+//   FFile& f = r.Value();
 // =============================================================================
 #pragma once
 
@@ -38,7 +38,7 @@ struct FOkTag    {};
 struct FErrTag   {};
 
 /** 値を持たない側の placeholder 用タグ型。 */
-struct EmptyTag {};
+struct FEmptyTag {};
 } // namespace detail
 
 /** 成功側を明示構築する際に渡すタグ値。 */
@@ -263,12 +263,12 @@ private:
      *
      * @details どちらが有効かは外側の m_HasValue で判別する。
      */
-    union Storage {
+    union FStorage {
         /** 何も構築しない (どちらのメンバを生かすかは TResult が配置 new で決める)。 */
-        Storage() noexcept {}
+        FStorage() noexcept {}
 
         /** 破棄はメンバごとに TResult::Destroy が行うため空。 */
-        ~Storage() noexcept {}
+        ~FStorage() noexcept {}
 
         /** 成功側の値。 */
         T m_Value;
@@ -423,12 +423,12 @@ private:
      *
      * @details 値を持たない版なので成功側にメンバ値はなく、m_Pad はサイズ確保用。
      */
-    union Storage {
+    union FStorage {
         /** 何も構築しない (エラー側のみ TResult が配置 new で m_Error を生かす)。 */
-        Storage() noexcept {}
+        FStorage() noexcept {}
 
         /** 破棄は TResult::Destroy が行うため空。 */
-        ~Storage() noexcept {}
+        ~FStorage() noexcept {}
 
         /** 成功側でのサイズ確保用ダミー。 */
         u8 m_Pad;

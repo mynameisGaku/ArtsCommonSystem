@@ -52,7 +52,7 @@
 
 namespace acs::game {
 // FGame への前方宣言 (DrawUI / TogglePlayPause で SetTimeScale を呼ぶため
-// 本ヘッダから可視である必要があるが、ヘッダ依存最小化のため FGame.h は
+// 本ヘッダから可視である必要があるが、ヘッダ依存最小化のため Game.h は
 // 直接 include せず、利用側 / .cpp 側で include する)。
 class FGame;
 } // namespace acs::game

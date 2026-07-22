@@ -35,9 +35,9 @@
 //   ・ao:         ambient occlusion (1 = no occlusion)
 #pragma once
 
-#include "render/RenderAssets.h"        // GpuMesh
+#include "render/RenderAssets.h"        // FGpuMesh
 #include "render/IRhiCommandList.h"
-#include "render/StandardShader.h"      // DirLight / PointLight を再利用
+#include "render/StandardShader.h"      // FDirLight / FPointLight を再利用
 
 #include "foundation/Result.h"
 #include "memory/UniquePtr.h"
@@ -49,6 +49,7 @@
 #include "render/IRhiBuffer.h"
 #include "render/IRhiTexture.h"
 #include "render/RhiTypes.h"
+#include "render/SubstrateMaterial.h"
 
 namespace acs {
 
@@ -64,6 +65,12 @@ namespace acs {
  */
 class FPbrShader {
 public:
+    /** CPU-compiled shader bytecode handed to the render-owner thread. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> vertex;
+        TUniquePtr<IRhiShader> pixel;
+    };
+
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FPbrShader() noexcept = default;
 
@@ -89,6 +96,24 @@ public:
                       EFormat depth_format = EFormat::D32_Float,
                       ECullMode cull_mode  = ECullMode::Back) noexcept;
 
+    /**
+     * Compile the DX12 HLSL bytecode without touching an RHI device.
+     * This is safe to run on a startup worker. Other backends return an
+     * unsupported error and retain the regular owner-thread Init path.
+     */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /**
+     * Install CPU-compiled shaders and create all RHI buffers, textures and
+     * the PSO. Must be called by the render-owner thread.
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        EFormat rt_format = EFormat::B8G8R8A8_UNorm,
+        EFormat depth_format = EFormat::D32_Float,
+        ECullMode cull_mode = ECullMode::Back) noexcept;
+
     /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
     void Shutdown() noexcept;
 
@@ -112,7 +137,7 @@ public:
      * @param lights 点光源の配列。
      * @param count 点光源数 (最大 4、超過分は切り捨て)。
      */
-    void SetPointLights(const PointLight* lights, u32 count) noexcept;
+    void SetPointLights(const FPointLight* lights, u32 count) noexcept;
 
     /**
      * 矩形 area light の記述。
@@ -122,7 +147,7 @@ public:
      * ベクトル (= 方向 × half_size)、color は放射輝度 (HDR 可)。法線は
      * cross(axis_x, axis_y) 正規化方向で、その逆方向に光を放つ片面 emit。
      */
-    struct AreaLight {
+    struct FAreaLight {
         /** 矩形中心の world position。 */
         FVec3 center;
 
@@ -142,14 +167,14 @@ public:
      * @param lights area light の配列。
      * @param count area light 数 (最大 2、超過分は切り捨て)。
      */
-    void SetAreaLights(const AreaLight* lights, u32 count) noexcept;
+    void SetAreaLights(const FAreaLight* lights, u32 count) noexcept;
 
     /**
      * IBL テクスチャをバインドする (任意)。
      *
      * @details
      * 3 つとも非 null かつ prefilter_mips > 0 のときに IBL ambient が有効化される。
-     * それ以外は flat ambient (= 既存挙動)。通常は ImageBasedLighting の
+     * それ以外は flat ambient (= 既存挙動)。通常は FImageBasedLighting の
      * IrradianceMap()/PrefilterMap()/BrdfLut()/PrefilterMips() をそのまま渡す。
      * @param irradiance 拡散 irradiance cubemap。
      * @param prefilter pre-filtered 環境 specular cubemap。
@@ -177,8 +202,9 @@ public:
      * shader が自前で計算するので頂点 tangent は不要。tileable な RGB8
      * (DirectX 流: (R,G,B)=tangent×0.5+0.5) を想定。
      * @param tex normal map テクスチャ (null で無効)。
+     * @param strength tangent-space slope の強度。0 で flat、1 で authored 値。
      */
-    void SetNormalMap(IRhiTexture* tex) noexcept;
+    void SetNormalMap(IRhiTexture* tex, f32 strength = 1.0f) noexcept;
 
     /**
      * SSAO の visibility テクスチャを設定する (ambient/indirect 項に乗算)。
@@ -215,6 +241,8 @@ public:
     /**
      * Aerial perspective camera-volume LUT を設定する (WickedEngine 流の大気の距離霞)。
      *
+     * @details screen UV は現在の view-projection と world position から復元するため、
+     * SSAO の有無や viewport 設定には依存しない。
      * @param ap_vol AP froxel volume (FSkyAtmosphere::BuildAerialPerspective の出力)。nullptr で無効。
      * @param max_dist volume がカバーする最大距離 (scene 単位、深度→スライス逆変換に使う)。
      */
@@ -246,7 +274,7 @@ public:
      * @details FPbrShader は count > 0 のとき SH9 single mode より優先して probe grid を
      * 使い、world position から IDW で blend する。
      */
-    struct LightProbe {
+    struct FLightProbe {
         /** probe の world position。 */
         FVec3 position;
 
@@ -260,18 +288,31 @@ public:
      * @param probes probe の配列 (各 probe = 位置 + SH9 9 係数)。
      * @param count probe 数 (最大 4、超過分は切り捨て)。
      */
-    void SetProbeGrid(const LightProbe* probes, u32 count) noexcept;
+    void SetProbeGrid(const FLightProbe* probes, u32 count) noexcept;
 
     /**
-     * 指数 height fog を設定する (frame CB を更新)。
+     * 解析積分する指数 height fog を設定する (frame CB を更新)。
      *
-     * @param color fog 色 (HDR scale も可)。
-     * @param density 単位距離あたりの吸収率 (0 で fog OFF)。
+     * @details
+     * 密度は camera→surface の視線区間全体で積分するため、高低差のある地形でも
+     * surface 高さだけで霧量を近似したときの急な濃淡変化が出ない。第 0 有向光源を
+     * Henyey-Greenstein 位相関数で散乱し、shadow visibility も穏やかに反映する。
+     * @param color fog の単散乱 albedo 色 (HDR scale も可)。
+     * @param density 基準高さでの extinction (単位距離あたり、0 で fog OFF)。
      * @param height_falloff y 軸方向の指数減衰 (> 0 で上空ほど薄く、地面近くで濃く)。
-     * @param height_base fog 基準 y (この高さで density フル、上で減衰開始)。
+     * @param height_base fog 基準 y (この高さ以下は density 一定)。
      */
     void SetFog(FVec3 color, f32 density,
                 f32 height_falloff = 0.5f, f32 height_base = 0.0f) noexcept;
+
+    /**
+     * SetFog の位相散乱まで明示する高品質オーバーロード。
+     *
+     * @param anisotropy HG 位相関数の g (-0.85..0.85、正で太陽方向の前方散乱)。
+     * @param sun_scatter 第 0 有向光源による in-scatter 強度 (0 で等方色のみ)。
+     */
+    void SetFog(FVec3 color, f32 density, f32 height_falloff, f32 height_base,
+                f32 anisotropy, f32 sun_scatter) noexcept;
 
     /**
      * Shadow map (第 0 番目 dir light のみ) を設定する。
@@ -386,12 +427,58 @@ public:
      *
      * @details
      * 肌/ロウ/大理石のような質感を、wrapped diffuse (terminator の柔らかさ) + 裏面
-     * translucency (逆光の透け) の解析近似で直接光に加算する。LUT・追加 pass 不要。
+     * translucency (逆光の透け) の薄物向け解析近似で表現する。既存の Lambert diffuse を
+     * エネルギー正規化した散乱 lobe へ置換するため、weight に比例した単純加算ではない。
+     * これは画面空間 diffusion を行う SSSS pass ではなく、LUT・追加 pass を使わない近似。
      * member に格納され次の SetObject / DrawMesh が反映する (既定 weight=0 で無効)。
      * @param sss_color 内部散乱の色 (肌なら赤み)。
      * @param weight SSS 強度 (0=OFF、1=フル)。
      */
     void SetSubsurface(FVec3 sss_color, f32 weight) noexcept;
+
+    /**
+     * Apply a compiled/resolved slab surface without converting F0/F90 back to
+     * the legacy metallic label.  Call before SetObject/DrawMesh.
+     */
+    void SetSubstrateSurface(const FSubstrateResolvedSurface& surface) noexcept;
+
+    /**
+     * Apply a Substrate surface and compile its per-pixel expression bindings.
+     * Dynamic bindings currently require a direct root Slab; unsupported
+     * layered topology is rejected by CompileSubstrateExpressionLinks.
+     */
+    bool SetSubstrateMaterial(const FSubstrateMaterial& material,
+                              f32 time_seconds = 0.0f) noexcept;
+
+    /** Set runtime overrides for Scalar/VectorParameter expression nodes. */
+    void SetSubstrateExpressionParameters(
+        const FShaderExpressionParameter* parameters,
+        u32 count) noexcept;
+
+    /** Update Time nodes without recompiling or clearing texture overrides. */
+    void SetSubstrateExpressionTime(f32 time_seconds) noexcept;
+
+    /** Bind one of the four material expression TextureSample2D slots. */
+    void SetSubstrateExpressionTexture(u32 slot,
+                                       IRhiTexture* texture) noexcept;
+
+    /** Runtime diagnostics for editor validation and regression tests. */
+    u32 SubstrateExpressionInstructionCount() const noexcept {
+        return m_SubstrateExpressionInstructionCount;
+    }
+
+    /** Number of slab targets driven by the current per-pixel program. */
+    u32 SubstrateExpressionBindingCount() const noexcept {
+        return m_SubstrateExpressionBindingCount;
+    }
+
+    /** Bit mask of the four expression texture slots currently bound. */
+    u32 SubstrateExpressionTextureMask() const noexcept {
+        return m_SubstrateExpressionTextureMask;
+    }
+
+    /** Disable direct slab parameters for subsequent legacy material draws. */
+    void ClearSubstrateSurface() noexcept;
 
     /**
      * 描画パイプラインを返す。
@@ -412,7 +499,9 @@ public:
      *
      * @return object CB (b1、model・material 設定)。
      */
-    IRhiBuffer*   PerObjectCB() const noexcept { return m_ObjectCbs[m_ObjRingIdx].Get(); }
+    IRhiBuffer*   PerObjectCB() const noexcept {
+        return m_CurrentObjCb < kObjRing ? m_ObjectCbs[m_CurrentObjCb].Get() : nullptr;
+    }
 
     /**
      * albedo fallback の 1x1 白テクスチャを返す。
@@ -434,7 +523,7 @@ public:
      * @param albedo albedo テクスチャ (null なら既定の白)。
      */
     void DrawMesh(IRhiCommandList& cmd,
-                  const GpuMesh& mesh,
+                  const FGpuMesh& mesh,
                   const FMat4& model,
                   FVec3 base_color = FVec3{1, 1, 1},
                   f32  metallic   = 0.0f,
@@ -445,6 +534,9 @@ public:
 private:
     /** 現在の member 値から frame CB レイアウトを構築して GPU に書き込む。 */
     void FlushFrameCB() noexcept;
+
+    /** Device that owns the currently committed RHI resources (non-owning). */
+    IRhiDevice* m_ResourceDevice = nullptr;
 
     /** PBR 描画の頂点シェーダ。 */
     TUniquePtr<IRhiShader>   m_Vs;
@@ -461,11 +553,12 @@ private:
     /** per-object 定数バッファ (b1) のリング。
      *  単一の frame-cycled CB だと «フレーム内の複数 SetObject» が同一スロットを上書きし、
      *  実行時に全 DrawIndexed が «最後の値» を読む (= 全メッシュが最後のノードの model/material に
-     *  なる)。per-object に別バッファを巡回することで各 draw が自分の値を読む。SetLights で
-     *  フレーム頭にリセット、SetObject ごとに次へ進める。 */
+     *  なる)。SetLights で cursor をリセットし、SetObject ごとに未使用バッファを消費する。
+     *  上限到達時は wrap せず current を無効化し、記録済み draw の上書きを防ぐ。 */
     static constexpr u32     kObjRing = 256;
     TUniquePtr<IRhiBuffer>   m_ObjectCbs[kObjRing];
-    u32                      m_ObjRingIdx = 0;
+    u32                      m_ObjRingCursor = 0;
+    u32                      m_CurrentObjCb = 0;
 
     /** albedo fallback の 1x1 白テクスチャ。 */
     TUniquePtr<IRhiTexture>  m_White;
@@ -503,13 +596,13 @@ private:
     u32        m_DirCount = 0;
 
     /** 点光源 (最大 4)。 */
-    PointLight m_PointLights[4];
+    FPointLight m_PointLights[4];
 
     /** 有効な点光源数。 */
     u32        m_PointCount = 0;
 
     /** 矩形 area light (最大 2)。 */
-    AreaLight  m_AreaLights[2];
+    FAreaLight  m_AreaLights[2];
 
     /** 有効な area light 数。 */
     u32        m_AreaCount = 0;
@@ -547,11 +640,14 @@ private:
     /** fog の色と密度 (xyz=color、w=density)。 */
     FVec4         m_FogColorDensity = FVec4{0, 0, 0, 0};
 
-    /** fog の高さパラメータ (x=height_falloff、y=height_base)。 */
-    FVec4         m_FogHeightParams = FVec4{0.5f, 0, 0, 0};
+    /** fog パラメータ (x=height_falloff、y=height_base、z=anisotropy、w=sun_scatter)。 */
+    FVec4         m_FogHeightParams = FVec4{0.5f, 0, 0.35f, 0.18f};
 
     /** normal map テクスチャ (非所有、SetNormalMap で差し替え)。 */
     IRhiTexture* m_NormalMap = nullptr;
+
+    /** normal map の tangent-space slope 強度 (0..4)。 */
+    f32 m_NormalMapStrength = 1.0f;
 
     /** SSAO visibility テクスチャ (非所有、SetSsao で差し替え)。 */
     IRhiTexture* m_SsaoTex     = nullptr;
@@ -620,7 +716,7 @@ private:
     FVec4         m_CascadeSplits        = FVec4{1e30f, 1e30f, 1e30f, 1e30f};
 
     /** cascade atlas の UV スケール (single mode は変換無しの {1,1})。 */
-    FVec4         m_CascadeUvScale      = FVec4{1.0f, 1.0f, 0, 0};
+    FVec4         m_CascadeUvScale      = FVec4{1.0f, 1.0f, 1.0f, 0};
 
     /** shadow 未バインド時に bind する fallback (1x1 depth-ish texture)。 */
     TUniquePtr<IRhiTexture> m_ShadowFb;
@@ -645,6 +741,31 @@ private:
 
     /** subsurface パラメータ (xyz=color、w=weight。既定 0=OFF)。 */
     FVec4         m_SssParams     = FVec4{0, 0, 0, 0};
+
+    /** Direct slab interface/medium values (enabled is m_SubstrateSecondary.w). */
+    FVec4         m_SubstrateF0 = FVec4{0.04f, 0.04f, 0.04f, 0};
+    FVec4         m_SubstrateF90 = FVec4{1, 1, 1, 0};
+    FVec4         m_SubstrateDiffuseCoverage = FVec4{0.8f, 0.8f, 0.8f, 1};
+    FVec4         m_SubstrateSecondary = FVec4{0.5f, 0, 0, 0};
+    FVec4         m_SubstrateMfpThickness = FVec4{0, 0, 0, 0.01f};
+    FVec4         m_SubstrateTransmittance = FVec4{0, 0, 0, 1};
+    FVec4         m_SubstrateNormal = FVec4{0, 0, 1, 1};
+    FVec4         m_SubstrateCoatF0 = FVec4{0.04f, 0.04f, 0.04f, 0};
+
+    /** Per-pixel typed expression bytecode and direct-Slab target bindings. */
+    FShaderExpressionInstruction
+        m_SubstrateExpressionInstructions[kShaderExpressionMaxNodes]{};
+    FSubstrateExpressionBinding
+        m_SubstrateExpressionBindings[kSubstrateSlabScalarCount]{};
+    FShaderExpressionParameter
+        m_SubstrateExpressionParameters[kShaderExpressionMaxParameters]{};
+    IRhiTexture*
+        m_SubstrateExpressionTextures[kShaderExpressionMaxTextureSlots]{};
+    u32 m_SubstrateExpressionInstructionCount = 0u;
+    u32 m_SubstrateExpressionBindingCount = 0u;
+    u32 m_SubstrateExpressionParameterCount = 0u;
+    u32 m_SubstrateExpressionTextureMask = 0u;
+    f32 m_SubstrateExpressionTime = 0.0f;
 };
 
 } // namespace acs

@@ -4,17 +4,19 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace AcsEditor;
 
 /// <summary>
-/// マテリアルアセット (.acsmat) を編集するウィンドウ。種別は «PBR (BRDF サーフェス)» と
-/// «効果プリセット (ポストプロセス)» の2つ。PBR はベースカラー/法線/メタリック/ラフネス/
-/// エミッシブ等を編集し、ライブプレビューに反映。変更は即ファイルへ保存し viewport に反映。
+/// .acsmat の Substrate closure DAG、Slab物性、トゥーンおよびポストプロセスを編集する。
+/// closure topology と物性値は .acsmat が正本、ノード位置・ズーム等の表示状態だけを
+/// .graph.json に分離する。旧 metallic/roughness アセットは読み込み時に物理 Slab graph
+/// としてプレビューし、明示的な保存時にのみ Substrate 正本へ変換する。
 /// </summary>
 public partial class MaterialEditorWindow : Window
 {
-    private readonly IntPtr _engine;
+    private readonly Func<IntPtr> _engineProvider;
     private readonly string _path;
     private bool _loading = true;  // XAML パース中 (非0 Minimum のスライダ強制で発火するハンドラ) を抑止
     private bool _syncing;     // スライダ ↔ テキストの相互更新ループ防止
@@ -23,18 +25,98 @@ public partial class MaterialEditorWindow : Window
     private string _albedoPath = "";
     private string _normalPath = "";
     private readonly float[] _toonSpec = { 1, 1, 1 };  // ハイライト色 (UI 無し: ロード値を保持)
+    private readonly DispatcherTimer _previewTimer = new();
+    private bool _closeInProgress;
+    private bool _lifetimeEnded;
+    private bool _previewTimerSubscribed;
 
     public MaterialEditorWindow(IntPtr engine, string acsmatPath)
+        : this(() => engine, acsmatPath)
+    {
+    }
+
+    internal MaterialEditorWindow(EngineViewport viewport, string acsmatPath)
+        : this(() => viewport.Engine, acsmatPath)
+    {
+    }
+
+    private MaterialEditorWindow(Func<IntPtr> engineProvider, string acsmatPath)
     {
         InitializeComponent();
-        _engine = engine;
+        _engineProvider = engineProvider;
         _path = acsmatPath;
         FileLabel.Text = Path.GetFileName(acsmatPath);
+        _previewTimer.Interval = TimeSpan.FromMilliseconds(180);
+        _previewTimer.Tick += OnPreviewTimerTick;
+        _previewTimerSubscribed = true;
 
         foreach (string n in EngineInterop.MaterialEffectNames())
             EffectBox.Items.Add(n);
 
         Load();
+        InitializeGraphEditor();
+    }
+
+    private IntPtr LiveEngine
+    {
+        get
+        {
+            if (_closeInProgress || _lifetimeEnded || !IsLoaded) return IntPtr.Zero;
+            try { return _engineProvider(); }
+            catch { return IntPtr.Zero; }
+        }
+    }
+
+    private void ReloadMaterialInViewport()
+    {
+        IntPtr engine = LiveEngine;
+        if (engine != IntPtr.Zero)
+            EngineInterop.acs_editor_reload_material(engine, _path);
+    }
+
+    private void OnPreviewTimerTick(object? sender, EventArgs e)
+    {
+        _previewTimer.Stop();
+        if (!_closeInProgress && !_lifetimeEnded && IsLoaded)
+            RenderPreviewNow();
+    }
+
+    private void OnMaterialEditorLoaded(object sender, RoutedEventArgs e)
+    {
+        if (_lifetimeEnded) return;
+        _closeInProgress = false;
+        RefreshPreview();
+    }
+
+    private void BeginCloseAttempt()
+    {
+        _closeInProgress = true;
+        _previewTimer.Stop();
+    }
+
+    private void CancelCloseAttempt()
+    {
+        if (_lifetimeEnded) return;
+        _closeInProgress = false;
+        RefreshPreview();
+    }
+
+    private void OnMaterialEditorClosed(object? sender, EventArgs e) =>
+        EndMaterialEditorLifetime();
+
+    private void OnMaterialEditorUnloaded(object sender, RoutedEventArgs e) =>
+        EndMaterialEditorLifetime();
+
+    private void EndMaterialEditorLifetime()
+    {
+        _closeInProgress = true;
+        _lifetimeEnded = true;
+        _previewTimer.Stop();
+        if (_previewTimerSubscribed)
+        {
+            _previewTimer.Tick -= OnPreviewTimerTick;
+            _previewTimerSubscribed = false;
+        }
     }
 
     // ファイルから読み込んで UI に反映 (両種別ぶん読む)。
@@ -122,7 +204,10 @@ public partial class MaterialEditorWindow : Window
 
     private void ShowPanelForKind()
     {
-        PbrPanel.Visibility    = _kind == 0 ? Visibility.Visible : Visibility.Collapsed;
+        bool showLegacySurface = _substrateEnabled == 0 || _shadingMode == 1;
+        SurfaceModePanel.Visibility = _kind == 0 ? Visibility.Visible : Visibility.Collapsed;
+        PbrPanel.Visibility    = _kind == 0 && showLegacySurface && _selectedNode < 0
+            ? Visibility.Visible : Visibility.Collapsed;
         EffectPanel.Visibility = _kind == 1 ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -131,8 +216,10 @@ public partial class MaterialEditorWindow : Window
         if (_loading) return;
         _kind = KindBox.SelectedIndex < 0 ? 0 : KindBox.SelectedIndex;
         ShowPanelForKind();
+        if (_kind == 1) SelectGraphNode(-1);
+        else if (_shadingMode == 0) SelectGraphNode(_substrateRoot);
         EngineInterop.acs_editor_material_set_kind(_path, _kind);
-        if (_engine != IntPtr.Zero) EngineInterop.acs_editor_reload_material(_engine, _path);
+        ReloadMaterialInViewport();
         StatusText.Text = "保存 ✓";
         RefreshPreview();
     }
@@ -198,7 +285,7 @@ public partial class MaterialEditorWindow : Window
             Title = "画像を選択",
             Filter = "画像 (*.png;*.jpg;*.jpeg;*.bmp;*.tga)|*.png;*.jpg;*.jpeg;*.bmp;*.tga|すべて (*.*)|*.*",
         };
-        if (dlg.ShowDialog() != true) return;
+        if (dlg.ShowDialog(this) != true) return;
         target = dlg.FileName;
         label.Text = TexLabel(target);
         SavePbrAndReload();
@@ -216,7 +303,7 @@ public partial class MaterialEditorWindow : Window
             _albedoPath, _normalPath);
         if (ok != 0)
         {
-            if (_engine != IntPtr.Zero) EngineInterop.acs_editor_reload_material(_engine, _path);
+            ReloadMaterialInViewport();
             StatusText.Text = "保存 ✓";
         }
         else StatusText.Text = "保存失敗";
@@ -259,6 +346,8 @@ public partial class MaterialEditorWindow : Window
         if (_loading) return;
         _shadingMode = ShadeBox.SelectedIndex < 0 ? 0 : ShadeBox.SelectedIndex;
         ApplyShadeMode();
+        SelectGraphNode(_shadingMode == 1 ? -1 : _substrateRoot);
+        ShowPanelForKind();
         SaveToonAndReload();
     }
 
@@ -292,7 +381,7 @@ public partial class MaterialEditorWindow : Window
             _toonSpec[0], _toonSpec[1], _toonSpec[2], P(SpecThr.Text, 0.9f), P(Soft.Text, 0.04f));
         if (ok != 0)
         {
-            if (_engine != IntPtr.Zero) EngineInterop.acs_editor_reload_material(_engine, _path);
+            ReloadMaterialInViewport();
             StatusText.Text = "保存 ✓";
         }
         else StatusText.Text = "保存失敗";
@@ -354,7 +443,7 @@ public partial class MaterialEditorWindow : Window
             P(Subsurf.Text), P(SsR.Text, 1f), P(SsG.Text, 0.3f), P(SsB.Text, 0.2f));
         if (ok != 0)
         {
-            if (_engine != IntPtr.Zero) EngineInterop.acs_editor_reload_material(_engine, _path);
+            ReloadMaterialInViewport();
             StatusText.Text = "保存 ✓";
         }
         else StatusText.Text = "保存失敗";
@@ -440,48 +529,79 @@ public partial class MaterialEditorWindow : Window
         ColorSwatch.Background = new SolidColorBrush(Color.FromRgb(B(P(ColR.Text)), B(P(ColG.Text)), B(P(ColB.Text))));
     }
 
-    private const int PreviewSize = 96;
-
     private void RefreshPreview()
     {
+        if (_loading || _closeInProgress || _lifetimeEnded || !IsLoaded) return;
+        // Saving and graph edits can emit several events per keystroke.
+        // Debounce the deterministic CPU preview until input has been idle briefly.
+        _previewTimer.Stop();
+        _previewTimer.Start();
+    }
+
+    /// <summary>
+    /// Bypasses the interactive debounce for deterministic visual-regression capture.
+    /// Production UI updates continue to use <see cref="RefreshPreview"/>.
+    /// </summary>
+    internal void RenderPreviewImmediatelyForTest()
+    {
+        _previewTimer.Stop();
+        if (!_closeInProgress && !_lifetimeEnded && IsLoaded)
+            RenderPreviewNow();
+    }
+
+    private void RenderPreviewNow()
+    {
+        if (_closeInProgress || _lifetimeEnded || !IsLoaded) return;
+        UpdatePreviewModeText();
         try
         {
-            // 実シェーダ GPU プレビュー (保存済みファイルを読む = PBR/Toon/Effect を全て engine 側で処理)。
-            if (_engine != IntPtr.Zero)
-            {
-                var buf = new byte[PreviewSize * PreviewSize * 4];
-                if (EngineInterop.acs_editor_render_preview_material(_engine, _path, buf, PreviewSize) != 0)
-                {
-                    PreviewImage.Source = GpuBitmap(buf, PreviewSize);
-                    return;
-                }
-            }
-            // CPU フォールバック (GPU 未準備時)。
+            // The material window shares the main viewport's engine. Running its
+            // preview command list/readback between steady-state viewport frames is
+            // a known resource-lifetime race, so this live preview is deliberately
+            // CPU-only. Scene rendering still uses the real compiled GPU material.
+            int quality = PreviewQualityBox.SelectedIndex < 0
+                ? 1 : PreviewQualityBox.SelectedIndex;
+            int previewSize = quality switch { 0 => 192, 2 => 384, _ => 256 };
             if (_kind == 0)
             {
                 var bc = new[] { P(BcR.Text, 1f), P(BcG.Text, 1f), P(BcB.Text, 1f), P(BcA.Text, 1f) };
                 var em = new[] { P(EmR.Text), P(EmG.Text), P(EmB.Text) };
                 PreviewImage.Source = MaterialPreview.RenderPbr(bc, P(Metallic.Text), P(Roughness.Text),
-                    em, P(EmStr.Text), P(NormalStr.Text, 1f), P(Ao.Text, 1f), 80);
+                    em, P(EmStr.Text), P(NormalStr.Text, 1f), P(Ao.Text, 1f), previewSize);
             }
             else
             {
                 int effect = EffectBox.SelectedIndex < 0 ? 0 : EffectBox.SelectedIndex;
                 var color = new[] { P(ColR.Text), P(ColG.Text), P(ColB.Text), P(ColA.Text, 1f) };
                 PreviewImage.Source = MaterialPreview.Render(effect, P(Strength.Text, 1f),
-                    P(P0.Text), P(P1.Text), P(P2.Text), color, AnimatedBox.IsChecked == true, 80);
+                    P(P0.Text), P(P1.Text), P(P2.Text), color, AnimatedBox.IsChecked == true, previewSize);
             }
         }
         catch { /* プレビュー失敗は無視 */ }
     }
 
-    // readback した BGRA32 バイト列を BitmapSource にする (RT は ColorFormat=B8G8R8A8)。
-    private static System.Windows.Media.Imaging.BitmapSource GpuBitmap(byte[] bgra, int size)
+    private void UpdatePreviewModeText()
     {
-        var bmp = System.Windows.Media.Imaging.BitmapSource.Create(
-            size, size, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null, bgra, size * 4);
-        bmp.Freeze();
-        return bmp;
+        if (PreviewModeText == null) return;
+        int quality = PreviewQualityBox.SelectedIndex < 0
+            ? 1 : PreviewQualityBox.SelectedIndex;
+        int model = PreviewModelBox.SelectedIndex < 0
+            ? 0 : PreviewModelBox.SelectedIndex;
+        string modelName = model switch
+        {
+            1 => "Cube",
+            2 => "Plane",
+            _ => "Sphere"
+        };
+        int previewSize = quality switch { 0 => 192, 2 => 384, _ => 256 };
+        PreviewModeText.Text = $"{modelName} · CPU-safe · {previewSize}px";
+    }
+
+    private void OnPreviewOptionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        UpdatePreviewModeText();
+        RefreshPreview();
     }
 
     private void OnEffectChanged(object sender, SelectionChangedEventArgs e)
@@ -526,7 +646,7 @@ public partial class MaterialEditorWindow : Window
             (AnimatedBox.IsChecked == true) ? 1 : 0);
         if (ok != 0)
         {
-            if (_engine != IntPtr.Zero) EngineInterop.acs_editor_reload_material(_engine, _path);
+            ReloadMaterialInViewport();
             StatusText.Text = "保存 ✓";
         }
         else StatusText.Text = "保存失敗";

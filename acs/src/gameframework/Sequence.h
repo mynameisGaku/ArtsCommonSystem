@@ -9,11 +9,11 @@
 //   ・パラレル合成 (`Parallel(sub)`) は未実装。複数 FSequence を Runner に
 //     並列で Start すれば事実上のパラレルになる。
 //   ・コールバックは `void(*)(void*)` 関数ポインタ。ACS 規約 (std::function 不使用)。
-//   ・FTween は FSequence 内蔵 (FTweenManager に委譲しない) — sequence の進行
+//   ・tween 処理は FSequence 内蔵 (FTweenManager に委譲しない) — sequence の進行
 //     時間と一体化させたいため。完了時は最終値を正確に書く。
 //
 // 使い方:
-//   class TitleScene : public Scene {
+//   class FTitleScene : public FScene {
 //       FSequenceRunner m_Seqs;
 //       FVec3 m_LogoColor;
 //       void OnEnter() noexcept override {
@@ -21,12 +21,12 @@
 //           s.Wait(0.3f)
 //            .Tween(&m_LogoColor, FVec3{0,0,0}, FVec3{1,1,1}, 0.5f, Easing::OutCubic)
 //            .Wait(1.0f)
-//            .Call(&TitleScene::FadeOutBegin, this);
+//            .Call(&FTitleScene::FadeOutBegin, this);
 //           m_Seqs.Start(Move(s));
 //       }
 //       void OnUpdate(f32 dt) noexcept override { m_Seqs.Tick(dt); }
 //       static void FadeOutBegin(void* self) noexcept {
-//           static_cast<TitleScene*>(self)->_ready_to_quit = true;
+//           static_cast<FTitleScene*>(self)->_ready_to_quit = true;
 //       }
 //   };
 #pragma once
@@ -44,11 +44,11 @@ namespace acs::game {
  *
  * @details FSequence 内で TArray に詰めて保持する。kind に応じて意味を持つフィールドが変わる。
  */
-struct SeqAction {
+struct FSeqAction {
     /**
      * アクションの種別。
      */
-    enum class Kind : u8 {
+    enum class EKind : u8 {
         /** 指定秒だけ待つ。 */
         Wait,
 
@@ -66,7 +66,7 @@ struct SeqAction {
     };
 
     /** このアクションの種別。 */
-    Kind kind     = Kind::Wait;
+    EKind kind     = EKind::Wait;
 
     /** Wait / FTween の所要秒 (Call は 0)。 */
     f32  duration = 0.0f;
@@ -140,6 +140,7 @@ public:
      *
      * @param seconds 待機秒 (負値は 0 にクランプ)。
      * @return チェイン記述用の自身への参照。
+     * @note 非有限の seconds はシーケンスを変更せず無視する。
      */
     FSequence& Wait(f32 seconds) noexcept;
 
@@ -161,9 +162,23 @@ public:
      * @param duration 補間にかける秒 (負値は 0 にクランプ)。
      * @param ease 補間に使うイージング関数 (nullptr なら Linear)。
      * @return チェイン記述用の自身への参照。
+     * @note duration または from/to が非有限ならシーケンスを変更せず無視する。
      */
-    FSequence& FTween(f32* target,  f32  from, f32  to, f32 duration,
-                     Easing::EasingFn ease = Easing::Linear) noexcept;
+    FSequence& Tween(f32* target,  f32  from, f32  to, f32 duration,
+                    Easing::EasingFn ease = Easing::Linear) noexcept;
+
+    /**
+     * 型付きイージング識別子を使う f32 tween アクションを追加する。
+     *
+     * @param target 補間して書き込む対象 f32 へのポインタ。
+     * @param from 開始値。非有限値は拒否する。
+     * @param to 終了値。非有限値は拒否する。
+     * @param duration 補間時間 (秒)。非有限値ならシーケンスを変更しない。
+     * @param ease イージング識別子。不明な値は安全に Linear を選ぶ。
+     * @return チェイン記述用の自身への参照。
+     */
+    FSequence& Tween(f32* target, f32 from, f32 to, f32 duration,
+                    Easing::EEasingType ease) noexcept;
 
     /**
      * FVec2 値を tween するアクションを追加する。
@@ -174,9 +189,23 @@ public:
      * @param duration 補間にかける秒 (負値は 0 にクランプ)。
      * @param ease 補間に使うイージング関数 (nullptr なら Linear)。
      * @return チェイン記述用の自身への参照。
+     * @note duration または from/to のいずれかの成分が非有限ならシーケンスを変更せず無視する。
      */
-    FSequence& FTween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
-                     Easing::EasingFn ease = Easing::Linear) noexcept;
+    FSequence& Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
+                    Easing::EasingFn ease = Easing::Linear) noexcept;
+
+    /**
+     * 型付きイージング識別子を使う FVec2 tween アクションを追加する。
+     *
+     * @param target 補間して書き込む対象 FVec2 へのポインタ。
+     * @param from 開始値。非有限成分を含む値は拒否する。
+     * @param to 終了値。非有限成分を含む値は拒否する。
+     * @param duration 補間時間 (秒)。非有限値ならシーケンスを変更しない。
+     * @param ease イージング識別子。不明な値は安全に Linear を選ぶ。
+     * @return チェイン記述用の自身への参照。
+     */
+    FSequence& Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
+                    Easing::EEasingType ease) noexcept;
 
     /**
      * FVec3 値を tween するアクションを追加する。
@@ -187,9 +216,23 @@ public:
      * @param duration 補間にかける秒 (負値は 0 にクランプ)。
      * @param ease 補間に使うイージング関数 (nullptr なら Linear)。
      * @return チェイン記述用の自身への参照。
+     * @note duration または from/to のいずれかの成分が非有限ならシーケンスを変更せず無視する。
      */
-    FSequence& FTween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
-                     Easing::EasingFn ease = Easing::Linear) noexcept;
+    FSequence& Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
+                    Easing::EasingFn ease = Easing::Linear) noexcept;
+
+    /**
+     * 型付きイージング識別子を使う FVec3 tween アクションを追加する。
+     *
+     * @param target 補間して書き込む対象 FVec3 へのポインタ。
+     * @param from 開始値。非有限成分を含む値は拒否する。
+     * @param to 終了値。非有限成分を含む値は拒否する。
+     * @param duration 補間時間 (秒)。非有限値ならシーケンスを変更しない。
+     * @param ease イージング識別子。不明な値は安全に Linear を選ぶ。
+     * @return チェイン記述用の自身への参照。
+     */
+    FSequence& Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
+                    Easing::EEasingType ease) noexcept;
 
     /**
      * ループ回数を設定する。
@@ -207,7 +250,7 @@ public:
      *
      * @return アクション列。
      */
-    const TArray<SeqAction>& Actions() const noexcept { return m_Actions; }
+    const TArray<FSeqAction>& Actions() const noexcept { return m_Actions; }
 
     /**
      * 設定済みのループ回数を返す。
@@ -218,7 +261,7 @@ public:
 
 private:
     /** 登録されたアクション列 (実行順)。 */
-    TArray<SeqAction> m_Actions;
+    TArray<FSeqAction> m_Actions;
 
     /** ループ回数 (0 = 無限)。 */
     u32              m_LoopCount = 1;
@@ -227,7 +270,7 @@ private:
 /**
  * 実行中シーケンスを参照する世代付きハンドル。
  */
-struct SeqHandle {
+struct FSeqHandle {
     /** スロット配列のインデックス。 */
     u32  index      = 0xFFFFFFFFu;
 
@@ -269,7 +312,7 @@ public:
      * @param seq 実行するシーケンス (所有権が移る)。
      * @return 実行中シーケンスのハンドル。空シーケンスは invalid handle。
      */
-    SeqHandle Start(FSequence seq) noexcept;
+    FSeqHandle Start(FSequence seq) noexcept;
 
     /**
      * 進行中のシーケンスを中止する。
@@ -277,9 +320,9 @@ public:
      * @details 進行中の tween は最後に書いた値で止まる (最終値への補正はしない)。
      * @param h 中止するシーケンスのハンドル。
      */
-    void Cancel(SeqHandle h) noexcept;
+    void Cancel(FSeqHandle h) noexcept;
 
-    /** 全シーケンスを破棄する (Scene::OnExit などで使う)。 */
+    /** 全シーケンスを破棄する (FScene::OnExit などで使う)。 */
     void CancelAll() noexcept;
 
     /**
@@ -288,7 +331,7 @@ public:
      * @param h 照会するハンドル。
      * @return 実行中で世代も一致すれば true。
      */
-    bool IsActive(SeqHandle h) const noexcept;
+    bool IsActive(FSeqHandle h) const noexcept;
 
     /**
      * 実行中のシーケンス数を返す。
@@ -300,8 +343,10 @@ public:
     /**
      * 全シーケンスを 1 フレーム進める。
      *
-     * @details Scene::OnUpdate から FSceneClock::Dt() を渡して毎フレーム呼ぶ想定。
+     * @details FScene::OnUpdate から FSceneClock::Dt() を渡して毎フレーム呼ぶ想定。
      * @param dt 前フレームからの経過秒。
+     * @note 非有限の dt は無視し、easing の非有限な戻り値は Linear にフォールバックする。
+     * 補間演算が非有限になったフレームは target を変更しない。
      */
     void Tick(f32 dt) noexcept;
 
@@ -309,7 +354,7 @@ private:
     /**
      * 1 シーケンスの実行状態を持つスロット。
      */
-    struct Slot {
+    struct FSlot {
         /** このスロットが実行中なら true。 */
         bool active         = false;
 
@@ -344,7 +389,7 @@ private:
      *
      * @param s 進めるスロット。
      */
-    void AdvanceToNext(Slot& s) noexcept;
+    void AdvanceToNext(FSlot& s) noexcept;
 
     /**
      * 完了したアクションの最終値を正確に書き込む (tween の浮動小数誤差を残さない)。
@@ -352,10 +397,10 @@ private:
      * @param s 対象スロット。
      * @param act 完了したアクション。
      */
-    void FinishAction(Slot& s, const SeqAction& act) noexcept;
+    void FinishAction(FSlot& s, const FSeqAction& act) noexcept;
 
     /** シーケンス実行スロットの配列 (世代付きで再利用)。 */
-    TArray<Slot> m_Slots;
+    TArray<FSlot> m_Slots;
 
     /** 実行中スロット数。 */
     u32         m_ActiveCount = 0;

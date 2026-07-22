@@ -8,20 +8,20 @@
 //
 // 使い方:
 //   FSpritePack pack;
-//   SpritePackInfo info;
+//   FSpritePackInfo info;
 //   info.atlas_texture_path = "assets/hero_atlas.png";
 //   info.atlas_width        = 1024;
 //   info.atlas_height       = 1024;
 //   pack.Init(info);
 //
-//   SpriteFrame f;
+//   FSpriteFrame f;
 //   f.name = "Idle_00";
 //   f.x = 0;   f.y = 0;   f.w = 64; f.h = 64;
 //   f.pivot_x = 0.5f; f.pivot_y = 0.5f;
 //   pack.AddFrame(f);
 //   // ...
 //
-//   if (const SpriteFrame* frame = pack.FindFrame("Idle_00"); frame != nullptr) {
+//   if (const FSpriteFrame* frame = pack.FindFrame("Idle_00"); frame != nullptr) {
 //       acs::FVec4 uv = pack.ComputeUv(*frame); // {u0, v0, u1, v1}
 //       // → DrawSprite(uv, ...)
 //   }
@@ -29,7 +29,7 @@
 // 設計判断:
 //   ・Pillar G (asset/IO の data layout) と Pillar Q (視覚世界, atlas) の交差点に
 //     位置するモジュール。テクスチャの所有 / ロードは責務外 (Pillar G の FAssetBundle
-//     / FAssetPack 側) で、FSpritePack は「矩形と名前の辞書」に徹する。
+//     / AssetPack 側) で、FSpritePack は「矩形と名前の辞書」に徹する。
 //   ・name は `const char*` 借用 (caller 所有 = 文字列リテラルまたは別所有の
 //     永続バッファ前提)。`<string>` 禁止に従い ACS 規約と整合。比較は pointer
 //     同一 → strcmp の順で評価し、リテラル運用なら pointer 一致の高速 path を抜ける。
@@ -56,7 +56,7 @@ namespace acs::game {
  * name は caller 所有 (文字列リテラル前提)。pivot は frame のローカル空間 [0,1]
  * (0,0=左上 / 1,1=右下) で表し、描画時のアンカー (回転中心 / 配置基準) に使う。
  */
-struct SpriteFrame {
+struct FSpriteFrame {
     /** 検索キー (caller 所有、文字列リテラル想定)。 */
     const char* name    = nullptr;
 
@@ -84,7 +84,7 @@ struct SpriteFrame {
  *
  * @details texture そのものは別モジュール (FAssetBundle 等) が所有する。
  */
-struct SpritePackInfo {
+struct FSpritePackInfo {
     /** atlas テクスチャのパス (caller 所有)。 */
     const char* atlas_texture_path = nullptr;
 
@@ -94,6 +94,48 @@ struct SpritePackInfo {
     /** atlas テクスチャの高さ (pixel、0 = 未設定)。 */
     u32         atlas_height       = 0;
 };
+
+/** 検証付き atlas JSON loader が返す安定した失敗理由。 */
+enum class ESpritePackLoadError : u16 {
+    None = 0,
+    NullInput = 1450,
+    EmptyInput = 1451,
+    InputTooLarge = 1452,
+    EmbeddedNul = 1453,
+    JsonDepthExceeded = 1454,
+    JsonStringTooLong = 1455,
+    JsonNodeLimitExceeded = 1456,
+    JsonSyntaxError = 1457,
+    RootTypeMismatch = 1458,
+    DuplicateMember = 1459,
+    MissingMember = 1460,
+    MemberTypeMismatch = 1461,
+    InvalidInteger = 1462,
+    NonFiniteNumber = 1463,
+    FrameLimitExceeded = 1464,
+    NameTooLong = 1465,
+    DuplicateFrameName = 1466,
+    InvalidAtlasSize = 1467,
+    InvalidFrameRect = 1468,
+    InvalidPivot = 1469,
+    ImagePathTooLong = 1470,
+    AllocationFailure = 1471,
+};
+
+/** TryLoadAtlasJson が返す allocation-free の結果。 */
+struct FSpritePackLoadResult {
+    ESpritePackLoadError Error = ESpritePackLoadError::None;
+    u16 JsonSubcode = 0u;
+    u32 Frame = 0u;
+
+    bool Succeeded() const noexcept {
+        return Error == ESpritePackLoadError::None;
+    }
+    explicit operator bool() const noexcept { return Succeeded(); }
+};
+
+/** ESpritePackLoadError に対応する安定した診断名。 */
+const char* SpritePackLoadErrorName(ESpritePackLoadError error) noexcept;
 
 /**
  * 1 枚の atlas テクスチャと名前付き frame 矩形群を持つデータ層。
@@ -106,8 +148,24 @@ struct SpritePackInfo {
  */
 class FSpritePack {
 public:
+    static constexpr usize kMaxAtlasJsonBytes = 4u * 1024u * 1024u;
+    static constexpr u32 kMaxJsonDepth = 64u;
+    static constexpr usize kMaxJsonStringBytes = 4096u;
+    static constexpr u32 kMaxJsonNodes = 100000u;
+    static constexpr u32 kMaxJsonObjectMembers = 4096u;
+    static constexpr u32 kMaxFrames = 4096u;
+    static constexpr usize kMaxFrameNameBytes = 255u;
+    static constexpr usize kMaxImagePathBytes = 1024u;
+    static constexpr u32 kMaxAtlasDimension = 65535u;
+
     /** 空の atlas データを構築する (frame なし、メタ未設定)。 */
     FSpritePack() noexcept = default;
+
+    /** 永続 string と frame array に呼び出し側所有の allocator を使う。 */
+    explicit FSpritePack(FAllocator& allocator) noexcept
+        : m_Frames(allocator),
+          m_OwnedNames(allocator),
+          m_OwnedImagePath(allocator) {}
 
     /** デストラクタ (frame 配列・所有文字列は TArray/FString が解放)。 */
     ~FSpritePack() noexcept = default;
@@ -132,7 +190,7 @@ public:
      * frame もまとめてクリアしたい場合は ClearAll を併用する。
      * @param info 取り込む atlas メタ情報。
      */
-    void Init(const SpritePackInfo& info) noexcept;
+    void Init(const FSpritePackInfo& info) noexcept;
 
     /**
      * frame を追加する。
@@ -142,7 +200,7 @@ public:
      * 同名 frame の重複登録は許容し、FindFrame は最初に一致したものを返す。
      * @param frame 追加する frame。
      */
-    void AddFrame(const SpriteFrame& frame) noexcept;
+    void AddFrame(const FSpriteFrame& frame) noexcept;
 
     /**
      * Aseprite / TexturePacker の sprite atlas JSON を読み込む。
@@ -160,13 +218,22 @@ public:
     TResult<void> LoadAtlasJson(const char* json_text, usize len) noexcept;
 
     /**
+     * atlas JSON を厳密に検証し、transactional に読み込む。
+     *
+     * 未知の exporter 拡張 member は許可する。JSON member・frame 名の重複、
+     * 不正な矩形、非有限値は、既存 pack state や公開済み pointer を変更せず失敗する。
+     */
+    FSpritePackLoadResult TryLoadAtlasJson(
+        const char* json_text, usize len) noexcept;
+
+    /**
      * 名前で frame を検索する。
      *
      * @details 比較は pointer 同一 → strcmp の順。
      * @param name 検索するキー (nullptr は常に nullptr を返す)。
      * @return 見つかった frame へのポインタ (無ければ nullptr)。
      */
-    const SpriteFrame* FindFrame(const char* name) const noexcept;
+    const FSpriteFrame* FindFrame(const char* name) const noexcept;
 
     /**
      * 名前で frame の有無を確認する。
@@ -190,14 +257,14 @@ public:
      * @param out_count frame 数を書き戻す出力先。
      * @return frame 配列の先頭ポインタ。
      */
-    const SpriteFrame* AllFrames(u32& out_count) const noexcept;
+    const FSpriteFrame* AllFrames(u32& out_count) const noexcept;
 
     /**
      * atlas メタ情報を取得する。
      *
      * @return atlas メタ情報への const 参照。
      */
-    const SpritePackInfo& Info() const noexcept { return m_Info; }
+    const FSpritePackInfo& Info() const noexcept { return m_Info; }
 
     /**
      * 指定 name の frame を削除する。
@@ -217,16 +284,16 @@ public:
      * @param frame UV を求める frame。
      * @return UV サブ矩形 {u0, v0, u1, v1}。
      */
-    acs::FVec4 ComputeUv(const SpriteFrame& frame) const noexcept;
+    acs::FVec4 ComputeUv(const FSpriteFrame& frame) const noexcept;
 
 private:
     /** atlas メタ情報。 */
-    SpritePackInfo     m_Info;
+    FSpritePackInfo     m_Info;
 
     /** 登録された frame の配列。 */
-    TArray<SpriteFrame> m_Frames;
+    TArray<FSpriteFrame> m_Frames;
 
-    /** LoadAtlasJson が所有する frame 名バッファ (SpriteFrame.name が指す、Reserve 済で安定)。 */
+    /** LoadAtlasJson が所有する frame 名バッファ (FSpriteFrame.name が指す、Reserve 済で安定)。 */
     TArray<FString>    m_OwnedNames;
 
     /** LoadAtlasJson が所有する atlas image path。 */

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// DiligentPipeline 実装
+// FDiligentPipeline 実装
 #include "render/Diligent/DiligentPipeline.h"
 
 #if WITH_RENDER_DILIGENT
@@ -26,27 +26,27 @@ const char* const kTexFallback[16] = {
 };
 } // namespace
 
-const char* DiligentPipeline::FallbackCbName(u32 slot) noexcept {
+const char* FDiligentPipeline::FallbackCbName(u32 slot) noexcept {
     return slot < 16 ? kCbFallback[slot] : "cb_invalid";
 }
-const char* DiligentPipeline::FallbackTexName(u32 slot) noexcept {
+const char* FDiligentPipeline::FallbackTexName(u32 slot) noexcept {
     return slot < 16 ? kTexFallback[slot] : "t_invalid";
 }
 
-const char* DiligentPipeline::CbufferName(u32 slot) const noexcept {
+const char* FDiligentPipeline::CbufferName(u32 slot) const noexcept {
     if (slot >= kMaxResourceSlots) return FallbackCbName(slot);
     return m_CbNames[slot] ? m_CbNames[slot] : FallbackCbName(slot);
 }
-const char* DiligentPipeline::TextureName(u32 slot) const noexcept {
+const char* FDiligentPipeline::TextureName(u32 slot) const noexcept {
     if (slot >= kMaxResourceSlots) return FallbackTexName(slot);
     return m_TexNames[slot] ? m_TexNames[slot] : FallbackTexName(slot);
 }
 
-DiligentPipeline::~DiligentPipeline() noexcept {
+FDiligentPipeline::~FDiligentPipeline() noexcept {
     Reset();
 }
 
-void DiligentPipeline::Reset() noexcept
+void FDiligentPipeline::Reset() noexcept
 {
     if (m_Srb) { m_Srb->Release(); m_Srb = nullptr; }
     if (m_Pso) { m_Pso->Release(); m_Pso = nullptr; }
@@ -62,7 +62,7 @@ void DiligentPipeline::Reset() noexcept
     }
 }
 
-TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc& desc) noexcept {
+TResult<void> FDiligentPipeline::Init(FDiligentDevice& device, const FPipelineDesc& desc) noexcept {
     Reset();
     m_Device = &device;
     m_CbSlots  = desc.cbuffer_slots;
@@ -75,12 +75,12 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc
     }
 
     auto* dev = device.RenderDev();
-    if (!dev) return ACS_ERR(Render, 150, "DiligentPipeline: device not initialized");
+    if (!dev) return ACS_ERR(Render, 150, "FDiligentPipeline: device not initialized");
 
-    auto* vs = static_cast<DiligentShader*>(desc.vs);
-    auto* ps = static_cast<DiligentShader*>(desc.ps);
+    auto* vs = static_cast<FDiligentShader*>(desc.vs);
+    auto* ps = static_cast<FDiligentShader*>(desc.ps);
     if (!vs || !vs->Native()) {
-        return ACS_ERR(Render, 151, "DiligentPipeline: VS missing");
+        return ACS_ERR(Render, 151, "FDiligentPipeline: VS missing");
     }
 
     // FPipelineDesc.cbuffer_names / texture_names が未指定の slot を、shader
@@ -88,7 +88,7 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc
     // 補完する。VS と PS で同 slot に異なる名前がある場合は VS を優先 (ACS
     // 慣行: VS / PS で同じ cbuffer を共有)。Diligent::ShaderResourceDesc に
     // BindPoint が無い問題を回避し、HLSL declaration 順依存を消す。
-    for (u32 i = 0; i < kMaxResourceSlots && i < DiligentShader::kMaxSlots; ++i) {
+    for (u32 i = 0; i < kMaxResourceSlots && i < FDiligentShader::kMaxSlots; ++i) {
         if (!m_CbNames[i]) {
             const char* n = vs->CbufferNameAt(i);
             if (!n && ps) n = ps->CbufferNameAt(i);
@@ -117,13 +117,13 @@ TResult<void> DiligentPipeline::Init(DiligentDevice& device, const FPipelineDesc
             // strict validation: 過大値を silent 切り詰めると caller の想定と乖離するので reject
             if (desc.rt_count > 8) {
                 return ACS_ERR(Render, 154,
-                    "DiligentPipeline: rt_count must be <= 8 (got too large)");
+                    "FDiligentPipeline: rt_count must be <= 8 (got too large)");
             }
             // 各 slot が valid format か検証 (Unknown は MRT で意味なし)
             for (u32 i = 0; i < desc.rt_count; ++i) {
                 if (desc.rt_formats[i] == EFormat::Unknown) {
                     return ACS_ERR(Render, 155,
-                        "DiligentPipeline: rt_formats[i] must be set for all i < rt_count");
+                        "FDiligentPipeline: rt_formats[i] must be set for all i < rt_count");
                 }
             }
             gp.NumRenderTargets = static_cast<u8>(desc.rt_count);
@@ -300,12 +300,12 @@ const char* const kUavFallback[16] = {
 };
 } // namespace
 
-const char* DiligentPipeline::UavName(u32 slot) const noexcept {
+const char* FDiligentPipeline::UavName(u32 slot) const noexcept {
     if (slot >= kMaxResourceSlots) return "u_invalid";
     return m_UavNames[slot] ? m_UavNames[slot] : kUavFallback[slot];
 }
 
-TResult<void> DiligentPipeline::InitCompute(DiligentDevice& device,
+TResult<void> FDiligentPipeline::InitCompute(FDiligentDevice& device,
                                             const FComputePipelineDesc& desc) noexcept {
     Reset();
     m_Device    = &device;
@@ -320,9 +320,9 @@ TResult<void> DiligentPipeline::InitCompute(DiligentDevice& device,
     }
 
     auto* dev = device.RenderDev();
-    if (!dev) return ACS_ERR(Render, 156, "DiligentPipeline(compute): device not initialized");
-    auto* cs = static_cast<DiligentShader*>(desc.cs);
-    if (!cs || !cs->Native()) return ACS_ERR(Render, 157, "DiligentPipeline(compute): CS missing");
+    if (!dev) return ACS_ERR(Render, 156, "FDiligentPipeline(compute): device not initialized");
+    auto* cs = static_cast<FDiligentShader*>(desc.cs);
+    if (!cs || !cs->Native()) return ACS_ERR(Render, 157, "FDiligentPipeline(compute): CS missing");
 
     Diligent::ComputePipelineStateCreateInfo psoCI;
     psoCI.PSODesc.Name         = "ACS_ComputePSO";
@@ -331,15 +331,29 @@ TResult<void> DiligentPipeline::InitCompute(DiligentDevice& device,
     psoCI.PSODesc.ResourceLayout.DefaultVariableType =
         Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC;
 
-    // static サンプラ (compute で SRV をサンプルする LUT 等。combined-sampler は OFF なので
-    // SamplerOrTextureName は別宣言の SamplerState 名。Phase 1 で SRV 名 = サンプラ名規約を使う)。
+    // Compute shaders deliberately disable Diligent's combined-sampler mode so
+    // UAV names are left untouched.  In that mode ImmutableSamplerDesc must
+    // name the actual HLSL SamplerState, not its texture.  ACS shaders pair
+    // `Texture* foo` with `SamplerState foo_sampler`.
     constexpr u32 kMaxStaticSamplers = 16;
     Diligent::ImmutableSamplerDesc samplers[kMaxStaticSamplers]{};
+    char samplerNames[kMaxStaticSamplers][96]{};
     const u32 ns = desc.static_sampler_count > kMaxStaticSamplers
                  ? kMaxStaticSamplers : desc.static_sampler_count;
     for (u32 i = 0; i < ns; ++i) {
         const auto& s = desc.static_samplers[i];
-        samplers[i].SamplerOrTextureName = desc.srv_names[i] ? desc.srv_names[i] : kUavFallback[i];
+        const char* textureName =
+            desc.srv_names[i] ? desc.srv_names[i] : kTexFallback[i];
+        constexpr char suffix[] = "_sampler";
+        const size_t nameLength = std::strlen(textureName);
+        constexpr size_t suffixLength = sizeof(suffix) - 1u;
+        if (nameLength + suffixLength >= sizeof(samplerNames[i])) {
+            return ACS_ERR(Render, 160,
+                           "FDiligentPipeline(compute): static sampler name too long");
+        }
+        std::memcpy(samplerNames[i], textureName, nameLength);
+        std::memcpy(samplerNames[i] + nameLength, suffix, sizeof(suffix));
+        samplers[i].SamplerOrTextureName = samplerNames[i];
         samplers[i].ShaderStages   = Diligent::SHADER_TYPE_COMPUTE;
         samplers[i].Desc.Name      = "ACS_CsStaticSampler";
         samplers[i].Desc.MinFilter = diligent_detail::ToDiligentFilter(s.filter);

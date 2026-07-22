@@ -15,7 +15,7 @@ namespace hellonet {
 // サーバスレッド本体 (TcpListener::Listen → Accept → Recv → Send) は
 // EchoServer.h/.cpp に free function で分離している (FThread::Spawn の引数仕様に
 // 合わせるため、メンバ関数ではなく free function にしている)。
-class HelloNetApp {
+class FHelloNetApp {
 public:
     // 一連のフロー (Init → サーバ起動 → クライアント送受信 → Shutdown) を実行し
     // プロセス終了 code を返す (0 成功 / 1-3 失敗段階)。

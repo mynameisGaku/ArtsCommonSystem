@@ -7,7 +7,7 @@
 
 namespace acs {
 
-class Dx12Device;
+class FDx12Device;
 
 /**
  * DX12 の GPU バッファ実装 (頂点・インデックス・定数バッファ用)。
@@ -18,13 +18,13 @@ class Dx12Device;
  * GPU が前フレームを読んでいる間に CPU が次フレーム分へ書き込めるよう衝突を避ける。
  * cpu_writable=false のバッファは DEFAULT ヒープに 1 スロットだけ確保する。
  */
-class Dx12Buffer final : public IRhiBuffer {
+class FDx12Buffer final : public IRhiBuffer {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    Dx12Buffer() noexcept = default;
+    FDx12Buffer() noexcept = default;
 
     /** 永続マップを解除し GPU リソースを解放する。 */
-    ~Dx12Buffer() noexcept override;
+    ~FDx12Buffer() noexcept override;
 
     /**
      * desc に従って GPU バッファリソースを確保する。
@@ -34,9 +34,9 @@ public:
      * false なら DEFAULT ヒープに 1 スロット確保する。initial_data があれば全スロットへ複製する。
      * @param device リソース生成とフレームスロット問い合わせに使う DX12 デバイス。
      * @param desc サイズ・用途・cpu_writable・初期データを指定するバッファ記述。
-     * @return 成功なら成功 HrResult、リソース生成・マップ失敗なら失敗 HrResult。
+     * @return 成功なら成功 FHrResult、リソース生成・マップ失敗なら失敗 FHrResult。
      */
-    HrResult Init(Dx12Device& device, const FBufferDesc& desc) noexcept;
+    FHrResult Init(FDx12Device& device, const FBufferDesc& desc) noexcept;
 
     /**
      * バッファの 1 フレームスロットあたりのバイト数を返す。
@@ -84,7 +84,7 @@ private:
     void Reset() noexcept;
 
     /** フレームスロット問い合わせに使う DX12 デバイス。 */
-    Dx12Device*     m_Device       = nullptr;
+    FDx12Device*     m_Device       = nullptr;
 
     /** 確保した D3D12 バッファリソース。 */
     ID3D12Resource* m_Resource     = nullptr;

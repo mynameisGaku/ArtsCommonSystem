@@ -6,13 +6,14 @@
 //   - .acsmat テキストの書き出し→解析ラウンドトリップ
 //   - 解析の堅牢性 (ヘッダ不正・欠落フィールド)
 //   - SceneTextLoader の MAT 行が node にマテリアルを焼き込むこと
-//   - FNode2D::SetMaterial / ClearMaterial / HasMaterial
+//   - ANode::SetMaterial / ClearMaterial / HasMaterial
 //   GPU 不要 (純 logic。SetEffect の実描画は対象外)。
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "gameframework/Material2D.h"
-#include "gameframework/Node2D.h"
+#include "gameframework/ANode.h"
+#include "gameframework/ProjectSettings.h"
 #include "gameframework/SceneTextLoader.h"
 
 #include <cstdio>
@@ -228,9 +229,184 @@ ACS_TEST(Material2D, ParseNullIsSafe) {
     EXPECT_EQ(static_cast<i32>(got.effect), static_cast<i32>(ESpriteEffect::None));
 }
 
-// --- FNode2D のマテリアル状態 ------------------------------------------------
+ACS_TEST(Material2D, CheckedParserAcceptsExplicitLengthWithoutTerminator) {
+    constexpr char text[] = "ACSMAT 1\nkind effect\neffect Vignette\nstrength 0.75\n";
+    FMaterial2D material;
+    std::snprintf(material.name, sizeof(material.name), "Before");
+    const FMaterial2DLoadResult result =
+        TryParseAcsmatText(text, sizeof(text) - 1u, material);
+    EXPECT_TRUE(result.Succeeded());
+    EXPECT_EQ(static_cast<i32>(material.kind), static_cast<i32>(EMaterialKind::Effect));
+    EXPECT_EQ(static_cast<i32>(material.effect), static_cast<i32>(ESpriteEffect::Vignette));
+    EXPECT_NEAR(material.params.strength, 0.75f, 1e-4f);
+}
+
+ACS_TEST(Material2D, CheckedParserRejectsEmbeddedNulTransactionally) {
+    const char text[] = {
+        'A','C','S','M','A','T',' ','1','\n',
+        'n','a','m','e',' ','B','a','d','\0',
+        'e','f','f','e','c','t',' ','T','i','n','t','\n'
+    };
+    FMaterial2D material;
+    std::snprintf(material.name, sizeof(material.name), "Unchanged");
+    material.params.strength = 42.0f;
+    const FMaterial2DLoadResult result =
+        TryParseAcsmatText(text, sizeof(text), material);
+    EXPECT_EQ(static_cast<i32>(result.error),
+              static_cast<i32>(EMaterial2DLoadError::EmbeddedNul));
+    EXPECT_TRUE(std::strcmp(material.name, "Unchanged") == 0);
+    EXPECT_NEAR(material.params.strength, 42.0f, 1e-4f);
+}
+
+ACS_TEST(Material2D, CheckedParserRejectsDuplicateAndNonFiniteValues) {
+    FMaterial2D material;
+    material.pbr.metallic = 0.25f;
+    constexpr char duplicate[] =
+        "ACSMAT 1\nkind pbr\nmetallic 0.5\nmetallic 0.8\n";
+    FMaterial2DLoadResult result =
+        TryParseAcsmatText(duplicate, sizeof(duplicate) - 1u, material);
+    EXPECT_EQ(static_cast<i32>(result.error),
+              static_cast<i32>(EMaterial2DLoadError::DuplicateKey));
+    EXPECT_NEAR(material.pbr.metallic, 0.25f, 1e-4f);
+
+    constexpr char non_finite[] = "ACSMAT 1\nkind pbr\nmetallic nan\n";
+    result = TryParseAcsmatText(non_finite, sizeof(non_finite) - 1u, material);
+    EXPECT_EQ(static_cast<i32>(result.error),
+              static_cast<i32>(EMaterial2DLoadError::ValueOutOfRange));
+    EXPECT_NEAR(material.pbr.metallic, 0.25f, 1e-4f);
+}
+
+ACS_TEST(Material2D, CheckedParserRejectsOutOfRangeIntegerAndLongLine) {
+    FMaterial2D material;
+    constexpr char bad_integer[] =
+        "ACSMAT 1\nkind pbr\nshadingMode 2147483648\n";
+    FMaterial2DLoadResult result =
+        TryParseAcsmatText(bad_integer, sizeof(bad_integer) - 1u, material);
+    EXPECT_EQ(static_cast<i32>(result.error),
+              static_cast<i32>(EMaterial2DLoadError::ValueOutOfRange));
+
+    char long_text[9u + 1u + kMaterial2DMaxLineBytes + 1u]{};
+    std::memcpy(long_text, "ACSMAT 1\n", 9u);
+    std::memset(long_text + 9u, 'x', kMaterial2DMaxLineBytes + 1u);
+    result = TryParseAcsmatText(
+        long_text, 9u + kMaterial2DMaxLineBytes + 1u, material);
+    EXPECT_EQ(static_cast<i32>(result.error),
+              static_cast<i32>(EMaterial2DLoadError::LineTooLong));
+    EXPECT_EQ(result.line, 2u);
+}
+
+ACS_TEST(ProjectSettingsSafety, CheckedLoadIsTransactionalAndRejectsDuplicates) {
+    FProjectSettings settings;
+    settings.ResetToDefaults();
+    EXPECT_TRUE(settings.Set("Game", "WindowWidth", "777"));
+
+    constexpr char duplicate[] =
+        "[Game]\n"
+        "WindowWidth=800\n"
+        "WindowWidth=900\n";
+    const FProjectSettingsLoadResult result =
+        settings.TryLoadText(duplicate, sizeof(duplicate) - 1u);
+    EXPECT_EQ(static_cast<i32>(result.error),
+              static_cast<i32>(EProjectSettingsLoadError::DuplicateKey));
+    EXPECT_EQ(settings.GetInt("Game", "WindowWidth", -1), 777);
+}
+
+ACS_TEST(ProjectSettingsSafety, CheckedLoadRejectsEmbeddedNulAndInvalidBuiltin) {
+    FProjectSettings settings;
+    settings.ResetToDefaults();
+    EXPECT_TRUE(settings.Set("Game", "WindowWidth", "777"));
+
+    const char embedded[] = {
+        '[','G','a','m','e',']','\n',
+        'W','i','n','d','o','w','W','i','d','t','h','=','8','0','0','\0','0','\n'
+    };
+    FProjectSettingsLoadResult result =
+        settings.TryLoadText(embedded, sizeof(embedded));
+    EXPECT_EQ(static_cast<i32>(result.error),
+              static_cast<i32>(EProjectSettingsLoadError::EmbeddedNul));
+    EXPECT_EQ(settings.GetInt("Game", "WindowWidth", -1), 777);
+
+    constexpr char overflow[] = "[Game]\nWindowWidth=2147483648\n";
+    result = settings.TryLoadText(overflow, sizeof(overflow) - 1u);
+    EXPECT_EQ(static_cast<i32>(result.error),
+              static_cast<i32>(EProjectSettingsLoadError::ValueOutOfRange));
+    EXPECT_EQ(settings.GetInt("Game", "WindowWidth", -1), 777);
+
+    constexpr char non_finite[] = "[Rendering]\nExposure=inf\n";
+    result = settings.TryLoadText(non_finite, sizeof(non_finite) - 1u);
+    EXPECT_EQ(static_cast<i32>(result.error),
+              static_cast<i32>(EProjectSettingsLoadError::ValueOutOfRange));
+    EXPECT_EQ(settings.GetInt("Game", "WindowWidth", -1), 777);
+}
+
+ACS_TEST(ProjectSettingsSafety, UnknownKeysAreCustomAndEmptyInputUsesDefaults) {
+    FProjectSettings settings;
+    constexpr char custom[] = "[Plugin]\nMode=Experimental\n";
+    FProjectSettingsLoadResult result =
+        settings.TryLoadText(custom, sizeof(custom) - 1u);
+    EXPECT_TRUE(result.Succeeded());
+    const FSettingEntry* entry = settings.Find("Plugin", "Mode");
+    EXPECT_TRUE(entry != nullptr);
+    EXPECT_FALSE(entry->builtin);
+    EXPECT_TRUE(std::strcmp(entry->value, "Experimental") == 0);
+    EXPECT_TRUE(settings.Find("Rendering", "ClearColor") != nullptr);
+
+    result = settings.TryLoadText("", 0u);
+    EXPECT_TRUE(result.Succeeded());
+    EXPECT_TRUE(result.used_defaults);
+    EXPECT_TRUE(settings.Find("Plugin", "Mode") == nullptr);
+    EXPECT_EQ(settings.GetInt("Game", "WindowWidth", -1), 1280);
+}
+
+ACS_TEST(ProjectSettingsSafety, TypedGettersRequireCanonicalFiniteValues) {
+    FProjectSettings settings;
+    settings.ResetToDefaults();
+    EXPECT_TRUE(settings.Set("Game", "WindowWidth", "123junk"));
+    EXPECT_EQ(settings.GetInt("Game", "WindowWidth", 55), 55);
+    EXPECT_TRUE(settings.Set("Rendering", "Exposure", "nan"));
+    EXPECT_NEAR(settings.GetFloat("Rendering", "Exposure", 2.0f), 2.0f, 1e-4f);
+    EXPECT_TRUE(settings.Set("Rendering", "ClearColor", "1,2,nan"));
+    const FVec3 fallback{0.1f, 0.2f, 0.3f};
+    const FVec3 color = settings.GetColor("Rendering", "ClearColor", fallback);
+    EXPECT_NEAR(color.x, fallback.x, 1e-4f);
+    EXPECT_NEAR(color.y, fallback.y, 1e-4f);
+    EXPECT_NEAR(color.z, fallback.z, 1e-4f);
+}
+
+ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadable) {
+    FProjectSettings settings;
+    settings.ResetToDefaults();
+    const FSettingEntry* base = settings.Find("Rendering", "CloudBaseHeight");
+    const FSettingEntry* top = settings.Find("Rendering", "CloudTopHeight");
+    const FSettingEntry* scale = settings.Find("Rendering", "CloudNoiseScale");
+    const FSettingEntry* render_scale = settings.Find("Rendering", "CloudRenderScale");
+    EXPECT_TRUE(base != nullptr && base->builtin);
+    EXPECT_TRUE(top != nullptr && top->builtin);
+    EXPECT_TRUE(scale != nullptr && scale->builtin);
+    EXPECT_TRUE(render_scale != nullptr && render_scale->builtin);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudBaseHeight", 0.0f), 1500.0f, 1e-4f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudTopHeight", 0.0f), 4000.0f, 1e-4f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudNoiseScale", 0.0f), 0.035f, 1e-5f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudRenderScale", 0.0f), -1.0f, 1e-5f);
+
+    constexpr char custom_layer[] =
+        "[Rendering]\n"
+        "CloudBaseHeight=240\n"
+        "CloudTopHeight=315\n"
+        "CloudNoiseScale=0.018\n"
+        "CloudRenderScale=0.75\n";
+    const FProjectSettingsLoadResult loaded =
+        settings.TryLoadText(custom_layer, sizeof(custom_layer) - 1u);
+    EXPECT_TRUE(loaded.Succeeded());
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudBaseHeight", 0.0f), 240.0f, 1e-4f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudTopHeight", 0.0f), 315.0f, 1e-4f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudNoiseScale", 0.0f), 0.018f, 1e-5f);
+    EXPECT_NEAR(settings.GetFloat("Rendering", "CloudRenderScale", 0.0f), 0.75f, 1e-5f);
+}
+
+// --- ANode のマテリアル状態 ------------------------------------------------
 ACS_TEST(Material2D, NodeSetClearMaterial) {
-    FNode2D node;
+    ANode node;
     EXPECT_FALSE(node.HasMaterial());
 
     FMaterial2D mat;
@@ -262,7 +438,7 @@ ACS_TEST(Material2D, SceneWithMatLineParses) {
         "1 -1 0 0 0 1 1 48 0.5 0.6 0.7 1 A\n"
         "2 -1 10 0 0 1 1 48 0.2 0.3 0.4 1 B\n"
         "MAT 1 C:\\does\\not\\exist.acsmat\n";   // 存在しないパス → SetMaterial されないが落ちない
-    FNode2D root;
+    ANode root;
     FSceneBounds b = LoadAcsceneText(scene, root, nullptr, nullptr);
     EXPECT_TRUE(b.valid);
     EXPECT_EQ(root.ChildCount(), 2u);   // MAT 行があってもノードは正しく読める

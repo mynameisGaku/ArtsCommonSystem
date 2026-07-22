@@ -51,7 +51,7 @@ inline i32 ClampI32(i32 v, i32 lo, i32 hi) noexcept {
 }
 
 /** pivot の (x, y) 値ペア。 */
-struct PivotPair {
+struct FPivotPair {
     /** pivot の x 成分 (0..1)。 */
     f32 x;
 
@@ -66,7 +66,7 @@ struct PivotPair {
  * @param preset 変換するプリセット。
  * @return preset に対応する pivot ペア。
  */
-inline PivotPair PivotForPreset(EPivotPreset preset) noexcept {
+inline FPivotPair PivotForPreset(EPivotPreset preset) noexcept {
     switch (preset) {
         case EPivotPreset::Center:  return { 0.5f, 0.5f };
         case EPivotPreset::TopLeft: return { 0.0f, 0.0f };
@@ -214,12 +214,12 @@ void FSpriteAtlasEditorPanel::AddFrame() noexcept {
     name_buf[kFrameNameMaxChars - 1] = '\0';
 
     // pivot は現在の preset を反映 (Custom なら 0.5, 0.5 を fallback)。
-    const PivotPair piv = (m_PivotPreset == EPivotPreset::Custom)
-                              ? PivotPair{ 0.5f, 0.5f }
+    const FPivotPair piv = (m_PivotPreset == EPivotPreset::Custom)
+                              ? FPivotPair{ 0.5f, 0.5f }
                               : PivotForPreset(m_PivotPreset);
 
     // default 64x64 (atlas 左上 0,0 起点)、pivot は preset。
-    SpriteFrame f{};
+    FSpriteFrame f{};
     f.name    = name_buf;          // 静的バッファ寿命 = panel 寿命 ≧ FSpritePack
     f.x       = 0u;
     f.y       = 0u;
@@ -250,10 +250,10 @@ void FSpriteAtlasEditorPanel::DeleteSelectedFrame() noexcept {
     if (m_Selected < 0 || m_Selected >= count) return;
 
     u32 frame_count = 0;
-    const SpriteFrame* frames = m_Pack->AllFrames(frame_count);
+    const FSpriteFrame* frames = m_Pack->AllFrames(frame_count);
     if (frames == nullptr || m_Selected >= static_cast<i32>(frame_count)) return;
 
-    const SpriteFrame& target = frames[static_cast<usize>(m_Selected)];
+    const FSpriteFrame& target = frames[static_cast<usize>(m_Selected)];
     const c8* target_name = target.name;
     if (target_name == nullptr) return;
 
@@ -289,9 +289,9 @@ void FSpriteAtlasEditorPanel::DeleteSelectedFrame() noexcept {
             // 末尾 slot を name に持つ frame を pack 内から探して repoint する。
             // RemoveFrame 後の現配列を取り直す (swap remove で再配置済)。
             u32 cur_count = 0;
-            const SpriteFrame* cur = m_Pack->AllFrames(cur_count);
+            const FSpriteFrame* cur = m_Pack->AllFrames(cur_count);
             if (cur != nullptr) {
-                SpriteFrame* mut_cur = const_cast<SpriteFrame*>(cur);
+                FSpriteFrame* mut_cur = const_cast<FSpriteFrame*>(cur);
                 const c8* last_addr = m_DefaultFrameNamePool[last_slot];
                 for (u32 i = 0; i < cur_count; ++i) {
                     if (mut_cur[i].name == last_addr) {
@@ -346,7 +346,7 @@ void FSpriteAtlasEditorPanel::SetPivotPreset(EPivotPreset p) noexcept {
     if (m_Selected < 0 || m_Selected >= count) return;
 
     u32 frame_count = 0;
-    const SpriteFrame* frames = m_Pack->AllFrames(frame_count);
+    const FSpriteFrame* frames = m_Pack->AllFrames(frame_count);
     if (frames == nullptr || m_Selected >= static_cast<i32>(frame_count)) return;
 
     // FSpritePack の AllFrames は const ポインタを返すので、mutable 編集には
@@ -354,8 +354,8 @@ void FSpriteAtlasEditorPanel::SetPivotPreset(EPivotPreset p) noexcept {
     // const_cast で書き換える (= 同一 FSpritePack 内のデータ書換、所有関係は
     // 維持される。FSpritePack の AllFrames コメント上「内部配列の先頭」と
     // 明記されており、frame の不変条件は名前以外 (= x/y/w/h/pivot) には無い)。
-    SpriteFrame* mut_frames = const_cast<SpriteFrame*>(frames);
-    const PivotPair piv = PivotForPreset(p);
+    FSpriteFrame* mut_frames = const_cast<FSpriteFrame*>(frames);
+    const FPivotPair piv = PivotForPreset(p);
     mut_frames[static_cast<usize>(m_Selected)].pivot_x = piv.x;
     mut_frames[static_cast<usize>(m_Selected)].pivot_y = piv.y;
 }
@@ -433,13 +433,13 @@ void FSpriteAtlasEditorPanel::DrawUI() noexcept {
         if (!pack_ok) {
             ImGui::SameLine();
             ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.2f, 1.0f),
-                               "  (No FSpritePack attached)");
+                               "  (No sprite pack attached)");
         }
     }
 
     ImGui::Separator();
 
-    // 3 カラム (List / FViewport / Inspector) のサイズ計算。
+    // 3 カラム (List / Viewport / Inspector) のサイズ計算。
     const f32 content_w = ImGui::GetContentRegionAvail().x;
     const f32 left_w    = (content_w > 600.0f) ? 160.0f : content_w * 0.20f;
     const f32 right_w   = (content_w > 600.0f) ? 220.0f : content_w * 0.30f;
@@ -457,7 +457,7 @@ void FSpriteAtlasEditorPanel::DrawUI() noexcept {
             ImGui::TextDisabled("(no pack)");
         } else {
             u32 count = 0;
-            const SpriteFrame* frames = m_Pack->AllFrames(count);
+            const FSpriteFrame* frames = m_Pack->AllFrames(count);
             if (count == 0) {
                 ImGui::TextDisabled("(empty)");
             } else {
@@ -487,7 +487,7 @@ void FSpriteAtlasEditorPanel::DrawUI() noexcept {
         u32 aw = 256u;
         u32 ah = 256u;
         if (m_Pack != nullptr) {
-            const SpritePackInfo& info = m_Pack->Info();
+            const FSpritePackInfo& info = m_Pack->Info();
             if (info.atlas_width  > 0u) aw = info.atlas_width;
             if (info.atlas_height > 0u) ah = info.atlas_height;
         }
@@ -535,9 +535,9 @@ void FSpriteAtlasEditorPanel::DrawUI() noexcept {
         // 全 frame の矩形 overlay。
         if (m_Pack != nullptr) {
             u32 count = 0;
-            const SpriteFrame* frames = m_Pack->AllFrames(count);
+            const FSpriteFrame* frames = m_Pack->AllFrames(count);
             for (u32 i = 0; i < count; ++i) {
-                const SpriteFrame& f = frames[i];
+                const FSpriteFrame& f = frames[i];
                 const ImVec2 r_min = AtlasToScreen(origin, m_Zoom,
                                                    static_cast<i32>(f.x),
                                                    static_cast<i32>(f.y));
@@ -606,9 +606,9 @@ void FSpriteAtlasEditorPanel::DrawUI() noexcept {
                             // FSpritePack は AllFrames が const なので、編集には
                             // const_cast を使う (FSpritePack::AllFrames コメントで
                             // 「内部配列の先頭」と明記、x/y/w/h は不変条件外)。
-                            SpriteFrame* mut_frames =
-                                const_cast<SpriteFrame*>(frames);
-                            SpriteFrame& tgt = mut_frames[static_cast<usize>(m_Selected)];
+                            FSpriteFrame* mut_frames =
+                                const_cast<FSpriteFrame*>(frames);
+                            FSpriteFrame& tgt = mut_frames[static_cast<usize>(m_Selected)];
 
                             // 1 フレーム分の mouse delta を atlas px に丸めて
                             // 適用 (= cumulative delta をその場で反映、drag end で
@@ -676,13 +676,13 @@ void FSpriteAtlasEditorPanel::DrawUI() noexcept {
             ImGui::TextDisabled("(no pack)");
         } else {
             u32 count = 0;
-            const SpriteFrame* frames = m_Pack->AllFrames(count);
+            const FSpriteFrame* frames = m_Pack->AllFrames(count);
             if (m_Selected < 0 || m_Selected >= static_cast<i32>(count) || frames == nullptr) {
                 ImGui::TextDisabled("(no selection)");
             } else {
                 // const → mutable へ (Pivot 編集と同じ理由、§SetPivotPreset 参照)。
-                SpriteFrame* mut_frames = const_cast<SpriteFrame*>(frames);
-                SpriteFrame& f = mut_frames[static_cast<usize>(m_Selected)];
+                FSpriteFrame* mut_frames = const_cast<FSpriteFrame*>(frames);
+                FSpriteFrame& f = mut_frames[static_cast<usize>(m_Selected)];
 
                 ImGui::Text("name: %s", (f.name != nullptr) ? f.name : "(null)");
                 ImGui::Separator();
@@ -690,7 +690,7 @@ void FSpriteAtlasEditorPanel::DrawUI() noexcept {
                 // atlas size を取得 (slider 上限用)。
                 u32 aw = 256u;
                 u32 ah = 256u;
-                const SpritePackInfo& info = m_Pack->Info();
+                const FSpritePackInfo& info = m_Pack->Info();
                 if (info.atlas_width  > 0u) aw = info.atlas_width;
                 if (info.atlas_height > 0u) ah = info.atlas_height;
 

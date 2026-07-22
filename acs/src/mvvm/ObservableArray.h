@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// ObservableArray<T> — 要素の追加・削除・変更を通知する配列
+// TObservableArray<T> — 要素の追加・削除・変更を通知する配列
 //
 // 使い方:
-//   ObservableArray<int> inv;
+//   TObservableArray<int> inv;
 //
 //   inv.Subscribe([](EArrayChange kind, usize idx, const int* v, void*){
 //       switch (kind) {
@@ -20,7 +20,9 @@
 //
 // 設計:
 //   ・通知は 1 種類の callback で kind を分岐 (UE5 の per-event fan-out より易い)
-//   ・listener 中に Add/Remove を呼ぶのは不正 (assert 検出、Release では無視)
+//   ・listener 中は PushBack/PopBack/RemoveAt/SetAt/Clear による全変更を禁止する
+//     (Debug は assert 検出。assert 無効の Release では検出されず処理が実行されるため、
+//      呼び出した時点で caller の契約違反)
 //     → どうしても要るなら listener が処理キューに積んで後で実行
 //   ・要素の T は同値判定 (operator==) を持つこと推奨 (Set で同値スキップ)
 #pragma once
@@ -31,6 +33,10 @@
 #include "container/Array.h"
 
 namespace acs {
+
+namespace mvvm_test {
+struct FObservableArrayLifetimeTestAccess;
+} // namespace mvvm_test
 
 /** 配列の変更内容を表す通知種別。 */
 enum class EArrayChange : u8 {
@@ -48,7 +54,7 @@ enum class EArrayChange : u8 {
 };
 
 /**
- * ObservableArray の購読を識別するハンドル (Observable<T> と同仕様)。
+ * TObservableArray の購読を識別するハンドル (TObservable<T> と同仕様)。
  *
  * @details id と generation の組でスロット再利用後の古いハンドルを無効化する。
  */
@@ -85,28 +91,40 @@ inline constexpr FArrayObserverHandle kInvalidArrayObserver{};
  *
  * @details
  * 各変更操作は単一のリスナを EArrayChange の種別付きで呼ぶ (per-event の fan-out はしない)。
- * 通知中 (Notify 内) の Add/Remove は要素再配置による dangling 参照を招くため不正で、
- * Debug ビルドの assert で検出する (Release は無視)。SetAt は operator== で同値ならスキップ。
+ * 通知中 (Notify 内) は PushBack/PopBack/RemoveAt/SetAt/Clear による全変更を禁止する。
+ * Debug ビルドでは assert で検出する。assert を無効化した Release ビルドでは検出されず
+ * 変更処理が実行されるため、呼び出した時点で caller の契約違反となる。
+ * SetAt は通知外でも operator== で同値ならスキップする。
+ * リスナが配列自身または配列を所有する object を破棄した場合、実行中の通知を直ちに打ち切り、
+ * 解放済みの購読スロットへ戻らない。破棄を行ったリスナ自身も、value / user / owner が
+ * 以後無効になり得るため、破棄操作を最後の処理として直ちに return しなければならない。
  *
  * @tparam T 要素型 (operator== を持つこと推奨)。
  */
 template<typename T>
-class ObservableArray {
+class TObservableArray {
 public:
     /** 変更通知リスナ型 (種別・index・該当値ポインタ・user を受け取る)。 */
     using Listener = void (*)(EArrayChange kind, usize index, const T* value, void* user);
 
     /** 空配列を構築する。 */
-    ObservableArray() noexcept = default;
+    TObservableArray() noexcept = default;
 
-    /** 破棄する。 */
-    ~ObservableArray() noexcept = default;
+    /**
+     * 配列を破棄する。
+     *
+     * @details 通知 callback から自身が破棄された場合は、stack 上の全 Notify frame を
+     * dead にして、callback 復帰後の通知処理が this を再参照しないようにする。
+     */
+    ~TObservableArray() noexcept {
+        InvalidateNotifyFrames();
+    }
 
     /** コピー禁止 (購読スロットを単独所有するため)。 */
-    ObservableArray(const ObservableArray&)            = delete;
+    TObservableArray(const TObservableArray&)            = delete;
 
     /** コピー代入も禁止。 */
-    ObservableArray& operator=(const ObservableArray&) = delete;
+    TObservableArray& operator=(const TObservableArray&) = delete;
 
     /**
      * 末尾に要素を追加し Inserted を通知する。
@@ -234,9 +252,9 @@ public:
             m_FreeIndices.PopBack();
         } else {
             idx = static_cast<u32>(m_Slots.Size());
-            m_Slots.PushBack(Slot{});
+            m_Slots.PushBack(FSlot{});
         }
-        Slot& s = m_Slots[idx];
+        FSlot& s = m_Slots[idx];
         if (s.id == 0) s.id = m_NextId++;
         s.generation++;
         s.active = true;
@@ -257,7 +275,7 @@ public:
     bool Unsubscribe(FArrayObserverHandle h) noexcept {
         if (!h.IsValid()) return false;
         for (usize i = 0; i < m_Slots.Size(); ++i) {
-            Slot& s = m_Slots[i];
+            FSlot& s = m_Slots[i];
             if (s.id == h.id && s.generation == h.generation && s.active) {
                 if (m_NotifyDepth > 0) {
                     s.active = false;
@@ -286,18 +304,70 @@ public:
     }
 
 private:
+    /** 寿命安全テストから private Notify frame chain だけを検証するための内部 seam。 */
+    friend struct mvvm_test::FObservableArrayLifetimeTestAccess;
+
+    /**
+     * 実行中 Notify の stack frame。
+     *
+     * @details
+     * frame 自身は呼び出し側 stack に置き、確保を行わない。配列のデストラクタは
+     * m_Owner を nullptr にするだけで、破棄後に frame が解放済み this を触らない。
+     * 同一配列の nested Notify は変更禁止契約に反するが、assert 無効ビルドでは caller の
+     * 契約違反を検出できない。その経路で self 破棄されても外側 frame を残さないよう、
+     * m_Previous で実行中 chain 全体を保持する。
+     */
+    struct FNotifyFrame {
+        explicit FNotifyFrame(TObservableArray& owner) noexcept
+            : m_Owner(&owner),
+              m_Previous(owner.m_ActiveNotifyFrame) {
+            owner.m_ActiveNotifyFrame = this;
+        }
+
+        ~FNotifyFrame() noexcept {
+            if (!m_Owner) return;
+            ACS_ASSERT(m_Owner->m_ActiveNotifyFrame == this);
+            m_Owner->m_ActiveNotifyFrame = m_Previous;
+        }
+
+        FNotifyFrame(const FNotifyFrame&) = delete;
+        FNotifyFrame& operator=(const FNotifyFrame&) = delete;
+
+        /** owner が callback 中に破棄されていなければ true。 */
+        bool IsOwnerAlive() const noexcept { return m_Owner != nullptr; }
+
+        TObservableArray* m_Owner = nullptr;
+        FNotifyFrame* m_Previous = nullptr;
+    };
+
+    /**
+     * 破棄中の配列を待っている全 Notify frame を dead にする。
+     *
+     * @details frame はすべて現在 thread の生存 stack 上にある。各 frame の owner だけを
+     * 無効化し、配列の member storage を解放した後に this へ戻らないようにする。
+     */
+    void InvalidateNotifyFrames() noexcept {
+        FNotifyFrame* frame = m_ActiveNotifyFrame;
+        while (frame) {
+            FNotifyFrame* const previous = frame->m_Previous;
+            frame->m_Owner = nullptr;
+            frame = previous;
+        }
+        m_ActiveNotifyFrame = nullptr;
+    }
+
     /**
      * 通知中の変更操作が行われていないかを検証する。
      *
      * @details
-     * リスナ (Notify) 実行中に Add/Remove すると要素配列の再配置で
-     * 同じ通知ループに dangling pointer が渡される危険があるため、
-     * Debug ビルドで m_NotifyDepth==0 を assert する (Release はコスト 0)。
+     * リスナ (Notify) 実行中の PushBack/PopBack/RemoveAt/SetAt/Clear は、
+     * 要素配列の再配置、通知の再入、通知対象の途中変更を招くためすべて禁止する。
+     * Debug ビルドでは m_NotifyDepth==0 を assert する。assert を無効化した Release
+     * ビルドでは検出されず変更処理が続くため、caller が契約を守らなければならない。
      */
     void AssertMutationOK() const noexcept {
-        // listener (Notify) 中に Add/Remove を呼ぶと要素配列の再配置で
-        // 同じ listener ループに dangling pointer が渡される危険がある。
-        // Debug ビルドで検出 (Release はコスト 0)。
+        // listener 中の全変更を Debug で検出する。assert 無効構成では処理を止めないため、
+        // callback 側が必ず通知後の処理キューへ遅延する。
         ACS_ASSERTF(m_NotifyDepth == 0,
                     "ObservableArray: mutation during Notify is not allowed (depth=%d)",
                     m_NotifyDepth);
@@ -306,25 +376,32 @@ private:
     /**
      * 全アクティブリスナへ 1 件の変更を通知する。
      *
-     * @details m_NotifyDepth で再入を数え、通知中に積まれた遅延解除を最外ループ終了時に回収する。
+     * @details
+     * m_NotifyDepth で再入を数え、通知中に積まれた遅延解除を最外ループ終了時に回収する。
+     * リスナ呼び出し前に関数と user をローカルへ退避し、復帰直後は stack 上の
+     * FNotifyFrame だけを確認する。owner が破棄済みなら this を参照せず return する。
      * @param kind 通知する変更種別。
      * @param index 変更が起きた要素の位置。
      * @param value 該当値へのポインタ (削除/全消去では nullptr)。
      */
     void Notify(EArrayChange kind, usize index, const T* value) noexcept {
+        FNotifyFrame notify_frame(*this);
         ++m_NotifyDepth;
         const usize n = m_Slots.Size();
         for (usize i = 0; i < n; ++i) {
-            Slot& s = m_Slots[i];
+            FSlot& s = m_Slots[i];
             if (!s.active || !s.cb) continue;
-            s.cb(kind, index, value, s.user);
+            const Listener callback = s.cb;
+            void* const user = s.user;
+            callback(kind, index, value, user);
+            if (!notify_frame.IsOwnerAlive()) return;
         }
         --m_NotifyDepth;
         if (m_NotifyDepth == 0 && m_PendingCancel.Size() > 0) {
             for (usize i = 0; i < m_PendingCancel.Size(); ++i) {
                 const u32 idx = m_PendingCancel[i];
                 if (idx < m_Slots.Size()) {
-                    Slot& s = m_Slots[idx];
+                    FSlot& s = m_Slots[idx];
                     s.cb   = nullptr;
                     s.user = nullptr;
                     m_FreeIndices.PushBack(idx);
@@ -335,7 +412,7 @@ private:
     }
 
     /** 1 リスナ分の購読スロット。 */
-    struct Slot {
+    struct FSlot {
         /** スロット ID (ハンドル照合に使う)。 */
         u32      id          = 0;
 
@@ -356,7 +433,7 @@ private:
     TArray<T>     m_Items;
 
     /** 購読スロット配列 (空き分は再利用される)。 */
-    TArray<Slot>  m_Slots;
+    TArray<FSlot>  m_Slots;
 
     /** 空きスロットのインデックス (再利用候補)。 */
     TArray<u32>   m_FreeIndices;
@@ -369,6 +446,9 @@ private:
 
     /** 通知の再入深度 (>0 の間は解除を遅延し変更を禁止する)。 */
     i32          m_NotifyDepth = 0;
+
+    /** 現在実行中の最内 Notify frame (未通知時は nullptr、非所有)。 */
+    FNotifyFrame* m_ActiveNotifyFrame = nullptr;
 };
 
 } // namespace acs

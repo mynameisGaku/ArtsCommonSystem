@@ -27,7 +27,7 @@ Add-Type -TypeDefinition $src
 $h = [EdCpp]::acs_editor_create()
 [EdCpp]::acs_editor_scene_new($h)
 $id = [EdCpp]::acs_editor_add_node($h, "Src", -1)
-[void][EdCpp]::acs_editor_node_add_component($h, $id, "FSprite2DComponent")
+[void][EdCpp]::acs_editor_node_add_component($h, $id, "ASprite2DComponent")
 [void][EdCpp]::acs_editor_node_component_prop_set($h, $id, 0, 1, 0.1, 0.2, 0.3, 0.4)  # tint 非既定
 
 $x=0.0;$y=0.0;$z=0.0;$w=0.0
@@ -46,8 +46,8 @@ Write-Host ("`n[paste] node {0} sprite.tint = ({1},{2},{3},{4}) (expect 0.1,0.2,
 
 # --- remove-component shift: 2つ付けて先頭を外し、残りの値が繰り上がるか ---
 $id2 = [EdCpp]::acs_editor_add_node($h, "Shift", -1)
-[void][EdCpp]::acs_editor_node_add_component($h, $id2, "FSprite2DComponent")  # slot0
-[void][EdCpp]::acs_editor_node_add_component($h, $id2, "FFire2DComponent")    # slot1
+[void][EdCpp]::acs_editor_node_add_component($h, $id2, "ASprite2DComponent")  # slot0
+[void][EdCpp]::acs_editor_node_add_component($h, $id2, "AFire2DComponent")    # slot1
 [void][EdCpp]::acs_editor_node_component_prop_set($h, $id2, 1, 1, 7.0, 0, 0, 0) # fire.intensity=7
 [void][EdCpp]::acs_editor_node_remove_component_at($h, $id2, 0)               # slot0 を外す
 [void][EdCpp]::acs_editor_node_component_prop_get($h, $id2, 0, 1, [ref]$x,[ref]$y,[ref]$z,[ref]$w)

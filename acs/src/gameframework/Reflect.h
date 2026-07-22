@@ -61,7 +61,7 @@ enum class ETypeCategory : u8 {
     Enum      = 1,   /**< 列挙体 (value↔name の反射を持つ)。 */
     Object    = 2,   /**< FObject 派生のエンジンオブジェクト。 */
     Component = 3,   /**< ECS / 2D コンポーネント。 */
-    Node      = 4,   /**< シーングラフのノード (FNode2D)。 */
+    Node      = 4,   /**< シーングラフのノード (ANode)。 */
     Scene     = 5,   /**< ゲームシーン。 */
     Asset     = 6,   /**< アセット型 (Image/Mesh/Audio/Text/Binary…)。 */
     System    = 7,   /**< ゲームプレイ / ECS システム。 */
@@ -382,11 +382,11 @@ template<class T> inline const FTypeDesc* AcsTypeDescOf() noexcept { return null
 /** bool のプロパティ (既定は 1/0)。 */
 #define ACS_RPROP_B(propname, d0)        ACS_RPROP(propname, ::acs::game::EFieldKind::Bool, (d0) ? 1 : 0, 0, 0, 0)
 /** FVec2 のプロパティ。 */
-#define ACS_RPROP_V2(propname, dx, dy)        ACS_RPROP(propname, ::acs::game::EFieldKind::FVec2, dx, dy, 0, 0)
+#define ACS_RPROP_V2(propname, dx, dy)        ACS_RPROP(propname, ::acs::game::EFieldKind::Vec2, dx, dy, 0, 0)
 /** FVec3 のプロパティ。 */
-#define ACS_RPROP_V3(propname, dx, dy, dz)    ACS_RPROP(propname, ::acs::game::EFieldKind::FVec3, dx, dy, dz, 0)
+#define ACS_RPROP_V3(propname, dx, dy, dz)    ACS_RPROP(propname, ::acs::game::EFieldKind::Vec3, dx, dy, dz, 0)
 /** FVec4 のプロパティ (色なら RGBA)。 */
-#define ACS_RPROP_V4(propname, dx, dy, dz, dw) ACS_RPROP(propname, ::acs::game::EFieldKind::FVec4, dx, dy, dz, dw)
+#define ACS_RPROP_V4(propname, dx, dy, dz, dw) ACS_RPROP(propname, ::acs::game::EFieldKind::Vec4, dx, dy, dz, dw)
 /** オブジェクト参照のプロパティ (値 = 参照先の安定 ID、既定 -1 = «なし»)。エディタはノードピッカーで編集。 */
 #define ACS_RPROP_REF(propname)               ACS_RPROP(propname, ::acs::game::EFieldKind::ObjectRef, -1, 0, 0, 0)
 /** オブジェクト参照のフィールド (offset 反射。実メンバ = i32 の参照先 ID。実行時 apply される)。 */

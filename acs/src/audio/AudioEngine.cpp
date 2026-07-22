@@ -24,7 +24,7 @@ constexpr u32 kMaxVoices = 64;
 /**
  * 1 個の発音スロット (XAudio2 ソースボイス + 再生用データ)。
  */
-struct VoiceSlot {
+struct FVoiceSlot {
     /** XAudio2 ソースボイス (未使用時は nullptr)。 */
     IXAudio2SourceVoice* Voice = nullptr;
 
@@ -41,7 +41,7 @@ struct VoiceSlot {
     bool bInUse = false;
 };
 
-u64 DestroySlot(VoiceSlot& Slot) noexcept;
+u64 DestroySlot(FVoiceSlot& Slot) noexcept;
 
 /** Shutdown 要求数を関数終了まで保持し、新しい共有操作の開始を閉じる。 */
 class FScopedAudioShutdownRequest final {
@@ -90,7 +90,7 @@ void WaitForAudioLifecycleTestGate() noexcept
 /**
  * FAudioEngine の pimpl 実装 (XAudio2 ハンドルとスロット表を保持)。
  */
-struct FAudioEngine::Impl {
+struct FAudioEngine::FImpl {
     /** XAudio2 エンジン本体。 */
     IXAudio2* XAudio2 = nullptr;
 
@@ -112,7 +112,7 @@ struct FAudioEngine::Impl {
     FMutex StateMutex;
 
     /** 発音スロット表 (最大 kMaxVoices 個)。 */
-    VoiceSlot Slots[kMaxVoices] {};
+    FVoiceSlot Slots[kMaxVoices] {};
 
     /** 使用中スロット数。 */
     u32 ActiveVoiceCount = 0;
@@ -124,7 +124,7 @@ struct FAudioEngine::Impl {
 namespace {
 
 /** 全スロットを停止して active count を 0 に戻す。 */
-void StopAllSlots(FAudioEngine::Impl& Implementation) noexcept
+void StopAllSlots(FAudioEngine::FImpl& Implementation) noexcept
 {
     FScopedLock Lock(Implementation.StateMutex);
     for (u32 Index = 0; Index < kMaxVoices; ++Index)
@@ -157,7 +157,7 @@ TResult<void> FAudioEngine::Init() noexcept
         return ACS_ERR(Generic, 5, "FAudioEngine shutdown is in progress");
     }
 
-    ScopedExclusiveLock LifecycleLock(m_LifecycleLock);
+    FScopedExclusiveLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return ACS_ERR(Generic, 5, "FAudioEngine shutdown is in progress");
@@ -166,7 +166,7 @@ TResult<void> FAudioEngine::Init() noexcept
     {
         return ACS_ERR(Generic, 1, "FAudioEngine already initialized");
     }
-    m_Impl = new (std::nothrow) Impl();
+    m_Impl = new (std::nothrow) FImpl();
     if (m_Impl == nullptr)
     {
         return ACS_ERR(Memory, 6, "FAudioEngine state allocation failed");
@@ -204,7 +204,7 @@ TResult<void> FAudioEngine::Init() noexcept
 void FAudioEngine::Shutdown() noexcept
 {
     FScopedAudioShutdownRequest ShutdownRequest(m_ShutdownRequests);
-    ScopedExclusiveLock LifecycleLock(m_LifecycleLock);
+    FScopedExclusiveLock LifecycleLock(m_LifecycleLock);
     if (!m_Impl)
     {
         return;
@@ -261,14 +261,14 @@ namespace {
  * @param Implementation 対象エンジンの pimpl。
  * @return 使える空きスロット番号 (満杯なら 0xFFFFFFFF)。
  */
-u32 FindFreeSlot(FAudioEngine::Impl& Implementation) noexcept
+u32 FindFreeSlot(FAudioEngine::FImpl& Implementation) noexcept
 {
     // 自然に再生が終わった一発再生ボイスを回収する。これをしないと、
     // 一発再生を kMaxVoices 回呼んだ時点でスロットが尽き、以降の Play が
     // 無音になる。ループ再生は BuffersQueued が 0 にならず回収されない。
     for (u32 Index = 0; Index < kMaxVoices; ++Index)
     {
-        VoiceSlot& Slot = Implementation.Slots[Index];
+        FVoiceSlot& Slot = Implementation.Slots[Index];
         if (Slot.bInUse && Slot.Voice)
         {
             XAUDIO2_VOICE_STATE State{};
@@ -303,19 +303,19 @@ u32 FindFreeSlot(FAudioEngine::Impl& Implementation) noexcept
 }
 } // namespace
 
-SoundHandle FAudioEngine::Play(const FAudioAsset& Asset, f32 Volume, bool bLoop) noexcept
+FSoundHandle FAudioEngine::Play(const FAudioAsset& Asset, f32 Volume, bool bLoop) noexcept
 {
     if (IsShutdownRequested())
     {
         return kInvalidSound;
     }
 
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return kInvalidSound;
     }
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr || Implementation->XAudio2 == nullptr ||
         Asset.SampleByteCount() == 0 || Asset.SampleByteCount() > 0xFFFFFFFFu)
     {
@@ -329,7 +329,7 @@ SoundHandle FAudioEngine::Play(const FAudioAsset& Asset, f32 Volume, bool bLoop)
     {
         return kInvalidSound;
     }
-    VoiceSlot& Slot = Implementation->Slots[Index];
+    FVoiceSlot& Slot = Implementation->Slots[Index];
 
     if (Implementation->ResidentBufferBytes > kAudioEngineResidentBufferBudgetBytes ||
         static_cast<u64>(Asset.SampleByteCount()) >
@@ -341,10 +341,10 @@ SoundHandle FAudioEngine::Play(const FAudioAsset& Asset, f32 Volume, bool bLoop)
     // ソースボイスのフォーマット設定
     WAVEFORMATEX WaveFormat{};
     WaveFormat.wFormatTag =
-        (Asset.EFormat() == ESampleFormat::PCM_F32) ? WAVE_FORMAT_IEEE_FLOAT : WAVE_FORMAT_PCM;
+        (Asset.Format() == ESampleFormat::PCM_F32) ? WAVE_FORMAT_IEEE_FLOAT : WAVE_FORMAT_PCM;
     WaveFormat.nChannels = Asset.Channels();
     WaveFormat.nSamplesPerSec = Asset.SampleRate();
-    WaveFormat.wBitsPerSample = (Asset.EFormat() == ESampleFormat::PCM_F32) ? 32 : 16;
+    WaveFormat.wBitsPerSample = (Asset.Format() == ESampleFormat::PCM_F32) ? 32 : 16;
     WaveFormat.nBlockAlign = (WaveFormat.nChannels * WaveFormat.wBitsPerSample) / 8;
     WaveFormat.nAvgBytesPerSec = WaveFormat.nSamplesPerSec * WaveFormat.nBlockAlign;
     WaveFormat.cbSize = 0;
@@ -410,12 +410,12 @@ SoundHandle FAudioEngine::Play(const FAudioAsset& Asset, f32 Volume, bool bLoop)
     ++Implementation->ActiveVoiceCount;
     Implementation->ResidentBufferBytes += ReservedBufferBytes;
 
-    return SoundHandle{Index, Slot.Generation};
+    return FSoundHandle{Index, Slot.Generation};
 }
 
 namespace {
 /** スロットのボイスを停止・破棄し、世代を進めて空きに戻す。 */
-u64 DestroySlot(VoiceSlot& Slot) noexcept
+u64 DestroySlot(FVoiceSlot& Slot) noexcept
 {
     const u64 ReleasedBufferBytes = Slot.ReservedBufferBytes;
     if (Slot.Voice)
@@ -438,25 +438,25 @@ u64 DestroySlot(VoiceSlot& Slot) noexcept
 }
 } // namespace
 
-void FAudioEngine::Stop(SoundHandle Handle) noexcept
+void FAudioEngine::Stop(FSoundHandle Handle) noexcept
 {
     if (IsShutdownRequested())
     {
         return;
     }
 
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return;
     }
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr || !Handle.IsValid() || Handle.index >= kMaxVoices)
     {
         return;
     }
     FScopedLock StateLock(Implementation->StateMutex);
-    VoiceSlot& Slot = Implementation->Slots[Handle.index];
+    FVoiceSlot& Slot = Implementation->Slots[Handle.index];
     if (!Slot.bInUse || Slot.Generation != Handle.generation)
     {
         return;
@@ -477,25 +477,25 @@ void FAudioEngine::Stop(SoundHandle Handle) noexcept
     }
 }
 
-void FAudioEngine::SetVolume(SoundHandle Handle, f32 Volume) noexcept
+void FAudioEngine::SetVolume(FSoundHandle Handle, f32 Volume) noexcept
 {
     if (IsShutdownRequested())
     {
         return;
     }
 
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return;
     }
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr || !Handle.IsValid() || Handle.index >= kMaxVoices)
     {
         return;
     }
     FScopedLock StateLock(Implementation->StateMutex);
-    VoiceSlot& Slot = Implementation->Slots[Handle.index];
+    FVoiceSlot& Slot = Implementation->Slots[Handle.index];
     if (!Slot.bInUse || Slot.Generation != Handle.generation)
     {
         return;
@@ -521,12 +521,12 @@ void FAudioEngine::StopAll() noexcept
         return;
     }
 
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return;
     }
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr)
     {
         return;
@@ -541,12 +541,12 @@ void FAudioEngine::SetMasterVolume(f32 Volume) noexcept
         return;
     }
 
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return;
     }
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr || Implementation->MasteringVoice == nullptr)
     {
         return;
@@ -570,12 +570,12 @@ void FAudioEngine::PauseAll() noexcept
         return;
     }
 
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return;
     }
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr)
     {
         return;
@@ -583,7 +583,7 @@ void FAudioEngine::PauseAll() noexcept
     FScopedLock StateLock(Implementation->StateMutex);
     for (u32 Index = 0; Index < kMaxVoices; ++Index)
     {
-        VoiceSlot& Slot = Implementation->Slots[Index];
+        FVoiceSlot& Slot = Implementation->Slots[Index];
         if (Slot.bInUse && Slot.Voice)
         {
             Slot.Voice->Stop(0);
@@ -598,12 +598,12 @@ void FAudioEngine::ResumeAll() noexcept
         return;
     }
 
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return;
     }
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr)
     {
         return;
@@ -611,7 +611,7 @@ void FAudioEngine::ResumeAll() noexcept
     FScopedLock StateLock(Implementation->StateMutex);
     for (u32 Index = 0; Index < kMaxVoices; ++Index)
     {
-        VoiceSlot& Slot = Implementation->Slots[Index];
+        FVoiceSlot& Slot = Implementation->Slots[Index];
         if (Slot.bInUse && Slot.Voice)
         {
             Slot.Voice->Start(0);
@@ -626,7 +626,7 @@ u32 FAudioEngine::ActiveCount() const noexcept
         return 0;
     }
 
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return 0;
@@ -634,7 +634,7 @@ u32 FAudioEngine::ActiveCount() const noexcept
 #if defined(ACS_AUDIO_TEST_HOOKS)
     WaitForAudioLifecycleTestGate();
 #endif
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr)
     {
         return 0;
@@ -651,7 +651,7 @@ TResult<void> FAudioEngine::InitializeLifecycleTestState() noexcept
         return ACS_ERR(Generic, 5, "FAudioEngine shutdown is in progress");
     }
 
-    ScopedExclusiveLock LifecycleLock(m_LifecycleLock);
+    FScopedExclusiveLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return ACS_ERR(Generic, 5, "FAudioEngine shutdown is in progress");
@@ -661,7 +661,7 @@ TResult<void> FAudioEngine::InitializeLifecycleTestState() noexcept
         return ACS_ERR(Generic, 1, "FAudioEngine already initialized");
     }
 
-    m_Impl = new (std::nothrow) Impl();
+    m_Impl = new (std::nothrow) FImpl();
     if (m_Impl == nullptr)
     {
         return ACS_ERR(Memory, 6, "FAudioEngine test state allocation failed");
@@ -685,7 +685,7 @@ bool FAudioEngine::IsShutdownRequestedForTesting() const noexcept
 
 bool FAudioEngine::HasLifecycleStateForTesting() const noexcept
 {
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     return m_Impl != nullptr;
 }
 #endif

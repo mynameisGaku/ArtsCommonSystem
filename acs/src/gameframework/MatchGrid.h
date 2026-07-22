@@ -5,7 +5,7 @@
 // セルは「色 (1..color_count)」「special 種別 (Normal / Bomb / Lightning /
 // Rainbow)」「空フラグ」の 3 値を持ち、以下のサイクルを内包する:
 //   1) 隣接 swap (TrySwap) → match が発生したら確定、無ければ戻す。
-//   2) 3 個以上の縦横連続を検出 (DetectMatches) → MatchInfo の列を吐く。
+//   2) 3 個以上の縦横連続を検出 (DetectMatches) → FMatchInfo の列を吐く。
 //   3) ResolveAllMatches でマッチを順次消化:
 //        - ESpecialKind 効果 (Bomb=3x3 / Lightning=行+列 / Rainbow=同色全消し) を適用
 //        - 空になった cell に対し ApplyGravity / RefillFromTop で重力 + 補充
@@ -25,10 +25,10 @@
 //   }
 //
 // 設計 (Pillar ジャンルキット v1):
-//   ・**1D 連続配列**: row-major (`y * width + x`)、`acs::TArray<GridCell>` 1 本。
+//   ・**1D 連続配列**: row-major (`y * width + x`)、`acs::TArray<FGridCell>` 1 本。
 //     範囲外 Get は内部 static の dummy empty cell を const-ref 返却 (安全)。
 //   ・**マッチ検出**: O(w*h) の水平 / 垂直 2 パス走査。3 個以上の連続を 1 個の
-//     `MatchInfo` として吐く (length>=3, horizontal フラグ)。出力バッファ満杯
+//     `FMatchInfo` として吐く (length>=3, horizontal フラグ)。出力バッファ満杯
 //     なら検出継続 (count は上限まで)。重複検出は走査構造上発生しない。
 //   ・**ESpecialKind 効果**: 消去時に Bomb→周囲 3x3 / Lightning→同行 + 同列 /
 //     Rainbow→同色全消去。波及で他の Special を巻き込んだ場合は recursive に
@@ -64,7 +64,7 @@ namespace acs::game {
  * color = 0 は「空」と等価 (empty フラグと冗長だが API 都合で両方持つ)。special は
  * ESpecialKind の u8 表現 (sizeof 削減のため enum 値を生で保持)。
  */
-struct GridCell {
+struct FGridCell {
     /** 色 ID (1..color_count、0 = 空)。 */
     u8   color   = 0;
 
@@ -82,7 +82,7 @@ struct GridCell {
  * horizontal=true なら (start_x, start_y) から右に length 個、false なら同点から
  * 下に length 個が同色。
  */
-struct MatchInfo {
+struct FMatchInfo {
     /** マッチ開始セルの X 座標。 */
     u32  start_x    = 0;
 
@@ -191,7 +191,7 @@ public:
      * @param y セルの Y 座標。
      * @return 範囲内なら該当 cell の const 参照、範囲外なら内部 static の空 cell。
      */
-    const GridCell& Get(u32 x, u32 y) const noexcept;
+    const FGridCell& Get(u32 x, u32 y) const noexcept;
 
     /**
      * 個別 cell を書き換える。
@@ -234,7 +234,7 @@ public:
      * @param max_matches out_matches に書き込める上限個数。
      * @return 検出したマッチの総数。
      */
-    u32 DetectMatches(MatchInfo* out_matches, u32 max_matches) const noexcept;
+    u32 DetectMatches(FMatchInfo* out_matches, u32 max_matches) const noexcept;
 
     /**
      * detect → clear (+ Special 効果) → gravity → refill のサイクルを stable まで反復する。
@@ -336,7 +336,7 @@ private:
     u8 PickColorAvoidingMatch(u32 x, u32 y, FRandom& rng) const noexcept;
 
     /** セル配列 (row-major、y*width + x)。 */
-    TArray<GridCell> m_Cells {};
+    TArray<FGridCell> m_Cells {};
 
     /** グリッドの幅。 */
     u32             m_Width        = 0;

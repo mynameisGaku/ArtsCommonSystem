@@ -4,7 +4,7 @@
 // 想定ワークフロー:
 //   1) FRenderer.BeginFrame() の直前で FPostProcess.BeginScenePass()
 //      → HDR R16G16B16A16_Float RT に切替
-//   2) シーン (Sky, FStandardShader, FParticles 等) を HDR で描画
+//   2) シーン (FSky, FStandardShader, FParticleSystem 等) を HDR で描画
 //   3) FPostProcess.Render(cmd, swapchain_buffer)
 //      → Bloom (extract → downsample → upsample) → Tonemap → Backbuffer
 //   4) FRenderer.EndFrame() で Present
@@ -39,7 +39,7 @@ class IRhiTexture;
  * 全パラメータを保持し、FPostProcess::Render に 1 つ渡す。各メンバは既定値で
  * 「無効 or 中性」になるよう設計してある。
  */
-struct PostProcessParams {
+struct FPostProcessParams {
     /** Bloom を有効にするか。 */
     bool  bloom_enabled    = true;
 
@@ -51,6 +51,14 @@ struct PostProcessParams {
 
     /** upsample 時の半径スケール。 */
     f32   bloom_radius     = 1.0f;
+
+    /**
+     * 隣接 mip 間の散乱率 (0=局所的、1=最広域)。
+     *
+     * @details 各段を等重みで加算せず、正規化した補間で合成する。0.65 前後で
+     * 発光体の芯を残しつつ、白い霧のようなエネルギー増幅を防ぐ。
+     */
+    f32   bloom_scatter    = 0.65f;
 
     /** 露出 (1.0 = 中性)。 */
     f32   exposure         = 1.0f;
@@ -261,17 +269,17 @@ public:
      * @param params 適用する効果のパラメータ。
      */
     void Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index,
-                const PostProcessParams& params) noexcept;
+                const FPostProcessParams& params) noexcept;
 
 private:
     /**
-     * Bloom mip chain の段数 (1/2 から 1/128 までの 7 段)。
+     * Bloom mip chain の段数 (1/2 から 1/64 までの 6 段)。
      *
      * @details Downsample は Jimenez 13-tap。段数を増やすと «より低周波 (広い)» の soft glow まで
      * 届き、UE5 風の広く柔らかい bloom になる。段数増による強度 lift は progressive upsample radius
      * (深い mip ほど tent を広げる) と bloom_intensity 側で吸収する。各 mip は 1px までクランプ確保。
      */
-    static constexpr u32 kBloomMips = 7;   // progressive accumulation (no-clear upsample) が効けば多段ほど広く滑らか
+    static constexpr u32 kBloomMips = 6;
 
     /**
      * HDR RT と Bloom mip chain を生成する。
@@ -297,7 +305,7 @@ private:
      * @param cmd コマンドを積むコマンドリスト。
      * @param p 適用する効果のパラメータ。
      */
-    void Pass_Extract  (IRhiCommandList& cmd, const PostProcessParams& p) noexcept;
+    void Pass_Extract  (IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
 
     /**
      * Bloom downsample パス: bloom_mips[from_mip] を次段へ 13-tap で縮約する。
@@ -314,7 +322,7 @@ private:
      * @param to_mip 合成先の mip 段。
      * @param radius upsample 時の半径スケール。
      */
-    void Pass_Upsample (IRhiCommandList& cmd, u32 to_mip, f32 radius) noexcept;
+    void Pass_Upsample (IRhiCommandList& cmd, u32 to_mip, f32 radius, f32 scatter) noexcept;
 
     /**
      * Bloom separable Gaussian blur: 1 つの mip を H or V 方向に 1 次元ガウスぼかしする。
@@ -334,7 +342,7 @@ private:
      * @param cmd コマンドを積むコマンドリスト。
      * @param p 適用する効果のパラメータ。
      */
-    void Pass_TaaResolve(IRhiCommandList& cmd, const PostProcessParams& p) noexcept;
+    void Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
 
     /**
      * Tonemap パス: HDR + Bloom を合成し tonemap して backbuffer へ書く。
@@ -345,7 +353,7 @@ private:
      * @param p 適用する効果のパラメータ。
      */
     void Pass_Tonemap  (IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
-                        const PostProcessParams& p) noexcept;
+                        const FPostProcessParams& p) noexcept;
 
     /**
      * Auto-exposure: HDR を log2 輝度の mip chain に縮約する luma reduction パス。
@@ -360,7 +368,7 @@ private:
      * @param cmd コマンドを積むコマンドリスト。
      * @param p 適用する効果のパラメータ。
      */
-    void Pass_ExposureAdapt(IRhiCommandList& cmd, const PostProcessParams& p) noexcept;
+    void Pass_ExposureAdapt(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
 
     /**
      * Auto-exposure: 順応済み露出を HDR に掛けて m_ExposedRt へ書く。
@@ -375,7 +383,17 @@ private:
      * @param p 適用する効果のパラメータ。
      * @return auto-exposure 有効なら露出適用後の m_ExposedRt、そうでなければ raw m_HdrRt。
      */
-    IRhiTexture* SceneInput(const PostProcessParams& p) const noexcept;
+    IRhiTexture* SceneInput(const FPostProcessParams& p) const noexcept;
+
+    /**
+     * 同一フレーム内の各 fullscreen draw 専用 Post CB を取得する。
+     *
+     * @details Raw DX12 の cpu_writable buffer はフレーム間のみリング化されるため、同じ
+     * buffer を複数パスで Update すると、実行時に全 draw が最後の値を読む。各 draw に
+     * 別 resource を割り当てて GPU address を固定する。
+     * @return 次の CB。1 フレームの上限を超えた場合は null。
+     */
+    IRhiBuffer* AcquirePostCb() noexcept;
 
     /** Init で受け取った device (Resize で再利用)。 */
     IRhiDevice* m_Device = nullptr;
@@ -434,8 +452,15 @@ private:
     /** Tonemap パイプライン (HDR + bloom_mips[0] → backbuffer)。 */
     TUniquePtr<IRhiPipeline> m_PipeTonemap;
 
-    /** 各パスのパラメータを統一して入れる共通の動的 CB。 */
-    TUniquePtr<IRhiBuffer>   m_CbPost;
+    /**
+     * 各 fullscreen draw のパラメータを固定する Post CB ring。
+     *
+     * @details 最大構成は luma 13 + TAA 1 + bloom 14 + tonemap 1 draw。将来の
+     * パス追加にも余裕を持たせて 64 本確保し、Render 冒頭で cursor を戻す。
+     */
+    static constexpr u32     kPostCbRing = 64;
+    TUniquePtr<IRhiBuffer>   m_CbPost[kPostCbRing];
+    u32                      m_PostCbCursor = 0;
 
     /**
      * TAA の ping-pong history RT。
@@ -459,6 +484,9 @@ private:
 
     /** depth 未指定時の fallback depth テクスチャ (1x1)。 */
     TUniquePtr<IRhiTexture>  m_TaaDepthFb;
+
+    /** Bloom / SSR が無い texture slot に必ず bind する 1x1 黒テクスチャ。 */
+    TUniquePtr<IRhiTexture>  m_BlackFb;
 
     /**
      * Auto-exposure の最大 luma mip 段数。

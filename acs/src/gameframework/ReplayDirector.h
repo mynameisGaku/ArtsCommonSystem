@@ -25,7 +25,7 @@
 //   dir.Init();
 //
 //   // 録画開始
-//   ReplayMetadata meta{
+//   FReplayMetadata meta{
 //       .game_version = "1.0.0",
 //       .level_id     = "stage_01",
 //       .seed         = 0xDEADBEEFu,
@@ -64,7 +64,7 @@
 //      FInputRecorder の ERecorderMode と FLockstep の ENetMode と異なり、UI が
 //      Pause/Resume を必要とするので Paused を専用状態として持つ。Paused
 //      からの遷移は Resume (→ Playback) と Stop (→ Idle) のみ。
-//   ・**ReplayMetadata は trivially-copyable POD**: `const char*` 文字列は
+//   ・**FReplayMetadata は trivially-copyable POD**: `const char*` 文字列は
 //      呼び出し側が寿命を保証する static / 長寿命 buffer を渡す規約
 //      (FSettings / FAccessibilityProfile と同じ STL 不使用方針)。
 //      acs::FString への置換は検討するが、現状は raw pointer。
@@ -124,10 +124,10 @@ enum class EReplayMode : u8 {
  * 1 録画分のメタデータ。
  *
  * @details
- * trivially-copyable な POD。`const char*` 文字列は呼び出し側が寿命を保証する
- * static / 長寿命 buffer を渡す規約 (LoadReplay 後は director が所有する m_*Owned を指す)。
+ * trivially-copyable な POD。`TryStartRecording` は `const char*` 文字列を上限付きで
+ * director 所有bufferへ複製し、`TryLoadReplay` も復元文字列をdirectorが所有する。
  */
-struct ReplayMetadata {
+struct FReplayMetadata {
     /** ゲームバージョン文字列 (例 "1.0.0"、NUL 終端の長寿命文字列)。 */
     const char* game_version   = nullptr;
 
@@ -149,6 +149,24 @@ struct ReplayMetadata {
     /** FLockstep checksum の hex 文字列 (16 文字)。 */
     const char* checksum_hex   = nullptr;
 };
+
+/** Replay container 全体の上限 (256 MiB)。 */
+inline constexpr u64 kReplayMaximumContainerBytes = 256ull * 1024ull * 1024ull;
+
+/** 内包する recorder / lockstep blob それぞれの上限 (128 MiB)。 */
+inline constexpr u32 kReplayMaximumSourceBlobBytes = 128u * 1024u * 1024u;
+
+/** recorder samples / lockstep frames それぞれの件数上限。 */
+inline constexpr u32 kReplayMaximumSourceRecords = 1'000'000u;
+
+/** replay path の終端NULを除く最大文字数。 */
+inline constexpr usize kReplayMaximumPathChars = 1023u;
+
+/** metadata fieldごとのUTF-8 byte上限。 */
+inline constexpr u32 kReplayMaximumGameVersionBytes = 64u;
+inline constexpr u32 kReplayMaximumLevelIdBytes = 255u;
+inline constexpr u32 kReplayMaximumPlayerNameBytes = 255u;
+inline constexpr u32 kReplayChecksumHexBytes = 16u;
 
 /**
  * 低レベルの入力録画と lockstep を統合するハイレベル replay コントローラ。
@@ -181,9 +199,9 @@ public:
     /**
      * SaveReplay / LoadReplay / 状態遷移が返すエラー subcode。
      *
-     * @details FErrorCode.subcode に格納される (FSaveSlot / FLockstep / FInputRecorder と同 pattern)。
+     * @details FErrorCode.subcode に格納される (TSaveSlot / FLockstep / FInputRecorder と同 pattern)。
      */
-    enum SubCode : u16 {
+    enum ESubCode : u16 {
         /** SaveReplay / LoadReplay の file_path == nullptr。 */
         kSub_NullPath         = 1,
 
@@ -211,6 +229,21 @@ public:
         /** SaveReplay: file_path が .tmp suffix を足すと長すぎる。 */
         kSub_PathTooLong      = 9,
 
+        /** metadata文字列、checksum、path等が非正規。 */
+        kSub_BadMetadata      = 10,
+
+        /** container、blob、record件数が製品上限を超える。 */
+        kSub_LimitExceeded    = 11,
+
+        /** FlushFileBuffers が失敗し、永続化を確定できない。 */
+        kSub_FlushFailed      = 12,
+
+        /** 一時ファイルから保存先へのatomic replaceが失敗。 */
+        kSub_AtomicReplaceFailed = 13,
+
+        /** 内包するinput/lockstep blobの構造またはsource契約が不正。 */
+        kSub_BadSourceBlob    = 14,
+
         /** 旧 stub 値 (後方互換のため残置。現在は未使用)。 */
         kSub_NotImplemented   = 99,
     };
@@ -237,12 +270,19 @@ public:
     void SetSources(FInputRecorder* recorder, FLockstep* lockstep) noexcept;
 
     /**
-     * 録画を開始する (mode を Recording に切り替え、metadata をコピー保存)。
+     * 録画を開始する (checked APIへ委譲し、metadata文字列をowned copyする)。
      *
-     * @param meta 録画に紐づける metadata (POD copy される)。
+     * @param meta 録画に紐づける metadata。
      * @return Idle から呼ばれれば Ok、それ以外の mode なら kSub_BadMode。
      */
-    TResult<void> StartRecording(const ReplayMetadata& meta) noexcept;
+    TResult<void> StartRecording(const FReplayMetadata& meta) noexcept;
+
+    /**
+     * metadata文字列を上限付きで複製してから録画を開始する。
+     *
+     * @details 失敗時はmode、tick、metadata、owned文字列を変更しない。
+     */
+    TResult<void> TryStartRecording(const FReplayMetadata& meta) noexcept;
 
     /**
      * 録画を停止する (Recording → Idle)。
@@ -307,9 +347,9 @@ public:
     /**
      * 現在の metadata への const 参照を返す。
      *
-     * @return 録画 / 再生対象の ReplayMetadata。
+     * @return 録画 / 再生対象の FReplayMetadata。
      */
-    const ReplayMetadata& Metadata() const noexcept { return m_Metadata; }
+    const FReplayMetadata& Metadata() const noexcept { return m_Metadata; }
 
     /**
      * 再生倍速を設定する。
@@ -333,7 +373,7 @@ public:
      * @details
      * Recording 中は tick_rate_hz * dt 分、Playback 中は dt * speed * tick_rate_hz 分だけ
      * m_CurrentTick を加算し、duration_ticks に達したら自動的に Idle へ落とす。Paused / Idle は no-op。
-     * @param dt 前フレームからの経過秒 (0 以下 / NaN は無視)。
+     * @param dt 前フレームからの経過秒 (0 以下 / NaN / 60秒超は無視)。
      */
     void Tick(f32 dt) noexcept;
 
@@ -350,23 +390,37 @@ public:
     TResult<void> SaveReplay(const wchar_t* file_path) noexcept;
 
     /**
+     * 上限・allocation・flush・atomic replaceの全失敗を返すchecked保存API。
+     *
+     * @details `<path>.tmp.<pid>.<tid>.<nonce>` をCREATE_NEWで作成し、本ファイルは
+     * flushとcloseが成功するまで変更しない。
+     */
+    TResult<void> TrySaveReplay(const wchar_t* file_path) noexcept;
+
+    /**
      * container を読み、検証して metadata と source blob を復元する。
      *
      * @details
-     * magic / version / CRC32 を検証して metadata を復元し、注入済み source があれば
-     * input_blob / lockstep_blob を各 LoadFromBuffer に渡す。復元した文字列フィールドは
-     * director が所有する m_*Owned を指す。成功後は m_Mode = Idle / m_CurrentTick = 0 となる。
+     * magic / version / CRC32を検証してmetadataと両sourceを一時領域へ復元し、全staging成功後に
+     * 一括commitする。復元文字列はdirectorが所有し、成功後はm_Mode = Idle / m_CurrentTick = 0となる。
      * @param file_path 入力ファイルパス。
      * @return 成功なら空の TResult、null パスは kSub_NullPath、検証失敗は対応 subcode。
      */
     TResult<void> LoadReplay(const wchar_t* file_path) noexcept;
+
+    /**
+     * containerと内包blobを全検証し、一時文字列の確保成功後にだけstateを置換する。
+     *
+     * @details 失敗時はdirectorのmetadata、owned文字列、mode、tickと両sourceを変更しない。
+     */
+    TResult<void> TryLoadReplay(const wchar_t* file_path) noexcept;
 
 private:
     /** 現在の動作モード。 */
     EReplayMode     m_Mode             = EReplayMode::Idle;
 
     /** 現在の録画 / 再生対象の metadata。 */
-    ReplayMetadata m_Metadata         {};
+    FReplayMetadata m_Metadata         {};
 
     /** 録画中は次に書き込む tick、再生中は次に消費する tick。 */
     u32            m_CurrentTick     = 0;

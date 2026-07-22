@@ -223,7 +223,7 @@ private:
     static constexpr u64 kLifecycleGenerationIncrement = u64(1) << 32u;
 
     /** 1 シャード分の TLSF アロケータと専用ロック。 */
-    struct Shard {
+    struct FShard {
         /** このシャードの TLSF アロケータ (専用 VM 予約を所有)。 */
         FTlsfAllocator alloc;
 
@@ -232,7 +232,7 @@ private:
     };
 
     /** シャードの固定配列 (動的確保を避ける、未使用分は Init しない)。 */
-    Shard m_Shards[kMaxShards];
+    FShard m_Shards[kMaxShards];
 
     /** 実際に初期化したシャード数。 */
     u32 m_ShardCount = 0;
@@ -262,7 +262,7 @@ private:
     mutable FMutex m_LifecycleDrainLock;
 
     /** Shutdown が最後の実行中公開操作の完了通知を待つ条件変数。 */
-    mutable ConditionVar m_LifecycleDrainedCondition;
+    mutable FConditionVar m_LifecycleDrainedCondition;
 
     /** 生存中アロケータの侵入リストにおける次要素。動的確保を避けるため本体に保持する。 */
     FShardedTlsfAllocator* m_ThreadCacheRegistryNext = nullptr;

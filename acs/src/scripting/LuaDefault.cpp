@@ -17,8 +17,8 @@
 namespace acs::scripting {
 
 acs::game::IScriptVm& GetDefaultLuaVm() noexcept {
-    struct DefaultLuaState {
-        DefaultLuaState() noexcept : vm(allocator)
+    struct FDefaultLuaState {
+        FDefaultLuaState() noexcept : vm(allocator)
         {
         }
 
@@ -30,7 +30,7 @@ acs::game::IScriptVm& GetDefaultLuaVm() noexcept {
     // DefaultAllocator はアプリ終了時に失効し得るため、process lifetime の allocator
     // を singleton 自身に所有させる。Init はべき等なので、失敗後や明示 Shutdown 後も
     // 次の取得で再試行できる。
-    static DefaultLuaState s_state;
+    static FDefaultLuaState s_state;
     (void)s_state.vm.Init();
     return s_state.vm;
 }

@@ -1,6 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -15,12 +19,19 @@ public sealed class AssetActivatedEventArgs : EventArgs
 {
     public string FullPath { get; }
     public string Kind { get; }   // "image" | "audio" | "mesh" | "text" | "scene" | "file"
-    public AssetActivatedEventArgs(string path, string kind) { FullPath = path; Kind = kind; }
+    public string AssetId { get; }
+    public AssetActivatedEventArgs(string path, string kind, string assetId = "")
+    {
+        FullPath = path;
+        Kind = kind;
+        AssetId = assetId;
+    }
 }
 
 /// <summary>1 アセット (ファイル or フォルダ) のタイル表示用データ。</summary>
 public sealed class AssetItem
 {
+    public string AssetId { get; init; } = "";
     public string FullPath { get; init; } = "";
     public string Name { get; init; } = "";
     public string Kind { get; init; } = "file";
@@ -39,10 +50,13 @@ public partial class AssetBrowserPanel : UserControl
     public IntPtr Engine { get; set; } = IntPtr.Zero;
 
     private Project? _project;
+    private AssetDatabase? _assetDatabase;
     private string _currentDir = "";
     private string _filter = "";   // 検索フィルタ (名前部分一致)
     private FileSystemWatcher? _watcher;
     private readonly DispatcherTimer _debounce;
+    private CancellationTokenSource? _projectRefreshCancellation;
+    private int _projectRefreshGeneration;
     private Point _dragStart;
     private bool _maybeDrag;
 
@@ -67,12 +81,65 @@ public partial class AssetBrowserPanel : UserControl
     /// <summary>表示対象のプロジェクトを設定し、Assets フォルダの監視と一覧表示を開始する。</summary>
     public void SetProject(Project? project)
     {
+        int generation = ++_projectRefreshGeneration;
+        _projectRefreshCancellation?.Cancel();
+        _projectRefreshCancellation?.Dispose();
+        _projectRefreshCancellation = null;
         _project = project;
+        _assetDatabase = null;
         DisposeWatcher();
         if (project == null) { _currentDir = ""; Items.Clear(); PathText.Text = ""; return; }
 
         Directory.CreateDirectory(project.AssetsDir);   // 念のため
         _currentDir = project.AssetsDir;
+        Items.Clear();
+        PathText.Text = "Indexing assets...";
+
+        var cancellation = new CancellationTokenSource();
+        _projectRefreshCancellation = cancellation;
+        _ = InitializeProjectAsync(
+            project, generation, cancellation.Token);
+    }
+
+    private async Task InitializeProjectAsync(
+        Project project,
+        int generation,
+        CancellationToken cancellationToken)
+    {
+        AssetDatabase database;
+        AssetDatabaseRefreshResult result;
+        try
+        {
+            (database, result) = await Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                AssetDatabase candidate = AssetDatabase.ForProject(project);
+                AssetDatabaseRefreshResult refreshed = candidate.Refresh(
+                    cancellationToken: cancellationToken);
+                return (candidate, refreshed);
+            }, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            if (generation != _projectRefreshGeneration) return;
+            _currentDir = "";
+            Items.Clear();
+            PathText.Text = "";
+            Log?.Invoke("Asset database initialization failed: " + ex.Message);
+            return;
+        }
+
+        if (generation != _projectRefreshGeneration ||
+            cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+        _assetDatabase = database;
+        ReportIndexResult(result);
 
         try
         {
@@ -87,11 +154,22 @@ public partial class AssetBrowserPanel : UserControl
         }
         catch { /* 監視できなくても手動更新で動く */ }
 
-        Refresh();
+        RefreshView();
     }
 
-    private void OnFsEvent(object sender, FileSystemEventArgs e) =>
+    private void OnFsEvent(object sender, FileSystemEventArgs e)
+    {
+        if (e.FullPath.EndsWith(AssetDatabase.MetadataSuffix, StringComparison.OrdinalIgnoreCase) ||
+            e.FullPath.Contains(
+                AssetDatabase.MetadataSuffix + ".tmp-",
+                StringComparison.OrdinalIgnoreCase) ||
+            e.FullPath.Contains(
+                Path.DirectorySeparatorChar + AssetDatabase.InternalDirectoryName +
+                Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase))
+            return;
         Dispatcher.BeginInvoke(() => { _debounce.Stop(); _debounce.Start(); });
+    }
 
     private void DisposeWatcher()
     {
@@ -99,6 +177,16 @@ public partial class AssetBrowserPanel : UserControl
     }
 
     public void Refresh()
+    {
+        if (_assetDatabase != null)
+        {
+            try { ReportIndexResult(_assetDatabase.Refresh()); }
+            catch (Exception ex) { Log?.Invoke("Asset database refresh failed: " + ex.Message); }
+        }
+        RefreshView();
+    }
+
+    private void RefreshView()
     {
         Items.Clear();
         if (_project == null || string.IsNullOrEmpty(_currentDir) || !Directory.Exists(_currentDir)) return;
@@ -111,6 +199,9 @@ public partial class AssetBrowserPanel : UserControl
             foreach (string dir in Directory.GetDirectories(_currentDir))
             {
                 var di = new DirectoryInfo(dir);
+                if (di.Name.Equals(AssetDatabase.InternalDirectoryName, StringComparison.OrdinalIgnoreCase) ||
+                    (di.Attributes & FileAttributes.ReparsePoint) != 0)
+                    continue;
                 if (!PassFilter(di.Name)) continue;
                 Items.Add(new AssetItem
                 {
@@ -118,13 +209,19 @@ public partial class AssetBrowserPanel : UserControl
                     Glyph = "📁", GlyphBrush = MakeBrush(0xC9, 0xA2, 0x5A),
                 });
             }
-            foreach (string file in Directory.GetFiles(_currentDir))
+            var indexedFiles = _assetDatabase?.Snapshot()
+                .Where(record => PathEquals(
+                    Path.GetDirectoryName(record.FullPath) ?? "",
+                    _currentDir))
+                ?? Enumerable.Empty<AssetRecord>();
+            foreach (AssetRecord record in indexedFiles)
             {
+                string file = record.FullPath;
                 if (!PassFilter(Path.GetFileName(file))) continue;
-                string ext = Path.GetExtension(file).ToLowerInvariant();
-                string kind = ClassifyExt(ext);
+                string kind = record.Kind;
                 Items.Add(new AssetItem
                 {
+                    AssetId = record.AssetId,
                     FullPath = file, Name = Path.GetFileName(file), Kind = kind, IsDirectory = false,
                     Glyph = GlyphFor(kind), GlyphBrush = BrushFor(kind),
                     Thumb = kind == "image" ? TryThumb(file)
@@ -135,12 +232,25 @@ public partial class AssetBrowserPanel : UserControl
         catch (Exception ex) { Log?.Invoke("Asset enumerate error: " + ex.Message); }
     }
 
+    private void ReportIndexResult(AssetDatabaseRefreshResult result)
+    {
+        if (result.CreatedMetadataCount != 0 || result.RecoveredIdentityCount != 0)
+        {
+            Log?.Invoke(
+                $"Asset database: {result.AssetCount} indexed, " +
+                $"{result.CreatedMetadataCount} metadata created, " +
+                $"{result.RecoveredIdentityCount} identities recovered.");
+        }
+        foreach (string warning in result.Warnings)
+            Log?.Invoke("Asset database warning: " + warning);
+    }
+
     // ===== ナビゲーション =====
     private void OnUp(object sender, RoutedEventArgs e)
     {
         if (_project == null || PathEquals(_currentDir, _project.AssetsDir)) return;
         string? parent = Path.GetDirectoryName(_currentDir);
-        if (parent != null && parent.Length >= _project.AssetsDir.Length) { _currentDir = parent; Refresh(); }
+        if (parent != null && parent.Length >= _project.AssetsDir.Length) { _currentDir = parent; RefreshView(); }
     }
 
     private void OnRefresh(object sender, RoutedEventArgs e) => Refresh();
@@ -151,7 +261,7 @@ public partial class AssetBrowserPanel : UserControl
     private void OnSearchChanged(object sender, TextChangedEventArgs e)
     {
         _filter = SearchBox.Text?.Trim() ?? "";
-        Refresh();
+        RefreshView();
     }
 
     // タイル選択でプレビュー + 情報を更新 (参考エンジン風)。
@@ -172,6 +282,8 @@ public partial class AssetBrowserPanel : UserControl
             catch { }
         }
         meta += "\n" + RelDisplay(item.FullPath);
+        if (!item.IsDirectory && item.AssetId.Length != 0)
+            meta += "\nAsset ID  " + item.AssetId;
         PreviewMetaText.Text = meta;
 
         // プレビュー画像: マテリアル=球 / 画像=その絵 / それ以外=大きいグリフ。
@@ -225,8 +337,8 @@ public partial class AssetBrowserPanel : UserControl
     private void OnTileDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (Tiles.SelectedItem is not AssetItem item) return;
-        if (item.IsDirectory) { _currentDir = item.FullPath; Refresh(); return; }
-        AssetActivated?.Invoke(this, new AssetActivatedEventArgs(item.FullPath, item.Kind));
+        if (item.IsDirectory) { _currentDir = item.FullPath; RefreshView(); return; }
+        AssetActivated?.Invoke(this, new AssetActivatedEventArgs(item.FullPath, item.Kind, item.AssetId));
     }
 
     // 右クリックで対象タイルを選択する (コンテキストメニューが選択アイテムに作用するように)。
@@ -238,19 +350,34 @@ public partial class AssetBrowserPanel : UserControl
     private void OnCtxOpen(object sender, RoutedEventArgs e)
     {
         if (Tiles.SelectedItem is AssetItem item && !item.IsDirectory)
-            AssetActivated?.Invoke(this, new AssetActivatedEventArgs(item.FullPath, item.Kind));
+            AssetActivated?.Invoke(this, new AssetActivatedEventArgs(item.FullPath, item.Kind, item.AssetId));
+    }
+
+    private void OnCtxReferences(object sender, RoutedEventArgs e)
+    {
+        if (Tiles.SelectedItem is not AssetItem item ||
+            item.IsDirectory ||
+            item.AssetId.Length == 0 ||
+            _assetDatabase == null)
+            return;
+
+        var viewer = new AssetReferenceViewerWindow(_assetDatabase, item.AssetId)
+        {
+            Owner = Window.GetWindow(this),
+        };
+        viewer.Show();
     }
 
     private void OnCtxPlace(object sender, RoutedEventArgs e)
     {
         if (Tiles.SelectedItem is AssetItem item && !item.IsDirectory)
-            AssetPlace?.Invoke(this, new AssetActivatedEventArgs(item.FullPath, item.Kind));
+            AssetPlace?.Invoke(this, new AssetActivatedEventArgs(item.FullPath, item.Kind, item.AssetId));
     }
 
     private void OnCtxConvert(object sender, RoutedEventArgs e)
     {
         if (Tiles.SelectedItem is AssetItem item && !item.IsDirectory)
-            AssetConvert?.Invoke(this, new AssetActivatedEventArgs(item.FullPath, item.Kind));
+            AssetConvert?.Invoke(this, new AssetActivatedEventArgs(item.FullPath, item.Kind, item.AssetId));
     }
 
     // ===== インポート (Assets/現在フォルダへコピー) =====
@@ -263,8 +390,13 @@ public partial class AssetBrowserPanel : UserControl
             Multiselect = true,
             Filter = "All assets|*.png;*.jpg;*.jpeg;*.bmp;*.tga;*.gif;*.wav;*.ogg;*.mp3;*.flac;*.fbx;*.gltf;*.glb;*.obj;*.txt;*.json|All files (*.*)|*.*",
         };
-        if (dlg.ShowDialog() != true) return;
+        Window? owner = Window.GetWindow(this);
+        bool? accepted = owner != null
+            ? dlg.ShowDialog(owner)
+            : dlg.ShowDialog();
+        if (accepted != true) return;
         int n = 0;
+        var imported = new List<(string Source, string Destination)>();
         foreach (string src in dlg.FileNames)
         {
             try
@@ -272,9 +404,29 @@ public partial class AssetBrowserPanel : UserControl
                 string dst = Path.Combine(_currentDir, Path.GetFileName(src));
                 dst = UniquePath(dst);
                 File.Copy(src, dst);
+                imported.Add((src, dst));
                 n++;
             }
             catch (Exception ex) { Log?.Invoke("Import failed: " + ex.Message); }
+        }
+        if (_assetDatabase != null)
+        {
+            try
+            {
+                ReportIndexResult(_assetDatabase.Refresh(verifyContent: true));
+                foreach ((string source, string destination) in imported)
+                {
+                    if (!_assetDatabase.TryGetByPath(destination, out AssetRecord? record) ||
+                        record == null)
+                        continue;
+                    _assetDatabase.UpdateImportMetadata(
+                        record.AssetId,
+                        source,
+                        ImporterForKind(record.Kind),
+                        importerVersion: 1);
+                }
+            }
+            catch (Exception ex) { Log?.Invoke("Import metadata update failed: " + ex.Message); }
         }
         Log?.Invoke($"{n} 個のアセットをインポートしました → {RelDisplay(_currentDir)}");
         Refresh();
@@ -296,24 +448,22 @@ public partial class AssetBrowserPanel : UserControl
         _maybeDrag = false;
         var data = new DataObject();
         data.SetData("ASSET_PATH", item.FullPath);
+        if (item.AssetId.Length != 0) data.SetData("ASSET_ID", item.AssetId);
         data.SetData(DataFormats.FileDrop, new[] { item.FullPath });
         try { DragDrop.DoDragDrop(Tiles, data, DragDropEffects.Copy); } catch { }
     }
 
     // ===== 分類・グリフ・サムネイル =====
-    private static string ClassifyExt(string ext) => ext switch
+    private static string ImporterForKind(string kind) => kind switch
     {
-        ".png" or ".jpg" or ".jpeg" or ".bmp" or ".tga" or ".dds" or ".ktx" or ".hdr" or ".gif" => "image",
-        ".wav" or ".ogg" or ".mp3" or ".flac" => "audio",
-        ".fbx" or ".gltf" or ".glb" or ".obj" or ".mdl" => "mesh",
-        ".txt" or ".json" or ".xml" or ".yaml" or ".yml" or ".toml" or ".ini" or ".csv" or ".md"
-            or ".log" or ".hlsl" or ".glsl" or ".lua" => "text",
-        ".acscene" => "scene",
-        ".acsproject" => "project",
-        ".acsmat" => "material",
-        ".acsprefab" => "prefab",
-        ".acsbp" => "blueprint",
-        _ => "file",
+        "image" => "texture",
+        "audio" => "audio",
+        "mesh" => "mesh",
+        "scene" => "scene",
+        "material" => "material",
+        "blueprint" => "blueprint",
+        "prefab" => "prefab",
+        _ => "passthrough",
     };
 
     private static string GlyphFor(string kind) => kind switch

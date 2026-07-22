@@ -19,19 +19,20 @@ cbuffer SsrCB : register(b0) {
     float4   params;          // x=intensity, y=max_ray_dist, z=frame_jitter, w=thickness_world
     float4x4 prev_view_proj;  // raw march では未使用 (CB layout 整合のため宣言)
     float4   temporal_params; // x=1/width, y=1/height, z=blend
-    // Hi-Z: ray march の skip-ahead
-    // x=enabled (0/1), y=block_size (=8), z=1/hiz_w, w=1/hiz_h
+    // Hi-Z: x=enabled, y=mip_count, zw=physical level-0 dimensions
     float4   hiz_params;
 };
 
 Texture2D    scene_color    : register(t0);
 Texture2D    scene_depth    : register(t1);
 Texture2D    normal_gbuffer : register(t2);   // world-space normal
-Texture2D    hiz_min        : register(t3);   // 1/8 coarse min-depth
+Texture2D    hiz_even       : register(t3);   // level 0,2,4,... at matching mip
+Texture2D    hiz_odd        : register(t4);   // level 1,3,5,... at matching mip
 SamplerState scene_color_sampler    : register(s0);
 SamplerState scene_depth_sampler    : register(s1);
 SamplerState normal_gbuffer_sampler : register(s2);
-SamplerState hiz_min_sampler        : register(s3);
+SamplerState hiz_even_sampler       : register(s3);
+SamplerState hiz_odd_sampler        : register(s4);
 
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
@@ -52,6 +53,28 @@ float3 ReconstructWorldPos(float2 uv, float depth) {
     return wp.xyz / max(wp.w, 1e-6);
 }
 
+// The physical level-0 texture is power-of-two padded, so every mip maps to
+// an exact (8 << level)-pixel source block even for odd scene dimensions.
+float HiZMinAt(float2 pixel, int level, out float2 block, out float block_size) {
+    // Initialize both out parameters and the result before branching.
+    // This is redundant mathematically, but required for reliable FXC flow
+    // analysis when this helper is called from a nested dynamic loop.
+    block = float2(0.0, 0.0);
+    block_size = 1.0;
+    float min_depth = 0.0;
+    float level_scale = exp2((float)level);
+    block_size = 8.0 * level_scale;
+    block = floor(pixel / block_size);
+    float2 mip_size = max(floor(hiz_params.zw / level_scale), float2(1.0, 1.0));
+    float2 uv = (block + 0.5) / mip_size;
+    if ((level & 1) != 0) {
+        min_depth = hiz_odd.SampleLevel(hiz_odd_sampler, uv, (float)level).r;
+    } else {
+        min_depth = hiz_even.SampleLevel(hiz_even_sampler, uv, (float)level).r;
+    }
+    return min_depth;
+}
+
 float4 PSMain(VSOut v) : SV_TARGET {
     float depth = scene_depth.SampleLevel(scene_depth_sampler, v.uv, 0).r;
     if (depth >= 0.9999) return float4(0, 0, 0, 0);   // sky pixel、反射なし
@@ -59,7 +82,9 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float3 wp = ReconstructWorldPos(v.uv, depth);
     float3 V  = normalize(eye.xyz - wp);
     // normal G-buffer から per-pixel world normal を sample
-    float3 N  = normalize(normal_gbuffer.SampleLevel(normal_gbuffer_sampler, v.uv, 0).xyz);
+    float3 N  = normal_gbuffer.SampleLevel(normal_gbuffer_sampler, v.uv, 0).xyz;
+    if (dot(N, N) < 1e-6) return float4(0, 0, 0, 0);
+    N = normalize(N);
     if (dot(N, V) < 0.0) N = -N;                       // facing 補正 (背面の保険)
     float3 R  = reflect(-V, N);
     if (dot(R, V) < -0.95) return float4(0, 0, 0, 0);  // 真後ろ反射は SSR データ無し
@@ -101,7 +126,9 @@ float4 PSMain(VSOut v) : SV_TARGET {
     if (stepCount < 1.0) return float4(0, 0, 0, 0);    // レイが画面上ほぼ点 → 反射なし
     float2 dpStep    = dp / stepCount;                 // 1 step の pixel 増分 (長辺 ±1)
     float  dzStep    = (n1.z - n0.z) / stepCount;      // 1 step の NDC depth 増分 (一定)
-    float  marchMax  = min(stepCount, 512.0);          // 反射距離の上限 (512 texel)
+    // Full Hi-Z keeps longer reflections affordable. The non-Hi-Z fallback
+    // retains its former worst-case cost.
+    float  marchMax  = min(stepCount, hiz_params.x >= 0.5 ? 1024.0 : 512.0);
 
     // per-frame + per-pixel jitter で開始位置を 1 texel 未満ずらす (temporal dither)
     float ign    = frac(52.9829189 * frac(dot(v.pos.xy, float2(0.06711056, 0.00583715))));
@@ -116,27 +143,49 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float  hitFrac = 0.0;          // marchMax に対する到達割合 (距離フェード用)
     [loop]
     for (float i = 0.0; i < marchMax; i += 1.0) {
-        // ===== Hi-Z skip-ahead =====
-        // 1/8 解像度の "min depth" を読み、ray.z がそれより手前 (= ブロック内の
-        // 全 surface より手前) なら、ray.z が min に追いつくまで複数 texel を
-        // 一気に飛ばす。ブロック越境を防ぐため 1 ブロック分 (=8 texel) を上限と
-        // し、ブロック境界以降は次イテレーションで再 sample する。
+        // ===== Hierarchical-Z skip-ahead =====
+        // A coarse level may skip only while its minimum depth is behind the
+        // ray, proving that every full-resolution sample covered by the cell is
+        // empty in front of it. Stop strictly before the next cell boundary;
+        // the regular step below crosses and validates it at full resolution.
         if (hiz_params.x >= 0.5 && i > 0.0 && dzStep > 1.0e-6) {
-            float2 hiz_uv = p / res;
-            if (hiz_uv.x >= 0.0 && hiz_uv.x <= 1.0 &&
-                hiz_uv.y >= 0.0 && hiz_uv.y <= 1.0) {
-                float coarse_min = hiz_min.SampleLevel(hiz_min_sampler, hiz_uv, 0).r;
-                if (coarse_min > 0.0 && z + dzStep < coarse_min) {
-                    float skip = floor((coarse_min - z) / dzStep);
-                    // 1 ブロック内に留まる (= 8 - 1 = 7 texel まで) で安全
-                    skip = clamp(skip, 0.0, hiz_params.y - 1.0);
-                    if (skip > 0.0) {
-                        p += dpStep * skip;
-                        z += dzStep * skip;
-                        i += skip;
-                        if (i >= marchMax) break;
+            if (p.x >= 0.0 && p.x < res.x &&
+                p.y >= 0.0 && p.y < res.y) {
+                int mip_count = max((int)(hiz_params.y + 0.5), 1);
+                [loop]
+                for (int level = mip_count - 1; level >= 0; --level) {
+                    float2 block = float2(0.0, 0.0);
+                    float block_size = 1.0;
+                    float coarse_min = HiZMinAt(p, level, block, block_size);
+                    if (coarse_min > 0.0 && z + dzStep < coarse_min) {
+                        float skip = floor((coarse_min - z) / dzStep);
+                        float2 block_min = block * block_size;
+                        float2 steps_to_boundary = float2(1e20, 1e20);
+                        if (dpStep.x > 1e-6) {
+                            steps_to_boundary.x =
+                                (block_min.x + block_size - p.x) / dpStep.x;
+                        } else if (dpStep.x < -1e-6) {
+                            steps_to_boundary.x = (block_min.x - p.x) / dpStep.x;
+                        }
+                        if (dpStep.y > 1e-6) {
+                            steps_to_boundary.y =
+                                (block_min.y + block_size - p.y) / dpStep.y;
+                        } else if (dpStep.y < -1e-6) {
+                            steps_to_boundary.y = (block_min.y - p.y) / dpStep.y;
+                        }
+                        float block_skip =
+                            max(ceil(min(steps_to_boundary.x,
+                                         steps_to_boundary.y)) - 1.0, 0.0);
+                        skip = min(max(skip, 0.0), block_skip);
+                        if (skip > 0.0) {
+                            p += dpStep * skip;
+                            z += dzStep * skip;
+                            i += skip;
+                            break;
+                        }
                     }
                 }
+                if (i >= marchMax) break;
             }
         }
 
@@ -222,16 +271,27 @@ VSOut VSMain(uint id : SV_VertexID) {
 
 // camera motion 由来の history reproject (反射元サーフェスの動きで履歴をずらす)
 float2 ReprojectUv(float2 uv) {
+    // Explicit fallback + single exit keeps FXC's legacy flow analysis from
+    // treating the helper result as potentially uninitialized.
+    float2 reprojected_uv = uv;
     float depth = scene_depth.SampleLevel(scene_depth_sampler, uv, 0).r;
-    if (depth >= 0.9999) return uv;
-    float4 clip = float4(uv * 2.0 - 1.0, depth, 1.0);
-    clip.y = -clip.y;
-    float4 wp = mul(clip, inv_view_proj);
-    wp.xyz /= max(wp.w, 1e-6);
-    float4 pc = mul(float4(wp.xyz, 1.0), prev_view_proj);
-    if (pc.w < 1e-4) return uv;
-    float2 pn = pc.xy / pc.w;
-    return float2(pn.x * 0.5 + 0.5, -pn.y * 0.5 + 0.5);
+    if (depth >= 0.9999) {
+        reprojected_uv = uv;
+    } else {
+        float4 clip = float4(uv * 2.0 - 1.0, depth, 1.0);
+        clip.y = -clip.y;
+        float4 wp = mul(clip, inv_view_proj);
+        wp.xyz /= max(wp.w, 1e-6);
+        float4 pc = mul(float4(wp.xyz, 1.0), prev_view_proj);
+        if (pc.w < 1e-4) {
+            reprojected_uv = uv;
+        } else {
+            float2 pn = pc.xy / pc.w;
+            reprojected_uv =
+                float2(pn.x * 0.5 + 0.5, -pn.y * 0.5 + 0.5);
+        }
+    }
+    return reprojected_uv;
 }
 
 float4 PSMain(VSOut v) : SV_TARGET {
@@ -240,15 +300,17 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // motion texture モードなら scene_depth slot を motion vector として
     // 再解釈し、動く mesh の反射も history を正しく追従させる (SSGI temporal と同形)。
     // 非モードは従来の camera-only depth reprojection。
-    float2 huv;
+    float2 huv = v.uv;
     if (temporal_params.w >= 0.5) {
         float2 mv = scene_depth.SampleLevel(scene_depth_sampler, v.uv, 0).rg;
         huv = v.uv + mv;
     } else {
         huv = ReprojectUv(v.uv);
     }
-    if (any(huv < 0.0) || any(huv > 1.0)) huv = v.uv;   // 画面外は静的 fallback
-    float4 hist = history_ssr.SampleLevel(history_ssr_sampler, huv, 0);
+    bool offscreen = any(huv < 0.0) || any(huv > 1.0);
+    if (offscreen) huv = v.uv;
+    float4 hist_unclipped = history_ssr.SampleLevel(history_ssr_sampler, huv, 0);
+    float4 hist = hist_unclipped;
 
     // Neighborhood clamp (3x3 of current)。camera 回転時の古い反射の残像を抑える。
     // rgb と hit mask (.a) の両方を clamp する。
@@ -270,18 +332,32 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // exponential moving average。jitter してあるので強めに累積してよい。
     float a = saturate(temporal_params.z);
     if (a < 1e-4) a = 0.1;
+    float cur_luma = dot(cur.rgb, float3(0.2126, 0.7152, 0.0722));
+    float hist_luma = dot(hist_unclipped.rgb, float3(0.2126, 0.7152, 0.0722));
+    float relative_delta = abs(cur_luma - hist_luma)
+                         / max(max(cur_luma, hist_luma), 0.05);
+    float motion_px = length((huv - v.uv)
+                    / max(float2(temporal_params.x, temporal_params.y),
+                          float2(1e-6, 1e-6)));
+    a = max(a, saturate(relative_delta) * 0.75);
+    a = max(a, abs(cur.a - hist_unclipped.a) * 0.9);
+    a = max(a, saturate(motion_px / 16.0) * 0.4);
+    // A current miss must clear a stale hit immediately; otherwise bright
+    // reflections leave a one-frame fringe while moving off a silhouette.
+    if (cur.a < 0.05 && hist_unclipped.a > 0.05) a = 1.0;
+    if (offscreen) a = 1.0;
     return lerp(hist, cur, a);
 }
 )";
 
-struct SsrCBLayout {
+struct FSsrCbLayout {
     FMat4 view_proj;
     FMat4 inv_view_proj;
     FVec4 eye;
     FVec4 params;
     FMat4 prev_view_proj;     // temporal reproject 用
     FVec4 temporal_params;    // x=texel_w, y=texel_h, z=blend_factor
-    FVec4 hiz_params;         // x=enabled, y=block_size, z/w=1/hiz_size (raw shader のみ参照)
+    FVec4 hiz_params;         // x=enabled, y=mip_count, z/w=physical level-0 size
 };
 
 template<typename T>
@@ -301,7 +377,7 @@ TResult<void> FSsr::Init(IRhiDevice& device, EFormat hdr_format, u32 width, u32 
     if (auto r = CreatePipeline(device); r.IsErr()) return r;
 
     FBufferDesc cbd{};
-    cbd.size = CBSize<SsrCBLayout>();
+    cbd.size = CBSize<FSsrCbLayout>();
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
@@ -359,13 +435,14 @@ TResult<void> FSsr::CreatePipeline(IRhiDevice& device) noexcept {
     pd.cull_mode     = ECullMode::None;
     pd.blend_mode    = EBlendMode::Opaque;
     pd.cbuffer_slots = 1;
-    pd.texture_slots = 4;
+    pd.texture_slots = 5;
     pd.cbuffer_names[0] = "SsrCB";
     pd.texture_names[0] = "scene_color";
     pd.texture_names[1] = "scene_depth";
     pd.texture_names[2] = "normal_gbuffer";
-    pd.texture_names[3] = "hiz_min";
-    pd.static_sampler_count = 4;
+    pd.texture_names[3] = "hiz_even";
+    pd.texture_names[4] = "hiz_odd";
+    pd.static_sampler_count = 5;
     pd.static_samplers[0].filter    = ESamplerFilter::Linear;
     pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
     pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
@@ -380,6 +457,7 @@ TResult<void> FSsr::CreatePipeline(IRhiDevice& device) noexcept {
     pd.static_samplers[3].filter    = ESamplerFilter::Point;
     pd.static_samplers[3].address_u = ESamplerAddress::Clamp;
     pd.static_samplers[3].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[4] = pd.static_samplers[3];
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
@@ -456,7 +534,9 @@ void FSsr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   const FMat4& prev_view_proj,
                   FVec3 eye, f32 intensity,
                   IRhiTexture* motion_texture,
-                  IRhiTexture* hiz_texture) noexcept {
+                  IRhiTexture* hiz_even,
+                  IRhiTexture* hiz_odd,
+                  u32 hiz_mip_count) noexcept {
     if (!m_Output || !m_History[0] || !m_History[1] ||
         !m_Pipeline || !m_TemporalPipeline || !m_Cb) return;
 
@@ -466,17 +546,19 @@ void FSsr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     const f32 jt     = static_cast<f32>(jf) * 0.61803399f;
     const f32 jitter = jt - static_cast<f32>(static_cast<u32>(jt));
 
-    // Hi-Z params
-    const f32 hiz_enabled = hiz_texture ? 1.0f : 0.0f;
-    f32 hiz_inv_w = 0.0f, hiz_inv_h = 0.0f;
-    if (hiz_texture) {
-        const u32 hw = hiz_texture->Width();
-        const u32 hh = hiz_texture->Height();
-        if (hw > 0) hiz_inv_w = 1.0f / static_cast<f32>(hw);
-        if (hh > 0) hiz_inv_h = 1.0f / static_cast<f32>(hh);
-    }
+    // A single legacy texture keeps the old level-0 path. Full hierarchy is
+    // enabled only when both parity textures and a valid mip count are present.
+    u32 usable_hiz_mips = hiz_even ? (hiz_mip_count > 0 ? hiz_mip_count : 1u) : 0u;
+    if (!hiz_odd && usable_hiz_mips > 1u) usable_hiz_mips = 1u;
+    if (hiz_even && usable_hiz_mips > hiz_even->MipLevels())
+        usable_hiz_mips = hiz_even->MipLevels();
+    if (hiz_odd && usable_hiz_mips > hiz_odd->MipLevels())
+        usable_hiz_mips = hiz_odd->MipLevels();
+    const f32 hiz_enabled = usable_hiz_mips > 0u ? 1.0f : 0.0f;
+    const f32 hiz_w = hiz_even ? static_cast<f32>(hiz_even->Width()) : 0.0f;
+    const f32 hiz_h = hiz_even ? static_cast<f32>(hiz_even->Height()) : 0.0f;
 
-    SsrCBLayout data{};
+    FSsrCbLayout data{};
     data.view_proj      = view_proj;
     data.inv_view_proj  = inv_view_proj;
     data.eye            = FVec4{eye.x, eye.y, eye.z, 1};
@@ -486,18 +568,21 @@ void FSsr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                                  1.0f / static_cast<f32>(m_Height),
                                  /*blend=*/0.1f,
                                  /*motion_mode=*/motion_texture ? 1.0f : 0.0f };
-    data.hiz_params     = FVec4{hiz_enabled, /*block_size=*/8.0f, hiz_inv_w, hiz_inv_h};
+    data.hiz_params     = FVec4{hiz_enabled, static_cast<f32>(usable_hiz_mips),
+                                hiz_w, hiz_h};
     m_Cb->Update(&data, sizeof(data));
 
     // Pass 1: raw SSR (jitter 付き march) → m_Output
-    cl.BeginRenderToTexture(*m_Output, ClearColor{0, 0, 0, 0}, nullptr, 1.0f);
+    cl.BeginRenderToTexture(*m_Output, FClearColor{0, 0, 0, 0}, nullptr, 1.0f);
     cl.SetPipeline(*m_Pipeline);
     cl.SetConstantBuffer(0, *m_Cb);
     cl.SetTexture(0, scene_color);
     cl.SetTexture(1, scene_depth);
     cl.SetTexture(2, normal_gbuffer);
-    // Hi-Z slot t3: null fallback は scene_depth (enabled=0 で読まれない)
-    cl.SetTexture(3, hiz_texture ? *hiz_texture : scene_depth);
+    // Hi-Z slots: disabled paths still receive valid fallback SRVs for strict
+    // backends. A legacy single texture is sampled only at level 0.
+    cl.SetTexture(3, hiz_even ? *hiz_even : scene_depth);
+    cl.SetTexture(4, hiz_odd ? *hiz_odd : (hiz_even ? *hiz_even : scene_depth));
     cl.Draw(3);
     cl.EndRenderToTexture(*m_Output);
 
@@ -507,7 +592,7 @@ void FSsr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     // Cold-start (frame 0): history 未初期化なので raw (m_Output) を history slot に
     // bind する。reproject はほぼ identity、clamp 後 lerp(raw, raw, a)=raw で garbage 排除。
     IRhiTexture* hist_in = (m_TemporalFrame == 0u) ? m_Output.Get() : m_History[prev].Get();
-    cl.BeginRenderToTexture(*m_History[cur], ClearColor{0, 0, 0, 0}, nullptr, 1.0f);
+    cl.BeginRenderToTexture(*m_History[cur], FClearColor{0, 0, 0, 0}, nullptr, 1.0f);
     cl.SetPipeline(*m_TemporalPipeline);
     cl.SetConstantBuffer(0, *m_Cb);
     cl.SetTexture(0, *m_Output);        // current (jitter 付き raw)

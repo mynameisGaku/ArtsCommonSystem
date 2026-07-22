@@ -7,7 +7,7 @@
 
 namespace acs {
 
-class Dx12Device;
+class FDx12Device;
 
 /**
  * DX12 のグラフィックスパイプライン実装 (PSO + RootSignature)。
@@ -17,13 +17,13 @@ class Dx12Device;
  * 静的サンプラを持つルートシグネチャと、ラスタライザ/ブレンド/深度ステンシル/
  * 入力レイアウトを設定した PSO を構築して所有する。
  */
-class Dx12Pipeline final : public IRhiPipeline {
+class FDx12Pipeline final : public IRhiPipeline {
 public:
     /** 空状態で構築する (PSO・RootSignature は Init で生成)。 */
-    Dx12Pipeline() noexcept = default;
+    FDx12Pipeline() noexcept = default;
 
     /** PSO と RootSignature を解放する。 */
-    ~Dx12Pipeline() noexcept override;
+    ~FDx12Pipeline() noexcept override;
 
     /**
      * desc に従ってルートシグネチャ・入力レイアウト・PSO を構築する。
@@ -34,9 +34,12 @@ public:
      * depth-only パイプラインとして PSO を作る。
      * @param device PSO・ルートシグネチャ生成に使う DX12 デバイス。
      * @param desc シェーダ・入力レイアウト・各種ステートを指定するパイプライン記述。
-     * @return 成功なら成功 HrResult、引数不正や生成失敗なら失敗 HrResult。
+     * @return 成功なら成功 FHrResult、引数不正や生成失敗なら失敗 FHrResult。
      */
-    HrResult Init(Dx12Device& device, const FPipelineDesc& desc) noexcept;
+    FHrResult Init(FDx12Device& device, const FPipelineDesc& desc) noexcept;
+
+    /** Compute root signature と PSO を生成する。 */
+    FHrResult InitCompute(FDx12Device& device, const FComputePipelineDesc& desc) noexcept;
 
     /**
      * 構築済みの PSO を返す。
@@ -73,6 +76,12 @@ public:
      */
     u32                    TextureSlots()  const noexcept { return m_TextureSlots; }
 
+    /** compute pipeline なら true。 */
+    bool                   IsCompute()     const noexcept { return m_IsCompute; }
+
+    /** UAV descriptor table のスロット数 (u0..)。 */
+    u32                    UavSlots()      const noexcept { return m_UavSlots; }
+
 private:
     /** PSO とルートシグネチャを解放し、構成値を既定状態へ戻す。 */
     void Reset() noexcept;
@@ -91,6 +100,12 @@ private:
 
     /** テクスチャのスロット数 (SRV、t0..)。 */
     u32                  m_TextureSlots = 0;
+
+    /** Compute PSO として生成されたか。 */
+    bool                 m_IsCompute = false;
+
+    /** Compute UAV slot 数。 */
+    u32                  m_UavSlots = 0;
 };
 
 } // namespace acs

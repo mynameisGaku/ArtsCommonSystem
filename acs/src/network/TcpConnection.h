@@ -2,9 +2,9 @@
 // TCP 接続（送信・受信）
 //
 // 使い方 (クライアント側):
-//   auto cr = TcpConnection::Connect(IpAddress::FromString("127.0.0.1"), 8080);
+//   auto cr = FTcpConnection::Connect(FIpAddress::FromString("127.0.0.1"), 8080);
 //   if (cr.IsErr()) { ... }
-//   TcpConnection& c = cr.Value();
+//   FTcpConnection& c = cr.Value();
 //   c.Send(data, size);
 //   isize n = c.Recv(buf, sizeof(buf));
 #pragma once
@@ -19,24 +19,24 @@ namespace acs {
  * TCP ストリーム接続を表す single-owner なソケットハンドル。
  *
  * @details
- * クライアントは Connect で接続し、サーバ側は TcpListener::Accept の戻り値から
+ * クライアントは Connect で接続し、サーバ側は FTcpListener::Accept の戻り値から
  * FromAccepted 経由で構築される。Send/Recv でバイト列を送受信し、Close または
  * デストラクタで切断する。OS の SOCKET を単独所有する non-copy / move-only 型で、
  * 無効値は ~uptr{0} (=INVALID_SOCKET 相当) を用いる。
  */
-class TcpConnection {
+class FTcpConnection {
 public:
     /** 無効な (未接続の) 接続を構築する。 */
-    TcpConnection() noexcept = default;
+    FTcpConnection() noexcept = default;
 
     /** デストラクタ。接続が開いていれば Close で切断する。 */
-    ~TcpConnection() noexcept;
+    ~FTcpConnection() noexcept;
 
     /** コピー禁止 (ソケットを単独所有するため)。 */
-    TcpConnection(const TcpConnection&) = delete;
+    FTcpConnection(const FTcpConnection&) = delete;
 
     /** コピー代入も禁止。 */
-    TcpConnection& operator=(const TcpConnection&) = delete;
+    FTcpConnection& operator=(const FTcpConnection&) = delete;
 
     /**
      * ムーブ構築する。
@@ -44,7 +44,7 @@ public:
      * @details ソケットの所有権を移し、移動元は無効値 (~uptr{0}) になる。
      * @param o 移動元の接続。
      */
-    TcpConnection(TcpConnection&& o) noexcept;
+    FTcpConnection(FTcpConnection&& o) noexcept;
 
     /**
      * ムーブ代入する。
@@ -54,29 +54,29 @@ public:
      * @param o 移動元の接続。
      * @return 自身への参照。
      */
-    TcpConnection& operator=(TcpConnection&& o) noexcept;
+    FTcpConnection& operator=(FTcpConnection&& o) noexcept;
 
     /**
      * 指定アドレス・ポートへ TCP 接続する。
      *
      * @details
-     * Network::Init() が未呼出ならエラーを返す。socket → connect を行い、成功すれば
+     * FNetwork::Init() が未呼出ならエラーを返す。socket → connect を行い、成功すれば
      * remote に port をセットした接続を返す。失敗時はソケットを閉じて OS エラーを返す。
      * @param addr 接続先 IP アドレス。
      * @param port 接続先ポート番号。
-     * @return 接続済みの TcpConnection、または接続失敗を表すエラー。
+     * @return 接続済みの FTcpConnection、または接続失敗を表すエラー。
      */
-    static TResult<TcpConnection> Connect(IpAddress addr, u16 port) noexcept;
+    static TResult<FTcpConnection> Connect(FIpAddress addr, u16 port) noexcept;
 
     /**
      * 受理済みソケットから接続を構築する (内部用)。
      *
-     * @details TcpListener::Accept が受理した SOCKET と相手アドレスを受け取って包む。
+     * @details FTcpListener::Accept が受理した SOCKET と相手アドレスを受け取って包む。
      * @param socket 受理済みソケットハンドル。
      * @param remote 相手側の IP アドレス。
-     * @return 受理済みソケットを所有する TcpConnection。
+     * @return 受理済みソケットを所有する FTcpConnection。
      */
-    static TcpConnection FromAccepted(uptr socket, IpAddress remote) noexcept;
+    static FTcpConnection FromAccepted(uptr socket, FIpAddress remote) noexcept;
 
     /**
      * 接続を切断する (多重呼び出し安全。デストラクタからも呼ばれる)。
@@ -124,16 +124,16 @@ public:
     /**
      * 相手側の IP アドレスを返す。
      *
-     * @return 接続相手の IpAddress。
+     * @return 接続相手の FIpAddress。
      */
-    IpAddress Remote()   const noexcept { return m_Remote; }
+    FIpAddress Remote()   const noexcept { return m_Remote; }
 
 private:
     /** OS のソケットハンドル (~uptr{0} を無効値とする)。 */
     uptr      m_Socket = ~uptr{0};
 
     /** 接続相手の IP アドレス。 */
-    IpAddress m_Remote {};
+    FIpAddress m_Remote {};
 };
 
 } // namespace acs

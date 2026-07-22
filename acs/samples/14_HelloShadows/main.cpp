@@ -29,4 +29,4 @@
 #include "app/EntryPoint.h"
 #include "HelloShadowsApp.h"
 
-ACS_DEFINE_MAIN(helloshadows::HelloShadowsApp)
+ACS_DEFINE_MAIN(helloshadows::FHelloShadowsApp)

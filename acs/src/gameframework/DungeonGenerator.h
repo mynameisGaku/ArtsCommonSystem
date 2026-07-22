@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar (Genre Kit: Roguelike) — BSP ベース ランダムダンジョン生成
 //
-// 2D グリッド上に部屋 (Room) と廊下 (Corridor) を配置する古典的な
+// 2D グリッド上に部屋 (FRoom) と廊下 (Corridor) を配置する古典的な
 // **BSP (Binary Space Partitioning) ダンジョン生成** の実装。
 // 全体領域を再帰的に 2 分割してリーフごとに 1 部屋を置き、兄弟リーフ間を
 // L 字廊下で接続する。Roguelike の「毎フロア違うレイアウト」をシード再現可能に。
 //
 // 使い方:
-//   DungeonGenConfig cfg{};
+//   FDungeonGenConfig cfg{};
 //   cfg.width             = 80;
 //   cfg.height            = 50;
 //   cfg.min_room_size     = 4;
@@ -39,8 +39,8 @@
 // 設計選択:
 //   ・**ETileKind = u8**: 5 種類しか無いので u8 で十分。row-major 1D の
 //     acs::TArray<ETileKind> に格納 (FTilemap と異なる layered 構造は不要)。
-//   ・**Room = 矩形 + id**: id は生成順 0..N-1。重複しない部屋を保証。
-//   ・**BSP partition tree は temp**: 生成中だけ必要なので TArray<BspNode>
+//   ・**FRoom = 矩形 + id**: id は生成順 0..N-1。重複しない部屋を保証。
+//   ・**BSP partition tree は temp**: 生成中だけ必要なので TArray<FBspNode>
 //     を ローカル変数 として持ち、Generate 終了で破棄する。永続データは
 //     grid + rooms のみ。
 //   ・**廊下は L 字**: 2 部屋の中心を結ぶ (横→縦 もしくは 縦→横)。
@@ -85,7 +85,7 @@ enum class ETileKind : u8 {
  *
  * @details (x,y) は左上座標、(w,h) は幅・高さ。id は生成順の通し番号。
  */
-struct Room {
+struct FRoom {
     /** 左上 x 座標 (tile)。 */
     u32 x  = 0;
 
@@ -107,7 +107,7 @@ struct Room {
  *
  * @details 0 や不整合な値は内部で安全な既定にフォールバックされる。
  */
-struct DungeonGenConfig {
+struct FDungeonGenConfig {
     /** ダンジョン全体の幅 (tile)。 */
     u32 width              = 64;
 
@@ -135,7 +135,7 @@ struct DungeonGenConfig {
  *
  * @details
  * 全体領域を再帰的に 2 分割してリーフごとに 1 部屋を置き、兄弟リーフ間を L 字廊下で
- * 接続する。生成結果は row-major のタイルグリッドと部屋配列として保持する。Scene が
+ * 接続する。生成結果は row-major のタイルグリッドと部屋配列として保持する。FScene が
  * 所有する想定の非コピー・非ムーブ型。
  */
 class FDungeonGenerator {
@@ -152,7 +152,7 @@ public:
     /** コピー代入も禁止。 */
     FDungeonGenerator& operator=(const FDungeonGenerator&) = delete;
 
-    /** ムーブ禁止 (Scene が単独所有する想定)。 */
+    /** ムーブ禁止 (FScene が単独所有する想定)。 */
     FDungeonGenerator(FDungeonGenerator&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
@@ -167,7 +167,7 @@ public:
      * 階段 1 個の配置、の順で構築する。
      * @param config 生成パラメータ。
      */
-    void Generate(const DungeonGenConfig& config) noexcept;
+    void Generate(const FDungeonGenConfig& config) noexcept;
 
     /** グリッド・部屋配列・サイズ・seed を全てリセットする。 */
     void Clear() noexcept;
@@ -217,7 +217,7 @@ public:
      * @param index 部屋インデックス。
      * @return 部屋へのポインタ。範囲外なら nullptr。
      */
-    const Room* GetRoom(u32 index) const noexcept;
+    const FRoom* GetRoom(u32 index) const noexcept;
 
     /**
      * 全部屋配列の生ポインタを返す。
@@ -225,7 +225,7 @@ public:
      * @param out_count 部屋件数を書き込む先。
      * @return 部屋配列の先頭ポインタ。空なら nullptr。
      */
-    const Room* AllRooms(u32& out_count) const noexcept;
+    const FRoom* AllRooms(u32& out_count) const noexcept;
 
     /**
      * index 番目の部屋の中心座標を取得する。
@@ -267,7 +267,7 @@ private:
     TArray<ETileKind>  m_Grid;
 
     /** 部屋配列 (生成順)。 */
-    TArray<Room>      m_Rooms;
+    TArray<FRoom>      m_Rooms;
 
     /** 直近 Generate の seed (FindRandomFloor 等で再利用)。 */
     u32              m_Seed   = 0;

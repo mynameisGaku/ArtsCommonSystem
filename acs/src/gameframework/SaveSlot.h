@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar J — FSaveSlot<T> (`.acssave` 経由の単一 POD 永続化)
+// GameFramework Pillar J — TSaveSlot<T> (`.acssave` 経由の単一 POD 永続化)
 //
 // 役割:
 //   ユーザー定義の trivially-copyable な POD/struct T を 1 個のファイルに保存し、
@@ -7,14 +7,14 @@
 //   オプション設定、進捗データ等、いわゆる "save data" 全般の土台となる。
 //
 // 使い方 (典型例):
-//   struct PlayerProfile {
+//   struct FPlayerProfile {
 //       acs::u32 hi_score;
 //       acs::u32 play_count;
 //       acs::f32 master_volume;
 //   };
-//   static_assert(__is_trivially_copyable(PlayerProfile));
+//   static_assert(__is_trivially_copyable(FPlayerProfile));
 //
-//   acs::game::FSaveSlot<PlayerProfile> slot;
+//   acs::game::TSaveSlot<FPlayerProfile> slot;
 //   slot.Init(L"user/profile.acssave");
 //   if (slot.Exists()) {
 //       auto r = slot.Load();
@@ -24,7 +24,7 @@
 //
 // 設計方針:
 //   ・**バイナリ format**: FSaveArchive (`.acssave`、24B header + payload + crc) に
-//     委譲する。詳細は gameframework/FSaveArchive.h を参照。
+//     委譲する。詳細は gameframework/SaveArchive.h を参照。
 //   ・**スキーマ進化耐性**: T を直接 memcpy で書く current design は schema 固定
 //     な T 専用。FSaveArchive の version パラメータを使って schema 変更を検知できる
 //     (デフォルト version=1)。version 不一致時は FErrorCode.subcode に
@@ -34,9 +34,11 @@
 //     (Win32 直叩き) に委譲。
 #pragma once
 
+#include "container/Array.h"
 #include "foundation/Result.h"
 #include "foundation/Types.h"
 #include "foundation/Log.h"
+#include "foundation/TypeTraits.h"
 
 #include "gameframework/SaveArchive.h"
 
@@ -48,25 +50,34 @@ namespace acs::game {
  * @details
  * `.acssave` バイナリ形式 (FSaveArchive、24B header + payload + crc) に保存・復元を
  * 委譲する。タイトル画面の continue/new game 判定、オプション設定、進捗データ等の
- * 土台となる。T は trivially_copyable な struct を想定する (現状 static_assert は
- * 付けていない; acs::IsTriviallyCopyableV を導入して有効化できる)。例外なし
- * (全 noexcept)、STL 不使用、ファイルパスは非所有ポインタで保持する。
+ * 土台となる。T は trivially_copyable かつ FSaveArchive の payload 安全上限以下で
+ * あることをコンパイル時に検証する。例外なし (全 noexcept)、STL 不使用、
+ * ファイルパスは非所有ポインタで保持する。
  * @tparam T 永続化する trivially-copyable な POD/struct 型。
  */
 template<typename T>
-class FSaveSlot {
+class TSaveSlot {
 public:
-    /** 空状態で構築する (ファイルパス未設定)。 */
-    FSaveSlot() noexcept = default;
+    static_assert(IsTriviallyCopyableV<T>,
+                  "TSaveSlot<T> requires a trivially-copyable payload type");
+    static_assert(sizeof(T) <= FSaveArchive::kMaxPayloadSize,
+                  "TSaveSlot<T> payload exceeds FSaveArchive safety limit");
 
-    /** 破棄する (ファイルパスを非所有で持つだけなので no-op)。 */
-    ~FSaveSlot() noexcept = default;
+    /** 空状態で構築する (ファイルパス未設定)。 */
+    TSaveSlot() noexcept = default;
+
+    /** checked owned path の確保に指定 allocator を使う。 */
+    explicit TSaveSlot(FAllocator& allocator) noexcept
+        : m_OwnedPath(allocator) {}
+
+    /** 破棄する。TryInit で所有したパスも自動解放する。 */
+    ~TSaveSlot() noexcept = default;
 
     /** コピー禁止。 */
-    FSaveSlot(const FSaveSlot&)            = delete;
+    TSaveSlot(const TSaveSlot&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSaveSlot& operator=(const FSaveSlot&) = delete;
+    TSaveSlot& operator=(const TSaveSlot&) = delete;
 
     /**
      * 1 slot に対応するファイルパスを設定する。
@@ -78,7 +89,55 @@ public:
      * @param file_path このスロットが扱うファイルへの wide パス (非所有)。
      */
     void Init(const wchar_t* file_path) noexcept {
+        if (file_path == m_OwnedPath.Data() && file_path != nullptr) {
+            m_FilePath = file_path;
+            return;
+        }
+        m_OwnedPath.ReleaseStorage();
         m_FilePath = file_path;
+    }
+
+    /**
+     * 検証済みパスをコピー所有して初期化する。
+     *
+     * legacy `Init` と異なり、呼び出し側の文字列は一時バッファでもよい。空パス、
+     * 長すぎるパス、OOM は明示エラーになり、失敗時は以前のパスと ownership を
+     * 変更しない。
+     */
+    TResult<void> TryInit(const wchar_t* file_path) noexcept {
+        if (file_path == nullptr || file_path[0] == L'\0') {
+            return ACS_ERR(
+                IO,
+                static_cast<u16>(ESaveArchiveSubCode::kSubInvalidArgument),
+                "TSaveSlot::TryInit: path is null or empty");
+        }
+
+        usize path_chars = 0;
+        while (path_chars <= FSaveArchive::kMaxPathChars &&
+               file_path[path_chars] != L'\0') {
+            ++path_chars;
+        }
+        if (path_chars > FSaveArchive::kMaxPathChars) {
+            return ACS_ERR(
+                IO,
+                static_cast<u16>(ESaveArchiveSubCode::kSubPathTooLong),
+                "TSaveSlot::TryInit: path exceeds safety limit");
+        }
+
+        TArray<wchar_t> staged(*m_OwnedPath.GetAllocator());
+        if (!staged.TryResize(path_chars + 1u)) {
+            return ACS_ERR(
+                Memory,
+                static_cast<u16>(ESaveArchiveSubCode::kSubAllocationFailed),
+                "TSaveSlot::TryInit: owned path allocation failed");
+        }
+        for (usize i = 0; i <= path_chars; ++i) {
+            staged[i] = file_path[i];
+        }
+
+        m_OwnedPath = static_cast<TArray<wchar_t>&&>(staged);
+        m_FilePath = m_OwnedPath.Data();
+        return Ok();
     }
 
     /**
@@ -87,8 +146,8 @@ public:
      * @details
      * version は呼び出し側が schema 進化を判定するためのタグ。schema を変えたら version
      * を増やすと、旧データ読み込み時に ESaveArchiveSubCode::kSubMigrationNeeded が返って
-     * migrate しやすい。atomic 性は提供しない (CREATE_ALWAYS で truncate write)。電源断
-     * 耐性が必要な場合は tmp file + Rename を呼出側で組むこと。
+     * migrate しやすい。書き込みは FSaveArchive の同一ディレクトリ一時ファイルと
+     * atomic replace を継承し、途中失敗でも既存slotを保持する。
      * @param data 保存する T の値。
      * @param version スキーマバージョンタグ (既定 1)。
      * @return 成功なら空の TResult、未初期化 / 書き込み失敗ならエラー。
@@ -100,7 +159,8 @@ public:
      *
      * @details
      * expected_version != header.version の場合は
-     * Err(Asset, ESaveArchiveSubCode::kSubMigrationNeeded) を返す。呼び出し側は
+     * Err(Asset, ESaveArchiveSubCode::kSubMigrationNeeded) を返す。型サイズ不一致、
+     * CRC不一致、I/O失敗を含む全失敗で値は返さない。呼び出し側は
      * FSaveArchive::PeekVersion で旧 version を取り直して migrate するパスに分岐できる。
      * @param expected_version 期待するスキーマバージョン (既定 1)。
      * @return 成功なら読み出した T、未初期化 / 検証失敗 / version 不一致ならエラー。
@@ -129,7 +189,15 @@ public:
      */
     const wchar_t* FilePath() const noexcept { return m_FilePath; }
 
+    /** 現在のパスが TryInit により所有されているかを返す。 */
+    bool IsPathOwned() const noexcept {
+        return m_FilePath != nullptr && m_FilePath == m_OwnedPath.Data();
+    }
+
 private:
+    /** TryInit が transactional に設定する optional owned path。 */
+    TArray<wchar_t> m_OwnedPath {};
+
     /** 扱うファイルへの wide パス (非所有、未初期化なら nullptr)。 */
     const wchar_t* m_FilePath = nullptr;
 };
@@ -140,7 +208,7 @@ namespace detail {
  * SaveSlot.cpp 側に置く非テンプレート保存ヘルパ (payload を `.acssave` へ書く)。
  *
  * @details
- * テンプレート化された FSaveSlot<T> がここを呼ぶ形にして、T ごとにオブジェクトコードが
+ * テンプレート化された TSaveSlot<T> がここを呼ぶ形にして、T ごとにオブジェクトコードが
  * 膨らまないようにする。中身は FSaveArchive::WriteToFile への薄いラッパ。
  * @param file_path 書き込み先の wide パス (nullptr なら未初期化エラー)。
  * @param version スキーマバージョンタグ。
@@ -158,7 +226,8 @@ TResult<void> SaveSlot_SaveBytes(const wchar_t* file_path,
  *
  * @details
  * FSaveArchive::ReadFromFile への薄いラッパで、header.payload_size が payload_size と
- * 完全一致することも追加検証する。version 不一致は kSubMigrationNeeded で伝搬する。
+ * 完全一致することも追加検証する。一時bufferへ読み込んで検証後にだけpayload_outへ
+ * 反映するため、全失敗で出力は不変。version 不一致は kSubMigrationNeeded で伝搬する。
  * @param file_path 読み込み元の wide パス (nullptr なら未初期化エラー)。
  * @param expected_version 期待するスキーマバージョン。
  * @param payload_out 読み込んだ payload の書き込み先。
@@ -171,7 +240,7 @@ TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
                                 usize          payload_size) noexcept;
 
 /**
- * ファイルが存在するかを判定する (FileSystem::Exists 委譲)。
+ * ファイルが存在するかを判定する (FFileSystem::Exists 委譲)。
  *
  * @param file_path 判定する wide パス。
  * @return ファイルがあれば true、未初期化 (nullptr) なら false。
@@ -179,7 +248,7 @@ TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
 bool         SaveSlot_Exists(const wchar_t* file_path) noexcept;
 
 /**
- * ファイルを削除する (べき等、FileSystem::Delete 委譲)。
+ * ファイルを削除する (べき等、FFileSystem::Delete 委譲)。
  *
  * @param file_path 削除する wide パス (nullptr なら未初期化エラー)。
  * @return 成功なら空の TResult、未初期化 / 削除失敗ならエラー。
@@ -190,7 +259,7 @@ TResult<void> SaveSlot_Delete(const wchar_t* file_path) noexcept;
 
 /** Save の実装 (detail::SaveSlot_SaveBytes へ T のバイト列を委譲)。 */
 template<typename T>
-TResult<void> FSaveSlot<T>::Save(const T& data, u32 version) noexcept {
+TResult<void> TSaveSlot<T>::Save(const T& data, u32 version) noexcept {
     return detail::SaveSlot_SaveBytes(m_FilePath,
                                       version,
                                       static_cast<const void*>(&data),
@@ -199,7 +268,7 @@ TResult<void> FSaveSlot<T>::Save(const T& data, u32 version) noexcept {
 
 /** Load の実装 (detail::SaveSlot_LoadBytes で読み出した値を T として返す)。 */
 template<typename T>
-TResult<T> FSaveSlot<T>::Load(u32 expected_version) noexcept {
+TResult<T> TSaveSlot<T>::Load(u32 expected_version) noexcept {
     T out{};
     auto r = detail::SaveSlot_LoadBytes(m_FilePath,
                                         expected_version,
@@ -211,13 +280,13 @@ TResult<T> FSaveSlot<T>::Load(u32 expected_version) noexcept {
 
 /** Exists の実装 (detail::SaveSlot_Exists へ委譲)。 */
 template<typename T>
-bool FSaveSlot<T>::Exists() const noexcept {
+bool TSaveSlot<T>::Exists() const noexcept {
     return detail::SaveSlot_Exists(m_FilePath);
 }
 
 /** Delete の実装 (detail::SaveSlot_Delete へ委譲)。 */
 template<typename T>
-TResult<void> FSaveSlot<T>::Delete() noexcept {
+TResult<void> TSaveSlot<T>::Delete() noexcept {
     return detail::SaveSlot_Delete(m_FilePath);
 }
 

@@ -3,7 +3,7 @@
 //
 // hp / mana / invincible / name の Observable プロパティと、HP の表示用に
 // f32 から変換した文字列を載せる hp_label を持つ。View (Slider / Checkbox /
-// TextInput) と FTwoWayBinder で接続する。
+// TextInput) と TTwoWayBinder で接続する。
 #pragma once
 
 #include "mvvm/ViewModel.h"
@@ -11,14 +11,14 @@
 
 namespace helloui {
 
-class PlayerVM : public acs::FViewModel {
+class FPlayerVm : public acs::FViewModel {
 public:
-    acs::Observable<acs::f32>    hp        { 100.0f };
-    acs::Observable<acs::f32>    mana      { 50.0f };
-    acs::Observable<bool>        invincible{ false };
-    acs::Observable<acs::FString> name      { acs::FString{"勇者"} };
+    acs::TObservable<acs::f32>    hp        { 100.0f };
+    acs::TObservable<acs::f32>    mana      { 50.0f };
+    acs::TObservable<bool>        invincible{ false };
+    acs::TObservable<acs::FString> name      { acs::FString{"勇者"} };
     // HP の文字表示用。hp (f32) から変換 binder (MakeBindConvert) で自動同期する。
-    acs::Observable<acs::FString> hp_label;
+    acs::TObservable<acs::FString> hp_label;
 };
 
 } // namespace helloui

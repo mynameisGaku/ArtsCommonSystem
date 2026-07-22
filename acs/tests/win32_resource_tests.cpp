@@ -38,7 +38,7 @@ bool WaitForBuild(FLocalBuildRunner& runner, u64 build_identifier) noexcept
 }
 
 /** FUdpTransport の WSA 参照計数を競合させるスレッド引数。 */
-struct TransportThreadContext {
+struct FTransportThreadContext {
     HANDLE start_event = nullptr;
     u32 iteration_count = 0;
     bool success = false;
@@ -47,7 +47,7 @@ struct TransportThreadContext {
 /** 同時開始後に UDP transport の接続・切断を反復する。 */
 DWORD WINAPI TransportThreadMain(void* user) noexcept
 {
-    auto* context = static_cast<TransportThreadContext*>(user);
+    auto* context = static_cast<FTransportThreadContext*>(user);
     if (context == nullptr || context->start_event == nullptr) return 1;
     if (::WaitForSingleObject(context->start_event, 10000) != WAIT_OBJECT_0) return 2;
 
@@ -69,7 +69,7 @@ bool RunConcurrentUdpTransportRound(u32 iteration_count) noexcept
     HANDLE start_event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (start_event == nullptr) return false;
 
-    TransportThreadContext contexts[kThreadCount] = {};
+    FTransportThreadContext contexts[kThreadCount] = {};
     HANDLE threads[kThreadCount] = {};
     bool succeeded = true;
     bool created_all = true;
@@ -114,7 +114,7 @@ bool RunConcurrentUdpTransportRound(u32 iteration_count) noexcept
 }
 
 /** FUdpTransport の共有所有状態が完全に回収済みかを返す。 */
-bool UdpTransportDiagnosticsAreClean(const UdpTransportDiagnostics& diagnostics) noexcept
+bool UdpTransportDiagnosticsAreClean(const FUdpTransportDiagnostics& diagnostics) noexcept
 {
     return diagnostics.active_winsock_reference_count == 0 && diagnostics.pending_cleanup_error == 0 &&
            !diagnostics.cleanup_debt_orphaned && diagnostics.orphaned_socket_count == 0 &&
@@ -136,7 +136,7 @@ bool ValidateConcurrentUdpTransportOwnership() noexcept
     constexpr DWORD kMaximumExpectedLazyHandleGrowth = 4;
 
     if (!RunConcurrentUdpTransportRound(100)) return false;
-    const UdpTransportDiagnostics warmup_diagnostics = FUdpTransport::CaptureDiagnostics();
+    const FUdpTransportDiagnostics warmup_diagnostics = FUdpTransport::CaptureDiagnostics();
     if (!UdpTransportDiagnosticsAreClean(warmup_diagnostics)) return false;
 
     const DWORD initial_handle_count = ProcessHandleCount();
@@ -150,7 +150,7 @@ bool ValidateConcurrentUdpTransportOwnership() noexcept
     for (u32 round = 0; round < kMeasurementRounds; ++round) {
         if (!RunConcurrentUdpTransportRound(100)) return false;
 
-        const UdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
+        const FUdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
         if (!UdpTransportDiagnosticsAreClean(diagnostics)) {
             ::acs::test::RecordInfo(::acs::FSourceLoc::Current(),
                                     "FUdpTransport diagnostics: references=%u cleanup_error=%u "
@@ -200,7 +200,7 @@ bool ValidateConcurrentUdpTransportOwnership() noexcept
 }
 
 /** 同一 transport の公開操作を競合させるスレッド引数。 */
-struct SharedTransportThreadContext {
+struct FSharedTransportThreadContext {
     HANDLE start_event = nullptr;
     FUdpTransport* transport = nullptr;
     u32 iteration_count = 0;
@@ -210,7 +210,7 @@ struct SharedTransportThreadContext {
 /** 同一 transport へ Connect / query / Disconnect を反復する。 */
 DWORD WINAPI SharedTransportThreadMain(void* user) noexcept
 {
-    auto* context = static_cast<SharedTransportThreadContext*>(user);
+    auto* context = static_cast<FSharedTransportThreadContext*>(user);
     if (context == nullptr || context->start_event == nullptr || context->transport == nullptr) return 1;
     if (::WaitForSingleObject(context->start_event, 10000) != WAIT_OBJECT_0) return 2;
 
@@ -238,7 +238,7 @@ bool RunConcurrentSharedUdpTransportRound(u32 iteration_count) noexcept
     HANDLE start_event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (start_event == nullptr) return false;
 
-    SharedTransportThreadContext contexts[kThreadCount] = {};
+    FSharedTransportThreadContext contexts[kThreadCount] = {};
     HANDLE threads[kThreadCount] = {};
     bool succeeded = true;
     bool created_all = true;
@@ -280,7 +280,7 @@ bool RunConcurrentSharedUdpTransportRound(u32 iteration_count) noexcept
 }
 
 /** Network の同時 Init / Shutdown をフェーズ単位で開始する共有状態。 */
-struct NetworkLifecycleRaceControl {
+struct FNetworkLifecycleRaceControl {
     volatile LONG phase = 0;
     volatile LONG ready_count = 0;
     volatile LONG completed_count = 0;
@@ -289,8 +289,8 @@ struct NetworkLifecycleRaceControl {
 };
 
 /** Init 側または Shutdown 側を担当するスレッドの引数。 */
-struct NetworkLifecycleThreadContext {
-    NetworkLifecycleRaceControl* control = nullptr;
+struct FNetworkLifecycleThreadContext {
+    FNetworkLifecycleRaceControl* control = nullptr;
     bool initialize = false;
     bool success = true;
 };
@@ -309,10 +309,10 @@ bool WaitForAtomicValueAtLeast(volatile LONG* value, LONG expected, DWORD timeou
 /** 公開された各フェーズで Init または Shutdown を 1 回実行する。 */
 DWORD WINAPI NetworkLifecycleThreadMain(void* user) noexcept
 {
-    auto* context = static_cast<NetworkLifecycleThreadContext*>(user);
+    auto* context = static_cast<FNetworkLifecycleThreadContext*>(user);
     if (context == nullptr || context->control == nullptr) return 1;
 
-    NetworkLifecycleRaceControl& control = *context->control;
+    FNetworkLifecycleRaceControl& control = *context->control;
     ::_InterlockedIncrement(&control.ready_count);
 
     for (u32 iteration = 0; iteration < control.iteration_count; ++iteration) {
@@ -323,10 +323,10 @@ DWORD WINAPI NetworkLifecycleThreadMain(void* user) noexcept
         }
 
         if (context->initialize) {
-            auto initialized = Network::Init();
+            auto initialized = FNetwork::Init();
             if (initialized.IsErr()) context->success = false;
         } else {
-            Network::Shutdown();
+            FNetwork::Shutdown();
         }
 
         ::_InterlockedIncrement(&control.completed_count);
@@ -349,7 +349,7 @@ ACS_TEST(Win32Resource, HotReloadUnwatchReturnsDirectoryHandle)
     (void)::RemoveDirectoryA(directory);
     EXPECT_TRUE(::CreateDirectoryA(directory, nullptr) != FALSE);
 
-    HotReloadWatcher watcher;
+    FHotReloadWatcher watcher;
     watcher.Init();
     const DWORD before = ProcessHandleCount();
     EXPECT_TRUE(before > 0);
@@ -372,7 +372,7 @@ ACS_TEST(Win32Resource, HotReloadUnwatchReturnsDirectoryHandle)
 ACS_TEST(Win32Resource, CompletedBuildReleasesProcessHandle)
 {
     FLocalBuildRunner runner;
-    IBuildFarmBackend::BuildRequest request{};
+    IBuildFarmBackend::FBuildRequest request{};
     request.preset = "cmd.exe /D /C exit 0";
     request.branch = "local";
     request.commit_sha = "test";
@@ -400,30 +400,30 @@ ACS_TEST(Win32Resource, CompletedBuildReleasesProcessHandle)
 ACS_TEST(Win32Resource, NetworkAndUdpSocketReferencesAreBalanced)
 {
     // 初回 Winsock 起動時の OS 内部遅延初期化を測定外へ出す。
-    auto warmup_init = Network::Init();
+    auto warmup_init = FNetwork::Init();
     EXPECT_TRUE(warmup_init.IsOk());
     if (warmup_init.IsErr()) return;
     {
-        auto warmup_socket = FUdpSocket::Bind(IpAddress::Loopback(), 0);
+        auto warmup_socket = FUdpSocket::Bind(FIpAddress::Loopback(), 0);
         EXPECT_TRUE(warmup_socket.IsOk());
     }
-    Network::Shutdown();
+    FNetwork::Shutdown();
 
     const DWORD before = ProcessHandleCount();
     for (u32 i = 0; i < 64; ++i) {
-        auto initialized = Network::Init();
+        auto initialized = FNetwork::Init();
         EXPECT_TRUE(initialized.IsOk());
         if (initialized.IsErr()) break;
         {
-            auto socket = FUdpSocket::Bind(IpAddress::Loopback(), 0);
+            auto socket = FUdpSocket::Bind(FIpAddress::Loopback(), 0);
             EXPECT_TRUE(socket.IsOk());
             if (socket.IsOk()) {
                 socket.Value().Close();
                 socket.Value().Close(); // 多重 Close でも二重解放しない。
             }
         }
-        Network::Shutdown();
-        EXPECT_FALSE(Network::IsInitialized());
+        FNetwork::Shutdown();
+        EXPECT_FALSE(FNetwork::IsInitialized());
     }
     const DWORD after = ProcessHandleCount();
     if (after != before) {
@@ -433,7 +433,7 @@ ACS_TEST(Win32Resource, NetworkAndUdpSocketReferencesAreBalanced)
                                 static_cast<long long>(after) - static_cast<long long>(before));
     }
     EXPECT_EQ(after, before);
-    const NetworkDiagnostics diagnostics = Network::CaptureDiagnostics();
+    const FNetworkDiagnostics diagnostics = FNetwork::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.initialization_reference_count, 0u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, 0u);
     EXPECT_EQ(diagnostics.resource_release_failure_count, 0ull);
@@ -443,7 +443,7 @@ ACS_TEST(Win32Resource, ConcurrentUdpTransportReferencesAreBalanced)
 {
     EXPECT_TRUE(ValidateConcurrentUdpTransportOwnership());
 
-    const UdpTransportDiagnostics after_diagnostics = FUdpTransport::CaptureDiagnostics();
+    const FUdpTransportDiagnostics after_diagnostics = FUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(after_diagnostics.active_winsock_reference_count, 0u);
     EXPECT_EQ(after_diagnostics.pending_cleanup_error, 0u);
     EXPECT_FALSE(after_diagnostics.cleanup_debt_orphaned);
@@ -481,7 +481,7 @@ ACS_TEST(Win32Resource, ConcurrentSharedUdpTransportStateIsBalanced)
             previous_handle_count = handle_count;
         }
 
-        const UdpTransportDiagnostics round_diagnostics = FUdpTransport::CaptureDiagnostics();
+        const FUdpTransportDiagnostics round_diagnostics = FUdpTransport::CaptureDiagnostics();
         EXPECT_TRUE(UdpTransportDiagnosticsAreClean(round_diagnostics));
     }
 
@@ -494,7 +494,7 @@ ACS_TEST(Win32Resource, ConcurrentSharedUdpTransportStateIsBalanced)
                             static_cast<unsigned long>(maximum_sustained_growth), kMeasurementRounds);
     EXPECT_TRUE(maximum_sustained_growth <= kMaximumExpectedLazyHandleGrowth);
 
-    const UdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
+    const FUdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 0u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, 0u);
     EXPECT_FALSE(diagnostics.cleanup_debt_orphaned);
@@ -511,7 +511,7 @@ ACS_TEST(Win32Resource, LiveUdpCleanupDebtCannotBeStolen)
     EXPECT_TRUE(reset_before);
     if (!reset_before) return;
 
-    UdpTransportFailureInjection injection{};
+    FUdpTransportFailureInjection injection{};
     injection.cleanup_failure_count = 1;
     EXPECT_TRUE(ConfigureUdpTransportFailureInjectionForTesting(injection));
 
@@ -521,7 +521,7 @@ ACS_TEST(Win32Resource, LiveUdpCleanupDebtCannotBeStolen)
     if (connected.IsErr()) return;
 
     owner.Disconnect();
-    UdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
+    FUdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 1u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, injection.cleanup_error);
     EXPECT_FALSE(diagnostics.cleanup_debt_orphaned);
@@ -533,7 +533,7 @@ ACS_TEST(Win32Resource, LiveUdpCleanupDebtCannotBeStolen)
     auto contender_connected = contender.Connect("127.0.0.1", 9);
     EXPECT_TRUE(contender_connected.IsErr());
     if (contender_connected.IsErr()) {
-        EXPECT_EQ(contender_connected.Error().subcode, static_cast<u16>(NetSnapshotError::kSub_CloseFailed));
+        EXPECT_EQ(contender_connected.Error().subcode, static_cast<u16>(FNetSnapshotError::kSub_CloseFailed));
     }
 
     diagnostics = FUdpTransport::CaptureDiagnostics();
@@ -562,7 +562,7 @@ ACS_TEST(Win32Resource, DestroyedUdpCleanupDebtIsExplicitlyDrained)
     EXPECT_TRUE(reset_before);
     if (!reset_before) return;
 
-    UdpTransportFailureInjection injection{};
+    FUdpTransportFailureInjection injection{};
     // destructor の初回失敗と自動 drain の再失敗を経て、明示 drain で回収する。
     injection.cleanup_failure_count = 2;
     EXPECT_TRUE(ConfigureUdpTransportFailureInjectionForTesting(injection));
@@ -573,7 +573,7 @@ ACS_TEST(Win32Resource, DestroyedUdpCleanupDebtIsExplicitlyDrained)
         EXPECT_TRUE(connected.IsOk());
     }
 
-    UdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
+    FUdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 1u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, injection.cleanup_error);
     EXPECT_TRUE(diagnostics.cleanup_debt_orphaned);
@@ -602,7 +602,7 @@ ACS_TEST(Win32Resource, DestroyedUdpSocketRemainsTrackedUntilExplicitDrain)
     EXPECT_TRUE(reset_before);
     if (!reset_before) return;
 
-    UdpTransportFailureInjection injection{};
+    FUdpTransportFailureInjection injection{};
     // destructor と自動 drain、最初の明示 drain を失敗させ、2 回目で回収する。
     injection.close_socket_failure_count = 3;
     EXPECT_TRUE(ConfigureUdpTransportFailureInjectionForTesting(injection));
@@ -613,7 +613,7 @@ ACS_TEST(Win32Resource, DestroyedUdpSocketRemainsTrackedUntilExplicitDrain)
         EXPECT_TRUE(connected.IsOk());
     }
 
-    UdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
+    FUdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 1u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, 0u);
     EXPECT_FALSE(diagnostics.cleanup_debt_orphaned);
@@ -624,7 +624,7 @@ ACS_TEST(Win32Resource, DestroyedUdpSocketRemainsTrackedUntilExplicitDrain)
     auto first_drain = FUdpTransport::DrainDeferredResources();
     EXPECT_TRUE(first_drain.IsErr());
     if (first_drain.IsErr()) {
-        EXPECT_EQ(first_drain.Error().subcode, static_cast<u16>(NetSnapshotError::kSub_CloseFailed));
+        EXPECT_EQ(first_drain.Error().subcode, static_cast<u16>(FNetSnapshotError::kSub_CloseFailed));
     }
     diagnostics = FUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 1u);
@@ -653,7 +653,7 @@ ACS_TEST(Win32Resource, UdpOrphanRegistryOverflowRetainsEveryOwnershipToken)
     EXPECT_TRUE(reset_before);
     if (!reset_before) return;
 
-    UdpTransportFailureInjection injection{};
+    FUdpTransportFailureInjection injection{};
     injection.close_socket_failure_count = 5;
     injection.primary_orphaned_socket_capacity = 1;
     EXPECT_TRUE(ConfigureUdpTransportFailureInjectionForTesting(injection));
@@ -665,7 +665,7 @@ ACS_TEST(Win32Resource, UdpOrphanRegistryOverflowRetainsEveryOwnershipToken)
         EXPECT_TRUE(second.Connect("127.0.0.1", 9).IsOk());
     }
 
-    UdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
+    FUdpTransportDiagnostics diagnostics = FUdpTransport::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.active_winsock_reference_count, 2u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, 0u);
     EXPECT_FALSE(diagnostics.cleanup_debt_orphaned);
@@ -693,12 +693,12 @@ ACS_TEST(Win32Resource, UdpFailureInjectionRejectsTerminalOwnershipErrors)
     EXPECT_TRUE(reset_before);
     if (!reset_before) return;
 
-    UdpTransportFailureInjection close_injection{};
+    FUdpTransportFailureInjection close_injection{};
     close_injection.close_socket_failure_count = 1;
     close_injection.close_socket_error = 10038u; // WSAENOTSOCK
     EXPECT_FALSE(ConfigureUdpTransportFailureInjectionForTesting(close_injection));
 
-    UdpTransportFailureInjection cleanup_injection{};
+    FUdpTransportFailureInjection cleanup_injection{};
     cleanup_injection.cleanup_failure_count = 1;
     cleanup_injection.cleanup_error = 10093u; // WSANOTINITIALISED
     EXPECT_FALSE(ConfigureUdpTransportFailureInjectionForTesting(cleanup_injection));
@@ -709,14 +709,14 @@ ACS_TEST(Win32Resource, ConcurrentNetworkInitAndShutdownRemainBalanced)
 {
     constexpr u32 kIterationCount = 512;
 
-    EXPECT_FALSE(Network::IsInitialized());
-    auto initialized = Network::Init();
+    EXPECT_FALSE(FNetwork::IsInitialized());
+    auto initialized = FNetwork::Init();
     EXPECT_TRUE(initialized.IsOk());
     if (initialized.IsErr()) return;
 
-    NetworkLifecycleRaceControl control{};
+    FNetworkLifecycleRaceControl control{};
     control.iteration_count = kIterationCount;
-    NetworkLifecycleThreadContext contexts[2] = {};
+    FNetworkLifecycleThreadContext contexts[2] = {};
     contexts[0].control = &control;
     contexts[0].initialize = true;
     contexts[1].control = &control;
@@ -741,7 +741,7 @@ ACS_TEST(Win32Resource, ConcurrentNetworkInitAndShutdownRemainBalanced)
         for (u32 iteration = 0; iteration < kIterationCount; ++iteration) {
             ::_InterlockedExchange(&control.completed_count, 0);
             ::_InterlockedExchange(&control.phase, static_cast<LONG>(iteration + 1));
-            if (!WaitForAtomicValueAtLeast(&control.completed_count, 2, 10000) || !Network::IsInitialized()) {
+            if (!WaitForAtomicValueAtLeast(&control.completed_count, 2, 10000) || !FNetwork::IsInitialized()) {
                 lifecycle_balanced = false;
                 break;
             }
@@ -758,15 +758,15 @@ ACS_TEST(Win32Resource, ConcurrentNetworkInitAndShutdownRemainBalanced)
     }
 
     EXPECT_TRUE(lifecycle_balanced);
-    EXPECT_TRUE(Network::IsInitialized());
-    Network::Shutdown();
-    EXPECT_FALSE(Network::IsInitialized());
+    EXPECT_TRUE(FNetwork::IsInitialized());
+    FNetwork::Shutdown();
+    EXPECT_FALSE(FNetwork::IsInitialized());
 
     // 途中失敗時も後続テストへ参照を残さない。
-    for (u32 cleanup = 0; cleanup < 4 && Network::IsInitialized(); ++cleanup) {
-        Network::Shutdown();
+    for (u32 cleanup = 0; cleanup < 4 && FNetwork::IsInitialized(); ++cleanup) {
+        FNetwork::Shutdown();
     }
-    const NetworkDiagnostics diagnostics = Network::CaptureDiagnostics();
+    const FNetworkDiagnostics diagnostics = FNetwork::CaptureDiagnostics();
     EXPECT_EQ(diagnostics.initialization_reference_count, 0u);
     EXPECT_EQ(diagnostics.pending_cleanup_error, 0u);
     EXPECT_EQ(diagnostics.resource_release_failure_count, 0ull);

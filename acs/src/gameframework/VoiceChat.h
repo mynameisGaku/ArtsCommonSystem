@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — FVoiceChat (Steam Voice / EOS Voice / Vivox / Discord / Opus seam)
+// GameFramework Pillar T — VoiceChat (Steam Voice / EOS Voice / Vivox / Discord / Opus seam)
 //
 // 役割:
 //   パーティ / チーム / 全体チャンネルに対するボイスチャットの「シーム」インター
@@ -75,7 +75,7 @@ namespace acs::game {
  * Stub による未実装 (仕様準拠) を表す FErrorCode subcode。
  *
  * @details
- * FSteamworksBridge と同様、Foundation の ErrCategory enum を増やさず Generic +
+ * ISteamworksBridge と同様、Foundation の EErrCategory enum を増やさず Generic +
  * 安定 subcode で表現する。呼び出し側は `err.subcode == kSubVoiceNotImplemented`
  * でフィルタ可能。
  */
@@ -154,7 +154,7 @@ enum class EVoiceChannel : u8 {
  * `user_id` / `display_name` は const char* 非所有 (SDK 側のメモリを参照するだけで、
  * 呼び出し側でコピーしない)。寿命は「次の Tick() を呼ぶまで」を保証する。
  */
-struct VoiceParticipant {
+struct FVoiceParticipant {
     /** SDK 固有 ID 文字列 (FPartySystem の player_id と同形式想定、非所有)。 */
     const char* user_id        = nullptr;
 
@@ -193,7 +193,7 @@ inline constexpr u32 kVoiceFrameMagic      = 0x41435631u;
  * (int16 PCM) を復元する。識別変換だが seq + magic + サンプル数を伴う real な
  * framing であり、実 wire codec を後で差し込む際の境界もここで確定する。
  */
-struct VoiceFrameHeader {
+struct FVoiceFrameHeader {
     /** 破損検知用マジック (kVoiceFrameMagic)。 */
     u32 magic        = kVoiceFrameMagic;
 
@@ -322,7 +322,7 @@ public:
      * @param index 参加者インデックス。
      * @return 参加者情報。範囲外 index はエラー。
      */
-    virtual TResult<VoiceParticipant> GetParticipant(EVoiceChannel ch, u32 index) noexcept = 0;
+    virtual TResult<FVoiceParticipant> GetParticipant(EVoiceChannel ch, u32 index) noexcept = 0;
 
     /**
      * コールバック / 状態更新ポンプ (ゲームループから毎フレーム呼ぶ)。
@@ -394,7 +394,7 @@ public:
  * @details
  * Init() は受け取った provider を記録するが操作系 API は全て
  * ACS_ERR(Generic, kSubVoiceNotImplemented, ...) を返し、IsAvailable() は常に false。
- * Shutdown() / Tick() は副作用なし。FSteamworksBridge と違い「未実装」を強調する。
+ * Shutdown() / Tick() は副作用なし。ISteamworksBridge と違い「未実装」を強調する。
  */
 class FVoiceChatBackendStub final : public IVoiceChatBackend {
 public:
@@ -487,7 +487,7 @@ public:
      * @param index 参加者インデックス。
      * @return 未初期化なら NotInitialized、それ以外は NotImplemented エラー。
      */
-    TResult<VoiceParticipant> GetParticipant(EVoiceChannel ch, u32 index) noexcept override;
+    TResult<FVoiceParticipant> GetParticipant(EVoiceChannel ch, u32 index) noexcept override;
 
     /**
      * 状態更新ポンプ (何もしない)。
@@ -508,7 +508,7 @@ private:
  * Stub backend の static singleton アクセサ (Meyer's singleton)。
  *
  * @details
- * 実 SDK 実装が DI される前のデフォルト。FSteamworksBridge::GetStub() と同じパターン。
+ * 実 SDK 実装が DI される前のデフォルト。ISteamworksBridge::GetStub() と同じパターン。
  * @return 共有 Stub backend への参照。
  */
 IVoiceChatBackend& GetVoiceStub() noexcept;
@@ -622,7 +622,7 @@ public:
      * @param index 参加者インデックス。
      * @return 参加者情報。未 join は NotJoined、範囲外 index は BadArgument エラー。
      */
-    TResult<VoiceParticipant> GetParticipant(EVoiceChannel ch, u32 index) noexcept override;
+    TResult<FVoiceParticipant> GetParticipant(EVoiceChannel ch, u32 index) noexcept override;
 
     /**
      * 状態更新ポンプ (ループバックは何もしない)。
@@ -747,7 +747,7 @@ private:
      *
      * @details
      * 受信キューは encode 済みバイト列を時系列に連結した frame 群を保持する
-     * (各 frame = VoiceFrameHeader + payload)。
+     * (各 frame = FVoiceFrameHeader + payload)。
      */
     struct FLoopParticipant {
         /** DefaultAllocator を使う空の参加者を構築する。 */

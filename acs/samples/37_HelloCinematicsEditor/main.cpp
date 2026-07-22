@@ -21,7 +21,7 @@
 //     ACS_LOG_INFO で発火を可視化)。
 //   ・MainMenuBar:
 //       File > Save / Load / Quit (Save/Load は stub)
-//     FWindow / Layout は FEditorWorkspace が自前で MenuBar に push する。
+//     Window / Layout は FEditorWorkspace が自前で MenuBar に push する。
 //   ・Esc で終了。
 //
 // 必須バックエンド: ACS_RENDER_DX12_RAW (ImGuiCtx が DX12 raw backend 経由の
@@ -32,4 +32,4 @@
 // `int WINAPI WinMain` / `int main` 両方の通常 main を裏で生成)。
 #include "CineEditorApp.h"
 
-ACS_GAME_MAIN(hellocine::CineEditorApp)
+ACS_GAME_MAIN(hellocine::FCineEditorApp)

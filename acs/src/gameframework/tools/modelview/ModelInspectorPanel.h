@@ -84,7 +84,7 @@ namespace acs::game::modelview {
  * 値型のため、Mesh / Skeleton / AnimationClip 側のリソース解放と本 panel の表示は完全に
  * decouple される。
  */
-struct MeshSummary {
+struct FMeshSummary {
     /** 全 vertex 数 (submesh 跨ぎ合算後)。 */
     u32        vertex_count          = 0;
 
@@ -115,7 +115,7 @@ struct MeshSummary {
  *
  * @details name は caller 所有のリテラル / permanent string を想定する (panel 寿命 ≦ name 寿命)。
  */
-struct SubmeshInfo {
+struct FSubmeshInfo {
     /** submesh 名 (例: "Body", "Hair", "Eyes")。 */
     const char* name                 = nullptr;
 
@@ -136,7 +136,7 @@ struct SubmeshInfo {
  * parent_index < 0 は root bone を意味する。本 panel は parent_index から子を線形走査で
  * 見つけて TreeNode 階層を再構築する (子リストは保持しない)。
  */
-struct BoneInfo {
+struct FBoneInfo {
     /** bone 名 (例: "Hips", "Spine_01")。 */
     const char* name         = nullptr;
 
@@ -210,10 +210,10 @@ public:
      * @param clips animation clip 情報配列 (nullptr 可)。
      * @param clip_count clips の要素数。
      */
-    void UpdateFromModel(const MeshSummary&        summary,
-                         const SubmeshInfo*        submeshes,
+    void UpdateFromModel(const FMeshSummary&        summary,
+                         const FSubmeshInfo*        submeshes,
                          u32                       submesh_count,
-                         const BoneInfo*           bones,
+                         const FBoneInfo*           bones,
                          u32                       bone_count,
                          const FAnimationClipInfo*  clips,
                          u32                       clip_count) noexcept;
@@ -228,9 +228,9 @@ public:
     /**
      * model 全体の集計情報を返す。
      *
-     * @return 保持中の MeshSummary への const 参照。
+     * @return 保持中の FMeshSummary への const 参照。
      */
-    const MeshSummary& Summary() const noexcept { return m_Summary; }
+    const FMeshSummary& Summary() const noexcept { return m_Summary; }
 
     /**
      * 保持中の submesh 数を返す。
@@ -243,9 +243,9 @@ public:
      * i 番目の submesh 情報を返す。
      *
      * @param i submesh index。
-     * @return i 番目の SubmeshInfo (i >= SubmeshCount() なら nullptr)。
+     * @return i 番目の FSubmeshInfo (i >= SubmeshCount() なら nullptr)。
      */
-    const SubmeshInfo* Submesh(u32 i) const noexcept {
+    const FSubmeshInfo* Submesh(u32 i) const noexcept {
         return (i < m_Submeshes.Size()) ? &m_Submeshes[i] : nullptr;
     }
 
@@ -260,9 +260,9 @@ public:
      * i 番目の bone 情報を返す。
      *
      * @param i bone index。
-     * @return i 番目の BoneInfo (範囲外なら nullptr)。
+     * @return i 番目の FBoneInfo (範囲外なら nullptr)。
      */
-    const BoneInfo* FBone(u32 i) const noexcept {
+    const FBoneInfo* Bone(u32 i) const noexcept {
         return (i < m_Bones.Size()) ? &m_Bones[i] : nullptr;
     }
 
@@ -312,13 +312,13 @@ public:
 
 private:
     /** model 全体の集計情報 (単一 summary)。 */
-    MeshSummary                m_Summary{};
+    FMeshSummary                m_Summary{};
 
     /** submesh 情報配列。 */
-    acs::TArray<SubmeshInfo>    m_Submeshes;
+    acs::TArray<FSubmeshInfo>    m_Submeshes;
 
     /** bone 情報配列。 */
-    acs::TArray<BoneInfo>       m_Bones;
+    acs::TArray<FBoneInfo>       m_Bones;
 
     /** animation clip 情報配列。 */
     acs::TArray<FAnimationClipInfo> m_Clips;

@@ -23,7 +23,7 @@ namespace helloshowcase {
 //   ssr_warm  : 前フレームで SSR.Render が走った？ (frame 0 の garbage を回避)
 //   ssao_warm : 同上の SSAO 版
 // 戻り値: 公転 orb の現フレーム transform 配列 (motion pass で再利用)。
-void ExecutePbrPass(Assets& a,
+void ExecutePbrPass(FAssets& a,
                      acs::IRhiCommandList& cl,
                      acs::IRhiTexture& hdr,
                      acs::IRhiTexture& depth,

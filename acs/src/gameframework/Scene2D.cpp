@@ -22,14 +22,14 @@ namespace acs::game {
 void FScene2D::OnEnter() noexcept {
     // OnReady より «前» に配線 → OnReady 中に AddComponent された分は SceneServices() が解決でき
     // 即時 OnAttachServices 発火する。OnReady 後の _ActivateServices は配線前に在ったものへの catch-up。
-    if (HasServices()) m_Root._SetSceneServices(_ServicesOrNull());
+    if (HasServices()) m_Root->_SetSceneServices(_ServicesOrNull());
     OnReady();
-    if (HasServices()) m_Root._ActivateServices(Services());
+    if (HasServices()) m_Root->_ActivateServices(Services());
 }
 
 /** シーン退場時に構造変更を解決し、物理・トゥイーン・スプライトバッチを後始末する。 */
 void FScene2D::OnExit() noexcept {
-    m_Root.ResolveStructuralChanges();
+    m_Root->ResolveStructuralChanges();
     if (HasServices()) {
         Services().Physics().ClearAll();
         Services().Tweens().CancelAll();
@@ -38,24 +38,26 @@ void FScene2D::OnExit() noexcept {
     m_SpritesReady = false;
     m_SceneSprites.Shutdown();
     m_SceneSpritesReady = false;
+    m_WaterDepthSprites.Shutdown();
+    m_WaterDepthSpritesReady = false;
 }
 
 /** 毎フレーム OnTick → root の UpdateTree → 構造変更解決を実行する。 */
 void FScene2D::OnUpdate(f32 dt) noexcept {
     OnTick(dt);
-    m_Root.UpdateTree(dt);
-    m_Root.ResolveStructuralChanges();
+    m_Root->UpdateTree(dt);
+    m_Root->ResolveStructuralChanges();
 }
 
 /** 固定刻みで OnFixedTick → root の FixedUpdateTree → 構造変更解決を実行する。 */
 void FScene2D::OnFixedUpdate(f32 fixed_dt) noexcept {
     OnFixedTick(fixed_dt);
-    m_Root.FixedUpdateTree(fixed_dt);
-    m_Root.ResolveStructuralChanges();
+    m_Root->FixedUpdateTree(fixed_dt);
+    m_Root->ResolveStructuralChanges();
 }
 
 /** 共有 FSpriteBatch を遅延初期化する (成功で true)。 */
-bool FScene2D::EnsureSpriteBatch(RenderContext& rc) noexcept {
+bool FScene2D::EnsureSpriteBatch(FRenderContext& rc) noexcept {
     if (m_SpritesReady) return true;
     FRenderer& renderer = rc.GetRenderer();
     IRhiDevice* device = renderer.Device();
@@ -70,7 +72,7 @@ bool FScene2D::EnsureSpriteBatch(RenderContext& rc) noexcept {
 }
 
 /** 反射オフスクリーン pass 専用の別 FSpriteBatch を遅延初期化する (成功で true)。 */
-bool FScene2D::EnsureSceneSprites(RenderContext& rc) noexcept {
+bool FScene2D::EnsureSceneSprites(FRenderContext& rc) noexcept {
     // 反射のオフスクリーン pass 専用の SpriteBatch。オフスクリーン pass と
     // 合成 pass で同一バッチを使うと、頂点/定数バッファがフレーム内で上書きし
     // 合い、オフスクリーン pass の遅延 draw が合成 pass のデータを読んでしまう
@@ -89,6 +91,23 @@ bool FScene2D::EnsureSceneSprites(RenderContext& rc) noexcept {
     return true;
 }
 
+/** 水面深度捕捉 pass 専用の別 FSpriteBatch を遅延初期化する (成功で true)。 */
+bool FScene2D::EnsureWaterDepthSprites(FRenderContext& rc) noexcept {
+    // scene-color pass と同じバッチを使うと、同一フレーム内の VB/CB 更新が先行 draw の
+    // 内容を上書きする。depth pass も独立バッチにして GPU 実行まで各データを保持する。
+    if (m_WaterDepthSpritesReady) return true;
+    FRenderer& renderer = rc.GetRenderer();
+    IRhiDevice* device = renderer.Device();
+    if (!device) return false;
+    const auto r = m_WaterDepthSprites.Init(*device, renderer.ColorFormat(), 8192);
+    if (r.IsErr()) {
+        ACS_LOG_ERROR("FScene2D: 水面深度用 FSpriteBatch init failed");
+        return false;
+    }
+    m_WaterDepthSpritesReady = true;
+    return true;
+}
+
 /** 画面ピクセル座標をワールド座標へ変換する (camera 中心・zoom・ppu を逆適用)。 */
 FVec2 FScene2D::ScreenToWorld(FVec2 screen_px) noexcept {
     FVec2 vc{0.0f, 0.0f};
@@ -104,23 +123,23 @@ FVec2 FScene2D::ScreenToWorld(FVec2 screen_px) noexcept {
                   vc.y + (screen_px.y - static_cast<f32>(m_ScreenH) * 0.5f) * inv };
 }
 
-/** ノードツリーを走査して 2D ライト (FLight2DComponent) と影オクルーダー
- *  (FShadowCaster2DComponent) を収集する。座標は world (runtime は SetView で zoom 処理)。 */
-static void CollectLightsAndOccluders(FNode2D& node,
+/** ノードツリーを走査して 2D ライト (ALight2DComponent) と影オクルーダー
+ *  (AShadowCaster2DComponent) を収集する。座標は world (runtime は SetView で zoom 処理)。 */
+static void CollectLightsAndOccluders(ANode& node,
                                       FSpriteLight* lights, u32& lc,
                                       FSpriteOccluder* occ, u32& oc, bool& has_lit) noexcept {
     if (!node.IsVisible()) return;
     if (node.IsLitMaterial()) has_lit = true;   // lit ノードがあれば SetLights が要る
     node.SetSelfOccluder(-1);                   // 毎フレームリセット (影源でなくなった場合に備える)
-    const FTransform2D w = node.World();
+    const FTransform2D w = node.World2D();
     // プリミティブ形状を先に拾う (影オクルーダーを «見た目の形» に合わせる)。half_size=m_Size*0.5=base*0.5。
     i32 primShape = -1; FVec2 primHalf{ 24.0f, 24.0f };
     for (u32 pi = 0; pi < node.ComponentCount(); ++pi) {
-        const FComponent2D* pc = node.ComponentAt(pi);
+        const AComponent* pc = node.ComponentAt(pi);
         if (pc != nullptr && pc->QueryPrimitive(primShape, primHalf)) break;
     }
     for (u32 i = 0; i < node.ComponentCount(); ++i) {
-        const FComponent2D* c = node.ComponentAt(i);
+        const AComponent* c = node.ComponentAt(i);
         if (c == nullptr) continue;
         FLightDesc2D ld; f32 rscale = 0; i32 oshape = 0; bool self_sh = false;
         if (lc < 16 && c->QueryLight(ld)) {
@@ -148,16 +167,16 @@ static void CollectLightsAndOccluders(FNode2D& node,
                 O.polyVerts[0] = FVec2{ w.position.x + hy * sph,            w.position.y - hy * cph };
                 O.polyVerts[1] = FVec2{ w.position.x - hx * cph - hy * sph, w.position.y - hx * sph + hy * cph };
                 O.polyVerts[2] = FVec2{ w.position.x + hx * cph - hy * sph, w.position.y + hx * sph + hy * cph };
-            } else if (primShape == 3) {                  // ポリゴン → FPolygonRenderer2D の頂点を world 変換
+            } else if (primShape == 3) {                  // ポリゴン → APolygonRenderer2D の頂点を world 変換
                 O.shape = 2;
-                // FPolygonRenderer2D を見つけてローカル頂点を取得
+                // APolygonRenderer2D を見つけてローカル頂点を取得
                 u32 vc = 0;
-                FVec2 localVerts[FPolygonRenderer2D::kMaxVerts];
+                FVec2 localVerts[APolygonRenderer2D::kMaxVerts];
                 for (u32 pi = 0; pi < node.ComponentCount(); ++pi) {
-                    FComponent2D* pc = node.ComponentAt(pi);
+                    AComponent* pc = node.ComponentAt(pi);
                     if (pc != nullptr && pc->ReflectName() != nullptr
-                        && std::strcmp(pc->ReflectName(), "FPolygonRenderer2D") == 0) {
-                        const FPolygonRenderer2D* poly = static_cast<const FPolygonRenderer2D*>(pc);
+                        && std::strcmp(pc->ReflectName(), "APolygonRenderer2D") == 0) {
+                        const APolygonRenderer2D* poly = static_cast<const APolygonRenderer2D*>(pc);
                         vc = poly->VertCount();
                         for (u32 k = 0; k < vc; ++k) localVerts[k] = poly->Vert(k);
                         break;
@@ -193,11 +212,11 @@ static void CollectLightsAndOccluders(FNode2D& node,
         }
     }
     for (u32 i = 0; i < node.ChildCount(); ++i)
-        if (FNode2D* ch = node.Child(i)) CollectLightsAndOccluders(*ch, lights, lc, occ, oc, has_lit);
+        if (ANode* ch = node.Child(i)) CollectLightsAndOccluders(*ch, lights, lc, occ, oc, has_lit);
 }
 
 /** camera view を設定し、ライトを収集してから root を DrawTree、OnDrawWorld を呼ぶ。 */
-void FScene2D::DrawWorldPass(RenderContext& rc) noexcept {
+void FScene2D::DrawWorldPass(FRenderContext& rc) noexcept {
     FSpriteBatch& sb = rc.Sprites();   // 現パスに配線されたバッチ (通常 or 反射 RT 用)
     FCamera2D& cam = Services().Camera();
     const FVec2 center = cam.EffectiveViewCenter();
@@ -208,17 +227,17 @@ void FScene2D::DrawWorldPass(RenderContext& rc) noexcept {
     FSpriteOccluder occ[16];
     u32 lc = 0, oc = 0;
     bool has_lit = false;
-    CollectLightsAndOccluders(m_Root, lights, lc, occ, oc, has_lit);
+    CollectLightsAndOccluders(*m_Root, lights, lc, occ, oc, has_lit);
     if (has_lit || lc > 0)
         sb.SetLights(lights, lc, FVec3{ 0.10f, 0.11f, 0.13f }, 90.0f, occ, oc);
     else
         sb.ClearLights();   // 前フレームのライト残留で既定 Lit が誤発動しないように
-    m_Root.DrawTree(rc);
+    m_Root->DrawTree(rc);
     OnDrawWorld(rc, sb);
 }
 
 /** 画面中心の view を設定し OnDrawHud を呼ぶ (カメラ非依存の HUD 描画)。 */
-void FScene2D::DrawHudPass(RenderContext& rc) noexcept {
+void FScene2D::DrawHudPass(FRenderContext& rc) noexcept {
     FSpriteBatch& sb = rc.Sprites();
     sb.SetView(static_cast<f32>(rc.Width()) * 0.5f,
                static_cast<f32>(rc.Height()) * 0.5f, 1.0f);
@@ -226,7 +245,7 @@ void FScene2D::DrawHudPass(RenderContext& rc) noexcept {
 }
 
 /** 反射用に world を焼くオフスクリーン RT を遅延作成・再作成する (成功で true)。 */
-bool FScene2D::EnsureSceneRt(RenderContext& rc) noexcept {
+bool FScene2D::EnsureSceneRt(FRenderContext& rc) noexcept {
     const u32 w = rc.Width(), h = rc.Height();
     if (w == 0 || h == 0) return false;
     if (m_SceneRt && m_RtW == w && m_RtH == h) return true;
@@ -243,8 +262,33 @@ bool FScene2D::EnsureSceneRt(RenderContext& rc) noexcept {
     return true;
 }
 
+/** TopDown 水メッシュの正規化水深を保持するカラー RT を遅延作成する (成功で true)。 */
+bool FScene2D::EnsureWaterDepthRt(FRenderContext& rc) noexcept {
+    const u32 w = rc.Width(), h = rc.Height();
+    if (w == 0 || h == 0) return false;
+    if (m_WaterDepthRt && m_WaterDepthW == w && m_WaterDepthH == h) return true;
+    IRhiDevice* dev = rc.GetRenderer().Device();
+    if (dev == nullptr) return false;
+    FTextureDesc td{};
+    td.width = w;
+    td.height = h;
+    // SpriteBatch と同じ PSO を使えるよう scene color と同じ RT format にする。
+    // R に 0..1 の正規化岸距離を格納し、main water PS から SRV sample する。
+    td.format = rc.GetRenderer().ColorFormat();
+    td.is_render_target = true;
+    auto r = CreateRhiTexture(*dev, td);
+    if (r.IsErr()) {
+        ACS_LOG_WARN("FScene2D: 水面深度 RT の作成に失敗 (頂点深度へ fallback)");
+        return false;
+    }
+    m_WaterDepthRt = Move(r.Value());
+    m_WaterDepthW = w;
+    m_WaterDepthH = h;
+    return true;
+}
+
 /** マスク用の stencil 付き深度バッファ (D24S8) を遅延作成・再作成する (成功で true)。 */
-bool FScene2D::EnsureStencilBuffer(RenderContext& rc) noexcept {
+bool FScene2D::EnsureStencilBuffer(FRenderContext& rc) noexcept {
     const u32 w = rc.Width(), h = rc.Height();
     if (w == 0 || h == 0) return false;
     if (m_StencilBuf && m_StencilW == w && m_StencilH == h) return true;
@@ -262,7 +306,7 @@ bool FScene2D::EnsureStencilBuffer(RenderContext& rc) noexcept {
 }
 
 /** 反射/ステンシル設定に応じて単一〜複数パスでシーンを描画する。 */
-void FScene2D::OnRender(RenderContext& rc) noexcept {
+void FScene2D::OnRender(FRenderContext& rc) noexcept {
     if (!EnsureSpriteBatch(rc)) return;
     m_ScreenW = rc.Width();        // picking 用に画面サイズをキャッシュ
     m_ScreenH = rc.Height();
@@ -278,32 +322,68 @@ void FScene2D::OnRender(RenderContext& rc) noexcept {
     FRenderer& renderer = rc.GetRenderer();
     IRhiCommandList& cl = rc.Cmd();
     IRhiSwapchain* sc = renderer.Swapchain();
-    const ClearColor cc = GetGame().GetClearColor();
+    const FClearColor cc = GetGame().GetClearColor();
 
-    if (m_ReflectionEnabled && EnsureSceneRt(rc) && EnsureSceneSprites(rc)) {
-        // オフスクリーン pass: world をオフスクリーン RT に焼く (反射バインド無し
-        //          → 水はプレーン fill。RT に stencil は無いのでマスクは非アクティブ)。
-        //          専用バッチ m_SceneSprites を使い、合成 pass の m_Sprites と
-        //          GPU バッファを共有しない (フレーム内上書きで RT が壊れるのを防ぐ)。
+    const bool reflectionReady =
+        m_ReflectionEnabled && EnsureSceneRt(rc) && EnsureSceneSprites(rc);
+    const bool waterSceneCapture = reflectionReady && m_WaterSceneSamplingEnabled;
+    const bool waterDepthReady =
+        waterSceneCapture && EnsureWaterDepthRt(rc) && EnsureWaterDepthSprites(rc);
+
+    if (reflectionReady) {
+        // オフスクリーン scene-color pass。通常の planar reflection では従来どおり
+        // world 全体を焼く。TopDown の実シーンサンプリング opt-in 時だけ専用フラグを
+        // 立て、水自身を除外して「水下/岸/オブジェクト」の実カラーを得る。
+        // main pass の描画先とは別 RT なので SRV/RTV の read/write hazard は生じない。
         FSpriteBatch& sbR = m_SceneSprites;
         cl.BeginRenderToTexture(*m_SceneRt, cc);
         sbR.Begin(cl, rc.Width(), rc.Height());
         rc._SetSpriteBatch(&sbR);
         rc._SetReflection(nullptr);
+        rc._SetSceneColor(nullptr);
+        rc._SetSceneDepth(nullptr);
+        rc._SetSceneColorCapturePass(waterSceneCapture);
+        rc._SetWaterDepthCapturePass(false);
         rc._SetStencilMaskActive(false);
         DrawWorldPass(rc);
+        rc._SetSceneColorCapturePass(false);
         rc._SetSpriteBatch(nullptr);
         sbR.End();
         cl.EndRenderToTexture(*m_SceneRt);
 
-        // 合成 pass: スワップチェーン (必要なら stencil 付き) を再バインド → world+水(反射)+HUD。
+        // 専用 water-depth pass。通常 Draw を抑止し、TopDown 水コンポーネントだけが
+        // 実メッシュの岸距離深度を R へ描く。scene-color と別 RT のため、main water PS は
+        // 両方を同時に安全に SRV sample できる。
+        if (waterDepthReady) {
+            FSpriteBatch& sbD = m_WaterDepthSprites;
+            cl.BeginRenderToTexture(*m_WaterDepthRt, FClearColor{0, 0, 0, 0});
+            sbD.Begin(cl, rc.Width(), rc.Height());
+            sbD.SetDrawSuppressed(true);
+            rc._SetSpriteBatch(&sbD);
+            rc._SetWaterDepthCapturePass(true);
+            rc._SetSceneColorCapturePass(false);
+            rc._SetStencilMaskActive(false);
+            DrawWorldPass(rc);
+            rc._SetWaterDepthCapturePass(false);
+            rc._SetSpriteBatch(nullptr);
+            sbD.SetDrawSuppressed(false);
+            sbD.End();
+            cl.EndRenderToTexture(*m_WaterDepthRt);
+        }
+
+        // main pass: スワップチェーン (必要なら stencil 付き) を再バインド。
+        // scene/depth RT は既に書き終えており、ここでは SRV としてのみ参照する。
         if (sc) cl.BeginRenderToSwapchain(*sc, renderer.CurrentBuffer(), cc, stencil);
         sb.Begin(cl, rc.Width(), rc.Height());
         rc._SetSpriteBatch(&sb);
         if (stencil) { rc._SetStencilMaskActive(true); sb.SetStencilMode(EStencilMode::Off); }
         rc._SetReflection(m_SceneRt.Get());   // 水がこの RT を鏡像 UV でサンプル
+        rc._SetSceneColor(waterSceneCapture ? m_SceneRt.Get() : nullptr);
+        rc._SetSceneDepth(waterDepthReady ? m_WaterDepthRt.Get() : nullptr);
         DrawWorldPass(rc);
         rc._SetReflection(nullptr);
+        rc._SetSceneColor(nullptr);
+        rc._SetSceneDepth(nullptr);
         if (stencil) { sb.SetStencilMode(EStencilMode::Off); rc._SetStencilMaskActive(false); }
         DrawHudPass(rc);
         rc._SetSpriteBatch(nullptr);

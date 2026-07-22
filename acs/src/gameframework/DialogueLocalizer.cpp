@@ -60,14 +60,14 @@ const char* ResolveKey(const FLocalizationDirector* loc, const char* key) noexce
 
 } // namespace
 
-void FDialogueLocalizer::RegisterLine(const LocalizedDialogueLine& line) noexcept {
+void FDialogueLocalizer::RegisterLine(const FLocalizedDialogueLine& line) noexcept {
     // speaker_id / line_key が nullptr でも蓄積は許す (= ナレーション行 / 空行を
     // 表現可能)。StartFromLine 側で nullptr→"" 変換するので落ちない。
     m_Lines.PushBack(line);
 }
 
 void FDialogueLocalizer::RegisterChoice(u32 at_line_index,
-                                       const LocalizedDialogueChoice* choices, u32 count) noexcept {
+                                       const FLocalizedDialogueChoice* choices, u32 count) noexcept {
     // FDialogueSystem::AddChoices と同契約: 不正引数は no-op、上書き禁止。
     if (choices == nullptr || count == 0u) return;
     if (at_line_index >= static_cast<u32>(m_Lines.Size())) return;
@@ -77,7 +77,7 @@ void FDialogueLocalizer::RegisterChoice(u32 at_line_index,
         if (m_ChoicesAt[i].line_index == at_line_index) return;
     }
 
-    ChoicesAt rec;
+    FChoicesAt rec;
     rec.line_index   = at_line_index;
     rec.choice_start = static_cast<u32>(m_AllChoices.Size());
     rec.choice_count = count;
@@ -103,7 +103,7 @@ void FDialogueLocalizer::StartFromLine(u32 line_index, BindCallback cb, void* us
     // 渡されて終了扱いになるケースをここで吸収)。
     if (line_index >= static_cast<u32>(m_Lines.Size())) return;
 
-    const LocalizedDialogueLine& line = m_Lines[line_index];
+    const FLocalizedDialogueLine& line = m_Lines[line_index];
 
     const char* speaker = ResolveKey(m_Localizer, line.speaker_id);
     const char* text    = ResolveKey(m_Localizer, line.line_key);

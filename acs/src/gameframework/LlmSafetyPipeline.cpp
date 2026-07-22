@@ -440,8 +440,8 @@ void FLlmSafetyPipeline::Reset() noexcept {
     m_CharacterAnchor = nullptr;
 }
 
-SafetyResult FLlmSafetyPipeline::ValidateInput(const char* user_text) noexcept {
-    SafetyResult r{};
+FSafetyResult FLlmSafetyPipeline::ValidateInput(const char* user_text) noexcept {
+    FSafetyResult r{};
     const u32 len = StrLen(user_text);
     r.input_tokens = EstimateTokens(len);
 
@@ -491,8 +491,8 @@ SafetyResult FLlmSafetyPipeline::ValidateInput(const char* user_text) noexcept {
     return r;
 }
 
-SafetyResult FLlmSafetyPipeline::FilterOutput(const char* llm_response) noexcept {
-    SafetyResult r{};
+FSafetyResult FLlmSafetyPipeline::FilterOutput(const char* llm_response) noexcept {
+    FSafetyResult r{};
     const u32 len = StrLen(llm_response);
     r.output_tokens = EstimateTokens(len);
 
@@ -544,7 +544,7 @@ SafetyResult FLlmSafetyPipeline::FilterOutput(const char* llm_response) noexcept
     // ここはモデル差し込み口として意図的に no-op で残す (FMlRuntime と同様に、
     // 別途 classifier を注入して本軸を有効化する設計)。文字列一致で代替すると
     // 誤検出 (false positive) が多く、ゲーム体験を壊すため敢えて実装しない。
-    if (SafetyHas(m_Rules, ESafetyRule::EContentRating)) {
+    if (SafetyHas(m_Rules, ESafetyRule::ContentRating)) {
         // 分類器未注入のため判定を保留 (= Pass 継続)。注入後は score > threshold で
         // r.verdict = Refused / ++m_RefusedCount。
     }

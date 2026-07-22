@@ -111,7 +111,7 @@ int RunSystemAllocatorGenerationProbe() noexcept
     return bStatisticsPreserved ? 0 : 82;
 }
 
-struct DefaultAllocatorPublicationContext {
+struct FDefaultAllocatorPublicationContext {
     FAllocator* First = nullptr;
     FAllocator* Second = nullptr;
     TAtomic<u32> Start{0u};
@@ -120,7 +120,7 @@ struct DefaultAllocatorPublicationContext {
 
 void ToggleAndReadDefaultAllocator(void* User) noexcept
 {
-    auto* const Context = static_cast<DefaultAllocatorPublicationContext*>(User);
+    auto* const Context = static_cast<FDefaultAllocatorPublicationContext*>(User);
     while (Context->Start.Load(EMemoryOrder::Acquire) == 0u) {
         Yield();
     }
@@ -175,7 +175,7 @@ ACS_TEST(Memory, DefaultAllocatorPublicationIsThreadSafe)
     FAllocator* const Original = &DefaultAllocator();
     FSystemAllocator First;
     FSystemAllocator Second;
-    DefaultAllocatorPublicationContext Context{};
+    FDefaultAllocatorPublicationContext Context{};
     Context.First = &First;
     Context.Second = &Second;
     SetDefaultAllocator(&First);
@@ -202,12 +202,12 @@ ACS_TEST(Memory, DefaultAllocatorPublicationIsThreadSafe)
 
 ACS_TEST(Memory, SystemAllocatorProcessStatisticsTrackLiveInstances)
 {
-    const SystemAllocatorProcessStatistics Baseline = FSystemAllocator::CaptureProcessStatistics();
+    const FSystemAllocatorProcessStatistics Baseline = FSystemAllocator::CaptureProcessStatistics();
 
     {
         FSystemAllocator FirstAllocator;
         FSystemAllocator SecondAllocator;
-        SystemAllocatorProcessStatistics Statistics = FSystemAllocator::CaptureProcessStatistics();
+        FSystemAllocatorProcessStatistics Statistics = FSystemAllocator::CaptureProcessStatistics();
         EXPECT_EQ(Statistics.live_allocator_count, Baseline.live_allocator_count + 2u);
         EXPECT_EQ(Statistics.outstanding_bytes, Baseline.outstanding_bytes);
         EXPECT_EQ(Statistics.outstanding_allocation_count, Baseline.outstanding_allocation_count);
@@ -229,7 +229,7 @@ ACS_TEST(Memory, SystemAllocatorProcessStatisticsTrackLiveInstances)
         EXPECT_EQ(Statistics.outstanding_allocation_count, Baseline.outstanding_allocation_count);
     }
 
-    const SystemAllocatorProcessStatistics After = FSystemAllocator::CaptureProcessStatistics();
+    const FSystemAllocatorProcessStatistics After = FSystemAllocator::CaptureProcessStatistics();
     EXPECT_EQ(After.live_allocator_count, Baseline.live_allocator_count);
     EXPECT_EQ(After.destroyed_with_live_allocations_count, Baseline.destroyed_with_live_allocations_count);
 }
@@ -422,7 +422,7 @@ ACS_TEST(Memory, SystemAllocatorReallocationFailurePreservesOriginalAllocation)
 
 ACS_TEST(Memory, SystemAllocatorReportsDestructionWithLiveAllocations)
 {
-    const SystemAllocatorProcessStatistics Baseline = FSystemAllocator::CaptureProcessStatistics();
+    const FSystemAllocatorProcessStatistics Baseline = FSystemAllocator::CaptureProcessStatistics();
 
     SECURITY_ATTRIBUTES PipeAttributes{};
     PipeAttributes.nLength = sizeof(PipeAttributes);
@@ -523,7 +523,7 @@ ACS_TEST(Memory, SystemAllocatorReportsDestructionWithLiveAllocations)
     EXPECT_TRUE(Contains(Diagnostic, "outstanding_allocations=1"));
 
     // 未解放破棄は子プロセスだけで起こしたため、親の履歴は汚染されない。
-    const SystemAllocatorProcessStatistics After = FSystemAllocator::CaptureProcessStatistics();
+    const FSystemAllocatorProcessStatistics After = FSystemAllocator::CaptureProcessStatistics();
     EXPECT_EQ(After.live_allocator_count, Baseline.live_allocator_count);
     EXPECT_EQ(After.destroyed_with_live_allocations_count, Baseline.destroyed_with_live_allocations_count);
     EXPECT_EQ(After.destroyed_outstanding_bytes, Baseline.destroyed_outstanding_bytes);
@@ -621,7 +621,7 @@ ACS_TEST(Memory, PoolAllocatorConcurrentAllocAndFreeRemainBalanced)
     FPoolAllocator Pool(64u, 32u);
     TAtomic<u32> FailureCount{0u};
 
-    struct Context {
+    struct FContext {
         FPoolAllocator* Pool = nullptr;
         TAtomic<u32>* FailureCount = nullptr;
     } Contexts[kThreadCount] = {};
@@ -632,7 +632,7 @@ ACS_TEST(Memory, PoolAllocatorConcurrentAllocAndFreeRemainBalanced)
         Contexts[Index].FailureCount = &FailureCount;
         auto ThreadResult = FThread::Spawn(
             [](void* UserData) {
-                auto* ThreadContext = static_cast<Context*>(UserData);
+                auto* ThreadContext = static_cast<FContext*>(UserData);
                 for (usize Operation = 0u; Operation < kOperationCount; ++Operation) {
                     void* Allocation = nullptr;
                     while (!Allocation) {
@@ -716,7 +716,7 @@ ACS_TEST(Memory, ArenaResetWaitsForActiveAllocationAndRejectsNewAllocation)
     FArenaAllocator Arena(kPageSize, &Backing);
     EXPECT_TRUE(Arena.Alloc(64u, 16u, FSourceLoc::Current()) != nullptr);
 
-    struct Context {
+    struct FContext {
         FArenaAllocator* allocator = nullptr;
         void* allocation = nullptr;
         TAtomic<u32> reset_started{0};
@@ -727,7 +727,7 @@ ACS_TEST(Memory, ArenaResetWaitsForActiveAllocationAndRejectsNewAllocation)
     Backing.BlockNextAllocation();
     auto AllocationThreadResult = FThread::Spawn(
         [](void* UserData) {
-            auto* ThreadContext = static_cast<Context*>(UserData);
+            auto* ThreadContext = static_cast<FContext*>(UserData);
             ThreadContext->allocation = ThreadContext->allocator->Alloc(2u * kPageSize, 64u, FSourceLoc::Current());
         },
         &TestContext);
@@ -742,7 +742,7 @@ ACS_TEST(Memory, ArenaResetWaitsForActiveAllocationAndRejectsNewAllocation)
 
     auto ResetThreadResult = FThread::Spawn(
         [](void* UserData) {
-            auto* ThreadContext = static_cast<Context*>(UserData);
+            auto* ThreadContext = static_cast<FContext*>(UserData);
             ThreadContext->reset_started.Store(1u, EMemoryOrder::Release);
             ThreadContext->allocator->Reset(true);
             ThreadContext->reset_finished.Store(1u, EMemoryOrder::Release);
@@ -786,37 +786,37 @@ ACS_TEST(Memory, ArenaResetWaitsForActiveAllocationAndRejectsNewAllocation)
     EXPECT_EQ(Backing.AllocationCount(), 0ull);
 }
 
-struct Probe {
+struct FProbe {
     static int destroyed;
     int v;
-    Probe(int x = 0) noexcept : v(x)
+    FProbe(int x = 0) noexcept : v(x)
     {
     }
-    ~Probe() noexcept
+    ~FProbe() noexcept
     {
         ++destroyed;
     }
 };
-int Probe::destroyed = 0;
+int FProbe::destroyed = 0;
 
 ACS_TEST(Memory, UniquePtrDestroys)
 {
-    Probe::destroyed = 0;
+    FProbe::destroyed = 0;
     {
-        auto p = MakeUnique<Probe>(99);
+        auto p = MakeUnique<FProbe>(99);
         EXPECT_EQ(p->v, 99);
     }
-    EXPECT_EQ(Probe::destroyed, 1);
+    EXPECT_EQ(FProbe::destroyed, 1);
 }
 
 ACS_TEST(Memory, RcSharesAndReleases)
 {
-    Probe::destroyed = 0;
+    FProbe::destroyed = 0;
     {
-        TSharedPtr<Probe> a = MakeShared<Probe>(7);
-        TSharedPtr<Probe> b = a;
+        TSharedPtr<FProbe> a = MakeShared<FProbe>(7);
+        TSharedPtr<FProbe> b = a;
         EXPECT_EQ(a.UseCount(), 2u);
         EXPECT_EQ(a->v, 7);
     }
-    EXPECT_EQ(Probe::destroyed, 1);
+    EXPECT_EQ(FProbe::destroyed, 1);
 }

@@ -9,7 +9,7 @@ namespace acs { class IRhiCommandList; class IRhiSwapchain; }
 
 namespace helloshowcase {
 
-void ExecuteHudPass(Assets& a,
+void ExecuteHudPass(FAssets& a,
                      acs::IRhiCommandList& cl,
                      acs::IRhiSwapchain& sc,
                      bool paused,

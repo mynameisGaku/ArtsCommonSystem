@@ -34,7 +34,7 @@ public:
      * 固定サイズブロックのプールを構築し、ストレージを 1 回確保する。
      *
      * @details
-     * block_size は最低 sizeof(Node) かつ alignment の倍数に切り上げられる。alignment は
+     * block_size は最低 sizeof(FNode) かつ alignment の倍数に切り上げられる。alignment は
      * 最低 sizeof(void*)。block_size×block_count のオーバーフローや確保失敗時は空プール
      * (BlockCount()==0) になる。初期フリーリスト連結はシングルスレッド前提。
      * @param RequestedBlockSize 1 ブロックの要求サイズ (内部で切り上げ)。
@@ -142,9 +142,9 @@ public:
 
 private:
     /** フリーリストノード (フリーブロックの先頭にオーバーレイ配置)。 */
-    struct Node {
+    struct FNode {
         /** 次のフリーブロックへのリンク。 */
-        Node* next;
+        FNode* next;
     };
 
     /** ブロック配列の先頭 (backing から 1 回確保、失敗時 nullptr)。 */
@@ -169,7 +169,7 @@ private:
     TAtomic<u64> m_Live{0};
 
     /** フリーリストの先頭。m_Lock の保護下でのみ読み書きする。 */
-    Node* m_FreeHead = nullptr;
+    FNode* m_FreeHead = nullptr;
 
     /** フリーリストと所有状態を一体で保護する。 */
     FMutex m_Lock;

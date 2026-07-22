@@ -14,12 +14,12 @@ using namespace acs;
 
 namespace hellosky {
 
-void HelloSkyApp::OnStart() noexcept {
+void FHelloSkyApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
     ACS_SAMPLE_INIT(m_Sky.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat()));
-    m_Scene.SetPreset(m_Sky, SkyPreset::Day);
+    m_Scene.SetPreset(m_Sky, ESkyPreset::Day);
 
     ACS_SAMPLE_INIT(m_Shader.Init(*dev, GetRenderer().ColorFormat(), GetRenderer().DepthFormat()));
 
@@ -39,24 +39,24 @@ void HelloSkyApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloSky initialized");
 }
 
-void HelloSkyApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
-    if (Input::IsKeyPressed(EKey::Num1)) m_Scene.SetPreset(m_Sky, SkyPreset::Day);
-    if (Input::IsKeyPressed(EKey::Num2)) m_Scene.SetPreset(m_Sky, SkyPreset::Sunset);
-    if (Input::IsKeyPressed(EKey::Num3)) m_Scene.SetPreset(m_Sky, SkyPreset::Night);
+void FHelloSkyApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (FInput::IsKeyPressed(EKey::Num1)) m_Scene.SetPreset(m_Sky, ESkyPreset::Day);
+    if (FInput::IsKeyPressed(EKey::Num2)) m_Scene.SetPreset(m_Sky, ESkyPreset::Sunset);
+    if (FInput::IsKeyPressed(EKey::Num3)) m_Scene.SetPreset(m_Sky, ESkyPreset::Night);
 
     m_Angle += dt * 0.5f;
 
     // ターゲット (原点上 1m) を中心にカメラを yaw 周回させる。
     // Sin/Cos で円軌道を作るのが一番素直で、初学者が読みやすい形。
-    if (Input::IsKeyDown(EKey::Left))  m_CamYaw -= dt * 1.0f;
-    if (Input::IsKeyDown(EKey::Right)) m_CamYaw += dt * 1.0f;
+    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw -= dt * 1.0f;
+    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw += dt * 1.0f;
     const f32 cam_dist = 6.0f;
     m_CamPos = FVec3{ Sin(m_CamYaw) * cam_dist, 2.5f, -Cos(m_CamYaw) * cam_dist };
     m_Camera.SetLookAt(m_CamPos, FVec3{0, 1, 0});
 }
 
-void HelloSkyApp::OnRender() noexcept {
+void FHelloSkyApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
 
@@ -68,9 +68,9 @@ void HelloSkyApp::OnRender() noexcept {
         const u32 sw = GetRenderer().Swapchain()->Width();
         const u32 sh = GetRenderer().Swapchain()->Height();
         m_Batch.Begin(*cl, sw, sh);
-        const SkyPreset cur = m_Scene.CurrentPreset();
-        const char* preset_name = (cur == SkyPreset::Day)    ? "[1] 昼"     :
-                                  (cur == SkyPreset::Sunset) ? "[2] 夕焼け" : "[3] 夜";
+        const ESkyPreset cur = m_Scene.CurrentPreset();
+        const char* preset_name = (cur == ESkyPreset::Day)    ? "[1] 昼"     :
+                                  (cur == ESkyPreset::Sunset) ? "[2] 夕焼け" : "[3] 夜";
         m_Batch.DrawString(m_Font, preset_name, 20, 20, FVec4{1,1,1,1});
         m_Batch.DrawString(m_Font, "1/2/3: プリセット切替  ←→: カメラ  Esc: 終了",
                         20, 44, FVec4{0.8f,0.85f,0.95f,1});
@@ -78,12 +78,12 @@ void HelloSkyApp::OnRender() noexcept {
     }
 }
 
-void HelloSkyApp::OnShutdown() noexcept {
+void FHelloSkyApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Batch.Shutdown();
-    m_GmPlane  = GpuMesh{};
-    m_GmSphere = GpuMesh{};
+    m_GmPlane  = FGpuMesh{};
+    m_GmSphere = FGpuMesh{};
     m_Shader.Shutdown();
     m_Sky.Shutdown();
 }

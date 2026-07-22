@@ -10,8 +10,6 @@
 
 namespace acs {
 
-class Dx12Device;
-
 /**
  * D3DCompile で HLSL をコンパイルして保持する DX12 版シェーダ。
  *
@@ -21,13 +19,13 @@ class Dx12Device;
  * Bytecode / BytecodeSize で blob の中身を返し、パイプライン作成時にバックエンドが
  * 内部参照する。IRhiShader を実装する final クラス。
  */
-class Dx12Shader final : public IRhiShader {
+class FDx12Shader final : public IRhiShader {
 public:
     /** 空状態で構築する (blob は Init でコンパイルして確保)。 */
-    Dx12Shader() noexcept = default;
+    FDx12Shader() noexcept = default;
 
     /** 保持しているバイトコード blob を解放する。 */
-    ~Dx12Shader() noexcept override;
+    ~FDx12Shader() noexcept override;
 
     /**
      * HLSL ソースをコンパイルしてバイトコードを確保する。
@@ -37,11 +35,10 @@ public:
      * デバッグビルドでは最適化なし + デバッグ情報付き、リリースでは最適化レベル3 で
      * コンパイルする。hlsl_source が null なら E_INVALIDARG、コンパイル失敗時は
      * エラーメッセージをログ出力する。
-     * @param device DX12 デバイス (現状はコンパイル自体には未使用)。
      * @param desc コンパイル対象の HLSL ソース・エントリポイント等の生成パラメータ。
-     * @return 成功なら正常な HrResult、失敗なら HRESULT を含むエラー。
+     * @return 成功なら正常な FHrResult、失敗なら HRESULT を含むエラー。
      */
-    HrResult Init(Dx12Device& device, const FShaderDesc& desc) noexcept;
+    FHrResult Init(const FShaderDesc& desc) noexcept;
 
     /**
      * このシェーダのステージ種別を返す。

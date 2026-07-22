@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// ECS の FRollbackBuffer（World スナップショットのリングバッファ / rollback netcode の状態履歴）
+// ECS の FRollbackBuffer（FWorld スナップショットのリングバッファ / rollback netcode の状態履歴）
 //
 // 役割:
-//   World::CopyFrom (snapshot/rollback 基盤) の上に「直近 N tick 分の状態履歴」を
+//   FWorld::CopyFrom (snapshot/rollback 基盤) の上に「直近 N tick 分の状態履歴」を
 //   提供する。GGPO 風 rollback netcode の状態レイヤで、入力レイヤの
 //   acs::game::FLockstep と対になる:
 //     ・FLockstep      … どの tick に誰が何を入力したか (入力履歴)
-//     ・FRollbackBuffer … 各 tick 開始時点の World 状態 (状態履歴)
+//     ・FRollbackBuffer … 各 tick 開始時点の FWorld 状態 (状態履歴)
 //
 // 使い方 (rollback netcode の典型ループ):
 //   FRollbackBuffer history;
@@ -29,16 +29,16 @@
 //   ・**tick % capacity の直接添字リング**: 検索無しで O(1) に slot が決まる。
 //     slot には保存時の tick を記録し、Restore 時に一致検証する (容量を超えて
 //     進んだ後の古い tick は自然に上書き済み = 復元不可と判定される)。
-//   ・**World は slot ごとに 1 個を Init で確保して使い回す**: SaveFrame のたびに
-//     World を作り直さず CopyFrom で中身だけ入れ替えるため、SparseSet の器の
+//   ・**FWorld は slot ごとに 1 個を Init で確保して使い回す**: SaveFrame のたびに
+//     FWorld を作り直さず CopyFrom で中身だけ入れ替えるため、TSparseSet の器の
 //     再確保が抑えられ、定常状態の確保回数が安定する。
 //   ・**部分状態を残さない**: Init の途中 OOM は確保済み分を解放して false。
 //     SaveFrame で CopyFrom が失敗した slot は invalid 化し、後の Restore が
 //     壊れた状態を返さない。
-//   ・**コピー / ムーブ禁止**: World の履歴という重い状態の誤複製を防ぐ
+//   ・**コピー / ムーブ禁止**: FWorld の履歴という重い状態の誤複製を防ぐ
 //     (FLockstep と同じ規約)。
-//   ・**全 noexcept / 失敗は bool**: ACS 全体方針。World::CopyFrom の契約
-//     (非コピー型コンポーネントを含む World は複製不可) をそのまま伝搬する。
+//   ・**全 noexcept / 失敗は bool**: ACS 全体方針。FWorld::CopyFrom の契約
+//     (非コピー型コンポーネントを含む FWorld は複製不可) をそのまま伝搬する。
 //
 // 範囲外:
 //   ・入力履歴 / desync 検出 (FLockstep::ComputeChecksum を使う)
@@ -54,23 +54,23 @@
 namespace acs {
 
 /**
- * World スナップショットの固定容量リングバッファ (rollback netcode の状態履歴)。
+ * FWorld スナップショットの固定容量リングバッファ (rollback netcode の状態履歴)。
  *
  * @details
- * 直近 capacity tick 分の World 状態を tick % capacity の slot に保持する。
+ * 直近 capacity tick 分の FWorld 状態を tick % capacity の slot に保持する。
  * SaveFrame で現在状態を退避し、RestoreFrame で保存済み tick へ巻き戻す。
- * 保存する World の全コンポーネント型はコピー構築可能である必要がある
- * (World::CopyFrom の契約)。non-copy / non-move 型。
+ * 保存する FWorld の全コンポーネント型はコピー構築可能である必要がある
+ * (FWorld::CopyFrom の契約)。non-copy / non-move 型。
  */
 class FRollbackBuffer {
 public:
     /** 未初期化 (容量 0) で構築する。使用前に Init を呼ぶ。 */
     FRollbackBuffer() noexcept = default;
 
-    /** 破棄する (保持中の全スナップショット World を解放)。 */
+    /** 破棄する (保持中の全スナップショット FWorld を解放)。 */
     ~FRollbackBuffer() noexcept { Shutdown(); }
 
-    /** コピー禁止 (World 履歴の誤複製を防ぐ)。 */
+    /** コピー禁止 (FWorld 履歴の誤複製を防ぐ)。 */
     FRollbackBuffer(const FRollbackBuffer&)            = delete;
 
     /** コピー代入も禁止。 */
@@ -98,7 +98,7 @@ public:
         if (capacity == 0) return false;
         if (!m_Slots.TryResize(capacity)) return false;
         for (u32 i = 0; i < capacity; ++i) {
-            m_Slots[i].world = New<World>(*m_Slots.GetAllocator());
+            m_Slots[i].world = New<FWorld>(*m_Slots.GetAllocator());
             if (m_Slots[i].world == nullptr) {
                 Shutdown();
                 return false;
@@ -124,7 +124,7 @@ public:
     }
 
     /**
-     * 保存済みフレームだけを全て無効化する (slot の World 器は保持)。
+     * 保存済みフレームだけを全て無効化する (slot の FWorld 器は保持)。
      *
      * @details セッション跨ぎで tick が 0 に戻るときなど、古い tick の履歴が
      * 偶然一致して復元されるのを防ぐ。容量は変わらない。
@@ -142,10 +142,10 @@ public:
      * 上書きされる (リングの自然な追い出し)。複製に失敗した場合はその slot を
      * 無効化して false を返す (壊れた状態を後で復元させない)。
      * @param tick この状態が属するフレーム番号。
-     * @param world 保存する World。
+     * @param world 保存する FWorld。
      * @return 保存できたら true。未初期化・複製失敗 (非コピー型 / OOM) は false。
      */
-    bool SaveFrame(u32 tick, const World& world) noexcept
+    bool SaveFrame(u32 tick, const FWorld& world) noexcept
     {
         if (m_Slots.IsEmpty()) return false;
         FSlot& slot = m_Slots[tick % m_Slots.Size()];
@@ -163,10 +163,10 @@ public:
      * 容量を超えて上書き済みの古い tick は false になる。復元後も履歴 slot は
      * 有効なまま残る (同じ tick へ複数回巻き戻せる)。
      * @param tick 巻き戻したいフレーム番号。
-     * @param world 復元先の World。
+     * @param world 復元先の FWorld。
      * @return 復元できたら true。履歴なし・tick 不一致・複製失敗は false。
      */
-    bool RestoreFrame(u32 tick, World& world) const noexcept
+    bool RestoreFrame(u32 tick, FWorld& world) const noexcept
     {
         if (m_Slots.IsEmpty()) return false;
         const FSlot& slot = m_Slots[tick % m_Slots.Size()];
@@ -209,10 +209,10 @@ public:
     }
 
 private:
-    /** 1 スナップショット slot (World の器 + どの tick の状態か)。 */
+    /** 1 スナップショット slot (FWorld の器 + どの tick の状態か)。 */
     struct FSlot {
         /** スナップショットの器 (Init で確保し Shutdown まで使い回す)。 */
-        World* world = nullptr;
+        FWorld* world = nullptr;
 
         /** 保存時の tick (valid のときのみ意味を持つ)。 */
         u32    tick  = 0;

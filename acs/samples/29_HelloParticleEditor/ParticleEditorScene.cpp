@@ -14,14 +14,14 @@ using namespace acs::game;
 
 namespace helloparticleed {
 
-void ParticleEditorScene::OnEnter() noexcept {
+void FParticleEditorScene::OnEnter() noexcept {
     // 連続放出 + Burst のピークを吸収するため pool 容量を多めに取る。
     m_ParticleSystem.Init(4096);
 
     // 既定値が「無発射 / 黒粒子」なので、起動直後に何も見えない事故を避ける
     // ため、最低限の見た目が出る連続放出パラメータで emitter 1 個を作る。
     // Panel が同じ slot のパラメータを編集する想定。
-    ParticleEmitterDef def{};
+    FParticleEmitterDef def{};
     def.lifetime_sec       = 1.5f;
     def.emit_rate_per_sec  = 30.0f;
     def.burst_count        = 16.0f;
@@ -42,13 +42,13 @@ void ParticleEditorScene::OnEnter() noexcept {
     ACS_LOG_INFO("[ParticleEditor] entered (default emitter created, capacity=4096)");
 }
 
-void ParticleEditorScene::OnExit() noexcept {
+void FParticleEditorScene::OnExit() noexcept {
     m_ParticleSystem.ClearAll();
     ACS_LOG_INFO("[ParticleEditor] exited");
 }
 
-void ParticleEditorScene::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) {
+void FParticleEditorScene::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -62,7 +62,7 @@ void ParticleEditorScene::OnUpdate(f32 dt) noexcept {
     m_EditorPreview.Tick(dt, m_ParticleSystem);
 }
 
-void ParticleEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
+void FParticleEditorScene::OnRender(FRenderContext& /*rc*/) noexcept {
     // ImGui の draw コマンドは FGame::OnRender の NewFrame() と Render() の間で
     // 発行される。Scene::OnRender はその内側なのでそのまま ImGui::* を呼べる。
     m_DrawFileMenu();
@@ -81,7 +81,7 @@ void ParticleEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
 // File メニュー: Save / Load / Quit のディスパッチのみ。実処理は m_SavePreset /
 // m_LoadPreset に逃がして、OnRender 側の見通しを保つ。
 // ----------------------------------------------------------------------------
-void ParticleEditorScene::m_DrawFileMenu() noexcept {
+void FParticleEditorScene::m_DrawFileMenu() noexcept {
     if (!ImGui::BeginMainMenuBar()) return;
 
     if (ImGui::BeginMenu("File")) {
@@ -101,7 +101,7 @@ void ParticleEditorScene::m_DrawFileMenu() noexcept {
     ImGui::EndMainMenuBar();
 }
 
-void ParticleEditorScene::m_SavePreset() noexcept {
+void FParticleEditorScene::m_SavePreset() noexcept {
     // FFxeditSerializer は emitter 群 (def 配列 + 名前 + 個数) を保存する契約。
     // panel の全 emitter def を集めて配列で渡す。
     constexpr u32 kMax = fxedit::FParticleEditorPanel::kMaxEmitters;
@@ -111,11 +111,11 @@ void ParticleEditorScene::m_SavePreset() noexcept {
         return;
     }
     const u32 n = count < kMax ? count : kMax;
-    ParticleEmitterDef defs[kMax];
+    FParticleEmitterDef defs[kMax];
     const char*        names[kMax];
     for (u32 i = 0; i < n; ++i) {
-        const ParticleEmitterDef* d = m_EditorPanel.GetEmitterDef(static_cast<i32>(i));
-        defs[i]  = (d != nullptr) ? *d : ParticleEmitterDef{};
+        const FParticleEmitterDef* d = m_EditorPanel.GetEmitterDef(static_cast<i32>(i));
+        defs[i]  = (d != nullptr) ? *d : FParticleEmitterDef{};
         names[i] = nullptr;   // panel は emitter 名を保持しないため "" 扱い
     }
     if (auto r = fxedit::FFxeditSerializer::Save(kPresetPathW, defs, names, n); r.IsErr()) {
@@ -125,9 +125,9 @@ void ParticleEditorScene::m_SavePreset() noexcept {
     }
 }
 
-void ParticleEditorScene::m_LoadPreset() noexcept {
+void FParticleEditorScene::m_LoadPreset() noexcept {
     constexpr u32 kMax = fxedit::FParticleEditorPanel::kMaxEmitters;
-    ParticleEmitterDef defs[kMax];
+    FParticleEmitterDef defs[kMax];
     char               name_buf[2048];
     auto r = fxedit::FFxeditSerializer::Load(kPresetPathW, defs, name_buf,
                                              static_cast<u32>(sizeof(name_buf)), kMax);
@@ -139,7 +139,7 @@ void ParticleEditorScene::m_LoadPreset() noexcept {
     // panel の emitter 数を loaded まで増やし、各 def を上書きする。
     while (m_EditorPanel.EmitterCount() < loaded) m_EditorPanel.AddEmitter();
     for (u32 i = 0; i < loaded; ++i) {
-        ParticleEmitterDef* d = m_EditorPanel.GetEmitterDefMutable(static_cast<i32>(i));
+        FParticleEmitterDef* d = m_EditorPanel.GetEmitterDefMutable(static_cast<i32>(i));
         if (d != nullptr) *d = defs[i];
     }
     ACS_LOG_INFO("[ParticleEditor] loaded %u emitter(s) <- %s", loaded, kPresetPath);

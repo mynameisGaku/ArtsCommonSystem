@@ -5,7 +5,7 @@
 // パターンに完全準拠する。所有権を持たないこと、index 0 予約、generation 0
 // スキップ、24bit index 上限の 4 点が正しさの肝。
 #include "gameframework/NodePool.h"
-#include "gameframework/Node2D.h"   // Node2D::_SetId を呼ぶため full include
+#include "gameframework/ANode.h"   // ANode::_SetId / Id を呼ぶため full include
 
 namespace acs::game {
 
@@ -14,7 +14,7 @@ void FNodePool::Init(u32 initial_capacity) noexcept {
     // index 0 は予約 (FNodeId{0,0} = invalid と衝突しない dummy slot)。
     // 既に Init 済 (= m_Slots.Size() > 0) の場合でも追加 reserve だけ行う。
     if (m_Slots.IsEmpty()) {
-        m_Slots.PushBack(Slot{});   // index 0 = dummy
+        m_Slots.PushBack(FSlot{});   // インデックス 0 はダミー
     }
     if (initial_capacity > 0) {
         // +1 して index 0 分も含めて予約 (再 alloc 回避)。
@@ -23,35 +23,55 @@ void FNodePool::Init(u32 initial_capacity) noexcept {
     }
 }
 
-/** 空き slot を 1 つ取得する (free stack → 末尾追加、16M 超で 0 を返す)。 */
-u32 FNodePool::AcquireSlot() noexcept {
+/** 空き slot を 1 つ取得する。失敗時は active slot と node を変更しない。 */
+ENodePoolRegisterError FNodePool::TryAcquireSlot(u32& out_index) noexcept {
+    out_index = 0u;
     // free stack から再利用 slot を取得
     if (!m_FreeIndices.IsEmpty()) {
-        const u32 idx = m_FreeIndices.Back();
+        out_index = m_FreeIndices.Back();
         m_FreeIndices.PopBack();
-        return idx;
+        return ENodePoolRegisterError::None;
     }
     // 末尾追加。index 0 (dummy) が無ければ先に確保。
     if (m_Slots.IsEmpty()) {
-        m_Slots.PushBack(Slot{});   // index 0 = dummy
+        if (!m_Slots.TryPushBack(FSlot{}))
+            return ENodePoolRegisterError::AllocationFailure;
     }
     // 24bit index 上限チェック。次に追加されると Size() == m_Slots.Size()。
     // 既に kMaxIndex まで埋まっていたら拒否 (= 0 = invalid 表現)。
     if (m_Slots.Size() > static_cast<usize>(kMaxIndex)) {
-        return 0u;
+        return ENodePoolRegisterError::IndexLimitExceeded;
     }
-    m_Slots.PushBack(Slot{});
-    return static_cast<u32>(m_Slots.Size()) - 1u;
+    if (!m_Slots.TryPushBack(FSlot{}))
+        return ENodePoolRegisterError::AllocationFailure;
+    out_index = static_cast<u32>(m_Slots.Size()) - 1u;
+    return ENodePoolRegisterError::None;
 }
 
-/** FNode2D を登録し、世代を進めた FNodeId を発行して node->_SetId する。 */
-FNodeId FNodePool::RegisterExistingNode(FNode2D* node) noexcept {
-    if (node == nullptr) return FNodeId{};
+FNodePoolRegisterResult FNodePool::TryRegisterExistingNode(ANode* node) noexcept {
+    if (node == nullptr)
+        return FNodePoolRegisterResult{FNodeId{}, ENodePoolRegisterError::NullNode};
 
-    const u32 idx = AcquireSlot();
-    if (idx == 0u) return FNodeId{};   // 16M 越え → 失敗 (node の Id は触らない)
+    const FNodeId existing = IdOf(node);
+    if (existing.IsValid()) {
+        // active slotを真実としてnode側の内部Idも自己修復する。
+        if (node->Id() != existing) node->_SetId(existing);
+        return FNodePoolRegisterResult{
+            existing, ENodePoolRegisterError::AlreadyRegistered
+        };
+    }
+    if (node->Id().IsValid()) {
+        return FNodePoolRegisterResult{
+            FNodeId{}, ENodePoolRegisterError::RegisteredByAnotherPool
+        };
+    }
 
-    Slot& s = m_Slots[idx];
+    u32 idx = 0u;
+    const ENodePoolRegisterError acquire_error = TryAcquireSlot(idx);
+    if (acquire_error != ENodePoolRegisterError::None)
+        return FNodePoolRegisterResult{FNodeId{}, acquire_error};
+
+    FSlot& s = m_Slots[idx];
     // gen を進める。0 にラップしたら 1 にスキップ (gen=0 は invalid 表現と衝突)。
     s.gen    = static_cast<u8>(s.gen + 1u);
     if (s.gen == 0u) s.gen = 1u;
@@ -61,30 +81,70 @@ FNodeId FNodePool::RegisterExistingNode(FNode2D* node) noexcept {
 
     const FNodeId new_id{idx, s.gen};
     node->_SetId(new_id);
-    return new_id;
+    return FNodePoolRegisterResult{new_id, ENodePoolRegisterError::None};
 }
 
-/** slot を free 化し、対応 FNode2D の Id を invalid に戻す (stale / 二重解放は安全)。 */
+/** ANode を登録し、重複時は既存 Id、失敗時は invalid を返す。 */
+FNodeId FNodePool::RegisterExistingNode(ANode* node) noexcept {
+    const FNodePoolRegisterResult result = TryRegisterExistingNode(node);
+    return result.Succeeded() || result.Error == ENodePoolRegisterError::AlreadyRegistered
+         ? result.Id : FNodeId{};
+}
+
+/** slot を free 化し、対応 ANode の Id を invalid に戻す (stale / 二重解放は安全)。 */
 void FNodePool::Unregister(FNodeId id) noexcept {
     if (!id.IsValid()) return;
     const u32 idx = id.Index();
     if (idx == 0u || idx >= m_Slots.Size()) return;   // 0 / 範囲外は無視
 
-    Slot& s = m_Slots[idx];
+    FSlot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Generation()) return;   // stale / 既に free
 
-    // FNode2D 側の Id を invalid にリセット (ぶら下がった stale handle を node 経由でも検出可能に)。
+    // ANode 側の Id を invalid にリセット (ぶら下がった stale handle を node 経由でも検出可能に)。
     if (s.ptr != nullptr) {
         s.ptr->_SetId(FNodeId{});
     }
 
     s.active = false;
     s.ptr    = nullptr;
-    // gen は AcquireSlot 側で +1 されるため、ここでは進めない (= 二重インクリメント回避)。
+    // gen は TryAcquireSlot 後の登録側で +1 されるため、ここでは進めない。
     // 結果として「次に同 slot を再利用した時 gen が必ず変わる」性質は維持される。
 
     if (m_ActiveCount > 0u) --m_ActiveCount;
-    m_FreeIndices.PushBack(idx);
+    (void)m_FreeIndices.TryPushBack(idx);
+}
+
+/** Destroy 済みのノードを、ツリーから解放される前に一括 Unregister する。 */
+u32 FNodePool::PurgePendingDestroy() noexcept {
+    u32 purged = 0u;
+    for (u32 i = 1; i < m_Slots.Size(); ++i) {
+        FSlot& s = m_Slots[i];
+        if (!s.active || s.ptr == nullptr) continue;
+
+        bool pending_subtree = false;
+        const ANode* ancestor = s.ptr;
+        u32 depth = 0u;
+        while (ancestor != nullptr && depth <= kNodeMaxTreeDepth) {
+            if (ancestor->IsPendingDestroy()) {
+                pending_subtree = true;
+                break;
+            }
+            ancestor = ancestor->Parent();
+            ++depth;
+        }
+        // 公開構造APIの不変条件を外れた祖先chainも、reap前の安全側としてpurgeする。
+        if (ancestor != nullptr && depth > kNodeMaxTreeDepth) pending_subtree = true;
+
+        if (pending_subtree) {
+            s.ptr->_SetId(FNodeId{});
+            s.active = false;
+            s.ptr    = nullptr;
+            if (m_ActiveCount > 0u) --m_ActiveCount;
+            (void)m_FreeIndices.TryPushBack(i);
+            ++purged;
+        }
+    }
+    return purged;
 }
 
 /** slot が active かつ generation 一致なら true を返す。 */
@@ -92,26 +152,26 @@ bool FNodePool::IsValid(FNodeId id) const noexcept {
     if (!id.IsValid()) return false;
     const u32 idx = id.Index();
     if (idx == 0u || idx >= m_Slots.Size()) return false;
-    const Slot& s = m_Slots[idx];
-    return s.active && s.gen == id.Generation();
+    const FSlot& s = m_Slots[idx];
+    return s.active && s.ptr != nullptr && s.gen == id.Generation();
 }
 
-/** id が有効なら対応する FNode2D* を、stale / invalid なら nullptr を返す。 */
-FNode2D* FNodePool::Get(FNodeId id) const noexcept {
+/** id が有効なら対応する ANode* を、stale / invalid なら nullptr を返す。 */
+ANode* FNodePool::Get(FNodeId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx == 0u || idx >= m_Slots.Size()) return nullptr;
-    const Slot& s = m_Slots[idx];
+    const FSlot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Generation()) return nullptr;
     return s.ptr;
 }
 
 /** node ポインタを線形探索して FNodeId を逆引きする (無ければ invalid)。 */
-FNodeId FNodePool::IdOf(FNode2D* node) const noexcept {
+FNodeId FNodePool::IdOf(ANode* node) const noexcept {
     if (node == nullptr) return FNodeId{};
     // index 0 は dummy なので 1 から走査。
     for (u32 i = 1; i < m_Slots.Size(); ++i) {
-        const Slot& s = m_Slots[i];
+        const FSlot& s = m_Slots[i];
         if (s.active && s.ptr == node) {
             return FNodeId{i, s.gen};
         }
@@ -119,13 +179,15 @@ FNodeId FNodePool::IdOf(FNode2D* node) const noexcept {
     return FNodeId{};
 }
 
-/** 全 active slot を free 化し、各 FNode2D の Id を invalid に戻す (gen は維持)。 */
+/** 全 active slot を free 化し、各 ANode の Id を invalid に戻す (gen は維持)。 */
 void FNodePool::ClearAll() noexcept {
+    const usize reusable_count = m_Slots.Size() > 0u ? m_Slots.Size() - 1u : 0u;
+    const bool can_rebuild_free_list = m_FreeIndices.TryReserve(reusable_count);
     // 全 active slot を free 化、対応 node の Id を invalid に。
     // gen はあえてリセットせず維持する (= 同じ slot を ClearAll 後に再利用した時、
     // 旧 handle が gen 不一致で確実に stale 検出される)。
     for (u32 i = 1; i < m_Slots.Size(); ++i) {
-        Slot& s = m_Slots[i];
+        FSlot& s = m_Slots[i];
         if (s.active) {
             if (s.ptr != nullptr) {
                 s.ptr->_SetId(FNodeId{});
@@ -134,7 +196,14 @@ void FNodePool::ClearAll() noexcept {
             s.ptr    = nullptr;
         }
     }
-    m_FreeIndices.Clear();
+    if (can_rebuild_free_list) {
+        // 全物理 slot をちょうど1回ずつ再利用可能にする。従来は Clear 後に空き slot が
+        // free list へ戻らず、再登録のたび slot 配列だけが増える状態だった。
+        m_FreeIndices.Clear();
+        for (u32 i = 1u; i < m_Slots.Size(); ++i) {
+            (void)m_FreeIndices.TryPushBack(i); // 事前 Reserve 済みなので失敗しない
+        }
+    }
     m_ActiveCount = 0u;
     // m_Slots 自体は保持 (容量再利用、index 0 の dummy も残す)。
 }

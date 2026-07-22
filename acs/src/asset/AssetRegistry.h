@@ -7,7 +7,7 @@
 //
 //   auto r = reg.Load(L"data/save.bin");
 //   if (r.IsOk()) {
-//       TSharedPtr<Asset> a = r.Value();
+//       TSharedPtr<FAsset> a = r.Value();
 //       // a を保持し続ければレジストリ内部でもキャッシュされる
 //   }
 //
@@ -24,6 +24,20 @@
 #include "asset/AssetFuture.h"
 
 namespace acs {
+
+/** Registry が同期/非同期で完全に所有できる OS path の最大 code unit 数。 */
+inline constexpr usize kAssetRegistryMaxPathLength = 1023u;
+
+inline constexpr u16 kAssetRegistrySubNullPath          = 1u;
+inline constexpr u16 kAssetRegistrySubNoLoader          = 2u;
+inline constexpr u16 kAssetRegistrySubNullAsset         = 3u;
+inline constexpr u16 kAssetRegistrySubInvalidPath       = 4u;
+inline constexpr u16 kAssetRegistrySubPathTooLong       = 5u;
+inline constexpr u16 kAssetRegistrySubInvalidLoader     = 6u;
+inline constexpr u16 kAssetRegistrySubInvalidExtension  = 7u;
+inline constexpr u16 kAssetRegistrySubDuplicateLoader   = 8u;
+inline constexpr u16 kAssetRegistrySubOutOfMemory       = 9u;
+inline constexpr u16 kAssetRegistrySubShuttingDown      = 13u;
 
 /**
  * パスからアセットをロードして共有保持するレジストリ。
@@ -50,7 +64,7 @@ public:
     /** 実行中の同期・非同期ロードを待ってからキャッシュを解放する。 */
     ~FAssetRegistry() noexcept;
 
-    /** コピー禁止 (Mutex とキャッシュを単独保持するため)。 */
+    /** コピー禁止 (FMutex とキャッシュを単独保持するため)。 */
     FAssetRegistry(const FAssetRegistry&) = delete;
 
     /** コピー代入も禁止。 */
@@ -65,6 +79,12 @@ public:
      */
     void RegisterLoader(IAssetLoader* loader) noexcept;
 
+    /**
+     * loader contract を検証して登録する checked API。
+     * null、不正 extension、同一 extension、OOM、shutdown を分類して返す。
+     */
+    TResult<void> TryRegisterLoader(IAssetLoader* loader) noexcept;
+
     /** 標準ローダ群を一括登録する (Image / Audio / Mesh / Text / Binary)。 */
     void RegisterDefaultLoaders() noexcept;
 
@@ -75,7 +95,7 @@ public:
      * @param path ロードするファイルのパス。
      * @return 成功ならアセット、失敗 (null path / ローダ無し / 読み込み失敗) ならエラー。
      */
-    TResult<TSharedPtr<Asset>> Load(const wchar_t* path) noexcept;
+    TResult<TSharedPtr<FAsset>> Load(const wchar_t* path) noexcept;
 
     /**
      * パスからアセットを非同期ロードする。
@@ -109,7 +129,7 @@ public:
      * @param id 探すアセット ID。
      * @return キャッシュにあればアセット、無ければ空の TSharedPtr。
      */
-    TSharedPtr<Asset> Find(FAssetId id) noexcept;
+    TSharedPtr<FAsset> Find(FAssetId id) noexcept;
 
     /**
      * 指定アセットをキャッシュから外す (ファイル変更時の再読み込み用)。
@@ -127,7 +147,7 @@ public:
      * @param id 挿入するアセット ID。
      * @param a 挿入するアセット。
      */
-    void AsyncCacheInsert(FAssetId id, TSharedPtr<Asset> a) noexcept;
+    TResult<void> AsyncCacheInsert(FAssetId id, TSharedPtr<FAsset> a) noexcept;
 
 private:
     /**
@@ -138,11 +158,11 @@ private:
      */
     IAssetLoader* FindLoader(const wchar_t* path) noexcept;
 
-    /** キャッシュ・ローダ配列を保護する Mutex。 */
+    /** キャッシュ・ローダ配列を保護する FMutex。 */
     FMutex                          m_Lock;
 
     /** ID をキーにしたアセットキャッシュ。 */
-    THashMap<FAssetId, TSharedPtr<Asset>>    m_Cache;
+    THashMap<FAssetId, TSharedPtr<FAsset>>    m_Cache;
 
     /** 登録済みローダ (非所有ポインタ)。 */
     TArray<IAssetLoader*>           m_Loaders;
@@ -154,7 +174,7 @@ private:
     bool m_ShutdownComplete = false;
 
     /** ロック外でレジストリまたは登録ローダを参照しているロード処理数。 */
-    CompletionCounter m_ActiveOperations;
+    FCompletionCounter m_ActiveOperations;
 };
 
 } // namespace acs

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloSceneInspector — PanelLayout 実装。
+// HelloSceneInspector — FPanelLayout 実装。
 #include "PanelLayout.h"
 
 #include "gameframework/GameFramework.h"
 
 namespace helloscene {
 
-void PanelLayout::Init() noexcept {
+void FPanelLayout::Init() noexcept {
     m_Seam.Init();
     m_Selection.Init();
     m_HierarchyPanel.Init();
@@ -18,8 +18,8 @@ void PanelLayout::Init() noexcept {
     m_Toolbar.Init();
 }
 
-void PanelLayout::Shutdown() noexcept {
-    // Provider 本体は Scene 側 (PlayerNode) が握っているので seam は
+void FPanelLayout::Shutdown() noexcept {
+    // Provider 本体は Scene 側 (APlayerNode) が握っているので seam は
     // 登録解除のみ。panel は逆順に shutdown。
     m_Toolbar.Shutdown();
     m_InspectorPanel.Shutdown();
@@ -28,17 +28,17 @@ void PanelLayout::Shutdown() noexcept {
     m_Seam.ClearAll();
 }
 
-void PanelLayout::RegisterProvider(acs::game::FNodeId node_id,
+void FPanelLayout::RegisterProvider(acs::game::FNodeId node_id,
                                    acs::game::IInspectableProvider* provider) noexcept {
     // node_id をキーに登録 (= Inspector が選択 FNodeId から逆引きできるように)。
     m_Seam.RegisterProviderForNode(node_id, provider);
 }
 
-void PanelLayout::SelectInitial(acs::game::FNodeId id) noexcept {
+void FPanelLayout::SelectInitial(acs::game::FNodeId id) noexcept {
     m_Selection.SelectNode(id);
 }
 
-void PanelLayout::DrawUI(acs::game::FGame& game, acs::game::FNode2D& root) noexcept {
+void FPanelLayout::DrawUI(acs::game::FGame& game, acs::game::ANode& root) noexcept {
     // FEditorPanel 基底に乗っているため、フレーム毎に依存を bind してから no-arg DrawUI。
     m_Toolbar.SetGame(&game);
     m_Toolbar.DrawUI();

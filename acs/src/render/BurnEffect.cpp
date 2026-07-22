@@ -114,7 +114,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 /** CB レイアウト (HLSL の cbuffer Burn と一致)。 */
-struct BurnCB {
+struct FBurnCb {
     FVec4 rect;
     FVec4 screen;
     FVec4 ember;
@@ -153,7 +153,7 @@ TResult<void> FBurnEffect::Init(IRhiDevice& device, EFormat rt_format) noexcept 
 
     for (u32 i = 0; i < kRing; ++i) {
         FBufferDesc cbd{};
-        cbd.size = CBSize<BurnCB>();
+        cbd.size = CBSize<FBurnCb>();
         cbd.usage = EBufferUsage::Uniform;
         cbd.cpu_writable = true;
         auto cb_r = CreateRhiBuffer(device, cbd);
@@ -194,11 +194,11 @@ void FBurnEffect::Shutdown() noexcept {
 
 /** 定数バッファを更新し、クアッドを 1 回描く。 */
 void FBurnEffect::Draw(IRhiCommandList& cl, f32 x, f32 y, f32 w, f32 h,
-                       f32 screen_w, f32 screen_h, const BurnParams& p) noexcept {
+                       f32 screen_w, f32 screen_h, const FBurnParams& p) noexcept {
     if (!m_Pipeline || !m_Cb[0]) return;
     const f32 sw = screen_w > 0.0f ? screen_w : 1.0f;
     const f32 sh = screen_h > 0.0f ? screen_h : 1.0f;
-    BurnCB cb{};
+    FBurnCb cb{};
     cb.rect   = FVec4{ x, y, w, h };
     cb.screen = FVec4{ 1.0f / sw, 1.0f / sh, Saturate01(p.progress), p.edge };
     cb.ember  = FVec4{ p.ember.x, p.ember.y, p.ember.z, p.time };

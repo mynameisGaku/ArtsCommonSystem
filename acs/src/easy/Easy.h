@@ -2,9 +2,10 @@
 // ============================================================================
 // ACS Easy — 初学者向けの「簡単モード」
 // ----------------------------------------------------------------------------
-// クラス・継承・テンプレート・エラー型を一切使わずに 2D ゲームを書くための
-// API レイヤ。手続き的に「関数を呼ぶだけ」でウィンドウ・図形・画像・文字・
-// 音・入力・乱数・当たり判定・カメラ・セーブが扱える。
+// クラスや継承を意識せずに 2D ゲームを書くための API レイヤ。基本 API は
+// 手続き的に「関数を呼ぶだけ」でウィンドウ・図形・画像・文字・音・入力・乱数・
+// 当たり判定・カメラ・セーブを扱える。入力エラーを診断したい高度な checked API
+// は、失敗時の状態不変を保証する小さな結果型を返す。
 //
 // 最小のプログラム:
 //
@@ -45,6 +46,7 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "gameframework/Easing.h"
 #include "platform/InputCodes.h"
 // 以下はジョブ/並列 API の「テンプレート実装」に必要 (初学者は意識しなくてよい)。
 #include "foundation/SourceLoc.h"
@@ -63,6 +65,15 @@ using acs::EMouseButton;
 
 /** acs::EGamepadButton をこの名前空間でも使えるよう再公開する。 */
 using acs::EGamepadButton;
+
+/** GameFramework の全 33 種を表す型付き easing catalog。 */
+using EEasingType = acs::game::Easing::EEasingType;
+
+/** TryEase が返す安定した easing エラー分類。 */
+using EEasingError = acs::game::Easing::EEasingError;
+
+/** TryEase の checked 結果。 */
+using FEasingResult = acs::game::Easing::FEasingResult;
 
 /**
  * RGBA 色 (各成分 0.0〜1.0)。
@@ -154,7 +165,7 @@ FColor Fade(FColor color, f32 alpha) noexcept;
 /**
  * LoadSprite が返す画像ハンドル (コピー可能な軽量値型、id==0 は無効)。
  */
-struct Sprite {
+struct FSprite {
     /** スプライトスロット番号 (1 始まり、0 は無効)。 */
     u32 id = 0;
 };
@@ -162,7 +173,7 @@ struct Sprite {
 /**
  * LoadSound が返す音声ハンドル (コピー可能な軽量値型、id==0 は無効)。
  */
-struct Sound {
+struct FSound {
     /** サウンドスロット番号 (1 始まり、0 は無効)。 */
     u32 id = 0;
 };
@@ -178,7 +189,7 @@ struct Sound {
  * @param title ウィンドウタイトル (UTF-8)。
  */
 void OpenWindow(i32 width = 1280, i32 height = 720,
-                const char* title = "ACS FGame") noexcept;
+                const char* title = "ACS Game") noexcept;
 
 /**
  * 1 フレーム進める (while の条件に使う)。
@@ -363,7 +374,7 @@ void DrawPixel(f32 x, f32 y, FColor color) noexcept;
  * @param x 左上の X 座標。
  * @param y 左上の Y 座標。
  */
-void DrawSprite(Sprite sprite, f32 x, f32 y) noexcept;
+void DrawSprite(FSprite sprite, f32 x, f32 y) noexcept;
 
 /**
  * スプライトを指定サイズに伸縮して描く。
@@ -374,7 +385,7 @@ void DrawSprite(Sprite sprite, f32 x, f32 y) noexcept;
  * @param width 描画幅。
  * @param height 描画高さ。
  */
-void DrawSprite(Sprite sprite, f32 x, f32 y, f32 width, f32 height) noexcept;
+void DrawSprite(FSprite sprite, f32 x, f32 y, f32 width, f32 height) noexcept;
 
 /**
  * スプライトを回転 (+拡縮・色掛け) して描く。
@@ -387,7 +398,7 @@ void DrawSprite(Sprite sprite, f32 x, f32 y, f32 width, f32 height) noexcept;
  * @param scale 拡大率 (1.0 で等倍)。
  * @param tint 乗算する色掛け (白で無加工)。
  */
-void DrawSpriteRotated(Sprite sprite, f32 x, f32 y, f32 degrees,
+void DrawSpriteRotated(FSprite sprite, f32 x, f32 y, f32 degrees,
                        f32 scale = 1.0f, FColor tint = FColor{1,1,1,1}) noexcept;
 
 /**
@@ -398,7 +409,7 @@ void DrawSpriteRotated(Sprite sprite, f32 x, f32 y, f32 degrees,
  * @param y 左上の Y 座標。
  * @param tint 乗算する色掛け。
  */
-void DrawSpriteTinted(Sprite sprite, f32 x, f32 y, FColor tint) noexcept;
+void DrawSpriteTinted(FSprite sprite, f32 x, f32 y, FColor tint) noexcept;
 
 /**
  * スプライトを左右・上下反転して描く。
@@ -409,7 +420,7 @@ void DrawSpriteTinted(Sprite sprite, f32 x, f32 y, FColor tint) noexcept;
  * @param flip_x 左右反転するなら true。
  * @param flip_y 上下反転するなら true。
  */
-void DrawSpriteFlipped(Sprite sprite, f32 x, f32 y,
+void DrawSpriteFlipped(FSprite sprite, f32 x, f32 y,
                        bool flip_x, bool flip_y) noexcept;
 
 /**
@@ -425,7 +436,7 @@ void DrawSpriteFlipped(Sprite sprite, f32 x, f32 y,
  * @param src_width 切り出し元の幅。
  * @param src_height 切り出し元の高さ。
  */
-void DrawSpritePart(Sprite sprite, f32 x, f32 y, f32 width, f32 height,
+void DrawSpritePart(FSprite sprite, f32 x, f32 y, f32 width, f32 height,
                     f32 src_x, f32 src_y, f32 src_width, f32 src_height) noexcept;
 
 /**
@@ -434,7 +445,7 @@ void DrawSpritePart(Sprite sprite, f32 x, f32 y, f32 width, f32 height,
  * @param sprite 対象スプライト。
  * @return 元画像の幅 (無効なら 0)。
  */
-f32 SpriteWidth (Sprite sprite) noexcept;
+f32 SpriteWidth (FSprite sprite) noexcept;
 
 /**
  * スプライトの元画像の高さを返す。
@@ -442,7 +453,7 @@ f32 SpriteWidth (Sprite sprite) noexcept;
  * @param sprite 対象スプライト。
  * @return 元画像の高さ (無効なら 0)。
  */
-f32 SpriteHeight(Sprite sprite) noexcept;
+f32 SpriteHeight(FSprite sprite) noexcept;
 
 /**
  * 文字列を既定サイズで描く (UTF-8、日本語可。\n で改行)。
@@ -701,7 +712,7 @@ void SetAutoExposure(bool enabled) noexcept;
  * @param path 画像ファイルのパス (カレントディレクトリからの相対も可)。
  * @return 読み込んだスプライト (失敗時は id==0 の無効ハンドル)。
  */
-Sprite LoadSprite(const char* path) noexcept;
+FSprite LoadSprite(const char* path) noexcept;
 
 /**
  * 音声を読み込んでサウンドを返す (OpenWindow の後で呼ぶ)。
@@ -710,14 +721,14 @@ Sprite LoadSprite(const char* path) noexcept;
  * @param path 音声ファイルのパス (カレントディレクトリからの相対も可)。
  * @return 読み込んだサウンド (失敗時は id==0 の無効ハンドル)。
  */
-Sound  LoadSound (const char* path) noexcept;
+FSound  LoadSound (const char* path) noexcept;
 
 /**
  * 効果音を 1 回再生する。
  *
  * @param sound 再生するサウンド。
  */
-void Play(Sound sound) noexcept;
+void Play(FSound sound) noexcept;
 
 /**
  * 効果音を音量指定で 1 回再生する。
@@ -725,14 +736,14 @@ void Play(Sound sound) noexcept;
  * @param sound 再生するサウンド。
  * @param volume 音量 (0.0〜1.0)。
  */
-void Play(Sound sound, f32 volume) noexcept;
+void Play(FSound sound, f32 volume) noexcept;
 
 /**
  * 音をループ再生する (BGM 用)。
  *
  * @param sound 再生するサウンド。
  */
-void PlayLoop(Sound sound) noexcept;
+void PlayLoop(FSound sound) noexcept;
 
 /**
  * 音を音量指定でループ再生する (BGM 用)。
@@ -741,14 +752,14 @@ void PlayLoop(Sound sound) noexcept;
  * @param sound 再生するサウンド。
  * @param volume 音量 (0.0〜1.0)。
  */
-void PlayLoop(Sound sound, f32 volume) noexcept;
+void PlayLoop(FSound sound, f32 volume) noexcept;
 
 /**
  * そのサウンドのループ再生を止める。
  *
  * @param sound 止めるサウンド。
  */
-void StopSound(Sound sound) noexcept;
+void StopSound(FSound sound) noexcept;
 
 /** 鳴っている音をすべて止める。 */
 void StopAllSounds() noexcept;
@@ -1440,7 +1451,7 @@ void DrawRectCentered(f32 cx, f32 cy, f32 width, f32 height, FColor color) noexc
  * @param degrees 回転角 (度、時計回りが正)。
  * @param tint 乗算する色掛け (白で無加工)。
  */
-void DrawSpriteCentered(Sprite sprite, f32 cx, f32 cy, f32 scale = 1.0f,
+void DrawSpriteCentered(FSprite sprite, f32 cx, f32 cy, f32 scale = 1.0f,
                         f32 degrees = 0.0f, FColor tint = FColor{1,1,1,1}) noexcept;
 
 /**
@@ -1555,8 +1566,84 @@ void ScreenShake(f32 strength) noexcept;
 void ScreenFlash(FColor color, f32 seconds) noexcept;
 
 /**
+ * 型付き catalog から任意の easing を評価する。
+ *
+ * @details finite な t は [0,1] にクランプされる。無効 type または非有限 t では
+ * fallback を返す。入力値を診断する必要がある場合は TryEase を使う。
+ * @param t 進行度。
+ * @param type 全 33 種から選ぶ easing。
+ * @param fallback 無効入力時に返す値。
+ * @return 評価値。無効入力では fallback。
+ */
+f32 Ease(
+    f32 t, EEasingType type, f32 fallback = 0.0f) noexcept;
+
+/**
+ * 型付き easing を checked 評価する。
+ *
+ * @details 無効 type または非有限 t を拒否し、失敗時は out_value を変更しない。
+ * finite な t は [0,1] にクランプされる。
+ * @param t 進行度。
+ * @param type 評価する easing。
+ * @param out_value 成功時だけ評価値を書き込む。
+ * @return 成否と安定したエラー分類。
+ */
+FEasingResult TryEase(
+    f32 t, EEasingType type, f32& out_value) noexcept;
+
+// 型付き easing を [0,1] 上で等間隔に一括サンプリングする。
+// sample_count は 2 以上 65536 以下。
+// 失敗時は out_values を変更しない。
+FEasingResult TrySampleEasing(
+    EEasingType type, f32* out_values, usize sample_count) noexcept;
+
+/**
+ * easing type の canonical 名を返す。
+ *
+ * @param type 名前を得る easing。
+ * @return 静的文字列。無効 type では "Invalid"。
+ */
+const char* EasingName(EEasingType type) noexcept;
+
+/**
+ * easing type の canonical 名を checked 取得する。
+ *
+ * @details 無効 type では失敗し、out_name を変更しない。
+ * @param type 名前を得る easing。
+ * @param out_name 成功時だけ静的 canonical 名を書き込む。
+ * @return 成否と安定したエラー分類。
+ */
+FEasingResult TryGetEasingName(
+    EEasingType type, const char*& out_name) noexcept;
+
+/**
+ * canonical easing 名を型付き catalog 値へ変換する。
+ *
+ * @details 大文字小文字を区別する。null・空・未知名では false を返し、
+ * out_type を変更しない。
+ * @param name canonical 名。
+ * @param out_type 成功時だけ変換結果を書き込む。
+ * @return 変換できた場合 true。
+ */
+bool TryParseEasingName(
+    const char* name, EEasingType& out_type) noexcept;
+
+/**
+ * canonical easing 名を型付き catalog 値へ checked 変換する。
+ *
+ * @details null は NullName、空文字列と未知名は UnknownName。失敗時は
+ * out_type を変更しない。
+ * @param name canonical 名。
+ * @param out_type 成功時だけ変換結果を書き込む。
+ * @return 成否と安定したエラー分類。
+ */
+FEasingResult TryParseEasingNameChecked(
+    const char* name, EEasingType& out_type) noexcept;
+
+/**
  * 加速するイージング (t は 0〜1)。
  *
+ * @details `Ease(t, EEasingType::InQuad)` の互換ショートカット。
  * @param t 進行度 (0〜1 にクランプされる)。
  * @return イージング後の値。
  */
@@ -1565,6 +1652,7 @@ f32 EaseIn   (f32 t) noexcept;
 /**
  * 減速するイージング (t は 0〜1)。
  *
+ * @details `Ease(t, EEasingType::OutQuad)` の互換ショートカット。
  * @param t 進行度 (0〜1 にクランプされる)。
  * @return イージング後の値。
  */
@@ -1573,6 +1661,7 @@ f32 EaseOut  (f32 t) noexcept;
 /**
  * 加速→減速するイージング (t は 0〜1)。
  *
+ * @details `Ease(t, EEasingType::InOutQuad)` の互換ショートカット。
  * @param t 進行度 (0〜1 にクランプされる)。
  * @return イージング後の値。
  */
@@ -1581,6 +1670,7 @@ f32 EaseInOut(f32 t) noexcept;
 /**
  * 行き過ぎて戻るイージング (t は 0〜1)。
  *
+ * @details `Ease(t, EEasingType::OutBack)` の互換ショートカット。
  * @param t 進行度。
  * @return イージング後の値 (途中で 1 を超える)。
  */
@@ -1589,6 +1679,7 @@ f32 EaseOutBack   (f32 t) noexcept;
 /**
  * 跳ねるイージング (t は 0〜1)。
  *
+ * @details `Ease(t, EEasingType::OutBounce)` の互換ショートカット。
  * @param t 進行度 (0〜1 にクランプされる)。
  * @return イージング後の値。
  */
@@ -1597,6 +1688,7 @@ f32 EaseOutBounce (f32 t) noexcept;
 /**
  * ばねのように揺れて収束するイージング (t は 0〜1)。
  *
+ * @details `Ease(t, EEasingType::OutElastic)` の互換ショートカット。
  * @param t 進行度。
  * @return イージング後の値。
  */
@@ -1664,7 +1756,7 @@ void SetUiColors(FColor base, FColor hover, FColor active, FColor text) noexcept
 /**
  * 非同期ジョブ群 1 つを指すハンドル (コピー可、id==0 は無効)。
  */
-struct JobBatch {
+struct FJobBatch {
     /** バッチ識別子 (上位 16bit が世代、下位 16bit がスロット番号。0 は無効)。 */
     u32 id = 0;
 };
@@ -1672,7 +1764,7 @@ struct JobBatch {
 /**
  * 依存グラフのノードを指すハンドル (コピー可、id==0 は無効)。
  */
-struct JobNode  {
+struct FJobNode  {
     /** ノード番号 (1 始まり、0 は無効)。 */
     u32 id = 0;
 };
@@ -1685,7 +1777,7 @@ namespace jobdetail {
      * この構造体の直後 (整列後) に Fn 本体を inline 格納し、1 回の確保で済ませる。
      * 実装詳細であり初学者が直接触る必要はない。
      */
-    struct Closure {
+    struct FClosure {
         /** このクロージャを確保したアロケータ。 */
         FAllocator* allocation_allocator;
 
@@ -1693,48 +1785,48 @@ namespace jobdetail {
         void* allocation_base;
 
         /** 格納したラムダ本体を呼び出す関数ポインタ。 */
-        void (*invoke)(Closure*);
+        void (*invoke)(FClosure*);
 
         /** 格納したラムダを破棄する関数ポインタ。 */
-        void (*destroy)(Closure*);
+        void (*destroy)(FClosure*);
     };
 
     /**
-     * Closure の直後に置く Fn 本体のバイトオフセットを返す。
+ * FClosure の直後に置く Fn 本体のバイトオフセットを返す。
      *
-     * @details Fn と Closure の厳しいほうのアラインメントに合わせて切り上げる。
+ * @details Fn と FClosure の厳しいほうのアラインメントに合わせて切り上げる。
      * @tparam Fn 格納するラムダ/関数オブジェクト型。
-     * @return Closure 先頭から Fn 本体までのオフセット (バイト)。
+ * @return FClosure 先頭から Fn 本体までのオフセット (バイト)。
      */
     template<typename Fn> inline usize PayloadOffset() noexcept {
-        const usize a = alignof(Fn) > alignof(Closure) ? alignof(Fn) : alignof(Closure);
-        return (sizeof(Closure) + (a - 1)) & ~(a - 1);
+        const usize a = alignof(Fn) > alignof(FClosure) ? alignof(Fn) : alignof(FClosure);
+        return (sizeof(FClosure) + (a - 1)) & ~(a - 1);
     }
 
     /**
-     * ラムダをヒープにコピーした Closure を確保して返す。
+ * ラムダをヒープにコピーした FClosure を確保して返す。
      *
      * @details
-     * Closure + Fn 本体を 1 回の確保でまとめ、invoke/destroy に Fn を呼ぶ/破棄する
+ * FClosure + Fn 本体を 1 回の確保でまとめ、invoke/destroy に Fn を呼ぶ/破棄する
      * thunk を仕込む。確保失敗時は nullptr を返す。
      * @tparam Fn コピーするラムダ/関数オブジェクト型。
      * @param fn 型消去するラムダ (呼び出し側で生存している必要がある)。
-     * @return 確保した Closure (失敗時は nullptr)。
+ * @return 確保した FClosure (失敗時は nullptr)。
      */
-    template<typename Fn> inline Closure* MakeClosure(const Fn& fn) noexcept {
-        const usize a   = alignof(Fn) > alignof(Closure) ? alignof(Fn) : alignof(Closure);
+    template<typename Fn> inline FClosure* MakeClosure(const Fn& fn) noexcept {
+        const usize a   = alignof(Fn) > alignof(FClosure) ? alignof(Fn) : alignof(FClosure);
         const usize off = PayloadOffset<Fn>();
         if (off > (~usize(0)) - sizeof(Fn)) return nullptr;
 
         FAllocator& allocator = acs::DefaultAllocator();
         void* mem = allocator.Alloc(off + sizeof(Fn), a, acs::FSourceLoc::Current());
         if (!mem) return nullptr;
-        Closure* c = static_cast<Closure*>(mem);
+        FClosure* c = static_cast<FClosure*>(mem);
         ::new (static_cast<u8*>(mem) + off) Fn(fn);   // ラムダをコピー構築 (元 fn は呼び出し側で生存)
         c->allocation_allocator = &allocator;
         c->allocation_base = mem;
-        c->invoke  = [](Closure* s) { (*reinterpret_cast<Fn*>(reinterpret_cast<u8*>(s) + PayloadOffset<Fn>()))(); };
-        c->destroy = [](Closure* s) {  reinterpret_cast<Fn*>(reinterpret_cast<u8*>(s) + PayloadOffset<Fn>())->~Fn(); };
+        c->invoke  = [](FClosure* s) { (*reinterpret_cast<Fn*>(reinterpret_cast<u8*>(s) + PayloadOffset<Fn>()))(); };
+        c->destroy = [](FClosure* s) {  reinterpret_cast<Fn*>(reinterpret_cast<u8*>(s) + PayloadOffset<Fn>())->~Fn(); };
         return c;
     }
 
@@ -1743,7 +1835,7 @@ namespace jobdetail {
      *
      * @param closure 破棄するクロージャ。nullptr は no-op。
      */
-    inline void DestroyClosure(Closure* closure) noexcept
+    inline void DestroyClosure(FClosure* closure) noexcept
     {
         if (closure == nullptr) return;
         FAllocator* const allocator = closure->allocation_allocator;
@@ -1779,7 +1871,7 @@ namespace jobdetail {
      * @param existing 追加先の既存バッチ (無効なら新規作成)。
      * @return 投入先バッチのハンドル。
      */
-    JobBatch SubmitAsync(Closure* c, JobBatch existing) noexcept;
+    FJobBatch SubmitAsync(FClosure* c, FJobBatch existing) noexcept;
 
     /**
      * 構築中の依存グラフにクロージャをノードとして追加する。
@@ -1787,7 +1879,7 @@ namespace jobdetail {
      * @param c 追加するクロージャ (グラフが所有権を持つ)。
      * @return 追加したノードのハンドル。
      */
-    JobNode  AddNode(Closure* c) noexcept;
+    FJobNode  AddNode(FClosure* c) noexcept;
 }
 
 /**
@@ -1806,9 +1898,9 @@ template<typename Fn>
 inline void ParallelFor(i32 begin, i32 end, i32 grain, Fn fn) noexcept {
     if (end <= begin) return;
     if (!jobdetail::Ready()) { for (i32 i = begin; i < end; ++i) fn(i); return; }  // 並列不可 → 順次
-    struct Ctx { Fn* fn; } ctx{ &fn };
+    struct FCtx { Fn* fn; } ctx{ &fn };
     void (*thunk)(u32, u32, void*) =
-        [](u32 i, u32, void* u) { (*static_cast<Ctx*>(u)->fn)(static_cast<i32>(i)); };
+        [](u32 i, u32, void* u) { (*static_cast<FCtx*>(u)->fn)(static_cast<i32>(i)); };
     const i32 g = grain > 0 ? grain : jobdetail::AutoGrain(begin, end);
     (void)acs::FThreadPool::ParallelFor(static_cast<u32>(begin), static_cast<u32>(end),
                                         static_cast<u32>(g), thunk, &ctx);
@@ -1834,11 +1926,11 @@ inline void ParallelFor(i32 begin, i32 end, Fn fn) noexcept { ParallelFor(begin,
  * @return 投入したバッチのハンドル (同期実行時は無効ハンドル)。
  */
 template<typename Fn>
-inline JobBatch RunAsync(Fn fn) noexcept {
-    if (!jobdetail::Ready()) { fn(); return JobBatch{}; }       // 並列不可 → その場で実行
-    jobdetail::Closure* c = jobdetail::MakeClosure(fn);
-    if (!c) { fn(); return JobBatch{}; }                        // 確保失敗 → その場で実行
-    return jobdetail::SubmitAsync(c, JobBatch{});
+inline FJobBatch RunAsync(Fn fn) noexcept {
+    if (!jobdetail::Ready()) { fn(); return FJobBatch{}; }       // 並列不可 → その場で実行
+    jobdetail::FClosure* c = jobdetail::MakeClosure(fn);
+    if (!c) { fn(); return FJobBatch{}; }                        // 確保失敗 → その場で実行
+    return jobdetail::SubmitAsync(c, FJobBatch{});
 }
 
 /**
@@ -1850,9 +1942,9 @@ inline JobBatch RunAsync(Fn fn) noexcept {
  * @param fn 別スレッドで走らせる処理。
  */
 template<typename Fn>
-inline void RunAsync(JobBatch batch, Fn fn) noexcept {
+inline void RunAsync(FJobBatch batch, Fn fn) noexcept {
     if (!jobdetail::Ready()) { fn(); return; }
-    jobdetail::Closure* c = jobdetail::MakeClosure(fn);
+    jobdetail::FClosure* c = jobdetail::MakeClosure(fn);
     if (!c) { fn(); return; }
     (void)jobdetail::SubmitAsync(c, batch);
 }
@@ -1862,7 +1954,7 @@ inline void RunAsync(JobBatch batch, Fn fn) noexcept {
  *
  * @param batch 待機するバッチハンドル。
  */
-void WaitJobs(JobBatch batch) noexcept;
+void WaitJobs(FJobBatch batch) noexcept;
 
 /**
  * バッチの全ジョブが完了したかを待たずに確認する。
@@ -1870,7 +1962,7 @@ void WaitJobs(JobBatch batch) noexcept;
  * @param batch 確認するバッチハンドル。
  * @return 完了済み (または無効ハンドル) なら true。
  */
-bool JobsDone(JobBatch batch) noexcept;
+bool JobsDone(FJobBatch batch) noexcept;
 
 /**
  * 依存グラフのノードを 1 つ作る (Then で順序を張り RunJobs で実行する)。
@@ -1880,9 +1972,9 @@ bool JobsDone(JobBatch batch) noexcept;
  * @return 作成したノードのハンドル (確保失敗時は無効ハンドル)。
  */
 template<typename Fn>
-inline JobNode Job(Fn fn) noexcept {
-    jobdetail::Closure* c = jobdetail::MakeClosure(fn);
-    return c ? jobdetail::AddNode(c) : JobNode{};
+inline FJobNode Job(Fn fn) noexcept {
+    jobdetail::FClosure* c = jobdetail::MakeClosure(fn);
+    return c ? jobdetail::AddNode(c) : FJobNode{};
 }
 
 /**
@@ -1891,7 +1983,7 @@ inline JobNode Job(Fn fn) noexcept {
  * @param before 先に走るノード。
  * @param after before の後に走るノード。
  */
-void Then(JobNode before, JobNode after) noexcept;
+void Then(FJobNode before, FJobNode after) noexcept;
 
 /** 作った全ノードを依存順に実行し、全完了まで待つ (グラフは消費される)。 */
 void RunJobs() noexcept;

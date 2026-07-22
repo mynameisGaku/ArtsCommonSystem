@@ -13,4 +13,4 @@
 #include "app/EntryPoint.h"
 #include "HelloLightsApp.h"
 
-ACS_DEFINE_MAIN(hellolights::HelloLightsApp)
+ACS_DEFINE_MAIN(hellolights::FHelloLightsApp)

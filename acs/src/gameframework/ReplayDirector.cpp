@@ -47,8 +47,11 @@
 #include "gameframework/Lockstep.h"       // FLockstep::SaveToBuffer / LoadFromBuffer / InputCount
 
 #include "foundation/Platform.h"  // <windows.h> (CreateFileW / WriteFile / ReadFile / MoveFileExW)
+#include "foundation/Move.h"
 #include "memory/Memory.h"        // MemCopy / MemCmp / MemSet / DefaultAllocator
 #include "container/Array.h"      // TArray (直列化バッファ)
+
+#include <cstddef>
 
 namespace acs::game {
 
@@ -92,11 +95,32 @@ constexpr u32 kReplayVersion  = 1u;
 /** footer の CRC32 のバイト数。 */
 constexpr u32 kCrcFooterSize  = 4u;
 
-/** metadata 文字列の sanity 上限 (破損 container で巨大 len を読まされる事故予防、64 KiB)。 */
-constexpr u32 kMaxStringLen   = 64u * 1024u;
+/** metadata 数値部、各長さprefix、blob長prefix、CRCを含む空container長。 */
+constexpr u64 kMinimumContainerBytes = 56ull;
 
-/** container 全体の sanity 上限 (header 読み出し時の defensive 上限、256 MiB)。 */
-constexpr u64 kMaxContainerBytes = 256ull * 1024ull * 1024ull;
+/** inner recorder formatの固定値。 */
+constexpr u32 kInputHeaderBytes = 16u;
+constexpr u32 kInputRecordBytes = 29u;
+constexpr u32 kSourceFooterBytes = 4u;
+
+/** inner lockstep formatの固定値。 */
+constexpr u32 kLockstepHeaderBytes = 16u;
+constexpr u32 kLockstepRecordBytes = 17u;
+
+/** 一意temp suffixを含むpath buffer長。 */
+constexpr usize kReplayTempPathCapacity = kReplayMaximumPathChars + 64u;
+
+/** process内でtemp pathを一意化するnonce。 */
+volatile LONG64 g_ReplayTempNonce = 0;
+
+/** pathが非空かつ公開上限内でNUL終端されているかを検証する。 */
+bool IsValidReplayPath(const wchar_t* path) noexcept
+{
+    if (path == nullptr) return false;
+    usize length = 0;
+    while (length <= kReplayMaximumPathChars && path[length] != L'\0') ++length;
+    return length > 0 && length <= kReplayMaximumPathChars;
+}
 
 /**
  * u32 を LE バイト列として書き込む (strict-aliasing 安全)。
@@ -174,24 +198,182 @@ u32 ComputeCrc32(const void* data, u64 size) noexcept {
     return crc ^ 0xFFFFFFFFu;
 }
 
-/**
- * `<path>` の末尾に L".tmp" を付けた一時パスを out_buf に作る。
- *
- * @param path 元のパス (NUL 終端)。
- * @param out_buf 出力先バッファ。
- * @param out_cap out_buf の要素数。
- * @return 収まれば true、長さ超過で false。
- */
-bool MakeTmpPath(const wchar_t* path, wchar_t* out_buf, usize out_cap) noexcept {
-    usize n = 0;
-    while (path[n] != L'\0') ++n;
-    const wchar_t suffix[] = L".tmp";
-    const usize   suffix_n = 4;
-    if (n + suffix_n + 1 > out_cap) return false;  // +1 = NUL
-    for (usize i = 0; i < n; ++i) out_buf[i] = path[i];
-    for (usize i = 0; i < suffix_n; ++i) out_buf[n + i] = suffix[i];
-    out_buf[n + suffix_n] = L'\0';
+/** u64の10進表現をpath末尾へ追記する。 */
+bool AppendDecimal(u64 value, wchar_t* out, usize& position, usize capacity) noexcept
+{
+    wchar_t reversed[20] = {};
+    usize count = 0;
+    do {
+        reversed[count++] = static_cast<wchar_t>(L'0' + value % 10u);
+        value /= 10u;
+    } while (value != 0);
+    if (position > capacity || count >= capacity - position) return false;
+    while (count > 0) out[position++] = reversed[--count];
     return true;
+}
+
+/** `<path>.tmp.<pid>.<tid>.<nonce>` を同一directoryに作る。 */
+bool MakeAtomicTempPath(const wchar_t* path, wchar_t* out, usize capacity) noexcept
+{
+    if (path == nullptr || out == nullptr) return false;
+    usize path_length = 0;
+    while (path_length <= kReplayMaximumPathChars && path[path_length] != L'\0') ++path_length;
+    if (path_length == 0 || path_length > kReplayMaximumPathChars) return false;
+
+    constexpr wchar_t kSuffix[] = L".tmp.";
+    constexpr usize kSuffixLength = 5u;
+    if (path_length + kSuffixLength + 1u >= capacity) return false;
+    for (usize i = 0; i < path_length; ++i) out[i] = path[i];
+    usize position = path_length;
+    for (usize i = 0; i < kSuffixLength; ++i) out[position++] = kSuffix[i];
+    if (!AppendDecimal(static_cast<u64>(::GetCurrentProcessId()), out, position, capacity)) return false;
+    if (position + 1u >= capacity) return false;
+    out[position++] = L'.';
+    if (!AppendDecimal(static_cast<u64>(::GetCurrentThreadId()), out, position, capacity)) return false;
+    if (position + 1u >= capacity) return false;
+    out[position++] = L'.';
+    const u64 nonce = static_cast<u64>(::_InterlockedIncrement64(&g_ReplayTempNonce));
+    if (!AppendDecimal(nonce, out, position, capacity) || position >= capacity) return false;
+    out[position] = L'\0';
+    return true;
+}
+
+/** NUL終端文字列を上限内だけ走査する。 */
+bool TryStringLength(const char* text, u32 maximum, u32& out_length) noexcept
+{
+    out_length = 0;
+    if (text == nullptr) return true;
+    while (out_length <= maximum && text[out_length] != '\0') ++out_length;
+    return out_length <= maximum;
+}
+
+/** checksumが空または16桁ASCII hexかを検証する。 */
+bool IsCanonicalChecksum(const char* checksum, u32 length) noexcept
+{
+    if (length == 0) return true;
+    if (checksum == nullptr || length != kReplayChecksumHexBytes) return false;
+    for (u32 i = 0; i < length; ++i) {
+        const char c = checksum[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) return false;
+    }
+    return true;
+}
+
+struct FMetadataLengths {
+    u32 game_version = 0;
+    u32 level_id = 0;
+    u32 player_name = 0;
+    u32 checksum = 0;
+};
+
+/** pointer metadataをbounded scanし、各lengthを返す。 */
+bool MeasureMetadata(const FReplayMetadata& metadata, FMetadataLengths& lengths) noexcept
+{
+    return TryStringLength(metadata.game_version, kReplayMaximumGameVersionBytes, lengths.game_version) &&
+           TryStringLength(metadata.level_id, kReplayMaximumLevelIdBytes, lengths.level_id) &&
+           TryStringLength(metadata.player_name, kReplayMaximumPlayerNameBytes, lengths.player_name) &&
+           TryStringLength(metadata.checksum_hex, kReplayChecksumHexBytes, lengths.checksum) &&
+           IsCanonicalChecksum(metadata.checksum_hex, lengths.checksum);
+}
+
+/** source blobのheader、件数、完全サイズ、CRCをallocationなしでpreflightする。 */
+bool ValidateSourceBlob(const u8* blob, u32 size, bool input_recorder) noexcept
+{
+    if (size == 0) return true;
+    const u32 header_size = input_recorder ? kInputHeaderBytes : kLockstepHeaderBytes;
+    const u32 record_size = input_recorder ? kInputRecordBytes : kLockstepRecordBytes;
+    if (blob == nullptr || size < header_size + kSourceFooterBytes ||
+        size > kReplayMaximumSourceBlobBytes) {
+        return false;
+    }
+    const u8 expected_magic[4] = {
+        'A', 'C', input_recorder ? static_cast<u8>('S') : static_cast<u8>('S'),
+        input_recorder ? static_cast<u8>('R') : static_cast<u8>('L')
+    };
+    if (MemCmp(blob, expected_magic, sizeof(expected_magic)) != 0 || ReadU32LE(blob + 4u) != 1u) return false;
+    const u32 tick_rate = ReadU32LE(blob + 8u);
+    const u32 record_count = ReadU32LE(blob + 12u);
+    if (tick_rate == 0 || tick_rate > 1000u || record_count > kReplayMaximumSourceRecords) return false;
+    const u64 records_bytes = static_cast<u64>(record_count) * record_size;
+    const u64 expected_size = static_cast<u64>(header_size) + records_bytes + kSourceFooterBytes;
+    if (expected_size != size) return false;
+    return ComputeCrc32(blob + header_size, records_bytes) ==
+           ReadU32LE(blob + header_size + records_bytes);
+}
+
+/** Process Heap buffer。DefaultAllocator失敗注入からfile snapshotを分離する。 */
+class FProcessHeapBuffer {
+public:
+    explicit FProcessHeapBuffer(u64 size) noexcept
+    {
+        if (size > 0 && size <= static_cast<u64>(~SIZE_T{0})) {
+            m_Data = ::HeapAlloc(::GetProcessHeap(), 0, static_cast<SIZE_T>(size));
+        }
+    }
+
+    ~FProcessHeapBuffer() noexcept
+    {
+        if (m_Data != nullptr) ::HeapFree(::GetProcessHeap(), 0, m_Data);
+    }
+
+    FProcessHeapBuffer(const FProcessHeapBuffer&) = delete;
+    FProcessHeapBuffer& operator=(const FProcessHeapBuffer&) = delete;
+
+    void* Data() noexcept { return m_Data; }
+
+private:
+    void* m_Data = nullptr;
+};
+
+/** FileRenameInfoExのDWORD flags layout。 */
+struct FReplayRenameInfoEx {
+    DWORD flags = 0;
+    HANDLE root_directory = nullptr;
+    DWORD file_name_length = 0;
+    wchar_t file_name[1] = {};
+};
+
+/** 開いている旧snapshotと共存可能なPOSIX atomic replace fallback。 */
+bool TryPosixAtomicReplace(const wchar_t* temporary_path, const wchar_t* target_path, DWORD& out_error) noexcept
+{
+    constexpr DWORD kReplaceIfExists = 0x00000001u;
+    constexpr DWORD kPosixSemantics = 0x00000002u;
+    constexpr auto kFileRenameInfoEx = static_cast<FILE_INFO_BY_HANDLE_CLASS>(22);
+    out_error = 0;
+
+    usize path_length = 0;
+    while (path_length <= kReplayMaximumPathChars && target_path[path_length] != L'\0') ++path_length;
+    if (path_length > kReplayMaximumPathChars) {
+        out_error = ERROR_FILENAME_EXCED_RANGE;
+        return false;
+    }
+    constexpr usize kPrefixBytes = offsetof(FReplayRenameInfoEx, file_name);
+    const usize path_bytes = path_length * sizeof(wchar_t);
+    const usize buffer_bytes = kPrefixBytes + path_bytes + sizeof(wchar_t);
+    FProcessHeapBuffer storage(buffer_bytes);
+    if (storage.Data() == nullptr) {
+        out_error = ERROR_NOT_ENOUGH_MEMORY;
+        return false;
+    }
+    auto* info = static_cast<FReplayRenameInfoEx*>(storage.Data());
+    MemSet(info, 0, buffer_bytes);
+    info->flags = kReplaceIfExists | kPosixSemantics;
+    info->file_name_length = static_cast<DWORD>(path_bytes);
+    if (path_bytes > 0) MemCopy(info->file_name, target_path, path_bytes);
+
+    HANDLE source = ::CreateFileW(temporary_path, DELETE | SYNCHRONIZE,
+                                  FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                  nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (source == INVALID_HANDLE_VALUE) {
+        out_error = ::GetLastError();
+        return false;
+    }
+    const BOOL renamed = ::SetFileInformationByHandle(source, kFileRenameInfoEx, info,
+                                                       static_cast<DWORD>(buffer_bytes));
+    if (!renamed) out_error = ::GetLastError();
+    // rename成功時点でcommit済み。後続CloseHandle診断で結果を失敗へ反転しない。
+    (void)::CloseHandle(source);
+    return renamed != 0;
 }
 
 /**
@@ -254,70 +436,12 @@ bool ReadAll(HANDLE h, void* dst, u64 size, DWORD& err) noexcept {
     return true;
 }
 
-/**
- * TArray<u8> に length-prefixed 文字列 ([u32 len][bytes]) を追記する。
- *
- * @details s == nullptr は len 0 (= 空文字列) として扱う。
- * @param out 追記先のバッファ。
- * @param s 追記する NUL 終端文字列 (null 可)。
- */
-void AppendLenPrefixedString(TArray<u8>& out, const char* s) noexcept {
-    u32 len = 0;
-    if (s != nullptr) {
-        while (s[len] != '\0') ++len;
-    }
-    const usize off = out.Size();
-    out.Resize(off + sizeof(u32) + static_cast<usize>(len));
-    WriteU32LE(out.Data() + off, len);
-    if (len > 0) {
-        MemCopy(out.Data() + off + sizeof(u32), s, len);
-    }
-}
-
-/**
- * TArray<u8> に u32 を LE で追記する。
- *
- * @param out 追記先のバッファ。
- * @param v 追記する値。
- */
-void AppendU32(TArray<u8>& out, u32 v) noexcept {
-    const usize off = out.Size();
-    out.Resize(off + sizeof(u32));
-    WriteU32LE(out.Data() + off, v);
-}
-
-/**
- * TArray<u8> に u64 を LE で追記する。
- *
- * @param out 追記先のバッファ。
- * @param v 追記する値。
- */
-void AppendU64(TArray<u8>& out, u64 v) noexcept {
-    const usize off = out.Size();
-    out.Resize(off + sizeof(u64));
-    WriteU64LE(out.Data() + off, v);
-}
-
-/**
- * TArray<u8> に raw バイト列を追記する。
- *
- * @param out 追記先のバッファ。
- * @param src 追記するバイト列の先頭 (size 0 なら no-op)。
- * @param size 追記するバイト数。
- */
-void AppendBytes(TArray<u8>& out, const u8* src, u32 size) noexcept {
-    if (size == 0) return;
-    const usize off = out.Size();
-    out.Resize(off + static_cast<usize>(size));
-    MemCopy(out.Data() + off, src, size);
-}
-
 } // namespace
 
 /** 録画 / 再生 state を初期値に戻す (source 結線と owned 文字列は保持)。 */
 void FReplayDirector::Init() noexcept {
     m_Mode             = EReplayMode::Idle;
-    m_Metadata         = ReplayMetadata{};   // 全 field を default に戻す
+    m_Metadata         = FReplayMetadata{};   // 全 field を default に戻す
     m_CurrentTick     = 0;
     m_PlaybackSpeed   = 1.0f;
     m_TickAccumulator = 0.0f;
@@ -336,15 +460,50 @@ void FReplayDirector::SetSources(FInputRecorder* recorder, FLockstep* lockstep) 
 }
 
 /** Idle から Recording へ遷移し metadata をコピーする (それ以外は kSub_BadMode)。 */
-TResult<void> FReplayDirector::StartRecording(const ReplayMetadata& meta) noexcept {
+TResult<void> FReplayDirector::StartRecording(const FReplayMetadata& meta) noexcept {
+    return TryStartRecording(meta);
+}
+
+/** metadataをbounded owned copyへstageしてから録画を開始する。 */
+TResult<void> FReplayDirector::TryStartRecording(const FReplayMetadata& meta) noexcept {
     // Idle 以外からの直接遷移は禁止。Recording 中の再開や Playback 中の
     // 切り替えは意図しない上書きが起こりやすいため、明示的な Stop を強制する。
     if (m_Mode != EReplayMode::Idle) {
         return ACS_ERR(Generic, kSub_BadMode,
-                       "FReplayDirector::StartRecording: must be Idle");
+                       "FReplayDirector::TryStartRecording: must be Idle");
     }
+    FMetadataLengths lengths{};
+    if (!MeasureMetadata(meta, lengths)) {
+        return ACS_ERR(IO, kSub_BadMetadata,
+                       "FReplayDirector::TryStartRecording: metadata string is oversized or noncanonical");
+    }
+
+    FString game_version;
+    FString level_id;
+    FString player_name;
+    FString checksum;
+    if ((lengths.game_version > 0 &&
+         !game_version.TryAppend(FStringView(meta.game_version, lengths.game_version))) ||
+        (lengths.level_id > 0 &&
+         !level_id.TryAppend(FStringView(meta.level_id, lengths.level_id))) ||
+        (lengths.player_name > 0 &&
+         !player_name.TryAppend(FStringView(meta.player_name, lengths.player_name))) ||
+        (lengths.checksum > 0 &&
+         !checksum.TryAppend(FStringView(meta.checksum_hex, lengths.checksum)))) {
+        return ACS_ERR(Memory, kSub_Oom,
+                       "FReplayDirector::TryStartRecording: metadata allocation failed");
+    }
+
+    m_GameVersionOwned = Move(game_version);
+    m_LevelIdOwned = Move(level_id);
+    m_PlayerNameOwned = Move(player_name);
+    m_ChecksumHexOwned = Move(checksum);
     m_Mode             = EReplayMode::Recording;
-    m_Metadata         = meta;            // POD copy (const char* はポインタコピー)
+    m_Metadata         = meta;
+    m_Metadata.game_version = m_GameVersionOwned.Data();
+    m_Metadata.level_id = m_LevelIdOwned.Data();
+    m_Metadata.player_name = m_PlayerNameOwned.Data();
+    m_Metadata.checksum_hex = m_ChecksumHexOwned.Data();
     m_CurrentTick     = 0;
     m_TickAccumulator = 0.0f;
     // m_PlaybackSpeed は触らない (録画中は無意味だが、StartPlayback 後にも
@@ -441,7 +600,7 @@ f32 FReplayDirector::ProgressNormalized() const noexcept {
 void FReplayDirector::Tick(f32 dt) noexcept {
     // 異常な dt (NaN / 負) はゲームループの早期 frame skip / pause からの復帰時に
     // 紛れ込みやすい。0 でガードして無視する。
-    if (!(dt > 0.0f)) {
+    if (!(dt > 0.0f && dt <= 60.0f)) {
         return;
     }
 
@@ -452,8 +611,13 @@ void FReplayDirector::Tick(f32 dt) noexcept {
         m_TickAccumulator += dt * static_cast<f32>(m_TickRateHz);
         if (m_TickAccumulator >= 1.0f) {
             const u32 steps = static_cast<u32>(m_TickAccumulator);
-            m_CurrentTick    += steps;
             m_TickAccumulator -= static_cast<f32>(steps);
+            if (steps > ~u32{0} - m_CurrentTick) {
+                m_CurrentTick = ~u32{0};
+                m_TickAccumulator = 0.0f;
+            } else {
+                m_CurrentTick += steps;
+            }
         }
         return;
     }
@@ -463,8 +627,15 @@ void FReplayDirector::Tick(f32 dt) noexcept {
         m_TickAccumulator += dt * m_PlaybackSpeed * static_cast<f32>(m_TickRateHz);
         if (m_TickAccumulator >= 1.0f) {
             const u32 steps = static_cast<u32>(m_TickAccumulator);
-            m_CurrentTick    += steps;
             m_TickAccumulator -= static_cast<f32>(steps);
+            const u32 duration = m_Metadata.duration_ticks;
+            if (duration != 0 && m_CurrentTick < duration && steps >= duration - m_CurrentTick) {
+                m_CurrentTick = duration;
+            } else if (steps > ~u32{0} - m_CurrentTick) {
+                m_CurrentTick = ~u32{0};
+            } else {
+                m_CurrentTick += steps;
+            }
         }
         // duration_ticks に達したら自動的に Idle へ落とす (replay 終了)。
         // 0 のときは metadata 未設定 (load 前) と解釈し、自動停止しない。
@@ -482,130 +653,206 @@ void FReplayDirector::Tick(f32 dt) noexcept {
 
 /** metadata + 2 blob を container body に組み立て、`.tmp` 経由で atomic write する。 */
 TResult<void> FReplayDirector::SaveReplay(const wchar_t* file_path) noexcept {
+    return TrySaveReplay(file_path);
+}
+
+/** 上限付きcontainerを一意tempへ書き、flush/close後にatomic replaceする。 */
+TResult<void> FReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_NullPath,
-                       "FReplayDirector::SaveReplay: file_path is null");
+                       "FReplayDirector::TrySaveReplay: file_path is null");
+    }
+    if (!IsValidReplayPath(file_path)) {
+        return ACS_ERR(IO, kSub_PathTooLong,
+                       "FReplayDirector::TrySaveReplay: path is empty, unterminated, or too long");
+    }
+    FMetadataLengths metadata_lengths{};
+    if (!MeasureMetadata(m_Metadata, metadata_lengths)) {
+        return ACS_ERR(IO, kSub_BadMetadata,
+                       "FReplayDirector::TrySaveReplay: metadata is oversized or noncanonical");
     }
 
-    // ---- input_blob を作る (FInputRecorder::SaveToBuffer) ----------------
     TArray<u8> input_blob;
     if (m_Recorder != nullptr) {
-        // 上限見積もり: 16 (header) + sample_count*32 + 8 (footer)。SaveToBuffer は
-        // buffer 不足時に必要量を報告しないため、生成的に確保してから trim する。
-        const u64 cap = 16ull
-                      + static_cast<u64>(m_Recorder->SampleCount()) * 32ull
-                      + 8ull;
-        input_blob.Resize(static_cast<usize>(cap));
-        u32 written = 0;
-        TResult<void> r = m_Recorder->SaveToBuffer(input_blob.Data(),
-                                                   static_cast<u32>(cap),
-                                                   written);
-        if (r.IsErr()) {
-            return r.Error();  // FInputRecorder 側の subcode をそのまま伝搬
+        const u32 record_count = m_Recorder->SampleCount();
+        if (record_count > kReplayMaximumSourceRecords) {
+            return ACS_ERR(IO, kSub_LimitExceeded,
+                           "FReplayDirector::TrySaveReplay: recorder sample count exceeds the limit");
         }
-        input_blob.Resize(static_cast<usize>(written));  // 実書き込み量に trim
+        const u64 required = kInputHeaderBytes +
+                             static_cast<u64>(record_count) * kInputRecordBytes +
+                             kSourceFooterBytes;
+        if (required > kReplayMaximumSourceBlobBytes) {
+            return ACS_ERR(IO, kSub_LimitExceeded,
+                           "FReplayDirector::TrySaveReplay: recorder blob exceeds the limit");
+        }
+        if (!input_blob.TryResize(static_cast<usize>(required))) {
+            return ACS_ERR(Memory, kSub_Oom,
+                           "FReplayDirector::TrySaveReplay: recorder blob allocation failed");
+        }
+        u32 written = 0;
+        TResult<void> source_result =
+            m_Recorder->SaveToBuffer(input_blob.Data(), static_cast<u32>(required), written);
+        if (source_result.IsErr() || written != required ||
+            !ValidateSourceBlob(input_blob.Data(), written, true)) {
+            return ACS_ERR(IO, kSub_BadSourceBlob,
+                           "FReplayDirector::TrySaveReplay: recorder produced an invalid blob");
+        }
     }
 
-    // ---- lockstep_blob を作る (FLockstep::SaveToBuffer) ------------------
     TArray<u8> lockstep_blob;
     if (m_Lockstep != nullptr) {
-        // 上限見積もり: 16 (header) + frame_count*32 + 8 (footer)。InputFrame は
-        // ~20B だが 32B 上限で十分な余裕を取る (InputRecorder と同じ流儀)。
-        const u64 cap = 16ull
-                      + static_cast<u64>(m_Lockstep->InputCount()) * 32ull
-                      + 8ull;
-        lockstep_blob.Resize(static_cast<usize>(cap));
-        u32 written = 0;
-        TResult<void> r = m_Lockstep->SaveToBuffer(lockstep_blob.Data(),
-                                                   static_cast<u32>(cap),
-                                                   written);
-        if (r.IsErr()) {
-            return r.Error();
+        const u32 record_count = m_Lockstep->InputCount();
+        if (record_count > kReplayMaximumSourceRecords) {
+            return ACS_ERR(IO, kSub_LimitExceeded,
+                           "FReplayDirector::TrySaveReplay: lockstep frame count exceeds the limit");
         }
-        lockstep_blob.Resize(static_cast<usize>(written));
+        const u64 required = kLockstepHeaderBytes +
+                             static_cast<u64>(record_count) * kLockstepRecordBytes +
+                             kSourceFooterBytes;
+        if (required > kReplayMaximumSourceBlobBytes) {
+            return ACS_ERR(IO, kSub_LimitExceeded,
+                           "FReplayDirector::TrySaveReplay: lockstep blob exceeds the limit");
+        }
+        if (!lockstep_blob.TryResize(static_cast<usize>(required))) {
+            return ACS_ERR(Memory, kSub_Oom,
+                           "FReplayDirector::TrySaveReplay: lockstep blob allocation failed");
+        }
+        u32 written = 0;
+        TResult<void> source_result =
+            m_Lockstep->SaveToBuffer(lockstep_blob.Data(), static_cast<u32>(required), written);
+        if (source_result.IsErr() || written != required ||
+            !ValidateSourceBlob(lockstep_blob.Data(), written, false)) {
+            return ACS_ERR(IO, kSub_BadSourceBlob,
+                           "FReplayDirector::TrySaveReplay: lockstep produced an invalid blob");
+        }
     }
 
-    // ---- container body を組み立てる ------------------------------------
+    const u64 total_size = kMinimumContainerBytes +
+                           metadata_lengths.game_version +
+                           metadata_lengths.level_id +
+                           metadata_lengths.player_name +
+                           metadata_lengths.checksum +
+                           input_blob.Size() +
+                           lockstep_blob.Size();
+    if (total_size > kReplayMaximumContainerBytes || total_size > ~u32{0}) {
+        return ACS_ERR(IO, kSub_LimitExceeded,
+                       "FReplayDirector::TrySaveReplay: container exceeds the product limit");
+    }
+
     TArray<u8> body;
-    // magic + version
-    AppendBytes(body, kReplayMagic, sizeof(kReplayMagic));
-    AppendU32(body, kReplayVersion);
-    // metadata: 数値 (LE) → 文字列 (len-prefixed)
-    AppendU64(body, m_Metadata.seed);
-    AppendU64(body, m_Metadata.timestamp);
-    AppendU32(body, m_Metadata.duration_ticks);
-    AppendLenPrefixedString(body, m_Metadata.game_version);
-    AppendLenPrefixedString(body, m_Metadata.level_id);
-    AppendLenPrefixedString(body, m_Metadata.player_name);
-    AppendLenPrefixedString(body, m_Metadata.checksum_hex);
-    // blobs: [size u32][bytes]
-    AppendU32(body, static_cast<u32>(input_blob.Size()));
-    AppendBytes(body, input_blob.Data(), static_cast<u32>(input_blob.Size()));
-    AppendU32(body, static_cast<u32>(lockstep_blob.Size()));
-    AppendBytes(body, lockstep_blob.Data(), static_cast<u32>(lockstep_blob.Size()));
-    // footer: CRC32 over body so far (magic を含む footer 直前まで全体)
-    const u32 crc = ComputeCrc32(body.Data(), static_cast<u64>(body.Size()));
-    AppendU32(body, crc);
+    if (!body.TryResize(static_cast<usize>(total_size))) {
+        return ACS_ERR(Memory, kSub_Oom,
+                       "FReplayDirector::TrySaveReplay: container allocation failed");
+    }
+    u64 offset = 0;
+    MemCopy(body.Data() + offset, kReplayMagic, sizeof(kReplayMagic)); offset += sizeof(kReplayMagic);
+    WriteU32LE(body.Data() + offset, kReplayVersion); offset += sizeof(u32);
+    WriteU64LE(body.Data() + offset, m_Metadata.seed); offset += sizeof(u64);
+    WriteU64LE(body.Data() + offset, m_Metadata.timestamp); offset += sizeof(u64);
+    WriteU32LE(body.Data() + offset, m_Metadata.duration_ticks); offset += sizeof(u32);
 
-    // ---- `<path>.tmp` を組む --------------------------------------------
-    wchar_t tmp_path[1024];
-    if (!MakeTmpPath(file_path, tmp_path, 1024)) {
-        return ACS_ERR(IO, kSub_PathTooLong,
-                       "FReplayDirector::SaveReplay: file path too long for .tmp suffix");
+    const auto write_string = [&](const char* text, u32 length) noexcept {
+        WriteU32LE(body.Data() + offset, length);
+        offset += sizeof(u32);
+        if (length > 0) {
+            MemCopy(body.Data() + offset, text, length);
+            offset += length;
+        }
+    };
+    write_string(m_Metadata.game_version, metadata_lengths.game_version);
+    write_string(m_Metadata.level_id, metadata_lengths.level_id);
+    write_string(m_Metadata.player_name, metadata_lengths.player_name);
+    write_string(m_Metadata.checksum_hex, metadata_lengths.checksum);
+    WriteU32LE(body.Data() + offset, static_cast<u32>(input_blob.Size())); offset += sizeof(u32);
+    if (!input_blob.IsEmpty()) {
+        MemCopy(body.Data() + offset, input_blob.Data(), input_blob.Size());
+        offset += input_blob.Size();
+    }
+    WriteU32LE(body.Data() + offset, static_cast<u32>(lockstep_blob.Size())); offset += sizeof(u32);
+    if (!lockstep_blob.IsEmpty()) {
+        MemCopy(body.Data() + offset, lockstep_blob.Data(), lockstep_blob.Size());
+        offset += lockstep_blob.Size();
+    }
+    const u32 crc = ComputeCrc32(body.Data(), offset);
+    WriteU32LE(body.Data() + offset, crc);
+    offset += sizeof(u32);
+    if (offset != total_size) {
+        return ACS_ERR(IO, kSub_BadSize,
+                       "FReplayDirector::TrySaveReplay: internal container size mismatch");
     }
 
-    // ---- tmp に書き込む (CREATE_ALWAYS = 既存 truncate) -----------------
-    HANDLE h = ::CreateFileW(tmp_path,
-                             GENERIC_WRITE,
-                             0,            // 排他: 書き込み中は他者に開かせない
-                             nullptr,
-                             CREATE_ALWAYS,
-                             FILE_ATTRIBUTE_NORMAL,
-                             nullptr);
+    wchar_t tmp_path[kReplayTempPathCapacity] = {};
+    HANDLE h = INVALID_HANDLE_VALUE;
+    DWORD create_error = ERROR_FILE_EXISTS;
+    for (u32 attempt = 0; attempt < 16u; ++attempt) {
+        if (!MakeAtomicTempPath(file_path, tmp_path, kReplayTempPathCapacity)) {
+            return ACS_ERR(IO, kSub_PathTooLong,
+                           "FReplayDirector::TrySaveReplay: file path too long for atomic suffix");
+        }
+        h = ::CreateFileW(tmp_path, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                          FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_TEMPORARY, nullptr);
+        if (h != INVALID_HANDLE_VALUE) break;
+        create_error = ::GetLastError();
+        if (create_error != ERROR_FILE_EXISTS && create_error != ERROR_ALREADY_EXISTS) break;
+    }
     if (h == INVALID_HANDLE_VALUE) {
-        const DWORD err = ::GetLastError();
         return ACS_ERR_OS(IO, kSub_Io,
-                          "FReplayDirector::SaveReplay: CreateFileW (.tmp) failed", err);
+                          "FReplayDirector::TrySaveReplay: CreateFileW (unique temp) failed", create_error);
     }
 
     DWORD err = 0;
-    if (!WriteAll(h, body.Data(), static_cast<u64>(body.Size()), err)) {
+    if (!WriteAll(h, body.Data(), total_size, err)) {
         ::CloseHandle(h);
-        ::DeleteFileW(tmp_path);  // 失敗した tmp は残さない (best-effort)
+        ::DeleteFileW(tmp_path);
         return ACS_ERR_OS(IO, kSub_Io,
-                          "FReplayDirector::SaveReplay: WriteFile (.tmp) failed", err);
+                          "FReplayDirector::TrySaveReplay: WriteFile (temp) failed", err);
     }
-
-    ::FlushFileBuffers(h);
+    if (!::FlushFileBuffers(h)) {
+        const DWORD flush_error = ::GetLastError();
+        ::CloseHandle(h);
+        ::DeleteFileW(tmp_path);
+        return ACS_ERR_OS(IO, kSub_FlushFailed,
+                          "FReplayDirector::TrySaveReplay: FlushFileBuffers (temp) failed", flush_error);
+    }
     if (!::CloseHandle(h)) {
         const DWORD close_err = ::GetLastError();
         ::DeleteFileW(tmp_path);
         return ACS_ERR_OS(IO, kSub_Io,
-                          "FReplayDirector::SaveReplay: CloseHandle (.tmp) failed", close_err);
+                          "FReplayDirector::TrySaveReplay: CloseHandle (temp) failed", close_err);
     }
 
-    // ---- atomic rename: tmp → 本パス ------------------------------------
     if (!::MoveFileExW(tmp_path, file_path,
                        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        const DWORD move_err = ::GetLastError();
-        ::DeleteFileW(tmp_path);
-        return ACS_ERR_OS(IO, kSub_Io,
-                          "FReplayDirector::SaveReplay: MoveFileExW (rename) failed", move_err);
+        DWORD move_error = ::GetLastError();
+        if (!TryPosixAtomicReplace(tmp_path, file_path, move_error)) {
+            ::DeleteFileW(tmp_path);
+            return ACS_ERR_OS(IO, kSub_AtomicReplaceFailed,
+                              "FReplayDirector::TrySaveReplay: atomic replace failed", move_error);
+        }
     }
     return Ok();
 }
 
 /** container を全読みして magic/version/CRC を検証し、metadata と source blob を復元する。 */
 TResult<void> FReplayDirector::LoadReplay(const wchar_t* file_path) noexcept {
+    return TryLoadReplay(file_path);
+}
+
+/** file snapshotを全検証・stageし、成功時だけdirector stateへcommitする。 */
+TResult<void> FReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_NullPath,
-                       "FReplayDirector::LoadReplay: file_path is null");
+                       "FReplayDirector::TryLoadReplay: file_path is null");
+    }
+    if (!IsValidReplayPath(file_path)) {
+        return ACS_ERR(IO, kSub_PathTooLong,
+                       "FReplayDirector::TryLoadReplay: path is empty, unterminated, or too long");
     }
 
-    // ---- ファイルを開く (FSaveArchive.cpp と同流儀) ---------------------
     HANDLE h = ::CreateFileW(file_path,
                              GENERIC_READ,
-                             FILE_SHARE_READ,
+                             FILE_SHARE_READ | FILE_SHARE_DELETE,
                              nullptr,
                              OPEN_EXISTING,
                              FILE_ATTRIBUTE_NORMAL,
@@ -613,7 +860,7 @@ TResult<void> FReplayDirector::LoadReplay(const wchar_t* file_path) noexcept {
     if (h == INVALID_HANDLE_VALUE) {
         const DWORD err = ::GetLastError();
         return ACS_ERR_OS(IO, kSub_Io,
-                          "FReplayDirector::LoadReplay: CreateFileW failed", err);
+                          "FReplayDirector::TryLoadReplay: CreateFileW failed", err);
     }
 
     LARGE_INTEGER size_li{};
@@ -621,163 +868,214 @@ TResult<void> FReplayDirector::LoadReplay(const wchar_t* file_path) noexcept {
         const DWORD err = ::GetLastError();
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, kSub_Io,
-                          "FReplayDirector::LoadReplay: GetFileSizeEx failed", err);
+                          "FReplayDirector::TryLoadReplay: GetFileSizeEx failed", err);
+    }
+    if (size_li.QuadPart < 0) {
+        ::CloseHandle(h);
+        return ACS_ERR(IO, kSub_BadSize,
+                       "FReplayDirector::TryLoadReplay: negative file size");
     }
     const u64 size_u64 = static_cast<u64>(size_li.QuadPart);
-    // 最小サイズ = magic(4) + version(4) + seed(8) + timestamp(8) + duration(4)
-    //            + 4 文字列 len(4*4) + 2 blob size(4*2) + crc(4) = 56 B。
-    constexpr u64 kMinContainerBytes = 56ull;
-    if (size_u64 < kMinContainerBytes) {
+    if (size_u64 < kMinimumContainerBytes) {
         ::CloseHandle(h);
         return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::LoadReplay: file smaller than minimal container");
+                       "FReplayDirector::TryLoadReplay: file smaller than minimal container");
     }
-    if (size_u64 > kMaxContainerBytes) {
+    if (size_u64 > kReplayMaximumContainerBytes) {
         ::CloseHandle(h);
-        return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::LoadReplay: container exceeds 256 MiB sanity limit");
+        return ACS_ERR(IO, kSub_LimitExceeded,
+                       "FReplayDirector::TryLoadReplay: container exceeds the product limit");
     }
 
-    // ---- 全読み込み -----------------------------------------------------
-    const usize buf_size = static_cast<usize>(size_u64);
-    FAllocator& alloc    = DefaultAllocator();
-    void* raw = alloc.Alloc(buf_size, alignof(u8), FSourceLoc::Current());
-    if (raw == nullptr) {
+    FProcessHeapBuffer file_storage(size_u64);
+    if (file_storage.Data() == nullptr) {
         ::CloseHandle(h);
         return ACS_ERR(Memory, kSub_Oom,
-                       "FReplayDirector::LoadReplay: failed to allocate read buffer");
+                       "FReplayDirector::TryLoadReplay: failed to allocate file snapshot");
     }
-    u8* buf = static_cast<u8*>(raw);
+    u8* buf = static_cast<u8*>(file_storage.Data());
 
     DWORD err = 0;
     if (!ReadAll(h, buf, size_u64, err)) {
-        alloc.Free(raw);
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, kSub_Io,
-                          "FReplayDirector::LoadReplay: ReadFile failed", err);
+                          "FReplayDirector::TryLoadReplay: ReadFile failed", err);
     }
-    ::CloseHandle(h);
+    LARGE_INTEGER final_size{};
+    if (!::GetFileSizeEx(h, &final_size)) {
+        const DWORD final_size_error = ::GetLastError();
+        ::CloseHandle(h);
+        return ACS_ERR_OS(IO, kSub_Io,
+                          "FReplayDirector::TryLoadReplay: final GetFileSizeEx failed", final_size_error);
+    }
+    u8 extra_byte = 0;
+    DWORD extra_count = 0;
+    const BOOL eof_probe = ::ReadFile(h, &extra_byte, 1u, &extra_count, nullptr);
+    if (!eof_probe) {
+        const DWORD probe_error = ::GetLastError();
+        ::CloseHandle(h);
+        return ACS_ERR_OS(IO, kSub_Io,
+                          "FReplayDirector::TryLoadReplay: EOF probe failed", probe_error);
+    }
+    if (final_size.QuadPart != size_li.QuadPart || extra_count != 0) {
+        ::CloseHandle(h);
+        return ACS_ERR(IO, kSub_BadSize,
+                       "FReplayDirector::TryLoadReplay: file size changed during snapshot read");
+    }
+    if (!::CloseHandle(h)) {
+        return ACS_ERR_OS(IO, kSub_Io,
+                          "FReplayDirector::TryLoadReplay: CloseHandle failed", ::GetLastError());
+    }
 
-    // ---- magic 検証 -----------------------------------------------------
     if (MemCmp(buf, kReplayMagic, sizeof(kReplayMagic)) != 0) {
-        alloc.Free(raw);
         return ACS_ERR(IO, kSub_BadMagic,
-                       "FReplayDirector::LoadReplay: magic mismatch (not an ACRP container)");
+                       "FReplayDirector::TryLoadReplay: magic mismatch");
     }
-
-    // ---- version 検証 ---------------------------------------------------
     const u32 version = ReadU32LE(buf + 4);
     if (version != kReplayVersion) {
-        alloc.Free(raw);
         return ACS_ERR(IO, kSub_BadVersion,
-                       "FReplayDirector::LoadReplay: unsupported container version");
+                       "FReplayDirector::TryLoadReplay: unsupported container version");
     }
 
-    // ---- CRC32 検証 (footer 4B を除いた body 全体) -----------------------
     const u64 body_size = size_u64 - kCrcFooterSize;
     const u32 actual_crc = ComputeCrc32(buf, body_size);
     const u32 stored_crc = ReadU32LE(buf + body_size);
     if (actual_crc != stored_crc) {
-        alloc.Free(raw);
         return ACS_ERR(IO, kSub_BadCrc,
-                       "FReplayDirector::LoadReplay: CRC32 mismatch (corrupt or tampered)");
+                       "FReplayDirector::TryLoadReplay: CRC32 mismatch");
     }
 
-    // ---- bounded reader で body を順に parse ----------------------------
-    // off は読み出しカーソル。limit = body_size (footer は読まない)。各読み出し前に
-    // 残量を検査し、不足なら kSub_BadSize で打ち切る (破損 container 防御)。
-    u64 off = sizeof(kReplayMagic) + sizeof(u32);  // magic + version の直後
+    u64 off = sizeof(kReplayMagic) + sizeof(u32);
     const u64 limit = body_size;
-
-    auto need = [&](u64 n) noexcept -> bool { return off + n <= limit; };
-
-    // 数値 metadata
+    const auto need = [&](u64 count) noexcept -> bool {
+        return off <= limit && count <= limit - off;
+    };
     if (!need(8 + 8 + 4)) {
-        alloc.Free(raw);
         return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::LoadReplay: truncated metadata header");
+                       "FReplayDirector::TryLoadReplay: truncated numeric metadata");
     }
     const u64 seed           = ReadU64LE(buf + off); off += 8;
     const u64 timestamp      = ReadU64LE(buf + off); off += 8;
     const u32 duration_ticks = ReadU32LE(buf + off); off += 4;
 
-    // 文字列 metadata (len-prefixed) を director 所有バッファへ復元する内部 helper。
-    // 成功で true、サイズ矛盾 / 上限超過で false。
-    auto read_string = [&](FString& owned) noexcept -> bool {
-        if (!need(sizeof(u32))) return false;
+    FString game_version;
+    FString level_id;
+    FString player_name;
+    FString checksum;
+    const auto read_string = [&](FString& owned, u32 maximum, bool checksum_field) noexcept -> u16 {
+        if (!need(sizeof(u32))) return kSub_BadSize;
         const u32 len = ReadU32LE(buf + off);
         off += sizeof(u32);
-        if (len > kMaxStringLen) return false;
-        if (!need(len)) return false;
-        owned.Clear();
+        if (len > maximum) return kSub_BadMetadata;
+        if (!need(len)) return kSub_BadSize;
+        for (u32 i = 0; i < len; ++i) {
+            if (buf[off + i] == 0) return kSub_BadMetadata;
+        }
+        if (checksum_field &&
+            !IsCanonicalChecksum(reinterpret_cast<const char*>(buf + off), len)) {
+            return kSub_BadMetadata;
+        }
         if (len > 0) {
-            owned.Append(FStringView(reinterpret_cast<const char*>(buf + off), len));
+            if (!owned.TryAppend(FStringView(reinterpret_cast<const char*>(buf + off), len))) return kSub_Oom;
         }
         off += len;
-        return true;
+        return 0;
     };
 
-    if (!read_string(m_GameVersionOwned) ||
-        !read_string(m_LevelIdOwned) ||
-        !read_string(m_PlayerNameOwned) ||
-        !read_string(m_ChecksumHexOwned)) {
-        alloc.Free(raw);
-        return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::LoadReplay: truncated / oversized metadata string");
+    u16 string_error = read_string(game_version, kReplayMaximumGameVersionBytes, false);
+    if (string_error == 0) string_error = read_string(level_id, kReplayMaximumLevelIdBytes, false);
+    if (string_error == 0) string_error = read_string(player_name, kReplayMaximumPlayerNameBytes, false);
+    if (string_error == 0) string_error = read_string(checksum, kReplayChecksumHexBytes, true);
+    if (string_error != 0) {
+        if (string_error == kSub_Oom) {
+            return ACS_ERR(Memory, kSub_Oom,
+                           "FReplayDirector::TryLoadReplay: metadata string allocation failed");
+        }
+        return ACS_ERR(IO, string_error,
+                       "FReplayDirector::TryLoadReplay: invalid metadata string");
     }
 
-    // ---- 2 blob を読み出す ----------------------------------------------
     if (!need(sizeof(u32))) {
-        alloc.Free(raw);
         return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::LoadReplay: truncated input_blob size");
+                       "FReplayDirector::TryLoadReplay: truncated recorder blob size");
     }
     const u32 input_blob_size = ReadU32LE(buf + off);
     off += sizeof(u32);
+    if (input_blob_size > kReplayMaximumSourceBlobBytes) {
+        return ACS_ERR(IO, kSub_LimitExceeded,
+                       "FReplayDirector::TryLoadReplay: recorder blob exceeds the limit");
+    }
     if (!need(input_blob_size)) {
-        alloc.Free(raw);
         return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::LoadReplay: input_blob exceeds container");
+                       "FReplayDirector::TryLoadReplay: recorder blob exceeds container");
     }
     const u8* input_blob_ptr = buf + off;
     off += input_blob_size;
 
     if (!need(sizeof(u32))) {
-        alloc.Free(raw);
         return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::LoadReplay: truncated lockstep_blob size");
+                       "FReplayDirector::TryLoadReplay: truncated lockstep blob size");
     }
     const u32 lockstep_blob_size = ReadU32LE(buf + off);
     off += sizeof(u32);
+    if (lockstep_blob_size > kReplayMaximumSourceBlobBytes) {
+        return ACS_ERR(IO, kSub_LimitExceeded,
+                       "FReplayDirector::TryLoadReplay: lockstep blob exceeds the limit");
+    }
     if (!need(lockstep_blob_size)) {
-        alloc.Free(raw);
         return ACS_ERR(IO, kSub_BadSize,
-                       "FReplayDirector::LoadReplay: lockstep_blob exceeds container");
+                       "FReplayDirector::TryLoadReplay: lockstep blob exceeds container");
     }
     const u8* lockstep_blob_ptr = buf + off;
     off += lockstep_blob_size;
-
-    // ---- 注入済み source に blob を流す ---------------------------------
-    // source 未注入の側は blob を読み飛ばす (container は valid)。LoadFromBuffer の
-    // Err はそのまま伝搬する (破損 blob は復元失敗として呼出側に返す)。
-    if (m_Recorder != nullptr && input_blob_size > 0) {
-        TResult<void> r = m_Recorder->LoadFromBuffer(input_blob_ptr, input_blob_size);
-        if (r.IsErr()) {
-            alloc.Free(raw);
-            return r.Error();
-        }
+    if (off != limit) {
+        return ACS_ERR(IO, kSub_BadSize,
+                       "FReplayDirector::TryLoadReplay: trailing bytes before CRC footer");
     }
-    if (m_Lockstep != nullptr && lockstep_blob_size > 0) {
-        TResult<void> r = m_Lockstep->LoadFromBuffer(lockstep_blob_ptr, lockstep_blob_size);
-        if (r.IsErr()) {
-            alloc.Free(raw);
-            return r.Error();
-        }
+    if (!ValidateSourceBlob(input_blob_ptr, input_blob_size, true) ||
+        !ValidateSourceBlob(lockstep_blob_ptr, lockstep_blob_size, false)) {
+        return ACS_ERR(IO, kSub_BadSourceBlob,
+                       "FReplayDirector::TryLoadReplay: inner source blob is invalid");
     }
 
-    // ---- metadata を確定 (文字列は m_*Owned の NUL 終端 Data() を指す) ----
-    // FString::Data() は常に NUL 終端なので const char* として安全。空文字列も
-    // "" を指す有効ポインタを返すため、null ではなく空文字列として復元される。
+    const bool commit_recorder = m_Recorder != nullptr && input_blob_size > 0;
+    const bool commit_lockstep = m_Lockstep != nullptr && lockstep_blob_size > 0;
+    FAllocator& recorder_allocator =
+        m_Recorder != nullptr ? *m_Recorder->m_Samples.GetAllocator() : DefaultAllocator();
+    FAllocator& lockstep_allocator =
+        m_Lockstep != nullptr ? *m_Lockstep->m_Frames.GetAllocator() : DefaultAllocator();
+    FInputRecorder staged_recorder(recorder_allocator);
+    FLockstep staged_lockstep(lockstep_allocator);
+    if (commit_recorder) {
+        TResult<void> source_result = staged_recorder.TryLoadFromBuffer(input_blob_ptr, input_blob_size);
+        if (source_result.IsErr()) {
+            if (source_result.Error().subcode == FInputRecorder::kSub_Oom) {
+                return ACS_ERR(Memory, kSub_Oom,
+                               "FReplayDirector::TryLoadReplay: recorder staging allocation failed");
+            }
+            return ACS_ERR(IO, kSub_BadSourceBlob,
+                           "FReplayDirector::TryLoadReplay: recorder rejected a prevalidated blob");
+        }
+    }
+    if (commit_lockstep) {
+        TResult<void> source_result = staged_lockstep.TryLoadFromBuffer(lockstep_blob_ptr, lockstep_blob_size);
+        if (source_result.IsErr()) {
+            if (source_result.Error().subcode == FLockstep::kSub_Oom) {
+                return ACS_ERR(Memory, kSub_Oom,
+                               "FReplayDirector::TryLoadReplay: lockstep staging allocation failed");
+            }
+            return ACS_ERR(IO, kSub_BadSourceBlob,
+                           "FReplayDirector::TryLoadReplay: lockstep rejected a prevalidated blob");
+        }
+    }
+
+    if (commit_recorder) m_Recorder->SwapLoadedState(staged_recorder);
+    if (commit_lockstep) m_Lockstep->SwapLoadedState(staged_lockstep);
+
+    m_GameVersionOwned = Move(game_version);
+    m_LevelIdOwned = Move(level_id);
+    m_PlayerNameOwned = Move(player_name);
+    m_ChecksumHexOwned = Move(checksum);
     m_Metadata.seed           = seed;
     m_Metadata.timestamp      = timestamp;
     m_Metadata.duration_ticks = duration_ticks;
@@ -785,10 +1083,6 @@ TResult<void> FReplayDirector::LoadReplay(const wchar_t* file_path) noexcept {
     m_Metadata.level_id       = m_LevelIdOwned.Data();
     m_Metadata.player_name    = m_PlayerNameOwned.Data();
     m_Metadata.checksum_hex   = m_ChecksumHexOwned.Data();
-
-    alloc.Free(raw);
-
-    // ---- 再生待ち状態へ -------------------------------------------------
     m_Mode             = EReplayMode::Idle;
     m_CurrentTick     = 0;
     m_TickAccumulator = 0.0f;

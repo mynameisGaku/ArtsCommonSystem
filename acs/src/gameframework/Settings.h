@@ -28,7 +28,7 @@
 //     長寿命バッファ前提)。短命バッファ渡しが dangling になる点は要注意。
 //   ・**同 key の SetX は上書き**: 同名 key が既に存在すれば値と kind を上書きする。
 //     ユーザーが UI で「音量」を動かす度に SetF32() が呼ばれる典型ケースに合わせる。
-//   ・**線形検索**: settings 件数は通常 10〜200 程度なので TArray<Entry> の線形走査で
+//   ・**線形検索**: settings 件数は通常 10〜200 程度なので TArray<FEntry> の線形走査で
 //     十分。ハッシュテーブル化は計測してから検討。
 //   ・**コピー / ムーブ禁止**: settings は通常 1 セッションに 1 オブジェクト
 //     (グローバル所有) で運用される。誤って値渡しされて分裂すると同期ずれを
@@ -37,14 +37,14 @@
 //
 // Save / Load (実装済み、round-trip 検証済み):
 //   ・INI 風 `<tag>:<key>=<value>` テキスト (UTF-8 + LF) で読み書きする。Save は
-//     FSaveArchive と同じ atomic write (`.tmp` → MoveFileExW rename) で破損を防ぐ。
+//     CREATE_NEW の一意な一時ファイルから atomic replace して破損を防ぐ。
 //   ・型は **prefix tag** (`f:`, `i:`, `b:`, `s:`) でディスクに残し、Load 時に復元する。
 //
 // 範囲外:
 //   ・配列値 / FVec2 / FVec3 / FColor 等の複合型 (現状は 4 プリミティブのみ)
 //   ・change notification (オブザーバ pattern / callback)
 //   ・section / namespace ツリー
-//   ・暗号化 / 改竄検知 (Pillar S Storefront / FAssetPack 側で扱う)
+//   ・暗号化 / 改竄検知 (Pillar S Storefront / AssetPack 側で扱う)
 //   ・schema migration (バージョン番号の埋め込みと変換)
 #pragma once
 
@@ -76,8 +76,61 @@ enum class ESettingKind : u8 {
     Bool,
 
     /** string (const char*) 値。 */
-    FString,
+    String,
 };
+
+/**
+ * checked API が返す設定永続化エラー。
+ *
+ * 数値は診断契約の一部である。既存値を再利用せず、新しい値は末尾へ追加する。
+ */
+enum class ESettingsPersistenceError : u16 {
+    None = 0,
+    FileOpenFailed = 10,
+    FileTooLarge = 11,
+    NullPath = 12,
+    AllocationFailure = 13,
+    FileSizeFailed = 14,
+    FileReadFailed = 15,
+    FileCloseFailed = 16,
+    EmbeddedNul = 17,
+    LineTooLong = 18,
+    EntryLimitExceeded = 19,
+    MalformedRecord = 20,
+    UnknownType = 21,
+    EmptyKey = 22,
+    KeyTooLong = 23,
+    ValueTooLong = 24,
+    InvalidInteger = 25,
+    InvalidFloat = 26,
+    NonFiniteFloat = 27,
+    InvalidBool = 28,
+    DuplicateKey = 29,
+    InvalidInMemoryEntry = 30,
+    UnrepresentableText = 31,
+    OutputTooLarge = 32,
+    PathTooLong = 33,
+    TemporaryFileExhausted = 34,
+    FileWriteFailed = 35,
+    FileFlushFailed = 36,
+    AtomicReplaceFailed = 37,
+};
+
+/** TryLoad/TrySave が返す、安定した allocation-free の結果。 */
+struct FSettingsPersistenceResult {
+    ESettingsPersistenceError Error = ESettingsPersistenceError::None;
+    u32 Line = 0;
+    u32 Entries = 0;
+    u32 OsError = 0;
+
+    bool Succeeded() const noexcept {
+        return Error == ESettingsPersistenceError::None;
+    }
+    explicit operator bool() const noexcept { return Succeeded(); }
+};
+
+/** ESettingsPersistenceError に対応する安定した診断名。 */
+const char* SettingsPersistenceErrorName(ESettingsPersistenceError error) noexcept;
 
 /**
  * 型付き key-value でゲーム設定値を保持する小型ストア。
@@ -91,6 +144,21 @@ enum class ESettingKind : u8 {
  */
 class FSettings {
 public:
+    /** 受け入れ・出力可能な settings document の最大サイズ (4 MiB)。 */
+    static constexpr usize kMaxPersistenceBytes = 4u * 1024u * 1024u;
+
+    /** 1 document から受け入れ可能な record の最大数。 */
+    static constexpr u32 kMaxPersistenceEntries = 4096u;
+
+    /** LF と任意の末尾 CR を除く、物理行の最大サイズ。 */
+    static constexpr usize kMaxPersistenceLineBytes = 4096u;
+
+    /** key の最大バイト数。 */
+    static constexpr usize kMaxPersistenceKeyBytes = 255u;
+
+    /** string value の最大バイト数。 */
+    static constexpr usize kMaxPersistenceStringBytes = 4096u;
+
     /** 空のストアを構築する (エントリなし)。 */
     FSettings()  noexcept = default;
 
@@ -208,13 +276,29 @@ public:
     u32  Count () const noexcept;
 
     /**
+     * 全 entry を検証し、出力先 file を atomic に置き換える。
+     *
+     * 同一 directory の CREATE_NEW temporary file を使う。temporary 名の衝突時は
+     * 再試行し、どの失敗でも既存の出力先を変更しない。
+     */
+    FSettingsPersistenceResult TrySave(const wchar_t* file_path) noexcept;
+
+    /**
+     * この object を置き換える前に settings file 全体を検証する。
+     *
+     * どの失敗でも entry、所有 string、GetString が以前返した全 pointer は変更しない。
+     * 重複 key は拒否する。
+     */
+    FSettingsPersistenceResult TryLoad(const wchar_t* file_path) noexcept;
+
+    /**
      * 全エントリを INI 風テキストに直列化し atomic write で保存する。
      *
      * @details
      * `<tag>:<key>=<value>` 形式 (UTF-8 / LF) で書き出す。tag は型を round-trip
-     * させる 1 文字 prefix で、f: f32 / i: i32 / b: bool / s: string。FSaveArchive と
-     * 同じ atomic write (`.tmp` に書いて MoveFileExW で rename) を使い、途中失敗で
-     * 既存ファイルが破損しないようにする。
+     * させる 1 文字 prefix で、f: f32 / i: i32 / b: bool / s: string。TrySave の
+     * checked validation と atomic replace を使い、途中失敗で既存ファイルが破損
+     * しないようにする。
      * @param file_path 保存先パス (nullptr はエラー)。
      * @return 成功なら空の TResult、IO 失敗ならエラー。
      */
@@ -241,7 +325,7 @@ private:
      * union で 4 種類の値を保持し、kind で実効型を区別する。key / string 値は非所有
      * const char* (寿命は呼び出し側保証)。
      */
-    struct Entry {
+    struct FEntry {
         /** 設定キー (非所有 const char*)。 */
         const char* key  = nullptr;
 
@@ -253,7 +337,7 @@ private:
          *
          * @details 実効的にどのメンバが有効かは外側の kind が示す。
          */
-        union Value {
+        union FValue {
             /** f32 値 (kind == F32)。 */
             f32         f;
 
@@ -267,7 +351,7 @@ private:
             const char* s;
 
             /** ゼロ初期化する既定コンストラクタ。 */
-            Value() noexcept : f(0.0f) {}
+            FValue() noexcept : f(0.0f) {}
         } value;
     };
 
@@ -285,10 +369,10 @@ private:
      * @param key 対象キー。
      * @return 既存または新規追加した entry への参照。
      */
-    Entry& UpsertEntry(const char* key) noexcept;
+    FEntry& UpsertEntry(const char* key) noexcept;
 
     /** 登録エントリの配列。 */
-    TArray<Entry> m_Entries;
+    TArray<FEntry> m_Entries;
 
     /**
      * Load() が複製した key / string 値の所有プール。

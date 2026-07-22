@@ -6,22 +6,22 @@
     <!-- ACS Editor — ダーク統一テーマ (色 + 全コントロールのテンプレート)  -->
     <!-- ============================================================= -->
 
-    <!-- パレット (UE5 5.x 流の «中立グレー» ダークテーマ。旧: 青みがかった blue-gray) -->
-    <Color x:Key="C.Win">#FF1B1B1B</Color>
-    <Color x:Key="C.Edge">#FF0F0F0F</Color>
-    <Color x:Key="C.Panel">#FF242424</Color>
-    <Color x:Key="C.Panel2">#FF2B2B2B</Color>
-    <Color x:Key="C.Ctrl">#FF353535</Color>
-    <Color x:Key="C.CtrlHover">#FF414141</Color>
-    <Color x:Key="C.CtrlPress">#FF2C2C2C</Color>
-    <Color x:Key="C.CtrlBorder">#FF3A3A3A</Color>
-    <Color x:Key="C.CtrlBorderHover">#FF4D4D4D</Color>
-    <Color x:Key="C.Accent">#FF2A8CE0</Color>
-    <Color x:Key="C.AccentDim">#552A8CE0</Color>
-    <Color x:Key="C.Text">#FFC8C8C8</Color>
-    <Color x:Key="C.TextDim">#FF8A8A8A</Color>
-    <Color x:Key="C.Scroll">#FF3C3C3C</Color>
-    <Color x:Key="C.ScrollHover">#FF4F4F4F</Color>
+    <!-- Neutral, low-chroma palette. Large surfaces stay quiet; state is carried by one accent. -->
+    <Color x:Key="C.Win">#FF17191D</Color>
+    <Color x:Key="C.Edge">#FF0D0F12</Color>
+    <Color x:Key="C.Panel">#FF1E2126</Color>
+    <Color x:Key="C.Panel2">#FF24282E</Color>
+    <Color x:Key="C.Ctrl">#FF2A2F36</Color>
+    <Color x:Key="C.CtrlHover">#FF343A43</Color>
+    <Color x:Key="C.CtrlPress">#FF20242A</Color>
+    <Color x:Key="C.CtrlBorder">#FF3A414B</Color>
+    <Color x:Key="C.CtrlBorderHover">#FF596473</Color>
+    <Color x:Key="C.Accent">#FF4C9DEB</Color>
+    <Color x:Key="C.AccentDim">#334C9DEB</Color>
+    <Color x:Key="C.Text">#FFD2D6DC</Color>
+    <Color x:Key="C.TextDim">#FF8D949E</Color>
+    <Color x:Key="C.Scroll">#FF3A414A</Color>
+    <Color x:Key="C.ScrollHover">#FF515B68</Color>
 
     <SolidColorBrush x:Key="Win"             Color="{StaticResource C.Win}"/>
     <SolidColorBrush x:Key="Edge"            Color="{StaticResource C.Edge}"/>
@@ -38,14 +38,14 @@
     <SolidColorBrush x:Key="TextDim"         Color="{StaticResource C.TextDim}"/>
     <SolidColorBrush x:Key="ScrollThumb"     Color="{StaticResource C.Scroll}"/>
     <SolidColorBrush x:Key="ScrollThumbHover" Color="{StaticResource C.ScrollHover}"/>
-    <SolidColorBrush x:Key="Hairline" Color="#FF313131"/>   <!-- 区切り線 (中立グレー hairline) -->
-    <SolidColorBrush x:Key="HeaderBg" Color="#FF2B2B2B"/>   <!-- パネル見出しバーの背景 -->
-    <SolidColorBrush x:Key="SectionFg" Color="#FF8A8A8A"/>  <!-- セクション見出しの文字 -->
-    <SolidColorBrush x:Key="OkFg"   Color="#FF6FCF7C"/>     <!-- 肯定アクション (Play/Add/+) = 緑 -->
-    <SolidColorBrush x:Key="InfoFg" Color="#FF4FA3E3"/>     <!-- 情報アクション (Run/編集) = 青 -->
-    <SolidColorBrush x:Key="WarnFg" Color="#FFE06A6A"/>     <!-- 破壊アクション (Delete/✕) = 赤 -->
-    <SolidColorBrush x:Key="LiveFg" Color="#FF6FCF7C"/>     <!-- ライブ値・成功 = 緑 -->
-    <SolidColorBrush x:Key="LinkFg" Color="#FF7FB3D9"/>     <!-- 補助アクション (Duplicate 等) -->
+    <SolidColorBrush x:Key="Hairline" Color="#FF30353D"/>
+    <SolidColorBrush x:Key="HeaderBg" Color="#FF20242A"/>
+    <SolidColorBrush x:Key="SectionFg" Color="#FF9299A3"/>
+    <SolidColorBrush x:Key="OkFg"   Color="#FF78C891"/>
+    <SolidColorBrush x:Key="InfoFg" Color="#FF67ADEC"/>
+    <SolidColorBrush x:Key="WarnFg" Color="#FFE17272"/>
+    <SolidColorBrush x:Key="LiveFg" Color="#FF78C891"/>
+    <SolidColorBrush x:Key="LinkFg" Color="#FF8AB7DE"/>
 
     <!-- ============ ScrollBar (細身・暗色・丸み) ============ -->
     <Style x:Key="ScrollThumbStyle" TargetType="Thumb">
@@ -184,9 +184,9 @@
                             <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource CtrlBorderHover}"/>
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="b" Property="Background" Value="{StaticResource Accent}"/>
+                            <Setter TargetName="b" Property="Background" Value="{StaticResource AccentDim}"/>
                             <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Accent}"/>
-                            <Setter Property="Foreground" Value="#FF0E1116"/>
+                            <Setter Property="Foreground" Value="#FFF1F6FB"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.42"/>
@@ -433,7 +433,7 @@
                              集合メンバ (SelectionHighlight.IsInSet → Background) は MainWindow 側 Style が
                              TreeViewItem.Background を淡色に設定し、TemplateBinding 経由で row に出る。 -->
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="row" Property="Background" Value="#883C9AE8"/>
+                            <Setter TargetName="row" Property="Background" Value="#554C9DEB"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -629,14 +629,113 @@
         <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
 
+    <!-- Compact editor chrome. These styles deliberately avoid oversized cards and decorative gradients. -->
+    <Style x:Key="ToolbarButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="Height" Value="27"/>
+        <Setter Property="MinWidth" Value="52"/>
+        <Setter Property="Padding" Value="9,2"/>
+        <Setter Property="Margin" Value="1,0"/>
+        <Setter Property="FontSize" Value="11.5"/>
+        <Setter Property="FontWeight" Value="Normal"/>
+    </Style>
+    <Style x:Key="ToolbarToggle" TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
+        <Setter Property="Height" Value="27"/>
+        <Setter Property="MinWidth" Value="52"/>
+        <Setter Property="Padding" Value="9,2"/>
+        <Setter Property="Margin" Value="1,0"/>
+        <Setter Property="FontSize" Value="11.5"/>
+    </Style>
+    <Style x:Key="PlayToolbarButton" TargetType="Button" BasedOn="{StaticResource ToolbarButton}">
+        <Setter Property="MinWidth" Value="64"/>
+        <Setter Property="Foreground" Value="{StaticResource OkFg}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style x:Key="ViewportTab" TargetType="ToggleButton" BasedOn="{StaticResource ToolbarToggle}">
+        <Setter Property="Height" Value="29"/>
+        <Setter Property="MinWidth" Value="72"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0,0,0,2"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="Padding" Value="11,2"/>
+    </Style>
+    <Style x:Key="PanelToolButton" TargetType="Button" BasedOn="{StaticResource ToolbarButton}">
+        <Setter Property="Height" Value="23"/>
+        <Setter Property="MinWidth" Value="24"/>
+        <Setter Property="Padding" Value="6,1"/>
+        <Setter Property="Margin" Value="1"/>
+        <Setter Property="FontSize" Value="11"/>
+    </Style>
+    <!-- Unreal-style Details categories: a dense full-width header with a stable disclosure arrow. -->
+    <Style x:Key="DetailsExpander" TargetType="Expander">
+        <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        <Setter Property="Margin" Value="0,0,0,4"/>
+        <Setter Property="IsExpanded" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Expander">
+                    <Border BorderBrush="{StaticResource Hairline}" BorderThickness="1" Background="{StaticResource Panel}">
+                        <DockPanel LastChildFill="True">
+                            <ToggleButton x:Name="DetailsHeader" DockPanel.Dock="Top"
+                                          IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                          Background="{StaticResource HeaderBg}" BorderThickness="0"
+                                          HorizontalContentAlignment="Stretch" Padding="7,5">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="15"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Path x:Name="DetailsArrow" Grid.Column="0" Data="M 1,0 L 6,5 L 1,10 Z"
+                                          Fill="{StaticResource TextDim}" HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
+                                    <ContentPresenter Grid.Column="1" Content="{TemplateBinding Header}"
+                                                      VerticalAlignment="Center"/>
+                                </Grid>
+                            </ToggleButton>
+                            <Border x:Name="DetailsBody" Padding="8,7,8,8" Background="{StaticResource Panel2}">
+                                <ContentPresenter ContentSource="Content"/>
+                            </Border>
+                        </DockPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsExpanded" Value="True">
+                            <Setter TargetName="DetailsArrow" Property="Data" Value="M 0,1 L 10,1 L 5,6 Z"/>
+                            <Setter TargetName="DetailsArrow" Property="Fill" Value="{StaticResource Text}"/>
+                        </Trigger>
+                        <Trigger Property="IsExpanded" Value="False">
+                            <Setter TargetName="DetailsBody" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="ComponentExpander" TargetType="Expander" BasedOn="{StaticResource DetailsExpander}">
+        <Setter Property="Margin" Value="0,0,0,5"/>
+    </Style>
+    <Style x:Key="ComponentBadge" TargetType="Border">
+        <Setter Property="Background" Value="#243FA4E8"/>
+        <Setter Property="BorderBrush" Value="#664FA3E3"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="5,1"/>
+        <Setter Property="Margin" Value="6,0,0,0"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style x:Key="StateLabel" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
+        <Setter Property="FontFamily" Value="Consolas"/>
+        <Setter Property="FontSize" Value="10.5"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
     <!-- ============ パネル/インスペクタ共通 (全ウィンドウで使う) ============ -->
     <!-- パネル見出しバー (Hierarchy / Inspector / Console / ブラックボード 等) -->
     <Style x:Key="PanelHeader" TargetType="TextBlock">
-        <Setter Property="Padding" Value="11,6"/>
+        <Setter Property="Padding" Value="10,6"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
-        <Setter Property="FontSize" Value="11"/>
-        <Setter Property="Foreground" Value="#FFA8A8A8"/>
+        <Setter Property="FontSize" Value="10.5"/>
+        <Setter Property="Foreground" Value="#FFB2B7BE"/>
         <Setter Property="Background" Value="{StaticResource HeaderBg}"/>
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
     </Style>
     <!-- セクション見出し (TRANSFORM / DISPLAY 等)。SectionHeader (ラベル+罫線) と組で使う。 -->
     <Style x:Key="Section" TargetType="TextBlock">

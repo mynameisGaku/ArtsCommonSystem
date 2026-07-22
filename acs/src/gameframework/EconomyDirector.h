@@ -2,8 +2,8 @@
 // GameFramework Pillar O — FEconomyDirector (in-game 通貨 + shop 管理)
 //
 // 通貨残高 (soft / premium) + 固定価格 shop アイテム + 取引履歴 (callback) を
-// まとめた小型マネージャ。FEntitlement / FSeasonPass と一緒に Pillar O の
-// 「ストア / LiveOps 系」三兄弟を構成する。FEntitlement は「持っているか」、
+// まとめた小型マネージャ。FEntitlementRegistry / FSeasonPass と一緒に Pillar O の
+// 「ストア / LiveOps 系」三兄弟を構成する。FEntitlementRegistry は「持っているか」、
 // FSeasonPass は「期間内に xp で進行」、FEconomyDirector は「通貨でアイテムを
 // 直接購入する」を担当する。
 //
@@ -11,24 +11,24 @@
 //   ・本クラスは **cosmetic only** を強く推奨する。装備性能 / ダメージ倍率 /
 //     獲得経験値ブースター等、コア体験に影響するアイテムを通貨で売る設計は
 //     pay-to-win に直結するため、ACS としては明示的に反対する立場
-//     (FEntitlement / FSeasonPass の方針を継承)。ShopItem::cosmetic_only は
+//     (FEntitlementRegistry / FSeasonPass の方針を継承)。FShopItem::cosmetic_only は
 //     「この商品が cosmetic に閉じている」ことを開発者が宣言するフラグであり、
 //     強制機構ではない (Manager は値を保存して照会できるようにするだけ)。
 //   ・**loot box (中身がランダムで対価が確率に依存する仕組み) は明示的に拒絶**:
 //     本 API には乱数要素を一切持たせず、すべて「払うと必ず指定の cosmetic が
 //     得られる、固定価格方式」に限定する。在庫 (stock_remaining) は限定販売の
 //     在庫管理であり、確率ガチャではない。
-//   ・**premium 通貨でゲームプレイ加速を売らない**: CurrencyDef::is_premium は
+//   ・**premium 通貨でゲームプレイ加速を売らない**: FCurrencyDef::is_premium は
 //     「リアル課金で得られる通貨か」のメタ情報 (UI で 「¥」 アイコン表示等の
 //     判定に使う) であり、premium 通貨で買えるアイテムも cosmetic_only に
 //     閉じることを推奨する。
 //
 // 想定する位置付け:
-//   ・Pillar O (FEntitlement) との違い:
-//     - FEntitlement は「DLC / FSeasonPass / 引換コード」等の永続権利フラグ。
+//   ・Pillar O (FEntitlementRegistry) との違い:
+//     - FEntitlementRegistry は「DLC / FSeasonPass / 引換コード」等の永続権利フラグ。
 //     - FEconomyDirector は「ゲーム内通貨で売買される消費財 / cosmetic」を扱う。
 //       購入結果として cosmetic を解放する場合は、PurchaseCallback で
-//       FEntitlement::Add() を呼ぶ橋渡しを呼出側で実装する想定。
+//       FEntitlementRegistry::Add() を呼ぶ橋渡しを呼出側で実装する想定。
 //   ・Pillar O (FSeasonPass) との違い:
 //     - FSeasonPass は xp ベースの tier 進行 (時間と遊びで貯まる)。
 //     - FEconomyDirector は通貨ベースの即時購入 (払えば即時取得)。
@@ -53,18 +53,18 @@
 //
 //   // 購入。
 //   if (ed.PurchaseItem("skin.knight_red")) {
-//       // 成功 → cosmetic 解放 (FEntitlement 側へ橋渡し)
+//       // 成功 → cosmetic 解放 (FEntitlementRegistry 側へ橋渡し)
 //   }
 //
 //   // (任意) 購入結果コールバック。
 //   ed.SetOnPurchaseCallback(&OnPurchase, user_data);
 //
 // 設計選択 (Pillar O):
-//   ・**通貨と残高は並行 TArray**: CurrencyDef を TArray<CurrencyDef> に、残高を
-//     TArray<u32> に同 index で 1:1 で持つ。FEntitlement の id 比較と同じく
+//   ・**通貨と残高は並行 TArray**: FCurrencyDef を TArray<FCurrencyDef> に、残高を
+//     TArray<u32> に同 index で 1:1 で持つ。FEntitlementRegistry の id 比較と同じく
 //     const char* per-byte 線形検索。通貨種別はゲーム 1 セッションで通常 2〜5、
 //     多くても 10 を超えない想定なので線形で十分。
-//   ・**ShopItem は単一 TArray**: 商品数は AAA でも 100〜500 程度のオーダー、
+//   ・**FShopItem は単一 TArray**: 商品数は AAA でも 100〜500 程度のオーダー、
 //     線形走査で十分。検索はすべて item_id 文字列。
 //   ・**所有しない const char***: id / display_name / currency_id すべて呼出側
 //     (= ゲームコード or リソースバンドル) が長寿命を保証する文字列リテラル想定。
@@ -82,7 +82,7 @@
 //     成功・失敗両方 (bool success) で通知し、UI の「購入失敗トースト」も
 //     コールバック側で出せるようにする。
 //   ・**重複登録は黙って弾く + WARN**: 同 id の 2 重 RegisterCurrency /
-//     RegisterItem は no-op (アセット二重ロード保護)。FEntitlement / FSeasonPass /
+//     RegisterItem は no-op (アセット二重ロード保護)。FEntitlementRegistry / FSeasonPass /
 //     FAchievementManager と同じパターン。
 //   ・**取引履歴は callback 経由のみ**: 履歴 TArray を内蔵してメモリを増やすより、
 //     呼出側 (= Analytics / Pillar T Community) でログ収集する設計。
@@ -101,8 +101,8 @@ namespace acs::game {
  *
  * @details id / display_name は所有しない const char* (文字列リテラル想定)。
  */
-struct CurrencyDef {
-    /** 通貨キー (ShopItem::currency_id から参照される。非所有)。 */
+struct FCurrencyDef {
+    /** 通貨キー (FShopItem::currency_id から参照される。非所有)。 */
     const char* id           = nullptr;
 
     /** UI 表示名 (非所有)。 */
@@ -117,7 +117,7 @@ struct CurrencyDef {
  *
  * @details id 系フィールドは所有しない const char* (文字列リテラル想定)。
  */
-struct ShopItem {
+struct FShopItem {
     /** 商品キー (購入 / 検索のキー。非所有)。 */
     const char* item_id         = nullptr;
 
@@ -182,7 +182,7 @@ public:
      * @details 同 id の重複登録は WARN を出して no-op、def.id == nullptr も no-op。
      * @param def 登録する通貨定義。
      */
-    void RegisterCurrency(const CurrencyDef& def) noexcept;
+    void RegisterCurrency(const FCurrencyDef& def) noexcept;
 
     /**
      * 指定通貨の残高を絶対値で設定する。
@@ -228,7 +228,7 @@ public:
      * currency_id が未登録でも登録自体は受理する (起動順序依存を緩めるため、購入時に判定する)。
      * @param item 登録する商品定義。
      */
-    void RegisterItem(const ShopItem& item) noexcept;
+    void RegisterItem(const FShopItem& item) noexcept;
 
     /**
      * 商品を購入する (残高・在庫・通貨登録をチェックし、成功時に deduct + stock-- + callback)。
@@ -249,7 +249,7 @@ public:
      * @param item_id 探す商品の item_id。
      * @return 見つかった商品 (未登録 / nullptr id は nullptr)。
      */
-    const ShopItem* FindItem(const char* item_id) const noexcept;
+    const FShopItem* FindItem(const char* item_id) const noexcept;
 
     /**
      * 登録済み商品の件数を返す。
@@ -265,7 +265,7 @@ public:
      * @param out_count 商品件数を書き出す先。
      * @return 商品配列の先頭ポインタ。
      */
-    const ShopItem* AllItems(u32& out_count) const noexcept;
+    const FShopItem* AllItems(u32& out_count) const noexcept;
 
     /**
      * 購入結果コールバックを設定する。
@@ -297,13 +297,13 @@ private:
     u32 FindItemSlot(const char* item_id) const noexcept;
 
     /** 通貨定義 (m_Balances と同 index で 1:1 対応)。 */
-    TArray<CurrencyDef> m_Currencies;
+    TArray<FCurrencyDef> m_Currencies;
 
     /** 通貨残高 (m_Currencies と同 index で 1:1 対応)。 */
     TArray<u32>         m_Balances;
 
     /** 商品定義。 */
-    TArray<ShopItem> m_Items;
+    TArray<FShopItem> m_Items;
 
     /** 購入コールバック (C 関数ポインタ。未設定は nullptr)。 */
     PurchaseCallback m_OnPurchase      = nullptr;

@@ -12,15 +12,15 @@ using namespace acs;
 
 namespace hellophysics2d {
 
-void PhysicsScene::Init(u32 screen_w, u32 screen_h, u32 initial_balls) noexcept {
+void FPhysicsScene::Init(u32 screen_w, u32 screen_h, u32 initial_balls) noexcept {
     SpawnRandomBalls(initial_balls, screen_w, screen_h);
 }
 
-void PhysicsScene::Update(f32 dt, u32 screen_w, u32 screen_h) noexcept {
-    if (Input::IsKeyPressed(EKey::Space)) m_BallCount = 0;
+void FPhysicsScene::Update(f32 dt, u32 screen_w, u32 screen_h) noexcept {
+    if (FInput::IsKeyPressed(EKey::Space)) m_BallCount = 0;
 
-    if (Input::IsMouseButtonPressed(EMouseButton::Left)) {
-        FVec2 mp = Input::MousePos();
+    if (FInput::IsMouseButtonPressed(EMouseButton::Left)) {
+        FVec2 mp = FInput::MousePos();
         SpawnBallAt(mp.x, mp.y);
     }
 
@@ -31,7 +31,7 @@ void PhysicsScene::Update(f32 dt, u32 screen_w, u32 screen_h) noexcept {
     const f32 sw = static_cast<f32>(screen_w);
     const f32 sh = static_cast<f32>(screen_h);
     for (u32 i = 0; i < m_BallCount; ++i) {
-        Ball& b = m_Balls[i];
+        FBall& b = m_Balls[i];
         b.vel.y += kGravity * dt;
         b.vel.x *= kDamping;
         b.vel.y *= kDamping;
@@ -47,10 +47,10 @@ void PhysicsScene::Update(f32 dt, u32 screen_w, u32 screen_h) noexcept {
     // 2. ボール間の衝突を解消（ペネトレーション + 反射）
     for (u32 i = 0; i < m_BallCount; ++i) {
         for (u32 j = i + 1; j < m_BallCount; ++j) {
-            Ball& a = m_Balls[i];
-            Ball& bb = m_Balls[j];
-            Circle ca{ a.pos, a.radius };
-            Circle cb{ bb.pos, bb.radius };
+            FBall& a = m_Balls[i];
+            FBall& bb = m_Balls[j];
+            FCircle ca{ a.pos, a.radius };
+            FCircle cb{ bb.pos, bb.radius };
             FVec2 push;
             if (Resolve(ca, cb, push)) {
                 // 等質量と仮定して半分ずつ押し出す
@@ -73,12 +73,12 @@ void PhysicsScene::Update(f32 dt, u32 screen_w, u32 screen_h) noexcept {
     }
 }
 
-void PhysicsScene::Render(FSpriteBatch& batch,
-                          Font& font,
+void FPhysicsScene::Render(FSpriteBatch& batch,
+                          FFont& font,
                           IRhiTexture& ball_tex,
                           f32 fps) noexcept {
     for (u32 i = 0; i < m_BallCount; ++i) {
-        const Ball& b = m_Balls[i];
+        const FBall& b = m_Balls[i];
         const f32 d = b.radius * 2.0f;
         batch.Draw(ball_tex, b.pos.x - b.radius, b.pos.y - b.radius, d, d,
                    FVec4{b.r, b.g, b.b, 0.95f});
@@ -96,7 +96,7 @@ void PhysicsScene::Render(FSpriteBatch& batch,
     }
 }
 
-void PhysicsScene::SpawnRandomBalls(u32 n, u32 screen_w, u32 screen_h) noexcept {
+void FPhysicsScene::SpawnRandomBalls(u32 n, u32 screen_w, u32 screen_h) noexcept {
     const f32 sw = static_cast<f32>(screen_w);
     const f32 sh = static_cast<f32>(screen_h);
     for (u32 i = 0; i < n; ++i) {
@@ -104,9 +104,9 @@ void PhysicsScene::SpawnRandomBalls(u32 n, u32 screen_w, u32 screen_h) noexcept 
     }
 }
 
-void PhysicsScene::SpawnBallAt(f32 x, f32 y) noexcept {
+void FPhysicsScene::SpawnBallAt(f32 x, f32 y) noexcept {
     if (m_BallCount >= kMaxBalls) return;
-    Ball& b = m_Balls[m_BallCount++];
+    FBall& b = m_Balls[m_BallCount++];
     b.pos = { x, y };
     b.vel = { (RandF() - 0.5f) * 600.0f, (RandF() - 0.5f) * 400.0f };
     b.radius = 12.0f + RandF() * 24.0f;
@@ -115,7 +115,7 @@ void PhysicsScene::SpawnBallAt(f32 x, f32 y) noexcept {
     b.b = 0.4f + RandF() * 0.6f;
 }
 
-f32 PhysicsScene::RandF() noexcept {
+f32 FPhysicsScene::RandF() noexcept {
     m_Seed ^= m_Seed << 13; m_Seed ^= m_Seed >> 17; m_Seed ^= m_Seed << 5;
     return static_cast<f32>(m_Seed & 0xFFFFFFu) / 16777216.0f;
 }

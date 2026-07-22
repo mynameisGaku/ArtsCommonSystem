@@ -138,7 +138,7 @@ void FScoreSystem::AddScore(const char* category, u64 base_value) noexcept {
     }
 
     // entry log に記録 (base_value == 0 でも倍率履歴として残す方針)。
-    ScoreEntry e{};
+    FScoreEntry e{};
     e.category        = category;
     e.base_value      = base_value;
     e.weighted_value  = weighted;
@@ -196,12 +196,12 @@ u32 FScoreSystem::EntryCount() const noexcept {
     return static_cast<u32>(m_Entries.Size());
 }
 
-const ScoreEntry* FScoreSystem::AllEntries(u32& out_count) const noexcept {
+const FScoreEntry* FScoreSystem::AllEntries(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Entries.Size());
     return m_Entries.Data();
 }
 
-void FScoreSystem::PushEntry(const ScoreEntry& e) noexcept {
+void FScoreSystem::PushEntry(const FScoreEntry& e) noexcept {
     if (m_Entries.Size() >= kMaxEntries) {
         // 最古を捨てる単純実装。kMaxEntries=100 なので memmove コストは
         // 実害なしの範囲。リング化はプロファイラで実測されたら検討。

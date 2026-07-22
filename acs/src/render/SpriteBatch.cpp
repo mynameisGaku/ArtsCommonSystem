@@ -30,6 +30,7 @@ struct VSOut {
     float4 pos : SV_POSITION;
     float2 uv  : TEXCOORD0;
     float4 col : COLOR;
+    float2 wpos : TEXCOORD1;
 };
 
 VSOut VSMain(VSIn v) {
@@ -43,6 +44,7 @@ VSOut VSMain(VSIn v) {
     o.pos = float4(ndc, 0.0, 1.0);
     o.uv  = v.uv;
     o.col = v.col;
+    o.wpos = v.pos;
     return o;
 }
 
@@ -67,16 +69,28 @@ cbuffer Effect : register(b1) {
     float4 fx_a;     // x=effect_id, y=strength, z=p0, w=p1
     float4 fx_b;     // x=p2, y=time, z=_, w=_
     float4 fx_color; // 染め色 / 縁色
+    float4 water_foam;       // rgb=泡色, a=泡濃度
+    float4 water_sky;        // rgb=空色, a=岸幅
+    float4 water_misc;       // x=波紋波長, y=glint, z=波紋数, w=泡速度
+    float4 water_ripple[48]; // xy=中心, z=現在半径, w=減衰済み振幅
+    float4 water_optics;     // x=粗さ, y=法線強度, z=法線タイリング, w=屈折強度
+    float4 water_absorption; // rgb=Beer-Lambert 吸収係数
+    float4 water_scene;      // x=scene color有効, y=water depth有効
 };
 
 struct VSOut {
     float4 pos : SV_POSITION;
     float2 uv  : TEXCOORD0;
     float4 col : COLOR;
+    float2 wpos : TEXCOORD1;
 };
 
 Texture2D    atlas : register(t0);
 SamplerState atlas_sampler : register(s0);
+Texture2D    water_normal : register(t1);
+SamplerState water_normal_sampler : register(s1);
+Texture2D    water_scene_color : register(t2);
+Texture2D    water_scene_depth : register(t3);
 
 // 輝度軸まわりの色相回転 (Rodrigues 回転、おおむね輝度を保つ)。
 float3 HueShiftRGB(float3 c, float angle) {
@@ -86,12 +100,360 @@ float3 HueShiftRGB(float3 c, float angle) {
     return c * ca + cross(k, c) * sa + k * dot(k, c) * (1.0 - ca);
 }
 
+float WaterWaveHeight(float2 p, float t, float2 flow_dir, float speed) {
+    float2 side = float2(-flow_dir.y, flow_dir.x);
+    float2 d1 = normalize(flow_dir + side * 0.63);
+    float2 d2 = normalize(flow_dir - side * 0.91);
+    float warp = sin(dot(p, float2(0.73, 0.51)) * 1.7 + t * speed * 0.31);
+    return sin(dot(p, flow_dir) * 2.25 - t * speed * 1.17 + warp * 0.22)
+         + sin(dot(p, d1) * 4.83 - t * speed * 0.73 + 1.4) * 0.38
+         + sin(dot(p, d2) * 8.17 + t * speed * 0.49 - 0.7) * 0.16;
+}
+
+void EvaluateWaterRipples(float2 p, out float height, out float2 gradient, out float glow) {
+    height = 0.0;
+    gradient = 0.0;
+    glow = 0.0;
+    const float wavelength = max(water_misc.x, 0.001);
+    const float k = 6.28318530718 / wavelength;
+    const float sigma = wavelength * 0.46;
+    const float inv_sigma2 = 1.0 / max(sigma * sigma, 1e-5);
+    const int count = clamp((int)water_misc.z, 0, 48);
+    [loop]
+    for (int i = 0; i < 48; ++i) {
+        if (i >= count) break;
+        float2 delta = p - water_ripple[i].xy;
+        float dist = max(length(delta), 1e-4);
+        float radial = dist - water_ripple[i].z;
+        float envelope = exp(-radial * radial * inv_sigma2);
+        float phase = radial * k;
+        float amp = water_ripple[i].w;
+        float wave = amp * cos(phase) * envelope;
+        float derivative = amp * envelope
+                         * (-k * sin(phase) - 2.0 * radial * inv_sigma2 * cos(phase));
+        height += wave;
+        gradient += derivative * (delta / dist);
+        glow += abs(amp) * envelope;
+    }
+}
+
+float2 WaterHash22(float2 p) {
+    float3 p3 = frac(float3(p.x, p.y, p.x) * float3(0.1031, 0.1030, 0.0973));
+    p3 += dot(p3, p3.yzx + 33.33);
+    return frac((p3.xx + p3.yz) * p3.zy);
+}
+
+float WaterVoronoiEdge(float2 p, float t, float speed) {
+    float2 cell = floor(p);
+    float2 local = frac(p);
+    float nearest = 100.0;
+    float second_nearest = 100.0;
+    [unroll]
+    for (int y = -1; y <= 1; ++y) {
+        [unroll]
+        for (int x = -1; x <= 1; ++x) {
+            float2 grid = float2((float)x, (float)y);
+            float2 random_value = WaterHash22(cell + grid);
+            float2 animated_point = 0.5 + 0.34 * sin(
+                random_value * 6.2831853
+                + t * speed * float2(0.47 + random_value.y * 0.16,
+                                      0.39 + random_value.x * 0.14));
+            float2 delta = grid + animated_point - local;
+            float distance_squared = dot(delta, delta);
+            if (distance_squared < nearest) {
+                second_nearest = nearest;
+                nearest = distance_squared;
+            } else if (distance_squared < second_nearest) {
+                second_nearest = distance_squared;
+            }
+        }
+    }
+    float cell_edge = sqrt(second_nearest) - sqrt(nearest);
+    float aa = max(fwidth(cell_edge), 0.0015);
+    return 1.0 - smoothstep(0.018 - aa, 0.078 + aa, cell_edge);
+}
+
+float WaterCaustics(float2 p, float t, float scale, float speed, float2 flow_dir) {
+    // F1/F2 Voronoi 境界を二段重ねし、閉じた細胞状の集光網を作る。
+    // 大きな sine 等高線を使わないため、太い「光る紐」にはならない。
+    float safe_scale = max(scale, 0.05);
+    float2 q = p * (safe_scale * 1.45) + flow_dir * (t * speed * 0.23);
+    q += float2(sin(q.y * 0.57 + t * speed * 0.31),
+                cos(q.x * 0.51 - t * speed * 0.27)) * 0.16;
+    float primary = WaterVoronoiEdge(q, t, speed);
+    float secondary = WaterVoronoiEdge(
+        q * 2.07 + float2(7.31, 3.17), t * 1.17, speed * 0.79);
+    float shimmer = 0.82 + 0.18 * sin(dot(q, float2(1.37, -1.11))
+                                    + t * speed * 0.73);
+    return saturate(primary * shimmer * 0.82 + secondary * 0.30);
+}
+
+float2 RotateWaterVector(float2 p, float angle) {
+    float s = sin(angle);
+    float c = cos(angle);
+    return float2(c * p.x - s * p.y, s * p.x + c * p.y);
+}
+
+float4 SampleWaterNormalLayer(float2 world_pos, float angle, float scale,
+                              float2 scroll) {
+    float2 uv = RotateWaterVector(world_pos, angle) * scale + scroll;
+    return water_normal.Sample(water_normal_sampler, uv);
+}
+
+// RGB 法線を slope (dh/dx, dh/dy) に戻してから合成する。単純な normal lerp と違い
+// 振幅を保ち、異なる縮尺・向きの法線を足しても Z が潰れない。
+void EvaluateWaterNormalMap(float2 world_pos, float time, float2 flow_dir,
+                            float flow_speed, out float2 slope, out float detail) {
+    float scale = max(water_optics.z, 0.001);
+    float2 side = float2(-flow_dir.y, flow_dir.x);
+
+    float4 p0 = SampleWaterNormalLayer(
+        world_pos, 0.17, scale,
+        (flow_dir * 0.031 + side * 0.006) * time * flow_speed);
+    float4 p1 = SampleWaterNormalLayer(
+        world_pos, -0.91, scale * 2.13,
+        (-flow_dir * 0.019 + side * 0.014) * time * flow_speed + float2(0.37, 0.11));
+    float4 p2 = SampleWaterNormalLayer(
+        world_pos, 1.74, scale * 4.37,
+        (flow_dir * 0.011 - side * 0.023) * time * flow_speed + float2(0.13, 0.71));
+
+    float3 n0 = normalize(p0.xyz * 2.0 - 1.0);
+    float3 n1 = normalize(p1.xyz * 2.0 - 1.0);
+    float3 n2 = normalize(p2.xyz * 2.0 - 1.0);
+    float2 s0 = RotateWaterVector(n0.xy / max(n0.z, 0.22), -0.17);
+    float2 s1 = RotateWaterVector(n1.xy / max(n1.z, 0.22), 0.91);
+    float2 s2 = RotateWaterVector(n2.xy / max(n2.z, 0.22), -1.74);
+    slope = s0 * 0.52 + s1 * 0.31 + s2 * 0.17;
+    detail = saturate(p0.a * 0.48 + p1.a * 0.34 + p2.a * 0.18);
+}
+
+float DistributionGGX(float no_h, float roughness) {
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float d = no_h * no_h * (a2 - 1.0) + 1.0;
+    return a2 / max(3.14159265 * d * d, 1e-5);
+}
+
+float GeometrySchlickGGX(float no_x, float roughness) {
+    float r = roughness + 1.0;
+    float k = r * r * 0.125;
+    return no_x / max(no_x * (1.0 - k) + k, 1e-4);
+}
+
+float WaterSpecularGGX(float3 normal, float3 view_dir, float3 light_dir,
+                       float roughness, float f0) {
+    float3 half_dir = normalize(view_dir + light_dir);
+    float no_v = saturate(dot(normal, view_dir));
+    float no_l = saturate(dot(normal, light_dir));
+    float no_h = saturate(dot(normal, half_dir));
+    float vo_h = saturate(dot(view_dir, half_dir));
+    float fresnel = f0 + (1.0 - f0) * pow(1.0 - vo_h, 5.0);
+    float distribution = DistributionGGX(no_h, roughness);
+    float geometry = GeometrySchlickGGX(no_v, roughness)
+                   * GeometrySchlickGGX(no_l, roughness);
+    return distribution * geometry * fresnel / max(4.0 * no_v * no_l, 1e-4);
+}
+
+float2 ClampWaterSceneUv(float2 uv) {
+    float2 texel = max(inv_screen.xy, float2(1e-6, 1e-6));
+    return clamp(uv, texel * 0.5, 1.0 - texel * 0.5);
+}
+
+// 画面外へ向かう屈折/反射 ray は最後の texel を引き延ばさず、数 pixel で環境色へ
+// フェードする。read/write hazard を避けるため、この texture は main より前の別 RT。
+float WaterSceneUvFade(float2 uv) {
+    float2 texel = max(inv_screen.xy, float2(1e-6, 1e-6));
+    float2 edge_pixels = min(uv, 1.0 - uv) / texel;
+    return saturate(min(edge_pixels.x, edge_pixels.y) * 0.25);
+}
+
+float3 SampleWaterSceneFiltered(float2 uv, float spread_pixels) {
+    float2 texel = max(inv_screen.xy, float2(1e-6, 1e-6));
+    float2 p = ClampWaterSceneUv(uv);
+    float2 ox = float2(texel.x * spread_pixels, 0.0);
+    float2 oy = float2(0.0, texel.y * spread_pixels);
+    float3 c = water_scene_color.Sample(atlas_sampler, p).rgb * 0.50;
+    c += water_scene_color.Sample(atlas_sampler, ClampWaterSceneUv(p + ox)).rgb * 0.125;
+    c += water_scene_color.Sample(atlas_sampler, ClampWaterSceneUv(p - ox)).rgb * 0.125;
+    c += water_scene_color.Sample(atlas_sampler, ClampWaterSceneUv(p + oy)).rgb * 0.125;
+    c += water_scene_color.Sample(atlas_sampler, ClampWaterSceneUv(p - oy)).rgb * 0.125;
+    return c;
+}
+
+float SampleWaterDepth(float2 uv) {
+    return water_scene_depth.Sample(atlas_sampler, ClampWaterSceneUv(uv)).r;
+}
+
+float4 ShadeWaterSurface(VSOut v) {
+    float time = fx_b.y;
+    float flow_speed = fx_b.z;
+    float wave_amp = max(fx_b.x, 0.0);
+    float2 flow_dir = float2(cos(fx_b.w), sin(fx_b.w));
+
+    // 長波は解析勾配、細波は実テクスチャ法線、接触波は放射状解析法線として
+    // 互いに独立して評価する。これにより近景の微細さと大きなうねりを両立する。
+    const float eps = 0.035;
+    float h_l = WaterWaveHeight(v.wpos - float2(eps, 0.0), time, flow_dir, flow_speed);
+    float h_r = WaterWaveHeight(v.wpos + float2(eps, 0.0), time, flow_dir, flow_speed);
+    float h_d = WaterWaveHeight(v.wpos - float2(0.0, eps), time, flow_dir, flow_speed);
+    float h_u = WaterWaveHeight(v.wpos + float2(0.0, eps), time, flow_dir, flow_speed);
+    float2 wave_gradient = float2(h_r - h_l, h_u - h_d) * (wave_amp / (2.0 * eps));
+
+    float ripple_height;
+    float2 ripple_gradient;
+    float ripple_glow;
+    EvaluateWaterRipples(v.wpos, ripple_height, ripple_gradient, ripple_glow);
+
+    float2 texture_slope;
+    float normal_detail;
+    EvaluateWaterNormalMap(v.wpos, time, flow_dir, flow_speed,
+                           texture_slope, normal_detail);
+
+    float edge = saturate(v.uv.x);
+    float foam_width = max(water_sky.a, 0.002);
+    float shore = 1.0 - smoothstep(0.0, foam_width, edge);
+    float shore_normal_damping = lerp(0.42, 1.0,
+        smoothstep(0.0, foam_width * 2.8, edge));
+    float2 surface_gradient = wave_gradient
+                            + ripple_gradient * 0.40
+                            + texture_slope * max(water_optics.y, 0.0)
+                              * 0.88 * shore_normal_damping;
+    float3 normal = normalize(float3(-surface_gradient, 1.0));
+
+    float3 light_dir = normalize(float3(-0.48, -0.36, 0.80));
+    float3 view_dir = normalize(float3(0.08, -0.12, 1.0));
+    float no_v = saturate(dot(normal, view_dir));
+    float no_l = saturate(dot(normal, light_dir));
+    const float water_f0 = 0.02037; // 空気・水の IOR 1.333
+    float fresnel = water_f0 + (1.0 - water_f0) * pow(1.0 - no_v, 5.0);
+
+    // Snell 屈折 + 捕捉済み実シーンカラー/水深 + Beer-Lambert 吸収。
+    // scene/depth が無い従来利用者は、頂点の岸距離と底色へそのまま fallback する。
+    float3 refracted_ray = refract(-view_dir, normal, 1.0 / 1.333);
+    float2 screen_uv = v.pos.xy * inv_screen.xy;
+    float2 scene_texel = max(inv_screen.xy, float2(1e-6, 1e-6));
+    float refraction_strength = max(water_optics.w, 0.0);
+    float2 refract_pixels = refracted_ray.xy
+                          * (3.0 + edge * 15.0) * refraction_strength;
+    refract_pixels += surface_gradient * (1.5 + edge * 3.0) * refraction_strength;
+    refract_pixels = clamp(refract_pixels, float2(-18.0, -18.0),
+                                           float2( 18.0,  18.0));
+    float2 refract_uv_raw = screen_uv + refract_pixels * scene_texel;
+    float refract_uv_fade = WaterSceneUvFade(refract_uv_raw);
+    float2 refract_uv = ClampWaterSceneUv(refract_uv_raw);
+
+    float captured_depth = edge;
+    if (water_scene.y > 0.5) {
+        float depth_here = SampleWaterDepth(screen_uv);
+        float depth_refracted = SampleWaterDepth(refract_uv);
+        // refraction 先が水外(0)なら岸へ向かって浅くなる。中心 sample も混ぜて
+        // 1 texel の境界で不連続に深度が消えないようにする。
+        captured_depth = lerp(depth_here, depth_refracted, 0.72);
+    }
+    float depth01 = smoothstep(0.012, 0.88, saturate(captured_depth));
+    float water_depth = lerp(0.055, 2.75, depth01);
+    float optical_path = water_depth / max(abs(refracted_ray.z), 0.18);
+    float3 transmittance = exp(-max(water_absorption.rgb, 0.0) * optical_path);
+    float3 captured_bottom = SampleWaterSceneFiltered(refract_uv, 0.65);
+    float scene_refraction_weight = saturate(water_scene.x) * refract_uv_fade;
+    float3 bottom_color = lerp(v.col.rgb * 1.08, captured_bottom,
+                               scene_refraction_weight);
+    float3 in_scatter = v.col.rgb * float3(0.56, 0.72, 0.88)
+                      + water_sky.rgb * 0.055;
+    float4 result = v.col;
+    result.rgb = bottom_color * transmittance + in_scatter * (1.0 - transmittance);
+    result.rgb *= 0.74 + no_l * 0.26;
+
+    float3 reflected_ray = reflect(-view_dir, normal);
+    float horizon = pow(saturate(1.0 - reflected_ray.z), 0.65);
+    float3 reflected_sky = lerp(water_sky.rgb * 0.58,
+                                saturate(water_sky.rgb * 1.08 + 0.08), horizon);
+    float sky_azimuth = dot(reflected_ray.xy, normalize(float2(-0.81, -0.59)));
+    reflected_sky *= lerp(0.78, 1.22, sky_azimuth * 0.5 + 0.5);
+    float2 reflection_pixels = reflected_ray.xy
+                             / max(abs(reflected_ray.z), 0.18)
+                             * lerp(22.0, 46.0, fresnel)
+                             * (0.55 + refraction_strength);
+    reflection_pixels = clamp(reflection_pixels, float2(-56.0, -56.0),
+                                                 float2( 56.0,  56.0));
+    float2 reflection_uv_raw = screen_uv + reflection_pixels * scene_texel;
+    float reflection_uv_fade = WaterSceneUvFade(reflection_uv_raw);
+    float3 screen_reflection = SampleWaterSceneFiltered(
+        reflection_uv_raw, lerp(0.75, 3.2, saturate(water_optics.x)));
+    float screen_reflection_weight = saturate(water_scene.x)
+                                   * reflection_uv_fade
+                                   * lerp(0.72, 0.46, saturate(water_optics.x));
+    float3 reflected_environment = lerp(reflected_sky, screen_reflection,
+                                        screen_reflection_weight);
+    float reflection_weight = saturate(fresnel * (0.85 + fx_color.a * 3.0)
+                                     + fx_color.a * 0.28);
+    result.rgb = lerp(result.rgb, reflected_environment, reflection_weight);
+
+    float lap_phase = dot(v.wpos, flow_dir * 3.7
+                        + float2(-flow_dir.y, flow_dir.x) * 1.6)
+                    - time * water_misc.w;
+    float lapping = 0.5 + 0.5 * sin(lap_phase + sin(lap_phase * 0.37) * 1.1);
+    float foam_noise = saturate(normal_detail * 0.72 + lapping * 0.38 - 0.10);
+    float shore_foam = shore * smoothstep(0.48, 0.82, foam_noise + shore * 0.13);
+    float contact_foam = smoothstep(0.035, 0.24, ripple_glow)
+                       * smoothstep(0.36, 0.76, foam_noise) * 0.42;
+    float depth_contact = 0.0;
+    if (water_scene.y > 0.5) {
+        float d0 = SampleWaterDepth(screen_uv);
+        float dx0 = SampleWaterDepth(screen_uv + float2(scene_texel.x * 2.0, 0.0));
+        float dx1 = SampleWaterDepth(screen_uv - float2(scene_texel.x * 2.0, 0.0));
+        float dy0 = SampleWaterDepth(screen_uv + float2(0.0, scene_texel.y * 2.0));
+        float dy1 = SampleWaterDepth(screen_uv - float2(0.0, scene_texel.y * 2.0));
+        float discontinuity = max(max(abs(dx0 - d0), abs(dx1 - d0)),
+                                  max(abs(dy0 - d0), abs(dy1 - d0)));
+        depth_contact = smoothstep(0.08, 0.36, discontinuity)
+                      * smoothstep(0.30, 0.72, foam_noise) * 0.24;
+    }
+    float foam = saturate((shore_foam + contact_foam + depth_contact)
+                        * saturate(water_foam.a));
+
+    float2 refract_offset = refracted_ray.xy * optical_path
+                          * max(water_optics.w, 0.0);
+    float caustic = WaterCaustics(v.wpos + refract_offset, time,
+                                  fx_a.z, fx_a.w, flow_dir);
+    float deep_enough = smoothstep(foam_width * 0.40, foam_width * 2.2, edge);
+    float transmission_luma = dot(transmittance, float3(0.2126, 0.7152, 0.0722));
+    float caustic_amount = caustic * max(fx_a.y, 0.0) * deep_enough
+                          * transmission_luma;
+    result.rgb += fx_color.rgb * caustic_amount * 0.34;
+
+    float roughness = clamp(max(water_optics.x, 0.04)
+                          + shore * 0.22 + saturate(ripple_glow) * 0.07,
+                            0.04, 1.0);
+    float specular = WaterSpecularGGX(normal, view_dir, light_dir,
+                                     roughness, water_f0);
+    float glint_roughness = max(0.055, roughness * 0.48);
+    float sun_glint = WaterSpecularGGX(normal, view_dir, light_dir,
+                                      glint_roughness, water_f0)
+                    * saturate(water_misc.y);
+    float no_h = saturate(dot(normal, normalize(view_dir + light_dir)));
+    float broad_sun = pow(no_h, lerp(34.0, 92.0, 1.0 - roughness))
+                    * saturate(water_misc.y);
+    // HDR 出力でなく UNorm の SpriteBatch でも白飛びしない範囲へエネルギーを制限。
+    // 法線の動きは残しつつ、鋭い GGX lobe が白い板/閃光へ化けるのを防ぐ。
+    float highlight = min((specular * 0.90 + sun_glint * 0.24
+                         + broad_sun * 0.11) * no_l, 0.34);
+    result.rgb += float3(0.70, 0.82, 0.91) * highlight;
+
+    result.rgb = lerp(result.rgb, water_foam.rgb, foam);
+    result.a = saturate(result.a + foam * 0.07);
+    result.rgb = saturate(result.rgb);
+    return result;
+}
+
 float4 PSEffect(VSOut v) : SV_TARGET {
     int   id  = (int)fx_a.x;
     float str = fx_a.y;
     float p0  = fx_a.z;
     float p1  = fx_a.w;
     float t   = fx_b.y;
+
+    if (id == 13) return ShadeWaterSurface(v);
 
     // --- UV 歪み系 (サンプル前) ---
     float2 uv = v.uv;
@@ -577,7 +939,7 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     m_Ps = Move(ps_r.Value());
 
     // === 動的頂点バッファ（4 頂点 / sprite）===
-    const usize vb_size = sizeof(Vertex) * 4 * max_sprites;
+    const usize vb_size = sizeof(FVertex) * 4 * max_sprites;
     FBufferDesc vbd{};
     vbd.size = vb_size;
     vbd.usage = EBufferUsage::Vertex;
@@ -588,7 +950,7 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
 
     // CPU 側のステージング配列（各フレームここに頂点を積んでから VB へコピー）
     m_VertexAllocator = &DefaultAllocator();
-    m_VertexCpu = static_cast<Vertex*>(m_VertexAllocator->Alloc(vb_size));
+    m_VertexCpu = static_cast<FVertex*>(m_VertexAllocator->Alloc(vb_size));
     if (!m_VertexCpu) return fail(ACS_ERR(Memory, 250, "FSpriteBatch: vertex stage alloc"));
 
     // === インデックスバッファ（quad ごとに 6 indices、固定）===
@@ -669,7 +1031,7 @@ void FSpriteBatch::FillCommonPipelineDesc(FPipelineDesc& pd) const noexcept {
     pd.static_samplers[0].filter    = ESamplerFilter::Linear;
     pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
     pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
-    pd.vertex_stride = sizeof(Vertex);
+    pd.vertex_stride = sizeof(FVertex);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32_Float,    0  };
     pd.layout[1] = { "TEXCOORD", 0, EFormat::R32G32_Float,    8  };
     pd.layout[2] = { "COLOR",    0, EFormat::R32G32B32A32_Float, 16 };
@@ -683,8 +1045,8 @@ bool FSpriteBatch::EnsureStencilPipelines() noexcept {
     if (m_StencilReady) return true;
     if (!m_Device) return false;
 
-    struct ModeCfg { bool enable; ECompareFunc func; EStencilOp pass; };
-    const ModeCfg cfg[4] = {
+    struct FModeCfg { bool enable; ECompareFunc func; EStencilOp pass; };
+    const FModeCfg cfg[4] = {
         { false, ECompareFunc::Always,   EStencilOp::Keep    },  // Off
         { true,  ECompareFunc::Always,   EStencilOp::Replace },  // WriteMask
         { true,  ECompareFunc::Equal,    EStencilOp::Keep    },  // KeepInside
@@ -727,12 +1089,149 @@ bool FSpriteBatch::EnsureAdditivePipeline() noexcept {
     return true;
 }
 
+bool FSpriteBatch::EnsureOpaquePipeline() noexcept {
+    if (m_OpaqueReady) return true;
+    if (!m_Device) return false;
+    FPipelineDesc pd{};
+    FillCommonPipelineDesc(pd);
+    pd.blend_mode = EBlendMode::Opaque;
+    pd.depth_format = EFormat::Unknown;
+    pd.depth_test = false;
+    auto r = CreateRhiPipeline(*m_Device, pd);
+    if (r.IsErr()) {
+        ACS_LOG_ERROR("FSpriteBatch: 不透明 PSO の生成に失敗");
+        return false;
+    }
+    m_OpaquePipe = Move(r.Value());
+    m_OpaqueReady = true;
+    return true;
+}
+
+bool FSpriteBatch::EnsureMultiplyPipeline() noexcept {
+    if (m_MultiplyReady) return true;
+    if (!m_Device) return false;
+    FPipelineDesc pd{};
+    FillCommonPipelineDesc(pd);
+    pd.blend_mode = EBlendMode::Multiply;
+    pd.depth_format = EFormat::Unknown;
+    pd.depth_test = false;
+    auto r = CreateRhiPipeline(*m_Device, pd);
+    if (r.IsErr()) {
+        ACS_LOG_ERROR("FSpriteBatch: 乗算 PSO の生成に失敗");
+        return false;
+    }
+    m_MultiplyPipe = Move(r.Value());
+    m_MultiplyReady = true;
+    return true;
+}
+
+bool FSpriteBatch::EnsureAdditivePreserveAlphaPipeline() noexcept {
+    if (m_AdditivePreserveAlphaReady) return true;
+    if (!m_Device) return false;
+    FPipelineDesc pd{};
+    FillCommonPipelineDesc(pd);
+    pd.blend_mode = EBlendMode::AdditivePreserveAlpha;
+    pd.depth_format = EFormat::Unknown;
+    pd.depth_test = false;
+    auto r = CreateRhiPipeline(*m_Device, pd);
+    if (r.IsErr()) {
+        ACS_LOG_ERROR("FSpriteBatch: alpha 保持加算 PSO の生成に失敗");
+        return false;
+    }
+    m_AdditivePreserveAlphaPipe = Move(r.Value());
+    m_AdditivePreserveAlphaReady = true;
+    return true;
+}
+
 // ピクセル効果 PS + PSO + 効果 CB リングを遅延生成する。VS は通常スプライトと共通
 // (m_Vs)。PSO は通常パイプラインと同じ DSV 無し・AlphaBlend で、b1 に cbuffer Effect
 // を 1 本追加するだけ。効果を使わないシーンでは一切作らない。
 bool FSpriteBatch::EnsureEffectPipeline() noexcept {
     if (m_EffectReady) return true;
     if (!m_Device) return false;
+
+    // 外部アセットの有無に依存せず、常に高品質な実法線を使えるように、整数周波数の
+    // 周期波を重ねたシームレス 256x256 normal/height map を遅延生成する。
+    if (!m_WaterNormal) {
+        constexpr u32 kNormalSize = 256;
+        constexpr usize kNormalBytes =
+            static_cast<usize>(kNormalSize) * static_cast<usize>(kNormalSize) * 4u;
+        FAllocator& allocator = DefaultAllocator();
+        u8* pixels = static_cast<u8*>(allocator.Alloc(kNormalBytes));
+        if (!pixels) {
+            ACS_LOG_ERROR("FSpriteBatch: 水面法線テクスチャの CPU 生成領域確保に失敗");
+            return false;
+        }
+
+        struct FNormalWave {
+            f32 kx;
+            f32 ky;
+            f32 amplitude;
+            f32 phase;
+        };
+        static constexpr FNormalWave kWaves[] = {
+            {  1.0f,  2.0f, 0.180f, 0.31f },
+            {  2.0f, -1.0f, 0.155f, 1.47f },
+            {  3.0f,  5.0f, 0.112f, 2.11f },
+            { -5.0f,  4.0f, 0.096f, 0.83f },
+            {  7.0f,  3.0f, 0.077f, 2.74f },
+            {  9.0f, -7.0f, 0.061f, 1.18f },
+            { -11.0f, 8.0f, 0.049f, 2.39f },
+            { 13.0f, 11.0f, 0.039f, 0.57f },
+            { 16.0f, -9.0f, 0.031f, 1.92f },
+        };
+        constexpr f32 kTwoPi = 6.28318530718f;
+        for (u32 y = 0; y < kNormalSize; ++y) {
+            const f32 v = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(kNormalSize);
+            for (u32 x = 0; x < kNormalSize; ++x) {
+                const f32 u = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(kNormalSize);
+                f32 dhdu = 0.0f;
+                f32 dhdv = 0.0f;
+                f32 height = 0.0f;
+                for (const FNormalWave& wave : kWaves) {
+                    const f32 length = std::sqrt(wave.kx * wave.kx + wave.ky * wave.ky);
+                    const f32 dx = wave.kx / length;
+                    const f32 dy = wave.ky / length;
+                    const f32 phase = kTwoPi * (wave.kx * u + wave.ky * v) + wave.phase;
+                    const f32 s = std::sin(phase);
+                    const f32 c = std::cos(phase);
+                    dhdu += wave.amplitude * dx * c;
+                    dhdv += wave.amplitude * dy * c;
+                    height += wave.amplitude * s;
+                }
+
+                const f32 inv_len = 1.0f / std::sqrt(dhdu * dhdu + dhdv * dhdv + 1.0f);
+                const f32 nx = -dhdu * inv_len;
+                const f32 ny = -dhdv * inv_len;
+                const f32 nz = inv_len;
+                const f32 h = height * 0.56f + 0.5f;
+                const auto to_byte = [](f32 value) noexcept -> u8 {
+                    if (value < 0.0f) value = 0.0f;
+                    if (value > 1.0f) value = 1.0f;
+                    return static_cast<u8>(value * 255.0f + 0.5f);
+                };
+                const usize i = (static_cast<usize>(y) * kNormalSize + x) * 4u;
+                pixels[i + 0] = to_byte(nx * 0.5f + 0.5f);
+                pixels[i + 1] = to_byte(ny * 0.5f + 0.5f);
+                pixels[i + 2] = to_byte(nz * 0.5f + 0.5f);
+                pixels[i + 3] = to_byte(h);
+            }
+        }
+
+        FTextureDesc td{};
+        td.width = kNormalSize;
+        td.height = kNormalSize;
+        td.format = EFormat::R8G8B8A8_UNorm;
+        td.initial_data = pixels;
+        td.initial_data_size = kNormalBytes;
+        auto normal_r = CreateRhiTexture(*m_Device, td);
+        allocator.Free(pixels);
+        if (normal_r.IsErr()) {
+            ACS_LOG_ERROR("FSpriteBatch: 水面法線テクスチャの GPU 生成に失敗");
+            return false;
+        }
+        m_WaterNormal = Move(normal_r.Value());
+    }
 
     FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
@@ -745,7 +1244,7 @@ bool FSpriteBatch::EnsureEffectPipeline() noexcept {
 
     for (u32 i = 0; i < kEffectRing; ++i) {
         FBufferDesc cbd{};
-        cbd.size = 256;
+        cbd.size = 1024; // 48 波紋 + 光学・吸収・シーンフラグ (912B)
         cbd.usage = EBufferUsage::Uniform;
         cbd.cpu_writable = true;
         auto cb_r = CreateRhiBuffer(*m_Device, cbd);
@@ -761,6 +1260,14 @@ bool FSpriteBatch::EnsureEffectPipeline() noexcept {
     pd.depth_test    = false;
     pd.cbuffer_slots = 2;                 // b0=Screen, b1=Effect
     pd.cbuffer_names[1] = "Effect";
+    pd.texture_slots = 4;                 // t0=atlas, t1=normal, t2=シーンカラー, t3=水深
+    pd.texture_names[1] = "water_normal";
+    pd.texture_names[2] = "water_scene_color";
+    pd.texture_names[3] = "water_scene_depth";
+    pd.static_sampler_count = 2;
+    pd.static_samplers[1].filter = ESamplerFilter::Linear;
+    pd.static_samplers[1].address_u = ESamplerAddress::Wrap;
+    pd.static_samplers[1].address_v = ESamplerAddress::Wrap;
     auto pl_r = CreateRhiPipeline(*m_Device, pd);
     if (pl_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: 効果 PSO の生成に失敗"); return false; }
     m_EffectPipe = Move(pl_r.Value());
@@ -847,16 +1354,31 @@ void FSpriteBatch::SetBlendMode(EBlendMode mode) noexcept {
     if (!m_Cl || mode == m_BlendMode) return;
     Flush();                                  // 直前のバッチを現ブレンドで確定
     IRhiPipeline* pl = nullptr;
-    if (mode == EBlendMode::Additive) {
-        if (!EnsureAdditivePipeline()) return;
-        pl = m_AdditivePipe.Get();
-    } else {
-        pl = m_Pipeline.Get();                // 既定 = AlphaBlend
+    switch (mode) {
+        case EBlendMode::Additive:
+            if (!EnsureAdditivePipeline()) return;
+            pl = m_AdditivePipe.Get();
+            break;
+        case EBlendMode::Multiply:
+            if (!EnsureMultiplyPipeline()) return;
+            pl = m_MultiplyPipe.Get();
+            break;
+        case EBlendMode::AdditivePreserveAlpha:
+            if (!EnsureAdditivePreserveAlphaPipeline()) return;
+            pl = m_AdditivePreserveAlphaPipe.Get();
+            break;
+        case EBlendMode::Opaque:
+            if (!EnsureOpaquePipeline()) return;
+            pl = m_OpaquePipe.Get();
+            break;
+        case EBlendMode::AlphaBlend:
+            pl = m_Pipeline.Get();
+            break;
     }
     if (!pl) return;
     m_Cl->SetPipeline(*pl);
     BindViewBuffer();                          // PSO 切替で root 引数が無効化される
-    m_Cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    m_Cl->SetVertexBuffer(*m_Vb, sizeof(FVertex));
     m_Cl->SetIndexBuffer(*m_Ib);
     m_BlendMode = mode;
 }
@@ -873,7 +1395,7 @@ void FSpriteBatch::SetStencilMode(EStencilMode mode, u8 ref) noexcept {
     // (現 view バッファを bind = view は変えない)。IA (VB/IB) は PSO 切替で無効化
     // されないが、念のため再 bind してパリティを保つ。
     BindViewBuffer();
-    m_Cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    m_Cl->SetVertexBuffer(*m_Vb, sizeof(FVertex));
     m_Cl->SetIndexBuffer(*m_Ib);
     m_StencilMode = mode;
 }
@@ -896,9 +1418,83 @@ void FSpriteBatch::SetEffect(ESpriteEffect effect, const FEffectParams& params) 
     m_Cl->SetPipeline(*m_EffectPipe);
     BindViewBuffer();                                       // b0 (PSO 切替で root 引数が無効化)
     m_Cl->SetConstantBuffer(1, *m_EffectCb[m_EffectCbCur]); // b1
-    m_Cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    m_Cl->SetTexture(1, *m_WaterNormal);                    // t1 (非水面 effect では未参照)
+    m_Cl->SetTexture(2, *m_White);                          // t2 フォールバック
+    m_Cl->SetTexture(3, *m_White);                          // t3 フォールバック
+    m_Cl->SetVertexBuffer(*m_Vb, sizeof(FVertex));
     m_Cl->SetIndexBuffer(*m_Ib);
     m_EffectActive = true;
+}
+
+bool FSpriteBatch::SetWaterSurfaceEffect(const FWaterSurfaceParams& params,
+                                         IRhiTexture* scene_color,
+                                         IRhiTexture* scene_depth) noexcept {
+    if (!m_Cl) return false;
+    Flush();
+    if (!EnsureEffectPipeline()) return false;
+
+    m_EffectCbCur = (m_EffectCbCur + 1u) % kEffectRing;
+    constexpr u32 kRippleBase = 24;
+    constexpr u32 kOpticsBase =
+        kRippleBase + FWaterSurfaceParams::kMaxRipples * 4;
+    constexpr u32 kAbsorptionBase = kOpticsBase + 4;
+    constexpr u32 kSceneBase = kAbsorptionBase + 4;
+    constexpr u32 kWaterCbFloatCount = kSceneBase + 4;
+    f32 cb[kWaterCbFloatCount] = {};
+    cb[0] = 13.0f;
+    cb[1] = params.caustics_intensity;
+    cb[2] = params.caustics_scale;
+    cb[3] = params.caustics_speed;
+    cb[4] = params.wave_amplitude;
+    cb[5] = params.time;
+    cb[6] = params.flow_speed;
+    cb[7] = params.flow_angle;
+    cb[8] = params.caustics_color.x;
+    cb[9] = params.caustics_color.y;
+    cb[10] = params.caustics_color.z;
+    cb[11] = params.sky_alpha;
+    cb[12] = params.foam_color.x;
+    cb[13] = params.foam_color.y;
+    cb[14] = params.foam_color.z;
+    cb[15] = params.foam_alpha;
+    cb[16] = params.sky_color.x;
+    cb[17] = params.sky_color.y;
+    cb[18] = params.sky_color.z;
+    cb[19] = params.foam_width;
+    const u32 ripple_count = params.ripple_count < FWaterSurfaceParams::kMaxRipples
+                           ? params.ripple_count : FWaterSurfaceParams::kMaxRipples;
+    cb[20] = params.ripple_wavelength;
+    cb[21] = params.glints_enabled ? 1.0f : 0.0f;
+    cb[22] = static_cast<f32>(ripple_count);
+    cb[23] = params.foam_speed;
+    for (u32 i = 0; i < ripple_count; ++i) {
+        const u32 j = kRippleBase + i * 4;
+        cb[j + 0] = params.ripples[i].x;
+        cb[j + 1] = params.ripples[i].y;
+        cb[j + 2] = params.ripples[i].z;
+        cb[j + 3] = params.ripples[i].w;
+    }
+    cb[kOpticsBase + 0] = params.roughness;
+    cb[kOpticsBase + 1] = params.normal_strength;
+    cb[kOpticsBase + 2] = params.normal_tiling;
+    cb[kOpticsBase + 3] = params.refraction_strength;
+    cb[kAbsorptionBase + 0] = params.absorption.x;
+    cb[kAbsorptionBase + 1] = params.absorption.y;
+    cb[kAbsorptionBase + 2] = params.absorption.z;
+    cb[kSceneBase + 0] = scene_color ? 1.0f : 0.0f;
+    cb[kSceneBase + 1] = scene_depth ? 1.0f : 0.0f;
+    m_EffectCb[m_EffectCbCur]->Update(cb, sizeof(cb));
+
+    m_Cl->SetPipeline(*m_EffectPipe);
+    BindViewBuffer();
+    m_Cl->SetConstantBuffer(1, *m_EffectCb[m_EffectCbCur]);
+    m_Cl->SetTexture(1, *m_WaterNormal);
+    m_Cl->SetTexture(2, scene_color ? *scene_color : *m_White);
+    m_Cl->SetTexture(3, scene_depth ? *scene_depth : *m_White);
+    m_Cl->SetVertexBuffer(*m_Vb, sizeof(FVertex));
+    m_Cl->SetIndexBuffer(*m_Ib);
+    m_EffectActive = true;
+    return true;
 }
 
 void FSpriteBatch::ClearEffect() noexcept {
@@ -906,7 +1502,7 @@ void FSpriteBatch::ClearEffect() noexcept {
     Flush();                                   // 効果バッチを確定してから通常へ戻す
     m_Cl->SetPipeline(*m_Pipeline);
     BindViewBuffer();
-    m_Cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    m_Cl->SetVertexBuffer(*m_Vb, sizeof(FVertex));
     m_Cl->SetIndexBuffer(*m_Ib);
     m_EffectActive = false;
 }
@@ -994,7 +1590,7 @@ void FSpriteBatch::SetLitMaterial(const FLitMaterialParams& mat, IRhiTexture* no
     m_Cl->SetConstantBuffer(1, *m_LitMatCb[m_LitMatCbCur]); // b1
     m_Cl->SetConstantBuffer(2, *m_LightsCb);               // b2
     m_Cl->SetTexture(1, normal_tex ? *normal_tex : *m_FlatNormal);   // t1
-    m_Cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    m_Cl->SetVertexBuffer(*m_Vb, sizeof(FVertex));
     m_Cl->SetIndexBuffer(*m_Ib);
     m_LitActive = true;
 }
@@ -1004,7 +1600,7 @@ void FSpriteBatch::ClearLit() noexcept {
     Flush();
     m_Cl->SetPipeline(*m_Pipeline);
     BindViewBuffer();
-    m_Cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    m_Cl->SetVertexBuffer(*m_Vb, sizeof(FVertex));
     m_Cl->SetIndexBuffer(*m_Ib);
     m_LitActive = false;
 }
@@ -1028,6 +1624,12 @@ void FSpriteBatch::ReleaseResources() noexcept
     m_StencilReady = false;
     m_AdditivePipe.Reset();
     m_AdditiveReady = false;
+    m_OpaquePipe.Reset();
+    m_OpaqueReady = false;
+    m_MultiplyPipe.Reset();
+    m_MultiplyReady = false;
+    m_AdditivePreserveAlphaPipe.Reset();
+    m_AdditivePreserveAlphaReady = false;
     m_EffectPipe.Reset();
     m_EffectPs.Reset();
     for (u32 i = 0; i < kEffectRing; ++i) m_EffectCb[i].Reset();
@@ -1039,6 +1641,7 @@ void FSpriteBatch::ReleaseResources() noexcept
     for (u32 i = 0; i < kLitMatRing; ++i) m_LitMatCb[i].Reset();
     m_LightsCb.Reset();
     m_FlatNormal.Reset();
+    m_WaterNormal.Reset();
     m_LitReady = false;
     m_LitActive = false;
     m_White.Reset();
@@ -1065,6 +1668,7 @@ void FSpriteBatch::ReleaseResources() noexcept
     m_SceneLightCount = 0;
     m_StencilMode = EStencilMode::Off;
     m_BlendMode = EBlendMode::AlphaBlend;
+    m_DrawSuppressed = false;
     m_ScreenW = 1;
     m_ScreenH = 1;
     m_ViewX = 0.0f;
@@ -1083,6 +1687,7 @@ void FSpriteBatch::Begin(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexce
     m_BlendMode   = EBlendMode::AlphaBlend;
     m_EffectActive = false;              // 効果は Begin でリセット (既定 = 通常 PSO)
     m_LitActive    = false;              // lit も Begin でリセット
+    m_DrawSuppressed = false;
 
     // ビューを恒等（カメラ無し）に戻し、フレッシュな view バッファへ書く。
     // (Begin は同一フレーム内で複数回呼ばれ得る — 反射の 2 パス等 — ので、
@@ -1096,7 +1701,7 @@ void FSpriteBatch::Begin(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexce
     // パイプラインと共通リソースを bind
     cl.SetPipeline(*m_Pipeline);
     BindViewBuffer();
-    cl.SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    cl.SetVertexBuffer(*m_Vb, sizeof(FVertex));
     cl.SetIndexBuffer(*m_Ib);
 
     // SRV descriptor table (root param 1) を Begin 時点で既定の白テクスチャに確定させる。
@@ -1119,14 +1724,14 @@ void FSpriteBatch::DrawSub(IRhiTexture& tex,
                           f32 x, f32 y, f32 w, f32 h,
                           f32 u0, f32 v0, f32 u1, f32 v1,
                           FVec4 tint) noexcept {
-    if (!m_Cl) return;
+    if (!m_Cl || m_DrawSuppressed) return;
     // テクスチャ切替でフラッシュ（同じテクスチャは累積）
     if (m_CurrentTex && m_CurrentTex != &tex) Flush();
     // 容量上限に達したら以降は無視（max_sprites を Init 時に増やす）
     if (m_SpriteCount >= m_MaxSprites) return;
     m_CurrentTex = &tex;
 
-    Vertex* v = m_VertexCpu + m_SpriteCount * 4;
+    FVertex* v = m_VertexCpu + m_SpriteCount * 4;
     // 4 頂点を時計回りに積む: (x,y), (x+w,y), (x+w,y+h), (x,y+h)
     v[0] = { x,     y,     u0, v0, tint.x, tint.y, tint.z, tint.w };
     v[1] = { x+w,   y,     u1, v0, tint.x, tint.y, tint.z, tint.w };
@@ -1143,7 +1748,7 @@ void FSpriteBatch::DrawRotated(IRhiTexture& tex,
                               f32 cx, f32 cy, f32 w, f32 h, f32 radians,
                               f32 u0, f32 v0, f32 u1, f32 v1,
                               FVec4 tint) noexcept {
-    if (!m_Cl) return;
+    if (!m_Cl || m_DrawSuppressed) return;
     if (m_CurrentTex && m_CurrentTex != &tex) Flush();
     if (m_SpriteCount >= m_MaxSprites) return;
     m_CurrentTex = &tex;
@@ -1158,7 +1763,7 @@ void FSpriteBatch::DrawRotated(IRhiTexture& tex,
     const f32 uu[4] = {  u0,  u1,  u1,  u0 };
     const f32 vv[4] = {  v0,  v0,  v1,  v1 };
 
-    Vertex* vtx = m_VertexCpu + m_SpriteCount * 4;
+    FVertex* vtx = m_VertexCpu + m_SpriteCount * 4;
     for (int i = 0; i < 4; ++i) {
         const f32 px = cx + lx[i] * c - ly[i] * s;
         const f32 py = cy + lx[i] * s + ly[i] * c;
@@ -1168,8 +1773,14 @@ void FSpriteBatch::DrawRotated(IRhiTexture& tex,
 }
 
 void FSpriteBatch::DrawRectRotated(f32 cx, f32 cy, f32 w, f32 h, f32 radians,
-                                  FVec4 color) noexcept {
+                                   FVec4 color) noexcept {
     DrawRotated(*m_White, cx, cy, w, h, radians, 0, 0, 1, 1, color);
+}
+
+void FSpriteBatch::SetDrawSuppressed(bool suppress) noexcept {
+    if (m_DrawSuppressed == suppress) return;
+    Flush();
+    m_DrawSuppressed = suppress;
 }
 
 void FSpriteBatch::WriteScreenCBuffer() noexcept {
@@ -1219,18 +1830,33 @@ void FSpriteBatch::ClearClipRect() noexcept {
 
 void FSpriteBatch::DrawTriangleVC(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
                                  FVec4 c0, FVec4 c1, FVec4 c2) noexcept {
-    if (!m_Cl) return;
+    if (!m_Cl || m_DrawSuppressed) return;
     if (m_CurrentTex && m_CurrentTex != m_White.Get()) Flush();
     if (m_SpriteCount >= m_MaxSprites) return;
     m_CurrentTex = m_White.Get();
     // 4 頂点目に 3 頂点目を重ねる。インデックス (0,2,3) の三角形は面積 0 に
     // 退化して描画されず、(0,1,2) の三角形だけが塗られる。各頂点に別の色を
     // 持たせると、シェーダが COLOR を補間してグラデーション三角形になる。
-    Vertex* v = m_VertexCpu + m_SpriteCount * 4;
+    FVertex* v = m_VertexCpu + m_SpriteCount * 4;
     v[0] = { x0, y0, 0, 0, c0.x, c0.y, c0.z, c0.w };
     v[1] = { x1, y1, 0, 0, c1.x, c1.y, c1.z, c1.w };
     v[2] = { x2, y2, 0, 0, c2.x, c2.y, c2.z, c2.w };
     v[3] = { x2, y2, 0, 0, c2.x, c2.y, c2.z, c2.w };
+    ++m_SpriteCount;
+}
+
+void FSpriteBatch::DrawTriangleVCUV(f32 x0, f32 y0, f32 u0, f32 v0, FVec4 c0,
+                                   f32 x1, f32 y1, f32 u1, f32 v1, FVec4 c1,
+                                   f32 x2, f32 y2, f32 u2, f32 v2, FVec4 c2) noexcept {
+    if (!m_Cl || m_DrawSuppressed) return;
+    if (m_CurrentTex && m_CurrentTex != m_White.Get()) Flush();
+    if (m_SpriteCount >= m_MaxSprites) return;
+    m_CurrentTex = m_White.Get();
+    FVertex* v = m_VertexCpu + m_SpriteCount * 4;
+    v[0] = { x0, y0, u0, v0, c0.x, c0.y, c0.z, c0.w };
+    v[1] = { x1, y1, u1, v1, c1.x, c1.y, c1.z, c1.w };
+    v[2] = { x2, y2, u2, v2, c2.x, c2.y, c2.z, c2.w };
+    v[3] = { x2, y2, u2, v2, c2.x, c2.y, c2.z, c2.w };
     ++m_SpriteCount;
 }
 
@@ -1243,12 +1869,12 @@ void FSpriteBatch::DrawTriangleSub(IRhiTexture& tex,
                                    f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
                                    f32 u0, f32 v0, f32 u1, f32 v1, f32 u2, f32 v2,
                                    FVec4 tint) noexcept {
-    if (!m_Cl) return;
+    if (!m_Cl || m_DrawSuppressed) return;
     if (m_CurrentTex && m_CurrentTex != &tex) Flush();
     if (m_SpriteCount >= m_MaxSprites) return;
     m_CurrentTex = &tex;
     // 任意テクスチャを per-vertex UV で貼る三角形 (水の反射でシーン RT をサンプル)。
-    Vertex* v = m_VertexCpu + m_SpriteCount * 4;
+    FVertex* v = m_VertexCpu + m_SpriteCount * 4;
     v[0] = { x0, y0, u0, v0, tint.x, tint.y, tint.z, tint.w };
     v[1] = { x1, y1, u1, v1, tint.x, tint.y, tint.z, tint.w };
     v[2] = { x2, y2, u2, v2, tint.x, tint.y, tint.z, tint.w };
@@ -1256,7 +1882,7 @@ void FSpriteBatch::DrawTriangleSub(IRhiTexture& tex,
     ++m_SpriteCount;
 }
 
-void FSpriteBatch::DrawString(const Font& font, const char* utf8_text,
+void FSpriteBatch::DrawString(const FFont& font, const char* utf8_text,
                            f32 x, f32 y, FVec4 color) noexcept {
     if (!utf8_text || !font.AtlasTexture()) return;
     IRhiTexture* atlas = font.AtlasTexture();
@@ -1274,7 +1900,7 @@ void FSpriteBatch::DrawString(const Font& font, const char* utf8_text,
             baseline += font.LineHeight();
             continue;
         }
-        GlyphInfo g{};
+        FGlyphInfo g{};
         if (!font.GetGlyph(cp, g)) continue;
         // packedchar の x_offset/y_offset はベースライン基準
         const f32 qx = pen_x    + g.x_offset;
@@ -1300,7 +1926,7 @@ void FSpriteBatch::Rebind() noexcept {
     // 変わった pipeline / vertex・index buffer / view cbuffer を元に戻す。
     m_Cl->SetPipeline(*m_Pipeline);
     BindViewBuffer();
-    m_Cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    m_Cl->SetVertexBuffer(*m_Vb, sizeof(FVertex));
     m_Cl->SetIndexBuffer(*m_Ib);
 }
 
@@ -1312,8 +1938,8 @@ void FSpriteBatch::Flush() noexcept {
     // こうすることで、先行投入済みの DrawIndexed が参照する範囲を上書きしない。
     const u32   first_sprite = m_FlushedCount;
     const u32   count        = m_SpriteCount - m_FlushedCount;
-    const usize byte_offset  = static_cast<usize>(first_sprite) * 4 * sizeof(Vertex);
-    const usize byte_size    = static_cast<usize>(count) * 4 * sizeof(Vertex);
+    const usize byte_offset  = static_cast<usize>(first_sprite) * 4 * sizeof(FVertex);
+    const usize byte_size    = static_cast<usize>(count) * 4 * sizeof(FVertex);
     m_Vb->Update(m_VertexCpu + first_sprite * 4, byte_size, byte_offset);
 
     m_Cl->SetTexture(0, *m_CurrentTex);

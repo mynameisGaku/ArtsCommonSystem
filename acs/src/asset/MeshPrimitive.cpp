@@ -18,8 +18,8 @@ namespace {
  * @param u テクスチャ座標 U。
  * @param v テクスチャ座標 V。
  */
-void PushVertex(TArray<MeshVertex>& dst, FVec3 pos, FVec3 nrm, f32 u, f32 v) noexcept {
-    MeshVertex mv;
+void PushVertex(TArray<FMeshVertex>& dst, FVec3 pos, FVec3 nrm, f32 u, f32 v) noexcept {
+    FMeshVertex mv;
     mv.position = pos;
     mv.normal   = nrm;
     mv.u        = u;
@@ -41,11 +41,11 @@ TSharedPtr<FMeshAsset> MakeCube(f32 size) noexcept {
     const f32 s = size * 0.5f;
     // 6 面 × 4 頂点 = 24 頂点
     // 各面は ( base_corner, normal ) で表す。UV は (0,0) (1,0) (1,1) (0,1) を割当。
-    struct Face {
+    struct FFace {
         FVec3 a, b, c, d;
         FVec3 n;
     };
-    const Face faces[6] = {
+    const FFace faces[6] = {
         // -Z (前面)
         {{-s,-s,-s},{ s,-s,-s},{ s, s,-s},{-s, s,-s},{0,0,-1}},
         // +Z
@@ -71,7 +71,7 @@ TSharedPtr<FMeshAsset> MakeCube(f32 size) noexcept {
         I.PushBack(base + 0); I.PushBack(base + 2); I.PushBack(base + 3);
     }
 
-    SubMesh sm; sm.first_index = 0; sm.index_count = static_cast<u32>(I.Size());
+    FSubMesh sm; sm.first_index = 0; sm.index_count = static_cast<u32>(I.Size());
     m->SubMeshes().PushBack(sm);
     return m;
 }
@@ -118,7 +118,7 @@ TSharedPtr<FMeshAsset> MakeSphere(f32 radius, u32 segments, u32 rings) noexcept 
         }
     }
 
-    SubMesh sm; sm.first_index = 0; sm.index_count = static_cast<u32>(I.Size());
+    FSubMesh sm; sm.first_index = 0; sm.index_count = static_cast<u32>(I.Size());
     m->SubMeshes().PushBack(sm);
     return m;
 }
@@ -140,7 +140,7 @@ TSharedPtr<FMeshAsset> MakePlane(f32 width, f32 depth) noexcept {
     I.PushBack(0); I.PushBack(1); I.PushBack(2);
     I.PushBack(0); I.PushBack(2); I.PushBack(3);
 
-    SubMesh sm; sm.first_index = 0; sm.index_count = 6;
+    FSubMesh sm; sm.first_index = 0; sm.index_count = 6;
     m->SubMeshes().PushBack(sm);
     return m;
 }

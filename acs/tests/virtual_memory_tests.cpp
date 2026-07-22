@@ -24,14 +24,14 @@ DWORD QueryVirtualMemoryStateForTest(const void* Address) noexcept
 ACS_TEST(VirtualMemory, DecommitCacheHonorsByteLimit)
 {
     const usize PageSize = VmPageSize();
-    auto ReservationResult = VmReservation::Reserve(PageSize * 4);
+    auto ReservationResult = FVmReservation::Reserve(PageSize * 4);
     EXPECT_TRUE(ReservationResult.IsOk());
     if (ReservationResult.IsErr()) {
         return;
     }
 
-    VmReservation& Reservation = ReservationResult.Value();
-    EXPECT_EQ(Reservation.MaximumCachedDecommitBytes(), VmReservation::kDefaultMaximumCachedDecommitBytes);
+    FVmReservation& Reservation = ReservationResult.Value();
+    EXPECT_EQ(Reservation.MaximumCachedDecommitBytes(), FVmReservation::kDefaultMaximumCachedDecommitBytes);
     EXPECT_TRUE(Reservation.SetMaximumCachedDecommitBytes(PageSize * 2).IsOk());
     EXPECT_TRUE(Reservation.Commit(0, PageSize * 3).IsOk());
 

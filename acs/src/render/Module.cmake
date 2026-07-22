@@ -37,7 +37,10 @@ set(_acsgen_render_sources
     Ssgi.cpp
     Ssr.cpp
     StandardShader.cpp
+    SubstrateExpression.cpp
+    SubstrateMaterial.cpp
     VertexScatter.cpp
+    WaterSurface3D.cpp
 )
 set(_acsgen_render_headers
     Atmosphere.h
@@ -58,6 +61,7 @@ set(_acsgen_render_headers
     Ibl.h
     Light2D.h
     MotionVector.h
+    NormalMatrix.h
     Particles.h
     PbrShader.h
     PostProcess.h
@@ -75,7 +79,10 @@ set(_acsgen_render_headers
     Ssgi.h
     Ssr.h
     StandardShader.h
+    SubstrateExpression.h
+    SubstrateMaterial.h
     VertexScatter.h
+    WaterSurface3D.h
 )
 set(_acsgen_render_public_deps
     Foundation

@@ -13,6 +13,7 @@
 //     replay 同期ずれ検知 (1〜2 bit 差分が大半) には十分な avalanche を持つ。
 #include "gameframework/Lockstep.h"
 
+#include "foundation/Move.h"
 #include "memory/Memory.h"   // MemCopy
 
 namespace acs::game {
@@ -161,6 +162,11 @@ inline u32 BitsOf(f32 v) noexcept {
     return out;
 }
 
+/** NaN と正負 infinity を拒否する IEEE-754 binary32 の有限値判定。 */
+inline bool IsFiniteF32Bits(u32 bits) noexcept {
+    return (bits & 0x7F800000u) != 0x7F800000u;
+}
+
 /**
  * u32 ビットパターンを f32 に読み替える (BitsOf の逆、strict-aliasing 安全)。
  *
@@ -185,7 +191,7 @@ void FLockstep::Init(ENetMode mode, u32 tick_rate_hz) noexcept {
     // 完全リセットしたい場合は呼び出し側で Clear() を併用する。
 }
 
-void FLockstep::RecordInput(const InputFrame& frame) noexcept {
+void FLockstep::RecordInput(const FInputFrame& frame) noexcept {
     // Replay モード中は記録しない (上書きを防ぐ)。
     if (m_Mode == ENetMode::Replay) {
         return;
@@ -204,7 +210,7 @@ void FLockstep::StartReplay() noexcept {
     // m_Frames はそのまま。Local で記録した内容を頭から再生する。
 }
 
-bool FLockstep::ConsumeInput(u32 tick, u32 player_id, InputFrame& out) noexcept {
+bool FLockstep::ConsumeInput(u32 tick, u32 player_id, FInputFrame& out) noexcept {
     // Replay モード以外では取り出しを禁止する (誤用検知)。
     if (m_Mode != ENetMode::Replay) {
         return false;
@@ -213,7 +219,7 @@ bool FLockstep::ConsumeInput(u32 tick, u32 player_id, InputFrame& out) noexcept 
     // m_ReplayCursor から線形走査。記録順 = tick 昇順を仮定するため、
     // ヒット後に cursor を前進させて amortised O(1) を狙う。
     for (usize i = m_ReplayCursor; i < n; ++i) {
-        const InputFrame& f = m_Frames[i];
+        const FInputFrame& f = m_Frames[i];
         if (f.tick == tick && f.player_id == player_id) {
             out = f;
             // 次回検索開始位置を更新。同 tick の他プレイヤーも cursor の後ろにある
@@ -238,7 +244,7 @@ u64 FLockstep::ComputeChecksum() const noexcept {
     u64 h = kFnvOffsetBasis;
     const usize n = m_Frames.Size();
     for (usize i = 0; i < n; ++i) {
-        const InputFrame& f = m_Frames[i];
+        const FInputFrame& f = m_Frames[i];
         h = FnvFoldU32(h, f.tick);
         h = FnvFoldU32(h, f.player_id);
         h = FnvFold(h, f.buttons);
@@ -265,7 +271,19 @@ TResult<void> FLockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) no
                        "FLockstep::SaveToBuffer: buffer is null");
     }
 
+    if (m_Frames.Size() > kLockstepMaximumFrames ||
+        m_TickRateHz == 0 || m_TickRateHz > kLockstepMaximumTickRateHz) {
+        return ACS_ERR(IO, kSub_LimitExceeded,
+                       "FLockstep::SaveToBuffer: tick rate or frame count exceeds the limit");
+    }
     const u32 frame_count = static_cast<u32>(m_Frames.Size());
+    for (u32 i = 0; i < frame_count; ++i) {
+        if (!IsFiniteF32Bits(BitsOf(m_Frames[i].axis.x)) ||
+            !IsFiniteF32Bits(BitsOf(m_Frames[i].axis.y))) {
+            return ACS_ERR(IO, kSub_BadValue,
+                           "FLockstep::SaveToBuffer: non-finite axis value");
+        }
+    }
     // 必要バイト数。frame_count を u64 に広げて 32bit 乗算オーバーフローを避ける。
     const u64 required64 =
         static_cast<u64>(kHeaderSize) +
@@ -287,7 +305,7 @@ TResult<void> FLockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) no
     u8* frames_begin = buffer + kHeaderSize;
     u8* p = frames_begin;
     for (u32 i = 0; i < frame_count; ++i) {
-        const InputFrame& f = m_Frames[i];
+        const FInputFrame& f = m_Frames[i];
         WriteU32LE(p,      f.tick);            // +0:  tick
         WriteU32LE(p + 4,  f.player_id);       // +4:  player_id
         p[8] = f.buttons;                      // +8:  buttons (u8)
@@ -307,6 +325,11 @@ TResult<void> FLockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) no
 
 /** buffer を解釈・検証 (magic / version / size / crc32) して frames を復元する (置換セマンティクス)。 */
 TResult<void> FLockstep::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
+    return TryLoadFromBuffer(buffer, size);
+}
+
+/** 全検証とstaging成功後にだけframesを置換するchecked load。 */
+TResult<void> FLockstep::TryLoadFromBuffer(const u8* buffer, u32 size) noexcept {
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,
                        "FLockstep::LoadFromBuffer: buffer is null");
@@ -333,6 +356,11 @@ TResult<void> FLockstep::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
 
     const u32 tick_rate_hz = ReadU32LE(buffer + 8);
     const u32 frame_count  = ReadU32LE(buffer + 12);
+    if (tick_rate_hz == 0 || tick_rate_hz > kLockstepMaximumTickRateHz ||
+        frame_count > kLockstepMaximumFrames) {
+        return ACS_ERR(IO, kSub_LimitExceeded,
+                       "FLockstep::TryLoadFromBuffer: tick rate or frame count exceeds the limit");
+    }
 
     // ---- frame_count とサイズの整合 -------------------------------------
     // header + frames + footer が size と完全一致することを要求する。
@@ -355,27 +383,58 @@ TResult<void> FLockstep::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
         return ACS_ERR(IO, kSub_BadCrc,
                        "FLockstep::LoadFromBuffer: CRC32 mismatch (corrupt or tampered)");
     }
+    const u8* value_cursor = frames_begin;
+    for (u32 i = 0; i < frame_count; ++i) {
+        if (!IsFiniteF32Bits(ReadU32LE(value_cursor + 9u)) ||
+            !IsFiniteF32Bits(ReadU32LE(value_cursor + 13u))) {
+            return ACS_ERR(IO, kSub_BadValue,
+                           "FLockstep::TryLoadFromBuffer: non-finite axis value");
+        }
+        value_cursor += kFrameWireSize;
+    }
 
-    // ---- frames を復元 (置換) -------------------------------------------
-    m_Frames.Clear();
-    m_Frames.Reserve(frame_count);
+    TArray<FInputFrame> staged(*m_Frames.GetAllocator());
+    if (!staged.TryReserve(frame_count)) {
+        return ACS_ERR(Memory, kSub_Oom,
+                       "FLockstep::TryLoadFromBuffer: frame staging allocation failed");
+    }
     const u8* p = frames_begin;
     for (u32 i = 0; i < frame_count; ++i) {
-        InputFrame f;
+        FInputFrame f;
         f.tick      = ReadU32LE(p);            // +0:  tick
         f.player_id = ReadU32LE(p + 4);        // +4:  player_id
         f.buttons   = p[8];                    // +8:  buttons (u8)
         f.axis.x    = F32FromBits(ReadU32LE(p + 9));   // +9:  axis.x
         f.axis.y    = F32FromBits(ReadU32LE(p + 13));  // +13: axis.y
-        m_Frames.PushBack(f);
+        if (!staged.TryPushBack(f)) {
+            return ACS_ERR(Memory, kSub_Oom,
+                           "FLockstep::TryLoadFromBuffer: frame staging append failed");
+        }
         p += kFrameWireSize;
     }
 
-    // ---- 状態リセット (StartReplay 待ち) --------------------------------
-    m_TickRateHz   = (tick_rate_hz == 0) ? 1u : tick_rate_hz;  // Init と同じ 0 丸め
+    m_Frames = Move(staged);
+    m_TickRateHz   = tick_rate_hz;
     m_CurrentTick  = 0;
     m_ReplayCursor = 0;
     return Ok();
+}
+
+/** loaded persistent stateだけをno-fail swapし、modeは各instanceで維持する。 */
+void FLockstep::SwapLoadedState(FLockstep& other) noexcept
+{
+    u32 value = m_TickRateHz;
+    m_TickRateHz = other.m_TickRateHz;
+    other.m_TickRateHz = value;
+    value = m_CurrentTick;
+    m_CurrentTick = other.m_CurrentTick;
+    other.m_CurrentTick = value;
+    value = m_ReplayCursor;
+    m_ReplayCursor = other.m_ReplayCursor;
+    other.m_ReplayCursor = value;
+    TArray<FInputFrame> frames = Move(m_Frames);
+    m_Frames = Move(other.m_Frames);
+    other.m_Frames = Move(frames);
 }
 
 } // namespace acs::game

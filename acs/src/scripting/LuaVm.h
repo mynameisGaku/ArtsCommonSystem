@@ -8,10 +8,10 @@
 //   acs::scripting::FLuaVm vm;
 //   if (vm.Init().IsOk()) {
 //       vm.LoadScript("function add(a,b) return a+b end", 0, "inline");
-//       acs::game::ScriptValue args[2];
+//       acs::game::FScriptValue args[2];
 //       args[0].kind = acs::game::EScriptValueKind::Number; args[0].v.num = 2;
 //       args[1].kind = acs::game::EScriptValueKind::Number; args[1].v.num = 3;
-//       acs::game::ScriptValue ret;
+//       acs::game::FScriptValue ret;
 //       vm.CallFunction("add", args, 2, &ret);  // ret.v.num == 5
 //       vm.Shutdown();
 //   }
@@ -20,7 +20,7 @@
 //   ・Pimpl で lua.h を public header から隠す (lua_State* を漏らさない)。
 //   ・NativeFunction の bridge は lua_pushcclosure の upvalue に
 //     (registry index, this) を載せる trampoline 方式。
-//   ・ScriptValue <-> Lua stack 変換は Nil/Bool/Number/FString/Handle の 5 種。
+//   ・FScriptValue <-> Lua stack 変換は Nil/Bool/Number/FString/Handle の 5 種。
 //   ・全 noexcept、STL/<string> 不使用、TResult でエラー伝搬。
 #pragma once
 
@@ -41,7 +41,7 @@ namespace acs::scripting {
  * Lua は MIT / FetchContent 取得可能 / gating 無しなので、stub と違い実ビルド +
  * 実動作まで完全検証できる real backend。Pimpl で lua.h を public header から隠し
  * (lua_State* を漏らさない)、NativeFunction の bridge は lua_pushcclosure の upvalue
- * に (registry index, this) を載せる trampoline 方式で実現する。ScriptValue <-> Lua
+ * に (registry index, this) を載せる trampoline 方式で実現する。FScriptValue <-> Lua
  * stack 変換は Nil/Bool/Number/FString/Handle の 5 種をサポートする。全 method は
  * noexcept で、STL/<string> 不使用、エラーは TResult で伝搬する。
  */
@@ -57,7 +57,7 @@ public:
      */
     explicit FLuaVm(acs::FAllocator& allocator) noexcept;
 
-    /** 破棄する (Shutdown を呼んで lua_State を解放してから Impl を delete)。 */
+    /** 破棄する (Shutdown を呼んで lua_State を解放してから FImpl を delete)。 */
     ~FLuaVm() noexcept override;
 
     /** コピー禁止 (lua_State を単独所有するため)。 */
@@ -66,7 +66,7 @@ public:
     /** コピー代入も禁止。 */
     FLuaVm& operator=(const FLuaVm&) = delete;
 
-    /** ムーブ禁止 (Impl ポインタの安定性を保つため)。 */
+    /** ムーブ禁止 (FImpl ポインタの安定性を保つため)。 */
     FLuaVm(FLuaVm&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
@@ -117,15 +117,15 @@ public:
      * @return 成功なら空の TResult、未初期化 / 引数不正 / 非関数 / 実行失敗ならエラー。
      */
     acs::TResult<void>       CallFunction(const char* function_name,
-                                          const acs::game::ScriptValue* args,
+                                          const acs::game::FScriptValue* args,
                                           acs::u32 arg_count,
-                                          acs::game::ScriptValue* ret_out)       noexcept override;
+                                          acs::game::FScriptValue* ret_out)       noexcept override;
 
     /**
      * C++ 関数を script グローバル空間に bind する。
      *
      * @details
-     * native registry に (fn, user) を追加し、その index と Impl* を upvalue に載せた
+     * native registry に (fn, user) を追加し、その index と FImpl* を upvalue に載せた
      * trampoline closure を function_name のグローバルに setglobal する。
      * @param function_name script 側から見える関数名。
      * @param fn 呼び出される native 関数。
@@ -169,10 +169,10 @@ public:
 
 private:
     /** lua_State* と native registry を隠す Pimpl 本体 (lua.h を public header から隠す)。 */
-    struct Impl;
+    struct FImpl;
 
     /** Pimpl 本体へのポインタ (構築時に new、破棄時に delete)。 */
-    Impl* m_Impl = nullptr;
+    FImpl* m_Impl = nullptr;
 };
 
 /**

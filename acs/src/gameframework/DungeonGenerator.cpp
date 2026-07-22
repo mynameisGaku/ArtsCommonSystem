@@ -29,7 +29,7 @@ namespace {
  *
  * @details partition 矩形は閉区間 [x0,x1] x [y0,y1] (両端含む) で表す。
  */
-struct BspNode {
+struct FBspNode {
     /** partition 左端 x 座標 (両端含む)。 */
     u32 x0 = 0;
 
@@ -64,7 +64,7 @@ constexpr u32 kInvalidIdx = 0xFFFFFFFFu;
  * @param n 対象 partition ノード。
  * @return 幅 (x1 - x0 + 1)。
  */
-inline u32 PartitionW(const BspNode& n) noexcept { return n.x1 - n.x0 + 1u; }
+inline u32 PartitionW(const FBspNode& n) noexcept { return n.x1 - n.x0 + 1u; }
 
 /**
  * partition の高さを返す (両端含む閉区間)。
@@ -72,7 +72,7 @@ inline u32 PartitionW(const BspNode& n) noexcept { return n.x1 - n.x0 + 1u; }
  * @param n 対象 partition ノード。
  * @return 高さ (y1 - y0 + 1)。
  */
-inline u32 PartitionH(const BspNode& n) noexcept { return n.y1 - n.y0 + 1u; }
+inline u32 PartitionH(const FBspNode& n) noexcept { return n.y1 - n.y0 + 1u; }
 
 } // namespace
 
@@ -94,12 +94,12 @@ void FDungeonGenerator::SetTile(u32 x, u32 y, ETileKind kind) noexcept {
     m_Grid[static_cast<usize>(y) * static_cast<usize>(m_Width) + static_cast<usize>(x)] = kind;
 }
 
-const Room* FDungeonGenerator::GetRoom(u32 index) const noexcept {
+const FRoom* FDungeonGenerator::GetRoom(u32 index) const noexcept {
     if (index >= m_Rooms.Size()) return nullptr;
     return &m_Rooms[index];
 }
 
-const Room* FDungeonGenerator::AllRooms(u32& out_count) const noexcept {
+const FRoom* FDungeonGenerator::AllRooms(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Rooms.Size());
     if (out_count == 0u) return nullptr;
     return m_Rooms.Data();
@@ -107,7 +107,7 @@ const Room* FDungeonGenerator::AllRooms(u32& out_count) const noexcept {
 
 void FDungeonGenerator::GetRoomCenter(u32 room_index, u32& out_x, u32& out_y) const noexcept {
     if (room_index >= m_Rooms.Size()) { out_x = 0; out_y = 0; return; }
-    const Room& r = m_Rooms[room_index];
+    const FRoom& r = m_Rooms[room_index];
     out_x = r.x + r.w / 2u;
     out_y = r.y + r.h / 2u;
 }
@@ -135,7 +135,7 @@ u32 FDungeonGenerator::FindRandomFloor(u32& out_x, u32& out_y) const noexcept {
     return 0u;
 }
 
-void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
+void FDungeonGenerator::Generate(const FDungeonGenConfig& config) noexcept {
     // 1. 設定 sanitize: 不正値はサイレントに安全な既定にフォールバック。
     u32 width  = config.width  != 0u ? config.width  : 64u;
     u32 height = config.height != 0u ? config.height : 48u;
@@ -170,10 +170,10 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
 
     // 3. BSP 分割: 全 partition を TArray に積み、index で親子関係を保持する。
     // ルートは画面全体 (端の壁余白を確保するため [1, w-2] x [1, h-2])。
-    TArray<BspNode> nodes;
+    TArray<FBspNode> nodes;
     nodes.Reserve(64u);
     {
-        BspNode root{};
+        FBspNode root{};
         root.x0 = 1u;
         root.y0 = 1u;
         root.x1 = width  - 2u;
@@ -190,7 +190,7 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
     while (!work.IsEmpty()) {
         const u32 idx = work[work.Size() - 1u];
         work.PopBack();
-        BspNode node = nodes[idx]; // コピー (後で書き戻す)
+        FBspNode node = nodes[idx]; // コピー (後で書き戻す)
 
         const u32 w = PartitionW(node);
         const u32 h = PartitionH(node);
@@ -224,8 +224,8 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
         }
 
         // 分割位置: [min_partition, dim - min_partition] からランダム。
-        BspNode left{};
-        BspNode right{};
+        FBspNode left{};
+        FBspNode right{};
         left.depth  = node.depth + 1u;
         right.depth = node.depth + 1u;
 
@@ -267,7 +267,7 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
 
     // 4. リーフに room を配置: 全ノードを線形走査し、子なしのノードがリーフ。
     for (u32 i = 0; i < nodes.Size(); ++i) {
-        BspNode& n = nodes[i];
+        FBspNode& n = nodes[i];
         if (n.left != kInvalidIdx || n.right != kInvalidIdx) continue;
 
         const u32 pw = PartitionW(n);
@@ -294,7 +294,7 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
         const u32 ry = n.y0 + oy;
 
         // 部屋を Floor で塗る。grid 範囲は config の sanitize で確保済み。
-        Room room{};
+        FRoom room{};
         room.x  = rx;
         room.y  = ry;
         room.w  = rw;
@@ -317,12 +317,12 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
     for (u32 d = max_depth; d > 0u; --d) {
         const u32 target_depth = d - 1u;     // 親側 (子は depth = d)
         for (u32 i = 0; i < nodes.Size(); ++i) {
-            BspNode& n = nodes[i];
+            FBspNode& n = nodes[i];
             if (n.depth != target_depth) continue;
             if (n.left == kInvalidIdx || n.right == kInvalidIdx) continue;
 
-            const BspNode& L = nodes[n.left];
-            const BspNode& R = nodes[n.right];
+            const FBspNode& L = nodes[n.left];
+            const FBspNode& R = nodes[n.right];
             // 両子のサブツリーに room が無いなら何もしない (理論上は無いはず)。
             if (L.rep_room == kInvalidIdx || R.rep_room == kInvalidIdx) {
                 // 片方だけでも代表として親に上げる
@@ -332,8 +332,8 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
             }
 
             // 各代表の中心を結ぶ L 字廊下を描く。
-            const Room& ra = m_Rooms[L.rep_room];
-            const Room& rb = m_Rooms[R.rep_room];
+            const FRoom& ra = m_Rooms[L.rep_room];
+            const FRoom& rb = m_Rooms[R.rep_room];
             const u32 ax = ra.x + ra.w / 2u;
             const u32 ay = ra.y + ra.h / 2u;
             const u32 bx = rb.x + rb.w / 2u;
@@ -384,7 +384,7 @@ void FDungeonGenerator::Generate(const DungeonGenConfig& config) noexcept {
     //       入らなかった) ケースは no-op。
     if (m_Rooms.Size() > 0u) {
         const u32 pick = rng.NextU32() % static_cast<u32>(m_Rooms.Size());
-        const Room& r = m_Rooms[pick];
+        const FRoom& r = m_Rooms[pick];
         const u32 sx = r.x + r.w / 2u;
         const u32 sy = r.y + r.h / 2u;
         if (sx < m_Width && sy < m_Height) {

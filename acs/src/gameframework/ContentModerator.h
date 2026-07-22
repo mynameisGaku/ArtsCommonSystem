@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U — FContentModerator (UGC コンテンツモデレーション seam)
+// GameFramework Pillar U — IContentModerator (UGC コンテンツモデレーション seam)
 //
 // 役割:
 //   ユーザー生成コンテンツ (UGC: チャット文 / アップロード画像 / プロフィール名)
@@ -7,7 +7,7 @@
 //   実モデレーション API (Azure Content Safety / Google Perspective / OpenAI Moderation
 //   / Hive 等) は別モジュールで差し込む前提で、本ファイルは I/F + Stub のみ。
 //
-//   入力 → ModerationResult{ verdict, rating, reason } の 1 段判定。
+//   入力 → FModerationResult{ verdict, rating, reason } の 1 段判定。
 //   verdict と rating の 2 軸を持つ「二段 moderation seam」:
 //     - verdict (3 値): UI フロー制御 (Allow=即公開 / Warn=確認後公開 / Block=拒否)
 //     - rating  (5 値): レーティング表示・年齢ゲート (Safe〜Explicit + ハードコード Block)
@@ -20,13 +20,13 @@
 //     ガードレールとして、どんな実装でも (= 実 SDK / Stub / モック いずれでも) この
 //     レーティングに分類された入力は **必ず** Block を返す契約とする。実装側で
 //     "Allow に降格する" 余地を残さない。詳細は EContentRating コメント参照。
-//   ・**所有しない const char***: `<string>` 不使用 (ACS 規約)。`ModerationResult::reason`
+//   ・**所有しない const char***: `<string>` 不使用 (ACS 規約)。`FModerationResult::reason`
 //     は static literal or 実装内部の static thread_local バッファを指す。寿命は
 //     「次の Moderate*() 呼び出しまで」を保証する。
 //   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は同期で常に
 //     Ok(...) を返し、エラーは API 通信失敗の seam 側でのみ発生。
 //   ・**Tick(dt) 必須**: 非同期モデレーション (= REST 結果ポーリング) を Bridge 側に
-//     畳み込めるよう、FSteamworksBridge と同じ規約を採用。Stub では no-op。
+//     畳み込めるよう、ISteamworksBridge と同じ規約を採用。Stub では no-op。
 //   ・**Stub は static singleton**: `GetModeratorStub()` で取得。実 SDK 未統合ビルドでも
 //     `m_Moderator = &acs::game::GetModeratorStub();` だけでコンパイル可能。
 //
@@ -34,7 +34,7 @@
 //   ・実 SDK 実装 (Azure / Google / OpenAI / Hive)。
 //   ・画像 NSFW スコア (= 画像分類器ローカル推論)。
 //   ・多言語対応 (日本語 / 中国語 / アラビア語の NG 単語辞書)。
-//   ・ユーザー単位レート制限・通報フロー・履歴 (FBackendClient と連携で別レイヤ)。
+//   ・ユーザー単位レート制限・通報フロー・履歴 (IBackendClient と連携で別レイヤ)。
 //
 // ACS 規約:
 //   ・STL 不使用 / `<string>` 不使用 / 例外不使用 / 全 noexcept
@@ -42,7 +42,7 @@
 //
 // 参考:
 //   ・FLlmSafetyPipeline (text validation pattern)
-//   ・FSteamworksBridge   (seam + Stub singleton pattern)
+//   ・ISteamworksBridge   (seam + Stub singleton pattern)
 #pragma once
 
 #include "foundation/Result.h"
@@ -50,10 +50,10 @@
 
 namespace acs::game {
 
-/** Stub による未実装を表す subcode (ErrCategory::Generic 配下)。 */
+/** Stub による未実装を表す subcode (EErrCategory::Generic 配下)。 */
 inline constexpr u16 kSubContentModeratorNotImplemented = 1301;
 
-/** nullptr / size==0 等の不正引数を表す subcode (ErrCategory::Generic 配下)。 */
+/** nullptr / size==0 等の不正引数を表す subcode (EErrCategory::Generic 配下)。 */
 inline constexpr u16 kSubContentModeratorBadArgument    = 1302;
 
 /**
@@ -102,7 +102,7 @@ enum class EContentRating : u8 {
  * reason は文字列を所有しない (静的リテラル or 内部 static バッファを指す)。寿命は
  * 「次の Moderate*() 呼び出しまで」で、呼び出し側はその前に消費する必要がある。
  */
-struct ModerationResult {
+struct FModerationResult {
     /** UI フロー制御の 3 値判定。 */
     EModerationVerdict verdict = EModerationVerdict::Allow;
 
@@ -149,7 +149,7 @@ public:
      * @param text 判定対象テキスト。nullptr / 空文字の扱いは実装依存 (Stub は Allow)。
      * @return 判定結果、または API 通信失敗時のエラー。
      */
-    virtual TResult<ModerationResult> ModerateText(const char* user_id, const char* text) noexcept = 0;
+    virtual TResult<FModerationResult> ModerateText(const char* user_id, const char* text) noexcept = 0;
 
     /**
      * 画像をモデレーションする (アバター / スクショ投稿 / カスタムバナー 等)。
@@ -159,7 +159,7 @@ public:
      * @param size image_data のバイト数。0 / nullptr は BadArgument。
      * @return 判定結果、または不正引数 / API 失敗時のエラー。
      */
-    virtual TResult<ModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept = 0;
+    virtual TResult<FModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept = 0;
 
     /**
      * ユーザー名をモデレーションする (アカウント作成 / 改名時)。
@@ -169,7 +169,7 @@ public:
      * @param name 判定対象のユーザー名。
      * @return 判定結果、または API 失敗時のエラー。
      */
-    virtual TResult<ModerationResult> ModerateUserName(const char* name) noexcept = 0;
+    virtual TResult<FModerationResult> ModerateUserName(const char* name) noexcept = 0;
 
     /**
      * 非同期処理ポンプ (REST 結果ポーリング / 内部キュー dispatch)。
@@ -198,13 +198,13 @@ public:
  * SDK 無しで肌色比率 heuristic (Kovac et al.) を使い、露出度から verdict/rating を判定する
  * (size==0 / nullptr は BadArgument)。Tick / IsAvailable は no-op (常に true)。
  */
-class ContentModeratorStub final : public IContentModerator {
+class FContentModeratorStub final : public IContentModerator {
 public:
     /** 既定構築する。 */
-    ContentModeratorStub() noexcept = default;
+    FContentModeratorStub() noexcept = default;
 
     /** 破棄する。 */
-    ~ContentModeratorStub() noexcept override = default;
+    ~FContentModeratorStub() noexcept override = default;
 
     /**
      * テキストを NG ワード辞書で判定する。
@@ -213,7 +213,7 @@ public:
      * @param text 判定対象テキスト (nullptr / 空文字は Allow)。
      * @return 判定結果 (常に Ok)。
      */
-    TResult<ModerationResult> ModerateText(const char* user_id, const char* text) noexcept override;
+    TResult<FModerationResult> ModerateText(const char* user_id, const char* text) noexcept override;
 
     /**
      * 画像をローカルデコードし肌色比率 heuristic で判定する。
@@ -223,7 +223,7 @@ public:
      * @param size image_data のバイト数 (0 / nullptr / デコード不能は BadArgument)。
      * @return 判定結果、または不正引数 / デコード失敗時のエラー。
      */
-    TResult<ModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept override;
+    TResult<FModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept override;
 
     /**
      * ユーザー名を text と同じ NG ワード辞書で判定する。
@@ -231,7 +231,7 @@ public:
      * @param name 判定対象のユーザー名。
      * @return 判定結果 (常に Ok)。
      */
-    TResult<ModerationResult> ModerateUserName(const char* name) noexcept override;
+    TResult<FModerationResult> ModerateUserName(const char* name) noexcept override;
 
     /**
      * 非同期キューを持たないため no-op。
@@ -257,7 +257,7 @@ public:
      * @param height 画像高さ (px)。0 は BadArgument。
      * @return 判定結果、または不正引数時のエラー。
      */
-    TResult<ModerationResult> ModerateImageRgba8(const u8* rgba, u32 width, u32 height) noexcept;
+    TResult<FModerationResult> ModerateImageRgba8(const u8* rgba, u32 width, u32 height) noexcept;
 
 private:
     /**
@@ -266,14 +266,14 @@ private:
      * @param skin_ratio 不透明ピクセルに対する肌色ピクセルの比率 [0,1]。
      * @return しきい値に応じた判定結果 (常に Ok)。
      */
-    TResult<ModerationResult> ClassifyImageRatio(f32 skin_ratio) const noexcept;
+    TResult<FModerationResult> ClassifyImageRatio(f32 skin_ratio) const noexcept;
 };
 
 /**
  * 全コードで共有できる Stub の static singleton を返す。
  *
- * @details 実 SDK 実装が DI される前のデフォルト。FSteamworksBridge::GetStub() と同じ規約。
- * @return 共有 ContentModeratorStub への参照。
+ * @details 実 SDK 実装が DI される前のデフォルト。ISteamworksBridge::GetStub() と同じ規約。
+ * @return 共有 FContentModeratorStub への参照。
  */
 IContentModerator& GetModeratorStub() noexcept;
 

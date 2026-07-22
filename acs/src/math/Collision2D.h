@@ -2,18 +2,18 @@
 // 2D 衝突判定プリミティブ（AABB / 円 / 線分 / 点）
 //
 // ヘッダオンリー、ゲーム実装に直結する最小集合：
-//   - 形状定義: Aabb2, Circle
+//   - 形状定義: FAabb2, FCircle
 //   - 重なり判定: Intersect(A, B)
 //   - 押し出しベクトル: Resolve(A, B)
 //   - レイキャスト: RaycastAabb / RaycastCircle
 //
 // 使い方:
-//   Aabb2 player{ {x, y}, {w, h} };
-//   Aabb2 wall  { {0, 0}, {100, 8} };
+//   FAabb2 player{ {x, y}, {w, h} };
+//   FAabb2 wall  { {0, 0}, {100, 8} };
 //   if (Intersect(player, wall)) { /* 衝突 */ }
 //
-//   Circle a{{px, py}, 16};
-//   Circle b{{ex, ey}, 12};
+//   FCircle a{{px, py}, 16};
+//   FCircle b{{ex, ey}, 12};
 //   FVec2 push;
 //   if (Resolve(a, b, push)) { player.center += push; }
 #pragma once
@@ -27,7 +27,7 @@ namespace acs {
 /**
  * 軸並行境界ボックス (中心 + 半サイズで表す)。
  */
-struct Aabb2 {
+struct FAabb2 {
     /** ボックス中心。 */
     FVec2 center;
 
@@ -35,7 +35,7 @@ struct Aabb2 {
     FVec2 half_size;
 
     /** 中心・半サイズとも未初期化のまま構築する。 */
-    constexpr Aabb2() noexcept = default;
+    constexpr FAabb2() noexcept = default;
 
     /**
      * 中心と半サイズを指定して構築する。
@@ -43,7 +43,7 @@ struct Aabb2 {
      * @param c 中心。
      * @param hs 半サイズ。
      */
-    constexpr Aabb2(FVec2 c, FVec2 hs) noexcept : center(c), half_size(hs) {}
+    constexpr FAabb2(FVec2 c, FVec2 hs) noexcept : center(c), half_size(hs) {}
 
     /**
      * 最小・最大座標から構築する。
@@ -52,7 +52,7 @@ struct Aabb2 {
      * @param max 右下 (max_x, max_y)。
      * @return min〜max を覆う AABB。
      */
-    static constexpr Aabb2 FromMinMax(FVec2 min, FVec2 max) noexcept {
+    static constexpr FAabb2 FromMinMax(FVec2 min, FVec2 max) noexcept {
         const FVec2 c{ (min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f };
         const FVec2 hs{ (max.x - min.x) * 0.5f, (max.y - min.y) * 0.5f };
         return { c, hs };
@@ -65,7 +65,7 @@ struct Aabb2 {
      * @param size 幅・高さ。
      * @return tl を左上に size の大きさを持つ AABB。
      */
-    static constexpr Aabb2 FromTopLeftSize(FVec2 tl, FVec2 size) noexcept {
+    static constexpr FAabb2 FromTopLeftSize(FVec2 tl, FVec2 size) noexcept {
         const FVec2 c{ tl.x + size.x * 0.5f, tl.y + size.y * 0.5f };
         const FVec2 hs{ size.x * 0.5f, size.y * 0.5f };
         return { c, hs };
@@ -89,7 +89,7 @@ struct Aabb2 {
 /**
  * 円 (中心 + 半径)。
  */
-struct Circle {
+struct FCircle {
     /** 円の中心。 */
     FVec2 center;
 
@@ -104,7 +104,7 @@ struct Circle {
  * 巻き順は時計回り/反時計回りどちらでも可だが凸であることが前提。
  * スプライトの凸包コライダー等を載せる用途。
  */
-struct ConvexPoly2 {
+struct FConvexPoly2 {
     /** 保持できる頂点数の上限。 */
     static constexpr u32 kMaxVerts = 16;
 
@@ -131,8 +131,8 @@ struct ConvexPoly2 {
  * @param p 入力凸多角形。
  * @return 全頂点を覆う AABB (頂点 0 個なら既定 AABB)。
  */
-ACS_FORCEINLINE Aabb2 AabbOf(const ConvexPoly2& p) noexcept {
-    if (p.count == 0) return Aabb2{};
+ACS_FORCEINLINE FAabb2 AabbOf(const FConvexPoly2& p) noexcept {
+    if (p.count == 0) return FAabb2{};
     FVec2 mn = p.verts[0], mx = p.verts[0];
     for (u32 i = 1; i < p.count; ++i) {
         if (p.verts[i].x < mn.x) mn.x = p.verts[i].x;
@@ -140,7 +140,7 @@ ACS_FORCEINLINE Aabb2 AabbOf(const ConvexPoly2& p) noexcept {
         if (p.verts[i].x > mx.x) mx.x = p.verts[i].x;
         if (p.verts[i].y > mx.y) mx.y = p.verts[i].y;
     }
-    return Aabb2::FromMinMax(mn, mx);
+    return FAabb2::FromMinMax(mn, mx);
 }
 
 /**
@@ -149,7 +149,7 @@ ACS_FORCEINLINE Aabb2 AabbOf(const ConvexPoly2& p) noexcept {
  * @details direction は必ずしも正規化されている必要はないが、t の解釈は
  * 方向ベクトルの長さに依存する。
  */
-struct Ray2 {
+struct FRay2 {
     /** レイの始点。 */
     FVec2 origin;
 
@@ -160,7 +160,7 @@ struct Ray2 {
 /**
  * レイキャストの結果。
  */
-struct RayHit2 {
+struct FRayHit2 {
     /** 命中したか。 */
     bool hit  = false;
 
@@ -181,7 +181,7 @@ struct RayHit2 {
  * @param p 判定する点。
  * @return p が a の内部 (境界含む) なら true。
  */
-ACS_FORCEINLINE bool Contains(const Aabb2& a, FVec2 p) noexcept {
+ACS_FORCEINLINE bool Contains(const FAabb2& a, FVec2 p) noexcept {
     return Abs(p.x - a.center.x) <= a.half_size.x &&
            Abs(p.y - a.center.y) <= a.half_size.y;
 }
@@ -193,7 +193,7 @@ ACS_FORCEINLINE bool Contains(const Aabb2& a, FVec2 p) noexcept {
  * @param p 判定する点。
  * @return p が c の内部 (境界含む) なら true。
  */
-ACS_FORCEINLINE bool Contains(const Circle& c, FVec2 p) noexcept {
+ACS_FORCEINLINE bool Contains(const FCircle& c, FVec2 p) noexcept {
     const f32 dx = p.x - c.center.x;
     const f32 dy = p.y - c.center.y;
     return dx*dx + dy*dy <= c.radius * c.radius;
@@ -206,7 +206,7 @@ ACS_FORCEINLINE bool Contains(const Circle& c, FVec2 p) noexcept {
  * @param b AABB その 2。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const Aabb2& a, const Aabb2& b) noexcept {
+ACS_FORCEINLINE bool Intersect(const FAabb2& a, const FAabb2& b) noexcept {
     return Abs(a.center.x - b.center.x) <= (a.half_size.x + b.half_size.x) &&
            Abs(a.center.y - b.center.y) <= (a.half_size.y + b.half_size.y);
 }
@@ -218,7 +218,7 @@ ACS_FORCEINLINE bool Intersect(const Aabb2& a, const Aabb2& b) noexcept {
  * @param b 円その 2。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const Circle& a, const Circle& b) noexcept {
+ACS_FORCEINLINE bool Intersect(const FCircle& a, const FCircle& b) noexcept {
     const f32 dx = a.center.x - b.center.x;
     const f32 dy = a.center.y - b.center.y;
     const f32 r  = a.radius + b.radius;
@@ -233,7 +233,7 @@ ACS_FORCEINLINE bool Intersect(const Circle& a, const Circle& b) noexcept {
  * @param c 対象の円。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const Aabb2& a, const Circle& c) noexcept {
+ACS_FORCEINLINE bool Intersect(const FAabb2& a, const FCircle& c) noexcept {
     // AABB 上の最近傍点が円の中に入っているか
     const f32 cx = c.center.x < a.Min().x ? a.Min().x : (c.center.x > a.Max().x ? a.Max().x : c.center.x);
     const f32 cy = c.center.y < a.Min().y ? a.Min().y : (c.center.y > a.Max().y ? a.Max().y : c.center.y);
@@ -249,7 +249,7 @@ ACS_FORCEINLINE bool Intersect(const Aabb2& a, const Circle& c) noexcept {
  * @param a 対象 AABB。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const Circle& c, const Aabb2& a) noexcept { return Intersect(a, c); }
+ACS_FORCEINLINE bool Intersect(const FCircle& c, const FAabb2& a) noexcept { return Intersect(a, c); }
 
 /**
  * 点が凸多角形の内部にあるかを返す。
@@ -259,7 +259,7 @@ ACS_FORCEINLINE bool Intersect(const Circle& c, const Aabb2& a) noexcept { retur
  * @param p 判定する点。
  * @return 内部 (境界含む) なら true。頂点数 3 未満は false。
  */
-ACS_FORCEINLINE bool Contains(const ConvexPoly2& poly, FVec2 p) noexcept {
+ACS_FORCEINLINE bool Contains(const FConvexPoly2& poly, FVec2 p) noexcept {
     if (poly.count < 3) return false;
     int sign = 0;
     for (u32 i = 0; i < poly.count; ++i) {
@@ -283,7 +283,7 @@ namespace poly_detail {
  * @param mn 射影区間の最小値 (出力)。
  * @param mx 射影区間の最大値 (出力)。
  */
-ACS_FORCEINLINE void ProjectPoly(const ConvexPoly2& p, FVec2 axis, f32& mn, f32& mx) noexcept {
+ACS_FORCEINLINE void ProjectPoly(const FConvexPoly2& p, FVec2 axis, f32& mn, f32& mx) noexcept {
     mn = mx = p.verts[0].x * axis.x + p.verts[0].y * axis.y;
     for (u32 i = 1; i < p.count; ++i) {
         const f32 d = p.verts[i].x * axis.x + p.verts[i].y * axis.y;
@@ -300,7 +300,7 @@ ACS_FORCEINLINE void ProjectPoly(const ConvexPoly2& p, FVec2 axis, f32& mn, f32&
  * @param axis テストする分離軸。
  * @return 射影区間が重ならない (分離軸である) なら true。
  */
-ACS_FORCEINLINE bool AxisSeparates(const ConvexPoly2& a, const ConvexPoly2& b, FVec2 axis) noexcept {
+ACS_FORCEINLINE bool AxisSeparates(const FConvexPoly2& a, const FConvexPoly2& b, FVec2 axis) noexcept {
     f32 amn, amx, bmn, bmx;
     ProjectPoly(a, axis, amn, amx);
     ProjectPoly(b, axis, bmn, bmx);
@@ -315,7 +315,7 @@ ACS_FORCEINLINE bool AxisSeparates(const ConvexPoly2& a, const ConvexPoly2& b, F
  * @param b 凸多角形その 2。
  * @return 重なっていれば true。いずれか頂点数 3 未満なら false。
  */
-ACS_FORCEINLINE bool Intersect(const ConvexPoly2& a, const ConvexPoly2& b) noexcept {
+ACS_FORCEINLINE bool Intersect(const FConvexPoly2& a, const FConvexPoly2& b) noexcept {
     if (a.count < 3 || b.count < 3) return false;
     for (u32 i = 0; i < a.count; ++i) {
         const FVec2 e = a.verts[(i + 1) % a.count] - a.verts[i];
@@ -336,7 +336,7 @@ ACS_FORCEINLINE bool Intersect(const ConvexPoly2& a, const ConvexPoly2& b) noexc
  * @param c 対象の円。
  * @return 重なっていれば true。頂点数 3 未満は false。
  */
-ACS_FORCEINLINE bool Intersect(const ConvexPoly2& poly, const Circle& c) noexcept {
+ACS_FORCEINLINE bool Intersect(const FConvexPoly2& poly, const FCircle& c) noexcept {
     if (poly.count < 3) return false;
     if (Contains(poly, c.center)) return true;
     const f32 r2 = c.radius * c.radius;
@@ -361,7 +361,7 @@ ACS_FORCEINLINE bool Intersect(const ConvexPoly2& poly, const Circle& c) noexcep
  * @param poly 対象の凸多角形。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const Circle& c, const ConvexPoly2& poly) noexcept { return Intersect(poly, c); }
+ACS_FORCEINLINE bool Intersect(const FCircle& c, const FConvexPoly2& poly) noexcept { return Intersect(poly, c); }
 
 /**
  * AABB を 4 頂点の凸多角形に変換する。
@@ -369,9 +369,9 @@ ACS_FORCEINLINE bool Intersect(const Circle& c, const ConvexPoly2& poly) noexcep
  * @param box 入力 AABB。
  * @return box と同じ矩形を表す凸多角形。
  */
-ACS_FORCEINLINE ConvexPoly2 ToPoly(const Aabb2& box) noexcept {
+ACS_FORCEINLINE FConvexPoly2 ToPoly(const FAabb2& box) noexcept {
     const FVec2 mn = box.Min(), mx = box.Max();
-    ConvexPoly2 p;
+    FConvexPoly2 p;
     p.Add(FVec2{ mn.x, mn.y }); p.Add(FVec2{ mx.x, mn.y });
     p.Add(FVec2{ mx.x, mx.y }); p.Add(FVec2{ mn.x, mx.y });
     return p;
@@ -384,7 +384,7 @@ ACS_FORCEINLINE ConvexPoly2 ToPoly(const Aabb2& box) noexcept {
  * @param box 対象 AABB。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const ConvexPoly2& poly, const Aabb2& box) noexcept {
+ACS_FORCEINLINE bool Intersect(const FConvexPoly2& poly, const FAabb2& box) noexcept {
     return Intersect(poly, ToPoly(box));
 }
 
@@ -395,7 +395,7 @@ ACS_FORCEINLINE bool Intersect(const ConvexPoly2& poly, const Aabb2& box) noexce
  * @param poly 対象の凸多角形。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const Aabb2& box, const ConvexPoly2& poly) noexcept { return Intersect(poly, box); }
+ACS_FORCEINLINE bool Intersect(const FAabb2& box, const FConvexPoly2& poly) noexcept { return Intersect(poly, box); }
 
 /**
  * 凸多角形の重心 (頂点平均) を返す。
@@ -403,7 +403,7 @@ ACS_FORCEINLINE bool Intersect(const Aabb2& box, const ConvexPoly2& poly) noexce
  * @param p 入力凸多角形。
  * @return 全頂点の平均座標 (頂点 0 個なら原点)。
  */
-ACS_FORCEINLINE FVec2 Centroid(const ConvexPoly2& p) noexcept {
+ACS_FORCEINLINE FVec2 Centroid(const FConvexPoly2& p) noexcept {
     if (p.count == 0) return FVec2{ 0, 0 };
     FVec2 c{ 0, 0 };
     for (u32 i = 0; i < p.count; ++i) { c.x += p.verts[i].x; c.y += p.verts[i].y; }
@@ -421,12 +421,12 @@ ACS_FORCEINLINE FVec2 Centroid(const ConvexPoly2& p) noexcept {
  * @param push A を B から離す最小移動ベクトル (出力)。
  * @return 重なっていて解決できたら true。
  */
-ACS_FORCEINLINE bool Resolve(const ConvexPoly2& A, const ConvexPoly2& B, FVec2& push) noexcept {
+ACS_FORCEINLINE bool Resolve(const FConvexPoly2& A, const FConvexPoly2& B, FVec2& push) noexcept {
     if (A.count < 3 || B.count < 3) return false;
     f32 min_overlap = 3.4028235e38f;
     FVec2 best_axis{ 0, 0 };
     for (int side = 0; side < 2; ++side) {
-        const ConvexPoly2& P = (side == 0) ? A : B;
+        const FConvexPoly2& P = (side == 0) ? A : B;
         for (u32 i = 0; i < P.count; ++i) {
             const FVec2 e = P.verts[(i + 1) % P.count] - P.verts[i];
             const FVec2 axis = Normalize(FVec2{ -e.y, e.x });
@@ -461,7 +461,7 @@ ACS_FORCEINLINE bool Resolve(const ConvexPoly2& A, const ConvexPoly2& B, FVec2& 
  * @param push 円を P から離す最小移動ベクトル (出力)。
  * @return 重なっていて解決できたら true。
  */
-ACS_FORCEINLINE bool Resolve(const Circle& c, const ConvexPoly2& P, FVec2& push) noexcept {
+ACS_FORCEINLINE bool Resolve(const FCircle& c, const FConvexPoly2& P, FVec2& push) noexcept {
     if (P.count < 3) return false;
     f32 min_overlap = 3.4028235e38f;
     FVec2 best_axis{ 0, 0 };
@@ -505,7 +505,7 @@ ACS_FORCEINLINE bool Resolve(const Circle& c, const ConvexPoly2& P, FVec2& push)
  * @param push a を動かすべき方向 × 距離 (出力)。同心の場合は +X 方向に押す。
  * @return 衝突していたら true。
  */
-ACS_FORCEINLINE bool Resolve(const Circle& a, const Circle& b, FVec2& push) noexcept {
+ACS_FORCEINLINE bool Resolve(const FCircle& a, const FCircle& b, FVec2& push) noexcept {
     const f32 dx = a.center.x - b.center.x;
     const f32 dy = a.center.y - b.center.y;
     const f32 d2 = dx*dx + dy*dy;
@@ -530,7 +530,7 @@ ACS_FORCEINLINE bool Resolve(const Circle& a, const Circle& b, FVec2& push) noex
  * @param push a を動かすべき方向 × 距離 (貫通の浅い軸方向、出力)。
  * @return 衝突していたら true。
  */
-ACS_FORCEINLINE bool Resolve(const Aabb2& a, const Aabb2& b, FVec2& push) noexcept {
+ACS_FORCEINLINE bool Resolve(const FAabb2& a, const FAabb2& b, FVec2& push) noexcept {
     const f32 dx = a.center.x - b.center.x;
     const f32 dy = a.center.y - b.center.y;
     const f32 px = (a.half_size.x + b.half_size.x) - Abs(dx);
@@ -550,9 +550,9 @@ ACS_FORCEINLINE bool Resolve(const Aabb2& a, const Aabb2& b, FVec2& push) noexce
  * @param t_max 探索する t の上限 (既定は実質無限大)。
  * @return 命中情報。命中時は t・point・命中軸の法線が入る。
  */
-ACS_FORCEINLINE RayHit2 RaycastAabb(const Ray2& ray, const Aabb2& a,
+ACS_FORCEINLINE FRayHit2 RaycastAabb(const FRay2& ray, const FAabb2& a,
                                     f32 t_max = 3.4028235e38f) noexcept {
-    RayHit2 r{};
+    FRayHit2 r{};
     const FVec2 mn = a.Min();
     const FVec2 mx = a.Max();
     const f32 inv_dx = ray.direction.x != 0.0f ? 1.0f / ray.direction.x : 1e30f;
@@ -590,9 +590,9 @@ ACS_FORCEINLINE RayHit2 RaycastAabb(const Ray2& ray, const Aabb2& a,
  * @param t_max 探索する t の上限 (既定は実質無限大)。
  * @return 命中情報。半径 0 以下は常に非命中。
  */
-ACS_FORCEINLINE RayHit2 RaycastCircle(const Ray2& ray, const Circle& c,
+ACS_FORCEINLINE FRayHit2 RaycastCircle(const FRay2& ray, const FCircle& c,
                                       f32 t_max = 3.4028235e38f) noexcept {
-    RayHit2 r{};
+    FRayHit2 r{};
     if (c.radius <= 0.0f) return r;  // 半径 0 以下はヒット面を持たない (後段 1/radius の inf 法線を回避)
     const f32 ox = ray.origin.x - c.center.x;
     const f32 oy = ray.origin.y - c.center.y;
@@ -626,9 +626,9 @@ ACS_FORCEINLINE RayHit2 RaycastCircle(const Ray2& ray, const Circle& c,
  * @param t_max 探索する t の上限 (既定は実質無限大)。
  * @return 命中情報。命中時はレイ側を向いたエッジ法線が入る。
  */
-ACS_FORCEINLINE RayHit2 RaycastConvexPoly2(const Ray2& ray, const ConvexPoly2& poly,
+ACS_FORCEINLINE FRayHit2 RaycastConvexPoly2(const FRay2& ray, const FConvexPoly2& poly,
                                            f32 t_max = 3.4028235e38f) noexcept {
-    RayHit2 r{};
+    FRayHit2 r{};
     if (poly.count < 2) return r;
     f32 best = t_max;
     for (u32 i = 0; i < poly.count; ++i) {
@@ -662,7 +662,7 @@ ACS_FORCEINLINE RayHit2 RaycastConvexPoly2(const Ray2& ray, const ConvexPoly2& p
  * (Intersect / Resolve / RaycastConvexPoly2) に委譲する。点内外判定だけは
  * OBB ローカル空間の軸並行比較で直接行う (高速・分岐少)。
  */
-struct Obb2 {
+struct FObb2 {
     /** ボックス中心。 */
     FVec2 center;
 
@@ -673,7 +673,7 @@ struct Obb2 {
     f32   rotation = 0.0f;
 
     /** 中心原点・半サイズ 0・回転 0 で構築する。 */
-    constexpr Obb2() noexcept = default;
+    constexpr FObb2() noexcept = default;
 
     /**
      * 中心・半サイズ・回転角を指定して構築する。
@@ -682,7 +682,7 @@ struct Obb2 {
      * @param hs ローカル軸での半サイズ。
      * @param rot 回転角 (ラジアン)。
      */
-    Obb2(FVec2 c, FVec2 hs, f32 rot) noexcept : center(c), half_size(hs), rotation(rot) {}
+    FObb2(FVec2 c, FVec2 hs, f32 rot) noexcept : center(c), half_size(hs), rotation(rot) {}
 
     /**
      * 回転後のローカル X 軸 (単位ベクトル) を返す。
@@ -705,12 +705,12 @@ struct Obb2 {
  * @param o 入力 OBB。
  * @return 反時計回り (-X-Y, +X-Y, +X+Y, -X+Y) 順の凸多角形。
  */
-ACS_FORCEINLINE ConvexPoly2 ToPoly(const Obb2& o) noexcept {
+ACS_FORCEINLINE FConvexPoly2 ToPoly(const FObb2& o) noexcept {
     const FVec2 ax = o.AxisX();
     const FVec2 ay = o.AxisY();
     const FVec2 hx{ ax.x * o.half_size.x, ax.y * o.half_size.x };
     const FVec2 hy{ ay.x * o.half_size.y, ay.y * o.half_size.y };
-    ConvexPoly2 p;
+    FConvexPoly2 p;
     p.Add(FVec2{ o.center.x - hx.x - hy.x, o.center.y - hx.y - hy.y });
     p.Add(FVec2{ o.center.x + hx.x - hy.x, o.center.y + hx.y - hy.y });
     p.Add(FVec2{ o.center.x + hx.x + hy.x, o.center.y + hx.y + hy.y });
@@ -724,7 +724,7 @@ ACS_FORCEINLINE ConvexPoly2 ToPoly(const Obb2& o) noexcept {
  * @param o 入力 OBB。
  * @return o の 4 頂点を覆う AABB。
  */
-ACS_FORCEINLINE Aabb2 AabbOf(const Obb2& o) noexcept { return AabbOf(ToPoly(o)); }
+ACS_FORCEINLINE FAabb2 AabbOf(const FObb2& o) noexcept { return AabbOf(ToPoly(o)); }
 
 /**
  * 点が OBB に含まれるかを返す。
@@ -734,7 +734,7 @@ ACS_FORCEINLINE Aabb2 AabbOf(const Obb2& o) noexcept { return AabbOf(ToPoly(o));
  * @param p 判定する点。
  * @return p が o の内部 (境界含む) なら true。
  */
-ACS_FORCEINLINE bool Contains(const Obb2& o, FVec2 p) noexcept {
+ACS_FORCEINLINE bool Contains(const FObb2& o, FVec2 p) noexcept {
     const FVec2 d{ p.x - o.center.x, p.y - o.center.y };
     const FVec2 ax = o.AxisX(), ay = o.AxisY();
     const f32 lx = d.x * ax.x + d.y * ax.y;     // ローカル X 射影
@@ -749,7 +749,7 @@ ACS_FORCEINLINE bool Contains(const Obb2& o, FVec2 p) noexcept {
  * @param b OBB その 2。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const Obb2& a, const Obb2& b) noexcept { return Intersect(ToPoly(a), ToPoly(b)); }
+ACS_FORCEINLINE bool Intersect(const FObb2& a, const FObb2& b) noexcept { return Intersect(ToPoly(a), ToPoly(b)); }
 
 /**
  * OBB と AABB が重なるかを返す (凸ポリ SAT へ委譲)。
@@ -758,7 +758,7 @@ ACS_FORCEINLINE bool Intersect(const Obb2& a, const Obb2& b) noexcept { return I
  * @param b 対象 AABB。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const Obb2& o, const Aabb2& b) noexcept { return Intersect(ToPoly(o), b); }
+ACS_FORCEINLINE bool Intersect(const FObb2& o, const FAabb2& b) noexcept { return Intersect(ToPoly(o), b); }
 
 /**
  * AABB と OBB が重なるかを返す (引数順を入れ替えた利便オーバーロード)。
@@ -767,7 +767,7 @@ ACS_FORCEINLINE bool Intersect(const Obb2& o, const Aabb2& b) noexcept { return 
  * @param o 対象 OBB。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const Aabb2& b, const Obb2& o) noexcept { return Intersect(ToPoly(o), b); }
+ACS_FORCEINLINE bool Intersect(const FAabb2& b, const FObb2& o) noexcept { return Intersect(ToPoly(o), b); }
 
 /**
  * OBB と円が重なるかを返す (凸ポリ SAT へ委譲)。
@@ -776,7 +776,7 @@ ACS_FORCEINLINE bool Intersect(const Aabb2& b, const Obb2& o) noexcept { return 
  * @param c 対象の円。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const Obb2& o, const Circle& c) noexcept { return Intersect(ToPoly(o), c); }
+ACS_FORCEINLINE bool Intersect(const FObb2& o, const FCircle& c) noexcept { return Intersect(ToPoly(o), c); }
 
 /**
  * 円と OBB が重なるかを返す (引数順を入れ替えた利便オーバーロード)。
@@ -785,7 +785,7 @@ ACS_FORCEINLINE bool Intersect(const Obb2& o, const Circle& c) noexcept { return
  * @param o 対象 OBB。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const Circle& c, const Obb2& o) noexcept { return Intersect(ToPoly(o), c); }
+ACS_FORCEINLINE bool Intersect(const FCircle& c, const FObb2& o) noexcept { return Intersect(ToPoly(o), c); }
 
 /**
  * OBB と凸多角形が重なるかを返す (凸ポリ SAT へ委譲)。
@@ -794,7 +794,7 @@ ACS_FORCEINLINE bool Intersect(const Circle& c, const Obb2& o) noexcept { return
  * @param p 対象の凸多角形。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const Obb2& o, const ConvexPoly2& p) noexcept { return Intersect(ToPoly(o), p); }
+ACS_FORCEINLINE bool Intersect(const FObb2& o, const FConvexPoly2& p) noexcept { return Intersect(ToPoly(o), p); }
 
 /**
  * 凸多角形と OBB が重なるかを返す (引数順を入れ替えた利便オーバーロード)。
@@ -803,7 +803,7 @@ ACS_FORCEINLINE bool Intersect(const Obb2& o, const ConvexPoly2& p) noexcept { r
  * @param o 対象 OBB。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const ConvexPoly2& p, const Obb2& o) noexcept { return Intersect(p, ToPoly(o)); }
+ACS_FORCEINLINE bool Intersect(const FConvexPoly2& p, const FObb2& o) noexcept { return Intersect(p, ToPoly(o)); }
 
 /**
  * 2 つの OBB の押し出しベクトル (MTV) を求める (凸ポリ Resolve へ委譲)。
@@ -813,7 +813,7 @@ ACS_FORCEINLINE bool Intersect(const ConvexPoly2& p, const Obb2& o) noexcept { r
  * @param push A を B から離す最小移動ベクトル (出力)。
  * @return 衝突していて解決できたら true。
  */
-ACS_FORCEINLINE bool Resolve(const Obb2& A, const Obb2& B, FVec2& push) noexcept { return Resolve(ToPoly(A), ToPoly(B), push); }
+ACS_FORCEINLINE bool Resolve(const FObb2& A, const FObb2& B, FVec2& push) noexcept { return Resolve(ToPoly(A), ToPoly(B), push); }
 
 /**
  * OBB を AABB から押し出す MTV を求める (凸ポリ Resolve へ委譲)。
@@ -823,7 +823,7 @@ ACS_FORCEINLINE bool Resolve(const Obb2& A, const Obb2& B, FVec2& push) noexcept
  * @param push A を B から離す最小移動ベクトル (出力)。
  * @return 衝突していて解決できたら true。
  */
-ACS_FORCEINLINE bool Resolve(const Obb2& A, const Aabb2& B, FVec2& push) noexcept { return Resolve(ToPoly(A), ToPoly(B), push); }
+ACS_FORCEINLINE bool Resolve(const FObb2& A, const FAabb2& B, FVec2& push) noexcept { return Resolve(ToPoly(A), ToPoly(B), push); }
 
 /**
  * OBB を凸多角形から押し出す MTV を求める (凸ポリ Resolve へ委譲)。
@@ -833,7 +833,7 @@ ACS_FORCEINLINE bool Resolve(const Obb2& A, const Aabb2& B, FVec2& push) noexcep
  * @param push A を B から離す最小移動ベクトル (出力)。
  * @return 衝突していて解決できたら true。
  */
-ACS_FORCEINLINE bool Resolve(const Obb2& A, const ConvexPoly2& B, FVec2& push) noexcept { return Resolve(ToPoly(A), B, push); }
+ACS_FORCEINLINE bool Resolve(const FObb2& A, const FConvexPoly2& B, FVec2& push) noexcept { return Resolve(ToPoly(A), B, push); }
 
 /**
  * 凸多角形を OBB から押し出す MTV を求める (凸ポリ Resolve へ委譲)。
@@ -843,7 +843,7 @@ ACS_FORCEINLINE bool Resolve(const Obb2& A, const ConvexPoly2& B, FVec2& push) n
  * @param push A を B から離す最小移動ベクトル (出力)。
  * @return 衝突していて解決できたら true。
  */
-ACS_FORCEINLINE bool Resolve(const ConvexPoly2& A, const Obb2& B, FVec2& push) noexcept { return Resolve(A, ToPoly(B), push); }
+ACS_FORCEINLINE bool Resolve(const FConvexPoly2& A, const FObb2& B, FVec2& push) noexcept { return Resolve(A, ToPoly(B), push); }
 
 /**
  * 円を OBB から押し出す MTV を求める (凸ポリ Resolve へ委譲)。
@@ -853,7 +853,7 @@ ACS_FORCEINLINE bool Resolve(const ConvexPoly2& A, const Obb2& B, FVec2& push) n
  * @param push 円を o から離す最小移動ベクトル (出力)。
  * @return 衝突していて解決できたら true。
  */
-ACS_FORCEINLINE bool Resolve(const Circle& c, const Obb2& o, FVec2& push) noexcept { return Resolve(c, ToPoly(o), push); }
+ACS_FORCEINLINE bool Resolve(const FCircle& c, const FObb2& o, FVec2& push) noexcept { return Resolve(c, ToPoly(o), push); }
 
 /**
  * レイと OBB の交差を求める (凸ポリ raycast へ委譲)。
@@ -863,7 +863,7 @@ ACS_FORCEINLINE bool Resolve(const Circle& c, const Obb2& o, FVec2& push) noexce
  * @param t_max 探索する t の上限 (既定は実質無限大)。
  * @return 命中情報。
  */
-ACS_FORCEINLINE RayHit2 RaycastObb2(const Ray2& ray, const Obb2& o,
+ACS_FORCEINLINE FRayHit2 RaycastObb2(const FRay2& ray, const FObb2& o,
                                     f32 t_max = 3.4028235e38f) noexcept {
     return RaycastConvexPoly2(ray, ToPoly(o), t_max);
 }

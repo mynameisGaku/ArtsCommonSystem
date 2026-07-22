@@ -1,6 +1,16 @@
 # ACS GameFramework モジュール 設計書 v13（包括版）
 
-`acs::Application` の上に、ゲーム制作に必要な要素を**包括的に**載せるフレームワーク
+> **現行実装との対応 (2026-07-18):** 本書は機能拡張の履歴を含む包括設計書であり、
+> 旧 `Node2D` / `Node3D` / `Component2D` / `Component3D` 表記が歴史的記述として残る。
+> 現行実装では単一の `ANode` と `AComponent`、`FTransform3D`、`TObjectPtr` へ統一済み。
+> 実装時の型名・所有権・2D helper・描画順・シリアライズ安全境界は
+> [`NodeUnification.md`](NodeUnification.md) を正とする。
+> 反射 payload の保存は `TrySerializeReflected` が必要サイズを先に計測し、容量不足時に
+> 出力を変更しない。復元は `TryDeserializeReflected` が全レコードを先に検証し、成功時だけ
+> 対象へ適用する。最大フィールド数 1,024、名前 255 bytes、値 16 bytes を境界とし、
+> `FIELD_TRANSIENT` と範囲外メタデータを実体メモリへ書き込まない。
+
+`acs::FApplication` の上に、ゲーム制作に必要な要素を**包括的に**載せるフレームワーク
 モジュール。本書は実装前の確定設計書。多エージェント技術ディスカッションを 2 巡
 （シーン基盤の精査 → 包括サブシステムの設計）行い統合した。
 
@@ -16,7 +26,7 @@
 ## 1. 目的と非目的
 
 ### 1.1 解決する課題
-`acs::Application` は `OnUpdate`/`OnRender` が単一で、(a) 画面/状態の切替、
+`acs::FApplication` は `OnUpdate`/`OnRender` が単一で、(a) 画面/状態の切替、
 (b) シーン内オブジェクトの表現、(c) ゲーム制作の定番部品（補間・カメラ・入力
 マップ・当たり判定・セーブ等）を何も持たない。GameFramework はこれらを
 **8 つのピラー**として体系的に提供する。
@@ -49,23 +59,23 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ ゲームコード   ユーザーの Scene / Node サブクラス / Component    │
+│ ゲームコード   ユーザーの FScene / ANode 派生 / AComponent       │
 ├─────────────────────────────────────────────────────────────────┤
 │ acs::game — GameFramework                                       │
-│  A. App & Scene ─ Game · Scene · SceneManager · RenderContext   │
-│                   AppState · SceneServices(取り付けハブ)         │
+│  A. App & Scene ─ FGame · FScene · FSceneManager · FRenderContext│
+│                   FAppStateSlot · FSceneServices(取り付けハブ)   │
 │  ┌───────────┬───────────┬──────────┬──────────┬──────────────┐ │
 │  │ B.オブジェ│ C.時間・  │ D.入力   │ E.カメラ │ F.物理・衝突 │ │
 │  │  クトモデル│  アニメ   │          │          │              │ │
-│  │ Node2D    │ Clock     │ InputMap │ Camera2D │ CollisionW.2D│ │
-│  │ Transform │ Tween/Ease│          │          │ SpatialGrid  │ │
-│  │ Component │ Sequence  │          │          │ PhysicsBody2D│ │
-│  │ NodeTree  │ StateMach.│          │          │              │ │
-│  │           │ SpriteAnim│          │          │              │ │
+│  │ ANode     │ FClock    │FInputMap │FCamera2D │FCollisionW.2D│ │
+│  │FTransform3D│FTween/Ease│         │          │ SpatialGrid  │ │
+│  │AComponent │FSequence  │          │          │APhysicsBody2D│ │
+│  │ NodeTree  │TStateMach.│          │          │              │ │
+│  │           │FSpriteAnim│          │          │              │ │
 │  ├───────────┴───────────┼──────────┴──────────┴──────────────┤ │
 │  │ G.リソース・永続化     │ H.UI・オーディオ・ツール           │ │
-│  │ AssetBundle/TypedHandle│ UiLayer · AudioDirector · Random   │ │
-│  │ SaveArchive · Settings │ TPool<T> · DebugOverlay · DebugDraw │ │
+│  │FAssetBundle/TypedHandle│ FUiLayer · FAudioDirector · FRandom│ │
+│  │FSaveArchive · FSettings│ TPool<T> · FDebugOverlay · FDebugDraw││
 │  └───────────────────────┴────────────────────────────────────┘ │
 ├─────────────────────────────────────────────────────────────────┤
 │ 既存 ACS エンジン（ラップ対象。再実装しない）                    │
@@ -75,29 +85,29 @@
 
 **依存方向は一方向**: GameFramework → エンジン（逆は無し）。各ピラーはピラー A と
 エンジンに依存してよいが、兄弟ピラーのヘッダは原則 include しない（実行時連携は
-コンポーネント・`SceneServices`・`MessageBroker` 経由）。
+コンポーネント・`FSceneServices`・`FMessageBroker` 経由）。
 
 ---
 
 ## 3. ピラー A — App & Scene（基盤。v3 で確定済み）
 
-`Game`/`Scene`/`SceneManager`/`RenderContext`/`AppState` と、GPU 安全なシーン破棄。
+`FGame`/`FScene`/`FSceneManager`/`FRenderContext`/`FAppStateSlot` と、GPU 安全なシーン破棄。
 v3 仕様の要点（詳細は本節末の確定事項）:
 
-- **`Scene`** — `OnEnter/OnUpdate/OnFixedUpdate/OnRender/OnExit/OnPause/OnResume/OnEvent`。
-- **`SceneManager`** — `TUniquePtr<Scene>` のスタック。`ChangeScene`/`PushScene`/
+- **`FScene`** — `OnEnter/OnUpdate/OnFixedUpdate/OnRender/OnExit/OnPause/OnResume/OnEvent`。
+- **`FSceneManager`** — `TUniquePtr<FScene>` のスタック。`ChangeScene`/`PushScene`/
   `PopScene`。遷移は遅延適用（1フレーム1遷移・後勝ち）。フェード遷移対応。
-- **`Game : Application`** — フレームループから駆動。固定タイムステップ
+- **`FGame : FApplication`** — フレームループから駆動。固定タイムステップ
   （アキュムレータ + 暴走防止クランプ）・タイムスケール。`ACS_GAME_MAIN` でエントリ生成。
 - **GPU 遅延削除キュー** — 退場シーンを「フレームインフライト数+1（=3）」フレーム
   保持してから破棄。GPU が直前フレームで参照中のリソースの use-after-free を防ぐ。
-- **`AppState`** — ユーザー定義の永続状態。`Game` が型消去 `void*` で保持、
-  `Scene::app<T>()` で参照。シーンをまたいで生存。
-- **`RenderContext`** — 全シーン共有の `SpriteBatch` + 既定 `Font`。シーン切替で
+- **`FAppStateSlot`** — ユーザー定義の永続状態を `FGame` が型消去で1個保持する内部スロット。
+  利用側は `FGame::EmplaceAppState<T>()` / `AppState<T>()` で参照し、シーンをまたいで生存する。
+- **`FRenderContext`** — 全シーン共有の `FSpriteBatch` + 既定 `FFont`。シーン切替で
   パイプライン再構築しない。
 
-### 3.1 `SceneServices` — 取り付けハブ（v4 の中心的追加）
-ピラー B〜H の多くは「シーンが 1 つだけ持つ singleton」。これを `SceneServices`
+### 3.1 `FSceneServices` — 取り付けハブ（v4 の中心的追加）
+ピラー B〜H の多くは「シーンが 1 つだけ持つ singleton」。これを `FSceneServices`
 に束ね、シーンが**使うものだけ宣言**して遅延生成する:
 
 ```cpp
@@ -106,90 +116,85 @@ enum class ESvc : u32 {
     Ui=1<<4, Audio=1<<5, Events=1<<6, Debug=1<<7, Timers=1<<8,
     Default2D = Tweens|Input|Camera2D|Physics2D|Audio|Events|Debug|Timers,
 };
-class SceneServices {
+class FSceneServices {
 public:
-    TweenManager&     Tweens()  noexcept;   SequenceRunner& Sequences() noexcept;
-    InputMap&         Input()   noexcept;   Camera2D&       Cam()       noexcept;
-    CollisionWorld2D& Physics() noexcept;   UiLayer&        Ui()        noexcept;
-    AudioDirector&    Audio()   noexcept;   MessageBroker&  Events()    noexcept;
-    DebugDraw&        Debug()   noexcept;   TimerManager&   Timers()    noexcept;
+    FSceneClock&       Clock()     noexcept;
+    FTweenManager&     Tweens()    noexcept;
+    FSequenceRunner&   Sequences() noexcept;
+    FInputMap&         Input()     noexcept;
+    FCamera2D&         Camera()    noexcept;
+    FCollisionWorld2D& Physics()   noexcept;
+    FTriggerWorld2D&   Triggers()  noexcept;
     // 要求していないサービスへのアクセスは debug assert
 };
 ```
 
-`Scene` は `virtual ESvc WantedServices() const noexcept` を 1 つ override するだけ。
+`FScene` は `virtual ESvc WantedServices() const noexcept` を 1 つ override するだけ。
 メニュー画面は `ESvc::Ui|ESvc::Audio` のみ宣言し ECS/物理のコストを払わない。
-`Game` が v3 で定めたシーム地点で `SceneServices` を生成・tick する。
+`FGame` が v3 で定めたシーム地点で `FSceneServices` を生成・tick する。
 
 ### 3.2 取り付け機構（全サブシステムはこの 2 つのどちらか）
-1. **`SceneServices` メンバ** — シーン単位の singleton（Tween/Input/FCamera/物理/
-   UI/Audio/Events/Debug/Timers）。`Game` が自動で `dt` を供給。
-2. **`Game` グローバルサービス** — シーンをまたいで生存（`AssetRegistry`・
-   `AudioEngine` デバイス・`SaveArchive`・`Settings`・`AppState`・`DebugOverlay`）。
+1. **`FSceneServices` メンバ** — シーン単位のサービス（Clock/Tween/Sequence/Input/
+   Camera/Collision/Trigger）。`FGame` が自動で `dt` を供給。
+2. **`FGame` グローバルサービス** — シーンをまたいで生存（`FAssetRegistry`・
+   `FAudioEngine` デバイス・`FSaveArchive`・`FSettings`・`FAppStateSlot`・`FDebugOverlay`）。
 
 シーン内オブジェクトの表現はピラー B（ノードツリー）。バルク処理が要るシーンは
-ECS `World` をシーンのメンバとして持つ（§4.6）。
+ECS `FWorld` をシーンのメンバとして持つ（§4.6）。
 
 ---
 
-## 4. ピラー B — オブジェクトモデル（`Node2D`）
+## 4. ピラー B — 統一オブジェクトモデル（`ANode` / `AComponent`）
 
-**「シーンの中身をどう表現するか」の中心設計。** 結論: **ノードツリーが主たる
-オブジェクトモデル**。ECS `World` は群体（弾・パーティクル）用の別ツールで、
-必要なシーンだけが持つ。両者は一方向ブリッジで繋ぐ（ECS を再実装も強制もしない）。
+**「シーンの中身をどう表現するか」の中心設計。** 階層オブジェクトは2D/3Dで分けず、
+単一の `ANode` ツリーを使う。ECS `FWorld` は弾・パーティクル等の一括処理向けで、
+必要なシーンだけが明示的に併用する。
 
-### 4.1 Node か ECS か — 役割分担
-| ノードツリーを使う | ECS `World` を使う |
+### 4.1 ANode か ECS か — 役割分担
+| `ANode` ツリーを使う | ECS `FWorld` を使う |
 |---|---|
-| 手で配置する階層的・個別スクリプトのオブジェクト（プレイヤー・UI・ボス・扉）。数十〜数百 | systems で一括更新する同種大量オブジェクト（弾・パーティクル・タイル）。数千 |
-| 親子トランスフォーム（戦車の上の砲塔、頭上の HP バー） | 親子なしのフラットなもの |
+| 手で配置する階層的・個別ロジックのオブジェクト（プレイヤー・UI・ボス・扉）。数十〜数百 | system で一括更新する同種大量オブジェクト（弾・パーティクル・タイル）。数千 |
+| 親子 transform、ライフサイクル、コンポーネント合成 | 親子なしのフラットなデータ指向処理 |
 
-ノードツリーは常にある（最低でもルート）。`World` は使うシーンだけが
-`World _world;` をメンバに持つ（フレームワークは ECS を強制しない）。
+`FScene2D` は最低1個の root `ANode` を持つ。`FWorld` は利用側が必要な場合だけ
+シーンのメンバとして構築し、フレームワークは両者の二重管理を暗黙に行わない。
 
-### 4.2 `FTransform2D`・`Node2D`
-- **`FTransform2D`** — `position`(FVec2) / `rotation`(f32 ラジアン) / `scale`(FVec2) の
-  20 バイト値型。`FMat4` ではなく専用型（小さい・合成が速い・分解が非可逆でない）。
-  `operator*` で親子合成、`ToMat4()` は `SpriteBatch::SetView` 等の必要時のみ。
-- **`Node2D`** — 唯一のノードクラス（2D 専用ゆえ抽象 `Node` 基底は作らない）。
-  非コピー・非ムーブ（`TUniquePtr` で所有、`FNodeId`/`Node2D*` で参照）。
-  ライフサイクルフック（override は `noexcept` 必須）:
-  `OnSpawn / OnUpdate(dt) / OnFixedUpdate / OnDraw(RenderContext&) / OnDespawn /
-  OnEnabledChanged`。フックは全て「親が先」（spawn・update・draw・despawn とも
-  親→子の順）。`_enabled=false` のノードは subtree ごと更新スキップ、
-  `_visible=false` は subtree ごと描画スキップ。
+### 4.2 `FTransform3D`・`ANode`
+- **`FTransform3D`** — `FVec3 position` / `FQuat rotation` / `FVec3 scale` を持つ
+  2D/3D共通値型。2Dコードは `Position2D` / `SetPosition2D`、`Rotation2D` /
+  `SetRotation2D`、`Scale2D` / `SetScale2D`、`Local2D` / `World2D` を使う。
+- **`ANode`** — 非コピー・非ムーブの統一ノード。生成は `NewObject<T>()`、
+  親の所有は `TObjectPtr<ANode>`、外部参照は `TWeakObjectPtr<ANode>` を使う。
+  `OnSpawn` / `OnUpdate` / `OnFixedUpdate` / `OnDraw(FRenderContext&)` / `OnDespawn`
+  を必要なものだけ `noexcept override` する。無効・非表示ノードは subtree ごと
+  update / draw をスキップする。
 
 ### 4.3 トランスフォーム伝播
-`_local` が真値、`_world` は派生キャッシュ。`_local` を書き換えると
-`MarkWorldDirty()` が dirty フラグを **subtree へ下方伝播**（既に dirty なら早期
-脱出 → 計算量は「変化した部分木」に比例）。毎フレーム update と draw の間に
-**1 回の解決パス** `ResolveTransforms()` で dirty なノードだけ再合成 → 全 `OnDraw`
-が一貫した world transform を見る。`WorldTransform()` はキャッシュを返す
-（解決パス後に有効）。update 中の厳密値が要れば `ComputeWorldTransformNow()`。
+`Local()` が真値で、`World()` は現在の親をたどって `FTransform3D` を合成する
+キャッシュなしの `O(depth)` 演算。深いツリーで同じ world 値を繰り返し使う場合は、
+呼び出し側がその処理中だけローカル変数へ保持する。
 
-### 4.4 階層変更の安全性（古典的クラッシュの排除）
-ツリー走査中（update/draw 中）の構造変更（spawn/destroy/reparent）は**フレーム
-境界まで遅延**。`Scene` が `_spawn_queue`/`_despawn_queue`/`_reparent_queue` と
-`_in_traversal` フラグを持つ。`Destroy()` は `_pending_destroy` を立てるだけで
-即時解放しない → 自分自身を `OnUpdate` 中に `Destroy()` しても安全。破棄は
-フレーム先頭の reap パスで `OnDespawn`（親→子）→ メモリ解放（子→親）。
-`FNodeId`（index+generation、`EntityId` と同形）で stale 参照を検出。
+### 4.4 階層変更の安全性
+`Destroy()` と `Reparent()` は要求だけを記録し、`ResolveStructuralChanges()` が
+フレーム境界で適用する。`TryAddChild` は null、自己追加、循環、多重親化、破棄予定、
+`kNodeMaxTreeDepth` 超過を検証し、失敗時に `TObjectPtr` を変更しない。長期参照は
+生ポインタでなく `TWeakObjectPtr` を使い、`FNodeId` は index + generation で
+古いIDを検出する。遅延 `Reparent` の移動先は内部 lifetime observer が監視するため、
+`NewObject` 所有ノードと値所有 root のどちらが先に破棄されても dangling pointer を残さない。
+適用時には移動先の破棄予定祖先、最新の循環、深度上限を再検証し、不成立なら元の親に残す。
 
 ### 4.5 コンポーネント（合成）
-ノードは `Component2D` を attach できる（sprite/animation/collider 等の再利用可能な
-振る舞い）。型取得は **RTTI 不使用** — `ComponentKindOf<T>()`（`ecs/ComponentId.h`
-と同じ「型ごとの一意 u32」カウンタ）+ virtual `Kind()` + `static_cast`。
-`node.GetComponent<SpriteComponent>()` は線形探索（ノードのコンポーネントは数個）。
-標準提供: `SpriteComponent` / `AnimatedSpriteComponent` / `TextComponent` /
-`ParticleComponent`、サブクラス `CameraNode2D` / `CanvasNode`(画面座標の UI 用)。
+ノードは `AComponent` 派生を attach する。型取得は RTTI 不使用で、
+`ACS_GAME_COMPONENT_KIND(T)` / `ComponentKindOf<T>()` と `Kind()` を使う。
+`AddComponent<T>` は `OnRequire` → `OnAttach`、除去は `OnDetach` の順。
+標準例は `ASprite2DComponent`、`ASpriteAnimComponent`、`APhysicsBody2D`、
+`ATriggerComponent`、`ATilemapComponent`。取得は `GetComponent<T>()` /
+`GetOrAddComponent<T>()`、一括除去は `RemoveAllComponents()`。
 
-### 4.6 ECS ブリッジ（一方向・任意）
-ノードが群体（ECS）を併用したい場合のみ、ノードは 1 つの `EntityId` に
-**bind** できる（`Node2D::CreateEntityIn(World&)`）。規則: ①一方向（ノードは
-entity を知るが entity はノードを知らない）、②ノードが entity の寿命を所有、
-③データ二重化なし（同期は明示的 `SyncToEntity()` のみ）。`Scene` のメンバ順は
-`_root`（ノードツリー）→ ユーザーの `World _world;` の順（破棄逆順で、ECS-bind
-ノードが破棄時に生きた `World` を触れるように）。
+### 4.6 ECS 併用
+現行 `ANode` は `FEntityId` を暗黙に所有・同期しない。ECSとノードを併用する場合は、
+ゲーム側が `TWeakObjectPtr<ANode>` と `FEntityId` の対応を保持し、更新順・同期方向・
+破棄順を明示する。これにより、ノードとECSのどちらが真値か曖昧になる二重所有を避ける。
 
 ---
 
@@ -203,14 +208,29 @@ ACS のコールバックは `std::function` 不使用。本ピラーは 3 段�
 | サブシステム | 役割 |
 |---|---|
 | `Clock` | シーン単位の scaled/unscaled 時間・`dt`・`fixed_dt`・フレーム数・pause |
-| `Tween` + `TweenManager` | 値（f32/FVec2/FVec3/色）を A→B へイージング補間。`TweenManager` が所有・tick・完了処理 |
-| `Easing` | 約 30 種のイージング関数（linear/quad/cubic/sine/expo/circ/back/elastic/bounce の in/out/inout）。ヘッダオンリ |
-| `Sequence` + `SequenceRunner` | 時間付きアクションの連鎖（wait/call/tween/parallel/loop）。固定容量のアクション配列、関数ポインタ方式。カットシーン・出現ウェーブ |
+| `Tween` + `TweenManager` | 値（f32/FVec2/FVec3/色）を A→B へイージング補間。関数ポインタと `EEasingType` の両方を受け取り、`TweenManager` が所有・tick・完了処理 |
+| `Easing` | 標準 31 種 + SmoothStep/SmootherStep の全 33 種。直接関数と型付き `EEasingType` catalog、checked 評価、名前変換を提供するヘッダオンリ API |
+| `FSequence` + `FSequenceRunner` | 時間付きアクションの連鎖（wait/call/tween/parallel/loop）。`Tween` は関数ポインタと `EEasingType` の両方に対応。カットシーン・出現ウェーブ |
 | `StateMachine<T>` | 小さな汎用 FSM（enter/update/exit）。AI・ゲームフロー。ヘッダオンリテンプレート |
 | `SpriteAnimator` | スプライトシートのフレームアニメ（クリップ・fps・loop/pingpong/once・フレームイベント） |
 
 `TweenManager`/`SequenceRunner` は `SceneServices` 経由。`Tween` は `TimerManager`
 の上ではなく独立（イージング曲線評価が要るため）。
+
+`Easing::EEasingType` は Linear、Quad/Cubic/Quart/Quint/Sine/Expo/Circ/Back/
+Elastic/Bounce の In/Out/InOut、および SmoothStep/SmootherStep を安定した 33 値で
+列挙する。`Count = 33` は末尾 sentinel であり、評価可能な曲線ではない。
+`TryEvaluate(type, t, out)` は無効 type と非有限入力を診断し、失敗時に
+`out` を変更しない。`Evaluate` は fallback 付き、`GetFunction` は従来の
+`EasingFn` との橋渡し、`GetName` / `TryParseName` は保存形式や UI の名前変換に使う。
+外部入力には、失敗時の出力を維持し `InvalidType` / `NullName` / `UnknownName` を
+分類する `TryGetName` / `TryParseNameChecked` を使用できる。Easy facade も
+`TryGetEasingName` / `TryParseEasingNameChecked` で同じ契約を公開する。
+`TrySampleCurve` は2〜65536点を `[0,1]` 上で等間隔に生成し、書き込み前の
+検証passによって失敗時に出力配列全体を維持する。Easy facade では
+`TrySampleEasing` を使用する。
+`FTweenManager::Tween` と `FSequence::Tween` は `EEasingType` overload を持つため、
+関数ポインタを直接扱わずに型付き catalog から曲線を指定できる。
 
 ---
 
@@ -276,10 +296,10 @@ ACS のコールバックは `std::function` 不使用。本ピラーは 3 段�
   `u16 タグ + 型 + 長さ + 値`）。未知タグは長さでスキップ、欠落タグは既定値 →
   スキーマ進化耐性（旧セーブが新コードで読める）。エンベロープに magic + version
   + crc32、temp ファイルへ書いてアトミック rename。`TResult` でエラー。設定系の
-  単純な key-value は既存 `Storage`（INI）をそのまま使う。**任意で HMAC-SHA256 の
+  単純な key-value は既存 `FStorage`（INI）をそのまま使う。**任意で HMAC-SHA256 の
   改竄タグ**を付けられる（`AssetPack` の Crypto を再利用。リーダーボード等のチート
   対策。内容暗号化は既定オフ）。
-- **`Settings`** — 型付きゲーム設定（音量・解像度・キーバインド）を `Storage` 永続化。
+- **`Settings`** — 型付きゲーム設定（音量・解像度・キーバインド）を `FStorage` 永続化。
 
 ### 8.3 製品化（productization）ワークフロー
 - **開発ビルド** — バラ `assets/` を VFS にマウント。変更ファイルは即ホットリロード。
@@ -318,7 +338,7 @@ Module.cmake   acs_module(NAME GameFramework TYPE Runtime
                              Math Ui Platform)
 A: Game.h/.cpp  Scene.h  SceneManager.h/.cpp  RenderContext.h/.cpp
    SceneServices.h/.cpp  AppState.h  GameEntry.h
-B: Node2D.h/.cpp  Transform2D.h  Component2D.h/.cpp  Components.h/.cpp
+B: ANode.h/.cpp  AComponent.h  Transform2D.h  Transform3D.h
 C: Clock.h  Easing.h  Tween.h/.cpp  Sequence.h/.cpp  StateMachine.h
    SpriteAnimator.h/.cpp
 D: InputMap.h/.cpp
@@ -530,9 +550,12 @@ v6 が明示的に v1 範囲外とした「シーンエディタ・dev コンソ
   **反射スナップショット駆動 undo/redo**、in-game edit-mode トグル + 外部エディタ用 seam 共通。
 - **`DevConsole`** — タブ補完付きコマンドライン、型付き引数の登録コマンド（`spawn`/
   `give`/`tp`/`setvar`）、**CVar**（型付きライブ変数 + cheat/dev/release フラグ）、履歴。
-- **`HotReload`** — Win32 `ReadDirectoryChangesW` でファイル監視 → アセット再 import →
-  `MessageBroker::Publish(AssetReloaded)`。PNG/フォント/データアセット/スクリプトが
-  再起動なしで反映。per-type policy（trivial/scene refresh）。
+- **`FHotReloadWatcher`** — Windows 開発ビルドで Win32 `ReadDirectoryChangesW` を
+  非同期発行し、`TryTick` が non-blocking poll → bounded FIFO / stable callback snapshot
+  へ変更イベントを渡す watcher/queue seam。UTF-8 path 所有、transactional 登録、
+  debounce、再入拒否、native overflow 時の authoritative rescan 診断を持つ。
+  watcher 自身はアセット再 import、per-type policy、`MessageBroker::Publish` を行わない。
+  それらは callback または `ConsumeNextEvent` を消費する上位 asset pipeline の責務。
 - **`Profiler`** — スコープ計測（`ACS_GAME_PROFILE_SCOPE("Physics")`、shipping で空展開）+
   フレームタイム/メモリ/ドローカウント HUD、フレームグラフ。
 - **`Replay`** — 入力ストリーム + RNG state を記録、決定論的再生。Pillar M (lockstep) と
@@ -1112,7 +1135,7 @@ solver を v1.1 → v1 に格上げ**:
 - **Settings depth** — graphics presets (Low/Med/High/Ultra/Custom)、GPU auto-detect で
   初回 boot 時 preset 推奨、performance tier auto-detect (first-frame timing 測定)、
   per-feature toggle、brightness/gamma calibration screen、audio bus deep settings、
-  mute on focus lost、OS-standard 保存先 (Pillar G `Storage`)。
+  mute on focus lost、OS-standard 保存先 (Pillar G `FStorage`)。
 - **Difficulty / accessibility-as-gameplay** — Story/Normal/Hard/Hardest preset + 
   Celeste 流 Assist Mode の granular slider、permadeath toggle (gameplay 層)、
   mid-run adjust、achievement 取得時 difficulty 記録。
@@ -1190,7 +1213,7 @@ solver を v1.1 → v1 に格上げ**:
 | ツール | 配置 | v1 LOC |
 |---|---|---|
 | **Particle Editor** — モジュール構成 + curve editor + preview + preset library | `gameframework/tools/fxedit/` (in-game) | ~1800 |
-| **FAnimation Curve Editor** (Tween/AnimGraph blend curves) | `tools/curveedit/` | ~1200 |
+| **Animation Curve Editor** (Tween/AnimGraph blend curves) | `tools/curveedit/` | ~1200 |
 | **BT Visual Editor** — drag-drop graph + **live debugger (current active node highlight + blackboard viz)** | `tools/btedit/` | ~2000 |
 | **Level Editor** — in-game edit mode + Tilemap painter (palette/paint/fill/layer) + Prefab brush | `tools/leveledit/` | ~2500 |
 | **Sprite Atlas / SDF / 9-slice / Outline auto-gen** | `tools/acs_atlas/` CLI + in-game | |
@@ -1889,7 +1912,9 @@ data structure / algorithm / edge case / integration / determinism / performance
 ### 18.3 Pillar C（時間・アニメ）内部
 - **`Clock`**: wall_dt + game_dt + per-domain scale（Gameplay/Ui/Audio/Particle/Cinematic/Photo/Tween）
 - **`Tween<T>`**: 型消去 union-based（FVec2/FVec3/FVec4/FQuat/FColor/f32 の 7 種、heap-free）
-- **Easing**: 30+ 標準カーブ LUT、Bezier custom（Pillar K curve editor 連動）
+- **Easing**: 標準 31 + SmoothStep/SmootherStep の全 33 曲線を
+  `EEasingType` catalog として公開。checked 評価・名前 parse・従来の関数ポインタ互換を持ち、
+  Tween/Sequence の型付き overload と AnimationCurve Editor の preset 生成へ接続
 - **`Sequence` ノード型**: Seq/Parallel/Wait/Call/WaitForEvent/If/Loop、pause/resume mid-sequence
 - **`StateMachine`**: HFSM（hierarchical）対応、push-down sub-state
 - **`AnimationGraph`**: flat array IR、Pose Arena per frame、Inertialization（200 LOC 品質激変）
@@ -1975,7 +2000,9 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **Gizmo**: handle mesh + screen-space ray test pick + snap-to-grid
 - **Undo/Redo**: reflection 駆動スナップショット、in-memory binary writer
 - **`DevConsole`**: command registry + tab 補完 + history + CVar
-- **`HotReload`**: `ReadDirectoryChangesW` async + debounce 50ms + per-type policy
+- **`FHotReloadWatcher`**: `ReadDirectoryChangesW` async + bounded queue + 50ms default
+  debounce + checked registration/tick。再 import / per-type policy / `MessageBroker` は
+  watcher の外側で asset pipeline が接続する
 - **`Profiler`**: per-thread scope ring + frame graph + GPU timestamp query
 - **`Replay`**: input + RNG state + 5s state checkpoint → `.acsr`
 - **`LiveTune`**: `LIVE(name, default)` macro → CVar + Inspector slider + dev settings 永続
@@ -2144,7 +2171,7 @@ data structure / algorithm / edge case / integration / determinism / performance
 - **`Logger`**: channel filter + runtime CVar toggle + crash dump に Scene snapshot 同梱
 
 ### 18.22 完成度システム 9 内部
-- **`LocalizationDirector`**: `LanguageDef{id, name, strings_path, fonts, layout}` + `Tr/EFormat/Plural` +
+- **`LocalizationDirector`**: `LanguageDef{id, name, strings_path, fonts, layout}` + `Tr/Format/Plural` +
   argument substitution + pseudoloc + locale-specific plural rules
 - **`UiKit`**: 既存 widget tree 拡張 + 9-point anchor + min/max/preferred + FocusManager spatial nav +
   Screen push/pop + HUD widgets + Observable<T> MVVM
@@ -2250,8 +2277,9 @@ data structure / algorithm / edge case / integration / determinism / performance
   human-readable summary
 - **`acs_repro`**: zip extract → 検証 → `--repro-mode` 起動 + `--replay` + `--state` + debugger 接続
 - **In-game UiKit 著作ツール**: Particle Editor (module composition + curve subcomponent +
-  live preview)、FAnimation Curve Editor (Bezier handle modes mirrored/broken/aligned + preset
-  library)、**BT Visual Editor with live debugger** (attach to running entity、現在実行 node
+live preview)、Animation Curve Editor (Hermite/Linear/Step 編集 + `EEasingType` 全 33 種の
+  preset combo、Apply で 65 samples の linear key 列へ変換)、**BT Visual Editor with live
+  debugger** (attach to running entity、現在実行 node
   yellow/success green/fail red、blackboard live table、Step button)、Level Editor (tile painter
   with auto-tile rules + prefab brush stamp mode + gizmo with grid/entity snap + per-scene undo
   stack)、Cinematics Timeline Editor (ripple edit + multi-track)、Docs Viewer (markdown render +

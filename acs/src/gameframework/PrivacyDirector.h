@@ -41,7 +41,7 @@
 //     再同意が必要になる (GDPR Article 7 規定)。Init() に渡した値を
 //     "current" として保持し、保存側 stored < current なら IsPolicyOutdated()
 //     が true を返して再同意を促す。
-//   ・**Save/Load = ローカル永続化**: FSaveSlot<ConsentStatus> 経由で端末ローカル
+//   ・**Save/Load = ローカル永続化**: TSaveSlot<FConsentStatus> 経由で端末ローカル
 //     に `.acssave` バイナリ (24B header + payload + CRC32) として書き出す。
 //     GDPR/CCPA の同意情報は端末ローカルに保持する性質のものなので、プラット
 //     フォーム backend には依存しない (クラウド同期は将来の別案件)。
@@ -126,7 +126,7 @@ constexpr EConsentCategory operator&(EConsentCategory a, EConsentCategory b) noe
  * 扱えるよう member は全て値型のみ。policy_version は再同意判定の主軸で、
  * consent_timestamp は監査ログ向けに「いつ同意したか」を保持する。
  */
-struct ConsentStatus {
+struct FConsentStatus {
     /** bit OR された同意 mask (既定は Required のみ)。 */
     EConsentCategory granted_mask      = EConsentCategory::Required;
 
@@ -247,16 +247,16 @@ public:
     void Reset() noexcept;
 
     /**
-     * file_path に ConsentStatus を .acssave バイナリで保存する。
+     * file_path に FConsentStatus を .acssave バイナリで保存する。
      *
-     * @details 保存直前に現在の policy_version を焼き込むため、次回 Load 後の IsPolicyOutdated() 判定が成立する。下層 I/O は FSaveSlot に委譲。
+     * @details 保存直前に現在の policy_version を焼き込むため、次回 Load 後の IsPolicyOutdated() 判定が成立する。下層 I/O は TSaveSlot に委譲。
      * @param file_path 保存先ファイルパス。
      * @return 成功なら空の TResult、null パス / 未 Init / I/O 失敗ならエラー。
      */
     TResult<void> SaveConsent(const wchar_t* file_path) noexcept;
 
     /**
-     * file_path から ConsentStatus を読み出して内部状態を復元する。
+     * file_path から FConsentStatus を読み出して内部状態を復元する。
      *
      * @details ファイルが存在しない場合は「初回起動」扱いで Ok() を返し (= ダイアログ強制)、復元成功時は m_bInitialConsentShown を true にする。version 不一致 (kSubMigrationNeeded) / CRC 破損 / I/O 失敗はそのまま Err で伝搬する。
      * @param file_path 読み込み元ファイルパス。
@@ -272,7 +272,7 @@ public:
      * ESaveArchiveSubCode (gameframework/SaveArchive.h) の値で返るため、呼び出し側は
      * そちらも参照して分岐できる。
      */
-    enum SubCode : u16 {
+    enum ESubCode : u16 {
         /** Init() 未呼出で Save/Load した。 */
         kSub_NotInitialized = 1,
 
@@ -282,7 +282,7 @@ public:
 
 private:
     /** 現在の同意状態 (永続化単位)。 */
-    ConsentStatus _status{};
+    FConsentStatus _status{};
 
     /** Init() に渡された現在のポリシー版。 */
     u32           m_CurrentPolicyVersion = 0;

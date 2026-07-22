@@ -128,13 +128,13 @@ private:
     /** 同じ owner+name へ同時登録できる module/source 数。 */
     static constexpr u32 kMaxSourcesPerMethod = 8;
 
-    struct MethodSource {
+    struct FMethodSource {
         FReflectMethod method{};
         const void* token = nullptr;
     };
 
-    struct MethodEntry {
-        MethodSource sources[kMaxSourcesPerMethod]{};
+    struct FMethodEntry {
+        FMethodSource sources[kMaxSourcesPerMethod]{};
         u8 source_count = 0;
     };
 
@@ -158,7 +158,7 @@ private:
     void RegisterSource(const FReflectMethod& method, const void* token) noexcept
     {
         for (u32 entry_index = 0; entry_index < m_Entries.Size(); ++entry_index) {
-            MethodEntry& entry = m_Entries[entry_index];
+            FMethodEntry& entry = m_Entries[entry_index];
             const FReflectMethod& active = entry.sources[0].method;
             if (active.owner != method.owner || !StrEq(active.name, method.name)) continue;
 
@@ -169,12 +169,12 @@ private:
                     return;
             }
             if (entry.source_count >= kMaxSourcesPerMethod) return;
-            entry.sources[entry.source_count++] = MethodSource{method, token};
+            entry.sources[entry.source_count++] = FMethodSource{method, token};
             return;
         }
 
-        MethodEntry entry{};
-        entry.sources[0] = MethodSource{method, token};
+        FMethodEntry entry{};
+        entry.sources[0] = FMethodSource{method, token};
         entry.source_count = 1;
         m_Entries.PushBack(entry);
     }
@@ -182,7 +182,7 @@ private:
     bool UnregisterSource(const FReflectMethod& method, const void* token) noexcept
     {
         for (u32 entry_index = 0; entry_index < m_Entries.Size(); ++entry_index) {
-            MethodEntry& entry = m_Entries[entry_index];
+            FMethodEntry& entry = m_Entries[entry_index];
             const FReflectMethod& active = entry.sources[0].method;
             if (active.owner != method.owner || !StrEq(active.name, method.name)) continue;
 
@@ -202,7 +202,7 @@ private:
             for (u32 source = source_index; source + 1u < entry.source_count; ++source) {
                 entry.sources[source] = entry.sources[source + 1u];
             }
-            entry.sources[entry.source_count - 1u] = MethodSource{};
+            entry.sources[entry.source_count - 1u] = FMethodSource{};
             --entry.source_count;
             if (entry.source_count != 0) return true;
 
@@ -219,7 +219,7 @@ private:
     FSystemAllocator m_Allocator;
 
     /** owner+name ごとに登録元を束ねた method 一覧。 */
-    TArray<MethodEntry> m_Entries;
+    TArray<FMethodEntry> m_Entries;
 };
 
 /** ACS_REGISTER_METHOD が生成する自動登録ヘルパ。 */

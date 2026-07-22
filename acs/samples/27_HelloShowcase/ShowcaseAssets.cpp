@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloShowcase — Assets 一括初期化 / 解放の実装。
+// HelloShowcase — FAssets 一括初期化 / 解放の実装。
 #include "ShowcaseAssets.h"
 #include "ShowcaseTypes.h"
 
@@ -31,7 +31,7 @@ namespace {
 
 } // namespace
 
-TResult<void> InitializeAssets(Assets& a, IRhiDevice& dev,
+TResult<void> InitializeAssets(FAssets& a, IRhiDevice& dev,
                                u32 sw, u32 sh,
                                EFormat color_fmt, EFormat depth_fmt) noexcept {
     // HDR + Bloom + ACES tonemap
@@ -80,7 +80,7 @@ TResult<void> InitializeAssets(Assets& a, IRhiDevice& dev,
     return Ok();
 }
 
-void ShutdownAssets(Assets& a) noexcept {
+void ShutdownAssets(FAssets& a) noexcept {
     a.font.Shutdown();
     a.batch.Shutdown();
     a.bg_rt.Reset();
@@ -89,8 +89,8 @@ void ShutdownAssets(Assets& a) noexcept {
     a.motion.Shutdown();
     a.ssao.Shutdown();
     a.ssr.Shutdown();
-    a.gm_floor  = GpuMesh{};
-    a.gm_sphere = GpuMesh{};
+    a.gm_floor  = FGpuMesh{};
+    a.gm_sphere = FGpuMesh{};
     a.hiz.Shutdown();
     a.pbr.Shutdown();
     a.ibl.Shutdown();

@@ -4,7 +4,7 @@
 // ゲームロジック側から「ボス撃破、隠しエンディング到達、累計 100km 歩いた」等の
 // 進捗を Achievement に流し込み、max_progress に達したら自動 unlock + プラット
 // フォーム SDK (Steamworks / EOS / 各家庭機) へ伝搬する高レベルマネージャ。
-// 低レイヤの FSteamworksBridge (純粋仮想 I/F) を seam として注入し、SDK 統合は
+// 低レイヤの ISteamworksBridge (純粋仮想 I/F) を seam として注入し、SDK 統合は
 // ビルド時に差し替え可能 — Bridge 未 attach なら ローカル進捗だけ追跡する
 // オフラインモードで動作する (テスト / Demo build 用)。
 //
@@ -17,7 +17,7 @@
 //   am.RegisterAchievement({ "ACH_SECRET_ENDING", "True Ending",  "...", 1,    true  });
 //
 //   // (任意) Storefront SDK を attach。null で detach 可。
-//   am.AttachSteamworks(&acs::game::SteamworksBridgeStub::GetStub());
+//   am.AttachSteamworks(&acs::game::FSteamworksBridgeStub::GetStub());
 //
 //   // ゲームロジック内で進捗更新。
 //   am.IncrementProgress("ACH_WALK_100KM", 1);     // 1km 歩いた
@@ -40,13 +40,13 @@
 //   ・**線形検索**: 実績件数は AAA タイトルでも通常 50〜300 程度のため、
 //     TArray<T> の per-byte 文字列比較 + 線形走査で十分。ハッシュテーブル化は
 //     プロファイラで実測されたら検討。
-//   ・**FSteamworksBridge は seam 注入**: AttachSteamworks(nullptr) で detach。
+//   ・**ISteamworksBridge は seam 注入**: AttachSteamworks(nullptr) で detach。
 //     attach 中は Unlock() が成功したら自動で Bridge::UnlockAchievement() を呼ぶ。
 //     Bridge 戻り値の失敗 (= 未初期化 / 未実装) は ACS_LOG_WARN で記録し、
 //     ローカル進捗は影響を受けない。
 //   ・**max_progress に達したら自動 unlock**: SetProgress / IncrementProgress 経由
 //     で current_progress が max に達した瞬間に unlocked = true、Bridge へ送信、
-//     unlock_timestamp を Clock::MillisSinceStartup() で記録。Unlock() を直接
+//     unlock_timestamp を FClock::MillisSinceStartup() で記録。Unlock() を直接
 //     呼んだ場合は current_progress を max_progress に固定する。
 //   ・**unlock_timestamp は起動からの ms**: 永続化 (Pillar J Serialize) と合わせ
 //     て使う想定だが、「起動以降のみ意味を持つ」相対時間で十分。
@@ -101,8 +101,8 @@ struct FAchievementDef {
  *
  * @details
  * FAchievementDef と同 index 位置で 1:1 対応する。id は Def 側のリテラルを参照コピー
- * して検索 / 表示で扱いやすくする。unlock_timestamp は Clock::MillisSinceStartup() の値
- * (起動からの ms) で、0 は「未 unlock」または「unlock 時に Clock 未取得」を表す。
+ * して検索 / 表示で扱いやすくする。unlock_timestamp は FClock::MillisSinceStartup() の値
+ * (起動からの ms) で、0 は「未 unlock」または「unlock 時に FClock 未取得」を表す。
  */
 struct FAchievementProgress {
     /** 対応する Def の id を指す参照コピー (所有しない)。 */
@@ -117,7 +117,7 @@ struct FAchievementProgress {
     /** unlock 済みか。 */
     bool        unlocked         = false;
 
-    /** unlock 時刻 (Clock::MillisSinceStartup()、起動からの ms。0 = 未 unlock)。 */
+    /** unlock 時刻 (FClock::MillisSinceStartup()、起動からの ms。0 = 未 unlock)。 */
     u64         unlock_timestamp = 0;
 };
 
@@ -126,7 +126,7 @@ struct FAchievementProgress {
  *
  * @details
  * ゲームロジックから進捗を流し込み、max_progress に達したら自動 unlock し、attach 済みの
- * FSteamworksBridge があればプラットフォーム SDK へ伝搬する。定義 (immutable) と進捗 (mutable)
+ * ISteamworksBridge があればプラットフォーム SDK へ伝搬する。定義 (immutable) と進捗 (mutable)
  * を別 TArray に 1:1 で持ち、id の線形検索で参照する。Bridge 未 attach 時はローカル進捗のみ
  * 追跡するオフラインモードで動作する。全 noexcept・非コピー・非ムーブ。
  */

@@ -15,9 +15,63 @@
 //              タンジェントを dt 倍するのは Unity と同じく「単位 1 秒あたりの傾き」
 //              を保存しているため。これで key 間隔を変えても曲線形が直感的に保てる。
 #include "gameframework/AnimationCurve.h"
+#include "gameframework/Easing.h"
+#include "foundation/Move.h"
 #include "math/Math.h"
 
+#include <cmath>
+
 namespace acs::game {
+
+namespace {
+
+bool IsFiniteCurveValue(f32 value) noexcept {
+    return std::isfinite(value);
+}
+
+bool IsValidInterpolation(ECurveInterpolation interpolation) noexcept {
+    switch (interpolation) {
+    case ECurveInterpolation::Step:
+    case ECurveInterpolation::Linear:
+    case ECurveInterpolation::Hermite:
+        return true;
+    }
+    return false;
+}
+
+bool IsValidWrapMode(FAnimationCurve::EWrapMode mode) noexcept {
+    switch (mode) {
+    case FAnimationCurve::EWrapMode::Clamp:
+    case FAnimationCurve::EWrapMode::Loop:
+    case FAnimationCurve::EWrapMode::PingPong:
+        return true;
+    }
+    return false;
+}
+
+} // namespace
+
+const char* FAnimationCurveResult::ErrorName(
+    EAnimationCurveError error) noexcept {
+    switch (error) {
+    case EAnimationCurveError::None: return "None";
+    case EAnimationCurveError::NullKeys: return "NullKeys";
+    case EAnimationCurveError::TooManyKeys: return "TooManyKeys";
+    case EAnimationCurveError::NonFiniteValue: return "NonFiniteValue";
+    case EAnimationCurveError::InvalidInterpolation:
+        return "InvalidInterpolation";
+    case EAnimationCurveError::InvalidEasingType:
+        return "InvalidEasingType";
+    case EAnimationCurveError::InvalidSampleCount:
+        return "InvalidSampleCount";
+    case EAnimationCurveError::InvalidWrapMode: return "InvalidWrapMode";
+    case EAnimationCurveError::UnsortedKeys: return "UnsortedKeys";
+    case EAnimationCurveError::DuplicateKeyTime: return "DuplicateKeyTime";
+    case EAnimationCurveError::AllocationFailure: return "AllocationFailure";
+    case EAnimationCurveError::ResultOutOfRange: return "ResultOutOfRange";
+    }
+    return "Unknown";
+}
 
 /**
  * time 昇順の key 列で time の挿入位置を二分探索で返す (lower_bound)。
@@ -27,7 +81,7 @@ namespace acs::game {
  * @param time 挿入位置を求める時刻 (秒)。
  * @return time 以上の最初の key の index。
  */
-static u32 LowerBoundByTime(const TArray<CurveKey>& keys, f32 time) noexcept {
+static u32 LowerBoundByTime(const TArray<FCurveKey>& keys, f32 time) noexcept {
     u32 lo = 0;
     u32 hi = static_cast<u32>(keys.Size());
     while (lo < hi) {
@@ -38,36 +92,70 @@ static u32 LowerBoundByTime(const TArray<CurveKey>& keys, f32 time) noexcept {
     return lo;
 }
 
-void FAnimationCurve::AddKey(f32 time, f32 value, ECurveInterpolation interp) noexcept {
+FAnimationCurveResult FAnimationCurve::TryAddKey(
+    f32 time, f32 value, ECurveInterpolation interp) noexcept {
+    FAnimationCurveResult result{};
+    result.key_count = static_cast<u32>(m_Keys.Size());
+    if (!IsFiniteCurveValue(time) || !IsFiniteCurveValue(value)) {
+        result.error = EAnimationCurveError::NonFiniteValue;
+        return result;
+    }
+    if (!IsValidInterpolation(interp)) {
+        result.error = EAnimationCurveError::InvalidInterpolation;
+        return result;
+    }
+
     const u32 pos = LowerBoundByTime(m_Keys, time);
-    // 同 time の key が既にある → 上書き (in_interp は維持して out_interp と value のみ更新)
     if (pos < m_Keys.Size() && m_Keys[pos].time == time) {
         m_Keys[pos].value      = value;
         m_Keys[pos].out_interp = interp;
-        return;
+        result.key_index = pos;
+        return result;
+    }
+    if (m_Keys.Size() >= kMaxKeys) {
+        result.error = EAnimationCurveError::TooManyKeys;
+        return result;
     }
 
-    // 末尾に追加してから後ろ向きに 1 個ずつ swap する (TArray は中間 insert を
-    // 提供しないため。N が大きくない前提 = キー打ち数百個までを想定)
-    CurveKey k;
+    FCurveKey k;
     k.time        = time;
     k.value       = value;
     k.in_interp   = interp;
     k.out_interp  = interp;
     k.in_tangent  = 0.0f;
     k.out_tangent = 0.0f;
-    m_Keys.PushBack(k);
+    if (!m_Keys.TryPushBack(k)) {
+        result.error = EAnimationCurveError::AllocationFailure;
+        return result;
+    }
 
-    // バブルダウン: 直前要素より時間が小さければ swap (= sorted insert)
     for (u32 i = static_cast<u32>(m_Keys.Size()) - 1u; i > pos; --i) {
-        const CurveKey tmp = m_Keys[i];
+        const FCurveKey tmp = m_Keys[i];
         m_Keys[i]     = m_Keys[i - 1u];
         m_Keys[i - 1u] = tmp;
     }
+    result.key_index = pos;
+    result.key_count = static_cast<u32>(m_Keys.Size());
+    return result;
 }
 
-void FAnimationCurve::AddKeyHermite(f32 time, f32 value,
-                                   f32 in_tangent, f32 out_tangent) noexcept {
+void FAnimationCurve::AddKey(
+    f32 time, f32 value, ECurveInterpolation interp) noexcept {
+    (void)TryAddKey(time, value, interp);
+}
+
+FAnimationCurveResult FAnimationCurve::TryAddKeyHermite(
+    f32 time, f32 value,
+    f32 in_tangent, f32 out_tangent) noexcept {
+    FAnimationCurveResult result{};
+    result.key_count = static_cast<u32>(m_Keys.Size());
+    if (!IsFiniteCurveValue(time) || !IsFiniteCurveValue(value) ||
+        !IsFiniteCurveValue(in_tangent) ||
+        !IsFiniteCurveValue(out_tangent)) {
+        result.error = EAnimationCurveError::NonFiniteValue;
+        return result;
+    }
+
     const u32 pos = LowerBoundByTime(m_Keys, time);
     if (pos < m_Keys.Size() && m_Keys[pos].time == time) {
         m_Keys[pos].value       = value;
@@ -75,23 +163,147 @@ void FAnimationCurve::AddKeyHermite(f32 time, f32 value,
         m_Keys[pos].out_tangent = out_tangent;
         m_Keys[pos].in_interp   = ECurveInterpolation::Hermite;
         m_Keys[pos].out_interp  = ECurveInterpolation::Hermite;
-        return;
+        result.key_index = pos;
+        return result;
+    }
+    if (m_Keys.Size() >= kMaxKeys) {
+        result.error = EAnimationCurveError::TooManyKeys;
+        return result;
     }
 
-    CurveKey k;
+    FCurveKey k;
     k.time        = time;
     k.value       = value;
     k.in_tangent  = in_tangent;
     k.out_tangent = out_tangent;
     k.in_interp   = ECurveInterpolation::Hermite;
     k.out_interp  = ECurveInterpolation::Hermite;
-    m_Keys.PushBack(k);
+    if (!m_Keys.TryPushBack(k)) {
+        result.error = EAnimationCurveError::AllocationFailure;
+        return result;
+    }
 
     for (u32 i = static_cast<u32>(m_Keys.Size()) - 1u; i > pos; --i) {
-        const CurveKey tmp = m_Keys[i];
+        const FCurveKey tmp = m_Keys[i];
         m_Keys[i]      = m_Keys[i - 1u];
         m_Keys[i - 1u] = tmp;
     }
+    result.key_index = pos;
+    result.key_count = static_cast<u32>(m_Keys.Size());
+    return result;
+}
+
+void FAnimationCurve::AddKeyHermite(
+    f32 time, f32 value,
+    f32 in_tangent, f32 out_tangent) noexcept {
+    (void)TryAddKeyHermite(time, value, in_tangent, out_tangent);
+}
+
+FAnimationCurveResult FAnimationCurve::TrySetKeys(
+    const FCurveKey* keys, u32 count,
+    EWrapMode pre_wrap, EWrapMode post_wrap) noexcept {
+    FAnimationCurveResult result{};
+    result.key_count = count;
+    if (count > kMaxKeys) {
+        result.error = EAnimationCurveError::TooManyKeys;
+        return result;
+    }
+    if (count != 0u && keys == nullptr) {
+        result.error = EAnimationCurveError::NullKeys;
+        return result;
+    }
+    if (!IsValidWrapMode(pre_wrap) || !IsValidWrapMode(post_wrap)) {
+        result.error = EAnimationCurveError::InvalidWrapMode;
+        return result;
+    }
+
+    for (u32 i = 0u; i < count; ++i) {
+        result.key_index = i;
+        const FCurveKey& key = keys[i];
+        if (!IsFiniteCurveValue(key.time) ||
+            !IsFiniteCurveValue(key.value) ||
+            !IsFiniteCurveValue(key.in_tangent) ||
+            !IsFiniteCurveValue(key.out_tangent)) {
+            result.error = EAnimationCurveError::NonFiniteValue;
+            return result;
+        }
+        if (!IsValidInterpolation(key.in_interp) ||
+            !IsValidInterpolation(key.out_interp)) {
+            result.error = EAnimationCurveError::InvalidInterpolation;
+            return result;
+        }
+        if (i != 0u) {
+            if (key.time < keys[i - 1u].time) {
+                result.error = EAnimationCurveError::UnsortedKeys;
+                return result;
+            }
+            if (key.time == keys[i - 1u].time) {
+                result.error = EAnimationCurveError::DuplicateKeyTime;
+                return result;
+            }
+        }
+    }
+
+    TArray<FCurveKey> staged(*m_Keys.GetAllocator());
+    if (!staged.TryResize(count)) {
+        result.error = EAnimationCurveError::AllocationFailure;
+        return result;
+    }
+    for (u32 i = 0u; i < count; ++i) staged[i] = keys[i];
+
+    m_Keys = Move(staged);
+    m_PreWrap = pre_wrap;
+    m_PostWrap = post_wrap;
+    result.key_index = count == 0u ? 0u : count - 1u;
+    return result;
+}
+
+FAnimationCurveResult FAnimationCurve::TrySetEasingPreset(
+    Easing::EEasingType type, u32 sample_count) noexcept {
+    FAnimationCurveResult result{};
+    result.key_count = static_cast<u32>(m_Keys.Size());
+    if (sample_count < 2u || sample_count > kMaxEasingPresetSamples) {
+        result.error = EAnimationCurveError::InvalidSampleCount;
+        return result;
+    }
+    if (Easing::GetFunction(type) == nullptr) {
+        result.error = EAnimationCurveError::InvalidEasingType;
+        return result;
+    }
+
+    TArray<FCurveKey> staged(*m_Keys.GetAllocator());
+    if (!staged.TryResize(sample_count)) {
+        result.error = EAnimationCurveError::AllocationFailure;
+        return result;
+    }
+
+    const f32 denominator = static_cast<f32>(sample_count - 1u);
+    for (u32 index = 0u; index < sample_count; ++index) {
+        result.key_index = index;
+        const f32 time = static_cast<f32>(index) / denominator;
+        f32 value = 0.0f;
+        const Easing::FEasingResult easing_result =
+            Easing::TryEvaluate(type, time, value);
+        if (!easing_result.Succeeded() || !IsFiniteCurveValue(value)) {
+            result.error = EAnimationCurveError::InvalidEasingType;
+            return result;
+        }
+
+        FCurveKey& key = staged[index];
+        key.time = time;
+        key.value = value;
+        key.in_tangent = 0.0f;
+        key.out_tangent = 0.0f;
+        key.in_interp = ECurveInterpolation::Linear;
+        key.out_interp = ECurveInterpolation::Linear;
+    }
+
+    m_Keys = Move(staged);
+    m_PreWrap = EWrapMode::Clamp;
+    m_PostWrap = EWrapMode::Clamp;
+    result.key_index = sample_count - 1u;
+    result.key_count = sample_count;
+    return result;
 }
 
 void FAnimationCurve::RemoveKey(u32 index) noexcept {
@@ -105,6 +317,27 @@ void FAnimationCurve::RemoveKey(u32 index) noexcept {
 
 void FAnimationCurve::ClearKeys() noexcept {
     m_Keys.Clear();
+}
+
+FAnimationCurveResult FAnimationCurve::TrySetWrapModes(
+    EWrapMode pre_wrap, EWrapMode post_wrap) noexcept {
+    FAnimationCurveResult result{};
+    result.key_count = static_cast<u32>(m_Keys.Size());
+    if (!IsValidWrapMode(pre_wrap) || !IsValidWrapMode(post_wrap)) {
+        result.error = EAnimationCurveError::InvalidWrapMode;
+        return result;
+    }
+    m_PreWrap = pre_wrap;
+    m_PostWrap = post_wrap;
+    return result;
+}
+
+void FAnimationCurve::SetPreWrap(EWrapMode mode) noexcept {
+    (void)TrySetWrapModes(mode, m_PostWrap);
+}
+
+void FAnimationCurve::SetPostWrap(EWrapMode mode) noexcept {
+    (void)TrySetWrapModes(m_PreWrap, mode);
 }
 
 f32 FAnimationCurve::Duration() const noexcept {
@@ -124,15 +357,15 @@ f32 FAnimationCurve::ApplyWrap(f32 time) const noexcept {
 
     if (time < t0) {
         switch (m_PreWrap) {
-        case WrapMode::Clamp:    return t0;
-        case WrapMode::Loop: {
+        case EWrapMode::Clamp:    return t0;
+        case EWrapMode::Loop: {
             // (t0 - time) 分だけ右に折り返す。`Mod` は負数で実装差があるため
             // 必ず正の値を渡す形にする。
             const f32 diff   = t0 - time;
             const f32 cycles = Mod(diff, dur);
             return t1 - cycles;   // cycles==0 → t1, cycles→dur に近い → t0+
         }
-        case WrapMode::PingPong: {
+        case EWrapMode::PingPong: {
             const f32 diff   = t0 - time;
             const f32 period = dur * 2.0f;
             f32 m = Mod(diff, period);
@@ -147,13 +380,13 @@ f32 FAnimationCurve::ApplyWrap(f32 time) const noexcept {
 
     if (time > t1) {
         switch (m_PostWrap) {
-        case WrapMode::Clamp:    return t1;
-        case WrapMode::Loop: {
+        case EWrapMode::Clamp:    return t1;
+        case EWrapMode::Loop: {
             const f32 diff   = time - t1;
             const f32 cycles = Mod(diff, dur);
             return t0 + cycles;
         }
-        case WrapMode::PingPong: {
+        case EWrapMode::PingPong: {
             const f32 diff   = time - t1;
             const f32 period = dur * 2.0f;
             f32 m = Mod(diff, period);
@@ -185,7 +418,7 @@ u32 FAnimationCurve::FindSegmentIndex(f32 time) const noexcept {
     return lo;
 }
 
-f32 FAnimationCurve::InterpolateSegment(const CurveKey& k0, const CurveKey& k1,
+f32 FAnimationCurve::InterpolateSegment(const FCurveKey& k0, const FCurveKey& k1,
                                        f32 t, f32 dt) noexcept {
     switch (k0.out_interp) {
     case ECurveInterpolation::Step:
@@ -209,19 +442,67 @@ f32 FAnimationCurve::InterpolateSegment(const CurveKey& k0, const CurveKey& k1,
     return k0.value;   // 想定外 enum 値の保険
 }
 
-f32 FAnimationCurve::Evaluate(f32 time) const noexcept {
+FAnimationCurveResult FAnimationCurve::TryEvaluate(
+    f32 time, f32& out_value) const noexcept {
+    FAnimationCurveResult result{};
     const u32 n = static_cast<u32>(m_Keys.Size());
-    if (n == 0u) return 0.0f;
-    if (n == 1u) return m_Keys[0].value;
+    result.key_count = n;
+    if (!IsFiniteCurveValue(time)) {
+        result.error = EAnimationCurveError::NonFiniteValue;
+        return result;
+    }
+    if (n == 0u) {
+        out_value = 0.0f;
+        return result;
+    }
+    if (n == 1u) {
+        out_value = m_Keys[0].value;
+        return result;
+    }
 
     const f32 wrapped = ApplyWrap(time);
+    if (!IsFiniteCurveValue(wrapped)) {
+        result.error = EAnimationCurveError::ResultOutOfRange;
+        return result;
+    }
+    if (wrapped <= m_Keys[0].time) {
+        out_value = m_Keys[0].value;
+        return result;
+    }
+    if (wrapped >= m_Keys[n - 1u].time) {
+        result.key_index = n - 1u;
+        out_value = m_Keys[n - 1u].value;
+        return result;
+    }
+
     const u32 i       = FindSegmentIndex(wrapped);
-    const CurveKey& k0 = m_Keys[i];
-    const CurveKey& k1 = m_Keys[i + 1u];
+    result.key_index = i;
+    const FCurveKey& k0 = m_Keys[i];
+    const FCurveKey& k1 = m_Keys[i + 1u];
     const f32 dt = k1.time - k0.time;
-    if (dt <= 0.0f) return k0.value;   // 退化 segment (同 time の key が混入した保険)
-    const f32 t  = (wrapped - k0.time) / dt;
-    return InterpolateSegment(k0, k1, t, dt);
+    const f32 offset = wrapped - k0.time;
+    if (!IsFiniteCurveValue(dt) || dt <= 0.0f ||
+        !IsFiniteCurveValue(offset)) {
+        result.error = EAnimationCurveError::ResultOutOfRange;
+        return result;
+    }
+    const f32 normalized = offset / dt;
+    if (!IsFiniteCurveValue(normalized)) {
+        result.error = EAnimationCurveError::ResultOutOfRange;
+        return result;
+    }
+    const f32 value = InterpolateSegment(k0, k1, normalized, dt);
+    if (!IsFiniteCurveValue(value)) {
+        result.error = EAnimationCurveError::ResultOutOfRange;
+        return result;
+    }
+    out_value = value;
+    return result;
+}
+
+f32 FAnimationCurve::Evaluate(f32 time) const noexcept {
+    f32 value = 0.0f;
+    return TryEvaluate(time, value).Succeeded() ? value : 0.0f;
 }
 
 } // namespace acs::game

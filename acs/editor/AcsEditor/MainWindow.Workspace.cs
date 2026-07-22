@@ -1,0 +1,430 @@
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Threading;
+using System.Threading.Tasks;
+
+namespace AcsEditor;
+
+/// <summary>
+/// Workspace chrome and editor-session state. Kept separate from scene editing code so layout
+/// controls never become coupled to the native renderer.
+/// </summary>
+public partial class MainWindow
+{
+    private readonly DispatcherTimer _sceneStateTimer = new() {
+        Interval = TimeSpan.FromMilliseconds(750)
+    };
+    private string? _savedSceneSnapshot;
+    private bool _sceneDirty;
+    private bool _snapshotCaptureFailed;
+    private double _hierarchyWidth = 260;
+    private double _inspectorWidth = 348;
+    private double _bottomDockHeight = 210;
+    private float _snapMove = 1.0f;
+    private float _snapRotate = 15.0f;
+    private float _snapScale = 0.25f;
+    private bool _closeApproved;
+    private bool _closePreparationRunning;
+    private bool _replacementAutosaveSuppressed;
+    private bool _replacementSuppressedMode3D;
+
+    /// <summary>Starts status tracking once the native scene is attached and fully loaded.</summary>
+    private void InitializeWorkspaceState()
+    {
+        SynchronizeSnapSettingsFromProject();
+        SnapCheck.IsChecked = EngineInterop.acs_editor_get_snap(Engine) != 0;
+        SnapPresetBox.IsEnabled = SnapCheck.IsChecked == true;
+        MarkSceneClean();
+        UpdatePlayStatePresentation();
+
+        _sceneStateTimer.Tick -= OnSceneStateTick;
+        _sceneStateTimer.Tick += OnSceneStateTick;
+        _sceneStateTimer.Start();
+    }
+
+    /// <summary>
+    /// Mirrors the increments already applied by ProjectSettings into the managed toolbar state.
+    /// This intentionally does not call acs_editor_set_snap: doing so here used to overwrite the
+    /// loaded project values with the WPF field defaults.
+    /// </summary>
+    private void SynchronizeSnapSettingsFromProject()
+    {
+        if (Engine == IntPtr.Zero) return;
+        _snapMove = ReadPositiveSnapSetting("SnapMove", _snapMove);
+        _snapRotate = ReadPositiveSnapSetting("SnapRotateDeg", _snapRotate);
+        _snapScale = ReadPositiveSnapSetting("SnapScale", _snapScale);
+        SnapPresetBox.ToolTip =
+            $"Current: move {_snapMove:0.###}, rotate {_snapRotate:0.###}°, scale {_snapScale:0.###}. " +
+            "Selecting a preset overrides these increments.";
+    }
+
+    private float ReadPositiveSnapSetting(string key, float fallback)
+    {
+        var buffer = new byte[64];
+        if (EngineInterop.acs_editor_settings_get_value(
+                Engine, "Editor", key, buffer, buffer.Length) == 0)
+            return fallback;
+
+        string text = EngineInterop.Utf8Z(buffer);
+        return float.TryParse(
+                   text,
+                   System.Globalization.NumberStyles.Float,
+                   System.Globalization.CultureInfo.InvariantCulture,
+                   out float value)
+               && float.IsFinite(value)
+               && value > 0.0f
+            ? value
+            : fallback;
+    }
+
+    private void OnSceneStateTick(object? sender, EventArgs e)
+    {
+        if (Engine == IntPtr.Zero || _savedSceneSnapshot == null) return;
+        if (!_sceneMutationRevision.WorkspaceCaptureRequired) return;
+        // Runtime simulation is intentionally non-destructive and is restored on Stop.
+        if (EngineInterop.acs_editor_play_state(Engine) != 0 || PreviewBtn.IsChecked == true) return;
+        RefreshDirtyStateFromNativeScene();
+    }
+
+    private string CaptureEditableSceneSnapshot()
+    {
+        if (Engine == IntPtr.Zero) return "";
+        string scene;
+        if (_view3d)
+        {
+            scene = EngineInterop.Scene3DText(Engine);
+        }
+        else
+        {
+            scene = EngineInterop.SceneText(Engine);
+        }
+
+        // Selection belongs to the editor session, not scene content. Native serializers include it
+        // so undo can restore selection; excluding it prevents clicking an object from marking dirty.
+        return string.Join('\n', scene.Split('\n')
+            .Where(line => !line.StartsWith("SEL ", StringComparison.Ordinal)
+                        && !line.StartsWith("SEL3D ", StringComparison.Ordinal)));
+    }
+
+    private bool TryCaptureEditableSceneSnapshot(out string snapshot)
+    {
+        snapshot = "";
+        if (Engine == IntPtr.Zero)
+            return false;
+
+        try
+        {
+            snapshot = CaptureEditableSceneSnapshot();
+            if (_snapshotCaptureFailed)
+                Log("Scene state tracking recovered.");
+            _snapshotCaptureFailed = false;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // Never compare or mark clean from an incomplete serialization. Keep the scene dirty
+            // so close/new/open continue to protect the user's in-memory work.
+            if (!_snapshotCaptureFailed)
+                Log("Scene state tracking failed; the scene will remain unsaved: " + ex.Message);
+            _snapshotCaptureFailed = true;
+            SetSceneDirty(true);
+            return false;
+        }
+    }
+
+    private bool RefreshDirtyStateFromNativeScene()
+    {
+        if (_savedSceneSnapshot == null)
+            return false;
+        if (TryCaptureEditableSceneSnapshot(out string snapshot))
+        {
+            SetSceneDirty(!string.Equals(snapshot, _savedSceneSnapshot, StringComparison.Ordinal));
+            _sceneMutationRevision.AcknowledgeWorkspace();
+            return true;
+        }
+        return false;
+    }
+
+    private void MarkSceneClean(string? serializedScene = null)
+    {
+        if (serializedScene == null)
+        {
+            if (!TryCaptureEditableSceneSnapshot(out string snapshot))
+            {
+                _savedSceneSnapshot = null;
+                return;
+            }
+            _savedSceneSnapshot = snapshot;
+        }
+        else
+        {
+            _savedSceneSnapshot = NormalizeSceneSnapshot(serializedScene);
+            _snapshotCaptureFailed = false;
+        }
+        SetSceneDirty(false);
+        _sceneMutationRevision.AcknowledgeWorkspace();
+        RememberActiveSceneTrackingState();
+    }
+
+    private static string NormalizeSceneSnapshot(string scene) =>
+        string.Join('\n', scene.Split('\n')
+            .Where(line => !line.StartsWith("SEL ", StringComparison.Ordinal)
+                        && !line.StartsWith("SEL3D ", StringComparison.Ordinal)));
+
+    private void MarkSceneDirty()
+    {
+        SetSceneDirty(true);
+        NotifySceneMutationPending();
+    }
+
+    private void SetSceneDirty(bool dirty)
+    {
+        _sceneDirty = dirty;
+        if (_view3d) _scene3DDirty = dirty;
+        else _scene2DDirty = dirty;
+        bool worldDirty = _scene2DDirty || _scene3DDirty;
+        string baseTitle = _project == null ? "ACS Editor" : $"ACS Editor — {_project.Name}";
+        Title = worldDirty ? baseTitle + " *" : baseTitle;
+        SaveStateText.Text = worldDirty ? "UNSAVED" : "SAVED";
+        SaveStateText.Foreground = (Brush)FindResource(worldDirty ? "WarnFg" : "LiveFg");
+        UpdateSceneName();
+    }
+
+    private void UpdateSceneName()
+    {
+        string? path = SceneDocumentPresentationPath();
+        SceneNameText.Text = string.IsNullOrWhiteSpace(path) ? "Untitled Scene" : Path.GetFileName(path);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            SceneNameText.ToolTip = "Scene has not been saved";
+            return;
+        }
+
+        string? activeCompatibilitySource = _currentScenePath;
+        SceneNameText.ToolTip =
+            string.IsNullOrWhiteSpace(activeCompatibilitySource) ||
+            SceneSourceFile.PathsEqual(path, activeCompatibilitySource)
+                ? path
+                : $"{path}\nActive legacy compatibility source: {activeCompatibilitySource}";
+    }
+
+    private async void OnEditorClosing(object? sender, CancelEventArgs e)
+    {
+        if (_closeApproved) return;
+        e.Cancel = true;
+        if (_closePreparationRunning) return;
+        _closePreparationRunning = true;
+        bool shouldClose = false;
+        try
+        {
+            shouldClose = await PrepareEditorCloseAsync();
+        }
+        catch (Exception ex)
+        {
+            Log("Close preparation failed: " + ex.Message, "Editor", LogLevel.Error);
+        }
+        finally
+        {
+            _closePreparationRunning = false;
+            if (!shouldClose)
+                SetClosePreparationInputBlocked(blocked: false);
+        }
+
+        if (!shouldClose) return;
+        _closeApproved = true;
+        _ = Dispatcher.BeginInvoke(new Action(Close));
+    }
+
+    private async Task<bool> PrepareEditorCloseAsync()
+    {
+        if (_savedSceneSnapshot != null && Engine != IntPtr.Zero
+            && EngineInterop.acs_editor_play_state(Engine) == 0 && PreviewBtn.IsChecked != true)
+            RefreshDirtyStateFromNativeScene();
+        RememberActiveSceneDocumentState();
+        if (!_scene2DDirty && !_scene3DDirty)
+        {
+            SetClosePreparationInputBlocked(blocked: true);
+            await StopAndDiscardSessionRecoveriesAsync();
+            return true;
+        }
+
+        var result = MessageBox.Show(this,
+            "There are unsaved changes in the scene.\n\nSave before closing?",
+            "Unsaved Scene", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+        if (result == MessageBoxResult.Cancel) {
+            return false;
+        }
+        if (result != MessageBoxResult.Yes)
+        {
+            SetClosePreparationInputBlocked(blocked: true);
+            await StopAndDiscardSessionRecoveriesAsync();
+            return true;
+        }
+
+        // Prevent edits in the await windows between source commit, worker drain, recovery discard,
+        // and final close. Save dialogs remain interactive as separate owned windows.
+        SetClosePreparationInputBlocked(blocked: true);
+        SaveAllResult saveResult = await SaveAllInitializedSceneDocumentsAsync();
+        if (saveResult.Completion != SaveAllCompletion.Success)
+        {
+            // Save All never switches viewport mode, so cancellation/failure also leaves the
+            // active document, camera, path alias, and selection exactly where the user was.
+            ReportSaveAllResult(saveResult);
+            return false;
+        }
+        await StopAndDiscardSessionRecoveriesAsync();
+        return true;
+    }
+
+    private void SetClosePreparationInputBlocked(bool blocked)
+    {
+        // Keep the Window itself enabled so an owned SaveFileDialog remains valid. Disabling the
+        // content tree prevents edits during async worker-drain/discard windows.
+        if (Content is UIElement content)
+            content.IsEnabled = !blocked;
+    }
+
+    /// <summary>Protects New/Open from silently discarding edits.</summary>
+    private async Task<bool> ConfirmSceneReplacementAsync()
+    {
+        if (_savedSceneSnapshot != null && Engine != IntPtr.Zero
+            && EngineInterop.acs_editor_play_state(Engine) == 0 && PreviewBtn.IsChecked != true)
+        {
+            if (!TryRefreshAllSceneDirtyStates(out string refreshError))
+            {
+                Log(
+                    "Scene state could not be refreshed before replacement: " + refreshError,
+                    "Scene",
+                    LogLevel.Warn);
+            }
+        }
+        RememberActiveSceneDocumentState();
+        if (!_scene2DDirty && !_scene3DDirty) return true;
+
+        var result = MessageBox.Show(this,
+            "Save changes to the current scene before continuing?",
+            "Unsaved Scene", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+        if (result == MessageBoxResult.Cancel) return false;
+        if (result == MessageBoxResult.No)
+        {
+            if (_autosaveStore != null && _project != null)
+            {
+                _replacementSuppressedMode3D = _view3d;
+                await DiscardRecoveryAsync(
+                    AutosaveIdentity(_view3d),
+                    resumeAfter: false);
+                _replacementAutosaveSuppressed = true;
+            }
+            return true;
+        }
+        return await SaveHostedSceneDocumentAsync();
+    }
+
+    private void CompleteSceneReplacementAutosave()
+    {
+        if (!_replacementAutosaveSuppressed) return;
+        _replacementAutosaveSuppressed = false;
+        ResumeAutosaveAfterReplacement(_replacementSuppressedMode3D);
+    }
+
+    private void OnClearHierarchySearch(object sender, RoutedEventArgs e)
+    {
+        HierSearchBox.Clear();
+        HierSearchBox.Focus();
+    }
+
+    private void OnSnapPresetChanged(object sender, SelectionChangedEventArgs e)
+    {
+        switch (SnapPresetBox.SelectedIndex)
+        {
+            case 0: _snapMove = 0.1f; _snapRotate = 5.0f;  _snapScale = 0.05f; break;
+            case 2: _snapMove = 10.0f; _snapRotate = 45.0f; _snapScale = 0.5f; break;
+            default: _snapMove = 1.0f; _snapRotate = 15.0f; _snapScale = 0.25f; break;
+        }
+        ApplySnapSettings(logChange: IsLoaded);
+    }
+
+    private void ApplySnapSettings(bool logChange)
+    {
+        if (Engine == IntPtr.Zero) return;
+        bool enabled = SnapCheck.IsChecked == true;
+        EngineInterop.acs_editor_set_snap(Engine, enabled ? 1 : 0, _snapMove, _snapRotate, _snapScale);
+        SnapPresetBox.IsEnabled = enabled;
+        if (logChange)
+            Log(enabled
+                ? $"Snap: move {_snapMove:0.##}, rotate {_snapRotate:0.#}°, scale {_snapScale:0.##}"
+                : "Snap disabled");
+    }
+
+    private void OnTogglePanelVisibility(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem item || item.Tag is not string panel) return;
+        switch (panel)
+        {
+            case "hierarchy": SetHierarchyVisible(item.IsChecked); break;
+            case "inspector": SetInspectorVisible(item.IsChecked); break;
+            case "bottom": SetBottomDockVisible(item.IsChecked); break;
+        }
+        MarkWorkspaceCustomized();
+    }
+
+    private void OnToggleBottomDock(object sender, RoutedEventArgs e)
+    {
+        SetBottomDockVisible(BottomDockPanel.Visibility != Visibility.Visible);
+        MarkWorkspaceCustomized();
+    }
+
+    private void SetHierarchyVisible(bool visible)
+    {
+        if (!visible && HierarchyColumn.ActualWidth > 0) _hierarchyWidth = HierarchyColumn.ActualWidth;
+        HierarchyColumn.Width = visible ? new GridLength(Math.Max(210, _hierarchyWidth)) : new GridLength(0);
+        HierarchyPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        HierarchySplitter.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        MenuShowHierarchy.IsChecked = visible;
+    }
+
+    private void SetInspectorVisible(bool visible)
+    {
+        if (!visible && InspectorColumn.ActualWidth > 0) _inspectorWidth = InspectorColumn.ActualWidth;
+        InspectorColumn.Width = visible ? new GridLength(Math.Max(280, _inspectorWidth)) : new GridLength(0);
+        InspectorPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        InspectorSplitter.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        MenuShowInspector.IsChecked = visible;
+    }
+
+    private void SetBottomDockVisible(bool visible)
+    {
+        if (!visible && BottomDockRow.ActualHeight > 0) _bottomDockHeight = BottomDockRow.ActualHeight;
+        BottomDockRow.Height = visible ? new GridLength(Math.Max(140, _bottomDockHeight)) : new GridLength(0);
+        BottomDockPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        BottomDockSplitter.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        MenuShowBottom.IsChecked = visible;
+        BottomDockToggleBtn.Content = visible ? "Hide" : "Show";
+    }
+
+    private void OnResetEditorLayout(object sender, RoutedEventArgs e)
+    {
+        DeleteSavedEditorLayout();
+        ActivateWorkspaceByName(EditorWorkspaceStore.DefaultWorkspaceName);
+        Log("Editor layout reset.");
+    }
+
+    private void OnWorkspaceSplitterDragCompleted(
+        object sender,
+        System.Windows.Controls.Primitives.DragCompletedEventArgs e) =>
+        MarkWorkspaceCustomized();
+
+    private void UpdatePlayStatePresentation()
+    {
+        int state = Engine == IntPtr.Zero ? 0 : EngineInterop.acs_editor_play_state(Engine);
+        PlayStatusText.Text = state switch { 1 => "PLAYING", 2 => "PAUSED", _ => "EDIT" };
+        PlayStatusText.Foreground = (Brush)FindResource(state == 0 ? "TextDim" : "LiveFg");
+        ApplySceneViewModePresentation();
+    }
+}

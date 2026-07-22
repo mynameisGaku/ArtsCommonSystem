@@ -18,16 +18,16 @@ constexpr usize kScopeNameCapacity = 64u;
 
 #if ACS_COMPILER_MSVC && ACS_BUILD_DEBUG && !ACS_ADDRESS_SANITIZER
 
-struct CrtDebugHeapScopeImplementation {
+struct FCrtDebugHeapScopeImplementation {
     _CrtMemState Baseline{};
-    CrtDebugHeapScopeConfiguration Configuration{};
+    FCrtDebugHeapScopeConfiguration Configuration{};
     char ScopeName[kScopeNameCapacity]{};
     int DebugFlagsAtBegin = 0;
     bool bHeapValidAtBegin = true;
     bool bAllocationTrackingEnabled = false;
 };
 
-struct CrtDebugHeapProcessConfigurationImplementation {
+struct FCrtDebugHeapProcessConfigurationImplementation {
     int DebugFlags = 0;
     long BreakAllocation = -1;
     int ReportModes[_CRT_ERRCNT]{};
@@ -38,12 +38,12 @@ SRWLOCK g_ProcessConfigurationLock = SRWLOCK_INIT;
 SRWLOCK g_ReportOperationLock = SRWLOCK_INIT;
 void* g_ProcessConfigurationOwner = nullptr;
 void* g_DiagnosticScopeOwner = nullptr;
-CrtDebugHeapProcessConfigurationImplementation g_PendingProcessConfigurationRestoration{};
+FCrtDebugHeapProcessConfigurationImplementation g_PendingProcessConfigurationRestoration{};
 bool g_ProcessConfigurationRestorationPending = false;
 u32 g_ActiveReportCapableOperationCount = 0u;
 thread_local bool g_ReportCapableOperationActiveOnCurrentThread = false;
 
-void RestoreProcessConfiguration(const CrtDebugHeapProcessConfigurationImplementation& Implementation) noexcept
+void RestoreProcessConfiguration(const FCrtDebugHeapProcessConfigurationImplementation& Implementation) noexcept
 {
     (void)_CrtSetDbgFlag(Implementation.DebugFlags);
     (void)_CrtSetBreakAlloc(Implementation.BreakAllocation);
@@ -177,8 +177,8 @@ void WriteDiagnosticLine(const char* Text) noexcept
     }
 }
 
-void WriteScopeReport(const CrtDebugHeapScopeImplementation& Implementation,
-                      const CrtDebugHeapScopeReport& Report) noexcept
+void WriteScopeReport(const FCrtDebugHeapScopeImplementation& Implementation,
+                      const FCrtDebugHeapScopeReport& Report) noexcept
 {
     const char* LeakResult = Report.bMeasurementConclusive ? (Report.bLeakDetected ? "true" : "false") : "inconclusive";
     const char* DifferenceResult = Report.bMeasurementConclusive ? (Report.bDifferenceDetected ? "true" : "false")
@@ -252,12 +252,12 @@ long NormalizeBreakAllocationSequence(i64 AllocationSequence) noexcept
 
 #else
 
-struct CrtDebugHeapScopeImplementation {
-    CrtDebugHeapScopeConfiguration Configuration{};
+struct FCrtDebugHeapScopeImplementation {
+    FCrtDebugHeapScopeConfiguration Configuration{};
     char ScopeName[kScopeNameCapacity]{};
 };
 
-struct CrtDebugHeapProcessConfigurationImplementation {
+struct FCrtDebugHeapProcessConfigurationImplementation {
     bool bUnused = false;
 };
 
@@ -311,7 +311,7 @@ const char* UnsupportedReason() noexcept
 #    endif
 }
 
-void WriteUnsupportedScopeReport(const CrtDebugHeapScopeImplementation& Implementation) noexcept
+void WriteUnsupportedScopeReport(const FCrtDebugHeapScopeImplementation& Implementation) noexcept
 {
     char Line[384]{};
     const int Result = std::snprintf(Line, sizeof(Line),
@@ -345,20 +345,20 @@ FCrtDebugHeapScope::~FCrtDebugHeapScope() noexcept
 {
     (void)End();
 
-    auto* Implementation = static_cast<CrtDebugHeapScopeImplementation*>(m_Implementation);
+    auto* Implementation = static_cast<FCrtDebugHeapScopeImplementation*>(m_Implementation);
     FreeImplementation(Implementation);
     m_Implementation = nullptr;
 }
 
-bool FCrtDebugHeapScope::Begin(const CrtDebugHeapScopeConfiguration& Configuration) noexcept
+bool FCrtDebugHeapScope::Begin(const FCrtDebugHeapScopeConfiguration& Configuration) noexcept
 {
     if (m_Active) {
         return false;
     }
 
-    auto* Implementation = static_cast<CrtDebugHeapScopeImplementation*>(m_Implementation);
+    auto* Implementation = static_cast<FCrtDebugHeapScopeImplementation*>(m_Implementation);
     if (!Implementation) {
-        Implementation = AllocateImplementation<CrtDebugHeapScopeImplementation>();
+        Implementation = AllocateImplementation<FCrtDebugHeapScopeImplementation>();
         if (!Implementation) {
             return false;
         }
@@ -404,9 +404,9 @@ bool FCrtDebugHeapScope::Begin(const CrtDebugHeapScopeConfiguration& Configurati
     return true;
 }
 
-CrtDebugHeapScopeReport FCrtDebugHeapScope::End() noexcept
+FCrtDebugHeapScopeReport FCrtDebugHeapScope::End() noexcept
 {
-    CrtDebugHeapScopeReport Report{};
+    FCrtDebugHeapScopeReport Report{};
     Report.bSupported = FCrtDebugHeapDiagnostics::IsSupported();
     if (!m_Active) {
         return Report;
@@ -414,7 +414,7 @@ CrtDebugHeapScopeReport FCrtDebugHeapScope::End() noexcept
 
     Report.bWasActive = true;
     m_Active = false;
-    auto* Implementation = static_cast<CrtDebugHeapScopeImplementation*>(m_Implementation);
+    auto* Implementation = static_cast<FCrtDebugHeapScopeImplementation*>(m_Implementation);
     if (!Implementation) {
         Report.bHeapValid = false;
         return Report;
@@ -497,20 +497,20 @@ FCrtDebugHeapProcessConfigurationScope::~FCrtDebugHeapProcessConfigurationScope(
 {
     End();
 
-    auto* Implementation = static_cast<CrtDebugHeapProcessConfigurationImplementation*>(m_Implementation);
+    auto* Implementation = static_cast<FCrtDebugHeapProcessConfigurationImplementation*>(m_Implementation);
     FreeImplementation(Implementation);
     m_Implementation = nullptr;
 }
 
-bool FCrtDebugHeapProcessConfigurationScope::Begin(const CrtDebugHeapProcessConfiguration& Configuration) noexcept
+bool FCrtDebugHeapProcessConfigurationScope::Begin(const FCrtDebugHeapProcessConfiguration& Configuration) noexcept
 {
     if (m_Active) {
         return false;
     }
 
-    auto* Implementation = static_cast<CrtDebugHeapProcessConfigurationImplementation*>(m_Implementation);
+    auto* Implementation = static_cast<FCrtDebugHeapProcessConfigurationImplementation*>(m_Implementation);
     if (!Implementation) {
-        Implementation = AllocateImplementation<CrtDebugHeapProcessConfigurationImplementation>();
+        Implementation = AllocateImplementation<FCrtDebugHeapProcessConfigurationImplementation>();
         if (!Implementation) {
             return false;
         }
@@ -579,7 +579,7 @@ void FCrtDebugHeapProcessConfigurationScope::End() noexcept
     m_Active = false;
 
 #if ACS_COMPILER_MSVC && ACS_BUILD_DEBUG && !ACS_ADDRESS_SANITIZER
-    auto* Implementation = static_cast<CrtDebugHeapProcessConfigurationImplementation*>(m_Implementation);
+    auto* Implementation = static_cast<FCrtDebugHeapProcessConfigurationImplementation*>(m_Implementation);
     if (!Implementation) {
         return;
     }
@@ -633,10 +633,10 @@ void FCrtDebugHeapDiagnostics::DumpAllLiveObjects() noexcept
 #endif
 }
 
-CrtDebugHeapProcessLeakReport FCrtDebugHeapDiagnostics::DumpProcessMemoryLeaks(
+FCrtDebugHeapProcessLeakReport FCrtDebugHeapDiagnostics::DumpProcessMemoryLeaks(
     bool bWriteMachineReadableLog) noexcept
 {
-    CrtDebugHeapProcessLeakReport Report{};
+    FCrtDebugHeapProcessLeakReport Report{};
     Report.bSupported = IsSupported();
 
 #if ACS_COMPILER_MSVC && ACS_BUILD_DEBUG && !ACS_ADDRESS_SANITIZER

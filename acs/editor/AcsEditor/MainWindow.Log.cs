@@ -153,7 +153,7 @@ namespace AcsEditor
         private void OnLogSortToggle(object sender, RoutedEventArgs e)
         {
             _logNewestFirst = SortNewest.IsChecked == true;
-            SortNewest.Content = _logNewestFirst ? "↑ Old" : "↓ New";
+            SortNewest.Content = _logNewestFirst ? "Newest first" : "Newest last";
             if (_logView == null) return;
             _logView.SortDescriptions.Clear();
             _logView.SortDescriptions.Add(new SortDescription(nameof(LogEntry.Seq),

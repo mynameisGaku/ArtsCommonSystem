@@ -14,10 +14,10 @@
 
 namespace hellosky {
 
-class SkyScene {
+class FSkyScene {
 public:
-    void SetPreset(acs::FSky& sky, SkyPreset p) noexcept;
-    SkyPreset CurrentPreset() const noexcept { return m_Preset; }
+    void SetPreset(acs::FSky& sky, ESkyPreset p) noexcept;
+    ESkyPreset CurrentPreset() const noexcept { return m_Preset; }
 
     // 1 フレームの描画 (FSky → 地面 → 球)。
     // sky / shader / camera / mesh は App が所有、引数で借りる形にして
@@ -26,12 +26,12 @@ public:
                 acs::FStandardShader&  shader,
                 acs::IRhiCommandList& cl,
                 const acs::FCamera&    camera,
-                const acs::GpuMesh&   plane,
-                const acs::GpuMesh&   sphere,
+                const acs::FGpuMesh&   plane,
+                const acs::FGpuMesh&   sphere,
                 acs::f32              angle) noexcept;
 
 private:
-    SkyPreset m_Preset = SkyPreset::Day;
+    ESkyPreset m_Preset = ESkyPreset::Day;
 };
 
 } // namespace hellosky

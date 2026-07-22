@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloGameFramework — RotateComponent 実装。
+// HelloGameFramework — ARotateComponent 実装。
 #include "RotateComponent.h"
 
 #include "foundation/Log.h"
 
 namespace hellogf {
 
-void RotateComponent::OnAttach(acs::game::FNode2D& /*owner*/) noexcept {
-    ACS_LOG_INFO("[Component] RotateComponent attached (speed=%.2f rad/s)",
+void ARotateComponent::OnAttach(acs::game::ANode& /*owner*/) noexcept {
+    ACS_LOG_INFO("[Component] ARotateComponent attached (speed=%.2f rad/s)",
                  static_cast<double>(m_Speed));
 }
 
-void RotateComponent::OnUpdate(acs::f32 dt) noexcept {
-    Owner().Local().rotation += m_Speed * dt;
+void ARotateComponent::OnUpdate(acs::f32 dt) noexcept {
+    Owner().SetRotation2D(Owner().Rotation2D() + m_Speed * dt);
 }
 
-void RotateComponent::OnDetach() noexcept {
-    ACS_LOG_INFO("[Component] RotateComponent detached");
+void ARotateComponent::OnDetach() noexcept {
+    ACS_LOG_INFO("[Component] ARotateComponent detached");
 }
 
 } // namespace hellogf

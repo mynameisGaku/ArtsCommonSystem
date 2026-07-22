@@ -25,14 +25,14 @@ TResult<void> FRenderer::Init(FWindow& w, bool enable_debug, bool enable_depth) 
     m_DepthFormat = EFormat::D32_Float;
 
     // デバイス作成
-    DeviceConfig dcfg{};
+    FDeviceConfig dcfg{};
     dcfg.enable_debug_layer = enable_debug;
     auto dr = CreateRhiDevice(dcfg);
     if (dr.IsErr()) return fail(dr.Error());
     m_Device = Move(dr.Value());
 
     // スワップチェイン作成（ウィンドウに紐付け）
-    SwapchainConfig scfg{};
+    FSwapchainConfig scfg{};
     scfg.window = &w;
     scfg.format = m_ColorFormat;
     scfg.buffer_count = 2;
@@ -70,22 +70,22 @@ TResult<void> FRenderer::InitExternal(void* hwnd, u32 width, u32 height,
     m_DepthFormat = EFormat::D32_Float;
 
     // デバイス作成
-    DeviceConfig dcfg{};
+    FDeviceConfig dcfg{};
     dcfg.enable_debug_layer = enable_debug;
     auto dr = CreateRhiDevice(dcfg);
     if (dr.IsErr()) return fail(dr.Error());
     m_Device = Move(dr.Value());
 
     // スワップチェイン作成（外部 HWND に紐付け）
-    SwapchainConfig scfg{};
+    FSwapchainConfig scfg{};
     scfg.external_hwnd   = hwnd;
     scfg.external_width  = width;
     scfg.external_height = height;
     scfg.format = m_ColorFormat;
     scfg.buffer_count = 2;
-    // vsync は OFF。エディタ (WPF 等) は UI スレッドの CompositionTarget.Rendering から
-    // 描画を駆動するため、vsync 待ちで Present がブロックすると WPF 自身の合成が止まり
-    // 画面が白くなる。即時 Present (tearing 許容) で UI スレッドをブロックしない。
+    // vsync は OFF。エディタは公平性を持たせた専用 Win32 message pump から
+    // native frame を uncapped で駆動する。Present の垂直同期待ちで UI dispatcher と
+    // profiler 更新を止めないよう、外部 HWND は即時 Present (tearing 許容) にする。
     scfg.vsync = false;
     auto sr = CreateRhiSwapchain(*m_Device, scfg);
     if (sr.IsErr()) return fail(sr.Error());
@@ -137,7 +137,7 @@ void FRenderer::Shutdown() noexcept {
 }
 
 // フレーム開始: バックバッファ取得 → コマンド記録開始 → クリア
-void FRenderer::BeginFrame(const ClearColor& clear) noexcept {
+void FRenderer::BeginFrame(const FClearColor& clear) noexcept {
     if (!m_Swapchain || !m_Cmd) return;
     m_CurrentBuffer = m_Swapchain->AcquireNextImage();
     m_Cmd->Begin();

@@ -2,10 +2,7 @@
 #include "test/Test.h"
 #include "foundation/Log.h"
 #include "foundation/Platform.h"
-#include "memory/CrtDebugHeapDiagnostics.h"
 #include "memory/SystemAllocator.h"
-
-#include <cstdlib>
 
 namespace {
 
@@ -26,7 +23,7 @@ bool TextEquals(const char* left, const char* right) noexcept
  */
 int RunSystemAllocatorDestructionProbe() noexcept
 {
-    const acs::SystemAllocatorProcessStatistics baseline = acs::FSystemAllocator::CaptureProcessStatistics();
+    const acs::FSystemAllocatorProcessStatistics baseline = acs::FSystemAllocator::CaptureProcessStatistics();
     acs::u64 abandoned_bytes = 0;
     {
         acs::FSystemAllocator allocator;
@@ -36,7 +33,7 @@ int RunSystemAllocatorDestructionProbe() noexcept
         abandoned_bytes = allocator.BytesAllocated();
     }
 
-    const acs::SystemAllocatorProcessStatistics after = acs::FSystemAllocator::CaptureProcessStatistics();
+    const acs::FSystemAllocatorProcessStatistics after = acs::FSystemAllocator::CaptureProcessStatistics();
     const bool valid = after.live_allocator_count == baseline.live_allocator_count &&
                        after.destroyed_with_live_allocations_count ==
                            baseline.destroyed_with_live_allocations_count + 1u &&
@@ -71,24 +68,6 @@ int RunAddressSanitizerCapabilityProbe() noexcept
     return 0;
 }
 
-/** `_CrtDumpMemoryLeaks` の clean/positive 両経路を隔離プロセスで検証する。 */
-int RunCrtDumpMemoryLeaksProbe(bool bCreateIntentionalLeak) noexcept
-{
-    void* IntentionalLeak = nullptr;
-    if (bCreateIntentionalLeak) {
-        IntentionalLeak = ::malloc(64u);
-        if (!IntentionalLeak) return 76;
-    }
-
-    const acs::CrtDebugHeapProcessLeakReport Report =
-        acs::FCrtDebugHeapDiagnostics::DumpProcessMemoryLeaks(!bCreateIntentionalLeak);
-    if (IntentionalLeak) ::free(IntentionalLeak);
-
-    if (!Report.bSupported || !Report.bInspectionSucceeded) return 77;
-    if (Report.bLeakDetected != bCreateIntentionalLeak) return 78;
-    return 0;
-}
-
 } // namespace
 
 int main(int argument_count, char** arguments)
@@ -99,13 +78,6 @@ int main(int argument_count, char** arguments)
     if (argument_count == 2 && TextEquals(arguments[1], "--address-sanitizer-capability-probe")) {
         return RunAddressSanitizerCapabilityProbe();
     }
-    if (argument_count == 2 && TextEquals(arguments[1], "--crt-dump-memory-leaks-clean-probe")) {
-        return RunCrtDumpMemoryLeaksProbe(false);
-    }
-    if (argument_count == 2 && TextEquals(arguments[1], "--crt-dump-memory-leaks-positive-probe")) {
-        return RunCrtDumpMemoryLeaksProbe(true);
-    }
-
     acs::FLogConfig cfg{};
     cfg.console = true;
     cfg.debug_output = false;

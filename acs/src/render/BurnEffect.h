@@ -19,7 +19,7 @@
 namespace acs {
 
 /** 燃えディゾルブのパラメータ。 */
-struct BurnParams {
+struct FBurnParams {
     /** 0=全部紙, 1=全部燃えて下が見える。 */
     f32   progress = 0.0f;
 
@@ -87,7 +87,7 @@ public:
      * @param p 燃えパラメータ。
      */
     void Draw(IRhiCommandList& cl, f32 x, f32 y, f32 w, f32 h,
-              f32 screen_w, f32 screen_h, const BurnParams& p) noexcept;
+              f32 screen_w, f32 screen_h, const FBurnParams& p) noexcept;
 
 private:
     /** クアッドを出す頂点シェーダ。 */

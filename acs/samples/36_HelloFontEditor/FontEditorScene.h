@@ -11,12 +11,12 @@
 
 namespace hellofont {
 
-class FontEditorScene : public acs::game::Scene {
+class FFontEditorScene : public acs::game::FScene {
 public:
     void OnEnter() noexcept override;
     void OnExit()  noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
-    void OnRender(acs::game::RenderContext& rc) noexcept override;
+    void OnRender(acs::game::FRenderContext& rc) noexcept override;
 
 private:
     // File menu stub の保存先 (現状 callback だけ走らせるため未使用)。

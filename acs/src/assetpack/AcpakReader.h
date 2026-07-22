@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS FAssetPack — `.acpak` v1 アーカイブ読み出し器
+// ACS AssetPack — `.acpak` v1 アーカイブ読み出し器
 // -----------------------------------------------------------------------------
 // 1 つの `.acpak` ファイルを開き、含まれる仮想ファイルを名前 (wchar_t*) で
 // 取り出すための実装クラス。GameFramework の `IAssetPackReader` とは
@@ -181,6 +181,12 @@ private:
      */
     TResult<void> LoadHeaderAndTable() noexcept;
 
+    /**
+     * 空の Reader に OS handle と manifest を読み込む。
+     * public Open() はこの関数を一時 Reader に対して呼び、成功時だけ状態を入れ替える。
+     */
+    TResult<void> OpenIntoEmptyUnlocked(const wchar_t* FilePath) noexcept;
+
     /** ライフサイクルロック取得済みで内部状態を空に戻す。 */
     void CloseUnlocked() noexcept;
 
@@ -188,7 +194,7 @@ private:
     const FAcpakFileEntry* FindEntryUnlocked(const wchar_t* Path) const noexcept;
 
     /** Open/Close と読み出し処理の寿命を同期する。 */
-    mutable RwLock m_LifecycleLock;
+    mutable FRwLock m_LifecycleLock;
 
     /** SetFilePointerEx と ReadFile の組を不可分にする。 */
     mutable FMutex m_IoLock;

@@ -8,25 +8,25 @@
 
 namespace acs {
 
-class Dx12Device;
+class FDx12Device;
 
 /**
  * IRhiTexture の DX12 実装 (2D テクスチャ / 配列 / キューブマップ / 深度・RT)。
  *
  * @details
  * DEFAULT ヒープに ID3D12Resource を確保し、用途に応じて SRV / DSV / RTV を
- * Dx12Device のディスクリプタヒープから割り当てる。配列・キューブマップ・per-slice
+ * FDx12Device のディスクリプタヒープから割り当てる。配列・キューブマップ・per-slice
  * RTV・mip 連鎖に対応し、IBL の env/irradiance/prefilter cubemap (array_size=6 +
  * per_slice_rtv) でも使える。深度ターゲットは SRV/DSV を両方作れるよう TYPELESS で
  * 確保する。現在のリソース状態を保持し、CommandList のバリア発行に追従させる。
  */
-class Dx12Texture final : public IRhiTexture {
+class FDx12Texture final : public IRhiTexture {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    Dx12Texture() noexcept = default;
+    FDx12Texture() noexcept = default;
 
     /** SRV/DSV/RTV スロットを解放しリソースを Release する。 */
-    ~Dx12Texture() noexcept override;
+    ~FDx12Texture() noexcept override;
 
     /**
      * desc に従って DX12 テクスチャと必要なビュー (SRV/DSV/RTV) を生成する。
@@ -38,9 +38,9 @@ public:
      * array_size*mip_levels 個の per-slice RTV を生成する。
      * @param device リソース・ディスクリプタ確保に使う DX12 デバイス。
      * @param desc 生成するテクスチャの記述 (サイズ・フォーマット・用途フラグ・初期データ)。
-     * @return 成功なら成功状態の HrResult、失敗なら HRESULT を保持したエラー。
+     * @return 成功なら成功状態の FHrResult、失敗なら HRESULT を保持したエラー。
      */
-    HrResult Init(Dx12Device& device, const FTextureDesc& desc) noexcept;
+    FHrResult Init(FDx12Device& device, const FTextureDesc& desc) noexcept;
 
     /**
      * テクスチャの幅 (ピクセル) を返す。
@@ -61,7 +61,7 @@ public:
      *
      * @return EFormat。
      */
-    EFormat EPixelFormat() const noexcept override { return m_Format; }
+    EFormat PixelFormat() const noexcept override { return m_Format; }
 
     /**
      * mip レベル数を返す。
@@ -90,6 +90,9 @@ public:
      * @return SRV の GPU ハンドル (Device が無ければ null ハンドル)。
      */
     D3D12_GPU_DESCRIPTOR_HANDLE SrvGpuHandle() const noexcept;
+
+    /** UAV の GPU descriptor handle (is_uav=true の texture のみ)。 */
+    D3D12_GPU_DESCRIPTOR_HANDLE UavGpuHandle() const noexcept;
 
     /**
      * DSV の CPU ディスクリプタハンドルを返す (深度バッファのみの内部用)。
@@ -142,6 +145,9 @@ public:
      */
     bool                        HasSrv()        const noexcept { return m_SrvSlot >= 0; }
 
+    /** UAV descriptor を持つか。 */
+    bool                        HasUav()        const noexcept { return m_UavSlot >= 0; }
+
     /**
      * RTV を持つか (オフスクリーン RT か) を返す。
      *
@@ -182,7 +188,7 @@ private:
     void Reset() noexcept;
 
     /** 所有元の DX12 デバイス (ディスクリプタ解放に使う)。 */
-    Dx12Device*           m_Device   = nullptr;
+    FDx12Device*           m_Device   = nullptr;
 
     /** 基となる D3D12 リソース。 */
     ID3D12Resource*       m_Resource = nullptr;
@@ -192,6 +198,9 @@ private:
 
     /** テクスチャの高さ (ピクセル)。 */
     u32                   m_Height   = 0;
+
+    /** Texture3D の奥行き。2D は 1。 */
+    u32                   m_Depth    = 1;
 
     /** ピクセルフォーマット。 */
     EFormat                m_Format   = EFormat::Unknown;
@@ -210,6 +219,9 @@ private:
 
     /** SRV ディスクリプタヒープ内のスロット (未割り当ては -1)。 */
     i32                   m_SrvSlot = -1;
+
+    /** UAV descriptor heap slot (is_uav=false は -1)。 */
+    i32                   m_UavSlot = -1;
 
     /** DSV ディスクリプタヒープ内のスロット (未割り当ては -1)。 */
     i32                   m_DsvSlot = -1;

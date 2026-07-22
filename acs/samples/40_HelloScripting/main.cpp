@@ -11,6 +11,6 @@
 #include "ScriptDemoApp.h"
 
 int main() {
-    helloscript::ScriptDemoApp app;
+    helloscript::FScriptDemoApp app;
     return app.Run();
 }

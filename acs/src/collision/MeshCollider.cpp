@@ -56,7 +56,7 @@ void ExpandMax(FVec3& mx, FVec3 p) noexcept {
 
 /** レンダリング用メッシュから collider を構築する (頂点位置のみ使用)。 */
 TResult<void> FMeshCollider::BuildFromMesh(const FMeshAsset& mesh) noexcept {
-    const TArray<MeshVertex>& verts = mesh.Vertices();
+    const TArray<FMeshVertex>& verts = mesh.Vertices();
     const TArray<u32>&        idx   = mesh.Indices();
     if (verts.Size() == 0) {
         return ACS_ERR(Generic, kSubColMeshEmpty, "FMeshCollider: mesh has no vertices");
@@ -95,7 +95,7 @@ TResult<void> FMeshCollider::BuildFromTriangles(const FVec3* positions, u32 vert
             Clear();
             return ACS_ERR(Generic, kSubColMeshInvalidArg, "FMeshCollider: index out of range");
         }
-        Tri tr;
+        FTri tr;
         tr.v0 = positions[i0];
         tr.v1 = positions[i1];
         tr.v2 = positions[i2];
@@ -107,7 +107,7 @@ TResult<void> FMeshCollider::BuildFromTriangles(const FVec3* positions, u32 vert
     if (m_Tris.Size() == 0) {
         return ACS_ERR(Generic, kSubColMeshEmpty, "FMeshCollider: no triangles built");
     }
-    m_Bounds = Aabb3::FromMinMax(mn, mx);
+    m_Bounds = FAabb3::FromMinMax(mn, mx);
     BuildBvh();
     return Ok();
 }
@@ -117,19 +117,19 @@ void FMeshCollider::Clear() noexcept {
     m_Tris.Clear();
     m_TriIndex.Clear();
     m_Nodes.Clear();
-    m_Bounds = Aabb3{};
+    m_Bounds = FAabb3{};
 }
 
 /** m_TriIndex の [first, first+count) 範囲の三角形を包む AABB を求める。 */
-Aabb3 FMeshCollider::ComputeBounds(u32 first, u32 count) const noexcept {
+FAabb3 FMeshCollider::ComputeBounds(u32 first, u32 count) const noexcept {
     FVec3 mn{ 3.4e38f, 3.4e38f, 3.4e38f };
     FVec3 mx{ -3.4e38f, -3.4e38f, -3.4e38f };
     for (u32 i = 0; i < count; ++i) {
-        const Tri& t = m_Tris[m_TriIndex[first + i]];
+        const FTri& t = m_Tris[m_TriIndex[first + i]];
         ExpandMin(mn, t.v0); ExpandMin(mn, t.v1); ExpandMin(mn, t.v2);
         ExpandMax(mx, t.v0); ExpandMax(mx, t.v1); ExpandMax(mx, t.v2);
     }
-    return Aabb3::FromMinMax(mn, mx);
+    return FAabb3::FromMinMax(mn, mx);
 }
 
 /** m_Tris から median-split AABB BVH を構築する。 */
@@ -140,17 +140,17 @@ void FMeshCollider::BuildBvh() noexcept {
     m_TriIndex.Reserve(m_Tris.Size());
     for (u32 i = 0; i < m_Tris.Size(); ++i) m_TriIndex.PushBack(i);
 
-    m_Nodes.PushBack(BvhNode{});      // root = node 0
+    m_Nodes.PushBack(FBvhNode{});      // ルートはノード 0
 
-    struct Item { u32 node, first, count; };
-    TArray<Item> stack;
-    stack.PushBack(Item{ 0, 0, static_cast<u32>(m_Tris.Size()) });
+    struct FItem { u32 node, first, count; };
+    TArray<FItem> stack;
+    stack.PushBack(FItem{ 0, 0, static_cast<u32>(m_Tris.Size()) });
 
     while (stack.Size() > 0) {
-        const Item it = stack[stack.Size() - 1];
+        const FItem it = stack[stack.Size() - 1];
         stack.PopBack();
 
-        const Aabb3 b = ComputeBounds(it.first, it.count);
+        const FAabb3 b = ComputeBounds(it.first, it.count);
         m_Nodes[it.node].bounds = b;
 
         if (it.count <= kBvhLeafSize) {
@@ -177,19 +177,19 @@ void FMeshCollider::BuildBvh() noexcept {
         if (left_count == 0 || left_count == it.count) left_count = it.count / 2;  // 退化時は半分
 
         const u32 left_idx = static_cast<u32>(m_Nodes.Size());
-        m_Nodes.PushBack(BvhNode{});
-        m_Nodes.PushBack(BvhNode{});
+        m_Nodes.PushBack(FBvhNode{});
+        m_Nodes.PushBack(FBvhNode{});
         m_Nodes[it.node].left      = left_idx;
         m_Nodes[it.node].tri_count = 0;     // internal
 
-        stack.PushBack(Item{ left_idx,     it.first,              left_count });
-        stack.PushBack(Item{ left_idx + 1, it.first + left_count, it.count - left_count });
+        stack.PushBack(FItem{ left_idx,     it.first,              left_count });
+        stack.PushBack(FItem{ left_idx + 1, it.first + left_count, it.count - left_count });
     }
 }
 
 /** レイを撃って最近接ヒットを返す (三角形面法線つき)。 */
-RayHit3 FMeshCollider::Raycast(const Ray3& ray, f32 t_max) const noexcept {
-    RayHit3 best{};
+FRayHit3 FMeshCollider::Raycast(const FRay3& ray, f32 t_max) const noexcept {
+    FRayHit3 best{};
     if (m_Nodes.Size() == 0) return best;
     f32 closest = t_max;
 
@@ -198,14 +198,14 @@ RayHit3 FMeshCollider::Raycast(const Ray3& ray, f32 t_max) const noexcept {
     stack[sp++] = 0;
     while (sp > 0) {
         const u32 ni = stack[--sp];
-        const BvhNode& n = m_Nodes[ni];
-        const RayHit3 bh = RaycastAabb(ray, n.bounds, closest);
+        const FBvhNode& n = m_Nodes[ni];
+        const FRayHit3 bh = RaycastAabb(ray, n.bounds, closest);
         if (!bh.hit) continue;                  // box ミス or closest より遠い
 
         if (n.tri_count > 0) {                   // leaf
             for (u32 k = 0; k < n.tri_count; ++k) {
-                const Tri& tr = m_Tris[m_TriIndex[n.first_tri + k]];
-                const RayHit3 th = RaycastTriangle(ray, tr.v0, tr.v1, tr.v2, closest);
+                const FTri& tr = m_Tris[m_TriIndex[n.first_tri + k]];
+                const FRayHit3 th = RaycastTriangle(ray, tr.v0, tr.v1, tr.v2, closest);
                 if (th.hit && th.t < closest) { closest = th.t; best = th; }
             }
         } else if (sp + 2 <= 128) {              // internal
@@ -217,22 +217,22 @@ RayHit3 FMeshCollider::Raycast(const Ray3& ray, f32 t_max) const noexcept {
 }
 
 /** AABB がメッシュと重なるかを判定する (broadphase 用)。 */
-bool FMeshCollider::OverlapsAabb(const Aabb3& box) const noexcept {
+bool FMeshCollider::OverlapsAabb(const FAabb3& box) const noexcept {
     if (m_Nodes.Size() == 0) return false;
     u32 stack[128];
     u32 sp = 0;
     stack[sp++] = 0;
     while (sp > 0) {
         const u32 ni = stack[--sp];
-        const BvhNode& n = m_Nodes[ni];
+        const FBvhNode& n = m_Nodes[ni];
         if (!Intersect(n.bounds, box)) continue;
         if (n.tri_count > 0) {
             for (u32 k = 0; k < n.tri_count; ++k) {
-                const Tri& t = m_Tris[m_TriIndex[n.first_tri + k]];
+                const FTri& t = m_Tris[m_TriIndex[n.first_tri + k]];
                 FVec3 mn = t.v0, mx = t.v0;
                 ExpandMin(mn, t.v1); ExpandMin(mn, t.v2);
                 ExpandMax(mx, t.v1); ExpandMax(mx, t.v2);
-                if (Intersect(Aabb3::FromMinMax(mn, mx), box)) return true;
+                if (Intersect(FAabb3::FromMinMax(mn, mx), box)) return true;
             }
         } else if (sp + 2 <= 128) {
             stack[sp++] = n.left;

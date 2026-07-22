@@ -5,11 +5,11 @@
 //   FAmbientDirector (時刻補間) と直交する「天候」状態を保持し、現在天候 →
 //   ターゲット天候への線形遷移と、各天候に対応する描画 / lighting 修飾係数
 //   (ambient 倍率 / 粒子密度 / sky tint / 風 / 霧密度) を提供する。
-//   レンダラ / FEffectSystem / ParticleSystem 側は毎フレーム本クラスから係数を
+//   レンダラ / FEffectSystem / FParticleSystem 側は毎フレーム本クラスから係数を
 //   pull するだけで天候表情を反映できる。
 //
 // 使い方:
-//   class WorldScene : public Scene {
+//   class FWorldScene : public FScene {
 //       acs::game::FWeatherSystem m_Weather;
 //
 //       void OnEnter() noexcept override {
@@ -25,7 +25,7 @@
 //           FRenderer().SetAmbientMultiplier(m_Weather.AmbientLightMultiplier());
 //           FRenderer().SetSkyTint          (m_Weather.SkyTintMultiplier());
 //           FRenderer().SetFogDensityScale  (m_Weather.FogDensityMultiplier());
-//           FParticles().SetGlobalDensity   (m_Weather.ParticleDensity());
+//           Particles().SetGlobalDensity    (m_Weather.ParticleDensity());
 //           Wind().SetVector(m_Weather.WindDirection() * m_Weather.WindStrength());
 //       }
 //   };
@@ -33,7 +33,7 @@
 // 設計選択 (Pillar Q):
 //   ・8 種の固定 enum: Clear / Cloudy / Rain / HeavyRain / Snow / Storm /
 //     Fog / Sandstorm。表現の幅を確保しつつ、各描画モディファイアを 1 テーブルで
-//     LUT 引きできる粒度 (KindParams)。利用者は「現在 / 目標 / 遷移時間」だけ
+//     LUT 引きできる粒度 (FKindParams)。利用者は「現在 / 目標 / 遷移時間」だけ
 //     意識すれば良い。
 //   ・線形遷移: SetWeather(target, duration) → transition_t を 0→1 で線形に
 //     進める。current/target の全モディファイア値を t で Lerp。
@@ -92,7 +92,7 @@ enum class EWeatherKind : u8 {
  * @details
  * FAmbientDirector (時刻補間) と直交し、天候ごとの ambient 倍率 / 粒子密度 /
  * sky tint / 風強さ / 霧密度を 1 つの LUT から引いて current/target 間で Lerp する。
- * non-copy / non-move で Scene 等に値メンバとして持たせ、Tick(dt) で遷移を進める。
+ * non-copy / non-move で FScene 等に値メンバとして持たせ、Tick(dt) で遷移を進める。
  */
 class FWeatherSystem {
 public:
@@ -214,7 +214,7 @@ public:
      *
      * @details LUT として .cpp にテーブルで持つ。各値は対応する getter のコメント参照。
      */
-    struct KindParams {
+    struct FKindParams {
         /** ambient 輝度倍率 (Storm/Sandstorm で暗化)。 */
         f32  ambient_mult;
 
@@ -236,9 +236,9 @@ private:
      * 天候種別に対応する修飾パラメータを LUT から引く。
      *
      * @param k 引く天候種別。
-     * @return k に対応する KindParams への const 参照 (範囲外は Clear にフォールバック)。
+ * @return k に対応する FKindParams への const 参照 (範囲外は Clear にフォールバック)。
      */
-    static const KindParams& Params(EWeatherKind k) noexcept;
+    static const FKindParams& Params(EWeatherKind k) noexcept;
 
     /** 現在 (遷移元) の天候。 */
     EWeatherKind m_Current = EWeatherKind::Clear;

@@ -22,7 +22,7 @@ namespace acs {
 namespace {
 
 /** 焼き込む 1 つのコードポイント範囲 (開始 + 個数)。 */
-struct CpRange {
+struct FCpRange {
     /** 範囲の先頭コードポイント。 */
     u32 first;
 
@@ -31,7 +31,7 @@ struct CpRange {
 };
 
 /** 既定で焼く範囲 (ASCII / Latin-1 / かな / 全角句読点・英数)。 */
-constexpr CpRange kDefaultRanges[] = {
+constexpr FCpRange kDefaultRanges[] = {
     { 0x0020, 0x007F - 0x0020 },   // ASCII (95)
     { 0x00A0, 0x0100 - 0x00A0 },   // Latin-1 補足 (96)
     { 0x3000, 0x3040 - 0x3000 },   // CJK 記号・句読点 (64)
@@ -44,68 +44,111 @@ constexpr CpRange kDefaultRanges[] = {
 constexpr u32 kNumDefaultRanges = sizeof(kDefaultRanges) / sizeof(kDefaultRanges[0]);
 
 /** include_cjk=true で追加で焼く CJK 統合漢字範囲 (約 20,400 字)。 */
-constexpr CpRange kCjkRange = { 0x4E00, 0x9FB0 - 0x4E00 };
+constexpr FCpRange kCjkRange = { 0x4E00, 0x9FB0 - 0x4E00 };
 
 } // namespace
 
 /**
- * UTF-8 文字列から 1 文字をデコードし、ポインタを次の文字へ進める。
+ * canonical UTF-8 scalar をデコードし、正規 U+FFFD と不正入力を成否で区別する。
  *
- * @details 終端 (NUL) では 0 を返し、不正バイト列は U+FFFD を返して 1 文字ぶん進める。
- * @param p デコード位置を指すポインタへのポインタ (デコード後に次の文字位置へ進む)。
- * @return デコードしたコードポイント (終端は 0、不正バイトは 0xFFFD)。
+ * @details 不正入力では少なくとも lead byte を消費し、out_codepoint に U+FFFD を格納する。
  */
-u32 DecodeUtf8(const char** p) noexcept {
-    if (!p || !*p) return 0;
+bool TryDecodeUtf8(const char** p, u32& out_codepoint) noexcept {
+    out_codepoint = 0;
+    if (!p || !*p) return false;
     const u8* s = reinterpret_cast<const u8*>(*p);
-    if (*s == 0) return 0;
+    if (*s == 0) return false;
     u32 c = 0;
     if ((*s & 0x80) == 0) {
         c = *s++;
-    } else if ((*s & 0xE0) == 0xC0) {
+    } else if (*s >= 0xC2u && *s <= 0xDFu) {
         c  = static_cast<u32>(*s++ & 0x1F) << 6;
-        if ((*s & 0xC0) != 0x80) { *p = reinterpret_cast<const char*>(s); return 0xFFFD; }
+        if ((*s & 0xC0) != 0x80) {
+            *p = reinterpret_cast<const char*>(s);
+            out_codepoint = 0xFFFDu;
+            return false;
+        }
         c |= static_cast<u32>(*s++ & 0x3F);
-    } else if ((*s & 0xF0) == 0xE0) {
+    } else if (*s >= 0xE0u && *s <= 0xEFu) {
+        const u8 lead = *s;
         c  = static_cast<u32>(*s++ & 0x0F) << 12;
-        if ((*s & 0xC0) != 0x80) { *p = reinterpret_cast<const char*>(s); return 0xFFFD; }
+        const bool second_is_canonical =
+            lead == 0xE0u ? (*s >= 0xA0u && *s <= 0xBFu)
+          : lead == 0xEDu ? (*s >= 0x80u && *s <= 0x9Fu)
+                          : ((*s & 0xC0u) == 0x80u);
+        if (!second_is_canonical) {
+            *p = reinterpret_cast<const char*>(s);
+            out_codepoint = 0xFFFDu;
+            return false;
+        }
         c |= static_cast<u32>(*s++ & 0x3F) << 6;
-        if ((*s & 0xC0) != 0x80) { *p = reinterpret_cast<const char*>(s); return 0xFFFD; }
+        if ((*s & 0xC0) != 0x80) {
+            *p = reinterpret_cast<const char*>(s);
+            out_codepoint = 0xFFFDu;
+            return false;
+        }
         c |= static_cast<u32>(*s++ & 0x3F);
-    } else if ((*s & 0xF8) == 0xF0) {
+    } else if (*s >= 0xF0u && *s <= 0xF4u) {
+        const u8 lead = *s;
         c  = static_cast<u32>(*s++ & 0x07) << 18;
-        if ((*s & 0xC0) != 0x80) { *p = reinterpret_cast<const char*>(s); return 0xFFFD; }
+        const bool second_is_canonical =
+            lead == 0xF0u ? (*s >= 0x90u && *s <= 0xBFu)
+          : lead == 0xF4u ? (*s >= 0x80u && *s <= 0x8Fu)
+                          : ((*s & 0xC0u) == 0x80u);
+        if (!second_is_canonical) {
+            *p = reinterpret_cast<const char*>(s);
+            out_codepoint = 0xFFFDu;
+            return false;
+        }
         c |= static_cast<u32>(*s++ & 0x3F) << 12;
-        if ((*s & 0xC0) != 0x80) { *p = reinterpret_cast<const char*>(s); return 0xFFFD; }
+        if ((*s & 0xC0) != 0x80) {
+            *p = reinterpret_cast<const char*>(s);
+            out_codepoint = 0xFFFDu;
+            return false;
+        }
         c |= static_cast<u32>(*s++ & 0x3F) << 6;
-        if ((*s & 0xC0) != 0x80) { *p = reinterpret_cast<const char*>(s); return 0xFFFD; }
+        if ((*s & 0xC0) != 0x80) {
+            *p = reinterpret_cast<const char*>(s);
+            out_codepoint = 0xFFFDu;
+            return false;
+        }
         c |= static_cast<u32>(*s++ & 0x3F);
     } else {
         ++s;  // skip bad byte
-        c = 0xFFFD;
+        *p = reinterpret_cast<const char*>(s);
+        out_codepoint = 0xFFFDu;
+        return false;
     }
     *p = reinterpret_cast<const char*>(s);
-    return c;
+    out_codepoint = c;
+    return true;
+}
+
+/** checked decoder と同じ走査規則を保つ従来互換の replacement-decoding API。 */
+u32 DecodeUtf8(const char** p) noexcept {
+    u32 codepoint = 0;
+    (void)TryDecodeUtf8(p, codepoint);
+    return codepoint;
 }
 
 /** TTF/OTF/TTC バイト列からアトラスを焼いてグリフマップと GPU テクスチャを構築する。 */
-TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize ttf_size,
+TResult<void> FFont::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize ttf_size,
                                  f32 pixel_size, u32 atlas_size, bool include_cjk) noexcept {
     // 成否にかかわらず、再ロード開始後は旧フォントを公開しない。
     Shutdown();
     if (!ttf_data || ttf_size == 0)
-        return ACS_ERR(Asset, 200, "Font: empty TTF data");
+        return ACS_ERR(Asset, 200, "FFont: empty TTF data");
     if (atlas_size == 0) atlas_size = 1024;
     // CJK を含むなら 2048 未満は自動で 2048 へ
     if (include_cjk && atlas_size < 2048) atlas_size = 2048;
     const usize atlas_side = static_cast<usize>(atlas_size);
     if (atlas_side > (~usize(0)) / atlas_side || atlas_side * atlas_side > (~usize(0)) / 4u) {
-        return ACS_ERR(Memory, 222, "Font: atlas size overflow");
+        return ACS_ERR(Memory, 222, "FFont: atlas size overflow");
     }
     // stb_truetype で font 情報を取得
     stbtt_fontinfo info{};
     if (!stbtt_InitFont(&info, ttf_data, stbtt_GetFontOffsetForIndex(ttf_data, 0))) {
-        return ACS_ERR(Asset, 201, "Font: stbtt_InitFont failed");
+        return ACS_ERR(Asset, 201, "FFont: stbtt_InitFont failed");
     }
     const f32 scale = stbtt_ScaleForPixelHeight(&info, pixel_size);
     int ascent = 0, descent = 0, line_gap = 0;
@@ -118,7 +161,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     const usize atlas_bytes = atlas_side * atlas_side;
     FAllocator& allocator = DefaultAllocator();
     u8* atlas_r8 = static_cast<u8*>(allocator.Alloc(atlas_bytes));
-    if (!atlas_r8) return ACS_ERR(Memory, 220, "Font: atlas alloc");
+    if (!atlas_r8) return ACS_ERR(Memory, 220, "FFont: atlas alloc");
     ::memset(atlas_r8, 0, atlas_bytes);
 
     // stbtt_pack で複数コードポイント範囲を一気に焼く
@@ -127,12 +170,12 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
                           static_cast<int>(atlas_size), static_cast<int>(atlas_size),
                           0 /* stride = w */, 1 /* padding */, nullptr)) {
         allocator.Free(atlas_r8);
-        return ACS_ERR(Asset, 202, "Font: stbtt_PackBegin failed");
+        return ACS_ERR(Asset, 202, "FFont: stbtt_PackBegin failed");
     }
     stbtt_PackSetOversampling(&spc, 1, 1);
 
     // 範囲リストを動的構築（デフォルト + 任意で CJK）
-    TArray<CpRange> active_ranges;
+    TArray<FCpRange> active_ranges;
     active_ranges.Reserve(kNumDefaultRanges + 1);
     for (u32 i = 0; i < kNumDefaultRanges; ++i) {
         active_ranges.PushBack(kDefaultRanges[i]);
@@ -166,7 +209,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
     u8* atlas_rgba = static_cast<u8*>(allocator.Alloc(rgba_bytes));
     if (!atlas_rgba) {
         allocator.Free(atlas_r8);
-        return ACS_ERR(Memory, 221, "Font: atlas RGBA alloc");
+        return ACS_ERR(Memory, 221, "FFont: atlas RGBA alloc");
     }
     for (usize i = 0; i < atlas_bytes; ++i) {
         atlas_rgba[i*4 + 0] = 255;
@@ -202,7 +245,7 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
             const stbtt_packedchar& pc = pcs[i];
             // 焼き込み失敗グリフ (xadvance=0 等) はスキップ
             if (pc.xadvance == 0 && pc.x0 == pc.x1) continue;
-            GlyphInfo g{};
+            FGlyphInfo g{};
             g.u0 = pc.x0 * inv_size;
             g.v0 = pc.y0 * inv_size;
             g.u1 = pc.x1 * inv_size;
@@ -221,9 +264,9 @@ TResult<void> Font::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize 
 }
 
 /** ファイルを読み込み、そのバイト列を LoadFromBytes に渡してアトラスを構築する。 */
-TResult<void> Font::LoadFromFile(IRhiDevice& device, const wchar_t* path,
+TResult<void> FFont::LoadFromFile(IRhiDevice& device, const wchar_t* path,
                                 f32 pixel_size, u32 atlas_size, bool include_cjk) noexcept {
-    auto bytes_r = FileSystem::ReadAllBytes(path);
+    auto bytes_r = FFileSystem::ReadAllBytes(path);
     if (bytes_r.IsErr()) {
         Shutdown();
         return Err<void>(bytes_r.Error());
@@ -234,7 +277,7 @@ TResult<void> Font::LoadFromFile(IRhiDevice& device, const wchar_t* path,
 }
 
 /** アトラステクスチャとグリフマップを解放し、メトリクスを 0 に戻す。 */
-void Font::Shutdown() noexcept {
+void FFont::Shutdown() noexcept {
     m_Atlas.Reset();
     m_Glyphs.ReleaseStorage();
     m_AtlasSize = 0;
@@ -245,15 +288,15 @@ void Font::Shutdown() noexcept {
 }
 
 /** コードポイントのグリフ情報を取得する (アトラス未収録なら false)。 */
-bool Font::GetGlyph(u32 codepoint, GlyphInfo& out) const noexcept {
-    const GlyphInfo* hit = m_Glyphs.Find(codepoint);
+bool FFont::GetGlyph(u32 codepoint, FGlyphInfo& out) const noexcept {
+    const FGlyphInfo* hit = m_Glyphs.Find(codepoint);
     if (!hit) return false;
     out = *hit;
     return true;
 }
 
 /** UTF-8 文字列の描画幅をピクセルで測る (改行は無視)。 */
-f32 Font::MeasureWidth(const char* utf8_text) const noexcept {
+f32 FFont::MeasureWidth(const char* utf8_text) const noexcept {
     if (!utf8_text) return 0.0f;
     f32 w = 0.0f;
     const char* p = utf8_text;
@@ -261,7 +304,7 @@ f32 Font::MeasureWidth(const char* utf8_text) const noexcept {
         const u32 cp = DecodeUtf8(&p);
         if (cp == 0) break;
         if (cp == '\n') continue;
-        GlyphInfo g{};
+        FGlyphInfo g{};
         if (GetGlyph(cp, g)) w += g.x_advance;
     }
     return w;

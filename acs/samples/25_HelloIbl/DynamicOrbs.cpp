@@ -26,7 +26,7 @@ constexpr FVec3 kOrbGlow[kDynCount] = {
 
 } // anonymous namespace
 
-void UpdateDynamicOrbs(HelloIblApp& app) noexcept {
+void UpdateDynamicOrbs(FHelloIblApp& app) noexcept {
     // prev ← 前フレームの curr。OnCustomFrame の冒頭で呼ぶこと
     // (FPbrShader が curr を読み、FMotionVector が prev/curr を比べる)。
     for (u32 i = 0; i < kDynCount; ++i) {
@@ -35,7 +35,7 @@ void UpdateDynamicOrbs(HelloIblApp& app) noexcept {
     }
 }
 
-void DrawDynamicOrbs(HelloIblApp& app) noexcept {
+void DrawDynamicOrbs(FHelloIblApp& app) noexcept {
     IRhiCommandList* cl = app.GetRenderer().CommandList();
     if (!cl) return;
 

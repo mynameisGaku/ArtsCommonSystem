@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar H — FSceneTimer (scene-scoped 遅延コールバック)
 //
-// シーンスコープの SetTimeout / SetInterval。Scene 死亡で自動破棄される点が
-// 既存 `acs::FTimerManager` (event/Timer.h、グローバル寿命) との違い。各 Scene が
+// シーンスコープの SetTimeout / SetInterval。FScene 死亡で自動破棄される点が
+// 既存 `acs::FTimerManager` (event/Timer.h、グローバル寿命) との違い。各 FScene が
 // 自分の FSceneTimer をメンバ保持し OnUpdate から Tick(dt) を呼ぶ想定。
 //
 // 使い方:
-//   class GameplayScene : public Scene {
+//   class FGameplayScene : public FScene {
 //       acs::game::FSceneTimer m_Timers;
 //       acs::game::FTimerHandle m_SpawnTimer;
 //
 //       void OnEnter() noexcept override {
-//           m_SpawnTimer = m_Timers.SetInterval(2.0f, &GameplayScene::SpawnEnemy, this);
-//           m_Timers.SetTimeout(10.0f, &GameplayScene::EndWave, this);
+//           m_SpawnTimer = m_Timers.SetInterval(2.0f, &FGameplayScene::SpawnEnemy, this);
+//           m_Timers.SetTimeout(10.0f, &FGameplayScene::EndWave, this);
 //       }
 //       void OnUpdate(f32 dt) noexcept override { m_Timers.Tick(dt); }
 //       void OnExit() noexcept override { m_Timers.CancelAll(); }
@@ -98,7 +98,7 @@ using TimerCallback = void(*)(void* user) noexcept;
  * シーンスコープの SetTimeout / SetInterval を提供する遅延コールバック管理。
  *
  * @details
- * 各 Scene がメンバとして保持し OnUpdate から Tick(dt) を呼ぶ想定で、Scene 死亡で
+ * 各 FScene がメンバとして保持し OnUpdate から Tick(dt) を呼ぶ想定で、FScene 死亡で
  * 自動破棄される (グローバル寿命の FTimerManager との違い)。コールバックは
  * void(*)(void*) noexcept 関数ポインタで保持し、handle は 24bit index + 8bit gen
  * の packed u32 で stale 参照を検出可能。発火中の self 参照との競合を避けるため
@@ -183,7 +183,7 @@ public:
 
 private:
     /** 1 タイマーぶんの内部状態。 */
-    struct TimerEntry {
+    struct FTimerEntry {
         /** 発火時に呼ぶコールバック。 */
         TimerCallback cb        = nullptr;
 
@@ -223,7 +223,7 @@ private:
     FTimerHandle MakeHandle(u32 index, u8 gen) const noexcept;
 
     /** タイマースロット配列 (active/inactive 混在)。 */
-    TArray<TimerEntry> m_Entries;
+    TArray<FTimerEntry> m_Entries;
 
     /** 現在 active なタイマーの数。 */
     u32               m_ActiveCount = 0u;

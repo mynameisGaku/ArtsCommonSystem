@@ -9,24 +9,24 @@
 // 保ったまま適用される。
 //
 // 使い方:
-//   class GameplayScene : public Scene {
+//   class FGameplayScene : public FScene {
 //       FSceneCommandQueue m_Cmds;
 //
 //       void OnUpdate(f32 dt) noexcept override {
 //           // 走査中に node 削除を要求しても安全 (Flush でまとめて実行)
-//           if (Input::IsKeyPressed(EKey::Delete)) {
-//               m_Cmds.Enqueue("DeleteSelected", &GameplayScene::DeleteSelected, this);
+//           if (FInput::IsKeyPressed(EKey::Delete)) {
+//               m_Cmds.Enqueue("DeleteSelected", &FGameplayScene::DeleteSelected, this);
 //           }
 //           // 同 label が既にキュー上に居れば denounce (連打抑制)
 //           if (held) {
-//               m_Cmds.EnqueueIfAbsent("Refresh", &GameplayScene::RefreshUi, this, /*priority=*/50);
+//               m_Cmds.EnqueueIfAbsent("Refresh", &FGameplayScene::RefreshUi, this, /*priority=*/50);
 //           }
 //       }
 //       void OnDraw() noexcept override {
 //           // ImGui ボタン処理中などからも安全に enqueue できる
 //       }
 //
-//       // フレーム末に FGame / Scene 側で 1 回 Flush する。
+//       // フレーム末に FGame / FScene 側で 1 回 Flush する。
 //       static void DeleteSelected(void* self) noexcept { /* ... */ }
 //       static void RefreshUi    (void* self) noexcept { /* ... */ }
 //   };
@@ -51,15 +51,15 @@
 //     スナップショットして固定範囲のみ実行する。Flush 中に追加された command は
 //     次回 Flush で初めて実行される。Flush 中に同 slot が PushBack で再 alloc を
 //     起こしても、fn / user / one_shot を local にコピーしてから呼ぶことで安全。
-//   ・**非コピー・非ムーブ**: Scene にメンバとして埋め込む前提、所有権の
+//   ・**非コピー・非ムーブ**: FScene にメンバとして埋め込む前提、所有権の
 //     ambiguity を持ち込まない。
-//   ・**STL 不使用 / 全 noexcept**: ACS 規約。`acs::TArray<CommandRecord>` で持つ。
+//   ・**STL 不使用 / 全 noexcept**: ACS 規約。`acs::TArray<FCommandRecord>` で持つ。
 //
 // 範囲外:
 //   ・スレッドセーフ (現状は同一スレッド前提、editor が別スレッドから enqueue する
 //     なら mutex を内蔵するか SPSC ring に置き換える必要あり)
 //   ・command 履歴 / undo (editor の undo stack は別レイヤで持つべき)
-//   ・cross-scene broadcast (FSceneEventBus と同じく Scene を越えるのは将来課題)
+//   ・cross-scene broadcast (FSceneEventBus と同じく FScene を越えるのは将来課題)
 #pragma once
 
 #include "foundation/Types.h"
@@ -81,7 +81,7 @@ using SceneCommandFn = void(*)(void* user) noexcept;
  *
  * @details label / fn / user は呼出し側所有で、本クラスは複製しない。
  */
-struct CommandRecord {
+struct FCommandRecord {
     /** 同一性比較に使うラベル (文字列リテラル前提、複製しない)。 */
     const char* label    = nullptr;
 
@@ -121,7 +121,7 @@ public:
     /** コピー代入も禁止。 */
     FSceneCommandQueue& operator=(const FSceneCommandQueue&) = delete;
 
-    /** ムーブ禁止 (Scene 埋め込み前提、所有権の曖昧さを持ち込まない)。 */
+    /** ムーブ禁止 (FScene 埋め込み前提、所有権の曖昧さを持ち込まない)。 */
     FSceneCommandQueue(FSceneCommandQueue&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
@@ -186,7 +186,7 @@ public:
     /**
      * 全 command を破棄する (callback は呼ばない)。
      *
-     * @details Scene::OnExit 等で使う。
+     * @details FScene::OnExit 等で使う。
      */
     void ClearAll() noexcept;
 
@@ -199,7 +199,7 @@ private:
     void StableSortByPriority() noexcept;
 
     /** 保持中の command 列。 */
-    TArray<CommandRecord> m_Records;
+    TArray<FCommandRecord> m_Records;
 };
 
 } // namespace acs::game

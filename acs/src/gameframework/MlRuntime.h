@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U — FMlRuntime / Upscaler (AI/ML & Super-Resolution seams)
+// GameFramework Pillar U — IMlRuntime / IUpscaler (AI/ML & Super-Resolution seams)
 //
 // 役割:
 //   Pillar U (AI & ML 統合) のうち、外部 ML ランタイム (ONNX Runtime / DirectML /
@@ -39,12 +39,12 @@
 //
 // 本 header で提供するもの:
 //   ・`IMlRuntime` / `IUpscaler` の純粋仮想 interface 確定
-//   ・`MlRuntimeStub` / `FUpscalerStub` の **失敗側を返すだけの stub 実装**
+//   ・`FMlRuntimeStub` / `FUpscalerStub` の **失敗側を返すだけの stub 実装**
 //   ・global stub アクセサ `GetMlRuntimeStub()` / `GetUpscalerStub()`
 //
 // 本 header の範囲外:
-//   ・ONNX Runtime / DirectML 連携の `OnnxMlRuntime` 実装 (別モジュール)
-//   ・FSR2 / DLSS / XeSS 連携の各具象 `Upscaler` 実装 (別モジュール、SDK 同梱)
+//   ・ONNX Runtime / DirectML 連携の `FOnnxMlRuntime` 実装 (別モジュール)
+//   ・FSR2 / DLSS / XeSS 連携の各具象 `IUpscaler` 実装 (別モジュール、SDK 同梱)
 //   ・LLM NPC 安全パイプ (rate limit / content filter / 決定論なし宣言)
 //
 // ACS 規約遵守:
@@ -68,7 +68,7 @@ namespace acs::game {
  * 予約し、LoadModel 成功時に backend が 0 以外を入れて返す。UnloadModel に渡した後は
  * 再利用禁止。
  */
-struct MlModelHandle {
+struct FMlModelHandle {
     /** backend 固有の値 (0 は無効を表す予約値)。 */
     u64 m_Opaque = 0;
 
@@ -113,7 +113,7 @@ public:
      * @param model_path 読み込むモデルファイルのパス。
      * @return 成功ならモデルハンドル、失敗ならエラー。
      */
-    virtual TResult<MlModelHandle> LoadModel(const char* model_path) noexcept = 0;
+    virtual TResult<FMlModelHandle> LoadModel(const char* model_path) noexcept = 0;
 
     /**
      * ハンドルを解放する。
@@ -122,7 +122,7 @@ public:
      * @param h 解放するモデルハンドル。
      * @return 成功なら空の TResult、失敗ならエラー。
      */
-    virtual TResult<void> UnloadModel(MlModelHandle h) noexcept = 0;
+    virtual TResult<void> UnloadModel(FMlModelHandle h) noexcept = 0;
 
     /**
      * 推論を 1 回実行する。
@@ -138,7 +138,7 @@ public:
      * @param out_count 出力要素数。
      * @return 成功なら空の TResult、失敗ならエラー。
      */
-    virtual TResult<void> RunInference(MlModelHandle h,
+    virtual TResult<void> RunInference(FMlModelHandle h,
                                       const f32* inputs,  u32 in_count,
                                       f32*       outputs, u32 out_count) noexcept = 0;
 
@@ -167,13 +167,13 @@ protected:
  * 失敗する」前提で正しくフォールバックを書けているかを検証するための実装。具象
  * backend が追加されると起動時に差し替わる。
  */
-class MlRuntimeStub final : public IMlRuntime {
+class FMlRuntimeStub final : public IMlRuntime {
 public:
     /** stub を構築する。 */
-    MlRuntimeStub() noexcept = default;
+    FMlRuntimeStub() noexcept = default;
 
     /** stub を破棄する (保持リソースなし)。 */
-    ~MlRuntimeStub() noexcept override = default;
+    ~FMlRuntimeStub() noexcept override = default;
 
     /**
      * 常に NotImplemented を返す。
@@ -191,7 +191,7 @@ public:
      * @param model_path 無視される (stub のため)。
      * @return NotImplemented subcode 付きエラー。
      */
-    TResult<MlModelHandle>   LoadModel(const char* model_path)            noexcept override;
+    TResult<FMlModelHandle>   LoadModel(const char* model_path)            noexcept override;
 
     /**
      * 常に NotImplemented を返す。
@@ -199,7 +199,7 @@ public:
      * @param h 無視される (stub のため)。
      * @return NotImplemented subcode 付きエラー。
      */
-    TResult<void>            UnloadModel(MlModelHandle h)                 noexcept override;
+    TResult<void>            UnloadModel(FMlModelHandle h)                 noexcept override;
 
     /**
      * 常に NotImplemented を返す。
@@ -211,7 +211,7 @@ public:
      * @param out_count 無視される (stub のため)。
      * @return NotImplemented subcode 付きエラー。
      */
-    TResult<void>            RunInference(MlModelHandle h,
+    TResult<void>            RunInference(FMlModelHandle h,
                                          const f32* inputs,  u32 in_count,
                                          f32*       outputs, u32 out_count) noexcept override;
 };
@@ -387,12 +387,12 @@ private:
  * process 内で 1 個だけ存在する ML ランタイム stub への参照を返す。
  *
  * @details static 単一インスタンス (process lifetime)。スレッド安全性は呼び出し側責務。
- * @return 共有 MlRuntimeStub への参照。
+ * @return 共有 FMlRuntimeStub への参照。
  */
 IMlRuntime& GetMlRuntimeStub() noexcept;
 
 /**
- * process 内で 1 個だけ存在する Upscaler stub への参照を返す。
+ * process 内で 1 個だけ存在する IUpscaler stub への参照を返す。
  *
  * @details static 単一インスタンス (process lifetime)。スレッド安全性は呼び出し側責務。
  * @return 共有 FUpscalerStub への参照。
@@ -400,12 +400,12 @@ IMlRuntime& GetMlRuntimeStub() noexcept;
 IUpscaler&  GetUpscalerStub()  noexcept;
 
 /**
- * 既定 MlRuntime を返す provider 関数の型 (実 backend モジュールが登録する)。
+ * 既定 IMlRuntime を返す provider 関数の型 (実 backend モジュールが登録する)。
  */
 using MlRuntimeProvider = IMlRuntime& (*)() noexcept;
 
 /**
- * 既定 MlRuntime provider を登録する (実 backend モジュールの Install* から呼ぶ)。
+ * 既定 IMlRuntime provider を登録する (実 backend モジュールの Install* から呼ぶ)。
  *
  * @details nullptr 登録で stub に戻す。後勝ち。
  * @param provider 登録する provider 関数 (nullptr で解除)。
@@ -413,7 +413,7 @@ using MlRuntimeProvider = IMlRuntime& (*)() noexcept;
 void SetMlRuntimeProvider(MlRuntimeProvider provider) noexcept;
 
 /**
- * 既定 MlRuntime を返す。
+ * 既定 IMlRuntime を返す。
  *
  * @return provider 登録済みならその実 runtime、未登録なら GetMlRuntimeStub()。
  */
@@ -422,7 +422,7 @@ IMlRuntime& GetDefaultMlRuntime() noexcept;
 /**
  * ML seam が返すエラー subcode。
  *
- * @details 上位層が switch 分岐できるよう FSaveSlot.h と同じ「subcode = u16 で番号固定」の規約に揃える。
+ * @details 上位層が switch 分岐できるよう SaveSlot.h と同じ「subcode = u16 で番号固定」の規約に揃える。
  */
 namespace ml_err {
     /** 未実装 (stub / backend 未統合のため返される)。 */

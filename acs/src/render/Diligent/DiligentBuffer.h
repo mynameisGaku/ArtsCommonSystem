@@ -12,7 +12,7 @@ namespace Diligent {
 
 namespace acs {
 
-class DiligentDevice;
+class FDiligentDevice;
 
 /**
  * Diligent Engine 経由で GPU バッファを実装する IRhiBuffer。
@@ -23,19 +23,19 @@ class DiligentDevice;
  * 場合は USAGE_IMMUTABLE、それ以外は USAGE_DEFAULT (UpdateBuffer 経路)、Staging は
  * USAGE_STAGING (Map 経路) を使う。生の Diligent::IBuffer は参照カウントで所有する。
  */
-class DiligentBuffer final : public IRhiBuffer {
+class FDiligentBuffer final : public IRhiBuffer {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    DiligentBuffer() noexcept = default;
+    FDiligentBuffer() noexcept = default;
 
     /** 保持している Diligent バッファを解放する。 */
-    ~DiligentBuffer() noexcept override;
+    ~FDiligentBuffer() noexcept override;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    DiligentBuffer(const DiligentBuffer&) = delete;
+    FDiligentBuffer(const FDiligentBuffer&) = delete;
 
     /** コピー代入も禁止。 */
-    DiligentBuffer& operator=(const DiligentBuffer&) = delete;
+    FDiligentBuffer& operator=(const FDiligentBuffer&) = delete;
 
     /**
      * desc に従って GPU バッファを生成する。
@@ -48,7 +48,7 @@ public:
      * @param desc 生成するバッファの記述 (サイズ・用途・初期データ等)。
      * @return 成功なら空の TResult、デバイス未初期化や生成失敗ならエラー。
      */
-    TResult<void> Init(DiligentDevice& device, const FBufferDesc& desc) noexcept;
+    TResult<void> Init(FDiligentDevice& device, const FBufferDesc& desc) noexcept;
 
     /**
      * バッファのバイトサイズを返す。
@@ -94,7 +94,7 @@ private:
     void Reset() noexcept;
 
     /** Update でコンテキストを引くために保持する生成元デバイス。 */
-    DiligentDevice*    m_Device = nullptr;
+    FDiligentDevice*    m_Device = nullptr;
 
     /** 実体の Diligent バッファ (参照カウントで所有)。 */
     Diligent::IBuffer* m_Buffer = nullptr;

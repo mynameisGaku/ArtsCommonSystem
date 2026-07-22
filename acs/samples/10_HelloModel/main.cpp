@@ -16,4 +16,4 @@
 #include "app/EntryPoint.h"
 #include "HelloModelApp.h"
 
-ACS_DEFINE_MAIN(hellomodel::HelloModelApp)
+ACS_DEFINE_MAIN(hellomodel::FHelloModelApp)

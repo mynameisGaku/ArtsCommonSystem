@@ -1,15 +1,32 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 
 namespace AcsEditor;
 
+internal enum EditorEngineStartupState
+{
+    WaitingForAttach,
+    WarmingRenderer,
+    FinalizingEditor,
+    Ready,
+    Failed,
+    Closed,
+}
+
 public partial class MainWindow : Window
 {
     private EngineViewport? _viewport;
+    private EditorEngineStartupState _engineStartupState =
+        EditorEngineStartupState.WaitingForAttach;
+    private bool _engineStartupInternalAccess;
+    private int _engineStartupGeneration;
+    private int _engineStartupCompletionStage;
+    private bool _showProfilerAtStartup;
     private Project? _project;        // 開いているプロジェクト (null = プロジェクト無しの素の起動)
     private string? _currentScenePath;   // 現在のシーンファイル (Save 先)。プロジェクトの初期シーン等。
     private bool _building;           // ビルド実行中フラグ
@@ -27,14 +44,23 @@ public partial class MainWindow : Window
     private bool _syncingSelection;  // 選択同期中は OnHierarchySelect の単一選択化を抑止
     private string? _clipboard;      // コピーした subtree のシリアライズ文字列 (2D)
     private bool    _hasClip3d;      // 3D クリップボードに内容があるか (Paste の CanExecute 用)
+    private (float Yaw, float Pitch, float Distance,
+             float TargetX, float TargetY, float TargetZ)? _startupCamera3D;
     private Point _dragStart;        // Hierarchy ドラッグ開始座標 (しきい値判定用)
     private int  _dragNodeId = -1;   // ドラッグ中のノード id (-1 = ドラッグなし)
 
     public MainWindow()
     {
         InitializeComponent();
+        InitializeWindowInteraction();
         InitLog();              // ConsoleList をタグ付きログビューに束縛
         Loaded += OnLoaded;
+        Loaded += (_, _) => RestoreEditorLayout();
+        Loaded += (_, _) =>
+        {
+            if (_showProfilerAtStartup)
+                ShowBottomTab("profiler");
+        };
 
         // Inspector フィールドの編集 → エンジンへ反映 (Enter / フォーカス喪失で確定)。
         foreach (var tb in new[] { PosX, PosY, RotDeg, ScaleX, ScaleY })
@@ -94,9 +120,19 @@ public partial class MainWindow : Window
         // 終了時: ソース監視を止め、起動中のゲームプロセスを終了させる。
         Closed += (_, _) =>
         {
+            ProfilerView.Stop();
+            _engineStartupTimer?.Stop();
+            _engineStartupTimer = null;
+            _engineStartupGeneration++;
+            _engineStartupInternalAccess = false;
+            _engineStartupState = EditorEngineStartupState.Closed;
+            SaveEditorLayout();
+            _sceneStateTimer.Stop();
+            StopAutosave();
             StopSourceWatch();
             if (_gameProcess != null && !_gameProcess.HasExited) { try { _gameProcess.Kill(); } catch { } }
         };
+        Closing += OnEditorClosing;
     }
 
     /// <summary>プロジェクトを開いた状態で起動する。初期シーンは attach 後にロードする。</summary>
@@ -107,30 +143,58 @@ public partial class MainWindow : Window
         AssetBrowser.SetProject(project);   // Assets フォルダを走査・監視
     }
 
+    /// <summary>
+    /// Configure a deterministic, input-free startup camera for visual
+    /// automation. Applied only after the project scene has finished loading.
+    /// </summary>
+    internal void SetStartupCamera3D(
+        float yaw, float pitch, float distance,
+        float targetX, float targetY, float targetZ)
+    {
+        _startupCamera3D =
+            (yaw, pitch, distance, targetX, targetY, targetZ);
+    }
+
+    /// <summary>Open the docked profiler after persisted layout restoration.</summary>
+    internal void ShowProfilerAtStartup() => _showProfilerAtStartup = true;
+
     // 下部パネルのタブ切替 (Console / Build / Assets)。
     private void OnBottomTab(object sender, RoutedEventArgs e)
     {
         string tab = (sender as System.Windows.Controls.Primitives.ToggleButton)?.Tag as string ?? "console";
         ShowBottomTab(tab);
+        MarkWorkspaceCustomized();
     }
-
-    private double _dockNormal = 172;   // 非アセット時のドック高 (アセットで自動拡張→離脱で復元)
-    private bool _dockExpanded;
 
     private void ShowBottomTab(string tab)
     {
+        // The profiler has a graph, headline counters and pass details. Give it
+        // enough room to be useful on first open while preserving any larger
+        // height the user already chose with the splitter.
+        if (tab == "profiler")
+            _bottomDockHeight = Math.Max(_bottomDockHeight, 300);
+        SetBottomDockVisible(true);
         TabConsole.IsChecked = tab == "console";
         TabBuild.IsChecked   = tab == "build";
         TabAssets.IsChecked  = tab == "assets";
+        TabProfiler.IsChecked = tab == "profiler";
         ConsoleList.Visibility  = tab == "console" ? Visibility.Visible : Visibility.Collapsed;
         BuildList.Visibility    = tab == "build"   ? Visibility.Visible : Visibility.Collapsed;
         AssetBrowser.Visibility = tab == "assets"  ? Visibility.Visible : Visibility.Collapsed;
+        ProfilerView.Visibility = tab == "profiler" ? Visibility.Visible : Visibility.Collapsed;
+        MenuShowProfiler.IsChecked = tab == "profiler";
 
-        // 注: アセットタブでのドック自動拡張は «ビューポートのリサイズ(swapchain 再生成)が
-        //     メインレンダーと競合» して間欠クラッシュするため一旦無効化。描画オーバーホールで
-        //     «安全なリサイズ» を入れてから、大きいアセットプレビュー(3D モデル + 回転/拡縮)と
-        //     共に再導入する。_dockNormal/_dockExpanded はその際に再利用。
-        _ = _dockNormal; _ = _dockExpanded;
+        // Panel height stays user-controlled; switching to Assets must not race the hosted
+        // swap-chain by forcing a resize from inside a selection event.
+    }
+
+    private void OnShowProfiler(object sender, RoutedEventArgs e)
+    {
+        if (MenuShowProfiler.IsChecked)
+            ShowBottomTab("profiler");
+        else if (TabProfiler.IsChecked == true)
+            SetBottomDockVisible(false);
+        MarkWorkspaceCustomized();
     }
 
     // アセットがダブルクリック/ドラッグで起動された: 画像は選択ノードのスプライトに割り当てる。
@@ -144,6 +208,7 @@ public partial class MainWindow : Window
                 if (EngineInterop.acs_editor_node_set_sprite(Engine, _selectedId, e.FullPath) != 0)
                 {
                     RefreshSpriteLabel(_selectedId);
+                    RecordSceneDocumentChange("Assign Sprite");
                     Log($"Sprite ← {System.IO.Path.GetFileName(e.FullPath)} (node {_selectedId})");
                 }
                 else Log("スプライト割当に失敗: " + e.FullPath);
@@ -182,6 +247,7 @@ public partial class MainWindow : Window
             {
                 EngineInterop.acs_editor_node3d_set_material(Engine, s3, matPath);
                 Populate3DInspector(s3);   // インスペクタの .acsmat ドロップダウンを更新
+                RecordSceneDocumentChange("Assign Material");
                 Log($"Material ← {System.IO.Path.GetFileName(matPath)} (3D node {s3})");
             }
         }
@@ -189,6 +255,7 @@ public partial class MainWindow : Window
         {
             EngineInterop.acs_editor_node_set_material(Engine, _selectedId, matPath);
             RefreshMaterialBox(_selectedId);
+            RecordSceneDocumentChange("Assign Material");
             Log($"Material ← {System.IO.Path.GetFileName(matPath)} (node {_selectedId})");
         }
     }
@@ -231,6 +298,18 @@ public partial class MainWindow : Window
     {
         bool armed = false, scrubbing = false;
         Point start = default; double startVal = 0;
+        IDisposable? documentTransaction = null;
+
+        void CompleteScrub()
+        {
+            Mouse.OverrideCursor = null;
+            if (!scrubbing) return;
+            scrubbing = false;
+            if (Engine != IntPtr.Zero)
+                EngineInterop.acs_editor_end_continuous(Engine);
+            documentTransaction?.Dispose();
+            documentTransaction = null;
+        }
 
         tb.PreviewMouseLeftButtonDown += (_, e) =>
         {
@@ -249,6 +328,11 @@ public partial class MainWindow : Window
             if (!scrubbing)
             {
                 scrubbing = true;
+                documentTransaction = BeginSceneDocumentTransaction(
+                    $"Edit {tb.Name}",
+                    mergeKey: $"inspector.scrub.{tb.Name}",
+                    mergeWindow: TimeSpan.FromSeconds(1),
+                    nodeId: _selectedId);
                 if (Engine != IntPtr.Zero) EngineInterop.acs_editor_begin_continuous(Engine);   // ドラッグ全体を 1 undo に束ねる
                 Mouse.OverrideCursor = Cursors.SizeWE;
             }
@@ -261,16 +345,21 @@ public partial class MainWindow : Window
         tb.PreviewMouseLeftButtonUp += (_, e) =>
         {
             if (!armed) return;
+            bool wasScrubbing = scrubbing;
             armed = false;
             if (tb.IsMouseCaptured) tb.ReleaseMouseCapture();
-            Mouse.OverrideCursor = null;
-            if (scrubbing)
+            CompleteScrub();
+            if (wasScrubbing)
             {
-                scrubbing = false;
-                if (Engine != IntPtr.Zero) EngineInterop.acs_editor_end_continuous(Engine);
                 e.Handled = true;                                      // ドラッグだった → click 扱いしない
             }
             else { tb.Focus(); tb.SelectAll(); }                       // クリックだった → 編集開始
+        };
+        tb.LostMouseCapture += (_, _) =>
+        {
+            if (!armed) return;
+            armed = false;
+            CompleteScrub();
         };
     }
 
@@ -282,39 +371,306 @@ public partial class MainWindow : Window
         Log($"Focus on node {_selectedId}.");
     }
 
-    private IntPtr Engine => _viewport?.Engine ?? IntPtr.Zero;
+    private IntPtr RawEngine => _viewport?.Engine ?? IntPtr.Zero;
+
+    internal static bool IsEngineCommandReady(
+        EditorEngineStartupState state,
+        bool handleReady) =>
+        state == EditorEngineStartupState.Ready && handleReady;
+
+    private bool EngineCommandsReady => IsEngineCommandReady(
+        _engineStartupState,
+        RawEngine != IntPtr.Zero);
+
+    // All ordinary editor handlers see a null handle until finalization is
+    // complete. Individual startup stages temporarily opt in on the dispatcher
+    // so partially initialized native state cannot be edited from menus/keys.
+    private IntPtr Engine =>
+        (_engineStartupInternalAccess || EngineCommandsReady)
+            ? RawEngine
+            : IntPtr.Zero;
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        StatusText.Text = "";
+        _engineStartupState = EditorEngineStartupState.WaitingForAttach;
+        StatusText.Text = "Attaching renderer...";
         Log("ACS Editor started.");
 
         _viewport = new EngineViewport();
-        ViewportHost.Child = _viewport;
         _viewport.Attached += OnEngineAttached;   // アタッチ後にシーンを取り込む
+        _viewport.AttachmentFailed += OnEngineAttachmentFailed;
         _viewport.Picked += OnViewportPicked;     // ビューポート左クリックで選択
         _viewport.TransformChanged += OnViewportTransformChanged;   // ギズモ移動後に Inspector 更新
         _viewport.PolyKeyFinalize += FinalizePoly;                  // 描画中の Enter/Esc でポリゴン確定
         _viewport.AssetDropped += OnViewportAssetDropped;           // アセットをビューポートへドロップ → 配置/割当
         _viewport.SizeChanged += (_, args) =>
             ViewportInfo.Text = $"Viewport {(int)args.NewSize.Width} x {(int)args.NewSize.Height}";
+        ViewportHost.IsHitTestVisible = false;
+        ViewportHost.Child = _viewport;
+        SynchronizeWindowInteractionWithViewport();
+        ProfilerView.EngineProvider = () => Engine;
+        ProfilerView.SummaryChanged += summary => ProfilerStatusText.Text = summary;
+        ProfilerView.Start();
     }
 
     // ===== Hierarchy: エンジンのシーングラフから構築 =====
+    private System.Windows.Threading.DispatcherTimer? _engineStartupTimer;
+    private const int EngineStartupCompletionStageCount = 9;
+
     private void OnEngineAttached()
     {
-        Log("Viewport attached — engine rendering into hosted HWND.");
-        AssetBrowser.Engine = Engine;                  // .acsmat サムネイルを実シェーダ GPU プレビューに
-        AssetBrowser.Refresh();                        // device 準備後に再生成 (GPU サムネイル)
-        if (_project != null) LoadProjectSettings();   // プロジェクト設定 (Config/ProjectSettings.ini) を読込+適用
-        if (_project != null) LoadUserTypes();         // 先にユーザー型を登録 (シーン内の user component を attach 可能に)
-        if (_project != null) LoadProjectScene();      // デモを置き換えてプロジェクトの初期シーンへ
-        UpdateGizmoToggles(EngineInterop.acs_editor_gizmo_get_mode(Engine));   // 初期 active (Move)
-        PopulateComponentCombo();
-        RefreshCreateMenus();   // 右クリック生成メニュー (ビルトイン / ユーザー定義) を構築
-        // 基本 3D: 常に 3D モードで開く (2D は Ortho 編集モード。«3D» トグルは廃止)。
-        EnsureView3D();
-        StartEngineLogPump();   // エンジンログ (ACS_LOG) をコンソールへ取り込む
+        if (_engineStartupState == EditorEngineStartupState.Closed) return;
+
+        _engineStartupGeneration++;
+        _engineStartupCompletionStage = 0;
+        _engineStartupState = EditorEngineStartupState.WarmingRenderer;
+        Log("Viewport attached — renderer warm-up started.");
+        StartEngineLogPump();
+
+        // Settings are deliberately applied before incremental GPU preparation
+        // so shadow/MSAA/quality resources are created with project values.
+        if (_project != null)
+            RunWithStartupEngineAccess(LoadProjectSettings);
+        ViewportHost.IsHitTestVisible = false;
+        StatusText.Text = "Initializing renderer...";
+
+        _engineStartupTimer?.Stop();
+        _engineStartupTimer = new System.Windows.Threading.DispatcherTimer(
+            TimeSpan.FromMilliseconds(50),
+            System.Windows.Threading.DispatcherPriority.Normal,
+            (_, _) => PollEngineStartup(),
+            Dispatcher);
+        _engineStartupTimer.Start();
+        PollEngineStartup();
+    }
+
+    private void PollEngineStartup()
+    {
+        if (_engineStartupState != EditorEngineStartupState.WarmingRenderer)
+            return;
+        IntPtr engine = RawEngine;
+        if (engine == IntPtr.Zero)
+        {
+            FailEngineStartup("Renderer handle was lost during initialization.");
+            return;
+        }
+
+        int state = EngineInterop.acs_editor_startup_status(
+            engine, out uint completed, out uint total);
+        uint percent = total == 0 ? 0 : Math.Min(100u, completed * 100u / total);
+        StatusText.Text = $"Initializing renderer... {percent}%  ({completed}/{total})";
+        if (state < 0)
+        {
+            FailEngineStartup("Renderer startup failed.");
+            return;
+        }
+        if (state == 0) return;
+
+        _engineStartupTimer?.Stop();
+        _engineStartupTimer = null;
+        CompleteEngineStartup();
+    }
+
+    private void CompleteEngineStartup()
+    {
+        if (_engineStartupState != EditorEngineStartupState.WarmingRenderer)
+            return;
+        if (RawEngine == IntPtr.Zero)
+        {
+            FailEngineStartup("Renderer handle was lost before editor initialization.");
+            return;
+        }
+
+        _engineStartupState = EditorEngineStartupState.FinalizingEditor;
+        _engineStartupCompletionStage = 0;
+        int generation = ++_engineStartupGeneration;
+        AssetBrowser.Engine = RawEngine;
+        Log("Renderer warm-up complete — finalizing editor workspace.");
+        QueueEngineStartupCompletionStage(generation);
+    }
+
+    private void QueueEngineStartupCompletionStage(int generation)
+    {
+        _ = Dispatcher.BeginInvoke(
+            System.Windows.Threading.DispatcherPriority.Background,
+            new Action(() => RunEngineStartupCompletionStage(generation)));
+    }
+
+    private void RunEngineStartupCompletionStage(int generation)
+    {
+        if (generation != _engineStartupGeneration ||
+            _engineStartupState != EditorEngineStartupState.FinalizingEditor)
+        {
+            return;
+        }
+        if (RawEngine == IntPtr.Zero)
+        {
+            FailEngineStartup("Renderer handle was lost while finalizing the editor.");
+            return;
+        }
+
+        int stage = _engineStartupCompletionStage;
+        StatusText.Text =
+            $"Initializing editor... {stage + 1}/{EngineStartupCompletionStageCount}  " +
+            EngineStartupCompletionStageName(stage);
+
+        try
+        {
+            RunWithStartupEngineAccess(() =>
+            {
+                switch (stage)
+                {
+                    case 0:
+                        // AssetBrowser.SetProject performs its index refresh asynchronously;
+                        // do not synchronously rescan the project at GPU attach time.
+                        if (_project != null) LoadUserTypes();
+                        break;
+                    case 1:
+                        if (_project != null) LoadProjectScene();
+                        break;
+                    case 2:
+                        ApplyStartupCamera();
+                        break;
+                    case 3:
+                        UpdateGizmoToggles(
+                            EngineInterop.acs_editor_gizmo_get_mode(Engine));
+                        PopulateComponentCombo();
+                        RefreshCreateMenus();
+                        // Document source and camera projection are independent.
+                        ApplySceneDocumentModePresentation();
+                        break;
+                    case 4:
+                        BuildHierarchy();
+                        break;
+                    case 5:
+                        SyncSelectionUi();
+                        break;
+                    case 6:
+                        InitializeWorkspaceState();
+                        break;
+                    case 7:
+                        InitializeDocumentHost();
+                        break;
+                    case 8:
+                        InitializeAutosaveAndRecovery();
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"Unknown editor startup stage {stage}.");
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            FailEngineStartup(
+                $"Editor initialization failed during " +
+                $"'{EngineStartupCompletionStageName(stage)}'.",
+                ex);
+            return;
+        }
+
+        _engineStartupCompletionStage++;
+        if (_engineStartupCompletionStage < EngineStartupCompletionStageCount)
+        {
+            QueueEngineStartupCompletionStage(generation);
+            return;
+        }
+
+        _engineStartupState = EditorEngineStartupState.Ready;
+        StatusText.Text = "Ready";
+        // Input-free validation is enforced at both HWND message boundaries;
+        // leave the HwndHost enabled for normal DXGI composition.
+        ViewportHost.IsHitTestVisible = true;
+        CommandManager.InvalidateRequerySuggested();
+        Log("Editor startup complete — viewport is ready.");
+    }
+
+    private void ApplyStartupCamera()
+    {
+        if (_startupCamera3D is { } camera)
+        {
+            _startupCamera3D = null;
+            if (!_view3d)
+            {
+                Log(
+                    "Startup --camera3d was ignored because the initial scene is not 3D.",
+                    "Camera",
+                    LogLevel.Warn);
+            }
+            else if (EngineInterop.acs_editor_camera3d_set(
+                         Engine, camera.Yaw, camera.Pitch, camera.Distance,
+                         camera.TargetX, camera.TargetY, camera.TargetZ) == 0)
+            {
+                Log("Startup --camera3d values were rejected.", "Camera", LogLevel.Warn);
+            }
+        }
+    }
+
+    private static string EngineStartupCompletionStageName(int stage) =>
+        stage switch
+        {
+            0 => "project types",
+            1 => "project scene",
+            2 => "startup camera",
+            3 => "editor menus",
+            4 => "scene hierarchy",
+            5 => "selection state",
+            6 => "workspace state",
+            7 => "document baseline",
+            8 => "autosave",
+            _ => "unknown stage",
+        };
+
+    private void RunWithStartupEngineAccess(Action action)
+    {
+        bool previous = _engineStartupInternalAccess;
+        _engineStartupInternalAccess = true;
+        try { action(); }
+        finally { _engineStartupInternalAccess = previous; }
+    }
+
+    private void OnEngineAttachmentFailed()
+    {
+        FailEngineStartup("Renderer attachment failed; automatic retry was stopped.");
+    }
+
+    private void FailEngineStartup(string detail, Exception? exception = null)
+    {
+        if (_engineStartupState == EditorEngineStartupState.Closed) return;
+
+        _engineStartupTimer?.Stop();
+        _engineStartupTimer = null;
+        _engineStartupGeneration++;
+        _engineStartupInternalAccess = false;
+        _engineStartupState = EditorEngineStartupState.Failed;
+        AssetBrowser.Engine = IntPtr.Zero;
+        ViewportHost.IsHitTestVisible = false;
+        _viewport?.SuspendRenderPumpForStartupFailure();
+        StatusText.Text = "Renderer initialization failed — see Console";
+        Log(
+            exception == null ? detail : $"{detail} {exception.Message}",
+            "Engine",
+            LogLevel.Error);
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    /// <summary>Explicit retry hook for a failed HWND attach; no automatic retry is allowed.</summary>
+    internal bool RetryEngineAttachment()
+    {
+        if (_engineStartupState != EditorEngineStartupState.Failed ||
+            _viewport == null || !_viewport.RetryAttach())
+        {
+            return false;
+        }
+
+        _engineStartupGeneration++;
+        _engineStartupCompletionStage = 0;
+        _engineStartupState = EditorEngineStartupState.WaitingForAttach;
+        AssetBrowser.Engine = IntPtr.Zero;
+        ViewportHost.IsHitTestVisible = false;
+        StatusText.Text = "Retrying renderer attachment...";
+        CommandManager.InvalidateRequerySuggested();
+        return true;
     }
 
     private System.Windows.Threading.DispatcherTimer? _engineLogTimer;
@@ -456,66 +812,29 @@ public partial class MainWindow : Window
         if (Engine == IntPtr.Zero) return;
         var win = new ProjectSettingsWindow(this, Engine, SaveProjectSettings);
         win.ShowDialog();
+        SynchronizeSnapSettingsFromProject();
     }
 
-    /// <summary>2D/3D ビューポート切替。3D 時はビューポートのドラッグ=軌道、ホイール=ドリー (ABI側)。</summary>
-    /// <summary>常に 3D モードに入る (基本3D。«3D» トグルは廃止し、エディタは常時 3D シーンを編集。2D は Ortho モード)。</summary>
-    private void EnsureView3D()
+    /// <summary>
+    /// Guards commands that require the legacy .acs3d source adapter. This never changes the
+    /// current Perspective/2D view preset or selects a hidden compatibility payload.
+    /// </summary>
+    private bool EnsureView3D()
     {
-        if (Engine == IntPtr.Zero || _view3d) return;
-        _view3d = true;
-        EngineInterop.acs_editor_set_view3d(Engine, 1);   // 初回で既定シーンを seed
-        Load3DSceneIfPresent();                            // 保存済み 3D シーンがあれば seed を上書き
-        BuildHierarchy();
-        int s = EngineInterop.acs_editor_selected3d(Engine);
-        if (s >= 0) Populate3DInspector(s); else Clear3DInspector();
-        OrthoBtn.Visibility = Visibility.Visible;          // Ortho(2Dビュー)は常時利用可
-        Log("3D ビューポート (右/中ドラッグ=軌道・正射でパン / ホイール=ズーム / 左クリック=選択)");
+        if (_legacySceneSourceMode == SceneDocumentMode.ThreeD && _view3d)
+            return true;
+        Log(
+            "This command requires an explicit .acscene to .acs3d source conversion. " +
+            "No hidden 3D payload was modified.",
+            "Scene",
+            LogLevel.Warn);
+        return false;
     }
 
-    // 3D ビューの投影を 正射(2D ビュー) / 透視 で切り替える。
-    private void OnToggleOrtho(object sender, RoutedEventArgs e)
-    {
-        if (Engine == IntPtr.Zero) return;
-        bool on = OrthoBtn.IsChecked == true;
-        EngineInterop.acs_editor_set_ortho3d(Engine, on ? 1 : 0);
-        Log(on ? "3D: 正射影 (2D ビュー)" : "3D: 透視投影");
-    }
-
-    // プロジェクトの初期シーンをロード (無ければ空シーン)。attach 後に 1 度呼ぶ。
+    // プロジェクトの初期シーンを拡張子に対応する document/parser でロードする。
     private void LoadProjectScene()
     {
-        if (Engine == IntPtr.Zero || _project == null) return;
-        Log($"Project: {_project.Name}  ({_project.RootDir})");
-        try
-        {
-            string scenePath = _project.InitialScenePath;
-            // Game.DefaultScene (プロジェクト設定) があればそちらを優先する
-            var sbuf = new byte[256];
-            if (EngineInterop.acs_editor_settings_get_value(Engine, "Game", "DefaultScene", sbuf, sbuf.Length) != 0)
-            {
-                string rel = EngineInterop.Utf8Z(sbuf);
-                if (rel.Length > 0)
-                    scenePath = System.IO.Path.Combine(_project.RootDir, rel.Replace('/', System.IO.Path.DirectorySeparatorChar));
-            }
-            if (System.IO.File.Exists(scenePath))
-            {
-                string text = System.IO.File.ReadAllText(scenePath, System.Text.Encoding.UTF8);
-                EngineInterop.acs_editor_scene_new(Engine);                  // デモを破棄
-                if (EngineInterop.acs_editor_scene_load_text(Engine, text) != 0)
-                    Log($"Loaded initial scene ← {scenePath}");
-                else
-                    Log("Initial scene load failed (format).");
-            }
-            else
-            {
-                EngineInterop.acs_editor_scene_new(Engine);
-                Log("No initial scene file — started empty.");
-            }
-            _currentScenePath = scenePath;
-            EngineInterop.acs_editor_camera_frame_all(Engine);   // シーン全体がビューに収まるよう調整
-        }
-        catch (Exception ex) { Log("Initial scene load error: " + ex.Message); }
+        InitializeProjectSceneDocument();
     }
 
     // GameObject メニュー: 空ノードを生成 (root 直下 / 選択ノードの子)。
@@ -526,7 +845,7 @@ public partial class MainWindow : Window
     private void CreateEmptyNode(int parentId)
     {
         if (Engine == IntPtr.Zero) return;
-        if (_view3d)   // 3D: 描画しない «空ノード» (グループ用トランスフォーム)。2D の add_node は 3D シーンに出ない
+        if (_view3d)   // .acs3d: 描画しない «空ノード» (グループ用トランスフォーム)
         {
             int id3 = EngineInterop.acs_editor_add_empty3d(Engine, "Empty");
             if (id3 < 0) return;
@@ -539,6 +858,7 @@ public partial class MainWindow : Window
         if (id < 0) return;
         BuildHierarchy();
         SyncSelectionUi();   // ABI が新ノードを選択済み → UI を同期
+        RecordSceneDocumentChange("Create Node");
         Log(parentId >= 0 ? $"Created empty node {id} under {parentId}." : $"Created empty node {id}.");
     }
 
@@ -613,6 +933,7 @@ public partial class MainWindow : Window
             Log($"'{typeName}' をアタッチできませんでした (未登録の可能性)。");
         BuildHierarchy();
         SyncSelectionUi();
+        RecordSceneDocumentChange("Create Node");
         Log($"Created '{Friendly(typeName)}' (node {id}) with {typeName}.");
     }
 
@@ -646,9 +967,49 @@ public partial class MainWindow : Window
         {
             int id = EngineInterop.acs_editor_node_id_at(Engine, i);
             ids.Add(id);
+            var visible = new CheckBox
+            {
+                IsChecked = EngineInterop.acs_editor_node_get_visible(Engine, id) != 0,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0),
+                Focusable = false,
+                ToolTip = "Visible in viewport",
+            };
+            int visibleId = id;
+            visible.Checked += (_, __) =>
+            {
+                if (Engine != IntPtr.Zero)
+                {
+                    EngineInterop.acs_editor_node_set_visible(Engine, visibleId, 1);
+                    RecordSceneDocumentChange("Visibility");
+                }
+            };
+            visible.Unchecked += (_, __) =>
+            {
+                if (Engine != IntPtr.Zero)
+                {
+                    EngineInterop.acs_editor_node_set_visible(Engine, visibleId, 0);
+                    RecordSceneDocumentChange("Visibility");
+                }
+            };
+            var header = new StackPanel { Orientation = Orientation.Horizontal };
+            header.Children.Add(visible);
+            header.Children.Add(new TextBlock
+            {
+                Text = "◇",
+                FontSize = 11,
+                Margin = new Thickness(0, 0, 5, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = (System.Windows.Media.Brush)FindResource("InfoFg"),
+            });
+            header.Children.Add(new TextBlock
+            {
+                Text = EngineInterop.NodeName(Engine, id),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
             var tvi = new TreeViewItem
             {
-                Header = EngineInterop.NodeName(Engine, id),
+                Header = header,
                 Tag = id,
                 IsExpanded = !_collapsedNodes.Contains(id),   // 畳み状態を再構築でも維持
                 Foreground = System.Windows.Media.Brushes.Gainsboro,
@@ -710,8 +1071,16 @@ public partial class MainWindow : Window
     {
         if (tvi.Header is string s) return s;
         if (tvi.Header is StackPanel sp)
+        {
+            string name = "";
             foreach (var c in sp.Children)
-                if (c is TextBlock tb) return tb.Text ?? "";
+                if (c is TextBlock tb && !string.IsNullOrWhiteSpace(tb.Text))
+                    name = tb.Text;
+            // 3D headers are [visibility checkbox, primitive glyph, node name].
+            // The last non-empty TextBlock is therefore the editable node name,
+            // while returning the first one made filters search "●"/"▣" instead.
+            return name;
+        }
         return tvi.Header?.ToString() ?? "";
     }
 
@@ -758,12 +1127,20 @@ public partial class MainWindow : Window
         if (_view3d)   // 3D モード: 3D 選択 + 3D インスペクター (undo/redo/シーン変更後の再同期)
         {
             int s3 = EngineInterop.acs_editor_selected3d(Engine);
+            ObserveSceneSelectionForMerge(
+                use3D: true,
+                nodeId: s3,
+                selectionCount: EngineInterop.acs_editor_selected3d_count(Engine));
             Apply3DSelectionHighlight();   // multi-select の primary/集合ハイライトを反映
             if (s3 >= 0) Populate3DInspector(s3);
             else Clear3DInspector();
             return;
         }
         _selectedId = EngineInterop.acs_editor_selected(Engine);
+        ObserveSceneSelectionForMerge(
+            use3D: false,
+            nodeId: _selectedId,
+            selectionCount: EngineInterop.acs_editor_selection_count(Engine));
         SyncHighlightAndNativeSelection();
         if (_selectedId >= 0) PopulateInspector(_selectedId);
         else                  ClearSelectionUi();
@@ -785,6 +1162,7 @@ public partial class MainWindow : Window
             sel   = EngineInterop.acs_editor_selection_count(Engine);
         }
         StatusText.Text = $"Nodes: {total}  |  Selected: {sel}";
+        HierarchyCountText.Text = total.ToString(CultureInfo.InvariantCulture);
     }
 
     /// <summary>ABI の選択集合をツリーのハイライトへ反映する (primary も ABI から読み直す)。</summary>
@@ -910,6 +1288,7 @@ public partial class MainWindow : Window
                 EngineInterop.acs_editor_select3d(Engine, dragged);
                 Select3DInHierarchy(dragged);
                 Populate3DInspector(dragged);
+                RecordSceneDocumentChange("Reparent Node");
                 Log($"3D: reparented {dragged} → {(newParent < 0 ? "root" : newParent.ToString())}");
             }
             return;
@@ -927,6 +1306,7 @@ public partial class MainWindow : Window
             BuildHierarchy();
             EngineInterop.acs_editor_select(Engine, dragged);   // 動かしたノードを選択して見せる
             SyncSelectionUi();
+            RecordSceneDocumentChange("Reparent Node");
             Log($"Moved node {dragged} {what}");
         }
     }
@@ -959,9 +1339,24 @@ public partial class MainWindow : Window
     private void OnViewportTransformChanged()
     {
         if (Engine == IntPtr.Zero) return;
-        if (_view3d) { int s3 = EngineInterop.acs_editor_selected3d(Engine); if (s3 >= 0) Populate3DInspector(s3); return; }
+        if (_view3d)
+        {
+            int s3 = EngineInterop.acs_editor_selected3d(Engine);
+            if (s3 >= 0) Populate3DInspector(s3);
+            RecordSceneDocumentChange(
+                "Transform",
+                mergeKey: "viewport.gizmo",
+                mergeWindow: TimeSpan.FromSeconds(1),
+                nodeId: s3);
+            return;
+        }
         int sel = EngineInterop.acs_editor_selected(Engine);
         if (sel >= 0) { _selectedId = sel; PopulateInspector(sel); }
+        RecordSceneDocumentChange(
+            "Transform",
+            mergeKey: "viewport.gizmo",
+            mergeWindow: TimeSpan.FromSeconds(1),
+            nodeId: sel);
     }
 
     private bool SelectHierarchyItem(int id)
@@ -1036,6 +1431,7 @@ public partial class MainWindow : Window
         int st = EngineInterop.acs_editor_play_state(Engine);
         if (st == 0)
         {
+            SuspendSceneDocumentHistoryForSimulation();
             EngineInterop.acs_editor_play_start(Engine);
             // プロジェクトの reflect DLL があれば、インプロセス Play で «ユーザーコンポーネント» も実行する。
             string? dll = _project != null ? BuildService.ReflectDllPath(_project) : null;
@@ -1053,6 +1449,7 @@ public partial class MainWindow : Window
                 EngineInterop.acs_editor_logic_play_stop(Engine);
             EngineInterop.acs_editor_play_stop(Engine);    // 開始状態へ復元
             RefreshAfterSceneChange();                     // 復元後の位置/選択を UI に反映 (3D Inspector も再同期)
+            ResumeSceneDocumentHistoryAfterSimulation();
             Log("⏹ Stop — 開始状態へ復元。");
         }
         UpdatePlayButtons();
@@ -1079,6 +1476,7 @@ public partial class MainWindow : Window
         if (Engine == IntPtr.Zero) { PreviewBtn.IsChecked = false; return; }
         if (PreviewBtn.IsChecked == true)
         {
+            SuspendSceneDocumentHistoryForSimulation();
             int n = EngineInterop.acs_editor_preview_start(Engine);
             Log($"Preview 開始 (実コンポーネント {n} 個をライブ実行)", "Play", LogLevel.Success);
         }
@@ -1086,8 +1484,10 @@ public partial class MainWindow : Window
         {
             EngineInterop.acs_editor_preview_stop(Engine);
             BuildHierarchy();
+            ResumeSceneDocumentHistoryAfterSimulation();
             Log("Preview 停止 (位置を復元)", "Play", LogLevel.Info);
         }
+        ApplySceneViewModePresentation();
     }
 
     // ===== Scene / Game ビュータブ =====
@@ -1350,6 +1750,7 @@ public partial class MainWindow : Window
                 EngineInterop.acs_editor_node_get_transform(Engine, id, out _, out _, out float rot, out float sx, out float sy);
                 EngineInterop.acs_editor_node_set_transform(Engine, id, px, py, rot, sx, sy);   // 回転/スケールは維持
                 if (_selectedId == id) PopulateInspector(id);
+                NotifySceneMutationPending();
                 return "ok";
             case "GetPosition":
                 EngineInterop.acs_editor_node_get_transform(Engine, id, out float gx, out float gy, out _, out _, out _);
@@ -1357,36 +1758,42 @@ public partial class MainWindow : Window
             case "Destroy":
                 EngineInterop.acs_editor_node_delete(Engine, id);
                 BuildHierarchy();
+                NotifySceneMutationPending();
                 return "ok";
             case "SetColor":
                 if (args.Length < 4 || !ParseF(args[1], out float cr) || !ParseF(args[2], out float cg) || !ParseF(args[3], out float cb)) return null;
                 EngineInterop.acs_editor_node_get_color(Engine, id, out _, out _, out _, out float ca);   // alpha は維持
                 EngineInterop.acs_editor_node_set_color(Engine, id, cr, cg, cb, ca);
                 if (_selectedId == id) PopulateInspector(id);
+                NotifySceneMutationPending();
                 return "ok";
             case "SetVisible":
                 if (args.Length < 2) return null;
                 string vs = args[1].Trim().ToLowerInvariant();
                 EngineInterop.acs_editor_node_set_visible(Engine, id, (vs == "1" || vs == "true" || vs == "on" || vs == "yes") ? 1 : 0);
                 if (_selectedId == id) PopulateInspector(id);
+                NotifySceneMutationPending();
                 return "ok";
             case "SetScale":
                 if (args.Length < 3 || !ParseF(args[1], out float ssx) || !ParseF(args[2], out float ssy)) return null;
                 EngineInterop.acs_editor_node_get_transform(Engine, id, out float kx, out float ky, out float krot, out _, out _);
                 EngineInterop.acs_editor_node_set_transform(Engine, id, kx, ky, krot, ssx, ssy);   // 位置/回転は維持
                 if (_selectedId == id) PopulateInspector(id);
+                NotifySceneMutationPending();
                 return "ok";
             case "SetRotation":
                 if (args.Length < 2 || !ParseF(args[1], out float deg)) return null;
                 EngineInterop.acs_editor_node_get_transform(Engine, id, out float rx, out float ry, out _, out float rsx, out float rsy);
                 EngineInterop.acs_editor_node_set_transform(Engine, id, rx, ry, deg, rsx, rsy);   // 位置/スケールは維持
                 if (_selectedId == id) PopulateInspector(id);
+                NotifySceneMutationPending();
                 return "ok";
             case "Reparent":
                 int parentId = -1;
                 if (args.Length >= 2) int.TryParse(args[1].Trim(), out parentId);   // 無効/空は root(-1)
                 EngineInterop.acs_editor_node_reparent(Engine, id, parentId);
                 BuildHierarchy();
+                NotifySceneMutationPending();
                 return "ok";
         }
         return null;
@@ -1473,6 +1880,7 @@ public partial class MainWindow : Window
             && float.TryParse(xy[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float py))
             EngineInterop.acs_editor_node_set_transform(Engine, id, px, py, 0f, 1f, 1f);
         BuildHierarchy();
+        NotifySceneMutationPending();
         return id.ToString();
     }
 
@@ -1489,8 +1897,27 @@ public partial class MainWindow : Window
         if (Engine == IntPtr.Zero || nodeId < 0) return null;
         int cc = EngineInterop.acs_editor_node_component_count(Engine, nodeId);
         for (int s = 0; s < cc; s++)
+        {
             if (EngineInterop.ComponentName(Engine, nodeId, s) == ownerType)
-                return EngineInterop.InvokeMethodRet(Engine, nodeId, s, method, arg ?? "", out var ret) ? ret : null;
+            {
+                if (!EngineInterop.InvokeMethodRet(
+                        Engine,
+                        nodeId,
+                        s,
+                        method,
+                        arg ?? "",
+                        out string ret))
+                {
+                    return null;
+                }
+
+                NotifySceneMutationPending(
+                    $"Invoke {ownerType}.{method}",
+                    $"component.{s}.method.{ownerType}.{method}",
+                    nodeId);
+                return ret;
+            }
+        }
         return null;
     }
 
@@ -1510,6 +1937,7 @@ public partial class MainWindow : Window
             EngineInterop.acs_editor_camera_frame_all(Engine);
             if (EngineInterop.acs_editor_play_state(Engine) == 0)
             {
+                SuspendSceneDocumentHistoryForSimulation();
                 EngineInterop.acs_editor_play_start(Engine);
                 string? dll = _project != null ? BuildService.ReflectDllPath(_project) : null;
                 if (dll != null && System.IO.File.Exists(dll))
@@ -1526,6 +1954,7 @@ public partial class MainWindow : Window
                     EngineInterop.acs_editor_logic_play_stop(Engine);
                 EngineInterop.acs_editor_play_stop(Engine);
                 RefreshAfterSceneChange();
+                ResumeSceneDocumentHistoryAfterSimulation();
             }
             Log("◳ Scene View — 編集に戻りました。");
         }
@@ -1535,18 +1964,16 @@ public partial class MainWindow : Window
     private void UpdatePlayButtons()
     {
         int st = Engine != IntPtr.Zero ? EngineInterop.acs_editor_play_state(Engine) : 0;
-        PlayBtn.Content    = st == 0 ? "▶  Play" : "⏹ Stop";
-        PauseBtn.Content   = st == 2 ? "▶ Resume" : "❚❚ Pause";
+        PlayBtn.Content    = st == 0 ? "Play" : "Stop";
+        PauseBtn.Content   = st == 2 ? "Resume" : "Pause";
         PauseBtn.IsEnabled = st != 0;
         StepBtn.IsEnabled  = st == 2;
+        UpdatePlayStatePresentation();
     }
 
     private void OnSnapToggle(object sender, RoutedEventArgs e)
     {
-        if (Engine == IntPtr.Zero) return;
-        bool on = SnapCheck.IsChecked == true;
-        EngineInterop.acs_editor_set_snap(Engine, on ? 1 : 0, 1f, 15f, 0.25f);   // grid 1 / 15° / 0.25 (単位スケール向け)
-        Log(on ? "Snap ON (grid 1, 15°, 0.25)" : "Snap OFF");
+        ApplySnapSettings(logChange: true);
     }
 
     private void OnFocus(object sender, RoutedEventArgs e)
@@ -1588,6 +2015,7 @@ public partial class MainWindow : Window
             BuildHierarchy();
             if (_view3d) { Select3DInHierarchy(id); Populate3DInspector(id); }
             else SyncSelectionUi();
+            RecordSceneDocumentChange("Create Polygon");
             Log($"ポリゴンを作成しました (node {id})。");
         }
         else Log("ポリゴンには頂点が 3 つ以上必要です。");
@@ -1596,15 +2024,63 @@ public partial class MainWindow : Window
     // 描画中の Enter/Esc でポリゴンを確定する。
     private void OnGlobalKeyDown(object sender, KeyEventArgs e)
     {
+        // A visible unattended validation window must never react to keys
+        // intended for the user's foreground application.  The active/focus
+        // checks also prevent ordinary editor shortcuts from firing after a
+        // transient focus hand-off.
+        if (EditorInputGate.ShouldSuppressShortcuts(
+                App.IsNonInteractiveLaunch, IsActive, IsKeyboardFocusWithin))
+            return;
+
+        const ModifierKeys shortcutModifiers =
+            ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt | ModifierKeys.Windows;
+        ModifierKeys modifiers = Keyboard.Modifiers & shortcutModifiers;
+        if (e.Key == Key.P &&
+            modifiers ==
+            (ModifierKeys.Control | ModifierKeys.Shift))
+        {
+            ShowCommandPalette();
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.W &&
+            modifiers ==
+            (ModifierKeys.Control | ModifierKeys.Alt))
+        {
+            OnManageWorkspaces(this, new RoutedEventArgs());
+            e.Handled = true;
+            return;
+        }
         if (_viewport != null && _viewport.PolyMode && (e.Key == Key.Enter || e.Key == Key.Escape))
         {
             FinalizePoly();
             e.Handled = true;
             return;
         }
-        // F7 = Build / F5 = Build & Run (テキスト編集中でも安全な F キー)。
-        if (e.Key == Key.F7) { OnBuildProject(this, new RoutedEventArgs()); e.Handled = true; }
-        else if (e.Key == Key.F5) { OnBuildAndRun(this, new RoutedEventArgs()); e.Handled = true; }
+        // Exact routing matters: Ctrl+F5 is Standalone Run and must be resolved before plain F5.
+        // Build shortcuts are rejected while a text editor owns focus; mouse/menu activation first
+        // commits LostKeyboardFocus handlers, but a preview-key shortcut would otherwise serialize
+        // stale inspector values.
+        BuildShortcutAction buildShortcut =
+            EditorShortcutRouting.ResolveBuildShortcut(e.Key, modifiers);
+        if (buildShortcut == BuildShortcutAction.StandaloneRun)
+        {
+            if (CanRunBuildShortcut("Ctrl+F5"))
+                OnRunProject(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        else if (buildShortcut == BuildShortcutAction.BuildAndRun)
+        {
+            if (CanRunBuildShortcut("F5"))
+                OnBuildAndRun(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        else if (buildShortcut == BuildShortcutAction.Build)
+        {
+            if (CanRunBuildShortcut("F7"))
+                OnBuildProject(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
         // Ctrl+D = 選択ノードを複製 (テキスト編集中は除く)。Duplicate は selection ベースで 2D/3D 両対応。
         else if (e.Key == Key.D && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control
                  && Keyboard.FocusedElement is not System.Windows.Controls.TextBox)
@@ -1612,8 +2088,20 @@ public partial class MainWindow : Window
             OnDuplicateNode(this, new RoutedEventArgs());
             e.Handled = true;
         }
+        // Ctrl+Shift+S = 初期化済みの全シーン保存。Ctrl+S はアクティブ文書だけを保存する。
+        // 修飾キーを厳密に分け、Ctrl+Shift+S が先に Ctrl+S として処理されないようにする。
+        else if (e.Key == Key.S &&
+                 (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) ==
+                 (ModifierKeys.Control | ModifierKeys.Shift)
+                 && Keyboard.FocusedElement is not System.Windows.Controls.TextBox)
+        {
+            OnSaveAllScenes(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
         // Ctrl+S = シーン保存 / Ctrl+N = 新規シーン (テキスト編集中は除く)。
-        else if (e.Key == Key.S && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control
+        else if (e.Key == Key.S &&
+                 (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) ==
+                 ModifierKeys.Control
                  && Keyboard.FocusedElement is not System.Windows.Controls.TextBox)
         {
             OnSaveScene(this, new RoutedEventArgs());
@@ -1623,6 +2111,13 @@ public partial class MainWindow : Window
                  && Keyboard.FocusedElement is not System.Windows.Controls.TextBox)
         {
             OnNewScene(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        // Ctrl+J = bottom dock toggle (common IDE convention).
+        else if (e.Key == Key.J && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control
+                 && Keyboard.FocusedElement is not System.Windows.Controls.TextBox)
+        {
+            SetBottomDockVisible(BottomDockPanel.Visibility != Visibility.Visible);
             e.Handled = true;
         }
         // Ctrl+X = カット (テキスト編集中は除く)。Copy は CommandBinding だが Cut は Click ハンドラのため手動配線。
@@ -1664,8 +2159,27 @@ public partial class MainWindow : Window
         else if (!e.IsRepeat) FeedGameKey(e.Key, true);
     }
 
+    private bool CanRunBuildShortcut(string shortcut)
+    {
+        if (Keyboard.FocusedElement is not System.Windows.Controls.Primitives.TextBoxBase &&
+            Keyboard.FocusedElement is not System.Windows.Controls.PasswordBox)
+            return true;
+
+        string message =
+            $"{shortcut} ignored: finish the current text edit with Enter or move focus first.";
+        StatusText.Text = message;
+        Log(message, "Build", LogLevel.Warn);
+        return false;
+    }
+
     // Play 中のキー解放を DLL へフィードする。
-    private void OnGlobalKeyUp(object sender, KeyEventArgs e) => FeedGameKey(e.Key, false);
+    private void OnGlobalKeyUp(object sender, KeyEventArgs e)
+    {
+        if (EditorInputGate.ShouldSuppressShortcuts(
+                App.IsNonInteractiveLaunch, IsActive, IsKeyboardFocusWithin))
+            return;
+        FeedGameKey(e.Key, false);
+    }
 
     // WPF Key を acs::EKey 整数へマップし、Play 中なら DLL へフィードする。テキスト編集中
     // (TextBox にフォーカス) は誤爆を避けてスキップする。
@@ -1674,14 +2188,14 @@ public partial class MainWindow : Window
         if (Engine == IntPtr.Zero) return;
         if (EngineInterop.acs_editor_logic_play_active(Engine) == 0) return;
         if (Keyboard.FocusedElement is System.Windows.Controls.TextBox) return;
-        int ek = EKeyFromWpf(key);
+        int ek = KeyFromWpf(key);
         if (ek != 0) EngineInterop.acs_editor_logic_input_key(Engine, ek, down ? 1 : 0);
     }
 
     // WPF System.Windows.Input.Key → acs::EKey の整数値 (enum 順: Unknown=0, A=1..Z=26,
     // Num0=27.., F1=37.., LeftShift=49.., Up=57/Down=58/Left=59/Right=60, Space=61, Enter=62,
     // Tab=63, Backspace=64, Escape=65)。未対応は 0。
-    private static int EKeyFromWpf(Key k)
+    private static int KeyFromWpf(Key k)
     {
         if (k >= Key.A && k <= Key.Z) return (int)(k - Key.A) + 1;        // A..Z → 1..26
         if (k >= Key.D0 && k <= Key.D9) return (int)(k - Key.D0) + 27;    // 0..9 → 27..36
@@ -1725,7 +2239,7 @@ public partial class MainWindow : Window
                 BuildLog("生成後ビルドを開始します…");
                 await DoBuild(run: false);
             }
-            else if (dlg.BaseClass == "FComponent2D")
+            else if (dlg.BaseClass == "AComponent")
                 BuildLog("Build または Hot Reload で『ユーザー定義のオブジェクト』に追加されます。");
         }
         catch (Exception ex)
@@ -1744,14 +2258,17 @@ public partial class MainWindow : Window
     {
         if (_project == null) { Log("プロジェクトがありません。"); return; }
         if (_building) { BuildLog("ビルド実行中です。"); return; }
-        _building = true;
-        SetBuildUiEnabled(false);
+        if (!EnsureBuildSceneCompatibility("Standalone Run")) return;
         ShowBottomTab("build");
         BuildLog($"==== Build Standalone: {_project.Name} ====");
-        SaveSceneForBuild();
-        bool force = _pendingReconfigure; _pendingReconfigure = false;
+        _building = true;
+        SetBuildUiEnabled(false);
         try
         {
+            // Autosave cleanup is asynchronous; reserve the build slot before awaiting it.
+            if (!await SaveSceneForBuildAsync()) return;
+            bool force = _pendingReconfigure;
+            _pendingReconfigure = false;
             string? exe = await BuildService.BuildAsync(_project, BuildLog, force, standalone: true);
             if (exe != null)
             {
@@ -1769,14 +2286,17 @@ public partial class MainWindow : Window
     {
         if (_project == null) { BuildLog("プロジェクトがありません。"); return; }
         if (_building) { BuildLog("ビルド実行中です。"); return; }
-        _building = true;
-        SetBuildUiEnabled(false);
+        if (!EnsureBuildSceneCompatibility(run ? "Build & Run" : "Build")) return;
         ShowBottomTab("build");
         BuildLog($"==== Build: {_project.Name} ====");
-        SaveSceneForBuild();   // 編集中シーンを main.acscene へ保存 → スタンドアロンがそれを読む
-        bool force = _pendingReconfigure; _pendingReconfigure = false;
+        _building = true;
+        SetBuildUiEnabled(false);
         try
         {
+            // Source save and recovery cleanup are part of the build transaction.
+            if (!await SaveSceneForBuildAsync()) return;
+            bool force = _pendingReconfigure;
+            _pendingReconfigure = false;
             string? exe = await BuildService.BuildAsync(_project, BuildLog, force);
             if (exe != null)
             {
@@ -1794,20 +2314,110 @@ public partial class MainWindow : Window
 
     // ビルド前に現在のシーンをプロジェクトの初期シーン (Assets/main.acscene) へ保存する。
     // これでスタンドアロン (Build & Run) が «編集中と同じシーン» を読み込む。
-    private void SaveSceneForBuild()
+    private async System.Threading.Tasks.Task<bool> SaveSceneForBuildAsync()
     {
-        if (Engine == IntPtr.Zero || _project == null) return;
+        if (Engine == IntPtr.Zero || _project == null)
+        {
+            BuildLog("Scene save failed: the editor engine or project is unavailable. Build aborted.");
+            return false;
+        }
+        // Keep this durability boundary fail-closed even if a future caller forgets the outer
+        // compatibility guard. Runtime simulation data must never replace editable source either.
+        if (_legacySceneSourceMode == SceneDocumentMode.ThreeD)
+        {
+            BuildLog(
+                $"Scene save failed: [{BuildSceneCompatibility.Unsupported3DCode}] " +
+                "the loaded legacy scene source is .acs3d. Build/Run/Package was aborted.");
+            return false;
+        }
+        if (!_scene2DInitialized)
+        {
+            BuildLog("Scene save failed: the .acscene source is not initialized. Build aborted.");
+            return false;
+        }
+        if (EngineInterop.acs_editor_play_state(Engine) != 0 || PreviewBtn.IsChecked == true)
+        {
+            BuildLog(
+                "Scene save failed: stop Play/Preview before Build, Run or Package. " +
+                "Runtime simulation was not written to source.");
+            return false;
+        }
         try
         {
-            string target = string.IsNullOrEmpty(_currentScenePath)
-                ? System.IO.Path.Combine(_project.RootDir, _project.InitialScene)
-                : _currentScenePath!;
+            string target = SceneSourceFile.ResolveProjectSceneReference(
+                _project.RootDir,
+                _project.AssetsDir,
+                _project.InitialScene,
+                SceneDocumentMode.TwoD);
+            var configuredBuffer = new byte[1024];
+            if (EngineInterop.acs_editor_settings_get_value(
+                    Engine, "Game", "DefaultScene", configuredBuffer, configuredBuffer.Length) != 0)
+            {
+                string configured = EngineInterop.Utf8Z(configuredBuffer).Trim();
+                if (configured.Length != 0)
+                {
+                    string configuredPath;
+                    try
+                    {
+                        configuredPath = SceneSourceFile.ResolveProjectSceneReference(
+                            _project.RootDir,
+                            _project.AssetsDir,
+                            configured,
+                            SceneDocumentMode.TwoD);
+                    }
+                    catch (Exception ex)
+                    {
+                        BuildLog(
+                            "Scene save failed: [DEFAULT_SCENE_INVALID] Game.DefaultScene must " +
+                            "be a relative 2D .acscene under Assets. " +
+                            "Build/Run/Package was aborted.");
+                        BuildLog($"Game.DefaultScene: {configured}");
+                        BuildLog(ex.Message);
+                        return false;
+                    }
+                    if (!SceneSourceFile.PathsEqual(configuredPath, target))
+                    {
+                        BuildLog(
+                            "Scene save failed: [DEFAULT_SCENE_MISMATCH] Game.DefaultScene and " +
+                            ".acsproject InitialScene resolve to different files. " +
+                            "Build/Run/Package was aborted.");
+                        BuildLog($"Game.DefaultScene: {configuredPath}");
+                        BuildLog($".acsproject InitialScene: {target}");
+                        return false;
+                    }
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(_currentScenePath) &&
+                !SceneSourceFile.PathsEqual(_currentScenePath, target))
+            {
+                BuildLog(
+                    "Scene save failed: [ACS-BUILD-SCENE-TARGET-002] The active scene is not the " +
+                    "project InitialScene. Build/Run/Package was aborted instead of shipping stale data.");
+                BuildLog($"Active scene: {_currentScenePath}");
+                BuildLog($"Configured InitialScene: {target}");
+                return false;
+            }
+
+            string? previousPath = _currentScenePath;
             string text = EngineInterop.SceneText(Engine);
-            System.IO.File.WriteAllText(target, text, new System.Text.UTF8Encoding(false));
-            _currentScenePath = target;
+            SceneSourceFile.WriteProjectSceneAtomicText(
+                target,
+                text,
+                _project.RootDir,
+                _project.AssetsDir,
+                SceneDocumentMode.TwoD);
+            SetCurrentScenePath(target);
+            MarkSceneClean(text);
+            NotifySceneDocumentSaved(use3D: false, target);
+            await OnSceneSourceSavedAsync(use3D: false, previousPath, target);
             BuildLog($"シーンを保存: {target}");
+            return true;
         }
-        catch (Exception ex) { BuildLog("シーン保存警告: " + ex.Message); }
+        catch (Exception ex)
+        {
+            BuildLog("Scene save failed; Build/Run/Package was aborted: " + ex.Message);
+            return false;
+        }
     }
 
     // リフレクション DLL からユーザー定義型を取り込み、生成メニュー / +Add 候補を更新する。
@@ -1929,7 +2539,12 @@ public partial class MainWindow : Window
         if (Engine == IntPtr.Zero) return;
         int n = _view3d ? EngineInterop.acs_editor_align3d_selection(Engine, mode)
                         : EngineInterop.acs_editor_align_selection(Engine, mode);
-        if (n > 0) { Log($"Aligned {n} node(s): {name}."); SyncSelectionUi(); }
+        if (n > 0)
+        {
+            Log($"Aligned {n} node(s): {name}.");
+            SyncSelectionUi();
+            RecordSceneDocumentChange("Align Nodes");
+        }
         else Log("Align needs 2+ selected nodes.");
     }
     private void DoDistribute(int axis, string name)
@@ -1937,7 +2552,12 @@ public partial class MainWindow : Window
         if (Engine == IntPtr.Zero) return;
         int n = _view3d ? EngineInterop.acs_editor_distribute3d_selection(Engine, axis)
                         : EngineInterop.acs_editor_distribute_selection(Engine, axis);
-        if (n > 0) { Log($"Distributed {n} node(s): {name}."); SyncSelectionUi(); }
+        if (n > 0)
+        {
+            Log($"Distributed {n} node(s): {name}.");
+            SyncSelectionUi();
+            RecordSceneDocumentChange("Distribute Nodes");
+        }
         else Log("Distribute needs 3+ selected nodes.");
     }
     private void OnAlignLeft(object s, RoutedEventArgs e)   => DoAlign(0, "left");
@@ -1954,11 +2574,13 @@ public partial class MainWindow : Window
     {
         if (_populating || _selectedId < 0 || Engine == IntPtr.Zero) return;
         EngineInterop.acs_editor_node_set_visible(Engine, _selectedId, DispVisible.IsChecked == true ? 1 : 0);
+        RecordSceneDocumentChange("Visibility");
     }
     private void OnDispEnabled(object s, RoutedEventArgs e)
     {
         if (_populating || _selectedId < 0 || Engine == IntPtr.Zero) return;
         EngineInterop.acs_editor_node_set_enabled(Engine, _selectedId, DispEnabled.IsChecked == true ? 1 : 0);
+        RecordSceneDocumentChange("Enabled State");
     }
     // 数値欄の確定: 値が実際に変わったプロパティだけ set する (冗長な undo を避ける)。
     private void ApplyDisplay()
@@ -1983,6 +2605,11 @@ public partial class MainWindow : Window
             Math.Abs(nb - cb) > 1e-4f || Math.Abs(na - ca) > 1e-4f)
             EngineInterop.acs_editor_node_set_color(Engine, id, nr, ng, nb, na);
         UpdateColorSwatch();
+        RecordSceneDocumentChange(
+            "Appearance",
+            mergeKey: "inspector.appearance",
+            mergeWindow: TimeSpan.FromSeconds(1),
+            nodeId: id);
     }
 
     // Color RGBA 欄の現在値を Inspector の色スウォッチに反映する (色相が一目で分かるよう不透明で表示)。
@@ -1992,6 +2619,35 @@ public partial class MainWindow : Window
         float r = ParseF(ColR.Text), g = ParseF(ColG.Text), b = ParseF(ColB.Text);
         ColorSwatch.Background = new System.Windows.Media.SolidColorBrush(
             System.Windows.Media.Color.FromRgb(B(r), B(g), B(b)));
+    }
+
+    private void OnDisplayColorSwatchClicked(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (_populating || _selectedId < 0 || Engine == IntPtr.Zero) return;
+
+        static byte B(float v) => (byte)Math.Clamp(v * 255f, 0f, 255f);
+        var initial = System.Windows.Media.Color.FromArgb(
+            B(ParseF(ColA.Text, 1f)),
+            B(ParseF(ColR.Text)),
+            B(ParseF(ColG.Text)),
+            B(ParseF(ColB.Text)));
+        if (!ColorPickerDialog.TryPick(this, initial, allowAlpha: true, out var picked)) return;
+
+        _populating = true;
+        try
+        {
+            ColR.Text = (picked.R / 255f).ToString("0.###", CultureInfo.InvariantCulture);
+            ColG.Text = (picked.G / 255f).ToString("0.###", CultureInfo.InvariantCulture);
+            ColB.Text = (picked.B / 255f).ToString("0.###", CultureInfo.InvariantCulture);
+            ColA.Text = (picked.A / 255f).ToString("0.###", CultureInfo.InvariantCulture);
+        }
+        finally
+        {
+            _populating = false;
+        }
+
+        ApplyDisplay();
+        e.Handled = true;
     }
 
     // ===== スプライト画像 (矩形の代わりに画像を表示) =====
@@ -2011,10 +2667,11 @@ public partial class MainWindow : Window
             Title = "スプライト画像を選択",
             Filter = "画像 (*.png;*.jpg;*.jpeg;*.bmp;*.tga;*.gif)|*.png;*.jpg;*.jpeg;*.bmp;*.tga;*.gif|すべてのファイル (*.*)|*.*",
         };
-        if (dlg.ShowDialog() != true) return;
+        if (dlg.ShowDialog(this) != true) return;
         if (EngineInterop.acs_editor_node_set_sprite(Engine, _selectedId, dlg.FileName) != 0)
         {
             RefreshSpriteLabel(_selectedId);
+            RecordSceneDocumentChange("Assign Sprite");
             Log($"Sprite set: {System.IO.Path.GetFileName(dlg.FileName)}");
         }
         else Log("Sprite set failed: " + dlg.FileName);
@@ -2025,6 +2682,7 @@ public partial class MainWindow : Window
         if (Engine == IntPtr.Zero || _selectedId < 0) return;
         EngineInterop.acs_editor_node_clear_sprite(Engine, _selectedId);
         RefreshSpriteLabel(_selectedId);
+        RecordSceneDocumentChange("Clear Sprite");
         Log("Sprite cleared (→ 矩形表示).");
     }
 
@@ -2087,6 +2745,7 @@ public partial class MainWindow : Window
             EngineInterop.acs_editor_node_set_material(Engine, _selectedId, path);
             Log($"Material ← {AssetRel(path)} (node {_selectedId})");
         }
+        RecordSceneDocumentChange("Assign Material");
     }
 
     private void OnEditMaterial(object sender, RoutedEventArgs e)
@@ -2119,6 +2778,7 @@ public partial class MainWindow : Window
         {
             EngineInterop.acs_editor_node_set_material(Engine, _selectedId, path);
             RefreshMaterialBox(_selectedId);
+            RecordSceneDocumentChange("Assign Material");
         }
         OpenMaterialEditor(path);
     }
@@ -2128,12 +2788,18 @@ public partial class MainWindow : Window
         if (Engine == IntPtr.Zero || _selectedId < 0) return;
         EngineInterop.acs_editor_node_clear_material(Engine, _selectedId);
         RefreshMaterialBox(_selectedId);
+        RecordSceneDocumentChange("Clear Material");
         Log("Material cleared (→ 効果なし).");
     }
 
     private void OpenMaterialEditor(string acsmatPath)
     {
-        var win = new MaterialEditorWindow(Engine, acsmatPath) { Owner = this };
+        // Resolve the engine through the viewport on every use. Holding the raw
+        // pointer here would outlive the viewport during owner-window teardown.
+        var win = _viewport != null
+            ? new MaterialEditorWindow(_viewport, acsmatPath)
+            : new MaterialEditorWindow(IntPtr.Zero, acsmatPath);
+        win.Owner = this;
         win.Show();   // 非モーダル: viewport を見ながら調整できる
     }
 
@@ -2201,6 +2867,11 @@ public partial class MainWindow : Window
         float sy  = ParseF(ScaleY.Text, 1.0f);
         EngineInterop.acs_editor_node_set_transform(Engine, _selectedId,
             x, y, (float)(deg * Math.PI / 180.0), sx, sy);
+        RecordSceneDocumentChange(
+            "Transform",
+            mergeKey: "inspector.transform",
+            mergeWindow: TimeSpan.FromSeconds(1),
+            nodeId: _selectedId);
     }
 
     private static float ParseF(string s, float fallback = 0.0f) =>
@@ -2217,6 +2888,7 @@ public partial class MainWindow : Window
         {
             InspName.Text = nm + "  (id " + _selectedId + ")";
             BuildHierarchy();   // Hierarchy 表示名を更新 (選択はエンジン側で維持)
+            RecordSceneDocumentChange("Rename Node");
         }
     }
 
@@ -2233,6 +2905,7 @@ public partial class MainWindow : Window
         {
             InspName.Text = nm;
             Build3DHierarchy();   // ヒエラルキー表示名を更新
+            RecordSceneDocumentChange("Rename Node");
         }
     }
 
@@ -2250,6 +2923,7 @@ public partial class MainWindow : Window
                 Build3DHierarchy();
                 Select3DInHierarchy(nid);
                 Populate3DInspector(nid);
+                RecordSceneDocumentChange("Duplicate Node");
             }
             return;
         }
@@ -2260,6 +2934,7 @@ public partial class MainWindow : Window
             Log($"Duplicated {n} node(s) (subtree).");
             BuildHierarchy();        // engine 選択はクローン群へ移っている
             SyncSelectionUi();
+            RecordSceneDocumentChange("Duplicate Nodes");
         }
     }
 
@@ -2276,6 +2951,7 @@ public partial class MainWindow : Window
                 Build3DHierarchy();
                 Clear3DInspector();
                 UpdateStatusBar();
+                RecordSceneDocumentChange("Delete Node");
             }
             return;
         }
@@ -2286,6 +2962,7 @@ public partial class MainWindow : Window
             Log($"Deleted {n} node(s) (and their children).");
             BuildHierarchy();
             SyncSelectionUi();       // 集合は空 → ClearSelectionUi
+            RecordSceneDocumentChange("Delete Nodes");
         }
     }
     private void OnDeleteNode(object sender, RoutedEventArgs e) => DeleteSelected();
@@ -2318,7 +2995,14 @@ public partial class MainWindow : Window
         if (_view3d)   // 3D モード: クリップボードの 3D ノードを貼り付け (+X 小オフセット)
         {
             int nid = EngineInterop.acs_editor_node3d_paste(Engine);
-            if (nid >= 0) { Log("Pasted 3D node."); Build3DHierarchy(); Select3DInHierarchy(nid); Populate3DInspector(nid); }
+            if (nid >= 0)
+            {
+                Log("Pasted 3D node.");
+                Build3DHierarchy();
+                Select3DInHierarchy(nid);
+                Populate3DInspector(nid);
+                RecordSceneDocumentChange("Paste Node");
+            }
             else Log("3D クリップボードが空です。");
             return;
         }
@@ -2331,6 +3015,7 @@ public partial class MainWindow : Window
             BuildHierarchy();
             _selectedId = id;
             SelectHierarchyItem(id);   // ツリー選択 → Inspector 更新
+            RecordSceneDocumentChange("Paste Node");
         }
     }
 
@@ -2338,9 +3023,29 @@ public partial class MainWindow : Window
     private int CurSelCount() => Engine == IntPtr.Zero ? 0
         : (_view3d ? EngineInterop.acs_editor_selected3d_count(Engine) : EngineInterop.acs_editor_selection_count(Engine));
     private void OnCanUndo(object sender, CanExecuteRoutedEventArgs e)
-        => e.CanExecute = Engine != IntPtr.Zero && EngineInterop.acs_editor_can_undo(Engine) != 0;
+    {
+        if (!CanUseSceneDocumentHistory())
+        {
+            e.CanExecute = false;
+            return;
+        }
+        EditorDocument? document = _documentHost.ActiveDocument;
+        e.CanExecute = document != null &&
+                       (document.CanUndo || document.HasPendingChanges);
+    }
+
     private void OnCanRedo(object sender, CanExecuteRoutedEventArgs e)
-        => e.CanExecute = Engine != IntPtr.Zero && EngineInterop.acs_editor_can_redo(Engine) != 0;
+    {
+        if (!CanUseSceneDocumentHistory())
+        {
+            e.CanExecute = false;
+            return;
+        }
+        EditorDocument? document = _documentHost.ActiveDocument;
+        e.CanExecute = document != null &&
+                       document.CanRedo &&
+                       !document.HasPendingChanges;
+    }
     private void OnCanCopyDelete(object sender, CanExecuteRoutedEventArgs e)
         => e.CanExecute = CurSelCount() > 0;
     private void OnCanPaste(object sender, CanExecuteRoutedEventArgs e)
@@ -2374,6 +3079,7 @@ public partial class MainWindow : Window
             // 保存元もこのプレハブのインスタンスにする (instance-of リンク)。2D/3D で ABI を切替え。
             if (_view3d) { EngineInterop.acs_editor_node3d_set_prefab_src(Engine, id, dlg.FileName); Populate3DInspector(id); }
             else         { EngineInterop.acs_editor_node_set_prefab_src(Engine, id, dlg.FileName);   PopulateInspector(id); }
+            RecordSceneDocumentChange("Create Prefab Link");
             AssetBrowser.Refresh();
             Log($"プレハブを保存 → {System.IO.Path.GetFileName(dlg.FileName)}");
         }
@@ -2467,6 +3173,7 @@ public partial class MainWindow : Window
         _selectedId = id;
         SelectHierarchyItem(id);
         PopulateInspector(id);
+        RecordSceneDocumentChange("Place Blueprint");
         Log($"Blueprint をシーンに配置 → {System.IO.Path.GetFileName(path)} (node {id})");
     }
 
@@ -2523,6 +3230,7 @@ public partial class MainWindow : Window
             BuildHierarchy();
             _selectedId = id;
             SelectHierarchyItem(id);
+            RecordSceneDocumentChange("Instantiate Prefab");
             Log($"プレハブをインスタンス化: {System.IO.Path.GetFileName(path)} → node {id}");
         }
         else Log("プレハブのインスタンス化に失敗: " + System.IO.Path.GetFileName(path));
@@ -2606,7 +3314,14 @@ public partial class MainWindow : Window
         foreach (int t in targets)
             if ((_view3d ? ReinstantiateInstance3D(t, src, comp) : ReinstantiateInstance(t, src, comp)) >= 0) updated++;
         if (_view3d) { RefreshAfterSceneChange(); }
-        else { BuildHierarchy(); _selectedId = id; SelectHierarchyItem(id); }
+        else
+        {
+            BuildHierarchy();
+            _selectedId = id;
+            SelectHierarchyItem(id);
+            if (updated > 0)
+                RecordSceneDocumentChange("Apply Prefab");
+        }
         Log($"{(IsBlueprint(src) ? "Blueprint" : "プレハブ")}へ反映 (Apply) → {System.IO.Path.GetFileName(src)} ({updated} 個のインスタンスを更新)",
             "Asset", LogLevel.Success);
     }
@@ -2625,7 +3340,13 @@ public partial class MainWindow : Window
         if (nid >= 0)
         {
             if (_view3d) { RefreshAfterSceneChange(); }
-            else { BuildHierarchy(); _selectedId = nid; SelectHierarchyItem(nid); }
+            else
+            {
+                BuildHierarchy();
+                _selectedId = nid;
+                SelectHierarchyItem(nid);
+                RecordSceneDocumentChange("Revert Prefab");
+            }
             Log($"{(IsBlueprint(src) ? "Blueprint" : "プレハブ")}へ復元 (Revert) ← {System.IO.Path.GetFileName(src)}", "Asset", LogLevel.Info);
         }
     }
@@ -2649,7 +3370,6 @@ public partial class MainWindow : Window
         if (Engine == IntPtr.Zero) return;
         var panel2 = (System.Windows.Media.Brush)FindResource("Panel2");
         var dim    = (System.Windows.Media.Brush)FindResource("TextDim");
-        var text   = (System.Windows.Media.Brush)FindResource("Text");
 
         // プレハブ・インスタンスなら「Prefab: X」+ Apply/Revert バナーを先頭に出す。
         string prefabSrc = EngineInterop.NodePrefabSrc(Engine, id);
@@ -2688,34 +3408,14 @@ public partial class MainWindow : Window
             return;
         }
 
+        int shownComponents = 0;
         for (int i = 0; i < count; i++)
         {
             int idx = i;   // = ABI の component slot
             string cname = EngineInterop.ComponentName(Engine, id, i);
+            if (!DetailsComponentMatches(cname)) continue;
 
             var inner = new StackPanel();
-            // ヘッダ: コンポーネント名 (左) + 取り外し ✕ (右)。
-            var header = new DockPanel { Margin = new Thickness(0, 0, 0, 3) };
-            var rm = new Button
-            {
-                Content = "✕", Width = 22, Height = 20, Padding = new Thickness(0),
-                Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE3, 0x9A, 0xA0)),
-                Background = System.Windows.Media.Brushes.Transparent, BorderThickness = new Thickness(0),
-                Cursor = Cursors.Hand, ToolTip = "コンポーネントを外す",
-            };
-            rm.Click += (_, __) =>
-            {
-                EngineInterop.acs_editor_node_remove_component_at(Engine, id, idx);
-                PopulateComponents(id);
-            };
-            DockPanel.SetDock(rm, Dock.Right);
-            header.Children.Add(rm);
-            header.Children.Add(new TextBlock
-            {
-                Text = cname, VerticalAlignment = VerticalAlignment.Center, Foreground = text,
-                FontWeight = FontWeights.SemiBold, FontFamily = new System.Windows.Media.FontFamily("Consolas"),
-            });
-            inner.Children.Add(header);
 
             // 編集プロパティ (reflection スキーマ駆動)。0 個なら明示する。
             int pc = EngineInterop.acs_editor_component_prop_count(cname);
@@ -2761,19 +3461,30 @@ public partial class MainWindow : Window
                 btn.Click += (_, __) =>
                 {
                     if (EngineInterop.acs_editor_node_invoke_method(Engine, id, curSlot, mname) != 0)
+                    {
+                        NotifySceneMutationPending(
+                            $"Invoke {cname}.{mname}",
+                            $"component.{curSlot}.{cname}.method.{mname}",
+                            id);
                         Log($"{cname}.{mname}() を呼び出し", "General", LogLevel.Info);
+                    }
                     else Log($"{cname}.{mname}() の呼び出しに失敗");
                 };
                 inner.Children.Add(btn);
             }
 
-            // コンポーネントをカードにまとめる (視覚的グルーピング)。
-            CompList.Children.Add(new Border
+            int capturedSlot = idx;
+            CompList.Children.Add(ComponentCard(cname, inner, native: false, remove: () =>
             {
-                Background = panel2, CornerRadius = new CornerRadius(5),
-                Padding = new Thickness(8, 6, 8, 7), Margin = new Thickness(0, 0, 0, 6), Child = inner,
-            });
+                EngineInterop.acs_editor_node_remove_component_at(Engine, id, capturedSlot);
+                PopulateComponents(id);
+                RecordSceneDocumentChange("Remove Component");
+            }));
+            shownComponents++;
         }
+
+        if (shownComponents == 0 && _detailsFilter.Length > 0)
+            CompList.Children.Add(EmptyDetailsResult("No components match this filter."));
     }
 
     /// <summary>
@@ -2837,6 +3548,10 @@ public partial class MainWindow : Window
             else
                 EngineInterop.acs_editor_node_component_prop_set(
                     Engine, id, slot, prop, vals[0], vals[1], vals[2], vals[3]);
+            NotifySceneMutationPending(
+                $"Edit {pname}",
+                $"component.{slot}.{typeName}.property.{prop}.{pname}",
+                id);
         }
 
         // Bool: チェックボックス。
@@ -2936,6 +3651,7 @@ public partial class MainWindow : Window
         if (EngineInterop.acs_editor_node_add_component(Engine, _selectedId, typeName) != 0)
         {
             PopulateComponents(_selectedId);
+            RecordSceneDocumentChange("Add Component");
             Log($"Added component {typeName} → node {_selectedId}.");
         }
     }
@@ -2949,7 +3665,7 @@ public partial class MainWindow : Window
     }
 
     // ===== File メニュー: シーンの新規 / 開く / 保存 =====
-    // ABI がシリアライズ (文字列 ⇄ 実 FNode2D ツリー) を担い、ファイル I/O はここ (C#) で行う。
+    // ABI がシリアライズ (文字列 ⇄ 実 ANode ツリー) を担い、ファイル I/O はここ (C#) で行う。
     private void ClearSelectionUi()
     {
         _selectedId = -1;
@@ -2966,41 +3682,147 @@ public partial class MainWindow : Window
     {
         BuildHierarchy();
         SyncSelectionUi();
+        RecordSceneDocumentChange("Scene Structure");
     }
 
-    private void OnNewScene(object sender, RoutedEventArgs e)
+    private async void OnNewScene(object sender, RoutedEventArgs e)
     {
         if (Engine == IntPtr.Zero) return;
-        if (_view3d) EngineInterop.acs_editor_scene3d_new(Engine);   // 3D シーンを空に (2D の scene_new は 3D を消さない)
-        else         EngineInterop.acs_editor_scene_new(Engine);
-        RefreshAfterSceneChange();
-        Log("New (empty) scene.");
+        if (!await ConfirmSceneReplacementAsync()) return;
+        try
+        {
+            // New replaces the singular managed world. Both native compatibility payloads are
+            // cleared so a later save/undo cannot resurrect hidden content from another source.
+            EngineInterop.acs_editor_scene_new(Engine);
+            EngineInterop.acs_editor_scene3d_new(Engine);
+            _scene2DPath = null;
+            _scene3DDocumentPath = null;
+            _scene2DInitialized =
+                _legacySceneSourceMode == SceneDocumentMode.TwoD;
+            _scene3DInitialized =
+                _legacySceneSourceMode == SceneDocumentMode.ThreeD;
+            _scene2DDirty = false;
+            _scene3DDirty = false;
+            SetCurrentScenePath(null);
+            RefreshAfterSceneChange();
+            MarkSceneDirty();
+            ResetSceneDocumentHistory(_view3d, markSaved: false);
+            Log(
+                "New empty scene. Legacy source adapter: " +
+                (_legacySceneSourceMode == SceneDocumentMode.ThreeD
+                    ? ".acs3d"
+                    : ".acscene") + ".");
+        }
+        finally
+        {
+            CompleteSceneReplacementAutosave();
+        }
     }
 
-    private void OnOpenScene(object sender, RoutedEventArgs e)
+    private async void OnOpenScene(object sender, RoutedEventArgs e)
     {
         if (Engine == IntPtr.Zero) return;
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Title = "Open ACS Scene",
-            Filter = _view3d ? "ACS 3D Scene (*.acs3d)|*.acs3d|All files (*.*)|*.*"
-                             : "ACS Scene (*.acscene)|*.acscene|All files (*.*)|*.*",
-            DefaultExt = _view3d ? ".acs3d" : ".acscene",
+            Filter =
+                "ACS Scene Sources (*.acscene;*.acs3d)|*.acscene;*.acs3d|" +
+                "ACS Scene (*.acscene)|*.acscene|" +
+                "Legacy ACS 3D Source (*.acs3d)|*.acs3d|" +
+                "All files (*.*)|*.*",
+            DefaultExt = ".acscene",
         };
         if (dlg.ShowDialog(this) != true) return;
+
+        string selectedPath;
+        SceneDocumentMode selectedSourceMode;
         try
         {
-            string text = System.IO.File.ReadAllText(dlg.FileName, System.Text.Encoding.UTF8);
-            // Open も New/Save と同様 3D 分岐。従来は常に 2D の scene_load_text で 3D は無言失敗だった。
-            int ok = _view3d ? EngineInterop.acs_editor_scene3d_load_text(Engine, text)
-                             : EngineInterop.acs_editor_scene_load_text(Engine, text);
+            selectedPath = ValidateLegacySceneDocumentPath(
+                dlg.FileName,
+                out selectedSourceMode);
+        }
+        catch (Exception ex)
+        {
+            Log("Open failed: " + ex.Message);
+            return;
+        }
+
+        bool selectedUses3D =
+            selectedSourceMode == SceneDocumentMode.ThreeD;
+        SceneRecoveryCandidate? recovery =
+            FindRecoveryForOpen(selectedPath, selectedUses3D);
+        SceneRecoveryDecision recoveryDecision = SceneRecoveryDecision.Discard;
+        if (recovery != null)
+        {
+            recoveryDecision = await PromptRecoveryAsync(recovery);
+            if (recoveryDecision == SceneRecoveryDecision.Cancel) return;
+        }
+        if (!await ConfirmSceneReplacementAsync()) return;
+        try
+        {
+            if (recovery != null && recoveryDecision == SceneRecoveryDecision.Discard)
+                await DiscardRecoveryAsync(
+                    recovery.Identity,
+                    resumeAfter: !_replacementAutosaveSuppressed);
+
+            string text = System.IO.File.ReadAllText(
+                selectedPath,
+                System.Text.Encoding.UTF8);
+            string rollback = selectedUses3D
+                ? EngineInterop.Scene3DText(Engine)
+                : EngineInterop.SceneText(Engine);
+            int ok = selectedUses3D
+                ? EngineInterop.acs_editor_scene3d_load_text(Engine, text)
+                : EngineInterop.acs_editor_scene_load_text(Engine, text);
             if (ok != 0)
             {
+                // Opening a legacy source is the explicit adapter boundary. The inactive payload is
+                // cleared rather than silently displayed when a viewport preset changes.
+                if (selectedUses3D)
+                    EngineInterop.acs_editor_scene_new(Engine);
+                else
+                    EngineInterop.acs_editor_scene3d_new(Engine);
+
+                _legacySceneSourceMode = selectedSourceMode;
+                _view3d = selectedUses3D;
+                EngineInterop.acs_editor_set_view3d(
+                    Engine,
+                    selectedUses3D ? 1 : 0);
+                _sceneViewMode =
+                    EditorSceneViewModePolicy.InitialForLegacySource(selectedPath);
+                EditorSceneViewDescriptor openedView =
+                    EditorSceneViewModePolicy.Describe(_sceneViewMode);
+                if (selectedUses3D)
+                {
+                    EngineInterop.acs_editor_set_ortho3d(
+                        Engine,
+                        openedView.IsOrthographic ? 1 : 0);
+                }
+
+                _scene2DPath = selectedUses3D ? null : selectedPath;
+                _scene3DDocumentPath = selectedUses3D ? selectedPath : null;
+                _scene2DInitialized = !selectedUses3D;
+                _scene3DInitialized = selectedUses3D;
+                _scene2DDirty = false;
+                _scene3DDirty = false;
+                SetCurrentScenePath(selectedPath);
+                ApplySceneViewModePresentation();
                 RefreshAfterSceneChange();
-                Log($"Loaded {(_view3d ? "3D " : "")}scene ← {dlg.FileName}");
+                MarkSceneClean(); // compare against the native canonical form, not source whitespace/order
+                ResetSceneDocumentHistory(_view3d, markSaved: true);
+                Log(
+                    $"Loaded scene source ({(selectedUses3D ? ".acs3d" : ".acscene")}) " +
+                    $"← {selectedPath}");
+                if (recovery != null && recoveryDecision == SceneRecoveryDecision.Recover)
+                    await ApplyRecoveryCandidateAsync(recovery);
             }
             else
             {
+                if (selectedUses3D)
+                    EngineInterop.acs_editor_scene3d_load_text(Engine, rollback);
+                else
+                    EngineInterop.acs_editor_scene_load_text(Engine, rollback);
                 Log("Scene load failed (unrecognized format).");
             }
         }
@@ -3008,13 +3830,22 @@ public partial class MainWindow : Window
         {
             Log("Open failed: " + ex.Message);
         }
+        finally
+        {
+            CompleteSceneReplacementAutosave();
+        }
     }
 
-    private void OnSaveScene(object sender, RoutedEventArgs e)
+    private async void OnSaveScene(object sender, RoutedEventArgs e) =>
+        await SaveHostedSceneDocumentAsync();
+
+    private async System.Threading.Tasks.Task<bool> SaveActiveSceneAsync()
     {
-        if (Engine == IntPtr.Zero) return;
-        if (_view3d) { Save3DScene(); return; }   // 3D モードは 3D シーンを保存
+        if (Engine == IntPtr.Zero) return false;
+        if (_view3d)
+            return await Save3DSceneAsync();   // Loaded .acs3d source adapter
         // プロジェクトの初期シーンを開いているなら、そこへ直接上書き保存 (ダイアログ無し)。
+        string? previousPath = _currentScenePath;
         string? target = _currentScenePath;
         if (string.IsNullOrEmpty(target))
         {
@@ -3026,38 +3857,61 @@ public partial class MainWindow : Window
                 FileName = "scene.acscene",
                 InitialDirectory = _project?.AssetsDir,
             };
-            if (dlg.ShowDialog(this) != true) return;
+            if (dlg.ShowDialog(this) != true) return false;
             target = dlg.FileName;
         }
         try
         {
+            target = ValidateSceneDocumentPath(target, use3D: false);
             string text = EngineInterop.SceneText(Engine);
-            System.IO.File.WriteAllText(target, text, new System.Text.UTF8Encoding(false));
-            _currentScenePath = target;
+            if (_project != null)
+            {
+                SceneSourceFile.WriteProjectSceneAtomicText(
+                    target,
+                    text,
+                    _project.RootDir,
+                    _project.AssetsDir,
+                    SceneDocumentMode.TwoD);
+            }
+            else
+            {
+                SceneSourceFile.WriteAtomicText(
+                    target,
+                    text,
+                    expectedMode: SceneDocumentMode.TwoD);
+            }
+            SetCurrentScenePath(target);
+            MarkSceneClean(text);
+            NotifySceneDocumentSaved(use3D: false, target);
+            await OnSceneSourceSavedAsync(use3D: false, previousPath, target);
             Log($"Saved scene → {target}");
+            return true;
         }
         catch (Exception ex)
         {
             Log("Save failed: " + ex.Message);
+            return false;
         }
     }
 
     // ===== Undo / Redo (ApplicationCommands.Undo/Redo = Ctrl+Z / Ctrl+Y) =====
     private void OnUndo(object sender, ExecutedRoutedEventArgs e)
     {
-        if (Engine == IntPtr.Zero) return;
-        if (EngineInterop.acs_editor_undo(Engine) != 0)
+        if (!CanUseSceneDocumentHistory()) return;
+        if (_documentHost.Undo(out EditorDocumentTransactionInfo? transaction))
         {
-            RefreshAfterSceneChange(); Log("Undo.");
+            Log($"Undo: {transaction?.Label ?? "Edit"}.");
+            e.Handled = true;
         }
     }
 
     private void OnRedo(object sender, ExecutedRoutedEventArgs e)
     {
-        if (Engine == IntPtr.Zero) return;
-        if (EngineInterop.acs_editor_redo(Engine) != 0)
+        if (!CanUseSceneDocumentHistory()) return;
+        if (_documentHost.Redo(out EditorDocumentTransactionInfo? transaction))
         {
-            RefreshAfterSceneChange(); Log("Redo.");
+            Log($"Redo: {transaction?.Label ?? "Edit"}.");
+            e.Handled = true;
         }
     }
 

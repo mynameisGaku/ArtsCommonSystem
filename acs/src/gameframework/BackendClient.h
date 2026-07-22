@@ -33,13 +33,13 @@
 // 設計選択:
 //   ・**stub interface のみ**: 本ヘッダ + .cpp は IBackendClient / IMatchmaker を
 //     **抽象 interface として宣言** し、合わせて **常に NotImplemented を返す
-//     BackendClientStub / MatchmakerStub** を提供するだけにとどめる。
+//     GetBackendStub() / GetMatchmakerStub()** を提供するだけにとどめる。
 //     ACS 本体がリンク時に「最低 1 実装が居る」を保証するための fallback。
 //   ・**TResult<T, FErrorCode>**: 例外不使用方針。通信失敗・タイムアウト・パース
 //     エラー等はすべて FErrorCode で伝搬し、上位層が `if (r.IsErr())` で握る。
 //   ・**const char* 非所有**: URL / event_name / mode 等はすべて呼び出し側が
 //     寿命を保証する static / member バッファ。STL <string> 禁止方針。
-//   ・**MatchTicket は不透明 u64**: マッチ検索の進行中状態を表す ID。実装側で
+//   ・**FMatchTicket は不透明 u64**: マッチ検索の進行中状態を表す ID。実装側で
 //     具体的な意味 (hash, pointer-as-u64 等) を持ってよいが、呼出側は触らない。
 //   ・**全 noexcept**: 例外境界を関数単位で固定し、ABI として整える。
 //   ・**Tick(f32 dt)**: 非同期 RPC の応答 pump。実装はメインスレッドで callback
@@ -55,13 +55,13 @@ namespace acs::game {
  * backend / matchmaker 共通の失敗サブコード集。
  *
  * @details
- * FSaveSlot 等と同じく、本ピラーでも「stub = NotImplemented」を
- * subcode = kSub_NotImplemented で表現する。ErrCategory には IO を使う
+ * TSaveSlot 等と同じく、本ピラーでも「stub = NotImplemented」を
+ * subcode = kSub_NotImplemented で表現する。EErrCategory には IO を使う
  * (ネットワーク = I/O の一形態)。
  */
 struct FBackendError {
     /** backend 操作の失敗内容を表すサブコード。 */
-    enum SubCode : u16 {
+    enum ESubCode : u16 {
         /** Connect 前に Send/Tick された。 */
         kSub_NotConnected   = 1,
 
@@ -164,7 +164,7 @@ public:
  * マッチ検索の進行状態。
  *
  * @details
- * MatchTicket は検索 1 件分の不透明 handle。StartSearch で発行され、
+ * FMatchTicket は検索 1 件分の不透明 handle。StartSearch で発行され、
  * PollStatus で状態を引き、AcceptMatch / CancelSearch で完了させる流れ。
  */
 enum class EMatchStatus : u8 {
@@ -188,7 +188,7 @@ enum class EMatchStatus : u8 {
  * m_Opaque == 0 は無効値 (NULL ticket) を意味する。値は実装側が自由に
  * 解釈してよい (連番 ID / pointer / hash 等)。
  */
-struct MatchTicket {
+struct FMatchTicket {
     /** 実装側が意味を持つ不透明値 (0 = 無効)。 */
     u64 m_Opaque = 0;
 
@@ -232,9 +232,9 @@ public:
      * 渡す)。実装は Glicko-2 / TrueSkill で近い rating を引く。
      * @param mode 検索モードの文字列キー。
      * @param elo_hint 呼出側が知っている rating 推定値。
-     * @return 成功なら発行された MatchTicket、失敗ならエラー。
+     * @return 成功なら発行された FMatchTicket、失敗ならエラー。
      */
-    virtual TResult<MatchTicket> StartSearch(const char* mode,
+    virtual TResult<FMatchTicket> StartSearch(const char* mode,
                                             u32 elo_hint) noexcept = 0;
 
     /**
@@ -243,7 +243,7 @@ public:
      * @param t キャンセル対象の ticket (無効 ticket は no-op、べき等)。
      * @return 成功なら空の TResult、失敗ならエラー。
      */
-    virtual TResult<void> CancelSearch(MatchTicket t) noexcept = 0;
+    virtual TResult<void> CancelSearch(FMatchTicket t) noexcept = 0;
 
     /**
      * 現在の検索状態を返す。
@@ -252,7 +252,7 @@ public:
      * @param t 状態を引く ticket (無効 ticket は Failed)。
      * @return 現在の EMatchStatus。
      */
-    virtual EMatchStatus PollStatus(MatchTicket t) noexcept = 0;
+    virtual EMatchStatus PollStatus(FMatchTicket t) noexcept = 0;
 
     /**
      * Matched 状態の ticket を確定する。
@@ -264,7 +264,7 @@ public:
      * @param t 確定する ticket。
      * @return 成功なら空の TResult、失敗ならエラー。
      */
-    virtual TResult<void> AcceptMatch(MatchTicket t) noexcept = 0;
+    virtual TResult<void> AcceptMatch(FMatchTicket t) noexcept = 0;
 };
 
 /**

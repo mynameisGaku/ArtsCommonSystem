@@ -24,10 +24,10 @@ void FTriggerWorld2D::Init() noexcept {
 }
 
 /** 円形 trigger を登録する。 */
-FTriggerId FTriggerWorld2D::AddCircle(const Circle& c, u32 layer) noexcept {
+FTriggerId FTriggerWorld2D::AddCircle(const FCircle& c, u32 layer) noexcept {
     const u32 idx = AcquireSlot();
     FTriggerSlot& s = m_Slots[idx];
-    s.kind   = Kind::Circle;
+    s.kind   = EKind::Circle;
     s.circle = c;
     s.layer  = layer;
     s.user   = nullptr;
@@ -39,10 +39,10 @@ FTriggerId FTriggerWorld2D::AddCircle(const Circle& c, u32 layer) noexcept {
 }
 
 /** AABB trigger を登録する。 */
-FTriggerId FTriggerWorld2D::AddAabb(const Aabb2& a, u32 layer) noexcept {
+FTriggerId FTriggerWorld2D::AddAabb(const FAabb2& a, u32 layer) noexcept {
     const u32 idx = AcquireSlot();
     FTriggerSlot& s = m_Slots[idx];
-    s.kind   = Kind::FAabb;
+    s.kind   = EKind::Aabb;
     s.aabb   = a;
     s.layer  = layer;
     s.user   = nullptr;
@@ -54,18 +54,18 @@ FTriggerId FTriggerWorld2D::AddAabb(const Aabb2& a, u32 layer) noexcept {
 }
 
 /** 円形 trigger の形状を更新する (移動時)。 */
-void FTriggerWorld2D::UpdateCircle(FTriggerId id, const Circle& c) noexcept {
+void FTriggerWorld2D::UpdateCircle(FTriggerId id, const FCircle& c) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
     FTriggerSlot& s = m_Slots[id.Index()];
-    if (!s.active || s.gen != id.Generation() || s.kind != Kind::Circle) return;
+    if (!s.active || s.gen != id.Generation() || s.kind != EKind::Circle) return;
     s.circle = c;
 }
 
 /** AABB trigger の形状を更新する (移動時)。 */
-void FTriggerWorld2D::UpdateAabb(FTriggerId id, const Aabb2& a) noexcept {
+void FTriggerWorld2D::UpdateAabb(FTriggerId id, const FAabb2& a) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
     FTriggerSlot& s = m_Slots[id.Index()];
-    if (!s.active || s.gen != id.Generation() || s.kind != Kind::FAabb) return;
+    if (!s.active || s.gen != id.Generation() || s.kind != EKind::Aabb) return;
     s.aabb = a;
 }
 
@@ -75,7 +75,7 @@ void FTriggerWorld2D::Remove(FTriggerId id) noexcept {
     FTriggerSlot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation()) return;
     s.active = false;
-    s.kind   = Kind::None;
+    s.kind   = EKind::None;
     if (m_TriggerCount > 0) --m_TriggerCount;
     // 関連 pair は次 Tick で OnExit 発火後に自然消滅する (next_pairs に乗らないため)
 }
@@ -124,10 +124,10 @@ void FTriggerWorld2D::ClearAll() noexcept {
 
 /** 2 つの trigger slot が幾何的に重なるかを返す (narrow phase)。 */
 bool FTriggerWorld2D::ShapesOverlap(const FTriggerSlot& a, const FTriggerSlot& b) const noexcept {
-    if (a.kind == Kind::FAabb && b.kind == Kind::FAabb)     return Intersect(a.aabb,   b.aabb);
-    if (a.kind == Kind::Circle && b.kind == Kind::Circle) return Intersect(a.circle, b.circle);
-    if (a.kind == Kind::FAabb && b.kind == Kind::Circle)   return Intersect(a.aabb,   b.circle);
-    if (a.kind == Kind::Circle && b.kind == Kind::FAabb)   return Intersect(b.aabb,   a.circle);
+    if (a.kind == EKind::Aabb && b.kind == EKind::Aabb)       return Intersect(a.aabb,   b.aabb);
+    if (a.kind == EKind::Circle && b.kind == EKind::Circle) return Intersect(a.circle, b.circle);
+    if (a.kind == EKind::Aabb && b.kind == EKind::Circle)     return Intersect(a.aabb,   b.circle);
+    if (a.kind == EKind::Circle && b.kind == EKind::Aabb)     return Intersect(b.aabb,   a.circle);
     return false;
 }
 
@@ -144,7 +144,7 @@ void FTriggerWorld2D::Tick(f32 /*dt*/) noexcept {
             const FTriggerSlot& sb = m_Slots[j];
             if (!sb.active) continue;
             if (!ShapesOverlap(sa, sb)) continue;
-            OverlapPair np;
+            FOverlapPair np;
             np.a_idx           = i;
             np.b_idx           = j;
             np.was_overlapping = true;   // 「今フレ overlap している」マーカ
@@ -163,8 +163,8 @@ void FTriggerWorld2D::Tick(f32 /*dt*/) noexcept {
     const u32 nn = static_cast<u32>(m_NextPairs.Size());
 
     while (ip < np && in < nn) {
-        const OverlapPair& p = m_Pairs[ip];
-        const OverlapPair& n = m_NextPairs[in];
+        const FOverlapPair& p = m_Pairs[ip];
+        const FOverlapPair& n = m_NextPairs[in];
         // (a, b) 辞書順で比較
         const bool less_p = (p.a_idx <  n.a_idx) ||
                            (p.a_idx == n.a_idx && p.b_idx <  n.b_idx);
@@ -208,7 +208,7 @@ void FTriggerWorld2D::Tick(f32 /*dt*/) noexcept {
     }
     // 残り: 前フレに余っているもの → 全て OnExit
     while (ip < np) {
-        const OverlapPair& p = m_Pairs[ip];
+        const FOverlapPair& p = m_Pairs[ip];
         if (m_OnExit) {
             const FTriggerSlot& sa = m_Slots[p.a_idx];
             const FTriggerSlot& sb = m_Slots[p.b_idx];
@@ -220,7 +220,7 @@ void FTriggerWorld2D::Tick(f32 /*dt*/) noexcept {
     }
     // 残り: 今フレに余っているもの → 全て OnEnter
     while (in < nn) {
-        const OverlapPair& n = m_NextPairs[in];
+        const FOverlapPair& n = m_NextPairs[in];
         if (m_OnEnter) {
             const FTriggerSlot& sa = m_Slots[n.a_idx];
             const FTriggerSlot& sb = m_Slots[n.b_idx];
@@ -233,7 +233,7 @@ void FTriggerWorld2D::Tick(f32 /*dt*/) noexcept {
 
     // 3. 次フレ用に m_Pairs を m_NextPairs で置換。
     //    swap で再確保を抑え、m_NextPairs は次 Tick で Clear して再利用。
-    TArray<OverlapPair> tmp = Move(m_Pairs);
+    TArray<FOverlapPair> tmp = Move(m_Pairs);
     m_Pairs = Move(m_NextPairs);
     m_NextPairs = Move(tmp);
 }

@@ -83,7 +83,7 @@ public:
      * @param context クラッシュ 1 件分の context (例外種別・メッセージ・スタック等)。
      * @return 成功なら空の TResult、未初期化やファイル書き込み失敗ならエラー。
      */
-    acs::TResult<void> ReportCrash(const acs::game::CrashContext& context) noexcept override;
+    acs::TResult<void> ReportCrash(const acs::game::FCrashContext& context) noexcept override;
 
     /**
      * 非致命的エラー 1 件のテキストレポートを書き出す (minidump は作らない)。
@@ -191,7 +191,7 @@ private:
      * @return 書き込みに成功したら true、ファイルを開けなければ false。
      */
     bool WriteTextReport(const char* path,
-                         const acs::game::CrashContext* context,
+                         const acs::game::FCrashContext* context,
                          const char* category,
                          const char* message) noexcept;
 
@@ -257,4 +257,3 @@ acs::game::ICrashReporterBackend& GetDefaultWindowsCrashReporter() noexcept;
 void InstallWindowsCrashReporterAsDefault() noexcept;
 
 } // namespace acs::crashwin
-

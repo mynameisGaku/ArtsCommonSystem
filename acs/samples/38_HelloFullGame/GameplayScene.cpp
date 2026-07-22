@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloFullGame — GameplayScene 実装。シーン skeleton + モジュール orchestration。
+// HelloFullGame — FGameplayScene 実装。シーン skeleton + モジュール orchestration。
 #include "GameplayScene.h"
 #include "FullGameApp.h"
 #include "GameOverScene.h"
@@ -17,15 +17,15 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void GameplayScene::OnEnter() noexcept {
+void FGameplayScene::OnEnter() noexcept {
     // ----- input -----
     FInputMap& im = Services().Input();
     im.ClearAll();
-    im.BindAxisKeys(ActionId("MoveX"), EKey::A, EKey::D);
-    im.BindAxisKeys(ActionId("MoveY"), EKey::W, EKey::S);  // W=画面上=-Y (Y-down: 画面上ほど小さい Y)
-    im.BindMouseButton(ActionId("Fire"), EMouseButton::Left);
-    im.BindKey(ActionId("Pause"), EKey::P);
-    im.BindKey(ActionId("Quit"),  EKey::Escape);
+    im.BindAxisKeys(FActionId("MoveX"), EKey::A, EKey::D);
+    im.BindAxisKeys(FActionId("MoveY"), EKey::W, EKey::S);  // W=画面上=-Y (Y-down: 画面上ほど小さい Y)
+    im.BindMouseButton(FActionId("Fire"), EMouseButton::Left);
+    im.BindKey(FActionId("Pause"), EKey::P);
+    im.BindKey(FActionId("Quit"),  EKey::Escape);
 
     // ----- subsystem 初期化 -----
     m_Health.ClearAll();
@@ -72,7 +72,7 @@ void GameplayScene::OnEnter() noexcept {
     m_HitEffects.Init(m_Particles);
 
     // ----- perception -----
-    SenseConfig sc;
+    FSenseConfig sc;
     sc.sight_range   = 10.0f;
     sc.sight_fov_rad = kPi;
     sc.hearing_range = 8.0f;
@@ -95,7 +95,7 @@ void GameplayScene::OnEnter() noexcept {
     m_Waves.StartWaves();
 
     // ----- BGM -----
-    auto& app = static_cast<FullGameApp&>(GetGame());
+    auto& app = static_cast<FFullGameApp&>(GetGame());
     app.Music().SetState(EMusicState::Combat, 1.5f);
     app.Audio().PlayBgm("bgm_gameplay", 1.5f, true);
 
@@ -103,7 +103,7 @@ void GameplayScene::OnEnter() noexcept {
     ACS_LOG_INFO("[Gameplay] enter - WASD move, Mouse aim, LMB fire");
 }
 
-void GameplayScene::OnExit() noexcept {
+void FGameplayScene::OnExit() noexcept {
     // 敵 → player の順で root の Node を Destroy。ResolveStructuralChanges でまとめ反映。
     m_Enemies.Shutdown();
     m_Player.Shutdown();
@@ -119,7 +119,7 @@ void GameplayScene::OnExit() noexcept {
     ACS_LOG_INFO("[Gameplay] exit");
 }
 
-void GameplayScene::OnUpdate(f32 dt) noexcept {
+void FGameplayScene::OnUpdate(f32 dt) noexcept {
     // ----- FPS 計測 (EMA 0.1 で平滑化、HUD に出す) -----
     m_LastDt = dt;
     if (dt > 0.0f) {
@@ -128,7 +128,7 @@ void GameplayScene::OnUpdate(f32 dt) noexcept {
     }
 
     const FInputMap& im = Services().Input();
-    if (im.IsPressed(ActionId("Quit"))) {
+    if (im.IsPressed(FActionId("Quit"))) {
         GetGame().Quit();
         return;
     }
@@ -157,14 +157,14 @@ void GameplayScene::OnUpdate(f32 dt) noexcept {
     m_Waves.Tick(dt);
 }
 
-void GameplayScene::OnFixedUpdate(f32 /*dt*/) noexcept {
-    // 固定 step は FPhysicsBody2D の決定性のため FGame 側で 1/60 に固定済み。
+void FGameplayScene::OnFixedUpdate(f32 /*dt*/) noexcept {
+    // 固定 step は APhysicsBody2D の決定性のため FGame 側で 1/60 に固定済み。
     m_Root.FixedUpdateTree(1.0f / 60.0f);
     m_Root.ResolveStructuralChanges();
 }
 
-void GameplayScene::OnRender(RenderContext& rc) noexcept {
-    auto& app = static_cast<FullGameApp&>(GetGame());
+void FGameplayScene::OnRender(FRenderContext& rc) noexcept {
+    auto& app = static_cast<FFullGameApp&>(GetGame());
     app.EnsureSpritesInitialized();
     if (!app.SpritesReady()) return;
 
@@ -218,36 +218,36 @@ void GameplayScene::OnRender(RenderContext& rc) noexcept {
 
 // ----- モジュール連携 -----
 
-void GameplayScene::OnPlayerHurt() noexcept {
+void FGameplayScene::OnPlayerHurt() noexcept {
     m_HitEffects.TriggerPlayerHurt(*this, m_Player.Position());
 }
 
-void GameplayScene::OnEnemyKilled() noexcept {
+void FGameplayScene::OnEnemyKilled() noexcept {
     m_Score.NotifyHit();
     m_Score.AddScore("enemy.basic", 10);
     m_Waves.NotifyEnemyKilled("enemy_basic");
 }
 
-void GameplayScene::RequestGameOver(bool victory) noexcept {
+void FGameplayScene::RequestGameOver(bool victory) noexcept {
     if (m_bGameOverReq) return;       // 多重遷移ガード
     m_bGameOverReq = true;
     m_Victory = victory;
 
-    auto& app = static_cast<FullGameApp&>(GetGame());
+    auto& app = static_cast<FFullGameApp&>(GetGame());
     app.SaveHighScoreIfBetter(m_Score.CurrentScore());
     app.Music().SetState(victory ? EMusicState::Victory : EMusicState::GameOver, 1.0f);
     app.Audio().PlayBgm(victory ? "bgm_victory" : "bgm_gameover",
                         1.0f, victory ? false : true);
-    Scenes().ChangeScene(MakeUnique<GameOverScene>(m_Score.CurrentScore(), victory));
+    Scenes().ChangeScene(MakeUnique<FGameOverScene>(m_Score.CurrentScore(), victory));
 }
 
-FVec2 GameplayScene::MouseWorld() const noexcept {
-    const FVec2 m = Input::MousePos();
-    auto& app = static_cast<FullGameApp&>(GetGame());
+FVec2 FGameplayScene::MouseWorld() const noexcept {
+    const FVec2 m = FInput::MousePos();
+    auto& app = static_cast<FFullGameApp&>(GetGame());
     IRhiSwapchain* sc = app.GetRenderer().Swapchain();
     if (!sc) {
         // swapchain が出てくる前のごく初期フレームでは player 座標を返してフリーズ防止。
-        return m_Player.Node() ? m_Player.Node()->Local().position : FVec2{0.0f, 0.0f};
+        return m_Player.Node() ? m_Player.Node()->Position2D() : FVec2{0.0f, 0.0f};
     }
     return Services().Camera().ScreenToWorld(m, sc->Width(), sc->Height());
 }

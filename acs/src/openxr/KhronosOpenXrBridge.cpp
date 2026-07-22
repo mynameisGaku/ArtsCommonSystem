@@ -99,9 +99,9 @@ void FKhronosOpenXrBridge::Shutdown() noexcept {
     }
     m_bInitialized = false;
     m_Platform = game::EXrPlatform::Unknown;
-    m_HeadPose = game::XrPose{};
-    m_Left = game::XrControllerState{};
-    m_Right = game::XrControllerState{};
+    m_HeadPose = game::FXrPose{};
+    m_Left = game::FXrControllerState{};
+    m_Right = game::FXrControllerState{};
     m_bPassthroughSupported = false;
     m_bPassthroughRequested = false;
     m_bSessionTracking = false;
@@ -130,9 +130,9 @@ void FKhronosOpenXrBridge::Tick(f32 dt) noexcept {
                      "the non-XR fallback path.");
         m_bTickWarned = true;
     }
-    m_HeadPose = game::XrPose{};
-    m_Left = game::XrControllerState{};
-    m_Right = game::XrControllerState{};
+    m_HeadPose = game::FXrPose{};
+    m_Left = game::FXrControllerState{};
+    m_Right = game::FXrControllerState{};
 }
 
 void FKhronosOpenXrBridge::SetPassthrough(bool b_on) noexcept {

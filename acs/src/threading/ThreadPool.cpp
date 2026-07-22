@@ -39,7 +39,7 @@ constexpr u32 kSubmitNodePoolCount = 4096;
  * top/bottom はアトミックで、release ストア・acquire ロード・最後の 1 個の CAS
  * arbitration により lock-free に競合を解決する。64B 整列で false sharing を避ける。
  */
-struct alignas(64) WorkerDeque {
+struct alignas(64) FWorkerDeque {
     /** Steal 側 (先頭) のインデックス。他ワーカーが奪う。 */
     TAtomic<i64> top    {0};
 
@@ -47,7 +47,7 @@ struct alignas(64) WorkerDeque {
     TAtomic<i64> bottom {0};
 
     /** タスク本体のリングバッファ (値コピーで格納)。 */
-    Task        buffer[kDequeCapacity] {};
+    FTask        buffer[kDequeCapacity] {};
 
     /**
      * オーナー専用。末尾にタスクを Push する。
@@ -56,7 +56,7 @@ struct alignas(64) WorkerDeque {
      * @param t 追加するタスク。
      * @return 追加できたら true、deque が満杯なら false。
      */
-    bool Push(const Task& t) noexcept {
+    bool Push(const FTask& t) noexcept {
         const i64 b = bottom.Load(EMemoryOrder::Relaxed);
         const i64 tt = top.Load(EMemoryOrder::Acquire);
         if (b - tt >= kDequeCapacity) return false;  // 満杯
@@ -74,7 +74,7 @@ struct alignas(64) WorkerDeque {
      * @param out 取り出したタスクの書き込み先。
      * @return 取り出せたら true、deque が空または最後の 1 個を Steal に奪われたら false。
      */
-    bool Pop(Task& out) noexcept {
+    bool Pop(FTask& out) noexcept {
         const i64 b = bottom.Load(EMemoryOrder::Relaxed) - 1;
         bottom.Store(b, EMemoryOrder::Relaxed);
         HardwareFence();  // bottom 更新と top 読み取りの順序付け
@@ -100,7 +100,7 @@ struct alignas(64) WorkerDeque {
      * @param out 奪ったタスクの書き込み先。
      * @return 奪えたら true、空または CAS 競合に負けたら false。
      */
-    bool Steal(Task& out) noexcept {
+    bool Steal(FTask& out) noexcept {
         const i64 tt = top.Load(EMemoryOrder::Acquire);
         HardwareFence();
         const i64 b = bottom.Load(EMemoryOrder::Acquire);
@@ -114,24 +114,24 @@ struct alignas(64) WorkerDeque {
 };
 
 /** 外部投入キューの単方向リストノード (プール外スレッドからの Submit を保持)。 */
-struct SubmissionNode {
+struct FSubmissionNode {
     /** 次のノード (末尾は nullptr)。 */
-    SubmissionNode* next;
+    FSubmissionNode* next;
 
     /** このノードが保持するタスク。 */
-    Task            task;
+    FTask            task;
 };
 
 /** FMutex 保護の FIFO 投入キュー (プール外スレッドからの Submit が入る)。 */
-struct SubmissionQueue {
+struct FSubmissionQueue {
     /** キュー操作を保護する排他ロック。 */
     FMutex            lock;
 
     /** 先頭ノード (次に drain される、空なら nullptr)。 */
-    SubmissionNode*  head = nullptr;
+    FSubmissionNode*  head = nullptr;
 
     /** 末尾ノード (次に Push される位置、空なら nullptr)。 */
-    SubmissionNode*  tail = nullptr;
+    FSubmissionNode*  tail = nullptr;
 
     /** 現在キューに溜まっているタスク数。 */
     u32              count = 0;
@@ -142,11 +142,11 @@ struct SubmissionQueue {
  *
  * @details 64B 整列で隣接ワーカーとの false sharing を避ける。
  */
-struct PoolState;
+struct FPoolState;
 
-struct alignas(64) Worker {
+struct alignas(64) FWorker {
     /** このワーカーのワークスチール deque。 */
-    WorkerDeque  deque;
+    FWorkerDeque  deque;
 
     /** ワーカーインデックス (0..N-1)。 */
     u32          index;
@@ -155,13 +155,13 @@ struct alignas(64) Worker {
     TAtomic<u32>  rng_state;
 
     /** このワーカーを所有するプール。停止処理中もグローバル参照に依存しないため保持する。 */
-    PoolState* owner = nullptr;
+    FPoolState* owner = nullptr;
 };
 
 /** スレッドプール全体の状態 (シングルトン)。 */
-struct PoolState {
+struct FPoolState {
     /** ワーカー配列 (64B 整列で確保)。 */
-    Worker*           workers      = nullptr;
+    FWorker*           workers      = nullptr;
 
     /** workers のために HeapAlloc が返した元ポインタ (解放時は整列後ポインタではなくこちらを使う)。 */
     void* worker_allocation = nullptr;
@@ -188,20 +188,20 @@ struct PoolState {
     TAtomic<u32> active_submitters{0};
 
     /** 外部投入キュー。 */
-    SubmissionQueue   submit;
+    FSubmissionQueue   submit;
 
     /** wake_cv とペアで使う、ワーカー park 用のロック。 */
     FMutex             wake_lock;
 
     /** 仕事が来たときに park 中のワーカーを起こす条件変数。 */
-    ConditionVar      wake_cv;
+    FConditionVar      wake_cv;
 
     /** 外部投入ノードを HeapAlloc せず取るための固定サイズプール。 */
     FPoolAllocator*    submit_node_pool = nullptr;
 };
 
 /** プール全体の状態へのグローバルポインタ (null = 未初期化)。 */
-PoolState* g_pool = nullptr;
+FPoolState* g_pool = nullptr;
 
 /** g_pool の差し替えと公開 API の参照取得を直列化する。 */
 FMutex g_lifecycle_lock;
@@ -213,7 +213,7 @@ FMutex g_init_shutdown_lock;
 ACS_THREAD_LOCAL u32 tls_worker_index = FThreadPool::kNotAWorker;
 
 /** 現在実行しているタスクの所有プール。外部スレッドが Wait 中に実行する場合も設定する。 */
-ACS_THREAD_LOCAL PoolState* tls_executing_pool = nullptr;
+ACS_THREAD_LOCAL FPoolState* tls_executing_pool = nullptr;
 
 /**
  * 公開 API の実行中だけ PoolState の寿命を保持する小さなピン。
@@ -221,30 +221,30 @@ ACS_THREAD_LOCAL PoolState* tls_executing_pool = nullptr;
  * @details g_pool 読み取りと api_users 加算を同じロック区間で行うため、Shutdown が
  * g_pool を外してから状態を解放する処理と競合しない。
  */
-class PoolPin {
+class FPoolPin {
 public:
-    PoolPin() noexcept
+    FPoolPin() noexcept
     {
         FScopedLock lock(g_lifecycle_lock);
         m_Pool = g_pool;
         if (m_Pool) m_Pool->api_users.FetchAdd(1);
     }
 
-    ~PoolPin() noexcept
+    ~FPoolPin() noexcept
     {
         if (m_Pool) m_Pool->api_users.FetchSub(1);
     }
 
-    PoolPin(const PoolPin&) = delete;
-    PoolPin& operator=(const PoolPin&) = delete;
+    FPoolPin(const FPoolPin&) = delete;
+    FPoolPin& operator=(const FPoolPin&) = delete;
 
-    PoolState* Get() const noexcept
+    FPoolState* Get() const noexcept
     {
         return m_Pool;
     }
 
 private:
-    PoolState* m_Pool = nullptr;
+    FPoolState* m_Pool = nullptr;
 };
 
 /**
@@ -268,15 +268,15 @@ ACS_FORCEINLINE u32 XorShift32(TAtomic<u32>& s) noexcept {
  *
  * @return 確保したノード、確保失敗時は nullptr。
  */
-SubmissionNode* AcquireSubmitNode(PoolState* pool) noexcept
+FSubmissionNode* AcquireSubmitNode(FPoolState* pool) noexcept
 {
     if (pool->submit_node_pool) {
-        void* const p = pool->submit_node_pool->Alloc(sizeof(SubmissionNode), alignof(SubmissionNode),
+        void* const p = pool->submit_node_pool->Alloc(sizeof(FSubmissionNode), alignof(FSubmissionNode),
                                                       FSourceLoc::Current());
-        if (p) return static_cast<SubmissionNode*>(p);
+        if (p) return static_cast<FSubmissionNode*>(p);
     }
     // フォールバック: プール枯渇時は Heap から取る
-    return static_cast<SubmissionNode*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(SubmissionNode)));
+    return static_cast<FSubmissionNode*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(FSubmissionNode)));
 }
 
 /**
@@ -284,7 +284,7 @@ SubmissionNode* AcquireSubmitNode(PoolState* pool) noexcept
  *
  * @param n 返却するノード (nullptr は無視)。
  */
-void ReleaseSubmitNode(PoolState* state, SubmissionNode* n) noexcept
+void ReleaseSubmitNode(FPoolState* state, FSubmissionNode* n) noexcept
 {
     if (!n) return;
     FPoolAllocator* pool = state->submit_node_pool;
@@ -302,14 +302,14 @@ void ReleaseSubmitNode(PoolState* state, SubmissionNode* n) noexcept
  * @param out 取り出したタスクの書き込み先。
  * @return 取り出せたら true。
  */
-bool TryDrainSubmit(PoolState* pool, Task& out) noexcept
+bool TryDrainSubmit(FPoolState* pool, FTask& out) noexcept
 {
-    SubmissionQueue& q = pool->submit;
+    FSubmissionQueue& q = pool->submit;
     if (!q.lock.TryLock()) return false;
     bool got = false;
-    SubmissionNode* free_me = nullptr;
+    FSubmissionNode* free_me = nullptr;
     if (q.head) {
-        SubmissionNode* const n = q.head;
+        FSubmissionNode* const n = q.head;
         out = n->task;
         q.head = n->next;
         if (!q.head) q.tail = nullptr;
@@ -329,11 +329,11 @@ bool TryDrainSubmit(PoolState* pool, Task& out) noexcept
  * @param out 奪ったタスクの書き込み先。
  * @return いずれかのワーカーから奪えたら true。
  */
-bool TrySteal(PoolState* pool, u32 self_index, Task& out) noexcept
+bool TrySteal(FPoolState* pool, u32 self_index, FTask& out) noexcept
 {
     const u32 n = pool->worker_count;
     if (n <= 1) return false;
-    Worker& self = pool->workers[self_index];
+    FWorker& self = pool->workers[self_index];
     u32 victim = XorShift32(self.rng_state) % n;
     for (u32 i = 0; i < n; ++i) {
         if (victim != self_index) {
@@ -350,9 +350,9 @@ bool TrySteal(PoolState* pool, u32 self_index, Task& out) noexcept
  * @param t 実行するタスク (fn が null なら実行をスキップ)。
  * @param worker_index 実行中のワーカーインデックス (fn に渡す)。
  */
-ACS_FORCEINLINE void Execute(PoolState* pool, const Task& t, u32 worker_index) noexcept
+ACS_FORCEINLINE void Execute(FPoolState* pool, const FTask& t, u32 worker_index) noexcept
 {
-    PoolState* const previous_pool = tls_executing_pool;
+    FPoolState* const previous_pool = tls_executing_pool;
     tls_executing_pool = pool;
     if (t.fn) t.fn(t.user, worker_index);
     if (t.counter) t.counter->Done();
@@ -369,13 +369,13 @@ ACS_FORCEINLINE void Execute(PoolState* pool, const Task& t, u32 worker_index) n
  * @param arg 担当する Worker へのポインタ。
  */
 void WorkerMain(void* arg) noexcept {
-    Worker* w = static_cast<Worker*>(arg);
-    PoolState* const pool = w->owner;
+    FWorker* w = static_cast<FWorker*>(arg);
+    FPoolState* const pool = w->owner;
     tls_worker_index = w->index;
     w->rng_state.Store(0x9E3779B9u ^ (w->index * 2654435761u), EMemoryOrder::Relaxed);
 
     while (pool->running.Load(EMemoryOrder::Acquire)) {
-        Task t {};
+        FTask t {};
         if (w->deque.Pop(t)) {
             Execute(pool, t, w->index);
             continue;
@@ -407,24 +407,24 @@ TResult<void> FThreadPool::Init(u32 worker_count) noexcept {
     if (worker_count > kMaxWorkers) worker_count = kMaxWorkers;
 
     // PoolState をプロセスヒープから 0 クリア確保
-    void* mem = ::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(PoolState));
+    void* mem = ::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(FPoolState));
     if (!mem) return ACS_ERR(Memory, 2, "FThreadPool state alloc failed");
-    g_pool = ::new (mem) PoolState();
+    g_pool = ::new (mem) FPoolState();
 
     // ワーカー配列を 64B 境界整列で確保
-    usize total = sizeof(Worker) * worker_count + 64;
+    usize total = sizeof(FWorker) * worker_count + 64;
     void* wmem = ::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY, total);
     if (!wmem) {
-        g_pool->~PoolState();
+        g_pool->~FPoolState();
         ::HeapFree(::GetProcessHeap(), 0, g_pool);
         g_pool = nullptr;
         return ACS_ERR(Memory, 3, "FThreadPool worker alloc failed");
     }
     uptr aligned = (reinterpret_cast<uptr>(wmem) + 63) & ~uptr{63};
     g_pool->worker_allocation = wmem;
-    g_pool->workers = reinterpret_cast<Worker*>(aligned);
+    g_pool->workers = reinterpret_cast<FWorker*>(aligned);
     for (u32 i = 0; i < worker_count; ++i) {
-        ::new (&g_pool->workers[i]) Worker();
+        ::new (&g_pool->workers[i]) FWorker();
         g_pool->workers[i].index = i;
         g_pool->workers[i].owner = g_pool;
     }
@@ -434,20 +434,20 @@ TResult<void> FThreadPool::Init(u32 worker_count) noexcept {
     void* pool_mem = ::HeapAlloc(::GetProcessHeap(), 0, sizeof(FPoolAllocator));
     if (!pool_mem) {
         ::HeapFree(::GetProcessHeap(), 0, wmem);
-        g_pool->~PoolState();
+        g_pool->~FPoolState();
         ::HeapFree(::GetProcessHeap(), 0, g_pool);
         g_pool = nullptr;
         return ACS_ERR(Memory, 7, "FThreadPool submit pool alloc failed");
     }
     g_pool->submit_node_pool = ::new (pool_mem) FPoolAllocator(
-        sizeof(SubmissionNode), kSubmitNodePoolCount, alignof(SubmissionNode));
+        sizeof(FSubmissionNode), kSubmitNodePoolCount, alignof(FSubmissionNode));
 
     g_pool->accepting.Store(1, EMemoryOrder::Release);
     g_pool->running.Store(1, EMemoryOrder::Release);
 
     // ワーカースレッド起動
     for (u32 i = 0; i < worker_count; ++i) {
-        ThreadConfig cfg {};
+        FThreadConfig cfg {};
         cfg.name = L"acs::FThreadPool worker";
         auto r = FThread::Spawn(&WorkerMain, &g_pool->workers[i], cfg);
         if (r.IsErr()) {
@@ -458,7 +458,7 @@ TResult<void> FThreadPool::Init(u32 worker_count) noexcept {
             g_pool->submit_node_pool->~FPoolAllocator();
             ::HeapFree(::GetProcessHeap(), 0, g_pool->submit_node_pool);
             ::HeapFree(::GetProcessHeap(), 0, wmem);
-            g_pool->~PoolState();
+            g_pool->~FPoolState();
             ::HeapFree(::GetProcessHeap(), 0, g_pool);
             g_pool = nullptr;
             return Err<void>(r.Error());
@@ -475,7 +475,7 @@ void FThreadPool::Shutdown() noexcept {
 
     FScopedLock operation_lock(g_init_shutdown_lock);
 
-    PoolState* pool = nullptr;
+    FPoolState* pool = nullptr;
     {
         FScopedLock lifecycle_lock(g_lifecycle_lock);
         pool = g_pool;
@@ -514,9 +514,9 @@ void FThreadPool::Shutdown() noexcept {
     // outstanding == 0 なら通常は空。防御的にノードだけを回収する。
     {
         FScopedLock lk(pool->submit.lock);
-        SubmissionNode* n = pool->submit.head;
+        FSubmissionNode* n = pool->submit.head;
         while (n) {
-            SubmissionNode* nx = n->next;
+            FSubmissionNode* nx = n->next;
             ReleaseSubmitNode(pool, n);
             n = nx;
         }
@@ -533,9 +533,9 @@ void FThreadPool::Shutdown() noexcept {
     }
 
     // ワーカー破棄
-    Worker* base = pool->workers;
+    FWorker* base = pool->workers;
     for (u32 i = 0; i < pool->worker_count; ++i)
-        base[i].~Worker();
+        base[i].~FWorker();
     pool->workers = nullptr;
     pool->worker_count = 0;
 
@@ -544,13 +544,13 @@ void FThreadPool::Shutdown() noexcept {
     ::HeapFree(::GetProcessHeap(), 0, pool->worker_allocation);
     pool->worker_allocation = nullptr;
 
-    pool->~PoolState();
+    pool->~FPoolState();
     ::HeapFree(::GetProcessHeap(), 0, pool);
 }
 
 /** 起動中のワーカー数を返す (未初期化なら 0)。 */
 u32 FThreadPool::WorkerCount() noexcept {
-    PoolPin pin;
+    FPoolPin pin;
     return pin.Get() ? pin.Get()->worker_count : 0;
 }
 
@@ -560,9 +560,9 @@ u32 FThreadPool::CurrentWorkerIndex() noexcept {
 }
 
 /** タスクを投入する (自ワーカーなら deque、外部ならグローバルキュー経由)。 */
-TResult<void> FThreadPool::Submit(const Task& t) noexcept {
-    PoolPin pin;
-    PoolState* const pool = pin.Get();
+TResult<void> FThreadPool::Submit(const FTask& t) noexcept {
+    FPoolPin pin;
+    FPoolState* const pool = pin.Get();
     if (!pool) return ACS_ERR(Threading, 3, "FThreadPool not initialized");
     if (!t.fn)   return ACS_ERR(Threading, 4, "Task fn is null");
 
@@ -588,7 +588,7 @@ TResult<void> FThreadPool::Submit(const Task& t) noexcept {
     }
 
     // 外部キューにエンキュー（HeapAlloc 回避のためノードプールから取る）
-    SubmissionNode* node = AcquireSubmitNode(pool);
+    FSubmissionNode* node = AcquireSubmitNode(pool);
     if (!node) {
         if (t.counter) t.counter->Done();
         pool->outstanding.FetchSub(1);
@@ -612,15 +612,15 @@ TResult<void> FThreadPool::Submit(const Task& t) noexcept {
 }
 
 /** counter が 0 になるまで待機する (待機中もスティーリング、無作業なら指数バックオフ)。 */
-void FThreadPool::Wait(CompletionCounter& counter) noexcept {
-    PoolPin pin;
-    PoolState* const pool = pin.Get();
+void FThreadPool::Wait(FCompletionCounter& counter) noexcept {
+    FPoolPin pin;
+    FPoolState* const pool = pin.Get();
     if (!pool) return;
     u32 self = tls_worker_index;
     u32 idle_iters = 0;  // 連続で仕事を見つけられなかった回数
 
     while (!counter.Finished()) {
-        Task t {};
+        FTask t {};
         bool got = false;
         if (self != kNotAWorker) {
             if (self < pool->worker_count && pool->workers[self].deque.Pop(t)) got = true;
@@ -657,7 +657,7 @@ void FThreadPool::Wait(CompletionCounter& counter) noexcept {
 
 namespace {
 /** ParallelFor の 1 チャンク分の実行コンテキスト。 */
-struct PFContext {
+struct FPfContext {
     /** 各インデックスに対して呼ぶユーザー関数 (i, worker_index, user)。 */
     void (*body)(u32 i, u32 worker_index, void* user);
 
@@ -678,7 +678,7 @@ struct PFContext {
  * @param worker_index 実行中のワーカーインデックス。
  */
 void PFRangeFn(void* arg, u32 worker_index) noexcept {
-    auto* r = static_cast<PFContext*>(arg);
+    auto* r = static_cast<FPfContext*>(arg);
     for (u32 i = r->begin; i < r->end; ++i) r->body(i, worker_index, r->user);
 }
 } // namespace
@@ -695,10 +695,10 @@ TResult<void> FThreadPool::ParallelFor(u32 begin, u32 end, u32 grain,
     const u32 chunks = (total + grain - 1) / grain;
 
     // チャンクごとの PFContext を 1 つの連続ブロックで確保
-    auto* ranges = static_cast<PFContext*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(PFContext) * chunks));
+    auto* ranges = static_cast<FPfContext*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(FPfContext) * chunks));
     if (!ranges) return ACS_ERR(Memory, 5, "ParallelFor range alloc failed");
 
-    CompletionCounter counter;
+    FCompletionCounter counter;
     for (u32 c = 0; c < chunks; ++c) {
         ranges[c].body  = body;
         ranges[c].user  = user;
@@ -706,7 +706,7 @@ TResult<void> FThreadPool::ParallelFor(u32 begin, u32 end, u32 grain,
         ranges[c].end   = ranges[c].begin + grain;
         if (ranges[c].end > end) ranges[c].end = end;
 
-        const Task t { &PFRangeFn, &ranges[c], &counter };
+        const FTask t { &PFRangeFn, &ranges[c], &counter };
         auto r = Submit(t);
         if (r.IsErr()) {
             // 投入失敗 — 既に投入済みのものを待ってから返す

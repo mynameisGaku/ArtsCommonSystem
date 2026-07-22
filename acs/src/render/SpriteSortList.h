@@ -10,7 +10,7 @@
 //   使い方: 描画コマンドを layer/depth 付きで Submit* に貯め、Sort() で安定ソートし、
 //   Replay(batch) で sorted 順に FSpriteBatch へ流す。FSpriteBatch 自体は無改変。
 //
-// ソート規約 (エンジンの FNode2D::SortLayer と一致):
+// ソート規約 (エンジンの ANode::DrawLayer と一致):
 //   第1キー layer 昇順 (小さい層 = 奥 = 先に描画)、
 //   第2キー depth 昇順 (小さい depth = 奥 = 先に描画)、
 //   同一キーは **挿入順を保持** (安定)。seq を総順序に含めるので決定的。
@@ -219,7 +219,7 @@ public:
      * @details
      * index 配列を安定挿入ソートする (コマンド本体は動かさない)。seq を最終キーに含めるため
      * 同一 layer/depth は挿入順を保つ。挿入ソートなので大量コマンドでは O(n²) — ソートリストは
-     * 動的スプライトの前後関係付け用で、想定規模 (数百) では十分。静的大量描画は Scene2D 経路へ。
+     * 動的スプライトの前後関係付け用で、想定規模 (数百) では十分。静的大量描画は FScene2D 経路へ。
      */
     void Sort() noexcept;
 

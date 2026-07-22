@@ -99,9 +99,9 @@ FSystemAllocator g_easy_allocator;
 /**
  * LoadSprite が確保する 1 枚分のスプライト情報。
  */
-struct SpriteSlot {
+struct FSpriteSlot {
     /** プロセス寿命状態へ残るパスの確保元を固定する。 */
-    SpriteSlot() noexcept : path(g_easy_allocator)
+    FSpriteSlot() noexcept : path(g_easy_allocator)
     {
     }
 
@@ -121,20 +121,20 @@ struct SpriteSlot {
 /**
  * LoadSound が確保する 1 つ分のサウンド情報。
  */
-struct SoundSlot {
+struct FSoundSlot {
     /** プロセス寿命状態へ残るパスの確保元を固定する。 */
-    SoundSlot() noexcept : path(g_easy_allocator)
+    FSoundSlot() noexcept : path(g_easy_allocator)
     {
     }
 
     /** 音声アセット (再生中ずっと生かしておくため TSharedPtr で保持)。 */
-    TSharedPtr<Asset>   asset;
+    TSharedPtr<FAsset>   asset;
 
     /** 読み込み元パス (再ロード時の同一判定に使う)。 */
     FString      path;
 
     /** PlayLoop 中の再生ハンドル (StopSound 用。無効値で初期化)。 */
-    SoundHandle loop{};
+    FSoundHandle loop{};
 };
 
 /**
@@ -144,9 +144,9 @@ struct SoundSlot {
  * エンジンオブジェクトの宣言順 = 構築順 (破棄は逆順)。カメラは毎フレーム恒等に
  * リセットされ、演出 (シェイク/フラッシュ) は NextFrame で駆動される。
  */
-struct EasyState {
+struct FEasyState {
     /** プロセス寿命アロケータを静的コンテナへ固定して構築する。 */
-    EasyState() noexcept
+    FEasyState() noexcept
         : assets(g_easy_allocator),
           sprites(g_easy_allocator),
           sounds(g_easy_allocator),
@@ -207,7 +207,7 @@ struct EasyState {
     FBurnEffect    burn;
 
     /** 既定フォント (DrawString 用)。 */
-    Font          font;
+    FFont          font;
 
     /** フォントの読み込みに成功したか。 */
     bool          font_ok  = false;
@@ -216,19 +216,19 @@ struct EasyState {
     TUniquePtr<IRhiTexture> circle_tex;
 
     /** 読み込み済みスプライトのスロット配列 (id-1 で参照)。 */
-    TArray<SpriteSlot> sprites;
+    TArray<FSpriteSlot> sprites;
 
     /** 読み込み済みサウンドのスロット配列 (id-1 で参照)。 */
-    TArray<SoundSlot>  sounds;
+    TArray<FSoundSlot>  sounds;
 
     /** フレーム時間計測 (dt/FPS/累積時間)。 */
-    FrameTimer  timer;
+    FFrameTimer  timer;
 
     /** 前フレームからの経過秒。 */
     f32         dt    = 0.0f;
 
     /** 背景クリア色 (既定は濃い紺色)。 */
-    ClearColor  clear { 0.10f, 0.12f, 0.16f, 1.0f };
+    FClearColor  clear { 0.10f, 0.12f, 0.16f, 1.0f };
 
     /** カメラ中心の X 座標 (ワールド座標)。 */
     f32 cam_x = 0.0f;
@@ -282,7 +282,7 @@ struct EasyState {
     u32               post_buf_idx   = 0;
 
     /** ポストプロセスのパラメータ (Bloom/露出など)。 */
-    PostProcessParams pp_params;
+    FPostProcessParams pp_params;
 
     /** ウィンドウタイトルの UTF-16 バッファ。 */
     wchar_t title_buf[256] = L"ACS Easy";
@@ -295,14 +295,14 @@ struct EasyState {
      *
      * @details メインスレッドからのみ操作する。スロットは世代付きで再利用する。
      */
-    struct AsyncBatch {
+    struct FAsyncBatch {
         /** クロージャ配列の確保元をプロセス寿命アロケータへ固定する。 */
-        AsyncBatch() noexcept : closures(g_easy_allocator)
+        FAsyncBatch() noexcept : closures(g_easy_allocator)
         {
         }
 
         /** このバッチの全ジョブの完了カウンタ (非コピーなので in-place 構築)。 */
-        CompletionCounter counter;
+        FCompletionCounter counter;
 
         /** このバッチが所有する jobdetail::Closure* の配列。 */
         TArray<void*>     closures;
@@ -315,7 +315,7 @@ struct EasyState {
     };
 
     /** 非同期バッチスロットの固定配列。 */
-    AsyncBatch        async_batches[kMaxBatches];
+    FAsyncBatch        async_batches[kMaxBatches];
 
     /** RunJobs 用に構築中の依存グラフ (未構築なら nullptr)。 */
     FJobGraph*        pending_graph = nullptr;
@@ -324,7 +324,7 @@ struct EasyState {
     TArray<void*>     graph_closures;
 
     /** JobNode.id-1 → JobHandle の対応表。 */
-    TArray<JobHandle> graph_handles;
+    TArray<FJobHandle> graph_handles;
 
     /** jobs が自前で ThreadPool を Init したか (後始末の責任判定)。 */
     bool              jobs_pool_owned = false;
@@ -337,7 +337,7 @@ struct EasyState {
 };
 
 /** easy API 全体の唯一のグローバル状態インスタンス。 */
-EasyState g_state;
+FEasyState g_state;
 
 /**
  * UTF-8 文字列を UTF-16 に変換して out に書く。
@@ -492,7 +492,7 @@ void DrawTextScaled(f32 x, f32 y, const char* text, FVec4 color, f32 scale) noex
             baseline += g_state.font.LineHeight() * scale;
             continue;
         }
-        GlyphInfo g{};
+        FGlyphInfo g{};
         if (!g_state.font.GetGlyph(cp, g)) continue;
         const f32 qx = pen_x     + g.x_offset * scale;
         const f32 qy = baseline + g.y_offset * scale;
@@ -509,9 +509,9 @@ void DrawTextScaled(f32 x, f32 y, const char* text, FVec4 color, f32 scale) noex
  * @param user 未使用のユーザポインタ。
  * @param e 処理するウィンドウイベント。
  */
-void EasyEventBridge(void* /*user*/, const Event& e) noexcept {
-    Input::OnEvent(e);
-    if (e.type == EventType::WindowResize) {
+void EasyEventBridge(void* /*user*/, const FEvent& e) noexcept {
+    FInput::OnEvent(e);
+    if (e.type == EEventType::WindowResize) {
         g_state.renderer.OnResize(e.resize.width, e.resize.height);
         if (g_state.post_available)
             (void)g_state.post.Resize(e.resize.width, e.resize.height);
@@ -526,7 +526,7 @@ void EasyEventBridge(void* /*user*/, const Event& e) noexcept {
  * @param worker 呼び出し元ワーカ番号 (未使用)。
  */
 void RunClosureTask(void* user, u32 /*worker*/) noexcept {
-    auto* c = static_cast<jobdetail::Closure*>(user);
+    auto* c = static_cast<jobdetail::FClosure*>(user);
     c->invoke(c);
 }
 
@@ -535,7 +535,7 @@ void RunClosureTask(void* user, u32 /*worker*/) noexcept {
  *
  * @param c 解放するクロージャ (nullptr 可)。
  */
-void FreeClosure(jobdetail::Closure* c) noexcept {
+void FreeClosure(jobdetail::FClosure* c) noexcept {
     jobdetail::DestroyClosure(c);
 }
 
@@ -545,18 +545,18 @@ void FreeClosure(jobdetail::Closure* c) noexcept {
  * @details 冪等で、Shutdown / atexit から呼ばれる。
  */
 void CleanupJobs() noexcept {
-    for (u32 i = 0; i < EasyState::kMaxBatches; ++i) {
-        EasyState::AsyncBatch& b = g_state.async_batches[i];
+    for (u32 i = 0; i < FEasyState::kMaxBatches; ++i) {
+        FEasyState::FAsyncBatch& b = g_state.async_batches[i];
         if (!b.live) continue;
         FThreadPool::Wait(b.counter);
         for (usize k = 0; k < b.closures.Size(); ++k)
-            FreeClosure(static_cast<jobdetail::Closure*>(b.closures[k]));
+            FreeClosure(static_cast<jobdetail::FClosure*>(b.closures[k]));
         b.closures.ReleaseStorage();
         b.live = false;
     }
     if (g_state.pending_graph) {
         for (usize k = 0; k < g_state.graph_closures.Size(); ++k)
-            FreeClosure(static_cast<jobdetail::Closure*>(g_state.graph_closures[k]));
+            FreeClosure(static_cast<jobdetail::FClosure*>(g_state.graph_closures[k]));
         g_state.graph_closures.ReleaseStorage();
         g_state.graph_handles.ReleaseStorage();
         delete g_state.pending_graph;
@@ -668,9 +668,9 @@ void DrawScreenOverlays() noexcept {
 /**
  * セーブデータ 1 件分の key=value エントリ。
  */
-struct SaveEntry {
+struct FSaveEntry {
     /** OpenWindow の有無に依存しないセーブ API 用に確保元を固定する。 */
-    SaveEntry() noexcept : key(g_easy_allocator), value(g_easy_allocator)
+    FSaveEntry() noexcept : key(g_easy_allocator), value(g_easy_allocator)
     {
     }
 
@@ -682,7 +682,7 @@ struct SaveEntry {
 };
 
 /** ロード済みセーブエントリの配列 (save.dat の内容)。 */
-TArray<SaveEntry> g_save(g_easy_allocator);
+TArray<FSaveEntry> g_save(g_easy_allocator);
 
 /** save.dat を 1 度ロード済みか (再ロードを避ける)。 */
 bool             g_save_loaded = false;
@@ -723,7 +723,7 @@ void EnsureSaveLoaded() noexcept {
             while (*eq && *eq != '=') ++eq;
             if (*eq == '=') {
                 *eq = 0;                             // key 部を NUL 終端
-                SaveEntry e;
+                FSaveEntry e;
                 e.key = FString{line, g_easy_allocator};
                 e.value = FString{eq + 1, g_easy_allocator};
                 g_save.PushBack(Move(e));
@@ -739,7 +739,7 @@ void EnsureSaveLoaded() noexcept {
  * @param key 探すキー。
  * @return 一致したエントリへのポインタ (無ければ nullptr)。
  */
-SaveEntry* FindSave(const char* key) noexcept {
+FSaveEntry* FindSave(const char* key) noexcept {
     for (usize i = 0; i < g_save.Size(); ++i) {
         const char* k = g_save[i].key.Data();
         if (k && strcmp(k, key) == 0) return &g_save[i];
@@ -779,11 +779,11 @@ void WriteSaveFile() noexcept {
  */
 void SetSaveValue(const char* key, const char* value) noexcept {
     EnsureSaveLoaded();
-    SaveEntry* e = FindSave(key);
+    FSaveEntry* e = FindSave(key);
     if (e) {
         e->value = FString{value, g_easy_allocator};
     } else {
-        SaveEntry ne;
+        FSaveEntry ne;
         ne.key = FString{key, g_easy_allocator};
         ne.value = FString{value, g_easy_allocator};
         g_save.PushBack(Move(ne));
@@ -854,7 +854,7 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
         g_state.thread_pool_owned = true;
     }
     // 4. ウィンドウ
-    ToWide(title ? title : "ACS FGame", g_state.title_buf, 256);
+    ToWide(title ? title : "ACS Game", g_state.title_buf, 256);
     FWindowConfig wc{};
     wc.title  = g_state.title_buf;
     wc.width  = (width  > 0) ? static_cast<u32>(width)  : 1280;
@@ -918,8 +918,8 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
     if (!g_state.audio_ok)
         ACS_LOG_WARN("easy: 音声を初期化できませんでした（音は鳴りません）");
 
-    g_state.timer  = FrameTimer{};
-    g_rng          = static_cast<u32>(Clock::Ticks());   // 乱数の種を起動時刻で
+    g_state.timer  = FFrameTimer{};
+    g_rng          = static_cast<u32>(FClock::Ticks());   // 乱数の種を起動時刻で
     if (g_rng == 0) g_rng = 0x9E3779B9u;
     g_state.booted = true;
     if (!g_state.shutdown_atexit) {
@@ -961,7 +961,7 @@ bool NextFrame() noexcept {
     }
 
     // フレーム先頭処理
-    Input::Update();
+    FInput::Update();
     g_state.window.PollEvents();
 
     // 保留中の全画面切替を、フレームの外側（リサイズが安全なこの位置）で適用
@@ -1048,7 +1048,7 @@ void SetWindowTitle(const char* title) noexcept {
 
 /** 背景クリア色を設定する。 */
 void SetBackground(FColor color) noexcept {
-    g_state.clear = ClearColor{ color.r, color.g, color.b, color.a };
+    g_state.clear = FClearColor{ color.r, color.g, color.b, color.a };
 }
 
 /** 全画面切替を要求する (フレーム境界で適用)。 */
@@ -1240,29 +1240,29 @@ void DrawPixel(f32 x, f32 y, FColor color) noexcept {
 }
 
 /** スプライトを元サイズで描く。 */
-void DrawSprite(Sprite sprite, f32 x, f32 y) noexcept {
+void DrawSprite(FSprite sprite, f32 x, f32 y) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
-    SpriteSlot& s = g_state.sprites[sprite.id - 1];
+    FSpriteSlot& s = g_state.sprites[sprite.id - 1];
     if (s.tex)
         g_state.batch.Draw(*s.tex, x, y, s.w, s.h, FVec4{ 1.0f, 1.0f, 1.0f, 1.0f });
 }
 
 /** スプライトを指定サイズに伸縮して描く。 */
-void DrawSprite(Sprite sprite, f32 x, f32 y, f32 width, f32 height) noexcept {
+void DrawSprite(FSprite sprite, f32 x, f32 y, f32 width, f32 height) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
-    SpriteSlot& s = g_state.sprites[sprite.id - 1];
+    FSpriteSlot& s = g_state.sprites[sprite.id - 1];
     if (s.tex)
         g_state.batch.Draw(*s.tex, x, y, width, height, FVec4{ 1.0f, 1.0f, 1.0f, 1.0f });
 }
 
 /** スプライトを回転 (+拡縮・色掛け) して描く (回転は画像の中心まわり)。 */
-void DrawSpriteRotated(Sprite sprite, f32 x, f32 y, f32 degrees,
+void DrawSpriteRotated(FSprite sprite, f32 x, f32 y, f32 degrees,
                        f32 scale, FColor tint) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
-    SpriteSlot& s = g_state.sprites[sprite.id - 1];
+    FSpriteSlot& s = g_state.sprites[sprite.id - 1];
     if (!s.tex) return;
     const f32 w = s.w * scale;
     const f32 h = s.h * scale;
@@ -1272,20 +1272,20 @@ void DrawSpriteRotated(Sprite sprite, f32 x, f32 y, f32 degrees,
 }
 
 /** スプライトに色を掛けて元サイズで描く。 */
-void DrawSpriteTinted(Sprite sprite, f32 x, f32 y, FColor tint) noexcept {
+void DrawSpriteTinted(FSprite sprite, f32 x, f32 y, FColor tint) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
-    SpriteSlot& s = g_state.sprites[sprite.id - 1];
+    FSpriteSlot& s = g_state.sprites[sprite.id - 1];
     if (s.tex)
         g_state.batch.Draw(*s.tex, x, y, s.w, s.h, ToVec4(tint));
 }
 
 /** スプライトを UV を入れ替えて左右・上下反転して描く。 */
-void DrawSpriteFlipped(Sprite sprite, f32 x, f32 y,
+void DrawSpriteFlipped(FSprite sprite, f32 x, f32 y,
                        bool flip_x, bool flip_y) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
-    SpriteSlot& s = g_state.sprites[sprite.id - 1];
+    FSpriteSlot& s = g_state.sprites[sprite.id - 1];
     if (!s.tex) return;
     const f32 u0 = flip_x ? 1.0f : 0.0f, u1 = flip_x ? 0.0f : 1.0f;
     const f32 v0 = flip_y ? 1.0f : 0.0f, v1 = flip_y ? 0.0f : 1.0f;
@@ -1294,11 +1294,11 @@ void DrawSpriteFlipped(Sprite sprite, f32 x, f32 y,
 }
 
 /** スプライトの一部分を UV 範囲で切り出して描く (スプライトシート用)。 */
-void DrawSpritePart(Sprite sprite, f32 x, f32 y, f32 width, f32 height,
+void DrawSpritePart(FSprite sprite, f32 x, f32 y, f32 width, f32 height,
                     f32 src_x, f32 src_y, f32 src_width, f32 src_height) noexcept {
     if (!g_state.frame_open) { WarnDrawOutsideFrame(); return; }
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return;
-    SpriteSlot& s = g_state.sprites[sprite.id - 1];
+    FSpriteSlot& s = g_state.sprites[sprite.id - 1];
     if (!s.tex || s.w <= 0.0f || s.h <= 0.0f) return;
     const f32 u0 = src_x / s.w,                v0 = src_y / s.h;
     const f32 u1 = (src_x + src_width)  / s.w,  v1 = (src_y + src_height) / s.h;
@@ -1307,13 +1307,13 @@ void DrawSpritePart(Sprite sprite, f32 x, f32 y, f32 width, f32 height,
 }
 
 /** スプライトの元画像の幅を返す。 */
-f32 SpriteWidth(Sprite sprite) noexcept {
+f32 SpriteWidth(FSprite sprite) noexcept {
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return 0.0f;
     return g_state.sprites[sprite.id - 1].w;
 }
 
 /** スプライトの元画像の高さを返す。 */
-f32 SpriteHeight(Sprite sprite) noexcept {
+f32 SpriteHeight(FSprite sprite) noexcept {
     if (sprite.id == 0 || sprite.id > g_state.sprites.Size()) return 0.0f;
     return g_state.sprites[sprite.id - 1].h;
 }
@@ -1438,7 +1438,7 @@ bool DrawBurnDissolve(f32 x, f32 y, f32 w, f32 h, f32 progress,
     IRhiCommandList* cl = g_state.renderer.CommandList();
     if (!cl) return false;
     g_state.batch.FlushPending();                 // 保留スプライトを先に確定
-    BurnParams bp;
+    FBurnParams bp;
     bp.progress = progress; bp.edge = edge; bp.freq = freq; bp.time = time; bp.cells = cells;
     bp.ember = FVec3{ ember.r, ember.g, ember.b };
     bp.paper = FVec3{ paper.r, paper.g, paper.b };
@@ -1450,98 +1450,98 @@ bool DrawBurnDissolve(f32 x, f32 y, f32 w, f32 h, f32 progress,
 }
 
 /** 画像を読み込み GPU に転送してスプライトを返す (同一パスはキャッシュ)。 */
-Sprite LoadSprite(const char* path) noexcept {
+FSprite LoadSprite(const char* path) noexcept {
     if (!g_state.booted) {
         ACS_LOG_WARN("easy: LoadSprite() は OpenWindow() の後で呼んでください");
-        return Sprite{ 0 };
+        return FSprite{ 0 };
     }
-    if (!path) return Sprite{ 0 };
+    if (!path) return FSprite{ 0 };
     for (usize i = 0; i < g_state.sprites.Size(); ++i) {
         const char* p = g_state.sprites[i].path.Data();
         if (p && strcmp(p, path) == 0)
-            return Sprite{ static_cast<u32>(i + 1) };
+            return FSprite{ static_cast<u32>(i + 1) };
     }
     wchar_t wpath[512];
     ToWide(path, wpath, 512);
     auto r = g_state.assets.Load(wpath);
     if (r.IsErr()) {
         ACS_LOG_ERROR("easy: 画像を読み込めません '%s': %s", path, r.Error().message);
-        return Sprite{ 0 };
+        return FSprite{ 0 };
     }
-    const TSharedPtr<Asset> asset = r.Value();
-    Asset* base = asset.Get();
+    const TSharedPtr<FAsset> asset = r.Value();
+    FAsset* base = asset.Get();
     if (!base || base->Type() != FImageAsset::StaticType()) {
         ACS_LOG_ERROR("easy: '%s' は画像ファイルではありません", path);
-        return Sprite{ 0 };
+        return FSprite{ 0 };
     }
     FImageAsset* img = static_cast<FImageAsset*>(base);
     auto tx = UploadTexture(*g_state.renderer.Device(), *img);
     if (tx.IsErr()) {
         ACS_LOG_ERROR("easy: 画像を GPU に転送できません '%s': %s", path, tx.Error().message);
-        return Sprite{ 0 };
+        return FSprite{ 0 };
     }
-    SpriteSlot slot;
+    FSpriteSlot slot;
     slot.tex  = Move(tx.Value());
     slot.path = FString{path, g_easy_allocator};
     slot.w    = static_cast<f32>(img->Width());
     slot.h    = static_cast<f32>(img->Height());
     g_state.sprites.PushBack(Move(slot));
-    return Sprite{ static_cast<u32>(g_state.sprites.Size()) };
+    return FSprite{ static_cast<u32>(g_state.sprites.Size()) };
 }
 
 /** 音声を読み込みアセットを保持してサウンドを返す (同一パスはキャッシュ)。 */
-Sound LoadSound(const char* path) noexcept {
+FSound LoadSound(const char* path) noexcept {
     if (!g_state.booted) {
         ACS_LOG_WARN("easy: LoadSound() は OpenWindow() の後で呼んでください");
-        return Sound{ 0 };
+        return FSound{ 0 };
     }
-    if (!path) return Sound{ 0 };
+    if (!path) return FSound{ 0 };
     for (usize i = 0; i < g_state.sounds.Size(); ++i) {
         const char* p = g_state.sounds[i].path.Data();
         if (p && strcmp(p, path) == 0)
-            return Sound{ static_cast<u32>(i + 1) };
+            return FSound{ static_cast<u32>(i + 1) };
     }
     wchar_t wpath[512];
     ToWide(path, wpath, 512);
     auto r = g_state.assets.Load(wpath);
     if (r.IsErr()) {
         ACS_LOG_ERROR("easy: 音声を読み込めません '%s': %s", path, r.Error().message);
-        return Sound{ 0 };
+        return FSound{ 0 };
     }
-    const TSharedPtr<Asset> asset = r.Value();
-    Asset* base = asset.Get();
+    const TSharedPtr<FAsset> asset = r.Value();
+    FAsset* base = asset.Get();
     if (!base || base->Type() != FAudioAsset::StaticType()) {
         ACS_LOG_ERROR("easy: '%s' は音声ファイルではありません", path);
-        return Sound{ 0 };
+        return FSound{ 0 };
     }
-    SoundSlot slot;
+    FSoundSlot slot;
     slot.asset = asset;            // TSharedPtr をコピー保持 -> 再生中ずっと生かす
     slot.path = FString{path, g_easy_allocator};
     g_state.sounds.PushBack(Move(slot));
-    return Sound{ static_cast<u32>(g_state.sounds.Size()) };
+    return FSound{ static_cast<u32>(g_state.sounds.Size()) };
 }
 
 /** 効果音を既定音量で 1 回再生する。 */
-void Play(Sound sound) noexcept { Play(sound, 1.0f); }
+void Play(FSound sound) noexcept { Play(sound, 1.0f); }
 
 /** 効果音を音量指定で 1 回再生する。 */
-void Play(Sound sound, f32 volume) noexcept {
+void Play(FSound sound, f32 volume) noexcept {
     if (!g_state.audio_ok) return;
     if (sound.id == 0 || sound.id > g_state.sounds.Size()) return;
-    Asset* base = g_state.sounds[sound.id - 1].asset.Get();
+    FAsset* base = g_state.sounds[sound.id - 1].asset.Get();
     if (base)
         g_state.audio.Play(*static_cast<FAudioAsset*>(base), Clamp01(volume), false);
 }
 
 /** 音を既定音量でループ再生する。 */
-void PlayLoop(Sound sound) noexcept { PlayLoop(sound, 1.0f); }
+void PlayLoop(FSound sound) noexcept { PlayLoop(sound, 1.0f); }
 
 /** 音を音量指定でループ再生する (既存ループは二重再生防止に止める)。 */
-void PlayLoop(Sound sound, f32 volume) noexcept {
+void PlayLoop(FSound sound, f32 volume) noexcept {
     if (!g_state.audio_ok) return;
     if (sound.id == 0 || sound.id > g_state.sounds.Size()) return;
-    SoundSlot& slot = g_state.sounds[sound.id - 1];
-    Asset* base = slot.asset.Get();
+    FSoundSlot& slot = g_state.sounds[sound.id - 1];
+    FAsset* base = slot.asset.Get();
     if (!base) return;
     if (slot.loop.IsValid()) g_state.audio.Stop(slot.loop);   // 二重ループを防ぐ
     slot.loop = g_state.audio.Play(*static_cast<FAudioAsset*>(base),
@@ -1549,13 +1549,13 @@ void PlayLoop(Sound sound, f32 volume) noexcept {
 }
 
 /** そのサウンドのループ再生を止める。 */
-void StopSound(Sound sound) noexcept {
+void StopSound(FSound sound) noexcept {
     if (!g_state.audio_ok) return;
     if (sound.id == 0 || sound.id > g_state.sounds.Size()) return;
-    SoundSlot& slot = g_state.sounds[sound.id - 1];
+    FSoundSlot& slot = g_state.sounds[sound.id - 1];
     if (slot.loop.IsValid()) {
         g_state.audio.Stop(slot.loop);
-        slot.loop = SoundHandle{};
+        slot.loop = FSoundHandle{};
     }
 }
 
@@ -1564,7 +1564,7 @@ void StopAllSounds() noexcept {
     if (!g_state.audio_ok) return;
     g_state.audio.StopAll();
     for (usize i = 0; i < g_state.sounds.Size(); ++i)
-        g_state.sounds[i].loop = SoundHandle{};
+        g_state.sounds[i].loop = FSoundHandle{};
 }
 
 /** マスター音量を設定する。 */
@@ -1583,78 +1583,78 @@ void ResumeAllSounds() noexcept {
 }
 
 /** キーが押されている間ずっと true を返す。 */
-bool IsKeyDown    (EKey key) noexcept { return Input::IsKeyDown(key); }
+bool IsKeyDown    (EKey key) noexcept { return FInput::IsKeyDown(key); }
 
 /** キーを押した瞬間のフレームだけ true を返す。 */
-bool IsKeyPressed (EKey key) noexcept { return Input::IsKeyPressed(key); }
+bool IsKeyPressed (EKey key) noexcept { return FInput::IsKeyPressed(key); }
 
 /** キーを離した瞬間のフレームだけ true を返す。 */
-bool IsKeyReleased(EKey key) noexcept { return Input::IsKeyReleased(key); }
+bool IsKeyReleased(EKey key) noexcept { return FInput::IsKeyReleased(key); }
 
 /** このフレームに入力された文字 (UTF-8、IME 確定後) を返す。 */
-const char* TextInput() noexcept { return Input::TextInput(); }
+const char* TextInput() noexcept { return FInput::TextInput(); }
 
 /** マウスの X 座標 (画面座標) を返す。 */
-f32  MouseX() noexcept { return Input::MousePos().x; }
+f32  MouseX() noexcept { return FInput::MousePos().x; }
 
 /** マウスの Y 座標 (画面座標) を返す。 */
-f32  MouseY() noexcept { return Input::MousePos().y; }
+f32  MouseY() noexcept { return FInput::MousePos().y; }
 
 /** マウスボタンが押されている間ずっと true を返す。 */
-bool IsMouseDown    (EMouseButton button) noexcept { return Input::IsMouseButtonDown(button); }
+bool IsMouseDown    (EMouseButton button) noexcept { return FInput::IsMouseButtonDown(button); }
 
 /** マウスボタンを押した瞬間のフレームだけ true を返す。 */
-bool IsMousePressed (EMouseButton button) noexcept { return Input::IsMouseButtonPressed(button); }
+bool IsMousePressed (EMouseButton button) noexcept { return FInput::IsMouseButtonPressed(button); }
 
 /** マウスボタンを離した瞬間のフレームだけ true を返す。 */
-bool IsMouseReleased(EMouseButton button) noexcept { return Input::IsMouseButtonReleased(button); }
+bool IsMouseReleased(EMouseButton button) noexcept { return FInput::IsMouseButtonReleased(button); }
 
 /** マウスホイールの回転量を返す。 */
-f32  MouseWheel() noexcept { return Input::MouseWheel(); }
+f32  MouseWheel() noexcept { return FInput::MouseWheel(); }
 
 /** ゲームパッドが接続されているかを返す。 */
 bool IsGamepadConnected(i32 player) noexcept {
-    return Input::IsGamepadConnected(GpIdx(player));
+    return FInput::IsGamepadConnected(GpIdx(player));
 }
 
 /** ゲームパッドのボタンが押されている間ずっと true を返す。 */
 bool IsGamepadDown(EGamepadButton button, i32 player) noexcept {
-    return Input::IsGamepadButtonDown(GpIdx(player), button);
+    return FInput::IsGamepadButtonDown(GpIdx(player), button);
 }
 
 /** ゲームパッドのボタンを押した瞬間のフレームだけ true を返す。 */
 bool IsGamepadPressed(EGamepadButton button, i32 player) noexcept {
-    return Input::IsGamepadButtonPressed(GpIdx(player), button);
+    return FInput::IsGamepadButtonPressed(GpIdx(player), button);
 }
 
 /** 左スティックの X 軸値 (-1.0〜+1.0) を返す。 */
 f32 GamepadLeftX(i32 player) noexcept {
-    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftX);
+    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftX);
 }
 
 /** 左スティックの Y 軸値 (-1.0〜+1.0) を返す。 */
 f32 GamepadLeftY(i32 player) noexcept {
-    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftY);
+    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftY);
 }
 
 /** 右スティックの X 軸値 (-1.0〜+1.0) を返す。 */
 f32 GamepadRightX(i32 player) noexcept {
-    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightX);
+    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightX);
 }
 
 /** 右スティックの Y 軸値 (-1.0〜+1.0) を返す。 */
 f32 GamepadRightY(i32 player) noexcept {
-    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightY);
+    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightY);
 }
 
 /** 左トリガーの押し込み量 (0.0〜1.0) を返す。 */
 f32 GamepadLeftTrigger(i32 player) noexcept {
-    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftTrigger);
+    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftTrigger);
 }
 
 /** 右トリガーの押し込み量 (0.0〜1.0) を返す。 */
 f32 GamepadRightTrigger(i32 player) noexcept {
-    return Input::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightTrigger);
+    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightTrigger);
 }
 
 /** min 以上 max 以下の整数乱数を一様に返す (剰余バイアスを棄却)。 */
@@ -1898,7 +1898,7 @@ void DrawRectCentered(f32 cx, f32 cy, f32 width, f32 height, FColor color) noexc
 }
 
 /** スプライトを中心基準で回転・拡縮・色掛けして描く。 */
-void DrawSpriteCentered(Sprite sprite, f32 cx, f32 cy, f32 scale, f32 degrees, FColor tint) noexcept {
+void DrawSpriteCentered(FSprite sprite, f32 cx, f32 cy, f32 scale, f32 degrees, FColor tint) noexcept {
     const f32 w = SpriteWidth(sprite)  * scale;
     const f32 h = SpriteHeight(sprite) * scale;
     DrawSpriteRotated(sprite, cx - w * 0.5f, cy - h * 0.5f, degrees, scale, tint);
@@ -1984,41 +1984,75 @@ void ScreenFlash(FColor color, f32 seconds) noexcept {
     g_state.flash_timer = g_state.flash_dur;
 }
 
+/** 型付き catalog から任意の easing を評価する。 */
+f32 Ease(f32 t, EEasingType type, f32 fallback) noexcept {
+    return acs::game::Easing::Evaluate(type, t, fallback);
+}
+
+/** 型付き easing を checked 評価する。 */
+FEasingResult TryEase(
+    f32 t, EEasingType type, f32& out_value) noexcept {
+    return acs::game::Easing::TryEvaluate(type, t, out_value);
+}
+
+// 型付き easing を [0,1] 上で等間隔に一括サンプリングする。
+FEasingResult TrySampleEasing(
+    EEasingType type, f32* out_values, usize sample_count) noexcept {
+    return acs::game::Easing::TrySampleCurve(
+        type, out_values, sample_count);
+}
+
+/** easing type の canonical 名を返す。 */
+const char* EasingName(EEasingType type) noexcept {
+    return acs::game::Easing::GetName(type);
+}
+
+/** easing type の canonical 名を checked 取得する。 */
+FEasingResult TryGetEasingName(
+    EEasingType type, const char*& out_name) noexcept {
+    return acs::game::Easing::TryGetName(type, out_name);
+}
+
+/** canonical easing 名を型付き catalog 値へ変換する。 */
+bool TryParseEasingName(
+    const char* name, EEasingType& out_type) noexcept {
+    return acs::game::Easing::TryParseName(name, out_type);
+}
+
+/** canonical easing 名を型付き catalog 値へ checked 変換する。 */
+FEasingResult TryParseEasingNameChecked(
+    const char* name, EEasingType& out_type) noexcept {
+    return acs::game::Easing::TryParseNameChecked(name, out_type);
+}
+
 /** 加速するイージング。 */
-f32 EaseIn   (f32 t) noexcept { const f32 x = Clamp01(t); return x * x; }
+f32 EaseIn(f32 t) noexcept {
+    return acs::game::Easing::InQuad(t);
+}
 
 /** 減速するイージング。 */
-f32 EaseOut  (f32 t) noexcept { const f32 x = Clamp01(t); return 1.0f - (1.0f - x) * (1.0f - x); }
+f32 EaseOut(f32 t) noexcept {
+    return acs::game::Easing::OutQuad(t);
+}
 
 /** 加速→減速するイージング。 */
 f32 EaseInOut(f32 t) noexcept {
-    const f32 x = Clamp01(t);
-    return x < 0.5f ? 2.0f * x * x : 1.0f - acs::Pow(-2.0f * x + 2.0f, 2.0f) * 0.5f;
+    return acs::game::Easing::InOutQuad(t);
 }
 
 /** 行き過ぎて戻るイージング。 */
 f32 EaseOutBack(f32 t) noexcept {
-    const f32 x = Clamp01(t) - 1.0f;
-    const f32 c1 = 1.70158f;
-    return 1.0f + (c1 + 1.0f) * x * x * x + c1 * x * x;
+    return acs::game::Easing::OutBack(t);
 }
 
 /** 跳ねるイージング。 */
 f32 EaseOutBounce(f32 t) noexcept {
-    f32 x = Clamp01(t);
-    const f32 n1 = 7.5625f, d1 = 2.75f;
-    if (x < 1.0f / d1) return n1 * x * x;
-    if (x < 2.0f / d1) { x -= 1.5f  / d1; return n1 * x * x + 0.75f; }
-    if (x < 2.5f / d1) { x -= 2.25f / d1; return n1 * x * x + 0.9375f; }
-    x -= 2.625f / d1;  return n1 * x * x + 0.984375f;
+    return acs::game::Easing::OutBounce(t);
 }
 
 /** ばねのように揺れて収束するイージング。 */
 f32 EaseOutElastic(f32 t) noexcept {
-    if (t <= 0.0f) return 0.0f;
-    if (t >= 1.0f) return 1.0f;
-    const f32 c4 = (2.0f * 3.14159265f) / 3.0f;
-    return acs::Pow(2.0f, -10.0f * t) * acs::Sin((t * 10.0f - 0.75f) * c4) + 1.0f;
+    return acs::game::Easing::OutElastic(t);
 }
 
 namespace {
@@ -2157,7 +2191,7 @@ void SaveInt(const char* key, i32 value) noexcept {
 i32 LoadInt(const char* key, i32 default_value) noexcept {
     if (!key) return default_value;
     EnsureSaveLoaded();
-    SaveEntry* e = FindSave(key);
+    FSaveEntry* e = FindSave(key);
     if (!e) return default_value;
     const char* s = e->value.Data();
     if (!s || !*s) return default_value;
@@ -2179,7 +2213,7 @@ void SaveFloat(const char* key, f32 value) noexcept {
 f32 LoadFloat(const char* key, f32 default_value) noexcept {
     if (!key) return default_value;
     EnsureSaveLoaded();
-    SaveEntry* e = FindSave(key);
+    FSaveEntry* e = FindSave(key);
     if (!e) return default_value;
     const char* s = e->value.Data();
     if (!s || !*s) return default_value;
@@ -2199,7 +2233,7 @@ void SaveString(const char* key, const char* value) noexcept {
 const char* LoadString(const char* key, const char* default_value) noexcept {
     if (!key) return default_value;
     EnsureSaveLoaded();
-    SaveEntry* e = FindSave(key);
+    FSaveEntry* e = FindSave(key);
     if (!e) return default_value;
     const char* s = e->value.Data();
     return s ? s : default_value;
@@ -2258,76 +2292,76 @@ i32 AutoGrain(i32 begin, i32 end) noexcept {
 }
 
 /** クロージャを非同期投入し、所属バッチのハンドルを返す (枯渇時は同期実行)。 */
-JobBatch SubmitAsync(Closure* c, JobBatch existing) noexcept {
+FJobBatch SubmitAsync(FClosure* c, FJobBatch existing) noexcept {
     if (!c) return existing;
-    EasyState::AsyncBatch* b = nullptr;
+    FEasyState::FAsyncBatch* b = nullptr;
     u32 idx = 0;
     if (existing.id != 0) {                                // 既存 batch へ追加
         const u32 ei = (existing.id & 0xFFFFu) - 1u;
-        if (ei < EasyState::kMaxBatches && g_state.async_batches[ei].live &&
+        if (ei < FEasyState::kMaxBatches && g_state.async_batches[ei].live &&
             g_state.async_batches[ei].gen == static_cast<u16>(existing.id >> 16)) {
             idx = ei; b = &g_state.async_batches[ei];
         }
     }
     if (!b) {                                              // 新規スロット確保
-        for (u32 i = 0; i < EasyState::kMaxBatches; ++i) {
+        for (u32 i = 0; i < FEasyState::kMaxBatches; ++i) {
             if (!g_state.async_batches[i].live) { idx = i; b = &g_state.async_batches[i]; break; }
         }
-        if (!b) { RunClosureTask(c, 0); FreeClosure(c); return JobBatch{}; }   // 枯渇 → 同期
+        if (!b) { RunClosureTask(c, 0); FreeClosure(c); return FJobBatch{}; }   // 枯渇 → 同期
         b->gen = static_cast<u16>(b->gen + 1u); if (b->gen == 0u) b->gen = 1u;
         b->live = true;
         b->closures.ReleaseStorage();
     }
     b->closures.PushBack(c);                               // batch がクロージャを所有
-    Task t{ &RunClosureTask, c, &b->counter };
+    FTask t{ &RunClosureTask, c, &b->counter };
     auto r = FThreadPool::Submit(t);
     if (r.IsErr()) { RunClosureTask(c, 0); }               // 投入失敗 → 同期実行 (解放は WaitJobs)
-    return JobBatch{ (static_cast<u32>(b->gen) << 16) | (idx + 1u) };
+    return FJobBatch{ (static_cast<u32>(b->gen) << 16) | (idx + 1u) };
 }
 
 /** 構築中の依存グラフにクロージャをノードとして追加する。 */
-JobNode AddNode(Closure* c) noexcept {
-    if (!c) return JobNode{};
+FJobNode AddNode(FClosure* c) noexcept {
+    if (!c) return FJobNode{};
     if (!g_state.pending_graph) {
         g_state.pending_graph  = new FJobGraph();
         g_state.graph_closures.ReleaseStorage();
         g_state.graph_handles.ReleaseStorage();
     }
-    const JobHandle h = g_state.pending_graph->Add(&RunClosureTask, c);
+    const FJobHandle h = g_state.pending_graph->Add(&RunClosureTask, c);
     const u32 id = static_cast<u32>(g_state.graph_handles.Size()) + 1u;
     g_state.graph_handles.PushBack(h);
     g_state.graph_closures.PushBack(c);
-    return JobNode{ id };
+    return FJobNode{ id };
 }
 
 } // namespace jobdetail
 
 /** バッチの全ジョブ完了を待ち、クロージャを解放してスロットを無効化する。 */
-void WaitJobs(JobBatch batch) noexcept {
+void WaitJobs(FJobBatch batch) noexcept {
     if (batch.id == 0) return;
     const u32 idx = (batch.id & 0xFFFFu) - 1u;
-    if (idx >= EasyState::kMaxBatches) return;
-    EasyState::AsyncBatch& b = g_state.async_batches[idx];
+    if (idx >= FEasyState::kMaxBatches) return;
+    FEasyState::FAsyncBatch& b = g_state.async_batches[idx];
     if (!b.live || b.gen != static_cast<u16>(batch.id >> 16)) return;   // 既に Wait 済 or 無効
     FThreadPool::Wait(b.counter);
     for (usize k = 0; k < b.closures.Size(); ++k)
-        FreeClosure(static_cast<jobdetail::Closure*>(b.closures[k]));
+        FreeClosure(static_cast<jobdetail::FClosure*>(b.closures[k]));
     b.closures.ReleaseStorage();
     b.live = false;
 }
 
 /** バッチの全ジョブが完了したかを待たずに返す (無効ハンドルは完了扱い)。 */
-bool JobsDone(JobBatch batch) noexcept {
+bool JobsDone(FJobBatch batch) noexcept {
     if (batch.id == 0) return true;
     const u32 idx = (batch.id & 0xFFFFu) - 1u;
-    if (idx >= EasyState::kMaxBatches) return true;
-    EasyState::AsyncBatch& b = g_state.async_batches[idx];
+    if (idx >= FEasyState::kMaxBatches) return true;
+    FEasyState::FAsyncBatch& b = g_state.async_batches[idx];
     if (!b.live || b.gen != static_cast<u16>(batch.id >> 16)) return true;
     return b.counter.Finished();
 }
 
 /** 2 ノード間に実行順序の依存を張る (before の後に after が走る)。 */
-void Then(JobNode before, JobNode after) noexcept {
+void Then(FJobNode before, FJobNode after) noexcept {
     if (!g_state.pending_graph || before.id == 0 || after.id == 0) return;
     const u32 bi = before.id - 1u, ai = after.id - 1u;
     if (bi >= g_state.graph_handles.Size() || ai >= g_state.graph_handles.Size()) return;
@@ -2348,7 +2382,7 @@ void RunJobs() noexcept {
             RunClosureTask(g_state.graph_closures[k], 0);
     }
     for (usize k = 0; k < g_state.graph_closures.Size(); ++k)
-        FreeClosure(static_cast<jobdetail::Closure*>(g_state.graph_closures[k]));
+        FreeClosure(static_cast<jobdetail::FClosure*>(g_state.graph_closures[k]));
     g_state.graph_closures.ReleaseStorage();
     g_state.graph_handles.ReleaseStorage();
     delete g;

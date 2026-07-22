@@ -11,7 +11,7 @@ namespace Diligent {
 
 namespace acs {
 
-class DiligentDevice;
+class FDiligentDevice;
 
 /**
  * Diligent Engine 経由のスワップチェイン (IRhiSwapchain 実装)。
@@ -21,19 +21,19 @@ class DiligentDevice;
  * Present / Resize を委譲する。バックバッファインデックスは Diligent が内部管理するため
  * AcquireNextImage は常に 0 を返す。深度は ACS 側で別途管理し、本クラスはカラーのみ持つ。
  */
-class DiligentSwapchain final : public IRhiSwapchain {
+class FDiligentSwapchain final : public IRhiSwapchain {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    DiligentSwapchain() noexcept = default;
+    FDiligentSwapchain() noexcept = default;
 
     /** Diligent スワップチェインを解放する。 */
-    ~DiligentSwapchain() noexcept override;
+    ~FDiligentSwapchain() noexcept override;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    DiligentSwapchain(const DiligentSwapchain&) = delete;
+    FDiligentSwapchain(const FDiligentSwapchain&) = delete;
 
     /** コピー代入も禁止。 */
-    DiligentSwapchain& operator=(const DiligentSwapchain&) = delete;
+    FDiligentSwapchain& operator=(const FDiligentSwapchain&) = delete;
 
     /**
      * ウィンドウに対してスワップチェインを生成する。
@@ -45,7 +45,7 @@ public:
      * @param cfg ウィンドウ・フォーマット・バッファ数・vsync を含むスワップチェイン設定。
      * @return 成功なら空の TResult、ウィンドウ無効・device 未初期化・生成失敗ならエラー。
      */
-    TResult<void> Init(DiligentDevice& device, const SwapchainConfig& cfg) noexcept;
+    TResult<void> Init(FDiligentDevice& device, const FSwapchainConfig& cfg) noexcept;
 
     /**
      * 次に描画するバックバッファのインデックスを返す。
@@ -107,7 +107,7 @@ private:
     void Reset() noexcept;
 
     /** Init で受け取った Diligent デバイス。 */
-    DiligentDevice*       m_Device       = nullptr;
+    FDiligentDevice*       m_Device       = nullptr;
 
     /** Diligent ネイティブのスワップチェイン。 */
     Diligent::ISwapChain* m_Swap         = nullptr;

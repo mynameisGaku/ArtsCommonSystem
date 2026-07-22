@@ -8,8 +8,8 @@
 namespace acs {
 
 /** ウィンドウ・入力イベントの種別。 */
-enum class EventType : u8 {
-    /** 無効値 (ゼロ初期化された Event の既定)。 */
+enum class EEventType : u8 {
+    /** 無効値 (ゼロ初期化された FEvent の既定)。 */
     None = 0,
 
     /** ウィンドウの × ボタンや閉じる要求が来た。 */
@@ -56,9 +56,9 @@ enum class EventType : u8 {
  * type に応じて union 内の対応するメンバだけが有効になる。FWindow が WindowProc で
  * 構築し、SetEventCallback で登録されたコールバックへ渡す。
  */
-struct Event {
+struct FEvent {
     /** このイベントの種別 (どの union メンバが有効かを決める)。 */
-    EventType type = EventType::None;
+    EEventType type = EEventType::None;
 
     union {
         /** WindowResize 用: 新しいクライアント領域サイズ (px)。 */

@@ -11,7 +11,7 @@ using namespace acs::game;
 
 namespace hellofont {
 
-void FontEditorApp::OnStart() noexcept {
+void FFontEditorApp::OnStart() noexcept {
     // ImGui を FWindow + FRenderer に紐付け。失敗時は早期 Quit。
     if (auto r = m_Imgui.Init(GetWindow(), GetRenderer()); r.IsErr()) {
         ACS_LOG_ERROR("[FontEditorApp] ImGuiCtx.Init failed -> Quit");
@@ -22,7 +22,7 @@ void FontEditorApp::OnStart() noexcept {
     FGame::OnStart();
 }
 
-void FontEditorApp::OnRender() noexcept {
+void FFontEditorApp::OnRender() noexcept {
     // ImGui フレーム開始 → Scene::OnRender で ImGui::* が呼ばれる →
     // ImGui の描画コマンドをコマンドリストに発行、の順。
     m_Imgui.NewFrame();
@@ -30,20 +30,20 @@ void FontEditorApp::OnRender() noexcept {
     m_Imgui.Render();
 }
 
-void FontEditorApp::OnShutdown() noexcept {
+void FFontEditorApp::OnShutdown() noexcept {
     // Scene 側を先に止めてから ImGui を落とす (Scene が ImGui::* を握って
     // ないことを保証)。
     FGame::OnShutdown();
     m_Imgui.Shutdown();
 }
 
-void FontEditorApp::OnEvent(const Event& e) noexcept {
+void FFontEditorApp::OnEvent(const FEvent& e) noexcept {
     m_Imgui.OnEvent(e);
     FGame::OnEvent(e);
 }
 
-TUniquePtr<Scene> FontEditorApp::InitialScene() noexcept {
-    return MakeUnique<FontEditorScene>();
+TUniquePtr<FScene> FFontEditorApp::InitialScene() noexcept {
+    return MakeUnique<FFontEditorScene>();
 }
 
 } // namespace hellofont

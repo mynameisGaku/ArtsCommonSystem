@@ -12,10 +12,10 @@ This folder is self-contained. You do **not** need the ACS source tree.
 dist/
 ├─ acs.h                     ← single amalgamated header (all public API)
 ├─ lib/x64/
-│  ├─ Debug/acs.lib          ← merged static lib  (/MDd, debug CRT)
-│  └─ Release/acs.lib        ← merged static lib  (/MD,  release CRT)
+│  ├─ Debug/                 ← acs.lib + adjacent Diligent/xxhash libs (/MDd)
+│  └─ Release/               ← acs.lib + adjacent Diligent/xxhash libs (/MD)
 ├─ examples/
-│  ├─ check.cpp              ← minimal consumer (compiles & links only acs.h + acs.lib)
+│  ├─ check.cpp              ← minimal single-header consumer smoke test
 │  └─ build_example.cmd      ← build it: `build_example.cmd Debug|Release`
 └─ README.md
 ```
@@ -58,7 +58,19 @@ are left enabled, so you get a clear message instead of cryptic link errors.
 `acs.h` emits these via pragma — you don't list them manually:
 
 `acs.lib`, `d3d12`, `dxgi`, `d3dcompiler`, `dxguid`, `xaudio2`, `ws2_32`,
-`ole32`, `dbghelp`, `winmm`, `user32`, `gdi32` (all part of the Windows SDK).
+`ole32`, `dbghelp`, `winmm`, `user32`, `gdi32`, `Shlwapi`. Every entry after
+`acs.lib` in this paragraph is a Windows SDK library.
+
+The Diligent backend and its xxHash dependency are separate static libraries
+shipped **next to `acs.lib`** in each configuration directory. The same pragma
+mechanism auto-links all twelve Diligent libraries
+(`Diligent-GraphicsEngineD3D12-static`, `Diligent-GraphicsEngineD3DBase`,
+`Diligent-GraphicsEngineNextGenBase`, `Diligent-GraphicsEngine`,
+`Diligent-GraphicsTools`, `Diligent-Archiver-static`, `Diligent-ShaderTools`,
+`Diligent-GraphicsAccessories`, `Diligent-Common`, `Diligent-Win32Platform`,
+`Diligent-BasicPlatform`, `Diligent-Primitives`) plus `xxhash`. Keep the whole
+configuration directory together; only its directory needs to be added to the
+library search path.
 
 ---
 
@@ -77,8 +89,9 @@ acs.h OK | sum=42 dist=5.0 clamp=100.0 len=5.0
 ```
 
 `examples\check.cpp` is the canonical "is my setup correct?" test: it includes
-*only* `<acs.h>`, uses the container / math / easy modules, and links *only*
-`acs.lib`.
+*only* `<acs.h>` and uses the container / math / easy modules. The consumer
+does not list individual libraries on its command line; `acs.h` supplies the
+`acs.lib`, Windows SDK, Diligent and xxHash link directives above.
 
 ---
 
@@ -88,17 +101,19 @@ acs.h OK | sum=42 dist=5.0 clamp=100.0 len=5.0
 `container`, `memory`, `threading`, `platform`, `ecs`, `event`, `collision`,
 `mvvm`, `asset` / `assetpack`, `audio`, `render` (the backend-agnostic `IRhi*`
 interfaces + `FRenderer` / `FSpriteBatch` / `FStandardShader` / `FPbrShader` …),
-`ui`, the `gameframework` (`FGame` / `FScene` / `FNode2D` / components / systems),
-and the **`easy`** beginner layer (`acs::easy::…`). The graphics (DirectX 12),
-audio (XAudio2) and other heavy SDKs are compiled **into** `acs.lib` and hidden
-behind interfaces — they never leak into `acs.h`.
+`ui`, the `gameframework` (`FGame` / `FScene` / `FScene2D` / `ANode` /
+`AComponent` / systems), and the **`easy`** beginner layer (`acs::easy::…`).
+ACS module implementations, including the raw DirectX 12 and XAudio2 paths,
+are merged into `acs.lib`; the Diligent implementation remains in the adjacent
+static libraries listed above. Backend implementation headers do not leak into
+`acs.h`.
 
 ### Optional integrations
 
 Steamworks, ONNX (ML), OpenXR and Lua scripting are present as **interfaces** in
 `acs.h`, but using them at runtime requires their own SDK / redistributable
 DLLs. The core graphics / audio / gameplay / `easy` stack needs nothing beyond
-`acs.lib` + the Windows system libs above.
+the complete configuration directory + the Windows SDK libraries above.
 
 ---
 
@@ -111,11 +126,28 @@ After changing the engine, rebuild and re-amalgamate:
 cmake --build acs/Intermediate/vs --config Debug   -j
 cmake --build acs/Intermediate/vs --config Release -j
 # 2) regenerate acs.h + merge libs into dist/
+powershell -ExecutionPolicy Bypass -File acs/scripts/build_single_header.ps1 -SelfTest
 powershell -ExecutionPolicy Bypass -File acs/scripts/build_single_header.ps1
+# 3) verify tracked header drift and naming/node conventions
+python acs/scripts/amalgamate.py --check
+python acs/scripts/audit_cpp_conventions.py --root dist --scope .
+# 4) in an x64 Visual Studio developer shell, syntax-check the consumer only
+cl /nologo /Zs /std:c++20 /utf-8 /permissive- /Zc:__cplusplus /Zc:preprocessor /EHs-c- /GR- /D_HAS_EXCEPTIONS=0 /I dist dist/examples/check.cpp
 ```
 
 `acs/scripts/amalgamate.py` produces `acs.h` (inlines every public
 `#include "..."`, hoists nothing — external `<...>` includes stay in place;
-strips `#pragma once`; adds the link/ABI pragmas).
+strips `#pragma once`; adds the link/ABI pragmas). `--check` renders the same
+header in memory and byte-compares it with tracked `dist/acs.h`.
 `acs/scripts/build_single_header.ps1` runs it and merges the per-module
-`acs_*.lib` (+ bundled `imgui`/`lua`/`ufbx`) into one `acs.lib` per config.
+`acs_*.lib` (+ bundled `imgui`/`lua`/`ufbx`/`mimalloc`) into one `acs.lib` per
+config, then requires and copies the adjacent Diligent/xxHash libraries.
+The merge uses a unique response file and a same-directory temporary library,
+publishing `acs.lib` only after `lib.exe` succeeds and the output is non-empty.
+`-Deploy` rejects drive roots, reparse points, and any destination overlapping
+the source/build/dist trees before invoking `robocopy /MIR`.
+
+With `ACS_BUILD_TESTS=ON`, a top-level ACS CMake configure that has this sibling
+`dist` directory also registers drift, convention-audit and `/Zs` consumer
+tests. An ACS source tree consumed through `add_subdirectory` does not register
+those distribution-only checks.

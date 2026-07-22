@@ -17,4 +17,4 @@
 // `int WINAPI WinMain` / `int main` 両方の通常 main を裏で生成)。
 #include "SpriteAtlasApp.h"
 
-ACS_GAME_MAIN(hellosa::SpriteAtlasApp)
+ACS_GAME_MAIN(hellosa::FSpriteAtlasApp)

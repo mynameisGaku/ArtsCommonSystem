@@ -2,8 +2,8 @@
 // 共通エントリポイントマクロ
 //
 // 使い方:
-//   class MyGame : public acs::FApplication { ... };
-//   ACS_DEFINE_MAIN(MyGame)
+//   class FMyGame : public acs::FApplication { ... };
+//   ACS_DEFINE_MAIN(FMyGame)
 //
 // 効果: int main() を自動生成する。FAppConfig はデフォルト値を使用。
 //       細かく制御したい場合は ACS_DEFINE_MAIN を使わず main を自前で書く。

@@ -25,20 +25,25 @@ public:
         Services().Camera().SetPosition(FVec2{0.0f, 0.0f});
         Services().Camera().SetZoom(1.0f);
 
-        auto player = MakeUnique<FNode2D>();
-        player->AddComponent<FSprite2DComponent>(FVec2{0.9f, 0.9f},
+        auto player = NewObject<ANode>();
+        player->AddComponent<ASprite2DComponent>(FVec2{0.9f, 0.9f},
                                                  FVec4{0.2f, 0.8f, 1.0f, 1.0f});
-        m_Player = &Root().AddChild(Move(player));
+        m_Player = player;                       // 生存を延長しない弱参照
+        Root().AddChild(Move(player));            // 強参照はツリーへ
     }
 
     void OnTick(f32 /*dt*/) noexcept override
     {
         // 毎フレーム「追いたい位置」を渡すだけ。指数 smoothing で滑らかに寄る。
-        Services().Camera().SetTargetPos(m_Player->Local().position, 8.0f);
+        if (ANode* player = m_Player.Get()) {
+            Services().Camera().SetTargetPos(player->Position2D(), 8.0f);
+        } else {
+            Services().Camera().ClearTarget();
+        }
     }
 
 private:
-    FNode2D* m_Player = nullptr;
+    TWeakObjectPtr<ANode> m_Player;
 };
 ```
 
@@ -63,6 +68,8 @@ private:
 | `SetShakeDecayRate(f32 r)` | trauma 減衰率/秒。既定 1.0 (= 1秒で 1→0) | `cam.SetShakeDecayRate(1.5f);` |
 | `SetBounds(FVec2 min, FVec2 max)` | カメラ中心の可動範囲を矩形でクランプ | `cam.SetBounds({-10,-5},{10,5});` |
 | `ClearBounds()` / `HasBounds()` | 境界クランプ解除/状態取得 | `cam.ClearBounds();` |
+| `SetDeadzone(FVec2 half_extents)` | 追従対象が箱の内側にいる間はカメラを動かさない | `cam.SetDeadzone({2.0f, 1.0f});` |
+| `ClearDeadzone()` / `HasDeadzone()` | デッドゾーン解除/状態取得 | `cam.ClearDeadzone();` |
 | `EffectiveViewCenter()` | `Position + shakeオフセット` = レンダラが実際に使う view 中心 | `auto c = cam.EffectiveViewCenter();` |
 
 座標変換は **2 系統あり、使うべきものが違います** (後述の gotcha 参照):
@@ -74,7 +81,7 @@ private:
 
 ```cpp
 // シーン内 (this が FScene2D 派生) ならこれ一発でマウス→ワールド
-FVec2 world = ScreenToWorld(Input::MousePos());
+FVec2 world = ScreenToWorld(FInput::MousePos());
 ```
 
 ---
@@ -88,7 +95,9 @@ void OnTick(f32 /*dt*/) noexcept override
 {
     // 第2引数 smoothing=8.0 でやや機敏に。dt 不変な指数追従なので
     // フレームレートが変わっても寄り具合は同じ。
-    Services().Camera().SetTargetPos(m_Player->Local().position, 8.0f);
+    if (ANode* player = m_Player.Get()) {
+        Services().Camera().SetTargetPos(player->Position2D(), 8.0f);
+    }
 }
 ```
 
@@ -120,7 +129,7 @@ void OnReady() noexcept override
 void OnTick(f32 /*dt*/) noexcept override
 {
     if (Services().Input().IsPressed(kClick)) {        // BindMouseButton で割当
-        FVec2 sp = Input::MousePos();                  // 画面px (左上原点)
+        FVec2 sp = FInput::MousePos();                  // 画面px (左上原点)
         FVec2 wp = ScreenToWorld(sp);                  // ← FScene2D 側 (ppu対応)
         SpawnAt(wp);
     }
@@ -133,7 +142,7 @@ void OnTick(f32 /*dt*/) noexcept override
 ## 注意点 (gotcha)
 
 - **座標変換は必ず `FScene2D::ScreenToWorld` を使う。** `FCamera2D::ScreenToWorld(screen, w, h)` は ppu (pixels-per-unit) を考慮せず zoom しか割らないため、`SetPixelsPerUnit(64)` のような通常のシーンでは結果が 64 倍ずれます。`FScene2D` のレンダリングは `ppu × zoom` でスケールしているので、それと厳密に逆対応する `FScene2D::ScreenToWorld` が正解です。`FCamera2D::ScreenToWorld` は ppu=1 を前提にした単体テスト的用途以外では使わないでください。
-- **画面座標は左上原点のクライアント px。** `Input::MousePos()` が返すのはウィンドウローカルのピクセル (左上 = (0,0))。これをそのまま `ScreenToWorld` に渡す前提です。自前で y を反転させたりしないこと。
+- **画面座標は左上原点のクライアント px。** `FInput::MousePos()` が返すのはウィンドウローカルのピクセル (左上 = (0,0))。これをそのまま `ScreenToWorld` に渡す前提です。自前で y を反転させたりしないこと。
 - **`ScreenToWorld` が使う画面サイズは「直近 `OnRender` でキャッシュした値」。** `FScene2D` は `OnRender` 時に `m_ScreenW/m_ScreenH` を更新します。1 フレームも描画していない初期状態では既定 (1280×720) が使われます。実用上は問題になりませんが、リサイズ直後の 1 フレームだけ古い値になり得ます。
 - **shake は累積 (trauma) 方式。** `AddShake` は「揺れ量を直接セット」ではなく trauma に**加算**します。毎フレーム呼ぶと際限なく積む (上限 1.0 でクランプ)。通常はイベント発生時に 1 回だけ呼びます。揺れは `trauma²` でスケールするので、`0.5` を渡しても見た目の揺れは控えめです。派手にしたいなら `SetShakeAmplitude` を上げるか trauma を大きめに。
 - **`SetTargetPos` を呼ぶ限り `SetPosition` は上書きされる。** 追従を有効にしたまま `SetPosition` しても、次の `Tick` で目標へ寄せ直されます。手動配置に戻したいときは `ClearTarget()` してから `SetPosition` を。

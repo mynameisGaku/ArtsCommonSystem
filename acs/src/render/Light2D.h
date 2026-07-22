@@ -29,7 +29,7 @@
 //
 // FBlobShadow:
 //   光源計算を伴わない激軽の「足元の影」。柔らかい楕円テクスチャを 1 枚持ち、
-//   SpriteBatch で暗く落とすだけ。動的ライトを使わない/負荷を抑えたい時の fallback。
+//   FSpriteBatch で暗く落とすだけ。動的ライトを使わない/負荷を抑えたい時の fallback。
 //
 // ACS 規約: STL/<string> 不使用、全 noexcept、TResult、非コピー。
 #pragma once
@@ -279,7 +279,7 @@ private:
  * 光源計算なしの簡易ブロブ影 (足元の楕円)。
  *
  * @details
- * 柔らかい楕円テクスチャを 1 枚持ち、SpriteBatch で暗く落とすだけの激軽な「足元の影」。
+ * 柔らかい楕円テクスチャを 1 枚持ち、FSpriteBatch で暗く落とすだけの激軽な「足元の影」。
  * 動的ライトを使わない/負荷を抑えたいときの fallback / 補助に使う。
  */
 class FBlobShadow {
@@ -312,7 +312,7 @@ public:
     /**
      * (cx,cy) 中心に w×h の柔らかい影を sb 経由で描く (要 sb.Begin 済み)。
      *
-     * @param sb 描画に使う SpriteBatch。
+     * @param sb 描画に使う FSpriteBatch。
      * @param cx 影の中心 X (px)。
      * @param cy 影の中心 Y (px)。
      * @param w 影の幅 (px)。

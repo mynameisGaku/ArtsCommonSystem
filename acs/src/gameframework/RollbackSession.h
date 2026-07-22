@@ -5,7 +5,7 @@
 //   ecs::FRollbackBuffer (状態履歴) と自前の入力台帳を束ね、GGPO 風の
 //   「予測実行 → 遅延して届いた確定入力 → 自動巻き戻し + 再シミュレーション」
 //   ループを 1 クラスで回せるようにする。レイヤ関係:
-//     ・World::CopyFrom      … 状態の複製プリミティブ (ecs)
+//     ・FWorld::CopyFrom     … 状態の複製プリミティブ (ecs)
 //     ・FRollbackBuffer      … 直近 N tick の状態履歴リング (ecs)
 //     ・FRollbackSession     … 入力台帳 + 予測 + 再シミュレーション制御 (本クラス)
 //   FLockstep は「全入力確定済み」前提の入力リプレイ層で、本クラスとは別物
@@ -17,7 +17,7 @@
 //   cfg.player_count   = 2;
 //   cfg.history_length = 8;      // 8 tick まで巻き戻せる
 //   session.Init(&world, cfg);
-//   session.SetSimCallback(&MyGame::SimTick, this);
+//   session.SetSimCallback(&FMyGame::SimTick, this);
 //
 //   // 毎 tick:
 //   session.SubmitInput(local_input);            // 自分の入力 (確定)
@@ -40,18 +40,18 @@
 //   ・**sim コールバックは C 関数ポインタ + user データ**: STL 不使用方針のため
 //     TFunction は使わない (FJobGraph 等と同じ規約)。コールバックは決定論であること
 //     (同じ world 状態 + 同じ入力列 → 同じ結果) が正しさの前提。
-//   ・**コピー / ムーブ禁止**: World* と履歴を抱える長寿命オブジェクト。
+//   ・**コピー / ムーブ禁止**: FWorld* と履歴を抱える長寿命オブジェクト。
 //
 // 範囲外:
-//   ・ネットワーク送受信 / シリアライズ (InputFrame の I/O は FLockstep 参照)
-//   ・desync 検出 (FLockstep::ComputeChecksum や World 側 checksum を併用)
+//   ・ネットワーク送受信 / シリアライズ (FInputFrame の I/O は FLockstep 参照)
+//   ・desync 検出 (FLockstep::ComputeChecksum や FWorld 側 checksum を併用)
 //   ・可変 tick rate / フレームスキップ制御
 #pragma once
 
 #include "foundation/Types.h"
 #include "container/Array.h"
 #include "ecs/RollbackBuffer.h"
-#include "gameframework/Lockstep.h"   // InputFrame (入力 POD を共有)
+#include "gameframework/Lockstep.h"   // FInputFrame (入力 POD を共有)
 
 namespace acs::game {
 
@@ -91,22 +91,22 @@ public:
     /**
      * 1 tick 分のシミュレーションを進める決定論コールバック。
      *
-     * @param world 進める World。
+     * @param world 進める FWorld。
      * @param tick 現在の tick。
      * @param inputs player_id 昇順に並んだ全プレイヤーの入力 (確定 or 予測)。
      * @param input_count inputs の要素数 (= player_count)。
      * @param user SetSimCallback で渡した user データ。
      */
-    using SimTickFn = void (*)(World& world, u32 tick, const InputFrame* inputs,
+    using SimTickFn = void (*)(FWorld& world, u32 tick, const FInputFrame* inputs,
                                u32 input_count, void* user);
 
     /** 未初期化状態で構築する。使用前に Init を呼ぶ。 */
     FRollbackSession() noexcept = default;
 
-    /** 破棄する (World は非所有なので触らない)。 */
+    /** 破棄する (FWorld は非所有なので触らない)。 */
     ~FRollbackSession() noexcept = default;
 
-    /** コピー禁止 (World* と履歴を抱える長寿命オブジェクト)。 */
+    /** コピー禁止 (FWorld* と履歴を抱える長寿命オブジェクト)。 */
     FRollbackSession(const FRollbackSession&)            = delete;
 
     /** コピー代入も禁止。 */
@@ -122,13 +122,13 @@ public:
      * セッションを初期化する (再 Init 可、既存の履歴は破棄)。
      *
      * @details world の全コンポーネント型はコピー構築可能であること
-     * (World::CopyFrom の契約)。確保失敗時は未初期化状態に戻して false。
-     * @param world 対象の World (非所有、セッションより長生きすること)。
+     * (FWorld::CopyFrom の契約)。確保失敗時は未初期化状態に戻して false。
+     * @param world 対象の FWorld (非所有、セッションより長生きすること)。
      * @param config プレイヤー数 / 履歴長 / 予測上限。
      * @return 初期化できたら true。引数不正 (world=nullptr / player_count 範囲外 /
      *         history_length=0 / max_prediction >= history_length) や OOM は false。
      */
-    bool Init(World* world, const FRollbackSessionConfig& config) noexcept;
+    bool Init(FWorld* world, const FRollbackSessionConfig& config) noexcept;
 
     /**
      * sim コールバックを設定する (AdvanceTick の前に必須)。
@@ -155,14 +155,14 @@ public:
      * @param frame 確定入力 (tick / player_id を正しく設定すること)。
      * @return 受理したら true。
      */
-    bool SubmitInput(const InputFrame& frame) noexcept;
+    bool SubmitInput(const FInputFrame& frame) noexcept;
 
     /**
      * 1 tick 進める (必要なら冒頭で自動巻き戻し + 再シミュレーション)。
      *
      * @details
      * 失敗時 (未初期化 / コールバック未設定 / 予測上限到達 / snapshot 失敗) は
-     * World を進めずに false を返す。予測上限到達は入力が届けば解消する正常系。
+     * FWorld を進めずに false を返す。予測上限到達は入力が届けば解消する正常系。
      * @return 進めたら true。
      */
     bool AdvanceTick() noexcept;
@@ -196,7 +196,7 @@ public:
     bool NeedsResimulation() const noexcept { return m_DirtyTick != kNoDirtyTick; }
 
     /**
-     * tick カウンタと履歴を start_tick から仕切り直す (World の現在状態は保持)。
+     * tick カウンタと履歴を start_tick から仕切り直す (FWorld の現在状態は保持)。
      *
      * @param start_tick 新しい開始 tick。
      */
@@ -228,10 +228,10 @@ private:
     /** 未使用 slot を表す番兵 (tick は 0xFFFFFFFF 近辺まで使わない想定)。 */
     static constexpr u32 kInvalidSlotTick = 0xFFFFFFFFu;
 
-    /** 対象 World (非所有)。IsInitialized の判定にも使う。 */
-    World*             m_World          = nullptr;
+    /** 対象 FWorld (非所有)。IsInitialized の判定にも使う。 */
+    FWorld*             m_World          = nullptr;
 
-    /** 状態履歴 (tick 開始時点の World スナップショット)。 */
+    /** 状態履歴 (tick 開始時点の FWorld スナップショット)。 */
     FRollbackBuffer     m_History;
 
     /** sim コールバック。 */
@@ -265,13 +265,13 @@ private:
     TArray<u8>         m_Confirmed;
 
     /** 確定入力の台帳 (slot * player)。 */
-    TArray<InputFrame> m_Ledger;
+    TArray<FInputFrame> m_Ledger;
 
     /** 実際に sim へ渡した入力 (slot * player、予測一致判定と繰り返し予測に使う)。 */
-    TArray<InputFrame> m_Used;
+    TArray<FInputFrame> m_Used;
 
     /** GatherInputs が組み立てる 1 tick 分の入力 (player_id 昇順)。 */
-    TArray<InputFrame> m_TickInputs;
+    TArray<FInputFrame> m_TickInputs;
 };
 
 } // namespace acs::game

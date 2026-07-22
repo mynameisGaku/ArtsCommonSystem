@@ -23,19 +23,19 @@ namespace acs {
  * NotifyOne / NotifyAll で起こす。spurious wakeup があり得るため、待機は条件を
  * 検査する while ループ内で行うこと。コピー不可。
  */
-class ConditionVar {
+class FConditionVar {
 public:
     /** CONDITION_VARIABLE を初期化して構築する。 */
-    ConditionVar() noexcept;
+    FConditionVar() noexcept;
 
     /** 破棄する (CONDITION_VARIABLE は明示的解放不要)。 */
-    ~ConditionVar() noexcept = default;
+    ~FConditionVar() noexcept = default;
 
     /** コピー禁止。 */
-    ConditionVar(const ConditionVar&) = delete;
+    FConditionVar(const FConditionVar&) = delete;
 
     /** コピー代入も禁止。 */
-    ConditionVar& operator=(const ConditionVar&) = delete;
+    FConditionVar& operator=(const FConditionVar&) = delete;
 
     /**
      * 起こされるまで無限に待機する。

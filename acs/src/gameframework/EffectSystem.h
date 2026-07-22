@@ -26,7 +26,7 @@
 //      ゲームコード側が consume 順序を意識する必要は無い。
 //
 // 使い方:
-//   class GameplayScene : public Scene {
+//   class FGameplayScene : public FScene {
 //       FEffectSystem m_Fx;
 //       void OnHit() noexcept {
 //           m_Fx.Flash({1,1,1}, 0.8f, 0.15f);   // 白フラッシュ 150ms

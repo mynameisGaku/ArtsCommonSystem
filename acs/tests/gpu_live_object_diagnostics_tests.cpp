@@ -13,7 +13,7 @@ using namespace acs;
 
 ACS_TEST(GpuLiveObjectDiagnostics, SeparatesDiagnosticSelfMessagesFromSevereMessages)
 {
-    render_internal::GpuDebugMessageSummary summary{};
+    render_internal::FGpuDebugMessageSummary summary{};
 
     constexpr char expected_summary[] =
         "Using ID3D12DebugDevice2::ReportLiveDeviceObjects with D3D12_RLDO_DETAIL will help drill into object "
@@ -56,7 +56,7 @@ ACS_TEST(GpuLiveObjectDiagnostics, SameIdentifiersWithUnexpectedDescriptionsRema
 
 ACS_TEST(GpuLiveObjectDiagnostics, CompleteInspectionProducesMachineLeakVerdict)
 {
-    render_internal::GpuDebugMessageSummary summary{};
+    render_internal::FGpuDebugMessageSummary summary{};
     summary.queue_available = true;
     summary.filter_override_attempted = true;
     summary.filter_override_succeeded = true;
@@ -80,12 +80,12 @@ ACS_TEST(GpuLiveObjectDiagnostics, DxgiDiagnosticSequenceIsMonotonicUnderGlobalL
     u64 second_sequence = 0;
     {
         SRWLOCK& lock = render_internal::DxgiLiveObjectDiagnosticsLock();
-        render_internal::DxgiLiveObjectDiagnosticsLockGuard guard(lock);
+        render_internal::FDxgiLiveObjectDiagnosticsLockGuard guard(lock);
         first_sequence = render_internal::NextDxgiLiveObjectDiagnosticSequence();
     }
     {
         SRWLOCK& lock = render_internal::DxgiLiveObjectDiagnosticsLock();
-        render_internal::DxgiLiveObjectDiagnosticsLockGuard guard(lock);
+        render_internal::FDxgiLiveObjectDiagnosticsLockGuard guard(lock);
         second_sequence = render_internal::NextDxgiLiveObjectDiagnosticSequence();
     }
 

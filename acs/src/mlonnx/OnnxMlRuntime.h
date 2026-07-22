@@ -47,7 +47,7 @@ public:
      * @param model_path 読み込むモデルファイルのパス (UTF-8、nullptr/空は失敗)。
      * @return 成功ならモデルハンドル、失敗ならエラー。
      */
-    acs::TResult<acs::game::MlModelHandle> LoadModel(const char* model_path) noexcept override;
+    acs::TResult<acs::game::FMlModelHandle> LoadModel(const char* model_path) noexcept override;
 
     /**
      * モデルセッションを解放してスロットを空ける。
@@ -56,7 +56,7 @@ public:
      * @param h 解放するモデルハンドル。
      * @return 成功なら空の TResult、未初期化ならエラー。
      */
-    acs::TResult<void> UnloadModel(acs::game::MlModelHandle h) noexcept override;
+    acs::TResult<void> UnloadModel(acs::game::FMlModelHandle h) noexcept override;
 
     /**
      * 指定モデルで推論を 1 回同期実行する。
@@ -72,7 +72,7 @@ public:
      * @param out_count 出力バッファの要素数。
      * @return 成功なら空の TResult、未初期化/無効引数/形状不一致/実行失敗ならエラー。
      */
-    acs::TResult<void> RunInference(acs::game::MlModelHandle h,
+    acs::TResult<void> RunInference(acs::game::FMlModelHandle h,
                                     const acs::f32* inputs, acs::u32 in_count,
                                     acs::f32* outputs, acs::u32 out_count) noexcept override;
 

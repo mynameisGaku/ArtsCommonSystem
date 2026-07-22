@@ -47,12 +47,14 @@ public:
      * レンダーターゲットテクスチャの内容を CPU メモリへ読み戻す (同期、GPU→CPU)。
      *
      * @details
-     * texture は描画済み (呼び出し側が render + WaitIdle 済み) であること。destination_pixels に行優先で
-     * 詰める (4 バイト/ピクセル = RGBA8/BGRA8 前提)。サムネイル/スクリーンショット用の一度きり
-     * 操作で、内部で readback ヒープ + コピー + fence 待ち + de-pad を行う (遅い)。
+     * texture は描画済み (呼び出し側が render + WaitIdle 済み) であること。destination_pixels に
+     * mip 0 / array slice 0 を行優先で詰める。3D texture は depth slice 0 の width*height texel
+     * だけを返す。非圧縮 EFormat の bytes-per-pixel を使い、GPU row pitch は除去する。
+     * サムネイル/スクリーンショット/検証用の同期操作で、内部で readback resource + copy +
+     * fence wait を行う (遅い)。
      * 既定は未対応 (false)。DX12 バックエンドが実装する。
      * @param texture 読み戻し元のテクスチャ (render target)。
-     * @param destination_pixels 書き込み先 (>= width*height*4 バイト)。
+     * @param destination_pixels 書き込み先 (>= width*height*format_bytes バイト)。
      * @param destination_size destination_pixels のバイト数。
      * @return 成功なら true、未対応/失敗なら false。
      */
@@ -86,7 +88,7 @@ enum class ERhiBackendKind : u8 {
  *
  * @details デバッグレイヤ有効化・GPU 選好・バックエンド選択を指定する。
  */
-struct DeviceConfig {
+struct FDeviceConfig {
     /** デバッグレイヤを有効化するか (Debug ビルドのみ ON 推奨)。 */
     bool enable_debug_layer = false;
 
@@ -104,13 +106,13 @@ struct DeviceConfig {
      * @param configuration デバイス作成オプション。
  * @return 成功なら所有権付きデバイス、生成失敗ならエラー。
  */
-TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& configuration) noexcept;
+TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const FDeviceConfig& configuration) noexcept;
 
 /**
  * バックエンドのプロセス寿命シングルトンを先に生成しておく。
  *
  * @details
- * Diligent の EngineFactoryD3D12 のような「初回使用時に CRT ヒープへ遅延構築され、
+     * Diligent の IEngineFactoryD3D12 のような「初回使用時に CRT ヒープへ遅延構築され、
  * プロセス終了の static デストラクタまで生きる」シングルトンを、CRT デバッグヒープの
  * リーク計測スコープ (FApplication スコープ) を開く前に確定させるためのフック。
  * これを呼ばないと、計測スコープ内で構築されたシングルトンがスコープ終了時の

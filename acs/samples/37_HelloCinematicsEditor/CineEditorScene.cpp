@@ -13,20 +13,20 @@ using namespace acs::game;
 namespace hellocine {
 
 // ---- runtime callback (= keyframe 発火可視化用、ACS_LOG_INFO に出力) ----
-void CineEditorScene::OnCamera(void* /*user*/, FVec2 target, f32 zoom, f32 dur) noexcept {
+void FCineEditorScene::OnCamera(void* /*user*/, FVec2 target, f32 zoom, f32 dur) noexcept {
     ACS_LOG_INFO("[CineEditor] FCamera fire -> target=(%.2f, %.2f) zoom=%.2f dur=%.2f",
                  static_cast<double>(target.x), static_cast<double>(target.y),
                  static_cast<double>(zoom), static_cast<double>(dur));
 }
 
-void CineEditorScene::OnEvent(void* /*user*/, u32 event_id) noexcept {
+void FCineEditorScene::OnEvent(void* /*user*/, u32 event_id) noexcept {
     ACS_LOG_INFO("[CineEditor] Event fire -> id=%u", event_id);
 }
 
 // ----------------------------------------------------------------------------
 // OnEnter — theme/workspace/panel/director を初期化 + 初期 keyframe 3 個
 // ----------------------------------------------------------------------------
-void CineEditorScene::OnEnter() noexcept {
+void FCineEditorScene::OnEnter() noexcept {
     // editor らしい暗グレー背景 (= 残余領域のクリア色を編集向けに揃える)。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
 
@@ -39,8 +39,8 @@ void CineEditorScene::OnEnter() noexcept {
     m_Workspace.Init();
 
     // ---- FCinematicsDirector に runtime callback を登録 (発火可視化用) ----
-    m_Director.SetCameraCallback(&CineEditorScene::OnCamera, this);
-    m_Director.SetEventCallback (&CineEditorScene::OnEvent,  this);
+    m_Director.SetCameraCallback(&FCineEditorScene::OnCamera, this);
+    m_Director.SetEventCallback (&FCineEditorScene::OnEvent,  this);
 
     // ---- FCinematicsTimelineEditorPanel: Init + director bind + 初期 KF 3 個 ----
     m_CinePanel.Init();
@@ -67,7 +67,7 @@ void CineEditorScene::OnEnter() noexcept {
 // ----------------------------------------------------------------------------
 // OnExit — 逆順 shutdown (workspace → panel → theme は no-op)
 // ----------------------------------------------------------------------------
-void CineEditorScene::OnExit() noexcept {
+void FCineEditorScene::OnExit() noexcept {
     // FEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
     // 呼んでから list を Clear する (FEditorWorkspace.cpp §76)。よって個別
     // UnregisterPanel は不要 (= 二重 OnShutdown を避けるため)。
@@ -85,8 +85,8 @@ void CineEditorScene::OnExit() noexcept {
 // ----------------------------------------------------------------------------
 // OnUpdate — Esc 終了 + Play 中なら panel.Step で時間進行 + keyframe 発火
 // ----------------------------------------------------------------------------
-void CineEditorScene::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) {
+void FCineEditorScene::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -102,10 +102,10 @@ void CineEditorScene::OnUpdate(f32 dt) noexcept {
 // ----------------------------------------------------------------------------
 // OnRender — File menu → Workspace 全描画
 // ----------------------------------------------------------------------------
-void CineEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
+void FCineEditorScene::OnRender(FRenderContext& /*rc*/) noexcept {
     // ---- File メニュー (Workspace::DrawMenuBar の前に push する) ----
     // ImGui は同一フレーム内で BeginMainMenuBar を複数回呼んでも 1 個の bar に
-    // マージするので、本 sample 専用の File メニューを Workspace の FWindow/
+    // マージするので、本 sample 専用の File メニューを Workspace の Window/
     // Layout メニューと並べて表示できる。
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
@@ -128,7 +128,7 @@ void CineEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
     // ---- Workspace 全描画 (1 行で OnFrameBegin → DockSpace → MenuBar →
     //      各 panel DrawUI を順に発火) ----
     // FEditorWorkspace::TickAllPanels は ImGui 系の Draw 呼出を含むため OnRender
-    // の中で呼ぶ。dt は RenderContext からは取れないので FGame の DeltaTime() を使う。
+    // の中で呼ぶ。dt は FRenderContext からは取れないので FGame の DeltaTime() を使う。
     m_Workspace.TickAllPanels(GetGame().DeltaTime());
 }
 

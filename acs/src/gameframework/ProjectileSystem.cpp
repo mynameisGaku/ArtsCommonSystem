@@ -75,7 +75,7 @@ void FProjectileSystem::Init(u32 max_concurrent) noexcept {
  * Spawn のたびに行うが m_Defs の数は通常 10〜30 程度なので線形探索で十分。
  * @param def 登録する弾定義。
  */
-void FProjectileSystem::RegisterDef(const ProjectileDef& def) noexcept {
+void FProjectileSystem::RegisterDef(const FProjectileDef& def) noexcept {
     if (def.id == nullptr) return;
     if (def.lifetime_sec <= 0.0f) return;
 
@@ -96,7 +96,7 @@ void FProjectileSystem::RegisterDef(const ProjectileDef& def) noexcept {
  * @param id 探す弾定義の id (nullptr なら nullptr を返す)。
  * @return 見つかった ProjectileDef へのポインタ (無ければ nullptr)。
  */
-const ProjectileDef* FProjectileSystem::FindDef(const char* id) const noexcept {
+const FProjectileDef* FProjectileSystem::FindDef(const char* id) const noexcept {
     if (id == nullptr) return nullptr;
     const usize n = m_Defs.Size();
     for (usize i = 0; i < n; ++i) {
@@ -133,11 +133,11 @@ u32 FProjectileSystem::AcquireSlot() noexcept {
  * @param id 解決する弾ハンドル。
  * @return 対応する Slot へのポインタ (無効・stale なら nullptr)。
  */
-FProjectileSystem::Slot* FProjectileSystem::FindSlot(FProjectileId id) noexcept {
+FProjectileSystem::FSlot* FProjectileSystem::FindSlot(FProjectileId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= m_Slots.Size()) return nullptr;
-    Slot& s = m_Slots[static_cast<usize>(idx)];
+    FSlot& s = m_Slots[static_cast<usize>(idx)];
     if (!s.active) return nullptr;
     if (s.gen != id.Gen()) return nullptr;
     return &s;
@@ -150,11 +150,11 @@ FProjectileSystem::Slot* FProjectileSystem::FindSlot(FProjectileId id) noexcept 
  * @param id 解決する弾ハンドル。
  * @return 対応する Slot への const ポインタ (無効・stale なら nullptr)。
  */
-const FProjectileSystem::Slot* FProjectileSystem::FindSlot(FProjectileId id) const noexcept {
+const FProjectileSystem::FSlot* FProjectileSystem::FindSlot(FProjectileId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= m_Slots.Size()) return nullptr;
-    const Slot& s = m_Slots[static_cast<usize>(idx)];
+    const FSlot& s = m_Slots[static_cast<usize>(idx)];
     if (!s.active) return nullptr;
     if (s.gen != id.Gen()) return nullptr;
     return &s;
@@ -176,13 +176,13 @@ const FProjectileSystem::Slot* FProjectileSystem::FindSlot(FProjectileId id) con
  */
 FProjectileId FProjectileSystem::Spawn(const char* def_id, FVec2 pos, FVec2 velocity,
                                      u32 owner_id, f32 damage) noexcept {
-    const ProjectileDef* def = FindDef(def_id);
+    const FProjectileDef* def = FindDef(def_id);
     if (def == nullptr) return FProjectileId{};
 
     const u32 idx = AcquireSlot();
     if (idx == kInvalidIdx) return FProjectileId{};
 
-    Slot& s = m_Slots[static_cast<usize>(idx)];
+    FSlot& s = m_Slots[static_cast<usize>(idx)];
 
     u8 new_gen = static_cast<u8>(s.gen + 1u);
     if (new_gen == 0u) new_gen = 1u;
@@ -215,7 +215,7 @@ FProjectileId FProjectileSystem::Spawn(const char* def_id, FVec2 pos, FVec2 velo
  * @param id 削除する弾ハンドル。
  */
 void FProjectileSystem::Despawn(FProjectileId id) noexcept {
-    Slot* s = FindSlot(id);
+    FSlot* s = FindSlot(id);
     if (s == nullptr) return;
     s->active            = false;
     s->has_homing_target = false;
@@ -229,8 +229,8 @@ void FProjectileSystem::Despawn(FProjectileId id) noexcept {
  * @param id 取得する弾ハンドル。
  * @return 対応する ProjectileInstance への const ポインタ (無効・stale なら nullptr)。
  */
-const ProjectileInstance* FProjectileSystem::GetInstance(FProjectileId id) const noexcept {
-    const Slot* s = FindSlot(id);
+const FProjectileInstance* FProjectileSystem::GetInstance(FProjectileId id) const noexcept {
+    const FSlot* s = FindSlot(id);
     if (s == nullptr) return nullptr;
     return &s->inst;
 }
@@ -244,7 +244,7 @@ const ProjectileInstance* FProjectileSystem::GetInstance(FProjectileId id) const
  * @param out_count alive な弾の個数を受け取る出力引数。
  * @return alive 弾の連続スナップショット配列の先頭 (0 個なら nullptr)。
  */
-const ProjectileInstance* FProjectileSystem::AllAlive(u32& out_count) const noexcept {
+const FProjectileInstance* FProjectileSystem::AllAlive(u32& out_count) const noexcept {
     // 非 const 内部状態 (m_AliveSnapshot / m_SnapshotDirtySize) を lazy に
     // 再構築するため const_cast で書き換える。これは mutable cache の慣例。
     auto* self = const_cast<FProjectileSystem*>(this);
@@ -296,10 +296,10 @@ void FProjectileSystem::Tick(f32 dt) noexcept {
 
     const usize n = m_Slots.Size();
     for (usize i = 0; i < n; ++i) {
-        Slot& s = m_Slots[i];
+        FSlot& s = m_Slots[i];
         if (!s.active) continue;
 
-        const ProjectileDef* def = FindDef(s.inst.def_id);
+        const FProjectileDef* def = FindDef(s.inst.def_id);
         // def が消えている (RegisterDef を未呼び出し) ことは通常無いが、防御的に
         // null check してそのまま物理だけ進める (lifetime チェックは skip)。
         const f32  lifetime  = (def != nullptr) ? def->lifetime_sec : 0.0f;
@@ -451,9 +451,9 @@ void FProjectileSystem::SetOnExpireCallback(ExpireCallback cb, void* user) noexc
  * @param target_pos 追尾先のワールド座標。
  */
 void FProjectileSystem::SetHomingTarget(FProjectileId id, FVec2 target_pos) noexcept {
-    Slot* s = FindSlot(id);
+    FSlot* s = FindSlot(id);
     if (s == nullptr) return;
-    const ProjectileDef* def = FindDef(s->inst.def_id);
+    const FProjectileDef* def = FindDef(s->inst.def_id);
     if (def == nullptr || !def->homing) return;
     s->homing_tgt        = target_pos;
     s->has_homing_target = true;

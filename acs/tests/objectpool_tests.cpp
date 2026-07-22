@@ -14,10 +14,10 @@ namespace {
 
 int g_live = 0;   // 生存中インスタンス数 (各テスト先頭で 0 に戻す)
 
-struct Thing {
+struct FThing {
     int value;
-    explicit Thing(int v = 0) noexcept : value(v) { ++g_live; }
-    ~Thing() noexcept { --g_live; }
+    explicit FThing(int v = 0) noexcept : value(v) { ++g_live; }
+    ~FThing() noexcept { --g_live; }
 };
 
 /** 指定した次回確保だけを失敗させ、rollback を検証する backing。 */
@@ -56,7 +56,7 @@ private:
 
 ACS_TEST(ObjectPool, CreateGetDestroy) {
     g_live = 0;
-    TObjectPool<Thing> pool;
+    TObjectPool<FThing> pool;
     EXPECT_EQ(pool.Count(), (u32)0);
 
     FObjectHandle h = pool.Create(42);
@@ -64,7 +64,7 @@ ACS_TEST(ObjectPool, CreateGetDestroy) {
     EXPECT_EQ(pool.Count(), (u32)1);
     EXPECT_EQ(g_live, 1);
 
-    Thing* t = pool.Get(h);
+    FThing* t = pool.Get(h);
     EXPECT_TRUE(t != nullptr);
     EXPECT_EQ(t->value, 42);
     EXPECT_TRUE(pool.IsAlive(h));
@@ -79,7 +79,7 @@ ACS_TEST(ObjectPool, CreateGetDestroy) {
 
 ACS_TEST(ObjectPool, StaleHandleAfterReuse) {
     g_live = 0;
-    TObjectPool<Thing> pool;
+    TObjectPool<FThing> pool;
     FObjectHandle h1 = pool.Create(1);
     pool.Destroy(h1);
     // スロットが再利用されても、古いハンドル h1 は世代不一致で無効。
@@ -93,10 +93,10 @@ ACS_TEST(ObjectPool, StaleHandleAfterReuse) {
 
 ACS_TEST(ObjectPool, StableAddressesAcrossChunks) {
     g_live = 0;
-    TObjectPool<Thing> pool;
+    TObjectPool<FThing> pool;
     constexpr int N = 1000;   // kChunkSize(256) を跨ぐ
     FObjectHandle hs[N];
-    Thing* ptrs[N];
+    FThing* ptrs[N];
     for (int i = 0; i < N; ++i) { hs[i] = pool.Create(i); ptrs[i] = pool.Get(hs[i]); }
     EXPECT_EQ(pool.Count(), (u32)N);
     EXPECT_EQ(g_live, N);
@@ -113,14 +113,14 @@ ACS_TEST(ObjectPool, StableAddressesAcrossChunks) {
 
 ACS_TEST(ObjectPool, ForEachLiveOnly) {
     g_live = 0;
-    TObjectPool<Thing> pool;
+    TObjectPool<FThing> pool;
     FObjectHandle a = pool.Create(10);
     FObjectHandle b = pool.Create(20);
     FObjectHandle c = pool.Create(30);
     pool.Destroy(b);   // 中央を消す → 密リストの swap-remove
 
     int sum = 0, count = 0;
-    pool.ForEach([&](Thing& t, FObjectHandle) { sum += t.value; ++count; });
+    pool.ForEach([&](FThing& t, FObjectHandle) { sum += t.value; ++count; });
     EXPECT_EQ(count, 2);
     EXPECT_EQ(sum, 40);            // 10 + 30 (b=20 は除外)
     EXPECT_EQ(pool.Count(), (u32)2);
@@ -130,7 +130,7 @@ ACS_TEST(ObjectPool, ForEachLiveOnly) {
 
 ACS_TEST(ObjectPool, ClearDestroysAll) {
     g_live = 0;
-    TObjectPool<Thing> pool;
+    TObjectPool<FThing> pool;
     FObjectHandle hs[5];
     for (int i = 0; i < 5; ++i) hs[i] = pool.Create(i);
     EXPECT_EQ(g_live, 5);
@@ -150,7 +150,7 @@ ACS_TEST(ObjectPool, AllocationFailuresPreserveOwnershipAndState)
     FControllableFailAllocator Allocator;
 
     {
-        TObjectPool<Thing> Pool(Allocator);
+        TObjectPool<FThing> Pool(Allocator);
         Allocator.FailNextAllocation();
         const FObjectHandle FailedCreate = Pool.Create(1);
         EXPECT_FALSE(FailedCreate.IsSet());
@@ -188,30 +188,30 @@ ACS_TEST(ObjectPool, AllocationFailuresPreserveOwnershipAndState)
 
 // 「速い」ことを数値で示す参考ベンチ (assert は churn が壊れないことのみ。数値はログ出力)。
 ACS_TEST(ObjectPool, Benchmark_ChurnSpeed) {
-    struct Cell { int a, b, c, d; };
+    struct FCell { int a, b, c, d; };
     const int kIters = 1000000;
-    const u64 freq = Clock::TicksPerSecond();
+    const u64 freq = FClock::TicksPerSecond();
 
     // プール: create+destroy の churn (スロット再利用 → アロケータ呼び出し無し)。
-    TObjectPool<Cell> pool;
-    u64 t0 = Clock::Ticks();
+    TObjectPool<FCell> pool;
+    u64 t0 = FClock::Ticks();
     for (int i = 0; i < kIters; ++i) {
         FObjectHandle h = pool.Create();
         pool.Get(h)->a = i;
         pool.Destroy(h);
     }
-    u64 t1 = Clock::Ticks();
+    u64 t1 = FClock::Ticks();
 
     // ヒープ: New/Delete の churn (アロケータ往復)。
     FAllocator& a = DefaultAllocator();
     volatile int sink = 0;
-    u64 t2 = Clock::Ticks();
+    u64 t2 = FClock::Ticks();
     for (int i = 0; i < kIters; ++i) {
-        Cell* c = New<Cell>(a);
+        FCell* c = New<FCell>(a);
         c->a = i; sink = static_cast<int>(sink + c->a);
         Delete(a, c);
     }
-    u64 t3 = Clock::Ticks();
+    u64 t3 = FClock::Ticks();
     (void)sink;
 
     const int poolNs = (freq > 0) ? static_cast<int>((t1 - t0) * 1000000000ull / freq / (u64)kIters) : 0;
@@ -222,9 +222,9 @@ ACS_TEST(ObjectPool, Benchmark_ChurnSpeed) {
 
 ACS_TEST(ObjectPool, PoolRefSafeAccess) {
     g_live = 0;
-    TObjectPool<Thing> pool;
+    TObjectPool<FThing> pool;
     FObjectHandle h = pool.Create(5);
-    TPoolRef<Thing> ref(pool, h);
+    TPoolRef<FThing> ref(pool, h);
     EXPECT_TRUE(ref.IsValid());
     EXPECT_EQ(ref->value, 5);
     pool.Destroy(h);

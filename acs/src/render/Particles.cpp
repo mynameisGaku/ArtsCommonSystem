@@ -12,8 +12,8 @@
 namespace acs {
 
 /** 火 (上昇する黄〜赤の炎) のプリセットを構成する。 */
-EmitterDesc EmitterDesc::Fire(FVec2 pos) noexcept {
-    EmitterDesc d{};
+FEmitterDesc FEmitterDesc::Fire(FVec2 pos) noexcept {
+    FEmitterDesc d{};
     d.position           = pos;
     d.spawn_offset_min   = FVec2{-6, 0};
     d.spawn_offset_max   = FVec2{ 6, 0};
@@ -31,8 +31,8 @@ EmitterDesc EmitterDesc::Fire(FVec2 pos) noexcept {
 }
 
 /** 火花 (全方位に飛び散り重力で落下) のプリセットを構成する。 */
-EmitterDesc EmitterDesc::Sparks(FVec2 pos) noexcept {
-    EmitterDesc d{};
+FEmitterDesc FEmitterDesc::Sparks(FVec2 pos) noexcept {
+    FEmitterDesc d{};
     d.position           = pos;
     d.spawn_offset_min   = FVec2{0, 0};
     d.spawn_offset_max   = FVec2{0, 0};
@@ -50,8 +50,8 @@ EmitterDesc EmitterDesc::Sparks(FVec2 pos) noexcept {
 }
 
 /** 噴水 (上方へ噴き出し重力で放物落下する青い水滴) のプリセットを構成する。 */
-EmitterDesc EmitterDesc::Fountain(FVec2 pos) noexcept {
-    EmitterDesc d{};
+FEmitterDesc FEmitterDesc::Fountain(FVec2 pos) noexcept {
+    FEmitterDesc d{};
     d.position           = pos;
     d.spawn_offset_min   = FVec2{-2, 0};
     d.spawn_offset_max   = FVec2{ 2, 0};
@@ -69,8 +69,8 @@ EmitterDesc EmitterDesc::Fountain(FVec2 pos) noexcept {
 }
 
 /** 煙 (ゆっくり上昇しながら拡大する灰色) のプリセットを構成する。 */
-EmitterDesc EmitterDesc::Smoke(FVec2 pos) noexcept {
-    EmitterDesc d{};
+FEmitterDesc FEmitterDesc::Smoke(FVec2 pos) noexcept {
+    FEmitterDesc d{};
     d.position           = pos;
     d.spawn_offset_min   = FVec2{-8, -2};
     d.spawn_offset_max   = FVec2{ 8,  2};
@@ -88,22 +88,22 @@ EmitterDesc EmitterDesc::Smoke(FVec2 pos) noexcept {
 }
 
 /** プールを解放してから破棄する。 */
-ParticleSystem::~ParticleSystem() noexcept {
+FParticleSystem::~FParticleSystem() noexcept {
     Shutdown();
 }
 
 /** max_particles ぶんのプールを確保する (0 は 1024 に丸める)。 */
-TResult<void> ParticleSystem::Init(u32 max_particles) noexcept {
+TResult<void> FParticleSystem::Init(u32 max_particles) noexcept {
     if (max_particles == 0) max_particles = 1024;
     Shutdown();
 
-    if (static_cast<usize>(max_particles) > (~usize(0)) / sizeof(Particle)) {
+    if (static_cast<usize>(max_particles) > (~usize(0)) / sizeof(FParticle)) {
         return ACS_ERR(Memory, 300, "ParticleSystem: pool size overflow");
     }
 
     FAllocator& allocator = DefaultAllocator();
-    Particle* const pool = static_cast<Particle*>(
-        allocator.Alloc(sizeof(Particle) * static_cast<usize>(max_particles)));
+    FParticle* const pool = static_cast<FParticle*>(
+        allocator.Alloc(sizeof(FParticle) * static_cast<usize>(max_particles)));
     if (!pool) return ACS_ERR(Memory, 300, "ParticleSystem: pool alloc failed");
 
     // 成功した確保だけをコミットし、失敗時は常に空状態を保つ。
@@ -116,7 +116,7 @@ TResult<void> ParticleSystem::Init(u32 max_particles) noexcept {
 }
 
 /** プールを解放してカウンタをリセットする。 */
-void ParticleSystem::Shutdown() noexcept {
+void FParticleSystem::Shutdown() noexcept {
     if (m_Pool) {
         ACS_ASSERT(m_Allocator != nullptr);
         m_Allocator->Free(m_Pool);
@@ -129,20 +129,20 @@ void ParticleSystem::Shutdown() noexcept {
 }
 
 /** xorshift で [0,1) の擬似乱数を返す。 */
-f32 ParticleSystem::RandF() noexcept {
+f32 FParticleSystem::RandF() noexcept {
     m_Seed ^= m_Seed << 13; m_Seed ^= m_Seed >> 17; m_Seed ^= m_Seed << 5;
     return static_cast<f32>(m_Seed & 0xFFFFFFu) / 16777216.0f;
 }
 
 /** [a,b) の一様乱数を返す。 */
-f32 ParticleSystem::RandRange(f32 a, f32 b) noexcept {
+f32 FParticleSystem::RandRange(f32 a, f32 b) noexcept {
     return a + (b - a) * RandF();
 }
 
 /** エミッタ記述に従って粒子を 1 つ生成する (容量上限なら何もしない)。 */
-void ParticleSystem::SpawnOne() noexcept {
+void FParticleSystem::SpawnOne() noexcept {
     if (m_Active >= m_Capacity) return;
-    Particle& p = m_Pool[m_Active++];
+    FParticle& p = m_Pool[m_Active++];
     p.age = 0;
     // 寿命: ±life_variance の範囲でランダム
     p.life = m_Emitter.life_seconds + (RandF() * 2.0f - 1.0f) * m_Emitter.life_variance;
@@ -162,13 +162,13 @@ void ParticleSystem::SpawnOne() noexcept {
 }
 
 /** count 個の粒子を即座に生成する。 */
-void ParticleSystem::EmitBurst(u32 count) noexcept {
+void FParticleSystem::EmitBurst(u32 count) noexcept {
     if (!m_Pool) return;
     for (u32 i = 0; i < count; ++i) SpawnOne();
 }
 
 /** 1 フレーム分の連続生成 + 物理積分 + 寿命管理を進める。 */
-void ParticleSystem::Update(f32 dt) noexcept {
+void FParticleSystem::Update(f32 dt) noexcept {
     if (!m_Pool) return;
 
     // 1) 連続生成
@@ -181,7 +181,7 @@ void ParticleSystem::Update(f32 dt) noexcept {
 
     // 2) 物理積分 + 寿命管理（swap-pop で死亡粒子を除去）
     for (u32 i = 0; i < m_Active; ) {
-        Particle& p = m_Pool[i];
+        FParticle& p = m_Pool[i];
         p.vel.x += m_Emitter.gravity.x * dt;
         p.vel.y += m_Emitter.gravity.y * dt;
         p.pos.x += p.vel.x * dt;
@@ -197,13 +197,13 @@ void ParticleSystem::Update(f32 dt) noexcept {
 }
 
 /** アクティブな粒子の size/color を寿命比で補間して FSpriteBatch に積む。 */
-void ParticleSystem::Render(FSpriteBatch& sb) noexcept {
+void FParticleSystem::Render(FSpriteBatch& sb) noexcept {
     if (!m_Pool || m_Active == 0) return;
 
     // テクスチャ未設定なら FSpriteBatch の DrawRect 相当（白矩形）
     // 設定済みなら DrawSub 経由
     for (u32 i = 0; i < m_Active; ++i) {
-        const Particle& p = m_Pool[i];
+        const FParticle& p = m_Pool[i];
         const f32 t = p.age / p.life;        // 0 (誕生) .. 1 (死亡)
         // size と color を線形補間
         const f32 s = p.size_start + (p.size_end - p.size_start) * t;

@@ -15,13 +15,13 @@
 //   ・GetSideState          — UI / AI 表示用 read-only snapshot
 //
 // 設計選択:
-//   ・**FTurnSideId** は 24bit index + 8bit gen の packed handle (CooldownId /
+//   ・**FTurnSideId** は 24bit index + 8bit gen の packed handle (FCooldownId /
 //     FSceneTimer / FCollisionWorld2D と同じパターン)。RemoveSide → 再 AddSide
 //     で slot が再利用されても、古い ID が stale として検出できる。
 //   ・**Side ストレージは AoS TArray**: side 数は通常 2〜8 程度、多くて十数
 //     なので AoS で十分。AP 更新が支配的なので cache 局所性も悪くない。
 //   ・**turn order は別 TArray<u32>**: initiative 順に並べ替えた slot index を
-//     保持。TArray<SideSlot> 自体を並べ替えると stable ID が崩れるため。
+//     保持。TArray<FSideSlot> 自体を並べ替えると stable ID が崩れるため。
 //   ・**ETurnPhase** は 5 値: Setup (Init 直後 / StartRound 前) / PlayerTurn /
 //     EnemyTurn / EnvironmentTurn / EndOfRound (StartRound 直後の一瞬の遷移
 //     状態。callback 経由で外部に通知される)。
@@ -145,7 +145,7 @@ struct FTurnSideId {
 /**
  * side 状態の公開 snapshot (GetSideState で返す read-only view)。
  *
- * @details Slot から AP / has_acted を read-only にコピーした UI / AI / save 用の view。
+ * @details FSideSlot から AP / has_acted を read-only にコピーした UI / AI / save 用の view。
  */
 struct FTurnSideState {
     /** AddSide 時のラベル (caller が寿命管理)。 */
@@ -358,7 +358,7 @@ private:
      * display_name の寿命は caller 管理。公開 view (FTurnSideState) を内部にそのまま埋め込み、
      * GetSideState ではそのアドレスを返す。これにより layout 依存の reinterpret_cast を避ける。
      */
-    struct SideSlot {
+    struct FSideSlot {
         /** 公開 snapshot (このアドレスを GetSideState が返す)。 */
         FTurnSideState view;
 
@@ -380,17 +380,17 @@ private:
      * handle から slot を解決する。
      *
      * @param id 解決する side の ID。
-     * @return 対応する SideSlot へのポインタ。stale / 未登録なら nullptr。
+     * @return 対応する FSideSlot へのポインタ。stale / 未登録なら nullptr。
      */
-    SideSlot*       Resolve(FTurnSideId id) noexcept;
+    FSideSlot*       Resolve(FTurnSideId id) noexcept;
 
     /**
      * handle から slot を解決する (const 版)。
      *
      * @param id 解決する side の ID。
-     * @return 対応する SideSlot への const ポインタ。stale / 未登録なら nullptr。
+     * @return 対応する FSideSlot への const ポインタ。stale / 未登録なら nullptr。
      */
-    const SideSlot* Resolve(FTurnSideId id) const noexcept;
+    const FSideSlot* Resolve(FTurnSideId id) const noexcept;
 
     /** initiative 降順 (安定ソート) で m_TurnOrder を再構築する。 */
     void RebuildTurnOrder() noexcept;
@@ -412,7 +412,7 @@ private:
      * @param s 判定対象の side slot。
      * @return is_player_controlled / display_name から推定した ETurnPhase。
      */
-    static ETurnPhase ClassifyPhase(const SideSlot& s) noexcept;
+    static ETurnPhase ClassifyPhase(const FSideSlot& s) noexcept;
 
     /**
      * display_name が "Env" (3 文字) で始まるかを判定する。
@@ -423,7 +423,7 @@ private:
     static bool IsEnvironmentName(const char* name) noexcept;
 
     /** side slot 列 (AoS、AddSide 順)。 */
-    TArray<SideSlot> m_Slots;
+    TArray<FSideSlot> m_Slots;
 
     /** initiative 順に並んだ slot index 列。 */
     TArray<u32>      m_TurnOrder;

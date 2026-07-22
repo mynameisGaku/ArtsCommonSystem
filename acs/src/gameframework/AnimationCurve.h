@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar C — FAnimationCurve
 //
-// 編集可能な「時間→値」補間曲線。Unity FAnimationCurve / Unreal FRichCurve に相当。
+// 編集可能な「時間→値」補間曲線。Unity AnimationCurve / Unreal FRichCurve に相当。
 // FSpriteAnimator が「frame index 計算」だけを担うのと違い、FAnimationCurve は
 // 任意の f32 を時間で滑らかに変化させる汎用パスを提供する。
 //
@@ -15,12 +15,12 @@
 //   fade.AddKey(0.0f, 0.0f, ECurveInterpolation::Linear);
 //   fade.AddKey(0.5f, 0.8f, ECurveInterpolation::Linear);
 //   fade.AddKey(1.0f, 1.0f, ECurveInterpolation::Hermite); // 出口を滑らか
-//   fade.SetPostWrap(FAnimationCurve::WrapMode::Clamp);
+//   fade.SetPostWrap(FAnimationCurve::EWrapMode::Clamp);
 //   // 毎フレーム:
 //   f32 alpha = fade.Evaluate(t);
 //
 // 設計判断:
-//   ・Easing.h は固定数式 11 種類で十分軽量だが、デザイナが任意の曲線を
+//   ・Easing.h は標準 easing の型付きカタログとして十分軽量だが、デザイナが任意の曲線を
 //     差し込みたい局面 (ボス演出曲線, カスタム UI スライドカーブ) に対応するため
 //     キー打ち式の曲線を別途用意する。
 //   ・key は time 昇順で内部 TArray に保持。AddKey は二分探索で適切位置に挿入する
@@ -31,7 +31,7 @@
 //   ・Hermite のタンジェントは「単位 1.0 秒あたりの傾き」として保存。Evaluate
 //     時に segment 長 dt で乗算してスケールするので、key 間隔を変えても曲線形が
 //     直感的に保てる (Unity の Tangent と同セマンティクス)。
-//   ・WrapMode = {Clamp, Loop, PingPong} の前後別指定。Loop / PingPong は
+//   ・EWrapMode = {Clamp, Loop, PingPong} の前後別指定。Loop / PingPong は
 //     FSpriteAnimator と同じ折り返し方式で実装し、長時間呼び出しでも f32 精度を
 //     失わないよう time → 内部正規化 time の段階で fold する。
 //   ・FSpriteAnimator と同様に「ランタイム状態を不意に複製しないため非コピー・
@@ -42,6 +42,10 @@
 #include "container/Array.h"
 
 namespace acs::game {
+
+namespace Easing {
+enum class EEasingType : u8;
+}
 
 /**
  * 各 key で in 側 / out 側それぞれに指定する補間方式。
@@ -64,7 +68,7 @@ enum class ECurveInterpolation : u8 {
 /**
  * 曲線上の 1 つのキー (時刻・値・前後タンジェント・前後補間方式)。
  */
-struct CurveKey {
+struct FCurveKey {
     /** キーの時刻 (秒)。 */
     f32                time        = 0.0f;
 
@@ -84,14 +88,43 @@ struct CurveKey {
     ECurveInterpolation out_interp  = ECurveInterpolation::Linear;
 };
 
+/** FAnimationCurve の checked 更新・評価 API が返す安定したエラー分類。 */
+enum class EAnimationCurveError : u8 {
+    None = 0,
+    NullKeys,
+    TooManyKeys,
+    NonFiniteValue,
+    InvalidInterpolation,
+    InvalidEasingType,
+    InvalidSampleCount,
+    InvalidWrapMode,
+    UnsortedKeys,
+    DuplicateKeyTime,
+    AllocationFailure,
+    ResultOutOfRange,
+};
+
+/** checked 更新・評価の結果。 */
+struct FAnimationCurveResult {
+    EAnimationCurveError error = EAnimationCurveError::None;
+    u32 key_index = 0u;
+    u32 key_count = 0u;
+
+    bool Succeeded() const noexcept {
+        return error == EAnimationCurveError::None;
+    }
+
+    static const char* ErrorName(EAnimationCurveError error) noexcept;
+};
+
 /**
- * 編集可能な「時間→値」補間曲線 (Unity FAnimationCurve / Unreal FRichCurve 相当)。
+ * 編集可能な「時間→値」補間曲線 (Unity AnimationCurve / Unreal FRichCurve 相当)。
  *
  * @details
  * key を time 昇順で内部 TArray に保持し、AddKey は二分探索で適切位置に挿入するため
  * Evaluate は O(log N)。segment [k_i, k_{i+1}] の補間方式は k_i.out_interp で決まり
  * (Step / Linear / Hermite)、Hermite は単位 1 秒あたりの傾きを segment 長で乗算して
- * 評価する。WrapMode で定義域外の前後折り返しを別々に指定でき、ランタイム状態を
+ * 評価する。EWrapMode で定義域外の前後折り返しを別々に指定でき、ランタイム状態を
  * 不意に複製しないよう非コピー・非ムーブ。
  */
 class FAnimationCurve {
@@ -99,7 +132,7 @@ public:
     /**
      * 時間が定義域外に出たときの折り返し方式 (前後別指定可能)。
      */
-    enum class WrapMode : u8 {
+    enum class EWrapMode : u8 {
         /** 端の value を保持。 */
         Clamp    = 0,
 
@@ -110,8 +143,12 @@ public:
         PingPong = 2,
     };
 
-    /** 空の曲線を構築する (key なし、前後 WrapMode は Clamp)。 */
+    /** 空の曲線を構築する (key なし、前後 EWrapMode は Clamp)。 */
     FAnimationCurve() noexcept = default;
+
+    /** allocator を明示して空の曲線を構築する。失敗注入と専用 arena に利用できる。 */
+    explicit FAnimationCurve(FAllocator& allocator) noexcept
+        : m_Keys(allocator) {}
 
     /** 破棄する (内部 TArray が key を解放)。 */
     ~FAnimationCurve() noexcept = default;
@@ -143,6 +180,14 @@ public:
                 ECurveInterpolation interp = ECurveInterpolation::Linear) noexcept;
 
     /**
+     * key を検証して追加または同一 time の key を更新する checked API。
+     * 非有限値、不正 enum、上限超過、OOM では既存状態を変更しない。
+     */
+    FAnimationCurveResult TryAddKey(
+        f32 time, f32 value,
+        ECurveInterpolation interp = ECurveInterpolation::Linear) noexcept;
+
+    /**
      * Hermite モード専用の便利 add (前後 interp を Hermite に設定)。
      *
      * @details
@@ -155,6 +200,30 @@ public:
      */
     void AddKeyHermite(f32 time, f32 value,
                        f32 in_tangent, f32 out_tangent) noexcept;
+
+    /** Hermite key の checked 追加 API。 */
+    FAnimationCurveResult TryAddKeyHermite(
+        f32 time, f32 value,
+        f32 in_tangent, f32 out_tangent) noexcept;
+
+    /**
+     * sort 済み key 列と wrap mode を全検証し、成功時だけ一括置換する。
+     * count==0 では keys==nullptr を許可する。
+     */
+    FAnimationCurveResult TrySetKeys(
+        const FCurveKey* keys, u32 count,
+        EWrapMode pre_wrap = EWrapMode::Clamp,
+        EWrapMode post_wrap = EWrapMode::Clamp) noexcept;
+
+    /**
+     * 型付き easing を [0,1] の編集可能な線形 key 列へサンプリングする。
+     *
+     * @details Back / Elastic の overshoot も保持する。入力検証、全サンプル評価、
+     * key 用メモリ確保がすべて成功した場合だけ現在の曲線を置換するため、無効 type、
+     * 不正 sample_count、OOM では既存 key と wrap mode を変更しない。
+     */
+    FAnimationCurveResult TrySetEasingPreset(
+        Easing::EEasingType type, u32 sample_count = 65u) noexcept;
 
     /**
      * 指定 index の key を順序を保ったまま除去する。
@@ -180,7 +249,7 @@ public:
      * @param index 取得するキーのインデックス。
      * @return key への const ポインタ (範囲外なら nullptr)。
      */
-    const CurveKey* EKey(u32 index) const noexcept {
+    const FCurveKey* Key(u32 index) const noexcept {
         return index < m_Keys.Size() ? &m_Keys[index] : nullptr;
     }
 
@@ -194,6 +263,12 @@ public:
      * @return 補間された値。
      */
     f32 Evaluate(f32 time) const noexcept;
+
+    /**
+     * 非有限入力と補間 overflow を診断し、成功時だけ out_value を更新する。
+     */
+    FAnimationCurveResult TryEvaluate(
+        f32 time, f32& out_value) const noexcept;
 
     /**
      * 末尾 key の time (絶対値) を返す。
@@ -210,34 +285,46 @@ public:
      * 定義域より前 (time < 第 1 key の time) の折り返し方式を設定する。
      *
      * @details 典型ケースで第 1 key.time == 0 なら time < 0 の挙動 = Unity の preWrapMode と等価。
-     * @param m 適用する WrapMode。
+     * @param m 適用する EWrapMode。
      */
-    void SetPreWrap (WrapMode m) noexcept { m_PreWrap  = m; }
+    void SetPreWrap(EWrapMode mode) noexcept;
 
     /**
      * 定義域より後 (time > 末尾 key の time = Duration()) の折り返し方式を設定する (= Unity の postWrapMode)。
      *
-     * @param m 適用する WrapMode。
+     * @param m 適用する EWrapMode。
      */
-    void SetPostWrap(WrapMode m) noexcept { m_PostWrap = m; }
+    void SetPostWrap(EWrapMode mode) noexcept;
+
+    /**
+     * 前後の wrap mode を検証し、成功時だけ同時に更新する。
+     */
+    FAnimationCurveResult TrySetWrapModes(
+        EWrapMode pre_wrap, EWrapMode post_wrap) noexcept;
 
     /**
      * 前側 (pre) の折り返し方式を返す。
      *
-     * @return 設定済みの pre WrapMode。
+     * @return 設定済みの pre EWrapMode。
      */
-    WrapMode PreWrap () const noexcept { return m_PreWrap;  }
+    EWrapMode PreWrap () const noexcept { return m_PreWrap;  }
 
     /**
      * 後側 (post) の折り返し方式を返す。
      *
-     * @return 設定済みの post WrapMode。
+     * @return 設定済みの post EWrapMode。
      */
-    WrapMode PostWrap() const noexcept { return m_PostWrap; }
+    EWrapMode PostWrap() const noexcept { return m_PostWrap; }
+
+    /** 1 curve が保持できる key 数の上限。 */
+    static constexpr u32 kMaxKeys = 65536u;
+
+    /** easing preset の最大サンプル数。UI操作や入力データによる過剰確保を防ぐ。 */
+    static constexpr u32 kMaxEasingPresetSamples = 4096u;
 
 private:
     /**
-     * 時間を [0, Duration()] にラップする (WrapMode 適用)。
+     * 時間を [0, Duration()] にラップする (EWrapMode 適用)。
      *
      * @details
      * 空 / Duration==0 の場合はそのまま time を返し (上位で個別処理する)、
@@ -268,17 +355,17 @@ private:
      * @param dt segment の長さ (秒)。
      * @return 補間された値。
      */
-    static f32 InterpolateSegment(const CurveKey& k0, const CurveKey& k1,
+    static f32 InterpolateSegment(const FCurveKey& k0, const FCurveKey& k1,
                                   f32 t, f32 dt) noexcept;
 
     /** time 昇順に保持された key 列。 */
-    TArray<CurveKey> m_Keys;
+    TArray<FCurveKey> m_Keys;
 
     /** 定義域より前の折り返し方式。 */
-    WrapMode        m_PreWrap  = WrapMode::Clamp;
+    EWrapMode        m_PreWrap  = EWrapMode::Clamp;
 
     /** 定義域より後の折り返し方式。 */
-    WrapMode        m_PostWrap = WrapMode::Clamp;
+    EWrapMode        m_PostWrap = EWrapMode::Clamp;
 };
 
 } // namespace acs::game

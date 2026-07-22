@@ -10,7 +10,7 @@ using namespace acs;
 
 namespace helloimgui {
 
-void HelloImGuiApp::OnStart() noexcept {
+void FHelloImGuiApp::OnStart() noexcept {
     auto r = m_Imgui.Init(GetWindow(), GetRenderer());
     if (r.IsErr()) {
         Quit();
@@ -18,18 +18,18 @@ void HelloImGuiApp::OnStart() noexcept {
     }
 }
 
-void HelloImGuiApp::OnUpdate(f32 /*dt*/) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloImGuiApp::OnUpdate(f32 /*dt*/) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
 }
 
-void HelloImGuiApp::OnRender() noexcept {
+void FHelloImGuiApp::OnRender() noexcept {
     // NewFrame は OnRender 内 (BeginFrame の後) で呼ぶのが ACS の作法。
     m_Imgui.NewFrame();
 
     // ShowDemoWindow は ImGui 機能網羅のリファレンス。
     if (m_bShowDemo) ImGui::ShowDemoWindow(&m_bShowDemo);
 
-    ImGui::Begin("ACS FSample");
+    ImGui::Begin("ACS Sample");
     ImGui::Text("FPS: %.1f", FPS());
     ImGui::Text("Frames: %llu", static_cast<unsigned long long>(FrameCount()));
     ImGui::Checkbox("Show ImGui demo", &m_bShowDemo);
@@ -43,11 +43,11 @@ void HelloImGuiApp::OnRender() noexcept {
     m_Imgui.Render();
 }
 
-void HelloImGuiApp::OnShutdown() noexcept {
+void FHelloImGuiApp::OnShutdown() noexcept {
     m_Imgui.Shutdown();
 }
 
-void HelloImGuiApp::OnEvent(const Event& e) noexcept {
+void FHelloImGuiApp::OnEvent(const FEvent& e) noexcept {
     m_Imgui.OnEvent(e);
 }
 

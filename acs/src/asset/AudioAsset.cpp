@@ -80,21 +80,21 @@ bool ComputeSampleBytes(u64 frames, u8 ch, usize& out_bytes) noexcept
  * @param src_bytes コピーするバイト数。
  * @return 生成した FAudioAsset、alloc 失敗時は空の TSharedPtr (呼び出し側で判定)。
  */
-TSharedPtr<Asset> MakeAudio(FAssetId id, u32 sr, u8 ch, ESampleFormat fmt, u64 frames, const void* src,
+TSharedPtr<FAsset> MakeAudio(FAssetId id, u32 sr, u8 ch, ESampleFormat fmt, u64 frames, const void* src,
                             usize src_bytes) noexcept
 {
     TArray<byte> samples;
     samples.Resize(src_bytes);
     if (src_bytes != 0) MemCopy(samples.Data(), src, src_bytes);
     TSharedPtr<FAudioAsset> a = MakeShared<FAudioAsset>(sr, ch, fmt, frames, Move(samples));
-    if (!a) return TSharedPtr<Asset>(); // alloc 失敗: null を返す (null-deref 回避、呼び出し側で判定)
+    if (!a) return TSharedPtr<FAsset>(); // alloc 失敗: null を返す (null-deref 回避、呼び出し側で判定)
     a->SetId(id);
     a->SetState(EAssetState::Ready);
-    return TSharedPtr<Asset>(Move(a));
+    return TSharedPtr<FAsset>(Move(a));
 }
 } // namespace
 
-TResult<TSharedPtr<Asset>> WavAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept
+TResult<TSharedPtr<FAsset>> FWavAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept
 {
     drwav wav{};
     if (!::drwav_init_memory(&wav, bytes.Data(), bytes.Size(), nullptr))
@@ -110,11 +110,11 @@ TResult<TSharedPtr<Asset>> WavAssetLoader::LoadFromBytes(FAssetId id, const TArr
     const u64 read = ::drwav_read_pcm_frames_s16(&wav, frames, reinterpret_cast<drwav_int16*>(tmp.Data()));
     ::drwav_uninit(&wav);
     if (read == 0) return ACS_ERR(Asset, 201, "drwav_read_pcm_frames_s16 failed");
-    return TResult<TSharedPtr<Asset>>(OkInit,
+    return TResult<TSharedPtr<FAsset>>(OkInit,
                                       MakeAudio(id, sr, ch, ESampleFormat::PCM_S16, read, tmp.Data(), tmp.Size()));
 }
 
-TResult<TSharedPtr<Asset>> Mp3AssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept
+TResult<TSharedPtr<FAsset>> FMp3AssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept
 {
     drmp3 mp3{};
     if (!::drmp3_init_memory(&mp3, bytes.Data(), bytes.Size(), nullptr))
@@ -130,11 +130,11 @@ TResult<TSharedPtr<Asset>> Mp3AssetLoader::LoadFromBytes(FAssetId id, const TArr
     const u64 read = ::drmp3_read_pcm_frames_s16(&mp3, frames, reinterpret_cast<drmp3_int16*>(tmp.Data()));
     ::drmp3_uninit(&mp3);
     if (read == 0) return ACS_ERR(Asset, 211, "drmp3_read_pcm_frames_s16 failed");
-    return TResult<TSharedPtr<Asset>>(OkInit,
+    return TResult<TSharedPtr<FAsset>>(OkInit,
                                       MakeAudio(id, sr, ch, ESampleFormat::PCM_S16, read, tmp.Data(), tmp.Size()));
 }
 
-TResult<TSharedPtr<Asset>> FlacAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept
+TResult<TSharedPtr<FAsset>> FFlacAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept
 {
     drflac* flac = ::drflac_open_memory(bytes.Data(), bytes.Size(), nullptr);
     if (!flac) return ACS_ERR(Asset, 220, "drflac_open_memory failed");
@@ -149,11 +149,11 @@ TResult<TSharedPtr<Asset>> FlacAssetLoader::LoadFromBytes(FAssetId id, const TAr
     const u64 read = ::drflac_read_pcm_frames_s16(flac, frames, reinterpret_cast<drflac_int16*>(tmp.Data()));
     ::drflac_close(flac);
     if (read == 0) return ACS_ERR(Asset, 221, "drflac_read_pcm_frames_s16 failed");
-    return TResult<TSharedPtr<Asset>>(OkInit,
+    return TResult<TSharedPtr<FAsset>>(OkInit,
                                       MakeAudio(id, sr, ch, ESampleFormat::PCM_S16, read, tmp.Data(), tmp.Size()));
 }
 
-TResult<TSharedPtr<Asset>> OggAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept
+TResult<TSharedPtr<FAsset>> FOggAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept
 {
     int err = 0;
     stb_vorbis* v = ::stb_vorbis_open_memory(reinterpret_cast<const unsigned char*>(bytes.Data()),
@@ -172,7 +172,7 @@ TResult<TSharedPtr<Asset>> OggAssetLoader::LoadFromBytes(FAssetId id, const TArr
                                                                static_cast<int>(frames * ch));
     ::stb_vorbis_close(v);
     if (got <= 0) return ACS_ERR(Asset, 231, "stb_vorbis_get_samples_short_interleaved failed");
-    return TResult<TSharedPtr<Asset>>(OkInit, MakeAudio(id, sr, ch, ESampleFormat::PCM_S16, static_cast<u64>(got),
+    return TResult<TSharedPtr<FAsset>>(OkInit, MakeAudio(id, sr, ch, ESampleFormat::PCM_S16, static_cast<u64>(got),
                                                         tmp.Data(), tmp.Size()));
 }
 

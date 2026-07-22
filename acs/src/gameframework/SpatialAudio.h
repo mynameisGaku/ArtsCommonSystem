@@ -4,7 +4,7 @@
 // 3D 位置情報を持つ FAudioSource3D と単一の FAudioListener (= プレイヤ耳位置) から
 // 距離減衰 (attenuation) / 左右パン (stereo pan) を算出する音声空間化レイヤ。
 // HRTF (Head-Related Transfer Function) によるバイノーラル化は `IHrtfRenderer`
-// interface seam として隔離する。`HrtfRendererStub` は constant-power stereo
+// interface seam として隔離する。`FHrtfRendererStub` は constant-power stereo
 // panning + 距離減衰を**実数学** (in-repo 完結) で行い、真のバイノーラル化
 // (KEMAR 256-tap convolution、~140KB の埋め込み impulse response) のみが seam
 // として残る (外部 IR データ必須のため別モジュールとして差し込む)。
@@ -17,7 +17,7 @@
 //   バインドして、FSpatialAudio が計算した volume * pan を per-voice に書き込む。
 //
 // 使い方:
-//   class WorldScene : public Scene {
+//   class FWorldScene : public FScene {
 //       acs::game::FSpatialAudio m_Spatial;
 //
 //       void OnEnter() noexcept override {
@@ -218,13 +218,13 @@ protected:
  * source.curve に応じた距離減衰 (ComputeAttenuatedVolume と同式)。現状これが唯一の
  * IHrtfRenderer 実装で、IsHrtfEnabled() は false を返す (真の HRTF 効果のみ無い)。
  */
-class HrtfRendererStub final : public IHrtfRenderer {
+class FHrtfRendererStub final : public IHrtfRenderer {
 public:
     /** 空状態で構築する。 */
-    HrtfRendererStub() noexcept = default;
+    FHrtfRendererStub() noexcept = default;
 
     /** 破棄する。 */
-    ~HrtfRendererStub() noexcept override = default;
+    ~FHrtfRendererStub() noexcept override = default;
 
     /**
      * stub を初期化する (初回のみ HRTF off のログを出す)。
@@ -275,7 +275,7 @@ private:
  * 3D listener + source を集中管理する空間化レイヤ。
  *
  * @details
- * Scene 局所 instance としての所有を想定。1 listener + N source を保持し、
+ * FScene 局所 instance としての所有を想定。1 listener + N source を保持し、
  * 毎フレーム attenuation と pan を pull で取得できる API を提供する。
  */
 class FSpatialAudio {

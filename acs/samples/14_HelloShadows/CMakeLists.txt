@@ -1,4 +1,4 @@
-# 「HelloShadows」サンプル: シャドウマッピング (PCSS 4x4+4x4)
+# 「HelloShadows」サンプル: シャドウマッピング (Vogel PCSS 16+24)
 #
 # 構成:
 #   main.cpp                  - ACS_DEFINE_MAIN(HelloShadowsApp) のみ

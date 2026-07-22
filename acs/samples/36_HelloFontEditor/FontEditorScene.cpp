@@ -15,7 +15,7 @@ namespace hellofont {
 // ----------------------------------------------------------------------------
 // OnEnter — workspace 初期化 + 初期 3 face 登録 + editor panel 登録
 // ----------------------------------------------------------------------------
-void FontEditorScene::OnEnter() noexcept {
+void FFontEditorScene::OnEnter() noexcept {
     // editor らしいニュートラルグレー (背景は ImGui に隠れるが viewport の
     // 外側のクリア色を編集向けに揃える)。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
@@ -32,7 +32,7 @@ void FontEditorScene::OnEnter() noexcept {
     // file_path は stub (実 loader 統合は未着手)。path 文字列は静的リテラル
     // (.rdata) なので panel から非所有参照しても安全。
     {
-        fontedit::FontFaceInfo jp{};
+        fontedit::FFontFaceInfo jp{};
         jp.file_path      = L"assets/fonts/NotoSansJP-Regular.otf";
         jp.family_name    = "Noto Sans JP";
         jp.base_size_px   = 24.0f;
@@ -42,7 +42,7 @@ void FontEditorScene::OnEnter() noexcept {
         m_EditorPanel.AddFontFace(jp);
     }
     {
-        fontedit::FontFaceInfo mono{};
+        fontedit::FFontFaceInfo mono{};
         mono.file_path      = L"assets/fonts/NotoSansMono-Regular.ttf";
         mono.family_name    = "Noto Sans Mono";
         mono.base_size_px   = 20.0f;
@@ -52,7 +52,7 @@ void FontEditorScene::OnEnter() noexcept {
         m_EditorPanel.AddFontFace(mono);
     }
     {
-        fontedit::FontFaceInfo emoji{};
+        fontedit::FFontFaceInfo emoji{};
         emoji.file_path      = L"assets/fonts/EmojiOne-FColor.otf";
         emoji.family_name    = "fallback emoji";
         emoji.base_size_px   = 32.0f;
@@ -74,7 +74,7 @@ void FontEditorScene::OnEnter() noexcept {
 // ----------------------------------------------------------------------------
 // OnExit — 逆順 shutdown
 // ----------------------------------------------------------------------------
-void FontEditorScene::OnExit() noexcept {
+void FFontEditorScene::OnExit() noexcept {
     // FEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
     // 呼んでから list を Clear する。よって個別 UnregisterPanel を呼ぶ必要は無い。
     m_Workspace.Shutdown();
@@ -90,8 +90,8 @@ void FontEditorScene::OnExit() noexcept {
 // ImGui 関連 (Workspace::TickAllPanels が呼ぶ DrawDockSpace / MenuBar / panel
 // DrawUI) はすべて OnRender 側へ。ImGui::Begin 等は NewFrame() と Render() の
 // 間でしか呼べないため、ここで Workspace::TickAllPanels は呼ばない。
-void FontEditorScene::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) {
+void FFontEditorScene::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -101,9 +101,9 @@ void FontEditorScene::OnUpdate(f32 dt) noexcept {
 // ----------------------------------------------------------------------------
 // OnRender — File menu (Save/Load stub) → Workspace 全描画
 // ----------------------------------------------------------------------------
-void FontEditorScene::OnRender(RenderContext& /*rc*/) noexcept {
+void FFontEditorScene::OnRender(FRenderContext& /*rc*/) noexcept {
     // ImGui は同一フレーム内で BeginMainMenuBar を複数回呼んでも 1 個の bar に
-    // マージするので、本 sample 専用の File メニューを Workspace の FWindow/
+    // マージするので、本 sample 専用の File メニューを Workspace の Window/
     // Layout メニューと並べて表示できる。
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {

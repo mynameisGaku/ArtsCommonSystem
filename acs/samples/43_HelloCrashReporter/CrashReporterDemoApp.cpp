@@ -43,7 +43,7 @@ int FCrashReporterDemoApp::Run() noexcept {
         return 3;
     }
 
-    acs::game::CrashContext Context{};
+    acs::game::FCrashContext Context{};
     Context.exception_type = "SYNTHETIC_TEST_CRASH";
     Context.message = "hello crash reporter smoke test";
     Context.scene_name = "HelloCrashReporter";
@@ -74,4 +74,3 @@ int FCrashReporterDemoApp::Run() noexcept {
 }
 
 } // namespace hellocrash
-

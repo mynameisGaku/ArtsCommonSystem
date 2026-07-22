@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Diligent Engine 経由の RHI デバイス実装
-// IRhiDevice を継承し、内部で IRenderDevice / IDeviceContext / EngineFactory を保持。
+// IRhiDevice を継承し、内部で IRenderDevice / IDeviceContext / IEngineFactory を保持。
 //
 // 設計方針:
 //   - Diligent の重い型 (RefCntAutoPtr) はヘッダに漏らさず、.cpp で扱う
@@ -27,24 +27,24 @@ namespace acs {
  * Diligent Engine 経由の RHI デバイス実装 (D3D12 / Vulkan 両対応)。
  *
  * @details
- * IRhiDevice を継承し、内部で IRenderDevice / IDeviceContext / EngineFactory を保持する。
+ * IRhiDevice を継承し、内部で IRenderDevice / IDeviceContext / IEngineFactory を保持する。
  * Diligent の重い型 (RefCntAutoPtr) はヘッダに漏らさず生ポインタで保持し、デストラクタで
  * 明示的に Release() する。バックエンド非依存で完結するため、ユーザーコードは CreateRhiDevice()
  * 経由で IRhiDevice ハンドルだけを受け取り、このヘッダを include する必要はない。
  */
-class DiligentDevice final : public IRhiDevice {
+class FDiligentDevice final : public IRhiDevice {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    DiligentDevice() noexcept = default;
+    FDiligentDevice() noexcept = default;
 
     /** Diligent オブジェクトを Release して破棄する。 */
-    ~DiligentDevice() noexcept override;
+    ~FDiligentDevice() noexcept override;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    DiligentDevice(const DiligentDevice&) = delete;
+    FDiligentDevice(const FDiligentDevice&) = delete;
 
     /** コピー代入も禁止。 */
-    DiligentDevice& operator=(const DiligentDevice&) = delete;
+    FDiligentDevice& operator=(const FDiligentDevice&) = delete;
 
     /**
      * デバイスを初期化する (CreateRhiDevice から呼ばれる)。
@@ -53,7 +53,7 @@ public:
      * @param configuration バックエンド種別・デバッグレイヤ等のデバイス作成オプション。
      * @return 成功なら空の TResult、初期化失敗ならエラー。
      */
-    TResult<void> Init(const DeviceConfig& configuration) noexcept;
+    TResult<void> Init(const FDeviceConfig& configuration) noexcept;
 
     /**
      * バックエンド名を返す。
@@ -82,8 +82,9 @@ public:
      * テクスチャ内容を CPU へ読み戻す (staging texture 経由、遅い・同期)。
      *
      * @details USAGE_STAGING + CPU_ACCESS_READ の一時テクスチャへ CopyTexture → Flush →
-     * WaitIdle → MapTextureSubresource で取り出す。行は stride 詰めして out へ密に書く。
-     * destination_size はテクスチャの密サイズ (w*h*bpp) 以上が必要。任意フォーマット対応 (bpp は format から算出)。
+     * WaitIdle → MapTextureSubresource で mip0/slice0 を取り出す。3D texture は depth slice 0
+     * のみを返し、行は stride を除いて out へ密に書く。destination_size は
+     * 非圧縮テクスチャの密サイズ (w*h*bpp) 以上が必要。
      * @param texture 読み戻すテクスチャ。
      * @param destination_pixels 書き込み先 (密 row-major)。
      * @param destination_size destination_pixels のバイト数。
@@ -102,7 +103,7 @@ public:
     }
 
     /**
-     * 汎用の EngineFactory を返す (Vulkan / D3D12 共通の基底型)。
+     * 汎用の IEngineFactory を返す (Vulkan / D3D12 共通の基底型)。
      *
      * @return IEngineFactory へのポインタ (m_Factory または m_FactoryVk と同じ実体)。
      */
@@ -112,7 +113,7 @@ public:
     }
 
     /**
-     * D3D12 用の EngineFactory を返す。
+     * D3D12 用の IEngineFactoryD3D12 を返す。
      *
      * @return D3D12 経路の IEngineFactoryD3D12 (Vulkan 経路なら nullptr)。
      */
@@ -122,7 +123,7 @@ public:
     }
 
     /**
-     * Vulkan 用の EngineFactory を返す。
+     * Vulkan 用の IEngineFactoryVk を返す。
      *
      * @return Vulkan 経路の IEngineFactoryVk (D3D12 経路なら nullptr)。
      */
@@ -185,7 +186,47 @@ public:
         m_FrameSlot = (m_FrameSlot + 1) % kFramesInFlight;
     }
 
+    /**
+     * Flush 済みの command-list submission が frame boundary 待ちであることを記録する。
+     *
+     * Diligent は primary swapchain の Present 時に FinishFrame() を自動で呼ぶが、
+     * off-screen submission にはその暗黙の frame boundary が無い。Submit はこの状態を
+     * 立て、off-screen なら直後に、primary なら Present 後に閉じる。
+     */
+    void MarkFrameSubmitted() noexcept;
+
+    /**
+     * 新しい command list の記録前に frame-slot の GPU 完了を待ち、stale allocations を回収する。
+     *
+     * descriptor allocation が始まる前に待つことで、DXGI の有限 timeout に依存せず
+     * kFramesInFlight を超える GPU backlog を防ぐ。
+     */
+    void PrepareCommandRecording() noexcept;
+
+    /**
+     * primary swapchain の Present が Diligent 側の FinishFrame() を完了したことを通知する。
+     */
+    void NotifyPrimaryPresentFinished() noexcept;
+
+    /**
+     * Present を伴わない submission の Diligent frame を閉じ、dynamic descriptor 等を回収する。
+     *
+     * off-screen Submit 直後、Present が欠落した次の Begin 前、または WaitIdle 前に呼ぶ。
+     * 通常の swapchain frame は primary Present が同じ処理を行うため、
+     * NotifyPrimaryPresentFinished() で二重実行を防ぐ。
+     */
+    void FinishPendingSubmittedFrame() noexcept;
+
 private:
+    /**
+     * FinishFrame 後の slot に fence を割り当てる。
+     *
+     * FinishFrame が descriptor chunk を release queue へ送る末尾 submission の後に
+     * Signal を enqueue し、即時 Flush する。slot fence はその frame-end work の
+     * GPU 完了を表す。
+     */
+    void QueueFinishedFrameFence() noexcept;
+
     /** 所有中または初期化途中の Diligent 資源を解放し、再初期化可能な空状態へ戻す。 */
     void Reset() noexcept;
 
@@ -195,7 +236,7 @@ private:
      * @param configuration デバイス作成オプション。
      * @return 成功なら空の TResult、初期化失敗ならエラー。
      */
-    TResult<void> InitD3D12(const DeviceConfig& configuration) noexcept;
+    TResult<void> InitD3D12(const FDeviceConfig& configuration) noexcept;
 
     /**
      * Vulkan バックエンドでデバイスを初期化する。
@@ -203,15 +244,15 @@ private:
      * @param configuration デバイス作成オプション。
      * @return 成功なら空の TResult、初期化失敗または未ビルドならエラー。
      */
-    TResult<void> InitVulkan(const DeviceConfig& configuration) noexcept;
+    TResult<void> InitVulkan(const FDeviceConfig& configuration) noexcept;
 
-    /** 汎用の EngineFactory (m_Factory or m_FactoryVk と同じ実体)。 */
+    /** 汎用の IEngineFactory (m_Factory or m_FactoryVk と同じ実体)。 */
     Diligent::IEngineFactory* m_FactoryGeneric = nullptr;
 
-    /** D3D12 経路の EngineFactory。 */
+    /** D3D12 経路の IEngineFactoryD3D12。 */
     Diligent::IEngineFactoryD3D12* m_Factory = nullptr;
 
-    /** Vulkan 経路の EngineFactory。 */
+    /** Vulkan 経路の IEngineFactoryVk。 */
     Diligent::IEngineFactoryVk* m_FactoryVk = nullptr;
 
     /** レンダーデバイス (リソース生成元)。 */
@@ -228,6 +269,15 @@ private:
 
     /** 現在のフレームスロット (0..kFramesInFlight-1)。 */
     u32 m_FrameSlot = 0;
+
+    /**
+     * Flush 済みだが primary Present の FinishFrame() をまだ通っていない submission。
+     * 主に material preview/readback 等の off-screen command list を表す。
+     */
+    bool m_FrameSubmissionPending = false;
+
+    /** frame slot ごとの GPU 完了 fence。全 command list で共有する。 */
+    u64 m_FrameFences[kFramesInFlight] = {};
 
     /** 実際に選ばれたバックエンド種別。 */
     ERhiBackendKind m_ActualBackend = ERhiBackendKind::Auto;

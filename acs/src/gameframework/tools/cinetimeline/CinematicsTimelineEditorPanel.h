@@ -3,7 +3,7 @@
 //
 // `acs::game::FCinematicsDirector` (= タイムライン上の cutscene 駆動器) を
 // **対話的に編集する timeline editor panel**。Unity Timeline / Unreal Sequencer /
-// Godot FAnimationPlayer の「水平タイムライン + 複数トラック + キーフレーム
+// Godot AnimationPlayer の「水平タイムライン + 複数トラック + キーフレーム
 // マーカー + 再生制御」の最小版に相当。
 // `editor_core::FEditorPanel` 基底に載せ、`FEditorWorkspace::RegisterPanel(&panel)`
 // の 1 行で workspace に統合できる形にしている。
@@ -25,7 +25,7 @@
 //     データは caller 所有 (= `SetCinematicsDirector(&dir)` で raw 参照を渡す、
 //     寿命は caller 責任)。本 panel が director を生成 / 破棄しない
 //     (FAnimCurveEditorPanel が FAnimationCurve を non-owning で受けるのと同形)。
-//   ・panel は **editor 専用の keyframe storage** (= `EditorKeyframe` の TArray)
+//   ・panel は **editor 専用の keyframe storage** (= `FEditorKeyframe` の TArray)
 //     を内部に持つ。FCinematicsDirector::FTimelineKeyframe は payload が
 //     {camera/dialogue/music/event} の 4 種固定 union だが、editor 上では
 //     UE Sequencer / Unity Timeline のように "5 種類のオーサリング概念"
@@ -68,7 +68,7 @@
 //     5 種 (= 副作用ゼロな状態遷移マーカー)。両者は ToTrackKind() マッピング
 //     関数で繋ぐ。例: CameraCut → MoveCamera、FadeColor/TimeScale/SpawnEffect/
 //     TriggerCallback → FireEvent (event_id を kind ごとに別 reserve)。
-//   ・**TArray<EditorKeyframe> は panel 所有**: director の internal m_Keyframes
+//   ・**TArray<FEditorKeyframe> は panel 所有**: director の internal m_Keyframes
 //     を直接編集するには FCinematicsDirector の private を覗く必要があり、また
 //     payload に色や FVec3 を持たせるには既存 union を拡張する必要がある。
 //     editor は「リッチな payload を持つ自前 storage」を持ち、Play 時に
@@ -105,9 +105,9 @@
 //   ・スナップグリッド / 等間隔配置 (= 現状は自由配置のみ)
 //   ・preview viewport (= scrub したら 3D scene が更新されるリアルタイム連動)
 //
-// 参考: gameframework/FCinematicsDirector.h,
-//      gameframework/tools/editor_core/FEditorPanel.h,
-//      gameframework/tools/animcurve/FAnimCurveEditorPanel.h
+// 参考: gameframework/CinematicsDirector.h,
+//      gameframework/tools/editor_core/EditorPanel.h,
+//      gameframework/tools/animcurve/AnimCurveEditorPanel.h
 #pragma once
 
 #include "foundation/Types.h"
@@ -117,7 +117,7 @@
 
 namespace acs::game {
 // 編集対象の FCinematicsDirector は本ヘッダから forward-decl のみで受ける。
-// `<gameframework/FCinematicsDirector.h>` を include しないことで、本 panel を
+// `<gameframework/CinematicsDirector.h>` を include しないことで、本 panel を
 // 利用する側がヘッダ依存を最小化できる (= FCinematicsDirector 自体の変更で
 // 不要な再ビルドを避ける)。
 class FCinematicsDirector;
@@ -161,7 +161,7 @@ enum class ETimelineKeyKind : u8 {
  * TimeScale=time_scale、SpawnEffect=event_id+camera_target、
  * TriggerCallback=event_id)。
  */
-struct EditorKeyframe {
+struct FEditorKeyframe {
     /** タイムライン上の発火時刻 [秒]。 */
     f32              time_sec = 0.0f;
 
@@ -184,7 +184,7 @@ struct EditorKeyframe {
     u32  event_id         { 0u };
 
     /** 既定値で keyframe を構築する。 */
-    EditorKeyframe() noexcept = default;
+    FEditorKeyframe() noexcept = default;
 };
 
 /**
@@ -193,7 +193,7 @@ struct EditorKeyframe {
  * @details
  * 水平タイムライン + 5 種のトラック + キーフレームマーカー + 再生制御を持つ
  * 最小の cutscene エディタ。FEditorPanel を継承し、editor 専用のリッチな
- * keyframe storage (EditorKeyframe の TArray) を panel 側で所有する。Play 時に
+ * keyframe storage (FEditorKeyframe の TArray) を panel 側で所有する。Play 時に
  * 各 keyframe を runtime 用 FTimelineKeyframe へ bake して director に流し込む。
  * 編集対象の FCinematicsDirector は raw 参照で受け取り、寿命は caller 責任。
  */
@@ -384,7 +384,7 @@ private:
     acs::game::FCinematicsDirector* m_Director = nullptr;
 
     /** panel 所有の keyframe 配列 (time 昇順、stable insertion で維持)。 */
-    TArray<EditorKeyframe> m_Keyframes;
+    TArray<FEditorKeyframe> m_Keyframes;
 
     /** 現在選択中の keyframe index。 */
     i32 m_SelectedIdx = kNoKeySelected;
@@ -413,7 +413,7 @@ private:
      * @param kf 挿入する keyframe。
      * @return 挿入された index (= sort 後の位置)。
      */
-    i32 InsertKeyframeSorted(const EditorKeyframe& kf) noexcept;
+    i32 InsertKeyframeSorted(const FEditorKeyframe& kf) noexcept;
 
     /**
      * editor の全 keyframe を director に bake する (= Clear + AddKeyframe loop)。

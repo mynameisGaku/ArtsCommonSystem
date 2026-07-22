@@ -163,7 +163,7 @@ void FAnimationGraph::SetParam(const char* name, f32 value) noexcept {
             return;
         }
     }
-    Param p;
+    FParam p;
     p.name  = name;
     p.value = value;
     m_Params.PushBack(p);

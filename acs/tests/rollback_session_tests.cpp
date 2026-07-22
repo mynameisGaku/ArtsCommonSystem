@@ -19,12 +19,12 @@ struct FSeqC { u32 h = 0; };
 
 /** 1 World 分のテストフィクスチャ (sim コールバックの user データ)。 */
 struct FRbFixture {
-    World*   world = nullptr;
-    EntityId players[2] = {};
-    EntityId seq = {};
+    FWorld*   world = nullptr;
+    FEntityId players[2] = {};
+    FEntityId seq = {};
     u32      player_count = 2;
 
-    void Setup(World& w, u32 count) noexcept
+    void Setup(FWorld& w, u32 count) noexcept
     {
         world        = &w;
         player_count = count;
@@ -38,7 +38,7 @@ struct FRbFixture {
 };
 
 /** 決定論 sim: 各プレイヤーの buttons を座標へ積み、順序依存ハッシュも更新する。 */
-void SessionSim(World& w, u32 tick, const InputFrame* inputs, u32 input_count, void* user) noexcept
+void SessionSim(FWorld& w, u32 tick, const FInputFrame* inputs, u32 input_count, void* user) noexcept
 {
     FRbFixture* fx = static_cast<FRbFixture*>(user);
     for (u32 p = 0; p < input_count; ++p) {
@@ -54,9 +54,9 @@ void SessionSim(World& w, u32 tick, const InputFrame* inputs, u32 input_count, v
 }
 
 /** InputFrame を組む補助。 */
-InputFrame MakeInput(u32 tick, u32 player, u8 buttons) noexcept
+FInputFrame MakeInput(u32 tick, u32 player, u8 buttons) noexcept
 {
-    InputFrame f{};
+    FInputFrame f{};
     f.tick      = tick;
     f.player_id = player;
     f.buttons   = buttons;
@@ -81,7 +81,7 @@ void ExpectWorldsEqual(const FRbFixture& a, const FRbFixture& b) noexcept
 } // namespace
 
 ACS_TEST(RollbackSession, InitContract) {
-    World w;
+    FWorld w;
     FRollbackSession s;
     FRollbackSessionConfig cfg;
 
@@ -108,7 +108,7 @@ ACS_TEST(RollbackSession, InitContract) {
 }
 
 ACS_TEST(RollbackSession, PredictionRepeatsLastConfirmedInput) {
-    World w;
+    FWorld w;
     FRbFixture fx;
     fx.Setup(w, 1);
 
@@ -147,16 +147,16 @@ ACS_TEST(RollbackSession, MispredictionRollsBackAndConverges) {
     const auto B = [](u32 t) noexcept -> u8 { return static_cast<u8>(((t * 2u) % 4u) + 1u); };
     constexpr u32 kTicks = 7;
 
-    World auth_world;
+    FWorld auth_world;
     FRbFixture auth;
     auth.Setup(auth_world, 2);
     for (u32 t = 0; t < kTicks; ++t) {
-        InputFrame in[2] = {MakeInput(t, 0, A(t)), MakeInput(t, 1, B(t))};
+        FInputFrame in[2] = {MakeInput(t, 0, A(t)), MakeInput(t, 1, B(t))};
         SessionSim(auth_world, t, in, 2, &auth);
     }
 
     // セッション側: p0 は毎 tick 確定、p1 は 6 tick 分まとめて遅延到着。
-    World sim_world;
+    FWorld sim_world;
     FRbFixture fx;
     fx.Setup(sim_world, 2);
 
@@ -190,7 +190,7 @@ ACS_TEST(RollbackSession, MispredictionRollsBackAndConverges) {
 }
 
 ACS_TEST(RollbackSession, EvictedTickInputIsRejected) {
-    World w;
+    FWorld w;
     FRbFixture fx;
     fx.Setup(w, 1);
 
@@ -221,7 +221,7 @@ ACS_TEST(RollbackSession, EvictedTickInputIsRejected) {
 }
 
 ACS_TEST(RollbackSession, MaxPredictionDegradesToLockstep) {
-    World w;
+    FWorld w;
     FRbFixture fx;
     fx.Setup(w, 2);
 
@@ -252,7 +252,7 @@ ACS_TEST(RollbackSession, MaxPredictionDegradesToLockstep) {
 }
 
 ACS_TEST(RollbackSession, ResetRestartsSession) {
-    World w;
+    FWorld w;
     FRbFixture fx;
     fx.Setup(w, 1);
 

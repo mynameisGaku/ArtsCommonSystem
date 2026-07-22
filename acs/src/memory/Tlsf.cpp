@@ -357,7 +357,7 @@ TResult<void> FTlsfAllocator::Init(void* PoolBase, usize PoolSize) noexcept
 }
 
 // VmReservation も保持する初期化
-TResult<void> FTlsfAllocator::InitWithReservation(VmReservation&& Reservation, usize InitialCommitBytes) noexcept
+TResult<void> FTlsfAllocator::InitWithReservation(FVmReservation&& Reservation, usize InitialCommitBytes) noexcept
 {
     if (m_Initialized) return ACS_ERR(Memory, 25, "TLSF::InitWithReservation already initialized");
     auto CommitResult = Reservation.Commit(0, InitialCommitBytes);
@@ -448,7 +448,7 @@ TResult<void> FTlsfAllocator::AddPool(void* PoolBase, usize PoolSize) noexcept
         return ACS_ERR(Memory, 26, "AddPool tracking capacity exceeded");
     }
     for (int Index = 0; Index < m_PoolSpanCount; ++Index) {
-        const PoolSpan& ExistingSpan = m_PoolSpans[Index];
+        const FPoolSpan& ExistingSpan = m_PoolSpans[Index];
         if (PoolAddress < ExistingSpan.hi && ExistingSpan.lo < PoolEnd) {
             return ACS_ERR(Memory, 27, "AddPool overlaps an existing pool");
         }
@@ -756,7 +756,7 @@ bool FTlsfAllocator::OwnsPointer(const void* Pointer) const noexcept
     constexpr usize kMinimumRepresentableBlockSize = MIN_BLOCK_SIZE - kBlockHeaderOverhead;
     const uptr Address = reinterpret_cast<uptr>(Pointer);
     for (int i = 0; i < m_PoolSpanCount; ++i) {
-        const PoolSpan& Span = m_PoolSpans[i];
+        const FPoolSpan& Span = m_PoolSpans[i];
         if (Address < Span.lo || Address >= Span.hi || Address - Span.lo < kBlockStartOffset) continue;
 
         const uptr BlockAddress = Address - kBlockStartOffset;
@@ -805,7 +805,7 @@ bool FTlsfAllocator::IsPointerWithinPoolPayloadRange(const void* Pointer) const 
 
     const uptr Address = reinterpret_cast<uptr>(Pointer);
     for (int Index = 0; Index < m_PoolSpanCount; ++Index) {
-        const PoolSpan& Span = m_PoolSpans[Index];
+        const FPoolSpan& Span = m_PoolSpans[Index];
         if (Address >= Span.lo && Address < Span.hi && Address - Span.lo >= kBlockStartOffset) {
             return true;
         }
@@ -820,7 +820,7 @@ bool FTlsfAllocator::IsAllocationStartTracked(const void* Pointer) const noexcep
 
     const uptr Address = reinterpret_cast<uptr>(Pointer);
     for (int Index = 0; Index < m_PoolSpanCount; ++Index) {
-        const PoolSpan& Span = m_PoolSpans[Index];
+        const FPoolSpan& Span = m_PoolSpans[Index];
         if (Address < Span.lo || Address >= Span.hi || !Span.allocation_start_bitmap) continue;
 
         const usize SlotIndex = static_cast<usize>((Address - Span.lo) / ALIGN_SIZE);
@@ -839,7 +839,7 @@ bool FTlsfAllocator::TrackAllocationStart(const void* Pointer) noexcept
 
     const uptr Address = reinterpret_cast<uptr>(Pointer);
     for (int Index = 0; Index < m_PoolSpanCount; ++Index) {
-        PoolSpan& Span = m_PoolSpans[Index];
+        FPoolSpan& Span = m_PoolSpans[Index];
         if (Address < Span.lo || Address >= Span.hi || !Span.allocation_start_bitmap) continue;
 
         const usize SlotIndex = static_cast<usize>((Address - Span.lo) / ALIGN_SIZE);
@@ -860,7 +860,7 @@ bool FTlsfAllocator::UntrackAllocationStart(const void* Pointer) noexcept
 
     const uptr Address = reinterpret_cast<uptr>(Pointer);
     for (int Index = 0; Index < m_PoolSpanCount; ++Index) {
-        PoolSpan& Span = m_PoolSpans[Index];
+        FPoolSpan& Span = m_PoolSpans[Index];
         if (Address < Span.lo || Address >= Span.hi || !Span.allocation_start_bitmap) continue;
 
         const usize SlotIndex = static_cast<usize>((Address - Span.lo) / ALIGN_SIZE);
@@ -934,7 +934,7 @@ bool FTlsfAllocator::ValidateHeap() const noexcept
     constexpr usize kMinimumRepresentableBlockSize = MIN_BLOCK_SIZE - kBlockHeaderOverhead;
 
     for (int PoolIndex = 0; PoolIndex < m_PoolSpanCount; ++PoolIndex) {
-        const PoolSpan& Span = m_PoolSpans[PoolIndex];
+        const FPoolSpan& Span = m_PoolSpans[PoolIndex];
         if (Span.lo >= Span.hi || Span.hi - Span.lo < kBlockStartOffset) return false;
 
         uptr BlockAddress = Span.lo;
@@ -1173,9 +1173,9 @@ void* FTlsfAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize
     return Pointer;
 }
 
-FTlsfAllocator::Stats FTlsfAllocator::GetStats() const noexcept
+FTlsfAllocator::FStats FTlsfAllocator::GetStats() const noexcept
 {
-    Stats Statistics{};
+    FStats Statistics{};
     Statistics.bytes_used = m_BytesUsed;
     Statistics.bytes_peak = m_BytesPeak;
     Statistics.free_blocks = 0;

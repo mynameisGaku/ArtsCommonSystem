@@ -41,11 +41,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "Sprite / Sound",
+      name: "FSprite / FSound",
       kind: "構造体", header: "easy/Easy.h",
       summary: "<code>LoadSprite</code> / <code>LoadSound</code> が返す、コピー可能な軽い<b>素材ハンドル</b>（中身は番号 <code>id</code> だけ）。<code>id==0</code> は無効。",
       when: "読み込んだ画像・音を持ち回って描画/再生に渡す時。失敗しても落ちず、無効ハンドルが返る（描画/再生は無視される）。",
-      sample: "Sprite player = LoadSprite(\"player.png\");\nSound  jump   = LoadSound(\"jump.wav\");\nif (player.id != 0) DrawSprite(player, 100, 100);",
+      sample: "FSprite player = LoadSprite(\"player.png\");\nFSound  jump   = LoadSound(\"jump.wav\");\nif (player.id != 0) DrawSprite(player, 100, 100);",
       members: [
         { sig: "u32 id", desc: "素材を指す内部番号。0 は無効（読み込み失敗など）。" }
       ]
@@ -58,7 +58,7 @@ ACS_REF.modules.push({
       when: "すべての easy プログラムの骨格。描画・入力の関数は必ず <code>NextFrame()</code> の後（ループの中）で呼ぶ。",
       sample: "OpenWindow(1280, 720, \"My Game\");\nwhile (NextFrame()) {\n    if (IsKeyPressed(EKey::Escape)) Quit();\n    DrawString(20, 20, \"Hello\", FColor::White);\n}",
       members: [
-        { sig: "void OpenWindow(i32 width=1280, i32 height=720, const char* title=\"ACS FGame\")", desc: "ウィンドウを開いて初期化。失敗時はコンソールにエラーを出し、最初の <code>NextFrame()</code> が false を返す（静かに終了）。" },
+        { sig: "void OpenWindow(i32 width=1280, i32 height=720, const char* title=\"ACS Game\")", desc: "ウィンドウを開いて初期化。失敗時はコンソールにエラーを出し、最初の <code>NextFrame()</code> が false を返す（静かに終了）。" },
         { sig: "bool NextFrame()", ret: "続行するか", desc: "直前のフレームを画面に出し、次の準備をして true。閉じられたら後始末して false。<code>while</code> の条件に使う。" },
         { sig: "void Quit()", desc: "ゲームを終了する。以後 <code>NextFrame()</code> が false を返すようになる。" }
       ]
@@ -111,15 +111,15 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "<code>LoadSprite</code> で読んだ画像を描く関数群。元サイズ・伸縮・回転・色掛け（<t>ティント</t>）・反転・<b>一部切り出し</b>（スプライトシート）に対応。位置 (x,y) は画像の左上。",
       when: "キャラやタイルの描画。アニメーションは <code>DrawSpritePart</code> でシートのコマを切り替える。",
-      sample: "Sprite p = LoadSprite(\"hero.png\");\nDrawSprite(p, 100, 100);                       // 元サイズ\nDrawSprite(p, 100, 100, 64, 64);               // 伸縮\nDrawSpriteRotated(p, 200, 200, 30);            // 回転\nDrawSpriteFlipped(p, 300, 200, true, false);   // 左右反転\n// シートの (0,0) から 32x32 のコマだけ切り出す\nDrawSpritePart(p, 400, 200, 32, 32, 0, 0, 32, 32);",
+      sample: "FSprite p = LoadSprite(\"hero.png\");\nDrawSprite(p, 100, 100);                       // 元サイズ\nDrawSprite(p, 100, 100, 64, 64);               // 伸縮\nDrawSpriteRotated(p, 200, 200, 30);            // 回転\nDrawSpriteFlipped(p, 300, 200, true, false);   // 左右反転\n// シートの (0,0) から 32x32 のコマだけ切り出す\nDrawSpritePart(p, 400, 200, 32, 32, 0, 0, 32, 32);",
       members: [
-        { sig: "void DrawSprite(Sprite s, f32 x, f32 y)", desc: "画像を元サイズで描く。" },
-        { sig: "void DrawSprite(Sprite s, f32 x, f32 y, f32 w, f32 h)", desc: "指定サイズに伸縮して描く。" },
-        { sig: "void DrawSpriteRotated(Sprite s, f32 x, f32 y, f32 degrees, f32 scale=1, FColor tint={1,1,1,1})", desc: "回転（＋拡縮・色掛け）。(x,y) は回転前の左上、回転は中心まわり。" },
-        { sig: "void DrawSpriteTinted(Sprite s, f32 x, f32 y, FColor tint)", desc: "<t>ティント</t>（色掛け）して描く。点滅やダメージ表現に。" },
-        { sig: "void DrawSpriteFlipped(Sprite s, f32 x, f32 y, bool flip_x, bool flip_y)", desc: "左右/上下を反転して描く。向きの切替に。" },
-        { sig: "void DrawSpritePart(Sprite s, f32 x,f32 y,f32 w,f32 h, f32 sx,f32 sy,f32 sw,f32 sh)", desc: "画像内の矩形 (sx,sy,sw,sh) だけを切り出して描く。スプライトシートのコマ送りに。" },
-        { sig: "f32 SpriteWidth(Sprite s) / f32 SpriteHeight(Sprite s)", ret: "画像の幅/高さ", desc: "読み込んだ画像のピクセルサイズ。" }
+        { sig: "void DrawSprite(FSprite s, f32 x, f32 y)", desc: "画像を元サイズで描く。" },
+        { sig: "void DrawSprite(FSprite s, f32 x, f32 y, f32 w, f32 h)", desc: "指定サイズに伸縮して描く。" },
+        { sig: "void DrawSpriteRotated(FSprite s, f32 x, f32 y, f32 degrees, f32 scale=1, FColor tint={1,1,1,1})", desc: "回転（＋拡縮・色掛け）。(x,y) は回転前の左上、回転は中心まわり。" },
+        { sig: "void DrawSpriteTinted(FSprite s, f32 x, f32 y, FColor tint)", desc: "<t>ティント</t>（色掛け）して描く。点滅やダメージ表現に。" },
+        { sig: "void DrawSpriteFlipped(FSprite s, f32 x, f32 y, bool flip_x, bool flip_y)", desc: "左右/上下を反転して描く。向きの切替に。" },
+        { sig: "void DrawSpritePart(FSprite s, f32 x,f32 y,f32 w,f32 h, f32 sx,f32 sy,f32 sw,f32 sh)", desc: "画像内の矩形 (sx,sy,sw,sh) だけを切り出して描く。スプライトシートのコマ送りに。" },
+        { sig: "f32 SpriteWidth(FSprite s) / f32 SpriteHeight(FSprite s)", ret: "画像の幅/高さ", desc: "読み込んだ画像のピクセルサイズ。" }
       ]
     },
 
@@ -191,10 +191,10 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "画像・音を読み込んで<b>ハンドル</b>を返す。同じパスは読み直さず同じハンドルを返す。失敗しても落ちず、無効ハンドル（<code>id==0</code>）を返す。",
       when: "ゲーム開始時にまとめて読む（ループ内で毎回呼んでも再読込はされないが、開始時が分かりやすい）。<code>OpenWindow</code> の後で呼ぶ。",
-      sample: "Sprite hero = LoadSprite(\"assets/hero.png\");\nSound  bgm  = LoadSound(\"assets/bgm.ogg\");\n// パスは実行時のカレントディレクトリからの相対。\n// 見つからない時は絶対パスか exe の隣に置く。",
+      sample: "FSprite hero = LoadSprite(\"assets/hero.png\");\nFSound  bgm  = LoadSound(\"assets/bgm.ogg\");\n// パスは実行時のカレントディレクトリからの相対。\n// 見つからない時は絶対パスか exe の隣に置く。",
       members: [
-        { sig: "Sprite LoadSprite(const char* path)", ret: "画像ハンドル", desc: "画像ファイルを読む。失敗で <code>id==0</code>。" },
-        { sig: "Sound LoadSound(const char* path)", ret: "音ハンドル", desc: "音ファイルを読む。失敗で <code>id==0</code>。" }
+        { sig: "FSprite LoadSprite(const char* path)", ret: "画像ハンドル", desc: "画像ファイルを読む。失敗で <code>id==0</code>。" },
+        { sig: "FSound LoadSound(const char* path)", ret: "音ハンドル", desc: "音ファイルを読む。失敗で <code>id==0</code>。" }
       ]
     },
 
@@ -205,9 +205,9 @@ ACS_REF.modules.push({
       when: "ジャンプ音や爆発音は <code>Play</code>、BGM は <code>PlayLoop</code>。設定画面の音量スライダーには <code>SetMasterVolume</code>。",
       sample: "Play(jumpSe);                 // 効果音 1 回\nPlay(hitSe, 0.5f);            // 音量半分\nPlayLoop(bgm, 0.8f);          // BGM ループ\nStopSound(bgm);               // その音を止める\nSetMasterVolume(0.3f);        // 全体音量",
       members: [
-        { sig: "void Play(Sound s) / void Play(Sound s, f32 volume)", desc: "効果音を 1 回鳴らす。音量は 0.0〜1.0。" },
-        { sig: "void PlayLoop(Sound s) / void PlayLoop(Sound s, f32 volume)", desc: "ループ再生（BGM 向け）。" },
-        { sig: "void StopSound(Sound s)", desc: "その音のループを止める。" },
+        { sig: "void Play(FSound s) / void Play(FSound s, f32 volume)", desc: "効果音を 1 回鳴らす。音量は 0.0〜1.0。" },
+        { sig: "void PlayLoop(FSound s) / void PlayLoop(FSound s, f32 volume)", desc: "ループ再生（BGM 向け）。" },
+        { sig: "void StopSound(FSound s)", desc: "その音のループを止める。" },
         { sig: "void StopAllSounds()", desc: "鳴っている音を全部止める。" },
         { sig: "void SetMasterVolume(f32 volume)", desc: "全体音量（0.0〜1.0）。音量スライダー用。" },
         { sig: "void PauseAllSounds() / void ResumeAllSounds()", desc: "全音を一時停止／再開（位置は保たれる）。ポーズ画面に。" }
@@ -337,11 +337,31 @@ ACS_REF.modules.push({
     },
 
     {
-      name: "JobBatch / JobNode",
+      name: "Ease / TryEase / EEasingType",
+      kind: "関数・列挙", header: "easy/Easy.h",
+      summary: "GameFramework と同じ<t>イージング</t> catalog の評価可能な全 33 曲線を easy から型付きで利用する入口。<code>EEasingType</code> は Linear、Quad/Cubic/Quart/Quint/Sine/Expo/Circ/Back/Elastic/Bounce の In/Out/InOut と SmoothStep/SmootherStep を列挙する。<code>Count = 33</code> は末尾 sentinel で、評価可能な曲線ではない。Easy は GameFramework へ一方向に依存し、曲線の数式を重複実装しない。",
+      when: "移動・UI・フェードの進行度を等速以外にしたい時。保存した canonical 名から曲線を復元したい時や、プレビューを一括生成したい時、非有限入力・無効 enum を診断したい時は checked API を使う。",
+      sample: "EEasingType type = EEasingType::SmootherStep;\nf32 progress = Ease(raw_time, type, 0.0f);\nf32 checked = previous;\nFEasingResult result = TryEase(raw_time, EEasingType::OutElastic, checked);\nif (!result.Succeeded()) { /* checked は変更されない */ }\nf32 preview[33]{};\nTrySampleEasing(type, preview, 33);\nconst char* name = nullptr;\nif (TryGetEasingName(type, name).Succeeded()) {\n    TryParseEasingNameChecked(name, type);\n}",
+      members: [
+        { sig: "using EEasingType / EEasingError / FEasingResult", desc: "GameFramework の型付き Easing catalog・エラー・checked 結果を easy 名前空間へ再公開する alias。" },
+        { sig: "f32 Ease(f32 t, EEasingType type, f32 fallback = 0)", desc: "全 33 種を型付き評価。無効 type または非有限 t では fallback を返し、finite t は [0,1] に clamp。" },
+        { sig: "FEasingResult TryEase(f32 t, EEasingType type, f32& out)", desc: "checked 評価。無効 type、非有限入力・結果を拒否し、失敗時は out を変更しない。" },
+        { sig: "FEasingResult TrySampleEasing(EEasingType type, f32* out, usize sample_count)", desc: "GameFramework の上限付き一括サンプリングへ転送する。2〜65536点、確保なし。失敗時は配列全体を変更しない。" },
+        { sig: "const char* EasingName(EEasingType type)", desc: "canonical 名を返す。無効 type では <code>\"Invalid\"</code>。" },
+        { sig: "FEasingResult TryGetEasingName(EEasingType type, const char*& out)", desc: "canonical 名の checked 取得。無効 type は <code>InvalidType</code> で拒否し、失敗時は out を変更しない。" },
+        { sig: "bool TryParseEasingName(const char* name, EEasingType& out)", desc: "canonical 名を parse。null・空・未知名では false で out を変更しない。" },
+        { sig: "FEasingResult TryParseEasingNameChecked(const char* name, EEasingType& out)", desc: "canonical 名を大文字小文字を区別して解析する checked API。null は <code>NullName</code>、空・未知名は <code>UnknownName</code> で拒否し、失敗時は out を変更しない。" },
+        { sig: "f32 EaseIn/EaseOut/EaseInOut(f32 t)", desc: "InQuad / OutQuad / InOutQuad へ委譲する既存互換 shortcut。" },
+        { sig: "f32 EaseOutBack/EaseOutBounce/EaseOutElastic(f32 t)", desc: "OutBack / OutBounce / OutElastic へ委譲する既存互換 shortcut。" }
+      ]
+    },
+
+    {
+      name: "FJobBatch / FJobNode",
       kind: "構造体", header: "easy/Easy.h",
-      summary: "並列処理のハンドル。<code>JobBatch</code> は <code>RunAsync</code> で投げた非同期ジョブ群を、<code>JobNode</code> は依存グラフの 1 ノードを指す軽量値型（<code>id==0</code> は無効）。",
+      summary: "並列処理のハンドル。<code>FJobBatch</code> は <code>RunAsync</code> で投げた非同期ジョブ群を、<code>FJobNode</code> は依存グラフの 1 ノードを指す軽量値型（<code>id==0</code> は無効）。",
       when: "<code>RunAsync</code> の戻りを <code>WaitJobs</code> に渡す、<code>Job</code> の戻りを <code>Then</code> でつなぐ、といった並列 API の受け渡しに使う。",
-      sample: "JobBatch b = RunAsync([&]{ heavyCalc(); });\nWaitJobs(b);\nJobNode a = Job([]{ stepA(); });\nJobNode c = Job([]{ stepC(); });\nThen(a, c);   // a の後に c",
+      sample: "FJobBatch b = RunAsync([&]{ heavyCalc(); });\nWaitJobs(b);\nFJobNode a = Job([]{ stepA(); });\nFJobNode c = Job([]{ stepC(); });\nThen(a, c);   // a の後に c",
       members: [
         { sig: "u32 id", desc: "ジョブ群／ノードを指す内部番号。0 は無効。" }
       ]
@@ -360,14 +380,14 @@ ACS_REF.modules.push({
     {
       name: "RunAsync / WaitJobs / JobsDone",
       kind: "関数", header: "easy/Easy.h",
-      summary: "1 つの処理を<b>非同期に</b>走らせて即座に戻り、<code>JobBatch</code> を返す。後で <code>WaitJobs</code> で完了を待つか <code>JobsDone</code> で待たずに確認する。同じ batch に追加投入もできる。",
+      summary: "1 つの処理を<b>非同期に</b>走らせて即座に戻り、<code>FJobBatch</code> を返す。後で <code>WaitJobs</code> で完了を待つか <code>JobsDone</code> で待たずに確認する。同じ batch に追加投入もできる。",
       when: "重い読み込みや計算を裏で進めつつ、ローディング画面を回したい時。中では計算だけして結果は捕捉変数に書き、描画はしないこと。",
-      sample: "JobBatch jobs = RunAsync([&]{ loadLevel(); });\nRunAsync(jobs, [&]{ buildNav(); });   // 同じ batch に追加\nwhile (NextFrame()) {\n    if (JobsDone(jobs)) break;        // 待たずに確認\n    DrawString(20, 20, \"Loading...\", FColor::White);\n}\nWaitJobs(jobs);                       // 念のため完了を保証",
+      sample: "FJobBatch jobs = RunAsync([&]{ loadLevel(); });\nRunAsync(jobs, [&]{ buildNav(); });   // 同じ batch に追加\nwhile (NextFrame()) {\n    if (JobsDone(jobs)) break;        // 待たずに確認\n    DrawString(20, 20, \"Loading...\", FColor::White);\n}\nWaitJobs(jobs);                       // 念のため完了を保証",
       members: [
-        { sig: "JobBatch RunAsync<Fn>(Fn fn)", ret: "ジョブハンドル", desc: "fn を非同期で 1 つ走らせ、すぐ戻る。" },
-        { sig: "void RunAsync<Fn>(JobBatch batch, Fn fn)", desc: "既存 batch に追加投入する（同じ <code>WaitJobs</code> でまとめて待てる）。" },
-        { sig: "void WaitJobs(JobBatch batch)", desc: "batch の全ジョブ完了まで待つ。待ち終えた batch は無効化される。" },
-        { sig: "bool JobsDone(JobBatch batch)", ret: "完了したか", desc: "待たずに完了状態を確認する。ローディング表示の継続判定に。" }
+        { sig: "FJobBatch RunAsync<Fn>(Fn fn)", ret: "ジョブハンドル", desc: "fn を非同期で 1 つ走らせ、すぐ戻る。" },
+        { sig: "void RunAsync<Fn>(FJobBatch batch, Fn fn)", desc: "既存 batch に追加投入する（同じ <code>WaitJobs</code> でまとめて待てる）。" },
+        { sig: "void WaitJobs(FJobBatch batch)", desc: "batch の全ジョブ完了まで待つ。待ち終えた batch は無効化される。" },
+        { sig: "bool JobsDone(FJobBatch batch)", ret: "完了したか", desc: "待たずに完了状態を確認する。ローディング表示の継続判定に。" }
       ]
     },
     {
@@ -375,10 +395,10 @@ ACS_REF.modules.push({
       kind: "関数", header: "easy/Easy.h",
       summary: "<b>依存つき</b>の並列実行。<code>Job</code> でノードを作り、<code>Then</code> で「A の後に B」と順序を張り、<code>RunJobs</code> で全ノードを依存順に実行して全完了まで待つ。内部は依存グラフ。",
       when: "処理に前後関係がある時（『地形生成 → ナビ構築 → 敵配置』など）。順序を <code>Then</code> で表現すれば、独立な部分は自動で並列化される。",
-      sample: "JobNode gen  = Job([]{ generateTerrain(); });\nJobNode nav  = Job([]{ buildNavmesh(); });\nJobNode spawn= Job([]{ spawnEnemies(); });\nThen(gen, nav);    // 地形 → ナビ\nThen(nav, spawn);  // ナビ → 敵\nRunJobs();         // 依存順に実行し、全完了まで待つ",
+      sample: "FJobNode gen  = Job([]{ generateTerrain(); });\nFJobNode nav  = Job([]{ buildNavmesh(); });\nFJobNode spawn= Job([]{ spawnEnemies(); });\nThen(gen, nav);    // 地形 → ナビ\nThen(nav, spawn);  // ナビ → 敵\nRunJobs();         // 依存順に実行し、全完了まで待つ",
       members: [
-        { sig: "JobNode Job<Fn>(Fn fn)", ret: "ノードハンドル", desc: "実行する処理を 1 ノードとして登録する（まだ走らない）。" },
-        { sig: "void Then(JobNode before, JobNode after)", desc: "before が終わってから after が走る、という依存を張る。" },
+        { sig: "FJobNode Job<Fn>(Fn fn)", ret: "ノードハンドル", desc: "実行する処理を 1 ノードとして登録する（まだ走らない）。" },
+        { sig: "void Then(FJobNode before, FJobNode after)", desc: "before が終わってから after が走る、という依存を張る。" },
         { sig: "void RunJobs()", desc: "作った全ノードを依存順に実行し、全完了まで待つ。" }
       ]
     },

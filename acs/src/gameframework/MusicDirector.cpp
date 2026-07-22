@@ -27,7 +27,7 @@ void FMusicDirector::RouteCurrentTrackToAudio(f32 fade_in_sec) noexcept {
         m_Audio->StopBgm(fade_in_sec);
         return;
     }
-    const MusicTrack& t = m_Tracks[idx];
+    const FMusicTrack& t = m_Tracks[idx];
     m_Audio->PlayBgm(t.asset_path, fade_in_sec, t.loop);
 }
 
@@ -42,7 +42,7 @@ FMusicDirector::FMusicDirector() noexcept {
 }
 
 /** 指定 state の連続区間末尾に track を挿入し、state インデックスを更新する。 */
-void FMusicDirector::RegisterTrack(EMusicState state, const MusicTrack& track) noexcept {
+void FMusicDirector::RegisterTrack(EMusicState state, const FMusicTrack& track) noexcept {
     if (track.asset_path == nullptr) {
         ACS_LOG_WARN("FMusicDirector::RegisterTrack: asset_path=nullptr → ignored");
         return;
@@ -54,7 +54,7 @@ void FMusicDirector::RegisterTrack(EMusicState state, const MusicTrack& track) n
     }
 
     // intensity range を [0, 1] にクランプし、min <= max を保証する。
-    MusicTrack normalized = track;
+    FMusicTrack normalized = track;
     normalized.intensity_min = Clamp01(track.intensity_min);
     normalized.intensity_max = Clamp01(track.intensity_max);
     if (normalized.intensity_min > normalized.intensity_max) {
@@ -68,7 +68,7 @@ void FMusicDirector::RegisterTrack(EMusicState state, const MusicTrack& track) n
     // 該当 state の末尾位置に挿入するため、それより後ろの track を 1 つずつ後方シフト。
     // (state ごとに連続区間を維持する SoA 戦略)
     const u32 insert_at = _state_first[state_idx] + _state_count[state_idx];
-    m_Tracks.PushBack(MusicTrack{});  // 末尾に空き枠を確保
+    m_Tracks.PushBack(FMusicTrack{});  // 末尾に空き枠を確保
     for (usize i = m_Tracks.Size() - 1; i > insert_at; --i) {
         m_Tracks[i] = m_Tracks[i - 1];
     }
@@ -100,7 +100,7 @@ usize FMusicDirector::FindTrackForState(EMusicState state, f32 intensity) const 
     f32   fallback_max = -1.0f;
     for (u32 i = 0; i < count; ++i) {
         const usize idx = static_cast<usize>(first + i);
-        const MusicTrack& t = m_Tracks[idx];
+        const FMusicTrack& t = m_Tracks[idx];
         if (intensity >= t.intensity_min && intensity <= t.intensity_max) {
             return idx;
         }
@@ -259,14 +259,14 @@ void FMusicDirector::Stop() noexcept {
 }
 
 /** 現在 state で intensity に合致する track を返す。 */
-const MusicTrack* FMusicDirector::CurrentTrack() const noexcept {
+const FMusicTrack* FMusicDirector::CurrentTrack() const noexcept {
     const usize idx = FindTrackForState(m_CurrentState, m_Intensity);
     if (idx >= m_Tracks.Size()) return nullptr;
     return &m_Tracks[idx];
 }
 
 /** 遷移先 state 側の track を返す (遷移していなければ nullptr)。 */
-const MusicTrack* FMusicDirector::TargetTrack() const noexcept {
+const FMusicTrack* FMusicDirector::TargetTrack() const noexcept {
     if (m_CurrentState == m_TargetState) return nullptr;
     const usize idx = FindTrackForState(m_TargetState, m_Intensity);
     if (idx >= m_Tracks.Size()) return nullptr;

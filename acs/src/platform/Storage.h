@@ -5,9 +5,9 @@
 //       人間可読な永続化。
 //
 // 使い方:
-//   Storage cfg;
+//   FStorage cfg;
 //   wchar_t path[260];
-//   Storage::GetAppDataPath(L"MyGame", L"settings.ini", path, 260);
+//   FStorage::GetAppDataPath(L"MyGame", L"settings.ini", path, 260);
 //
 //   cfg.Load(path);                       // 既存があれば読み込む（無ければ空）
 //   if (!cfg.Has("master_volume")) {
@@ -43,33 +43,33 @@ namespace acs {
  * 持たず、"audio.master_volume" のような点区切りキーで名前空間を分ける想定。値は内部で文字列
  * として保持し、Int/Float/Bool は文字列との相互変換で扱う。non-copy・move-only。
  */
-class Storage {
+class FStorage {
 public:
     /** DefaultAllocator を確保元として空のストアを構築する。 */
-    Storage() noexcept : Storage(DefaultAllocator())
+    FStorage() noexcept : FStorage(DefaultAllocator())
     {
     }
 
     /** 指定した allocator を全エントリの確保元として空のストアを構築する。 */
-    explicit Storage(FAllocator& allocator) noexcept : m_Entries(allocator), m_Allocator(&allocator)
+    explicit FStorage(FAllocator& allocator) noexcept : m_Entries(allocator), m_Allocator(&allocator)
     {
     }
 
     /** ストアを破棄する (エントリは TArray が解放)。 */
-    ~Storage() noexcept = default;
+    ~FStorage() noexcept = default;
 
     /** コピー禁止 (エントリ配列を単独所有するため)。 */
-    Storage(const Storage&)            = delete;
+    FStorage(const FStorage&)            = delete;
 
     /** コピー代入も禁止。 */
-    Storage& operator=(const Storage&) = delete;
+    FStorage& operator=(const FStorage&) = delete;
 
     /**
-     * ムーブ構築する (エントリ配列の所有権を奪う。Localization::Swap 等で使う)。
+     * ムーブ構築する (エントリ配列の所有権を奪う。FLocalization::Swap 等で使う)。
      *
      * @param o ムーブ元 (奪われて空になる)。
      */
-    Storage(Storage&& o) noexcept : m_Entries(Move(o.m_Entries)), m_Allocator(o.m_Allocator)
+    FStorage(FStorage&& o) noexcept : m_Entries(Move(o.m_Entries)), m_Allocator(o.m_Allocator)
     {
     }
 
@@ -79,7 +79,7 @@ public:
      * @param o ムーブ元 (奪われて空になる)。
      * @return 自身への参照。
      */
-    Storage& operator=(Storage&& o) noexcept {
+    FStorage& operator=(FStorage&& o) noexcept {
         if (this != &o) {
             m_Entries = Move(o.m_Entries);
             m_Allocator = o.m_Allocator;
@@ -109,11 +109,13 @@ public:
      * INI 形式 (UTF-8、改行区切り) のバイト列から読み込む。
      *
      * @details 実行ファイル埋め込みデータ等を直接読む用途。先頭の UTF-8 BOM はスキップし、
-     * '#'/';'/'[' 始まりの行とキーのない行は無視する。既存エントリはクリアされる。
+     * '#'/';'/'[' 始まりの行とキーのない行は無視する。'=' より後ろは先頭空白も値として
+     * そのまま保持する。既存エントリはクリアされる。
      * @param data INI テキストの先頭 (nullptr は空扱いで成功)。
      * @param size data のバイト数。
      * @return 成功なら空の TResult。
      */
+    // 同一キーは拒否し、解析・確保に失敗した場合は読み込み前の状態を保持する。
     TResult<void> LoadFromBytes(const u8* data, usize size) noexcept;
 
     /**
@@ -137,7 +139,37 @@ public:
     /** 全エントリと予約容量を解放する (ファイルは触らない)。 */
     void Clear() noexcept
     {
-        m_Entries = TArray<Entry>(*m_Allocator);
+        m_Entries = TArray<FEntry>(*m_Allocator);
+    }
+
+    /**
+     * 文字列値を設定し、確保失敗時は既存状態を維持する。
+     *
+     * @param key 設定するキー (nullptr は拒否)。
+     * @param value 設定する値 (nullptr は空文字列扱い)。
+     * @return 設定できた場合は true。入力不正または確保失敗時は false。
+     */
+    bool TrySetString(const char* key, const char* value) noexcept
+    {
+        if (!key) return false;
+
+        FEntry* entry = FindEntry(key);
+        FString candidateValue(*m_Allocator);
+        if (!candidateValue.TryAppend(
+                FStringView(value ? value : ""))) {
+            return false;
+        }
+        if (entry) {
+            entry->value = Move(candidateValue);
+            return true;
+        }
+
+        FString candidateKey(*m_Allocator);
+        if (!candidateKey.TryAppend(FStringView(key))) return false;
+        FEntry candidate;
+        candidate.key = Move(candidateKey);
+        candidate.value = Move(candidateValue);
+        return m_Entries.TryPushBack(Move(candidate));
     }
 
     /**
@@ -264,7 +296,7 @@ public:
 
 private:
     /** 1 件の key-value エントリ。 */
-    struct Entry {
+    struct FEntry {
         /** エントリのキー。 */
         FString key;
 
@@ -278,7 +310,7 @@ private:
      * @param key 探すキー。
      * @return 見つかったエントリ、無ければ nullptr。
      */
-    Entry*       FindEntry(const char* key) noexcept;
+    FEntry*       FindEntry(const char* key) noexcept;
 
     /**
      * キーに一致するエントリを線形探索する (const 版)。
@@ -286,10 +318,10 @@ private:
      * @param key 探すキー。
      * @return 見つかったエントリ、無ければ nullptr。
      */
-    const Entry* FindEntry(const char* key) const noexcept;
+    const FEntry* FindEntry(const char* key) const noexcept;
 
     /** 保持している全エントリ。 */
-    TArray<Entry> m_Entries;
+    TArray<FEntry> m_Entries;
 
     /** エントリ配列と key/value 文字列を確保した allocator。 */
     FAllocator* m_Allocator = nullptr;

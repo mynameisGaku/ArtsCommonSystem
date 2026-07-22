@@ -20,7 +20,7 @@ namespace acs::game {
  * Storm/Sandstorm=1)、fog_density (霧密度倍率、Fog で大)。並びは EWeatherKind の
  * 数値順 (Clear=0 .. Sandstorm=7) と一致させる。
  */
-static const FWeatherSystem::KindParams kParamsTable[8] = {
+static const FWeatherSystem::FKindParams kParamsTable[8] = {
     // Clear      晴天: 何も足さず、何も引かない基準値
     { 1.00f, 0.00f, FVec3{1.00f, 1.00f, 1.00f}, 0.10f, 1.00f },
     // Cloudy     曇り: 全体的に少しトーン落ち、わずかに灰青寄りに
@@ -40,7 +40,7 @@ static const FWeatherSystem::KindParams kParamsTable[8] = {
 };
 
 /** 天候種別に対応する修飾パラメータを LUT から引く (範囲外は Clear にフォールバック)。 */
-const FWeatherSystem::KindParams& FWeatherSystem::Params(EWeatherKind k) noexcept {
+const FWeatherSystem::FKindParams& FWeatherSystem::Params(EWeatherKind k) noexcept {
     // 範囲外は Clear にフォールバック (將来の enum 拡張で size > 8 となる場合の
     // 安全網)。現状の enum 定義では決して走らない。
     const u32 idx = static_cast<u32>(k);
@@ -118,36 +118,36 @@ void FWeatherSystem::Reset() noexcept {
 
 /** ambient 輝度倍率を current → target の線形補間で返す。 */
 f32 FWeatherSystem::AmbientLightMultiplier() const noexcept {
-    const KindParams& a = Params(m_Current);
-    const KindParams& b = Params(m_Target);
+    const FKindParams& a = Params(m_Current);
+    const FKindParams& b = Params(m_Target);
     return Lerp(a.ambient_mult, b.ambient_mult, m_TransitionT);
 }
 
 /** 粒子密度倍率を current → target の線形補間で返す。 */
 f32 FWeatherSystem::ParticleDensity() const noexcept {
-    const KindParams& a = Params(m_Current);
-    const KindParams& b = Params(m_Target);
+    const FKindParams& a = Params(m_Current);
+    const FKindParams& b = Params(m_Target);
     return Lerp(a.particle_density, b.particle_density, m_TransitionT);
 }
 
 /** sky tint 乗算係数を current → target の線形補間で返す。 */
 FVec3 FWeatherSystem::SkyTintMultiplier() const noexcept {
-    const KindParams& a = Params(m_Current);
-    const KindParams& b = Params(m_Target);
+    const FKindParams& a = Params(m_Current);
+    const FKindParams& b = Params(m_Target);
     return Lerp(a.sky_tint, b.sky_tint, m_TransitionT);
 }
 
 /** 風の強さ [0,1] を current → target の線形補間で返す。 */
 f32 FWeatherSystem::WindStrength() const noexcept {
-    const KindParams& a = Params(m_Current);
-    const KindParams& b = Params(m_Target);
+    const FKindParams& a = Params(m_Current);
+    const FKindParams& b = Params(m_Target);
     return Lerp(a.wind_strength, b.wind_strength, m_TransitionT);
 }
 
 /** 霧密度倍率を current → target の線形補間で返す。 */
 f32 FWeatherSystem::FogDensityMultiplier() const noexcept {
-    const KindParams& a = Params(m_Current);
-    const KindParams& b = Params(m_Target);
+    const FKindParams& a = Params(m_Current);
+    const FKindParams& b = Params(m_Target);
     return Lerp(a.fog_density, b.fog_density, m_TransitionT);
 }
 

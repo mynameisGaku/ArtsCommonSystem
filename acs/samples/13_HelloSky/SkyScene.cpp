@@ -8,21 +8,21 @@ using namespace acs;
 
 namespace hellosky {
 
-void SkyScene::SetPreset(FSky& sky, SkyPreset p) noexcept {
+void FSkyScene::SetPreset(FSky& sky, ESkyPreset p) noexcept {
     m_Preset = p;
     switch (p) {
-        case SkyPreset::Day:    sky.PresetDay();    break;
-        case SkyPreset::Sunset: sky.PresetSunset(); break;
-        case SkyPreset::Night:  sky.PresetNight();  break;
+        case ESkyPreset::Day:    sky.PresetDay();    break;
+        case ESkyPreset::Sunset: sky.PresetSunset(); break;
+        case ESkyPreset::Night:  sky.PresetNight();  break;
     }
 }
 
-void SkyScene::Render(FSky&             sky,
+void FSkyScene::Render(FSky&             sky,
                       FStandardShader&  shader,
                       IRhiCommandList& cl,
                       const FCamera&    camera,
-                      const GpuMesh&   plane,
-                      const GpuMesh&   sphere,
+                      const FGpuMesh&   plane,
+                      const FGpuMesh&   sphere,
                       f32              angle) noexcept {
     // FSky を先に描く。深度書込みも深度テストも無効なので、後続のメッシュは
     // 自動で空を覆い隠す形になる (背景塗り)。
@@ -42,8 +42,8 @@ void SkyScene::Render(FSky&             sky,
 
     FVec3 ambient;
     switch (m_Preset) {
-        case SkyPreset::Day:    ambient = kAmbientDay;    break;
-        case SkyPreset::Sunset: ambient = kAmbientSunset; break;
+        case ESkyPreset::Day:    ambient = kAmbientDay;    break;
+        case ESkyPreset::Sunset: ambient = kAmbientSunset; break;
         default:                ambient = kAmbientNight;  break;
     }
 
@@ -52,13 +52,13 @@ void SkyScene::Render(FSky&             sky,
 
     cl.SetPipeline(*shader.Pipeline());
     cl.SetConstantBuffer(0, *shader.PerFrameCB());
-    cl.SetConstantBuffer(1, *shader.PerObjectCB());
     cl.SetTexture(0, *shader.DefaultWhiteTexture());
     cl.SetTexture(1, *shader.ShadowTextureOrDefault());
 
     // ---- 地面 (拡散主体、わずかな specular) ----
-    shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
-                     FVec3{0.4f, 0.45f, 0.5f}, 0.1f, 8.0f);
+    if (!shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
+                          FVec3{0.4f, 0.45f, 0.5f}, 0.1f, 8.0f)) return;
+    cl.SetConstantBuffer(1, *shader.PerObjectCB());
     cl.SetVertexBuffer(*plane.vertex_buffer, plane.vertex_stride);
     cl.SetIndexBuffer(*plane.index_buffer);
     cl.DrawIndexed(plane.index_count);
@@ -66,7 +66,8 @@ void SkyScene::Render(FSky&             sky,
     // ---- 球 (回転 + 強い specular で太陽が反射する見せ場) ----
     FMat4 ms = FMat4::RotationY(angle) *
               FMat4::Translation(FVec3{0, 1.5f, 0});
-    shader.SetObject(ms, FVec3{1.0f, 0.85f, 0.4f}, 0.7f, 64.0f);
+    if (!shader.SetObject(ms, FVec3{1.0f, 0.85f, 0.4f}, 0.7f, 64.0f)) return;
+    cl.SetConstantBuffer(1, *shader.PerObjectCB());
     cl.SetVertexBuffer(*sphere.vertex_buffer, sphere.vertex_stride);
     cl.SetIndexBuffer(*sphere.index_buffer);
     cl.DrawIndexed(sphere.index_count);

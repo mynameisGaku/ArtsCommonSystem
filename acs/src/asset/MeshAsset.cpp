@@ -23,10 +23,10 @@ namespace {
  * @param m 構築済みの FMeshAsset (所有権がムーブされる)。
  * @return Ready 状態にした Asset への共有ポインタ。
  */
-TSharedPtr<Asset> WrapMesh(FAssetId id, TSharedPtr<FMeshAsset>&& m) noexcept {
+TSharedPtr<FAsset> WrapMesh(FAssetId id, TSharedPtr<FMeshAsset>&& m) noexcept {
     m->SetId(id);
     m->SetState(EAssetState::Ready);
-    return TSharedPtr<Asset>(Move(m));
+    return TSharedPtr<FAsset>(Move(m));
 }
 
 /**
@@ -38,8 +38,8 @@ TSharedPtr<Asset> WrapMesh(FAssetId id, TSharedPtr<FMeshAsset>&& m) noexcept {
  * @param stride 未使用 (互換用に保持)。
  * @param setter 読み出した FVec3 を MeshVertex の該当フィールドへ書く関数。
  */
-void ReadAttributeVec3(const cgltf_accessor* a, MeshVertex* dst, usize n,
-                       usize stride, void (*setter)(MeshVertex&, FVec3)) noexcept {
+void ReadAttributeVec3(const cgltf_accessor* a, FMeshVertex* dst, usize n,
+                       usize stride, void (*setter)(FMeshVertex&, FVec3)) noexcept {
     if (!a) return;
     f32 buf[3];
     for (usize i = 0; i < n; ++i) {
@@ -57,7 +57,7 @@ void ReadAttributeVec3(const cgltf_accessor* a, MeshVertex* dst, usize n,
  * @param dst 書き込み先の頂点配列先頭。
  * @param n 処理する頂点数。
  */
-void ReadAttributeUV(const cgltf_accessor* a, MeshVertex* dst, usize n) noexcept {
+void ReadAttributeUV(const cgltf_accessor* a, FMeshVertex* dst, usize n) noexcept {
     if (!a) return;
     f32 buf[2];
     for (usize i = 0; i < n; ++i) {
@@ -92,7 +92,7 @@ TSharedPtr<FMeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
             const usize vcount = p.attributes[0].data->count;
             const usize start = mesh->Vertices().Size();
             mesh->Vertices().Resize(start + vcount);
-            MeshVertex* dst = mesh->Vertices().Data() + start;
+            FMeshVertex* dst = mesh->Vertices().Data() + start;
 
             // POSITION / NORMAL / TEXCOORD_0 を取得
             const cgltf_accessor* pos = nullptr;
@@ -106,14 +106,14 @@ TSharedPtr<FMeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
             }
             if (pos)
                 ReadAttributeVec3(pos, dst, vcount, 0,
-                    [](MeshVertex& v, FVec3 x) { v.position = x; });
+                    [](FMeshVertex& v, FVec3 x) { v.position = x; });
             if (nrm)
                 ReadAttributeVec3(nrm, dst, vcount, 0,
-                    [](MeshVertex& v, FVec3 x) { v.normal = x; });
+                    [](FMeshVertex& v, FVec3 x) { v.normal = x; });
             if (uv0) ReadAttributeUV(uv0, dst, vcount);
 
             // インデックス取得（無ければトライアングルストリップ的に連番生成）
-            SubMesh sub{};
+            FSubMesh sub{};
             sub.first_index = static_cast<u32>(mesh->Indices().Size());
             if (p.indices) {
                 cgltf_accessor* idx = p.indices;
@@ -137,7 +137,7 @@ TSharedPtr<FMeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
 } // namespace
 
 /** glTF (.gltf) をパースして FMeshAsset を構築する (埋め込みバッファのみ対応)。 */
-TResult<TSharedPtr<Asset>> GltfAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TSharedPtr<FAsset>> FGltfAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     cgltf_options opts{};
     cgltf_data* data = nullptr;
     if (::cgltf_parse(&opts, bytes.Data(), bytes.Size(), &data) != cgltf_result_success || !data)
@@ -150,11 +150,11 @@ TResult<TSharedPtr<Asset>> GltfAssetLoader::LoadFromBytes(FAssetId id, const TAr
     }
     TSharedPtr<FMeshAsset> mesh = BuildFromCgltf(data);
     ::cgltf_free(data);
-    return TResult<TSharedPtr<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TSharedPtr<FAsset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
 /** GLB (.glb) をパースして FMeshAsset を構築する。 */
-TResult<TSharedPtr<Asset>> GlbAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TSharedPtr<FAsset>> FGlbAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     cgltf_options opts{};
     opts.type = cgltf_file_type_glb;
     cgltf_data* data = nullptr;
@@ -166,16 +166,16 @@ TResult<TSharedPtr<Asset>> GlbAssetLoader::LoadFromBytes(FAssetId id, const TArr
     }
     TSharedPtr<FMeshAsset> mesh = BuildFromCgltf(data);
     ::cgltf_free(data);
-    return TResult<TSharedPtr<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TSharedPtr<FAsset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
 /** OBJ (.obj) を自前パーサで読み込み FMeshAsset を構築する (v/vn/vt/f のみ対応、マテリアル無視)。 */
-TResult<TSharedPtr<Asset>> ObjAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TSharedPtr<FAsset>> FObjAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     auto mesh = MakeShared<FMeshAsset>();
     TArray<FVec3> positions;
     TArray<FVec3> normals;
-    struct UV { f32 u, v; };
-    TArray<UV> uvs;
+    struct FUv { f32 u, v; };
+    TArray<FUv> uvs;
 
     // strtod/strtol は NUL 終端まで数字を読むため、bytes が NUL 終端でないと
     // バッファ末尾を越えて OOB read する。NUL 終端コピーを作ってから解析する。
@@ -248,7 +248,7 @@ TResult<TSharedPtr<Asset>> ObjAssetLoader::LoadFromBytes(FAssetId id, const TArr
             }
             // 三角形化（クアッドは 0-1-2, 0-2-3）
             auto add_vertex = [&](int k) {
-                MeshVertex mv{};
+                FMeshVertex mv{};
                 if (vi[k] > 0 && static_cast<usize>(vi[k]) <= positions.Size())
                     mv.position = positions[vi[k] - 1];
                 if (ni[k] > 0 && static_cast<usize>(ni[k]) <= normals.Size())
@@ -269,15 +269,15 @@ TResult<TSharedPtr<Asset>> ObjAssetLoader::LoadFromBytes(FAssetId id, const TArr
         next_line(p);
     }
 
-    SubMesh sub{};
+    FSubMesh sub{};
     sub.first_index = 0;
     sub.index_count = static_cast<u32>(mesh->Indices().Size());
     mesh->SubMeshes().PushBack(sub);
-    return TResult<TSharedPtr<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TSharedPtr<FAsset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
 /** FBX (.fbx) を ufbx で読み込み、三角形化して FMeshAsset を構築する。 */
-TResult<TSharedPtr<Asset>> FbxAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TSharedPtr<FAsset>> FFbxAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     ufbx_load_opts opts{};
     ufbx_error err{};
     ufbx_scene* scene = ::ufbx_load_memory(bytes.Data(), bytes.Size(), &opts, &err);
@@ -302,14 +302,14 @@ TResult<TSharedPtr<Asset>> FbxAssetLoader::LoadFromBytes(FAssetId id, const TArr
             }
         }
         // 頂点は ufbx_get_vertex_* で取得
-        SubMesh sub{};
+        FSubMesh sub{};
         sub.first_index = static_cast<u32>(mesh->Indices().Size());
         for (u32 i = 0; i < tri_indices.Size(); ++i) {
             const uint32_t fi = tri_indices[i];
             const ufbx_vec3 p = ::ufbx_get_vertex_vec3(&fm->vertex_position, fi);
             const ufbx_vec3 n = fm->vertex_normal.exists ? ::ufbx_get_vertex_vec3(&fm->vertex_normal, fi) : ufbx_vec3{0,0,0};
             const ufbx_vec2 t = fm->vertex_uv.exists ? ::ufbx_get_vertex_vec2(&fm->vertex_uv, fi) : ufbx_vec2{0,0};
-            MeshVertex v{};
+            FMeshVertex v{};
             v.position = FVec3(static_cast<f32>(p.x), static_cast<f32>(p.y), static_cast<f32>(p.z));
             v.normal   = FVec3(static_cast<f32>(n.x), static_cast<f32>(n.y), static_cast<f32>(n.z));
             v.u        = static_cast<f32>(t.x);
@@ -323,7 +323,7 @@ TResult<TSharedPtr<Asset>> FbxAssetLoader::LoadFromBytes(FAssetId id, const TArr
         vertex_offset = static_cast<u32>(mesh->Vertices().Size());
     }
     ::ufbx_free_scene(scene);
-    return TResult<TSharedPtr<Asset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TSharedPtr<FAsset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
 } // namespace acs

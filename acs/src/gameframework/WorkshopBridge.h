@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar S — FWorkshopBridge (Steam Workshop / UGC seam)
+// GameFramework Pillar S — IWorkshopBridge (Steam Workshop / UGC seam)
 //
 // Steam Workshop / EOS UGC / mod.io といったプラットフォーム固有 UGC SDK へ橋渡し
 // するシーム (seam) インターフェース。ゲーム側コードは IWorkshopBridge 経由でのみ
@@ -7,7 +7,7 @@
 // (Steamworks UGC API 等) との結合はビルド時の選択で差し替える。
 //
 // 使い方:
-//   class ModBrowserUI {
+//   class FModBrowserUi {
 //       acs::game::IWorkshopBridge* m_Workshop = nullptr;
 //
 //       void OnStart() noexcept override {
@@ -24,20 +24,20 @@
 //   };
 //
 // 設計選択:
-//   ・**FSteamworksBridge とは別 I/F**: Workshop は publish ワークフロー (CreateItem /
+//   ・**ISteamworksBridge とは別 I/F**: Workshop は publish ワークフロー (CreateItem /
 //     UpdateItem) を持ち、API 面が Achievement / Leaderboard とは別領域。一緒くたに
 //     すると Bridge が肥大化するため、別ファイルで隔離する。
 //   ・**`u64 item_id` を opaque key として扱う**: Steamworks では PublishedFileId_t
 //     (= u64)、mod.io では mod ID (= u32 だが u64 上位ビット 0 で表現可) を共通化。
-//   ・**所有しない const char***: 文字列は FSteamworksBridge と同じく呼び出し側 /
+//   ・**所有しない const char***: 文字列は ISteamworksBridge と同じく呼び出し側 /
 //     プラットフォーム SDK のライフタイムに従い、Bridge はコピーしない。
 //     QueryItem() の戻り値は「次の Tick() を呼ぶまで有効」と扱うこと。
 //   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は Init() のみ
 //     成功、その他は ACS_ERR(Generic, kSubWorkshopNotImplemented, ...) を返す。
 //   ・**ダウンロード進捗は同期 poll**: GetDownloadProgress(item_id) を毎フレーム
 //     呼んで [0, 1] を取得。-1 は「現在ダウンロード中ではない / 不明」を表す。
-//   ・**Stub は static singleton で取得**: FSteamworksBridge と同じく
-//     `GetWorkshopStub()` を提供。`WorkshopBridgeStub::IsAvailable()` は
+//   ・**Stub は static singleton で取得**: ISteamworksBridge と同じく
+//     `GetWorkshopStub()` を提供。`FWorkshopBridgeStub::IsAvailable()` は
 //     常に false を返し、UI 側で「Workshop 機能無効」表示の判定に使える。
 //   ・**実 SDK 実装はここでは作らない**: GoldenWorkshopBridge 等は Steamworks UGC
 //     API への依存を伴うため、本ファイルでは I/F + Stub のみ。
@@ -49,9 +49,9 @@
 namespace acs::game {
 
 /**
- * Stub が未実装 API で返す subcode (ErrCategory::Generic 配下)。
+ * Stub が未実装 API で返す subcode (EErrCategory::Generic 配下)。
  *
- * @details FSteamworksBridge と subcode 空間が重ならないよう 1100 番台を使う。
+ * @details ISteamworksBridge と subcode 空間が重ならないよう 1100 番台を使う。
  */
 inline constexpr u16 kSubWorkshopNotImplemented = 1101;
 
@@ -69,7 +69,7 @@ inline constexpr u16 kSubWorkshopUnavailable    = 1103;
  * (または Stub 内 static literal) のメモリを参照し、寿命は「次の Tick() を
  * 呼ぶまで」を保証する (実装によってはそれより長い)。
  */
-struct WorkshopItem {
+struct FWorkshopItem {
     /** SDK 固有の opaque ID (Steam PublishedFileId_t 等)。 */
     u64         item_id     = 0;
 
@@ -166,9 +166,9 @@ public:
      * アイテムのメタ情報をクエリする。
      *
      * @param item_id クエリ対象アイテムの opaque ID。
-     * @return 成功なら WorkshopItem (内部の文字列は次の Tick() まで有効)、失敗ならエラー。
+     * @return 成功なら FWorkshopItem (内部の文字列は次の Tick() まで有効)、失敗ならエラー。
      */
-    virtual TResult<WorkshopItem> QueryItem(u64 item_id) noexcept = 0;
+    virtual TResult<FWorkshopItem> QueryItem(u64 item_id) noexcept = 0;
 
     /**
      * ローカルプレイヤーが subscribe 中のアイテム数を返す。
@@ -229,13 +229,13 @@ public:
  * download / query 系は ACS_ERR(Generic, kSubWorkshopNotImplemented) を返す。
  * GetDownloadProgress() は常に -1、Shutdown() / Tick() は副作用なし。
  */
-class WorkshopBridgeStub final : public IWorkshopBridge {
+class FWorkshopBridgeStub final : public IWorkshopBridge {
 public:
     /** 未初期化状態の Stub を構築する。 */
-    WorkshopBridgeStub() noexcept = default;
+    FWorkshopBridgeStub() noexcept = default;
 
     /** 何もせず破棄する。 */
-    ~WorkshopBridgeStub() noexcept override = default;
+    ~FWorkshopBridgeStub() noexcept override = default;
 
     /**
      * 初期化済みフラグを立てる (常に成功)。
@@ -279,7 +279,7 @@ public:
      * @param item_id 使用しない (Stub のため)。
      * @return Init() 前なら未初期化エラー、それ以外は未実装エラー。
      */
-    TResult<WorkshopItem> QueryItem(u64 item_id) noexcept override;
+    TResult<FWorkshopItem> QueryItem(u64 item_id) noexcept override;
 
     /**
      * 未実装エラーを返す。
@@ -337,9 +337,9 @@ private:
  *
  * @details
  * 実 SDK 実装が DI される前のデフォルト。Meyer's singleton で構築するため
- * thread-safe。FSteamworksBridge は静的メンバ関数を使うが、Workshop 側は仕様に
+ * thread-safe。ISteamworksBridge は静的メンバ関数を使うが、Workshop 側は仕様に
  * 合わせて自由関数で公開する。
- * @return プロセス内で唯一の WorkshopBridgeStub への参照。
+ * @return プロセス内で唯一の FWorkshopBridgeStub への参照。
  */
 IWorkshopBridge& GetWorkshopStub() noexcept;
 

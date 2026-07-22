@@ -9,14 +9,14 @@
 //   ┌─────────────┬──────────────────────────┬──────────────────────────┐
 //   │ Composite   │ 子の結果                 │ 自分の結果               │
 //   ├─────────────┼──────────────────────────┼──────────────────────────┤
-//   │ Selector    │ Success が出るまで進む   │ いずれかが Success       │
+//   │ FBtSelector │ Success が出るまで進む   │ いずれかが Success       │
 //   │  (OR)       │   どれか Running         │   → Success              │
 //   │             │   全て Failure           │   Running が出た時点で   │
 //   │             │                          │   → Running              │
 //   │             │                          │   全て Failure           │
 //   │             │                          │   → Failure              │
 //   ├─────────────┼──────────────────────────┼──────────────────────────┤
-//   │ FSequence    │ Failure が出るまで進む   │ いずれかが Failure       │
+//   │ FBtSequence │ Failure が出るまで進む   │ いずれかが Failure       │
 //   │  (AND)      │   どれか Running         │   → Failure              │
 //   │             │   全て Success           │   Running が出た時点で   │
 //   │             │                          │   → Running              │
@@ -24,7 +24,7 @@
 //   │             │                          │   → Success              │
 //   └─────────────┴──────────────────────────┴──────────────────────────┘
 //
-//   ※ Selector / FSequence は **stateless tick** (毎呼び出しで先頭から再評価)。
+//   ※ FBtSelector / FBtSequence は **stateless tick** (毎呼び出しで先頭から再評価)。
 //     "1 フレームに 1 ステップだけ進める" 等の中断保持が必要になった段階で
 //     PartialTick 派生を追加する想定だが、本最小実装ではスコープ外。
 //
@@ -36,25 +36,25 @@
 //     どのモジュール (Pillar L AI / cutscene / UI 等) からも汎用に使える。
 //   ・子ノードは `acs::TUniquePtr<FBtNode>` で所有 (= move-only)。
 //     子の所有権は composite が握り、tree の寿命と一体化する。
-//   ・FBehaviorTree / 各 Node は **非コピー・非ムーブ**。tree は普通フィールドとして
+//   ・FBehaviorTree / 各 FBtNode は **非コピー・非ムーブ**。tree は普通フィールドとして
 //     抱えられて Tick されるだけなので、所有権を動かす運用は想定しない。
 //     構築は `FBtSelector` を `MakeUnique` で作って `AddChild` で組み立てる。
 //
 // 使い方:
-//   struct EnemyBb { FVec3 pos; bool sees_player; };
+//   struct FEnemyBb { FVec3 pos; bool sees_player; };
 //
 //   static EBtStatus MoveToPlayer(void* bb, f32 dt) noexcept {
-//       auto* e = static_cast<EnemyBb*>(bb);
+//       auto* e = static_cast<FEnemyBb*>(bb);
 //       // ... move toward player ...
 //       return reached ? EBtStatus::Success : EBtStatus::Running;
 //   }
 //   static EBtStatus Patrol(void* bb, f32 dt) noexcept { ... }
 //
-//   class Enemy {
+//   class FEnemy {
 //       acs::game::FBehaviorTree m_Bt;
-//       EnemyBb                 m_Bb;
+//       FEnemyBb                m_Bb;
 //
-//       Enemy() noexcept {
+//       FEnemy() noexcept {
 //           // Selector: 「敵が見えたら追跡、見えなければパトロール」
 //           auto root  = acs::MakeUnique<acs::game::FBtSelector>();
 //           auto chase = acs::MakeUnique<acs::game::FBtSequence>();
@@ -407,7 +407,7 @@ private:
  * root を抱えて Tick を駆動するだけのハーネス。
  *
  * @details
- * 非コピー・非ムーブ。Scene / Actor のメンバとして固定の場所に置く想定。
+ * 非コピー・非ムーブ。FScene / Actor のメンバとして固定の場所に置く想定。
  */
 class FBehaviorTree {
 public:

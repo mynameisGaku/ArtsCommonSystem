@@ -2,7 +2,7 @@
 
 2D の絵を画面に出す手段は ACS に 2 系統あります。
 
-- **`FSprite2DComponent`** — `FNode2D` に貼る描画コンポーネント。ノードの transform（位置/回転/スケール）に従って矩形 or テクスチャを **ワールド単位** で描く。ゲームのキャラ・地形など「シーンの一部」はこれ。
+- **`ASprite2DComponent`** — `ANode` に貼る描画コンポーネント。ノードの transform（位置/回転/スケール）に従って矩形 or テクスチャを **ワールド単位** で描く。ゲームのキャラ・地形など「シーンの一部」はこれ。
 - **`FSpriteBatch`** — ピクセル座標で直接矩形/三角形/テクスチャ/文字を描く低レベルバッチ。HUD・デバッグ描画・素の RHI アプリ用。`FScene2D` 内では `rc.Sprites()` で共有インスタンスを取れる。
 
 このページは「ノードにスプライトを付ける」「単色矩形を出す」「PNG をテクスチャに読む」を実コードで通します。
@@ -23,10 +23,10 @@ public:
     void OnReady() noexcept override {
         SetPixelsPerUnit(64.0f);                 // 1 ワールド単位 = 64px
 
-        auto node = MakeUnique<FNode2D>();
-        node->Local().position = FVec2{0.0f, 0.0f};
+        auto node = NewObject<ANode>();
+        node->SetPosition2D(FVec2{0.0f, 0.0f});
         // 0.9x0.9 ワールド単位、水色の単色矩形（テクスチャ無し）
-        node->AddComponent<FSprite2DComponent>(
+        node->AddComponent<ASprite2DComponent>(
             FVec2{0.9f, 0.9f}, FVec4{0.15f, 0.85f, 1.0f, 1.0f});
         Root().AddChild(Move(node));
 
@@ -37,37 +37,37 @@ public:
 
 class FMyGame final : public FGame {
 protected:
-    TUniquePtr<Scene> InitialScene() noexcept override {
+    TUniquePtr<FScene> InitialScene() noexcept override {
         return MakeUnique<FMyScene>();
     }
 };
 ACS_GAME_MAIN(FMyGame)
 ```
 
-`FScene2D` がフレーム毎に共有 `FSpriteBatch` を `RenderContext` に差し込み、各 `FSprite2DComponent::OnDraw` がそれを使って描画します。自分で `FSpriteBatch` を初期化する必要はありません。
+`FScene2D` がフレーム毎に共有 `FSpriteBatch` を `FRenderContext` に差し込み、各 `ASprite2DComponent::OnDraw` がそれを使って描画します。自分で `FSpriteBatch` を初期化する必要はありません。
 
 ---
 
 ## 主要 API
 
-### `FSprite2DComponent`（`gameframework/Sprite2DComponent.h`）
+### `ASprite2DComponent`（`gameframework/Sprite2DComponent.h`）
 
 ノードに 1 個付けて使う描画コンポーネント。サイズは **ワールド単位**、位置/回転/スケールは所有ノードの transform 由来。
 
 | メンバ | 説明 |
 | --- | --- |
-| `FSprite2DComponent(FVec2 size, FVec4 tint={1,1,1,1})` | サイズ（ワールド単位）と色で構築。テクスチャ未設定なら単色矩形。 |
+| `ASprite2DComponent(FVec2 size, FVec4 tint={1,1,1,1})` | サイズ（ワールド単位）と色で構築。テクスチャ未設定なら単色矩形。 |
 | `SetTexture(IRhiTexture*)` / `Texture()` | 貼るテクスチャ（**非所有** — 寿命は呼び出し側が管理）。`nullptr` で単色に戻る。 |
 | `SetSize(FVec2)` / `Size()` | 描画サイズ（ワールド単位）。`scale` と乗算される。 |
 | `SetTint(FVec4)` / `Tint()` | 乗算色（RGBA）。テクスチャありなら色掛け、無しなら塗り色。 |
-| `SetPivot(FVec2)` / `Pivot()` | 原点。`0..1` の正規化値。既定 `{0.5, 0.5}` = 中心。`{0,0}` で左下基準。 |
+| `SetPivot(FVec2)` / `Pivot()` | 原点。`0..1` の正規化値。既定 `{0.5, 0.5}` = 中心。`{0,0}` で左上基準。 |
 | `SetUvRect(u0,v0,u1,v1)` / `SetUvRect(FVec4)` | UV サブ矩形。スプライトシートの 1 フレーム切り出し。既定 `{0,0,1,1}` = テクスチャ全体。 |
 | `UvMin()` / `UvMax()` | 現在の UV 左上 / 右下。 |
 
 > 内部実装（`Sprite2DComponent.cpp`）はテクスチャありなら `DrawRotated`、無しなら `DrawRectRotated` を `rc.Sprites()` に対して呼ぶだけ。`rc.HasSprites()==false` のパスでは何も描かない。
 
 ```cpp
-auto& spr = node->AddComponent<FSprite2DComponent>(FVec2{2.0f, 2.0f});
+auto& spr = node->AddComponent<ASprite2DComponent>(FVec2{2.0f, 2.0f});
 spr.SetTexture(myTex);                 // テクスチャを貼る
 spr.SetTint(FVec4{1, 1, 1, 0.5f});     // 半透明
 spr.SetUvRect(0.0f, 0.0f, 0.25f, 1.0f); // 横 4 分割の 1 枚目
@@ -75,7 +75,7 @@ spr.SetUvRect(0.0f, 0.0f, 0.25f, 1.0f); // 横 4 分割の 1 枚目
 
 ### `FSpriteBatch`（`render/SpriteBatch.h`）
 
-ピクセル座標（左上原点・Y 下向き）で描く低レベルバッチ。**`FScene2D` のシーン内では `rc.Sprites()` 経由で使い、自前 Init は不要**。素の `FApp` で使うときだけ自分で `Init`/`Begin`/`End` する。
+ピクセル座標（左上原点・Y 下向き）で描く低レベルバッチ。**`FScene2D` のシーン内では `rc.Sprites()` 経由で使い、自前 Init は不要**。素の `FApplication` で使うときだけ自分で `Init`/`Begin`/`End` する。
 
 | メソッド | 説明 |
 | --- | --- |
@@ -93,11 +93,15 @@ spr.SetUvRect(0.0f, 0.0f, 0.25f, 1.0f); // 横 4 分割の 1 枚目
 | `SetBlendMode(EBlendMode)` | ブレンド切替。`Additive` で加算（光のきらめき等）。戻すときは `AlphaBlend`。 |
 | `SetStencilMode(EStencilMode, ref=1)` | ステンシルマスク。**stencil 付き DSV のパス専用**（`FScene2D::SetStencilMaskEnabled(true)`）。 |
 
-素の `FApp` で使う場合の初期化：
+素の `FApplication` で使う場合の初期化：
 
 ```cpp
 FSpriteBatch sb;
-sb.Init(*device, renderer.ColorFormat(), /*max_sprites=*/4096);  // 1 回だけ
+auto initResult = sb.Init(*device, renderer.ColorFormat(), /*max_sprites=*/4096);
+if (initResult.IsErr()) {
+    // initResult.Error() をログへ出し、この描画経路を開始しない
+    return;
+}
 // 毎フレーム:
 sb.Begin(*cmdList, screen_w, screen_h);
 sb.Draw(tex, 100, 200, 64, 64);
@@ -120,7 +124,7 @@ sb.Shutdown();
 
 ### 1) PNG を読んでスプライトに貼る（実経路）
 
-gameframework に「ファイル名 1 行でスプライト」する薄いラッパは **ありません**。素の経路は `FAssetRegistry::Load`（→`FImageAsset`）→ `UploadTexture` → `FSprite2DComponent::SetTexture` の 3 段です。次は `easy/Easy.cpp` の実コードと同じ手順を移植したものです。
+gameframework に「ファイル名 1 行でスプライト」する薄いラッパは **ありません**。素の経路は `FAssetRegistry::Load`（→`FImageAsset`）→ `UploadTexture` → `ASprite2DComponent::SetTexture` の 3 段です。次は `easy/Easy.cpp` の実コードと同じ手順を移植したものです。
 
 ```cpp
 #include "asset/AssetRegistry.h"
@@ -128,27 +132,29 @@ gameframework に「ファイル名 1 行でスプライト」する薄いラッ
 #include "render/RenderAssets.h"
 
 // シーンのメンバとして寿命を持たせる（テクスチャは非所有で貼るため）
-FAssetRegistry            m_Assets;
-TUniquePtr<IRhiTexture>   m_Tex;
+FAssetRegistry           m_Assets;
+TUniquePtr<IRhiTexture>  m_Tex;
 
 void OnReady() noexcept override {
     m_Assets.RegisterDefaultLoaders();   // Image/Audio/Mesh/Text/Binary ローダ登録
 
     auto r = m_Assets.Load(L"assets/hero.png");
     if (r.IsOk()) {
-        TRc<Asset> asset = r.Value();
-        Asset* base = asset.Get();
-        // Asset を画像かチェックしてからダウンキャスト（Easy.cpp と同じ流儀）
+        TSharedPtr<FAsset> asset = r.Value();
+        FAsset* base = asset.Get();
+        // FAsset を画像かチェックしてからダウンキャスト（Easy.cpp と同じ流儀）
         if (base && base->Type() == FImageAsset::StaticType()) {
             auto* img = static_cast<FImageAsset*>(base);
             IRhiDevice* dev = GetGame().GetRenderer().Device();
-            auto tx = UploadTexture(*dev, *img);
-            if (tx.IsOk()) m_Tex = Move(tx.Value());
+            if (dev != nullptr) {
+                auto tx = UploadTexture(*dev, *img);
+                if (tx.IsOk()) m_Tex = Move(tx.Value());
+            }
         }
     }
 
-    auto node = MakeUnique<FNode2D>();
-    auto& spr = node->AddComponent<FSprite2DComponent>(FVec2{1.0f, 1.0f});
+    auto node = NewObject<ANode>();
+    auto& spr = node->AddComponent<ASprite2DComponent>(FVec2{1.0f, 1.0f});
     if (m_Tex) spr.SetTexture(m_Tex.Get());   // 非所有: m_Tex がテクスチャを保持し続ける
     Root().AddChild(Move(node));
 }
@@ -183,7 +189,7 @@ if (r.IsOk()) m_Tex = Move(r.Value());
 `FScene2D::OnDrawHud(rc, sb)` は **画面ピクセル座標**で呼ばれます（world view ではない）。背景バー + テキスト（sample 56 抜粋）：
 
 ```cpp
-void OnDrawHud(RenderContext& rc, FSpriteBatch& sb) noexcept override {
+void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
     sb.DrawRect(8.0f, 8.0f, 470.0f, 32.0f, FVec4{0, 0, 0, 0.45f});  // 半透明バー
     if (!rc.HasFont()) return;            // フォントが無い環境では描かない
     sb.DrawString(rc.GetFont(), "Score: 1200", 16.0f, 15.0f,
@@ -196,7 +202,7 @@ void OnDrawHud(RenderContext& rc, FSpriteBatch& sb) noexcept override {
 `OnDrawWorld(rc, sb)` は **ワールド座標**（カメラ適用済み）で呼ばれます。sample 55 のグリッド：
 
 ```cpp
-void OnDrawWorld(RenderContext& rc, FSpriteBatch& sb) noexcept override {
+void OnDrawWorld(FRenderContext& /*rc*/, FSpriteBatch& sb) noexcept override {
     for (i32 x = -8; x <= 8; ++x) {
         const FVec4 c = (x == 0) ? FVec4{0.25f,0.35f,0.45f,0.65f}
                                  : FVec4{0.12f,0.14f,0.18f,0.45f};
@@ -209,20 +215,20 @@ void OnDrawWorld(RenderContext& rc, FSpriteBatch& sb) noexcept override {
 
 ## 注意点（gotcha）
 
-- **座標系が view で違う**。`OnDrawWorld` はワールド単位（カメラ/`SetPixelsPerUnit` 適用後）、`OnDrawHud` は画面ピクセル（左上原点・Y 下向き）。`FSpriteBatch` 単体の素のデフォルトもピクセル左上原点。`FSprite2DComponent` のサイズは常にワールド単位。
+- **座標系が view で違う**。`OnDrawWorld` はワールド単位（カメラ/`SetPixelsPerUnit` 適用後）、`OnDrawHud` は画面ピクセル（左上原点・Y 下向き）。`FSpriteBatch` 単体の素のデフォルトもピクセル左上原点。`ASprite2DComponent` のサイズは常にワールド単位。
 - **`SetView` は world view 用**。`FScene2D` が world パスで `SetView` を設定するので、HUD 描画とは別 view。素の `FSpriteBatch` で手動カメラを使うときは `Begin()` が view を恒等にリセットする点に注意（`Begin` 後に `SetView` する）。
-- **テクスチャは非所有**。`FSprite2DComponent::SetTexture(IRhiTexture*)` も `FSpriteBatch::Draw(IRhiTexture&)` もポインタ/参照を受けるだけ。`TUniquePtr<IRhiTexture>` をシーン/アプリが生かし続けること。解放済みを指すと描画でクラッシュ/破損。
+- **テクスチャは非所有**。`ASprite2DComponent::SetTexture(IRhiTexture*)` も `FSpriteBatch::Draw(IRhiTexture&)` もポインタ/参照を受けるだけ。`TUniquePtr<IRhiTexture>` をシーン/アプリが生かし続けること。解放済みを指すと描画でクラッシュ/破損。
 - **`max_sprites` 上限**。素の `FSpriteBatch::Init(..., max_sprites)` の上限を超えるとそのフレームの溢れ分は描かれない。HUD + world + パーティクルが多いシーンは余裕を持って（既定 4096）。
 - **`pivot` は 0..1 正規化**。ピクセル値ではない。`{0.5,0.5}` が中心、`{0,0}` が（サイズ基準で）端。
-- **PNG ラッパは無い**。「文字列 1 行でスプライト」は `acs::easy`（`src/easy/`、`Sprite LoadSprite(path)`）にはあるが、gameframework 側には無い。gameframework では上記パターン 1 の `Load`→`UploadTexture`→`SetTexture` を自分で書く。
-- **`UvRect` を使うとアニメと衝突しうる**。`FSpriteAnimComponent` が毎フレーム `SetUvRect` を上書きするので、アニメ付きノードで手動 `SetUvRect` しても上書きされる（アニメ側に任せる）。
+- **PNG ラッパは無い**。「文字列 1 行でスプライト」は `acs::easy`（`src/easy/`、`FSprite LoadSprite(path)`）にはあるが、gameframework 側には無い。gameframework では上記パターン 1 の `Load`→`UploadTexture`→`SetTexture` を自分で書く。
+- **`UvRect` を使うとアニメと衝突しうる**。`ASpriteAnimComponent` が毎フレーム `SetUvRect` を上書きするので、アニメ付きノードで手動 `SetUvRect` しても上書きされる（アニメ側に任せる）。
 - **`SetStencilMode` の前提**。stencil 付き深度バッファが bind されたパス（`FScene2D::SetStencilMaskEnabled(true)`）以外で呼ぶと DSV 不整合。マスクが要らないなら触らない。
 
 ---
 
 ## 動くサンプル
 
-- `acs/samples/55_HelloScene2D/Scene2DStarter.cpp` — `FSprite2DComponent`（単色矩形）+ `OnDrawWorld` のグリッド + `OnDrawHud` のバー + カメラ追従。基本形はこれ。
+- `acs/samples/55_HelloScene2D/Scene2DStarter.cpp` — `ASprite2DComponent`（単色矩形）+ `OnDrawWorld` のグリッド + `OnDrawHud` のバー + カメラ追従。基本形はこれ。
 - `acs/samples/56_HelloSpriteAnim/SpriteAnimDemo.cpp` — 手続き生成スプライトシート（`CreateRhiTexture`）+ `SetTexture` + UV アニメ + `DrawString` HUD。
 - `acs/samples/02_HelloSprite/HelloSpriteApp.cpp` — 素の `FSpriteBatch` を自前 `Init`/`Begin`/`Draw`/`DrawRect`/`End` する低レベル例（`FScene2D` を使わない）。
 - PNG→texture の実経路（`Load`→`UploadTexture`→`static_cast<FImageAsset*>`）は `acs/src/easy/Easy.cpp` の `LoadSprite` 実装が参考になる。

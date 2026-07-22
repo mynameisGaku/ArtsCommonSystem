@@ -12,7 +12,7 @@ using namespace acs::game;
 
 namespace hellomv {
 
-void ModelViewerScene::OnEnter() noexcept {
+void FModelViewerScene::OnEnter() noexcept {
     // editor らしいニュートラルグレー。背景は ImGui に隠れるが Quad 描画の余白
     // (= viewport の外側) のクリア色を編集向けに揃える。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
@@ -31,7 +31,7 @@ void ModelViewerScene::OnEnter() noexcept {
     ACS_LOG_INFO("[ModelViewer] entered (workspace + 4 panel + asset browser + theme + cube)");
 }
 
-void ModelViewerScene::OnExit() noexcept {
+void FModelViewerScene::OnExit() noexcept {
     // GPU リソースは FApplication::Quit() → WaitIdle が走った後、Scene デストラクタ
     // 前のここで明示解放。CmdList が次フレームを参照し続けないよう、まず WaitIdle
     // で in-flight を落としきってから pipeline / buffer / shader を Release。
@@ -44,11 +44,11 @@ void ModelViewerScene::OnExit() noexcept {
     ACS_LOG_INFO("[ModelViewer] exited");
 }
 
-void ModelViewerScene::OnUpdate(f32 dt) noexcept {
+void FModelViewerScene::OnUpdate(f32 dt) noexcept {
     // ImGui 関連 (Workspace::TickAllPanels が呼ぶ DrawDockSpace / MenuBar / panel
     // DrawUI) はすべて OnRender 側へ。`ImGui::Begin` 等は NewFrame() と Render()
     // の間でしか呼べないため、ここで TickAllPanels は呼ばない。
-    if (Input::IsKeyPressed(EKey::Escape)) {
+    if (FInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -63,7 +63,7 @@ void ModelViewerScene::OnUpdate(f32 dt) noexcept {
     // 3D cube の自転 (sample 17 と同形)。
     m_Angle += dt * 0.8f;
 
-    // MVP 更新: FModelViewerPanel::FCamera() の view/proj を使う。editor 上の
+    // MVP 更新: FModelViewerPanel::Camera() の view/proj を使う。editor 上の
     // マウスドラッグで orbit / dolly した姿勢がそのまま 3D 像に反映される。
     // FEditorCamera::Tick (smooth target) は OnRender 側の TickAllPanels →
     // OnFrameBegin から呼ばれる想定。
@@ -75,7 +75,7 @@ void ModelViewerScene::OnUpdate(f32 dt) noexcept {
     m_Pipeline.UpdateMvp(view, proj, m_Angle);
 }
 
-void ModelViewerScene::OnRender(RenderContext& rc) noexcept {
+void FModelViewerScene::OnRender(FRenderContext& rc) noexcept {
     // (1) 3D scene 描画 (cube only)。同じコマンドリスト上で ImGui より前に
     //     出すことで、ImGui ウィンドウが viewport をオーバーレイで覆える
     //     (= フレームバッファ直書きの背景レイヤ)。
@@ -85,7 +85,7 @@ void ModelViewerScene::OnRender(RenderContext& rc) noexcept {
     m_MenuBar.Draw(GetGame(), m_Panels.Workspace(), m_Panels.Theme(),
                    kDefaultModelPath, kLayoutPath, kThemePath);
 
-    // (3) workspace 全描画 + asset browser。dt は RenderContext からは取れない
+    // (3) workspace 全描画 + asset browser。dt は FRenderContext からは取れない
     //     ので FGame の DeltaTime() を使う。
     m_Panels.Draw(GetGame().DeltaTime());
 }

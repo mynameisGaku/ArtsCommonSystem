@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / FPropertyDrawer
+// GameFramework Tools — editor_core / PropertyDrawer
 //
 // **カスタム field drawer の登録レジストリ**。FInspectorPanel は EFieldKind
 // 9 種を hardcode の `switch` で扱っているが、それを超える「ゲーム固有 /
@@ -8,17 +8,17 @@
 //
 // 使い方 (典型):
 //   // 起動時にカスタム drawer を登録する:
-//   static void DrawHealth(const PropertyContext& ctx) noexcept {
-//       auto* hp = static_cast<Health*>(ctx.data_ptr);
+//   static void DrawHealth(const FPropertyContext& ctx) noexcept {
+//       auto* hp = static_cast<FHealth*>(ctx.data_ptr);
 //       ImGui::ProgressBar(hp->Ratio(), ImVec2(-1, 0));
 //       if (ctx.out_changed) *ctx.out_changed = false;
 //   }
-//   PropertyDrawerRegistry reg;
+//   FPropertyDrawerRegistry reg;
 //   reg.Init();                                   // bundled drawer も含めて初期化
 //   reg.RegisterDrawer("Health", &DrawHealth);
 //
 //   // FInspectorPanel や任意の editor panel から:
-//   PropertyContext ctx { /* data_ptr / label / tooltip / min/max / ... */ };
+//   FPropertyContext ctx { /* data_ptr / label / tooltip / min/max / ... */ };
 //   if (!reg.DrawProperty(field_type_name, ctx)) {
 //       // 未登録 type → 既存 EFieldKind switch のフォールバックへ
 //   }
@@ -26,9 +26,9 @@
 // 設計選択:
 //   ・**type_name は const char* literal 前提**: drawer name は登録元が永続所有する
 //     リテラル文字列を想定。本 registry はコピー所有しない (= STL `std::string` 不使用)。
-//     比較は per-byte ループ (FSettings / FEntitlement と同じ StrEq pattern)。
-//   ・**`DrawerFn` は raw 関数ポインタ + `PropertyContext`**: ACS は std::function 禁止。
-//     `PropertyContext` は POD 構造体で、必要な情報 (data ポインタ / 表示名 / tooltip /
+//     比較は per-byte ループ (FSettings / FEntitlementRegistry と同じ StrEq pattern)。
+//   ・**`DrawerFn` は raw 関数ポインタ + `FPropertyContext`**: ACS は std::function 禁止。
+//     `FPropertyContext` は POD 構造体で、必要な情報 (data ポインタ / 表示名 / tooltip /
 //     min/max / enum labels / out_changed) を 1 つにまとめて渡す。引数増減で
 //     `DrawerFn` シグネチャが変わらないように構造体束ねを採用。
 //   ・**bundled drawer 群を `Init()` で自動登録**: "F32Slider" / "Vec2Drag" /
@@ -38,22 +38,22 @@
 //   ・**`AssetPath` の drag-drop payload id は "ASSET_PATH"** (リテラル定数)。
 //     FAssetBrowser panel が drag-source 側で同 id の payload を SetDragDrop
 //     することで、textbox に drop すると path が書き戻される。
-//   ・**非コピー / 非ムーブ**: 内部 `TArray<Entry>` の所有を曖昧にしない (ACS 規約)。
+//   ・**非コピー / 非ムーブ**: 内部 `TArray<FEntry>` の所有を曖昧にしない (ACS 規約)。
 //   ・**全 noexcept / STL 不使用 / ImGui include 可**: ACS 規約に準拠。
 //     ヘッダから ImGui は include しない (.cpp 内で <imgui.h> を読む)。
 //
 // 将来拡張余地:
 //   ・**field metadata 拡張**: per-property tooltip / validation rule / step /
-//     readonly / hide 属性などを `PropertyContext` に積み上げる (今は最低限)。
+//     readonly / hide 属性などを `FPropertyContext` に積み上げる (今は最低限)。
 //   ・**composite drawer (struct 再帰)**: drawer 内から `DrawProperty()` を再帰呼出して
 //     ネスト struct (例: `FTransform2D` = FVec2 + f32 + FVec2) を 1 個の drawer として
 //     扱う。本 registry はそのまま使える。
-//   ・**per-game カスタム drawer**: ゲーム固有型 (`class Health`, `class WeaponSlot`,
-//     `class StatBlock`) を inspector 上で美麗表示する目的。ゲーム側コードが
+//   ・**per-game カスタム drawer**: ゲーム固有型 (`class FHealth`, `class FWeaponSlot`,
+//     `class FStatBlock`) を inspector 上で美麗表示する目的。ゲーム側コードが
 //     `RegisterDrawer("Health", ...)` を起動時に呼ぶだけで反映される。
 //   ・**`NodeIdSelector`**: FHierarchyPanel と連動して "現在の選択を取得" or
 //     "Selectable な node 一覧から Combo で選択" する drawer。FSelectionService
-//     を参照するため drawer 側 closure (= `PropertyContext` に user_data を
+//     を参照するため drawer 側 closure (= `FPropertyContext` に user_data を
 //     拡張) が必要になる予定。
 //
 // 範囲外:
@@ -64,7 +64,7 @@
 #pragma once
 
 #include "foundation/Types.h"
-#include "container/Array.h"  // m_Entries が Array<Entry> なので header include 必須
+#include "container/Array.h"  // m_Entries が TArray<FEntry> なので header include 必須
 
 namespace acs::game::editor_core {
 
@@ -77,7 +77,7 @@ namespace acs::game::editor_core {
  * out_changed は drawer が「値を書き換えたか」を呼び出し側に伝える出口で、nullptr
  * なら drawer は書き戻さなくてよい。
  */
-struct PropertyContext {
+struct FPropertyContext {
     /** 編集対象データへのポインタ (drawer が型に応じてキャストする)。 */
     void*        data_ptr     = nullptr;
 
@@ -110,7 +110,7 @@ struct PropertyContext {
  * 関数ポインタで実装し std::function は使わない (ACS no-exception のため noexcept
  * 必須)。drawer 内から ImGui を直接叩いてよい。
  */
-using DrawerFn = void (*)(const PropertyContext& ctx) noexcept;
+using DrawerFn = void (*)(const FPropertyContext& ctx) noexcept;
 
 /**
  * type_name (const char* literal) → DrawerFn のカスタム field drawer 登録レジストリ。
@@ -121,27 +121,27 @@ using DrawerFn = void (*)(const PropertyContext& ctx) noexcept;
  * 想定し本 registry はコピー所有しない (比較は per-byte ループ)。Init() で bundled
  * drawer 9 種 ("F32Slider" / "Vec2Drag" / "Vec3Drag" / "Vec4Drag" / "ColorRGB" /
  * "ColorRGBA" / "AssetPath" / "EnumCombo" / "TextInput") を自動登録する。内部
- * TArray<Entry> の所有を曖昧にしないため非コピー・非ムーブ。
+ * TArray<FEntry> の所有を曖昧にしないため非コピー・非ムーブ。
  */
-class PropertyDrawerRegistry {
+class FPropertyDrawerRegistry {
 public:
     /** 空状態で構築する (bundled drawer の登録は Init で行う)。 */
-    PropertyDrawerRegistry() noexcept = default;
+    FPropertyDrawerRegistry() noexcept = default;
 
     /** 破棄する (drawer は関数ポインタ参照のみで所有しない)。 */
-    ~PropertyDrawerRegistry() noexcept = default;
+    ~FPropertyDrawerRegistry() noexcept = default;
 
-    /** コピー禁止 (内部 TArray<Entry> の所有を曖昧にしないため)。 */
-    PropertyDrawerRegistry(const PropertyDrawerRegistry&)            = delete;
+    /** コピー禁止 (内部 TArray<FEntry> の所有を曖昧にしないため)。 */
+    FPropertyDrawerRegistry(const FPropertyDrawerRegistry&)            = delete;
 
     /** コピー代入も禁止。 */
-    PropertyDrawerRegistry& operator=(const PropertyDrawerRegistry&) = delete;
+    FPropertyDrawerRegistry& operator=(const FPropertyDrawerRegistry&) = delete;
 
     /** ムーブ禁止。 */
-    PropertyDrawerRegistry(PropertyDrawerRegistry&&)                 = delete;
+    FPropertyDrawerRegistry(FPropertyDrawerRegistry&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    PropertyDrawerRegistry& operator=(PropertyDrawerRegistry&&)      = delete;
+    FPropertyDrawerRegistry& operator=(FPropertyDrawerRegistry&&)      = delete;
 
     /**
      * 既存登録を全て破棄したうえで bundled drawer 9 種を自動登録する。
@@ -190,7 +190,7 @@ public:
      * @param ctx drawer に渡す描画パラメータ。
      * @return 該当 drawer を呼んだら true、未登録 / type_name == nullptr なら false。
      */
-    bool DrawProperty(const char* type_name, const PropertyContext& ctx) const noexcept;
+    bool DrawProperty(const char* type_name, const FPropertyContext& ctx) const noexcept;
 
     /**
      * 登録済み drawer 数を返す。
@@ -226,7 +226,7 @@ private:
      *
      * @details name は登録者所有の永続文字列 (リテラル想定)。
      */
-    struct Entry {
+    struct FEntry {
         /** 登録された型名 (登録者所有の永続文字列)。 */
         const char* name = nullptr;
 
@@ -243,7 +243,7 @@ private:
     isize FindIndex(const char* type_name) const noexcept;
 
     /** 登録エントリ群 (bundled 9 種 + ゲーム拡張分、少数想定で線形探索)。 */
-    TArray<Entry> m_Entries;
+    TArray<FEntry> m_Entries;
 };
 
 } // namespace acs::game::editor_core

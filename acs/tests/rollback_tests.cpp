@@ -35,13 +35,13 @@ struct FRbMoveOnlyComp {
  * @param w 進める World。
  * @param in この tick の入力。
  */
-void SimStep(World& w, const game::InputFrame& in) noexcept
+void SimStep(FWorld& w, const game::FInputFrame& in) noexcept
 {
-    w.Query<FGridPos>().Each([&](EntityId, FGridPos& p) {
+    w.Query<FGridPos>().Each([&](FEntityId, FGridPos& p) {
         p.x += (in.buttons & 0x1) ? 2 : 1;
         p.y += (in.buttons & 0x2) ? -1 : 1;
     });
-    w.Query<FScore>().Each([&](EntityId, FScore& s) {
+    w.Query<FScore>().Each([&](FEntityId, FScore& s) {
         s.v = s.v * 31u + in.buttons;
     });
 }
@@ -53,7 +53,7 @@ ACS_TEST(RollbackBuffer, InitShutdownContract) {
     EXPECT_FALSE(rb.Init(0));            // 容量 0 は拒否
     EXPECT_EQ(rb.Capacity(), 0u);
 
-    World w;
+    FWorld w;
     EXPECT_FALSE(rb.SaveFrame(0, w));    // 未初期化では保存できない
     EXPECT_FALSE(rb.RestoreFrame(0, w));
 
@@ -72,9 +72,9 @@ ACS_TEST(RollbackBuffer, InitShutdownContract) {
 }
 
 ACS_TEST(RollbackBuffer, SaveRestoreRoundtrip) {
-    World w;
-    EntityId a = w.Create();
-    EntityId b = w.Create();
+    FWorld w;
+    FEntityId a = w.Create();
+    FEntityId b = w.Create();
     w.Add<FGridPos>(a, {10, 20});
     w.Add<FGridPos>(b, {-5, 7});
 
@@ -87,7 +87,7 @@ ACS_TEST(RollbackBuffer, SaveRestoreRoundtrip) {
     // snapshot 後に破壊的変更: b を破棄し、a を書き換え、新規 c を作る。
     w.Destroy(b);
     if (FGridPos* p = w.Get<FGridPos>(a)) { p->x = 999; }
-    EntityId c = w.Create();
+    FEntityId c = w.Create();
     w.Add<FGridPos>(c, {1, 1});
 
     EXPECT_TRUE(rb.RestoreFrame(5, w));
@@ -108,8 +108,8 @@ ACS_TEST(RollbackBuffer, SaveRestoreRoundtrip) {
 }
 
 ACS_TEST(RollbackBuffer, RingEvictsOldTicks) {
-    World w;
-    EntityId e = w.Create();
+    FWorld w;
+    FEntityId e = w.Create();
     w.Add<FGridPos>(e, {0, 0});
 
     FRollbackBuffer rb;
@@ -139,12 +139,12 @@ ACS_TEST(RollbackBuffer, RingEvictsOldTicks) {
 }
 
 ACS_TEST(RollbackBuffer, NonCopyableComponentRejected) {
-    World good;
-    EntityId g = good.Create();
+    FWorld good;
+    FEntityId g = good.Create();
     good.Add<FGridPos>(g, {1, 2});
 
-    World bad;
-    EntityId e = bad.Create();
+    FWorld bad;
+    FEntityId e = bad.Create();
     bad.Add<FRbMoveOnlyComp>(e, FRbMoveOnlyComp{7});
 
     FRollbackBuffer rb;
@@ -155,7 +155,7 @@ ACS_TEST(RollbackBuffer, NonCopyableComponentRejected) {
     // 同じ slot への失敗保存は、古い有効履歴も無効化する (壊れた復元をさせない)。
     EXPECT_FALSE(rb.SaveFrame(3, bad));
     EXPECT_FALSE(rb.HasFrame(3));
-    World sink;
+    FWorld sink;
     EXPECT_FALSE(rb.RestoreFrame(3, sink));
 }
 
@@ -168,14 +168,14 @@ ACS_TEST(RollbackBuffer, LockstepResimulationConverges) {
     };
 
     // --- 権威フルシミュレーション (正解) -----------------------------------
-    World auth;
-    EntityId a1 = auth.Create();
-    EntityId a2 = auth.Create();
+    FWorld auth;
+    FEntityId a1 = auth.Create();
+    FEntityId a2 = auth.Create();
     auth.Add<FGridPos>(a1, {0, 0});
     auth.Add<FGridPos>(a2, {100, -100});
     auth.Add<FScore>(a2, {1});
     for (u32 t = 0; t < kTicks; ++t) {
-        game::InputFrame f{t, 0, AuthButtons(t), {}};
+        game::FInputFrame f{t, 0, AuthButtons(t), {}};
         SimStep(auth, f);
     }
 
@@ -183,9 +183,9 @@ ACS_TEST(RollbackBuffer, LockstepResimulationConverges) {
     game::FLockstep ls;
     ls.Init(game::ENetMode::Local, 60);
 
-    World sim;
-    EntityId s1 = sim.Create();
-    EntityId s2 = sim.Create();
+    FWorld sim;
+    FEntityId s1 = sim.Create();
+    FEntityId s2 = sim.Create();
     sim.Add<FGridPos>(s1, {0, 0});
     sim.Add<FGridPos>(s2, {100, -100});
     sim.Add<FScore>(s2, {1});
@@ -194,11 +194,11 @@ ACS_TEST(RollbackBuffer, LockstepResimulationConverges) {
     EXPECT_TRUE(history.Init(16));
 
     for (u32 t = 0; t < kTicks; ++t) {
-        ls.RecordInput(game::InputFrame{t, 0, AuthButtons(t), {}});  // 権威入力 (後で届く体)
+        ls.RecordInput(game::FInputFrame{t, 0, AuthButtons(t), {}});  // 権威入力 (後で届く体)
         EXPECT_TRUE(history.SaveFrame(t, sim));
         // kRollback 以降は予測が外れている: ボタン無しで進めてしまう。
         const u8 predicted = (t < kRollback) ? AuthButtons(t) : u8{0};
-        game::InputFrame f{t, 0, predicted, {}};
+        game::FInputFrame f{t, 0, predicted, {}};
         SimStep(sim, f);
     }
 
@@ -215,7 +215,7 @@ ACS_TEST(RollbackBuffer, LockstepResimulationConverges) {
     EXPECT_TRUE(history.RestoreFrame(kRollback, sim));
     for (u32 t = kRollback; t < kTicks; ++t) {
         EXPECT_TRUE(history.SaveFrame(t, sim));   // 履歴も正しい系列で上書き
-        game::InputFrame f;
+        game::FInputFrame f;
         // Replay cursor は tick 昇順消費を仮定するため、先頭から該当 tick まで進める。
         const bool found = ls.ConsumeInput(t, 0, f);
         EXPECT_TRUE(found);

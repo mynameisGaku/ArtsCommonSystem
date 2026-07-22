@@ -1,5 +1,13 @@
 # ACS — セッション引き継ぎ資料 (2026-06-03)
 
+> **履歴資料:** これは 2026-06-03 時点の作業記録であり、現在のビルド手順・型名・
+> テスト件数・ブランチ状態を示す運用資料ではありません。現行手順は
+> [`../../README.md`](../../README.md)、[`QUICKSTART.md`](QUICKSTART.md)、
+> [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) を、命名規約とノード統一後の API は
+> [`StyleGuide.md`](StyleGuide.md) と [`NodeUnification.md`](NodeUnification.md) を
+> 正としてください。以下の commit、件数、旧型名は当時の経緯を保存するために
+> 変更せず掲載しています。
+
 > 次の AI セッションがゼロから状況把握し、迷わず作業再開するための超詳細メモ。
 > §3〜§8 は実コード(file:line)から複数エージェントで裏取りした検証済みセクション。
 
@@ -155,12 +163,12 @@ if (auto s = w.Lock()) s->Render();
 - `TWeakObjectPtr<T>` 弱参照。`IsValid()/IsStale()/Get()`(簡易・死亡時 nullptr)/`Pin()`(破棄と競合しても安全に強参照化。**別スレッド破棄あり得る場面は Pin() を使う**)。
 - ファクトリ: `NewObject<T>(args...)` / `NewObjectIn<T>(alloc, args...)`。
 ```cpp
-class FEnemy : public FObject { public: void Hit(); };
-TObjectPtr<FEnemy> e = NewObject<FEnemy>();
-TWeakObjectPtr<FEnemy> w = e;
+class AEnemy : public FObject { public: void Hit(); };
+TObjectPtr<AEnemy> e = NewObject<AEnemy>();
+TWeakObjectPtr<AEnemy> w = e;
 e.Reset();
 if (w.IsValid()) w.Get()->Hit();          // false
-TWeakObjectPtr<FEnemy> w2(rawEnemyPtr);    // 生ポインタからの弱参照(FObject 限定の肝)
+TWeakObjectPtr<AEnemy> w2(rawEnemyPtr);    // 生ポインタからの弱参照(FObject 限定の肝)
 ```
 
 **`UniquePtr.h` — TUniquePtr(std::unique_ptr の代替)** … 単独所有・ムーブのみ。`MakeUnique<T>(args...)`/`MakeUniqueIn`。`Get/operator*/operator->/bool/Release/Reset/GetAllocator`。
@@ -226,21 +234,22 @@ gameframework は 8 分割で統合後 **計 346 型**で突出。主要: `rende
 - **memory** — `TUniquePtr`/`SharedPtr`/`ObjectPtr`、`FAllocator`/`DefaultAllocator`、TLSF/ShardedTLSF/Arena/Linear/Pool/System/Relocatable、`VirtualMemory`、配置 new。
 - **math** — `Vec`/`Mat`/`Quat`/`Camera`、`Collision2D/3D`、SIMD ディスパッチ(`Cpu`/`MathDispatch`)。
 - **threading** — `TAtomic`、`Mutex`/`RwLock`/`ScopedLock`/`ConditionVar`、`Thread`、`ThreadPool`、`JobGraph`。
-- **platform** — Windows 抽象。`Window`/`Event`/`Input`、`FileSystem`/`Storage`、`Time`、`Localization`。
-- **event** — `MessageBroker`(型 pub/sub)、`MessagePipe`、`Timer`。
-- **ecs** — `World`(`Create`/`Add`/`Get`/`Query<...>().Each(...)`)、`Entity`/`ComponentRegistry`/`SparseSet`/`System`。
+- **platform** — Windows 抽象。`FWindow`/`FEvent`/`FInput`、`FFileSystem`/`FStorage`、`FClock`/`FFrameTimer`、`FLocalization`。
+- **event** — `FMessageBroker`(型 pub/sub)、`TMessagePipe`、`FTimerManager`。
+- **ecs** — `FWorld`(`Create`/`Add`/`Get`/`Query<...>().Each(...)`)、`FEntityId`/`FComponentRegistry`/`TSparseSet`/`FSystemScheduler`。
 - **render** — RHI 抽象 `IRhi*` + backend `Dx12/`(既定)/`Diligent/`、`FRenderer`、各シェーダ/パス(Standard/Pbr/Skinned/Sky/Atmosphere/Ibl/ShadowMap/Ssao/Ssgi/Ssr/HiZ/MotionVector/PostProcess/Particles/SpriteBatch/Font/Light2D/DebugDraw/Blit)。
-- **ui** — `UiRenderer`/`Widget`/`Widgets`。**mvvm** — `Observable`/`Binder`/`Command`/`ViewModel`(ImGui アダプタは条件付き)。**imgui** — `ImGuiContext`(DX12 raw 前提)。
+- **ui** — `FUiRenderer`/`FWidget`/`FStackPanel`/`FContainer`/`FLabel`/`FButton`/`FSlider`/`FCheckbox`/`FTextInput`。**mvvm** — `TObservable`/`TOneWayBinder`/`TTwoWayBinder`/`FCommand`/`FViewModel`(ImGui アダプタは条件付き)。**imgui** — `FImGuiCtx`(DX12 raw 前提)。
 - **collision** — `ACS::Collision`。`FSpriteCollider`(α から凸包+輪郭)、`ConvexHull3`。
-- **audio** — `AudioEngine`(XAudio2、最大 64 voice)、`SoundHandle`。**asset** — `Asset`/`AssetId`/`SkinnedMesh`。**assetpack** — `.acpak`(magic ACPAK、CRC32+任意 AES-256-GCM/LZ4)。
-- **easy** — 初学者向け簡単モード(`acs::easy`)。**scripting** — `LuaVm`(Lua 5.4)。**network** — TCP/UDP。**crashwin** — DbgHelp ミニダンプ。**telemetryfile** — JSONL。**steamworks**/**mlonnx**/**openxr**/**localmatch** — 各 SDK ブリッジ(Default フォールバック付)。
-- **app** — `Application`/`AppConfig`/`EntryPoint`/`Sample`。**gameframework** — `acs::game`(115+ ファイル)。`FScene2D`/`FGame`/`Node2D`/`Component2D`、AI/アニメ/カメラ/ジャンルキット/ランタイム。**test** — `Test`/`Expect`。
+- **audio** — `FAudioEngine`(XAudio2、最大 64 voice)、`FSoundHandle`。**asset** — `FAsset`/`FAssetId`/`FSkinnedMeshAsset`。**assetpack** — `.acpak`(magic ACPAK、CRC32+任意 AES-256-GCM/LZ4)。
+- **easy** — 初学者向け簡単モード(`acs::easy`)。**scripting** — `FLuaVm`(Lua 5.4)。**network** — `FNetwork`/`FTcpConnection`/`FUdpSocket`。**crashwin** — `FWindowsCrashReporter`。**telemetryfile** — `FFileTelemetryBackendClient`。**steamworks**/**mlonnx**/**openxr**/**localmatch** — 各 SDK ブリッジ(Default フォールバック付)。
+- **app** — `FApplication`/`FAppConfig`/`EntryPoint`/`Sample`。**gameframework** — `acs::game`(115+ ファイル)。`FScene`/`FScene2D`/`FGame`/`ANode`/`AComponent`、AI/アニメ/カメラ/ジャンルキット/ランタイム。**test** — `Test`/`Expect`。
 
 ### ACS 規約(裏取り済み)
 - **エラー処理**: 例外不使用。`TResult<T, E=FErrorCode>`、`IsOk()/IsErr()/Value()/Error()/ValueOr()`、`Ok()/Err()`、`ACS_TRY(expr)`/`ACS_TRY_ASSIGN(name, expr)`。関数は基本 `noexcept`。`Value()`/`Error()` の誤用は `ACS_ASSERT` 停止。
 - **STL 不使用 → 対応表**: `vector`→`TArray`(コピー禁止、`Clone` 明示)/ `unordered_map`→`THashMap`/ `string`→`FString`、`string_view`→`FStringView`、`span`→`TSpan`/ `unique_ptr`→`TUniquePtr`、`shared_ptr`→`TSharedPtr`。
-- **命名接頭辞**: `T`=テンプレート/値型、`F`=具体クラス、`E`=enum、`I`=インターフェース、`m_`=メンバ、マクロは `ACS_`。
-- **2D は Y-down**(左上原点・+X 右・+Y 下・角度は度・時計回り正。円のみ (x,y)=中心)。
+- **命名接頭辞**: `T`=テンプレート/値型、`F`=具体クラス/構造体、`A`=`FObject` 所有モデルの node/component、`E`=enum、`I`=インターフェース、`m_`=メンバ、マクロは `ACS_`。
+- **ノード/transform 統一**: `ANode` + `AComponent`、親は `TObjectPtr<ANode>` で所有し `NewObject<T>()` で生成、長期参照は `TWeakObjectPtr`。transform は `FTransform3D` 一本で、2D は `Position2D`/`SetRotation2D`/`World2D` helper を使う。
+- **2D は Y-down**(左上原点・+X 右・+Y 下・`ANode::Rotation2D` はラジアン。円のみ (x,y)=中心)。
 - **名前空間**: `acs` / `acs::easy` / `acs::game`。全ソース先頭 `// SPDX-License-Identifier: Apache-2.0`。
 
 ### 重要パス
@@ -257,9 +266,11 @@ gameframework は 8 分割で統合後 **計 346 型**で突出。主要: `rende
 
 ### 高優先(機能未接続/見た目未確認、ユーザー価値直結)
 - **未スクショの windowed サンプルの実機目視(最重要)。** スクショ証跡は `acs/Saved/` に 55/58/59/63 のみ。WIN32 GUI なのに証跡が無い: **`65_HelloJobsVisual`(今セッション作成、ビルド通るが見た目未確認)**、`56_HelloSpriteAnim`、`60_HelloStencilMask`、`61_HelloWaterTopDown`。alive 止まりの可能性。
-- **`FUiRenderer::TextInput` の caret 描画が未実装**(`src/ui/UiRenderer.cpp:106-108`、`Font::MeasureText` 経由が TODO)。
 - **`FUiLayer` の実ウィジェット root 未確保**(`src/gameframework/UiLayer.cpp:43-56`、`UiLayer.h:37,155` で押下検出未実装の経路)。
-- **`FHotReload` の実 FS ポーリング未実装**(`src/gameframework/HotReload.h:13`、`Tick` 内 TODO)。
+
+### 解消済み/現在の境界
+- **`FTextInput` の caret** は `FUiRenderer::MeasureTextBytes` で UTF-8 cursor prefix を測って描画済み。Left/Right/Home/End、Backspace/Delete、checked 挿入、byte 上限も実装済み。現行 pointer API には glyph hit 情報がないため、クリック時は cursor を末尾へ置く。
+- **`FHotReloadWatcher` の実 FS 監視**は Windows 開発ビルドで `ReadDirectoryChangesW` + non-blocking `TryTick` として実装済み。bounded queue、debounce、UTF-8 所有、callback 再入防止、overflow/rescan 診断を持つ。アセット再 import・per-type policy・`MessageBroker` publish は watcher 自身では行わず、callback/queue を消費する上位 asset pipeline の接続点として残る。
 
 ### 中優先(設計 seam、実 SDK/上位接続待ちの意図的スタブ)
 - プラットフォーム SDK 5 ブリッジが seam: `PartySystem.cpp:67-111`、`SocialModeration.cpp:72-115`、`WorkshopBridge.cpp`、`SteamworksBridge.cpp`/`VoiceChat.*`(`kSub*NotImplemented` を返す)。実 SDK 結合は別モジュール委譲方針。

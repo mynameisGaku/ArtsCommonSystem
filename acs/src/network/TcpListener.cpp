@@ -11,17 +11,17 @@
 namespace acs {
 
 /** ソケットが開いていれば閉じてから破棄する。 */
-TcpListener::~TcpListener() noexcept {
+FTcpListener::~FTcpListener() noexcept {
     Close();
 }
 
 /** ムーブ構築する (ソケットの所有権を奪い、元を無効化する)。 */
-TcpListener::TcpListener(TcpListener&& o) noexcept : m_Socket(o.m_Socket) {
+FTcpListener::FTcpListener(FTcpListener&& o) noexcept : m_Socket(o.m_Socket) {
     o.m_Socket = ~uptr{0};
 }
 
 /** ムーブ代入する (自分のソケットを閉じてから所有権を奪う)。 */
-TcpListener& TcpListener::operator=(TcpListener&& o) noexcept {
+FTcpListener& FTcpListener::operator=(FTcpListener&& o) noexcept {
     if (this == &o) return *this;
     Close();
     m_Socket = o.m_Socket;
@@ -30,8 +30,8 @@ TcpListener& TcpListener::operator=(TcpListener&& o) noexcept {
 }
 
 /** 指定アドレス/ポートで socket→bind→listen を実行し、待ち受け中のリスナーを返す。 */
-TResult<TcpListener> TcpListener::Listen(IpAddress addr, u16 port, u32 backlog) noexcept {
-    if (!Network::IsInitialized())
+TResult<FTcpListener> FTcpListener::Listen(FIpAddress addr, u16 port, u32 backlog) noexcept {
+    if (!FNetwork::IsInitialized())
         return ACS_ERR(IO, 220, "Network::Init() not called");
 
     const SOCKET s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -61,13 +61,13 @@ TResult<TcpListener> TcpListener::Listen(IpAddress addr, u16 port, u32 backlog) 
         return ACS_ERR_OS(IO, 223, "listen failed", err);
     }
 
-    TcpListener l;
+    FTcpListener l;
     l.m_Socket = static_cast<uptr>(s);
-    return TResult<TcpListener>(OkInit, Move(l));
+    return TResult<FTcpListener>(OkInit, Move(l));
 }
 
 /** 1 接続を accept し、リモートアドレスを設定した TcpConnection を返す。 */
-TResult<TcpConnection> TcpListener::Accept() noexcept {
+TResult<FTcpConnection> FTcpListener::Accept() noexcept {
     if (m_Socket == ~uptr{0}) return ACS_ERR(IO, 224, "listener not open");
     sockaddr_in sa{};
     int len = sizeof(sa);
@@ -75,18 +75,18 @@ TResult<TcpConnection> TcpListener::Accept() noexcept {
                           reinterpret_cast<sockaddr*>(&sa), &len);
     if (cs == INVALID_SOCKET)
         return ACS_ERR_OS(IO, 225, "accept failed", static_cast<u32>(::WSAGetLastError()));
-    IpAddress remote{};
+    FIpAddress remote{};
     remote.octets[0] = sa.sin_addr.S_un.S_un_b.s_b1;
     remote.octets[1] = sa.sin_addr.S_un.S_un_b.s_b2;
     remote.octets[2] = sa.sin_addr.S_un.S_un_b.s_b3;
     remote.octets[3] = sa.sin_addr.S_un.S_un_b.s_b4;
     remote.port      = ::ntohs(sa.sin_port);
-    return TResult<TcpConnection>(OkInit,
-        TcpConnection::FromAccepted(static_cast<uptr>(cs), remote));
+    return TResult<FTcpConnection>(OkInit,
+        FTcpConnection::FromAccepted(static_cast<uptr>(cs), remote));
 }
 
 /** ソケットのノンブロッキングモードを切り替える。 */
-TResult<void> TcpListener::SetNonBlocking(bool enable) noexcept {
+TResult<void> FTcpListener::SetNonBlocking(bool enable) noexcept {
     if (m_Socket == ~uptr{0}) return ACS_ERR(IO, 226, "listener not open");
     u_long mode = enable ? 1 : 0;
     if (::ioctlsocket(static_cast<SOCKET>(m_Socket), FIONBIO, &mode) == SOCKET_ERROR)
@@ -96,7 +96,7 @@ TResult<void> TcpListener::SetNonBlocking(bool enable) noexcept {
 }
 
 /** ソケットが開いていれば閉じて無効状態にする (多重呼び出し安全)。 */
-void TcpListener::Close() noexcept {
+void FTcpListener::Close() noexcept {
     if (m_Socket != ~uptr{0}) {
         ::closesocket(static_cast<SOCKET>(m_Socket));
         m_Socket = ~uptr{0};

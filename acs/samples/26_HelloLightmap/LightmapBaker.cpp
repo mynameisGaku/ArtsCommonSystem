@@ -11,14 +11,14 @@ using namespace acs;
 
 namespace hellolightmap {
 
-FVec3 TexelToWorld(const Quad& q, f32 tu, f32 tv) noexcept {
+FVec3 TexelToWorld(const FQuad& q, f32 tu, f32 tv) noexcept {
     const f32 lx = (tu - 0.5f) * q.plane_w;
     const f32 lz = (0.5f - tv) * q.plane_h;
     return TransformPoint(FVec3{lx, 0.0f, lz}, q.model);
 }
 
 FVec3 PathTrace(FVec3 origin, FVec3 normal,
-               const Quad (&quads)[kQuadCount], Rng& rng) noexcept {
+               const FQuad (&quads)[kQuadCount], FRng& rng) noexcept {
     FVec3 throughput{1.0f, 1.0f, 1.0f};
     FVec3 o = origin;
     FVec3 N = normal;
@@ -36,7 +36,7 @@ FVec3 PathTrace(FVec3 origin, FVec3 normal,
             if (t > 0.0f && t < best_t) { best_t = t; best_q = static_cast<i32>(hj); }
         }
         if (best_q < 0) return FVec3{0, 0, 0};              // 開口へ脱出
-        const Quad& hq = quads[static_cast<u32>(best_q)];
+        const FQuad& hq = quads[static_cast<u32>(best_q)];
         if (hq.emissive) {
             return Hadamard(throughput, kLightRadiance);   // 光源に到達
         }
@@ -48,12 +48,12 @@ FVec3 PathTrace(FVec3 origin, FVec3 normal,
     return FVec3{0, 0, 0};       // kBounceDepth 以内に光源へ届かず
 }
 
-void BakeLightmaps(IRhiDevice& dev, Quad (&quads)[kQuadCount]) noexcept {
+void BakeLightmaps(IRhiDevice& dev, FQuad (&quads)[kQuadCount]) noexcept {
     TArray<FVec3> raw;      raw.Resize(static_cast<usize>(kLmSize) * kLmSize);
     TArray<FVec3> blurred;  blurred.Resize(static_cast<usize>(kLmSize) * kLmSize);
 
     for (u32 qi = 0; qi < kQuadCount; ++qi) {
-        Quad& q = quads[qi];
+        FQuad& q = quads[qi];
         q.lm_data.Resize(static_cast<usize>(kLmSize) * kLmSize);   // 1 FVec4 / texel
 
         if (q.emissive) {
@@ -70,7 +70,7 @@ void BakeLightmaps(IRhiDevice& dev, Quad (&quads)[kQuadCount]) noexcept {
                     const FVec3 origin = wp + N * 0.01f;     // self-hit 回避
 
                     // texel ごとに decorrelate した seed (再現性あり)
-                    Rng rng{ (qi * 2654435761u) ^ (ty * 40503u)
+                    FRng rng{ (qi * 2654435761u) ^ (ty * 40503u)
                              ^ (tx * 73856093u) ^ 0x9E3779B9u };
                     if (rng.state == 0u) rng.state = 1u;
 

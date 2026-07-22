@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "gameframework/SpriteAnimComponent.h"
 #include "gameframework/Sprite2DComponent.h"
-#include "gameframework/Node2D.h"
+#include "gameframework/ANode.h"
 
 namespace acs::game {
 
-void FSpriteAnimComponent::InitGrid(u32 cols, u32 rows, u32 frame_count, f32 fps,
+void ASpriteAnimComponent::InitGrid(u32 cols, u32 rows, u32 frame_count, f32 fps,
                                     EPlayMode mode) noexcept {
     m_FrameUvs.Clear();
     if (cols == 0) cols = 1;
@@ -25,42 +25,42 @@ void FSpriteAnimComponent::InitGrid(u32 cols, u32 rows, u32 frame_count, f32 fps
     m_Anim.Init(frame_count, fps, mode);
 }
 
-void FSpriteAnimComponent::BeginFrames(f32 fps, EPlayMode mode) noexcept {
+void ASpriteAnimComponent::BeginFrames(f32 fps, EPlayMode mode) noexcept {
     m_FrameUvs.Clear();
     m_PendingFps  = fps;
     m_PendingMode = mode;
     m_Building    = true;
 }
 
-void FSpriteAnimComponent::AddFrameUv(FVec4 uv) noexcept {
+void ASpriteAnimComponent::AddFrameUv(FVec4 uv) noexcept {
     if (!m_Building) return;
     m_FrameUvs.PushBack(uv);
 }
 
-void FSpriteAnimComponent::EndFrames() noexcept {
+void ASpriteAnimComponent::EndFrames() noexcept {
     if (!m_Building) return;
     m_Building = false;
     const u32 n = m_FrameUvs.Size();
     m_Anim.Init(n == 0 ? 1u : n, m_PendingFps, m_PendingMode);
 }
 
-void FSpriteAnimComponent::ApplyCurrentFrame() noexcept {
+void ASpriteAnimComponent::ApplyCurrentFrame() noexcept {
     if (!m_Sprite || m_FrameUvs.Size() == 0) return;
     u32 i = m_Anim.CurrentFrame();
     if (i >= m_FrameUvs.Size()) i = m_FrameUvs.Size() - 1u;
     m_Sprite->SetUvRect(m_FrameUvs[i]);
 }
 
-void FSpriteAnimComponent::OnRequire(FNode2D& owner) noexcept {
-    // 描画先が無ければ既定の FSprite2DComponent を自動追加する。
+void ASpriteAnimComponent::OnRequire(ANode& owner) noexcept {
+    // 描画先が無ければ既定の ASprite2DComponent を自動追加する。
     // 利用者が先にテクスチャ付きで AddComponent していればそれを使う。
-    owner.GetOrAddComponent<FSprite2DComponent>();
+    owner.GetOrAddComponent<ASprite2DComponent>();
 }
 
-void FSpriteAnimComponent::OnUpdate(f32 dt) noexcept {
+void ASpriteAnimComponent::OnUpdate(f32 dt) noexcept {
     // add 順非依存にするため sibling sprite は初回 OnUpdate で遅延 lookup。
     if (m_Sprite == nullptr && HasOwner()) {
-        m_Sprite = Owner().GetComponent<FSprite2DComponent>();
+        m_Sprite = Owner().GetComponent<ASprite2DComponent>();
     }
     m_Anim.Tick(dt);
     ApplyCurrentFrame();

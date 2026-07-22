@@ -6,8 +6,37 @@
 
 namespace acs {
 
+// テキスト入力欄の内容領域へ選択ハイライトを切り詰める。
+FUiRect ui_detail::ComputeTextSelectionHighlightRect(const FUiRect& input_rect,
+                                                     f32 prefix_start,
+                                                     f32 prefix_end) noexcept {
+    const f32 content_left = input_rect.x + 6.0f;
+    const f32 content_right =
+        input_rect.w > 12.0f ? input_rect.x + input_rect.w - 6.0f : content_left;
+    const f32 raw_start = content_left + prefix_start;
+    const f32 raw_end = content_left + prefix_end;
+    const f32 clipped_start =
+        raw_start < content_left ? content_left
+      : raw_start > content_right ? content_right
+                                  : raw_start;
+    const f32 clipped_end =
+        raw_end < content_left ? content_left
+      : raw_end > content_right ? content_right
+                                : raw_end;
+    const f32 selection_height =
+        input_rect.h > 6.0f ? input_rect.h - 6.0f : 0.0f;
+    const f32 selection_width =
+        clipped_end > clipped_start ? clipped_end - clipped_start : 0.0f;
+    return FUiRect{
+        clipped_start,
+        input_rect.y + 3.0f,
+        selection_width,
+        selection_height,
+    };
+}
+
 /** SpriteBatch を初期化し、既定フォントを設定する。 */
-TResult<void> FUiRenderer::Init(IRhiDevice& device, EFormat rt_format, Font* default_font) noexcept {
+TResult<void> FUiRenderer::Init(IRhiDevice& device, EFormat rt_format, FFont* default_font) noexcept {
     auto r = m_Batch.Init(device, rt_format);
     if (r.IsErr()) return r;
     m_Font = default_font;
@@ -20,14 +49,17 @@ void FUiRenderer::Shutdown() noexcept {
     m_Font = nullptr;
 }
 
-/** Widget ツリーを 1 フレーム分レイアウトして描画する。 */
-void FUiRenderer::Render(Widget& root, IRhiCommandList& cmd, u32 screen_w, u32 screen_h) noexcept {
-    root.Layout(0.0f, 0.0f, static_cast<f32>(screen_w), static_cast<f32>(screen_h));
-    m_Batch.Begin(cmd, screen_w, screen_h);
-    m_bFrameOpen = true;
-    root.Render(*this);
-    m_Batch.End();
-    m_bFrameOpen = false;
+/** FWidget ツリーを 1 フレーム分レイアウトして描画する。 */
+void FUiRenderer::Render(FWidget& root, IRhiCommandList& cmd, u32 screen_w, u32 screen_h) noexcept {
+    (void)ui_detail::VisitVisibleUiRoot(
+        root, static_cast<f32>(screen_w), static_cast<f32>(screen_h),
+        [this, &root, &cmd, screen_w, screen_h]() noexcept {
+            m_Batch.Begin(cmd, screen_w, screen_h);
+            m_bFrameOpen = true;
+            root.Render(*this);
+            m_Batch.End();
+            m_bFrameOpen = false;
+        });
 }
 
 /** 塗りつぶし矩形を発行する (フレームが開いている間のみ)。 */
@@ -57,17 +89,71 @@ f32 FUiRenderer::MeasureText(const char* utf8) const noexcept {
     return m_Font->MeasureWidth(utf8);
 }
 
-// Widget 派生の Render 実装 (FUiRenderer への循環依存を避けるためここに置く)。
+/** UTF-8 文字列の先頭 byte_count バイトを、割り当てなしで安全に測る。 */
+f32 FUiRenderer::MeasureTextBytes(const char* utf8, usize byte_count) const noexcept {
+    if (!m_Font || !utf8 || byte_count == 0) return 0.0f;
+
+    usize bounded_size = 0;
+    while (bounded_size < byte_count && utf8[bounded_size] != '\0') ++bounded_size;
+
+    f32 width = 0.0f;
+    usize offset = 0;
+    while (offset < bounded_size) {
+        const u8 b0 = static_cast<u8>(utf8[offset]);
+        u32 codepoint = b0;
+        usize sequence_size = 1;
+        const usize remaining = bounded_size - offset;
+
+        if (b0 >= 0xC2u && b0 <= 0xDFu && remaining >= 2u) {
+            const u8 b1 = static_cast<u8>(utf8[offset + 1u]);
+            if ((b1 & 0xC0u) == 0x80u) {
+                codepoint = ((b0 & 0x1Fu) << 6u) | (b1 & 0x3Fu);
+                sequence_size = 2;
+            }
+        } else if (b0 >= 0xE0u && b0 <= 0xEFu && remaining >= 3u) {
+            const u8 b1 = static_cast<u8>(utf8[offset + 1u]);
+            const u8 b2 = static_cast<u8>(utf8[offset + 2u]);
+            const bool first_ok = b0 == 0xE0u ? (b1 >= 0xA0u && b1 <= 0xBFu)
+                                : b0 == 0xEDu ? (b1 >= 0x80u && b1 <= 0x9Fu)
+                                             : ((b1 & 0xC0u) == 0x80u);
+            if (first_ok && (b2 & 0xC0u) == 0x80u) {
+                codepoint = ((b0 & 0x0Fu) << 12u) | ((b1 & 0x3Fu) << 6u) | (b2 & 0x3Fu);
+                sequence_size = 3;
+            }
+        } else if (b0 >= 0xF0u && b0 <= 0xF4u && remaining >= 4u) {
+            const u8 b1 = static_cast<u8>(utf8[offset + 1u]);
+            const u8 b2 = static_cast<u8>(utf8[offset + 2u]);
+            const u8 b3 = static_cast<u8>(utf8[offset + 3u]);
+            const bool first_ok = b0 == 0xF0u ? (b1 >= 0x90u && b1 <= 0xBFu)
+                                : b0 == 0xF4u ? (b1 >= 0x80u && b1 <= 0x8Fu)
+                                             : ((b1 & 0xC0u) == 0x80u);
+            if (first_ok && (b2 & 0xC0u) == 0x80u && (b3 & 0xC0u) == 0x80u) {
+                codepoint = ((b0 & 0x07u) << 18u) | ((b1 & 0x3Fu) << 12u) |
+                            ((b2 & 0x3Fu) << 6u) | (b3 & 0x3Fu);
+                sequence_size = 4;
+            }
+        }
+
+        if (codepoint != '\n') {
+            FGlyphInfo glyph{};
+            if (m_Font->GetGlyph(codepoint, glyph)) width += glyph.x_advance;
+        }
+        offset += sequence_size;
+    }
+    return width;
+}
+
+// FWidget 派生の Render 実装 (FUiRenderer への循環依存を避けるためここに置く)。
 
 /** ラベルのテキストを描画する。 */
-void Label::Render(FUiRenderer& r) noexcept {
+void FLabel::Render(FUiRenderer& r) noexcept {
     if (!visible) return;
     const auto& C = r.Colors();
     r.DrawText(text.Get().Data(), rect.x, rect.y + 4, C.text);
 }
 
 /** ボタンの背景・枠・ラベルを描画する。 */
-void Button::Render(FUiRenderer& r) noexcept {
+void FButton::Render(FUiRenderer& r) noexcept {
     if (!visible) return;
     const auto& C = r.Colors();
     const FVec4 bg = pressed ? C.button_press : (hovered ? C.button_hover : C.button_bg);
@@ -78,7 +164,7 @@ void Button::Render(FUiRenderer& r) noexcept {
 }
 
 /** スライダーのトラック・値部分・つまみを描画する。 */
-void Slider::Render(FUiRenderer& r) noexcept {
+void FSlider::Render(FUiRenderer& r) noexcept {
     if (!visible) return;
     const auto& C = r.Colors();
     // トラック
@@ -94,7 +180,7 @@ void Slider::Render(FUiRenderer& r) noexcept {
 }
 
 /** チェックボックスの箱・枠・チェックマーク・ラベルを描画する。 */
-void Checkbox::Render(FUiRenderer& r) noexcept {
+void FCheckbox::Render(FUiRenderer& r) noexcept {
     if (!visible) return;
     const auto& C = r.Colors();
     const f32 box = 18.0f;
@@ -108,73 +194,191 @@ void Checkbox::Render(FUiRenderer& r) noexcept {
 }
 
 /** テキスト入力欄の背景・枠・文字列を描画する。 */
-void TextInput::Render(FUiRenderer& r) noexcept {
+void FTextInput::Render(FUiRenderer& r) noexcept {
     if (!visible) return;
+    NormalizeSelection();
     const auto& C = r.Colors();
     const FVec4 bg = focused ? C.input_focus : C.input_bg;
     r.DrawRect(rect.x, rect.y, rect.w, rect.h, bg);
     r.DrawRectOutline(rect.x, rect.y, rect.w, rect.h, C.panel_border);
+    if (focused && m_CursorByteOffset != m_SelectionAnchorByteOffset) {
+        const usize selection_start =
+            m_CursorByteOffset < m_SelectionAnchorByteOffset
+                ? m_CursorByteOffset
+                : m_SelectionAnchorByteOffset;
+        const usize selection_end =
+            m_CursorByteOffset > m_SelectionAnchorByteOffset
+                ? m_CursorByteOffset
+                : m_SelectionAnchorByteOffset;
+        const f32 prefix_start =
+            r.MeasureTextBytes(text.Get().Data(), selection_start);
+        const f32 prefix_end =
+            r.MeasureTextBytes(text.Get().Data(), selection_end);
+        const FUiRect highlight =
+            ui_detail::ComputeTextSelectionHighlightRect(rect, prefix_start, prefix_end);
+        if (highlight.w > 0.0f && highlight.h > 0.0f) {
+            r.DrawRect(highlight.x, highlight.y, highlight.w, highlight.h,
+                       C.input_selection);
+        }
+    }
     r.DrawText(text.Get().Data(), rect.x + 6, rect.y + 4, C.text);
     if (focused) {
-        // caret はテキスト末尾に立てる (TextInput は末尾追加のみで cursor 移動しない)。
-        // Font::MeasureWidth で文字列幅を測り、その右端に細い縦線を描く。
-        const f32 cx = rect.x + 6.0f + r.MeasureText(text.Get().Data());
+        // cursor までの UTF-8 prefix だけを測り、コードポイント境界へ caret を置く。
+        const f32 cx = rect.x + 6.0f +
+                       r.MeasureTextBytes(text.Get().Data(), m_CursorByteOffset);
         r.DrawRect(cx, rect.y + 4.0f, 1.5f, rect.h - 8.0f, C.text);
     }
 }
 
+void FUiInput::Reset() noexcept {
+    m_RootIdentity = {};
+    m_HoveredIdentity = {};
+    m_PressedIdentity = {};
+    m_FocusedIdentity = {};
+    m_ControlAOwnerIdentity = {};
+}
+
+void FUiInput::Reset(FWidget& live_root) noexcept {
+    live_root.ClearInputStateRecursive_Internal();
+    Reset();
+}
+
+void FUiInput::PrepareRoot(FWidget& root) noexcept {
+    const FTrackedIdentity root_identity = root.InputIdentity_Internal();
+    if (m_RootIdentity == root_identity) return;
+
+    // 以前の root は既に破棄済みかもしれないため、一切参照せず ID だけを捨てる。
+    Reset();
+    root.ClearInputStateRecursive_Internal();
+    m_RootIdentity = root_identity;
+}
+
+FWidget* FUiInput::ResolveVisible(
+        FWidget& root, const FTrackedIdentity& identity) noexcept {
+    FWidget* const widget = root.FindByInputIdentity_Internal(identity);
+    if (!widget || !widget->IsInputVisibleFrom_Internal(root)) return nullptr;
+    return widget;
+}
+
+void FUiInput::ValidateTrackedState(FWidget& root) noexcept {
+    const auto validate = [&root](FTrackedIdentity& identity,
+                                  bool FWidget::* state) noexcept {
+        if (!identity.IsSet()) return;
+        FWidget* const widget = root.FindByInputIdentity_Internal(identity);
+        if (widget && widget->IsInputVisibleFrom_Internal(root)) return;
+        if (widget) widget->*state = false;
+        identity = {};
+    };
+
+    validate(m_HoveredIdentity, &FWidget::hovered);
+    validate(m_PressedIdentity, &FWidget::pressed);
+    validate(m_FocusedIdentity, &FWidget::focused);
+    if (!ResolveVisible(root, m_ControlAOwnerIdentity)) {
+        m_ControlAOwnerIdentity = {};
+    }
+}
+
 /** 入力を読み取り、ツリーをヒットテストして該当 widget にイベントを配信する。 */
-void FUiInput::Dispatch(Widget& root) noexcept {
+void FUiInput::Dispatch(FWidget& root) noexcept {
+    PrepareRoot(root);
+    ValidateTrackedState(root);
+
     // マウス位置取得
-    const FVec2 mp = Input::MousePos();
+    const FVec2 mp = FInput::MousePos();
     const f32 mx = mp.x, my = mp.y;
 
     // hover 更新
-    Widget* const hit = root.HitTestRecursive(mx, my);
-    if (hit != m_Hovered) {
-        if (m_Hovered) m_Hovered->hovered = false;
-        m_Hovered = hit;
-        if (m_Hovered) m_Hovered->hovered = true;
+    FWidget* hit = root.HitTestRecursive(mx, my);
+    const FTrackedIdentity hit_identity =
+        hit ? hit->InputIdentity_Internal() : FTrackedIdentity{};
+    if (hit_identity != m_HoveredIdentity) {
+        if (FWidget* const hovered =
+                ResolveVisible(root, m_HoveredIdentity)) {
+            hovered->hovered = false;
+        }
+        m_HoveredIdentity = hit_identity;
+        if (hit) hit->hovered = true;
     }
     // hovered widget へ pointer move
-    if (m_Hovered) m_Hovered->OnPointerMove(mx, my);
-    if (m_Pressed && m_Pressed != m_Hovered) m_Pressed->OnPointerMove(mx, my);
+    if (FWidget* const hovered =
+            ResolveVisible(root, m_HoveredIdentity)) {
+        hovered->OnPointerMove(mx, my);
+    }
+    if (m_PressedIdentity.IsSet() &&
+        m_PressedIdentity != m_HoveredIdentity) {
+        if (FWidget* const pressed =
+                ResolveVisible(root, m_PressedIdentity)) {
+            pressed->OnPointerMove(mx, my);
+        }
+    }
 
     // クリック
-    if (Input::IsMouseButtonPressed(EMouseButton::Left)) {
-        if (m_Focused && m_Focused != hit) m_Focused->focused = false;
-        m_Focused = hit;
-        if (m_Focused) m_Focused->focused = true;
-        m_Pressed = hit;
-        if (m_Pressed) m_Pressed->OnPointerDown(mx, my);
+    if (FInput::IsMouseButtonPressed(EMouseButton::Left)) {
+        // pointer callback が child 構成を変更できるため、押下直前に hit-test をやり直す。
+        hit = root.HitTestRecursive(mx, my);
+        const FTrackedIdentity pressed_identity =
+            hit ? hit->InputIdentity_Internal() : FTrackedIdentity{};
+        if (m_FocusedIdentity != pressed_identity) {
+            if (FWidget* const focused =
+                    ResolveVisible(root, m_FocusedIdentity)) {
+                focused->focused = false;
+            }
+        }
+        m_FocusedIdentity = pressed_identity;
+        if (hit) hit->focused = true;
+        m_PressedIdentity = pressed_identity;
+        if (hit) hit->OnPointerDown(mx, my);
     }
-    if (Input::IsMouseButtonReleased(EMouseButton::Left)) {
-        if (m_Pressed) m_Pressed->OnPointerUp(mx, my);
-        m_Pressed = nullptr;
+    if (FInput::IsMouseButtonReleased(EMouseButton::Left)) {
+        const FTrackedIdentity released_identity = m_PressedIdentity;
+        m_PressedIdentity = {};
+        if (FWidget* const pressed =
+                ResolveVisible(root, released_identity)) {
+            pressed->OnPointerUp(mx, my);
+        }
     }
 
+    // pointer callback 後に除去・非表示になった widget は以降のキー配信対象にしない。
+    ValidateTrackedState(root);
+
     // テキスト入力 / キー (focus 中の widget に流す)
-    // 問題: 以前はここで何も配信しておらず、TextInput ウィジェットが文字も
-    //       Backspace も受け取れず実質死んでいた。Input::TextInput() の確定文字列と
+    // 問題: 以前はここで何も配信しておらず、FTextInput ウィジェットが文字も
+    //       Backspace も受け取れず実質死んでいた。FInput::TextInput() の確定文字列と
     //       編集系キーを読み取り、focus 中 widget の OnTextInput/OnKey へ実配信する。
-    if (m_Focused) {
+    if (m_FocusedIdentity.IsSet() || m_ControlAOwnerIdentity.IsSet()) {
         // 1) このフレームに確定した文字列 (UTF-8, IME 確定後) を codepoint 単位で配信。
-        //    DecodeUtf8 は render/Font.h の正規デコーダ (SpriteBatch 等と同一実装)。
-        const char* txt = Input::TextInput();
+        //    checked canonical decoder で正規の U+FFFD は受理し、不正入力だけを除外する。
+        const char* txt = FInput::TextInput();
         if (txt) {
             const char* p = txt;
             while (*p) {
-                const u32 cp = DecodeUtf8(&p);
-                if (cp == 0) break;            // 終端 / デコード失敗で停止
-                if (cp == 0xFFFD) continue;     // 不正バイトはスキップ
-                m_Focused->OnTextInput(cp);
+                u32 cp = 0;
+                if (!TryDecodeUtf8(&p, cp)) continue;
+                FWidget* const focused =
+                    ResolveVisible(root, m_FocusedIdentity);
+                if (!focused) {
+                    ValidateTrackedState(root);
+                    break;
+                }
+                focused->OnTextInput(cp);
             }
         }
 
         // 2) 文字を生まない編集系キーを OnKey へ。widget 側は慣用の制御コード
         //    (例: Backspace=0x08) で判定するため、EKey をその制御コードに対応付けて渡す。
-        struct KeyMap { EKey key; i32 code; };
-        static const KeyMap kEditKeys[] = {
+        //    修飾キーは左右をまとめた押下中スナップショットとして同じイベントに付ける。
+        const FUiKeyModifiers modifiers{
+            FInput::IsKeyDown(EKey::LeftShift) ||
+                FInput::IsKeyDown(EKey::RightShift),
+            FInput::IsKeyDown(EKey::LeftCtrl) ||
+                FInput::IsKeyDown(EKey::RightCtrl),
+            FInput::IsKeyDown(EKey::LeftAlt) ||
+                FInput::IsKeyDown(EKey::RightAlt),
+            FInput::IsKeyDown(EKey::LeftSuper) ||
+                FInput::IsKeyDown(EKey::RightSuper),
+        };
+        struct FKeyMap { EKey key; i32 code; };
+        static const FKeyMap kEditKeys[] = {
             { EKey::Backspace, 0x08 },  // BS
             { EKey::Delete,    0x7F },  // DEL
             { EKey::Enter,     0x0D },  // CR
@@ -186,7 +390,34 @@ void FUiInput::Dispatch(Widget& root) noexcept {
             { EKey::End,       0x23 },  // VK_END   相当
         };
         for (const auto& km : kEditKeys) {
-            if (Input::IsKeyPressed(km.key)) m_Focused->OnKey(km.code, true);
+            const bool key_pressed = FInput::IsKeyPressed(km.key);
+            const bool key_released = FInput::IsKeyReleased(km.key);
+            if (!key_pressed && !key_released) continue;
+
+            ValidateTrackedState(root);
+            if (FWidget* const focused =
+                    ResolveVisible(root, m_FocusedIdentity)) {
+                focused->OnKey(km.code, key_pressed, modifiers);
+            }
+        }
+
+        // Ctrl+A は文字入力ではなく選択コマンドとして配信する。
+        if (modifiers.bControl && !modifiers.bAlt && !modifiers.bSuper &&
+            FInput::IsKeyPressed(EKey::A)) {
+            ValidateTrackedState(root);
+            if (FWidget* const focused =
+                    ResolveVisible(root, m_FocusedIdentity)) {
+                m_ControlAOwnerIdentity = m_FocusedIdentity;
+                focused->OnKey(0x41, true, modifiers);
+            }
+        }
+        if (FInput::IsKeyReleased(EKey::A)) {
+            const FTrackedIdentity owner_identity = m_ControlAOwnerIdentity;
+            m_ControlAOwnerIdentity = {};
+            if (FWidget* const owner =
+                    ResolveVisible(root, owner_identity)) {
+                owner->OnKey(0x41, false, modifiers);
+            }
         }
     }
 }

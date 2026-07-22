@@ -11,4 +11,4 @@
 #include "app/EntryPoint.h"
 #include "HelloVertexSssApp.h"
 
-ACS_DEFINE_MAIN(hellovertexsss::HelloVertexSssApp)
+ACS_DEFINE_MAIN(hellovertexsss::FHelloVertexSssApp)

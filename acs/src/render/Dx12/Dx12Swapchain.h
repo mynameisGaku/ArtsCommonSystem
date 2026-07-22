@@ -7,7 +7,7 @@
 
 namespace acs {
 
-class Dx12Device;
+class FDx12Device;
 
 /**
  * IRhiSwapchain の DX12 実装。
@@ -18,13 +18,13 @@ class Dx12Device;
  * Present の同期間隔とフラグを切り替える。Resize は GPU の idle を待ってから
  * バッファを作り直す。
  */
-class Dx12Swapchain final : public IRhiSwapchain {
+class FDx12Swapchain final : public IRhiSwapchain {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    Dx12Swapchain() noexcept = default;
+    FDx12Swapchain() noexcept = default;
 
     /** バックバッファ・RTV ヒープ・スワップチェインを解放する。 */
-    ~Dx12Swapchain() noexcept override;
+    ~FDx12Swapchain() noexcept override;
 
     /**
      * 指定インデックスのバックバッファリソースを返す (内部使用)。
@@ -57,9 +57,9 @@ public:
      *
      * @param device 生成に使う DX12 デバイス。
      * @param cfg バッファ数・vsync・フォーマット・対象ウィンドウなどの構成。
-     * @return 成功なら IsOk な HrResult、いずれかの段階で失敗ならその HRESULT。
+     * @return 成功なら IsOk な FHrResult、いずれかの段階で失敗ならその HRESULT。
      */
-    HrResult Init(Dx12Device& device, const SwapchainConfig& cfg) noexcept;
+    FHrResult Init(FDx12Device& device, const FSwapchainConfig& cfg) noexcept;
 
     /**
      * 次に描画すべきバックバッファのインデックスを返す。
@@ -119,12 +119,12 @@ private:
      *
      * @details 途中で失敗した場合は取得済みバッファを全解放して全 null に戻す。
      * @param device RTV 作成に使う DX12 デバイス。
-     * @return 成功なら IsOk な HrResult、取得失敗ならその HRESULT。
+     * @return 成功なら IsOk な FHrResult、取得失敗ならその HRESULT。
      */
-    HrResult AcquireBuffers(Dx12Device& device) noexcept;
+    FHrResult AcquireBuffers(FDx12Device& device) noexcept;
 
     /** Init で受け取った DX12 デバイス (Resize での WaitIdle/再取得に使う)。 */
-    Dx12Device*          m_Device       = nullptr;
+    FDx12Device*          m_Device       = nullptr;
 
     /** 所有する DXGI スワップチェイン (SwapChain3)。 */
     IDXGISwapChain3*     m_Swapchain    = nullptr;

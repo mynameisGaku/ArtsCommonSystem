@@ -7,7 +7,7 @@
 // pull するだけで一日の表情が出る。
 //
 // 使い方:
-//   class WorldScene : public Scene {
+//   class FWorldScene : public FScene {
 //       acs::game::FAmbientDirector m_Ambient;
 //
 //       void OnEnter() noexcept override {
@@ -41,7 +41,7 @@
 //     でゲーム 1 時間。
 //
 // 範囲外:
-//   ・カスタム TimeStop の動的追加 (= 季節 / 天候モードによる切替)
+//   ・カスタム FTimeStop の動的追加 (= 季節 / 天候モードによる切替)
 //   ・Hermite / spline 補間で滑らかな黄昏遷移
 //   ・SH9 / ambient cube による方向性 ambient
 //   ・月の方向 / 月相
@@ -176,7 +176,7 @@ public:
      *
      * @details .cpp の自由関数からもアクセスするため public 配置 (テストや拡張カスタムにも便利)。
      */
-    struct TimeStop {
+    struct FTimeStop {
         /** この stop の時刻 [0, 24]。 */
         f32  hour;
 
@@ -189,7 +189,7 @@ public:
 
 private:
     /** 6 個の固定 stop (hour 昇順。0:00 と 22:00 を同じ夜色にしてラップを連続化)。 */
-    static const TimeStop m_Stops[6];
+    static const FTimeStop m_Stops[6];
 
     /** 現在時刻 [0, 24)。 */
     f32 m_Hours      = 12.0f;

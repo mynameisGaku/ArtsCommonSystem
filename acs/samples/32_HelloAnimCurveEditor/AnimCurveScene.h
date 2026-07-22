@@ -11,12 +11,12 @@
 
 namespace helloac {
 
-class AnimCurveScene : public acs::game::Scene {
+class FAnimCurveScene : public acs::game::FScene {
 public:
     void OnEnter() noexcept override;
     void OnExit()  noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
-    void OnRender(acs::game::RenderContext& rc) noexcept override;
+    void OnRender(acs::game::FRenderContext& rc) noexcept override;
 
 private:
     // File menu の Save/Load 用ファイルパス (実シリアライザは未実装、stub)。
@@ -25,7 +25,7 @@ private:
     // MainMenuBar の File メニューを描画する。OnRender 内で Workspace の
     // DrawMenuBar より前に push する必要がある (= ImGui は同一フレーム内で
     // BeginMainMenuBar を複数回呼ぶと 1 個の bar にマージするため、本 sample
-    // 固有の File メニューと Workspace の FWindow/Layout メニューを並べられる)。
+    // 固有の File メニューと Workspace の Window/Layout メニューを並べられる)。
     void m_DrawFileMenu() noexcept;
 
     acs::game::editor_core::FEditorWorkspace m_Workspace;

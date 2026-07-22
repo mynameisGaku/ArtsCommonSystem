@@ -29,46 +29,46 @@ u32 FCooldownTimer::AcquireSlot() noexcept {
         }
     }
     // 全 slot 使用中 → 末尾に追加。24bit index 上限を守る。
-    if (n >= static_cast<usize>(CooldownId::kMaxIndex)) {
-        return CooldownId::kMaxIndex; // sentinel: caller 側で invalid 扱い
+    if (n >= static_cast<usize>(FCooldownId::kMaxIndex)) {
+        return FCooldownId::kMaxIndex; // sentinel: caller 側で invalid 扱い
     }
     m_Slots.PushBack({});
     return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
 /** index と generation を packed して CooldownId を作る。 */
-CooldownId FCooldownTimer::MakeId(u32 index, u8 gen) const noexcept {
-    return CooldownId::Pack(index, gen);
+FCooldownId FCooldownTimer::MakeId(u32 index, u8 gen) const noexcept {
+    return FCooldownId::Pack(index, gen);
 }
 
 /** handle を解決し、slot active + gen 一致なら slot を返す。 */
-FCooldownTimer::Slot* FCooldownTimer::Resolve(CooldownId id) noexcept {
+FCooldownTimer::FSlot* FCooldownTimer::Resolve(FCooldownId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= m_Slots.Size()) return nullptr;
-    Slot& s = m_Slots[idx];
+    FSlot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Gen()) return nullptr;
     return &s;
 }
 
 /** handle を解決し、slot active + gen 一致なら const slot を返す。 */
-const FCooldownTimer::Slot* FCooldownTimer::Resolve(CooldownId id) const noexcept {
+const FCooldownTimer::FSlot* FCooldownTimer::Resolve(FCooldownId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= m_Slots.Size()) return nullptr;
-    const Slot& s = m_Slots[idx];
+    const FSlot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Gen()) return nullptr;
     return &s;
 }
 
 /** cooldown を登録し、reload 中扱いの slot を確保して handle を返す。 */
-CooldownId FCooldownTimer::Register(const char* label, f32 duration_sec) noexcept {
+FCooldownId FCooldownTimer::Register(const char* label, f32 duration_sec) noexcept {
     if (duration_sec <= 0.0f) return {};
 
     const u32 idx = AcquireSlot();
-    if (idx >= CooldownId::kMaxIndex) return {}; // 上限到達
+    if (idx >= FCooldownId::kMaxIndex) return {}; // 上限到達
 
-    Slot& s = m_Slots[idx];
+    FSlot& s = m_Slots[idx];
     // generation を 1 進める (0 は未使用扱いなので必ず 1 以上を保つ)
     u8 new_gen = static_cast<u8>(s.gen + 1u);
     if (new_gen == 0u) new_gen = 1u;
@@ -85,8 +85,8 @@ CooldownId FCooldownTimer::Register(const char* label, f32 duration_sec) noexcep
 }
 
 /** slot をクリアして active 解除する (gen は次 Acquire で進む)。 */
-void FCooldownTimer::Unregister(CooldownId id) noexcept {
-    Slot* s = Resolve(id);
+void FCooldownTimer::Unregister(FCooldownId id) noexcept {
+    FSlot* s = Resolve(id);
     if (s == nullptr) return;
 
     s->active    = false;
@@ -99,8 +99,8 @@ void FCooldownTimer::Unregister(CooldownId id) noexcept {
 }
 
 /** charged なら remaining を duration に戻して消費し true を返す。 */
-bool FCooldownTimer::TryUse(CooldownId id) noexcept {
-    Slot* s = Resolve(id);
+bool FCooldownTimer::TryUse(FCooldownId id) noexcept {
+    FSlot* s = Resolve(id);
     if (s == nullptr) return false;
     if (!s->charged) return false;
 
@@ -111,22 +111,22 @@ bool FCooldownTimer::TryUse(CooldownId id) noexcept {
 }
 
 /** cooldown が charged かを返す (stale handle は false)。 */
-bool FCooldownTimer::IsCharged(CooldownId id) const noexcept {
-    const Slot* s = Resolve(id);
+bool FCooldownTimer::IsCharged(FCooldownId id) const noexcept {
+    const FSlot* s = Resolve(id);
     return s != nullptr && s->charged;
 }
 
 /** 残り cooldown 秒数を返す (charged / stale は 0)。 */
-f32 FCooldownTimer::Remaining(CooldownId id) const noexcept {
-    const Slot* s = Resolve(id);
+f32 FCooldownTimer::Remaining(FCooldownId id) const noexcept {
+    const FSlot* s = Resolve(id);
     if (s == nullptr) return 0.0f;
     if (s->charged) return 0.0f;
     return s->remaining > 0.0f ? s->remaining : 0.0f;
 }
 
 /** cooldown 進行率 [0,1] を返す (charged は 1.0、stale は 0)。 */
-f32 FCooldownTimer::Progress(CooldownId id) const noexcept {
-    const Slot* s = Resolve(id);
+f32 FCooldownTimer::Progress(FCooldownId id) const noexcept {
+    const FSlot* s = Resolve(id);
     if (s == nullptr) return 0.0f;
     if (s->charged) return 1.0f;
     if (s->duration <= 0.0f) return 1.0f; // 防御 (Register で弾いているはず)
@@ -138,8 +138,8 @@ f32 FCooldownTimer::Progress(CooldownId id) const noexcept {
 }
 
 /** 即時 charged にし、false→true 遷移なら ReadyCallback を発火する。 */
-void FCooldownTimer::ForceReady(CooldownId id) noexcept {
-    Slot* s = Resolve(id);
+void FCooldownTimer::ForceReady(FCooldownId id) noexcept {
+    FSlot* s = Resolve(id);
     if (s == nullptr) return;
     const bool was_charged = s->charged;
     s->remaining = 0.0f;
@@ -151,17 +151,17 @@ void FCooldownTimer::ForceReady(CooldownId id) noexcept {
 }
 
 /** cooldown を duration にリセットして reload 中 (charged=false) に戻す。 */
-void FCooldownTimer::Reset(CooldownId id) noexcept {
-    Slot* s = Resolve(id);
+void FCooldownTimer::Reset(FCooldownId id) noexcept {
+    FSlot* s = Resolve(id);
     if (s == nullptr) return;
     s->remaining = s->duration;
     s->charged   = false;
 }
 
 /** cooldown 長を変更し、必要なら remaining を new_duration にクランプする。 */
-void FCooldownTimer::SetDuration(CooldownId id, f32 new_duration_sec) noexcept {
+void FCooldownTimer::SetDuration(FCooldownId id, f32 new_duration_sec) noexcept {
     if (new_duration_sec <= 0.0f) return;
-    Slot* s = Resolve(id);
+    FSlot* s = Resolve(id);
     if (s == nullptr) return;
 
     s->duration = new_duration_sec;
@@ -176,7 +176,7 @@ void FCooldownTimer::SetDuration(CooldownId id, f32 new_duration_sec) noexcept {
 void FCooldownTimer::ClearAll() noexcept {
     const usize n = m_Slots.Size();
     for (usize i = 0; i < n; ++i) {
-        Slot& s = m_Slots[i];
+        FSlot& s = m_Slots[i];
         if (!s.active) continue;
         s.active    = false;
         s.label     = nullptr;
@@ -198,7 +198,7 @@ void FCooldownTimer::Tick(f32 dt) noexcept {
     const usize snapshot_size = m_Slots.Size();
 
     for (usize i = 0; i < snapshot_size; ++i) {
-        Slot& s = m_Slots[i];
+        FSlot& s = m_Slots[i];
         if (!s.active) continue;
         if (s.charged) continue; // 既に ready、Tick 不要
 
@@ -214,7 +214,7 @@ void FCooldownTimer::Tick(f32 dt) noexcept {
         // (callback 内で Unregister が呼ばれて gen が進んだ場合に備える)
         const u8         gen_at_fire = s.gen;
         const char* const label_copy = s.label;
-        const CooldownId id          = MakeId(static_cast<u32>(i), gen_at_fire);
+        const FCooldownId id          = MakeId(static_cast<u32>(i), gen_at_fire);
 
         if (_ready_cb != nullptr) {
             _ready_cb(_ready_user, id, label_copy);

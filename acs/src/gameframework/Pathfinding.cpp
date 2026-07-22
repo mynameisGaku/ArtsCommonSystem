@@ -31,7 +31,7 @@ static constexpr f32 kStraightCost = 1.0f;
 static constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 
 /** グリッドを width*height で全 cell walkable に初期化し、A* 一時バッファを確保する。 */
-void NavGrid::Init(u32 width, u32 height) noexcept {
+void FNavGrid::Init(u32 width, u32 height) noexcept {
     m_Width  = width;
     m_Height = height;
     const u32 count = width * height;
@@ -53,25 +53,25 @@ void NavGrid::Init(u32 width, u32 height) noexcept {
 }
 
 /** cell の通行可否を設定する (範囲外は no-op)。 */
-void NavGrid::SetWalkable(u32 x, u32 y, bool walkable) noexcept {
+void FNavGrid::SetWalkable(u32 x, u32 y, bool walkable) noexcept {
     if (x >= m_Width || y >= m_Height) return;          // 範囲外は no-op
     m_Walkable[IndexOf(x, y)] = walkable ? 1 : 0;
 }
 
 /** cell の通行可否を返す (範囲外は通行不可扱い)。 */
-bool NavGrid::IsWalkable(u32 x, u32 y) const noexcept {
+bool FNavGrid::IsWalkable(u32 x, u32 y) const noexcept {
     if (x >= m_Width || y >= m_Height) return false;   // 範囲外は通行不可扱い
     return m_Walkable[IndexOf(x, y)] != 0;
 }
 
 /** 全 cell を walkable に戻す (グリッドサイズは保持)。 */
-void NavGrid::ClearWalls() noexcept {
+void FNavGrid::ClearWalls() noexcept {
     const u32 count = m_Width * m_Height;
     for (u32 i = 0; i < count; ++i) m_Walkable[i] = 1;
 }
 
 /** 対角許可なら Octile distance、なしなら Manhattan の heuristic を計算する。 */
-f32 NavGrid::Heuristic(u32 x, u32 y, u32 goal_x, u32 goal_y) const noexcept {
+f32 FNavGrid::Heuristic(u32 x, u32 y, u32 goal_x, u32 goal_y) const noexcept {
     // 符号付き距離を取るため一度 i64 経由で減算してから絶対値。
     const f32 dx = Abs(static_cast<f32>(static_cast<i64>(x) - static_cast<i64>(goal_x)));
     const f32 dy = Abs(static_cast<f32>(static_cast<i64>(y) - static_cast<i64>(goal_y)));
@@ -88,7 +88,7 @@ f32 NavGrid::Heuristic(u32 x, u32 y, u32 goal_x, u32 goal_y) const noexcept {
 }
 
 /** open list から f_score 最小のノードの位置を線形走査で返す。 */
-usize NavGrid::PopLowestF() noexcept {
+usize FNavGrid::PopLowestF() noexcept {
     // 線形最小値走査の簡素実装。binary heap への置換は将来検討。
     const usize n = _open.Size();
     if (n == 0) return 0;
@@ -105,7 +105,7 @@ usize NavGrid::PopLowestF() noexcept {
 }
 
 /** came_from を goal から start まで遡り、逆順に並べて経路を再構築する。 */
-void NavGrid::Reconstruct(u32 start_idx, u32 goal_idx, TArray<PathPoint>& out_path) const noexcept {
+void FNavGrid::Reconstruct(u32 start_idx, u32 goal_idx, TArray<FPathPoint>& out_path) const noexcept {
     // goal から came_from を辿って start まで遡り、out_path に逆順で push。
     // 最後に reverse して start → goal の順にする。
     out_path.Clear();
@@ -114,7 +114,7 @@ void NavGrid::Reconstruct(u32 start_idx, u32 goal_idx, TArray<PathPoint>& out_pa
     const u32 max_steps = m_Width * m_Height + 1u;
     u32 steps = 0;
     while (cur != kInvalidIndex && steps <= max_steps) {
-        PathPoint p;
+        FPathPoint p;
         p.x = cur % m_Width;
         p.y = cur / m_Width;
         out_path.PushBack(p);
@@ -125,16 +125,16 @@ void NavGrid::Reconstruct(u32 start_idx, u32 goal_idx, TArray<PathPoint>& out_pa
     // 逆順反転 (start → goal にする)。
     const usize n = out_path.Size();
     for (usize i = 0; i < n / 2; ++i) {
-        PathPoint tmp        = out_path[i];
+        FPathPoint tmp        = out_path[i];
         out_path[i]          = out_path[n - 1 - i];
         out_path[n - 1 - i]  = tmp;
     }
 }
 
 /** A* 本体。start から goal への最短経路を out_path に書き込む (成否を返す)。 */
-bool NavGrid::FindPath(u32 start_x, u32 start_y,
+bool FNavGrid::FindPath(u32 start_x, u32 start_y,
                        u32 goal_x,  u32 goal_y,
-                       TArray<PathPoint>& out_path) noexcept {
+                       TArray<FPathPoint>& out_path) noexcept {
     out_path.Clear();
 
     // 早期失敗ガード
@@ -149,7 +149,7 @@ bool NavGrid::FindPath(u32 start_x, u32 start_y,
 
     // start == goal の特殊ケース: 長さ 1 の path として成功。
     if (start_idx == goal_idx) {
-        PathPoint p;
+        FPathPoint p;
         p.x = start_x;
         p.y = start_y;
         out_path.PushBack(p);
@@ -182,12 +182,12 @@ bool NavGrid::FindPath(u32 start_x, u32 start_y,
     // 隣接 offset 表
     // 4 方向 + (allow_diagonal なら 4 つ追加) = 最大 8。
     // dx, dy, cost の組を持つ。
-    struct Neighbor {
+    struct FNeighbor {
         i32 dx;
         i32 dy;
         f32 cost;
     };
-    Neighbor neighbors[8] = {
+    FNeighbor neighbors[8] = {
         { -1,  0, kStraightCost },
         {  1,  0, kStraightCost },
         {  0, -1, kStraightCost },

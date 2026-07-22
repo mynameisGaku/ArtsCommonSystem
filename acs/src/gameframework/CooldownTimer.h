@@ -7,15 +7,15 @@
 // charged のときだけ true を返して即時 reload を開始する (= remaining=duration)。
 //
 // 使い方:
-//   class Player : public FNode2D {
+//   class APlayer : public ANode {
 //       acs::game::FCooldownTimer m_Cd;
-//       acs::game::CooldownId    m_Fireball;
-//       acs::game::CooldownId    m_Dash;
+//       acs::game::FCooldownId   m_Fireball;
+//       acs::game::FCooldownId   m_Dash;
 //
 //       void OnEnter() noexcept override {
 //           m_Fireball = m_Cd.Register("fireball", 3.0f);
 //           m_Dash     = m_Cd.Register("dash",     0.8f);
-//           m_Cd.SetOnReadyCallback(&Player::OnReady, this);
+//           m_Cd.SetOnReadyCallback(&APlayer::OnReady, this);
 //           m_Cd.ForceReady(m_Fireball); // 初期は即撃てる
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
@@ -24,14 +24,14 @@
 //               SpawnFireball();
 //           }
 //       }
-//       static void OnReady(void* self, acs::game::CooldownId id,
+//       static void OnReady(void* self, acs::game::FCooldownId id,
 //                           const char* label) noexcept {
 //           // HUD に "Ready!" を点滅させる等
 //       }
 //   };
 //
 // 設計:
-//   ・**CooldownId**: 24bit index + 8bit generation (FSceneTimer / FCollisionWorld2D
+//   ・**FCooldownId**: 24bit index + 8bit generation (FSceneTimer / FCollisionWorld2D
 //     と同じパターン)。Unregister 後の slot 再利用で stale 検出可能。
 //   ・**charged 状態**: `remaining <= 0` かつ `charged == true`。Tick 内で
 //     `remaining` が 0 を跨いだ瞬間に `charged` が false→true に遷移し、
@@ -55,7 +55,7 @@ namespace acs::game {
  *
  * @details m_Packed == 0 を invalid と定義する (gen は常に 1 以上を保つ)。
  */
-struct CooldownId {
+struct FCooldownId {
     /** index と generation を packed した値 (0 = invalid)。 */
     u32 m_Packed = 0u;
 
@@ -80,10 +80,10 @@ struct CooldownId {
      *
      * @param index slot インデックス (下位 24bit)。
      * @param gen generation (上位 8bit)。
-     * @return packed した CooldownId。
+     * @return packed した FCooldownId。
      */
-    static CooldownId Pack(u32 index, u8 gen) noexcept {
-        CooldownId h;
+    static FCooldownId Pack(u32 index, u8 gen) noexcept {
+        FCooldownId h;
         h.m_Packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return h;
     }
@@ -108,7 +108,7 @@ struct CooldownId {
      * @param o 比較対象の handle。
      * @return packed 値が等しければ true。
      */
-    constexpr bool operator==(CooldownId o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator==(FCooldownId o) const noexcept { return m_Packed == o.m_Packed; }
 
     /**
      * 非等値比較。
@@ -116,13 +116,13 @@ struct CooldownId {
      * @param o 比較対象の handle。
      * @return packed 値が異なれば true。
      */
-    constexpr bool operator!=(CooldownId o) const noexcept { return m_Packed != o.m_Packed; }
+    constexpr bool operator!=(FCooldownId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 /**
- * UI / デバッグ表示用の cooldown スナップショット (内部 Slot とは別の公開型)。
+ * UI / デバッグ表示用の cooldown スナップショット (内部 FSlot とは別の公開型)。
  */
-struct CooldownState {
+struct FCooldownState {
     /** Register に渡した文字列ポインタ (寿命は caller 管理)。 */
     const char* label    = nullptr;
 
@@ -143,7 +143,7 @@ struct CooldownState {
  * @param id charged になった cooldown の handle。
  * @param label Register に渡したラベル (デバッグ / HUD 用)。
  */
-using ReadyCallback = void(*)(void* user, CooldownId id, const char* label) noexcept;
+using ReadyCallback = void(*)(void* user, FCooldownId id, const char* label) noexcept;
 
 /**
  * 複数 cooldown (スキル / アビリティ / 弾薬リロード等) を同時追跡する軽量マネージャ。
@@ -183,7 +183,7 @@ public:
      * @param duration_sec cooldown 長 (sec)。0 以下なら invalid id を返す。
      * @return 登録した cooldown の handle (失敗時は invalid)。
      */
-    CooldownId Register(const char* label, f32 duration_sec) noexcept;
+    FCooldownId Register(const char* label, f32 duration_sec) noexcept;
 
     /**
      * cooldown を解除し slot を invalidate する (generation を進める)。
@@ -191,7 +191,7 @@ public:
      * @details 以降この handle は stale となり、全 API で無効扱いになる。
      * @param id 解除する cooldown の handle。
      */
-    void Unregister(CooldownId id) noexcept;
+    void Unregister(FCooldownId id) noexcept;
 
     /**
      * charged なら消費して reload を開始する。
@@ -201,7 +201,7 @@ public:
      * @param id 使用する cooldown の handle。
      * @return 使用できたら true。
      */
-    bool TryUse(CooldownId id) noexcept;
+    bool TryUse(FCooldownId id) noexcept;
 
     /**
      * cooldown が charged (使用可能) かを返す。
@@ -209,7 +209,7 @@ public:
      * @param id 対象の handle。
      * @return charged なら true (stale handle は false)。
      */
-    bool IsCharged(CooldownId id) const noexcept;
+    bool IsCharged(FCooldownId id) const noexcept;
 
     /**
      * 残り cooldown 秒数を返す。
@@ -217,7 +217,7 @@ public:
      * @param id 対象の handle。
      * @return 残り秒数 (charged / stale handle は 0)。
      */
-    f32  Remaining(CooldownId id) const noexcept;
+    f32  Remaining(FCooldownId id) const noexcept;
 
     /**
      * cooldown 進行率を返す。
@@ -225,21 +225,21 @@ public:
      * @param id 対象の handle。
      * @return [0,1] の進行率 (1.0 = charged、stale handle は 0)。
      */
-    f32  Progress (CooldownId id) const noexcept;
+    f32  Progress (FCooldownId id) const noexcept;
 
     /**
      * cooldown を即時 charged にする (ReadyCallback を発火)。
      *
      * @param id 対象の handle。
      */
-    void ForceReady (CooldownId id) noexcept;
+    void ForceReady (FCooldownId id) noexcept;
 
     /**
      * cooldown を即時 duration にリセットする (charged=false)。
      *
      * @param id 対象の handle。
      */
-    void Reset      (CooldownId id) noexcept;
+    void Reset      (FCooldownId id) noexcept;
 
     /**
      * 進行中 cooldown の長さを変更する。
@@ -249,7 +249,7 @@ public:
      * @param id 対象の handle。
      * @param new_duration_sec 新しい cooldown 長 (sec)。0 以下は無視。
      */
-    void SetDuration(CooldownId id, f32 new_duration_sec) noexcept;
+    void SetDuration(FCooldownId id, f32 new_duration_sec) noexcept;
 
     /**
      * 現在アクティブな cooldown 数を返す。
@@ -284,7 +284,7 @@ private:
     /**
      * 1 cooldown 分の内部状態。
      */
-    struct Slot {
+    struct FSlot {
         /** Register に渡したラベル (非所有)。 */
         const char* label     = nullptr;
 
@@ -316,9 +316,9 @@ private:
      *
      * @param index slot インデックス。
      * @param gen generation。
-     * @return 構築した CooldownId。
+     * @return 構築した FCooldownId。
      */
-    CooldownId MakeId(u32 index, u8 gen) const noexcept;
+    FCooldownId MakeId(u32 index, u8 gen) const noexcept;
 
     /**
      * handle を解決して slot を返す。
@@ -326,7 +326,7 @@ private:
      * @param id 解決する handle。
      * @return slot active + gen 一致なら slot へのポインタ、さもなくば nullptr。
      */
-    Slot*       Resolve(CooldownId id) noexcept;
+    FSlot*       Resolve(FCooldownId id) noexcept;
 
     /**
      * handle を解決して const slot を返す。
@@ -334,10 +334,10 @@ private:
      * @param id 解決する handle。
      * @return slot active + gen 一致なら const slot へのポインタ、さもなくば nullptr。
      */
-    const Slot* Resolve(CooldownId id) const noexcept;
+    const FSlot* Resolve(FCooldownId id) const noexcept;
 
     /** cooldown slot 配列 (index で参照)。 */
-    TArray<Slot>   m_Slots;
+    TArray<FSlot>   m_Slots;
 
     /** アクティブな cooldown 数。 */
     u32           m_ActiveCount = 0u;

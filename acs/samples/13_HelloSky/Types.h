@@ -12,7 +12,7 @@
 namespace hellosky {
 
 // 1/2/3 キーで切り替える FSky の preset 種別。
-enum class SkyPreset : acs::u8 {
+enum class ESkyPreset : acs::u8 {
     Day    = 0,
     Sunset = 1,
     Night  = 2,

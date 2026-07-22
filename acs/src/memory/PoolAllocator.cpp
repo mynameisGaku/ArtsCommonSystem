@@ -26,7 +26,7 @@ FPoolAllocator::FPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCou
         m_BlockCount = 0;
         return;
     }
-    if (m_BlockSize < sizeof(Node)) m_BlockSize = sizeof(Node);
+    if (m_BlockSize < sizeof(FNode)) m_BlockSize = sizeof(FNode);
     if (m_BlockSize > (~usize(0)) - (m_Alignment - 1u)) {
         m_BlockCount = 0;
         return;
@@ -61,9 +61,9 @@ FPoolAllocator::FPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCou
     MemSet(m_AllocationStates, 0, static_cast<usize>(m_BlockCount));
 
     // 全ブロックを単方向リンクで連結（初期化はシングルスレッド前提）
-    Node* PreviousNode = nullptr;
+    FNode* PreviousNode = nullptr;
     for (u64 i = 0; i < m_BlockCount; ++i) {
-        Node* const CurrentNode = reinterpret_cast<Node*>(m_Storage + i * m_BlockSize);
+        FNode* const CurrentNode = reinterpret_cast<FNode*>(m_Storage + i * m_BlockSize);
         CurrentNode->next = PreviousNode;
         PreviousNode = CurrentNode;
     }
@@ -84,7 +84,7 @@ void* FPoolAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/
     if (Alignment == 0u || (Alignment & (Alignment - 1u)) != 0u || Alignment > m_Alignment) return nullptr;
 
     FScopedLock Lock(m_Lock);
-    Node* const AllocatedNode = m_FreeHead;
+    FNode* const AllocatedNode = m_FreeHead;
     if (!AllocatedNode) return nullptr;
 
     const usize BlockIndex = static_cast<usize>(
@@ -116,7 +116,7 @@ void FPoolAllocator::Free(void* Pointer) noexcept
     if (m_AllocationStates[BlockIndex] == 0u) return;
 
     m_AllocationStates[BlockIndex] = 0u;
-    auto* const FreedNode = static_cast<Node*>(Pointer);
+    auto* const FreedNode = static_cast<FNode*>(Pointer);
     FreedNode->next = m_FreeHead;
     m_FreeHead = FreedNode;
     m_Live.FetchSub(1u);

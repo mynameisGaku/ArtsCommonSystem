@@ -19,4 +19,4 @@
 #include "HelloTexturedApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(hellotextured::HelloTexturedApp)
+ACS_DEFINE_MAIN(hellotextured::FHelloTexturedApp)

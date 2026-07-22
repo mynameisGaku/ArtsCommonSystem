@@ -111,7 +111,7 @@ void FCombatStateMachine::NotifyEnemyDetected(u32 enemy_id) noexcept {
     // 既に交戦中の敵を再検出しても engaged 状態を解除しない。
     const usize idx = FindEnemy(enemy_id);
     if (idx >= m_Enemies.Size()) {
-        EnemyAwareness aw;
+        FEnemyAwareness aw;
         aw.enemy_id        = enemy_id;
         aw.awareness_level = 1.0f;
         aw.is_engaged      = false;
@@ -133,7 +133,7 @@ void FCombatStateMachine::NotifyCombatStarted(u32 enemy_id) noexcept {
     // 該当敵を is_engaged=true に。未登録なら新規追加 (awareness=1.0)。
     const usize idx = FindEnemy(enemy_id);
     if (idx >= m_Enemies.Size()) {
-        EnemyAwareness aw;
+        FEnemyAwareness aw;
         aw.enemy_id        = enemy_id;
         aw.awareness_level = 1.0f;
         aw.is_engaged      = true;
@@ -177,7 +177,7 @@ void FCombatStateMachine::NotifyBossEncountered(u32 boss_id) noexcept {
     // ボスを engaged 一覧に upsert (awareness=1, is_engaged=true)。
     const usize idx = FindEnemy(boss_id);
     if (idx >= m_Enemies.Size()) {
-        EnemyAwareness aw;
+        FEnemyAwareness aw;
         aw.enemy_id        = boss_id;
         aw.awareness_level = 1.0f;
         aw.is_engaged      = true;

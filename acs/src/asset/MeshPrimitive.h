@@ -10,7 +10,7 @@
 //   TSharedPtr<FMeshAsset> sphere = Primitive::MakeSphere(1.0f, 32, 16);
 //   TSharedPtr<FMeshAsset> plane  = Primitive::MakePlane(10.0f, 10.0f);
 //
-//   GpuMesh gm;
+//   FGpuMesh gm;
 //   UploadMesh(*device, *cube, gm);
 #pragma once
 

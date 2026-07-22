@@ -22,4 +22,4 @@
 #include "app/EntryPoint.h"
 #include "HelloPbrApp.h"
 
-ACS_DEFINE_MAIN(hellopbr::HelloPbrApp)
+ACS_DEFINE_MAIN(hellopbr::FHelloPbrApp)

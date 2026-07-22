@@ -30,8 +30,8 @@ FUdpSocket& FUdpSocket::operator=(FUdpSocket&& o) noexcept {
 }
 
 /** 指定アドレス/ポートにバインドした UDP ソケットを生成する。 */
-TResult<FUdpSocket> FUdpSocket::Bind(IpAddress addr, u16 port) noexcept {
-    if (!Network::IsInitialized())
+TResult<FUdpSocket> FUdpSocket::Bind(FIpAddress addr, u16 port) noexcept {
+    if (!FNetwork::IsInitialized())
         return ACS_ERR(IO, 230, "Network::Init() not called");
 
     const SOCKET s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -58,7 +58,7 @@ TResult<FUdpSocket> FUdpSocket::Bind(IpAddress addr, u16 port) noexcept {
 }
 
 /** 指定先へデータグラムを送信する。 */
-isize FUdpSocket::SendTo(IpAddress dst_addr, u16 dst_port,
+isize FUdpSocket::SendTo(FIpAddress dst_addr, u16 dst_port,
                         const void* data, usize size) noexcept {
     if (m_Socket == ~uptr{0}) return -1;
     sockaddr_in sa{};
@@ -75,7 +75,7 @@ isize FUdpSocket::SendTo(IpAddress dst_addr, u16 dst_port,
 }
 
 /** データグラムを受信し、送信元アドレスを from に書き込む。 */
-isize FUdpSocket::RecvFrom(void* buf, usize size, IpAddress& from) noexcept {
+isize FUdpSocket::RecvFrom(void* buf, usize size, FIpAddress& from) noexcept {
     if (m_Socket == ~uptr{0}) return -1;
     sockaddr_in sa{};
     int len = sizeof(sa);

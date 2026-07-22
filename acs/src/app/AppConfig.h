@@ -18,7 +18,7 @@ namespace acs {
  */
 struct FAppConfig {
     /** ウィンドウタイトル。 */
-    const wchar_t* title       = L"ACS FApplication";
+    const wchar_t* title       = L"ACS Application";
 
     /** クライアント領域の幅 (ピクセル)。 */
     u32            width       = 1280;
@@ -42,7 +42,7 @@ struct FAppConfig {
     const wchar_t* log_file     = nullptr;
 
     /** メモリシステム設定 (nullptr で既定設定を使う)。 */
-    const MemorySystemConfig* memory = nullptr;
+    const FMemorySystemConfig* memory = nullptr;
 
     /** FThreadPool のワーカースレッド数 (0 でハードウェア並列数から自動決定)。 */
     u32            worker_count = 0;

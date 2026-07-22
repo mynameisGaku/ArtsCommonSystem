@@ -62,28 +62,28 @@ u32 HashId(const char* id) noexcept {
 }
 
 /**
- * u32 を little-endian で TArray<u8> 末尾に 4 バイト追記する。
+ * u32 を little-endian で 4 バイトへ書き込む。
  *
  * @details FSaveArchive と同じ LE 規約。シフトで書くのでホスト endianness 非依存。
- * @param buf 追記先のバイト列。
+ * @param p 書き込み先の4バイト。
  * @param v 書き出す u32 値。
  */
-void AppendU32LE(TArray<u8>& buf, u32 v) noexcept {
-    buf.PushBack(static_cast<u8>(v        & 0xFFu));
-    buf.PushBack(static_cast<u8>((v >> 8 ) & 0xFFu));
-    buf.PushBack(static_cast<u8>((v >> 16) & 0xFFu));
-    buf.PushBack(static_cast<u8>((v >> 24) & 0xFFu));
+void WriteU32LE(u8* p, u32 v) noexcept {
+    p[0] = static_cast<u8>(v         & 0xFFu);
+    p[1] = static_cast<u8>((v >> 8)  & 0xFFu);
+    p[2] = static_cast<u8>((v >> 16) & 0xFFu);
+    p[3] = static_cast<u8>((v >> 24) & 0xFFu);
 }
 
 /**
- * u64 を little-endian で TArray<u8> 末尾に 8 バイト追記する。
+ * u64 を little-endian で 8 バイトへ書き込む。
  *
- * @param buf 追記先のバイト列。
+ * @param p 書き込み先の8バイト。
  * @param v 書き出す u64 値。
  */
-void AppendU64LE(TArray<u8>& buf, u64 v) noexcept {
+void WriteU64LE(u8* p, u64 v) noexcept {
     for (u32 i = 0; i < 8; ++i) {
-        buf.PushBack(static_cast<u8>((v >> (i * 8)) & 0xFFull));
+        p[i] = static_cast<u8>((v >> (i * 8)) & 0xFFull);
     }
 }
 
@@ -127,16 +127,21 @@ constexpr usize kEntrySize  = 16;
 constexpr usize kHeaderPart = 8;
 
 /**
- * Load が受け付ける payload の上限バイト数 (16 MiB)。
+ * Load が受け付ける canonical payload の最大バイト数。
  *
  * @details
- * PeekPayloadSize は実ファイルサイズとの整合しか検証しないので、物理的に巨大な
- * 改竄ファイルを置かれると申告値がそのまま確保サイズになる。進行状況は
- * 16 バイト/entry × 数千 milestone 程度で高々数百 KiB のため、16 MiB を超える
- * ファイルは改竄/破損とみなして確保前に拒否する (OOM/DoS 防止。
- * ReplayDirector の kMaxContainerBytes = 256 MiB と同じ流儀)。
+ * header 8 バイト + kMaxPersistedMilestones × 16 バイト。entry count を読む前でも
+ * domain上限を超える確保を拒否できる。
  */
-constexpr u64 kMaxLoadPayloadBytes = 16ull * 1024ull * 1024ull;
+constexpr u64 kMaxLoadPayloadBytes =
+    static_cast<u64>(kHeaderPart)
+    + static_cast<u64>(FProgression::kMaxPersistedMilestones)
+        * static_cast<u64>(kEntrySize);
+
+/** enum class を FErrorCode.subcode の u16 へ安全に縮約する。 */
+constexpr u16 ProgressionSub(EProgressionPersistenceSubCode code) noexcept {
+    return static_cast<u16>(static_cast<u32>(code));
+}
 
 /**
  * floor(log2(v)) を非負整数ループで算出する。
@@ -167,21 +172,52 @@ isize FProgression::FindIndex(const char* id) const noexcept {
 }
 
 /** milestone 定義を登録し、対応する State を 1:1 で追加する (id 重複は no-op)。 */
-void FProgression::RegisterMilestone(const MilestoneDef& def) noexcept {
+void FProgression::RegisterMilestone(const FMilestoneDef& def) noexcept {
     // id == nullptr は意味を持たないので静かに弾く (アセット欠損時等の保険)。
     if (def.id == nullptr) return;
     // 同 id の 2 重登録は no-op (FAchievementManager / FModRegistry と同じ防御)。
     if (FindIndex(def.id) >= 0) return;
 
-    m_Defs.PushBack(def);
+    if (m_Defs.Size() != m_States.Size()) {
+        ACS_LOG_ERROR("FProgression::RegisterMilestone: definition/state invariant broken");
+        return;
+    }
+    if (m_Defs.Size() >= static_cast<usize>(kMaxPersistedMilestones)) {
+        ACS_LOG_WARN("FProgression::RegisterMilestone: persistence limit reached (%u)",
+                     kMaxPersistedMilestones);
+        return;
+    }
+
+    const u32 new_hash = HashId(def.id);
+    for (usize i = 0; i < m_Defs.Size(); ++i) {
+        if (HashId(m_Defs[i].id) == new_hash) {
+            ACS_LOG_ERROR("FProgression::RegisterMilestone: persistence hash collision "
+                          "(new=%s, existing=%s, hash=0x%08x)",
+                          def.id, m_Defs[i].id, new_hash);
+            return;
+        }
+    }
 
     // State は Def と同 index に 1:1 で並ぶ。id は Def 側の文字列リテラルを
     // ポインタ参照コピーする (中身を duplicate しない)。
-    MilestoneState st;
+    FMilestoneState st;
     st.id                 = def.id;
     st.achieved           = false;
     st.achieved_timestamp = 0;
-    _states.PushBack(st);
+
+    const usize new_size = m_Defs.Size() + 1u;
+    if (!m_Defs.TryReserve(new_size) || !m_States.TryReserve(new_size)) {
+        ACS_LOG_ERROR("FProgression::RegisterMilestone: allocation failed");
+        return;
+    }
+    if (!m_Defs.TryPushBack(def)) {
+        ACS_LOG_ERROR("FProgression::RegisterMilestone: definition append failed");
+        return;
+    }
+    if (!m_States.TryPushBack(st)) {
+        m_Defs.PopBack();
+        ACS_LOG_ERROR("FProgression::RegisterMilestone: state append failed");
+    }
 }
 
 /** 累計 XP を加算し (オーバーフローはクランプ)、未達成 milestone の達成判定を行う。 */
@@ -201,11 +237,11 @@ void FProgression::AwardXp(u32 amount) noexcept {
     // 累計 XP が required_xp 以上なら達成扱い。
     // timestamp は Clock::MillisSinceStartup() を 1 回だけ取得して全達成に
     // 同じ値を入れる (同フレームで複数達成しても順序情報は持たない設計)。
-    const u64 now = ::acs::Clock::MillisSinceStartup();
+    const u64 now = ::acs::FClock::MillisSinceStartup();
     const usize n = m_Defs.Size();
     for (usize i = 0; i < n; ++i) {
-        MilestoneState& st  = _states[i];
-        const MilestoneDef& d = m_Defs[i];
+        FMilestoneState& st  = m_States[i];
+        const FMilestoneDef& d = m_Defs[i];
         if (st.achieved) continue;
         if (m_Xp < d.required_xp) continue;
 
@@ -214,7 +250,7 @@ void FProgression::AwardXp(u32 amount) noexcept {
 
         // FCallback 通知。設定されていなければ no-op。
         // 呼出中に callback がさらに AwardXp / RegisterMilestone を叩く可能性
-        // はあるが、m_Defs / _states は TArray 内部で再確保される場合があるため
+        // はあるが、m_Defs / m_States は TArray 内部で再確保される場合があるため
         // callback 内での再入は推奨しない (API ドキュメント側で注意喚起)。
         // ただし最低限 m_Defs.Size() を毎ループ取り直すのではなく、最初に取った
         // n を信頼することで「callback 内 RegisterMilestone は次回 AwardXp で
@@ -252,7 +288,7 @@ u32 FProgression::CurrentLevel() const noexcept {
 bool FProgression::IsMilestoneAchieved(const char* id) const noexcept {
     const isize idx = FindIndex(id);
     if (idx < 0) return false;
-    return _states[static_cast<usize>(idx)].achieved;
+    return m_States[static_cast<usize>(idx)].achieved;
 }
 
 /** 登録済み milestone の総数を返す。 */
@@ -264,34 +300,34 @@ u32 FProgression::MilestoneCount() const noexcept {
 /** 達成済み milestone の数を数えて返す。 */
 u32 FProgression::AchievedCount() const noexcept {
     u32 count = 0;
-    const usize n = _states.Size();
+    const usize n = m_States.Size();
     for (usize i = 0; i < n; ++i) {
-        if (_states[i].achieved) ++count;
+        if (m_States[i].achieved) ++count;
     }
     return count;
 }
 
 /** 指定 id の milestone 状態へのポインタを返す (未登録なら nullptr)。 */
-const MilestoneState* FProgression::GetState(const char* id) const noexcept {
+const FMilestoneState* FProgression::GetState(const char* id) const noexcept {
     const isize idx = FindIndex(id);
     if (idx < 0) return nullptr;
-    return &_states[static_cast<usize>(idx)];
+    return &m_States[static_cast<usize>(idx)];
 }
 
 /** 全 milestone 状態の配列先頭を返し、件数を out_count に書き戻す。 */
-const MilestoneState* FProgression::AllStates(u32& out_count) const noexcept {
-    out_count = static_cast<u32>(_states.Size());
-    return _states.Data();
+const FMilestoneState* FProgression::AllStates(u32& out_count) const noexcept {
+    out_count = static_cast<u32>(m_States.Size());
+    return m_States.Data();
 }
 
 /** XP を 0 に戻し全 milestone を未達成に戻す (定義配列は保持)。 */
 void FProgression::ResetProgress() noexcept {
     m_Xp = 0;
     // 定義配列 (m_Defs) は保持。State 側だけ未達成に戻す。
-    const usize n = _states.Size();
+    const usize n = m_States.Size();
     for (usize i = 0; i < n; ++i) {
-        _states[i].achieved           = false;
-        _states[i].achieved_timestamp = 0;
+        m_States[i].achieved           = false;
+        m_States[i].achieved_timestamp = 0;
     }
 }
 
@@ -319,7 +355,7 @@ void FProgression::SetOnAchievedCallback(MilestoneCallback cb, void* user) noexc
  *     +5   3   pad                 ゼロ詰め (timestamp の 8byte 整列用)
  *     +8   8   achieved_timestamp  Clock::MillisSinceStartup() の値
  *
- * header / magic / CRC32 / atomic な truncate-write は FSaveArchive が担う。id は文字列
+ * header / magic / CRC32 / atomic replace は FSaveArchive が担う。id は文字列
  * ではなく FNV-1a hash で書き出すことで、リテラルの提示順やアドレスに依存しない安定キーで
  * Load 時に突き合わせできる。
  * @param file_path 保存先ファイルパス。
@@ -327,32 +363,76 @@ void FProgression::SetOnAchievedCallback(MilestoneCallback cb, void* user) noexc
  */
 TResult<void> FProgression::Save(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
-        return ACS_ERR(IO, 0, "FProgression::Save: file_path is null");
+        return ACS_ERR(IO,
+                       static_cast<u16>(ESaveArchiveSubCode::kSubInvalidArgument),
+                       "FProgression::Save: file_path is null");
     }
 
     const usize n = m_Defs.Size();
+    if (n != m_States.Size()) {
+        return ACS_ERR(Asset,
+                       ProgressionSub(EProgressionPersistenceSubCode::kSubStateInvariant),
+                       "FProgression::Save: definition/state invariant broken");
+    }
+    if (n > static_cast<usize>(kMaxPersistedMilestones)) {
+        return ACS_ERR(Asset,
+                       ProgressionSub(
+                           EProgressionPersistenceSubCode::kSubMilestoneLimitExceeded),
+                       "FProgression::Save: milestone count exceeds safety limit");
+    }
+    for (usize i = 0; i < n; ++i) {
+        if (m_Defs[i].id == nullptr ||
+            !StrEq(m_Defs[i].id, m_States[i].id) ||
+            (!m_States[i].achieved && m_States[i].achieved_timestamp != 0u)) {
+            return ACS_ERR(Asset,
+                           ProgressionSub(
+                               EProgressionPersistenceSubCode::kSubStateInvariant),
+                           "FProgression::Save: milestone state is not canonical");
+        }
+    }
 
-    // payload バッファを組み立てる (xp + count + N*entry)。
+    constexpr usize kMaxUsize = static_cast<usize>(-1);
+    if (n > (kMaxUsize - kHeaderPart) / kEntrySize) {
+        return ACS_ERR(Container,
+                       ProgressionSub(
+                           EProgressionPersistenceSubCode::kSubMilestoneLimitExceeded),
+                       "FProgression::Save: payload size calculation overflow");
+    }
+    const usize payload_size = kHeaderPart + n * kEntrySize;
+    if (payload_size > static_cast<usize>(kMaxLoadPayloadBytes) ||
+        payload_size > static_cast<usize>(FSaveArchive::kMaxPayloadSize)) {
+        return ACS_ERR(Asset,
+                       ProgressionSub(
+                           EProgressionPersistenceSubCode::kSubMilestoneLimitExceeded),
+                       "FProgression::Save: payload exceeds persistence limit");
+    }
+
+    // checked allocation 後に固定offsetへ書き、PushBack途中のOOMを排除する。
     TArray<u8> payload;
-    payload.Reserve(kHeaderPart + n * kEntrySize);
-
-    AppendU32LE(payload, m_Xp);
-    AppendU32LE(payload, static_cast<u32>(n));
+    if (!payload.TryResize(payload_size)) {
+        return ACS_ERR(Memory,
+                       ProgressionSub(EProgressionPersistenceSubCode::kSubAllocationFailed),
+                       "FProgression::Save: payload allocation failed");
+    }
+    u8* const bytes = payload.Data();
+    WriteU32LE(bytes + 0, m_Xp);
+    WriteU32LE(bytes + 4, static_cast<u32>(n));
 
     for (usize i = 0; i < n; ++i) {
-        const MilestoneState& st = _states[i];
-        AppendU32LE(payload, HashId(m_Defs[i].id));
-        payload.PushBack(st.achieved ? 1u : 0u);
-        payload.PushBack(0u);  // pad
-        payload.PushBack(0u);  // pad
-        payload.PushBack(0u);  // pad
-        AppendU64LE(payload, st.achieved_timestamp);
+        const FMilestoneState& st = m_States[i];
+        u8* const entry = bytes + kHeaderPart + i * kEntrySize;
+        WriteU32LE(entry + 0, HashId(m_Defs[i].id));
+        entry[4] = st.achieved ? 1u : 0u;
+        entry[5] = 0u;
+        entry[6] = 0u;
+        entry[7] = 0u;
+        WriteU64LE(entry + 8, st.achieved_timestamp);
     }
 
     return FSaveArchive::WriteToFile(file_path,
                                      kProgressionSaveVersion,
                                      payload.Data(),
-                                     static_cast<u64>(payload.Size()));
+                                     static_cast<u64>(payload_size));
 }
 
 /**
@@ -366,7 +446,9 @@ TResult<void> FProgression::Save(const wchar_t* file_path) noexcept {
  */
 TResult<void> FProgression::Load(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
-        return ACS_ERR(IO, 0, "FProgression::Load: file_path is null");
+        return ACS_ERR(IO,
+                       static_cast<u16>(ESaveArchiveSubCode::kSubInvalidArgument),
+                       "FProgression::Load: file_path is null");
     }
 
     // payload サイズを先読みしてバッファを確保する。
@@ -375,69 +457,137 @@ TResult<void> FProgression::Load(const wchar_t* file_path) noexcept {
     const u64 payload_size = size_r.Value();
 
     if (payload_size < static_cast<u64>(kHeaderPart)) {
-        return ACS_ERR(Asset, 0, "FProgression::Load: payload smaller than header");
+        return ACS_ERR(Asset,
+                       ProgressionSub(EProgressionPersistenceSubCode::kSubMalformedPayload),
+                       "FProgression::Load: payload smaller than header");
     }
-    // 確保前に上限検査する。物理的に巨大なファイルを置かれても申告サイズで
-    // 巨大確保 (OOM/DoS) しない (CRC 検証は確保・読込後なので防波堤にならない)。
     if (payload_size > kMaxLoadPayloadBytes) {
-        return ACS_ERR(Asset, 0, "FProgression::Load: payload exceeds 16 MiB sanity limit");
+        return ACS_ERR(Asset,
+                       ProgressionSub(
+                           EProgressionPersistenceSubCode::kSubMilestoneLimitExceeded),
+                       "FProgression::Load: payload exceeds milestone safety limit");
+    }
+    if (payload_size > static_cast<u64>(static_cast<usize>(-1))) {
+        return ACS_ERR(Container,
+                       ProgressionSub(
+                           EProgressionPersistenceSubCode::kSubMilestoneLimitExceeded),
+                       "FProgression::Load: payload does not fit address space");
     }
 
     TArray<u8> payload;
-    payload.Resize(static_cast<usize>(payload_size));
+    if (!payload.TryResize(static_cast<usize>(payload_size))) {
+        return ACS_ERR(Memory,
+                       ProgressionSub(EProgressionPersistenceSubCode::kSubAllocationFailed),
+                       "FProgression::Load: payload allocation failed");
+    }
 
     u64 actual_size = 0;
     const auto rd = FSaveArchive::ReadFromFile(file_path,
-                                         payload.Data(),
-                                         payload_size,
-                                         kProgressionSaveVersion,
-                                         actual_size);
+                                               payload.Data(),
+                                               payload_size,
+                                               kProgressionSaveVersion,
+                                               actual_size);
     if (rd.IsErr()) return rd.Error();
+    if (actual_size != payload_size) {
+        return ACS_ERR(Asset,
+                       ProgressionSub(EProgressionPersistenceSubCode::kSubMalformedPayload),
+                       "FProgression::Load: payload changed between peek and read");
+    }
 
     const u8* p = payload.Data();
     const u32 xp    = ReadU32LE(p + 0);
     const u32 count = ReadU32LE(p + 4);
 
-    // entry 群が payload に収まることを検証 (破損 / 改竄に対する境界チェック)。
-    const u64 need = static_cast<u64>(kHeaderPart)
-                   + static_cast<u64>(count) * static_cast<u64>(kEntrySize);
-    if (need > payload_size) {
-        return ACS_ERR(Asset, 0, "FProgression::Load: entry count exceeds payload size");
+    if (count > kMaxPersistedMilestones) {
+        return ACS_ERR(Asset,
+                       ProgressionSub(
+                           EProgressionPersistenceSubCode::kSubMilestoneLimitExceeded),
+                       "FProgression::Load: entry count exceeds safety limit");
+    }
+    const u64 entries_size = payload_size - static_cast<u64>(kHeaderPart);
+    if ((entries_size % static_cast<u64>(kEntrySize)) != 0u ||
+        entries_size / static_cast<u64>(kEntrySize) != static_cast<u64>(count)) {
+        return ACS_ERR(Asset,
+                       ProgressionSub(EProgressionPersistenceSubCode::kSubMalformedPayload),
+                       "FProgression::Load: entry count does not exactly match payload");
     }
 
-    // 検証を通ったので状態を反映する。まず全状態を未達成に戻し、
-    // ファイルに記録された分だけ id_hash で突き合わせて復元する。
-    m_Xp = xp;
-    const usize ns = _states.Size();
+    const usize ns = m_States.Size();
+    if (m_Defs.Size() != ns) {
+        return ACS_ERR(Asset,
+                       ProgressionSub(EProgressionPersistenceSubCode::kSubStateInvariant),
+                       "FProgression::Load: definition/state invariant broken");
+    }
+    if (ns > static_cast<usize>(kMaxPersistedMilestones)) {
+        return ACS_ERR(Asset,
+                       ProgressionSub(
+                           EProgressionPersistenceSubCode::kSubMilestoneLimitExceeded),
+                       "FProgression::Load: registered milestone count exceeds safety limit");
+    }
+
+    // 既存状態と分離した staging を用意し、全entry検証後にだけcommitする。
+    TArray<FMilestoneState> staged;
+    TArray<u32> seen_hashes;
+    if (!staged.TryResize(ns) || !seen_hashes.TryResize(static_cast<usize>(count))) {
+        return ACS_ERR(Memory,
+                       ProgressionSub(EProgressionPersistenceSubCode::kSubAllocationFailed),
+                       "FProgression::Load: staging allocation failed");
+    }
     for (usize i = 0; i < ns; ++i) {
-        _states[i].achieved           = false;
-        _states[i].achieved_timestamp = 0;
+        staged[i].id = m_Defs[i].id;
+        staged[i].achieved = false;
+        staged[i].achieved_timestamp = 0;
     }
 
     usize off = kHeaderPart;
+    u32 unknown_count = 0;
     for (u32 e = 0; e < count; ++e) {
         const u8* ep            = p + off;
         const u32 id_hash       = ReadU32LE(ep + 0);
-        const bool achieved     = (ep[4] != 0u);
+        const u8 achieved_byte  = ep[4];
         const u64 timestamp     = ReadU64LE(ep + 8);
         off += kEntrySize;
 
-        // 現在登録済みの milestone から同 hash を線形探索して復元する。
-        // 見つからない id_hash (旧バージョンで削除された milestone 等) は
-        // 警告して skip する。
+        if (achieved_byte > 1u || ep[5] != 0u || ep[6] != 0u || ep[7] != 0u ||
+            (achieved_byte == 0u && timestamp != 0u)) {
+            return ACS_ERR(Asset,
+                           ProgressionSub(
+                               EProgressionPersistenceSubCode::kSubMalformedPayload),
+                           "FProgression::Load: non-canonical milestone entry");
+        }
+        for (u32 prior = 0; prior < e; ++prior) {
+            if (seen_hashes[prior] == id_hash) {
+                return ACS_ERR(Asset,
+                               ProgressionSub(
+                                   EProgressionPersistenceSubCode::kSubMalformedPayload),
+                               "FProgression::Load: duplicate milestone hash");
+            }
+        }
+        seen_hashes[e] = id_hash;
+
         bool matched = false;
         for (usize i = 0; i < ns; ++i) {
             if (HashId(m_Defs[i].id) == id_hash) {
-                _states[i].achieved           = achieved;
-                _states[i].achieved_timestamp = timestamp;
+                staged[i].achieved = achieved_byte == 1u;
+                staged[i].achieved_timestamp = timestamp;
                 matched = true;
                 break;
             }
         }
         if (!matched) {
-            ACS_LOG_WARN("FProgression::Load: unknown milestone id_hash=0x%08x (skipped)",
-                         id_hash);
+            ++unknown_count;
         }
+    }
+
+    // ここから先は失敗しない。全検証済みのstagingを一括反映する。
+    m_Xp = xp;
+    for (usize i = 0; i < ns; ++i) {
+        m_States[i].achieved = staged[i].achieved;
+        m_States[i].achieved_timestamp = staged[i].achieved_timestamp;
+    }
+    if (unknown_count > 0u) {
+        ACS_LOG_WARN("FProgression::Load: %u unknown milestone entries skipped",
+                     unknown_count);
     }
 
     return Ok();

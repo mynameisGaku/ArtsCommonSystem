@@ -46,14 +46,14 @@ bool EnsureSymbolsLocked() noexcept
 } // namespace
 
 /** 現在のスタックフレームを取得する (CaptureStackBackTrace は高速かつスレッドセーフ)。詳細は宣言を参照。 */
-void StackTrace::Capture(u32 skip) noexcept {
+void FStackTrace::Capture(u32 skip) noexcept {
     USHORT n = ::CaptureStackBackTrace(static_cast<DWORD>(skip), kStackTraceMaxFrames, m_Addrs, nullptr);
     m_Count    = static_cast<u32>(n);
     m_Resolved = false;
 }
 
 /** 取得済みアドレスをシンボル名 / ファイル名 / 行番号に変換する。詳細は宣言を参照。 */
-void StackTrace::Resolve() noexcept {
+void FStackTrace::Resolve() noexcept {
     if (m_Resolved || m_Count == 0) return;
 
     AcquireSRWLockExclusive(&g_sym_lock);
@@ -70,7 +70,7 @@ void StackTrace::Resolve() noexcept {
     line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
 
     for (u32 i = 0; i < m_Count; ++i) {
-        StackFrame& f = m_Frames[i];
+        FStackFrame& f = m_Frames[i];
         f.address  = m_Addrs[i];
         f.symbol[0] = 0;
         f.file[0]   = 0;
@@ -96,7 +96,7 @@ void StackTrace::Resolve() noexcept {
 }
 
 /** DbgHelp の共有状態を解放する。終了後の Resolve は再び遅延初期化する。 */
-void StackTrace::ShutdownSymbolResolver() noexcept
+void FStackTrace::ShutdownSymbolResolver() noexcept
 {
     AcquireSRWLockExclusive(&g_sym_lock);
     if (g_sym_initialized != 0) {
@@ -109,7 +109,7 @@ void StackTrace::ShutdownSymbolResolver() noexcept
 }
 
 /** DbgHelp の共有状態をロック下で照会する。 */
-bool StackTrace::IsSymbolResolverInitialized() noexcept
+bool FStackTrace::IsSymbolResolverInitialized() noexcept
 {
     AcquireSRWLockShared(&g_sym_lock);
     const bool initialized = g_sym_initialized != 0;
@@ -118,10 +118,10 @@ bool StackTrace::IsSymbolResolverInitialized() noexcept
 }
 
 /** 解決済みフレームを 1 行ずつ整形して sink に渡す (出力先は呼び出し元が決める)。詳細は宣言を参照。 */
-void StackTrace::Print(Sink sink, void* user) const noexcept {
+void FStackTrace::Print(Sink sink, void* user) const noexcept {
     char buf[640];
     for (u32 i = 0; i < m_Count; ++i) {
-        const StackFrame& f = m_Frames[i];
+        const FStackFrame& f = m_Frames[i];
         int n;
         if (f.file[0])
             n = ::snprintf(buf, sizeof(buf), "  #%u %s\n      at %s:%llu\n",

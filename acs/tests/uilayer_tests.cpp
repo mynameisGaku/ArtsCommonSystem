@@ -14,26 +14,26 @@ using acs::game::FUiLayer;
 namespace {
 
 /** 合成 MouseMoved イベントを作る。 */
-Event MouseMove(f32 x, f32 y) noexcept {
-    Event e{};
-    e.type = EventType::MouseMoved;
+FEvent MouseMove(f32 x, f32 y) noexcept {
+    FEvent e{};
+    e.type = EEventType::MouseMoved;
     e.mouse_move.x = x;
     e.mouse_move.y = y;
     return e;
 }
 
 /** 合成 左ボタン押下イベントを作る。 */
-Event MouseDown() noexcept {
-    Event e{};
-    e.type = EventType::MouseButtonPressed;
+FEvent MouseDown() noexcept {
+    FEvent e{};
+    e.type = EEventType::MouseButtonPressed;
     e.mouse_button.button = EMouseButton::Left;
     return e;
 }
 
 /** 合成 左ボタン解放イベントを作る。 */
-Event MouseUp() noexcept {
-    Event e{};
-    e.type = EventType::MouseButtonReleased;
+FEvent MouseUp() noexcept {
+    FEvent e{};
+    e.type = EEventType::MouseButtonReleased;
     e.mouse_button.button = EMouseButton::Left;
     return e;
 }

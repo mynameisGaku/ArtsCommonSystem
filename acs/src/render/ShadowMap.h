@@ -14,16 +14,22 @@
 // 使い方 (single cascade、後方互換):
 //   FShadowMap sm;
 //   sm.Init(*dev, /*size=*/2048);                    // cascade_count=1 既定
+//   sm.BeginFrame();
 //   sm.SetDirectionalLight(light_dir, scene_center, 15.0f);
 //   cl->BeginShadowPass(*sm.DepthTexture(), 1.0f);
 //   cl->SetPipeline(*sm.CasterPipeline());
 //   cl->SetConstantBuffer(0, *sm.LightCB());
-//   for (each caster) { sm.SetCaster(model); /* draw */ }
+//   for (each caster) {
+//       if (!sm.TrySetCaster(model)) continue;
+//       cl->SetConstantBuffer(1, *sm.CasterObjectCB());
+//       /* draw */
+//   }
 //   cl->EndShadowPass(*sm.DepthTexture());
 //
 // 使い方 (CSM、3 cascade):
 //   FShadowMap sm;
 //   sm.Init(*dev, 2048, /*cascade_count=*/3);
+//   sm.BeginFrame();
 //   sm.SetDirectionalLightCascades(light_dir, view, proj, 0.1f, 100.0f);
 //   cl->BeginShadowPass(*sm.DepthTexture(), 1.0f);        // atlas 全体 clear
 //   cl->SetPipeline(*sm.CasterPipeline());
@@ -32,7 +38,11 @@
 //       cl->SetScissor(sm.CascadeScissor(c));
 //       sm.SetCurrentCascade(c);
 //       cl->SetConstantBuffer(0, *sm.LightCB());
-//       for (each caster) { sm.SetCaster(model); /* draw */ }
+//       for (each caster) {
+//           if (!sm.TrySetCaster(model)) continue;
+//           cl->SetConstantBuffer(1, *sm.CasterObjectCB());
+//           /* draw */
+//       }
 //   }
 //   cl->EndShadowPass(*sm.DepthTexture());
 //
@@ -52,7 +62,7 @@
 #include "render/IRhiBuffer.h"
 #include "render/IRhiPipeline.h"
 #include "render/IRhiShader.h"
-#include "render/RhiTypes.h"        // Viewport / ScissorRect
+#include "render/RhiTypes.h"        // FViewport / FScissorRect
 
 namespace acs {
 
@@ -69,6 +79,13 @@ class FShadowMap {
 public:
     /** サポートする cascade の最大数。 */
     static constexpr u32 kMaxCascades = 4;
+
+    /** 1 cascade で安全に保持できる immutable per-draw caster CB の最大数。 */
+    static constexpr u32 kMaxCasterDrawsPerCascade = 256;
+
+    /** 全 cascade を合計した 1 frame の最大 caster draw 数。 */
+    static constexpr u32 kMaxCasterDrawsPerFrame =
+        kMaxCascades * kMaxCasterDrawsPerCascade;
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FShadowMap() noexcept = default;
@@ -99,6 +116,9 @@ public:
 
     /** 確保した GPU リソースを解放する。 */
     void Shutdown() noexcept;
+
+    /** shadow pass の記録前に per-draw caster CB cursor をリセットする。 */
+    void BeginFrame() noexcept;
 
     /**
      * single cascade 用に有向光源の ortho 投影を計算する (後方互換)。
@@ -133,7 +153,7 @@ public:
     /**
      * 現在描画する cascade を選択する (CSM mode、BeginShadowPass の後に呼ぶ)。
      *
-     * @details LightCB を当該 cascade の VP で更新する。
+     * @details LightCB() が返す cascade 専用 CB を選択する。GPU 内容は更新しない。
      * @param cascade 選択する cascade index (範囲外なら 0)。
      */
     void SetCurrentCascade(u32 cascade) noexcept;
@@ -144,6 +164,13 @@ public:
      * @param model キャスターの world 変換行列。
      */
     void SetCaster(const FMat4& model) noexcept;
+
+    /**
+     * draw 専用 CB を確保してキャスターのモデル行列を設定する。
+     *
+     * @return 設定できた場合 true。frame 上限または確保失敗時は false で、draw を省略する。
+     */
+    bool TrySetCaster(const FMat4& model) noexcept;
 
     /**
      * 深度テクスチャ (single または CSM atlas) を返す。
@@ -164,14 +191,40 @@ public:
      *
      * @return light_vp を格納する CB。
      */
-    IRhiBuffer*   LightCB()        const noexcept { return m_LightCb.Get(); }
+    IRhiBuffer*   LightCB()        const noexcept {
+        return m_LightCbs[m_CurrentCascade].Get();
+    }
 
     /**
      * キャスターの model 行列を格納する定数バッファ (b1) を返す。
      *
      * @return model を格納する CB。
      */
-    IRhiBuffer*   CasterObjectCB() const noexcept { return m_ObjectCb.Get(); }
+    IRhiBuffer*   CasterObjectCB() const noexcept {
+        return m_ObjectCbs[m_CurrentCascade]
+                          [m_CurrentCasters[m_CurrentCascade]].Get();
+    }
+
+    /** BeginFrame() 以降に消費した per-draw caster CB slot 数。 */
+    u32 CasterDrawCount() const noexcept { return m_TotalCasterDrawCount; }
+
+    /** 指定 cascade が消費した per-draw caster CB slot 数。 */
+    u32 CasterDrawCount(u32 cascade) const noexcept {
+        return cascade < m_CascadeCount ? m_CasterDrawCounts[cascade] : 0;
+    }
+
+    /** 現 frame で ring 上限または slot 確保失敗が発生したか。 */
+    bool CasterOverflowed() const noexcept {
+        for (u32 cascade = 0; cascade < m_CascadeCount; ++cascade) {
+            if (m_CasterOverflowed[cascade]) return true;
+        }
+        return false;
+    }
+
+    /** 指定 cascade で ring 上限または slot 確保失敗が発生したか。 */
+    bool CasterOverflowed(u32 cascade) const noexcept {
+        return cascade < m_CascadeCount && m_CasterOverflowed[cascade];
+    }
 
     /**
      * cascade 0 の light view-projection を返す (single cascade 用、後方互換)。
@@ -233,6 +286,8 @@ public:
     u32 Size() const noexcept { return m_Size; }
 
 private:
+    bool EnsureCasterBuffer(u32 cascade, u32 slot) noexcept;
+
     /** シャドウ深度テクスチャ (single または CSM atlas)。 */
     TUniquePtr<IRhiTexture>  m_Depth;
 
@@ -243,10 +298,13 @@ private:
     TUniquePtr<IRhiPipeline> m_Pipeline;
 
     /** 光源の view-projection を渡す定数バッファ (b0)。 */
-    TUniquePtr<IRhiBuffer>   m_LightCb;
+    TUniquePtr<IRhiBuffer>   m_LightCbs[kMaxCascades];
 
     /** キャスターの model 行列を渡す定数バッファ (b1)。 */
-    TUniquePtr<IRhiBuffer>   m_ObjectCb;
+    TUniquePtr<IRhiBuffer>   m_ObjectCbs[kMaxCascades]
+                                        [kMaxCasterDrawsPerCascade];
+
+    IRhiDevice*              m_Device = nullptr;
 
     /** 各 cascade の light view-projection 行列。 */
     FMat4                    m_LightVp      [kMaxCascades] = {};
@@ -259,6 +317,13 @@ private:
 
     /** 確保済みの cascade 数。 */
     u32                     m_CascadeCount = 1;
+
+    u32                     m_CurrentCascade = 0;
+    u32                     m_CurrentCasters[kMaxCascades] = {};
+    u32                     m_CasterDrawCounts[kMaxCascades] = {};
+    u32                     m_TotalCasterDrawCount = 0;
+    bool                    m_CasterOverflowed[kMaxCascades] = {};
+    bool                    m_CasterWarningIssued[kMaxCascades] = {};
 };
 
 } // namespace acs

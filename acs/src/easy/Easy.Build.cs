@@ -12,6 +12,7 @@ public sealed class Easy : AcsModule
         {
             "Foundation", "Threading", "Memory", "Container",
             "Math", "Platform", "Asset", "Render", "Audio",
+            "GameFramework",
         });
     }
 }

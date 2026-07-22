@@ -9,7 +9,7 @@ using namespace acs;
 
 namespace helloanim {
 
-TSharedPtr<FSkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
+TSharedPtr<FSkinnedMeshAsset> FAnimationScene::BuildSnake() noexcept {
     auto m = MakeShared<FSkinnedMeshAsset>();
     if (!m) return TSharedPtr<FSkinnedMeshAsset>();
     auto& V = m->Vertices();
@@ -110,13 +110,13 @@ TSharedPtr<FSkinnedMeshAsset> AnimationScene::BuildSnake() noexcept {
     return m;
 }
 
-void AnimationScene::Render(FSky&                sky,
+void FAnimationScene::Render(FSky&                sky,
                             FStandardShader&     std_shader,
                             FSkinnedShader&      skin_shader,
                             IRhiCommandList&    cl,
                             const FCamera&       camera,
-                            const GpuMesh&      plane,
-                            const SkinnedGpuMesh& snake_gpu,
+                            const FGpuMesh&      plane,
+                            const FSkinnedGpuMesh& snake_gpu,
                             const FMat4*         palette,
                             u32                 palette_n) noexcept {
     // 1. 空
@@ -136,32 +136,32 @@ void AnimationScene::Render(FSky&                sky,
                          lights, 2, ambient);
     cl.SetPipeline(*std_shader.Pipeline());
     cl.SetConstantBuffer(0, *std_shader.PerFrameCB());
-    cl.SetConstantBuffer(1, *std_shader.PerObjectCB());
     cl.SetTexture(0, *std_shader.DefaultWhiteTexture());
     cl.SetTexture(1, *std_shader.ShadowTextureOrDefault());
-    std_shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
-                         FVec3{0.50f, 0.45f, 0.40f}, 0.05f, 4.0f);
-    cl.SetVertexBuffer(*plane.vertex_buffer, plane.vertex_stride);
-    cl.SetIndexBuffer(*plane.index_buffer);
-    cl.DrawIndexed(plane.index_count);
+    if (std_shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
+                             FVec3{0.50f, 0.45f, 0.40f}, 0.05f, 4.0f)) {
+        cl.SetConstantBuffer(1, *std_shader.PerObjectCB());
+        cl.SetVertexBuffer(*plane.vertex_buffer, plane.vertex_stride);
+        cl.SetIndexBuffer(*plane.index_buffer);
+        cl.DrawIndexed(plane.index_count);
+    }
 
     // 3. スキンメッシュ (FSkinnedShader)
     skin_shader.SetLights(camera.ViewProjection(), camera.Eye(),
                           lights, 2, ambient);
 
-    skin_shader.SetBonePalette(palette, palette_n);
-
-    skin_shader.SetObject(FMat4::Translation(FVec3{0, 0.0f, 0}),
-                          FVec3{0.95f, 0.55f, 0.35f}, 0.5f, 32.0f);
-
-    cl.SetPipeline(*skin_shader.Pipeline());
-    cl.SetConstantBuffer(0, *skin_shader.PerFrameCB());
-    cl.SetConstantBuffer(1, *skin_shader.PerObjectCB());
-    cl.SetConstantBuffer(2, *skin_shader.BonesCB());
-    cl.SetTexture(0, *skin_shader.DefaultWhiteTexture());
-    cl.SetVertexBuffer(*snake_gpu.vertex_buffer, snake_gpu.vertex_stride);
-    cl.SetIndexBuffer(*snake_gpu.index_buffer);
-    cl.DrawIndexed(snake_gpu.index_count);
+    if (skin_shader.SetObject(FMat4::Translation(FVec3{0, 0.0f, 0}),
+                              FVec3{0.95f, 0.55f, 0.35f}, 0.5f, 32.0f) &&
+        skin_shader.SetBonePalette(palette, palette_n)) {
+        cl.SetPipeline(*skin_shader.Pipeline());
+        cl.SetConstantBuffer(0, *skin_shader.PerFrameCB());
+        cl.SetConstantBuffer(1, *skin_shader.PerObjectCB());
+        cl.SetConstantBuffer(2, *skin_shader.BonesCB());
+        cl.SetTexture(0, *skin_shader.DefaultWhiteTexture());
+        cl.SetVertexBuffer(*snake_gpu.vertex_buffer, snake_gpu.vertex_stride);
+        cl.SetIndexBuffer(*snake_gpu.index_buffer);
+        cl.DrawIndexed(snake_gpu.index_count);
+    }
 }
 
 } // namespace helloanim

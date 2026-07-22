@@ -41,18 +41,18 @@ FArenaAllocator::~FArenaAllocator() noexcept
 }
 
 // 新ページ確保（ヘッダ + データ + 64B 整列の余裕を 1 回で取る）
-FArenaAllocator::Page* FArenaAllocator::AllocPage(usize Size) noexcept
+FArenaAllocator::FPage* FArenaAllocator::AllocPage(usize Size) noexcept
 {
     // sizeof(Page) + Size + 64 の usize オーバーフローを防ぐ。wrap すると過小な Total で
     // alloc し、その後の base/used 計算でページ境界を越えて書き込む (OOB)。
-    if (Size > (~usize(0)) - sizeof(Page) - 64) return nullptr;
-    const usize Total = sizeof(Page) + Size + 64;
-    void* const Raw = m_Backing->Alloc(Total, alignof(Page), FSourceLoc::Current());
+    if (Size > (~usize(0)) - sizeof(FPage) - 64) return nullptr;
+    const usize Total = sizeof(FPage) + Size + 64;
+    void* const Raw = m_Backing->Alloc(Total, alignof(FPage), FSourceLoc::Current());
     if (!Raw) return nullptr;
-    auto* NewPage = static_cast<Page*>(Raw);
+    auto* NewPage = static_cast<FPage*>(Raw);
     NewPage->next = nullptr;
     // データ領域はヘッダ直後を 64B 整列した位置から始める（SIMD 安全）
-    NewPage->base = reinterpret_cast<u8*>(AlignUp(static_cast<u8*>(Raw) + sizeof(Page), 64));
+    NewPage->base = reinterpret_cast<u8*>(AlignUp(static_cast<u8*>(Raw) + sizeof(FPage), 64));
     NewPage->size = Size;
     NewPage->used.Store(0, EMemoryOrder::Release);
     return NewPage;
@@ -87,10 +87,10 @@ void* FArenaAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*
     if (Size > (~usize(0)) - (Alignment - 1u)) return nullptr;
     if (!TryBeginAllocation()) return nullptr;
 
-    struct ActiveAllocationScope {
+    struct FActiveAllocationScope {
         FArenaAllocator* allocator = nullptr;
 
-        ~ActiveAllocationScope() noexcept
+        ~FActiveAllocationScope() noexcept
         {
             allocator->EndAllocation();
         }
@@ -101,7 +101,7 @@ void* FArenaAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*
     const usize MinimumPageSize = Size + Alignment - 1u;
 
     while (true) {
-        Page* CurrentPage = m_Current.Load(EMemoryOrder::Acquire);
+        FPage* CurrentPage = m_Current.Load(EMemoryOrder::Acquire);
         if (CurrentPage) {
             // 現在ページに収まるか確認
             const u64 CurrentUsed = CurrentPage->used.Load(EMemoryOrder::Relaxed);
@@ -130,12 +130,12 @@ void* FArenaAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*
         // 新ページが必要 — Grow ロックを取る
         FScopedLock ScopedGrowLock(m_GrowLock);
         // ロック取得中に他スレッドが既に Grow している可能性をチェック
-        Page* CurrentPageAfterLock = m_Current.Load(EMemoryOrder::Acquire);
+        FPage* CurrentPageAfterLock = m_Current.Load(EMemoryOrder::Acquire);
         if (CurrentPageAfterLock != CurrentPage) continue;
 
         // Reset(false) 後に未使用へ戻った既存ページを先に再公開する。
         // 保持済みページが使える限り backing から追加確保してはならない。
-        for (Page* CandidatePage = m_Pages; CandidatePage; CandidatePage = CandidatePage->next) {
+        for (FPage* CandidatePage = m_Pages; CandidatePage; CandidatePage = CandidatePage->next) {
             if (CandidatePage == CurrentPageAfterLock) continue;
 
             const u64 CandidateUsed = CandidatePage->used.Load(EMemoryOrder::Acquire);
@@ -156,7 +156,7 @@ void* FArenaAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*
 
         // 要求サイズが m_PageSize より大きければ専用ページを作る
         const usize NewPageSize = MinimumPageSize > m_PageSize ? MinimumPageSize : m_PageSize;
-        Page* NewPage = AllocPage(NewPageSize);
+        FPage* NewPage = AllocPage(NewPageSize);
         if (!NewPage) return nullptr;
         NewPage->next = m_Pages;
         m_Pages = NewPage;
@@ -189,18 +189,18 @@ bool FArenaAllocator::ContainsCurrentAllocationRange(const void* Pointer, usize 
         return false;
     }
 
-    struct ActiveOperationScope
+    struct FActiveOperationScope
     {
         FArenaAllocator* Allocator = nullptr;
 
-        ~ActiveOperationScope() noexcept
+        ~FActiveOperationScope() noexcept
         {
             Allocator->EndAllocation();
         }
     } OperationScope{this};
 
     FScopedLock ScopedGrowLock(m_GrowLock);
-    for (Page* CurrentPage = m_Pages; CurrentPage; CurrentPage = CurrentPage->next)
+    for (FPage* CurrentPage = m_Pages; CurrentPage; CurrentPage = CurrentPage->next)
     {
         const uptr PageBegin = reinterpret_cast<uptr>(CurrentPage->base);
         const u64 UsedBytes = CurrentPage->used.Load(EMemoryOrder::Acquire);
@@ -238,9 +238,9 @@ void FArenaAllocator::Reset(bool bReleasePages) noexcept
     FScopedLock ScopedGrowLock(m_GrowLock);
     if (bReleasePages) {
         // 全ページを backing に返却
-        Page* CurrentPage = m_Pages;
+        FPage* CurrentPage = m_Pages;
         while (CurrentPage) {
-            Page* const NextPage = CurrentPage->next;
+            FPage* const NextPage = CurrentPage->next;
             m_Backing->Free(CurrentPage);
             CurrentPage = NextPage;
         }
@@ -248,7 +248,7 @@ void FArenaAllocator::Reset(bool bReleasePages) noexcept
         m_Current.Store(nullptr, EMemoryOrder::Release);
     } else {
         // ページを保持してカーソルだけ巻き戻し
-        for (Page* PageIterator = m_Pages; PageIterator; PageIterator = PageIterator->next)
+        for (FPage* PageIterator = m_Pages; PageIterator; PageIterator = PageIterator->next)
             PageIterator->used.Store(0, EMemoryOrder::Release);
         m_Current.Store(m_Pages, EMemoryOrder::Release);
     }

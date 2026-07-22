@@ -4,12 +4,12 @@
 // PBR の ambient 項を「環境マップから事前積分した光」で置き換える。
 // 構成要素:
 //   ・BRDF LUT       — 2D 256x256 RG16F。GGX split-sum approximation の scale+bias
-//   ・環境 cubemap   — シーンの背景 (FSky 等から captured)。256x256x6、R11G11B10_Float
-//   ・拡散 irradiance cubemap — 32x32x6、半球積分された diffuse 反射
-//   ・specular prefilter cubemap — 128x128x6 (5 mip)、roughness 段階別 GGX 反射
+//   ・環境 cubemap   — シーンの背景 (FSky 等から captured)。1024x1024x6、R11G11B10_Float
+//   ・拡散 irradiance cubemap — 64x64x6、半球積分された diffuse 反射
+//   ・specular prefilter cubemap — 512x512x6 (7 mip)、roughness 段階別 GGX 反射
 //
 // 使い方 (HelloIbl):
-//   ImageBasedLighting ibl;
+//   FImageBasedLighting ibl;
 //   ibl.EnsureBrdfLut(*dev, *cl);              // 初回のみ LUT 生成 (256x256)
 //   ibl.EnsureEnvCubemap(*dev, *cl, sky);       // 初回のみ env cubemap キャプチャ
 //   // (irradiance / prefilter を生成してから:)
@@ -44,23 +44,23 @@ class FSky;
  *
  * @details
  * 構成要素は BRDF LUT (256x256 RG16F、GGX split-sum の scale+bias)、環境 cubemap
- * (256x256x6 R11G11B10_Float)、拡散 irradiance cubemap (32x32x6)、specular prefilter
- * cubemap (128x128x6, 5 mip)。Diligent backend 専用の本実装で、raw-DX12 backend では
+ * (1024x1024x6 R11G11B10_Float)、拡散 irradiance cubemap (64x64x6)、specular prefilter
+ * cubemap (512x512x6, 7 mip)。Diligent backend 専用の本実装で、raw-DX12 backend では
  * 各 Build/Ensure が ACS_ERR(Render, 88) を返す (fake-success しない)。
  */
-class ImageBasedLighting {
+class FImageBasedLighting {
 public:
     /** 空状態で構築する (各 GPU リソースは Ensure 系で遅延生成)。 */
-    ImageBasedLighting() noexcept = default;
+    FImageBasedLighting() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~ImageBasedLighting() noexcept = default;
+    ~FImageBasedLighting() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    ImageBasedLighting(const ImageBasedLighting&)            = delete;
+    FImageBasedLighting(const FImageBasedLighting&)            = delete;
 
     /** コピー代入も禁止。 */
-    ImageBasedLighting& operator=(const ImageBasedLighting&) = delete;
+    FImageBasedLighting& operator=(const FImageBasedLighting&) = delete;
 
     /**
      * 初回呼び出しで BRDF LUT を 1 回だけ生成する (以降は no-op)。
@@ -76,7 +76,7 @@ public:
      * 初回呼び出しで env cubemap を FSky 手続き式からキャプチャする。
      *
      * @details
-     * 256x256x6 / R11G11B10_Float を各 face 6 回の per-slice draw で塗る。sky の現在の
+     * 1024x1024x6 / R11G11B10_Float を各 face 6 回の per-slice draw で塗る。sky の現在の
      * パラメータ (sun_dir / colors 等) がスナップショットされる。再キャプチャするには
      * Shutdown() で全 reset するか ResetEnvCubemap() を使う。
      * @param device リソース生成に使う RHI デバイス。
@@ -104,6 +104,21 @@ public:
                                             const f32* rgba_float, u32 width, u32 height) noexcept;
 
     /**
+     * Excludes an analytic direct-light disc from diffuse/specular IBL
+     * convolution while keeping that disc visible in the environment skybox.
+     *
+     * Finite convolution sequences sample a sub-pixel HDR sun disc as
+     * structured fireflies, and FPbrShader already evaluates the same sun via
+     * its directional-light BRDF.  Set cosine_half_angle > 1 to disable.
+     * Call this before EnsureIrradiance/EnsurePrefilter during an environment
+     * rebuild.  It does not destroy already-built GPU products; changing it
+     * after a build requires the existing safe sequence: wait for GPU idle,
+     * ResetEnvCubemap(), then rebuild.
+     */
+    void SetDirectLightExclusion(FVec3 direction,
+                                 f32 cosine_half_angle) noexcept;
+
+    /**
      * equirect 画像から SH 9 light probe を CPU 側で計算する。
      *
      * @details
@@ -124,7 +139,7 @@ public:
      * 初回呼び出しで diffuse irradiance cubemap を env cubemap の半球積分から作る。
      *
      * @details
-     * 32x32x6 / R11G11B10_Float。EnsureEnvCubemap が完了していないと失敗する。出力は
+     * 64x64x6 / R11G11B10_Float。EnsureEnvCubemap が完了していないと失敗する。出力は
      * (1/π) ∫_Ω L_env(ω) (N·ω) dω で、Lambert diffuse の ambient 項として
      * diffuse = albedo * irradiance_cube.Sample(N) で使う。
      * @param device リソース生成に使う RHI デバイス。
@@ -137,8 +152,8 @@ public:
      * 初回呼び出しで specular prefilter cubemap を env cubemap の GGX 積分から作る。
      *
      * @details
-     * 128x128x6 / R11G11B10_Float / 5 mips。各 mip が roughness 段階に対応する
-     * (mip 0 = roughness 0 / 鏡面、mip 4 = roughness 1)。実行時 PBR specular は
+     * 512x512x6 / R11G11B10_Float / 7 mips。各 mip が roughness 段階に対応する
+     * (mip 0 = roughness 0 / 鏡面、mip 6 = roughness 1)。実行時 PBR specular は
      * F = F0 * lut.r + lut.g、specular = prefilter.SampleLevel(R, roughness*(mips-1)).rgb * F。
      * @param device リソース生成に使う RHI デバイス。
      * @param cl コマンドを積むコマンドリスト。
@@ -166,7 +181,10 @@ public:
                     IRhiTexture& cube,
                     const FMat4& view_proj, FVec3 eye,
                     EFormat rt_format, EFormat depth_format,
-                    f32 mip_level = 0.0f) noexcept;
+                    f32 mip_level = 0.0f,
+                    FVec3 sun_direction = FVec3{0.0f, 1.0f, 0.0f},
+                    FVec3 sun_radiance = FVec3{},
+                    f32 sun_angular_radius = 0.0f) noexcept;
 
     /**
      * env_cube を skybox として現在の RT へ描く利便ラッパ。
@@ -177,10 +195,21 @@ public:
      * @param eye カメラ位置。
      * @param rt_format 現在 bind 中の RT の色フォーマット。
      * @param depth_format 現在 bind 中の depth フォーマット。
+     * @param sun_direction 解析的に描く太陽への方向。正規化は内部で行う。
+     * @param sun_radiance 太陽ディスクの線形 HDR 放射輝度。0 ならディスクを描かない。
+     * @param sun_angular_radius 太陽の角半径 (rad)。0 ならディスクを描かない。
+     *
+     * @details
+     * 太陽ディスクは env cubemap へ焼き込まず、最終ビューポート解像度で解析的に
+     * 描画する。これにより低解像度 equirect のテクセル形状が四角く拡大されず、
+     * 後段の volumetric cloud composite が自然にディスクを遮蔽できる。
      */
     void DrawEnvSkybox(IRhiDevice& device, IRhiCommandList& cl,
                        const FMat4& view_proj, FVec3 eye,
-                       EFormat rt_format, EFormat depth_format) noexcept;
+                       EFormat rt_format, EFormat depth_format,
+                       FVec3 sun_direction = FVec3{0.0f, 1.0f, 0.0f},
+                       FVec3 sun_radiance = FVec3{},
+                       f32 sun_angular_radius = 0.0f) noexcept;
 
     /**
      * 環境 cubemap (とそれに依存する irradiance / prefilter) だけを reset する。
@@ -212,7 +241,7 @@ public:
     /**
      * 環境 cubemap を返す。
      *
-     * @return 環境 cubemap (256x256x6 R11G11B10_Float)。EnsureEnvCubemap 完了前は nullptr。
+     * @return 環境 cubemap (1024x1024x6 R11G11B10_Float)。EnsureEnvCubemap 完了前は nullptr。
      */
     IRhiTexture* EnvCubemap()    const noexcept { return m_EnvCube.Get(); }
 
@@ -226,7 +255,7 @@ public:
     /**
      * 拡散 irradiance cubemap を返す。
      *
-     * @return irradiance cubemap (32x32x6 R11G11B10_Float)。EnsureIrradiance 完了前は nullptr。
+     * @return irradiance cubemap (64x64x6 R11G11B10_Float)。EnsureIrradiance 完了前は nullptr。
      */
     IRhiTexture* IrradianceMap()    const noexcept { return m_IrradianceCube.Get(); }
 
@@ -240,7 +269,7 @@ public:
     /**
      * specular prefilter cubemap を返す。
      *
-     * @return prefilter cubemap (128x128x6 R11G11B10_Float, 5 mips)。EnsurePrefilter 完了前は nullptr。
+     * @return prefilter cubemap (512x512x6 R11G11B10_Float, 7 mips)。EnsurePrefilter 完了前は nullptr。
      */
     IRhiTexture* PrefilterMap()    const noexcept { return m_PrefilterCube.Get(); }
 
@@ -311,17 +340,24 @@ private:
     /** BRDF LUT (256x256 RG16F)。 */
     TUniquePtr<IRhiTexture>  m_BrdfLut;
 
-    /** 環境 cubemap (256x256x6 R11G11B10_Float)。 */
+    /** 環境 cubemap (1024x1024x6 R11G11B10_Float)。 */
     TUniquePtr<IRhiTexture>  m_EnvCube;
 
-    /** 拡散 irradiance cubemap (32x32x6 R11G11B10_Float)。 */
+    /** 拡散 irradiance cubemap (64x64x6 R11G11B10_Float)。 */
     TUniquePtr<IRhiTexture>  m_IrradianceCube;
 
-    /** specular prefilter cubemap (128x128x6 R11G11B10_Float, 5 mips)。 */
+    /** specular prefilter cubemap (512x512x6 R11G11B10_Float, 7 mips)。 */
     TUniquePtr<IRhiTexture>  m_PrefilterCube;
 
     /** prefilter cubemap の mip 数。 */
     u32                     m_PrefilterMips = 0;
+
+    /**
+     * xyz = normalized direction toward the analytic direct light;
+     * w = cosine of its exclusion half-angle.  w > 1 disables exclusion.
+     */
+    FVec4                    m_DirectLightExclusion =
+        FVec4{0.0f, 1.0f, 0.0f, 2.0f};
 
     /** skybox preview の頂点シェーダ (lazy init)。 */
     TUniquePtr<IRhiShader>   m_SkyVs;

@@ -4,11 +4,11 @@
 // 用途: 火花・煙・爆発・魔法効果など、ゲームの視覚エフェクト全般。
 //
 // 使い方:
-//   ParticleSystem ps;
+//   FParticleSystem ps;
 //   ps.Init(2048);                           // 最大パーティクル数
 //   ps.SetTexture(my_circle_tex);            // null なら 1×1 白
 //
-//   EmitterDesc d;
+//   FEmitterDesc d;
 //   d.position = FVec2{400, 300};
 //   d.velocity = FVec2{0, -120};
 //   d.velocity_variance = FVec2{60, 30};
@@ -27,9 +27,9 @@
 //   sb.End();
 //
 // プリセット:
-//   ps.SetEmitter(EmitterDesc::Fire(pos));
-//   ps.SetEmitter(EmitterDesc::Sparks(pos));
-//   ps.SetEmitter(EmitterDesc::Fountain(pos));
+//   ps.SetEmitter(FEmitterDesc::Fire(pos));
+//   ps.SetEmitter(FEmitterDesc::Sparks(pos));
+//   ps.SetEmitter(FEmitterDesc::Fountain(pos));
 #pragma once
 
 #include "foundation/Types.h"
@@ -50,7 +50,7 @@ class FAllocator;
  * size と color は start..end を寿命比で線形補間して描画される。プリセット
  * (Fire/Sparks/Fountain/Smoke) で典型的なエフェクトを即座に構成できる。
  */
-struct EmitterDesc {
+struct FEmitterDesc {
     /** エミッタの基準位置 (粒子の出現中心)。 */
     FVec2  position           = FVec2{0, 0};
 
@@ -100,33 +100,33 @@ struct EmitterDesc {
      * 火 (上昇する黄〜赤の炎) のプリセットを生成する。
      *
      * @param pos エミッタの基準位置。
-     * @return 火エフェクト用に設定済みの EmitterDesc。
+     * @return 火エフェクト用に設定済みの FEmitterDesc。
      */
-    static EmitterDesc Fire(FVec2 pos)     noexcept;
+    static FEmitterDesc Fire(FVec2 pos)     noexcept;
 
     /**
      * 火花 (全方位に飛び散り重力で落下) のプリセットを生成する。
      *
      * @param pos エミッタの基準位置。
-     * @return 火花エフェクト用に設定済みの EmitterDesc。
+     * @return 火花エフェクト用に設定済みの FEmitterDesc。
      */
-    static EmitterDesc Sparks(FVec2 pos)   noexcept;
+    static FEmitterDesc Sparks(FVec2 pos)   noexcept;
 
     /**
      * 噴水 (上方へ噴き出し重力で放物落下する青い水滴) のプリセットを生成する。
      *
      * @param pos エミッタの基準位置。
-     * @return 噴水エフェクト用に設定済みの EmitterDesc。
+     * @return 噴水エフェクト用に設定済みの FEmitterDesc。
      */
-    static EmitterDesc Fountain(FVec2 pos) noexcept;
+    static FEmitterDesc Fountain(FVec2 pos) noexcept;
 
     /**
      * 煙 (ゆっくり上昇しながら拡大する灰色) のプリセットを生成する。
      *
      * @param pos エミッタの基準位置。
-     * @return 煙エフェクト用に設定済みの EmitterDesc。
+     * @return 煙エフェクト用に設定済みの FEmitterDesc。
      */
-    static EmitterDesc Smoke(FVec2 pos)    noexcept;
+    static FEmitterDesc Smoke(FVec2 pos)    noexcept;
 };
 
 /**
@@ -134,22 +134,22 @@ struct EmitterDesc {
  *
  * @details
  * 火花・煙・爆発・魔法効果などの視覚エフェクト全般に使う。最大 max_particles の
- * 固定プールを確保し、EmitterDesc に従って連続生成・物理積分・寿命管理を行う
+ * 固定プールを確保し、FEmitterDesc に従って連続生成・物理積分・寿命管理を行う
  * (死亡粒子は swap-pop で除去)。描画は事前に Begin 済みの FSpriteBatch にバッチ追加する。
  */
-class ParticleSystem {
+class FParticleSystem {
 public:
     /** 空状態で構築する (プールは Init で確保)。 */
-    ParticleSystem() noexcept = default;
+    FParticleSystem() noexcept = default;
 
     /** 破棄する (Shutdown でプールを解放)。 */
-    ~ParticleSystem() noexcept;
+    ~FParticleSystem() noexcept;
 
     /** コピー禁止 (粒子プールを単独所有するため)。 */
-    ParticleSystem(const ParticleSystem&)            = delete;
+    FParticleSystem(const FParticleSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    ParticleSystem& operator=(const ParticleSystem&) = delete;
+    FParticleSystem& operator=(const FParticleSystem&) = delete;
 
     /**
      * max_particles ぶんの粒子プールを確保する。
@@ -173,23 +173,23 @@ public:
     /**
      * エミッタ記述を設定する。
      *
-     * @param d 適用する EmitterDesc。active=true で連続生成、false で停止のみ。
+     * @param d 適用する FEmitterDesc。active=true で連続生成、false で停止のみ。
      */
-    void SetEmitter(const EmitterDesc& d) noexcept { m_Emitter = d; }
+    void SetEmitter(const FEmitterDesc& d) noexcept { m_Emitter = d; }
 
     /**
      * エミッタ記述への可変参照を返す (パラメータを直接書き換える)。
      *
-     * @return 内部 EmitterDesc への参照。
+     * @return 内部 FEmitterDesc への参照。
      */
-    EmitterDesc& Emitter() noexcept { return m_Emitter; }
+    FEmitterDesc& Emitter() noexcept { return m_Emitter; }
 
     /**
      * エミッタ記述への const 参照を返す。
      *
-     * @return 内部 EmitterDesc への const 参照。
+     * @return 内部 FEmitterDesc への const 参照。
      */
-    const EmitterDesc& Emitter() const noexcept { return m_Emitter; }
+    const FEmitterDesc& Emitter() const noexcept { return m_Emitter; }
 
     /**
      * 1 フレーム分シミュレーションを進める (連続生成 + 物理積分 + 寿命管理)。
@@ -235,7 +235,7 @@ private:
      *
      * @details プール上に連続配置され、size/color は start..end を age/life で補間する。
      */
-    struct Particle {
+    struct FParticle {
         /** 現在位置 (pixel)。 */
         FVec2 pos;
 
@@ -281,7 +281,7 @@ private:
     f32  RandRange(f32 a, f32 b) noexcept;
 
     /** 粒子プールの先頭 (容量ぶん確保、所有権を持つ)。 */
-    Particle*    m_Pool         = nullptr;
+    FParticle*    m_Pool         = nullptr;
 
     /** 粒子プールを確保したアロケータ。既定アロケータ切替後も同じ元へ返す。 */
     FAllocator* m_Allocator = nullptr;
@@ -296,7 +296,7 @@ private:
     f32          m_SpawnAccum  = 0.0f;
 
     /** 現在のエミッタ記述。 */
-    EmitterDesc  m_Emitter;
+    FEmitterDesc  m_Emitter;
 
     /** 描画テクスチャ (非所有。null なら白矩形)。 */
     IRhiTexture* m_Tex          = nullptr;

@@ -14,16 +14,16 @@ using namespace acs;
 
 namespace hellosave {
 
-void HelloSaveApp::OnStart() noexcept {
+void FHelloSaveApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
     // %APPDATA% 配下なら UAC でもユーザ書き込み可。Load 失敗は初回起動の正常系。
-    ACS_SAMPLE_INIT(Storage::GetAppDataPath(L"acs_demo", L"hello_save.ini",
+    ACS_SAMPLE_INIT(FStorage::GetAppDataPath(L"acs_demo", L"hello_save.ini",
                                              m_SavePath, 260));
     ACS_LOG_INFO("Save file: %ls", m_SavePath);
     if (auto r = m_Store.Load(m_SavePath); r.IsErr()) {
-        ACS_LOG_WARN("Storage::Load failed: %s (continuing with empty)", r.Error().message);
+        ACS_LOG_WARN("FStorage::Load failed: %s (continuing with empty)", r.Error().message);
     }
 
     i64 launches = m_Store.GetInt("launches", 0) + 1;
@@ -45,15 +45,15 @@ void HelloSaveApp::OnStart() noexcept {
                  static_cast<long long>(m_HighScore));
 }
 
-void HelloSaveApp::OnUpdate(f32 /*dt*/) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloSaveApp::OnUpdate(f32 /*dt*/) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
 
-    if (Input::IsKeyPressed(EKey::Space)) {
+    if (FInput::IsKeyPressed(EKey::Space)) {
         ++m_Clicks;
         if (m_Clicks > m_HighScore) m_HighScore = m_Clicks;
         m_Dirty = true;
     }
-    if (Input::IsKeyPressed(EKey::R)) {
+    if (FInput::IsKeyPressed(EKey::R)) {
         // Clear() は launches も消すので、本セッションを 1 回目として再播種する。
         m_Store.Clear();
         m_Clicks = 0;
@@ -62,12 +62,12 @@ void HelloSaveApp::OnUpdate(f32 /*dt*/) noexcept {
         m_Store.SetString("player_name", "プレイヤー");
         m_Dirty = true;
     }
-    if (Input::IsKeyPressed(EKey::S)) {
+    if (FInput::IsKeyPressed(EKey::S)) {
         FlushAndSave();
     }
 }
 
-void HelloSaveApp::OnRender() noexcept {
+void FHelloSaveApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
@@ -120,7 +120,7 @@ void HelloSaveApp::OnRender() noexcept {
     m_Batch.End();
 }
 
-void HelloSaveApp::OnShutdown() noexcept {
+void FHelloSaveApp::OnShutdown() noexcept {
     // GPU リソース破棄前に保存しておけば、保存中クラッシュでもプレイデータは無事。
     FlushAndSave();
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
@@ -129,7 +129,7 @@ void HelloSaveApp::OnShutdown() noexcept {
     m_Batch.Shutdown();
 }
 
-void HelloSaveApp::FlushAndSave() noexcept {
+void FHelloSaveApp::FlushAndSave() noexcept {
     m_Store.SetInt("clicks",     m_Clicks);
     m_Store.SetInt("high_score", m_HighScore);
     if (auto r = m_Store.Save(m_SavePath); r.IsErr()) {

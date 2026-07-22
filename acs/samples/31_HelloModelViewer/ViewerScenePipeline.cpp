@@ -10,7 +10,7 @@ using namespace acs;
 
 namespace hellomv {
 
-bool ViewerScenePipeline::Init(FRenderer& renderer) noexcept {
+bool FViewerScenePipeline::Init(FRenderer& renderer) noexcept {
     IRhiDevice* dev = renderer.Device();
     if (!dev) {
         ACS_LOG_ERROR("[ModelViewer] Device() == null");
@@ -81,7 +81,7 @@ bool ViewerScenePipeline::Init(FRenderer& renderer) noexcept {
     pd.cull_mode        = ECullMode::Back;
     pd.cbuffer_slots    = 1;
     pd.cbuffer_names[0] = "Frame";
-    pd.vertex_stride    = sizeof(Vertex);
+    pd.vertex_stride    = sizeof(FVertex);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0 };
     pd.layout[1] = { "COLOR",    0, EFormat::R32G32B32_Float, sizeof(f32) * 3 };
     pd.layout_count = 2;
@@ -93,7 +93,7 @@ bool ViewerScenePipeline::Init(FRenderer& renderer) noexcept {
     return true;
 }
 
-void ViewerScenePipeline::Shutdown() noexcept {
+void FViewerScenePipeline::Shutdown() noexcept {
     // GPU 側参照が消えていることは caller (Scene の WaitIdle) 側で保証する。
     // ここでは順序だけ揃えて Release: pipeline → buffer → shader。
     m_Pipeline.Reset();
@@ -104,18 +104,18 @@ void ViewerScenePipeline::Shutdown() noexcept {
     m_Vs.Reset();
 }
 
-void ViewerScenePipeline::UpdateMvp(const FMat4& view, const FMat4& proj, f32 angle) noexcept {
+void FViewerScenePipeline::UpdateMvp(const FMat4& view, const FMat4& proj, f32 angle) noexcept {
     if (!m_Cb) return;
     const FMat4 model = FMat4::RotationY(angle);
     const FMat4 mvp = model * view * proj;
     m_Cb->Update(&mvp, sizeof(FMat4));
 }
 
-void ViewerScenePipeline::Render(IRhiCommandList& cl) noexcept {
+void FViewerScenePipeline::Render(IRhiCommandList& cl) noexcept {
     if (!m_Pipeline) return;
     cl.SetPipeline(*m_Pipeline);
     cl.SetConstantBuffer(0, *m_Cb);
-    cl.SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    cl.SetVertexBuffer(*m_Vb, sizeof(FVertex));
     cl.SetIndexBuffer(*m_Ib);
     cl.DrawIndexed(36);
 }

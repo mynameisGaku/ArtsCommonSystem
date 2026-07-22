@@ -18,8 +18,8 @@ namespace {
 
 // 柱 (occluder) の配置。画面サイズに対する割合で持ち、scene/occluder 両パスで
 // 同じ式から画素位置を出す (ズレ防止)。
-struct PillarFrac { f32 fx, fy, size; };
-constexpr PillarFrac kPillars[] = {
+struct FPillarFrac { f32 fx, fy, size; };
+constexpr FPillarFrac kPillars[] = {
     {0.28f, 0.34f, 70.0f},
     {0.64f, 0.28f, 84.0f},
     {0.48f, 0.60f, 64.0f},
@@ -219,9 +219,9 @@ bool FLight2DApp::OnCustomFrame() noexcept {
     m_Time += 1.0f / 60.0f;
 
     // 入力: [B] でブロブ専用モード切替、Esc で終了、マウスが松明。
-    if (Input::IsKeyPressed(EKey::Escape)) { Quit(); return true; }
-    if (Input::IsKeyPressed(EKey::B))      { m_bBlobOnly = !m_bBlobOnly; }
-    FVec2 m = Input::MousePos();
+    if (FInput::IsKeyPressed(EKey::Escape)) { Quit(); return true; }
+    if (FInput::IsKeyPressed(EKey::B))      { m_bBlobOnly = !m_bBlobOnly; }
+    FVec2 m = FInput::MousePos();
     m.x = m.x < 0 ? 0 : (m.x > static_cast<f32>(w) ? static_cast<f32>(w) : m.x);
     m.y = m.y < 0 ? 0 : (m.y > static_cast<f32>(h) ? static_cast<f32>(h) : m.y);
     m_TorchPos = m;
@@ -250,7 +250,7 @@ bool FLight2DApp::OnCustomFrame() noexcept {
     m_Lighting.EndOccluders(*cl);
 
     // 3) backbuffer に scene × light を合成 + HUD
-    cl->BeginRenderToSwapchain(*sc, buf_idx, ClearColor{0, 0, 0, 1});
+    cl->BeginRenderToSwapchain(*sc, buf_idx, FClearColor{0, 0, 0, 1});
     m_Lighting.Composite(*cl, w, h);
 
     if (m_bFontReady) {

@@ -14,21 +14,21 @@ using namespace acs;
 
 namespace helloibl {
 
-// 各 bind helper は HelloIblApp の private (m_Pbr / m_Ibl / m_Shadow…) を直接触るため
-// friend 宣言済み (HelloIblApp.h)。匿名名前空間に入れると friend と一致しなくなるので
+// 各 bind helper は FHelloIblApp の private (m_Pbr / m_Ibl / m_Shadow…) を直接触るため
+// friend 宣言済み (FHelloIblApp.h)。匿名名前空間に入れると friend と一致しなくなるので
 // namespace 直下に置く。
-void BindIbl(HelloIblApp& app) noexcept {
+void BindIbl(FHelloIblApp& app) noexcept {
     app.m_Pbr.SetIbl(app.m_Ibl.IrradianceMap(), app.m_Ibl.PrefilterMap(), app.m_Ibl.BrdfLut(),
                     app.m_Ibl.PrefilterMips());
     app.m_Pbr.SetSh9(app.m_bUseSh9 ? app.m_Sh9 : nullptr);
 }
 
-void BindSun(HelloIblApp& app, const FMat4& vp_for_render, const FDirLight& sun) noexcept {
+void BindSun(FHelloIblApp& app, const FMat4& vp_for_render, const FDirLight& sun) noexcept {
     app.m_Pbr.SetLights(vp_for_render, app.m_Camera.Eye(), &sun, 1, FVec3{0, 0, 0});
     app.m_Pbr.SetPointLights(nullptr, 0);
 }
 
-void BindSsao(HelloIblApp& app) noexcept {
+void BindSsao(FHelloIblApp& app) noexcept {
     IRhiTexture* hdr = app.m_Post.HdrRenderTarget();
     if (!hdr) return;
     // 注: SSAO 無効時も viewport サイズは渡す。SSGI / SSR が screen UV を
@@ -41,7 +41,7 @@ void BindSsao(HelloIblApp& app) noexcept {
     }
 }
 
-void BindSsgi(HelloIblApp& app) noexcept {
+void BindSsgi(FHelloIblApp& app) noexcept {
     if (app.m_bUseSsgi && app.m_bSsgiWarm) {
         app.m_Pbr.SetSsgi(app.m_Ssgi.OutputTexture(), /*intensity=*/0.6f);
     } else {
@@ -49,7 +49,7 @@ void BindSsgi(HelloIblApp& app) noexcept {
     }
 }
 
-void BindSsr(HelloIblApp& app) noexcept {
+void BindSsr(FHelloIblApp& app) noexcept {
     // FPbrShader 側で roughness 依存合成 (rough 面ほど反射が弱まる)。
     if (app.m_ShowSsr && app.m_SsrWarm) {
         app.m_Pbr.SetSsr(app.m_Ssr.OutputTexture(), /*intensity=*/1.0f);
@@ -58,7 +58,7 @@ void BindSsr(HelloIblApp& app) noexcept {
     }
 }
 
-void BindShadow(HelloIblApp& app) noexcept {
+void BindShadow(FHelloIblApp& app) noexcept {
     if (app.m_bUseShadows) {
         FMat4 vps   [FShadowMap::kMaxCascades] = {};
         f32  splits[FShadowMap::kMaxCascades] = {};
@@ -75,19 +75,22 @@ void BindShadow(HelloIblApp& app) noexcept {
     }
 }
 
-void BindFog(HelloIblApp& app) noexcept {
-    // 灰色 fog、密度 0.12 / 高さ減衰 0.2
+void BindFog(FHelloIblApp& app) noexcept {
+    // 青灰色の解析積分 height fog。HG 前方散乱で太陽方向に自然な光だまりを作る。
     if (app.m_bUseFog) {
-        app.m_Pbr.SetFog(FVec3{0.65f, 0.7f, 0.8f}, 0.12f, 0.2f, 0.0f);
+        app.m_Pbr.SetFog(FVec3{0.62f, 0.70f, 0.82f},
+                         /*density=*/0.065f, /*height_falloff=*/0.16f,
+                         /*height_base=*/0.0f, /*anisotropy=*/0.45f,
+                         /*sun_scatter=*/0.20f);
     } else {
         app.m_Pbr.SetFog(FVec3{0, 0, 0}, 0.0f);
     }
 }
 
-void BindProbeGrid(HelloIblApp& app) noexcept {
+void BindProbeGrid(FHelloIblApp& app) noexcept {
     if (app.m_bUseProbeGrid) {
         // 計算済 m_Sh9 (現 env の SH9) をベースに、左右の probe を赤/青に着色
-        FPbrShader::LightProbe p[2];
+        FPbrShader::FLightProbe p[2];
         p[0].position = FVec3{-4.0f, 1.5f, 3.0f};   // 左 probe (赤光)
         for (u32 k = 0; k < 9; ++k) p[0].sh9[k] = app.m_Sh9[k];
         p[0].sh9[0] = p[0].sh9[0] + FVec4{2.5f, 0.4f, 0.4f, 0};   // l=0 (DC) に赤を強める
@@ -103,10 +106,10 @@ void BindProbeGrid(HelloIblApp& app) noexcept {
     }
 }
 
-void BindAreaLight(HelloIblApp& app) noexcept {
+void BindAreaLight(FHelloIblApp& app) noexcept {
     // 球グリッドの前方上空に置いた 2x1 矩形パネル
     if (app.m_bUseAreaLight) {
-        FPbrShader::AreaLight rect;
+        FPbrShader::FAreaLight rect;
         rect.center = FVec3{0.0f, 4.0f, 1.0f};      // 上空、camera 側
         rect.axis_x = FVec3{1.0f, 0.0f, 0.0f};      // 横半幅 = 1
         rect.axis_y = FVec3{0.0f, 0.0f, 0.5f};      // 奥行半高 = 0.5
@@ -117,7 +120,7 @@ void BindAreaLight(HelloIblApp& app) noexcept {
     }
 }
 
-void BindPbrLighting(HelloIblApp& app, const FMat4& vp_for_render, const FDirLight& sun) noexcept {
+void BindPbrLighting(FHelloIblApp& app, const FMat4& vp_for_render, const FDirLight& sun) noexcept {
     BindIbl(app);
     BindSun(app, vp_for_render, sun);
     BindSsao(app);

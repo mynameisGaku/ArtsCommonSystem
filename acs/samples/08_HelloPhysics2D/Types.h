@@ -21,7 +21,7 @@ inline constexpr acs::f32 kRestitution = 0.85f;
 inline constexpr acs::f32 kDamping     = 0.999f;
 
 // 1 個のボール状態
-struct Ball {
+struct FBall {
     acs::FVec2 pos;
     acs::FVec2 vel;
     acs::f32  radius;

@@ -88,7 +88,7 @@ void FDevConsole::RegisterCommand(const char* name,
         }
     }
 
-    Command c;
+    FCommand c;
     c.name = name;
     c.fn   = fn;
     c.user = user;
@@ -141,7 +141,7 @@ void FDevConsole::Execute(const char* command_line) noexcept {
 
     // 3) コマンド名検索 (線形)。
     const char* cmd_name = tokens[0];
-    const Command* found = nullptr;
+    const FCommand* found = nullptr;
     for (usize ci = 0; ci < m_Commands.Size(); ++ci) {
         if (std::strcmp(m_Commands[ci].name, cmd_name) == 0) {
             found = &m_Commands[ci];
@@ -157,7 +157,7 @@ void FDevConsole::Execute(const char* command_line) noexcept {
     }
 
     // 4) dispatch。args は tokens[1..] (ConsoleArg にラップ)。
-    ConsoleArg args[kMaxArgs];
+    FConsoleArg args[kMaxArgs];
     const u32 argc = (token_count > 1) ? (token_count - 1) : 0;
     for (u32 ai = 0; ai < argc; ++ai) {
         args[ai].str = tokens[ai + 1];

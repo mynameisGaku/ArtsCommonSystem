@@ -15,13 +15,13 @@ namespace acs {
  * 各デスクリプタヒープを簡易フリーリストで管理する。WaitIdle/フレーム fence による
  * GPU 同期と、kFramesInFlight スロットのリングインデックスも提供する。
  */
-class Dx12Device final : public IRhiDevice {
+class FDx12Device final : public IRhiDevice {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    Dx12Device() noexcept = default;
+    FDx12Device() noexcept = default;
 
     /** GPU の完了を待ってから全 COM リソースを解放する。 */
-    ~Dx12Device() noexcept override;
+    ~FDx12Device() noexcept override;
 
     /**
      * DXGI ファクトリを返す (内部使用)。
@@ -171,7 +171,7 @@ public:
     /** キューに積まれた全コマンドの GPU 完了を CPU 側で待つ。 */
     void WaitIdle() noexcept override;
 
-    /** RT テクスチャを CPU へ読み戻す (readback ヒープ + コピー + fence 待ち。RGBA8/BGRA8)。 */
+    /** mip0/slice0 (3D は depth slice 0) を CPU へ読み戻す。 */
     bool ReadTexture(IRhiTexture& texture, void* destination_pixels, u32 destination_size) noexcept override;
 
     /**
@@ -215,9 +215,9 @@ public:
      * デバッグレイヤ→DXGI ファクトリ→アダプタ列挙 (WARP 除外)→D3D12 デバイス→
      * グラフィックスキュー→idle fence/event→デスクリプタヒープの順に構築する。
      * @param configuration デバッグレイヤ有効化・高性能 GPU 優先などの構成。
-     * @return 成功なら IsOk な HrResult、いずれかの段階で失敗ならその HRESULT。
+     * @return 成功なら IsOk な FHrResult、いずれかの段階で失敗ならその HRESULT。
      */
-    HrResult Init(const DeviceConfig& configuration) noexcept;
+    FHrResult Init(const FDeviceConfig& configuration) noexcept;
 
 private:
     /** 所有する Win32/COM リソースを解放し、再初期化可能な空状態へ戻す。 */
@@ -226,9 +226,9 @@ private:
     /**
      * SRV/DSV/RTV のデスクリプタヒープを生成する。
      *
-     * @return 成功なら IsOk な HrResult、生成失敗ならその HRESULT。
+     * @return 成功なら IsOk な FHrResult、生成失敗ならその HRESULT。
      */
-    HrResult InitDescriptorHeaps() noexcept;
+    FHrResult InitDescriptorHeaps() noexcept;
 
     /** 所有する DXGI ファクトリ。 */
     IDXGIFactory6* m_Factory = nullptr;

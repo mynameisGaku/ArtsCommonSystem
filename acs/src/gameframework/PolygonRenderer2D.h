@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — FPolygonRenderer2D (任意凸ポリゴンの塗りつぶし描画コンポーネント)
+// GameFramework — APolygonRenderer2D (任意凸ポリゴンの塗りつぶし描画コンポーネント)
 //
-// FPrimitiveRenderer2D が Box/Circle/Triangle のみなのに対し、本コンポーネントは
+// APrimitiveRenderer2D が Box/Circle/Triangle のみなのに対し、本コンポーネントは
 // «ローカル頂点列» を持ち owner の world transform を適用して三角形ファンで塗る。
 // エディタのポリゴンノード (ACSCENE の POLY 行) をスタンドアロンで再現するのに使う。
 // 凹ポリゴンは fan が破綻し得る (best-effort、凸前提)。
@@ -10,8 +10,8 @@
 #include "foundation/Types.h"
 #include "math/Vec.h"
 #include "math/Math.h"
-#include "gameframework/Component2D.h"
-#include "gameframework/Node2D.h"
+#include "gameframework/AComponent.h"
+#include "gameframework/ANode.h"
 #include "gameframework/RenderContext.h"
 #include "render/SpriteBatch.h"
 
@@ -20,9 +20,9 @@ namespace acs::game {
 /**
  * ローカル頂点列を owner の world transform で変換して塗りつぶす凸ポリゴン描画コンポーネント。
  */
-class FPolygonRenderer2D : public FComponent2D {
+class APolygonRenderer2D : public AComponent {
 public:
-    ACS_GAME_COMPONENT_KIND(FPolygonRenderer2D)
+    ACS_GAME_COMPONENT_KIND(APolygonRenderer2D)
 
     /** 保持できる頂点数の上限。 */
     static constexpr u32 kMaxVerts = 64u;
@@ -48,9 +48,9 @@ public:
     FVec2 Vert(u32 i) const noexcept { return (i < m_Count) ? m_Verts[i] : FVec2{ 0.0f, 0.0f }; }
 
     /** owner の world transform でローカル頂点を変換し、三角形ファンで塗る。 */
-    void OnDraw(RenderContext& rc) noexcept override {
+    void OnDraw(FRenderContext& rc) noexcept override {
         if (!rc.HasSprites() || m_Count < 3u || !HasOwner()) return;
-        const FTransform2D wt = Owner().World();
+        const FTransform2D wt = Owner().World2D();
         const f32 c = Cos(wt.rotation), s = Sin(wt.rotation);
         FVec2 w[kMaxVerts];
         for (u32 i = 0; i < m_Count; ++i) {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS FAssetPack — `.acpak` v1 アーカイブ書き出し器
+// ACS AssetPack — `.acpak` v1 アーカイブ書き出し器
 // -----------------------------------------------------------------------------
 // 複数のバラのファイル (= バイト列) を 1 つの `.acpak` にまとめる Writer。
 // ツールビルド (= パッキングコマンド) から使うことを想定し、ランタイムは
@@ -138,15 +138,15 @@ public:
 
 private:
     /** AddFile が積み Finalize が消費する所有 entry。 */
-    struct PendingEntry {
-        explicit PendingEntry(FAllocator& Allocator) noexcept : Path(Allocator), Data(Allocator)
+    struct FPendingEntry {
+        explicit FPendingEntry(FAllocator& Allocator) noexcept : Path(Allocator), Data(Allocator)
         {
         }
 
-        PendingEntry(const PendingEntry&) = delete;
-        PendingEntry& operator=(const PendingEntry&) = delete;
-        PendingEntry(PendingEntry&&) noexcept = default;
-        PendingEntry& operator=(PendingEntry&&) noexcept = default;
+        FPendingEntry(const FPendingEntry&) = delete;
+        FPendingEntry& operator=(const FPendingEntry&) = delete;
+        FPendingEntry(FPendingEntry&&) noexcept = default;
+        FPendingEntry& operator=(FPendingEntry&&) noexcept = default;
 
         /** NUL 終端を含む仮想パス。 */
         TArray<wchar_t> Path;
@@ -174,13 +174,19 @@ private:
     bool m_Finalized = false;
 
     /** AddFile が積んだ entry 群 (Finalize で消費)。 */
-    TArray<PendingEntry> m_Pending;
+    TArray<FPendingEntry> m_Pending;
 
     /** 暗号化鍵 (AcpakFlagEncrypted のときに Finalize で使う、Close で 0 クリア)。 */
     FAcpakKey m_Key{};
 
     /** SetKey で鍵が設定されたか (Close で false にリセット)。 */
     bool m_HasKey = false;
+
+    /** 原子的置換先。Open 成功から Finalize/Close まで所有する。 */
+    wchar_t m_OutputPath[kAcpakMaxOutputPathLength + 1u] = {};
+
+    /** 出力先と同じ directory に CREATE_NEW した一意な一時ファイル名。 */
+    wchar_t m_TemporaryPath[kAcpakMaxOutputPathLength + 96u] = {};
 };
 
 } // namespace acs::assetpack

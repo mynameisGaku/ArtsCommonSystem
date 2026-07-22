@@ -37,7 +37,7 @@ void GenerateBallTexture(u8* out) noexcept {
 
 } // namespace
 
-void HelloPhysics2DApp::OnStart() noexcept {
+void FHelloPhysics2DApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -64,15 +64,15 @@ void HelloPhysics2DApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloPhysics2D initialized");
 }
 
-void HelloPhysics2DApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloPhysics2DApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
 
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();
     m_Scene.Update(dt, sw, sh);
 }
 
-void HelloPhysics2DApp::OnRender() noexcept {
+void FHelloPhysics2DApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl || !m_Tex) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
@@ -87,7 +87,7 @@ void HelloPhysics2DApp::OnRender() noexcept {
     m_Batch.End();
 }
 
-void HelloPhysics2DApp::OnShutdown() noexcept {
+void FHelloPhysics2DApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Tex.Reset();

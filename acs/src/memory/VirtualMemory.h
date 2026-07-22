@@ -50,7 +50,7 @@ bool VmIsAligned(uptr Address, usize Alignment) noexcept;
  *
  * @warning 表現できるアドレスとページ数に上限があるため、所有権や LRU の内部管理には使用しない。
  */
-struct mapped_t {
+struct FMappedT {
     /** 仮想アドレス (64KiB 整列前提で上位ビットをパック)。 */
     u64 packed_virtual_addr : 44;
 
@@ -63,10 +63,10 @@ struct mapped_t {
     /** その他フラグ (予約)。 */
     u64 misc : 3;
 };
-static_assert(sizeof(mapped_t) == 8, "mapped_t must be 8 bytes");
+static_assert(sizeof(FMappedT) == 8, "mapped_t must be 8 bytes");
 
 /** 連続ページ群を 8 バイトに圧縮した記述子。 */
-struct page_t {
+struct FPageT {
     /** 連続するページ数。 */
     u64 continuous_page_count : 12;
 
@@ -76,7 +76,7 @@ struct page_t {
     /** 仮想アドレス (ページ整列前提でパック)。 */
     u64 packed_virtual_addr : 48;
 };
-static_assert(sizeof(page_t) == 8, "page_t must be 8 bytes");
+static_assert(sizeof(FPageT) == 8, "page_t must be 8 bytes");
 
 /**
  * 仮想アドレス範囲の予約を表す RAII ハンドル。
@@ -93,29 +93,29 @@ static_assert(sizeof(page_t) == 8, "page_t must be 8 bytes");
  * Base() に対する VirtualAlloc/VirtualFree の直接呼び出しは統計を破壊するため禁止する。
  * move のみ可能 (copy 禁止)。同一インスタンスの並行操作には対応しない。
  */
-class VmReservation {
+class FVmReservation {
 public:
     /** 遅延デコミットキャッシュが既定で保持できる最大バイト数 (64 MiB)。 */
     static constexpr usize kDefaultMaximumCachedDecommitBytes = 64 * 1024 * 1024;
 
     /** 空の予約として構築する (Base()==nullptr)。 */
-    VmReservation() noexcept = default;
+    FVmReservation() noexcept = default;
 
     /** 予約を解放して破棄する (LRU を全て実 decommit してから MEM_RELEASE)。 */
-    ~VmReservation() noexcept;
+    ~FVmReservation() noexcept;
 
     /** コピー禁止 (予約を単独所有するため)。 */
-    VmReservation(const VmReservation&) = delete;
+    FVmReservation(const FVmReservation&) = delete;
 
     /** コピー代入も禁止。 */
-    VmReservation& operator=(const VmReservation&) = delete;
+    FVmReservation& operator=(const FVmReservation&) = delete;
 
     /**
      * ムーブ構築する (予約と LRU を奪い、相手を空にする)。
      *
      * @param Other 所有権を奪う元 (奪取後は空)。
      */
-    VmReservation(VmReservation&& Other) noexcept;
+    FVmReservation(FVmReservation&& Other) noexcept;
 
     /**
      * ムーブ代入する (自身の予約を解放してから奪う)。
@@ -123,7 +123,7 @@ public:
      * @param Other 所有権を奪う元 (奪取後は空)。
      * @return *this。
      */
-    VmReservation& operator=(VmReservation&& Other) noexcept;
+    FVmReservation& operator=(FVmReservation&& Other) noexcept;
 
     /**
      * 仮想範囲を予約する (VirtualAlloc MEM_RESERVE、物理ページ未割当)。
@@ -133,7 +133,7 @@ public:
      * @param CapacityBytes 予約サイズ (1 以上、内部で予約粒度に安全に切り上げ)。
      * @return 予約ハンドルを持つ TResult (失敗時は OS エラー)。
      */
-    static TResult<VmReservation> Reserve(usize CapacityBytes) noexcept;
+    static TResult<FVmReservation> Reserve(usize CapacityBytes) noexcept;
 
     /**
      * 予約を解放する (LRU を全て実 decommit してから MEM_RELEASE、多重呼び出し安全)。
@@ -288,7 +288,7 @@ private:
     static constexpr u32 kDecommitCacheCapacity = 16;
 
     /** 圧縮せず完全な範囲を保持し、アドレスやページ数の切り捨てを防ぐ。 */
-    struct DecommitCacheEntry {
+    struct FDecommitCacheEntry {
         usize offset = 0;
         usize size = 0;
     };
@@ -339,7 +339,7 @@ private:
     usize m_MaximumCachedDecommitBytes = kDefaultMaximumCachedDecommitBytes;
 
     /** デコミット待ちの LRU キャッシュ (再 Commit でヒットすれば再利用)。 */
-    DecommitCacheEntry m_DecommitCache[kDecommitCacheCapacity]{};
+    FDecommitCacheEntry m_DecommitCache[kDecommitCacheCapacity]{};
 
     /** LRU の有効エントリ数。 */
     u32 m_DecommitCacheCount = 0;

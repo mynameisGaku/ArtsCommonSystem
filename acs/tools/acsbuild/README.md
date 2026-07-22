@@ -83,6 +83,17 @@ ALL_BUILD には含まれないので通常ビルドには影響しない):
 cmake --build <build> --target acs_buildcs_check
 ```
 
+条件付き `list(APPEND ...)` を使う assembled module も含め、全 `.cpp` が manifest に
+登録されていることは追加の軽量 gate で検証する。`editor_abi` は
+`engine/CMakeLists.txt` とエディタの project generator が管理する明示的な例外である。
+header は internal / public の分類が別契約なので、この gate では対象にしない。
+
+```bash
+python scripts/audit_module_sources.py --self-test
+python scripts/audit_module_sources.py --root .
+cmake --build <build> --target acs_module_sources_check
+```
+
 ワークフロー: `.Build.cs` を編集 → `acsbuild gen` → `Module.cmake` 再生成 →
 CMake 構成 → ビルド。`--check` を CI に置けば「`.Build.cs` と `Module.cmake` の
 ズレ」を検出できる。

@@ -13,12 +13,43 @@
 #include "gameframework/RigidWorld2D.h"
 #include "math/Vec.h"
 #include "container/Array.h"
+#include "memory/SystemAllocator.h"
 
 #include <cstring>   // std::strlen
 #include <cmath>     // std::fabs
 
 using namespace acs;
 using namespace acs::game;
+
+namespace {
+
+class FTilemapFailAllocator final : public FAllocator {
+public:
+    void* Alloc(usize, usize, FSourceLoc) noexcept override { return nullptr; }
+    void Free(void*) noexcept override {}
+};
+
+class FTilemapSwitchAllocator final : public FAllocator {
+public:
+    explicit FTilemapSwitchAllocator(FAllocator& backing) noexcept
+        : m_Backing(&backing) {}
+
+    void SetFailing(bool failing) noexcept { m_Failing = failing; }
+
+    void* Alloc(
+        usize size, usize alignment, FSourceLoc location) noexcept override {
+        return m_Failing
+            ? nullptr
+            : m_Backing->Alloc(size, alignment, location);
+    }
+    void Free(void* pointer) noexcept override { m_Backing->Free(pointer); }
+
+private:
+    FAllocator* m_Backing = nullptr;
+    bool m_Failing = false;
+};
+
+} // namespace
 
 // Tiled Map Editor の JSON マップを取り込む (row-major data、GID→FTileId)。
 ACS_TEST(Tilemap, LoadTiledJson) {
@@ -44,6 +75,122 @@ ACS_TEST(Tilemap, LoadTiledJsonRejectsInvalid) {
     FTilemap m;
     const char* bad = R"({"width":0,"height":0,"layers":[]})";
     EXPECT_TRUE(m.LoadTiledJson(bad, std::strlen(bad)).IsErr());
+}
+
+ACS_TEST(Tilemap, CheckedLoadIsTransactionalOnDuplicateAndTruncatedData) {
+    FTilemap map;
+    map.Init(2u, 2u, 1u, 8.0f);
+    map.SetTile(0u, 0u, FTileId(77u));
+    const FTileId* const old_data = map.LayerData(0u);
+
+    const char* duplicate =
+        R"({"width":2,"width":3,"height":2,"tilewidth":16,)"
+        R"("layers":[{"type":"tilelayer","data":[1,2,3,4]}]})";
+    const FTilemapLoadResult duplicate_result =
+        map.TryLoadTiledJson(duplicate, std::strlen(duplicate));
+    EXPECT_EQ(duplicate_result.Error, ETilemapLoadError::DuplicateMember);
+    EXPECT_TRUE(map.LayerData(0u) == old_data);
+    EXPECT_EQ(map.Width(), 2u);
+    EXPECT_EQ(map.GetTile(0u, 0u).value, static_cast<u16>(77u));
+
+    const char* truncated =
+        R"({"width":2,"height":2,"tilewidth":16,)"
+        R"("layers":[{"type":"tilelayer","data":[1,2,3]}]})";
+    const FTilemapLoadResult truncated_result =
+        map.TryLoadTiledJson(truncated, std::strlen(truncated));
+    EXPECT_EQ(
+        truncated_result.Error, ETilemapLoadError::DataLengthMismatch);
+    EXPECT_TRUE(map.LayerData(0u) == old_data);
+    EXPECT_EQ(map.GetTile(0u, 0u).value, static_cast<u16>(77u));
+}
+
+ACS_TEST(Tilemap, CheckedLoadRejectsFractionalHugeAndNonFiniteNumbers) {
+    FTilemap map;
+    const char* fractional =
+        R"({"width":2.5,"height":2,"tilewidth":16,)"
+        R"("layers":[{"type":"tilelayer","data":[1,2,3,4]}]})";
+    EXPECT_EQ(
+        map.TryLoadTiledJson(fractional, std::strlen(fractional)).Error,
+        ETilemapLoadError::InvalidInteger);
+
+    const char* huge =
+        R"({"width":4294967295,"height":4294967295,"tilewidth":16,)"
+        R"("layers":[{"type":"tilelayer","data":[]}]})";
+    EXPECT_EQ(
+        map.TryLoadTiledJson(huge, std::strlen(huge)).Error,
+        ETilemapLoadError::DimensionLimitExceeded);
+
+    const char* non_finite =
+        R"({"width":1,"height":1,"tilewidth":1e999,)"
+        R"("layers":[{"type":"tilelayer","data":[1]}]})";
+    EXPECT_EQ(
+        map.TryLoadTiledJson(non_finite, std::strlen(non_finite)).Error,
+        ETilemapLoadError::NonFiniteNumber);
+}
+
+ACS_TEST(Tilemap, CheckedLoadRejectsEmbeddedNulAndExcessiveDepth) {
+    FTilemap map;
+    const char embedded[] = {
+        '{', '"', 'w', 'i', 'd', 't', 'h', '"', ':', '1', ',',
+        '\0', '"', 'h', 'e', 'i', 'g', 'h', 't', '"', ':', '1', '}'
+    };
+    EXPECT_EQ(
+        map.TryLoadTiledJson(embedded, sizeof(embedded)).Error,
+        ETilemapLoadError::EmbeddedNul);
+
+    char deep[FTilemap::kMaxJsonDepth + 3u]{};
+    for (u32 i = 0u; i <= FTilemap::kMaxJsonDepth; ++i) deep[i] = '[';
+    deep[FTilemap::kMaxJsonDepth + 1u] = '0';
+    deep[FTilemap::kMaxJsonDepth + 2u] = ']';
+    EXPECT_EQ(
+        map.TryLoadTiledJson(deep, sizeof(deep)).Error,
+        ETilemapLoadError::JsonDepthExceeded);
+}
+
+ACS_TEST(Tilemap, CheckedInitRejectsOverflowAndReportsAllocationFailure) {
+    FTilemap map;
+    map.Init(2u, 2u);
+    const FTileId* const old_data = map.LayerData(0u);
+    EXPECT_EQ(
+        map.TryInit(0xFFFFFFFFu, 0xFFFFFFFFu, 32u, 16.0f).Error,
+        ETilemapLoadError::DimensionLimitExceeded);
+    EXPECT_TRUE(map.LayerData(0u) == old_data);
+
+    FTilemapFailAllocator allocator;
+    FTilemap failing_map(allocator);
+    EXPECT_EQ(
+        failing_map.TryInit(2u, 2u, 1u, 16.0f).Error,
+        ETilemapLoadError::AllocationFailure);
+    EXPECT_EQ(failing_map.Width(), 0u);
+    EXPECT_EQ(failing_map.LayerCount(), 0u);
+}
+
+ACS_TEST(Tilemap, AllocationFailurePreservesExistingLayersAndPublishedPointer) {
+    FSystemAllocator backing;
+    FTilemapSwitchAllocator allocator(backing);
+    FTilemap map(allocator);
+    EXPECT_TRUE(map.TryInit(2u, 2u, 1u, 16.0f).Succeeded());
+    map.SetTile(1u, 1u, FTileId(55u));
+    const FTileId* const old_data = map.LayerData(0u);
+
+    allocator.SetFailing(true);
+    const FTilemapLoadResult result = map.TryInit(3u, 3u, 2u, 8.0f);
+    EXPECT_EQ(result.Error, ETilemapLoadError::AllocationFailure);
+    EXPECT_TRUE(map.LayerData(0u) == old_data);
+    EXPECT_EQ(map.Width(), 2u);
+    EXPECT_EQ(map.Height(), 2u);
+    EXPECT_EQ(map.LayerCount(), 1u);
+    EXPECT_EQ(map.GetTile(1u, 1u).value, static_cast<u16>(55u));
+    allocator.SetFailing(false);
+}
+
+ACS_TEST(Tilemap, CheckedLoadAllowsUnknownTiledExtensionMembers) {
+    FTilemap map;
+    const char* json =
+        R"({"width":1,"height":1,"tilewidth":16,"future":{"enabled":true},)"
+        R"("layers":[{"type":"tilelayer","futureLayer":7,"data":[5]}]})";
+    EXPECT_TRUE(map.TryLoadTiledJson(json, std::strlen(json)).Succeeded());
+    EXPECT_EQ(map.GetTile(0u, 0u).value, static_cast<u16>(5u));
 }
 
 // 行マージ: 連続する solid タイルは 1 つの幅広 AABB にまとまる。
@@ -133,7 +280,7 @@ ACS_TEST(TilemapNav, PathfindAroundWall) {
     map.Init(10, 5, 1, 1.0f);
     for (u32 y = 0; y < 4; ++y) map.SetTile(5, y, FTileId(1), 0);   // 壁 x=5, y=0..3 (y=4 が隙間)
 
-    NavGrid nav;
+    FNavGrid nav;
     BuildNavGridFromTilemap(map, 0, nav);
 
     TArray<FVec2> path;
@@ -158,7 +305,7 @@ ACS_TEST(TilemapNav, NoPathWhenFullyBlocked) {
     map.Init(10, 5, 1, 1.0f);
     for (u32 y = 0; y < 5; ++y) map.SetTile(5, y, FTileId(1), 0);   // 全行を塞ぐ
 
-    NavGrid nav;
+    FNavGrid nav;
     BuildNavGridFromTilemap(map, 0, nav);
 
     TArray<FVec2> path;

@@ -61,9 +61,9 @@ public:
      * LocalMatchFull エラーを返す。
      * @param mode 検索モードの文字列キー (内部に最大 63 文字をコピー)。
      * @param elo_hint 呼出側が知っている rating 推定値。
-     * @return 成功なら発行された MatchTicket、失敗ならエラー。
+     * @return 成功なら発行された FMatchTicket、失敗ならエラー。
      */
-    acs::TResult<acs::game::MatchTicket> StartSearch(const char* mode,
+    acs::TResult<acs::game::FMatchTicket> StartSearch(const char* mode,
                                                       acs::u32 elo_hint) noexcept override;
 
     /**
@@ -75,7 +75,7 @@ public:
      * @param ticket キャンセル対象の ticket。
      * @return 成功なら空の TResult、無効 ticket ならエラー。
      */
-    acs::TResult<void>                   CancelSearch(acs::game::MatchTicket ticket) noexcept override;
+    acs::TResult<void>                   CancelSearch(acs::game::FMatchTicket ticket) noexcept override;
 
     /**
      * 現在の検索状態を返す (副作用なし)。
@@ -83,7 +83,7 @@ public:
      * @param ticket 状態を引く ticket。
      * @return 対応する EMatchStatus (未知 / 無効 ticket は Failed)。
      */
-    acs::game::EMatchStatus              PollStatus(acs::game::MatchTicket ticket) noexcept override;
+    acs::game::EMatchStatus              PollStatus(acs::game::FMatchTicket ticket) noexcept override;
 
     /**
      * Matched 状態の ticket を確定する。
@@ -95,7 +95,7 @@ public:
      * @param ticket 確定する ticket。
      * @return 成功なら空の TResult、無効 ticket / 状態不正ならエラー。
      */
-    acs::TResult<void>                   AcceptMatch(acs::game::MatchTicket ticket) noexcept override;
+    acs::TResult<void>                   AcceptMatch(acs::game::FMatchTicket ticket) noexcept override;
 
     /** 全スロットを初期化し、ticket / retire シーケンスと有効数を 0 に戻す。 */
     void Clear() noexcept;
@@ -113,7 +113,7 @@ private:
      */
     struct FEntry {
         /** このスロットに発行された ticket (m_Opaque=0 は未発行)。 */
-        acs::game::MatchTicket Ticket{};
+        acs::game::FMatchTicket Ticket{};
 
         /** 現在の検索状態。 */
         acs::game::EMatchStatus Status = acs::game::EMatchStatus::Failed;
@@ -183,7 +183,7 @@ private:
      * @param ticket 探す ticket (無効値は nullptr)。
      * @return 一致した bActive なスロット (無ければ nullptr)。
      */
-    FEntry* FindEntry(acs::game::MatchTicket ticket) noexcept;
+    FEntry* FindEntry(acs::game::FMatchTicket ticket) noexcept;
 
     /**
      * ticket に対応するアクティブなスロットを探す (const 版)。
@@ -191,7 +191,7 @@ private:
      * @param ticket 探す ticket (無効値は nullptr)。
      * @return 一致した bActive なスロットへの const ポインタ (無ければ nullptr)。
      */
-    const FEntry* FindEntry(acs::game::MatchTicket ticket) const noexcept;
+    const FEntry* FindEntry(acs::game::FMatchTicket ticket) const noexcept;
 
     /**
      * 新規 ticket を入れられるスロットを確保する。

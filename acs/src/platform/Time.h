@@ -2,7 +2,7 @@
 // 時間計測（高精度タイマ + フレーム時間管理）
 //
 // 使い方:
-//   FrameTimer ft;
+//   FFrameTimer ft;
 //   while (running) {
 //       f32 dt = ft.Tick();   // 経過秒（前フレームから今フレームまで）
 //       Update(dt);
@@ -21,7 +21,7 @@ namespace acs {
  * 実装は std::chrono::steady_clock ベースで、初回参照時を起点とする単調増加時刻を返す。
  * Windows では内部的に QPC、Linux/macOS では CLOCK_MONOTONIC 相当。
  */
-class Clock {
+class FClock {
 public:
     /**
      * 起動 (初回参照) からの経過秒を返す。
@@ -59,10 +59,10 @@ public:
  *
  * @details 前回 Tick からの経過秒を返しつつ、平滑化 dt・累積秒・累積フレーム数を更新する。
  */
-class FrameTimer {
+class FFrameTimer {
 public:
     /** 現在時刻を基準点にしてタイマを初期化する。 */
-    FrameTimer() noexcept;
+    FFrameTimer() noexcept;
 
     /**
      * 前回呼び出しからの経過秒を返し、内部状態を更新する。

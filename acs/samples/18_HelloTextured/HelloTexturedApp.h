@@ -18,7 +18,7 @@
 
 namespace hellotextured {
 
-class HelloTexturedApp : public acs::FApplication {
+class FHelloTexturedApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;

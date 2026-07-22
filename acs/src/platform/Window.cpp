@@ -9,7 +9,7 @@
 
 namespace acs {
 
-void FWindow::DispatchEvent_Internal(const Event& e) noexcept {
+void FWindow::DispatchEvent_Internal(const FEvent& e) noexcept {
     if (m_Callback) m_Callback(m_CallbackUser, e);
 }
 
@@ -20,7 +20,7 @@ namespace {
  *
  * @param vk WM_KEY* で渡される仮想キーコード (WPARAM)。
  * @param l_param WM_KEY* の LPARAM (bit24 の拡張フラグで左右の修飾キーを判別)。
- * @return 対応する EKey (未対応なら EKey::Unknown)。
+ * @return 対応する EKey（未対応なら EKey::Unknown）。
  */
 EKey VkToKey(WPARAM vk, LPARAM l_param) noexcept {
     const bool extended = (l_param & (1 << 24)) != 0;  // 右側修飾キー判別用
@@ -119,7 +119,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
     switch (msg) {
         case WM_CLOSE: {
             // × ボタン押下 → ShouldClose を立ててアプリに通知
-            Event e{}; e.type = EventType::WindowClose;
+            FEvent e{}; e.type = EEventType::WindowClose;
             w->Close();
             w->DispatchEvent_Internal(e);
             return 0;
@@ -128,23 +128,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
             const u32 width  = static_cast<u32>(LOWORD(lp));
             const u32 height = static_cast<u32>(HIWORD(lp));
             w->UpdateSize_Internal(width, height);
-            Event e{}; e.type = EventType::WindowResize;
+            FEvent e{}; e.type = EEventType::WindowResize;
             e.resize.width = width; e.resize.height = height;
             w->DispatchEvent_Internal(e);
             return 0;
         }
         case WM_SETFOCUS:
         case WM_KILLFOCUS: {
-            Event e{};
-            e.type = (msg == WM_SETFOCUS) ? EventType::WindowFocus : EventType::WindowLostFocus;
+            FEvent e{};
+            e.type = (msg == WM_SETFOCUS) ? EEventType::WindowFocus : EEventType::WindowLostFocus;
             w->DispatchEvent_Internal(e);
             return 0;
         }
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN: {
             const bool repeat = (lp & (1 << 30)) != 0;
-            Event e{};
-            e.type = repeat ? EventType::KeyRepeat : EventType::KeyPressed;
+            FEvent e{};
+            e.type = repeat ? EEventType::KeyRepeat : EEventType::KeyPressed;
             e.key.key = VkToKey(wp, lp);
             e.key.repeat = repeat;
             w->DispatchEvent_Internal(e);
@@ -152,7 +152,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
         }
         case WM_KEYUP:
         case WM_SYSKEYUP: {
-            Event e{}; e.type = EventType::KeyReleased;
+            FEvent e{}; e.type = EEventType::KeyReleased;
             e.key.key = VkToKey(wp, lp);
             e.key.repeat = false;
             w->DispatchEvent_Internal(e);
@@ -164,23 +164,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
             EMouseButton b = EMouseButton::Left;
             if (msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP) b = EMouseButton::Right;
             if (msg == WM_MBUTTONDOWN || msg == WM_MBUTTONUP) b = EMouseButton::Middle;
-            Event e{};
-            e.type = down ? EventType::MouseButtonPressed : EventType::MouseButtonReleased;
+            FEvent e{};
+            e.type = down ? EEventType::MouseButtonPressed : EEventType::MouseButtonReleased;
             e.mouse_button.button = b;
             w->DispatchEvent_Internal(e);
             return 0;
         }
         case WM_MOUSEMOVE: {
-            Event e{}; e.type = EventType::MouseMoved;
+            FEvent e{}; e.type = EEventType::MouseMoved;
             e.mouse_move.x = static_cast<f32>(GET_X_LPARAM(lp));
             e.mouse_move.y = static_cast<f32>(GET_Y_LPARAM(lp));
-            e.mouse_move.dx = 0;  // 差分は Input::Update 側で計算
+            e.mouse_move.dx = 0;  // 差分は FInput::Update 側で計算
             e.mouse_move.dy = 0;
             w->DispatchEvent_Internal(e);
             return 0;
         }
         case WM_MOUSEWHEEL: {
-            Event e{}; e.type = EventType::MouseScrolled;
+            FEvent e{}; e.type = EEventType::MouseScrolled;
             e.mouse_scroll.x = 0;
             e.mouse_scroll.y = static_cast<f32>(GET_WHEEL_DELTA_WPARAM(wp)) / WHEEL_DELTA;
             w->DispatchEvent_Internal(e);
@@ -189,7 +189,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
         case WM_CHAR: {
             // 制御文字はスキップ
             if (wp >= 32) {
-                Event e{}; e.type = EventType::CharInput;
+                FEvent e{}; e.type = EEventType::CharInput;
                 e.char_input.codepoint = static_cast<u32>(wp);
                 w->DispatchEvent_Internal(e);
             }

@@ -62,7 +62,7 @@
 //     ImGui 描画専任、時刻進行は別 hook (= Workspace の OnFrameBegin 経由 or
 //     FSample 側が明示的に Tick) に分離してテスト容易性を確保。本 panel の
 //     FEditorPanel::OnFrameBegin は override せず、呼出側が Tick(dt) を直接
-//     呼ぶ規約 (= Workspace の dt と FAnimation の dt は分離したい場面用)。
+//     呼ぶ規約 (= Workspace の dt と animation の dt は分離したい場面用)。
 //   ・**duration 到達時の挙動**: clip の `is_looping` または `m_LoopOverride`
 //     が true なら wrap (= `m_CurrentTime = fmodf(t, dur)`)、そうでなければ
 //     `_state = Stopped` + `m_CurrentTime = dur` で末尾に固定。
@@ -353,15 +353,15 @@ public:
     /**
      * window タイトル (ImGui::Begin の引数兼 ID) を返す。
      *
-     * @return 固定リテラル "FAnimation"。
+     * @return 固定リテラル "Animation"。
      */
-    const char* Title() const noexcept override { return "FAnimation"; }
+    const char* Title() const noexcept override { return "Animation"; }
 
     /**
      * ImGui window 本体を描画する。
      *
      * @details
-     * ImGui::Begin "FAnimation" + ClipCombo + Time slider + Play/Pause/Stop +
+     * ImGui::Begin "Animation" + ClipCombo + Time slider + Play/Pause/Stop +
      * Loop checkbox + Speed slider + BlendWeight slider を描画する。IsVisible() が
      * false なら早期 return する (close ボタンで隠せる)。
      */

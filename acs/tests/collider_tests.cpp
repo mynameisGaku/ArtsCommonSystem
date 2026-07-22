@@ -11,7 +11,7 @@ using namespace acs;
 namespace {
 
 /** 16x16 RGBA8 画像。FillRect で矩形領域を不透明 (alpha=255) にする簡易ヘルパ。 */
-struct Img {
+struct FImg {
     static constexpr u32 kW = 16;
     static constexpr u32 kH = 16;
     u8 px[kW * kH * 4] = {};
@@ -28,15 +28,15 @@ struct Img {
 
 // ---- 8x8 不透明ブロック → 凸包と AABB ------------------------------------
 ACS_TEST(SpriteCollider, BuildSquareHullBounds) {
-    Img img;
+    FImg img;
     img.FillRect(4, 4, 12, 12);  // 画素 4..11 (8x8)
     FSpriteCollider col;
-    auto r = col.BuildFromAlpha(img.px, Img::kW, Img::kH, 128, 1.5f);
+    auto r = col.BuildFromAlpha(img.px, FImg::kW, FImg::kH, 128, 1.5f);
     EXPECT_TRUE(r.IsOk());
     EXPECT_TRUE(col.HullCount() >= 3);
     EXPECT_TRUE(col.HullCount() <= FSpriteCollider::kMaxVertices);
 
-    const Aabb2 b = col.Bounds();           // 不透明ブロックを包む AABB
+    const FAabb2 b = col.Bounds();           // 不透明ブロックを包む AABB
     EXPECT_TRUE(b.center.x > 6.0f && b.center.x < 10.0f);
     EXPECT_TRUE(b.center.y > 6.0f && b.center.y < 10.0f);
     EXPECT_TRUE(b.half_size.x >= 3.0f && b.half_size.x <= 5.0f);
@@ -45,10 +45,10 @@ ACS_TEST(SpriteCollider, BuildSquareHullBounds) {
 
 // ---- ContainsPoint: 内側 true / 外側 false --------------------------------
 ACS_TEST(SpriteCollider, ContainsPoint) {
-    Img img;
+    FImg img;
     img.FillRect(4, 4, 12, 12);
     FSpriteCollider col;
-    EXPECT_TRUE(col.BuildFromAlpha(img.px, Img::kW, Img::kH).IsOk());
+    EXPECT_TRUE(col.BuildFromAlpha(img.px, FImg::kW, FImg::kH).IsOk());
     EXPECT_TRUE(col.ContainsPoint(FVec2{8.0f, 8.0f}));    // 中心
     EXPECT_FALSE(col.ContainsPoint(FVec2{0.0f, 0.0f}));   // 左上の外
     EXPECT_FALSE(col.ContainsPoint(FVec2{15.0f, 15.0f})); // 右下の外
@@ -58,6 +58,6 @@ ACS_TEST(SpriteCollider, ContainsPoint) {
 ACS_TEST(SpriteCollider, RejectsBadInput) {
     FSpriteCollider col;
     EXPECT_TRUE(col.BuildFromAlpha(nullptr, 16, 16).IsErr());   // null 画像
-    Img empty;                                                  // 全透明
-    EXPECT_TRUE(col.BuildFromAlpha(empty.px, Img::kW, Img::kH).IsErr());
+    FImg empty;                                                  // 全透明
+    EXPECT_TRUE(col.BuildFromAlpha(empty.px, FImg::kW, FImg::kH).IsErr());
 }

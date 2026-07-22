@@ -20,7 +20,7 @@ namespace acs::game {
  * 1 スコープぶんのサブシステムを所有・駆動するコレクション。
  *
  * @details
- * FGame が Engine / GameInstance を、各 Scene が World を 1 つずつ持つ。parent を辿る
+ * FGame が Engine / GameInstance を、各 FScene が World を 1 つずつ持つ。parent を辿る
  * フォールバック検索で、下位スコープから上位スコープのサブシステムも透過的に取得できる。
  */
 class FSubsystemCollection {
@@ -39,7 +39,7 @@ public:
      *
      * @param scope  このコレクションのスコープ。
      * @param parent 上位スコープのコレクション(Get<T> のフォールバック先。null 可)。
-     * @param owner  所有コンテキスト(World=Scene, GameInstance/Engine=FGame。各 subsystem の Owner())。
+     * @param owner  所有コンテキスト(World=FScene, GameInstance/Engine=FGame。各 subsystem の Owner())。
      */
     void Initialize(ESubsystemScope scope, FSubsystemCollection* parent = nullptr, void* owner = nullptr) noexcept {
         if (m_Initialized) return;

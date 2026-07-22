@@ -197,9 +197,9 @@ void FEditorToolbar::DrawUI() noexcept {
     ImGui::TextUnformatted("|");
     ImGui::SameLine();
 
-    // FDebugOverlay 切替。
+    // デバッグオーバーレイ表示を切り替える。
     // bool flag を ImGui::Checkbox で切り替えるだけ。実描画は外側の責務。
-    ImGui::Checkbox("FDebugOverlay", &m_ShowDebugOverlay);
+    ImGui::Checkbox("Debug Overlay", &m_ShowDebugOverlay);
 
     ImGui::SameLine();
     ImGui::TextUnformatted("|");

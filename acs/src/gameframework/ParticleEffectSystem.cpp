@@ -63,13 +63,13 @@ u32 FParticleEffectSystem::AcquireEmitterSlot() noexcept {
  * lifetime_sec <= 0 の def は無効 (放出しても直ちに死ぬため)。gen を 1 進め、0 に
  * ラップしたら 1 に戻す (0 は IsValid==false なので handle として配れない)。
  */
-FEmitterHandle FParticleEffectSystem::CreateEmitter(const ParticleEmitterDef& def, FVec2 pos) noexcept {
+FEmitterHandle FParticleEffectSystem::CreateEmitter(const FParticleEmitterDef& def, FVec2 pos) noexcept {
     if (def.lifetime_sec <= 0.0f) return {};
 
     const u32 idx = AcquireEmitterSlot();
     if (idx == kInvalidIdx) return {};
 
-    Emitter& e = m_Emitters[static_cast<usize>(idx)];
+    FEmitter& e = m_Emitters[static_cast<usize>(idx)];
 
     u8 new_gen = static_cast<u8>(e.gen + 1u);
     if (new_gen == 0u) new_gen = 1u;
@@ -96,7 +96,7 @@ void FParticleEffectSystem::SetEmitterPosition(FEmitterHandle h, FVec2 pos) noex
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
     if (idx >= m_Emitters.Size()) return;
-    Emitter& e = m_Emitters[static_cast<usize>(idx)];
+    FEmitter& e = m_Emitters[static_cast<usize>(idx)];
     if (!e.in_use || e.gen != h.Gen()) return;
     e.pos = pos;
 }
@@ -112,7 +112,7 @@ void FParticleEffectSystem::SetEmitterActive(FEmitterHandle h, bool active) noex
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
     if (idx >= m_Emitters.Size()) return;
-    Emitter& e = m_Emitters[static_cast<usize>(idx)];
+    FEmitter& e = m_Emitters[static_cast<usize>(idx)];
     if (!e.in_use || e.gen != h.Gen()) return;
     e.active     = active;
     // 非 active → active で「emit_accum が大きく残っていて急に大量放出」を
@@ -133,7 +133,7 @@ void FParticleEffectSystem::Burst(FEmitterHandle h) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
     if (idx >= m_Emitters.Size()) return;
-    const Emitter& e = m_Emitters[static_cast<usize>(idx)];
+    const FEmitter& e = m_Emitters[static_cast<usize>(idx)];
     if (!e.in_use || e.gen != h.Gen()) return;
     if (e.def.burst_count <= 0.0f) return;
 
@@ -159,7 +159,7 @@ void FParticleEffectSystem::DestroyEmitter(FEmitterHandle h) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
     if (idx >= m_Emitters.Size()) return;
-    Emitter& e = m_Emitters[static_cast<usize>(idx)];
+    FEmitter& e = m_Emitters[static_cast<usize>(idx)];
     if (!e.in_use || e.gen != h.Gen()) return;
 
     e.in_use     = false;
@@ -205,11 +205,11 @@ u32 FParticleEffectSystem::AcquireParticleSlot() noexcept {
  * [speed_min, speed_max] の一様乱数、position は emitter の pos、age=0 で
  * lifetime / color / scale / gravity は def をコピーする。pool 満杯時は何もしない。
  */
-void FParticleEffectSystem::EmitOne(const Emitter& e) noexcept {
+void FParticleEffectSystem::EmitOne(const FEmitter& e) noexcept {
     const u32 idx = AcquireParticleSlot();
     if (idx == kInvalidIdx) return;
 
-    Particle& p = m_Particles[static_cast<usize>(idx)];
+    FParticle& p = m_Particles[static_cast<usize>(idx)];
 
     // 方向: 単位円周上の一様サンプル
     const f32 angle = NextRandRange(0.0f, kTwoPi);
@@ -246,7 +246,7 @@ void FParticleEffectSystem::Tick(f32 dt) noexcept {
     // ---- 連続放出 ----------------------------------------------------------
     const usize en = m_Emitters.Size();
     for (usize i = 0; i < en; ++i) {
-        Emitter& e = m_Emitters[i];
+        FEmitter& e = m_Emitters[i];
         if (!e.in_use || !e.active) continue;
         if (e.def.emit_rate_per_sec <= 0.0f) continue;
 
@@ -274,7 +274,7 @@ void FParticleEffectSystem::Tick(f32 dt) noexcept {
     for (usize i = 0; i < pn; ++i) {
         if (m_ParticleActive[i] == 0u) continue;
 
-        Particle& p = m_Particles[i];
+        FParticle& p = m_Particles[i];
 
         // semi-implicit Euler: v <- v + g*dt, p <- p + v*dt
         p.velocity.x += p.gravity.x * dt;
@@ -297,7 +297,7 @@ void FParticleEffectSystem::Tick(f32 dt) noexcept {
 }
 
 /** particle pool の先頭ポインタと全体サイズを返す (Init 前は nullptr / 0)。 */
-const Particle* FParticleEffectSystem::AllParticles(u32& out_count) const noexcept {
+const FParticle* FParticleEffectSystem::AllParticles(u32& out_count) const noexcept {
     out_count = m_Capacity;
     if (m_Capacity == 0u) return nullptr;
     return m_Particles.Data();
@@ -308,7 +308,7 @@ void FParticleEffectSystem::ClearAll() noexcept {
     // emitter slot を全て解放 (gen はそのまま残す = stale handle 検出を維持)
     const usize en = m_Emitters.Size();
     for (usize i = 0; i < en; ++i) {
-        Emitter& e = m_Emitters[i];
+        FEmitter& e = m_Emitters[i];
         e.in_use     = false;
         e.active     = false;
         e.emit_accum = 0.0f;

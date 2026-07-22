@@ -10,37 +10,37 @@ using namespace acs;
 
 namespace helloparticles {
 
-bool ParticleScene::Init(IRhiTexture* glow_tex, FVec2 initial_pos) noexcept {
+bool FParticleScene::Init(IRhiTexture* glow_tex, FVec2 initial_pos) noexcept {
     if (auto r = m_Ps.Init(kParticleCapacity); r.IsErr()) return false;
     m_Ps.SetTexture(glow_tex);
     ApplyPreset(0, initial_pos);
     return true;
 }
 
-void ParticleScene::Shutdown() noexcept {
+void FParticleScene::Shutdown() noexcept {
     m_Ps.Shutdown();
 }
 
-void ParticleScene::Update(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Space)) {
+void FParticleScene::Update(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Space)) {
         m_Ps.Emitter().active = !m_Ps.Emitter().active;
     }
 
-    FVec2 mp = Input::MousePos();
-    if (Input::IsKeyPressed(EKey::Num1)) ApplyPreset(0, mp);
-    if (Input::IsKeyPressed(EKey::Num2)) ApplyPreset(1, mp);
-    if (Input::IsKeyPressed(EKey::Num3)) ApplyPreset(2, mp);
-    if (Input::IsKeyPressed(EKey::Num4)) ApplyPreset(3, mp);
+    FVec2 mp = FInput::MousePos();
+    if (FInput::IsKeyPressed(EKey::Num1)) ApplyPreset(0, mp);
+    if (FInput::IsKeyPressed(EKey::Num2)) ApplyPreset(1, mp);
+    if (FInput::IsKeyPressed(EKey::Num3)) ApplyPreset(2, mp);
+    if (FInput::IsKeyPressed(EKey::Num4)) ApplyPreset(3, mp);
 
     // エミッタを毎フレームマウス位置に追従
     m_Ps.Emitter().position = mp;
 
     // 左クリックで爆発
-    if (Input::IsMouseButtonPressed(EMouseButton::Left)) {
-        EmitterDesc burst = EmitterDesc::Sparks(mp);
+    if (FInput::IsMouseButtonPressed(EMouseButton::Left)) {
+        FEmitterDesc burst = FEmitterDesc::Sparks(mp);
         burst.rate_per_sec = 0;            // バーストのみ
         burst.life_seconds = 0.8f;
-        EmitterDesc save = m_Ps.Emitter();
+        FEmitterDesc save = m_Ps.Emitter();
         m_Ps.SetEmitter(burst);
         m_Ps.EmitBurst(120);
         m_Ps.SetEmitter(save);
@@ -50,8 +50,8 @@ void ParticleScene::Update(f32 dt) noexcept {
     m_Ps.Update(dt);
 }
 
-void ParticleScene::Render(FSpriteBatch& batch,
-                           Font& font,
+void FParticleScene::Render(FSpriteBatch& batch,
+                           FFont& font,
                            u32 screen_h,
                            f32 fps) noexcept {
     m_Ps.Render(batch);
@@ -72,15 +72,15 @@ void ParticleScene::Render(FSpriteBatch& batch,
     }
 }
 
-void ParticleScene::ApplyPreset(u32 idx, FVec2 pos) noexcept {
+void FParticleScene::ApplyPreset(u32 idx, FVec2 pos) noexcept {
     m_Preset = idx;
-    EmitterDesc d;
+    FEmitterDesc d;
     switch (idx) {
-        case 0: d = EmitterDesc::Fire(pos);     break;
-        case 1: d = EmitterDesc::Sparks(pos);   break;
-        case 2: d = EmitterDesc::Fountain(pos); break;
-        case 3: d = EmitterDesc::Smoke(pos);    break;
-        default:d = EmitterDesc::Fire(pos);     break;
+        case 0: d = FEmitterDesc::Fire(pos);     break;
+        case 1: d = FEmitterDesc::Sparks(pos);   break;
+        case 2: d = FEmitterDesc::Fountain(pos); break;
+        case 3: d = FEmitterDesc::Smoke(pos);    break;
+        default:d = FEmitterDesc::Fire(pos);     break;
     }
     m_Ps.SetEmitter(d);
 }

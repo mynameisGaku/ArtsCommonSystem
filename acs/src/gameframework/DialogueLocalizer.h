@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework 完成度システム — FDialogueLocalizer (Dialogue × Localization 橋渡し)
 //
-// FDialogueSystem は本文 (`DialogueLine::text`) を const char* で参照のみ持つ。
+// FDialogueSystem は本文 (`FDialogueLine::text`) を const char* で参照のみ持つ。
 // 多言語タイトルでは「同じシナリオ行を locale ごとに別文字列で出したい」
 // = ロケール切替で本文 / 選択肢の表示を差し替えたい、という要件が必ず出る。
 //
@@ -22,7 +22,7 @@
 //     FLocalizationDirector は通常 1 セッション 1 インスタンスで他システムと共有
 //     される (Pillar S i18n の中心)。ここで所有すると共有が壊れる。
 //   ・**選択肢は line_index に紐づくフラット配列**: FDialogueSystem の choices
-//     データ構造と同じ形 (ChoicesAt の (start, count) スライス) を踏襲。
+//     データ構造と同じ形 (FChoicesAt の (start, count) スライス) を踏襲。
 //     線形検索だが典型シナリオで N < 数百のため十分。
 //   ・**callback 方式 (関数ポインタ + void* user)**: std::function 禁止方針に
 //     従う既存 GameFramework 規約 (FCinematicsDirector / FPauseDirector 等で
@@ -36,9 +36,9 @@
 //
 // 想定使い方:
 //   FDialogueLocalizer dl;
-//   LocalizedDialogueLine l0{"char.alice", "scene1.line0", 30.0f};
+//   FLocalizedDialogueLine l0{"char.alice", "scene1.line0", 30.0f};
 //   dl.RegisterLine(l0);
-//   LocalizedDialogueChoice ch[2] = { {"scene1.choice0", 1}, {"scene1.choice1", 2} };
+//   FLocalizedDialogueChoice ch[2] = { {"scene1.choice0", 1}, {"scene1.choice1", 2} };
 //   dl.RegisterChoice(0, ch, 2);
 //
 //   dl.SetLocalizer(&loc);
@@ -52,7 +52,7 @@
 //   ・スクリプト / JSON からの自動取り込み → ツール側で Register* 列に変換する想定
 //   ・フォントフォールバック / RTL → Pillar Q Polish 側の UI 描画責務
 //
-// 参考: gameframework/FDialogueSystem.h, gameframework/FLocalizationDirector.h
+// 参考: gameframework/DialogueSystem.h, gameframework/LocalizationDirector.h
 #pragma once
 
 #include "foundation/Types.h"
@@ -60,7 +60,7 @@
 
 namespace acs::game {
 
-// 前方宣言: ヘッダ依存を最小化 (FLocalizationDirector.h を巻き込まない)
+// 前方宣言: ヘッダ依存を最小化 (LocalizationDirector.h を巻き込まない)
 class FLocalizationDirector;
 
 /**
@@ -71,14 +71,14 @@ class FLocalizationDirector;
  * speaker_id も翻訳キー扱いで、const char* メンバは非所有 (literal / 長寿命
  * バッファ前提)。
  */
-struct LocalizedDialogueLine {
+struct FLocalizedDialogueLine {
     /** 発話者名の翻訳 key (nullptr 可 = ナレーション)。 */
     const char* speaker_id    = nullptr;
 
     /** 本文の翻訳 key (nullptr 可 = 空行)。 */
     const char* line_key      = nullptr;
 
-    /** タイプ速度 (DialogueLine と同義、<=0 で瞬時)。 */
+    /** タイプ速度 (FDialogueLine と同義、<=0 で瞬時)。 */
     f32         type_speed_cps = 30.0f;
 };
 
@@ -87,9 +87,9 @@ struct LocalizedDialogueLine {
  *
  * @details
  * 表示テキストは翻訳 key 経由で取得する。next_line_index が範囲外 (>= LineCount)
- * なら「ダイアログ終了」を表現する (DialogueChoice::next_line_index と同契約)。
+ * なら「ダイアログ終了」を表現する (FDialogueChoice::next_line_index と同契約)。
  */
-struct LocalizedDialogueChoice {
+struct FLocalizedDialogueChoice {
     /** 選択肢表示の翻訳 key。 */
     const char* text_key        = nullptr;
 
@@ -142,7 +142,7 @@ public:
      * @details 挿入順に index が振られる (0,1,2,...)。
      * @param line 追加するローカライズ可能ダイアログ行。
      */
-    void RegisterLine(const LocalizedDialogueLine& line) noexcept;
+    void RegisterLine(const FLocalizedDialogueLine& line) noexcept;
 
     /**
      * at_line_index 行に紐づく選択肢群を登録する。
@@ -156,7 +156,7 @@ public:
      * @param count choices の要素数。
      */
     void RegisterChoice(u32 at_line_index,
-                        const LocalizedDialogueChoice* choices, u32 count) noexcept;
+                        const FLocalizedDialogueChoice* choices, u32 count) noexcept;
 
     /**
      * 翻訳ソースを差し込む。
@@ -194,9 +194,9 @@ public:
 
 private:
     /**
-     * line_index 直後に提示する選択肢群の範囲記録 (FDialogueSystem::ChoicesAt と同じ形)。
+     * line_index 直後に提示する選択肢群の範囲記録 (FDialogueSystem::FChoicesAt と同じ形)。
      */
-    struct ChoicesAt {
+    struct FChoicesAt {
         /** 選択肢を紐づける行の index。 */
         u32 line_index   = 0;
 
@@ -208,13 +208,13 @@ private:
     };
 
     /** 登録済みダイアログ行 (挿入順)。 */
-    TArray<LocalizedDialogueLine>   m_Lines;
+    TArray<FLocalizedDialogueLine>   m_Lines;
 
     /** 行ごとの選択肢範囲記録 (line_index 昇順想定、線形検索)。 */
-    TArray<ChoicesAt>               m_ChoicesAt;
+    TArray<FChoicesAt>               m_ChoicesAt;
 
     /** 全選択肢をフラットに保持する配列。 */
-    TArray<LocalizedDialogueChoice> m_AllChoices;
+    TArray<FLocalizedDialogueChoice> m_AllChoices;
 
     /** 翻訳辞書 (非所有、null で detach)。 */
     FLocalizationDirector* m_Localizer = nullptr;

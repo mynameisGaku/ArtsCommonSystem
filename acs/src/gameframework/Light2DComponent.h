@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FLight2DComponent — ノードを 2D 点光源にするコンポーネント。
+// ALight2DComponent — ノードを 2D 点光源にするコンポーネント。
 //
 // ノードに付けると、その world 位置を光源として lit スプライト (PBR マテリアル) を
 // 照らす。半径・色・強度を持つ。エディタでは Add Component で付けて gizmo で動かせる。
@@ -7,7 +7,7 @@
 // FSpriteBatch::SetLights に渡す。
 #pragma once
 
-#include "gameframework/Component2D.h"
+#include "gameframework/AComponent.h"
 #include "math/Vec.h"
 
 #include <cmath>
@@ -32,9 +32,9 @@ inline void ComputeLightDirCone(f32 angle_deg, f32 cone_deg,
  * (明るさ) を持つ。lit スプライト (PBR マテリアル) の陰影付けに使う。エディタ DrawScene が
  * このコンポーネントを持つノードからライトを収集する。
  */
-class FLight2DComponent : public FComponent2D {
+class ALight2DComponent : public AComponent {
 public:
-    ACS_GAME_COMPONENT_KIND(FLight2DComponent)
+    ACS_GAME_COMPONENT_KIND(ALight2DComponent)
 
     /** 届く半径 (px)。 */
     f32   m_Radius = 256.0f;
@@ -84,9 +84,9 @@ public:
  * これを付けたノードのシルエット (円近似) が lit スプライトに対してソフト影を落とす。
  * radiusScale で占有半径 (ノードサイズ比) を微調整できる。床/背景には付けない (受け手)。
  */
-class FShadowCaster2DComponent : public FComponent2D {
+class AShadowCaster2DComponent : public AComponent {
 public:
-    ACS_GAME_COMPONENT_KIND(FShadowCaster2DComponent)
+    ACS_GAME_COMPONENT_KIND(AShadowCaster2DComponent)
 
     /** 影の占有半径スケール (ノード半径に対する倍率)。 */
     f32 m_RadiusScale = 1.0f;

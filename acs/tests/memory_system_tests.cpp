@@ -70,7 +70,7 @@ ACS_TEST(MemSystem, VmReserveCommitDecommit)
 {
     const usize PageSize = VmPageSize();
     const usize AllocationGranularity = VmAllocGranularity();
-    auto ReservationResult = VmReservation::Reserve(64 * 1024 * 1024);
+    auto ReservationResult = FVmReservation::Reserve(64 * 1024 * 1024);
     EXPECT_TRUE(ReservationResult.IsOk());
     if (!ReservationResult.IsOk()) {
         return;
@@ -123,10 +123,10 @@ ACS_TEST(MemSystem, VmRejectsInvalidRanges)
     const usize MaximumSize = ~static_cast<usize>(0);
     EXPECT_TRUE(!VmIsAligned(0, 0));
     EXPECT_TRUE(!VmIsAligned(0, 3));
-    EXPECT_TRUE(VmReservation::Reserve(0).IsErr());
-    EXPECT_TRUE(VmReservation::Reserve(MaximumSize).IsErr());
+    EXPECT_TRUE(FVmReservation::Reserve(0).IsErr());
+    EXPECT_TRUE(FVmReservation::Reserve(MaximumSize).IsErr());
 
-    auto ReservationResult = VmReservation::Reserve(PageSize * 4);
+    auto ReservationResult = FVmReservation::Reserve(PageSize * 4);
     EXPECT_TRUE(ReservationResult.IsOk());
     if (!ReservationResult.IsOk()) {
         return;
@@ -155,7 +155,7 @@ ACS_TEST(MemSystem, VmRejectsInvalidRanges)
 ACS_TEST(MemSystem, VmHandlesDuplicateAndOverlappingOperations)
 {
     const usize PageSize = VmPageSize();
-    auto ReservationResult = VmReservation::Reserve(PageSize * 4);
+    auto ReservationResult = FVmReservation::Reserve(PageSize * 4);
     EXPECT_TRUE(ReservationResult.IsOk());
     if (!ReservationResult.IsOk()) {
         return;
@@ -192,7 +192,7 @@ ACS_TEST(MemSystem, VmHandlesDuplicateAndOverlappingOperations)
 ACS_TEST(MemSystem, VmDecommitCachePreservesFullOffset)
 {
     const usize PageSize = VmPageSize();
-    auto ReservationResult = VmReservation::Reserve(VmAllocGranularity() * 2);
+    auto ReservationResult = FVmReservation::Reserve(VmAllocGranularity() * 2);
     EXPECT_TRUE(ReservationResult.IsOk());
     if (!ReservationResult.IsOk()) {
         return;
@@ -212,7 +212,7 @@ ACS_TEST(MemSystem, VmDecommitCacheEvictsAndTrims)
 {
     constexpr u32 range_count = 17;
     const usize PageSize = VmPageSize();
-    auto ReservationResult = VmReservation::Reserve(PageSize * range_count);
+    auto ReservationResult = FVmReservation::Reserve(PageSize * range_count);
     EXPECT_TRUE(ReservationResult.IsOk());
     if (!ReservationResult.IsOk()) {
         return;
@@ -246,17 +246,17 @@ ACS_TEST(MemSystem, VmDecommitCacheEvictsAndTrims)
 ACS_TEST(MemSystem, VmMoveAndReinitializeAreSafe)
 {
     const usize PageSize = VmPageSize();
-    auto SourceResult = VmReservation::Reserve(PageSize * 4);
+    auto SourceResult = FVmReservation::Reserve(PageSize * 4);
     EXPECT_TRUE(SourceResult.IsOk());
     if (!SourceResult.IsOk()) {
         return;
     }
-    VmReservation Source = Move(SourceResult.Value());
+    FVmReservation Source = Move(SourceResult.Value());
     EXPECT_TRUE(Source.Commit(PageSize, PageSize).IsOk());
     EXPECT_TRUE(Source.Decommit(PageSize, PageSize).IsOk());
     void* const TransferredBase = Source.Base();
 
-    VmReservation MovedReservation(Move(Source));
+    FVmReservation MovedReservation(Move(Source));
     EXPECT_TRUE(Source.Base() == nullptr);
     EXPECT_EQ(Source.Capacity(), static_cast<usize>(0));
     EXPECT_EQ(Source.ActualCommittedBytes(), static_cast<usize>(0));
@@ -264,12 +264,12 @@ ACS_TEST(MemSystem, VmMoveAndReinitializeAreSafe)
     EXPECT_EQ(MovedReservation.Base(), TransferredBase);
     EXPECT_EQ(MovedReservation.CachedCommittedBytes(), PageSize);
 
-    auto DestinationResult = VmReservation::Reserve(PageSize * 2);
+    auto DestinationResult = FVmReservation::Reserve(PageSize * 2);
     EXPECT_TRUE(DestinationResult.IsOk());
     if (!DestinationResult.IsOk()) {
         return;
     }
-    VmReservation Destination = Move(DestinationResult.Value());
+    FVmReservation Destination = Move(DestinationResult.Value());
     EXPECT_TRUE(Destination.Commit(0, PageSize).IsOk());
     Destination = Move(MovedReservation);
     EXPECT_TRUE(MovedReservation.Base() == nullptr);
@@ -286,7 +286,7 @@ ACS_TEST(MemSystem, VmMoveAndReinitializeAreSafe)
     EXPECT_EQ(Destination.DecommitCacheHitCount(), 0ull);
     EXPECT_EQ(Destination.DecommitCacheMissCount(), 0ull);
 
-    auto ReplacementResult = VmReservation::Reserve(PageSize);
+    auto ReplacementResult = FVmReservation::Reserve(PageSize);
     EXPECT_TRUE(ReplacementResult.IsOk());
     if (ReplacementResult.IsOk()) {
         Destination = Move(ReplacementResult.Value());
@@ -530,7 +530,7 @@ ACS_TEST(MemSystem, TlsfStressValidate)
 // 段階コミット (grow) で成功すること。grow が無ければ初期コミット超で nullptr になる。
 ACS_TEST(MemSystem, TlsfAutoGrow)
 {
-    auto rr = VmReservation::Reserve(64ull * 1024 * 1024); // 64MB 予約
+    auto rr = FVmReservation::Reserve(64ull * 1024 * 1024); // 64MB 予約
     EXPECT_TRUE(rr.IsOk());
     if (!rr.IsOk()) return;
 
@@ -754,15 +754,15 @@ ACS_TEST(MemSystem, ShardedTlsfMultiThread)
     EXPECT_TRUE(ir.IsOk());
     EXPECT_TRUE(a.ValidateHeap());
 
-    struct Ctx {
+    struct FCtx {
         FShardedTlsfAllocator* alloc;
         TAtomic<u32> fail{0};
     };
-    Ctx ctx;
+    FCtx ctx;
     ctx.alloc = &a;
 
     auto thunk = [](u32 i, u32 /*worker*/, void* user) {
-        Ctx* c = static_cast<Ctx*>(user);
+        FCtx* c = static_cast<FCtx*>(user);
         FShardedTlsfAllocator* al = c->alloc;
         u32 rng = 0x01000193u * (i + 1u) + 0x2545F491u;
         auto next = [&rng]() -> u32 {
@@ -1011,7 +1011,7 @@ ACS_TEST(MemSystem, ShardedTlsfThreadCacheReturnsOnThreadExit)
     EXPECT_TRUE(allocator.Init(16ull * 1024 * 1024, 1ull * 1024 * 1024, 2u).IsOk());
     allocator.EnableThreadCache();
 
-    struct Context {
+    struct FContext {
         FShardedTlsfAllocator* allocator = nullptr;
         TAtomic<u32> failures{0};
     } context;
@@ -1019,7 +1019,7 @@ ACS_TEST(MemSystem, ShardedTlsfThreadCacheReturnsOnThreadExit)
 
     auto thread = FThread::Spawn(
         [](void* user) {
-            Context* context = static_cast<Context*>(user);
+            FContext* context = static_cast<FContext*>(user);
             void* blocks[32] = {};
             for (u32 i = 0; i < 32u; ++i) {
                 blocks[i] = context->allocator->Alloc(64u + (i % 4u) * 32u, 16u, FSourceLoc::Current());
@@ -1071,7 +1071,7 @@ ACS_TEST(MemSystem, ShardedTlsfThreadCacheRejectsRetiredGeneration)
     EXPECT_TRUE(allocator.Init(16ull * 1024 * 1024, 1ull * 1024 * 1024, 2u).IsOk());
     allocator.EnableThreadCache();
 
-    struct Context {
+    struct FContext {
         FShardedTlsfAllocator* allocator = nullptr;
         TAtomic<u32> ready{0};
         TAtomic<u32> proceed{0};
@@ -1081,7 +1081,7 @@ ACS_TEST(MemSystem, ShardedTlsfThreadCacheRejectsRetiredGeneration)
 
     auto thread = FThread::Spawn(
         [](void* user) {
-            Context* context = static_cast<Context*>(user);
+            FContext* context = static_cast<FContext*>(user);
             void* old_block = context->allocator->Alloc(128u, 16u, FSourceLoc::Current());
             if (!old_block)
                 context->failures.FetchAdd(1);
@@ -1246,12 +1246,12 @@ ACS_TEST(MemSystem, RelocatableStress)
         return true;
     };
 
-    struct Rec {
+    struct FRec {
         FRelocHandle h;
         usize sz;
         u8 sd;
     };
-    Rec rec[512];
+    FRec rec[512];
     for (int i = 0; i < 512; ++i) {
         rec[i].h = FRelocHandle{};
         rec[i].sz = 0;
@@ -1304,7 +1304,7 @@ ACS_TEST(MemSystem, DefaultAllocatorWiring)
 {
     FAllocator* before = &DefaultAllocator();
 
-    MemorySystemConfig cfg = FMemorySystem::DefaultConfig();
+    FMemorySystemConfig cfg = FMemorySystem::DefaultConfig();
     cfg.install_as_default_allocator = true;
     EXPECT_TRUE(FMemorySystem::Init(cfg).IsOk());
 
@@ -1352,17 +1352,17 @@ ACS_TEST(MemSystem, ShardedTlsfBenchmark)
     EXPECT_TRUE(sharded_c.Init(kPoolSize, 8ull * 1024 * 1024, 0u).IsOk());
     sharded_c.EnableThreadCache();
 
-    struct BCtx {
+    struct FBCtx {
         int mode;
         FTlsfAllocator* single;
         FMutex* lk;
         FShardedTlsfAllocator* sharded;
         FShardedTlsfAllocator* sharded_c;
     };
-    BCtx bc{0, &single, &single_lock, &sharded, &sharded_c};
+    FBCtx bc{0, &single, &single_lock, &sharded, &sharded_c};
 
     auto bench = [](u32 i, u32 /*w*/, void* user) {
-        BCtx* c = static_cast<BCtx*>(user);
+        FBCtx* c = static_cast<FBCtx*>(user);
         constexpr int kOps = 4000;
         u32 rng = 0x2545F491u * (i + 1u);
         for (int k = 0; k < kOps; ++k) {
@@ -1449,7 +1449,7 @@ ACS_TEST(MemSystem, MimallocLifetimeAndInvalidZeroReallocationPreserveOwnership)
 // FMemorySystem: 全セグメント初期化 → 取得 → 解放
 ACS_TEST(MemSystem, SegmentInitGet)
 {
-    MemorySystemConfig cfg = FMemorySystem::DefaultConfig();
+    FMemorySystemConfig cfg = FMemorySystem::DefaultConfig();
     auto r = FMemorySystem::Init(cfg);
     EXPECT_TRUE(r.IsOk());
 
@@ -1482,7 +1482,7 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
     constexpr u64 kRequiredSuccessfulAllocations = 128u;
     constexpr u32 kWaitLimit = 200000u;
 
-    const MemorySystemConfig Configuration = FMemorySystem::DefaultConfig();
+    const FMemorySystemConfig Configuration = FMemorySystem::DefaultConfig();
     EXPECT_TRUE(FMemorySystem::Init(Configuration).IsOk());
 
     FAllocator* const CachedAllocator = FMemorySystem::Get(ESegment::Temp);
@@ -1494,7 +1494,7 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
     }
     const u64 FirstLifetimeGeneration = CachedAllocator->LifetimeGeneration();
 
-    struct AllocationRaceContext
+    struct FAllocationRaceContext
     {
         FAllocator* Allocator = nullptr;
         TAtomic<u32> Ready{0u};
@@ -1514,7 +1514,7 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
         auto WorkerResult = FThread::Spawn(
             [](void* User)
             {
-                auto* Context = static_cast<AllocationRaceContext*>(User);
+                auto* Context = static_cast<FAllocationRaceContext*>(User);
                 const u32 WorkerIndex = Context->NextWorkerIndex.FetchAdd(1u);
                 Context->Ready.FetchAdd(1u);
                 while (Context->Start.Load(EMemoryOrder::Acquire) == 0u)
@@ -1540,7 +1540,7 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
                     (void)Context->Allocator->BytesAllocated();
                     (void)Context->Allocator->AllocationCount();
                     (void)Context->Allocator->PeakBytes();
-                    SegmentStats Statistics[static_cast<usize>(ESegment::_Count)]{};
+                    FSegmentStats Statistics[static_cast<usize>(ESegment::_Count)]{};
                     (void)FMemorySystem::GetStats(Statistics, static_cast<u32>(ESegment::_Count));
                     if (!FMemorySystem::Get(ESegment::Temp))
                     {
@@ -1638,7 +1638,7 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
     }
     FMemorySystem::ResetTemp();
 
-    struct ResetRaceContext
+    struct FResetRaceContext
     {
         TAtomic<u32> Ready{0u};
         TAtomic<u32> Start{0u};
@@ -1654,7 +1654,7 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
         auto WorkerResult = FThread::Spawn(
             [](void* User)
             {
-                auto* Context = static_cast<ResetRaceContext*>(User);
+                auto* Context = static_cast<FResetRaceContext*>(User);
                 Context->Ready.FetchAdd(1u);
                 while (Context->Start.Load(EMemoryOrder::Acquire) == 0u)
                 {
@@ -1664,7 +1664,7 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
                 while (Context->Stop.Load(EMemoryOrder::Acquire) == 0u)
                 {
                     FMemorySystem::ResetTemp();
-                    SegmentStats Statistics[static_cast<usize>(ESegment::_Count)]{};
+                    FSegmentStats Statistics[static_cast<usize>(ESegment::_Count)]{};
                     (void)FMemorySystem::GetStats(Statistics, static_cast<u32>(ESegment::_Count));
                     if (!FMemorySystem::Get(ESegment::Temp))
                     {
@@ -1728,7 +1728,7 @@ ACS_TEST(MemSystem, LifecycleGateRejectsShutdownRacesAndSupportsConcurrentReinit
 
 ACS_TEST(MemSystem, MimallocBackendBudgetAndIndependentInspection)
 {
-    MemorySystemConfig configuration = FMemorySystem::DefaultConfig();
+    FMemorySystemConfig configuration = FMemorySystem::DefaultConfig();
     configuration.segments[(usize)ESegment::Default].hard_budget_bytes = 2048u;
     EXPECT_TRUE(FMemorySystem::Init(configuration).IsOk());
 
@@ -1744,7 +1744,7 @@ ACS_TEST(MemSystem, MimallocBackendBudgetAndIndependentInspection)
     EXPECT_TRUE(first != nullptr);
     EXPECT_TRUE(over_budget == nullptr);
 
-    const MemorySegmentInspection inspection = FMemorySystem::InspectSegmentMemory(ESegment::Default);
+    const FMemorySegmentInspection inspection = FMemorySystem::InspectSegmentMemory(ESegment::Default);
     EXPECT_TRUE(inspection.backend_inspection_supported);
     EXPECT_TRUE(inspection.visit_succeeded);
     EXPECT_TRUE(inspection.metadata_valid);
@@ -1762,7 +1762,7 @@ ACS_TEST(MemSystem, FrameArenaBudgetIsAtomicAndResets)
     constexpr u64 kBudgetBytes = 4096u;
     constexpr u32 kThreadCount = 32u;
 
-    MemorySystemConfig configuration = FMemorySystem::DefaultConfig();
+    FMemorySystemConfig configuration = FMemorySystem::DefaultConfig();
     configuration.segments[(usize)ESegment::Temp].hard_budget_bytes = kBudgetBytes;
     EXPECT_TRUE(FMemorySystem::Init(configuration).IsOk());
 
@@ -1773,7 +1773,7 @@ ACS_TEST(MemSystem, FrameArenaBudgetIsAtomicAndResets)
         return;
     }
 
-    struct FrameBudgetContext {
+    struct FFrameBudgetContext {
         FAllocator* allocator = nullptr;
         u64 allocation_bytes = 0;
         TAtomic<u32> ready{0};
@@ -1788,7 +1788,7 @@ ACS_TEST(MemSystem, FrameArenaBudgetIsAtomicAndResets)
     for (u32 index = 0; index < kThreadCount; ++index) {
         auto thread = FThread::Spawn(
             [](void* user) {
-                auto* thread_context = static_cast<FrameBudgetContext*>(user);
+                auto* thread_context = static_cast<FFrameBudgetContext*>(user);
                 thread_context->ready.FetchAdd(1u);
                 while (thread_context->start.Load(EMemoryOrder::Acquire) == 0u) {
                     Yield();
@@ -1839,7 +1839,7 @@ ACS_TEST(MemSystem, FrameArenaRejectsForeignInteriorReleasedAndStalePointers)
         return;
     }
 
-    const MemoryTrackingCheckpoint Checkpoint = FMemorySystem::CaptureMemoryTrackingCheckpoint();
+    const FMemoryTrackingCheckpoint Checkpoint = FMemorySystem::CaptureMemoryTrackingCheckpoint();
     void* const ForeignAllocation = DefaultSegmentAllocator->Alloc(96u, 16u, FSourceLoc::Current());
     auto* const FrameAllocation = static_cast<u8*>(FrameAllocator->Alloc(64u, 32u, FSourceLoc::Current()));
     EXPECT_TRUE(ForeignAllocation != nullptr);
@@ -1862,8 +1862,8 @@ ACS_TEST(MemSystem, FrameArenaRejectsForeignInteriorReleasedAndStalePointers)
     FrameAllocator->Free(FrameAllocation + 1u);
     EXPECT_TRUE(FrameAllocator->Realloc(FrameAllocation + 1u, 63u, 128u, 32u, FSourceLoc::Current()) == nullptr);
 
-    OutstandingMemoryAllocation TrackedAllocations[8]{};
-    const MemoryTrackingReport TrackingReport =
+    FOutstandingMemoryAllocation TrackedAllocations[8]{};
+    const FMemoryTrackingReport TrackingReport =
         FMemorySystem::CollectOutstandingMemoryAllocations(Checkpoint, TrackedAllocations, 8u);
     if (TrackingReport.tracking_enabled)
     {
@@ -1913,7 +1913,7 @@ ACS_TEST(MemSystem, ResetTempSerializesConcurrentOperationsAndBudgetReset)
     constexpr u64 kBudgetBytes = 64u * 1024u;
     constexpr u32 kWorkerCount = 4u;
 
-    MemorySystemConfig configuration = FMemorySystem::DefaultConfig();
+    FMemorySystemConfig configuration = FMemorySystem::DefaultConfig();
     configuration.segments[(usize)ESegment::Temp].hard_budget_bytes = kBudgetBytes;
     EXPECT_TRUE(FMemorySystem::Init(configuration).IsOk());
 
@@ -1924,7 +1924,7 @@ ACS_TEST(MemSystem, ResetTempSerializesConcurrentOperationsAndBudgetReset)
         return;
     }
 
-    struct Context {
+    struct FContext {
         FAllocator* allocator = nullptr;
         TAtomic<u32> start{0};
         TAtomic<u64> successful_allocations{0};
@@ -1936,7 +1936,7 @@ ACS_TEST(MemSystem, ResetTempSerializesConcurrentOperationsAndBudgetReset)
     for (u32 index = 0u; index < kWorkerCount; ++index) {
         auto worker = FThread::Spawn(
             [](void* user) {
-                auto* thread_context = static_cast<Context*>(user);
+                auto* thread_context = static_cast<FContext*>(user);
                 while (thread_context->start.Load(EMemoryOrder::Acquire) == 0u) {
                     Yield();
                 }
@@ -1954,7 +1954,7 @@ ACS_TEST(MemSystem, ResetTempSerializesConcurrentOperationsAndBudgetReset)
 
     auto reset_thread = FThread::Spawn(
         [](void* user) {
-            auto* thread_context = static_cast<Context*>(user);
+            auto* thread_context = static_cast<FContext*>(user);
             while (thread_context->start.Load(EMemoryOrder::Acquire) == 0u) {
                 Yield();
             }
@@ -1986,7 +1986,7 @@ ACS_TEST(MemSystem, ResetTempSerializesConcurrentOperationsAndBudgetReset)
 
 ACS_TEST(MemSystem, RejectsMisorderedSegmentConfiguration)
 {
-    MemorySystemConfig configuration = FMemorySystem::DefaultConfig();
+    FMemorySystemConfig configuration = FMemorySystem::DefaultConfig();
     configuration.segments[(usize)ESegment::Default].segment = ESegment::Resource;
     EXPECT_TRUE(FMemorySystem::Init(configuration).IsErr());
     EXPECT_TRUE(FMemorySystem::Get(ESegment::Default) == nullptr);
@@ -2002,13 +2002,13 @@ ACS_TEST(MemSystem, LeakSummaryTracksOutstandingMemory)
     void* allocation = allocator ? allocator->Alloc(1024, 16, FSourceLoc::Current()) : nullptr;
     EXPECT_TRUE(allocation != nullptr);
 
-    const MemoryLeakSummary outstanding = FMemorySystem::CaptureLeakSummary();
+    const FMemoryLeakSummary outstanding = FMemorySystem::CaptureLeakSummary();
     EXPECT_TRUE(outstanding.HasLeaks());
     EXPECT_TRUE(outstanding.outstanding_bytes >= 1024);
     EXPECT_TRUE(outstanding.leaking_segment_count >= 1);
 
     if (allocator) allocator->Free(allocation);
-    const MemoryLeakSummary released = FMemorySystem::CaptureLeakSummary();
+    const FMemoryLeakSummary released = FMemorySystem::CaptureLeakSummary();
     EXPECT_TRUE(!released.HasLeaks());
     EXPECT_EQ(released.outstanding_bytes, 0ull);
     EXPECT_EQ(released.leaking_segment_count, 0u);
@@ -2021,14 +2021,14 @@ ACS_TEST(MemSystem, AllocationSiteTrackingSupportsCheckpointsAndReallocation)
     EXPECT_TRUE(result.IsOk());
     if (result.IsErr()) return;
 
-    const MemoryTrackingCheckpoint checkpoint = FMemorySystem::CaptureMemoryTrackingCheckpoint();
+    const FMemoryTrackingCheckpoint checkpoint = FMemorySystem::CaptureMemoryTrackingCheckpoint();
     FAllocator* allocator = FMemorySystem::Get(ESegment::Default);
     const u32 allocation_line = __LINE__ + 1u;
     void* allocation = allocator->Alloc(1536, 32, FSourceLoc::Current());
     EXPECT_TRUE(allocation != nullptr);
 
-    OutstandingMemoryAllocation details[2]{};
-    MemoryTrackingReport report = FMemorySystem::CollectOutstandingMemoryAllocations(checkpoint, details, 2);
+    FOutstandingMemoryAllocation details[2]{};
+    FMemoryTrackingReport report = FMemorySystem::CollectOutstandingMemoryAllocations(checkpoint, details, 2);
     if (FMemorySystem::IsAllocationSiteTrackingEnabled()) {
         EXPECT_TRUE(report.tracking_enabled);
         EXPECT_TRUE(report.IsComplete());
@@ -2075,7 +2075,7 @@ ACS_TEST(MemSystem, ScopedSegmentSwitch)
 
     EXPECT_EQ(FMemorySystem::Current(), ESegment::Default);
     {
-        ScopedMemorySegment s(ESegment::Temp);
+        FScopedMemorySegment s(ESegment::Temp);
         EXPECT_EQ(FMemorySystem::Current(), ESegment::Temp);
         FAllocator* a = FMemorySystem::CurrentAllocator();
         EXPECT_TRUE(a != nullptr);

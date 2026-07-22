@@ -11,7 +11,7 @@
 //     - FHealthSystem の DeathCallback で「死亡 → FCheckpointSystem.TriggerRespawn」
 //       を叩くのが定型パターン。FCheckpointSystem 自体は HP の状態は持たず、
 //       「どこに復活させるか」だけを管理する責務に絞っている。
-//   ・Pillar S (FSaveSlot) との連携:
+//   ・Pillar S (TSaveSlot) との連携:
 //     - 「現在 active な checkpoint id + unlocked id 群」をセーブする想定。
 //       本クラス自体は I/O を持たず、外部から照会される。
 //   ・FProgression / FEconomyDirector との違い:
@@ -22,7 +22,7 @@
 //   FCheckpointSystem cps;
 //
 //   // レベルロード時に 1 度ずつ配置を登録。
-//   CheckpointInfo cp1{};
+//   FCheckpointInfo cp1{};
 //   cp1.id           = "cp.stage1.start";
 //   cp1.spawn_pos    = { 100.0f, 200.0f };
 //   cp1.level_index  = 0;
@@ -31,7 +31,7 @@
 //   cp1.requires_unlock = false;
 //   cps.Register(cp1);
 //
-//   CheckpointInfo cp2{};
+//   FCheckpointInfo cp2{};
 //   cp2.id           = "cp.stage1.mid";
 //   cp2.spawn_pos    = { 500.0f, 200.0f };
 //   cp2.level_index  = 0;
@@ -40,7 +40,7 @@
 //   cp2.requires_unlock = false;
 //   cps.Register(cp2);
 //
-//   CheckpointInfo cp_secret{};
+//   FCheckpointInfo cp_secret{};
 //   cp_secret.id     = "cp.stage1.secret";
 //   cp_secret.spawn_pos = { 900.0f, 100.0f };
 //   cp_secret.level_index = 0;
@@ -64,7 +64,7 @@
 //   }
 //
 // 設計選択:
-//   ・**CheckpointId は 24bit idx + 8bit gen の packed u32**: FHealthId / PickupId
+//   ・**FCheckpointId は 24bit idx + 8bit gen の packed u32**: FHealthId / FPickupId
 //     / FShapeId / FNodeId と同パターン。Unregister 後の slot 再利用でも古い
 //     handle は generation 不一致で弾かれる。0 は invalid 予約 (index 0 dummy)。
 //   ・**string id を主キーに**: gameplay 設計者が触る Trigger アクタは「Activate
@@ -83,19 +83,19 @@
 //     ClearAll で初期化される (Save/Load 連携は外部から照会可能)。
 //   ・**active checkpoint は 1 つだけ**: 「複数同時 active」は本クラスの責務外
 //     (= ジャンルキットを超える概念)。最新の Activate が常に勝つ。
-//   ・**FCallback は関数ポインタ + user**: FProgression / FHealthSystem と同パターン。
+//   ・**callback は関数ポインタ + user**: FProgression / FHealthSystem と同パターン。
 //     Activate / Respawn の 2 系統を用意し、UI トースト演出と sound trigger を
 //     ゲーム側で素直に分離できるようにする。
 //   ・**LastSpawnLevelIndex**: TriggerRespawn の後でも level_index を取れる
 //     ように getter を分離。レベルロード中に out_param が消えるエッジで使う。
-//   ・**全 noexcept、非コピー・非ムーブ**: FGame / Scene 単位で 1 個保持される
+//   ・**全 noexcept、非コピー・非ムーブ**: FGame / FScene 単位で 1 個保持される
 //     想定。Save/Load も id ベースで再現するので所有権移動は要らない。
 //   ・**STL 不使用、<string> 禁止**: ACS 全体方針。文字列は const char* 非所有のみ。
 //
 // 範囲外 (将来 Phase で):
 //   ・ボス挑戦専用 checkpoint (HP 回復 + 敵リセット) は FGameFlow と組み合わせて
 //     ゲーム側で表現する。本クラスは座標 + level index のみ。
-//   ・FSaveSlot 経由の永続化は外部 (FSaveSlot<PlatformerSaveData>) で実装。
+//   ・TSaveSlot 経由の永続化は外部 (TSaveSlot<PlatformerSaveData>) で実装。
 //     本クラスからは CurrentCheckpoint() / IsUnlocked() で id を引き出すだけ。
 //   ・自動 checkpoint (移動量で勝手に発火) は Trigger 側の設計問題なので
 //     FCinematicsDirector / FTriggerWorld2D 側で組む。
@@ -112,15 +112,15 @@ namespace acs::game {
  *
  * @details
  * 32bit packed = 24bit index + 8bit generation。0 = invalid。Unregister 後に slot
- * が再利用されても、古い handle は generation 不一致で弾かれる。FHealthId / PickupId
+ * が再利用されても、古い handle は generation 不一致で弾かれる。FHealthId / FPickupId
  * / FShapeId / FNodeId と同パターン。
  */
-struct CheckpointId {
+struct FCheckpointId {
     /** packed 表現 (下位 24bit = index、上位 8bit = generation、0 で invalid)。 */
     u32 m_Packed = 0;
 
     /** invalid (m_Packed == 0) な handle を構築する。 */
-    constexpr CheckpointId() noexcept = default;
+    constexpr FCheckpointId() noexcept = default;
 
     /**
      * index と generation から handle を構築する。
@@ -128,7 +128,7 @@ struct CheckpointId {
      * @param index slot インデックス (下位 24bit に格納)。
      * @param gen generation (上位 8bit に格納)。
      */
-    constexpr CheckpointId(u32 index, u8 gen) noexcept
+    constexpr FCheckpointId(u32 index, u8 gen) noexcept
         : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
     /**
@@ -158,7 +158,7 @@ struct CheckpointId {
      * @param o 比較対象の handle。
      * @return packed 表現が一致すれば true。
      */
-    constexpr bool operator==(CheckpointId o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator==(FCheckpointId o) const noexcept { return m_Packed == o.m_Packed; }
 
     /**
      * 非等値比較する。
@@ -166,7 +166,7 @@ struct CheckpointId {
      * @param o 比較対象の handle。
      * @return packed 表現が一致しなければ true。
      */
-    constexpr bool operator!=(CheckpointId o) const noexcept { return m_Packed != o.m_Packed; }
+    constexpr bool operator!=(FCheckpointId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 /**
@@ -174,7 +174,7 @@ struct CheckpointId {
  *
  * @details id は呼出側が保証する static lifetime の文字列リテラルを想定 (非所有)。
  */
-struct CheckpointInfo {
+struct FCheckpointInfo {
     /** 検索 / Save/Load / トリガ参照のキー。文字列リテラル想定 (非所有)。 */
     const char* id              = nullptr;
 
@@ -230,7 +230,7 @@ public:
     /** 破棄する (非所有データのみ保持のため特別な後始末なし)。 */
     ~FCheckpointSystem() noexcept = default;
 
-    /** コピー禁止 (FGame / Scene 単位で 1 個保持する想定)。 */
+    /** コピー禁止 (FGame / FScene 単位で 1 個保持する想定)。 */
     FCheckpointSystem(const FCheckpointSystem&)            = delete;
 
     /** コピー代入も禁止。 */
@@ -247,9 +247,9 @@ public:
      *
      * @details 同 id の 2 重登録、および info.id == nullptr は invalid 返却で黙って弾く。
      * @param info 登録する checkpoint 定義 (内部 slot にコピーされる)。
-     * @return 新しい CheckpointId (24bit idx + 8bit gen)。失敗時は invalid。
+     * @return 新しい FCheckpointId (24bit idx + 8bit gen)。失敗時は invalid。
      */
-    CheckpointId Register(const CheckpointInfo& info) noexcept;
+    FCheckpointId Register(const FCheckpointInfo& info) noexcept;
 
     /**
      * checkpoint を解除する。
@@ -259,7 +259,7 @@ public:
      * 場合は active を invalid 化する (以後 TriggerRespawn は false を返す)。
      * @param id 解除する checkpoint の handle。
      */
-    void Unregister(CheckpointId id) noexcept;
+    void Unregister(FCheckpointId id) noexcept;
 
     /**
      * 指定 id の checkpoint を active 化する (string 版)。
@@ -279,7 +279,7 @@ public:
      * @param id active 化する checkpoint の handle。
      * @return 切替成功なら true (条件は string 版と同じ)。
      */
-    bool ActivateCheckpoint(CheckpointId id) noexcept;
+    bool ActivateCheckpoint(FCheckpointId id) noexcept;
 
     /**
      * requires_unlock な checkpoint を unlock する。
@@ -303,9 +303,9 @@ public:
     /**
      * 現在 active な checkpoint の handle を返す。
      *
-     * @return 現 active な CheckpointId (一度も Activate されていない / 解除済みなら invalid)。
+     * @return 現 active な FCheckpointId (一度も Activate されていない / 解除済みなら invalid)。
      */
-    CheckpointId CurrentCheckpoint() const noexcept;
+    FCheckpointId CurrentCheckpoint() const noexcept;
 
     /**
      * 現在の復活先座標を返す。
@@ -353,19 +353,19 @@ public:
      * @param checkpoint_id 探す checkpoint の id。
      * @return 見つかった定義へのポインタ (見つからなければ nullptr)。
      */
-    const CheckpointInfo* FindCheckpoint(const char* checkpoint_id) const noexcept;
+    const FCheckpointInfo* FindCheckpoint(const char* checkpoint_id) const noexcept;
 
     /**
      * 有効な checkpoint を穴詰めした生バッファを返す。
      *
      * @details
-     * 内部 Slot 配列は穴あきだが、本 API は穴を詰めて連続バッファとして返す。
+     * 内部 FSlot 配列は穴あきだが、本 API は穴を詰めて連続バッファとして返す。
      * 返却バッファは内部 m_Scratch を再利用するため、次の AllCheckpoints / Register
      * / Unregister / ClearAll で無効化される。
      * @param out_count 有効な checkpoint 数の書き出し先。
      * @return 先頭要素へのポインタ (0 件なら out_count=0)。
      */
-    const CheckpointInfo* AllCheckpoints(u32& out_count) const noexcept;
+    const FCheckpointInfo* AllCheckpoints(u32& out_count) const noexcept;
 
     /**
      * Activate 成功時 callback を設定する。
@@ -393,9 +393,9 @@ public:
 
 private:
     /** 1 checkpoint slot (定義 + active フラグ + generation)。 */
-    struct Slot {
+    struct FSlot {
         /** checkpoint 定義。 */
-        CheckpointInfo info{};
+        FCheckpointInfo info{};
 
         /** この slot が使用中かどうか。 */
         bool           active = false;
@@ -434,7 +434,7 @@ private:
      * @param id 解決する handle。
      * @return 有効なら slot へのポインタ (無効 / generation 不一致なら nullptr)。
      */
-    Slot*       FindSlot(CheckpointId id) noexcept;
+    FSlot*       FindSlot(FCheckpointId id) noexcept;
 
     /**
      * handle から const slot 参照を取得する。
@@ -442,7 +442,7 @@ private:
      * @param id 解決する handle。
      * @return 有効なら slot への const ポインタ (無効 / generation 不一致なら nullptr)。
      */
-    const Slot* FindSlot(CheckpointId id) const noexcept;
+    const FSlot* FindSlot(FCheckpointId id) const noexcept;
 
     /**
      * Activate の共通ロジック (id / handle 版が両方ここを通る)。
@@ -454,13 +454,13 @@ private:
     bool ActivateInternal(u32 slot_index) noexcept;
 
     /** checkpoint slot 配列 (index 0 は dummy)。 */
-    TArray<Slot>          m_Slots;
+    TArray<FSlot>          m_Slots;
 
     /** unlock された checkpoint id (非所有)。 */
     TArray<const char*>   m_Unlocked;
 
     /** 現在 active な checkpoint の handle (invalid = 一度も Activate されていない)。 */
-    CheckpointId         m_Current;
+    FCheckpointId         m_Current;
 
     /** 直近に active 化された level_index (active slot が消えても履歴として残す)。 */
     u32                  m_LastLevelIndex = 0;
@@ -472,7 +472,7 @@ private:
     u32                  m_CheckpointCount = 0;
 
     /** AllCheckpoints が穴を詰めて返すための一時バッファ (const 関数から触るため mutable)。 */
-    mutable TArray<CheckpointInfo> m_Scratch;
+    mutable TArray<FCheckpointInfo> m_Scratch;
 
     /** Activate 成功時 callback (nullptr で未設定)。 */
     ActivateCallback     m_OnActivate      = nullptr;

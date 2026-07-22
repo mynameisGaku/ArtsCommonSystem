@@ -3,7 +3,7 @@
 //
 // editor_core と modelview の 4 panel を 1 個の Workspace に集約し、ImGui の
 // 外側 (= フレームバッファ直書き) に sample 17 同等の cube を MVP で描画する。
-// MVP は FModelViewerPanel::FCamera() の view/proj を使うので、editor 上のマウス
+// MVP は FModelViewerPanel::Camera() の view/proj を使うので、editor 上のマウス
 // ドラッグで orbit / dolly した姿勢がそのまま 3D 像に反映される。
 //
 // 本ファイルは 3 つのサブモジュールを束ねる薄いオーケストレータ:
@@ -20,12 +20,12 @@
 
 namespace hellomv {
 
-class ModelViewerScene : public acs::game::Scene {
+class FModelViewerScene : public acs::game::FScene {
 public:
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
-    void OnRender(acs::game::RenderContext& rc) noexcept override;
+    void OnRender(acs::game::FRenderContext& rc) noexcept override;
 
 private:
     // File menu stub (実 dialog / serializer は未配線)。
@@ -34,9 +34,9 @@ private:
     static constexpr const wchar_t* kThemePath        = L"data/editor/theme.acstheme";
     static constexpr const wchar_t* kAssetRoot        = L"assets/";
 
-    ViewerPanels         m_Panels;
-    ViewerScenePipeline  m_Pipeline;
-    ViewerMenuBar        m_MenuBar;
+    FViewerPanels         m_Panels;
+    FViewerScenePipeline  m_Pipeline;
+    FViewerMenuBar        m_MenuBar;
     acs::f32             m_Angle = 0.0f;
 };
 

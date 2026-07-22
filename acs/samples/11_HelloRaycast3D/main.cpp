@@ -18,4 +18,4 @@
 #include "app/EntryPoint.h"
 #include "HelloRaycast3DApp.h"
 
-ACS_DEFINE_MAIN(helloraycast3d::HelloRaycast3DApp)
+ACS_DEFINE_MAIN(helloraycast3d::FHelloRaycast3DApp)

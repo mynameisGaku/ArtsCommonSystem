@@ -1,19 +1,19 @@
-# スプライトシートアニメ (FSpriteAnimComponent / FSpriteAnimator)
+# スプライトシートアニメ (ASpriteAnimComponent / FSpriteAnimator)
 
-1 枚のテクスチャ (スプライトシート) を時間で切り替えてアニメーションさせる仕組み。`FNode2D` に貼った `FSprite2DComponent` の UV サブ矩形を毎フレーム書き換えて実現する。歩行・攻撃モーション、エフェクトのコマ送り、回転アイコンなどに使う。
+1 枚のテクスチャ (スプライトシート) を時間で切り替えてアニメーションさせる仕組み。`ANode` に貼った `ASprite2DComponent` の UV サブ矩形を毎フレーム書き換えて実現する。歩行・攻撃モーション、エフェクトのコマ送り、回転アイコンなどに使う。
 
 役割分担:
 
 - **`FSpriteAnimator`** … 「時間 → 現在 frame index」だけを計算する純ロジック (asset 非依存・テスト可能)。`Loop / PingPong / Once`、frame event を担当。
-- **`FSpriteAnimComponent`** … 上記 animator を `FSprite2DComponent` に橋渡しする `FComponent2D`。グリッド/任意 UV の事前計算と、毎 `OnUpdate` での UV 適用を行う。
+- **`ASpriteAnimComponent`** … 上記 animator を `ASprite2DComponent` に橋渡しする `AComponent`。グリッド/任意 UV の事前計算と、毎 `OnUpdate` での UV 適用を行う。
 
-通常は `FSpriteAnimComponent` を使えばよい。`FSpriteAnimator` は自前の Quad に UV を当てたいときの低レベル API。
+通常は `ASpriteAnimComponent` を使えばよい。`FSpriteAnimator` は自前の Quad に UV を当てたいときの低レベル API。
 
 ---
 
 ## 最小例
 
-`FNode2D` にスプライトとアニメコンポーネントを付け、`InitGrid` でグリッドを割って `Play()` するだけ。これが verified サンプル 56 の中核そのまま。
+`ANode` にスプライトとアニメコンポーネントを付け、`InitGrid` でグリッドを割って `Play()` するだけ。これが verified サンプル 56 の中核そのまま。
 
 ```cpp
 #include "gameframework/GameFramework.h"
@@ -21,15 +21,15 @@ using namespace acs;
 using namespace acs::game;
 
 // シーンの OnReady() 内など
-auto node = MakeUnique<FNode2D>();
-node->Local().position = FVec2{0.0f, 0.0f};
+auto node = NewObject<ANode>();
+node->SetPosition2D(FVec2{0.0f, 0.0f});
 
 // 1) 描画先スプライト (ワールド単位サイズ 2x2) を付けてテクスチャを差す
-auto& spr = node->AddComponent<FSprite2DComponent>(FVec2{2.0f, 2.0f});
+auto& spr = node->AddComponent<ASprite2DComponent>(FVec2{2.0f, 2.0f});
 spr.SetTexture(sheetTex);               // IRhiTexture*  (256x64 を 4 セルに割る想定)
 
 // 2) アニメコンポーネントを付けてグリッド初期化 → 再生
-auto& anim = node->AddComponent<FSpriteAnimComponent>();
+auto& anim = node->AddComponent<ASpriteAnimComponent>();
 anim.InitGrid(/*cols=*/4, /*rows=*/1, /*frame_count=*/4, /*fps=*/8.0f,
               EPlayMode::Loop);
 anim.Play();
@@ -51,7 +51,7 @@ Root().AddChild(Move(node));
 | `EPlayMode::PingPong` | `0→N-1→0→…` と両端で折り返す。周期は `2*(N-1)` frame |
 | `EPlayMode::Once` | `0→N-1` で停止。末尾で `IsFinished()==true`・`IsPlaying()==false` |
 
-### FSpriteAnimComponent
+### ASpriteAnimComponent
 
 | メソッド | 説明 |
 | --- | --- |
@@ -87,7 +87,7 @@ Root().AddChild(Move(node));
 横並び 4 セル (256x64) を 8fps でループ。これが最も基本。
 
 ```cpp
-auto& anim = node->AddComponent<FSpriteAnimComponent>();
+auto& anim = node->AddComponent<ASpriteAnimComponent>();
 anim.InitGrid(4, 1, 4, 8.0f, EPlayMode::Loop);
 anim.Play();
 ```
@@ -106,7 +106,7 @@ anim.Play();
 セルが不均等な packed atlas などはグリッドで割れないので、`BeginFrames → AddFrameUv* → EndFrames` で 1 枚ずつ UV を積む。`AddFrameUv` は `FVec4{u0,v0,u1,v1}` (0〜1 正規化 UV)。
 
 ```cpp
-auto& anim = node->AddComponent<FSpriteAnimComponent>();
+auto& anim = node->AddComponent<ASpriteAnimComponent>();
 anim.BeginFrames(/*fps=*/12.0f, EPlayMode::Loop);
 anim.AddFrameUv(FVec4{0.00f, 0.0f, 0.25f, 1.0f});  // frame 0
 anim.AddFrameUv(FVec4{0.25f, 0.0f, 0.55f, 1.0f});  // frame 1 (幅違いも可)
@@ -115,19 +115,19 @@ anim.EndFrames();
 anim.Play();
 ```
 
-> アトラスのフレーム名→UV を **`FSpritePack` から取る経路も検証済み**: `pack.LoadAtlasJson(text, len)`（Aseprite hash / TexturePacker array）または `pack.AddFrame(...)` でフレームを登録し、`pack.FindFrame("name")` → `pack.ComputeUv(*frame)` で `FVec4{u0,v0,u1,v1}` を得て `AddFrameUv` / `FSprite2DComponent::SetUvRect` へ渡せる。検証 = `62`（`TestSpriteAtlasLoad`）/ `63`（プレイヤースプライトを atlas フレームで描画）。手書きで `FVec4` を直接積んでもよい。
+> アトラスのフレーム名→UV を **`FSpritePack` から取る経路も検証済み**: `pack.LoadAtlasJson(text, len)`（Aseprite hash / TexturePacker array）または `pack.AddFrame(...)` でフレームを登録し、`pack.FindFrame("name")` → `pack.ComputeUv(*frame)` で `FVec4{u0,v0,u1,v1}` を得て `AddFrameUv` / `ASprite2DComponent::SetUvRect` へ渡せる。検証 = `62`（`TestSpriteAtlasLoad`）/ `63`（プレイヤースプライトを atlas フレームで描画）。手書きで `FVec4` を直接積んでもよい。
 
 ### 4. frame event (足音・攻撃判定タイミング)
 
 特定 frame に入った瞬間にコールバックを 1 度だけ呼ぶ。`std::function` は使えず **capture なしの関数ポインタ + `void* user`** のみ。`Animator()` 経由で登録する。
 
 ```cpp
-struct Player { void OnFootstep() noexcept { /* ... */ } };
+struct FPlayer { void OnFootstep() noexcept { /* ... */ } };
 
 // InitGrid / EndFrames の後 (frame_count 確定後) に登録すること
 anim.InitGrid(8, 1, 8, 12.0f, EPlayMode::Loop);
 anim.Animator().AddFrameEvent(4, [](void* ud) noexcept {
-    static_cast<Player*>(ud)->OnFootstep();
+    static_cast<FPlayer*>(ud)->OnFootstep();
 }, playerPtr);
 anim.Play();
 ```
@@ -138,7 +138,7 @@ anim.Play();
 
 ## 注意点 (gotcha)
 
-- **`FSprite2DComponent` が描画先**: `FSpriteAnimComponent` 自身は描かない。同じ `FNode2D` に貼った sprite の `SetUvRect` を書き換えるだけ。`OnRequire` で sprite が無ければ `GetOrAddComponent<FSprite2DComponent>()` で**自動追加される**が、それだと**テクスチャ未設定の素の sprite**になる。アニメさせたいなら自分で `AddComponent<FSprite2DComponent>` してから `SetTexture` を呼ぶこと (サンプル 56 もそうしている)。
+- **`ASprite2DComponent` が描画先**: `ASpriteAnimComponent` 自身は描かない。同じ `ANode` に貼った sprite の `SetUvRect` を書き換えるだけ。`OnRequire` で sprite が無ければ `GetOrAddComponent<ASprite2DComponent>()` で**自動追加される**が、それだと**テクスチャ未設定の素の sprite**になる。アニメさせたいなら自分で `AddComponent<ASprite2DComponent>` してから `SetTexture` を呼ぶこと (サンプル 56 もそうしている)。
 
 - **sibling は初回 `OnUpdate` で遅延 lookup**: コンポーネントの追加順 (sprite が先か anim が先か) に依存しないよう、sprite ポインタは最初の `OnUpdate` で解決される。つまり **`OnReady`/構築直後の時点ではまだ UV は適用されていない**。1 フレーム目以降で反映される点に注意 (静止 1 フレーム目を即見せたい用途では誤解しやすい)。
 

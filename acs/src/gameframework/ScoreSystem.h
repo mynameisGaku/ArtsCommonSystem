@@ -43,7 +43,7 @@
 //   f32 mul  = ss.ComboMultiplier();
 //
 // 設計選択 (Pillar R/O):
-//   ・**multiplier は ×100 整数で entry に記録**: ScoreEntry.multiplier_x100 は
+//   ・**multiplier は ×100 整数で entry に記録**: FScoreEntry.multiplier_x100 は
 //     例えば 250 = 2.5x。倍率を f32 で持つと bit 完全一致が取れず、Replay /
 //     Telemetry での比較で偽差分が出るため整数化する。
 //   ・**所有しない const char* category**: FAchievementManager と同設計で
@@ -87,7 +87,7 @@ namespace acs::game {
  * category は文字列リテラル想定 (非所有)。weighted_value は base に倍率を掛けて
  * 実際に CurrentScore へ足した値、multiplier_x100 はその加算時点の倍率の ×100 整数。
  */
-struct ScoreEntry {
+struct FScoreEntry {
     /** 加算カテゴリ (例: "enemy.normal" / "bonus.air_combo")。文字列リテラル想定 (非所有)。 */
     const char* category        = nullptr;
 
@@ -119,7 +119,7 @@ public:
      *
      * @details
      * 戻り値は呼出側で f32 として扱われるが、内部では ×100 して u32 に丸めて
-     * ScoreEntry に記録する。SetMultiplierFn に nullptr を渡すと内部デフォルトに戻る。
+     * FScoreEntry に記録する。SetMultiplierFn に nullptr を渡すと内部デフォルトに戻る。
      */
     using MultiplierFn = f32(*)(u32 combo) noexcept;
 
@@ -258,7 +258,7 @@ public:
     /**
      * entry log の件数を返す。
      *
-     * @return 記録済み ScoreEntry の数。
+     * @return 記録済み FScoreEntry の数。
      */
     u32 EntryCount() const noexcept;
 
@@ -269,7 +269,7 @@ public:
      * @param out_count 件数の書き出し先。
      * @return entry バッファの先頭ポインタ。
      */
-    const ScoreEntry* AllEntries(u32& out_count) const noexcept;
+    const FScoreEntry* AllEntries(u32& out_count) const noexcept;
 
     /**
      * 通過時に MilestoneCallback を発火するスコア値を登録する。
@@ -306,7 +306,7 @@ public:
     void ClearAll() noexcept;
 
 private:
-    /** ScoreEntry log の上限件数 (capped append、超えると最古を捨てる)。 */
+    /** FScoreEntry log の上限件数 (capped append、超えると最古を捨てる)。 */
     static constexpr u32 kMaxEntries = 100;
 
     /**
@@ -326,11 +326,11 @@ private:
     void CheckMilestones() noexcept;
 
     /**
-     * ScoreEntry を log に push する (capped append)。
+     * FScoreEntry を log に push する (capped append)。
      *
      * @param e 追加する entry。
      */
-    void PushEntry(const ScoreEntry& e) noexcept;
+    void PushEntry(const FScoreEntry& e) noexcept;
 
     /** 現在の累積スコア。 */
     u64 m_CurrentScore = 0;
@@ -348,7 +348,7 @@ private:
     f32 m_ComboDuration = 3.0f;
 
     /** entry log (最大 kMaxEntries 件で capped append)。 */
-    TArray<ScoreEntry> m_Entries;
+    TArray<FScoreEntry> m_Entries;
 
     /** milestone 定義 (m_MilestoneHit と 1:1 並行)。 */
     TArray<u64>  m_Milestones;

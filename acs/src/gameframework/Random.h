@@ -23,7 +23,7 @@
 // 注意:
 //   - Global() はプロセス内で 1 個の静的インスタンス。マルチスレッドからの
 //     呼び出しは未保護 (ACS 規約: 別スレッドは別 FRandom を持つこと)。
-//   - 時刻 seed は acs::Clock::Ticks() (`platform/Time.h`) を利用する。
+//   - 時刻 seed は acs::FClock::Ticks() (`platform/Time.h`) を利用する。
 #pragma once
 
 #include "container/Array.h"
@@ -43,7 +43,7 @@ namespace acs::game {
  */
 class FRandom {
 public:
-    /** 起動時刻 (Clock::Ticks) を seed にして構築する。 */
+    /** 起動時刻 (FClock::Ticks) を seed にして構築する。 */
     FRandom() noexcept;
 
     /**

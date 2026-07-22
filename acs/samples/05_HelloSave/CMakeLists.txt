@@ -1,4 +1,4 @@
-## HelloSave — Storage で設定 / セーブデータの永続化。
+## HelloSave — FStorage で設定 / セーブデータの永続化。
 ##
 ## 構成:
 ##   main.cpp              - ACS_DEFINE_MAIN(HelloSaveApp) のみ

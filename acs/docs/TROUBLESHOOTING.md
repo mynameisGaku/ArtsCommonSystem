@@ -59,7 +59,7 @@ STL ヘッダを include すると STL 内部の `throw` が原因で大量の�
 ください。
 
 ### `looser exception specification` / フックのオーバーライドが通らない
-`Application` のフック（`OnStart` / `OnUpdate` / `OnRender` / `OnShutdown` /
+`FApplication` のフック（`OnStart` / `OnUpdate` / `OnRender` / `OnShutdown` /
 `OnEvent`）はすべて `noexcept` です。オーバーライド側も **`noexcept override`**
 と書いてください。`noexcept` を付け忘れると基底と署名が合わず、
 `looser exception specification` 等のコンパイルエラーになります。
@@ -148,9 +148,9 @@ auto asset = r.Value();   // ここに来た時点で成功が保証される
 ```
 
 ### `ACS_LOG_*` を呼んだのに何も出力されない
-`Logger` が初期化されていない可能性があります。`Application` を継承した
-ゲームでは起動時に自動で初期化されるため通常は問題ありません。`Application`
-の外（テスト用の小さなコードなど）でログを使う場合は、先に `Logger` の初期化が
+`FLogger` が初期化されていない可能性があります。`FApplication` を継承した
+ゲームでは起動時に自動で初期化されるため通常は問題ありません。`FApplication`
+の外（テスト用の小さなコードなど）でログを使う場合は、先に `FLogger` の初期化が
 必要です。
 
 ---

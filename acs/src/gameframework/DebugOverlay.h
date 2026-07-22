@@ -7,7 +7,7 @@
 // しない (テスト / Headless 環境でも動作)。
 //
 // 使い方:
-//   class GameplayScene : public Scene {
+//   class FGameplayScene : public FScene {
 //       acs::game::FDebugOverlay m_Overlay;
 //       void OnEnter() noexcept override {
 //           m_Overlay.Init();
@@ -17,12 +17,12 @@
 //       }
 //       void OnUpdate(f32 dt) noexcept override {
 //           m_Overlay.Tick(dt);
-//           if (Input::IsKeyPressed(EKey::F3)) m_Overlay.Toggle();
+//           if (FInput::IsKeyPressed(EKey::F3)) m_Overlay.Toggle();
 //       }
 //       void OnDraw() noexcept override {
 //           if (!m_Overlay.IsVisible()) return;
 //           char line[128];
-//           EFormat(line, "FPS %.1f (avg %.1f)", m_Overlay.CurrentFps(),
+//           Format(line, "FPS %.1f (avg %.1f)", m_Overlay.CurrentFps(),
 //                                                m_Overlay.AverageFps());
 //           DrawString(8, 8, line);
 //           // ...etc, watches を順に描画
@@ -43,7 +43,7 @@
 //   ・**RemoveWatch / WatchCount**: label を strcmp で検索して swap-remove。順序は
 //     保証しない (描画レイアウトは caller が安定化する責務)。
 //   ・**非コピー・非ムーブ**: 履歴バッファと watches 列の所有権を曖昧にしないため。
-//   ・**STL 不使用**: `acs::TArray<f32>` / `acs::TArray<Watch>` を使用、`<string>` 禁止。
+//   ・**STL 不使用**: `acs::TArray<f32>` / `acs::TArray<FWatch>` を使用、`<string>` 禁止。
 //     実装側で `<cstring>` (strcmp / strlen) のみ許可。
 //
 // 範囲外 (本クラスでは持たない):
@@ -77,7 +77,7 @@ public:
      * @details label / value とも caller 所有 (本クラスは複製しない)。value バッファは
      * caller が毎フレーム更新してよい (pointer は不変であること)。
      */
-    struct Watch {
+    struct FWatch {
         /** 表示ラベル (caller 所有、非所有参照)。 */
         const char* label = nullptr;
 
@@ -217,12 +217,12 @@ public:
     /**
      * 全 watch を読み取り用に列挙する。
      *
-     * @details 戻り値はクラス所有の内部バッファ (TArray<Watch> の data) を指し、
+     * @details 戻り値はクラス所有の内部バッファ (TArray<FWatch> の data) を指し、
      * Add/Remove/Clear 呼出しまで有効。
      * @param out_count watch 件数を書き込む先。
      * @return watch 配列の先頭ポインタ。空のときは nullptr (out_count = 0)。
      */
-    const Watch* AllWatches(u32& out_count) const noexcept;
+    const FWatch* AllWatches(u32& out_count) const noexcept;
 
 private:
     /** fps 履歴の固定容量 (循環バッファのサンプル数)。 */
@@ -244,7 +244,7 @@ private:
     const char*   m_SceneName   = nullptr;
 
     /** 登録済み watch 列 (label / value とも非所有参照)。 */
-    TArray<Watch>  m_Watches;
+    TArray<FWatch>  m_Watches;
 
     /** 可視フラグ (false なら描画側が表示しない想定)。 */
     bool          m_Visible      = false;

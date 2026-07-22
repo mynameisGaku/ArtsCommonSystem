@@ -24,13 +24,13 @@ namespace hellovertexsss {
 
 // シェーダ頂点 (位置 + 法線 + 散乱後放射照度 RGB)。プレーン float で密パック (36 bytes)。
 // 注意: FVec3 は alignas(16) で 16 bytes あるため頂点には使えない (stride/offset がずれる)。
-struct VtxSSS {
+struct FVtxSss {
     acs::f32 px, py, pz;
     acs::f32 nx, ny, nz;
     acs::f32 sr, sg, sb;
 };
 
-class HelloVertexSssApp : public acs::FApplication {
+class FHelloVertexSssApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -44,7 +44,7 @@ private:
 
     acs::TSharedPtr<acs::FMeshAsset> m_Sphere;   // CPU メッシュ (位置/法線/インデックス)
     acs::FVertexScatter              m_Scatter;  // 頂点空間拡散演算子
-    acs::TArray<VtxSSS>              m_CpuVtx;   // 毎フレーム書き換える頂点ステージ
+    acs::TArray<FVtxSss>              m_CpuVtx;   // 毎フレーム書き換える頂点ステージ
     acs::TArray<acs::FVec3>          m_Irr;      // per-vertex 入力放射照度 (work)
     acs::TArray<acs::FVec3>          m_IrrOut;   // 散乱後 (work)
 
@@ -59,7 +59,7 @@ private:
     acs::u32                          m_IndexCount = 0;
 
     acs::FSpriteBatch m_Batch;
-    acs::Font        m_Font;
+    acs::FFont        m_Font;
     acs::FCamera      m_Camera;
     acs::f32         m_Time = 0.0f;
 };

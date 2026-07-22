@@ -1,0 +1,666 @@
+// SPDX-License-Identifier: Apache-2.0
+
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Threading;
+
+namespace AcsEditor;
+
+public enum AssetCookDiagnosticSeverity
+{
+    Info,
+    Warning,
+    Error,
+}
+
+public sealed record AssetCookDiagnostic(
+    AssetCookDiagnosticSeverity Severity,
+    string Code,
+    string Message,
+    string AssetPath = "",
+    string AssetId = "");
+
+public sealed record AssetCookPlan(
+    AssetRecord? Root,
+    IReadOnlyList<AssetRecord> Assets,
+    IReadOnlyList<AssetCookDiagnostic> Diagnostics,
+    string GraphHash)
+{
+    public bool HasErrors =>
+        Diagnostics.Any(static item => item.Severity == AssetCookDiagnosticSeverity.Error);
+}
+
+/// <summary>
+/// Builds a deterministic, metadata-authoritative Cook closure from one initial scene.
+/// The persistent AssetDatabase supplies stable identities and content hashes; scanners for
+/// path-bearing source formats verify that their sidecar dependency lists are current.
+/// </summary>
+public sealed class AssetCookPlanner
+{
+    private const int MaxGraphAssets = 65536;
+    private const long MaxScannedTextBytes = 64L * 1024 * 1024;
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
+    private static readonly Regex SceneReference = new(
+        @"^(?:(?:SPRT|MAT)\s+-?\d+\s+)(?<path>.+?)\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex MaterialReference = new(
+        @"^(?:(?:albedo|normal|substrateExprTexture\d+)\s+)(?<path>.+?)\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex Scene3DReference = new(
+        @"^(?<verb>MSH3D|SPR3D|MAT3D|PFAB3D)\s+-?\d+\s+(?<path>.+?)\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex ObjReference = new(
+        @"^mtllib\s+(?<path>.+?)\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    private static readonly Regex MtlReference = new(
+        @"^(?:(?:map_[A-Za-z0-9_]+|bump|disp|decal)\s+)(?<path>.+?)\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    private readonly string _projectRoot;
+    private readonly string _assetsRoot;
+    private readonly AssetDatabase _database;
+
+    public AssetCookPlanner(string projectRoot, string assetsRoot)
+    {
+        _projectRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(projectRoot));
+        _assetsRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(assetsRoot));
+        _database = new AssetDatabase(_projectRoot, _assetsRoot);
+    }
+
+    /// <summary>
+    /// Compatibility adapter for path-based project files. The path is resolved exactly once to
+    /// its persistent identity; graph traversal itself is always rooted at the canonical Asset ID.
+    /// </summary>
+    public AssetCookPlan Build(
+        string legacyScenePath,
+        CancellationToken cancellationToken = default)
+    {
+        var diagnostics = new List<AssetCookDiagnostic>();
+        RefreshStrict(diagnostics, cancellationToken);
+
+        AssetRecord? root = null;
+        if (!_database.TryGetByPath(legacyScenePath, out root) || root == null)
+        {
+            diagnostics.Add(new(
+                AssetCookDiagnosticSeverity.Error,
+                "INITIAL_SCENE_NOT_INDEXED",
+                "Legacy InitialScene path is not represented by one valid authoritative asset metadata record.",
+                PortableAssetPath(legacyScenePath)));
+            return FinalizePlan(root, Array.Empty<AssetRecord>(), diagnostics);
+        }
+        return BuildFromCanonicalRoot(root, diagnostics, cancellationToken);
+    }
+
+    /// <summary>
+    /// Builds the closure from the canonical scene identity stored by a project/manifest.
+    /// Asset kind and source extension are importer concerns and do not select the graph root.
+    /// </summary>
+    public AssetCookPlan BuildByAssetId(
+        string canonicalSceneAssetId,
+        CancellationToken cancellationToken = default)
+    {
+        var diagnostics = new List<AssetCookDiagnostic>();
+        RefreshStrict(diagnostics, cancellationToken);
+        AssetRecord? root = null;
+        if (!_database.TryGetByAssetId(canonicalSceneAssetId, out root) || root == null)
+        {
+            diagnostics.Add(new(
+                AssetCookDiagnosticSeverity.Error,
+                "CANONICAL_SCENE_ASSET_MISSING",
+                "Canonical scene Asset ID does not resolve to one valid authoritative asset metadata record.",
+                "",
+                canonicalSceneAssetId?.Trim() ?? ""));
+            return FinalizePlan(root, Array.Empty<AssetRecord>(), diagnostics);
+        }
+        return BuildFromCanonicalRoot(root, diagnostics, cancellationToken);
+    }
+
+    private void RefreshStrict(
+        List<AssetCookDiagnostic> diagnostics,
+        CancellationToken cancellationToken)
+    {
+        AssetDatabaseRefreshResult refresh = _database.RefreshForCook(cancellationToken);
+        foreach (string warning in refresh.Warnings.OrderBy(static item => item, StringComparer.Ordinal))
+            diagnostics.Add(MapDatabaseWarning(warning));
+    }
+
+    private AssetCookPlan BuildFromCanonicalRoot(
+        AssetRecord root,
+        List<AssetCookDiagnostic> diagnostics,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(root.Kind, "scene", StringComparison.OrdinalIgnoreCase))
+        {
+            diagnostics.Add(new(
+                AssetCookDiagnosticSeverity.Error,
+                "CANONICAL_SCENE_KIND_INVALID",
+                "Canonical scene Asset ID must identify an asset whose metadata kind is 'scene'.",
+                root.RelativePath,
+                root.AssetId));
+        }
+        var byId = _database.Snapshot().ToDictionary(
+            static item => item.AssetId,
+            StringComparer.OrdinalIgnoreCase);
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pending = new Queue<string>();
+        pending.Enqueue(root.AssetId);
+
+        while (pending.Count != 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string assetId = pending.Dequeue();
+            if (!visited.Add(assetId))
+                continue;
+            if (visited.Count > MaxGraphAssets)
+            {
+                diagnostics.Add(new(
+                    AssetCookDiagnosticSeverity.Error,
+                    "ASSET_GRAPH_LIMIT",
+                    $"Reachable asset graph exceeds the {MaxGraphAssets} asset safety limit.",
+                    root.RelativePath,
+                    root.AssetId));
+                break;
+            }
+
+            if (!byId.TryGetValue(assetId, out AssetRecord? asset))
+            {
+                diagnostics.Add(new(
+                    AssetCookDiagnosticSeverity.Error,
+                    "ASSET_DEPENDENCY_MISSING",
+                    "Dependency GUID does not resolve to an indexed asset.",
+                    "",
+                    assetId));
+                continue;
+            }
+
+            VerifyDiscoveredDependencies(asset, diagnostics, cancellationToken);
+            foreach (string dependency in asset.Metadata.Dependencies
+                         .OrderBy(static item => item, StringComparer.Ordinal))
+            {
+                if (!byId.ContainsKey(dependency))
+                {
+                    diagnostics.Add(new(
+                        AssetCookDiagnosticSeverity.Error,
+                        "ASSET_DEPENDENCY_MISSING",
+                        $"'{asset.RelativePath}' references a missing dependency GUID.",
+                        asset.RelativePath,
+                        dependency));
+                    continue;
+                }
+                if (!visited.Contains(dependency))
+                    pending.Enqueue(dependency);
+            }
+        }
+
+        AssetReferenceAnalysis analysis = _database.AnalyzeReferences(root.AssetId, maxDepth: 256);
+        foreach (AssetDependencyCycle cycle in analysis.Cycles)
+        {
+            diagnostics.Add(new(
+                AssetCookDiagnosticSeverity.Error,
+                "ASSET_DEPENDENCY_CYCLE",
+                "Reachable dependency cycle: " + string.Join(" -> ", cycle.AssetIds),
+                root.RelativePath,
+                root.AssetId));
+        }
+
+        AssetRecord[] assets = visited
+            .Select(id => byId.GetValueOrDefault(id))
+            .Where(static item => item != null)
+            .Select(static item => item!)
+            .OrderBy(static item => item.RelativePath, StringComparer.Ordinal)
+            .ThenBy(static item => item.AssetId, StringComparer.Ordinal)
+            .ToArray();
+        return FinalizePlan(root, assets, diagnostics);
+    }
+
+    private void VerifyDiscoveredDependencies(
+        AssetRecord asset,
+        List<AssetCookDiagnostic> diagnostics,
+        CancellationToken cancellationToken)
+    {
+        if (!SupportsDependencyScan(asset.RelativePath))
+            return;
+
+        try
+        {
+            IReadOnlyList<string> discovered = DiscoverDependencyIds(
+                asset,
+                diagnostics,
+                cancellationToken);
+            string[] metadata = asset.Metadata.Dependencies
+                .OrderBy(static item => item, StringComparer.Ordinal)
+                .ToArray();
+            if (!discovered.SequenceEqual(metadata, StringComparer.Ordinal))
+            {
+                diagnostics.Add(new(
+                    AssetCookDiagnosticSeverity.Error,
+                    "ASSET_METADATA_STALE",
+                    "Authoritative dependency metadata does not match references in the current " +
+                    $"source. metadata=[{string.Join(",", metadata)}], " +
+                    $"source=[{string.Join(",", discovered)}]",
+                    asset.RelativePath,
+                    asset.AssetId));
+            }
+        }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or InvalidDataException or
+                JsonException or ArgumentException or FormatException or NotSupportedException)
+        {
+            diagnostics.Add(new(
+                AssetCookDiagnosticSeverity.Error,
+                "ASSET_DEPENDENCY_SCAN_FAILED",
+                error.Message,
+                asset.RelativePath,
+                asset.AssetId));
+        }
+    }
+
+    private IReadOnlyList<string> DiscoverDependencyIds(
+        AssetRecord asset,
+        List<AssetCookDiagnostic> diagnostics,
+        CancellationToken cancellationToken)
+    {
+        var ids = new SortedSet<string>(StringComparer.Ordinal);
+        string extension = Path.GetExtension(asset.RelativePath);
+        if (string.Equals(extension, ".gltf", StringComparison.OrdinalIgnoreCase))
+        {
+            ScanGltf(asset, ids, diagnostics, cancellationToken);
+            return Array.AsReadOnly(ids.ToArray());
+        }
+
+        Regex expression = extension.ToLowerInvariant() switch
+        {
+            ".acscene" or ".acsprefab" => SceneReference,
+            ".acs3d" => Scene3DReference,
+            ".acsmat" => MaterialReference,
+            ".obj" => ObjReference,
+            ".mtl" => MtlReference,
+            _ => throw new InvalidDataException(
+                $"No deterministic dependency scanner is registered for '{extension}'."),
+        };
+        EnsureScannableTextFile(asset.FullPath);
+        foreach (string line in File.ReadLines(asset.FullPath, StrictUtf8))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Match match = expression.Match(line);
+            if (!match.Success)
+                continue;
+            string reference = match.Groups["path"].Value.Trim();
+            if (string.Equals(
+                    match.Groups["verb"].Value,
+                    "MAT3D",
+                    StringComparison.Ordinal) &&
+                IsLegacyNumeric3DMaterial(reference))
+            {
+                continue;
+            }
+            ResolveAndAdd(
+                asset,
+                reference,
+                ids,
+                diagnostics,
+                relativeToAssetDirectory: extension is ".obj" or ".mtl");
+        }
+        return Array.AsReadOnly(ids.ToArray());
+    }
+
+    private void ScanGltf(
+        AssetRecord asset,
+        SortedSet<string> ids,
+        List<AssetCookDiagnostic> diagnostics,
+        CancellationToken cancellationToken)
+    {
+        EnsureScannableTextFile(asset.FullPath);
+        using FileStream stream = new(
+            asset.FullPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            64 * 1024,
+            FileOptions.SequentialScan);
+        using JsonDocument document = JsonDocument.Parse(stream, new JsonDocumentOptions
+        {
+            AllowTrailingCommas = false,
+            CommentHandling = JsonCommentHandling.Disallow,
+            MaxDepth = 128,
+        });
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("glTF root must be a JSON object.");
+        ScanUriArray("buffers");
+        ScanUriArray("images");
+
+        void ScanUriArray(string property)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!document.RootElement.TryGetProperty(property, out JsonElement values) ||
+                values.ValueKind != JsonValueKind.Array)
+                return;
+            foreach (JsonElement value in values.EnumerateArray())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!value.TryGetProperty("uri", out JsonElement uri) ||
+                    uri.ValueKind != JsonValueKind.String)
+                    continue;
+                string reference = uri.GetString() ?? "";
+                if (reference.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (reference.Length == 0 || reference.Contains('#') || reference.Contains('?') ||
+                    Uri.TryCreate(reference, UriKind.Absolute, out _))
+                {
+                    diagnostics.Add(new(
+                        AssetCookDiagnosticSeverity.Error,
+                        "ASSET_REFERENCE_INVALID",
+                        $"glTF URI is not a portable Assets-relative file reference: {reference}",
+                        asset.RelativePath,
+                        asset.AssetId));
+                    continue;
+                }
+                ResolveAndAdd(
+                    asset,
+                    Uri.UnescapeDataString(reference),
+                    ids,
+                    diagnostics,
+                    relativeToAssetDirectory: true);
+            }
+        }
+    }
+
+    private void ResolveAndAdd(
+        AssetRecord source,
+        string reference,
+        SortedSet<string> ids,
+        List<AssetCookDiagnostic> diagnostics,
+        bool relativeToAssetDirectory)
+    {
+        string? resolved = ResolveReference(
+            source.FullPath,
+            reference,
+            relativeToAssetDirectory,
+            out string code,
+            out string message);
+        if (resolved == null)
+        {
+            diagnostics.Add(new(
+                AssetCookDiagnosticSeverity.Error,
+                code,
+                message,
+                source.RelativePath,
+                source.AssetId));
+            return;
+        }
+        if (!_database.TryGetByPath(resolved, out AssetRecord? dependency) || dependency == null)
+        {
+            diagnostics.Add(new(
+                AssetCookDiagnosticSeverity.Error,
+                "ASSET_REFERENCE_NOT_INDEXED",
+                $"Referenced file has no unique valid asset metadata record: {reference}",
+                source.RelativePath,
+                source.AssetId));
+            return;
+        }
+        ids.Add(dependency.AssetId);
+    }
+
+    private string? ResolveReference(
+        string sourceFile,
+        string reference,
+        bool relativeToAssetDirectory,
+        out string code,
+        out string message)
+    {
+        code = "";
+        message = "";
+        try
+        {
+            string value = reference.Replace('/', Path.DirectorySeparatorChar);
+            string[] candidates;
+            if (Path.IsPathRooted(value))
+            {
+                candidates = [Path.GetFullPath(value)];
+            }
+            else if (relativeToAssetDirectory)
+            {
+                candidates =
+                [
+                    Path.GetFullPath(Path.Combine(Path.GetDirectoryName(sourceFile)!, value)),
+                ];
+            }
+            else
+            {
+                candidates =
+                [
+                    Path.GetFullPath(Path.Combine(_projectRoot, value)),
+                    Path.GetFullPath(Path.Combine(_assetsRoot, value)),
+                ];
+            }
+
+            if (candidates.All(candidate => !IsUnder(candidate, _assetsRoot)))
+            {
+                code = "ASSET_REFERENCE_ESCAPE";
+                message = $"Referenced path escapes Assets: {reference}";
+                return null;
+            }
+            string[] existing = candidates
+                .Where(File.Exists)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (existing.Length == 0)
+            {
+                code = "ASSET_REFERENCE_MISSING";
+                message = $"Referenced file does not exist: {reference}";
+                return null;
+            }
+            if (existing.Length > 1)
+            {
+                code = "ASSET_REFERENCE_AMBIGUOUS";
+                message = "Reference resolves to more than one file: " +
+                          string.Join(", ", existing.OrderBy(static item => item, StringComparer.Ordinal));
+                return null;
+            }
+
+            string resolved = existing[0];
+            if (!IsUnder(resolved, _assetsRoot))
+            {
+                code = "ASSET_REFERENCE_ESCAPE";
+                message = $"Referenced file is outside Assets: {reference}";
+                return null;
+            }
+            EnsureOrdinaryAssetPath(resolved);
+            return resolved;
+        }
+        catch (InvalidDataException error)
+        {
+            code = "ASSET_REFERENCE_UNSAFE";
+            message = $"Reference path is unsafe: {reference}. {error.Message}";
+            return null;
+        }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            code = "ASSET_REFERENCE_INVALID";
+            message = $"Reference path is invalid: {reference}. {error.Message}";
+            return null;
+        }
+    }
+
+    private void EnsureOrdinaryAssetPath(string file)
+    {
+        string current = Path.GetFullPath(file);
+        string root = Path.TrimEndingDirectorySeparator(_assetsRoot);
+        while (IsUnderOrEqual(current, root))
+        {
+            FileAttributes attributes = File.GetAttributes(current);
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException($"Asset reference crosses a reparse point: {current}");
+            if (string.Equals(
+                    Path.TrimEndingDirectorySeparator(current),
+                    root,
+                    StringComparison.OrdinalIgnoreCase))
+                return;
+            current = Path.GetDirectoryName(current)
+                ?? throw new InvalidDataException("Asset reference has no parent.");
+        }
+        throw new InvalidDataException("Asset reference escapes Assets.");
+    }
+
+    private static bool SupportsDependencyScan(string relativePath)
+    {
+        string extension = Path.GetExtension(relativePath);
+        return extension.Equals(".acscene", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".acsprefab", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".acs3d", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".acsmat", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".gltf", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".obj", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".mtl", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsLegacyNumeric3DMaterial(string value)
+    {
+        string[] fields = value.Split(
+            [' ', '\t'],
+            StringSplitOptions.RemoveEmptyEntries);
+        return fields.Length == 2 &&
+               float.TryParse(
+                   fields[0],
+                   System.Globalization.NumberStyles.Float,
+                   System.Globalization.CultureInfo.InvariantCulture,
+                   out _) &&
+               float.TryParse(
+                   fields[1],
+                   System.Globalization.NumberStyles.Float,
+                   System.Globalization.CultureInfo.InvariantCulture,
+                   out _);
+    }
+
+    private static void EnsureScannableTextFile(string path)
+    {
+        var info = new FileInfo(path);
+        if (!info.Exists)
+            throw new FileNotFoundException("Asset source does not exist.", path);
+        if (info.Length > MaxScannedTextBytes)
+            throw new InvalidDataException(
+                $"Dependency-scanned text asset exceeds {MaxScannedTextBytes} bytes.");
+    }
+
+    private AssetCookDiagnostic MapDatabaseWarning(string warning)
+    {
+        if (warning.StartsWith("Metadata missing", StringComparison.Ordinal))
+            return Error("ASSET_METADATA_MISSING", warning);
+        if (warning.StartsWith("Duplicate asset id", StringComparison.Ordinal))
+            return Error("ASSET_ID_AMBIGUOUS", warning);
+        if (warning.StartsWith("Metadata rejected", StringComparison.Ordinal))
+            return Error("ASSET_METADATA_INVALID", warning);
+        if (warning.Contains("reparse", StringComparison.OrdinalIgnoreCase))
+            return Error("ASSET_PATH_UNSAFE", warning);
+        if (warning.StartsWith("Asset index cache ignored", StringComparison.Ordinal))
+        {
+            return new(
+                AssetCookDiagnosticSeverity.Warning,
+                "ASSET_INDEX_CACHE_IGNORED",
+                warning);
+        }
+        return Error("ASSET_DATABASE_INVALID", warning);
+
+        static AssetCookDiagnostic Error(string code, string message) =>
+            new(AssetCookDiagnosticSeverity.Error, code, message);
+    }
+
+    private static AssetCookPlan FinalizePlan(
+        AssetRecord? root,
+        IReadOnlyList<AssetRecord> assets,
+        List<AssetCookDiagnostic> diagnostics)
+    {
+        AssetCookDiagnostic[] orderedDiagnostics = diagnostics
+            .Distinct()
+            .OrderByDescending(static item => item.Severity)
+            .ThenBy(static item => item.Code, StringComparer.Ordinal)
+            .ThenBy(static item => item.AssetPath, StringComparer.Ordinal)
+            .ThenBy(static item => item.AssetId, StringComparer.Ordinal)
+            .ThenBy(static item => item.Message, StringComparer.Ordinal)
+            .ToArray();
+        string graphHash = ComputeGraphHash(assets);
+        return new(
+            root,
+            Array.AsReadOnly(assets.ToArray()),
+            Array.AsReadOnly(orderedDiagnostics),
+            graphHash);
+    }
+
+    private static string ComputeGraphHash(IReadOnlyList<AssetRecord> assets)
+    {
+        var canonical = new StringBuilder();
+        foreach (AssetRecord asset in assets
+                     .OrderBy(static item => item.RelativePath, StringComparer.Ordinal))
+        {
+            Append("asset", asset.AssetId);
+            Append("path", asset.RelativePath);
+            Append("kind", asset.Kind);
+            Append("content", asset.ContentHash);
+            Append("source", asset.Metadata.Source);
+            Append("importer", asset.Metadata.Importer);
+            Append(
+                "importerVersion",
+                asset.Metadata.ImporterVersion.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture));
+            foreach (string dependency in asset.Metadata.Dependencies.OrderBy(
+                         static item => item,
+                         StringComparer.Ordinal))
+                Append("dependency", dependency);
+            foreach (KeyValuePair<string, string> setting in
+                     asset.Metadata.ImportSettings.OrderBy(
+                         static item => item.Key,
+                         StringComparer.Ordinal))
+                Append("import." + setting.Key, setting.Value);
+            canonical.Append('\n');
+        }
+        return Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())))
+            .ToLowerInvariant();
+
+        void Append(string name, string value)
+        {
+            canonical.Append(name.Length).Append(':').Append(name)
+                .Append('=').Append(value.Length).Append(':').Append(value).Append('\n');
+        }
+    }
+
+    private string PortableAssetPath(string path)
+    {
+        try
+        {
+            string full = Path.GetFullPath(path);
+            return IsUnder(full, _assetsRoot)
+                ? Path.GetRelativePath(_assetsRoot, full).Replace('\\', '/')
+                : full;
+        }
+        catch
+        {
+            return path;
+        }
+    }
+
+    private static bool IsUnder(string path, string root)
+    {
+        string fullRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        string fullPath = Path.GetFullPath(path);
+        return fullPath.StartsWith(
+            fullRoot + Path.DirectorySeparatorChar,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsUnderOrEqual(string path, string root) =>
+        string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)),
+            StringComparison.OrdinalIgnoreCase) ||
+        IsUnder(path, root);
+}

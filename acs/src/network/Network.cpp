@@ -53,7 +53,7 @@ void ReportNetworkResourceFailure(const char* record, u32 error, const char* lea
  *
  * @return 成功なら空の TResult、WSAStartup 失敗ならエラー。
  */
-TResult<void> Network::Init() noexcept
+TResult<void> FNetwork::Init() noexcept
 {
     // 参照数だけを先に公開すると、別スレッドが WSAStartup 完了前に利用できてしまう。
     // 最終 WSACleanup と次の WSAStartup が交差する窓も同じロックで閉じる。
@@ -105,7 +105,7 @@ TResult<void> Network::Init() noexcept
 }
 
 /** 参照カウントを 1 減らし、最後の参照が外れたら WSACleanup を呼ぶ。 */
-void Network::Shutdown() noexcept
+void FNetwork::Shutdown() noexcept
 {
     ::AcquireSRWLockExclusive(&g_network_lifecycle_lock);
 
@@ -145,7 +145,7 @@ void Network::Shutdown() noexcept
 }
 
 /** 初期化済みかどうかを返す (参照カウントが 1 以上なら true)。 */
-bool Network::IsInitialized() noexcept
+bool FNetwork::IsInitialized() noexcept
 {
     ::AcquireSRWLockShared(&g_network_lifecycle_lock);
     const bool initialized = g_initialization_reference_count > 0;
@@ -154,9 +154,9 @@ bool Network::IsInitialized() noexcept
 }
 
 /** Network が所有する Winsock 資源状態を一貫した時点で取得する。 */
-NetworkDiagnostics Network::CaptureDiagnostics() noexcept
+FNetworkDiagnostics FNetwork::CaptureDiagnostics() noexcept
 {
-    NetworkDiagnostics diagnostics{};
+    FNetworkDiagnostics diagnostics{};
     ::AcquireSRWLockShared(&g_network_lifecycle_lock);
     diagnostics.initialization_reference_count = g_initialization_reference_count;
     diagnostics.pending_cleanup_error = g_cleanup_error;
@@ -167,9 +167,9 @@ NetworkDiagnostics Network::CaptureDiagnostics() noexcept
 }
 
 /** "192.168.0.1" 等のドット区切り文字列を IpAddress に変換する (不正なら 0.0.0.0)。 */
-IpAddress IpAddress::FromString(const char* dotted) noexcept
+FIpAddress FIpAddress::FromString(const char* dotted) noexcept
 {
-    IpAddress a{};
+    FIpAddress a{};
     if (!dotted) return a;
 
     u32 cur = 0;
@@ -179,19 +179,19 @@ IpAddress IpAddress::FromString(const char* dotted) noexcept
         if (*dotted >= '0' && *dotted <= '9') {
             cur = cur * 10 + static_cast<u32>(*dotted - '0');
             digit = true;
-            if (cur > 255) return IpAddress{}; // 不正値
+            if (cur > 255) return FIpAddress{}; // 不正値
         } else if (*dotted == '.') {
-            if (!digit) return IpAddress{};
+            if (!digit) return FIpAddress{};
             a.octets[oct++] = static_cast<u8>(cur);
             cur = 0;
             digit = false;
         } else {
-            return IpAddress{}; // 不正な文字
+            return FIpAddress{}; // 不正な文字
         }
         ++dotted;
     }
     if (oct < 4 && digit) a.octets[oct++] = static_cast<u8>(cur);
-    if (oct != 4) return IpAddress{}; // 4 octet 揃っていない
+    if (oct != 4) return FIpAddress{}; // 4 octet 揃っていない
     return a;
 }
 

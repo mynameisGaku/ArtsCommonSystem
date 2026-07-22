@@ -1,29 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
-// Command — VM のアクション (ボタン等) を FViewModel 側に置くためのヘルパ
+// FCommand — VM のアクション (ボタン等) を FViewModel 側に置くためのヘルパ
 //
 // 使い方:
-//   class PlayerVM : public FViewModel {
+//   class FPlayerVm : public FViewModel {
 //   public:
-//       Observable<f32> hp { 100.0f };
+//       TObservable<f32> hp { 100.0f };
 //
-//       Command attack {
-//           [](void* user){ static_cast<PlayerVM*>(user)->hp.Set(0); },
+//       FCommand attack {
+//           [](void* user){ static_cast<FPlayerVm*>(user)->hp.Set(0); },
 //           this
 //       };
 //
-//       // can_execute を Observable<bool> で外から差し替えるなら 3 引数版:
-//       Command revive {
-//           [](void* u){ static_cast<PlayerVM*>(u)->hp.Set(100); },
+//       // can_execute を TObservable<bool> で外から差し替えるなら 3 引数版:
+//       FCommand revive {
+//           [](void* u){ static_cast<FPlayerVm*>(u)->hp.Set(100); },
 //           this,
-//           &is_dead   // この Observable<bool> が true のときだけ実行可能
+//           &is_dead   // この TObservable<bool> が true のときだけ実行可能
 //       };
 //
-//       Observable<bool> is_dead { false };
+//       TObservable<bool> is_dead { false };
 //   };
 //
 // 設計:
 //   ・can_execute はオプション (常時実行可能がデフォルト)
-//   ・can_execute は Observable<bool>* を取る (生存期間は呼び出し元責任)
+//   ・can_execute は TObservable<bool>* を取る (生存期間は呼び出し元責任)
 //   ・Execute は can_execute=false なら no-op
 //   ・ImGui アダプタの BindCommand(label, cmd) でボタン化 + 自動 grayout
 #pragma once
@@ -38,12 +38,12 @@ namespace acs {
  *
  * @details
  * 実行関数 (関数ポインタ + void* user) を保持し、Execute で起動する。任意で
- * Observable<bool>* を can_execute 条件として持ち、false の間は Execute が no-op
- * になり UI 側は grayout できる。can_execute Observable の生存期間は呼び出し元責任。
+ * TObservable<bool>* を can_execute 条件として持ち、false の間は Execute が no-op
+ * になり UI 側は grayout できる。can_execute TObservable の生存期間は呼び出し元責任。
  */
-class Command {
+class FCommand {
 public:
-    /** 実行関数型 (Command 構築時の user を受け取る)。 */
+    /** 実行関数型 (FCommand 構築時の user を受け取る)。 */
     using ExecFn = void (*)(void* user);
 
     /**
@@ -52,7 +52,7 @@ public:
      * @param fn 実行する関数。
      * @param user 実行関数へ渡す任意ポインタ。
      */
-    Command(ExecFn fn, void* user) noexcept
+    FCommand(ExecFn fn, void* user) noexcept
         : m_Fn(fn), m_User(user), m_CanExecute(nullptr) {}
 
     /**
@@ -61,9 +61,9 @@ public:
      * @details can_execute が false の間は Execute() が no-op になる。
      * @param fn 実行する関数。
      * @param user 実行関数へ渡す任意ポインタ。
-     * @param can_execute 実行可否を持つ Observable<bool> (生存期間は呼び出し元責任)。
+     * @param can_execute 実行可否を持つ TObservable<bool> (生存期間は呼び出し元責任)。
      */
-    Command(ExecFn fn, void* user, Observable<bool>* can_execute) noexcept
+    FCommand(ExecFn fn, void* user, TObservable<bool>* can_execute) noexcept
         : m_Fn(fn), m_User(user), m_CanExecute(can_execute) {}
 
     /**
@@ -92,11 +92,11 @@ public:
     void Invalidate() noexcept { m_Fn = nullptr; m_User = nullptr; }
 
     /**
-     * can_execute 条件の Observable を返す (BindCommand が監視に使う)。
+     * can_execute 条件の TObservable を返す (BindCommand が監視に使う)。
      *
-     * @return can_execute の Observable<bool> ポインタ (無ければ nullptr)。
+     * @return can_execute の TObservable<bool> ポインタ (無ければ nullptr)。
      */
-    Observable<bool>* CanExecuteSource() const noexcept { return m_CanExecute; }
+    TObservable<bool>* CanExecuteSource() const noexcept { return m_CanExecute; }
 
 private:
     /** 実行する関数 (Invalidate で nullptr になる)。 */
@@ -105,8 +105,8 @@ private:
     /** 実行関数へ渡す user ポインタ。 */
     void*             m_User        = nullptr;
 
-    /** 実行可否を持つ Observable<bool> (無ければ常時実行可能)。 */
-    Observable<bool>* m_CanExecute = nullptr;
+    /** 実行可否を持つ TObservable<bool> (無ければ常時実行可能)。 */
+    TObservable<bool>* m_CanExecute = nullptr;
 };
 
 } // namespace acs

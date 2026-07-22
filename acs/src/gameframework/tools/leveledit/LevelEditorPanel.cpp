@@ -389,7 +389,7 @@ void FLevelEditorPanel::DrawUI() noexcept {
     const f32 canvas_w = content_w - inspector_w - 8.0f;   // 8px gap
     const f32 canvas_h = (content_h > 200.0f) ? content_h : 200.0f;
 
-    // FViewport canvas
+    // ビューポート用キャンバス。
     ImGui::BeginChild("##leveledit_viewport",
                       ImVec2(canvas_w, canvas_h),
                       true,
@@ -608,7 +608,7 @@ void FLevelEditorPanel::DrawUI() noexcept {
         ImGui::Text("current tile id: %u", static_cast<u32>(m_CurrentTileId));
 
         ImGui::Spacing();
-        ImGui::TextUnformatted("FCamera");
+        ImGui::TextUnformatted("Camera");
         ImGui::Separator();
         const acs::game::editor_core::FEditorCameraState& cs = m_Camera.State();
         ImGui::Text("pos: (%.1f, %.1f)",

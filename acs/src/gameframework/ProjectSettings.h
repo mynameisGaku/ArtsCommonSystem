@@ -51,6 +51,50 @@ struct FSettingEntry {
     bool         builtin      = false;     ///< false=ユーザー定義 (削除可)。
 };
 
+/** FProjectSettings INI の解析・ファイル読み込みで返す安定したエラー種別。 */
+enum class EProjectSettingsLoadError : u8 {
+    None = 0,
+    NullArgument,
+    InputTooLarge,
+    EmbeddedNul,
+    TooManyLines,
+    LineTooLong,
+    InvalidSection,
+    SectionTooLong,
+    MissingSection,
+    InvalidSyntax,
+    KeyTooLong,
+    ValueTooLong,
+    DuplicateKey,
+    TooManyEntries,
+    InvalidValue,
+    ValueOutOfRange,
+    PathTooLong,
+    FileOpenFailed,
+    FileSizeFailed,
+    FileChanged,
+    FileReadFailed,
+    AllocationFailure,
+};
+
+/** FProjectSettings の checked load 結果。失敗時は設定ストアを変更しない。 */
+struct FProjectSettingsLoadResult {
+    EProjectSettingsLoadError error = EProjectSettingsLoadError::None;
+    u32 line = 0;
+    u64 bytes_read = 0;
+    bool used_defaults = false;
+
+    bool Succeeded() const noexcept { return error == EProjectSettingsLoadError::None; }
+    static const char* ErrorName(EProjectSettingsLoadError error) noexcept;
+};
+
+/** 公開入力境界。値は終端 NUL を含まないバイト数。 */
+inline constexpr usize kProjectSettingsMaxTextBytes = 1024u * 1024u;
+inline constexpr usize kProjectSettingsMaxLineBytes = 511u;
+inline constexpr u32 kProjectSettingsMaxLines = 4096u;
+inline constexpr u32 kProjectSettingsMaxEntries = 1024u;
+inline constexpr usize kProjectSettingsMaxPathBytes = 1023u;
+
 /**
  * プロジェクト設定のストア (ビルトインスキーマ + ユーザー定義、INI 読み書き)。
  *
@@ -64,6 +108,9 @@ public:
     /** ビルトインスキーマの全項目を既定値で再構築する (ユーザー定義は消える)。 */
     void ResetToDefaults() noexcept;
 
+    /** ResetToDefaults の checked 版。allocation failure 時は現在値を保持する。 */
+    FProjectSettingsLoadResult TryResetToDefaults() noexcept;
+
     /**
      * INI ファイルから読み込む。
      *
@@ -74,6 +121,14 @@ public:
      * @return パスが開けたか既定値で初期化できたら true。
      */
     bool Load(const char* ini_path) noexcept;
+
+    /**
+     * INI ファイルを完全 read して厳密に読み込む。
+     *
+     * @details ファイルが存在しない場合は既定値を commit して成功し、
+     * used_defaults を true にする。それ以外の失敗では現在値を保持する。
+     */
+    FProjectSettingsLoadResult TryLoadFile(const char* ini_path) noexcept;
 
     /**
      * INI ファイルへ保存する (カテゴリごとにセクション出力)。
@@ -92,6 +147,15 @@ public:
      * @return text が非 null なら true。
      */
     bool LoadText(const char* text) noexcept;
+
+    /**
+     * 長さ付き INI テキストを厳密に読み込む。
+     *
+     * @details 未知キーは custom String として保持し、同一 section/key の重複、
+     * embedded NUL、切り詰めが必要な入力、不正なビルトイン値を拒否する。
+     * 成功時だけストア全体を更新する。
+     */
+    FProjectSettingsLoadResult TryLoadText(const char* text, usize text_size) noexcept;
 
     /**
      * INI テキストへシリアライズする。
@@ -117,6 +181,9 @@ public:
     /** ユーザー定義エントリを追加する (既存キーと重複したら値更新)。 */
     bool Add(const char* cat, const char* key, const char* value) noexcept;
 
+    /** Add の allocation-failure-safe 版。失敗時は既存エントリを変更しない。 */
+    bool TryAdd(const char* cat, const char* key, const char* value) noexcept;
+
     /** ユーザー定義エントリを削除する (ビルトインは削除不可 → false)。 */
     bool Remove(const char* cat, const char* key) noexcept;
 
@@ -136,9 +203,6 @@ public:
     const char* GetString(const char* cat, const char* key, const char* def) const noexcept;
 
 private:
-    /** スキーマからエントリを作る (Load/ResetToDefaults 用)。 */
-    void AppendBuiltin(const FSettingDesc& d) noexcept;
-
     TArray<FSettingEntry> m_Entries;
 };
 

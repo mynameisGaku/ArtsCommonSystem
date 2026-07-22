@@ -11,7 +11,7 @@
 //     を保持する。FCombatStateMachine の状態は厳密に 1:1 ではなく、ゲームロジック
 //     視点 (Peaceful / Alert / Engaged / BossFight / Victory / Retreat) で
 //     抽象化されている。
-//   ・上位 (FGame / Scene) が「ECombatState → EMusicState」マッピングを定義し、
+//   ・上位 (FGame / FScene) が「ECombatState → EMusicState」マッピングを定義し、
 //     OnStateChange callback の中で FMusicDirector::SetState を呼ぶ運用を想定。
 //     本クラスは FAudioEngine 等の下位リソースを直接知らない。
 //
@@ -20,7 +20,7 @@
 //   ・敵検出 / 戦闘開始 / 戦闘終了 / ボス遭遇 / ボス撃破 を notify API として提供
 //   ・ThreatLevel() [0,1] — engaged 中は時間と共に上昇、平和になると低下する
 //     連続値。BGM intensity や ambient color へ供給するのに使える。
-//   ・EnemyAwareness を TArray で管理し、複数敵 (= maybe sneak / multi engage) を
+//   ・FEnemyAwareness を TArray で管理し、複数敵 (= maybe sneak / multi engage) を
 //     並列に追跡。EngagedEnemyCount() で「実際に交戦中の敵数」を返す。
 //   ・OnStateChange callback で外部ディレクタ (Music / Ambient / UI) と疎結合連動。
 //
@@ -37,7 +37,7 @@
 //     / BossFight=1.0 / Victory=Engaged の値を保持 / Retreat=0.2 へ徐減衰)。
 //     さらに Engaged 中は時間で +0..0.3 のドリフトを加算し「長引く戦闘ほど
 //     脅威感が増す」サブ表現を入れる。
-//   ・**EnemyAwareness は SoA でなく AoS**: 並列敵数は通常 1..8 程度で、
+//   ・**FEnemyAwareness は SoA でなく AoS**: 並列敵数は通常 1..8 程度で、
 //     awareness_level の write が支配的なので AoS の方がキャッシュ的に有利。
 //     線形探索でも O(N) は問題にならない。
 //   ・**重複検出は no-op**: NotifyEnemyDetected を同 enemy_id で複数回呼んでも
@@ -45,7 +45,7 @@
 //     is_engaged の上書きで idempotent。
 //   ・**Retreat への自動遷移は持たない**: Engaged → Retreat は明示的に
 //     NotifyCombatEnded(victory=false) でのみ起きる。タイマーや距離ベースの
-//     自動撤退判定は AI や Scene 側のロジックに委譲。
+//     自動撤退判定は AI や FScene 側のロジックに委譲。
 //   ・**callback は呼び出し中の Notify は受け付ける**: 再入安全 (state 更新を
 //     先に行ってから callback を呼ぶ実装)。callback 内で別 Notify* を呼ぶと
 //     state が連鎖更新される — これは仕様上許容 (デバウンスは caller 側で)。
@@ -92,7 +92,7 @@ enum class ECombatState : u8 {
 /**
  * 1 敵分の認識情報 (FCombatStateMachine が内部 TArray で保持)。
  */
-struct EnemyAwareness {
+struct FEnemyAwareness {
     /** ゲーム側で割り振る一意 ID (FNodeId などをそのまま渡せる)。 */
     u32 enemy_id        = 0;
 
@@ -122,7 +122,7 @@ using StateChangeCallback = void(*)(void* user, ECombatState from, ECombatState 
  * ECombatState の 6 状態を全 mutation を Notify 系および Reset 経由に閉じて遷移させ、敵検出 /
  * 戦闘開始 / 終了 / ボス出現 / 撃破などを一元化する。ThreatLevel() は state 既定値へ
  * 指数減衰で追従する連続値 [0,1] で、BGM intensity や ambient color に供給できる。複数敵
- * を EnemyAwareness の TArray で並列追跡し、OnStateChange callback で外部ディレクタ
+ * を FEnemyAwareness の TArray で並列追跡し、OnStateChange callback で外部ディレクタ
  * (Music / Ambient / UI) と疎結合に連動する (本クラスは下位リソースを直接知らない)。
  */
 class FCombatStateMachine {
@@ -154,7 +154,7 @@ public:
     /**
      * state を Peaceful に、awareness を全クリアして再初期化する (callback は保持)。
      *
-     * @details コンストラクタ後の再初期化用 (Scene 再 enter 時など)。
+     * @details コンストラクタ後の再初期化用 (FScene 再 enter 時など)。
      */
     void Init() noexcept;
 
@@ -199,7 +199,7 @@ public:
     /**
      * ボス遭遇を通知する (どの state からでも BossFight へ割り込み遷移)。
      *
-     * @details boss_id は EnemyAwareness として追加 (既存なら is_engaged=true に上書き)。
+     * @details boss_id は FEnemyAwareness として追加 (既存なら is_engaged=true に上書き)。
      * @param boss_id 遭遇したボスの一意 ID。
      */
     void NotifyBossEncountered(u32 boss_id) noexcept;
@@ -233,14 +233,14 @@ public:
     /**
      * 実際に交戦中の敵数を返す。
      *
-     * @return is_engaged=true な EnemyAwareness の数。
+     * @return is_engaged=true な FEnemyAwareness の数。
      */
     u32 EngagedEnemyCount() const noexcept;
 
     /**
      * 戦闘中かを単純判定する。
      *
-     * @details UI / FSaveSlot 抑制 / fast-travel 禁止判定等に使う。
+     * @details UI / TSaveSlot 抑制 / fast-travel 禁止判定等に使う。
      * @return state が Engaged または BossFight なら true。
      */
     bool IsInCombat() const noexcept;
@@ -276,7 +276,7 @@ private:
     void TransitionTo(ECombatState next) noexcept;
 
     /**
-     * EnemyAwareness を id で線形探索する。
+     * FEnemyAwareness を id で線形探索する。
      *
      * @param enemy_id 探す敵の一意 ID。
      * @return 見つかればインデックス、無ければ npos 相当 (= m_Enemies.Size())。
@@ -312,7 +312,7 @@ private:
     f32 m_EngagedElapsed = 0.0f;
 
     /** 追跡中の敵認識情報 (AoS)。 */
-    TArray<EnemyAwareness> m_Enemies;
+    TArray<FEnemyAwareness> m_Enemies;
 
     /** BossFight に入る前の state (撃破後の復帰先決定に使う)。 */
     ECombatState m_PreBossState = ECombatState::Peaceful;

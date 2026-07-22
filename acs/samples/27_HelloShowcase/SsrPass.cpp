@@ -10,7 +10,7 @@ using namespace acs;
 
 namespace helloshowcase {
 
-void ExecuteSsrPass(Assets& a, IRhiDevice& dev, IRhiCommandList& cl,
+void ExecuteSsrPass(FAssets& a, IRhiDevice& dev, IRhiCommandList& cl,
                     IRhiTexture& hdr, IRhiTexture& depth,
                     const FMat4& view_proj,
                     const FMat4& inv_view_proj,
@@ -27,10 +27,10 @@ void ExecuteSsrPass(Assets& a, IRhiDevice& dev, IRhiCommandList& cl,
                  *a.motion.OutputNormalTexture(),
                  view_proj, inv_view_proj, prev_view_proj,
                  cam_pos, /*intensity=*/0.7f, motion_or_null,
-                 a.hiz.Texture());
+                 a.hiz.EvenTexture(), a.hiz.OddTexture(), a.hiz.MipCount());
 }
 
-void ExecuteSsaoPass(Assets& a, IRhiDevice& dev, IRhiCommandList& cl,
+void ExecuteSsaoPass(FAssets& a, IRhiDevice& dev, IRhiCommandList& cl,
                      IRhiTexture& depth,
                      const FMat4& view_proj,
                      const FMat4& inv_view_proj,

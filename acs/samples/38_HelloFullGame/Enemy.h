@@ -14,18 +14,18 @@ namespace acs { class FSpriteBatch; }
 
 namespace hellofg {
 
-class GameplayScene;
+class FGameplayScene;
 
 // 1 体ぶんの敵レコード。
-struct EnemyInstance {
-    acs::game::FNode2D*  node  = nullptr;
+struct FEnemyInstance {
+    acs::game::ANode*  node  = nullptr;
     acs::game::FHealthId hp    {};
     acs::game::FShapeId  shape {};
     acs::u32            wave_idx_at_spawn = 0;
     bool                alive = false;
 };
 
-class EnemyPool {
+class FEnemyPool {
 public:
     // 全スロットを空に戻す。OnEnter で呼ぶ。
     void Reset() noexcept;
@@ -34,34 +34,34 @@ public:
     void Shutdown() noexcept;
 
     // 空きスロットを探して敵を生成。pool 満杯なら警告ログを出して何もしない。
-    void Spawn(GameplayScene& scene,
-               acs::game::FNode2D& root,
+    void Spawn(FGameplayScene& scene,
+               acs::game::ANode& root,
                acs::game::FHealthSystem& health,
                acs::u32 current_wave,
                acs::FVec2 pos) noexcept;
 
     // プレイヤーを追跡する単純 AI を全敵にかける。物理形状も追従させる。
     // 戻り値: 接触ヒットが致死だった場合 true (シーン側で GameOver 遷移を呼ぶ)。
-    bool TickChaseAndContact(GameplayScene& scene,
+    bool TickChaseAndContact(FGameplayScene& scene,
                              acs::game::FHealthSystem& health,
                              acs::FVec2 player_pos,
                              acs::f32 dt) noexcept;
 
     // bullet が敵 i に当たった結果ダメージを与える。lethal なら敵を消す。
     // index が範囲外 / 既に死んでいる場合は何もしない。
-    void ApplyHit(GameplayScene& scene,
+    void ApplyHit(FGameplayScene& scene,
                   acs::game::FHealthSystem& health,
                   acs::u32 target_id,
                   acs::f32 dmg) noexcept;
 
-    // 描画 (world layer)。FSpriteBatch は GameplayScene::OnRender 側で Begin/End 済み。
+    // 描画 (world layer)。FSpriteBatch は FGameplayScene::OnRender 側で Begin/End 済み。
     void DrawAll(acs::FSpriteBatch& sb) const noexcept;
 
     // hit test 用に raw 配列をそのまま渡す。
-    const EnemyInstance* Data() const noexcept { return m_Enemies; }
+    const FEnemyInstance* Data() const noexcept { return m_Enemies; }
 
 private:
-    EnemyInstance m_Enemies[kMaxEnemies] {};
+    FEnemyInstance m_Enemies[kMaxEnemies] {};
 };
 
 } // namespace hellofg

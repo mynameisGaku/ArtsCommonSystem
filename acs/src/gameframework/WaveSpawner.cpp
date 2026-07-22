@@ -2,7 +2,7 @@
 // GameFramework Pillar L/R — FWaveSpawner 実装
 //
 // state machine + 複数 rule 並列 spawn + intermission timer の合成。
-// SpawnRule.spawn_interval_sec が小さい / dt が大きいケースでは 1 Tick 内で
+// FSpawnRule.spawn_interval_sec が小さい / dt が大きいケースでは 1 Tick 内で
 // 複数 spawn が連鎖発火する (= carry 方式)。state 遷移も連鎖し得るので、
 // Tick() は state ループとして書く。
 #include "gameframework/WaveSpawner.h"
@@ -193,7 +193,7 @@ void FWaveSpawner::TickSpawning(f32 dt) noexcept {
     m_PendingSpawns.Clear();
     u32 total_completed_rules = 0u;
     for (u32 i = 0; i < def.rule_count; ++i) {
-        const SpawnRule& rule = def.rules[i];
+        const FSpawnRule& rule = def.rules[i];
         u32& spawned = entry.spawned_per_rule[static_cast<usize>(i)];
 
         // 既に rule の count を満たした → 完了 rule としてマークだけして次へ。

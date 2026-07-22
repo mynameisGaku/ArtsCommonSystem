@@ -24,8 +24,8 @@ namespace acs::assetpack {
 namespace {
 
 /** 既定 Reader/Writer と同じ長さだけ生存する専用 allocator を束ねる。 */
-struct DefaultAcpakState {
-    DefaultAcpakState() noexcept : reader(allocator), writer(allocator)
+struct FDefaultAcpakState {
+    FDefaultAcpakState() noexcept : reader(allocator), writer(allocator)
     {
     }
 
@@ -35,9 +35,9 @@ struct DefaultAcpakState {
     FAcpakGameWriter writer;
 };
 
-DefaultAcpakState& GetDefaultAcpakState() noexcept
+FDefaultAcpakState& GetDefaultAcpakState() noexcept
 {
-    static DefaultAcpakState s_state;
+    static FDefaultAcpakState s_state;
     return s_state;
 }
 

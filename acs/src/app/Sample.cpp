@@ -11,7 +11,7 @@ const wchar_t* DefaultUIFontPath() noexcept {
 }
 
 /** 候補フォントを順に試して最初に成功したものをロードする。詳細は宣言を参照。 */
-TResult<void> TryLoadDefaultUIFont(Font& font, IRhiDevice& device, f32 size_px,
+TResult<void> TryLoadDefaultUIFont(FFont& font, IRhiDevice& device, f32 size_px,
                                    u32 atlas_size, bool include_cjk) noexcept {
     // Windows 標準フォント候補。最初に LoadFromFile が成功したら採用。
     static const wchar_t* const kCandidates[] = {

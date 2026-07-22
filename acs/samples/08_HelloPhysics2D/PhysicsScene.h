@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloPhysics2D — 物理シミュレーション + 描画を担当する scene。
-// FApplication 派生はリソース所有 (FSpriteBatch / Font / Texture) を担当し、
+// FApplication 派生はリソース所有 (FSpriteBatch / FFont / Texture) を担当し、
 // 毎フレームの update / render を PhysicsScene に委譲する。
 #pragma once
 
@@ -12,7 +12,7 @@
 
 namespace hellophysics2d {
 
-class PhysicsScene {
+class FPhysicsScene {
 public:
     // 初期ボール (n 個) をランダム配置。Swapchain サイズで初期位置を決めるので
     // 呼び出し元は FRenderer 準備後に呼ぶこと。
@@ -23,7 +23,7 @@ public:
 
     // FSpriteBatch + テクスチャ + フォントを使って描画。
     void Render(acs::FSpriteBatch& batch,
-                acs::Font& font,
+                acs::FFont& font,
                 acs::IRhiTexture& ball_tex,
                 acs::f32 fps) noexcept;
 
@@ -38,7 +38,7 @@ private:
     // xorshift32: 軽量・状態 4 byte のみで決定論的、サンプル用途に十分。
     acs::f32 RandF() noexcept;
 
-    Ball     m_Balls[kMaxBalls] {};
+    FBall     m_Balls[kMaxBalls] {};
     acs::u32 m_BallCount = 0;
     acs::u32 m_Seed       = 0xCAFEBABEu;
 };

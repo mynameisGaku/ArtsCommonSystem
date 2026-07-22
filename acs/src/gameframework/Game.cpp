@@ -19,7 +19,7 @@ void FGame::OnStart() noexcept {
     m_EngineSubsystems.Initialize(ESubsystemScope::Engine, nullptr, this);
     m_GameInstanceSubsystems.Initialize(ESubsystemScope::GameInstance, &m_EngineSubsystems, this);
 
-    TUniquePtr<Scene> first = InitialScene();
+    TUniquePtr<FScene> first = InitialScene();
     if (!first) {
         ACS_LOG_ERROR("FGame::InitialScene() returned null — Quit");
         Quit();
@@ -126,7 +126,7 @@ void FGame::DrawFadeOverlay() noexcept {
 }
 
 /** 次 Scene を保留し FadeInOut を開始する (暗転中に切替)。 */
-void FGame::TransitionTo(TUniquePtr<Scene> next, f32 out_sec, f32 in_sec) noexcept {
+void FGame::TransitionTo(TUniquePtr<FScene> next, f32 out_sec, f32 in_sec) noexcept {
     if (!next) return;
     m_PendingScene = Move(next);
     m_Fade.StartFade(EFadeKind::FadeInOut, out_sec, in_sec, 0.0f);
@@ -143,7 +143,7 @@ void FGame::OnShutdown() noexcept {
 }
 
 /** 受け取ったイベントを FSceneManager にディスパッチする。 */
-void FGame::OnEvent(const Event& e) noexcept {
+void FGame::OnEvent(const FEvent& e) noexcept {
     m_Scenes._DispatchEvent(e);
 }
 

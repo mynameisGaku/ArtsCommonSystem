@@ -17,7 +17,7 @@
 //     holder」で、ゲーム側の戦闘ロジックが乗数を pull して使う構造。
 //
 // 使い方:
-//   class GameplayScene : public Scene {
+//   class FGameplayScene : public FScene {
 //       acs::game::FDynamicDifficulty m_Dda;
 //       void OnEnter() noexcept override {
 //           m_Dda.Init(acs::game::EDifficultyLevel::Adaptive);
@@ -65,13 +65,13 @@
 //     は exponential moving average (EMA) で「直近のクリア時間」を反映。
 //     全レベル全平均ではなく直近に重み付け、で skill 変動に追従しやすく。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。インスタンス
-//     1 個前提 (Scene のメンバ持ち回り)。
+//     1 個前提 (FScene のメンバ持ち回り)。
 //   ・**STL 不使用 / `<string>` 不使用**: ACS 規約。
 //
 // 範囲外:
 //   ・skill 重みの外部設定 API
 //   ・per-encounter difficulty (戦闘単位での個別調整)
-//   ・persistence (FSaveSlot 経由で stats を残す)
+//   ・persistence (TSaveSlot 経由で stats を残す)
 //   ・ML 推論ベースの skill 推定
 #pragma once
 
@@ -107,7 +107,7 @@ enum class EDifficultyLevel : u8 {
 /**
  * プレイヤーの腕前判定に使う実プレイ統計。
  */
-struct PlayerSkillStats {
+struct FPlayerSkillStats {
     /** 現セッション中の死亡回数。 */
     u32 deaths_last_session   = 0;
 
@@ -141,7 +141,7 @@ public:
     /** 破棄する。 */
     ~FDynamicDifficulty() noexcept = default;
 
-    /** コピー禁止 (Scene が単独所有する想定)。 */
+    /** コピー禁止 (FScene が単独所有する想定)。 */
     FDynamicDifficulty(const FDynamicDifficulty&)            = delete;
 
     /** コピー代入も禁止。 */
@@ -244,9 +244,9 @@ public:
     /**
      * 統計への const 参照を返す。
      *
-     * @return PlayerSkillStats への参照。
+     * @return FPlayerSkillStats への参照。
      */
-    const PlayerSkillStats& Stats() const noexcept { return _stats; }
+    const FPlayerSkillStats& Stats() const noexcept { return _stats; }
 
     /** 統計とセッション時間のみ初期化する (モード / current_difficulty は維持。NewGame・シーン切替向け)。 */
     void ResetStats() noexcept;
@@ -295,7 +295,7 @@ private:
     f32             m_CurrentDifficulty = 0.333333f;
 
     /** プレイヤーの実プレイ統計。 */
-    PlayerSkillStats _stats {};
+    FPlayerSkillStats _stats {};
 
     /** Adaptive 用の累積セッション時間 (統計密度の分母)。 */
     f32 m_SessionTime = 0.0f;

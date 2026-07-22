@@ -2,7 +2,7 @@
 // フォント（TTF を GPU テクスチャアトラスに焼いて、文字描画に使う）
 //
 // 使い方:
-//   Font font;
+//   FFont font;
 //   font.LoadFromFile(*renderer.Device(), L"C:/Windows/Fonts/meiryo.ttc", 32.0f);
 //
 //   // 描画フレーム中
@@ -37,7 +37,7 @@ namespace acs {
  * アトラス内の矩形 UV、描画矩形のピクセルサイズ、ペン位置からのオフセット、
  * および描画後にペンを進める量を保持する。
  */
-struct GlyphInfo {
+struct FGlyphInfo {
     /** アトラス内の矩形左上 U 座標 (0..1)。 */
     f32 u0 = 0;
 
@@ -74,19 +74,19 @@ struct GlyphInfo {
  * GetGlyph で各コードポイントのアトラス UV・描画オフセットを引く。
  * GPU リソースを単独所有する non-copy 型。
  */
-class Font {
+class FFont {
 public:
     /** 空状態で構築する (アトラスは Load* で構築)。 */
-    Font() noexcept = default;
+    FFont() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~Font() noexcept = default;
+    ~FFont() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    Font(const Font&)            = delete;
+    FFont(const FFont&)            = delete;
 
     /** コピー代入も禁止。 */
-    Font& operator=(const Font&) = delete;
+    FFont& operator=(const FFont&) = delete;
 
     /**
      * TTF/OTF/TTC バイト列からアトラスを構築する。
@@ -113,7 +113,7 @@ public:
     /**
      * ファイルから直接ロードしてアトラスを構築する。
      *
-     * @details FileSystem::ReadAllBytes でバイト列を読み込み LoadFromBytes に委譲する。
+     * @details FFileSystem::ReadAllBytes でバイト列を読み込み LoadFromBytes に委譲する。
      * @param device テクスチャアトラス生成に使う RHI デバイス。
      * @param path 読み込む TTF/OTF/TTC のファイルパス。
      * @param pixel_size 焼き込むグリフのピクセルサイズ。
@@ -186,7 +186,7 @@ public:
      * @param out 見つかったグリフ情報の格納先。
      * @return アトラスに収録されていれば true、未収録なら false。
      */
-    bool GetGlyph(u32 codepoint, GlyphInfo& out) const noexcept;
+    bool GetGlyph(u32 codepoint, FGlyphInfo& out) const noexcept;
 
     /**
      * UTF-8 文字列の描画幅をピクセルで測る (改行は無視)。
@@ -201,7 +201,7 @@ private:
     TUniquePtr<IRhiTexture>    m_Atlas;
 
     /** コードポイント → グリフ情報の対応表。 */
-    THashMap<u32, GlyphInfo>   m_Glyphs;
+    THashMap<u32, FGlyphInfo>   m_Glyphs;
 
     /** アトラステクスチャの一辺サイズ。 */
     u32                       m_AtlasSize = 0;
@@ -220,13 +220,28 @@ private:
 };
 
 /**
- * UTF-8 文字列から 1 文字をデコードしてコードポイントを返す。
+ * UTF-8 文字列から canonical Unicode scalar を 1 文字デコードする。
  *
  * @details
- * *p から 1 文字ぶん読み、*p を次の文字位置に進める。終端 (NUL) または p や *p が
- * null のときは 0 を返す。不正な継続バイトを検出した場合は U+FFFD (置換文字) を返す。
+ * 正規に符号化された U+FFFD は成功として受理する。不正入力では
+ * out_codepoint に U+FFFD を格納して false を返すため、置換文字そのものと
+ * 不正シーケンス由来の置換を区別できる。終端または null 入力では
+ * out_codepoint を 0 にして false を返す。不正入力でも少なくとも lead byte を
+ * 消費し、NUL 終端を越えて読み進めない。
  * @param p デコード位置を指すポインタへのポインタ (デコード後に進められる)。
- * @return デコードしたコードポイント。終端で 0、不正バイトで 0xFFFD。
+ * @param out_codepoint デコード結果。終端で 0、不正入力で U+FFFD。
+ * @return canonical Unicode scalar をデコードできたとき true。
+ */
+bool TryDecodeUtf8(const char** p, u32& out_codepoint) noexcept;
+
+/**
+ * UTF-8 文字列から 1 文字をデコードしてコードポイントを返す互換 API。
+ *
+ * @details
+ * TryDecodeUtf8 と同じ canonical decoder を使う。正規の U+FFFD と不正入力は
+ * どちらも U+FFFD を返すため、両者の区別が必要な入力境界では checked API を使う。
+ * @param p デコード位置を指すポインタへのポインタ (デコード後に進められる)。
+ * @return デコードしたコードポイント。終端で 0、不正入力で U+FFFD。
  */
 u32 DecodeUtf8(const char** p) noexcept;
 

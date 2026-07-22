@@ -15,7 +15,7 @@
 //     `FNodeId` / `FEmitterHandle` / `FTimerHandle` と同一規約。`m_Packed == 0` を
 //     invalid とし、gen は常に 1 以上で配る (0 は「未使用 slot」を意味する)。
 //     これにより DestroyOwner 後の stale handle を gen 不一致で確実に弾ける。
-//   ・**owner ごとに sparse な buff 配列**: OwnerSlot 内に `TArray<FBuffInstance>`
+//   ・**owner ごとに sparse な buff 配列**: FOwnerSlot 内に `TArray<FBuffInstance>`
 //     を持つ。owner 数は数百、各 owner の buff 数は通常 1〜10 程度を想定。
 //     線形検索で十分。SoA にして「全 owner 横断で同じ buff_id を集める」用途は
 //     現状無いので、AoS の単純さを優先。
@@ -49,7 +49,7 @@
 //     swap-and-pop で除去しつつ、その buff の id を一時バッファに記録 → 全
 //     除去完了後にコールバックを呼ぶ流れ。コールバック中に owner や buff が
 //     変化しても安全。
-//   ・**非コピー・非ムーブ**: 内部 TArray<OwnerSlot> がさらに TArray<FBuffInstance>
+//   ・**非コピー・非ムーブ**: 内部 TArray<FOwnerSlot> がさらに TArray<FBuffInstance>
 //     を持つ二段ネスト構造で、ポインタ参照や AllBuffsOfOwner で生バッファを
 //     返す API があるため。ムーブで実体アドレスが変わると外部参照が破綻する。
 //   ・**全 noexcept、STL 不使用、`<string>` 禁止**: ACS 規約。失敗は bool / 哨兵で表現。
@@ -193,7 +193,7 @@ struct FBuffDef {
  * ある owner に現在掛かっている buff の実体。
  *
  * @details
- * OwnerSlot の buff 配列に格納され、Tick で remaining_sec を減算しつつ進行する。
+ * FOwnerSlot の buff 配列に格納され、Tick で remaining_sec を減算しつつ進行する。
  */
 struct FBuffInstance {
     /** Definition への参照 (FBuffDef::id と同 const char*)。 */
@@ -458,7 +458,7 @@ private:
      * @details in_use=false の slot は再利用される。gen は 1 以上で配り、0 は「未使用」を
      * 意味する (= packed == 0 と整合)。
      */
-    struct OwnerSlot {
+    struct FOwnerSlot {
         /** この owner に掛かっている buff の配列。 */
         TArray<FBuffInstance> buffs {};
 
@@ -478,36 +478,36 @@ private:
     u32 FindBuffDefSlot(const char* buff_id) const noexcept;
 
     /**
-     * owner handle から OwnerSlot を解決する。
+     * owner handle から FOwnerSlot を解決する。
      *
      * @details gen 一致 + in_use + 範囲チェックを行う。
      * @param owner 解決する owner handle。
-     * @return OwnerSlot へのポインタ (失敗時は nullptr)。
+     * @return FOwnerSlot へのポインタ (失敗時は nullptr)。
      */
-    OwnerSlot*       ResolveOwner(FBuffOwnerId owner) noexcept;
+    FOwnerSlot*       ResolveOwner(FBuffOwnerId owner) noexcept;
 
     /**
-     * owner handle から OwnerSlot を解決する (const 版)。
+     * owner handle から FOwnerSlot を解決する (const 版)。
      *
      * @param owner 解決する owner handle。
-     * @return OwnerSlot への const ポインタ (失敗時は nullptr)。
+     * @return FOwnerSlot への const ポインタ (失敗時は nullptr)。
      */
-    const OwnerSlot* ResolveOwner(FBuffOwnerId owner) const noexcept;
+    const FOwnerSlot* ResolveOwner(FBuffOwnerId owner) const noexcept;
 
     /**
-     * OwnerSlot 内で buff_id を持つ FBuffInstance のインデックスを引く。
+     * FOwnerSlot 内で buff_id を持つ FBuffInstance のインデックスを引く。
      *
      * @param slot 検索対象の owner slot。
      * @param buff_id 検索するバフの id。
      * @return slot.buffs 内のインデックス (未検出は ~0u)。
      */
-    static u32 FindBuffInstance(const OwnerSlot& slot, const char* buff_id) noexcept;
+    static u32 FindBuffInstance(const FOwnerSlot& slot, const char* buff_id) noexcept;
 
     /** FBuffDef テーブル (id ベースで find)。 */
     TArray<FBuffDef>   m_Registry  {};
 
-    /** OwnerSlot 配列 (generational)。 */
-    TArray<OwnerSlot> m_Owners    {};
+    /** FOwnerSlot 配列 (generational)。 */
+    TArray<FOwnerSlot> m_Owners    {};
 
     /** tick コールバック (nullptr なら未設定)。 */
     TickCallback     m_OnTick        = nullptr;

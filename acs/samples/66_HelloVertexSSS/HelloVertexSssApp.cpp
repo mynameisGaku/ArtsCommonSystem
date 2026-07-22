@@ -50,8 +50,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-struct FrameCB { FMat4 view_proj; FVec4 light_dir; FVec4 tint; };
-struct ObjCB   { FMat4 model; FVec4 albedo; };
+struct FFrameCB { FMat4 view_proj; FVec4 light_dir; FVec4 tint; };
+struct FObjCb   { FMat4 model; FVec4 albedo; };
 
 const FVec3 kSkin{ 0.95f, 0.66f, 0.58f };            // 肌色 albedo
 // 肌の散乱プロファイル: 赤が最も遠くまで散る (terminator の赤いにじみ)。
@@ -59,7 +59,7 @@ const FScatterProfile kSkinProfile{ 34, 13, 6 };
 
 } // namespace
 
-void HelloVertexSssApp::OnStart() noexcept {
+void FHelloVertexSssApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -89,7 +89,7 @@ void HelloVertexSssApp::OnStart() noexcept {
     pd.cull_mode    = ECullMode::None;   // 球の表裏どちらの巻きでも確実に出す (SSS は両面とも見せたい)
     pd.blend_mode   = EBlendMode::Opaque;
     pd.cbuffer_slots = 2; pd.cbuffer_names[0] = "Frame"; pd.cbuffer_names[1] = "Object";
-    pd.vertex_stride = sizeof(VtxSSS);
+    pd.vertex_stride = sizeof(FVtxSss);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
     pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 12 };
     pd.layout[2] = { "TEXCOORD", 0, EFormat::R32G32B32_Float, 24 };
@@ -109,7 +109,7 @@ void HelloVertexSssApp::OnStart() noexcept {
 
     // 動的頂点バッファ × 2 (左=Lambert / 右=SSS)
     auto mkVb = [&](TUniquePtr<IRhiBuffer>& out) {
-        FBufferDesc vbd{}; vbd.size = sizeof(VtxSSS) * vc; vbd.usage = EBufferUsage::Vertex; vbd.cpu_writable = true;
+        FBufferDesc vbd{}; vbd.size = sizeof(FVtxSss) * vc; vbd.usage = EBufferUsage::Vertex; vbd.cpu_writable = true;
         auto r = CreateRhiBuffer(*dev, vbd); if (r.IsOk()) out = Move(r.Value());
     };
     mkVb(m_VbLeft); mkVb(m_VbRight);
@@ -122,8 +122,8 @@ void HelloVertexSssApp::OnStart() noexcept {
     mkCb(m_FrameCb, 256); mkCb(m_ObjCbL, 256); mkCb(m_ObjCbR, 256);
 
     // 静的 model 行列 (左 -1.3 / 右 +1.3)
-    ObjCB ol{}; ol.model = FMat4::Translation(FVec3{ -1.6f, 0, 0 }); ol.albedo = FVec4{ kSkin.x, kSkin.y, kSkin.z, 1 };
-    ObjCB orr{}; orr.model = FMat4::Translation(FVec3{  1.6f, 0, 0 }); orr.albedo = FVec4{ kSkin.x, kSkin.y, kSkin.z, 1 };
+    FObjCb ol{}; ol.model = FMat4::Translation(FVec3{ -1.6f, 0, 0 }); ol.albedo = FVec4{ kSkin.x, kSkin.y, kSkin.z, 1 };
+    FObjCb orr{}; orr.model = FMat4::Translation(FVec3{  1.6f, 0, 0 }); orr.albedo = FVec4{ kSkin.x, kSkin.y, kSkin.z, 1 };
     if (m_ObjCbL) m_ObjCbL->Update(&ol, sizeof(ol));
     if (m_ObjCbR) m_ObjCbR->Update(&orr, sizeof(orr));
 
@@ -136,7 +136,7 @@ void HelloVertexSssApp::OnStart() noexcept {
     m_Camera.SetLookAt(FVec3{ 0, 0, -4.8f }, FVec3{ 0, 0, 0 });
 }
 
-void HelloVertexSssApp::UpdateSphere(IRhiBuffer* vb, FVec3 lightDir, bool scatter) noexcept {
+void FHelloVertexSssApp::UpdateSphere(IRhiBuffer* vb, FVec3 lightDir, bool scatter) noexcept {
     if (vb == nullptr) return;
     const auto& v = m_Sphere->Vertices();
     const u32 vc = static_cast<u32>(v.Size());
@@ -154,17 +154,17 @@ void HelloVertexSssApp::UpdateSphere(IRhiBuffer* vb, FVec3 lightDir, bool scatte
     if (scatter) { m_Scatter.Scatter(m_Irr.Data(), m_IrrOut.Data(), kSkinProfile); src = m_IrrOut.Data(); gain = 1.3f; }
     for (u32 i = 0; i < vc; ++i) {
         const FVec3 p = v[i].position, nn = v[i].normal, s = src[i];
-        m_CpuVtx[i] = VtxSSS{ p.x, p.y, p.z, nn.x, nn.y, nn.z, s.x * gain, s.y * gain, s.z * gain };
+        m_CpuVtx[i] = FVtxSss{ p.x, p.y, p.z, nn.x, nn.y, nn.z, s.x * gain, s.y * gain, s.z * gain };
     }
-    vb->Update(m_CpuVtx.Data(), sizeof(VtxSSS) * vc);
+    vb->Update(m_CpuVtx.Data(), sizeof(FVtxSss) * vc);
 }
 
-void HelloVertexSssApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloVertexSssApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
     m_Time += dt;
 }
 
-void HelloVertexSssApp::OnRender() noexcept {
+void FHelloVertexSssApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl || !m_Pipe) return;
 
@@ -177,7 +177,7 @@ void HelloVertexSssApp::OnRender() noexcept {
     UpdateSphere(m_VbLeft.Get(),  L, /*scatter*/false);
     UpdateSphere(m_VbRight.Get(), L, /*scatter*/true);
 
-    FrameCB fcb{}; fcb.view_proj = m_Camera.ViewProjection();
+    FFrameCB fcb{}; fcb.view_proj = m_Camera.ViewProjection();
     fcb.light_dir = FVec4{ L.x, L.y, L.z, 0.06f };    // w = ambient (低め: terminator を見せる)
     if (m_FrameCb) m_FrameCb->Update(&fcb, sizeof(fcb));
 
@@ -187,11 +187,11 @@ void HelloVertexSssApp::OnRender() noexcept {
 
     // 左: 生 Lambert
     cl->SetConstantBuffer(1, *m_ObjCbL);
-    cl->SetVertexBuffer(*m_VbLeft, sizeof(VtxSSS));
+    cl->SetVertexBuffer(*m_VbLeft, sizeof(FVtxSss));
     cl->DrawIndexed(m_IndexCount);
     // 右: 頂点空間 SSS
     cl->SetConstantBuffer(1, *m_ObjCbR);
-    cl->SetVertexBuffer(*m_VbRight, sizeof(VtxSSS));
+    cl->SetVertexBuffer(*m_VbRight, sizeof(FVtxSss));
     cl->DrawIndexed(m_IndexCount);
 
     if (m_Font.AtlasTexture()) {
@@ -200,14 +200,14 @@ void HelloVertexSssApp::OnRender() noexcept {
         m_Batch.Begin(*cl, sw, sh);
         m_Batch.DrawString(m_Font, "Lambert (no scatter)", 20, 24, FVec4{ 0.8f, 0.85f, 0.95f, 1 });
         m_Batch.DrawString(m_Font, "Vertex-Space SSS", static_cast<f32>(sw) - 230.0f, 24, FVec4{ 1.0f, 0.8f, 0.75f, 1 });
-        char buf[96]; std::snprintf(buf, sizeof(buf), "FVertexScatter  R=%u G=%u B=%u iters  FPS %.0f",
+        char buf[96]; std::snprintf(buf, sizeof(buf), "Vertex Scatter  R=%u G=%u B=%u iters  FPS %.0f",
                                     kSkinProfile.iterR, kSkinProfile.iterG, kSkinProfile.iterB, static_cast<double>(FPS()));
         m_Batch.DrawString(m_Font, buf, 20, static_cast<f32>(sh) - 36.0f, FVec4{ 0.7f, 0.8f, 0.9f, 1 });
         m_Batch.End();
     }
 }
 
-void HelloVertexSssApp::OnShutdown() noexcept {
+void FHelloVertexSssApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Batch.Shutdown();

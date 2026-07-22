@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "gameframework/Effects2D.h"
-#include "gameframework/Node2D.h"
+#include "gameframework/ANode.h"
 #include "gameframework/RenderContext.h"
 #include "render/SpriteBatch.h"
 #include "math/Math.h"
@@ -48,7 +48,7 @@ inline f32 PointSegDist(FVec2 p, FVec2 a, FVec2 b) noexcept {
 } // namespace
 
 /** 頂点を 1 つ追加する (上限まで。edge_dist=-1 は Finish で境界距離 fallback)。 */
-void FWater2DComponent::PushVert(FVec2 v, f32 edge_dist) noexcept {
+void AWater2DComponent::PushVert(FVec2 v, f32 edge_dist) noexcept {
     if (m_VCount < kMaxVerts) {
         m_EdgeDist[m_VCount] = edge_dist;   // -1 = builder 未設定 (Finish で境界距離 fallback)
         m_Vert[m_VCount++] = v;
@@ -56,7 +56,7 @@ void FWater2DComponent::PushVert(FVec2 v, f32 edge_dist) noexcept {
 }
 
 /** 三角形を 1 つ追加する (上限・index 範囲チェックあり)。 */
-void FWater2DComponent::PushTri(u32 a, u32 b, u32 c) noexcept {
+void AWater2DComponent::PushTri(u32 a, u32 b, u32 c) noexcept {
     if (m_TCount < kMaxTris && a < m_VCount && b < m_VCount && c < m_VCount) {
         m_Tri[m_TCount * 3 + 0] = static_cast<u16>(a);
         m_Tri[m_TCount * 3 + 1] = static_cast<u16>(b);
@@ -66,7 +66,7 @@ void FWater2DComponent::PushTri(u32 a, u32 b, u32 c) noexcept {
 }
 
 /** メッシュ構築後に bbox / 水面 weight / 境界 / edge-dist を再計算する。 */
-void FWater2DComponent::Finish() noexcept {
+void AWater2DComponent::Finish() noexcept {
     if (m_VCount == 0) return;
     m_MinX = m_MaxX = m_Vert[0].x;
     m_MinY = m_MaxY = m_Vert[0].y;
@@ -91,7 +91,7 @@ void FWater2DComponent::Finish() noexcept {
 }
 
 /** builder が edge-dist を埋めていない頂点を、最寄り境界距離の正規化値で補完する。 */
-void FWater2DComponent::ComputeEdgeDistFallback() noexcept {
+void AWater2DComponent::ComputeEdgeDistFallback() noexcept {
     if (m_BoundaryCount < 2) {
         for (u32 i = 0; i < m_VCount; ++i) if (m_EdgeDist[i] < 0.0f) m_EdgeDist[i] = 0.5f;
         return;
@@ -120,7 +120,7 @@ void FWater2DComponent::ComputeEdgeDistFallback() noexcept {
  * 繋いでリング化する。法線は隣接 2 エッジの垂線平均を bbox 中心から外向きに符号調整して得る。
  * weight ヒューリスティックと違い、どの形状でも正しく外周を取れる。
  */
-void FWater2DComponent::BuildBoundary() noexcept {
+void AWater2DComponent::BuildBoundary() noexcept {
     m_BoundaryCount = 0;
     if (m_TCount < 1) return;
 
@@ -176,7 +176,7 @@ void FWater2DComponent::BuildBoundary() noexcept {
 }
 
 /** 深さ勾配に応じた頂点 RGBA を返す (SideView=weight 依存、TopDown=edge 依存)。 */
-FVec4 FWater2DComponent::DepthColorAt(u32 i) const noexcept {
+FVec4 AWater2DComponent::DepthColorAt(u32 i) const noexcept {
     // SideView: 上端(weight=1)=浅, 下=深。 TopDown: 縁(edge=0)=浅, 中心(edge=1)=深。
     const f32 dt = (m_Style == EWaterStyle::TopDown) ? m_EdgeDist[i] : (1.0f - m_Weight[i]);
     return FVec4{
@@ -188,7 +188,7 @@ FVec4 FWater2DComponent::DepthColorAt(u32 i) const noexcept {
 }
 
 /** 規則格子 (cols×rows セル) の矩形水面メッシュを焼く。 */
-void FWater2DComponent::SetRect(FVec2 center, FVec2 half, u32 top_segments) noexcept {
+void AWater2DComponent::SetRect(FVec2 center, FVec2 half, u32 top_segments) noexcept {
     m_VCount = 0; m_TCount = 0;
     const f32 w = half.x * 2.0f, h = half.y * 2.0f;
     // 内部頂点を持つ規則格子。cols×rows セル。これで深さ/反射/コースティクスが
@@ -230,7 +230,7 @@ void FWater2DComponent::SetRect(FVec2 center, FVec2 half, u32 top_segments) noex
  *
  * @details edge_dist は 1-リング比 (中心 1、外周 0) で設定する。SetPolygon と同じリング構成。
  */
-void FWater2DComponent::SetEllipse(FVec2 center, f32 rx, f32 ry, u32 segments) noexcept {
+void AWater2DComponent::SetEllipse(FVec2 center, f32 rx, f32 ry, u32 segments) noexcept {
     m_VCount = 0; m_TCount = 0;
     u32 S = m_ResA ? m_ResA : segments;
     u32 R = m_ResB ? m_ResB : 4;
@@ -262,7 +262,7 @@ void FWater2DComponent::SetEllipse(FVec2 center, f32 rx, f32 ry, u32 segments) n
 }
 
 /** 同心リングメッシュで多角形水面を焼く (centroid + R リング × 外周 S 点)。 */
-void FWater2DComponent::SetPolygon(const FVec2* pts, u32 count) noexcept {
+void AWater2DComponent::SetPolygon(const FVec2* pts, u32 count) noexcept {
     m_VCount = 0; m_TCount = 0;
     if (pts == nullptr || count < 3) return;
     FVec2 ctr{ 0.0f, 0.0f };
@@ -298,7 +298,7 @@ void FWater2DComponent::SetPolygon(const FVec2* pts, u32 count) noexcept {
 }
 
 /** polyline を太さ width の 3 行リボン (左岸/中央最深/右岸) に膨らませて川メッシュを焼く。 */
-void FWater2DComponent::SetRiver(const FVec2* path, u32 count, f32 width) noexcept {
+void AWater2DComponent::SetRiver(const FVec2* path, u32 count, f32 width) noexcept {
     m_VCount = 0; m_TCount = 0;
     if (path == nullptr || count < 2) return;
     const u32 maxPts = kMaxVerts / 3u;
@@ -325,7 +325,7 @@ void FWater2DComponent::SetRiver(const FVec2* path, u32 count, f32 width) noexce
 }
 
 /** Catmull-Rom で制御点を密にサンプルし、SetRiver に渡して曲がりくねった川を焼く。 */
-void FWater2DComponent::SetSplineRiver(const FVec2* control, u32 count, f32 width,
+void AWater2DComponent::SetSplineRiver(const FVec2* control, u32 count, f32 width,
                                        u32 samples_per_seg) noexcept {
     if (control == nullptr || count < 2) return;
     if (samples_per_seg < 1) samples_per_seg = 1;
@@ -345,7 +345,7 @@ void FWater2DComponent::SetSplineRiver(const FVec2* control, u32 count, f32 widt
 }
 
 /** Catmull-Rom の閉ループで制御点を密にサンプルし、SetPolygon に渡して滑らかな水域を焼く。 */
-void FWater2DComponent::SetSplineRegion(const FVec2* control, u32 count,
+void AWater2DComponent::SetSplineRegion(const FVec2* control, u32 count,
                                         u32 samples_per_seg) noexcept {
     if (control == nullptr || count < 3) return;
     if (samples_per_seg < 1) samples_per_seg = 1;
@@ -363,50 +363,117 @@ void FWater2DComponent::SetSplineRegion(const FVec2* control, u32 count,
     SetPolygon(dense, n);
 }
 
-/** 触れた点に放射状リップルを 1 つ立てる (空きスロットが無ければ最古を上書き)。 */
-void FWater2DComponent::Disturb(FVec2 world_point, f32 strength) noexcept {
-    u32 slot = kMaxRipples;
-    f32 oldest = -1.0f;
-    for (u32 i = 0; i < kMaxRipples; ++i) {
-        if (!m_Ripples[i].active) { slot = i; break; }
-        if (m_Ripples[i].time > oldest) { oldest = m_Ripples[i].time; slot = i; }
+/**
+ * 予約範囲の空き枠へ disturbance を追加する。
+ *
+ * active 波紋を上書きすると、後から来た wake が先行する衝撃波を不連続に消してしまう。
+ * 満杯時は新規入力を抑制し、既存波紋の寿命と位相連続性を優先する。
+ */
+bool AWater2DComponent::TryAddDisturbance(FVec2 world_point, f32 radius, f32 strength,
+                                          u32 first_slot, u32 slot_count) noexcept {
+    if (radius < 0.0f) radius = 0.0f;
+    if (first_slot >= kMaxRipples || slot_count == 0) return false;
+    const u32 remaining = kMaxRipples - first_slot;
+    const u32 end_slot = first_slot + (slot_count < remaining ? slot_count : remaining);
+    for (u32 i = first_slot; i < end_slot; ++i) {
+        if (m_Ripples[i].active) continue;
+        m_Ripples[i] =
+            FRipple{world_point, strength, strength, 0.0f, m_RippleSpeed, radius, true};
+        return true;
     }
-    if (slot >= kMaxRipples) slot = 0;
-    m_Ripples[slot] = Ripple{ world_point, strength, strength, 0.0f, m_RippleSpeed, true };
+    return false;
 }
 
-/** 水面 (SurfaceY) 上の点にリップルを立てる後方互換版。 */
-void FWater2DComponent::Disturb(f32 world_x, f32 strength) noexcept {
-    Disturb(FVec2{ world_x, SurfaceY() }, strength);   // 後方互換: 水面上の点に輪を立てる
+/** 接触半径を持つ放射状 disturbance を衝撃用予約枠へ追加する。 */
+void AWater2DComponent::AddDisturbance(FVec2 world_point, f32 radius, f32 strength) noexcept {
+    (void)TryAddDisturbance(
+        world_point, radius, strength, 0, kMaxImpactRipples);
 }
 
-/** 点が水域 bbox (owner world 位置 + ローカル bbox) 内かを判定する。 */
-bool FWater2DComponent::ContainsPoint(FVec2 world) const noexcept {
-    const FVec2 o = Owner().World().position;
-    return world.x >= o.x + m_MinX && world.x <= o.x + m_MaxX &&
-           world.y >= o.y + m_MinY && world.y <= o.y + m_MaxY;
+/** 速度方向後方に 3 disturbance を配置し、移動物体の V 字 wake を作る。 */
+void AWater2DComponent::AddWake(FVec2 world_point, FVec2 velocity,
+                                f32 radius, f32 strength) noexcept {
+    const f32 speed = Sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
+    if (radius < 0.02f) radius = 0.02f;
+    if (speed < 1e-4f) {
+        (void)TryAddDisturbance(
+            world_point, radius, strength, kMaxImpactRipples, kMaxWakeRipples);
+        return;
+    }
+
+    const FVec2 dir{velocity.x / speed, velocity.y / speed};
+    const FVec2 side{-dir.y, dir.x};
+    const f32 speed_gain = Saturate(speed * 0.12f);
+    const f32 trail = radius * (0.72f + speed_gain * 0.58f);
+    (void)TryAddDisturbance(
+        FVec2{world_point.x - dir.x * radius * 0.18f,
+              world_point.y - dir.y * radius * 0.18f},
+        radius * 0.52f, strength * 0.42f,
+        kMaxImpactRipples, kMaxWakeRipples);
+    (void)TryAddDisturbance(
+        FVec2{world_point.x - dir.x * trail + side.x * radius * 0.42f,
+              world_point.y - dir.y * trail + side.y * radius * 0.42f},
+        radius * 0.34f, strength * 0.62f,
+        kMaxImpactRipples, kMaxWakeRipples);
+    (void)TryAddDisturbance(
+        FVec2{world_point.x - dir.x * trail - side.x * radius * 0.42f,
+              world_point.y - dir.y * trail - side.y * radius * 0.42f},
+        radius * 0.34f, strength * 0.62f,
+        kMaxImpactRipples, kMaxWakeRipples);
+}
+
+/** 従来名を維持する source/ABI 互換ラッパー。 */
+void AWater2DComponent::Disturb(FVec2 world_point, f32 strength) noexcept {
+    AddRipple(world_point, strength);
+}
+
+/** 水面上の world x を受ける従来互換ラッパー。 */
+void AWater2DComponent::Disturb(f32 world_x, f32 strength) noexcept {
+    AddRipple(world_x, strength);
+}
+
+/** 点が実際の水面三角形内にあるかを判定する (bbox は早期 reject のみ)。 */
+bool AWater2DComponent::ContainsPoint(FVec2 world) const noexcept {
+    const FVec2 o = Owner().World2D().position;
+    const FVec2 p{world.x - o.x, world.y - o.y};
+    if (p.x < m_MinX || p.x > m_MaxX || p.y < m_MinY || p.y > m_MaxY)
+        return false;
+
+    constexpr f32 epsilon = 1e-5f;
+    for (u32 t = 0; t < m_TCount; ++t) {
+        const FVec2 a = m_Vert[m_Tri[t * 3 + 0]];
+        const FVec2 b = m_Vert[m_Tri[t * 3 + 1]];
+        const FVec2 c = m_Vert[m_Tri[t * 3 + 2]];
+        const f32 ab = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+        const f32 bc = (c.x - b.x) * (p.y - b.y) - (c.y - b.y) * (p.x - b.x);
+        const f32 ca = (a.x - c.x) * (p.y - c.y) - (a.y - c.y) * (p.x - c.x);
+        const bool hasNegative = ab < -epsilon || bc < -epsilon || ca < -epsilon;
+        const bool hasPositive = ab >  epsilon || bc >  epsilon || ca >  epsilon;
+        if (!(hasNegative && hasPositive)) return true;
+    }
+    return false;
 }
 
 /** world x が水域 bbox の x 範囲内かを判定する。 */
-bool FWater2DComponent::ContainsX(f32 world_x) const noexcept {
-    const f32 ox = Owner().World().position.x;
+bool AWater2DComponent::ContainsX(f32 world_x) const noexcept {
+    const f32 ox = Owner().World2D().position.x;
     return world_x >= ox + m_MinX && world_x <= ox + m_MaxX;
 }
 
 /** 水域 bbox 上端の world y (水面の高さ) を返す。 */
-f32 FWater2DComponent::SurfaceY() const noexcept {
-    return Owner().World().position.y + m_MinY;   // bbox 上端
+f32 AWater2DComponent::SurfaceY() const noexcept {
+    return Owner().World2D().position.y + m_MinY;   // bbox 上端
 }
 
 /** 流れの向き (正規化) と速さを設定する (退化ベクトルは +X にフォールバック)。 */
-void FWater2DComponent::SetFlow(FVec2 dir, f32 speed) noexcept {
+void AWater2DComponent::SetFlow(FVec2 dir, f32 speed) noexcept {
     const f32 len = Sqrt(dir.x * dir.x + dir.y * dir.y);
     m_FlowDir   = len > 1e-5f ? FVec2{ dir.x / len, dir.y / len } : FVec2{ 1.0f, 0.0f };
     m_FlowSpeed = speed;
 }
 
 /** ambient 波 (style 依存) と放射状リップルを合成した垂直変位を返す。 */
-f32 FWater2DComponent::WaveRadialAt(FVec2 world) const noexcept {
+f32 AWater2DComponent::WaveRadialAt(FVec2 world) const noexcept {
     f32 off;
     if (m_Style == EWaterStyle::TopDown) {
         // 見下ろし: 緩い 2 軸スウェル (方向性のないさざ波)。
@@ -422,7 +489,7 @@ f32 FWater2DComponent::WaveRadialAt(FVec2 world) const noexcept {
 }
 
 /** アクティブな各リップルの輪 front を合成した変位を返す (ambient 波を含まない)。 */
-f32 FWater2DComponent::RippleAt(FVec2 world) const noexcept {
+f32 AWater2DComponent::RippleAt(FVec2 world) const noexcept {
     // 触れた点を中心に半径 speed*time の輪が広がる (2D 放射状)。
     const f32 ring = m_RippleWavelength;
     const f32 k    = 6.2831853f / ring;
@@ -433,7 +500,8 @@ f32 FWater2DComponent::RippleAt(FVec2 world) const noexcept {
         const f32 dx = world.x - m_Ripples[i].center.x;
         const f32 dy = world.y - m_Ripples[i].center.y;
         const f32 d  = Sqrt(dx*dx + dy*dy);
-        const f32 r  = m_Ripples[i].speed * m_Ripples[i].time;   // 輪の現半径
+        const f32 r  = m_Ripples[i].initial_radius
+                     + m_Ripples[i].speed * m_Ripples[i].time;   // 輪の現半径
         const f32 rw = d - r;                                    // 輪 front への符号付き距離
         const f32 env = Exp(-m_Ripples[i].time * 2.0f) * Exp(-(rw*rw) / sig2);
         off += m_Ripples[i].amp0 * Cos(rw * k - m_Ripples[i].time * 9.0f) * env;
@@ -442,13 +510,22 @@ f32 FWater2DComponent::RippleAt(FVec2 world) const noexcept {
 }
 
 /** アクティブなリップルが 1 つでもあるかを返す。 */
-bool FWater2DComponent::AnyRippleActive() const noexcept {
+bool AWater2DComponent::AnyRippleActive() const noexcept {
     for (u32 i = 0; i < kMaxRipples; ++i) if (m_Ripples[i].active) return true;
     return false;
 }
 
+/** 寿命内にあり、現在重ね合わせへ参加している波紋数を返す。 */
+u32 AWater2DComponent::ActiveRippleCount() const noexcept {
+    u32 count = 0;
+    for (u32 i = 0; i < kMaxRipples; ++i) {
+        if (m_Ripples[i].active) ++count;
+    }
+    return count;
+}
+
 /** 3 方向のスクロール波の |sin| 和から光の網目 (コースティクス) セル値 [0,1] を返す。 */
-f32 FWater2DComponent::CausticAt(FVec2 world) const noexcept {
+f32 AWater2DComponent::CausticAt(FVec2 world) const noexcept {
     // 等方的な光の網目: 3 方向 (0°,60°,120°) の等周波スクロール波の |sin| 和。
     // 全 |sin| が同時に 0 に近い格子点 (六角格子) で明るく光り、網目状の「脈」になる。
     // 各方向の位相を別速度でスクロールさせて、網目がゆっくり蠢く。
@@ -468,23 +545,27 @@ f32 FWater2DComponent::CausticAt(FVec2 world) const noexcept {
 }
 
 /** 時刻を進め、各リップルの寿命・振幅減衰を更新して期限切れを無効化する。 */
-void FWater2DComponent::OnUpdate(f32 dt) noexcept {
+void AWater2DComponent::OnUpdate(f32 dt) noexcept {
     m_Time += dt;
     for (u32 i = 0; i < kMaxRipples; ++i) {
         if (!m_Ripples[i].active) continue;
         m_Ripples[i].time += dt;
         m_Ripples[i].amp = m_Ripples[i].amp0 * Exp(-m_Ripples[i].time * 2.0f);
-        if (m_Ripples[i].time > 3.0f || m_Ripples[i].amp < 0.002f) m_Ripples[i].active = false;
+        if (m_Ripples[i].time > 3.0f || Abs(m_Ripples[i].amp) < 0.002f) m_Ripples[i].active = false;
     }
 }
 
-/** 波変位 → 平面反射 (SideView) → 本体 → 縁取り/泡 → 加算パスの順に水面を描画する。 */
-void FWater2DComponent::OnDraw(RenderContext& rc) noexcept {
+/** GPU 水面 (TopDown) または波変位 → 反射 → 本体 → 泡 (SideView) を描画する。 */
+void AWater2DComponent::OnDraw(FRenderContext& rc) noexcept {
     if (!rc.HasSprites() || m_TCount == 0) return;
     FSpriteBatch& sb = rc.Sprites();
-    const FVec2 o = Owner().World().position;
+    const FVec2 o = Owner().World2D().position;
 
     const bool topDown = (m_Style == EWaterStyle::TopDown);
+
+    // 実シーンカラー捕捉では TopDown 水だけを除外し、水底/岸/オブジェクトを
+    // そのまま残す。SideView の既存 planar reflection 挙動は変更しない。
+    if (topDown && rc.IsSceneColorCapturePass()) return;
 
     // 波で変位した頂点 world 位置。SideView は上端を上下に揺らす。TopDown は面なので変位無し。
     FVec2 disp[kMaxVerts];
@@ -493,6 +574,102 @@ void FWater2DComponent::OnDraw(RenderContext& rc) noexcept {
         const f32 wy0 = o.y + m_Vert[i].y;
         const f32 dy = topDown ? 0.0f : (WaveRadialAt(FVec2{ wx, wy0 }) * m_Weight[i]);
         disp[i] = FVec2{ wx, wy0 - dy };
+    }
+
+    // 水深捕捉 pass は通常ノードの Draw が抑止されている。TopDown 水だけ一時的に
+    // 有効化し、実メッシュの正規化岸距離 (0=岸、1=深部) を R8相当のカラーRTへ描く。
+    if (rc.IsWaterDepthCapturePass()) {
+        if (!topDown) return;
+        sb.SetDrawSuppressed(false);
+        sb.ClearEffect();
+        sb.ClearLit();
+        sb.SetBlendMode(EBlendMode::AlphaBlend);
+        for (u32 t = 0; t < m_TCount; ++t) {
+            const u16 a = m_Tri[t*3], b = m_Tri[t*3+1], c = m_Tri[t*3+2];
+            const FVec4 da{m_EdgeDist[a], m_EdgeDist[a], m_EdgeDist[a], 1.0f};
+            const FVec4 db{m_EdgeDist[b], m_EdgeDist[b], m_EdgeDist[b], 1.0f};
+            const FVec4 dc{m_EdgeDist[c], m_EdgeDist[c], m_EdgeDist[c], 1.0f};
+            sb.DrawTriangleVC(disp[a].x, disp[a].y,
+                              disp[b].x, disp[b].y,
+                              disp[c].x, disp[c].y, da, db, dc);
+        }
+        sb.SetDrawSuppressed(true);
+        return;
+    }
+
+    // 見下ろし水面は専用 GPU 経路。岸距離だけをメッシュ補間し、細かな波・法線・泡・
+    // コースティクス・波紋は PS で world 座標から再構成するため三角形模様にならない。
+    if (topDown) {
+        FWaterSurfaceParams wp{};
+        wp.time = m_Time;
+        wp.caustics_intensity = m_CausticsOn ? m_CausticsIntensity : 0.0f;
+        wp.caustics_scale = m_CausticsScale;
+        wp.caustics_speed = m_CausticsSpeed;
+        wp.caustics_color = m_CausticsTint;
+        wp.flow_speed = m_FlowSpeed;
+        wp.wave_amplitude = m_Amp;
+        wp.flow_angle = ATan2(m_FlowDir.y, m_FlowDir.x);
+        wp.sky_color = m_SkyTint;
+        wp.sky_alpha = m_SkyAlpha;
+        wp.glints_enabled = m_GlintsOn;
+        wp.ripple_wavelength = m_RippleWavelength;
+        wp.foam_speed = m_FoamSpeed;
+        wp.roughness = m_SurfaceRoughness;
+        wp.normal_strength = m_NormalStrength;
+        wp.normal_tiling = m_NormalTiling;
+        wp.refraction_strength = m_RefractionStrength;
+        wp.absorption = m_Absorption;
+
+        const f32 sx = m_MaxX - m_MinX;
+        const f32 sy = m_MaxY - m_MinY;
+        const f32 shoreDepth = ((sx < sy ? sx : sy) * 0.5f) + 1e-4f;
+        if (m_FoamEnabled) {
+            const f32 worldWidth = m_FoamWidth > 0.0f ? m_FoamWidth : (sx + sy) * 0.02f;
+            wp.foam_width = Saturate(worldWidth / shoreDepth);
+            wp.foam_color = m_FoamColor;
+            wp.foam_alpha = m_FoamAlpha;
+        } else if (m_RimEnabled) {
+            const f32 worldWidth = m_RimWidth > 0.0f ? m_RimWidth : (sx + sy) * 0.008f;
+            wp.foam_width = Saturate(worldWidth / shoreDepth);
+            wp.foam_color = m_RimColor;
+            wp.foam_alpha = m_RimAlpha * 0.55f;
+        } else {
+            wp.foam_alpha = 0.0f;
+        }
+        if (wp.foam_width < 0.012f) wp.foam_width = 0.012f;
+
+        // GPU 上限 48 本には、配列順ではなく「現在強い + 新しい」波面を選ぶ。
+        // impact と wake の全予約枠を同時転送し、寿命内の波面を重ね合わせる。
+        bool selected[kMaxRipples] = {};
+        while (wp.ripple_count < FWaterSurfaceParams::kMaxRipples) {
+            u32 best = kMaxRipples;
+            f32 bestScore = -1.0f;
+            for (u32 i = 0; i < kMaxRipples; ++i) {
+                if (selected[i] || !m_Ripples[i].active) continue;
+                const FRipple& candidate = m_Ripples[i];
+                const f32 score = Abs(candidate.amp)
+                                + 0.08f * Exp(-candidate.time * 5.0f);
+                if (score > bestScore) { bestScore = score; best = i; }
+            }
+            if (best >= kMaxRipples) break;
+            selected[best] = true;
+            const FRipple& r = m_Ripples[best];
+            wp.ripples[wp.ripple_count++] =
+                FVec4{r.center.x, r.center.y,
+                      r.initial_radius + r.speed * r.time, r.amp};
+        }
+
+        IRhiTexture* sceneColor = rc.HasSceneColor() ? &rc.SceneColor() : nullptr;
+        IRhiTexture* sceneDepth = rc.HasSceneDepth() ? &rc.SceneDepth() : nullptr;
+        m_LastGpuSurfaceReady = sb.SetWaterSurfaceEffect(wp, sceneColor, sceneDepth);
+        for (u32 t = 0; t < m_TCount; ++t) {
+            const u16 a = m_Tri[t*3], b = m_Tri[t*3+1], c = m_Tri[t*3+2];
+            sb.DrawTriangleVCUV(disp[a].x, disp[a].y, m_EdgeDist[a], 0.0f, DepthColorAt(a),
+                                disp[b].x, disp[b].y, m_EdgeDist[b], 0.0f, DepthColorAt(b),
+                                disp[c].x, disp[c].y, m_EdgeDist[c], 0.0f, DepthColorAt(c));
+        }
+        sb.ClearEffect();
+        return;
     }
 
     // 平面反射 (SideView のみ)。細グリッド + 深部フェード/カリングで直線スメアを解消。
@@ -584,7 +761,7 @@ void FWater2DComponent::OnDraw(RenderContext& rc) noexcept {
 }
 
 /** 加算パスで空色・コースティクス・リップル輪 glow を頂点カラーで描く。 */
-void FWater2DComponent::DrawCaustics(FSpriteBatch& sb, const FVec2* disp) noexcept {
+void AWater2DComponent::DrawCaustics(FSpriteBatch& sb, const FVec2* disp) noexcept {
     // 空色 (薄いフラット加算)。TopDown で平面反射の代わりに水面を少し明るくする。
     if (m_SkyAlpha > 0.0f) {
         const FVec4 sky{ m_SkyTint.x * m_SkyAlpha, m_SkyTint.y * m_SkyAlpha, m_SkyTint.z * m_SkyAlpha, 1.0f };
@@ -614,7 +791,7 @@ void FWater2DComponent::DrawCaustics(FSpriteBatch& sb, const FVec2* disp) noexce
 }
 
 /** コースティクスが強く位相が合った頂点に、散発的な小さなきらめき矩形を加算で描く。 */
-void FWater2DComponent::DrawGlints(FSpriteBatch& sb, const FVec2* disp) noexcept {
+void AWater2DComponent::DrawGlints(FSpriteBatch& sb, const FVec2* disp) noexcept {
     const f32 sz = ((m_MaxX - m_MinX) + (m_MaxY - m_MinY)) * 0.006f + 0.02f;
     u32 drawn = 0;
     for (u32 i = 0; i < m_VCount && drawn < 30; ++i) {
@@ -630,10 +807,10 @@ void FWater2DComponent::DrawGlints(FSpriteBatch& sb, const FVec2* disp) noexcept
 }
 
 /** 根元から先端へ縦積みの矩形を時間で揺らし、黄→橙→赤のグラデーションで炎を描く。 */
-void FFire2DComponent::OnDraw(RenderContext& rc) noexcept {
+void AFire2DComponent::OnDraw(FRenderContext& rc) noexcept {
     if (!rc.HasSprites()) return;
     FSpriteBatch& sb = rc.Sprites();
-    const FVec2 base = Owner().World().position;   // 炎の根元
+    const FVec2 base = Owner().World2D().position;   // 炎の根元
     const u32   M    = 14;
     const f32   H    = m_H * (0.7f + 0.3f * m_Intensity);
 
@@ -661,9 +838,9 @@ void FFire2DComponent::OnDraw(RenderContext& rc) noexcept {
 }
 
 /** 一定の時間間隔 (fps 非依存) で owner 位置を FIFO へ取り込み、head は毎フレーム追従させる。 */
-void FTrail2DComponent::OnUpdate(f32 dt) noexcept {
+void ATrail2DComponent::OnUpdate(f32 dt) noexcept {
     m_SampleAccum += dt;
-    const FVec2 p = Owner().World().position;
+    const FVec2 p = Owner().World2D().position;
     if (m_Count == 0) {
         m_Pts[0] = p;
         m_Count  = 1;
@@ -681,7 +858,7 @@ void FTrail2DComponent::OnUpdate(f32 dt) noexcept {
 }
 
 /** 隣接サンプル点を先細り・先頭ほど不透明な帯 (三角形 2 枚) で繋いで残像を描く。 */
-void FTrail2DComponent::OnDraw(RenderContext& rc) noexcept {
+void ATrail2DComponent::OnDraw(FRenderContext& rc) noexcept {
     if (!rc.HasSprites() || m_Count < 2) return;
     FSpriteBatch& sb = rc.Sprites();
     for (u32 i = 0; i + 1 < m_Count; ++i) {
@@ -706,7 +883,7 @@ void FTrail2DComponent::OnDraw(RenderContext& rc) noexcept {
 }
 
 /** マスク用の三角形を 1 つ追加する (上限まで)。 */
-void FStencilClip2DComponent::PushTri(FVec2 a, FVec2 b, FVec2 c) noexcept {
+void AStencilClip2DComponent::PushTri(FVec2 a, FVec2 b, FVec2 c) noexcept {
     if (m_TriCount >= kMaxTris) return;
     m_Tri[m_TriCount * 3 + 0] = a;
     m_Tri[m_TriCount * 3 + 1] = b;
@@ -715,7 +892,7 @@ void FStencilClip2DComponent::PushTri(FVec2 a, FVec2 b, FVec2 c) noexcept {
 }
 
 /** 矩形マスク形状を 2 三角形で構築する (owner 相対)。 */
-void FStencilClip2DComponent::SetRect(FVec2 center, FVec2 half) noexcept {
+void AStencilClip2DComponent::SetRect(FVec2 center, FVec2 half) noexcept {
     m_TriCount = 0;
     const FVec2 tl{ center.x - half.x, center.y - half.y };
     const FVec2 tr{ center.x + half.x, center.y - half.y };
@@ -726,7 +903,7 @@ void FStencilClip2DComponent::SetRect(FVec2 center, FVec2 half) noexcept {
 }
 
 /** 楕円マスク形状を中心からの扇状三角形で構築する (owner 相対)。 */
-void FStencilClip2DComponent::SetEllipse(FVec2 center, f32 rx, f32 ry, u32 segments) noexcept {
+void AStencilClip2DComponent::SetEllipse(FVec2 center, f32 rx, f32 ry, u32 segments) noexcept {
     m_TriCount = 0;
     if (segments < 3) segments = 3;
     if (segments > kMaxTris) segments = kMaxTris;
@@ -740,12 +917,12 @@ void FStencilClip2DComponent::SetEllipse(FVec2 center, f32 rx, f32 ry, u32 segme
 }
 
 /** 円マスク形状を構築する (rx=ry の SetEllipse として実装)。 */
-void FStencilClip2DComponent::SetCircle(FVec2 center, f32 radius, u32 segments) noexcept {
+void AStencilClip2DComponent::SetCircle(FVec2 center, f32 radius, u32 segments) noexcept {
     SetEllipse(center, radius, radius, segments);
 }
 
 /** 単純多角形マスク形状を centroid からの扇状三角形で構築する (owner 相対)。 */
-void FStencilClip2DComponent::SetPolygon(const FVec2* pts, u32 count) noexcept {
+void AStencilClip2DComponent::SetPolygon(const FVec2* pts, u32 count) noexcept {
     m_TriCount = 0;
     if (!pts || count < 3) return;
     // centroid を求めて扇状に三角形化 (凸〜緩い凹向け)。
@@ -760,12 +937,12 @@ void FStencilClip2DComponent::SetPolygon(const FVec2* pts, u32 count) noexcept {
 }
 
 /** マスク形状をステンシルへ焼き、以降の子描画を内側/外側だけに通すモードに切り替える。 */
-void FStencilClip2DComponent::OnDraw(RenderContext& rc) noexcept {
+void AStencilClip2DComponent::OnDraw(FRenderContext& rc) noexcept {
     m_Active = false;
     // stencil バッファが用意されていないパスではマスクせず素通し。
     if (!rc.HasSprites() || !rc.StencilMaskActive() || m_TriCount == 0) return;
     FSpriteBatch& sb = rc.Sprites();
-    const FVec2 o = Owner().World().position;
+    const FVec2 o = Owner().World2D().position;
 
     // 1) マスク形状をステンシルへ焼く。色は不可視 (alpha 0)、debug 時のみ可視。
     const FVec4 col = m_DebugVis ? m_DebugColor : FVec4{ 0.0f, 0.0f, 0.0f, 0.0f };
@@ -780,7 +957,7 @@ void FStencilClip2DComponent::OnDraw(RenderContext& rc) noexcept {
 }
 
 /** 子ツリー描画後にステンシルモードを Off に戻してクリップを解除する。 */
-void FStencilClip2DComponent::OnDrawPostChildren(RenderContext& rc) noexcept {
+void AStencilClip2DComponent::OnDrawPostChildren(FRenderContext& rc) noexcept {
     if (!m_Active || !rc.HasSprites()) return;
     rc.Sprites().SetStencilMode(EStencilMode::Off, m_Ref);   // クリップ解除
     m_Active = false;

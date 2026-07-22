@@ -18,9 +18,9 @@
 //
 // 役割分担:
 //   ・本 panel は「**font face リストの編集 UI + プレビュー**」だけを担当。
-//     実際の `Font` (= render/Font.h) ロードや MSDF atlas 生成は責務外。
-//     caller が `FontFaceInfo` (= path + family + size + range + flag) のリスト
-//     を本 panel に登録し、編集結果を取り戻して別途 Font::LoadFromFile 等を
+//     実際の `FFont` (= render/Font.h) ロードや MSDF atlas 生成は責務外。
+//     caller が `FFontFaceInfo` (= path + family + size + range + flag) のリスト
+//     を本 panel に登録し、編集結果を取り戻して別途 FFont::LoadFromFile 等を
 //     呼ぶ想定 (= panel は「設定エディタ」、loader は外部)。
 //   ・実 atlas 描画を panel viewport に出すには ImGui::Image + DescriptorTable
 //     統合が必要なため、本 panel では
@@ -32,7 +32,7 @@
 //   panel.Init();
 //   workspace.RegisterPanel(&panel);   // FEditorPanel として登録
 //
-//   FontFaceInfo primary{};
+//   FFontFaceInfo primary{};
 //   primary.file_path      = L"assets/fonts/NotoSansJP-Regular.otf";
 //   primary.family_name    = "Noto Sans JP";
 //   primary.base_size_px   = 24.0f;
@@ -55,12 +55,12 @@
 //   ・**FEditorPanel 継承**: 共通基盤を dogfood (FSpriteAtlasEditorPanel と
 //     同形)。Title = "Font Editor"、
 //     DrawUI / OnInit を override。OnInit では基底実装を必ず呼ぶ。
-//   ・**FontFaceInfo は POD**: `wchar_t* file_path` (Windows API 由来 path、
+//   ・**FFontFaceInfo は POD**: `wchar_t* file_path` (Windows API 由来 path、
 //     CreateFile / WIC 等で wide が必須) + `char* family_name` (UI 表示用、
 //     UTF-8 リテラル) + 数値メタ。文字列は caller 所有のリテラル前提
 //     (ACS 規約: STL/`<string>` 禁止)。本 panel は const char* / const wchar_t*
 //     を非所有で参照保持。
-//   ・**`acs::TArray<FontFaceInfo>` で順序保持**: 「fallback 優先順位」が UI 上
+//   ・**`acs::TArray<FFontFaceInfo>` で順序保持**: 「fallback 優先順位」が UI 上
 //     の表示順 = chain 順なので、順序保持配列が自然 (= 重要、FSpritePack の
 //     swap remove では順序がブレるので不向き)。RemoveAt / MoveUp / MoveDown は
 //     順序保持の swap で実装する。
@@ -101,7 +101,7 @@
 #include "gameframework/tools/editor_core/EditorPanel.h"
 
 namespace acs::game::editor_core {
-// FEditorWorkspace は FEditorPanel.h から forward-decl 経由で受ける。
+// FEditorWorkspace は EditorPanel.h から forward-decl 経由で受ける。
 class FEditorWorkspace;
 } // namespace acs::game::editor_core
 
@@ -114,7 +114,7 @@ namespace acs::game::fontedit {
  * すべて POD (= trivially copyable)。文字列は caller 所有のリテラル前提で
  * 非所有保持する (ACS 規約: `<string>` 禁止、ヒープ所有はしない)。
  */
-struct FontFaceInfo {
+struct FFontFaceInfo {
     /** font file の絶対 / 相対 path (Windows wide、loader が CreateFile / WIC 等へ渡す前提)。 */
     const wchar_t* file_path      = nullptr;
 
@@ -195,7 +195,7 @@ public:
      * @param i 取得する face のインデックス。
      * @return i 番目の face (範囲外なら nullptr)。
      */
-    const FontFaceInfo* GetFontFace(u32 i) const noexcept;
+    const FFontFaceInfo* GetFontFace(u32 i) const noexcept;
 
     /**
      * face を末尾に追加する。
@@ -205,7 +205,7 @@ public:
      * 未選択だった場合は追加した face を選択する。上限 (kMaxFontFaces) 到達なら no-op。
      * @param info 追加する face のメタ情報 (値コピーで保持)。
      */
-    void AddFontFace(const FontFaceInfo& info) noexcept;
+    void AddFontFace(const FFontFaceInfo& info) noexcept;
 
     /**
      * i 番目の face を削除する (順序保持)。
@@ -322,7 +322,7 @@ public:
 
 private:
     /** 編集対象 face 配列 (順序保持、index = fallback chain 順位)。 */
-    acs::TArray<FontFaceInfo> m_Faces;
+    acs::TArray<FFontFaceInfo> m_Faces;
 
     /** 選択中 face index (-1 = 未選択)。 */
     i32 m_Selected = -1;

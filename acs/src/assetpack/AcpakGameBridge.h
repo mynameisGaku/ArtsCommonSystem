@@ -105,7 +105,7 @@ private:
     void ReleaseFileNamePool() noexcept;
 
     /** Mount/Unmount と全読み取り API の寿命を同期する。 */
-    mutable RwLock m_LifecycleLock;
+    mutable FRwLock m_LifecycleLock;
 
     /** 実 `.acpak` 読み出しを担う Reader。 */
     FAcpakReader m_Reader;

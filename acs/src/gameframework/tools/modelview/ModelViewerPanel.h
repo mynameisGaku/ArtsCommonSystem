@@ -6,7 +6,7 @@
 // `FAssetBrowser`) を継承する panel。
 //
 // 役割:
-//   ・3D model viewport の host (ImGui::Begin "Model FViewport" 1 window)
+//   ・3D model viewport の host (ImGui::Begin "Model Viewport" 1 window)
 //   ・カレント asset path の保持 + 切替 (`LoadModelAsset` / `ClearModel`)
 //   ・FEditorCamera (3D orbit) を内包し、panel 内で操作 / Reset / Frame
 //   ・Lighting (sun dir + sun color + IBL toggle + tonemap mode) パラメータの
@@ -52,7 +52,7 @@
 //     こうしておけば panel 単体テストや、別の renderer (= raymarched preview /
 //     OBJ thumbnail) への差し替えが容易。
 //   ・**FEditorCamera を内包 (値メンバ)**: 各 panel が独自 camera を持つ Unity
-//     SceneView 風モデル。FCamera() アクセサで参照を返し、renderer が
+//     SceneView 風モデル。Camera() アクセサで参照を返し、renderer が
 //     ViewMatrix / ProjectionMatrix を取り出して使う。
 //   ・**asset path は wchar_t バッファ (kMaxPathChars = 512)**: FAssetBrowser
 //     と同じ規約。STL の std::wstring は使えないため、固定長で保持。
@@ -62,14 +62,14 @@
 //     `.obj` が Mesh asset とみなされる (FAssetBrowser::ClassifyByExtension の
 //     Mesh 分類と一致)。それ以外の拡張子は無視 (= asset path は ASCII UTF-8 だが
 //     panel 内では wchar_t に正規化して持つ)。
-//   ・**ImGui controls の DrawUI 配置**: 単一 "Model FViewport" window 内に
+//   ・**ImGui controls の DrawUI 配置**: 単一 "Model Viewport" window 内に
 //       - viewport 領域 (大半の面積、将来 renderer が描画 / 現状は dummy)
 //       - 下部 control bar: Light dir / color / IBL / Tonemap / Background /
 //         Grid / FBone skeleton toggle
 //     を出す。各 widget の戻り値で「ユーザが変更したか」を判定する。本 panel は
 //     値を保持するだけ。
 //   ・**Tonemap mode は u32 enum 風 (0=ACES / 1=Reinhard / 2=Linear)**:
-//     FPbrShader / Tonemap の既存 enum (`render/FPostProcess.h` 等) との連携は
+//     FPbrShader / Tonemap の既存 enum (`render/PostProcess.h` 等) との連携は
 //     renderer 側で行う (本 panel は u32 で受け流し)。
 //   ・**Background color は FVec4** (RGBA): renderer の clear color 用。alpha は
 //     通常 1.0 だが、screenshot 用に alpha 0 もあり得る。
@@ -96,8 +96,8 @@
 #include "gameframework/tools/editor_core/EditorCamera.h"
 
 namespace acs::game::editor_core {
-// FEditorWorkspace / FAssetBrowser は FEditorPanel.h から forward-decl で受ける。
-// 本ヘッダで FAssetBrowser.h を include しないことで、編集中ファイルの依存を
+// FEditorWorkspace / FAssetBrowser は EditorPanel.h から forward-decl で受ける。
+// 本ヘッダで AssetBrowser.h を include しないことで、編集中ファイルの依存を
 // 最小化する (= FAssetBrowser のヘッダ変更で FModelViewerPanel 利用側が再ビルドを
 // 強いられないようにする)。
 class FEditorWorkspace;
@@ -252,7 +252,7 @@ public:
      *
      * @details
      * 0=ACES (default) / 1=Reinhard / 2=Linear (= no tonemap)。u32 にして renderer 側 enum
-     * (render/FPostProcess.h の ETonemapMode) と疎結合にする。範囲外値は無視 (= 既存値を維持)。
+     * (render/PostProcess.h の ETonemapMode) と疎結合にする。範囲外値は無視 (= 既存値を維持)。
      * @param mode tonemap mode (0..kToneMappingModeCount-1)。
      */
     void SetToneMappingMode(u32 mode) noexcept;
@@ -313,9 +313,9 @@ public:
     /**
      * window タイトルを返す (ImGui::Begin の引数兼 ID)。
      *
-     * @return 固定リテラル "Model FViewport"。
+     * @return 固定リテラル "Model Viewport"。
      */
-    const char* Title() const noexcept override { return "Model FViewport"; }
+    const char* Title() const noexcept override { return "Model Viewport"; }
 
     /**
      * Workspace への登録時に呼ばれる初期化フック。

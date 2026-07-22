@@ -55,6 +55,46 @@ private:
     bool m_bFailing = false;
 };
 
+/** 指定した確保要求だけを失敗させ、各commit段階を個別に検証するbacking。 */
+class FFailOnRequestAllocator final : public FAllocator {
+public:
+    void FailOnRequest(u64 Request) noexcept
+    {
+        m_RequestCount = 0;
+        m_FailingRequest = Request;
+    }
+
+    void DisableFailure() noexcept
+    {
+        m_RequestCount = 0;
+        m_FailingRequest = 0;
+    }
+
+    void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override
+    {
+        ++m_RequestCount;
+        if (m_FailingRequest != 0 && m_RequestCount == m_FailingRequest) {
+            return nullptr;
+        }
+        return m_Backing.Alloc(Size, Alignment, Location);
+    }
+
+    void Free(void* Pointer) noexcept override
+    {
+        m_Backing.Free(Pointer);
+    }
+
+    u64 BytesAllocated() const noexcept override
+    {
+        return m_Backing.BytesAllocated();
+    }
+
+private:
+    FSystemAllocator m_Backing;
+    u64 m_RequestCount = 0;
+    u64 m_FailingRequest = 0;
+};
+
 } // namespace
 
 ACS_TEST(Container, ArrayPushAndIndex) {
@@ -247,13 +287,13 @@ ACS_TEST(Container, StoragePreservesExplicitAllocatorAndReleasesCapacity)
     FSystemAllocator storage_allocator;
     FSystemAllocator unrelated_allocator;
 
-    Storage storage(storage_allocator);
+    FStorage storage(storage_allocator);
     storage.SetString("long.key.for.allocator.contract", "a value long enough to require heap backed FString storage");
     EXPECT_TRUE(storage.Has("long.key.for.allocator.contract"));
     EXPECT_TRUE(storage_allocator.BytesAllocated() > 0);
     EXPECT_EQ(unrelated_allocator.BytesAllocated(), 0ull);
 
-    Storage moved(Move(storage));
+    FStorage moved(Move(storage));
     moved.SetString("second.long.key.for.allocator.contract",
                     "another value that must use the original explicit allocator");
     EXPECT_TRUE(moved.Has("second.long.key.for.allocator.contract"));
@@ -262,6 +302,183 @@ ACS_TEST(Container, StoragePreservesExplicitAllocatorAndReleasesCapacity)
     moved.Clear();
     EXPECT_EQ(moved.Count(), static_cast<usize>(0));
     EXPECT_EQ(storage_allocator.BytesAllocated(), 0ull);
+}
+
+ACS_TEST(Container, StorageTrySetStringIsAtomicOnAllocationFailure)
+{
+    constexpr const char* existingKey =
+        "existing.key.that.requires.allocator.backed.storage";
+    constexpr const char* originalValue =
+        "original value that requires allocator backed storage";
+    constexpr const char* stableValue =
+        "stable value that must remain unchanged after rejection";
+    constexpr const char* replacementValue =
+        "replacement value that also requires allocator backed storage";
+
+    FFailOnRequestAllocator allocator;
+    FStorage storage(allocator);
+    EXPECT_TRUE(storage.TrySetString(existingKey, originalValue));
+    EXPECT_TRUE(storage.TrySetString("stable.key", stableValue));
+
+    bool existingFailureObserved = false;
+    bool existingSuccessObserved = false;
+    for (u64 request = 1; request <= 16; ++request) {
+        const u64 bytesBefore = allocator.BytesAllocated();
+        allocator.FailOnRequest(request);
+        const bool accepted =
+            storage.TrySetString(existingKey, replacementValue);
+        allocator.DisableFailure();
+        if (accepted) {
+            existingSuccessObserved = true;
+            break;
+        }
+        existingFailureObserved = true;
+        EXPECT_EQ(storage.Count(), static_cast<usize>(2));
+        EXPECT_EQ(allocator.BytesAllocated(), bytesBefore);
+        EXPECT_TRUE(FStringView(storage.GetString(existingKey)) ==
+                    FStringView(originalValue));
+        EXPECT_TRUE(FStringView(storage.GetString("stable.key")) ==
+                    FStringView(stableValue));
+    }
+    EXPECT_TRUE(existingFailureObserved);
+    EXPECT_TRUE(existingSuccessObserved);
+
+    // 空のStorageでvalue、key、entry配列の各確保を順番に失敗させる。
+    FStorage empty(allocator);
+    bool newFailureObserved = false;
+    bool newSuccessObserved = false;
+    for (u64 request = 1; request <= 16; ++request) {
+        const u64 bytesBefore = allocator.BytesAllocated();
+        allocator.FailOnRequest(request);
+        const bool accepted = empty.TrySetString(
+            "new.key.with.a.long.allocator.backed.name",
+            "new value that requires allocator backed storage");
+        allocator.DisableFailure();
+        if (accepted) {
+            newSuccessObserved = true;
+            break;
+        }
+        newFailureObserved = true;
+        EXPECT_EQ(empty.Count(), static_cast<usize>(0));
+        EXPECT_EQ(allocator.BytesAllocated(), bytesBefore);
+        EXPECT_FALSE(empty.Has(
+            "new.key.with.a.long.allocator.backed.name"));
+    }
+    EXPECT_TRUE(newFailureObserved);
+    EXPECT_TRUE(newSuccessObserved);
+
+    EXPECT_TRUE(storage.TrySetString(
+        "spaces", "  keep surrounding spaces  "));
+    EXPECT_TRUE(FStringView(storage.GetString("spaces")) ==
+                FStringView("  keep surrounding spaces  "));
+    EXPECT_TRUE(storage.TrySetString("empty", nullptr));
+    EXPECT_TRUE(FStringView(storage.GetString("empty")).IsEmpty());
+
+    constexpr char document[] =
+        "loaded.spaces=  keep loaded surrounding spaces  \n";
+    FStorage loaded(allocator);
+    EXPECT_TRUE(loaded.LoadFromBytes(
+        reinterpret_cast<const u8*>(document),
+        sizeof(document) - 1u).IsOk());
+    EXPECT_TRUE(FStringView(loaded.GetString("loaded.spaces")) ==
+                FStringView("  keep loaded surrounding spaces  "));
+
+    EXPECT_TRUE(storage.TrySetString("alias.source", "alias.target"));
+    const char* const aliasedKey =
+        storage.GetString("alias.source", nullptr);
+    EXPECT_TRUE(aliasedKey != nullptr);
+    if (aliasedKey != nullptr) {
+        EXPECT_TRUE(storage.TrySetString(
+            aliasedKey,
+            "value copied after the aliased key was resolved"));
+    }
+    const char* const aliasedValue =
+        storage.GetString("alias.target", nullptr);
+    EXPECT_TRUE(aliasedValue != nullptr);
+    if (aliasedValue != nullptr) {
+        EXPECT_TRUE(storage.TrySetString("alias.copy", aliasedValue));
+        EXPECT_TRUE(FStringView(storage.GetString("alias.copy")) ==
+                    FStringView(
+                        "value copied after the aliased key was resolved"));
+    }
+}
+
+ACS_TEST(Container, StorageLoadFromBytesIsAtomicAndRejectsDuplicateKeys)
+{
+    constexpr const char* originalKey =
+        "original.key.that.requires.allocator.backed.storage";
+    constexpr const char* originalValue =
+        "original value that must survive every rejected load";
+    constexpr const char* stableKey =
+        "stable.key.that.requires.allocator.backed.storage";
+    constexpr const char* stableValue =
+        "stable value that must survive every rejected load";
+
+    FFailOnRequestAllocator allocator;
+    FStorage storage(allocator);
+    EXPECT_TRUE(storage.TrySetString(originalKey, originalValue));
+    EXPECT_TRUE(storage.TrySetString(stableKey, stableValue));
+
+    constexpr char duplicateDocument[] =
+        "loaded.key.with.allocator.backed.storage=first value\n"
+        "another.loaded.key.with.allocator.backed.storage=second value\n"
+        "loaded.key.with.allocator.backed.storage=duplicate value\n";
+    const u64 duplicateBytesBefore = allocator.BytesAllocated();
+    auto duplicateResult = storage.LoadFromBytes(
+        reinterpret_cast<const u8*>(duplicateDocument),
+        sizeof(duplicateDocument) - 1u);
+    EXPECT_TRUE(duplicateResult.IsErr());
+    if (duplicateResult.IsErr()) {
+        EXPECT_TRUE(
+            duplicateResult.Error().category == EErrCategory::Container);
+    }
+    EXPECT_EQ(storage.Count(), static_cast<usize>(2));
+    EXPECT_EQ(allocator.BytesAllocated(), duplicateBytesBefore);
+    EXPECT_TRUE(FStringView(storage.GetString(originalKey)) ==
+                FStringView(originalValue));
+    EXPECT_TRUE(FStringView(storage.GetString(stableKey)) ==
+                FStringView(stableValue));
+
+    // key、value、entry 配列の各確保失敗で、公開済み状態を保持する。
+    constexpr char validDocument[] =
+        "loaded.key.with.allocator.backed.storage=first loaded value\n"
+        "another.loaded.key.with.allocator.backed.storage=second loaded value\n";
+    bool allocationFailureObserved = false;
+    bool successfulLoadObserved = false;
+    for (u64 request = 1; request <= 32; ++request) {
+        const u64 bytesBefore = allocator.BytesAllocated();
+        allocator.FailOnRequest(request);
+        auto result = storage.LoadFromBytes(
+            reinterpret_cast<const u8*>(validDocument),
+            sizeof(validDocument) - 1u);
+        allocator.DisableFailure();
+        if (result.IsOk()) {
+            successfulLoadObserved = true;
+            break;
+        }
+
+        allocationFailureObserved = true;
+        EXPECT_TRUE(result.Error().category == EErrCategory::Memory);
+        EXPECT_EQ(storage.Count(), static_cast<usize>(2));
+        EXPECT_EQ(allocator.BytesAllocated(), bytesBefore);
+        EXPECT_TRUE(FStringView(storage.GetString(originalKey)) ==
+                    FStringView(originalValue));
+        EXPECT_TRUE(FStringView(storage.GetString(stableKey)) ==
+                    FStringView(stableValue));
+    }
+    EXPECT_TRUE(allocationFailureObserved);
+    EXPECT_TRUE(successfulLoadObserved);
+    EXPECT_EQ(storage.Count(), static_cast<usize>(2));
+    EXPECT_FALSE(storage.Has(originalKey));
+    EXPECT_TRUE(FStringView(storage.GetString(
+                    "loaded.key.with.allocator.backed.storage")) ==
+                FStringView("first loaded value"));
+    EXPECT_TRUE(FStringView(storage.GetString(
+                    "another.loaded.key.with.allocator.backed.storage")) ==
+                FStringView("second loaded value"));
+
+    EXPECT_TRUE(storage.LoadFromBytes(nullptr, 0u).IsOk());
+    EXPECT_EQ(storage.Count(), static_cast<usize>(0));
 }
 
 ACS_TEST(Container, HashMapInsertFindRemove) {

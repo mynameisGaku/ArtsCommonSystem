@@ -82,7 +82,7 @@ void ComputeConstantPowerGains(f32 pan, f32& left, f32& right) noexcept {
 } // namespace
 
 /** stub renderer を初期化する (真の HRTF は seam、パン + 減衰は実数学)。 */
-TResult<void> HrtfRendererStub::Init() noexcept {
+TResult<void> FHrtfRendererStub::Init() noexcept {
     m_Initialized = true;
     // 真の HRTF (KEMAR 256-tap convolution) は外部 IR データを要するため
     // seam として保留。本 stub は constant-power パン + 距離減衰を実数学で行う。
@@ -99,17 +99,17 @@ TResult<void> HrtfRendererStub::Init() noexcept {
 }
 
 /** stub renderer を停止する。 */
-void HrtfRendererStub::Shutdown() noexcept {
+void FHrtfRendererStub::Shutdown() noexcept {
     m_Initialized = false;
 }
 
 /** パン / 減衰計算の基準となる listener を設定する。 */
-void HrtfRendererStub::SetListener(const FAudioListener& listener) noexcept {
+void FHrtfRendererStub::SetListener(const FAudioListener& listener) noexcept {
     m_Listener = listener;
 }
 
 /** mono 入力に pan + 距離減衰を適用し interleaved stereo 出力へ書き込む。 */
-void HrtfRendererStub::ProcessSource(const FAudioSource3D& source,
+void FHrtfRendererStub::ProcessSource(const FAudioSource3D& source,
                                      const f32* mono_input,
                                      f32* stereo_output,
                                      u32 sample_count) noexcept {

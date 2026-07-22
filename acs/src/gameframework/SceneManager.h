@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar A — FSceneManager
 //
-// TUniquePtr<Scene> のスタック。top のシーンを毎フレーム update/render する。
+// TUniquePtr<FScene> のスタック。top のシーンを毎フレーム update/render する。
 // 遷移要求 (Change/Push/Pop) はフレーム境界まで遅延 → 走査中 (Update/Render
 // 内) からの構造変更が安全。1 フレーム 1 遷移、複数要求が来た場合は後勝ち。
 //
 // 機能:
 //   ・3 種の遷移 (Change/Push/Pop) と pending state machine
 //   ・OnEvent は top のみへ配送
-//   ・退場 Scene を **3 フレーム保持** (= フレームインフライト 2 + 1) する ring
+//   ・退場 FScene を **3 フレーム保持** (= フレームインフライト 2 + 1) する ring
 //     buffer。GPU が直前フレームで参照中のリソースの use-after-free を防ぐ
 //   ・Push 時に旧 top の OnPause、Pop 時に新 top の OnResume を呼ぶ
 //   ・OnFixedUpdate を FGame の accumulator から呼び込めるよう _FixedUpdate
@@ -21,15 +21,15 @@
 namespace acs::game {
 
 class FGame;
-class RenderContext;
+class FRenderContext;
 
 /**
- * TUniquePtr<Scene> のスタックを管理し、top のシーンを毎フレーム駆動するマネージャ。
+ * TUniquePtr<FScene> のスタックを管理し、top のシーンを毎フレーム駆動するマネージャ。
  *
  * @details
  * 遷移要求 (Change/Push/Pop) はフレーム境界まで遅延し、_ApplyPending で適用するため、
  * 走査中 (Update/Render 内) からの構造変更が安全。1 フレーム 1 遷移で、複数要求が来た場合は
- * 後勝ち。退場した Scene は GPU が直前フレームで参照中のリソースを use-after-free しないよう、
+ * 後勝ち。退場した FScene は GPU が直前フレームで参照中のリソースを use-after-free しないよう、
  * ring buffer で 3 フレーム (フレームインフライト 2 + 1) 保持してから破棄する。Push 時には
  * 旧 top の OnPause、Pop 時には新 top の OnResume を呼ぶ。
  */
@@ -54,7 +54,7 @@ public:
      * 上書きする (後勝ち)。next が nullptr の場合は警告ログを出して無視する。
      * @param next 切り替え先のシーン (所有権が移る)。
      */
-    void ChangeScene(TUniquePtr<Scene> next) noexcept;
+    void ChangeScene(TUniquePtr<FScene> next) noexcept;
 
     /**
      * 現 top をスタック上に残したまま next を push する遷移を要求する (= モーダル/ダイアログ)。
@@ -62,7 +62,7 @@ public:
      * @details 適用時に旧 top の OnPause が呼ばれる。next が nullptr の場合は警告ログを出して無視する。
      * @param next 上に重ねるシーン (所有権が移る)。
      */
-    void PushScene(TUniquePtr<Scene> next) noexcept;
+    void PushScene(TUniquePtr<FScene> next) noexcept;
 
     /** top を pop する遷移を要求する (スタックが 1 枚以下なら適用時に何もせず警告)。 */
     void PopScene() noexcept;
@@ -72,7 +72,7 @@ public:
      *
      * @return top のシーン (スタックが空なら nullptr)。
      */
-    Scene*  Top()   const noexcept;
+    FScene* Top()   const noexcept;
 
     /**
      * スタックに積まれたシーン数を返す。
@@ -91,8 +91,8 @@ public:
     /**
      * フレーム頭で保留中の遷移を適用する。
      *
-     * @details ring buffer を 1 つ前進させて 3 フレーム前に退場した Scene を破棄したのち、
-     * pending op (Change/Push/Pop) を実行する。退場 Scene は GPU が直前フレームで参照中の
+     * @details ring buffer を 1 つ前進させて 3 フレーム前に退場した FScene を破棄したのち、
+     * pending op (Change/Push/Pop) を実行する。退場 FScene は GPU が直前フレームで参照中の
      * リソースを破棄しないよう ring buffer で 3 フレーム (フレームインフライト 2 + 1) 保持される。
      * @param game シーンに紐付ける FGame コンテキスト。
      */
@@ -120,24 +120,24 @@ public:
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト (呼び出し側が用意)。
      */
-    void _Render(RenderContext& rc) noexcept;
+    void _Render(FRenderContext& rc) noexcept;
 
     /**
-     * 受け取った Event を top のシーンへ配送する。
+     * 受け取った FEvent を top のシーンへ配送する。
      *
      * @param e 配送するイベント。
      */
-    void _DispatchEvent(const Event& e) noexcept;
+    void _DispatchEvent(const FEvent& e) noexcept;
 
     /** 終了処理。残った全シーンに top から OnExit を呼んでから破棄する。 */
     void _ShutdownAll() noexcept;
 
-    /** 退場 Scene を保持するフレーム数 (= フレームインフライト 2 + 1)。 */
+    /** 退場 FScene を保持するフレーム数 (= フレームインフライト 2 + 1)。 */
     static constexpr u32 kRetireRingSize = 3;
 
 private:
     /** 保留中の遷移種別。 */
-    enum class Op : u8 { None, Change, Push, Pop };
+    enum class EOp : u8 { None, Change, Push, Pop };
 
     /**
      * 内部 push 処理。next に context/services を attach し、OnEnter を呼ぶ。
@@ -146,7 +146,7 @@ private:
      * @param next push するシーン (所有権が移る)。
      * @param pause_current true なら push 前に旧 top の OnPause を呼ぶ (Change は false、Push は true)。
      */
-    void DoPushInternal(FGame& game, TUniquePtr<Scene> next, bool pause_current) noexcept;
+    void DoPushInternal(FGame& game, TUniquePtr<FScene> next, bool pause_current) noexcept;
 
     /**
      * 内部 pop 処理。top の OnExit を呼び、ring buffer へ退避してからスタックから外す。
@@ -156,16 +156,16 @@ private:
     void DoPopInternal(bool resume_new) noexcept;
 
     /** シーンスタック (top = Back())。 */
-    TArray<TUniquePtr<Scene>> m_Stack;
+    TArray<TUniquePtr<FScene>> m_Stack;
 
     /** 保留中の遷移種別。 */
-    Op                      m_PendingOp   = Op::None;
+    EOp                      m_PendingOp   = EOp::None;
 
     /** Change/Push で push する next シーン (Pop では未使用)。 */
-    TUniquePtr<Scene>        m_PendingArg;
+    TUniquePtr<FScene>       m_PendingArg;
 
-    /** GPU 遅延削除のための退場 Scene ring buffer。 */
-    TUniquePtr<Scene>        m_Retired[kRetireRingSize];
+    /** GPU 遅延削除のための退場 FScene ring buffer。 */
+    TUniquePtr<FScene>       m_Retired[kRetireRingSize];
 
     /** ring buffer の現在ヘッド (次に release するスロット)。 */
     u32                     m_RetireHead  = 0;

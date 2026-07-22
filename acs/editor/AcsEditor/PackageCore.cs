@@ -1,0 +1,1918 @@
+// SPDX-License-Identifier: Apache-2.0
+// Deterministic, path-safe staging used by both ACS Editor and acspackage CLI.
+
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.IO.Compression;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace AcsEditor.Packaging;
+
+public enum PackageIssueSeverity
+{
+    Info,
+    Warning,
+    Error,
+}
+
+public sealed record PackageIssue(
+    PackageIssueSeverity Severity,
+    string Code,
+    string Message,
+    string? Path = null);
+
+public sealed record PackageProjectInfo(
+    string Name,
+    int ProjectSchemaVersion,
+    string EngineVersion,
+    string ProjectFilePath,
+    string InitialScene,
+    string CanonicalSceneAssetId = "")
+{
+    public string RootDirectory =>
+        Path.GetDirectoryName(Path.GetFullPath(ProjectFilePath)) ?? "";
+
+    public string AssetsDirectory => Path.Combine(RootDirectory, "Assets");
+    public string ConfigDirectory => Path.Combine(RootDirectory, "Config");
+    public string TempDirectory => Path.Combine(RootDirectory, "Temp");
+}
+
+public enum PackageProfile
+{
+    Development,
+    Test,
+    Shipping,
+}
+
+public sealed record PackageOptions(
+    string OutputDirectory,
+    string ProductVersion = "0.1.0",
+    bool IncludeDebugSymbols = false,
+    PackageProfile Profile = PackageProfile.Shipping,
+    string? AssetPackToolPath = null);
+
+public sealed record PackageProgress(
+    string Phase,
+    string Message,
+    int Completed,
+    int Total);
+
+public sealed record PackageResult(
+    string ZipPath,
+    string PackageId,
+    string BuildId,
+    int FileCount,
+    long UncompressedBytes,
+    string AssetPackSha256 = "",
+    int CookedAssetCount = 0,
+    PackageProfile Profile = PackageProfile.Shipping);
+
+public sealed class PackageValidationException : InvalidOperationException
+{
+    public IReadOnlyList<PackageIssue> Issues { get; }
+
+    public PackageValidationException(IReadOnlyList<PackageIssue> issues)
+        : base(string.Join(
+            Environment.NewLine,
+            issues.Where(issue => issue.Severity == PackageIssueSeverity.Error)
+                  .Select(issue => $"[{issue.Code}] {issue.Message}")))
+    {
+        Issues = issues;
+    }
+}
+
+public static class PackageCore
+{
+    private const string AssetCookerVersion = "acs-package-cook-v2";
+    private static readonly UTF8Encoding Utf8NoBom = new(false);
+    private static readonly UTF8Encoding Utf8Strict = new(false, true);
+    private static readonly DateTimeOffset ZipEpoch =
+        new(1980, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+    private static readonly Regex SceneReference = new(
+        @"^(?<prefix>(?:SPRT|MAT)\s+-?\d+\s+)(?<path>.+?)\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex MaterialReference = new(
+        @"^(?<prefix>(?:albedo|normal|substrateExprTexture\d+)\s+)(?<path>.+?)\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex ProductVersionPattern = new(
+        @"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly HashSet<string> CookableExtensions = new(
+        [
+            ".acscene", ".acsprefab", ".acsmat", ".acsbp", ".acs3d",
+            ".png", ".jpg", ".jpeg", ".bmp", ".tga", ".dds", ".ktx",
+            ".ktx2", ".hdr", ".exr", ".webp", ".gif",
+            ".wav", ".ogg", ".mp3", ".flac",
+            ".fbx", ".gltf", ".glb", ".obj", ".mdl", ".mtl",
+            ".ttf", ".otf",
+            ".txt", ".json", ".csv", ".xml", ".yaml", ".yml", ".toml",
+            ".ini", ".md", ".log",
+            ".lua", ".hlsl", ".glsl", ".vert", ".frag",
+            ".cso", ".dxil", ".spv", ".bin", ".dat",
+        ],
+        StringComparer.OrdinalIgnoreCase);
+
+    private sealed record ManifestFile(string path, long size, string sha256);
+
+    private sealed record ManifestAssetPack(
+        string path,
+        long size,
+        string sha256,
+        int formatVersion,
+        bool compressed,
+        int sourceFileCount);
+
+    private sealed record CookResult(
+        string PackPath,
+        string Sha256,
+        int SourceFileCount,
+        bool Compressed,
+        string CanonicalSceneAssetId,
+        string CanonicalSceneKind,
+        string CanonicalSceneImporter,
+        int CanonicalSceneImporterVersion,
+        string AssetGraphHash,
+        CanonicalSceneBootstrapEnvelope SceneBootstrap);
+
+    private sealed record PackageManifest(
+        int schemaVersion,
+        string productName,
+        string productVersion,
+        int projectSchemaVersion,
+        string engineVersion,
+        string platform,
+        string configuration,
+        string profile,
+        string executable,
+        string buildId,
+        string canonicalSceneAssetId,
+        string canonicalSceneKind,
+        string canonicalSceneImporter,
+        int canonicalSceneImporterVersion,
+        string assetGraphHash,
+        CanonicalSceneBootstrapEnvelope sceneBootstrap,
+        ManifestAssetPack assetPack,
+        IReadOnlyList<ManifestFile> files);
+
+    public static string SanitizeIdentifier(string name)
+    {
+        var builder = new StringBuilder();
+        foreach (char value in name)
+            builder.Append(char.IsLetterOrDigit(value) ? value : '_');
+        if (builder.Length == 0 || char.IsDigit(builder[0]))
+            builder.Insert(0, '_');
+        return builder.ToString();
+    }
+
+    public static string PackageId(PackageProjectInfo project, PackageOptions options) =>
+        SanitizeFileName(project.Name) + "-" +
+        SanitizeFileName(options.ProductVersion) +
+        (options.Profile == PackageProfile.Shipping
+            ? ""
+            : "-" + options.Profile.ToString().ToLowerInvariant()) +
+        "-win64";
+
+    public static IReadOnlyList<PackageIssue> Validate(
+        PackageProjectInfo project,
+        PackageOptions options,
+        string executablePath,
+        IReadOnlyList<string>? runtimeDependencies = null)
+    {
+        var issues = new List<PackageIssue>();
+        string root;
+        string assets;
+        string config;
+        string output;
+        string initialScene;
+        string executable;
+        string staging;
+        string derivedDataCache;
+        var assetFiles = new List<string>();
+
+        try
+        {
+            root = Path.GetFullPath(project.RootDirectory);
+            assets = Path.GetFullPath(project.AssetsDirectory);
+            config = Path.GetFullPath(project.ConfigDirectory);
+            output = Path.GetFullPath(options.OutputDirectory);
+            initialScene = ResolveUnderRoot(root, project.InitialScene);
+            executable = Path.GetFullPath(executablePath);
+            staging = Path.GetFullPath(
+                Path.Combine(project.TempDirectory, "PackageStaging"));
+            derivedDataCache = Path.GetFullPath(
+                Path.Combine(project.TempDirectory, "DerivedDataCache", "Cook"));
+        }
+        catch (Exception error)
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "INVALID_PATH",
+                $"パスを正規化できません: {error.Message}"));
+            return issues;
+        }
+
+        try
+        {
+            RejectExistingReparsePointsInPath(staging, "Package staging");
+        }
+        catch (Exception error)
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "STAGING_REPARSE",
+                error.Message,
+                staging));
+        }
+
+        try
+        {
+            RejectExistingReparsePointsInPath(output, "Package output");
+        }
+        catch (Exception error)
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "OUTPUT_REPARSE",
+                error.Message,
+                output));
+        }
+
+        try
+        {
+            RejectExistingReparsePointsInPath(
+                derivedDataCache,
+                "Derived Data Cache");
+        }
+        catch (Exception error)
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "DDC_REPARSE",
+                error.Message,
+                derivedDataCache));
+        }
+
+        if (string.IsNullOrWhiteSpace(project.Name))
+            issues.Add(new(PackageIssueSeverity.Error, "PROJECT_NAME_EMPTY", "プロジェクト名が空です。"));
+
+        if (!ProductVersionPattern.IsMatch(options.ProductVersion))
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "PRODUCT_VERSION_INVALID",
+                "パッケージ版は SemVer 形式 (例: 1.0.0 / 1.0.0-beta.1) で指定してください。"));
+        }
+
+        issues.Add(new(
+            PackageIssueSeverity.Info,
+            "PACKAGE_PROFILE",
+            $"Package profile: {options.Profile}"));
+        if (options.Profile == PackageProfile.Shipping &&
+            options.IncludeDebugSymbols)
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "SHIPPING_SYMBOLS_FORBIDDEN",
+                "Shipping ZIPへPDBを同梱できません。Test/Development profileを使うか、シンボルを別保管してください。"));
+        }
+
+        if (!File.Exists(project.ProjectFilePath))
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "PROJECT_FILE_MISSING",
+                "プロジェクトファイルが見つかりません。",
+                project.ProjectFilePath));
+
+        if (!Directory.Exists(root))
+            issues.Add(new(PackageIssueSeverity.Error, "PROJECT_ROOT_MISSING", "プロジェクトフォルダが見つかりません。", root));
+
+        if (!Directory.Exists(assets))
+            issues.Add(new(PackageIssueSeverity.Error, "ASSETS_MISSING", "Assets フォルダが見つかりません。", assets));
+        else
+        {
+            try
+            {
+                RejectExistingReparsePointsInPath(assets, "Assets");
+                assetFiles = EnumerateFilesSafe(
+                    assets,
+                    issues,
+                    excludeAssetMetadata: true).ToList();
+            }
+            catch (Exception error)
+            {
+                issues.Add(new(
+                    PackageIssueSeverity.Error,
+                    "INPUT_TREE_UNSAFE",
+                    $"Assets の走査に失敗しました: {error.Message}",
+                    assets));
+            }
+
+            foreach (string asset in assetFiles)
+            {
+                string extension = Path.GetExtension(asset);
+                if (string.IsNullOrEmpty(extension) ||
+                    !CookableExtensions.Contains(extension))
+                {
+                    issues.Add(new(
+                        PackageIssueSeverity.Error,
+                        "ASSET_TYPE_UNSUPPORTED",
+                        "Cook対象として未対応のアセット形式です。対応形式へimport/変換するかAssets外へ移動してください。",
+                        asset));
+                }
+            }
+
+        }
+
+        if (Directory.Exists(config))
+            ValidateTree(config, "Config", issues);
+        else
+            issues.Add(new(PackageIssueSeverity.Info, "CONFIG_EMPTY", "Config フォルダはありません。既定設定でパッケージします。"));
+
+        string settingsIni = Path.Combine(config, "ProjectSettings.ini");
+        if (File.Exists(settingsIni) &&
+            TryReadIniValue(
+                settingsIni,
+                "Game",
+                "DefaultScene",
+                out string configuredScene) &&
+            !string.IsNullOrWhiteSpace(configuredScene))
+        {
+            try
+            {
+                string configuredReference = configuredScene.Trim();
+                string configuredValue = configuredReference.Replace(
+                    '/',
+                    Path.DirectorySeparatorChar);
+                if (Path.IsPathRooted(configuredValue))
+                    throw new InvalidDataException(
+                        "DefaultScene must be a relative path under Assets.");
+                string configuredPath = ResolveUnderRoot(root, configuredReference);
+                if (!IsWithin(assets, configuredPath))
+                    throw new InvalidDataException(
+                        "DefaultScene must resolve inside Assets.");
+                if (!HasSupportedSceneExtension(configuredPath))
+                    throw new InvalidDataException(
+                        "DefaultScene must use the .acscene or .acs3d extension.");
+                if (!string.Equals(
+                        configuredPath,
+                        initialScene,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    issues.Add(new(
+                        PackageIssueSeverity.Error,
+                        "DEFAULT_SCENE_MISMATCH",
+                        "Config [Game] DefaultScene と .acsproject initialScene が一致しません。Editor表示と配布内容が分岐しないよう同じsceneへ揃えてください。",
+                        $"{configuredScene} != {project.InitialScene}"));
+                }
+            }
+            catch (Exception error)
+            {
+                issues.Add(new(
+                    PackageIssueSeverity.Error,
+                    "DEFAULT_SCENE_INVALID",
+                    $"Config [Game] DefaultScene が不正です: {error.Message}",
+                    configuredScene));
+            }
+        }
+
+        string initialSceneValue = project.InitialScene.Replace(
+            '/',
+            Path.DirectorySeparatorChar);
+        if (Path.IsPathRooted(initialSceneValue))
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "INITIAL_SCENE_ABSOLUTE",
+                "初期シーンは Assets 配下への相対パスで指定してください。",
+                project.InitialScene));
+
+        if (!IsWithin(assets, initialScene))
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "INITIAL_SCENE_ESCAPE",
+                "初期シーンは Assets フォルダ内でなければなりません。",
+                initialScene));
+        else if (!HasSupportedSceneExtension(initialScene))
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "INITIAL_SCENE_EXTENSION",
+                "初期シーンは .acscene または .acs3d でなければなりません。",
+                initialScene));
+        else if (!File.Exists(initialScene))
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "INITIAL_SCENE_MISSING",
+                "初期シーンが見つかりません。",
+                initialScene));
+        else if (HasReparsePointBetween(root, initialScene))
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "INITIAL_SCENE_REPARSE",
+                "初期シーンが reparse point を経由しています。",
+                initialScene));
+
+        if (Directory.Exists(assets) &&
+            File.Exists(initialScene) &&
+            IsWithin(assets, initialScene) &&
+            !HasReparsePointBetween(assets, initialScene))
+        {
+            CanonicalSceneAdapterInspection sceneInspection =
+                CanonicalSceneAdapter.InspectFile(initialScene);
+            issues.AddRange(
+                sceneInspection.Diagnostics.Select(MapSceneAdapterDiagnostic));
+            try
+            {
+                AssetCookPlan cookPlan = BuildCookPlan(
+                    project,
+                    root,
+                    assets,
+                    initialScene);
+                issues.AddRange(cookPlan.Diagnostics.Select(MapCookDiagnostic));
+                if (cookPlan.Root != null &&
+                    !string.Equals(
+                        Path.GetFullPath(cookPlan.Root.FullPath),
+                        Path.GetFullPath(initialScene),
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    issues.Add(new(
+                        PackageIssueSeverity.Error,
+                        "CANONICAL_SCENE_PATH_MISMATCH",
+                        "canonicalSceneAssetId and legacy initialScene resolve to different assets.",
+                        $"{cookPlan.Root.RelativePath} != {project.InitialScene}"));
+                }
+                if (!cookPlan.HasErrors)
+                {
+                    foreach (AssetRecord nestedScene in cookPlan.Assets.Where(item =>
+                                 !string.Equals(
+                                     item.AssetId,
+                                     cookPlan.Root?.AssetId,
+                                     StringComparison.OrdinalIgnoreCase) &&
+                                 HasSupportedSceneExtension(item.FullPath)))
+                    {
+                        issues.AddRange(
+                            CanonicalSceneAdapter.InspectFile(nestedScene.FullPath)
+                                .Diagnostics
+                                .Select(MapSceneAdapterDiagnostic));
+                    }
+                    foreach (AssetRecord gltf in cookPlan.Assets.Where(static item =>
+                                 string.Equals(
+                                     Path.GetExtension(item.RelativePath),
+                                     ".gltf",
+                                     StringComparison.OrdinalIgnoreCase)))
+                    {
+                        issues.AddRange(
+                            CanonicalSceneAdapter.ValidateStandaloneGltf(gltf.FullPath)
+                                .Select(MapSceneAdapterDiagnostic));
+                    }
+                    issues.Add(new(
+                        PackageIssueSeverity.Info,
+                        "ASSET_COOK_CLOSURE",
+                        $"Cook closure: {cookPlan.Assets.Count} assets, graph {cookPlan.GraphHash}.",
+                        initialScene));
+                }
+            }
+            catch (Exception error) when (
+                error is IOException or UnauthorizedAccessException or InvalidDataException or
+                    JsonException)
+            {
+                issues.Add(new(
+                    PackageIssueSeverity.Error,
+                    "ASSET_COOK_PLAN_FAILED",
+                    $"Asset dependency closure could not be built: {error.Message}",
+                    initialScene));
+            }
+        }
+
+        if (!File.Exists(executable))
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "EXECUTABLE_MISSING",
+                "Release 実行ファイルが見つかりません。先にビルドしてください。",
+                executable));
+        else if (IsReparsePoint(executable))
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "EXECUTABLE_REPARSE",
+                "Release実行ファイルが reparse point です。",
+                executable));
+        else if (!string.Equals(
+                     Path.GetFileName(executable),
+                     SanitizeIdentifier(project.Name) + ".exe",
+                     StringComparison.OrdinalIgnoreCase))
+            issues.Add(new(
+                PackageIssueSeverity.Warning,
+                "EXECUTABLE_NAME",
+                "実行ファイル名がプロジェクト名から期待される名前と異なります。",
+                executable));
+
+        if (string.IsNullOrWhiteSpace(options.AssetPackToolPath))
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Info,
+                "ASSETPACK_TOOL_PENDING",
+                "acs_assetpack はPackage開始時に解決またはビルドされます。"));
+        }
+        else
+        {
+            try
+            {
+                string tool = Path.GetFullPath(options.AssetPackToolPath);
+                if (!File.Exists(tool))
+                {
+                    issues.Add(new(
+                        PackageIssueSeverity.Error,
+                        "ASSETPACK_TOOL_MISSING",
+                        "acs_assetpack実行ファイルが見つかりません。",
+                        tool));
+                }
+                else if (IsReparsePoint(tool))
+                {
+                    issues.Add(new(
+                        PackageIssueSeverity.Error,
+                        "ASSETPACK_TOOL_REPARSE",
+                        "acs_assetpack実行ファイルがreparse pointです。",
+                        tool));
+                }
+            }
+            catch (Exception error)
+            {
+                issues.Add(new(
+                    PackageIssueSeverity.Error,
+                    "ASSETPACK_TOOL_INVALID",
+                    $"acs_assetpackのパスが不正です: {error.Message}",
+                    options.AssetPackToolPath));
+            }
+        }
+
+        if (options.IncludeDebugSymbols && File.Exists(executable))
+        {
+            string pdb = Path.ChangeExtension(executable, ".pdb");
+            if (!File.Exists(pdb))
+            {
+                issues.Add(new(
+                    PackageIssueSeverity.Warning,
+                    "DEBUG_SYMBOLS_MISSING",
+                    "Include game PDB が有効ですが、Release実行ファイルの隣にPDBがありません。ZIPはPDBなしで生成されます。",
+                    pdb));
+            }
+            else if (IsReparsePoint(pdb))
+            {
+                issues.Add(new(
+                    PackageIssueSeverity.Error,
+                    "DEBUG_SYMBOLS_REPARSE",
+                    "game PDB が reparse point です。",
+                    pdb));
+            }
+        }
+
+        if (IsWithin(assets, output) || IsWithin(config, output) ||
+            IsWithin(Path.Combine(root, "Source"), output))
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "OUTPUT_INSIDE_INPUT",
+                "出力先を Assets、Config、Source の中には置けません。",
+                output));
+        }
+
+        if (ContainsCMakeUnsafeCharacter(root) ||
+            ContainsCMakeUnsafeCharacter(executable))
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "CMAKE_UNSAFE_PATH",
+                "パスに CMake の依存解決で安全に扱えない改行またはセミコロンが含まれています。",
+                root));
+        }
+
+        if (File.Exists(initialScene) && !HasReparsePointBetween(root, initialScene))
+            ValidateReferenceFile(initialScene, assets, root, SceneReference, issues);
+
+        if (Directory.Exists(assets))
+        {
+            foreach (string material in assetFiles
+                         .Where(path => string.Equals(
+                             Path.GetExtension(path),
+                             ".acsmat",
+                             StringComparison.OrdinalIgnoreCase)))
+            {
+                ValidateReferenceFile(material, assets, root, MaterialReference, issues);
+            }
+
+            foreach (string gltf in assetFiles
+                         .Where(path => string.Equals(
+                             Path.GetExtension(path),
+                             ".gltf",
+                             StringComparison.OrdinalIgnoreCase)))
+            {
+                ValidateGltfReferences(gltf, assets, issues);
+            }
+        }
+
+        var dependencyNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string dependency in runtimeDependencies ?? Array.Empty<string>())
+        {
+            string full;
+            try { full = Path.GetFullPath(dependency); }
+            catch
+            {
+                issues.Add(new(
+                    PackageIssueSeverity.Error,
+                    "RUNTIME_PATH_INVALID",
+                    "ランタイム依存DLLのパスが不正です。",
+                    dependency));
+                continue;
+            }
+
+            if (!File.Exists(full))
+            {
+                issues.Add(new(
+                    PackageIssueSeverity.Error,
+                    "RUNTIME_MISSING",
+                    "必要なランタイム依存DLLが見つかりません。",
+                    full));
+                continue;
+            }
+
+            if (IsReparsePoint(full))
+            {
+                issues.Add(new(
+                    PackageIssueSeverity.Error,
+                    "RUNTIME_REPARSE",
+                    "ランタイム依存DLLが reparse point です。",
+                    full));
+                continue;
+            }
+
+            string fileName = Path.GetFileName(full);
+            if (fileName.EndsWith("_reflect.dll", StringComparison.OrdinalIgnoreCase))
+            {
+                issues.Add(new(
+                    PackageIssueSeverity.Error,
+                    "EDITOR_DLL_DEPENDENCY",
+                    "Editor用 reflection DLL は配布ランタイムへ含められません。",
+                    full));
+                continue;
+            }
+
+            if (dependencyNames.TryGetValue(fileName, out string? existing) &&
+                !string.Equals(existing, full, StringComparison.OrdinalIgnoreCase))
+            {
+                issues.Add(new(
+                    PackageIssueSeverity.Error,
+                    "RUNTIME_NAME_COLLISION",
+                    $"同名の依存DLLが複数の場所で解決されました: {fileName}",
+                    full));
+            }
+            else
+            {
+                dependencyNames[fileName] = full;
+            }
+        }
+
+        return issues;
+    }
+
+    private static PackageIssue MapCookDiagnostic(AssetCookDiagnostic diagnostic) =>
+        new(
+            diagnostic.Severity switch
+            {
+                AssetCookDiagnosticSeverity.Info => PackageIssueSeverity.Info,
+                AssetCookDiagnosticSeverity.Warning => PackageIssueSeverity.Warning,
+                _ => PackageIssueSeverity.Error,
+            },
+            diagnostic.Code,
+            diagnostic.Message,
+            string.IsNullOrWhiteSpace(diagnostic.AssetPath)
+                ? (string.IsNullOrWhiteSpace(diagnostic.AssetId)
+                    ? null
+                    : diagnostic.AssetId)
+                : diagnostic.AssetPath);
+
+    private static AssetCookPlan BuildCookPlan(
+        PackageProjectInfo project,
+        string projectRoot,
+        string assetsRoot,
+        string legacyInitialScene,
+        CancellationToken cancellationToken = default)
+    {
+        var planner = new AssetCookPlanner(projectRoot, assetsRoot);
+        return string.IsNullOrWhiteSpace(project.CanonicalSceneAssetId)
+            ? planner.Build(legacyInitialScene, cancellationToken)
+            : planner.BuildByAssetId(
+                project.CanonicalSceneAssetId,
+                cancellationToken);
+    }
+
+    private static PackageIssue MapSceneAdapterDiagnostic(
+        CanonicalSceneAdapterDiagnostic diagnostic) =>
+        new(
+            diagnostic.Severity == CanonicalSceneAdapterSeverity.Error
+                ? PackageIssueSeverity.Error
+                : PackageIssueSeverity.Warning,
+            diagnostic.Code,
+            diagnostic.Line > 0
+                ? $"line {diagnostic.Line}: {diagnostic.Message}"
+                : diagnostic.Message,
+            string.IsNullOrWhiteSpace(diagnostic.Path)
+                ? null
+                : diagnostic.Path);
+
+    public static async Task<PackageResult> CreatePackageAsync(
+        PackageProjectInfo project,
+        PackageOptions options,
+        string executablePath,
+        IReadOnlyList<string> runtimeDependencies,
+        IProgress<PackageProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var issues =
+            Validate(project, options, executablePath, runtimeDependencies)
+                .ToList();
+        if (string.IsNullOrWhiteSpace(options.AssetPackToolPath))
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "ASSETPACK_TOOL_REQUIRED",
+                "Cookにはacs_assetpack実行ファイルが必要です。"));
+        }
+        if (issues.Any(issue => issue.Severity == PackageIssueSeverity.Error))
+            throw new PackageValidationException(issues);
+
+        string assetPackTool = Path.GetFullPath(options.AssetPackToolPath!);
+        string packageId = PackageId(project, options);
+        string stagingParent = Path.GetFullPath(Path.Combine(project.TempDirectory, "PackageStaging"));
+        string stagingRoot = Path.Combine(stagingParent, Guid.NewGuid().ToString("N"));
+        string packageRoot = Path.Combine(stagingRoot, packageId);
+        string outputDirectory = Path.GetFullPath(options.OutputDirectory);
+        string finalZip = Path.Combine(outputDirectory, packageId + ".zip");
+        string temporaryZip = finalZip + ".tmp-" + Guid.NewGuid().ToString("N");
+
+        // Validate before the first write so a project-controlled Temp junction
+        // cannot make CreateDirectory mutate a location outside the project.
+        RejectExistingReparsePointsInPath(stagingParent, "Package staging");
+        Directory.CreateDirectory(stagingParent);
+        // Re-check the created path as a narrow defense against replacement
+        // between validation and creation.
+        RejectExistingReparsePointsInPath(stagingParent, "Package staging");
+        Directory.CreateDirectory(packageRoot);
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            progress?.Report(new("Stage", "Release 実行ファイルをステージングしています。", 0, 1));
+
+            string executableDestination =
+                Path.Combine(packageRoot, Path.GetFileName(executablePath));
+            CopyFile(executablePath, executableDestination);
+
+            var runtimeByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string dependency in runtimeDependencies)
+            {
+                string full = Path.GetFullPath(dependency);
+                string name = Path.GetFileName(full);
+                if (name.EndsWith("_reflect.dll", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                runtimeByName.TryAdd(name, full);
+            }
+
+            int dependencyIndex = 0;
+            foreach ((string name, string source) in runtimeByName.OrderBy(
+                         item => item.Key,
+                         StringComparer.Ordinal))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                progress?.Report(new(
+                    "Dependencies",
+                    $"ランタイム依存DLL: {name}",
+                    ++dependencyIndex,
+                    runtimeByName.Count));
+                CopyFile(source, Path.Combine(packageRoot, name));
+            }
+
+            if (options.IncludeDebugSymbols)
+            {
+                string pdb = Path.ChangeExtension(executablePath, ".pdb");
+                if (File.Exists(pdb))
+                    CopyFile(pdb, Path.Combine(packageRoot, Path.GetFileName(pdb)));
+            }
+
+            CookResult cooked = await CookAssetPackAsync(
+                project,
+                options,
+                assetPackTool,
+                stagingRoot,
+                packageRoot,
+                progress,
+                cancellationToken);
+
+            if (Directory.Exists(project.ConfigDirectory))
+            {
+                CopyDirectorySafe(
+                    project.ConfigDirectory,
+                    Path.Combine(packageRoot, "Config"),
+                    progress,
+                    cancellationToken);
+            }
+
+            var files = new List<ManifestFile>();
+            string manifestPath = Path.Combine(packageRoot, "package-manifest.json");
+            string[] payloadFiles = Directory.EnumerateFiles(
+                    packageRoot,
+                    "*",
+                    SearchOption.AllDirectories)
+                .Where(path => !string.Equals(path, manifestPath, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(path => RelativeZipPath(packageRoot, path), StringComparer.Ordinal)
+                .ToArray();
+
+            for (int index = 0; index < payloadFiles.Length; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string file = payloadFiles[index];
+                string relative = RelativeZipPath(packageRoot, file);
+                progress?.Report(new(
+                    "Hash",
+                    $"SHA-256: {relative}",
+                    index + 1,
+                    payloadFiles.Length));
+                files.Add(new(relative, new FileInfo(file).Length, await Sha256Async(file, cancellationToken)));
+            }
+
+            string buildId = ComputeBuildId(files);
+            var manifest = new PackageManifest(
+                schemaVersion: 3,
+                productName: project.Name,
+                productVersion: options.ProductVersion,
+                projectSchemaVersion: project.ProjectSchemaVersion,
+                engineVersion: project.EngineVersion,
+                platform: "win-x64",
+                configuration: "Release",
+                profile: options.Profile.ToString(),
+                executable: Path.GetFileName(executablePath),
+                buildId: buildId,
+                canonicalSceneAssetId: cooked.CanonicalSceneAssetId,
+                canonicalSceneKind: cooked.CanonicalSceneKind,
+                canonicalSceneImporter: cooked.CanonicalSceneImporter,
+                canonicalSceneImporterVersion: cooked.CanonicalSceneImporterVersion,
+                assetGraphHash: cooked.AssetGraphHash,
+                sceneBootstrap: cooked.SceneBootstrap,
+                assetPack: new(
+                    path: "game.acpak",
+                    size: new FileInfo(cooked.PackPath).Length,
+                    sha256: cooked.Sha256,
+                    formatVersion: 1,
+                    compressed: cooked.Compressed,
+                    sourceFileCount: cooked.SourceFileCount),
+                files: files);
+            await File.WriteAllTextAsync(
+                manifestPath,
+                JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }),
+                Utf8NoBom,
+                cancellationToken);
+
+            // Check the complete existing ancestor chain before creating a
+            // directory or temporary ZIP. Checking only the leaf misses
+            // "junction\new-child" redirection.
+            RejectExistingReparsePointsInPath(outputDirectory, "Package output");
+            RejectExistingReparsePointsInPath(finalZip, "Package ZIP");
+            Directory.CreateDirectory(outputDirectory);
+            RejectExistingReparsePointsInPath(outputDirectory, "Package output");
+            RejectExistingReparsePointsInPath(finalZip, "Package ZIP");
+
+            progress?.Report(new("Archive", "再現可能なZIPを生成しています。", 0, files.Count + 1));
+            await CreateDeterministicZipAsync(
+                stagingRoot,
+                temporaryZip,
+                progress,
+                cancellationToken);
+
+            File.Move(temporaryZip, finalZip, overwrite: true);
+            long totalBytes = files.Sum(file => file.size);
+            progress?.Report(new("Complete", $"パッケージを生成しました: {finalZip}", files.Count, files.Count));
+            return new(
+                finalZip,
+                packageId,
+                buildId,
+                files.Count,
+                totalBytes,
+                cooked.Sha256,
+                cooked.SourceFileCount,
+                options.Profile);
+        }
+        finally
+        {
+            TryDeleteFile(temporaryZip);
+            TryDeleteDirectory(stagingRoot, stagingParent);
+        }
+    }
+
+    private static void ValidateTree(
+        string sourceRoot,
+        string label,
+        List<PackageIssue> issues)
+    {
+        try
+        {
+            RejectReparsePoint(sourceRoot, label);
+            _ = EnumerateFilesSafe(sourceRoot, issues).Count();
+        }
+        catch (Exception error)
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "INPUT_TREE_UNSAFE",
+                $"{label} の走査に失敗しました: {error.Message}",
+                sourceRoot));
+        }
+    }
+
+    private static IEnumerable<string> EnumerateFilesSafe(
+        string sourceRoot,
+        List<PackageIssue> issues,
+        bool excludeAssetMetadata = false)
+    {
+        var pending = new Stack<string>();
+        pending.Push(Path.GetFullPath(sourceRoot));
+        while (pending.Count > 0)
+        {
+            string directory = pending.Pop();
+            RejectReparsePoint(directory, "Input directory");
+            foreach (string entry in Directory.EnumerateFileSystemEntries(directory)
+                         .OrderBy(path => path, StringComparer.Ordinal))
+            {
+                FileAttributes attributes = File.GetAttributes(entry);
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    issues.Add(new(
+                        PackageIssueSeverity.Error,
+                        "REPARSE_POINT",
+                        "Assets/Config 内の symlink、junction、reparse point は配布対象にできません。",
+                        entry));
+                    continue;
+                }
+
+                if (excludeAssetMetadata &&
+                    ShouldExcludeCookMetadata(sourceRoot, entry))
+                {
+                    continue;
+                }
+
+                if ((attributes & FileAttributes.Directory) != 0)
+                    pending.Push(entry);
+                else
+                    yield return entry;
+            }
+        }
+    }
+
+    private static bool ShouldExcludeCookMetadata(
+        string assetsRoot,
+        string path)
+    {
+        string relative = Path.GetRelativePath(assetsRoot, path);
+        string[] segments = relative.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Any(segment =>
+                string.Equals(segment, ".acsdb", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        string name = Path.GetFileName(path);
+        return name.EndsWith(".acsmeta", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains(".tmp-", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void ValidateReferenceFile(
+        string file,
+        string assetsRoot,
+        string projectRoot,
+        Regex expression,
+        List<PackageIssue> issues)
+    {
+        try
+        {
+            foreach (string line in File.ReadLines(file, Encoding.UTF8))
+            {
+                Match match = expression.Match(line);
+                if (!match.Success)
+                    continue;
+
+                string reference = match.Groups["path"].Value.Trim();
+                if (!TryResolveAssetReference(
+                        reference,
+                        assetsRoot,
+                        projectRoot,
+                        out string resolved,
+                        out string relative,
+                        out string error))
+                {
+                    issues.Add(new(
+                        PackageIssueSeverity.Error,
+                        "ASSET_REFERENCE_INVALID",
+                        error,
+                        $"{file}: {reference}"));
+                    continue;
+                }
+
+                if (relative.Any(value => value > 127))
+                {
+                    issues.Add(new(
+                        PackageIssueSeverity.Error,
+                        "ASSET_PATH_NON_ASCII",
+                        "現在のstandaloneローダーは非ASCIIアセットパスを安全に開けません。ASCII名へ変更してください。",
+                        resolved));
+                }
+            }
+        }
+        catch (Exception error)
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "REFERENCE_SCAN_FAILED",
+                $"参照アセットの検証に失敗しました: {error.Message}",
+                file));
+        }
+    }
+
+    private static void ValidateGltfReferences(
+        string file,
+        string assetsRoot,
+        List<PackageIssue> issues)
+    {
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(
+                File.ReadAllBytes(file));
+            ValidateGltfUriArray(document.RootElement, "buffers");
+            ValidateGltfUriArray(document.RootElement, "images");
+        }
+        catch (JsonException error)
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "GLTF_INVALID",
+                $"glTF JSONを解析できません: {error.Message}",
+                file));
+        }
+        catch (Exception error)
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "GLTF_REFERENCE_SCAN_FAILED",
+                $"glTF外部参照の検証に失敗しました: {error.Message}",
+                file));
+        }
+
+        void ValidateGltfUriArray(JsonElement root, string property)
+        {
+            if (!root.TryGetProperty(property, out JsonElement values) ||
+                values.ValueKind != JsonValueKind.Array)
+            {
+                return;
+            }
+
+            foreach (JsonElement value in values.EnumerateArray())
+            {
+                if (!value.TryGetProperty("uri", out JsonElement uriElement) ||
+                    uriElement.ValueKind != JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                string uri = uriElement.GetString() ?? "";
+                if (uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (string.IsNullOrWhiteSpace(uri) ||
+                    uri.Contains('#') || uri.Contains('?') ||
+                    Uri.TryCreate(uri, UriKind.Absolute, out _))
+                {
+                    issues.Add(new(
+                        PackageIssueSeverity.Error,
+                        "GLTF_EXTERNAL_URI_UNSUPPORTED",
+                        "glTFの外部URIはAssets内の相対ファイルだけを指定できます。",
+                        $"{file}: {uri}"));
+                    continue;
+                }
+
+                string decoded = Uri.UnescapeDataString(uri)
+                    .Replace('/', Path.DirectorySeparatorChar);
+                string resolved = Path.GetFullPath(Path.Combine(
+                    Path.GetDirectoryName(file)!, decoded));
+                if (!IsWithin(assetsRoot, resolved) ||
+                    !File.Exists(resolved) ||
+                    HasReparsePointBetween(assetsRoot, resolved))
+                {
+                    issues.Add(new(
+                        PackageIssueSeverity.Error,
+                        "GLTF_EXTERNAL_URI_INVALID",
+                        "glTFの外部参照は存在するAssets内の通常ファイルでなければなりません。",
+                        $"{file}: {uri}"));
+                }
+            }
+        }
+    }
+
+    private static async Task<CookResult> CookAssetPackAsync(
+        PackageProjectInfo project,
+        PackageOptions options,
+        string assetPackTool,
+        string stagingRoot,
+        string packageRoot,
+        IProgress<PackageProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        string projectRoot = Path.GetFullPath(project.RootDirectory);
+        string assetsRoot = Path.GetFullPath(project.AssetsDirectory);
+        string initialScene = ResolveUnderRoot(projectRoot, project.InitialScene);
+        string cookRoot = Path.Combine(stagingRoot, "_CookInput");
+        string cookedAssets = Path.Combine(cookRoot, "Assets");
+        string packPath = Path.Combine(packageRoot, "game.acpak");
+
+        RejectExistingReparsePointsInPath(cookRoot, "Cook staging");
+        Directory.CreateDirectory(cookedAssets);
+        RejectExistingReparsePointsInPath(cookRoot, "Cook staging");
+
+        try
+        {
+            AssetCookPlan cookPlan = BuildCookPlan(
+                project,
+                projectRoot,
+                assetsRoot,
+                initialScene,
+                cancellationToken);
+            if (cookPlan.HasErrors)
+            {
+                throw new PackageValidationException(
+                    cookPlan.Diagnostics.Select(MapCookDiagnostic).ToArray());
+            }
+            AssetRecord rootAsset = cookPlan.Root
+                ?? throw new InvalidDataException(
+                    "Cook planner did not return a canonical scene asset.");
+            if (!string.Equals(
+                    Path.GetFullPath(rootAsset.FullPath),
+                    Path.GetFullPath(initialScene),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new PackageValidationException(
+                [
+                    new(
+                        PackageIssueSeverity.Error,
+                        "CANONICAL_SCENE_PATH_MISMATCH",
+                        "canonicalSceneAssetId and legacy initialScene resolve to different assets.",
+                        $"{rootAsset.RelativePath} != {project.InitialScene}"),
+                ]);
+            }
+            CanonicalSceneAdapterInspection sceneInspection =
+                CanonicalSceneAdapter.InspectFile(rootAsset.FullPath);
+            if (sceneInspection.HasErrors)
+            {
+                throw new PackageValidationException(
+                    sceneInspection.Diagnostics
+                        .Select(MapSceneAdapterDiagnostic)
+                        .ToArray());
+            }
+            var cache = new DerivedDataCache(
+                projectRoot,
+                Path.Combine(project.TempDirectory, "DerivedDataCache", "Cook"));
+            KeyValuePair<string, string>[] cookerSettings =
+            [
+                new("assetGraphHash", cookPlan.GraphHash),
+                new("platform", "win-x64"),
+                new("referenceRewriteVersion", "3"),
+            ];
+
+            string cookedScene = Path.Combine(cookRoot, "main.acscene");
+            for (int index = 0; index < cookPlan.Assets.Count; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                AssetRecord asset = cookPlan.Assets[index];
+                bool isRoot = string.Equals(
+                    asset.AssetId,
+                    rootAsset.AssetId,
+                    StringComparison.OrdinalIgnoreCase);
+                string destination;
+                if (isRoot)
+                {
+                    destination = cookedScene;
+                }
+                else
+                {
+                    destination = Path.GetFullPath(
+                        Path.Combine(cookedAssets, asset.RelativePath));
+                    if (!IsWithin(cookedAssets, destination))
+                        throw new IOException(
+                            $"Cook output escapes Assets staging: {asset.RelativePath}");
+                }
+
+                byte[] verifiedSource = ReadVerifiedAssetSnapshot(
+                    asset,
+                    assetsRoot,
+                    cancellationToken);
+                DerivedDataCacheResult derived = cache.GetOrCreate(
+                    asset,
+                    AssetCookerVersion,
+                    cookerSettings,
+                    () => CookAssetPayload(
+                        asset,
+                        verifiedSource,
+                        assetsRoot,
+                        projectRoot));
+                WriteCookedPayload(destination, derived.Payload);
+                progress?.Report(new(
+                    "Cook",
+                    $"Cook ({derived.Status}): " +
+                    (isRoot
+                        ? "main.acscene"
+                        : "Assets/" + asset.RelativePath.Replace('\\', '/')),
+                    index + 1,
+                    cookPlan.Assets.Count));
+            }
+
+            var cookedIssues = new List<PackageIssue>();
+            string[] cookedFiles = EnumerateFilesSafe(cookRoot, cookedIssues)
+                .OrderBy(
+                    path => Path.GetRelativePath(cookRoot, path),
+                    StringComparer.Ordinal)
+                .ToArray();
+            if (cookedIssues.Any(issue =>
+                    issue.Severity == PackageIssueSeverity.Error))
+            {
+                throw new PackageValidationException(cookedIssues);
+            }
+            if (cookedFiles.Length == 0)
+                throw new InvalidDataException("Cook対象アセットがありません。");
+
+            bool compressed = options.Profile != PackageProfile.Development;
+            progress?.Report(new(
+                "Cook",
+                compressed
+                    ? "決定的なLZ4圧縮game.acpakを生成しています。"
+                    : "決定的な非圧縮game.acpakを生成しています。",
+                cookedFiles.Length,
+                cookedFiles.Length));
+            var packArguments = new List<string>
+            {
+                "pack",
+                cookRoot,
+                packPath,
+            };
+            if (compressed)
+                packArguments.Add("--compress");
+            await RunAssetPackToolAsync(
+                assetPackTool,
+                packArguments,
+                projectRoot,
+                cancellationToken);
+
+            progress?.Report(new(
+                "Verify",
+                "game.acpakの全entryとCRCを検証しています。",
+                0,
+                cookedFiles.Length));
+            await RunAssetPackToolAsync(
+                assetPackTool,
+                ["verify", packPath],
+                projectRoot,
+                cancellationToken);
+            if (!File.Exists(packPath) || IsReparsePoint(packPath))
+                throw new IOException(
+                    "acs_assetpack完了後のgame.acpakが見つからないか安全でありません。");
+
+            string packHash = await Sha256Async(packPath, cancellationToken);
+
+            if (options.Profile == PackageProfile.Development)
+            {
+                CopyDirectorySafe(
+                    cookedAssets,
+                    Path.Combine(packageRoot, "Assets"),
+                    progress,
+                    cancellationToken);
+                CopyFile(cookedScene, Path.Combine(packageRoot, "main.acscene"));
+            }
+
+            return new(
+                packPath,
+                packHash,
+                cookedFiles.Length,
+                compressed,
+                rootAsset.AssetId,
+                rootAsset.Kind,
+                rootAsset.Metadata.Importer,
+                rootAsset.Metadata.ImporterVersion,
+                cookPlan.GraphHash,
+                sceneInspection.Envelope);
+        }
+        finally
+        {
+            TryDeleteDirectory(cookRoot, stagingRoot);
+        }
+    }
+
+    private static async Task RunAssetPackToolAsync(
+        string toolPath,
+        IEnumerable<string> arguments,
+        string workingDirectory,
+        CancellationToken cancellationToken)
+    {
+        var start = new ProcessStartInfo
+        {
+            FileName = toolPath,
+            WorkingDirectory = workingDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+        };
+        foreach (string argument in arguments)
+            start.ArgumentList.Add(argument);
+
+        using var process = new Process { StartInfo = start };
+        try
+        {
+            process.Start();
+        }
+        catch (Exception error)
+        {
+            throw new InvalidOperationException(
+                $"acs_assetpackを起動できません: {error.Message}",
+                error);
+        }
+
+        Task<string> stdout = process.StandardOutput.ReadToEndAsync(
+            cancellationToken);
+        Task<string> stderr = process.StandardError.ReadToEndAsync(
+            cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch { }
+            throw;
+        }
+
+        string output = await stdout;
+        string errorOutput = await stderr;
+        if (process.ExitCode != 0)
+        {
+            string detail = string.Join(
+                Environment.NewLine,
+                new[] { output.Trim(), errorOutput.Trim() }
+                    .Where(value => !string.IsNullOrWhiteSpace(value)));
+            throw new InvalidDataException(
+                $"acs_assetpackが失敗しました (exit {process.ExitCode})." +
+                (string.IsNullOrEmpty(detail)
+                    ? ""
+                    : Environment.NewLine + detail));
+        }
+    }
+
+    private static void CopyDirectorySafe(
+        string sourceRoot,
+        string destinationRoot,
+        IProgress<PackageProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        var issues = new List<PackageIssue>();
+        string[] files = EnumerateFilesSafe(sourceRoot, issues)
+            .OrderBy(path => Path.GetRelativePath(sourceRoot, path), StringComparer.Ordinal)
+            .ToArray();
+        if (issues.Any(issue => issue.Severity == PackageIssueSeverity.Error))
+            throw new PackageValidationException(issues);
+
+        for (int index = 0; index < files.Length; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string source = files[index];
+            string relative = Path.GetRelativePath(sourceRoot, source);
+            string destination = Path.GetFullPath(Path.Combine(destinationRoot, relative));
+            if (!IsWithin(destinationRoot, destination))
+                throw new IOException($"コピー先がステージング領域から外れます: {relative}");
+            progress?.Report(new(
+                "Assets",
+                $"コピー: {relative.Replace('\\', '/')}",
+                index + 1,
+                files.Length));
+            CopyFile(source, destination);
+        }
+    }
+
+    private static byte[] ReadVerifiedAssetSnapshot(
+        AssetRecord asset,
+        string sourceAssetsRoot,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!File.Exists(asset.FullPath) ||
+            HasReparsePointBetween(sourceAssetsRoot, asset.FullPath))
+        {
+            throw new InvalidDataException(
+                $"Cook source is missing or unsafe: {asset.RelativePath}");
+        }
+        var info = new FileInfo(asset.FullPath);
+        if (info.Length != asset.SizeBytes)
+        {
+            throw new InvalidDataException(
+                $"Asset changed after the cook graph snapshot was built: {asset.RelativePath}");
+        }
+        if (info.Length > 1024L * 1024 * 1024)
+            throw new InvalidDataException(
+                $"Cook source exceeds the 1 GiB derived-data limit: {asset.RelativePath}");
+        byte[] source = File.ReadAllBytes(asset.FullPath);
+        cancellationToken.ThrowIfCancellationRequested();
+        string hash = Convert.ToHexString(SHA256.HashData(source))
+            .ToLowerInvariant();
+        if (source.LongLength != asset.SizeBytes ||
+            !string.Equals(hash, asset.ContentHash, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"Asset changed after the cook graph snapshot was built: {asset.RelativePath}");
+        }
+        return source;
+    }
+
+    private static byte[] CookAssetPayload(
+        AssetRecord asset,
+        byte[] source,
+        string sourceAssetsRoot,
+        string projectRoot)
+    {
+        string extension = Path.GetExtension(asset.RelativePath).ToLowerInvariant();
+        if (extension is ".acscene" or ".acs3d")
+        {
+            return RewriteCanonicalScenePayload(
+                source,
+                extension,
+                sourceAssetsRoot,
+                projectRoot);
+        }
+        Regex? expression = extension switch
+        {
+            ".acsprefab" => SceneReference,
+            ".acsmat" => MaterialReference,
+            _ => null,
+        };
+        return expression == null
+            ? source
+            : RewriteReferencePayload(
+                source,
+                sourceAssetsRoot,
+                projectRoot,
+                expression);
+    }
+
+    private static byte[] RewriteCanonicalScenePayload(
+        byte[] source,
+        string sourceExtension,
+        string sourceAssetsRoot,
+        string projectRoot)
+    {
+        string text;
+        try
+        {
+            text = Utf8Strict.GetString(source);
+        }
+        catch (DecoderFallbackException error)
+        {
+            throw new InvalidDataException(
+                "Canonical scene source is not valid UTF-8.",
+                error);
+        }
+        string rewritten = CanonicalSceneAdapter.RewriteReferences(
+            text,
+            sourceExtension,
+            reference =>
+            {
+                if (!TryResolveAssetReference(
+                        reference.Path,
+                        sourceAssetsRoot,
+                        projectRoot,
+                        out _,
+                        out string relative,
+                        out string error))
+                {
+                    throw new InvalidDataException(error);
+                }
+                return "Assets/" + relative.Replace('\\', '/');
+            });
+        return Utf8NoBom.GetBytes(rewritten);
+    }
+
+    private static byte[] RewriteReferencePayload(
+        byte[] source,
+        string sourceAssetsRoot,
+        string projectRoot,
+        Regex expression)
+    {
+        var lines = new List<string>();
+        try
+        {
+            using var memory = new MemoryStream(source, writable: false);
+            using var reader = new StreamReader(
+                memory,
+                Utf8Strict,
+                detectEncodingFromByteOrderMarks: true);
+            while (reader.ReadLine() is { } line)
+                lines.Add(line);
+        }
+        catch (DecoderFallbackException error)
+        {
+            throw new InvalidDataException(
+                "Reference-bearing Cook source is not valid UTF-8.",
+                error);
+        }
+
+        bool changed = false;
+        for (int index = 0; index < lines.Count; index++)
+        {
+            Match match = expression.Match(lines[index]);
+            if (!match.Success)
+                continue;
+
+            string reference = match.Groups["path"].Value.Trim();
+            if (!TryResolveAssetReference(
+                    reference,
+                    sourceAssetsRoot,
+                    projectRoot,
+                    out _,
+                    out string relative,
+                    out string error))
+            {
+                throw new InvalidDataException(error);
+            }
+
+            string packaged = "Assets/" + relative.Replace('\\', '/');
+            string rewritten = match.Groups["prefix"].Value + packaged;
+            if (!string.Equals(lines[index], rewritten, StringComparison.Ordinal))
+            {
+                lines[index] = rewritten;
+                changed = true;
+            }
+        }
+
+        return changed
+            ? Utf8NoBom.GetBytes(string.Join('\n', lines) + "\n")
+            : source;
+    }
+
+    private static void WriteCookedPayload(string destination, byte[] payload)
+    {
+        string full = Path.GetFullPath(destination);
+        string parent = Path.GetDirectoryName(full)
+            ?? throw new InvalidDataException("Cook output has no parent directory.");
+        RejectExistingReparsePointsInPath(parent, "Cook output");
+        Directory.CreateDirectory(parent);
+        RejectExistingReparsePointsInPath(full, "Cook output");
+        string temporary = full + ".tmp-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            using (var stream = new FileStream(
+                       temporary,
+                       FileMode.CreateNew,
+                       FileAccess.Write,
+                       FileShare.None,
+                       128 * 1024,
+                       FileOptions.WriteThrough))
+            {
+                stream.Write(payload);
+                stream.Flush(flushToDisk: true);
+            }
+            RejectExistingReparsePointsInPath(full, "Cook output");
+            File.Move(temporary, full, overwrite: true);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(temporary) && !IsReparsePoint(temporary))
+                    File.Delete(temporary);
+            }
+            catch { }
+        }
+    }
+
+    private static bool TryResolveAssetReference(
+        string reference,
+        string assetsRoot,
+        string projectRoot,
+        out string resolved,
+        out string relative,
+        out string error)
+    {
+        resolved = "";
+        relative = "";
+        error = "";
+        try
+        {
+            string normalized = reference.Replace('/', Path.DirectorySeparatorChar);
+            if (Path.IsPathRooted(normalized))
+            {
+                resolved = Path.GetFullPath(normalized);
+            }
+            else
+            {
+                string fromRoot = Path.GetFullPath(Path.Combine(projectRoot, normalized));
+                string fromAssets = Path.GetFullPath(Path.Combine(assetsRoot, normalized));
+                resolved = File.Exists(fromRoot) ? fromRoot : fromAssets;
+            }
+
+            if (!IsWithin(assetsRoot, resolved))
+            {
+                error = "参照アセットは Assets フォルダ内へimportしてください。外部絶対パスは配布できません。";
+                return false;
+            }
+
+            if (!File.Exists(resolved))
+            {
+                error = "参照アセットが見つかりません。";
+                return false;
+            }
+
+            if (HasReparsePointBetween(assetsRoot, resolved))
+            {
+                error = "参照アセットが reparse point を経由しています。";
+                return false;
+            }
+
+            relative = Path.GetRelativePath(assetsRoot, resolved);
+            if (relative == ".." ||
+                relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            {
+                error = "参照アセットが Assets フォルダ外へ移動します。";
+                return false;
+            }
+            return true;
+        }
+        catch (Exception exception)
+        {
+            error = $"参照パスが不正です: {exception.Message}";
+            return false;
+        }
+    }
+
+    private static async Task CreateDeterministicZipAsync(
+        string stagingRoot,
+        string zipPath,
+        IProgress<PackageProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        string[] files = Directory.EnumerateFiles(stagingRoot, "*", SearchOption.AllDirectories)
+            .OrderBy(path => RelativeZipPath(stagingRoot, path), StringComparer.Ordinal)
+            .ToArray();
+
+        await using FileStream output = new(
+            zipPath,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 128 * 1024,
+            useAsync: true);
+        using var archive = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true, Utf8NoBom);
+        for (int index = 0; index < files.Length; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string source = files[index];
+            string relative = RelativeZipPath(stagingRoot, source);
+            progress?.Report(new("Archive", $"圧縮: {relative}", index + 1, files.Length));
+            ZipArchiveEntry entry = archive.CreateEntry(relative, CompressionLevel.Optimal);
+            entry.LastWriteTime = ZipEpoch;
+            entry.ExternalAttributes = 0;
+            await using Stream destination = entry.Open();
+            await using FileStream input = new(
+                source,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 128 * 1024,
+                useAsync: true);
+            await input.CopyToAsync(destination, 128 * 1024, cancellationToken);
+        }
+    }
+
+    private static async Task<string> Sha256Async(
+        string file,
+        CancellationToken cancellationToken)
+    {
+        await using FileStream stream = new(
+            file,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 128 * 1024,
+            useAsync: true);
+        byte[] hash = await SHA256.HashDataAsync(stream, cancellationToken);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string ComputeBuildId(IReadOnlyList<ManifestFile> files)
+    {
+        var canonical = new StringBuilder();
+        foreach (ManifestFile file in files)
+            canonical.Append(file.path).Append('\0')
+                     .Append(file.size).Append('\0')
+                     .Append(file.sha256).Append('\n');
+        byte[] hash = SHA256.HashData(Utf8NoBom.GetBytes(canonical.ToString()));
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string ResolveUnderRoot(string root, string relativeOrAbsolute)
+    {
+        string value = relativeOrAbsolute.Replace('/', Path.DirectorySeparatorChar);
+        return Path.GetFullPath(Path.IsPathRooted(value) ? value : Path.Combine(root, value));
+    }
+
+    private static bool HasSupportedSceneExtension(string path)
+    {
+        string extension = Path.GetExtension(path);
+        return string.Equals(extension, ".acscene", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(extension, ".acs3d", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryReadIniValue(
+        string file,
+        string wantedSection,
+        string wantedKey,
+        out string value)
+    {
+        value = "";
+        string section = "";
+        foreach (string rawLine in File.ReadLines(file, Encoding.UTF8))
+        {
+            string line = rawLine.Trim();
+            if (line.Length == 0 ||
+                line.StartsWith(';') ||
+                line.StartsWith('#'))
+            {
+                continue;
+            }
+            if (line.StartsWith('[') && line.EndsWith(']'))
+            {
+                section = line[1..^1].Trim();
+                continue;
+            }
+            if (!string.Equals(
+                    section,
+                    wantedSection,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            int equals = line.IndexOf('=');
+            if (equals <= 0)
+                continue;
+            string key = line[..equals].Trim();
+            if (!string.Equals(
+                    key,
+                    wantedKey,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            value = line[(equals + 1)..].Trim();
+            return true;
+        }
+        return false;
+    }
+
+    private static bool ContainsCMakeUnsafeCharacter(string path) =>
+        path.IndexOfAny([';', '\r', '\n']) >= 0;
+
+    private static bool IsWithin(string root, string candidate)
+    {
+        string normalizedRoot = Path.GetFullPath(root)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
+            Path.DirectorySeparatorChar;
+        string normalizedCandidate = Path.GetFullPath(candidate);
+        return normalizedCandidate.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(
+                   normalizedCandidate.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                   normalizedRoot.TrimEnd(Path.DirectorySeparatorChar),
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasReparsePointBetween(string root, string file)
+    {
+        string current = Path.GetFullPath(file);
+        string normalizedRoot = Path.GetFullPath(root)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        while (IsWithin(normalizedRoot, current))
+        {
+            if (IsReparsePoint(current))
+                return true;
+            if (string.Equals(
+                    current.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    normalizedRoot,
+                    StringComparison.OrdinalIgnoreCase))
+                break;
+            string? parent = Path.GetDirectoryName(current);
+            if (string.IsNullOrEmpty(parent) || string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
+                break;
+            current = parent;
+        }
+        return false;
+    }
+
+    private static bool IsReparsePoint(string path) =>
+        (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+
+    /// <summary>
+    /// Rejects an existing symlink/junction anywhere between a path and its
+    /// filesystem root. Missing descendants are safe to create only after all
+    /// of their existing ancestors have passed this check.
+    /// </summary>
+    private static void RejectExistingReparsePointsInPath(
+        string path,
+        string label)
+    {
+        string current = Path.GetFullPath(path);
+        while (!string.IsNullOrEmpty(current))
+        {
+            if ((Directory.Exists(current) || File.Exists(current)) &&
+                IsReparsePoint(current))
+            {
+                throw new IOException(
+                    $"{label} が reparse point を経由しています: {current}");
+            }
+
+            string? parent = Path.GetDirectoryName(current);
+            if (string.IsNullOrEmpty(parent) ||
+                string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+            current = parent;
+        }
+    }
+
+    private static void RejectReparsePoint(string path, string label)
+    {
+        if (IsReparsePoint(path))
+            throw new IOException($"{label} が reparse point です: {path}");
+    }
+
+    private static string RelativeZipPath(string root, string file) =>
+        Path.GetRelativePath(root, file).Replace('\\', '/');
+
+    private static void CopyFile(string source, string destination)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        File.Copy(source, destination, overwrite: true);
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars().ToHashSet();
+        var result = new StringBuilder();
+        foreach (char value in name.Trim())
+            result.Append(invalid.Contains(value) || char.IsControl(value) ? '_' : value);
+        string sanitized = result.ToString().Trim().TrimEnd('.');
+        return string.IsNullOrEmpty(sanitized) ? "Game" : sanitized;
+    }
+
+    private static void TryDeleteFile(string file)
+    {
+        try
+        {
+            if (File.Exists(file) && !IsReparsePoint(file))
+                File.Delete(file);
+        }
+        catch { }
+    }
+
+    private static void TryDeleteDirectory(string target, string allowedParent)
+    {
+        try
+        {
+            string fullTarget = Path.GetFullPath(target);
+            string fullParent = Path.GetFullPath(allowedParent);
+            if (!IsWithin(fullParent, fullTarget) ||
+                string.Equals(fullTarget, fullParent, StringComparison.OrdinalIgnoreCase) ||
+                !Directory.Exists(fullTarget) ||
+                IsReparsePoint(fullTarget))
+                return;
+            Directory.Delete(fullTarget, recursive: true);
+        }
+        catch { }
+    }
+}

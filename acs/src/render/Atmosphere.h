@@ -2,7 +2,7 @@
 // Physical atmospheric scattering (Hillaire 2020 / Bruneton 風)
 //
 // Rayleigh + Mie 単散乱を per-direction で CPU 評価し equirect 画像に焼く。
-// `ImageBasedLighting::LoadEquirectHdrFromMemory` に通せば env cubemap →
+// `FImageBasedLighting::LoadEquirectHdrFromMemory` に通せば env cubemap →
 // irradiance → prefilter の IBL chain が一気に物理ベースの sky で構築される。
 //
 // 物理パラメータ (Earth、Bruneton 2008):
@@ -27,6 +27,13 @@
 
 namespace acs {
 
+/** Camera-volume quality contract shared by allocation and validation. */
+inline constexpr u32 kSkyAtmosphereFroxelXyResolution = 48u;
+inline constexpr u32 kSkyAtmosphereFroxelZResolution = 96u;
+inline constexpr u32 kSkyAtmosphereFroxelIntegrationSteps = 24u;
+/** Near-field range reserved for the dedicated local-fog froxel volume. */
+inline constexpr f32 kLocalVolumetricFogMaxDistance = 2500.0f;
+
 /**
  * 大気散乱 bake の入力パラメータ (太陽方向・強度とサンプル数)。
  *
@@ -35,14 +42,14 @@ namespace acs {
  * (BakeEquirect 内で正規化される)。ray_steps / sun_steps は単散乱積分の精度と
  * コストのトレードオフを決める。
  */
-struct AtmosphereParams {
+struct FAtmosphereParams {
     /** 太陽方角 (天頂方向 +Y、正規化前提だが内部で再正規化される)。 */
     FVec3 sun_dir       = FVec3{0.4f, 0.7f, 0.4f};
 
     /** 太陽のピーク輝度 (W/m²/sr 相当)。 */
     FVec3 sun_intensity = FVec3{22.0f, 22.0f, 22.0f};
 
-    /** ground bounce 用アルベド (現状は未使用)。 */
+    /** Lambert ground と ground bounce に使う RGB アルベド。 */
     FVec3 ground_albedo = FVec3{0.10f, 0.12f, 0.10f};
 
     /** view ray 沿いのサンプル数。 */
@@ -53,11 +60,27 @@ struct AtmosphereParams {
 };
 
 /**
+ * camera-volume LUT に統合するローカル height fog。
+ *
+ * @details density=0 ならローカル fog は無効で、大気の aerial perspective のみを積分する。
+ * density は scene 単位あたりの extinction。色は単散乱 albedo、anisotropy は
+ * Henyey-Greenstein 位相関数の g。
+ */
+struct FVolumetricFogParams {
+    FVec3 color          = FVec3{0.62f, 0.70f, 0.82f};
+    f32   density        = 0.0f;
+    f32   height_falloff = 0.10f;
+    f32   height_base    = 0.0f;
+    f32   anisotropy     = 0.40f;
+    f32   sun_scatter    = 0.18f;
+};
+
+/**
  * 物理大気散乱を CPU で評価し equirect 画像へ焼くユーティリティ。
  *
  * @details
  * Hillaire 2020 / Bruneton 風の Rayleigh + Mie 単散乱を per-direction で評価し、
- * 焼いた equirect 画像を ImageBasedLighting に渡すと env cubemap → irradiance →
+ * 焼いた equirect 画像を FImageBasedLighting に渡すと env cubemap → irradiance →
  * prefilter の IBL chain が物理ベースの sky で構築できる。
  */
 class FAtmosphere {
@@ -67,31 +90,34 @@ public:
      *
      * @details
      * 出力は w*h*4 個の float で上から下へ並び、v=0 が +Y 天頂、v=1 が -Y 天底
-     * (sIBL Archive 規約と一致)。戻り値の TArray は move で呼び出し側に渡される。
+     * (sIBL Archive 規約と一致)。解析的な太陽ディスクは低解像度の環境テクスチャへ
+     * 焼き込まず、最終 skybox pass で描画する。戻り値の TArray は move で呼び出し側に渡される。
      * @param width 焼く equirect 画像の幅 (ピクセル)。
      * @param height 焼く equirect 画像の高さ (ピクセル)。
      * @param params 太陽方向・強度とサンプル数を含む bake パラメータ。
      * @return RGBA float を格納した TArray (w*h*4 要素)。
      */
     static TArray<f32> BakeEquirect(u32 width, u32 height,
-                                    const AtmosphereParams& params) noexcept;
+                                    const FAtmosphereParams& params) noexcept;
 };
 
 /**
  * GPU 物理大気 (WickedEngine / Hillaire 2020 流の GPU compute パイプライン)。
  *
- * @details
- * Transmittance LUT (256x64) を compute で焼き、equirect bake compute がそれを使って
- * Rayleigh+Mie+ozone の単散乱 + 等方多重散乱を per-direction で評価して equirect texture
- * (RGBA32F) に書く。ReadTexture で CPU へ読み戻し、ImageBasedLighting::LoadEquirectHdrFromMemory
+     * @details
+     * Transmittance LUT (256x64) を compute で焼き、equirect bake compute がそれを使って
+     * Rayleigh+Mie+ozone の単散乱 + 等方多重散乱を per-direction で評価して equirect texture
+     * (RGBA32F、解析的な太陽ディスクを含まない) に書く。ReadTexture で CPU へ読み戻し、
+     * FImageBasedLighting::LoadEquirectHdrFromMemory
  * に通せば既存の env cubemap → irradiance → prefilter の IBL chain と背景描画がそのまま動く。
  * CPU 版 FAtmosphere::BakeEquirect の置き換え (GPU で高速 + ozone/multiscatter で物理的に正しい空)。
- * 要 Phase 0 compute コア + DiligentDevice::ReadTexture。Diligent backend 専用。
+ * 要 Phase 0 compute コア + FDiligentDevice::ReadTexture。Diligent backend 専用。
  */
 class FSkyAtmosphere {
 public:
     /** compute パイプライン (transmittance / equirect bake) と Transmittance LUT・CB を生成。 */
-    TResult<void> Init(IRhiDevice& device) noexcept;
+    TResult<void> Init(IRhiDevice& device,
+                       EFormat hdr_format = EFormat::R16G16B16A16_Float) noexcept;
 
     /** 初期化済みか。 */
     bool Ready() const noexcept { return m_Ready; }
@@ -108,15 +134,16 @@ public:
      * @return 成功で true (失敗時 out は不定、呼び出し側で CPU fallback)。
      */
     bool BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
-                      const AtmosphereParams& params,
+                      const FAtmosphereParams& params,
                       u32 width, u32 height, TArray<f32>& out) noexcept;
 
     /**
-     * Aerial perspective camera-volume LUT (32^3 froxel) を焼いて返す (WickedEngine 流)。
+     * Aerial perspective の camera-volume LUT を焼いて返す。
      *
      * @details
-     * 各 froxel = camera→その距離までの大気 in-scatter (.rgb) と opacity (.a=1-平均透過率)。
-     * PBR で screen uv + 深度→スライスで trilinear サンプルし col = col*(1-ap.a)+ap.rgb で適用。
+     * 48x48x96 froxel の各セルに camera→距離までの大気を積分する。
+     * m_ApVol は premultiplied in-scatter、m_ApTransVol は RGB transmittance を保持し、
+     * screen uv + 深度→スライスで scene.rgb = scene.rgb*T.rgb + L.rgb として適用する。
      * 3D LUT を物理積分するため滑らか (cubemap サンプルのような «斜めの段» が出ない)。
      * @param inv_view_proj 逆 view-projection (froxel の world ray 復元用)。
      * @param cam_pos カメラ world position (scene 単位)。
@@ -125,7 +152,7 @@ public:
      * @param max_dist_scene volume がカバーする最大距離 (scene 単位)。
      * @param scene_to_km scene 単位 → 大気 km の換算 (見た目調整。小さいシーンで霞を可視化)。
      * @param cam_alt_km カメラの大気高度 (km、地表 ≈ 0)。
-     * @return AP volume (失敗時 nullptr、非所有)。
+     * @return AP volume (失敗時または scene_to_km<=0 の無効時は nullptr、非所有)。
      */
     IRhiTexture* BuildAerialPerspective(IRhiDevice& device, IRhiCommandList& cl,
                                         const FMat4& inv_view_proj, FVec3 cam_pos,
@@ -133,14 +160,106 @@ public:
                                         f32 max_dist_scene, f32 scene_to_km,
                                         f32 cam_alt_km) noexcept;
 
+    /**
+     * ローカル volumetric fog を同じ camera-volume に統合するオーバーロード。
+     *
+     * @param fog ローカル volumetric height fog (density=0 で無効)。
+     */
+    IRhiTexture* BuildAerialPerspective(IRhiDevice& device, IRhiCommandList& cl,
+                                        const FMat4& inv_view_proj, FVec3 cam_pos,
+                                        FVec3 sun_dir, FVec3 sun_intensity,
+                                        f32 max_dist_scene, f32 scene_to_km,
+                                        f32 cam_alt_km,
+                                        const FVolumetricFogParams& fog) noexcept;
+
     /** 直近に焼いた AP volume (BuildAerialPerspective 後に有効、非所有)。 */
     IRhiTexture* ApVolume() const noexcept { return m_ApVol.Get(); }
+
+    /** 直近に焼いた wavelength-dependent AP transmittance volume。 */
+    IRhiTexture* ApTransmittanceVolume() const noexcept {
+        return m_ApTransVol.Get();
+    }
+
+    /**
+     * 直近に焼いた local-fog-only volume。
+     *
+     * @details BuildAerialPerspective に density>0 の fog を渡したフレームだけ有効。
+     * Rayleigh/Mie は含まないため、既に物理大気を積分済みの clear sky に安全に使える。
+     */
+    IRhiTexture* LocalFogVolume() const noexcept {
+        return m_LocalFogVolumeValid ? m_LocalFogVol.Get() : nullptr;
+    }
+
+    /** Scene-space range represented by LocalFogVolume(). */
+    f32 LocalFogMaxDistance() const noexcept {
+        return m_LocalFogMaxDistance;
+    }
+
+    /** Init 後に physical aerial-perspective volume を再焼成した累積回数。 */
+    u64 PhysicalApDispatchCount() const noexcept {
+        return m_PhysicalApDispatchCount;
+    }
+
+    /** Init 後に local-fog-only volume を再焼成した累積回数。 */
+    u64 LocalFogDispatchCount() const noexcept {
+        return m_LocalFogDispatchCount;
+    }
+
+    /**
+     * 深度で camera-volume を終端し、現在の HDR render target へ一度だけ合成する。
+     *
+     * @details 呼び出し側は depth を DSV に bind せず、描画先だけを load した render pass
+     * を開始しておくこと。RGB transmittance の乗算後に premultiplied in-scatter を
+     * alpha を壊さない加算 pass で重ね、scene*T+in-scatter を再現する。
+     */
+    void CompositeAerialPerspective(IRhiCommandList& cl,
+                                    IRhiTexture& depth,
+                                    IRhiTexture& ap_volume,
+                                    IRhiTexture& transmittance_volume,
+                                    const FMat4& inv_view_proj,
+                                    FVec3 cam_pos,
+                                    f32 max_dist_scene,
+                                    u32 screen_width,
+                                    u32 screen_height) noexcept;
+
+    /**
+     * Geometry と cleared-depth 背景へ local-fog-only volume を一度だけ合成する。
+     *
+     * @details Geometry は再構築した surface 距離で終端する。cloud_depth が有効なら
+     * cleared-depth pixel も雲の実距離で終端し、純粋な sky のみ far slice を使う。
+     * 物理大気は含まないため、空や雲へ重ねても二重散乱にならない。
+     */
+    void CompositeLocalFog(IRhiCommandList& cl,
+                           IRhiTexture& depth,
+                           IRhiTexture& local_fog_volume,
+                           IRhiTexture* cloud_depth,
+                           const FMat4& inv_view_proj,
+                           FVec3 cam_pos,
+                           f32 max_dist_scene,
+                           u32 screen_width,
+                           u32 screen_height) noexcept;
 
     /** 全 GPU リソースを解放 (acs_editor_destroy から呼ぶ。UAF 防止)。 */
     void Shutdown() noexcept;
 
 private:
+    struct FVolumeCacheKey {
+        FMat4 invViewProj{};
+        FVec4 camPos{};
+        FVec4 sunDir{};
+        FVec4 sunInt{};
+        FVec4 apParams{};
+        FVec4 fogColorDensity{};
+        FVec4 fogParams{};
+    };
+    static_assert(sizeof(FVolumeCacheKey) == 160u,
+                  "volume cache keys must not contain implicit padding");
+
+    static bool SameVolumeCacheKey(const FVolumeCacheKey& lhs,
+                                   const FVolumeCacheKey& rhs) noexcept;
+
     bool                     m_Ready = false;
+    bool                     m_LutsReady = false;      // transmittance + multi-scattering は一度だけ焼く
     TUniquePtr<IRhiShader>   m_TransCs;
     TUniquePtr<IRhiShader>   m_BakeCs;
     TUniquePtr<IRhiPipeline> m_TransPipe;
@@ -150,11 +269,33 @@ private:
     TUniquePtr<IRhiPipeline> m_MultiPipe;
     TUniquePtr<IRhiTexture>  m_MultiLut;    // 32x32 RGBA16F UAV/SRV (Fms)
     TUniquePtr<IRhiTexture>  m_Equirect;    // width x height RGBA32F UAV (readback source)
-    TUniquePtr<IRhiBuffer>   m_Cb;          // sun dir + intensity
+    TUniquePtr<IRhiBuffer>   m_Cb;          // sun dir + intensity + ground albedo
     TUniquePtr<IRhiShader>   m_ApCs;        // aerial perspective froxel CS
     TUniquePtr<IRhiPipeline> m_ApPipe;
-    TUniquePtr<IRhiTexture>  m_ApVol;       // 32^3 RGBA16F UAV/SRV (camera-volume AP LUT)
+    TUniquePtr<IRhiShader>   m_LocalFogCs;  // scalar local-fog-only froxel CS
+    TUniquePtr<IRhiPipeline> m_LocalFogPipe;
+    TUniquePtr<IRhiTexture>  m_ApVol;       // 48x48x96 RGBA16F premultiplied in-scatter
+    TUniquePtr<IRhiTexture>  m_ApTransVol;  // 48x48x96 RGBA16F RGB transmittance
     TUniquePtr<IRhiBuffer>   m_ApCb;        // AP cbuffer (invVP/cam/sun/params)
+    TUniquePtr<IRhiTexture>  m_LocalFogVol; // 同解像度の local-fog-only volume
+    TUniquePtr<IRhiBuffer>   m_LocalFogCb;  // AP dispatch と同フレームに安全に使う専用 CB
+    bool                     m_LocalFogVolumeValid = false;
+    f32                      m_LocalFogMaxDistance = kLocalVolumetricFogMaxDistance;
+    FVolumeCacheKey          m_PhysicalApCacheKey{};
+    FVolumeCacheKey          m_LocalFogCacheKey{};
+    bool                     m_PhysicalApCacheValid = false;
+    bool                     m_LocalFogCacheValid = false;
+    u64                      m_PhysicalApDispatchCount = 0;
+    u64                      m_LocalFogDispatchCount = 0;
+    TUniquePtr<IRhiShader>   m_ApCompositeVs;
+    TUniquePtr<IRhiShader>   m_ApCompositePs;
+    TUniquePtr<IRhiPipeline> m_ApCompositePipe;
+    TUniquePtr<IRhiShader>   m_ApMultiplyPs;
+    TUniquePtr<IRhiPipeline> m_ApMultiplyPipe;
+    TUniquePtr<IRhiShader>   m_ApAddPs;
+    TUniquePtr<IRhiPipeline> m_ApAddPipe;
+    TUniquePtr<IRhiBuffer>   m_ApCompositeCb;       // physical AP draws only
+    TUniquePtr<IRhiBuffer>   m_LocalFogCompositeCb; // later local-fog draw only
     u32                      m_EqW = 0, m_EqH = 0;
 };
 

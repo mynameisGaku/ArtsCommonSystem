@@ -45,7 +45,7 @@ FTimerHandle FSceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void* user
     const u32 idx = AcquireSlot();
     if (idx >= FTimerHandle::kMaxIndex) return {}; // 上限到達
 
-    TimerEntry& e = m_Entries[idx];
+    FTimerEntry& e = m_Entries[idx];
     // generation を 1 進める (0 は未使用扱いなので必ず 1 以上を保つ)
     u8 new_gen = static_cast<u8>(e.gen + 1u);
     if (new_gen == 0u) new_gen = 1u;
@@ -70,7 +70,7 @@ FTimerHandle FSceneTimer::SetInterval(f32 period_sec, TimerCallback cb, void* us
     const u32 idx = AcquireSlot();
     if (idx >= FTimerHandle::kMaxIndex) return {};
 
-    TimerEntry& e = m_Entries[idx];
+    FTimerEntry& e = m_Entries[idx];
     u8 new_gen = static_cast<u8>(e.gen + 1u);
     if (new_gen == 0u) new_gen = 1u;
 
@@ -91,7 +91,7 @@ bool FSceneTimer::Cancel(FTimerHandle h) noexcept {
     if (!h.IsValid()) return false;
     const u32 idx = h.Index();
     if (idx >= m_Entries.Size()) return false;
-    TimerEntry& e = m_Entries[idx];
+    FTimerEntry& e = m_Entries[idx];
     if (!e.active || e.gen != h.Gen()) return false;
 
     e.active = false;
@@ -105,7 +105,7 @@ bool FSceneTimer::Cancel(FTimerHandle h) noexcept {
 void FSceneTimer::CancelAll() noexcept {
     const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
-        TimerEntry& e = m_Entries[i];
+        FTimerEntry& e = m_Entries[i];
         if (!e.active) continue;
         e.active = false;
         e.cb     = nullptr;
@@ -119,7 +119,7 @@ bool FSceneTimer::IsActive(FTimerHandle h) const noexcept {
     if (!h.IsValid()) return false;
     const u32 idx = h.Index();
     if (idx >= m_Entries.Size()) return false;
-    const TimerEntry& e = m_Entries[idx];
+    const FTimerEntry& e = m_Entries[idx];
     return e.active && e.gen == h.Gen();
 }
 
@@ -137,7 +137,7 @@ void FSceneTimer::Tick(f32 dt) noexcept {
     for (usize i = 0; i < snapshot_size; ++i) {
         // 起動時の世代を覚えておく (コールバック内で Cancel→再 Acquire により
         // 同 slot が別 timer に化ける可能性を検出する)。
-        TimerEntry& e0 = m_Entries[i];
+        FTimerEntry& e0 = m_Entries[i];
         if (!e0.active) continue;
         const u8 launched_gen = e0.gen;
 
@@ -162,7 +162,7 @@ void FSceneTimer::Tick(f32 dt) noexcept {
             // コールバック内で Cancel された場合に備え、毎反復で
             // active/gen を確認する (m_Entries[i] を取り直す)。
             while (true) {
-                TimerEntry& e = m_Entries[i];
+                FTimerEntry& e = m_Entries[i];
                 if (!e.active || e.gen != launched_gen) break;
                 if (e.elapsed < e.period) break;
                 if (e.period <= 0.0f) break; // defense-in-depth

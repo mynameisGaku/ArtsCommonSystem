@@ -102,9 +102,9 @@ public:
      *
      * @details display_name は ISteamFriends::GetPersonaName()、platform_id は
      * SteamID64 文字列。文字列の実体は本クラスが保持し Tick で更新される。
-     * @return ローカルプレイヤーの PlayerIdentity (未初期化なら空)。
+     * @return ローカルプレイヤーの FPlayerIdentity (未初期化なら空)。
      */
-    acs::game::PlayerIdentity         GetLocalPlayer()          const noexcept override;
+    acs::game::FPlayerIdentity         GetLocalPlayer()          const noexcept override;
 
     /**
      * 実績を解除する (SetAchievement + StoreStats を即時実行)。
@@ -211,9 +211,9 @@ public:
      *
      * @details 文字列実体は thread_local バッファに保持され、次回呼び出しで上書きされる。
      * @param index フレンドのインデックス (即時フレンド列)。
-     * @return 対象フレンドの PlayerIdentity (未初期化・範囲外なら空)。
+     * @return 対象フレンドの FPlayerIdentity (未初期化・範囲外なら空)。
      */
-    acs::game::PlayerIdentity         GetFriendByIndex(acs::u32 index)              const noexcept override;
+    acs::game::FPlayerIdentity         GetFriendByIndex(acs::u32 index)              const noexcept override;
 
     /**
      * Steam Cloud へファイルを書き込む。
@@ -316,10 +316,10 @@ public:
 
 private:
     /** Pimpl 本体 (SteamworksBridgeImpl.cpp で定義、SDK ヘッダを隠す)。 */
-    struct Impl;
+    struct FImpl;
 
     /** Pimpl 状態へのポインタ (コンストラクタで確保、デストラクタで解放)。 */
-    Impl* m_Impl = nullptr;
+    FImpl* m_Impl = nullptr;
 
     /** Steam 連携が確立済みかを示すフラグ。 */
     bool  m_bInitialized = false;

@@ -43,7 +43,7 @@ void TransformVectorsScalar(const FVec3* in, FVec3* out, usize count, const FMat
 }
 
 /** ディスパッチテーブルの実体 (Init が結線する)。 */
-MathDispatch  g_dispatch {};
+FMathDispatch  g_dispatch {};
 
 /** 初期化状態 (0=未初期化, 1=初期化中, 2=完了)。 */
 TAtomic<u32>   g_inited {0};
@@ -62,7 +62,7 @@ void Init() noexcept {
 
 } // namespace
 
-const MathDispatch& GetMathDispatch() noexcept {
+const FMathDispatch& GetMathDispatch() noexcept {
     if (g_inited.Load(EMemoryOrder::Acquire) == 0) {
         u32 expected = 0;
         if (g_inited.CompareExchange(expected, 1)) {

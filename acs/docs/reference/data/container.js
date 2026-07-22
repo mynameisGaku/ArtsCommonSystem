@@ -101,15 +101,15 @@ ACS_REF.modules.push({
         { sig: "void Reserve(usize n)", desc: "n 個入る容量を予約し、挿入中の rehash を防ぐ。", when: "入れる個数の目安が分かっている時に最初に呼ぶ。" },
         { sig: "void Clear()", desc: "全要素を削除して空にする。" },
         { sig: "usize Size() const / bool IsEmpty() const", desc: "要素数 / 空かどうか。" },
-        { sig: "EntryType* begin() / end()", desc: "密な値配列を直接走査する(<code>Pair&lt;K,V&gt;</code> の列)。range-for 対応。" }
+        { sig: "EntryType* begin() / end()", desc: "密な値配列を直接走査する(<code>TPair&lt;K,V&gt;</code> の列)。range-for 対応。" }
       ]
     },
     {
-      name: "Pair&lt;K, V&gt;",
+      name: "TPair&lt;K, V&gt;",
       kind: "構造体テンプレート", header: "container/HashMap.h",
       summary: "キーと値の組（<code>std::pair</code> 相当の最小版）。<code>THashMap</code> の 1 エントリ(<code>EntryType</code>)としても使われる。",
       when: "<code>THashMap</code> を range-for で回した時の各要素。あるいは 2 値をまとめて返したい時。",
-      sample: "for (Pair&lt;u32, FString&gt;& kv : map) {\n    u32 key = kv.first;\n    FString& val = kv.second;\n}",
+      sample: "for (TPair&lt;u32, FString&gt;& kv : map) {\n    u32 key = kv.first;\n    FString& val = kv.second;\n}",
       members: [
         { sig: "K first", desc: "キー(1 つ目の値)。" },
         { sig: "V second", desc: "値(2 つ目の値)。" }
@@ -119,7 +119,7 @@ ACS_REF.modules.push({
       name: "THasher&lt;T&gt; / HashBytes / HashMix64",
       kind: "ハッシュ関数群", header: "container/Hash.h",
       summary: "<code>THashMap</code> 等が使う<t>ハッシュ関数</t>。整数・<t>ポインタ</t>・<code>FStringView</code> 用の <code>THasher</code> 特殊化が既定で用意され、独自キー型は <code>THasher</code> を特殊化して対応する。",
-      when: "標準キー(整数 / ポインタ / 文字列ビュー)ならそのまま使える。自作のキー型をマップに入れたい時だけ <code>THasher&lt;MyKey&gt;</code> を特殊化する。",
+      when: "標準キー(整数 / ポインタ / 文字列ビュー)ならそのまま使える。自作のキー型をマップに入れたい時だけ <code>THasher&lt;FMyKey&gt;</code> を特殊化する。",
       sample: "// 自作キーをマップで使う:\ntemplate&lt;&gt; struct acs::THasher&lt;FMyKey&gt; {\n    u64 operator()(const FMyKey& k) const noexcept {\n        return HashBytes(&amp;k, sizeof(k));\n    }\n};",
       members: [
         { sig: "u64 HashMix64(u64 x)", ret: "混ぜた 64bit 値", desc: "整数 / ポインタキー用の高速 finalizer(Murmur3 fmix64 相当)。ビットを強く撹拌する。" },
@@ -173,7 +173,7 @@ ACS_REF.modules.push({
     {
   name: "Json エラー subcode (kSubJson*)",
   kind: "定数群", header: "container/Json.h",
-  summary: "<code>ParseJson</code> が失敗時に <t>Result</t> へ載せる<b>エラー subcode</b>。<code>ErrCategory::Generic</code> 配下の <code>u16</code> 定数で、構文・深さ・末尾ゴミ・途中終端・数値・エスケープのどれで失敗したかを区別できる。<b>全て <code>inline constexpr u16</code></b>。",
+  summary: "<code>ParseJson</code> が失敗時に <t>Result</t> へ載せる<b>エラー subcode</b>。<code>EErrCategory::Generic</code> 配下の <code>u16</code> 定数で、構文・深さ・末尾ゴミ・途中終端・数値・エスケープのどれで失敗したかを区別できる。<b>全て <code>inline constexpr u16</code></b>。",
   when: "<code>ParseJson</code> の <code>Error()</code> を受け取り、どの種類の構文エラーかで分岐・ログ出ししたい時。",
   sample: "auto r = acs::ParseJson(text, len);\nif (!r.IsOk()) {\n    const FErrorCode&amp; e = r.Error();\n    if (e.subcode == kSubJsonDepth) { /* nesting が深すぎ */ }\n    else if (e.subcode == kSubJsonBadEscape) { /* \\u 等が不正 */ }\n}",
   members: [

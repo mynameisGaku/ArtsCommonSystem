@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Storage 実装（INI 形式 key=value、UTF-8）
+// FStorage 実装（INI 形式 key=value、UTF-8）
 #include "platform/Storage.h"
 #include "platform/FileSystem.h"
 #include "foundation/Move.h"
@@ -102,55 +102,55 @@ void DirOf(const wchar_t* path, wchar_t* out, usize cap) noexcept {
 
 } // namespace
 
-void Storage::SetString(const char* key, const char* value) noexcept {
+void FStorage::SetString(const char* key, const char* value) noexcept {
     if (!key) return;
-    Entry* e = FindEntry(key);
+    FEntry* e = FindEntry(key);
     if (e) {
         e->value = FString(value ? value : "", *m_Allocator);
     } else {
-        Entry ne;
+        FEntry ne;
         ne.key = FString(key, *m_Allocator);
         ne.value = FString(value ? value : "", *m_Allocator);
         m_Entries.PushBack(Move(ne));
     }
 }
 
-void Storage::SetInt(const char* key, i64 value) noexcept {
+void FStorage::SetInt(const char* key, i64 value) noexcept {
     char buf[32];
     std::snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(value));
     SetString(key, buf);
 }
 
-void Storage::SetFloat(const char* key, f64 value) noexcept {
+void FStorage::SetFloat(const char* key, f64 value) noexcept {
     char buf[64];
     std::snprintf(buf, sizeof(buf), "%.17g", value);
     SetString(key, buf);
 }
 
-void Storage::SetBool(const char* key, bool value) noexcept {
+void FStorage::SetBool(const char* key, bool value) noexcept {
     SetString(key, value ? "true" : "false");
 }
 
-const char* Storage::GetString(const char* key, const char* default_v) const noexcept {
-    const Entry* e = FindEntry(key);
+const char* FStorage::GetString(const char* key, const char* default_v) const noexcept {
+    const FEntry* e = FindEntry(key);
     if (!e) return default_v;
     return e->value.Data();
 }
 
-i64 Storage::GetInt(const char* key, i64 default_v) const noexcept {
-    const Entry* e = FindEntry(key);
+i64 FStorage::GetInt(const char* key, i64 default_v) const noexcept {
+    const FEntry* e = FindEntry(key);
     if (!e) return default_v;
     return std::strtoll(e->value.Data(), nullptr, 10);
 }
 
-f64 Storage::GetFloat(const char* key, f64 default_v) const noexcept {
-    const Entry* e = FindEntry(key);
+f64 FStorage::GetFloat(const char* key, f64 default_v) const noexcept {
+    const FEntry* e = FindEntry(key);
     if (!e) return default_v;
     return std::strtod(e->value.Data(), nullptr);
 }
 
-bool Storage::GetBool(const char* key, bool default_v) const noexcept {
-    const Entry* e = FindEntry(key);
+bool FStorage::GetBool(const char* key, bool default_v) const noexcept {
+    const FEntry* e = FindEntry(key);
     if (!e) return default_v;
     const char* v = e->value.Data();
     if (StrEq(v, "true") || StrEq(v, "1") || StrEq(v, "yes") || StrEq(v, "on")) return true;
@@ -158,11 +158,11 @@ bool Storage::GetBool(const char* key, bool default_v) const noexcept {
     return default_v;
 }
 
-bool Storage::Has(const char* key) const noexcept {
+bool FStorage::Has(const char* key) const noexcept {
     return FindEntry(key) != nullptr;
 }
 
-void Storage::Remove(const char* key) noexcept {
+void FStorage::Remove(const char* key) noexcept {
     if (!key) return;
     for (usize i = 0; i < m_Entries.Size(); ++i) {
         if (StrEq(m_Entries[i].key.Data(), key)) {
@@ -174,7 +174,7 @@ void Storage::Remove(const char* key) noexcept {
     }
 }
 
-Storage::Entry* Storage::FindEntry(const char* key) noexcept {
+FStorage::FEntry* FStorage::FindEntry(const char* key) noexcept {
     if (!key) return nullptr;
     for (usize i = 0; i < m_Entries.Size(); ++i) {
         if (StrEq(m_Entries[i].key.Data(), key)) return &m_Entries[i];
@@ -182,25 +182,29 @@ Storage::Entry* Storage::FindEntry(const char* key) noexcept {
     return nullptr;
 }
 
-const Storage::Entry* Storage::FindEntry(const char* key) const noexcept {
-    return const_cast<Storage*>(this)->FindEntry(key);
+const FStorage::FEntry* FStorage::FindEntry(const char* key) const noexcept {
+    return const_cast<FStorage*>(this)->FindEntry(key);
 }
 
-TResult<void> Storage::Load(const wchar_t* path) noexcept {
-    if (!path) return ACS_ERR(IO, 100, "Storage::Load: null path");
-    if (!FileSystem::Exists(path)) {
+TResult<void> FStorage::Load(const wchar_t* path) noexcept {
+    if (!path) return ACS_ERR(IO, 100, "FStorage::Load: null path");
+    if (!FFileSystem::Exists(path)) {
         // 無ければ空状態のまま成功扱い
         return Ok();
     }
-    auto bytes_r = FileSystem::ReadAllBytes(path);
+    auto bytes_r = FFileSystem::ReadAllBytes(path);
     if (bytes_r.IsErr()) return Err<void>(bytes_r.Error());
     const TArray<byte>& bytes = bytes_r.Value();
     return LoadFromBytes(reinterpret_cast<const u8*>(bytes.Data()), bytes.Size());
 }
 
-TResult<void> Storage::LoadFromBytes(const u8* data, usize size) noexcept {
-    Clear();
-    if (!data) return Ok();
+TResult<void> FStorage::LoadFromBytes(const u8* data, usize size) noexcept {
+    // 読み込み途中の失敗で公開済みの設定を壊さないよう、候補へ組み立てる。
+    FStorage loaded(*m_Allocator);
+    if (!data) {
+        *this = Move(loaded);
+        return Ok();
+    }
 
     const char* p   = reinterpret_cast<const char*>(data);
     const char* end = p + size;
@@ -231,25 +235,51 @@ TResult<void> Storage::LoadFromBytes(const u8* data, usize size) noexcept {
 
         usize ks = 0; while (ks < eq && (line.Data()[ks] == ' ' || line.Data()[ks] == '\t')) ++ks;
         usize ke = eq; while (ke > ks && (line.Data()[ke - 1] == ' ' || line.Data()[ke - 1] == '\t')) --ke;
-        usize vs = eq + 1; while (vs < line.Size() && (line.Data()[vs] == ' ' || line.Data()[vs] == '\t')) ++vs;
+        // Save後の再読込で値を変えないため、'='より後ろは先頭空白を含めてそのまま保持する。
+        const usize vs = eq + 1;
         const usize ve = line.Size();
 
-        Entry e;
-        e.key = FString(FStringView(line.Data() + ks, ke - ks), *m_Allocator);
-        e.value = FString(FStringView(line.Data() + vs, ve - vs), *m_Allocator);
-        m_Entries.PushBack(Move(e));
+        const FStringView key(line.Data() + ks, ke - ks);
+        for (usize i = 0; i < loaded.m_Entries.Size(); ++i) {
+            if (loaded.m_Entries[i].key.View() == key) {
+                return ACS_ERR(
+                    Container, 130,
+                    "FStorage::LoadFromBytes: duplicate key");
+            }
+        }
+
+        FString candidateKey(*m_Allocator);
+        FString candidateValue(*m_Allocator);
+        if (!candidateKey.TryAppend(key) ||
+            !candidateValue.TryAppend(
+                FStringView(line.Data() + vs, ve - vs))) {
+            return ACS_ERR(
+                Memory, 131,
+                "FStorage::LoadFromBytes: entry allocation failed");
+        }
+
+        FEntry entry;
+        entry.key = Move(candidateKey);
+        entry.value = Move(candidateValue);
+        if (!loaded.m_Entries.TryPushBack(Move(entry))) {
+            return ACS_ERR(
+                Memory, 132,
+                "FStorage::LoadFromBytes: entry table allocation failed");
+        }
     }
+
+    *this = Move(loaded);
     return Ok();
 }
 
-TResult<void> Storage::Save(const wchar_t* path) noexcept {
-    if (!path) return ACS_ERR(IO, 101, "Storage::Save: null path");
+TResult<void> FStorage::Save(const wchar_t* path) noexcept {
+    if (!path) return ACS_ERR(IO, 101, "FStorage::Save: null path");
 
     // 親ディレクトリを作成（無ければ）
     wchar_t dir[1024];
     DirOf(path, dir, 1024);
     if (dir[0]) {
-        auto mk = FileSystem::CreateDirectory(dir);
+        auto mk = FFileSystem::CreateDirectory(dir);
         if (mk.IsErr()) {
             // 既存なら成功扱いになっているので、エラーは本当の失敗
             return mk;
@@ -258,18 +288,18 @@ TResult<void> Storage::Save(const wchar_t* path) noexcept {
 
     FString out("", *m_Allocator);
     out.Reserve(64 * (m_Entries.Size() + 1));
-    out.Append(FStringView("# acs Storage\n"));
+    out.Append(FStringView("# acs FStorage\n"));
     for (usize i = 0; i < m_Entries.Size(); ++i) {
         out.Append(m_Entries[i].key.View());
         out.Append('=');
         out.Append(m_Entries[i].value.View());
         out.Append('\n');
     }
-    return FileSystem::WriteAllBytes(path,
+    return FFileSystem::WriteAllBytes(path,
         reinterpret_cast<const byte*>(out.Data()), out.Size());
 }
 
-TResult<void> Storage::GetAppDataPath(const wchar_t* sub_dir,
+TResult<void> FStorage::GetAppDataPath(const wchar_t* sub_dir,
                                      const wchar_t* file_name,
                                      wchar_t* out, usize cap) noexcept {
     if (!out || cap == 0) return ACS_ERR(IO, 110, "GetAppDataPath: bad args");
@@ -292,7 +322,7 @@ TResult<void> Storage::GetAppDataPath(const wchar_t* sub_dir,
     wchar_t parent[1024];
     DirOf(out, parent, 1024);
     if (parent[0]) {
-        auto mk = FileSystem::CreateDirectory(parent);
+        auto mk = FFileSystem::CreateDirectory(parent);
         if (mk.IsErr()) return mk;
     }
     return Ok();
@@ -332,23 +362,23 @@ bool WideToUtf8(const wchar_t* wide, char* out, usize cap) noexcept {
 
 } // namespace
 
-TResult<void> Storage::Load(const char* path_utf8) noexcept {
+TResult<void> FStorage::Load(const char* path_utf8) noexcept {
     wchar_t buf[1024];
     if (!Utf8ToWide(path_utf8, buf, 1024)) {
-        return ACS_ERR(IO, 120, "Storage::Load(utf8): conversion failed");
+        return ACS_ERR(IO, 120, "FStorage::Load(utf8): conversion failed");
     }
     return Load(buf);
 }
 
-TResult<void> Storage::Save(const char* path_utf8) noexcept {
+TResult<void> FStorage::Save(const char* path_utf8) noexcept {
     wchar_t buf[1024];
     if (!Utf8ToWide(path_utf8, buf, 1024)) {
-        return ACS_ERR(IO, 121, "Storage::Save(utf8): conversion failed");
+        return ACS_ERR(IO, 121, "FStorage::Save(utf8): conversion failed");
     }
     return Save(buf);
 }
 
-TResult<void> Storage::GetAppDataPath(const char* sub_dir_utf8,
+TResult<void> FStorage::GetAppDataPath(const char* sub_dir_utf8,
                                      const char* file_name_utf8,
                                      char* out_utf8, usize cap) noexcept {
     if (!out_utf8 || cap == 0) return ACS_ERR(IO, 122, "bad args");

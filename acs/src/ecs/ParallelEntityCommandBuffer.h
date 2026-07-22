@@ -2,7 +2,7 @@
 // =============================================================================
 // ACS ECS — FParallelEntityCommandBuffer (EachParallel 用の per-worker 遅延記録)
 // -----------------------------------------------------------------------------
-// Query::EachParallel の fn は World を構造変更 (Add/Remove/Destroy) してはならない
+// Query::EachParallel の fn は FWorld を構造変更 (Add/Remove/Destroy) してはならない
 // (Query.h の契約参照)。また FEntityCommandBuffer は単一スレッド前提なので、複数
 // ワーカーから同じバッファへ記録すると TArray が競合して壊れる。
 //
@@ -14,7 +14,7 @@
 //
 // 例:
 //   FParallelEntityCommandBuffer cmd(world);
-//   world.Query<Health>().EachParallel([&](EntityId e, Health& h) {
+//   world.Query<FHealth>().EachParallel([&](FEntityId e, FHealth& h) {
 //       if (h.value <= 0) cmd.Destroy(e);   // 自ワーカー専用バッファへ記録 (ロック不要)
 //   });
 //   cmd.Flush();                            // ParallelFor 完了後に単一スレッドで一括適用
@@ -51,14 +51,14 @@ namespace acs {
 class FParallelEntityCommandBuffer {
 public:
     /**
-     * 適用先 World とアロケータを束ね、ワーカー数 + 1 本のバッファを確保して構築する。
+     * 適用先 FWorld とアロケータを束ね、ワーカー数 + 1 本のバッファを確保して構築する。
      *
      * @details 確保に失敗したら以降の記録は落ち、HasOverflowed() が true になる
      * (IsValid() で構築成否を確認できる)。FThreadPool::Init より後に構築すること。
-     * @param world 適用先の World (参照を保持)。
+     * @param world 適用先の FWorld (参照を保持)。
      * @param alloc 各バッファの記録・退避に使うアロケータ。
      */
-    explicit FParallelEntityCommandBuffer(World& world, FAllocator& alloc = DefaultAllocator()) noexcept
+    explicit FParallelEntityCommandBuffer(FWorld& world, FAllocator& alloc = DefaultAllocator()) noexcept
         : m_Alloc(&alloc), m_Buffers(alloc)
     {
         const u32 slots = FThreadPool::WorkerCount() + 1u;   // +1 = 非ワーカー用予備
@@ -89,7 +89,7 @@ public:
      *
      * @param e 破棄するエンティティ。
      */
-    void Destroy(EntityId e) noexcept
+    void Destroy(FEntityId e) noexcept
     {
         if (FEntityCommandBuffer* const buffer = Slot()) buffer->Destroy(e);
     }
@@ -102,7 +102,7 @@ public:
      * @param value 格納する値 (ムーブで退避する)。
      */
     template<typename T>
-    void Add(EntityId e, T value) noexcept
+    void Add(FEntityId e, T value) noexcept
     {
         if (FEntityCommandBuffer* const buffer = Slot()) buffer->Add<T>(e, Move(value));
     }
@@ -114,7 +114,7 @@ public:
      * @param e 除去対象のエンティティ。
      */
     template<typename T>
-    void Remove(EntityId e) noexcept
+    void Remove(FEntityId e) noexcept
     {
         if (FEntityCommandBuffer* const buffer = Slot()) buffer->Remove<T>(e);
     }
@@ -122,7 +122,7 @@ public:
     /**
      * 空エンティティの生成を自スレッド専用スロットへ記録する (Flush 時に生成)。
      *
-     * @details World::Create はスレッドセーフでないため、EachParallel 中の生成は本記録を使う。
+     * @details FWorld::Create はスレッドセーフでないため、EachParallel 中の生成は本記録を使う。
      */
     void Create() noexcept
     {
@@ -142,7 +142,7 @@ public:
     }
 
     /**
-     * 全スロットの記録を World へ適用し、空にする (単一スレッドから呼ぶこと)。
+     * 全スロットの記録を FWorld へ適用し、空にする (単一スレッドから呼ぶこと)。
      *
      * @details スロット順 (worker 0..N-1, 非ワーカー) に、各スロット内は記録順で適用する。
      */

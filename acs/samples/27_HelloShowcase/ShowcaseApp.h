@@ -4,8 +4,8 @@
 // 連携させる cinematic demo。auto-orbit カメラで scene を 1 周。
 //
 // 実装は pass 系 helper (PbrPass / RefractionPass / MotionPass / SsrPass /
-// BloomPass / HudPass) と GPU resource bundle (Assets) に分割している。
-// ShowcaseApp 自身は state (camera, orbit, toggle) と OnStart / OnUpdate /
+// BloomPass / HudPass) と GPU resource bundle (FAssets) に分割している。
+// FShowcaseApp 自身は state (camera, orbit, toggle) と OnStart / OnUpdate /
 // OnCustomFrame の orchestration だけを持つ。
 //
 // キー:
@@ -25,10 +25,10 @@
 
 namespace helloshowcase {
 
-class ShowcaseApp : public acs::FApplication {
+class FShowcaseApp : public acs::FApplication {
 public:
-    ShowcaseApp() noexcept;
-    ~ShowcaseApp() noexcept override;
+    FShowcaseApp() noexcept;
+    ~FShowcaseApp() noexcept override;
 
     void OnStart() noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -36,9 +36,9 @@ public:
     void OnShutdown() noexcept override;
 
 private:
-    Assets                  m_Assets;
+    FAssets                  m_Assets;
     acs::FCamera             m_Camera;
-    acs::PostProcessParams  m_PostParams;
+    acs::FPostProcessParams  m_PostParams;
     acs::FVec3               m_CamPos        = acs::FVec3{0, 1.4f, -5.5f};
     acs::f32                m_OrbitAngle    = 0.0f;     // カメラ orbit (rad)
     acs::f32                m_OrbPhase      = 0.0f;     // emissive オーブの位相 (rad)

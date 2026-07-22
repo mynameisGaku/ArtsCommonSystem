@@ -25,4 +25,4 @@
 #include "app/EntryPoint.h"
 #include "HelloSkyApp.h"
 
-ACS_DEFINE_MAIN(hellosky::HelloSkyApp)
+ACS_DEFINE_MAIN(hellosky::FHelloSkyApp)

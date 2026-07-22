@@ -18,7 +18,7 @@
 
 namespace helloanim {
 
-class AnimationScene {
+class FAnimationScene {
 public:
     // 4 ボーンの「ヘビ風」円柱メッシュを手続き生成 (アニメ含む)。
     // 失敗時は空の TSharedPtr を返す (呼び出し元で null チェック)。
@@ -39,8 +39,8 @@ public:
                 acs::FSkinnedShader&      skin_shader,
                 acs::IRhiCommandList&    cl,
                 const acs::FCamera&       camera,
-                const acs::GpuMesh&      plane,
-                const acs::SkinnedGpuMesh& snake_gpu,
+                const acs::FGpuMesh&      plane,
+                const acs::FSkinnedGpuMesh& snake_gpu,
                 const acs::FMat4*         palette,
                 acs::u32                 palette_n) noexcept;
 };

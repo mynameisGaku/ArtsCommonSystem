@@ -81,7 +81,7 @@ enum class EAudioFormat : u8 {
  * pcm_data は backend 側で必要な間 (一発再生終了 / Stop まで) 内部コピーされるため、
  * 呼び出し側で寿命を延ばす必要はない。
  */
-struct AudioClipDesc {
+struct FAudioClipDesc {
     /** raw PCM サンプル列 (Wav 形式の場合は RIFF ヘッダ込み)。 */
     const void*  pcm_data      = nullptr;
 
@@ -107,12 +107,12 @@ struct AudioClipDesc {
  * FXAudio2Backend は 8bit generation の早期衝突を避けるため 32bit 全体を
  * プロセス通算の不透明チケットとして扱う。呼び出し側は値を分解せず保持して返す。
  */
-struct AudioVoiceHandle {
+struct FAudioVoiceHandle {
     /** backend が発行する 32bit 値 (0=無効、互換形式では index + generation)。 */
     u32 m_Packed = 0;
 
     /** 無効ハンドル (m_Packed=0) を構築する。 */
-    constexpr AudioVoiceHandle() noexcept = default;
+    constexpr FAudioVoiceHandle() noexcept = default;
 
     /**
      * index と generation を packed 値に詰めて構築する。
@@ -120,7 +120,7 @@ struct AudioVoiceHandle {
      * @param index voice の slot インデックス (下位 24bit)。
      * @param gen slot の世代カウンタ (上位 8bit、有効ハンドルでは 1 以上)。
      */
-    constexpr AudioVoiceHandle(u32 index, u8 gen) noexcept
+    constexpr FAudioVoiceHandle(u32 index, u8 gen) noexcept
         : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
     /**
@@ -132,9 +132,9 @@ struct AudioVoiceHandle {
      * @param packed_value 0 以外の不透明なハンドル値。
      * @return 指定値を保持するハンドル。
      */
-    static constexpr AudioVoiceHandle FromPackedValue(u32 packed_value) noexcept
+    static constexpr FAudioVoiceHandle FromPackedValue(u32 packed_value) noexcept
     {
-        AudioVoiceHandle handle;
+        FAudioVoiceHandle handle;
         handle.m_Packed = packed_value;
         return handle;
     }
@@ -167,16 +167,16 @@ struct AudioVoiceHandle {
     }
 
     /** 2 つのハンドルが同じ発音を表すか比較する。 */
-    constexpr bool operator==(AudioVoiceHandle other) const noexcept
+    constexpr bool operator==(FAudioVoiceHandle other) const noexcept
     {
         return m_Packed == other.m_Packed;
     }
 };
 
-static_assert(sizeof(AudioVoiceHandle) == sizeof(u32), "AudioVoiceHandle must retain its 32-bit ABI");
+static_assert(sizeof(FAudioVoiceHandle) == sizeof(u32), "AudioVoiceHandle must retain its 32-bit ABI");
 
 /** 無効を表す voice ハンドル定数 (m_Packed=0)。 */
-inline constexpr AudioVoiceHandle kInvalidAudioVoice {};
+inline constexpr FAudioVoiceHandle kInvalidAudioVoice {};
 
 /**
  * FAudioDirector から見た「実際に音を出す層」の純粋仮想インターフェース。
@@ -234,7 +234,7 @@ public:
      * @param pitch 再生ピッチ (1.0=等倍、0.5=1 オクターブ低い、2.0=1 オクターブ高い)。
      * @return 再生 voice のハンドル (失敗時は kInvalidAudioVoice)。
      */
-    virtual AudioVoiceHandle PlayOneShot(const AudioClipDesc& clip,
+    virtual FAudioVoiceHandle PlayOneShot(const FAudioClipDesc& clip,
                                          f32 volume,
                                          f32 pitch) noexcept = 0;
 
@@ -247,7 +247,7 @@ public:
      * @param pitch 再生ピッチ (1.0=等倍、0.5=1 オクターブ低い、2.0=1 オクターブ高い)。
      * @return 再生 voice のハンドル (失敗時は kInvalidAudioVoice)。
      */
-    virtual AudioVoiceHandle PlayLooped(const AudioClipDesc& clip,
+    virtual FAudioVoiceHandle PlayLooped(const FAudioClipDesc& clip,
                                         f32 volume,
                                         f32 pitch) noexcept = 0;
 
@@ -256,7 +256,7 @@ public:
      *
      * @param voice 停止する voice ハンドル (無効 / 既に解放済なら no-op)。
      */
-    virtual void StopVoice(AudioVoiceHandle voice) noexcept = 0;
+    virtual void StopVoice(FAudioVoiceHandle voice) noexcept = 0;
 
     /**
      * 指定 voice の音量を変更する。
@@ -264,7 +264,7 @@ public:
      * @param voice 対象の voice ハンドル (無効 / 解放済なら no-op)。
      * @param volume 新しい音量 (範囲外は clamp 推奨)。
      */
-    virtual void SetVoiceVolume(AudioVoiceHandle voice, f32 volume) noexcept = 0;
+    virtual void SetVoiceVolume(FAudioVoiceHandle voice, f32 volume) noexcept = 0;
 
     /** 全 voice を停止して slot を解放する (Init 前は no-op)。 */
     virtual void StopAllVoices() noexcept = 0;

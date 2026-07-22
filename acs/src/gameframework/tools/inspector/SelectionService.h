@@ -26,22 +26,22 @@
 //   ・**1 個の "選択" だけを持つ最小ハブ**: Unity Inspector のように
 //     multi-select も将来は欲しいが、現状は「currently selected single
 //     node」のみ。Multi-select は別 API (`SelectionSet`) で分離する。
-//   ・**callback は複数登録 (HotReloadWatcher と同形)**: (cb, user) ペアで
+//   ・**callback は複数登録 (FHotReloadWatcher と同形)**: (cb, user) ペアで
 //     重複弾き、Unregister で 1 件除去。dispatch 順は登録順。
 //   ・**from / to を渡す**: 単純な「to」だけだと、購読側で前回値を覚えて
 //     diff を取る必要が出る。差分通知の典型形は (from, to) なのでハブ側で
 //     渡す。`ClearSelection()` は `to = FNodeId{}` (invalid) として通知される。
-//   ・**STL 不使用**: 登録 list は `acs::TArray<CallbackEntry>`。
+//   ・**STL 不使用**: 登録 list は `acs::TArray<FCallbackEntry>`。
 //   ・**全 noexcept**: ACS 規約。エラーは null/重複弾きで安全 no-op。
-//   ・**非コピー / 非ムーブ**: 内部 TArray<CallbackEntry> の所有を曖昧にしない。
+//   ・**非コピー / 非ムーブ**: 内部 TArray<FCallbackEntry> の所有を曖昧にしない。
 //   ・**FGame / FSceneManager への依存なし**: FNodeId だけを扱うため、選択対象が
-//     生きているか / どの Scene に属するかの検証は購読側責務。これで
+//     生きているか / どの FScene に属するかの検証は購読側責務。これで
 //     editor の "選択は残るが対象は破棄済み" のケースも素直に表現できる。
 //
 // 範囲外:
 //   ・Multi-select (Ctrl+クリックでの加算選択など)
 //   ・Selection History (Back/Forward ボタン)
-//   ・Asset / Component 選択 (現状は Node のみ)
+//   ・Asset / Component 選択 (現状は ANode のみ)
 //   ・hover (= pre-selection) 通知
 #pragma once
 
@@ -68,7 +68,7 @@ using SelectionChangeCallback = void (*)(void* user, FNodeId from, FNodeId to) n
  * @details
  * 1 個のシングルなインスタンスを editor 起動コードが所有し、各 panel が
  * RegisterCallback で選択変更を購読する。currently selected single node のみを保持し、
- * multi-select は範囲外。FNodeId のみを扱い、選択対象が生きているか / どの Scene に
+ * multi-select は範囲外。FNodeId のみを扱い、選択対象が生きているか / どの FScene に
  * 属するかの検証は購読側の責務。non-copy / non-move、全 noexcept、STL 不使用。
  */
 class FSelectionService {
@@ -173,7 +173,7 @@ private:
     /**
      * (cb, user) ペアを表す POD エントリ (重複弾き + 順序保持に使う)。
      */
-    struct CallbackEntry {
+    struct FCallbackEntry {
         /** 選択変更時に呼ぶコールバック。 */
         SelectionChangeCallback cb   = nullptr;
 
@@ -194,7 +194,7 @@ private:
     FNodeId               m_Current;
 
     /** 登録済み callback 群 (登録順を保持)。 */
-    TArray<CallbackEntry> m_Callbacks;
+    TArray<FCallbackEntry> m_Callbacks;
 };
 
 } // namespace acs::game::inspector

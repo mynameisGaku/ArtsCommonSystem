@@ -39,7 +39,7 @@ enum class EPixelFormat : u8 {
 /**
  * 画像 1 枚分の CPU 側ピクセルデータを保持するアセット。
  */
-class FImageAsset : public Asset {
+class FImageAsset : public FAsset {
 public:
     ACS_ASSET_TYPE("FImageAsset")
 
@@ -76,7 +76,7 @@ public:
      *
      * @return EPixelFormat。
      */
-    EPixelFormat EFormat() const noexcept { return m_Format; }
+    EPixelFormat Format() const noexcept { return m_Format; }
 
     /**
      * 生ピクセルデータの先頭ポインタを返す。
@@ -109,7 +109,7 @@ private:
 /**
  * 各種画像ファイルを FImageAsset にデコードするローダ (stb_image)。
  */
-class ImageAssetLoader final : public IAssetLoader {
+class FImageAssetLoader final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
@@ -133,7 +133,7 @@ public:
      * @param bytes 画像ファイル全体のバイト列。
      * @return 成功なら FImageAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 } // namespace acs

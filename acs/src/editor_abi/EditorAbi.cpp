@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 // =============================================================================
 // ACS Editor ABI — C# (WPF) エディタが P/Invoke するための C ABI ブリッジ DLL
 // -----------------------------------------------------------------------------
@@ -11,7 +11,7 @@
 //   node_count / node_id_at / node_parent / node_name / node_get_transform /
 //   node_set_transform / select / selected
 //
-// シーンモデルは当面 ABI 内の軽量表現 (将来 FNode2D/FScene2D に差し替え可能)。
+// シーンモデルは当面 ABI 内の軽量表現 (将来 ANode/FScene2D に差し替え可能)。
 // =============================================================================
 #include "render/Renderer.h"
 #include "render/RhiTypes.h"
@@ -23,26 +23,27 @@
 #include "math/Vec.h"
 #include "foundation/Log.h"
 #include "memory/MemorySystem.h"
+#include "threading/Thread.h"
 #include "threading/ThreadPool.h"
 #include "gameframework/Reflect.h"          // FTypeRegistry / FTypeDesc / ETypeCategory
 #include "gameframework/ReflectCatalog.h"   // AcsRegisterEngineTypes (エンジン型カタログ)
-#include "gameframework/Node2D.h"           // 実シーングラフ FNode2D / FTransform2D
+#include "gameframework/ANode.h"           // 実シーングラフ ANode / FTransform2D
 #include "gameframework/RigidWorld2D.h"     // FRigidWorld2D (Play モードの物理プレビュー)
-#include "gameframework/PrimitiveRenderer2D.h"  // FPrimitiveRenderer2D::DrawShape (形状描画)
+#include "gameframework/PrimitiveRenderer2D.h"  // APrimitiveRenderer2D::DrawShape (形状描画)
 #include "gameframework/Material2D.h"       // FMaterial2D (マテリアルアセット = 効果プリセット)
 #include "gameframework/Light2DComponent.h" // ComputeLightDirCone (ライト角度→方向/円錐)
 #include "gameframework/ComponentFactory.h" // CreateComponentByName (反射名→実コンポーネント)
 #include "gameframework/ReflectApply.h"     // ApplyFieldValue (authored 値を実体へ適用)
 #include "gameframework/ReflectMethod.h"    // FMethodRegistry / InvokeMethodByName (関数リフレクション)
 #include "gameframework/Scene3D.h"          // FScene3D (3D シーングラフ = 3D ノードの実コンテナ)
-#include "gameframework/Node3D.h"           // FNode3D / FComponent3D
-#include "gameframework/MeshComponent3D.h"  // FMeshComponent3D (prim/color/mesh の native 保持)
+#include "gameframework/ANode.h"           // ANode / AComponent
+#include "gameframework/MeshComponent3D.h"  // AMeshComponent3D (prim/color/mesh の native 保持)
 #include "gameframework/Scene3DSerialize.h" // (将来) シリアライザ委譲用
 #include "memory/UniquePtr.h"               // TUniquePtr / MakeUnique
 #include "memory/SharedPtr.h"               // TSharedPtr / MakeShared (フラットポリゴンメッシュ生成)
 #include "container/Array.h"                // TArray
 #include "render/IRhiTexture.h"             // IRhiTexture (スプライト)
-#include "render/RenderAssets.h"            // UploadTexture / UploadMesh / GpuMesh
+#include "render/RenderAssets.h"            // UploadTexture / UploadMesh / FGpuMesh
 #include "render/DebugDraw.h"               // FDebugDraw3D (グリッド/ギズモ/選択 AABB の線)
 #include "render/Sky.h"                     // FSky (エンジン標準の手続きスカイ。Phase2: kSky3DHLSL を置換)
 #include "render/PbrShader.h"               // FPbrShader (エンジン標準 PBR。Phase2: メッシュ移行先)
@@ -50,10 +51,11 @@
 #include "render/PostProcess.h"             // FPostProcess (HDR→ACES トーンマップ)
 #include "render/Ssao.h"                    // FSsao (GTAO + contact shadow。q_ssao_* を配線)
 #include "render/Ssr.h"                     // FSsr (画面空間反射。q_ssr_* を配線)
+#include "render/HiZ.h"                     // FHiZ (SSR の full min-depth pyramid)
 #include "render/Ssgi.h"                    // FSsgi (画面空間 1 バウンス GI。q_ssgi_* を配線)
 #include "render/MotionVector.h"            // FMotionVector (motion+normal G-buffer。TAA/SSR/SSGI の reproject 用)
 #include "render/RefractionShader.h"        // FRefractionShader (ガラス/水の屈折。opaque シーンを IOR で曲げて sample)
-#include "render/Ibl.h"                     // ImageBasedLighting (FSky から env→irradiance/prefilter→SetIbl)
+#include "render/Ibl.h"                     // FImageBasedLighting (FSky から env→irradiance/prefilter→SetIbl)
 #include "render/Atmosphere.h"              // FAtmosphere (物理大気散乱を equirect に焼く → IBL/背景)
 #include "asset/MeshPrimitive.h"            // Primitive::MakeCube/MakeSphere/MakePlane
 #include "asset/MeshAsset.h"                // FMeshAsset
@@ -65,6 +67,8 @@
 #include "asset/ImageAsset.h"               // FImageAsset / ImageAssetLoader (stb_image)
 #include "asset/AssetId.h"                  // kInvalidAssetId
 #include "platform/FileSystem.h"            // FileSystem::ReadAllBytes
+#include "editor_abi/EditorProfiler.h"       // renderer profiler snapshot ABI
+#include "editor_abi/EditorRenderPolicy.h"   // producer/consumer gates for cached render data
 
 #include <cstdint>
 #include <cstdio>   // std::snprintf / std::sscanf
@@ -73,6 +77,7 @@
 #include <algorithm> // std::max / std::abs (3D ピック)
 #include <new>      // std::nothrow
 #include <atomic>   // std::atomic (エンジンログ取り込み用 SPSC リング)
+#include <limits>
 
 #define ACS_EDITOR_API extern "C" __declspec(dllexport)
 
@@ -90,13 +95,17 @@ extern "C" __declspec(dllimport) void* __stdcall GetProcAddress(void* module, co
 namespace {
 
 constexpr unsigned kCpUtf8 = 65001u;
+constexpr f32 kCamera3DPitchLimit = 1.5533f;  // 89 degrees: avoid the orbit-camera pole.
+constexpr f32 kCamera3DMinDistance = 1.0f;
+constexpr f32 kCamera3DMaxDistance = 200.0f;
+constexpr f32 kCamera3DFramePitch = 0.55f;    // Stable downward framing view.
 
 /**
- * エディタ・シーンの 1 ノード。エンジンの実 FNode2D を継承し、階層・transform・
- * コンポーネントはエンジン側 (FNode2D) が担う。エディタ表示用メタ (id / 名前 / 色 /
+ * エディタ・シーンの 1 ノード。エンジンの実 ANode を継承し、階層・transform・
+ * コンポーネントはエンジン側 (ANode) が担う。エディタ表示用メタ (id / 名前 / 色 /
  * ベースサイズ) だけを上乗せする。
  */
-struct FEditorNode : public game::FNode2D {
+struct AEditorNode : public game::ANode {
     static constexpr u32 kMaxComponents = 8;
     static constexpr u32 kMaxProps      = 8;   // 1 コンポーネントあたりの編集プロパティ上限
 
@@ -106,7 +115,7 @@ struct FEditorNode : public game::FNode2D {
     FVec4 color     = FVec4{ 0.5f, 0.6f, 0.8f, 1.0f };     // 表示色
 
     // アタッチされた Component 型 (リフレクション type-id)。エディタ・メタデータとして
-    // 保持し (実 FComponent2D は生成しない)、シリアライズ + 将来の play/load で実体化する。
+    // 保持し (実 AComponent は生成しない)、シリアライズ + 将来の play/load で実体化する。
     game::FTypeId components[kMaxComponents] = {};
     u32           component_count            = 0;
 
@@ -132,7 +141,7 @@ struct FEditorNode : public game::FNode2D {
     TUniquePtr<IRhiTexture> mat_normal_tex;      // PBR マテリアルの法線マップ (遅延ロード)
     bool                  mat_tex_loaded = false; // mat 法線/アルベドのロード試行済みか
 
-    // カスタムポリゴン形状 (FPrimitiveRenderer2D shape=Polygon のとき)。ノード原点基準のローカル頂点。
+    // カスタムポリゴン形状 (APrimitiveRenderer2D shape=Polygon のとき)。ノード原点基準のローカル頂点。
     // poly_verts = コライダー (凸包に間引いた ≤kMaxPolyVerts 頂点、物理に渡す)。
     u32   poly_count = 0;
     FVec2 poly_verts[game::kMaxPolyVerts]{};
@@ -147,7 +156,7 @@ struct FEditorNode : public game::FNode2D {
  *  登録する → AttachComponent / インスペクタ / シリアライズが engine 型と同じ経路で動く。
  *  ※ TArray 再確保でアドレスが動かないよう、必ず New で個別確保し TArray<FUserType*> で持つ。 */
 struct FUserType {
-    static constexpr u32 kMaxFields = FEditorNode::kMaxProps;   // ≤8 プロパティ
+    static constexpr u32 kMaxFields = AEditorNode::kMaxProps;   // ≤8 プロパティ
     char  name[64] = {};
     char  field_names[kMaxFields][48] = {};
     game::FReflectField fields[kMaxFields] = {};
@@ -202,44 +211,80 @@ struct FGameShim {
 };
 
 /**
- * editor 3D ノードの «エディタ固有» 状態を FNode3D に載せるコンポーネント (第2段)。
+ * editor 3D ノードの «エディタ固有» 状態を ANode に載せるコンポーネント (第2段)。
  *
  * @details
  * 第2段でノードデータを engine native へ移した: transform(pos/scale/回転) は
- * FNode3D::Local()、メッシュ(prim/color/mesh/mesh_path) は FMeshComponent3D、名前は
- * FNode3D::Name() が持つ。本コンポーネントには engine に該当の無い «editor 整数 id» と
+ * ANode::Local()、メッシュ(prim/color/mesh/mesh_path) は AMeshComponent3D、名前は
+ * ANode::Name() が持つ。本コンポーネントには engine に該当の無い «editor 整数 id» と
  * «authored オイラー角(度)» だけを残す (オイラーは quat に焼くと丸まるため編集値を保持)。
  */
-struct EEd3DRec : public acs::game::FComponent3D {
-    ACS_GAME_COMPONENT3D_KIND(EEd3DRec)
+struct AEditor3DRecordComponent : public acs::game::AComponent {
+    ACS_GAME_COMPONENT_KIND(AEditor3DRecordComponent)
     static constexpr u32 kMaxComponents = 8;
     static constexpr u32 kMaxProps      = 8;
     int   id    = 0;                          ///< editor 整数 id (ABI/C# 境界・シリアライズ用)。
     FVec3 euler = FVec3{ 0, 0, 0 };           ///< authored オイラー角 (度、XYZ。Local().rotation の編集元)。
-    // マテリアルは FMeshComponent3D が material_path + FMaterial2D で持つ (.acsmat 参照、2D 鏡映)。
+    // マテリアルは AMeshComponent3D が material_path + FMaterial2D で持つ (.acsmat 参照、2D 鏡映)。
     char  sprite_path[256] = {};              ///< 非空ならスプライト (z=0 テクスチャ付きクアッド)。再読込用の画像パス。
-    char  prefab_src[256]  = {};              ///< 非空なら prefab/blueprint インスタンス (.acsprefab/.acsbp パス。2D FEditorNode 鏡映)。
+    char  prefab_src[256]  = {};              ///< 非空なら prefab/blueprint インスタンス (.acsprefab/.acsbp パス。2D AEditorNode 鏡映)。
     bool  is_empty         = false;           ///< true なら «空ノード» (描画しないグループ用トランスフォーム。2D の空ノード相当)。
     TArray<FVec2> poly_pts;                   ///< 3点以上なら手続きポリゴン (z=0)。再生成用の元 2D 頂点列。
-    GpuMesh       gm_cache;                    ///< Phase2: prim==Mesh の GPU メッシュキャッシュ (FPbrShader 描画用)。
+    FGpuMesh       gm_cache;                    ///< Phase2: prim==Mesh の GPU メッシュキャッシュ (FPbrShader 描画用)。
     const void*   gm_cache_src = nullptr;      ///< gm_cache の元 FMeshAsset ポインタ (変化時に再アップロード)。
+    bool          material_textures_loaded = false;
+    TUniquePtr<IRhiTexture> material_albedo_tex;
+    TUniquePtr<IRhiTexture> material_normal_tex;
+    TUniquePtr<IRhiTexture>
+        material_expression_tex[kShaderExpressionMaxTextureSlots];
     FMat4         prev_world = FMat4::Identity(); ///< 前フレームの world 行列 (FMotionVector のモーションベクタ用、実行時のみ・非シリアライズ)。
     bool          prev_world_valid = false;       ///< prev_world が前フレーム値を持つか (新規ノードは初回 motion=0)。
-    // アタッチされた Component 型 (リフレクション type-id)。2D の FEditorNode と同じ «エディタ・メタデータ» 方式。
+    // アタッチされた Component 型 (リフレクション type-id)。2D の AEditorNode と同じ «エディタ・メタデータ» 方式。
     game::FTypeId components[kMaxComponents] = {};
     u32           component_count            = 0;
     f32           comp_props[kMaxComponents][kMaxProps][4] = {};
 };
 
-/** 1 つのビューポート + エディタ・シーン (実 FNode2D ツリー) を保持する描画ホスト。 */
-struct EditorHost {
+/** 1 つのビューポート + エディタ・シーン (実 ANode ツリー) を保持する描画ホスト。 */
+struct FEditorHost {
     FRenderer    renderer;
     FSpriteBatch sprites;
     bool         attached      = false;
     bool         sprites_ready = false;
+    // Startup GPU work is advanced one bounded step per render-pump message.
+    // Keeping every step on the HWND/render owner thread preserves the native
+    // thread-affinity contract while allowing the WPF dispatcher to process
+    // paint/input between shader and PSO creation steps.
+    u32          startup_step   = 0;
+    bool         startup_ready  = false;
+    bool         startup_failed = false;
+    editor_profiler::FTimePoint startup_begin{};
+    // Slow raw-DX12 sky/PBR/SSGI/cloud optimization is staged here. The worker
+    // compiles bytecode only; every RHI resource and PSO is still created by
+    // the HWND/render owner thread after an acquire + join.
+    FThread       startup_worker;
+    std::atomic<i32> startup_worker_state{0}; // 0=idle, 1=running, 2=ok, -1=failed
+    u32           startup_worker_kind = 0u; // 0=none, 1=PBR, 2=SSGI, 3=FSky, 4=clouds
+    f32           startup_worker_elapsed_ms = 0.0f;
+    FSky::FCompiledShaders startup_sky_shaders{};
+    FPbrShader::FCompiledShaders startup_pbr_shaders{};
+    FSsgi::FCompiledShaders startup_ssgi_shaders{};
+    FVolumetricClouds::FCompiledShaders startup_cloud_shaders{};
+    bool          startup_phase_pending = false;
+    f32           startup_phase_elapsed_override_ms = -1.0f;
     u32          width         = 0;
     u32          height        = 0;
     f32          time          = 0.0f;
+    f32          frame_dt      = 1.0f / 60.0f;  // 実測 render dt。フレームレート非依存の motion blur shutter に使用。
+    editor_profiler::FAccumulator profiler_work{};
+    editor_profiler::FSnapshot    profiler_snapshot{};
+    editor_profiler::FRollingPeak profiler_cpu_peak{};
+    editor_profiler::FRollingPeak profiler_gpu_peak{};
+    editor_profiler::FRollingGpuQueryWindow profiler_gpu_queries{};
+    u64                           profiler_last_gpu_peak_frame = 0u;
+    f32                           profiler_smoothed_fps = 0.0f;
+    editor_profiler::FTimePoint   profiler_last_frame_begin{};
+    bool                          profiler_has_previous_frame = false;
 
     // AA: シーンをオフスクリーン RT に描き、MSAA resolve (既定 8x) または FXAA で backbuffer へ出す。
     FFxaa                       fxaa;                  // FXAA パス (MSAA 無効/失敗時のフォールバック)
@@ -260,7 +305,7 @@ struct EditorHost {
     char                        settings_path[512] = {};
     FVec3                       ambient      = FVec3{ 0.10f, 0.11f, 0.13f };   // Rendering.AmbientColor
     f32                         light_height = 90.0f;                          // Rendering.LightHeight
-    ClearColor                  clear_color  { 0.07f, 0.08f, 0.10f, 1.0f };    // Rendering.ClearColor
+    FClearColor                  clear_color  { 0.07f, 0.08f, 0.10f, 1.0f };    // Rendering.FClearColor
 
     // 品質プリセット (Rendering/QualityLevel) で駆動するノブのキャッシュ。ApplyQualityPreset が埋める。
     // 既定は High 相当。S3 では post-process のみ配線、shadow/SSAO/SSGI/SSR/IBL は後続ステップで配線。
@@ -269,7 +314,7 @@ struct EditorHost {
     bool  q_ssao_on          = true;  f32  q_ssao_intensity  = 1.0f;  f32 q_ssao_radius = 0.8f;
     bool  q_ssgi_on          = false; f32  q_ssgi_intensity  = 1.0f;  f32 q_ssgi_max_dist = 10.0f;
     bool  q_vxgi_on          = false;  // VXGI(voxel GI)。64³ ボクセルの blocky な色のにじみが目立つため既定OFF→滑らかな screen-space SSGI を使用。VxgiOn=1 で実験的に有効化可
-    bool  q_ap_on            = false;  // aerial perspective (大気距離霞)。km スケール遠景用で、エディタの数m スケール至近では 32 スライス froxel の段が近接面に出るため既定OFF。大シーンでは AerialPerspective=1 で有効化可
+    bool  q_ap_on            = false;  // 物理大気の距離霞。ローカル FogDensity は独立に 48x48x96 froxel を起動する
     bool  q_ssr_on           = true;  f32  q_ssr_intensity   = 0.8f;  bool q_ssr_hiz = false;
     i32   q_ibl_mode         = 1;     FVec3 q_ambient        = FVec3{ 0.26f, 0.28f, 0.33f };  // 0=flat 1=sh9 2=cubemap
     bool  q_bloom_on         = true;  f32  q_bloom_intensity = 0.50f; f32 q_bloom_threshold = 0.80f; f32 q_bloom_radius = 1.5f;
@@ -277,7 +322,9 @@ struct EditorHost {
     i32   q_tonemap          = 0;     bool q_auto_exposure   = false;  // 0=ACES 1=AgX 2=Reinhard / 自動露出(eye adaptation)
     bool  q_fog_on           = false; f32  q_fog_density     = 0.015f; f32 q_fog_height_falloff = 0.10f;  // 既定OFF (単一色ハイトフォグ。FogDensity>0 で有効)。非忠実な cubemap aerial-perspective ハックは撤去済
     i32   q_sky_mode         = 0;     // 0=FSky(グラデ+雲) / 1=FAtmosphere(物理大気散乱)。要 Diligent (IBL 経路)
-    f32   q_cloud_coverage   = 0.50f; f32 q_cloud_density = 1.6f; f32 q_cloud_wind = 1.0f;  // FSky 雲 (coverage=0 でオフ)
+    f32   q_cloud_coverage   = 0.50f; f32 q_cloud_density = 1.6f; f32 q_cloud_wind = 1.0f;
+    f32   q_cloud_render_scale = 0.75f;   // quality multiplier for the internal quarter-dimension trace policy
+    f32   q_cloud_base       = 1500.0f; f32 q_cloud_top = 4000.0f; f32 q_cloud_noise_scale = 0.035f; // world-space volumetric cloud layer
     f32   q_cas              = 0.3f;  bool q_taa_on          = false; u32 q_msaa_default = 4;
     FVec3 sun_dir            = FVec3{ 0.40f, 0.85f, -0.35f };   // 太陽 (光源) 方向 «光へ向かう» 向き。Rendering/SunAzimuth+Elevation で駆動。
     FVec3 sun_color          = FVec3{ 1.0f, 0.95f, 0.85f };     // 太陽の色 (Rendering/SunColor)。
@@ -286,19 +333,45 @@ struct EditorHost {
     FVec3 sky_horizon        = FVec3{ 0.62f, 0.70f, 0.80f };
     FVec3 sky_ground         = FVec3{ 0.20f, 0.19f, 0.21f };
 
-    // マテリアル GPU プレビュー: 実シェーダでサンプルを RT に描き readback する。
+    // マテリアル GPU プレビュー: production PBR は線形 HDR に描き、専用
+    // ACES + sRGB resolve で表示用 LDR に落とす。描画解像度と readback
+    // 解像度を分離し、UI の High/Production 品質では 2x/4x SSAA を行う。
     TUniquePtr<IRhiCommandList> preview_cl;            // 専用コマンドリスト (フレーム外で submit)
-    TUniquePtr<IRhiTexture>     preview_rt;            // オフスクリーン RT (ColorFormat)
+    TUniquePtr<IRhiTexture>     preview_rt;            // readback 用 LDR RT (ColorFormat)
+    TUniquePtr<IRhiTexture>     preview_work_ldr;      // Toon/Effect の supersample 作業 RT
+    TUniquePtr<IRhiTexture>     preview_hdr_rt;        // PBR/Substrate の線形 RGBA16F 作業 RT
+    TUniquePtr<IRhiTexture>     preview_depth;         // HDR 作業解像度の depth target
+    TUniquePtr<IRhiTexture>     preview_ibl_irradiance;// SH9 使用時の有効な cube binding
+    TUniquePtr<IRhiTexture>     preview_ibl_prefilter; // SH9 使用時の有効な cube binding
+    TUniquePtr<IRhiTexture>     preview_brdf_lut;      // studio specular split-sum LUT
     u32                         preview_rt_size = 0;
+    u32                         preview_ldr_work_size = 0;
+    u32                         preview_hdr_size = 0;
+    FPbrShader                  preview_pbr3d;         // main viewport state と分離した real PBR/Substrate preview
+    bool                        preview_pbr3d_ready = false;
+    TUniquePtr<IRhiShader>      preview_post_vs;
+    TUniquePtr<IRhiShader>      preview_background_ps;
+    TUniquePtr<IRhiShader>      preview_resolve_ps;
+    TUniquePtr<IRhiPipeline>    preview_background_pipe;
+    TUniquePtr<IRhiPipeline>    preview_resolve_pipe;
+    TUniquePtr<IRhiBuffer>      preview_post_cb;
+    bool                        preview_post_ready = false;
+    u32                         preview_quality = 1;   // 0=1x, 1=2x, 2=4x
+    u32                         preview_model = 0;     // 0=sphere, 1=cube, 2=plane
+    u32                         preview_background = 0;// 0=studio, 1=checker, 2=black
+    f32                         preview_exposure = 1.0f;
+    FGpuMesh                    preview_mesh_sphere;
+    FGpuMesh                    preview_mesh_cube;
+    FGpuMesh                    preview_mesh_plane;
     TUniquePtr<IRhiTexture>     preview_sphere_albedo; // 白い円 (alpha 付き、PBR 球の形)
     TUniquePtr<IRhiTexture>     preview_sphere_normal; // 球の法線マップ
     TUniquePtr<IRhiTexture>     preview_scene;         // 効果プレビュー用のミニ風景
     bool                        preview_samples_ready = false;
 
-    // 実シーングラフ: 隠しルート FNode2D がツリー全体を所有する。
-    TUniquePtr<game::FNode2D> root;
+    // 実シーングラフ: 隠しルート ANode がツリー全体を所有する。
+    TObjectPtr<game::ANode> root;
     // id→ノードの平坦レジストリ (非所有。所有はツリー側)。
-    TArray<FEditorNode*>      nodes;
+    TArray<AEditorNode*>      nodes;
     int          next_id       = 1;
     int          selected      = -1;      // primary (active) ノード。常に selection の一員、空なら -1。
     // 複数選択の集合。selected はこの中の「最後に触れた = primary」。invariant:
@@ -314,11 +387,11 @@ struct EditorHost {
     f32          cam_zoom  = 1.0f;
 
     // --- 3D ビューポート (Phase 1: 軌道カメラ + ライト付きプリミティブ + グリッド) ---
-    // 2D シーン (FNode2D) とは別系統。view3d=true でレンダ/入力が 3D に切り替わる。
+    // 2D シーン (ANode) とは別系統。view3d=true でレンダ/入力が 3D に切り替わる。
     bool         view3d        = false;
     bool         ortho3d       = false;  // true=正射影 (2D ビュー)。透視⇔正射を切り替え
     f32          cam3d_yaw     = 0.78f;   // 軌道 yaw (rad)
-    f32          cam3d_pitch   = 0.55f;   // 軌道 pitch (rad、+で見下ろし)
+    f32          cam3d_pitch   = 0.55f;  // 軌道 pitch (rad、+で見下ろし)
     f32          cam3d_dist    = 14.0f;   // 注視点からの距離 (ドリー)
     FVec3        cam3d_target  = FVec3{ 0.0f, 1.0f, 0.0f };
     // 3D メッシュの自前ライティングパイプライン (動的 VB + 非インデックス Draw、DebugDraw3D と同方式)。
@@ -353,15 +426,22 @@ struct EditorHost {
     u32                      ssao_w = 0, ssao_h = 0;
     bool                     ssao_computed = false;    // 今フレーム AO を焼いたか (main パスで SetSsao 判定)
     TUniquePtr<IRhiTexture>  normal_rt;                // 法線 G-buffer (RGBA16F world normal)
+    u32                      normal_w = 0, normal_h = 0;
     TUniquePtr<IRhiPipeline> normal_pipe;              // M3DVtx → world normal 出力
     TUniquePtr<IRhiShader>   normal_vs, normal_ps;
     TUniquePtr<IRhiBuffer>   normal_cb;                // b0: view_proj (プリパス専用・上書き回避)
     // SSR (画面空間反射)。SSAO と同じ法線+深度 G-buffer + 前フレーム scene color から反射を焼く。
     acs::FSsr                ssr3d;                    // エンジン SSR。出力は FPbrShader.SetSsr で roughness ブレンド
     bool                     ssr_ready = false;
+    u32                      ssr_w = 0, ssr_h = 0;
     bool                     ssr_computed = false;     // 今フレーム SSR を焼いたか (次フレームの SetSsr 用)
+    acs::FHiZ                hiz3d;                    // 偶奇 texture ping-pong の full mip min-depth pyramid
+    bool                     hiz3d_ready = false;
+    u32                      hiz3d_w = 0, hiz3d_h = 0;
     acs::FSsgi               ssgi3d;                   // エンジン SSGI (1 バウンス間接光)。出力は FPbrShader.SetSsgi で ambient に加算
     bool                     ssgi_ready = false;
+    u32                      ssgi_w = 0, ssgi_h = 0;
+    bool                     ssgi_init_tried = false;
     bool                     ssgi_computed = false;    // 今フレーム SSGI を焼いたか (次フレームの SetSsgi 用)
     // --- Phase 5 VXGI (voxel global illumination、色のにじみ): 三角形を radiance volume に voxelize →
     //     画面空間で cone trace して間接光を resolve → SSGI スロット (ssgi_color) に流す。compute (Phase 0)。
@@ -375,6 +455,7 @@ struct EditorHost {
     u32                      vxgi_rw = 0, vxgi_rh = 0;
     acs::FMotionVector       mv3d;                     // motion + world normal G-buffer。motion を TAA/SSR/SSGI へ供給 (動く物の ghost 除去)
     bool                     mv_ready = false;
+    u32                      mv_w = 0, mv_h = 0;
     bool                     mv_computed = false;      // 今フレーム motion を焼いたか
     // 屈折 (ガラス/水): opaque シーンを複製 (blit) → FRefractionShader が IOR で曲げて sample。要 env cubemap (Diligent)。
     acs::FRefractionShader   refr3d;
@@ -407,7 +488,7 @@ struct EditorHost {
     FMat4                    prev_vp_nojit = FMat4::Identity();  // 前フレーム view_proj (jitter 無し、TAA history reproject 用)
     u32                      taa_frame = 0;                // TAA Halton ジッタ列のフレームインデックス
     // IBL (鏡面+拡散 環境光)。FSky を env cubemap 化 → irradiance/prefilter/BRDF-LUT → FPbrShader.SetIbl。
-    acs::ImageBasedLighting  ibl3d;                    // Diligent backend 専用 (raw-DX12 は失敗 → SH9 フォールバック)
+    acs::FImageBasedLighting  ibl3d;                    // Diligent backend 専用 (raw-DX12 は失敗 → SH9 フォールバック)
     acs::FSkyAtmosphere      sky_atmo;                 // GPU Hillaire 大気 (compute LUT)。SkyMode==1 で CPU FAtmosphere を置換
     bool                     sky_atmo_tried = false;   // Init を一度試したか
     acs::FVolumetricClouds   vclouds3d;                // GPU レイマーチ volumetric clouds (Phase4)。FSky 2D 雲を置換
@@ -430,14 +511,16 @@ struct EditorHost {
     bool                     shadow_ready = false;
     FDebugDraw3D    dbg3d;                // グリッド/選択 AABB/ギズモの線
     bool         r3d_ready     = false;   // 3D リソース初期化済み
-    GpuMesh      gm_cube, gm_sphere, gm_plane;   // プリミティブ GPU メッシュ (将来 DrawIndexed 用)
+    u32          r3d_init_phase = 0;      // incremental startup phase
+    bool         r3d_init_failed = false;
+    FGpuMesh      gm_cube, gm_sphere, gm_plane;   // プリミティブ GPU メッシュ (将来 DrawIndexed 用)
     TSharedPtr<FMeshAsset> cpu_cube, cpu_sphere, cpu_plane;   // 動的 VB 展開元の CPU メッシュ
     int          sel3d         = -1;      // primary (active) 3D ノード id。常に sel3d_multi の一員、空なら -1。
     TArray<int>  sel3d_multi;             // 3D 選択集合 (multi-select。空 ⇔ sel3d==-1)
     int          next_id3d     = 1;
     int          clip3d        = -1;      // 3D コピー&ペースト用クリップボード (コピー元ノード id)
     bool         scene3d_seeded = false;  // 初回 3D 切替でデフォルトシーンを置いたか
-    game::FScene3D scene3d;               // 3D シーングラフ (各ノード = root の子 FNode3D + EEd3DRec)
+    game::FScene3D scene3d;               // 3D シーングラフ (各ノード = root の子 ANode + AEditor3DRecordComponent)
     TArray<FVec2> poly3d_pts;             // Ortho ポリゴン描画中の頂点 (XY, z=0 平面へ逆射影済み)
     // 3D ギズモのドラッグ状態。
     //   ハンドル: 0=非活性, 1=X, 2=Y, 3=Z 軸, 4=XY, 5=YZ, 6=XZ 平面。
@@ -534,7 +617,7 @@ struct EditorHost {
 };
 
 /** editor_id からノードを引く (無ければ nullptr)。 */
-FEditorNode* FindNode(EditorHost& h, int id) noexcept {
+AEditorNode* FindNode(FEditorHost& h, int id) noexcept {
     for (u32 i = 0; i < h.nodes.Size(); ++i) if (h.nodes[i]->editor_id == id) return h.nodes[i];
     return nullptr;
 }
@@ -542,26 +625,26 @@ FEditorNode* FindNode(EditorHost& h, int id) noexcept {
 // ----- 選択集合の操作 (single/multi 選択。primary = selected) ---------------------
 
 /** id が選択集合に含まれるか。 */
-bool SelContains(const EditorHost& h, int id) noexcept {
+bool SelContains(const FEditorHost& h, int id) noexcept {
     for (u32 i = 0; i < h.selection.Size(); ++i) if (h.selection[i] == id) return true;
     return false;
 }
 
 /** 選択を空にする。 */
-void SelClear(EditorHost& h) noexcept {
+void SelClear(FEditorHost& h) noexcept {
     h.selection.Clear();
     h.selected = -1;
 }
 
 /** 単一選択にする (集合を {id} に置換、primary=id)。id 不正/未知なら選択解除。 */
-void SelSet(EditorHost& h, int id) noexcept {
+void SelSet(FEditorHost& h, int id) noexcept {
     h.selection.Clear();
     if (id >= 0 && FindNode(h, id) != nullptr) { h.selection.PushBack(id); h.selected = id; }
     else h.selected = -1;
 }
 
 /** id の選択を反転する (Ctrl+click)。追加なら primary になり、primary を外したら別の一員へ移す。 */
-void SelToggle(EditorHost& h, int id) noexcept {
+void SelToggle(FEditorHost& h, int id) noexcept {
     if (id < 0 || FindNode(h, id) == nullptr) return;
     for (u32 i = 0; i < h.selection.Size(); ++i) {
         if (h.selection[i] == id) {                       // 既に選択 → 外す
@@ -576,7 +659,7 @@ void SelToggle(EditorHost& h, int id) noexcept {
 }
 
 /** 構造変更後、選択集合から消えた id を取り除き primary を整える。 */
-void SelPrune(EditorHost& h) noexcept {
+void SelPrune(FEditorHost& h) noexcept {
     for (u32 i = 0; i < h.selection.Size();) {
         if (FindNode(h, h.selection[i]) == nullptr) h.selection.RemoveAtSwap(i);
         else ++i;
@@ -598,25 +681,25 @@ bool IdInList(const TArray<int>& ids, int id) noexcept {
  * @details 複数選択での「選択ルート」判定に使う。祖先が一括操作 (move/duplicate) の対象なら
  * n はそれに従属するので、n 自身を独立に処理すると二重移動 / 二重複製になる。それを防ぐ。
  */
-bool AnyAncestorInList(EditorHost& h, const FEditorNode* n, const TArray<int>& ids) noexcept {
-    game::FNode2D* p = n->Parent();
+bool AnyAncestorInList(FEditorHost& h, const AEditorNode* n, const TArray<int>& ids) noexcept {
+    game::ANode* p = n->Parent();
     while (p != nullptr && p != h.root.Get()) {
-        if (IdInList(ids, static_cast<const FEditorNode*>(p)->editor_id)) return true;
+        if (IdInList(ids, static_cast<const AEditorNode*>(p)->editor_id)) return true;
         p = p->Parent();
     }
     return false;
 }
 
 /** ノードの「エディタ上の親 id」を返す (隠しルート直下 / 親なしは -1)。 */
-int ParentIdOf(const EditorHost& h, const FEditorNode* n) noexcept {
-    game::FNode2D* p = n->Parent();
+int ParentIdOf(const FEditorHost& h, const AEditorNode* n) noexcept {
+    game::ANode* p = n->Parent();
     if (p == nullptr || p == h.root.Get()) return -1;
-    return static_cast<const FEditorNode*>(p)->editor_id;
+    return static_cast<const AEditorNode*>(p)->editor_id;
 }
 
 /** ノードの sprite_path (UTF-8) を読み込んで GPU テクスチャを (再)生成する。
  *  device 未準備 (attach 前) や path 空なら tex を空にして戻る (描画時に再試行される)。 */
-void LoadNodeSprite(EditorHost& h, FEditorNode* n) noexcept {
+void LoadNodeSprite(FEditorHost& h, AEditorNode* n) noexcept {
     if (n == nullptr) return;
     n->sprite_tex.Reset();                                  // 既存を解放 (path 変更/クリア時)
     if (n->sprite_path[0] == '\0') return;
@@ -624,9 +707,9 @@ void LoadNodeSprite(EditorHost& h, FEditorNode* n) noexcept {
     if (dev == nullptr) return;                             // attach 前 → DrawScene で再試行
     wchar_t wpath[512];
     if (MultiByteToWideChar(kCpUtf8, 0, n->sprite_path, -1, wpath, 512) <= 0) return;
-    auto bytes = FileSystem::ReadAllBytes(wpath);
+    auto bytes = FFileSystem::ReadAllBytes(wpath);
     if (bytes.IsErr()) return;
-    ImageAssetLoader loader;
+    FImageAssetLoader loader;
     auto decoded = loader.LoadFromBytes(kInvalidAssetId, bytes.Value());
     if (decoded.IsErr()) return;
     auto asset = decoded.Value();                           // TSharedPtr を保持 (即解放を防ぐ)
@@ -640,7 +723,7 @@ void LoadNodeSprite(EditorHost& h, FEditorNode* n) noexcept {
 /** ノードの material_path (.acsmat) を解析して material キャッシュへ読み込む。
  *  path 空ならマテリアル無し (効果なし) に戻す。マテリアルエディタで再保存されたら
  *  acs_editor_node_reload_material で material_loaded を落として再解析させる。 */
-void LoadNodeMaterial(FEditorNode* n) noexcept {
+void LoadNodeMaterial(AEditorNode* n) noexcept {
     if (n == nullptr) return;
     n->material = game::FMaterial2D{};                      // 既定 (None) にリセット
     if (n->material_path[0] != '\0')
@@ -652,16 +735,16 @@ void LoadNodeMaterial(FEditorNode* n) noexcept {
 }
 
 /** UTF-8 パスから画像を GPU テクスチャ化して out へ入れる (失敗時は out を空に保つ)。 */
-static void LoadTexFromPath(EditorHost& h, const char* utf8_path, TUniquePtr<IRhiTexture>& out) noexcept {
+static void LoadTexFromPath(FEditorHost& h, const char* utf8_path, TUniquePtr<IRhiTexture>& out) noexcept {
     out.Reset();
     if (utf8_path == nullptr || utf8_path[0] == '\0') return;
     IRhiDevice* dev = h.renderer.Device();
     if (dev == nullptr) return;
     wchar_t wpath[512];
     if (MultiByteToWideChar(kCpUtf8, 0, utf8_path, -1, wpath, 512) <= 0) return;
-    auto bytes = FileSystem::ReadAllBytes(wpath);
+    auto bytes = FFileSystem::ReadAllBytes(wpath);
     if (bytes.IsErr()) return;
-    ImageAssetLoader loader;
+    FImageAssetLoader loader;
     auto decoded = loader.LoadFromBytes(kInvalidAssetId, bytes.Value());
     if (decoded.IsErr()) return;
     auto asset = decoded.Value();
@@ -673,7 +756,7 @@ static void LoadTexFromPath(EditorHost& h, const char* utf8_path, TUniquePtr<IRh
 }
 
 /** path から GPU テクスチャを生成し、画像寸法(px)も返す。失敗で空 + (0,0)。スプライト用。 */
-static TUniquePtr<IRhiTexture> LoadTexWithSize(EditorHost& h, const char* utf8_path, u32& outW, u32& outH) noexcept {
+static TUniquePtr<IRhiTexture> LoadTexWithSize(FEditorHost& h, const char* utf8_path, u32& outW, u32& outH) noexcept {
     outW = outH = 0;
     TUniquePtr<IRhiTexture> out;
     if (utf8_path == nullptr || utf8_path[0] == '\0') return out;
@@ -681,9 +764,9 @@ static TUniquePtr<IRhiTexture> LoadTexWithSize(EditorHost& h, const char* utf8_p
     if (dev == nullptr) return out;
     wchar_t wpath[512];
     if (MultiByteToWideChar(kCpUtf8, 0, utf8_path, -1, wpath, 512) <= 0) return out;
-    auto bytes = FileSystem::ReadAllBytes(wpath);
+    auto bytes = FFileSystem::ReadAllBytes(wpath);
     if (bytes.IsErr()) return out;
-    ImageAssetLoader loader;
+    FImageAssetLoader loader;
     auto decoded = loader.LoadFromBytes(kInvalidAssetId, bytes.Value());
     if (decoded.IsErr()) return out;
     auto asset = decoded.Value();
@@ -697,7 +780,7 @@ static TUniquePtr<IRhiTexture> LoadTexWithSize(EditorHost& h, const char* utf8_p
 }
 
 /** PBR マテリアルの法線マップ等を遅延ロードする (device 準備後・1 回)。 */
-void LoadNodeMaterialTextures(EditorHost& h, FEditorNode* n) noexcept {
+void LoadNodeMaterialTextures(FEditorHost& h, AEditorNode* n) noexcept {
     if (n == nullptr || n->mat_tex_loaded) return;
     if (n->material.kind == game::EMaterialKind::Lit) {
         LoadTexFromPath(h, n->material.pbr.normalPath, n->mat_normal_tex);
@@ -706,11 +789,11 @@ void LoadNodeMaterialTextures(EditorHost& h, FEditorNode* n) noexcept {
     n->mat_tex_loaded = true;
 }
 
-/** ノードに付いた FLight2DComponent の component slot を返す (無ければ -1)。 */
-static int LightComponentSlot(const FEditorNode* n) noexcept {
+/** ノードに付いた ALight2DComponent の component slot を返す (無ければ -1)。 */
+static int LightComponentSlot(const AEditorNode* n) noexcept {
     static game::FTypeId s_id = 0;
     if (s_id == 0) {
-        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName("FLight2DComponent");
+        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName("ALight2DComponent");
         if (d != nullptr) s_id = d->id;
     }
     if (s_id == 0) return -1;
@@ -719,11 +802,11 @@ static int LightComponentSlot(const FEditorNode* n) noexcept {
     return -1;
 }
 
-/** ノードに付いた FShadowCaster2DComponent の component slot を返す (無ければ -1)。 */
-static int ShadowCasterSlot(const FEditorNode* n) noexcept {
+/** ノードに付いた AShadowCaster2DComponent の component slot を返す (無ければ -1)。 */
+static int ShadowCasterSlot(const AEditorNode* n) noexcept {
     static game::FTypeId s_id = 0;
     if (s_id == 0) {
-        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName("FShadowCaster2DComponent");
+        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName("AShadowCaster2DComponent");
         if (d != nullptr) s_id = d->id;
     }
     if (s_id == 0) return -1;
@@ -732,41 +815,39 @@ static int ShadowCasterSlot(const FEditorNode* n) noexcept {
     return -1;
 }
 
-/** 実 FNode2D ノードを生成してツリー + レジストリに追加する (id / 全 transform 指定)。 */
-FEditorNode* CreateNode(EditorHost& h, int id, int parent_id, const char* nm,
+/** 実 ANode ノードを生成してツリー + レジストリに追加する (id / 全 transform 指定)。 */
+AEditorNode* CreateNode(FEditorHost& h, int id, int parent_id, const char* nm,
                         f32 x, f32 y, f32 rot, f32 sx, f32 sy, f32 base, FVec4 c) noexcept {
-    auto child = MakeUnique<FEditorNode>();
-    FEditorNode* p = child.Get();
+    auto child = NewObject<AEditorNode>();
+    AEditorNode* p = child.Get();
     p->editor_id = id;
-    p->_SetSerialId(id);   // FNode2D の SerialId = editor_id → ObjectRef を instantiate/tick で解決可
+    p->_SetSerialId(id);   // ANode の SerialId = editor_id → ObjectRef を instantiate/tick で解決可
     std::snprintf(p->name, sizeof(p->name), "%s", nm);
-    p->Local().position = FVec2{ x, y };
-    p->Local().rotation = rot;
-    p->Local().scale    = FVec2{ sx, sy };
+    p->SetLocal2D(game::FTransform2D{ FVec2{ x, y }, rot, FVec2{ sx, sy } });
     p->base  = base;
     p->color = c;
 
-    game::FNode2D* parent = (parent_id >= 0) ? static_cast<game::FNode2D*>(FindNode(h, parent_id)) : nullptr;
+    game::ANode* parent = (parent_id >= 0) ? static_cast<game::ANode*>(FindNode(h, parent_id)) : nullptr;
     if (parent == nullptr) parent = h.root.Get();
-    parent->AddChild(TUniquePtr<game::FNode2D>(child.Release(), child.GetAllocator()));
+    parent->AddChild(Move(child));
     h.nodes.PushBack(p);
     if (id >= h.next_id) h.next_id = id + 1;   // 明示 id でも採番カウンタを進める
     return p;
 }
 
 /** 自動採番でノードを追加する (scale=1)。 */
-FEditorNode* AddEditorNode(EditorHost& h, int parent_id, const char* nm,
+AEditorNode* AddEditorNode(FEditorHost& h, int parent_id, const char* nm,
                            f32 x, f32 y, f32 rot, f32 base, FVec4 c) noexcept {
     return CreateNode(h, h.next_id, parent_id, nm, x, y, rot, 1.0f, 1.0f, base, c);
 }
 
 /** コンポーネント slot のプロパティ値を、その型の反射スキーマ既定値で初期化する。 */
-void InitCompProps(FEditorNode* n, u32 slot) noexcept {
-    for (u32 p = 0; p < FEditorNode::kMaxProps; ++p)
+void InitCompProps(AEditorNode* n, u32 slot) noexcept {
+    for (u32 p = 0; p < AEditorNode::kMaxProps; ++p)
         for (u32 k = 0; k < 4; ++k) n->comp_props[slot][p][k] = 0.0f;
     const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(n->components[slot]);
     if (d == nullptr) return;
-    const u32 nf = d->field_count < FEditorNode::kMaxProps ? d->field_count : FEditorNode::kMaxProps;
+    const u32 nf = d->field_count < AEditorNode::kMaxProps ? d->field_count : AEditorNode::kMaxProps;
     for (u32 p = 0; p < nf; ++p)
         for (u32 k = 0; k < 4; ++k) n->comp_props[slot][p][k] = d->fields[p].defaults[k];
 }
@@ -776,13 +857,13 @@ void InitCompProps(FEditorNode* n, u32 slot) noexcept {
  *
  * @return アタッチ済み or 成功で true、未登録 / 非 Component カテゴリで false。
  */
-bool AttachComponent(FEditorNode* n, const char* type_name) noexcept {
+bool AttachComponent(AEditorNode* n, const char* type_name) noexcept {
     if (n == nullptr || type_name == nullptr) return false;
     game::AcsRegisterEngineTypes();
     const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName(type_name);
     if (d == nullptr || d->category != game::ETypeCategory::Component) return false;
     for (u32 i = 0; i < n->component_count; ++i) if (n->components[i] == d->id) return true; // 重複
-    if (n->component_count >= FEditorNode::kMaxComponents) return false;                      // 容量
+    if (n->component_count >= AEditorNode::kMaxComponents) return false;                      // 容量
     const u32 slot = n->component_count;
     n->components[slot] = d->id;
     InitCompProps(n, slot);                 // スキーマ既定値で値を初期化
@@ -791,8 +872,8 @@ bool AttachComponent(FEditorNode* n, const char* type_name) noexcept {
 }
 
 /** コンポーネント slot のプロパティ prop に 4 成分値を設定する (範囲外は無視)。 */
-void SetCompProp(FEditorNode* n, u32 slot, u32 prop, f32 x, f32 y, f32 z, f32 w) noexcept {
-    if (n == nullptr || slot >= n->component_count || prop >= FEditorNode::kMaxProps) return;
+void SetCompProp(AEditorNode* n, u32 slot, u32 prop, f32 x, f32 y, f32 z, f32 w) noexcept {
+    if (n == nullptr || slot >= n->component_count || prop >= AEditorNode::kMaxProps) return;
     n->comp_props[slot][prop][0] = x; n->comp_props[slot][prop][1] = y;
     n->comp_props[slot][prop][2] = z; n->comp_props[slot][prop][3] = w;
 }
@@ -800,7 +881,7 @@ void SetCompProp(FEditorNode* n, u32 slot, u32 prop, f32 x, f32 y, f32 z, f32 w)
 /** 型のスキーマで有効なプロパティ数 (= field_count を kMaxProps で頭打ち、未登録は 0)。 */
 u32 CompPropCount(const game::FTypeDesc* d) noexcept {
     if (d == nullptr) return 0u;
-    return d->field_count < FEditorNode::kMaxProps ? d->field_count : FEditorNode::kMaxProps;
+    return d->field_count < AEditorNode::kMaxProps ? d->field_count : AEditorNode::kMaxProps;
 }
 
 /** ノードの全コンポーネントの編集プロパティを CPROP 行として buf へ書き出す。新しい cur を返す。 */
@@ -825,14 +906,14 @@ int EmitVertLine(char* buf, int cur, int cap, const char* tag, int id,
 
 /** ノードのカスタムポリゴンを POLY(コライダー) + RPLY(描画用滑らか頂点) の各行で書く。新 cur を返す。
  *  EmitVertLine は count<3 を内部で弾くので、どちらか一方が退化していても残りは保存される。 */
-int EmitNodePoly(char* buf, int cur, int cap, const FEditorNode* n) noexcept {
+int EmitNodePoly(char* buf, int cur, int cap, const AEditorNode* n) noexcept {
     if (n->poly_count < 3 && n->render_count < 3) return cur;
     cur = EmitVertLine(buf, cur, cap, "POLY", n->editor_id, n->poly_verts, n->poly_count);
     cur = EmitVertLine(buf, cur, cap, "RPLY", n->editor_id, n->render_verts, n->render_count);
     return cur;
 }
 
-int EmitCompProps(char* buf, int cur, int cap, const FEditorNode* n) noexcept {
+int EmitCompProps(char* buf, int cur, int cap, const AEditorNode* n) noexcept {
     for (u32 c = 0; c < n->component_count && cur < cap; ++c) {
         const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(n->components[c]);
         const u32 nf = CompPropCount(d);
@@ -857,18 +938,18 @@ int EmitCompProps(char* buf, int cur, int cap, const FEditorNode* n) noexcept {
  * トップは名前末尾に " Copy" を付ける。各クローンは新しい editor_id を採番する。
  * @return クローンしたサブツリーの根。
  */
-FEditorNode* CloneSubtree(EditorHost& h, FEditorNode* src, int parent_id, bool top,
+AEditorNode* CloneSubtree(FEditorHost& h, AEditorNode* src, int parent_id, bool top,
                           TArray<int>* oldIds = nullptr, TArray<int>* newIds = nullptr) noexcept {
-    const game::FTransform2D t = src->Local();
+    const game::FTransform2D t = src->Local2D();
     char nm[64];
     std::snprintf(nm, sizeof(nm), top ? "%s Copy" : "%s", src->name);
-    FEditorNode* clone = CreateNode(h, h.next_id, parent_id, nm,
+    AEditorNode* clone = CreateNode(h, h.next_id, parent_id, nm,
                                     t.position.x, t.position.y, t.rotation, t.scale.x, t.scale.y,
                                     src->base, src->color);
     if (oldIds != nullptr && newIds != nullptr) { oldIds->PushBack(src->editor_id); newIds->PushBack(clone->editor_id); }
     clone->SetVisible(src->IsVisible());           // 表示フラグも複製
     clone->SetEnabled(src->IsEnabled());
-    clone->SetSortLayer(src->SortLayer());
+    clone->SetDrawLayer(src->DrawLayer());
     std::memcpy(clone->sprite_path, src->sprite_path, sizeof(clone->sprite_path));   // tex は描画時に遅延ロード
     std::memcpy(clone->prefab_src, src->prefab_src, sizeof(clone->prefab_src));      // プレハブリンクも複製
     std::memcpy(clone->material_path, src->material_path, sizeof(clone->material_path)); // material は描画時に遅延ロード
@@ -877,32 +958,32 @@ FEditorNode* CloneSubtree(EditorHost& h, FEditorNode* src, int parent_id, bool t
     clone->render_count = src->render_count;                                         // 滑らか描画頂点
     for (u32 rv = 0; rv < src->render_count; ++rv) clone->render_verts[rv] = src->render_verts[rv];
     // コンポーネント記述子 + 編集プロパティ値をコピー。
-    for (u32 i = 0; i < src->component_count && clone->component_count < FEditorNode::kMaxComponents; ++i) {
+    for (u32 i = 0; i < src->component_count && clone->component_count < AEditorNode::kMaxComponents; ++i) {
         const u32 slot = clone->component_count;
         clone->components[slot] = src->components[i];
-        for (u32 p = 0; p < FEditorNode::kMaxProps; ++p)
+        for (u32 p = 0; p < AEditorNode::kMaxProps; ++p)
             for (u32 k = 0; k < 4; ++k) clone->comp_props[slot][p][k] = src->comp_props[i][p][k];
         ++clone->component_count;
     }
     // 子を再帰複製 (src の子配列は不変なので走査安全)。
     for (u32 i = 0; i < src->ChildCount(); ++i)
-        CloneSubtree(h, static_cast<FEditorNode*>(src->Child(i)), clone->editor_id, false, oldIds, newIds);
+        CloneSubtree(h, static_cast<AEditorNode*>(src->Child(i)), clone->editor_id, false, oldIds, newIds);
     return clone;
 }
 
 /** 複製した subtree 内の ObjectRef プロパティ値を old→new id で再マップする (subtree 内参照のみ)。 */
-void RemapClonedObjectRefs(EditorHost& h, const TArray<int>& oldIds, const TArray<int>& newIds) noexcept {
+void RemapClonedObjectRefs(FEditorHost& h, const TArray<int>& oldIds, const TArray<int>& newIds) noexcept {
     auto Map = [&](int o) -> int {
         for (u32 i = 0; i < oldIds.Size(); ++i) if (oldIds[i] == o) return newIds[i];
         return -1;
     };
     for (u32 n = 0; n < newIds.Size(); ++n) {
-        FEditorNode* node = FindNode(h, newIds[n]);
+        AEditorNode* node = FindNode(h, newIds[n]);
         if (node == nullptr) continue;
         for (u32 slot = 0; slot < node->component_count; ++slot) {
             const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(node->components[slot]);
             if (d == nullptr) continue;
-            const u32 nf = (d->field_count < FEditorNode::kMaxProps) ? d->field_count : FEditorNode::kMaxProps;
+            const u32 nf = (d->field_count < AEditorNode::kMaxProps) ? d->field_count : AEditorNode::kMaxProps;
             for (u32 prop = 0; prop < nf; ++prop) {
                 if (d->fields[prop].kind != game::EFieldKind::ObjectRef) continue;
                 const int rm = Map(static_cast<int>(node->comp_props[slot][prop][0]));
@@ -913,45 +994,45 @@ void RemapClonedObjectRefs(EditorHost& h, const TArray<int>& oldIds, const TArra
 }
 
 /** シーンを空に戻す (隠しルートだけの状態)。 */
-void ClearScene(EditorHost& h) noexcept {
+void ClearScene(FEditorHost& h) noexcept {
     h.nodes.Clear();                           // 先にレジストリを空に (dangling 回避)
-    h.root     = MakeUnique<game::FNode2D>();  // 旧ツリーは再代入で解放
+    h.root     = NewObject<game::ANode>();  // 旧ツリーは再代入で解放
     h.next_id  = 1;
     SelClear(h);
 }
 
 /** node 配下を DFS で平坦レジストリへ積む (親が子より先 = save 順を保つ)。 */
-void CollectNodes(EditorHost& h, game::FNode2D* node) noexcept {
+void CollectNodes(FEditorHost& h, game::ANode* node) noexcept {
     for (u32 i = 0; i < node->ChildCount(); ++i) {
-        game::FNode2D* c = node->Child(i);
-        h.nodes.PushBack(static_cast<FEditorNode*>(c));
+        game::ANode* c = node->Child(i);
+        h.nodes.PushBack(static_cast<AEditorNode*>(c));
         CollectNodes(h, c);
     }
 }
 
 /** 構造変更 (削除 / 付け替え) の後にツリーから平坦レジストリを作り直す。 */
-void RebuildRegistry(EditorHost& h) noexcept {
+void RebuildRegistry(FEditorHost& h) noexcept {
     h.nodes.Clear();
     if (h.root.Get() != nullptr) CollectNodes(h, h.root.Get());
     // 構造変更で消えた選択を集合から取り除き、primary を整える。
     SelPrune(h);
 }
 
-/** デモ用のエディタ・シーンを構築する (実 FNode2D の親子ツリー)。 */
-void InitDemoScene(EditorHost& h) noexcept {
-    h.root    = MakeUnique<game::FNode2D>();   // 隠しルート (identity transform)
+/** デモ用のエディタ・シーンを構築する (実 ANode の親子ツリー)。 */
+void InitDemoScene(FEditorHost& h) noexcept {
+    h.root    = NewObject<game::ANode>();   // 隠しルート (identity transform)
     h.next_id = 1;
-    FEditorNode* player   = AddEditorNode(h, -1, "Player",   320.0f, 230.0f, 0.0f, 56.0f, FVec4{ 0.18f, 0.62f, 0.80f, 1.0f });
-    FEditorNode* sprite   = AddEditorNode(h,  1, "Sprite",    52.0f,   0.0f, 0.0f, 30.0f, FVec4{ 0.86f, 0.56f, 0.30f, 1.0f });
-    FEditorNode* collider = AddEditorNode(h,  1, "Collider", -38.0f,  24.0f, 0.0f, 26.0f, FVec4{ 0.45f, 0.80f, 0.45f, 1.0f });
-    FEditorNode* enemy    = AddEditorNode(h, -1, "Enemy",    520.0f, 150.0f, 0.5f, 48.0f, FVec4{ 0.86f, 0.36f, 0.42f, 1.0f });
-    FEditorNode* pickup   = AddEditorNode(h, -1, "Pickup",   180.0f, 330.0f, 0.0f, 24.0f, FVec4{ 0.82f, 0.76f, 0.32f, 1.0f });
-    // 描画はコンポーネント駆動。各ノードに FPrimitiveRenderer2D を付ける (Pickup は円)。
-    AttachComponent(player,   "FPrimitiveRenderer2D");
-    AttachComponent(sprite,   "FPrimitiveRenderer2D");
-    AttachComponent(collider, "FPrimitiveRenderer2D");
-    AttachComponent(enemy,    "FPrimitiveRenderer2D");
-    AttachComponent(pickup,   "FPrimitiveRenderer2D");
+    AEditorNode* player   = AddEditorNode(h, -1, "Player",   320.0f, 230.0f, 0.0f, 56.0f, FVec4{ 0.18f, 0.62f, 0.80f, 1.0f });
+    AEditorNode* sprite   = AddEditorNode(h,  1, "Sprite",    52.0f,   0.0f, 0.0f, 30.0f, FVec4{ 0.86f, 0.56f, 0.30f, 1.0f });
+    AEditorNode* collider = AddEditorNode(h,  1, "Collider", -38.0f,  24.0f, 0.0f, 26.0f, FVec4{ 0.45f, 0.80f, 0.45f, 1.0f });
+    AEditorNode* enemy    = AddEditorNode(h, -1, "Enemy",    520.0f, 150.0f, 0.5f, 48.0f, FVec4{ 0.86f, 0.36f, 0.42f, 1.0f });
+    AEditorNode* pickup   = AddEditorNode(h, -1, "Pickup",   180.0f, 330.0f, 0.0f, 24.0f, FVec4{ 0.82f, 0.76f, 0.32f, 1.0f });
+    // 描画はコンポーネント駆動。各ノードに APrimitiveRenderer2D を付ける (Pickup は円)。
+    AttachComponent(player,   "APrimitiveRenderer2D");
+    AttachComponent(sprite,   "APrimitiveRenderer2D");
+    AttachComponent(collider, "APrimitiveRenderer2D");
+    AttachComponent(enemy,    "APrimitiveRenderer2D");
+    AttachComponent(pickup,   "APrimitiveRenderer2D");
     SetCompProp(pickup, 0, 0, 1.0f, 0.0f, 0.0f, 0.0f);   // Pickup の renderer.shape = 1 (Circle)
     SelSet(h, 1);
 }
@@ -967,9 +1048,9 @@ void InitDemoScene(EditorHost& h) noexcept {
  * ノード行は «ツリーを DFS» して親が子より先に並ぶよう出力する (host.nodes の平坦順は
  * reparent 後に親子が前後し得るため、それに依存しない)。読込はこの順前提で親を先に解決する。
  */
-int EmitNodeLine(char* buf, int cur, int cap, const EditorHost& h, const FEditorNode* n) noexcept {
+int EmitNodeLine(char* buf, int cur, int cap, const FEditorHost& h, const AEditorNode* n) noexcept {
     if (cur >= cap) return cur;
-    const game::FTransform2D& t = n->Local();
+    const game::FTransform2D t = n->Local2D();
     const int pid = ParentIdOf(h, n);
     cur += std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
         "%d %d %.4f %.4f %.4f %.4f %.4f %.2f %.3f %.3f %.3f %.3f %s\n",
@@ -979,17 +1060,17 @@ int EmitNodeLine(char* buf, int cur, int cap, const EditorHost& h, const FEditor
 }
 
 // ツリーを DFS して «親→子» の順にノード行を出力する (reparent 後でも読込が親を先に解決できる)。
-int EmitNodeTreeDFS(char* buf, int cur, int cap, const EditorHost& h, const game::FNode2D* node) noexcept {
+int EmitNodeTreeDFS(char* buf, int cur, int cap, const FEditorHost& h, const game::ANode* node) noexcept {
     for (u32 i = 0; i < node->ChildCount() && cur < cap; ++i) {
-        const game::FNode2D* c = node->Child(i);
+        const game::ANode* c = node->Child(i);
         if (c == nullptr) continue;
-        cur = EmitNodeLine(buf, cur, cap, h, static_cast<const FEditorNode*>(c));
+        cur = EmitNodeLine(buf, cur, cap, h, static_cast<const AEditorNode*>(c));
         cur = EmitNodeTreeDFS(buf, cur, cap, h, c);
     }
     return cur;
 }
 
-const char* SerializeScene(EditorHost& h) noexcept {
+const char* SerializeScene(FEditorHost& h) noexcept {
     char* buf = h.scene_text;
     const int cap = static_cast<int>(sizeof(h.scene_text));
     int cur = std::snprintf(buf, static_cast<size_t>(cap), "ACSCENE v1\n%u\n",
@@ -997,7 +1078,7 @@ const char* SerializeScene(EditorHost& h) noexcept {
     cur = EmitNodeTreeDFS(buf, cur, cap, h, h.root.Get());
     // コンポーネント記述子 (ノードごと COMP <editor_id> <type_name>)。
     for (u32 i = 0; i < h.nodes.Size() && cur < cap; ++i) {
-        const FEditorNode* n = h.nodes[i];
+        const AEditorNode* n = h.nodes[i];
         for (u32 cmp = 0; cmp < n->component_count && cur < cap; ++cmp) {
             const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(n->components[cmp]);
             if (d != nullptr && d->name != nullptr)
@@ -1011,18 +1092,18 @@ const char* SerializeScene(EditorHost& h) noexcept {
     // ノードフラグ (非既定のみ): NFLG <id> <visible> <enabled> <sortLayer>。
     // 既定 (visible=1,enabled=1,layer=0) は省略 → 後方互換 (旧ファイルは全既定扱い)。
     for (u32 i = 0; i < h.nodes.Size() && cur < cap; ++i) {
-        const FEditorNode* n = h.nodes[i];
-        if (!n->IsVisible() || !n->IsEnabled() || n->SortLayer() != 0) {
+        const AEditorNode* n = h.nodes[i];
+        if (!n->IsVisible() || !n->IsEnabled() || n->DrawLayer() != 0) {
             const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
                 "NFLG %d %d %d %d\n", n->editor_id,
-                n->IsVisible() ? 1 : 0, n->IsEnabled() ? 1 : 0, n->SortLayer());
+                n->IsVisible() ? 1 : 0, n->IsEnabled() ? 1 : 0, n->DrawLayer());
             if (w < 0 || w >= cap - cur) { buf[cap - 1] = '\0'; return buf; }
             cur += w;
         }
     }
     // スプライト画像パス (設定済みのみ): SPRT <id> <utf8_path> (path は行末まで)。
     for (u32 i = 0; i < h.nodes.Size() && cur < cap; ++i) {
-        const FEditorNode* n = h.nodes[i];
+        const AEditorNode* n = h.nodes[i];
         if (n->sprite_path[0] != '\0') {
             const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
                                         "SPRT %d %s\n", n->editor_id, n->sprite_path);
@@ -1032,7 +1113,7 @@ const char* SerializeScene(EditorHost& h) noexcept {
     }
     // プレハブリンク (インスタンスのみ): PFAB <id> <utf8_path>。
     for (u32 i = 0; i < h.nodes.Size() && cur < cap; ++i) {
-        const FEditorNode* n = h.nodes[i];
+        const AEditorNode* n = h.nodes[i];
         if (n->prefab_src[0] != '\0') {
             const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
                                         "PFAB %d %s\n", n->editor_id, n->prefab_src);
@@ -1042,7 +1123,7 @@ const char* SerializeScene(EditorHost& h) noexcept {
     }
     // 使用マテリアル (.acsmat パス): MAT <id> <utf8_path> (path は行末まで)。
     for (u32 i = 0; i < h.nodes.Size() && cur < cap; ++i) {
-        const FEditorNode* n = h.nodes[i];
+        const AEditorNode* n = h.nodes[i];
         if (n->material_path[0] != '\0') {
             const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
                                         "MAT %d %s\n", n->editor_id, n->material_path);
@@ -1073,7 +1154,7 @@ const char* SerializeScene(EditorHost& h) noexcept {
 }
 
 /** SerializeScene のテキストからシーンを復元する (成功 1 / 失敗 0)。 */
-int LoadSceneText(EditorHost& h, const char* text) noexcept {
+int LoadSceneText(FEditorHost& h, const char* text) noexcept {
     if (text == nullptr) return 0;
 
     const char* p = text;
@@ -1117,9 +1198,9 @@ int LoadSceneText(EditorHost& h, const char* text) noexcept {
     bool reparented = false;
     for (u32 i = 0; i < load_id.Size(); ++i) {
         if (load_parent[i] < 0) continue;
-        FEditorNode* node = FindNode(h, load_id[i]);
-        FEditorNode* par  = FindNode(h, load_parent[i]);
-        if (node != nullptr && par != nullptr && node->Parent() != static_cast<game::FNode2D*>(par)) {
+        AEditorNode* node = FindNode(h, load_id[i]);
+        AEditorNode* par  = FindNode(h, load_parent[i]);
+        if (node != nullptr && par != nullptr && node->Parent() != static_cast<game::ANode*>(par)) {
             node->Reparent(*par); reparented = true;
         }
     }
@@ -1153,8 +1234,8 @@ int LoadSceneText(EditorHost& h, const char* text) noexcept {
         if (std::strncmp(line, "NFLG ", 5) == 0) {        // NFLG <id> <visible> <enabled> <sortLayer>
             int nid = 0, vis = 1, ena = 1, layer = 0;
             if (std::sscanf(line, "NFLG %d %d %d %d", &nid, &vis, &ena, &layer) >= 2) {
-                FEditorNode* n = FindNode(h, nid);
-                if (n != nullptr) { n->SetVisible(vis != 0); n->SetEnabled(ena != 0); n->SetSortLayer(layer); }
+                AEditorNode* n = FindNode(h, nid);
+                if (n != nullptr) { n->SetVisible(vis != 0); n->SetEnabled(ena != 0); n->SetDrawLayer(layer); }
             }
             continue;
         }
@@ -1163,7 +1244,7 @@ int LoadSceneText(EditorHost& h, const char* text) noexcept {
             if (std::sscanf(line, "SPRT %d %n", &nid, &consumed) >= 1) {
                 const char* path = line + consumed;
                 while (*path == ' ') ++path;
-                FEditorNode* n = FindNode(h, nid);
+                AEditorNode* n = FindNode(h, nid);
                 if (n != nullptr) {
                     std::snprintf(n->sprite_path, sizeof(n->sprite_path), "%s", path);
                     LoadNodeSprite(h, n);                 // device 未準備なら DrawScene で再試行
@@ -1176,7 +1257,7 @@ int LoadSceneText(EditorHost& h, const char* text) noexcept {
             if (std::sscanf(line, "PFAB %d %n", &nid, &consumed) >= 1) {
                 const char* path = line + consumed;
                 while (*path == ' ') ++path;
-                FEditorNode* n = FindNode(h, nid);
+                AEditorNode* n = FindNode(h, nid);
                 if (n != nullptr) std::snprintf(n->prefab_src, sizeof(n->prefab_src), "%s", path);
             }
             continue;
@@ -1186,7 +1267,7 @@ int LoadSceneText(EditorHost& h, const char* text) noexcept {
             if (std::sscanf(line, "MAT %d %n", &nid, &consumed) >= 1) {
                 const char* path = line + consumed;
                 while (*path == ' ') ++path;
-                FEditorNode* n = FindNode(h, nid);
+                AEditorNode* n = FindNode(h, nid);
                 if (n != nullptr) {
                     std::snprintf(n->material_path, sizeof(n->material_path), "%s", path);
                     LoadNodeMaterial(n);
@@ -1197,7 +1278,7 @@ int LoadSceneText(EditorHost& h, const char* text) noexcept {
         if (std::strncmp(line, "POLY ", 5) == 0) {        // POLY <id> <count> <x0> <y0> ...
             int nid = 0, pc = 0, consumed = 0;
             if (std::sscanf(line, "POLY %d %d %n", &nid, &pc, &consumed) >= 2) {
-                FEditorNode* n = FindNode(h, nid);
+                AEditorNode* n = FindNode(h, nid);
                 if (n != nullptr && pc >= 3) {
                     if (pc > static_cast<int>(game::kMaxPolyVerts)) pc = static_cast<int>(game::kMaxPolyVerts);
                     const char* q = line + consumed;
@@ -1214,9 +1295,9 @@ int LoadSceneText(EditorHost& h, const char* text) noexcept {
         if (std::strncmp(line, "RPLY ", 5) == 0) {        // RPLY <id> <count> <x0> <y0> ... (描画用滑らか頂点)
             int nid = 0, pc = 0, consumed = 0;
             if (std::sscanf(line, "RPLY %d %d %n", &nid, &pc, &consumed) >= 2) {
-                FEditorNode* n = FindNode(h, nid);
+                AEditorNode* n = FindNode(h, nid);
                 if (n != nullptr && pc >= 3) {
-                    if (pc > static_cast<int>(FEditorNode::kMaxRenderVerts)) pc = static_cast<int>(FEditorNode::kMaxRenderVerts);
+                    if (pc > static_cast<int>(AEditorNode::kMaxRenderVerts)) pc = static_cast<int>(AEditorNode::kMaxRenderVerts);
                     const char* q = line + consumed;
                     n->render_count = 0;
                     for (int k = 0; k < pc; ++k) {
@@ -1253,22 +1334,22 @@ int LoadSceneText(EditorHost& h, const char* text) noexcept {
 // ----- Copy / Paste (サブツリーのシリアライズ + id 再マップ) -----
 
 /** node とその子孫を DFS で out へ集める (親が子より先)。 */
-void CollectSubtree(FEditorNode* n, TArray<FEditorNode*>& out) noexcept {
+void CollectSubtree(AEditorNode* n, TArray<AEditorNode*>& out) noexcept {
     out.PushBack(n);
     for (u32 i = 0; i < n->ChildCount(); ++i)
-        CollectSubtree(static_cast<FEditorNode*>(n->Child(i)), out);
+        CollectSubtree(static_cast<AEditorNode*>(n->Child(i)), out);
 }
 
 /** root の subtree を scene_text へシリアライズして返す (root の親は -1、シーン全体と同じ行形式)。 */
-const char* SerializeSubtree(EditorHost& h, FEditorNode* root) noexcept {
-    TArray<FEditorNode*> sub;
+const char* SerializeSubtree(FEditorHost& h, AEditorNode* root) noexcept {
+    TArray<AEditorNode*> sub;
     CollectSubtree(root, sub);
     char* buf = h.scene_text;
     const int cap = static_cast<int>(sizeof(h.scene_text));
     int cur = std::snprintf(buf, static_cast<size_t>(cap), "ACSCENE v1\n%u\n", static_cast<u32>(sub.Size()));
     for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {
-        const FEditorNode* n = sub[i];
-        const game::FTransform2D& t = n->Local();
+        const AEditorNode* n = sub[i];
+        const game::FTransform2D t = n->Local2D();
         const int pid = (n == root) ? -1 : ParentIdOf(h, n);
         const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
             "%d %d %.4f %.4f %.4f %.4f %.4f %.2f %.3f %.3f %.3f %.3f %s\n",
@@ -1278,7 +1359,7 @@ const char* SerializeSubtree(EditorHost& h, FEditorNode* root) noexcept {
         cur += w;
     }
     for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {
-        const FEditorNode* n = sub[i];
+        const AEditorNode* n = sub[i];
         for (u32 c = 0; c < n->component_count && cur < cap; ++c) {
             const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(n->components[c]);
             if (d != nullptr && d->name != nullptr) {
@@ -1292,17 +1373,17 @@ const char* SerializeSubtree(EditorHost& h, FEditorNode* root) noexcept {
         cur = EmitCompProps(buf, cur, cap, sub[i]);
     // ノードフラグ (非既定のみ)。
     for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {
-        const FEditorNode* n = sub[i];
-        if (!n->IsVisible() || !n->IsEnabled() || n->SortLayer() != 0) {
+        const AEditorNode* n = sub[i];
+        if (!n->IsVisible() || !n->IsEnabled() || n->DrawLayer() != 0) {
             const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur), "NFLG %d %d %d %d\n",
-                n->editor_id, n->IsVisible() ? 1 : 0, n->IsEnabled() ? 1 : 0, n->SortLayer());
+                n->editor_id, n->IsVisible() ? 1 : 0, n->IsEnabled() ? 1 : 0, n->DrawLayer());
             if (w < 0 || w >= cap - cur) { buf[cap - 1] = '\0'; return buf; }
             cur += w;
         }
     }
     // スプライト画像パス。
     for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {
-        const FEditorNode* n = sub[i];
+        const AEditorNode* n = sub[i];
         if (n->sprite_path[0] != '\0') {
             const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
                                         "SPRT %d %s\n", n->editor_id, n->sprite_path);
@@ -1311,7 +1392,7 @@ const char* SerializeSubtree(EditorHost& h, FEditorNode* root) noexcept {
         }
     }
     for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {   // プレハブリンク (copy/paste で維持)
-        const FEditorNode* n = sub[i];
+        const AEditorNode* n = sub[i];
         if (n->prefab_src[0] != '\0') {
             const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
                                         "PFAB %d %s\n", n->editor_id, n->prefab_src);
@@ -1320,7 +1401,7 @@ const char* SerializeSubtree(EditorHost& h, FEditorNode* root) noexcept {
         }
     }
     for (u32 i = 0; i < sub.Size() && cur < cap; ++i) {   // 使用マテリアル
-        const FEditorNode* n = sub[i];
+        const AEditorNode* n = sub[i];
         if (n->material_path[0] != '\0') {
             const int w = std::snprintf(buf + cur, static_cast<size_t>(cap - cur),
                                         "MAT %d %s\n", n->editor_id, n->material_path);
@@ -1335,7 +1416,7 @@ const char* SerializeSubtree(EditorHost& h, FEditorNode* root) noexcept {
 }
 
 /** subtree テキストを target_parent 配下へ貼り付ける (id を新規採番、内部の親子は再マップ)。新根 id / 失敗 -1。 */
-int PasteSubtree(EditorHost& h, const char* text, int target_parent) noexcept {
+int PasteSubtree(FEditorHost& h, const char* text, int target_parent) noexcept {
     if (text == nullptr) return -1;
     const char* p = text;
     char line[2048];   // RPLY (滑らか頂点 最大64) が 1 行に収まる長さ
@@ -1383,7 +1464,7 @@ int PasteSubtree(EditorHost& h, const char* text, int target_parent) noexcept {
             if (std::sscanf(line, "CPROP %d %u %u %f %f %f %f", &onid, &slot, &prop, &a, &b, &c, &e) >= 3) {
                 const int nn = MapId(onid);
                 if (nn >= 0) {
-                    FEditorNode* node = FindNode(h, nn);
+                    AEditorNode* node = FindNode(h, nn);
                     float v0 = a;
                     // ObjectRef プロパティは subtree 内を指す参照だけ new id へ付け替える
                     // (外部を指す参照は元のまま = prefab 内部リンクが複製後も保たれる)。
@@ -1404,8 +1485,8 @@ int PasteSubtree(EditorHost& h, const char* text, int target_parent) noexcept {
             int onid = 0, vis = 1, ena = 1, layer = 0;
             if (std::sscanf(line, "NFLG %d %d %d %d", &onid, &vis, &ena, &layer) >= 2) {
                 const int nn = MapId(onid);
-                FEditorNode* node = (nn >= 0) ? FindNode(h, nn) : nullptr;
-                if (node != nullptr) { node->SetVisible(vis != 0); node->SetEnabled(ena != 0); node->SetSortLayer(layer); }
+                AEditorNode* node = (nn >= 0) ? FindNode(h, nn) : nullptr;
+                if (node != nullptr) { node->SetVisible(vis != 0); node->SetEnabled(ena != 0); node->SetDrawLayer(layer); }
             }
             continue;
         }
@@ -1415,7 +1496,7 @@ int PasteSubtree(EditorHost& h, const char* text, int target_parent) noexcept {
                 const char* path = line + consumed;
                 while (*path == ' ') ++path;
                 const int nn = MapId(onid);
-                FEditorNode* node = (nn >= 0) ? FindNode(h, nn) : nullptr;
+                AEditorNode* node = (nn >= 0) ? FindNode(h, nn) : nullptr;
                 if (node != nullptr) {
                     std::snprintf(node->sprite_path, sizeof(node->sprite_path), "%s", path);
                     LoadNodeSprite(h, node);
@@ -1429,7 +1510,7 @@ int PasteSubtree(EditorHost& h, const char* text, int target_parent) noexcept {
                 const char* path = line + consumed;
                 while (*path == ' ') ++path;
                 const int nn = MapId(onid);
-                FEditorNode* node = (nn >= 0) ? FindNode(h, nn) : nullptr;
+                AEditorNode* node = (nn >= 0) ? FindNode(h, nn) : nullptr;
                 if (node != nullptr) std::snprintf(node->prefab_src, sizeof(node->prefab_src), "%s", path);
             }
             continue;
@@ -1440,7 +1521,7 @@ int PasteSubtree(EditorHost& h, const char* text, int target_parent) noexcept {
                 const char* path = line + consumed;
                 while (*path == ' ') ++path;
                 const int nn = MapId(onid);
-                FEditorNode* node = (nn >= 0) ? FindNode(h, nn) : nullptr;
+                AEditorNode* node = (nn >= 0) ? FindNode(h, nn) : nullptr;
                 if (node != nullptr) {
                     std::snprintf(node->material_path, sizeof(node->material_path), "%s", path);
                     LoadNodeMaterial(node);
@@ -1452,7 +1533,7 @@ int PasteSubtree(EditorHost& h, const char* text, int target_parent) noexcept {
             int onid = 0, pc = 0, consumed = 0;
             if (std::sscanf(line, "POLY %d %d %n", &onid, &pc, &consumed) >= 2) {
                 const int nn = MapId(onid);
-                FEditorNode* node = (nn >= 0) ? FindNode(h, nn) : nullptr;
+                AEditorNode* node = (nn >= 0) ? FindNode(h, nn) : nullptr;
                 if (node != nullptr && pc >= 3) {
                     if (pc > static_cast<int>(game::kMaxPolyVerts)) pc = static_cast<int>(game::kMaxPolyVerts);
                     const char* q = line + consumed;
@@ -1470,9 +1551,9 @@ int PasteSubtree(EditorHost& h, const char* text, int target_parent) noexcept {
             int onid = 0, pc = 0, consumed = 0;
             if (std::sscanf(line, "RPLY %d %d %n", &onid, &pc, &consumed) >= 2) {
                 const int nn = MapId(onid);
-                FEditorNode* node = (nn >= 0) ? FindNode(h, nn) : nullptr;
+                AEditorNode* node = (nn >= 0) ? FindNode(h, nn) : nullptr;
                 if (node != nullptr && pc >= 3) {
-                    if (pc > static_cast<int>(FEditorNode::kMaxRenderVerts)) pc = static_cast<int>(FEditorNode::kMaxRenderVerts);
+                    if (pc > static_cast<int>(AEditorNode::kMaxRenderVerts)) pc = static_cast<int>(AEditorNode::kMaxRenderVerts);
                     const char* q = line + consumed;
                     node->render_count = 0;
                     for (int k = 0; k < pc; ++k) {
@@ -1506,17 +1587,33 @@ ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text);
 /** 現在のシーン (2D + 3D) をシリアライズして heap コピーを返す。
  *  形式 = «ACSSNAP3D <2D byte 長>\n» + «2D ACSCENE» + «3D ACS3D»。長さ前置なので 2D 本文に何が入っても誤分割しない
  *  (区切り文字探索だとノード名等に同じ文字列が来ると壊れる)。所有は呼び出し側、失敗 nullptr。 */
-char* DupSnapshot(EditorHost& h) noexcept {
+char* DupSnapshot(FEditorHost& h) noexcept {
     const char* s2d = SerializeScene(h);                   // h.scene_text (2D, 最大 64KB)
     const size_t l2d = std::strlen(s2d);
     char hdr[48];
     const int lh = std::snprintf(hdr, sizeof(hdr), "ACSSNAP3D %d\n", static_cast<int>(l2d));
     if (lh <= 0) return nullptr;
-    constexpr size_t kTmp3D = 256 * 1024;                                            // 3D 直列化の一時 (大きめ→実長で確保し直す)
-    char* tmp3d = new (std::nothrow) char[kTmp3D];
-    if (tmp3d == nullptr) return nullptr;
-    acs_editor_scene3d_serialize(&h, tmp3d, static_cast<int>(kTmp3D));
-    const size_t l3d = std::strlen(tmp3d);
+    constexpr int kInitial3DCapacity = 64 * 1024;
+    constexpr int kMaximum3DCapacity = 256 * 1024 * 1024;
+    int capacity3d = kInitial3DCapacity;
+    int written3d = 0;
+    char* tmp3d = nullptr;
+    for (;;) {
+        tmp3d = new (std::nothrow) char[static_cast<size_t>(capacity3d)];
+        if (tmp3d == nullptr) return nullptr;
+        written3d = acs_editor_scene3d_serialize(&h, tmp3d, capacity3d);
+        if (written3d > 0 && written3d < capacity3d) break;
+        delete[] tmp3d;
+        tmp3d = nullptr;
+        if (written3d <= 0 || capacity3d >= kMaximum3DCapacity) return nullptr;
+        const int doubled = capacity3d <= kMaximum3DCapacity / 2
+            ? capacity3d * 2
+            : kMaximum3DCapacity;
+        const int required = written3d < kMaximum3DCapacity ? written3d + 1
+                                                            : kMaximum3DCapacity;
+        capacity3d = std::max(doubled, required);
+    }
+    const size_t l3d = static_cast<size_t>(written3d);
     char* copy = new (std::nothrow) char[static_cast<size_t>(lh) + l2d + l3d + 1];   // 実サイズで確保 (固定 64KB の無駄/切詰を回避)
     if (copy == nullptr) { delete[] tmp3d; return nullptr; }
     std::memcpy(copy, hdr, static_cast<size_t>(lh));                                 // ヘッダ (2D 長)
@@ -1528,7 +1625,7 @@ char* DupSnapshot(EditorHost& h) noexcept {
 
 /** DupSnapshot のテキストから 2D + 3D を復元する。ヘッダが無ければ旧形式 (2D のみ) とみなす。
  *  text は破壊的に «2D 部» を終端して分割する (呼び出し側はこの後 text を解放する想定)。 */
-void RestoreSnapshot(EditorHost& h, char* text) noexcept {
+void RestoreSnapshot(FEditorHost& h, char* text) noexcept {
     if (text == nullptr) return;
     int l2d = 0, consumed = 0;
     if (std::strncmp(text, "ACSSNAP3D ", 10) != 0 ||
@@ -1556,7 +1653,7 @@ void ClearStack(TArray<char*>& st) noexcept {
 
 /** 変更操作の直前に呼ぶ: 現在状態を undo に積み、redo を破棄する。
  *  連続編集中 (suppress_undo) は積まない → ドラッグ 1 回が undo 1 ステップになる。 */
-void PushUndo(EditorHost& h) noexcept {
+void PushUndo(FEditorHost& h) noexcept {
     if (h.suppress_undo) return;
     char* snap = DupSnapshot(h);
     if (snap == nullptr) return;
@@ -1571,10 +1668,10 @@ void PushUndo(EditorHost& h) noexcept {
 }
 
 // world↔screen 変換 (DrawScene/PickNode/gizmo で共有)。
-f32 W2SX(const EditorHost& h, f32 wx) noexcept { return wx * h.cam_zoom + h.cam_pan_x; }
-f32 W2SY(const EditorHost& h, f32 wy) noexcept { return wy * h.cam_zoom + h.cam_pan_y; }
-f32 S2WX(const EditorHost& h, f32 sx) noexcept { return (h.cam_zoom != 0.0f) ? (sx - h.cam_pan_x) / h.cam_zoom : 0.0f; }
-f32 S2WY(const EditorHost& h, f32 sy) noexcept { return (h.cam_zoom != 0.0f) ? (sy - h.cam_pan_y) / h.cam_zoom : 0.0f; }
+f32 W2SX(const FEditorHost& h, f32 wx) noexcept { return wx * h.cam_zoom + h.cam_pan_x; }
+f32 W2SY(const FEditorHost& h, f32 wy) noexcept { return wy * h.cam_zoom + h.cam_pan_y; }
+f32 S2WX(const FEditorHost& h, f32 sx) noexcept { return (h.cam_zoom != 0.0f) ? (sx - h.cam_pan_x) / h.cam_zoom : 0.0f; }
+f32 S2WY(const FEditorHost& h, f32 sy) noexcept { return (h.cam_zoom != 0.0f) ? (sy - h.cam_pan_y) / h.cam_zoom : 0.0f; }
 
 /** v を step の最も近い倍数に丸める (step<=0 はそのまま)。 */
 f32 SnapTo(f32 v, f32 step) noexcept { return (step > 0.0f) ? std::round(v / step) * step : v; }
@@ -1582,11 +1679,11 @@ f32 SnapTo(f32 v, f32 step) noexcept { return (step > 0.0f) ? std::round(v / ste
 constexpr f32 kGizmoLen = 64.0f;   // ハンドルの画面長 (固定サイズ)
 
 /** 選択ノードのギズモ中心 (screen)。選択無しは false。 */
-bool GizmoCenter(EditorHost& h, f32& cx, f32& cy) noexcept {
+bool GizmoCenter(FEditorHost& h, f32& cx, f32& cy) noexcept {
     if (h.selected < 0) return false;
-    const FEditorNode* n = FindNode(h, h.selected);
+    const AEditorNode* n = FindNode(h, h.selected);
     if (n == nullptr) return false;
-    const game::FTransform2D w = n->World();
+    const game::FTransform2D w = n->World2D();
     cx = W2SX(h, w.position.x);
     cy = W2SY(h, w.position.y);
     return true;
@@ -1602,7 +1699,7 @@ constexpr f32 kScaleC  = 40.0f;   // uniform スケールハンドルのコー�
  *   scale: 1=X / 2=Y / 3=uniform(コーナー)
  * 0=ハンドル外。
  */
-int GizmoHit(EditorHost& h, f32 sx, f32 sy) noexcept {
+int GizmoHit(FEditorHost& h, f32 sx, f32 sy) noexcept {
     f32 cx, cy;
     if (!GizmoCenter(h, cx, cy)) return 0;
 
@@ -1624,26 +1721,26 @@ int GizmoHit(EditorHost& h, f32 sx, f32 sy) noexcept {
 }
 
 /** ノードの world 位置を設定する (親の逆変換で local に落とす)。 */
-void SetNodeWorldPosition(EditorHost& h, FEditorNode* n, f32 wx, f32 wy) noexcept {
-    game::FNode2D* parent = n->Parent();
+void SetNodeWorldPosition(FEditorHost& h, AEditorNode* n, f32 wx, f32 wy) noexcept {
+    game::ANode* parent = n->Parent();
     if (parent == nullptr || parent == h.root.Get()) {     // 親が root → local==world
-        n->Local().position = FVec2{ wx, wy };
+        n->SetPosition2D(FVec2{ wx, wy });
         return;
     }
-    const game::FTransform2D pw = parent->World();
+    const game::FTransform2D pw = parent->World2D();
     const f32 dx = wx - pw.position.x, dy = wy - pw.position.y;
     const f32 c = std::cos(-pw.rotation), s = std::sin(-pw.rotation);   // 親回転を打ち消す
     const f32 rx = dx * c - dy * s;
     const f32 ry = dx * s + dy * c;
-    n->Local().position = FVec2{ (pw.scale.x != 0.0f) ? rx / pw.scale.x : rx,
-                                 (pw.scale.y != 0.0f) ? ry / pw.scale.y : ry };
+    n->SetPosition2D(FVec2{ (pw.scale.x != 0.0f) ? rx / pw.scale.x : rx,
+                            (pw.scale.y != 0.0f) ? ry / pw.scale.y : ry });
 }
 
-/** ノードの FPrimitiveRenderer2D の shape (0=Box,1=Circle,2=Triangle) を返す (無ければ -1)。 */
-int PrimitiveShape(const FEditorNode* n) noexcept {
+/** ノードの APrimitiveRenderer2D の shape (0=Box,1=Circle,2=Triangle) を返す (無ければ -1)。 */
+int PrimitiveShape(const AEditorNode* n) noexcept {
     static game::FTypeId s_prId = 0;
     if (s_prId == 0) {
-        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName("FPrimitiveRenderer2D");
+        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName("APrimitiveRenderer2D");
         if (d != nullptr) s_prId = d->id;
     }
     if (s_prId == 0) return -1;
@@ -1705,7 +1802,7 @@ f32 PolyCross2(FVec2 o, FVec2 a, FVec2 b) noexcept {
 /** pts[n] の凸包を Andrew monotone chain で求め、maxOut を超える分は最も平坦な頂点から間引く。
  *  out[≤maxOut] に CCW 順で書き、頂点数を返す。コライダー (poly_verts) 用。 */
 u32 ConvexHullDecimated(const FVec2* pts, u32 n, FVec2* out, u32 maxOut) noexcept {
-    constexpr u32 kCap = FEditorNode::kMaxRenderVerts;
+    constexpr u32 kCap = AEditorNode::kMaxRenderVerts;
     if (n > kCap) n = kCap;
     if (n < 3 || maxOut == 0) { u32 k = (n < maxOut) ? n : maxOut; for (u32 i = 0; i < k; ++i) out[i] = pts[i]; return k; }
     FVec2 p[kCap];
@@ -1741,14 +1838,14 @@ u32 ConvexHullDecimated(const FVec2* pts, u32 n, FVec2* out, u32 maxOut) noexcep
 
 /** ノードのカスタムポリゴンを world→screen 変換して三角ファンで塗る。
  *  滑らかな render_verts があればそれを、無ければコライダー poly_verts を使う。 */
-void DrawNodePolygon(EditorHost& h, FSpriteBatch& sb, const FEditorNode* n,
+void DrawNodePolygon(FEditorHost& h, FSpriteBatch& sb, const AEditorNode* n,
                      const game::FTransform2D& w, FVec4 col) noexcept {
     const FVec2* verts; u32 vc;
     if (n->render_count >= 3)    { verts = n->render_verts; vc = n->render_count; }
     else if (n->poly_count >= 3) { verts = n->poly_verts;   vc = n->poly_count; }
     else return;
     const f32 c = std::cos(w.rotation), s = std::sin(w.rotation);
-    FVec2 sv[FEditorNode::kMaxRenderVerts];
+    FVec2 sv[AEditorNode::kMaxRenderVerts];
     f32 ccx = 0.0f, ccy = 0.0f;
     for (u32 i = 0; i < vc; ++i) {
         const f32 lx = verts[i].x * w.scale.x, ly = verts[i].y * w.scale.y;
@@ -1764,7 +1861,7 @@ void DrawNodePolygon(EditorHost& h, FSpriteBatch& sb, const FEditorNode* n,
 }
 
 /** シーンを 2D で描画する (カメラ適用: screen = world*zoom + pan)。 */
-void DrawScene(EditorHost& h, FSpriteBatch& sb, u32 w, u32 hh) noexcept {
+void DrawScene(FEditorHost& h, FSpriteBatch& sb, u32 w, u32 hh) noexcept {
     const f32 fw = static_cast<f32>(w);
     const f32 fh = static_cast<f32>(hh);
     const f32 z  = h.cam_zoom;
@@ -1793,11 +1890,11 @@ void DrawScene(EditorHost& h, FSpriteBatch& sb, u32 w, u32 hh) noexcept {
 
     // 親子のリンク線 (world を screen に変換してから結ぶ)。
     for (u32 i = 0; chrome && i < h.nodes.Size(); ++i) {
-        FEditorNode* n = h.nodes[i];
-        game::FNode2D* parent = n->Parent();
+        AEditorNode* n = h.nodes[i];
+        game::ANode* parent = n->Parent();
         if (parent == nullptr || parent == h.root.Get()) continue;
-        const game::FTransform2D cw = n->World();
-        const game::FTransform2D pw = parent->World();
+        const game::FTransform2D cw = n->World2D();
+        const game::FTransform2D pw = parent->World2D();
         const f32 cx = SX(cw.position.x), cy = SY(cw.position.y);
         const f32 ppx = SX(pw.position.x), ppy = SY(pw.position.y);
         const f32 dx = ppx - cx, dy = ppy - cy;
@@ -1811,9 +1908,9 @@ void DrawScene(EditorHost& h, FSpriteBatch& sb, u32 w, u32 hh) noexcept {
 
     // 選択ハイライト (選択集合の各ノード背後に枠)。primary は明るい黄、その他は淡い黄。
     for (u32 i = 0; chrome && i < h.selection.Size(); ++i) {
-        const FEditorNode* sn = FindNode(h, h.selection[i]);
+        const AEditorNode* sn = FindNode(h, h.selection[i]);
         if (sn == nullptr) continue;
-        const game::FTransform2D w = sn->World();
+        const game::FTransform2D w = sn->World2D();
         const bool primary = (h.selection[i] == h.selected);
         const FVec4 col = primary ? FVec4{ 1.0f, 0.84f, 0.30f, 1.0f }    // primary: 明るい黄
                                   : FVec4{ 0.70f, 0.62f, 0.28f, 1.0f };  // その他: 淡い黄
@@ -1830,15 +1927,15 @@ void DrawScene(EditorHost& h, FSpriteBatch& sb, u32 w, u32 hh) noexcept {
         }
     }
 
-    // 2D 点光源を収集する (FLight2DComponent を持つノード)。lit (PBR) マテリアルの陰影付け用。
+    // 2D 点光源を収集する (ALight2DComponent を持つノード)。lit (PBR) マテリアルの陰影付け用。
     // 位置/半径は screen px (DrawScene はノードを screen 空間に描くため)。
     FSpriteLight lights[16];
     u32 lightCount = 0;
     for (u32 i = 0; i < h.nodes.Size() && lightCount < 16; ++i) {
-        const FEditorNode* n = h.nodes[i];
+        const AEditorNode* n = h.nodes[i];
         const int ls = LightComponentSlot(n);
         if (ls < 0 || !n->IsVisible()) continue;
-        const game::FTransform2D lw = n->World();
+        const game::FTransform2D lw = n->World2D();
         FSpriteLight& L = lights[lightCount++];
         L.pos       = FVec2{ SX(lw.position.x), SY(lw.position.y) };
         L.radius    = n->comp_props[ls][0][0] * z;                       // radius (world) → screen px
@@ -1849,17 +1946,17 @@ void DrawScene(EditorHost& h, FSpriteBatch& sb, u32 w, u32 hh) noexcept {
                                   L.dir, L.coneInner, L.coneOuter);       // angle/cone → dir/cos
         if (L.radius < 1.0f) L.radius = 256.0f * z;                      // 未設定ガード
     }
-    // 影オクルーダーを収集する (FShadowCaster2DComponent を持つノードのシルエットを円近似)。
+    // 影オクルーダーを収集する (AShadowCaster2DComponent を持つノードのシルエットを円近似)。
     // occNodeIdx[k] = オクルーダー k の元ノードの配列番号 (自己影スキップ用に描画側で逆引き)。
     FSpriteOccluder occluders[16];
     u32 occCount = 0;
     int occNodeIdx[16];
     bool occSelfShadow[16];          // 自己影あり (m_SelfShadow=1) のオクルーダーはスキップ番号を渡さない
     for (u32 i = 0; i < h.nodes.Size() && occCount < 16; ++i) {
-        const FEditorNode* n = h.nodes[i];
+        const AEditorNode* n = h.nodes[i];
         const int cs = ShadowCasterSlot(n);
         if (cs < 0 || !n->IsVisible()) continue;
-        const game::FTransform2D ow = n->World();
+        const game::FTransform2D ow = n->World2D();
         occNodeIdx[occCount] = static_cast<int>(i);
         occSelfShadow[occCount] = (n->comp_props[cs][2][0] > 0.5f);   // m_SelfShadow (行2)
         FSpriteOccluder& O = occluders[occCount++];
@@ -1910,9 +2007,9 @@ void DrawScene(EditorHost& h, FSpriteBatch& sb, u32 w, u32 hh) noexcept {
     // ノード本体。スプライト画像があればそれを、無ければ色付き矩形を描く。
     // 非可視ノードはゴースト表示 (alpha を落として「隠し」を見せつつ選択可能に保つ)。
     for (u32 i = 0; i < h.nodes.Size(); ++i) {
-        FEditorNode* n = h.nodes[i];
+        AEditorNode* n = h.nodes[i];
         if (h.game_view && !n->IsVisible()) continue;   // ゲームでは非可視ノードは出さない (ゴースト無し)
-        const game::FTransform2D w = n->World();
+        const game::FTransform2D w = n->World2D();
         const f32 cx = SX(w.position.x), cy = SY(w.position.y);
         const f32 dw = n->base * w.scale.x * z, dh = n->base * w.scale.y * z;
         const f32 alpha = n->IsVisible() ? 1.0f : 0.25f;
@@ -1945,7 +2042,7 @@ void DrawScene(EditorHost& h, FSpriteBatch& sb, u32 w, u32 hh) noexcept {
             fx = game::ApplyMaterial(sb, n->material, h.time);   // 効果プリセット (None なら false)
             if (!fx && lightCount > 0 && (n->sprite_tex.Get() != nullptr || prShape >= 0)) {
                 // ライトのあるシーンではマテリアル無しノードも既定 Lit で陰影付けする
-                // (影の中のノードが無灯火のまま明るく浮くのを防ぐ。Node2D::DrawTree と同じ規律)。
+                // (影の中のノードが無灯火のまま明るく浮くのを防ぐ。ANode::DrawTree と同じ規律)。
                 // エディタ用ギズモ (レンダラー無し) は対象外。
                 FLitMaterialParams lm;
                 lm.roughness = 0.85f;
@@ -1972,7 +2069,7 @@ void DrawScene(EditorHost& h, FSpriteBatch& sb, u32 w, u32 hh) noexcept {
                 DrawNodePolygon(h, sb, n, w, col);
             } else if (prShape >= 0) {                        // プリミティブレンダラー → 形状を描く
                 FVec4 col = n->color; col.w *= alpha;
-                game::FPrimitiveRenderer2D::DrawShape(sb, prShape, cx, cy, dw, dh, w.rotation, col);
+                game::APrimitiveRenderer2D::DrawShape(sb, prShape, cx, cy, dw, dh, w.rotation, col);
             } else if (chrome) {                              // レンダラー無し → 薄いエディタ用ギズモ (ゲームでは出さない)
                 DrawEmptyGizmo(sb, cx, cy, alpha);
             }
@@ -2035,7 +2132,7 @@ void DrawScene(EditorHost& h, FSpriteBatch& sb, u32 w, u32 hh) noexcept {
         const FVec4 line{ 0.42f, 0.88f, 0.52f, 0.95f };
         const FVec4 dot{ 0.96f, 0.92f, 0.45f, 1.0f };
         u32 np = h.poly_points.Size();
-        constexpr u32 kRV = FEditorNode::kMaxRenderVerts;
+        constexpr u32 kRV = AEditorNode::kMaxRenderVerts;
         if (np >= 3) {                                            // 確定後と同じ滑らかな閉曲線をプレビュー
             if (np > kRV) np = kRV;
             FVec2 anchors[kRV];
@@ -2075,13 +2172,13 @@ void DrawScene(EditorHost& h, FSpriteBatch& sb, u32 w, u32 hh) noexcept {
  * は world 単位 (base*scale*0.5) を使う。
  * @return ヒットしたノードの editor_id、無ければ -1。
  */
-int PickNode(const EditorHost& h, f32 screen_x, f32 screen_y) noexcept {
+int PickNode(const FEditorHost& h, f32 screen_x, f32 screen_y) noexcept {
     if (h.cam_zoom == 0.0f) return -1;
     const f32 wx = (screen_x - h.cam_pan_x) / h.cam_zoom;
     const f32 wy = (screen_y - h.cam_pan_y) / h.cam_zoom;
     for (int i = static_cast<int>(h.nodes.Size()) - 1; i >= 0; --i) {   // topmost first
-        const FEditorNode* n = h.nodes[static_cast<u32>(i)];
-        const game::FTransform2D w = n->World();
+        const AEditorNode* n = h.nodes[static_cast<u32>(i)];
+        const game::FTransform2D w = n->World2D();
         const f32 hw = n->base * w.scale.x * 0.5f;
         const f32 hgt = n->base * w.scale.y * 0.5f;
         if (hw <= 0.0f || hgt <= 0.0f) continue;
@@ -2098,11 +2195,11 @@ int PickNode(const EditorHost& h, f32 screen_x, f32 screen_y) noexcept {
 // エンジンログをエディタの C# コンソールへ橋渡しする SPSC リング。
 // producer = FLogger の writer スレッド (EditorLogSink 経由)、consumer = C# UI の poll。
 namespace {
-struct LogRing {
+struct FLogRing {
     static constexpr unsigned N   = 512;    // 2 のべき乗
     static constexpr int      MSG = 240;
-    struct Item { int sev; char msg[MSG]; };
-    Item                  items[N];
+    struct FItem { int sev; char msg[MSG]; };
+    FItem                  items[N];
     std::atomic<unsigned> head{0};   // consumer (poll)
     std::atomic<unsigned> tail{0};   // producer (writer thread)
 
@@ -2110,7 +2207,7 @@ struct LogRing {
         const unsigned t = tail.load(std::memory_order_relaxed);
         const unsigned h = head.load(std::memory_order_acquire);
         if (t - h >= N) return;      // 満杯 → 破棄 (UI が追いつくまで古い順に欠落)
-        Item& it = items[t & (N - 1)];
+        FItem& it = items[t & (N - 1)];
         it.sev = sev;
         int i = 0;
         for (; m != nullptr && m[i] != '\0' && i < MSG - 1; ++i) it.msg[i] = m[i];
@@ -2121,7 +2218,7 @@ struct LogRing {
         const unsigned h = head.load(std::memory_order_relaxed);
         const unsigned t = tail.load(std::memory_order_acquire);
         if (h == t) return false;
-        Item& it = items[h & (N - 1)];
+        FItem& it = items[h & (N - 1)];
         sev = it.sev;
         int i = 0;
         for (; it.msg[i] != '\0' && i < cap - 1; ++i) out[i] = it.msg[i];
@@ -2130,14 +2227,14 @@ struct LogRing {
         return true;
     }
 };
-LogRing g_log_ring;
+FLogRing g_log_ring;
 void EditorLogSink(acs::ELogSeverity sev, const char* msg) noexcept {
     g_log_ring.push(static_cast<int>(sev), msg);
 }
 } // namespace
 
 /** エディタホスト間で共有する基盤の所有権と参照数。 */
-struct EditorSubsystemState {
+struct FEditorSubsystemState {
     u32 host_count = 0;
     bool ready = false;
     bool closing = false;
@@ -2147,16 +2244,16 @@ struct EditorSubsystemState {
     bool thread_pool_owned = false;
 };
 
-EditorSubsystemState g_subsystems;
+FEditorSubsystemState g_subsystems;
 std::atomic_flag g_subsystems_lock = ATOMIC_FLAG_INIT;
 
 /** create/destroy の基盤遷移を直列化する短時間ロック。 */
-struct EditorSubsystemGuard {
-    EditorSubsystemGuard() noexcept
+struct FEditorSubsystemGuard {
+    FEditorSubsystemGuard() noexcept
     {
         while (g_subsystems_lock.test_and_set(std::memory_order_acquire)) {}
     }
-    ~EditorSubsystemGuard() noexcept
+    ~FEditorSubsystemGuard() noexcept
     {
         g_subsystems_lock.clear(std::memory_order_release);
     }
@@ -2165,7 +2262,7 @@ struct EditorSubsystemGuard {
 /** ロガー/メモリ/スレッドプールを初回ホスト用に起動し、参照を 1 件取得する。 */
 bool EnsureSubsystems() noexcept
 {
-    EditorSubsystemGuard guard;
+    FEditorSubsystemGuard guard;
     if (g_subsystems.closing) return false;
     if (g_subsystems.ready) {
         ++g_subsystems.host_count;
@@ -2189,7 +2286,7 @@ bool EnsureSubsystems() noexcept
         if (result.IsErr() && FMemorySystem::Get(ESegment::Default) == nullptr) {
             if (g_subsystems.logger_sink_owned) FLogger::SetSink(nullptr);
             if (g_subsystems.logger_owned) FLogger::Shutdown();
-            g_subsystems = EditorSubsystemState{};
+            g_subsystems = FEditorSubsystemState{};
             return false;
         }
         g_subsystems.memory_owned = result.IsOk();
@@ -2201,7 +2298,7 @@ bool EnsureSubsystems() noexcept
             if (g_subsystems.memory_owned) FMemorySystem::Shutdown();
             if (g_subsystems.logger_sink_owned) FLogger::SetSink(nullptr);
             if (g_subsystems.logger_owned) FLogger::Shutdown();
-            g_subsystems = EditorSubsystemState{};
+            g_subsystems = FEditorSubsystemState{};
             return false;
         }
         g_subsystems.thread_pool_owned = result.IsOk();
@@ -2223,7 +2320,7 @@ void ReleaseSubsystems() noexcept
     bool memory_owned = false;
     bool thread_pool_owned = false;
     {
-        EditorSubsystemGuard guard;
+        FEditorSubsystemGuard guard;
         if (!g_subsystems.ready || g_subsystems.host_count == 0) return;
         if (--g_subsystems.host_count != 0) return;
         // 時間のかかる join/flush 中はロックを保持しない。closing 中の新規 create は失敗させる。
@@ -2244,8 +2341,8 @@ void ReleaseSubsystems() noexcept
         FLogger::Shutdown();
     }
     {
-        EditorSubsystemGuard guard;
-        g_subsystems = EditorSubsystemState{};
+        FEditorSubsystemGuard guard;
+        g_subsystems = FEditorSubsystemState{};
     }
 }
 
@@ -2277,7 +2374,7 @@ const char* CategoryLabel(acs::game::ETypeCategory cat) noexcept {
 // =============================================================================
 
 /** 3D 描画リソース (シェーダ / デバッグ線 / プリミティブメッシュ) を遅延初期化する。 */
-// 3D メッシュの自前ライティング HLSL。GpuMesh の DrawIndexed はエディタ深度面コンテキストで
+// 3D メッシュの自前ライティング HLSL。FGpuMesh の DrawIndexed はエディタ深度面コンテキストで
 // 描画が出ないため、DebugDraw3D と同じ «動的 VB + 非インデックス Draw» 方式を採る。頂点は既に
 // ワールド座標 + 法線 + 色 (CPU で展開済み) なので model 行列は不要。
 // 物理ベース (Cook-Torrance) BRDF: GGX 法線分布 + Smith 幾何 + Fresnel-Schlick。
@@ -2377,8 +2474,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-struct M3DFrame { FMat4 view_proj; FVec4 light_dir; FVec4 light_col; FVec4 cam_pos; FVec4 sky_zenith, sky_horizon, sky_ground; FMat4 light_vp; };
-struct M3DVtx   { f32 px, py, pz, nx, ny, nz, r, g, b, mt, rg; };   // 座標+法線+色 + metallic/roughness (44 bytes)
+struct FM3DFrame { FMat4 view_proj; FVec4 light_dir; FVec4 light_col; FVec4 cam_pos; FVec4 sky_zenith, sky_horizon, sky_ground; FMat4 light_vp; };
+struct FM3DVtx   { f32 px, py, pz, nx, ny, nz, r, g, b, mt, rg; };   // 座標+法線+色 + metallic/roughness (44 bytes)
 
 // 法線 G-buffer プリパス: M3DVtx (既に world 座標+法線) を world normal として RGBA16F に出す。
 // FSsao が GTAO の slice 計算に world normal を要求する (depth 微分法線はブロック状になるため)。
@@ -2413,7 +2510,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     return c;                                // テクスチャは sRGB 値そのまま (UNORM RT へ)
 }
 )";
-struct SprVtx { f32 px, py, pz, u, v; };    // ワールド座標 + UV (20 bytes)
+struct FSprVtx { f32 px, py, pz, u, v; };    // ワールド座標 + UV (20 bytes)
 
 // フルスクリーン複製: opaque HDR シーンを refr_bg へコピー (屈折オブジェクトが背景として sample)。
 // 頂点バッファ不要 (SV_VertexID の大三角形)、深度オフ。
@@ -2430,16 +2527,16 @@ VSOut VSMain(uint id : SV_VertexID) {
 float4 PSMain(VSOut v) : SV_TARGET { return srcTex.Sample(srcTex_sampler, v.uv); }
 )";
 
-// 被写界深度 (DoF): depth から view-z を線形化 → 焦点距離との差で CoC → ディスクぼかし (1 リング 16 タップ)。
-// scene 複製 (t0) + depth (t1) を sample。フルスクリーン・深度オフ。
+// 被写界深度 (DoF): signed CoC と画素単位 Vogel disk を使う gather blur。
+// 深度/CoC の不連続を拒否して前景・背景の色漏れを抑え、画面端は反復 sample せず正規化する。
 const char* kDof3DHLSL = R"(
 Texture2D    sceneTex         : register(t0);
 SamplerState sceneTex_sampler : register(s0);
 Texture2D    depthTex         : register(t1);
 SamplerState depthTex_sampler : register(s1);
 cbuffer DOFCB : register(b0) {
-    float4 dofp;   // x=focus_dist(view z), y=focus_range, z=max_blur(uv 半径), w=near
-    float4 dofp2;  // x=far
+    float4 dofp;   // x=focus_dist(view z), y=focus_range, z=max_blur(px), w=near
+    float4 dofp2;  // x=far, yz=texel size, w=orthographic
 };
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 VSOut VSMain(uint id : SV_VertexID) {
@@ -2448,46 +2545,77 @@ VSOut VSMain(uint id : SV_VertexID) {
     o.pos = float4(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), 0.0, 1.0);
     return o;
 }
-float Linearize(float ndc, float nearZ, float farZ) {
-    return (nearZ * farZ) / max(farZ - ndc * (farZ - nearZ), 1e-4);   // LH [0,1] depth → view z
+float Linearize(float ndc, float nearZ, float farZ, float ortho) {
+    float perspectiveZ = (nearZ * farZ) / max(farZ - ndc * (farZ - nearZ), 1e-4);
+    float orthoZ = lerp(nearZ, farZ, ndc);
+    return lerp(perspectiveZ, orthoZ, saturate(ortho));
 }
-float CoCAt(float2 uv, float nearZ, float farZ) {
+float ViewZAt(float2 uv, float nearZ, float farZ) {
     float ndc = depthTex.Sample(depthTex_sampler, uv).r;
-    float viewZ = Linearize(ndc, nearZ, farZ);
-    return saturate(abs(viewZ - dofp.x) / max(dofp.y, 1e-3));         // 0=焦点 .. 1=最大ぼけ
+    return Linearize(ndc, nearZ, farZ, dofp2.w);
+}
+float SignedCoC(float viewZ) {
+    return clamp((viewZ - dofp.x) / max(dofp.y, 1e-3), -1.0, 1.0);
+}
+float InsideViewport(float2 uv) {
+    return step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
 }
 float4 PSMain(VSOut v) : SV_TARGET {
     float nearZ = dofp.w, farZ = dofp2.x;
-    float centerCoC = CoCAt(v.uv, nearZ, farZ);
-    float radius = centerCoC * dofp.z;
+    float centerZ = ViewZAt(v.uv, nearZ, farZ);
+    float centerCoC = SignedCoC(centerZ);
+    float radiusPx = abs(centerCoC) * max(dofp.z, 0.0);
     float3 center = sceneTex.Sample(sceneTex_sampler, v.uv).rgb;
-    if (radius < 0.0006) return float4(center, 1.0);                  // ほぼ合焦 → ボケ無しで return
-    // Vogel ディスク (golden-angle スパイラル) で «円板全体» を均一密度サンプル。
-    // 単一リングだと輪っか状ボケになるが、これは中まで埋まった滑らかな bokeh になる。
-    // 各サンプルを «自身の CoC» で重み付け → ピント面の前景が背景ボケへ滲むのを抑制。
-    const int N = 24;
-    const float GA = 2.39996323;     // golden angle (rad)
-    float3 sum = center; float wsum = 1.0;
-    [unroll] for (int i = 0; i < N; ++i) {
-        float r = sqrt((float(i) + 0.5) / float(N)) * radius;        // sqrt → 円板の面積均一分布
+    if (radiusPx < 0.5) return float4(center, 1.0);
+
+    // Vogel disk は «画素» で円形に作り、最後に texel size で UV へ変換する。
+    // これにより解像度とアスペクト比が変わっても bokeh が楕円化しない。
+    const int N = 32;
+    const float GA = 2.39996323;
+    float3 sum = center * 1.5;
+    float wsum = 1.5;
+    float depthTolerance = max(0.035, centerZ * 0.018);
+    // Keep the fixed 32-tap quality budget, but leave the loop rolled. Forcing
+    // the compiler to clone this depth-aware gather made warm-up block the owner
+    // thread without changing the samples or their accumulation order.
+    [loop] for (int i = 0; i < N; ++i) {
+        float rPx = sqrt((float(i) + 0.5) / float(N)) * radiusPx;
         float a = float(i) * GA;
-        float2 off = float2(cos(a), sin(a)) * r;
-        float3 s = sceneTex.Sample(sceneTex_sampler, v.uv + off).rgb;
-        float w  = CoCAt(v.uv + off, nearZ, farZ);                   // ボケてるサンプルほど寄与大
-        sum += s * w; wsum += w;
+        float2 sampleUv = v.uv + float2(cos(a), sin(a)) * rPx * dofp2.yz;
+        if (InsideViewport(sampleUv) < 0.5) continue;                 // clamp edge の反復による筋を防ぐ
+
+        float sampleZ = ViewZAt(sampleUv, nearZ, farZ);
+        float sampleCoC = SignedCoC(sampleZ);
+        float sameLayer = 1.0;
+        if (centerCoC > 0.0 && sampleZ < centerZ - depthTolerance) sameLayer = 0.0; // 背景へ前景を漏らさない
+        if (centerCoC < 0.0 && sampleZ > centerZ + depthTolerance) sameLayer = 0.0; // 前景へ背景を漏らさない
+        sameLayer *= step(-0.01, centerCoC * sampleCoC);             // 焦点面を跨ぐ sample を拒否
+
+        // sample 自身の bokeh disk が現在の gather 点まで届く場合だけ採用。
+        // sharp sample を大半径へ引き延ばす halo / bleed を抑える。
+        float coverage = saturate(abs(sampleCoC) * dofp.z - rPx + 1.25);
+        float depthWeight = exp2(-abs(sampleZ - centerZ) / depthTolerance * 2.0);
+        float w = sameLayer * coverage * depthWeight;
+        if (w > 1e-4) {
+            sum += sceneTex.Sample(sceneTex_sampler, sampleUv).rgb * w;
+            wsum += w;
+        }
     }
     return float4(sum / wsum, 1.0);
 }
 )";
 
 // god rays (光芒/crepuscular rays): 太陽スクリーン位置へ向かって bright pass を放射状に march し、
-// 減衰しながら蓄積した光の筋を scene へ加算 (Mitchell GPU Gems 3 風)。geometry が暗い=遮蔽で筋ができる。
+// scene depth の保守的な sky mask で遮蔽物を安定化。範囲外 sample は捨てて edge streak を防ぐ。
 const char* kGodRays3DHLSL = R"(
 Texture2D    sceneTex         : register(t0);
 SamplerState sceneTex_sampler : register(s0);
+Texture2D    depthTex         : register(t1);
+SamplerState depthTex_sampler : register(s1);
 cbuffer GRCB : register(b0) {
     float4 grp;    // xy=sun_uv, z=intensity, w=decay
     float4 grp2;   // x=density(全体の歩幅), y=weight(1タップ重み), z=bright threshold
+    float4 grp3;   // xy=texel size, z=sky depth threshold, w=radial extent
 };
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 VSOut VSMain(uint id : SV_VertexID) {
@@ -2496,9 +2624,21 @@ VSOut VSMain(uint id : SV_VertexID) {
     o.pos = float4(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), 0.0, 1.0);
     return o;
 }
+float InsideViewport(float2 uv) {
+    return step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
+}
+float SkyVisibility(float2 uv) {
+    // min-depth 5 tap は geometry を 1px 弱だけ保守的に広げ、細い遮蔽物の点滅と光漏れを抑える。
+    float d = depthTex.SampleLevel(depthTex_sampler, uv, 0.0).r;
+    d = min(d, depthTex.SampleLevel(depthTex_sampler, uv + float2( grp3.x, 0.0), 0.0).r);
+    d = min(d, depthTex.SampleLevel(depthTex_sampler, uv + float2(-grp3.x, 0.0), 0.0).r);
+    d = min(d, depthTex.SampleLevel(depthTex_sampler, uv + float2(0.0,  grp3.y), 0.0).r);
+    d = min(d, depthTex.SampleLevel(depthTex_sampler, uv + float2(0.0, -grp3.y), 0.0).r);
+    return smoothstep(grp3.z, min(1.0, grp3.z + 0.00035), d);
+}
 float4 PSMain(VSOut v) : SV_TARGET {
     float3 scene = sceneTex.Sample(sceneTex_sampler, v.uv).rgb;
-    const int N = 48;
+    const int N = 64;
     float2 delta = (v.uv - grp.xy) * (grp2.x / float(N));   // 太陽へ向かう 1 ステップ
     float2 uv = v.uv;
     float  illum = 1.0;
@@ -2506,26 +2646,38 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float  wsum  = 0.0;
     [loop] for (int i = 0; i < N; ++i) {
         uv -= delta;
-        float3 s   = sceneTex.Sample(sceneTex_sampler, uv).rgb;
-        float  lum = dot(s, float3(0.299, 0.587, 0.114));
-        float  bright = max(lum - grp2.z, 0.0);             // bright pass (明るい空/太陽のみ寄与)
-        shaft += s * bright * illum;
-        wsum  += illum;                                     // decay 合計で正規化 → 有界 (明るい空でも白飛びしない)
-        illum *= grp.w;                                     // 距離減衰
+        if (InsideViewport(uv) < 0.5) break;                // clamp edge を繰返し sample して伸びる筋を防ぐ
+        float3 s   = sceneTex.SampleLevel(sceneTex_sampler, uv, 0.0).rgb;
+        float  lum = dot(s, float3(0.2126, 0.7152, 0.0722));
+        float  bright = saturate((lum - grp2.z) / max(lum, 1e-3)); // energy-bounded soft bright pass
+        float  source = bright * SkyVisibility(uv);
+        shaft += s * source * illum;
+        wsum  += illum;
+        illum *= saturate(grp.w);
     }
-    shaft /= max(wsum, 1e-3);                               // 光線方向の平均輝度 (遮蔽があればシャフトが残る)
-    return float4(scene + shaft * grp.z, 1.0);
+    // decay 合計で正規化し、weight を明示的な散乱エネルギーとして使う。
+    shaft *= grp2.y / max(wsum, 1e-3);
+    float aspect = grp3.y / max(grp3.x, 1e-6);
+    float radial = length((v.uv - grp.xy) * float2(aspect, 1.0));
+    float envelope = saturate(1.0 - radial / max(grp3.w, 0.1));
+    envelope *= envelope;
+    return float4(scene + shaft * grp.z * envelope, 1.0);
 }
 )";
 
 // モーションブラー: FMotionVector の motion (prev_uv - curr_uv、UV 空間) に沿って scene を多タップ平均。
-// 静止物では motion≈0 でぼけず、動く物/カメラ移動でその軌跡方向にぼける。
+// 画素単位 cap、深度/速度 bilateral、同一深度 velocity dilation で境界 bleed と大速度の縞を抑える。
 const char* kMotionBlur3DHLSL = R"(
 Texture2D    sceneTex          : register(t0);
 SamplerState sceneTex_sampler  : register(s0);
 Texture2D    motionTex         : register(t1);
 SamplerState motionTex_sampler : register(s1);
-cbuffer MBCB : register(b0) { float4 mbp; };   // x=intensity
+Texture2D    depthTex          : register(t2);
+SamplerState depthTex_sampler  : register(s2);
+cbuffer MBCB : register(b0) {
+    float4 mbp;   // x=frame-normalized intensity, yz=texel size, w=max blur px
+    float4 mbp2;  // x=near, y=far, z=relative depth tolerance, w=orthographic
+};
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 VSOut VSMain(uint id : SV_VertexID) {
     float2 uv = float2((id << 1) & 2, id & 2);
@@ -2533,18 +2685,70 @@ VSOut VSMain(uint id : SV_VertexID) {
     o.pos = float4(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), 0.0, 1.0);
     return o;
 }
+float Linearize(float ndc) {
+    float perspectiveZ = (mbp2.x * mbp2.y) / max(mbp2.y - ndc * (mbp2.y - mbp2.x), 1e-4);
+    return lerp(perspectiveZ, lerp(mbp2.x, mbp2.y, ndc), saturate(mbp2.w));
+}
+float ViewZAt(float2 uv) {
+    return Linearize(depthTex.Sample(depthTex_sampler, uv).r);
+}
+float InsideViewport(float2 uv) {
+    return step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
+}
+float2 ClampVelocity(float2 vel) {
+    float2 velPx = vel / max(mbp.yz, float2(1e-6, 1e-6));
+    float speedPx = length(velPx);
+    velPx *= min(1.0, mbp.w / max(speedPx, 1e-4));
+    return velPx * mbp.yz;
+}
 float4 PSMain(VSOut v) : SV_TARGET {
-    float2 vel = motionTex.Sample(motionTex_sampler, v.uv).xy * mbp.x;   // UV 空間 motion * 強度
-    const int N = 16;
-    // per-pixel ジッタで tap 位置を散らす (McGuire 風)。固定 tap だと大速度時に «ゴースト/縞»
-    // (離散コピー) が見えるが、ジッタ + 平均で滑らかなブラーになる。
-    float jitter = frac(sin(dot(v.uv, float2(12.9898, 78.233))) * 43758.5453);
-    float3 col = float3(0,0,0); float wsum = 0.0;
-    [unroll] for (int i = 0; i < N; ++i) {
-        float t = ((float(i) + jitter) / float(N)) - 0.5;                // -0.5..0.5 ジッタ付き
-        col += sceneTex.Sample(sceneTex_sampler, v.uv + vel * t).rgb; wsum += 1.0;
+    float3 center = sceneTex.Sample(sceneTex_sampler, v.uv).rgb;
+    float centerZ = ViewZAt(v.uv);
+    float depthTolerance = max(0.025, centerZ * mbp2.z);
+
+    // 近傍で同一深度面に属する最大 velocity を選び、細い動体の内部 hole だけを埋める。
+    // 深度が違う前景/背景の velocity は採用しないので輪郭を跨ぐ streak を作らない。
+    float2 vel = motionTex.Sample(motionTex_sampler, v.uv).xy;
+    float bestSpeed = length(vel / mbp.yz);
+    float2 suv = v.uv + float2(mbp.y, 0.0);
+    float sz = ViewZAt(suv); float2 sv = motionTex.Sample(motionTex_sampler, suv).xy;
+    float ss = length(sv / mbp.yz); if (abs(sz - centerZ) <= depthTolerance && ss > bestSpeed) { vel = sv; bestSpeed = ss; }
+    suv = v.uv - float2(mbp.y, 0.0);
+    sz = ViewZAt(suv); sv = motionTex.Sample(motionTex_sampler, suv).xy;
+    ss = length(sv / mbp.yz); if (abs(sz - centerZ) <= depthTolerance && ss > bestSpeed) { vel = sv; bestSpeed = ss; }
+    suv = v.uv + float2(0.0, mbp.z);
+    sz = ViewZAt(suv); sv = motionTex.Sample(motionTex_sampler, suv).xy;
+    ss = length(sv / mbp.yz); if (abs(sz - centerZ) <= depthTolerance && ss > bestSpeed) { vel = sv; bestSpeed = ss; }
+    suv = v.uv - float2(0.0, mbp.z);
+    sz = ViewZAt(suv); sv = motionTex.Sample(motionTex_sampler, suv).xy;
+    ss = length(sv / mbp.yz); if (abs(sz - centerZ) <= depthTolerance && ss > bestSpeed) { vel = sv; }
+
+    vel = ClampVelocity(vel * mbp.x);
+    float2 velPx = vel / mbp.yz;
+    float speedPx = length(velPx);
+    if (speedPx < 0.5) return float4(center, 1.0);
+
+    // 決定的・対称 tap。フレーム毎の乱数を使わないため TAA 下でも粒状にちらつかない。
+    const int N = 17;
+    float3 col = center * 1.25;
+    float wsum = 1.25;
+    // Preserve all 17 symmetric taps and their deterministic order while
+    // avoiding owner-thread shader-compiler expansion during editor startup.
+    [loop] for (int i = 0; i < N; ++i) {
+        float t = float(i) / float(N - 1) - 0.5;
+        float2 sampleUv = v.uv + vel * t;
+        if (InsideViewport(sampleUv) < 0.5) continue;
+        float sampleZ = ViewZAt(sampleUv);
+        float depthWeight = exp2(-abs(sampleZ - centerZ) / depthTolerance * 3.0);
+        float2 sampleVelPx = motionTex.Sample(motionTex_sampler, sampleUv).xy / mbp.yz;
+        float velocityWeight = exp2(-length(sampleVelPx - velPx / max(mbp.x, 1e-3)) /
+                                    max(3.0, speedPx * 0.75));
+        float tapWeight = 1.0 - abs(t) * 1.35;
+        float w = max(tapWeight, 0.08) * depthWeight * velocityWeight;
+        col += sceneTex.Sample(sceneTex_sampler, sampleUv).rgb * w;
+        wsum += w;
     }
-    return float4(col / max(wsum, 1.0), 1.0);
+    return float4(col / wsum, 1.0);
 }
 )";
 
@@ -2582,7 +2786,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-struct SkyCB { FMat4 inv_view_proj; FVec4 zenith, horizon, ground, sun; };  // 128 bytes
+struct FSkyCb { FMat4 inv_view_proj; FVec4 zenith, horizon, ground, sun; };  // 128 bytes
 
 // 無限グリッド: y=0 (ortho では z=0) の «視点中心の大クアッド» をフラグメントで格子化。
 // fwidth でアンチエイリアス線幅を一定に、距離フェードで無限に見せる。minor=1単位 / major=10単位 + 軸色。
@@ -2619,7 +2823,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     return float4(col, a);
 }
 )";
-struct GridCB { FMat4 view_proj; FVec4 gctr; };
+struct FGridCb { FMat4 view_proj; FVec4 gctr; };
 
 /** 空グラデーション (FSky と同じ y-up) を SH9 放射輝度係数へ射影する (FPbrShader::SetSh9 用)。
  *  Sh9Irradiance が内部でコサイン畳み込みするので «放射輝度» を渡す。irradiance≈π×平均輝度に
@@ -2642,8 +2846,34 @@ inline FMat4 ApplyTaaJitter(FMat4 vp, float jx, float jy) noexcept {
 // «暖色の直射 vs 青い陰» のコントラスト=立体感を残す (直射は 3 点ライトが確保)。鏡面 fallback も兼ねる。
 constexpr float kSh9Ambient = 0.55f;
 
-// 物理大気 (FAtmosphere) の equirect をエディタ露出レンジへ持ち上げる一様スケール (実測調整)。
-constexpr float kAtmosScale = 2.2f;
+// Physical-atmosphere LUTs already produce linear HDR radiance.  Keep their
+// scale at unity so exposure/tonemapping owns display brightness; the previous
+// hidden 2.2 multiplier clipped most of the sky before cloud contrast existed.
+constexpr float kAtmosScale = 1.0f;
+constexpr float kDefaultConfiguredSunIntensity = 2.35f;
+constexpr float kAtmosphereSunRadianceAtDefault = 22.0f;
+
+float PhysicalAtmosphereSunRadiance(float configured_intensity) noexcept {
+    const float intensity = std::fmax(configured_intensity, 0.0f);
+    return kAtmosphereSunRadianceAtDefault *
+           (intensity / kDefaultConfiguredSunIntensity);
+}
+
+// Real solar angular radius (0.2666 degrees).  The atmosphere environment map
+// intentionally excludes the analytic disc; it is evaluated in the final
+// skybox pass at viewport resolution and remains behind volumetric clouds.
+constexpr float kPhysicalSunAngularRadius = 0.004653f;
+constexpr float kPhysicalSunDiscRadianceScale = 30.0f;
+// Match the 1024 cubemap's angular detail with a 2:1 source.  The former
+// 512x256 map had only 0.703 degrees per latitude row; magnifying those rows
+// around the equirectangular pole produced visible concentric rings at zenith.
+constexpr u32 kPhysicalSkyEquirectWidth = 2048u;
+constexpr u32 kPhysicalSkyEquirectHeight = 1024u;
+// GPU generation is the production path.  If shader dispatch/readback is not
+// available, bound the synchronous CPU fallback so opening a project cannot
+// spend hundreds of millions of nested atmosphere samples on the UI thread.
+constexpr u32 kPhysicalSkyCpuFallbackWidth = 512u;
+constexpr u32 kPhysicalSkyCpuFallbackHeight = 256u;
 
 void ComputeSkySh9(FVec4 out[9], FVec3 zenith, FVec3 horizon, FVec3 ground) noexcept {
     // 空の放射輝度 (linear) を SH9 へ射影。zenith/horizon/ground は «実際に描く FSky と同じ色» を渡し、
@@ -2670,8 +2900,219 @@ void ComputeSkySh9(FVec4 out[9], FVec3 zenith, FVec3 horizon, FVec3 ground) noex
     for (int i = 0; i < 9; ++i) { out[i].x *= w; out[i].y *= w; out[i].z *= w; }
 }
 
-bool Ensure3D(EditorHost& h) noexcept {
+/** Compile only raw-DX12 FSky bytecode away from the window owner thread. */
+void SkyCompileWorkerEntry(void* user) noexcept {
+    auto& h = *static_cast<FEditorHost*>(user);
+    const editor_profiler::FTimePoint begin =
+        editor_profiler::FClock::now();
+    auto result = FSky::CompileShadersCpu();
+    const bool ok = result.IsOk();
+    if (ok) {
+        h.startup_sky_shaders = Move(result.Value());
+    } else {
+        ACS_LOG_ERROR(
+            "[3D] FSky async CPU compile failed: %s",
+            result.Error().message);
+    }
+    h.startup_worker_elapsed_ms =
+        editor_profiler::ElapsedMilliseconds(begin);
+    h.startup_worker_state.store(ok ? 2 : -1,
+                                 std::memory_order_release);
+}
+
+bool BeginSkyCompileWorker(FEditorHost& h) noexcept {
+    if (h.startup_worker.Joinable() ||
+        h.startup_worker_state.load(std::memory_order_acquire) != 0) {
+        return false;
+    }
+
+    h.startup_worker_kind = 3u;
+    h.startup_worker_elapsed_ms = 0.0f;
+    h.startup_worker_state.store(1, std::memory_order_release);
+    FThreadConfig config{};
+    config.name = L"ACS sky shader compile";
+    auto worker_result =
+        FThread::Spawn(&SkyCompileWorkerEntry, &h, config);
+    if (worker_result.IsErr()) {
+        h.startup_worker_kind = 0u;
+        h.startup_worker_state.store(0, std::memory_order_release);
+        ACS_LOG_ERROR(
+            "[acs_editor_abi] failed to create FSky CPU compile worker: %s",
+            worker_result.Error().message);
+        return false;
+    }
+    h.startup_worker = Move(worker_result.Value());
+    return true;
+}
+
+/**
+ * Compile only raw-DX12 PBR bytecode away from the window owner thread.
+ * No RHI device, buffer, texture, or PSO is touched by this worker.
+ */
+void PbrCompileWorkerEntry(void* user) noexcept {
+    auto& h = *static_cast<FEditorHost*>(user);
+    const editor_profiler::FTimePoint begin =
+        editor_profiler::FClock::now();
+    auto result = FPbrShader::CompileShadersCpu();
+    const bool ok = result.IsOk();
+    if (ok) {
+        h.startup_pbr_shaders = Move(result.Value());
+    } else {
+        ACS_LOG_ERROR(
+            "[3D] FPbrShader async CPU compile failed: %s",
+            result.Error().message);
+    }
+    h.startup_worker_elapsed_ms =
+        editor_profiler::ElapsedMilliseconds(begin);
+    h.startup_worker_state.store(ok ? 2 : -1,
+                                 std::memory_order_release);
+}
+
+bool BeginPbrCompileWorker(FEditorHost& h) noexcept {
+    if (h.startup_worker.Joinable() ||
+        h.startup_worker_state.load(std::memory_order_acquire) != 0) {
+        return false;
+    }
+
+    h.startup_worker_kind = 1u;
+    h.startup_worker_elapsed_ms = 0.0f;
+    h.startup_worker_state.store(1, std::memory_order_release);
+    FThreadConfig config{};
+    config.name = L"ACS PBR shader compile";
+    auto worker_result =
+        FThread::Spawn(&PbrCompileWorkerEntry, &h, config);
+    if (worker_result.IsErr()) {
+        h.startup_worker_kind = 0u;
+        h.startup_worker_state.store(0, std::memory_order_release);
+        ACS_LOG_ERROR(
+            "[acs_editor_abi] failed to create PBR CPU compile worker: %s",
+            worker_result.Error().message);
+        return false;
+    }
+    h.startup_worker = Move(worker_result.Value());
+    return true;
+}
+
+/** Compile only raw-DX12 SSGI bytecode away from the window owner thread. */
+void SsgiCompileWorkerEntry(void* user) noexcept {
+    auto& h = *static_cast<FEditorHost*>(user);
+    const editor_profiler::FTimePoint begin =
+        editor_profiler::FClock::now();
+    auto result = FSsgi::CompileShadersCpu();
+    const bool ok = result.IsOk();
+    if (ok) {
+        h.startup_ssgi_shaders = Move(result.Value());
+    } else {
+        ACS_LOG_ERROR(
+            "[3D] FSsgi async CPU compile failed: %s",
+            result.Error().message);
+    }
+    h.startup_worker_elapsed_ms =
+        editor_profiler::ElapsedMilliseconds(begin);
+    h.startup_worker_state.store(ok ? 2 : -1,
+                                 std::memory_order_release);
+}
+
+bool BeginSsgiCompileWorker(FEditorHost& h) noexcept {
+    if (h.startup_worker.Joinable() ||
+        h.startup_worker_state.load(std::memory_order_acquire) != 0) {
+        return false;
+    }
+
+    h.startup_worker_kind = 2u;
+    h.startup_worker_elapsed_ms = 0.0f;
+    h.startup_worker_state.store(1, std::memory_order_release);
+    FThreadConfig config{};
+    config.name = L"ACS SSGI shader compile";
+    auto worker_result =
+        FThread::Spawn(&SsgiCompileWorkerEntry, &h, config);
+    if (worker_result.IsErr()) {
+        h.startup_worker_kind = 0u;
+        h.startup_worker_state.store(0, std::memory_order_release);
+        ACS_LOG_ERROR(
+            "[acs_editor_abi] failed to create SSGI CPU compile worker: %s",
+            worker_result.Error().message);
+        return false;
+    }
+    h.startup_worker = Move(worker_result.Value());
+    return true;
+}
+
+/** Compile only raw-DX12 volumetric-cloud bytecode off the owner thread. */
+void CloudCompileWorkerEntry(void* user) noexcept {
+    auto& h = *static_cast<FEditorHost*>(user);
+    const editor_profiler::FTimePoint begin =
+        editor_profiler::FClock::now();
+    auto result = FVolumetricClouds::CompileShadersCpu();
+    const bool ok = result.IsOk();
+    if (ok) {
+        h.startup_cloud_shaders = Move(result.Value());
+    } else {
+        ACS_LOG_ERROR(
+            "[3D] FVolumetricClouds async CPU compile failed: %s",
+            result.Error().message);
+    }
+    h.startup_worker_elapsed_ms =
+        editor_profiler::ElapsedMilliseconds(begin);
+    h.startup_worker_state.store(ok ? 2 : -1,
+                                 std::memory_order_release);
+}
+
+bool BeginCloudCompileWorker(FEditorHost& h) noexcept {
+    if (h.startup_worker.Joinable() ||
+        h.startup_worker_state.load(std::memory_order_acquire) != 0) {
+        return false;
+    }
+
+    h.startup_worker_kind = 4u;
+    h.startup_worker_elapsed_ms = 0.0f;
+    h.startup_worker_state.store(1, std::memory_order_release);
+    FThreadConfig config{};
+    config.name = L"ACS cloud shader compile";
+    auto worker_result =
+        FThread::Spawn(&CloudCompileWorkerEntry, &h, config);
+    if (worker_result.IsErr()) {
+        h.startup_worker_kind = 0u;
+        h.startup_worker_state.store(0, std::memory_order_release);
+        ACS_LOG_ERROR(
+            "[acs_editor_abi] failed to create cloud CPU compile worker: %s",
+            worker_result.Error().message);
+        return false;
+    }
+    h.startup_worker = Move(worker_result.Value());
+    return true;
+}
+
+/** Return 0 while running, 1 on success, or -1 on failure. */
+i32 PollStartupWorker(FEditorHost& h) noexcept {
+    const i32 state =
+        h.startup_worker_state.load(std::memory_order_acquire);
+    if (state == 1) return 0;
+    if (state != 2 && state != -1) return -1;
+    h.startup_worker.Join();
+    h.startup_worker_state.store(0, std::memory_order_release);
+    return state == 2 ? 1 : -1;
+}
+
+void JoinStartupWorker(FEditorHost& h) noexcept {
+    h.startup_worker.Join();
+    h.startup_worker_kind = 0u;
+    h.startup_worker_state.store(0, std::memory_order_release);
+}
+
+void Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept;
+
+/** Advance exactly one 3D resource-initialization phase.
+ *
+ * Owner-thread RHI creation is split across native render-pump messages;
+ * expensive raw-DX12 bytecode compilation may run on the CPU-only startup
+ * worker. A false result with an incremented r3d_init_phase means "more work
+ * remains"; false without progress means the current phase failed.
+ */
+bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     if (h.r3d_ready) return true;
+    if (h.r3d_init_failed) return false;
+    h.startup_phase_pending = false;
     IRhiDevice* dev = h.renderer.Device();
     if (dev == nullptr) return false;
     const EFormat cf = h.renderer.ColorFormat();
@@ -2679,6 +3120,7 @@ bool Ensure3D(EditorHost& h) noexcept {
     // Phase2: 3D シーンは «線形 HDR RT» に描いて FPostProcess(ACES) で一度だけ tonemap する。
     // そのため色を出すパイプは全て HDR フォーマットで作る (cf=backbuffer は FPostProcess の出力のみ)。
     const EFormat hdrf = EFormat::R16G16B16A16_Float;
+    if (h.r3d_init_phase == 0u) {
     if (h.dbg3d.Init(*dev, hdrf).IsErr()) { ACS_LOG_ERROR("[3D] DebugDraw3D init 失敗"); return false; }
 
     FShaderDesc vs{}; vs.stage = EShaderStage::Vertex; vs.hlsl_source = kMesh3DHLSL; vs.entry_point = "VSMain"; vs.debug_name = "Mesh3D.VS";
@@ -2702,7 +3144,7 @@ bool Ensure3D(EditorHost& h) noexcept {
     pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
     pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
     pd.static_samplers[0].address_w = ESamplerAddress::Clamp;
-    pd.vertex_stride = sizeof(M3DVtx);
+    pd.vertex_stride = sizeof(FM3DVtx);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
     pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 12 };
     pd.layout[2] = { "COLOR",    0, EFormat::R32G32B32_Float, 24 };
@@ -2711,8 +3153,12 @@ bool Ensure3D(EditorHost& h) noexcept {
     auto plr = CreateRhiPipeline(*dev, pd);
     if (plr.IsErr()) { ACS_LOG_ERROR("[3D] mesh パイプライン生成失敗"); return false; }
     h.m3d_pipe = Move(plr.Value());
+    h.r3d_init_phase = 1u;
+    return false;
+    }
 
     // 法線 G-buffer プリパス用パイプライン (SSAO/FSsao 入力)。M3DVtx → world normal を RGBA16F へ。
+    if (h.r3d_init_phase == 1u) {
     {
         FShaderDesc nvs{}; nvs.stage = EShaderStage::Vertex; nvs.hlsl_source = kNormalGBuf3DHLSL; nvs.entry_point = "VSMain"; nvs.debug_name = "NormalGBuf.VS";
         FShaderDesc nps{}; nps.stage = EShaderStage::Pixel;  nps.hlsl_source = kNormalGBuf3DHLSL; nps.entry_point = "PSMain"; nps.debug_name = "NormalGBuf.PS";
@@ -2728,7 +3174,7 @@ bool Ensure3D(EditorHost& h) noexcept {
             np.cull_mode    = ECullMode::None;
             np.blend_mode   = EBlendMode::Opaque;
             np.cbuffer_slots = 1; np.cbuffer_names[0] = "NFrame";
-            np.vertex_stride = sizeof(M3DVtx);
+            np.vertex_stride = sizeof(FM3DVtx);
             np.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
             np.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 12 };
             np.layout[2] = { "COLOR",    0, EFormat::R32G32B32_Float, 24 };
@@ -2744,10 +3190,18 @@ bool Ensure3D(EditorHost& h) noexcept {
         }
         if (!h.ssao_pipe_ready) ACS_LOG_WARN("[3D] 法線 G-buffer パイプライン生成失敗 (SSAO 無効)");
     }
+    h.r3d_init_phase = 2u;
+    return false;
+    }
 
     // 屈折 (ガラス/水): FRefractionShader + opaque シーン複製 blit パイプライン。要 env cubemap (Diligent IBL)。
+    if (h.r3d_init_phase == 2u) {
     { auto rr = h.refr3d.Init(*dev, hdrf, df); h.refr_ready = rr.IsOk();
       if (!h.refr_ready) ACS_LOG_WARN("[3D] FRefractionShader Init 失敗 (屈折無効): %s", rr.Error().message); }
+    h.r3d_init_phase = 3u;
+    return false;
+    }
+    if (h.r3d_init_phase == 3u) {
     {
         FShaderDesc bvs{}; bvs.stage = EShaderStage::Vertex; bvs.hlsl_source = kBlit3DHLSL; bvs.entry_point = "VSMain"; bvs.debug_name = "Blit.VS";
         FShaderDesc bps{}; bps.stage = EShaderStage::Pixel;  bps.hlsl_source = kBlit3DHLSL; bps.entry_point = "PSMain"; bps.debug_name = "Blit.PS";
@@ -2771,8 +3225,12 @@ bool Ensure3D(EditorHost& h) noexcept {
         }
         if (!h.blit_ready) ACS_LOG_WARN("[3D] blit パイプライン生成失敗 (屈折無効)");
     }
+    h.r3d_init_phase = 4u;
+    return false;
+    }
 
     // 被写界深度 (DoF): scene 複製 (t0) + depth (t1) を sample してディスクぼかし。
+    if (h.r3d_init_phase == 4u) {
     {
         FShaderDesc dvs{}; dvs.stage = EShaderStage::Vertex; dvs.hlsl_source = kDof3DHLSL; dvs.entry_point = "VSMain"; dvs.debug_name = "Dof.VS";
         FShaderDesc dps{}; dps.stage = EShaderStage::Pixel;  dps.hlsl_source = kDof3DHLSL; dps.entry_point = "PSMain"; dps.debug_name = "Dof.PS";
@@ -2789,7 +3247,7 @@ bool Ensure3D(EditorHost& h) noexcept {
             dp.cbuffer_slots = 1; dp.cbuffer_names[0] = "DOFCB";
             dp.static_sampler_count = 2;
             for (int s = 0; s < 2; ++s) {
-                dp.static_samplers[s].filter    = ESamplerFilter::Linear;
+                dp.static_samplers[s].filter    = (s == 0) ? ESamplerFilter::Linear : ESamplerFilter::Point;
                 dp.static_samplers[s].address_u = ESamplerAddress::Clamp;
                 dp.static_samplers[s].address_v = ESamplerAddress::Clamp;
                 dp.static_samplers[s].address_w = ESamplerAddress::Clamp;
@@ -2804,8 +3262,12 @@ bool Ensure3D(EditorHost& h) noexcept {
         }
         if (!h.dof_ready) ACS_LOG_WARN("[3D] DoF パイプライン生成失敗 (被写界深度無効)");
     }
+    h.r3d_init_phase = 5u;
+    return false;
+    }
 
     // god rays (光芒): scene 複製 (t0) を太陽へ放射状 march。
+    if (h.r3d_init_phase == 5u) {
     {
         FShaderDesc gvs{}; gvs.stage = EShaderStage::Vertex; gvs.hlsl_source = kGodRays3DHLSL; gvs.entry_point = "VSMain"; gvs.debug_name = "GodRays.VS";
         FShaderDesc gps{}; gps.stage = EShaderStage::Pixel;  gps.hlsl_source = kGodRays3DHLSL; gps.entry_point = "PSMain"; gps.debug_name = "GodRays.PS";
@@ -2818,13 +3280,15 @@ bool Ensure3D(EditorHost& h) noexcept {
             gp.rt_format    = hdrf; gp.depth_format = EFormat::Unknown;
             gp.depth_test   = false; gp.depth_write = false;
             gp.cull_mode    = ECullMode::None; gp.blend_mode = EBlendMode::Opaque;
-            gp.texture_slots = 1;
+            gp.texture_slots = 2;
             gp.cbuffer_slots = 1; gp.cbuffer_names[0] = "GRCB";
-            gp.static_sampler_count = 1;
-            gp.static_samplers[0].filter    = ESamplerFilter::Linear;
-            gp.static_samplers[0].address_u = ESamplerAddress::Clamp;
-            gp.static_samplers[0].address_v = ESamplerAddress::Clamp;
-            gp.static_samplers[0].address_w = ESamplerAddress::Clamp;
+            gp.static_sampler_count = 2;
+            for (int s = 0; s < 2; ++s) {
+                gp.static_samplers[s].filter    = (s == 0) ? ESamplerFilter::Linear : ESamplerFilter::Point;
+                gp.static_samplers[s].address_u = ESamplerAddress::Clamp;
+                gp.static_samplers[s].address_v = ESamplerAddress::Clamp;
+                gp.static_samplers[s].address_w = ESamplerAddress::Clamp;
+            }
             auto gplr = CreateRhiPipeline(*dev, gp);
             if (gplr.IsOk()) {
                 h.gray_pipe = Move(gplr.Value());
@@ -2835,8 +3299,12 @@ bool Ensure3D(EditorHost& h) noexcept {
         }
         if (!h.gray_ready) ACS_LOG_WARN("[3D] god rays パイプライン生成失敗");
     }
+    h.r3d_init_phase = 6u;
+    return false;
+    }
 
     // モーションブラー: scene 複製 (t0) + motion (t1) を sample。
+    if (h.r3d_init_phase == 6u) {
     {
         FShaderDesc mvs{}; mvs.stage = EShaderStage::Vertex; mvs.hlsl_source = kMotionBlur3DHLSL; mvs.entry_point = "VSMain"; mvs.debug_name = "MBlur.VS";
         FShaderDesc mps{}; mps.stage = EShaderStage::Pixel;  mps.hlsl_source = kMotionBlur3DHLSL; mps.entry_point = "PSMain"; mps.debug_name = "MBlur.PS";
@@ -2849,11 +3317,11 @@ bool Ensure3D(EditorHost& h) noexcept {
             mp.rt_format    = hdrf; mp.depth_format = EFormat::Unknown;
             mp.depth_test   = false; mp.depth_write = false;
             mp.cull_mode    = ECullMode::None; mp.blend_mode = EBlendMode::Opaque;
-            mp.texture_slots = 2;
+            mp.texture_slots = 3;
             mp.cbuffer_slots = 1; mp.cbuffer_names[0] = "MBCB";
-            mp.static_sampler_count = 2;
-            for (int s = 0; s < 2; ++s) {
-                mp.static_samplers[s].filter    = ESamplerFilter::Linear;
+            mp.static_sampler_count = 3;
+            for (int s = 0; s < 3; ++s) {
+                mp.static_samplers[s].filter    = (s == 2) ? ESamplerFilter::Point : ESamplerFilter::Linear;
                 mp.static_samplers[s].address_u = ESamplerAddress::Clamp;
                 mp.static_samplers[s].address_v = ESamplerAddress::Clamp;
                 mp.static_samplers[s].address_w = ESamplerAddress::Clamp;
@@ -2868,8 +3336,30 @@ bool Ensure3D(EditorHost& h) noexcept {
         }
         if (!h.mblur_ready) ACS_LOG_WARN("[3D] モーションブラー パイプライン生成失敗");
     }
+    h.r3d_init_phase = 7u;
+    return false;
+    }
 
     // オーバーレイ用 (同シェーダ・depth off): ギズモを常に手前に出す。
+    if (h.r3d_init_phase == 7u) {
+    FPipelineDesc pd{};
+    pd.vs = h.m3d_vs.Get(); pd.ps = h.m3d_ps.Get();
+    pd.topology = EPrimitiveTopology::TriangleList;
+    pd.rt_format = hdrf; pd.depth_format = df;
+    pd.cull_mode = ECullMode::None; pd.blend_mode = EBlendMode::Opaque;
+    pd.cbuffer_slots = 1; pd.cbuffer_names[0] = "Frame";
+    pd.texture_slots = 1; pd.texture_names[0] = "shadow_map";
+    pd.static_sampler_count = 1;
+    pd.static_samplers[0].filter = ESamplerFilter::Linear;
+    pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
+    pd.static_samplers[0].address_w = ESamplerAddress::Clamp;
+    pd.vertex_stride = sizeof(FM3DVtx);
+    pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
+    pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 12 };
+    pd.layout[2] = { "COLOR",    0, EFormat::R32G32B32_Float, 24 };
+    pd.layout[3] = { "TEXCOORD", 0, EFormat::R32G32_Float,    36 };
+    pd.layout_count = 4;
     pd.depth_test = false; pd.depth_write = false;
     auto plo = CreateRhiPipeline(*dev, pd);
     if (plo.IsErr()) { ACS_LOG_ERROR("[3D] overlay パイプライン生成失敗"); return false; }
@@ -2891,31 +3381,181 @@ bool Ensure3D(EditorHost& h) noexcept {
     auto skr = CreateRhiPipeline(*dev, skd);
     if (skr.IsErr()) { ACS_LOG_ERROR("[3D] sky パイプライン生成失敗"); return false; }
     h.sky_pipe = Move(skr.Value());
+    h.r3d_init_phase = 8u;
+    return false;
+    }
 
     // Phase2: エンジン標準スカイ FSky。自前 kSky3DHLSL と同じ «depth off の背景フルスクリーン三角» 方式
     // (2D の FSpriteBatch と同じ depth-off エンジンパス) なのでこの文脈で描けるはず + 手続き雲つき。
-    { auto skr3 = h.sky3d.Init(*dev, hdrf, df); h.sky3d_ready = skr3.IsOk();
-      if (h.sky3d_ready) {
+    if (h.r3d_init_phase == 8u) {
+    const char* const backend_name = dev->BackendName();
+    const bool raw_dx12 = backend_name != nullptr &&
+                          std::strcmp(backend_name, "DX12") == 0;
+    if (raw_dx12) {
+        if (h.startup_worker_state.load(std::memory_order_acquire) == 0 &&
+            !h.startup_worker.Joinable()) {
+            if (BeginSkyCompileWorker(h)) {
+                h.startup_phase_pending = true;
+                return false;
+            }
+            ACS_LOG_WARN(
+                "[3D] FSky CPU compile worker unavailable; using synchronous init");
+            const auto sky_result = h.sky3d.Init(*dev, hdrf, df);
+            h.sky3d_ready = sky_result.IsOk();
+            if (!h.sky3d_ready) {
+                ACS_LOG_WARN(
+                    "[3D] FSky synchronous init failed: %s",
+                    sky_result.Error().message);
+            }
+        } else {
+            const i32 worker_result = PollStartupWorker(h);
+            if (worker_result == 0) {
+                h.startup_phase_pending = true;
+                return false;
+            }
+            h.startup_worker_kind = 0u;
+            h.startup_phase_elapsed_override_ms =
+                h.startup_worker_elapsed_ms;
+            if (worker_result > 0) {
+                const editor_profiler::FTimePoint commit_begin =
+                    editor_profiler::FClock::now();
+                const auto sky_result = h.sky3d.InitWithCompiledShaders(
+                    *dev, Move(h.startup_sky_shaders), hdrf, df);
+                const f32 commit_ms =
+                    editor_profiler::ElapsedMilliseconds(commit_begin);
+                h.startup_phase_elapsed_override_ms += commit_ms;
+                h.sky3d_ready = sky_result.IsOk();
+                if (!h.sky3d_ready) {
+                    ACS_LOG_WARN(
+                        "[3D] FSky owner-thread RHI commit failed: %s",
+                        sky_result.Error().message);
+                } else {
+                    ACS_LOG_INFO(
+                        "[3D] FSky CPU compile %.2f ms; owner RHI commit %.2f ms",
+                        h.startup_worker_elapsed_ms,
+                        commit_ms);
+                }
+            } else {
+                h.startup_sky_shaders = {};
+                h.sky3d_ready = false;
+            }
+        }
+    } else {
+        const auto sky_result = h.sky3d.Init(*dev, hdrf, df);
+        h.sky3d_ready = sky_result.IsOk();
+        if (!h.sky3d_ready) {
+            ACS_LOG_WARN(
+                "[3D] FSky init failed on %s: %s",
+                backend_name != nullptr ? backend_name : "unknown backend",
+                sky_result.Error().message);
+        }
+    }
+    if (h.sky3d_ready) {
           h.sky3d.PresetDay();
           h.sky3d.SetSunDirection(FVec3{ 0.40f, 0.85f, -0.35f });   // シーンのライト方向と一致
           h.sky3d.SetZenithColor (FVec3{ 0.16f, 0.33f, 0.62f });    // メッシュ IBL と同じグラデーション (整合)
           h.sky3d.SetHorizonColor(FVec3{ 0.62f, 0.70f, 0.80f });
           h.sky3d.SetGroundColor (FVec3{ 0.20f, 0.19f, 0.21f });
-          ACS_LOG_INFO("[3D] FSky Init OK (Phase2)");
-      } else ACS_LOG_ERROR("[3D] FSky Init 失敗: %s", skr3.Error().message); }
+    } else {
+        ACS_LOG_WARN("[3D] FSky unavailable; using fallback sky");
+    }
+    h.r3d_init_phase = 9u;
+    return false;
+    }
 
     // Phase2: エンジン標準 PBR。HDR フォーマット + cull None (editor の単面 plane/polygon も出す)。
-    { auto pr = h.pbr3d.Init(*dev, hdrf, df, ECullMode::None); h.pbr3d_ready = pr.IsOk();
-      if (h.pbr3d_ready) {
+    if (h.r3d_init_phase == 9u) {
+    const char* const backend_name = dev->BackendName();
+    const bool raw_dx12 = backend_name != nullptr &&
+                          std::strcmp(backend_name, "DX12") == 0;
+    bool used_async_compile = false;
+    if (raw_dx12) {
+        if (h.startup_worker_state.load(std::memory_order_acquire) == 0 &&
+            !h.startup_worker.Joinable()) {
+            if (BeginPbrCompileWorker(h)) {
+                h.startup_phase_pending = true;
+                return false;
+            }
+            // Thread creation failure is exceptional, but retaining the
+            // owner-thread path preserves rendering quality and correctness.
+            ACS_LOG_WARN(
+                "[3D] PBR CPU compile worker unavailable; using synchronous init");
+            const auto pbr_result =
+                h.pbr3d.Init(*dev, hdrf, df, ECullMode::None);
+            h.pbr3d_ready = pbr_result.IsOk();
+            if (!h.pbr3d_ready) {
+                ACS_LOG_ERROR(
+                    "[3D] FPbrShader synchronous init failed: %s",
+                    pbr_result.Error().message);
+            }
+        } else {
+            const i32 worker_result = PollStartupWorker(h);
+            if (worker_result == 0) {
+                h.startup_phase_pending = true;
+                return false;
+            }
+            h.startup_worker_kind = 0u;
+            used_async_compile = true;
+            h.startup_phase_elapsed_override_ms =
+                h.startup_worker_elapsed_ms;
+            if (worker_result > 0) {
+                const editor_profiler::FTimePoint commit_begin =
+                    editor_profiler::FClock::now();
+                const auto pbr_result = h.pbr3d.InitWithCompiledShaders(
+                    *dev,
+                    Move(h.startup_pbr_shaders),
+                    hdrf,
+                    df,
+                    ECullMode::None);
+                const f32 commit_ms =
+                    editor_profiler::ElapsedMilliseconds(commit_begin);
+                h.startup_phase_elapsed_override_ms += commit_ms;
+                h.pbr3d_ready = pbr_result.IsOk();
+                if (!h.pbr3d_ready) {
+                    ACS_LOG_ERROR(
+                        "[3D] FPbrShader owner-thread RHI commit failed: %s",
+                        pbr_result.Error().message);
+                } else {
+                    ACS_LOG_INFO(
+                        "[3D] FPbrShader CPU compile %.2f ms; owner RHI commit %.2f ms",
+                        h.startup_worker_elapsed_ms,
+                        commit_ms);
+                }
+            } else {
+                h.pbr3d_ready = false;
+            }
+        }
+    } else {
+        // Diligent and future backends retain their established owner-thread
+        // creation path; no backend-specific object crosses threads.
+        const auto pbr_result =
+            h.pbr3d.Init(*dev, hdrf, df, ECullMode::None);
+        h.pbr3d_ready = pbr_result.IsOk();
+        if (!h.pbr3d_ready) {
+            ACS_LOG_ERROR(
+                "[3D] FPbrShader init failed on %s: %s",
+                backend_name != nullptr ? backend_name : "unknown backend",
+                pbr_result.Error().message);
+        }
+    }
+    if (h.pbr3d_ready) {
           FVec4 sh9[9]; ComputeSkySh9(sh9, h.sky_zenith, h.sky_horizon, h.sky_ground);  // 実際の空色から SH9 環境光
           for (int si = 0; si < 9; ++si) { sh9[si].x *= kSh9Ambient; sh9[si].y *= kSh9Ambient; sh9[si].z *= kSh9Ambient; }
           h.pbr3d.SetSh9(sh9);                                     // 拡散 ambient + Sh9Radiance(鏡面 fallback) 兼用
           h.sh9_dirty = false;
-          ACS_LOG_INFO("[3D] FPbrShader Init OK (Phase2) + SH9 IBL (sky-consistent)");
-      } else ACS_LOG_ERROR("[3D] FPbrShader Init 失敗: %s", pr.Error().message); }
+          if (used_async_compile) {
+              ACS_LOG_INFO("[3D] FPbrShader async init OK + SH9 IBL");
+          }
+    } else {
+        ACS_LOG_WARN("[3D] FPbrShader unavailable; using mesh fallback");
+    }
+    h.r3d_init_phase = 10u;
+    return false;
+    }
 
     // スプライト (テクスチャ付きクアッド): t0=albedo + 静的 Linear/Clamp サンプラ、アルファブレンド。
     // 半透明なので depth_test=on / depth_write=off (背後のメッシュには隠れるが互いの深度は描画順)。
+    if (h.r3d_init_phase == 10u) {
     {
         FShaderDesc pvs{}; pvs.stage = EShaderStage::Vertex; pvs.hlsl_source = kSprite3DHLSL; pvs.entry_point = "VSMain"; pvs.debug_name = "Sprite3D.VS";
         FShaderDesc pps{}; pps.stage = EShaderStage::Pixel;  pps.hlsl_source = kSprite3DHLSL; pps.entry_point = "PSMain"; pps.debug_name = "Sprite3D.PS";
@@ -2936,18 +3576,25 @@ bool Ensure3D(EditorHost& h) noexcept {
         sd.static_samplers[0].address_u = ESamplerAddress::Clamp;
         sd.static_samplers[0].address_v = ESamplerAddress::Clamp;
         sd.static_samplers[0].address_w = ESamplerAddress::Clamp;
-        sd.vertex_stride = sizeof(SprVtx);
+        sd.vertex_stride = sizeof(FSprVtx);
         sd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
         sd.layout[1] = { "TEXCOORD", 0, EFormat::R32G32_Float,    12 };
         sd.layout_count = 2;
         auto spl = CreateRhiPipeline(*dev, sd);
         if (spl.IsErr()) { ACS_LOG_ERROR("[3D] sprite パイプライン生成失敗"); return false; }
         h.spr_pipe = Move(spl.Value());
-        FBufferDesc vb{}; vb.size = sizeof(SprVtx) * 6 * 1024; vb.usage = EBufferUsage::Vertex; vb.cpu_writable = true;
+        FBufferDesc vb{}; vb.size = sizeof(FSprVtx) * 6 * 1024; vb.usage = EBufferUsage::Vertex; vb.cpu_writable = true;
         auto vr2 = CreateRhiBuffer(*dev, vb); if (vr2.IsOk()) h.spr_vb = Move(vr2.Value());
+        if (!h.spr_vb) {
+            ACS_LOG_WARN("[3D] sprite vertex-buffer creation failed (3D sprites disabled)");
+        }
+    }
+    h.r3d_init_phase = 11u;
+    return false;
     }
 
     // 無限グリッド: y=0 (ortho は z=0) の大クアッド。アルファブレンド、depth_test on / write off (シーンに隠れる半透明)。
+    if (h.r3d_init_phase == 11u) {
     {
         FShaderDesc gvs{}; gvs.stage = EShaderStage::Vertex; gvs.hlsl_source = kGrid3DHLSL; gvs.entry_point = "VSMain"; gvs.debug_name = "Grid3D.VS";
         FShaderDesc gps{}; gps.stage = EShaderStage::Pixel;  gps.hlsl_source = kGrid3DHLSL; gps.entry_point = "PSMain"; gps.debug_name = "Grid3D.PS";
@@ -2961,7 +3608,7 @@ bool Ensure3D(EditorHost& h) noexcept {
         gd.depth_test   = true; gd.depth_write = false;
         gd.cull_mode    = ECullMode::None; gd.blend_mode = EBlendMode::AlphaBlend;
         gd.cbuffer_slots = 1; gd.cbuffer_names[0] = "Grid";
-        gd.vertex_stride = sizeof(M3DVtx);
+        gd.vertex_stride = sizeof(FM3DVtx);
         gd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
         gd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 12 };
         gd.layout[2] = { "COLOR",    0, EFormat::R32G32B32_Float, 24 };
@@ -2969,13 +3616,20 @@ bool Ensure3D(EditorHost& h) noexcept {
         auto gpl = CreateRhiPipeline(*dev, gd);
         if (gpl.IsErr()) { ACS_LOG_ERROR("[3D] grid パイプライン生成失敗"); return false; }
         h.grid_pipe = Move(gpl.Value());
-        FBufferDesc gvbd{}; gvbd.size = sizeof(M3DVtx) * 6; gvbd.usage = EBufferUsage::Vertex; gvbd.cpu_writable = true;
+        FBufferDesc gvbd{}; gvbd.size = sizeof(FM3DVtx) * 6; gvbd.usage = EBufferUsage::Vertex; gvbd.cpu_writable = true;
         auto gvbr = CreateRhiBuffer(*dev, gvbd); if (gvbr.IsOk()) h.grid_vb = Move(gvbr.Value());
         FBufferDesc gcbd{}; gcbd.size = 256; gcbd.usage = EBufferUsage::Uniform; gcbd.cpu_writable = true;
         auto gcbr = CreateRhiBuffer(*dev, gcbd); if (gcbr.IsOk()) h.grid_cb = Move(gcbr.Value());
+        if (!h.grid_vb || !h.grid_cb) {
+            ACS_LOG_WARN("[3D] grid buffer creation failed (infinite grid disabled)");
+        }
+    }
+    h.r3d_init_phase = 12u;
+    return false;
     }
 
     // シャドウマップ (有向光源、single cascade 2048)。深度は D32 / shader-visible。キャスターは M3DVtx 専用 (depth-only)。
+    if (h.r3d_init_phase == 12u) {
     if (h.shadow.Init(*dev, h.q_shadow_size > 0 ? h.q_shadow_size : 2048u).IsOk()) {
         FShaderDesc cvs{}; cvs.stage = EShaderStage::Vertex; cvs.hlsl_source = kShadowCaster3DHLSL; cvs.entry_point = "VSMain"; cvs.debug_name = "ShadowCasterM3D.VS";
         auto cvr = CreateRhiShader(*dev, cvs);
@@ -2988,7 +3642,7 @@ bool Ensure3D(EditorHost& h) noexcept {
             cpd.depth_test   = true; cpd.depth_write = true;
             cpd.cull_mode    = ECullMode::None;        // editor メッシュは片面もあるので cull せず (acne はバイアスで回避)
             cpd.cbuffer_slots = 1; cpd.cbuffer_names[0] = "LightFrame";
-            cpd.vertex_stride = sizeof(M3DVtx);
+            cpd.vertex_stride = sizeof(FM3DVtx);
             cpd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0 };
             cpd.layout_count = 1;
             auto cpl = CreateRhiPipeline(*dev, cpd);
@@ -3004,7 +3658,11 @@ bool Ensure3D(EditorHost& h) noexcept {
             }
         }
     }
+    h.r3d_init_phase = 13u;
+    return false;
+    }
 
+    if (h.r3d_init_phase == 13u) {
     {
         FBufferDesc c{}; c.size = 256; c.usage = EBufferUsage::Uniform; c.cpu_writable = true;
         auto r = CreateRhiBuffer(*dev, c); if (r.IsOk()) h.m3d_frame_cb = Move(r.Value());
@@ -3019,12 +3677,21 @@ bool Ensure3D(EditorHost& h) noexcept {
     }
     {
         h.m3d_dyn_cap = 200000u;                       // 頂点容量 (プリミティブ多数でも十分)
-        FBufferDesc c{}; c.size = sizeof(M3DVtx) * h.m3d_dyn_cap; c.usage = EBufferUsage::Vertex; c.cpu_writable = true;
+        FBufferDesc c{}; c.size = sizeof(FM3DVtx) * h.m3d_dyn_cap; c.usage = EBufferUsage::Vertex; c.cpu_writable = true;
         auto r = CreateRhiBuffer(*dev, c); if (r.IsOk()) h.m3d_dyn_vb = Move(r.Value());
-        FBufferDesc cg{}; cg.size = sizeof(M3DVtx) * 4096; cg.usage = EBufferUsage::Vertex; cg.cpu_writable = true;
+        FBufferDesc cg{}; cg.size = sizeof(FM3DVtx) * 4096; cg.usage = EBufferUsage::Vertex; cg.cpu_writable = true;
         auto rg = CreateRhiBuffer(*dev, cg); if (rg.IsOk()) h.m3d_giz_vb = Move(rg.Value());
     }
+    if (!h.m3d_frame_cb || !h.m3d_dyn_vb ||
+        !h.m3d_giz_cb || !h.m3d_giz_vb || !h.sky_cb) {
+        ACS_LOG_ERROR("[3D] required frame/gizmo/sky buffer creation failed");
+        return false;
+    }
+    h.r3d_init_phase = 14u;
+    return false;
+    }
 
+    if (h.r3d_init_phase == 14u) {
     auto cube = Primitive::MakeCube(1.0f);
     auto sph  = Primitive::MakeSphere(0.5f, 32, 16);
     auto pl   = Primitive::MakePlane(1.0f, 1.0f);
@@ -3033,12 +3700,490 @@ bool Ensure3D(EditorHost& h) noexcept {
         UploadMesh(*dev, *sph,  h.gm_sphere).IsErr() ||
         UploadMesh(*dev, *pl,   h.gm_plane).IsErr()) { ACS_LOG_ERROR("[3D] メッシュアップロード失敗"); return false; }
     h.cpu_cube = cube; h.cpu_sphere = sph; h.cpu_plane = pl;
-    h.r3d_ready = true;
-    return true;
+    h.r3d_init_phase = 15u;
+    return false;
+    }
+
+    // Screen-sized post/effect stacks used to compile together on the first
+    // real scene frame.  Warm exactly one subsystem per dispatcher pump so a
+    // Ready editor never immediately falls back into another long UI stall.
+    const u32 startup_w = h.width > 0u ? h.width : 1u;
+    const u32 startup_h = h.height > 0u ? h.height : 1u;
+    if (h.r3d_init_phase == 15u) {
+        const auto result = h.post3d.Init(
+            *dev, startup_w, startup_h, h.renderer.ColorFormat());
+        h.post3d_ready = result.IsOk();
+        if (h.post3d_ready) {
+            h.post3d_w = startup_w;
+            h.post3d_h = startup_h;
+        } else {
+            ACS_LOG_WARN("[3D] FPostProcess startup init failed: %s",
+                         result.Error().message);
+        }
+        h.r3d_init_phase = 16u;
+        return false;
+    }
+
+    if (h.r3d_init_phase == 16u) {
+        const bool wants_normal_buffer =
+            h.q_ssao_on || h.q_ssr_on || h.q_ssgi_on;
+        if (wants_normal_buffer) {
+            FTextureDesc normal_desc{};
+            normal_desc.width = startup_w;
+            normal_desc.height = startup_h;
+            normal_desc.format = EFormat::R16G16B16A16_Float;
+            normal_desc.is_render_target = true;
+            auto normal_result = CreateRhiTexture(*dev, normal_desc);
+            if (normal_result.IsOk()) {
+                h.normal_rt = Move(normal_result.Value());
+                h.normal_w = startup_w;
+                h.normal_h = startup_h;
+            } else {
+                h.normal_w = 0u;
+                h.normal_h = 0u;
+                ACS_LOG_WARN("[3D] normal-buffer startup init failed: %s",
+                             normal_result.Error().message);
+            }
+        }
+        if (h.q_ssao_on) {
+            const auto result = h.ssao3d.Init(*dev, startup_w, startup_h);
+            h.ssao_ready = result.IsOk();
+            if (h.ssao_ready) {
+                h.ssao_w = startup_w;
+                h.ssao_h = startup_h;
+            } else {
+                h.ssao_w = 0u;
+                h.ssao_h = 0u;
+                ACS_LOG_WARN("[3D] FSsao startup init failed: %s",
+                             result.Error().message);
+            }
+        }
+        h.r3d_init_phase = 17u;
+        return false;
+    }
+
+    if (h.r3d_init_phase == 17u) {
+        if (h.q_ssr_on) {
+            const auto result = h.ssr3d.Init(
+                *dev, EFormat::R16G16B16A16_Float, startup_w, startup_h);
+            h.ssr_ready = result.IsOk();
+            if (h.ssr_ready) {
+                h.ssr_w = startup_w;
+                h.ssr_h = startup_h;
+            } else {
+                h.ssr_w = 0u;
+                h.ssr_h = 0u;
+                ACS_LOG_WARN("[3D] FSsr startup init failed: %s",
+                             result.Error().message);
+            }
+        }
+        h.r3d_init_phase = 18u;
+        return false;
+    }
+
+    if (h.r3d_init_phase == 18u) {
+        if (h.q_ssr_on) {
+            const auto result = h.hiz3d.Init(*dev, startup_w, startup_h);
+            h.hiz3d_ready = result.IsOk();
+            if (h.hiz3d_ready) {
+                h.hiz3d_w = startup_w;
+                h.hiz3d_h = startup_h;
+            } else {
+                h.hiz3d_w = 0u;
+                h.hiz3d_h = 0u;
+                ACS_LOG_WARN("[3D] FHiZ startup init failed: %s",
+                             result.Error().message);
+            }
+        }
+        h.r3d_init_phase = 19u;
+        return false;
+    }
+
+    if (h.r3d_init_phase == 19u) {
+        // The setting can be changed while the raw-DX12 compiler is running.
+        // Keep this phase pending until the CPU-only job is joined, then either
+        // commit on the owner thread or discard its bytecode when SSGI is off.
+        if (h.startup_worker_kind == 2u) {
+            const i32 worker_result = PollStartupWorker(h);
+            if (worker_result == 0) {
+                h.startup_phase_pending = true;
+                return false;
+            }
+            h.startup_worker_kind = 0u;
+            h.startup_phase_elapsed_override_ms =
+                h.startup_worker_elapsed_ms;
+            if (worker_result > 0 && h.q_ssgi_on) {
+                const editor_profiler::FTimePoint commit_begin =
+                    editor_profiler::FClock::now();
+                const auto result = h.ssgi3d.InitWithCompiledShaders(
+                    *dev,
+                    Move(h.startup_ssgi_shaders),
+                    startup_w,
+                    startup_h);
+                const f32 commit_ms =
+                    editor_profiler::ElapsedMilliseconds(commit_begin);
+                h.startup_phase_elapsed_override_ms += commit_ms;
+                h.ssgi_ready = result.IsOk();
+                if (h.ssgi_ready) {
+                    h.ssgi_w = startup_w;
+                    h.ssgi_h = startup_h;
+                    ACS_LOG_INFO(
+                        "[3D] FSsgi CPU compile %.2f ms; owner RHI commit %.2f ms",
+                        h.startup_worker_elapsed_ms,
+                        commit_ms);
+                } else {
+                    h.ssgi_w = 0u;
+                    h.ssgi_h = 0u;
+                    ACS_LOG_WARN(
+                        "[3D] FSsgi owner-thread RHI commit failed: %s",
+                        result.Error().message);
+                }
+            } else {
+                h.startup_ssgi_shaders = {};
+                h.ssgi_ready = false;
+                h.ssgi_w = 0u;
+                h.ssgi_h = 0u;
+            }
+            h.r3d_init_phase = 20u;
+            return false;
+        }
+        if (h.q_ssgi_on) {
+            h.ssgi_init_tried = true;
+            const char* const backend_name = dev->BackendName();
+            const bool raw_dx12 = backend_name != nullptr &&
+                                  std::strcmp(backend_name, "DX12") == 0;
+            if (raw_dx12) {
+                if (h.startup_worker_state.load(std::memory_order_acquire) == 0 &&
+                    !h.startup_worker.Joinable()) {
+                    if (BeginSsgiCompileWorker(h)) {
+                        h.startup_phase_pending = true;
+                        return false;
+                    }
+                    ACS_LOG_WARN(
+                        "[3D] SSGI CPU compile worker unavailable; using synchronous init");
+                    const auto result =
+                        h.ssgi3d.Init(*dev, startup_w, startup_h);
+                        h.ssgi_ready = result.IsOk();
+                        if (h.ssgi_ready) {
+                            h.ssgi_w = startup_w;
+                            h.ssgi_h = startup_h;
+                        } else {
+                            h.ssgi_w = 0u;
+                            h.ssgi_h = 0u;
+                            ACS_LOG_WARN("[3D] FSsgi startup init failed: %s",
+                                         result.Error().message);
+                        }
+                } else {
+                    const i32 worker_result = PollStartupWorker(h);
+                    if (worker_result == 0) {
+                        h.startup_phase_pending = true;
+                        return false;
+                    }
+                    h.startup_worker_kind = 0u;
+                    h.startup_phase_elapsed_override_ms =
+                        h.startup_worker_elapsed_ms;
+                    if (worker_result > 0) {
+                        const editor_profiler::FTimePoint commit_begin =
+                            editor_profiler::FClock::now();
+                        const auto result =
+                            h.ssgi3d.InitWithCompiledShaders(
+                                *dev,
+                                Move(h.startup_ssgi_shaders),
+                                startup_w,
+                                startup_h);
+                        const f32 commit_ms =
+                            editor_profiler::ElapsedMilliseconds(commit_begin);
+                        h.startup_phase_elapsed_override_ms += commit_ms;
+                        h.ssgi_ready = result.IsOk();
+                        if (h.ssgi_ready) {
+                            h.ssgi_w = startup_w;
+                            h.ssgi_h = startup_h;
+                            ACS_LOG_INFO(
+                                "[3D] FSsgi CPU compile %.2f ms; owner RHI commit %.2f ms",
+                                h.startup_worker_elapsed_ms,
+                                commit_ms);
+                        } else {
+                            h.ssgi_w = 0u;
+                            h.ssgi_h = 0u;
+                            ACS_LOG_WARN(
+                                "[3D] FSsgi owner-thread RHI commit failed: %s",
+                                result.Error().message);
+                        }
+                    } else {
+                        h.ssgi_ready = false;
+                        h.ssgi_w = 0u;
+                        h.ssgi_h = 0u;
+                    }
+                }
+            } else {
+                const auto result =
+                    h.ssgi3d.Init(*dev, startup_w, startup_h);
+                h.ssgi_ready = result.IsOk();
+                if (h.ssgi_ready) {
+                    h.ssgi_w = startup_w;
+                    h.ssgi_h = startup_h;
+                } else {
+                    h.ssgi_w = 0u;
+                    h.ssgi_h = 0u;
+                    ACS_LOG_WARN("[3D] FSsgi startup init failed: %s",
+                                 result.Error().message);
+                }
+            }
+        }
+        h.r3d_init_phase = 20u;
+        return false;
+    }
+
+    if (h.r3d_init_phase == 20u) {
+        const bool wants_motion = h.q_taa_on || h.q_ssr_on ||
+                                  h.q_ssgi_on || h.q_motionblur_on;
+        if (wants_motion) {
+            const auto result = h.mv3d.Init(*dev, startup_w, startup_h);
+            h.mv_ready = result.IsOk();
+            if (h.mv_ready) {
+                h.mv_w = startup_w;
+                h.mv_h = startup_h;
+            } else {
+                h.mv_w = 0u;
+                h.mv_h = 0u;
+                ACS_LOG_WARN("[3D] FMotionVector startup init failed: %s",
+                             result.Error().message);
+            }
+        }
+        h.r3d_init_phase = 21u;
+        return false;
+    }
+
+    if (h.r3d_init_phase == 21u) {
+        if (!h.ortho3d &&
+            (h.q_sky_mode == 1 || h.q_ap_on || h.q_fog_on)) {
+            h.sky_atmo_tried = true;
+            const auto result = h.sky_atmo.Init(*dev);
+            if (result.IsErr()) {
+                ACS_LOG_WARN("[3D] atmosphere startup init failed: %s",
+                             result.Error().message);
+            }
+        }
+        h.r3d_init_phase = 22u;
+        return false;
+    }
+
+    if (h.r3d_init_phase == 22u) {
+        const bool wants_clouds =
+            !h.ortho3d && h.q_cloud_coverage > 0.001f;
+        if (h.startup_worker_kind == 4u) {
+            const i32 worker_result = PollStartupWorker(h);
+            if (worker_result == 0) {
+                h.startup_phase_pending = true;
+                return false;
+            }
+            h.startup_worker_kind = 0u;
+            h.startup_phase_elapsed_override_ms =
+                h.startup_worker_elapsed_ms;
+            if (worker_result > 0 && wants_clouds) {
+                h.vclouds_tried = true;
+                const editor_profiler::FTimePoint commit_begin =
+                    editor_profiler::FClock::now();
+                const auto result =
+                    h.vclouds3d.InitWithCompiledShaders(
+                        *dev, Move(h.startup_cloud_shaders),
+                        EFormat::R16G16B16A16_Float);
+                const f32 commit_ms =
+                    editor_profiler::ElapsedMilliseconds(commit_begin);
+                h.startup_phase_elapsed_override_ms += commit_ms;
+                h.vclouds_ready = result.IsOk();
+                if (h.vclouds_ready) {
+                    ACS_LOG_INFO(
+                        "[3D] FVolumetricClouds CPU compile %.2f ms; "
+                        "owner RHI commit %.2f ms",
+                        h.startup_worker_elapsed_ms, commit_ms);
+                } else {
+                    ACS_LOG_WARN(
+                        "[3D] volumetric-cloud owner-thread RHI commit "
+                        "failed: %s",
+                        result.Error().message);
+                }
+            } else {
+                h.startup_cloud_shaders = {};
+                h.vclouds_ready = false;
+                if (!wants_clouds) h.vclouds_tried = false;
+            }
+        } else if (wants_clouds) {
+            h.vclouds_tried = true;
+            const char* const backend_name = dev->BackendName();
+            const bool raw_dx12 = backend_name != nullptr &&
+                                  std::strcmp(backend_name, "DX12") == 0;
+            if (raw_dx12 &&
+                h.startup_worker_state.load(std::memory_order_acquire) == 0 &&
+                !h.startup_worker.Joinable()) {
+                if (BeginCloudCompileWorker(h)) {
+                    h.startup_phase_pending = true;
+                    return false;
+                }
+                ACS_LOG_WARN(
+                    "[3D] cloud CPU compile worker unavailable; "
+                    "using synchronous init");
+            }
+            const auto result = h.vclouds3d.Init(
+                *dev, EFormat::R16G16B16A16_Float);
+            h.vclouds_ready = result.IsOk();
+            if (!h.vclouds_ready) {
+                ACS_LOG_WARN(
+                    "[3D] volumetric-cloud startup init failed: %s",
+                    result.Error().message);
+            }
+        }
+        h.r3d_init_phase = 23u;
+        return false;
+    }
+
+    if (h.r3d_init_phase == 23u) {
+        if (h.vclouds_ready &&
+            !h.vclouds3d.EnsureSize(
+                *dev, startup_w, startup_h, h.q_cloud_render_scale)) {
+            ACS_LOG_WARN("[3D] volumetric-cloud startup sizing failed");
+        }
+        h.r3d_init_phase = 24u;
+        return false;
+    }
+
+    if (h.r3d_init_phase == 24u) {
+        // IBL construction records GPU work and therefore gets a dedicated
+        // startup frame instead of running inside the first authored scene.
+        h.renderer.BeginFrame(h.clear_color);
+        IRhiCommandList* startup_cl = h.renderer.CommandList();
+        if (startup_cl != nullptr) {
+            Pass_AtmosphereIbl(h, startup_cl);
+        } else {
+            h.ibl_tried = true;
+            h.ibl_dirty = false;
+            ACS_LOG_WARN("[3D] startup IBL skipped: command list unavailable");
+        }
+        h.renderer.EndFrame();
+        h.r3d_init_phase = 25u;
+        h.r3d_ready = true;
+        return true;
+    }
+    return h.r3d_ready;
+}
+
+/** Rendering code only consumes a fully prepared 3D stack.  During startup,
+ * AdvanceEditorStartup performs the bounded work before BeginFrame. */
+bool Ensure3D(FEditorHost& h) noexcept {
+    return h.r3d_ready;
+}
+
+constexpr u32 kEditorStartupStepCount = 27u;
+
+const char* EditorStartupStepName(u32 step) noexcept {
+    static constexpr const char* kNames[kEditorStartupStepCount] = {
+        "2D sprite pipeline", "FXAA pipeline", "3D base mesh",
+        "normal prepass", "refraction", "scene blit", "depth of field",
+        "god rays", "motion blur", "editor overlay and fallback sky",
+        "physical sky", "PBR", "3D sprite", "infinite grid",
+        "shadow map", "frame buffers", "primitive meshes",
+        "HDR post process", "SSAO", "screen-space reflections", "Hi-Z",
+        "screen-space GI", "motion vectors", "atmosphere",
+        "volumetric-cloud pipelines", "volumetric-cloud render targets",
+        "initial image-based lighting"
+    };
+    return step < kEditorStartupStepCount ? kNames[step] : "complete";
+}
+
+/** Run one bounded startup phase before BeginFrame.
+ *
+ * Returning false is expected while more phases remain.  A phase is declared
+ * failed only when it returns without advancing its explicit phase counter.
+ */
+bool AdvanceEditorStartup(FEditorHost& h) noexcept {
+    if (h.startup_ready) return true;
+    if (h.startup_failed || !h.attached) return false;
+    IRhiDevice* dev = h.renderer.Device();
+    if (dev == nullptr) {
+        h.startup_failed = true;
+        return false;
+    }
+
+    const u32 step = h.startup_step;
+    const editor_profiler::FTimePoint begin = editor_profiler::FClock::now();
+    if (step == 0u) {
+        // Project settings are loaded after attach and before the first warm-up
+        // step. Commit their requested sample count now so startup does not
+        // build the default 8x pipeline and immediately rebuild it on frame 1.
+        h.msaa_samples = h.msaa_pending;
+        auto sr = h.sprites.Init(
+            *dev, h.renderer.ColorFormat(), 8192, h.msaa_samples);
+        if (sr.IsErr() && h.msaa_samples > 1u) {
+            ACS_LOG_WARN(
+                "[acs_editor_abi] MSAA %ux sprite batch init failed; retrying without MSAA",
+                h.msaa_samples);
+            h.msaa_samples = h.msaa_pending = 1u;
+            h.sprites.Shutdown();
+            sr = h.sprites.Init(
+                *dev, h.renderer.ColorFormat(), 8192, 1u);
+        }
+        h.sprites_ready = sr.IsOk();
+        if (!h.sprites_ready) {
+            ACS_LOG_ERROR(
+                "[acs_editor_abi] sprite batch init failed: %s",
+                sr.Error().message);
+            // SpriteBatch is the core 2D renderer and has no lower-quality
+            // fallback after the 1x retry.  Do not publish Ready for a host
+            // that cannot render its canonical scene path.
+            h.startup_failed = true;
+        } else {
+            h.startup_step = 1u;
+        }
+    } else if (step == 1u) {
+        const auto fr = h.fxaa.Init(*dev, h.renderer.ColorFormat());
+        h.fxaa_ready = fr.IsOk();
+        if (!h.fxaa_ready) {
+            ACS_LOG_WARN(
+                "[acs_editor_abi] FXAA init failed; continuing without FXAA: %s",
+                fr.Error().message);
+        }
+        h.startup_step = 2u;
+    } else {
+        const u32 phaseBefore = h.r3d_init_phase;
+        const bool ready = AdvanceEnsure3D(h);
+        if (ready) {
+            h.startup_step = kEditorStartupStepCount;
+            h.startup_ready = true;
+        } else if (h.r3d_init_phase == phaseBefore &&
+                   !h.startup_phase_pending) {
+            h.r3d_init_failed = true;
+            h.startup_failed = true;
+            ACS_LOG_ERROR(
+                "[acs_editor_abi] startup phase failed: %s",
+                EditorStartupStepName(step));
+        } else {
+            h.startup_step = 2u + h.r3d_init_phase;
+        }
+    }
+
+    const bool phase_finished =
+        h.startup_step != step || h.startup_failed;
+    if (phase_finished) {
+        const f32 measured =
+            h.startup_phase_elapsed_override_ms >= 0.0f
+                ? h.startup_phase_elapsed_override_ms
+                : editor_profiler::ElapsedMilliseconds(begin);
+        h.startup_phase_elapsed_override_ms = -1.0f;
+        ACS_LOG_INFO(
+            "[acs_editor_abi] startup %u/%u %s: %.2f ms",
+            h.startup_step, kEditorStartupStepCount,
+            EditorStartupStepName(step), measured);
+    }
+    if (h.startup_ready) {
+        ACS_LOG_INFO(
+            "[acs_editor_abi] renderer startup complete: %.2f ms total",
+            editor_profiler::ElapsedMilliseconds(h.startup_begin));
+    }
+    return h.startup_ready;
 }
 
 /** prim 種別に対応する GPU メッシュを返す。 */
-const GpuMesh& Mesh3DFor(const EditorHost& h, int prim) noexcept {
+const FGpuMesh& Mesh3DFor(const FEditorHost& h, int prim) noexcept {
     if (prim == 1) return h.gm_sphere;
     if (prim == 2) return h.gm_plane;
     return h.gm_cube;
@@ -3047,7 +4192,7 @@ const GpuMesh& Mesh3DFor(const EditorHost& h, int prim) noexcept {
 
 /** 軌道カメラの eye 位置を yaw/pitch/dist/target から求める。
  *  eye.y を床上にクランプ → 真上を向いても床下に潜らず «空» を見られる (EditorCam3D が pitch 方向を見る)。 */
-FVec3 Cam3DEye(const EditorHost& h) noexcept {
+FVec3 Cam3DEye(const FEditorHost& h) noexcept {
     const f32 cp = std::cos(h.cam3d_pitch), sp = std::sin(h.cam3d_pitch);
     const f32 cy = std::cos(h.cam3d_yaw),   sy = std::sin(h.cam3d_yaw);
     const FVec3 dir{ cp * sy, sp, cp * cy };          // target→eye 方向
@@ -3062,7 +4207,7 @@ FVec3 Cam3DEye(const EditorHost& h) noexcept {
 }
 
 /** エディタ 3D ビューのカメラを組む (透視 or 正射、軌道 eye + 注視点)。描画/射影/ピックで共通。 */
-FCamera EditorCam3D(const EditorHost& h, f32 aspect) noexcept {
+FCamera EditorCam3D(const FEditorHost& h, f32 aspect) noexcept {
     FCamera cam;
     if (h.ortho3d) {
         const f32 oh = h.cam3d_dist * 0.62f;             // 高さを軌道距離に比例 → ズーム感を保つ
@@ -3085,9 +4230,9 @@ FCamera EditorCam3D(const EditorHost& h, f32 aspect) noexcept {
 }
 
 /** スクリーン点を z=0 平面のワールド座標(XY)へ逆射影する。視線が平面に平行なら false。 */
-bool ScreenToZ0(const EditorHost& h, f32 sx, f32 sy, f32 W, f32 H, FVec2& outXY) noexcept {
+bool ScreenToZ0(const FEditorHost& h, f32 sx, f32 sy, f32 W, f32 H, FVec2& outXY) noexcept {
     const f32 aspect = (H > 0) ? W / H : 1.0f;
-    const Ray3 ray = acs::ScreenPointToRay(EditorCam3D(h, aspect).ViewProjection(), sx, sy, W, H);
+    const FRay3 ray = acs::ScreenPointToRay(EditorCam3D(h, aspect).ViewProjection(), sx, sy, W, H);
     if (std::abs(ray.direction.z) < 1e-6f) return false;      // 視線が z=0 平面に平行
     const f32 t = -ray.origin.z / ray.direction.z;
     outXY = FVec2{ ray.origin.x + ray.direction.x * t, ray.origin.y + ray.direction.y * t };
@@ -3095,8 +4240,8 @@ bool ScreenToZ0(const EditorHost& h, f32 sx, f32 sy, f32 W, f32 H, FVec2& outXY)
 }
 
 /** スクリーン点 (sx,sy) を通すワールドレイ (origin=eye, dir 正規化) を返す。 */
-struct EGizRay { FVec3 origin; FVec3 dir; };
-EGizRay Cam3DScreenRay(const EditorHost& h, f32 sx, f32 sy, f32 W, f32 H) noexcept {
+struct FEGizRay { FVec3 origin; FVec3 dir; };
+FEGizRay Cam3DScreenRay(const FEditorHost& h, f32 sx, f32 sy, f32 W, f32 H) noexcept {
     const FVec3 eye = Cam3DEye(h);
     const f32 cpit = std::cos(h.cam3d_pitch), spit = std::sin(h.cam3d_pitch);
     const f32 cyaw = std::cos(h.cam3d_yaw),   syaw = std::sin(h.cam3d_yaw);
@@ -3110,11 +4255,11 @@ EGizRay Cam3DScreenRay(const EditorHost& h, f32 sx, f32 sy, f32 W, f32 H) noexce
     FVec3 d{ fwd.x + right.x * ndcx + up.x * ndcy, fwd.y + right.y * ndcx + up.y * ndcy, fwd.z + right.z * ndcx + up.z * ndcy };
     const f32 dl = std::sqrt(d.x*d.x + d.y*d.y + d.z*d.z);
     if (dl > 1e-6f) d = FVec3{ d.x/dl, d.y/dl, d.z/dl };
-    return EGizRay{ eye, d };
+    return FEGizRay{ eye, d };
 }
 
 /** ワールド点をスクリーン座標へ射影する (画面内かつ前方なら true)。 */
-bool WorldToScreen3D(const EditorHost& h, FVec3 wp, f32 W, f32 H, f32& outSx, f32& outSy) noexcept {
+bool WorldToScreen3D(const FEditorHost& h, FVec3 wp, f32 W, f32 H, f32& outSx, f32& outSy) noexcept {
     const f32 aspect = (H > 0) ? W / H : 1.0f;
     const FCamera cam = EditorCam3D(h, aspect);          // 透視 or 正射
     const FMat4 vp = cam.ViewProjection();
@@ -3126,13 +4271,13 @@ bool WorldToScreen3D(const EditorHost& h, FVec3 wp, f32 W, f32 H, f32& outSx, f3
 }
 
 /** 点 p からレイ [o,d] への «レイに沿った» 最近パラメータ t (= 射影距離)。 */
-f32 RayParamForClosest(const EGizRay& r, FVec3 p) noexcept {
+f32 RayParamForClosest(const FEGizRay& r, FVec3 p) noexcept {
     const FVec3 op{ p.x - r.origin.x, p.y - r.origin.y, p.z - r.origin.z };
     return op.x * r.dir.x + op.y * r.dir.y + op.z * r.dir.z;
 }
 
 /** 2 直線 (軸: A+s*ad, レイ: r) の最近接で «軸パラメータ s» を返す (移動ドラッグ用)。 */
-f32 ClosestAxisParam(FVec3 A, FVec3 ad, const EGizRay& r) noexcept {
+f32 ClosestAxisParam(FVec3 A, FVec3 ad, const FEGizRay& r) noexcept {
     // ad, r.dir は正規化。s = ((B-A)·(ad - (ad·rd)rd)) / (1 - (ad·rd)^2)
     const FVec3 B = r.origin;
     const FVec3 BA{ B.x - A.x, B.y - A.y, B.z - A.z };
@@ -3152,67 +4297,77 @@ FVec3 AxisDir(int axis) noexcept {
 }
 
 // 3D ノードアクセス補助 (実体は FindNode3D 群の直後)。Seed3DScene が先に使うため前方宣言。
-game::FNode3D& AddNode3D(EditorHost& h, const char* name) noexcept;
+game::ANode& AddNode3D(FEditorHost& h, const char* name) noexcept;
 
 /** 初回 3D 切替でデフォルトの 3D シーン (床 + 立方体 + 球) を置く。 */
-void Seed3DScene(EditorHost& h) noexcept {
+void Seed3DScene(FEditorHost& h) noexcept {
     if (h.scene3d_seeded) return;
     h.scene3d_seeded = true;
     {
-        game::FNode3D& g = AddNode3D(h, "Ground");
+        game::ANode& g = AddNode3D(h, "Ground");
         g.Local().position = FVec3{ 0, 0, 0 }; g.Local().scale = FVec3{ 16, 1, 16 };
-        g.GetComponent<EEd3DRec>()->id = h.next_id3d++;
-        g.GetComponent<game::FMeshComponent3D>()->SetPrimitive(game::EMeshPrimitive3D::Plane);
-        g.GetComponent<game::FMeshComponent3D>()->SetColor(FVec4{ 0.32f, 0.34f, 0.38f, 1 });
+        g.GetComponent<AEditor3DRecordComponent>()->id = h.next_id3d++;
+        g.GetComponent<game::AMeshComponent3D>()->SetPrimitive(game::EMeshPrimitive3D::Plane);
+        g.GetComponent<game::AMeshComponent3D>()->SetColor(FVec4{ 0.32f, 0.34f, 0.38f, 1 });
     }
     {
-        game::FNode3D& box = AddNode3D(h, "Cube");
+        game::ANode& box = AddNode3D(h, "Cube");
         box.Local().position = FVec3{ -1.4f, 0.5f, 0 };
         const int id = h.next_id3d++;
-        box.GetComponent<EEd3DRec>()->id = id; h.sel3d_multi.Clear(); h.sel3d_multi.PushBack(id); h.sel3d = id;
-        box.GetComponent<game::FMeshComponent3D>()->SetPrimitive(game::EMeshPrimitive3D::Cube);
-        box.GetComponent<game::FMeshComponent3D>()->SetColor(FVec4{ 0.85f, 0.45f, 0.35f, 1 });
+        box.GetComponent<AEditor3DRecordComponent>()->id = id; h.sel3d_multi.Clear(); h.sel3d_multi.PushBack(id); h.sel3d = id;
+        box.GetComponent<game::AMeshComponent3D>()->SetPrimitive(game::EMeshPrimitive3D::Cube);
+        box.GetComponent<game::AMeshComponent3D>()->SetColor(FVec4{ 0.85f, 0.45f, 0.35f, 1 });
     }
     {
-        game::FNode3D& ball = AddNode3D(h, "Sphere");
+        game::ANode& ball = AddNode3D(h, "Sphere");
         ball.Local().position = FVec3{ 1.3f, 0.6f, 0.2f }; ball.Local().scale = FVec3{ 1.2f, 1.2f, 1.2f };
-        ball.GetComponent<EEd3DRec>()->id = h.next_id3d++;
-        ball.GetComponent<game::FMeshComponent3D>()->SetPrimitive(game::EMeshPrimitive3D::Sphere);
-        ball.GetComponent<game::FMeshComponent3D>()->SetColor(FVec4{ 0.40f, 0.62f, 0.92f, 1 });
+        ball.GetComponent<AEditor3DRecordComponent>()->id = h.next_id3d++;
+        ball.GetComponent<game::AMeshComponent3D>()->SetPrimitive(game::EMeshPrimitive3D::Sphere);
+        ball.GetComponent<game::AMeshComponent3D>()->SetColor(FVec4{ 0.40f, 0.62f, 0.92f, 1 });
     }
 }
 
 /** 2D ポリゴン点列 (XY 平面、z=0) からフラットな FMeshAsset を作る (扇状三角形分割、法線+Z)。
  *  «2D は内部的に 3D 空間 (z=0) にある» を体現: 2D ポリゴンを 3D シーンのノードとして持つ。 */
-TSharedPtr<Asset> MakeFlatPolygon3D(const FVec2* pts, u32 n) noexcept {
+TSharedPtr<FAsset> MakeFlatPolygon3D(const FVec2* pts, u32 n) noexcept {
     if (pts == nullptr || n < 3) return nullptr;
     auto mesh = MakeShared<FMeshAsset>();
     auto& V = mesh->Vertices();
     for (u32 i = 0; i < n; ++i)
-        V.PushBack(MeshVertex{ FVec3{ pts[i].x, pts[i].y, 0.0f }, FVec3{ 0, 0, 1 }, 0.0f, 0.0f });
+        V.PushBack(FMeshVertex{ FVec3{ pts[i].x, pts[i].y, 0.0f }, FVec3{ 0, 0, 1 }, 0.0f, 0.0f });
     auto& I = mesh->Indices();
     for (u32 i = 1; i + 1 < n; ++i) { I.PushBack(0); I.PushBack(i); I.PushBack(i + 1); }   // 扇 (凸前提)
-    mesh->SubMeshes().PushBack(SubMesh{ 0, static_cast<u32>(I.Size()) });
-    return TSharedPtr<Asset>(mesh);
+    mesh->SubMeshes().PushBack(FSubMesh{ 0, static_cast<u32>(I.Size()) });
+    return TSharedPtr<FAsset>(mesh);
 }
 
-// --- 3D ノードアクセス (各 editor ノード = root の子 FNode3D + EEd3DRec + FMeshComponent3D) ---
+// --- 3D ノードアクセス (各 editor ノード = root の子 ANode + AEditor3DRecordComponent + AMeshComponent3D) ---
 
-/** FNode3D から EEd3DRec (editor id + euler) を取り出す (無ければ null)。 */
-EEd3DRec* Rec3D(game::FNode3D* n) noexcept {
-    return (n != nullptr) ? n->GetComponent<EEd3DRec>() : nullptr;
+/** ANode から AEditor3DRecordComponent (editor id + euler) を取り出す (無ければ null)。 */
+AEditor3DRecordComponent* Rec3D(game::ANode* n) noexcept {
+    return (n != nullptr) ? n->GetComponent<AEditor3DRecordComponent>() : nullptr;
 }
 
-/** FNode3D から FMeshComponent3D (prim/color/mesh) を取り出す (無ければ null)。 */
-game::FMeshComponent3D* Mesh3D(game::FNode3D* n) noexcept {
-    return (n != nullptr) ? n->GetComponent<game::FMeshComponent3D>() : nullptr;
+/** ANode から AMeshComponent3D (prim/color/mesh) を取り出す (無ければ null)。 */
+game::AMeshComponent3D* Mesh3D(game::ANode* n) noexcept {
+    return (n != nullptr) ? n->GetComponent<game::AMeshComponent3D>() : nullptr;
 }
 
-/** 3D ノードの material_path (.acsmat) を解析して FMeshComponent3D の material キャッシュへ読み込む。
- *  2D の LoadNodeMaterial 鏡映。path 空ならマテリアル無し (既定) に戻す。GPU テクスチャは当面未使用。 */
-void LoadNode3DMaterial(game::FNode3D* n) noexcept {
-    game::FMeshComponent3D* mc = Mesh3D(n);
+/** 3D ノードの material_path (.acsmat) を解析して material キャッシュへ読み込む。 */
+void LoadNode3DMaterial(game::ANode* n) noexcept {
+    game::AMeshComponent3D* mc = Mesh3D(n);
     if (mc == nullptr) return;
+    AEditor3DRecordComponent* record = Rec3D(n);
+    if (record != nullptr) {
+        record->material_textures_loaded = false;
+        record->material_albedo_tex.Reset();
+        record->material_normal_tex.Reset();
+        for (u32 slot = 0u;
+             slot < kShaderExpressionMaxTextureSlots;
+             ++slot) {
+            record->material_expression_tex[slot].Reset();
+        }
+    }
     mc->MaterialMut() = game::FMaterial2D{};                      // 既定にリセット
     const FStringView mp = mc->MaterialPath();
     if (mp.Size() > 0) {
@@ -3224,32 +4379,65 @@ void LoadNode3DMaterial(game::FNode3D* n) noexcept {
     mc->SetMaterialLoaded(true);
 }
 
-/** root 配下を DFS pre-order で集める (root 自身は除く)。前方宣言 (FindNode3DNode が使う)。 */
-void Dfs3DCollect(game::FNode3D* n, TArray<game::FNode3D*>& out) noexcept;
+/**
+ * Load legacy albedo/normal resources plus all four Substrate expression
+ * TextureSample2D slots.  UploadTexture creates linear UNORM resources; an
+ * expression node's sRGB flag is decoded exactly once by the material VM.
+ */
+void LoadNode3DMaterialTextures(
+    FEditorHost& h, game::ANode* n) noexcept {
+    AEditor3DRecordComponent* record = Rec3D(n);
+    game::AMeshComponent3D* mc = Mesh3D(n);
+    if (record == nullptr || mc == nullptr ||
+        record->material_textures_loaded) {
+        return;
+    }
+    const game::FMaterial2D& material = mc->Material();
+    if (material.kind == game::EMaterialKind::Lit) {
+        LoadTexFromPath(
+            h, material.pbr.albedoPath,
+            record->material_albedo_tex);
+        LoadTexFromPath(
+            h, material.pbr.normalPath,
+            record->material_normal_tex);
+        for (u32 slot = 0u;
+             slot < kShaderExpressionMaxTextureSlots;
+             ++slot) {
+            LoadTexFromPath(
+                h,
+                material.substrateExpressionTexturePaths[slot],
+                record->material_expression_tex[slot]);
+        }
+    }
+    record->material_textures_loaded = true;
+}
 
-/** editor 整数 id で FNode3D を «木全体» から線形探索する (階層対応、無ければ null)。 */
-game::FNode3D* FindNode3DNode(EditorHost& h, int id) noexcept {
-    TArray<game::FNode3D*> all; Dfs3DCollect(&h.scene3d.Root(), all);
+/** root 配下を DFS pre-order で集める (root 自身は除く)。前方宣言 (FindNode3DNode が使う)。 */
+void Dfs3DCollect(game::ANode* n, TArray<game::ANode*>& out) noexcept;
+
+/** editor 整数 id で ANode を «木全体» から線形探索する (階層対応、無ければ null)。 */
+game::ANode* FindNode3DNode(FEditorHost& h, int id) noexcept {
+    TArray<game::ANode*> all; Dfs3DCollect(&h.scene3d.Root(), all);
     for (u32 i = 0; i < all.Size(); ++i) {
-        EEd3DRec* r = Rec3D(all[i]);
+        AEditor3DRecordComponent* r = Rec3D(all[i]);
         if (r != nullptr && r->id == id) return all[i];
     }
     return nullptr;
 }
 
 // ----- 3D 選択集合の操作 (single/multi。primary = sel3d。2D の Sel* と対称) -----
-bool Sel3DContains(const EditorHost& h, int id) noexcept {
+bool Sel3DContains(const FEditorHost& h, int id) noexcept {
     for (u32 i = 0; i < h.sel3d_multi.Size(); ++i) if (h.sel3d_multi[i] == id) return true;
     return false;
 }
 /** 単一選択にする (集合を {id} に。id 不正/未知なら解除)。sel3d を直接いじる各所はこれを使う。 */
-void SetSel3D(EditorHost& h, int id) noexcept {
+void SetSel3D(FEditorHost& h, int id) noexcept {
     h.sel3d_multi.Clear();
     if (id >= 0 && FindNode3DNode(h, id) != nullptr) { h.sel3d_multi.PushBack(id); h.sel3d = id; }
     else h.sel3d = -1;
 }
 /** id の選択を反転する (Ctrl+click)。追加なら primary、primary を外したら別の一員へ。 */
-void ToggleSel3D(EditorHost& h, int id) noexcept {
+void ToggleSel3D(FEditorHost& h, int id) noexcept {
     if (id < 0 || FindNode3DNode(h, id) == nullptr) return;
     for (u32 i = 0; i < h.sel3d_multi.Size(); ++i) {
         if (h.sel3d_multi[i] == id) {
@@ -3261,7 +4449,7 @@ void ToggleSel3D(EditorHost& h, int id) noexcept {
     h.sel3d_multi.PushBack(id); h.sel3d = id;
 }
 /** 構造変更後、消えた id を除き primary を整える。 */
-void PruneSel3D(EditorHost& h) noexcept {
+void PruneSel3D(FEditorHost& h) noexcept {
     for (u32 i = 0; i < h.sel3d_multi.Size();) {
         if (FindNode3DNode(h, h.sel3d_multi[i]) == nullptr) h.sel3d_multi.RemoveAtSwap(i);
         else ++i;
@@ -3271,107 +4459,107 @@ void PruneSel3D(EditorHost& h) noexcept {
     if (h.sel3d_multi.Size() == 0) h.sel3d = -1;
 }
 
-/** ノードの prim 種別 (FMeshComponent3D 無し or 不明は 0=Cube)。 */
-int NPrim(game::FNode3D* n) noexcept {
-    game::FMeshComponent3D* m = Mesh3D(n);
+/** ノードの prim 種別 (AMeshComponent3D 無し or 不明は 0=Cube)。 */
+int NPrim(game::ANode* n) noexcept {
+    game::AMeshComponent3D* m = Mesh3D(n);
     return (m != nullptr) ? static_cast<int>(m->Primitive()) : 0;
 }
 
-/** ノードの色 (FMeshComponent3D 無しは既定灰)。 */
-FVec4 NColor(game::FNode3D* n) noexcept {
-    game::FMeshComponent3D* m = Mesh3D(n);
+/** ノードの色 (AMeshComponent3D 無しは既定灰)。 */
+FVec4 NColor(game::ANode* n) noexcept {
+    game::AMeshComponent3D* m = Mesh3D(n);
     return (m != nullptr) ? m->Color() : FVec4{ 0.80f, 0.80f, 0.85f, 1.0f };
 }
 
 /** ノードのカスタムメッシュ FMeshAsset (prim!=Mesh や未設定は null)。 */
-const FMeshAsset* NMesh(game::FNode3D* n) noexcept {
-    game::FMeshComponent3D* m = Mesh3D(n);
+const FMeshAsset* NMesh(game::ANode* n) noexcept {
+    game::AMeshComponent3D* m = Mesh3D(n);
     return (m != nullptr) ? m->Mesh() : nullptr;
 }
 
-/** Phase2: ノードを FPbrShader (DrawIndexed) で描くための GpuMesh を返す。
+/** Phase2: ノードを FPbrShader (DrawIndexed) で描くための FGpuMesh を返す。
  *  prim 0/1/2 は共有プリミティブ、prim 3 (Mesh/ポリゴン) はノードの FMeshAsset を on-demand
- *  アップロードして EEd3DRec にキャッシュ (元メッシュが変われば再アップロード)。失敗は nullptr。 */
-GpuMesh* GpuMeshForNode3D(EditorHost& h, game::FNode3D* nn) noexcept {
+ *  アップロードして AEditor3DRecordComponent にキャッシュ (元メッシュが変われば再アップロード)。失敗は nullptr。 */
+FGpuMesh* GpuMeshForNode3D(FEditorHost& h, game::ANode* nn) noexcept {
     const int prim = NPrim(nn);
     if (prim == 1) return &h.gm_sphere;
     if (prim == 2) return &h.gm_plane;
     if (prim != 3) return &h.gm_cube;                 // 0=Cube (既定)
     const FMeshAsset* cm = NMesh(nn);
-    EEd3DRec* rec = Rec3D(nn);
+    AEditor3DRecordComponent* rec = Rec3D(nn);
     if (cm == nullptr || rec == nullptr) return nullptr;
     if (rec->gm_cache_src != cm || rec->gm_cache.vertex_buffer.Get() == nullptr) {
         IRhiDevice* dev = h.renderer.Device();
         if (dev == nullptr) return nullptr;
-        rec->gm_cache = GpuMesh{};
+        rec->gm_cache = FGpuMesh{};
         if (UploadMesh(*dev, *cm, rec->gm_cache).IsErr()) { rec->gm_cache_src = nullptr; return nullptr; }
         rec->gm_cache_src = cm;
     }
     return &rec->gm_cache;
 }
 
-/** 新規 3D ノードを生成して FNode3D への参照を返す (FNode3D + EEd3DRec + FMeshComponent3D)。 */
-game::FNode3D& AddNode3D(EditorHost& h, const char* name) noexcept {
-    game::FNode3D& n = h.scene3d.Spawn(FStringView((name != nullptr && name[0] != '\0') ? name : "Node"));
-    n.AddComponent<EEd3DRec>();
-    game::FMeshComponent3D& m = n.AddComponent<game::FMeshComponent3D>();
+/** 新規 3D ノードを生成して ANode への参照を返す (ANode + AEditor3DRecordComponent + AMeshComponent3D)。 */
+game::ANode& AddNode3D(FEditorHost& h, const char* name) noexcept {
+    game::ANode& n = h.scene3d.Spawn(FStringView((name != nullptr && name[0] != '\0') ? name : "Node"));
+    n.AddComponent<AEditor3DRecordComponent>();
+    game::AMeshComponent3D& m = n.AddComponent<game::AMeshComponent3D>();
     m.SetColor(FVec4{ 0.80f, 0.80f, 0.85f, 1.0f });   // 旧 ENode3D 既定色を踏襲
     return n;
 }
 
 /** root 配下を DFS pre-order で集める (root 自身は除く)。階層対応の列挙/描画/保存に使う。 */
-void Dfs3DCollect(game::FNode3D* n, TArray<game::FNode3D*>& out) noexcept {
+void Dfs3DCollect(game::ANode* n, TArray<game::ANode*>& out) noexcept {
     if (n == nullptr) return;
     for (u32 i = 0; i < n->ChildCount(); ++i) {
-        game::FNode3D* c = n->Child(i);
+        game::ANode* c = n->Child(i);
         if (c != nullptr) { out.PushBack(c); Dfs3DCollect(c, out); }
     }
 }
 
 /** ノードの «親の editor 整数 id» を返す (親が root or 無しは -1)。 */
-int ParentId3D(EditorHost& h, game::FNode3D* n) noexcept {
+int ParentId3D(FEditorHost& h, game::ANode* n) noexcept {
     if (n == nullptr) return -1;
-    game::FNode3D* p = n->Parent();
+    game::ANode* p = n->Parent();
     if (p == nullptr || p == &h.scene3d.Root()) return -1;
-    EEd3DRec* r = Rec3D(p);
+    AEditor3DRecordComponent* r = Rec3D(p);
     return (r != nullptr) ? r->id : -1;
 }
 
 /** メッシュファイル (.gltf/.glb/.obj/.fbx、UTF-8 path) を読み込んで FMeshAsset を返す (失敗 null)。 */
-TSharedPtr<Asset> LoadMeshFile(const char* path) noexcept {
+TSharedPtr<FAsset> LoadMeshFile(const char* path) noexcept {
     if (path == nullptr || path[0] == '\0') return nullptr;
     wchar_t wpath[512];
     if (MultiByteToWideChar(kCpUtf8, 0, path, -1, wpath, 512) <= 0) return nullptr;
-    auto bytes = FileSystem::ReadAllBytes(wpath);
+    auto bytes = FFileSystem::ReadAllBytes(wpath);
     if (bytes.IsErr() || bytes.Value().Size() == 0) { ACS_LOG_ERROR("[3D] メッシュ open 失敗: %s", path); return nullptr; }
     // 拡張子で loader を選ぶ。
     const char* ext = std::strrchr(path, '.');
-    TResult<TSharedPtr<Asset>> r = ACS_ERR(Asset, 900, "no loader");
+    TResult<TSharedPtr<FAsset>> r = ACS_ERR(Asset, 900, "no loader");
     if (ext != nullptr) {
-        if      (_stricmp(ext, ".glb")  == 0) { GlbAssetLoader  l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
-        else if (_stricmp(ext, ".gltf") == 0) { GltfAssetLoader l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
-        else if (_stricmp(ext, ".obj")  == 0) { ObjAssetLoader  l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
-        else if (_stricmp(ext, ".fbx")  == 0) { FbxAssetLoader  l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
+        if      (_stricmp(ext, ".glb")  == 0) { FGlbAssetLoader  l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
+        else if (_stricmp(ext, ".gltf") == 0) { FGltfAssetLoader l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
+        else if (_stricmp(ext, ".obj")  == 0) { FObjAssetLoader  l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
+        else if (_stricmp(ext, ".fbx")  == 0) { FFbxAssetLoader  l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
     }
     if (r.IsErr()) { ACS_LOG_ERROR("[3D] メッシュ parse 失敗: %s", path); return nullptr; }
-    TSharedPtr<Asset> a = r.Value();
+    TSharedPtr<FAsset> a = r.Value();
     const FMeshAsset* m = static_cast<const FMeshAsset*>(a.Get());
     if (m == nullptr || m->Vertices().Size() == 0) { ACS_LOG_ERROR("[3D] メッシュ空: %s", path); return nullptr; }
     return a;
 }
 
 /** CPU メッシュ cm の三角形を model 行列でワールド変換し色を付けて dv へ追加する。 */
-void AppendMeshTris(TArray<M3DVtx>& dv, const FMeshAsset* cm, const FMat4& model, FVec3 col, u32 cap,
+void AppendMeshTris(TArray<FM3DVtx>& dv, const FMeshAsset* cm, const FMat4& model, FVec3 col, u32 cap,
                     f32 metallic = 0.0f, f32 roughness = 0.6f) noexcept {
     if (cm == nullptr) return;
     const auto& vtx = cm->Vertices();
     const auto& idx = cm->Indices();
     for (u32 k = 0; k + 2 < idx.Size(); k += 3) {
         for (u32 t = 0; t < 3; ++t) {
-            const MeshVertex& mv = vtx[idx[k + t]];
+            const FMeshVertex& mv = vtx[idx[k + t]];
             const FVec4 wp = Transform(FVec4{ mv.position.x, mv.position.y, mv.position.z, 1.0f }, model);
             const FVec4 wn = Transform(FVec4{ mv.normal.x, mv.normal.y, mv.normal.z, 0.0f }, model);
-            M3DVtx o; o.px = wp.x; o.py = wp.y; o.pz = wp.z;
+            FM3DVtx o; o.px = wp.x; o.py = wp.y; o.pz = wp.z;
             o.nx = wn.x; o.ny = wn.y; o.nz = wn.z; o.r = col.x; o.g = col.y; o.b = col.z;
             o.mt = metallic; o.rg = roughness;
             if (dv.Size() < cap) dv.PushBack(o);
@@ -3380,7 +4568,7 @@ void AppendMeshTris(TArray<M3DVtx>& dv, const FMeshAsset* cm, const FMat4& model
 }
 
 /** ギズモのワールド長 (カメラ距離に比例 → 画面上ほぼ一定。視線と軸の角度で破綻しない)。 */
-f32 Gizmo3DScale(const EditorHost& h, FVec3 pos) noexcept {
+f32 Gizmo3DScale(const FEditorHost& h, FVec3 pos) noexcept {
     const FVec3 eye = Cam3DEye(h);
     const FVec3 d{ eye.x - pos.x, eye.y - pos.y, eye.z - pos.z };
     const f32 dist = std::sqrt(d.x*d.x + d.y*d.y + d.z*d.z);
@@ -3388,7 +4576,7 @@ f32 Gizmo3DScale(const EditorHost& h, FVec3 pos) noexcept {
 }
 
 /** 軸方向に伸びる «箱バー» を gv へ追加する (world X/Y/Z 軸のみ、非一様スケールで回転不要)。 */
-void AppendBar(TArray<M3DVtx>& gv, const EditorHost& h, FVec3 center, int axis, f32 len, f32 th, FVec3 col) noexcept {
+void AppendBar(TArray<FM3DVtx>& gv, const FEditorHost& h, FVec3 center, int axis, f32 len, f32 th, FVec3 col) noexcept {
     FVec3 s{ th, th, th }; (axis == 1) ? (s.x = len) : (axis == 2) ? (s.y = len) : (s.z = len);
     const FMat4 m = FMat4::Scale(s) * FMat4::Translation(center);
     AppendMeshTris(gv, h.cpu_cube.Get(), m, col, 4096);
@@ -3396,13 +4584,13 @@ void AppendBar(TArray<M3DVtx>& gv, const EditorHost& h, FVec3 center, int axis, 
 
 /** 軸方向の «円錐の矢じり» を gv へ追加する (apex = base + axisDir*len)。 */
 static FVec3 GNorm(FVec3 v) noexcept { const f32 l = std::sqrt(v.x*v.x+v.y*v.y+v.z*v.z); return (l>1e-6f)?FVec3{v.x/l,v.y/l,v.z/l}:FVec3{0,1,0}; }
-void AppendCone(TArray<M3DVtx>& gv, FVec3 base, int axis, f32 len, f32 rad, FVec3 col) noexcept {
+void AppendCone(TArray<FM3DVtx>& gv, FVec3 base, int axis, f32 len, f32 rad, FVec3 col) noexcept {
     const FVec3 ax = AxisDir(axis);
     FVec3 u = (axis == 2) ? FVec3{ 1, 0, 0 } : FVec3{ 0, 1, 0 };
     FVec3 v{ ax.y*u.z - ax.z*u.y, ax.z*u.x - ax.x*u.z, ax.x*u.y - ax.y*u.x };
     const FVec3 apex{ base.x + ax.x*len, base.y + ax.y*len, base.z + ax.z*len };
     const int N = 24;   // 滑らかな矢じり
-    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { M3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f; gv.PushBack(o);} };
+    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { FM3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f; gv.PushBack(o);} };
     for (int i = 0; i < N; ++i) {
         const f32 a0 = 6.2831853f * i / N, a1 = 6.2831853f * (i + 1) / N;
         const FVec3 rd0{ u.x*std::cos(a0)+v.x*std::sin(a0), u.y*std::cos(a0)+v.y*std::sin(a0), u.z*std::cos(a0)+v.z*std::sin(a0) };
@@ -3417,13 +4605,13 @@ void AppendCone(TArray<M3DVtx>& gv, FVec3 base, int axis, f32 len, f32 rad, FVec
     }
 }
 /** 軸方向の «円柱» (シャフト)。半径 rad、長さ len、滑らかな外向き法線。 */
-void AppendCylinder(TArray<M3DVtx>& gv, FVec3 base, int axis, f32 len, f32 rad, FVec3 col) noexcept {
+void AppendCylinder(TArray<FM3DVtx>& gv, FVec3 base, int axis, f32 len, f32 rad, FVec3 col) noexcept {
     const FVec3 ax = AxisDir(axis);
     FVec3 u = (axis == 2) ? FVec3{ 1, 0, 0 } : FVec3{ 0, 1, 0 };
     FVec3 v{ ax.y*u.z - ax.z*u.y, ax.z*u.x - ax.x*u.z, ax.x*u.y - ax.y*u.x };
     const FVec3 tip{ base.x + ax.x*len, base.y + ax.y*len, base.z + ax.z*len };
     const int N = 20;
-    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { M3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f; gv.PushBack(o);} };
+    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { FM3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f; gv.PushBack(o);} };
     for (int i = 0; i < N; ++i) {
         const f32 a0 = 6.2831853f * i / N, a1 = 6.2831853f * (i + 1) / N;
         const FVec3 n0{ u.x*std::cos(a0)+v.x*std::sin(a0), u.y*std::cos(a0)+v.y*std::sin(a0), u.z*std::cos(a0)+v.z*std::sin(a0) };
@@ -3435,12 +4623,12 @@ void AppendCylinder(TArray<M3DVtx>& gv, FVec3 base, int axis, f32 len, f32 rad, 
     }
 }
 /** 軸まわりの «リング» (トーラス)。回転ギズモ用。リング半径 radius、チューブ半径 tube。 */
-void AppendRing(TArray<M3DVtx>& gv, FVec3 center, int axis, f32 radius, f32 tube, FVec3 col) noexcept {
+void AppendRing(TArray<FM3DVtx>& gv, FVec3 center, int axis, f32 radius, f32 tube, FVec3 col) noexcept {
     const FVec3 ax = AxisDir(axis);
     FVec3 u = (axis == 2) ? FVec3{ 1, 0, 0 } : FVec3{ 0, 1, 0 };
     FVec3 v{ ax.y*u.z - ax.z*u.y, ax.z*u.x - ax.x*u.z, ax.x*u.y - ax.y*u.x };   // u,v: リング平面
     const int N = 24, M = 5;
-    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { M3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f; gv.PushBack(o);} };
+    auto pushV = [&](FVec3 p, FVec3 n) { if (gv.Size() < 4096) { FM3DVtx o; o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f; gv.PushBack(o);} };
     auto ringDir = [&](f32 a){ return FVec3{ u.x*std::cos(a)+v.x*std::sin(a), u.y*std::cos(a)+v.y*std::sin(a), u.z*std::cos(a)+v.z*std::sin(a) }; };
     auto tubeN  = [&](FVec3 rd, f32 b){ return FVec3{ rd.x*std::cos(b)+ax.x*std::sin(b), rd.y*std::cos(b)+ax.y*std::sin(b), rd.z*std::cos(b)+ax.z*std::sin(b) }; };
     for (int i = 0; i < N; ++i) {
@@ -3460,13 +4648,13 @@ void AppendRing(TArray<M3DVtx>& gv, FVec3 center, int axis, f32 radius, f32 tube
 }
 
 /** 平面ハンドルの «小さな四角» を gv へ追加する (中心 c、面内基底 e1,e2、半サイズ hs)。 */
-void AppendQuad(TArray<M3DVtx>& gv, FVec3 c, FVec3 e1, FVec3 e2, f32 hs, FVec3 col) noexcept {
+void AppendQuad(TArray<FM3DVtx>& gv, FVec3 c, FVec3 e1, FVec3 e2, f32 hs, FVec3 col) noexcept {
     const FVec3 n{ e1.y*e2.z - e1.z*e2.y, e1.z*e2.x - e1.x*e2.z, e1.x*e2.y - e1.y*e2.x };
     FVec3 p00{ c.x-(e1.x+e2.x)*hs, c.y-(e1.y+e2.y)*hs, c.z-(e1.z+e2.z)*hs };
     FVec3 p10{ c.x+(e1.x-e2.x)*hs, c.y+(e1.y-e2.y)*hs, c.z+(e1.z-e2.z)*hs };
     FVec3 p11{ c.x+(e1.x+e2.x)*hs, c.y+(e1.y+e2.y)*hs, c.z+(e1.z+e2.z)*hs };
     FVec3 p01{ c.x-(e1.x-e2.x)*hs, c.y-(e1.y-e2.y)*hs, c.z-(e1.z-e2.z)*hs };
-    auto pv = [&](FVec3 p){ if (gv.Size()<4096){ M3DVtx o;o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f;gv.PushBack(o);} };
+    auto pv = [&](FVec3 p){ if (gv.Size()<4096){ FM3DVtx o;o.px=p.x;o.py=p.y;o.pz=p.z;o.nx=n.x;o.ny=n.y;o.nz=n.z;o.r=col.x;o.g=col.y;o.b=col.z;o.mt=0;o.rg=0.35f;gv.PushBack(o);} };
     pv(p00);pv(p10);pv(p11); pv(p00);pv(p11);pv(p01);
 }
 
@@ -3475,6 +4663,117 @@ void PlaneAxes(int handle, FVec3& e1, FVec3& e2, FVec3& n) noexcept {
     if (handle == 4)      { e1 = FVec3{1,0,0}; e2 = FVec3{0,1,0}; n = FVec3{0,0,1}; }  // XY
     else if (handle == 5) { e1 = FVec3{0,1,0}; e2 = FVec3{0,0,1}; n = FVec3{1,0,0}; }  // YZ
     else                  { e1 = FVec3{1,0,0}; e2 = FVec3{0,0,1}; n = FVec3{0,1,0}; }  // XZ
+}
+
+/**
+ * Draw the editor transform gizmo into the currently bound HDR target.
+ *
+ * This is deliberately a separate overlay draw.  Scene-space atmosphere,
+ * clouds, motion blur and depth of field must finish before this function is
+ * called; otherwise those effects attenuate or erase an editor control that is
+ * meant to remain readable.  Tonemapping still runs afterwards so the overlay
+ * follows the viewport's output transform.
+ */
+void DrawGizmo3DOverlay(FEditorHost& h, IRhiCommandList& cl,
+                        const FMat4& view_proj, FVec3 camera_position) noexcept {
+    game::ANode* sn = FindNode3DNode(h, h.sel3d);
+    if (sn == nullptr) return;
+
+    const FVec3 P = sn->Local().position;
+    const f32 gl = Gizmo3DScale(h, P);
+    const f32 shaft = gl * 0.020f;
+    const f32 head  = gl * 0.085f;
+    const f32 headL = gl * 0.26f;
+    const f32 axisL = gl * 0.74f;
+    const f32 rootO = gl * 0.13f;
+    const FVec3 cols[3] = {
+        FVec3{ 0.92f, 0.26f, 0.30f },
+        FVec3{ 0.40f, 0.86f, 0.34f },
+        FVec3{ 0.30f, 0.55f, 0.96f }
+    };
+    const FVec3 hot{ 1.0f, 0.86f, 0.22f };
+    TArray<FM3DVtx> gv;
+    gv.Reserve(4096);
+
+    for (int a = 1; a <= 3; ++a) {
+        const FVec3 d = AxisDir(a);
+        const FVec3 col = (h.giz3d_handle == a) ? hot : cols[a - 1];
+        const FVec3 root{
+            P.x + d.x * rootO, P.y + d.y * rootO, P.z + d.z * rootO
+        };
+        const FVec3 end{
+            P.x + d.x * axisL, P.y + d.y * axisL, P.z + d.z * axisL
+        };
+        if (h.gizmo_mode == 1) {
+            AppendRing(gv, P, a, axisL, shaft * 1.3f, col);
+        } else if (h.gizmo_mode == 2) {
+            AppendCylinder(gv, root, a, axisL - rootO, shaft, col);
+            AppendMeshTris(
+                gv, h.cpu_cube.Get(),
+                FMat4::Scale(FVec3{ head*1.6f, head*1.6f, head*1.6f }) *
+                    FMat4::Translation(end),
+                col, 4096);
+        } else {
+            AppendCylinder(gv, root, a, axisL - rootO, shaft, col);
+            AppendCone(gv, end, a, headL, head, col);
+        }
+    }
+
+    const f32 po = gl * 0.34f;
+    const f32 ph = gl * 0.11f;
+    if (h.gizmo_mode != 1) {
+        for (int handle = 4; handle <= 6; ++handle) {
+            FVec3 e1, e2, normal;
+            PlaneAxes(handle, e1, e2, normal);
+            const FVec3 center{
+                P.x + (e1.x + e2.x) * po,
+                P.y + (e1.y + e2.y) * po,
+                P.z + (e1.z + e2.z) * po
+            };
+            FVec3 color{};
+            if (handle == 4) {
+                color = h.giz3d_handle == 4
+                    ? hot : FVec3{0.30f,0.55f,0.96f};
+            } else if (handle == 5) {
+                color = h.giz3d_handle == 5
+                    ? hot : FVec3{0.92f,0.26f,0.30f};
+            } else {
+                color = h.giz3d_handle == 6
+                    ? hot : FVec3{0.40f,0.86f,0.34f};
+            }
+            AppendQuad(gv, center, e1, e2, ph, color);
+        }
+    }
+
+    AppendMeshTris(
+        gv, h.cpu_sphere.Get(),
+        FMat4::Scale(FVec3{gl*0.06f,gl*0.06f,gl*0.06f}) *
+            FMat4::Translation(P),
+        h.giz3d_handle == 0
+            ? hot : FVec3{ 0.88f, 0.88f, 0.92f },
+        4096);
+
+    if (gv.Size() == 0 || !h.m3d_overlay_pipe ||
+        !h.m3d_giz_vb || !h.m3d_giz_cb) {
+        return;
+    }
+
+    FM3DFrame cb{};
+    cb.view_proj = view_proj;
+    cb.light_dir = FVec4{ 0.35f, 0.72f, 0.55f, 0.45f };
+    cb.light_col = FVec4{ 1.85f, 1.85f, 1.95f, 0.0f };
+    cb.cam_pos = FVec4{
+        camera_position.x, camera_position.y, camera_position.z, 0.0f
+    };
+    h.m3d_giz_cb->Update(&cb, sizeof(cb));
+    h.m3d_giz_vb->Update(gv.Data(), sizeof(FM3DVtx) * gv.Size());
+    cl.SetPipeline(*h.m3d_overlay_pipe);
+    cl.SetConstantBuffer(0, *h.m3d_giz_cb);
+    if (h.shadow.DepthTexture() != nullptr) {
+        cl.SetTexture(0, *h.shadow.DepthTexture());
+    }
+    cl.SetVertexBuffer(*h.m3d_giz_vb, sizeof(FM3DVtx));
+    cl.Draw(static_cast<u32>(gv.Size()), 0);
 }
 
 // ===== Phase 5 VXGI: voxel global illumination =====================================
@@ -3566,10 +4865,21 @@ void CSMain(uint3 tid : SV_DispatchThreadID){
 )";
 
 // 三角形を SB へ詰めて clear→voxelize。volume を返す (PBR の SetVxgi へ)。失敗時 nullptr。
-IRhiTexture* VxgiVoxelize(EditorHost& h, IRhiCommandList* cl, const TArray<M3DVtx>& dv,
+IRhiTexture* VxgiVoxelize(FEditorHost& h, IRhiCommandList* cl, const TArray<FM3DVtx>& dv,
                           FVec3 bbMin, FVec3 bbMax) noexcept {
     IRhiDevice* dev = h.renderer.Device();
     if (dev == nullptr || cl == nullptr || dv.Size() < 3) return nullptr;
+    // raw DX12 compute は texture SRV/UAV workload（clouds/AP）には対応するが、
+    // StructuredBuffer SRV binding には未対応。raw buffer descriptor path が完全に
+    // 同等になるまでは、実験的 VXGI に既存の graceful fallback を使う。
+    const char* backend_name = dev->BackendName();
+    if (backend_name != nullptr && std::strcmp(backend_name, "DX12") == 0) {
+        if (!h.vxgi_tried) {
+            h.vxgi_tried = true;
+            ACS_LOG_WARN("[VXGI] raw DX12 has no StructuredBuffer SRV support; using screen-space SSGI fallback");
+        }
+        return nullptr;
+    }
     if (!h.vxgi_tried) {
         h.vxgi_tried = true;
         // volume 64^3 RGBA16F (UAV+SRV)
@@ -3596,15 +4906,15 @@ IRhiTexture* VxgiVoxelize(EditorHost& h, IRhiCommandList* cl, const TArray<M3DVt
     // 三角形 SB を (再)確保 + upload
     const u32 vcount = dv.Size();
     if (h.vxgi_tri_cap < vcount) {
-        FBufferDesc bd{}; bd.size=sizeof(M3DVtx)*vcount; bd.usage=EBufferUsage::Storage;
-        bd.cpu_writable=true; bd.struct_stride=sizeof(M3DVtx);
+        FBufferDesc bd{}; bd.size=sizeof(FM3DVtx)*vcount; bd.usage=EBufferUsage::Storage;
+        bd.cpu_writable=true; bd.struct_stride=sizeof(FM3DVtx);
         if (auto r=CreateRhiBuffer(*dev, bd); r.IsOk()) { h.vxgi_tri=Move(r.Value()); h.vxgi_tri_cap=vcount; }
         else return nullptr;
     }
-    h.vxgi_tri->Update(dv.Data(), sizeof(M3DVtx)*vcount);
+    h.vxgi_tri->Update(dv.Data(), sizeof(FM3DVtx)*vcount);
     // CB
     const FVec3 ext{ bbMax.x-bbMin.x+0.01f, bbMax.y-bbMin.y+0.01f, bbMax.z-bbMin.z+0.01f };
-    struct VoxCB { FVec4 gmin, gext, sdir, scol; } cb{};
+    struct FVoxCb { FVec4 gmin, gext, sdir, scol; } cb{};
     cb.gmin = FVec4{ bbMin.x, bbMin.y, bbMin.z, static_cast<f32>(vcount/3) };
     cb.gext = FVec4{ ext.x, ext.y, ext.z, static_cast<f32>(kVxgiRes) };
     cb.sdir = FVec4{ h.sun_dir.x, h.sun_dir.y, h.sun_dir.z, 0 };
@@ -3623,7 +4933,7 @@ IRhiTexture* VxgiVoxelize(EditorHost& h, IRhiCommandList* cl, const TArray<M3DVt
 }
 
 // volume を画面空間で cone trace → 間接光 (half-res)。SetSsgi 用テクスチャを返す。失敗時 nullptr。
-IRhiTexture* VxgiResolve(EditorHost& h, IRhiCommandList* cl, IRhiTexture* vol,
+IRhiTexture* VxgiResolve(FEditorHost& h, IRhiCommandList* cl, IRhiTexture* vol,
                          IRhiTexture* depthTex, IRhiTexture* normalTex,
                          const FMat4& invVP, FVec3 bbMin, FVec3 bbMax,
                          u32 scW, u32 scH, f32 intensity) noexcept {
@@ -3650,7 +4960,7 @@ IRhiTexture* VxgiResolve(EditorHost& h, IRhiCommandList* cl, IRhiTexture* vol,
     }
     if (!h.vxgi_pipe_res || !h.vxgi_resolve || !h.vxgi_cb_res) return nullptr;
     const FVec3 ext{ bbMax.x-bbMin.x+0.01f, bbMax.y-bbMin.y+0.01f, bbMax.z-bbMin.z+0.01f };
-    struct ResCB { FMat4 invVP; FVec4 gmin, gext, dims; } cb{};
+    struct FResCb { FMat4 invVP; FVec4 gmin, gext, dims; } cb{};
     cb.invVP = invVP;
     cb.gmin  = FVec4{ bbMin.x, bbMin.y, bbMin.z, 0 };
     cb.gext  = FVec4{ ext.x, ext.y, ext.z, static_cast<f32>(kVxgiRes) };
@@ -3668,17 +4978,17 @@ IRhiTexture* VxgiResolve(EditorHost& h, IRhiCommandList* cl, IRhiTexture* vol,
 // ===== DrawScene3D の pass 関数群 (WickedEngine 風 named pass。挙動はインライン時と完全一致) =====
 
 // シーンのメッシュ頂点を M3DVtx へ展開 + AABB を求める (シャドウ/本体/VXGI が共有)。
-void BuildSceneMeshVerts(EditorHost& h, const TArray<game::FNode3D*>& all3d,
-                         TArray<M3DVtx>& dv, FVec3& bbMin, FVec3& bbMax) noexcept {
+void BuildSceneMeshVerts(FEditorHost& h, const TArray<game::ANode*>& all3d,
+                         TArray<FM3DVtx>& dv, FVec3& bbMin, FVec3& bbMax) noexcept {
     for (u32 i = 0; i < all3d.Size(); ++i) {
-        game::FNode3D* nn = all3d[i];
-        { EEd3DRec* er = Rec3D(nn); if (er != nullptr && er->is_empty) continue; }       // 空ノードは描画しない
+        game::ANode* nn = all3d[i];
+        { AEditor3DRecordComponent* er = Rec3D(nn); if (er != nullptr && er->is_empty) continue; }       // 空ノードは描画しない
         if (Mesh3D(nn) == nullptr || Mesh3D(nn)->RenderHandle() != nullptr) continue;   // スプライトは別パス
         const int prim = NPrim(nn);
         const FMeshAsset* cm = (prim == 3) ? NMesh(nn) : (prim == 1) ? h.cpu_sphere.Get()
                              : (prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
         const FVec4 col = NColor(nn);
-        game::FMeshComponent3D* mc = Mesh3D(nn);
+        game::AMeshComponent3D* mc = Mesh3D(nn);
         if (mc != nullptr && !mc->MaterialLoaded() && mc->HasMaterial()) LoadNode3DMaterial(nn);   // 遅延ロード (2D 鏡映)
         f32 mtl = 0.0f, rgh = 0.5f;
         FVec3 albedo{ col.x, col.y, col.z };                                          // 既定はノード色 (NColor)
@@ -3691,14 +5001,14 @@ void BuildSceneMeshVerts(EditorHost& h, const TArray<game::FNode3D*>& all3d,
         AppendMeshTris(dv, cm, nn->World().ToMat4(), albedo, h.m3d_dyn_cap, mtl, rgh);
     }
     for (u32 i = 0; i < dv.Size(); ++i) {
-        const M3DVtx& q = dv[i];
+        const FM3DVtx& q = dv[i];
         if (q.px < bbMin.x) bbMin.x = q.px; if (q.py < bbMin.y) bbMin.y = q.py; if (q.pz < bbMin.z) bbMin.z = q.pz;
         if (q.px > bbMax.x) bbMax.x = q.px; if (q.py > bbMax.y) bbMax.y = q.py; if (q.pz > bbMax.z) bbMax.z = q.pz;
     }
 }
 
 // SH9 環境光を現在の空に追従して再計算 (拡散 ambient + 鏡面 fallback の元データ)。sh9_dirty 時のみ。
-void Pass_UpdateSh9(EditorHost& h) noexcept {
+void Pass_UpdateSh9(FEditorHost& h) noexcept {
     if (h.pbr3d_ready && h.sh9_dirty) {
         FVec4 sh9[9]; ComputeSkySh9(sh9, h.sky_zenith, h.sky_horizon, h.sky_ground);
         for (int si = 0; si < 9; ++si) { sh9[si].x *= kSh9Ambient; sh9[si].y *= kSh9Ambient; sh9[si].z *= kSh9Ambient; }
@@ -3709,7 +5019,7 @@ void Pass_UpdateSh9(EditorHost& h) noexcept {
 
 // IBL: FSky/物理大気を env cubemap 化 → irradiance + specular prefilter + BRDF-LUT を焼き FPbrShader へ。
 // per-slice cubemap 描画なので «描画パスの外» (BeginShadowPass より前) で呼ぶこと。
-void Pass_AtmosphereIbl(EditorHost& h, IRhiCommandList* cl) noexcept {
+void Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept {
     if (h.pbr3d_ready && h.sky3d_ready && (h.ibl_ready ? h.ibl_dirty : !h.ibl_tried)) {
         IRhiDevice* idev = h.renderer.Device();
         if (idev != nullptr) {
@@ -3717,17 +5027,48 @@ void Pass_AtmosphereIbl(EditorHost& h, IRhiCommandList* cl) noexcept {
             h.sky3d.SetSunColor(h.sun_color);
             h.sky3d.SetZenithColor(h.sky_zenith); h.sky3d.SetHorizonColor(h.sky_horizon); h.sky3d.SetGroundColor(h.sky_ground);
             if (h.ibl_ready && h.ibl_dirty) { idev->WaitIdle(); h.ibl3d.ResetEnvCubemap(); }   // 空変更 → 再キャプチャ
+            // Procedural FSky still stores its analytic disc in the captured
+            // cubemap and must exclude it from indirect convolutions.  The
+            // physical-atmosphere bake is scattering-only: its solar disc is
+            // rendered analytically at display resolution below, so masking an
+            // arbitrary cone here would remove valid sky radiance.
+            h.ibl3d.SetDirectLightExclusion(
+                h.sun_dir,
+                h.q_sky_mode == 1
+                    ? 2.0f
+                    : 1.0f - h.sky3d.SunRadius());
             bool ok = h.ibl3d.EnsureBrdfLut(*idev, *cl).IsOk();
             if (ok) {
                 if (h.q_sky_mode == 1) {
-                    acs::AtmosphereParams ap; ap.sun_dir = h.sun_dir;
-                    ap.sun_intensity = FVec3{ 22.0f, 22.0f, 22.0f };
+                    acs::FAtmosphereParams ap; ap.sun_dir = h.sun_dir;
+                    const f32 atmosphereSunRadiance =
+                        PhysicalAtmosphereSunRadiance(h.sun_intensity);
+                    ap.sun_intensity = FVec3{
+                        atmosphereSunRadiance * h.sun_color.x,
+                        atmosphereSunRadiance * h.sun_color.y,
+                        atmosphereSunRadiance * h.sun_color.z};
                     if (!h.sky_atmo_tried) { h.sky_atmo_tried = true; (void)h.sky_atmo.Init(*idev); }
                     acs::TArray<f32> sky;
-                    bool gpu = h.sky_atmo.Ready() && h.sky_atmo.BakeEquirect(*idev, *cl, ap, 512, 256, sky);
-                    if (!gpu) sky = acs::FAtmosphere::BakeEquirect(512, 256, ap);   // compute 不可なら CPU fallback
+                    u32 skyWidth = kPhysicalSkyEquirectWidth;
+                    u32 skyHeight = kPhysicalSkyEquirectHeight;
+                    bool gpu = h.sky_atmo.Ready() && h.sky_atmo.BakeEquirect(
+                        *idev, *cl, ap,
+                        skyWidth,
+                        skyHeight,
+                        sky);
+                    if (!gpu) {
+                        skyWidth = kPhysicalSkyCpuFallbackWidth;
+                        skyHeight = kPhysicalSkyCpuFallbackHeight;
+                        sky = acs::FAtmosphere::BakeEquirect(
+                            skyWidth,
+                            skyHeight,
+                            ap);
+                    }
                     for (u32 si = 0; si < sky.Size(); ++si) sky[si] *= kAtmosScale;
-                    ok = h.ibl3d.LoadEquirectHdrFromMemory(*idev, *cl, sky.Data(), 512, 256).IsOk();
+                    ok = h.ibl3d.LoadEquirectHdrFromMemory(
+                        *idev, *cl, sky.Data(),
+                        skyWidth,
+                        skyHeight).IsOk();
                 } else {
                     ok = h.ibl3d.EnsureEnvCubemap(*idev, *cl, h.sky3d).IsOk();   // FSky 手続き式を env cubemap に
                 }
@@ -3754,7 +5095,7 @@ struct FShadowOut {
 
 // シャドウパス: 光源 (太陽) 視点で深度を焼く → 本体パスで PCF 比較してキャスト影を落とす。
 // 品質プリセットの影サイズ/カスケード数に追従 (size 0=影オフ)。CSM は «透視 + cascade>=2» のみ。
-FShadowOut Pass_Shadows(EditorHost& h, IRhiCommandList* cl, u32 dvCount,
+FShadowOut Pass_Shadows(FEditorHost& h, IRhiCommandList* cl, u32 dvCount,
                         const FVec3& bbMin, const FVec3& bbMax, const FVec3& eye, const FCamera& cam) noexcept {
     const bool wantCsm = (h.q_shadow_cascades >= 2) && !h.ortho3d && h.q_shadow_size > 0;
     const u32  wantCascades = wantCsm ? (h.q_shadow_cascades <= acs::FShadowMap::kMaxCascades
@@ -3775,10 +5116,10 @@ FShadowOut Pass_Shadows(EditorHost& h, IRhiCommandList* cl, u32 dvCount,
             const f32 dx = eye.x-center.x, dy = eye.y-center.y, dz = eye.z-center.z;
             f32 farZ = std::sqrt(dx*dx+dy*dy+dz*dz) + radius * 2.0f;
             if (farZ < 20.0f) farZ = 20.0f; else if (farZ > 300.0f) farZ = 300.0f;
-            h.shadow.SetDirectionalLightCascades(lightDir, cam.View(), cam.Projection(), 0.5f, farZ);
+            h.shadow.SetDirectionalLightCascades(lightDir, cam.View(), cam.Projection(), 0.05f, farZ);
             cl->BeginShadowPass(*h.shadow.DepthTexture(), 1.0f);       // atlas 全体 clear
             cl->SetPipeline(*h.shadow_caster_pipe);
-            cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
+            cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(FM3DVtx));
             const u32 nc = h.shadow.CascadeCount();
             for (u32 c = 0; c < nc; ++c) {
                 o.csmVps[c]    = h.shadow.LightViewProjection(c);
@@ -3801,7 +5142,7 @@ FShadowOut Pass_Shadows(EditorHost& h, IRhiCommandList* cl, u32 dvCount,
             cl->BeginShadowPass(*h.shadow.DepthTexture(), 1.0f);
             cl->SetPipeline(*h.shadow_caster_pipe);
             cl->SetConstantBuffer(0, *h.shadow_lvp_cb);
-            cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
+            cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(FM3DVtx));
             cl->Draw(dvCount, 0);
             cl->EndShadowPass(*h.shadow.DepthTexture());
             o.shadowOn = true;   // シャドウマップ有効 (本パスで FPbrShader が PCF サンプル)
@@ -3810,19 +5151,99 @@ FShadowOut Pass_Shadows(EditorHost& h, IRhiCommandList* cl, u32 dvCount,
     return o;
 }
 
-void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
+/** Hot-enabling SSGI uses the same CPU-only staging as startup. */
+void AdvanceRuntimeSsgi(FEditorHost& h, u32 width, u32 height) noexcept {
+    IRhiDevice* const device = h.renderer.Device();
+    if (device == nullptr) return;
+
+    // A job may finish after the user turns SSGI off.  Join and discard it
+    // without stalling the current draw; Poll is non-blocking while running.
+    if (h.startup_worker_kind == 2u) {
+        const i32 worker_result = PollStartupWorker(h);
+        if (worker_result == 0) return;
+        h.startup_worker_kind = 0u;
+        if (worker_result > 0 && h.q_ssgi_on) {
+            const auto result = h.ssgi3d.InitWithCompiledShaders(
+                *device,
+                Move(h.startup_ssgi_shaders),
+                width > 0u ? width : 1u,
+                height > 0u ? height : 1u);
+            h.ssgi_ready = result.IsOk();
+            if (h.ssgi_ready) {
+                h.ssgi_w = width > 0u ? width : 1u;
+                h.ssgi_h = height > 0u ? height : 1u;
+            } else {
+                h.ssgi_w = 0u;
+                h.ssgi_h = 0u;
+                ACS_LOG_WARN(
+                    "[3D] hot-enabled FSsgi owner RHI commit failed: %s",
+                    result.Error().message);
+            }
+        } else {
+            h.startup_ssgi_shaders = {};
+        }
+        return;
+    }
+
+    if (!h.q_ssgi_on || h.ssgi_ready || h.ssgi_init_tried) return;
+    h.ssgi_init_tried = true;
+
+    const char* const backend_name = device->BackendName();
+    const bool raw_dx12 = backend_name != nullptr &&
+                          std::strcmp(backend_name, "DX12") == 0;
+    if (raw_dx12) {
+        if (!BeginSsgiCompileWorker(h)) {
+            ACS_LOG_WARN(
+                "[3D] hot-enabled SSGI worker unavailable; effect remains disabled");
+        }
+        return;
+    }
+
+    // Other backends preserve their established compiler/resource path.
+    const auto result = h.ssgi3d.Init(
+        *device,
+        width > 0u ? width : 1u,
+        height > 0u ? height : 1u);
+    h.ssgi_ready = result.IsOk();
+    if (h.ssgi_ready) {
+        h.ssgi_w = width > 0u ? width : 1u;
+        h.ssgi_h = height > 0u ? height : 1u;
+    } else {
+        h.ssgi_w = 0u;
+        h.ssgi_h = 0u;
+        ACS_LOG_WARN("[3D] hot-enabled FSsgi init failed: %s",
+                     result.Error().message);
+    }
+}
+
+void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     if (!Ensure3D(h)) return;
     IRhiCommandList* cl = h.renderer.CommandList();
     if (cl == nullptr) return;
+
+    AdvanceRuntimeSsgi(h, scW, scH);
 
     const f32 aspect = (scH > 0) ? static_cast<f32>(scW) / static_cast<f32>(scH) : 1.0f;
     const FCamera cam = EditorCam3D(h, aspect);          // 透視 or 正射 (ortho3d)
     const FVec3 eye = Cam3DEye(h);
     const FMat4 vp_nojit = cam.ViewProjection();
+    // Volumetric clouds already own a world/wind-aware temporal reconstruction.
+    // The global TAA motion buffer only describes opaque meshes, so cloud pixels
+    // would otherwise be reprojected as zero-motion/far-depth background and
+    // accumulate a second, incorrect history.  Until the cloud resolve exports
+    // a composition mask + motion field, keep global TAA (including its Halton
+    // jitter) off whenever animated clouds are requested.  The normal High
+    // presets retain MSAA/CAS for geometry in this mode.
+    const bool animatedCloudsRequested =
+        h.q_cloud_coverage > 0.001f && !h.ortho3d;
+
     // TAA: 透視時のみ Halton サブピクセルジッタを毎フレーム与える (color+depth+normal+SS が同じ vp で整合)。
     // TAA history reproject だけは «jitter 無し» の vp/prev で行う (jitter が reproject を汚さないように)。
     FMat4 vp = vp_nojit;
-    const bool taaOn = h.q_taa_on && !h.ortho3d && h.width > 0 && h.height > 0;
+    const bool taaOn =
+        h.q_taa_on && !h.ortho3d &&
+        h.width > 0 && h.height > 0 &&
+        !animatedCloudsRequested;
     if (taaOn) {
         const u32 fi = (h.taa_frame % 16u) + 1u;         // Halton は i>=1
         const float jx = (HaltonSeq(fi, 2u) - 0.5f) * 2.0f / static_cast<float>(h.width);
@@ -3831,19 +5252,21 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     }
 
     // --- (0) メッシュ頂点を展開 (シャドウパスと本体で共有) + バウンディング ---
-    TArray<M3DVtx>& dv = *(new TArray<M3DVtx>()); dv.Reserve(8192);
+    TArray<FM3DVtx>& dv = *(new TArray<FM3DVtx>()); dv.Reserve(8192);
     FVec3 bbMin{ 1e30f, 1e30f, 1e30f }, bbMax{ -1e30f, -1e30f, -1e30f };
-    TArray<game::FNode3D*> all3d; Dfs3DCollect(&h.scene3d.Root(), all3d);   // 階層を平坦化 (sprite パス 2.5 でも使う)
+    TArray<game::ANode*> all3d; Dfs3DCollect(&h.scene3d.Root(), all3d);   // 階層を平坦化 (sprite パス 2.5 でも使う)
     BuildSceneMeshVerts(h, all3d, dv, bbMin, bbMax);
     const u32 dvCount = static_cast<u32>(dv.Size());
-    if (dvCount > 0 && h.m3d_dyn_vb) h.m3d_dyn_vb->Update(dv.Data(), sizeof(M3DVtx) * dvCount);
+    if (dvCount > 0 && h.m3d_dyn_vb) h.m3d_dyn_vb->Update(dv.Data(), sizeof(FM3DVtx) * dvCount);
 
     // --- Phase 5 VXGI: 三角形を radiance volume へ voxelize (色のにじみ。Diligent compute、Ultra=q_ssgi_on)。
-    //     Dx12 では CreateRhiComputePipeline が err → vxgi_ready=false で graceful skip。
+    //     Raw DX12 は StructuredBuffer SRV 未対応のため VxgiVoxelize 冒頭で明示的に graceful skip。
     //     volume は PBR の cone trace (SetVxgi) で消費予定。本コミットは voxelize パイプラインまで。
     IRhiTexture* vxgiVol = nullptr;
     IRhiTexture* vxgiResolveTex = nullptr;   // VXGI resolve (cone trace) 結果 → SetSsgi へ
-    IRhiTexture* apVol = nullptr;            // aerial perspective camera-volume LUT → SetAerialPerspective へ
+    IRhiTexture* apVol = nullptr;            // aerial-perspective premultiplied in-scatter
+    IRhiTexture* apTransVol = nullptr;       // wavelength-dependent transmittance
+    IRhiTexture* localFogVol = nullptr;      // this frame's perspective local-fog producer result only
     if (!h.ortho3d && dvCount >= 3 && h.q_ssgi_on && h.q_vxgi_on) {
         vxgiVol = VxgiVoxelize(h, cl, dv, bbMin, bbMax);   // 既定OFF: VXGI(64³)は blocky。OFF時は vxgiVol=null → SetSsgi が滑らかな screen-space SSGI を使う
     }
@@ -3853,7 +5276,13 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     //     同じ色を使うので金属の映り込みが背景と整合する。空が変わらない限り再計算しない (sh9_dirty)。
     Pass_UpdateSh9(h);
 
-    Pass_AtmosphereIbl(h, cl);
+    {
+        editor_profiler::FCpuScope atmosphereScope(
+            h.profiler_work.atmosphere_cpu_ms);
+        FScopedRhiGpuTiming atmosphereGpuScope(
+            cl, ERhiGpuTimingPass::Atmosphere);
+        Pass_AtmosphereIbl(h, cl);
+    }
 
     // --- シャドウパス (光源視点で深度を焼く)。出力 sh を本体パスが PCF/CSM 比較に使う ---
     const FShadowOut sh = Pass_Shadows(h, cl, dvCount, bbMin, bbMax, eye, cam);
@@ -3864,35 +5293,196 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     h.ssao_computed = false;
     bool gbufReady = false;
     const bool wantGbuf = (h.q_ssao_on || h.q_ssr_on || h.q_ssgi_on) && h.ssao_pipe_ready && dvCount > 0;
-    if (wantGbuf) {
+    const bool wantsMotion = h.q_taa_on || h.q_ssr_on ||
+                             h.q_ssgi_on || h.q_motionblur_on;
+    if (wantGbuf || wantsMotion) {
         IRhiDevice* sdev = h.renderer.Device();
         if (sdev != nullptr) {
-            if (h.ssao_w != scW || h.ssao_h != scH) {     // 効果群を画面サイズに遅延 init / resize
-                FTextureDesc nd{}; nd.width = scW; nd.height = scH; nd.format = EFormat::R16G16B16A16_Float; nd.is_render_target = true;
-                auto ntr = CreateRhiTexture(*sdev, nd); if (ntr.IsOk()) h.normal_rt = Move(ntr.Value());
-                if (!h.ssao_ready) { auto sr = h.ssao3d.Init(*sdev, scW, scH); h.ssao_ready = sr.IsOk();
-                                     if (!h.ssao_ready) ACS_LOG_ERROR("[3D] FSsao Init 失敗: %s", sr.Error().message); }
-                else               { (void)h.ssao3d.Resize(scW, scH); }
-                if (!h.ssr_ready)  { auto rr = h.ssr3d.Init(*sdev, EFormat::R16G16B16A16_Float, scW, scH); h.ssr_ready = rr.IsOk();
-                                     if (!h.ssr_ready) ACS_LOG_ERROR("[3D] FSsr Init 失敗: %s", rr.Error().message); }
-                else               { (void)h.ssr3d.Resize(scW, scH); }
-                if (!h.ssgi_ready) { auto gr = h.ssgi3d.Init(*sdev, scW, scH); h.ssgi_ready = gr.IsOk();
-                                     if (!h.ssgi_ready) ACS_LOG_ERROR("[3D] FSsgi Init 失敗: %s", gr.Error().message); }
-                else               { (void)h.ssgi3d.Resize(scW, scH); }
-                if (!h.mv_ready)   { auto mr = h.mv3d.Init(*sdev, scW, scH); h.mv_ready = mr.IsOk();
-                                     if (!h.mv_ready) ACS_LOG_ERROR("[3D] FMotionVector Init 失敗: %s", mr.Error().message); }
-                else               { (void)h.mv3d.Resize(scW, scH); }
-                if (h.normal_rt) { h.ssao_w = scW; h.ssao_h = scH; } else { h.ssao_w = 0; h.ssao_h = 0; }
+            const bool normal_size_changed =
+                h.normal_w != scW || h.normal_h != scH;
+            const bool ssao_size_changed =
+                h.ssao_w != scW || h.ssao_h != scH;
+            const bool ssr_size_changed =
+                h.ssr_w != scW || h.ssr_h != scH;
+            const bool hiz_size_changed =
+                h.hiz3d_w != scW || h.hiz3d_h != scH;
+            const bool ssgi_size_changed =
+                h.ssgi_w != scW || h.ssgi_h != scH;
+            const bool mv_size_changed =
+                h.mv_w != scW || h.mv_h != scH;
+            const bool missing_requested_effect =
+                (h.q_ssao_on && !h.ssao_ready) ||
+                (h.q_ssr_on && (!h.ssr_ready || !h.hiz3d_ready)) ||
+                (h.q_ssgi_on && !h.ssgi_ready && !h.ssgi_init_tried) ||
+                (wantsMotion && !h.mv_ready) ||
+                (wantGbuf && h.normal_rt.Get() == nullptr);
+            const bool resize_ready_effect =
+                (h.ssao_ready && ssao_size_changed) ||
+                (h.ssr_ready && ssr_size_changed) ||
+                (h.hiz3d_ready && hiz_size_changed) ||
+                (h.ssgi_ready && ssgi_size_changed) ||
+                (h.mv_ready && mv_size_changed);
+            if (missing_requested_effect || resize_ready_effect ||
+                (wantGbuf && normal_size_changed)) {
+                // SSR / SSGI の Resize は history RT を再生成する。新しい RT に Render
+                // する前の main pass で旧 computed 状態を引き継がない。
+                h.ssr_computed = false;
+                h.ssgi_computed = false;
+                if (mv_size_changed) h.mv_computed = false;
+                if (wantGbuf &&
+                    (normal_size_changed || h.normal_rt.Get() == nullptr)) {
+                    FTextureDesc nd{}; nd.width = scW; nd.height = scH; nd.format = EFormat::R16G16B16A16_Float; nd.is_render_target = true;
+                    auto ntr = CreateRhiTexture(*sdev, nd);
+                    if (ntr.IsOk()) {
+                        h.normal_rt = Move(ntr.Value());
+                        h.normal_w = scW;
+                        h.normal_h = scH;
+                    } else {
+                        ACS_LOG_ERROR("[3D] normal-buffer resize failed: %s",
+                                      ntr.Error().message);
+                        h.normal_rt.Reset();
+                        h.normal_w = 0u;
+                        h.normal_h = 0u;
+                    }
+                }
+                if (h.ssao_ready && ssao_size_changed) {
+                    const auto sr = h.ssao3d.Resize(scW, scH);
+                    if (sr.IsOk()) {
+                        h.ssao_w = scW;
+                        h.ssao_h = scH;
+                    } else {
+                        ACS_LOG_ERROR("[3D] FSsao resize failed: %s",
+                                      sr.Error().message);
+                        h.ssao3d.Shutdown();
+                        h.ssao_ready = false;
+                        h.ssao_w = 0u;
+                        h.ssao_h = 0u;
+                    }
+                }
+                if (h.q_ssao_on && !h.ssao_ready) {
+                    const auto sr = h.ssao3d.Init(*sdev, scW, scH);
+                    h.ssao_ready = sr.IsOk();
+                    if (h.ssao_ready) {
+                        h.ssao_w = scW;
+                        h.ssao_h = scH;
+                    } else {
+                        h.ssao_w = 0u;
+                        h.ssao_h = 0u;
+                        ACS_LOG_ERROR("[3D] FSsao Init failed: %s",
+                                      sr.Error().message);
+                    }
+                }
+                if (h.ssr_ready && ssr_size_changed) {
+                    const auto rr = h.ssr3d.Resize(scW, scH);
+                    if (rr.IsOk()) {
+                        h.ssr_w = scW;
+                        h.ssr_h = scH;
+                    } else {
+                        ACS_LOG_ERROR("[3D] FSsr resize failed: %s",
+                                      rr.Error().message);
+                        h.ssr3d.Shutdown();
+                        h.ssr_ready = false;
+                        h.ssr_w = 0u;
+                        h.ssr_h = 0u;
+                    }
+                }
+                if (h.q_ssr_on && !h.ssr_ready) {
+                    const auto rr = h.ssr3d.Init(
+                        *sdev, EFormat::R16G16B16A16_Float, scW, scH);
+                    h.ssr_ready = rr.IsOk();
+                    if (h.ssr_ready) {
+                        h.ssr_w = scW;
+                        h.ssr_h = scH;
+                    } else {
+                        h.ssr_w = 0u;
+                        h.ssr_h = 0u;
+                        ACS_LOG_ERROR("[3D] FSsr Init failed: %s",
+                                      rr.Error().message);
+                    }
+                }
+                if (h.hiz3d_ready && hiz_size_changed) {
+                    const auto hr = h.hiz3d.Resize(scW, scH);
+                    if (hr.IsOk()) {
+                        h.hiz3d_w = scW;
+                        h.hiz3d_h = scH;
+                    } else {
+                        ACS_LOG_WARN("[3D] FHiZ resize failed: %s",
+                                     hr.Error().message);
+                        h.hiz3d.Shutdown();
+                        h.hiz3d_ready = false;
+                        h.hiz3d_w = 0u;
+                        h.hiz3d_h = 0u;
+                    }
+                }
+                if (h.q_ssr_on && !h.hiz3d_ready) {
+                    const auto hr = h.hiz3d.Init(*sdev, scW, scH);
+                    h.hiz3d_ready = hr.IsOk();
+                    if (h.hiz3d_ready) {
+                        h.hiz3d_w = scW;
+                        h.hiz3d_h = scH;
+                    } else {
+                        h.hiz3d_w = 0u;
+                        h.hiz3d_h = 0u;
+                        ACS_LOG_WARN(
+                            "[3D] FHiZ Init failed (SSR DDA fallback): %s",
+                            hr.Error().message);
+                    }
+                }
+                if (h.ssgi_ready && ssgi_size_changed) {
+                    const auto gr = h.ssgi3d.Resize(scW, scH);
+                    if (gr.IsOk()) {
+                        h.ssgi_w = scW;
+                        h.ssgi_h = scH;
+                    } else {
+                        ACS_LOG_ERROR("[3D] FSsgi resize failed: %s",
+                                      gr.Error().message);
+                        h.ssgi3d.Shutdown();
+                        h.ssgi_ready = false;
+                        h.ssgi_init_tried = false;
+                        h.ssgi_w = 0u;
+                        h.ssgi_h = 0u;
+                    }
+                }
+                // A missing raw-DX12 instance is compiled asynchronously by
+                // AdvanceRuntimeSsgi on the next frame; never compile it here.
+                if (h.mv_ready && mv_size_changed) {
+                    const auto mr = h.mv3d.Resize(scW, scH);
+                    if (mr.IsOk()) {
+                        h.mv_w = scW;
+                        h.mv_h = scH;
+                    } else {
+                        ACS_LOG_ERROR("[3D] FMotionVector resize failed: %s",
+                                      mr.Error().message);
+                        h.mv3d.Shutdown();
+                        h.mv_ready = false;
+                        h.mv_w = 0u;
+                        h.mv_h = 0u;
+                    }
+                }
+                if (wantsMotion && !h.mv_ready) {
+                    const auto mr = h.mv3d.Init(*sdev, scW, scH);
+                    h.mv_ready = mr.IsOk();
+                    if (h.mv_ready) {
+                        h.mv_w = scW;
+                        h.mv_h = scH;
+                    } else {
+                        h.mv_w = 0u;
+                        h.mv_h = 0u;
+                        ACS_LOG_ERROR("[3D] FMotionVector Init failed: %s",
+                                      mr.Error().message);
+                    }
+                }
             }
-            if (h.normal_rt && h.ssao_w == scW) {
-                const ClearColor ncl{ 0.0f, 0.0f, 0.0f, 0.0f };   // 法線+深度プリパス (world normal を RGBA16F へ)
+            if (wantGbuf && h.normal_rt &&
+                h.normal_w == scW && h.normal_h == scH) {
+                const FClearColor ncl{ 0.0f, 0.0f, 0.0f, 0.0f };   // 法線+深度プリパス (world normal を RGBA16F へ)
                 cl->BeginRenderToTexture(*h.normal_rt, ncl, h.renderer.DepthBuffer(), 1.0f);
                 { FViewport nvp{}; nvp.width = static_cast<f32>(scW); nvp.height = static_cast<f32>(scH); cl->SetViewport(nvp);
                   FScissorRect nsr{}; nsr.right = static_cast<i32>(scW); nsr.bottom = static_cast<i32>(scH); cl->SetScissor(nsr); }
                 h.normal_cb->Update(&vp, sizeof(vp));   // NFrame.view_proj
                 cl->SetPipeline(*h.normal_pipe);
                 cl->SetConstantBuffer(0, *h.normal_cb);
-                cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
+                cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(FM3DVtx));
                 cl->Draw(dvCount, 0);
                 cl->EndRenderToTexture(*h.normal_rt);
                 gbufReady = true;
@@ -3912,18 +5502,56 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                                      Inverse(vp), bbMin, bbMax, scW, scH, h.q_ssgi_intensity);
     }
 
-    // --- Aerial perspective: 物理大気の camera-volume froxel LUT (WickedEngine 流)。PBR が screen uv +
-    //     深度→スライスで trilinear サンプルし col=col*(1-ap.a)+ap.rgb。3D 物理積分なので滑らか
-    //     (cubemap サンプル由来の «斜めの段» が出ない)。compute 不可(Dx12)なら Ready()=false で自動 skip。
-    if (!h.ortho3d && h.q_ap_on) {   // 既定OFF: 小シーンでは AP の froxel スライスが近接面に段を出す
+    // --- 空気遠近法 + 局所高度フォグ: 48x48x96 のカメラ空間 froxel。
+    //     q_fog_on のときは surface 単位の近似ではなく、camera→depth の 24-step 散乱積分を主経路にする。
+    //     compute 不可なら下の FPbrShader 解析積分へ自動 fallback。
+    // Cloud march と同じ範囲まで積分し、horizon cloud を 300-unit
+    // far slice へ誤って clamp しない。Squared Z + 96 slices で近景精度も維持する。
+    constexpr f32 kFogVolumeMaxDist = acs::kVolumetricCloudMaxDistance;
+    if (!h.ortho3d && (h.q_ap_on || h.q_fog_on)) {
         IRhiDevice* adev = h.renderer.Device();
         if (adev != nullptr) {
             if (!h.sky_atmo_tried) { h.sky_atmo_tried = true; (void)h.sky_atmo.Init(*adev); }
             if (h.sky_atmo.Ready()) {
-                const f32 kApSunInt = 22.0f * kAtmosScale;   // 空 bake と同じ放射輝度スケールに合わせる
-                apVol = h.sky_atmo.BuildAerialPerspective(*adev, *cl, Inverse(vp), eye, h.sun_dir,
-                            FVec3{ kApSunInt, kApSunInt, kApSunInt },
-                            100.0f /*max_dist (scene)*/, 0.10f /*scene→km*/, 0.5f /*cam_alt_km*/);
+                const f32 apSunRadiance =
+                    PhysicalAtmosphereSunRadiance(h.sun_intensity) *
+                    kAtmosScale;
+                FVolumetricFogParams fog{};
+                fog.color = h.sky_horizon;
+                fog.density = h.q_fog_on ? h.q_fog_density : 0.0f;
+                fog.height_falloff = h.q_fog_height_falloff;
+                fog.height_base = 0.0f;
+                fog.anisotropy = 0.42f;
+                fog.sun_scatter = 0.18f;
+                IRhiTexture* builtAp = nullptr;
+                {
+                    editor_profiler::FCpuScope atmosphereScope(
+                        h.profiler_work.atmosphere_cpu_ms);
+                    FScopedRhiGpuTiming atmosphereGpuScope(
+                        cl, ERhiGpuTimingPass::Atmosphere);
+                    builtAp = h.sky_atmo.BuildAerialPerspective(
+                                *adev, *cl, Inverse(vp_nojit), eye, h.sun_dir,
+                                FVec3{
+                                    apSunRadiance * h.sun_color.x,
+                                    apSunRadiance * h.sun_color.y,
+                                    apSunRadiance * h.sun_color.z},
+                                kFogVolumeMaxDist,
+                                h.q_ap_on ? 0.001f : 0.0f /*scene metres→km*/,
+                                std::fmax(0.0f, eye.y * 0.001f) /*cam_alt_km*/, fog);
+                    localFogVol = h.sky_atmo.LocalFogVolume();
+                }
+                // Local fog owns a separate transfer volume.  Do not route its
+                // scene_to_km=0 physical identity volume through either the
+                // fullscreen RGB multiply or the cloud atmosphere shader:
+                // an unavailable/unwritten identity UAV would otherwise turn
+                // both geometry and clouds black instead of failing open.
+                if (h.q_ap_on && builtAp != nullptr) {
+                    apVol = builtAp;
+                    apTransVol = h.sky_atmo.ApTransmittanceVolume();
+                }
+                if (apTransVol == nullptr) {
+                    apVol = nullptr;
+                }
             }
         }
     }
@@ -3935,12 +5563,12 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     if (gbufReady && h.mv_ready && h.pbr3d_ready && (h.q_taa_on || h.q_ssr_on || h.q_ssgi_on || h.q_motionblur_on)) {
         h.mv3d.Begin(*cl, vp_nojit, h.prev_vp_nojit);
         for (u32 i = 0; i < all3d.Size(); ++i) {
-            game::FNode3D* nn = all3d[i];
-            EEd3DRec* er = Rec3D(nn);
+            game::ANode* nn = all3d[i];
+            AEditor3DRecordComponent* er = Rec3D(nn);
             if (er != nullptr && er->is_empty) continue;
-            game::FMeshComponent3D* mc = Mesh3D(nn);
+            game::AMeshComponent3D* mc = Mesh3D(nn);
             if (mc == nullptr || mc->RenderHandle() != nullptr) continue;
-            GpuMesh* gm = GpuMeshForNode3D(h, nn);
+            FGpuMesh* gm = GpuMeshForNode3D(h, nn);
             if (gm == nullptr || gm->vertex_buffer.Get() == nullptr || gm->index_buffer.Get() == nullptr) continue;
             const FMat4 world = nn->World().ToMat4();
             const FMat4 prevW = (er != nullptr && er->prev_world_valid) ? er->prev_world : world;
@@ -3963,9 +5591,15 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     }
     IRhiTexture*   hdrRt  = h.post3d_ready ? h.post3d.HdrRenderTarget() : nullptr;
     IRhiSwapchain* scSwap = h.renderer.Swapchain();
+    IRhiTexture* localFogSceneDepth = h.renderer.DepthBuffer();
+    const bool canCompositeLocalFog =
+        editor_render_policy::ShouldCompositeLocalFog(
+            h.ortho3d, h.q_fog_on,
+            localFogVol != nullptr, localFogSceneDepth != nullptr,
+            hdrRt != nullptr && scSwap != nullptr);
 
     // --- Phase4 volumetric clouds: render pass の «外» で雲を compute レイマーチ (UAV へ書く)。
-    //     空 (FSky/大気) を描いた «後» に composite で合成する。FSky の 2D 雲は無効化して二重描画回避。
+    //     composite は AP 後まで遅延する。FSky の 2D 雲は無効化して二重描画回避。
     bool cloudsActive = false;
     if (h.q_cloud_coverage > 0.001f && !h.ortho3d && hdrRt != nullptr) {
         IRhiDevice* cdev = h.renderer.Device();
@@ -3973,12 +5607,16 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
             if (!h.vclouds_tried) { h.vclouds_tried = true;
                 h.vclouds_ready = h.vclouds3d.Init(*cdev, EFormat::R16G16B16A16_Float).IsOk();
                 if (!h.vclouds_ready) ACS_LOG_WARN("[3D] FVolumetricClouds Init 失敗 (FSky 2D 雲にフォールバック)"); }
-            // 雲は «空 pass を End → compute dispatch (pass 外で UAV→SRV 遷移が成立) → load pass で
-            // composite» する。compute をここ (pass 前) で dispatch すると、pass «内» の composite SRV
-            // 読みへの UAV→SRV 遷移が pass を跨げず書込みが見えない (実測)。よってここでは gate のみ。
-            if (h.vclouds_ready && h.vclouds3d.EnsureSize(*cdev, scW, scH)) cloudsActive = true;
+            // 雲は «空 pass を End → compute dispatch (pass 外で UAV→SRV 遷移が成立)» する。
+            // compute をここ (pass 前) で dispatch すると、後段 composite の SRV 読みへの
+            // UAV→SRV 遷移が pass を跨げず書込みが見えない (実測)。よってここでは gate のみ。
+            if (h.vclouds_ready &&
+                h.vclouds3d.EnsureSize(*cdev, scW, scH, h.q_cloud_render_scale)) {
+                cloudsActive = true;
+            }
         }
     }
+    h.profiler_work.clouds_active = cloudsActive;
 
     if (hdrRt != nullptr)        cl->BeginRenderToTexture(*hdrRt, h.clear_color, h.renderer.DepthBuffer(), 1.0f);
     else if (scSwap != nullptr)  cl->BeginRenderToSwapchain(*scSwap, h.renderer.CurrentBuffer(), h.clear_color, h.renderer.DepthBuffer(), 1.0f);
@@ -3987,11 +5625,25 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
 
     // --- (1) スカイ: 物理大気モード(q_sky_mode==1 + IBL 焼成済)は env cubemap を skybox 描画して «背景=IBL=一致»。
     //         それ以外はエンジン標準 FSky (グラデ + 手続き雲)。FSky Init 失敗時のみ自前 kSky3DHLSL。
+    {
+    editor_profiler::FCpuScope atmosphereScope(
+        h.profiler_work.atmosphere_cpu_ms);
+    FScopedRhiGpuTiming atmosphereGpuScope(
+        cl, ERhiGpuTimingPass::Atmosphere);
     if (h.q_sky_mode == 1 && h.ibl_ready) {
         IRhiDevice* sdev = h.renderer.Device();
         if (sdev != nullptr) {
             const EFormat skyRt = hdrRt ? EFormat::R16G16B16A16_Float : h.renderer.ColorFormat();
-            h.ibl3d.DrawEnvSkybox(*sdev, *cl, vp, eye, skyRt, h.renderer.DepthFormat());
+            const FVec3 sunDiscRadiance{
+                h.sun_color.x * h.sun_intensity *
+                    kPhysicalSunDiscRadianceScale,
+                h.sun_color.y * h.sun_intensity *
+                    kPhysicalSunDiscRadianceScale,
+                h.sun_color.z * h.sun_intensity *
+                    kPhysicalSunDiscRadianceScale};
+            h.ibl3d.DrawEnvSkybox(
+                *sdev, *cl, vp, eye, skyRt, h.renderer.DepthFormat(),
+                h.sun_dir, sunDiscRadiance, kPhysicalSunAngularRadius);
         }
     } else if (h.sky3d_ready) {
         h.sky3d.SetSunDirection(h.sun_dir);   // 空の太陽もシーンのライト方向に追従 (設定駆動)
@@ -3999,12 +5651,14 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         h.sky3d.SetZenithColor(h.sky_zenith); // 空グラデも設定駆動 → IBL 環境光と背景を一致
         h.sky3d.SetHorizonColor(h.sky_horizon);
         h.sky3d.SetGroundColor(h.sky_ground);
-        h.sky3d.SetCloudsEnabled(h.q_cloud_coverage > 0.001f && !cloudsActive);   // volumetric 雲が動くなら FSky 2D 雲は無効 (二重回避)
+        h.sky3d.SetCloudsEnabled(
+            h.q_cloud_coverage > 0.001f &&
+            !h.ortho3d && !cloudsActive);   // Ortho と volumetric 雲では 48-step FSky fallback を止める
         h.sky3d.SetClouds(h.q_cloud_coverage, h.q_cloud_density);
         h.sky3d.SetCloudWind(h.q_cloud_wind);
         h.sky3d.Render(*cl, cam);
     } else if (h.sky_pipe && h.sky_cb) {
-        SkyCB sk{};
+        FSkyCb sk{};
         sk.inv_view_proj = Inverse(vp);
         sk.zenith = FVec4{ h.sky_zenith.x,  h.sky_zenith.y,  h.sky_zenith.z,  0 };   // 天頂 (設定駆動)
         sk.horizon= FVec4{ h.sky_horizon.x, h.sky_horizon.y, h.sky_horizon.z, 0 };   // 地平
@@ -4015,20 +5669,33 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         cl->SetConstantBuffer(0, *h.sky_cb);
         cl->Draw(3, 0);
     }
+    }
 
     // --- Phase4 volumetric clouds: 空 pass を一旦 End → 雲 compute を pass «外» で dispatch (UAV→SRV
-    //     遷移が成立) → load pass を開いて空 (背景) の «上» に AlphaBlend 合成。シーンメッシュはこの load
-    //     pass で depth 付き描画されるので雲の手前に正しく出る (雲=遠景=背景)。
+    //     遷移が成立) → depth 付き load pass を再開してシーンメッシュを描く。雲の合成は AP 後まで
+    //     遅延し、完成した scene depth で実ジオメトリを除外する。
     if (cloudsActive && hdrRt != nullptr) {
         cl->EndRenderToTexture(*hdrRt);
-        h.vclouds_time += 1.0f / 60.0f;
+        // acs_editor_render() が実測 dt を積算した host time を使う。
+        // 固定 1/60 加算だと 30/120 Hz で雲の移流速度が半分/2倍になる。
+        h.vclouds_time = h.time;
+        h.vclouds3d.SetLayer(acs::FVolumetricCloudLayer{
+            h.q_cloud_base, h.q_cloud_top, h.q_cloud_noise_scale
+        });
         const FVec3 sunC{ h.sun_color.x * h.sun_intensity, h.sun_color.y * h.sun_intensity, h.sun_color.z * h.sun_intensity };
-        h.vclouds3d.RenderCompute(*cl, Inverse(vp_nojit), eye, h.sun_dir, sunC, h.sky_horizon,
-                                  h.q_cloud_coverage, h.q_cloud_density, h.q_cloud_wind, h.vclouds_time);
+        {
+            editor_profiler::FCpuScope cloudScope(
+                h.profiler_work.cloud_cpu_ms);
+            FScopedRhiGpuTiming cloudGpuScope(
+                cl, ERhiGpuTimingPass::Cloud);
+            h.vclouds3d.RenderCompute(
+                *cl, Inverse(vp_nojit), eye, h.sun_dir, sunC, h.sky_horizon,
+                h.q_cloud_coverage, h.q_cloud_density, h.q_cloud_wind,
+                h.vclouds_time);
+        }
         cl->BeginRenderToTextureLoad(*hdrRt, h.renderer.DepthBuffer());
         { FViewport rvp2{}; rvp2.width = static_cast<f32>(scW); rvp2.height = static_cast<f32>(scH); cl->SetViewport(rvp2);
           FScissorRect rsr2{}; rsr2.right = static_cast<i32>(scW); rsr2.bottom = static_cast<i32>(scH); cl->SetScissor(rsr2); }
-        h.vclouds3d.Composite(*cl, scW, scH);
     }
 
     // PBR 視線ベクトル用のカメラ位置。正射(ortho)は視線が平行なので、視軸上の «遠点» を渡して
@@ -4039,7 +5706,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         camPos = FVec3{ h.cam3d_target.x + d.x * 1000.0f, h.cam3d_target.y + d.y * 1000.0f, h.cam3d_target.z + d.z * 1000.0f };
     }
     // フレーム CB (view_proj + 光 + 環境光 + カメラ位置)。
-    M3DFrame fcb{};
+    FM3DFrame fcb{};
     fcb.view_proj = vp;
     const FVec3 sunCol{ h.sun_color.x * h.sun_intensity, h.sun_color.y * h.sun_intensity, h.sun_color.z * h.sun_intensity };
     fcb.light_dir = FVec4{ h.sun_dir.x, h.sun_dir.y, h.sun_dir.z, 0.0f };    // 光方向, w=0 (環境光は IBL から取る)
@@ -4054,11 +5721,16 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
     // --- (2) ノードのメッシュ本体: エンジン標準 FPbrShader (HDR 線形出力)。per-node DrawMesh で
     //     model + 材質(metallic/roughness/baseColor + Substrate ロブ + emissive)+ キャスト影。
     //     DrawMesh が «object CB リングの現在バッファ» を毎draw bind するので per-object が正しく出る。
+    {
+    editor_profiler::FCpuScope opaqueScope(
+        h.profiler_work.opaque_cpu_ms);
+    FScopedRhiGpuTiming opaqueGpuScope(
+        cl, ERhiGpuTimingPass::Opaque);
     if (h.pbr3d_ready) {
         // 3点ライティング: 主光(暖・強)+ 補助光(寒・弱、影側を持ち上げ立体感)+ リム(背面・輪郭)。
         // 1灯+SH9 だと陰が埋まりのっぺりするため、補助/リムで «面の向き» が読めるようにする。
         FDirLight dl[3];
-        dl[0].direction = FVec3{ -h.sun_dir.x, -h.sun_dir.y, -h.sun_dir.z }; dl[0].color = sunCol;  // key (太陽。光が «進む» 向き = -sun_dir、色×強度)
+        dl[0].direction = h.sun_dir; dl[0].color = sunCol;  // key (太陽。BRDF/影/空と同じ surface→light 方向)
         dl[1].direction = FVec3{  0.55f, -0.28f, -0.50f }; dl[1].color = FVec3{ 0.40f, 0.48f, 0.62f };  // fill (寒、弱)
         dl[2].direction = FVec3{  0.05f,  0.35f, -0.95f }; dl[2].color = FVec3{ 0.45f, 0.45f, 0.50f };  // rim (背面、輪郭)
         h.pbr3d.SetLights(vp, camPos, dl, 3, FVec3{ 0.22f, 0.24f, 0.30f });   // ambient はやや控えめ(陰のコントラスト確保)
@@ -4078,50 +5750,93 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         if (h.ssao_computed) h.pbr3d.SetSsao(h.ssao3d.OutputTexture(), h.q_ssao_intensity, scW, scH);
         else                 h.pbr3d.SetSsao(nullptr, 0.0f, scW, scH);
         // SSR: 前フレームの反射結果を roughness/Fresnel でブレンド (FPbrShader 内)。本フレーム分は本パス後に焼く。
-        if (h.q_ssr_on && h.ssr_ready) h.pbr3d.SetSsr(h.ssr3d.OutputTexture(), h.q_ssr_intensity);
-        else                           h.pbr3d.SetSsr(nullptr, 0.0f);
+        // Init / resize / re-enable 後の最初の main pass では history RT はまだ未描画。
+        // ssr_ready だけで bind すると未初期化 HDR を反射として読むため、直近の
+        // Render が完了したことも必須にする。本フレーム分は main pass 後に焼かれ、
+        // 次フレームから安全に利用できる。
+        if (h.q_ssr_on && h.ssr_ready && h.ssr_computed)
+            h.pbr3d.SetSsr(h.ssr3d.OutputTexture(), h.q_ssr_intensity);
+        else
+            h.pbr3d.SetSsr(nullptr, 0.0f);
         // 間接光を ambient に加算。VXGI (voxel GI、色のにじみ) が焼けていれば «今フレーム» の VXGI を優先、
         // 無ければ前フレームの screen-space SSGI。SetSsgi スロットを共用 (intensity は resolve で適用済み→1.0)。
         if (vxgiResolveTex != nullptr)        h.pbr3d.SetSsgi(vxgiResolveTex, 1.0f);
-        else if (h.q_ssgi_on && h.ssgi_ready) h.pbr3d.SetSsgi(h.ssgi3d.OutputTexture(), h.q_ssgi_intensity);
+        else if (h.q_ssgi_on && h.ssgi_ready && h.ssgi_computed)
+            h.pbr3d.SetSsgi(h.ssgi3d.OutputTexture(), h.q_ssgi_intensity);
         else                                  h.pbr3d.SetSsgi(nullptr, 0.0f);
         // IBL: env から焼いた irradiance(拡散) + prefilter(鏡面) + BRDF-LUT。成功時は SH9 を切り cubemap 拡散を使う。
         if (h.ibl_ready) {
             h.pbr3d.SetIbl(h.ibl3d.IrradianceMap(), h.ibl3d.PrefilterMap(), h.ibl3d.BrdfLut(), h.ibl3d.PrefilterMips());
             h.pbr3d.SetSh9(nullptr);   // IBL 有効 → irradiance cubemap を拡散に (init の muted SH9 を無効化)
         }   // ibl_ready=false の間は init で焼いた SH9 がそのまま効く (フォールバック)
-        // ボリュメトリック指数ハイトフォグ: 遠方を空の «地平色» に溶かして大気感・奥行きを出す
-        // (フォグ色を sky_horizon に追従させ時間帯プリセットと自然に馴染む)。density=0 で実質オフ。
-        if (h.q_fog_on) h.pbr3d.SetFog(h.sky_horizon, h.q_fog_density, h.q_fog_height_falloff, 0.0f);
+        // local fog は perspective camera-volume が主経路。compute 不可時だけ
+        // 同じ perspective domain で解析積分 height fog へ fallback。
+        if (editor_render_policy::ShouldUseAnalyticLocalFog(
+                h.ortho3d, h.q_fog_on,
+                canCompositeLocalFog))
+            h.pbr3d.SetFog(h.sky_horizon, h.q_fog_density, h.q_fog_height_falloff,
+                           0.0f, 0.42f, 0.18f);
         else            h.pbr3d.SetFog(FVec3{ 0, 0, 0 }, 0.0f, 0.0f, 0.0f);
-        // Aerial perspective (物理大気の距離霞)。q_ap_on=false (既定) なら apVol=null で無効。max_dist は build と一致 (100)。
-        h.pbr3d.SetAerialPerspective(apVol, 100.0f);
+        // camera-volume は全 opaque/transmission/sky/cloud を含む fullscreen pass で一度だけ適用する。
+        // compute 不可時の解析 fog だけは上の SetFog で PBR surface に残す。
+        h.pbr3d.SetAerialPerspective(nullptr, kFogVolumeMaxDist);
         for (u32 i = 0; i < all3d.Size(); ++i) {
-            game::FNode3D* nn = all3d[i];
-            { EEd3DRec* er = Rec3D(nn); if (er != nullptr && er->is_empty) continue; }   // 空ノードは描画しない
-            game::FMeshComponent3D* mc = Mesh3D(nn);
+            game::ANode* nn = all3d[i];
+            AEditor3DRecordComponent* er = Rec3D(nn);
+            if (er != nullptr && er->is_empty) continue;   // 空ノードは描画しない
+            game::AMeshComponent3D* mc = Mesh3D(nn);
             if (mc == nullptr || mc->RenderHandle() != nullptr) continue;    // スプライトは別パス
-            GpuMesh* gm = GpuMeshForNode3D(h, nn);
+            FGpuMesh* gm = GpuMeshForNode3D(h, nn);
             if (gm == nullptr || gm->vertex_buffer.Get() == nullptr || gm->index_buffer.Get() == nullptr) continue;
             if (!mc->MaterialLoaded() && mc->HasMaterial()) LoadNode3DMaterial(nn);
             const FVec4 col = NColor(nn);
             const game::FPbrParams2D& p = mc->Material().pbr;
+            // Transmission is rendered once, after the opaque scene has been copied to
+            // refr_bg. Drawing it here too writes its own silhouette into that source and
+            // produces a dark double-shaded shell in the later refraction pass.
+            if (p.transmission > 0.0f) continue;
             const bool lit = mc->HasMaterial() && mc->Material().kind == game::EMaterialKind::Lit;
             const FVec3 albedo = lit ? FVec3{ p.baseColor.x, p.baseColor.y, p.baseColor.z } : FVec3{ col.x, col.y, col.z };
-            // Substrate 拡張ロブ + emissive を DrawMesh(内部で SetObject) の前に member へ設定。
-            h.pbr3d.SetExtParams(p.clearcoat, p.clearcoatRoughness, p.anisotropy);
-            h.pbr3d.SetSheen(p.sheenColor, p.sheen, p.sheenRoughness);
-            h.pbr3d.SetSubsurface(p.subsurfaceColor, p.subsurface);
-            h.pbr3d.SetEmissive(p.emissive, p.emissiveStrength);
+            if (lit) LoadNode3DMaterialTextures(h, nn);
+            h.pbr3d.SetNormalMap(
+                lit && er != nullptr
+                    ? er->material_normal_tex.Get() : nullptr,
+                lit ? p.normalStrength : 1.0f);
+
+            // The exact same compiled closure + per-pixel expression program is
+            // used by the editor viewport and the standalone material preview.
+            const bool substrate_active =
+                lit && mc->Material().substrate.enabled &&
+                h.pbr3d.SetSubstrateMaterial(
+                    mc->Material().substrate, h.time);
+            if (substrate_active && er != nullptr) {
+                for (u32 slot = 0u;
+                     slot < kShaderExpressionMaxTextureSlots;
+                     ++slot) {
+                    h.pbr3d.SetSubstrateExpressionTexture(
+                        slot,
+                        er->material_expression_tex[slot].Get());
+                }
+            } else {
+                h.pbr3d.ClearSubstrateSurface();
+                h.pbr3d.SetExtParams(p.clearcoat, p.clearcoatRoughness, p.anisotropy);
+                h.pbr3d.SetSheen(p.sheenColor, p.sheen, p.sheenRoughness);
+                h.pbr3d.SetSubsurface(p.subsurfaceColor, p.subsurface);
+                h.pbr3d.SetEmissive(p.emissive, p.emissiveStrength);
+            }
             h.pbr3d.DrawMesh(*cl, *gm, nn->World().ToMat4(), albedo,
-                             lit ? p.metallic : 0.0f, lit ? p.roughness : 0.5f, p.ao, nullptr);
+                             lit ? p.metallic : 0.0f,
+                             lit ? p.roughness : 0.5f, p.ao,
+                             lit && er != nullptr
+                                 ? er->material_albedo_tex.Get() : nullptr);
         }
     } else if (dvCount > 0 && h.m3d_dyn_vb) {   // フォールバック: 自前 kMesh3DHLSL (FPbrShader 不可時)
         cl->SetPipeline(*h.m3d_pipe);
         cl->SetConstantBuffer(0, *h.m3d_frame_cb);
         if (h.shadow.DepthTexture() != nullptr) cl->SetTexture(0, *h.shadow.DepthTexture());
-        cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(M3DVtx));
+        cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(FM3DVtx));
         cl->Draw(dvCount, 0);
+    }
     }
     delete &dv;
 
@@ -4130,8 +5845,8 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         const f32 S = 800.0f;                    // クアッド半径 (フェード距離より十分大きく)
         const f32 cx = h.cam3d_target.x;
         const f32 cy = h.ortho3d ? h.cam3d_target.y : h.cam3d_target.z;
-        auto V = [](f32 x, f32 y, f32 z) { return M3DVtx{ x, y, z, 0, 1, 0, 0, 0, 0, 0, 0.5f }; };
-        M3DVtx qv[6];
+        auto V = [](f32 x, f32 y, f32 z) { return FM3DVtx{ x, y, z, 0, 1, 0, 0, 0, 0, 0, 0.5f }; };
+        FM3DVtx qv[6];
         if (h.ortho3d) {                         // z=0 平面 (XY)
             qv[0]=V(cx-S,cy-S,0); qv[1]=V(cx+S,cy-S,0); qv[2]=V(cx+S,cy+S,0);
             qv[3]=V(cx-S,cy-S,0); qv[4]=V(cx+S,cy+S,0); qv[5]=V(cx-S,cy+S,0);
@@ -4139,20 +5854,20 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
             qv[0]=V(cx-S,0,cy-S); qv[1]=V(cx+S,0,cy-S); qv[2]=V(cx+S,0,cy+S);
             qv[3]=V(cx-S,0,cy-S); qv[4]=V(cx+S,0,cy+S); qv[5]=V(cx-S,0,cy+S);
         }
-        GridCB gcb{}; gcb.view_proj = vp;
+        FGridCb gcb{}; gcb.view_proj = vp;
         gcb.gctr = FVec4{ cx, cy, 140.0f, h.ortho3d ? 1.0f : 0.0f };   // 中心 + フェード距離 + 平面フラグ
         h.grid_cb->Update(&gcb, sizeof(gcb));
         h.grid_vb->Update(qv, sizeof(qv));
         cl->SetPipeline(*h.grid_pipe);
         cl->SetConstantBuffer(0, *h.grid_cb);
-        cl->SetVertexBuffer(*h.grid_vb, sizeof(M3DVtx));
+        cl->SetVertexBuffer(*h.grid_vb, sizeof(FM3DVtx));
         cl->Draw(6, 0);
     }
 
     // --- (2.5) スプライト (テクスチャ付きクアッド): RenderHandle にテクスチャを持つノードを別パスで。
     //          ローカル XY 単位クアッド (z=0) を World 行列で変換。テクスチャ毎に SetTexture → Draw(6)。
     if (h.spr_pipe && h.spr_vb && h.m3d_frame_cb) {
-        TArray<SprVtx> sv; sv.Reserve(256);
+        TArray<FSprVtx> sv; sv.Reserve(256);
         TArray<IRhiTexture*> stex; stex.Reserve(64);
         // ローカルクアッドの 4 隅 (中心原点・1x1)。Ortho 2D ビュー (カメラ +Z→原点) では
         // world +X が «画面左» に写る (ギズモ赤 X 軸で実測)。画像が元の見た目どおり (左右非反転・
@@ -4162,22 +5877,22 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         const FVec2 uTL{ 1, 0 }, uTR{ 0, 0 }, uBL{ 1, 1 }, uBR{ 0, 1 };
         const u32 kMaxSpr = 1024;
         for (u32 i = 0; i < all3d.Size() && stex.Size() < kMaxSpr; ++i) {
-            game::FMeshComponent3D* mc = Mesh3D(all3d[i]);
+            game::AMeshComponent3D* mc = Mesh3D(all3d[i]);
             if (mc == nullptr || mc->RenderHandle() == nullptr) continue;
             const FMat4 m = all3d[i]->World().ToMat4();
             auto wv = [&](FVec3 lp, FVec2 uv) {
                 const FVec4 w = Transform(FVec4{ lp.x, lp.y, lp.z, 1.0f }, m);
-                SprVtx o; o.px = w.x; o.py = w.y; o.pz = w.z; o.u = uv.x; o.v = uv.y; sv.PushBack(o);
+                FSprVtx o; o.px = w.x; o.py = w.y; o.pz = w.z; o.u = uv.x; o.v = uv.y; sv.PushBack(o);
             };
             wv(lTL, uTL); wv(lBL, uBL); wv(lBR, uBR);     // 三角形 1
             wv(lTL, uTL); wv(lBR, uBR); wv(lTR, uTR);     // 三角形 2
             stex.PushBack(static_cast<IRhiTexture*>(mc->RenderHandle()));
         }
         if (stex.Size() > 0) {
-            h.spr_vb->Update(sv.Data(), sizeof(SprVtx) * sv.Size());
+            h.spr_vb->Update(sv.Data(), sizeof(FSprVtx) * sv.Size());
             cl->SetPipeline(*h.spr_pipe);
             cl->SetConstantBuffer(0, *h.m3d_frame_cb);    // 同じ Frame CB を共有 (sprite は先頭3つの float4 のみ宣言・cam_pos 未使用)
-            cl->SetVertexBuffer(*h.spr_vb, sizeof(SprVtx));
+            cl->SetVertexBuffer(*h.spr_vb, sizeof(FSprVtx));
             for (u32 i = 0; i < stex.Size(); ++i) {
                 cl->SetTexture(0, *stex[i]);
                 cl->Draw(6, i * 6);                       // クアッド i は頂点 [6i, 6i+6)
@@ -4185,69 +5900,11 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         }
     }
 
-    // --- (3) 選択ノードの変形ギズモ (Unity/Unreal 風: 軸シャフト + 矢じり + 平面ハンドル + 中心)。
-    //         depth off のオーバーレイで常に手前。サイズはカメラ距離で一定 (角度で破綻しない)。
-    if (game::FNode3D* sn = FindNode3DNode(h, h.sel3d)) {
-        const FVec3 P = sn->Local().position;
-        const f32 gl = Gizmo3DScale(h, P);
-        const f32 shaft = gl * 0.020f;     // シャフト半径 (円柱)
-        const f32 head  = gl * 0.085f;     // 矢じり半径
-        const f32 headL = gl * 0.26f;      // 矢じり長
-        const f32 axisL = gl * 0.74f;      // シャフト終端 (= 矢じりの根本)
-        const f32 rootO = gl * 0.13f;      // 中心ハンドルを避ける起点オフセット
-        const FVec3 cols[3] = { FVec3{ 0.92f, 0.26f, 0.30f }, FVec3{ 0.40f, 0.86f, 0.34f }, FVec3{ 0.30f, 0.55f, 0.96f } };
-        const FVec3 hot{ 1.0f, 0.86f, 0.22f };
-        TArray<M3DVtx>& gv = *(new TArray<M3DVtx>()); gv.Reserve(4096);
-
-        // 3 軸: gizmo_mode で形を変える (0=移動: 矢印 / 1=回転: リング / 2=拡縮: シャフト+箱)。
-        for (int a = 1; a <= 3; ++a) {
-            const FVec3 d = AxisDir(a);
-            const FVec3 col = (h.giz3d_handle == a) ? hot : cols[a - 1];
-            const FVec3 root{ P.x + d.x * rootO, P.y + d.y * rootO, P.z + d.z * rootO };
-            const FVec3 end{ P.x + d.x * axisL, P.y + d.y * axisL, P.z + d.z * axisL };
-            if (h.gizmo_mode == 1) {            // 回転: 軸まわりのリング
-                AppendRing(gv, P, a, axisL, shaft * 1.3f, col);
-            } else if (h.gizmo_mode == 2) {     // 拡縮: シャフト + 端の小箱
-                AppendCylinder(gv, root, a, axisL - rootO, shaft, col);
-                AppendMeshTris(gv, h.cpu_cube.Get(),
-                    FMat4::Scale(FVec3{ head*1.6f, head*1.6f, head*1.6f }) * FMat4::Translation(end), col, 4096);
-            } else {                            // 移動: シャフト + 矢じり
-                AppendCylinder(gv, root, a, axisL - rootO, shaft, col);
-                AppendCone(gv, end, a, headL, head, col);
-            }
-        }
-        // 平面ハンドル (XY=4,YZ=5,XZ=6): 移動/拡縮のみ (回転は不要)。
-        const f32 po = gl * 0.34f, ph = gl * 0.11f;
-        if (h.gizmo_mode != 1)
-        for (int hpl = 4; hpl <= 6; ++hpl) {
-            FVec3 e1, e2, nrm; PlaneAxes(hpl, e1, e2, nrm);
-            const FVec3 c{ P.x + (e1.x + e2.x) * po, P.y + (e1.y + e2.y) * po, P.z + (e1.z + e2.z) * po };
-            FVec3 col = (h.giz3d_handle == hpl) ? hot : FVec3{ cols[(hpl==5)?0:0].x, 0, 0 };
-            // 平面色 = 法線軸の補色寄り (XY→青系, YZ→赤系, XZ→緑系)。簡易に法線軸色を薄く。
-            if (hpl == 4) col = (h.giz3d_handle==4)?hot:FVec3{0.30f,0.55f,0.96f};
-            if (hpl == 5) col = (h.giz3d_handle==5)?hot:FVec3{0.92f,0.26f,0.30f};
-            if (hpl == 6) col = (h.giz3d_handle==6)?hot:FVec3{0.40f,0.86f,0.34f};
-            AppendQuad(gv, c, e1, e2, ph, col);
-        }
-        // 中心ハンドル (スクリーン移動): 小さな球。
-        AppendMeshTris(gv, h.cpu_sphere.Get(), FMat4::Scale(FVec3{gl*0.06f,gl*0.06f,gl*0.06f}) * FMat4::Translation(P),
-                       (h.giz3d_handle == 0 ? hot : FVec3{ 0.88f, 0.88f, 0.92f }), 4096);
-
-        if (gv.Size() > 0 && h.m3d_giz_vb && h.m3d_giz_cb) {
-            // ギズモは «立体的に» 陰影付け: 中アンビエント + 強めの直接光(PBR の /PI を補償)で円柱/円錐の形が出る。
-            M3DFrame gcb{}; gcb.view_proj = vp;
-            gcb.light_dir = FVec4{ 0.35f, 0.72f, 0.55f, 0.45f };   // 上前右からの光, w=ambient
-            gcb.light_col = FVec4{ 1.85f, 1.85f, 1.95f, 0 };       // 直接光を強めにしてコントラスト+鏡面ハイライト
-            gcb.cam_pos = FVec4{ camPos.x, camPos.y, camPos.z, 0.0f };   // PBR 視線ベクトル (メッシュと同じ)
-            h.m3d_giz_cb->Update(&gcb, sizeof(gcb));
-            h.m3d_giz_vb->Update(gv.Data(), sizeof(M3DVtx) * gv.Size());
-            cl->SetPipeline(*h.m3d_overlay_pipe);         // depth off → 常に手前
-            cl->SetConstantBuffer(0, *h.m3d_giz_cb);
-            if (h.shadow.DepthTexture() != nullptr) cl->SetTexture(0, *h.shadow.DepthTexture());   // 同 PSO の t0 を満たす (cam_pos.w=0 で未サンプル)
-            cl->SetVertexBuffer(*h.m3d_giz_vb, sizeof(M3DVtx));
-            cl->Draw(static_cast<u32>(gv.Size()), 0);
-        }
-        delete &gv;
+    // Without the HDR/post chain there is no later load pass, so retain the
+    // legacy direct-to-swapchain fallback.  The normal editor path draws this
+    // overlay after all scene-space effects below.
+    if (hdrRt == nullptr && !h.game_view) {
+        DrawGizmo3DOverlay(h, *cl, vp, camPos);
     }
 
     // Phase2: HDR RT → FPostProcess(ACES + 軽 Bloom)で backbuffer へ一度だけ tonemap。
@@ -4259,9 +5916,19 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         // 結果は ssr3d 内部 RT に残り、«次フレーム» の SetSsr が roughness ブレンドで使う (前フレーム反射方式)。
         h.ssr_computed = false;
         if (h.q_ssr_on && h.ssr_ready && gbufReady) {
+            IRhiTexture* hizEven = nullptr;
+            IRhiTexture* hizOdd = nullptr;
+            u32 hizMips = 0;
+            if (h.q_ssr_hiz && h.hiz3d_ready) {
+                h.hiz3d.Build(*h.renderer.Device(), *cl, *h.renderer.DepthBuffer());
+                hizEven = h.hiz3d.EvenTexture();
+                hizOdd = h.hiz3d.OddTexture();
+                hizMips = h.hiz3d.MipCount();
+            }
             h.ssr3d.Render(*h.renderer.Device(), *cl, *hdrRt, *h.renderer.DepthBuffer(), *h.normal_rt,
                            vp, Inverse(vp), h.prev_vp, eye, h.q_ssr_intensity,
-                           h.mv_computed ? h.mv3d.OutputTexture() : nullptr);   // motion で動く物の反射 ghost を除去
+                           h.mv_computed ? h.mv3d.OutputTexture() : nullptr,
+                           hizEven, hizOdd, hizMips);   // full Hi-Z + motion で long-ray cost / ghost を抑制
             h.ssr_computed = true;
         }
         // SSGI: 同じ lit scene color + 深度 + 法線から 1 バウンス間接光を焼く (raw→blur→temporal)。
@@ -4284,13 +5951,17 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                     if (btr.IsOk()) { h.refr_bg = Move(btr.Value()); h.refr_bg_w = scW; h.refr_bg_h = scH; } else { h.refr_bg_w = 0; }
                 }
                 if (h.refr_bg) {
-                    const ClearColor bc{ 0.0f, 0.0f, 0.0f, 1.0f };
+                    const FClearColor bc{ 0.0f, 0.0f, 0.0f, 1.0f };
                     cl->BeginRenderToTexture(*h.refr_bg, bc, nullptr, 1.0f);
                     { FViewport bvp{}; bvp.width = static_cast<f32>(scW); bvp.height = static_cast<f32>(scH); cl->SetViewport(bvp);
                       FScissorRect bsr{}; bsr.right = static_cast<i32>(scW); bsr.bottom = static_cast<i32>(scH); cl->SetScissor(bsr); }
                     cl->SetPipeline(*h.blit_pipe); cl->SetTexture(0, *hdrRt); cl->Draw(3, 0);
                     cl->EndRenderToTexture(*h.refr_bg);
-                    struct MbCB { FVec4 mbp; } mcb{}; mcb.mbp = FVec4{ h.q_motionblur_intensity, 0.0f, 0.0f, 0.0f };
+                    struct FMbCb { FVec4 mbp; FVec4 mbp2; } mcb{};
+                    const f32 frameScale = std::clamp((1.0f / 60.0f) / h.frame_dt, 0.25f, 4.0f);
+                    mcb.mbp = FVec4{ h.q_motionblur_intensity * frameScale,
+                                    1.0f / static_cast<f32>(scW), 1.0f / static_cast<f32>(scH), 48.0f };
+                    mcb.mbp2 = FVec4{ 0.05f, 500.0f, 0.018f, h.ortho3d ? 1.0f : 0.0f };
                     h.mblur_cb->Update(&mcb, sizeof(mcb));
                     cl->BeginRenderToTextureLoad(*hdrRt, nullptr);
                     { FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
@@ -4299,19 +5970,69 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                     cl->SetConstantBuffer(0, *h.mblur_cb);
                     cl->SetTexture(0, *h.refr_bg);
                     cl->SetTexture(1, *h.mv3d.OutputTexture());
+                    cl->SetTexture(2, *h.renderer.DepthBuffer());
                     cl->Draw(3, 0);
                     cl->EndRenderToTexture(*hdrRt);
                 }
             }
         }
 
+        // --- 空気遠近法 + ボリューメトリックフォグ ---
+        // Opaque/sky の完成 depth で camera-volume を終端し、屈折背景を capture
+        // する前に一度だけ合成する。depth は SRV で読むため DSV には同時 bind しない。
+        if (apVol != nullptr && apTransVol != nullptr &&
+            h.renderer.DepthBuffer() != nullptr) {
+            editor_profiler::FCpuScope atmosphereScope(
+                h.profiler_work.atmosphere_cpu_ms);
+            FScopedRhiGpuTiming atmosphereGpuScope(
+                cl, ERhiGpuTimingPass::Atmosphere);
+            cl->BeginRenderToTextureLoad(*hdrRt, nullptr);
+            h.sky_atmo.CompositeAerialPerspective(*cl, *h.renderer.DepthBuffer(),
+                                                  *apVol, *apTransVol,
+                                                  Inverse(vp), eye, kFogVolumeMaxDist,
+                                                  scW, scH);
+            cl->EndRenderToTexture(*hdrRt);
+        }
+
+        // --- ボリューメトリック雲の合成 ---
+        // AP 後・屈折背景 capture 前に合成する。これによりガラス/水の
+        // FRefractionShader は雲を完成済み HDR 背景として正しく屈折 sample する。
+        // 完成した scene depth を point sample し、手前の opaque geometry も維持する。
+        if (cloudsActive && h.renderer.DepthBuffer() != nullptr) {
+            editor_profiler::FCpuScope cloudScope(
+                h.profiler_work.cloud_cpu_ms);
+            FScopedRhiGpuTiming cloudGpuScope(
+                cl, ERhiGpuTimingPass::Cloud);
+            cl->BeginRenderToTextureLoad(*hdrRt, nullptr);
+            h.vclouds3d.Composite(*cl, *h.renderer.DepthBuffer(), scW, scH,
+                                  apVol, apTransVol, kFogVolumeMaxDist);
+            cl->EndRenderToTexture(*hdrRt);
+        }
+
+        // Long-range Rayleigh/Mie and near-field fog use separate froxel
+        // ranges. Apply local fog after clouds so opaque geometry and cloud
+        // pixels are terminated at their resolved distances; only clear sky
+        // receives the 2.5 km far slice.
+        if (canCompositeLocalFog) {
+            editor_profiler::FCpuScope fogScope(
+                h.profiler_work.fog_cpu_ms);
+            FScopedRhiGpuTiming fogGpuScope(
+                cl, ERhiGpuTimingPass::Fog);
+            cl->BeginRenderToTextureLoad(*hdrRt, nullptr);
+            h.sky_atmo.CompositeLocalFog(
+                *cl, *localFogSceneDepth, *localFogVol,
+                cloudsActive ? h.vclouds3d.ResolvedDepth() : nullptr,
+                Inverse(vp), eye, h.sky_atmo.LocalFogMaxDistance(), scW, scH);
+            cl->EndRenderToTexture(*hdrRt);
+        }
+
         // --- 屈折 (ガラス/水): transmission>0 のノードを «opaque シーンを IOR で曲げて sample» して描く ---
-        //     opaque HDR を refr_bg へ blit → hdrRt を clear せず load 再オープン (opaque+depth 保持) →
+        //     opaque + AP + cloud HDR を refr_bg へ blit → hdrRt を clear せず load 再オープン (opaque+depth 保持) →
         //     FRefractionShader で描画。env cubemap で Fresnel 反射 (要 Diligent IBL)。
         if (h.refr_ready && h.blit_ready && h.ibl_ready && h.ibl3d.EnvCubemap() != nullptr) {
             bool anyRefr = false;
             for (u32 i = 0; i < all3d.Size(); ++i) {
-                game::FMeshComponent3D* mc = Mesh3D(all3d[i]);
+                game::AMeshComponent3D* mc = Mesh3D(all3d[i]);
                 if (mc != nullptr && mc->MaterialLoaded() && mc->Material().pbr.transmission > 0.0f) { anyRefr = true; break; }
             }
             IRhiDevice* rdev = h.renderer.Device();
@@ -4322,7 +6043,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                     if (btr.IsOk()) { h.refr_bg = Move(btr.Value()); h.refr_bg_w = scW; h.refr_bg_h = scH; } else { h.refr_bg_w = 0; }
                 }
                 if (h.refr_bg) {
-                    const ClearColor bc{ 0.0f, 0.0f, 0.0f, 1.0f };   // 1. opaque HDR → refr_bg へ複製 (fullscreen blit)
+                    const FClearColor bc{ 0.0f, 0.0f, 0.0f, 1.0f };   // 1. opaque HDR → refr_bg へ複製 (fullscreen blit)
                     cl->BeginRenderToTexture(*h.refr_bg, bc, nullptr, 1.0f);
                     { FViewport bvp{}; bvp.width = static_cast<f32>(scW); bvp.height = static_cast<f32>(scH); cl->SetViewport(bvp);
                       FScissorRect bsr{}; bsr.right = static_cast<i32>(scW); bsr.bottom = static_cast<i32>(scH); cl->SetScissor(bsr); }
@@ -4332,13 +6053,13 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                     cl->BeginRenderToTextureLoad(*hdrRt, h.renderer.DepthBuffer());
                     { FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
                       FScissorRect rsr{}; rsr.right = static_cast<i32>(scW); rsr.bottom = static_cast<i32>(scH); cl->SetScissor(rsr); }
-                    h.refr3d.SetFrame(vp, eye);   // opaque と同じ vp (TAA 時はジッタ込み) で整合
+                    h.refr3d.SetFrame(vp, eye, scW, scH); // opaque と同じ vp/viewport で整合
                     for (u32 i = 0; i < all3d.Size(); ++i) {
-                        game::FNode3D* nn = all3d[i];
-                        game::FMeshComponent3D* mc = Mesh3D(nn);
+                        game::ANode* nn = all3d[i];
+                        game::AMeshComponent3D* mc = Mesh3D(nn);
                         if (mc == nullptr || mc->RenderHandle() != nullptr) continue;
                         if (!mc->MaterialLoaded() || mc->Material().pbr.transmission <= 0.0f) continue;
-                        GpuMesh* gm = GpuMeshForNode3D(h, nn);
+                        FGpuMesh* gm = GpuMeshForNode3D(h, nn);
                         if (gm == nullptr || gm->vertex_buffer.Get() == nullptr || gm->index_buffer.Get() == nullptr) continue;
                         const game::FPbrParams2D& p = mc->Material().pbr;
                         const FVec3 tint{ p.baseColor.x, p.baseColor.y, p.baseColor.z };
@@ -4363,22 +6084,26 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
             if (sc.w > 1e-3f && gdev != nullptr) {     // 太陽がカメラ前方
                 const f32 su = 0.5f + 0.5f * (sc.x / sc.w);
                 const f32 sv = 0.5f - 0.5f * (sc.y / sc.w);
+                const f32 sunOutside = std::max(std::max(-su, su - 1.0f), std::max(-sv, sv - 1.0f));
+                const f32 sunViewportFade = 1.0f - std::clamp(sunOutside / 0.30f, 0.0f, 1.0f);
                 if (h.refr_bg_w != scW || h.refr_bg_h != scH) {   // scene 複製 (refr_bg) 共用・遅延確保
                     FTextureDesc bd{}; bd.width = scW; bd.height = scH; bd.format = EFormat::R16G16B16A16_Float; bd.is_render_target = true;
                     auto btr = CreateRhiTexture(*gdev, bd);
                     if (btr.IsOk()) { h.refr_bg = Move(btr.Value()); h.refr_bg_w = scW; h.refr_bg_h = scH; } else { h.refr_bg_w = 0; }
                 }
-                if (h.refr_bg) {
-                    const ClearColor bc{ 0.0f, 0.0f, 0.0f, 1.0f };   // 1. 現 HDR → refr_bg へ複製
+                if (h.refr_bg && sunViewportFade > 0.001f) {
+                    const FClearColor bc{ 0.0f, 0.0f, 0.0f, 1.0f };   // 1. 現 HDR → refr_bg へ複製
                     cl->BeginRenderToTexture(*h.refr_bg, bc, nullptr, 1.0f);
                     { FViewport bvp{}; bvp.width = static_cast<f32>(scW); bvp.height = static_cast<f32>(scH); cl->SetViewport(bvp);
                       FScissorRect bsr{}; bsr.right = static_cast<i32>(scW); bsr.bottom = static_cast<i32>(scH); cl->SetScissor(bsr); }
                     cl->SetPipeline(*h.blit_pipe); cl->SetTexture(0, *hdrRt); cl->Draw(3, 0);
                     cl->EndRenderToTexture(*h.refr_bg);
                     // 2. hdrRt を load 再オープン → 放射状ブラーで光の筋を加算
-                    struct GrCB { FVec4 grp; FVec4 grp2; } gcb{};
-                    gcb.grp  = FVec4{ su, sv, h.q_godray_intensity, h.q_godray_decay };
+                    struct FGrCb { FVec4 grp; FVec4 grp2; FVec4 grp3; } gcb{};
+                    gcb.grp  = FVec4{ su, sv, h.q_godray_intensity * sunViewportFade, h.q_godray_decay };
                     gcb.grp2 = FVec4{ 1.0f, 0.30f, 0.55f, 0.0f };   // density, weight, bright threshold
+                    gcb.grp3 = FVec4{ 1.0f / static_cast<f32>(scW), 1.0f / static_cast<f32>(scH),
+                                     0.99945f, 1.25f };
                     h.gray_cb->Update(&gcb, sizeof(gcb));
                     cl->BeginRenderToTextureLoad(*hdrRt, nullptr);
                     { FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
@@ -4386,6 +6111,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                     cl->SetPipeline(*h.gray_pipe);
                     cl->SetConstantBuffer(0, *h.gray_cb);
                     cl->SetTexture(0, *h.refr_bg);
+                    cl->SetTexture(1, *h.renderer.DepthBuffer());
                     cl->Draw(3, 0);
                     cl->EndRenderToTexture(*hdrRt);
                 }
@@ -4404,16 +6130,18 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                     if (btr.IsOk()) { h.refr_bg = Move(btr.Value()); h.refr_bg_w = scW; h.refr_bg_h = scH; } else { h.refr_bg_w = 0; }
                 }
                 if (h.refr_bg) {
-                    const ClearColor bc{ 0.0f, 0.0f, 0.0f, 1.0f };   // 1. 現 HDR → refr_bg へ複製
+                    const FClearColor bc{ 0.0f, 0.0f, 0.0f, 1.0f };   // 1. 現 HDR → refr_bg へ複製
                     cl->BeginRenderToTexture(*h.refr_bg, bc, nullptr, 1.0f);
                     { FViewport bvp{}; bvp.width = static_cast<f32>(scW); bvp.height = static_cast<f32>(scH); cl->SetViewport(bvp);
                       FScissorRect bsr{}; bsr.right = static_cast<i32>(scW); bsr.bottom = static_cast<i32>(scH); cl->SetScissor(bsr); }
                     cl->SetPipeline(*h.blit_pipe); cl->SetTexture(0, *hdrRt); cl->Draw(3, 0);
                     cl->EndRenderToTexture(*h.refr_bg);
                     // 2. hdrRt を load 再オープン (depth は DSV にせず) → DoF ぼかしを書き戻す
-                    struct DofCB { FVec4 dofp; FVec4 dofp2; } dcb{};
-                    dcb.dofp  = FVec4{ h.q_dof_focus, h.q_dof_range, h.q_dof_max, 0.05f };  // near=0.05 (EditorCam3D)
-                    dcb.dofp2 = FVec4{ 500.0f, 0.0f, 0.0f, 0.0f };                          // far=500
+                    struct FDofCb { FVec4 dofp; FVec4 dofp2; } dcb{};
+                    const f32 maxBlurPx = std::clamp(h.q_dof_max * static_cast<f32>(scH), 0.0f, 48.0f);
+                    dcb.dofp  = FVec4{ h.q_dof_focus, h.q_dof_range, maxBlurPx, 0.05f };  // near=0.05
+                    dcb.dofp2 = FVec4{ 500.0f, 1.0f / static_cast<f32>(scW), 1.0f / static_cast<f32>(scH),
+                                      h.ortho3d ? 1.0f : 0.0f };
                     h.dof_cb->Update(&dcb, sizeof(dcb));
                     cl->BeginRenderToTextureLoad(*hdrRt, nullptr);
                     { FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
@@ -4427,8 +6155,20 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
                 }
             }
         }
-        PostProcessParams pp{};
-        // bloom: 7-mip + progressive radius + soft-knee の高品質 bloom。threshold は HDR 1.0 超を抽出、
+
+        // Editor chrome is not scene radiance.  Draw it only after clouds,
+        // physical/local atmosphere, refraction, motion blur, god rays and DoF
+        // have completed, then let the single viewport tonemap convert it with
+        // the rest of HDR.  The depth-off overlay intentionally remains
+        // readable even when the selected object sits behind dense cloud/fog.
+        if (!h.game_view && FindNode3DNode(h, h.sel3d) != nullptr) {
+            cl->BeginRenderToTextureLoad(*hdrRt, nullptr);
+            DrawGizmo3DOverlay(h, *cl, vp, camPos);
+            cl->EndRenderToTexture(*hdrRt);
+        }
+
+        FPostProcessParams pp{};
+        // bloom: 6-mip + progressive radius + soft-knee の高品質 bloom。threshold は HDR 1.0 超を抽出、
         // soft-knee でなめらかに立ち上げ。radius は progressive で深い mip ほど広がる(基準 1.0)。
         // 自然な bloom: threshold を «拡散面の明るさ» より上に置き、ハイライト/縁だけ抽出 (オブジェクト
         // 全体が光る «発光感» を回避)。intensity 控えめ + radius 広めで «柔らかく広い» 質感は維持。
@@ -4440,7 +6180,7 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
         if (h.q_auto_exposure) {   // eye adaptation: シーン輝度から露出を自動算出 (q_exposure は EV 補正に)
             pp.auto_exposure_enabled = true; pp.auto_exposure_speed = 2.0f;
             pp.auto_exposure_key = 0.5f; pp.auto_exposure_min = 0.05f; pp.auto_exposure_max = 12.0f;
-            pp.delta_time = 0.0166f;
+            pp.delta_time = std::clamp(h.frame_dt, 1.0f / 240.0f, 0.10f);
         }
         pp.cg_saturation = h.q_cg_saturation; pp.cg_contrast = h.q_cg_contrast;
         pp.cas_strength = h.q_cas;   // CAS シャープ (品質連動)
@@ -4458,7 +6198,13 @@ void DrawScene3D(EditorHost& h, u32 scW, u32 scH) noexcept {
             // motion vector があれば depth reproject の代わりに使う (動く mesh も ghost せず追従)。
             if (h.mv_computed) pp.taa_motion_texture = h.mv3d.OutputTexture();
         }
-        h.post3d.Render(*cl, *scSwap, h.renderer.CurrentBuffer(), pp);
+        {
+            editor_profiler::FCpuScope postScope(
+                h.profiler_work.post_cpu_ms);
+            FScopedRhiGpuTiming postGpuScope(
+                cl, ERhiGpuTimingPass::Post);
+            h.post3d.Render(*cl, *scSwap, h.renderer.CurrentBuffer(), pp);
+        }
     }
     h.prev_vp = vp;               // SSR/SSGI temporal reproject 用 (jitter 込み)
     h.prev_vp_nojit = vp_nojit;   // TAA history reproject 用 (jitter 無し)
@@ -4477,7 +6223,7 @@ ACS_EDITOR_API const char* acs_editor_version(void) {
 
 ACS_EDITOR_API void* acs_editor_create(void) {
     if (!EnsureSubsystems()) return nullptr;
-    auto* host = new (std::nothrow) EditorHost();
+    auto* host = new (std::nothrow) FEditorHost();
     if (host != nullptr) {
         InitDemoScene(*host);
     } else {
@@ -4487,7 +6233,7 @@ ACS_EDITOR_API void* acs_editor_create(void) {
 }
 
 ACS_EDITOR_API int acs_editor_attach(void* handle, void* hwnd, uint32_t width, uint32_t height) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || hwnd == nullptr || width == 0u || height == 0u) return 0;
     if (host->attached) {
         ACS_LOG_WARN("[acs_editor_abi] attach is only valid once per editor host");
@@ -4501,47 +6247,53 @@ ACS_EDITOR_API int acs_editor_attach(void* handle, void* hwnd, uint32_t width, u
     host->attached = true;
     host->width    = width;
     host->height   = height;
-
-    // MSAA (既定 8x) でスプライトバッチを初期化。PSO 生成に失敗する環境では非 MSAA へフォールバック。
-    auto sr = host->sprites.Init(*host->renderer.Device(), host->renderer.ColorFormat(), 8192,
-                                 host->msaa_samples);
-    if (sr.IsErr() && host->msaa_samples > 1) {
-        ACS_LOG_WARN("[acs_editor_abi] MSAA %ux sprite batch init failed → 非 MSAA で再試行",
-                     host->msaa_samples);
-        host->msaa_samples = host->msaa_pending = 1;
-        host->sprites.Shutdown();
-        sr = host->sprites.Init(*host->renderer.Device(), host->renderer.ColorFormat(), 8192, 1);
-    }
-    host->sprites_ready = sr.IsOk();
-    if (!host->sprites_ready) {
-        ACS_LOG_ERROR("[acs_editor_abi] sprite batch init failed: %s", sr.Error().message);
-    }
+    host->profiler_work = {};
+    host->profiler_snapshot = {};
+    host->profiler_cpu_peak.Reset();
+    host->profiler_gpu_peak.Reset();
+    host->profiler_gpu_queries.Reset();
+    host->profiler_last_gpu_peak_frame = 0u;
+    host->profiler_snapshot.viewport_width = width;
+    host->profiler_snapshot.viewport_height = height;
+    host->profiler_smoothed_fps = 0.0f;
+    host->profiler_has_previous_frame = false;
 
     // プロジェクト設定を既定値で初期化 (C# がプロジェクトを開いた後 settings_load_text で上書き)
     host->settings.ResetToDefaults();
 
-    // FXAA (MSAA 無効時のフォールバック。失敗してもエディタは AA 無しで続行できる)
-    const auto fr = host->fxaa.Init(*host->renderer.Device(), host->renderer.ColorFormat());
-    host->fxaa_ready = fr.IsOk();
-    if (!host->fxaa_ready) {
-        ACS_LOG_ERROR("[acs_editor_abi] fxaa init failed: %s", fr.Error().message);
-    }
-
-    // 3D パイプライン/バッファ/シェーダを «描画ループの外» で初期化しておく。これを最初の描画フレーム内
-    // (DrawScene3D 冒頭の遅延 Ensure3D) で行うと、内部の GPU アップロード (静的バッファ staging =
-    // Submit + dev->WaitIdle()) が BeginFrame 後のフレームペーシングと競合し «起動時に間欠クラッシュ» する。
-    // GPU マテリアルプレビュー競合と同じパターン。attach 時 (フレーム未開始・GPU アイドル) に先に済ませる。
-    if (!Ensure3D(*host)) ACS_LOG_WARN("[acs_editor_abi] Ensure3D (attach 時) 失敗 — 描画時に再試行する");
+    // Shader/PSO creation used to happen synchronously here.  That kept the
+    // WPF UI thread inside one native call long enough for Windows to mark the
+    // editor as Not Responding.  acs_editor_render advances the same work in
+    // bounded steps before BeginFrame, so uploads remain outside an active GPU
+    // frame and all native work stays on this owner thread.
+    host->startup_step = 0u;
+    host->startup_ready = false;
+    host->startup_failed = false;
+    host->startup_begin = editor_profiler::FClock::now();
 
     ACS_LOG_INFO("[acs_editor_abi] attached to HWND %p (%ux%u)", hwnd, width, height);
     return 1;
 }
 
-static void EditorStepPlay(EditorHost& h, f32 dt) noexcept;   // 前方宣言 (定義は Play モード節)
-static void EditorTickLogic(EditorHost& h, f32 dt) noexcept;  // 前方宣言 (インプロセス Play)
+/** Query non-blocking renderer warm-up state.
+ * Returns 1 when ready, 0 while waiting/preparing, and -1 on failure/invalid
+ * handle.  Output pointers are optional to keep the C ABI easy to probe. */
+ACS_EDITOR_API int acs_editor_startup_status(
+    void* handle, uint32_t* completed, uint32_t* total) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (completed != nullptr) {
+        *completed = host != nullptr ? host->startup_step : 0u;
+    }
+    if (total != nullptr) *total = kEditorStartupStepCount;
+    if (host == nullptr || host->startup_failed) return -1;
+    return host->startup_ready ? 1 : 0;
+}
+
+static void EditorStepPlay(FEditorHost& h, f32 dt) noexcept;   // 前方宣言 (定義は Play モード節)
+static void EditorTickLogic(FEditorHost& h, f32 dt) noexcept;  // 前方宣言 (インプロセス Play)
 
 /** swapchain と同サイズのシーン用オフスクリーン RT を用意する (リサイズ/サンプル数変更時は作り直し)。 */
-static bool EnsureSceneRt(EditorHost& h, u32 w, u32 hgt) noexcept {
+static bool EnsureSceneRt(FEditorHost& h, u32 w, u32 hgt) noexcept {
     if (w == 0 || hgt == 0) return false;
     if (h.scene_rt && h.scene_rt_w == w && h.scene_rt_h == hgt) return true;
     IRhiDevice* dev = h.renderer.Device();
@@ -4563,15 +6315,217 @@ static bool EnsureSceneRt(EditorHost& h, u32 w, u32 hgt) noexcept {
     return true;
 }
 
-ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
-    auto* host = static_cast<EditorHost*>(handle);
-    if (host == nullptr || !host->attached) return;
-    host->time += dt;
+static void BeginProfilerFrame(
+    FEditorHost& host,
+    editor_profiler::FTimePoint frameBegin) noexcept {
+    host.profiler_work = {};
 
-    if (host->play_state == 1) EditorStepPlay(*host, dt);   // 再生中は物理を進める
-    if (host->logic_play)      EditorTickLogic(*host, dt);  // インプロセス Play: ユーザーロジックを進める
+    if (host.profiler_has_previous_frame) {
+        const f32 intervalMs = static_cast<f32>(
+            std::chrono::duration<double, std::milli>(
+                frameBegin - host.profiler_last_frame_begin).count());
+        if (std::isfinite(intervalMs) && intervalMs > 0.01f) {
+            const f32 instantaneousFps = 1000.0f / intervalMs;
+            host.profiler_smoothed_fps =
+                host.profiler_smoothed_fps > 0.0f
+                    ? host.profiler_smoothed_fps * 0.90f +
+                          instantaneousFps * 0.10f
+                    : instantaneousFps;
+        }
+    }
+    host.profiler_last_frame_begin = frameBegin;
+    host.profiler_has_previous_frame = true;
+}
+
+static void PublishProfilerFrame(
+    FEditorHost& host,
+    editor_profiler::FTimePoint frameBegin,
+    f32 submitMs) noexcept {
+    editor_profiler::FSnapshot& snapshot = host.profiler_snapshot;
+    snapshot.version = editor_profiler::kSnapshotVersion;
+    snapshot.struct_size = editor_profiler::kSnapshotSize;
+    snapshot.timing_source = static_cast<u32>(
+        editor_profiler::ETimingSource::CpuRecordSubmit);
+    snapshot.flags = 0u;
+    if (host.view3d) {
+        snapshot.flags |= editor_profiler::ESnapshotFlags::View3D;
+    }
+    if (host.profiler_work.clouds_active) {
+        snapshot.flags |= editor_profiler::ESnapshotFlags::Clouds;
+    }
+    if (host.view3d && !host.ortho3d && host.q_fog_on) {
+        snapshot.flags |= editor_profiler::ESnapshotFlags::Fog;
+    }
+    if (host.view3d && !host.ortho3d && host.q_ap_on) {
+        snapshot.flags |= editor_profiler::ESnapshotFlags::AerialPerspective;
+    }
+
+    ++snapshot.frame_index;
+    FRhiGpuTimingSnapshot gpuTiming{};
+    bool gpuTimingValid = false;
+    const auto validGpuMetric = [](f32 value) noexcept {
+        return std::isfinite(value) && value >= 0.0f;
+    };
+    if (IRhiCommandList* commandList = host.renderer.CommandList();
+        commandList != nullptr) {
+        const FRhiCommandStatistics& statistics =
+            commandList->Statistics();
+        snapshot.draw_calls = statistics.draw_calls;
+        snapshot.dispatch_calls = statistics.dispatch_calls;
+        snapshot.triangles = statistics.triangles;
+        gpuTimingValid =
+            commandList->TryGetGpuTiming(gpuTiming) &&
+            gpuTiming.valid &&
+            gpuTiming.frame_index != 0u &&
+            validGpuMetric(gpuTiming.frame_ms) &&
+            validGpuMetric(gpuTiming.opaque_ms) &&
+            validGpuMetric(gpuTiming.atmosphere_ms) &&
+            validGpuMetric(gpuTiming.cloud_ms) &&
+            validGpuMetric(gpuTiming.fog_ms) &&
+            validGpuMetric(gpuTiming.post_ms);
+    } else {
+        snapshot.draw_calls = 0u;
+        snapshot.dispatch_calls = 0u;
+        snapshot.triangles = 0u;
+    }
+
+    snapshot.fps = host.profiler_smoothed_fps;
+    snapshot.cpu_frame_ms =
+        editor_profiler::ElapsedMilliseconds(frameBegin);
+    snapshot.cpu_submit_ms =
+        std::isfinite(submitMs) && submitMs >= 0.0f ? submitMs : 0.0f;
+
+    snapshot.opaque_cpu_ms = host.profiler_work.opaque_cpu_ms;
+    snapshot.atmosphere_cpu_ms =
+        host.profiler_work.atmosphere_cpu_ms;
+    snapshot.cloud_cpu_ms = host.profiler_work.cloud_cpu_ms;
+    snapshot.fog_cpu_ms = host.profiler_work.fog_cpu_ms;
+    snapshot.post_cpu_ms = host.profiler_work.post_cpu_ms;
+
+    snapshot.gpu_frame_index = 0u;
+    snapshot.gpu_latency_frames = 0u;
+    snapshot.gpu_frame_ms = -1.0f;
+    snapshot.opaque_gpu_ms = -1.0f;
+    snapshot.atmosphere_gpu_ms = -1.0f;
+    snapshot.cloud_gpu_ms = -1.0f;
+    snapshot.fog_gpu_ms = -1.0f;
+    snapshot.post_gpu_ms = -1.0f;
+    if (gpuTimingValid) {
+        snapshot.timing_source = static_cast<u32>(
+            editor_profiler::ETimingSource::GpuTimestamp);
+        snapshot.flags |= editor_profiler::ESnapshotFlags::GpuTimingsValid;
+        snapshot.gpu_frame_index = gpuTiming.frame_index;
+        const u64 latency =
+            snapshot.frame_index > gpuTiming.frame_index
+                ? snapshot.frame_index - gpuTiming.frame_index
+                : 0u;
+        snapshot.gpu_latency_frames = static_cast<u32>(
+            latency > 0xFFFFFFFFull ? 0xFFFFFFFFull : latency);
+        snapshot.gpu_frame_ms = gpuTiming.frame_ms;
+        snapshot.opaque_gpu_ms = gpuTiming.opaque_ms;
+        snapshot.atmosphere_gpu_ms = gpuTiming.atmosphere_ms;
+        snapshot.cloud_gpu_ms = gpuTiming.cloud_ms;
+        snapshot.fog_gpu_ms = gpuTiming.fog_ms;
+        snapshot.post_gpu_ms = gpuTiming.post_ms;
+        if (gpuTiming.frame_index !=
+            host.profiler_last_gpu_peak_frame) {
+            const editor_profiler::FGpuQuerySample querySample{
+                gpuTiming.frame_ms,
+                gpuTiming.opaque_ms,
+                gpuTiming.atmosphere_ms,
+                gpuTiming.cloud_ms,
+                gpuTiming.fog_ms,
+                gpuTiming.post_ms};
+            if (host.profiler_gpu_queries.Add(
+                    gpuTiming.frame_index, querySample)) {
+                host.profiler_gpu_peak.Add(gpuTiming.frame_ms);
+            }
+            host.profiler_last_gpu_peak_frame =
+                gpuTiming.frame_index;
+        }
+    }
+
+    host.profiler_cpu_peak.Add(snapshot.cpu_frame_ms);
+    snapshot.cpu_frame_peak_ms = host.profiler_cpu_peak.Peak();
+    snapshot.gpu_frame_peak_ms =
+        host.profiler_gpu_peak.HasValues()
+            ? host.profiler_gpu_peak.Peak()
+            : -1.0f;
+    snapshot.peak_window_frames =
+        editor_profiler::kPeakWindowFrames;
+
+    const editor_profiler::FGpuQueryWindowStatistics gpuWindow =
+        host.profiler_gpu_queries.Statistics();
+    snapshot.gpu_query_window_count = gpuWindow.count;
+    snapshot.gpu_query_window_capacity =
+        editor_profiler::kGpuQueryWindowQueries;
+    snapshot.gpu_frame_average_ms = gpuWindow.frame_average_ms;
+    snapshot.opaque_gpu_average_ms = gpuWindow.opaque_average_ms;
+    snapshot.atmosphere_gpu_average_ms =
+        gpuWindow.atmosphere_average_ms;
+    snapshot.cloud_gpu_average_ms = gpuWindow.cloud_average_ms;
+    snapshot.fog_gpu_average_ms = gpuWindow.fog_average_ms;
+    snapshot.post_gpu_average_ms = gpuWindow.post_average_ms;
+    snapshot.opaque_gpu_window_peak_ms = gpuWindow.opaque_peak_ms;
+    snapshot.atmosphere_gpu_window_peak_ms =
+        gpuWindow.atmosphere_peak_ms;
+    snapshot.cloud_gpu_window_peak_ms = gpuWindow.cloud_peak_ms;
+    snapshot.fog_gpu_window_peak_ms = gpuWindow.fog_peak_ms;
+    snapshot.post_gpu_window_peak_ms = gpuWindow.post_peak_ms;
+
+    if (IRhiSwapchain* swapchain = host.renderer.Swapchain();
+        swapchain != nullptr) {
+        snapshot.viewport_width = swapchain->Width();
+        snapshot.viewport_height = swapchain->Height();
+    } else {
+        snapshot.viewport_width = host.width;
+        snapshot.viewport_height = host.height;
+    }
+
+    snapshot.cloud_width = 0u;
+    snapshot.cloud_height = 0u;
+    snapshot.cloud_march_steps = 0u;
+    snapshot.cloud_light_steps = 0u;
+    snapshot.cloud_render_scale = 0.0f;
+    if (host.profiler_work.clouds_active) {
+        const FVolumetricCloudTraceResolution trace =
+            ResolveVolumetricCloudTraceResolution(
+                snapshot.viewport_width,
+                snapshot.viewport_height,
+                host.q_cloud_render_scale);
+        snapshot.cloud_width = trace.width;
+        snapshot.cloud_height = trace.height;
+        snapshot.cloud_march_steps = 192u;
+        snapshot.cloud_light_steps = 8u;
+        snapshot.cloud_render_scale = trace.effective_dimension_scale;
+    }
+}
+
+ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr || !host->attached) return;
+    // Do not enter BeginFrame until all startup upload phases are complete.
+    // Each call performs one bounded phase and then returns to the Win32/WPF
+    // message pump, keeping the editor responsive throughout shader warm-up.
+    if (!host->startup_ready) {
+        (void)AdvanceEditorStartup(*host);
+        return;
+    }
+    const editor_profiler::FTimePoint profilerFrameBegin =
+        editor_profiler::FClock::now();
+    BeginProfilerFrame(*host, profilerFrameBegin);
+    const f32 safe_dt = std::isfinite(dt) && dt > 0.0f
+        ? std::clamp(dt, 0.0f, 0.10f)
+        : 0.0f;
+    host->frame_dt = safe_dt > 1e-4f
+        ? std::clamp(safe_dt, 1.0f / 240.0f, 0.10f)
+        : (1.0f / 60.0f);
+    host->time += safe_dt;
+
+    if (host->play_state == 1) EditorStepPlay(*host, safe_dt);   // 再生中は物理を進める
+    if (host->logic_play)      EditorTickLogic(*host, safe_dt);  // インプロセス Play: ユーザーロジックを進める
     if (host->preview_live && host->root.Get() != nullptr) {   // Preview: エンジンコンポーネントの実 OnUpdate
-        f32 cdt = (dt > 0.05f) ? 0.05f : dt;
+        const f32 cdt = safe_dt > 0.05f ? 0.05f : safe_dt;
         host->root->UpdateTree(cdt);
         host->root->ResolveStructuralChanges();
     }
@@ -4595,8 +6549,17 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
         ACS_LOG_INFO("[acs_editor_abi] MSAA = %ux", host->msaa_samples);
     }
 
-    const ClearColor clear = host->clear_color;   // Rendering.ClearColor (プロジェクト設定)
+    const FClearColor clear = host->clear_color;   // Rendering.FClearColor (プロジェクト設定)
+    if (IRhiCommandList* commandList = host->renderer.CommandList();
+        commandList != nullptr) {
+        commandList->ResetStatistics();
+    }
     host->renderer.BeginFrame(clear);
+    if (IRhiCommandList* commandList = host->renderer.CommandList();
+        commandList != nullptr) {
+        commandList->BeginGpuTimingFrame(
+            host->profiler_snapshot.frame_index + 1u);
+    }
 
     // --- 3D ビューポート: backbuffer に直接描く (BeginFrame が深度バッファを bind 済み)。
     //     2D の AA (オフスクリーン RT) 経路は深度を持たないため経由しない。
@@ -4604,7 +6567,13 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
         IRhiCommandList* cl = host->renderer.CommandList();
         IRhiSwapchain*   sc = host->renderer.Swapchain();
         if (cl != nullptr && sc != nullptr) DrawScene3D(*host, sc->Width(), sc->Height());
+        if (cl != nullptr) cl->EndGpuTimingFrame();
+        const editor_profiler::FTimePoint submitBegin =
+            editor_profiler::FClock::now();
         host->renderer.EndFrame();
+        PublishProfilerFrame(
+            *host, profilerFrameBegin,
+            editor_profiler::ElapsedMilliseconds(submitBegin));
         return;
     }
 
@@ -4653,17 +6622,74 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
         }
     }
 
+    if (IRhiCommandList* commandList = host->renderer.CommandList();
+        commandList != nullptr) {
+        commandList->EndGpuTimingFrame();
+    }
+    const editor_profiler::FTimePoint submitBegin =
+        editor_profiler::FClock::now();
     host->renderer.EndFrame();
+    PublishProfilerFrame(
+        *host, profilerFrameBegin,
+        editor_profiler::ElapsedMilliseconds(submitBegin));
+}
+
+ACS_EDITOR_API int acs_editor_profiler_get(
+    void* handle,
+    editor_profiler::FSnapshot* outSnapshot,
+    uint32_t outSize) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr || outSnapshot == nullptr ||
+        outSize < editor_profiler::kSnapshotSize ||
+        outSnapshot->version != editor_profiler::kSnapshotVersion ||
+        outSnapshot->struct_size < editor_profiler::kSnapshotSize) {
+        return 0;
+    }
+
+    std::memcpy(
+        outSnapshot,
+        &host->profiler_snapshot,
+        editor_profiler::kSnapshotSize);
+    return 1;
+}
+
+ACS_EDITOR_API void acs_editor_profiler_reset_peaks(void* handle) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr) return;
+    host->profiler_cpu_peak.Reset();
+    host->profiler_gpu_peak.Reset();
+    host->profiler_gpu_queries.Reset(
+        host->profiler_snapshot.gpu_frame_index);
+    host->profiler_last_gpu_peak_frame =
+        host->profiler_snapshot.gpu_frame_index;
+    host->profiler_snapshot.cpu_frame_peak_ms = 0.0f;
+    host->profiler_snapshot.gpu_frame_peak_ms = -1.0f;
+    host->profiler_snapshot.gpu_query_window_count = 0u;
+    host->profiler_snapshot.gpu_query_window_capacity =
+        editor_profiler::kGpuQueryWindowQueries;
+    host->profiler_snapshot.gpu_frame_average_ms = -1.0f;
+    host->profiler_snapshot.opaque_gpu_average_ms = -1.0f;
+    host->profiler_snapshot.atmosphere_gpu_average_ms = -1.0f;
+    host->profiler_snapshot.cloud_gpu_average_ms = -1.0f;
+    host->profiler_snapshot.fog_gpu_average_ms = -1.0f;
+    host->profiler_snapshot.post_gpu_average_ms = -1.0f;
+    host->profiler_snapshot.opaque_gpu_window_peak_ms = -1.0f;
+    host->profiler_snapshot.atmosphere_gpu_window_peak_ms = -1.0f;
+    host->profiler_snapshot.cloud_gpu_window_peak_ms = -1.0f;
+    host->profiler_snapshot.fog_gpu_window_peak_ms = -1.0f;
+    host->profiler_snapshot.post_gpu_window_peak_ms = -1.0f;
 }
 
 ACS_EDITOR_API void acs_editor_resize(void* handle, uint32_t width, uint32_t height) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || !host->attached || width == 0u || height == 0u) return;
     // 即時 OnResize (OnResize 内で WaitIdle 済み)。遅延リサイズは実測でクラッシュ率が悪化(4/8 vs 即時6/8)
     // したため不採用。WPF レイアウト中の交錯はドック自動拡張を無効化することで回避済み。
     host->renderer.OnResize(width, height);
     host->width  = width;
     host->height = height;
+    host->profiler_snapshot.viewport_width = width;
+    host->profiler_snapshot.viewport_height = height;
 }
 
 // =============================================================================
@@ -4673,10 +6699,12 @@ ACS_EDITOR_API void acs_editor_resize(void* handle, uint32_t width, uint32_t hei
 /** プロジェクト設定をエンジン状態へ反映する (ロード/変更時に呼ぶ)。 */
 /** Rendering/QualityLevel プリセット → 各描画ノブ (h.q_*) を埋める。未知文字列は High にフォールバック。
  *  knob 値表は «超最高/最高/高/中/低/最低» を DX12 Samples 流の品質階層で設定。 */
-static void ApplyQualityPreset(EditorHost& h, const char* level) noexcept {
+static void ApplyQualityPreset(FEditorHost& h, const char* level) noexcept {
     if (level == nullptr) level = "High";
     auto eq = [&](const char* s){ return std::strcmp(level, s) == 0; };
+    h.q_cloud_render_scale = 0.75f;   // High / Highest: 75% of the internal trace policy
     if (eq("Ultra")) {
+        h.q_cloud_render_scale=1.0f;  // complete internal trace policy for final/editor review
         h.q_shadow_size=4096; h.q_shadow_cascades=4; h.q_shadow_bias=0.0010f; h.q_shadow_filter=2.0f;
         h.q_ssao_on=true;  h.q_ssao_intensity=1.2f; h.q_ssao_radius=1.5f;
         h.q_ssgi_on=true;  h.q_ssgi_intensity=1.2f; h.q_ssgi_max_dist=15.0f;
@@ -4691,18 +6719,21 @@ static void ApplyQualityPreset(EditorHost& h, const char* level) noexcept {
         h.q_bloom_on=true; h.q_bloom_intensity=0.50f; h.q_bloom_threshold=0.80f; h.q_bloom_radius=1.5f;
         h.q_cg_saturation=1.10f; h.q_cg_contrast=1.12f; h.q_cas=0.4f; h.q_taa_on=true;  h.q_msaa_default=4;
     } else if (eq("Medium")) {
+        h.q_cloud_render_scale=0.50f;
         h.q_shadow_size=2048; h.q_shadow_cascades=1; h.q_shadow_bias=0.0015f; h.q_shadow_filter=1.0f;
         h.q_ssao_on=true;  h.q_ssao_intensity=0.9f; h.q_ssao_radius=0.6f;
         h.q_ssgi_on=false; h.q_ssr_on=false; h.q_ibl_mode=1;
         h.q_bloom_on=true; h.q_bloom_intensity=0.40f; h.q_bloom_threshold=0.90f; h.q_bloom_radius=1.2f;
         h.q_cg_saturation=1.05f; h.q_cg_contrast=1.08f; h.q_cas=0.3f; h.q_taa_on=true;  h.q_msaa_default=2;  // Medium も AA 一貫性のため TAA on
     } else if (eq("Low")) {
+        h.q_cloud_render_scale=0.50f;
         h.q_shadow_size=1024; h.q_shadow_cascades=1; h.q_shadow_bias=0.0020f; h.q_shadow_filter=0.0f;
         h.q_ssao_on=false; h.q_ssgi_on=false; h.q_ssr_on=false;
         h.q_ibl_mode=0; h.q_ambient=FVec3{0.20f,0.22f,0.26f};
         h.q_bloom_on=true; h.q_bloom_intensity=0.30f; h.q_bloom_threshold=1.00f; h.q_bloom_radius=1.0f;
         h.q_cg_saturation=1.00f; h.q_cg_contrast=1.00f; h.q_cas=0.0f; h.q_taa_on=false; h.q_msaa_default=2;
     } else if (eq("Lowest")) {
+        h.q_cloud_render_scale=0.35f;
         h.q_shadow_size=0; h.q_shadow_cascades=0;
         h.q_ssao_on=false; h.q_ssgi_on=false; h.q_ssr_on=false;
         h.q_ibl_mode=0; h.q_ambient=FVec3{0.26f,0.28f,0.33f};
@@ -4719,100 +6750,100 @@ static void ApplyQualityPreset(EditorHost& h, const char* level) noexcept {
 
 /** 現在の品質プリセットが要求する影マップ解像度 (0=影オフ)。設定の反映確認/UI 表示用。 */
 ACS_EDITOR_API int acs_editor_quality_shadow_size(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? static_cast<int>(host->q_shadow_size) : 0;
 }
 /** 現在の品質プリセットの bloom 強度 (0=bloom オフ)。100 倍した整数で返す (例 0.55→55)。 */
 ACS_EDITOR_API int acs_editor_quality_bloom_x100(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->q_bloom_on) ? static_cast<int>(host->q_bloom_intensity * 100.0f + 0.5f) : 0;
 }
 /** 現在の露出 (Rendering/Exposure)。100 倍した整数で返す (例 1.05→105)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_exposure_x100(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? static_cast<int>(host->q_exposure * 100.0f + 0.5f) : 0;
 }
 /** 現在の品質プリセットの影カスケード数 (1=single、>=2=CSM、0=影オフ)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_shadow_cascades(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? static_cast<int>(host->q_shadow_cascades) : 0;
 }
 /** 現在の SSAO 強度 ×100 (0=SSAO オフ)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_ssao_x100(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->q_ssao_on) ? static_cast<int>(host->q_ssao_intensity * 100.0f + 0.5f) : 0;
 }
 /** 現在の SSR 強度 ×100 (0=SSR オフ)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_ssr_x100(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->q_ssr_on) ? static_cast<int>(host->q_ssr_intensity * 100.0f + 0.5f) : 0;
 }
 /** 現在の SSGI 強度 ×100 (0=SSGI オフ)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_ssgi_x100(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->q_ssgi_on) ? static_cast<int>(host->q_ssgi_intensity * 100.0f + 0.5f) : 0;
 }
 /** TAA (テンポラル AA) が有効か (1/0)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_taa(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->q_taa_on) ? 1 : 0;
 }
 /** 現在のトーンマッパー (0=ACES 1=AgX 2=Reinhard)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_tonemap(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? host->q_tonemap : 0;
 }
 /** auto-exposure が有効か (1/0)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_auto_exposure(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->q_auto_exposure) ? 1 : 0;
 }
 /** フォグ密度 ×1000 (0=オフ)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_fog_x1000(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->q_fog_on) ? static_cast<int>(host->q_fog_density * 1000.0f + 0.5f) : 0;
 }
 /** 空モード (0=FSky / 1=物理大気)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_sky_mode(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? host->q_sky_mode : 0;
 }
 /** 雲の coverage ×100 (0=雲オフ)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_cloud_x100(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? static_cast<int>(host->q_cloud_coverage * 100.0f + 0.5f) : 0;
 }
 /** DoF (被写界深度) の焦点距離 ×100 (0=オフ)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_dof_x100(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->q_dof_on) ? static_cast<int>(host->q_dof_focus * 100.0f + 0.5f) : 0;
 }
 /** god rays (光芒) の強度 ×100 (0=オフ)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_godray_x100(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->q_godray_on) ? static_cast<int>(host->q_godray_intensity * 100.0f + 0.5f) : 0;
 }
 /** シネマフィルタ ×100 (which: 0=vignette 1=chromatic 2=grain)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_cine_x100(void* handle, int which) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     const f32 v = (which == 0) ? host->q_vignette : (which == 1) ? host->q_chromatic : host->q_grain;
     return static_cast<int>(v * 100.0f + 0.5f);
 }
 /** モーションブラー強度 ×100 (0=オフ)。設定反映の確認用。 */
 ACS_EDITOR_API int acs_editor_quality_motionblur_x100(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->q_motionblur_on) ? static_cast<int>(host->q_motionblur_intensity * 100.0f + 0.5f) : 0;
 }
 /** 太陽 (主光源) 方向 «光へ向かう» 単位ベクトルを out3 (x,y,z) へ。設定反映の確認用。 */
 ACS_EDITOR_API void acs_editor_sun_direction(void* handle, float* out3) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || out3 == nullptr) return;
     out3[0] = host->sun_dir.x; out3[1] = host->sun_dir.y; out3[2] = host->sun_dir.z;
 }
 /** 実効ライト色 (sun_color × sun_intensity) を out3 へ。設定反映の確認用。 */
 ACS_EDITOR_API void acs_editor_sun_light_color(void* handle, float* out3) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || out3 == nullptr) return;
     out3[0] = host->sun_color.x * host->sun_intensity;
     out3[1] = host->sun_color.y * host->sun_intensity;
@@ -4820,25 +6851,26 @@ ACS_EDITOR_API void acs_editor_sun_light_color(void* handle, float* out3) {
 }
 /** 3D ビューポートのグリッド表示を切替える (清書/スクショ用)。 */
 ACS_EDITOR_API void acs_editor_set_show_grid3d(void* handle, int on) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host != nullptr) host->show_grid3d = (on != 0);
 }
 /** 3D グリッド表示状態 (1=表示)。 */
 ACS_EDITOR_API int acs_editor_get_show_grid3d(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->show_grid3d) ? 1 : 0;
 }
 
 /** 空グラデ色 (zenith3 + horizon3 + ground3) を out9 へ。設定反映の確認用。 */
 ACS_EDITOR_API void acs_editor_sky_colors(void* handle, float* out9) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || out9 == nullptr) return;
     out9[0]=host->sky_zenith.x;  out9[1]=host->sky_zenith.y;  out9[2]=host->sky_zenith.z;
     out9[3]=host->sky_horizon.x; out9[4]=host->sky_horizon.y; out9[5]=host->sky_horizon.z;
     out9[6]=host->sky_ground.x;  out9[7]=host->sky_ground.y;  out9[8]=host->sky_ground.z;
 }
 
-static void ApplySettings(EditorHost& h) noexcept {
+static void ApplySettings(FEditorHost& h) noexcept {
+    const bool ssgi_was_requested = h.q_ssgi_on;
     ApplyQualityPreset(h, h.settings.GetString("Rendering", "QualityLevel", "High"));   // 先に品質プリセットを展開
     // 個別キーはプリセットより «優先» (上書き)。露出はプリセット非依存なので常に設定値、
     // bloom/影バイアスは -1 でプリセット追従・>=0 で上書き (ProjectSettings の設計コメント通り)。
@@ -4868,6 +6900,17 @@ static void ApplySettings(EditorHost& h) noexcept {
     h.q_cloud_coverage = h.settings.GetFloat("Rendering", "CloudCoverage", 0.50f);   // 0=雲オフ / 0.1〜1.0
     h.q_cloud_density  = h.settings.GetFloat("Rendering", "CloudDensity",  1.6f);
     h.q_cloud_wind     = h.settings.GetFloat("Rendering", "CloudWind",     1.0f);
+    h.q_cloud_base     = h.settings.GetFloat("Rendering", "CloudBaseHeight", 1500.0f);
+    h.q_cloud_top      = h.settings.GetFloat("Rendering", "CloudTopHeight", 4000.0f);
+    h.q_cloud_noise_scale = h.settings.GetFloat("Rendering", "CloudNoiseScale", 0.035f);
+    const f32 cloudRenderScale =
+        h.settings.GetFloat("Rendering", "CloudRenderScale", -1.0f);
+    if (cloudRenderScale >= 0.0f) {
+        h.q_cloud_render_scale =
+            cloudRenderScale < 0.50f ? 0.50f
+          : cloudRenderScale > 1.0f  ? 1.0f
+                                     : cloudRenderScale;
+    }
     const f32 gray = h.settings.GetFloat("Rendering", "GodRays", 0.0f);
     h.q_godray_on = (gray > 0.0f); if (h.q_godray_on) h.q_godray_intensity = gray;   // 0=オフ / >0=光芒の強度
     h.q_vignette  = h.settings.GetFloat("Rendering", "Vignette", 0.0f);              // シネマフィルタ (0=オフ)
@@ -4903,17 +6946,21 @@ static void ApplySettings(EditorHost& h) noexcept {
     h.msaa_pending = (msaa >= 8) ? 8u : (msaa >= 4) ? 4u : (msaa >= 2) ? 2u : 1u;
     h.ambient      = h.settings.GetColor("Rendering", "AmbientColor", FVec3{ 0.10f, 0.11f, 0.13f });
     h.light_height = h.settings.GetFloat("Rendering", "LightHeight", 90.0f);
-    const FVec3 cc = h.settings.GetColor("Rendering", "ClearColor", FVec3{ 0.07f, 0.08f, 0.10f });
-    h.clear_color  = ClearColor{ cc.x, cc.y, cc.z, 1.0f };
+    const FVec3 cc = h.settings.GetColor("Rendering", "FClearColor", FVec3{ 0.07f, 0.08f, 0.10f });
+    h.clear_color  = FClearColor{ cc.x, cc.y, cc.z, 1.0f };
     h.snap_move    = h.settings.GetFloat("Editor", "SnapMove", 10.0f);
     h.snap_rotate  = h.settings.GetFloat("Editor", "SnapRotateDeg", 15.0f) * 3.1415926535f / 180.0f;
     h.snap_scale   = h.settings.GetFloat("Editor", "SnapScale", 0.25f);
+    if (!ssgi_was_requested && h.q_ssgi_on && !h.ssgi_ready &&
+        h.startup_worker_kind != 2u) {
+        h.ssgi_init_tried = false;
+    }
 }
 
 /** INI テキストからプロジェクト設定を読み込み、エンジンへ適用する (C# がファイル I/O 担当)。
  *  ini_text=null/空 は既定値で初期化 (初回起動)。 */
 ACS_EDITOR_API void acs_editor_settings_load_text(void* handle, const char* ini_text) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     if (ini_text != nullptr && ini_text[0] != '\0') host->settings.LoadText(ini_text);
     else                                            host->settings.ResetToDefaults();
@@ -4922,7 +6969,7 @@ ACS_EDITOR_API void acs_editor_settings_load_text(void* handle, const char* ini_
 
 /** プロジェクト設定を INI テキストへシリアライズする (C# が書き込む)。書いた文字数を返す。 */
 ACS_EDITOR_API int acs_editor_settings_serialize(void* handle, char* out, int cap) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || out == nullptr || cap <= 0) return 0;
     return static_cast<int>(host->settings.SerializeText(out, static_cast<usize>(cap)));
 }
@@ -4932,7 +6979,7 @@ ACS_EDITOR_API int acs_editor_settings_serialize(void* handle, char* out, int ca
  *  C# はこの後 INI を保存する。Noon=既定 / Sunset=低い暖色太陽+橙空 / Overcast=高位の寒色弱光+灰空 /
  *  Night=弱い青光+暗青空。値は «良い出発点»、ユーザーは個別設定で微調整できる。 */
 ACS_EDITOR_API int acs_editor_apply_lighting_preset(void* handle, const char* name) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || name == nullptr) return 0;
     auto S = [&](const char* k, const char* v) { host->settings.Set("Rendering", k, v); };
     if (std::strcmp(name, "Noon") == 0) {
@@ -4956,14 +7003,14 @@ ACS_EDITOR_API int acs_editor_apply_lighting_preset(void* handle, const char* na
 
 /** 設定エントリ数。 */
 ACS_EDITOR_API int acs_editor_settings_count(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? static_cast<int>(host->settings.Count()) : 0;
 }
 
 /** index 番目のエントリを TSV 1 行 "category\tkey\tvalue\ttype\toptions\tbuiltin\tdesc" で返す。
  *  type は ESettingType の整数。options/desc は無ければ空。 */
 ACS_EDITOR_API int acs_editor_settings_entry(void* handle, int index, char* out, int cap) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || out == nullptr || cap <= 0) return 0;
     if (index < 0 || static_cast<u32>(index) >= host->settings.Count()) return 0;
     const game::FSettingEntry& e = host->settings.At(static_cast<u32>(index));
@@ -4978,7 +7025,7 @@ ACS_EDITOR_API int acs_editor_settings_entry(void* handle, int index, char* out,
 /** 既存エントリの値を設定し、エンジンへ即適用する。成功 1。 */
 ACS_EDITOR_API int acs_editor_settings_set(void* handle, const char* cat, const char* key,
                                            const char* value) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     if (!host->settings.Set(cat, key, value)) return 0;
     ApplySettings(*host);
@@ -4988,7 +7035,7 @@ ACS_EDITOR_API int acs_editor_settings_set(void* handle, const char* cat, const 
 /** ユーザー定義エントリを追加する (既存キーは値更新)。成功 1。 */
 ACS_EDITOR_API int acs_editor_settings_add(void* handle, const char* cat, const char* key,
                                            const char* value) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     const int ok = host->settings.Add(cat, key, value) ? 1 : 0;
     if (ok) ApplySettings(*host);
@@ -4997,7 +7044,7 @@ ACS_EDITOR_API int acs_editor_settings_add(void* handle, const char* cat, const 
 
 /** ユーザー定義エントリを削除する (ビルトインは不可)。成功 1。 */
 ACS_EDITOR_API int acs_editor_settings_remove(void* handle, const char* cat, const char* key) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     return host->settings.Remove(cat, key) ? 1 : 0;
 }
@@ -5005,7 +7052,7 @@ ACS_EDITOR_API int acs_editor_settings_remove(void* handle, const char* cat, con
 /** 値を 1 つ取得する (ユーザーコード/エディタの個別参照用)。見つかれば 1。 */
 ACS_EDITOR_API int acs_editor_settings_get_value(void* handle, const char* cat, const char* key,
                                                  char* out, int cap) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || out == nullptr || cap <= 0) return 0;
     const game::FSettingEntry* e = host->settings.Find(cat, key);
     if (e == nullptr) return 0;
@@ -5015,7 +7062,7 @@ ACS_EDITOR_API int acs_editor_settings_get_value(void* handle, const char* cat, 
 
 /** MSAA サンプル数を設定する (1=FXAA のみ / 2 / 4 / 8)。次フレームの先頭で適用される。 */
 ACS_EDITOR_API void acs_editor_set_msaa(void* handle, int samples) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     u32 s = (samples >= 8) ? 8u : (samples >= 4) ? 4u : (samples >= 2) ? 2u : 1u;
     host->msaa_pending = s;
@@ -5023,7 +7070,7 @@ ACS_EDITOR_API void acs_editor_set_msaa(void* handle, int samples) {
 
 /** 現在の MSAA サンプル数を返す (フォールバック後の実効値)。 */
 ACS_EDITOR_API int acs_editor_get_msaa(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? static_cast<int>(host->msaa_samples) : 1;
 }
 
@@ -5034,8 +7081,15 @@ ACS_EDITOR_API void acs_editor_logic_play_stop(void* handle);
 ACS_EDITOR_API void acs_editor_clear_instances(void* handle);
 
 ACS_EDITOR_API void acs_editor_destroy(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
+    // The worker owns no RHI resources, but it writes its compiled bytecode
+    // result into the host.  Join before any host, renderer, or DLL teardown.
+    JoinStartupWorker(*host);
+    host->startup_sky_shaders = {};
+    host->startup_pbr_shaders = {};
+    host->startup_ssgi_shaders = {};
+    host->startup_cloud_shaders = {};
     // ユーザー DLL と実コンポーネントは GPU/基盤より先に破棄する。再生中の直接 destroy でも
     // DLL ハンドル、物理ワールド、開始時スナップショットを残さない。
     acs_editor_logic_play_stop(handle);
@@ -5057,11 +7111,12 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->shadow_caster_pipe.Reset(); host->shadow_caster_vs.Reset(); host->shadow_lvp_cb.Reset();
     for (u32 c = 0; c < acs::FShadowMap::kMaxCascades; ++c) host->shadow_cascade_cb[c].Reset();
     host->shadow.Shutdown(); host->shadow_ready = false;
-    host->normal_pipe.Reset(); host->normal_vs.Reset(); host->normal_ps.Reset(); host->normal_cb.Reset(); host->normal_rt.Reset();
+    host->normal_pipe.Reset(); host->normal_vs.Reset(); host->normal_ps.Reset(); host->normal_cb.Reset(); host->normal_rt.Reset(); host->normal_w = 0; host->normal_h = 0;
     host->ssao3d.Shutdown(); host->ssao_ready = false; host->ssao_pipe_ready = false; host->ssao_w = 0; host->ssao_h = 0;
-    host->ssr3d.Shutdown(); host->ssr_ready = false;
-    host->ssgi3d.Shutdown(); host->ssgi_ready = false;
-    host->mv3d.Shutdown(); host->mv_ready = false;
+    host->ssr3d.Shutdown(); host->ssr_ready = false; host->ssr_w = 0; host->ssr_h = 0;
+    host->hiz3d.Shutdown(); host->hiz3d_ready = false; host->hiz3d_w = 0; host->hiz3d_h = 0;
+    host->ssgi3d.Shutdown(); host->ssgi_ready = false; host->ssgi_w = 0; host->ssgi_h = 0;
+    host->mv3d.Shutdown(); host->mv_ready = false; host->mv_w = 0; host->mv_h = 0;
     host->refr3d.Shutdown(); host->refr_ready = false;
     host->blit_pipe.Reset(); host->blit_vs.Reset(); host->blit_ps.Reset(); host->blit_ready = false;
     host->refr_bg.Reset(); host->refr_bg_w = 0; host->refr_bg_h = 0;
@@ -5076,17 +7131,54 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->ibl3d.Shutdown(); host->ibl_ready = false; host->ibl_tried = false; host->ibl_dirty = true;
     host->spr_pipe.Reset(); host->spr_vs.Reset(); host->spr_ps.Reset(); host->spr_vb.Reset();
     host->sprite_textures.Clear();
+    // Per-node material and custom-mesh caches are component members; release
+    // them explicitly while the RHI device still exists.
+    {
+        TArray<game::ANode*> all3d;
+        Dfs3DCollect(&host->scene3d.Root(), all3d);
+        for (u32 i = 0u; i < all3d.Size(); ++i) {
+            AEditor3DRecordComponent* record = Rec3D(all3d[i]);
+            if (record == nullptr) continue;
+            record->gm_cache = FGpuMesh{};
+            record->gm_cache_src = nullptr;
+            record->material_albedo_tex.Reset();
+            record->material_normal_tex.Reset();
+            for (u32 slot = 0u;
+                 slot < kShaderExpressionMaxTextureSlots;
+                 ++slot) {
+                record->material_expression_tex[slot].Reset();
+            }
+            record->material_textures_loaded = false;
+        }
+    }
     host->m3d_frame_cb.Reset(); host->m3d_giz_cb.Reset(); host->m3d_dyn_vb.Reset(); host->m3d_giz_vb.Reset();
-    host->gm_cube = GpuMesh{}; host->gm_sphere = GpuMesh{}; host->gm_plane = GpuMesh{};
+    host->gm_cube = FGpuMesh{}; host->gm_sphere = FGpuMesh{}; host->gm_plane = FGpuMesh{};
     // Phase2 で追加した GPU サブシステム/RT は «device 破棄より前» に明示解放する。これを怠ると
     // delete host のデストラクタが renderer.Shutdown() (device 破棄) の «後» に走り、解放済み device
     // 上で GPU リソースを Release して «終了時に間欠 access violation (acs_editor_destroy)» を起こす。
     host->pbr3d.Shutdown();
+    host->preview_pbr3d.Shutdown();
+    host->preview_pbr3d_ready = false;
     host->post3d.Shutdown();
     host->sky3d.Shutdown();
     host->scene_rt.Reset();
     host->preview_cl.Reset();
     host->preview_rt.Reset();
+    host->preview_work_ldr.Reset();
+    host->preview_hdr_rt.Reset();
+    host->preview_depth.Reset();
+    host->preview_ibl_irradiance.Reset();
+    host->preview_ibl_prefilter.Reset();
+    host->preview_brdf_lut.Reset();
+    host->preview_post_cb.Reset();
+    host->preview_background_pipe.Reset();
+    host->preview_resolve_pipe.Reset();
+    host->preview_background_ps.Reset();
+    host->preview_resolve_ps.Reset();
+    host->preview_post_vs.Reset();
+    host->preview_mesh_sphere = FGpuMesh{};
+    host->preview_mesh_cube = FGpuMesh{};
+    host->preview_mesh_plane = FGpuMesh{};
     host->preview_sphere_albedo.Reset();
     host->preview_sphere_normal.Reset();
     host->preview_scene.Reset();
@@ -5110,40 +7202,40 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
 
 /** シーンのノード数。 */
 ACS_EDITOR_API int acs_editor_node_count(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? static_cast<int>(host->nodes.Size()) : 0;
 }
 
 /** リスト index 番目のノード id (範囲外は -1)。 */
 ACS_EDITOR_API int acs_editor_node_id_at(void* handle, int index) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || index < 0 || index >= static_cast<int>(host->nodes.Size())) return -1;
     return host->nodes[static_cast<u32>(index)]->editor_id;
 }
 
 /** ノードの親 id (root 直下は -1、不明も -1)。 */
 ACS_EDITOR_API int acs_editor_node_parent(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return -1;
-    const FEditorNode* n = FindNode(*host, id);
+    const AEditorNode* n = FindNode(*host, id);
     return (n != nullptr) ? ParentIdOf(*host, n) : -1;
 }
 
 /** ノード名 (UTF-8、不明は "")。返り値は内部バッファへのポインタ。 */
 ACS_EDITOR_API const char* acs_editor_node_name(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return "";
-    const FEditorNode* n = FindNode(*host, id);
+    const AEditorNode* n = FindNode(*host, id);
     return (n != nullptr) ? n->name : "";
 }
 
-/** ノードのローカル transform を取得する (out 引数。FNode2D::Local() を読む)。 */
+/** ノードのローカル transform を取得する (out 引数。ANode::Local() を読む)。 */
 ACS_EDITOR_API void acs_editor_node_get_transform(void* handle, int id,
                                                   float* x, float* y, float* rot, float* sx, float* sy) {
-    auto* host = static_cast<EditorHost*>(handle);
-    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr) return;
-    const game::FTransform2D& t = n->Local();
+    const game::FTransform2D t = n->Local2D();
     if (x)   *x   = t.position.x;
     if (y)   *y   = t.position.y;
     if (rot) *rot = t.rotation;
@@ -5151,17 +7243,14 @@ ACS_EDITOR_API void acs_editor_node_get_transform(void* handle, int id,
     if (sy)  *sy  = t.scale.y;
 }
 
-/** ノードのローカル transform を設定する (Inspector の編集を FNode2D::Local() へ反映)。 */
+/** ノードのローカル transform を設定する (Inspector の編集を ANode::Local() へ反映)。 */
 ACS_EDITOR_API void acs_editor_node_set_transform(void* handle, int id,
                                                   float x, float y, float rot, float sx, float sy) {
-    auto* host = static_cast<EditorHost*>(handle);
-    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr) return;
     PushUndo(*host);
-    game::FTransform2D& t = n->Local();
-    t.position = FVec2{ x, y };
-    t.rotation = rot;
-    t.scale    = FVec2{ sx, sy };
+    n->SetLocal2D(game::FTransform2D{ FVec2{ x, y }, rot, FVec2{ sx, sy } });
 }
 
 // ----- ノードの表示プロパティ (色 / ベースサイズ / 可視 / 有効 / 描画レイヤ) -----
@@ -5169,16 +7258,16 @@ ACS_EDITOR_API void acs_editor_node_set_transform(void* handle, int id,
 /** ノードの色 (RGBA) を取得する。 */
 ACS_EDITOR_API void acs_editor_node_get_color(void* handle, int id,
                                               float* r, float* g, float* b, float* a) {
-    auto* host = static_cast<EditorHost*>(handle);
-    const FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    const AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     const FVec4 c = (n != nullptr) ? n->color : FVec4{ 0.5f, 0.6f, 0.8f, 1.0f };
     if (r) *r = c.x; if (g) *g = c.y; if (b) *b = c.z; if (a) *a = c.w;
 }
 
 /** ノードの色 (RGBA) を設定する。 */
 ACS_EDITOR_API void acs_editor_node_set_color(void* handle, int id, float r, float g, float b, float a) {
-    auto* host = static_cast<EditorHost*>(handle);
-    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr) return;
     PushUndo(*host);
     n->color = FVec4{ r, g, b, a };
@@ -5186,15 +7275,15 @@ ACS_EDITOR_API void acs_editor_node_set_color(void* handle, int id, float r, flo
 
 /** ノードのベース表示サイズ (px)。 */
 ACS_EDITOR_API float acs_editor_node_get_base(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    const FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    const AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     return (n != nullptr) ? n->base : 0.0f;
 }
 
 /** ノードのベース表示サイズを設定する。 */
 ACS_EDITOR_API void acs_editor_node_set_base(void* handle, int id, float base) {
-    auto* host = static_cast<EditorHost*>(handle);
-    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr) return;
     PushUndo(*host);
     n->base = base;
@@ -5202,15 +7291,15 @@ ACS_EDITOR_API void acs_editor_node_set_base(void* handle, int id, float base) {
 
 /** ノードの可視フラグ (1/0)。 */
 ACS_EDITOR_API int acs_editor_node_get_visible(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    const FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    const AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     return (n != nullptr && n->IsVisible()) ? 1 : 0;
 }
 
 /** ノードの可視フラグを設定する。 */
 ACS_EDITOR_API void acs_editor_node_set_visible(void* handle, int id, int visible) {
-    auto* host = static_cast<EditorHost*>(handle);
-    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr) return;
     PushUndo(*host);
     n->SetVisible(visible != 0);
@@ -5218,15 +7307,15 @@ ACS_EDITOR_API void acs_editor_node_set_visible(void* handle, int id, int visibl
 
 /** ノードの有効フラグ (1/0)。 */
 ACS_EDITOR_API int acs_editor_node_get_enabled(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    const FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    const AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     return (n != nullptr && n->IsEnabled()) ? 1 : 0;
 }
 
 /** ノードの有効フラグを設定する。 */
 ACS_EDITOR_API void acs_editor_node_set_enabled(void* handle, int id, int enabled) {
-    auto* host = static_cast<EditorHost*>(handle);
-    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr) return;
     PushUndo(*host);
     n->SetEnabled(enabled != 0);
@@ -5234,25 +7323,25 @@ ACS_EDITOR_API void acs_editor_node_set_enabled(void* handle, int id, int enable
 
 /** ノードの描画レイヤ (sort layer)。 */
 ACS_EDITOR_API int acs_editor_node_get_sortlayer(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    const FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
-    return (n != nullptr) ? n->SortLayer() : 0;
+    auto* host = static_cast<FEditorHost*>(handle);
+    const AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    return (n != nullptr) ? n->DrawLayer() : 0;
 }
 
 /** ノードの描画レイヤを設定する。 */
 ACS_EDITOR_API void acs_editor_node_set_sortlayer(void* handle, int id, int layer) {
-    auto* host = static_cast<EditorHost*>(handle);
-    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr) return;
     PushUndo(*host);
-    n->SetSortLayer(layer);
+    n->SetDrawLayer(layer);
 }
 
 /** ノードにスプライト画像を割り当てる (UTF-8 パス)。即ロードを試み、成功 1 / 不明ノード 0。
  *  device 未準備でも path は保存され、描画時に遅延ロードされる (戻り値は 1)。 */
 ACS_EDITOR_API int acs_editor_node_set_sprite(void* handle, int id, const char* utf8_path) {
-    auto* host = static_cast<EditorHost*>(handle);
-    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr || utf8_path == nullptr) return 0;
     PushUndo(*host);
     std::snprintf(n->sprite_path, sizeof(n->sprite_path), "%s", utf8_path);
@@ -5262,15 +7351,15 @@ ACS_EDITOR_API int acs_editor_node_set_sprite(void* handle, int id, const char* 
 
 /** ノードのスプライト画像パス (UTF-8) を返す (未設定/不明は "")。 */
 ACS_EDITOR_API const char* acs_editor_node_get_sprite(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    const FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    const AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     return (n != nullptr) ? n->sprite_path : "";
 }
 
 /** ノードのスプライトを外す (色付き矩形表示に戻す)。成功 1 / 不明 0。 */
 ACS_EDITOR_API int acs_editor_node_clear_sprite(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr) return 0;
     PushUndo(*host);
     n->sprite_path[0] = '\0';
@@ -5282,8 +7371,8 @@ ACS_EDITOR_API int acs_editor_node_clear_sprite(void* handle, int id) {
 
 /** ノードに使用マテリアル (.acsmat パス) を割り当てる。即解析。成功 1 / 不明 0。 */
 ACS_EDITOR_API int acs_editor_node_set_material(void* handle, int id, const char* utf8_path) {
-    auto* host = static_cast<EditorHost*>(handle);
-    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr || utf8_path == nullptr) return 0;
     PushUndo(*host);
     std::snprintf(n->material_path, sizeof(n->material_path), "%s", utf8_path);
@@ -5293,15 +7382,15 @@ ACS_EDITOR_API int acs_editor_node_set_material(void* handle, int id, const char
 
 /** ノードの使用マテリアルパス (UTF-8) を返す (未設定/不明は "")。 */
 ACS_EDITOR_API const char* acs_editor_node_get_material(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    const FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    const AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     return (n != nullptr) ? n->material_path : "";
 }
 
 /** ノードのマテリアルを外す (効果なしに戻す)。成功 1 / 不明 0。 */
 ACS_EDITOR_API int acs_editor_node_clear_material(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr) return 0;
     PushUndo(*host);
     n->material_path[0] = '\0';
@@ -5312,16 +7401,16 @@ ACS_EDITOR_API int acs_editor_node_clear_material(void* handle, int id) {
 /** マテリアルエディタで .acsmat を再保存した後、そのパスを使う全ノードのキャッシュを落として
  *  次フレームで再解析させる (見た目を即反映)。常に 1。 */
 ACS_EDITOR_API int acs_editor_reload_material(void* handle, const char* utf8_path) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || utf8_path == nullptr) return 0;
     for (u32 i = 0; i < host->nodes.Size(); ++i) {
-        FEditorNode* n = host->nodes[i];
+        AEditorNode* n = host->nodes[i];
         if (std::strcmp(n->material_path, utf8_path) == 0) LoadNodeMaterial(n);
     }
     // 3D ノードも同じ .acsmat を参照していれば再ロード (material editor 保存→3D ビューポート即反映)。
-    TArray<game::FNode3D*> all3d; Dfs3DCollect(&host->scene3d.Root(), all3d);
+    TArray<game::ANode*> all3d; Dfs3DCollect(&host->scene3d.Root(), all3d);
     for (u32 i = 0; i < all3d.Size(); ++i) {
-        game::FMeshComponent3D* mc = Mesh3D(all3d[i]);
+        game::AMeshComponent3D* mc = Mesh3D(all3d[i]);
         if (mc == nullptr) continue;
         const FStringView mp = mc->MaterialPath();
         if (mp.Size() > 0 && std::strncmp(mp.Data(), utf8_path, mp.Size()) == 0 && utf8_path[mp.Size()] == '\0')
@@ -5571,7 +7660,730 @@ ACS_EDITOR_API int acs_editor_material_save_pbr_ext(const char* path,
     return game::SaveAcsmatFile(path, mat) ? 1 : 0;
 }
 
+// ----- Principled slab graph -------------------------------------------------
+
+ACS_EDITOR_API int acs_editor_material_substrate_max_nodes() {
+    return static_cast<int>(kSubstrateMaxNodes);
+}
+
+ACS_EDITOR_API int acs_editor_material_substrate_slab_scalar_count() {
+    return static_cast<int>(kSubstrateSlabScalarCount);
+}
+
+/** Legacy ACSMAT assets expose an unsaved generated building-block graph. */
+static FSubstrateMaterial MaterialGraphForEditor(
+    const game::FMaterial2D& material) noexcept {
+    return material.substrate.node_count > 0u
+        ? material.substrate
+        : game::MakeLegacySubstrateMaterial(material.pbr);
+}
+
+ACS_EDITOR_API int acs_editor_material_substrate_get_header(
+    const char* path, int* enabled, int* root, int* node_count) {
+    if (path == nullptr) return 0;
+    game::FMaterial2D material{};
+    if (!game::LoadAcsmatFile(path, material)) return 0;
+    const FSubstrateMaterial graph = MaterialGraphForEditor(material);
+    if (enabled) *enabled = material.substrate.enabled ? 1 : 0;
+    if (root) *root = graph.root;
+    if (node_count) *node_count = static_cast<int>(graph.node_count);
+    return 1;
+}
+
+ACS_EDITOR_API int acs_editor_material_substrate_get_node(
+    const char* path, int index, int* type, int* input_a, int* input_b,
+    float* factor, uint32_t* flags, float* slab39) {
+    if (path == nullptr || index < 0) return 0;
+    game::FMaterial2D material{};
+    if (!game::LoadAcsmatFile(path, material)) return 0;
+    const FSubstrateMaterial graph = MaterialGraphForEditor(material);
+    if (static_cast<u32>(index) >= graph.node_count) return 0;
+    const FSubstrateNode& node = graph.nodes[static_cast<u32>(index)];
+    if (type) *type = static_cast<int>(node.type);
+    if (input_a) *input_a = node.input_a;
+    if (input_b) *input_b = node.input_b;
+    if (factor) *factor = node.factor;
+    if (flags) *flags = node.flags;
+    if (slab39) EncodeSubstrateSlab(node.slab, slab39);
+    return 1;
+}
+
+static bool SubstrateGraphFromAbi(
+    int enabled, int root, int node_count,
+    const int* types, const int* input_as, const int* input_bs,
+    const float* factors, const uint32_t* flags, const float* slabs,
+    FSubstrateMaterial& graph) noexcept {
+    if (node_count <= 0 || static_cast<u32>(node_count) > kSubstrateMaxNodes ||
+        types == nullptr || input_as == nullptr || input_bs == nullptr ||
+        factors == nullptr || flags == nullptr || slabs == nullptr) return false;
+    graph = FSubstrateMaterial{};
+    graph.enabled = enabled != 0;
+    graph.root = root;
+    graph.node_count = static_cast<u32>(node_count);
+    for (u32 i = 0; i < graph.node_count; ++i) {
+        if (types[i] < 0 || types[i] > static_cast<int>(ESubstrateNodeType::Select))
+            return false;
+        FSubstrateNode& node = graph.nodes[i];
+        node.type = static_cast<ESubstrateNodeType>(types[i]);
+        node.input_a = input_as[i];
+        node.input_b = input_bs[i];
+        node.factor = factors[i];
+        node.flags = flags[i];
+        if (!DecodeSubstrateSlab(slabs + i * kSubstrateSlabScalarCount, node.slab))
+            return false;
+    }
+    return true;
+}
+
+static void WriteSubstrateDiagnostics(
+    const FSubstrateCompileResult& result,
+    int* error_code, int* error_node, uint32_t* feature_bits,
+    int* closure_count, int* complexity, int* bytes_per_pixel) noexcept {
+    if (error_code) *error_code = static_cast<int>(result.error);
+    if (error_node) *error_node = result.error_node;
+    if (feature_bits) *feature_bits = result.stats.feature_bits;
+    if (closure_count) *closure_count = static_cast<int>(result.stats.closure_count);
+    if (complexity) *complexity = static_cast<int>(result.stats.complexity);
+    if (bytes_per_pixel)
+        *bytes_per_pixel = static_cast<int>(result.stats.estimated_bytes_per_pixel);
+}
+
+/** Compile current unsaved editor arrays without touching the asset on disk. */
+ACS_EDITOR_API int acs_editor_material_substrate_compile_arrays(
+    int enabled, int root, int node_count,
+    const int* types, const int* input_as, const int* input_bs,
+    const float* factors, const uint32_t* flags, const float* slabs,
+    int* error_code, int* error_node, uint32_t* feature_bits,
+    int* closure_count, int* complexity, int* bytes_per_pixel) {
+    FSubstrateMaterial graph{};
+    if (!SubstrateGraphFromAbi(enabled, root, node_count, types, input_as, input_bs,
+                               factors, flags, slabs, graph)) {
+        FSubstrateCompileResult invalid{};
+        invalid.error = ESubstrateCompileError::ValueOutOfRange;
+        WriteSubstrateDiagnostics(invalid, error_code, error_node, feature_bits,
+                                  closure_count, complexity, bytes_per_pixel);
+        return 1;
+    }
+    const FSubstrateCompileResult result = CompileSubstrateMaterial(graph);
+    WriteSubstrateDiagnostics(result, error_code, error_node, feature_bits,
+                              closure_count, complexity, bytes_per_pixel);
+    return 1;
+}
+
+/**
+ * Replace the complete graph in one operation.  Arrays contain node_count
+ * entries; slabs is a tightly packed node_count*39 float array.
+ */
+ACS_EDITOR_API int acs_editor_material_substrate_save(
+    const char* path, int enabled, int root, int node_count,
+    const int* types, const int* input_as, const int* input_bs,
+    const float* factors, const uint32_t* flags, const float* slabs) {
+    if (path == nullptr) return 0;
+    game::FMaterial2D material{};
+    if (!game::LoadAcsmatFile(path, material)) return 0;
+    FSubstrateMaterial graph{};
+    if (!SubstrateGraphFromAbi(enabled, root, node_count, types, input_as, input_bs,
+                               factors, flags, slabs, graph)) return 0;
+    const FSubstrateCompileResult compiled = CompileSubstrateMaterial(graph);
+    if (!compiled.Succeeded()) return 0;
+    // Preserve expression authoring when a closure-only editor build saves.
+    // Node-index bindings are only safe when topology is unchanged.
+    bool has_expression_authoring =
+        material.substrate.expression_graph.node_count > 0u ||
+        material.substrate.expression_graph.root !=
+            kShaderExpressionInvalidNode;
+    for (u32 i = 0u;
+         !has_expression_authoring &&
+         i < material.substrate.node_count;
+         ++i) {
+        for (u32 scalar = 0u;
+             scalar < kSubstrateSlabScalarCount;
+             ++scalar) {
+            if (material.substrate.nodes[i].expressions.roots[scalar] !=
+                kShaderExpressionInvalidNode) {
+                has_expression_authoring = true;
+                break;
+            }
+        }
+    }
+    if (has_expression_authoring) {
+        if (graph.node_count != material.substrate.node_count ||
+            graph.root != material.substrate.root) {
+            return 0;
+        }
+        for (u32 i = 0u; i < graph.node_count; ++i) {
+            const FSubstrateNode& incoming = graph.nodes[i];
+            const FSubstrateNode& existing = material.substrate.nodes[i];
+            if (incoming.type != existing.type ||
+                incoming.input_a != existing.input_a ||
+                incoming.input_b != existing.input_b ||
+                incoming.flags != existing.flags) {
+                return 0;
+            }
+        }
+    }
+    graph.expression_graph = material.substrate.expression_graph;
+    const u32 preserved_nodes =
+        graph.node_count < material.substrate.node_count
+            ? graph.node_count
+            : material.substrate.node_count;
+    for (u32 i = 0u; i < preserved_nodes; ++i) {
+        graph.nodes[i].expressions =
+            material.substrate.nodes[i].expressions;
+    }
+    if (!CompileSubstrateExpressionLinks(graph).Succeeded()) return 0;
+    material.kind = game::EMaterialKind::Lit;
+    material.substrate = graph;
+    if (graph.enabled && !game::SyncLegacyPbrFromSubstrate(material)) return 0;
+    return game::SaveAcsmatFile(path, material) ? 1 : 0;
+}
+
+ACS_EDITOR_API int acs_editor_material_substrate_compile(
+    const char* path, int* error_code, int* error_node,
+    uint32_t* feature_bits, int* closure_count, int* complexity,
+    int* bytes_per_pixel) {
+    if (path == nullptr) return 0;
+    game::FMaterial2D material{};
+    if (!game::LoadAcsmatFile(path, material)) return 0;
+    const FSubstrateMaterial graph = MaterialGraphForEditor(material);
+    const FSubstrateCompileResult result = CompileSubstrateMaterial(graph);
+    WriteSubstrateDiagnostics(result, error_code, error_node, feature_bits,
+                              closure_count, complexity, bytes_per_pixel);
+    return 1;
+}
+
+// ----- Typed shader-expression graph ----------------------------------------
+
+ACS_EDITOR_API int acs_editor_material_expression_max_nodes() {
+    return static_cast<int>(kShaderExpressionMaxNodes);
+}
+
+ACS_EDITOR_API int acs_editor_material_expression_texture_slots() {
+    return static_cast<int>(kShaderExpressionMaxTextureSlots);
+}
+
+ACS_EDITOR_API int acs_editor_material_expression_get_header(
+    const char* path, int* root, int* node_count) {
+    if (path == nullptr) return 0;
+    game::FMaterial2D material{};
+    if (!game::LoadAcsmatFile(path, material)) return 0;
+    if (root) *root = material.substrate.expression_graph.root;
+    if (node_count) {
+        *node_count =
+            static_cast<int>(material.substrate.expression_graph.node_count);
+    }
+    return 1;
+}
+
+ACS_EDITOR_API int acs_editor_material_expression_get_node(
+    const char* path, int index,
+    int* op, int* declared_type, int* texture_slot, int* texture_flags,
+    int* component_index, int* input0, int* input1, int* input2,
+    uint32_t* parameter_id, uint32_t* texture_asset_id_low,
+    uint32_t* texture_asset_id_high, float* value4) {
+    if (path == nullptr || index < 0) return 0;
+    game::FMaterial2D material{};
+    if (!game::LoadAcsmatFile(path, material)) return 0;
+    const FShaderExpressionGraph& graph =
+        material.substrate.expression_graph;
+    if (static_cast<u32>(index) >= graph.node_count) return 0;
+    const FShaderExpressionNode& node =
+        graph.nodes[static_cast<u32>(index)];
+    if (op) *op = static_cast<int>(node.op);
+    if (declared_type) {
+        *declared_type = static_cast<int>(node.declared_type);
+    }
+    if (texture_slot) *texture_slot = static_cast<int>(node.texture_slot);
+    if (texture_flags) *texture_flags = static_cast<int>(node.texture_flags);
+    if (component_index) {
+        *component_index = static_cast<int>(node.component_index);
+    }
+    if (input0) *input0 = node.inputs[0];
+    if (input1) *input1 = node.inputs[1];
+    if (input2) *input2 = node.inputs[2];
+    if (parameter_id) *parameter_id = node.parameter_id;
+    if (texture_asset_id_low) {
+        *texture_asset_id_low = node.texture_asset_id_low;
+    }
+    if (texture_asset_id_high) {
+        *texture_asset_id_high = node.texture_asset_id_high;
+    }
+    if (value4) {
+        value4[0] = node.value.x;
+        value4[1] = node.value.y;
+        value4[2] = node.value.z;
+        value4[3] = node.value.w;
+    }
+    return 1;
+}
+
+ACS_EDITOR_API int acs_editor_material_expression_get_bindings(
+    const char* path, int slab_node_index, int* roots39) {
+    if (path == nullptr || roots39 == nullptr || slab_node_index < 0) {
+        return 0;
+    }
+    game::FMaterial2D material{};
+    if (!game::LoadAcsmatFile(path, material)) return 0;
+    if (static_cast<u32>(slab_node_index) >=
+        material.substrate.node_count) {
+        return 0;
+    }
+    const FSubstrateNode& node =
+        material.substrate.nodes[static_cast<u32>(slab_node_index)];
+    for (u32 i = 0u; i < kSubstrateSlabScalarCount; ++i) {
+        roots39[i] = static_cast<int>(node.expressions.roots[i]);
+    }
+    return 1;
+}
+
+ACS_EDITOR_API int acs_editor_material_expression_get_texture_path(
+    const char* path, int slot, char* out_utf8, int out_capacity) {
+    if (path == nullptr || out_utf8 == nullptr || out_capacity <= 0 ||
+        slot < 0 ||
+        static_cast<u32>(slot) >= kShaderExpressionMaxTextureSlots) {
+        return 0;
+    }
+    game::FMaterial2D material{};
+    if (!game::LoadAcsmatFile(path, material)) return 0;
+    const char* source =
+        material.substrateExpressionTexturePaths[static_cast<u32>(slot)];
+    const usize length = std::strlen(source);
+    if (length + 1u > static_cast<usize>(out_capacity)) return 0;
+    std::memcpy(out_utf8, source, length + 1u);
+    return 1;
+}
+
+static bool ShaderExpressionGraphFromAbi(
+    int root, int node_count,
+    const int* ops, const int* declared_types,
+    const int* texture_slots, const int* texture_flags,
+    const int* component_indices,
+    const int* input0, const int* input1, const int* input2,
+    const uint32_t* parameter_ids,
+    const uint32_t* texture_asset_id_lows,
+    const uint32_t* texture_asset_id_highs,
+    const float* values4,
+    FShaderExpressionGraph& graph) noexcept {
+    if (node_count < 0 ||
+        static_cast<u32>(node_count) > kShaderExpressionMaxNodes) {
+        return false;
+    }
+    graph = FShaderExpressionGraph{};
+    if (root < static_cast<int>(std::numeric_limits<i16>::min()) ||
+        root > static_cast<int>(std::numeric_limits<i16>::max())) {
+        return false;
+    }
+    graph.root = static_cast<i16>(root);
+    graph.node_count = static_cast<u16>(node_count);
+    if (node_count == 0) return true;
+    if (ops == nullptr || declared_types == nullptr ||
+        texture_slots == nullptr || texture_flags == nullptr ||
+        component_indices == nullptr || input0 == nullptr ||
+        input1 == nullptr || input2 == nullptr || parameter_ids == nullptr ||
+        texture_asset_id_lows == nullptr ||
+        texture_asset_id_highs == nullptr || values4 == nullptr) {
+        return false;
+    }
+    for (u32 i = 0u; i < graph.node_count; ++i) {
+        if (ops[i] < 0 ||
+            ops[i] > static_cast<int>(std::numeric_limits<u8>::max()) ||
+            declared_types[i] < 0 ||
+            declared_types[i] >
+                static_cast<int>(std::numeric_limits<u8>::max()) ||
+            texture_slots[i] < 0 ||
+            texture_slots[i] >
+                static_cast<int>(std::numeric_limits<u8>::max()) ||
+            texture_flags[i] < 0 ||
+            texture_flags[i] >
+                static_cast<int>(std::numeric_limits<u8>::max()) ||
+            component_indices[i] < 0 ||
+            component_indices[i] >
+                static_cast<int>(std::numeric_limits<u8>::max()) ||
+            input0[i] < static_cast<int>(std::numeric_limits<i16>::min()) ||
+            input0[i] > static_cast<int>(std::numeric_limits<i16>::max()) ||
+            input1[i] < static_cast<int>(std::numeric_limits<i16>::min()) ||
+            input1[i] > static_cast<int>(std::numeric_limits<i16>::max()) ||
+            input2[i] < static_cast<int>(std::numeric_limits<i16>::min()) ||
+            input2[i] > static_cast<int>(std::numeric_limits<i16>::max())) {
+            return false;
+        }
+        FShaderExpressionNode& node = graph.nodes[i];
+        node.op = static_cast<EShaderExpressionOp>(ops[i]);
+        node.declared_type =
+            static_cast<EShaderExpressionValueType>(declared_types[i]);
+        node.texture_slot = static_cast<u8>(texture_slots[i]);
+        node.texture_flags = static_cast<u8>(texture_flags[i]);
+        node.component_index = static_cast<u8>(component_indices[i]);
+        node.inputs[0] = static_cast<i16>(input0[i]);
+        node.inputs[1] = static_cast<i16>(input1[i]);
+        node.inputs[2] = static_cast<i16>(input2[i]);
+        node.parameter_id = parameter_ids[i];
+        node.texture_asset_id_low = texture_asset_id_lows[i];
+        node.texture_asset_id_high = texture_asset_id_highs[i];
+        node.value = FShaderExpressionValue{
+            values4[i * 4u + 0u], values4[i * 4u + 1u],
+            values4[i * 4u + 2u], values4[i * 4u + 3u]};
+    }
+    return true;
+}
+
+static void WriteShaderExpressionDiagnostics(
+    const FShaderExpressionCompileResult& result,
+    int* error_code, int* error_node, int* error_input,
+    int* expected_type, int* actual_type,
+    int* instruction_count, int* constant_fold_count,
+    uint32_t* hash_low, uint32_t* hash_high) noexcept {
+    FShaderExpressionDiagnostic diagnostic{};
+    if (result.diagnostic_count > 0u) {
+        diagnostic = result.diagnostics[0];
+    }
+    if (error_code) *error_code = static_cast<int>(diagnostic.error);
+    if (error_node) *error_node = diagnostic.node;
+    if (error_input) *error_input = diagnostic.input;
+    if (expected_type) {
+        *expected_type = static_cast<int>(diagnostic.expected);
+    }
+    if (actual_type) *actual_type = static_cast<int>(diagnostic.actual);
+    if (instruction_count) {
+        *instruction_count = static_cast<int>(result.instruction_count);
+    }
+    if (constant_fold_count) {
+        *constant_fold_count =
+            static_cast<int>(result.constant_fold_count);
+    }
+    const u64 hash =
+        result.Succeeded() ? HashCompiledShaderExpression(result) : 0u;
+    if (hash_low) *hash_low = static_cast<u32>(hash);
+    if (hash_high) *hash_high = static_cast<u32>(hash >> 32u);
+}
+
+ACS_EDITOR_API int acs_editor_material_expression_compile_arrays(
+    int root, int node_count,
+    const int* ops, const int* declared_types,
+    const int* texture_slots, const int* texture_flags,
+    const int* component_indices,
+    const int* input0, const int* input1, const int* input2,
+    const uint32_t* parameter_ids,
+    const uint32_t* texture_asset_id_lows,
+    const uint32_t* texture_asset_id_highs,
+    const float* values4,
+    int* error_code, int* error_node, int* error_input,
+    int* expected_type, int* actual_type,
+    int* instruction_count, int* constant_fold_count,
+    uint32_t* hash_low, uint32_t* hash_high) {
+    FShaderExpressionGraph graph{};
+    FShaderExpressionCompileResult result{};
+    if (!ShaderExpressionGraphFromAbi(
+            root, node_count, ops, declared_types, texture_slots,
+            texture_flags, component_indices, input0, input1, input2,
+            parameter_ids, texture_asset_id_lows, texture_asset_id_highs,
+            values4, graph)) {
+        result.diagnostic_count = 1u;
+        result.diagnostics[0].error =
+            EShaderExpressionError::ValueOutOfRange;
+    } else {
+        result = CompileShaderExpressionGraph(graph);
+    }
+    WriteShaderExpressionDiagnostics(
+        result, error_code, error_node, error_input,
+        expected_type, actual_type, instruction_count,
+        constant_fold_count, hash_low, hash_high);
+    return 1;
+}
+
+ACS_EDITOR_API int acs_editor_material_expression_compile(
+    const char* path,
+    int* link_error, int* link_error_node, int* link_error_scalar,
+    int* expression_error, int* expression_error_node,
+    int* expression_error_input, int* expected_type, int* actual_type,
+    int* instruction_count, int* binding_count) {
+    if (path == nullptr) return 0;
+    game::FMaterial2D material{};
+    if (!game::LoadAcsmatFile(path, material)) return 0;
+    const FSubstrateExpressionLinkResult result =
+        CompileSubstrateExpressionLinks(material.substrate);
+    if (link_error) *link_error = static_cast<int>(result.error);
+    if (link_error_node) *link_error_node = result.error_node;
+    if (link_error_scalar) *link_error_scalar = result.error_scalar;
+    if (expression_error) {
+        *expression_error =
+            static_cast<int>(result.expression_diagnostic.error);
+    }
+    if (expression_error_node) {
+        *expression_error_node = result.expression_diagnostic.node;
+    }
+    if (expression_error_input) {
+        *expression_error_input = result.expression_diagnostic.input;
+    }
+    if (expected_type) {
+        *expected_type =
+            static_cast<int>(result.expression_diagnostic.expected);
+    }
+    if (actual_type) {
+        *actual_type =
+            static_cast<int>(result.expression_diagnostic.actual);
+    }
+    if (instruction_count) {
+        *instruction_count =
+            static_cast<int>(result.expression_program.instruction_count);
+    }
+    if (binding_count) {
+        *binding_count = static_cast<int>(result.binding_count);
+    }
+    return 1;
+}
+
+/**
+ * Atomically replaces the closure graph, expression graph, all Slab bindings,
+ * and four expression texture paths. Arrays are tightly packed by node count.
+ */
+ACS_EDITOR_API int acs_editor_material_substrate_expression_save(
+    const char* path,
+    int enabled, int substrate_root, int substrate_node_count,
+    const int* substrate_types, const int* substrate_input_as,
+    const int* substrate_input_bs, const float* substrate_factors,
+    const uint32_t* substrate_flags, const float* substrate_slabs39,
+    const int* substrate_expression_roots39,
+    int expression_root, int expression_node_count,
+    const int* expression_ops, const int* expression_declared_types,
+    const int* expression_texture_slots,
+    const int* expression_texture_flags,
+    const int* expression_component_indices,
+    const int* expression_input0, const int* expression_input1,
+    const int* expression_input2,
+    const uint32_t* expression_parameter_ids,
+    const uint32_t* expression_texture_asset_id_lows,
+    const uint32_t* expression_texture_asset_id_highs,
+    const float* expression_values4,
+    const char* texture_path0, const char* texture_path1,
+    const char* texture_path2, const char* texture_path3) {
+    if (path == nullptr || substrate_expression_roots39 == nullptr) {
+        return 0;
+    }
+    game::FMaterial2D material{};
+    if (!game::LoadAcsmatFile(path, material)) return 0;
+    FSubstrateMaterial graph{};
+    if (!SubstrateGraphFromAbi(
+            enabled, substrate_root, substrate_node_count,
+            substrate_types, substrate_input_as, substrate_input_bs,
+            substrate_factors, substrate_flags, substrate_slabs39,
+            graph)) {
+        return 0;
+    }
+    if (!ShaderExpressionGraphFromAbi(
+            expression_root, expression_node_count,
+            expression_ops, expression_declared_types,
+            expression_texture_slots, expression_texture_flags,
+            expression_component_indices, expression_input0,
+            expression_input1, expression_input2,
+            expression_parameter_ids,
+            expression_texture_asset_id_lows,
+            expression_texture_asset_id_highs,
+            expression_values4, graph.expression_graph)) {
+        return 0;
+    }
+    for (u32 node_index = 0u;
+         node_index < graph.node_count;
+         ++node_index) {
+        for (u32 scalar = 0u;
+             scalar < kSubstrateSlabScalarCount;
+             ++scalar) {
+            const int root =
+                substrate_expression_roots39[
+                    node_index * kSubstrateSlabScalarCount + scalar];
+            if (root <
+                    static_cast<int>(std::numeric_limits<i16>::min()) ||
+                root >
+                    static_cast<int>(std::numeric_limits<i16>::max())) {
+                return 0;
+            }
+            graph.nodes[node_index].expressions.roots[scalar] =
+                static_cast<i16>(root);
+        }
+    }
+    if (!CompileSubstrateMaterial(graph).Succeeded() ||
+        !CompileSubstrateExpressionLinks(graph).Succeeded()) {
+        return 0;
+    }
+    const char* paths[kShaderExpressionMaxTextureSlots]{
+        texture_path0, texture_path1, texture_path2, texture_path3};
+    for (u32 slot = 0u;
+         slot < kShaderExpressionMaxTextureSlots;
+         ++slot) {
+        const char* source = paths[slot] != nullptr ? paths[slot] : "";
+        const usize capacity =
+            sizeof(material.substrateExpressionTexturePaths[slot]);
+        const char* end = static_cast<const char*>(
+            std::memchr(source, '\0', capacity));
+        if (end == nullptr) {
+            return 0;
+        }
+        const usize length = static_cast<usize>(end - source);
+        for (const char* p = source; p < end; ++p) {
+            if (*p == '\r' || *p == '\n') return 0;
+        }
+        std::memcpy(
+            material.substrateExpressionTexturePaths[slot],
+            source, length + 1u);
+    }
+    material.kind = game::EMaterialKind::Lit;
+    material.substrate = graph;
+    if (graph.enabled &&
+        !game::SyncLegacyPbrFromSubstrate(material)) {
+        return 0;
+    }
+    return game::SaveAcsmatFile(path, material) ? 1 : 0;
+}
+
 // ===== マテリアル GPU プレビュー (実シェーダでサンプルを RT に描き readback) =====
+
+/**
+ * Material preview post pass.
+ *
+ * PBR/Substrate writes scene-linear values to RGBA16F.  PSResolve performs a
+ * footprint-aware supersample resolve, ACES fit, exact sRGB OETF and a stable
+ * sub-LSB dither before the BGRA8 readback.  Toon/effect previews use the same
+ * resolve in pass-through mode because those SpriteBatch shaders already
+ * produce display-referred values.
+ */
+const char* kMaterialPreviewPostHlsl = R"(
+cbuffer PreviewConfig : register(b0) {
+    float4 params0;     // x=exposure, y=background mode, z=render scale, w=1 for display-referred input
+    float4 params1;     // xy=1/source size, zw=1/output size
+    float4 background_top;
+    float4 background_bottom;
+};
+Texture2D source_texture : register(t0);
+SamplerState source_texture_sampler : register(s0);
+
+struct PreviewVsOut {
+    float4 pos : SV_POSITION;
+    float2 uv : TEXCOORD0;
+};
+
+PreviewVsOut VSMain(uint vertex_id : SV_VertexID) {
+    float2 uv = float2((vertex_id << 1) & 2, vertex_id & 2);
+    PreviewVsOut output;
+    output.uv = uv;
+    output.pos = float4(
+        uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), 0.0, 1.0);
+    return output;
+}
+
+float4 PSBackground(PreviewVsOut input) : SV_TARGET {
+    int mode = (int)(params0.y + 0.5);
+    if (mode == 2) {
+        return float4(0.0035, 0.0045, 0.0065, 1.0);
+    }
+    if (mode == 1) {
+        float2 tile = floor(input.uv * 18.0);
+        float checker = fmod(tile.x + tile.y, 2.0);
+        float3 dark = float3(0.055, 0.060, 0.070);
+        float3 light = float3(0.120, 0.128, 0.142);
+        return float4(lerp(dark, light, checker), 1.0);
+    }
+
+    float vertical = smoothstep(0.0, 1.0, input.uv.y);
+    float3 color = lerp(
+        background_top.rgb, background_bottom.rgb, vertical);
+    float2 centered = input.uv * 2.0 - 1.0;
+    float vignette = saturate(1.0 - dot(centered, centered) * 0.23);
+    float softbox = exp(
+        -dot(input.uv - float2(0.28, 0.22),
+             input.uv - float2(0.28, 0.22)) * 7.0);
+    color *= lerp(0.78, 1.0, vignette);
+    color += softbox * float3(0.050, 0.046, 0.040);
+    return float4(color, 1.0);
+}
+
+float3 AcsPreviewAces(float3 color) {
+    float3 aces;
+    aces.r = dot(color, float3(0.59719, 0.35458, 0.04823));
+    aces.g = dot(color, float3(0.07600, 0.90834, 0.01566));
+    aces.b = dot(color, float3(0.02840, 0.13383, 0.83777));
+    float3 numerator =
+        aces * (aces + 0.0245786) - 0.000090537;
+    float3 denominator =
+        aces * (0.983729 * aces + 0.4329510) + 0.238081;
+    aces = numerator / max(denominator, 1e-6);
+    float3 output;
+    output.r = dot(aces, float3( 1.60475, -0.53108, -0.07367));
+    output.g = dot(aces, float3(-0.10208,  1.10813, -0.00605));
+    output.b = dot(aces, float3(-0.00327, -0.07276,  1.07602));
+    return saturate(output);
+}
+
+float3 AcsPreviewSrgb(float3 linear_color) {
+    float3 linear_value = max(linear_color, 0.0);
+    float3 low = linear_value * 12.92;
+    float3 high =
+        1.055 * pow(linear_value, 1.0 / 2.4) - 0.055;
+    return float3(
+        linear_value.r <= 0.0031308 ? low.r : high.r,
+        linear_value.g <= 0.0031308 ? low.g : high.g,
+        linear_value.b <= 0.0031308 ? low.b : high.b);
+}
+
+float AcsPreviewNoise(float2 pixel) {
+    return frac(52.9829189 *
+        frac(dot(pixel, float2(0.06711056, 0.00583715))));
+}
+
+float4 PSResolve(PreviewVsOut input) : SV_TARGET {
+    float3 color;
+    float render_scale = max(params0.z, 1.0);
+    if (render_scale <= 1.01) {
+        color = source_texture.SampleLevel(
+            source_texture_sampler, input.uv, 0).rgb;
+    } else {
+        // Integrate the source footprint of one output pixel.  Four positions
+        // per axis are enough for stable 2x/4x preview SSAA while retaining
+        // texture/normal detail better than a single bilinear lookup.
+        color = 0.0;
+        [unroll]
+        for (int y = 0; y < 4; ++y) {
+            [unroll]
+            for (int x = 0; x < 4; ++x) {
+                float2 unit_offset =
+                    (float2((float)x, (float)y) + 0.5) * 0.25 - 0.5;
+                float2 uv_offset =
+                    unit_offset * render_scale * params1.xy;
+                color += source_texture.SampleLevel(
+                    source_texture_sampler, input.uv + uv_offset, 0).rgb;
+            }
+        }
+        color *= 1.0 / 16.0;
+    }
+
+    if (params0.w < 0.5) {
+        color = AcsPreviewAces(color * params0.x);
+        color = AcsPreviewSrgb(color);
+        color += (AcsPreviewNoise(input.pos.xy) - 0.5) *
+            (0.75 / 255.0);
+    }
+    return float4(saturate(color), 1.0);
+}
+)";
+
+struct FMaterialPreviewPostCb {
+    FVec4 params0;
+    FVec4 params1;
+    FVec4 background_top;
+    FVec4 background_bottom;
+};
+
+constexpr u32 MaterialPreviewScale(u32 quality) noexcept {
+    return quality >= 2u ? 4u : (quality == 1u ? 2u : 1u);
+}
+
+static u32 MaterialPreviewWorkSize(
+    const FEditorHost& h, u32 output_size) noexcept {
+    const u64 requested =
+        static_cast<u64>(output_size) *
+        static_cast<u64>(MaterialPreviewScale(h.preview_quality));
+    return static_cast<u32>(
+        requested > 2048u ? 2048u : requested);
+}
 
 /** CPU RGBA データから GPU テクスチャを作る。 */
 static TUniquePtr<IRhiTexture> MakeTex(IRhiDevice& dev, u32 w, u32 h, const u8* rgba) noexcept {
@@ -5585,7 +8397,7 @@ static TUniquePtr<IRhiTexture> MakeTex(IRhiDevice& dev, u32 w, u32 h, const u8* 
 }
 
 /** プレビュー用サンプルテクスチャ (球アルベド/球法線/ミニ風景) を 1 度だけ生成する。 */
-static void EnsurePreviewSamples(EditorHost& h) noexcept {
+static void EnsurePreviewSamples(FEditorHost& h) noexcept {
     if (h.preview_samples_ready) return;
     IRhiDevice* dev = h.renderer.Device();
     if (dev == nullptr) return;
@@ -5623,8 +8435,104 @@ static void EnsurePreviewSamples(EditorHost& h) noexcept {
     h.preview_samples_ready = true;
 }
 
-/** プレビュー RT (size×size) と専用コマンドリスト・非 MSAA バッチを必要なら (再)生成する。 */
-static bool EnsurePreviewRt(EditorHost& h, u32 size) noexcept {
+/** HDR background + ACES/sRGB resolve pipelines shared by all preview modes. */
+static bool EnsurePreviewPost(FEditorHost& h) noexcept {
+    if (h.preview_post_ready) return true;
+    IRhiDevice* dev = h.renderer.Device();
+    if (dev == nullptr) return false;
+
+    FShaderDesc vertex_desc{};
+    vertex_desc.stage = EShaderStage::Vertex;
+    vertex_desc.hlsl_source = kMaterialPreviewPostHlsl;
+    vertex_desc.entry_point = "VSMain";
+    vertex_desc.debug_name = "MaterialPreview.Post.VS";
+    auto vertex_result = CreateRhiShader(*dev, vertex_desc);
+    if (vertex_result.IsErr()) return false;
+
+    FShaderDesc background_desc{};
+    background_desc.stage = EShaderStage::Pixel;
+    background_desc.hlsl_source = kMaterialPreviewPostHlsl;
+    background_desc.entry_point = "PSBackground";
+    background_desc.debug_name = "MaterialPreview.Background.PS";
+    auto background_result =
+        CreateRhiShader(*dev, background_desc);
+    if (background_result.IsErr()) return false;
+
+    FShaderDesc resolve_desc{};
+    resolve_desc.stage = EShaderStage::Pixel;
+    resolve_desc.hlsl_source = kMaterialPreviewPostHlsl;
+    resolve_desc.entry_point = "PSResolve";
+    resolve_desc.debug_name = "MaterialPreview.Resolve.PS";
+    auto resolve_result = CreateRhiShader(*dev, resolve_desc);
+    if (resolve_result.IsErr()) return false;
+
+    h.preview_post_vs = Move(vertex_result.Value());
+    h.preview_background_ps = Move(background_result.Value());
+    h.preview_resolve_ps = Move(resolve_result.Value());
+
+    FPipelineDesc background_pipeline{};
+    background_pipeline.vs = h.preview_post_vs.Get();
+    background_pipeline.ps = h.preview_background_ps.Get();
+    background_pipeline.topology = EPrimitiveTopology::TriangleList;
+    background_pipeline.rt_format =
+        EFormat::R16G16B16A16_Float;
+    background_pipeline.depth_format = h.renderer.DepthFormat();
+    background_pipeline.vertex_stride = 0u;
+    background_pipeline.layout_count = 0u;
+    background_pipeline.cull_mode = ECullMode::None;
+    background_pipeline.depth_test = false;
+    background_pipeline.depth_write = false;
+    background_pipeline.cbuffer_slots = 1u;
+    background_pipeline.cbuffer_names[0] = "PreviewConfig";
+    auto background_pipeline_result =
+        CreateRhiPipeline(*dev, background_pipeline);
+    if (background_pipeline_result.IsErr()) return false;
+    h.preview_background_pipe =
+        Move(background_pipeline_result.Value());
+
+    FPipelineDesc resolve_pipeline{};
+    resolve_pipeline.vs = h.preview_post_vs.Get();
+    resolve_pipeline.ps = h.preview_resolve_ps.Get();
+    resolve_pipeline.topology = EPrimitiveTopology::TriangleList;
+    resolve_pipeline.rt_format = h.renderer.ColorFormat();
+    resolve_pipeline.depth_format = EFormat::Unknown;
+    resolve_pipeline.vertex_stride = 0u;
+    resolve_pipeline.layout_count = 0u;
+    resolve_pipeline.cull_mode = ECullMode::None;
+    resolve_pipeline.depth_test = false;
+    resolve_pipeline.depth_write = false;
+    resolve_pipeline.cbuffer_slots = 1u;
+    resolve_pipeline.texture_slots = 1u;
+    resolve_pipeline.cbuffer_names[0] = "PreviewConfig";
+    resolve_pipeline.texture_names[0] = "source_texture";
+    resolve_pipeline.static_sampler_count = 1u;
+    resolve_pipeline.static_samplers[0].filter =
+        ESamplerFilter::Linear;
+    resolve_pipeline.static_samplers[0].address_u =
+        ESamplerAddress::Clamp;
+    resolve_pipeline.static_samplers[0].address_v =
+        ESamplerAddress::Clamp;
+    resolve_pipeline.static_samplers[0].address_w =
+        ESamplerAddress::Clamp;
+    auto resolve_pipeline_result =
+        CreateRhiPipeline(*dev, resolve_pipeline);
+    if (resolve_pipeline_result.IsErr()) return false;
+    h.preview_resolve_pipe =
+        Move(resolve_pipeline_result.Value());
+
+    FBufferDesc buffer_desc{};
+    buffer_desc.size = 256u;
+    buffer_desc.usage = EBufferUsage::Uniform;
+    buffer_desc.cpu_writable = true;
+    auto buffer_result = CreateRhiBuffer(*dev, buffer_desc);
+    if (buffer_result.IsErr()) return false;
+    h.preview_post_cb = Move(buffer_result.Value());
+    h.preview_post_ready = true;
+    return true;
+}
+
+/** Display-size LDR RT, dedicated command list and non-MSAA SpriteBatch. */
+static bool EnsurePreviewRt(FEditorHost& h, u32 size) noexcept {
     IRhiDevice* dev = h.renderer.Device();
     if (dev == nullptr) return false;
     if (!h.preview_cl) {
@@ -5635,14 +8543,14 @@ static bool EnsurePreviewRt(EditorHost& h, u32 size) noexcept {
     if (!h.preview_rt || h.preview_rt_size != size) {
         FTextureDesc td{};
         td.width = size; td.height = size;
-        td.format = h.renderer.ColorFormat();   // SpriteBatch パイプラインと同フォーマット
+        td.format = h.renderer.ColorFormat();
         td.is_render_target = true;
-        auto r = CreateRhiTexture(*dev, td);
-        if (r.IsErr()) return false;
-        h.preview_rt = Move(r.Value());
+        auto color_result = CreateRhiTexture(*dev, td);
+        if (color_result.IsErr()) return false;
+        h.preview_rt = Move(color_result.Value());
         h.preview_rt_size = size;
     }
-    // 本体バッチは MSAA PSO のため非 MSAA の preview_rt には描けない → 専用バッチを遅延初期化
+    // 本体バッチは MSAA PSO のため preview work RT には描けない。
     if (!h.preview_sprites_ready) {
         const auto r = h.preview_sprites.Init(*dev, h.renderer.ColorFormat(), 1024, 1);
         if (r.IsErr()) return false;
@@ -5651,26 +8559,485 @@ static bool EnsurePreviewRt(EditorHost& h, u32 size) noexcept {
     return true;
 }
 
-/** drawFn でサンプルを RT へ描き、CPU へ読み戻して out_rgba (size*size*4) に詰める。成功 1 / 失敗 0。 */
+static bool EnsurePreviewLdrWork(
+    FEditorHost& h, u32 output_size) noexcept {
+    if (!EnsurePreviewRt(h, output_size) ||
+        !EnsurePreviewPost(h)) {
+        return false;
+    }
+    IRhiDevice* dev = h.renderer.Device();
+    if (dev == nullptr) return false;
+    const u32 work_size =
+        MaterialPreviewWorkSize(h, output_size);
+    if (!h.preview_work_ldr ||
+        h.preview_ldr_work_size != work_size) {
+        FTextureDesc desc{};
+        desc.width = work_size;
+        desc.height = work_size;
+        desc.format = h.renderer.ColorFormat();
+        desc.is_render_target = true;
+        auto result = CreateRhiTexture(*dev, desc);
+        if (result.IsErr()) return false;
+        h.preview_work_ldr = Move(result.Value());
+        h.preview_ldr_work_size = work_size;
+    }
+    return true;
+}
+
+/** Ensure the preview-only HDR PBR pipeline and selectable studio meshes. */
+static bool EnsurePreviewPbr(FEditorHost& h, u32 size) noexcept {
+    if (!EnsurePreviewRt(h, size) ||
+        !EnsurePreviewPost(h)) {
+        return false;
+    }
+    IRhiDevice* dev = h.renderer.Device();
+    if (dev == nullptr) return false;
+
+    // SH9 supplies the preview environment radiance, but FPbrShader still
+    // samples the split-sum BRDF LUT for metallic/specular response.  Its
+    // generic no-IBL fallback is intentionally black, so provide a compact
+    // UE-style analytic LUT plus valid cube bindings for this studio path.
+    if (!h.preview_ibl_irradiance ||
+        !h.preview_ibl_prefilter) {
+        FTextureDesc cube_desc{};
+        cube_desc.width = 1u;
+        cube_desc.height = 1u;
+        cube_desc.format = EFormat::R11G11B10_Float;
+        cube_desc.array_size = 6u;
+        cube_desc.is_cubemap = true;
+        auto irradiance_result =
+            CreateRhiTexture(*dev, cube_desc);
+        if (irradiance_result.IsErr()) return false;
+        auto prefilter_result =
+            CreateRhiTexture(*dev, cube_desc);
+        if (prefilter_result.IsErr()) return false;
+        h.preview_ibl_irradiance =
+            Move(irradiance_result.Value());
+        h.preview_ibl_prefilter =
+            Move(prefilter_result.Value());
+    }
+    if (!h.preview_brdf_lut) {
+        constexpr u32 kBrdfSize = 128u;
+        TArray<f32> brdf;
+        brdf.Resize(kBrdfSize * kBrdfSize * 2u);
+        for (u32 y = 0u; y < kBrdfSize; ++y) {
+            const f32 roughness =
+                (static_cast<f32>(y) + 0.5f) /
+                static_cast<f32>(kBrdfSize);
+            const f32 rx = 1.0f - roughness;
+            const f32 ry =
+                0.0425f - 0.0275f * roughness;
+            const f32 rz =
+                1.04f - 0.572f * roughness;
+            const f32 rw =
+                -0.04f + 0.022f * roughness;
+            for (u32 x = 0u; x < kBrdfSize; ++x) {
+                const f32 no_v =
+                    (static_cast<f32>(x) + 0.5f) /
+                    static_cast<f32>(kBrdfSize);
+                const f32 a004 =
+                    std::min(
+                        rx * rx,
+                        std::exp2(-9.28f * no_v)) *
+                        rx + ry;
+                const u32 index =
+                    (y * kBrdfSize + x) * 2u;
+                brdf[index] =
+                    std::clamp(
+                        -1.04f * a004 + rz,
+                        0.0f, 1.0f);
+                brdf[index + 1u] =
+                    std::clamp(
+                        1.04f * a004 + rw,
+                        0.0f, 1.0f);
+            }
+        }
+        FTextureDesc brdf_desc{};
+        brdf_desc.width = kBrdfSize;
+        brdf_desc.height = kBrdfSize;
+        brdf_desc.format = EFormat::R32G32_Float;
+        brdf_desc.initial_data = brdf.Data();
+        brdf_desc.initial_data_size =
+            brdf.Size() * sizeof(f32);
+        auto brdf_result =
+            CreateRhiTexture(*dev, brdf_desc);
+        if (brdf_result.IsErr()) return false;
+        h.preview_brdf_lut = Move(brdf_result.Value());
+    }
+
+    const u32 work_size = MaterialPreviewWorkSize(h, size);
+    if (!h.preview_hdr_rt || !h.preview_depth ||
+        h.preview_hdr_size != work_size) {
+        FTextureDesc hdr_desc{};
+        hdr_desc.width = work_size;
+        hdr_desc.height = work_size;
+        hdr_desc.format = EFormat::R16G16B16A16_Float;
+        hdr_desc.is_render_target = true;
+        auto hdr_result = CreateRhiTexture(*dev, hdr_desc);
+        if (hdr_result.IsErr()) return false;
+
+        FTextureDesc depth_desc{};
+        depth_desc.width = work_size;
+        depth_desc.height = work_size;
+        depth_desc.format = h.renderer.DepthFormat();
+        depth_desc.is_depth_target = true;
+        auto depth_result =
+            CreateRhiTexture(*dev, depth_desc);
+        if (depth_result.IsErr()) return false;
+        h.preview_hdr_rt = Move(hdr_result.Value());
+        h.preview_depth = Move(depth_result.Value());
+        h.preview_hdr_size = work_size;
+    }
+
+    if (!h.preview_pbr3d_ready) {
+        const auto result = h.preview_pbr3d.Init(
+            *dev, EFormat::R16G16B16A16_Float,
+            h.renderer.DepthFormat());
+        if (result.IsErr()) return false;
+        h.preview_pbr3d_ready = true;
+    }
+
+    if (!h.preview_mesh_sphere.vertex_buffer ||
+        !h.preview_mesh_sphere.index_buffer) {
+        auto sphere = Primitive::MakeSphere(0.5f, 128, 64);
+        if (!sphere ||
+            UploadMesh(
+                *dev, *sphere,
+                h.preview_mesh_sphere).IsErr()) {
+            return false;
+        }
+    }
+    if (!h.preview_mesh_cube.vertex_buffer ||
+        !h.preview_mesh_cube.index_buffer) {
+        auto cube = Primitive::MakeCube(1.0f);
+        if (!cube ||
+            UploadMesh(
+                *dev, *cube,
+                h.preview_mesh_cube).IsErr()) {
+            return false;
+        }
+    }
+    if (!h.preview_mesh_plane.vertex_buffer ||
+        !h.preview_mesh_plane.index_buffer) {
+        auto plane = Primitive::MakePlane(1.35f, 1.35f);
+        if (!plane) return false;
+        // MakePlane is an XZ ground plane.  A material swatch needs to face
+        // the preview camera so UVs, normal maps and anisotropy remain
+        // readable instead of being back-face culled into the background.
+        // Mapping (x, y=0, z) -> (x, -z, 0) preserves the authored UVs and
+        // makes both the geometric and stored normal point toward -Z.
+        for (u32 vertex = 0u;
+             vertex < plane->Vertices().Size();
+             ++vertex) {
+            FMeshVertex& value =
+                plane->Vertices()[vertex];
+            value.position =
+                FVec3{
+                    value.position.x,
+                    -value.position.z,
+                    0.0f};
+            value.normal = FVec3{0.0f, 0.0f, -1.0f};
+        }
+        if (UploadMesh(
+                *dev, *plane,
+                h.preview_mesh_plane).IsErr()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void UpdatePreviewPostCb(
+    FEditorHost& h, u32 source_size, u32 output_size,
+    bool display_referred) noexcept {
+    if (!h.preview_post_cb) return;
+    const f32 source = static_cast<f32>(source_size);
+    const f32 output = static_cast<f32>(output_size);
+    const f32 scale = source / output;
+    FMaterialPreviewPostCb cb{};
+    cb.params0 = FVec4{
+        h.preview_exposure,
+        static_cast<f32>(h.preview_background),
+        scale,
+        display_referred ? 1.0f : 0.0f};
+    cb.params1 = FVec4{
+        1.0f / source, 1.0f / source,
+        1.0f / output, 1.0f / output};
+    cb.background_top =
+        FVec4{0.115f, 0.135f, 0.180f, 1.0f};
+    cb.background_bottom =
+        FVec4{0.022f, 0.026f, 0.038f, 1.0f};
+    h.preview_post_cb->Update(&cb, sizeof(cb));
+}
+
+static void ResolvePreview(
+    FEditorHost& h, IRhiCommandList& command_list,
+    IRhiTexture& source, u32 output_size) noexcept {
+    command_list.BeginRenderToTexture(
+        *h.preview_rt,
+        FClearColor{0.0f, 0.0f, 0.0f, 1.0f},
+        nullptr, 1.0f);
+    FViewport viewport{};
+    viewport.width = static_cast<f32>(output_size);
+    viewport.height = static_cast<f32>(output_size);
+    command_list.SetViewport(viewport);
+    FScissorRect scissor{};
+    scissor.right = static_cast<i32>(output_size);
+    scissor.bottom = static_cast<i32>(output_size);
+    command_list.SetScissor(scissor);
+    command_list.SetPipeline(*h.preview_resolve_pipe);
+    command_list.SetConstantBuffer(0u, *h.preview_post_cb);
+    command_list.SetTexture(0u, source);
+    command_list.Draw(3u, 0u);
+    command_list.EndRenderToTexture(*h.preview_rt);
+}
+
+/** Supersampled Toon/effect preview, resolved to display-sized BGRA8. */
 template<typename DrawFn>
-static int RenderPreview(EditorHost& h, u32 size, u8* out_rgba, u32 out_size, DrawFn&& drawFn) noexcept {
-    if (out_rgba == nullptr || size == 0 || out_size < size * size * 4) return 0;
-    if (!EnsurePreviewRt(h, size)) return 0;
+static int RenderPreview(FEditorHost& h, u32 size, u8* out_rgba, u32 out_size, DrawFn&& drawFn) noexcept {
+    const u64 required =
+        static_cast<u64>(size) * static_cast<u64>(size) * 4u;
+    if (out_rgba == nullptr || size == 0u || size > 2048u ||
+        required > out_size) {
+        return 0;
+    }
+    if (!EnsurePreviewLdrWork(h, size)) return 0;
     EnsurePreviewSamples(h);
     IRhiDevice* dev = h.renderer.Device();
     IRhiCommandList* cl = h.preview_cl.Get();
-    if (dev == nullptr || cl == nullptr || !h.preview_rt) return 0;
+    if (dev == nullptr || cl == nullptr ||
+        !h.preview_rt || !h.preview_work_ldr ||
+        !h.preview_resolve_pipe ||
+        !h.preview_post_cb) {
+        return 0;
+    }
+    const u32 work_size =
+        MaterialPreviewWorkSize(h, size);
+    UpdatePreviewPostCb(
+        h, work_size, size, true);
 
     cl->Begin();
-    cl->BeginRenderToTexture(*h.preview_rt, ClearColor{ 0.10f, 0.10f, 0.12f, 1.0f }, nullptr, 1.0f);
-    h.preview_sprites.Begin(*cl, size, size);
-    drawFn(h.preview_sprites, static_cast<f32>(size));
+    cl->BeginRenderToTexture(
+        *h.preview_work_ldr,
+        FClearColor{0.10f, 0.10f, 0.12f, 1.0f},
+        nullptr, 1.0f);
+    h.preview_sprites.Begin(*cl, work_size, work_size);
+    drawFn(
+        h.preview_sprites,
+        static_cast<f32>(work_size));
     h.preview_sprites.End();
-    cl->EndRenderToTexture(*h.preview_rt);
+    cl->EndRenderToTexture(*h.preview_work_ldr);
+    ResolvePreview(
+        h, *cl, *h.preview_work_ldr, size);
     cl->End();
     cl->Submit();
     dev->WaitIdle();
     return dev->ReadTexture(*h.preview_rt, out_rgba, out_size) ? 1 : 0;
+}
+
+/**
+ * Draw a true indexed studio model through FPbrShader.  This is the material
+ * editor's authoritative preview path for both legacy PBR and Substrate:
+ * WorldPosition/WorldNormal/UV/Time and texture expressions therefore see
+ * the same inputs and bytecode interpreter as the 3D viewport.
+ */
+static int RenderPbrMaterialPreview(
+    FEditorHost& h, const game::FMaterial2D& material,
+    u32 size, u8* out_rgba, u32 out_size) noexcept {
+    const u64 required =
+        static_cast<u64>(size) * static_cast<u64>(size) * 4u;
+    if (out_rgba == nullptr || size == 0u ||
+        size > 2048u || required > out_size ||
+        !EnsurePreviewPbr(h, size)) {
+        return 0;
+    }
+    IRhiDevice* dev = h.renderer.Device();
+    IRhiCommandList* cl = h.preview_cl.Get();
+    if (dev == nullptr || cl == nullptr ||
+        !h.preview_rt || !h.preview_hdr_rt ||
+        !h.preview_depth || !h.preview_post_cb ||
+        !h.preview_background_pipe ||
+        !h.preview_resolve_pipe) {
+        return 0;
+    }
+
+    TUniquePtr<IRhiTexture> albedo_texture;
+    TUniquePtr<IRhiTexture> normal_texture;
+    TUniquePtr<IRhiTexture>
+        expression_textures[kShaderExpressionMaxTextureSlots];
+    LoadTexFromPath(
+        h, material.pbr.albedoPath, albedo_texture);
+    LoadTexFromPath(
+        h, material.pbr.normalPath, normal_texture);
+    for (u32 slot = 0u;
+         slot < kShaderExpressionMaxTextureSlots;
+         ++slot) {
+        LoadTexFromPath(
+            h,
+            material.substrateExpressionTexturePaths[slot],
+            expression_textures[slot]);
+    }
+
+    FCamera camera;
+    camera.SetPerspective(
+        34.0f * kDeg2Rad, 1.0f, 0.05f, 20.0f);
+    const FVec3 eye{1.62f, 0.92f, -2.72f};
+    camera.SetLookAt(
+        eye, FVec3{0.0f, 0.02f, 0.0f});
+
+    FDirLight lights[1]{};
+    lights[0].direction =
+        Normalize(FVec3{0.38f, 0.72f, -0.58f});
+    lights[0].color = FVec3{1.70f, 1.56f, 1.40f};
+
+    FPbrShader& shader = h.preview_pbr3d;
+    shader.SetLights(
+        camera.ViewProjection(), eye, lights, 1u,
+        FVec3{0.018f, 0.021f, 0.028f});
+    shader.SetPointLights(nullptr, 0u);
+    // FPbrShader's production area-light integrator intentionally exposes
+    // its 4x4 samples on mirror-like materials.  That is useful in motion,
+    // but a static swatch reveals the individual dots.  The preview instead
+    // uses the continuous SH9 studio reflection below plus smooth key/fill
+    // directional lobes, keeping glossy and rough materials artifact-free.
+    shader.SetAreaLights(nullptr, 0u);
+    shader.SetShadowMap(nullptr, FMat4::Identity());
+    shader.SetIbl(
+        h.preview_ibl_irradiance.Get(),
+        h.preview_ibl_prefilter.Get(),
+        h.preview_brdf_lut.Get(), 1u);
+    // A neutral studio dome remains deterministic on both Raw DX12 and
+    // Diligent while providing a readable roughness-dependent reflection.
+    FVec4 studio_sh9[9];
+    ComputeSkySh9(
+        studio_sh9,
+        FVec3{0.34f, 0.39f, 0.50f},
+        FVec3{0.48f, 0.49f, 0.52f},
+        FVec3{0.16f, 0.15f, 0.15f});
+    for (u32 coefficient = 0u;
+         coefficient < 9u; ++coefficient) {
+        studio_sh9[coefficient].x *= 0.72f;
+        studio_sh9[coefficient].y *= 0.72f;
+        studio_sh9[coefficient].z *= 0.72f;
+    }
+    shader.SetSh9(studio_sh9);
+    const u32 work_size = h.preview_hdr_size;
+    shader.SetSsao(
+        nullptr, 0.0f, work_size, work_size);
+    shader.SetSsgi(nullptr, 0.0f);
+    shader.SetSsr(nullptr, 0.0f);
+    shader.SetAerialPerspective(nullptr, 1.0f);
+    const game::FPbrParams2D& pbr = material.pbr;
+    shader.SetNormalMap(normal_texture.Get(), pbr.normalStrength);
+    const bool substrate_active =
+        material.substrate.enabled &&
+        shader.SetSubstrateMaterial(
+            material.substrate, h.time);
+    if (substrate_active) {
+        for (u32 slot = 0u;
+             slot < kShaderExpressionMaxTextureSlots;
+             ++slot) {
+            shader.SetSubstrateExpressionTexture(
+                slot, expression_textures[slot].Get());
+        }
+    } else {
+        shader.ClearSubstrateSurface();
+        shader.SetExtParams(
+            pbr.clearcoat, pbr.clearcoatRoughness,
+            pbr.anisotropy, FVec3{1.0f, 0.0f, 0.0f});
+        shader.SetSheen(
+            pbr.sheenColor, pbr.sheen,
+            pbr.sheenRoughness);
+        shader.SetSubsurface(
+            pbr.subsurfaceColor, pbr.subsurface);
+        shader.SetEmissive(
+            pbr.emissive, pbr.emissiveStrength);
+        shader.SetIridescence(0.0f, 400.0f, 1.4f);
+    }
+
+    const FGpuMesh* preview_mesh =
+        &h.preview_mesh_sphere;
+    FMat4 preview_model =
+        FMat4::Scale(FVec3{1.70f, 1.70f, 1.70f});
+    if (h.preview_model == 1u) {
+        preview_mesh = &h.preview_mesh_cube;
+        preview_model =
+            FMat4::Scale(FVec3{1.15f, 1.15f, 1.15f}) *
+            FMat4::RotationY(0.58f) *
+            FMat4::RotationX(-0.24f);
+    } else if (h.preview_model == 2u) {
+        preview_mesh = &h.preview_mesh_plane;
+        preview_model =
+            FMat4::Scale(FVec3{1.10f, 1.10f, 1.10f});
+    }
+    if (!preview_mesh->vertex_buffer ||
+        !preview_mesh->index_buffer) {
+        shader.SetNormalMap(nullptr);
+        shader.ClearSubstrateSurface();
+        return 0;
+    }
+
+    UpdatePreviewPostCb(
+        h, work_size, size, false);
+    cl->Begin();
+    cl->BeginRenderToTexture(
+        *h.preview_hdr_rt,
+        FClearColor{0.0f, 0.0f, 0.0f, 1.0f},
+        h.preview_depth.Get(), 1.0f);
+    FViewport hdr_viewport{};
+    hdr_viewport.width = static_cast<f32>(work_size);
+    hdr_viewport.height = static_cast<f32>(work_size);
+    cl->SetViewport(hdr_viewport);
+    FScissorRect hdr_scissor{};
+    hdr_scissor.right = static_cast<i32>(work_size);
+    hdr_scissor.bottom = static_cast<i32>(work_size);
+    cl->SetScissor(hdr_scissor);
+    cl->SetPipeline(*h.preview_background_pipe);
+    cl->SetConstantBuffer(0u, *h.preview_post_cb);
+    cl->Draw(3u, 0u);
+    shader.DrawMesh(
+        *cl, *preview_mesh, preview_model,
+        FVec3{
+            pbr.baseColor.x, pbr.baseColor.y,
+            pbr.baseColor.z},
+        pbr.metallic, pbr.roughness, pbr.ao,
+        albedo_texture.Get());
+    cl->EndRenderToTexture(*h.preview_hdr_rt);
+    ResolvePreview(
+        h, *cl, *h.preview_hdr_rt, size);
+    cl->End();
+    cl->Submit();
+    dev->WaitIdle();
+    const int result =
+        dev->ReadTexture(
+            *h.preview_rt, out_rgba, out_size) ? 1 : 0;
+
+    // Non-owning shader references must never outlive these local textures.
+    shader.SetNormalMap(nullptr);
+    shader.ClearSubstrateSurface();
+    return result;
+}
+
+/**
+ * Configure the editor-only material preview.  These values are presentation
+ * state and are deliberately not serialized into the material asset.
+ */
+ACS_EDITOR_API void acs_editor_set_material_preview_options(
+        void* handle, int quality, int model, int background,
+        float exposure) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr) return;
+    host->preview_quality =
+        quality <= 0 ? 0u : (quality >= 2 ? 2u : 1u);
+    host->preview_model =
+        model <= 0 ? 0u : (model >= 2 ? 2u : 1u);
+    host->preview_background =
+        background <= 0 ? 0u :
+        (background >= 2 ? 2u : 1u);
+    if (std::isfinite(exposure)) {
+        host->preview_exposure =
+            std::clamp(exposure, 0.25f, 4.0f);
+    }
 }
 
 /** PBR マテリアルを «ライト付きの球» として実シェーダで描きプレビューを out へ読み戻す。 */
@@ -5678,25 +9045,27 @@ ACS_EDITOR_API int acs_editor_render_preview_pbr(void* handle,
         float br, float bg, float bb, float ba, float metallic, float roughness,
         float er, float eg, float eb, float em_str, float normal_str, float ao,
         unsigned char* out_rgba, int size) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || !host->sprites_ready || size <= 0) return 0;
+    game::FMaterial2D material{};
+    material.kind = game::EMaterialKind::Lit;
+    material.pbr.baseColor = FVec4{br, bg, bb, ba};
+    material.pbr.metallic = metallic;
+    material.pbr.roughness = roughness;
+    material.pbr.emissive = FVec3{er, eg, eb};
+    material.pbr.emissiveStrength = em_str;
+    material.pbr.normalStrength = normal_str;
+    material.pbr.ao = ao;
     const u32 s = static_cast<u32>(size);
-    FLitMaterialParams lm;
-    lm.baseColor = FVec4{ br, bg, bb, ba };
-    lm.metallic = metallic; lm.roughness = roughness; lm.normalStrength = normal_str; lm.ao = ao;
-    lm.emissive = FVec3{ er, eg, eb }; lm.emissiveStrength = em_str;
-    return RenderPreview(*host, s, out_rgba, static_cast<u32>(s * s * 4),
-        [&](FSpriteBatch& sb, f32 sz) {
-            FSpriteLight light;
-            light.pos = FVec2{ sz * 0.32f, sz * 0.28f };
-            light.radius = sz * 1.6f; light.color = FVec3{ 1.0f, 0.97f, 0.92f }; light.intensity = 2.4f;
-            FVec3 amb{ 0.06f, 0.07f, 0.09f };
-            sb.SetLights(&light, 1, amb, sz * 0.45f);
-            sb.SetLitMaterial(lm, host->preview_sphere_normal.Get());
-            if (host->preview_sphere_albedo)
-                sb.Draw(*host->preview_sphere_albedo, 0, 0, sz, sz);
-            sb.ClearLit();
-        });
+    const u64 bytes =
+        static_cast<u64>(s) * static_cast<u64>(s) * 4u;
+    if (bytes > static_cast<u64>(
+            std::numeric_limits<u32>::max())) {
+        return 0;
+    }
+    return RenderPbrMaterialPreview(
+        *host, material, s, out_rgba,
+        static_cast<u32>(bytes));
 }
 
 /** 効果プリセットをミニ風景に適用した実シェーダプレビューを out へ読み戻す。 */
@@ -5704,7 +9073,7 @@ ACS_EDITOR_API int acs_editor_render_preview_effect(void* handle,
         int effect, float strength, float p0, float p1, float p2,
         float r, float g, float b, float a, float time,
         unsigned char* out_rgba, int size) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || !host->sprites_ready || size <= 0) return 0;
     const u32 s = static_cast<u32>(size);
     const ESpriteEffect e = game::SpriteEffectAt(static_cast<u32>(effect < 0 ? 0 : effect));
@@ -5724,7 +9093,7 @@ ACS_EDITOR_API int acs_editor_render_preview_effect(void* handle,
  *  種別/シェーディングモード/トゥーン項目を全てファイルから読むので分岐は engine 側で完結。 */
 ACS_EDITOR_API int acs_editor_render_preview_material(void* handle, const char* path,
                                                       unsigned char* out_rgba, int size) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || !host->sprites_ready || size <= 0 || path == nullptr) return 0;
     const u32 s = static_cast<u32>(size);
     game::FMaterial2D mat;
@@ -5741,27 +9110,61 @@ ACS_EDITOR_API int acs_editor_render_preview_material(void* handle, const char* 
                 if (fx) sb.ClearEffect();
             });
     }
-    // Lit (PBR or Toon): ライト付きの球。shadingMode はシェーダが見る。
-    const FLitMaterialParams lm = game::ToLitParams(mat.pbr);
-    return RenderPreview(*host, s, out_rgba, static_cast<u32>(s * s * 4),
-        [&](FSpriteBatch& sb, f32 sz) {
-            FSpriteLight light;
-            light.pos = FVec2{ sz * 0.32f, sz * 0.28f };
-            light.radius = sz * 1.6f; light.color = FVec3{ 1.0f, 0.97f, 0.92f }; light.intensity = 2.4f;
-            sb.SetLights(&light, 1, FVec3{ 0.06f, 0.07f, 0.09f }, sz * 0.45f);
-            sb.SetLitMaterial(lm, host->preview_sphere_normal.Get());
-            if (host->preview_sphere_albedo) sb.Draw(*host->preview_sphere_albedo, 0, 0, sz, sz);
-            sb.ClearLit();
-        });
+    // Toon keeps its production SpriteBatch toon shader. FPbrShader does not
+    // implement the cel ramps/rim/spec-threshold contract.
+    if (mat.pbr.shadingMode == 1) {
+        const FLitMaterialParams toon =
+            game::ToLitParams(mat.pbr);
+        const u64 bytes =
+            static_cast<u64>(s) * static_cast<u64>(s) * 4u;
+        if (bytes > static_cast<u64>(
+                std::numeric_limits<u32>::max())) {
+            return 0;
+        }
+        return RenderPreview(
+            *host, s, out_rgba, static_cast<u32>(bytes),
+            [&](FSpriteBatch& sb, f32 sz) {
+                FSpriteLight light;
+                light.pos = FVec2{
+                    sz * 0.32f, sz * 0.28f};
+                light.radius = sz * 1.6f;
+                light.color =
+                    FVec3{1.0f, 0.97f, 0.92f};
+                light.intensity = 2.4f;
+                sb.SetLights(
+                    &light, 1,
+                    FVec3{0.06f, 0.07f, 0.09f},
+                    sz * 0.45f);
+                sb.SetLitMaterial(
+                    toon,
+                    host->preview_sphere_normal.Get());
+                if (host->preview_sphere_albedo) {
+                    sb.Draw(
+                        *host->preview_sphere_albedo,
+                        0, 0, sz, sz);
+                }
+                sb.ClearLit();
+            });
+    }
+    // Legacy PBR and Substrate use the real indexed 3D sphere and production VM.
+    const u64 bytes =
+        static_cast<u64>(s) * static_cast<u64>(s) * 4u;
+    if (bytes > static_cast<u64>(
+            std::numeric_limits<u32>::max())) {
+        return 0;
+    }
+    return RenderPbrMaterialPreview(
+        *host, mat, s, out_rgba,
+        static_cast<u32>(bytes));
 }
 
 // ===== Play モード (物理プレビュー) =====
 
-/** ノードに付与された FRigidBody2D コンポーネントの slot を返す (無ければ -1)。 */
-static int RigidBodySlot(const FEditorNode* n) noexcept {
+/** ノードに付与された ARigidBody2D コンポーネントの slot を返す (無ければ -1)。 */
+static int RigidBodySlot(const AEditorNode* n) noexcept {
     static game::FTypeId s_rbId = 0;
     if (s_rbId == 0) {
-        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName("FRigidBody2D");
+        const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName("ARigidBody2D");
         if (d != nullptr) s_rbId = d->id;
     }
     if (s_rbId == 0) return -1;
@@ -5770,16 +9173,16 @@ static int RigidBodySlot(const FEditorNode* n) noexcept {
     return -1;
 }
 
-/** FRigidBody2D を付けたノードから剛体ワールドを組み立てる。
+/** ARigidBody2D を付けたノードから剛体ワールドを組み立てる。
  *  プロパティ (bodyType/shape/restitution/friction/mass/damping) はコンポーネントの
  *  編集値 (comp_props、スキーマ順) から読む。動的のみ書き戻し対象に記録する。 */
-static void EditorBuildPlayWorld(EditorHost& h) noexcept {
+static void EditorBuildPlayWorld(FEditorHost& h) noexcept {
     h.play_world = MakeUnique<game::FRigidWorld2D>();
     h.play_body.Clear();
     h.play_node.Clear();
     if (h.play_world.Get() == nullptr) return;
     for (u32 i = 0; i < h.nodes.Size(); ++i) {
-        FEditorNode* n = h.nodes[i];
+        AEditorNode* n = h.nodes[i];
         const int slot = RigidBodySlot(n);
         if (slot < 0) continue;                                 // 剛体ボディ未付与 → 物理なし
         const u32 s = static_cast<u32>(slot);
@@ -5793,7 +9196,7 @@ static void EditorBuildPlayWorld(EditorHost& h) noexcept {
         const bool dynamic = (bodyType == 1);
         const f32 mass = (massV > 0.001f) ? massV : 1.0f;
 
-        const game::FTransform2D w = n->World();
+        const game::FTransform2D w = n->World2D();
         const f32 sx = (w.scale.x != 0.0f) ? w.scale.x : 1.0f;
         const f32 sy = (w.scale.y != 0.0f) ? w.scale.y : 1.0f;
         const FVec2 pos{ w.position.x, w.position.y };
@@ -5822,23 +9225,23 @@ static void EditorBuildPlayWorld(EditorHost& h) noexcept {
 }
 
 /** 1 フレーム物理を進め、ボディ位置/角度を対応ノードへ書き戻す (undo は積まない)。 */
-static void EditorStepPlay(EditorHost& h, f32 dt) noexcept {
+static void EditorStepPlay(FEditorHost& h, f32 dt) noexcept {
     if (h.play_world.Get() == nullptr) return;
     if (dt > 0.05f) dt = 0.05f;                          // 大 dt を抑制 (安定性)
     h.play_world->Step(dt, FVec2{ 0.0f, 900.0f });       // +Y = 画面下 → 下向き重力
     for (u32 i = 0; i < h.play_node.Size(); ++i) {
-        FEditorNode* n = FindNode(h, h.play_node[i]);
+        AEditorNode* n = FindNode(h, h.play_node[i]);
         if (n == nullptr) continue;
         const u32 bi = h.play_body[i];
         const FVec2 p = h.play_world->Position(bi);
         SetNodeWorldPosition(h, n, p.x, p.y);
-        n->Local().rotation = h.play_world->Angle(bi);   // 簡易 (親回転は無視)
+        n->SetRotation2D(h.play_world->Angle(bi));   // 簡易 (親回転は無視)
     }
 }
 
 /** 再生を開始する (現在状態をスナップショットし、物理ワールドを構築)。成功 1 / 既に再生中 0。 */
 ACS_EDITOR_API int acs_editor_play_start(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || host->play_state != 0) return 0;
     host->play_snapshot = DupSnapshot(*host);            // 停止時の復元用
     EditorBuildPlayWorld(*host);
@@ -5848,7 +9251,7 @@ ACS_EDITOR_API int acs_editor_play_start(void* handle) {
 
 /** 再生を停止し、開始時の状態へ復元する。成功 1 / 停止中 0。 */
 ACS_EDITOR_API int acs_editor_play_stop(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || host->play_state == 0) return 0;
     host->play_state = 0;
     host->play_world.Reset();
@@ -5864,7 +9267,7 @@ ACS_EDITOR_API int acs_editor_play_stop(void* handle) {
 
 /** 再生の一時停止/再開を切り替える (paused!=0 で一時停止)。 */
 ACS_EDITOR_API void acs_editor_play_set_paused(void* handle, int paused) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     if (paused != 0 && host->play_state == 1)      host->play_state = 2;
     else if (paused == 0 && host->play_state == 2) host->play_state = 1;
@@ -5872,13 +9275,13 @@ ACS_EDITOR_API void acs_editor_play_set_paused(void* handle, int paused) {
 
 /** 一時停止中に物理を 1 フレームだけ進める。 */
 ACS_EDITOR_API void acs_editor_play_step(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host != nullptr && host->play_state == 2) EditorStepPlay(*host, 1.0f / 60.0f);
 }
 
 /** 再生状態を返す (0=stopped, 1=playing, 2=paused)。 */
 ACS_EDITOR_API int acs_editor_play_state(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? host->play_state : 0;
 }
 
@@ -5886,7 +9289,7 @@ ACS_EDITOR_API int acs_editor_play_state(void* handle) {
 
 /** ポリゴン描画を開始する (点をクリックで集める)。 */
 ACS_EDITOR_API void acs_editor_poly_begin(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     host->poly_drawing = true;
     host->poly_points.Clear();
@@ -5894,23 +9297,23 @@ ACS_EDITOR_API void acs_editor_poly_begin(void* handle) {
 
 /** 描画中にスクリーン点を 1 つ追加する (world に変換して保持)。 */
 ACS_EDITOR_API void acs_editor_poly_add_point(void* handle, float sx, float sy) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || !host->poly_drawing) return;
     host->poly_points.PushBack(FVec2{ S2WX(*host, sx), S2WY(*host, sy) });
 }
 
-/** 集めた点を 1 ノード (FPrimitiveRenderer2D=Polygon) として確定する。新 id / 3 点未満は -1。
+/** 集めた点を 1 ノード (APrimitiveRenderer2D=Polygon) として確定する。新 id / 3 点未満は -1。
  *  クリック点をアンカーとして閉じた Catmull-Rom 曲線で滑らかにし (描画 = render_verts)、
  *  その凸包を間引いてコライダー (poly_verts ≤kMaxPolyVerts) を生成する。 */
 ACS_EDITOR_API int acs_editor_poly_finalize(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return -1;
     host->poly_drawing = false;
     u32 np = host->poly_points.Size();
     if (np < 3) { host->poly_points.Clear(); return -1; }
 
     // アンカー (クリック点) を world でコピー (ローカルバッファ上限まで)。
-    constexpr u32 kRV = FEditorNode::kMaxRenderVerts;
+    constexpr u32 kRV = AEditorNode::kMaxRenderVerts;
     if (np > kRV) np = kRV;
     FVec2 anchors[kRV];
     for (u32 i = 0; i < np; ++i) anchors[i] = host->poly_points[i];
@@ -5938,12 +9341,12 @@ ACS_EDITOR_API int acs_editor_poly_finalize(void* handle) {
     u32 cc = ConvexHullDecimated(rlocal, sc, collider, game::kMaxPolyVerts);
 
     PushUndo(*host);
-    FEditorNode* n = AddEditorNode(*host, -1, "Polygon", cx, cy, 0.0f, maxR * 2.0f, FVec4{ 0.55f, 0.75f, 0.95f, 1.0f });
+    AEditorNode* n = AddEditorNode(*host, -1, "Polygon", cx, cy, 0.0f, maxR * 2.0f, FVec4{ 0.55f, 0.75f, 0.95f, 1.0f });
     n->render_count = sc;
     for (u32 i = 0; i < sc; ++i) n->render_verts[i] = rlocal[i];
     n->poly_count = cc;
     for (u32 i = 0; i < cc; ++i) n->poly_verts[i] = collider[i];
-    AttachComponent(n, "FPrimitiveRenderer2D");
+    AttachComponent(n, "APrimitiveRenderer2D");
     SetCompProp(n, 0, 0, 3.0f, 0.0f, 0.0f, 0.0f);             // renderer.shape = 3 (Polygon)
     host->poly_points.Clear();
     SelSet(*host, n->editor_id);
@@ -5952,7 +9355,7 @@ ACS_EDITOR_API int acs_editor_poly_finalize(void* handle) {
 
 /** ポリゴン描画を破棄する。 */
 ACS_EDITOR_API void acs_editor_poly_cancel(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     host->poly_drawing = false;
     host->poly_points.Clear();
@@ -5960,19 +9363,19 @@ ACS_EDITOR_API void acs_editor_poly_cancel(void* handle) {
 
 /** ポリゴン描画中か (1/0)。 */
 ACS_EDITOR_API int acs_editor_poly_is_drawing(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->poly_drawing) ? 1 : 0;
 }
 
 /** ノードを単一選択する (集合を {id} に置換、primary=id。ビューポートでハイライト)。 */
 ACS_EDITOR_API void acs_editor_select(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host != nullptr) SelSet(*host, id);
 }
 
 /** 現在の primary (active) ノード id (未選択は -1)。 */
 ACS_EDITOR_API int acs_editor_selected(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? host->selected : -1;
 }
 
@@ -5980,13 +9383,13 @@ ACS_EDITOR_API int acs_editor_selected(void* handle) {
 
 /** id の選択を反転する (Ctrl+click)。追加で primary になり、primary を外すと別の一員へ移る。 */
 ACS_EDITOR_API void acs_editor_select_toggle(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host != nullptr) SelToggle(*host, id);
 }
 
 /** 全ノードを選択する (primary は最後のノード)。 */
 ACS_EDITOR_API void acs_editor_select_all(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     host->selection.Clear();
     for (u32 i = 0; i < host->nodes.Size(); ++i) host->selection.PushBack(host->nodes[i]->editor_id);
@@ -5996,26 +9399,26 @@ ACS_EDITOR_API void acs_editor_select_all(void* handle) {
 
 /** 選択を全解除する。 */
 ACS_EDITOR_API void acs_editor_select_none(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host != nullptr) SelClear(*host);
 }
 
 /** 選択集合の要素数。 */
 ACS_EDITOR_API int acs_editor_selection_count(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? static_cast<int>(host->selection.Size()) : 0;
 }
 
 /** 選択集合の index 番目のノード id (範囲外は -1)。 */
 ACS_EDITOR_API int acs_editor_selection_at(void* handle, int index) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || index < 0 || index >= static_cast<int>(host->selection.Size())) return -1;
     return host->selection[static_cast<u32>(index)];
 }
 
 /** id が選択集合に含まれるか (1/0)。 */
 ACS_EDITOR_API int acs_editor_selection_contains(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && SelContains(*host, id)) ? 1 : 0;
 }
 
@@ -6025,15 +9428,15 @@ ACS_EDITOR_API int acs_editor_selection_contains(void* handle, int id) {
  * @return 矩形内に入った (新規追加 + 既存) ノード総数。
  */
 ACS_EDITOR_API int acs_editor_select_box(void* handle, float x0, float y0, float x1, float y1, int additive) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     const f32 minx = (x0 < x1) ? x0 : x1, maxx = (x0 < x1) ? x1 : x0;
     const f32 miny = (y0 < y1) ? y0 : y1, maxy = (y0 < y1) ? y1 : y0;
     if (additive == 0) host->selection.Clear();
     int inBox = 0;
     for (u32 i = 0; i < host->nodes.Size(); ++i) {
-        FEditorNode* n = host->nodes[i];
-        const game::FTransform2D w = n->World();
+        AEditorNode* n = host->nodes[i];
+        const game::FTransform2D w = n->World2D();
         const f32 sx = W2SX(*host, w.position.x);
         const f32 sy = W2SY(*host, w.position.y);
         if (sx >= minx && sx <= maxx && sy >= miny && sy <= maxy) {   // 中心が矩形内
@@ -6053,7 +9456,7 @@ ACS_EDITOR_API int acs_editor_select_box(void* handle, float x0, float y0, float
 
 /** ラバーバンド矩形のオーバーレイ表示を設定する (active!=0 で screen 座標の矩形を描く)。 */
 ACS_EDITOR_API void acs_editor_set_marquee(void* handle, int active, float x0, float y0, float x1, float y1) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     host->marquee_active = (active != 0);
     host->marquee_x0 = x0; host->marquee_y0 = y0;
@@ -6110,13 +9513,13 @@ ACS_EDITOR_API int acs_editor_type_member_count_at(int index) {
 
 /** ゲーム DLL から取り込んだユーザー定義型の数。 */
 ACS_EDITOR_API int acs_editor_user_type_count(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? static_cast<int>(host->user_types.Size()) : 0;
 }
 
 /** i 番目のユーザー定義型の名前 (UTF-8、範囲外は "")。 */
 ACS_EDITOR_API const char* acs_editor_user_type_name_at(void* handle, int index) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || index < 0 || static_cast<u32>(index) >= host->user_types.Size()) return "";
     return host->user_types[static_cast<u32>(index)]->name;
 }
@@ -6130,7 +9533,7 @@ static void CopyCStr(char* dst, const char* src, u32 cap) noexcept {
 }
 
 // id で既存ユーザー型を探す (無ければ nullptr)。
-static FUserType* FindUserType(EditorHost& h, game::FTypeId id) noexcept {
+static FUserType* FindUserType(FEditorHost& h, game::FTypeId id) noexcept {
     for (u32 i = 0; i < h.user_types.Size(); ++i)
         if (h.user_types[i]->desc.id == id) return h.user_types[i].Get();
     return nullptr;
@@ -6153,7 +9556,7 @@ static bool IsImportedUserType(const game::FTypeDesc* descriptor) noexcept
  * @return 取り込んだ/更新した型数、LoadLibrary 失敗 -1、シンボル欠如 -2。
  */
 ACS_EDITOR_API int acs_editor_load_game_dll(void* handle, const char* path) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || path == nullptr) return 0;
     void* dll = LoadLibraryA(path);
     if (dll == nullptr) return -1;
@@ -6214,7 +9617,7 @@ ACS_EDITOR_API int acs_editor_load_game_dll(void* handle, const char* path) {
 // ===== シーン実体化 (authored 値で実コンポーネントを attach → tick = 実ロジック実行) =====
 
 /**
- * 各ノードのコンポーネント・メタデータ + comp_props (authored 値) から «実 FComponent2D» を
+ * 各ノードのコンポーネント・メタデータ + comp_props (authored 値) から «実 AComponent» を
  * 生成し、反射オフセット経由で値を実体へ適用してノードへ attach する。
  *
  * @details reg.CreateById → ApplyFieldValue(値適用ブリッジ) → AttachComponent。offset 付き
@@ -6223,23 +9626,23 @@ ACS_EDITOR_API int acs_editor_load_game_dll(void* handle, const char* path) {
  * @return attach した実コンポーネント数。
  */
 ACS_EDITOR_API int acs_editor_instantiate_scene(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     // 既存の実体を一掃してから作り直す。
     for (u32 i = 0; i < host->nodes.Size(); ++i) host->nodes[i]->RemoveAllComponents();
 
     int total = 0;
     for (u32 i = 0; i < host->nodes.Size(); ++i) {
-        FEditorNode* n = host->nodes[i];
+        AEditorNode* n = host->nodes[i];
         for (u32 s = 0; s < n->component_count; ++s) {
             const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(n->components[s]);
             if (d == nullptr || d->name == nullptr) continue;
-            TUniquePtr<game::FComponent2D> comp = game::CreateComponentByName(d->name);
+            TUniquePtr<game::AComponent> comp = game::CreateComponentByName(d->name);
             if (!comp) continue;                       // 非 Component / Abstract はスキップ
             void* obj = comp.Get();
-            for (u32 j = 0; j < d->field_count && j < FEditorNode::kMaxProps; ++j)
+            for (u32 j = 0; j < d->field_count && j < AEditorNode::kMaxProps; ++j)
                 game::ApplyFieldValue(obj, d->fields[j], n->comp_props[s][j]);   // authored 値を実体へ
-            n->AttachComponent(static_cast<TUniquePtr<game::FComponent2D>&&>(comp));
+            n->AttachComponent(static_cast<TUniquePtr<game::AComponent>&&>(comp));
             ++total;
         }
     }
@@ -6249,7 +9652,7 @@ ACS_EDITOR_API int acs_editor_instantiate_scene(void* handle) {
 
 /** 実体化したコンポーネントを 1 フレーム tick する (実 OnUpdate を実行)。 */
 ACS_EDITOR_API void acs_editor_tick_instances(void* handle, float dt) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || !host->instances_live || host->root.Get() == nullptr) return;
     host->root->UpdateTree(dt);
     host->root->ResolveStructuralChanges();
@@ -6257,7 +9660,7 @@ ACS_EDITOR_API void acs_editor_tick_instances(void* handle, float dt) {
 
 /** 実体化したコンポーネントを全て除去し、編集 (メタデータのみ) 状態へ戻す。 */
 ACS_EDITOR_API void acs_editor_clear_instances(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     for (u32 i = 0; i < host->nodes.Size(); ++i) host->nodes[i]->RemoveAllComponents();
     host->instances_live = false;
@@ -6267,10 +9670,10 @@ ACS_EDITOR_API void acs_editor_clear_instances(void* handle) {
 
 /** Preview を開始する。各ノード transform を退避 → 実体化 → 毎フレーム tick で実 OnUpdate が走る。成功 1。 */
 ACS_EDITOR_API int acs_editor_preview_start(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || host->preview_live) return 0;
     host->preview_snap.Clear();                                   // 開始時の transform を退避 (停止で復元)
-    for (u32 i = 0; i < host->nodes.Size(); ++i) host->preview_snap.PushBack(host->nodes[i]->Local());
+    for (u32 i = 0; i < host->nodes.Size(); ++i) host->preview_snap.PushBack(host->nodes[i]->Local2D());
     acs_editor_instantiate_scene(handle);                         // 実コンポーネントを attach + authored 値適用
     host->preview_live = true;
     return 1;
@@ -6278,24 +9681,24 @@ ACS_EDITOR_API int acs_editor_preview_start(void* handle) {
 
 /** Preview を停止する。実体を除去し、開始時の transform へ復元する。 */
 ACS_EDITOR_API void acs_editor_preview_stop(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || !host->preview_live) return;
     host->preview_live = false;
     acs_editor_clear_instances(handle);
     const u32 n = (host->preview_snap.Size() < host->nodes.Size()) ? host->preview_snap.Size() : host->nodes.Size();
-    for (u32 i = 0; i < n; ++i) host->nodes[i]->Local() = host->preview_snap[i];   // 非破壊: 位置を戻す
+    for (u32 i = 0; i < n; ++i) host->nodes[i]->SetLocal2D(host->preview_snap[i]);   // 非破壊: 位置を戻す
     host->preview_snap.Clear();
 }
 
 /** Preview 中なら 1。 */
 ACS_EDITOR_API int acs_editor_preview_state(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->preview_live) ? 1 : 0;
 }
 
 /** 現在 attach されている «実» コンポーネントの総数 (= 実体化できた数。検証/表示用)。 */
 ACS_EDITOR_API int acs_editor_instance_count(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     int total = 0;
     for (u32 i = 0; i < host->nodes.Size(); ++i) total += static_cast<int>(host->nodes[i]->ComponentCount());
@@ -6307,7 +9710,7 @@ ACS_EDITOR_API int acs_editor_instance_count(void* handle) {
 ACS_EDITOR_API void acs_editor_logic_play_stop(void* handle);   // 前方宣言 (start が呼ぶ)
 
 /** Play 中の 1 フレーム: DLL シーンを tick → 各ノード transform を読み戻して描画へ反映。 */
-static void EditorTickLogic(EditorHost& h, f32 dt) noexcept {
+static void EditorTickLogic(FEditorHost& h, f32 dt) noexcept {
     if (!h.logic_play || h.logic_scene == nullptr) return;
     if (dt > 0.05f) dt = 0.05f;
     // フレーム先頭で入力状態を進める (now→prev)。WPF からの key イベントは
@@ -6317,7 +9720,7 @@ static void EditorTickLogic(EditorHost& h, f32 dt) noexcept {
     // tick する。これでコンポーネントの OnDraw / OnUpdate が «物理で動いた位置» を基準に走り、
     // editor メタデータ描画 (物理) と DLL の OnDraw が同じ位置に揃う (二重シミュの位置ずれ解消)。
     for (u32 i = 0; i < h.nodes.Size(); ++i) {
-        const game::FTransform2D& t = h.nodes[i]->Local();
+        const game::FTransform2D t = h.nodes[i]->Local2D();
         h.logic_shim.set_transform(h.logic_scene, static_cast<int>(i),
                                    t.position.x, t.position.y, t.rotation, t.scale.x, t.scale.y);
     }
@@ -6327,10 +9730,9 @@ static void EditorTickLogic(EditorHost& h, f32 dt) noexcept {
         h.logic_shim.get_transform(h.logic_scene, static_cast<int>(i), &x, &y, &r, &sx, &sy);
         // DLL が «動かしたノードだけ» 反映する (開始時 transform と同一なら触らない)。
         // → コンポーネントの無いノードは物理 Play 等の結果を保てる (両 Play の共存)。
-        const game::FTransform2D& sv = (i < h.logic_saved.Size()) ? h.logic_saved[i] : h.nodes[i]->Local();
+        const game::FTransform2D sv = (i < h.logic_saved.Size()) ? h.logic_saved[i] : h.nodes[i]->Local2D();
         if (x != sv.position.x || y != sv.position.y || r != sv.rotation || sx != sv.scale.x || sy != sv.scale.y) {
-            game::FTransform2D& t = h.nodes[i]->Local();
-            t.position = FVec2{ x, y }; t.rotation = r; t.scale = FVec2{ sx, sy };
+            h.nodes[i]->SetLocal2D(game::FTransform2D{ FVec2{ x, y }, r, FVec2{ sx, sy } });
         }
     }
 
@@ -6364,7 +9766,7 @@ static void EditorTickLogic(EditorHost& h, f32 dt) noexcept {
  * @return 1 成功 / -1 LoadLibrary 失敗 / -2 シンボル欠如 / -3 シーン生成失敗。
  */
 ACS_EDITOR_API int acs_editor_logic_play_start(void* handle, const char* dll_path) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || dll_path == nullptr) return 0;
     if (host->logic_play) acs_editor_logic_play_stop(handle);
 
@@ -6399,8 +9801,8 @@ ACS_EDITOR_API int acs_editor_logic_play_start(void* handle, const char* dll_pat
     // host->nodes が «親より先に子» の順 (reparent 後にあり得る) でも親子構造が崩れない。
     host->logic_saved.Clear();
     for (u32 i = 0; i < host->nodes.Size(); ++i) {
-        FEditorNode* n = host->nodes[i];
-        host->logic_saved.PushBack(n->Local());          // 復元用に退避
+        AEditorNode* n = host->nodes[i];
+        host->logic_saved.PushBack(n->Local2D());          // 復元用に退避
         // 旧 DLL (set_parent 無し) 互換: best-effort で親-先行ケースだけ即配置。
         int parentIdx = -1;
         if (sh.set_parent == nullptr) {
@@ -6409,14 +9811,14 @@ ACS_EDITOR_API int acs_editor_logic_play_start(void* handle, const char* dll_pat
                 for (u32 k = 0; k < i; ++k) if (host->nodes[k]->editor_id == pid) { parentIdx = static_cast<int>(k); break; }
         }
         const int idx = sh.add_node(scene, parentIdx);
-        const game::FTransform2D& t = n->Local();
+        const game::FTransform2D t = n->Local2D();
         sh.set_transform(scene, idx, t.position.x, t.position.y, t.rotation, t.scale.x, t.scale.y);
         for (u32 s = 0; s < n->component_count; ++s) {
             const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(n->components[s]);
             if (d == nullptr || d->name == nullptr) continue;
             const int dslot = sh.add_component(scene, idx, d->name);
             if (dslot < 0) continue;                       // DLL の registry に無い型はスキップ
-            for (u32 j = 0; j < d->field_count && j < FEditorNode::kMaxProps; ++j) {
+            for (u32 j = 0; j < d->field_count && j < AEditorNode::kMaxProps; ++j) {
                 if (d->fields[j].name == nullptr) continue;
                 const f32* v = n->comp_props[s][j];
                 sh.set_prop(scene, idx, dslot, d->fields[j].name, v[0], v[1], v[2], v[3]);
@@ -6454,12 +9856,12 @@ ACS_EDITOR_API int acs_editor_logic_play_start(void* handle, const char* dll_pat
 
 /** インプロセス Play を停止する。DLL シーンを破棄し、ノード transform を開始時へ復元、DLL を解放。 */
 ACS_EDITOR_API void acs_editor_logic_play_stop(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || !host->logic_play) return;
     if (host->logic_scene != nullptr && host->logic_shim.destroy != nullptr)
         host->logic_shim.destroy(host->logic_scene);
     for (u32 i = 0; i < host->nodes.Size() && i < host->logic_saved.Size(); ++i)
-        host->nodes[i]->Local() = host->logic_saved[i];   // 編集状態へ復元
+        host->nodes[i]->SetLocal2D(host->logic_saved[i]);   // 編集状態へ復元
     // editor カメラを Play 開始時の view へ復元する。
     host->cam_pan_x = host->logic_cam_pan_x;
     host->cam_pan_y = host->logic_cam_pan_y;
@@ -6471,7 +9873,7 @@ ACS_EDITOR_API void acs_editor_logic_play_stop(void* handle) {
 
 /** インプロセス Play 中か (1/0)。 */
 ACS_EDITOR_API int acs_editor_logic_play_active(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->logic_play) ? 1 : 0;
 }
 
@@ -6486,21 +9888,21 @@ ACS_EDITOR_API int acs_editor_logic_play_active(void* handle) {
  * @param down 1=押下, 0=解放。
  */
 ACS_EDITOR_API void acs_editor_logic_input_key(void* handle, int keycode, int down) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || !host->logic_play || host->logic_shim.input_key == nullptr) return;
     host->logic_shim.input_key(keycode, down);
 }
 
 /** Play 中の DLL へマウスボタン入力をフィードする (button: 0=Left,1=Right,2=Middle)。 */
 ACS_EDITOR_API void acs_editor_logic_input_mouse_button(void* handle, int button, int down) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || !host->logic_play || host->logic_shim.input_mouse_button == nullptr) return;
     host->logic_shim.input_mouse_button(button, down);
 }
 
 /** Play 中の DLL へマウス位置 (viewport クライアント px) をフィードする。 */
 ACS_EDITOR_API void acs_editor_logic_input_mouse_move(void* handle, float x, float y) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || !host->logic_play || host->logic_shim.input_mouse_move == nullptr) return;
     host->logic_shim.input_mouse_move(x, y);
 }
@@ -6514,13 +9916,13 @@ ACS_EDITOR_API void acs_editor_logic_input_mouse_move(void* handle, float x, flo
  * @param on 1=ゲームビュー, 0=シーン(編集)ビュー。
  */
 ACS_EDITOR_API void acs_editor_set_game_view(void* handle, int on) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host != nullptr) host->game_view = (on != 0);
 }
 
 /** 現在ゲームビューか (1/0)。 */
 ACS_EDITOR_API int acs_editor_is_game_view(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->game_view) ? 1 : 0;
 }
 
@@ -6533,13 +9935,13 @@ ACS_EDITOR_API const char* acs_editor_category_label(int category) {
  * 登録型名でシーンにノードを 1 つ追加する (レジストリ駆動のインスタンス化デモ)。
  *
  * @details
- * エディタが「エンジンの登録型」を選んで実 FNode2D ツリーへ実体化する経路。ここでは
- * 型名をラベルにした FEditorNode を生成する (将来 factory による本物のコンポーネント
+ * エディタが「エンジンの登録型」を選んで実 ANode ツリーへ実体化する経路。ここでは
+ * 型名をラベルにした AEditorNode を生成する (将来 factory による本物のコンポーネント
  * attach に拡張可能)。
  * @return 追加したノードの editor_id、不正引数は -1。
  */
 ACS_EDITOR_API int acs_editor_add_node(void* handle, const char* type_name, int parent_id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || type_name == nullptr || host->root.Get() == nullptr) return -1;
     PushUndo(*host);
 
@@ -6548,7 +9950,7 @@ ACS_EDITOR_API int acs_editor_add_node(void* handle, const char* type_name, int 
     const f32  px = has_parent ? 64.0f : static_cast<f32>(host->width)  * 0.5f;
     const f32  py = has_parent ? 0.0f  : static_cast<f32>(host->height) * 0.5f;
 
-    FEditorNode* n = AddEditorNode(*host, has_parent ? parent_id : -1, type_name,
+    AEditorNode* n = AddEditorNode(*host, has_parent ? parent_id : -1, type_name,
                                    px, py, 0.0f, 40.0f, FVec4{ 0.55f, 0.70f, 0.55f, 1.0f });
     SelSet(*host, n->editor_id);
     return n->editor_id;
@@ -6557,19 +9959,19 @@ ACS_EDITOR_API int acs_editor_add_node(void* handle, const char* type_name, int 
 // =============================================================================
 // C ABI — シーンの保存 / 読込 (永続化)
 // -----------------------------------------------------------------------------
-// ABI はシリアライズ/デシリアライズ (文字列 ⇄ 実 FNode2D ツリー) を担い、ファイル I/O と
+// ABI はシリアライズ/デシリアライズ (文字列 ⇄ 実 ANode ツリー) を担い、ファイル I/O と
 // ダイアログ・パス処理は C# (WPF) 側が担当する (パスのエンコーディング問題を回避)。
 // =============================================================================
 
 /** 現在のシーンをテキストへシリアライズして返す (内部バッファへのポインタ)。 */
 ACS_EDITOR_API const char* acs_editor_scene_serialize(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? SerializeScene(*host) : "";
 }
 
 /** シリアライズ済みテキストからシーンを復元する (成功 1 / 失敗 0)。 */
 ACS_EDITOR_API int acs_editor_scene_load_text(void* handle, const char* text) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     PushUndo(*host);
     return LoadSceneText(*host, text);
@@ -6577,7 +9979,7 @@ ACS_EDITOR_API int acs_editor_scene_load_text(void* handle, const char* text) {
 
 /** シーンを空 (隠しルートのみ) に戻す (New Scene)。 */
 ACS_EDITOR_API void acs_editor_scene_new(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     PushUndo(*host);
     ClearScene(*host);
@@ -6585,7 +9987,7 @@ ACS_EDITOR_API void acs_editor_scene_new(void* handle) {
 
 /** 3D シーンを空にする (新規シーン)。選択/クリップボードもリセット。Undo で復元可。 */
 ACS_EDITOR_API void acs_editor_scene3d_new(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     PushUndo(*host);
     host->scene3d.Clear();
@@ -6599,15 +10001,15 @@ ACS_EDITOR_API void acs_editor_scene3d_new(void* handle) {
 
 /** id のノードの subtree をシリアライズして返す (C# がクリップボードに保持)。 */
 ACS_EDITOR_API const char* acs_editor_copy_subtree(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return "";
-    FEditorNode* n = FindNode(*host, id);
+    AEditorNode* n = FindNode(*host, id);
     return (n != nullptr) ? SerializeSubtree(*host, n) : "";
 }
 
 /** subtree テキストを parent_id 配下へ貼り付ける (新規 id、内部親子は再マップ)。新根 id / 失敗 -1。 */
 ACS_EDITOR_API int acs_editor_paste_subtree(void* handle, const char* text, int parent_id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || text == nullptr) return -1;
     PushUndo(*host);
     return PasteSubtree(*host, text, parent_id);
@@ -6615,8 +10017,8 @@ ACS_EDITOR_API int acs_editor_paste_subtree(void* handle, const char* text, int 
 
 /** ノードのプレハブリンク (.acsprefab パス) を設定する (空でクリア)。成功 1。 */
 ACS_EDITOR_API int acs_editor_node_set_prefab_src(void* handle, int id, const char* path) {
-    auto* host = static_cast<EditorHost*>(handle);
-    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr) return 0;
     std::snprintf(n->prefab_src, sizeof(n->prefab_src), "%s", (path != nullptr) ? path : "");
     return 1;
@@ -6624,8 +10026,8 @@ ACS_EDITOR_API int acs_editor_node_set_prefab_src(void* handle, int id, const ch
 
 /** ノードのプレハブリンク (.acsprefab パス) を返す (インスタンスでなければ "")。 */
 ACS_EDITOR_API const char* acs_editor_node_get_prefab_src(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     return (n != nullptr) ? n->prefab_src : "";
 }
 
@@ -6638,7 +10040,7 @@ ACS_EDITOR_API const char* acs_editor_node_get_prefab_src(void* handle, int id) 
 
 /** 直前の変更を取り消す (成功 1 / 何もなければ 0)。 */
 ACS_EDITOR_API int acs_editor_undo(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || host->undo.Size() == 0) return 0;
     char* cur = DupSnapshot(*host);                       // 現在状態を redo に退避
     if (cur != nullptr) host->redo.PushBack(cur);
@@ -6651,7 +10053,7 @@ ACS_EDITOR_API int acs_editor_undo(void* handle) {
 
 /** 取り消した変更をやり直す (成功 1 / 何もなければ 0)。 */
 ACS_EDITOR_API int acs_editor_redo(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || host->redo.Size() == 0) return 0;
     char* cur = DupSnapshot(*host);                       // 現在状態を undo に積む
     if (cur != nullptr) host->undo.PushBack(cur);
@@ -6664,20 +10066,20 @@ ACS_EDITOR_API int acs_editor_redo(void* handle) {
 
 /** undo 可能か。 */
 ACS_EDITOR_API int acs_editor_can_undo(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->undo.Size() > 0) ? 1 : 0;
 }
 
 /** redo 可能か。 */
 ACS_EDITOR_API int acs_editor_can_redo(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->redo.Size() > 0) ? 1 : 0;
 }
 
 /** 連続編集 (ドラッグスクラブ等) を開始する。開始時点の状態を 1 度だけ undo に積み、
  *  以降の set_* が積む undo を end まで抑止する → ドラッグ全体が undo 1 ステップになる。 */
 ACS_EDITOR_API void acs_editor_begin_continuous(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || host->suppress_undo) return;
     PushUndo(*host);                 // 開始状態の 1 スナップショット
     host->suppress_undo = true;
@@ -6685,7 +10087,7 @@ ACS_EDITOR_API void acs_editor_begin_continuous(void* handle) {
 
 /** 連続編集を終了する (以降の set_* は通常どおり undo を積む)。 */
 ACS_EDITOR_API void acs_editor_end_continuous(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host != nullptr) host->suppress_undo = false;
 }
 
@@ -6698,13 +10100,13 @@ ACS_EDITOR_API void acs_editor_end_continuous(void* handle) {
 
 /** スクリーン座標でノードをピック (上のものを優先、無ければ -1)。 */
 ACS_EDITOR_API int acs_editor_pick(void* handle, float screen_x, float screen_y) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? PickNode(*host, screen_x, screen_y) : -1;
 }
 
 /** カメラをスクリーン量だけ平行移動する (ドラッグパン)。3D モードでは軌道回転。 */
 ACS_EDITOR_API void acs_editor_camera_pan(void* handle, float dx, float dy) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     if (host->view3d) {
         if (host->ortho3d) {                            // 2D (正射): 軌道せず注視点を画面平面で平行移動 (パン)
@@ -6715,11 +10117,12 @@ ACS_EDITOR_API void acs_editor_camera_pan(void* handle, float dx, float dy) {
             host->cam3d_target.y += dy * wpp;
             return;
         }
-        host->cam3d_yaw   -= dx * 0.01f;                // 3D 透視: ドラッグで軌道 (yaw/pitch)
+        host->cam3d_yaw = std::remainder(
+            host->cam3d_yaw - dx * 0.01f, 2.0f * 3.14159265f);
+                                                        // 3D 透視: ドラッグで軌道 (yaw/pitch)
         host->cam3d_pitch += dy * 0.01f;
-        const f32 lim = 1.5533f;                        // ±89° で gimbal 回避
-        if (host->cam3d_pitch >  lim) host->cam3d_pitch =  lim;
-        if (host->cam3d_pitch < -lim) host->cam3d_pitch = -lim;
+        if (host->cam3d_pitch >  kCamera3DPitchLimit) host->cam3d_pitch =  kCamera3DPitchLimit;
+        if (host->cam3d_pitch < -kCamera3DPitchLimit) host->cam3d_pitch = -kCamera3DPitchLimit;
         return;
     }
     host->cam_pan_x += dx; host->cam_pan_y += dy;
@@ -6728,7 +10131,7 @@ ACS_EDITOR_API void acs_editor_camera_pan(void* handle, float dx, float dy) {
 /** カメラを «真に» 平行移動 (パン)。3D 透視は注視点を camera の right/up 平面で移動 (中ドラッグ用)、
  *  正射は画面平面で移動。camera_pan が透視で «軌道» 回転なのに対し、こちらは平行移動。 */
 ACS_EDITOR_API void acs_editor_camera_move(void* handle, float dx, float dy) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || !host->view3d) return;
     IRhiSwapchain* sc = host->renderer.Swapchain();
     const f32 H = (sc != nullptr && sc->Height() > 0) ? static_cast<f32>(sc->Height()) : 1080.0f;
@@ -6755,12 +10158,12 @@ ACS_EDITOR_API void acs_editor_camera_move(void* handle, float dx, float dy) {
 
 /** アンカー (スクリーン点) を固定して factor 倍ズームする (ホイール)。3D モードではドリー。 */
 ACS_EDITOR_API void acs_editor_camera_zoom(void* handle, float factor, float anchor_x, float anchor_y) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || factor <= 0.0f) return;
     if (host->view3d) {                                 // 3D: 注視点との距離を増減
         host->cam3d_dist /= factor;                     // factor>1 (ホイール上) で近づく
-        if (host->cam3d_dist < 1.0f)   host->cam3d_dist = 1.0f;
-        if (host->cam3d_dist > 200.0f) host->cam3d_dist = 200.0f;
+        if (host->cam3d_dist < kCamera3DMinDistance) host->cam3d_dist = kCamera3DMinDistance;
+        if (host->cam3d_dist > kCamera3DMaxDistance) host->cam3d_dist = kCamera3DMaxDistance;
         return;
     }
     const f32 z0 = host->cam_zoom;
@@ -6777,7 +10180,7 @@ ACS_EDITOR_API void acs_editor_camera_zoom(void* handle, float factor, float anc
 
 /** カメラを初期状態 (pan 0 / zoom 1) に戻す。 */
 ACS_EDITOR_API void acs_editor_camera_reset(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     if (host->view3d) {                                  // 3D カメラを既定へ (正射=正面維持、透視=既定の俯瞰)
         host->cam3d_yaw   = host->ortho3d ? 0.0f : 0.78f;
@@ -6791,11 +10194,50 @@ ACS_EDITOR_API void acs_editor_camera_reset(void* handle) {
 
 /** 現在のカメラ状態を取得する (UI 表示 / 検証用)。 */
 ACS_EDITOR_API void acs_editor_camera_get(void* handle, float* pan_x, float* pan_y, float* zoom) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     if (pan_x) *pan_x = host->cam_pan_x;
     if (pan_y) *pan_y = host->cam_pan_y;
     if (zoom)  *zoom  = host->cam_zoom;
+}
+
+/**
+ * 3D camera stateを直接設定する。非有限値は状態を一切変更せず拒否し、
+ * pitch / distance は対話操作と同じ安全範囲へ clamp する。
+ */
+ACS_EDITOR_API int acs_editor_camera3d_set(
+        void* handle, float yaw, float pitch, float distance,
+        float target_x, float target_y, float target_z) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr ||
+        !std::isfinite(yaw) || !std::isfinite(pitch) || !std::isfinite(distance) ||
+        !std::isfinite(target_x) || !std::isfinite(target_y) || !std::isfinite(target_z)) {
+        return 0;
+    }
+    if (pitch >  kCamera3DPitchLimit) pitch =  kCamera3DPitchLimit;
+    if (pitch < -kCamera3DPitchLimit) pitch = -kCamera3DPitchLimit;
+    if (distance < kCamera3DMinDistance) distance = kCamera3DMinDistance;
+    if (distance > kCamera3DMaxDistance) distance = kCamera3DMaxDistance;
+    host->cam3d_yaw = std::remainder(yaw, 2.0f * 3.14159265f);
+    host->cam3d_pitch = pitch;
+    host->cam3d_dist = distance;
+    host->cam3d_target = FVec3{ target_x, target_y, target_z };
+    return 1;
+}
+
+/** 3D camera stateを取得する。必要な出力だけを non-null pointer で指定できる。 */
+ACS_EDITOR_API int acs_editor_camera3d_get(
+        void* handle, float* yaw, float* pitch, float* distance,
+        float* target_x, float* target_y, float* target_z) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr) return 0;
+    if (yaw != nullptr) *yaw = host->cam3d_yaw;
+    if (pitch != nullptr) *pitch = host->cam3d_pitch;
+    if (distance != nullptr) *distance = host->cam3d_dist;
+    if (target_x != nullptr) *target_x = host->cam3d_target.x;
+    if (target_y != nullptr) *target_y = host->cam3d_target.y;
+    if (target_z != nullptr) *target_z = host->cam3d_target.z;
+    return 1;
 }
 
 // =============================================================================
@@ -6804,7 +10246,7 @@ ACS_EDITOR_API void acs_editor_camera_get(void* handle, float* pan_x, float* pan
 
 /** 3D ビューポートの ON/OFF を切り替える。初回 ON で既定の 3D シーンを置く。 */
 ACS_EDITOR_API void acs_editor_set_view3d(void* handle, int on) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     host->view3d = (on != 0);
     if (host->view3d) Seed3DScene(*host);
@@ -6812,13 +10254,13 @@ ACS_EDITOR_API void acs_editor_set_view3d(void* handle, int on) {
 
 /** 現在 3D ビューポートか。 */
 ACS_EDITOR_API int acs_editor_get_view3d(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->view3d) ? 1 : 0;
 }
 
 /** 3D ビューの投影を 正射(2D ビュー) / 透視 で切り替える。正射 ON でカメラを正面 (XY 平面直視) へ。 */
 ACS_EDITOR_API void acs_editor_set_ortho3d(void* handle, int on) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     host->ortho3d = (on != 0);
     if (host->ortho3d) {                                 // 正射 = 2D 前面ビュー: XY 平面を正面から直視
@@ -6829,13 +10271,13 @@ ACS_EDITOR_API void acs_editor_set_ortho3d(void* handle, int on) {
 
 /** 現在 正射(2D ビュー) か。 */
 ACS_EDITOR_API int acs_editor_get_ortho3d(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->ortho3d) ? 1 : 0;
 }
 
 /** 3D カメラを既定の俯瞰に戻す。 */
 ACS_EDITOR_API void acs_editor_cam3d_reset(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     host->cam3d_yaw = 0.78f; host->cam3d_pitch = 0.55f; host->cam3d_dist = 14.0f;
     host->cam3d_target = FVec3{ 0, 1.0f, 0 };
@@ -6843,14 +10285,14 @@ ACS_EDITOR_API void acs_editor_cam3d_reset(void* handle) {
 
 /** 3D ノードを追加する (prim: 0=Cube 1=Sphere 2=Plane)。新ノード id を返す (失敗 -1)。 */
 ACS_EDITOR_API int acs_editor_add_node3d(void* handle, int prim, const char* name) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return -1;
     const char* nm = (name != nullptr && name[0] != '\0') ? name
                    : (prim == 1 ? "Sphere" : prim == 2 ? "Plane" : "Cube");
-    game::FNode3D& n = AddNode3D(*host, nm);
+    game::ANode& n = AddNode3D(*host, nm);
     const int id = host->next_id3d++;
-    n.GetComponent<EEd3DRec>()->id = id;
-    game::FMeshComponent3D* m = n.GetComponent<game::FMeshComponent3D>();
+    n.GetComponent<AEditor3DRecordComponent>()->id = id;
+    game::AMeshComponent3D* m = n.GetComponent<game::AMeshComponent3D>();
     const int p = (prim >= 0 && prim <= 2) ? prim : 0;
     m->SetPrimitive(static_cast<game::EMeshPrimitive3D>(p));
     if (prim == 2) { n.Local().scale = FVec3{ 8, 1, 8 }; m->SetColor(FVec4{ 0.34f, 0.36f, 0.40f, 1 }); }
@@ -6862,11 +10304,11 @@ ACS_EDITOR_API int acs_editor_add_node3d(void* handle, int prim, const char* nam
 /** «空ノード» (描画しないグループ用トランスフォーム。2D の空ノード相当) を追加する。新 id (失敗 -1)。
  *  メッシュは描画ループでスキップされる (kind=6)。子をぶら下げる/整理する親として使う。 */
 ACS_EDITOR_API int acs_editor_add_empty3d(void* handle, const char* name) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return -1;
-    game::FNode3D& n = AddNode3D(*host, (name != nullptr && name[0] != '\0') ? name : "Empty");
+    game::ANode& n = AddNode3D(*host, (name != nullptr && name[0] != '\0') ? name : "Empty");
     const int id = host->next_id3d++;
-    EEd3DRec* r = n.GetComponent<EEd3DRec>();
+    AEditor3DRecordComponent* r = n.GetComponent<AEditor3DRecordComponent>();
     if (r != nullptr) { r->id = id; r->is_empty = true; }
     SetSel3D(*host, id);
     return id;
@@ -6874,23 +10316,23 @@ ACS_EDITOR_API int acs_editor_add_empty3d(void* handle, const char* name) {
 
 /** 3D ノードの subtree を parent の下にクローンする。transform/euler/prim/color/material/子 を複製。
  *  注: スプライト/手続きポリゴンの «ジオメトリ再生成» は未対応 (prim mesh として複製される)。返り値=トップ複製の id。 */
-static int CloneNode3DSubtree(EditorHost& h, game::FNode3D* src, game::FNode3D* parent) noexcept {
+static int CloneNode3DSubtree(FEditorHost& h, game::ANode* src, game::ANode* parent) noexcept {
     char nm[64];
     const FStringView sn = src->Name();
     const usize ln = (sn.Size() < sizeof(nm) - 1) ? sn.Size() : sizeof(nm) - 1;
     if (ln > 0) std::memcpy(nm, sn.Data(), ln);
     nm[ln] = '\0';
-    game::FNode3D& clone = AddNode3D(h, nm);
+    game::ANode& clone = AddNode3D(h, nm);
     const int newId = h.next_id3d++;
-    EEd3DRec* sr = Rec3D(src);
-    EEd3DRec* cr = Rec3D(&clone);
+    AEditor3DRecordComponent* sr = Rec3D(src);
+    AEditor3DRecordComponent* cr = Rec3D(&clone);
     if (cr != nullptr) {
         cr->id = newId;
         if (sr != nullptr) { cr->euler = sr->euler; std::memcpy(cr->prefab_src, sr->prefab_src, sizeof(cr->prefab_src)); cr->is_empty = sr->is_empty; }   // インスタンスリンク/空フラグも複製
     }
     clone.Local() = src->Local();                    // transform をそのまま複製
-    game::FMeshComponent3D* sm = Mesh3D(src);
-    game::FMeshComponent3D* cm = Mesh3D(&clone);
+    game::AMeshComponent3D* sm = Mesh3D(src);
+    game::AMeshComponent3D* cm = Mesh3D(&clone);
     if (sm != nullptr && cm != nullptr) {
         cm->SetPrimitive(sm->Primitive());
         cm->SetColor(sm->Color());
@@ -6903,11 +10345,11 @@ static int CloneNode3DSubtree(EditorHost& h, game::FNode3D* src, game::FNode3D* 
 }
 
 /** 3D ノードの subtree を複製し、トップに重なり回避の小オフセットを付けて選択する。返り値=トップ id (失敗 -1)。 */
-static int DuplicateNode3D(EditorHost& h, game::FNode3D* src) noexcept {
+static int DuplicateNode3D(FEditorHost& h, game::ANode* src) noexcept {
     const int newId = CloneNode3DSubtree(h, src, src->Parent());
     h.scene3d.Update(0.0f);    // 保留中の reparent を一括解決 (階層を確定)
     if (newId >= 0) {
-        if (game::FNode3D* c = FindNode3DNode(h, newId)) c->Local().position.x += 1.0f;   // 元と重ならないよう +X
+        if (game::ANode* c = FindNode3DNode(h, newId)) c->Local().position.x += 1.0f;   // 元と重ならないよう +X
         SetSel3D(h, newId);
     }
     return newId;
@@ -6915,9 +10357,9 @@ static int DuplicateNode3D(EditorHost& h, game::FNode3D* src) noexcept {
 
 /** 3D ノード (とその子孫) を複製する。複製のトップを選択し、その id を返す (失敗 -1)。 */
 ACS_EDITOR_API int acs_editor_node3d_duplicate(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return -1;
-    game::FNode3D* src = FindNode3DNode(*host, id);
+    game::ANode* src = FindNode3DNode(*host, id);
     if (src == nullptr) return -1;
     PushUndo(*host);
     return DuplicateNode3D(*host, src);
@@ -6925,15 +10367,15 @@ ACS_EDITOR_API int acs_editor_node3d_duplicate(void* handle, int id) {
 
 /** 3D ノードをクリップボードへコピーする (コピー元 id を覚えるだけ)。 */
 ACS_EDITOR_API void acs_editor_node3d_copy(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host != nullptr) host->clip3d = (FindNode3DNode(*host, id) != nullptr) ? id : -1;
 }
 
 /** クリップボードの 3D ノードを (元と同じ親へ) 貼り付ける。貼り付けたトップ id を返す (失敗 -1)。 */
 ACS_EDITOR_API int acs_editor_node3d_paste(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return -1;
-    game::FNode3D* src = FindNode3DNode(*host, host->clip3d);
+    game::ANode* src = FindNode3DNode(*host, host->clip3d);
     if (src == nullptr) return -1;
     PushUndo(*host);
     return DuplicateNode3D(*host, src);
@@ -6941,9 +10383,9 @@ ACS_EDITOR_API int acs_editor_node3d_paste(void* handle) {
 
 /** メッシュファイル (.gltf/.glb/.obj/.fbx) を 3D ノードとして読み込む。新ノード id (失敗 -1)。 */
 ACS_EDITOR_API int acs_editor_add_mesh3d(void* handle, const char* path, const char* name) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || path == nullptr) return -1;
-    TSharedPtr<Asset> mesh = LoadMeshFile(path);
+    TSharedPtr<FAsset> mesh = LoadMeshFile(path);
     if (!mesh) return -1;
     char nmbuf[64];
     if (name != nullptr && name[0] != '\0') std::snprintf(nmbuf, sizeof(nmbuf), "%s", name);
@@ -6952,11 +10394,11 @@ ACS_EDITOR_API int acs_editor_add_mesh3d(void* handle, const char* path, const c
         if (base2 != nullptr && base2 > base) base = base2;
         std::snprintf(nmbuf, sizeof(nmbuf), "%s", (base != nullptr) ? base + 1 : path);
     }
-    game::FNode3D& n = AddNode3D(*host, nmbuf);   // 名前は Spawn(nmbuf) で設定済み
+    game::ANode& n = AddNode3D(*host, nmbuf);   // 名前は Spawn(nmbuf) で設定済み
     const int id = host->next_id3d++;
-    n.GetComponent<EEd3DRec>()->id = id;
+    n.GetComponent<AEditor3DRecordComponent>()->id = id;
     n.Local().position = FVec3{ 0, 0.5f, 0 };
-    game::FMeshComponent3D* m = n.GetComponent<game::FMeshComponent3D>();
+    game::AMeshComponent3D* m = n.GetComponent<game::AMeshComponent3D>();
     m->SetMeshAsset(mesh);                          // 種別 Mesh + 所有 (ノード破棄で解放)
     m->SetColor(FVec4{ 0.78f, 0.78f, 0.82f, 1 });
     m->SetMeshPath(FStringView(path));              // 元ファイルパスを記録 (保存/再読込用)
@@ -6966,7 +10408,7 @@ ACS_EDITOR_API int acs_editor_add_mesh3d(void* handle, const char* path, const c
 
 /** 画像ファイルを z=0 のスプライト (テクスチャ付きクアッド) として 3D シーンに追加。新 id (失敗 -1)。 */
 ACS_EDITOR_API int acs_editor_add_sprite3d(void* handle, const char* path, const char* name) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || path == nullptr || path[0] == '\0') return -1;
     if (!Ensure3D(*host)) return -1;                // sprite パイプライン / device を準備
     u32 iw = 0, ih = 0;
@@ -6979,9 +10421,9 @@ ACS_EDITOR_API int acs_editor_add_sprite3d(void* handle, const char* path, const
         if (base2 != nullptr && base2 > base) base = base2;
         std::snprintf(nmbuf, sizeof(nmbuf), "%s", (base != nullptr) ? base + 1 : path);
     }
-    game::FNode3D& n = AddNode3D(*host, nmbuf);
+    game::ANode& n = AddNode3D(*host, nmbuf);
     const int id = host->next_id3d++;
-    EEd3DRec* rec = n.GetComponent<EEd3DRec>();
+    AEditor3DRecordComponent* rec = n.GetComponent<AEditor3DRecordComponent>();
     rec->id = id;
     std::snprintf(rec->sprite_path, sizeof(rec->sprite_path), "%s", path);   // 再読込用に画像パスを保持 (シリアライズ)
     // 画像アスペクト比に合わせて scale (長辺 = 2.0 world)。単位クアッドは local XY ±0.5。
@@ -6990,7 +10432,7 @@ ACS_EDITOR_API int acs_editor_add_sprite3d(void* handle, const char* path, const
     n.Local().scale    = FVec3{ (aspect >= 1.0f) ? longSide : longSide * aspect,
                                 (aspect >= 1.0f) ? longSide / aspect : longSide, 1.0f };
     n.Local().position = FVec3{ 0, 1.0f, 0 };       // 原点より少し上 (床に埋まらない)
-    game::FMeshComponent3D* m = n.GetComponent<game::FMeshComponent3D>();
+    game::AMeshComponent3D* m = n.GetComponent<game::AMeshComponent3D>();
     m->SetColor(FVec4{ 1, 1, 1, 1 });
     IRhiTexture* raw = tex.Get();                   // 所有は host->sprite_textures に移す (heap 上の実体は不動)
     host->sprite_textures.PushBack(Move(tex));
@@ -7002,18 +10444,18 @@ ACS_EDITOR_API int acs_editor_add_sprite3d(void* handle, const char* path, const
 /** 2D ポリゴン (XY 平面の点列 xy[count*2]) を 3D シーンのフラットノードとして追加する。新 id (失敗 -1)。 */
 ACS_EDITOR_API int acs_editor_add_polygon3d(void* handle, const float* xy, int count,
                                             float r, float g, float b, float a, const char* name) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || xy == nullptr || count < 3) return -1;
     TArray<FVec2> pts; pts.Reserve(static_cast<usize>(count));
     for (int i = 0; i < count; ++i) pts.PushBack(FVec2{ xy[i * 2], xy[i * 2 + 1] });
-    TSharedPtr<Asset> mesh = MakeFlatPolygon3D(pts.Data(), static_cast<u32>(count));
+    TSharedPtr<FAsset> mesh = MakeFlatPolygon3D(pts.Data(), static_cast<u32>(count));
     if (!mesh) return -1;
-    game::FNode3D& n = AddNode3D(*host, (name != nullptr && name[0] != '\0') ? name : "Polygon2D");
+    game::ANode& n = AddNode3D(*host, (name != nullptr && name[0] != '\0') ? name : "Polygon2D");
     const int id = host->next_id3d++;
-    EEd3DRec* rec = n.GetComponent<EEd3DRec>();
+    AEditor3DRecordComponent* rec = n.GetComponent<AEditor3DRecordComponent>();
     rec->id = id;
     rec->poly_pts = Move(pts);                           // 再生成用に元 2D 頂点列を保持 (シリアライズ。pts は以降不要)
-    game::FMeshComponent3D* m = n.GetComponent<game::FMeshComponent3D>();
+    game::AMeshComponent3D* m = n.GetComponent<game::AMeshComponent3D>();
     m->SetMeshAsset(mesh);                               // prim=Mesh + 所有 (z=0 フラットメッシュ)
     m->SetColor(FVec4{ r, g, b, a });
     SetSel3D(*host, id);
@@ -7024,13 +10466,13 @@ ACS_EDITOR_API int acs_editor_add_polygon3d(void* handle, const float* xy, int c
 
 /** Ortho ポリゴン描画を開始する (頂点バッファをクリア)。 */
 ACS_EDITOR_API void acs_editor_poly3d_begin(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host != nullptr) host->poly3d_pts.Clear();
 }
 
 /** 描画中: スクリーン点を z=0 へ逆射影して頂点を追加する。追加後の頂点数を返す。 */
 ACS_EDITOR_API int acs_editor_poly3d_add_point(void* handle, float sx, float sy) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     IRhiSwapchain* sc = host->renderer.Swapchain();
     if (sc != nullptr) {
@@ -7043,17 +10485,17 @@ ACS_EDITOR_API int acs_editor_poly3d_add_point(void* handle, float sx, float sy)
 
 /** 描画を確定し、頂点列からフラットポリゴンノードを作る。新 id (頂点<3 で -1)。 */
 ACS_EDITOR_API int acs_editor_poly3d_finalize(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || host->poly3d_pts.Size() < 3) { if (host != nullptr) host->poly3d_pts.Clear(); return -1; }
-    TSharedPtr<Asset> mesh = MakeFlatPolygon3D(host->poly3d_pts.Data(), static_cast<u32>(host->poly3d_pts.Size()));
+    TSharedPtr<FAsset> mesh = MakeFlatPolygon3D(host->poly3d_pts.Data(), static_cast<u32>(host->poly3d_pts.Size()));
     if (!mesh) { host->poly3d_pts.Clear(); return -1; }
-    game::FNode3D& n = AddNode3D(*host, "Polygon2D");
+    game::ANode& n = AddNode3D(*host, "Polygon2D");
     const int id = host->next_id3d++;
-    EEd3DRec* rec = n.GetComponent<EEd3DRec>();
+    AEditor3DRecordComponent* rec = n.GetComponent<AEditor3DRecordComponent>();
     rec->id = id;
     rec->poly_pts = Move(host->poly3d_pts);              // 再生成用に元 2D 頂点列を保持 (シリアライズ。mesh は構築済み)
     host->poly3d_pts.Clear();                            // moved-from を明示的に空へ
-    game::FMeshComponent3D* m = n.GetComponent<game::FMeshComponent3D>();
+    game::AMeshComponent3D* m = n.GetComponent<game::AMeshComponent3D>();
     m->SetMeshAsset(mesh);
     m->SetColor(FVec4{ 0.45f, 0.78f, 0.95f, 1 });
     SetSel3D(*host, id);
@@ -7062,21 +10504,21 @@ ACS_EDITOR_API int acs_editor_poly3d_finalize(void* handle) {
 
 /** Ortho ポリゴン描画をキャンセルする。 */
 ACS_EDITOR_API void acs_editor_poly3d_cancel(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host != nullptr) host->poly3d_pts.Clear();
 }
 
 /** 描画中の頂点数。 */
 ACS_EDITOR_API int acs_editor_poly3d_count(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? static_cast<int>(host->poly3d_pts.Size()) : 0;
 }
 
 /** 3D ノードを削除する (成功 1)。 */
 ACS_EDITOR_API int acs_editor_delete_node3d(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
-    game::FNode3D* nn = FindNode3DNode(*host, id);
+    game::ANode* nn = FindNode3DNode(*host, id);
     if (nn == nullptr) return 0;
     nn->Destroy();
     host->scene3d.Update(0.0f);          // 破棄予定を purge + 即 reap (構造変更を確定)
@@ -7086,36 +10528,36 @@ ACS_EDITOR_API int acs_editor_delete_node3d(void* handle, int id) {
 
 /** 3D ノード数 (root を除く全ノード、階層含む)。 */
 ACS_EDITOR_API int acs_editor_node3d_count(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
-    TArray<game::FNode3D*> all; Dfs3DCollect(&host->scene3d.Root(), all);
+    TArray<game::ANode*> all; Dfs3DCollect(&host->scene3d.Root(), all);
     return static_cast<int>(all.Size());
 }
 
 /** DFS pre-order で index 番目の 3D ノード id (範囲外は -1)。階層は親→子の順で並ぶ。 */
 ACS_EDITOR_API int acs_editor_node3d_id_at(void* handle, int index) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || index < 0) return -1;
-    TArray<game::FNode3D*> all; Dfs3DCollect(&host->scene3d.Root(), all);
+    TArray<game::ANode*> all; Dfs3DCollect(&host->scene3d.Root(), all);
     if (static_cast<u32>(index) >= all.Size()) return -1;
-    EEd3DRec* r = Rec3D(all[static_cast<u32>(index)]);
+    AEditor3DRecordComponent* r = Rec3D(all[static_cast<u32>(index)]);
     return (r != nullptr) ? r->id : -1;
 }
 
 /** ノードの親の editor id を返す (root 直下 / 無効は -1)。Hierarchy パネルの木構築用。 */
 ACS_EDITOR_API int acs_editor_node3d_parent(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return -1;
     return ParentId3D(*host, FindNode3DNode(*host, id));
 }
 
 /** child を parent(=-1 で root) の子に付け替える。成功 1。 */
 ACS_EDITOR_API int acs_editor_reparent3d(void* handle, int child_id, int parent_id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
-    game::FNode3D* child = FindNode3DNode(*host, child_id);
+    game::ANode* child = FindNode3DNode(*host, child_id);
     if (child == nullptr) return 0;
-    game::FNode3D* parent = (parent_id < 0) ? &host->scene3d.Root() : FindNode3DNode(*host, parent_id);
+    game::ANode* parent = (parent_id < 0) ? &host->scene3d.Root() : FindNode3DNode(*host, parent_id);
     if (parent == nullptr) return 0;
     child->Reparent(*parent);                 // cycle/自己は engine 側で弾く
     host->scene3d.Update(0.0f);               // 構造変更を即時解決
@@ -7124,9 +10566,9 @@ ACS_EDITOR_API int acs_editor_reparent3d(void* handle, int child_id, int parent_
 
 /** 3D ノードの名前を out (cap) へ書く。成功 1。 */
 ACS_EDITOR_API int acs_editor_node3d_name(void* handle, int id, char* out, int cap) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || out == nullptr || cap <= 0) return 0;
-    game::FNode3D* n = FindNode3DNode(*host, id);
+    game::ANode* n = FindNode3DNode(*host, id);
     if (n == nullptr) return 0;
     const FStringView nv = n->Name();
     std::snprintf(out, static_cast<size_t>(cap), "%.*s", static_cast<int>(nv.Size()), nv.Data());
@@ -7135,9 +10577,9 @@ ACS_EDITOR_API int acs_editor_node3d_name(void* handle, int id, char* out, int c
 
 /** 3D ノードをリネームする。成功 1 / 失敗 0。Undo 可。 */
 ACS_EDITOR_API int acs_editor_node3d_set_name(void* handle, int id, const char* name) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || name == nullptr || name[0] == '\0') return 0;
-    game::FNode3D* n = FindNode3DNode(*host, id);
+    game::ANode* n = FindNode3DNode(*host, id);
     if (n == nullptr) return 0;
     PushUndo(*host);
     n->SetName(FStringView(name));
@@ -7146,20 +10588,20 @@ ACS_EDITOR_API int acs_editor_node3d_set_name(void* handle, int id, const char* 
 
 /** 3D ノードの prim 種別 (0=Cube 1=Sphere 2=Plane 3=Mesh、無効は -1)。 */
 ACS_EDITOR_API int acs_editor_node3d_prim(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return -1;
-    game::FNode3D* n = FindNode3DNode(*host, id);
+    game::ANode* n = FindNode3DNode(*host, id);
     return (n != nullptr) ? NPrim(n) : -1;
 }
 
 /** 3D ノードの «種別» を返す: 0=Cube 1=Sphere 2=Plane 3=Mesh 4=Sprite 5=Polygon (不明 -1)。
  *  prim だけでは sprite/polygon を見分けられない (内部 prim は Cube/Mesh のまま) ため別に公開する。 */
 ACS_EDITOR_API int acs_editor_node3d_kind(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return -1;
-    game::FNode3D* n = FindNode3DNode(*host, id);
+    game::ANode* n = FindNode3DNode(*host, id);
     if (n == nullptr) return -1;
-    EEd3DRec* r = Rec3D(n);
+    AEditor3DRecordComponent* r = Rec3D(n);
     if (r != nullptr && r->is_empty)               return 6;       // Empty (描画しないグループ用トランスフォーム)
     if (r != nullptr && r->sprite_path[0] != '\0') return 4;       // Sprite (テクスチャ付きクアッド)
     if (r != nullptr && r->poly_pts.Size() >= 3)   return 5;       // Polygon (z=0 手続きメッシュ)
@@ -7168,22 +10610,22 @@ ACS_EDITOR_API int acs_editor_node3d_kind(void* handle, int id) {
 
 /** スプライトノードの画像パスを返す (スプライトでなければ "")。 */
 ACS_EDITOR_API const char* acs_editor_node3d_sprite_get(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return "";
-    game::FNode3D* n = FindNode3DNode(*host, id);
-    EEd3DRec* r = Rec3D(n);
+    game::ANode* n = FindNode3DNode(*host, id);
+    AEditor3DRecordComponent* r = Rec3D(n);
     return (r != nullptr) ? r->sprite_path : "";
 }
 
 /** スプライトノードの画像を差し替える (テクスチャ再ロード)。成功 1。 */
 ACS_EDITOR_API int acs_editor_node3d_set_sprite(void* handle, int id, const char* path) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || path == nullptr || path[0] == '\0') return 0;
     if (!Ensure3D(*host)) return 0;
-    game::FNode3D* n = FindNode3DNode(*host, id);
+    game::ANode* n = FindNode3DNode(*host, id);
     if (n == nullptr) return 0;
-    EEd3DRec* r = Rec3D(n);
-    game::FMeshComponent3D* m = Mesh3D(n);
+    AEditor3DRecordComponent* r = Rec3D(n);
+    game::AMeshComponent3D* m = Mesh3D(n);
     if (r == nullptr || m == nullptr) return 0;
     u32 iw = 0, ih = 0;
     TUniquePtr<IRhiTexture> tex = LoadTexWithSize(*host, path, iw, ih);
@@ -7198,11 +10640,11 @@ ACS_EDITOR_API int acs_editor_node3d_set_sprite(void* handle, int id, const char
 /** スプライトノードの画像を外し、平面プリミティブへ戻す (2D node_clear_sprite の 3D 版)。成功 1。
  *  スプライト (sprite_path) でなければ何もせず 0。kind は以降 NPrim (= Plane) を返す。 */
 ACS_EDITOR_API int acs_editor_node3d_clear_sprite(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    game::FNode3D* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
     if (n == nullptr) return 0;
-    EEd3DRec* r = Rec3D(n);
-    game::FMeshComponent3D* m = Mesh3D(n);
+    AEditor3DRecordComponent* r = Rec3D(n);
+    game::AMeshComponent3D* m = Mesh3D(n);
     if (r == nullptr || m == nullptr || r->sprite_path[0] == '\0') return 0;
     PushUndo(*host);
     r->sprite_path[0] = '\0';                                       // スプライト解除 (kind が NPrim に戻る)
@@ -7213,8 +10655,8 @@ ACS_EDITOR_API int acs_editor_node3d_clear_sprite(void* handle, int id) {
 
 /** 3D ノードに prefab/blueprint インスタンスリンク (.acsprefab/.acsbp パス) を張る (2D 版の 3D 対応)。成功 1。 */
 ACS_EDITOR_API int acs_editor_node3d_set_prefab_src(void* handle, int id, const char* path) {
-    auto* host = static_cast<EditorHost*>(handle);
-    EEd3DRec* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditor3DRecordComponent* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
     if (r == nullptr) return 0;
     std::snprintf(r->prefab_src, sizeof(r->prefab_src), "%s", (path != nullptr) ? path : "");
     return 1;
@@ -7222,20 +10664,20 @@ ACS_EDITOR_API int acs_editor_node3d_set_prefab_src(void* handle, int id, const 
 
 /** 3D ノードの prefab/blueprint リンクパスを返す (インスタンスでなければ "")。 */
 ACS_EDITOR_API const char* acs_editor_node3d_get_prefab_src(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    EEd3DRec* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditor3DRecordComponent* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
     return (r != nullptr) ? r->prefab_src : "";
 }
 
 /** プリミティブノードの形状を切り替える (0=Cube 1=Sphere 2=Plane)。sprite/polygon/mesh は対象外。成功 1。 */
 ACS_EDITOR_API int acs_editor_node3d_set_prim(void* handle, int id, int prim) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || prim < 0 || prim > 2) return 0;
-    game::FNode3D* n = FindNode3DNode(*host, id);
+    game::ANode* n = FindNode3DNode(*host, id);
     if (n == nullptr) return 0;
-    EEd3DRec* r = Rec3D(n);
+    AEditor3DRecordComponent* r = Rec3D(n);
     if (r != nullptr && (r->sprite_path[0] != '\0' || r->poly_pts.Size() >= 3)) return 0;   // sprite/polygon は不可
-    game::FMeshComponent3D* m = Mesh3D(n);
+    game::AMeshComponent3D* m = Mesh3D(n);
     if (m == nullptr || m->Primitive() == game::EMeshPrimitive3D::Mesh) return 0;            // mesh アセットも不可
     m->SetPrimitive(static_cast<game::EMeshPrimitive3D>(prim));
     return 1;
@@ -7243,12 +10685,12 @@ ACS_EDITOR_API int acs_editor_node3d_set_prim(void* handle, int id, int prim) {
 
 /** 3D ノードの transform (pos/rot(度)/scale = 9 float) を取得する。成功 1。 */
 ACS_EDITOR_API int acs_editor_node3d_get_transform(void* handle, int id, float* out9) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || out9 == nullptr) return 0;
-    game::FNode3D* n = FindNode3DNode(*host, id);
+    game::ANode* n = FindNode3DNode(*host, id);
     if (n == nullptr) return 0;
     const FVec3 p = n->Local().position, s = n->Local().scale;
-    EEd3DRec* r = Rec3D(n);
+    AEditor3DRecordComponent* r = Rec3D(n);
     const FVec3 e = (r != nullptr) ? r->euler : FVec3{ 0, 0, 0 };
     out9[0] = p.x; out9[1] = p.y; out9[2] = p.z;
     out9[3] = e.x; out9[4] = e.y; out9[5] = e.z;   // authored オイラー (度)
@@ -7259,23 +10701,40 @@ ACS_EDITOR_API int acs_editor_node3d_get_transform(void* handle, int id, float* 
 /** 3D ノードの transform を設定する。成功 1。 */
 ACS_EDITOR_API int acs_editor_node3d_set_transform(void* handle, int id,
         float px, float py, float pz, float rx, float ry, float rz, float sx, float sy, float sz) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
-    game::FNode3D* n = FindNode3DNode(*host, id);
+    game::ANode* n = FindNode3DNode(*host, id);
     if (n == nullptr) return 0;
+    if (!std::isfinite(px) || !std::isfinite(py) || !std::isfinite(pz) ||
+        !std::isfinite(rx) || !std::isfinite(ry) || !std::isfinite(rz) ||
+        !std::isfinite(sx) || !std::isfinite(sy) || !std::isfinite(sz)) {
+        return 0;
+    }
+    // PBR, motion-vector, and refraction passes use inverse-transpose normal
+    // matrices.  Preserve mirrored scales, but keep every axis invertible so
+    // an exact editor value of zero cannot inject NaN/Inf into the G-buffer.
+    constexpr f32 kMinScaleMagnitude = 1.0e-4f;
+    auto invertibleScale = [](f32 value) noexcept {
+        if (value >= 0.0f && value < kMinScaleMagnitude) return kMinScaleMagnitude;
+        if (value < 0.0f && value > -kMinScaleMagnitude) return -kMinScaleMagnitude;
+        return value;
+    };
+    sx = invertibleScale(sx);
+    sy = invertibleScale(sy);
+    sz = invertibleScale(sz);
     n->Local().position = FVec3{ px, py, pz };
     n->Local().scale    = FVec3{ sx, sy, sz };
     const FVec3 e{ rx, ry, rz };
     n->Local().SetEulerDeg(e);                       // quat に焼く (描画/合成用)
-    EEd3DRec* r = Rec3D(n); if (r != nullptr) r->euler = e;   // authored 値も保持
+    AEditor3DRecordComponent* r = Rec3D(n); if (r != nullptr) r->euler = e;   // authored 値も保持
     return 1;
 }
 
 /** 3D ノードの色を取得する (rgba)。成功 1。 */
 ACS_EDITOR_API int acs_editor_node3d_get_color(void* handle, int id, float* out4) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || out4 == nullptr) return 0;
-    game::FNode3D* n = FindNode3DNode(*host, id);
+    game::ANode* n = FindNode3DNode(*host, id);
     if (n == nullptr) return 0;
     const FVec4 c = NColor(n);
     out4[0] = c.x; out4[1] = c.y; out4[2] = c.z; out4[3] = c.w;
@@ -7284,11 +10743,11 @@ ACS_EDITOR_API int acs_editor_node3d_get_color(void* handle, int id, float* out4
 
 /** 3D ノードの色を設定する。成功 1。 */
 ACS_EDITOR_API int acs_editor_node3d_set_color(void* handle, int id, float r, float g, float b, float a) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
-    game::FNode3D* n = FindNode3DNode(*host, id);
+    game::ANode* n = FindNode3DNode(*host, id);
     if (n == nullptr) return 0;
-    game::FMeshComponent3D* m = Mesh3D(n);
+    game::AMeshComponent3D* m = Mesh3D(n);
     if (m != nullptr) m->SetColor(FVec4{ r, g, b, a });
     return 1;
 }
@@ -7297,10 +10756,10 @@ ACS_EDITOR_API int acs_editor_node3d_set_color(void* handle, int id, float r, fl
 
 /** 3D ノードに使用マテリアル (.acsmat パス) を割り当てる。即解析。成功 1 / 不明 0。 */
 ACS_EDITOR_API int acs_editor_node3d_set_material(void* handle, int id, const char* utf8_path) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || utf8_path == nullptr) return 0;
-    game::FNode3D* n = FindNode3DNode(*host, id);
-    game::FMeshComponent3D* mc = Mesh3D(n);
+    game::ANode* n = FindNode3DNode(*host, id);
+    game::AMeshComponent3D* mc = Mesh3D(n);
     if (mc == nullptr) return 0;
     PushUndo(*host);
     mc->SetMaterialPath(FStringView{ utf8_path });   // 2D 同様 set_material に渡された絶対パスをそのまま保持
@@ -7310,17 +10769,17 @@ ACS_EDITOR_API int acs_editor_node3d_set_material(void* handle, int id, const ch
 
 /** 3D ノードの使用マテリアルパス (UTF-8) を返す (未設定/不明は "")。 */
 ACS_EDITOR_API const char* acs_editor_node3d_get_material(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    game::FMeshComponent3D* mc = (host != nullptr) ? Mesh3D(FindNode3DNode(*host, id)) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::AMeshComponent3D* mc = (host != nullptr) ? Mesh3D(FindNode3DNode(*host, id)) : nullptr;
     if (mc == nullptr || mc->MaterialPath().Size() == 0) return "";
     return mc->MaterialPath().Data();   // FString の NUL 終端バッファ (C# 側で即コピー)
 }
 
 /** 3D ノードのマテリアルを外す。成功 1 / 不明 0。 */
 ACS_EDITOR_API int acs_editor_node3d_clear_material(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    game::FNode3D* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
-    game::FMeshComponent3D* mc = Mesh3D(n);
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
+    game::AMeshComponent3D* mc = Mesh3D(n);
     if (mc == nullptr) return 0;
     PushUndo(*host);
     mc->ClearMaterial();
@@ -7330,44 +10789,44 @@ ACS_EDITOR_API int acs_editor_node3d_clear_material(void* handle, int id) {
 
 /** 選択中の 3D ノード id (-1=なし)。 */
 ACS_EDITOR_API int acs_editor_selected3d(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? host->sel3d : -1;
 }
 
 /** 3D ノードを選択する (id<0 で選択解除)。単一選択 (集合を {id} に)。 */
 ACS_EDITOR_API void acs_editor_select3d(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host != nullptr) SetSel3D(*host, id);
 }
 /** 3D 選択を反転する (Ctrl+click。multi-select)。 */
 ACS_EDITOR_API void acs_editor_select3d_toggle(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host != nullptr) ToggleSel3D(*host, id);
 }
 /** id が 3D 選択集合に含まれるか。 */
 ACS_EDITOR_API int acs_editor_node3d_is_selected(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && Sel3DContains(*host, id)) ? 1 : 0;
 }
 /** 3D 選択集合の要素数。 */
 ACS_EDITOR_API int acs_editor_selected3d_count(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? static_cast<int>(host->sel3d_multi.Size()) : 0;
 }
 /** 3D 選択集合の index 番目の id (範囲外は -1)。 */
 ACS_EDITOR_API int acs_editor_selected3d_at(void* handle, int index) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || index < 0 || index >= static_cast<int>(host->sel3d_multi.Size())) return -1;
     return host->sel3d_multi[static_cast<u32>(index)];
 }
 /** 3D 選択ノードを整列する (mode: 0=left/1=right/2=top/3=bottom/4=center-h/5=center-v、X=左右/Y=上下)。
  *  整列した数を返す (2 未満は 0)。XY 平面で揃える (2D ビュー編集を想定、z は不変)。 */
 ACS_EDITOR_API int acs_editor_align3d_selection(void* handle, int mode) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     f32 minx = 0, maxx = 0, miny = 0, maxy = 0; bool first = true; int cnt = 0;
     for (u32 i = 0; i < host->sel3d_multi.Size(); ++i) {
-        game::FNode3D* n = FindNode3DNode(*host, host->sel3d_multi[i]);
+        game::ANode* n = FindNode3DNode(*host, host->sel3d_multi[i]);
         if (n == nullptr) continue;
         const FVec3 p = n->Local().position;
         if (first) { minx = maxx = p.x; miny = maxy = p.y; first = false; }
@@ -7379,7 +10838,7 @@ ACS_EDITOR_API int acs_editor_align3d_selection(void* handle, int mode) {
     const f32 cx = (minx + maxx) * 0.5f, cy = (miny + maxy) * 0.5f;
     int applied = 0;
     for (u32 i = 0; i < host->sel3d_multi.Size(); ++i) {
-        game::FNode3D* n = FindNode3DNode(*host, host->sel3d_multi[i]);
+        game::ANode* n = FindNode3DNode(*host, host->sel3d_multi[i]);
         if (n == nullptr) continue;
         FVec3 p = n->Local().position;
         switch (mode) {
@@ -7396,11 +10855,11 @@ ACS_EDITOR_API int acs_editor_align3d_selection(void* handle, int mode) {
 /** 3D 選択を axis (0=X, 1=Y) で均等分散する (2D distribute_selection の 3D 版)。
  *  両端は固定し中間ノードを等間隔に。z は不変。3 個未満は何もせず 0。 */
 ACS_EDITOR_API int acs_editor_distribute3d_selection(void* handle, int axis) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     TArray<int> ids; TArray<f32> pos;
     for (u32 i = 0; i < host->sel3d_multi.Size(); ++i) {
-        game::FNode3D* n = FindNode3DNode(*host, host->sel3d_multi[i]);
+        game::ANode* n = FindNode3DNode(*host, host->sel3d_multi[i]);
         if (n == nullptr) continue;
         const FVec3 p = n->Local().position;
         ids.PushBack(host->sel3d_multi[i]);
@@ -7417,7 +10876,7 @@ ACS_EDITOR_API int acs_editor_distribute3d_selection(void* handle, int axis) {
     PushUndo(*host);
     const f32 step = (pos[n - 1] - pos[0]) / static_cast<f32>(n - 1);
     for (u32 i = 1; i + 1 < n; ++i) {                          // 両端固定・中間を均等配置
-        game::FNode3D* node = FindNode3DNode(*host, ids[i]);
+        game::ANode* node = FindNode3DNode(*host, ids[i]);
         if (node == nullptr) continue;
         const f32 target = pos[0] + step * static_cast<f32>(i);
         if (axis == 0) node->Local().position.x = target;
@@ -7426,18 +10885,19 @@ ACS_EDITOR_API int acs_editor_distribute3d_selection(void* handle, int axis) {
     return static_cast<int>(n);
 }
 
-/** 3D シーンをテキストへシリアライズする (C# が保存)。書いた文字数を返す。
+/** 3D シーンをテキストへシリアライズする (C# が保存)。
+ *  成功時は書いた文字数、容量不足時は cap 以上を返すため、呼び出し側は grow/retry できる。
  *  形式: "N3D <id> <parent> <prim> px py pz rx ry rz sx sy sz r g b a <name>" (DFS、親が先)。 */
-static bool AttachComponent3D(EEd3DRec* r, const char* type_name) noexcept;   // 前方宣言 (load_text が使う)
+static bool AttachComponent3D(AEditor3DRecordComponent* r, const char* type_name) noexcept;   // 前方宣言 (load_text が使う)
 
 /** 1 ノード分のブロック (N3D + MSH3D/SPR3D/PLY3D/CMP3D/CPROP3D/FLG3D/MAT3D) を out[cur..] へ追記する。
  *  parentOverride>=-1 ならその値を親 id として書く (-2 = 実際の親 ParentId3D を使う)。
  *  容量超過時は out を NUL 終端し *overflow=true として打ち切った cur を返す。返り値=追記後の cur。
  *  scene3d_serialize (全体) と copy_subtree3d (部分) の «単一ソース»。 */
-static int EmitNode3DBlock(char* out, int cur, int cap, EditorHost* host,
-                           game::FNode3D* nn, int parentOverride, bool* overflow) noexcept {
+static int EmitNode3DBlock(char* out, int cur, int cap, FEditorHost* host,
+                           game::ANode* nn, int parentOverride, bool* overflow) noexcept {
     *overflow = false;
-    EEd3DRec* r = Rec3D(nn);
+    AEditor3DRecordComponent* r = Rec3D(nn);
     if (r == nullptr) return cur;
     const FVec3 p = nn->Local().position, s = nn->Local().scale, e = r->euler;
     const FVec4 col = NColor(nn);
@@ -7450,7 +10910,7 @@ static int EmitNode3DBlock(char* out, int cur, int cap, EditorHost* host,
         s.x, s.y, s.z, col.x, col.y, col.z, col.w, nm);
     if (w < 0 || w >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
     cur += w;
-    game::FMeshComponent3D* mc = Mesh3D(nn);
+    game::AMeshComponent3D* mc = Mesh3D(nn);
     if (prim == 3 && mc != nullptr && mc->MeshPath().Size() > 0 && cur < cap) {     // カスタムメッシュの元ファイル
         char mp[300]; { const FStringView pv = mc->MeshPath(); u32 ln = 0; for (; ln < pv.Size() && ln + 1u < sizeof(mp); ++ln) mp[ln] = pv[ln]; mp[ln] = '\0'; }
         const int w2 = std::snprintf(out + cur, static_cast<size_t>(cap - cur), "MSH3D %d %s\n", r->id, mp);
@@ -7494,7 +10954,7 @@ static int EmitNode3DBlock(char* out, int cur, int cap, EditorHost* host,
         if (wf < 0 || wf >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
         cur += wf;
     }
-    game::FMeshComponent3D* mc3 = Mesh3D(nn);                                       // マテリアル (.acsmat アセット参照)
+    game::AMeshComponent3D* mc3 = Mesh3D(nn);                                       // マテリアル (.acsmat アセット参照)
     if (mc3 != nullptr && mc3->MaterialPath().Size() > 0 && cur < cap) {            // 新形式: «MAT3D id <path>» (SPR3D 同形式)
         char mpath[260]; const u32 ml = (mc3->MaterialPath().Size() < 259u) ? static_cast<u32>(mc3->MaterialPath().Size()) : 259u;
         std::memcpy(mpath, mc3->MaterialPath().Data(), ml); mpath[ml] = '\0';
@@ -7521,31 +10981,47 @@ static int EmitNode3DBlock(char* out, int cur, int cap, EditorHost* host,
     return cur;
 }
 
+/** Serializes the complete 3D scene.
+ *  Returns the UTF-8 byte count excluding NUL. If the buffer is insufficient, returns cap (or
+ *  greater for a header-only overflow), clears out[0], and the caller must grow and retry. */
 ACS_EDITOR_API int acs_editor_scene3d_serialize(void* handle, char* out, int cap) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || out == nullptr || cap <= 0) return 0;
-    int cur = 0;
-    cur += std::snprintf(out + cur, static_cast<size_t>(cap - cur), "ACS3D v2\n");
-    if (host->sel3d >= 0 && cur < cap)                   // 選択ノード id (undo/redo/load で復元。2D の SEL 行と同様)
-        cur += std::snprintf(out + cur, static_cast<size_t>(cap - cur), "SEL3D %d\n", host->sel3d);
-    TArray<game::FNode3D*> all; Dfs3DCollect(&host->scene3d.Root(), all);   // 親が子より先 (DFS pre-order)
+    int cur = std::snprintf(out, static_cast<size_t>(cap), "ACS3D v2\n");
+    if (cur < 0) { out[0] = '\0'; return 0; }
+    if (cur >= cap) { out[0] = '\0'; return cur; }
+    if (host->sel3d >= 0) {                             // 選択ノード id (undo/redo/load で復元。2D の SEL 行と同様)
+        const int written = std::snprintf(
+            out + cur, static_cast<size_t>(cap - cur), "SEL3D %d\n", host->sel3d);
+        if (written < 0) { out[0] = '\0'; return 0; }
+        if (written >= cap - cur) { out[0] = '\0'; return cap; }
+        cur += written;
+    }
+    TArray<game::ANode*> all; Dfs3DCollect(&host->scene3d.Root(), all);   // 親が子より先 (DFS pre-order)
     for (u32 i = 0; i < all.Size() && cur < cap; ++i) {
         bool ov = false;
         cur = EmitNode3DBlock(out, cur, cap, host, all[i], /*parentOverride=*/-2, &ov);   // -2 = 実際の親を使う
-        if (ov) break;
+        if (ov) {
+            out[0] = '\0';
+            return cap;
+        }
     }
-    out[cur < cap ? cur : cap - 1] = '\0';
+    if (cur >= cap) {
+        out[0] = '\0';
+        return cap;
+    }
+    out[cur] = '\0';
     return cur;
 }
 
 /** 3D ノードの subtree を ACS3D テキストへシリアライズして返す (root の親= -1)。失敗/空は ""。
  *  プレハブ/Blueprint 保存・コピー (2D copy_subtree の 3D 版) が使う。バッファは host->scene_text (64KB)。 */
 ACS_EDITOR_API const char* acs_editor_copy_subtree3d(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return "";
-    game::FNode3D* root = FindNode3DNode(*host, id);
+    game::ANode* root = FindNode3DNode(*host, id);
     if (root == nullptr) return "";
-    TArray<game::FNode3D*> sub; sub.PushBack(root); Dfs3DCollect(root, sub);   // root + 子孫 (pre-order)
+    TArray<game::ANode*> sub; sub.PushBack(root); Dfs3DCollect(root, sub);   // root + 子孫 (pre-order)
     char* buf = host->scene_text;
     const int cap = static_cast<int>(sizeof(host->scene_text));
     int cur = std::snprintf(buf, static_cast<size_t>(cap), "ACS3D v2\n");
@@ -7562,7 +11038,7 @@ ACS_EDITOR_API const char* acs_editor_copy_subtree3d(void* handle, int id) {
 /** 3D シーンテキストの解析本体。clear=true で全置換 (load_text)、false で追記 (paste_subtree3d)。
  *  idOffset を読み取った全 id に加算 (paste の id 衝突回避)。reparentRootTo>=0 なら «親 -1 の root» を
  *  その id 配下へ繋ぐ (paste のドロップ先)。out_root に最初の root の新 id を返す。成功 1。 */
-static int LoadScene3DTextImpl(EditorHost* host, const char* text, bool clear,
+static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
                                int idOffset, int reparentRootTo, int* out_root) noexcept {
     if (host == nullptr || text == nullptr) return 0;
     if (clear) {
@@ -7584,8 +11060,8 @@ static int LoadScene3DTextImpl(EditorHost* host, const char* text, bool clear,
         if (std::strncmp(line, "MSH3D ", 6) == 0) {                  // カスタムメッシュの再読込
             int mid = 0; char mp[260] = {};
             if (std::sscanf(line, "MSH3D %d %259[^\n]", &mid, mp) >= 2) {
-                if (game::FNode3D* en = FindNode3DNode(*host, mid + idOffset)) {
-                    if (game::FMeshComponent3D* m = Mesh3D(en)) {
+                if (game::ANode* en = FindNode3DNode(*host, mid + idOffset)) {
+                    if (game::AMeshComponent3D* m = Mesh3D(en)) {
                         m->SetMeshAsset(LoadMeshFile(mp));           // 失敗時 null → 描画スキップ
                         m->SetMeshPath(FStringView(mp));             // パス記録 (種別 Mesh に)
                     }
@@ -7596,8 +11072,8 @@ static int LoadScene3DTextImpl(EditorHost* host, const char* text, bool clear,
         if (std::strncmp(line, "SPR3D ", 6) == 0) {                  // スプライト (z=0 画像) の再読込
             int sid = 0; char sp[260] = {};
             if (std::sscanf(line, "SPR3D %d %259[^\n]", &sid, sp) >= 2) {
-                if (game::FNode3D* en = FindNode3DNode(*host, sid + idOffset)) {
-                    EEd3DRec* rec = Rec3D(en);
+                if (game::ANode* en = FindNode3DNode(*host, sid + idOffset)) {
+                    AEditor3DRecordComponent* rec = Rec3D(en);
                     if (rec != nullptr) std::snprintf(rec->sprite_path, sizeof(rec->sprite_path), "%s", sp);
                     u32 iw = 0, ih = 0;
                     TUniquePtr<IRhiTexture> tex = LoadTexWithSize(*host, sp, iw, ih);   // device 準備済み前提
@@ -7621,12 +11097,12 @@ static int LoadScene3DTextImpl(EditorHost* host, const char* text, bool clear,
                     pts.PushBack(FVec2{ x, y }); q += adv;
                 }
                 if (pts.Size() == pc) {
-                    if (game::FNode3D* en = FindNode3DNode(*host, pid + idOffset)) {
-                        if (game::FMeshComponent3D* m = Mesh3D(en)) {
-                            TSharedPtr<Asset> mesh = MakeFlatPolygon3D(pts.Data(), static_cast<u32>(pts.Size()));
+                    if (game::ANode* en = FindNode3DNode(*host, pid + idOffset)) {
+                        if (game::AMeshComponent3D* m = Mesh3D(en)) {
+                            TSharedPtr<FAsset> mesh = MakeFlatPolygon3D(pts.Data(), static_cast<u32>(pts.Size()));
                             if (mesh) m->SetMeshAsset(mesh);         // prim=Mesh + 所有 (z=0 フラット)
                         }
-                        EEd3DRec* rec = Rec3D(en);
+                        AEditor3DRecordComponent* rec = Rec3D(en);
                         if (rec != nullptr) rec->poly_pts = Move(pts);   // mesh 構築後に移譲 (pts は以降不要)
                     }
                 }
@@ -7642,8 +11118,8 @@ static int LoadScene3DTextImpl(EditorHost* host, const char* text, bool clear,
         if (std::strncmp(line, "CPROP3D ", 8) == 0) {                // コンポーネント編集プロパティ値の復元 (CMP3D の直後)
             int cid = 0; unsigned cslot = 0, cprop = 0; float a = 0, b = 0, cc = 0, e = 0;
             if (std::sscanf(line, "CPROP3D %d %u %u %f %f %f %f", &cid, &cslot, &cprop, &a, &b, &cc, &e) >= 3) {
-                EEd3DRec* rr = Rec3D(FindNode3DNode(*host, cid + idOffset));
-                if (rr != nullptr && cslot < rr->component_count && cprop < EEd3DRec::kMaxProps) {
+                AEditor3DRecordComponent* rr = Rec3D(FindNode3DNode(*host, cid + idOffset));
+                if (rr != nullptr && cslot < rr->component_count && cprop < AEditor3DRecordComponent::kMaxProps) {
                     f32* v = rr->comp_props[cslot][cprop];
                     v[0] = a; v[1] = b; v[2] = cc; v[3] = e;
                 }
@@ -7653,15 +11129,15 @@ static int LoadScene3DTextImpl(EditorHost* host, const char* text, bool clear,
         if (std::strncmp(line, "FLG3D ", 6) == 0) {                  // 可視/有効フラグの復元 (N3D の後)
             int fid = 0, vis = 1, ena = 1;
             if (std::sscanf(line, "FLG3D %d %d %d", &fid, &vis, &ena) >= 3) {
-                if (game::FNode3D* en = FindNode3DNode(*host, fid + idOffset)) { en->SetVisible(vis != 0); en->SetEnabled(ena != 0); }
+                if (game::ANode* en = FindNode3DNode(*host, fid + idOffset)) { en->SetVisible(vis != 0); en->SetEnabled(ena != 0); }
             }
             continue;
         }
         if (std::strncmp(line, "MAT3D ", 6) == 0) {                  // マテリアル: «MAT3D id <.acsmatパス>» (新) / «MAT3D id m r» (旧)
             int mid = 0; char rest[256] = {};
             if (std::sscanf(line, "MAT3D %d %255[^\n]", &mid, rest) >= 2) {
-                game::FNode3D* mn = FindNode3DNode(*host, mid + idOffset);
-                game::FMeshComponent3D* mc = Mesh3D(mn);
+                game::ANode* mn = FindNode3DNode(*host, mid + idOffset);
+                game::AMeshComponent3D* mc = Mesh3D(mn);
                 if (mc != nullptr) {
                     if (std::strstr(rest, ".acsmat") != nullptr) {       // 新形式: .acsmat アセットパス
                         mc->SetMaterialPath(FStringView{ rest });
@@ -7681,7 +11157,7 @@ static int LoadScene3DTextImpl(EditorHost* host, const char* text, bool clear,
         if (std::strncmp(line, "PFAB3D ", 7) == 0) {                 // prefab/blueprint インスタンスリンクの復元 (N3D の後)
             int fid = 0; char fpath[256] = {};
             if (std::sscanf(line, "PFAB3D %d %255[^\n]", &fid, fpath) >= 2) {
-                EEd3DRec* rr = Rec3D(FindNode3DNode(*host, fid + idOffset));
+                AEditor3DRecordComponent* rr = Rec3D(FindNode3DNode(*host, fid + idOffset));
                 if (rr != nullptr) std::snprintf(rr->prefab_src, sizeof(rr->prefab_src), "%s", fpath);
             }
             continue;
@@ -7689,7 +11165,7 @@ static int LoadScene3DTextImpl(EditorHost* host, const char* text, bool clear,
         if (std::strncmp(line, "EMPTY3D ", 8) == 0) {                // 空ノードフラグの復元 (N3D の後)
             int eid = 0;
             if (std::sscanf(line, "EMPTY3D %d", &eid) >= 1) {
-                EEd3DRec* rr = Rec3D(FindNode3DNode(*host, eid + idOffset));
+                AEditor3DRecordComponent* rr = Rec3D(FindNode3DNode(*host, eid + idOffset));
                 if (rr != nullptr) rr->is_empty = true;
             }
             continue;
@@ -7703,10 +11179,10 @@ static int LoadScene3DTextImpl(EditorHost* host, const char* text, bool clear,
             &scl.x, &scl.y, &scl.z, &color.x, &color.y, &color.z, &color.w, nm);
         if (got >= 16) {
             const int newId = nid + idOffset;
-            game::FNode3D& nd = AddNode3D(*host, (got >= 17) ? nm : "Node");
+            game::ANode& nd = AddNode3D(*host, (got >= 17) ? nm : "Node");
             nd.Local().position = pos; nd.Local().scale = scl; nd.Local().SetEulerDeg(rot);
-            EEd3DRec* r = nd.GetComponent<EEd3DRec>(); if (r != nullptr) { r->id = newId; r->euler = rot; }
-            game::FMeshComponent3D* m = nd.GetComponent<game::FMeshComponent3D>();
+            AEditor3DRecordComponent* r = nd.GetComponent<AEditor3DRecordComponent>(); if (r != nullptr) { r->id = newId; r->euler = rot; }
+            game::AMeshComponent3D* m = nd.GetComponent<game::AMeshComponent3D>();
             if (m != nullptr) {
                 m->SetPrimitive(static_cast<game::EMeshPrimitive3D>((nprim >= 0 && nprim <= 3) ? nprim : 0));
                 m->SetColor(color);
@@ -7715,7 +11191,7 @@ static int LoadScene3DTextImpl(EditorHost* host, const char* text, bool clear,
             const int effParent = (nparent >= 0) ? (nparent + idOffset) : reparentRootTo;
             if (nparent < 0 && firstRoot < 0) firstRoot = newId;            // 最初の root を覚える (選択用)
             if (effParent >= 0) {   // DFS 順なので親は既に存在 (root 下に居る pending も含め見つかる)
-                if (game::FNode3D* par = FindNode3DNode(*host, effParent)) nd.Reparent(*par);
+                if (game::ANode* par = FindNode3DNode(*host, effParent)) nd.Reparent(*par);
             }
             if (newId > maxId) maxId = newId;
         }
@@ -7727,8 +11203,8 @@ static int LoadScene3DTextImpl(EditorHost* host, const char* text, bool clear,
         if (restoredSel >= 0 && FindNode3DNode(*host, restoredSel) != nullptr) {
             SetSel3D(*host, restoredSel);   // SEL3D で保存された選択を復元 (undo/redo で選択維持)
         } else {                            // 無ければ先頭ノード (新規読込のデフォルト)
-            TArray<game::FNode3D*> all; Dfs3DCollect(&host->scene3d.Root(), all);
-            EEd3DRec* fr = (all.Size() > 0) ? Rec3D(all[0]) : nullptr;
+            TArray<game::ANode*> all; Dfs3DCollect(&host->scene3d.Root(), all);
+            AEditor3DRecordComponent* fr = (all.Size() > 0) ? Rec3D(all[0]) : nullptr;
             if (fr != nullptr) SetSel3D(*host, fr->id);
         }
     } else if (firstRoot >= 0) {
@@ -7739,14 +11215,14 @@ static int LoadScene3DTextImpl(EditorHost* host, const char* text, bool clear,
 
 /** 3D シーンをテキストから読み込む (既存ノードを置き換える)。成功 1。 */
 ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) {
-    return LoadScene3DTextImpl(static_cast<EditorHost*>(handle), text, /*clear=*/true,
+    return LoadScene3DTextImpl(static_cast<FEditorHost*>(handle), text, /*clear=*/true,
                                /*idOffset=*/0, /*reparentRootTo=*/-1, nullptr);
 }
 
 /** ACS3D subtree テキストを parent_id 配下へ貼り付ける (id を再採番・親 -1 の root を parent 配下へ。
  *  2D paste_subtree の 3D 版)。貼り付けたトップ root の新 id / 失敗 -1。 */
 ACS_EDITOR_API int acs_editor_paste_subtree3d(void* handle, const char* text, int parent_id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || text == nullptr) return -1;
     PushUndo(*host);
     int root = -1;
@@ -7758,7 +11234,7 @@ ACS_EDITOR_API int acs_editor_paste_subtree3d(void* handle, const char* text, in
 /** スクリーン点から 3D ノードをレイピックする。最も手前の id を返す (外れは -1)。
  *  ノードは «位置中心の球» (半径 = max scale の半分) で近似交差判定する。 */
 ACS_EDITOR_API int acs_editor_pick3d(void* handle, float sx, float sy) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return -1;
     IRhiSwapchain* sc = host->renderer.Swapchain();
     if (sc == nullptr) return -1;
@@ -7768,13 +11244,13 @@ ACS_EDITOR_API int acs_editor_pick3d(void* handle, float sx, float sy) {
     // スクリーン → ワールドレイ。行列ベースの ScreenPointToRay は «透視も正射も» 正しく扱う
     // (inverse(view_proj) で near/far を逆射影 → 正射では平行レイ、透視では eye からの放射)。
     const f32 aspect = W / H;
-    const Ray3 ray = acs::ScreenPointToRay(EditorCam3D(*host, aspect).ViewProjection(), sx, sy, W, H);
+    const FRay3 ray = acs::ScreenPointToRay(EditorCam3D(*host, aspect).ViewProjection(), sx, sy, W, H);
 
     // ノード交差は engine の FScene3D::Raycast に委譲 (回転/スケール/階層を扱う OBB ピック)。
     int best = -1;
     const game::FNodeId hitId = host->scene3d.Raycast(ray);
     if (hitId.IsValid()) {
-        EEd3DRec* hr = Rec3D(host->scene3d.Get(hitId));
+        AEditor3DRecordComponent* hr = Rec3D(host->scene3d.Get(hitId));
         if (hr != nullptr) best = hr->id;
     }
     if (best >= 0) SetSel3D(*host, best);
@@ -7784,9 +11260,9 @@ ACS_EDITOR_API int acs_editor_pick3d(void* handle, float sx, float sy) {
 /** 3D 変形ギズモの掴み開始。軸シャフト/平面ハンドルに近ければ掴む。
  *  返り値: 0=外れ, 1-3=軸(X/Y/Z), 4-6=平面(XY/YZ/XZ)。掴めたら以降の move を drag へ。 */
 ACS_EDITOR_API int acs_editor_gizmo3d_begin(void* handle, float sx, float sy) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
-    game::FNode3D* n = FindNode3DNode(*host, host->sel3d);
+    game::ANode* n = FindNode3DNode(*host, host->sel3d);
     IRhiSwapchain* sc = host->renderer.Swapchain();
     if (n == nullptr || sc == nullptr) return 0;
     const f32 W = static_cast<f32>(sc->Width()), H = static_cast<f32>(sc->Height());
@@ -7828,7 +11304,7 @@ ACS_EDITOR_API int acs_editor_gizmo3d_begin(void* handle, float sx, float sy) {
     host->giz3d_start_mx    = sx; host->giz3d_start_my = sy;
     host->giz3d_start_pos   = P;
     host->giz3d_start_scale = n->Local().scale;
-    { EEd3DRec* r = Rec3D(n); host->giz3d_start_rot = (r != nullptr) ? r->euler : FVec3{ 0, 0, 0 }; }
+    { AEditor3DRecordComponent* r = Rec3D(n); host->giz3d_start_rot = (r != nullptr) ? r->euler : FVec3{ 0, 0, 0 }; }
 
     if (best <= 3) {
         // 軸: スクリーン上の軸方向 (単位) と world/px を求める (移動を «マウスの軸方向移動» に追従)。
@@ -7856,9 +11332,9 @@ ACS_EDITOR_API int acs_editor_gizmo3d_begin(void* handle, float sx, float sy) {
 
 /** 3D ギズモのドラッグ更新。現在のモード (move/rotate/scale) に従い変形する。 */
 ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || host->giz3d_handle == 0) return;
-    game::FNode3D* n = FindNode3DNode(*host, host->sel3d);
+    game::ANode* n = FindNode3DNode(*host, host->sel3d);
     IRhiSwapchain* sc = host->renderer.Swapchain();
     if (n == nullptr || sc == nullptr) return;
     const f32 W = static_cast<f32>(sc->Width()), H = static_cast<f32>(sc->Height());
@@ -7904,7 +11380,7 @@ ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
             else r0.z = SnapTo(r0.z, host->snap_rotate);
         }
         n->Local().SetEulerDeg(r0);                  // quat に焼く
-        EEd3DRec* rc = Rec3D(n); if (rc != nullptr) rc->euler = r0;   // authored 値も更新
+        AEditor3DRecordComponent* rc = Rec3D(n); if (rc != nullptr) rc->euler = r0;   // authored 値も更新
     } else {                                         // Move (px → world、軸方向)
         const f32 dw = px * host->giz3d_wpp;
         n->Local().position = FVec3{ host->giz3d_start_pos.x + ad.x*dw,
@@ -7918,7 +11394,7 @@ ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
 
 /** 3D ギズモのドラッグ終了。 */
 ACS_EDITOR_API void acs_editor_gizmo3d_end(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host != nullptr) host->giz3d_handle = 0;
 }
 
@@ -7932,23 +11408,23 @@ ACS_EDITOR_API void acs_editor_gizmo3d_end(void* handle) {
 
 /** ギズモモードを設定する (0=move, 1=rotate, 2=scale)。 */
 ACS_EDITOR_API void acs_editor_gizmo_set_mode(void* handle, int mode) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host != nullptr && mode >= 0 && mode <= 2) host->gizmo_mode = mode;
 }
 
 /** 現在のギズモモード。 */
 ACS_EDITOR_API int acs_editor_gizmo_get_mode(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr) ? host->gizmo_mode : 0;
 }
 
 /** スクリーン点でギズモハンドルを掴む (掴めた handle 種別 1/2/3、掴めなければ 0)。 */
 ACS_EDITOR_API int acs_editor_gizmo_begin(void* handle, float sx, float sy) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
     const int axis = GizmoHit(*host, sx, sy);
     if (axis == 0) return 0;
-    FEditorNode* n = FindNode(*host, host->selected);
+    AEditorNode* n = FindNode(*host, host->selected);
     if (n == nullptr) return 0;
     // undo は最初の実移動 (gizmo_update) まで遅延する。掴んだだけ (無移動) で離した
     // ときに空の undo を積まない & redo を消さないため。
@@ -7959,8 +11435,8 @@ ACS_EDITOR_API int acs_editor_gizmo_begin(void* handle, float sx, float sy) {
     host->gizmo_move_bx.Clear();
     host->gizmo_move_by.Clear();
 
-    const game::FTransform2D  w   = n->World();
-    const game::FTransform2D& loc = n->Local();
+    const game::FTransform2D  w   = n->World2D();
+    const game::FTransform2D  loc = n->Local2D();
     f32 cx, cy; GizmoCenter(*host, cx, cy);
 
     if (host->gizmo_mode == 1) {            // rotate
@@ -7983,9 +11459,9 @@ ACS_EDITOR_API int acs_editor_gizmo_begin(void* handle, float sx, float sy) {
         // 複数選択の移動: 動かす「選択ルート」(祖先が選択外のもの) を集め、開始 world 位置を退避。
         // 子孫は祖先の移動に従うので含めない (= 二重移動を順序非依存で回避)。
         for (u32 i = 0; i < host->selection.Size(); ++i) {
-            FEditorNode* sn = FindNode(*host, host->selection[i]);
+            AEditorNode* sn = FindNode(*host, host->selection[i]);
             if (sn == nullptr || AnyAncestorInList(*host, sn, host->selection)) continue;
-            const game::FTransform2D sw = sn->World();
+            const game::FTransform2D sw = sn->World2D();
             host->gizmo_move_ids.PushBack(sn->editor_id);
             host->gizmo_move_bx.PushBack(sw.position.x);
             host->gizmo_move_by.PushBack(sw.position.y);
@@ -7996,9 +11472,9 @@ ACS_EDITOR_API int acs_editor_gizmo_begin(void* handle, float sx, float sy) {
 
 /** ドラッグ中の操作を選択ノードへ適用する (モード別: 移動/回転/スケール)。 */
 ACS_EDITOR_API void acs_editor_gizmo_update(void* handle, float sx, float sy) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || !host->gizmo_active) return;
-    FEditorNode* n = FindNode(*host, host->selected);
+    AEditorNode* n = FindNode(*host, host->selected);
     if (n == nullptr) { host->gizmo_active = false; return; }
     if (!host->gizmo_pushed) { PushUndo(*host); host->gizmo_pushed = true; }   // 最初の移動で 1 undo
     f32 cx, cy; GizmoCenter(*host, cx, cy);
@@ -8007,7 +11483,7 @@ ACS_EDITOR_API void acs_editor_gizmo_update(void* handle, float sx, float sy) {
         const f32 cur = std::atan2(sy - cy, sx - cx);
         f32 rot = host->gizmo_start_rot + (cur - host->gizmo_start_angle);
         if (host->snap_enabled) rot = SnapTo(rot, host->snap_rotate);
-        n->Local().rotation = rot;
+        n->SetRotation2D(rot);
     } else if (host->gizmo_mode == 2) {     // scale: 基準量に対する比率
         f32 cur;
         if (host->gizmo_axis == 1)      cur = sx - cx;
@@ -8021,9 +11497,11 @@ ACS_EDITOR_API void acs_editor_gizmo_update(void* handle, float sx, float sy) {
             nsx = SnapTo(nsx, st); if (nsx < st) nsx = st;   // 0 に潰さない
             nsy = SnapTo(nsy, st); if (nsy < st) nsy = st;
         }
-        if (host->gizmo_axis == 1)      n->Local().scale.x = nsx;
-        else if (host->gizmo_axis == 2) n->Local().scale.y = nsy;
-        else                            n->Local().scale = FVec2{ nsx, nsy };
+        FVec2 scale = n->Scale2D();
+        if (host->gizmo_axis == 1)      scale.x = nsx;
+        else if (host->gizmo_axis == 2) scale.y = nsy;
+        else                            scale = FVec2{ nsx, nsy };
+        n->SetScale2D(scale);
     } else {                                 // move
         f32 tw_x = S2WX(*host, sx) - host->gizmo_off_wx;
         f32 tw_y = S2WY(*host, sy) - host->gizmo_off_wy;
@@ -8039,7 +11517,7 @@ ACS_EDITOR_API void acs_editor_gizmo_update(void* handle, float sx, float sy) {
             const f32 dx = tw_x - host->gizmo_begin_wx;
             const f32 dy = tw_y - host->gizmo_begin_wy;
             for (u32 i = 0; i < host->gizmo_move_ids.Size(); ++i) {
-                FEditorNode* mn = FindNode(*host, host->gizmo_move_ids[i]);
+                AEditorNode* mn = FindNode(*host, host->gizmo_move_ids[i]);
                 if (mn != nullptr)
                     SetNodeWorldPosition(*host, mn, host->gizmo_move_bx[i] + dx, host->gizmo_move_by[i] + dy);
             }
@@ -8051,13 +11529,13 @@ ACS_EDITOR_API void acs_editor_gizmo_update(void* handle, float sx, float sy) {
 
 /** ドラッグを終える。 */
 ACS_EDITOR_API void acs_editor_gizmo_end(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host != nullptr) host->gizmo_active = false;
 }
 
 /** スナップ設定を更新する (enabled、移動グリッド、回転刻み[度]、スケール刻み。<=0 は据え置き)。 */
 ACS_EDITOR_API void acs_editor_set_snap(void* handle, int enabled, float move_grid, float rotate_deg, float scale_step) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     host->snap_enabled = (enabled != 0);
     if (move_grid  > 0.0f) host->snap_move   = move_grid;
@@ -8067,35 +11545,136 @@ ACS_EDITOR_API void acs_editor_set_snap(void* handle, int enabled, float move_gr
 
 /** スナップが有効か。 */
 ACS_EDITOR_API int acs_editor_get_snap(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->snap_enabled) ? 1 : 0;
 }
 
 /** 選択ノードがビューポート中央に来るようカメラを寄せる (ズームは維持)。 */
 ACS_EDITOR_API void acs_editor_camera_focus(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     if (host->view3d) {                                  // 3D: 選択ノードへ注視点を寄せる (ギズモと同じ Local 位置基準)
-        game::FNode3D* n = FindNode3DNode(*host, host->sel3d);
+        game::ANode* n = FindNode3DNode(*host, host->sel3d);
         if (n != nullptr) host->cam3d_target = n->Local().position;
         return;
     }
     if (host->selected < 0) return;
-    FEditorNode* n = FindNode(*host, host->selected);
+    AEditorNode* n = FindNode(*host, host->selected);
     if (n == nullptr) return;
-    const game::FTransform2D w = n->World();
+    const game::FTransform2D w = n->World2D();
     host->cam_pan_x = static_cast<f32>(host->width)  * 0.5f - w.position.x * host->cam_zoom;
     host->cam_pan_y = static_cast<f32>(host->height) * 0.5f - w.position.y * host->cam_zoom;
 }
 
 /** 全ノードがビューポートに収まるよう pan/zoom を合わせる (シーン読込直後のフレーミング)。 */
 ACS_EDITOR_API void acs_editor_camera_frame_all(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
-    if (host == nullptr || host->nodes.Size() == 0) return;
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr) return;
+    if (host->view3d) {
+        const f32 maxf = std::numeric_limits<f32>::max();
+        FVec3 minimum{ maxf, maxf, maxf };
+        FVec3 maximum{ -maxf, -maxf, -maxf };
+        bool found = false;
+        auto expand = [&](FVec3 point) noexcept {
+            if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) return;
+            if (point.x < minimum.x) minimum.x = point.x;
+            if (point.y < minimum.y) minimum.y = point.y;
+            if (point.z < minimum.z) minimum.z = point.z;
+            if (point.x > maximum.x) maximum.x = point.x;
+            if (point.y > maximum.y) maximum.y = point.y;
+            if (point.z > maximum.z) maximum.z = point.z;
+            found = true;
+        };
+
+        TArray<game::ANode*> all3d;
+        Dfs3DCollect(&host->scene3d.Root(), all3d);
+        for (u32 node_index = 0; node_index < all3d.Size(); ++node_index) {
+            game::ANode* node = all3d[node_index];
+            const AEditor3DRecordComponent* record = Rec3D(node);
+            const game::AMeshComponent3D* mesh_component = Mesh3D(node);
+            if (node == nullptr || mesh_component == nullptr ||
+                (record != nullptr && record->is_empty)) {
+                continue;
+            }
+
+            FVec3 local_minimum{ -0.5f, -0.5f, -0.5f };
+            FVec3 local_maximum{  0.5f,  0.5f,  0.5f };
+            if (mesh_component->Primitive() == game::EMeshPrimitive3D::Plane) {
+                local_minimum.y = 0.0f;
+                local_maximum.y = 0.0f;
+            } else if (mesh_component->Primitive() == game::EMeshPrimitive3D::Mesh) {
+                const FMeshAsset* mesh = mesh_component->Mesh();
+                if (mesh == nullptr || mesh->Vertices().Size() == 0) continue;
+                bool has_local_point = false;
+                for (u32 vertex_index = 0; vertex_index < mesh->Vertices().Size(); ++vertex_index) {
+                    const FVec3 point = mesh->Vertices()[vertex_index].position;
+                    if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) continue;
+                    if (!has_local_point) {
+                        local_minimum = point;
+                        local_maximum = point;
+                        has_local_point = true;
+                    } else {
+                        if (point.x < local_minimum.x) local_minimum.x = point.x;
+                        if (point.y < local_minimum.y) local_minimum.y = point.y;
+                        if (point.z < local_minimum.z) local_minimum.z = point.z;
+                        if (point.x > local_maximum.x) local_maximum.x = point.x;
+                        if (point.y > local_maximum.y) local_maximum.y = point.y;
+                        if (point.z > local_maximum.z) local_maximum.z = point.z;
+                    }
+                }
+                if (!has_local_point) continue;
+            }
+
+            const FMat4 world = node->World().ToMat4();
+            for (u32 corner = 0; corner < 8; ++corner) {
+                const FVec3 local{
+                    (corner & 1u) != 0u ? local_maximum.x : local_minimum.x,
+                    (corner & 2u) != 0u ? local_maximum.y : local_minimum.y,
+                    (corner & 4u) != 0u ? local_maximum.z : local_minimum.z
+                };
+                expand(TransformPoint(local, world));
+            }
+        }
+        if (!found) return;
+
+        host->cam3d_target = (minimum + maximum) * 0.5f;
+        // Frame All must actually look at the bounds it just computed.
+        // Preserving an upward-looking pitch leaves the new target behind the
+        // camera because the free-look floor clamp intentionally decouples the
+        // perspective forward vector from the orbit target.
+        host->cam3d_pitch = host->ortho3d ? 0.0f : kCamera3DFramePitch;
+        const FVec3 half_extent = (maximum - minimum) * 0.5f;
+        const f32 radius = std::sqrt(
+            half_extent.x * half_extent.x +
+            half_extent.y * half_extent.y +
+            half_extent.z * half_extent.z);
+        const f32 aspect =
+            (host->width > 0 && host->height > 0)
+                ? static_cast<f32>(host->width) / static_cast<f32>(host->height)
+                : (16.0f / 9.0f);
+        const f32 safe_aspect = aspect > 0.01f ? aspect : 1.0f;
+        f32 distance = kCamera3DMinDistance;
+        if (host->ortho3d) {
+            const f32 limiting_axis = safe_aspect < 1.0f ? safe_aspect : 1.0f;
+            distance = (2.0f * radius * 1.15f) / (0.62f * limiting_axis);
+        } else {
+            constexpr f32 half_fov_y = 25.0f * 3.14159265f / 180.0f;
+            const f32 half_fov_x = std::atan(std::tan(half_fov_y) * safe_aspect);
+            const f32 limiting_half_fov = half_fov_x < half_fov_y ? half_fov_x : half_fov_y;
+            distance = radius * 1.15f / std::sin(limiting_half_fov);
+        }
+        if (!std::isfinite(distance) || distance < kCamera3DMinDistance) {
+            distance = kCamera3DMinDistance;
+        }
+        if (distance > kCamera3DMaxDistance) distance = kCamera3DMaxDistance;
+        host->cam3d_dist = distance;
+        return;
+    }
+    if (host->nodes.Size() == 0) return;
     f32 minx = 3.4e38f, miny = 3.4e38f, maxx = -3.4e38f, maxy = -3.4e38f;
     for (u32 i = 0; i < host->nodes.Size(); ++i) {
-        const FEditorNode* n = host->nodes[i];
-        const game::FTransform2D w = n->World();
+        const AEditorNode* n = host->nodes[i];
+        const game::FTransform2D w = n->World2D();
         const f32 sx = (w.scale.x < 0.0f) ? -w.scale.x : w.scale.x;
         const f32 sy = (w.scale.y < 0.0f) ? -w.scale.y : w.scale.y;
         f32 ex = 0.5f * n->base * sx; if (ex < 1.0f) ex = 1.0f;   // ノードの半径目安
@@ -8123,15 +11702,15 @@ ACS_EDITOR_API void acs_editor_camera_frame_all(void* handle) {
 // =============================================================================
 // C ABI — ノード操作 (リネーム / 削除 / 親付け替え)
 // -----------------------------------------------------------------------------
-// 階層を実 FNode2D の構造変更 API (Destroy / Reparent + ResolveStructuralChanges) で
+// 階層を実 ANode の構造変更 API (Destroy / Reparent + ResolveStructuralChanges) で
 // 編集する。削除/付け替えの後は平坦レジストリをツリーから作り直して整合を保つ。
 // =============================================================================
 
 /** ノードを改名する (成功 1 / 不明 0)。 */
 ACS_EDITOR_API int acs_editor_node_rename(void* handle, int id, const char* name) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || name == nullptr) return 0;
-    FEditorNode* n = FindNode(*host, id);
+    AEditorNode* n = FindNode(*host, id);
     if (n == nullptr) return 0;
     PushUndo(*host);
     std::snprintf(n->name, sizeof(n->name), "%s", name);
@@ -8140,14 +11719,14 @@ ACS_EDITOR_API int acs_editor_node_rename(void* handle, int id, const char* name
 
 /** ノードを subtree ごと複製し、元の兄弟として追加する (新しい根の id、不明は -1)。 */
 ACS_EDITOR_API int acs_editor_node_duplicate(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return -1;
-    FEditorNode* src = FindNode(*host, id);
+    AEditorNode* src = FindNode(*host, id);
     if (src == nullptr) return -1;
     PushUndo(*host);
     const int parent_id = ParentIdOf(*host, src);   // 元と同じ親 = 兄弟として複製
     TArray<int> oldIds, newIds;
-    FEditorNode* clone = CloneSubtree(*host, src, parent_id, /*top=*/true, &oldIds, &newIds);
+    AEditorNode* clone = CloneSubtree(*host, src, parent_id, /*top=*/true, &oldIds, &newIds);
     RemapClonedObjectRefs(*host, oldIds, newIds);    // subtree 内の参照を新 id へ付け替え
     SelSet(*host, clone->editor_id);
     return clone->editor_id;
@@ -8155,9 +11734,9 @@ ACS_EDITOR_API int acs_editor_node_duplicate(void* handle, int id) {
 
 /** ノード (と subtree) を削除する (成功 1 / 不明 0)。 */
 ACS_EDITOR_API int acs_editor_node_delete(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || host->root.Get() == nullptr) return 0;
-    FEditorNode* n = FindNode(*host, id);
+    AEditorNode* n = FindNode(*host, id);
     if (n == nullptr) return 0;
     PushUndo(*host);
     n->Destroy();                              // 遅延破棄をマーク
@@ -8169,26 +11748,26 @@ ACS_EDITOR_API int acs_editor_node_delete(void* handle, int id) {
 /**
  * ノードの親を付け替える (new_parent_id < 0 でルート直下へ)。
  *
- * @details cycle (自分 or 子孫を親に指定) は FNode2D 側で弾かれ無視される。
+ * @details cycle (自分 or 子孫を親に指定) は ANode 側で弾かれ無視される。
  * @return 成功 1、不明ノード 0。
  */
 ACS_EDITOR_API int acs_editor_node_reparent(void* handle, int id, int new_parent_id) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || host->root.Get() == nullptr) return 0;
     if (new_parent_id == id) return 0;         // 自分自身を親にはできない
-    FEditorNode* n = FindNode(*host, id);
+    AEditorNode* n = FindNode(*host, id);
     if (n == nullptr) return 0;
-    game::FNode2D* np = (new_parent_id >= 0) ? static_cast<game::FNode2D*>(FindNode(*host, new_parent_id))
+    game::ANode* np = (new_parent_id >= 0) ? static_cast<game::ANode*>(FindNode(*host, new_parent_id))
                                              : host->root.Get();
     if (np == nullptr) np = host->root.Get();
     // no-op: 既に np が現在の親なら何もしない (無駄な undo / 再構築を積まない)。
     if (n->Parent() == np) return 0;
     // cycle 検出: np が n の子孫なら付け替え不可 (engine 側も無視するが、ここで弾いて
     //             spurious undo を防ぐ)。np から親をたどって n に達したら循環。
-    for (game::FNode2D* a = np; a != nullptr; a = a->Parent())
-        if (a == static_cast<game::FNode2D*>(n)) return 0;
+    for (game::ANode* a = np; a != nullptr; a = a->Parent())
+        if (a == static_cast<game::ANode*>(n)) return 0;
     // ワールド位置を保持して付け替える (ノードが視覚的に飛ばないように)。
-    const FVec2 wpos = n->World().position;
+    const FVec2 wpos = n->World2D().position;
     PushUndo(*host);
     n->Reparent(*np);                          // 付け替え予約 (cycle は上で除外済み)
     host->root->ResolveStructuralChanges();    // フレーム境界処理を即時に適用
@@ -8204,22 +11783,22 @@ ACS_EDITOR_API int acs_editor_node_reparent(void* handle, int id, int new_parent
  * @return 成功 1、不正/不明 0。
  */
 ACS_EDITOR_API int acs_editor_node_move(void* handle, int id, int target_id, int mode) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || host->root.Get() == nullptr) return 0;
     if (id == target_id) return 0;
     if (mode == 2) return acs_editor_node_reparent(handle, id, target_id);   // 子にする = 既存 reparent
 
-    FEditorNode* n = FindNode(*host, id);
-    FEditorNode* t = FindNode(*host, target_id);
+    AEditorNode* n = FindNode(*host, id);
+    AEditorNode* t = FindNode(*host, target_id);
     if (n == nullptr || t == nullptr) return 0;
 
     // target の親 P (ルート直下なら root)。n を P の子として並べ替える。
-    game::FNode2D* P = t->Parent() ? t->Parent() : host->root.Get();
+    game::ANode* P = t->Parent() ? t->Parent() : host->root.Get();
     // cycle: P (= 挿入先) が n 自身 or その子孫なら不可。
-    for (game::FNode2D* a = P; a != nullptr; a = a->Parent())
-        if (a == static_cast<game::FNode2D*>(n)) return 0;
+    for (game::ANode* a = P; a != nullptr; a = a->Parent())
+        if (a == static_cast<game::ANode*>(n)) return 0;
 
-    const FVec2 wpos = n->World().position;
+    const FVec2 wpos = n->World2D().position;
     PushUndo(*host);
     if (n->Parent() != P) {                       // まず同じ親へ寄せる (末尾に付く)
         n->Reparent(*P);
@@ -8228,9 +11807,9 @@ ACS_EDITOR_API int acs_editor_node_move(void* handle, int id, int target_id, int
     // P の子配列内で n と t のインデックスを取り、mode に応じた最終位置へ動かす。
     u32 c = P->ChildCount(), b = P->ChildCount();
     for (u32 i = 0; i < P->ChildCount(); ++i) {
-        game::FNode2D* ch = P->Child(i);
-        if (ch == static_cast<game::FNode2D*>(n)) c = i;
-        if (ch == static_cast<game::FNode2D*>(t)) b = i;
+        game::ANode* ch = P->Child(i);
+        if (ch == static_cast<game::ANode*>(n)) c = i;
+        if (ch == static_cast<game::ANode*>(t)) b = i;
     }
     if (c < P->ChildCount() && b < P->ChildCount()) {
         u32 to;
@@ -8245,14 +11824,14 @@ ACS_EDITOR_API int acs_editor_node_move(void* handle, int id, int target_id, int
 
 /** 選択集合のノードをまとめて削除する (1 undo step。削除数を返す、空/不正は 0)。 */
 ACS_EDITOR_API int acs_editor_selection_delete(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || host->root.Get() == nullptr || host->selection.Size() == 0) return 0;
     PushUndo(*host);                           // 一括で 1 undo
     int n_deleted = 0;
     // selection は Destroy では変化しない (RebuildRegistry まで不変) ので直接走査してよい。
     // 祖先と子孫が両方選択されていても Destroy は冪等マークなので二重解放にならない。
     for (u32 i = 0; i < host->selection.Size(); ++i) {
-        FEditorNode* node = FindNode(*host, host->selection[i]);
+        AEditorNode* node = FindNode(*host, host->selection[i]);
         if (node != nullptr) { node->Destroy(); ++n_deleted; }
     }
     host->root->ResolveStructuralChanges();    // 全 subtree を一括 reap
@@ -8262,7 +11841,7 @@ ACS_EDITOR_API int acs_editor_selection_delete(void* handle) {
 
 /** 選択集合のノードをまとめて複製する (1 undo step。複製した根の数を返す、空は 0)。 */
 ACS_EDITOR_API int acs_editor_selection_duplicate(void* handle) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || host->selection.Size() == 0) return 0;
     PushUndo(*host);                           // 一括で 1 undo
     // 複製中に selection を書き換えるので、対象 id を先にコピーしておく。
@@ -8270,12 +11849,12 @@ ACS_EDITOR_API int acs_editor_selection_duplicate(void* handle) {
     TArray<int> newIds;
     TArray<int> refOld, refNew;   // 複製した全ノードの old→new (ObjectRef 再マップ用)
     for (u32 i = 0; i < sources.Size(); ++i) {
-        FEditorNode* src = FindNode(*host, sources[i]);
+        AEditorNode* src = FindNode(*host, sources[i]);
         if (src == nullptr) continue;
         // 祖先も選択集合にあるノードは、その祖先の複製に subtree として含まれる → 単独複製しない
         // (二重複製を防ぐ)。
         if (AnyAncestorInList(*host, src, sources)) continue;
-        FEditorNode* clone = CloneSubtree(*host, src, ParentIdOf(*host, src), /*top=*/true, &refOld, &refNew);
+        AEditorNode* clone = CloneSubtree(*host, src, ParentIdOf(*host, src), /*top=*/true, &refOld, &refNew);
         newIds.PushBack(clone->editor_id);
     }
     RemapClonedObjectRefs(*host, refOld, refNew);   // 複製集合内を指す参照を新 id へ付け替え
@@ -8293,16 +11872,16 @@ ACS_EDITOR_API int acs_editor_selection_duplicate(void* handle) {
  * @return 整列したノード数 (2 未満は 0)。
  */
 ACS_EDITOR_API int acs_editor_align_selection(void* handle, int mode) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
 
     // 選択ノードの world 位置の範囲を求める。
     f32 minx = 0, maxx = 0, miny = 0, maxy = 0;
     bool first = true; int cnt = 0;
     for (u32 i = 0; i < host->selection.Size(); ++i) {
-        FEditorNode* n = FindNode(*host, host->selection[i]);
+        AEditorNode* n = FindNode(*host, host->selection[i]);
         if (n == nullptr) continue;
-        const game::FTransform2D w = n->World();
+        const game::FTransform2D w = n->World2D();
         if (first) { minx = maxx = w.position.x; miny = maxy = w.position.y; first = false; }
         else {
             if (w.position.x < minx) minx = w.position.x;
@@ -8317,9 +11896,9 @@ ACS_EDITOR_API int acs_editor_align_selection(void* handle, int mode) {
     PushUndo(*host);
     int applied = 0;
     for (u32 i = 0; i < host->selection.Size(); ++i) {
-        FEditorNode* n = FindNode(*host, host->selection[i]);
+        AEditorNode* n = FindNode(*host, host->selection[i]);
         if (n == nullptr) continue;
-        const game::FTransform2D w = n->World();
+        const game::FTransform2D w = n->World2D();
         f32 nx = w.position.x, ny = w.position.y;
         switch (mode) {
             case 0: nx = minx; break;
@@ -8343,16 +11922,16 @@ ACS_EDITOR_API int acs_editor_align_selection(void* handle, int mode) {
  * @return 配置したノード数 (3 未満は 0)。
  */
 ACS_EDITOR_API int acs_editor_distribute_selection(void* handle, int axis) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
 
     // (id, axis 位置) を集める。
     TArray<int> ids;
     TArray<f32> pos;
     for (u32 i = 0; i < host->selection.Size(); ++i) {
-        FEditorNode* n = FindNode(*host, host->selection[i]);
+        AEditorNode* n = FindNode(*host, host->selection[i]);
         if (n == nullptr) continue;
-        const game::FTransform2D w = n->World();
+        const game::FTransform2D w = n->World2D();
         ids.PushBack(host->selection[i]);
         pos.PushBack(axis == 0 ? w.position.x : w.position.y);
     }
@@ -8370,9 +11949,9 @@ ACS_EDITOR_API int acs_editor_distribute_selection(void* handle, int axis) {
     PushUndo(*host);
     const f32 step = (pos[n - 1] - pos[0]) / static_cast<f32>(n - 1);
     for (u32 i = 1; i + 1 < n; ++i) {   // 両端は固定、中間を均等配置
-        FEditorNode* node = FindNode(*host, ids[i]);
+        AEditorNode* node = FindNode(*host, ids[i]);
         if (node == nullptr) continue;
-        const game::FTransform2D w = node->World();
+        const game::FTransform2D w = node->World2D();
         const f32 target = pos[0] + step * static_cast<f32>(i);
         if (axis == 0) SetNodeWorldPosition(*host, node, target, w.position.y);
         else           SetNodeWorldPosition(*host, node, w.position.x, target);
@@ -8384,14 +11963,14 @@ ACS_EDITOR_API int acs_editor_distribute_selection(void* handle, int axis) {
 // C ABI — ノードのコンポーネント (リフレクション登録 Component 型のアタッチ記述子)
 // -----------------------------------------------------------------------------
 // ノードに「どの Component 型が付くか」をエディタ・メタデータとして持たせる。実
-// FComponent2D は生成せず、シリアライズして将来 play/load 時に実体化する土台とする。
+// AComponent は生成せず、シリアライズして将来 play/load 時に実体化する土台とする。
 // =============================================================================
 
 /** ノードに Component 型をアタッチする (型名で。成功/既存 1、未登録や非 Component 0)。 */
 ACS_EDITOR_API int acs_editor_node_add_component(void* handle, int id, const char* type_name) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
-    FEditorNode* n = FindNode(*host, id);
+    AEditorNode* n = FindNode(*host, id);
     if (n == nullptr) return 0;
     PushUndo(*host);
     return AttachComponent(n, type_name) ? 1 : 0;
@@ -8399,15 +11978,15 @@ ACS_EDITOR_API int acs_editor_node_add_component(void* handle, int id, const cha
 
 /** ノードのコンポーネント数。 */
 ACS_EDITOR_API int acs_editor_node_component_count(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    const FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    const AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     return (n != nullptr) ? static_cast<int>(n->component_count) : 0;
 }
 
 /** ノードの index 番目のコンポーネント型名 (範囲外は "")。 */
 ACS_EDITOR_API const char* acs_editor_node_component_name_at(void* handle, int id, int index) {
-    auto* host = static_cast<EditorHost*>(handle);
-    const FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    const AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr || index < 0 || index >= static_cast<int>(n->component_count)) return "";
     const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(n->components[static_cast<u32>(index)]);
     return (d != nullptr && d->name != nullptr) ? d->name : "";
@@ -8415,63 +11994,63 @@ ACS_EDITOR_API const char* acs_editor_node_component_name_at(void* handle, int i
 
 /** ノードの index 番目のコンポーネントを外す (成功 1)。 */
 ACS_EDITOR_API int acs_editor_node_remove_component_at(void* handle, int id, int index) {
-    auto* host = static_cast<EditorHost*>(handle);
-    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr || index < 0 || index >= static_cast<int>(n->component_count)) return 0;
     PushUndo(*host);
     for (u32 i = static_cast<u32>(index); i + 1 < n->component_count; ++i) {
         n->components[i] = n->components[i + 1];
-        for (u32 p = 0; p < FEditorNode::kMaxProps; ++p)
+        for (u32 p = 0; p < AEditorNode::kMaxProps; ++p)
             for (u32 k = 0; k < 4; ++k) n->comp_props[i][p][k] = n->comp_props[i + 1][p][k];
     }
     --n->component_count;
     return 1;
 }
 
-// --- 3D ノードのコンポーネント (2D と同じ «エディタ・メタデータ» 方式。EEd3DRec に保持) ---
-static bool AttachComponent3D(EEd3DRec* r, const char* type_name) noexcept {
+// --- 3D ノードのコンポーネント (2D と同じ «エディタ・メタデータ» 方式。AEditor3DRecordComponent に保持) ---
+static bool AttachComponent3D(AEditor3DRecordComponent* r, const char* type_name) noexcept {
     if (r == nullptr || type_name == nullptr) return false;
     game::AcsRegisterEngineTypes();
     const game::FTypeDesc* d = game::FTypeRegistry::Get().FindByName(type_name);
     if (d == nullptr || d->category != game::ETypeCategory::Component) return false;
     for (u32 i = 0; i < r->component_count; ++i) if (r->components[i] == d->id) return true;  // 重複
-    if (r->component_count >= EEd3DRec::kMaxComponents) return false;                          // 容量
+    if (r->component_count >= AEditor3DRecordComponent::kMaxComponents) return false;                          // 容量
     const u32 slot = r->component_count;
     r->components[slot] = d->id;
-    for (u32 p = 0; p < EEd3DRec::kMaxProps; ++p) for (u32 k = 0; k < 4; ++k) r->comp_props[slot][p][k] = 0.0f;
-    const u32 nf = d->field_count < EEd3DRec::kMaxProps ? d->field_count : EEd3DRec::kMaxProps;
+    for (u32 p = 0; p < AEditor3DRecordComponent::kMaxProps; ++p) for (u32 k = 0; k < 4; ++k) r->comp_props[slot][p][k] = 0.0f;
+    const u32 nf = d->field_count < AEditor3DRecordComponent::kMaxProps ? d->field_count : AEditor3DRecordComponent::kMaxProps;
     for (u32 p = 0; p < nf; ++p) for (u32 k = 0; k < 4; ++k) r->comp_props[slot][p][k] = d->fields[p].defaults[k];
     r->component_count = slot + 1;
     return true;
 }
 ACS_EDITOR_API int acs_editor_node3d_add_component(void* handle, int id, const char* type_name) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return 0;
-    EEd3DRec* r = Rec3D(FindNode3DNode(*host, id));
+    AEditor3DRecordComponent* r = Rec3D(FindNode3DNode(*host, id));
     if (r == nullptr) return 0;
     PushUndo(*host);
     return AttachComponent3D(r, type_name) ? 1 : 0;
 }
 ACS_EDITOR_API int acs_editor_node3d_component_count(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    EEd3DRec* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditor3DRecordComponent* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
     return (r != nullptr) ? static_cast<int>(r->component_count) : 0;
 }
 ACS_EDITOR_API const char* acs_editor_node3d_component_name_at(void* handle, int id, int index) {
-    auto* host = static_cast<EditorHost*>(handle);
-    EEd3DRec* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditor3DRecordComponent* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
     if (r == nullptr || index < 0 || index >= static_cast<int>(r->component_count)) return "";
     const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(r->components[static_cast<u32>(index)]);
     return (d != nullptr && d->name != nullptr) ? d->name : "";
 }
 ACS_EDITOR_API int acs_editor_node3d_remove_component_at(void* handle, int id, int index) {
-    auto* host = static_cast<EditorHost*>(handle);
-    EEd3DRec* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditor3DRecordComponent* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
     if (r == nullptr || index < 0 || index >= static_cast<int>(r->component_count)) return 0;
     PushUndo(*host);
     for (u32 i = static_cast<u32>(index); i + 1 < r->component_count; ++i) {
         r->components[i] = r->components[i + 1];
-        for (u32 p = 0; p < EEd3DRec::kMaxProps; ++p)
+        for (u32 p = 0; p < AEditor3DRecordComponent::kMaxProps; ++p)
             for (u32 k = 0; k < 4; ++k) r->comp_props[i][p][k] = r->comp_props[i + 1][p][k];
     }
     --r->component_count;
@@ -8480,13 +12059,13 @@ ACS_EDITOR_API int acs_editor_node3d_remove_component_at(void* handle, int id, i
 
 // --- 3D コンポーネントの編集プロパティ値 (2D node_component_prop_get/set の 3D 版) ---
 // スキーマ (型名→どの編集フィールドがあるか) は 2D と共有の acs_editor_component_prop_*
-// を流用し、«インスタンス値» のみ EEd3DRec::comp_props が slot×prop×4 で保持する。
+// を流用し、«インスタンス値» のみ AEditor3DRecordComponent::comp_props が slot×prop×4 で保持する。
 ACS_EDITOR_API int acs_editor_node3d_component_prop_get(void* handle, int id, int slot, int prop,
                                                         float* x, float* y, float* z, float* w) {
-    auto* host = static_cast<EditorHost*>(handle);
-    EEd3DRec* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditor3DRecordComponent* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
     if (r == nullptr || slot < 0 || slot >= static_cast<int>(r->component_count)
-        || prop < 0 || prop >= static_cast<int>(EEd3DRec::kMaxProps)) return 0;
+        || prop < 0 || prop >= static_cast<int>(AEditor3DRecordComponent::kMaxProps)) return 0;
     const f32* v = r->comp_props[static_cast<u32>(slot)][static_cast<u32>(prop)];
     if (x != nullptr) *x = v[0];
     if (y != nullptr) *y = v[1];
@@ -8496,10 +12075,10 @@ ACS_EDITOR_API int acs_editor_node3d_component_prop_get(void* handle, int id, in
 }
 ACS_EDITOR_API int acs_editor_node3d_component_prop_set(void* handle, int id, int slot, int prop,
                                                         float x, float y, float z, float w) {
-    auto* host = static_cast<EditorHost*>(handle);
-    EEd3DRec* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditor3DRecordComponent* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
     if (r == nullptr || slot < 0 || slot >= static_cast<int>(r->component_count)
-        || prop < 0 || prop >= static_cast<int>(EEd3DRec::kMaxProps)) return 0;
+        || prop < 0 || prop >= static_cast<int>(AEditor3DRecordComponent::kMaxProps)) return 0;
     PushUndo(*host);
     f32* v = r->comp_props[static_cast<u32>(slot)][static_cast<u32>(prop)];
     v[0] = x; v[1] = y; v[2] = z; v[3] = w;
@@ -8509,9 +12088,9 @@ ACS_EDITOR_API int acs_editor_node3d_component_prop_set(void* handle, int id, in
 // 3D ノードの slot 番コンポーネントの反射メソッドを «その場で» 呼ぶ (2D node_invoke_method の 3D 版)。
 // 型を一時実体化し editor 値 (comp_props) を適用して起動 → 破棄 (= CallInEditor)。
 ACS_EDITOR_API int acs_editor_node3d_invoke_method(void* handle, int id, int slot, const char* method_name) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || method_name == nullptr) return 0;
-    EEd3DRec* r = Rec3D(FindNode3DNode(*host, id));
+    AEditor3DRecordComponent* r = Rec3D(FindNode3DNode(*host, id));
     if (r == nullptr || slot < 0 || slot >= static_cast<int>(r->component_count)) return 0;
     const game::FTypeId tid = r->components[static_cast<u32>(slot)];
     const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(tid);
@@ -8529,27 +12108,27 @@ ACS_EDITOR_API int acs_editor_node3d_invoke_method(void* handle, int id, int slo
     return ok ? 1 : 0;
 }
 
-// --- 3D ノードの可視/有効フラグ (FNode3D が m_Visible/m_Enabled を持つ。2D と同じ) ---
+// --- 3D ノードの可視/有効フラグ (ANode が m_Visible/m_Enabled を持つ。2D と同じ) ---
 ACS_EDITOR_API int acs_editor_node3d_get_visible(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    game::FNode3D* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
     return (n != nullptr && n->IsVisible()) ? 1 : 0;
 }
 ACS_EDITOR_API void acs_editor_node3d_set_visible(void* handle, int id, int visible) {
-    auto* host = static_cast<EditorHost*>(handle);
-    game::FNode3D* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
     if (n == nullptr) return;
     PushUndo(*host);
     n->SetVisible(visible != 0);
 }
 ACS_EDITOR_API int acs_editor_node3d_get_enabled(void* handle, int id) {
-    auto* host = static_cast<EditorHost*>(handle);
-    game::FNode3D* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
     return (n != nullptr && n->IsEnabled()) ? 1 : 0;
 }
 ACS_EDITOR_API void acs_editor_node3d_set_enabled(void* handle, int id, int enabled) {
-    auto* host = static_cast<EditorHost*>(handle);
-    game::FNode3D* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* n = (host != nullptr) ? FindNode3DNode(*host, id) : nullptr;
     if (n == nullptr) return;
     PushUndo(*host);
     n->SetEnabled(enabled != 0);
@@ -8640,9 +12219,9 @@ ACS_EDITOR_API int acs_editor_component_method_flags_at(const char* type_name, i
  *  コンポーネント型を一時実体化し、ノードの編集値(comp_props)を適用してからメソッドを起動する
  *  (= CallInEditor: 副作用/ログをエディタで観測できる)。実体は呼び出し後に破棄する。 */
 ACS_EDITOR_API int acs_editor_node_invoke_method(void* handle, int id, int slot, const char* method_name) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || method_name == nullptr) return 0;
-    FEditorNode* n = FindNode(*host, id);
+    AEditorNode* n = FindNode(*host, id);
     if (n == nullptr || slot < 0 || slot >= static_cast<int>(n->component_count)) return 0;
     const game::FTypeId tid = n->components[static_cast<u32>(slot)];
     const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(tid);
@@ -8664,9 +12243,9 @@ ACS_EDITOR_API int acs_editor_node_invoke_method(void* handle, int id, int slot,
  *  引数なしメソッドは arg を無視する (Blueprint の関数ノードから実引数を渡す経路)。 */
 ACS_EDITOR_API int acs_editor_node_invoke_method_arg(void* handle, int id, int slot,
                                                      const char* method_name, const char* arg) {
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || method_name == nullptr) return 0;
-    FEditorNode* n = FindNode(*host, id);
+    AEditorNode* n = FindNode(*host, id);
     if (n == nullptr || slot < 0 || slot >= static_cast<int>(n->component_count)) return 0;
     const game::FTypeId tid = n->components[static_cast<u32>(slot)];
     const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(tid);
@@ -8690,9 +12269,9 @@ ACS_EDITOR_API int acs_editor_node_invoke_method_ret(void* handle, int id, int s
                                                      const char* method_name, const char* arg,
                                                      char* out, int outcap) {
     if (out != nullptr && outcap > 0) out[0] = '\0';
-    auto* host = static_cast<EditorHost*>(handle);
+    auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || method_name == nullptr) return 0;
-    FEditorNode* n = FindNode(*host, id);
+    AEditorNode* n = FindNode(*host, id);
     if (n == nullptr || slot < 0 || slot >= static_cast<int>(n->component_count)) return 0;
     const game::FTypeId tid = n->components[static_cast<u32>(slot)];
     const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(tid);
@@ -8775,10 +12354,10 @@ ACS_EDITOR_API int acs_editor_log_poll(int* out_severity, char* buf, int buflen)
 /** ノードの slot 番コンポーネントの prop 番プロパティ値 (4 成分) を取得する (成功 1)。 */
 ACS_EDITOR_API int acs_editor_node_component_prop_get(void* handle, int id, int slot, int prop,
                                                       float* x, float* y, float* z, float* w) {
-    auto* host = static_cast<EditorHost*>(handle);
-    const FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    const AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr || slot < 0 || slot >= static_cast<int>(n->component_count)
-        || prop < 0 || prop >= static_cast<int>(FEditorNode::kMaxProps)) return 0;
+        || prop < 0 || prop >= static_cast<int>(AEditorNode::kMaxProps)) return 0;
     const f32* v = n->comp_props[static_cast<u32>(slot)][static_cast<u32>(prop)];
     if (x != nullptr) *x = v[0];
     if (y != nullptr) *y = v[1];
@@ -8790,10 +12369,10 @@ ACS_EDITOR_API int acs_editor_node_component_prop_get(void* handle, int id, int 
 /** ノードの slot 番コンポーネントの prop 番プロパティ値 (4 成分) を設定する (成功 1)。 */
 ACS_EDITOR_API int acs_editor_node_component_prop_set(void* handle, int id, int slot, int prop,
                                                       float x, float y, float z, float w) {
-    auto* host = static_cast<EditorHost*>(handle);
-    FEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditorNode* n = (host != nullptr) ? FindNode(*host, id) : nullptr;
     if (n == nullptr || slot < 0 || slot >= static_cast<int>(n->component_count)
-        || prop < 0 || prop >= static_cast<int>(FEditorNode::kMaxProps)) return 0;
+        || prop < 0 || prop >= static_cast<int>(AEditorNode::kMaxProps)) return 0;
     PushUndo(*host);
     SetCompProp(n, static_cast<u32>(slot), static_cast<u32>(prop), x, y, z, w);
     return 1;

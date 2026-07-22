@@ -1,87 +1,45 @@
 # SPDX-License-Identifier: Apache-2.0
-# Amalgamate ACS public headers into a single self-contained header: dist/acs.h
+# ACS 公開 header を自己完結した単一 header dist/acs.h へ統合する。
 #
-#   python acs/scripts/amalgamate.py            # report external-include surface only
-#   python acs/scripts/amalgamate.py --write    # also write dist/acs.h
+#   python acs/scripts/amalgamate.py            # 外部 include の表面だけを報告
+#   python acs/scripts/amalgamate.py --write    # dist/acs.h も書き出す
+#   python acs/scripts/amalgamate.py --check    # dist/acs.h の drift で失敗
 #
-# Design: a mini-preprocessor. It inlines every ACS `#include "..."` depth-first
-# with a global seen-set (mimicking #pragma once), strips `#pragma once`, and
-# leaves external `#include <...>` lines exactly where they are (they are
-# idempotent via their own include guards, so no hoisting / dedup is needed and
-# any surrounding `#if` context is preserved). Backend-internal headers
-# (render/Dx12, render/Diligent) and the unit-test harness are excluded — only
-# the public, backend-agnostic API is amalgamated.
-import os, re, sys, glob
+# 設計: 小さな preprocessor として動作する。ACS の `#include "..."` を global
+# seen-set（#pragma once 相当）付きの深さ優先で展開し、`#pragma once` を除去する。
+# 外部 `#include <...>` は元の位置へそのまま残す。外部 header 自身の include guard
+# により冪等なので移動・重複除去は不要で、周囲の `#if` context も維持できる。
+# backend 内部 header（render/Dx12、render/Diligent）と unit-test harness は除外し、
+# backend 非依存の公開 API だけを統合する。
+import argparse
+import glob
+import os
+import re
+import stat
+import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.normpath(os.path.join(HERE, "..", "..")).replace("\\", "/")  # repo root
+ROOT = os.path.normpath(os.path.join(HERE, "..", "..")).replace("\\", "/")  # リポジトリ root
 SRC  = ROOT + "/acs/src"
+DIST_HEADER = ROOT + "/dist/acs.h"
 
 EXCLUDE_SUBSTR = ["/Dx12/", "/Diligent/", "/test/"]
+
 
 def excluded(rel):
     return rel.endswith("Internal.h") or any(s in ("/" + rel) for s in EXCLUDE_SUBSTR)
 
+
 inc_re  = re.compile(r'^\s*#\s*include\s+"([^"]+)"\s*(?://.*)?$')
 ext_re  = re.compile(r'^\s*#\s*include\s+<([^>]+)>\s*(?://.*)?$')
 once_re = re.compile(r'^\s*#\s*pragma\s+once\s*$')
+include_directive_re = re.compile(r'^\s*#\s*include\b')
+quoted_include_fallback_re = re.compile(
+    r'^\s*#\s*include\b[^\r\n]*"([^"]+)"'
+)
 
-seen = set()
-out = []
-externals = {}
-unresolved = []
-
-def resolve(rel, from_path):
-    for base in (SRC, os.path.dirname(from_path)):
-        cand = os.path.normpath(os.path.join(base, rel)).replace("\\", "/")
-        if os.path.exists(cand):
-            return cand
-    return None
-
-def inline(path):
-    path = path.replace("\\", "/")
-    if path in seen:
-        return
-    seen.add(path)
-    rel = path[len(SRC) + 1:] if path.startswith(SRC) else path
-    out.append("\n// ===================== " + rel + " =====================\n")
-    with open(path, encoding="utf-8", errors="replace") as f:
-        for line in f:
-            if once_re.match(line):
-                continue
-            m = inc_re.match(line)
-            if m:
-                tgt = resolve(m.group(1), path)
-                if tgt is None:
-                    unresolved.append((rel, m.group(1)))
-                    out.append(line)
-                elif excluded(tgt[len(SRC) + 1:] if tgt.startswith(SRC) else tgt):
-                    out.append("// [amalgam] skipped internal include: " + m.group(1) + "\n")
-                else:
-                    inline(tgt)
-                continue
-            e = ext_re.match(line)
-            if e:
-                externals[e.group(1)] = externals.get(e.group(1), 0) + 1
-            out.append(line)
-
-roots = sorted(p.replace("\\", "/") for p in glob.glob(SRC + "/**/*.h", recursive=True)
-               if not excluded(p.replace("\\", "/")[len(SRC) + 1:]))
-for r in roots:
-    inline(r)
-
-print("=== external <...> includes pulled into amalgamation ===")
-for h, c in sorted(externals.items()):
-    print(f"  {c:4d}  <{h}>")
-if unresolved:
-    print("=== UNRESOLVED quoted includes (left literal — fix these) ===")
-    for f, r in unresolved[:30]:
-        print(f'  {f} -> "{r}"')
-print(f"\nheaders inlined: {len(seen)}   output lines: {len(out)}")
-
-if "--write" in sys.argv:
-    os.makedirs(ROOT + "/dist", exist_ok=True)
-    banner = '''// SPDX-License-Identifier: Apache-2.0
+BANNER = '''// SPDX-License-Identifier: Apache-2.0
 // =============================================================================
 // ACS Engine - Single-Header Amalgamation  (acs.h)
 // -----------------------------------------------------------------------------
@@ -135,7 +93,220 @@ if "--write" in sys.argv:
   #pragma comment(lib, "Shlwapi.lib")
 #endif
 '''
-    with open(ROOT + "/dist/acs.h", "w", encoding="utf-8") as f:
-        f.write(banner)
-        f.write("".join(out))
-    print("wrote " + ROOT + "/dist/acs.h")
+
+
+def resolve(rel, from_path):
+    for base in (SRC, os.path.dirname(from_path)):
+        cand = os.path.normpath(os.path.join(base, rel)).replace("\\", "/")
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
+def build_amalgamation():
+    """公開ヘッダを走査し、生成本文と診断情報をメモリ上へ構築する。"""
+
+    seen = set()
+    out = []
+    externals = {}
+    unresolved = []
+
+    def inline(path):
+        path = path.replace("\\", "/")
+        if path in seen:
+            return
+        seen.add(path)
+        rel = path[len(SRC) + 1:] if path.startswith(SRC) else path
+        out.append("\n// ===================== " + rel + " =====================\n")
+        with open(path, encoding="utf-8") as source_file:
+            for line in source_file:
+                if once_re.match(line):
+                    continue
+                match = inc_re.match(line)
+                if match:
+                    target = resolve(match.group(1), path)
+                    if target is None:
+                        unresolved.append((rel, match.group(1)))
+                        out.append(line)
+                    elif excluded(
+                        target[len(SRC) + 1:] if target.startswith(SRC) else target
+                    ):
+                        out.append(
+                            "// [amalgam] skipped internal include: "
+                            + match.group(1)
+                            + "\n"
+                        )
+                    else:
+                        inline(target)
+                    continue
+                external_match = ext_re.match(line)
+                if external_match:
+                    external = external_match.group(1)
+                    externals[external] = externals.get(external, 0) + 1
+                elif quoted_include_fallback_re.match(line):
+                    # 対応外の trailing block comment 等を黙って配布物へ残さない。
+                    requested = quoted_include_fallback_re.match(line).group(1)
+                    unresolved.append((rel, requested + " (unsupported include syntax)"))
+                elif include_directive_re.match(line) and line.rstrip().endswith("\\"):
+                    # 複数行 include は mini-preprocessor の解釈差を避けて明示拒否する。
+                    unresolved.append((rel, "<continued include directive>"))
+                out.append(line)
+
+    roots = sorted(
+        path.replace("\\", "/")
+        for path in glob.glob(SRC + "/**/*.h", recursive=True)
+        if not excluded(path.replace("\\", "/")[len(SRC) + 1:])
+    )
+    for root in roots:
+        inline(root)
+    return seen, out, externals, unresolved
+
+
+def print_report(seen, out, externals, unresolved):
+    """従来互換の外部 include / 件数レポートを表示する。"""
+
+    print("=== external <...> includes pulled into amalgamation ===")
+    for header, count in sorted(externals.items()):
+        print(f"  {count:4d}  <{header}>")
+    if unresolved:
+        print("=== UNRESOLVED quoted includes (left literal — fix these) ===")
+        for source, requested in unresolved[:30]:
+            print(f'  {source} -> "{requested}"')
+    print(f"\nheaders inlined: {len(seen)}   output lines: {len(out)}")
+
+
+def render_header_bytes(out):
+    """改行を LF に固定した配布ヘッダの完全な UTF-8 bytes を返す。"""
+
+    return (BANNER + "".join(out)).encode("utf-8")
+
+
+def is_symlink_or_reparse_point(path):
+    """既存 path が symlink または Windows reparse point かを返す。"""
+
+    try:
+        path_status = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    if stat.S_ISLNK(path_status.st_mode):
+        return True
+    reparse_attribute = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    file_attributes = getattr(path_status, "st_file_attributes", 0)
+    return bool(reparse_attribute and file_attributes & reparse_attribute)
+
+
+def validate_distribution_destination(path):
+    """固定 dist path が通常 directory/file であり、外部へ転送されないことを検証する。"""
+
+    directory = os.path.dirname(path)
+    if is_symlink_or_reparse_point(directory):
+        raise OSError("dist directory must not be a symbolic link or reparse point")
+    if os.path.lexists(directory) and not os.path.isdir(directory):
+        raise OSError("dist destination parent is not a directory")
+    if is_symlink_or_reparse_point(path):
+        raise OSError("dist header must not be a symbolic link or reparse point")
+    if os.path.lexists(path):
+        path_status = os.lstat(path)
+        if not stat.S_ISREG(path_status.st_mode):
+            raise OSError("dist header destination is not a regular file")
+
+
+def write_header_atomic(path, data):
+    """同一 directory の一時ファイルを fsync 後に原子的に置換する。"""
+
+    directory = os.path.dirname(path)
+    validate_distribution_destination(path)
+    os.makedirs(directory, exist_ok=True)
+    temporary_path = None
+    try:
+        descriptor, temporary_path = tempfile.mkstemp(
+            prefix=".acs.h.", suffix=".tmp", dir=directory
+        )
+        with os.fdopen(descriptor, "wb") as temporary_file:
+            temporary_file.write(data)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        # fsync 中に destination が差し替えられていないか置換直前にも再確認する。
+        validate_distribution_destination(path)
+        os.replace(temporary_path, path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                # 元の書込み例外を優先し、cleanup 失敗で上書きしない。
+                pass
+
+
+def parse_arguments(argv):
+    parser = argparse.ArgumentParser(
+        description="ACS 公開ヘッダの単一ヘッダ配布物を生成・検証する。"
+    )
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument(
+        "--write",
+        action="store_true",
+        help="生成結果を dist/acs.h へ原子的に書き込む",
+    )
+    action.add_argument(
+        "--check",
+        action="store_true",
+        help="生成結果と dist/acs.h を byte 単位で比較する",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    arguments = parse_arguments(sys.argv[1:] if argv is None else argv)
+    try:
+        seen, out, externals, unresolved = build_amalgamation()
+    except (OSError, UnicodeError, RuntimeError, ValueError) as error:
+        print(f"amalgamate failed: source scan failed: {error}", file=sys.stderr)
+        return 2
+
+    print_report(seen, out, externals, unresolved)
+    sys.stdout.flush()
+    if unresolved:
+        print(
+            "amalgamate failed: unresolved quoted include(s); "
+            "dist/acs.h was not written or checked",
+            file=sys.stderr,
+        )
+        return 2
+
+    generated = render_header_bytes(out)
+    if arguments.check:
+        try:
+            validate_distribution_destination(DIST_HEADER)
+            with open(DIST_HEADER, "rb") as existing_file:
+                existing = existing_file.read()
+        except (OSError, UnicodeError) as error:
+            print(
+                f"amalgamate check failed: cannot read {DIST_HEADER}: {error}",
+                file=sys.stderr,
+            )
+            return 2
+        if existing != generated:
+            print(
+                "amalgamate check failed: dist/acs.h has generation drift; "
+                "run with --write",
+                file=sys.stderr,
+            )
+            return 1
+        print("dist/acs.h is up to date")
+    elif arguments.write:
+        try:
+            write_header_atomic(DIST_HEADER, generated)
+        except (OSError, UnicodeError, RuntimeError, ValueError) as error:
+            print(
+                f"amalgamate write failed: {DIST_HEADER}: {error}",
+                file=sys.stderr,
+            )
+            return 2
+        print("wrote " + DIST_HEADER)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

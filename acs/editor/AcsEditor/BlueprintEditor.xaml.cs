@@ -2739,6 +2739,12 @@ public partial class BlueprintEditor : UserControl
             log.Append(ok ? "  OK   " : "  FAIL ").Append(name).Append("  (期待=").Append(expected).Append(" 実際=").Append(got).Append(")\n");
         }
 
+        void CheckGenerated(string name, bool ok)
+        {
+            if (ok) pass++; else fail++;
+            log.Append(ok ? "  OK   " : "  FAIL ").Append(name).Append('\n');
+        }
+
         Check("Add",        Calc("N 50 0 0 1 Add\nI D:Float a\nI D:Float b\nO D:Float result\nV 0 2\nV 1 3\n", 0), "r", "5");
         Check("Subtract",   Calc("N 50 0 0 1 Subtract\nI D:Float a\nI D:Float b\nO D:Float result\nV 0 7\nV 1 4\n", 0), "r", "3");
         Check("Multiply",   Calc("N 50 0 0 1 Multiply\nI D:Float a\nI D:Float b\nO D:Float result\nV 0 6\nV 1 7\n", 0), "r", "42");
@@ -3000,6 +3006,31 @@ public partial class BlueprintEditor : UserControl
             bool ok = got == "5";
             if (ok) pass++; else fail++;
             log.Append(ok ? "  OK   " : "  FAIL ").Append("CollapseToFunc  (期待=5 実際=").Append(got).Append(")\n");
+        }
+
+        // C++ codegen: prefix/列挙子を正規化し、/GR- で使えない dynamic_cast を出さない。
+        {
+            Deserialize("ACSBP 1\nENUM FMode FReady,Ready,123\n" +
+                "N 1 0 0 B03A46 Event BeginPlay\nO E ▶\n" +
+                "N 2 0 0 6A4C8C Cast\nI E ▶\nI D:Object object\n" +
+                "O E Success\nO E Failed\nO D:Object As\nVR Enemy\nV 1 self\n" +
+                "C 1 0 2 0\n");
+            var (generatedHeader, generatedSource) = GenerateCpp("ATestComponent");
+            CheckGenerated("CodegenTypePrefix",
+                ProjectManager.CppTypeIdent("FPlayer", 'A') == "APlayer"
+                && ProjectManager.CppTypeIdent("FMode", 'E') == "EMode");
+            CheckGenerated("CodegenEnumerator",
+                ProjectManager.CppEnumeratorIdent("FReady") == "Ready"
+                && ProjectManager.CppEnumeratorIdent("123") == "Value123"
+                && generatedHeader.Contains(
+                    "enum class EMode { Ready, Ready2, Value123 };",
+                    StringComparison.Ordinal));
+            CheckGenerated("CodegenCastNoRtti",
+                !generatedSource.Contains("dynamic_cast", StringComparison.Ordinal)
+                && !generatedSource.Contains("Cast<", StringComparison.Ordinal)
+                && generatedSource.Contains("ANode* _as2 = nullptr;", StringComparison.Ordinal)
+                && generatedSource.Contains("m_CastWarningEmitted", StringComparison.Ordinal)
+                && generatedHeader.Contains("bool m_CastWarningEmitted", StringComparison.Ordinal));
         }
 
         // 直列化の往復: Serialize→Deserialize→Serialize が一致する
@@ -4604,7 +4635,7 @@ public partial class BlueprintEditor : UserControl
         var dlg = new Microsoft.Win32.SaveFileDialog {
             Filter = "ACS Blueprint (*.acsbp)|*.acsbp", DefaultExt = ".acsbp", FileName = "graph.acsbp" };
         if (DefaultDir != null && System.IO.Directory.Exists(DefaultDir)) dlg.InitialDirectory = DefaultDir;
-        if (dlg.ShowDialog() == true)
+        if (ShowDialogWithVisualOwner(dlg) == true)
         {
             AcsbpFormat.Write(dlg.FileName, Serialize());
             CurrentPath = dlg.FileName;
@@ -4618,7 +4649,7 @@ public partial class BlueprintEditor : UserControl
         var dlg = new Microsoft.Win32.OpenFileDialog {
             Filter = "ACS Blueprint (*.acsbp)|*.acsbp", DefaultExt = ".acsbp" };
         if (DefaultDir != null && System.IO.Directory.Exists(DefaultDir)) dlg.InitialDirectory = DefaultDir;
-        if (dlg.ShowDialog() == true) LoadFromFile(dlg.FileName);
+        if (ShowDialogWithVisualOwner(dlg) == true) LoadFromFile(dlg.FileName);
     }
 
     /// <summary>.acsbp ファイルを読み込んでグラフを復元する (アセットブラウザのダブルクリック等から)。</summary>
@@ -4647,11 +4678,19 @@ public partial class BlueprintEditor : UserControl
         var dlg = new Microsoft.Win32.OpenFileDialog {
             Filter = "ACS Blueprint (*.acsbp)|*.acsbp", DefaultExt = ".acsbp", Title = "継承元 (親) の .acsbp を選択" };
         if (DefaultDir != null && System.IO.Directory.Exists(DefaultDir)) dlg.InitialDirectory = DefaultDir;
-        if (dlg.ShowDialog() != true) return;
+        if (ShowDialogWithVisualOwner(dlg) != true) return;
         BeginEdit();
         _parentPath = MakeRelative(dlg.FileName);
         Deserialize(Serialize());   // 現在の子 (継承ノードは保存対象外) を保ったまま、新しい親を継承ノードとして読み直す
         CommitEdit();
+    }
+
+    private bool? ShowDialogWithVisualOwner(Microsoft.Win32.CommonDialog dialog)
+    {
+        Window? owner = Window.GetWindow(this);
+        return owner != null
+            ? dialog.ShowDialog(owner)
+            : dialog.ShowDialog();
     }
 
     /// <summary>DefaultDir 直下なら名前のみ、そうでなければ絶対パスを返す (PARENT 行に書く相対パス)。</summary>

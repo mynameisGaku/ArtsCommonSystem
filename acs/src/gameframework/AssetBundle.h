@@ -7,7 +7,7 @@
 //   個別 path の FAssetFuture を散在管理する代わりに 1 つの bundle で扱える。
 //
 // 使い方 (典型例):
-//   class GameplayScene : public Scene {
+//   class FGameplayScene : public FScene {
 //       acs::game::FAssetBundle m_Bundle;
 //       void OnEnter() noexcept override {
 //           m_Bundle.Add("textures/hero.png");
@@ -26,7 +26,7 @@
 //   };
 //
 // 設計方針:
-//   ・シーン死亡で bundle 廃棄 → 内部 TSharedPtr<Asset> が drop → FAssetRegistry の refcount
+//   ・シーン死亡で bundle 廃棄 → 内部 TSharedPtr<FAsset> が drop → FAssetRegistry の refcount
 //     が下がり、他参照がなければ実体メモリも解放される (GC 不要 / 決定的解放)。
 //   ・path 文字列は呼び出し側が寿命を保証する (string literal / 永続バッファ前提)。
 //     ACS 規約により <string> は使わない (const char* を TArray に保持)。
@@ -50,14 +50,14 @@ namespace acs::game {
  *
  * @details
  * ライフサイクルは Add* → BeginLoad → (poll Progress/IsLoaded) → ... → Unload。
- * Scene にメンバとして埋め込み、内部 TSharedPtr<Asset> の保持で Unload まで実体の
+ * FScene にメンバとして埋め込み、内部 TSharedPtr<FAsset> の保持で Unload まで実体の
  * 生存を保証する。BeginLoad 後の Add はロード開始後の集合変更が未定義になるのを
  * 避けるため無視する。
  */
 class FAssetBundle {
 public:
     /** bundle 内の各 asset の進捗状態。 */
-    enum class LoadStatus : u8 {
+    enum class ELoadStatus : u8 {
         /** BeginLoad 前、または BeginLoad 失敗で開始されなかった。 */
         Pending = 0,
 
@@ -77,7 +77,7 @@ public:
     /** bundle を破棄する (内部 TSharedPtr が drop し refcount を落とす)。 */
     ~FAssetBundle() noexcept = default;
 
-    /** コピー禁止 (内部 TArray 規約。bundle は Scene に単独所有させる)。 */
+    /** コピー禁止 (内部 TArray 規約。bundle は FScene に単独所有させる)。 */
     FAssetBundle(const FAssetBundle&)            = delete;
 
     /** コピー代入も禁止。 */
@@ -111,7 +111,7 @@ public:
      * @param index Add した順序のインデックス。
      * @return ロード済み asset (未ロード / 範囲外 / 失敗は空 TSharedPtr)。
      */
-    TSharedPtr<Asset> GetAsset(u32 index) const noexcept;
+    TSharedPtr<FAsset> GetAsset(u32 index) const noexcept;
 
     /**
      * path 一致の asset を取得する。
@@ -119,7 +119,7 @@ public:
      * @param asset_path 探す asset の仮想パス。
      * @return path 一致の asset (見つからない / 失敗は空 TSharedPtr)。
      */
-    TSharedPtr<Asset> FindAsset(const char* asset_path) const noexcept;
+    TSharedPtr<FAsset> FindAsset(const char* asset_path) const noexcept;
 
     /**
      * ロード完了割合を返す (ローディング画面のプログレスバー用途)。
@@ -161,28 +161,28 @@ public:
      *
      * @details
      * 内部 TSharedPtr を drop して refcount を落とす。シーン破棄前に呼ぶと決定的な
-     * タイミングで解放できる (デストラクタ任せでも良いが Scene::OnExit で明示するのが推奨)。
+     * タイミングで解放できる (デストラクタ任せでも良いが FScene::OnExit で明示するのが推奨)。
      */
     void Unload() noexcept;
 
 private:
     /** bundle 内の 1 個の asset エントリ。 */
-    struct Entry {
+    struct FEntry {
         /** asset の仮想パス (呼び出し側所有の文字列を借用、コピーしない)。 */
         const char* path   = nullptr;
 
         /** この asset の進捗状態。 */
-        LoadStatus  status = LoadStatus::Pending;
+        ELoadStatus  status = ELoadStatus::Pending;
 
         /** BeginLoad で registry からロードした実体 (失敗時は空)。Unload まで生存を保証する。 */
-        TSharedPtr<Asset>  asset;
+        TSharedPtr<FAsset>  asset;
     };
 
     /** BeginLoad を 1 度でも実行したか (Add の閉鎖判定用)。 */
     bool          m_bBegun = false;
 
     /** 登録済み asset エントリの配列 (Add 順)。 */
-    TArray<Entry>  m_Entries;
+    TArray<FEntry>  m_Entries;
 };
 
 } // namespace acs::game

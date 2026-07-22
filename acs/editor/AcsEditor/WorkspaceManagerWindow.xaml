@@ -1,0 +1,147 @@
+<Window x:Class="AcsEditor.WorkspaceManagerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="Workspace Manager"
+        Width="680" Height="500" MinWidth="620" MinHeight="440"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None" ResizeMode="CanResize"
+        Background="{StaticResource Win}" Foreground="{StaticResource Text}"
+        FontFamily="Segoe UI" FontSize="11.5"
+        UseLayoutRounding="True"
+        PreviewKeyDown="OnPreviewKeyDown">
+
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="34"
+                            ResizeBorderThickness="6"
+                            CornerRadius="0"
+                            GlassFrameThickness="0"
+                            UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
+
+    <Window.Resources>
+        <Style x:Key="WorkspaceCaption" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
+            <Setter Property="FontSize" Value="9.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style x:Key="WorkspaceAction" TargetType="Button">
+            <Setter Property="Height" Value="29"/>
+            <Setter Property="Padding" Value="12,3"/>
+            <Setter Property="Margin" Value="4,0,0,0"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <Grid DockPanel.Dock="Top" Height="34" Background="{StaticResource Win}"
+              MouseLeftButtonDown="OnTitleBarMouseDown">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Center">
+                <Border Width="3" Height="18" Background="{StaticResource Accent}" Margin="0,0,8,0"/>
+                <TextBlock Text="WORKSPACE MANAGER" Foreground="{StaticResource TextDim}"
+                           FontSize="11.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <TextBlock Text="  /  USER LAYOUTS" Foreground="{StaticResource InfoFg}"
+                           FontSize="9.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            </StackPanel>
+            <Button Grid.Column="1" Style="{StaticResource CloseCaptionButton}"
+                    shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                    Content="&#x2715;" Click="OnClose"/>
+        </Grid>
+
+        <Border DockPanel.Dock="Top" Background="{StaticResource Panel}"
+                BorderBrush="{StaticResource Edge}" BorderThickness="0,1,0,1"
+                Padding="15,12">
+            <StackPanel>
+                <TextBlock Text="Named workspaces"
+                           FontSize="16" FontWeight="SemiBold"/>
+                <TextBlock Margin="0,4,0,0" Foreground="{StaticResource TextDim}"
+                           TextWrapping="Wrap"
+                           Text="Capture panel visibility, panel sizes and the active lower tool tab. The scene view preset, selection and camera state are never changed."/>
+            </StackPanel>
+        </Border>
+
+        <Grid Margin="14">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="188"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Row="0" Grid.Column="0" Margin="0,0,12,0"
+                    Background="{StaticResource Panel2}"
+                    BorderBrush="{StaticResource Hairline}" BorderThickness="1">
+                <ListBox x:Name="WorkspaceList"
+                         Background="Transparent" BorderThickness="0"
+                         SelectionChanged="OnSelectionChanged"
+                         MouseDoubleClick="OnActivate">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="9,7">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                    <TextBlock Foreground="{StaticResource TextDim}" FontSize="10"
+                                               Text="{Binding Layout.BottomTab, StringFormat=Lower tab: {0}}"/>
+                                </StackPanel>
+                                <Border Grid.Column="1" Padding="7,2" VerticalAlignment="Center"
+                                        Background="{StaticResource Panel}">
+                                    <TextBlock Text="{Binding Kind}"
+                                               Style="{StaticResource WorkspaceCaption}"/>
+                                </Border>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+            <StackPanel Grid.Row="0" Grid.Column="1">
+                <TextBlock Text="PROFILE NAME" Style="{StaticResource WorkspaceCaption}"
+                           Margin="1,0,0,6"/>
+                <TextBox x:Name="NameBox" Height="29" Padding="7,3"
+                         VerticalContentAlignment="Center"
+                         TextChanged="OnNameChanged"/>
+                <Button x:Name="SaveCurrentButton" Content="Save Current Layout"
+                        Style="{StaticResource WorkspaceAction}" Margin="0,9,0,0"
+                        Click="OnSaveCurrent"/>
+                <Button x:Name="DuplicateButton" Content="Duplicate Selected"
+                        Style="{StaticResource WorkspaceAction}" Margin="0,5,0,0"
+                        Click="OnDuplicate"/>
+                <Button x:Name="RenameButton" Content="Rename Selected"
+                        Style="{StaticResource WorkspaceAction}" Margin="0,5,0,0"
+                        Click="OnRename"/>
+                <Button x:Name="DeleteButton" Content="Delete Selected"
+                        Style="{StaticResource WorkspaceAction}" Margin="0,5,0,0"
+                        Foreground="{StaticResource WarnFg}"
+                        Click="OnDelete"/>
+            </StackPanel>
+
+            <Border Grid.Row="1" Grid.ColumnSpan="2" Margin="0,12,0,0"
+                    Background="{StaticResource Panel}" Padding="9,7">
+                <TextBlock x:Name="MessageText" Foreground="{StaticResource TextDim}"
+                           Text="Select a workspace or enter a name for the current layout."
+                           TextWrapping="Wrap"/>
+            </Border>
+
+            <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Orientation="Horizontal"
+                        HorizontalAlignment="Right" Margin="0,12,0,0">
+                <Button x:Name="ActivateButton" Content="Activate"
+                        IsDefault="True" MinWidth="96"
+                        Style="{StaticResource WorkspaceAction}"
+                        Click="OnActivate"/>
+                <Button Content="Close" IsCancel="True" MinWidth="88"
+                        Style="{StaticResource WorkspaceAction}"
+                        Click="OnClose"/>
+            </StackPanel>
+        </Grid>
+    </DockPanel>
+</Window>

@@ -8,10 +8,10 @@
 //   1 操作 = 1 FEditorCommand 派生インスタンスとして表現する。
 //
 // 使い方:
-//   class MoveNodeCommand : public FEditorCommand { ... };  // header 下に inline 例
+//   class FMoveNodeCommand : public FEditorCommand { ... };  // header 下に inline 例
 //
 //   // editor 側:
-//   acs::TUniquePtr<MoveNodeCommand> cmd = acs::MakeUnique<MoveNodeCommand>(
+//   acs::TUniquePtr<FMoveNodeCommand> cmd = acs::MakeUnique<FMoveNodeCommand>(
 //       &node, old_pos, new_pos);
 //   undo_stack.Push(acs::Move(cmd));   // 確保元ごと所有権を渡す + Execute 実行
 //
@@ -40,7 +40,7 @@
 #pragma once
 
 #include "foundation/Types.h"
-#include "gameframework/Node2D.h"
+#include "gameframework/ANode.h"
 #include "math/Vec.h"
 
 namespace acs::game::editor_core {
@@ -139,7 +139,7 @@ public:
 };
 
 /**
- * FNode2D の position を変更する FEditorCommand 派生サンプル。
+ * ANode の position を変更する FEditorCommand 派生サンプル。
  *
  * @details
  * 教科書的な使用例で、連続 drag を 1 件にまとめる CanMerge 実装も持つ。マージ規約は、
@@ -149,7 +149,7 @@ public:
  * 対象が dangling だと UB になるため、editor 側で Destroy 時に undo stack を Clear する等の
  * ハイレベルポリシーで防ぐ。
  */
-class MoveNodeCommand : public FEditorCommand {
+class FMoveNodeCommand : public FEditorCommand {
 public:
     /**
      * 移動対象と前後の position を保持して構築する。
@@ -158,20 +158,20 @@ public:
      * @param old_pos 変更前の位置 (Undo で復元する値)。
      * @param new_pos 変更後の位置 (Execute で適用する値)。
      */
-    MoveNodeCommand(FNode2D* target, FVec2 old_pos, FVec2 new_pos) noexcept
+    FMoveNodeCommand(ANode* target, FVec2 old_pos, FVec2 new_pos) noexcept
         : m_Target(target), m_OldPos(old_pos), m_NewPos(new_pos) {}
 
     /** 対象ノードの local position を new_pos に設定する。 */
     void Execute() noexcept override {
         if (m_Target != nullptr) {
-            m_Target->Local().position = m_NewPos;
+            m_Target->SetPosition2D(m_NewPos);
         }
     }
 
     /** 対象ノードの local position を old_pos に戻す。 */
     void Undo() noexcept override {
         if (m_Target != nullptr) {
-            m_Target->Local().position = m_OldPos;
+            m_Target->SetPosition2D(m_OldPos);
         }
     }
 
@@ -188,12 +188,12 @@ public:
      * この派生型を一意に識別する kind tag を返す。
      *
      * @details next 側も同じアドレスを返せば同一派生型と確定できる (= RTTI 不要のポインタ比較)。
-     * @return MoveNodeCommand 固有の静的アドレス。
+     * @return FMoveNodeCommand 固有の静的アドレス。
      */
     const void* Kind() const noexcept override { return KindTag(); }
 
     /**
-     * 同一 target に対する連続 MoveNodeCommand のみマージを許可する。
+     * 同一 target に対する連続 FMoveNodeCommand のみマージを許可する。
      *
      * @details Kind tag と target ポインタが両方一致するときだけ merge を認める。
      * @param next 直後に Push されようとしている command。
@@ -204,9 +204,9 @@ public:
         if (next.Kind() != KindTag()) {
             return false;
         }
-        // ここまでくれば next は MoveNodeCommand と確定 (Kind tag は static アドレス
+        // ここまでくれば next は FMoveNodeCommand と確定 (Kind tag は static アドレス
         // で派生クラスを一意に識別している)。安全に static_cast 可能。
-        const MoveNodeCommand& nxt = static_cast<const MoveNodeCommand&>(next);
+        const FMoveNodeCommand& nxt = static_cast<const FMoveNodeCommand&>(next);
         return nxt.m_Target == m_Target;
     }
 
@@ -221,7 +221,7 @@ public:
         if (next.Kind() != KindTag()) {
             return;
         }
-        const MoveNodeCommand& nxt = static_cast<const MoveNodeCommand&>(next);
+        const FMoveNodeCommand& nxt = static_cast<const FMoveNodeCommand&>(next);
         // new 値だけ更新し、old 値 (= 連続 drag の始点) は保持する。
         m_NewPos = nxt.m_NewPos;
     }
@@ -231,7 +231,7 @@ public:
      *
      * @return 対象ノード (未設定なら nullptr)。
      */
-    const FNode2D* Target() const noexcept { return m_Target; }
+    const ANode* Target() const noexcept { return m_Target; }
 
     /**
      * 変更前の位置を返す。
@@ -254,7 +254,7 @@ private:
      * @details
      * 内容は使わず、アドレスだけが ID。function-local static にすることで、ヘッダ多重
      * include + 複数 TU 跨ぎで「同一アドレス」を保証する (C++11 以降の保証)。
-     * @return MoveNodeCommand を識別する静的アドレス。
+     * @return FMoveNodeCommand を識別する静的アドレス。
      */
     static const void* KindTag() noexcept {
         static const char kTag = 0;
@@ -262,7 +262,7 @@ private:
     }
 
     /** 位置を書き換える対象ノード。 */
-    FNode2D* m_Target  = nullptr;
+    ANode* m_Target  = nullptr;
 
     /** 変更前の位置 (Undo で復元)。 */
     FVec2    m_OldPos {};

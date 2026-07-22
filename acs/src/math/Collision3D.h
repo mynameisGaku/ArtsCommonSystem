@@ -2,12 +2,12 @@
 // 3D 衝突判定プリミティブ（AABB / 球 / 平面 / レイ）
 //
 // 使い方:
-//   Aabb3 box = Aabb3::FromCenterExtents({0,0,0}, {1,1,1});
+//   FAabb3 box = FAabb3::FromCenterExtents({0,0,0}, {1,1,1});
 //   FSphere s{ {3,0,0}, 0.5f };
 //   if (Intersect(box, s)) { /* 重なっている */ }
 //
-//   Ray3 ray{ camera.Eye(), forward };
-//   RayHit3 h = RaycastAabb(ray, box);
+//   FRay3 ray{ camera.Eye(), forward };
+//   FRayHit3 h = RaycastAabb(ray, box);
 //   if (h.hit) { /* h.point, h.normal, h.t */ }
 #pragma once
 
@@ -20,7 +20,7 @@ namespace acs {
 /**
  * 軸並行境界ボックス (中心 + 半サイズで表す)。
  */
-struct Aabb3 {
+struct FAabb3 {
     /** ボックス中心。 */
     FVec3 center;
 
@@ -28,7 +28,7 @@ struct Aabb3 {
     FVec3 half_size;
 
     /** 中心・半サイズとも未初期化のまま構築する。 */
-    constexpr Aabb3() noexcept = default;
+    constexpr FAabb3() noexcept = default;
 
     /**
      * 中心と半サイズを指定して構築する。
@@ -36,7 +36,7 @@ struct Aabb3 {
      * @param c 中心。
      * @param hs 半サイズ。
      */
-    constexpr Aabb3(FVec3 c, FVec3 hs) noexcept : center(c), half_size(hs) {}
+    constexpr FAabb3(FVec3 c, FVec3 hs) noexcept : center(c), half_size(hs) {}
 
     /**
      * 最小・最大座標から構築する。
@@ -45,7 +45,7 @@ struct Aabb3 {
      * @param max 最大座標。
      * @return min〜max を覆う AABB。
      */
-    static constexpr Aabb3 FromMinMax(FVec3 min, FVec3 max) noexcept {
+    static constexpr FAabb3 FromMinMax(FVec3 min, FVec3 max) noexcept {
         const FVec3 c{ (min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f, (min.z + max.z) * 0.5f };
         const FVec3 hs{ (max.x - min.x) * 0.5f, (max.y - min.y) * 0.5f, (max.z - min.z) * 0.5f };
         return { c, hs };
@@ -58,7 +58,7 @@ struct Aabb3 {
      * @param extents 半サイズ。
      * @return 指定の中心・半サイズを持つ AABB。
      */
-    static constexpr Aabb3 FromCenterExtents(FVec3 center, FVec3 extents) noexcept {
+    static constexpr FAabb3 FromCenterExtents(FVec3 center, FVec3 extents) noexcept {
         return { center, extents };
     }
 
@@ -119,7 +119,7 @@ struct FPlane {
 /**
  * レイ (始点 + 方向)。
  */
-struct Ray3 {
+struct FRay3 {
     /** レイの始点。 */
     FVec3 origin;
 
@@ -130,7 +130,7 @@ struct Ray3 {
 /**
  * レイキャストの結果。
  */
-struct RayHit3 {
+struct FRayHit3 {
     /** 命中したか。 */
     bool hit = false;
 
@@ -151,7 +151,7 @@ struct RayHit3 {
  * @param p 判定する点。
  * @return p が a の内部 (境界含む) なら true。
  */
-ACS_FORCEINLINE bool Contains(const Aabb3& a, FVec3 p) noexcept {
+ACS_FORCEINLINE bool Contains(const FAabb3& a, FVec3 p) noexcept {
     return Abs(p.x - a.center.x) <= a.half_size.x &&
            Abs(p.y - a.center.y) <= a.half_size.y &&
            Abs(p.z - a.center.z) <= a.half_size.z;
@@ -178,7 +178,7 @@ ACS_FORCEINLINE bool Contains(const FSphere& s, FVec3 p) noexcept {
  * @param b AABB その 2。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const Aabb3& a, const Aabb3& b) noexcept {
+ACS_FORCEINLINE bool Intersect(const FAabb3& a, const FAabb3& b) noexcept {
     return Abs(a.center.x - b.center.x) <= (a.half_size.x + b.half_size.x) &&
            Abs(a.center.y - b.center.y) <= (a.half_size.y + b.half_size.y) &&
            Abs(a.center.z - b.center.z) <= (a.half_size.z + b.half_size.z);
@@ -207,7 +207,7 @@ ACS_FORCEINLINE bool Intersect(const FSphere& a, const FSphere& b) noexcept {
  * @param s 対象の球。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const Aabb3& a, const FSphere& s) noexcept {
+ACS_FORCEINLINE bool Intersect(const FAabb3& a, const FSphere& s) noexcept {
     const FVec3 mn = a.Min(), mx = a.Max();
     const f32 cx = s.center.x < mn.x ? mn.x : (s.center.x > mx.x ? mx.x : s.center.x);
     const f32 cy = s.center.y < mn.y ? mn.y : (s.center.y > mx.y ? mx.y : s.center.y);
@@ -225,7 +225,7 @@ ACS_FORCEINLINE bool Intersect(const Aabb3& a, const FSphere& s) noexcept {
  * @param a 対象 AABB。
  * @return 重なっていれば true。
  */
-ACS_FORCEINLINE bool Intersect(const FSphere& s, const Aabb3& a) noexcept { return Intersect(a, s); }
+ACS_FORCEINLINE bool Intersect(const FSphere& s, const FAabb3& a) noexcept { return Intersect(a, s); }
 
 /**
  * 2 つの球の押し出しベクトル (a を b から離す最小ベクトル) を求める。
@@ -257,9 +257,9 @@ ACS_FORCEINLINE bool Resolve(const FSphere& a, const FSphere& b, FVec3& push) no
  * @param t_max 探索する t の上限 (既定は実質無限大)。
  * @return 命中情報。命中時は t・point・命中軸の法線が入る。
  */
-ACS_FORCEINLINE RayHit3 RaycastAabb(const Ray3& ray, const Aabb3& a,
+ACS_FORCEINLINE FRayHit3 RaycastAabb(const FRay3& ray, const FAabb3& a,
                                     f32 t_max = 3.4028235e38f) noexcept {
-    RayHit3 r{};
+    FRayHit3 r{};
     const FVec3 mn = a.Min(), mx = a.Max();
     const f32 inv_dx = ray.direction.x != 0.0f ? 1.0f / ray.direction.x : 1e30f;
     const f32 inv_dy = ray.direction.y != 0.0f ? 1.0f / ray.direction.y : 1e30f;
@@ -305,9 +305,9 @@ ACS_FORCEINLINE RayHit3 RaycastAabb(const Ray3& ray, const Aabb3& a,
  * @param t_max 探索する t の上限 (既定は実質無限大)。
  * @return 命中情報。命中時は外向き法線が入る。
  */
-ACS_FORCEINLINE RayHit3 RaycastSphere(const Ray3& ray, const FSphere& s,
+ACS_FORCEINLINE FRayHit3 RaycastSphere(const FRay3& ray, const FSphere& s,
                                       f32 t_max = 3.4028235e38f) noexcept {
-    RayHit3 r{};
+    FRayHit3 r{};
     const f32 ox = ray.origin.x - s.center.x;
     const f32 oy = ray.origin.y - s.center.y;
     const f32 oz = ray.origin.z - s.center.z;
@@ -344,9 +344,9 @@ ACS_FORCEINLINE RayHit3 RaycastSphere(const Ray3& ray, const FSphere& s,
  * @param t_max 探索する t の上限 (既定は実質無限大)。
  * @return 命中情報。
  */
-ACS_FORCEINLINE RayHit3 RaycastTriangle(const Ray3& ray, FVec3 v0, FVec3 v1, FVec3 v2,
+ACS_FORCEINLINE FRayHit3 RaycastTriangle(const FRay3& ray, FVec3 v0, FVec3 v1, FVec3 v2,
                                         f32 t_max = 3.4028235e38f) noexcept {
-    RayHit3 r{};
+    FRayHit3 r{};
     const FVec3 e1 = v1 - v0;
     const FVec3 e2 = v2 - v0;
     const FVec3 pv = Cross(ray.direction, e2);
@@ -380,9 +380,9 @@ ACS_FORCEINLINE RayHit3 RaycastTriangle(const Ray3& ray, FVec3 v0, FVec3 v1, FVe
  * @param t_max 探索する t の上限 (既定は実質無限大)。
  * @return 命中情報。法線は平面の法線をそのまま返す。レイが平面と平行なら非命中。
  */
-ACS_FORCEINLINE RayHit3 RaycastPlane(const Ray3& ray, const FPlane& p,
+ACS_FORCEINLINE FRayHit3 RaycastPlane(const FRay3& ray, const FPlane& p,
                                      f32 t_max = 3.4028235e38f) noexcept {
-    RayHit3 r{};
+    FRayHit3 r{};
     const f32 nd = p.normal.x * ray.direction.x + p.normal.y * ray.direction.y + p.normal.z * ray.direction.z;
     if (Abs(nd) < 1e-8f) return r;  // 平行
     const f32 no = p.normal.x * ray.origin.x + p.normal.y * ray.origin.y + p.normal.z * ray.origin.z;

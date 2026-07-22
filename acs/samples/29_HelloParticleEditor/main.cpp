@@ -19,4 +19,4 @@
 // ImGuiContext が DX12 raw backend 経由のため)。
 #include "ParticleEditorApp.h"
 
-ACS_GAME_MAIN(helloparticleed::ParticleEditorApp)
+ACS_GAME_MAIN(helloparticleed::FParticleEditorApp)

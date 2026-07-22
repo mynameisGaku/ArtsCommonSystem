@@ -13,7 +13,7 @@ ACS_REF.modules.push({
       sample: "FRenderer rdr;\nrdr.Init(window);                       // Device+Swapchain+CmdList+深度を一括作成\nwhile (!window.ShouldClose()) {\n    window.PollEvents();\n    rdr.BeginFrame({0.1f, 0.2f, 0.3f, 1.0f});   // クリア色で塗る\n    // rdr.CommandList() にコマンドを積む\n    rdr.EndFrame();                      // GPU 投入 + Present\n}\nrdr.Shutdown();",
       members: [
         { sig: "TResult&lt;void&gt; Init(FWindow& w, bool enable_debug = false, bool enable_depth = true)", ret: "成功/失敗", desc: "ウィンドウに紐付けて初期化。<code>enable_depth=true</code> で深度バッファ(D32_Float)も自動作成。", when: "ウィンドウ作成直後に 1 回。" },
-        { sig: "void BeginFrame(const ClearColor& clear)", desc: "フレーム開始。バックバッファをクリア色で塗り、深度を 1.0 でクリアする。" },
+        { sig: "void BeginFrame(const FClearColor& clear)", desc: "フレーム開始。バックバッファをクリア色で塗り、深度を 1.0 でクリアする。" },
         { sig: "void EndFrame()", desc: "フレーム終了。積んだコマンドを GPU に投入して画面に <t>Present</t> する。" },
         { sig: "void OnResize(u32 width, u32 height)", desc: "ウィンドウサイズ変更時に呼ぶ(<t>スワップチェイン</t>と深度を作り直す)。" },
         { sig: "IRhiCommandList* CommandList() const", ret: "コマンドリスト", desc: "<code>BeginFrame</code> 後、この<t>コマンドリスト</t>に描画命令を積む。" },
@@ -40,22 +40,22 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FViewport / FScissorRect / ClearColor",
+      name: "FViewport / FScissorRect / FClearColor",
       kind: "構造体", header: "render/RhiTypes.h",
-      summary: "描画の基本パラメータ。<b>FViewport</b>=描画する画面領域(x,y,幅,高さ,深度範囲)、<b>FScissorRect</b>=この矩形外を捨てる<t>シザー</t>、<b>ClearColor</b>=塗りつぶし色(RGBA 各 0..1)。",
+      summary: "描画の基本パラメータ。<b>FViewport</b>=描画する画面領域(x,y,幅,高さ,深度範囲)、<b>FScissorRect</b>=この矩形外を捨てる<t>シザー</t>、<b>FClearColor</b>=塗りつぶし色(RGBA 各 0..1)。",
       when: "画面の一部だけに描く・分割描画する・クリア色を指定するとき。",
-      sample: "FViewport vp; vp.width = 1280; vp.height = 720;\ncl-&gt;SetViewport(vp);\nClearColor clear{0.1f, 0.1f, 0.15f, 1.0f};",
+      sample: "FViewport vp; vp.width = 1280; vp.height = 720;\ncl-&gt;SetViewport(vp);\nFClearColor clear{0.1f, 0.1f, 0.15f, 1.0f};",
       members: [
         { sig: "FViewport{ x, y, width, height, min_depth=0, max_depth=1 }", desc: "描画先の矩形と深度の出力範囲。" },
         { sig: "FScissorRect{ left, top, right, bottom }", desc: "この矩形の外側のピクセルを描かない。" },
-        { sig: "ClearColor{ r, g, b, a }", desc: "クリア色。各成分 0..1。" }
+        { sig: "FClearColor{ r, g, b, a }", desc: "クリア色。各成分 0..1。" }
       ]
     },
     {
       name: "EPrimitiveTopology / EResourceState",
       kind: "列挙(enum)", header: "render/RhiTypes.h",
       summary: "<b>EPrimitiveTopology</b>=頂点をどう繋いで図形にするか(点/線/三角形列)。<b>EResourceState</b>=GPU リソースが今どんな用途状態かを表す抽象(DX12/Vulkan の<t>バリア</t>共通化)。",
-      when: "Topology はパイプライン作成時に。ResourceState は普段は内部で自動管理され、手で触ることはまれ。",
+      when: "<code>EPrimitiveTopology</code> はパイプライン作成時に。<code>EResourceState</code> は普段は内部で自動管理され、手で触ることはまれ。",
       sample: "FPipelineDesc pd;\npd.topology = EPrimitiveTopology::TriangleList;  // 三角形リスト(既定)\n// LineList ならワイヤーフレームやデバッグ線",
       members: [
         { sig: "EPrimitiveTopology: PointList / LineList / LineStrip / TriangleList / TriangleStrip", desc: "点・線・線の連結・三角形・三角形帯。" },
@@ -67,7 +67,7 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "render/IRhiDevice.h",
       summary: "GPU そのものとの対話を表す抽象(<t>RHI</t> の中心)。<t>バックエンド</t>(DX12 / Diligent)はこれを実装し、各種リソースはこのデバイスから作る。",
       when: "テクスチャ・バッファ・シェーダ・パイプラインなど、あらゆる GPU リソース作成の第一引数に渡す。普通は <code>FRenderer::Device()</code> から得る。",
-      sample: "DeviceConfig cfg;\ncfg.enable_debug_layer = true;          // Debug ビルドで\nauto dev = CreateRhiDevice(cfg).Value();\nprintf(\"%s / %s\\n\", dev-&gt;BackendName(), dev-&gt;AdapterName());",
+      sample: "FDeviceConfig cfg;\ncfg.enable_debug_layer = true;          // Debug ビルドで\nauto dev = CreateRhiDevice(cfg).Value();\nprintf(\"%s / %s\\n\", dev-&gt;BackendName(), dev-&gt;AdapterName());",
       members: [
         { sig: "const char* BackendName() const", ret: "\"DX12\" 等", desc: "<t>バックエンド</t>名。" },
         { sig: "const char* AdapterName() const", ret: "GPU 名", desc: "GPU の表示名(デバッグ用)。" },
@@ -75,15 +75,15 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "DeviceConfig / ERhiBackendKind / CreateRhiDevice",
+      name: "FDeviceConfig / ERhiBackendKind / CreateRhiDevice",
       kind: "構造体 / 列挙 / ファクトリ関数", header: "render/IRhiDevice.h",
       summary: "デバイス作成のオプションと<t>バックエンド</t>選択、そして実際にデバイスを作る関数。<code>FRenderer</code> を使わず低レベルから組み立てるときの入口。",
       when: "描画パイプラインを自前で組むとき。普通は <code>FRenderer::Init</code> が裏でこれを呼ぶ。",
-      sample: "DeviceConfig cfg;\ncfg.backend = ERhiBackendKind::Auto;    // 最良を自動選択(D3D12 優先)\ncfg.prefer_high_perf = true;            // ディスクリート GPU を優先\nauto dev = CreateRhiDevice(cfg).Value();",
+      sample: "FDeviceConfig cfg;\ncfg.backend = ERhiBackendKind::Auto;    // 最良を自動選択(D3D12 優先)\ncfg.prefer_high_perf = true;            // ディスクリート GPU を優先\nauto dev = CreateRhiDevice(cfg).Value();",
       members: [
-        { sig: "struct DeviceConfig{ enable_debug_layer, prefer_high_perf, backend }", desc: "デバッグレイヤ・高性能 GPU 優先・バックエンド種別。" },
+        { sig: "struct FDeviceConfig{ enable_debug_layer, prefer_high_perf, backend }", desc: "デバッグレイヤ・高性能 GPU 優先・バックエンド種別。" },
         { sig: "enum ERhiBackendKind: Auto / D3D12 / Vulkan", desc: "Diligent 経由のときのみ意味を持つ。raw DX12 backend では無視。" },
-        { sig: "TResult&lt;TUniquePtr&lt;IRhiDevice&gt;&gt; CreateRhiDevice(const DeviceConfig& cfg)", ret: "デバイス", desc: "デバイスを作る。実際のバックエンドはビルド設定で決まる。" }
+        { sig: "TResult&lt;TUniquePtr&lt;IRhiDevice&gt;&gt; CreateRhiDevice(const FDeviceConfig& cfg)", ret: "デバイス", desc: "デバイスを作る。実際のバックエンドはビルド設定で決まる。" }
       ]
     },
     {
@@ -100,14 +100,14 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "SwapchainConfig / CreateRhiSwapchain",
+      name: "FSwapchainConfig / CreateRhiSwapchain",
       kind: "構造体 / ファクトリ関数", header: "render/IRhiSwapchain.h",
       summary: "<t>スワップチェイン</t>を作るための設定(対象ウィンドウ・フォーマット・バッファ枚数・<t>VSync</t>)と生成関数。",
       when: "RHI を自前で組むとき。",
-      sample: "SwapchainConfig cfg;\ncfg.window = &window;\ncfg.buffer_count = 2;          // ダブルバッファ\ncfg.vsync = true;\nauto sc = CreateRhiSwapchain(*dev, cfg).Value();",
+      sample: "FSwapchainConfig cfg;\ncfg.window = &window;\ncfg.buffer_count = 2;          // ダブルバッファ\ncfg.vsync = true;\nauto sc = CreateRhiSwapchain(*dev, cfg).Value();",
       members: [
-        { sig: "struct SwapchainConfig{ window, format, buffer_count=2, vsync=true }", desc: "2=ダブル、3=トリプルバッファ。" },
-        { sig: "TResult&lt;TUniquePtr&lt;IRhiSwapchain&gt;&gt; CreateRhiSwapchain(IRhiDevice& device, const SwapchainConfig& cfg)", ret: "スワップチェイン", desc: "スワップチェインを作る。" }
+        { sig: "struct FSwapchainConfig{ window, format, buffer_count=2, vsync=true }", desc: "2=ダブル、3=トリプルバッファ。" },
+        { sig: "TResult&lt;TUniquePtr&lt;IRhiSwapchain&gt;&gt; CreateRhiSwapchain(IRhiDevice& device, const FSwapchainConfig& cfg)", ret: "スワップチェイン", desc: "スワップチェインを作る。" }
       ]
     },
     {
@@ -118,13 +118,13 @@ ACS_REF.modules.push({
       sample: "auto* cl = rdr.CommandList();\ncl-&gt;SetPipeline(*pipe);\ncl-&gt;SetConstantBuffer(0, *frame_cb);\ncl-&gt;SetTexture(0, *tex);\ncl-&gt;SetVertexBuffer(*vb, stride);\ncl-&gt;SetIndexBuffer(*ib);\ncl-&gt;DrawIndexed(index_count);",
       members: [
         { sig: "void Begin() / End() / Submit()", desc: "記録開始 / 記録終了 / GPU へ投入。" },
-        { sig: "void BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index, const ClearColor& clear, IRhiTexture* depth = nullptr, f32 depth_clear = 1.0f)", desc: "バックバッファを RT としてバインド+クリア。depth を渡すと深度もバインド+クリア。", when: "画面への描画パスの最初。" },
+        { sig: "void BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index, const FClearColor& clear, IRhiTexture* depth = nullptr, f32 depth_clear = 1.0f)", desc: "バックバッファを RT としてバインド+クリア。depth を渡すと深度もバインド+クリア。", when: "画面への描画パスの最初。" },
         { sig: "void EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index)", desc: "バックバッファ描画を終え、<t>Present</t> 可能状態にする。" },
-        { sig: "void BeginRenderToTexture(IRhiTexture& rt, const ClearColor& clear, IRhiTexture* depth = nullptr, f32 depth_clear = 1.0f)", desc: "オフスクリーン RT への描画開始(HDR RT / ポストプロセス用)。", when: "HDR パイプラインや反射の捕捉。" },
+        { sig: "void BeginRenderToTexture(IRhiTexture& rt, const FClearColor& clear, IRhiTexture* depth = nullptr, f32 depth_clear = 1.0f)", desc: "オフスクリーン RT への描画開始(HDR RT / ポストプロセス用)。", when: "HDR パイプラインや反射の捕捉。" },
         { sig: "void EndRenderToTexture(IRhiTexture& rt)", desc: "RT 描画を終え、次パスで <t>SRV</t> としてサンプル可能な状態へ遷移する。" },
         { sig: "void BeginRenderToTextureLoad(IRhiTexture& rt, IRhiTexture* depth = nullptr)", desc: "クリアせずに RT を再 bind(opaque pass の上にさらに描く)。" },
-        { sig: "void BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip, const ClearColor& clear)", desc: "<t>キューブマップ</t>1 面 / 配列 1 スライス / 1 ミップに描く(per_slice_rtv 必須)。" },
-        { sig: "void BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count, const ClearColor& clear, IRhiTexture* depth = nullptr, f32 depth_clear = 1.0f)", desc: "最大 8 枚の RT を同時バインドする <t>MRT</t> 描画。Diligent 実装、Dx12 raw は no-op。" },
+        { sig: "void BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip, const FClearColor& clear)", desc: "<t>キューブマップ</t>1 面 / 配列 1 スライス / 1 ミップに描く(per_slice_rtv 必須)。" },
+        { sig: "void BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count, const FClearColor& clear, IRhiTexture* depth = nullptr, f32 depth_clear = 1.0f)", desc: "最大 8 枚の RT を同時バインドする <t>MRT</t> 描画。Diligent 実装、Dx12 raw は no-op。" },
         { sig: "void BeginShadowPass(IRhiTexture& depth, f32 depth_clear = 1.0f) / EndShadowPass(IRhiTexture& depth)", desc: "depth-only の<t>シャドウパス</t>開始/終了。終了時に深度を SRV 状態へ遷移し主パスでサンプル可能に。" },
         { sig: "void SetViewport(const FViewport&) / SetScissor(const FScissorRect&)", desc: "<t>ビューポート</t> / <t>シザー</t>を設定。" },
         { sig: "void SetStencilRef(u32 ref)", desc: "<t>ステンシル</t>参照値を設定(同じ PSO で ref だけ切替できる)。" },
@@ -174,9 +174,9 @@ ACS_REF.modules.push({
         { sig: "IRhiShader* vs / ps", desc: "頂点 / ピクセルシェーダ。" },
         { sig: "EPrimitiveTopology topology", desc: "プリミティブ種別(既定 TriangleList)。" },
         { sig: "EFormat rt_format / rt_formats[8] / u32 rt_count / EFormat depth_format", desc: "出力 RT の<t>フォーマット</t>。<code>rt_count&gt;0</code> で <t>MRT</t>。depth_format=Unknown で深度なし。" },
-        { sig: "InputElement layout[8] / u32 layout_count / u32 vertex_stride", desc: "頂点入力レイアウトと 1 頂点のバイト数。" },
+        { sig: "FInputElement layout[8] / u32 layout_count / u32 vertex_stride", desc: "頂点入力レイアウトと 1 頂点のバイト数。" },
         { sig: "u32 cbuffer_slots / texture_slots", desc: "公開する<t>定数バッファ</t>数 / テクスチャ数。Draw 前に SetConstantBuffer / SetTexture で割り当てる。" },
-        { sig: "SamplerDesc static_samplers[16] / u32 static_sampler_count", desc: "パイプラインに焼き込む静的<t>サンプラ</t>(最大 16)。" },
+        { sig: "FSamplerDesc static_samplers[16] / u32 static_sampler_count", desc: "パイプラインに焼き込む静的<t>サンプラ</t>(最大 16)。" },
         { sig: "const char* cbuffer_names[16] / texture_names[16]", desc: "Diligent が名前で <t>SRB</t> を引くための HLSL リソース名(DX12 raw は無視)。" },
         { sig: "ECullMode cull_mode / EBlendMode blend_mode / bool depth_test / depth_write", desc: "カリング・ブレンド・深度テスト/書込み。" },
         { sig: "FStencilDesc stencil", desc: "<t>ステンシル</t>設定(既定 disable)。" },
@@ -184,13 +184,13 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "InputElement / ECullMode / EBlendMode / ECompareFunc",
+      name: "FInputElement / ECullMode / EBlendMode / ECompareFunc",
       kind: "構造体 / 列挙(enum)", header: "render/IRhiPipeline.h",
-      summary: "パイプラインを組む部品。<b>InputElement</b>=頂点 1 要素(POSITION/COLOR 等の<t>セマンティック</t>+フォーマット+オフセット)、<b>ECullMode</b>=面の捨て方、<b>EBlendMode</b>=色の混ぜ方、<b>ECompareFunc</b>=深度/ステンシルの比較関数。",
+      summary: "パイプラインを組む部品。<b>FInputElement</b>=頂点 1 要素(POSITION/COLOR 等の<t>セマンティック</t>+フォーマット+オフセット)、<b>ECullMode</b>=面の捨て方、<b>EBlendMode</b>=色の混ぜ方、<b>ECompareFunc</b>=深度/ステンシルの比較関数。",
       when: "<code>FPipelineDesc</code> の各フィールドを埋めるとき。",
-      sample: "InputElement e{ \"TEXCOORD\", 0, EFormat::R32G32_Float, 12 };\n// 半透明にするなら:\npd.blend_mode = EBlendMode::AlphaBlend;\npd.cull_mode  = ECullMode::Back;",
+      sample: "FInputElement e{ \"TEXCOORD\", 0, EFormat::R32G32_Float, 12 };\n// 半透明にするなら:\npd.blend_mode = EBlendMode::AlphaBlend;\npd.cull_mode  = ECullMode::Back;",
       members: [
-        { sig: "struct InputElement{ semantic_name, semantic_index, format, offset }", desc: "HLSL の<t>セマンティック</t>名・index・フォーマット・頂点内バイトオフセット。" },
+        { sig: "struct FInputElement{ semantic_name, semantic_index, format, offset }", desc: "HLSL の<t>セマンティック</t>名・index・フォーマット・頂点内バイトオフセット。" },
         { sig: "enum ECullMode: None / Front / Back", desc: "カリング無し(両面) / 表面 / 裏面(一般的)。" },
         { sig: "enum EBlendMode: Opaque / AlphaBlend / Additive", desc: "不透明 / 一般的な半透明 / 加算。" },
         { sig: "enum ECompareFunc: Never / Less / Equal / LessEqual / Greater / NotEqual / GreaterEqual / Always", desc: "深度・ステンシルテストの比較関数。" }
@@ -215,35 +215,35 @@ ACS_REF.modules.push({
       sample: "FTextureDesc d;\nd.width = 256; d.height = 256;\nd.format = EFormat::R8G8B8A8_UNorm;\nd.initial_data = pixels;\nd.initial_data_size = 256*256*4;\nauto tex = CreateRhiTexture(*dev, d).Value();\ncl-&gt;SetTexture(0, *tex);",
       members: [
         { sig: "struct FTextureDesc{ width, height, format, mip_levels, array_size, is_cubemap, is_render_target, is_depth_target, shader_visible_depth, per_slice_rtv, initial_data, initial_data_size }", desc: "サイズ・フォーマットのほか、RT/深度/cubemap/配列/ミップ/per-slice RTV などの用途フラグ。" },
-        { sig: "u32 Width() / Height() const / EFormat EPixelFormat() const", desc: "サイズと<t>フォーマット</t>。" },
+        { sig: "u32 Width() / Height() const / EFormat PixelFormat() const", desc: "サイズと<t>フォーマット</t>。" },
         { sig: "u32 MipLevels() / ArraySize() const / bool IsCubemap() const", desc: "ミップ数 / 配列枚数 / cubemap か。" },
         { sig: "TResult&lt;TUniquePtr&lt;IRhiTexture&gt;&gt; CreateRhiTexture(IRhiDevice&, const FTextureDesc&)", ret: "テクスチャ", desc: "テクスチャを作る。" }
       ]
     },
     {
-      name: "SamplerDesc / ESamplerFilter / ESamplerAddress",
+      name: "FSamplerDesc / ESamplerFilter / ESamplerAddress",
       kind: "構造体 / 列挙(enum)", header: "render/IRhiSampler.h",
       summary: "テクスチャをシェーダで読むときの<b><t>サンプラ</t></b>設定。フィルタ(拡大縮小時の補間)と<t>アドレッシング</t>(UV が範囲外のときの扱い)を決める。本フレームワークでは静的サンプラとしてパイプラインに埋め込む。",
       when: "ドット絵をくっきり出したい(Point)・写真を滑らかに(Linear)・タイリングしたい(Wrap)など描き味を決めるとき。",
-      sample: "SamplerDesc s;\ns.filter = ESamplerFilter::Point;     // ドット絵向け\ns.address_u = ESamplerAddress::Clamp;\npd.static_samplers[0] = s;\npd.static_sampler_count = 1;",
+      sample: "FSamplerDesc s;\ns.filter = ESamplerFilter::Point;     // ドット絵向け\ns.address_u = ESamplerAddress::Clamp;\npd.static_samplers[0] = s;\npd.static_sampler_count = 1;",
       members: [
-        { sig: "struct SamplerDesc{ filter, address_u/v/w, min_lod, max_lod, max_anisotropy }", desc: "フィルタ・3 軸のアドレッシング・LOD 範囲・異方性度合い。" },
+        { sig: "struct FSamplerDesc{ filter, address_u/v/w, min_lod, max_lod, max_anisotropy }", desc: "フィルタ・3 軸のアドレッシング・LOD 範囲・異方性度合い。" },
         { sig: "enum ESamplerFilter: Point / Linear / Anisotropic", desc: "ニアレスト(ドット絵) / バイリニア(普通) / 異方性(高品質)。" },
         { sig: "enum ESamplerAddress: Wrap / Mirror / Clamp / Border", desc: "繰り返し / 鏡像 / 端で固定 / 境界色(黒)。" }
       ]
     },
     {
-      name: "UploadTexture / UploadMesh / GpuMesh",
+      name: "UploadTexture / UploadMesh / FGpuMesh",
       kind: "関数 / 構造体", header: "render/RenderAssets.h",
-      summary: "アセット(<t>FImageAsset</t> / <t>FMeshAsset</t>)を GPU リソースに変換する高レベルヘルパ。画像→テクスチャ、メッシュ→頂点+インデックスバッファ(<code>GpuMesh</code>)に一発で持っていける。",
+      summary: "アセット(<t>FImageAsset</t> / <t>FMeshAsset</t>)を GPU リソースに変換する高レベルヘルパ。画像→テクスチャ、メッシュ→頂点+インデックスバッファ(<code>FGpuMesh</code>)に一発で持っていける。",
       when: "ロードした画像やモデルをそのまま描きたいとき。これだけ呼べば描画できる。",
-      sample: "auto img = registry.Load(L\"hero.png\").Value();\nauto tex = UploadTexture(*dev, *img).Value();\n\nauto m = registry.Load(L\"cube.gltf\").Value();\nGpuMesh gm;\nUploadMesh(*dev, *m, gm);   // 位置+法線+UV、stride=32B",
+      sample: "auto img = registry.Load(L\"hero.png\").Value();\nauto tex = UploadTexture(*dev, *img).Value();\n\nauto m = registry.Load(L\"cube.gltf\").Value();\nFGpuMesh gm;\nUploadMesh(*dev, *m, gm);   // 位置+法線+UV、stride=32B",
       members: [
         { sig: "TResult&lt;TUniquePtr&lt;IRhiTexture&gt;&gt; UploadTexture(IRhiDevice&, const FImageAsset&)", ret: "テクスチャ", desc: "画像アセットを GPU テクスチャに同期アップロード。" },
-        { sig: "TResult&lt;void&gt; UploadMesh(IRhiDevice&, const FMeshAsset&, GpuMesh& out)", desc: "メッシュアセットを <code>GpuMesh</code> に変換(位置+法線+UV)。" },
-        { sig: "struct GpuMesh{ vertex_buffer, index_buffer, vertex_count, index_count, vertex_stride }", desc: "描画に必要な VB/IB と数。" },
-        { sig: "TResult&lt;void&gt; UploadSkinnedMesh(IRhiDevice&, const FSkinnedMeshAsset&, SkinnedGpuMesh& out)", desc: "スキンメッシュを <code>SkinnedGpuMesh</code> に変換(<code>FSkinnedShader</code> が消費)。" },
-        { sig: "struct SkinnedGpuMesh{ vertex_buffer, index_buffer, vertex_count, index_count, vertex_stride }", desc: "スキンメッシュ用の VB/IB と数。vertex_stride は <code>FSkinnedVertex</code> のサイズ(<t>BLENDINDICES</t>/<t>WEIGHT</t> を含む)。" }
+        { sig: "TResult&lt;void&gt; UploadMesh(IRhiDevice&, const FMeshAsset&, FGpuMesh& out)", desc: "メッシュアセットを <code>FGpuMesh</code> に変換(位置+法線+UV)。" },
+        { sig: "struct FGpuMesh{ vertex_buffer, index_buffer, vertex_count, index_count, vertex_stride }", desc: "描画に必要な VB/IB と数。" },
+        { sig: "TResult&lt;void&gt; UploadSkinnedMesh(IRhiDevice&, const FSkinnedMeshAsset&, FSkinnedGpuMesh& out)", desc: "スキンメッシュを <code>FSkinnedGpuMesh</code> に変換(<code>FSkinnedShader</code> が消費)。" },
+        { sig: "struct FSkinnedGpuMesh{ vertex_buffer, index_buffer, vertex_count, index_count, vertex_stride }", desc: "スキンメッシュ用の VB/IB と数。vertex_stride は <code>FSkinnedVertex</code> のサイズ(<t>BLENDINDICES</t>/<t>WEIGHT</t> を含む)。" }
       ]
     },
     {
@@ -256,23 +256,23 @@ ACS_REF.modules.push({
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, EFormat rt_format, EFormat depth_format)", desc: "VS+PS・パイプライン・定数バッファ・既定白テクスチャを作る。" },
         { sig: "void SetFrame(view_projection, camera_pos, light_dir, light_color, ambient_color)", desc: "毎フレーム。カメラ + 1 灯の有向光源 + 環境光の簡易版。" },
         { sig: "void SetLights(view_projection, camera_pos, const FDirLight* lights, u32 count, ambient_color)", desc: "有向光源 最大 4 灯のマルチライト版。" },
-        { sig: "void SetPointLights(const PointLight* lights, u32 count)", desc: "点光源を最大 4 灯追加する(SetFrame/SetLights と独立)。" },
+        { sig: "void SetPointLights(const FPointLight* lights, u32 count)", desc: "点光源を最大 4 灯追加する(SetFrame/SetLights と独立)。" },
         { sig: "void SetShadowMap(IRhiTexture* tex, const FMat4& light_vp, f32 bias = 0.001f, f32 filter_radius = 1.0f)", desc: "<t>シャドウマップ</t>を設定。null で影なし。filter_radius は <t>PCSS</t> の柔らかさ。" },
         { sig: "void SetObject(const FMat4& model, base_color, specular_strength, shininess)", desc: "描くオブジェクトごとの<t>モデル行列</t>と材質。" },
-        { sig: "void DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const FMat4& model, base_color, specular_strength, shininess, IRhiTexture* albedo = nullptr)", desc: "Object CB 更新 + 1 回の描画をまとめた便利 API。albedo=null で白テクスチャ。" },
+        { sig: "void DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model, base_color, specular_strength, shininess, IRhiTexture* albedo = nullptr)", desc: "Object CB 更新 + 1 回の描画をまとめた便利 API。albedo=null で白テクスチャ。" },
         { sig: "bool IsShadowEnabled() const / IRhiTexture* ShadowTextureOrDefault() const", desc: "<t>シャドウマップ</t>が設定済みか / 設定された深度テクスチャ(未設定なら既定白テクスチャ)を返す。" },
         { sig: "IRhiPipeline* Pipeline() / IRhiBuffer* PerFrameCB() / PerObjectCB() / IRhiTexture* DefaultWhiteTexture()", desc: "細かく手で描きたいとき用のアクセサ。" }
       ]
     },
     {
-      name: "FDirLight / PointLight",
+      name: "FDirLight / FPointLight",
       kind: "構造体", header: "render/StandardShader.h",
-      summary: "ライトのパラメータ。<b>FDirLight</b>=向きと色だけを持つ<t>有向光源</t>(太陽光のような無限遠の平行光)、<b>PointLight</b>=位置と到達距離を持つ<t>点光源</t>。",
+      summary: "ライトのパラメータ。<b>FDirLight</b>=向きと色だけを持つ<t>有向光源</t>(太陽光のような無限遠の平行光)、<b>FPointLight</b>=位置と到達距離を持つ<t>点光源</t>。",
       when: "<code>SetLights</code> / <code>SetPointLights</code> に渡す配列の要素として。FStandardShader / FPbrShader / FSkinnedShader で共通。",
       sample: "FDirLight lights[2];\nlights[0].direction = FVec3{0.5f,-1,0.3f}; lights[0].color = FVec3{1,0.9f,0.7f};\nlights[1].direction = FVec3{-0.4f,-0.6f,-0.8f}; lights[1].color = FVec3{0.3f,0.4f,0.6f};\nshd.SetLights(vp, eye, lights, 2, FVec3{0.1f,0.1f,0.15f});",
       members: [
         { sig: "struct FDirLight{ FVec3 direction, FVec3 color }", desc: "光が向かう方向と色。" },
-        { sig: "struct PointLight{ FVec3 position, f32 range, FVec3 color }", desc: "位置・到達距離・色。range を超えると影響ゼロ。" }
+        { sig: "struct FPointLight{ FVec3 position, f32 range, FVec3 color }", desc: "位置・到達距離・色。range を超えると影響ゼロ。" }
       ]
     },
     {
@@ -283,28 +283,28 @@ ACS_REF.modules.push({
       sample: "FPbrShader shd;\nshd.Init(*rdr.Device(), rdr.ColorFormat(), rdr.DepthFormat());\nshd.SetLights(cam.ViewProjection(), cam.Eye(), lights, 1, ambient);\nshd.SetIbl(ibl.IrradianceMap(), ibl.PrefilterMap(), ibl.BrdfLut(), ibl.PrefilterMips());\nshd.DrawMesh(*rdr.CommandList(), gm, model,\n             FVec3{1,1,1}, /*metallic=*/0.0f, /*roughness=*/0.4f, /*ao=*/1.0f);",
       members: [
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, EFormat rt_format, EFormat depth_format)", desc: "シェーダ・パイプライン・定数バッファ・fallback テクスチャを作る。" },
-        { sig: "void SetLights(...) / SetPointLights(...) / SetAreaLights(const AreaLight*, u32)", desc: "有向光源 4 灯 / 点光源 4 灯 / 矩形<t>エリアライト</t> 2 個。" },
-        { sig: "void SetIbl(IRhiTexture* irradiance, IRhiTexture* prefilter, IRhiTexture* brdf_lut, u32 prefilter_mips)", desc: "<t>IBL</t> 用 3 テクスチャをバインド。3 つ揃うと環境光が IBL になる。", when: "ImageBasedLighting の各 Map をそのまま渡す。" },
+        { sig: "void SetLights(...) / SetPointLights(...) / SetAreaLights(const FAreaLight*, u32)", desc: "有向光源 4 灯 / 点光源 4 灯 / 矩形<t>エリアライト</t> 2 個。" },
+        { sig: "void SetIbl(IRhiTexture* irradiance, IRhiTexture* prefilter, IRhiTexture* brdf_lut, u32 prefilter_mips)", desc: "<t>IBL</t> 用 3 テクスチャをバインド。3 つ揃うと環境光が IBL になる。", when: "FImageBasedLighting の各 Map をそのまま渡す。" },
         { sig: "void BindIblTextures(IRhiCommandList& cmd)", desc: "albedo と並んで IBL slot 1/2/3 を bind するヘルパ。" },
         { sig: "void SetNormalMap(IRhiTexture*) / SetSsao(...) / SetSsgi(...) / SetSsr(...) / SetLightmap(...)", desc: "法線マップ / <t>SSAO</t> / <t>SSGI</t> / <t>SSR</t> / ライトマップを差し込む。null で OFF。" },
-        { sig: "void SetSh9(const FVec4* sh9_or_null) / SetProbeGrid(const LightProbe*, u32)", desc: "<t>球面調和</t>(SH9)1 個 / 静的光プローブグリッド(最大 4)で間接光を与える。" },
+        { sig: "void SetSh9(const FVec4* sh9_or_null) / SetProbeGrid(const FLightProbe*, u32)", desc: "<t>球面調和</t>(SH9)1 個 / 静的光プローブグリッド(最大 4)で間接光を与える。" },
         { sig: "void SetFog(FVec3 color, f32 density, f32 height_falloff, f32 height_base)", desc: "指数<t>高さフォグ</t>。density=0 で OFF。" },
         { sig: "void SetShadowMap(IRhiTexture* depth, const FMat4& light_vp, ...) / SetShadowMapCascades(...)", desc: "単一 / <t>CSM</t>(カスケード)の<t>シャドウマップ</t>。null で OFF。" },
         { sig: "void SetObject(const FMat4& model, base_color, metallic, roughness, ao)", desc: "PBR 材質。metallic/roughness/ao を直接 GGX に渡す。" },
         { sig: "void SetExtParams(clearcoat, clearcoat_roughness, anisotropy, tangent) / SetEmissive(...) / SetSheen(...) / SetIridescence(...) / SetSubsurface(...)", desc: "クリアコート・異方性・自己発光・布の毛羽・薄膜干渉・内部散乱の拡張材質。SetObject の直後に呼ぶ。" },
-        { sig: "void DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const FMat4& model, base_color, metallic, roughness, ao, IRhiTexture* albedo = nullptr)", desc: "材質設定 + 描画をまとめた便利 API。" },
+        { sig: "void DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model, base_color, metallic, roughness, ao, IRhiTexture* albedo = nullptr)", desc: "材質設定 + 描画をまとめた便利 API。" },
         { sig: "IRhiPipeline* Pipeline() / IRhiBuffer* PerFrameCB() / PerObjectCB() / IRhiTexture* DefaultWhiteTexture()", desc: "手描き用アクセサ。" }
       ]
     },
     {
-      name: "FPbrShader::AreaLight / LightProbe",
+      name: "FPbrShader::FAreaLight / FPbrShader::FLightProbe",
       kind: "構造体(入れ子)", header: "render/PbrShader.h",
-      summary: "FPbrShader 専用の入力。<b>AreaLight</b>=矩形の<t>エリアライト</t>(中心 + 2 軸の半幅ベクトル + 色)、<b>LightProbe</b>=静的光プローブ(位置 + <t>球面調和</t>9 係数)。",
+      summary: "FPbrShader 専用の入力。<b>FAreaLight</b>=矩形の<t>エリアライト</t>(中心 + 2 軸の半幅ベクトル + 色)、<b>FLightProbe</b>=静的光プローブ(位置 + <t>球面調和</t>9 係数)。",
       when: "面光源で柔らかい照明を作る / シーンに事前計算の間接光プローブを置くとき。",
-      sample: "FPbrShader::AreaLight a;\na.center = FVec3{0,3,0};\na.axis_x = FVec3{1,0,0}; a.axis_y = FVec3{0,0,1};\na.color  = FVec3{8,8,8};\nshd.SetAreaLights(&a, 1);",
+      sample: "FPbrShader::FAreaLight a;\na.center = FVec3{0,3,0};\na.axis_x = FVec3{1,0,0}; a.axis_y = FVec3{0,0,1};\na.color  = FVec3{8,8,8};\nshd.SetAreaLights(&a, 1);",
       members: [
-        { sig: "struct AreaLight{ FVec3 center, axis_x, axis_y, color }", desc: "矩形中心 + 半幅 2 軸 + 放射輝度。法線方向の逆へ片面 emit。" },
-        { sig: "struct LightProbe{ FVec3 position, FVec4 sh9[9] }", desc: "world 位置と SH9 9 係数(xyz=RGB)。" }
+        { sig: "struct FAreaLight{ FVec3 center, axis_x, axis_y, color }", desc: "矩形中心 + 半幅 2 軸 + 放射輝度。法線方向の逆へ片面 emit。" },
+        { sig: "struct FLightProbe{ FVec3 position, FVec4 sh9[9] }", desc: "world 位置と SH9 9 係数(xyz=RGB)。" }
       ]
     },
     {
@@ -333,7 +333,7 @@ ACS_REF.modules.push({
         { sig: "void Draw(IRhiTexture& tex, f32 x, f32 y, f32 w, f32 h, FVec4 tint = {1,1,1,1})", desc: "テクスチャ全体を矩形に描く。" },
         { sig: "void DrawSub(IRhiTexture& tex, x, y, w, h, u0, v0, u1, v1, tint)", desc: "テクスチャの一部(UV 0..1)を描く。<t>アトラス</t>やタイル抜き出しに。" },
         { sig: "void DrawRect(f32 x, f32 y, f32 w, f32 h, FVec4 color)", desc: "テクスチャ無しの単色矩形。" },
-        { sig: "void DrawString(const Font& font, const char* utf8, f32 x, f32 y, FVec4 color)", desc: "UTF-8 テキスト描画。<code>\\n</code> で改行。" },
+        { sig: "void DrawString(const FFont& font, const char* utf8, f32 x, f32 y, FVec4 color)", desc: "UTF-8 テキスト描画。<code>\\n</code> で改行。" },
         { sig: "void DrawRotated(...) / DrawRectRotated(...)", desc: "中心 (cx,cy) 回りに radians 回転して描く。通常スプライトと同じバッチに乗る。" },
         { sig: "void DrawTriangle(...) / DrawTriangleVC(...) / DrawTriangleSub(...)", desc: "単色 / 頂点カラー(<t>グラデーション</t>) / テクスチャ付き三角形。水面や泡の表現に。" },
         { sig: "void SetView(f32 cam_x, f32 cam_y, f32 zoom)", desc: "2D カメラ。(cam_x,cam_y) を画面中心に映し zoom 倍で拡縮。Begin でリセット。" },
@@ -353,17 +353,17 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "Font / GlyphInfo / DecodeUtf8",
+      name: "FFont / FGlyphInfo / DecodeUtf8",
       kind: "クラス / 構造体 / 関数", header: "render/Font.h",
       summary: "<t>TTF</t>/OTF フォントを GPU テクスチャ<t>アトラス</t>に焼いて、<code>FSpriteBatch</code> で文字を描けるようにする。ASCII から平仮名・片仮名・全角、オプションで CJK 漢字まで対応。",
       when: "ゲーム内に日本語/英語テキストを表示するとき。OS のフォントファイルを読み込んで使う。",
-      sample: "Font font;\nfont.LoadFromFile(*rdr.Device(),\n    L\"C:/Windows/Fonts/meiryo.ttc\", 32.0f,\n    /*atlas_size=*/1024, /*include_cjk=*/true);\nsb.Begin(*cl, sw, sh);\nsb.DrawString(font, \"ハロー、ワールド！\", 100, 100, FVec4{1,1,1,1});\nsb.End();",
+      sample: "FFont font;\nfont.LoadFromFile(*rdr.Device(),\n    L\"C:/Windows/Fonts/meiryo.ttc\", 32.0f,\n    /*atlas_size=*/1024, /*include_cjk=*/true);\nsb.Begin(*cl, sw, sh);\nsb.DrawString(font, \"ハロー、ワールド！\", 100, 100, FVec4{1,1,1,1});\nsb.End();",
       members: [
         { sig: "TResult&lt;void&gt; LoadFromFile(IRhiDevice&, const wchar_t* path, f32 pixel_size, u32 atlas_size = 1024, bool include_cjk = false)", desc: "ファイルからアトラスを構築。include_cjk=true で漢字も焼く(アトラスは 2048 に自動拡張)。" },
         { sig: "TResult&lt;void&gt; LoadFromBytes(IRhiDevice&, const u8* ttf_data, usize ttf_size, f32 pixel_size, ...)", desc: "メモリ上の TTF バイト列から構築。" },
         { sig: "IRhiTexture* AtlasTexture() / u32 AtlasSize() / f32 PixelSize()", desc: "焼いたアトラステクスチャとそのサイズ。" },
         { sig: "f32 Ascent() / Descent() / LineGap() / LineHeight()", desc: "行レイアウト用のメトリクス(ピクセル)。" },
-        { sig: "bool GetGlyph(u32 codepoint, GlyphInfo& out)", desc: "コードポイントのグリフ情報(UV+オフセット)を取得。未収録なら false。" },
+        { sig: "bool GetGlyph(u32 codepoint, FGlyphInfo& out) const", desc: "コードポイントのグリフ情報(UV+オフセット)を取得。未収録なら false。" },
         { sig: "f32 MeasureWidth(const char* utf8_text)", ret: "幅(px)", desc: "文字列の描画幅を測る(改行は無視)。中央寄せ等に。" },
         { sig: "u32 DecodeUtf8(const char** p)", ret: "コードポイント", desc: "UTF-8 を 1 文字読み、ポインタを進める(自由関数)。" }
       ]
@@ -384,42 +384,42 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "ParticleSystem / EmitterDesc",
+      name: "FParticleSystem / FEmitterDesc",
       kind: "クラス / 構造体", header: "render/Particles.h",
-      summary: "CPU プール式の<b>2D パーティクルシステム</b>。火花・煙・爆発・魔法などのエフェクトを <code>EmitterDesc</code> で定義し、毎フレーム <code>Update</code> して <code>FSpriteBatch</code> に積む。Fire/Sparks/Fountain/Smoke のプリセット付き。",
+      summary: "CPU プール式の<b>2D パーティクルシステム</b>。火花・煙・爆発・魔法などのエフェクトを <code>FEmitterDesc</code> で定義し、毎フレーム <code>Update</code> して <code>FSpriteBatch</code> に積む。Fire/Sparks/Fountain/Smoke のプリセット付き。",
       when: "ゲームの視覚エフェクト全般。打撃の火花、たき火の炎、噴水など。",
-      sample: "ParticleSystem ps;\nps.Init(2048);\nps.SetTexture(circle_tex);\nps.SetEmitter(EmitterDesc::Fire(FVec2{400, 300}));\n// 毎フレーム\nps.Update(dt);\nsb.Begin(*cl, sw, sh);\nps.Render(sb);\nsb.End();",
+      sample: "FParticleSystem ps;\nps.Init(2048);\nps.SetTexture(circle_tex);\nps.SetEmitter(FEmitterDesc::Fire(FVec2{400, 300}));\n// 毎フレーム\nps.Update(dt);\nsb.Begin(*cl, sw, sh);\nps.Render(sb);\nsb.End();",
       members: [
         { sig: "TResult&lt;void&gt; Init(u32 max_particles = 4096)", desc: "プールを確保。" },
         { sig: "void SetTexture(IRhiTexture* tex)", desc: "粒子のテクスチャ。null なら白矩形。" },
-        { sig: "void SetEmitter(const EmitterDesc& d) / EmitterDesc& Emitter()", desc: "エミッタ設定 / 参照取得。" },
+        { sig: "void SetEmitter(const FEmitterDesc& d) / FEmitterDesc& Emitter()", desc: "エミッタ設定 / 参照取得。" },
         { sig: "void Update(f32 dt)", desc: "1 フレーム分シミュレーション(生成・移動・寿命処理)。" },
         { sig: "void EmitBurst(u32 count)", desc: "即座に count 個生成(爆発などの単発)。" },
         { sig: "void Render(FSpriteBatch& sb)", desc: "粒子を <code>FSpriteBatch</code> に積む(事前に Begin 済みであること)。" },
         { sig: "u32 ActiveCount() / Capacity()", desc: "現在の生存数 / 上限。" },
-        { sig: "static EmitterDesc Fire/Sparks/Fountain/Smoke(FVec2 pos)", desc: "プリセットのエミッタを返す。" }
+        { sig: "static FEmitterDesc Fire/Sparks/Fountain/Smoke(FVec2 pos)", desc: "プリセットのエミッタを返す。" }
       ]
     },
     {
-      name: "FPostProcess / PostProcessParams",
+      name: "FPostProcess / FPostProcessParams",
       kind: "クラス / 構造体", header: "render/PostProcess.h",
       summary: "<t>HDR</t> <b><t>ポストプロセス</t></b>パイプライン。シーンを HDR RT に描いてから <t>Bloom</t> + <t>トーンマップ</t>(ACES/AgX/Reinhard) + ビネット/色収差/フィルムグレイン + カラーグレーディング + シャープ化 + <t>TAA</t> + <t>自動露出</t>を一括適用して画面に出す。Diligent backend 前提。",
       when: "映画的な仕上がり(発光のにじみ・露出・色調整・アンチエイリアス)を最終段でかけたいとき。",
-      sample: "FPostProcess pp;\npp.Init(*rdr.Device(), w, h, rdr.ColorFormat());\n// OnCustomFrame 内:\ncl-&gt;BeginRenderToTexture(*pp.HdrRenderTarget(), clear, rdr.DepthBuffer());\n// ... シーンを HDR で描画 ...\ncl-&gt;EndRenderToTexture(*pp.HdrRenderTarget());\nPostProcessParams p; p.bloom_intensity = 0.6f; p.exposure = 1.0f;\npp.Render(*cl, *rdr.Swapchain(), buf_idx, p);",
+      sample: "FPostProcess pp;\npp.Init(*rdr.Device(), w, h, rdr.ColorFormat());\n// OnCustomFrame 内:\ncl-&gt;BeginRenderToTexture(*pp.HdrRenderTarget(), clear, rdr.DepthBuffer());\n// ... シーンを HDR で描画 ...\ncl-&gt;EndRenderToTexture(*pp.HdrRenderTarget());\nFPostProcessParams p; p.bloom_intensity = 0.6f; p.exposure = 1.0f;\npp.Render(*cl, *rdr.Swapchain(), buf_idx, p);",
       members: [
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, u32 width, u32 height, EFormat color_format)", desc: "HDR RT + Bloom ミップチェイン + 各パイプラインを作る。" },
         { sig: "TResult&lt;void&gt; Resize(u32 width, u32 height)", desc: "ウィンドウサイズ変更時に内部 RT を作り直す。" },
         { sig: "IRhiTexture* HdrRenderTarget() / EFormat HdrFormat()", desc: "シーンを描く HDR RT とそのフォーマット。" },
-        { sig: "void Render(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buffer_index, const PostProcessParams& params)", desc: "Bloom + Tonemap 一式を実行してバックバッファへ書き出す。" },
-        { sig: "PostProcessParams{ bloom_*, exposure, gamma, tonemap_kind, vignette_*, chromatic_aberration, grain_*, cg_* (color grading), cas_strength, taa_*, auto_exposure_* }", desc: "各効果のパラメータ。bloom / トーンマップ種別 / シネマティック FX / カラーグレーディング / シャープ / TAA / 自動露出。" }
+        { sig: "void Render(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buffer_index, const FPostProcessParams& params)", desc: "Bloom + Tonemap 一式を実行してバックバッファへ書き出す。" },
+        { sig: "FPostProcessParams{ bloom_*, exposure, gamma, tonemap_kind, vignette_*, chromatic_aberration, grain_*, cg_* (color grading), cas_strength, taa_*, auto_exposure_* }", desc: "各効果のパラメータ。bloom / トーンマップ種別 / シネマティック FX / カラーグレーディング / シャープ / TAA / 自動露出。" }
       ]
     },
     {
-      name: "ImageBasedLighting",
+      name: "FImageBasedLighting",
       kind: "クラス", header: "render/Ibl.h",
       summary: "<b><t>IBL</t></b>(環境マップから事前積分した光)を構築する。BRDF LUT・環境<t>キューブマップ</t>・拡散 irradiance・鏡面 prefilter を生成し、<code>FPbrShader::SetIbl</code> に渡す。equirect HDR(.hdr)読込や <t>球面調和</t>(SH9)計算、skybox 描画も持つ。<b>Diligent backend 専用</b>。",
       when: "PBR の環境光を本格化して、金属に映り込みを、全体に自然な間接光を与えたいとき。",
-      sample: "ImageBasedLighting ibl;\nibl.EnsureBrdfLut(*dev, *cl);\nibl.EnsureEnvCubemap(*dev, *cl, sky);   // FSky からキャプチャ\nibl.EnsureIrradiance(*dev, *cl);\nibl.EnsurePrefilter(*dev, *cl);\npbr.SetIbl(ibl.IrradianceMap(), ibl.PrefilterMap(),\n           ibl.BrdfLut(), ibl.PrefilterMips());",
+      sample: "FImageBasedLighting ibl;\nibl.EnsureBrdfLut(*dev, *cl);\nibl.EnsureEnvCubemap(*dev, *cl, sky);   // FSky からキャプチャ\nibl.EnsureIrradiance(*dev, *cl);\nibl.EnsurePrefilter(*dev, *cl);\npbr.SetIbl(ibl.IrradianceMap(), ibl.PrefilterMap(),\n           ibl.BrdfLut(), ibl.PrefilterMips());",
       members: [
         { sig: "TResult&lt;void&gt; EnsureBrdfLut(IRhiDevice&, IRhiCommandList&)", desc: "BRDF LUT(256x256 RG16F)を初回だけ生成。" },
         { sig: "TResult&lt;void&gt; EnsureEnvCubemap(IRhiDevice&, IRhiCommandList&, const FSky& sky)", desc: "<code>FSky</code> から環境 cubemap(256² ×6)をキャプチャ。" },
@@ -459,7 +459,7 @@ ACS_REF.modules.push({
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, EFormat rt_format, u32 max_lines = 16384)", desc: "初期化。1 フレームの最大線数を指定。" },
         { sig: "void Begin()", desc: "線の蓄積を開始(リセット)。" },
         { sig: "void Line(FVec3 a, FVec3 b, FVec4 color)", desc: "2 点間の線を積む。" },
-        { sig: "void Aabb(const Aabb3& box, FVec4 color)", desc: "軸並行ボックスの 12 辺を積む。" },
+        { sig: "void Aabb(const FAabb3& box, FVec4 color)", desc: "軸並行ボックスの 12 辺を積む。" },
         { sig: "void Wireframe(const FVec3* positions, u32 vertex_count, const u32* indices, u32 index_count, FVec4 color)", desc: "三角形インデックス列の全エッジを線で描く(メッシュ/凸包の輪郭)。" },
         { sig: "void End(IRhiCommandList& cl, const FMat4& view_proj)", desc: "現在 bind 中のターゲットへ全線を描画する。" },
         { sig: "u32 LineCount() const", desc: "蓄積済みの線数。" }
@@ -493,7 +493,7 @@ ACS_REF.modules.push({
         { sig: "void SetFrame(const FMat4& view_projection, FVec3 camera_pos)", desc: "毎フレームのカメラ設定。" },
         { sig: "void SetBackDepth(IRhiTexture* back_depth, f32 near, f32 far, u32 screen_w, u32 screen_h)", desc: "背面深度から per-pixel の実厚みを計算する厚みマップ。null でスカラー厚みに戻る。" },
         { sig: "void SetObject(const FMat4& model, f32 ior, f32 thickness, FVec3 tint, f32 roughness = 0, f32 dispersion = 0)", desc: "屈折率・厚み・吸収色・荒さ・分散。" },
-        { sig: "void DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const FMat4& model, IRhiTexture& background, IRhiTexture& env, f32 ior, f32 thickness, FVec3 tint, f32 roughness, f32 dispersion)", desc: "設定 + 描画をまとめた便利 API。background は背景の複製、env は反射用 cubemap。" },
+        { sig: "void DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model, IRhiTexture& background, IRhiTexture& env, f32 ior, f32 thickness, FVec3 tint, f32 roughness, f32 dispersion)", desc: "設定 + 描画をまとめた便利 API。background は背景の複製、env は反射用 cubemap。" },
         { sig: "IRhiPipeline* Pipeline() / IRhiBuffer* PerFrameCB() / PerObjectCB()", desc: "手描き用アクセサ。" }
       ]
     },
@@ -542,7 +542,7 @@ ACS_REF.modules.push({
       members: [
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, u32 width, u32 height) / Resize(...)", desc: "motion RT(RG16F)+ normal RT(RGBA16F)+ 内部 depth を作る。" },
         { sig: "void Begin(IRhiCommandList& cl, const FMat4& view_proj, const FMat4& prev_view_proj)", desc: "motion RT を 0 クリアしパイプライン設定。jitter なしの VP を渡す。" },
-        { sig: "void DrawMesh(IRhiCommandList& cl, const GpuMesh& mesh, const FMat4& model, const FMat4& prev_model)", desc: "1 mesh の motion を描く。静的 mesh は prev_model に model と同値を渡す。" },
+        { sig: "void DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh, const FMat4& model, const FMat4& prev_model)", desc: "1 mesh の motion を描く。静的 mesh は prev_model に model と同値を渡す。" },
         { sig: "void End(IRhiCommandList& cl)", desc: "パス終了(主パス RT へ復帰)。" },
         { sig: "IRhiTexture* OutputTexture() / OutputNormalTexture()", desc: "モーションベクトル / world 法線テクスチャ。" }
       ]
@@ -573,14 +573,14 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FAtmosphere / AtmosphereParams",
+      name: "FAtmosphere / FAtmosphereParams",
       kind: "クラス / 構造体", header: "render/Atmosphere.h",
-      summary: "<b>物理大気散乱</b>(Rayleigh + Mie 単散乱)を CPU で評価して equirect 画像に焼く。結果を <code>ImageBasedLighting::LoadEquirectHdrFromMemory</code> に通せば、物理ベースの空から env→irradiance→prefilter の <t>IBL</t> 一式が組める。",
+      summary: "<b>物理大気散乱</b>(Rayleigh + Mie 単散乱)を CPU で評価して equirect 画像に焼く。結果を <code>FImageBasedLighting::LoadEquirectHdrFromMemory</code> に通せば、物理ベースの空から env→irradiance→prefilter の <t>IBL</t> 一式が組める。",
       when: "プリセット空ではなく、物理的に正しい青空/夕焼けを太陽方角から生成して背景・環境光に使いたいとき。",
-      sample: "AtmosphereParams ap;\nap.sun_dir = FVec3{0.4f, 0.7f, 0.4f};\nTArray&lt;f32&gt; rgba = FAtmosphere::BakeEquirect(512, 256, ap);\nibl.LoadEquirectHdrFromMemory(*dev, *cl, rgba.Data(), 512, 256);",
+      sample: "FAtmosphereParams ap;\nap.sun_dir = FVec3{0.4f, 0.7f, 0.4f};\nTArray&lt;f32&gt; rgba = FAtmosphere::BakeEquirect(512, 256, ap);\nibl.LoadEquirectHdrFromMemory(*dev, *cl, rgba.Data(), 512, 256);",
       members: [
-        { sig: "static TArray&lt;f32&gt; BakeEquirect(u32 width, u32 height, const AtmosphereParams& params)", ret: "RGBA float 配列", desc: "CPU で equirect 画像(w×h×4 float、v=0 が天頂)を焼いて返す(move)。" },
-        { sig: "struct AtmosphereParams{ FVec3 sun_dir, sun_intensity, ground_albedo, u32 ray_steps, sun_steps }", desc: "太陽方角・輝度・地面アルベドとレイのサンプル数。" }
+        { sig: "static TArray&lt;f32&gt; BakeEquirect(u32 width, u32 height, const FAtmosphereParams& params)", ret: "RGBA float 配列", desc: "CPU で equirect 画像(w×h×4 float、v=0 が天頂)を焼いて返す(move)。" },
+        { sig: "struct FAtmosphereParams{ FVec3 sun_dir, sun_intensity, ground_albedo, u32 ray_steps, sun_steps }", desc: "太陽方角・輝度・地面アルベドとレイのサンプル数。" }
       ]
     }
   ]

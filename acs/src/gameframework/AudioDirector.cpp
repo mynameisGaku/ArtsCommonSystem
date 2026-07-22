@@ -47,7 +47,7 @@ bool StrEq(const char* a, const char* b) noexcept
  * @param keep ロードした asset を保持して生存させる出力先。
  * @return 成功なら true。registry 未設定 / 非音声 / load 失敗は false。
  */
-bool ResolveAudioClip(FAssetRegistry* reg, const char* name, AudioClipDesc& out, TSharedPtr<Asset>& keep) noexcept
+bool ResolveAudioClip(FAssetRegistry* reg, const char* name, FAudioClipDesc& out, TSharedPtr<FAsset>& keep) noexcept
 {
     if (reg == nullptr || name == nullptr) return false;
     wchar_t wpath[260];
@@ -55,14 +55,14 @@ bool ResolveAudioClip(FAssetRegistry* reg, const char* name, AudioClipDesc& out,
     const auto r = reg->Load(wpath);
     if (r.IsErr()) return false;
     keep = r.Value();
-    Asset* a = keep.Get();
+    FAsset* a = keep.Get();
     if (a == nullptr || a->Type() != FAudioAsset::StaticType()) return false;
     const FAudioAsset* audio = static_cast<const FAudioAsset*>(a);
     out.pcm_data = audio->Samples();
     out.pcm_size = audio->SampleByteCount();
     out.sample_rate = audio->SampleRate();
     out.channel_count = audio->Channels();
-    out.format = (audio->EFormat() == ESampleFormat::PCM_S16) ? EAudioFormat::Pcm16 : EAudioFormat::Pcm32Float;
+    out.format = (audio->Format() == ESampleFormat::PCM_S16) ? EAudioFormat::Pcm16 : EAudioFormat::Pcm32Float;
     return true;
 }
 } // namespace
@@ -131,10 +131,10 @@ void FAudioDirector::PlayBgm(const char* name, f32 fade_in_sec, bool loop) noexc
 
     // 実 backend + registry があれば name(=asset path) → clip を解決して実音再生する。
     if (m_Backend != nullptr && m_Registry != nullptr) {
-        AudioClipDesc clip;
-        TSharedPtr<Asset> keep;
+        FAudioClipDesc clip;
+        TSharedPtr<FAsset> keep;
         if (ResolveAudioClip(m_Registry, name, clip, keep)) {
-            const AudioVoiceHandle h = PlayBgmClip(clip, fade_in_sec, loop);
+            const FAudioVoiceHandle h = PlayBgmClip(clip, fade_in_sec, loop);
             if (h.IsValid()) {
                 // PlayBgmClip が voice を入れた slot に name を紐付ける (CurrentBgmName 用)。
                 for (u32 i = 0; i < 2; ++i)
@@ -220,8 +220,8 @@ void FAudioDirector::PlaySfx(const char* name, f32 volume_scale) noexcept
     // 実 backend + registry があれば name(=asset path) → clip を解決して実音再生する。
     // backend が voice を管理するので、成功時は state ring に積まない。
     if (m_Backend != nullptr && m_Registry != nullptr) {
-        AudioClipDesc clip;
-        TSharedPtr<Asset> keep;
+        FAudioClipDesc clip;
+        TSharedPtr<FAsset> keep;
         if (ResolveAudioClip(m_Registry, name, clip, keep)) {
             PlaySfxClip(clip, volume_scale, 1.0f);
             return;
@@ -318,7 +318,7 @@ void FAudioDirector::StopAll() noexcept
     m_Bgm[0] = FBgmSlot{};
     m_Bgm[1] = FBgmSlot{};
     for (u32 i = 0; i < kMaxSfxVoices; ++i) {
-        m_Sfx[i] = SfxEntry{};
+        m_Sfx[i] = FSfxEntry{};
     }
     m_SfxHead = 0;
     m_bDuckActive = false;
@@ -410,7 +410,7 @@ f32 FAudioDirector::EffectiveSfxVolume() const noexcept
 }
 
 /** PCM clip を backend で BGM 再生し、fade/loop に応じて slot state を更新する。 */
-AudioVoiceHandle FAudioDirector::PlayBgmClip(const AudioClipDesc& clip, f32 fade_in_sec, bool loop) noexcept
+FAudioVoiceHandle FAudioDirector::PlayBgmClip(const FAudioClipDesc& clip, f32 fade_in_sec, bool loop) noexcept
 {
     if (m_Backend == nullptr) {
         // backend 未設定: state 更新もスキップ (clip API は backend 必須の契約)。
@@ -428,7 +428,7 @@ AudioVoiceHandle FAudioDirector::PlayBgmClip(const AudioClipDesc& clip, f32 fade
 
     // 新 voice を backend に出す。初期 volume は 0 (Tick で master*bgm*duck*gain
     // を反映する)、pitch は 1.0 固定 (BGM の pitch 制御は別 API 検討)。
-    const AudioVoiceHandle handle = m_Backend->PlayLooped(clip, 0.0f, 1.0f);
+    const FAudioVoiceHandle handle = m_Backend->PlayLooped(clip, 0.0f, 1.0f);
     if (!handle.IsValid() && loop) {
         // ループ用に PlayLooped したが失敗 → 一発再生フォールバックは BGM
         // 用途的に意味薄なので、ここは諦めて InvalidHandle を返す。
@@ -439,7 +439,7 @@ AudioVoiceHandle FAudioDirector::PlayBgmClip(const AudioClipDesc& clip, f32 fade
         // PlayLooped が成功していたら、ここでは止めずに以降のロジックで上書き
         // することにする。
         if (handle.IsValid()) m_Backend->StopVoice(handle);
-        const AudioVoiceHandle one = m_Backend->PlayOneShot(clip, 0.0f, 1.0f);
+        const FAudioVoiceHandle one = m_Backend->PlayOneShot(clip, 0.0f, 1.0f);
         if (!one.IsValid()) return kInvalidAudioVoice;
         if (fade_in_sec <= 0.0f) {
             // 即時切替: slot[0] = 新 voice、gain=1。
@@ -503,7 +503,7 @@ AudioVoiceHandle FAudioDirector::PlayBgmClip(const AudioClipDesc& clip, f32 fade
 }
 
 /** PCM clip を master*sfx*volume_scale の volume で backend に one-shot 再生させる。 */
-AudioVoiceHandle FAudioDirector::PlaySfxClip(const AudioClipDesc& clip, f32 volume_scale, f32 pitch) noexcept
+FAudioVoiceHandle FAudioDirector::PlaySfxClip(const FAudioClipDesc& clip, f32 volume_scale, f32 pitch) noexcept
 {
     if (m_Backend == nullptr) return kInvalidAudioVoice;
     if (volume_scale <= 0.0f) return kInvalidAudioVoice;

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar K — FInspectorPanel
 //
-// `FInspectorSeam` 経由で公開された `IInspectableProvider` の `InspectableObject`
+// `FInspectorSeam` 経由で公開された `IInspectableProvider` の `FInspectableObject`
 // を ImGui ベースの field widget として描画 / 編集する UI パネル。シーンビュー
-// (SceneHierarchyPanel) で選択された Node に対して、紐づく provider
+// (FHierarchyPanel) で選択された ANode に対して、紐づく provider
 // の field 配列を表示する。
 //
 // 役割分担:
@@ -21,7 +21,7 @@
 //   ・**全 noexcept**: ACS 規約。エラーは無効 FNodeId / nullptr provider を
 //     no-op (描画スキップ) で扱う。
 //   ・**STL 不使用**: 文字列バッファは `char[256]` などスタック領域のみ。
-//     コンテナは持たない (Provider 自身が `InspectableField[]` を所有)。
+//     コンテナは持たない (Provider 自身が `FInspectableField[]` を所有)。
 //   ・**ImGui ヘッダは .cpp に閉じ込め**: header からは imgui 依存を漏らさず、
 //     gameframework 上位レイヤから include しても include order が壊れない
 //     ようにする (FParticleEditorPanel と同じパターン)。
@@ -32,18 +32,17 @@
 //     resolve は seam 側 API を前提に呼び出す。実 seam の `GetProvider(u32)`
 //     との overload 共存を想定。
 //
-// EFieldKind → ImGui widget マッピング (FInspectorSeam.h 9 種):
+// EFieldKind → ImGui widget マッピング (InspectorSeam.h 9 種):
 //   Bool   → Checkbox
 //   I32    → InputInt
 //   U32    → InputScalar(U32)
-//   F32    → SliderFloat (現状の InspectableField には min/max metadata が無い
+//   F32    → SliderFloat (現状の FInspectableField には min/max metadata が無い
 //             ため、defaults `kDefaultSliderMin` / `kDefaultSliderMax` を使う。
 //             metadata 拡張が入ったらここで参照する)
-//   FVec2   → DragFloat2
-//   FVec3   → DragFloat3
-//   FVec4   → DragFloat4 (仕様外だが対称性のため対応)
-//   FColor  → ColorEdit3 (data を FVec3* として扱う)
-//   FString → InputText (`char[256]` バッファ経由)
+//   Vec2   → DragFloat2
+//   Vec3   → DragFloat3
+//   Vec4   → DragFloat4 (仕様外だが対称性のため対応)
+//   String → InputText (`char[256]` バッファ経由)
 //   Enum   → Combo (enum_values 文字列配列を直接 ImGui に渡す)
 //
 // 範囲外 (将来):
@@ -54,7 +53,7 @@
 #pragma once
 
 #include "foundation/Types.h"
-#include "gameframework/InspectorSeam.h"  // EFieldKind / InspectableField / InspectableObject
+#include "gameframework/InspectorSeam.h"  // EFieldKind / FInspectableField / FInspectableObject
 #include "gameframework/NodeId.h"
 
 namespace acs::game {
@@ -74,7 +73,7 @@ namespace acs::game::inspector {
 class FSelectionService;
 
 /**
- * 選択ノードの InspectableObject を ImGui field widget として描画・編集するパネル。
+ * 選択ノードの FInspectableObject を ImGui field widget として描画・編集するパネル。
  *
  * @details
  * `FInspectorSeam` 経由で公開された `IInspectableProvider` を解決し、その field 配列を
@@ -182,7 +181,7 @@ public:
      */
     void SetOnFieldChangeCallback(FieldChangeCallback cb, void* user) noexcept;
 
-    /** F32 SliderFloat の既定 min (InspectableField に min/max metadata が入るまでの暫定値)。 */
+    /** F32 SliderFloat の既定 min (FInspectableField に min/max metadata が入るまでの暫定値)。 */
     static constexpr f32 kDefaultSliderMin = -1000.0f;
 
     /** F32 SliderFloat の既定 max (同上の暫定値)。 */

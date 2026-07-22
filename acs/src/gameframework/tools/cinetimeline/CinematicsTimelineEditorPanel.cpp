@@ -342,7 +342,7 @@ void FCinematicsTimelineEditorPanel::SelectKeyframe(i32 i) noexcept {
 /** 新規 keyframe を time 昇順で追加し、selection と director を更新する。 */
 void FCinematicsTimelineEditorPanel::AddKeyframe(ETimelineKeyKind kind,
                                                 f32 time_sec) noexcept {
-    EditorKeyframe kf;
+    FEditorKeyframe kf;
     kf.kind     = kind;
     kf.time_sec = ClampF(time_sec, 0.0f, m_Duration);
     // kind 別 default payload は struct のデフォルト初期値を使うので明示しない。
@@ -377,7 +377,7 @@ void FCinematicsTimelineEditorPanel::RemoveSelectedKeyframe() noexcept {
 
 /** time 昇順 (同時刻は登録順) を保ったまま keyframe を挿入し、挿入位置を返す。 */
 i32 FCinematicsTimelineEditorPanel::InsertKeyframeSorted(
-        const EditorKeyframe& kf) noexcept {
+        const FEditorKeyframe& kf) noexcept {
     // time 昇順 (同時刻は登録順 = stable) を維持する挿入位置を線形探索。
     // 典型 N < 200 で線形でも実用問題なし。
     const usize n = m_Keyframes.Size();
@@ -408,7 +408,7 @@ void FCinematicsTimelineEditorPanel::BakeToDirector() noexcept {
     m_Director->Clear();
     const usize n = m_Keyframes.Size();
     for (usize i = 0; i < n; ++i) {
-        const EditorKeyframe& ek = m_Keyframes[i];
+        const FEditorKeyframe& ek = m_Keyframes[i];
         FTimelineKeyframe rk;
         rk.time_sec = ek.time_sec;
         rk.kind     = ToTrackKind(ek.kind);
@@ -618,7 +618,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
             i32 hit = -1;
             const f32 half_w = kMarkerWidthPx * 0.5f + kMarkerHitSlackPx;
             for (usize i = 0; i < m_Keyframes.Size(); ++i) {
-                const EditorKeyframe& kf = m_Keyframes[i];
+                const FEditorKeyframe& kf = m_Keyframes[i];
                 const u32 row = static_cast<u32>(kf.kind);
                 if (row >= kTrackCount) continue;
                 const f32 cx = TimeToCanvasX(kf.time_sec, m_Duration,
@@ -655,7 +655,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
             && static_cast<usize>(m_DragIdx) < m_Keyframes.Size()) {
             const f32 new_t = CanvasXToTime(mouse.x, m_Duration,
                                             canvas_origin.x, canvas_w);
-            EditorKeyframe modified = m_Keyframes[static_cast<usize>(m_DragIdx)];
+            FEditorKeyframe modified = m_Keyframes[static_cast<usize>(m_DragIdx)];
             modified.time_sec = ClampF(new_t, 0.0f, m_Duration);
             // 抜く → 並び直して挿入
             const usize remove_at = static_cast<usize>(m_DragIdx);
@@ -685,7 +685,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
         // marker 描画: 全 keyframe を縦長四角で描く
         const f32 marker_pad_y = 4.0f;
         for (usize i = 0; i < m_Keyframes.Size(); ++i) {
-            const EditorKeyframe& kf = m_Keyframes[i];
+            const FEditorKeyframe& kf = m_Keyframes[i];
             const u32 row = static_cast<u32>(kf.kind);
             if (row >= kTrackCount) continue;
             const f32 cx = TimeToCanvasX(kf.time_sec, m_Duration,
@@ -742,7 +742,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
             {
                 float t = m_Keyframes[static_cast<usize>(m_SelectedIdx)].time_sec;
                 if (ImGui::DragFloat("time (s)", &t, 0.05f, 0.0f, m_Duration, "%.3f")) {
-                    EditorKeyframe modified =
+                    FEditorKeyframe modified =
                         m_Keyframes[static_cast<usize>(m_SelectedIdx)];
                     modified.time_sec = ClampF(t, 0.0f, m_Duration);
                     // 古 entry を順序保存削除 → 新時刻で挿入し直す。
@@ -762,7 +762,7 @@ void FCinematicsTimelineEditorPanel::DrawUI() noexcept {
             // payload 編集 (= 上記 time 編集で reorder されていなければ index は
             // 有効なので、改めて参照を取り直して安全に編集)。
             if (static_cast<usize>(m_SelectedIdx) < m_Keyframes.Size()) {
-                EditorKeyframe& kf = m_Keyframes[static_cast<usize>(m_SelectedIdx)];
+                FEditorKeyframe& kf = m_Keyframes[static_cast<usize>(m_SelectedIdx)];
                 switch (kind_for_payload) {
                 case ETimelineKeyKind::CameraCut: {
                     float v[3] = { kf.camera_target.x,

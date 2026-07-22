@@ -12,7 +12,10 @@
 #include "render/IRhiDevice.h"
 #include "render/IRhiTexture.h"
 #include "render/Font.h"
+#include "render/PbrShader.h"
+#include "render/RenderAssets.h"
 #include "render/SpriteBatch.h"
+#include "asset/MeshAsset.h"
 #if WITH_RENDER_DX12_RAW
 #    include "render/Dx12/Dx12Buffer.h"
 #    include "render/Dx12/Dx12CommandList.h"
@@ -29,13 +32,67 @@
 
 using namespace acs;
 
+ACS_TEST(Render, Utf8DecoderRejectsNonCanonicalScalars)
+{
+    const char valid[] = {
+        static_cast<char>(0xF0), static_cast<char>(0x9F),
+        static_cast<char>(0x98), static_cast<char>(0x80), '\0'};
+    const char* cursor = valid;
+    u32 codepoint = 0;
+    EXPECT_TRUE(TryDecodeUtf8(&cursor, codepoint));
+    EXPECT_EQ(codepoint, 0x1F600u);
+    EXPECT_TRUE(*cursor == '\0');
+
+    const char replacement[] = {
+        static_cast<char>(0xEF), static_cast<char>(0xBF),
+        static_cast<char>(0xBD), '\0'};
+    cursor = replacement;
+    EXPECT_TRUE(TryDecodeUtf8(&cursor, codepoint));
+    EXPECT_EQ(codepoint, 0xFFFDu);
+    EXPECT_TRUE(*cursor == '\0');
+
+    const char overlong[] = {
+        static_cast<char>(0xC0), static_cast<char>(0xAF), '\0'};
+    cursor = overlong;
+    EXPECT_FALSE(TryDecodeUtf8(&cursor, codepoint));
+    EXPECT_EQ(codepoint, 0xFFFDu);
+    EXPECT_TRUE(cursor == overlong + 1);
+
+    const char surrogate[] = {
+        static_cast<char>(0xED), static_cast<char>(0xA0),
+        static_cast<char>(0x80), '\0'};
+    cursor = surrogate;
+    EXPECT_FALSE(TryDecodeUtf8(&cursor, codepoint));
+    EXPECT_EQ(codepoint, 0xFFFDu);
+    EXPECT_TRUE(cursor == surrogate + 1);
+
+    const char out_of_range[] = {
+        static_cast<char>(0xF4), static_cast<char>(0x90),
+        static_cast<char>(0x80), static_cast<char>(0x80), '\0'};
+    cursor = out_of_range;
+    EXPECT_FALSE(TryDecodeUtf8(&cursor, codepoint));
+    EXPECT_EQ(codepoint, 0xFFFDu);
+    EXPECT_TRUE(cursor == out_of_range + 1);
+
+    const char truncated[] = {
+        static_cast<char>(0xF0), static_cast<char>(0x9F), '\0'};
+    cursor = truncated;
+    EXPECT_FALSE(TryDecodeUtf8(&cursor, codepoint));
+    EXPECT_EQ(codepoint, 0xFFFDu);
+    EXPECT_TRUE(cursor == truncated + 2);
+
+    cursor = replacement;
+    EXPECT_EQ(DecodeUtf8(&cursor), 0xFFFDu);
+    EXPECT_TRUE(*cursor == '\0');
+}
+
 ACS_TEST(Render, FontFailedReloadReturnsToEmptyState)
 {
-    DeviceConfig config{};
+    FDeviceConfig config{};
     auto device_result = CreateRhiDevice(config);
     if (device_result.IsErr()) return; // GPU が使えない環境ではスキップする。
 
-    Font font;
+    FFont font;
     const wchar_t* candidates[] = {
         L"C:/Windows/Fonts/segoeui.ttf",
         L"C:/Windows/Fonts/arial.ttf",
@@ -64,13 +121,13 @@ ACS_TEST(Render, FontFailedReloadReturnsToEmptyState)
     EXPECT_EQ(font.Descent(), 0.0f);
     EXPECT_EQ(font.LineGap(), 0.0f);
     EXPECT_EQ(font.LineHeight(), 0.0f);
-    GlyphInfo glyph{};
+    FGlyphInfo glyph{};
     EXPECT_FALSE(font.GetGlyph(static_cast<u32>('A'), glyph));
 }
 
 ACS_TEST(Render, SpriteBatchRejectsMaxSpritesBeyondU16IndexLimit)
 {
-    DeviceConfig dcfg{};
+    FDeviceConfig dcfg{};
     auto dev_r = CreateRhiDevice(dcfg);
     if (dev_r.IsErr()) {
         // GPU / D3D12 が無い環境 (CI 等) ではスキップ。
@@ -91,7 +148,7 @@ ACS_TEST(Render, SpriteBatchRejectsMaxSpritesBeyondU16IndexLimit)
 
 ACS_TEST(Render, TextureArrayCubemapMip)
 {
-    DeviceConfig dcfg{};
+    FDeviceConfig dcfg{};
     dcfg.enable_debug_layer = true; // debug layer があれば view desc も検証される (best-effort)
     auto dev_r = CreateRhiDevice(dcfg);
     if (dev_r.IsErr()) {
@@ -178,23 +235,312 @@ ACS_TEST(Render, TextureArrayCubemapMip)
 
 #if WITH_RENDER_DX12_RAW
 #    if !WITH_RENDER_DILIGENT
-ACS_TEST(Render, Dx12ComputePipelineReportsUnsupported)
+ACS_TEST(Render, RawDx12PbrSh9FallbackPreservesBaseColor)
 {
-    Dx12Device device;
+    FDx12Device device;
+    FDeviceConfig config{};
+    if (device.Init(config).IsErr()) {
+        // GPU / DX12 が使えない CI では既存 GPU tests と同様にスキップする。
+        return;
+    }
+
+    auto command_result = CreateRhiCommandList(device);
+    EXPECT_TRUE(command_result.IsOk());
+    if (command_result.IsErr()) return;
+    TUniquePtr<IRhiCommandList> command = Move(command_result.Value());
+
+    FTextureDesc color_desc{};
+    color_desc.width = 32;
+    color_desc.height = 32;
+    color_desc.format = EFormat::R8G8B8A8_UNorm;
+    color_desc.is_render_target = true;
+    auto color_result = CreateRhiTexture(device, color_desc);
+    EXPECT_TRUE(color_result.IsOk());
+    if (color_result.IsErr()) return;
+
+    FTextureDesc depth_desc{};
+    depth_desc.width = 32;
+    depth_desc.height = 32;
+    depth_desc.format = EFormat::D32_Float;
+    depth_desc.is_depth_target = true;
+    auto depth_result = CreateRhiTexture(device, depth_desc);
+    EXPECT_TRUE(depth_result.IsOk());
+    if (depth_result.IsErr()) return;
+
+    FMeshAsset triangle;
+    triangle.Vertices().PushBack(
+        FMeshVertex{FVec3{-0.8f, -0.8f, 0.5f}, FVec3{0, 0, 1}, 0, 1});
+    triangle.Vertices().PushBack(
+        FMeshVertex{FVec3{0.0f, 0.8f, 0.5f}, FVec3{0, 0, 1}, 0.5f, 0});
+    triangle.Vertices().PushBack(
+        FMeshVertex{FVec3{0.8f, -0.8f, 0.5f}, FVec3{0, 0, 1}, 1, 1});
+    triangle.Indices().PushBack(0);
+    triangle.Indices().PushBack(1);
+    triangle.Indices().PushBack(2);
+    FGpuMesh gpu_mesh{};
+    EXPECT_TRUE(UploadMesh(device, triangle, gpu_mesh).IsOk());
+    if (!gpu_mesh.vertex_buffer || !gpu_mesh.index_buffer) return;
+
+    FPbrShader shader;
+    EXPECT_TRUE(shader.Init(
+        device, EFormat::R8G8B8A8_UNorm, EFormat::D32_Float,
+        ECullMode::None).IsOk());
+    FDirLight light{};
+    light.direction = FVec3{0, 0, 1};
+    light.color = FVec3{1.5f, 1.5f, 1.5f};
+    shader.SetLights(
+        FMat4::Identity(), FVec3{0, 0, 2}, &light, 1,
+        FVec3{0.2f, 0.2f, 0.2f});
+    FVec4 sh9[9]{};
+    sh9[0] = FVec4{0.45f, 0.45f, 0.45f, 0};
+    shader.SetSh9(sh9);
+    shader.SetIbl(nullptr, nullptr, nullptr, 0);
+    shader.SetShadowMap(nullptr, FMat4::Identity());
+    shader.SetSsao(nullptr, 0.0f, 32, 32);
+
+    command->Begin();
+    command->BeginRenderToTexture(
+        *color_result.Value(), FClearColor{0, 0, 0, 1},
+        depth_result.Value().Get(), 1.0f);
+    shader.DrawMesh(
+        *command, gpu_mesh, FMat4::Identity(),
+        FVec3{0.85f, 0.20f, 0.10f}, 0.0f, 0.5f, 1.0f);
+    command->EndRenderToTexture(*color_result.Value());
+    command->End();
+    command->Submit();
+    device.WaitIdle();
+
+    u8 pixels[32 * 32 * 4]{};
+    EXPECT_TRUE(device.ReadTexture(
+        *color_result.Value(), pixels, static_cast<u32>(sizeof(pixels))));
+    const usize center = (16u * 32u + 16u) * 4u;
+    EXPECT_TRUE(pixels[center + 0u] >= 40u);
+    EXPECT_TRUE(pixels[center + 0u] > pixels[center + 1u] * 2u);
+    EXPECT_TRUE(pixels[center + 1u] > pixels[center + 2u]);
+}
+
+ACS_TEST(Render, RawDx12MrtDoesNotCorruptPreviouslyBoundTarget)
+{
+    FDx12Device device;
+    FDeviceConfig config{};
+    if (device.Init(config).IsErr()) return;
+
+    auto command_result = CreateRhiCommandList(device);
+    EXPECT_TRUE(command_result.IsOk());
+    if (command_result.IsErr()) return;
+    TUniquePtr<IRhiCommandList> command = Move(command_result.Value());
+
+    FTextureDesc target_desc{};
+    target_desc.width = 16;
+    target_desc.height = 16;
+    target_desc.format = EFormat::R8G8B8A8_UNorm;
+    target_desc.is_render_target = true;
+    auto sentinel_result = CreateRhiTexture(device, target_desc);
+    auto first_result = CreateRhiTexture(device, target_desc);
+    auto second_result = CreateRhiTexture(device, target_desc);
+    EXPECT_TRUE(sentinel_result.IsOk());
+    EXPECT_TRUE(first_result.IsOk());
+    EXPECT_TRUE(second_result.IsOk());
+    if (sentinel_result.IsErr() || first_result.IsErr() || second_result.IsErr()) return;
+
+    static const char* vertex_source = R"(
+struct VSOut { float4 pos : SV_POSITION; };
+VSOut VSMain(uint id : SV_VertexID) {
+    float2 uv = float2((id << 1) & 2, id & 2);
+    VSOut o;
+    o.pos = float4(uv * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
+    return o;
+})";
+    static const char* pixel_source = R"(
+struct PSOut {
+    float4 first  : SV_TARGET0;
+    float4 second : SV_TARGET1;
+};
+PSOut PSMain() {
+    PSOut o;
+    o.first  = float4(0.10, 0.80, 0.20, 1.0);
+    o.second = float4(0.15, 0.25, 0.90, 1.0);
+    return o;
+})";
+
+    FShaderDesc vertex_desc{};
+    vertex_desc.stage = EShaderStage::Vertex;
+    vertex_desc.hlsl_source = vertex_source;
+    vertex_desc.entry_point = "VSMain";
+    auto vertex_result = CreateRhiShader(device, vertex_desc);
+    FShaderDesc pixel_desc{};
+    pixel_desc.stage = EShaderStage::Pixel;
+    pixel_desc.hlsl_source = pixel_source;
+    pixel_desc.entry_point = "PSMain";
+    auto pixel_result = CreateRhiShader(device, pixel_desc);
+    EXPECT_TRUE(vertex_result.IsOk());
+    EXPECT_TRUE(pixel_result.IsOk());
+    if (vertex_result.IsErr() || pixel_result.IsErr()) return;
+
+    FPipelineDesc pipeline_desc{};
+    pipeline_desc.vs = vertex_result.Value().Get();
+    pipeline_desc.ps = pixel_result.Value().Get();
+    pipeline_desc.topology = EPrimitiveTopology::TriangleList;
+    pipeline_desc.rt_count = 2;
+    pipeline_desc.rt_formats[0] = EFormat::R8G8B8A8_UNorm;
+    pipeline_desc.rt_formats[1] = EFormat::R8G8B8A8_UNorm;
+    pipeline_desc.cull_mode = ECullMode::None;
+    auto pipeline_result = CreateRhiPipeline(device, pipeline_desc);
+    EXPECT_TRUE(pipeline_result.IsOk());
+    if (pipeline_result.IsErr()) return;
+
+    command->Begin();
+    command->BeginRenderToTexture(
+        *sentinel_result.Value(), FClearColor{1, 0, 0, 1}, nullptr, 1.0f);
+    command->EndRenderToTexture(*sentinel_result.Value());
+
+    IRhiTexture* mrt[2] = {first_result.Value().Get(), second_result.Value().Get()};
+    command->BeginRenderToTextureMrt(mrt, 2, FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
+    command->SetPipeline(*pipeline_result.Value());
+    command->Draw(3, 0);
+    command->EndRenderToTexture(*first_result.Value());
+    command->EndRenderToTexture(*second_result.Value());
+    command->End();
+    command->Submit();
+    device.WaitIdle();
+
+    u8 sentinel[16 * 16 * 4]{};
+    u8 first[16 * 16 * 4]{};
+    u8 second[16 * 16 * 4]{};
+    EXPECT_TRUE(device.ReadTexture(
+        *sentinel_result.Value(), sentinel, static_cast<u32>(sizeof(sentinel))));
+    EXPECT_TRUE(device.ReadTexture(
+        *first_result.Value(), first, static_cast<u32>(sizeof(first))));
+    EXPECT_TRUE(device.ReadTexture(
+        *second_result.Value(), second, static_cast<u32>(sizeof(second))));
+    constexpr usize center = (8u * 16u + 8u) * 4u;
+    EXPECT_TRUE(sentinel[center + 0u] > 240u);
+    EXPECT_TRUE(sentinel[center + 1u] < 8u);
+    EXPECT_TRUE(first[center + 1u] > first[center + 0u] * 4u);
+    EXPECT_TRUE(first[center + 1u] > first[center + 2u] * 3u);
+    EXPECT_TRUE(second[center + 2u] > second[center + 0u] * 4u);
+    EXPECT_TRUE(second[center + 2u] > second[center + 1u] * 3u);
+}
+
+ACS_TEST(Render, RawDx12MixedFormatMrtSupportsCloudHistoryTargets)
+{
+    FDx12Device device;
+    FDeviceConfig config{};
+    if (device.Init(config).IsErr()) return;
+
+    auto command_result = CreateRhiCommandList(device);
+    EXPECT_TRUE(command_result.IsOk());
+    if (command_result.IsErr()) return;
+    TUniquePtr<IRhiCommandList> command = Move(command_result.Value());
+
+    FTextureDesc color_desc{};
+    color_desc.width = 16;
+    color_desc.height = 16;
+    color_desc.format = EFormat::R16G16B16A16_Float;
+    color_desc.is_render_target = true;
+    auto color_result = CreateRhiTexture(device, color_desc);
+
+    FTextureDesc depth_desc{};
+    depth_desc.width = 16;
+    depth_desc.height = 16;
+    depth_desc.format = EFormat::R32G32_Float;
+    depth_desc.is_render_target = true;
+    auto depth_result = CreateRhiTexture(device, depth_desc);
+    EXPECT_TRUE(color_result.IsOk());
+    EXPECT_TRUE(depth_result.IsOk());
+    if (color_result.IsErr() || depth_result.IsErr()) return;
+
+    static const char* vertex_source = R"(
+struct VSOut { float4 pos : SV_POSITION; };
+VSOut VSMain(uint id : SV_VertexID) {
+    float2 uv = float2((id << 1) & 2, id & 2);
+    VSOut o;
+    o.pos = float4(uv * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
+    return o;
+})";
+    static const char* pixel_source = R"(
+struct PSOut {
+    float4 color : SV_TARGET0;
+    float2 depth : SV_TARGET1;
+};
+PSOut PSMain() {
+    PSOut o;
+    o.color = float4(0.5, 0.25, 0.75, 1.0);
+    o.depth = float2(1234.5, 0.625);
+    return o;
+})";
+
+    FShaderDesc vertex_desc{};
+    vertex_desc.stage = EShaderStage::Vertex;
+    vertex_desc.hlsl_source = vertex_source;
+    vertex_desc.entry_point = "VSMain";
+    auto vertex_result = CreateRhiShader(device, vertex_desc);
+    FShaderDesc pixel_desc{};
+    pixel_desc.stage = EShaderStage::Pixel;
+    pixel_desc.hlsl_source = pixel_source;
+    pixel_desc.entry_point = "PSMain";
+    auto pixel_result = CreateRhiShader(device, pixel_desc);
+    EXPECT_TRUE(vertex_result.IsOk());
+    EXPECT_TRUE(pixel_result.IsOk());
+    if (vertex_result.IsErr() || pixel_result.IsErr()) return;
+
+    FPipelineDesc pipeline_desc{};
+    pipeline_desc.vs = vertex_result.Value().Get();
+    pipeline_desc.ps = pixel_result.Value().Get();
+    pipeline_desc.topology = EPrimitiveTopology::TriangleList;
+    pipeline_desc.rt_count = 2;
+    pipeline_desc.rt_formats[0] = EFormat::R16G16B16A16_Float;
+    pipeline_desc.rt_formats[1] = EFormat::R32G32_Float;
+    pipeline_desc.cull_mode = ECullMode::None;
+    auto pipeline_result = CreateRhiPipeline(device, pipeline_desc);
+    EXPECT_TRUE(pipeline_result.IsOk());
+    if (pipeline_result.IsErr()) return;
+
+    command->Begin();
+    IRhiTexture* targets[2] = {
+        color_result.Value().Get(), depth_result.Value().Get()};
+    command->BeginRenderToTextureMrt(
+        targets, 2, FClearColor{0, 0, 0, 0}, nullptr, 1.0f);
+    command->SetPipeline(*pipeline_result.Value());
+    command->Draw(3, 0);
+    command->EndRenderToTexture(*color_result.Value());
+    command->EndRenderToTexture(*depth_result.Value());
+    command->End();
+    command->Submit();
+    device.WaitIdle();
+
+    u16 color[16 * 16 * 4]{};
+    f32 depth[16 * 16 * 2]{};
+    EXPECT_TRUE(device.ReadTexture(
+        *color_result.Value(), color, static_cast<u32>(sizeof(color))));
+    EXPECT_TRUE(device.ReadTexture(
+        *depth_result.Value(), depth, static_cast<u32>(sizeof(depth))));
+    constexpr usize color_center = (8u * 16u + 8u) * 4u;
+    constexpr usize depth_center = (8u * 16u + 8u) * 2u;
+    EXPECT_EQ(color[color_center + 0u], static_cast<u16>(0x3800u));
+    EXPECT_EQ(color[color_center + 1u], static_cast<u16>(0x3400u));
+    EXPECT_EQ(color[color_center + 2u], static_cast<u16>(0x3A00u));
+    EXPECT_EQ(color[color_center + 3u], static_cast<u16>(0x3C00u));
+    EXPECT_NEAR(depth[depth_center + 0u], 1234.5f, 0.001f);
+    EXPECT_NEAR(depth[depth_center + 1u], 0.625f, 0.0001f);
+}
+
+ACS_TEST(Render, Dx12ComputePipelineRejectsMissingShader)
+{
+    FDx12Device device;
     FComputePipelineDesc description{};
     auto result = CreateRhiComputePipeline(device, description);
     EXPECT_TRUE(result.IsErr());
     if (result.IsErr()) {
-        EXPECT_EQ(static_cast<u16>(result.Error().category), static_cast<u16>(ErrCategory::Render));
-        EXPECT_EQ(result.Error().subcode, static_cast<u16>(53));
+        EXPECT_EQ(static_cast<u16>(result.Error().category), static_cast<u16>(EErrCategory::Render));
     }
 }
 #    endif
 
 ACS_TEST(Render, Dx12ReinitializeAndRollback)
 {
-    Dx12Device device;
-    DeviceConfig config{};
+    FDx12Device device;
+    FDeviceConfig config{};
     config.enable_debug_layer = true;
     if (device.Init(config).IsErr()) {
         // GPU / DX12 が使えない CI では既存テストと同様にスキップする。
@@ -202,7 +548,7 @@ ACS_TEST(Render, Dx12ReinitializeAndRollback)
     }
 
     {
-        Dx12Texture texture;
+        FDx12Texture texture;
 
         // 公開ファクトリが Diligent を選ぶ構成でも、raw DX12 の契約を直接検証する。
         FTextureDesc invalid{};
@@ -242,7 +588,7 @@ ACS_TEST(Render, Dx12ReinitializeAndRollback)
 
     {
         const u32 initial_data[4] = {1u, 2u, 3u, 4u};
-        Dx12Buffer buffer;
+        FDx12Buffer buffer;
         FBufferDesc static_desc{};
         static_desc.size = sizeof(initial_data);
         static_desc.initial_data = initial_data;
@@ -270,8 +616,8 @@ ACS_TEST(Render, Dx12ReinitializeAndRollback)
                                            "}";
         static const char* pixel_source = "float4 main() : SV_Target { return float4(1.0, 1.0, 1.0, 1.0); }";
 
-        Dx12Shader vertex_shader;
-        Dx12Shader pixel_shader;
+        FDx12Shader vertex_shader;
+        FDx12Shader pixel_shader;
         FShaderDesc vertex_desc{};
         vertex_desc.stage = EShaderStage::Vertex;
         vertex_desc.hlsl_source = vertex_source;
@@ -280,11 +626,11 @@ ACS_TEST(Render, Dx12ReinitializeAndRollback)
         pixel_desc.hlsl_source = pixel_source;
 
         for (u32 i = 0; i < 8; ++i) {
-            EXPECT_TRUE(vertex_shader.Init(device, vertex_desc).IsOk());
-            EXPECT_TRUE(pixel_shader.Init(device, pixel_desc).IsOk());
+            EXPECT_TRUE(vertex_shader.Init(vertex_desc).IsOk());
+            EXPECT_TRUE(pixel_shader.Init(pixel_desc).IsOk());
         }
 
-        Dx12Pipeline pipeline;
+        FDx12Pipeline pipeline;
         FPipelineDesc pipeline_desc{};
         pipeline_desc.vs = &vertex_shader;
         pipeline_desc.ps = &pixel_shader;
@@ -302,12 +648,12 @@ ACS_TEST(Render, Dx12ReinitializeAndRollback)
 
         FShaderDesc invalid_shader{};
         invalid_shader.hlsl_source = nullptr;
-        EXPECT_TRUE(vertex_shader.Init(device, invalid_shader).IsErr());
+        EXPECT_TRUE(vertex_shader.Init(invalid_shader).IsErr());
         EXPECT_TRUE(vertex_shader.Bytecode() == nullptr);
     }
 
     {
-        Dx12CommandList command_list;
+        FDx12CommandList command_list;
         for (u32 i = 0; i < 8; ++i) {
             EXPECT_TRUE(command_list.Init(device).IsOk());
             EXPECT_TRUE(command_list.NativeHandle() != nullptr);
@@ -322,12 +668,12 @@ ACS_TEST(Render, Dx12ReinitializeAndRollback)
 #if WITH_RENDER_DILIGENT
 ACS_TEST(Render, DiligentTextureReinitializeAndRollback)
 {
-    DiligentDevice device;
-    DeviceConfig config{};
+    FDiligentDevice device;
+    FDeviceConfig config{};
     config.enable_debug_layer = true;
     if (device.Init(config).IsErr()) return;
 
-    DiligentTexture texture;
+    FDiligentTexture texture;
     FTextureDesc invalid{};
     invalid.width = 16;
     invalid.height = 16;

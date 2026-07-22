@@ -6,7 +6,7 @@ using namespace acs::game;
 
 namespace hellomv {
 
-void ViewerPanels::Init(const wchar_t* asset_root) noexcept {
+void FViewerPanels::Init(const wchar_t* asset_root) noexcept {
     // Theme: ImGui context 取得後に Init (= Dark preset)。
     // ImGuiCtx::Init は ModelViewerApp::OnStart で済んでいる前提。
     m_Theme.Init();
@@ -31,16 +31,16 @@ void ViewerPanels::Init(const wchar_t* asset_root) noexcept {
     // されたら m_Workspace.RegisterPanel(&m_AssetBrowserPanel) に置き換える。
 }
 
-void ViewerPanels::Shutdown() noexcept {
+void FViewerPanels::Shutdown() noexcept {
     m_Workspace.Shutdown();
     m_AssetBrowser.Shutdown();
     // FEditorTheme は明示 Shutdown が無い (Dtor で十分)。
 }
 
-void ViewerPanels::Draw(f32 dt) noexcept {
+void FViewerPanels::Draw(f32 dt) noexcept {
     // Workspace 全描画 (OnFrameBegin → DockSpace → MenuBar → 各 panel DrawUI を
     // 1 行で発火する)。仕様は FEditorWorkspace.h §「メインループ」参照。
-    // File メニューと同じ MainMenuBar に FWindow/Layout が push される。
+    // File メニューと同じ MainMenuBar に Window/Layout が push される。
     m_Workspace.TickAllPanels(dt);
 
     // FAssetBrowser を直接描画 (Workspace 登録対象外)。

@@ -72,7 +72,7 @@ enum class EAllocKind : u8 {
     Engine    = 1,
 
     /** ゲームロジックの確保。 */
-    FGame      = 2,
+    Game       = 2,
 
     /** レンダラの確保。 */
     Render    = 3,

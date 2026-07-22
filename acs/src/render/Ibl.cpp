@@ -10,6 +10,7 @@
 #include "foundation/Log.h"
 
 #include <cstring>
+#include <cmath>
 
 namespace acs {
 
@@ -200,7 +201,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-struct EnvCaptureCBLayout {
+struct FEnvCaptureCbLayout {
     i32 face_index;
     i32 pad0;
     i32 pad1;
@@ -221,6 +222,8 @@ cbuffer Skybox : register(b0) {
     float4x4 inv_view_proj;
     float4   eye;            // xyz=camera world pos
     float4   mip_pad;        // x=mip level (prefilter で 0..4 を切替、env/irradiance は 0)
+    float4   sun_dir_radius;  // xyz=direction to sun, w=angular radius in radians
+    float4   sun_radiance;    // rgb=linear HDR radiance, w=enabled
 };
 
 TextureCube env : register(t0);
@@ -245,14 +248,46 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float4 wp = mul(float4(v.ndc.x, -v.ndc.y, 1.0, 1.0), inv_view_proj);
     wp.xyz /= wp.w;
     float3 dir = normalize(wp.xyz - eye.xyz);
-    return float4(env.SampleLevel(env_sampler, dir, mip_pad.x).rgb, 1.0);
+    float3 sky = env.SampleLevel(env_sampler, dir, mip_pad.x).rgb;
+
+    // The solar disc is evaluated at display resolution instead of being
+    // magnified from a handful of equirect texels.  Chord distance is monotonic
+    // with angular distance and has stable screen derivatives at the centre,
+    // unlike acos(dot()) whose derivative is singular at one.
+    if (sun_radiance.w > 0.5 && sun_dir_radius.w > 0.0) {
+        float3 sun_dir = normalize(sun_dir_radius.xyz);
+        float sun_distance = length(dir - sun_dir);
+        float sun_radius = 2.0 * sin(0.5 * sun_dir_radius.w);
+        float edge_width = max(fwidth(sun_distance), 1.0e-5);
+        float disc = 1.0 - smoothstep(
+            max(sun_radius - edge_width, 0.0),
+            sun_radius + edge_width,
+            sun_distance);
+
+        // A mild solar limb-darkening profile avoids a flat emissive sticker.
+        float normalized_radius =
+            saturate(sun_distance / max(sun_radius, 1.0e-6));
+        float limb_mu =
+            sqrt(saturate(1.0 - normalized_radius * normalized_radius));
+        float limb = lerp(0.55, 1.0, limb_mu);
+
+        // Clip the analytic disc at the planetary horizon.  Clouds are drawn
+        // later and therefore still attenuate/occlude this result normally.
+        float horizon_width = max(fwidth(dir.y), 1.0e-5);
+        float horizon_visibility =
+            smoothstep(-horizon_width, horizon_width, dir.y);
+        sky += sun_radiance.rgb * (disc * limb * horizon_visibility);
+    }
+    return float4(sky, 1.0);
 }
 )";
 
-struct SkyboxCBLayout {
+struct FSkyboxCbLayout {
     FMat4 inv_view_proj;
     FVec4 eye;
     FVec4 mip_pad;      // x=mip level
+    FVec4 sun_dir_radius;
+    FVec4 sun_radiance;
 };
 
 // ---- Diffuse irradiance 生成 (env cubemap の半球積分) ----
@@ -267,13 +302,14 @@ struct SkyboxCBLayout {
 // → ここでは (E(N)/π) を cubemap に焼き、FPbrShader 側で `albedo * irradiance.Sample(N)`
 //   と素直に乗算できる形にする。
 //
-// kNumPhi × kNumTheta = 64 × 16 = 1024 サンプル / texel。32x32x6 = 6144 texel × 1024 ≈ 6.3M
+// kNumPhi × kNumTheta = 64 × 16 = 1024 サンプル / texel。64x64x6 = 24576 texel × 1024 ≈ 25.2M
 // TextureCube サンプルだが、初期化時 1 回切りなので問題ない。
 const char* kIrradianceHLSL = R"(
 #pragma pack_matrix(row_major)
 
 cbuffer Irradiance : register(b0) {
     int4 face_pad;       // x=face index 0..5
+    float4 direct_light_exclusion;
 };
 
 TextureCube env : register(t0);
@@ -308,6 +344,41 @@ static const float HALF_PI  = 1.57079632679489;
 static const uint  kNumPhi   = 64u;
 static const uint  kNumTheta = 16u;
 
+float3 SampleIndirectEnvironment(float3 direction) {
+    if (direct_light_exclusion.w <= 1.0 &&
+        dot(direction, direct_light_exclusion.xyz) >=
+            direct_light_exclusion.w) {
+        // The analytic direct-light disc must not enter the finite-sample IBL
+        // convolution, but replacing it with black creates a visible hole at
+        // prefilter mip 0.  Inpaint it from a symmetric ring just outside the
+        // excluded cone.  Four taps preserve a constant sky and cancel the
+        // first-order sky gradient without blurring the visible environment.
+        float3 light_direction = normalize(direct_light_exclusion.xyz);
+        float3 helper_axis = abs(light_direction.y) < 0.95
+            ? float3(0.0, 1.0, 0.0)
+            : float3(1.0, 0.0, 0.0);
+        float3 tangent = normalize(cross(helper_axis, light_direction));
+        float3 bitangent = cross(light_direction, tangent);
+        float cone_cos = direct_light_exclusion.w;
+        float ring_cos = max(
+            -1.0, cone_cos - max(3.5e-4, 0.5 * (1.0 - cone_cos)));
+        float ring_sin = sqrt(saturate(1.0 - ring_cos * ring_cos));
+        float3 ring_center = light_direction * ring_cos;
+        float3 tangent_offset = tangent * ring_sin;
+        float3 bitangent_offset = bitangent * ring_sin;
+        return 0.25 * (
+            env.SampleLevel(env_sampler,
+                            ring_center + tangent_offset, 0).rgb +
+            env.SampleLevel(env_sampler,
+                            ring_center - tangent_offset, 0).rgb +
+            env.SampleLevel(env_sampler,
+                            ring_center + bitangent_offset, 0).rgb +
+            env.SampleLevel(env_sampler,
+                            ring_center - bitangent_offset, 0).rgb);
+    }
+    return env.SampleLevel(env_sampler, direction, 0).rgb;
+}
+
 float3 IntegrateDiffuse(float3 N) {
     // tangent frame (N が world up に近いときは右 seed を変える)
     float3 up_seed = abs(N.y) < 0.999 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
@@ -330,7 +401,7 @@ float3 IntegrateDiffuse(float3 N) {
             float cosT  = cos(theta);
             float3 ts   = float3(sinT * cphi, sinT * sphi, cosT);
             float3 ws   = ts.x * right + ts.y * up + ts.z * N;
-            irr += env.SampleLevel(env_sampler, ws, 0).rgb * cosT * sinT;
+            irr += SampleIndirectEnvironment(ws) * cosT * sinT;
         }
     }
     // (1/π) E(N) = (dPhi dTheta / π) Σ L cosT sinT
@@ -343,11 +414,12 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-struct IrradianceCBLayout {
+struct FIrradianceCBLayout {
     i32 face_index;
     i32 pad0;
     i32 pad1;
     i32 pad2;
+    FVec4 direct_light_exclusion;
 };
 
 // ---- Specular prefilter 生成 (GGX importance sampling, mip = roughness) ----
@@ -358,13 +430,14 @@ struct IrradianceCBLayout {
 // Karis の "V = N" 近似で V 依存を取り除いている (split-sum の片側、もう片方が BRDF LUT)。
 //
 // mip 0 = roughness 0 (鏡面、env をそのままコピー)
-// mip 4 = roughness 1 (極限ぼかし)
+// mip 6 = roughness 1 (極限ぼかし)
 const char* kPrefilterHLSL = R"(
 #pragma pack_matrix(row_major)
 
 cbuffer Prefilter : register(b0) {
     int4   face_pad;          // x = face 0..5
     float4 rough_pad;         // x = roughness 0..1
+    float4 direct_light_exclusion;
 };
 
 TextureCube env : register(t0);
@@ -407,6 +480,40 @@ float2 Hammersley(uint i, uint n) {
     return float2(float(i) / float(n), radicalInverseVdC(i));
 }
 
+float3 SampleIndirectEnvironment(float3 direction) {
+    if (direct_light_exclusion.w <= 1.0 &&
+        dot(direction, direct_light_exclusion.xyz) >=
+            direct_light_exclusion.w) {
+        // Remove the analytic direct-light disc from IBL without making the
+        // roughness-zero prefilter contain a black hole.  This symmetric
+        // four-tap ring samples only the unmodified environment outside the
+        // exclusion cone, so there is no recursive masking.
+        float3 light_direction = normalize(direct_light_exclusion.xyz);
+        float3 helper_axis = abs(light_direction.y) < 0.95
+            ? float3(0.0, 1.0, 0.0)
+            : float3(1.0, 0.0, 0.0);
+        float3 tangent = normalize(cross(helper_axis, light_direction));
+        float3 bitangent = cross(light_direction, tangent);
+        float cone_cos = direct_light_exclusion.w;
+        float ring_cos = max(
+            -1.0, cone_cos - max(3.5e-4, 0.5 * (1.0 - cone_cos)));
+        float ring_sin = sqrt(saturate(1.0 - ring_cos * ring_cos));
+        float3 ring_center = light_direction * ring_cos;
+        float3 tangent_offset = tangent * ring_sin;
+        float3 bitangent_offset = bitangent * ring_sin;
+        return 0.25 * (
+            env.SampleLevel(env_sampler,
+                            ring_center + tangent_offset, 0).rgb +
+            env.SampleLevel(env_sampler,
+                            ring_center - tangent_offset, 0).rgb +
+            env.SampleLevel(env_sampler,
+                            ring_center + bitangent_offset, 0).rgb +
+            env.SampleLevel(env_sampler,
+                            ring_center - bitangent_offset, 0).rgb);
+    }
+    return env.SampleLevel(env_sampler, direction, 0).rgb;
+}
+
 float3 ImportanceSampleGGX(float2 xi, float3 N, float roughness) {
     float a = roughness * roughness;
     float phi      = 2.0 * PI * xi.x;
@@ -424,7 +531,11 @@ float3 PrefilterEnvMap(float3 N, float roughness) {
     float3 V = N;        // Karis 近似 (split-sum)
     float3 sum = float3(0.0, 0.0, 0.0);
     float  total_weight = 0.0;
-    const uint kSamples = 1024u;
+    // A narrow low-roughness GGX lobe converges with far fewer directions than
+    // a broad high-roughness lobe. Preserve 1024 taps at roughness 1 while
+    // avoiding the former fixed 1024-tap cost over every 256²/128² mip texel.
+    const uint kSamples = max(
+        128u, (uint)(128.0 + saturate(roughness) * 896.0 + 0.5));
     [loop]
     for (uint i = 0u; i < kSamples; ++i) {
         float2 xi = Hammersley(i, kSamples);
@@ -432,7 +543,7 @@ float3 PrefilterEnvMap(float3 N, float roughness) {
         float3 L  = 2.0 * dot(V, H) * H - V;
         float  NoL = saturate(dot(N, L));
         if (NoL > 0.0) {
-            sum += env.SampleLevel(env_sampler, L, 0).rgb * NoL;
+            sum += SampleIndirectEnvironment(L) * NoL;
             total_weight += NoL;
         }
     }
@@ -444,13 +555,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float  r = saturate(rough_pad.x);
     if (r < 1.0e-3) {
         // mip 0 = 鏡面: env をそのままコピー (importance sampling は退化する)
-        return float4(env.SampleLevel(env_sampler, N, 0).rgb, 1.0);
+        return float4(SampleIndirectEnvironment(N), 1.0);
     }
     return float4(PrefilterEnvMap(N, r), 1.0);
 }
 )";
 
-struct PrefilterCBLayout {
+struct FPrefilterCbLayout {
     i32 face_index;
     i32 pad0;
     i32 pad1;
@@ -459,6 +570,7 @@ struct PrefilterCBLayout {
     f32 pad3;
     f32 pad4;
     f32 pad5;
+    FVec4 direct_light_exclusion;
 };
 
 // ---- Equirectangular HDR → cubemap 変換 ----
@@ -517,7 +629,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-struct EquirectCBLayout {
+struct FEquirectCbLayout {
     i32 face_index;
     i32 pad0;
     i32 pad1;
@@ -526,7 +638,7 @@ struct EquirectCBLayout {
 
 } // namespace
 
-TResult<void> ImageBasedLighting::EnsureBrdfLut(IRhiDevice& device,
+TResult<void> FImageBasedLighting::EnsureBrdfLut(IRhiDevice& device,
                                                 IRhiCommandList& cl) noexcept {
     if (m_bBrdfBuilt) return Ok();
     auto r = BuildBrdfLut(device, cl);
@@ -535,14 +647,14 @@ TResult<void> ImageBasedLighting::EnsureBrdfLut(IRhiDevice& device,
     return Ok();
 }
 
-TResult<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
+TResult<void> FImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
                                                IRhiCommandList& cl) noexcept {
     // Dx12 raw backend には高度3D (cubemap / per-slice RTV) が無いため本実装不能。
     // fake-success せず正直に capability error を返す (Ibl.h の境界を参照)。
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
-            ACS_LOG_WARN("ImageBasedLighting: BRDF LUT requires the Diligent backend "
+            ACS_LOG_WARN("FImageBasedLighting: BRDF LUT requires the Diligent backend "
                          "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
             s_warned = true;
         }
@@ -604,7 +716,7 @@ TResult<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
     else pipeline = Move(r.Value());
 
     // 3) RT に 1 パス描画
-    ClearColor black{0, 0, 0, 1};
+    FClearColor black{0, 0, 0, 1};
     cl.BeginRenderToTexture(*m_BrdfLut, black);
     cl.SetPipeline(*pipeline);
     cl.Draw(3);
@@ -614,7 +726,7 @@ TResult<void> ImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
     return Ok();
 }
 
-TResult<void> ImageBasedLighting::EnsureEnvCubemap(IRhiDevice& device,
+TResult<void> FImageBasedLighting::EnsureEnvCubemap(IRhiDevice& device,
                                                   IRhiCommandList& cl,
                                                   const FSky& sky) noexcept {
     if (m_bEnvBuilt) return Ok();
@@ -624,13 +736,13 @@ TResult<void> ImageBasedLighting::EnsureEnvCubemap(IRhiDevice& device,
     return Ok();
 }
 
-TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
+TResult<void> FImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
                                                   IRhiCommandList& cl,
                                                   const FSky& sky) noexcept {
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
-            ACS_LOG_WARN("ImageBasedLighting: env cubemap requires the Diligent backend "
+            ACS_LOG_WARN("FImageBasedLighting: env cubemap requires the Diligent backend "
                          "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
             s_warned = true;
         }
@@ -674,7 +786,7 @@ TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     else ps = Move(r.Value());
 
     FBufferDesc cbd{};
-    cbd.size = sizeof(EnvCaptureCBLayout);
+    cbd.size = sizeof(FEnvCaptureCbLayout);
     // 256B align (DX12 CB 制約)
     cbd.size = (cbd.size + 255u) & ~static_cast<usize>(255u);
     cbd.usage = EBufferUsage::Uniform;
@@ -701,7 +813,7 @@ TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     else pipeline = Move(r.Value());
 
     // 3) 6 face を順に塗る
-    ClearColor black{0, 0, 0, 1};
+    FClearColor black{0, 0, 0, 1};
     const FVec3 sd = sky.SunDirection();
     const FVec3 sc = sky.SunColor();
     const FVec3 zn = sky.ZenithColor();
@@ -710,7 +822,7 @@ TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
 
     cl.SetPipeline(*pipeline);
     for (u32 face = 0; face < 6; ++face) {
-        EnvCaptureCBLayout data{};
+        FEnvCaptureCbLayout data{};
         data.face_index = static_cast<i32>(face);
         data.sun_dir    = FVec4{sd.x, sd.y, sd.z, 0};
         data.sun_color  = FVec4{sc.x, sc.y, sc.z, 1};
@@ -733,7 +845,7 @@ TResult<void> ImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     return Ok();
 }
 
-void ImageBasedLighting::ComputeSh9FromEquirect(const f32* rgba_float,
+void FImageBasedLighting::ComputeSh9FromEquirect(const f32* rgba_float,
                                                   u32 width, u32 height,
                                                   FVec4 out_sh_rgb[9]) noexcept {
     // 初期化
@@ -806,13 +918,13 @@ void ImageBasedLighting::ComputeSh9FromEquirect(const f32* rgba_float,
     }
 }
 
-TResult<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
+TResult<void> FImageBasedLighting::LoadEquirectHdrFromMemory(
         IRhiDevice& device, IRhiCommandList& cl,
         const f32* rgba_float, u32 width, u32 height) noexcept {
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
-            ACS_LOG_WARN("ImageBasedLighting: equirect HDR requires the Diligent backend "
+            ACS_LOG_WARN("FImageBasedLighting: equirect HDR requires the Diligent backend "
                          "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
             s_warned = true;
         }
@@ -877,7 +989,7 @@ TResult<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
     else ps = Move(r.Value());
 
     FBufferDesc cbd{};
-    cbd.size = (sizeof(EquirectCBLayout) + 255u) & ~static_cast<usize>(255u);
+    cbd.size = (sizeof(FEquirectCbLayout) + 255u) & ~static_cast<usize>(255u);
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
@@ -907,12 +1019,12 @@ TResult<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
     else pipeline = Move(r.Value());
 
     // 4) 6 face を描く
-    ClearColor black{0, 0, 0, 1};
+    FClearColor black{0, 0, 0, 1};
     cl.SetPipeline(*pipeline);
     cl.SetConstantBuffer(0, *cb);
     cl.SetTexture(0, *equirect);
     for (u32 face = 0; face < 6; ++face) {
-        EquirectCBLayout data{};
+        FEquirectCbLayout data{};
         data.face_index = static_cast<i32>(face);
         cb->Update(&data, sizeof(data));
 
@@ -925,14 +1037,47 @@ TResult<void> ImageBasedLighting::LoadEquirectHdrFromMemory(
     return Ok();
 }
 
-TResult<void> ImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
+void FImageBasedLighting::SetDirectLightExclusion(
+        FVec3 direction, f32 cosine_half_angle) noexcept {
+    const FVec4 disabled{0.0f, 1.0f, 0.0f, 2.0f};
+
+    if (!std::isfinite(direction.x) ||
+        !std::isfinite(direction.y) ||
+        !std::isfinite(direction.z) ||
+        !std::isfinite(cosine_half_angle) ||
+        cosine_half_angle > 1.0f) {
+        m_DirectLightExclusion = disabled;
+        return;
+    }
+
+    const f32 length_sq =
+        direction.x * direction.x +
+        direction.y * direction.y +
+        direction.z * direction.z;
+    if (!std::isfinite(length_sq) || length_sq <= 1.0e-12f) {
+        m_DirectLightExclusion = disabled;
+        return;
+    }
+
+    const f32 inverse_length =
+        1.0f / static_cast<f32>(std::sqrt(length_sq));
+    const f32 threshold =
+        cosine_half_angle < -1.0f ? -1.0f : cosine_half_angle;
+    m_DirectLightExclusion = FVec4{
+        direction.x * inverse_length,
+        direction.y * inverse_length,
+        direction.z * inverse_length,
+        threshold};
+}
+
+TResult<void> FImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
                                                    IRhiCommandList& cl) noexcept {
     if (m_bIrradianceBuilt) return Ok();
     // Diligent でなければ高度3D 不能 → fake-success せず capability error を返す。
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
-            ACS_LOG_WARN("ImageBasedLighting: irradiance requires the Diligent backend "
+            ACS_LOG_WARN("FImageBasedLighting: irradiance requires the Diligent backend "
                          "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
             s_warned = true;
         }
@@ -940,7 +1085,7 @@ TResult<void> ImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
     }
     if (!m_EnvCube) {
         return ACS_ERR(Render, 160,
-            "ImageBasedLighting::EnsureIrradiance: env cubemap not built yet");
+            "FImageBasedLighting::EnsureIrradiance: env cubemap not built yet");
     }
     auto r = BuildIrradiance(device, cl);
     if (r.IsErr()) return r;
@@ -948,12 +1093,12 @@ TResult<void> ImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
     return Ok();
 }
 
-TResult<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
+TResult<void> FImageBasedLighting::BuildIrradiance(IRhiDevice& device,
                                                   IRhiCommandList& cl) noexcept {
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
-            ACS_LOG_WARN("ImageBasedLighting: irradiance requires the Diligent backend "
+            ACS_LOG_WARN("FImageBasedLighting: irradiance requires the Diligent backend "
                          "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
             s_warned = true;
         }
@@ -961,7 +1106,7 @@ TResult<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     }
     m_IrradianceCube.Reset();
 
-    // 1) irradiance cubemap (6 face, 32x32, R11G11B10_Float, per-slice RTV)
+    // 1) irradiance cubemap (6 face, 64x64, R11G11B10_Float, per-slice RTV)
     FTextureDesc td{};
     td.width            = kIrradianceSize;
     td.height           = kIrradianceSize;
@@ -997,7 +1142,7 @@ TResult<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     else ps = Move(r.Value());
 
     FBufferDesc cbd{};
-    cbd.size = (sizeof(IrradianceCBLayout) + 255u) & ~static_cast<usize>(255u);
+    cbd.size = (sizeof(FIrradianceCBLayout) + 255u) & ~static_cast<usize>(255u);
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
@@ -1031,13 +1176,14 @@ TResult<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     // SetConstantBuffer / SetTexture は Diligent SRB 上に永続 bind されるので
     // ループ外で 1 回呼ぶだけで OK (Update は GPU command stream に sequential
     // に挿入され、各 Draw は直前の Update 内容を見る)。
-    ClearColor black{0, 0, 0, 1};
+    FClearColor black{0, 0, 0, 1};
     cl.SetPipeline(*pipeline);
     cl.SetConstantBuffer(0, *cb);
     cl.SetTexture(0, *m_EnvCube);
     for (u32 face = 0; face < 6; ++face) {
-        IrradianceCBLayout data{};
+        FIrradianceCBLayout data{};
         data.face_index = static_cast<i32>(face);
+        data.direct_light_exclusion = m_DirectLightExclusion;
         cb->Update(&data, sizeof(data));
 
         cl.BeginRenderToTextureSlice(*m_IrradianceCube, face, 0, black);
@@ -1047,14 +1193,14 @@ TResult<void> ImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     return Ok();
 }
 
-TResult<void> ImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
+TResult<void> FImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
                                                   IRhiCommandList& cl) noexcept {
     if (m_bPrefilterBuilt) return Ok();
     // Diligent でなければ高度3D 不能 → fake-success せず capability error を返す。
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
-            ACS_LOG_WARN("ImageBasedLighting: prefilter requires the Diligent backend "
+            ACS_LOG_WARN("FImageBasedLighting: prefilter requires the Diligent backend "
                          "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
             s_warned = true;
         }
@@ -1062,7 +1208,7 @@ TResult<void> ImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
     }
     if (!m_EnvCube) {
         return ACS_ERR(Render, 161,
-            "ImageBasedLighting::EnsurePrefilter: env cubemap not built yet");
+            "FImageBasedLighting::EnsurePrefilter: env cubemap not built yet");
     }
     auto r = BuildPrefilter(device, cl);
     if (r.IsErr()) return r;
@@ -1070,12 +1216,12 @@ TResult<void> ImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
     return Ok();
 }
 
-TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
+TResult<void> FImageBasedLighting::BuildPrefilter(IRhiDevice& device,
                                                  IRhiCommandList& cl) noexcept {
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
-            ACS_LOG_WARN("ImageBasedLighting: prefilter requires the Diligent backend "
+            ACS_LOG_WARN("FImageBasedLighting: prefilter requires the Diligent backend "
                          "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
             s_warned = true;
         }
@@ -1084,7 +1230,7 @@ TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     m_PrefilterCube.Reset();
     m_PrefilterMips = 0;
 
-    // 1) prefilter cubemap (6 face, 128x128, 5 mips, R11G11B10_Float, per-slice RTV)
+    // 1) prefilter cubemap (6 face, 512x512, 7 mips, R11G11B10_Float, per-slice RTV)
     FTextureDesc td{};
     td.width            = kPrefilterSize;
     td.height           = kPrefilterSize;
@@ -1122,7 +1268,7 @@ TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     else ps = Move(r.Value());
 
     FBufferDesc cbd{};
-    cbd.size = (sizeof(PrefilterCBLayout) + 255u) & ~static_cast<usize>(255u);
+    cbd.size = (sizeof(FPrefilterCbLayout) + 255u) & ~static_cast<usize>(255u);
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
@@ -1152,17 +1298,18 @@ TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
     else pipeline = Move(r.Value());
 
-    // 3) 5 mip × 6 face = 30 render
-    ClearColor black{0, 0, 0, 1};
+    // 3) 7 mip × 6 face = 42 render
+    FClearColor black{0, 0, 0, 1};
     cl.SetPipeline(*pipeline);
     cl.SetConstantBuffer(0, *cb);
     cl.SetTexture(0, *m_EnvCube);
     for (u32 mip = 0; mip < kPrefilterMips; ++mip) {
         const f32 roughness = static_cast<f32>(mip) / static_cast<f32>(kPrefilterMips - 1);
         for (u32 face = 0; face < 6; ++face) {
-            PrefilterCBLayout data{};
+            FPrefilterCbLayout data{};
             data.face_index = static_cast<i32>(face);
             data.roughness  = roughness;
+            data.direct_light_exclusion = m_DirectLightExclusion;
             cb->Update(&data, sizeof(data));
 
             cl.BeginRenderToTextureSlice(*m_PrefilterCube, face, mip, black);
@@ -1173,7 +1320,7 @@ TResult<void> ImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     return Ok();
 }
 
-TResult<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
+TResult<void> FImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
                                                        EFormat rt_format,
                                                        EFormat depth_format) noexcept {
     if (m_SkyPipeline && m_SkyRtFormat == rt_format && m_SkyDepthFormat == depth_format) {
@@ -1202,7 +1349,7 @@ TResult<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
     else m_SkyPs = Move(r.Value());
 
     FBufferDesc cbd{};
-    cbd.size = (sizeof(SkyboxCBLayout) + 255u) & ~static_cast<usize>(255u);
+    cbd.size = (sizeof(FSkyboxCbLayout) + 255u) & ~static_cast<usize>(255u);
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
@@ -1237,17 +1384,20 @@ TResult<void> ImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
     return Ok();
 }
 
-void ImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
+void FImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
                                      IRhiTexture& cube,
                                      const FMat4& view_proj, FVec3 eye,
                                      EFormat rt_format, EFormat depth_format,
-                                     f32 mip_level) noexcept {
+                                     f32 mip_level,
+                                     FVec3 sun_direction,
+                                     FVec3 sun_radiance,
+                                     f32 sun_angular_radius) noexcept {
     // void なので error を返せない。fake-success と同義の no-op だが、最低限
     // 一度だけ warn して capability 境界を明示する (raw-DX12 は高度3D 非対応)。
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
-            ACS_LOG_WARN("ImageBasedLighting: skybox preview requires the Diligent backend "
+            ACS_LOG_WARN("FImageBasedLighting: skybox preview requires the Diligent backend "
                          "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
             s_warned = true;
         }
@@ -1255,10 +1405,39 @@ void ImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
     }
     if (auto r = EnsureSkyboxPipeline(device, rt_format, depth_format); r.IsErr()) return;
 
-    SkyboxCBLayout cb{};
+    FSkyboxCbLayout cb{};
     cb.inv_view_proj = Inverse(view_proj);
     cb.eye           = FVec4{eye.x, eye.y, eye.z, 1};
     cb.mip_pad       = FVec4{mip_level, 0, 0, 0};
+    const f32 sun_length_sq =
+        sun_direction.x * sun_direction.x +
+        sun_direction.y * sun_direction.y +
+        sun_direction.z * sun_direction.z;
+    const bool finite_sun =
+        std::isfinite(sun_length_sq) && sun_length_sq > 1.0e-12f &&
+        std::isfinite(sun_radiance.x) &&
+        std::isfinite(sun_radiance.y) &&
+        std::isfinite(sun_radiance.z) &&
+        std::isfinite(sun_angular_radius) &&
+        sun_angular_radius > 0.0f;
+    if (finite_sun) {
+        const f32 inverse_sun_length =
+            1.0f / static_cast<f32>(std::sqrt(sun_length_sq));
+        const f32 radius =
+            sun_angular_radius > 0.25f ? 0.25f : sun_angular_radius;
+        cb.sun_dir_radius = FVec4{
+            sun_direction.x * inverse_sun_length,
+            sun_direction.y * inverse_sun_length,
+            sun_direction.z * inverse_sun_length,
+            radius};
+        cb.sun_radiance = FVec4{
+            sun_radiance.x > 0.0f ? sun_radiance.x : 0.0f,
+            sun_radiance.y > 0.0f ? sun_radiance.y : 0.0f,
+            sun_radiance.z > 0.0f ? sun_radiance.z : 0.0f,
+            (sun_radiance.x > 0.0f ||
+             sun_radiance.y > 0.0f ||
+             sun_radiance.z > 0.0f) ? 1.0f : 0.0f};
+    }
     m_SkyCb->Update(&cb, sizeof(cb));
 
     cl.SetPipeline(*m_SkyPipeline);
@@ -1267,14 +1446,19 @@ void ImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
     cl.Draw(3);
 }
 
-void ImageBasedLighting::DrawEnvSkybox(IRhiDevice& device, IRhiCommandList& cl,
+void FImageBasedLighting::DrawEnvSkybox(IRhiDevice& device, IRhiCommandList& cl,
                                         const FMat4& view_proj, FVec3 eye,
-                                        EFormat rt_format, EFormat depth_format) noexcept {
+                                        EFormat rt_format, EFormat depth_format,
+                                        FVec3 sun_direction,
+                                        FVec3 sun_radiance,
+                                        f32 sun_angular_radius) noexcept {
     if (!m_EnvCube) return;
-    DrawSkybox(device, cl, *m_EnvCube, view_proj, eye, rt_format, depth_format);
+    DrawSkybox(device, cl, *m_EnvCube, view_proj, eye,
+               rt_format, depth_format, 0.0f,
+               sun_direction, sun_radiance, sun_angular_radius);
 }
 
-void ImageBasedLighting::ResetEnvCubemap() noexcept {
+void FImageBasedLighting::ResetEnvCubemap() noexcept {
     // env が無効になれば irradiance / prefilter も無効。
     m_PrefilterCube.Reset();
     m_PrefilterMips   = 0;
@@ -1285,7 +1469,7 @@ void ImageBasedLighting::ResetEnvCubemap() noexcept {
     m_bEnvBuilt        = false;
 }
 
-void ImageBasedLighting::Shutdown() noexcept {
+void FImageBasedLighting::Shutdown() noexcept {
     m_SkyPipeline.Reset();
     m_SkyCb.Reset();
     m_SkyPs.Reset();

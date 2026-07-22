@@ -16,37 +16,37 @@ namespace {
 
 int g_live = 0;   // 生存中インスタンス数（各テスト先頭で 0 に戻す）
 
-struct Tracked {
+struct FTracked {
     int value;
-    explicit Tracked(int v = 0) noexcept : value(v) { ++g_live; }
-    ~Tracked() noexcept { --g_live; }
+    explicit FTracked(int v = 0) noexcept : value(v) { ++g_live; }
+    ~FTracked() noexcept { --g_live; }
 };
 
-struct Base    { virtual ~Base() noexcept = default; int b = 1; };
-struct Derived : Base { int d = 2; };
+struct FBase    { virtual ~FBase() noexcept = default; int b = 1; };
+struct FDerived : FBase { int d = 2; };
 
-struct SftNode : TSharedFromThis<SftNode> {
+struct FSftNode : TSharedFromThis<FSftNode> {
     int id = 0;
-    TSharedPtr<SftNode> Self() noexcept { return AsShared(); }
+    TSharedPtr<FSftNode> Self() noexcept { return AsShared(); }
 };
 
-struct Obj : FObject {
+struct ATestObject : FObject {
     int hp;
-    explicit Obj(int h = 100) noexcept : hp(h) { ++g_live; }
-    ~Obj() noexcept override { --g_live; }
+    explicit ATestObject(int h = 100) noexcept : hp(h) { ++g_live; }
+    ~ATestObject() noexcept override { --g_live; }
 };
 
-struct ResurrectionProbe : FObject {
-    TObjectPtr<ResurrectionProbe>* Destination = nullptr;
+struct AResurrectionProbe : FObject {
+    TObjectPtr<AResurrectionProbe>* Destination = nullptr;
 
-    explicit ResurrectionProbe(TObjectPtr<ResurrectionProbe>* InDestination) noexcept
+    explicit AResurrectionProbe(TObjectPtr<AResurrectionProbe>* InDestination) noexcept
         : Destination(InDestination)
     {
     }
 
-    ~ResurrectionProbe() noexcept override
+    ~AResurrectionProbe() noexcept override
     {
-        *Destination = TObjectPtr<ResurrectionProbe>(this);
+        *Destination = TObjectPtr<AResurrectionProbe>(this);
     }
 };
 
@@ -56,8 +56,8 @@ ACS_TEST(SmartPtr, UniqueDefaultResetCapturesAllocator)
 {
     g_live = 0;
     {
-        TUniquePtr<Tracked> pointer;
-        Tracked* raw = New<Tracked>(DefaultAllocator(), 17);
+        TUniquePtr<FTracked> pointer;
+        FTracked* raw = New<FTracked>(DefaultAllocator(), 17);
         EXPECT_TRUE(raw != nullptr);
         pointer.Reset(raw);
         EXPECT_EQ(pointer->value, 17);
@@ -70,8 +70,8 @@ ACS_TEST(SmartPtr, UniqueSelfResetKeepsOwnership)
 {
     g_live = 0;
     {
-        auto pointer = MakeUnique<Tracked>(23);
-        Tracked* raw = pointer.Get();
+        auto pointer = MakeUnique<FTracked>(23);
+        FTracked* raw = pointer.Get();
         pointer.Reset(raw);
         EXPECT_TRUE(pointer.Get() == raw);
         EXPECT_EQ(g_live, 1);
@@ -84,7 +84,7 @@ ACS_TEST(SmartPtr, UniqueSelfResetKeepsOwnership)
 ACS_TEST(SmartPtr, SharedBasicRefcount) {
     g_live = 0;
     {
-        auto p = MakeShared<Tracked>(42);
+        auto p = MakeShared<FTracked>(42);
         EXPECT_TRUE(p.IsValid());
         EXPECT_EQ(p->value, 42);
         EXPECT_EQ(p.UseCount(), (u32)1);
@@ -102,8 +102,8 @@ ACS_TEST(SmartPtr, SharedBasicRefcount) {
 
 ACS_TEST(SmartPtr, SharedMoveAndReset) {
     g_live = 0;
-    auto p = MakeShared<Tracked>(7);
-    auto m = static_cast<TSharedPtr<Tracked>&&>(p);   // ムーブ
+    auto p = MakeShared<FTracked>(7);
+    auto m = static_cast<TSharedPtr<FTracked>&&>(p);   // ムーブ
     EXPECT_TRUE(!p.IsValid());
     EXPECT_TRUE(m.IsValid());
     EXPECT_EQ(m.UseCount(), (u32)1);
@@ -113,8 +113,8 @@ ACS_TEST(SmartPtr, SharedMoveAndReset) {
 }
 
 ACS_TEST(SmartPtr, UpcastDerivedToBase) {
-    TSharedPtr<Derived> d = MakeShared<Derived>();
-    TSharedPtr<Base> b = d;                      // 派生 → 基底アップキャスト
+    TSharedPtr<FDerived> d = MakeShared<FDerived>();
+    TSharedPtr<FBase> b = d;                      // 派生 → 基底アップキャスト
     EXPECT_TRUE(b.IsValid());
     EXPECT_EQ(b->b, 1);
     EXPECT_EQ(d.UseCount(), (u32)2);
@@ -124,8 +124,8 @@ ACS_TEST(SmartPtr, UpcastDerivedToBase) {
 
 ACS_TEST(SmartPtr, WeakLockWhileAlive) {
     g_live = 0;
-    auto p = MakeShared<Tracked>(5);
-    TWeakPtr<Tracked> w = p;
+    auto p = MakeShared<FTracked>(5);
+    TWeakPtr<FTracked> w = p;
     EXPECT_TRUE(!w.Expired());
     auto s = w.Lock();
     EXPECT_TRUE(s.IsValid());
@@ -135,9 +135,9 @@ ACS_TEST(SmartPtr, WeakLockWhileAlive) {
 
 ACS_TEST(SmartPtr, WeakExpiresAfterStrongGone) {
     g_live = 0;
-    TWeakPtr<Tracked> w;
+    TWeakPtr<FTracked> w;
     {
-        auto p = MakeShared<Tracked>(9);
+        auto p = MakeShared<FTracked>(9);
         w = p;
         EXPECT_TRUE(!w.Expired());
     }
@@ -149,7 +149,7 @@ ACS_TEST(SmartPtr, WeakExpiresAfterStrongGone) {
 // ---- TSharedFromThis --------------------------------------------------------
 
 ACS_TEST(SmartPtr, SharedFromThisSelf) {
-    auto n = MakeShared<SftNode>();
+    auto n = MakeShared<FSftNode>();
     n->id = 11;
     auto self = n->Self();                        // メンバ内から自分の TSharedPtr
     EXPECT_TRUE(self.IsValid());
@@ -160,7 +160,7 @@ ACS_TEST(SmartPtr, SharedFromThisSelf) {
 // ---- TRc 互換エイリアス -----------------------------------------------------
 
 ACS_TEST(SmartPtr, RcAliasStillWorks) {
-    TRc<Tracked> p = MakeRc<Tracked>(3);          // 旧名 API
+    TRc<FTracked> p = MakeRc<FTracked>(3);          // 旧名 API
     EXPECT_TRUE(p.IsValid());
     EXPECT_EQ(p->value, 3);
     EXPECT_EQ(p.UseCount(), (u32)1);
@@ -171,12 +171,12 @@ ACS_TEST(SmartPtr, RcAliasStillWorks) {
 ACS_TEST(SmartPtr, ObjectStrongKeepsAlive) {
     g_live = 0;
     {
-        TObjectPtr<Obj> o = NewObject<Obj>(250);
+        TObjectPtr<ATestObject> o = NewObject<ATestObject>(250);
         EXPECT_TRUE(o.IsValid());
         EXPECT_EQ(o->hp, 250);
         EXPECT_EQ(o.UseCount(), (u32)1);
         EXPECT_EQ(g_live, 1);
-        TObjectPtr<Obj> o2 = o;                  // コピー
+        TObjectPtr<ATestObject> o2 = o;                  // コピー
         EXPECT_EQ(o.UseCount(), (u32)2);
     }
     EXPECT_EQ(g_live, 0);
@@ -184,9 +184,9 @@ ACS_TEST(SmartPtr, ObjectStrongKeepsAlive) {
 
 ACS_TEST(SmartPtr, WeakObjectNullsOnDestroy) {
     g_live = 0;
-    TWeakObjectPtr<Obj> w;
+    TWeakObjectPtr<ATestObject> w;
     {
-        TObjectPtr<Obj> o = NewObject<Obj>(30);
+        TObjectPtr<ATestObject> o = NewObject<ATestObject>(30);
         w = o;
         EXPECT_TRUE(w.IsValid());
         EXPECT_TRUE(w.Get() != nullptr);
@@ -200,9 +200,9 @@ ACS_TEST(SmartPtr, WeakObjectNullsOnDestroy) {
 
 ACS_TEST(SmartPtr, WeakObjectFromRawPointer) {
     g_live = 0;
-    TObjectPtr<Obj> o = NewObject<Obj>(77);
-    Obj* raw = o.Get();
-    TWeakObjectPtr<Obj> w(raw);                   // 生ポインタから弱参照を作れる
+    TObjectPtr<ATestObject> o = NewObject<ATestObject>(77);
+    ATestObject* raw = o.Get();
+    TWeakObjectPtr<ATestObject> w(raw);                   // 生ポインタから弱参照を作れる
     EXPECT_TRUE(w.IsValid());
     EXPECT_EQ(w.Get()->hp, 77);
     auto pinned = w.Pin();                        // 生きていれば強参照に昇格
@@ -212,8 +212,8 @@ ACS_TEST(SmartPtr, WeakObjectFromRawPointer) {
 
 ACS_TEST(SmartPtr, RawObjectPointerCannotResurrectDestroyingObject)
 {
-    TObjectPtr<ResurrectionProbe> Resurrected;
-    TObjectPtr<ResurrectionProbe> Owner = NewObject<ResurrectionProbe>(&Resurrected);
+    TObjectPtr<AResurrectionProbe> Resurrected;
+    TObjectPtr<AResurrectionProbe> Owner = NewObject<AResurrectionProbe>(&Resurrected);
     EXPECT_TRUE(Owner.IsValid());
 
     Owner.Reset();
@@ -223,7 +223,7 @@ ACS_TEST(SmartPtr, RawObjectPointerCannotResurrectDestroyingObject)
 
 ACS_TEST(SmartPtr, ReferenceCountsRejectOverflowWithoutWrapping)
 {
-    sp_detail::ControlBlock Control;
+    sp_detail::FControlBlock Control;
     Control.strong.Store(~u32(0), EMemoryOrder::Release);
     Control.weak.Store(~u32(0), EMemoryOrder::Release);
 

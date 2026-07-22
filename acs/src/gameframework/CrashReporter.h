@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — FCrashReporter (ship build 専用クラッシュ報告 seam)
+// GameFramework Pillar O — CrashReporter (ship build 専用クラッシュ報告 seam)
 //
 // 役割:
 //   出荷ビルドでプロセスが落ちた時、外部のクラッシュ集約サービス (Sentry /
 //   Crashpad / Backtrace.io / BugSnag 等) へ最低限の context を吐き出すための
 //   **抽象 seam**。ACS 本体は具象な HTTP/IPC スタックを抱え込まず、
 //   `ICrashReporterBackend` インターフェイスと NotImplemented を返すだけの
-//   `CrashReporterStub` のみを提供する。
+//   `FCrashReporterStub` のみを提供する。
 //
 //   ・タイトル側 (acs::FApplication) は ICrashReporterBackend* を持ち、
 //   ・実装 (CrashReporterSentry, CrashReporterCrashpad 等) はプロジェクト個別に
@@ -30,7 +30,7 @@
 // 設計選択:
 //   ・**stub interface のみ**: 本ヘッダ + .cpp は ICrashReporterBackend を
 //     **抽象 interface として宣言** し、合わせて **常に NotImplemented を返す
-//     CrashReporterStub** を提供するだけ。ACS 本体がリンク時に「最低 1 実装が
+//     FCrashReporterStub** を提供するだけ。ACS 本体がリンク時に「最低 1 実装が
 //     居る」を保証するための fallback。
 //   ・**TResult<T, FErrorCode>**: 例外不使用方針。送信失敗・未初期化・引数不正は
 //     すべて FErrorCode で伝搬。上位層は `if (r.IsErr()) { /* swallow */ }` で
@@ -58,11 +58,11 @@ namespace acs::game {
 /**
  * クラッシュ報告 backend の FErrorCode サブコード定義。
  *
- * @details ErrCategory は Generic を使い、stub は kSub_NotImplemented を返す。
+ * @details EErrCategory は Generic を使い、stub は kSub_NotImplemented を返す。
  */
-struct CrashReporterError {
+struct FCrashReporterError {
     /** クラッシュ報告 API が返すエラーサブコード。 */
-    enum SubCode : u16 {
+    enum ESubCode : u16 {
         /** Init() 前に API を呼んだ。 */
         kSub_NotInitialized = 1,
 
@@ -90,7 +90,7 @@ struct CrashReporterError {
  * 全フィールドは Backend が ReportCrash 呼び出し中のみ参照する想定。文字列ポインタは
  * 呼出側 (クラッシュハンドラ) が寿命を保証する非所有ポインタ。
  */
-struct CrashContext {
+struct FCrashContext {
     /** 例外/シグナルの種別 ("SEH_ACCESS_VIOLATION" / "std::bad_alloc" 等)。 */
     const char* exception_type = nullptr;
 
@@ -175,7 +175,7 @@ public:
      * @param ctx 送信するクラッシュ context。
      * @return 成功なら空の TResult、失敗ならエラー。
      */
-    virtual TResult<void> ReportCrash(const CrashContext& ctx) noexcept = 0;
+    virtual TResult<void> ReportCrash(const FCrashContext& ctx) noexcept = 0;
 
     /**
      * 非致命的エラーを送信する。
@@ -222,13 +222,13 @@ public:
  * 全 API が NotImplemented を返す defensive stub。Init() ですら成功扱いにしないことで、
  * 本番ビルドに stub が紛れ込んだ場合に QA 工程で検出可能にする。
  */
-class CrashReporterStub final : public ICrashReporterBackend {
+class FCrashReporterStub final : public ICrashReporterBackend {
 public:
     /** stub を構築する。 */
-    CrashReporterStub() noexcept = default;
+    FCrashReporterStub() noexcept = default;
 
     /** 破棄する。 */
-    ~CrashReporterStub() noexcept override = default;
+    ~FCrashReporterStub() noexcept override = default;
 
     /**
      * 常に NotImplemented エラーを返す (初期化しない)。
@@ -255,7 +255,7 @@ public:
      * @param ctx 無視されるクラッシュ context。
      * @return kSub_NotImplemented のエラー。
      */
-    TResult<void> ReportCrash(const CrashContext& ctx) noexcept override;
+    TResult<void> ReportCrash(const FCrashContext& ctx) noexcept override;
 
     /**
      * 常に NotImplemented エラーを返す (送信しない)。
@@ -328,30 +328,30 @@ ICrashReporterBackend& GetDefaultCrashReporter() noexcept;
  * ICrashReporterBackend を 1 つ抱える高レベル thin wrapper。
  *
  * @details
- * Install(backend) で参照を借り、Uninstall() で外す。NotifyCrash() は CrashContext の最小
+ * Install(backend) で参照を借り、Uninstall() で外す。NotifyCrash() は FCrashContext の最小
  * フィールドだけ埋めて ReportCrash を呼ぶ簡略パス、AddBreadcrumb() は backend に素通しする。
  * backend == nullptr の状態 (Install 前 / Uninstall 後) では全 API が no-op になる
  * (二次クラッシュ防止)。
  */
-class CrashHandler {
+class FCrashHandler {
 public:
     /** backend 未設定状態で構築する。 */
-    CrashHandler() noexcept = default;
+    FCrashHandler() noexcept = default;
 
     /** 破棄する (backend の所有権は持たないため解放しない)。 */
-    ~CrashHandler() noexcept = default;
+    ~FCrashHandler() noexcept = default;
 
     /** コピー禁止。 */
-    CrashHandler(const CrashHandler&)            = delete;
+    FCrashHandler(const FCrashHandler&)            = delete;
 
     /** コピー代入も禁止。 */
-    CrashHandler& operator=(const CrashHandler&) = delete;
+    FCrashHandler& operator=(const FCrashHandler&) = delete;
 
     /** ムーブ禁止。 */
-    CrashHandler(CrashHandler&&)                 = delete;
+    FCrashHandler(FCrashHandler&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    CrashHandler& operator=(CrashHandler&&)      = delete;
+    FCrashHandler& operator=(FCrashHandler&&)      = delete;
 
     /**
      * 使用する backend を設定する (寿命を借りるだけ)。

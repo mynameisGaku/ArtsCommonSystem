@@ -49,33 +49,33 @@ constexpr u32 kNotFound = ~static_cast<u32>(0);
  * @param p 取得するプリセット種別。
  * @return 対応する ShakeParams。Custom / 未知値は中立値を返す。
  */
-ShakeParams BuiltinParams(EShakePreset p) noexcept {
+FShakeParams BuiltinParams(EShakePreset p) noexcept {
     switch (p) {
         case EShakePreset::ExplosionSmall:
-            return ShakeParams{0.4f, 0.6f, 1.5f, 25.0f, 0.27f};
+            return FShakeParams{0.4f, 0.6f, 1.5f, 25.0f, 0.27f};
         case EShakePreset::ExplosionLarge:
-            return ShakeParams{0.8f, 1.2f, 1.0f, 20.0f, 0.80f};
+            return FShakeParams{0.8f, 1.2f, 1.0f, 20.0f, 0.80f};
         case EShakePreset::EarthquakeShort:
-            return ShakeParams{0.5f, 0.7f, 0.8f, 12.0f, 0.62f};
+            return FShakeParams{0.5f, 0.7f, 0.8f, 12.0f, 0.62f};
         case EShakePreset::EarthquakeLong:
-            return ShakeParams{0.6f, 0.9f, 0.3f, 8.0f, 2.00f};
+            return FShakeParams{0.6f, 0.9f, 0.3f, 8.0f, 2.00f};
         case EShakePreset::HitImpact:
-            return ShakeParams{0.3f, 0.4f, 2.0f, 30.0f, 0.15f};
+            return FShakeParams{0.3f, 0.4f, 2.0f, 30.0f, 0.15f};
         case EShakePreset::RocketLaunch:
-            return ShakeParams{0.5f, 0.35f, 1.2f, 28.0f, 0.42f};
+            return FShakeParams{0.5f, 0.35f, 1.2f, 28.0f, 0.42f};
         case EShakePreset::MeteorImpact:
-            return ShakeParams{0.9f, 1.5f, 0.7f, 16.0f, 1.28f};
+            return FShakeParams{0.9f, 1.5f, 0.7f, 16.0f, 1.28f};
         case EShakePreset::Custom:
         default:
             // Custom 哨兵 / 未知値 — 中立 (= 適用しても見た目には影響しない値)。
-            return ShakeParams{0.0f, 0.0f, 1.0f, 25.0f, 0.0f};
+            return FShakeParams{0.0f, 0.0f, 1.0f, 25.0f, 0.0f};
     }
 }
 
 } // namespace
 
 /** 組み込み preset の ShakeParams を返す。 */
-ShakeParams FCameraShakePresets::GetPreset(EShakePreset preset) noexcept {
+FShakeParams FCameraShakePresets::GetPreset(EShakePreset preset) noexcept {
     return BuiltinParams(preset);
 }
 
@@ -85,7 +85,7 @@ void FCameraShakePresets::ApplyPreset(IShakeTarget& target,
     // Custom は名前経由 (ApplyCustomByName) 専用 — 即値経由では no-op。
     if (preset == EShakePreset::Custom) return;
 
-    const ShakeParams p = BuiltinParams(preset);
+    const FShakeParams p = BuiltinParams(preset);
     // 順序: 静的パラメータを先に上書きしてから trauma を累積。
     // 連続トリガー時に AddShake の clamp で 1.0 に張り付くのが Eiserloh 流。
     target.SetShakeAmplitude(p.amplitude);
@@ -105,7 +105,7 @@ u32 FCameraShakePresets::FindCustomIndex(const char* name) const noexcept {
 
 /** カスタム preset を登録する (同 name は上書き、nullptr は no-op)。 */
 void FCameraShakePresets::RegisterCustomPreset(const char*        name,
-                                              const ShakeParams& params) noexcept {
+                                              const FShakeParams& params) noexcept {
     if (name == nullptr) return;
 
     // 既存 name は上書き (DCC ツール再ロードで最新値が勝つ運用)。
@@ -115,7 +115,7 @@ void FCameraShakePresets::RegisterCustomPreset(const char*        name,
         return;
     }
 
-    CustomEntry e{};
+    FCustomEntry e{};
     e.name   = name;     // static lifetime を caller が保証する
     e.params = params;
     m_Customs.PushBack(e);
@@ -127,7 +127,7 @@ bool FCameraShakePresets::ApplyCustomByName(IShakeTarget& target,
     const u32 idx = FindCustomIndex(name);
     if (idx == kNotFound) return false;
 
-    const ShakeParams& p = m_Customs[idx].params;
+    const FShakeParams& p = m_Customs[idx].params;
     // 組み込み preset と同じ順序で適用 (SetAmp → SetDecay → AddShake)。
     target.SetShakeAmplitude(p.amplitude);
     target.SetShakeDecayRate(p.decay_rate);

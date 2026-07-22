@@ -5,12 +5,12 @@
 // クリック移動 RPG など、グリッドベースの AI 動作に汎用に使える。
 //
 // 使い方:
-//   NavGrid nav;
+//   FNavGrid nav;
 //   nav.Init(32, 24);
 //   nav.SetWalkable(5, 10, false);                // 壁を 1 マス置く
 //   nav.SetAllowDiagonal(true);                   // 8 方向許可 (既定は 4 方向)
 //
-//   TArray<NavGrid::PathPoint> path;
+//   TArray<FNavGrid::FPathPoint> path;
 //   if (nav.FindPath(/*start=*/0, 0, /*goal=*/20, 15, path)) {
 //       // path[0] = start, path[Size()-1] = goal の連続セル列
 //   }
@@ -43,12 +43,12 @@ namespace acs::game {
  * (対角 cost sqrt(2)) で A* を解く。open set は線形最小値走査、closed / g / f /
  * came_from も 1D 配列で持つ。一時バッファはメンバに保持し FindPath 毎に reset する。
  */
-class NavGrid {
+class FNavGrid {
 public:
     /**
      * 経路の 1 セルを表すグリッド座標。
      */
-    struct PathPoint {
+    struct FPathPoint {
         /** セルの x 座標。 */
         u32 x = 0;
 
@@ -57,22 +57,22 @@ public:
     };
 
     /** 空状態で構築する (グリッドは Init で確保)。 */
-    NavGrid() noexcept = default;
+    FNavGrid() noexcept = default;
 
     /** 破棄する。 */
-    ~NavGrid() noexcept = default;
+    ~FNavGrid() noexcept = default;
 
-    /** コピー禁止 (Scene / AI モジュールのメンバとして固定の場所に置く想定)。 */
-    NavGrid(const NavGrid&)            = delete;
+    /** コピー禁止 (FScene / AI モジュールのメンバとして固定の場所に置く想定)。 */
+    FNavGrid(const FNavGrid&)            = delete;
 
     /** コピー代入も禁止。 */
-    NavGrid& operator=(const NavGrid&) = delete;
+    FNavGrid& operator=(const FNavGrid&) = delete;
 
     /** ムーブ禁止。 */
-    NavGrid(NavGrid&&)                 = delete;
+    FNavGrid(FNavGrid&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    NavGrid& operator=(NavGrid&&)      = delete;
+    FNavGrid& operator=(FNavGrid&&)      = delete;
 
     /**
      * width * height のグリッドを全 cell walkable で初期化する。
@@ -146,7 +146,7 @@ public:
      */
     bool FindPath(u32 start_x, u32 start_y,
                   u32 goal_x,  u32 goal_y,
-                  TArray<PathPoint>& out_path) noexcept;
+                  TArray<FPathPoint>& out_path) noexcept;
 
     /** 全 cell を walkable に戻す (グリッドサイズは保持)。 */
     void ClearWalls() noexcept;
@@ -189,7 +189,7 @@ private:
      * @param goal_idx 終点の cell index。
      * @param out_path 再構築した経路を書き込む出力先。
      */
-    void Reconstruct(u32 start_idx, u32 goal_idx, TArray<PathPoint>& out_path) const noexcept;
+    void Reconstruct(u32 start_idx, u32 goal_idx, TArray<FPathPoint>& out_path) const noexcept;
 
     /** グリッドの横セル数。 */
     u32       m_Width          = 0;

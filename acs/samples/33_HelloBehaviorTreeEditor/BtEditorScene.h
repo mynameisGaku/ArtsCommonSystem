@@ -24,12 +24,12 @@ using Blackboard = acs::game::btedit::FBtBlackboard;
 // ============================================================================
 // BtEditorScene — no-code BT エディタの構成 + render
 // ============================================================================
-class BtEditorScene : public acs::game::Scene {
+class FBtEditorScene : public acs::game::FScene {
 public:
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
-    void OnRender(acs::game::RenderContext& rc) noexcept override;
+    void OnRender(acs::game::FRenderContext& rc) noexcept override;
 
 private:
     acs::game::FBehaviorTree                            m_Bt;   // 参考用 (graph-run 時は未使用)

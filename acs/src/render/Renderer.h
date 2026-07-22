@@ -13,8 +13,8 @@
 //       //   FSkinnedShader   — GPU スキニング (BoneCB + BLENDINDICES/WEIGHT)
 //       //   FSky             — 手続き生成スカイ (Day/Sunset/Night プリセット)
 //       //   FSpriteBatch     — 2D スプライト + フォント
-//       //   Font            — TTrueType -> アトラス -> FSpriteBatch
-//       //   ParticleSystem  — 簡易 GPU パーティクル
+//       //   FFont            — TTrueType -> アトラス -> FSpriteBatch
+//       //   FParticleSystem  — 簡易 GPU パーティクル
 //       //   FShadowMap       — depth-only パス
 //       //   FPostProcess     — HDR + Bloom + ACES Tonemap (Diligent backend 専用)
 //       rdr.EndFrame();
@@ -95,7 +95,7 @@ public:
      *
      * @param clear バックバッファをクリアする色。
      */
-    void BeginFrame(const ClearColor& clear) noexcept;
+    void BeginFrame(const FClearColor& clear) noexcept;
 
     /** フレームを終了する (コマンドを GPU に投入し Present)。 */
     void EndFrame() noexcept;

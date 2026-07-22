@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar W — FStudioWorkflow seam (IAssetLockingBackend / IBuildFarmBackend)
+// GameFramework Pillar W — StudioWorkflow seam (IAssetLockingBackend / IBuildFarmBackend)
 //
 // 役割:
 //   スタジオ運用 (チーム開発 / CI/CD) のために必要な 2 つの外部システムへ橋渡しする
@@ -14,7 +14,7 @@
 //     の URL を受け取る運用を seam として固定する。
 //
 // 使い方:
-//   class StudioEditor {
+//   class FStudioEditor {
 //       acs::game::IAssetLockingBackend* m_Locks = nullptr;
 //       acs::game::IBuildFarmBackend*    m_Farm  = nullptr;
 //
@@ -28,7 +28,7 @@
 //           (void)m_Locks->LockAsset(path, "designer_a");
 //       }
 //       void OnRequestNightlyBuild() noexcept {
-//           acs::game::IBuildFarmBackend::BuildRequest req{
+//           acs::game::IBuildFarmBackend::FBuildRequest req{
 //               "Shipping_Win64", "main", "1e6c12b"};
 //           (void)m_Farm->SubmitBuild(req);
 //       }
@@ -42,13 +42,13 @@
 //   ・**cross-backend で同じ I/F**: Perforce / Plastic / Helix / Git LFS のいずれを
 //     後ろで使ってもエディタ側コードを書き換えない。アセットパスは `const char*
 //     asset_path` の opaque な depot/relative path 文字列として渡す (例:
-//     "//depot/FGame/Art/Characters/hero.fbx")。
+//     "//depot/Game/Art/Characters/hero.fbx")。
 //   ・**所有しない const char*** : 文字列は呼び出し側 / 外部 SDK のライフタイムに
 //     従う。Backend はコピーしない (STL <string> 不使用方針)。利用側は
 //     `QueryLock()` の戻り値を「ティック内のみ有効」と扱うこと。
 //   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は IsConnected
 //     が常に false で、各操作は `ACS_ERR(Generic, kSub_NotImplemented, "...")` を
-//     返す (FBackendClient / FSteamworksBridge と同じ defensive pattern)。
+//     返す (IBackendClient / ISteamworksBridge と同じ defensive pattern)。
 //   ・**Build ID は不透明 u64**: SubmitBuild の戻り値 / PollBuild の入力。実装側で
 //     ジョブ番号 (連番) / hash / pointer-as-u64 等の意味を持たせてよいが、呼出側は
 //     opaque ID として扱う。`0` は「無効な ID」予約 (StartSearch ticket と同じ約束)。
@@ -82,14 +82,14 @@ namespace acs::game {
  * スタジオワークフロー seam 共通のエラーサブコード集。
  *
  * @details
- * FBackendClient / FSaveSlot 等と同じく「stub = NotImplemented」を
- * kSub_NotImplemented (= 99) で表現する。ErrCategory には Generic を使う (P4 /
+ * IBackendClient / TSaveSlot 等と同じく「stub = NotImplemented」を
+ * kSub_NotImplemented (= 99) で表現する。EErrCategory には Generic を使う (P4 /
  * Jenkins は I/O だが、本 seam は API 抽象であって特定の通信路を仮定しないため
  * Generic が妥当)。
  */
-struct StudioWorkflowError {
+struct FStudioWorkflowError {
     /** 各種失敗を表すサブコード。 */
-    enum SubCode : u16 {
+    enum ESubCode : u16 {
         /** バックエンドへ未接続のまま呼ばれた。 */
         kSub_NotConnected   = 1,
 
@@ -119,7 +119,7 @@ struct StudioWorkflowError {
  * 「次の Tick / 次の Backend 呼び出しまで」を保証する (実装によってはより長い)。
  */
 struct FAssetLockInfo {
-    /** ロック対象パス (例: "//depot/FGame/foo.fbx")。Backend が所有しない借用文字列。 */
+    /** ロック対象パス (例: "//depot/Game/foo.fbx")。Backend が所有しない借用文字列。 */
     const char* asset_path  = nullptr;
 
     /** ロック保持ユーザー (例: "designer_a")。Backend が所有しない借用文字列。 */
@@ -214,7 +214,7 @@ public:
      * 名、commit_sha はピンポイントのリビジョン識別子 (git sha / p4 changelist 番号
      * 文字列 等)。
      */
-    struct BuildRequest {
+    struct FBuildRequest {
         /** farm 側で予め登録されたビルド構成名 (例: "Shipping_Win64")。 */
         const char* preset     = nullptr;
 
@@ -233,7 +233,7 @@ public:
      * 成功時のみ非 nullptr を保証 (失敗時は nullptr を返してよい)。寿命は次の Backend
      * 呼び出しまで。
      */
-    struct BuildResult {
+    struct FBuildResult {
         /** 対象ビルドの opaque ID (0 は無効予約)。 */
         u64         build_id     = 0;
 
@@ -272,20 +272,20 @@ public:
      * @param req 投入するビルドリクエスト。
      * @return 成功時の build_id、または失敗時のエラー。
      */
-    virtual TResult<u64> SubmitBuild(const BuildRequest& req) noexcept = 0;
+    virtual TResult<u64> SubmitBuild(const FBuildRequest& req) noexcept = 0;
 
     /**
      * ビルド状態を取得する。
      *
      * @details
      * build_id == 0 は kSub_BadArgument、未知の ID は kSub_NotFound。進行中は IsOk な
-     * BuildResult を返してもよい (success=false / artifact_url=nullptr) が、本 I/F では
+     * FBuildResult を返してもよい (success=false / artifact_url=nullptr) が、本 I/F では
      * 「完了したかどうか」を呼出側に明示するため、進行中は IsErr を返す実装も許容する
      * (kSub_NotFound 以外の Generic エラーで返すなど。具象側のポリシー)。
      * @param build_id 状態を問い合わせるビルド ID。
      * @return ビルド結果、または失敗/進行中のエラー。
      */
-    virtual TResult<BuildResult> PollBuild(u64 build_id) noexcept = 0;
+    virtual TResult<FBuildResult> PollBuild(u64 build_id) noexcept = 0;
 
     /**
      * ビルドのキャンセルを要求する。
@@ -375,7 +375,7 @@ public:
      * @param req 無視される。
      * @return kSub_NotImplemented エラー。
      */
-    TResult<u64>          SubmitBuild(const BuildRequest& req) noexcept override;
+    TResult<u64>          SubmitBuild(const FBuildRequest& req) noexcept override;
 
     /**
      * 常に NotImplemented を返す (no-op stub)。
@@ -383,7 +383,7 @@ public:
      * @param build_id 無視される。
      * @return kSub_NotImplemented エラー。
      */
-    TResult<BuildResult>  PollBuild(u64 build_id) noexcept override;
+    TResult<FBuildResult>  PollBuild(u64 build_id) noexcept override;
 
     /**
      * 常に NotImplemented を返す (no-op stub)。
@@ -410,15 +410,60 @@ public:
  * ない)。LockAsset は `<asset_path>.lock` を Win32 CreateFileW(CREATE_NEW) で生成する
  * (CREATE_NEW は「既に存在したら ERROR_FILE_EXISTS で失敗」する原子的フラグで、OS
  * カーネルが排他を保証するため 2 プロセス/スレッドが同時にロックしても片方だけが成功
- * する)。成功側は lock ファイルへ owner 名と取得時刻 (UNIX epoch 秒) を書き込み、既に
- * ロック済みなら kSub_AlreadyLocked。UnlockAsset は lock ファイルを読んで所有者を検証
- * してから DeleteFileW で削除し (未ロックは kSub_NotFound)、QueryLock は lock ファイルの
- * 存在 + 内容を FAssetLockInfo に詰めて返す (文字列は本オブジェクト内の固定長バッファを
- * 指すため寿命は「次の Backend 呼び出しまで」)。IsConnected はローカル FS が常に利用
- * 可能なため true。asset_path は UTF-8 の const char* で内部で UTF-16 へ変換し、lock
- * ファイルは 1 行目=owner、2 行目=取得時刻(10 進秒) の極小テキスト。STL 非依存で owner
- * / path は固定長 char バッファに保持する。
+ * する)。成功側は version / owner / 128-bit token / 取得時刻を含む厳密なレコードを書き、
+ * FlushFileBuffers + CloseHandle が完了してから取得成功を公開する。解除時は同じファイル
+ * handle 上でレコードを検証して delete-pending にするため、「検証後に別プロセスが lock
+ * を取り直し、その新しい lock をパス名で削除する」TOCTOU を許さない。破損・旧形式・
+ * trailing data・期限切れらしき lock は安全側に倒して自動削除しない。
  */
+
+/** FLocalFileAssetLocking の機械判定可能な安定エラー。値は永続ログ/API 用に固定する。 */
+enum class ELocalAssetLockError : u16 {
+    None              = 0,
+    BadArgument       = 1500,
+    PathTooLong       = 1501,
+    OwnerTooLong      = 1502,
+    InvalidUtf8       = 1503,
+    InvalidOwner      = 1504,
+    AlreadyLocked     = 1505,
+    NotFound          = 1506,
+    RecordTooLarge    = 1507,
+    CorruptRecord     = 1508,
+    OpenFailed        = 1509,
+    SizeFailed        = 1510,
+    ReadFailed        = 1511,
+    WriteFailed       = 1512,
+    FlushFailed       = 1513,
+    CloseFailed       = 1514,
+    OwnerMismatch     = 1515,
+    TokenMismatch     = 1516,
+    NotOwned          = 1517,
+    DeleteFailed      = 1518,
+    CapacityExceeded  = 1519,
+};
+
+/** 取得世代を識別する 128-bit token。owner 名だけでは再取得競合を識別できない。 */
+struct FLocalAssetLockToken {
+    u64 high = 0;
+    u64 low  = 0;
+
+    /** all-zero は無効 token として予約する。 */
+    bool IsValid() const noexcept { return high != 0 || low != 0; }
+};
+
+/** 例外を使わない checked API の共通結果。 */
+struct FLocalAssetLockResult {
+    ELocalAssetLockError error     = ELocalAssetLockError::None;
+    u32                  os_error  = 0;
+    FLocalAssetLockToken token     = {};
+    u64                  lock_time = 0;
+
+    bool Succeeded() const noexcept { return error == ELocalAssetLockError::None; }
+};
+
+/** ログ/telemetry 用の安定した ASCII error 名を返す。 */
+const char* LocalAssetLockErrorName(ELocalAssetLockError error) noexcept;
+
 class FLocalFileAssetLocking final : public IAssetLockingBackend {
 public:
     /** path バッファの最大長 (NUL 含む)。MAX_PATH 級 + 余裕。 */
@@ -427,6 +472,12 @@ public:
     /** user バッファの最大長 (NUL 含む)。 */
     static constexpr int kMaxUserChars = 256;
 
+    /** lock レコードの最大バイト数。 */
+    static constexpr int kMaxRecordBytes = 512;
+
+    /** 互換 UnlockAsset 用に同一 instance が追跡する最大取得数。 */
+    static constexpr int kMaxHeldLocks = 64;
+
     /** 既定構築。 */
     FLocalFileAssetLocking() noexcept = default;
 
@@ -434,7 +485,7 @@ public:
     ~FLocalFileAssetLocking() noexcept override = default;
 
     /**
-     * `<asset_path>.lock` を CREATE_NEW で原子的に生成し、owner と取得時刻を書く。
+     * checked API を使って `<asset_path>.lock` を原子的・永続的に取得する互換 API。
      *
      * @details 既にロック済みなら kSub_AlreadyLocked。asset_path / user が空なら kSub_BadArgument。
      * @param asset_path ロック対象のアセットパス (UTF-8)。
@@ -444,9 +495,10 @@ public:
     TResult<void>           LockAsset(const char* asset_path, const char* user) noexcept override;
 
     /**
-     * lock ファイルを削除してロックを解除する (協調ロックなので誰でも解除可)。
+     * この instance が取得・追跡している同一世代の lock だけを解除する。
      *
-     * @details 未ロック (lock ファイル無し) なら kSub_NotFound。
+     * @details 他 instance / 他 process / 再取得後の lock は解除しない。未ロックなら
+     * kSub_NotFound、追跡 token がなければ kSub_PermissionDenied。
      * @param asset_path ロック解除するアセットパス (UTF-8)。
      * @return 成功なら空の TResult、失敗ならエラー。
      */
@@ -475,21 +527,60 @@ public:
      * 所有者検証付きでロックを解除する (seam 拡張)。
      *
      * @details
-     * lock ファイルの owner が user と一致する場合のみ削除する。一致しなければ
-     * kSub_PermissionDenied、未ロックは kSub_NotFound。「自分のロックだけ外す」厳格運用が
-     * 必要な場合に使う (基底 UnlockAsset は協調ロックとして誰でも解除可)。
+     * lock ファイルの owner と、この instance が取得時に保持した token の両方が一致する
+     * 場合のみ削除する。一致しなければ kSub_PermissionDenied、未ロックは kSub_NotFound。
      * @param asset_path ロック解除するアセットパス (UTF-8)。
      * @param user 解除を要求するユーザー (lock の owner と照合)。
      * @return 成功なら空の TResult、失敗ならエラー。
      */
     TResult<void> UnlockAssetAs(const char* asset_path, const char* user) noexcept;
 
+    /**
+     * 厳密レコードを CREATE_NEW で取得し、解除に必要な token を返す。
+     *
+     * @details 失敗時は既存の保持テーブルを変更しない。成功は全 byte write、
+     * FlushFileBuffers、CloseHandle のすべてが完了した後だけ返す。
+     */
+    FLocalAssetLockResult TryLockAsset(const char* asset_path, const char* user) noexcept;
+
+    /**
+     * owner と取得 token の両方が一致する同一ファイル object だけを解除する。
+     *
+     * @details 検証用 handle は FILE_SHARE_DELETE なしで開き、同じ handle を
+     * FileDispositionInfo で delete-pending にする。別世代/別 owner は削除しない。
+     */
+    FLocalAssetLockResult TryUnlockAsset(const char* asset_path,
+                                         const char* user,
+                                         FLocalAssetLockToken token) noexcept;
+
+    /**
+     * 厳密レコードを完全読み取りして問い合わせる checked API。
+     *
+     * @details 失敗時は out_info と query 用 member buffer を変更しない。成功時の
+     * out_info 文字列寿命は従来 QueryLock と同じく次の呼び出しまで。
+     */
+    FLocalAssetLockResult TryQueryLock(const char* asset_path,
+                                       FAssetLockInfo& out_info) noexcept;
+
 private:
+    struct FHeldLock {
+        bool                 in_use = false;
+        char                 path[kMaxPathChars] = {};
+        char                 owner[kMaxUserChars] = {};
+        FLocalAssetLockToken token = {};
+    };
+
     /** QueryLock の戻り値 asset_path が指す先 (寿命 = 次の呼び出しまで)。 */
     char m_QueryPathBuf[kMaxPathChars] = {};
 
     /** QueryLock の戻り値 locker_user が指す先 (寿命 = 次の呼び出しまで)。 */
     char m_QueryUserBuf[kMaxUserChars] = {};
+
+    /** checked acquisition と互換 UnlockAsset を結ぶ固定長所有権テーブル。 */
+    FHeldLock m_HeldLocks[kMaxHeldLocks] = {};
+
+    /** 保持テーブル更新用の小さい spin guard (0=free, 1=held)。 */
+    volatile long m_StateGuard = 0;
 };
 
 /**
@@ -559,7 +650,7 @@ public:
      * @param req 投入するビルドリクエスト (preset を起動コマンドラインとして使用)。
      * @return 成功時の build_id、または失敗時のエラー。
      */
-    TResult<u64>          SubmitBuild(const BuildRequest& req) noexcept override;
+    TResult<u64>          SubmitBuild(const FBuildRequest& req) noexcept override;
 
     /**
      * ジョブの完了状態を非ブロッキングに確認し、結果を返す。
@@ -568,7 +659,7 @@ public:
      * @param build_id 状態を問い合わせるビルド ID。
      * @return ビルド結果、または失敗/進行中のエラー。
      */
-    TResult<BuildResult>  PollBuild(u64 build_id) noexcept override;
+    TResult<FBuildResult>  PollBuild(u64 build_id) noexcept override;
 
     /**
      * 進行中のジョブを kill してスロットを解放する。
@@ -588,7 +679,7 @@ public:
 
 private:
     /** 1 ビルドジョブの追跡状態。 */
-    struct Job {
+    struct FJob {
         /** ビルド ID (0 = 空きスロット)。 */
         u64    m_BuildId = 0;
 
@@ -614,17 +705,17 @@ private:
      * @param build_id 検索するビルド ID。
      * @return 該当ジョブへのポインタ (無ければ nullptr)。
      */
-    Job* FindJob(u64 build_id) noexcept;
+    FJob* FindJob(u64 build_id) noexcept;
 
     /**
      * プロセス HANDLE を閉じてスロットを空きに戻す。
      *
      * @param job 解放するジョブスロット。
      */
-    void CloseJob(Job& job) noexcept;
+    void CloseJob(FJob& job) noexcept;
 
     /** ビルドジョブ追跡テーブル (固定長)。 */
-    Job m_Jobs[kMaxJobs] = {};
+    FJob m_Jobs[kMaxJobs] = {};
 
     /** 次に発番する build_id (1 始まりの連番、0 は無効予約)。 */
     u64 m_NextBuildId    = 1;

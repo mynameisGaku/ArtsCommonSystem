@@ -27,12 +27,12 @@ ACS は 2 つの RHI バックエンドを持つ。**どちらをビルドする
 
 raw-DX12 で高度 3D 機能 (IBL 等) を呼んだ場合、**黙って `Ok()` を返さない**。
 
-- `TResult<void>` を返す経路 (`ImageBasedLighting::BuildBrdfLut` / `BuildEnvCubemap` /
+- `TResult<void>` を返す経路 (`FImageBasedLighting::BuildBrdfLut` / `BuildEnvCubemap` /
   `LoadEquirectHdrFromMemory` / `EnsureIrradiance` / `BuildIrradiance` /
   `EnsurePrefilter` / `BuildPrefilter`) は **`ACS_ERR(Render, 88)`** を返す
   (「Diligent backend が必要」)。機能ごとに 1 回だけ警告ログを出す。
-- `void` を返す command-list 経路 (`Dx12CommandList::BeginRenderToTextureMrt` /
-  `BeginRenderToTextureSlice`、`ImageBasedLighting::DrawSkybox`) はエラーを返せないため、
+- `void` を返す command-list 経路 (`FDx12CommandList::BeginRenderToTextureMrt` /
+  `BeginRenderToTextureSlice`、`FImageBasedLighting::DrawSkybox`) はエラーを返せないため、
   no-op + 1 回限りの明示的な警告ログで「やっていない」ことを正直に伝える。
 
 これは「未実装の偽装」ではない。**機能自体は Diligent backend に本実装**されており、

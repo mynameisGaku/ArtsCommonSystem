@@ -19,7 +19,7 @@ namespace hellopbr {
 inline constexpr acs::u32 kGridSize = 5;        // 5x5 = 25 sphere
 inline constexpr acs::f32 kSpacing  = 1.4f;
 
-class HelloPbrApp : public acs::FApplication {
+class FHelloPbrApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -28,10 +28,10 @@ public:
 
 private:
     acs::FPbrShader   m_Shader;
-    acs::GpuMesh     m_GmSphere;
-    acs::GpuMesh     m_GmPlane;
+    acs::FGpuMesh     m_GmSphere;
+    acs::FGpuMesh     m_GmPlane;
     acs::FSpriteBatch m_Batch;
-    acs::Font        m_Font;
+    acs::FFont        m_Font;
     acs::FCamera      m_Camera;
     acs::FVec3        m_CamPos {0, 2.0f, -7.5f};
     acs::f32         m_CamYaw   = 0.0f;

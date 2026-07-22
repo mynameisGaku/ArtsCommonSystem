@@ -9,13 +9,13 @@ namespace acs {
 namespace {
 
 /** 位置を weld_epsilon 格子に量子化したキー (3D)。同セル = 溶接候補。 */
-struct WeldKey {
+struct FWeldKey {
     i64 x, y, z;
-    bool operator==(const WeldKey& o) const noexcept { return x == o.x && y == o.y && z == o.z; }
+    bool operator==(const FWeldKey& o) const noexcept { return x == o.x && y == o.y && z == o.z; }
 };
 
-WeldKey QuantizePos(FVec3 p, f32 inv_eps) noexcept {
-    return WeldKey{ static_cast<i64>(std::llround(p.x * inv_eps)),
+FWeldKey QuantizePos(FVec3 p, f32 inv_eps) noexcept {
+    return FWeldKey{ static_cast<i64>(std::llround(p.x * inv_eps)),
                     static_cast<i64>(std::llround(p.y * inv_eps)),
                     static_cast<i64>(std::llround(p.z * inv_eps)) };
 }
@@ -48,10 +48,10 @@ bool FVertexScatter::Build(const FVec3* positions, u32 vcount, const u32* indice
     //   量子化キーの線形探索 (メッシュは数千頂点程度で十分速い)。
     const f32 inv_eps = (weld_epsilon > 0.0f) ? (1.0f / weld_epsilon) : 1e4f;
     m_Weld.Resize(vcount);
-    TArray<WeldKey> nodeKeys;
+    TArray<FWeldKey> nodeKeys;
     TArray<FVec3>   nodePos;     // 各ノードの代表位置 (溶接元の先頭)
     for (u32 i = 0; i < vcount; ++i) {
-        const WeldKey k = QuantizePos(positions[i], inv_eps);
+        const FWeldKey k = QuantizePos(positions[i], inv_eps);
         i32 node = -1;
         for (u32 n = 0; n < nodeKeys.Size(); ++n)
             if (nodeKeys[n] == k) { node = static_cast<i32>(n); break; }

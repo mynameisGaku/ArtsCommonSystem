@@ -37,23 +37,117 @@ struct FReader {
         cur += n;
         return true;
     }
+    bool Skip(u32 n) noexcept {
+        if (!ok || n > size - cur) { ok = false; return false; }
+        cur += n;
+        return true;
+    }
     u8  U8 () noexcept { u8  v = 0u; Bytes(&v, 1u); return v; }
     u32 U32() noexcept { u32 v = 0u; Bytes(&v, 4u); return v; }
+    u32 Remaining() const noexcept { return ok ? size - cur : 0u; }
 };
 
 /** 直列化対象のフィールドか (実体メモリを持つ値型のみ。名前のみ反射 / 文字列ポインタは除外)。 */
 bool IsSerializable(const FReflectField& f) noexcept {
-    return f.size > 0u && f.size <= 16u && f.kind != EFieldKind::FString;
+    return f.size > 0u && f.size <= kReflectSerializeMaxFieldValueBytes
+        && f.kind != EFieldKind::String && (f.flags & FIELD_TRANSIENT) == 0u;
+}
+
+bool TryFieldNameLength(const char* name, u32& out_length) noexcept {
+    if (name == nullptr) return false;
+    for (u32 length = 0u; length <= kReflectSerializeMaxFieldNameBytes; ++length) {
+        if (name[length] == '\0') {
+            if (length == 0u) return false;
+            out_length = length;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ValidateDescriptor(const FTypeDesc* d) noexcept {
+    if (d == nullptr || d->field_count > kReflectSerializeMaxFieldCount) return false;
+    if (d->field_count > 0u && d->fields == nullptr) return false;
+
+    for (u32 i = 0u; i < d->field_count; ++i) {
+        const FReflectField& f = d->fields[i];
+        if (!IsSerializable(f)) continue;
+        u32 name_length = 0u;
+        if (!TryFieldNameLength(f.name, name_length)) return false;
+        if (f.offset > d->size || f.size > d->size - f.offset) return false;
+    }
+    return true;
+}
+
+FReflectDeserializeResult DeserializeFailure(EReflectSerializeError error, u32 bytes_read,
+                                             FTypeId type_id = 0u) noexcept {
+    return FReflectDeserializeResult{error, 0u, bytes_read, type_id};
+}
+
+FReflectSerializeResult SerializeFailure(EReflectSerializeError error,
+                                         u32 required_bytes = 0u,
+                                         u32 field_count = 0u) noexcept {
+    return FReflectSerializeResult{error, 0u, required_bytes, field_count};
+}
+
+bool CheckedAdd(u32& value, u32 increment) noexcept {
+    constexpr u32 kU32Max = ~u32{0};
+    if (increment > kU32Max - value) return false;
+    value += increment;
+    return true;
 }
 
 } // namespace
 
-u32 SerializeReflected(const FTypeDesc* d, const void* obj, u8* buf, u32 cap) noexcept {
-    if (d == nullptr || obj == nullptr || buf == nullptr) return 0u;
+const char* ReflectSerializeErrorName(EReflectSerializeError error) noexcept {
+    switch (error) {
+    case EReflectSerializeError::None:               return "none";
+    case EReflectSerializeError::NullDescriptor:     return "null_descriptor";
+    case EReflectSerializeError::NullObject:         return "null_object";
+    case EReflectSerializeError::NullData:           return "null_data";
+    case EReflectSerializeError::TruncatedData:      return "truncated_data";
+    case EReflectSerializeError::InvalidMagic:       return "invalid_magic";
+    case EReflectSerializeError::TypeMismatch:       return "type_mismatch";
+    case EReflectSerializeError::FieldLimitExceeded: return "field_limit_exceeded";
+    case EReflectSerializeError::InvalidFieldRecord: return "invalid_field_record";
+    case EReflectSerializeError::InvalidMetadata:    return "invalid_metadata";
+    case EReflectSerializeError::NullOutput:         return "null_output";
+    case EReflectSerializeError::BufferTooSmall:     return "buffer_too_small";
+    case EReflectSerializeError::SerializedSizeOverflow: return "serialized_size_overflow";
+    }
+    return "unknown";
+}
 
+FReflectSerializeResult TrySerializeReflected(
+    const FTypeDesc* d, const void* obj, u8* buf, u32 cap) noexcept {
+    if (d == nullptr) return SerializeFailure(EReflectSerializeError::NullDescriptor);
+    if (obj == nullptr) return SerializeFailure(EReflectSerializeError::NullObject);
+    if (!ValidateDescriptor(d)) return SerializeFailure(EReflectSerializeError::InvalidMetadata);
+
+    u32 required_bytes = 12u;
     u32 fcount = 0u;
-    for (u32 i = 0u; i < d->field_count; ++i)
-        if (IsSerializable(d->fields[i])) ++fcount;
+    for (u32 i = 0u; i < d->field_count; ++i) {
+        const FReflectField& f = d->fields[i];
+        if (!IsSerializable(f)) continue;
+        u32 name_length = 0u;
+        (void)TryFieldNameLength(f.name, name_length); // ValidateDescriptor 済み。
+        if (!CheckedAdd(required_bytes, 3u + name_length) ||
+            !CheckedAdd(required_bytes, f.size)) {
+            return SerializeFailure(EReflectSerializeError::SerializedSizeOverflow,
+                                    0u, fcount);
+        }
+        ++fcount;
+    }
+
+    if (buf == nullptr) {
+        return SerializeFailure(cap == 0u ? EReflectSerializeError::BufferTooSmall
+                                         : EReflectSerializeError::NullOutput,
+                                required_bytes, fcount);
+    }
+    if (cap < required_bytes) {
+        return SerializeFailure(EReflectSerializeError::BufferTooSmall,
+                                required_bytes, fcount);
+    }
 
     FWriter w(buf, cap);
     w.U32(kReflectSerializeMagic);
@@ -64,15 +158,27 @@ u32 SerializeReflected(const FTypeDesc* d, const void* obj, u8* buf, u32 cap) no
     for (u32 i = 0u; i < d->field_count; ++i) {
         const FReflectField& f = d->fields[i];
         if (!IsSerializable(f)) continue;
-        const u32 nlen = (f.name != nullptr) ? static_cast<u32>(std::strlen(f.name)) : 0u;
-        const u8  nl   = (nlen > 255u) ? 255u : static_cast<u8>(nlen);
+        u32 nlen = 0u;
+        (void)TryFieldNameLength(f.name, nlen); // ValidateDescriptor 済み。
+        const u8  nl   = static_cast<u8>(nlen);
         w.U8(nl);
         w.Bytes(f.name, nl);
         w.U8(static_cast<u8>(f.kind));
         w.U8(static_cast<u8>(f.size));
         w.Bytes(base + f.offset, f.size);
     }
-    return w.ok ? w.cur : 0u;
+    if (!w.ok || w.cur != required_bytes) {
+        return SerializeFailure(EReflectSerializeError::SerializedSizeOverflow,
+                                required_bytes, fcount);
+    }
+    return FReflectSerializeResult{
+        EReflectSerializeError::None, w.cur, required_bytes, fcount
+    };
+}
+
+u32 SerializeReflected(const FTypeDesc* d, const void* obj, u8* buf, u32 cap) noexcept {
+    const FReflectSerializeResult result = TrySerializeReflected(d, obj, buf, cap);
+    return result.Succeeded() ? result.BytesWritten : 0u;
 }
 
 u32 SerializeByName(const char* type_name, const void* obj, u8* buf, u32 cap) noexcept {
@@ -82,28 +188,67 @@ u32 SerializeByName(const char* type_name, const void* obj, u8* buf, u32 cap) no
     return SerializeReflected(d, obj, buf, cap);
 }
 
-u32 DeserializeReflected(const FTypeDesc* d, void* obj, const u8* data, u32 size) noexcept {
-    if (d == nullptr || obj == nullptr || data == nullptr) return 0u;
+FReflectDeserializeResult TryDeserializeReflected(
+    const FTypeDesc* d, void* obj, const u8* data, u32 size) noexcept {
+    if (d == nullptr) return DeserializeFailure(EReflectSerializeError::NullDescriptor, 0u);
+    if (obj == nullptr) return DeserializeFailure(EReflectSerializeError::NullObject, 0u);
+    if (data == nullptr) return DeserializeFailure(EReflectSerializeError::NullData, 0u);
+    if (!ValidateDescriptor(d))
+        return DeserializeFailure(EReflectSerializeError::InvalidMetadata, 0u);
+    if (size < 12u) return DeserializeFailure(EReflectSerializeError::TruncatedData, 0u);
 
+    // 第1パス: 全レコードを検証する。この段階では obj に一切書き込まない。
     FReader r(data, size);
-    if (r.U32() != kReflectSerializeMagic) return 0u;
-    if (r.U32() != d->id)                  return 0u;   // 型不一致
+    if (r.U32() != kReflectSerializeMagic)
+        return DeserializeFailure(EReflectSerializeError::InvalidMagic, r.cur);
+    const FTypeId serialized_type_id = r.U32();
+    if (serialized_type_id != d->id)
+        return DeserializeFailure(EReflectSerializeError::TypeMismatch, r.cur, serialized_type_id);
     const u32 fcount = r.U32();
-    if (!r.ok) return 0u;
+    if (!r.ok)
+        return DeserializeFailure(EReflectSerializeError::TruncatedData, r.cur, serialized_type_id);
+    if (fcount > kReflectSerializeMaxFieldCount)
+        return DeserializeFailure(EReflectSerializeError::FieldLimitExceeded, r.cur, serialized_type_id);
+    // 最小レコードは name_len/name/kind/size/value の 5 bytes。
+    if (fcount > r.Remaining() / 5u)
+        return DeserializeFailure(EReflectSerializeError::TruncatedData, r.cur, serialized_type_id);
 
-    u8*  base = static_cast<u8*>(obj);
+    for (u32 i = 0u; i < fcount; ++i) {
+        const u8 name_length = r.U8();
+        if (!r.ok)
+            return DeserializeFailure(EReflectSerializeError::TruncatedData, r.cur, serialized_type_id);
+        if (name_length == 0u)
+            return DeserializeFailure(EReflectSerializeError::InvalidFieldRecord, r.cur, serialized_type_id);
+        if (!r.Skip(name_length))
+            return DeserializeFailure(EReflectSerializeError::TruncatedData, r.cur, serialized_type_id);
+        (void)r.U8(); // kind は未知値でも forward-compatible な未適用フィールドとして許す。
+        const u8 value_size = r.U8();
+        if (!r.ok)
+            return DeserializeFailure(EReflectSerializeError::TruncatedData, r.cur, serialized_type_id);
+        if (value_size == 0u || value_size > kReflectSerializeMaxFieldValueBytes)
+            return DeserializeFailure(EReflectSerializeError::InvalidFieldRecord, r.cur, serialized_type_id);
+        if (!r.Skip(value_size))
+            return DeserializeFailure(EReflectSerializeError::TruncatedData, r.cur, serialized_type_id);
+    }
+    const u32 bytes_read = r.cur;
+
+    // 第2パス: 第1パス完走後だけ既知フィールドへ適用する。
+    FReader apply_reader(data, bytes_read);
+    (void)apply_reader.U32();
+    (void)apply_reader.U32();
+    (void)apply_reader.U32();
+    u8* base = static_cast<u8*>(obj);
     char name[256];
-    u32  applied = 0u;
+    u32 applied = 0u;
 
-    for (u32 i = 0u; i < fcount && r.ok; ++i) {
-        const u8 nl = r.U8();
-        if (!r.Bytes(name, nl)) break;
+    for (u32 i = 0u; i < fcount; ++i) {
+        const u8 nl = apply_reader.U8();
+        (void)apply_reader.Bytes(name, nl);
         name[nl] = '\0';
-        const u8 kind = r.U8();
-        const u8 sz   = r.U8();
-        if (!r.ok || sz > r.size - r.cur) { r.ok = false; break; }   // 減算形 (オーバーフロー安全)
-        const u8* valptr = data + r.cur;
-        r.cur += sz;
+        const u8 kind = apply_reader.U8();
+        const u8 sz   = apply_reader.U8();
+        const u8* valptr = data + apply_reader.cur;
+        (void)apply_reader.Skip(sz);
 
         // 名前一致 (かつ kind/size 一致) のフィールドへ書き戻す。
         for (u32 fi = 0u; fi < d->field_count; ++fi) {
@@ -117,10 +262,18 @@ u32 DeserializeReflected(const FTypeDesc* d, void* obj, const u8* data, u32 size
             }
         }
     }
-    return applied;
+    return FReflectDeserializeResult{
+        EReflectSerializeError::None, applied, bytes_read, serialized_type_id
+    };
+}
+
+u32 DeserializeReflected(const FTypeDesc* d, void* obj, const u8* data, u32 size) noexcept {
+    const FReflectDeserializeResult result = TryDeserializeReflected(d, obj, data, size);
+    return result.Succeeded() ? result.FieldsApplied : 0u;
 }
 
 void* CreateFromBytes(const u8* data, u32 size, FTypeId* out_type_id) noexcept {
+    if (out_type_id != nullptr) *out_type_id = 0u;
     if (data == nullptr || size < 12u) return nullptr;   // 最低でも magic+type_id+count
     u32 magic = 0u, tid = 0u;
     std::memcpy(&magic, data,     4u);
@@ -134,7 +287,11 @@ void* CreateFromBytes(const u8* data, u32 size, FTypeId* out_type_id) noexcept {
     void* obj = reg.CreateById(tid);
     if (obj == nullptr) return nullptr;             // 抽象型 / factory なしは生成不可
 
-    DeserializeReflected(d, obj, data, size);
+    const FReflectDeserializeResult result = TryDeserializeReflected(d, obj, data, size);
+    if (!result.Succeeded()) {
+        reg.Destroy(tid, obj);
+        return nullptr;
+    }
     if (out_type_id != nullptr) *out_type_id = tid;
     return obj;
 }

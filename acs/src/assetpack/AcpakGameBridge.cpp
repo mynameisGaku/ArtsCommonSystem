@@ -118,7 +118,7 @@ void FAcpakGameReader::ReleaseFileNamePool() noexcept
 
 TResult<void> FAcpakGameReader::Mount(const char* PackPath) noexcept
 {
-    ScopedExclusiveLock Lock(m_LifecycleLock);
+    FScopedExclusiveLock Lock(m_LifecycleLock);
     m_Reader.Close();
     ReleaseFileNamePool();
 
@@ -144,20 +144,20 @@ TResult<void> FAcpakGameReader::Mount(const char* PackPath) noexcept
 
 void FAcpakGameReader::Unmount() noexcept
 {
-    ScopedExclusiveLock Lock(m_LifecycleLock);
+    FScopedExclusiveLock Lock(m_LifecycleLock);
     m_Reader.Close();
     ReleaseFileNamePool();
 }
 
 bool FAcpakGameReader::IsMounted() const noexcept
 {
-    ScopedSharedLock Lock(m_LifecycleLock);
+    FScopedSharedLock Lock(m_LifecycleLock);
     return m_Reader.IsOpen();
 }
 
 TResult<u32> FAcpakGameReader::FileCount() noexcept
 {
-    ScopedSharedLock Lock(m_LifecycleLock);
+    FScopedSharedLock Lock(m_LifecycleLock);
     if (!m_Reader.IsOpen()) {
         return TResult<u32>(ACS_ERR(IO, game::kSubAssetPackNotMounted, "FAcpakGameReader::FileCount before Mount"));
     }
@@ -166,7 +166,7 @@ TResult<u32> FAcpakGameReader::FileCount() noexcept
 
 TResult<const char*> FAcpakGameReader::FileName(u32 Index) noexcept
 {
-    ScopedSharedLock Lock(m_LifecycleLock);
+    FScopedSharedLock Lock(m_LifecycleLock);
     if (!m_Reader.IsOpen()) {
         return TResult<const char*>(
             ACS_ERR(IO, game::kSubAssetPackNotMounted, "FAcpakGameReader::FileName before Mount"));
@@ -179,7 +179,7 @@ TResult<const char*> FAcpakGameReader::FileName(u32 Index) noexcept
 
 TResult<u64> FAcpakGameReader::FileSize(const char* Name) noexcept
 {
-    ScopedSharedLock Lock(m_LifecycleLock);
+    FScopedSharedLock Lock(m_LifecycleLock);
     wchar_t WideName[kPathCapacity] = {};
     const auto ConvertedName = ConvertUtf8ToWide(Name, WideName, kPathCapacity);
     if (ConvertedName.IsErr()) {
@@ -190,7 +190,7 @@ TResult<u64> FAcpakGameReader::FileSize(const char* Name) noexcept
 
 TResult<void> FAcpakGameReader::ReadFile(const char* Name, u8* OutBuffer, u64 BufferSize) noexcept
 {
-    ScopedSharedLock Lock(m_LifecycleLock);
+    FScopedSharedLock Lock(m_LifecycleLock);
     wchar_t WideName[kPathCapacity] = {};
     const auto ConvertedName = ConvertUtf8ToWide(Name, WideName, kPathCapacity);
     if (ConvertedName.IsErr()) {

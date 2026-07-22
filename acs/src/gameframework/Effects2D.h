@@ -5,18 +5,18 @@
 // HLSL を書けなくても AddComponent + パラメータ設定だけで動く。インタラクティブな
 // API (Disturb / SetIntensity / owner 追従) を持ち、入力や物理と連動できる。
 //
-//   auto& w = node->AddComponent<FWater2DComponent>();
+//   auto& w = node->AddComponent<AWater2DComponent>();
 //   w.SetArea({0,3}, {16,2}); w.SetColor({0.1f,0.35f,0.6f}); w.SetWaves(0.15f,1.5f);  // +Y=画面下: 水面は下に置く
 //   w.Disturb(mouse_world_x, 0.4f);     // ← 触れると波紋
 //
-//   auto& f = node->AddComponent<FFire2DComponent>();
+//   auto& f = node->AddComponent<AFire2DComponent>();
 //   f.SetSize(0.8f,1.8f); f.SetIntensity(1.0f);   // ← 近づくと勢い UP 等
 //
-//   auto& t = node->AddComponent<FTrail2DComponent>();  // owner を追従して残像
+//   auto& t = node->AddComponent<ATrail2DComponent>();  // owner を追従して残像
 //   t.SetColor({0.3f,0.8f,1.0f}); t.SetWidth(0.3f);
 #pragma once
 
-#include "gameframework/Component2D.h"
+#include "gameframework/AComponent.h"
 #include "math/Vec.h"
 
 namespace acs { class FSpriteBatch; }   // 加算パス描画ヘルパで使う (前方宣言)
@@ -42,13 +42,13 @@ enum class EWaterStyle : u8 {
  * 波打つ水面 + 干渉 (ripple / splash) + コースティクスを手続き生成する水コンポーネント。
  *
  * @details
- * shape 指定 (矩形 / 楕円 / 川 / 多角形 / スプライン) で実三角形メッシュを焼き、頂点カラーで
- * 深さ勾配・泡・縁取りを、加算パスでコースティクス・きらめき・リップル輪を描く。SideView では
- * 上端を波で揺らし平面反射も行う。HLSL もアセットも不要で FSpriteBatch のプリミティブのみで動く。
+ * shape 指定 (矩形 / 楕円 / 川 / 多角形 / スプライン) で実三角形メッシュを焼く。TopDown では
+ * 専用 GPU 水面効果が深さ・波・泡・コースティクス・きらめき・リップルをピクセル単位で評価し、
+ * SideView では上端を波で揺らし平面反射も行う。
  */
-class FWater2DComponent : public FComponent2D {
+class AWater2DComponent : public AComponent {
 public:
-    ACS_GAME_COMPONENT_KIND(FWater2DComponent)
+    ACS_GAME_COMPONENT_KIND(AWater2DComponent)
 
     /** 内部メッシュの頂点上限 (実三角形メッシュで深さ・反射 UV を滑らかに補間するため内部頂点を持つ)。 */
     static constexpr u32 kMaxVerts = 320;
@@ -288,6 +288,34 @@ public:
     void SetSkyTint(FVec3 rgb, f32 alpha) noexcept { m_SkyTint = rgb; m_SkyAlpha = alpha; }
 
     /**
+     * 見下ろし水面のマイクロ法線と光学特性を設定する。
+     *
+     * @param roughness GGX 鏡面反射の粗さ (0.04..1)。
+     * @param normal_strength マルチスケール法線マップの強さ (0 で無効)。
+     * @param normal_tiling 法線マップの world 座標タイリング密度。
+     * @param refraction_strength 屈折による水底コースティクスの変位量。
+     */
+    void SetSurfaceOptics(f32 roughness, f32 normal_strength = 0.9f,
+                          f32 normal_tiling = 0.1f,
+                          f32 refraction_strength = 0.24f) noexcept {
+        m_SurfaceRoughness = roughness < 0.04f ? 0.04f : (roughness > 1.0f ? 1.0f : roughness);
+        m_NormalStrength = normal_strength < 0.0f ? 0.0f : normal_strength;
+        m_NormalTiling = normal_tiling > 0.001f ? normal_tiling : 0.001f;
+        m_RefractionStrength = refraction_strength < 0.0f ? 0.0f : refraction_strength;
+    }
+
+    /**
+     * Beer-Lambert 吸収係数を RGB ごとに設定する (通常は R > G > B)。
+     */
+    void SetAbsorption(FVec3 coefficient) noexcept {
+        m_Absorption = FVec3{
+            coefficient.x < 0.0f ? 0.0f : coefficient.x,
+            coefficient.y < 0.0f ? 0.0f : coefficient.y,
+            coefficient.z < 0.0f ? 0.0f : coefficient.z,
+        };
+    }
+
+    /**
      * メッシュ密度を手動指定する (0 で自動)。
      *
      * @details 意味は shape 依存 (rect: cols,rows / ellipse・polygon: segments,rings / river: spans,_)。
@@ -297,11 +325,37 @@ public:
     void SetMeshResolution(u32 a, u32 b) noexcept { m_ResA = a; m_ResB = b; }
 
     /**
-     * 触れた点から 2D の放射状リップル (輪) を立てる。
+     * 互換 API: 触れた点から 2D の放射状リップル (輪) を立てる。
      *
      * @param world_point リップルの中心 (world 座標)。
      * @param strength リップルの初期振幅。
      */
+    void AddRipple(FVec2 world_point, f32 strength) noexcept {
+        AddDisturbance(world_point, 0.0f, strength);
+    }
+
+    /** 互換 API: 水面上の world x にリップルを立てる。 */
+    void AddRipple(f32 world_x, f32 strength) noexcept {
+        AddDisturbance(FVec2{world_x, SurfaceY()}, 0.0f, strength);
+    }
+
+    /**
+     * 接触半径を持つ衝撃を水面へ追加する。
+     *
+     * @details radius は最初の波面半径として使われ、法線・接触 foam・GGX highlight の
+     * 全てに同じ波面が応答する。ゲーム内オブジェクトの接触判定から直接呼べる。
+     */
+    void AddDisturbance(FVec2 world_point, f32 radius, f32 strength) noexcept;
+
+    /**
+     * 移動物体の位置・速度から方向性のある wake を追加する。
+     *
+     * @details 速度方向の後方と左右へ振幅を変えた複数波面を配置し、円形 ripple の
+     * 重ね合わせで V 字 wake を作る。velocity は world units/sec。
+     */
+    void AddWake(FVec2 world_point, FVec2 velocity, f32 radius, f32 strength) noexcept;
+
+    /** 従来名。AddRipple と同じ動作を保つ。 */
     void Disturb(FVec2 world_point, f32 strength) noexcept;
 
     /**
@@ -311,6 +365,12 @@ public:
      * @param strength リップルの初期振幅。
      */
     void Disturb(f32 world_x, f32 strength) noexcept;
+
+    /** 直近の描画で高品質 GPU 水面 shader が有効だったかを返す。 */
+    bool IsGpuSurfaceReady() const noexcept { return m_LastGpuSurfaceReady; }
+
+    /** 寿命内にあり、現在重ね合わせへ参加している波紋数を返す。 */
+    u32 ActiveRippleCount() const noexcept;
 
     /**
      * リップルの伝播パラメータを設定する。
@@ -324,10 +384,10 @@ public:
     }
 
     /**
-     * 点が水域内にあるかを bbox 近似で判定する。
+     * 点が実際の水面三角形内にあるかを判定する。
      *
      * @param world 判定する点 (world 座標)。
-     * @return 水域 bbox 内なら true。
+     * @return 水面メッシュ内 (境界上を含む) なら true。
      */
     bool ContainsPoint(FVec2 world) const noexcept;
 
@@ -358,7 +418,7 @@ public:
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    void OnDraw(RenderContext& rc) noexcept override;
+    void OnDraw(FRenderContext& rc) noexcept override;
 
 private:
     /**
@@ -443,13 +503,44 @@ private:
     void DrawGlints(FSpriteBatch& sb, const FVec2* disp) noexcept;
 
     /** 放射状リップル 1 つの状態 (中心・振幅・経過時間・伝播速度・有効フラグ)。 */
-    struct Ripple { FVec2 center{0,0}; f32 amp0 = 0, amp = 0, time = 0, speed = 0; bool active = false; };
+    struct FRipple {
+        FVec2 center{0,0};
+        f32 amp0 = 0;
+        f32 amp = 0;
+        f32 time = 0;
+        f32 speed = 0;
+        f32 initial_radius = 0;
+        bool active = false;
+    };
 
-    /** 同時に保持できるリップルの上限。 */
-    static constexpr u32 kMaxRipples = 16;
+    /**
+     * 衝撃波紋用の予約枠。
+     *
+     * @details click / splash / rain は wake と別枠にし、カーソル移動が既存の
+     * 衝撃波紋を寿命前に追い出さないようにする。
+     */
+    static constexpr u32 kMaxImpactRipples = 16;
 
-    /** アクティブなリップル群 (満杯時は最古を上書き)。 */
-    Ripple m_Ripples[kMaxRipples];
+    /** 連続する移動 wake 用の予約枠。 */
+    static constexpr u32 kMaxWakeRipples = 32;
+
+    /** GPU へ同時転送する全波紋数。 */
+    static constexpr u32 kMaxRipples = kMaxImpactRipples + kMaxWakeRipples;
+
+    /**
+     * 指定した予約範囲の空き枠へ波紋を追加する。
+     *
+     * @details active な枠は上書きしない。満杯時は新規波紋を捨て、既存波紋を
+     * 必ず寿命まで残す。
+     */
+    bool TryAddDisturbance(FVec2 world_point, f32 radius, f32 strength,
+                           u32 first_slot, u32 slot_count) noexcept;
+
+    /** アクティブなリップル群。先頭が衝撃用、後半が wake 用の予約領域。 */
+    FRipple m_Ripples[kMaxRipples];
+
+    /** 直近の TopDown 描画で専用 shader を bind できたか。HUD/診断用。 */
+    bool m_LastGpuSurfaceReady = false;
 
     /** owner 相対の頂点座標。 */
     FVec2 m_Vert[kMaxVerts];
@@ -571,6 +662,21 @@ private:
     /** 空色の濃さ (0 で無効)。 */
     f32   m_SkyAlpha = 0.0f;
 
+    /** GGX 鏡面反射の粗さ。 */
+    f32   m_SurfaceRoughness = 0.16f;
+
+    /** マルチスケール法線マップの強さ。 */
+    f32   m_NormalStrength = 0.9f;
+
+    /** 法線マップの world 座標タイリング密度。 */
+    f32   m_NormalTiling = 0.1f;
+
+    /** 屈折による水底サンプル変位量。 */
+    f32   m_RefractionStrength = 0.24f;
+
+    /** Beer-Lambert 吸収係数 (R, G, B)。 */
+    FVec3 m_Absorption{0.38f, 0.16f, 0.055f};
+
     /** メッシュ密度の第 1 軸指定 (0 で自動)。 */
     u32   m_ResA = 0;
 
@@ -612,9 +718,9 @@ private:
  * owner の world 位置を炎の根元とし、M 個の縦積み矩形を時間で揺らして黄→橙→赤の
  * グラデーションで描く。intensity で高さ・ちらつきを変調する。HLSL もアセットも不要。
  */
-class FFire2DComponent : public FComponent2D {
+class AFire2DComponent : public AComponent {
 public:
-    ACS_GAME_COMPONENT_KIND(FFire2DComponent)
+    ACS_GAME_COMPONENT_KIND(AFire2DComponent)
 
     /**
      * 炎のサイズ (幅・高さ) を設定する。
@@ -650,7 +756,7 @@ public:
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    void OnDraw(RenderContext& rc) noexcept override;
+    void OnDraw(FRenderContext& rc) noexcept override;
 
 private:
     /** 炎の幅。 */
@@ -673,9 +779,9 @@ private:
  * owner の world 位置を一定時間間隔で FIFO サンプルし、隣接点を先細りの帯 (三角形 2 枚)
  * で繋いで残像を描く。head ほど太く不透明、tail ほど細く透明になる。HLSL もアセットも不要。
  */
-class FTrail2DComponent : public FComponent2D {
+class ATrail2DComponent : public AComponent {
 public:
-    ACS_GAME_COMPONENT_KIND(FTrail2DComponent)
+    ACS_GAME_COMPONENT_KIND(ATrail2DComponent)
 
     /**
      * トレイルの色を設定する。
@@ -710,7 +816,7 @@ public:
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    void OnDraw(RenderContext& rc) noexcept override;
+    void OnDraw(FRenderContext& rc) noexcept override;
 
 private:
     /** サンプル点の物理的な上限。 */
@@ -740,13 +846,13 @@ private:
  *
  * @details
  * attach したノードの子ツリーを、指定形状の内側 (既定) か外側だけに通して描く。窓越しに
- * 他のエフェクトを覗かせる / 穴あきマスク等に使う。シェーダ不要で SpriteBatch の stencil
+ * 他のエフェクトを覗かせる / 穴あきマスク等に使う。シェーダ不要で FSpriteBatch の stencil
  * モードを使う。シーンで SetStencilMaskEnabled(true) を呼んでおくのが前提で、stencil バッファ
  * が無いパス (例: 反射の RT パス) では自動的に素通しする。
  */
-class FStencilClip2DComponent : public FComponent2D {
+class AStencilClip2DComponent : public AComponent {
 public:
-    ACS_GAME_COMPONENT_KIND(FStencilClip2DComponent)
+    ACS_GAME_COMPONENT_KIND(AStencilClip2DComponent)
 
     /** マスク形状の三角形上限。 */
     static constexpr u32 kMaxTris = 96;
@@ -815,14 +921,14 @@ public:
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    void OnDraw(RenderContext& rc) noexcept override;
+    void OnDraw(FRenderContext& rc) noexcept override;
 
     /**
      * 子ツリー描画後にステンシルマスクを解除する。
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    void OnDrawPostChildren(RenderContext& rc) noexcept override;
+    void OnDrawPostChildren(FRenderContext& rc) noexcept override;
 
 private:
     /**

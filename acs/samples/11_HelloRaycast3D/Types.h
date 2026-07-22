@@ -11,10 +11,10 @@
 
 namespace helloraycast3d {
 
-enum class ShapeKind : acs::u8 { FSphere, Cube };
+enum class EShapeKind : acs::u8 { Sphere, Cube };
 
-struct Object {
-    ShapeKind kind;
+struct FObject {
+    EShapeKind kind;
     acs::FVec3 position;
     acs::f32  radius_or_half;     // 球: 半径、立方体: 半サイズ
     acs::FVec3 base_color;

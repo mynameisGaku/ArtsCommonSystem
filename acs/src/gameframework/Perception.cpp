@@ -24,7 +24,7 @@
 namespace acs::game {
 
 /** 感覚設定を更新し、視野角半分の cos をキャッシュする。 */
-void FPerception::SetConfig(const SenseConfig& cfg) noexcept {
+void FPerception::SetConfig(const FSenseConfig& cfg) noexcept {
     m_Cfg = cfg;
     // 視野角の半分 (fov/2) の cos をキャッシュ。Tick の hot path に Cos を入れない。
     // fov が負や 2π を超えるような不正値は Cos の domain に渡しても問題ないので、
@@ -63,7 +63,7 @@ void FPerception::AddTarget(u32 id, FVec2 pos) noexcept {
         m_Targets[idx].pos = pos;
         return;
     }
-    PerceptionTarget t;
+    FPerceptionTarget t;
     t.pos        = pos;
     t.id         = id;
     t.is_visible = false;   // 初期状態は未検知 (次の Tick で再計算)
@@ -106,7 +106,7 @@ u32 FPerception::TargetCount() const noexcept {
 }
 
 /** 全ターゲット配列の先頭を返し、out_count に個数を入れる。 */
-const PerceptionTarget* FPerception::AllTargets(u32& out_count) const noexcept {
+const FPerceptionTarget* FPerception::AllTargets(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Targets.Size());
     return m_Targets.Data();
 }
@@ -124,7 +124,7 @@ void FPerception::Tick(f32 /*dt*/) noexcept {
 
     const usize n = m_Targets.Size();
     for (usize i = 0; i < n; ++i) {
-        PerceptionTarget& t = m_Targets[i];
+        FPerceptionTarget& t = m_Targets[i];
         const FVec2 delta    = t.pos - m_EyePos;
         const f32  dist_sq  = LengthSq(delta);
 

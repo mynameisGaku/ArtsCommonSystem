@@ -34,7 +34,7 @@ void GenerateSpriteTexture(u8* out) noexcept {
     }
 }
 
-void HelloSpriteApp::OnStart() noexcept {
+void FHelloSpriteApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -61,17 +61,17 @@ void HelloSpriteApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloSprite initialized");
 }
 
-void HelloSpriteApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloSpriteApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
 
-    if (Input::IsKeyPressed(EKey::Space))     SpawnSprites(m_SpriteCount + 10);
-    if (Input::IsKeyPressed(EKey::Backspace)) SpawnSprites(m_SpriteCount >= 10 ? m_SpriteCount - 10 : 0);
+    if (FInput::IsKeyPressed(EKey::Space))     SpawnSprites(m_SpriteCount + 10);
+    if (FInput::IsKeyPressed(EKey::Backspace)) SpawnSprites(m_SpriteCount >= 10 ? m_SpriteCount - 10 : 0);
 
     // 壁にぶつかったら反射 (s.x/s.y を境界内にクランプしてから速度反転)。
     const u32 sw = GetRenderer().Swapchain()->Width();
     const u32 sh = GetRenderer().Swapchain()->Height();
     for (u32 i = 0; i < m_SpriteCount; ++i) {
-        Sprite& s = m_Sprites[i];
+        FSprite& s = m_Sprites[i];
         s.x += s.vx * dt;
         s.y += s.vy * dt;
         if (s.x < 0)              { s.x = 0;              s.vx = -s.vx; }
@@ -81,7 +81,7 @@ void HelloSpriteApp::OnUpdate(f32 dt) noexcept {
     }
 }
 
-void HelloSpriteApp::OnRender() noexcept {
+void FHelloSpriteApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl || !m_Tex) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
@@ -92,7 +92,7 @@ void HelloSpriteApp::OnRender() noexcept {
     m_Batch.DrawRect(0, 0, static_cast<f32>(sw), 32.0f, FVec4{0, 0, 0, 0.6f});
 
     for (u32 i = 0; i < m_SpriteCount; ++i) {
-        const Sprite& s = m_Sprites[i];
+        const FSprite& s = m_Sprites[i];
         m_Batch.Draw(*m_Tex, s.x, s.y, s.size, s.size, FVec4{s.r, s.g, s.b, s.a});
     }
 
@@ -102,13 +102,13 @@ void HelloSpriteApp::OnRender() noexcept {
     m_Batch.End();
 }
 
-void HelloSpriteApp::OnShutdown() noexcept {
+void FHelloSpriteApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Tex.Reset();
     m_Batch.Shutdown();
 }
 
-void HelloSpriteApp::SpawnSprites(u32 n) noexcept {
+void FHelloSpriteApp::SpawnSprites(u32 n) noexcept {
     if (n > kMaxSprites) n = kMaxSprites;
     // 簡易擬似乱数 (xorshift)
     u32 seed = 12345 + n;
@@ -124,7 +124,7 @@ void HelloSpriteApp::SpawnSprites(u32 n) noexcept {
     const u32 old = m_SpriteCount;
     m_SpriteCount = n;
     for (u32 i = old; i < n; ++i) {
-        Sprite& s = m_Sprites[i];
+        FSprite& s = m_Sprites[i];
         s.size = 16.0f + rand_f() * 48.0f;
         s.x = rand_f() * (sw - s.size);
         s.y = 32.0f + rand_f() * (sh - 64.0f - s.size);

@@ -126,9 +126,9 @@ const char* KindLabel(EAssetKind k) noexcept {
         case EAssetKind::Audio:        return "Audio";
         case EAssetKind::Material:     return "Material";
         case EAssetKind::Particle:     return "Particle";
-        case EAssetKind::Animation:    return "FAnimation";
-        case EAssetKind::BehaviorTree: return "FBehaviorTree";
-        case EAssetKind::Tilemap:      return "FTilemap";
+        case EAssetKind::Animation:    return "Animation";
+        case EAssetKind::BehaviorTree: return "Behavior Tree";
+        case EAssetKind::Tilemap:      return "Tilemap";
         case EAssetKind::Prefab:       return "Prefab";
         case EAssetKind::Cinematic:    return "Cinematic";
         case EAssetKind::Scene:        return "Scene";
@@ -252,7 +252,7 @@ void FAssetBrowser::RebuildEntries() noexcept {
     // 過去 iteration で取った wchar_t* / char* が無効化される。これを
     // 避けるため、entry には offset を一時保管し、列挙完走後に
     // pool.Data() からの絶対ポインタへ変換する 2 段構えを取る。
-    struct PendingEntry {
+    struct FPendingEntry {
         usize       path_off  = 0;
         usize       name_off  = 0;
         EAssetKind  kind      = EAssetKind::Unknown;
@@ -260,7 +260,7 @@ void FAssetBrowser::RebuildEntries() noexcept {
         u64         mtime     = 0;
         bool        is_dir    = false;
     };
-    TArray<PendingEntry> pending {};
+    TArray<FPendingEntry> pending {};
 
     do {
         // "." / ".." をスキップ。
@@ -287,7 +287,7 @@ void FAssetBrowser::RebuildEntries() noexcept {
         rel_path[rl] = L'\0';
 
         // pool への append は offset を覚えて行う (pointer は後で resolve)。
-        PendingEntry pe {};
+        FPendingEntry pe {};
         pe.path_off = AppendPathOffset(rel_path);
         char utf8_name[kMaxPathChars] = {};
         WideToUtf8(fd.cFileName, utf8_name, static_cast<int>(kMaxPathChars));
@@ -313,8 +313,8 @@ void FAssetBrowser::RebuildEntries() noexcept {
     const char*    name_base = m_NamePool.IsEmpty() ? nullptr : &m_NamePool[0];
     m_Entries.Reserve(pending.Size());
     for (usize i = 0; i < pending.Size(); ++i) {
-        const PendingEntry& pe = pending[i];
-        AssetEntry e {};
+        const FPendingEntry& pe = pending[i];
+        FAssetEntry e {};
         e.path            = (path_base != nullptr) ? (path_base + pe.path_off) : nullptr;
         e.short_name      = (name_base != nullptr) ? (name_base + pe.name_off) : nullptr;
         e.kind            = pe.kind;
@@ -331,7 +331,7 @@ u32 FAssetBrowser::EntryCount() const noexcept {
 }
 
 /** index 番目の entry を返す (範囲外は nullptr)。 */
-const AssetEntry* FAssetBrowser::GetEntry(u32 index) const noexcept {
+const FAssetEntry* FAssetBrowser::GetEntry(u32 index) const noexcept {
     if (index >= m_Entries.Size()) return nullptr;
     return &m_Entries[static_cast<usize>(index)];
 }
@@ -423,7 +423,7 @@ EAssetKind FAssetBrowser::ClassifyByExtension(const wchar_t* path) noexcept {
     if (EndsWithIgnoreCase(path, L".gltf"))  return EAssetKind::Mesh;
     if (EndsWithIgnoreCase(path, L".glb"))   return EAssetKind::Mesh;
     if (EndsWithIgnoreCase(path, L".obj"))   return EAssetKind::Mesh;
-    // Font
+    // FFont
     if (EndsWithIgnoreCase(path, L".ttf"))   return EAssetKind::Font;
     if (EndsWithIgnoreCase(path, L".otf"))   return EAssetKind::Font;
     // Audio
@@ -733,7 +733,7 @@ void FAssetBrowser::DrawList() noexcept {
     ImGui::Separator();
 
     for (u32 i = 0; i < m_Entries.Size(); ++i) {
-        const AssetEntry& e = m_Entries[static_cast<usize>(i)];
+        const FAssetEntry& e = m_Entries[static_cast<usize>(i)];
 
         // kind フィルタ (ディレクトリは常に表示)。
         if (m_FilterKind != EAssetKind::Unknown

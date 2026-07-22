@@ -106,7 +106,7 @@ public:
      * @param InitialCommitBytes 初回にコミットしてプール登録するバイト数。
      * @return 成功なら空の TResult、コミット/初期化失敗ならエラー。
      */
-    TResult<void> InitWithReservation(VmReservation&& Reservation, usize InitialCommitBytes) noexcept;
+    TResult<void> InitWithReservation(FVmReservation&& Reservation, usize InitialCommitBytes) noexcept;
 
     /**
      * 既存ヒープに追加のプールを登録する。
@@ -199,7 +199,7 @@ public:
     }
 
     /** GetStats が返す統計値。 */
-    struct Stats {
+    struct FStats {
         /** 現在の使用バイト数。 */
         u64 bytes_used;
 
@@ -220,9 +220,9 @@ public:
      * 統計のスナップショットを返す。
      *
      * @details used_blocks は現在生存している確保の件数。free_blocks と largest_free_block は現状未集計で 0。
-     * @return 統計値の Stats。
+     * @return 統計値の FStats。
      */
-    Stats GetStats() const noexcept;
+    FStats GetStats() const noexcept;
 
     /**
      * ヒープの整合性を検証する (デバッグ/診断用)。
@@ -320,7 +320,7 @@ private:
     tlsf::FBlockHeader m_NullBlock{};
 
     /** 所有する VM 予約 (InitWithReservation 時のみ)。 */
-    VmReservation m_Reservation;
+    FVmReservation m_Reservation;
 
     /** m_Reservation の所有権を持つか (true なら Reset で解放する)。 */
     bool m_bOwnsReservation = false;
@@ -341,7 +341,7 @@ private:
     static constexpr int kMaxTrackedPools = 64;
 
     /** 登録プール 1 つの範囲 [lo, hi) (= pool_base .. pool_base+pool_size)。 */
-    struct PoolSpan {
+    struct FPoolSpan {
         /** 範囲の下端 (pool_base)。 */
         uptr lo;
 
@@ -356,7 +356,7 @@ private:
     };
 
     /** 登録済みプールの範囲配列 (Free 時の所属検証用)。 */
-    PoolSpan m_PoolSpans[kMaxTrackedPools] = {};
+    FPoolSpan m_PoolSpans[kMaxTrackedPools] = {};
 
     /** 記録済みプール範囲の数。 */
     int m_PoolSpanCount = 0;

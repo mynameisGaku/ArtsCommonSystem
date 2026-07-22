@@ -18,11 +18,11 @@ public static class EdProp {
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_node_component_count(IntPtr h, int id);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern IntPtr acs_editor_scene_serialize(IntPtr h);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_scene_load_text(IntPtr h, [MarshalAs(UnmanagedType.LPUTF8Str)] string t);
-    // schema
+    // スキーマ
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_component_prop_count([MarshalAs(UnmanagedType.LPUTF8Str)] string t);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern IntPtr acs_editor_component_prop_name_at([MarshalAs(UnmanagedType.LPUTF8Str)] string t, int i);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_component_prop_kind_at([MarshalAs(UnmanagedType.LPUTF8Str)] string t, int i);
-    // values
+    // 値
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_node_component_prop_get(IntPtr h, int id, int slot, int prop, out float x, out float y, out float z, out float w);
     [DllImport(D, CallingConvention=CallingConvention.Cdecl)] public static extern int acs_editor_node_component_prop_set(IntPtr h, int id, int slot, int prop, float x, float y, float z, float w);
     public static string S(IntPtr p){
@@ -41,23 +41,23 @@ Write-Host "ABI: $ver"
 $h = [EdProp]::acs_editor_create()
 if ($h -eq [IntPtr]::Zero) { throw "create failed" }
 
-# --- schema for FSprite2DComponent ---
-$pc = [EdProp]::acs_editor_component_prop_count("FSprite2DComponent")
-Write-Host "`n[schema] FSprite2DComponent prop_count = $pc (expect 3)"
+# --- ASprite2DComponent のスキーマ ---
+$pc = [EdProp]::acs_editor_component_prop_count("ASprite2DComponent")
+Write-Host "`n[schema] ASprite2DComponent prop_count = $pc (expect 3)"
 for ($i=0; $i -lt $pc; $i++) {
-    $nm = [EdProp]::S([EdProp]::acs_editor_component_prop_name_at("FSprite2DComponent",$i))
-    $k  = [EdProp]::acs_editor_component_prop_kind_at("FSprite2DComponent",$i)
+    $nm = [EdProp]::S([EdProp]::acs_editor_component_prop_name_at("ASprite2DComponent",$i))
+    $k  = [EdProp]::acs_editor_component_prop_kind_at("ASprite2DComponent",$i)
     Write-Host ("  [{0}] {1} kind={2}" -f $i,$nm,$k)
 }
-# non-component should be 0
+# 非コンポーネントは 0 件であること
 $nc = [EdProp]::acs_editor_component_prop_count("FHealthSystem")
 Write-Host "[schema] FHealthSystem prop_count = $nc (expect 0)"
 
-# --- attach + read defaults ---
+# --- 付与して既定値を読み取る ---
 [EdProp]::acs_editor_scene_new($h)
 $id = [EdProp]::acs_editor_add_node($h, "Hero", -1)
-[void][EdProp]::acs_editor_node_add_component($h, $id, "FSprite2DComponent")
-[void][EdProp]::acs_editor_node_add_component($h, $id, "FFire2DComponent")
+[void][EdProp]::acs_editor_node_add_component($h, $id, "ASprite2DComponent")
+[void][EdProp]::acs_editor_node_add_component($h, $id, "AFire2DComponent")
 Write-Host "`n[attach] node $id comp_count = $([EdProp]::acs_editor_node_component_count($h,$id)) (expect 2)"
 
 $x=0.0; $y=0.0; $z=0.0; $w=0.0
@@ -70,14 +70,14 @@ Write-Host ("[default] sprite.pivot = ({0},{1}) (expect 0.5,0.5)" -f $x,$y)
 [void][EdProp]::acs_editor_node_component_prop_get($h,$id,1,1,[ref]$x,[ref]$y,[ref]$z,[ref]$w)
 Write-Host ("[default] fire.intensity = ({0}) (expect 1)" -f $x)
 
-# --- set value, serialize, reload, verify round-trip ---
+# --- 値を設定し、serialize・reload の往復を検証する ---
 [void][EdProp]::acs_editor_node_component_prop_set($h,$id,0,1, 0.25, 0.5, 0.75, 0.9)   # tint
 [void][EdProp]::acs_editor_node_component_prop_set($h,$id,1,0, 2.5, 4.0, 0, 0)          # fire.size
 $txt = [EdProp]::S([EdProp]::acs_editor_scene_serialize($h))
 Write-Host "`n[serialize] CPROP lines:"
 ($txt -split "`n") | Where-Object { $_ -like "CPROP*" } | ForEach-Object { Write-Host "  $_" }
 
-# reload into fresh host
+# 新しい host へ再読み込みする
 $h2 = [EdProp]::acs_editor_create()
 $ok = [EdProp]::acs_editor_scene_load_text($h2, $txt)
 Write-Host "`n[reload] load_text = $ok (expect 1)"

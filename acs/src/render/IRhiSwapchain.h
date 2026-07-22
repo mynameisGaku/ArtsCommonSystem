@@ -19,7 +19,7 @@ class FWindow;
  * 提示先ウィンドウ、バックバッファのフォーマット・枚数、垂直同期の有無を指定する。
  * CreateRhiSwapchain に渡してスワップチェインを生成する。
  */
-struct SwapchainConfig {
+struct FSwapchainConfig {
     /** 提示先のウィンドウ（window と external_hwnd は二者択一。window 優先）。 */
     FWindow* window      = nullptr;
 
@@ -114,6 +114,6 @@ public:
  * @return 成功なら所有権付きの IRhiSwapchain、生成失敗ならエラー。
  */
 TResult<TUniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device,
-                                                          const SwapchainConfig& cfg) noexcept;
+                                                          const FSwapchainConfig& cfg) noexcept;
 
 } // namespace acs

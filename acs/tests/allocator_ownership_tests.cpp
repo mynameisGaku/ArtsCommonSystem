@@ -21,10 +21,10 @@ using namespace acs::game;
 
 namespace {
 
-class OwnershipAllocator final : public FAllocator {
+class FOwnershipAllocator final : public FAllocator {
 public:
-    struct Header {
-        OwnershipAllocator* owner;
+    struct FHeader {
+        FOwnershipAllocator* owner;
         void* raw;
         usize size;
     };
@@ -33,19 +33,19 @@ public:
     {
         if (fail_allocations || Size == 0) return nullptr;
         usize EffectiveAlignment = Alignment;
-        if (EffectiveAlignment < alignof(Header)) EffectiveAlignment = alignof(Header);
+        if (EffectiveAlignment < alignof(FHeader)) EffectiveAlignment = alignof(FHeader);
         if (EffectiveAlignment == 0 || (EffectiveAlignment & (EffectiveAlignment - 1)) != 0) {
             return nullptr;
         }
-        if (Size > (~usize(0)) - sizeof(Header) - (EffectiveAlignment - 1)) return nullptr;
+        if (Size > (~usize(0)) - sizeof(FHeader) - (EffectiveAlignment - 1)) return nullptr;
 
-        const usize TotalSize = Size + sizeof(Header) + EffectiveAlignment - 1;
+        const usize TotalSize = Size + sizeof(FHeader) + EffectiveAlignment - 1;
         void* const RawAllocation = backing.Alloc(TotalSize, EffectiveAlignment, FSourceLoc::Current());
         if (RawAllocation == nullptr) return nullptr;
 
-        const usize AllocationBegin = reinterpret_cast<usize>(RawAllocation) + sizeof(Header);
+        const usize AllocationBegin = reinterpret_cast<usize>(RawAllocation) + sizeof(FHeader);
         const usize AlignedAddress = (AllocationBegin + EffectiveAlignment - 1) & ~(EffectiveAlignment - 1);
-        auto* const AllocationHeader = reinterpret_cast<Header*>(AlignedAddress - sizeof(Header));
+        auto* const AllocationHeader = reinterpret_cast<FHeader*>(AlignedAddress - sizeof(FHeader));
         AllocationHeader->owner = this;
         AllocationHeader->raw = RawAllocation;
         AllocationHeader->size = Size;
@@ -57,8 +57,8 @@ public:
     void Free(void* Pointer) noexcept override
     {
         if (Pointer == nullptr) return;
-        auto* const AllocationHeader = reinterpret_cast<Header*>(reinterpret_cast<usize>(Pointer) - sizeof(Header));
-        OwnershipAllocator* const Owner = AllocationHeader->owner;
+        auto* const AllocationHeader = reinterpret_cast<FHeader*>(reinterpret_cast<usize>(Pointer) - sizeof(FHeader));
+        FOwnershipAllocator* const Owner = AllocationHeader->owner;
         if (Owner != this) ++foreign_free_count;
         if (Owner == nullptr) return;
         Owner->outstanding_bytes -= AllocationHeader->size;
@@ -82,36 +82,36 @@ public:
     bool fail_allocations = false;
 };
 
-class DefaultAllocatorScope {
+class FDefaultAllocatorScope {
 public:
-    explicit DefaultAllocatorScope(FAllocator& Allocator) noexcept : previous(&DefaultAllocator())
+    explicit FDefaultAllocatorScope(FAllocator& Allocator) noexcept : previous(&DefaultAllocator())
     {
         SetDefaultAllocator(&Allocator);
     }
 
-    ~DefaultAllocatorScope() noexcept
+    ~FDefaultAllocatorScope() noexcept
     {
         SetDefaultAllocator(previous);
     }
 
-    DefaultAllocatorScope(const DefaultAllocatorScope&) = delete;
-    DefaultAllocatorScope& operator=(const DefaultAllocatorScope&) = delete;
+    FDefaultAllocatorScope(const FDefaultAllocatorScope&) = delete;
+    FDefaultAllocatorScope& operator=(const FDefaultAllocatorScope&) = delete;
 
 private:
     FAllocator* previous;
 };
 
-struct PoolValue {
-    explicit PoolValue(i32 Input = 0) noexcept : value(Input)
+struct FPoolValue {
+    explicit FPoolValue(i32 Input = 0) noexcept : value(Input)
     {
     }
     i32 value = 0;
 };
 
 #if WITH_RENDER_DX12_RAW
-class OwnershipCommand final : public editor_core::FEditorCommand {
+class FOwnershipCommand final : public editor_core::FEditorCommand {
 public:
-    explicit OwnershipCommand(i32* Value) noexcept : m_Value(Value)
+    explicit FOwnershipCommand(i32* Value) noexcept : m_Value(Value)
     {
     }
 
@@ -139,11 +139,11 @@ private:
 
 ACS_TEST(AllocatorOwnership, ParticlePoolReturnsToOriginalAllocator)
 {
-    OwnershipAllocator First;
-    OwnershipAllocator Second;
-    DefaultAllocatorScope RestoreScope(First);
+    FOwnershipAllocator First;
+    FOwnershipAllocator Second;
+    FDefaultAllocatorScope RestoreScope(First);
 
-    ParticleSystem Particles;
+    FParticleSystem Particles;
     const auto InitializationResult = Particles.Init(64);
     EXPECT_TRUE(InitializationResult.IsOk());
     EXPECT_TRUE(First.outstanding_allocations > 0u);
@@ -158,11 +158,11 @@ ACS_TEST(AllocatorOwnership, ParticlePoolReturnsToOriginalAllocator)
 
 ACS_TEST(AllocatorOwnership, ParticleInitFailureLeavesEmptyState)
 {
-    OwnershipAllocator FailingAllocator;
+    FOwnershipAllocator FailingAllocator;
     FailingAllocator.fail_allocations = true;
-    DefaultAllocatorScope RestoreScope(FailingAllocator);
+    FDefaultAllocatorScope RestoreScope(FailingAllocator);
 
-    ParticleSystem Particles;
+    FParticleSystem Particles;
     const auto InitializationResult = Particles.Init(64);
     EXPECT_TRUE(InitializationResult.IsErr());
     EXPECT_EQ(Particles.Capacity(), 0u);
@@ -173,15 +173,15 @@ ACS_TEST(AllocatorOwnership, ParticleInitFailureLeavesEmptyState)
 
 ACS_TEST(AllocatorOwnership, DevConsoleUsesConstructionAllocator)
 {
-    OwnershipAllocator First;
-    OwnershipAllocator Second;
+    FOwnershipAllocator First;
+    FOwnershipAllocator Second;
     {
         FDevConsole Console(First);
         Console.PushHistory("allocator ownership");
         Console.Log("diagnostic line");
         EXPECT_TRUE(First.outstanding_allocations > 0u);
 
-        DefaultAllocatorScope RestoreScope(Second);
+        FDefaultAllocatorScope RestoreScope(Second);
         Console.Clear();
         EXPECT_EQ(Second.foreign_free_count, 0u);
     }
@@ -193,15 +193,15 @@ ACS_TEST(AllocatorOwnership, DevConsoleUsesConstructionAllocator)
 
 ACS_TEST(AllocatorOwnership, ObjectPoolReleasesAllStorageAndInvalidatesHandles)
 {
-    OwnershipAllocator Allocator;
-    TObjectPool<PoolValue> Pool(Allocator);
+    FOwnershipAllocator Allocator;
+    TObjectPool<FPoolValue> Pool(Allocator);
 
     const FObjectHandle FirstHandle = Pool.Create(7);
     EXPECT_TRUE(Pool.Destroy(FirstHandle));
     const FObjectHandle SecondHandle = Pool.Create(11);
     EXPECT_TRUE(Pool.Destroy(SecondHandle));
     const FObjectHandle OldHandle = Pool.Create(17);
-    for (u32 i = 0; i < TObjectPool<PoolValue>::kChunkSize + 8u; ++i) {
+    for (u32 i = 0; i < TObjectPool<FPoolValue>::kChunkSize + 8u; ++i) {
         EXPECT_TRUE(Pool.Create(static_cast<i32>(i)).IsSet());
     }
     EXPECT_TRUE(Allocator.outstanding_allocations > 0u);
@@ -232,18 +232,18 @@ ACS_TEST(AllocatorOwnership, ObjectPoolReleasesAllStorageAndInvalidatesHandles)
 #if WITH_RENDER_DX12_RAW
 ACS_TEST(AllocatorOwnership, UndoStackKeepsCommandAllocator)
 {
-    OwnershipAllocator First;
-    OwnershipAllocator Second;
+    FOwnershipAllocator First;
+    FOwnershipAllocator Second;
     i32 Value = 0;
 
     {
         editor_core::FUndoStack Stack;
-        auto Command = MakeUniqueIn<OwnershipCommand>(First, &Value);
+        auto Command = MakeUniqueIn<FOwnershipCommand>(First, &Value);
         EXPECT_TRUE(static_cast<bool>(Command));
         Stack.Push(TUniquePtr<editor_core::FEditorCommand>(Move(Command)));
         EXPECT_EQ(Value, 1);
 
-        DefaultAllocatorScope RestoreScope(Second);
+        FDefaultAllocatorScope RestoreScope(Second);
         Stack.Clear();
         EXPECT_EQ(Second.foreign_free_count, 0u);
     }
@@ -256,9 +256,9 @@ ACS_TEST(AllocatorOwnership, UndoStackKeepsCommandAllocator)
 
 ACS_TEST(AllocatorOwnership, EasyClosureReturnsToCreationAllocator)
 {
-    OwnershipAllocator First;
-    OwnershipAllocator Second;
-    DefaultAllocatorScope RestoreScope(First);
+    FOwnershipAllocator First;
+    FOwnershipAllocator Second;
+    FDefaultAllocatorScope RestoreScope(First);
     i32 InvocationCount = 0;
 
     auto* const Closure = easy::jobdetail::MakeClosure([&InvocationCount]() noexcept { ++InvocationCount; });

@@ -15,7 +15,7 @@
 
 namespace helloaudio {
 
-class HelloAudioApp : public acs::FApplication {
+class FHelloAudioApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -23,8 +23,8 @@ public:
 
 private:
     acs::FAudioEngine m_Engine;
-    acs::TSharedPtr<acs::Asset> m_Audio;
-    acs::SoundHandle    m_Handle = acs::kInvalidSound;
+    acs::TSharedPtr<acs::FAsset> m_Audio;
+    acs::FSoundHandle    m_Handle = acs::kInvalidSound;
     acs::f32            m_Volume = 1.0f;
 };
 

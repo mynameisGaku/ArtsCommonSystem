@@ -16,7 +16,7 @@ namespace acs {
  * FAudioEngine が Play で発行する。スロット番号 (index) と世代 (generation) の組で、
  * スロットが停止後に再利用されても世代が進むため、古いハンドルは自動的に無効化される。
  */
-struct SoundHandle {
+struct FSoundHandle {
     /** 内部発音スロット番号 (0xFFFFFFFF は無効を表す)。 */
     u32 index      = 0xFFFFFFFFu;
 
@@ -36,12 +36,12 @@ struct SoundHandle {
      * @param o 比較相手のハンドル。
      * @return index と generation がともに一致すれば true。
      */
-    constexpr bool operator==(SoundHandle o) const noexcept {
+    constexpr bool operator==(FSoundHandle o) const noexcept {
         return index == o.index && generation == o.generation;
     }
 };
 
-/** 無効な (どの再生も指さない) SoundHandle の定数値。 */
-inline constexpr SoundHandle kInvalidSound = SoundHandle{0xFFFFFFFFu, 0};
+/** 無効な (どの再生も指さない) FSoundHandle の定数値。 */
+inline constexpr FSoundHandle kInvalidSound = FSoundHandle{0xFFFFFFFFu, 0};
 
 } // namespace acs

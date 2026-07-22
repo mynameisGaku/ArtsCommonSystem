@@ -3,7 +3,7 @@
 //
 // VN 風のシーンスクリプトを再生するための state holder。
 // 「セリフ → ポートレート表示 → BGM 切替 → 選択肢 → ジャンプ」といった
-// アドベンチャー / ノベルゲームの典型的なフローを、命令列 (ScriptOp[]) と
+// アドベンチャー / ノベルゲームの典型的なフローを、命令列 (FScriptOp[]) と
 // ラベルテーブルで宣言的に組み立てる。
 //
 // 役割:
@@ -12,23 +12,23 @@
 //   ・Say で「次へ」入力待ち (AwaitingInput) / Choice で選択待ち (AwaitingChoice) /
 //     Wait で時間経過待ち (Playing 継続 + 内部タイマ)
 //   ・実描画 / 音 / 入力には触らない: 各 op 種別は callback で外部に通知し、
-//     ポートレート切替 / BGM 再生 / 選択肢 UI 表示は caller (Scene / UI 層 /
+//     ポートレート切替 / BGM 再生 / 選択肢 UI 表示は caller (FScene / UI 層 /
 //     FAudioDirector) の責任とする (FDialogueSystem / FCinematicsDirector と
 //     同じ「副作用ゼロ + callback 駆動」方針)。
 //
 // 設計選択:
-//   ・**文字列を所有しない**: ScriptOp::arg1 / arg2 は const char* のまま。
+//   ・**文字列を所有しない**: FScriptOp::arg1 / arg2 は const char* のまま。
 //     スクリプトデータは literal / バンドル等で別管理する想定 (STL <string>
 //     禁止 / TArray<char> での deep copy も避けて allocator フリーに保つ)。
 //   ・**op_count + ops ポインタを丸ごと受け取る**: LoadScript はポインタを
 //     コピーせず内部 TArray に複製する (= caller が ops を解放しても安全)。
-//     ScriptOp は POD なので TArray<ScriptOp> での bulk copy は trivial。
+//     FScriptOp は POD なので TArray<FScriptOp> での bulk copy は trivial。
 //   ・**ラベルは別 TArray で線形検索**: 典型 N < 100 なので OK。同名ラベル
 //     登録時は最初の登録のみ有効 (= 上書き禁止)。
 //   ・**現在の選択肢は別 TArray に展開**: Choice op を踏んだ際に、後続の
 //     Choice op を「同じ Say の選択肢群」として束ねるのは仕様が複雑になる
 //     ので避ける。代わりに Choice op 1 個が arg1=label / arg2=jump_label の
-//     ペアを 1 件持つ。実用上は同じ ScriptChoice 配列を複数 op で並べる
+//     ペアを 1 件持つ。実用上は同じ FScriptChoice 配列を複数 op で並べる
 //     と無駄なので、Choice op は 1 個で「選択肢群を提示」を表現する仕様に
 //     倒す: arg_u を 「次に続く Choice op の本数」(= group size) として扱い、
 //     SelectChoice() が消費する。
@@ -54,7 +54,7 @@ namespace acs::game {
  * スクリプト命令の種別。
  *
  * @details
- * 各 kind が ScriptOp のどの引数を使うかは値ごとのコメントを参照
+ * 各 kind が FScriptOp のどの引数を使うかは値ごとのコメントを参照
  * (arg1 / arg2 = const char*、arg_f = 数値引数)。
  */
 enum class EScriptOpKind : u8 {
@@ -97,7 +97,7 @@ enum class EScriptOpKind : u8 {
  *
  * @details 文字列は所有しない (literal / バンドル参照)。POD なので bulk copy は trivial。
  */
-struct ScriptOp {
+struct FScriptOp {
     /** 命令の種別。 */
     EScriptOpKind kind  = EScriptOpKind::Say;
 
@@ -119,9 +119,9 @@ struct ScriptOp {
  *
  * @details
  * Choice op 群から AwaitingChoice 時に展開される。文字列は所有しない
- * (= 元 ScriptOp の arg1 / arg2 を参照)。
+ * (= 元 FScriptOp の arg1 / arg2 を参照)。
  */
-struct ScriptChoice {
+struct FScriptChoice {
     /** UI に表示する選択肢ラベル。 */
     const char* label      = nullptr;
 
@@ -162,7 +162,7 @@ using BgmSeCallback         = void(*)(void* user, const char* audio_id, f32 volu
 using BackgroundCallback    = void(*)(void* user, const char* bg_id) noexcept;
 
 /** Choice op 群の提示 callback (選択肢配列とその本数を渡す)。 */
-using ChoicePresentCallback = void(*)(void* user, const ScriptChoice* choices, u32 count) noexcept;
+using ChoicePresentCallback = void(*)(void* user, const FScriptChoice* choices, u32 count) noexcept;
 
 /** スクリプト終了の通知 callback (script_id を渡す)。 */
 using EndCallback           = void(*)(void* user, const char* script_id) noexcept;
@@ -171,7 +171,7 @@ using EndCallback           = void(*)(void* user, const char* script_id) noexcep
  * VN 風のシーンスクリプトを再生する state holder。
  *
  * @details
- * 命令列 (ScriptOp[]) とラベルテーブルで「セリフ → ポートレート表示 → BGM 切替 →
+ * 命令列 (FScriptOp[]) とラベルテーブルで「セリフ → ポートレート表示 → BGM 切替 →
  * 選択肢 → ジャンプ」といったノベルゲームのフローを宣言的に組み立てる。実描画 /
  * 音 / 入力には触れず、op 種別ごとに callback で外部へ通知する。Say で
  * AwaitingInput、Choice で AwaitingChoice、Wait で時間経過待ち (Playing 継続) と
@@ -217,7 +217,7 @@ public:
      * @param op_count ops の要素数。
      * @param script_id スクリプト識別子 (End callback で渡される、所有しない)。
      */
-    void LoadScript(const ScriptOp* ops, u32 op_count, const char* script_id) noexcept;
+    void LoadScript(const FScriptOp* ops, u32 op_count, const char* script_id) noexcept;
 
     /**
      * ラベル → op_index のマッピングを登録する。
@@ -291,7 +291,7 @@ public:
      *
      * @return 現在の op へのポインタ (範囲外なら nullptr)。
      */
-    const ScriptOp* CurrentOp()       const noexcept;
+    const FScriptOp* CurrentOp()       const noexcept;
 
     /**
      * 提示中の選択肢数を返す。
@@ -306,7 +306,7 @@ public:
      * @param index 取得する選択肢の index。
      * @return 選択肢へのポインタ (AwaitingChoice 外 / 範囲外なら nullptr)。
      */
-    const ScriptChoice* CurrentChoice(u32 index) const noexcept;
+    const FScriptChoice* CurrentChoice(u32 index) const noexcept;
 
     /**
      * dt 秒ぶん時間を進める。
@@ -394,7 +394,7 @@ private:
     /**
      * ラベル登録 1 件。
      */
-    struct LabelEntry {
+    struct FLabelEntry {
         /** ラベル名 (所有しない)。 */
         const char* label    = nullptr;
 
@@ -436,7 +436,7 @@ private:
      * index を 1 進める。
      * @param op 実行する命令。
      */
-    void ExecuteImmediateOp(const ScriptOp& op) noexcept;
+    void ExecuteImmediateOp(const FScriptOp& op) noexcept;
 
     /**
      * Finished 状態へ遷移し、End callback を発火する (1 度だけ)。
@@ -444,13 +444,13 @@ private:
     void EnterFinished() noexcept;
 
     /** ロードされた命令列 (deep copy)。 */
-    TArray<ScriptOp>       m_Ops;
+    TArray<FScriptOp>       m_Ops;
 
     /** ラベルテーブル (線形検索)。 */
-    TArray<LabelEntry>     m_Labels;
+    TArray<FLabelEntry>     m_Labels;
 
     /** AwaitingChoice 中に展開された選択肢群。 */
-    TArray<ScriptChoice> m_CurrentChoices;
+    TArray<FScriptChoice> m_CurrentChoices;
 
     /** LoadScript で渡された ID (所有しない)。 */
     const char* m_ScriptId = nullptr;

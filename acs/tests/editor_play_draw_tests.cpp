@@ -2,16 +2,16 @@
 // =============================================================================
 // インプロセス Play の «コンポーネント OnDraw をエディタ viewport に描く» 経路の検証。
 //   GPU 非依存で、editor_abi の acs_game_scene_draw が依存する 2 つの土台を固める:
-//   (1) FNode2D::DrawTree が各コンポーネントの OnDraw を、SpriteBatch + view を配線した
-//       RenderContext で呼ぶこと (= シムが DrawTree に委譲すれば OnDraw が走る)。
+//   (1) ANode::DrawTree が各コンポーネントの OnDraw を、SpriteBatch + view を配線した
+//       FRenderContext で呼ぶこと (= シムが DrawTree に委譲すれば OnDraw が走る)。
 //   (2) エディタカメラ (screen = world*zoom + pan) に一致する SpriteBatch world view の
 //       パラメータ式 cam = ((w/2,h/2) - pan)/zoom が、world→screen を厳密に再現すること
 //       (SpriteBatch シェーダの screen = (world-cam)*zoom + (w/2,h/2) と突き合わせ)。
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
-#include "gameframework/Node2D.h"
-#include "gameframework/Component2D.h"
+#include "gameframework/ANode.h"
+#include "gameframework/AComponent.h"
 #include "gameframework/RenderContext.h"
 #include "render/SpriteBatch.h"
 #include "math/Vec.h"
@@ -21,17 +21,17 @@ using namespace acs::game;
 
 namespace {
 
-// OnDraw 呼び出しと、その時 RenderContext に何が配線されていたかを記録するプローブ。
+// OnDraw 呼び出しと、その時 FRenderContext に何が配線されていたかを記録するプローブ。
 // rc.Sprites() は呼ばない (fake ポインタを deref しない) ので GPU 不要。
-struct FProbeDraw : public FComponent2D {
-    const void* Kind() const noexcept override { return ComponentKindOf<FProbeDraw>(); }
+struct AProbeDrawComponent : public AComponent {
+    const void* Kind() const noexcept override { return ComponentKindOf<AProbeDrawComponent>(); }
 
     int   draws        = 0;
     bool  had_sprites  = false;
     FVec2 view_center{ -1.0f, -1.0f };
     f32   view_scale   = -1.0f;
 
-    void OnDraw(RenderContext& rc) noexcept override {
+    void OnDraw(FRenderContext& rc) noexcept override {
         ++draws;
         had_sprites = rc.HasSprites();
         view_center = rc.ViewCenter();
@@ -52,18 +52,18 @@ FVec2 EditorWorldViewCam(f32 pan_x, f32 pan_y, f32 zoom, f32 w, f32 h) noexcept 
 
 } // namespace
 
-// (1) DrawTree が OnDraw を、配線済み RenderContext で呼ぶ (シムが委譲する経路の土台)。
+// (1) DrawTree が OnDraw を、配線済み FRenderContext で呼ぶ (シムが委譲する経路の土台)。
 ACS_TEST(EditorPlayDraw, DrawTreeInvokesComponentOnDrawWithWiredContext) {
-    FNode2D root;
-    FNode2D& child = root.AddChild(MakeUnique<FNode2D>());
-    FProbeDraw& probe = child.AddComponent<FProbeDraw>();
+    ANode root;
+    ANode& child = root.AddChild(NewObject<ANode>());
+    AProbeDrawComponent& probe = child.AddComponent<AProbeDrawComponent>();
 
     // acs_game_scene_draw と同じ配線: SpriteBatch + world view。
     // 実 FSpriteBatch を stack に置く (Init しないので GPU 不要、LightsActive()=0 で安全)。
     // DrawTree はマテリアル無しノードで rc.Sprites().LightsActive() を問い合わせるため、
     // fake ポインタではなく CPU 側だけで成立する実体が要る。
     FSpriteBatch sprites;
-    RenderContext rc;
+    FRenderContext rc;
     rc._SetSpriteBatch(&sprites);
     rc._SetView2D(FVec2{ 12.0f, 34.0f }, 2.0f);
 
@@ -79,13 +79,13 @@ ACS_TEST(EditorPlayDraw, DrawTreeInvokesComponentOnDrawWithWiredContext) {
 
 // 非表示ノードの OnDraw はスキップされる (DrawTree の m_Visible ガード)。
 ACS_TEST(EditorPlayDraw, HiddenNodeSkipsOnDraw) {
-    FNode2D root;
-    FNode2D& child = root.AddChild(MakeUnique<FNode2D>());
-    FProbeDraw& probe = child.AddComponent<FProbeDraw>();
+    ANode root;
+    ANode& child = root.AddChild(NewObject<ANode>());
+    AProbeDrawComponent& probe = child.AddComponent<AProbeDrawComponent>();
     child.SetVisible(false);
 
     FSpriteBatch sprites;
-    RenderContext rc;
+    FRenderContext rc;
     rc._SetSpriteBatch(&sprites);
     root.DrawTree(rc);
     EXPECT_EQ(probe.draws, 0);
@@ -95,12 +95,12 @@ ACS_TEST(EditorPlayDraw, HiddenNodeSkipsOnDraw) {
 //     コンポーネントの screen 位置 == エディタの screen=world*zoom+pan と一致する。
 ACS_TEST(EditorPlayDraw, WorldViewMatchesEditorCamera) {
     const f32 w = 1280.0f, h = 720.0f;
-    struct Cam { f32 pan_x, pan_y, zoom; };
-    const Cam cams[] = { { 0.0f, 0.0f, 1.0f }, { 120.0f, -80.0f, 1.0f },
+    struct FCam { f32 pan_x, pan_y, zoom; };
+    const FCam cams[] = { { 0.0f, 0.0f, 1.0f }, { 120.0f, -80.0f, 1.0f },
                          { 40.0f, 200.0f, 2.5f }, { -300.0f, 60.0f, 0.5f } };
     const FVec2 pts[] = { { 0, 0 }, { 100, -50 }, { -250, 175 }, { 640, 360 } };
 
-    for (const Cam& c : cams) {
+    for (const FCam& c : cams) {
         const FVec2 cam = EditorWorldViewCam(c.pan_x, c.pan_y, c.zoom, w, h);
         for (const FVec2 p : pts) {
             const FVec2 sb_screen = BatchWorldToScreen(p, cam, c.zoom, w, h);   // SpriteBatch 経由
@@ -115,10 +115,10 @@ ACS_TEST(EditorPlayDraw, WorldViewMatchesEditorCamera) {
 // editor cam。ユーザーがカメラを触らなければ view は不変 (round-trip 一致)、触れば追従する。
 ACS_TEST(EditorPlayDraw, CameraFollowRoundTrips) {
     const f32 w = 1280.0f, h = 720.0f;
-    struct Cam { f32 pan_x, pan_y, zoom; };
-    const Cam cams[] = { { 0.0f, 0.0f, 1.0f }, { 120.0f, -80.0f, 1.0f },
+    struct FCam { f32 pan_x, pan_y, zoom; };
+    const FCam cams[] = { { 0.0f, 0.0f, 1.0f }, { 120.0f, -80.0f, 1.0f },
                          { 40.0f, 200.0f, 2.5f }, { -300.0f, 60.0f, 0.5f } };
-    for (const Cam& c : cams) {
+    for (const FCam& c : cams) {
         // logic_play_start: editor cam → play camera center (vcx,vcy)。
         const f32 vcx = (w * 0.5f - c.pan_x) / c.zoom;
         const f32 vcy = (h * 0.5f - c.pan_y) / c.zoom;

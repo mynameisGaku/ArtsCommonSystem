@@ -32,7 +32,7 @@ namespace {
 FSystemAllocator g_frame_backing;
 
 /** 1 セグメント分のアロケータホルダ。 */
-struct SegmentSlot {
+struct FSegmentSlot {
     /** このスロットのセグメント種別。 */
     ESegment segment = ESegment::Default;
 
@@ -82,7 +82,7 @@ enum class EFrameAllocationState : LONG64
 };
 
 /** 任意ポインタを読む前にコピーして検証する、不変な frame allocation 識別情報。 */
-struct FrameAllocationIdentity
+struct FFrameAllocationIdentity
 {
     u64 Magic = 0u;
     uptr OwnerAddress = 0u;
@@ -93,17 +93,17 @@ struct FrameAllocationIdentity
 };
 
 /** arena 内でユーザー領域の直前に置く、64バイト固定長の allocation ヘッダ。 */
-struct alignas(16) FrameAllocationHeader
+struct alignas(16) FFrameAllocationHeader
 {
-    FrameAllocationIdentity Identity;
+    FFrameAllocationIdentity Identity;
     volatile LONG64 State = static_cast<LONG64>(EFrameAllocationState::Released);
     u64 Reserved = 0u;
 };
 
-static_assert(sizeof(FrameAllocationHeader) == 64u);
+static_assert(sizeof(FFrameAllocationHeader) == 64u);
 
 /** frame allocation の不変フィールドから破損検出値を作る。 */
-u64 CalculateFrameAllocationIntegrity(const FrameAllocationIdentity& Identity) noexcept
+u64 CalculateFrameAllocationIntegrity(const FFrameAllocationIdentity& Identity) noexcept
 {
     u64 Value = kFrameAllocationHeaderMagic ^ static_cast<u64>(Identity.OwnerAddress) ^
                 static_cast<u64>(Identity.UserAddress) ^ Identity.Generation ^ Identity.RequestedSize;
@@ -116,7 +116,7 @@ u64 CalculateFrameAllocationIntegrity(const FrameAllocationIdentity& Identity) n
 }
 
 /** Reset / 再初期化後の古いヘッダを拒否するため、非0世代を 1 つ進める。 */
-u64 AdvanceFrameAllocationGeneration(SegmentSlot& Slot) noexcept
+u64 AdvanceFrameAllocationGeneration(FSegmentSlot& Slot) noexcept
 {
     const u64 CurrentGeneration = Slot.FrameAllocationGeneration.Load(EMemoryOrder::Acquire);
     const u64 NextGeneration = CurrentGeneration == ~u64{0} ? 1u : CurrentGeneration + 1u;
@@ -138,7 +138,7 @@ enum class ETrackingSlotState : u8 {
 };
 
 /** MemorySystem 自身へ再帰確保しない、デバッグ専用の割り当て元記録。 */
-struct TrackedAllocationRecord {
+struct FTrackedAllocationRecord {
     void* address = nullptr;
     u64 requested_bytes = 0;
     u64 alignment = 0;
@@ -152,9 +152,9 @@ struct TrackedAllocationRecord {
 };
 
 /** プロセスヒープ上の追跡表。対象アロケータを一切使わない。 */
-struct AllocationTrackingState {
+struct FAllocationTrackingState {
     SRWLOCK lock = SRWLOCK_INIT;
-    TrackedAllocationRecord* records = nullptr;
+    FTrackedAllocationRecord* records = nullptr;
     usize capacity = 0;
     usize occupied_count = 0;
     usize deleted_count = 0;
@@ -164,7 +164,7 @@ struct AllocationTrackingState {
     bool active = false;
 };
 
-AllocationTrackingState g_allocation_tracking;
+FAllocationTrackingState g_allocation_tracking;
 
 /** 診断ログ自身の確保を同じスレッドで再追跡しないためのガード。 */
 ACS_THREAD_LOCAL bool tls_ignore_allocation_tracking = false;
@@ -183,16 +183,16 @@ usize HashTrackedAddress(const void* Address) noexcept
     return static_cast<usize>(Value);
 }
 
-TrackedAllocationRecord* AllocateTrackingTable(usize Capacity) noexcept
+FTrackedAllocationRecord* AllocateTrackingTable(usize Capacity) noexcept
 {
-    if (Capacity == 0 || Capacity > (~usize(0) / sizeof(TrackedAllocationRecord))) {
+    if (Capacity == 0 || Capacity > (~usize(0) / sizeof(FTrackedAllocationRecord))) {
         return nullptr;
     }
-    return static_cast<TrackedAllocationRecord*>(
-        ::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY, Capacity * sizeof(TrackedAllocationRecord)));
+    return static_cast<FTrackedAllocationRecord*>(
+        ::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY, Capacity * sizeof(FTrackedAllocationRecord)));
 }
 
-void DestroyTrackingTable(TrackedAllocationRecord* Records) noexcept
+void DestroyTrackingTable(FTrackedAllocationRecord* Records) noexcept
 {
     if (Records) ::HeapFree(::GetProcessHeap(), 0, Records);
 }
@@ -206,7 +206,7 @@ usize FindTrackedRecordLocked(const void* Address) noexcept
     const usize Mask = g_allocation_tracking.capacity - 1u;
     usize Index = HashTrackedAddress(Address) & Mask;
     for (usize Probe = 0; Probe < g_allocation_tracking.capacity; ++Probe) {
-        const TrackedAllocationRecord& Record = g_allocation_tracking.records[Index];
+        const FTrackedAllocationRecord& Record = g_allocation_tracking.records[Index];
         if (Record.state == ETrackingSlotState::Empty) return g_allocation_tracking.capacity;
         if (Record.state == ETrackingSlotState::Occupied && Record.address == Address) return Index;
         Index = (Index + 1u) & Mask;
@@ -221,7 +221,7 @@ usize FindTrackingInsertionSlotLocked(const void* Address) noexcept
     usize Index = HashTrackedAddress(Address) & Mask;
     usize FirstDeleted = g_allocation_tracking.capacity;
     for (usize Probe = 0; Probe < g_allocation_tracking.capacity; ++Probe) {
-        const TrackedAllocationRecord& Record = g_allocation_tracking.records[Index];
+        const FTrackedAllocationRecord& Record = g_allocation_tracking.records[Index];
         if (Record.state == ETrackingSlotState::Empty) {
             return FirstDeleted != g_allocation_tracking.capacity ? FirstDeleted : Index;
         }
@@ -238,10 +238,10 @@ usize FindTrackingInsertionSlotLocked(const void* Address) noexcept
 /** 追跡表を power-of-two 容量へ拡張し、既存記録を再配置する。 */
 bool ResizeTrackingTableLocked(usize NewCapacity) noexcept
 {
-    TrackedAllocationRecord* const Replacement = AllocateTrackingTable(NewCapacity);
+    FTrackedAllocationRecord* const Replacement = AllocateTrackingTable(NewCapacity);
     if (!Replacement) return false;
 
-    TrackedAllocationRecord* const PreviousRecords = g_allocation_tracking.records;
+    FTrackedAllocationRecord* const PreviousRecords = g_allocation_tracking.records;
     const usize PreviousCapacity = g_allocation_tracking.capacity;
     g_allocation_tracking.records = Replacement;
     g_allocation_tracking.capacity = NewCapacity;
@@ -249,7 +249,7 @@ bool ResizeTrackingTableLocked(usize NewCapacity) noexcept
     g_allocation_tracking.deleted_count = 0;
 
     for (usize i = 0; i < PreviousCapacity; ++i) {
-        const TrackedAllocationRecord& Source = PreviousRecords[i];
+        const FTrackedAllocationRecord& Source = PreviousRecords[i];
         if (Source.state != ETrackingSlotState::Occupied) continue;
         const usize DestinationIndex = FindTrackingInsertionSlotLocked(Source.address);
         if (DestinationIndex == g_allocation_tracking.capacity) {
@@ -319,7 +319,7 @@ void TrackAllocation(void* Address, usize RequestedBytes, usize Alignment, ESegm
             if (Index == g_allocation_tracking.capacity) {
                 ++g_allocation_tracking.dropped_tracking_event_count;
             } else {
-                TrackedAllocationRecord& Record = g_allocation_tracking.records[Index];
+                FTrackedAllocationRecord& Record = g_allocation_tracking.records[Index];
                 if (Record.state != ETrackingSlotState::Occupied) {
                     if (Record.state == ETrackingSlotState::Deleted) {
                         --g_allocation_tracking.deleted_count;
@@ -359,7 +359,7 @@ void UntrackAllocation(void* Address) noexcept
         if (Index == g_allocation_tracking.capacity) {
             ++g_allocation_tracking.dropped_tracking_event_count;
         } else {
-            TrackedAllocationRecord& Record = g_allocation_tracking.records[Index];
+            FTrackedAllocationRecord& Record = g_allocation_tracking.records[Index];
             Record.address = nullptr;
             Record.state = ETrackingSlotState::Deleted;
             --g_allocation_tracking.occupied_count;
@@ -384,7 +384,7 @@ void ForgetTrackedSegment(ESegment Segment) noexcept
     ::AcquireSRWLockExclusive(&g_allocation_tracking.lock);
     if (g_allocation_tracking.active) {
         for (usize i = 0; i < g_allocation_tracking.capacity; ++i) {
-            TrackedAllocationRecord& Record = g_allocation_tracking.records[i];
+            FTrackedAllocationRecord& Record = g_allocation_tracking.records[i];
             if (Record.state != ETrackingSlotState::Occupied || Record.segment != Segment) continue;
             Record.address = nullptr;
             Record.state = ETrackingSlotState::Deleted;
@@ -395,17 +395,17 @@ void ForgetTrackedSegment(ESegment Segment) noexcept
     ::ReleaseSRWLockExclusive(&g_allocation_tracking.lock);
 }
 
-MemoryTrackingReport CollectTrackedAllocations(MemoryTrackingCheckpoint Checkpoint, OutstandingMemoryAllocation* Output,
+FMemoryTrackingReport CollectTrackedAllocations(FMemoryTrackingCheckpoint Checkpoint, FOutstandingMemoryAllocation* Output,
                                                u32 OutputCapacity) noexcept
 {
-    MemoryTrackingReport Report;
+    FMemoryTrackingReport Report;
     ::AcquireSRWLockShared(&g_allocation_tracking.lock);
     Report.tracking_enabled = g_allocation_tracking.active;
     Report.newest_allocation_sequence = g_allocation_tracking.newest_allocation_sequence;
     Report.dropped_tracking_event_count = g_allocation_tracking.dropped_tracking_event_count;
     if (g_allocation_tracking.active) {
         for (usize i = 0; i < g_allocation_tracking.capacity; ++i) {
-            const TrackedAllocationRecord& Record = g_allocation_tracking.records[i];
+            const FTrackedAllocationRecord& Record = g_allocation_tracking.records[i];
             if (Record.state != ETrackingSlotState::Occupied ||
                 Record.allocation_sequence <= Checkpoint.allocation_sequence) {
                 continue;
@@ -413,7 +413,7 @@ MemoryTrackingReport CollectTrackedAllocations(MemoryTrackingCheckpoint Checkpoi
             ++Report.outstanding_allocation_count;
             Report.outstanding_requested_bytes += Record.requested_bytes;
             if (!Output || Report.written_allocation_count >= OutputCapacity) continue;
-            OutstandingMemoryAllocation& Destination = Output[Report.written_allocation_count++];
+            FOutstandingMemoryAllocation& Destination = Output[Report.written_allocation_count++];
             Destination.address = Record.address;
             Destination.requested_bytes = Record.requested_bytes;
             Destination.alignment = Record.alignment;
@@ -451,7 +451,7 @@ void RetrackAllocation(void*, void*, usize, usize, ESegment, FSourceLoc) noexcep
 void ForgetTrackedSegment(ESegment) noexcept
 {
 }
-MemoryTrackingReport CollectTrackedAllocations(MemoryTrackingCheckpoint, OutstandingMemoryAllocation*, u32) noexcept
+FMemoryTrackingReport CollectTrackedAllocations(FMemoryTrackingCheckpoint, FOutstandingMemoryAllocation*, u32) noexcept
 {
     return {};
 }
@@ -545,33 +545,33 @@ void EndMemorySystemOperation() noexcept
 }
 
 /** Init / Shutdown の排他区間を例外や早期 return からも確実に解放する。 */
-class MemorySystemLifecycleControlScope final
+class FMemorySystemLifecycleControlScope final
 {
 public:
-    MemorySystemLifecycleControlScope() noexcept
+    FMemorySystemLifecycleControlScope() noexcept
     {
         ::AcquireSRWLockExclusive(&g_MemorySystemLifecycleLock);
     }
 
-    ~MemorySystemLifecycleControlScope() noexcept
+    ~FMemorySystemLifecycleControlScope() noexcept
     {
         ::ReleaseSRWLockExclusive(&g_MemorySystemLifecycleLock);
     }
 
-    MemorySystemLifecycleControlScope(const MemorySystemLifecycleControlScope&) = delete;
-    MemorySystemLifecycleControlScope& operator=(const MemorySystemLifecycleControlScope&) = delete;
+    FMemorySystemLifecycleControlScope(const FMemorySystemLifecycleControlScope&) = delete;
+    FMemorySystemLifecycleControlScope& operator=(const FMemorySystemLifecycleControlScope&) = delete;
 };
 
 /** 公開操作の入場登録をスコープ終了時に必ず解除する。 */
-class MemorySystemOperationScope final
+class FMemorySystemOperationScope final
 {
 public:
-    MemorySystemOperationScope() noexcept
+    FMemorySystemOperationScope() noexcept
         : m_bAdmitted(TryBeginMemorySystemOperation())
     {
     }
 
-    ~MemorySystemOperationScope() noexcept
+    ~FMemorySystemOperationScope() noexcept
     {
         if (m_bAdmitted)
         {
@@ -579,8 +579,8 @@ public:
         }
     }
 
-    MemorySystemOperationScope(const MemorySystemOperationScope&) = delete;
-    MemorySystemOperationScope& operator=(const MemorySystemOperationScope&) = delete;
+    FMemorySystemOperationScope(const FMemorySystemOperationScope&) = delete;
+    FMemorySystemOperationScope& operator=(const FMemorySystemOperationScope&) = delete;
 
     bool WasAdmitted() const noexcept
     {
@@ -614,7 +614,7 @@ void WaitForFrameOperation(u32& SpinCount) noexcept
 }
 
 /** ResetTemp と競合しない Temp 操作として入場できれば true を返す。 */
-bool TryBeginFrameOperation(SegmentSlot& Slot) noexcept
+bool TryBeginFrameOperation(FSegmentSlot& Slot) noexcept
 {
     if (Slot.frame_reset_in_progress.Load(EMemoryOrder::Acquire) != 0u) {
         return false;
@@ -631,13 +631,13 @@ bool TryBeginFrameOperation(SegmentSlot& Slot) noexcept
 }
 
 /** Temp 操作の完了を ResetTemp へ通知する。 */
-void EndFrameOperation(SegmentSlot& Slot) noexcept
+void EndFrameOperation(FSegmentSlot& Slot) noexcept
 {
     Slot.frame_active_operations.FetchSub(1u);
 }
 
 /** ResetTemp の入場権を直列化し、開始済み Temp 操作がすべて終わるまで待つ。 */
-void BeginFrameReset(SegmentSlot& Slot) noexcept
+void BeginFrameReset(FSegmentSlot& Slot) noexcept
 {
     u32 SpinCount = 0u;
     for (;;) {
@@ -655,15 +655,15 @@ void BeginFrameReset(SegmentSlot& Slot) noexcept
 }
 
 /** ResetTemp 完了後に Temp 操作の入場を再開する。 */
-void EndFrameReset(SegmentSlot& Slot) noexcept
+void EndFrameReset(FSegmentSlot& Slot) noexcept
 {
     Slot.frame_reset_in_progress.Store(0u, EMemoryOrder::Release);
 }
 
 /** SegmentAllocator の Temp 操作を関数スコープ全体で登録する。 */
-class FrameOperationScope final {
+class FFrameOperationScope final {
 public:
-    explicit FrameOperationScope(SegmentSlot* Slot) noexcept : m_Slot(Slot)
+    explicit FFrameOperationScope(FSegmentSlot* Slot) noexcept : m_Slot(Slot)
     {
         if (!m_Slot || !m_Slot->use_frame_allocator) {
             m_bAdmitted = true;
@@ -673,15 +673,15 @@ public:
         m_bRegistered = m_bAdmitted;
     }
 
-    ~FrameOperationScope() noexcept
+    ~FFrameOperationScope() noexcept
     {
         if (m_bRegistered) {
             EndFrameOperation(*m_Slot);
         }
     }
 
-    FrameOperationScope(const FrameOperationScope&) = delete;
-    FrameOperationScope& operator=(const FrameOperationScope&) = delete;
+    FFrameOperationScope(const FFrameOperationScope&) = delete;
+    FFrameOperationScope& operator=(const FFrameOperationScope&) = delete;
 
     /** ResetTemp と競合せず、操作を続行できるなら true。 */
     bool WasAdmitted() const noexcept
@@ -691,7 +691,7 @@ public:
 
 private:
     /** 操作対象スロット。 */
-    SegmentSlot* m_Slot = nullptr;
+    FSegmentSlot* m_Slot = nullptr;
 
     /** 操作を続行できる場合は true。 */
     bool m_bAdmitted = false;
@@ -708,17 +708,17 @@ private:
  * mimalloc と frame arena のハード予算は、どちらも確保中の予約量を含む CAS で厳密に守る。
  * arena は ResetTemp まで個別解放しないため、再確保時も新しい要求量を追加予約する。
  */
-class SegmentAllocator final : public FAllocator {
+class FSegmentAllocator final : public FAllocator {
 public:
     /** 未バインド状態で構築する (使用前に Bind を呼ぶこと)。 */
-    SegmentAllocator() noexcept = default;
+    FSegmentAllocator() noexcept = default;
 
     /**
      * 公開対象の SegmentSlot を結び付ける。
      *
      * @param Slot このアダプタが委譲する先のスロット。
      */
-    void Bind(SegmentSlot* Slot) noexcept
+    void Bind(FSegmentSlot* Slot) noexcept
     {
         m_Slot = Slot;
         u64 Generation = g_segment_allocator_lifetime_generation.FetchAdd(1u) + 1u;
@@ -744,12 +744,12 @@ public:
      */
     void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override
     {
-        MemorySystemOperationScope Operation;
+        FMemorySystemOperationScope Operation;
         if (!Operation.WasAdmitted() || !m_Slot || !m_Slot->initialized)
         {
             return nullptr;
         }
-        FrameOperationScope FrameOperation(m_Slot);
+        FFrameOperationScope FrameOperation(m_Slot);
         if (!FrameOperation.WasAdmitted())
         {
             return nullptr;
@@ -764,12 +764,12 @@ public:
      */
     void Free(void* Pointer) noexcept override
     {
-        MemorySystemOperationScope Operation;
+        FMemorySystemOperationScope Operation;
         if (!Operation.WasAdmitted() || !m_Slot || !m_Slot->initialized || !Pointer)
         {
             return;
         }
-        FrameOperationScope FrameOperation(m_Slot);
+        FFrameOperationScope FrameOperation(m_Slot);
         if (!FrameOperation.WasAdmitted())
         {
             return;
@@ -778,7 +778,7 @@ public:
         if (m_Slot->use_frame_allocator)
         {
             usize RequestedSize = 0u;
-            FrameAllocationHeader* const Header = ValidateFrameAllocation(Pointer, RequestedSize);
+            FFrameAllocationHeader* const Header = ValidateFrameAllocation(Pointer, RequestedSize);
             if (!Header)
             {
                 return;
@@ -814,12 +814,12 @@ public:
      */
     void* Realloc(void* Pointer, usize OldSize, usize NewSize, usize Alignment, FSourceLoc Location) noexcept override
     {
-        MemorySystemOperationScope Operation;
+        FMemorySystemOperationScope Operation;
         if (!Operation.WasAdmitted() || !m_Slot || !m_Slot->initialized)
         {
             return nullptr;
         }
-        FrameOperationScope FrameOperation(m_Slot);
+        FFrameOperationScope FrameOperation(m_Slot);
         if (!FrameOperation.WasAdmitted())
         {
             return nullptr;
@@ -833,7 +833,7 @@ public:
             }
 
             usize RecordedOldSize = 0u;
-            FrameAllocationHeader* const OldHeader = ValidateFrameAllocation(Pointer, RecordedOldSize);
+            FFrameAllocationHeader* const OldHeader = ValidateFrameAllocation(Pointer, RecordedOldSize);
             if (!OldHeader)
             {
                 return NewSize == 0u ? Pointer : nullptr;
@@ -888,7 +888,7 @@ public:
      */
     u64 BytesAllocated() const noexcept override
     {
-        MemorySystemOperationScope Operation;
+        FMemorySystemOperationScope Operation;
         if (!Operation.WasAdmitted() || !m_Slot || !m_Slot->initialized)
         {
             return 0u;
@@ -904,7 +904,7 @@ public:
      */
     u64 AllocationCount() const noexcept override
     {
-        MemorySystemOperationScope Operation;
+        FMemorySystemOperationScope Operation;
         return (Operation.WasAdmitted() && m_Slot && m_Slot->initialized) ? Backing()->AllocationCount() : 0;
     }
 
@@ -915,7 +915,7 @@ public:
      */
     u64 PeakBytes() const noexcept override
     {
-        MemorySystemOperationScope Operation;
+        FMemorySystemOperationScope Operation;
         if (!Operation.WasAdmitted() || !m_Slot || !m_Slot->initialized)
         {
             return 0u;
@@ -937,7 +937,7 @@ public:
      */
     const char* Name() const noexcept override
     {
-        MemorySystemOperationScope Operation;
+        FMemorySystemOperationScope Operation;
         return (Operation.WasAdmitted() && m_Slot && m_Slot->initialized) ? ToString(m_Slot->segment) : "Unbound";
     }
 
@@ -964,19 +964,19 @@ private:
         }
 
         const usize EffectiveAlignment =
-            Alignment < alignof(FrameAllocationHeader) ? alignof(FrameAllocationHeader) : Alignment;
-        if (Size > (~usize{0}) - sizeof(FrameAllocationHeader) - (EffectiveAlignment - 1u))
+            Alignment < alignof(FFrameAllocationHeader) ? alignof(FFrameAllocationHeader) : Alignment;
+        if (Size > (~usize{0}) - sizeof(FFrameAllocationHeader) - (EffectiveAlignment - 1u))
         {
             return nullptr;
         }
-        const usize RawSize = Size + sizeof(FrameAllocationHeader) + EffectiveAlignment - 1u;
+        const usize RawSize = Size + sizeof(FFrameAllocationHeader) + EffectiveAlignment - 1u;
         if (!TryReserveFrameBudget(Size))
         {
             return nullptr;
         }
 
         void* const RawAllocation =
-            m_Slot->arena->Alloc(RawSize, alignof(FrameAllocationHeader), Location);
+            m_Slot->arena->Alloc(RawSize, alignof(FFrameAllocationHeader), Location);
         if (!RawAllocation)
         {
             RollBackFrameBudget(Size);
@@ -984,9 +984,9 @@ private:
         }
 
         const uptr RawAddress = reinterpret_cast<uptr>(RawAllocation);
-        const uptr UserAddress = AlignUp(RawAddress + sizeof(FrameAllocationHeader), EffectiveAlignment);
-        auto* const Header = reinterpret_cast<FrameAllocationHeader*>(UserAddress - sizeof(FrameAllocationHeader));
-        ::new (Header) FrameAllocationHeader{};
+        const uptr UserAddress = AlignUp(RawAddress + sizeof(FFrameAllocationHeader), EffectiveAlignment);
+        auto* const Header = reinterpret_cast<FFrameAllocationHeader*>(UserAddress - sizeof(FFrameAllocationHeader));
+        ::new (Header) FFrameAllocationHeader{};
         Header->Identity.Magic = kFrameAllocationHeaderMagic;
         Header->Identity.OwnerAddress = reinterpret_cast<uptr>(m_Slot);
         Header->Identity.UserAddress = UserAddress;
@@ -1001,7 +1001,7 @@ private:
     }
 
     /** ポインタが現在世代の frame allocation 先頭ならヘッダと記録サイズを返す。 */
-    FrameAllocationHeader* ValidateFrameAllocation(void* Pointer, usize& RequestedSize) const noexcept
+    FFrameAllocationHeader* ValidateFrameAllocation(void* Pointer, usize& RequestedSize) const noexcept
     {
         RequestedSize = 0u;
         if (!Pointer || !m_Slot->arena)
@@ -1010,18 +1010,18 @@ private:
         }
 
         const uptr UserAddress = reinterpret_cast<uptr>(Pointer);
-        if (UserAddress < sizeof(FrameAllocationHeader))
+        if (UserAddress < sizeof(FFrameAllocationHeader))
         {
             return nullptr;
         }
-        const uptr HeaderAddress = UserAddress - sizeof(FrameAllocationHeader);
+        const uptr HeaderAddress = UserAddress - sizeof(FFrameAllocationHeader);
         const void* const HeaderPointer = reinterpret_cast<const void*>(HeaderAddress);
-        if (!m_Slot->arena->ContainsCurrentAllocationRange(HeaderPointer, sizeof(FrameAllocationHeader)))
+        if (!m_Slot->arena->ContainsCurrentAllocationRange(HeaderPointer, sizeof(FFrameAllocationHeader)))
         {
             return nullptr;
         }
 
-        FrameAllocationIdentity Identity;
+        FFrameAllocationIdentity Identity;
         MemCopy(&Identity, HeaderPointer, sizeof(Identity));
         if (Identity.Magic != kFrameAllocationHeaderMagic ||
             Identity.OwnerAddress != reinterpret_cast<uptr>(m_Slot) || Identity.UserAddress != UserAddress ||
@@ -1038,7 +1038,7 @@ private:
             return nullptr;
         }
 
-        auto* const Header = reinterpret_cast<FrameAllocationHeader*>(HeaderAddress);
+        auto* const Header = reinterpret_cast<FFrameAllocationHeader*>(HeaderAddress);
         const LONG64 State = ::_InterlockedCompareExchange64(&Header->State, 0, 0);
         if (State != static_cast<LONG64>(EFrameAllocationState::Active))
         {
@@ -1102,19 +1102,19 @@ private:
     }
 
     /** 委譲先のセグメントスロット (未バインドなら nullptr)。 */
-    SegmentSlot* m_Slot = nullptr;
+    FSegmentSlot* m_Slot = nullptr;
 
     /** 現在の MemorySystem 初期化寿命。0 は無効状態。 */
     TAtomic<u64> m_LifetimeGeneration{0};
 };
 
 /** プロセスに 1 つだけのグローバル状態。 */
-struct State {
+struct FState {
     /** セグメント種別ごとのスロット。 */
-    SegmentSlot slots[(usize)ESegment::_Count];
+    FSegmentSlot slots[(usize)ESegment::_Count];
 
     /** セグメント種別ごとの公開アダプタ。 */
-    SegmentAllocator allocators[(usize)ESegment::_Count];
+    FSegmentAllocator allocators[(usize)ESegment::_Count];
 
     /** install_as_default_allocator で既定アロケータを差し替えたか。 */
     bool default_overridden = false;
@@ -1124,7 +1124,7 @@ struct State {
 };
 
 /** プロセス唯一のグローバル状態インスタンス。 */
-State g_state;
+FState g_state;
 
 /** 公開 enum 値を配列添字へ変換できるか確認する。 */
 bool IsValidSegment(ESegment Segment) noexcept
@@ -1133,13 +1133,13 @@ bool IsValidSegment(ESegment Segment) noexcept
 }
 
 /** スロットが選択している具象アロケータを返す。 */
-FAllocator* BackingAllocator(SegmentSlot& Slot) noexcept
+FAllocator* BackingAllocator(FSegmentSlot& Slot) noexcept
 {
     return Slot.use_frame_allocator ? static_cast<FAllocator*>(Slot.arena) : static_cast<FAllocator*>(&Slot.mimalloc);
 }
 
 /** 初期化済みスロットを破棄し、再初期化可能な状態へ戻す。 */
-void DestroySegmentSlot(SegmentSlot& Slot) noexcept
+void DestroySegmentSlot(FSegmentSlot& Slot) noexcept
 {
     if (!Slot.initialized) {
         return;
@@ -1163,9 +1163,9 @@ void DestroySegmentSlot(SegmentSlot& Slot) noexcept
 }
 
 /** スロットの通常統計と、利用可能ならバックエンド独立走査をまとめる。 */
-MemorySegmentInspection InspectSegmentSlot(SegmentSlot& Slot) noexcept
+FMemorySegmentInspection InspectSegmentSlot(FSegmentSlot& Slot) noexcept
 {
-    MemorySegmentInspection Result;
+    FMemorySegmentInspection Result;
     Result.segment = Slot.segment;
     if (!Slot.initialized) {
         return Result;
@@ -1181,7 +1181,7 @@ MemorySegmentInspection InspectSegmentSlot(SegmentSlot& Slot) noexcept
         return Result;
     }
 
-    const MimallocHeapInspectionStatistics Inspection = Slot.mimalloc.InspectHeap();
+    const FMimallocHeapInspectionStatistics Inspection = Slot.mimalloc.InspectHeap();
     Result.reserved_bytes = Inspection.reserved_bytes;
     Result.committed_bytes = Inspection.committed_bytes;
     Result.usable_bytes = Inspection.usable_bytes;
@@ -1195,12 +1195,12 @@ MemorySegmentInspection InspectSegmentSlot(SegmentSlot& Slot) noexcept
 }
 
 /** ライフサイクルゲートを閉じた Shutdown 内部から通常ヒープの未解放量を集計する。 */
-MemoryLeakSummary CaptureLeakSummaryWithoutLifecycleGate() noexcept
+FMemoryLeakSummary CaptureLeakSummaryWithoutLifecycleGate() noexcept
 {
-    MemoryLeakSummary Summary;
+    FMemoryLeakSummary Summary;
     for (usize Index = 0; Index < static_cast<usize>(ESegment::_Count); ++Index)
     {
-        SegmentSlot& Slot = g_state.slots[Index];
+        FSegmentSlot& Slot = g_state.slots[Index];
         if (!Slot.initialized || Slot.use_frame_allocator)
         {
             continue;
@@ -1220,10 +1220,10 @@ MemoryLeakSummary CaptureLeakSummaryWithoutLifecycleGate() noexcept
 } // namespace
 
 // 既定設定（小規模テスト用、すぐ動かしたいとき向け）
-MemorySystemConfig FMemorySystem::DefaultConfig() noexcept
+FMemorySystemConfig FMemorySystem::DefaultConfig() noexcept
 {
-    MemorySystemConfig Configuration{};
-    auto Setup = [](SegmentConfig& SegmentConfiguration, ESegment Segment, u64 HardBudgetBytes,
+    FMemorySystemConfig Configuration{};
+    auto Setup = [](FSegmentConfig& SegmentConfiguration, ESegment Segment, u64 HardBudgetBytes,
                     bool bUseFrameAllocator) {
         SegmentConfiguration.segment = Segment;
         SegmentConfiguration.hard_budget_bytes = HardBudgetBytes;
@@ -1238,9 +1238,9 @@ MemorySystemConfig FMemorySystem::DefaultConfig() noexcept
 }
 
 // 全セグメントを設定で初期化
-TResult<void> FMemorySystem::Init(const MemorySystemConfig& Configuration) noexcept
+TResult<void> FMemorySystem::Init(const FMemorySystemConfig& Configuration) noexcept
 {
-    MemorySystemLifecycleControlScope LifecycleControl;
+    FMemorySystemLifecycleControlScope LifecycleControl;
     const u64 PreviousLifecycleToken = g_MemorySystemLifecycleToken.Load(EMemoryOrder::Acquire);
     if (MemorySystemLifecycleStateOf(PreviousLifecycleToken) != EMemorySystemLifecycleState::Uninitialized)
     {
@@ -1267,8 +1267,8 @@ TResult<void> FMemorySystem::Init(const MemorySystemConfig& Configuration) noexc
 
     for (usize Index = 0; Index < static_cast<usize>(ESegment::_Count); ++Index)
     {
-        const SegmentConfig& SegmentConfiguration = Configuration.segments[Index];
-        SegmentSlot& Slot = g_state.slots[Index];
+        const FSegmentConfig& SegmentConfiguration = Configuration.segments[Index];
+        FSegmentSlot& Slot = g_state.slots[Index];
         Slot.segment = SegmentConfiguration.segment;
         Slot.use_frame_allocator = SegmentConfiguration.use_frame_allocator;
         Slot.hard_budget_bytes = SegmentConfiguration.hard_budget_bytes;
@@ -1339,7 +1339,7 @@ TResult<void> FMemorySystem::Init(const MemorySystemConfig& Configuration) noexc
 
 void FMemorySystem::Shutdown() noexcept
 {
-    MemorySystemLifecycleControlScope LifecycleControl;
+    FMemorySystemLifecycleControlScope LifecycleControl;
     const u64 RunningLifecycleToken = g_MemorySystemLifecycleToken.Load(EMemoryOrder::Acquire);
     if (MemorySystemLifecycleStateOf(RunningLifecycleToken) != EMemorySystemLifecycleState::Running)
     {
@@ -1362,7 +1362,7 @@ void FMemorySystem::Shutdown() noexcept
     // frame arena は一括寿命なので、終了診断の対象外として先に巻き戻す。
     for (usize Index = 0; Index < static_cast<usize>(ESegment::_Count); ++Index)
     {
-        SegmentSlot& Slot = g_state.slots[Index];
+        FSegmentSlot& Slot = g_state.slots[Index];
         if (Slot.initialized && Slot.use_frame_allocator)
         {
             if (Slot.arena)
@@ -1383,18 +1383,18 @@ void FMemorySystem::Shutdown() noexcept
         g_state.prev_default = nullptr;
     }
 
-    const MemoryLeakSummary LeakSummary = CaptureLeakSummaryWithoutLifecycleGate();
+    const FMemoryLeakSummary LeakSummary = CaptureLeakSummaryWithoutLifecycleGate();
     bool bAllHeapInspectionsConclusive = true;
     for (usize Index = 0; Index < static_cast<usize>(ESegment::_Count); ++Index)
     {
-        SegmentSlot& Slot = g_state.slots[Index];
+        FSegmentSlot& Slot = g_state.slots[Index];
         if (!Slot.initialized || Slot.use_frame_allocator)
         {
             continue;
         }
 
         Slot.mimalloc.Collect(true);
-        const MemorySegmentInspection Inspection = InspectSegmentSlot(Slot);
+        const FMemorySegmentInspection Inspection = InspectSegmentSlot(Slot);
         const bool bInspectionConsistent = Inspection.visit_succeeded && Inspection.metadata_valid &&
                                            Inspection.matches_authoritative_statistics;
         bAllHeapInspectionsConclusive = bAllHeapInspectionsConclusive && bInspectionConsistent;
@@ -1438,7 +1438,7 @@ void FMemorySystem::Shutdown() noexcept
 
     if (LeakSummary.HasLeaks() && IsAllocationSiteTrackingEnabled())
     {
-        const MemoryTrackingReport TrackingReport = DumpOutstandingMemoryAllocations();
+        const FMemoryTrackingReport TrackingReport = DumpOutstandingMemoryAllocations();
         if (!TrackingReport.IsComplete() ||
             TrackingReport.outstanding_allocation_count != LeakSummary.outstanding_allocation_count)
         {
@@ -1490,7 +1490,7 @@ FAllocator* FMemorySystem::Get(ESegment Segment) noexcept
     {
         return nullptr;
     }
-    MemorySystemOperationScope Operation;
+    FMemorySystemOperationScope Operation;
     if (!Operation.WasAdmitted())
     {
         return nullptr;
@@ -1511,12 +1511,12 @@ FAllocator* FMemorySystem::CurrentAllocator() noexcept
 // Temp セグメントを巻き戻す（フレーム先頭で 1 回呼ぶ）
 void FMemorySystem::ResetTemp() noexcept
 {
-    MemorySystemOperationScope Operation;
+    FMemorySystemOperationScope Operation;
     if (!Operation.WasAdmitted())
     {
         return;
     }
-    SegmentSlot& Slot = g_state.slots[(usize)ESegment::Temp];
+    FSegmentSlot& Slot = g_state.slots[(usize)ESegment::Temp];
     if (Slot.initialized && Slot.use_frame_allocator && Slot.arena)
     {
         BeginFrameReset(Slot);
@@ -1529,13 +1529,13 @@ void FMemorySystem::ResetTemp() noexcept
 }
 
 // 全セグメントの統計を Output に詰める
-u32 FMemorySystem::GetStats(SegmentStats* Output, u32 OutputCapacity) noexcept
+u32 FMemorySystem::GetStats(FSegmentStats* Output, u32 OutputCapacity) noexcept
 {
     if (!Output || OutputCapacity == 0)
     {
         return 0;
     }
-    MemorySystemOperationScope Operation;
+    FMemorySystemOperationScope Operation;
     if (!Operation.WasAdmitted())
     {
         return 0;
@@ -1543,13 +1543,13 @@ u32 FMemorySystem::GetStats(SegmentStats* Output, u32 OutputCapacity) noexcept
     u32 WrittenCount = 0;
     for (usize Index = 0; Index < static_cast<usize>(ESegment::_Count) && WrittenCount < OutputCapacity; ++Index)
     {
-        SegmentSlot& Slot = g_state.slots[Index];
+        FSegmentSlot& Slot = g_state.slots[Index];
         if (!Slot.initialized)
         {
             continue;
         }
         FAllocator* const Allocator = BackingAllocator(Slot);
-        SegmentStats& Statistics = Output[WrittenCount++];
+        FSegmentStats& Statistics = Output[WrittenCount++];
         Statistics.segment = Slot.segment;
         Statistics.segment_name = ToString(Slot.segment);
         Statistics.allocator_name = Allocator->Name();
@@ -1565,15 +1565,15 @@ u32 FMemorySystem::GetStats(SegmentStats* Output, u32 OutputCapacity) noexcept
     return WrittenCount;
 }
 
-MemorySegmentInspection FMemorySystem::InspectSegmentMemory(ESegment Segment) noexcept
+FMemorySegmentInspection FMemorySystem::InspectSegmentMemory(ESegment Segment) noexcept
 {
-    MemorySegmentInspection Result;
+    FMemorySegmentInspection Result;
     Result.segment = Segment;
     if (!IsValidSegment(Segment))
     {
         return Result;
     }
-    MemorySystemOperationScope Operation;
+    FMemorySystemOperationScope Operation;
     if (!Operation.WasAdmitted())
     {
         return Result;
@@ -1581,9 +1581,9 @@ MemorySegmentInspection FMemorySystem::InspectSegmentMemory(ESegment Segment) no
     return InspectSegmentSlot(g_state.slots[static_cast<usize>(Segment)]);
 }
 
-MemoryLeakSummary FMemorySystem::CaptureLeakSummary() noexcept
+FMemoryLeakSummary FMemorySystem::CaptureLeakSummary() noexcept
 {
-    MemorySystemOperationScope Operation;
+    FMemorySystemOperationScope Operation;
     if (!Operation.WasAdmitted())
     {
         return {};
@@ -1591,9 +1591,9 @@ MemoryLeakSummary FMemorySystem::CaptureLeakSummary() noexcept
     return CaptureLeakSummaryWithoutLifecycleGate();
 }
 
-MemoryTrackingCheckpoint FMemorySystem::CaptureMemoryTrackingCheckpoint() noexcept
+FMemoryTrackingCheckpoint FMemorySystem::CaptureMemoryTrackingCheckpoint() noexcept
 {
-    MemoryTrackingCheckpoint Checkpoint;
+    FMemoryTrackingCheckpoint Checkpoint;
 #if ACS_MEMORY_TRACK_ALLOCATION_SITES
     ::AcquireSRWLockShared(&g_allocation_tracking.lock);
     if (g_allocation_tracking.active) {
@@ -1604,17 +1604,17 @@ MemoryTrackingCheckpoint FMemorySystem::CaptureMemoryTrackingCheckpoint() noexce
     return Checkpoint;
 }
 
-MemoryTrackingReport FMemorySystem::CollectOutstandingMemoryAllocations(MemoryTrackingCheckpoint Checkpoint,
-                                                                        OutstandingMemoryAllocation* Output,
+FMemoryTrackingReport FMemorySystem::CollectOutstandingMemoryAllocations(FMemoryTrackingCheckpoint Checkpoint,
+                                                                        FOutstandingMemoryAllocation* Output,
                                                                         u32 OutputCapacity) noexcept
 {
     return CollectTrackedAllocations(Checkpoint, Output, OutputCapacity);
 }
 
-MemoryTrackingReport FMemorySystem::DumpOutstandingMemoryAllocations(MemoryTrackingCheckpoint Checkpoint,
+FMemoryTrackingReport FMemorySystem::DumpOutstandingMemoryAllocations(FMemoryTrackingCheckpoint Checkpoint,
                                                                      u32 MaximumLoggedAllocationCount) noexcept
 {
-    MemoryTrackingReport Report = CollectTrackedAllocations(Checkpoint, nullptr, 0);
+    FMemoryTrackingReport Report = CollectTrackedAllocations(Checkpoint, nullptr, 0);
     const bool bPreviousIgnoreState = tls_ignore_allocation_tracking;
     tls_ignore_allocation_tracking = true;
 
@@ -1628,16 +1628,16 @@ MemoryTrackingReport FMemorySystem::DumpOutstandingMemoryAllocations(MemoryTrack
     if (Report.outstanding_allocation_count < DetailCapacity) {
         DetailCapacity = static_cast<u32>(Report.outstanding_allocation_count);
     }
-    OutstandingMemoryAllocation* Details = nullptr;
+    FOutstandingMemoryAllocation* Details = nullptr;
     if (DetailCapacity > 0) {
-        Details = static_cast<OutstandingMemoryAllocation*>(
+        Details = static_cast<FOutstandingMemoryAllocation*>(
             ::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY,
-                        static_cast<usize>(DetailCapacity) * sizeof(OutstandingMemoryAllocation)));
+                        static_cast<usize>(DetailCapacity) * sizeof(FOutstandingMemoryAllocation)));
     }
     if (Details) {
         Report = CollectTrackedAllocations(Checkpoint, Details, DetailCapacity);
         for (u64 i = 1; i < Report.written_allocation_count; ++i) {
-            const OutstandingMemoryAllocation Value = Details[i];
+            const FOutstandingMemoryAllocation Value = Details[i];
             u64 Position = i;
             while (Position > 0 && Details[Position - 1].allocation_sequence > Value.allocation_sequence) {
                 Details[Position] = Details[Position - 1];
@@ -1667,7 +1667,7 @@ MemoryTrackingReport FMemorySystem::DumpOutstandingMemoryAllocations(MemoryTrack
             ACS_LOG_ERROR("[acs][memory] allocation_site_details=unavailable reason=process_heap_allocation_failed");
         }
         for (u64 i = 0; Details && i < Report.written_allocation_count; ++i) {
-            const OutstandingMemoryAllocation& Allocation = Details[i];
+            const FOutstandingMemoryAllocation& Allocation = Details[i];
             ACS_LOG_ERROR("[acs][memory] allocation_sequence=%llu address=%p requested_bytes=%llu "
                           "alignment=%llu segment=%s file=\"%s\" line=%u column=%u function=\"%s\"",
                           static_cast<unsigned long long>(Allocation.allocation_sequence), Allocation.address,
@@ -1710,14 +1710,14 @@ bool FMemorySystem::IsAllocationSiteTrackingEnabled() noexcept
 }
 
 // コンストラクタで TLS の現在セグメントを上書き、デストラクタで元に戻す
-ScopedMemorySegment::ScopedMemorySegment(ESegment Segment) noexcept : m_Previous(tls_current_segment)
+FScopedMemorySegment::FScopedMemorySegment(ESegment Segment) noexcept : m_Previous(tls_current_segment)
 {
     if (IsValidSegment(Segment)) {
         tls_current_segment = Segment;
     }
 }
 
-ScopedMemorySegment::~ScopedMemorySegment() noexcept
+FScopedMemorySegment::~FScopedMemorySegment() noexcept
 {
     tls_current_segment = m_Previous;
 }

@@ -34,7 +34,7 @@ enum class ESampleFormat : u8 {
  * 全フォーマットを 16-bit もしくは float PCM に統一してインターリーブ保持する。
  * 再生は FAudioEngine (XAudio2Backend) が本アセットの PCM を直接扱う。
  */
-class FAudioAsset : public Asset {
+class FAudioAsset : public FAsset {
 public:
     ACS_ASSET_TYPE("FAudioAsset")
 
@@ -74,7 +74,7 @@ public:
      *
      * @return ESampleFormat。
      */
-    ESampleFormat EFormat()     const noexcept { return m_Format; }
+    ESampleFormat Format()      const noexcept { return m_Format; }
 
     /**
      * フレーム数を返す。
@@ -126,7 +126,7 @@ private:
 /**
  * WAV ファイルを FAudioAsset にデコードするローダ (dr_wav)。
  */
-class WavAssetLoader  final : public IAssetLoader {
+class FWavAssetLoader  final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
@@ -149,13 +149,13 @@ public:
      * @param bytes WAV ファイル全体のバイト列。
      * @return 成功なら FAudioAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 /**
  * MP3 ファイルを FAudioAsset にデコードするローダ (dr_mp3)。
  */
-class Mp3AssetLoader  final : public IAssetLoader {
+class FMp3AssetLoader  final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
@@ -178,13 +178,13 @@ public:
      * @param bytes MP3 ファイル全体のバイト列。
      * @return 成功なら FAudioAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 /**
  * FLAC ファイルを FAudioAsset にデコードするローダ (dr_flac)。
  */
-class FlacAssetLoader final : public IAssetLoader {
+class FFlacAssetLoader final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
@@ -207,13 +207,13 @@ public:
      * @param bytes FLAC ファイル全体のバイト列。
      * @return 成功なら FAudioAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 /**
  * OGG Vorbis ファイルを FAudioAsset にデコードするローダ (stb_vorbis)。
  */
-class OggAssetLoader  final : public IAssetLoader {
+class FOggAssetLoader  final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
@@ -236,7 +236,7 @@ public:
      * @param bytes OGG ファイル全体のバイト列。
      * @return 成功なら FAudioAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 } // namespace acs

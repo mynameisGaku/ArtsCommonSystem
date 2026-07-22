@@ -10,7 +10,7 @@
 //   ・**FCinematicsDirector 自身は描画 / カメラ / 音 を直接いじらない**:
 //      FDamageFeedback と同じ「副作用ゼロ / pull or callback」方針。発火は
 //      関数ポインタ + void* user で type-erase した callback 経由で行い、
-//      実際のカメラ移動 / ダイアログ起動 / BGM 切替は caller (Scene / UI 層 /
+//      実際のカメラ移動 / ダイアログ起動 / BGM 切替は caller (FScene / UI 層 /
 //      FAudioDirector) の責任。これで GameFramework から FRenderer / FCamera /
 //      Audio / Dialogue への直接依存を切る。
 //   ・**FTimelineKeyframe は POD union**: STL の variant は使えないので、
@@ -38,10 +38,10 @@
 //   ・**Skip 中の callback 発火**: Skip は「残り全 keyframe を即座に発火」を
 //      意味するので、Skip 内で callback を呼ぶ。発火順は time 昇順を維持。
 //   ・**非コピー・非ムーブ**: state の唯一性 (現在 m_Time / m_LastFiredIndex)
-//      を担保するため機械的に禁止。Scene にメンバとして 1 個埋め込む想定。
+//      を担保するため機械的に禁止。FScene にメンバとして 1 個埋め込む想定。
 //
 // 使い方:
-//   class OpeningScene : public Scene {
+//   class FOpeningScene : public FScene {
 //       FCinematicsDirector m_Cine;
 //       void OnEnter() noexcept override {
 //           FTimelineKeyframe kf;
@@ -60,9 +60,9 @@
 //           kf.payload.dialogue = {"line_intro_001"};
 //           m_Cine.AddKeyframe(kf);
 //
-//           m_Cine.SetCameraCallback(&OpeningScene::DoMoveCamera, this);
-//           m_Cine.SetDialogueCallback(&OpeningScene::DoShowDialogue, this);
-//           m_Cine.SetMusicCallback(&OpeningScene::DoPlayMusic, this);
+//           m_Cine.SetCameraCallback(&FOpeningScene::DoMoveCamera, this);
+//           m_Cine.SetDialogueCallback(&FOpeningScene::DoShowDialogue, this);
+//           m_Cine.SetMusicCallback(&FOpeningScene::DoPlayMusic, this);
 //           m_Cine.Play();
 //       }
 //       void OnUpdate(f32 dt) noexcept override { m_Cine.Tick(dt); }
@@ -70,7 +70,7 @@
 //
 // 範囲外:
 //   ・並列タイムライン (現状は単一タイムラインのみ、複数を別 Director で運用)
-//   ・keyframe の補間 / カーブ (現状は単発発火、補間は callback 側で FTween に任せる)
+//   ・keyframe の補間 / カーブ (現状は単発発火、補間は callback 側で FTweenManager に任せる)
 //   ・タイムラインの巻き戻し / scrub (オーサリング用、ランタイムには不要)
 //   ・条件分岐タイムライン (FDialogueSystem の choices で代用)
 #pragma once
@@ -116,7 +116,7 @@ struct FTimelineKeyframe {
     ETimelineTrackKind kind     = ETimelineTrackKind::Wait;
 
     /** kind 別 payload (active な kind のフィールドのみ有効)。 */
-    union Payload {
+    union FPayload {
         /** MoveCamera 用 payload。 */
         struct {
             /** カメラを向けたい world 座標。 */
@@ -125,7 +125,7 @@ struct FTimelineKeyframe {
             /** 目標 zoom 倍率 (1.0 = 等倍)。 */
             f32  zoom;
 
-            /** カメラ移動にかける秒数 (caller が FTween 等で消化)。 */
+            /** カメラ移動にかける秒数 (caller が FTweenManager 等で消化)。 */
             f32  duration;
         } camera;
 
@@ -151,7 +151,7 @@ struct FTimelineKeyframe {
         } event;
 
         /** デフォルトは event を 0 で初期化する。 */
-        Payload() noexcept : event{0} {}
+        FPayload() noexcept : event{0} {}
     } payload;
 
     /** Wait kind / 全 payload 0 の keyframe を構築する。 */
@@ -237,7 +237,7 @@ public:
     /**
      * 全 keyframe と再生状態を破棄する。
      *
-     * @details Scene::OnExit 等で使う。
+     * @details FScene::OnExit 等で使う。
      */
     void Clear() noexcept;
 

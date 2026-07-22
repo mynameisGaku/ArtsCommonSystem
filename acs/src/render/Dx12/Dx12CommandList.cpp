@@ -27,23 +27,37 @@ D3D12_PRIMITIVE_TOPOLOGY ToD3DPrimitive(EPrimitiveTopology t) noexcept {
     return D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
 }
 
+void TransitionTexture(ID3D12GraphicsCommandList* cmd, FDx12Texture& texture,
+                       D3D12_RESOURCE_STATES target) noexcept {
+    if (!cmd || !texture.Resource() || texture.CurrentState() == target) return;
+    D3D12_RESOURCE_BARRIER barrier{};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition.pResource = texture.Resource();
+    barrier.Transition.StateBefore = texture.CurrentState();
+    barrier.Transition.StateAfter = target;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    cmd->ResourceBarrier(1, &barrier);
+    texture.SetCurrentState(target);
+}
+
 } // namespace
 
-Dx12CommandList::~Dx12CommandList() noexcept {
+FDx12CommandList::~FDx12CommandList() noexcept {
     Reset(true);
 }
 
-void Dx12CommandList::Reset(bool wait_for_gpu) noexcept
+void FDx12CommandList::Reset(bool wait_for_gpu) noexcept
 {
     // 全 fence の完了を待ってから破棄しないと、投入中のコマンドが
     // 解放済みアロケータを参照する。Init 途中の失敗時は待機不要。
     if (wait_for_gpu && m_Device) {
-        for (u32 i = 0; i < Dx12Device::kFramesInFlight; ++i) {
+        for (u32 i = 0; i < FDx12Device::kFramesInFlight; ++i) {
             m_Device->WaitForFenceValue(m_FrameFences[i]);
         }
     }
+    ResetGpuTiming();
     ACS_SAFE_RELEASE(m_CmdList);
-    for (u32 i = 0; i < Dx12Device::kFramesInFlight; ++i) {
+    for (u32 i = 0; i < FDx12Device::kFramesInFlight; ++i) {
         ACS_SAFE_RELEASE(_allocators[i]);
         m_FrameFences[i] = 0;
     }
@@ -53,8 +67,29 @@ void Dx12CommandList::Reset(bool wait_for_gpu) noexcept
     m_BackbufferIsRt = false;
 }
 
-HrResult Dx12CommandList::Init(Dx12Device& device) noexcept {
-    HrResult r{};
+void FDx12CommandList::ResetGpuTiming() noexcept {
+    if (m_GpuTimestampReadback != nullptr &&
+        m_GpuTimestampReadbackData != nullptr) {
+        D3D12_RANGE written_range{0, 0};
+        m_GpuTimestampReadback->Unmap(0, &written_range);
+    }
+    m_GpuTimestampReadbackData = nullptr;
+    ACS_SAFE_RELEASE(m_GpuTimestampReadback);
+    ACS_SAFE_RELEASE(m_GpuTimestampHeap);
+    m_GpuTimestampFrequency = 0;
+    for (u32 slot = 0; slot < kGpuTimingFrameSlots; ++slot)
+        m_GpuTimingSlots[slot] = {};
+    m_LatestGpuTiming = {};
+    m_GpuTimingRecordingSlot = 0;
+    m_GpuTimingActiveBegin = kInvalidGpuTimingQuery;
+    m_GpuTimingActivePass = ERhiGpuTimingPass::Opaque;
+    m_GpuTimingSupported = false;
+    m_GpuTimingRecording = false;
+    m_GpuTimingScopeActive = false;
+}
+
+FHrResult FDx12CommandList::Init(FDx12Device& device) noexcept {
+    FHrResult r{};
     Reset(true);
     if (!device.D3DDevice() || !device.GraphicsQueue()) {
         r.hr = E_INVALIDARG;
@@ -62,7 +97,7 @@ HrResult Dx12CommandList::Init(Dx12Device& device) noexcept {
     }
     m_Device = &device;
     // フレームインフライト数ぶんアロケータを作成（GPU/CPU 並列実行のため）
-    for (u32 i = 0; i < Dx12Device::kFramesInFlight; ++i) {
+    for (u32 i = 0; i < FDx12Device::kFramesInFlight; ++i) {
         r.hr = device.D3DDevice()->CreateCommandAllocator(
             D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&_allocators[i]));
         if (r.IsErr() || !_allocators[i]) {
@@ -81,14 +116,265 @@ HrResult Dx12CommandList::Init(Dx12Device& device) noexcept {
         return r;
     }
     r.hr = m_CmdList->Close(); // 作成時は Open 状態 → 閉じておく
-    if (r.IsErr()) Reset(false);
+    if (r.IsErr()) {
+        Reset(false);
+        return r;
+    }
+
+    static_assert(
+        kGpuTimingFrameSlots == FDx12Device::kFramesInFlight,
+        "GPU timing slots must follow the DX12 frame ring");
+    D3D12_QUERY_HEAP_DESC query_heap_desc{};
+    query_heap_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    query_heap_desc.Count =
+        kGpuTimingFrameSlots * kGpuTimingQueriesPerSlot;
+    if (SUCCEEDED(device.D3DDevice()->CreateQueryHeap(
+            &query_heap_desc,
+            __uuidof(ID3D12QueryHeap),
+            reinterpret_cast<void**>(&m_GpuTimestampHeap)))) {
+        D3D12_HEAP_PROPERTIES heap_properties{};
+        heap_properties.Type = D3D12_HEAP_TYPE_READBACK;
+        heap_properties.CPUPageProperty =
+            D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+        heap_properties.MemoryPoolPreference =
+            D3D12_MEMORY_POOL_UNKNOWN;
+        heap_properties.CreationNodeMask = 1;
+        heap_properties.VisibleNodeMask = 1;
+
+        D3D12_RESOURCE_DESC readback_desc{};
+        readback_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        readback_desc.Width =
+            static_cast<u64>(query_heap_desc.Count) * sizeof(u64);
+        readback_desc.Height = 1;
+        readback_desc.DepthOrArraySize = 1;
+        readback_desc.MipLevels = 1;
+        readback_desc.Format = DXGI_FORMAT_UNKNOWN;
+        readback_desc.SampleDesc.Count = 1;
+        readback_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+        if (SUCCEEDED(device.D3DDevice()->CreateCommittedResource(
+                &heap_properties,
+                D3D12_HEAP_FLAG_NONE,
+                &readback_desc,
+                D3D12_RESOURCE_STATE_COPY_DEST,
+                nullptr,
+                __uuidof(ID3D12Resource),
+                reinterpret_cast<void**>(
+                    &m_GpuTimestampReadback))) &&
+            SUCCEEDED(device.GraphicsQueue()->GetTimestampFrequency(
+                &m_GpuTimestampFrequency)) &&
+            m_GpuTimestampFrequency != 0) {
+            D3D12_RANGE read_range{
+                0,
+                static_cast<SIZE_T>(readback_desc.Width)};
+            if (SUCCEEDED(m_GpuTimestampReadback->Map(
+                    0,
+                    &read_range,
+                    reinterpret_cast<void**>(
+                        &m_GpuTimestampReadbackData)))) {
+                m_GpuTimingSupported = true;
+            }
+        }
+    }
+    if (!m_GpuTimingSupported) ResetGpuTiming();
     return r;
 }
 
-void Dx12CommandList::Begin() noexcept {
+void FDx12CommandList::CollectGpuTiming(u32 slot) noexcept {
+    if (!m_GpuTimingSupported || slot >= kGpuTimingFrameSlots ||
+        m_GpuTimestampReadbackData == nullptr ||
+        m_GpuTimestampFrequency == 0) {
+        return;
+    }
+    FGpuTimingSlot& timing_slot = m_GpuTimingSlots[slot];
+    if (!timing_slot.pending ||
+        timing_slot.query_count < 2 ||
+        timing_slot.query_count > kGpuTimingQueriesPerSlot) {
+        return;
+    }
+
+    const u32 base = slot * kGpuTimingQueriesPerSlot;
+    const u64* data = m_GpuTimestampReadbackData + base;
+    auto elapsed_ms = [this, data](u32 begin, u32 end) noexcept {
+        if (end < begin || data[end] < data[begin])
+            return -1.0f;
+        return static_cast<f32>(
+            (static_cast<double>(data[end] - data[begin]) * 1000.0) /
+            static_cast<double>(m_GpuTimestampFrequency));
+    };
+
+    FRhiGpuTimingSnapshot completed{};
+    completed.frame_index = timing_slot.frame_index;
+    completed.frame_ms =
+        elapsed_ms(0, timing_slot.query_count - 1);
+    if (completed.frame_ms >= 0.0f) {
+        completed.valid = true;
+        completed.opaque_ms = 0.0f;
+        completed.atmosphere_ms = 0.0f;
+        completed.cloud_ms = 0.0f;
+        completed.fog_ms = 0.0f;
+        completed.post_ms = 0.0f;
+        for (u32 segment_index = 0;
+             segment_index < timing_slot.segment_count;
+             ++segment_index) {
+            const FGpuTimingSegment& segment =
+                timing_slot.segments[segment_index];
+            if (segment.begin_query >= timing_slot.query_count ||
+                segment.end_query >= timing_slot.query_count) {
+                continue;
+            }
+            const f32 elapsed =
+                elapsed_ms(segment.begin_query, segment.end_query);
+            if (elapsed < 0.0f) continue;
+            switch (segment.pass) {
+                case ERhiGpuTimingPass::Opaque:
+                    completed.opaque_ms += elapsed;
+                    break;
+                case ERhiGpuTimingPass::Atmosphere:
+                    completed.atmosphere_ms += elapsed;
+                    break;
+                case ERhiGpuTimingPass::Cloud:
+                    completed.cloud_ms += elapsed;
+                    break;
+                case ERhiGpuTimingPass::Fog:
+                    completed.fog_ms += elapsed;
+                    break;
+                case ERhiGpuTimingPass::Post:
+                    completed.post_ms += elapsed;
+                    break;
+                case ERhiGpuTimingPass::Count:
+                    break;
+            }
+        }
+        m_LatestGpuTiming = completed;
+    }
+
+    timing_slot.pending = false;
+    timing_slot.query_count = 0;
+    timing_slot.segment_count = 0;
+}
+
+u32 FDx12CommandList::EmitGpuTimestamp() noexcept {
+    if (!m_GpuTimingRecording || !_open ||
+        m_CmdList == nullptr ||
+        m_GpuTimestampHeap == nullptr ||
+        m_GpuTimingRecordingSlot >= kGpuTimingFrameSlots) {
+        return kInvalidGpuTimingQuery;
+    }
+    FGpuTimingSlot& slot =
+        m_GpuTimingSlots[m_GpuTimingRecordingSlot];
+    if (slot.query_count >= kGpuTimingQueriesPerSlot)
+        return kInvalidGpuTimingQuery;
+    const u32 local_index = slot.query_count++;
+    const u32 query_index =
+        m_GpuTimingRecordingSlot * kGpuTimingQueriesPerSlot +
+        local_index;
+    m_CmdList->EndQuery(
+        m_GpuTimestampHeap,
+        D3D12_QUERY_TYPE_TIMESTAMP,
+        query_index);
+    return local_index;
+}
+
+bool FDx12CommandList::BeginGpuTimingFrame(
+    u64 frame_index) noexcept
+{
+    if (!m_GpuTimingSupported || m_GpuTimingRecording ||
+        !_open || m_Device == nullptr) {
+        return false;
+    }
+    const u32 slot = m_Device->CurrentFrameSlot();
+    if (slot >= kGpuTimingFrameSlots) return false;
+    CollectGpuTiming(slot);
+    FGpuTimingSlot& timing_slot = m_GpuTimingSlots[slot];
+    if (timing_slot.pending) return false;
+
+    timing_slot = {};
+    timing_slot.frame_index = frame_index;
+    m_GpuTimingRecordingSlot = slot;
+    m_GpuTimingRecording = true;
+    m_GpuTimingScopeActive = false;
+    m_GpuTimingActiveBegin = kInvalidGpuTimingQuery;
+    if (EmitGpuTimestamp() == kInvalidGpuTimingQuery) {
+        m_GpuTimingRecording = false;
+        return false;
+    }
+    return true;
+}
+
+bool FDx12CommandList::BeginGpuTimingPass(
+    ERhiGpuTimingPass pass) noexcept
+{
+    if (!m_GpuTimingRecording || m_GpuTimingScopeActive ||
+        pass == ERhiGpuTimingPass::Count) {
+        return false;
+    }
+    FGpuTimingSlot& slot =
+        m_GpuTimingSlots[m_GpuTimingRecordingSlot];
+    if (slot.segment_count >= kGpuTimingSegmentsPerSlot ||
+        slot.query_count + 3u > kGpuTimingQueriesPerSlot) {
+        return false;
+    }
+    const u32 begin = EmitGpuTimestamp();
+    if (begin == kInvalidGpuTimingQuery) return false;
+    m_GpuTimingActiveBegin = begin;
+    m_GpuTimingActivePass = pass;
+    m_GpuTimingScopeActive = true;
+    return true;
+}
+
+void FDx12CommandList::EndGpuTimingPass() noexcept {
+    if (!m_GpuTimingRecording || !m_GpuTimingScopeActive) return;
+    const u32 end = EmitGpuTimestamp();
+    FGpuTimingSlot& slot =
+        m_GpuTimingSlots[m_GpuTimingRecordingSlot];
+    if (end != kInvalidGpuTimingQuery &&
+        slot.segment_count < kGpuTimingSegmentsPerSlot) {
+        slot.segments[slot.segment_count++] = FGpuTimingSegment{
+            m_GpuTimingActivePass,
+            m_GpuTimingActiveBegin,
+            end};
+    }
+    m_GpuTimingScopeActive = false;
+    m_GpuTimingActiveBegin = kInvalidGpuTimingQuery;
+}
+
+void FDx12CommandList::EndGpuTimingFrame() noexcept {
+    if (!m_GpuTimingRecording) return;
+    if (m_GpuTimingScopeActive) EndGpuTimingPass();
+    FGpuTimingSlot& slot =
+        m_GpuTimingSlots[m_GpuTimingRecordingSlot];
+    const u32 end = EmitGpuTimestamp();
+    slot.pending =
+        end != kInvalidGpuTimingQuery && slot.query_count >= 2u;
+    if (slot.pending) {
+        const u32 base =
+            m_GpuTimingRecordingSlot * kGpuTimingQueriesPerSlot;
+        m_CmdList->ResolveQueryData(
+            m_GpuTimestampHeap,
+            D3D12_QUERY_TYPE_TIMESTAMP,
+            base,
+            slot.query_count,
+            m_GpuTimestampReadback,
+            static_cast<u64>(base) * sizeof(u64));
+    } else {
+        slot.query_count = 0;
+        slot.segment_count = 0;
+    }
+    m_GpuTimingRecording = false;
+}
+
+bool FDx12CommandList::TryGetGpuTiming(
+    FRhiGpuTimingSnapshot& out_snapshot) const noexcept
+{
+    out_snapshot = m_LatestGpuTiming;
+    return out_snapshot.valid;
+}
+
+void FDx12CommandList::Begin() noexcept {
     if (!m_Device || !m_CmdList) return;
     const u32 slot = m_Device->CurrentFrameSlot();
-    if (slot >= Dx12Device::kFramesInFlight || !_allocators[slot]) return;
+    if (slot >= FDx12Device::kFramesInFlight || !_allocators[slot]) return;
 
     m_BoundPipe = nullptr;
     m_BackbufferIsRt = false;
@@ -104,20 +390,20 @@ void Dx12CommandList::Begin() noexcept {
     _open = true;
 }
 
-void Dx12CommandList::End() noexcept {
+void FDx12CommandList::End() noexcept {
     if (!_open || !m_CmdList) return;
     (void)m_CmdList->Close();
     _open = false;
 }
 
-void Dx12CommandList::Submit() noexcept {
+void FDx12CommandList::Submit() noexcept {
     if (!m_Device || !m_CmdList || !m_Device->GraphicsQueue()) return;
     if (_open) End();
     ID3D12CommandList* lists[] = { m_CmdList };
     m_Device->GraphicsQueue()->ExecuteCommandLists(1, lists);
 
     const u32 cur_slot  = m_Device->CurrentFrameSlot();
-    const u32 next_slot = (cur_slot + 1) % Dx12Device::kFramesInFlight;
+    const u32 next_slot = (cur_slot + 1) % FDx12Device::kFramesInFlight;
 
     // 1) このフレームの GPU 完了を fence に Signal
     m_FrameFences[cur_slot] = m_Device->SignalGraphicsQueue();
@@ -131,11 +417,11 @@ void Dx12CommandList::Submit() noexcept {
     m_Device->AdvanceFrameSlot();
 }
 
-void Dx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index,
-                                              const ClearColor& clear,
+void FDx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index,
+                                              const FClearColor& clear,
                                               IRhiTexture* depth,
                                               f32 depth_clear) noexcept {
-    auto& dx_sc = static_cast<Dx12Swapchain&>(sc);
+    auto& dx_sc = static_cast<FDx12Swapchain&>(sc);
     ID3D12Resource* rt = dx_sc.BackBuffer(buffer_index);
     if (rt == nullptr) {
         // バックバッファ未取得 (Resize 失敗直後 / 範囲外 index)。null リソースで
@@ -161,10 +447,10 @@ void Dx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index
     const D3D12_CPU_DESCRIPTOR_HANDLE rtv = dx_sc.BackBufferRTV(buffer_index);
 
     // 深度バッファのバインド + クリア
-    Dx12Texture* dx_depth = nullptr;
+    FDx12Texture* dx_depth = nullptr;
     D3D12_CPU_DESCRIPTOR_HANDLE dsv{};
     if (depth) {
-        dx_depth = static_cast<Dx12Texture*>(depth);
+        dx_depth = static_cast<FDx12Texture*>(depth);
         if (dx_depth->IsDepth()) {
             dsv = dx_depth->DsvCpuHandle();
             m_CmdList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
@@ -198,9 +484,9 @@ void Dx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index
     m_CmdList->RSSetScissorRects(1, &sr);
 }
 
-void Dx12CommandList::EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index) noexcept {
+void FDx12CommandList::EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index) noexcept {
     if (!m_BackbufferIsRt) return;   // 既に PRESENT 状態 (二重 End 防止)
-    auto& dx_sc = static_cast<Dx12Swapchain&>(sc);
+    auto& dx_sc = static_cast<FDx12Swapchain&>(sc);
     ID3D12Resource* rt = dx_sc.BackBuffer(buffer_index);
     if (rt == nullptr) {             // 念のため: バックバッファ未取得なら状態だけ戻す
         m_BackbufferIsRt = false;
@@ -217,8 +503,8 @@ void Dx12CommandList::EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index) 
     m_BackbufferIsRt = false;
 }
 
-void Dx12CommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) noexcept {
-    auto& dx_depth = static_cast<Dx12Texture&>(depth);
+void FDx12CommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) noexcept {
+    auto& dx_depth = static_cast<FDx12Texture&>(depth);
     if (!dx_depth.IsDepth()) return;
 
     // 必要なら状態を DEPTH_WRITE に遷移
@@ -255,8 +541,8 @@ void Dx12CommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) noexc
 // オフスクリーン RT 用 API。RT を RENDER_TARGET に遷移し OMSetRenderTargets で bind、
 // viewport / scissor を RT サイズに合わせる。do_clear で clear の有無を切替 (load 版)。
 namespace {
-void BindOffscreenRT(ID3D12GraphicsCommandList* cmd, Dx12Texture& rt, IRhiTexture* depth,
-                     bool do_clear, const ClearColor& clear, f32 depth_clear) noexcept {
+void BindOffscreenRT(ID3D12GraphicsCommandList* cmd, FDx12Texture& rt, IRhiTexture* depth,
+                     bool do_clear, const FClearColor& clear, f32 depth_clear) noexcept {
     if (rt.CurrentState() != D3D12_RESOURCE_STATE_RENDER_TARGET) {
         D3D12_RESOURCE_BARRIER b{};
         b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -269,7 +555,7 @@ void BindOffscreenRT(ID3D12GraphicsCommandList* cmd, Dx12Texture& rt, IRhiTextur
     }
 
     const D3D12_CPU_DESCRIPTOR_HANDLE rtv = rt.RtvCpuHandle();
-    Dx12Texture* dx_depth = depth ? static_cast<Dx12Texture*>(depth) : nullptr;
+    FDx12Texture* dx_depth = depth ? static_cast<FDx12Texture*>(depth) : nullptr;
     if (dx_depth && dx_depth->IsDepth()) {
         if (dx_depth->CurrentState() != D3D12_RESOURCE_STATE_DEPTH_WRITE) {
             D3D12_RESOURCE_BARRIER b{};
@@ -312,16 +598,16 @@ void BindOffscreenRT(ID3D12GraphicsCommandList* cmd, Dx12Texture& rt, IRhiTextur
 }
 } // namespace
 
-void Dx12CommandList::BeginRenderToTexture(IRhiTexture& rt, const ClearColor& clear,
+void FDx12CommandList::BeginRenderToTexture(IRhiTexture& rt, const FClearColor& clear,
                                             IRhiTexture* depth, f32 depth_clear) noexcept {
-    auto& dx_rt = static_cast<Dx12Texture&>(rt);
+    auto& dx_rt = static_cast<FDx12Texture&>(rt);
     if (!dx_rt.HasRtv()) return;       // is_render_target=true で作成された RT のみ
     BindOffscreenRT(m_CmdList, dx_rt, depth, true, clear, depth_clear);
     m_BoundPipe = nullptr;             // パイプライン再 bind を強制
 }
 
-void Dx12CommandList::EndRenderToTexture(IRhiTexture& rt) noexcept {
-    auto& dx_rt = static_cast<Dx12Texture&>(rt);
+void FDx12CommandList::EndRenderToTexture(IRhiTexture& rt) noexcept {
+    auto& dx_rt = static_cast<FDx12Texture&>(rt);
     if (!dx_rt.HasRtv()) return;
     if (dx_rt.CurrentState() != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) {
         D3D12_RESOURCE_BARRIER b{};
@@ -337,9 +623,9 @@ void Dx12CommandList::EndRenderToTexture(IRhiTexture& rt) noexcept {
 
 // MSAA RT をバックバッファへ ResolveSubresource で解決する。
 // 解決後バックバッファは RENDER_TARGET へ戻し、EndRenderToSwapchain (RT→PRESENT) と整合させる。
-void Dx12CommandList::ResolveToSwapchain(IRhiTexture& src, IRhiSwapchain& sc, u32 buffer_index) noexcept {
-    auto& dx_src = static_cast<Dx12Texture&>(src);
-    auto& dx_sc  = static_cast<Dx12Swapchain&>(sc);
+void FDx12CommandList::ResolveToSwapchain(IRhiTexture& src, IRhiSwapchain& sc, u32 buffer_index) noexcept {
+    auto& dx_src = static_cast<FDx12Texture&>(src);
+    auto& dx_sc  = static_cast<FDx12Swapchain&>(sc);
     ID3D12Resource* bb = dx_sc.BackBuffer(buffer_index);
     if (bb == nullptr || dx_src.Resource() == nullptr || dx_src.SampleCount() <= 1) return;
 
@@ -363,7 +649,7 @@ void Dx12CommandList::ResolveToSwapchain(IRhiTexture& src, IRhiSwapchain& sc, u3
     ++n;
     m_CmdList->ResourceBarrier(n, b);
 
-    m_CmdList->ResolveSubresource(bb, 0, dx_src.Resource(), 0, ToDxgiFormat(dx_src.EPixelFormat()));
+    m_CmdList->ResolveSubresource(bb, 0, dx_src.Resource(), 0, ToDxgiFormat(dx_src.PixelFormat()));
 
     D3D12_RESOURCE_BARRIER back{};
     back.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -376,19 +662,19 @@ void Dx12CommandList::ResolveToSwapchain(IRhiTexture& src, IRhiSwapchain& sc, u3
 }
 
 // SS 屈折用の load 版 (clear せず再 bind)。
-void Dx12CommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
+void FDx12CommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
                                                 IRhiTexture* depth) noexcept {
-    auto& dx_rt = static_cast<Dx12Texture&>(rt);
+    auto& dx_rt = static_cast<FDx12Texture&>(rt);
     if (!dx_rt.HasRtv()) return;
-    BindOffscreenRT(m_CmdList, dx_rt, depth, false, ClearColor{0, 0, 0, 1}, 1.0f);
+    BindOffscreenRT(m_CmdList, dx_rt, depth, false, FClearColor{0, 0, 0, 1}, 1.0f);
     m_BoundPipe = nullptr;
 }
 
 // cubemap 1 面 / 配列 1 スライス / 1 mip に描画する (per_slice_rtv=true で作成された RT 用)。
 // IBL の env/irradiance/prefilter cube の各面・各 roughness mip を焼くのに使う。
-void Dx12CommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
-                                                 const ClearColor& clear) noexcept {
-    auto& dx_rt = static_cast<Dx12Texture&>(rt);
+void FDx12CommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
+                                                 const FClearColor& clear) noexcept {
+    auto& dx_rt = static_cast<FDx12Texture&>(rt);
     if (!dx_rt.HasRtv()) return;  // per_slice_rtv=true で作成された RT のみ
 
     const D3D12_CPU_DESCRIPTOR_HANDLE rtv = dx_rt.RtvCpuHandleForSlice(slice, mip);
@@ -428,21 +714,100 @@ void Dx12CommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 
     m_BoundPipe = nullptr;  // パイプライン再 bind を強制 (BeginRenderToTexture と同様)
 }
 
-// MRT も同様、Diligent 専用。Dx12 raw では stub。
-// 誤って Dx12 raw backend で MRT を呼んだケースを log で検出可能にする。
-void Dx12CommandList::BeginRenderToTextureMrt(IRhiTexture* const* /*rts*/, u32 /*rt_count*/,
-                                                const ClearColor& /*clear*/,
-                                                IRhiTexture* /*depth*/, f32 /*depth_clear*/) noexcept {
-    static bool warned_once = false;
-    if (!warned_once) {
-        ACS_LOG_WARN("Dx12CommandList::BeginRenderToTextureMrt is not implemented for raw DX12 "
-                     "backend (Phase 34d-2 is Diligent-only). Build with -DACS_RENDER_DILIGENT=ON.");
-        warned_once = true;
+// 複数 RT を同時に bind する。各 RT は同一寸法で、有効な RTV を持つことが必須。
+void FDx12CommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count,
+                                               const FClearColor& clear,
+                                               IRhiTexture* depth, f32 depth_clear) noexcept {
+    if (!m_CmdList || !rts || rt_count == 0u || rt_count > 8u) return;
+
+    FDx12Texture* textures[8]{};
+    D3D12_CPU_DESCRIPTOR_HANDLE rtvs[8]{};
+    D3D12_RESOURCE_BARRIER barriers[9]{};
+    u32 barrier_count = 0u;
+    u32 width = 0u;
+    u32 height = 0u;
+
+    for (u32 i = 0; i < rt_count; ++i) {
+        if (!rts[i]) return;
+        auto& rt = static_cast<FDx12Texture&>(*rts[i]);
+        if (!rt.HasRtv() || !rt.Resource()) return;
+        if (i == 0u) {
+            width = rt.Width();
+            height = rt.Height();
+        } else if (rt.Width() != width || rt.Height() != height) {
+            ACS_LOG_WARN("Dx12CommandList::BeginRenderToTextureMrt: RT %u size "
+                         "%ux%u != RT0 %ux%u",
+                         i, rt.Width(), rt.Height(), width, height);
+            return;
+        }
+        textures[i] = &rt;
+        rtvs[i] = rt.RtvCpuHandle();
     }
+
+    for (u32 i = 0; i < rt_count; ++i) {
+        auto& rt = *textures[i];
+        if (rt.CurrentState() != D3D12_RESOURCE_STATE_RENDER_TARGET) {
+            auto& barrier = barriers[barrier_count++];
+            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Transition.pResource = rt.Resource();
+            barrier.Transition.StateBefore = rt.CurrentState();
+            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            rt.SetCurrentState(D3D12_RESOURCE_STATE_RENDER_TARGET);
+        }
+    }
+
+    FDx12Texture* dx_depth =
+        depth ? static_cast<FDx12Texture*>(depth) : nullptr;
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv{};
+    if (dx_depth && dx_depth->IsDepth()) {
+        if (dx_depth->CurrentState() != D3D12_RESOURCE_STATE_DEPTH_WRITE) {
+            auto& barrier = barriers[barrier_count++];
+            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Transition.pResource = dx_depth->Resource();
+            barrier.Transition.StateBefore = dx_depth->CurrentState();
+            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            dx_depth->SetCurrentState(D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        }
+        dsv = dx_depth->DsvCpuHandle();
+    } else {
+        dx_depth = nullptr;
+    }
+
+    if (barrier_count > 0u) {
+        m_CmdList->ResourceBarrier(barrier_count, barriers);
+    }
+    m_CmdList->OMSetRenderTargets(
+        rt_count, rtvs, FALSE, dx_depth ? &dsv : nullptr);
+
+    const FLOAT color[4] = {clear.r, clear.g, clear.b, clear.a};
+    for (u32 i = 0; i < rt_count; ++i) {
+        m_CmdList->ClearRenderTargetView(rtvs[i], color, 0, nullptr);
+    }
+    if (dx_depth) {
+        UINT clear_flags = D3D12_CLEAR_FLAG_DEPTH;
+        if (dx_depth->HasStencil()) clear_flags |= D3D12_CLEAR_FLAG_STENCIL;
+        m_CmdList->ClearDepthStencilView(
+            dsv, static_cast<D3D12_CLEAR_FLAGS>(clear_flags),
+            depth_clear, 0, 0, nullptr);
+    }
+
+    D3D12_VIEWPORT viewport{};
+    viewport.Width = static_cast<f32>(width);
+    viewport.Height = static_cast<f32>(height);
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+    m_CmdList->RSSetViewports(1, &viewport);
+    D3D12_RECT scissor{};
+    scissor.right = static_cast<i32>(width);
+    scissor.bottom = static_cast<i32>(height);
+    m_CmdList->RSSetScissorRects(1, &scissor);
+    m_BoundPipe = nullptr;
 }
 
-void Dx12CommandList::EndShadowPass(IRhiTexture& depth) noexcept {
-    auto& dx_depth = static_cast<Dx12Texture&>(depth);
+void FDx12CommandList::EndShadowPass(IRhiTexture& depth) noexcept {
+    auto& dx_depth = static_cast<FDx12Texture&>(depth);
     if (!dx_depth.IsDepth() || !dx_depth.HasSrv()) return;
 
     if (dx_depth.CurrentState() != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) {
@@ -457,7 +822,7 @@ void Dx12CommandList::EndShadowPass(IRhiTexture& depth) noexcept {
     }
 }
 
-void Dx12CommandList::SetViewport(const FViewport& vp) noexcept {
+void FDx12CommandList::SetViewport(const FViewport& vp) noexcept {
     D3D12_VIEWPORT v{};
     v.TopLeftX = vp.x;
     v.TopLeftY = vp.y;
@@ -468,27 +833,31 @@ void Dx12CommandList::SetViewport(const FViewport& vp) noexcept {
     m_CmdList->RSSetViewports(1, &v);
 }
 
-void Dx12CommandList::SetScissor(const FScissorRect& sr) noexcept {
+void FDx12CommandList::SetScissor(const FScissorRect& sr) noexcept {
     D3D12_RECT r{};
     r.left = sr.left; r.top = sr.top;
     r.right = sr.right; r.bottom = sr.bottom;
     m_CmdList->RSSetScissorRects(1, &r);
 }
 
-void Dx12CommandList::SetStencilRef(u32 ref) noexcept {
+void FDx12CommandList::SetStencilRef(u32 ref) noexcept {
     m_CmdList->OMSetStencilRef(ref);
 }
 
-void Dx12CommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {
-    auto& p = static_cast<Dx12Pipeline&>(pipeline);
+void FDx12CommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {
+    auto& p = static_cast<FDx12Pipeline&>(pipeline);
+    if (p.IsCompute()) {
+        SetComputePipeline(pipeline);
+        return;
+    }
     m_CmdList->SetPipelineState(p.Pso());
     m_CmdList->SetGraphicsRootSignature(p.RootSignature());
     m_CmdList->IASetPrimitiveTopology(ToD3DPrimitive(p.Topology()));
     m_BoundPipe = &p;
 }
 
-void Dx12CommandList::SetVertexBuffer(IRhiBuffer& vb, u32 stride) noexcept {
-    auto& b = static_cast<Dx12Buffer&>(vb);
+void FDx12CommandList::SetVertexBuffer(IRhiBuffer& vb, u32 stride) noexcept {
+    auto& b = static_cast<FDx12Buffer&>(vb);
     D3D12_VERTEX_BUFFER_VIEW v{};
     v.BufferLocation = b.Gpu();
     v.SizeInBytes    = static_cast<UINT>(b.Size());
@@ -496,8 +865,8 @@ void Dx12CommandList::SetVertexBuffer(IRhiBuffer& vb, u32 stride) noexcept {
     m_CmdList->IASetVertexBuffers(0, 1, &v);
 }
 
-void Dx12CommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
-    auto& b = static_cast<Dx12Buffer&>(ib);
+void FDx12CommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
+    auto& b = static_cast<FDx12Buffer&>(ib);
     D3D12_INDEX_BUFFER_VIEW v{};
     v.BufferLocation = b.Gpu();
     v.SizeInBytes    = static_cast<UINT>(b.Size());
@@ -505,26 +874,71 @@ void Dx12CommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
     m_CmdList->IASetIndexBuffer(&v);
 }
 
-void Dx12CommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
+void FDx12CommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
     if (!m_BoundPipe || slot >= m_BoundPipe->CBufferSlots()) return;
-    auto& b = static_cast<Dx12Buffer&>(cb);
-    // ルートパラメータ index = slot（CBV はパラメータの先頭側に並べてある）
-    m_CmdList->SetGraphicsRootConstantBufferView(slot, b.Gpu());
+    auto& b = static_cast<FDx12Buffer&>(cb);
+    // 両シグネチャとも CBV が先頭に並ぶため、ルートパラメーター index は slot と一致する。
+    if (m_BoundPipe->IsCompute())
+        m_CmdList->SetComputeRootConstantBufferView(slot, b.Gpu());
+    else
+        m_CmdList->SetGraphicsRootConstantBufferView(slot, b.Gpu());
 }
 
-void Dx12CommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
+void FDx12CommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
     if (!m_BoundPipe || slot >= m_BoundPipe->TextureSlots()) return;
-    auto& t = static_cast<Dx12Texture&>(tex);
-    // ルートパラメータ index = cbuffer_slots + slot
+    auto& t = static_cast<FDx12Texture&>(tex);
+    if (!t.HasSrv()) return;
+    const D3D12_RESOURCE_STATES state = m_BoundPipe->IsCompute()
+        ? D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
+        : D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    TransitionTexture(m_CmdList, t, state);
     const u32 root_index = m_BoundPipe->CBufferSlots() + slot;
-    m_CmdList->SetGraphicsRootDescriptorTable(root_index, t.SrvGpuHandle());
+    if (m_BoundPipe->IsCompute())
+        m_CmdList->SetComputeRootDescriptorTable(root_index, t.SrvGpuHandle());
+    else
+        m_CmdList->SetGraphicsRootDescriptorTable(root_index, t.SrvGpuHandle());
 }
 
-void Dx12CommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {
+void FDx12CommandList::SetComputePipeline(IRhiPipeline& pipeline) noexcept {
+    auto& p = static_cast<FDx12Pipeline&>(pipeline);
+    if (!p.IsCompute() || !p.Pso() || !p.RootSignature()) return;
+    m_CmdList->SetPipelineState(p.Pso());
+    m_CmdList->SetComputeRootSignature(p.RootSignature());
+    m_BoundPipe = &p;
+}
+
+void FDx12CommandList::BindUav(u32 slot, IRhiTexture& tex) noexcept {
+    if (!m_BoundPipe || !m_BoundPipe->IsCompute() ||
+        slot >= m_BoundPipe->UavSlots()) return;
+    auto& t = static_cast<FDx12Texture&>(tex);
+    if (!t.HasUav()) return;
+    TransitionTexture(m_CmdList, t, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    const u32 root_index =
+        m_BoundPipe->CBufferSlots() + m_BoundPipe->TextureSlots() + slot;
+    m_CmdList->SetComputeRootDescriptorTable(root_index, t.UavGpuHandle());
+}
+
+void FDx12CommandList::Dispatch(u32 gx, u32 gy, u32 gz) noexcept {
+    if (!m_BoundPipe || !m_BoundPipe->IsCompute() ||
+        gx == 0 || gy == 0 || gz == 0) return;
+    RecordDispatch();
+    m_CmdList->Dispatch(gx, gy, gz);
+    // 後続の dispatch、transition、draw より前に全 UAV write を順序付ける。
+    D3D12_RESOURCE_BARRIER barrier{};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barrier.UAV.pResource = nullptr;
+    m_CmdList->ResourceBarrier(1, &barrier);
+}
+
+void FDx12CommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {
+    if (vertex_count == 0u) return;
+    RecordDraw(vertex_count);
     m_CmdList->DrawInstanced(vertex_count, 1, first_vertex, 0);
 }
 
-void Dx12CommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base_vertex) noexcept {
+void FDx12CommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base_vertex) noexcept {
+    if (index_count == 0u) return;
+    RecordDraw(index_count);
     m_CmdList->DrawIndexedInstanced(index_count, 1, first_index, base_vertex, 0);
 }
 
@@ -534,9 +948,9 @@ TResult<TUniquePtr<IRhiCommandList>> CreateRhiCommandList(IRhiDevice& device) no
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 20, "CreateRhiCommandList: device is not DX12");
-    Dx12Device* dxd = static_cast<Dx12Device*>(&device);
-    auto cl = MakeUnique<Dx12CommandList>();
-    const HrResult r = cl->Init(*dxd);
+    FDx12Device* dxd = static_cast<FDx12Device*>(&device);
+    auto cl = MakeUnique<FDx12CommandList>();
+    const FHrResult r = cl->Init(*dxd);
     if (r.IsErr()) {
         return ACS_ERR_OS(Render, 21, "Dx12CommandList::Init failed", static_cast<u32>(r.hr));
     }

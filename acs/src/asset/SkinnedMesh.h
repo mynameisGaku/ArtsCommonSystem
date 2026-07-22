@@ -118,7 +118,7 @@ struct FAnimation {
  *
  * @details MVP ではファイルからのパースは行わず、ランタイムでプログラム的にデータを構築して使う。
  */
-class FSkinnedMeshAsset : public Asset {
+class FSkinnedMeshAsset : public FAsset {
 public:
     ACS_ASSET_TYPE("FSkinnedMeshAsset")
 

@@ -13,4 +13,4 @@
 #include "HelloLocalizationApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(helloloc::HelloLocalizationApp)
+ACS_DEFINE_MAIN(helloloc::FHelloLocalizationApp)

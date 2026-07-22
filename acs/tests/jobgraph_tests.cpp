@@ -13,14 +13,14 @@ using namespace acs;
 
 namespace {
 
-struct JobCtx {
+struct FJobCtx {
     TAtomic<u32> counter{0};
     u32 captured_at_run[8] = {};   // 各 job が実行された時点でのカウンタ
     u32 my_index           = 0;
 };
 
 void RecordJob(void* user, u32 /*worker*/) noexcept {
-    auto* c = static_cast<JobCtx*>(user);
+    auto* c = static_cast<FJobCtx*>(user);
     u32 v = c->counter.FetchAdd(1);
     if (c->my_index < 8) c->captured_at_run[c->my_index] = v;
 }
@@ -31,9 +31,9 @@ ACS_TEST(FJobGraph, LinearChainExecutesInOrder) {
     auto ir = FThreadPool::Init(4);
     EXPECT_TRUE(ir.IsOk());
 
-    JobCtx ctx_a{}; ctx_a.my_index = 0;
-    JobCtx ctx_b{}; ctx_b.my_index = 1;
-    JobCtx ctx_c{}; ctx_c.my_index = 2;
+    FJobCtx ctx_a{}; ctx_a.my_index = 0;
+    FJobCtx ctx_b{}; ctx_b.my_index = 1;
+    FJobCtx ctx_c{}; ctx_c.my_index = 2;
 
     FJobGraph g;
     auto a = g.Add(&RecordJob, &ctx_a);
@@ -68,7 +68,7 @@ ACS_TEST(FJobGraph, ParallelJobsAllRun) {
     EXPECT_TRUE(ir.IsOk());
 
     constexpr u32 N = 16;
-    JobCtx ctxs[N];
+    FJobCtx ctxs[N];
     FJobGraph g;
     for (u32 i = 0; i < N; ++i) {
         ctxs[i].my_index = i;
@@ -89,13 +89,13 @@ ACS_TEST(FJobGraph, SubmitFailureFallsBackExactlyOnce)
     // ThreadPool が無い状態を確定させ、全 entry の投入失敗を決定的に起こす。
     FThreadPool::Shutdown();
 
-    JobCtx context_a{};
-    JobCtx context_b{};
-    JobCtx context_c{};
+    FJobCtx context_a{};
+    FJobCtx context_b{};
+    FJobCtx context_c{};
     FJobGraph graph;
-    JobHandle a = graph.Add(&RecordJob, &context_a);
-    JobHandle b = graph.Add(&RecordJob, &context_b);
-    JobHandle c = graph.Add(&RecordJob, &context_c);
+    FJobHandle a = graph.Add(&RecordJob, &context_a);
+    FJobHandle b = graph.Add(&RecordJob, &context_b);
+    FJobHandle c = graph.Add(&RecordJob, &context_c);
     c.DependOn(a);
     c.DependOn(b);
 
@@ -109,7 +109,7 @@ ACS_TEST(FJobGraph, SubmitFailureFallsBackExactlyOnce)
 
 // MessagePipe: Push / TryPop
 ACS_TEST(MessagePipe, BasicPushTryPop) {
-    MessagePipe<int> pipe;
+    TMessagePipe<int> pipe;
     pipe.Push(1);
     pipe.Push(2);
     pipe.Push(3);
@@ -124,7 +124,7 @@ ACS_TEST(MessagePipe, BasicPushTryPop) {
 
 // MessagePipe: Close で待機解除
 ACS_TEST(MessagePipe, CloseWakesWaiter) {
-    MessagePipe<int> pipe;
+    TMessagePipe<int> pipe;
     pipe.Close();
     int v = 0;
     EXPECT_FALSE(pipe.Pop(v));   // closed && empty → false

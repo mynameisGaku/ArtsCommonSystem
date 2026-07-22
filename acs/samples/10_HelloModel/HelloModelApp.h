@@ -13,7 +13,7 @@
 
 namespace hellomodel {
 
-class HelloModelApp : public acs::FApplication {
+class FHelloModelApp : public acs::FApplication {
 public:
     void OnStart()                noexcept override;
     void OnUpdate(acs::f32 dt)    noexcept override;
@@ -24,7 +24,7 @@ private:
     acs::FStandardShader m_Shader;
     acs::FAssetFuture    m_AsyncMesh;
     bool                m_bAsyncLoaded = false;
-    ModelScene          m_Scene;
+    FModelScene          m_Scene;
 };
 
 } // namespace hellomodel

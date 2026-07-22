@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — FAssetPack (`.acpak` 暗号化アーカイブ I/F stub)
+// GameFramework Pillar G — AssetPack (`.acpak` 暗号化アーカイブ I/F stub)
 //
 // 製品化に向けた「アセットのパッケージング + 暗号化」を担うエンジンモジュールの
 // シーム (seam) インターフェース。開発中はバラのファイル、出荷時は 1 つの
 // 不透明な `.acpak` にまとめ、ゲームコードを変えずに切り替えられる。
 //
-// 注: **本来は独立モジュール `ACS::FAssetPack` (`src/assetpack/`) を作る** が、
+// 注: **実装は独立モジュール `acs::assetpack` (`src/assetpack/`) に置き**、
 // GameFramework 内には interface stub のみを置く。AES-256-GCM 暗号 + LZ4 圧縮 +
 // 認証タグ検証 等の実体実装は独立モジュール側で行う。
 //
 // 使い方:
-//   class AssetLoader {
+//   class FAssetLoader {
 //       acs::game::IAssetPackReader* m_Pack = nullptr;
 //
 //       void OnStart() noexcept override {
@@ -30,7 +30,7 @@
 // 設計選択 (Pillar G):
 //   ・**シーム (= 純粋仮想 I/F) として抽象化**: AES-GCM / LZ4 / bcrypt (Windows CNG)
 //     依存は重く、それらをリンクしないテストビルドでも本 I/F だけは常に提供する。
-//     実装は別モジュール (将来の `ACS::FAssetPack`) で `IAssetPackReader` /
+//     実装は別モジュール (`acs::assetpack`) で `IAssetPackReader` /
 //     `IAssetPackWriter` を override する形を取る。
 //   ・**Reader / Writer を別 I/F に分離**: ランタイムは Reader しか要らず、Writer は
 //     ツール (パッキングコマンド) 側のみ使う。実装も別バイナリに分けやすくする。
@@ -40,9 +40,9 @@
 //   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は全 API を
 //     `ACS_ERR(Generic, kSubAssetPackNotImplemented, ...)` で返す。
 //   ・**Stub は static singleton で取得**: 依存ゼロのデフォルト実装として
-//     `GetReaderStub()` / `GetWriterStub()` を提供。実 FAssetPack 未統合の
+//     `GetReaderStub()` / `GetWriterStub()` を提供。実 AssetPack 未統合の
 //     ビルドでもポインタ DI だけでコンパイル可能。
-//   ・**実 FAssetPack 実装はここでは作らない**: GoldenAssetPackReader 等は AES-GCM
+//   ・**実 AssetPack 実装はここでは作らない**: FAcpakGameReader 等は AES-GCM
 //     CNG / LZ4 への依存を伴うため、本ファイルでは I/F + Stub のみ。
 //
 // 範囲外 (本ファイルでは持たない):
@@ -58,9 +58,9 @@
 
 namespace acs::game {
 
-// FErrorCode subcode 定義 (ErrCategory::Generic 配下)。
-// FSteamworksBridge (1001-1099) / FWorkshopBridge (1101-1199) と subcode 空間が
-// 重ならないよう、FAssetPack は 1200 番台を使う。
+// FErrorCode subcode 定義 (EErrCategory::Generic 配下)。
+// ISteamworksBridge (1001-1099) / IWorkshopBridge (1101-1199) と subcode 空間が
+// 重ならないよう、AssetPack は 1200 番台を使う。
 
 /** Stub による未実装を表す subcode (Mount/Read 等が返す)。 */
 inline constexpr u16 kSubAssetPackNotImplemented = 1201;
@@ -227,7 +227,7 @@ public:
 };
 
 /**
- * FAssetPack 未統合ビルド / ユニットテスト用の no-op な Reader 実装。
+ * AssetPack 未統合ビルド / ユニットテスト用の no-op な Reader 実装。
  *
  * @details
  * Mount() / FileCount() / FileName() / FileSize() / ReadFile() は全て
@@ -295,7 +295,7 @@ public:
 };
 
 /**
- * FAssetPack 未統合ビルド / ユニットテスト用の no-op な Writer 実装。
+ * AssetPack 未統合ビルド / ユニットテスト用の no-op な Writer 実装。
  *
  * @details 全 API が NotImplemented (kSubAssetPackNotImplemented) を返す。
  */

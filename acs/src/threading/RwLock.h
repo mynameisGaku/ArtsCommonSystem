@@ -23,19 +23,19 @@ namespace acs {
  * データのスループット向上に使う。Shared と Exclusive の再帰取得は不可で、公平性は
  * OS 任せ (書き込み starvation の可能性あり)。コピー不可。
  */
-class RwLock {
+class FRwLock {
 public:
     /** SRWLOCK を初期化して構築する。 */
-    RwLock() noexcept;
+    FRwLock() noexcept;
 
     /** 破棄する (SRWLOCK は明示的解放不要)。 */
-    ~RwLock() noexcept = default;
+    ~FRwLock() noexcept = default;
 
     /** コピー禁止。 */
-    RwLock(const RwLock&) = delete;
+    FRwLock(const FRwLock&) = delete;
 
     /** コピー代入も禁止。 */
-    RwLock& operator=(const RwLock&) = delete;
+    FRwLock& operator=(const FRwLock&) = delete;
 
     /** 共有 (読み取り) ロックを取得する (取得できるまでブロックする)。 */
     void LockShared()    noexcept;

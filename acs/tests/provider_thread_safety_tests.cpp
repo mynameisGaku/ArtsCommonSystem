@@ -49,10 +49,10 @@ IScriptVm& ProvideScriptVm() noexcept
 
 ISteamworksBridge& ProvideSteamworksBridge() noexcept
 {
-    return SteamworksBridgeStub::GetStub();
+    return FSteamworksBridgeStub::GetStub();
 }
 
-struct ProviderRaceContext {
+struct FProviderRaceContext {
     TAtomic<u32> Start{0u};
     TAtomic<u32> FailureCount{0u};
 };
@@ -74,7 +74,7 @@ ACS_TEST(GameFramework, DefaultProvidersSupportConcurrentRegistrationAndLookup)
 {
     constexpr usize kThreadCount = 8u;
     constexpr usize kIterationCount = 20000u;
-    ProviderRaceContext Context;
+    FProviderRaceContext Context;
     FThread Threads[kThreadCount];
     u32 SpawnedThreadCount = 0u;
 
@@ -82,7 +82,7 @@ ACS_TEST(GameFramework, DefaultProvidersSupportConcurrentRegistrationAndLookup)
         auto ThreadResult = FThread::Spawn(
             [](void* UserData)
             {
-                auto* const RaceContext = static_cast<ProviderRaceContext*>(UserData);
+                auto* const RaceContext = static_cast<FProviderRaceContext*>(UserData);
                 while (RaceContext->Start.Load(EMemoryOrder::Acquire) == 0u) Yield();
 
                 for (usize Iteration = 0u; Iteration < kIterationCount; ++Iteration) {
@@ -93,7 +93,7 @@ ACS_TEST(GameFramework, DefaultProvidersSupportConcurrentRegistrationAndLookup)
                         &GetDefaultMlRuntime() != &GetMlRuntimeStub() ||
                         &GetDefaultOpenXrBridge() != &GetXrStub() ||
                         &GetDefaultScriptVm() != &GetVmStub() ||
-                        &GetDefaultSteamworksBridge() != &SteamworksBridgeStub::GetStub()) {
+                        &GetDefaultSteamworksBridge() != &FSteamworksBridgeStub::GetStub()) {
                         RaceContext->FailureCount.FetchAdd(1u);
                     }
                 }

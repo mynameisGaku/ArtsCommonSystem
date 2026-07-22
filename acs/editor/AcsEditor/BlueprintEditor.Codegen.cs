@@ -20,7 +20,7 @@ public partial class BlueprintEditor
     public string? GenerateCppFile(bool build)
     {
         string baseName = !string.IsNullOrEmpty(CurrentPath) ? System.IO.Path.GetFileNameWithoutExtension(CurrentPath!) : "GeneratedBp";
-        string cls = "F" + SanitizeIdent(baseName);
+        string cls = ProjectManager.CppTypeIdent(baseName, 'A');
         bool toSource = !string.IsNullOrEmpty(SourceDir) && System.IO.Directory.Exists(SourceDir);
         string dir = toSource ? SourceDir!
             : (!string.IsNullOrEmpty(CurrentPath) ? System.IO.Path.GetDirectoryName(CurrentPath!)!
@@ -83,19 +83,65 @@ public partial class BlueprintEditor
         _ => id,
     };
 
-    private static string CppType(string t) => t != null && t.StartsWith("Enum:") ? t.Substring(5) : t switch
+    private string CppEnumType(string name)
+    {
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string display in Enums.Keys)
+        {
+            string stem = ProjectManager.CppTypeIdent(display, 'E');
+            string candidate = stem;
+            for (int suffix = 2; !used.Add(candidate); suffix++)
+                candidate = stem + suffix.ToString(CultureInfo.InvariantCulture);
+            if (string.Equals(display, name, StringComparison.Ordinal)) return candidate;
+        }
+        return ProjectManager.CppTypeIdent(name, 'E');
+    }
+
+    private static List<(string Display, string Cpp)> BuildCppEnumEntries(IEnumerable<string> entries)
+    {
+        var result = new List<(string, string)>();
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string display in entries)
+        {
+            string stem = ProjectManager.CppEnumeratorIdent(display);
+            string candidate = stem;
+            for (int suffix = 2; !used.Add(candidate); suffix++)
+                candidate = stem + suffix.ToString(CultureInfo.InvariantCulture);
+            result.Add((display, candidate));
+        }
+        return result;
+    }
+
+    private string CppEnumerator(string enumName, string display)
+    {
+        if (Enums.TryGetValue(enumName, out var entries))
+            foreach (var entry in BuildCppEnumEntries(entries))
+                if (string.Equals(entry.Display, display, StringComparison.Ordinal))
+                    return entry.Cpp;
+        return ProjectManager.CppEnumeratorIdent(display);
+    }
+
+    private string CppType(string t) => t != null && t.StartsWith("Enum:")
+        ? CppEnumType(t.Substring(5))
+        : t switch
     {
         "Bool" => "bool", "Int" => "int", "Float" => "float",
-        "String" => "acs::FString", "Text" => "acs::FText", "Vector" => "acs::FVec2", "Vector3" => "acs::FVec3", "Object" => "FNode2D*", _ => "float",
+        "String" => "acs::FString", "Text" => "acs::FText", "Vector" => "acs::FVec2", "Vector3" => "acs::FVec3", "Object" => "ANode*", _ => "float",
     };
-    private static string CppDefault(string t, string v)
+    private string CppDefault(string t, string v)
     {
+        if (t.StartsWith("Enum:", StringComparison.Ordinal))
+            return string.IsNullOrWhiteSpace(v) ? "{}" : CppLiteral(v, t);
         if (string.IsNullOrEmpty(v)) return t switch { "Bool" => "false", "String" => "{}", "Vector" => "{}", "Vector3" => "{}", "Object" => "nullptr", _ => "0" };
         return CppLiteral(v, t);
     }
-    private static string CppLiteral(string lit, string type)
+    private string CppLiteral(string lit, string type)
     {
         lit = (lit ?? "").Trim();
+        if (type.StartsWith("Enum:", StringComparison.Ordinal))
+            return lit.Length == 0
+                ? "{}"
+                : CppEnumType(type.Substring(5)) + "::" + CppEnumerator(type.Substring(5), lit);
         switch (type)
         {
             case "Bool":   return Truthy(lit) ? "true" : "false";
@@ -109,9 +155,18 @@ public partial class BlueprintEditor
 
     private void LoadGraphInto(string body) { _nodes.Clear(); _conns.Clear(); ParseGraph(body, 0, inherited: false); }
 
+    private static bool ContainsCastNode(string body) =>
+        body.Split('\n').Any(line =>
+        {
+            string normalized = line.TrimEnd('\r');
+            return normalized.StartsWith("N ", StringComparison.Ordinal)
+                && normalized.EndsWith(" Cast", StringComparison.Ordinal);
+        });
+
     private (string header, string source) GenerateCpp(string cls)
     {
         SyncActiveGraph();
+        bool hasGeneratedCast = _graphTexts.Values.Any(ContainsCastNode);
         var saveN = new List<BpNode>(_nodes); var saveC = new List<BpConn>(_conns);
         var functions = _graphOrder.Where(g => g != EventGraphName && _graphIsFunc.Contains(g)).ToList();
         var h = new StringBuilder(); var s = new StringBuilder();
@@ -126,15 +181,15 @@ public partial class BlueprintEditor
             bool needUpdate = tickNode != null || delays.Count > 0 || timelines.Count > 0;
             var customs = _nodes.Where(n => n.Title == "Custom Event").Select(n => SanitizeIdent(LiteralOf(n, "name"))).Where(x => x.Length > 0).Distinct().ToList();
 
-            // ----- ヘッダ (実 ACS API: FComponent2D / OnAttach / OnUpdate / ACS_GAME_COMPONENT_KIND) -----
-            h.Append("// SPDX-License-Identifier: Apache-2.0\n// Generated from a Blueprint graph by AcsEditor — edit the .acsbp, then regenerate.\n#pragma once\n");
-            h.Append("#include \"gameframework/Component2D.h\"\n#include \"gameframework/Node2D.h\"\n#include \"gameframework/AcsClass.h\"\n#include \"container/String.h\"\n#include \"math/Vec.h\"\n\n");
+            // ----- ヘッダ (実 ACS API: AComponent / OnAttach / OnUpdate / ACS_GAME_COMPONENT_KIND) -----
+            h.Append("// SPDX-License-Identifier: Apache-2.0\n// AcsEditor が Blueprint graph から生成。.acsbp を編集後に再生成する。\n#pragma once\n");
+            h.Append("#include \"gameframework/AComponent.h\"\n#include \"gameframework/ANode.h\"\n#include \"gameframework/AcsClass.h\"\n#include \"container/String.h\"\n#include \"math/Vec.h\"\n\n");
             h.Append("namespace acs::game {\n\n");
             foreach (var en in Enums)   // ユーザー定義 Enum → enum class
                 if (!string.IsNullOrWhiteSpace(en.Key) && en.Value.Count > 0)
-                    h.Append("enum class ").Append(SanitizeIdent(en.Key)).Append(" { ").Append(string.Join(", ", en.Value.Select(SanitizeIdent))).Append(" };\n");
+                    h.Append("enum class ").Append(CppEnumType(en.Key)).Append(" { ").Append(string.Join(", ", BuildCppEnumEntries(en.Value).Select(entry => entry.Cpp))).Append(" };\n");
             if (Enums.Count > 0) h.Append('\n');
-            h.Append("ACS_CLASS()\nclass ").Append(cls).Append(" : public FComponent2D {\npublic:\n");
+            h.Append("ACS_CLASS()\nclass ").Append(cls).Append(" : public AComponent {\npublic:\n");
             h.Append("    ACS_GAME_COMPONENT_KIND(").Append(cls).Append(")\n\n");
             foreach (var v in Variables)
                 if (!string.IsNullOrWhiteSpace(v.Name))
@@ -149,24 +204,26 @@ public partial class BlueprintEditor
                 h.Append("   // Timeline 時間/各トラック値\n");
             }
             if (delays.Count > 0 || timelines.Count > 0) h.Append('\n');
-            if (beginNode != null) h.Append("    void OnAttach(FNode2D& node) noexcept override;   // Event On BeginPlay\n");
+            if (beginNode != null) h.Append("    void OnAttach(ANode& node) noexcept override;   // BeginPlay イベント\n");
             if (needUpdate)        h.Append("    void OnUpdate(f32 dt) noexcept override;           // On Tick / Latent タイマー\n");
-            if (customs.Count > 0 || functions.Count > 0)
+            if (customs.Count > 0 || functions.Count > 0 || hasGeneratedCast)
             {
                 h.Append("\nprivate:\n");
+                if (hasGeneratedCast)
+                    h.Append("    bool m_CastWarningEmitted = false;   // 未対応 Cast の診断を instance ごとに 1 回へ抑える。\n");
                 foreach (var c in customs)   h.Append("    void ").Append(c).Append("() noexcept;\n");
                 foreach (var f in functions)
                 {
                     var (rt, pl, _) = CppFuncSig(f);
-                    h.Append("    ").Append(rt).Append(' ').Append(SanitizeIdent(f)).Append('(').Append(pl).Append(") noexcept;   // Blueprint function\n");
+                    h.Append("    ").Append(rt).Append(' ').Append(SanitizeIdent(f)).Append('(').Append(pl).Append(") noexcept;   // Blueprint 関数\n");
                 }
             }
             h.Append("};\n\n} // namespace acs::game\n");
 
             // ----- 実装 -----
-            s.Append("// SPDX-License-Identifier: Apache-2.0\n// Generated from a Blueprint graph by AcsEditor.\n");
+            s.Append("// SPDX-License-Identifier: Apache-2.0\n// AcsEditor が Blueprint graph から生成。\n");
             s.Append("#include \"").Append(cls).Append(".h\"\n#include \"foundation/Log.h\"\n#include \"gameframework/Random.h\"\n#include <cmath>\n#include <algorithm>\n\nnamespace acs::game {\n\n");
-            if (beginNode != null) EmitMethod(s, cls, "OnAttach", "FNode2D& node", beginNode);
+            if (beginNode != null) EmitMethod(s, cls, "OnAttach", "ANode& node", beginNode);
             if (needUpdate)        EmitUpdateMethod(s, cls, tickNode, delays, timelines);
             foreach (var ce in _nodes.Where(n => n.Title == "Custom Event"))
             {
@@ -250,7 +307,7 @@ public partial class BlueprintEditor
     {
         s.Append(retType).Append(' ').Append(cls).Append("::").Append(method).Append('(').Append(args).Append(") noexcept {\n");
         if (eventNode != null) GenStmt(s, ExecNextFirst(eventNode), "    ", new HashSet<int>(), 0);
-        if (retType != "void") s.Append("    return ").Append(CppDefault(retType == "int" ? "Int" : retType == "bool" ? "Bool" : "Float", "")).Append(";\n");   // 既定の戻り (Return 未到達時)
+        if (retType != "void") s.Append("    return {};\n");   // Return 未到達時は値初期化して返す。
         s.Append("}\n\n");
     }
 
@@ -361,7 +418,7 @@ public partial class BlueprintEditor
             foreach (var p in n.Outputs)
                 if (p.Kind == PinKind.Exec && p.Name != "Default")
                 {
-                    string rhs = isEnum ? $"{SanitizeIdent(enm)}::{SanitizeIdent(p.Name)}" : CppLiteral(p.Name, "String");
+                    string rhs = isEnum ? $"{CppEnumType(enm)}::{CppEnumerator(enm, p.Name)}" : CppLiteral(p.Name, "String");
                     s.Append(ind).Append(first ? "if (" : "else if (").Append(sel).Append(" == ").Append(rhs).Append(") {\n");
                     GenExecOut(s, n, p.Name, ind + "    ", visited, depth + 1);
                     s.Append(ind).Append("}\n"); first = false;
@@ -394,10 +451,17 @@ public partial class BlueprintEditor
             s.Append(ind).Append("return;\n");
             return;
         }
-        if (t == "Cast")   // Cast To <型>: dynamic_cast で Success(As)/Failed に分岐。
+        if (t == "Cast")
         {
-            string asType = string.IsNullOrEmpty(n.VarRef) ? "FNode2D" : SanitizeIdent(n.VarRef);
-            s.Append(ind).Append("if (auto* _as").Append(n.Id).Append(" = dynamic_cast<").Append(asType).Append("*>(").Append(GenArg(n, "object", 0)).Append(")) {\n");
+            // ACS は /GR- で、ANode 階層も侵入型 RTTI に opt-in していない。
+            // unchecked static_cast は型不一致で未定義動作になるため、生成 C++ では
+            // 明示診断を出して Failed 側へ安全に倒す。型メタデータ導入後に置換する。
+            s.Append(ind).Append("if (!m_CastWarningEmitted) {\n");
+            s.Append(ind).Append("    ACS_LOG_WARN(\"Blueprint Cast は生成 C++ では未対応です: ANode の runtime 型情報がありません\");\n");
+            s.Append(ind).Append("    m_CastWarningEmitted = true;\n");
+            s.Append(ind).Append("}\n");
+            s.Append(ind).Append("ANode* _as").Append(n.Id).Append(" = nullptr;\n");
+            s.Append(ind).Append("if (_as").Append(n.Id).Append(" != nullptr) {\n");
             GenExecOut(s, n, "Success", ind + "    ", visited, depth + 1);
             s.Append(ind).Append("} else {\n");
             GenExecOut(s, n, "Failed", ind + "    ", visited, depth + 1);
@@ -416,9 +480,9 @@ public partial class BlueprintEditor
             case "Set Variable":  return $"{SanitizeIdent(n.VarRef)} = {GenArg(n, "value", 0)};";
             case "Print String":  return GenLog(GenArg(n, "text", 0));
             // シーン操作 → 実 API (Owner().Local() の transform)。target は «自ノード» 前提でスケルトン化。
-            case "Set Position":  return $"Owner().Local().position = FVec2{{ (f32)({GenArg(n, "x", 0)}), (f32)({GenArg(n, "y", 0)}) }};";
-            case "Set Scale":     return $"Owner().Local().scale = FVec2{{ (f32)({GenArg(n, "sx", 0)}), (f32)({GenArg(n, "sy", 0)}) }};";
-            case "Set Rotation":  return $"Owner().Local().rotation = (f32)({GenArg(n, "deg", 0)});";
+            case "Set Position":  return $"Owner().SetPosition2D(FVec2{{ (f32)({GenArg(n, "x", 0)}), (f32)({GenArg(n, "y", 0)}) }});";
+            case "Set Scale":     return $"Owner().SetScale2D(FVec2{{ (f32)({GenArg(n, "sx", 0)}), (f32)({GenArg(n, "sy", 0)}) }});";
+            case "Set Rotation":  return $"Owner().SetRotation2D((f32)({GenArg(n, "deg", 0)}));";
             case "Call Function":
             {
                 string fname = SanitizeIdent(LiteralOf(n, "name"));
@@ -479,7 +543,7 @@ public partial class BlueprintEditor
             case "Make Vector": return $"FVec2{{ (f32)({GenArg(n, "x", depth)}), (f32)({GenArg(n, "y", depth)}) }}";
             case "Get Variable": return SanitizeIdent(n.VarRef);
             case "Get Self":  return "(&Owner())";
-            case "Get Position": return "Owner().Local().position";
+            case "Get Position": return "Owner().Position2D()";
             case "Function Entry": return outPin >= 1 && outPin < n.Outputs.Count ? SanitizeIdent(n.Outputs[outPin].Name) : "0";   // 引数
             case "Call Function":   // pure 関数はインライン式 / impure は実行時の結果変数
             {
@@ -499,10 +563,10 @@ public partial class BlueprintEditor
             case "To String": return GenArg(n, "in", depth);
             case "To Text":   return $"acs::FText({GenArg(n, "in", depth)})";
             case "Make Literal Text": return $"acs::FText({GenArg(n, "value", depth)})";
-            case "Make Literal Enum": { string ev = n.Literals.TryGetValue(0, out var le) ? le : ""; return $"{SanitizeIdent(n.VarRef)}::{SanitizeIdent(ev)}"; }
+            case "Make Literal Enum": { string ev = n.Literals.TryGetValue(0, out var le) ? le : ""; return $"{CppEnumType(n.VarRef)}::{CppEnumerator(n.VarRef, ev)}"; }
             case "Enum to String": return GenArg(n, "in", depth);
             case "Math Expression": return FormulaToCpp(n.VarRef ?? "", v => GenArg(n, v, depth));
-            case "Cast":           return $"_as{n.Id}";   // dynamic_cast 結果 (Success ブランチ内で有効)
+            case "Cast":           return $"_as{n.Id}";   // 生成 C++ では安全な null。Failed ブランチへ進む。
             case "Timeline":       return $"_tlval{n.Id}_{SanitizeIdent(n.Outputs[outPin].Name)}";   // そのトラックの現在値 (Update 中に有効)
             case "Get Class":      return $"/* Get Class */ nullptr";   // 反射 API 依存 (interpreter で動作)
             case "Class is Child Of": return $"({GenArg(n, "class", depth)} == {GenArg(n, "parent", depth)})";

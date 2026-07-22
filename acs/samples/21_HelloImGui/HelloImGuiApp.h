@@ -9,16 +9,16 @@
 
 namespace helloimgui {
 
-class HelloImGuiApp : public acs::FApplication {
+class FHelloImGuiApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
     void OnRender()   noexcept override;
     void OnShutdown() noexcept override;
-    void OnEvent(const acs::Event& e) noexcept override;
+    void OnEvent(const acs::FEvent& e) noexcept override;
 
 private:
-    acs::ImGuiCtx m_Imgui;
+    acs::FImGuiCtx m_Imgui;
     bool          m_bShowDemo = true;
     acs::f32      m_R = 0.1f;
     acs::f32      m_G = 0.12f;

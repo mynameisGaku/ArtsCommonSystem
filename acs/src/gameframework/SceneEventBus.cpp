@@ -5,7 +5,7 @@
 namespace acs::game {
 
 /** event id に handler を登録し、Unsubscribe 用の handle を返す (inactive entry を再利用)。 */
-u32 FSceneEventBus::Subscribe(EventId id, HandlerFn fn, void* user) noexcept {
+u32 FSceneEventBus::Subscribe(FEventId id, HandlerFn fn, void* user) noexcept {
     if (fn == nullptr) {
         ACS_LOG_WARN("FSceneEventBus::Subscribe: null handler for event id=%u ignored", id.value);
         return 0u;
@@ -14,7 +14,7 @@ u32 FSceneEventBus::Subscribe(EventId id, HandlerFn fn, void* user) noexcept {
     // 既に inactive になっている Entry があれば再利用してメモリを節約。
     // Publish 中の再エントランシ安全性のため、Entry の物理削除はしない設計。
     for (usize i = 0; i < m_Entries.Size(); ++i) {
-        Entry& e = m_Entries[i];
+        FEntry& e = m_Entries[i];
         if (!e.active) {
             // handle は新規発行 (古い handle で Unsubscribe されても誤爆しないように)
             const u32 h = m_NextHandle++;
@@ -31,7 +31,7 @@ u32 FSceneEventBus::Subscribe(EventId id, HandlerFn fn, void* user) noexcept {
     // 空きが無ければ末尾に追加
     const u32 h = m_NextHandle++;
     if (m_NextHandle == 0u) m_NextHandle = 1u;
-    Entry e;
+    FEntry e;
     e.id     = id;
     e.fn     = fn;
     e.user   = user;
@@ -45,7 +45,7 @@ u32 FSceneEventBus::Subscribe(EventId id, HandlerFn fn, void* user) noexcept {
 void FSceneEventBus::Unsubscribe(u32 handle) noexcept {
     if (handle == 0u) return;  // invalid handle は静かに無視 (RAII 解除パスで頻出)
     for (usize i = 0; i < m_Entries.Size(); ++i) {
-        Entry& e = m_Entries[i];
+        FEntry& e = m_Entries[i];
         if (e.handle == handle && e.active) {
             e.active = false;
             // fn / user は debug 観察用に残しておく (どうせ active=false で見ない)
@@ -56,7 +56,7 @@ void FSceneEventBus::Unsubscribe(u32 handle) noexcept {
 }
 
 /** id 一致の active handler を snapshot 範囲で順に呼ぶ (再エントランシ安全)。 */
-void FSceneEventBus::Publish(EventId id, const void* payload, u32 payload_size) noexcept {
+void FSceneEventBus::Publish(FEventId id, const void* payload, u32 payload_size) noexcept {
     // 走査範囲を呼び出し時点で固定。Publish 中に Subscribe された Entry は
     // 次回以降の Publish で呼ばれる (循環 publish の防止にもなる)。
     const usize snapshot_size = m_Entries.Size();
@@ -64,7 +64,7 @@ void FSceneEventBus::Publish(EventId id, const void* payload, u32 payload_size) 
         // ハンドラが ClearAll() で m_Entries を縮めると、固定 snapshot_size の i が現サイズを
         // 超えて OOB になる。各反復で現在サイズをガードする。
         if (i >= m_Entries.Size()) break;
-        Entry& e = m_Entries[i];
+        FEntry& e = m_Entries[i];
         if (!e.active) continue;
         if (e.id != id) continue;
         // ハンドラ実行中に Unsubscribe / 別 event の Subscribe が走っても
@@ -80,10 +80,10 @@ void FSceneEventBus::Publish(EventId id, const void* payload, u32 payload_size) 
 }
 
 /** 指定 id の active な subscriber 数を返す。 */
-u32 FSceneEventBus::SubscriberCount(EventId id) const noexcept {
+u32 FSceneEventBus::SubscriberCount(FEventId id) const noexcept {
     u32 count = 0u;
     for (usize i = 0; i < m_Entries.Size(); ++i) {
-        const Entry& e = m_Entries[i];
+        const FEntry& e = m_Entries[i];
         if (e.active && e.id == id) ++count;
     }
     return count;

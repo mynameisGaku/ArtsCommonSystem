@@ -8,6 +8,44 @@
 
 namespace acs::game {
 
+ANode::FReparentTargetObserver::~FReparentTargetObserver() noexcept {
+    Reset();
+}
+
+void ANode::FReparentTargetObserver::Observe(ANode& target) noexcept {
+    Reset();
+    m_Target = &target;
+    m_Next = target.m_ReparentObserverHead;
+    if (m_Next != nullptr) m_Next->m_Previous = this;
+    target.m_ReparentObserverHead = this;
+}
+
+void ANode::FReparentTargetObserver::Reset() noexcept {
+    if (m_Target != nullptr) {
+        if (m_Previous != nullptr) {
+            m_Previous->m_Next = m_Next;
+        } else {
+            m_Target->m_ReparentObserverHead = m_Next;
+        }
+        if (m_Next != nullptr) m_Next->m_Previous = m_Previous;
+    }
+    m_Target = nullptr;
+    m_Previous = nullptr;
+    m_Next = nullptr;
+}
+
+ANode::~ANode() noexcept {
+    // 対象側から全 observer を切り離す。各 source のデストラクタが後で
+    // Reset しても、破棄中の this を再参照しない状態にする。
+    while (m_ReparentObserverHead != nullptr) {
+        FReparentTargetObserver* observer = m_ReparentObserverHead;
+        m_ReparentObserverHead = observer->m_Next;
+        observer->m_Target = nullptr;
+        observer->m_Previous = nullptr;
+        observer->m_Next = nullptr;
+    }
+}
+
 /** この node に使用マテリアル (効果 or PBR) の値を焼き込む。 */
 void ANode::SetMaterial(const FMaterial2D& mat) noexcept {
     m_Mat.kind     = static_cast<i32>(mat.kind);
@@ -49,15 +87,75 @@ void ANode::SetMaterial(const FMaterial2D& mat) noexcept {
 
 /** 親をたどって world transform を合成して返す (キャッシュなし)。 */
 FTransform3D ANode::World() const noexcept {
-    if (m_Parent == nullptr) return m_Local;
-    // 親をたどって合成 (キャッシュなし、深いツリーで O(depth) コスト)
-    return m_Parent->World().Compose(m_Local);
+    // 再帰と動的確保を使わず root まで収集し、root → this の順に合成する。
+    const ANode* chain[kNodeMaxTreeDepth + 1u]{};
+    u32 count = 0u;
+    const ANode* current = this;
+    while (current != nullptr && count <= kNodeMaxTreeDepth) {
+        chain[count++] = current;
+        current = current->m_Parent;
+    }
+
+    // 公開構造変更 API が深度上限を保証するため count は必ず 1..上限+1。
+    FTransform3D world = chain[count - 1u]->m_Local;
+    for (u32 i = count - 1u; i > 0u; --i) {
+        world = world.Compose(chain[i - 1u]->m_Local);
+    }
+    return world;
 }
 
-/** 子の強参照を受け取り、未 spawn なら OnSpawn を即時に呼ぶ。 */
-ANode& ANode::AddChild(TObjectPtr<ANode> child) noexcept {
-    // null ならエスケープ (チェイン記述が壊れないよう自身を返す)。
-    if (!child) return *this;
+/** root から自身までの深度 (root=0) を返す。 */
+u32 ANode::TreeDepth() const noexcept {
+    u32 depth = 0u;
+    const ANode* current = this;
+    while (current->m_Parent != nullptr) {
+        ++depth;
+        current = current->m_Parent;
+    }
+    return depth;
+}
+
+/** subtree の最大深度を反復 DFS で返す。 */
+u32 ANode::SubtreeHeight() const noexcept {
+    struct FDepthEntry {
+        const ANode* node = nullptr;
+        u32 depth = 0u;
+    };
+
+    TArray<FDepthEntry> stack;
+    stack.PushBack(FDepthEntry{this, 0u});
+    u32 max_depth = 0u;
+    while (!stack.IsEmpty()) {
+        const FDepthEntry entry = stack.Back();
+        stack.PopBack();
+        if (entry.node == nullptr) continue;
+        if (entry.depth > max_depth) max_depth = entry.depth;
+        // 上限超過を判定する用途なので、それ以上の全走査は不要。
+        if (max_depth > kNodeMaxTreeDepth) return max_depth;
+        for (u32 i = 0; i < entry.node->m_Children.Size(); ++i) {
+            const ANode* child = entry.node->m_Children[i].Get();
+            if (child != nullptr) stack.PushBack(FDepthEntry{child, entry.depth + 1u});
+        }
+    }
+    return max_depth;
+}
+
+/** 検証に成功した場合だけ子の強参照を受け取る。 */
+EAddChildResult ANode::TryAddChild(TObjectPtr<ANode>& child) noexcept {
+    if (!child) return EAddChildResult::NullChild;
+    if (child.Get() == this) return EAddChildResult::SelfChild;
+    if (child->IsAncestorOf(this)) return EAddChildResult::WouldCreateCycle;
+    if (child->m_Parent != nullptr) return EAddChildResult::AlreadyParented;
+    if (m_PendingDestroy) return EAddChildResult::ParentPendingDestroy;
+    if (child->m_PendingDestroy) return EAddChildResult::ChildPendingDestroy;
+
+    const u32 parent_depth = TreeDepth();
+    const u32 child_height = child->SubtreeHeight();
+    if (parent_depth >= kNodeMaxTreeDepth ||
+        child_height > (kNodeMaxTreeDepth - parent_depth - 1u)) {
+        return EAddChildResult::TreeDepthLimitExceeded;
+    }
+
     child->m_Parent = this;
     m_Children.PushBack(Move(child));
     ANode& ref = *m_Children.Back();
@@ -65,7 +163,19 @@ ANode& ANode::AddChild(TObjectPtr<ANode> child) noexcept {
         ref.m_Spawned = true;
         ref.OnSpawn();
     }
-    return ref;
+    return EAddChildResult::Added;
+}
+
+/** 子の強参照を受け取り、未 spawn なら OnSpawn を即時に呼ぶ。 */
+ANode& ANode::AddChild(TObjectPtr<ANode> child) noexcept {
+    ANode* requested = child.Get();
+    const EAddChildResult result = TryAddChild(child);
+    if (result == EAddChildResult::Added) return *requested;
+
+    // 後方互換: 失敗時は従来どおり自身を返す。ただし不正な構造変更は適用しない。
+    ACS_LOG_WARN("ANode::AddChild: rejected unsafe child (result=%u)",
+                 static_cast<u32>(result));
+    return *this;
 }
 
 /** root まで遡って配線済み FSceneServices を返す (m_Parent と同じ非所有規約)。 */
@@ -260,7 +370,7 @@ void StableSortDrawOrder(const TArray<FDrawItem>& items, TArray<u32>& order, TAr
 } // namespace
 
 /** このノード自身 (OnDraw + components、子は含まない) を描画する。 */
-void ANode::DrawSelf(RenderContext& rc) noexcept {
+void ANode::DrawSelf(FRenderContext& rc) noexcept {
     if (!m_Visible || m_PendingDestroy) return;
     // 使用マテリアル (PBR or 効果プリセット) で「この node 自身の描画」を包む。子には及ばない
     // (各 node が自分のマテリアルを持つ)。アニメ付きは共有クロックを参照する。
@@ -323,7 +433,7 @@ void ANode::DrawSelf(RenderContext& rc) noexcept {
 }
 
 /** 自身と components を描画し、子ツリーをツリー順で描く。 */
-void ANode::DrawTree(RenderContext& rc) noexcept {
+void ANode::DrawTree(FRenderContext& rc) noexcept {
     if (!m_Visible || m_PendingDestroy) return;
     // DrawSelf と同じマテリアル包み込みだが、OnDrawPostChildren は子ツリーの後。
     const bool has_sb = rc.HasSprites();
@@ -384,7 +494,7 @@ void ANode::DrawTree(RenderContext& rc) noexcept {
 }
 
 /** subtree をグローバル描画順 (layer, priority, [y], 出現順) で描く。 */
-void ANode::DrawTreeSorted(RenderContext& rc) noexcept {
+void ANode::DrawTreeSorted(FRenderContext& rc) noexcept {
     if (!m_Visible || m_PendingDestroy) return;
 
     // 1) フラット収集 (原子 subtree は 1 アイテムに畳む)。
@@ -443,7 +553,18 @@ void ANode::Reparent(ANode& new_parent) noexcept {
         ACS_LOG_WARN("ANode::Reparent: node is pending destroy — ignored");
         return;
     }
-    m_PendingReparentTarget = &new_parent;
+    if (new_parent.m_PendingDestroy) {
+        ACS_LOG_WARN("ANode::Reparent: target is pending destroy — ignored");
+        return;
+    }
+    const u32 parent_depth = new_parent.TreeDepth();
+    const u32 subtree_height = SubtreeHeight();
+    if (parent_depth >= kNodeMaxTreeDepth ||
+        subtree_height > (kNodeMaxTreeDepth - parent_depth - 1u)) {
+        ACS_LOG_WARN("ANode::Reparent: tree depth limit exceeded — ignored");
+        return;
+    }
+    m_PendingReparentTarget.Observe(new_parent);
 }
 
 void ANode::ResolveStructuralChanges() noexcept {
@@ -471,7 +592,7 @@ void ANode::ResolveStructuralChanges() noexcept {
             // 強参照をリセット (これが最後の強参照なら node のデストラクタ →
             // children 配列のデストラクタが走り、子孫の破棄は子→親の順)。
             m_Children[r].Reset();
-        } else if (c->m_PendingReparentTarget != nullptr) {
+        } else if (c->m_PendingReparentTarget.Get() != nullptr) {
             // Reparent 対象 → m_Children から外して reparent_pending へ Move。
             // OnSpawn/OnDespawn は呼ばない (= 既に生きているノードの移動)。
             reparent_pending.PushBack(Move(m_Children[r]));
@@ -487,10 +608,31 @@ void ANode::ResolveStructuralChanges() noexcept {
     for (u32 i = 0; i < reparent_pending.Size(); ++i) {
         if (!reparent_pending[i]) continue;
         ANode* moved = reparent_pending[i].Get();
-        ANode* target = moved->m_PendingReparentTarget;
-        moved->m_PendingReparentTarget = nullptr;
-        if (target == nullptr) {
-            // 何らかの race で target が消えた場合は orphan を作らず自分に戻す。
+        ANode* target = moved->m_PendingReparentTarget.Get();
+        moved->m_PendingReparentTarget.Reset();
+
+        // 要求後に対象の状態やツリーが変わり得るため、適用直前の構造で再検証する。
+        bool target_pending_destroy = false;
+        for (ANode* ancestor = target; ancestor != nullptr; ancestor = ancestor->m_Parent) {
+            if (ancestor->m_PendingDestroy) {
+                target_pending_destroy = true;
+                break;
+            }
+        }
+        bool can_apply = target != nullptr &&
+                         target != moved &&
+                         !moved->m_PendingDestroy &&
+                         !target_pending_destroy &&
+                         !moved->IsAncestorOf(target);
+        if (can_apply) {
+            const u32 target_depth = target->TreeDepth();
+            const u32 moved_height = moved->SubtreeHeight();
+            can_apply = target_depth < kNodeMaxTreeDepth &&
+                        moved_height <= (kNodeMaxTreeDepth - target_depth - 1u);
+        }
+        if (!can_apply) {
+            // 対象消滅・破棄予定・循環・深度超過では orphan を作らず元の親へ戻す。
+            ACS_LOG_WARN("ANode::ResolveStructuralChanges: stale or unsafe reparent target — cancelled");
             moved->m_Parent = this;
             m_Children.PushBack(Move(reparent_pending[i]));
             continue;

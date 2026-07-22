@@ -15,10 +15,10 @@
 //   ・分岐選択 (ChooseOption: choices[i].next_line_index にジャンプ)
 //
 // 設計選択:
-//   ・**文字列を所有しない**: DialogueLine::text は const char* で参照のみ持つ。
+//   ・**文字列を所有しない**: FDialogueLine::text は const char* で参照のみ持つ。
 //     scenario データは literal / バンドル等で別に管理する想定 (STL <string> 禁止)。
 //   ・**type_speed_cps <= 0 は瞬時表示**: 計算分岐を 1 ヶ所に集約。
-//   ・**choices は別 TArray**: ChoicesAt は (line_index, choice_start, choice_count)
+//   ・**choices は別 TArray**: FChoicesAt は (line_index, choice_start, choice_count)
 //     のみ持ち、実選択肢は `m_AllChoices` から slice する。挿入順に並ぶ前提で
 //     線形検索 (典型シナリオで N < 数百なので問題なし)。
 //   ・**auto-advance は per-line ではなく system 共通の delay**: 仕様簡素化。
@@ -39,7 +39,7 @@ namespace acs::game {
  *
  * @details 文字列は所有しない (literal / 外部バンドル参照)。
  */
-struct DialogueLine {
+struct FDialogueLine {
     /** 発話者名 (nullptr 可)。 */
     const char* speaker        = nullptr;
 
@@ -55,7 +55,7 @@ struct DialogueLine {
  *
  * @details next_line_index が範囲外 (= line 数以上) ならダイアログ終了を表現する。
  */
-struct DialogueChoice {
+struct FDialogueChoice {
     /** 選択肢の表示テキスト。 */
     const char* text            = nullptr;
 
@@ -98,7 +98,7 @@ public:
      * @details 挿入順に再生される。
      * @param line 追加するダイアログ行。
      */
-    void AddLine(const DialogueLine& line) noexcept;
+    void AddLine(const FDialogueLine& line) noexcept;
 
     /**
      * at_line_index 番の行が表示完了したあとに提示する選択肢群を登録する。
@@ -111,7 +111,7 @@ public:
      * @param count choices の要素数。
      */
     void AddChoices(u32 at_line_index,
-                    const DialogueChoice* choices, u32 count) noexcept;
+                    const FDialogueChoice* choices, u32 count) noexcept;
 
     /**
      * 先頭行から再生を開始する。
@@ -182,7 +182,7 @@ public:
      *
      * @return 現在行へのポインタ (非アクティブ時は nullptr)。
      */
-    const DialogueLine* CurrentLine() const noexcept;
+    const FDialogueLine* CurrentLine() const noexcept;
 
     /**
      * タイプライタで現在見えている文字数を返す。
@@ -203,7 +203,7 @@ public:
      *
      * @return 選択肢配列の先頭 (pending でなければ nullptr)。
      */
-    const DialogueChoice* Choices()     const noexcept;
+    const FDialogueChoice* Choices()     const noexcept;
 
     /**
      * dt 秒ぶん時間を進める。
@@ -232,7 +232,7 @@ private:
     /**
      * line_index 直後に提示する選択肢群の範囲記録。
      */
-    struct ChoicesAt {
+    struct FChoicesAt {
         /** 選択肢を紐づける行の index。 */
         u32 line_index   = 0;
 
@@ -244,11 +244,11 @@ private:
     };
 
     /**
-     * 現在行に対応する ChoicesAt を返す。
+     * 現在行に対応する FChoicesAt を返す。
      *
-     * @return 現在行に紐づく ChoicesAt (なければ nullptr)。
+     * @return 現在行に紐づく FChoicesAt (なければ nullptr)。
      */
-    const ChoicesAt* FindChoicesForCurrent() const noexcept;
+    const FChoicesAt* FindChoicesForCurrent() const noexcept;
 
     /**
      * 現在行の全文字数を返す。
@@ -268,13 +268,13 @@ private:
     void EnterLine(u32 new_index) noexcept;
 
     /** 登録済みダイアログ行 (挿入順)。 */
-    TArray<DialogueLine>   m_Lines;
+    TArray<FDialogueLine>   m_Lines;
 
     /** 行ごとの選択肢範囲記録 (line_index 昇順想定、線形検索)。 */
-    TArray<ChoicesAt>      m_ChoicesAt;
+    TArray<FChoicesAt>      m_ChoicesAt;
 
     /** 全選択肢をフラットに保持する配列。 */
-    TArray<DialogueChoice> m_AllChoices;
+    TArray<FDialogueChoice> m_AllChoices;
 
     /** 現在再生中の行 index。 */
     u32  m_CurrentLineIndex = 0;

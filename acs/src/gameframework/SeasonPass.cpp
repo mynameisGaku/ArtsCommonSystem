@@ -36,7 +36,7 @@ u32 FSeasonPass::FindTierSlot(u32 tier_index) const noexcept {
 }
 
 /** StartSeason の実装 (info を取り込み xp / premium / tier / claim 状態をリセット)。 */
-void FSeasonPass::StartSeason(const SeasonInfo& info) noexcept {
+void FSeasonPass::StartSeason(const FSeasonInfo& info) noexcept {
     m_Info         = info;
     m_Xp           = 0;
     m_HasPremium  = false;
@@ -48,7 +48,7 @@ void FSeasonPass::StartSeason(const SeasonInfo& info) noexcept {
 }
 
 /** DefineTier の実装 (tier 定義と空の claim 状態を追加、tier_index 重複は警告して無視)。 */
-void FSeasonPass::DefineTier(const Tier& t) noexcept {
+void FSeasonPass::DefineTier(const FTier& t) noexcept {
     // tier_index 重複は黙って弾く + WARN (アセット二重ロード保護)。
     if (FindTierSlot(t.tier_index) != kNotFound) {
         ACS_LOG_WARN("FSeasonPass: duplicate tier_index ignored (%u)", t.tier_index);
@@ -57,7 +57,7 @@ void FSeasonPass::DefineTier(const Tier& t) noexcept {
 
     m_Tiers.PushBack(t);
 
-    ClaimState cs{};
+    FClaimState cs{};
     cs.tier_index      = t.tier_index;
     cs.free_claimed    = false;
     cs.premium_claimed = false;
@@ -129,7 +129,7 @@ u32 FSeasonPass::CurrentTier() const noexcept {
     u32 best_t = 0;  // tier_index 比較用
     const usize n = m_Tiers.Size();
     for (usize i = 0; i < n; ++i) {
-        const Tier& t = m_Tiers[i];
+        const FTier& t = m_Tiers[i];
         if (m_Xp < t.xp_threshold) continue;
         if (best == kNotFound || t.tier_index > best_t) {
             best   = t.tier_index;
@@ -163,7 +163,7 @@ void FSeasonPass::SetPremiumPass(bool has) noexcept {
 bool FSeasonPass::IsRewardClaimed(u32 tier_index, bool premium) const noexcept {
     const u32 slot = FindTierSlot(tier_index);
     if (slot == kNotFound) return false;
-    const ClaimState& cs = m_Claims[slot];
+    const FClaimState& cs = m_Claims[slot];
     return premium ? cs.premium_claimed : cs.free_claimed;
 }
 
@@ -172,8 +172,8 @@ bool FSeasonPass::ClaimReward(u32 tier_index, bool premium) noexcept {
     const u32 slot = FindTierSlot(tier_index);
     if (slot == kNotFound) return false;
 
-    const Tier& tier = m_Tiers[slot];
-    ClaimState& cs   = m_Claims[slot];
+    const FTier& tier = m_Tiers[slot];
+    FClaimState& cs   = m_Claims[slot];
 
     // 解放条件チェック: 累積 xp が xp_threshold 以上か。
     if (m_Xp < tier.xp_threshold) return false;
@@ -198,7 +198,7 @@ bool FSeasonPass::ClaimReward(u32 tier_index, bool premium) noexcept {
 const char* FSeasonPass::GetRewardId(u32 tier_index, bool premium) const noexcept {
     const u32 slot = FindTierSlot(tier_index);
     if (slot == kNotFound) return nullptr;
-    const Tier& tier = m_Tiers[slot];
+    const FTier& tier = m_Tiers[slot];
     return premium ? tier.reward_id_premium : tier.reward_id_free;
 }
 
@@ -210,8 +210,8 @@ u32 FSeasonPass::ClaimableCount() const noexcept {
     u32 count = 0;
     const usize n = m_Tiers.Size();
     for (usize i = 0; i < n; ++i) {
-        const Tier&       tier = m_Tiers[i];
-        const ClaimState& cs   = m_Claims[i];
+        const FTier&       tier = m_Tiers[i];
+        const FClaimState& cs   = m_Claims[i];
         if (m_Xp < tier.xp_threshold) continue;
 
         if (tier.reward_id_free != nullptr && !cs.free_claimed) {

@@ -9,11 +9,11 @@
 namespace acs {
 
 /** 永続マップを解除し GPU リソースを解放する。 */
-Dx12Buffer::~Dx12Buffer() noexcept {
+FDx12Buffer::~FDx12Buffer() noexcept {
     Reset();
 }
 
-void Dx12Buffer::Reset() noexcept
+void FDx12Buffer::Reset() noexcept
 {
     if (m_Mapped && m_Resource) m_Resource->Unmap(0, nullptr);
     m_Mapped = nullptr;
@@ -27,8 +27,8 @@ void Dx12Buffer::Reset() noexcept
 }
 
 /** desc に従って GPU バッファを確保し、必要なら永続マップして初期データを複製する。 */
-HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept {
-    HrResult r{};
+FHrResult FDx12Buffer::Init(FDx12Device& device, const FBufferDesc& desc) noexcept {
+    FHrResult r{};
     Reset();
 
     if (!device.D3DDevice() || !device.GraphicsQueue() || desc.size == 0) {
@@ -58,14 +58,14 @@ HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept 
     // 1 スロットあたりのストライド（最大の Uniform 要件 256B にアライン）
     if (m_bFrameCycled) {
         m_SlotStride = (desc.size + 255u) & ~static_cast<usize>(255u);
-        if (m_SlotStride > max_size / Dx12Device::kFramesInFlight) {
+        if (m_SlotStride > max_size / FDx12Device::kFramesInFlight) {
             r.hr = E_INVALIDARG;
             Reset();
             return r;
         }
     }
     const usize total_size = m_bFrameCycled
-        ? m_SlotStride * Dx12Device::kFramesInFlight
+        ? m_SlotStride * FDx12Device::kFramesInFlight
         : desc.size;
 
     // バッファリソース記述（行レイアウトのリニアバッファ）
@@ -117,7 +117,7 @@ HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept 
     // 初期データを全スロットに複製（フレームリング時は両スロットへ）
     if (desc.initial_data && desc.size > 0 && m_Mapped) {
         if (m_bFrameCycled) {
-            for (u32 i = 0; i < Dx12Device::kFramesInFlight; ++i) {
+            for (u32 i = 0; i < FDx12Device::kFramesInFlight; ++i) {
                 ::memcpy(static_cast<u8*>(m_Mapped) + i * m_SlotStride,
                          desc.initial_data, desc.size);
             }
@@ -202,7 +202,7 @@ HrResult Dx12Buffer::Init(Dx12Device& device, const FBufferDesc& desc) noexcept 
 }
 
 /** 現在フレームスロットの領域へ CPU からデータを書き込む。 */
-void Dx12Buffer::Update(const void* data, usize size, usize offset) noexcept {
+void FDx12Buffer::Update(const void* data, usize size, usize offset) noexcept {
     if (!m_Mapped || !data) return;
     if (offset > m_Size || size > m_Size - offset) return;
     u8* base = static_cast<u8*>(m_Mapped);
@@ -214,7 +214,7 @@ void Dx12Buffer::Update(const void* data, usize size, usize offset) noexcept {
 }
 
 /** フレームリングのスロットオフセットを加味した現在の GPU 仮想アドレスを返す。 */
-D3D12_GPU_VIRTUAL_ADDRESS Dx12Buffer::Gpu() const noexcept {
+D3D12_GPU_VIRTUAL_ADDRESS FDx12Buffer::Gpu() const noexcept {
     if (!m_Resource) return 0;
     D3D12_GPU_VIRTUAL_ADDRESS addr = m_Resource->GetGPUVirtualAddress();
     if (m_bFrameCycled && m_Device) {
@@ -238,9 +238,9 @@ TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const FBuffe
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 30, "CreateRhiBuffer: device is not DX12");
-    Dx12Device* dxd = static_cast<Dx12Device*>(&device);
-    auto b = MakeUnique<Dx12Buffer>();
-    const HrResult r = b->Init(*dxd, desc);
+    FDx12Device* dxd = static_cast<FDx12Device*>(&device);
+    auto b = MakeUnique<FDx12Buffer>();
+    const FHrResult r = b->Init(*dxd, desc);
     if (r.IsErr())
         return ACS_ERR_OS(Render, 31, "Dx12Buffer::Init failed", static_cast<u32>(r.hr));
     TUniquePtr<IRhiBuffer> base(b.Release(), b.GetAllocator());

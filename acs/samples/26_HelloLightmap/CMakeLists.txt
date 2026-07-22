@@ -5,7 +5,7 @@
 #
 # 構成:
 #   main.cpp                  - ACS_DEFINE_MAIN(HelloLightmapApp) のみ
-#   LightmapTypes.h           - Quad / Rng / 数学ヘルパ / constexpr 定数
+#   LightmapTypes.h           - FQuad / FRng / 数学ヘルパ / constexpr 定数
 #   LightmapBaker.{h,cpp}     - CPU multi-bounce path tracing
 #   CornellBox.{h,cpp}        - Cornell box シーンの構築
 #   HelloLightmapApp.{h,cpp}  - Application 派生 (OnStart/OnCustomFrame ほか)

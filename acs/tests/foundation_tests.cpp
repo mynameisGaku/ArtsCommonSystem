@@ -20,7 +20,7 @@ using namespace acs;
 namespace {
 
 /** Logger lifecycle の同時操作を揃えて開始するテスト用状態。 */
-struct LoggerLifecycleContext {
+struct FLoggerLifecycleContext {
     FLogConfig config{};
     TAtomic<u32> phase{0};
     TAtomic<u32> operation{0};
@@ -85,7 +85,7 @@ void FlushLoggerWorker(void*)
 /** phase ごとに全 worker が同じ Logger 操作を実行する。 */
 void LoggerLifecycleWorker(void* user)
 {
-    auto& context = *static_cast<LoggerLifecycleContext*>(user);
+    auto& context = *static_cast<FLoggerLifecycleContext*>(user);
     u32 observed_phase = 0;
     context.ready.FetchAdd(1);
 
@@ -120,7 +120,7 @@ void LoggerLifecycleWorker(void* user)
 }
 
 /** 全 worker へ1操作を発行し、全員の完了まで待つ。 */
-void RunLoggerLifecyclePhase(LoggerLifecycleContext& context, u32 operation, u32 worker_count)
+void RunLoggerLifecyclePhase(FLoggerLifecycleContext& context, u32 operation, u32 worker_count)
 {
     context.done.Store(0);
     context.operation.Store(operation);
@@ -203,7 +203,7 @@ ACS_TEST(Foundation, LoggerConcurrentLifecycleIsSerialized)
     EXPECT_TRUE(!FLogger::IsInitialized());
     g_logger_sink_hits.Store(0);
 
-    LoggerLifecycleContext context;
+    FLoggerLifecycleContext context;
     context.config.console = false;
     context.config.debug_output = false;
     context.config.min_severity = ELogSeverity::Trace;
@@ -374,29 +374,29 @@ ACS_TEST(Foundation, LoggerFlushWaitsForInFlightCallback)
 
 ACS_TEST(Foundation, StackTraceSymbolResolverLifecycle)
 {
-    StackTrace::ShutdownSymbolResolver();
-    StackTrace::ShutdownSymbolResolver();
-    EXPECT_FALSE(StackTrace::IsSymbolResolverInitialized());
+    FStackTrace::ShutdownSymbolResolver();
+    FStackTrace::ShutdownSymbolResolver();
+    EXPECT_FALSE(FStackTrace::IsSymbolResolverInitialized());
 
-    StackTrace first;
+    FStackTrace first;
     first.Capture(0);
     EXPECT_TRUE(first.FrameCount() > 0);
     first.Resolve();
-    const bool first_init_succeeded = StackTrace::IsSymbolResolverInitialized();
+    const bool first_init_succeeded = FStackTrace::IsSymbolResolverInitialized();
 
-    StackTrace::ShutdownSymbolResolver();
-    EXPECT_FALSE(StackTrace::IsSymbolResolverInitialized());
+    FStackTrace::ShutdownSymbolResolver();
+    EXPECT_FALSE(FStackTrace::IsSymbolResolverInitialized());
 
     // 最初の SymInitialize が成功した環境では、明示終了後も Resolve で再初期化できる。
-    StackTrace second;
+    FStackTrace second;
     second.Capture(0);
     second.Resolve();
     if (first_init_succeeded) {
-        EXPECT_TRUE(StackTrace::IsSymbolResolverInitialized());
+        EXPECT_TRUE(FStackTrace::IsSymbolResolverInitialized());
     }
 
-    StackTrace::ShutdownSymbolResolver();
-    EXPECT_FALSE(StackTrace::IsSymbolResolverInitialized());
+    FStackTrace::ShutdownSymbolResolver();
+    EXPECT_FALSE(FStackTrace::IsSymbolResolverInitialized());
 }
 
 ACS_TEST(Foundation, VoiceLoopbackReleasesInjectedAllocator)
@@ -427,7 +427,7 @@ ACS_TEST(Foundation, AcpakReaderWriterReleaseInjectedAllocator)
     constexpr const wchar_t* kVirtualPath = L"contracts/process-lifetime.txt";
     constexpr u8 kPayload[] = {'a', 'c', 's'};
 
-    (void)FileSystem::Delete(kPath);
+    (void)FFileSystem::Delete(kPath);
     FSystemAllocator allocator;
     {
         assetpack::FAcpakWriter writer(allocator);
@@ -451,5 +451,5 @@ ACS_TEST(Foundation, AcpakReaderWriterReleaseInjectedAllocator)
         }
     }
     EXPECT_EQ(allocator.BytesAllocated(), 0ull);
-    (void)FileSystem::Delete(kPath);
+    (void)FFileSystem::Delete(kPath);
 }

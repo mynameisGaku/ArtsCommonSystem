@@ -3,7 +3,7 @@
 //
 // 役割:
 //   ・editor_core (Workspace / FAssetBrowser / FEditorTheme) と modelview 配下の
-//     4 panel (Viewer / Inspector / Material / FAnimation) を 1 個のオブジェクトに
+//     4 panel (Viewer / Inspector / Material / Animation) を 1 個のオブジェクトに
 //     束ねる。
 //   ・各 panel の登録順 / shutdown 順 / 1 フレーム描画順を Scene から隠す。
 //
@@ -23,7 +23,7 @@
 
 namespace hellomv {
 
-class ViewerPanels {
+class FViewerPanels {
 public:
     // theme preset 適用 → workspace 初期化 → asset browser 起動 → 4 panel 登録。
     // FEditorWorkspace::RegisterPanel は内部で `panel->OnInit(*this)` を呼ぶので、

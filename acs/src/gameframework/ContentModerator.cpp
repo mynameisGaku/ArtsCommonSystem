@@ -292,8 +292,8 @@ constexpr u64 kBlockedWordCount =
  * @param text 判定対象テキスト (nullptr / 空文字は Allow)。
  * @return verdict / rating / reason を埋めた判定結果。
  */
-ModerationResult ClassifyText(const char* text) noexcept {
-    ModerationResult r{};
+FModerationResult ClassifyText(const char* text) noexcept {
+    FModerationResult r{};
     if (text == nullptr || text[0] == '\0') {
         // 空文字は Allow (= 上位層で長さチェックする責務)。
         r.verdict = EModerationVerdict::Allow;
@@ -332,16 +332,16 @@ ModerationResult ClassifyText(const char* text) noexcept {
 } // namespace
 
 /** テキストを ClassifyText で判定する (user_id は Stub では未使用)。 */
-TResult<ModerationResult> ContentModeratorStub::ModerateText(const char* user_id, const char* text) noexcept {
+TResult<FModerationResult> FContentModeratorStub::ModerateText(const char* user_id, const char* text) noexcept {
     (void)user_id;  // Stub では未使用 (実 SDK では通報履歴・レピュテーション参照に使う)
     return ClassifyText(text);
 }
 
 /** 画像をローカルデコードし肌色比率 heuristic で判定する。 */
-TResult<ModerationResult> ContentModeratorStub::ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept {
+TResult<FModerationResult> FContentModeratorStub::ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept {
     (void)user_id;
     if (image_data == nullptr || size == 0) {
-        return TResult<ModerationResult>(
+        return TResult<FModerationResult>(
             ACS_ERR(Generic, kSubContentModeratorBadArgument,
                     "ContentModeratorStub::ModerateImage: image_data == nullptr or size == 0"));
     }
@@ -350,20 +350,20 @@ TResult<ModerationResult> ContentModeratorStub::ModerateImage(const char* user_i
     // RGBA にデコード → 肌色比率 heuristic で露出度を判定する。デコード不能な
     // バイト列は BadArgument。SexualMinor の専用判定だけは肌色比率では不可能な
     // ため範囲外 (要 専用分類器)。詳細は SkinRatioRgba8 / ClassifyImageRgba8。
-    ImageAssetLoader loader;
+    FImageAssetLoader loader;
     TArray<byte> encoded;
     encoded.Resize(static_cast<usize>(size));
     MemCopy(encoded.Data(), image_data, static_cast<usize>(size));
     const auto decoded = loader.LoadFromBytes(FAssetId{0}, encoded);
     if (decoded.IsErr()) {
-        return TResult<ModerationResult>(
+        return TResult<FModerationResult>(
             ACS_ERR(Generic, kSubContentModeratorBadArgument,
                     "ContentModeratorStub::ModerateImage: undecodable image bytes"));
     }
     auto* img = static_cast<FImageAsset*>(decoded.Value().Get());
     const u64 px = static_cast<u64>(img->Width()) * static_cast<u64>(img->Height());
     f32 ratio = 0.0f;
-    if (img->EFormat() == EPixelFormat::R32G32B32A32_F) {
+    if (img->Format() == EPixelFormat::R32G32B32A32_F) {
         ratio = SkinRatioRgbaF32(reinterpret_cast<const f32*>(img->Pixels()), px);
     } else {
         // ImageAssetLoader は LDR を必ず 4ch RGBA8 に正規化する。
@@ -373,8 +373,8 @@ TResult<ModerationResult> ContentModeratorStub::ModerateImage(const char* user_i
 }
 
 /** 肌色比率を 4 段のしきい値で verdict/rating に変換する。 */
-TResult<ModerationResult> ContentModeratorStub::ClassifyImageRatio(f32 skin_ratio) const noexcept {
-    ModerationResult r{};
+TResult<FModerationResult> FContentModeratorStub::ClassifyImageRatio(f32 skin_ratio) const noexcept {
+    FModerationResult r{};
     if (skin_ratio >= 0.55f) {
         r.verdict = EModerationVerdict::Block;
         r.rating  = EContentRating::Explicit;
@@ -396,10 +396,10 @@ TResult<ModerationResult> ContentModeratorStub::ClassifyImageRatio(f32 skin_rati
 }
 
 /** デコード済み RGBA8 ピクセルを再デコードせず肌色比率で判定する。 */
-TResult<ModerationResult> ContentModeratorStub::ModerateImageRgba8(
+TResult<FModerationResult> FContentModeratorStub::ModerateImageRgba8(
         const u8* rgba, u32 width, u32 height) noexcept {
     if (rgba == nullptr || width == 0 || height == 0) {
-        return TResult<ModerationResult>(
+        return TResult<FModerationResult>(
             ACS_ERR(Generic, kSubContentModeratorBadArgument,
                     "ContentModeratorStub::ModerateImageRgba8: null pixels or zero dimension"));
     }
@@ -408,7 +408,7 @@ TResult<ModerationResult> ContentModeratorStub::ModerateImageRgba8(
 }
 
 /** ユーザー名を text と同じ NG ワード辞書 (ClassifyText) で判定する。 */
-TResult<ModerationResult> ContentModeratorStub::ModerateUserName(const char* name) noexcept {
+TResult<FModerationResult> FContentModeratorStub::ModerateUserName(const char* name) noexcept {
     // ユーザー名 NG チェックは text と同じ辞書を流用 (Stub なので簡略化)。
     // 実 SDK では「短い文字列内のなりすまし / leet speak / 同形異義字」検出を
     // 強化したサブ API を別途用意することが多い。
@@ -416,13 +416,13 @@ TResult<ModerationResult> ContentModeratorStub::ModerateUserName(const char* nam
 }
 
 /** 非同期キューを持たないため no-op。 */
-void ContentModeratorStub::Tick(f32 dt) noexcept {
+void FContentModeratorStub::Tick(f32 dt) noexcept {
     (void)dt;  // Stub は非同期キューを持たないので no-op。
 }
 
 /** Stub の共有 singleton を返す (関数スコープ static で thread-safe 初期化)。 */
 IContentModerator& GetModeratorStub() noexcept {
-    static ContentModeratorStub m_Instance;
+    static FContentModeratorStub m_Instance;
     return m_Instance;
 }
 

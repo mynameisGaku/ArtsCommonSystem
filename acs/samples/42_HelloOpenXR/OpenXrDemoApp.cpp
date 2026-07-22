@@ -22,7 +22,7 @@ int FOpenXrDemoApp::Run() noexcept {
         Xr.Tick(1.0f / 60.0f);
         // 正直な縮退の確認: session loop 未実装なのでトラッキング未確立 = HeadPose は
         // 未トラッキング(原点)。IsTracking()/pose.tracked がともに false を返すこと。
-        acs::game::XrPose head = Xr.HeadPose();
+        acs::game::FXrPose head = Xr.HeadPose();
         std::printf("after Tick: tracking=%s  head.tracked=%s (未トラッキングを正直に表明)\n",
                     Xr.IsTracking() ? "true" : "false",
                     head.tracked ? "true" : "false");

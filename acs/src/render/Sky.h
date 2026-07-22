@@ -41,6 +41,12 @@ class FCamera;
  */
 class FSky {
 public:
+    /** CPU-compiled shader bytecode handed to the render-owner thread. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> vertex;
+        TUniquePtr<IRhiShader> pixel;
+    };
+
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FSky() noexcept = default;
 
@@ -64,6 +70,22 @@ public:
     TResult<void> Init(IRhiDevice& device,
                       EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
                       EFormat depth_format = EFormat::D32_Float) noexcept;
+
+    /**
+     * Compile the raw-DX12 HLSL bytecode without touching an RHI device.
+     * Other backends retain the regular owner-thread Init path.
+     */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /**
+     * Install CPU-compiled shaders and create the buffer and PSO.
+     * Must be called by the render-owner thread.
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        EFormat rt_format = EFormat::B8G8R8A8_UNorm,
+        EFormat depth_format = EFormat::D32_Float) noexcept;
 
     /** 確保した GPU リソースを解放する。 */
     void Shutdown() noexcept;
@@ -285,48 +307,356 @@ private:
  * @details
  * compute シェーダで全画面の視線ごとに雲スラブをレイマーチし、3D 手続きノイズ (Worley FBM) の
  * 密度を coverage/height-gradient で remap、太陽方向へ light-march して Beer 透過率を求め、
- * dual-lobe Henyey-Greenstein 位相 + powder 項でエネルギー保存散乱を積分する。出力 (premult 散乱色
- * + alpha) を hdrRt の «空» の上に合成する。FSky の 2D-FBM 雲より遥かにディテール/立体感が高い。
- * 要 Phase 0 compute コア (RWTexture2D UAV)。Diligent backend 専用。half-res で描き composite で upscale。
+ * dual-lobe Henyey-Greenstein 位相 + powder 項でエネルギー保存散乱を積分する。出力 (straight 散乱色
+ * + alpha) を hdrRt の «空» の上に合成する。ray march は half-res、雲自身の代表深度を使う
+ * bilateral spatial reconstruction と camera/wind reprojection temporal accumulation で full-res に
+ * 復元する。FSky の 2D-FBM 雲より遥かにディテール/立体感が高い。
+ * 要 Phase 0 compute コア (RWTexture2D UAV)。full-res color/depth も一つの
+ * 8x8 compute pass で別 format UAV へ同時に再構成し、重複 read と MRT overhead を避ける。
  */
+/**
+ * World-space altitude band used by FVolumetricClouds.
+ *
+ * The cloud density field must never be translated with the camera.  Keeping
+ * these heights in world space makes translation, orbit and temporal
+ * reprojection observe the same density field.
+ */
+struct FVolumetricCloudLayer {
+    f32 base_height = 1500.0f;
+    f32 top_height = 4000.0f;
+    f32 horizontal_noise_scale = 0.035f;
+};
+
+/** Ray interval through a horizontal world-space cloud layer. */
+struct FVolumetricCloudRayInterval {
+    f32 enter = 0.0f;
+    f32 exit = 0.0f;
+    bool hit = false;
+};
+
+/** Local planet radius used by the curved world-space cloud shell. */
+inline constexpr f32 kVolumetricCloudPlanetRadius = 6360000.0f;
+
+/**
+ * World-origin grid used by the local curved-shell patch.
+ *
+ * The shell origin stays fixed through the centre of each cell and is eased
+ * across a transition band near cell boundaries. Density/weather coordinates
+ * remain absolute world coordinates; only the numerically local planet
+ * tangent patch is rebased.
+ */
+inline constexpr f32 kVolumetricCloudOriginRebaseGrid = 64.0f;
+inline constexpr f32 kVolumetricCloudMaxDistance = 250000.0f;
+
+/**
+ * Internal trace divisor used by the Ultra output-quality policy.
+ *
+ * Ultra still resolves and composites at the complete viewport resolution.
+ * Every reduced texel is freshly marched each frame, and a sixteen-phase 4x4
+ * subpixel schedule maps those rays onto exact full-resolution coordinates.
+ * World/depth reprojection retains the other fifteen phases, so the steady
+ * image recovers native detail without increasing the quarter-size workload.
+ */
+inline constexpr u32 kVolumetricCloudUltraTraceDivisor = 4u;
+
+/** Sanitized current-trace dimensions selected for a full-resolution output. */
+struct FVolumetricCloudTraceResolution {
+    u32 width = 1u;
+    u32 height = 1u;
+    f32 quality_multiplier = 1.0f;
+    f32 effective_dimension_scale = 0.25f;
+};
+
+/**
+ * Resolve the authored CloudRenderScale and the internal Ultra trace policy.
+ *
+ * CloudRenderScale is a monotonic quality multiplier over the policy's base
+ * quarter-dimension trace: authored 1.0 uses quarter dimensions, 0.75 uses
+ * 0.1875 dimensions, and 0.5 or below uses the 0.125 lower bound. The resolved
+ * output and temporal history remain full resolution.
+ */
+FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
+    u32 full_width, u32 full_height, f32 requested_render_scale) noexcept;
+
+/**
+ * Experimental shallow sun optical-depth cache.
+ *
+ * The current two-volume implementation costs more GPU time than the exact
+ * far-light tail on the measured desktop path, so keep it compiled for
+ * further iteration but do not allocate or dispatch it by default.
+ */
+inline constexpr bool kVolumetricCloudShadowCacheEnabled = false;
+
+/** Quality-preserving shallow sun optical-depth cache dimensions. */
+inline constexpr u32 kVolumetricCloudShadowCacheWidth = 96u;
+inline constexpr u32 kVolumetricCloudShadowCacheHeight = 32u;
+inline constexpr u32 kVolumetricCloudShadowCacheDepth = 96u;
+inline constexpr f32 kVolumetricCloudShadowCacheExtent = 48000.0f;
+inline constexpr f32 kVolumetricCloudShadowCacheCellSize =
+    kVolumetricCloudShadowCacheExtent /
+    static_cast<f32>(kVolumetricCloudShadowCacheWidth);
+inline constexpr f32 kVolumetricCloudShadowCacheSafeRadius = 8000.0f;
+
+/** Stable material-space footprint used by the cloud sun-depth cache. */
+struct FVolumetricCloudShadowCacheMapping {
+    FVec2 min_material_xz{};
+    FVec2 center_material_xz{};
+};
+
+/** Convert the scalar cloud advection distance to its shared XZ direction. */
+FVec2 VolumetricCloudWindOffsetXZ(f32 wind_offset) noexcept;
+
+/** Absolute world XZ with the shared cloud advection removed. */
+FVec2 VolumetricCloudMaterialXZ(FVec3 world_position,
+                                f32 wind_offset) noexcept;
+
+/** Snap a cache footprint to the material-space voxel lattice. */
+FVolumetricCloudShadowCacheMapping CenterVolumetricCloudShadowCache(
+    FVec2 material_position) noexcept;
+
+/**
+ * Compute the soft-snapped XZ world origin used by the curved cloud shell.
+ *
+ * The returned Y is zero so authored cloud heights retain their world-Y
+ * meaning. The cell centre is stationary during ordinary editor orbits, while
+ * a C1-continuous transition near cell boundaries avoids a full-cell shell
+ * jump. The density field itself is never translated with the camera.
+ */
+FVec3 RebaseVolumetricCloudWorldOrigin(
+    FVec3 camera_position,
+    f32 grid_size = kVolumetricCloudOriginRebaseGrid) noexcept;
+
+/**
+ * Stable world-distance march parameters for a cloud ray.
+ *
+ * Uniformly splitting the layer by height makes every pixel sample the same
+ * horizontal planes.  In perspective that correlation appears as rays
+ * converging on the view zenith.  A world-distance step keeps the sampling
+ * frequency independent of view angle; empty space may use coarse_step while
+ * occupied density uses fine_step.
+ */
+struct FVolumetricCloudMarchPlan {
+    f32 enter = 0.0f;
+    f32 exit = 0.0f;
+    f32 fine_step = 1.0f;
+    f32 coarse_step = 4.0f;
+    f32 visibility = 0.0f;
+    u32 max_samples = 192;
+    bool hit = false;
+};
+
+/**
+ * Intersect a world-space ray with a horizontal cloud altitude band.
+ * This CPU companion mirrors the shader interval calculation and is useful for
+ * camera/world-anchoring validation.
+ */
+FVolumetricCloudRayInterval IntersectVolumetricCloudLayer(
+    FVec3 ray_origin, FVec3 ray_direction,
+    const FVolumetricCloudLayer& layer) noexcept;
+
+/**
+ * Intersect the nearest continuous segment of a curved cloud shell.
+ *
+ * The planet centre is
+ * (world_origin.x, world_origin.y-planet_radius, world_origin.z).  A discrete
+ * rebased origin keeps the local tangent patch numerically stable during long
+ * XZ travel without making the density field camera-relative.
+ */
+FVolumetricCloudRayInterval IntersectVolumetricCloudShell(
+    FVec3 ray_origin, FVec3 ray_direction,
+    const FVolumetricCloudLayer& layer,
+    f32 planet_radius = kVolumetricCloudPlanetRadius,
+    FVec3 world_origin = FVec3{}) noexcept;
+
+/**
+ * Build the bounded, angle-stable ray-march plan mirrored by the cloud shader.
+ */
+FVolumetricCloudMarchPlan PlanVolumetricCloudRayMarch(
+    FVec3 ray_origin, FVec3 ray_direction,
+    const FVolumetricCloudLayer& layer,
+    f32 max_distance = kVolumetricCloudMaxDistance,
+    FVec3 world_origin = FVec3{}) noexcept;
+
+/**
+ * Return true when lighting changes make accumulated cloud color stale.
+ *
+ * Direction is expected to be normalized, matching RenderCompute's stored
+ * frame signature.
+ */
+bool VolumetricCloudLightingChanged(
+    FVec3 previous_sun_direction, FVec3 previous_sun_color,
+    FVec3 previous_sky_color, FVec3 sun_direction,
+    FVec3 sun_color, FVec3 sky_color) noexcept;
+
 class FVolumetricClouds {
 public:
+    /** CPU-compiled shader bytecode handed to the render-owner thread. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> cloud;
+        TUniquePtr<IRhiShader> noise;
+        TUniquePtr<IRhiShader> weather;
+        TUniquePtr<IRhiShader> detail;
+        TUniquePtr<IRhiShader> curl;
+        TUniquePtr<IRhiShader> composite_vertex;
+        TUniquePtr<IRhiShader> composite_pixel;
+        TUniquePtr<IRhiShader> composite_atmosphere_pixel;
+        TUniquePtr<IRhiShader> resolve;
+        TUniquePtr<IRhiShader> shadow;
+        TUniquePtr<IRhiShader> shadow_finalize;
+    };
+
     /** compute (雲レイマーチ) + composite (全画面 alpha blend) パイプラインを生成。 */
     TResult<void> Init(IRhiDevice& device, EFormat hdr_format) noexcept;
+
+    /** Compile raw-DX12 HLSL without touching an RHI device. */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /**
+     * Create owner-thread resources from CPU-compiled bytecode and publish the
+     * complete mandatory cloud resource set atomically.
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        EFormat hdr_format) noexcept;
 
     /** 初期化済みか。 */
     bool Ready() const noexcept { return m_Ready; }
 
-    /** 出力解像度 (半分) を確保/再確保。scW/scH は full-res。 */
-    bool EnsureSize(IRhiDevice& device, u32 scW, u32 scH) noexcept;
+    /**
+     * Scaled ray-march output and full-resolution reconstruction historyを確保/再確保。
+     * render_scale は Ultra internal quarter-dimension trace に対する
+     * 0.5..1.0 の品質倍率として扱い、resolved output は常に full-resolution。
+     */
+    bool EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
+                    f32 render_scale = 0.5f) noexcept;
+
+    /** Set the fixed world-space cloud altitude band and invalidate history. */
+    void SetLayer(const FVolumetricCloudLayer& layer) noexcept;
+
+    /** Current sanitized world-space cloud altitude band. */
+    const FVolumetricCloudLayer& Layer() const noexcept { return m_Layer; }
+
+    /** Logical sun-depth rebuilds; the raw/finalize dispatch pair counts once. */
+    u64 ShadowCacheDispatchCount() const noexcept {
+        return m_ShadowCacheDispatchCount;
+    }
+
+    /** Whether the optional cache resources were created successfully. */
+    bool ShadowCacheAvailable() const noexcept {
+        return m_ShadowCacheAvailable;
+    }
+
+    /** Whether the current material-space cache key has valid GPU contents. */
+    bool ShadowCacheValid() const noexcept { return m_ShadowCacheValid; }
+
+    /** Full-resolution resolved cloud distance/confidence for later fog passes. */
+    IRhiTexture* ResolvedDepth() const noexcept {
+        return m_HistoryValid ? m_HistoryDepth[m_ResolvedIndex].Get() : nullptr;
+    }
 
     /**
      * 雲を compute でレイマーチして内部 UAV テクスチャへ書く (render pass の «外» で呼ぶ)。
+     * Ultra は毎 frame quarter-dimension の全 texel を更新し、それぞれを 4x4 block
+     * 内の exact full-resolution subpixel へ 16 phase で割り当てる。camera motion や
+     * 履歴無効化でも native/full seed に戻らず、未更新 subpixel は world/depth
+     * reprojection、初回/disocclusion は spatial fallback で解決する。
      */
     void RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos,
                        FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color,
                        f32 coverage, f32 density, f32 wind, f32 time) noexcept;
 
-    /** 雲 (premult 散乱+alpha) を現在の RT へ全画面 alpha blend で合成する (render pass の «中» で呼ぶ)。 */
-    void Composite(IRhiCommandList& cl, u32 scW, u32 scH) noexcept;
+    /**
+     * 雲 (straight 散乱色+alpha) を現在の RT へ alpha blend する。
+     * 解決済み cloud ray distance と scene_depth から復元した scene ray distance を比較し、
+     * 手前にある方だけを表示する。カメラが雲層内/上空にいる場合も前景雲を失わない。
+     * atmosphere_volume と atmosphere_transmittance がある場合は、可視 cloud の
+     * 代表距離までの RGB transmittance と premultiplied atmospheric in-scatter を
+     * 適用してから背景へ alpha blend する。
+     * local fog は ResolvedDepth() を使う後段 pass で同じ cloud 距離へ終端する。
+     * depth は SRV として読むので、この render pass の DSV には同時 bind しないこと。
+     */
+    void Composite(IRhiCommandList& cl, IRhiTexture& scene_depth,
+                   u32 scW, u32 scH,
+                   IRhiTexture* atmosphere_volume = nullptr,
+                   IRhiTexture* atmosphere_transmittance = nullptr,
+                   f32 atmosphere_max_distance = 1.0f) noexcept;
 
     /** 全 GPU リソースを解放 (acs_editor_destroy から呼ぶ。UAF 防止)。 */
     void Shutdown() noexcept;
 
 private:
+    TResult<void> InitCandidateWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        EFormat hdr_format) noexcept;
+
     bool                     m_Ready = false;
     bool                     m_NoiseBaked = false;       // Phase 4.5: shape noise を焼いたか
     EFormat                  m_HdrFormat = EFormat::R16G16B16A16_Float;
     TUniquePtr<IRhiShader>   m_NoiseCs;                  // Phase 4.5: Perlin-Worley 生成 compute
     TUniquePtr<IRhiPipeline> m_NoisePipe;                // compute (noise gen)
-    TUniquePtr<IRhiTexture>  m_ShapeTex;                 // 128^3 RGBA16F Perlin-Worley (UAV gen + SRV sample)
+    TUniquePtr<IRhiTexture>  m_ShapeTex;                 // 128^3 RG16F Perlin-Worley/low-frequency Worley
+    bool                     m_WeatherBaked = false;
+    TUniquePtr<IRhiShader>   m_WeatherCs;
+    TUniquePtr<IRhiPipeline> m_WeatherPipe;
+    TUniquePtr<IRhiTexture>  m_WeatherTex;               // 512^2 coverage/type/precipitation/warp
+    bool                     m_DetailBaked = false;
+    TUniquePtr<IRhiShader>   m_DetailCs;
+    TUniquePtr<IRhiPipeline> m_DetailPipe;
+    TUniquePtr<IRhiTexture>  m_DetailTex;                // 64^3 RG16F independent Worley edge erosion
+    bool                     m_CurlBaked = false;
+    TUniquePtr<IRhiShader>   m_CurlCs;
+    TUniquePtr<IRhiPipeline> m_CurlPipe;
+    TUniquePtr<IRhiTexture>  m_CurlTex;                  // 128^2 independent world-space curl warp
     TUniquePtr<IRhiShader>   m_CloudCs;
     TUniquePtr<IRhiPipeline> m_CloudPipe;     // compute
+    TUniquePtr<IRhiShader>   m_ShadowCs;      // raw shallow sun optical depth
+    TUniquePtr<IRhiPipeline> m_ShadowPipe;
+    TUniquePtr<IRhiShader>   m_ShadowFinalizeCs; // bake spatial confidence
+    TUniquePtr<IRhiPipeline> m_ShadowFinalizePipe;
+    TUniquePtr<IRhiTexture>  m_ShadowRawTex;  // 96x32x96 mean/pattern error tau
+    TUniquePtr<IRhiTexture>  m_ShadowTex;     // 96x32x96 mean/max error tau
     TUniquePtr<IRhiShader>   m_CompVs, m_CompPs;
     TUniquePtr<IRhiPipeline> m_CompPipe;      // graphics (alpha blend)
+    TUniquePtr<IRhiShader>   m_CompAtmosPs;
+    TUniquePtr<IRhiPipeline> m_CompAtmosPipe; // cloud-distance terminated physical AP (RGB L/T)
+    TUniquePtr<IRhiBuffer>   m_CompAtmosCb;
+    TUniquePtr<IRhiShader>   m_ResolveCs;      // 深度対応の color/depth 空間・時間再構成
+    TUniquePtr<IRhiPipeline> m_ResolvePipe;    // 全解像度 color/depth compute UAV 解決
     TUniquePtr<IRhiBuffer>   m_Cb;
-    TUniquePtr<IRhiTexture>  m_CloudTex;       // half-res RGBA16F UAV/SRV
-    u32                      m_W = 0, m_H = 0; // half-res dims
+    TUniquePtr<IRhiTexture>  m_CloudTex;       // scaled ray-march RGBA16F の非乗算カラー + アルファ
+    TUniquePtr<IRhiTexture>  m_CloudDepth;     // scaled ray-march RG32F (代表距離、信頼度)
+    TUniquePtr<IRhiTexture>  m_HistoryColor[2];// 全解像度 RGBA16F の時間履歴 ping-pong
+    TUniquePtr<IRhiTexture>  m_HistoryDepth[2];// 全解像度 RG32F の雲距離・信頼度 ping-pong
+    FMat4                    m_PrevViewProj = FMat4::Identity();
+    FVec3                    m_PrevCamPos{};
+    FVec3                    m_WorldOrigin{};
+    FVec3                    m_PrevSunDir{};
+    FVec3                    m_PrevSunColor{};
+    FVec3                    m_PrevSkyColor{};
+    f32                      m_PrevWindOffset = 0.0f;
+    f32                      m_PrevWindSpeed = 0.0f;
+    f32                      m_PrevCoverage = -1.0f;
+    f32                      m_PrevDensity = -1.0f;
+    f32                      m_PrevTime = -1.0f;
+    FVec2                    m_ShadowGridMinQ{};
+    FVec2                    m_ShadowGridCenterQ{};
+    FVec2                    m_ShadowCurvatureAnchor{};
+    FVec3                    m_ShadowSunDir{};
+    FVolumetricCloudLayer    m_ShadowLayer{};
+    f32                      m_ShadowCoverage = -1.0f;
+    u64                      m_ShadowCacheDispatchCount = 0;
+    bool                     m_ShadowGridInitialized = false;
+    bool                     m_ShadowCacheAvailable = false;
+    bool                     m_ShadowCacheValid = false;
+    FVolumetricCloudLayer    m_Layer{};
+    u32                      m_FrameIndex = 0;
+    u32                      m_TemporalPhase = 0;
+    u32                      m_ResolvedIndex = 0;
+    bool                     m_HistoryValid = false;
+    u32                      m_W = 0, m_H = 0;         // scaled ray-march の寸法
+    u32                      m_FullW = 0, m_FullH = 0; // 再構成先の寸法
 };
 
 } // namespace acs

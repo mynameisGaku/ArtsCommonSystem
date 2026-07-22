@@ -48,12 +48,12 @@
 //     知らなくても OnInit で参照を保存できればよい。Workspace ポインタは
 //     non-owning (workspace の生存期間 ≧ panel の生存期間)。
 //   ・**OnSelectionChanged / OnAssetSelected の二系統**:
-//       - OnSelectionChanged: Scene 内の Node 選択 (FSelectionService 経由)
+//       - OnSelectionChanged: FScene 内の ANode 選択 (FSelectionService 経由)
 //       - OnAssetSelected   : FAssetBrowser からのファイル選択 (asset path string)
 //     2 つを独立 hook にしておくことで、ModelViewer のように "asset 系のみ反応"
 //     する panel と、Inspector のように "node 系のみ反応" する panel が綺麗に
 //     書き分けられる。
-//   ・**OnSaveLayout / OnLoadLayout は stub**: EditorLayoutSerializer の型は
+//   ・**OnSaveLayout / OnLoadLayout は stub**: FEditorLayoutSerializer の型は
 //     forward-decl で受け、派生 panel が
 //     window 位置 / size / dock state を後付けで永続化できる「予約点」として
 //     用意。
@@ -90,7 +90,7 @@
 namespace acs::game::editor_core {
 
 class FEditorWorkspace;
-class EditorLayoutSerializer;
+class FEditorLayoutSerializer;
 
 } // namespace acs::game::editor_core
 
@@ -179,7 +179,7 @@ public:
     virtual void OnFrameBegin(f32 /*dt*/) noexcept {}
 
     /**
-     * Scene 内 Node の選択が変わったときに呼ばれるフック。
+     * FScene 内 ANode の選択が変わったときに呼ばれるフック。
      *
      * @details
      * selection から CurrentSelection() 等を取り出して反映する。FSelectionService の
@@ -214,7 +214,7 @@ public:
      * size / dock state は ImGui 自体が ini file に保存するため対象外。
      * @param out レイアウト情報の書き出し先シリアライザ。
      */
-    virtual void OnSaveLayout(EditorLayoutSerializer& /*out*/) noexcept {}
+    virtual void OnSaveLayout(FEditorLayoutSerializer& /*out*/) noexcept {}
 
     /**
      * OnSaveLayout で書き出した情報を復元するフック。
@@ -222,7 +222,7 @@ public:
      * @details フォーマット互換が無い場合は安全に no-op に倒すこと (例外を投げず古いレイアウトは黙って捨てる)。
      * @param in レイアウト情報の読み込み元シリアライザ。
      */
-    virtual void OnLoadLayout(EditorLayoutSerializer& /*in*/) noexcept {}
+    virtual void OnLoadLayout(FEditorLayoutSerializer& /*in*/) noexcept {}
 
     /**
      * panel が表示状態かを返す。

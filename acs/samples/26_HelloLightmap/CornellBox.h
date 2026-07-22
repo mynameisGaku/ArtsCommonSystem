@@ -14,7 +14,7 @@ namespace hellolightmap {
 
 // 1 面を初期化 (mesh upload + 平面パラメータ設定)。
 // world 法線は手書きせず、ローカル +Y を model で変換して導出する。
-void InitQuad(acs::IRhiDevice& dev, Quad& q, acs::f32 w, acs::f32 h,
+void InitQuad(acs::IRhiDevice& dev, FQuad& q, acs::f32 w, acs::f32 h,
               const acs::FMat4& model, acs::FVec3 albedo,
               acs::i32 axis, acs::f32 axis_value,
               acs::f32 u_min, acs::f32 u_max,
@@ -23,6 +23,6 @@ void InitQuad(acs::IRhiDevice& dev, Quad& q, acs::f32 w, acs::f32 h,
 
 // Cornell box 5 面 (床/天井/奥/左/右) を quads に組み立てる。
 // 天井 (quads[1]) のみ emissive=true で光源として扱う。
-void BuildCornellBox(acs::IRhiDevice& dev, Quad (&quads)[kQuadCount]) noexcept;
+void BuildCornellBox(acs::IRhiDevice& dev, FQuad (&quads)[kQuadCount]) noexcept;
 
 } // namespace hellolightmap

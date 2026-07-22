@@ -18,7 +18,7 @@ constexpr u16 kSubHullTooFew     = 422;
  *
  * @details 平面方程式 dot(n, x) = d で表され、n は centroid から外を向く法線。
  */
-struct Face {
+struct FFace {
     /** 頂点インデックス a (反時計回りの 1 番目)。 */
     u32   a;
 
@@ -52,7 +52,7 @@ struct Face {
  * @param centroid 外向き判定に使う凸包内部の基準点 (初期四面体の重心)。
  * @return 外向き法線に正規化された Face。
  */
-Face MakeFace(const FVec3* p, u32 a, u32 b, u32 c, FVec3 centroid) noexcept {
+FFace MakeFace(const FVec3* p, u32 a, u32 b, u32 c, FVec3 centroid) noexcept {
     // 退化三角形 (a,b,c がほぼ共線) では Cross がゼロ近傍になり Normalize がゼロ除算で
     // NaN 法線を生む。NaN は後段の全 Dot 比較を汚染し可視判定を壊す (hull 崩壊/無限ループ)。
     // 十分な大きさがある時だけ正規化し、退化時はゼロ法線にして不活性な面として扱う。
@@ -65,7 +65,7 @@ Face MakeFace(const FVec3* p, u32 a, u32 b, u32 c, FVec3 centroid) noexcept {
         const u32 tmp = b; b = c; c = tmp;   // 巻き順も合わせる
         d = Dot(n, p[a]);
     }
-    return Face{ a, b, c, n, d, false };
+    return FFace{ a, b, c, n, d, false };
 }
 
 } // namespace
@@ -112,7 +112,7 @@ TResult<void> BuildConvexHull3(const FVec3* points, u32 count,
 
     const FVec3 centroid = (points[i0] + points[i1] + points[i2] + points[i3]) * 0.25f;
 
-    TArray<Face> faces;
+    TArray<FFace> faces;
     faces.PushBack(MakeFace(points, i0, i1, i2, centroid));
     faces.PushBack(MakeFace(points, i0, i1, i3, centroid));
     faces.PushBack(MakeFace(points, i0, i2, i3, centroid));
@@ -126,8 +126,8 @@ TResult<void> BuildConvexHull3(const FVec3* points, u32 count,
     // スケール依存の可視 eps
     const f32 eps = 1e-5f * (1.0f + Length(points[i1] - points[i0]));
 
-    struct Edge { u32 a, b; };
-    TArray<Edge> horizon;
+    struct FEdge { u32 a, b; };
+    TArray<FEdge> horizon;
 
     for (u32 k = 0; k < count; ++k) {
         if (processed[k]) continue;
@@ -161,7 +161,7 @@ TResult<void> BuildConvexHull3(const FVec3* points, u32 count,
                     }
                     if (found) break;
                 }
-                if (!found || !neighbor_visible) horizon.PushBack(Edge{ ea, eb });
+                if (!found || !neighbor_visible) horizon.PushBack(FEdge{ ea, eb });
             }
         }
 

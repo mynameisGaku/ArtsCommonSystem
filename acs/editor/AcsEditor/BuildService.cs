@@ -96,10 +96,17 @@ public static class BuildService
             {
                 string sceneSrc = Path.Combine(project.RootDir, project.InitialScene);
                 string sceneDst = Path.Combine(Path.GetDirectoryName(exe)!, "main.acscene");
-                if (File.Exists(sceneSrc)) { File.Copy(sceneSrc, sceneDst, true); log("シーンを exe の隣へ配置しました。"); }
-                else log("注意: シーンファイルが見つかりません (先に保存してください): " + sceneSrc);
+                SceneSourceFile.CopyAtomic(
+                    sceneSrc,
+                    sceneDst,
+                    Path.GetDirectoryName(exe)!);
+                log("シーンを exe の隣へ配置しました。");
             }
-            catch (Exception ex) { log("シーンのコピー警告: " + ex.Message); }
+            catch (Exception ex)
+            {
+                log("シーン配置に失敗したため Standalone build を中止します: " + ex.Message);
+                return null;
+            }
             log($"Build 成功 → {exe}");
             return exe;
         }

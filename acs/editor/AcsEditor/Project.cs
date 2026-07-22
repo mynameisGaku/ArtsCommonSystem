@@ -16,6 +16,7 @@ public sealed class Project
     public string EngineVersion  { get; set; } = "";
     public string Template       { get; set; } = "blank";          // "blank" | "2d"
     public string InitialScene   { get; set; } = "Assets/main.acscene";   // RootDir 相対
+    public string CanonicalSceneAssetId { get; set; } = ""; // Persistent Asset DB identity; path is legacy adapter.
 
     /// <summary>マニフェスト .acsproject の絶対パス (シリアライズ対象外)。</summary>
     public string ProjectFilePath { get; set; } = "";
@@ -27,5 +28,8 @@ public sealed class Project
 
     /// <summary>初期シーンの絶対パス (相対パスのセパレータを OS 用に正規化)。</summary>
     public string InitialScenePath =>
-        Path.Combine(RootDir, InitialScene.Replace('/', Path.DirectorySeparatorChar));
+        Path.GetFullPath(
+            Path.Combine(
+                RootDir,
+                InitialScene.Replace('/', Path.DirectorySeparatorChar)));
 }

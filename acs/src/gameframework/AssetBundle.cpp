@@ -49,9 +49,9 @@ void FAssetBundle::Add(const char* asset_path) noexcept
         ACS_LOG_WARN("FAssetBundle::Add: bundle already began loading, ignored '%s'", asset_path);
         return;
     }
-    Entry e{};
+    FEntry e{};
     e.path = asset_path;
-    e.status = LoadStatus::Pending;
+    e.status = ELoadStatus::Pending;
     m_Entries.PushBack(e);
 }
 
@@ -66,33 +66,33 @@ void FAssetBundle::BeginLoad(FAssetRegistry& registry) noexcept
     // 各 entry を registry 経由で同期ロードし、TSharedPtr を保持。失敗は Failed としてマーク
     // し他 entry のロードは続ける (bundle 全体は HasFailed() で判定できる)。
     for (usize i = 0; i < m_Entries.Size(); ++i) {
-        Entry& e = m_Entries[i];
+        FEntry& e = m_Entries[i];
         wchar_t wpath[260];
         if (!WidenPath(e.path, wpath, 260)) {
             ACS_LOG_WARN("FAssetBundle::BeginLoad: path 変換失敗 '%s'", e.path ? e.path : "(null)");
-            e.status = LoadStatus::Failed;
+            e.status = ELoadStatus::Failed;
             continue;
         }
         auto r = registry.Load(wpath);
         if (r.IsErr()) {
             ACS_LOG_WARN("FAssetBundle::BeginLoad: load 失敗 '%s'", e.path);
-            e.status = LoadStatus::Failed;
+            e.status = ELoadStatus::Failed;
             continue;
         }
         e.asset = Move(r.Value());
-        e.status = LoadStatus::Loaded;
+        e.status = ELoadStatus::Loaded;
     }
 }
 
-TSharedPtr<Asset> FAssetBundle::GetAsset(u32 index) const noexcept
+TSharedPtr<FAsset> FAssetBundle::GetAsset(u32 index) const noexcept
 {
-    if (index >= m_Entries.Size()) return TSharedPtr<Asset>();
+    if (index >= m_Entries.Size()) return TSharedPtr<FAsset>();
     return m_Entries[index].asset;
 }
 
-TSharedPtr<Asset> FAssetBundle::FindAsset(const char* asset_path) const noexcept
+TSharedPtr<FAsset> FAssetBundle::FindAsset(const char* asset_path) const noexcept
 {
-    if (!asset_path) return TSharedPtr<Asset>();
+    if (!asset_path) return TSharedPtr<FAsset>();
     for (usize i = 0; i < m_Entries.Size(); ++i) {
         const char* p = m_Entries[i].path;
         if (p) {
@@ -105,7 +105,7 @@ TSharedPtr<Asset> FAssetBundle::FindAsset(const char* asset_path) const noexcept
             if (*a == 0 && *b == 0) return m_Entries[i].asset;
         }
     }
-    return TSharedPtr<Asset>();
+    return TSharedPtr<FAsset>();
 }
 
 f32 FAssetBundle::Progress() const noexcept
@@ -121,8 +121,8 @@ f32 FAssetBundle::Progress() const noexcept
     }
     u32 done = 0;
     for (usize i = 0; i < n; ++i) {
-        const LoadStatus s = m_Entries[i].status;
-        if (s == LoadStatus::Loaded || s == LoadStatus::Failed) {
+        const ELoadStatus s = m_Entries[i].status;
+        if (s == ELoadStatus::Loaded || s == ELoadStatus::Failed) {
             ++done;
         }
     }
@@ -135,8 +135,8 @@ bool FAssetBundle::IsLoaded() const noexcept
     if (n == 0) return true;     // 空 bundle は即 loaded
     if (!m_bBegun) return false; // 未開始なら未完了
     for (usize i = 0; i < n; ++i) {
-        const LoadStatus s = m_Entries[i].status;
-        if (s != LoadStatus::Loaded && s != LoadStatus::Failed) {
+        const ELoadStatus s = m_Entries[i].status;
+        if (s != ELoadStatus::Loaded && s != ELoadStatus::Failed) {
             return false;
         }
     }
@@ -147,7 +147,7 @@ bool FAssetBundle::HasFailed() const noexcept
 {
     const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
-        if (m_Entries[i].status == LoadStatus::Failed) {
+        if (m_Entries[i].status == ELoadStatus::Failed) {
             return true;
         }
     }
@@ -164,7 +164,7 @@ u32 FAssetBundle::LoadedCount() const noexcept
     u32 done = 0;
     const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
-        if (m_Entries[i].status == LoadStatus::Loaded) {
+        if (m_Entries[i].status == ELoadStatus::Loaded) {
             ++done;
         }
     }

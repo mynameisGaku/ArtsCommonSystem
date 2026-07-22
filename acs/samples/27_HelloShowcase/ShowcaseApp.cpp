@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloShowcase — ShowcaseApp 実装。OnStart / OnUpdate / OnCustomFrame /
+// HelloShowcase — FShowcaseApp 実装。OnStart / OnUpdate / OnCustomFrame /
 // OnShutdown でフレームをまわす orchestration 層。実際の draw は pass 系
 // helper (PbrPass / RefractionPass / MotionPass / SsrPass / BloomPass /
-// HudPass) と GPU resource は Assets (ShowcaseAssets.{h,cpp}) に分割している。
+// HudPass) と GPU resource は FAssets (ShowcaseAssets.{h,cpp}) に分割している。
 #include "ShowcaseApp.h"
 
 #include "BloomPass.h"
@@ -24,12 +24,12 @@ using namespace acs;
 
 namespace helloshowcase {
 
-// ctor/dtor は明示的に cpp 側に定義する。Assets が TUniquePtr<IRhiTexture> を
+// ctor/dtor は明示的に cpp 側に定義する。FAssets が TUniquePtr<IRhiTexture> を
 // 抱えるため、ヘッダ側に dtor を書くと include 側が完全型を要求してしまう。
-ShowcaseApp::ShowcaseApp() noexcept = default;
-ShowcaseApp::~ShowcaseApp() noexcept = default;
+FShowcaseApp::FShowcaseApp() noexcept = default;
+FShowcaseApp::~FShowcaseApp() noexcept = default;
 
-void ShowcaseApp::OnStart() noexcept {
+void FShowcaseApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
     IRhiSwapchain* sc = GetRenderer().Swapchain();
@@ -59,11 +59,11 @@ void ShowcaseApp::OnStart() noexcept {
     m_AdaptedExposure = 0.7f;
 }
 
-void ShowcaseApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) { Quit(); return; }
-    if (Input::IsKeyPressed(EKey::P)) m_Paused = !m_Paused;
-    if (Input::IsKeyPressed(EKey::R)) m_ShowSsr = !m_ShowSsr;
-    if (Input::IsKeyPressed(EKey::X)) m_ShowRefraction = !m_ShowRefraction;
+void FShowcaseApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) { Quit(); return; }
+    if (FInput::IsKeyPressed(EKey::P)) m_Paused = !m_Paused;
+    if (FInput::IsKeyPressed(EKey::R)) m_ShowSsr = !m_ShowSsr;
+    if (FInput::IsKeyPressed(EKey::X)) m_ShowRefraction = !m_ShowRefraction;
 
     if (!m_Paused) {
         m_OrbitAngle += dt * 0.20f;     // 約 31 秒で 1 周
@@ -84,7 +84,7 @@ void ShowcaseApp::OnUpdate(f32 dt) noexcept {
     m_Camera.SetLookAt(m_CamPos, cam_target, FVec3::Up());
 }
 
-bool ShowcaseApp::OnCustomFrame() noexcept {
+bool FShowcaseApp::OnCustomFrame() noexcept {
     IRhiDevice*      dev   = GetRenderer().Device();
     IRhiCommandList* cl    = GetRenderer().CommandList();
     IRhiSwapchain*   sc    = GetRenderer().Swapchain();
@@ -160,7 +160,7 @@ bool ShowcaseApp::OnCustomFrame() noexcept {
     return true;
 }
 
-void ShowcaseApp::OnShutdown() noexcept {
+void FShowcaseApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     ShutdownAssets(m_Assets);
 }

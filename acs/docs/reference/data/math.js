@@ -155,19 +155,19 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "CpuFeatures / Cpu()",
+      name: "FCpuFeatures / Cpu()",
       kind: "構造体・関数", header: "math/Cpu.h",
       summary: "実行中の <t>CPU</t> が対応する命令セット（<t>SSE</t>/<t>AVX</t>/FMA など）を <t>CPUID</t> で 1 度だけ調べてキャッシュする。",
-      when: "CPU 機能に応じて最適な実装を選びたい時。通常は <t>MathDispatch</t> が内部で使うので直接触る必要は少ない。",
-      sample: "const CpuFeatures& f = Cpu();\nif (f.avx2)  { /* AVX2 パス */ }\nif (HasAvx2()) { /* 簡易版 */ }",
+      when: "CPU 機能に応じて最適な実装を選びたい時。通常は <t>FMathDispatch</t> が内部で使うので直接触る必要は少ない。",
+      sample: "const FCpuFeatures& f = Cpu();\nif (f.avx2)  { /* AVX2 パス */ }\nif (HasAvx2()) { /* 簡易版 */ }",
       members: [
-        { sig: "const CpuFeatures& Cpu()", ret: "機能フラグ", desc: "初回呼び出しで <t>CPUID</t> を実行、以降キャッシュした結果を返す。" },
-        { sig: "CpuFeatures{ sse2, sse3, ssse3, sse41, sse42, avx, avx2, fma3, f16c, bmi1, bmi2, aes, popcnt, avx512f }", desc: "全 14 フラグを <code>bool</code> で持つ: <code>sse2/sse3/ssse3/sse41/sse42</code>(SSE 系)、<code>avx/avx2/avx512f</code>(AVX 系)、<code>fma3</code>(積和)、<code>f16c</code>(半精度変換)、<code>bmi1/bmi2</code>(ビット操作)、<code>aes</code>(暗号)、<code>popcnt</code>(ビット数え)。<code>sse2</code> は x64 で常に true。" },
+        { sig: "const FCpuFeatures& Cpu()", ret: "機能フラグ", desc: "初回呼び出しで <t>CPUID</t> を実行、以降キャッシュした結果を返す。" },
+        { sig: "FCpuFeatures{ sse2, sse3, ssse3, sse41, sse42, avx, avx2, fma3, f16c, bmi1, bmi2, aes, popcnt, avx512f }", desc: "全 14 フラグを <code>bool</code> で持つ: <code>sse2/sse3/ssse3/sse41/sse42</code>(SSE 系)、<code>avx/avx2/avx512f</code>(AVX 系)、<code>fma3</code>(積和)、<code>f16c</code>(半精度変換)、<code>bmi1/bmi2</code>(ビット操作)、<code>aes</code>(暗号)、<code>popcnt</code>(ビット数え)。<code>sse2</code> は x64 で常に true。" },
         { sig: "bool HasAvx2() / HasSse41()", ret: "対応するか", desc: "頻出機能だけの簡易判定ヘルパ。" }
       ]
     },
     {
-      name: "MathDispatch",
+      name: "FMathDispatch",
       kind: "構造体・関数", header: "math/MathDispatch.h",
       summary: "N 個のベクトルを一括変換するような<b>バッチ演算</b>を、起動時に検出した <t>CPU</t> 機能に応じた最適実装へ振り分ける関数ポインタテーブル。",
       when: "大量の点や方向ベクトルを 1 つの<t>行列</t>でまとめて変換する時。1 個ずつ <code>TransformPoint</code> を呼ぶより速い。",
@@ -175,57 +175,57 @@ ACS_REF.modules.push({
       members: [
         { sig: "void TransformPoints(const FVec3* in, FVec3* out, usize count, const FMat4& m)", desc: "count 個の点をまとめて行列変換する（移動成分も効く）。" },
         { sig: "void TransformVectors(const FVec3* in, FVec3* out, usize count, const FMat4& m)", desc: "count 個の方向ベクトルをまとめて変換する（移動成分は無視）。" },
-        { sig: "const MathDispatch& GetMathDispatch()", ret: "ディスパッチテーブル", desc: "選ばれた関数ポインタ群を取得（初回で初期化）。通常は上の利便関数で十分。" }
+        { sig: "const FMathDispatch& GetMathDispatch()", ret: "ディスパッチテーブル", desc: "選ばれた関数ポインタ群を取得（初回で初期化）。通常は上の利便関数で十分。" }
       ]
     },
     {
-      name: "Aabb2 / Circle / Ray2",
+      name: "FAabb2 / FCircle / FRay2",
       kind: "構造体", header: "math/Collision2D.h",
-      summary: "2D の衝突判定で使う基本形状。<t>Aabb2</t>=軸並行の矩形（中心+半サイズ）、<t>Circle</t>=円、<t>Ray2</t>=レイ（始点+方向）。",
+      summary: "2D の衝突判定で使う基本形状。<t>FAabb2</t>=軸並行の矩形（中心+半サイズ）、<t>FCircle</t>=円、<t>FRay2</t>=レイ（始点+方向）。",
       when: "2D ゲームの当たり判定。プレイヤーや壁を矩形・円で表し、レイで射撃や視線を飛ばす。",
-      sample: "Aabb2 player{ {x, y}, {8, 12} };       // 中心 + 半サイズ\nAabb2 wall = Aabb2::FromTopLeftSize({0,0}, {100, 8});\nCircle bullet{ {bx, by}, 4 };\nRay2 sight{ {px, py}, {1, 0} };",
+      sample: "FAabb2 player{ {x, y}, {8, 12} };       // 中心 + 半サイズ\nAabb2 wall = FAabb2::FromTopLeftSize({0,0}, {100, 8});\nCircle bullet{ {bx, by}, 4 };\nRay2 sight{ {px, py}, {1, 0} };",
       members: [
-        { sig: "Aabb2{ FVec2 center, FVec2 half_size }", desc: "中心と半サイズ（幅/2, 高さ/2）で矩形を表す。" },
-        { sig: "static Aabb2 FromMinMax(min, max) / FromTopLeftSize(tl, size)", ret: "矩形", desc: "左上+右下、または左上+サイズから作る。スプライト系に便利。" },
-        { sig: "FVec2 Aabb2::Min() / Max()", ret: "角の座標", desc: "矩形の左上・右下の座標を返す。" },
-        { sig: "Circle{ FVec2 center, f32 radius }", desc: "中心と半径で円を表す。" },
-        { sig: "Ray2{ FVec2 origin, FVec2 direction }", desc: "始点と方向のレイ。方向は正規化しなくてもよい（t は方向長さ依存）。" }
+        { sig: "FAabb2{ FVec2 center, FVec2 half_size }", desc: "中心と半サイズ（幅/2, 高さ/2）で矩形を表す。" },
+        { sig: "static FAabb2 FromMinMax(min, max) / FromTopLeftSize(tl, size)", ret: "矩形", desc: "左上+右下、または左上+サイズから作る。スプライト系に便利。" },
+        { sig: "FVec2 FAabb2::Min() / Max()", ret: "角の座標", desc: "矩形の左上・右下の座標を返す。" },
+        { sig: "FCircle{ FVec2 center, f32 radius }", desc: "中心と半径で円を表す。" },
+        { sig: "FRay2{ FVec2 origin, FVec2 direction }", desc: "始点と方向のレイ。方向は正規化しなくてもよい（t は方向長さ依存）。" }
       ]
     },
     {
-      name: "ConvexPoly2 / Obb2",
+      name: "FConvexPoly2 / FObb2",
       kind: "構造体", header: "math/Collision2D.h",
-      summary: "<t>ConvexPoly2</t>=<t>凸多角形</t>コライダー（最大 16 頂点）。<t>Obb2</t>=回転できる矩形（<t>OBB</t>、中心+半サイズ+回転角）。複雑な形のスプライト当たり判定に。",
+      summary: "<t>FConvexPoly2</t>=<t>凸多角形</t>コライダー（最大 16 頂点）。<t>FObb2</t>=回転できる矩形（<t>OBB</t>、中心+半サイズ+回転角）。複雑な形のスプライト当たり判定に。",
       when: "回転する箱や、スプライトの凸包など、軸並行矩形では表せない形の当たり判定が要る時。判定は内部で <t>SAT</t> に委譲される。",
-      sample: "ConvexPoly2 tri;\ntri.Add({0,0}); tri.Add({10,0}); tri.Add({5,10});\nObb2 box{ {x,y}, {16,8}, 0.5f };  // 中心,半サイズ,回転(rad)\nif (Intersect(box, tri)) { /* 衝突 */ }\nConvexPoly2 p = ToPoly(box);      // OBB を多角形に",
+      sample: "FConvexPoly2 tri;\ntri.Add({0,0}); tri.Add({10,0}); tri.Add({5,10});\nObb2 box{ {x,y}, {16,8}, 0.5f };  // 中心,半サイズ,回転(rad)\nif (Intersect(box, tri)) { /* 衝突 */ }\nConvexPoly2 p = ToPoly(box);      // OBB を多角形に",
       members: [
-        { sig: "void ConvexPoly2::Add(FVec2 v) / Clear()", desc: "頂点を追加 / 全消去。最大 <code>kMaxVerts</code>(16) まで。" },
-        { sig: "Obb2{ FVec2 center, FVec2 half_size, f32 rotation }", desc: "回転矩形。rotation はラジアン（反時計回り）。" },
-        { sig: "FVec2 Obb2::AxisX() / AxisY()", ret: "ローカル軸", desc: "回転後のローカル X/Y 軸（単位ベクトル）。" },
-        { sig: "ConvexPoly2 ToPoly(const Aabb2/Obb2&)", ret: "多角形", desc: "矩形/OBB を 4 頂点の凸多角形に変換し、共通の SAT 判定へ載せる。" },
-        { sig: "Aabb2 AabbOf(const ConvexPoly2/Obb2&)", ret: "外接矩形", desc: "形状を囲む軸並行矩形を求める。広域カリングの前段に。" },
-        { sig: "FVec2 Centroid(const ConvexPoly2&)", ret: "重心", desc: "多角形の頂点平均（重心の近似）。" }
+        { sig: "void FConvexPoly2::Add(FVec2 v) / Clear()", desc: "頂点を追加 / 全消去。最大 <code>kMaxVerts</code>(16) まで。" },
+        { sig: "FObb2{ FVec2 center, FVec2 half_size, f32 rotation }", desc: "回転矩形。rotation はラジアン（反時計回り）。" },
+        { sig: "FVec2 FObb2::AxisX() / AxisY()", ret: "ローカル軸", desc: "回転後のローカル X/Y 軸（単位ベクトル）。" },
+        { sig: "FConvexPoly2 ToPoly(const FAabb2/FObb2&)", ret: "多角形", desc: "矩形/OBB を 4 頂点の凸多角形に変換し、共通の SAT 判定へ載せる。" },
+        { sig: "FAabb2 AabbOf(const FConvexPoly2/FObb2&)", ret: "外接矩形", desc: "形状を囲む軸並行矩形を求める。広域カリングの前段に。" },
+        { sig: "FVec2 Centroid(const FConvexPoly2&)", ret: "重心", desc: "多角形の頂点平均（重心の近似）。" }
       ]
     },
     {
       name: "2D 衝突関数 (Intersect / Resolve / Raycast)",
       kind: "自由関数群", header: "math/Collision2D.h",
-      summary: "2D 形状同士の重なり判定（<t>Intersect</t>）、めり込みを押し戻す<t>MTV</t>（<t>Resolve</t>）、レイの命中判定（Raycast）。<t>Aabb2</t>/<t>Circle</t>/<t>ConvexPoly2</t>/<t>Obb2</t> の組み合わせにオーバーロードされている。",
+      summary: "2D 形状同士の重なり判定（<t>Intersect</t>）、めり込みを押し戻す<t>MTV</t>（<t>Resolve</t>）、レイの命中判定（Raycast）。<t>FAabb2</t>/<t>FCircle</t>/<t>FConvexPoly2</t>/<t>FObb2</t> の組み合わせにオーバーロードされている。",
       when: "2D の当たり判定そのもの。衝突したか（Intersect）、どれだけ押し戻すか（Resolve）、レイが当たった点と法線（Raycast）を得る。",
       sample: "if (Intersect(player, wall)) { /* 重なり */ }\nFVec2 push;\nif (Resolve(playerBox, wallBox, push)) player.center += push; // めり込み解消\nRayHit2 h = RaycastAabb(sight, wall);\nif (h.hit) { drawHit(h.point, h.normal); }\nbool inside = Contains(wall, mousePos);",
       members: [
         { sig: "bool Intersect(A, B)", ret: "重なるか", desc: "2 形状が重なっていれば true。AABB/円/凸多角形/OBB の全組合せ対応。" },
         { sig: "bool Contains(shape, FVec2 p)", ret: "内側か", desc: "点 p が形状の内部にあるか。マウス当たり判定などに。" },
         { sig: "bool Resolve(A, B, FVec2& push)", ret: "衝突したか", desc: "衝突時 true。push に「A を B から離す最小移動量」(<t>MTV</t>)が入る。" },
-        { sig: "RayHit2 RaycastAabb/RaycastCircle/RaycastConvexPoly2/RaycastObb2(ray, shape, t_max)", ret: "命中情報", desc: "レイと形状の交差。<code>hit</code>・<code>t</code>・<code>point</code>・<code>normal</code> を返す。" }
+        { sig: "FRayHit2 RaycastAabb/RaycastCircle/RaycastConvexPoly2/RaycastObb2(ray, shape, t_max)", ret: "命中情報", desc: "レイと形状の交差。<code>hit</code>・<code>t</code>・<code>point</code>・<code>normal</code> を返す。" }
       ]
     },
     {
-      name: "RayHit2",
+      name: "FRayHit2",
       kind: "構造体", header: "math/Collision2D.h",
       summary: "2D レイキャストの結果。当たったか・距離 t・衝突点・表面の<t>法線</t>を持つ。",
       when: "Raycast 系関数の戻り値を受け取り、命中したかと当たった場所を調べる時。",
-      sample: "RayHit2 h = RaycastCircle(ray, enemy);\nif (h.hit) {\n    FVec2 p = h.point;     // 衝突座標\n    FVec2 n = h.normal;    // 表面法線\n    f32   d = h.t;         // origin から t 倍の位置\n}",
+      sample: "FRayHit2 h = RaycastCircle(ray, enemy);\nif (h.hit) {\n    FVec2 p = h.point;     // 衝突座標\n    FVec2 n = h.normal;    // 表面法線\n    f32   d = h.t;         // origin から t 倍の位置\n}",
       members: [
         { sig: "bool hit", desc: "命中したら true。" },
         { sig: "f32 t", ret: "距離係数", desc: "<code>origin + direction * t</code> が衝突点。" },
@@ -233,19 +233,19 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "Aabb3 / FSphere / FPlane / Ray3",
+      name: "FAabb3 / FSphere / FPlane / FRay3",
       kind: "構造体", header: "math/Collision3D.h",
-      summary: "3D の衝突判定で使う形状。<t>Aabb3</t>=軸並行ボックス、<t>FSphere</t>=球、<t>FPlane</t>=平面、<t>Ray3</t>=レイ。",
+      summary: "3D の衝突判定で使う形状。<t>FAabb3</t>=軸並行ボックス、<t>FSphere</t>=球、<t>FPlane</t>=平面、<t>FRay3</t>=レイ。",
       when: "3D ゲームの当たり判定。キャラを球、地形を箱や平面で近似し、レイで射撃・ピッキングを行う。",
-      sample: "Aabb3 box = Aabb3::FromCenterExtents({0,0,0}, {1,1,1});\nFSphere s{ {3,0,0}, 0.5f };\nFPlane ground = FPlane::FromPointNormal({0,0,0}, FVec3::Up());\nRay3 ray{ cam.Eye(), forward };",
+      sample: "FAabb3 box = FAabb3::FromCenterExtents({0,0,0}, {1,1,1});\nFSphere s{ {3,0,0}, 0.5f };\nFPlane ground = FPlane::FromPointNormal({0,0,0}, FVec3::Up());\nRay3 ray{ cam.Eye(), forward };",
       members: [
-        { sig: "Aabb3{ FVec3 center, FVec3 half_size }", desc: "中心と半サイズの 3D ボックス。" },
-        { sig: "static Aabb3 FromMinMax(min, max) / FromCenterExtents(center, extents)", ret: "ボックス", desc: "最小/最大、または中心/範囲から作る。" },
-        { sig: "FVec3 Aabb3::Min() / Max()", ret: "角の座標", desc: "ボックスの最小・最大コーナー。" },
+        { sig: "FAabb3{ FVec3 center, FVec3 half_size }", desc: "中心と半サイズの 3D ボックス。" },
+        { sig: "static FAabb3 FromMinMax(min, max) / FromCenterExtents(center, extents)", ret: "ボックス", desc: "最小/最大、または中心/範囲から作る。" },
+        { sig: "FVec3 FAabb3::Min() / Max()", ret: "角の座標", desc: "ボックスの最小・最大コーナー。" },
         { sig: "FSphere{ FVec3 center, f32 radius }", desc: "中心と半径の球。" },
         { sig: "FPlane{ FVec3 normal, f32 d }", desc: "<t>法線</t>と原点からの距離 d で平面を表す（<code>dot(n,p)+d=0</code>）。" },
         { sig: "static FPlane FromPointNormal(FVec3 p, FVec3 n)", ret: "平面", desc: "平面上の 1 点 p と法線 n から平面を作る。" },
-        { sig: "Ray3{ FVec3 origin, FVec3 direction }", desc: "始点と方向の 3D レイ。" }
+        { sig: "FRay3{ FVec3 origin, FVec3 direction }", desc: "始点と方向の 3D レイ。" }
       ]
     },
     {
@@ -256,18 +256,18 @@ ACS_REF.modules.push({
       sample: "if (Intersect(box, s)) { /* 重なり */ }\nFVec3 push;\nif (Resolve(ballA, ballB, push)) ballA.center += push;\nRayHit3 h = RaycastAabb(ray, box);\nRayHit3 t = RaycastTriangle(ray, v0, v1, v2); // メッシュ当たり\nRayHit3 g = RaycastPlane(ray, ground);",
       members: [
         { sig: "bool Intersect(A, B)", ret: "重なるか", desc: "AABB・球の組合せで重なり判定。" },
-        { sig: "bool Contains(Aabb3/FSphere, FVec3 p)", ret: "内側か", desc: "点 p が形状内部にあるか。" },
+        { sig: "bool Contains(FAabb3/FSphere, FVec3 p)", ret: "内側か", desc: "点 p が形状内部にあるか。" },
         { sig: "bool Resolve(const FSphere& a, const FSphere& b, FVec3& push)", ret: "衝突したか", desc: "球同士のめり込みを押し出す <t>MTV</t> を求める。" },
-        { sig: "RayHit3 RaycastAabb/RaycastSphere/RaycastPlane(ray, shape, t_max)", ret: "命中情報", desc: "レイと AABB/球/平面の交差。" },
-        { sig: "RayHit3 RaycastTriangle(ray, FVec3 v0, FVec3 v1, FVec3 v2, t_max)", ret: "命中情報", desc: "三角形（両面）との交差を<t>Möller–Trumbore</t>法で計算。メッシュの精密ピッキングに。" }
+        { sig: "FRayHit3 RaycastAabb/RaycastSphere/RaycastPlane(ray, shape, t_max)", ret: "命中情報", desc: "レイと AABB/球/平面の交差。" },
+        { sig: "FRayHit3 RaycastTriangle(ray, FVec3 v0, FVec3 v1, FVec3 v2, t_max)", ret: "命中情報", desc: "三角形（両面）との交差を<t>Möller–Trumbore</t>法で計算。メッシュの精密ピッキングに。" }
       ]
     },
     {
-      name: "RayHit3",
+      name: "FRayHit3",
       kind: "構造体", header: "math/Collision3D.h",
       summary: "3D レイキャストの結果。命中したか・距離 t・衝突点・表面<t>法線</t>を持つ。",
       when: "3D の Raycast 系関数の戻り値。命中位置や面の向きを使って描画やヒット処理をする時。",
-      sample: "RayHit3 h = RaycastSphere(ray, enemy);\nif (h.hit) {\n    spawnImpact(h.point, h.normal);\n    f32 dist = h.t * Length(ray.direction);\n}",
+      sample: "FRayHit3 h = RaycastSphere(ray, enemy);\nif (h.hit) {\n    spawnImpact(h.point, h.normal);\n    f32 dist = h.t * Length(ray.direction);\n}",
       members: [
         { sig: "bool hit", desc: "命中したら true。" },
         { sig: "f32 t", ret: "距離係数", desc: "<code>origin + direction * t</code> が衝突点。" },
@@ -297,15 +297,15 @@ Object.assign(ACS_REF.glossary, {
   "行優先": "<t>行列</t>をメモリに行ごとに並べる方式（row-major）。ACS は行優先で、<t>HLSL</t>(列優先)へ送る前に <code>Transpose</code> する。",
   "クランプ": "値を指定範囲内に収めること。<code>Saturate</code> は 0〜1 に収める。",
   "イプシロン": "浮動小数の比較に使う非常に小さな許容誤差。<code>kEpsilon</code> = 1e-6。",
-  "Aabb2": "軸並行の 2D 矩形コライダー（中心+半サイズ）。最も軽い当たり判定。",
-  "Circle": "2D の円コライダー（中心+半径）。",
-  "Ray2": "2D のレイ（始点+方向）。射撃や視線の判定に。",
-  "ConvexPoly2": "2D の<t>凸多角形</t>コライダー（最大 16 頂点）。複雑な形のスプライトに。",
-  "Obb2": "回転できる 2D 矩形コライダー（<t>OBB</t>）。",
-  "Aabb3": "軸並行の 3D ボックスコライダー。",
+  "FAabb2": "軸並行の 2D 矩形コライダー（中心+半サイズ）。最も軽い当たり判定。",
+  "FCircle": "2D の円コライダー（中心+半径）。",
+  "FRay2": "2D のレイ（始点+方向）。射撃や視線の判定に。",
+  "FConvexPoly2": "2D の<t>凸多角形</t>コライダー（最大 16 頂点）。複雑な形のスプライトに。",
+  "FObb2": "回転できる 2D 矩形コライダー（<t>OBB</t>）。",
+  "FAabb3": "軸並行の 3D ボックスコライダー。",
   "FSphere": "3D の球コライダー（中心+半径）。",
   "FPlane": "3D の無限平面（<t>法線</t>+距離）。地面や壁の近似に。",
-  "Ray3": "3D のレイ（始点+方向）。ピッキングや弾道に。",
+  "FRay3": "3D のレイ（始点+方向）。ピッキングや弾道に。",
   "Intersect": "2 形状が重なっているかを bool で返す判定関数。",
   "Resolve": "重なった 2 形状を引き離す最小移動量(<t>MTV</t>)を求める関数。めり込み解消に。",
   "MTV": "最小並進ベクトル（Minimum Translation Vector）。重なりを解消する最短の押し戻し方向と距離。",
@@ -318,7 +318,7 @@ Object.assign(ACS_REF.glossary, {
   "CPUID": "CPU 自身に対応命令セットを問い合わせる命令。<code>Cpu()</code> が起動時に使う。",
   "SSE": "x86 CPU の<t>SIMD</t>命令セットの一系統。SSE2 は 64bit で常に使える。",
   "AVX": "SSE の後継の<t>SIMD</t>命令セット。AVX2 などより広い幅で計算できる。",
-  "MathDispatch": "CPU 機能に応じてバッチ演算の最適実装を選ぶ仕組み。",
+  "FMathDispatch": "CPU 機能に応じてバッチ演算の最適実装を選ぶ仕組み。",
   "CPU": "中央演算装置。対応する<t>SIMD</t>命令により計算速度が変わる。",
   "HLSL": "DirectX のシェーダ言語。既定で列優先のため、行列を送る前に <code>Transpose</code> が要る。"
 });

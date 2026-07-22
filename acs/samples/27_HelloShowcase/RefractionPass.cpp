@@ -11,7 +11,7 @@ using namespace acs;
 
 namespace helloshowcase {
 
-void ExecuteRefractionPass(Assets& a, IRhiCommandList& cl,
+void ExecuteRefractionPass(FAssets& a, IRhiCommandList& cl,
                            IRhiTexture& hdr, IRhiTexture& depth,
                            const FMat4& view_proj, FVec3 cam_pos) noexcept {
     // 背景キャプチャ: HDR の現在内容を bg_rt へ複製。
@@ -38,18 +38,18 @@ void ExecuteRefractionPass(Assets& a, IRhiCommandList& cl,
     }
 
     for (u32 i = 0; i < kSphereCount; ++i) {
-        const MaterialKind k = kSphereKind[i];
-        if (k != MaterialKind::ClearGlass && k != MaterialKind::FrostedGlass) {
+        const EMaterialKind k = kSphereKind[i];
+        if (k != EMaterialKind::ClearGlass && k != EMaterialKind::FrostedGlass) {
             continue;
         }
         const FMat4 m = FMat4::Scale(FVec3{kSphereScale, kSphereScale, kSphereScale}) *
                        FMat4::Translation(FVec3{kSphereX[i], kSphereY, kSphereZ});
-        const f32 roughness = (k == MaterialKind::FrostedGlass) ? 0.5f : 0.0f;
-        const FVec3 tint = (k == MaterialKind::FrostedGlass)
+        const f32 roughness = (k == EMaterialKind::FrostedGlass) ? 0.5f : 0.0f;
+        const FVec3 tint = (k == EMaterialKind::FrostedGlass)
                               ? FVec3{0.95f, 0.97f, 1.0f}    // 弱く青
                               : FVec3{1.0f,  1.0f,  1.0f};   // クリア
         // clear glass は dispersion を入れて diamond/prism 風の色分離を見せる
-        const f32 dispersion = (k == MaterialKind::ClearGlass) ? 0.5f : 0.0f;
+        const f32 dispersion = (k == EMaterialKind::ClearGlass) ? 0.5f : 0.0f;
         a.refr.DrawMesh(cl, a.gm_sphere, m, *a.bg_rt, *env,
                         /*ior=*/1.5f, /*thickness=*/0.45f, tint,
                         roughness, dispersion);

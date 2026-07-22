@@ -3,7 +3,7 @@
 //
 // プロジェクト `assets/` 配下のファイルツリーを ImGui で参照 + 各種 panel
 // (ModelViewer / TilemapEditor / ParticleEditor 等) に Drag & Drop 経由で
-// 「アセットパス」を供給する Unity の Project FWindow / Godot の FileSystem
+// 「アセットパス」を供給する Unity の Project Window / Godot の FileSystem
 // Dock 相当の基盤パネル。
 //
 // 役割:
@@ -32,24 +32,24 @@
 //   //   }
 //
 // 設計選択:
-//   ・**非コピー / 非ムーブ**: 内部 TArray<AssetEntry> + 文字列バッファ pool の
+//   ・**非コピー / 非ムーブ**: 内部 TArray<FAssetEntry> + 文字列バッファ pool の
 //     所有を曖昧にしない (FHierarchyPanel / FInspectorPanel と同じ規約)。
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range / 列挙失敗を
 //     no-op (= 空ツリー) で表現する。
-//   ・**STL 不使用**: ファイル列挙結果は `acs::TArray<AssetEntry>`、文字列は
+//   ・**STL 不使用**: ファイル列挙結果は `acs::TArray<FAssetEntry>`、文字列は
 //     TArray<wchar_t> + TArray<char> の linear pool に積む方式 (= path / short_name
-//     の生存期間を TPool の clear/再生成で揃え、AssetEntry はオフセットではなく
+//     の生存期間を TPool の clear/再生成で揃え、FAssetEntry はオフセットではなく
 //     stabilize された pointer をそのまま持つ。再 Refresh で全部使い直す)。
 //   ・**ImGui ヘッダは .cpp 側のみ**: ヘッダから imgui 依存を漏らさない方針
 //     (FParticleEditorPanel / FHierarchyPanel と同じ)。
-//   ・**FileSystem 経由ではなく FindFirstFileW を .cpp 内で直接使う**: 現状
+//   ・**FFileSystem 経由ではなく FindFirstFileW を .cpp 内で直接使う**: 現状
 //     `platform/FileSystem.h` にはディレクトリ列挙 API が無い (ReadAllBytes /
-//     FileSize / Exists のみ)。将来 FileSystem に `EnumerateDirectory` が
+//     FileSize / Exists のみ)。将来 FFileSystem に `EnumerateDirectory` が
 //     追加されたらここを差し替える。
 //   ・**Drag payload は wchar_t* 直渡し**: payload identifier は
 //     `"ASSET_PATH"` (ImGui 仕様: 32 文字以内)。payload data は wchar_t*
 //     1 個 (= `sizeof(wchar_t*)` 8 bytes)。受け側は memcpy で取り出すこと
-//     推奨 (Hierarchy の FNode2D* 受け渡しと同じパターン)。pointer 寿命は
+//     推奨 (Hierarchy の ANode* 受け渡しと同じパターン)。pointer 寿命は
 //     「次の Refresh まで」(= 文字列 pool が再生成されない間) を保証する。
 //   ・**callback は raw 関数ポインタ + void* user**: ACS は std::function を
 //     使えないため、FParticleEditorPanel / FInspectorPanel と同形の C スタイル
@@ -57,7 +57,7 @@
 //   ・**EAssetKind は拡張子 lookup の 1 階層**: `.png/.jpg/.tga` → Texture、
 //     `.mdl/.fbx/.gltf/.glb` → Mesh、`.ttf/.otf` → Font、`.wav/.ogg/.mp3` →
 //     Audio、`.mat`/`.material` → Material、`.fx`/`.particle` → Particle、
-//     `.anim` → FAnimation、`.bt` → FBehaviorTree、`.tilemap`/`.tmx` → FTilemap、
+//     `.anim` → Animation、`.bt` → BehaviorTree、`.tilemap`/`.tmx` → Tilemap、
 //     `.prefab` → Prefab、`.cine` → Cinematic、`.scene` → Scene、未知は Other。
 //     大文字小文字無視。
 //
@@ -66,7 +66,7 @@
 //   ・Favorites / pin
 //   ・Search box (substring match)
 //   ・New folder / rename / delete (in-place editing)
-//   ・FAssetPack (.acpak) overlay 表示 (Pillar G FAssetPack 統合時)
+//   ・AssetPack (.acpak) overlay 表示 (Pillar G AssetPack 統合時)
 #pragma once
 
 #include "foundation/Types.h"
@@ -93,7 +93,7 @@ enum class EAssetKind : u8 {
     Mesh         = 2,
 
     /** フォント (.ttf .otf)。 */
-    Font         = 3,
+    Font          = 3,
 
     /** オーディオ (.wav .ogg .mp3 .flac)。 */
     Audio        = 4,
@@ -134,7 +134,7 @@ enum class EAssetKind : u8 {
  * 「次の Refresh() を呼ぶまで」のみ有効 (= 次回再列挙時に pool がクリアされ pointer は
  * 無効化される)。コピーして保存する必要があれば利用側でバッファに退避すること。
  */
-struct AssetEntry {
+struct FAssetEntry {
     /** assets/ ルートからの相対パス (区切りは `\\`)。 */
     const wchar_t* path             = nullptr;
 
@@ -161,7 +161,7 @@ struct AssetEntry {
  * Unity の Project Window / Godot の FileSystem Dock 相当の基盤パネル。assets/ ルートを
  * 起点に左ペインへ tree、右ペインへ current directory のエントリ一覧を表示し、各エントリは
  * "ASSET_PATH" payload (wchar_t*) を提供する Drag Source となる。非コピー / 非ムーブ、
- * 全 noexcept、STL 不使用で、文字列は内部 pool に積み AssetEntry はそこへの pointer を持つ
+ * 全 noexcept、STL 不使用で、文字列は内部 pool に積み FAssetEntry はそこへの pointer を持つ
  * (寿命は次の Refresh まで)。ImGui / Win32 列挙依存は .cpp 側に閉じる。
  */
 class FAssetBrowser {
@@ -222,7 +222,7 @@ public:
     /**
      * current_directory 配下を rescan する。
      *
-     * @details pool が丸ごと再構築されるため既存 AssetEntry::path / short_name は無効化される。呼び出し側は Refresh 越しに pointer を保持しないこと。
+     * @details pool が丸ごと再構築されるため既存 FAssetEntry::path / short_name は無効化される。呼び出し側は Refresh 越しに pointer を保持しないこと。
      */
     void Refresh() noexcept;
 
@@ -249,7 +249,7 @@ public:
      * @param index 取得する entry のインデックス。
      * @return index 番目の entry (範囲外は nullptr)。pointer 寿命は次回 Refresh まで。
      */
-    const AssetEntry* GetEntry(u32 index) const noexcept;
+    const FAssetEntry* GetEntry(u32 index) const noexcept;
 
     /**
      * 現在表示中のディレクトリを返す。
@@ -339,11 +339,11 @@ private:
     wchar_t                m_CurrentDirectory[kMaxPathChars] = {};
 
     /**
-     * current_directory 配下を rescan した結果の AssetEntry 群。
+     * current_directory 配下を rescan した結果の FAssetEntry 群。
      *
      * @details entry の path / short_name pointer は下の文字列 pool 内を指す。
      */
-    TArray<AssetEntry>      m_Entries {};
+    TArray<FAssetEntry>      m_Entries {};
 
     /**
      * path 文字列 (wchar_t) を積む pool。

@@ -13,12 +13,12 @@
 //                 lights, count, ambient);
 //
 //   // オブジェクト
-//   shd.SetObject(model_mat, base_color, specular, shininess);
+//   if (!shd.SetObject(model_mat, base_color, specular, shininess)) return;
 //
 //   // ボーンパレット（毎フレーム）
 //   FMat4 palette[64];
 //   u32 nb = anim_player.WritePalette(palette, 64);
-//   shd.SetBonePalette(palette, nb);
+//   if (!shd.SetBonePalette(palette, nb)) return;
 //
 //   cl->SetPipeline(*shd.Pipeline());
 //   cl->SetConstantBuffer(0, *shd.PerFrameCB());
@@ -40,7 +40,7 @@
 #include "render/IRhiBuffer.h"
 #include "render/IRhiTexture.h"
 #include "render/RhiTypes.h"
-#include "render/StandardShader.h"   // DirLight 共有
+#include "render/StandardShader.h"   // FDirLight 共有
 
 namespace acs {
 
@@ -57,6 +57,9 @@ class FSkinnedShader {
 public:
     /** ボーンパレットの最大数 (シェーダ側 ACS_MAX_BONES と一致)。 */
     static constexpr u32 kMaxBones = 64;
+
+    /** 1 フレームで安全に記録できる Object/Bones CB ペア数。 */
+    static constexpr u32 kMaxObjectDrawsPerFrame = 256;
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FSkinnedShader() noexcept = default;
@@ -121,7 +124,7 @@ public:
      * @param lights 点光源の配列。
      * @param count 点光源の数 (最大 4)。
      */
-    void SetPointLights(const PointLight* lights, u32 count) noexcept;
+    void SetPointLights(const FPointLight* lights, u32 count) noexcept;
 
     /**
      * 描画オブジェクトのモデル行列とマテリアルを設定する。
@@ -130,8 +133,9 @@ public:
      * @param base_color ベースカラー (アルベドへの乗算色)。
      * @param specular_strength スペキュラ強度。
      * @param shininess スペキュラの鋭さ (Blinn-Phong の指数)。
+     * @return Object/Bones の draw 専用 CB ペアを確保できたら true。
      */
-    void SetObject(const FMat4& model,
+    bool SetObject(const FMat4& model,
                    FVec3 base_color = FVec3{1, 1, 1},
                    f32  specular_strength = 0.0f,
                    f32  shininess = 32.0f) noexcept;
@@ -142,8 +146,9 @@ public:
      * @details count が kMaxBones を超える場合はクランプし、残りは単位行列で埋める。
      * @param palette ボーン行列の配列。
      * @param count パレットの行列数 (最大 kMaxBones)。
+     * @return 直前の SetObject が取得した Bones CB を更新できたら true。
      */
-    void SetBonePalette(const FMat4* palette, u32 count) noexcept;
+    bool SetBonePalette(const FMat4* palette, u32 count) noexcept;
 
     /**
      * 描画パイプラインを返す。
@@ -164,14 +169,22 @@ public:
      *
      * @return モデル行列・マテリアルを格納した定数バッファ。
      */
-    IRhiBuffer*    PerObjectCB() const noexcept { return m_ObjectCb.Get(); }
+    IRhiBuffer*    PerObjectCB() const noexcept {
+        return m_CurrentObjectCb < kMaxObjectDrawsPerFrame
+             ? m_ObjectCbs[m_CurrentObjectCb].Get()
+             : nullptr;
+    }
 
     /**
      * Bones 定数バッファ (b2) を返す。
      *
      * @return ボーンパレット行列を格納した定数バッファ。
      */
-    IRhiBuffer*    BonesCB()     const noexcept { return m_BonesCb.Get(); }
+    IRhiBuffer*    BonesCB()     const noexcept {
+        return m_CurrentObjectCb < kMaxObjectDrawsPerFrame
+             ? m_BonesCbs[m_CurrentObjectCb].Get()
+             : nullptr;
+    }
 
     /**
      * テクスチャ未指定時に使う 1x1 白テクスチャを返す。
@@ -196,11 +209,17 @@ private:
     /** PerFrame 定数バッファ (b0)。 */
     TUniquePtr<IRhiBuffer>   m_FrameCb;
 
-    /** PerObject 定数バッファ (b1)。 */
-    TUniquePtr<IRhiBuffer>   m_ObjectCb;
-
-    /** Bones 定数バッファ (b2)。 */
-    TUniquePtr<IRhiBuffer>   m_BonesCb;
+    /**
+     * PerObject (b1) と Bones (b2) の draw 単位ペアリング。
+     *
+     * 同じ upload CB を command list 内で再利用すると、Raw DX12 では先行 draw まで
+     * 最後の model/palette に上書きされる。SetObject が次のペアを取得し、
+     * SetBonePalette はその同じペアへ書き込む。
+     */
+    TUniquePtr<IRhiBuffer>   m_ObjectCbs[kMaxObjectDrawsPerFrame];
+    TUniquePtr<IRhiBuffer>   m_BonesCbs[kMaxObjectDrawsPerFrame];
+    u32                      m_ObjectCbCursor = 0;
+    u32                      m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
 
     /** テクスチャ未指定時の 1x1 白テクスチャ。 */
     TUniquePtr<IRhiTexture>  m_White;
@@ -221,7 +240,7 @@ private:
     u32        m_DirCount = 0;
 
     /** キャッシュした点光源 (最大 4)。 */
-    PointLight m_PointLights[4];
+    FPointLight m_PointLights[4];
 
     /** 有効な点光源の数。 */
     u32        m_PointCount = 0;

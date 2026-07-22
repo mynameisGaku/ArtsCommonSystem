@@ -25,15 +25,15 @@
 //     ムーブで m_Data アドレスが変わると外部の T* が無効化される)。
 //
 // 使い方:
-//   struct Bullet { f32 x, y, vx, vy; bool alive; };
-//   acs::game::TPool<Bullet> bullets;
+//   struct FBullet { f32 x, y, vx, vy; bool alive; };
+//   acs::game::TPool<FBullet> bullets;
 //   bullets.Init(1024);
 //
-//   if (Bullet* b = bullets.Acquire()) {
+//   if (FBullet* b = bullets.Acquire()) {
 //       b->x = px; b->y = py; b->vx = vx; b->vy = vy; b->alive = true;
 //   }
 //
-//   bullets.ForEachActive([dt](Bullet& b) {
+//   bullets.ForEachActive([dt](FBullet& b) {
 //       b.x += b.vx * dt;
 //       b.y += b.vy * dt;
 //   });

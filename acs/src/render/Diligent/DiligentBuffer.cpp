@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// DiligentBuffer 実装
+// FDiligentBuffer 実装
 #include "render/Diligent/DiligentBuffer.h"
 
 #if WITH_RENDER_DILIGENT
@@ -13,11 +13,11 @@
 namespace acs {
 
 /** 保持している Diligent バッファを解放する。 */
-DiligentBuffer::~DiligentBuffer() noexcept {
+FDiligentBuffer::~FDiligentBuffer() noexcept {
     Reset();
 }
 
-void DiligentBuffer::Reset() noexcept
+void FDiligentBuffer::Reset() noexcept
 {
     m_Srv = nullptr;
     m_Uav = nullptr;
@@ -56,14 +56,14 @@ Diligent::BIND_FLAGS BindFromUsage(EBufferUsage u) noexcept {
 } // namespace
 
 /** desc に従って GPU バッファを生成する。 */
-TResult<void> DiligentBuffer::Init(DiligentDevice& device, const FBufferDesc& desc) noexcept {
+TResult<void> FDiligentBuffer::Init(FDiligentDevice& device, const FBufferDesc& desc) noexcept {
     Reset();
     m_Device  = &device;
     m_Size    = desc.size;
     m_Usage   = desc.usage;
 
     auto* dev = device.RenderDev();
-    if (!dev) return ACS_ERR(Render, 120, "DiligentBuffer: device not initialized");
+    if (!dev) return ACS_ERR(Render, 120, "FDiligentBuffer: device not initialized");
 
     Diligent::BufferDesc bd;
     bd.Name      = "ACS_Buffer";
@@ -126,7 +126,7 @@ TResult<void> DiligentBuffer::Init(DiligentDevice& device, const FBufferDesc& de
 }
 
 /** バッファの内容を更新する (Staging は Map、それ以外は UpdateBuffer)。 */
-void DiligentBuffer::Update(const void* data, usize size, usize offset) noexcept {
+void FDiligentBuffer::Update(const void* data, usize size, usize offset) noexcept {
     if (!m_Buffer || !m_Device || !data || size == 0) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;

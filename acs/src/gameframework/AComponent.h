@@ -9,10 +9,10 @@
 //   F = 構造体・素のクラス / A = ACS のオブジェクト基底 (FObject) を継承するオブジェクト。
 //
 // 使い方:
-//   class RotateComponent : public AComponent {
+//   class ARotateComponent : public AComponent {
 //   public:
-//       ACS_GAME_COMPONENT_KIND(RotateComponent)
-//       explicit RotateComponent(f32 speed_rps) noexcept : m_Speed(speed_rps) {}
+//       ACS_GAME_COMPONENT_KIND(ARotateComponent)
+//       explicit ARotateComponent(f32 speed_rps) noexcept : m_Speed(speed_rps) {}
 //       void OnUpdate(f32 dt) noexcept override {
 //           Owner().SetRotation2D(Owner().Rotation2D() + m_Speed * dt);
 //       }
@@ -21,7 +21,7 @@
 //   };
 //
 //   ANode& node = root.AddChild(NewObject<ANode>());
-//   node.AddComponent<RotateComponent>(/*speed_rps=*/1.0f);
+//   node.AddComponent<ARotateComponent>(/*speed_rps=*/1.0f);
 //
 // 設計選択:
 //   ・**RTTI 不使用の型 ID**: `template static const int` のアドレスを使う
@@ -32,8 +32,8 @@
 //     長く生きない)。
 //   ・**multiple components per kind**: 同じ型を 1 ノードに複数 attach 可能。
 //     `GetComponent<T>()` は最初の一致を返す (線形探索)。
-//   ・**lifecycle**: AddComponent 即時 `OnAttach`、Node 破棄時に `OnDetach`。
-//     OnUpdate/OnDraw は Node の対応フックの後に呼ばれる。
+//   ・**lifecycle**: AddComponent 即時 `OnAttach`、ANode 破棄時に `OnDetach`。
+//     OnUpdate/OnDraw は ANode の対応フックの後に呼ばれる。
 //   ・**virtual は append-only**: 3D 向け追加フック等は必ず末尾に追加する
 //     (途中挿入は game DLL との vtable ABI 不整合)。
 #pragma once
@@ -46,7 +46,7 @@
 namespace acs::game {
 
 class ANode;
-class RenderContext;
+class FRenderContext;
 class FSceneServices;
 
 /**
@@ -148,7 +148,7 @@ public:
     /**
      * 毎フレーム呼ばれる可変刻み update フック。
      *
-     * @details Node の OnUpdate の後に呼ばれる。既定 no-op。
+     * @details ANode の OnUpdate の後に呼ばれる。既定 no-op。
      * @param dt 前フレームからの経過秒。
      */
     virtual void OnUpdate(f32 /*dt*/)        noexcept {}
@@ -157,7 +157,7 @@ public:
      * 固定刻み update フック (物理・決定論ロジック)。
      *
      * @details
-     * FGame の fixed-step accumulator から Scene 経由で呼ばれ、同フレームで複数回
+     * FGame の fixed-step accumulator から FScene 経由で呼ばれ、同フレームで複数回
      * (catch-up) または 0 回 (slow-down clamp) 呼ばれ得る。既定 no-op。
      * @param fixed_dt 固定刻みの秒。
      */
@@ -169,7 +169,7 @@ public:
      * @details 既定 no-op。
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    virtual void OnDraw(RenderContext& /*rc*/) noexcept {}
+    virtual void OnDraw(FRenderContext& /*rc*/) noexcept {}
 
     /**
      * OnDraw と子ツリー描画の「後」に呼ばれる後処理フック。
@@ -179,7 +179,7 @@ public:
      * のに使う。これにより 1 コンポーネントで「子ツリーをマスクで囲う」が書ける。既定 no-op。
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    virtual void OnDrawPostChildren(RenderContext& /*rc*/) noexcept {}
+    virtual void OnDrawPostChildren(FRenderContext& /*rc*/) noexcept {}
 
     /**
      * シーンサービスが配線され Play 開始されたとき 1 回呼ばれる opt-in フック。
@@ -203,7 +203,7 @@ public:
     // スロットがずれ、古いヘッダでビルドされた game DLL と ABI 不整合になる (append-only)。
 
     /**
-     * 2D 点光源コンポーネントなら、その半径/色/強度を返す (FLight2DComponent が override)。
+     * 2D 点光源コンポーネントなら、その半径/色/強度を返す (ALight2DComponent が override)。
      *
      * @details シーンが lit スプライトのためにライトを収集するのに使う。位置は owner ノードの world。
      * @param out ライト記述子の出力 (type/radius/color/intensity/dir/cone)。
@@ -212,7 +212,7 @@ public:
     virtual bool QueryLight(FLightDesc2D& /*out*/) const noexcept { return false; }
 
     /**
-     * 影を落とすコンポーネントなら占有半径スケールを返す (FShadowCaster2DComponent が override)。
+     * 影を落とすコンポーネントなら占有半径スケールを返す (AShadowCaster2DComponent が override)。
      *
      * @param radius_scale ノード半径に対する占有半径スケールの出力。
      * @param shape 影の形状の出力 (0=円, 1=箱)。

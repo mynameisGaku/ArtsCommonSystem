@@ -28,7 +28,7 @@ ACS_REGISTER_COMPONENT(FApplyMover,
     ACS_RFIELD_D(FApplyMover, speed,  acs::game::EFieldKind::F32,  1.0f, 0, 0, 0),
     ACS_RFIELD_D(FApplyMover, count,  acs::game::EFieldKind::I32,  5,    0, 0, 0),
     ACS_RFIELD_D(FApplyMover, active, acs::game::EFieldKind::Bool, 1,    0, 0, 0),
-    ACS_RFIELD_D(FApplyMover, vel,    acs::game::EFieldKind::FVec2, 0,   0, 0, 0))
+    ACS_RFIELD_D(FApplyMover, vel,    acs::game::EFieldKind::Vec2, 0,   0, 0, 0))
 
 namespace {
 const FReflectField* FindField(const FTypeDesc& d, const char* name) noexcept {

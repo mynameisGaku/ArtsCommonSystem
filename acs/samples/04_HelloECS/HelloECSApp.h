@@ -20,7 +20,7 @@
 
 namespace hello04 {
 
-class HelloECSApp : public acs::FApplication {
+class FHelloEcsApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;

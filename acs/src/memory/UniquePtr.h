@@ -5,7 +5,7 @@
 // 破棄時に FAllocator::Free を呼んで自動解放する。
 //
 // 例:
-//   auto p = MakeUnique<Mesh>(args...);
+//   auto p = MakeUnique<FMesh>(args...);
 //   p->Render();
 //   // スコープ脱出で自動的に解放
 #pragma once

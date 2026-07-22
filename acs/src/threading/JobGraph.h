@@ -37,7 +37,7 @@ class FJobGraph;
  *
  * @details graph ポインタとジョブ index の組。index が 0xFFFFFFFF または graph が null なら無効。
  */
-struct JobHandle {
+struct FJobHandle {
     /** このハンドルが属するグラフ (null = 無効)。 */
     FJobGraph* graph = nullptr;
 
@@ -57,7 +57,7 @@ struct JobHandle {
      * @details upstream と自身が同じグラフに属する場合のみ有効 (それ以外は無視)。
      * @param upstream 先に完了している必要があるジョブ。
      */
-    void DependOn(JobHandle upstream) noexcept;
+    void DependOn(FJobHandle upstream) noexcept;
 };
 
 /** ジョブ本体の関数型 (FThreadPool::TaskFn と同形式)。 */
@@ -77,7 +77,7 @@ public:
     /** 空のジョブグラフを構築する。 */
     FJobGraph() noexcept = default;
 
-    /** 実行中なら Wait してから、Add で確保したすべての Job を解放する。 */
+    /** 実行中なら Wait してから、Add で確保したすべての FJob を解放する。 */
     ~FJobGraph() noexcept;
 
     /** コピー禁止。 */
@@ -93,7 +93,7 @@ public:
      * @param user fn に渡すユーザーデータ。
      * @return 追加したジョブのハンドル。Submit 済みまたは fn が null なら無効ハンドル。
      */
-    JobHandle Add(JobFn fn, void* user) noexcept;
+    FJobHandle Add(JobFn fn, void* user) noexcept;
 
     /**
      * upstream → downstream の依存関係を追加する (Submit 前のみ有効)。
@@ -101,12 +101,12 @@ public:
      * @param upstream 先に完了する必要があるジョブ。
      * @param downstream upstream の完了後に走るジョブ。
      */
-    void AddDependency(JobHandle upstream, JobHandle downstream) noexcept;
+    void AddDependency(FJobHandle upstream, FJobHandle downstream) noexcept;
 
     /**
      * 全ジョブを FThreadPool に投入する。依存 0 のジョブが即座に走り始める。
      *
-     * @details Kahn 法でサイクル検知し、循環があれば一件も投入しない。ThreadPool への
+     * @details Kahn 法でサイクル検知し、循環があれば一件も投入しない。FThreadPool への
      * 個別投入が失敗した場合はそのジョブだけを同期実行し、部分投入による二重実行を防ぐ。
      * @return 成功なら空の TResult。二重 Submit・サイクル検出時はエラー。
      */
@@ -126,18 +126,18 @@ public:
     u32 JobCount() const noexcept { return static_cast<u32>(m_Jobs.Size()); }
 
 private:
-    friend struct JobHandle;
+    friend struct FJobHandle;
 
     /**
      * 1 ジョブを実行し、依存先を起動する FThreadPool 向けの TaskFn thunk。
      *
-     * @param user 実行する Job へのポインタ。
+     * @param user 実行する FJob へのポインタ。
      * @param worker_index 実行中のワーカーインデックス。
      */
     static void JobThunk(void* user, u32 worker_index) noexcept;
 
     /** グラフ内の 1 ジョブの状態。 */
-    struct Job {
+    struct FJob {
         /** 実行する関数。 */
         JobFn          fn               = nullptr;
 
@@ -158,10 +158,10 @@ private:
     };
 
     /** 登録済みジョブ群 (各要素は new で確保され、デストラクタで解放)。 */
-    TArray<Job*>        m_Jobs;
+    TArray<FJob*>        m_Jobs;
 
     /** 実行中ジョブ数の完了カウンタ (Submit/完了ごとに増減)。 */
-    CompletionCounter  m_Counter;
+    FCompletionCounter  m_Counter;
 
     /** Submit 済みフラグ (true 以降は Add/AddDependency 不可)。 */
     bool               m_bSubmitted       = false;

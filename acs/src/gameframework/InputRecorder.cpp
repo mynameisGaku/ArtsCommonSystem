@@ -26,6 +26,7 @@
 //     poly 0xEDB88320 実装)。InputSample 自体の memcpy には頼らず、ABI 非依存。
 #include "gameframework/InputRecorder.h"
 
+#include "foundation/Move.h"
 #include "memory/Memory.h"  // MemCopy
 
 namespace acs::game {
@@ -75,6 +76,9 @@ inline u32  ReadU32LE (const u8* src) noexcept { u32 v = 0; MemCopy(&v, src, siz
  * @return v のビットパターンを表す u32。
  */
 inline u32 BitsOfF32(f32 v) noexcept { u32 out = 0; MemCopy(&out, &v, sizeof(u32)); return out; }
+
+/** NaN と正負 infinity を拒否する IEEE-754 binary32 の有限値判定。 */
+inline bool IsFiniteF32Bits(u32 bits) noexcept { return (bits & 0x7F800000u) != 0x7F800000u; }
 
 /**
  * u32 のビットパターンを f32 として復元する (memcpy で aliasing 回避)。
@@ -136,7 +140,7 @@ u32 ComputeCrc32(const void* data, u64 size) noexcept {
  * @param dst 書き込み先 (kSampleOnDisk バイト以上)。
  * @param s 書き出す入力サンプル。
  */
-void WriteSample(u8* dst, const InputSample& s) noexcept {
+void WriteSample(u8* dst, const FInputSample& s) noexcept {
     WriteU32LE(dst + 0, s.tick);
     MemCopy(dst + 4,  s.key_codes_changed, 8);
     MemCopy(dst + 12, s.key_states,        8);
@@ -151,7 +155,7 @@ void WriteSample(u8* dst, const InputSample& s) noexcept {
  * @param src 読み込み元 (kSampleOnDisk バイト以上)。
  * @param out 復元した入力サンプルの書き込み先。
  */
-void ReadSample(const u8* src, InputSample& out) noexcept {
+void ReadSample(const u8* src, FInputSample& out) noexcept {
     out.tick = ReadU32LE(src + 0);
     MemCopy(out.key_codes_changed, src + 4,  8);
     MemCopy(out.key_states,        src + 12, 8);
@@ -196,7 +200,7 @@ void FInputRecorder::StopReplay() noexcept {
 }
 
 /** Recording 中のみ sample を末尾に蓄積し、current_tick を s.tick + 1 へ進める。 */
-void FInputRecorder::Capture(const InputSample& s) noexcept {
+void FInputRecorder::Capture(const FInputSample& s) noexcept {
     // Recording モード以外では記録しない (Idle / Replaying 中の誤呼び出しを許容)。
     // 黙って no-op にする理由: ゲームループから無条件に Capture を呼べる設計に
     // しておくと、上位層の if 分岐が不要になり録画開始/停止だけで切り替えできる。
@@ -210,7 +214,7 @@ void FInputRecorder::Capture(const InputSample& s) noexcept {
 }
 
 /** Replaying 中に cursor から線形走査し、指定 tick の sample を取り出す (amortised O(1))。 */
-bool FInputRecorder::ConsumeSample(u32 tick, InputSample& out) noexcept {
+bool FInputRecorder::ConsumeSample(u32 tick, FInputSample& out) noexcept {
     // Replaying モード以外では取り出しを禁止する (誤用検知)。
     if (m_Mode != ERecorderMode::Replaying) {
         return false;
@@ -219,7 +223,7 @@ bool FInputRecorder::ConsumeSample(u32 tick, InputSample& out) noexcept {
     // m_Cursor から線形走査。記録順 = tick 昇順を仮定するため、
     // ヒット後に cursor を前進させて amortised O(1) を狙う。
     for (usize i = m_Cursor; i < n; ++i) {
-        const InputSample& s = m_Samples[i];
+        const FInputSample& s = m_Samples[i];
         if (s.tick == tick) {
             out = s;
             // 次回検索開始位置を更新。FLockstep と異なり同 tick 内に複数 sample が
@@ -267,7 +271,19 @@ TResult<void> FInputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_writte
                        "FInputRecorder::SaveToBuffer: buffer is null");
     }
 
+    if (m_Samples.Size() > kInputRecorderMaximumSamples ||
+        m_TickRateHz == 0 || m_TickRateHz > kInputRecorderMaximumTickRateHz) {
+        return ACS_ERR(IO, kSub_LimitExceeded,
+                       "FInputRecorder::SaveToBuffer: tick rate or sample count exceeds the limit");
+    }
     const u32 sample_count = static_cast<u32>(m_Samples.Size());
+    for (u32 i = 0; i < sample_count; ++i) {
+        if (!IsFiniteF32Bits(BitsOfF32(m_Samples[i].mouse_pos.x)) ||
+            !IsFiniteF32Bits(BitsOfF32(m_Samples[i].mouse_pos.y))) {
+            return ACS_ERR(IO, kSub_BadValue,
+                           "FInputRecorder::SaveToBuffer: non-finite mouse position");
+        }
+    }
     // 必要バイト数 = header + samples + footer。u64 で計算して overflow を避ける。
     const u64 required64 =
         static_cast<u64>(kHeaderSize) +
@@ -314,6 +330,11 @@ TResult<void> FInputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_writte
  *         version / crc 不一致はそれぞれ kSub_BadMagic / kSub_BadVersion / kSub_BadCrc。
  */
 TResult<void> FInputRecorder::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
+    return TryLoadFromBuffer(buffer, size);
+}
+
+/** 全検証とstaging成功後にだけsamplesを置換するchecked load。 */
+TResult<void> FInputRecorder::TryLoadFromBuffer(const u8* buffer, u32 size) noexcept {
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,
                        "FInputRecorder::LoadFromBuffer: buffer is null");
@@ -337,6 +358,11 @@ TResult<void> FInputRecorder::LoadFromBuffer(const u8* buffer, u32 size) noexcep
     }
     const u32 tick_rate_hz = ReadU32LE(buffer + 8);
     const u32 sample_count = ReadU32LE(buffer + 12);
+    if (tick_rate_hz == 0 || tick_rate_hz > kInputRecorderMaximumTickRateHz ||
+        sample_count > kInputRecorderMaximumSamples) {
+        return ACS_ERR(IO, kSub_LimitExceeded,
+                       "FInputRecorder::TryLoadFromBuffer: tick rate or sample count exceeds the limit");
+    }
 
     // ---- sample_count とサイズの整合検証 (overflow 安全に u64 で) ------------
     const u64 expected64 =
@@ -357,21 +383,51 @@ TResult<void> FInputRecorder::LoadFromBuffer(const u8* buffer, u32 size) noexcep
         return ACS_ERR(IO, kSub_BadCrc,
                        "FInputRecorder::LoadFromBuffer: CRC32 mismatch (corrupt or tampered)");
     }
-
-    // ---- samples を復元 (append でなく置換) ---------------------------------
-    m_Samples.Clear();
-    m_Samples.Reserve(static_cast<usize>(sample_count));
     for (u32 i = 0; i < sample_count; ++i) {
-        InputSample s;
-        ReadSample(samples_begin + static_cast<u64>(i) * kSampleOnDisk, s);
-        m_Samples.PushBack(s);
+        const u8* sample = samples_begin + static_cast<u64>(i) * kSampleOnDisk;
+        if (!IsFiniteF32Bits(ReadU32LE(sample + 20u)) ||
+            !IsFiniteF32Bits(ReadU32LE(sample + 24u))) {
+            return ACS_ERR(IO, kSub_BadValue,
+                           "FInputRecorder::TryLoadFromBuffer: non-finite mouse position");
+        }
     }
 
-    // ---- 再生待ち状態へ。tick_rate は file 由来の値で上書きする -------------
-    m_TickRateHz  = (tick_rate_hz == 0) ? 1u : tick_rate_hz;
+    TArray<FInputSample> staged(*m_Samples.GetAllocator());
+    if (!staged.TryReserve(static_cast<usize>(sample_count))) {
+        return ACS_ERR(Memory, kSub_Oom,
+                       "FInputRecorder::TryLoadFromBuffer: sample staging allocation failed");
+    }
+    for (u32 i = 0; i < sample_count; ++i) {
+        FInputSample s;
+        ReadSample(samples_begin + static_cast<u64>(i) * kSampleOnDisk, s);
+        if (!staged.TryPushBack(s)) {
+            return ACS_ERR(Memory, kSub_Oom,
+                           "FInputRecorder::TryLoadFromBuffer: sample staging append failed");
+        }
+    }
+
+    m_Samples = Move(staged);
+    m_TickRateHz  = tick_rate_hz;
     m_CurrentTick = 0;
     m_Cursor      = 0;
     return Ok();
+}
+
+/** loaded persistent stateだけをno-fail swapし、modeは各instanceで維持する。 */
+void FInputRecorder::SwapLoadedState(FInputRecorder& other) noexcept
+{
+    u32 value = m_TickRateHz;
+    m_TickRateHz = other.m_TickRateHz;
+    other.m_TickRateHz = value;
+    value = m_CurrentTick;
+    m_CurrentTick = other.m_CurrentTick;
+    other.m_CurrentTick = value;
+    value = m_Cursor;
+    m_Cursor = other.m_Cursor;
+    other.m_Cursor = value;
+    TArray<FInputSample> samples = Move(m_Samples);
+    m_Samples = Move(other.m_Samples);
+    other.m_Samples = Move(samples);
 }
 
 } // namespace acs::game

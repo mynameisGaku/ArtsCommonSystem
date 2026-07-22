@@ -2,8 +2,8 @@
 // エントリポイント生成マクロ (ACS_GAME_MAIN)
 //
 // 使い方:
-//   class MyGame : public acs::game::FGame { ... };
-//   ACS_GAME_MAIN(MyGame)
+//   class FMyGame : public acs::game::FGame { ... };
+//   ACS_GAME_MAIN(FMyGame)
 //
 // 中身は acs/app/EntryPoint.h の ACS_DEFINE_MAIN を FGame 派生向けに薄く
 // ラップしたもの。将来 AppState の自動初期化や

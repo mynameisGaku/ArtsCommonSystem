@@ -125,9 +125,9 @@ public:
 
 private:
     /** 1 ページの管理ヘッダ (ページ先頭に置かれ、直後にデータ領域が続く)。 */
-    struct Page {
+    struct FPage {
         /** 次ページへの単方向リンク (全ページリスト用)。 */
-        Page* next;
+        FPage* next;
 
         /** データ領域の先頭 (ヘッダ直後を 64B 整列した位置)。 */
         u8* base;
@@ -144,9 +144,9 @@ private:
      *
      * @details ヘッダ + データ + 64B 整列の余裕をまとめて 1 回確保する。加算オーバーフローや確保失敗時は nullptr。
      * @param Size 新ページのデータ領域サイズ。
-     * @return 初期化済み Page (失敗時 nullptr)。
+     * @return 初期化済み FPage (失敗時 nullptr)。
      */
-    Page* AllocPage(usize Size) noexcept;
+    FPage* AllocPage(usize Size) noexcept;
 
     /** Reset と競合しない確保操作として入場できれば true を返す。 */
     bool TryBeginAllocation() noexcept;
@@ -161,10 +161,10 @@ private:
     usize m_PageSize = 0;
 
     /** 現在書き込み中のページ (Acquire/Release で公開)。 */
-    TAtomic<Page*> m_Current{nullptr};
+    TAtomic<FPage*> m_Current{nullptr};
 
     /** 確保した全ページの単方向リスト (Reset での返却に使う)。 */
-    Page* m_Pages = nullptr;
+    FPage* m_Pages = nullptr;
 
     /** 新ページ確保とリスト操作を排他するロック。 */
     FMutex m_GrowLock;

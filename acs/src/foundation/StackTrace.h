@@ -12,7 +12,7 @@ inline constexpr u32 kStackTraceMaxFrames = 64;
 /**
  * 解決済みの 1 スタックフレーム情報。
  */
-struct StackFrame {
+struct FStackFrame {
     /** 命令ポインタ (フレームのアドレス)。 */
     void*       address;
 
@@ -33,10 +33,10 @@ struct StackFrame {
  * Capture で生のフレームアドレスを取り、Resolve で DbgHelp によりシンボル / ファイル /
  * 行に解決し、Print で 1 行ずつ整形して sink に渡す。
  */
-class StackTrace {
+class FStackTrace {
 public:
     /** 空状態で構築する (フレーム未取得)。 */
-    StackTrace() noexcept = default;
+    FStackTrace() noexcept = default;
 
     /**
      * 現在のコールスタックを取得する (まだシンボル解決はしない)。
@@ -81,7 +81,7 @@ public:
      * @param i フレームインデックス (0 <= i < FrameCount())。
      * @return i 番目のフレーム情報。
      */
-    const StackFrame& Frame(u32 i) const noexcept { return m_Frames[i]; }
+    const FStackFrame& Frame(u32 i) const noexcept { return m_Frames[i]; }
 
     /** 整形済みの 1 行を受け取る出力シンク関数の型。 */
     using Sink = void (*)(void* user, const char* line, usize len);
@@ -105,7 +105,7 @@ private:
     void*      m_Addrs[kStackTraceMaxFrames] = {};
 
     /** 解決後のフレーム情報配列。 */
-    StackFrame m_Frames[kStackTraceMaxFrames] = {};
+    FStackFrame m_Frames[kStackTraceMaxFrames] = {};
 };
 
 } // namespace acs

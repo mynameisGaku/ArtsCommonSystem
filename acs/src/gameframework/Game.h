@@ -2,19 +2,19 @@
 // FGame — FSceneManager を駆動するゲーム基底クラス
 //
 // FApplication を継承し、FSceneManager を駆動する基底。利用者は派生クラスで
-// InitialScene() を override して最初の Scene を返すだけでよい。
+// InitialScene() を override して最初の FScene を返すだけでよい。
 //
 // 使い方:
-//   class MyGame : public acs::game::FGame {
+//   class FMyGame : public acs::game::FGame {
 //   protected:
-//       acs::TUniquePtr<acs::game::Scene> InitialScene() noexcept override {
-//           return acs::MakeUnique<TitleScene>();
+//       acs::TUniquePtr<acs::game::FScene> InitialScene() noexcept override {
+//           return acs::MakeUnique<FTitleScene>();
 //       }
 //   };
-//   ACS_GAME_MAIN(MyGame)
+//   ACS_GAME_MAIN(FMyGame)
 //
-// FSceneManager 駆動 + RenderContext 配線。固定タイムステップ accumulator +
-// AppState 型消去永続状態 + Scene への dt は time_scale 乗算済を渡す。
+// FSceneManager 駆動 + FRenderContext 配線。固定タイムステップ accumulator +
+// AppState 型消去永続状態 + FScene への dt は time_scale 乗算済を渡す。
 // OnPause/OnResume は FSceneManager 側で配線済 (Push/Pop 時)。
 #pragma once
 
@@ -31,15 +31,15 @@
 
 namespace acs::game {
 
-class Scene;
+class FScene;
 
 /**
  * FApplication を継承し FSceneManager を駆動するゲーム基底クラス。
  *
  * @details
- * 利用者は派生クラスで InitialScene() を override し最初の Scene を返すだけでよい。
+ * 利用者は派生クラスで InitialScene() を override し最初の FScene を返すだけでよい。
  * 固定タイムステップ accumulator、AppState による型消去の永続状態、フェード付き
- * シーン遷移を提供する。Scene に渡す dt は time_scale 乗算済み。
+ * シーン遷移を提供する。FScene に渡す dt は time_scale 乗算済み。
  */
 class FGame : public FApplication {
 public:
@@ -65,14 +65,14 @@ public:
     /**
      * レンダーコンテキストへの参照を返す。
      *
-     * @return RenderContext への参照。
+     * @return FRenderContext への参照。
      */
-    RenderContext& GetRenderCtx()  noexcept { return m_RenderCtx; }
+    FRenderContext& GetRenderCtx()  noexcept { return m_RenderCtx; }
 
     /**
      * 時間スケールを設定する。
      *
-     * @details Scene::OnUpdate / OnFixedUpdate に渡る dt に乗算される。負値は 0 にクランプ。
+     * @details FScene::OnUpdate / OnFixedUpdate に渡る dt に乗算される。負値は 0 にクランプ。
      * @param s 新しい時間スケール。
      */
     void SetTimeScale(f32 s) noexcept { m_TimeScale = s < 0.0f ? 0.0f : s; }
@@ -131,14 +131,14 @@ public:
      * フェード付きシーン遷移を行う。
      *
      * @details
-     * fade-out → (暗転中に) Scene 切替 → fade-in を 1 行で行う。フェードは
+     * fade-out → (暗転中に) FScene 切替 → fade-in を 1 行で行う。フェードは
      * time_scale の影響を受けない実時間で進む (ポーズ中でも遷移は進む)。遷移演出は
-     * FGame が描画するので、切替先 Scene 側で重ねてフェードしないこと。
-     * @param next 遷移先の Scene (所有権が移る)。
+     * FGame が描画するので、切替先 FScene 側で重ねてフェードしないこと。
+     * @param next 遷移先の FScene (所有権が移る)。
      * @param out_sec fade-out の秒数。
      * @param in_sec fade-in の秒数。
      */
-    void TransitionTo(TUniquePtr<Scene> next, f32 out_sec = 0.3f, f32 in_sec = 0.3f) noexcept;
+    void TransitionTo(TUniquePtr<FScene> next, f32 out_sec = 0.3f, f32 in_sec = 0.3f) noexcept;
 
     /**
      * 進行中のフェード状態への参照を返す。
@@ -150,7 +150,7 @@ public:
     /**
      * GameInstance スコープのサブシステム束を返す(Engine スコープへフォールバックする)。
      *
-     * @details Scene の World サブシステム束はこれを parent にする。
+     * @details FScene の World サブシステム束はこれを parent にする。
      * @return GameInstance スコープのコレクション。
      */
     FSubsystemCollection& GameInstanceSubsystems() noexcept { return m_GameInstanceSubsystems; }
@@ -173,11 +173,11 @@ public:
 
 protected:
     /**
-     * 最初に push される Scene を返す (派生クラスで実装必須)。
+     * 最初に push される FScene を返す (派生クラスで実装必須)。
      *
-     * @return 起動時に push する初期 Scene。
+     * @return 起動時に push する初期 FScene。
      */
-    virtual TUniquePtr<Scene> InitialScene() noexcept = 0;
+    virtual TUniquePtr<FScene> InitialScene() noexcept = 0;
 
     /**
      * 起動時フック。InitialScene() を push して即時適用する。
@@ -214,23 +214,23 @@ protected:
      * @details 派生がさらに override する場合は基底を呼ぶこと。
      * @param e ディスパッチするイベント。
      */
-    void OnEvent(const Event& e) noexcept override;
+    void OnEvent(const FEvent& e) noexcept override;
 
 private:
     /** 初回 OnRender で default UI フォントを遅延ロードする。 */
     void EnsureUiFont() noexcept;
 
-    /** フェード overlay 用 SpriteBatch を遅延 init する。 */
+    /** フェード overlay 用 FSpriteBatch を遅延 init する。 */
     void EnsureOverlay() noexcept;
 
     /** 進行中フェードの fullscreen quad を描く。 */
     void DrawFadeOverlay() noexcept;
 
-    /** シーンマネージャ (Scene の push/pop/切替を管理)。 */
+    /** シーンマネージャ (FScene の push/pop/切替を管理)。 */
     FSceneManager  m_Scenes;
 
-    /** Scene 描画に渡すレンダーコンテキスト。 */
-    RenderContext m_RenderCtx;
+    /** FScene 描画に渡すレンダーコンテキスト。 */
+    FRenderContext m_RenderCtx;
 
     /** シーン跨ぎの型消去永続状態 (1 個固定)。 */
     FAppStateSlot  m_AppState;
@@ -242,7 +242,7 @@ private:
     FSubsystemCollection m_GameInstanceSubsystems;
 
     /** 全シーン共有の HUD フォント (game 寿命)。 */
-    Font          m_UiFont;
+    FFont          m_UiFont;
 
     /** UI フォントのロードに成功したか。 */
     bool          m_UiFontReady = false;
@@ -253,19 +253,19 @@ private:
     /** シーン遷移フェードの状態。 */
     FFadeTransition   m_Fade;
 
-    /** 暗転中に差し替える次 Scene。 */
-    TUniquePtr<Scene> m_PendingScene;
+    /** 暗転中に差し替える次 FScene。 */
+    TUniquePtr<FScene> m_PendingScene;
 
-    /** フェード overlay 描画用の SpriteBatch。 */
+    /** フェード overlay 描画用の FSpriteBatch。 */
     FSpriteBatch      m_Overlay;
 
-    /** overlay SpriteBatch の init に成功したか。 */
+    /** overlay FSpriteBatch の init に成功したか。 */
     bool              m_OverlayReady = false;
 
-    /** overlay SpriteBatch の init を試行済みか (再試行抑止)。 */
+    /** overlay FSpriteBatch の init を試行済みか (再試行抑止)。 */
     bool              m_OverlayTried = false;
 
-    /** 時間スケール (Scene の dt に乗算)。 */
+    /** 時間スケール (FScene の dt に乗算)。 */
     f32           m_TimeScale       = 1.0f;
 
     /** 固定 step の長さ (秒、0 以下で無効)。 */

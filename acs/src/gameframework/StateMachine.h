@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FStateMachine<Owner>
+// GameFramework Pillar C — TStateMachine<Owner>
 //
 // 小さな汎用 FSM (有限状態機械)。AI / ゲームフロー / アニメーション制御等に。
 //   ・状態は u32 ID で識別 (連続値を想定、最大 kMaxStates=16)
@@ -9,22 +9,22 @@
 //     (= scene/actor/component が自分自身を渡す典型パターン)
 //
 // 使い方:
-//   class Enemy {
+//   class FEnemy {
 //   public:
-//       enum States { Idle = 0, Chase, Attack };
-//       acs::game::FStateMachine<Enemy> sm;
+//       enum EStates { Idle = 0, Chase, Attack };
+//       acs::game::TStateMachine<FEnemy> sm;
 //
-//       Enemy() noexcept {
-//           sm.Configure(Idle,  { &Enemy::EnterIdle, &Enemy::UpdateIdle, nullptr });
-//           sm.Configure(Chase, { nullptr, &Enemy::UpdateChase, nullptr });
+//       FEnemy() noexcept {
+//           sm.Configure(Idle,  { &FEnemy::EnterIdle, &FEnemy::UpdateIdle, nullptr });
+//           sm.Configure(Chase, { nullptr, &FEnemy::UpdateChase, nullptr });
 //           sm.Start(Idle, *this);
 //       }
 //
 //       void Tick(f32 dt) noexcept { sm.Update(*this, dt); }
 //
-//       static void EnterIdle (Enemy& e) noexcept            { ... }
-//       static void UpdateIdle(Enemy& e, f32 dt) noexcept    { if (...) e.sm.ChangeState(Chase, e); }
-//       static void UpdateChase(Enemy& e, f32 dt) noexcept   { ... }
+//       static void EnterIdle (FEnemy& e) noexcept            { ... }
+//       static void UpdateIdle(FEnemy& e, f32 dt) noexcept    { if (...) e.sm.ChangeState(Chase, e); }
+//       static void UpdateChase(FEnemy& e, f32 dt) noexcept   { ... }
 //   };
 //
 // 注意:
@@ -51,7 +51,7 @@ namespace acs::game {
  * @tparam Owner コールバックに渡される所有者型。
  */
 template<typename Owner>
-class FStateMachine {
+class TStateMachine {
 public:
     /** on_update コールバックの関数ポインタ型 (Owner& と経過秒 dt を受け取る)。 */
     using StateFn = void(*)(Owner& owner, f32 dt) noexcept;
@@ -67,7 +67,7 @@ public:
      *
      * @details いずれの関数ポインタも nullptr 可 (その遷移点では何もしない)。
      */
-    struct State {
+    struct FState {
         /** 状態に入ったとき 1 回呼ばれる関数 (nullptr 可)。 */
         EnterFn on_enter  = nullptr;
 
@@ -85,22 +85,22 @@ public:
     static constexpr u32 kInvalidState = 0xFFFFFFFFu;
 
     /** 空の状態機械を構築する (どの状態にも入っていない)。 */
-    FStateMachine() noexcept = default;
+    TStateMachine() noexcept = default;
 
     /** コピー禁止 (状態機械は単一所有を想定)。 */
-    FStateMachine(const FStateMachine&)            = delete;
+    TStateMachine(const TStateMachine&)            = delete;
 
     /** コピー代入も禁止。 */
-    FStateMachine& operator=(const FStateMachine&) = delete;
+    TStateMachine& operator=(const TStateMachine&) = delete;
 
     /**
-     * 状態 ID に State を登録する。
+     * 状態 ID に FState を登録する。
      *
      * @details state_id が kMaxStates 以上なら no-op (静かに無視)。
      * @param state_id 登録先の状態 ID。
      * @param state 登録するコールバック束。
      */
-    void Configure(u32 state_id, State state) noexcept {
+    void Configure(u32 state_id, FState state) noexcept {
         if (state_id >= kMaxStates) return;
         _states[state_id] = state;
     }
@@ -163,7 +163,7 @@ public:
 
 private:
     /** 状態 ID をインデックスとするコールバック束テーブル。 */
-    State _states[kMaxStates] = {};
+    FState _states[kMaxStates] = {};
 
     /** 現在の状態 ID (未開始は kInvalidState)。 */
     u32   m_Current = kInvalidState;

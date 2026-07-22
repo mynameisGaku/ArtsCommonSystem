@@ -23,7 +23,7 @@ public:
 private:
     acs::FDebugDraw3D m_Dd;
     acs::FSpriteBatch m_Batch;
-    acs::Font         m_Font;
+    acs::FFont         m_Font;
     bool              m_bFontReady = false;
 
     acs::TArray<acs::FVec3> m_MeshPos;

@@ -20,7 +20,7 @@
 
 namespace helloshadows {
 
-class HelloShadowsApp : public acs::FApplication {
+class FHelloShadowsApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -28,15 +28,15 @@ public:
     void OnShutdown() noexcept override;
 
 private:
-    ShadowsScene             m_Scene;
+    FShadowsScene             m_Scene;
     acs::FSky                 m_Sky;
     acs::FStandardShader      m_Shader;
     acs::FShadowMap           m_Shadow;
-    acs::GpuMesh             m_GmCube;
-    acs::GpuMesh             m_GmSphere;
-    acs::GpuMesh             m_GmPlane;
+    acs::FGpuMesh             m_GmCube;
+    acs::FGpuMesh             m_GmSphere;
+    acs::FGpuMesh             m_GmPlane;
     acs::FSpriteBatch         m_Batch;
-    acs::Font                m_Font;
+    acs::FFont                m_Font;
     acs::FCamera              m_Camera;
     acs::FVec3                m_CamPos    {0, 4, -10};
     acs::f32                 m_CamYaw    = 0.0f;

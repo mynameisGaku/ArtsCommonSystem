@@ -1,0 +1,175 @@
+<Window x:Class="AcsEditor.ColorPickerDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Color Picker" Width="530" Height="530"
+        MinWidth="500" MinHeight="500"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResize"
+        Background="{StaticResource Win}" Foreground="{StaticResource Text}"
+        FontFamily="Segoe UI" FontSize="11.5"
+        PreviewKeyDown="OnPreviewKeyDown">
+    <Window.Resources>
+        <DrawingBrush x:Key="CheckerBrush" TileMode="Tile"
+                      Viewport="0,0,12,12" ViewportUnits="Absolute"
+                      Viewbox="0,0,12,12" ViewboxUnits="Absolute">
+            <DrawingBrush.Drawing>
+                <DrawingGroup>
+                    <GeometryDrawing Brush="#FF777777">
+                        <GeometryDrawing.Geometry><RectangleGeometry Rect="0,0,12,12"/></GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#FFAAAAAA">
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup>
+                                <RectangleGeometry Rect="0,0,6,6"/>
+                                <RectangleGeometry Rect="6,6,6,6"/>
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                </DrawingGroup>
+            </DrawingBrush.Drawing>
+        </DrawingBrush>
+        <Style x:Key="PickerLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="12">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MinWidth="280"/>
+            <ColumnDefinition Width="16"/>
+            <ColumnDefinition Width="184"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="26"/>
+            <RowDefinition Height="26"/>
+            <RowDefinition Height="44"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Grid.Column="0" BorderBrush="{StaticResource CtrlBorder}" BorderThickness="1">
+            <Grid x:Name="SaturationValueSurface"
+                  MouseLeftButtonDown="OnSaturationValueMouseDown"
+                  MouseLeftButtonUp="OnSaturationValueMouseUp"
+                  MouseMove="OnSaturationValueMouseMove">
+                <Border x:Name="HueSurface" Background="Red"/>
+                <Border>
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                            <GradientStop Color="White" Offset="0"/>
+                            <GradientStop Color="#00FFFFFF" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                </Border>
+                <Border>
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                            <GradientStop Color="#00000000" Offset="0"/>
+                            <GradientStop Color="Black" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                </Border>
+                <Canvas IsHitTestVisible="False">
+                    <Ellipse x:Name="SaturationValueThumb" Width="14" Height="14"
+                             Stroke="White" StrokeThickness="2" Fill="Transparent">
+                        <Ellipse.Effect>
+                            <DropShadowEffect Color="Black" BlurRadius="3" ShadowDepth="1" Opacity="0.9"/>
+                        </Ellipse.Effect>
+                    </Ellipse>
+                </Canvas>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1" Grid.Column="0" Margin="0,8,0,0">
+            <Rectangle RadiusX="1" RadiusY="1">
+                <Rectangle.Fill>
+                    <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                        <GradientStop Color="#FFFF0000" Offset="0"/>
+                        <GradientStop Color="#FFFFFF00" Offset="0.1667"/>
+                        <GradientStop Color="#FF00FF00" Offset="0.3333"/>
+                        <GradientStop Color="#FF00FFFF" Offset="0.5"/>
+                        <GradientStop Color="#FF0000FF" Offset="0.6667"/>
+                        <GradientStop Color="#FFFF00FF" Offset="0.8333"/>
+                        <GradientStop Color="#FFFF0000" Offset="1"/>
+                    </LinearGradientBrush>
+                </Rectangle.Fill>
+            </Rectangle>
+            <Slider x:Name="HueSlider" Minimum="0" Maximum="360" ValueChanged="OnHueChanged"
+                    Background="Transparent" Foreground="Transparent"/>
+        </Grid>
+
+        <Grid Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" x:Name="AlphaRow">
+            <Rectangle Fill="{StaticResource CheckerBrush}" RadiusX="1" RadiusY="1"/>
+            <Rectangle x:Name="AlphaGradient">
+                <Rectangle.Fill>
+                    <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                        <GradientStop x:Name="AlphaStart" Color="#00FFFFFF" Offset="0"/>
+                        <GradientStop x:Name="AlphaEnd" Color="White" Offset="1"/>
+                    </LinearGradientBrush>
+                </Rectangle.Fill>
+            </Rectangle>
+            <Slider x:Name="AlphaSlider" Minimum="0" Maximum="1" ValueChanged="OnAlphaChanged"
+                    Background="Transparent" Foreground="Transparent"/>
+        </Grid>
+
+        <StackPanel Grid.Column="2" Grid.RowSpan="3">
+            <TextBlock Text="COLOR" Foreground="{StaticResource SectionFg}"
+                       FontSize="10" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <Grid Height="94">
+                <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                <Border Grid.Column="0" Background="{StaticResource CheckerBrush}"
+                        BorderBrush="{StaticResource CtrlBorder}" BorderThickness="1" Margin="0,0,4,0">
+                    <Border x:Name="OriginalSwatch"/>
+                </Border>
+                <Border Grid.Column="1" Background="{StaticResource CheckerBrush}"
+                        BorderBrush="{StaticResource CtrlBorder}" BorderThickness="1" Margin="4,0,0,0">
+                    <Border x:Name="CurrentSwatch"/>
+                </Border>
+                <TextBlock Grid.Column="0" Text="Original" HorizontalAlignment="Center"
+                           VerticalAlignment="Bottom" Margin="0,0,0,5" Foreground="White"/>
+                <TextBlock Grid.Column="1" Text="New" HorizontalAlignment="Center"
+                           VerticalAlignment="Bottom" Margin="0,0,0,5" Foreground="White"/>
+            </Grid>
+
+            <TextBlock Text="CHANNELS" Foreground="{StaticResource SectionFg}"
+                       FontSize="10" FontWeight="SemiBold" Margin="0,12,0,5"/>
+            <UniformGrid Columns="2" Rows="4">
+                <TextBlock Text="R" Style="{StaticResource PickerLabel}"/>
+                <TextBox x:Name="RedBox" Tag="R" TextChanged="OnChannelTextChanged"/>
+                <TextBlock Text="G" Style="{StaticResource PickerLabel}"/>
+                <TextBox x:Name="GreenBox" Tag="G" TextChanged="OnChannelTextChanged"/>
+                <TextBlock Text="B" Style="{StaticResource PickerLabel}"/>
+                <TextBox x:Name="BlueBox" Tag="B" TextChanged="OnChannelTextChanged"/>
+                <TextBlock Text="A" Style="{StaticResource PickerLabel}"/>
+                <TextBox x:Name="AlphaBox" Tag="A" TextChanged="OnChannelTextChanged"/>
+            </UniformGrid>
+
+            <TextBlock Text="HSV" Foreground="{StaticResource SectionFg}"
+                       FontSize="10" FontWeight="SemiBold" Margin="0,8,0,4"/>
+            <UniformGrid Columns="2" Rows="3">
+                <TextBlock Text="H degrees" Style="{StaticResource PickerLabel}"/>
+                <TextBox x:Name="HueBox" TextChanged="OnHsvTextChanged"/>
+                <TextBlock Text="S %" Style="{StaticResource PickerLabel}"/>
+                <TextBox x:Name="SaturationBox" TextChanged="OnHsvTextChanged"/>
+                <TextBlock Text="V %" Style="{StaticResource PickerLabel}"/>
+                <TextBox x:Name="ValueBox" TextChanged="OnHsvTextChanged"/>
+            </UniformGrid>
+
+            <TextBlock Text="HEX" Foreground="{StaticResource SectionFg}"
+                       FontSize="10" FontWeight="SemiBold" Margin="0,8,0,4"/>
+            <TextBox x:Name="HexBox" TextChanged="OnHexChanged" FontFamily="Consolas"/>
+            <TextBlock x:Name="ValidationText" Foreground="{StaticResource WarnFg}"
+                       FontSize="10" TextWrapping="Wrap" Margin="0,5,0,0"/>
+        </StackPanel>
+
+        <Grid Grid.Row="3" Grid.ColumnSpan="3" Margin="0,11,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBlock Text="HSV picker - values are returned as normalized RGBA."
+                       Foreground="{StaticResource TextDim}" VerticalAlignment="Center"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button Content="Cancel" MinWidth="78" Margin="0,0,6,0" Click="OnCancel"/>
+                <Button Content="OK" MinWidth="78" Foreground="{StaticResource OkFg}" Click="OnAccept"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

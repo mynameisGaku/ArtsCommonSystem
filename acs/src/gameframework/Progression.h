@@ -12,9 +12,9 @@
 //     - FProgression は「累積 XP に対してレベルとマイルストーンが線形に増える」
 //       純粋にゲーム内で完結する進行カウンタ。プラットフォーム SDK には依存しない。
 //   ・Unlock 連携:
-//     - 各 MilestoneDef に `unlock_content_id` を持たせる。FProgression 自身は
-//       コンテンツ解放の実体を持たず、達成時に FCallback でゲーム側へ通知する。
-//       受け取った側が EntitlementRegistry / ContentManager / FAchievementManager
+//     - 各 FMilestoneDef に `unlock_content_id` を持たせる。FProgression 自身は
+//       コンテンツ解放の実体を持たず、達成時に MilestoneCallback でゲーム側へ通知する。
+//       受け取った側が FEntitlementRegistry / ContentManager / FAchievementManager
 //       に橋渡しする責務。
 //
 // 使い方:
@@ -50,9 +50,9 @@
 //       プラットフォーム非依存)。
 //     - XP <= 0 → Level 0、XP=1 → Level 1、XP=3 → 2、XP=7 → 3、XP=15 → 4、…
 //     - 必要なら将来 `SetLevelCurve(callback)` で差し替え可能だが、今は YAGNI。
-//   ・**MilestoneDef / MilestoneState を別配列で持つ**:
+//   ・**FMilestoneDef / FMilestoneState を別配列で持つ**:
 //     - FAchievementManager と同じ pattern。Def は immutable な定義 (id /
-//       display_name / required_xp / unlock_content_id)、State は実行時の
+//       display_name / required_xp / unlock_content_id)、FMilestoneState は実行時の
 //       達成状態 (id / achieved / achieved_timestamp)。1:1 対応で同 index を共有。
 //   ・**所有しない const char***:
 //     - id / display_name / unlock_content_id は呼出側 (ゲームコード or リソース
@@ -60,11 +60,11 @@
 //       FProgression 側ではコピーしない (STL <string> 禁止方針)。
 //   ・**重複登録は黙って弾く**:
 //     - 同 id を 2 度 RegisterMilestone しても 2 回目は no-op。
-//       他 Manager 系 (FEntitlement / Achievement) と同じ防御方針。
+//       他 Manager 系 (FEntitlementRegistry / Achievement) と同じ防御方針。
 //   ・**線形検索**:
 //     - Milestone 件数は 1 タイトルで通常 10〜100 程度。TArray<T> の per-byte
 //       文字列比較 + 線形走査で十分。
-//   ・**FCallback は関数ポインタ + user data**:
+//   ・**MilestoneCallback は関数ポインタ + user data**:
 //     - FTriggerWorld2D / FSceneTimer と同じ pattern。`std::function` は STL 禁止
 //       方針で使えないので、`void(*)(void*,...)` で固定。1 種類のみ (達成時)
 //       なので命名は `MilestoneCallback`。
@@ -86,12 +86,33 @@
 namespace acs::game {
 
 /**
+ * FProgression の永続化固有エラー subcode。
+ *
+ * @details
+ * FSaveArchive の subcode はそのまま伝搬し、FProgression payload 内部 schema の検証失敗だけを
+ * 200番台で表す。
+ */
+enum class EProgressionPersistenceSubCode : u32 {
+    /** entry数、固定値、payload長など内部schemaが不正。 */
+    kSubMalformedPayload       = 200,
+
+    /** 登録数または保存entry数が安全上限を超えた。 */
+    kSubMilestoneLimitExceeded = 201,
+
+    /** 保存・読込・staging用bufferを確保できなかった。 */
+    kSubAllocationFailed       = 202,
+
+    /** definition/state配列の1:1不変条件が崩れている。 */
+    kSubStateInvariant         = 203,
+};
+
+/**
  * 起動時に 1 回登録される immutable なマイルストーン定義。
  *
  * @details required_xp 以上に累計 XP が達した瞬間に達成扱いになる。文字列は非所有
  * (呼出側が static lifetime を保証する文字列リテラル想定)。
  */
-struct MilestoneDef {
+struct FMilestoneDef {
     /** 検索 / 永続化のキー (文字列リテラル想定、非所有)。 */
     const char* id                = nullptr;
 
@@ -108,16 +129,16 @@ struct MilestoneDef {
 /**
  * 実行時に変化する 1 マイルストーンの状態。
  *
- * @details MilestoneDef と同 index 位置で 1:1 対応する。
+ * @details FMilestoneDef と同 index 位置で 1:1 対応する。
  */
-struct MilestoneState {
-    /** 対応する MilestoneDef の id を参照コピーした値 (検索 / 表示用)。 */
+struct FMilestoneState {
+    /** 対応する FMilestoneDef の id を参照コピーした値 (検索 / 表示用)。 */
     const char* id                 = nullptr;
 
     /** 達成済みフラグ。 */
     bool        achieved           = false;
 
-    /** 達成時の Clock::MillisSinceStartup() (起動からの ms、0 は未達成/未取得)。 */
+    /** 達成時の FClock::MillisSinceStartup() (起動からの ms、0 は未達成/未取得)。 */
     u64         achieved_timestamp = 0;
 };
 
@@ -135,12 +156,15 @@ using MilestoneCallback = void(*)(void* user, const char* milestone_id) noexcept
  * @details
  * AwardXp で累計 XP を加算するとレベルが floor(log2(xp+1)) で上がり、所定の閾値を
  * 越えると milestone が達成され、登録済み callback でゲーム側へ通知する。FProgression
- * 自身はコンテンツ解放の実体を持たず、プラットフォーム SDK にも依存しない。MilestoneDef
- * (immutable 定義) と MilestoneState (実行時状態) を同 index で 1:1 に持つ。全 noexcept、
- * 非コピー・非ムーブ、STL 不使用 (文字列は const char* 非所有)。
+ * 自身はコンテンツ解放の実体を持たず、プラットフォーム SDK にも依存しない。
+ * FMilestoneDef (immutable 定義) と FMilestoneState (実行時状態) を同 index で
+ * 1:1 に持つ。全 noexcept、非コピー・非ムーブ、STL 不使用 (文字列は const char* 非所有)。
  */
 class FProgression {
 public:
+    /** 保存・復元できる milestone 件数の安全上限。 */
+    static constexpr u32 kMaxPersistedMilestones = 4096u;
+
     /** 空状態で構築する (XP=0、milestone なし)。 */
     FProgression()  noexcept = default;
 
@@ -162,10 +186,12 @@ public:
     /**
      * マイルストーン定義を登録する (起動時に 1 度ずつ)。
      *
-     * @details 同 id の 2 重登録は no-op、def.id == nullptr も no-op (defensive)。
+     * @details
+     * 同 id の2重登録、永続化hashが既存定義と衝突する定義、def.id == nullptr、
+     * kMaxPersistedMilestones 超過は no-op。確保失敗時も既存定義・状態を保持する。
      * @param def 登録する immutable なマイルストーン定義。
      */
-    void RegisterMilestone(const MilestoneDef& def) noexcept;
+    void RegisterMilestone(const FMilestoneDef& def) noexcept;
 
     /**
      * 累計 XP に amount を加算し、各 milestone の達成判定を行う。
@@ -220,7 +246,7 @@ public:
      * @param id 照会する milestone の id。
      * @return 状態へのポインタ (見つからなければ nullptr)。
      */
-    const MilestoneState* GetState(const char* id) const noexcept;
+    const FMilestoneState* GetState(const char* id) const noexcept;
 
     /**
      * 全マイルストーン状態の連続バッファを返す。
@@ -230,7 +256,7 @@ public:
      * @param out_count バッファの件数を書き出す先。
      * @return 状態配列の先頭ポインタ。
      */
-    const MilestoneState* AllStates(u32& out_count) const noexcept;
+    const FMilestoneState* AllStates(u32& out_count) const noexcept;
 
     /**
      * 累計 XP を 0 に、全 milestone を未達成に戻す (定義は保持)。
@@ -252,8 +278,10 @@ public:
     /**
      * 累計 XP と達成済み milestone を保存する。
      *
-     * @details FSaveArchive バイナリ (CRC32 付き) で書き出す。milestone は id の
-     * FNV-1a hash をキーにするので登録順に非依存。
+     * @details
+     * FSaveArchive バイナリ (CRC32、256 MiB上限、atomic replace) で書き出す。
+     * milestone は id の FNV-1a hash をキーにするので登録順に非依存。件数・サイズの
+     * overflow と一時buffer確保をchecked処理し、失敗時は既存保存ファイルを保持する。
      * @param file_path 書き出し先のファイルパス。
      * @return 成功なら空の TResult、IO 失敗ならエラー。
      */
@@ -262,8 +290,10 @@ public:
     /**
      * 保存した進捗を復元する。
      *
-     * @details 同じ MilestoneDef 群を RegisterMilestone した後に呼ぶと、XP と各
-     * milestone の達成状態を復元する (hash 一致でマッチング、未登録 hash は無視)。
+     * @details
+     * 同じ FMilestoneDef 群を RegisterMilestone した後に呼ぶと、XP と各 milestone の
+     * 達成状態を復元する。全payloadを検証・stagingしてから一括反映するため、version/CRC/
+     * schema/OOMのどの失敗でも現在の進捗は変更しない。未登録 hash は無視する。
      * @param file_path 読み込むファイルパス。
      * @return 成功なら空の TResult、IO / 検証失敗ならエラー。
      */
@@ -281,11 +311,11 @@ private:
     /** 累計 XP (AwardXp で加算、ResetProgress で 0)。 */
     u32 m_Xp = 0;
 
-    /** マイルストーン定義 (immutable、State と 1:1 対応)。 */
-    TArray<MilestoneDef>   m_Defs;
+    /** マイルストーン定義 (immutable、FMilestoneState と 1:1 対応)。 */
+    TArray<FMilestoneDef>   m_Defs;
 
     /** マイルストーン実行時状態 (Def と同 index で 1:1 対応)。 */
-    TArray<MilestoneState> _states;
+    TArray<FMilestoneState> m_States;
 
     /** 達成時 callback (nullptr で未設定)。 */
     MilestoneCallback m_OnAchieved      = nullptr;

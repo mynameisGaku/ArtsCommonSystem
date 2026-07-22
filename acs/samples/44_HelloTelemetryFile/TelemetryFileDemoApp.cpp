@@ -43,8 +43,8 @@ int FTelemetryFileDemoApp::Run() noexcept {
 
     acs::game::FTelemetryDirector Telemetry;
     Telemetry.Init(&Backend);
-    Telemetry.TrackEvent("level_started", "{\"level\":1}", acs::game::EventPriority::Info, "gameplay");
-    Telemetry.TrackEvent("player_died", "{\"reason\":\"spike\"}", acs::game::EventPriority::Important, "gameplay");
+    Telemetry.TrackEvent("level_started", "{\"level\":1}", acs::game::EEventPriority::Info, "gameplay");
+    Telemetry.TrackEvent("player_died", "{\"reason\":\"spike\"}", acs::game::EEventPriority::Important, "gameplay");
     Telemetry.Flush();
 
     const acs::u32 SentCount = Telemetry.SentCount();

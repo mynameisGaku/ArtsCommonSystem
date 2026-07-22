@@ -47,22 +47,22 @@ bool CycleThreadPool(u32 cycle_count) noexcept
     return true;
 }
 
-struct BlockingTaskContext {
+struct FBlockingTaskContext {
     TAtomic<u32> entered{0};
     TAtomic<u32> release{0};
 };
 
 void BlockingTask(void* user, u32) noexcept
 {
-    auto* context = static_cast<BlockingTaskContext*>(user);
+    auto* context = static_cast<FBlockingTaskContext*>(user);
     context->entered.Store(1, EMemoryOrder::Release);
     while (context->release.Load(EMemoryOrder::Acquire) == 0)
         SleepMs(1);
 }
 
-struct OwnedTaskPayload {
+struct FOwnedTaskPayload {
     TAtomic<u32>* destroyed = nullptr;
-    ~OwnedTaskPayload() noexcept
+    ~FOwnedTaskPayload() noexcept
     {
         destroyed->FetchAdd(1);
     }
@@ -70,27 +70,27 @@ struct OwnedTaskPayload {
 
 void DeleteOwnedTask(void* user, u32) noexcept
 {
-    delete static_cast<OwnedTaskPayload*>(user);
+    delete static_cast<FOwnedTaskPayload*>(user);
 }
 
-struct DelayedReleaseContext {
-    BlockingTaskContext* blocked = nullptr;
+struct FDelayedReleaseContext {
+    FBlockingTaskContext* blocked = nullptr;
 };
 
 void DelayedRelease(void* user) noexcept
 {
-    auto* context = static_cast<DelayedReleaseContext*>(user);
+    auto* context = static_cast<FDelayedReleaseContext*>(user);
     SleepMs(20);
     context->blocked->release.Store(1, EMemoryOrder::Release);
 }
 
-struct SubmitRaceContext {
+struct FSubmitRaceContext {
     TAtomic<u32> stop{0};
     TAtomic<u32> accepted{0};
     TAtomic<u32> executed{0};
 };
 
-struct AtomicPublicationContext
+struct FAtomicPublicationContext
 {
     static constexpr u32 kIterationCount = 50000u;
 
@@ -103,8 +103,8 @@ struct AtomicPublicationContext
 
 void PublishAtomicPayload(void* User) noexcept
 {
-    auto* const Context = static_cast<AtomicPublicationContext*>(User);
-    for (u32 Iteration = 1u; Iteration <= AtomicPublicationContext::kIterationCount; ++Iteration)
+    auto* const Context = static_cast<FAtomicPublicationContext*>(User);
+    for (u32 Iteration = 1u; Iteration <= FAtomicPublicationContext::kIterationCount; ++Iteration)
     {
         while (Context->Acknowledged.Load(EMemoryOrder::Acquire) != Iteration - 1u)
         {
@@ -121,8 +121,8 @@ void PublishAtomicPayload(void* User) noexcept
 
 void ConsumeAtomicPayload(void* User) noexcept
 {
-    auto* const Context = static_cast<AtomicPublicationContext*>(User);
-    for (u32 Iteration = 1u; Iteration <= AtomicPublicationContext::kIterationCount; ++Iteration)
+    auto* const Context = static_cast<FAtomicPublicationContext*>(User);
+    for (u32 Iteration = 1u; Iteration <= FAtomicPublicationContext::kIterationCount; ++Iteration)
     {
         while (Context->Sequence.Load(EMemoryOrder::Acquire) != Iteration)
         {
@@ -142,14 +142,14 @@ void ConsumeAtomicPayload(void* User) noexcept
 
 void CountRaceTask(void* user, u32) noexcept
 {
-    static_cast<SubmitRaceContext*>(user)->executed.FetchAdd(1);
+    static_cast<FSubmitRaceContext*>(user)->executed.FetchAdd(1);
 }
 
 void SubmitRaceMain(void* user) noexcept
 {
-    auto* context = static_cast<SubmitRaceContext*>(user);
+    auto* context = static_cast<FSubmitRaceContext*>(user);
     while (context->stop.Load(EMemoryOrder::Acquire) == 0) {
-        Task task{&CountRaceTask, context, nullptr};
+        FTask task{&CountRaceTask, context, nullptr};
         if (FThreadPool::Submit(task).IsOk())
             context->accepted.FetchAdd(1);
         else
@@ -215,7 +215,7 @@ ACS_TEST(Threading, AtomicSupportedWidthsAndPointerOperations)
 
 ACS_TEST(Threading, AtomicReleaseAcquirePublishesPayload)
 {
-    AtomicPublicationContext Context{};
+    FAtomicPublicationContext Context{};
     auto Producer = FThread::Spawn(&PublishAtomicPayload, &Context);
     auto Consumer = FThread::Spawn(&ConsumeAtomicPayload, &Context);
 
@@ -235,7 +235,7 @@ ACS_TEST(Threading, AtomicReleaseAcquirePublishesPayload)
     }
 
     EXPECT_EQ(Context.FailureCount.Load(EMemoryOrder::Acquire), 0u);
-    EXPECT_EQ(Context.Acknowledged.Load(), AtomicPublicationContext::kIterationCount);
+    EXPECT_EQ(Context.Acknowledged.Load(), FAtomicPublicationContext::kIterationCount);
 
     u32 Value = 41u;
     TAtomic<u32*> Pointer{nullptr};
@@ -254,10 +254,10 @@ ACS_TEST(Threading, MutexExclusive) {
 }
 
 ACS_TEST(Threading, ThreadJoin) {
-    struct Ctx { TAtomic<u32> v{0}; };
-    Ctx ctx;
+    struct FCtx { TAtomic<u32> v{0}; };
+    FCtx ctx;
     auto r = FThread::Spawn([](void* p){
-        static_cast<Ctx*>(p)->v.Store(123);
+        static_cast<FCtx*>(p)->v.Store(123);
     }, &ctx);
     EXPECT_TRUE(r.IsOk());
     if (r.IsOk()) {
@@ -268,7 +268,7 @@ ACS_TEST(Threading, ThreadJoin) {
 
 ACS_TEST(Threading, ThreadNameIsOwnedBySpawnContext)
 {
-    struct NameCapture {
+    struct FNameCapture {
         wchar_t text[96] = {};
         u32 length = 0;
     } capture;
@@ -277,11 +277,11 @@ ACS_TEST(Threading, ThreadNameIsOwnedBySpawnContext)
     for (u32 i = 0; i < 95; ++i)
         requested[i] = static_cast<wchar_t>(L'A' + (i % 26));
 
-    ThreadConfig config{};
+    FThreadConfig config{};
     config.name = requested;
     auto result = FThread::Spawn(
         [](void* user) {
-            auto* output = static_cast<NameCapture*>(user);
+            auto* output = static_cast<FNameCapture*>(user);
             PWSTR description = nullptr;
             if (SUCCEEDED(::GetThreadDescription(::GetCurrentThread(), &description)) && description != nullptr) {
                 while (output->length + 1u < 96u && description[output->length] != L'\0') {
@@ -306,10 +306,10 @@ ACS_TEST(Threading, ThreadPoolSubmitMany) {
     EXPECT_TRUE(rinit.IsOk());
 
     TAtomic<u32> counter{0};
-    CompletionCounter done;
+    FCompletionCounter done;
     constexpr u32 N = 1000;
     for (u32 i = 0; i < N; ++i) {
-        Task t {};
+        FTask t {};
         t.fn = [](void* p, u32){
             static_cast<TAtomic<u32>*>(p)->FetchAdd(1);
         };
@@ -345,22 +345,22 @@ ACS_TEST(Threading, ThreadPoolShutdownDrainsOwnedPayloads)
 {
     EXPECT_TRUE(FThreadPool::Init(1).IsOk());
 
-    BlockingTaskContext blocked{};
-    CompletionCounter completed;
-    EXPECT_TRUE(FThreadPool::Submit(Task{&BlockingTask, &blocked, &completed}).IsOk());
+    FBlockingTaskContext blocked{};
+    FCompletionCounter completed;
+    EXPECT_TRUE(FThreadPool::Submit(FTask{&BlockingTask, &blocked, &completed}).IsOk());
     while (blocked.entered.Load(EMemoryOrder::Acquire) == 0)
         Yield();
 
     constexpr u32 kPayloadCount = 128;
     TAtomic<u32> destroyed{0};
     for (u32 i = 0; i < kPayloadCount; ++i) {
-        auto* payload = new OwnedTaskPayload{&destroyed};
-        auto result = FThreadPool::Submit(Task{&DeleteOwnedTask, payload, &completed});
+        auto* payload = new FOwnedTaskPayload{&destroyed};
+        auto result = FThreadPool::Submit(FTask{&DeleteOwnedTask, payload, &completed});
         EXPECT_TRUE(result.IsOk());
         if (result.IsErr()) delete payload;
     }
 
-    DelayedReleaseContext release_context{&blocked};
+    FDelayedReleaseContext release_context{&blocked};
     auto releaser = FThread::Spawn(&DelayedRelease, &release_context);
     EXPECT_TRUE(releaser.IsOk());
 
@@ -376,7 +376,7 @@ ACS_TEST(Threading, ThreadPoolSubmitShutdownRaceIsLifetimeSafe)
 {
     EXPECT_TRUE(FThreadPool::Init(4).IsOk());
 
-    SubmitRaceContext context{};
+    FSubmitRaceContext context{};
     auto submitter = FThread::Spawn(&SubmitRaceMain, &context);
     EXPECT_TRUE(submitter.IsOk());
     SleepMs(20);
@@ -394,8 +394,8 @@ ACS_TEST(Threading, WorkerShutdownAvoidsSelfJoin)
     EXPECT_TRUE(FThreadPool::Init(1).IsOk());
 
     TAtomic<u32> returned{0};
-    CompletionCounter completed;
-    EXPECT_TRUE(FThreadPool::Submit(Task{&ShutdownFromTask, &returned, &completed}).IsOk());
+    FCompletionCounter completed;
+    EXPECT_TRUE(FThreadPool::Submit(FTask{&ShutdownFromTask, &returned, &completed}).IsOk());
     FThreadPool::Wait(completed);
 
     EXPECT_EQ(returned.Load(EMemoryOrder::Acquire), 1u);
@@ -420,10 +420,10 @@ ACS_TEST(Threading, ThreadPoolHighLoad) {
     auto rinit = FThreadPool::Init(4);
     EXPECT_TRUE(rinit.IsOk());
     TAtomic<u32> counter{0};
-    CompletionCounter done;
+    FCompletionCounter done;
     constexpr u32 N = 50000;
     for (u32 i = 0; i < N; ++i) {
-        Task t {};
+        FTask t {};
         t.fn = [](void* p, u32){
             static_cast<TAtomic<u32>*>(p)->FetchAdd(1);
         };

@@ -78,17 +78,27 @@ UseColor: true
 
 CheckOptions:
   # ---- Identifier naming (R020-R029, calibrated against src/ tree) ---------
-  # Classes / structs / enums / template params: PascalCase, no prefix.
+# 通常の値型は F、FObject 管理型は A、class template は T、純粋 interface は I、
+# enum は E を使う。標準の命名 check はこの意味差を推論できないため、ここでは
+# A/F/I/T 接頭辞の宣言を受理し、意味に応じた分類は専用監査で別途確認する。
   - { key: readability-identifier-naming.NamespaceCase,                value: lower_case }
   - { key: readability-identifier-naming.ClassCase,                    value: CamelCase  }
+  - { key: readability-identifier-naming.ClassPrefix,                  value: 'F'        }
+  - { key: readability-identifier-naming.ClassIgnoredRegexp,           value: '^(A|F|I|T)([A-Z0-9_].*)$' }
   - { key: readability-identifier-naming.StructCase,                   value: CamelCase  }
+  - { key: readability-identifier-naming.StructPrefix,                 value: 'F'        }
+  - { key: readability-identifier-naming.StructIgnoredRegexp,          value: '^(A|F|I|T)([A-Z0-9_].*)$' }
   - { key: readability-identifier-naming.UnionCase,                    value: CamelCase  }
+  - { key: readability-identifier-naming.UnionPrefix,                  value: 'F'        }
+  - { key: readability-identifier-naming.UnionIgnoredRegexp,           value: '^(A|F|I|T)([A-Z0-9_].*)$' }
   - { key: readability-identifier-naming.TypedefCase,                  value: CamelCase  }
   - { key: readability-identifier-naming.TypeAliasCase,                value: CamelCase  }
   - { key: readability-identifier-naming.TypeAliasIgnoredRegexp,       value: '^(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|usize|isize|uptr|iptr|byte|c8|c16|c32)$' }
   - { key: readability-identifier-naming.TypeTemplateParameterCase,    value: CamelCase  }
   - { key: readability-identifier-naming.TemplateParameterCase,        value: CamelCase  }
   - { key: readability-identifier-naming.EnumCase,                     value: CamelCase  }
+  - { key: readability-identifier-naming.EnumPrefix,                   value: 'E'        }
+  - { key: readability-identifier-naming.EnumIgnoredRegexp,            value: '^E[A-Z0-9_].*$' }
   - { key: readability-identifier-naming.EnumConstantCase,             value: CamelCase  }
   # NOTE: clang-tidy IgnoredRegexp uses POSIX ERE — PCRE (?:...) non-capturing
   # groups are rejected ("Invalid IgnoredRegexp regular expression"). Use plain

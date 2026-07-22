@@ -6,7 +6,7 @@
 //   ...
 //   if (fut.IsReady()) {
 //       auto r = fut.Get();
-//       if (r.IsOk()) TSharedPtr<Asset> a = r.Value();
+//       if (r.IsOk()) TSharedPtr<FAsset> a = r.Value();
 //   }
 //   // または同期待ち（ワーカースチール参加付き）
 //   auto r = fut.Wait();
@@ -28,12 +28,12 @@ namespace acs {
  * ワーカースレッドが結果かエラーを書き込み counter を Done() する。future 側は
  * counter の完了でそれを読み取る。TSharedPtr で共有されるため寿命は両者で管理される。
  */
-struct AsyncLoadState {
+struct FAsyncLoadState {
     /** 残ジョブ数カウンタ (1 → 0 で完了)。 */
-    CompletionCounter counter{1};
+    FCompletionCounter counter{1};
 
     /** ロード成功時のアセット (共有所有)。 */
-    TSharedPtr<Asset>         result;
+    TSharedPtr<FAsset>         result;
 
     /** ロード失敗時のエラーコード (has_error が true のとき有効)。 */
     FErrorCode         error{};
@@ -47,7 +47,7 @@ struct AsyncLoadState {
  *
  * @details
  * FAssetRegistry::LoadAsync が返す。IsReady() でノンブロッキングに完了確認し、
- * Get()/Wait() で完了を待って結果を取り出す。内部共有状態 (AsyncLoadState) を
+ * Get()/Wait() で完了を待って結果を取り出す。内部共有状態 (FAsyncLoadState) を
  * TSharedPtr で保持し、ワーカーと結果領域を共有する。
  */
 class FAssetFuture {
@@ -60,7 +60,7 @@ public:
      *
      * @param s ワーカーと共有する非同期ロード状態。
      */
-    explicit FAssetFuture(TSharedPtr<AsyncLoadState> s) noexcept : _state(Move(s)) {}
+    explicit FAssetFuture(TSharedPtr<FAsyncLoadState> s) noexcept : _state(Move(s)) {}
 
     /**
      * 完了済みかをノンブロッキングで返す。
@@ -84,11 +84,11 @@ public:
      * @details 呼び出しスレッドがワーカーの場合はワーカースチールに参加して手伝う。
      * @return 成功ならロード済みアセット、失敗ならエラー。空 future ならエラー。
      */
-    TResult<TSharedPtr<Asset>> Get() noexcept {
+    TResult<TSharedPtr<FAsset>> Get() noexcept {
         if (!_state.Get()) return ACS_ERR(Asset, 10, "FAssetFuture: empty");
         FThreadPool::Wait(_state->counter);
-        if (_state->has_error) return TResult<TSharedPtr<Asset>>(_state->error);
-        return TResult<TSharedPtr<Asset>>(OkInit, _state->result);
+        if (_state->has_error) return TResult<TSharedPtr<FAsset>>(_state->error);
+        return TResult<TSharedPtr<FAsset>>(OkInit, _state->result);
     }
 
     /**
@@ -96,11 +96,11 @@ public:
      *
      * @return Get() と同じ結果。
      */
-    TResult<TSharedPtr<Asset>> Wait() noexcept { return Get(); }
+    TResult<TSharedPtr<FAsset>> Wait() noexcept { return Get(); }
 
 private:
     /** ワーカーと共有する非同期ロード状態 (null なら無効 future)。 */
-    TSharedPtr<AsyncLoadState> _state;
+    TSharedPtr<FAsyncLoadState> _state;
 };
 
 } // namespace acs

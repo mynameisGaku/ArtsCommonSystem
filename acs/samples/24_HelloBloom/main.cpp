@@ -2,7 +2,7 @@
 // HelloBloom — エントリポイント。
 //
 // 構成:
-//   HelloBloomApp.{h,cpp} - FApplication 派生 (HDR シーン + Bloom + Tonemap)
+//   FHelloBloomApp.{h,cpp} - FApplication 派生 (HDR シーン + Bloom + Tonemap)
 //
 // 動作:
 //   ・暗いシーンに非常に明るい (HDR) 球を 4 つ配置
@@ -19,4 +19,4 @@
 #include "HelloBloomApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(hellobloom::HelloBloomApp)
+ACS_DEFINE_MAIN(hellobloom::FHelloBloomApp)

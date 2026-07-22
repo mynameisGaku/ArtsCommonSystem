@@ -77,8 +77,8 @@ void FColliderVizApp::OnStart() noexcept {
 
     // 凸包をスクリーン空間に変換して衝突ワールドに登録。
     m_World.Init(128.0f);
-    ConvexPoly2 hull = m_Collider.HullPolygon();
-    ConvexPoly2 screen_hull;
+    FConvexPoly2 hull = m_Collider.HullPolygon();
+    FConvexPoly2 screen_hull;
     for (u32 i = 0; i < hull.count; ++i) {
         screen_hull.Add(FVec2{ m_SpritePos.x + hull.verts[i].x * m_Scale,
                                m_SpritePos.y + hull.verts[i].y * m_Scale });
@@ -87,10 +87,10 @@ void FColliderVizApp::OnStart() noexcept {
 }
 
 void FColliderVizApp::OnUpdate(f32) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) { Quit(); return; }
-    m_Probe = Input::MousePos();
+    if (FInput::IsKeyPressed(EKey::Escape)) { Quit(); return; }
+    m_Probe = FInput::MousePos();
     TArray<acs::game::FShapeId> hits;
-    m_World.OverlapCircle(Circle{ m_Probe, 18.0f }, hits);
+    m_World.OverlapCircle(FCircle{ m_Probe, 18.0f }, hits);
     m_bOverlap = hits.Size() > 0;
 }
 

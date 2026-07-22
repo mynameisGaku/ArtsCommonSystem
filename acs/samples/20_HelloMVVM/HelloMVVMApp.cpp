@@ -14,7 +14,7 @@ using namespace acs;
 
 namespace hellomvvm {
 
-void HelloMVVMApp::OnStart() noexcept {
+void FHelloMvvmApp::OnStart() noexcept {
     ACS_SAMPLE_INIT(m_Imgui.Init(GetWindow(), GetRenderer()));
 
     // Subscribe で値の変化をフックできる。ここではログに流して
@@ -33,7 +33,7 @@ void HelloMVVMApp::OnStart() noexcept {
     m_HpTextBinder = MakeBindConvert<f32, FString>(m_Vm.hp, m_HpText);
 
     // Derived は依存元 Observable が変わると lazy に再計算される派生 Observable。
-    m_Ratio = new Derived<f32, f32>(
+    m_Ratio = new TDerived<f32, f32>(
         [](const f32& h, const f32& m) {
             return m > 0 ? h / m : 0.0f;
         },
@@ -57,21 +57,21 @@ void HelloMVVMApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloMVVM initialized");
 }
 
-void HelloMVVMApp::OnUpdate(f32 /*dt*/) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloMvvmApp::OnUpdate(f32 /*dt*/) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
 }
 
-void HelloMVVMApp::OnRender() noexcept {
+void FHelloMvvmApp::OnRender() noexcept {
     m_Imgui.NewFrame();
 
     ImGui::SetNextWindowSize(ImVec2(440, 720), ImGuiCond_FirstUseEver);
     ImGui::Begin("ACS MVVM Demo");
 
     // ============================================================
-    // ① 5 分入門 — Observable<T> + imgui::Bind 最小例
+    // ① 5 分入門 — TObservable<T> + imgui::Bind 最小例
     // ============================================================
     if (ImGui::CollapsingHeader("① 5 分入門 (Set/Get + Bind)", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::Text("Observable<T> をスライダーで編集する最小例:");
+        ImGui::Text("TObservable<T> をスライダーで編集する最小例:");
         mvvm::imgui::Bind("HP",     m_Vm.hp,     0.0f, 100.0f);
         mvvm::imgui::Bind("Mana",   m_Vm.mana,   0.0f, 100.0f);
         mvvm::imgui::Bind("Lv",     m_Vm.level,  1, 99);
@@ -98,9 +98,9 @@ void HelloMVVMApp::OnRender() noexcept {
 
         ImGui::Spacing();
         ImGui::Text("Bind(src, dst) ファクトリは型違いでも自動で converter 選択:");
-        ImGui::BulletText("Observable<f32> → Observable<FString>: \"%s\"", m_HpText.Get().Data());
-        ImGui::BulletText("Observable<i32> → Observable<f32>: 同型なら OneWayBinder");
-        ImGui::BulletText("Observable<FString> → Observable<i32>: パース失敗時 0");
+        ImGui::BulletText("TObservable<f32> → TObservable<FString>: \"%s\"", m_HpText.Get().Data());
+        ImGui::BulletText("TObservable<i32> → TObservable<f32>: 同型なら OneWayBinder");
+        ImGui::BulletText("TObservable<FString> → TObservable<i32>: パース失敗時 0");
     }
 
     // ============================================================
@@ -116,7 +116,7 @@ void HelloMVVMApp::OnRender() noexcept {
     }
 
     // ============================================================
-    // ④ ObservableArray + Command — コレクションとアクション
+    // ④ TObservableArray + FCommand — コレクションとアクション
     // ============================================================
     if (ImGui::CollapsingHeader("④ TArray + Command")) {
         ImGui::Text("Inventory (%zu 個):", m_Vm.inventory.Size());
@@ -137,7 +137,7 @@ void HelloMVVMApp::OnRender() noexcept {
 
         ImGui::Spacing();
         ImGui::Text("Command (ボタン化、無敵中は grayout):");
-        // Command 自体は can_execute=null で常時実行可能にしておき、
+        // FCommand 自体は can_execute=null で常時実行可能にしておき、
         // 無敵フラグによる UI 抑止だけを View 側 (BeginDisabled) で行う。
         if (m_Vm.invincible.Get()) ImGui::BeginDisabled();
         mvvm::imgui::BindCommand("攻撃を受ける (-10 HP)", m_Vm.attack);
@@ -149,7 +149,7 @@ void HelloMVVMApp::OnRender() noexcept {
     m_Imgui.Render();
 }
 
-void HelloMVVMApp::OnShutdown() noexcept {
+void FHelloMvvmApp::OnShutdown() noexcept {
     // Reset/delete を OnShutdown 側で明示的に走らせることで、
     // Subscribe の解除順を ImGui::Shutdown より前に固定する。
     delete m_Ratio; m_Ratio = nullptr;
@@ -158,7 +158,7 @@ void HelloMVVMApp::OnShutdown() noexcept {
     m_Imgui.Shutdown();
 }
 
-void HelloMVVMApp::OnEvent(const Event& e) noexcept {
+void FHelloMvvmApp::OnEvent(const FEvent& e) noexcept {
     m_Imgui.OnEvent(e);
 }
 

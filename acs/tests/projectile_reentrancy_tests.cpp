@@ -23,7 +23,7 @@ struct FProjFixture {
 };
 
 /** owner_id == hit_owner の弾だけ命中させる判定関数。 */
-bool HitOnlyOwner(void* user, const ProjectileInstance& proj,
+bool HitOnlyOwner(void* user, const FProjectileInstance& proj,
                   u32& out_target, f32& out_damage) noexcept
 {
     FProjFixture* fx = static_cast<FProjFixture*>(user);
@@ -55,7 +55,7 @@ ACS_TEST(ProjectileReentrancy, HitCallbackDespawnKeepsCountConsistent) {
     FProjectileSystem sys;
     sys.Init(8);
 
-    ProjectileDef def{};
+    FProjectileDef def{};
     def.id           = "bullet";
     def.lifetime_sec = 10.0f;
     sys.RegisterDef(def);
@@ -77,7 +77,7 @@ ACS_TEST(ProjectileReentrancy, HitCallbackDespawnKeepsCountConsistent) {
     // 修正前: 内部 despawn と二重実行で AliveCount が 0 になっていた。
     EXPECT_EQ(sys.AliveCount(), 1u);
     u32 count = 0;
-    const ProjectileInstance* alive = sys.AllAlive(count);
+    const FProjectileInstance* alive = sys.AllAlive(count);
     EXPECT_EQ(count, 1u);
     EXPECT_TRUE(alive != nullptr);
     if (alive) EXPECT_EQ(alive[0].owner_id, 2u);
@@ -89,7 +89,7 @@ ACS_TEST(ProjectileReentrancy, ExpireCallbackDespawnKeepsCountConsistent) {
     FProjectileSystem sys;
     sys.Init(4);
 
-    ProjectileDef def{};
+    FProjectileDef def{};
     def.id           = "spark";
     def.lifetime_sec = 0.5f;
     sys.RegisterDef(def);

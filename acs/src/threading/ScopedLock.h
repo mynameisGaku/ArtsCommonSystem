@@ -6,8 +6,8 @@
 //
 // 使い方:
 //   { FScopedLock lk(mutex); ... }                  // FMutex 排他
-//   { ScopedSharedLock lk(rwlock); ... }            // RwLock 共有
-//   { ScopedExclusiveLock lk(rwlock); ... }         // RwLock 排他
+//   { FScopedSharedLock lk(rwlock); ... }            // FRwLock 共有
+//   { FScopedExclusiveLock lk(rwlock); ... }         // FRwLock 排他
 #pragma once
 
 #include "threading/Mutex.h"
@@ -43,57 +43,57 @@ private:
 };
 
 /**
- * RwLock を共有 (読み取り) ロックする RAII ガード (shared_lock 代替)。
+ * FRwLock を共有 (読み取り) ロックする RAII ガード (shared_lock 代替)。
  *
  * @details 構築時に LockShared し、スコープ脱出時に UnlockShared する。コピー / ムーブ不可。
  */
-class ScopedSharedLock {
+class FScopedSharedLock {
 public:
     /**
      * 構築と同時に共有 (読み取り) ロックを取得する。
      *
-     * @param r ロック対象の RwLock (ガードの寿命より長く生存すること)。
+     * @param r ロック対象の FRwLock (ガードの寿命より長く生存すること)。
      */
-    explicit ScopedSharedLock(RwLock& r) noexcept : m_R(r) { m_R.LockShared(); }
+    explicit FScopedSharedLock(FRwLock& r) noexcept : m_R(r) { m_R.LockShared(); }
 
     /** スコープ脱出時に共有ロックを解放する。 */
-    ~ScopedSharedLock() noexcept { m_R.UnlockShared(); }
+    ~FScopedSharedLock() noexcept { m_R.UnlockShared(); }
 
     /** コピー / ムーブ禁止。 */
-    ScopedSharedLock(const ScopedSharedLock&) = delete;
+    FScopedSharedLock(const FScopedSharedLock&) = delete;
 
     /** コピー代入も禁止。 */
-    ScopedSharedLock& operator=(const ScopedSharedLock&) = delete;
+    FScopedSharedLock& operator=(const FScopedSharedLock&) = delete;
 private:
-    /** ガード対象の RwLock への参照。 */
-    RwLock& m_R;
+    /** ガード対象の FRwLock への参照。 */
+    FRwLock& m_R;
 };
 
 /**
- * RwLock を排他 (書き込み) ロックする RAII ガード。
+ * FRwLock を排他 (書き込み) ロックする RAII ガード。
  *
  * @details 構築時に LockExclusive し、スコープ脱出時に UnlockExclusive する。コピー / ムーブ不可。
  */
-class ScopedExclusiveLock {
+class FScopedExclusiveLock {
 public:
     /**
      * 構築と同時に排他 (書き込み) ロックを取得する。
      *
-     * @param r ロック対象の RwLock (ガードの寿命より長く生存すること)。
+     * @param r ロック対象の FRwLock (ガードの寿命より長く生存すること)。
      */
-    explicit ScopedExclusiveLock(RwLock& r) noexcept : m_R(r) { m_R.LockExclusive(); }
+    explicit FScopedExclusiveLock(FRwLock& r) noexcept : m_R(r) { m_R.LockExclusive(); }
 
     /** スコープ脱出時に排他ロックを解放する。 */
-    ~ScopedExclusiveLock() noexcept { m_R.UnlockExclusive(); }
+    ~FScopedExclusiveLock() noexcept { m_R.UnlockExclusive(); }
 
     /** コピー / ムーブ禁止。 */
-    ScopedExclusiveLock(const ScopedExclusiveLock&) = delete;
+    FScopedExclusiveLock(const FScopedExclusiveLock&) = delete;
 
     /** コピー代入も禁止。 */
-    ScopedExclusiveLock& operator=(const ScopedExclusiveLock&) = delete;
+    FScopedExclusiveLock& operator=(const FScopedExclusiveLock&) = delete;
 private:
-    /** ガード対象の RwLock への参照。 */
-    RwLock& m_R;
+    /** ガード対象の FRwLock への参照。 */
+    FRwLock& m_R;
 };
 
 } // namespace acs

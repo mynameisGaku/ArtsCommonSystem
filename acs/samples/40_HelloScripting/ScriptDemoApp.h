@@ -9,7 +9,7 @@
 
 namespace helloscript {
 
-class ScriptDemoApp {
+class FScriptDemoApp {
 public:
     // VM を Init → 4 デモ実行 → Shutdown。real backend で全デモ成功なら 0。
     int Run() noexcept;

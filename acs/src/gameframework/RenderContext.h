@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — RenderContext
+// GameFramework Pillar A — FRenderContext
 //
 // 全シーン共有の描画コンテキスト。「現フレームの IRhiCommandList と画面サイズ」
-// を保持する軽量参照ホルダに、FSpriteBatch / Font / 共通シェーダを足して
+// を保持する軽量参照ホルダに、FSpriteBatch / FFont / 共通シェーダを足して
 // 「シーン切替でパイプライン再構築しない」を実現する。
 //
-// Scene 側はこれを OnRender(rc) で受け取り、必要なら rc.Cmd()/Width()/Height()
+// FScene 側はこれを OnRender(rc) で受け取り、必要なら rc.Cmd()/Width()/Height()
 // から描画コマンドを発行する。素の RHI を直接叩いてもよいし、ユーザーが自分の
 // FSpriteBatch を持ってもよい。
 #pragma once
@@ -17,7 +17,7 @@ namespace acs {
 class IRhiCommandList;
 class FRenderer;
 class FSpriteBatch;
-class Font;
+class FFont;
 class IRhiTexture;
 }
 
@@ -28,23 +28,23 @@ namespace acs::game {
  *
  * @details
  * 現フレームの IRhiCommandList と画面サイズを保持する軽量参照ホルダ。FSpriteBatch /
- * Font / 反射テクスチャ / world→screen 変換などをまとめ、シーン切替でパイプラインを
- * 再構築せずに描画できるようにする。Scene 側は OnRender(rc) でこれを受け取り、
+ * FFont / 反射テクスチャ / world→screen 変換などをまとめ、シーン切替でパイプラインを
+ * 再構築せずに描画できるようにする。FScene 側は OnRender(rc) でこれを受け取り、
  * rc.Cmd()/Width()/Height() から描画コマンドを発行する。
  */
-class RenderContext {
+class FRenderContext {
 public:
     /** 空状態で構築する (各参照は _BeginFrame で配線)。 */
-    RenderContext() noexcept = default;
+    FRenderContext() noexcept = default;
 
     /** 破棄する (参照のみ保持するため何もしない)。 */
-    ~RenderContext() noexcept = default;
+    ~FRenderContext() noexcept = default;
 
     /** コピー禁止 (フレーム配線を単独で保持するため)。 */
-    RenderContext(const RenderContext&)            = delete;
+    FRenderContext(const FRenderContext&)            = delete;
 
     /** コピー代入も禁止。 */
-    RenderContext& operator=(const RenderContext&) = delete;
+    FRenderContext& operator=(const FRenderContext&) = delete;
 
     /**
      * フレーム冒頭で FGame が呼び、描画リソースを配線する。
@@ -62,6 +62,10 @@ public:
         m_Height   = h;
         m_Sprites  = nullptr;
         m_Reflection = nullptr;
+        m_SceneColor = nullptr;
+        m_SceneDepth = nullptr;
+        m_SceneColorCapturePass = false;
+        m_WaterDepthCapturePass = false;
         m_StencilMaskActive = false;
         // m_Font は FGame が _BeginFrame 後に _SetFont で配線する (game 寿命で共有)。
     }
@@ -72,6 +76,10 @@ public:
         m_Sprites = nullptr;
         m_Font = nullptr;
         m_Reflection = nullptr;
+        m_SceneColor = nullptr;
+        m_SceneDepth = nullptr;
+        m_SceneColorCapturePass = false;
+        m_WaterDepthCapturePass = false;
         m_StencilMaskActive = false;
     }
 
@@ -114,9 +122,9 @@ public:
     /**
      * 現パス用の 2D 描画バッチを配線する。
      *
-     * @details FScene2D または独自ホストが設定する。コンポーネントは SpriteBatch を
+     * @details FScene2D または独自ホストが設定する。コンポーネントは FSpriteBatch を
      * 自前で持たずに HasSprites()/Sprites() で利用できる。
-     * @param sb 配線する SpriteBatch (nullptr で解除)。
+     * @param sb 配線する FSpriteBatch (nullptr で解除)。
      */
     void _SetSpriteBatch(FSpriteBatch* sb) noexcept { m_Sprites = sb; }
 
@@ -130,7 +138,7 @@ public:
     /**
      * 配線済みの 2D 描画バッチを返す。
      *
-     * @return SpriteBatch 参照。
+     * @return FSpriteBatch 参照。
      */
     FSpriteBatch& Sprites() const noexcept { return *m_Sprites; }
 
@@ -141,7 +149,7 @@ public:
      * sb.DrawString(rc.GetFont(), ...) でテキストを描ける。
      * @param f 配線するフォント (読込失敗時は nullptr で配線され HasFont()==false)。
      */
-    void _SetFont(Font* f) noexcept { m_Font = f; }
+    void _SetFont(FFont* f) noexcept { m_Font = f; }
 
     /**
      * UI フォントが配線済みかを返す。
@@ -155,7 +163,7 @@ public:
      *
      * @return フォント参照。
      */
-    Font& GetFont() const noexcept { return *m_Font; }
+    FFont& GetFont() const noexcept { return *m_Font; }
 
     /**
      * 反射用シーンテクスチャを配線する。
@@ -179,6 +187,53 @@ public:
      * @return 反射テクスチャ参照。
      */
     IRhiTexture& Reflection() const noexcept { return *m_Reflection; }
+
+    /**
+     * 水面の屈折・画面反射用に、main pass より前に捕捉した実シーンカラーを配線する。
+     *
+     * @details 現在の描画先とは別の RT だけを渡し、同一リソースの SRV/RTV 同時利用を避ける。
+     * @param tex 配線するシーンカラー (nullptr で解除)。
+     */
+    void _SetSceneColor(IRhiTexture* tex) noexcept { m_SceneColor = tex; }
+
+    /** 実シーンカラーが配線済みかを返す。 */
+    bool HasSceneColor() const noexcept { return m_SceneColor != nullptr; }
+
+    /** 配線済みの実シーンカラーを返す。 */
+    IRhiTexture& SceneColor() const noexcept { return *m_SceneColor; }
+
+    /**
+     * 水面用の正規化深度 (0=岸/水外、1=深部) を保持するカラー RT を配線する。
+     *
+     * @param tex 配線する水深テクスチャ (nullptr で解除)。
+     */
+    void _SetSceneDepth(IRhiTexture* tex) noexcept { m_SceneDepth = tex; }
+
+    /** 水面用深度が配線済みかを返す。 */
+    bool HasSceneDepth() const noexcept { return m_SceneDepth != nullptr; }
+
+    /** 配線済みの水面用深度を返す。 */
+    IRhiTexture& SceneDepth() const noexcept { return *m_SceneDepth; }
+
+    /**
+     * main pass 前のシーンカラー捕捉中かを設定する。
+     *
+     * @details TopDown 水はこのパスでは描かず、水下の実シーンだけを RT に残す。
+     */
+    void _SetSceneColorCapturePass(bool b) noexcept { m_SceneColorCapturePass = b; }
+
+    /** シーンカラー捕捉中なら true。 */
+    bool IsSceneColorCapturePass() const noexcept { return m_SceneColorCapturePass; }
+
+    /**
+     * 水面深度捕捉中かを設定する。
+     *
+     * @details 通常スプライトを抑止した専用 pass で TopDown 水だけが深度メッシュを描く。
+     */
+    void _SetWaterDepthCapturePass(bool b) noexcept { m_WaterDepthCapturePass = b; }
+
+    /** 水面深度捕捉中なら true。 */
+    bool IsWaterDepthCapturePass() const noexcept { return m_WaterDepthCapturePass; }
 
     /**
      * 2D world→screen 変換パラメータを配線する。
@@ -231,10 +286,22 @@ private:
     FSpriteBatch*    m_Sprites  = nullptr;
 
     /** 全シーン共有の UI フォント (未配線なら nullptr)。 */
-    Font*            m_Font     = nullptr;
+    FFont*            m_Font     = nullptr;
 
     /** 反射用シーンテクスチャ (未配線なら nullptr)。 */
     IRhiTexture*     m_Reflection = nullptr;
+
+    /** 水面の屈折・画面反射用に main pass 前へ捕捉した実シーンカラー。 */
+    IRhiTexture*     m_SceneColor = nullptr;
+
+    /** 水面メッシュから main pass 前へ捕捉した正規化水深。 */
+    IRhiTexture*     m_SceneDepth = nullptr;
+
+    /** TopDown 水を除外して実シーンカラーを捕捉中か。 */
+    bool             m_SceneColorCapturePass = false;
+
+    /** TopDown 水だけを正規化水深として捕捉中か。 */
+    bool             m_WaterDepthCapturePass = false;
 
     /** world 空間のビュー中心 (world→screen 変換用)。 */
     FVec2            m_ViewCenter{0.0f, 0.0f};

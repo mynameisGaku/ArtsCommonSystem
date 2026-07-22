@@ -53,7 +53,7 @@ static IInspectableProvider* ResolveProvider(FInspectorSeam& seam, FNodeId id) n
  * @param field 描画・編集対象のフィールド。
  * @return 値が書き換わったら true。
  */
-static bool DrawField(InspectableField& field) noexcept {
+static bool DrawField(FInspectableField& field) noexcept {
     if (field.name == nullptr || field.data == nullptr) {
         // データ未設定の field は描画しない (no-op + change=false)。
         ImGui::TextDisabled("(invalid field)");
@@ -100,7 +100,7 @@ static bool DrawField(InspectableField& field) noexcept {
         break;
     }
 
-    case EFieldKind::FVec2: {
+    case EFieldKind::Vec2: {
         // acs::FVec2 = { f32 x, f32 y } で連続レイアウト。f32[2] として直接渡す。
         FVec2* p = static_cast<FVec2*>(field.data);
         f32 tmp[2] = { p->x, p->y };
@@ -112,7 +112,7 @@ static bool DrawField(InspectableField& field) noexcept {
         break;
     }
 
-    case EFieldKind::FVec3: {
+    case EFieldKind::Vec3: {
         // acs::FVec3 は alignas(16) で内部に m_Pad を含む。x/y/z は連続するが
         // ImGui に &p->x を直接渡すと m_Pad を踏まずに 3 要素読むので安全。
         // ただし可読性のため一時配列に詰める。
@@ -127,7 +127,7 @@ static bool DrawField(InspectableField& field) noexcept {
         break;
     }
 
-    case EFieldKind::FVec4: {
+    case EFieldKind::Vec4: {
         // 仕様で要求されていないが対称性のため対応 (EFieldKind に値が存在
         // するので未対応放置は警告源)。acs::FVec4 は連続 f32[4]。
         f32* p = static_cast<f32*>(field.data);
@@ -135,12 +135,12 @@ static bool DrawField(InspectableField& field) noexcept {
         break;
     }
 
-    case EFieldKind::FString: {
+    case EFieldKind::String: {
         // FString は read-only 想定 (FInspectorSeam.h の仕様)。
         // バッファコピー後 InputText を出すが、書き戻しは行わない
         // (= panel 内のローカル編集のみ、永続化は callback 経由で外部担当)。
         //
-        // 【修正】EFieldKind::FString の data は `const char**` (= 文字列ポインタ
+        // 【修正】EFieldKind::String の data は `const char**` (= 文字列ポインタ
         // への間接) が仕様 (FInspectorSeam.h enum コメント参照)。以前は data を
         // 直接 `const char*` とキャストしており、ポインタのポインタを文字列
         // 本体ポインタとして誤読していた (= 文字データではなくアドレス値の
@@ -270,7 +270,7 @@ void FInspectorPanel::DrawUI() noexcept {
         ImGui::End();
         return;
     }
-    ImGui::Text("FNodeId: index=%u gen=%u",
+    ImGui::Text("Node ID: index=%u gen=%u",
                 static_cast<unsigned>(effective.Index()),
                 static_cast<unsigned>(effective.Generation()));
     ImGui::Separator();
@@ -292,7 +292,7 @@ void FInspectorPanel::DrawUI() noexcept {
     }
 
     for (u32 obj_index = 0; obj_index < obj_count; ++obj_index) {
-        InspectableObject obj = prov->GetObject(obj_index);
+        FInspectableObject obj = prov->GetObject(obj_index);
 
         // オブジェクトヘッダ "[TypeName] InstanceName" を CollapsingHeader で。
         // PushID で obj_index 単位の ID 名前空間を作る (= 同 type が複数並んでも
@@ -311,7 +311,7 @@ void FInspectorPanel::DrawUI() noexcept {
                 ImGui::TextDisabled("  (no fields)");
             } else {
                 for (u32 f = 0; f < obj.field_count; ++f) {
-                    InspectableField& field = obj.fields[f];
+                    FInspectableField& field = obj.fields[f];
                     if (DrawField(field)) {
                         // field 編集発生: dirty 立て、Provider 通知、callback 発火。
                         m_Dirty = true;

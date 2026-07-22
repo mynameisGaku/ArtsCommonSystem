@@ -19,21 +19,21 @@ namespace acs {
 namespace {
 
 /** GetSystemInfo の結果を 1 回だけ取得してキャッシュする小ホルダ。 */
-struct SystemInfoCache {
+struct FSystemInfoCache {
     /** OS から取得したシステム情報 (ページサイズ/予約粒度等)。 */
     SYSTEM_INFO system_info;
 
     /** 構築時に GetSystemInfo を 1 回呼ぶ。 */
-    SystemInfoCache() noexcept
+    FSystemInfoCache() noexcept
     {
         ::GetSystemInfo(&system_info);
     }
 };
 
 /** キャッシュ済みのシステム情報を返す。 */
-const SystemInfoCache& GetSystemInfoCache() noexcept
+const FSystemInfoCache& GetSystemInfoCache() noexcept
 {
-    static SystemInfoCache Cache;
+    static FSystemInfoCache Cache;
     return Cache;
 }
 
@@ -182,12 +182,12 @@ bool VmIsAligned(uptr Address, usize Alignment) noexcept
     return Alignment != 0 && (Alignment & (Alignment - 1)) == 0 && (Address & (Alignment - 1)) == 0;
 }
 
-VmReservation::~VmReservation() noexcept
+FVmReservation::~FVmReservation() noexcept
 {
     (void)Release();
 }
 
-VmReservation::VmReservation(VmReservation&& Other) noexcept
+FVmReservation::FVmReservation(FVmReservation&& Other) noexcept
     : m_Base(Other.m_Base),
       m_Capacity(Other.m_Capacity),
       m_ActiveCommittedBytes(Other.m_ActiveCommittedBytes),
@@ -203,7 +203,7 @@ VmReservation::VmReservation(VmReservation&& Other) noexcept
     Other.ResetState();
 }
 
-VmReservation& VmReservation::operator=(VmReservation&& Other) noexcept
+FVmReservation& FVmReservation::operator=(FVmReservation&& Other) noexcept
 {
     if (this == &Other) {
         return *this;
@@ -228,7 +228,7 @@ VmReservation& VmReservation::operator=(VmReservation&& Other) noexcept
 }
 
 // 仮想範囲を予約する。物理ページはまだ割り当てない。
-TResult<VmReservation> VmReservation::Reserve(usize CapacityBytes) noexcept
+TResult<FVmReservation> FVmReservation::Reserve(usize CapacityBytes) noexcept
 {
     if (CapacityBytes == 0) {
         return ACS_ERR(Memory, 10, "VmReservation::Reserve: capacity 0");
@@ -247,13 +247,13 @@ TResult<VmReservation> VmReservation::Reserve(usize CapacityBytes) noexcept
         return ACS_ERR_OS(Memory, 11, "VirtualAlloc MEM_RESERVE failed", Error);
     }
 
-    VmReservation Reservation;
+    FVmReservation Reservation;
     Reservation.m_Base = Base;
     Reservation.m_Capacity = CapacityBytes;
-    return TResult<VmReservation>(OkInit, Move(Reservation));
+    return TResult<FVmReservation>(OkInit, Move(Reservation));
 }
 
-TResult<void> VmReservation::Release() noexcept
+TResult<void> FVmReservation::Release() noexcept
 {
     if (!m_Base) {
         return Ok();
@@ -270,7 +270,7 @@ TResult<void> VmReservation::Release() noexcept
     return Ok();
 }
 
-TResult<void> VmReservation::InsertDecommitCache(usize Offset, usize Size) noexcept
+TResult<void> FVmReservation::InsertDecommitCache(usize Offset, usize Size) noexcept
 {
     if (Size > m_MaximumCachedDecommitBytes) {
         return ACS_ERR(Memory, 32, "InsertDecommitCache: range exceeds byte limit");
@@ -293,10 +293,10 @@ TResult<void> VmReservation::InsertDecommitCache(usize Offset, usize Size) noexc
     return Ok();
 }
 
-bool VmReservation::TakeDecommitCache(usize Offset, usize Size) noexcept
+bool FVmReservation::TakeDecommitCache(usize Offset, usize Size) noexcept
 {
     for (u32 Index = 0; Index < m_DecommitCacheCount; ++Index) {
-        const DecommitCacheEntry& Entry = m_DecommitCache[Index];
+        const FDecommitCacheEntry& Entry = m_DecommitCache[Index];
         if (Entry.offset == Offset && Entry.size == Size) {
             m_CachedCommittedBytes -= Entry.size;
             RemoveDecommitCacheEntry(Index);
@@ -309,11 +309,11 @@ bool VmReservation::TakeDecommitCache(usize Offset, usize Size) noexcept
     return false;
 }
 
-bool VmReservation::OverlapsDecommitCache(usize Offset, usize Size) const noexcept
+bool FVmReservation::OverlapsDecommitCache(usize Offset, usize Size) const noexcept
 {
     const usize RangeEnd = Offset + Size;
     for (u32 Index = 0; Index < m_DecommitCacheCount; ++Index) {
-        const DecommitCacheEntry& Entry = m_DecommitCache[Index];
+        const FDecommitCacheEntry& Entry = m_DecommitCache[Index];
         const usize EntryEnd = Entry.offset + Entry.size;
         if (Offset < EntryEnd && Entry.offset < RangeEnd) {
             return true;
@@ -322,13 +322,13 @@ bool VmReservation::OverlapsDecommitCache(usize Offset, usize Size) const noexce
     return false;
 }
 
-TResult<void> VmReservation::EvictDecommitCacheEntry(u32 Index) noexcept
+TResult<void> FVmReservation::EvictDecommitCacheEntry(u32 Index) noexcept
 {
     if (!m_Base || Index >= m_DecommitCacheCount) {
         return ACS_ERR(Memory, 24, "EvictDecommitCacheEntry: invalid state");
     }
 
-    const DecommitCacheEntry Entry = m_DecommitCache[Index];
+    const FDecommitCacheEntry Entry = m_DecommitCache[Index];
     void* const Address = static_cast<u8*>(m_Base) + Entry.offset;
     if (!::VirtualFree(Address, Entry.size, MEM_DECOMMIT)) {
         const DWORD Error = ::GetLastError();
@@ -340,7 +340,7 @@ TResult<void> VmReservation::EvictDecommitCacheEntry(u32 Index) noexcept
     return Ok();
 }
 
-void VmReservation::RemoveDecommitCacheEntry(u32 Index) noexcept
+void FVmReservation::RemoveDecommitCacheEntry(u32 Index) noexcept
 {
     for (u32 MoveIndex = Index; MoveIndex + 1 < m_DecommitCacheCount; ++MoveIndex) {
         m_DecommitCache[MoveIndex] = m_DecommitCache[MoveIndex + 1];
@@ -351,7 +351,7 @@ void VmReservation::RemoveDecommitCacheEntry(u32 Index) noexcept
     }
 }
 
-TResult<void> VmReservation::Commit(usize Offset, usize Size) noexcept
+TResult<void> FVmReservation::Commit(usize Offset, usize Size) noexcept
 {
     if (!m_Base) {
         return ACS_ERR(Memory, 12, "Commit: reservation released");
@@ -399,7 +399,7 @@ TResult<void> VmReservation::Commit(usize Offset, usize Size) noexcept
     return Ok();
 }
 
-TResult<void> VmReservation::Decommit(usize Offset, usize Size) noexcept
+TResult<void> FVmReservation::Decommit(usize Offset, usize Size) noexcept
 {
     if (!m_Base) {
         return ACS_ERR(Memory, 15, "Decommit: reservation released");
@@ -439,7 +439,7 @@ TResult<void> VmReservation::Decommit(usize Offset, usize Size) noexcept
     return Ok();
 }
 
-TResult<void> VmReservation::SetMaximumCachedDecommitBytes(usize MaximumCachedDecommitBytes) noexcept
+TResult<void> FVmReservation::SetMaximumCachedDecommitBytes(usize MaximumCachedDecommitBytes) noexcept
 {
     auto TrimResult = TrimDecommitCache(MaximumCachedDecommitBytes);
     if (TrimResult.IsErr()) {
@@ -449,7 +449,7 @@ TResult<void> VmReservation::SetMaximumCachedDecommitBytes(usize MaximumCachedDe
     return Ok();
 }
 
-TResult<void> VmReservation::TrimDecommitCache(usize TargetCachedBytes) noexcept
+TResult<void> FVmReservation::TrimDecommitCache(usize TargetCachedBytes) noexcept
 {
     while (m_DecommitCacheCount > 0 && m_CachedCommittedBytes > TargetCachedBytes) {
         auto Eviction = EvictDecommitCacheEntry(m_DecommitCacheCount - 1);
@@ -460,12 +460,12 @@ TResult<void> VmReservation::TrimDecommitCache(usize TargetCachedBytes) noexcept
     return Ok();
 }
 
-TResult<void> VmReservation::FlushDecommitCache() noexcept
+TResult<void> FVmReservation::FlushDecommitCache() noexcept
 {
     return TrimDecommitCache(0);
 }
 
-void VmReservation::ResetState() noexcept
+void FVmReservation::ResetState() noexcept
 {
     m_Base = nullptr;
     m_Capacity = 0;

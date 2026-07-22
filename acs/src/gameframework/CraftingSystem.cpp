@@ -69,7 +69,7 @@ u32 FCraftingSystem::FindRecipeSlot(const char* recipe_id) const noexcept {
 }
 
 /** レシピを検証・補正してコピー登録する (重複は WARN で無視)。 */
-void FCraftingSystem::RegisterRecipe(const CraftRecipe& recipe) noexcept {
+void FCraftingSystem::RegisterRecipe(const FCraftRecipe& recipe) noexcept {
     // defensive: recipe_id == nullptr は意味を持たないので静かに弾く。
     if (recipe.recipe_id == nullptr) return;
 
@@ -80,7 +80,7 @@ void FCraftingSystem::RegisterRecipe(const CraftRecipe& recipe) noexcept {
         return;
     }
 
-    CraftRecipe copy = recipe;
+    FCraftRecipe copy = recipe;
     // result_count == 0 は意味を持たないので 1 にクランプ。
     if (copy.result_count == 0) copy.result_count = 1;
     // ingredients が nullptr で ingredient_count > 0 の場合は count を 0 に補正
@@ -105,7 +105,7 @@ void FCraftingSystem::RegisterRecipe(const CraftRecipe& recipe) noexcept {
 }
 
 /** recipe_id で単一レシピを引く (未登録は nullptr)。 */
-const CraftRecipe* FCraftingSystem::FindRecipe(const char* recipe_id) const noexcept {
+const FCraftRecipe* FCraftingSystem::FindRecipe(const char* recipe_id) const noexcept {
     const u32 slot = FindRecipeSlot(recipe_id);
     if (slot == kNotFound) return nullptr;
     return &m_Recipes[slot];
@@ -117,7 +117,7 @@ u32 FCraftingSystem::RecipeCount() const noexcept {
 }
 
 /** 全レシピの連続バッファと件数を返す。 */
-const CraftRecipe* FCraftingSystem::AllRecipes(u32& out_count) const noexcept {
+const FCraftRecipe* FCraftingSystem::AllRecipes(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Recipes.Size());
     return m_Recipes.Data();
 }
@@ -139,7 +139,7 @@ bool FCraftingSystem::CanCraft(const char* recipe_id,
                               u32         player_level) const noexcept {
     const u32 slot = FindRecipeSlot(recipe_id);
     if (slot == kNotFound) return false;
-    const CraftRecipe& r = m_Recipes[slot];
+    const FCraftRecipe& r = m_Recipes[slot];
 
     // unlock_level 判定。
     if (player_level < r.unlock_level) return false;
@@ -154,7 +154,7 @@ bool FCraftingSystem::CanCraft(const char* recipe_id,
     // adapter なし = 「無制限デバッグモード」として ingredient チェックをスキップ。
     if (m_Query != nullptr && r.ingredient_count > 0 && r.ingredients != nullptr) {
         for (u32 i = 0; i < r.ingredient_count; ++i) {
-            const Ingredient& ing = r.ingredients[i];
+            const FIngredient& ing = r.ingredients[i];
             if (ing.count == 0) continue;            // 0 個必要 = 常に満たす (defensive)
             if (ing.item_id == nullptr) continue;    // id 未指定 = スキップ (defensive)
             const u32 have = m_Query(m_InvUser, ing.item_id);
@@ -177,7 +177,7 @@ bool FCraftingSystem::StartCraft(const char* recipe_id,
 
     const u32 slot = FindRecipeSlot(recipe_id);
     if (slot == kNotFound) return false;  // CanCraft の判定で弾かれている筈だが defensive
-    const CraftRecipe& r = m_Recipes[slot];
+    const FCraftRecipe& r = m_Recipes[slot];
 
     // ingredient 一括 consume。途中失敗時は atomic に巻き戻す。
     // adapter consume == nullptr の場合は「消費スキップして進める」(=テスト容易性)。
@@ -185,7 +185,7 @@ bool FCraftingSystem::StartCraft(const char* recipe_id,
         u32 consumed_upto = 0;  // 巻き戻し用に「ここまで消費した」index を保持
         bool ok = true;
         for (u32 i = 0; i < r.ingredient_count; ++i) {
-            const Ingredient& ing = r.ingredients[i];
+            const FIngredient& ing = r.ingredients[i];
             if (ing.count == 0 || ing.item_id == nullptr) {
                 consumed_upto = i + 1;
                 continue;
@@ -200,7 +200,7 @@ bool FCraftingSystem::StartCraft(const char* recipe_id,
             // 巻き戻し — 既に消費したぶんを grant し戻す (adapter grant があれば)。
             if (m_Grant != nullptr) {
                 for (u32 j = 0; j < consumed_upto; ++j) {
-                    const Ingredient& ing = r.ingredients[j];
+                    const FIngredient& ing = r.ingredients[j];
                     if (ing.count == 0 || ing.item_id == nullptr) continue;
                     m_Grant(m_InvUser, ing.item_id, ing.count);
                 }
@@ -234,10 +234,10 @@ void FCraftingSystem::CancelCraft() noexcept {
     // ingredient 返却。grant adapter があるときだけ実行。
     // adapter なし or 満杯で grant 失敗の場合は素材を失うが、進行は確実に停止する
     // (= 中断は必ず Cancelled で確定させる不変条件を優先)。
-    const CraftRecipe& r = *m_CurrentRecipe;
+    const FCraftRecipe& r = *m_CurrentRecipe;
     if (m_Grant != nullptr && r.ingredient_count > 0 && r.ingredients != nullptr) {
         for (u32 i = 0; i < r.ingredient_count; ++i) {
-            const Ingredient& ing = r.ingredients[i];
+            const FIngredient& ing = r.ingredients[i];
             if (ing.count == 0 || ing.item_id == nullptr) continue;
             m_Grant(m_InvUser, ing.item_id, ing.count);
         }
@@ -293,7 +293,7 @@ void FCraftingSystem::Tick(f32 dt) noexcept {
         m_CurrentRemainingSec = 0.0f;
 
         // 成果物 grant。adapter があるときだけ実行 (= 失敗しても完了は確定させる)。
-        const CraftRecipe& r = *m_CurrentRecipe;
+        const FCraftRecipe& r = *m_CurrentRecipe;
         if (m_Grant != nullptr && r.result_item_id != nullptr && r.result_count > 0) {
             const bool grant_ok = m_Grant(m_InvUser, r.result_item_id, r.result_count);
             if (!grant_ok) {

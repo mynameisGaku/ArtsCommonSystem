@@ -41,9 +41,29 @@
 
 namespace acs::game {
 
-class RenderContext;
+class FRenderContext;
 class FSceneServices;   // 非所有ポインタで参照 (include しない = ノードヘッダを軽く保つ)
 struct FMaterial2D;     // 使用マテリアル (効果プリセット)。値は m_Mat に焼き込む
+
+/**
+ * ノードツリーで許容する最大深度 (root=0、親子 edge 数)。
+ *
+ * @details update / draw / 構造変更 / 破棄の一部は再帰的なため、敵対的または意図しない
+ * 極端な深さでネイティブスタックを枯渇させない共通の不変条件として使う。
+ */
+inline constexpr u32 kNodeMaxTreeDepth = 512u;
+
+/** TryAddChild の結果。失敗時は渡した強参照の所有権を変更しない。 */
+enum class EAddChildResult : u8 {
+    Added = 0,              ///< 追加成功。入力 TObjectPtr は空になる。
+    NullChild,              ///< 空の TObjectPtr。
+    SelfChild,              ///< 自分自身を追加しようとした。
+    AlreadyParented,        ///< 既に別の親 (または同じ親) に所属している。
+    WouldCreateCycle,       ///< 祖先を子にして循環を作ろうとした。
+    ParentPendingDestroy,   ///< 追加先が破棄予定。
+    ChildPendingDestroy,    ///< 子が破棄予定。
+    TreeDepthLimitExceeded, ///< 追加後の subtree が kNodeMaxTreeDepth を超える。
+};
 
 /**
  * シーンの中身を表す唯一の統一ノード (旧 FNode2D / FNode3D を統合)。
@@ -67,8 +87,10 @@ public:
      */
     explicit ANode(FStringView name) noexcept : m_Name(name) {}
 
-    /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
-    virtual ~ANode() noexcept = default;
+    /**
+     * 派生クラスを正しく破棄し、自身を監視する遅延 Reparent 要求を無効化する。
+     */
+    virtual ~ANode() noexcept;
 
     /** コピー禁止 (ノードは親が単独所有するため)。 */
     ANode(const ANode&)            = delete;
@@ -107,7 +129,7 @@ public:
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    virtual void OnDraw(RenderContext& /*rc*/) noexcept {}
+    virtual void OnDraw(FRenderContext& /*rc*/) noexcept {}
 
     /** ツリーから除去される直前に 1 回呼ばれる後始末フック。 */
     virtual void OnDespawn()              noexcept {}
@@ -194,6 +216,32 @@ public:
      * @param s 新しい 2D スケール。
      */
     void SetScale2D(FVec2 s) noexcept { m_Local.scale.x = s.x; m_Local.scale.y = s.y; }
+
+    /**
+     * ローカル transform の 2D 射影を返す。
+     *
+     * @details x,y 位置 / Z 軸回転角 / x,y スケールを FTransform2D に詰める。
+     * @return local transform の 2D 射影。
+     */
+    FTransform2D Local2D() const noexcept {
+        FTransform2D out;
+        out.position = Position2D();
+        out.rotation = Rotation2D();
+        out.scale    = Scale2D();
+        return out;
+    }
+
+    /**
+     * ローカル transform の 2D 成分をまとめて設定する。
+     *
+     * @details position.z / scale.z は温存し、rotation は Z 軸回転で置き換える。
+     * @param t 新しい 2D local transform。
+     */
+    void SetLocal2D(const FTransform2D& t) noexcept {
+        SetPosition2D(t.position);
+        SetRotation2D(t.rotation);
+        SetScale2D(t.scale);
+    }
 
     /**
      * world transform の 2D 射影を返す (2D 描画パス用)。
@@ -304,7 +352,7 @@ public:
     // ---------------------------------------------------------- マテリアル
 
     /**
-     * この node に焼き込んだマテリアル効果の状態 (SpriteBatch 型に依存しない軽量 POD)。
+     * この node に焼き込んだマテリアル効果の状態 (FSpriteBatch 型に依存しない軽量 POD)。
      *
      * @details ANode.h を軽く保つため、効果プリセットの値だけをここに持つ
      *          (ESpriteEffect の整数値 + パラメータ)。DrawTree が rc.Sprites().SetEffect へ渡す。
@@ -378,6 +426,9 @@ public:
      */
     u32     ChildCount() const noexcept { return static_cast<u32>(m_Children.Size()); }
 
+    /** root から自身までの深度 (root=0) を返す。 */
+    u32 TreeDepth() const noexcept;
+
     /**
      * i 番目の子を返す。
      *
@@ -422,6 +473,18 @@ public:
     ANode& AddChild(TObjectPtr<ANode> child) noexcept;
 
     /**
+     * 検証に成功した場合だけ子の所有権を受け取り、未 spawn なら OnSpawn を呼ぶ。
+     *
+     * @details
+     * 自己追加、祖先追加による循環、既所属ノードの多重親化、破棄予定ノード、
+     * `kNodeMaxTreeDepth` 超過を拒否する。失敗時は `child` を変更しないため、
+     * 呼び出し側は結果を検査して別の処理へ安全に回せる。
+     * @param child 追加候補。成功時のみ Move されて空になる。
+     * @return 追加結果。
+     */
+    EAddChildResult TryAddChild(TObjectPtr<ANode>& child) noexcept;
+
+    /**
      * 自身を「破棄予定」にマークする。
      *
      * @details
@@ -452,7 +515,9 @@ public:
      *
      * @return 付け替え予定なら true。
      */
-    bool IsPendingReparent() const noexcept { return m_PendingReparentTarget != nullptr; }
+    bool IsPendingReparent() const noexcept {
+        return m_PendingReparentTarget.Get() != nullptr;
+    }
 
     /**
      * ノード単位に振られる generational handle を返す。
@@ -688,7 +753,7 @@ public:
      * 内部描画にも使われる)。
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    void DrawTree(RenderContext& rc) noexcept;
+    void DrawTree(FRenderContext& rc) noexcept;
 
     /**
      * subtree をグローバル描画順で描く (シーンの標準描画経路)。
@@ -705,7 +770,7 @@ public:
      *     ソートを省略してツリー順で描く = 従来挙動と完全一致・ゼロオーバーヘッド。
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    void DrawTreeSorted(RenderContext& rc) noexcept;
+    void DrawTreeSorted(FRenderContext& rc) noexcept;
 
     /**
      * このノード自身 (OnDraw + components、子は含まない) を描画する。
@@ -716,7 +781,7 @@ public:
      * 非原子ノードの OnDrawPostChildren は直後に呼ぶ。
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    void DrawSelf(RenderContext& rc) noexcept;
+    void DrawSelf(FRenderContext& rc) noexcept;
 
     /**
      * WantsAtomicSubtree なコンポーネントを持つかを返す (DrawTreeSorted の収集用)。
@@ -745,6 +810,41 @@ public:
 
 private:
     /**
+     * 遅延 Reparent 先の寿命を監視する、割り当て不要の侵入型 observer。
+     *
+     * @details
+     * ANode は NewObject 所有だけでなく FScene root の値所有も正式に許すため、
+     * TWeakObjectPtr だけでは全対象を監視できない。observer を対象側のリストへ
+     * 接続し、対象のデストラクタから無効化することで両方を stale-safe に扱う。
+     */
+    class FReparentTargetObserver final {
+    public:
+        FReparentTargetObserver() noexcept = default;
+        ~FReparentTargetObserver() noexcept;
+
+        FReparentTargetObserver(const FReparentTargetObserver&) = delete;
+        FReparentTargetObserver& operator=(const FReparentTargetObserver&) = delete;
+        FReparentTargetObserver(FReparentTargetObserver&&) = delete;
+        FReparentTargetObserver& operator=(FReparentTargetObserver&&) = delete;
+
+        /** target の監視を開始する。既存の監視は先に解除する。 */
+        void Observe(ANode& target) noexcept;
+
+        /** 現在の監視を解除して空にする。 */
+        void Reset() noexcept;
+
+        /** 対象が生存中ならそのポインタ、破棄済みまたは未設定なら nullptr。 */
+        ANode* Get() const noexcept { return m_Target; }
+
+    private:
+        ANode* m_Target = nullptr;
+        FReparentTargetObserver* m_Previous = nullptr;
+        FReparentTargetObserver* m_Next = nullptr;
+
+        friend class ANode;
+    };
+
+    /**
      * クォータニオンの Z 軸回転成分 (ZYX オイラーの yaw) を返す。
      *
      * @param q 抽出元の回転。
@@ -754,6 +854,9 @@ private:
         return ATan2(2.0f * (q.w * q.z + q.x * q.y),
                      1.0f - 2.0f * (q.y * q.y + q.z * q.z));
     }
+
+    /** 自身を root とした subtree の最大深度 (自身=0) を反復走査で返す。 */
+    u32 SubtreeHeight() const noexcept;
 
     /** subtree を DFS し各コンポーネントの OnAttachServices をガード付きで発火する。 */
     void _ActivateSubtreeServices(FSceneServices* svc) noexcept;
@@ -794,8 +897,11 @@ private:
     /** ノード ID (generational handle)。 */
     FNodeId      m_Id{};
 
-    /** 親付け替え先 (nullptr = 予定なし)。 */
-    ANode*       m_PendingReparentTarget = nullptr;
+    /** 親付け替え先。対象破棄時はデストラクタから自動的に無効化される。 */
+    FReparentTargetObserver m_PendingReparentTarget;
+
+    /** 自身を遅延 Reparent 先として監視している observer のリスト先頭。 */
+    FReparentTargetObserver* m_ReparentObserverHead = nullptr;
 
     /** 描画レイヤー (第 1 ソートキー、小 = 奥)。 */
     i32          m_DrawLayer       = 0;

@@ -6,7 +6,7 @@
 //                                 kGlassPos など) + Halton(2,3) sequence helper
 //   IblEnvBuilder.{h,cpp}       - CPU equirect 生成 (FSky procedural / Studio HDR)
 //   IblLightmapBaker.{h,cpp}    - 床用 lightmap CPU baker (FSphere-FRay analytical)
-//   HelloIblApp.{h,cpp}         - FApplication 派生 (orchestration のみ)
+//   FHelloIblApp.{h,cpp}         - FApplication 派生 (orchestration のみ)
 //   ShadowPass.cpp              - CSM 3 cascade caster
 //   GBufferPass.cpp             - motion vector + world normal MRT
 //   ScreenSpaceEffects.cpp      - SSR / SSAO / SSGI dispatch
@@ -35,4 +35,4 @@
 #include "HelloIblApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(helloibl::HelloIblApp)
+ACS_DEFINE_MAIN(helloibl::FHelloIblApp)

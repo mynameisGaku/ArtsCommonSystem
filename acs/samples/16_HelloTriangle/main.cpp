@@ -18,4 +18,4 @@
 #include "HelloTriangleApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(hellotri::HelloTriangleApp)
+ACS_DEFINE_MAIN(hellotri::FHelloTriangleApp)

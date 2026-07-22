@@ -33,7 +33,7 @@ void FWindowsCrashReporter::CopyText(char* dst, acs::usize dst_size, const char*
 /** backend を初期化し、ダンプディレクトリを作成する。 */
 acs::TResult<void> FWindowsCrashReporter::Init(const char* product_id, const char* version) noexcept {
     if (product_id == nullptr || product_id[0] == 0 || version == nullptr || version[0] == 0) {
-        return ACS_ERR(Generic, acs::game::CrashReporterError::kSub_BadArgument,
+        return ACS_ERR(Generic, acs::game::FCrashReporterError::kSub_BadArgument,
                        "FWindowsCrashReporter::Init requires product id and version");
     }
 
@@ -88,7 +88,7 @@ void FWindowsCrashReporter::BuildBasePath(char* out, acs::usize out_size, const 
 
 /** テキスト形式のクラッシュ / エラーレポートをファイルへ書き出す。 */
 bool FWindowsCrashReporter::WriteTextReport(const char* path,
-                                            const acs::game::CrashContext* context,
+                                            const acs::game::FCrashContext* context,
                                             const char* category,
                                             const char* message) noexcept {
     FILE* file = nullptr;
@@ -163,9 +163,9 @@ bool FWindowsCrashReporter::WriteCurrentProcessDump(const char* path) noexcept {
 
 /** クラッシュ 1 件のテキストレポートと minidump を書き出す。 */
 acs::TResult<void> FWindowsCrashReporter::ReportCrash(
-    const acs::game::CrashContext& context) noexcept {
+    const acs::game::FCrashContext& context) noexcept {
     if (!m_bInitialized) {
-        return ACS_ERR(Generic, acs::game::CrashReporterError::kSub_NotInitialized,
+        return ACS_ERR(Generic, acs::game::FCrashReporterError::kSub_NotInitialized,
                        "FWindowsCrashReporter::ReportCrash called before Init");
     }
 
@@ -190,11 +190,11 @@ acs::TResult<void> FWindowsCrashReporter::ReportCrash(
 acs::TResult<void> FWindowsCrashReporter::ReportError(const char* category,
                                                        const char* message) noexcept {
     if (!m_bInitialized) {
-        return ACS_ERR(Generic, acs::game::CrashReporterError::kSub_NotInitialized,
+        return ACS_ERR(Generic, acs::game::FCrashReporterError::kSub_NotInitialized,
                        "FWindowsCrashReporter::ReportError called before Init");
     }
     if (category == nullptr || message == nullptr) {
-        return ACS_ERR(Generic, acs::game::CrashReporterError::kSub_BadArgument,
+        return ACS_ERR(Generic, acs::game::FCrashReporterError::kSub_BadArgument,
                        "FWindowsCrashReporter::ReportError requires category and message");
     }
 
@@ -214,11 +214,11 @@ acs::TResult<void> FWindowsCrashReporter::ReportError(const char* category,
 acs::TResult<void> FWindowsCrashReporter::AddBreadcrumb(const char* category,
                                                          const char* message) noexcept {
     if (!m_bInitialized) {
-        return ACS_ERR(Generic, acs::game::CrashReporterError::kSub_NotInitialized,
+        return ACS_ERR(Generic, acs::game::FCrashReporterError::kSub_NotInitialized,
                        "FWindowsCrashReporter::AddBreadcrumb called before Init");
     }
     if (category == nullptr || message == nullptr) {
-        return ACS_ERR(Generic, acs::game::CrashReporterError::kSub_BadArgument,
+        return ACS_ERR(Generic, acs::game::FCrashReporterError::kSub_BadArgument,
                        "FWindowsCrashReporter::AddBreadcrumb requires category and message");
     }
 
@@ -247,4 +247,3 @@ void FWindowsCrashReporter::Tick(acs::f32 dt) noexcept {
 }
 
 } // namespace acs::crashwin
-

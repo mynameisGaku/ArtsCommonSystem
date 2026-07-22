@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar H — FUiLayer 実装
 //
-// state holder を完全実装する。実 `acs::ui` Widget tree 構築 / 描画 /
+// state holder を完全実装する。実 `acs::ui` FWidget tree 構築 / 描画 /
 // hit-test / event 配送は seam として未接続で、Init / Tick / HandleInput の中身は
 // state 操作と TODO コメントのみ。これにより Scene 側は通常通り
 // AddButton / AddText / SetVisible / Remove を呼び始めることができ、後から
@@ -66,15 +66,15 @@ void FUiLayer::Tick(f32 /*dt*/) noexcept {
     // クリックを誤って消さないため)。将来 layout 再計算 / animation 更新をここに。
 }
 
-void FUiLayer::HandleInput(const acs::Event& event) noexcept {
+void FUiLayer::HandleInput(const acs::FEvent& event) noexcept {
     if (!m_Initialized) return;
     switch (event.type) {
-        case acs::EventType::MouseMoved: {
+        case acs::EEventType::MouseMoved: {
             m_MouseX = event.mouse_move.x;
             m_MouseY = event.mouse_move.y;
             // hover 状態を更新 (ボタンのみ)。
             for (u32 i = 0; i < m_Widgets.Size(); ++i) {
-                WidgetEntry& e = m_Widgets[i];
+                FWidgetEntry& e = m_Widgets[i];
                 if (e.kind != EWidgetKind::Button) continue;
                 e.hovered = e.visible
                     && m_MouseX >= e.pos.x && m_MouseX < e.pos.x + e.size.x
@@ -82,7 +82,7 @@ void FUiLayer::HandleInput(const acs::Event& event) noexcept {
             }
             break;
         }
-        case acs::EventType::MouseButtonPressed: {
+        case acs::EEventType::MouseButtonPressed: {
             if (event.mouse_button.button != acs::EMouseButton::Left) break;
             m_PressedHandle = HitTopButton(m_MouseX, m_MouseY);
             if (m_PressedHandle != 0) {
@@ -91,7 +91,7 @@ void FUiLayer::HandleInput(const acs::Event& event) noexcept {
             }
             break;
         }
-        case acs::EventType::MouseButtonReleased: {
+        case acs::EEventType::MouseButtonReleased: {
             if (event.mouse_button.button != acs::EMouseButton::Left) break;
             // press 開始ボタンの上で離したらクリック成立。
             if (m_PressedHandle != 0 && HitTopButton(m_MouseX, m_MouseY) == m_PressedHandle) {
@@ -111,7 +111,7 @@ void FUiLayer::HandleInput(const acs::Event& event) noexcept {
 // (x,y) を含む最前面 (= 最後に追加) の visible なボタンの handle。無ければ 0。
 u32 FUiLayer::HitTopButton(f32 x, f32 y) const noexcept {
     for (u32 i = static_cast<u32>(m_Widgets.Size()); i > 0; --i) {
-        const WidgetEntry& e = m_Widgets[i - 1];
+        const FWidgetEntry& e = m_Widgets[i - 1];
         if (e.kind == EWidgetKind::Button && e.visible
             && x >= e.pos.x && x < e.pos.x + e.size.x
             && y >= e.pos.y && y < e.pos.y + e.size.y) {
@@ -121,12 +121,12 @@ u32 FUiLayer::HitTopButton(f32 x, f32 y) const noexcept {
     return 0;
 }
 
-void FUiLayer::Draw(RenderContext& rc) const noexcept {
+void FUiLayer::Draw(FRenderContext& rc) const noexcept {
     if (!rc.HasSprites()) return;
     FSpriteBatch& sb = rc.Sprites();
     const bool has_font = rc.HasFont();
     for (u32 i = 0; i < m_Widgets.Size(); ++i) {
-        const WidgetEntry& e = m_Widgets[i];
+        const FWidgetEntry& e = m_Widgets[i];
         if (!e.visible) continue;
         if (e.kind == EWidgetKind::Button) {
             const FVec4 bg = e.pressed_down ? FVec4{0.18f, 0.34f, 0.62f, 0.95f}
@@ -156,7 +156,7 @@ u32 FUiLayer::AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size) noex
         ACS_LOG_WARN("FUiLayer::AddButton called before Init (ignored)");
         return 0;
     }
-    WidgetEntry e{};
+    FWidgetEntry e{};
     e.handle       = m_NextHandle++;
     e.kind         = EWidgetKind::Button;
     e.pos          = pos;
@@ -173,7 +173,7 @@ u32 FUiLayer::AddText(const char* text, acs::FVec2 pos) noexcept {
         ACS_LOG_WARN("FUiLayer::AddText called before Init (ignored)");
         return 0;
     }
-    WidgetEntry e{};
+    FWidgetEntry e{};
     e.handle       = m_NextHandle++;
     e.kind         = EWidgetKind::Text;
     e.pos          = pos;
@@ -188,13 +188,13 @@ u32 FUiLayer::AddText(const char* text, acs::FVec2 pos) noexcept {
 bool FUiLayer::IsButtonPressed(u32 handle) const noexcept {
     const u32 idx = FindIndex(handle);
     if (idx == kInvalidIndex) return false;
-    const WidgetEntry& e = m_Widgets[idx];
+    const FWidgetEntry& e = m_Widgets[idx];
     // Text widget には押下概念がない。Button のみが押下対象。
     if (e.kind != EWidgetKind::Button) return false;
     if (!e.just_pressed) return false;
     // consume-on-read: 1 クリックにつき 1 回だけ true を返す (フレーム順に非依存で、
     // OnEvent で立てた just_pressed を OnUpdate の本呼び出しで確実に拾える)。
-    const_cast<WidgetEntry&>(e).just_pressed = false;
+    const_cast<FWidgetEntry&>(e).just_pressed = false;
     return true;
 }
 

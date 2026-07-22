@@ -2,14 +2,14 @@
 // UDP ソケット（コネクションレス）
 //
 // 使い方:
-//   auto sr = FUdpSocket::Bind(IpAddress::Any(), 8080);
+//   auto sr = FUdpSocket::Bind(FIpAddress::Any(), 8080);
 //   if (sr.IsErr()) { ... }
 //   FUdpSocket& s = sr.Value();
 //
-//   IpAddress from{};
+//   FIpAddress from{};
 //   isize n = s.RecvFrom(buf, sizeof(buf), from);
 //
-//   s.SendTo(IpAddress::FromString("192.168.0.1"), 8080, data, size);
+//   s.SendTo(FIpAddress::FromString("192.168.0.1"), 8080, data, size);
 #pragma once
 
 #include "foundation/Types.h"
@@ -60,12 +60,12 @@ public:
      *
      * @details
      * 受信専用なら受信ポートを指定し、送信専用なら port=0 を渡して OS にポートを
-     * 任せる。事前に Network::Init() が呼ばれている必要がある。
+     * 任せる。事前に FNetwork::Init() が呼ばれている必要がある。
      * @param addr バインドするローカルアドレス (Any() で全インターフェイス)。
      * @param port バインドするローカルポート (0 で OS 任せ)。
      * @return 成功なら生成した FUdpSocket、失敗ならエラー。
      */
-    static TResult<FUdpSocket> Bind(IpAddress addr, u16 port) noexcept;
+    static TResult<FUdpSocket> Bind(FIpAddress addr, u16 port) noexcept;
 
     /**
      * 指定先へデータグラムを送信する。
@@ -76,7 +76,7 @@ public:
      * @param size 送信するバイト数。
      * @return 送信できたバイト数、失敗時は -1。
      */
-    isize SendTo(IpAddress dst_addr, u16 dst_port, const void* data, usize size) noexcept;
+    isize SendTo(FIpAddress dst_addr, u16 dst_port, const void* data, usize size) noexcept;
 
     /**
      * データグラムを受信する。
@@ -86,7 +86,7 @@ public:
      * @param from 送信元アドレス/ポートの書き込み先 (出力)。
      * @return 受信できたバイト数、失敗時は -1。
      */
-    isize RecvFrom(void* buf, usize size, IpAddress& from) noexcept;
+    isize RecvFrom(void* buf, usize size, FIpAddress& from) noexcept;
 
     /**
      * ノンブロッキングモードを設定する。

@@ -27,7 +27,7 @@
 
 namespace hellosteam {
 
-class SteamworksDemoApp : public acs::FApplication {
+class FSteamworksDemoApp : public acs::FApplication {
 public:
     void OnStart()             noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -38,8 +38,8 @@ private:
     void SetStatus(const char* msg) noexcept;
 
     acs::FSpriteBatch m_Batch;
-    acs::Font         m_Font;
-    acs::Font         m_SmallFont;
+    acs::FFont         m_Font;
+    acs::FFont         m_SmallFont;
 
     // bridge は I/F 経由で使い、実装は real / stub を DI。
     acs::game::ISteamworksBridge* m_Social = nullptr;

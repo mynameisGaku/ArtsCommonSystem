@@ -11,7 +11,9 @@
 //   stack.Init(64);
 //
 //   // 1 操作: Push に所有権を渡す
-//   auto command = acs::MakeUnique<MoveNodeCommand>(&node, old_pos, new_pos);
+//   auto command =
+//       acs::MakeUnique<acs::game::editor_core::FMoveNodeCommand>(
+//           &node, old_pos, new_pos);
 //   stack.Push(acs::Move(command));
 //
 //   if (ImGui::MenuItem("Undo", "Ctrl+Z", false, stack.CanUndo())) {

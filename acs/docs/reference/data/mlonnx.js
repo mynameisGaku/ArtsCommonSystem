@@ -14,9 +14,9 @@ ACS_REF.modules.push({
       members: [
         { sig: "TResult<void> Init() noexcept", ret: "成功/失敗", desc: "backend を初期化する(<t>ONNX Runtime</t> の <t>DLL</t> 読み込み・<t>セッション</t>準備など)。<t>Result</t> で結果が返るので必ず成否を確認する。", when: "モデルを読み込む前に最初に 1 度だけ呼ぶ。失敗したら ML 経路を使わずフォールバックする。" },
         { sig: "void Shutdown() noexcept", desc: "backend を破棄する。読み込み済みのモデルもまとめて解放してよい。", when: "アプリ終了時やランタイムを使い終えた時に 1 度だけ呼ぶ。" },
-        { sig: "TResult<MlModelHandle> LoadModel(const char* ModelPath) noexcept", ret: "モデルハンドル", desc: "<code>.onnx</code> ファイルを読み込み、不透明な <t>MlModelHandle</t> を返す。<code>ModelPath</code> の寿命は呼び出し側が保証する(文字列リテラル等)。<code>nullptr</code> は失敗。", when: "推論したいモデルごとに 1 回。返ったハンドルを <code>RunInference</code> に渡す。", sample: "auto h = rt.LoadModel(\"models/npc.onnx\");\nif (h.IsOk()) { /* h.Value() を使う */ }" },
-        { sig: "TResult<void> UnloadModel(MlModelHandle h) noexcept", ret: "成功/失敗", desc: "モデルハンドルを解放する。無効ハンドルを渡しても安全(<t>no-op</t> 相当で Ok を返してよい)。", when: "そのモデルをもう使わない時。解放後のハンドルは再利用しない。" },
-        { sig: "TResult<void> RunInference(MlModelHandle h, const f32* Inputs, u32 InCount, f32* Outputs, u32 OutCount) noexcept", ret: "成功/失敗", desc: "推論を 1 回実行する。<code>Inputs</code>/<code>Outputs</code> は呼び出し側が確保する <t>f32</t> 配列で、<code>InCount</code>/<code>OutCount</code> はモデル定義と一致させる(不一致は失敗)。<b>この呼び出しは完了までブロックする</b>。", when: "毎フレーム or イベントごとに、入力を出力へ変換したい時。", sample: "acs::f32 in[8], out[3] = {};\n// in[] に特徴量を詰める...\nrt.RunInference(h, in, 8, out, 3);\n// out[] に結果が入る" }
+        { sig: "TResult<FMlModelHandle> LoadModel(const char* ModelPath) noexcept", ret: "モデルハンドル", desc: "<code>.onnx</code> ファイルを読み込み、不透明な <t>FMlModelHandle</t> を返す。<code>ModelPath</code> の寿命は呼び出し側が保証する(文字列リテラル等)。<code>nullptr</code> は失敗。", when: "推論したいモデルごとに 1 回。返ったハンドルを <code>RunInference</code> に渡す。", sample: "auto h = rt.LoadModel(\"models/npc.onnx\");\nif (h.IsOk()) { /* h.Value() を使う */ }" },
+        { sig: "TResult<void> UnloadModel(FMlModelHandle h) noexcept", ret: "成功/失敗", desc: "モデルハンドルを解放する。無効ハンドルを渡しても安全(<t>no-op</t> 相当で Ok を返してよい)。", when: "そのモデルをもう使わない時。解放後のハンドルは再利用しない。" },
+        { sig: "TResult<void> RunInference(FMlModelHandle h, const f32* Inputs, u32 InCount, f32* Outputs, u32 OutCount) noexcept", ret: "成功/失敗", desc: "推論を 1 回実行する。<code>Inputs</code>/<code>Outputs</code> は呼び出し側が確保する <t>f32</t> 配列で、<code>InCount</code>/<code>OutCount</code> はモデル定義と一致させる(不一致は失敗)。<b>この呼び出しは完了までブロックする</b>。", when: "毎フレーム or イベントごとに、入力を出力へ変換したい時。", sample: "acs::f32 in[8], out[3] = {};\n// in[] に特徴量を詰める...\nrt.RunInference(h, in, 8, out, 3);\n// out[] に結果が入る" }
       ]
     },
     {
@@ -47,7 +47,7 @@ Object.assign(ACS_REF.glossary, {
   "ONNX Runtime": "Microsoft 製の、<t>ONNX</t> モデルを実際に実行する<t>推論</t>エンジン。<code>mlonnx</code> が裏で使う <t>backend</t>。",
   "推論": "学習済みモデルに入力を与えて出力(予測・分類など)を計算すること。学習(training)ではなく実行(inference)の側。",
   "機械学習": "データから規則を自動で学習させ、未知の入力に対して予測や判断をさせる技術。略して ML。",
-  "MlModelHandle": "読み込んだ ML モデルを指す不透明な識別子(中身は <t>u64</t>)。backend が変わってもゲーム側コードを書き換えずに済むための窓口。0 は無効を表す。",
+  "FMlModelHandle": "読み込んだ ML モデルを指す不透明な識別子(中身は <t>u64</t>)。backend が変わってもゲーム側コードを書き換えずに済むための窓口。0 は無効を表す。",
   "backend": "同じ<t>インターフェース</t>の裏で実際の処理を行う具体実装。ここでは ONNX Runtime のこと。差し替え可能にすることで上位コードを backend 非依存にできる。",
   "provider": "「既定の実装を返す関数」を後から登録する仕組み。gameframework が backend モジュールに直接依存せずに済むよう、実 backend 側がこれを登録する。",
   "セッション": "ML ランタイムが推論を実行するための作業単位(モデル・実行環境を束ねたもの)。",

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — FPrimitiveRenderer2D
+// GameFramework — APrimitiveRenderer2D
 //
-// プリミティブ形状 (箱 / 円 / 三角) を描画する FComponent2D。shape で形状を選ぶ。
+// プリミティブ形状 (箱 / 円 / 三角) を描画する AComponent。shape で形状を選ぶ。
 // エディタはこの shape を読んで viewport 描画 + コライダー形状を合わせる
 // (= 選んだ形状で見た目もアタリも決まる)。ゲーム実行時はこの OnDraw が
 // FSpriteBatch に積む。色/サイズはコンポーネント側に持つ (owner の scale で拡縮)。
@@ -11,8 +11,8 @@
 #include "foundation/Log.h"           // ACS_LOG_INFO (LogState のデモ出力)
 #include "math/Vec.h"
 #include "gameframework/AcsClass.h"    // ACS_FUNCTION マーカー
-#include "gameframework/Component2D.h"
-#include "gameframework/Node2D.h"
+#include "gameframework/AComponent.h"
+#include "gameframework/ANode.h"
 #include "gameframework/RenderContext.h"
 #include "render/SpriteBatch.h"
 
@@ -21,20 +21,20 @@
 namespace acs::game {
 
 /**
- * プリミティブ形状を描く FComponent2D。
+ * プリミティブ形状を描く AComponent。
  *
  * @details shape (Box / Circle / Triangle) を owner の world transform で配置・回転して
  * FSpriteBatch へ積む。円・三角は三角形ファンで塗る。エディタは shape を読んで描画と
  * コライダー形状を一致させる。
  */
-class FPrimitiveRenderer2D : public FComponent2D {
+class APrimitiveRenderer2D : public AComponent {
 public:
-    ACS_GAME_COMPONENT_KIND(FPrimitiveRenderer2D)
+    ACS_GAME_COMPONENT_KIND(APrimitiveRenderer2D)
 
     /** 形状種別。 */
     enum class EShape : u8 { Box = 0, Circle = 1, Triangle = 2 };
 
-    FPrimitiveRenderer2D() noexcept = default;
+    APrimitiveRenderer2D() noexcept = default;
 
     /** 形状を設定する。 */
     void   SetShape(EShape s) noexcept { m_Shape = s; }
@@ -77,9 +77,9 @@ public:
     f32 GetArea() const noexcept { return m_Size.x * m_Size.y; }
 
     /** owner の world transform で形状を FSpriteBatch へ積む。 */
-    void OnDraw(RenderContext& rc) noexcept override {
+    void OnDraw(FRenderContext& rc) noexcept override {
         if (!rc.HasSprites()) return;
-        const FTransform2D wt = Owner().World();
+        const FTransform2D wt = Owner().World2D();
         const f32 w = m_Size.x * wt.scale.x;
         const f32 h = m_Size.y * wt.scale.y;
         DrawShape(rc.Sprites(), static_cast<int>(m_Shape),
@@ -89,7 +89,7 @@ public:
     /**
      * プリミティブ形状を FSpriteBatch に塗る (エディタ viewport と共用のヘルパ)。
      *
-     * @param sb 積み先の SpriteBatch。
+     * @param sb 積み先の FSpriteBatch。
      * @param shape 0=Box, 1=Circle, 2=Triangle。
      * @param cx 中心 X。 @param cy 中心 Y。 @param w 幅。 @param h 高さ。
      * @param rot 回転 (rad)。 @param col 塗り色。

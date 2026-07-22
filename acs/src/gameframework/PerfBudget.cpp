@@ -42,7 +42,7 @@ void FPerfBudget::DefineCategory(const char* category, f32 budget_ms, u32 budget
         m_Categories[idx].budget_bytes = budget_bytes;
         return;
     }
-    BudgetEntry e;
+    FBudgetEntry e;
     e.category     = category;
     e.spent_ms     = 0.0f;
     e.budget_ms    = safe_budget_ms;
@@ -65,7 +65,7 @@ void FPerfBudget::RecordMemoryAlloc(const char* category, u32 bytes) noexcept {
     const usize idx = FindCategoryIndex(category);
     if (idx >= m_Categories.Size()) return;
     // u32 overflow ガード: 加算前に上限 (UINT32_MAX) を超えないかチェック。
-    BudgetEntry& e = m_Categories[idx];
+    FBudgetEntry& e = m_Categories[idx];
     const u32 remain = static_cast<u32>(0xFFFFFFFFu) - e.spent_bytes;
     if (bytes >= remain) {
         e.spent_bytes = 0xFFFFFFFFu;  // 飽和加算
@@ -78,7 +78,7 @@ void FPerfBudget::RecordMemoryFree(const char* category, u32 bytes) noexcept {
     if (category == nullptr || bytes == 0u) return;
     const usize idx = FindCategoryIndex(category);
     if (idx >= m_Categories.Size()) return;
-    BudgetEntry& e = m_Categories[idx];
+    FBudgetEntry& e = m_Categories[idx];
     // unsigned underflow を避けるため clamp。alloc/free 不整合時の保護。
     if (bytes >= e.spent_bytes) {
         e.spent_bytes = 0u;
@@ -131,7 +131,7 @@ bool FPerfBudget::IsOverBudget(const char* category) const noexcept {
     if (category == nullptr) return false;
     const usize idx = FindCategoryIndex(category);
     if (idx >= m_Categories.Size()) return false;
-    const BudgetEntry& e = m_Categories[idx];
+    const FBudgetEntry& e = m_Categories[idx];
     // budget_ms > 0 のときのみ ms 超過を判定 (0 = 無効上限)。
     const bool ms_over    = (e.budget_ms    > 0.0f) && (e.spent_ms    > e.budget_ms);
     const bool bytes_over = (e.budget_bytes > 0u  ) && (e.spent_bytes > e.budget_bytes);
@@ -150,7 +150,7 @@ u32 FPerfBudget::CategoryCount() const noexcept {
     return static_cast<u32>(m_Categories.Size());
 }
 
-const BudgetEntry* FPerfBudget::AllCategories(u32& out_count) const noexcept {
+const FBudgetEntry* FPerfBudget::AllCategories(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Categories.Size());
     if (m_Categories.Size() == 0u) return nullptr;
     return m_Categories.Data();

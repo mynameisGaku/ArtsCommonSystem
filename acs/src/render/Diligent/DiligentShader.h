@@ -14,7 +14,7 @@ namespace Diligent {
 
 namespace acs {
 
-class DiligentDevice;
+class FDiligentDevice;
 
 /**
  * Diligent Engine 経由で生成する HLSL シェーダ (IRhiShader 実装)。
@@ -26,19 +26,19 @@ class DiligentDevice;
  * HLSL source を簡易 parse して `cbuffer/Texture2D : register(bN/tN)` の slot→名前
  * マッピングを構築し、PSO のリソース紐付けに供給する。
  */
-class DiligentShader final : public IRhiShader {
+class FDiligentShader final : public IRhiShader {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    DiligentShader() noexcept = default;
+    FDiligentShader() noexcept = default;
 
     /** Diligent シェーダオブジェクトを解放する。 */
-    ~DiligentShader() noexcept override;
+    ~FDiligentShader() noexcept override;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    DiligentShader(const DiligentShader&) = delete;
+    FDiligentShader(const FDiligentShader&) = delete;
 
     /** コピー代入も禁止。 */
-    DiligentShader& operator=(const DiligentShader&) = delete;
+    FDiligentShader& operator=(const FDiligentShader&) = delete;
 
     /**
      * HLSL source をコンパイルしてシェーダを生成する。
@@ -51,7 +51,7 @@ public:
      * @param desc シェーダ記述 (HLSL source・エントリポイント・ステージ等)。
      * @return 成功なら空の TResult、device 未初期化・source 欠落・コンパイル失敗ならエラー。
      */
-    TResult<void> Init(DiligentDevice& device, const FShaderDesc& desc,
+    TResult<void> Init(FDiligentDevice& device, const FShaderDesc& desc,
                        bool combined_samplers = true) noexcept;
 
     /**
@@ -113,7 +113,7 @@ private:
     void Reset() noexcept;
 
     /** Init で受け取った Diligent デバイス。 */
-    DiligentDevice*    m_Device = nullptr;
+    FDiligentDevice*    m_Device = nullptr;
 
     /** Diligent ネイティブのシェーダオブジェクト。 */
     Diligent::IShader* m_Shader = nullptr;

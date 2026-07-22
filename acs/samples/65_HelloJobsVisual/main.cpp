@@ -60,7 +60,7 @@ int main() {
         vx[i] = 0.0f; vy[i] = 0.0f;
     }
 
-    JobBatch ja{}, jb{}, jc{};
+    FJobBatch ja{}, jb{}, jc{};
     int   phase = 0;       // 0:待機  1:A&B 実行中  2:C 実行中  3:完了
     float t     = 0.0f;    // 経過時間 (流れ場のアニメ用)
 

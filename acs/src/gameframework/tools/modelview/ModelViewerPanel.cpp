@@ -306,7 +306,7 @@ void FModelViewerPanel::OnAssetSelected(const char* asset_path) noexcept {
 }
 
 /**
- * ImGui::Begin("Model FViewport") から始まる 1 window レイアウトを描画する。
+ * ImGui::Begin("Model Viewport") から始まる 1 window レイアウトを描画する。
  *
  * @details
  * 上部に asset path 表示 + Clear ボタン、中央に viewport プレースホルダ (実 3D は
@@ -372,7 +372,7 @@ void FModelViewerPanel::DrawUI() noexcept {
             // dummy テキスト (描画 placeholder)。
             const acs::FVec3 eye = m_Camera.ComputeEye();
             const acs::FVec3 tgt = m_Camera.State().target;
-            ImGui::TextDisabled("[ 3D FViewport ]  eye=(%.1f %.1f %.1f)  target=(%.1f %.1f %.1f)",
+            ImGui::TextDisabled("[ 3D Viewport ]  eye=(%.1f %.1f %.1f)  target=(%.1f %.1f %.1f)",
                                 eye.x, eye.y, eye.z, tgt.x, tgt.y, tgt.z);
             if (!HasModel()) {
                 ImGui::TextDisabled("(No model loaded. Drop an .mdl/.fbx/.gltf/.glb/.obj here)");
@@ -435,7 +435,7 @@ void FModelViewerPanel::DrawUI() noexcept {
 
         // Light color (ColorEdit3)
         f32 lc[3] = { m_LightColor.x, m_LightColor.y, m_LightColor.z };
-        if (ImGui::ColorEdit3("Light FColor", lc)) {
+        if (ImGui::ColorEdit3("Light Color", lc)) {
             m_LightColor = acs::FVec3{ lc[0], lc[1], lc[2] };
         }
 
@@ -473,11 +473,11 @@ void FModelViewerPanel::DrawUI() noexcept {
         // Show grid / Show bone skeleton toggle
         ImGui::Checkbox("Show Grid", &m_ShowGrid);
         ImGui::SameLine();
-        ImGui::Checkbox("Show FBone Skeleton", &m_ShowBoneSkeleton);
+        ImGui::Checkbox("Show Bone Skeleton", &m_ShowBoneSkeleton);
 
-        // Reset FCamera ボタン (小さな utility)
+        // Reset Camera ボタン (小さな utility)
         ImGui::Spacing();
-        if (ImGui::Button("Reset FCamera")) {
+        if (ImGui::Button("Reset Camera")) {
             m_Camera.Reset();
         }
         ImGui::SameLine();

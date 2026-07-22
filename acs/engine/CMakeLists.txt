@@ -13,9 +13,9 @@ endif()
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "Engine/Generated")
 
-# The build system lives in acs/engine/, but source/asset trees (src, samples,
-# tests, tools) live one level up in acs/. ACS_TREE_ROOT is that acs/ directory;
-# every tree-relative path below is anchored to it rather than to this list dir.
+# build system は acs/engine/、source/asset tree (src, samples, tests, tools) は
+# 1 階層上の acs/ に置く。ACS_TREE_ROOT はその acs/ directory を指し、以下の
+# tree 相対 path はこの list directory ではなく ACS_TREE_ROOT を基準にする。
 get_filename_component(ACS_TREE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}" DIRECTORY)
 set(ACS_TREE_ROOT "${ACS_TREE_ROOT}" CACHE INTERNAL "ACS source-tree root (parent of engine/)")
 
@@ -102,28 +102,28 @@ option(ACS_BUILD_STEAMWORKS "Build real Steamworks SDK backend (acs_steamworks m
 # acs_scripting module (FLuaVm) を real ビルドする。
 option(ACS_BUILD_SCRIPTING "Build real Lua 5.4 scripting backend (acs_scripting module)" OFF)
 
-# Real ONNX Runtime CPU inference backend for acs::game::IMlRuntime.
-# OFF (default) keeps only MlRuntimeStub. ON fetches/links the official
-# ONNX Runtime Windows x64 package and builds ACS::MlOnnx.
+# acs::game::IMlRuntime 用の実 ONNX Runtime CPU inference backend。
+# OFF (既定) は MlRuntimeStub のみを保ち、ON は公式 ONNX Runtime Windows x64
+# package を取得・link して ACS::MlOnnx を構築する。
 option(ACS_BUILD_ML_ONNX "Build real ONNX Runtime backend (acs_mlonnx module)" OFF)
 
-# Real Khronos OpenXR loader backend for acs::game::IOpenXrBridge.
-# The backend is compiled and linked against OpenXR-SDK-Source. Runtime smoke
-# tests accept XR_ERROR_RUNTIME_UNAVAILABLE as a valid "loader works, no XR
-# runtime installed" result.
+# acs::game::IOpenXrBridge 用の実 Khronos OpenXR loader backend。
+# OpenXR-SDK-Source に対して compile/link する。runtime smoke test は
+# XR_ERROR_RUNTIME_UNAVAILABLE を「loader は動作したが XR runtime がない」
+# という有効な結果として扱う。
 option(ACS_BUILD_OPENXR "Build real Khronos OpenXR backend (acs_openxr module)" OFF)
 
-# Real Windows DbgHelp minidump backend for acs::game::ICrashReporterBackend.
-# ON builds ACS::CrashWin and sample 43 can write a real .dmp file without
-# external services or SDK accounts.
+# acs::game::ICrashReporterBackend 用の実 Windows DbgHelp minidump backend。
+# ON は ACS::CrashWin を構築し、sample 43 が外部 service/SDK account なしで
+# 実 .dmp file を書けるようにする。
 option(ACS_BUILD_CRASH_REPORTER "Build real Windows crash reporter backend (acs_crashwin module)" OFF)
 
-# Real file-backed telemetry sink for acs::game::IBackendClient.
-# ON builds ACS::TelemetryFile and sample 44 writes JSON Lines telemetry.
+# acs::game::IBackendClient 用の実 file-backed telemetry sink。
+# ON は ACS::TelemetryFile を構築し、sample 44 が JSON Lines telemetry を書く。
 option(ACS_BUILD_TELEMETRY_FILE "Build real file telemetry backend (acs_telemetryfile module)" OFF)
 
-# Real deterministic local matchmaker backend for acs::game::IMatchmaker.
-# Useful for gameplay tests and offline development without a backend service.
+# acs::game::IMatchmaker 用の実 deterministic local matchmaker backend。
+# backend service を使わない gameplay test と offline 開発に利用する。
 option(ACS_BUILD_LOCAL_MATCHMAKER "Build real local matchmaker backend (acs_localmatch module)" OFF)
 
 set(ACS_SOURCE_ROOT "${ACS_TREE_ROOT}/src")
@@ -370,38 +370,38 @@ if(ACS_BUILD_SAMPLES)
     acs_add_sample(40_HelloScripting)
 
     # --- (19) HelloOnnx (IMlRuntime / ONNX Runtime real backend) ---
-    # Real backend smoke test. Only added when ACS::MlOnnx is enabled.
+    # 実 backend の smoke test。ACS::MlOnnx 有効時だけ追加する。
     if(ACS_BUILD_ML_ONNX)
         acs_add_sample(41_HelloOnnx)
     endif()
 
     # --- (20) HelloOpenXR (IOpenXrBridge / Khronos OpenXR loader) ---
-    # Real loader smoke test. Accepts "runtime unavailable" as a valid result
-    # because CI/dev machines often have no active OpenXR runtime installed.
+    # 実 loader の smoke test。CI/開発機には有効な OpenXR runtime がない場合も
+    # 多いため、"runtime unavailable" を有効な結果として扱う。
     if(ACS_BUILD_OPENXR)
         acs_add_sample(42_HelloOpenXR)
     endif()
 
     # --- (21) HelloCrashReporter (ICrashReporterBackend / Windows minidump) ---
-    # Real DbgHelp smoke test. Writes a .txt report and .dmp minidump.
+    # 実 DbgHelp smoke test。.txt report と .dmp minidump を書く。
     if(ACS_BUILD_CRASH_REPORTER)
         acs_add_sample(43_HelloCrashReporter)
     endif()
 
     # --- (22) HelloTelemetryFile (IBackendClient / JSONL telemetry sink) ---
-    # Real local telemetry sink. Writes events through FTelemetryDirector.
+    # 実 local telemetry sink。FTelemetryDirector 経由で event を書く。
     if(ACS_BUILD_TELEMETRY_FILE)
         acs_add_sample(44_HelloTelemetryFile)
     endif()
 
     # --- (23) HelloLocalMatchmaker (IMatchmaker / deterministic local queue) ---
-    # Real offline matchmaker. Exercises search -> matched -> accept/cancel.
+    # 実 offline matchmaker。search -> matched -> accept/cancel を検証する。
     if(ACS_BUILD_LOCAL_MATCHMAKER)
         acs_add_sample(45_HelloLocalMatchmaker)
     endif()
 
     # --- (24) HelloAssetPackBridge (IAssetPackReader/Writer / .acpak) ---
-    # Real adapter smoke test. Writes a pack, mounts it, enumerates and reads bytes.
+    # 実 adapter smoke test。pack を書き、mount、列挙、byte 読み出しを検証する。
     acs_add_sample(46_HelloAssetPackBridge)
 
     # --- (25) HelloLight2D (2D 動的ライト + ソフト影 + ブロブ影、Core Keeper 風) ---
@@ -433,7 +433,7 @@ if(ACS_BUILD_SAMPLES)
         acs_add_sample(53_HelloColliderViz3D)
     endif()
 
-    # --- (31) HelloCollideSlide (FPhysicsBody2D collide-and-slide 検証、console) ---
+    # --- (31) HelloCollideSlide (APhysicsBody2D collide-and-slide 検証、console) ---
     acs_add_sample(54_HelloCollideSlide)
 
     # --- (32) HelloScene2D (FScene2D starter foundation, windowed) ---
@@ -465,7 +465,7 @@ if(ACS_BUILD_SAMPLES)
     endif()
 
     # --- (38) HelloWaterTopDown (見下ろし Core Keeper 風水面: caustics + 岸泡, windowed) ---
-    if(ACS_RENDER_DX12_RAW)
+    if(ACS_RENDER_DX12_RAW OR ACS_RENDER_DILIGENT)
         acs_add_sample(61_HelloWaterTopDown)
     endif()
 
@@ -488,6 +488,11 @@ if(ACS_BUILD_SAMPLES)
 
     # --- (43) HelloVertexSSS (頂点空間サブサーフェススキャタリング: FVertexScatter) ---
     acs_add_sample(66_HelloVertexSSS)
+
+    # --- (44) HelloWater3D (法線・屈折・Fresnel・永続波紋を備えた対話3D水面) ---
+    # FWaterSurface3D と post-process は共通 RHI API を使うため Raw/Diligent
+    # の両 backend で同じサンプルを構築する。
+    acs_add_sample(67_HelloWater3D)
 endif()
 
 if(ACS_STARTUP_PROJECT AND TARGET ${ACS_STARTUP_PROJECT})

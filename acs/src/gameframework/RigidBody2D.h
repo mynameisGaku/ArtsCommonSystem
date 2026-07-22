@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// GameFramework Pillar F — FRigidBody2D (剛体ボディ・コンポーネント)
+// GameFramework Pillar F — ARigidBody2D (剛体ボディ・コンポーネント)
 // -----------------------------------------------------------------------------
-// FRigidWorld2D の剛体を FNode2D に結びつける FComponent2D。owner ノードに attach
+// FRigidWorld2D の剛体を ANode に結びつける AComponent。owner ノードに attach
 // すると共有ワールドへ円/箱ボディを登録し、物理ステップ後にボディ位置を owner の
 // Local 位置へ書き戻す。これで「ノードに付けたら落ちて衝突する」がゲームから書ける。
 //
 // 使い方:
 //   FRigidWorld2D world;
 //   world.AddStaticAabb({0, 12}, {20, 0.5f});             // 床
-//   auto crate = MakeUnique<FNode2D>();
-//   crate->Local().position = FVec2{0, 0};
-//   auto& rb = crate->AddComponent<FRigidBody2D>(world);   // 共有ワールドを渡す
+//   auto crate = NewObject<ANode>();
+//   crate->SetPosition2D(FVec2{0, 0});
+//   auto& rb = crate->AddComponent<ARigidBody2D>(world);   // 共有ワールドを渡す
 //   rb.SetBox({0.5f, 0.5f}, /*mass=*/1.0f);
 //   root.AddChild(Move(crate));
 //   // 毎フレーム:
@@ -21,7 +21,7 @@
 //   ・ボディ位置は world 座標。owner の Local へ書き戻すため、物理ノードは identity
 //     transform の親 (シーン root 等) 直下に置くこと (親に回転/スケールがあると
 //     Local==World が崩れる。world→local 逆変換は今後の拡張点)。
-//   ・1 ノードにつき FRigidBody2D は 1 つ (複数付けると同じ Local 位置を奪い合う)。
+//   ・1 ノードにつき ARigidBody2D は 1 つ (複数付けると同じ Local 位置を奪い合う)。
 //   ・SetCircle/SetBox を再呼び出しすると古いボディを置き換える (ghost を残さない)。
 //   ・owner ノード破棄時に OnDetach でボディをワールドから除去する (ghost/leak 防止)。
 // =============================================================================
@@ -29,29 +29,29 @@
 
 #include "foundation/Types.h"
 #include "math/Vec.h"
-#include "gameframework/Component2D.h"
+#include "gameframework/AComponent.h"
 #include "gameframework/RigidWorld2D.h"
 
 namespace acs::game {
 
-class FNode2D;
+class ANode;
 
 /**
- * FRigidWorld2D の剛体を owner ノードに結びつける FComponent2D。
+ * FRigidWorld2D の剛体を owner ノードに結びつける AComponent。
  *
  * @details
  * ctor で共有ワールドを受け取り、SetCircle/SetBox で owner の現在位置にボディを登録する。
  * PullFromWorld でボディ位置を owner の Local 位置へ反映する (通常は StepRigidBodies が呼ぶ)。
  */
-class FRigidBody2D : public FComponent2D {
+class ARigidBody2D : public AComponent {
 public:
-    ACS_GAME_COMPONENT_KIND(FRigidBody2D)
+    ACS_GAME_COMPONENT_KIND(ARigidBody2D)
 
     /**
-     * 共有ワールドを指定して構築する (AddComponent<FRigidBody2D>(world))。
+     * 共有ワールドを指定して構築する (AddComponent<ARigidBody2D>(world))。
      * @param world このボディが属する剛体ワールド。
      */
-    explicit FRigidBody2D(FRigidWorld2D& world) noexcept : m_World(&world) {}
+    explicit ARigidBody2D(FRigidWorld2D& world) noexcept : m_World(&world) {}
 
     /**
      * 円ボディとしてワールドへ登録する (owner の現在 Local 位置で)。
@@ -110,14 +110,14 @@ private:
 };
 
 /**
- * ワールドを 1 ステップ進め、root 配下の全 FRigidBody2D を owner ノードへ同期する。
+ * ワールドを 1 ステップ進め、root 配下の全 ARigidBody2D を owner ノードへ同期する。
  *
- * @details world.Step → ツリー走査で各 FRigidBody2D.PullFromWorld()。ゲームループから毎フレーム呼ぶ。
+ * @details world.Step → ツリー走査で各 ARigidBody2D.PullFromWorld()。ゲームループから毎フレーム呼ぶ。
  * @param world 進める剛体ワールド。
  * @param root 同期対象ツリーの根。
  * @param dt 時間刻み (秒)。
  * @param gravity 重力加速度。
  */
-void StepRigidBodies(FRigidWorld2D& world, FNode2D& root, f32 dt, FVec2 gravity) noexcept;
+void StepRigidBodies(FRigidWorld2D& world, ANode& root, f32 dt, FVec2 gravity) noexcept;
 
 } // namespace acs::game

@@ -39,7 +39,7 @@ void FLocalMatchmaker::CopyText(char* dst, acs::usize dst_size, const char* src)
 }
 
 FLocalMatchmaker::FEntry* FLocalMatchmaker::FindEntry(
-    acs::game::MatchTicket ticket) noexcept {
+    acs::game::FMatchTicket ticket) noexcept {
     if (!ticket.IsValid()) {
         return nullptr;
     }
@@ -52,7 +52,7 @@ FLocalMatchmaker::FEntry* FLocalMatchmaker::FindEntry(
 }
 
 const FLocalMatchmaker::FEntry* FLocalMatchmaker::FindEntry(
-    acs::game::MatchTicket ticket) const noexcept {
+    acs::game::FMatchTicket ticket) const noexcept {
     if (!ticket.IsValid()) {
         return nullptr;
     }
@@ -118,7 +118,7 @@ FLocalMatchmaker::FEntry* FLocalMatchmaker::FindCompatibleEntry(const char* mode
     return nullptr;
 }
 
-acs::TResult<acs::game::MatchTicket> FLocalMatchmaker::StartSearch(const char* mode,
+acs::TResult<acs::game::FMatchTicket> FLocalMatchmaker::StartSearch(const char* mode,
                                                                     acs::u32 elo_hint) noexcept {
     if (mode == nullptr || mode[0] == 0) {
         return ACS_ERR(IO, acs::game::FBackendError::kSub_BadArgument,
@@ -131,7 +131,7 @@ acs::TResult<acs::game::MatchTicket> FLocalMatchmaker::StartSearch(const char* m
                        "FLocalMatchmaker ticket pool is full");
     }
 
-    acs::game::MatchTicket new_ticket{};
+    acs::game::FMatchTicket new_ticket{};
     new_ticket.m_Opaque = m_NextTicket++;
     *new_entry = FEntry{};
     new_entry->Ticket = new_ticket;
@@ -149,10 +149,10 @@ acs::TResult<acs::game::MatchTicket> FLocalMatchmaker::StartSearch(const char* m
         partner->PartnerTicket = new_entry->Ticket.m_Opaque;
     }
 
-    return acs::TResult<acs::game::MatchTicket>(acs::OkInit, new_ticket);
+    return acs::TResult<acs::game::FMatchTicket>(acs::OkInit, new_ticket);
 }
 
-acs::TResult<void> FLocalMatchmaker::CancelSearch(acs::game::MatchTicket ticket) noexcept {
+acs::TResult<void> FLocalMatchmaker::CancelSearch(acs::game::FMatchTicket ticket) noexcept {
     FEntry* entry = FindEntry(ticket);
     if (entry == nullptr) {
         return ACS_ERR(IO, kSubLocalMatchInvalidTicket,
@@ -161,7 +161,7 @@ acs::TResult<void> FLocalMatchmaker::CancelSearch(acs::game::MatchTicket ticket)
     // 相手とマッチ済みだった場合、相手をまだ確定していなければ Searching に戻して
     // 再マッチ可能にする (interface 仕様で許容)。相手の PartnerTicket も切る。
     if (entry->PartnerTicket != 0) {
-        acs::game::MatchTicket partner_handle{};
+        acs::game::FMatchTicket partner_handle{};
         partner_handle.m_Opaque = entry->PartnerTicket;
         FEntry* partner = FindEntry(partner_handle);
         if (partner != nullptr && partner->RetireSeq == 0
@@ -180,12 +180,12 @@ acs::TResult<void> FLocalMatchmaker::CancelSearch(acs::game::MatchTicket ticket)
     return acs::Ok();
 }
 
-acs::game::EMatchStatus FLocalMatchmaker::PollStatus(acs::game::MatchTicket ticket) noexcept {
+acs::game::EMatchStatus FLocalMatchmaker::PollStatus(acs::game::FMatchTicket ticket) noexcept {
     const FEntry* entry = FindEntry(ticket);
     return entry != nullptr ? entry->Status : acs::game::EMatchStatus::Failed;
 }
 
-acs::TResult<void> FLocalMatchmaker::AcceptMatch(acs::game::MatchTicket ticket) noexcept {
+acs::TResult<void> FLocalMatchmaker::AcceptMatch(acs::game::FMatchTicket ticket) noexcept {
     FEntry* entry = FindEntry(ticket);
     if (entry == nullptr) {
         return ACS_ERR(IO, kSubLocalMatchInvalidTicket,
@@ -200,7 +200,7 @@ acs::TResult<void> FLocalMatchmaker::AcceptMatch(acs::game::MatchTicket ticket) 
     // する (旧実装は完了パスが一切無く、Matched ticket が永久リークしていた)。
     // Status は Matched のまま残すので PollStatus は確定済みを返し続ける。
     if (entry->PartnerTicket != 0) {
-        acs::game::MatchTicket partner_handle{};
+        acs::game::FMatchTicket partner_handle{};
         partner_handle.m_Opaque = entry->PartnerTicket;
         FEntry* partner = FindEntry(partner_handle);
         if (partner != nullptr && partner->bAccepted) {

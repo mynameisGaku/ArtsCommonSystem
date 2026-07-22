@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// DiligentTexture 実装
+// FDiligentTexture 実装
 #include "render/Diligent/DiligentTexture.h"
 
 #if WITH_RENDER_DILIGENT
@@ -11,11 +11,11 @@
 namespace acs {
 
 /** per-slice RTV とテクスチャ本体を解放する (default view は ITexture 所有のため触らない)。 */
-DiligentTexture::~DiligentTexture() noexcept {
+FDiligentTexture::~FDiligentTexture() noexcept {
     Reset();
 }
 
-void DiligentTexture::Reset() noexcept
+void FDiligentTexture::Reset() noexcept
 {
     // m_Srv/m_Rtv/m_Dsv は ITexture が所有するビューなので個別 Release は不要。
     // per_slice_rtv で CreateView した別個ビューだけ明示 Release。
@@ -43,7 +43,7 @@ void DiligentTexture::Reset() noexcept
 }
 
 /** per_slice_rtv で生成した slice/mip 単位の RTV を返す (範囲外なら nullptr)。 */
-Diligent::ITextureView* DiligentTexture::RtvSlice(u32 slice, u32 mip) const noexcept {
+Diligent::ITextureView* FDiligentTexture::RtvSlice(u32 slice, u32 mip) const noexcept {
     if (m_ArraySize == 0 || m_Mips == 0) return nullptr;
     if (slice >= m_ArraySize || mip >= m_Mips) return nullptr;
     const usize idx = static_cast<usize>(slice) * m_Mips + mip;
@@ -52,27 +52,27 @@ Diligent::ITextureView* DiligentTexture::RtvSlice(u32 slice, u32 mip) const noex
 }
 
 /** 記述に従ってテクスチャ・default view・任意の per-slice RTV を生成する。 */
-TResult<void> DiligentTexture::Init(DiligentDevice& device, const FTextureDesc& desc) noexcept {
+TResult<void> FDiligentTexture::Init(FDiligentDevice& device, const FTextureDesc& desc) noexcept {
     Reset();
 
     auto* dev = device.RenderDev();
-    if (!dev) return ACS_ERR(Render, 130, "DiligentTexture: device not initialized");
+    if (!dev) return ACS_ERR(Render, 130, "FDiligentTexture: device not initialized");
     if (desc.width == 0 || desc.height == 0) {
-        return ACS_ERR(Render, 132, "DiligentTexture: width and height must be non-zero");
+        return ACS_ERR(Render, 132, "FDiligentTexture: width and height must be non-zero");
     }
     if ((desc.initial_data == nullptr) != (desc.initial_data_size == 0) ||
         (desc.is_depth_target && desc.is_render_target) || (desc.shader_visible_depth && !desc.is_depth_target) ||
         (desc.is_depth_target && desc.format != EFormat::D24_UNorm_S8_UInt && desc.format != EFormat::D32_Float) ||
         (desc.per_slice_rtv && !desc.is_render_target) ||
         (desc.depth > 1 && (desc.array_size > 1 || desc.is_cubemap || desc.per_slice_rtv))) {
-        return ACS_ERR(Render, 133, "DiligentTexture: invalid descriptor combination");
+        return ACS_ERR(Render, 133, "FDiligentTexture: invalid descriptor combination");
     }
     if (desc.sample_count > 1) {
         // Diligent backend の MSAA resolve 経路は未実装なので、黙って 1 に落とさない。
-        return ACS_ERR(Render, 134, "DiligentTexture: multisampling is not supported yet");
+        return ACS_ERR(Render, 134, "FDiligentTexture: multisampling is not supported yet");
     }
     if (desc.is_cubemap && desc.array_size != 0 && desc.array_size != 6) {
-        return ACS_ERR(Render, 135, "DiligentTexture: is_cubemap=true requires array_size=6 (or 0/default)");
+        return ACS_ERR(Render, 135, "FDiligentTexture: is_cubemap=true requires array_size=6 (or 0/default)");
     }
 
     m_Device  = &device;
@@ -129,7 +129,7 @@ TResult<void> DiligentTexture::Init(DiligentDevice& device, const FTextureDesc& 
         && (m_ArraySize > 1 || m_Mips > 1) && !m_IsDepth && !m_IsRt) {
         // cubemap / array / mip > 1 への initial_data は現状未サポート
         // (GPU 上で焼く設計に倒している)。silent drop を防ぐため明示的に警告する。
-        ACS_LOG_WARN("DiligentTexture: initial_data ignored for array_size=%u mips=%u",
+        ACS_LOG_WARN("FDiligentTexture: initial_data ignored for array_size=%u mips=%u",
                      m_ArraySize, m_Mips);
     }
     if (desc.initial_data && desc.initial_data_size > 0 && !m_IsDepth && !m_IsRt
@@ -188,7 +188,7 @@ TResult<void> DiligentTexture::Init(DiligentDevice& device, const FTextureDesc& 
                 m_Texture->CreateView(vd, &view);
                 if (!view) {
                     Reset();
-                    return ACS_ERR(Render, 136, "DiligentTexture: CreateView failed");
+                    return ACS_ERR(Render, 136, "FDiligentTexture: CreateView failed");
                 }
                 m_SliceRtvs[static_cast<usize>(s) * m_Mips + m] = view;
             }

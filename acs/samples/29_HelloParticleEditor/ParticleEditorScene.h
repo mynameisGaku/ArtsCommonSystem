@@ -14,12 +14,12 @@
 
 namespace helloparticleed {
 
-class ParticleEditorScene : public acs::game::Scene {
+class FParticleEditorScene : public acs::game::FScene {
 public:
     void OnEnter()             noexcept override;
     void OnExit()              noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
-    void OnRender(acs::game::RenderContext& rc) noexcept override;
+    void OnRender(acs::game::FRenderContext& rc) noexcept override;
 
 private:
     // File メニューで Save/Load を選んだときのファイルパス (固定)。

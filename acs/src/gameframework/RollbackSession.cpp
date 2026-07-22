@@ -21,14 +21,14 @@ namespace {
  *
  * @details tick / player_id はリング座標から自明なので比較しない。
  */
-bool SameEffectiveInput(const InputFrame& a, const InputFrame& b) noexcept
+bool SameEffectiveInput(const FInputFrame& a, const FInputFrame& b) noexcept
 {
     return a.buttons == b.buttons && a.axis.x == b.axis.x && a.axis.y == b.axis.y;
 }
 
 } // namespace
 
-bool FRollbackSession::Init(World* world, const FRollbackSessionConfig& config) noexcept
+bool FRollbackSession::Init(FWorld* world, const FRollbackSessionConfig& config) noexcept
 {
     // 再 Init に備えて先に未初期化状態へ戻す (失敗時もこの状態で返す)。
     m_World = nullptr;
@@ -82,7 +82,7 @@ void FRollbackSession::EnsureSlot(u32 tick) noexcept
     for (u32 p = 0; p < m_PlayerCount; ++p) m_Confirmed[base + p] = 0;
 }
 
-bool FRollbackSession::SubmitInput(const InputFrame& frame) noexcept
+bool FRollbackSession::SubmitInput(const FInputFrame& frame) noexcept
 {
     if (!IsInitialized()) return false;
     if (frame.player_id >= m_PlayerCount) return false;
@@ -125,11 +125,11 @@ void FRollbackSession::GatherInputs(u32 tick) noexcept
     const u32 idx  = tick % m_HistoryLength;
     const u32 base = idx * m_PlayerCount;
     for (u32 p = 0; p < m_PlayerCount; ++p) {
-        InputFrame f{};
+        FInputFrame f{};
         f.tick      = tick;
         f.player_id = p;
         if (m_Confirmed[base + p]) {
-            const InputFrame& c = m_Ledger[base + p];
+            const FInputFrame& c = m_Ledger[base + p];
             f.buttons = c.buttons;
             f.axis    = c.axis;
         } else if (tick > 0) {
@@ -137,7 +137,7 @@ void FRollbackSession::GatherInputs(u32 tick) noexcept
             // 直前 slot が追い出し済み (リング一周) ならニュートラルのまま。
             const u32 pidx = (tick - 1u) % m_HistoryLength;
             if (m_SlotTick[pidx] == tick - 1u) {
-                const InputFrame& prev = m_Used[pidx * m_PlayerCount + p];
+                const FInputFrame& prev = m_Used[pidx * m_PlayerCount + p];
                 f.buttons = prev.buttons;
                 f.axis    = prev.axis;
             }

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>acspackage</AssemblyName>
+    <RootNamespace>AcsPackage</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\editor\AcsEditor\AssetDatabase.cs" Link="AssetDatabase.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\AssetCookPlanner.cs" Link="AssetCookPlanner.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\CanonicalSceneAdapter.cs" Link="CanonicalSceneAdapter.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\DerivedDataCache.cs" Link="DerivedDataCache.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\PackageCore.cs" Link="PackageCore.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\Project.cs" Link="Project.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\RuntimeDependencyResolver.cs" Link="RuntimeDependencyResolver.cs"/>
+  </ItemGroup>
+</Project>

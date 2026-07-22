@@ -18,7 +18,7 @@
 //        を入れる単純な実装としつつ、struct のレイアウトは確定させておく。
 //   ・**ゾーン間遷移はメソッドで明示**: Draw / Discard / Exile / Play / DiscardAllHand 等、
 //     カードがどのゾーンを通るかを API レベルで明示する (= ステートマシン的に追跡可能)。
-//   ・**Shuffle は決定論再現**: `gameframework/FRandom.h` (xoshiro128**) を使い、seed 指定で
+//   ・**Shuffle は決定論再現**: `gameframework/Random.h` (xoshiro128**) を使い、seed 指定で
 //     リプレイ / テストを再現可能にする。seed=0 のときは FRandom::Global() で時刻ベース seed。
 //
 // 使い方:
@@ -69,7 +69,7 @@
 //     discard へ送る。callback は同期実行 (= callback 内で「コストを払う」「effect を起動する」
 //     等を完了させてから戻る前提)。失敗 (= 「コスト不足でプレイ不可」) は callback 側で
 //     状態を巻き戻す責務とする (Manager 側は「とにかく hand → discard」)。
-//   ・**Shuffle は Fisher-Yates (FRandom::Shuffle)**: `gameframework/FRandom.h` の汎用 template に
+//   ・**Shuffle は Fisher-Yates (FRandom::Shuffle)**: `gameframework/Random.h` の汎用 template に
 //     委譲する。seed=0 のときは `FRandom::Global()` を使うので、決定論再現が不要な場合は何も
 //     渡さなくて OK。seed != 0 のときはローカル FRandom instance を作って使う (Global を汚さない)。
 //   ・**PlayCallback は単一購読**: STL <functional> 禁止のため C 関数ポインタ + void* user。

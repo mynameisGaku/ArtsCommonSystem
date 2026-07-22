@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS FAssetPack — `.acpak` v1 ファイルフォーマット bit-precise 定義
+// ACS AssetPack — `.acpak` v1 ファイルフォーマット bit-precise 定義
 // -----------------------------------------------------------------------------
 // `.acpak` は ACS が「アセット流出のカジュアル防止 + 完全性検証」を行うため
 // の独自アーカイブフォーマット。「raw bytes + CRC32 検証」のレイアウトに加え、
@@ -50,7 +50,7 @@
 //   ・wchar_t = UTF-16 (Windows convention) を採用。Win32 CreateFileW と直結
 //     できるため、`.acpak` 内のパス仕様もそのまま wchar_t* で扱う。
 //   ・magic は人間可読 8 バイト ("ACPAK\0\0\0")。version はそれと独立した u32。
-//     FSaveSlot.h の "ACSV" は 4 バイト magic だが、FAssetPack はマウント検査が
+//     TSaveSlot.h の "ACSV" は 4 バイト magic だが、AssetPack はマウント検査が
 //     より頻繁・高負荷なので 8 バイトの強い signature を採る。
 //   ・file_table は「ファイルデータの後 (末尾)」に配置する。これにより
 //     Writer はストリーミング書き込みできる (AddFile 中はテーブルをメモリ上に
@@ -167,6 +167,9 @@ inline constexpr u32 kAcpakMaxPathLength = 4096u;
 /** Reader が 1 pak の仮想パス保持に使える最大バイト数。 */
 inline constexpr usize kAcpakMaxPathPoolBytes = 256u * 1024u * 1024u;
 
+/** Writer の出力先 OS パスに許す UTF-16 code unit 数 (NUL を含まない)。 */
+inline constexpr usize kAcpakMaxOutputPathLength = 1023u;
+
 static_assert(sizeof(u8) == 1 && sizeof(u32) == 4 && sizeof(u64) == 8,
               "Fixed-width integer types broken");
 static_assert(sizeof(((FAcpakHeader*)0)->magic) == 8,
@@ -207,9 +210,9 @@ struct FAcpakFileEntry {
     u8             cipher_tag[16];
 };
 
-// FAssetPack の subcode は ErrCategory::IO / ErrCategory::Asset 配下で
-// 1300 番台を使う。FSaveSlot (1-99) / FSteamworksBridge (1001-1099) /
-// FWorkshopBridge (1101-1199) / FAssetPack stub (1200 番台) とは重ならない。
+// AssetPack の subcode は ErrCategory::IO / ErrCategory::Asset 配下で
+// 1300 番台を使う。TSaveSlot (1-99) / FSteamworksBridge (1001-1099) /
+// WorkshopBridge (1101-1199) / AssetPack stub (1200 番台) とは重ならない。
 
 /** 先頭 8 バイトが kAcpakMagic でない (= .acpak でない)。 */
 inline constexpr u16 kAcpakSubBadMagic         = 1301;
@@ -249,5 +252,20 @@ inline constexpr u16 kAcpakSubIOFailure        = 1312;
 
 /** 文字列 pool / entry array の確保失敗 (OOM)。 */
 inline constexpr u16 kAcpakSubOutOfMemory      = 1313;
+
+/** 仮想パスが空、不正な区切り、embedded NUL、`.` / `..` segment を含む。 */
+inline constexpr u16 kAcpakSubBadPath          = 1314;
+
+/** manifest 内または Writer pending list 内で仮想パスが重複している。 */
+inline constexpr u16 kAcpakSubDuplicatePath    = 1315;
+
+/** v1 で 0 固定の padding / reserved、または table 末尾に未知データがある。 */
+inline constexpr u16 kAcpakSubBadSchema        = 1316;
+
+/** Open 中にファイル identity / size / last-write timestamp が変化した。 */
+inline constexpr u16 kAcpakSubFileChanged      = 1317;
+
+/** 完成した一時ファイルを出力先へ原子的に置換できなかった。 */
+inline constexpr u16 kAcpakSubAtomicReplace    = 1318;
 
 } // namespace acs::assetpack

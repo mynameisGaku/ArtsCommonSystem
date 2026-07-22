@@ -61,7 +61,7 @@
 //     が FAnimationCurve を non-owning で受けるのと同方針)。本 panel は tilemap
 //     の寿命に関与せず、`m_Tilemap == nullptr` 時は "(No tilemap bound)" を表示。
 //   ・**FEditorCamera Mode2D を内包**: 各 panel が独自 camera を持つ Unity
-//     SceneView 風モデル (FModelViewerPanel と同形)。FCamera() アクセサで参照を
+//     SceneView 風モデル (FModelViewerPanel と同形)。Camera() アクセサで参照を
 //     返し、外部は HandleMouseInput / Tick を呼ぶ。本 panel 内部の
 //     viewport drawing でも `m_Camera.State().zoom_2d` と `m_Camera.State().position`
 //     を使って world → screen 変換する。
@@ -101,7 +101,7 @@
 
 namespace acs::game {
 // 編集対象の FTilemap は本ヘッダから forward-decl のみで受ける。
-// `<gameframework/FTilemap.h>` を include しないことで、本 panel を利用する側が
+// `<gameframework/Tilemap.h>` を include しないことで、本 panel を利用する側が
 // ヘッダ依存を最小化できる (= FTilemap 自体の変更で不要な再ビルドを避ける)。
 class FTilemap;
 } // namespace acs::game

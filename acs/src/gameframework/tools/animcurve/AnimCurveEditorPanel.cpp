@@ -14,6 +14,7 @@
 #include "gameframework/tools/animcurve/AnimCurveEditorPanel.h"
 
 #include "gameframework/AnimationCurve.h"
+#include "gameframework/Easing.h"
 #include "math/Math.h"
 
 #include <imgui.h>
@@ -42,7 +43,7 @@ static f32 ClampF(f32 v, f32 lo, f32 hi) noexcept {
  * 出ていれば拡張する。これで key が密集しても canvas が崩壊せず、キー値が大きく
  * なれば自動でズームアウトする。
  */
-struct CurveBounds {
+struct FCurveBounds {
     /** time 軸の最小値 (左端)。 */
     f32 time_min;
 
@@ -65,12 +66,12 @@ struct CurveBounds {
  * @param curve 計測対象の curve (nullptr 可)。
  * @return 余白込みの表示レンジ。
  */
-static CurveBounds ComputeBounds(const FAnimationCurve* curve) noexcept {
-    CurveBounds b { 0.0f, 1.0f, -1.0f, 1.0f };
+static FCurveBounds ComputeBounds(const FAnimationCurve* curve) noexcept {
+    FCurveBounds b { 0.0f, 1.0f, -1.0f, 1.0f };
     if (curve == nullptr) return b;
     const u32 n = curve->KeyCount();
     for (u32 i = 0; i < n; ++i) {
-        const CurveKey* k = curve->EKey(i);
+        const FCurveKey* k = curve->Key(i);
         if (k == nullptr) continue;
         if (k->time  < b.time_min)  b.time_min  = k->time;
         if (k->time  > b.time_max)  b.time_max  = k->time;
@@ -101,7 +102,7 @@ static CurveBounds ComputeBounds(const FAnimationCurve* curve) noexcept {
  * @return 対応する canvas 上の px 座標。
  */
 static ImVec2 CurveToCanvas(f32 time, f32 value,
-                            const CurveBounds& b,
+                            const FCurveBounds& b,
                             const ImVec2& canvas_origin,
                             const ImVec2& canvas_size) noexcept {
     const f32 nx = (time  - b.time_min ) / (b.time_max  - b.time_min );
@@ -123,7 +124,7 @@ static ImVec2 CurveToCanvas(f32 time, f32 value,
  * @param out_value 逆変換した value を書き戻す。
  */
 static void CanvasToCurve(const ImVec2& pos,
-                          const CurveBounds& b,
+                          const FCurveBounds& b,
                           const ImVec2& canvas_origin,
                           const ImVec2& canvas_size,
                           f32& out_time, f32& out_value) noexcept {
@@ -157,11 +158,11 @@ static const char* InterpName(ECurveInterpolation interp) noexcept {
  * @param m wrap モード。
  * @return "Clamp" / "Loop" / "PingPong" (未知なら "?")。
  */
-static const char* WrapName(FAnimationCurve::WrapMode m) noexcept {
+static const char* WrapName(FAnimationCurve::EWrapMode m) noexcept {
     switch (m) {
-    case FAnimationCurve::WrapMode::Clamp:    return "Clamp";
-    case FAnimationCurve::WrapMode::Loop:     return "Loop";
-    case FAnimationCurve::WrapMode::PingPong: return "PingPong";
+    case FAnimationCurve::EWrapMode::Clamp:    return "Clamp";
+    case FAnimationCurve::EWrapMode::Loop:     return "Loop";
+    case FAnimationCurve::EWrapMode::PingPong: return "PingPong";
     }
     return "?";
 }
@@ -204,7 +205,7 @@ static i32 ReplaceKeyAtNewTime(FAnimationCurve& curve, u32 old_idx,
     // 新 index を線形走査で取得 (KeyCount は典型で数十、線形でも問題なし)。
     const u32 n = curve.KeyCount();
     for (u32 i = 0; i < n; ++i) {
-        const CurveKey* k = curve.EKey(i);
+        const FCurveKey* k = curve.Key(i);
         if (k != nullptr && k->time == new_time) {
             return static_cast<i32>(i);
         }
@@ -217,6 +218,8 @@ void FAnimCurveEditorPanel::Init() noexcept {
     m_Curve            = nullptr;
     m_SelectedKeyIdx = kNoKeySelected;
     m_Dirty            = false;
+    m_SelectedEasingPreset =
+        static_cast<u8>(Easing::EEasingType::Linear);
     m_DragKind        = 0u;
     m_DragKeyIdx     = -1;
     m_OnChangeCb     = nullptr;
@@ -228,6 +231,8 @@ void FAnimCurveEditorPanel::Shutdown() noexcept {
     m_Curve            = nullptr;
     m_SelectedKeyIdx = kNoKeySelected;
     m_Dirty            = false;
+    m_SelectedEasingPreset =
+        static_cast<u8>(Easing::EEasingType::Linear);
     m_DragKind        = 0u;
     m_DragKeyIdx     = -1;
     m_OnChangeCb     = nullptr;
@@ -301,7 +306,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
                           && (static_cast<u32>(m_SelectedKeyIdx) < curve.KeyCount());
         ECurveInterpolation cur = ECurveInterpolation::Linear;
         if (has_sel) {
-            const CurveKey* k = curve.EKey(static_cast<u32>(m_SelectedKeyIdx));
+            const FCurveKey* k = curve.Key(static_cast<u32>(m_SelectedKeyIdx));
             if (k != nullptr) cur = k->out_interp;
         }
         ImGui::BeginDisabled(!has_sel);
@@ -316,7 +321,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
                 if (ImGui::Selectable(InterpName(kAll[i]), selected)) {
                     if (has_sel) {
                         const u32 idx = static_cast<u32>(m_SelectedKeyIdx);
-                        const CurveKey* k = curve.EKey(idx);
+                        const FCurveKey* k = curve.Key(idx);
                         if (k != nullptr) {
                             // AddKey は同 time 上書きで value と out_interp を更新する。
                             curve.AddKey(k->time, k->value, kAll[i]);
@@ -337,12 +342,12 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
     ImGui::SameLine();
     ImGui::SetNextItemWidth(95.0f);
     {
-        const FAnimationCurve::WrapMode cur = curve.PreWrap();
+        const FAnimationCurve::EWrapMode cur = curve.PreWrap();
         if (ImGui::BeginCombo("##pre_wrap", WrapName(cur))) {
-            const FAnimationCurve::WrapMode kAll[3] = {
-                FAnimationCurve::WrapMode::Clamp,
-                FAnimationCurve::WrapMode::Loop,
-                FAnimationCurve::WrapMode::PingPong,
+            const FAnimationCurve::EWrapMode kAll[3] = {
+                FAnimationCurve::EWrapMode::Clamp,
+                FAnimationCurve::EWrapMode::Loop,
+                FAnimationCurve::EWrapMode::PingPong,
             };
             for (u32 i = 0; i < 3u; ++i) {
                 const bool selected = (cur == kAll[i]);
@@ -360,12 +365,12 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
     ImGui::SameLine();
     ImGui::SetNextItemWidth(95.0f);
     {
-        const FAnimationCurve::WrapMode cur = curve.PostWrap();
+        const FAnimationCurve::EWrapMode cur = curve.PostWrap();
         if (ImGui::BeginCombo("##post_wrap", WrapName(cur))) {
-            const FAnimationCurve::WrapMode kAll[3] = {
-                FAnimationCurve::WrapMode::Clamp,
-                FAnimationCurve::WrapMode::Loop,
-                FAnimationCurve::WrapMode::PingPong,
+            const FAnimationCurve::EWrapMode kAll[3] = {
+                FAnimationCurve::EWrapMode::Clamp,
+                FAnimationCurve::EWrapMode::Loop,
+                FAnimationCurve::EWrapMode::PingPong,
             };
             for (u32 i = 0; i < 3u; ++i) {
                 const bool selected = (cur == kAll[i]);
@@ -387,10 +392,10 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
         const u32 nk = curve.KeyCount();
         f32 new_t = 0.5f;
         if (nk >= 1u) {
-            const CurveKey* last = curve.EKey(nk - 1u);
+            const FCurveKey* last = curve.Key(nk - 1u);
             if (last != nullptr) new_t = last->time + 0.5f;
             if (nk >= 2u) {
-                const CurveKey* first = curve.EKey(0);
+                const FCurveKey* first = curve.Key(0);
                 if (first != nullptr) {
                     new_t = (first->time + last->time) * 0.5f + 0.001f;
                     // 既存 key と同 time にならないよう微小オフセット
@@ -402,7 +407,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
         // 追加 key を selection に
         const u32 newn = curve.KeyCount();
         for (u32 i = 0; i < newn; ++i) {
-            const CurveKey* k = curve.EKey(i);
+            const FCurveKey* k = curve.Key(i);
             if (k != nullptr && k->time == new_t) {
                 m_SelectedKeyIdx = static_cast<i32>(i);
                 break;
@@ -417,7 +422,46 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
         NotifyChanged(true);
     }
 
-    // Toolbar 4: Eval preview slider (= 現在時刻でサンプルした値表示)。
+    // Toolbar 4: 全 easing catalog から編集可能な curve preset を生成する。
+    {
+        Easing::EEasingType selected = static_cast<Easing::EEasingType>(
+            m_SelectedEasingPreset);
+        if (Easing::GetFunction(selected) == nullptr) {
+            selected = Easing::EEasingType::Linear;
+            m_SelectedEasingPreset = static_cast<u8>(selected);
+        }
+
+        ImGui::SameLine();
+        ImGui::TextUnformatted("Preset:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(125.0f);
+        if (ImGui::BeginCombo("##easing_preset", Easing::GetName(selected))) {
+            const u32 count =
+                static_cast<u32>(Easing::EEasingType::Count);
+            for (u32 index = 0u; index < count; ++index) {
+                const Easing::EEasingType type =
+                    static_cast<Easing::EEasingType>(index);
+                const bool is_selected = type == selected;
+                if (ImGui::Selectable(Easing::GetName(type), is_selected)) {
+                    selected = type;
+                    m_SelectedEasingPreset = static_cast<u8>(type);
+                }
+                if (is_selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Apply Preset")) {
+            const FAnimationCurveResult preset_result =
+                curve.TrySetEasingPreset(selected, 65u);
+            if (preset_result.Succeeded()) {
+                m_SelectedKeyIdx = kNoKeySelected;
+                NotifyChanged(true);
+            }
+        }
+    }
+
+    // Toolbar 5: Eval preview slider (= 現在時刻でサンプルした値表示)。
     {
         static f32 s_preview_t = 0.0f;   // 「現在時刻」preview 用
         const f32 dur = curve.Duration();
@@ -442,7 +486,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
     ImGui::Separator();
 
     // Canvas — curve / key marker / tangent handle を描画 + drag 処理。
-    const CurveBounds bounds = ComputeBounds(&curve);
+    const FCurveBounds bounds = ComputeBounds(&curve);
 
     // canvas サイズ: 残り window 領域を全て使う (高さは最小 200px 確保)。
     ImVec2 canvas_size = ImGui::GetContentRegionAvail();
@@ -501,7 +545,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
         }
     } else if (curve.KeyCount() == 1u) {
         // 1 key のみ: 横一直線 (= constant) を描画。
-        const CurveKey* k = curve.EKey(0);
+        const FCurveKey* k = curve.Key(0);
         if (k != nullptr) {
             const ImVec2 a = CurveToCanvas(bounds.time_min, k->value,
                                            bounds, canvas_origin, canvas_size);
@@ -524,7 +568,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
         u8  best_kind = 0u;
         f32 best_dist2 = hit_radius * hit_radius;
         for (u32 i = 0; i < nk; ++i) {
-            const CurveKey* k = curve.EKey(i);
+            const FCurveKey* k = curve.Key(i);
             if (k == nullptr) continue;
             const ImVec2 kp = CurveToCanvas(k->time, k->value, bounds,
                                             canvas_origin, canvas_size);
@@ -581,7 +625,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
     if (m_DragKind != 0u && m_DragKeyIdx >= 0
         && static_cast<u32>(m_DragKeyIdx) < curve.KeyCount()) {
         const u32 didx = static_cast<u32>(m_DragKeyIdx);
-        const CurveKey* k_const = curve.EKey(didx);
+        const FCurveKey* k_const = curve.Key(didx);
         if (k_const != nullptr) {
             if (m_DragKind == 1u) {
                 // key 本体: マウス位置を curve 空間に逆変換して time/value 上書き。
@@ -592,11 +636,11 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
                 const f32 eps = 0.0001f;
                 f32 lo = -1e9f, hi = 1e9f;
                 if (didx > 0u) {
-                    const CurveKey* prev = curve.EKey(didx - 1u);
+                    const FCurveKey* prev = curve.Key(didx - 1u);
                     if (prev != nullptr) lo = prev->time + eps;
                 }
                 if (didx + 1u < curve.KeyCount()) {
-                    const CurveKey* nxt = curve.EKey(didx + 1u);
+                    const FCurveKey* nxt = curve.Key(didx + 1u);
                     if (nxt != nullptr) hi = nxt->time - eps;
                 }
                 new_t = ClampF(new_t, lo, hi);
@@ -647,7 +691,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
 
     // key marker を全描画 (drag 後の最新状態を反映)。
     for (u32 i = 0; i < curve.KeyCount(); ++i) {
-        const CurveKey* k = curve.EKey(i);
+        const FCurveKey* k = curve.Key(i);
         if (k == nullptr) continue;
         const ImVec2 kp = CurveToCanvas(k->time, k->value, bounds,
                                         canvas_origin, canvas_size);
@@ -691,7 +735,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
             // 追加した key を選択
             const u32 newn = curve.KeyCount();
             for (u32 i = 0; i < newn; ++i) {
-                const CurveKey* k = curve.EKey(i);
+                const FCurveKey* k = curve.Key(i);
                 if (k != nullptr && k->time == ctx_t) {
                     m_SelectedKeyIdx = static_cast<i32>(i);
                     break;
@@ -716,7 +760,7 @@ void FAnimCurveEditorPanel::DrawUI() noexcept {
     // 選択 key の情報を canvas 下にテキスト表示 (= デバッグ用 + 視認性向上)。
     if (m_SelectedKeyIdx >= 0
         && static_cast<u32>(m_SelectedKeyIdx) < curve.KeyCount()) {
-        const CurveKey* k = curve.EKey(static_cast<u32>(m_SelectedKeyIdx));
+        const FCurveKey* k = curve.Key(static_cast<u32>(m_SelectedKeyIdx));
         if (k != nullptr) {
             ImGui::TextDisabled("Key %d: t=%.3f v=%.3f  in_tan=%.3f out_tan=%.3f  interp=%s",
                                 static_cast<int>(m_SelectedKeyIdx),

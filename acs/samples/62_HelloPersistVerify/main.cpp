@@ -50,69 +50,70 @@ bool NearF(f32 a, f32 b) noexcept { return std::fabs(a - b) < 1e-4f; }
 // 描画順テスト用: OnDraw で自分の tag を順に記録するノード。
 int g_draw_order[64];
 int g_draw_count = 0;
-struct OrderNode final : FNode2D {
+struct AOrderNode final : ANode {
     int tag = 0;
-    explicit OrderNode(int t) noexcept : tag(t) {}
-    void OnDraw(RenderContext&) noexcept override {
+    explicit AOrderNode(int t) noexcept : tag(t) {}
+    void OnDraw(FRenderContext&) noexcept override {
         if (g_draw_count < 64) g_draw_order[g_draw_count++] = tag;
     }
 };
 
 void TestDrawOrder() noexcept {
-    std::printf("[FNode2D] 描画順 (レイヤ / Y-sort)\n");
-    RenderContext rc;   // headless: default 構築 (GPU 不要、OnDraw は tag 記録のみ)
+    std::printf("[ANode] 描画順 (レイヤ / Y-sort)\n");
+    FRenderContext rc;   // headless: default 構築 (GPU 不要、OnDraw は tag 記録のみ)
 
     // --- Layer 昇順 ---
     {
-        FNode2D root;
-        auto& a = root.AddChild(MakeUnique<OrderNode>(0)); a.SetSortLayer(2);
-        auto& b = root.AddChild(MakeUnique<OrderNode>(1)); b.SetSortLayer(0);
-        auto& c = root.AddChild(MakeUnique<OrderNode>(2)); c.SetSortLayer(1);
-        root.SetChildDrawOrder(FNode2D::EChildDrawOrder::Layer);
-        g_draw_count = 0; root.DrawTree(rc);
+        ANode root;
+        auto& a = root.AddChild(NewObject<AOrderNode>(0)); a.SetDrawLayer(2);
+        auto& b = root.AddChild(NewObject<AOrderNode>(1)); b.SetDrawLayer(0);
+        auto& c = root.AddChild(NewObject<AOrderNode>(2)); c.SetDrawLayer(1);
+        g_draw_count = 0; root.DrawTreeSorted(rc);
         Check(g_draw_count == 3 && g_draw_order[0] == 1 && g_draw_order[1] == 2 && g_draw_order[2] == 0,
               "Layer 昇順で描画 (追加順 0,1,2 / layer 2,0,1 → 1,2,0)");
     }
     // --- LayerThenY: 同層内 world.y 昇順 (+Y=画面下なので奥=小 y を先に) ---
     {
-        FNode2D root;
-        auto& a = root.AddChild(MakeUnique<OrderNode>(0)); a.Local().position = FVec2{0.0f, 10.0f};
-        auto& b = root.AddChild(MakeUnique<OrderNode>(1)); b.Local().position = FVec2{0.0f, -5.0f};
-        auto& c = root.AddChild(MakeUnique<OrderNode>(2)); c.Local().position = FVec2{0.0f,  3.0f};
-        root.SetChildDrawOrder(FNode2D::EChildDrawOrder::LayerThenY);
-        g_draw_count = 0; root.DrawTree(rc);
+        ANode root;
+        auto& a = root.AddChild(NewObject<AOrderNode>(0)); a.SetPosition2D(FVec2{0.0f, 10.0f});
+        auto& b = root.AddChild(NewObject<AOrderNode>(1)); b.SetPosition2D(FVec2{0.0f, -5.0f});
+        auto& c = root.AddChild(NewObject<AOrderNode>(2)); c.SetPosition2D(FVec2{0.0f,  3.0f});
+        a.SetYSortEnabled(true);
+        b.SetYSortEnabled(true);
+        c.SetYSortEnabled(true);
+        g_draw_count = 0; root.DrawTreeSorted(rc);
         Check(g_draw_count == 3 && g_draw_order[0] == 1 && g_draw_order[1] == 2 && g_draw_order[2] == 0,
               "Y-sort: world.y 昇順 (-5,3,10 → 1,2,0)");
     }
     // --- レイヤ優先 + 同層内 Y ---
     {
-        FNode2D root;
-        auto& a = root.AddChild(MakeUnique<OrderNode>(0)); a.SetSortLayer(1); a.Local().position = FVec2{0, 100.0f};
-        auto& b = root.AddChild(MakeUnique<OrderNode>(1)); b.SetSortLayer(0); b.Local().position = FVec2{0, -100.0f};
-        root.SetChildDrawOrder(FNode2D::EChildDrawOrder::LayerThenY);
-        g_draw_count = 0; root.DrawTree(rc);
+        ANode root;
+        auto& a = root.AddChild(NewObject<AOrderNode>(0)); a.SetDrawLayer(1); a.SetPosition2D(FVec2{0, 100.0f});
+        auto& b = root.AddChild(NewObject<AOrderNode>(1)); b.SetDrawLayer(0); b.SetPosition2D(FVec2{0, -100.0f});
+        a.SetYSortEnabled(true);
+        b.SetYSortEnabled(true);
+        g_draw_count = 0; root.DrawTreeSorted(rc);
         Check(g_draw_count == 2 && g_draw_order[0] == 1 && g_draw_order[1] == 0,
               "layer が y より優先 (層が低い方を先)");
     }
     // --- 安定性: 同 layer 同 y は追加順を保つ ---
     {
-        FNode2D root;
-        root.AddChild(MakeUnique<OrderNode>(0));
-        root.AddChild(MakeUnique<OrderNode>(1));
-        root.AddChild(MakeUnique<OrderNode>(2));
-        root.SetChildDrawOrder(FNode2D::EChildDrawOrder::LayerThenY);
-        g_draw_count = 0; root.DrawTree(rc);
+        ANode root;
+        root.AddChild(NewObject<AOrderNode>(0));
+        root.AddChild(NewObject<AOrderNode>(1));
+        root.AddChild(NewObject<AOrderNode>(2));
+        g_draw_count = 0; root.DrawTreeSorted(rc);
         Check(g_draw_count == 3 && g_draw_order[0] == 0 && g_draw_order[1] == 1 && g_draw_order[2] == 2,
               "同キーは安定ソート (追加順 0,1,2)");
     }
-    // --- 既定 Tree は配列順 (layer 無視・ゼロオーバーヘッド) ---
+    // --- 全キー既定値なら追加順 (ソートをスキップ) ---
     {
-        FNode2D root;
-        root.AddChild(MakeUnique<OrderNode>(5)).SetSortLayer(99);
-        root.AddChild(MakeUnique<OrderNode>(6)).SetSortLayer(-99);
-        g_draw_count = 0; root.DrawTree(rc);   // ChildDrawOrder 既定 = Tree
+        ANode root;
+        root.AddChild(NewObject<AOrderNode>(5));
+        root.AddChild(NewObject<AOrderNode>(6));
+        g_draw_count = 0; root.DrawTreeSorted(rc);
         Check(g_draw_count == 2 && g_draw_order[0] == 5 && g_draw_order[1] == 6,
-              "Tree 既定は配列順 (layer 無視)");
+              "全キー既定値なら追加順");
     }
 }
 
@@ -142,33 +143,33 @@ void TestObb() noexcept {
     std::printf("[Obb2] 有向境界ボックス (OBB) + world ディスパッチ\n");
 
     // --- 点内外 (45° 回転、ローカル軸で判定) ---
-    Obb2 box{ FVec2{0, 0}, FVec2{2.0f, 1.0f}, 0.7853982f };   // 45°
+    FObb2 box{ FVec2{0, 0}, FVec2{2.0f, 1.0f}, 0.7853982f };   // 45°
     Check(Contains(box, FVec2{0, 0}), "中心は内側");
     Check(Contains(box, FVec2{1.9f * 0.7071f, 1.9f * 0.7071f}),  "ローカルX 1.9 は内側");
     Check(!Contains(box, FVec2{2.5f * 0.7071f, 2.5f * 0.7071f}), "ローカルX 2.5 は外側");
 
     // --- 重なり判定 ---
-    Obb2 a{ FVec2{0, 0},   FVec2{1, 1}, 0.0f };
-    Obb2 b{ FVec2{1.2f, 0}, FVec2{1, 1}, 0.7853982f };   // 45° の角が a に食い込む
+    FObb2 a{ FVec2{0, 0},   FVec2{1, 1}, 0.0f };
+    FObb2 b{ FVec2{1.2f, 0}, FVec2{1, 1}, 0.7853982f };   // 45° の角が a に食い込む
     Check(Intersect(a, b), "重なる OBB 同士");
-    Check(!Intersect(a, Obb2{ FVec2{5, 0}, FVec2{1, 1}, 0.5f }), "離れた OBB は非重なり");
-    Check(Intersect(box, Circle{FVec2{0, 0}, 0.5f}),  "OBB vs 内側円");
-    Check(!Intersect(box, Circle{FVec2{10, 0}, 0.5f}), "OBB vs 遠い円");
-    Check(Intersect(box, Aabb2{FVec2{0, 0}, FVec2{0.5f, 0.5f}}), "OBB vs 重なる AABB");
+    Check(!Intersect(a, FObb2{ FVec2{5, 0}, FVec2{1, 1}, 0.5f }), "離れた OBB は非重なり");
+    Check(Intersect(box, FCircle{FVec2{0, 0}, 0.5f}),  "OBB vs 内側円");
+    Check(!Intersect(box, FCircle{FVec2{10, 0}, 0.5f}), "OBB vs 遠い円");
+    Check(Intersect(box, FAabb2{FVec2{0, 0}, FVec2{0.5f, 0.5f}}), "OBB vs 重なる AABB");
 
     // --- Resolve: 90° OBB (= 1x2 box) にめり込む円を +Y へ押し出す ---
     {
-        Obb2 o{ FVec2{0, 0}, FVec2{2, 1}, 1.5707963f };   // 90°: ローカルX(half2)→world Y
+        FObb2 o{ FVec2{0, 0}, FVec2{2, 1}, 1.5707963f };   // 90°: ローカルX(half2)→world Y
         FVec2 push{};
-        const bool hit = Resolve(Circle{FVec2{0, 1.7f}, 0.5f}, o, push);
+        const bool hit = Resolve(FCircle{FVec2{0, 1.7f}, 0.5f}, o, push);
         Check(hit, "円が OBB にめり込む → Resolve hit");
         Check(push.y > 0.0f && std::fabs(push.x) < 0.2f, "押し出しは +Y (上面)");
     }
 
     // --- Raycast: +X レイが 45° ダイヤ OBB の左頂点 (~ -1.414,0) に命中 ---
     {
-        Obb2 o{ FVec2{0, 0}, FVec2{1, 1}, 0.7853982f };
-        RayHit2 rh = RaycastObb2(Ray2{ FVec2{-5, 0}, FVec2{1, 0} }, o);
+        FObb2 o{ FVec2{0, 0}, FVec2{1, 1}, 0.7853982f };
+        FRayHit2 rh = RaycastObb2(FRay2{ FVec2{-5, 0}, FVec2{1, 0} }, o);
         Check(rh.hit, "+X レイが 45° OBB に命中");
         Check(rh.point.x < -1.0f && rh.point.x > -1.6f, "命中点が左頂点付近");
     }
@@ -176,32 +177,32 @@ void TestObb() noexcept {
     // --- world ディスパッチ: 全クエリ経路で OBB を検出 (漏れ検出の安全網) ---
     {
         FCollisionWorld2D w; w.Init(4.0f);
-        const FShapeId oid = w.AddObb(Obb2{ FVec2{0, 0}, FVec2{2, 0.5f}, 0.7853982f });   // 45° バー
+        const FShapeId oid = w.AddObb(FObb2{ FVec2{0, 0}, FVec2{2, 0.5f}, 0.7853982f });   // 45° バー
         TArray<FShapeId> hits;
 
-        w.OverlapCircle(Circle{FVec2{0, 0}, 0.3f}, hits);
+        w.OverlapCircle(FCircle{FVec2{0, 0}, 0.3f}, hits);
         Check(hits.Size() == 1 && hits[0] == oid, "OverlapCircle が OBB を検出");
-        w.OverlapCircle(Circle{FVec2{10, 10}, 0.3f}, hits);
+        w.OverlapCircle(FCircle{FVec2{10, 10}, 0.3f}, hits);
         Check(hits.Size() == 0, "遠い円は OBB 非検出");
 
-        w.OverlapAabb(Aabb2{FVec2{0, 0}, FVec2{0.3f, 0.3f}}, hits);
+        w.OverlapAabb(FAabb2{FVec2{0, 0}, FVec2{0.3f, 0.3f}}, hits);
         Check(hits.Size() == 1 && hits[0] == oid, "OverlapAabb が OBB を検出");
 
-        ConvexPoly2 probe;
+        FConvexPoly2 probe;
         probe.Add({-0.3f, -0.3f}); probe.Add({0.3f, -0.3f});
         probe.Add({0.3f, 0.3f});   probe.Add({-0.3f, 0.3f});
         w.OverlapPolygon(probe, hits);
         Check(hits.Size() == 1 && hits[0] == oid, "OverlapPolygon が OBB を検出");
 
-        const FVec2 push = w.ResolveCircle(Circle{FVec2{0.1f, 0.1f}, 0.4f});
+        const FVec2 push = w.ResolveCircle(FCircle{FVec2{0.1f, 0.1f}, 0.4f});
         Check(push.x * push.x + push.y * push.y > 1e-4f, "ResolveCircle が OBB から押し出す");
 
-        RayHit2 rh; FShapeId hid;
-        const bool rhit = w.Raycast(Ray2{FVec2{-5, 0}, FVec2{1, 0}}, 20.0f, rh, hid);
+        FRayHit2 rh; FShapeId hid;
+        const bool rhit = w.Raycast(FRay2{FVec2{-5, 0}, FVec2{1, 0}}, 20.0f, rh, hid);
         Check(rhit && hid == oid, "Raycast が OBB に命中");
 
-        w.UpdateObb(oid, Obb2{ FVec2{20, 20}, FVec2{2, 0.5f}, 0.0f });
-        w.OverlapCircle(Circle{FVec2{0, 0}, 0.3f}, hits);
+        w.UpdateObb(oid, FObb2{ FVec2{20, 20}, FVec2{2, 0.5f}, 0.0f });
+        w.OverlapCircle(FCircle{FVec2{0, 0}, 0.3f}, hits);
         Check(hits.Size() == 0, "UpdateObb 移動後は元位置で非検出");
     }
 }
@@ -289,7 +290,7 @@ void TestSpriteAtlasLoad() noexcept {
     FSpritePack pack;
     Check(pack.LoadAtlasJson(atlas, std::strlen(atlas)).IsOk(), "Aseprite hash 形式ロード成功");
     Check(pack.FrameCount() == 2, "frame 2 個");
-    const SpriteFrame* f = pack.FindFrame("idle 0");
+    const FSpriteFrame* f = pack.FindFrame("idle 0");
     Check(f != nullptr, "FindFrame('idle 0') 空白名で取得");
     if (f) {
         Check(f->x == 0 && f->w == 32 && f->h == 48, "frame 矩形");
@@ -298,7 +299,7 @@ void TestSpriteAtlasLoad() noexcept {
     Check(pack.Info().atlas_texture_path != nullptr
           && std::strcmp(pack.Info().atlas_texture_path, "hero.png") == 0, "image path 内部所有");
     Check(pack.Info().atlas_width == 128, "atlas size.w=128");
-    if (const SpriteFrame* f1 = pack.FindFrame("idle 1")) {
+    if (const FSpriteFrame* f1 = pack.FindFrame("idle 1")) {
         const FVec4 uv = pack.ComputeUv(*f1);   // x=32,w=32 → u0=0.25, u1=0.5
         Check(NearF(uv.x, 0.25f) && NearF(uv.z, 0.5f), "ComputeUv 正しい");
     }
@@ -327,16 +328,16 @@ void TestUiLayer() noexcept {
     Check(!ui.IsButtonPressed(play), "初期は未押下");
 
     auto move = [&](f32 x, f32 y) {
-        Event e; e.type = EventType::MouseMoved;
+        FEvent e; e.type = EEventType::MouseMoved;
         e.mouse_move.x = x; e.mouse_move.y = y; e.mouse_move.dx = 0; e.mouse_move.dy = 0;
         ui.HandleInput(e);
     };
     auto down = [&]() {
-        Event e; e.type = EventType::MouseButtonPressed; e.mouse_button.button = EMouseButton::Left;
+        FEvent e; e.type = EEventType::MouseButtonPressed; e.mouse_button.button = EMouseButton::Left;
         ui.HandleInput(e);
     };
     auto up = [&]() {
-        Event e; e.type = EventType::MouseButtonReleased; e.mouse_button.button = EMouseButton::Left;
+        FEvent e; e.type = EEventType::MouseButtonReleased; e.mouse_button.button = EMouseButton::Left;
         ui.HandleInput(e);
     };
 
@@ -443,7 +444,7 @@ void TestLockstep() noexcept {
     FLockstep ls;
     ls.Init(ENetMode::Local, 60);
     for (u32 i = 0; i < 5; ++i) {
-        InputFrame f;
+        FInputFrame f;
         f.tick = i; f.player_id = i & 1u; f.buttons = static_cast<u8>(0x10 + i);
         f.axis = FVec2{ static_cast<f32>(i) * 0.25f, -static_cast<f32>(i) * 0.5f };
         ls.RecordInput(f);
@@ -463,7 +464,7 @@ void TestLockstep() noexcept {
 
     // 中身も確認 (replay で 2 番目の frame を取り出す)。
     ls2.StartReplay();
-    InputFrame out;
+    FInputFrame out;
     bool got = false;
     for (u32 t = 0; t < 5; ++t) { if (ls2.ConsumeInput(t, t & 1u, out) && t == 2) { got = true; break; } }
     Check(got && out.buttons == 0x12 && NearF(out.axis.x, 0.5f), "frame[2] のボタン/軸一致");
@@ -479,7 +480,7 @@ void TestInputRecorder() noexcept {
     FInputRecorder rec;
     rec.StartRecording(120);
     for (u32 i = 0; i < 4; ++i) {
-        InputSample s;
+        FInputSample s;
         s.tick = i;
         s.key_codes_changed[0] = static_cast<u8>(65 + i);  // 'A','B','C','D'
         s.key_states[0] = 1;
@@ -498,7 +499,7 @@ void TestInputRecorder() noexcept {
     Check(rec2.TickRateHz() == 120, "tick_rate 120");
 
     rec2.StartReplay();
-    InputSample out;
+    FInputSample out;
     bool got = rec2.ConsumeSample(2, out);
     Check(got && out.key_codes_changed[0] == 67 && NearF(out.mouse_pos.y, 40.0f),
           "sample[2] のキー/マウス一致");
@@ -507,7 +508,7 @@ void TestInputRecorder() noexcept {
 void TestProgression() noexcept {
     std::printf("[FProgression] FSaveArchive バイナリ round-trip\n");
     const wchar_t* path = L"persist_progress.sav";
-    const MilestoneDef defs[3] = {
+    const FMilestoneDef defs[3] = {
         { "ms.lv5",  "Lv.5",   31,    "content.weapon_b" },
         { "ms.lv10", "Lv.10",  1023,  "content.area_2"   },
         { "ms.vet",  "Veteran",16383, "content.title_x"  },
@@ -586,16 +587,16 @@ struct FMockAudioBackend final : IAudioBackend {
     TResult<void> Init(u32) noexcept override { return Ok(); }
     void Shutdown() noexcept override { active = 0; }
     bool IsInitialized() const noexcept override { return true; }
-    AudioVoiceHandle PlayOneShot(const AudioClipDesc& c, f32, f32) noexcept override {
+    FAudioVoiceHandle PlayOneShot(const FAudioClipDesc& c, f32, f32) noexcept override {
         last_pcm = c.pcm_data; last_rate = c.sample_rate; last_ch = c.channel_count;
-        ++active; return AudioVoiceHandle(next++, 1);
+        ++active; return FAudioVoiceHandle(next++, 1);
     }
-    AudioVoiceHandle PlayLooped(const AudioClipDesc& c, f32, f32) noexcept override {
+    FAudioVoiceHandle PlayLooped(const FAudioClipDesc& c, f32, f32) noexcept override {
         last_pcm = c.pcm_data; last_rate = c.sample_rate; last_ch = c.channel_count;
-        ++active; return AudioVoiceHandle(next++, 1);
+        ++active; return FAudioVoiceHandle(next++, 1);
     }
-    void StopVoice(AudioVoiceHandle) noexcept override { if (active) --active; }
-    void SetVoiceVolume(AudioVoiceHandle, f32) noexcept override {}
+    void StopVoice(FAudioVoiceHandle) noexcept override { if (active) --active; }
+    void SetVoiceVolume(FAudioVoiceHandle, f32) noexcept override {}
     void StopAllVoices() noexcept override { active = 0; }
     u32  ActiveVoiceCount() const noexcept override { return active; }
     void Tick(f32) noexcept override {}
@@ -675,7 +676,7 @@ void TestLlmSafety() noexcept {
 
 void TestNetSnapshot() noexcept {
     std::printf("[FNetSnapshot] wire codec round-trip\n");
-    SnapshotHeader h;
+    FSnapshotHeader h;
     h.tick = 42; h.sequence = 7; h.server_timestamp_us = 123456;
     const u8 payload[12] = { 1,0,0,0, 0x0F,0,0,0, 4,0,0,0 };
     h.payload_size = sizeof(payload);
@@ -683,7 +684,7 @@ void TestNetSnapshot() noexcept {
     u8 buf[256]; u32 written = 0;
     auto enc = FNetSnapshot::EncodeSnapshot(h, payload, sizeof(payload), buf, sizeof(buf), written);
     Check(enc.IsOk() && written == need, "EncodeSnapshot 成功 + サイズ一致");
-    SnapshotHeader oh; TArray<u8> opl;
+    FSnapshotHeader oh; TArray<u8> opl;
     auto dec = FNetSnapshot::DecodeSnapshot(buf, written, oh, opl);
     Check(dec.IsOk(), "DecodeSnapshot 成功");
     Check(oh.tick == 42 && oh.sequence == 7 && oh.payload_size == sizeof(payload), "header 復元");
@@ -691,7 +692,7 @@ void TestNetSnapshot() noexcept {
     for (u32 i = 0; same && i < sizeof(payload); ++i) if (opl[i] != payload[i]) same = false;
     Check(same, "payload 内容一致");
     buf[written - 1] ^= 0xFFu;   // CRC footer 改竄
-    SnapshotHeader oh2; TArray<u8> opl2;
+    FSnapshotHeader oh2; TArray<u8> opl2;
     Check(FNetSnapshot::DecodeSnapshot(buf, written, oh2, opl2).IsErr(), "CRC 改竄を検知");
 }
 
@@ -778,7 +779,7 @@ void TestReplayDirector() noexcept
     rec.StartRecording(60);
     const u32 N = 5;
     for (u32 t = 0; t < N; ++t) {
-        InputSample s;
+        FInputSample s;
         s.tick = t;
         s.key_codes_changed[0] = static_cast<u8>('A' + t);
         s.key_states[0] = 1;
@@ -792,7 +793,7 @@ void TestReplayDirector() noexcept
     ls.Init(ENetMode::Local, 60);
     const u32 M = 7;
     for (u32 t = 0; t < M; ++t) {
-        InputFrame f;
+        FInputFrame f;
         f.tick = t;
         f.player_id = 0;
         f.buttons = static_cast<u8>(t);
@@ -801,7 +802,7 @@ void TestReplayDirector() noexcept
     }
     const u64 cks = ls.ComputeChecksum();
 
-    ReplayMetadata meta{};
+    FReplayMetadata meta{};
     meta.game_version = "1.2.3";
     meta.level_id = "stage_07";
     meta.seed = 0xDEADBEEFCAFEull;
@@ -824,7 +825,7 @@ void TestReplayDirector() noexcept
     dir2.Init();
     dir2.SetSources(&rec2, &ls2);
     Check(dir2.LoadReplay(L"replay_test.acrp").IsOk(), "LoadReplay 成功");
-    const ReplayMetadata& m = dir2.Metadata();
+    const FReplayMetadata& m = dir2.Metadata();
     Check(m.game_version && std::strcmp(m.game_version, "1.2.3") == 0, "game_version 復元");
     Check(m.level_id && std::strcmp(m.level_id, "stage_07") == 0, "level_id 復元");
     Check(m.player_name && std::strcmp(m.player_name, "Tester") == 0, "player_name 復元 (owned)");
@@ -839,7 +840,7 @@ void TestReplayDirector() noexcept
 void TestImageModeration() noexcept
 {
     std::printf("[FContentModerator] 画像 NSFW skin-ratio heuristic\n");
-    auto& cm = static_cast<ContentModeratorStub&>(GetModeratorStub());
+    auto& cm = static_cast<FContentModeratorStub&>(GetModeratorStub());
 
     // 肌色 (R=200,G=120,B=90) で埋めた 8x8 → ratio 1.0 → Block(Explicit)
     u8 skin[8 * 8 * 4];

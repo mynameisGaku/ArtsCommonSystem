@@ -102,7 +102,7 @@ public:
      *
      * @return 境界画素から求めた AABB。
      */
-    Aabb2        Bounds()      const noexcept { return m_Bounds; }
+    FAabb2        Bounds()      const noexcept { return m_Bounds; }
 
     /**
      * 点が簡略化済み輪郭ポリゴンの内側かを判定する (ray-crossing、凹形状対応)。
@@ -120,7 +120,7 @@ public:
      * 場合は均等に間引く。
      * @return 凸包を表す ConvexPoly2。
      */
-    ConvexPoly2 HullPolygon() const noexcept;
+    FConvexPoly2 HullPolygon() const noexcept;
 
 private:
     /** 凸包の頂点 (反時計回り、HullCount 個有効)。 */
@@ -136,7 +136,7 @@ private:
     acs::u32  m_OutlineCount = 0;
 
     /** 不透明領域を包む AABB。 */
-    Aabb2     m_Bounds{};
+    FAabb2     m_Bounds{};
 };
 
 } // namespace acs

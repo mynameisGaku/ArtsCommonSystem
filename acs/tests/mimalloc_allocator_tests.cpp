@@ -36,7 +36,7 @@ ACS_TEST(MimallocAllocator, BasicStatisticsBudgetAndInspection)
     EXPECT_EQ(Allocator.BytesAllocated(), 4096ull + 4097ull + 1024ull * 1024ull + 1ull);
     EXPECT_EQ(Allocator.PeakBytes(), Allocator.BytesAllocated());
 
-    const MimallocAllocationHistogram Histogram = Allocator.CaptureAllocationHistogram();
+    const FMimallocAllocationHistogram Histogram = Allocator.CaptureAllocationHistogram();
     EXPECT_EQ(Histogram.small.allocation_count, 1ull);
     EXPECT_EQ(Histogram.small.requested_bytes, 4096ull);
     EXPECT_EQ(Histogram.medium.allocation_count, 1ull);
@@ -44,7 +44,7 @@ ACS_TEST(MimallocAllocator, BasicStatisticsBudgetAndInspection)
     EXPECT_EQ(Histogram.large.allocation_count, 1ull);
     EXPECT_EQ(Histogram.large.requested_bytes, 1024ull * 1024ull + 1ull);
 
-    const MimallocHeapInspectionStatistics Inspection = Allocator.InspectHeap();
+    const FMimallocHeapInspectionStatistics Inspection = Allocator.InspectHeap();
     EXPECT_TRUE(Inspection.visit_succeeded);
     EXPECT_TRUE(Inspection.metadata_valid);
     EXPECT_TRUE(Inspection.matches_authoritative_statistics);
@@ -83,7 +83,7 @@ ACS_TEST(MimallocAllocator, AlignmentAndReallocationPreserveData)
             EXPECT_EQ(reinterpret_cast<uptr>(AlignedBlocks[Index]) & (Alignment - 1u), 0ull);
         }
     }
-    const MimallocHeapInspectionStatistics AlignedInspection = Allocator.InspectHeap();
+    const FMimallocHeapInspectionStatistics AlignedInspection = Allocator.InspectHeap();
     EXPECT_TRUE(AlignedInspection.visit_succeeded);
     EXPECT_TRUE(AlignedInspection.metadata_valid);
     EXPECT_TRUE(AlignedInspection.matches_authoritative_statistics);
@@ -167,7 +167,7 @@ ACS_TEST(MimallocAllocator, CrossThreadAllocationAndFree)
         return;
     }
 
-    struct Context {
+    struct FContext {
         FMimallocAllocator* allocator = nullptr;
         void* block_to_free = nullptr;
         void* allocated_block = nullptr;
@@ -178,7 +178,7 @@ ACS_TEST(MimallocAllocator, CrossThreadAllocationAndFree)
 
     auto ThreadResult = FThread::Spawn(
         [](void* UserData) {
-            auto* WorkerContext = static_cast<Context*>(UserData);
+            auto* WorkerContext = static_cast<FContext*>(UserData);
             WorkerContext->allocator->Free(WorkerContext->block_to_free);
             WorkerContext->allocated_block = WorkerContext->allocator->Alloc(257u, 128u, FSourceLoc::Current());
         },
@@ -208,15 +208,15 @@ ACS_TEST(MimallocAllocator, ConcurrentBudgetReservationNeverExceedsLimit)
         return;
     }
 
-    struct Context {
+    struct FContext {
         FMimallocAllocator* allocator = nullptr;
         TAtomic<u32> start{0};
         TAtomic<u32> success_count{0};
         void* blocks[4] = {};
     } TestContext;
 
-    struct WorkerInput {
-        Context* context = nullptr;
+    struct FWorkerInput {
+        FContext* context = nullptr;
         u32 index = 0;
     } Inputs[4];
 
@@ -228,7 +228,7 @@ ACS_TEST(MimallocAllocator, ConcurrentBudgetReservationNeverExceedsLimit)
         Inputs[Index].index = Index;
         auto ThreadResult = FThread::Spawn(
             [](void* UserData) {
-                auto* Input = static_cast<WorkerInput*>(UserData);
+                auto* Input = static_cast<FWorkerInput*>(UserData);
                 while (Input->context->start.Load(EMemoryOrder::Acquire) == 0u) {
                     Yield();
                 }
@@ -311,7 +311,7 @@ ACS_TEST(MimallocAllocator, CollectAndReinitialize)
         Allocator.Free(Block);
         Allocator.Collect(false);
         Allocator.Collect(true);
-        const MimallocHeapInspectionStatistics Inspection = Allocator.InspectHeap();
+        const FMimallocHeapInspectionStatistics Inspection = Allocator.InspectHeap();
         EXPECT_TRUE(Inspection.visit_succeeded);
         EXPECT_TRUE(Inspection.metadata_valid);
         EXPECT_TRUE(Inspection.matches_authoritative_statistics);
@@ -342,20 +342,20 @@ ACS_TEST(MimallocAllocator, ConcurrentFreeAndReallocationClaimOwnershipOnce)
             break;
         }
 
-        struct MutationContext
+        struct FMutationContext
         {
             FMimallocAllocator* Allocator = nullptr;
             void* OriginalAllocation = nullptr;
             TAtomic<u32> Start{0u};
             bool bFreeSucceeded[kThreadCount] = {};
-            MimallocReallocationResult ReallocationResults[kThreadCount] = {};
+            FMimallocReallocationResult ReallocationResults[kThreadCount] = {};
         } Context;
         Context.Allocator = &Allocator;
         Context.OriginalAllocation = OriginalAllocation;
 
-        struct WorkerInput
+        struct FWorkerInput
         {
-            MutationContext* Context = nullptr;
+            FMutationContext* Context = nullptr;
             u32 WorkerIndex = 0u;
         } Inputs[kThreadCount];
 
@@ -368,7 +368,7 @@ ACS_TEST(MimallocAllocator, ConcurrentFreeAndReallocationClaimOwnershipOnce)
             auto ThreadResult = FThread::Spawn(
                 [](void* UserData)
                 {
-                    auto* const Input = static_cast<WorkerInput*>(UserData);
+                    auto* const Input = static_cast<FWorkerInput*>(UserData);
                     while (Input->Context->Start.Load(EMemoryOrder::Acquire) == 0u)
                     {
                         Yield();
@@ -444,7 +444,7 @@ ACS_TEST(MimallocAllocator, ConcurrentFreeAndReallocationClaimOwnershipOnce)
     }
 
     Allocator.Collect(true);
-    const MimallocHeapInspectionStatistics Inspection = Allocator.InspectHeap();
+    const FMimallocHeapInspectionStatistics Inspection = Allocator.InspectHeap();
     EXPECT_TRUE(Inspection.visit_succeeded);
     EXPECT_TRUE(Inspection.metadata_valid);
     EXPECT_TRUE(Inspection.matches_authoritative_statistics);
@@ -465,7 +465,7 @@ ACS_TEST(MimallocAllocator, LifecycleMaintenanceAndShutdownDrainConcurrentOperat
         return;
     }
 
-    struct RaceContext
+    struct FRaceContext
     {
         FMimallocAllocator* Allocator = nullptr;
         TAtomic<u32> Ready{0u};
@@ -479,9 +479,9 @@ ACS_TEST(MimallocAllocator, LifecycleMaintenanceAndShutdownDrainConcurrentOperat
     } Context;
     Context.Allocator = &Allocator;
 
-    struct WorkerInput
+    struct FWorkerInput
     {
-        RaceContext* Context = nullptr;
+        FRaceContext* Context = nullptr;
         u32 WorkerIndex = 0u;
     } Inputs[kWorkerCount];
 
@@ -494,8 +494,8 @@ ACS_TEST(MimallocAllocator, LifecycleMaintenanceAndShutdownDrainConcurrentOperat
         auto ThreadResult = FThread::Spawn(
             [](void* UserData)
             {
-                auto* const Input = static_cast<WorkerInput*>(UserData);
-                RaceContext* const WorkerContext = Input->Context;
+                auto* const Input = static_cast<FWorkerInput*>(UserData);
+                FRaceContext* const WorkerContext = Input->Context;
                 u32 Iteration = 0u;
                 WorkerContext->Ready.FetchAdd(1u);
                 while (WorkerContext->Start.Load(EMemoryOrder::Acquire) == 0u)
@@ -530,7 +530,7 @@ ACS_TEST(MimallocAllocator, LifecycleMaintenanceAndShutdownDrainConcurrentOperat
                     }
 
                     WorkerContext->SuccessfulAllocations.FetchAdd(1u);
-                    const MimallocReallocationResult Reallocation =
+                    const FMimallocReallocationResult Reallocation =
                         WorkerContext->Allocator->TryReallocateAllocation(
                             Allocation, 256u + (Iteration & 255u), 16u);
                     void* AllocationToFree = Allocation;
@@ -588,7 +588,7 @@ ACS_TEST(MimallocAllocator, LifecycleMaintenanceAndShutdownDrainConcurrentOperat
     for (u32 MaintenanceCycle = 0u; MaintenanceCycle < 16u; ++MaintenanceCycle)
     {
         Allocator.Collect((MaintenanceCycle & 1u) != 0u);
-        const MimallocHeapInspectionStatistics Inspection = Allocator.InspectHeap();
+        const FMimallocHeapInspectionStatistics Inspection = Allocator.InspectHeap();
         EXPECT_TRUE(Inspection.visit_succeeded);
         EXPECT_TRUE(Inspection.metadata_valid);
         EXPECT_TRUE(Inspection.matches_authoritative_statistics);
@@ -631,14 +631,14 @@ ACS_TEST(MimallocAllocator, LifecycleMaintenanceAndShutdownDrainConcurrentOperat
     EXPECT_EQ(Allocator.LifetimeGeneration(), 0ull);
     EXPECT_EQ(Allocator.HardBudgetBytes(), 0ull);
     Allocator.Collect(true);
-    const MimallocHeapInspectionStatistics EmptyInspection = Allocator.InspectHeap();
+    const FMimallocHeapInspectionStatistics EmptyInspection = Allocator.InspectHeap();
     EXPECT_FALSE(EmptyInspection.visit_succeeded);
 
     EXPECT_TRUE(Allocator.Init(1024u).IsOk());
     void* const ReinitializedAllocation = Allocator.Alloc(512u, 32u, FSourceLoc::Current());
     EXPECT_TRUE(ReinitializedAllocation != nullptr);
     EXPECT_TRUE(Allocator.TryFreeAllocation(ReinitializedAllocation));
-    const MimallocHeapInspectionStatistics ReinitializedInspection = Allocator.InspectHeap();
+    const FMimallocHeapInspectionStatistics ReinitializedInspection = Allocator.InspectHeap();
     EXPECT_TRUE(ReinitializedInspection.visit_succeeded);
     EXPECT_TRUE(ReinitializedInspection.metadata_valid);
     EXPECT_TRUE(ReinitializedInspection.matches_authoritative_statistics);
@@ -667,7 +667,7 @@ ACS_TEST(MimallocAllocator, ConcurrentAllocationAcrossThreadChurnKeepsHeapConsis
         return;
     }
 
-    struct WorkerInput
+    struct FWorkerInput
     {
         FMimallocAllocator* Allocator = nullptr;
         TAtomic<u32>* Ready = nullptr;
@@ -683,7 +683,7 @@ ACS_TEST(MimallocAllocator, ConcurrentAllocationAcrossThreadChurnKeepsHeapConsis
         TAtomic<u32> Start{0u};
         TAtomic<u64> FailureCount{0u};
 
-        WorkerInput Inputs[kWorkerCount];
+        FWorkerInput Inputs[kWorkerCount];
         FThread Workers[kWorkerCount];
         u32 SpawnedWorkerCount = 0u;
         for (u32 Index = 0u; Index < kWorkerCount; ++Index)
@@ -697,7 +697,7 @@ ACS_TEST(MimallocAllocator, ConcurrentAllocationAcrossThreadChurnKeepsHeapConsis
             auto ThreadResult = FThread::Spawn(
                 [](void* User)
                 {
-                    auto* const Input = static_cast<WorkerInput*>(User);
+                    auto* const Input = static_cast<FWorkerInput*>(User);
                     Input->Ready->FetchAdd(1u);
                     while (Input->Start->Load(EMemoryOrder::Acquire) == 0u)
                     {
@@ -750,7 +750,7 @@ ACS_TEST(MimallocAllocator, ConcurrentAllocationAcrossThreadChurnKeepsHeapConsis
         EXPECT_EQ(Allocator.AllocationCount(), 0ull);
         EXPECT_EQ(Allocator.BytesAllocated(), 0ull);
         // churn 後も保守経路 (ゲート閉塞下の走査) と統計が整合しているか確認する。
-        const MimallocHeapInspectionStatistics Inspection = Allocator.InspectHeap();
+        const FMimallocHeapInspectionStatistics Inspection = Allocator.InspectHeap();
         EXPECT_TRUE(Inspection.visit_succeeded);
         EXPECT_TRUE(Inspection.metadata_valid);
         EXPECT_TRUE(Inspection.matches_authoritative_statistics);

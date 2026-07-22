@@ -46,7 +46,7 @@ bool StrEq(const char* a, const char* b) noexcept {
 void FPartySystem::EmplaceSelfAsLeader() noexcept {
     // 実装時は FSteamworksBridge::GetLocalPlayerId() / GetLocalDisplayName()
     // から取得して入れ替える。現状は固定文字列リテラル (寿命無限) を使用。
-    PartyMember self{};
+    FPartyMember self{};
     self.player_id    = "local:self";
     self.display_name = "You";
     self.is_leader    = true;
@@ -122,7 +122,7 @@ u32 FPartySystem::MemberCount() const noexcept {
     return static_cast<u32>(m_Members.Size());
 }
 
-const PartyMember* FPartySystem::Members() const noexcept {
+const FPartyMember* FPartySystem::Members() const noexcept {
     return m_Members.Data();
 }
 
@@ -141,14 +141,14 @@ bool FPartySystem::HasMember(const char* player_id) const noexcept {
     return FindMember(player_id) != kInvalidIndex;
 }
 
-const PartyMember* FPartySystem::GetMember(u32 index) const noexcept {
+const FPartyMember* FPartySystem::GetMember(u32 index) const noexcept {
     // kInvalidIndex を含む範囲外は安全に nullptr (FindMember の戻り値を
     // チェック無しで渡しても落ちないように)。
     if (static_cast<usize>(index) >= m_Members.Size()) return nullptr;
     return &m_Members[index];
 }
 
-TResult<void> FPartySystem::AddMember(const PartyMember& member) noexcept {
+TResult<void> FPartySystem::AddMember(const FPartyMember& member) noexcept {
     if (member.player_id == nullptr) {
         // SDK 取得失敗時の nullptr 流入で roster を壊さない。Generic+8。
         return ACS_ERR(Generic, 8, "FPartySystem::AddMember: player_id is null");
@@ -206,7 +206,7 @@ void FPartySystem::Tick(f32 dt) noexcept {
     }
 }
 
-void FPartySystem::AddFriend(const Friend& f) noexcept {
+void FPartySystem::AddFriend(const FFriend& f) noexcept {
     if (f.platform_id == nullptr) {
         // SDK 取得失敗時の nullptr 流入で list を壊さない (Pillar O と同じ防御)。
         return;
@@ -222,7 +222,7 @@ u32 FPartySystem::FriendCount() const noexcept {
     return static_cast<u32>(m_Friends.Size());
 }
 
-const Friend* FPartySystem::Friends() const noexcept {
+const FFriend* FPartySystem::Friends() const noexcept {
     return m_Friends.Data();
 }
 
@@ -236,7 +236,7 @@ const Friend* FPartySystem::Friends() const noexcept {
  * @param platform_id 探す platform_id。
  * @return 含まれていれば true (platform_id == nullptr は false)。
  */
-[[maybe_unused]] static bool FriendListContains(const TArray<Friend>& list,
+[[maybe_unused]] static bool FriendListContains(const TArray<FFriend>& list,
                                                 const char* platform_id) noexcept {
     if (platform_id == nullptr) return false;
     const usize n = list.Size();

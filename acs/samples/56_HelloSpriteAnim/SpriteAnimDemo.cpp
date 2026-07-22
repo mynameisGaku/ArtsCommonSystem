@@ -2,8 +2,8 @@
 // HelloSpriteAnim - Package A デモ: スプライトシートアニメ + HUD テキスト。
 //
 // 新しい基盤機能を 1 画面で示す:
-//   - FSprite2DComponent の UV サブ矩形
-//   - FSpriteAnimComponent.InitGrid(...) でグリッドシートを再生
+//   - ASprite2DComponent の UV サブ矩形
+//   - ASpriteAnimComponent.InitGrid(...) でグリッドシートを再生
 //   - FGame が配線する共有フォントで OnDrawHud から DrawString
 //
 // 手続き生成した 4 フレームのシート (各セルでドットが 90° ずつ回る) を 8fps で
@@ -20,7 +20,7 @@ using namespace acs::game;
 
 namespace {
 
-constexpr ActionId kQuit("Quit");
+constexpr FActionId kQuit("Quit");
 
 // 4 フレーム (各 64x64、横並び 256x64) のスプライトシートを手続き生成する。
 // frame c のセルに、角度 c*90° の位置を中心とした明るいドットを描く。
@@ -76,11 +76,11 @@ public:
         IRhiDevice* dev = GetGame().GetRenderer().Device();
         if (dev != nullptr) m_Sheet = MakeAnimSheet(*dev);
 
-        auto node = MakeUnique<FNode2D>();
-        node->Local().position = FVec2{0.0f, 0.0f};
-        auto& spr = node->AddComponent<FSprite2DComponent>(FVec2{2.0f, 2.0f});
+        auto node = NewObject<ANode>();
+        node->SetPosition2D(FVec2{0.0f, 0.0f});
+        auto& spr = node->AddComponent<ASprite2DComponent>(FVec2{2.0f, 2.0f});
         if (m_Sheet) spr.SetTexture(m_Sheet.Get());
-        auto& anim = node->AddComponent<FSpriteAnimComponent>();
+        auto& anim = node->AddComponent<ASpriteAnimComponent>();
         anim.InitGrid(/*cols=*/4, /*rows=*/1, /*frame_count=*/4, /*fps=*/8.0f,
                       EPlayMode::Loop);
         anim.Play();
@@ -95,10 +95,14 @@ public:
     void OnTick(f32 dt) noexcept override {
         if (Services().Input().IsPressed(kQuit)) { GetGame().Quit(); return; }
         m_Elapsed += dt;
-        if (m_Node) m_Node->Local().position.x = Sin(m_Elapsed * 1.5f) * 1.5f;
+        if (m_Node) {
+            FVec2 Position = m_Node->Position2D();
+            Position.x = Sin(m_Elapsed * 1.5f) * 1.5f;
+            m_Node->SetPosition2D(Position);
+        }
     }
 
-    void OnDrawHud(RenderContext& rc, FSpriteBatch& sb) noexcept override {
+    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
         sb.DrawRect(8.0f, 8.0f, 470.0f, 32.0f, FVec4{0.0f, 0.0f, 0.0f, 0.45f});
         if (!rc.HasFont()) return;
         char line[160];
@@ -110,14 +114,14 @@ public:
 
 private:
     TUniquePtr<IRhiTexture> m_Sheet;
-    FNode2D*                m_Node = nullptr;
-    FSpriteAnimComponent*   m_Anim = nullptr;
+    ANode*                m_Node = nullptr;
+    ASpriteAnimComponent*   m_Anim = nullptr;
     f32                     m_Elapsed = 0.0f;
 };
 
 class FAnimGame final : public FGame {
 protected:
-    TUniquePtr<Scene> InitialScene() noexcept override {
+    TUniquePtr<FScene> InitialScene() noexcept override {
         return MakeUnique<FAnimScene>();
     }
 };

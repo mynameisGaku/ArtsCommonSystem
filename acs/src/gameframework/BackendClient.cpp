@@ -35,13 +35,13 @@ namespace {
  * すべての呼び出しに対して ACS_ERR(IO, kSub_NotImplemented, ...) を返す。
  * IsConnected() は常に false、Tick / Disconnect は副作用なしの no-op。
  */
-class BackendClientStub final : public IBackendClient {
+class FBackendClientStub final : public IBackendClient {
 public:
     /** 既定構築する。 */
-    BackendClientStub() noexcept = default;
+    FBackendClientStub() noexcept = default;
 
     /** 破棄する。 */
-    ~BackendClientStub() noexcept override = default;
+    ~FBackendClientStub() noexcept override = default;
 
     /**
      * NotImplemented を返す (stub)。
@@ -104,13 +104,13 @@ public:
  * StartSearch / CancelSearch / AcceptMatch は NotImplemented を返し、PollStatus は
  * Failed を返す (= 「無効な ticket」を表すデフォルト挙動)。
  */
-class MatchmakerStub final : public IMatchmaker {
+class FMatchmakerStub final : public IMatchmaker {
 public:
     /** 既定構築する。 */
-    MatchmakerStub() noexcept = default;
+    FMatchmakerStub() noexcept = default;
 
     /** 破棄する。 */
-    ~MatchmakerStub() noexcept override = default;
+    ~FMatchmakerStub() noexcept override = default;
 
     /**
      * NotImplemented を返す (stub)。
@@ -119,7 +119,7 @@ public:
      * @param elo_hint 無視される。
      * @return 常に kSub_NotImplemented エラー。
      */
-    TResult<MatchTicket> StartSearch(const char* mode,
+    TResult<FMatchTicket> StartSearch(const char* mode,
                                     u32 elo_hint) noexcept override {
         (void)mode;
         (void)elo_hint;
@@ -134,7 +134,7 @@ public:
      * @param t 無視される。
      * @return 常に kSub_NotImplemented エラー。
      */
-    TResult<void> CancelSearch(MatchTicket t) noexcept override {
+    TResult<void> CancelSearch(FMatchTicket t) noexcept override {
         (void)t;
         return ACS_ERR(IO, FBackendError::kSub_NotImplemented,
                        "IMatchmaker::CancelSearch is not implemented "
@@ -147,7 +147,7 @@ public:
      * @param t 無視される。
      * @return 常に EMatchStatus::Failed。
      */
-    EMatchStatus PollStatus(MatchTicket t) noexcept override {
+    EMatchStatus PollStatus(FMatchTicket t) noexcept override {
         (void)t;
         // stub は検索を一切走らせないので、どの ticket も Failed 扱い。
         return EMatchStatus::Failed;
@@ -159,7 +159,7 @@ public:
      * @param t 無視される。
      * @return 常に kSub_NotImplemented エラー。
      */
-    TResult<void> AcceptMatch(MatchTicket t) noexcept override {
+    TResult<void> AcceptMatch(FMatchTicket t) noexcept override {
         (void)t;
         return ACS_ERR(IO, FBackendError::kSub_NotImplemented,
                        "IMatchmaker::AcceptMatch is not implemented "
@@ -171,13 +171,13 @@ public:
 
 /** 既定 stub の IBackendClient (C++11 magic statics による process-wide singleton) を返す。 */
 IBackendClient& GetBackendStub() noexcept {
-    static BackendClientStub s_instance;
+    static FBackendClientStub s_instance;
     return s_instance;
 }
 
 /** 既定 stub の IMatchmaker (process-wide singleton) を返す。 */
 IMatchmaker& GetMatchmakerStub() noexcept {
-    static MatchmakerStub s_instance;
+    static FMatchmakerStub s_instance;
     return s_instance;
 }
 

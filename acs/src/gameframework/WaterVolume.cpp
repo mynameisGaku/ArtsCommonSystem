@@ -39,7 +39,7 @@ u32 FWaterVolume::AcquireSlot() noexcept {
 /** slot を確保し info を複製、generation を進めて handle を返す。 */
 FWaterVolumeId FWaterVolume::AddVolume(const FWaterVolumeInfo& info) noexcept {
     const u32 idx = AcquireSlot();
-    Slot& s = m_Slots[idx];
+    FSlot& s = m_Slots[idx];
     s.info   = info;
     s.gen    = static_cast<u8>(s.gen + 1u);
     if (s.gen == 0) s.gen = 1;     // 0 を予約値として避ける (Add 時の安全弁)
@@ -52,7 +52,7 @@ FWaterVolumeId FWaterVolume::AddVolume(const FWaterVolumeInfo& info) noexcept {
 /** handle を検証して slot を非 active 化する (stale handle は無視)。 */
 void FWaterVolume::RemoveVolume(FWaterVolumeId id) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
-    Slot& s = m_Slots[id.Index()];
+    FSlot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation()) return;
     s.active = false;
     if (m_VolumeCount > 0) --m_VolumeCount;
@@ -62,7 +62,7 @@ void FWaterVolume::RemoveVolume(FWaterVolumeId id) noexcept {
 /** handle を検証して center / half_size のみ更新する (他のパラメータは不変)。 */
 void FWaterVolume::UpdateVolume(FWaterVolumeId id, FVec2 center, FVec2 half_size) noexcept {
     if (!id.IsValid() || id.Index() >= m_Slots.Size()) return;
-    Slot& s = m_Slots[id.Index()];
+    FSlot& s = m_Slots[id.Index()];
     if (!s.active || s.gen != id.Generation()) return;
     s.info.center    = center;
     s.info.half_size = half_size;
@@ -75,7 +75,7 @@ void FWaterVolume::UpdateVolume(FWaterVolumeId id, FVec2 center, FVec2 half_size
 bool FWaterVolume::IsUnderwater(FVec2 pos) const noexcept {
     // index 0 は invalid 予約なので 1 から走査。
     for (u32 i = 1; i < m_Slots.Size(); ++i) {
-        const Slot& s = m_Slots[i];
+        const FSlot& s = m_Slots[i];
         if (!s.active) continue;
         if (ContainsPoint(s.info, pos)) return true;
     }
@@ -85,7 +85,7 @@ bool FWaterVolume::IsUnderwater(FVec2 pos) const noexcept {
 /** 最初に pos を含む volume の surface_y からの沈み深さ (>= 0) を返す。 */
 f32 FWaterVolume::SubmersionDepth(FVec2 pos) const noexcept {
     for (u32 i = 1; i < m_Slots.Size(); ++i) {
-        const Slot& s = m_Slots[i];
+        const FSlot& s = m_Slots[i];
         if (!s.active) continue;
         if (!ContainsPoint(s.info, pos)) continue;
         const f32 depth = pos.y - s.info.surface_y;   // +Y=画面下: 水面=最小y、沈むほど y 大
@@ -105,7 +105,7 @@ FVec2 FWaterVolume::ComputeBuoyancyForce(FVec2 pos, FVec2 velocity, f32 mass) co
     bool in_water             = false;
 
     for (u32 i = 1; i < m_Slots.Size(); ++i) {
-        const Slot& s = m_Slots[i];
+        const FSlot& s = m_Slots[i];
         if (!s.active) continue;
         if (!ContainsPoint(s.info, pos)) continue;
 
@@ -149,7 +149,7 @@ void FWaterVolume::RebuildPackedCacheIfNeeded() const noexcept {
     if (!m_CacheDirty) return;
     m_PackedCache.Clear();
     for (u32 i = 1; i < m_Slots.Size(); ++i) {
-        const Slot& s = m_Slots[i];
+        const FSlot& s = m_Slots[i];
         if (s.active) m_PackedCache.PushBack(s.info);
     }
     m_CacheDirty = false;

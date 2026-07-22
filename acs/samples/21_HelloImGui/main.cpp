@@ -13,4 +13,4 @@
 #include "app/EntryPoint.h"
 #include "HelloImGuiApp.h"
 
-ACS_DEFINE_MAIN(helloimgui::HelloImGuiApp)
+ACS_DEFINE_MAIN(helloimgui::FHelloImGuiApp)

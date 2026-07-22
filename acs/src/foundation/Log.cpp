@@ -26,7 +26,7 @@ constexpr u32 kMaximumRingCapacity = 1u << 16;
  *
  * @details 64B 整列でフォルスシェアリングを避ける。sequence で Vyukov 風 CAS 調停を行う。
  */
-struct alignas(64) Cell {
+struct alignas(64) FCell {
     /** CAS 調停用シーケンス番号 (空き / コミット済みの状態を表す)。 */
     volatile LONG64 sequence;
 
@@ -52,14 +52,14 @@ struct alignas(64) Cell {
     char message[kMessageMax];
 };
 
-static_assert(sizeof(Cell) % 64 == 0 || sizeof(Cell) >= 64, "Cell should be at least one cache line");
+static_assert(sizeof(FCell) % 64 == 0 || sizeof(FCell) >= 64, "Cell should be at least one cache line");
 
 /**
  * ロガーのグローバル状態 (リング・カーソル・出力先・時刻較正をまとめる)。
  */
-struct LoggerState {
+struct FLoggerState {
     /** リングバッファ先頭 (VirtualAlloc で確保)。 */
-    Cell* ring = nullptr;
+    FCell* ring = nullptr;
 
     /** リングの要素数 (2 のべき乗)。 */
     u32 capacity = 0;
@@ -123,7 +123,7 @@ struct LoggerState {
 };
 
 /** ロガーのグローバル状態インスタンス。 */
-LoggerState g_state;
+FLoggerState g_state;
 
 /** ready フラグ: producer はこれが 1 のときだけ ring に触れる (全設定完了後に立てる)。 */
 volatile LONG g_inited = 0;
@@ -144,8 +144,8 @@ SRWLOCK g_sink_callback_lock = SRWLOCK_INIT;
 thread_local bool t_inside_sink_callback = false;
 
 /** Write の全 return 経路で producer 数を確実に戻すスコープガード。 */
-struct ProducerGuard {
-    ~ProducerGuard() noexcept
+struct FProducerGuard {
+    ~FProducerGuard() noexcept
     {
         ::_InterlockedDecrement(&g_active_producers);
     }
@@ -269,7 +269,7 @@ void FormatTimestamp(const LARGE_INTEGER& qpc, char* out, usize cap) noexcept
  *
  * @param c 出力するログレコード。
  */
-void EmitOne(const Cell& c) noexcept
+void EmitOne(const FCell& c) noexcept
 {
     char ts[32];
     FormatTimestamp(c.timestamp, ts, sizeof(ts));
@@ -324,7 +324,7 @@ DWORD WINAPI WriterThreadProc(LPVOID) noexcept
         // === ドレインループ: リングを空になるまで読み出す ===
         for (;;) {
             LONG64 pos = ::_InterlockedExchangeAdd64(&g_state.dequeue_pos, 0);
-            Cell& cell = g_state.ring[pos & g_state.mask];
+            FCell& cell = g_state.ring[pos & g_state.mask];
             LONG64 seq = ::_InterlockedExchangeAdd64(&cell.sequence, 0);
             LONG64 dif = seq - (pos + 1);
             if (dif == 0) {
@@ -403,13 +403,13 @@ void FLogger::Init(const FLogConfig& configuration) noexcept
     const u32 cap = NormalizeRingCapacity(configuration.ring_capacity);
 
     // ページ単位でリング確保
-    void* const mem = ::VirtualAlloc(nullptr, sizeof(Cell) * cap, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    void* const mem = ::VirtualAlloc(nullptr, sizeof(FCell) * cap, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!mem) {
         ::OutputDebugStringA("[acs::FLogger] FATAL: ring allocation failed\n");
         ::ReleaseSRWLockExclusive(&g_lifecycle_lock);
         return;
     }
-    g_state.ring = static_cast<Cell*>(mem);
+    g_state.ring = static_cast<FCell*>(mem);
     g_state.capacity = cap;
     g_state.mask = cap - 1;
     // 各セルのシーケンス番号を i 番目=i から開始
@@ -589,7 +589,7 @@ void FLogger::Write(ELogSeverity severity, FSourceLoc location, const char* form
     if (static_cast<LONG>(severity) < ::_InterlockedExchangeAdd(&g_state.min_severity, 0)) return;
 
     ::_InterlockedIncrement(&g_active_producers);
-    ProducerGuard producer_guard;
+    FProducerGuard producer_guard;
     (void)producer_guard;
     // Shutdown が最初の ready 確認と producer 登録の間に始まった場合、または既に
     // 再初期化された場合は、旧 lifecycle の呼び出しを新しい ring へ持ち越さない。
@@ -599,7 +599,7 @@ void FLogger::Write(ELogSeverity severity, FSourceLoc location, const char* form
 
     // === スロット予約（CAS ループ） ===
     LONG64 pos = ::_InterlockedExchangeAdd64(&g_state.enqueue_pos, 0);
-    Cell* cell = nullptr;
+    FCell* cell = nullptr;
     while (true) {
         cell = &g_state.ring[pos & g_state.mask];
         LONG64 seq = ::_InterlockedExchangeAdd64(&cell->sequence, 0);

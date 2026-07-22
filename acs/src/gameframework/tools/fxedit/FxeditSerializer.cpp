@@ -4,14 +4,11 @@
 // テキスト形式の詳細仕様は FFxeditSerializer.h を参照。
 //
 // 実装の主な決定:
-//   ・I/O は `acs::FileSystem::WriteAllText` / `ReadAllText` に委譲。これにより
-//     wchar_t パス + GetLastError 連携 + atomic な置き換え無しの単純上書き
-//     セマンティクスが他の ACS file 操作と一致する。
+//   ・I/O は Win32 handle を直接使い、完全 read と durable atomic replace を保証する。
 //   ・出力 buffer は `acs::TArray<char>` で動的成長させる (emitter 数に依存)。
 //     `Reserve(count * kMaxBytesPerEmitter + 64)` で最初から十分な容量を確保し、
 //     `AppendXxx` が再 alloc しないようにする (= STL `<sstream>` 不要)。
-//   ・数値出力は `std::snprintf "%g"`。完全往復 (round-trip) は保証しないが
-//     "目で見て分かる数値" を優先する (= game dev tool 用途、6 桁有効で十分)。
+//   ・数値は locale 非依存の from_chars/to_chars + max_digits10 で往復する。
 //   ・パースは strtok 等を使わず手書き状態機械にする (`<cstring>` の strtok は
 //     非 thread-safe で warning が出るプラットフォームがある)。
 //
@@ -27,13 +24,17 @@
 #include "gameframework/tools/fxedit/FxeditSerializer.h"
 
 #include "gameframework/ParticleEffectSystem.h"  // ParticleEmitterDef 完全型
-#include "platform/FileSystem.h"                 // ReadAllText / WriteAllText
-#include "foundation/Log.h"                      // ACS_LOG_WARN
+#include "foundation/Platform.h"
+#include "foundation/Move.h"
 #include "container/Array.h"                     // Array<char>
 
+#include <charconv>
+#include <cmath>
+#include <cstddef>
 #include <cstdio>    // std::snprintf
-#include <cstdlib>   // std::strtof
+#include <cwchar>
 #include <cstring>   // std::memcpy / std::strncmp
+#include <limits>
 
 namespace acs::game::fxedit {
 
@@ -74,31 +75,16 @@ inline usize StrLenBounded(const char* s, usize max_len) noexcept {
  */
 inline bool AppendStr(TArray<char>& out, const char* s, usize len) noexcept {
     const usize old = out.Size();
-    out.Resize(old + len);
-    if (out.Size() != old + len) return false;  // alloc 失敗
+    if (len > std::numeric_limits<usize>::max() - old ||
+        !out.TryResize(old + len)) return false;
     std::memcpy(out.Data() + old, s, len);
-    return true;
-}
-
-/**
- * out に 1 文字を append する。
- *
- * @param out 追記先のバイト配列。
- * @param c 追記する文字。
- * @return 追記できたら true、alloc 失敗なら false。
- */
-inline bool AppendChar(TArray<char>& out, char c) noexcept {
-    const usize old = out.Size();
-    out.Resize(old + 1);
-    if (out.Size() != old + 1) return false;
-    out[old] = c;
     return true;
 }
 
 /**
  * "<key> v0 [v1 [v2 [v3]]]\n" 行を append する。
  *
- * @details 数値は `%g` フォーマットで出力する。
+ * @details 数値は locale 非依存の `to_chars(max_digits10)` で出力する。
  * @param out 追記先のバイト配列。
  * @param prefix non-null なら "<prefix> " を頭に付ける ("E0" など)。null なら付けない。
  * @param key 出力する key 文字列。
@@ -120,11 +106,15 @@ bool AppendKeyValueLine(TArray<char>& out,
     }
     if (n < 0 || static_cast<usize>(n) >= sizeof(line)) return false;
     for (u32 i = 0; i < count && i < 4u; ++i) {
-        int add = std::snprintf(line + n, sizeof(line) - static_cast<usize>(n),
-                                " %g", values[i]);
-        if (add < 0) return false;
-        n += add;
-        if (static_cast<usize>(n) >= sizeof(line)) return false;
+        if (!std::isfinite(values[i]) || static_cast<usize>(n) + 1u >= sizeof(line)) {
+            return false;
+        }
+        line[n++] = ' ';
+        const std::to_chars_result converted = std::to_chars(
+            line + n, line + sizeof(line), values[i],
+            std::chars_format::general, std::numeric_limits<f32>::max_digits10);
+        if (converted.ec != std::errc{}) return false;
+        n = static_cast<int>(converted.ptr - line);
     }
     if (static_cast<usize>(n) + 1 >= sizeof(line)) return false;
     line[n++] = '\n';
@@ -184,9 +174,12 @@ bool ReadOneLine(const char* text,
                  usize       out_line_capacity) noexcept {
     if (pos >= text_len || text[pos] == '\0') return false;
     usize n = 0;
+    bool overflow = false;
     while (pos < text_len && text[pos] != '\n' && text[pos] != '\0') {
         if (n + 1 < out_line_capacity) {  // 末尾 NUL 用に 1 残す
             out_line[n++] = text[pos];
+        } else {
+            overflow = true;
         }
         ++pos;
     }
@@ -194,7 +187,7 @@ bool ReadOneLine(const char* text,
     // 末尾 \r を除去 (Windows CRLF 対応)。
     if (n > 0 && out_line[n - 1] == '\r') --n;
     out_line[n] = '\0';
-    return true;
+    return !overflow;
 }
 
 /**
@@ -218,11 +211,14 @@ u32 ParseMagicLine(const char* line) noexcept {
     u32 v = 0;
     bool any = false;
     while (*p >= '0' && *p <= '9') {
-        v = v * 10u + static_cast<u32>(*p - '0');
+        const u32 digit = static_cast<u32>(*p - '0');
+        if (v > (std::numeric_limits<u32>::max() - digit) / 10u) return 0u;
+        v = v * 10u + digit;
         ++p;
         any = true;
     }
-    return any ? v : 0u;
+    while (*p == ' ' || *p == '\t') ++p;
+    return any && (*p == '\0' || *p == '#') ? v : 0u;
 }
 
 /**
@@ -242,7 +238,9 @@ bool ParseEmitterIndex(const char* key_begin,
     if (p >= key_end || *p < '0' || *p > '9') return false;
     u32 v = 0;
     while (p < key_end && *p >= '0' && *p <= '9') {
-        v = v * 10u + static_cast<u32>(*p - '0');
+        const u32 digit = static_cast<u32>(*p - '0');
+        if (v > (std::numeric_limits<u32>::max() - digit) / 10u) return false;
+        v = v * 10u + digit;
         ++p;
     }
     if (p != key_end) return false;
@@ -269,28 +267,253 @@ bool KeyEquals(const char* key_begin,
     return (key_begin + i == key_end) && lit[i] == '\0';
 }
 
-/**
- * `"<value>"` 形式から中身を抽出して dst に格納する。
- *
- * @param line 抽出元の文字列 (引用符を含む)。
- * @param dst 抽出結果の格納先 (NUL 終端、dst_capacity-1 で切り詰め)。
- * @param dst_capacity dst のバイト数。
- * @return 引用符内を抽出できたら true、開き引用符が無ければ false。
- */
-bool ExtractQuotedName(const char* line,
-                      char*       dst,
-                      usize       dst_capacity) noexcept {
-    const char* p = line;
-    while (*p != '\0' && *p != '"') ++p;
-    if (*p != '"') return false;
-    ++p;
-    usize i = 0;
-    while (*p != '\0' && *p != '"' && i + 1 < dst_capacity) {
-        dst[i++] = *p;
+enum class ENumberStatus : u8 { Ok, Invalid, OutOfRange };
+
+void SkipHorizontalSpace(const char*& p) noexcept {
+    while (*p == ' ' || *p == '\t') ++p;
+}
+
+bool AtValueEnd(const char* p) noexcept {
+    SkipHorizontalSpace(p);
+    return *p == '\0' || *p == '#';
+}
+
+ENumberStatus ParseU32Token(const char*& p, u32& out) noexcept {
+    SkipHorizontalSpace(p);
+    if (*p < '0' || *p > '9') return ENumberStatus::Invalid;
+    u32 value = 0u;
+    do {
+        const u32 digit = static_cast<u32>(*p - '0');
+        if (value > (std::numeric_limits<u32>::max() - digit) / 10u) {
+            return ENumberStatus::OutOfRange;
+        }
+        value = value * 10u + digit;
         ++p;
+    } while (*p >= '0' && *p <= '9');
+    out = value;
+    return ENumberStatus::Ok;
+}
+
+ENumberStatus ParseFiniteFloatToken(const char*& p, f32& out) noexcept {
+    SkipHorizontalSpace(p);
+    if (*p == '\0' || *p == '#') return ENumberStatus::Invalid;
+    const char* end = p;
+    while (*end != '\0' && *end != ' ' && *end != '\t' && *end != '#') ++end;
+    const char* conversion_begin = *p == '+' ? p + 1 : p;
+    if (conversion_begin == end) return ENumberStatus::Invalid;
+    f32 value = 0.0f;
+    const std::from_chars_result converted = std::from_chars(
+        conversion_begin, end, value, std::chars_format::general);
+    if (converted.ec == std::errc::result_out_of_range) return ENumberStatus::OutOfRange;
+    if (converted.ec != std::errc{} || converted.ptr != end) return ENumberStatus::Invalid;
+    if (!std::isfinite(value)) return ENumberStatus::OutOfRange;
+    p = end;
+    out = value;
+    return ENumberStatus::Ok;
+}
+
+ENumberStatus ParseFloatValues(
+    const char* text, f32* values, u32 count) noexcept {
+    if (text == nullptr || values == nullptr || count == 0u) return ENumberStatus::Invalid;
+    const char* p = text;
+    for (u32 i = 0u; i < count; ++i) {
+        const ENumberStatus status = ParseFiniteFloatToken(p, values[i]);
+        if (status != ENumberStatus::Ok) return status;
     }
-    dst[i] = '\0';
+    return AtValueEnd(p) ? ENumberStatus::Ok : ENumberStatus::Invalid;
+}
+
+bool IsBoundedWidePath(
+    const wchar_t* path, usize max_chars, usize& out_length) noexcept {
+    out_length = 0u;
+    if (path == nullptr) return false;
+    while (out_length <= max_chars && path[out_length] != L'\0') ++out_length;
+    return out_length > 0u && out_length <= max_chars;
+}
+
+enum class EFxKnownKey : u8 {
+    Name = 0,
+    EmitRate,
+    Lifetime,
+    BurstCount,
+    SpeedMin,
+    SpeedMax,
+    ScaleStart,
+    ScaleEnd,
+    Gravity,
+    ColorStart,
+    ColorEnd,
+    SpreadRadians,
+    Curve,
+    Keyframe,
+    Unknown,
+};
+
+EFxKnownKey FxKnownKey(const char* begin, const char* end) noexcept {
+    if (KeyEquals(begin, end, "name")) return EFxKnownKey::Name;
+    if (KeyEquals(begin, end, "emit_rate")) return EFxKnownKey::EmitRate;
+    if (KeyEquals(begin, end, "lifetime_sec")) return EFxKnownKey::Lifetime;
+    if (KeyEquals(begin, end, "burst_count")) return EFxKnownKey::BurstCount;
+    if (KeyEquals(begin, end, "speed_min")) return EFxKnownKey::SpeedMin;
+    if (KeyEquals(begin, end, "speed_max")) return EFxKnownKey::SpeedMax;
+    if (KeyEquals(begin, end, "scale_start")) return EFxKnownKey::ScaleStart;
+    if (KeyEquals(begin, end, "scale_end")) return EFxKnownKey::ScaleEnd;
+    if (KeyEquals(begin, end, "gravity")) return EFxKnownKey::Gravity;
+    if (KeyEquals(begin, end, "color_start")) return EFxKnownKey::ColorStart;
+    if (KeyEquals(begin, end, "color_end")) return EFxKnownKey::ColorEnd;
+    if (KeyEquals(begin, end, "spread_radians")) return EFxKnownKey::SpreadRadians;
+    if (KeyEquals(begin, end, "curve")) return EFxKnownKey::Curve;
+    if (KeyEquals(begin, end, "keyframe")) return EFxKnownKey::Keyframe;
+    return EFxKnownKey::Unknown;
+}
+
+bool IsScalarFxKey(EFxKnownKey key) noexcept {
+    return key >= EFxKnownKey::Name && key <= EFxKnownKey::SpreadRadians;
+}
+
+EFxeditSerializeError ValidateEmitterDef(const FParticleEmitterDef& def) noexcept {
+    const f32 values[] = {
+        def.emit_rate_per_sec, def.lifetime_sec, def.burst_count,
+        def.speed_min, def.speed_max, def.scale_start, def.scale_end,
+        def.gravity.x, def.gravity.y,
+        def.color_start.x, def.color_start.y, def.color_start.z,
+        def.color_end.x, def.color_end.y, def.color_end.z,
+    };
+    for (f32 value : values) {
+        if (!std::isfinite(value)) return EFxeditSerializeError::ValueOutOfRange;
+    }
+    if (def.emit_rate_per_sec < 0.0f || def.emit_rate_per_sec > 1000000.0f ||
+        def.lifetime_sec <= 0.0f || def.lifetime_sec > 86400.0f ||
+        def.burst_count < 0.0f || def.burst_count > 1000000.0f ||
+        def.speed_min < -1000000000.0f || def.speed_min > 1000000000.0f ||
+        def.speed_max < -1000000000.0f || def.speed_max > 1000000000.0f ||
+        def.speed_min > def.speed_max ||
+        def.scale_start < 0.0f || def.scale_start > 1000000.0f ||
+        def.scale_end < 0.0f || def.scale_end > 1000000.0f ||
+        std::fabs(def.gravity.x) > 1000000000.0f ||
+        std::fabs(def.gravity.y) > 1000000000.0f) {
+        return EFxeditSerializeError::ValueOutOfRange;
+    }
+    const f32 colors[] = {
+        def.color_start.x, def.color_start.y, def.color_start.z,
+        def.color_end.x, def.color_end.y, def.color_end.z,
+    };
+    for (f32 value : colors) {
+        if (value < 0.0f || value > 1.0f) return EFxeditSerializeError::ValueOutOfRange;
+    }
+    return EFxeditSerializeError::None;
+}
+
+EFxeditSerializeError ValidateEmitterName(const char* name) noexcept {
+    if (name == nullptr) return EFxeditSerializeError::None;
+    const usize length =
+        StrLenBounded(name, FFxeditSerializer::kMaxEmitterName + 1u);
+    if (length > FFxeditSerializer::kMaxEmitterName) {
+        return EFxeditSerializeError::NameTooLong;
+    }
+    for (usize i = 0u; i < length; ++i) {
+        if (!IsAsciiPrintable(name[i]) || name[i] == '"') {
+            return EFxeditSerializeError::InvalidName;
+        }
+    }
+    return EFxeditSerializeError::None;
+}
+
+u16 LegacySubCode(EFxeditSerializeError error) noexcept {
+    switch (error) {
+        case EFxeditSerializeError::None: return FFxeditSerializer::kSub_OK;
+        case EFxeditSerializeError::NullArgument:
+        case EFxeditSerializeError::PathTooLong:
+            return FFxeditSerializer::kSub_NullArgs;
+        case EFxeditSerializeError::TooManyEmitters:
+            return FFxeditSerializer::kSub_TooManyEmitters;
+        case EFxeditSerializeError::BufferTooSmall:
+            return FFxeditSerializer::kSub_BufferOverflow;
+        case EFxeditSerializeError::BadMagic:
+            return FFxeditSerializer::kSub_BadMagic;
+        case EFxeditSerializeError::UnsupportedVersion:
+            return FFxeditSerializer::kSub_BadVersion;
+        case EFxeditSerializeError::FileNotFound:
+            return FFxeditSerializer::kSub_FileNotFound;
+        case EFxeditSerializeError::AllocationFailure:
+            return FFxeditSerializer::kSub_AllocationFailure;
+        case EFxeditSerializeError::AtomicReplaceFailed:
+            return FFxeditSerializer::kSub_AtomicReplace;
+        case EFxeditSerializeError::FileOpenFailed:
+        case EFxeditSerializeError::FileSizeFailed:
+        case EFxeditSerializeError::FileChanged:
+        case EFxeditSerializeError::FileReadFailed:
+        case EFxeditSerializeError::FileWriteFailed:
+        case EFxeditSerializeError::FileFlushFailed:
+        case EFxeditSerializeError::FileCloseFailed:
+            return FFxeditSerializer::kSub_IOFailure;
+        default:
+            return FFxeditSerializer::kSub_ValidationFailed;
+    }
+}
+
+bool BuildUniqueTempPath(
+    const wchar_t* destination, usize destination_length,
+    wchar_t* out, usize capacity, u32 attempt) noexcept {
+    wchar_t suffix[96]{};
+    static volatile LONG counter = 0;
+    const LONG serial = ::InterlockedIncrement(&counter);
+    const int suffix_length = std::swprintf(
+        suffix, sizeof(suffix) / sizeof(suffix[0]),
+        L".tmp.%lu.%lu.%ld.%u",
+        static_cast<unsigned long>(::GetCurrentProcessId()),
+        static_cast<unsigned long>(::GetCurrentThreadId()),
+        static_cast<long>(serial), attempt);
+    if (suffix_length <= 0) return false;
+    const usize suffix_size = static_cast<usize>(suffix_length);
+    if (destination_length + suffix_size + 1u > capacity) return false;
+    std::memcpy(out, destination, destination_length * sizeof(wchar_t));
+    std::memcpy(out + destination_length, suffix, (suffix_size + 1u) * sizeof(wchar_t));
     return true;
+}
+
+struct FFileRenameInfoEx {
+    DWORD flags = 0u;
+    HANDLE root_directory = nullptr;
+    DWORD file_name_length = 0u;
+    wchar_t file_name[1]{};
+};
+
+bool TryPosixAtomicReplace(
+    const wchar_t* temporary_path,
+    const wchar_t* destination,
+    usize destination_length,
+    DWORD& out_error) noexcept {
+    constexpr DWORD kRenameReplaceIfExists = 0x00000001u;
+    constexpr DWORD kRenamePosixSemantics = 0x00000002u;
+    constexpr auto kFileRenameInfoEx =
+        static_cast<FILE_INFO_BY_HANDLE_CLASS>(22);
+    constexpr usize kPrefixBytes = offsetof(FFileRenameInfoEx, file_name);
+    alignas(FFileRenameInfoEx)
+        u8 storage[kPrefixBytes +
+                   (FFxeditSerializer::kMaxPathChars + 1u) * sizeof(wchar_t)]{};
+    auto* info = reinterpret_cast<FFileRenameInfoEx*>(storage);
+    const usize destination_bytes = destination_length * sizeof(wchar_t);
+    info->flags = kRenameReplaceIfExists | kRenamePosixSemantics;
+    info->file_name_length = static_cast<DWORD>(destination_bytes);
+    std::memcpy(info->file_name, destination, destination_bytes);
+
+    HANDLE source = ::CreateFileW(
+        temporary_path, DELETE | SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (source == INVALID_HANDLE_VALUE) {
+        out_error = ::GetLastError();
+        return false;
+    }
+    const DWORD info_bytes =
+        static_cast<DWORD>(kPrefixBytes + destination_bytes);
+    const BOOL renamed = ::SetFileInformationByHandle(
+        source, kFileRenameInfoEx, info, info_bytes);
+    if (!renamed) out_error = ::GetLastError();
+    // rename 成功時点で commit 済み。close diagnostic で成功を失敗へ戻さない。
+    (void)::CloseHandle(source);
+    return renamed != 0;
 }
 
 } // namespace
@@ -326,13 +549,9 @@ bool FFxeditSerializer::ParseLine(const char*  line,
     while (idx < 4u && *p != '\0' && *p != '\n') {
         p = SkipWhitespace(p);
         if (*p == '\0' || *p == '\n' || *p == '#') break;
-        char* endp = nullptr;
-        // strtof は const-correct でないため一時的に const_cast。
-        // 入力文字列は本関数内では mutate しない (endp も読み取り目的)。
-        const f32 v = std::strtof(p, &endp);
-        if (endp == p) break;     // 数値ではない (name 行など)
+        f32 v = 0.0f;
+        if (ParseFiniteFloatToken(p, v) != ENumberStatus::Ok) break;
         *slots[idx++] = v;
-        p = endp;
     }
     return true;
 }
@@ -340,6 +559,7 @@ bool FFxeditSerializer::ParseLine(const char*  line,
 /** 先頭の非空行で magic + version を検査し、version を返す (失敗時 0)。 */
 u32 FFxeditSerializer::ParseHeaderVersion(const char* text, u32 text_len) noexcept {
     if (text == nullptr || text_len == 0u) return 0u;
+    if (std::memchr(text, '\0', text_len) != nullptr) return 0u;
     char line[kMaxLineLength + 1];
     usize pos = 0;
     while (ReadOneLine(text, text_len, pos, line, sizeof(line))) {
@@ -350,287 +570,636 @@ u32 FFxeditSerializer::ParseHeaderVersion(const char* text, u32 text_len) noexce
     return 0u;
 }
 
-/** defs[count] と names[count] を `.fxedit` テキストへ書き出す。 */
-TResult<void, FErrorCode> FFxeditSerializer::Save(const wchar_t*            file_path,
-                                               const ParticleEmitterDef* defs,
-                                               const char* const*        names,
-                                               u32                       count) noexcept {
-    if (file_path == nullptr || (count > 0u && (defs == nullptr || names == nullptr))) {
-        return ACS_ERR(IO, kSub_NullArgs, "FFxeditSerializer::Save: null argument");
+const char* FFxeditSerializeResult::ErrorName(EFxeditSerializeError error) noexcept {
+    switch (error) {
+        case EFxeditSerializeError::None: return "None";
+        case EFxeditSerializeError::NullArgument: return "NullArgument";
+        case EFxeditSerializeError::PathTooLong: return "PathTooLong";
+        case EFxeditSerializeError::InputTooLarge: return "InputTooLarge";
+        case EFxeditSerializeError::EmbeddedNul: return "EmbeddedNul";
+        case EFxeditSerializeError::TooManyLines: return "TooManyLines";
+        case EFxeditSerializeError::LineTooLong: return "LineTooLong";
+        case EFxeditSerializeError::BadMagic: return "BadMagic";
+        case EFxeditSerializeError::UnsupportedVersion: return "UnsupportedVersion";
+        case EFxeditSerializeError::MissingEmitterCount: return "MissingEmitterCount";
+        case EFxeditSerializeError::DuplicateEmitterCount: return "DuplicateEmitterCount";
+        case EFxeditSerializeError::TooManyEmitters: return "TooManyEmitters";
+        case EFxeditSerializeError::BufferTooSmall: return "BufferTooSmall";
+        case EFxeditSerializeError::InvalidSyntax: return "InvalidSyntax";
+        case EFxeditSerializeError::InvalidEmitterIndex: return "InvalidEmitterIndex";
+        case EFxeditSerializeError::DuplicateKey: return "DuplicateKey";
+        case EFxeditSerializeError::InvalidValue: return "InvalidValue";
+        case EFxeditSerializeError::ValueOutOfRange: return "ValueOutOfRange";
+        case EFxeditSerializeError::NameTooLong: return "NameTooLong";
+        case EFxeditSerializeError::InvalidName: return "InvalidName";
+        case EFxeditSerializeError::TooManyCurves: return "TooManyCurves";
+        case EFxeditSerializeError::TooManyKeyframes: return "TooManyKeyframes";
+        case EFxeditSerializeError::AllocationFailure: return "AllocationFailure";
+        case EFxeditSerializeError::FileNotFound: return "FileNotFound";
+        case EFxeditSerializeError::FileOpenFailed: return "FileOpenFailed";
+        case EFxeditSerializeError::FileSizeFailed: return "FileSizeFailed";
+        case EFxeditSerializeError::FileChanged: return "FileChanged";
+        case EFxeditSerializeError::FileReadFailed: return "FileReadFailed";
+        case EFxeditSerializeError::FileWriteFailed: return "FileWriteFailed";
+        case EFxeditSerializeError::FileFlushFailed: return "FileFlushFailed";
+        case EFxeditSerializeError::FileCloseFailed: return "FileCloseFailed";
+        case EFxeditSerializeError::AtomicReplaceFailed: return "AtomicReplaceFailed";
     }
-
-    TArray<char> out;
-    out.Reserve(static_cast<usize>(count) * kMaxBytesPerEmitter + 128u);
-
-    // header: magic 行 + EMITTER count 行。
-    {
-        char hdr[64];
-        int n = std::snprintf(hdr, sizeof(hdr), "%s %u\n", kMagic, kCurrentVersion);
-        if (n < 0 || static_cast<usize>(n) >= sizeof(hdr) ||
-            !AppendStr(out, hdr, static_cast<usize>(n))) {
-            return ACS_ERR(IO, kSub_BufferOverflow,
-                           "FFxeditSerializer::Save: header buffer overflow");
-        }
-        n = std::snprintf(hdr, sizeof(hdr), "EMITTER count %u\n", count);
-        if (n < 0 || static_cast<usize>(n) >= sizeof(hdr) ||
-            !AppendStr(out, hdr, static_cast<usize>(n))) {
-            return ACS_ERR(IO, kSub_BufferOverflow,
-                           "FFxeditSerializer::Save: header count overflow");
-        }
-    }
-
-    // emitter blocks: 各 emitter を "E<idx> <key> ..." 行群で出力する。
-    for (u32 i = 0; i < count; ++i) {
-        char prefix[16];
-        int pn = std::snprintf(prefix, sizeof(prefix), "E%u", i);
-        if (pn < 0 || static_cast<usize>(pn) >= sizeof(prefix)) {
-            return ACS_ERR(IO, kSub_BufferOverflow,
-                           "FFxeditSerializer::Save: prefix overflow");
-        }
-
-        const ParticleEmitterDef& d = defs[i];
-        const char* nm = (names != nullptr) ? names[i] : nullptr;
-
-        // name は引用符付きで書き出す。
-        if (!AppendNameLine(out, prefix, nm)) {
-            return ACS_ERR(IO, kSub_BufferOverflow,
-                           "FFxeditSerializer::Save: name line overflow");
-        }
-
-        // スカラ key 群。
-        f32 v;
-        v = d.emit_rate_per_sec;
-        if (!AppendKeyValueLine(out, prefix, "emit_rate", &v, 1u))
-            return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: emit_rate");
-        v = d.lifetime_sec;
-        if (!AppendKeyValueLine(out, prefix, "lifetime_sec", &v, 1u))
-            return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: lifetime_sec");
-        v = d.burst_count;
-        if (!AppendKeyValueLine(out, prefix, "burst_count", &v, 1u))
-            return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: burst_count");
-        v = d.speed_min;
-        if (!AppendKeyValueLine(out, prefix, "speed_min", &v, 1u))
-            return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: speed_min");
-        v = d.speed_max;
-        if (!AppendKeyValueLine(out, prefix, "speed_max", &v, 1u))
-            return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: speed_max");
-        v = d.scale_start;
-        if (!AppendKeyValueLine(out, prefix, "scale_start", &v, 1u))
-            return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: scale_start");
-        v = d.scale_end;
-        if (!AppendKeyValueLine(out, prefix, "scale_end", &v, 1u))
-            return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: scale_end");
-
-        // gravity (3 components, z=0 padding for forward compat)。
-        {
-            f32 g[3] = { d.gravity.x, d.gravity.y, 0.0f };
-            if (!AppendKeyValueLine(out, prefix, "gravity", g, 3u))
-                return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: gravity");
-        }
-        // color_start / color_end (4 components, a=1 padding)。
-        {
-            f32 c[4] = { d.color_start.x, d.color_start.y, d.color_start.z, 1.0f };
-            if (!AppendKeyValueLine(out, prefix, "color_start", c, 4u))
-                return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: color_start");
-        }
-        {
-            f32 c[4] = { d.color_end.x, d.color_end.y, d.color_end.z, 1.0f };
-            if (!AppendKeyValueLine(out, prefix, "color_end", c, 4u))
-                return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: color_end");
-        }
-        // spread_radians: 構造体に未配備のため 0 固定 (前方互換 placeholder)。
-        {
-            f32 z = 0.0f;
-            if (!AppendKeyValueLine(out, prefix, "spread_radians", &z, 1u))
-                return ACS_ERR(IO, kSub_BufferOverflow, "FFxeditSerializer::Save: spread_radians");
-        }
-    }
-
-    // 終端 NUL を書かない (WriteAllText は与えたバイト列をそのまま書く)。
-    const auto wr = FileSystem::WriteAllBytes(file_path,
-                                        reinterpret_cast<const byte*>(out.Data()),
-                                        out.Size());
-    if (wr.IsErr()) {
-        // FileSystem 由来の OS error はそのまま subcode を載せ替えて再ラップ。
-        ACS_LOG_WARN("FFxeditSerializer::Save WriteAllBytes failed: os=%u", wr.Error().os_error);
-        return ACS_ERR_OS(IO, kSub_IOFailure,
-                          "FFxeditSerializer::Save: WriteAllBytes failed",
-                          wr.Error().os_error);
-    }
-    return Ok();
+    return "Unknown";
 }
 
-/** `.fxedit` テキストを out_defs / out_name_buffer に復元する。 */
-TResult<u32, FErrorCode> FFxeditSerializer::Load(const wchar_t*       file_path,
-                                              ParticleEmitterDef*  out_defs,
-                                              char*                out_name_buffer,
-                                              u32                  name_buffer_capacity,
-                                              u32                  max_emitters) noexcept {
-    if (file_path == nullptr || out_defs == nullptr ||
-        out_name_buffer == nullptr || max_emitters == 0u ||
-        name_buffer_capacity == 0u) {
-        return ACS_ERR(IO, kSub_NullArgs, "FFxeditSerializer::Load: null argument");
+FFxeditSerializeResult FFxeditSerializer::TryParseText(
+    const char* text,
+    usize text_size,
+    FParticleEmitterDef* out_defs,
+    char* out_name_buffer,
+    usize name_buffer_capacity,
+    u32 max_emitters) noexcept {
+    FFxeditSerializeResult result{};
+    result.bytes_processed = static_cast<u64>(text_size);
+    if (text == nullptr || out_defs == nullptr || out_name_buffer == nullptr ||
+        max_emitters == 0u || name_buffer_capacity == 0u) {
+        result.error = EFxeditSerializeError::NullArgument;
+        return result;
     }
-    if (!FileSystem::Exists(file_path)) {
-        return ACS_ERR(IO, kSub_FileNotFound,
-                       "FFxeditSerializer::Load: file not found");
+    if (max_emitters > kMaxEmitterCount) {
+        result.error = EFxeditSerializeError::TooManyEmitters;
+        return result;
     }
-
-    const auto rr = FileSystem::ReadAllText(file_path);
-    if (rr.IsErr()) {
-        return ACS_ERR_OS(IO, kSub_IOFailure,
-                          "FFxeditSerializer::Load: ReadAllText failed",
-                          rr.Error().os_error);
+    if (text_size > kMaxInputBytes) {
+        result.error = EFxeditSerializeError::InputTooLarge;
+        return result;
     }
-    const TArray<char>& text = rr.Value();
-    const usize text_len = text.Size() > 0 ? text.Size() - 1u : 0u; // 末尾 NUL を除いた長さ
-    const char* text_ptr = text.Size() > 0 ? text.Data() : "";
-
-    // magic + version 検査。
-    const u32 ver = ParseHeaderVersion(text_ptr,
-                                       static_cast<u32>(text_len > 0xFFFFFFFFu ? 0xFFFFFFFFu : text_len));
-    if (ver == 0u) {
-        return ACS_ERR(IO, kSub_BadMagic,
-                       "FFxeditSerializer::Load: missing or invalid ACS_FXEDIT magic");
-    }
-    if (ver != kCurrentVersion) {
-        ACS_LOG_WARN("FFxeditSerializer::Load: unsupported version %u (expected %u)",
-                     ver, kCurrentVersion);
-        return ACS_ERR(IO, kSub_BadVersion,
-                       "FFxeditSerializer::Load: unsupported version");
+    if (std::memchr(text, '\0', text_size) != nullptr) {
+        result.error = EFxeditSerializeError::EmbeddedNul;
+        return result;
     }
 
-    // 1 pass parse: 既定 def + 空 name で全 slot を初期化し、行ごとに上書きする。
-    for (u32 i = 0; i < max_emitters; ++i) {
-        out_defs[i] = ParticleEmitterDef{};
-    }
-    // 名前 buffer は全 NUL 化 (使われない領域は読み手が "" として扱える)。
-    for (u32 i = 0; i < name_buffer_capacity; ++i) out_name_buffer[i] = '\0';
+    TArray<FParticleEmitterDef> staged_defs;
+    TArray<char> staged_names;
+    TArray<u32> seen_keys;
+    TArray<u8> curve_defined;
+    TArray<u16> keyframe_counts;
+    u32 declared_count = 0u;
+    bool saw_header = false;
+    bool saw_count = false;
+    usize offset = 0u;
+    u32 line_number = 0u;
+    char line[kMaxLineLength + 1u]{};
 
-    // 各 emitter slot に対し、出力名 buffer 上のオフセットを事前計算する。
-    // 1 emitter あたり (kMaxEmitterName + 1) バイト確保。容量が足りない場合は
-    // 確保可能な数だけサポート (= 残り emitter の name 部分は空文字列に縮退)。
-    const u32 per_name = static_cast<u32>(kMaxEmitterName) + 1u;
-    const u32 nameable = (name_buffer_capacity / per_name);
+    auto fail = [&](EFxeditSerializeError error) noexcept -> FFxeditSerializeResult {
+        result.error = error;
+        result.line = line_number;
+        return result;
+    };
 
-    char line[kMaxLineLength + 1];
-    usize pos = 0;
-    u32 declared_count = 0u;        // EMITTER count N で宣言された個数
-    bool saw_emitter_count = false;
-    u32 max_seen_index    = 0u;     // 実際にロード済の最大 E<n> + 1
-    bool header_consumed  = false;  // 先頭 magic 行をスキップ済みか
+    while (offset < text_size) {
+        if (++line_number > kMaxLineCount) return fail(EFxeditSerializeError::TooManyLines);
+        const usize begin = offset;
+        while (offset < text_size && text[offset] != '\n') ++offset;
+        usize length = offset - begin;
+        if (offset < text_size) ++offset;
+        if (length > kMaxLineLength) return fail(EFxeditSerializeError::LineTooLong);
+        std::memcpy(line, text + begin, length);
+        if (length > 0u && line[length - 1u] == '\r') --length;
+        line[length] = '\0';
+        char* current = line;
+        while (*current == ' ' || *current == '\t') ++current;
+        char* line_end = current + std::strlen(current);
+        while (line_end > current && (line_end[-1] == ' ' || line_end[-1] == '\t')) --line_end;
+        *line_end = '\0';
+        if (*current == '\0' || *current == '#') continue;
 
-    while (ReadOneLine(text_ptr, text_len, pos, line, sizeof(line))) {
-        const char* p = SkipWhitespace(line);
-        if (*p == '\0' || *p == '#') continue;
-        if (!header_consumed) {
-            // 既に ParseHeaderVersion で先頭を確認しているので、ここでは
-            // 先頭 magic 行が出てきたら消化するだけ。
-            if (std::strncmp(p, kMagic, 10) == 0) {  // "ACS_FXEDIT" = 10 文字
-                header_consumed = true;
-                continue;
+        if (!saw_header) {
+            constexpr usize magic_length = 10u;
+            if (std::strncmp(current, kMagic, magic_length) != 0 ||
+                (current[magic_length] != ' ' && current[magic_length] != '\t')) {
+                return fail(EFxeditSerializeError::BadMagic);
             }
-            // magic 行が前置されていないが ParseHeaderVersion は成功している
-            // ケース (= 余計な空白を含むが ParseHeaderVersion が許容したケース)
-            // を考慮し、header_consumed = true で continue せずに通常処理に進む。
-            header_consumed = true;
+            const char* version_text = current + magic_length;
+            u32 version = 0u;
+            const ENumberStatus status = ParseU32Token(version_text, version);
+            if (status != ENumberStatus::Ok || !AtValueEnd(version_text)) {
+                return fail(status == ENumberStatus::OutOfRange
+                    ? EFxeditSerializeError::ValueOutOfRange
+                    : EFxeditSerializeError::BadMagic);
+            }
+            if (version != kCurrentVersion) {
+                return fail(EFxeditSerializeError::UnsupportedVersion);
+            }
+            saw_header = true;
+            continue;
         }
 
-        // "EMITTER count N" 行。
-        if (std::strncmp(p, "EMITTER", 7) == 0 &&
-            (p[7] == ' ' || p[7] == '\t')) {
-            const char* q = SkipWhitespace(p + 7);
-            if (std::strncmp(q, "count", 5) == 0 && (q[5] == ' ' || q[5] == '\t')) {
-                q = SkipWhitespace(q + 5);
-                char* endp = nullptr;
-                const long c = std::strtol(q, &endp, 10);
-                if (endp != q && c >= 0) {
-                    declared_count    = static_cast<u32>(c);
-                    saw_emitter_count = true;
+        if (std::strncmp(current, "EMITTER", 7u) == 0 &&
+            (current[7] == ' ' || current[7] == '\t')) {
+            if (saw_count) return fail(EFxeditSerializeError::DuplicateEmitterCount);
+            const char* count_text = current + 7u;
+            SkipHorizontalSpace(count_text);
+            if (std::strncmp(count_text, "count", 5u) != 0 ||
+                (count_text[5] != ' ' && count_text[5] != '\t')) {
+                return fail(EFxeditSerializeError::InvalidSyntax);
+            }
+            count_text += 5u;
+            const ENumberStatus status = ParseU32Token(count_text, declared_count);
+            if (status != ENumberStatus::Ok || !AtValueEnd(count_text)) {
+                return fail(status == ENumberStatus::OutOfRange
+                    ? EFxeditSerializeError::ValueOutOfRange
+                    : EFxeditSerializeError::InvalidValue);
+            }
+            if (declared_count > kMaxEmitterCount || declared_count > max_emitters) {
+                return fail(EFxeditSerializeError::TooManyEmitters);
+            }
+            const usize required_names =
+                static_cast<usize>(declared_count) * (kMaxEmitterName + 1u);
+            if (required_names > name_buffer_capacity) {
+                return fail(EFxeditSerializeError::BufferTooSmall);
+            }
+            const usize curve_slots =
+                static_cast<usize>(declared_count) * kMaxCurvesPerEmitter;
+            if (!staged_defs.TryResize(declared_count) ||
+                !staged_names.TryResize(required_names) ||
+                !seen_keys.TryResize(declared_count) ||
+                !curve_defined.TryResize(curve_slots) ||
+                !keyframe_counts.TryResize(curve_slots)) {
+                return fail(EFxeditSerializeError::AllocationFailure);
+            }
+            saw_count = true;
+            continue;
+        }
+        if (!saw_count) return fail(EFxeditSerializeError::MissingEmitterCount);
+
+        const char* emitter_begin = current;
+        const char* emitter_end = emitter_begin;
+        while (*emitter_end != '\0' && *emitter_end != ' ' && *emitter_end != '\t') ++emitter_end;
+        u32 emitter_index = 0u;
+        if (!ParseEmitterIndex(emitter_begin, emitter_end, emitter_index) ||
+            emitter_index >= declared_count) {
+            return fail(EFxeditSerializeError::InvalidEmitterIndex);
+        }
+        const char* key_begin = emitter_end;
+        SkipHorizontalSpace(key_begin);
+        if (*key_begin == '\0') return fail(EFxeditSerializeError::InvalidSyntax);
+        const char* key_end = key_begin;
+        while (*key_end != '\0' && *key_end != ' ' && *key_end != '\t') ++key_end;
+        if (static_cast<usize>(key_end - key_begin) > 63u) {
+            return fail(EFxeditSerializeError::InvalidSyntax);
+        }
+        const char* value_text = key_end;
+        SkipHorizontalSpace(value_text);
+        const EFxKnownKey key = FxKnownKey(key_begin, key_end);
+        if (key == EFxKnownKey::Unknown) continue; // v1 の前方互換。
+
+        if (IsScalarFxKey(key)) {
+            const u32 mask = u32{1} << static_cast<u32>(key);
+            if ((seen_keys[emitter_index] & mask) != 0u) {
+                return fail(EFxeditSerializeError::DuplicateKey);
+            }
+            seen_keys[emitter_index] |= mask;
+        }
+
+        FParticleEmitterDef& def = staged_defs[emitter_index];
+        if (key == EFxKnownKey::Name) {
+            if (*value_text != '"') return fail(EFxeditSerializeError::InvalidName);
+            ++value_text;
+            const char* name_begin = value_text;
+            while (*value_text != '\0' && *value_text != '"') ++value_text;
+            if (*value_text != '"') return fail(EFxeditSerializeError::InvalidName);
+            const usize name_length = static_cast<usize>(value_text - name_begin);
+            if (name_length > kMaxEmitterName) return fail(EFxeditSerializeError::NameTooLong);
+            for (usize i = 0u; i < name_length; ++i) {
+                if (!IsAsciiPrintable(name_begin[i]) || name_begin[i] == '"') {
+                    return fail(EFxeditSerializeError::InvalidName);
                 }
             }
+            ++value_text;
+            if (!AtValueEnd(value_text)) return fail(EFxeditSerializeError::InvalidName);
+            char* destination = staged_names.Data() +
+                static_cast<usize>(emitter_index) * (kMaxEmitterName + 1u);
+            std::memcpy(destination, name_begin, name_length);
+            destination[name_length] = '\0';
             continue;
         }
 
-        // "E<idx> <key> ..." 行。key は最初のトークン (= "E<idx>")。
-        const char* tok_begin = p;
-        const char* tok_end   = p;
-        while (*tok_end != '\0' && *tok_end != ' ' && *tok_end != '\t') ++tok_end;
-        u32 idx = 0u;
-        if (!ParseEmitterIndex(tok_begin, tok_end, idx)) continue;
-        if (idx >= max_emitters) {
-            // 受け入れ容量超過は subcode を返して中断。
-            return ACS_ERR(IO, kSub_TooManyEmitters,
-                           "FFxeditSerializer::Load: emitter index exceeds max_emitters");
-        }
-
-        // 次のトークンが key2 (e.g. "emit_rate" / "name" / "gravity" ...)。
-        const char* k2_begin = SkipWhitespace(tok_end);
-        if (*k2_begin == '\0') continue;
-        const char* k2_end = k2_begin;
-        while (*k2_end != '\0' && *k2_end != ' ' && *k2_end != '\t') ++k2_end;
-
-        ParticleEmitterDef& d = out_defs[idx];
-
-        // name 行 (引用符付き文字列)。
-        if (KeyEquals(k2_begin, k2_end, "name")) {
-            if (idx < nameable) {
-                char* dst = out_name_buffer + static_cast<usize>(idx) *
-                            static_cast<usize>(per_name);
-                (void)ExtractQuotedName(k2_end, dst, per_name);
+        if (key == EFxKnownKey::Curve) {
+            u32 curve_index = 0u;
+            const ENumberStatus status = ParseU32Token(value_text, curve_index);
+            if (status != ENumberStatus::Ok || !AtValueEnd(value_text)) {
+                return fail(status == ENumberStatus::OutOfRange
+                    ? EFxeditSerializeError::ValueOutOfRange
+                    : EFxeditSerializeError::InvalidValue);
             }
-            if (idx + 1u > max_seen_index) max_seen_index = idx + 1u;
+            if (curve_index >= kMaxCurvesPerEmitter) {
+                return fail(EFxeditSerializeError::TooManyCurves);
+            }
+            const usize slot = static_cast<usize>(emitter_index) * kMaxCurvesPerEmitter +
+                curve_index;
+            if (curve_defined[slot] != 0u) return fail(EFxeditSerializeError::DuplicateKey);
+            curve_defined[slot] = 1u;
             continue;
         }
 
-        // 残りは数値行: 値部分を改めて strtof で読む。
-        f32 vals[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-        const char* vp = k2_end;
-        u32 nv = 0;
-        while (nv < 4u) {
-            vp = SkipWhitespace(vp);
-            if (*vp == '\0' || *vp == '#') break;
-            char* endp = nullptr;
-            f32 v = std::strtof(vp, &endp);
-            if (endp == vp) break;
-            vals[nv++] = v;
-            vp = endp;
+        if (key == EFxKnownKey::Keyframe) {
+            u32 curve_index = 0u;
+            ENumberStatus status = ParseU32Token(value_text, curve_index);
+            f32 time = 0.0f;
+            f32 value = 0.0f;
+            if (status == ENumberStatus::Ok) status = ParseFiniteFloatToken(value_text, time);
+            if (status == ENumberStatus::Ok) status = ParseFiniteFloatToken(value_text, value);
+            if (status != ENumberStatus::Ok || !AtValueEnd(value_text)) {
+                return fail(status == ENumberStatus::OutOfRange
+                    ? EFxeditSerializeError::ValueOutOfRange
+                    : EFxeditSerializeError::InvalidValue);
+            }
+            if (curve_index >= kMaxCurvesPerEmitter) {
+                return fail(EFxeditSerializeError::TooManyCurves);
+            }
+            if (time < 0.0f || time > 1.0f || std::fabs(value) > 1000000000.0f) {
+                return fail(EFxeditSerializeError::ValueOutOfRange);
+            }
+            const usize slot = static_cast<usize>(emitter_index) * kMaxCurvesPerEmitter +
+                curve_index;
+            if (keyframe_counts[slot] >= kMaxKeyframesPerCurve) {
+                return fail(EFxeditSerializeError::TooManyKeyframes);
+            }
+            ++keyframe_counts[slot];
+            continue;
         }
-        if (nv == 0u) continue;  // 値の無い未知 key は無視
 
-        if      (KeyEquals(k2_begin, k2_end, "emit_rate"))      d.emit_rate_per_sec = vals[0];
-        else if (KeyEquals(k2_begin, k2_end, "lifetime_sec"))   d.lifetime_sec      = vals[0];
-        else if (KeyEquals(k2_begin, k2_end, "burst_count"))    d.burst_count       = vals[0];
-        else if (KeyEquals(k2_begin, k2_end, "speed_min"))      d.speed_min         = vals[0];
-        else if (KeyEquals(k2_begin, k2_end, "speed_max"))      d.speed_max         = vals[0];
-        else if (KeyEquals(k2_begin, k2_end, "scale_start"))    d.scale_start       = vals[0];
-        else if (KeyEquals(k2_begin, k2_end, "scale_end"))      d.scale_end         = vals[0];
-        else if (KeyEquals(k2_begin, k2_end, "gravity")) {
-            // テキスト形式は 3 成分まで読むが、FVec2 のため z は破棄。
-            d.gravity = FVec2{ vals[0], vals[1] };
+        f32 values[4]{};
+        u32 value_count = 1u;
+        if (key == EFxKnownKey::Gravity) value_count = 3u;
+        if (key == EFxKnownKey::ColorStart || key == EFxKnownKey::ColorEnd) value_count = 4u;
+        const ENumberStatus number_status =
+            ParseFloatValues(value_text, values, value_count);
+        if (number_status != ENumberStatus::Ok) {
+            return fail(number_status == ENumberStatus::OutOfRange
+                ? EFxeditSerializeError::ValueOutOfRange
+                : EFxeditSerializeError::InvalidValue);
         }
-        else if (KeyEquals(k2_begin, k2_end, "color_start")) {
-            // alpha (vals[3]) は破棄。
-            d.color_start = FVec3{ vals[0], vals[1], vals[2] };
+        switch (key) {
+            case EFxKnownKey::EmitRate: def.emit_rate_per_sec = values[0]; break;
+            case EFxKnownKey::Lifetime: def.lifetime_sec = values[0]; break;
+            case EFxKnownKey::BurstCount: def.burst_count = values[0]; break;
+            case EFxKnownKey::SpeedMin: def.speed_min = values[0]; break;
+            case EFxKnownKey::SpeedMax: def.speed_max = values[0]; break;
+            case EFxKnownKey::ScaleStart: def.scale_start = values[0]; break;
+            case EFxKnownKey::ScaleEnd: def.scale_end = values[0]; break;
+            case EFxKnownKey::Gravity:
+                if (std::fabs(values[2]) > 1000000000.0f) {
+                    return fail(EFxeditSerializeError::ValueOutOfRange);
+                }
+                def.gravity = FVec2{values[0], values[1]};
+                break;
+            case EFxKnownKey::ColorStart:
+            case EFxKnownKey::ColorEnd:
+                for (f32 value : values) {
+                    if (value < 0.0f || value > 1.0f) {
+                        return fail(EFxeditSerializeError::ValueOutOfRange);
+                    }
+                }
+                if (key == EFxKnownKey::ColorStart) {
+                    def.color_start = FVec3{values[0], values[1], values[2]};
+                } else {
+                    def.color_end = FVec3{values[0], values[1], values[2]};
+                }
+                break;
+            case EFxKnownKey::SpreadRadians:
+                if (values[0] < 0.0f || values[0] > 6.2831855f) {
+                    return fail(EFxeditSerializeError::ValueOutOfRange);
+                }
+                break;
+            default: break;
         }
-        else if (KeyEquals(k2_begin, k2_end, "color_end")) {
-            d.color_end   = FVec3{ vals[0], vals[1], vals[2] };
-        }
-        // "spread_radians" 及び未知 key は無視 (前方互換)。
-
-        if (idx + 1u > max_seen_index) max_seen_index = idx + 1u;
     }
 
-    // declared_count と実観測 index の整合性チェック。
-    // declared_count が信用できる (saw_emitter_count) なら優先、
-    // それ以外は max_seen_index を返す。
-    u32 result_count = saw_emitter_count ? declared_count : max_seen_index;
-    if (result_count > max_emitters) {
-        ACS_LOG_WARN("FFxeditSerializer::Load: declared count %u clamped to max %u",
-                     result_count, max_emitters);
-        result_count = max_emitters;
+    if (!saw_header) {
+        result.error = EFxeditSerializeError::BadMagic;
+        return result;
     }
-    return TResult<u32, FErrorCode>(OkInit, static_cast<u32&&>(result_count));
+    if (!saw_count) {
+        result.error = EFxeditSerializeError::MissingEmitterCount;
+        return result;
+    }
+    for (u32 i = 0u; i < declared_count; ++i) {
+        const EFxeditSerializeError validation = ValidateEmitterDef(staged_defs[i]);
+        if (validation != EFxeditSerializeError::None) {
+            result.error = validation;
+            return result;
+        }
+    }
+
+    for (u32 i = 0u; i < max_emitters; ++i) out_defs[i] = FParticleEmitterDef{};
+    std::memset(out_name_buffer, 0, name_buffer_capacity);
+    for (u32 i = 0u; i < declared_count; ++i) out_defs[i] = staged_defs[i];
+    if (!staged_names.IsEmpty()) {
+        std::memcpy(out_name_buffer, staged_names.Data(), staged_names.Size());
+    }
+    result.emitter_count = declared_count;
+    return result;
+}
+
+FFxeditSerializeResult FFxeditSerializer::TryLoad(
+    const wchar_t* file_path,
+    FParticleEmitterDef* out_defs,
+    char* out_name_buffer,
+    usize name_buffer_capacity,
+    u32 max_emitters) noexcept {
+    FFxeditSerializeResult result{};
+    usize path_length = 0u;
+    if (file_path == nullptr || out_defs == nullptr || out_name_buffer == nullptr ||
+        max_emitters == 0u || name_buffer_capacity == 0u) {
+        result.error = EFxeditSerializeError::NullArgument;
+        return result;
+    }
+    if (!IsBoundedWidePath(file_path, kMaxPathChars, path_length)) {
+        result.error = EFxeditSerializeError::PathTooLong;
+        return result;
+    }
+
+    HANDLE file = ::CreateFileW(
+        file_path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        result.os_error = ::GetLastError();
+        result.error = result.os_error == ERROR_FILE_NOT_FOUND ||
+                       result.os_error == ERROR_PATH_NOT_FOUND
+            ? EFxeditSerializeError::FileNotFound
+            : EFxeditSerializeError::FileOpenFailed;
+        return result;
+    }
+    LARGE_INTEGER size{};
+    if (!::GetFileSizeEx(file, &size) || size.QuadPart < 0) {
+        result.os_error = ::GetLastError();
+        ::CloseHandle(file);
+        result.error = EFxeditSerializeError::FileSizeFailed;
+        return result;
+    }
+    if (static_cast<u64>(size.QuadPart) > static_cast<u64>(kMaxInputBytes)) {
+        ::CloseHandle(file);
+        result.error = EFxeditSerializeError::InputTooLarge;
+        return result;
+    }
+    TArray<char> text;
+    if (!text.TryResize(static_cast<usize>(size.QuadPart))) {
+        ::CloseHandle(file);
+        result.error = EFxeditSerializeError::AllocationFailure;
+        return result;
+    }
+    usize total = 0u;
+    while (total < text.Size()) {
+        const usize remaining = text.Size() - total;
+        const DWORD chunk = static_cast<DWORD>(
+            remaining > 0x7ffff000u ? 0x7ffff000u : remaining);
+        DWORD read = 0u;
+        if (!::ReadFile(file, text.Data() + total, chunk, &read, nullptr) || read == 0u) {
+            result.os_error = ::GetLastError();
+            ::CloseHandle(file);
+            result.error = EFxeditSerializeError::FileReadFailed;
+            result.bytes_processed = static_cast<u64>(total);
+            return result;
+        }
+        total += read;
+    }
+    char probe = '\0';
+    DWORD probe_read = 0u;
+    if (!::ReadFile(file, &probe, 1u, &probe_read, nullptr)) {
+        result.os_error = ::GetLastError();
+        ::CloseHandle(file);
+        result.error = EFxeditSerializeError::FileReadFailed;
+        result.bytes_processed = static_cast<u64>(total);
+        return result;
+    }
+    if (probe_read != 0u) {
+        ::CloseHandle(file);
+        result.error = EFxeditSerializeError::FileChanged;
+        result.bytes_processed = static_cast<u64>(total);
+        return result;
+    }
+    LARGE_INTEGER final_size{};
+    if (!::GetFileSizeEx(file, &final_size)) {
+        result.os_error = ::GetLastError();
+        ::CloseHandle(file);
+        result.error = EFxeditSerializeError::FileSizeFailed;
+        return result;
+    }
+    if (final_size.QuadPart != size.QuadPart) {
+        ::CloseHandle(file);
+        result.error = EFxeditSerializeError::FileChanged;
+        result.bytes_processed = static_cast<u64>(total);
+        return result;
+    }
+    if (!::CloseHandle(file)) {
+        result.os_error = ::GetLastError();
+        result.error = EFxeditSerializeError::FileCloseFailed;
+        return result;
+    }
+    result = TryParseText(
+        text.IsEmpty() ? "" : text.Data(), text.Size(),
+        out_defs, out_name_buffer, name_buffer_capacity, max_emitters);
+    result.bytes_processed = static_cast<u64>(total);
+    return result;
+}
+
+FFxeditSerializeResult FFxeditSerializer::TrySave(
+    const wchar_t* file_path,
+    const FParticleEmitterDef* defs,
+    const char* const* names,
+    u32 count) noexcept {
+    FFxeditSerializeResult result{};
+    usize path_length = 0u;
+    if (file_path == nullptr || (count > 0u && (defs == nullptr || names == nullptr))) {
+        result.error = EFxeditSerializeError::NullArgument;
+        return result;
+    }
+    if (!IsBoundedWidePath(file_path, kMaxPathChars, path_length)) {
+        result.error = EFxeditSerializeError::PathTooLong;
+        return result;
+    }
+    if (count > kMaxEmitterCount) {
+        result.error = EFxeditSerializeError::TooManyEmitters;
+        return result;
+    }
+    for (u32 i = 0u; i < count; ++i) {
+        result.error = ValidateEmitterDef(defs[i]);
+        if (result.error != EFxeditSerializeError::None) return result;
+        result.error = ValidateEmitterName(names[i]);
+        if (result.error != EFxeditSerializeError::None) return result;
+    }
+
+    const usize reserve_size =
+        static_cast<usize>(count) * kMaxBytesPerEmitter + 128u;
+    TArray<char> out;
+    if (!out.TryReserve(reserve_size)) {
+        result.error = EFxeditSerializeError::AllocationFailure;
+        return result;
+    }
+    char header[64]{};
+    int written = std::snprintf(
+        header, sizeof(header), "%s %u\n", kMagic, kCurrentVersion);
+    if (written < 0 || static_cast<usize>(written) >= sizeof(header) ||
+        !AppendStr(out, header, static_cast<usize>(written))) {
+        result.error = EFxeditSerializeError::AllocationFailure;
+        return result;
+    }
+    written = std::snprintf(header, sizeof(header), "EMITTER count %u\n", count);
+    if (written < 0 || static_cast<usize>(written) >= sizeof(header) ||
+        !AppendStr(out, header, static_cast<usize>(written))) {
+        result.error = EFxeditSerializeError::AllocationFailure;
+        return result;
+    }
+    for (u32 i = 0u; i < count; ++i) {
+        char prefix[16]{};
+        const int prefix_length = std::snprintf(prefix, sizeof(prefix), "E%u", i);
+        if (prefix_length < 0 || static_cast<usize>(prefix_length) >= sizeof(prefix) ||
+            !AppendNameLine(out, prefix, names[i])) {
+            result.error = EFxeditSerializeError::AllocationFailure;
+            return result;
+        }
+        const FParticleEmitterDef& def = defs[i];
+        bool append_ok = true;
+        f32 value = def.emit_rate_per_sec;
+        append_ok = append_ok && AppendKeyValueLine(out, prefix, "emit_rate", &value, 1u);
+        value = def.lifetime_sec;
+        append_ok = append_ok && AppendKeyValueLine(out, prefix, "lifetime_sec", &value, 1u);
+        value = def.burst_count;
+        append_ok = append_ok && AppendKeyValueLine(out, prefix, "burst_count", &value, 1u);
+        value = def.speed_min;
+        append_ok = append_ok && AppendKeyValueLine(out, prefix, "speed_min", &value, 1u);
+        value = def.speed_max;
+        append_ok = append_ok && AppendKeyValueLine(out, prefix, "speed_max", &value, 1u);
+        value = def.scale_start;
+        append_ok = append_ok && AppendKeyValueLine(out, prefix, "scale_start", &value, 1u);
+        value = def.scale_end;
+        append_ok = append_ok && AppendKeyValueLine(out, prefix, "scale_end", &value, 1u);
+        {
+            const f32 gravity[3] = {def.gravity.x, def.gravity.y, 0.0f};
+            append_ok = append_ok && AppendKeyValueLine(out, prefix, "gravity", gravity, 3u);
+        }
+        {
+            const f32 color[4] = {
+                def.color_start.x, def.color_start.y, def.color_start.z, 1.0f};
+            append_ok = append_ok && AppendKeyValueLine(out, prefix, "color_start", color, 4u);
+        }
+        {
+            const f32 color[4] = {
+                def.color_end.x, def.color_end.y, def.color_end.z, 1.0f};
+            append_ok = append_ok && AppendKeyValueLine(out, prefix, "color_end", color, 4u);
+        }
+        value = 0.0f;
+        append_ok = append_ok &&
+            AppendKeyValueLine(out, prefix, "spread_radians", &value, 1u);
+        if (!append_ok) {
+            result.error = EFxeditSerializeError::AllocationFailure;
+            return result;
+        }
+    }
+    if (out.Size() > kMaxInputBytes) {
+        result.error = EFxeditSerializeError::InputTooLarge;
+        return result;
+    }
+
+    constexpr usize kTempPathCapacity = kMaxPathChars + 97u;
+    wchar_t temp_path[kTempPathCapacity]{};
+    HANDLE temp = INVALID_HANDLE_VALUE;
+    for (u32 attempt = 0u; attempt < 8u; ++attempt) {
+        if (!BuildUniqueTempPath(
+                file_path, path_length, temp_path,
+                sizeof(temp_path) / sizeof(temp_path[0]), attempt)) {
+            result.error = EFxeditSerializeError::PathTooLong;
+            return result;
+        }
+        temp = ::CreateFileW(
+            temp_path, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (temp != INVALID_HANDLE_VALUE) break;
+        result.os_error = ::GetLastError();
+        if (result.os_error != ERROR_FILE_EXISTS &&
+            result.os_error != ERROR_ALREADY_EXISTS) {
+            result.error = EFxeditSerializeError::FileOpenFailed;
+            return result;
+        }
+    }
+    if (temp == INVALID_HANDLE_VALUE) {
+        result.error = EFxeditSerializeError::FileOpenFailed;
+        return result;
+    }
+    usize total = 0u;
+    while (total < out.Size()) {
+        const usize remaining = out.Size() - total;
+        const DWORD chunk = static_cast<DWORD>(
+            remaining > 0x7ffff000u ? 0x7ffff000u : remaining);
+        DWORD bytes_written = 0u;
+        if (!::WriteFile(temp, out.Data() + total, chunk, &bytes_written, nullptr) ||
+            bytes_written == 0u) {
+            result.os_error = ::GetLastError();
+            ::CloseHandle(temp);
+            ::DeleteFileW(temp_path);
+            result.error = EFxeditSerializeError::FileWriteFailed;
+            result.bytes_processed = static_cast<u64>(total);
+            return result;
+        }
+        total += bytes_written;
+    }
+    if (!::FlushFileBuffers(temp)) {
+        result.os_error = ::GetLastError();
+        ::CloseHandle(temp);
+        ::DeleteFileW(temp_path);
+        result.error = EFxeditSerializeError::FileFlushFailed;
+        return result;
+    }
+    if (!::CloseHandle(temp)) {
+        result.os_error = ::GetLastError();
+        ::DeleteFileW(temp_path);
+        result.error = EFxeditSerializeError::FileCloseFailed;
+        return result;
+    }
+    if (!::MoveFileExW(
+            temp_path, file_path,
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        const DWORD move_error = ::GetLastError();
+        DWORD posix_error = 0u;
+        if (!TryPosixAtomicReplace(
+                temp_path, file_path, path_length, posix_error)) {
+            result.os_error = posix_error != 0u ? posix_error : move_error;
+            ::DeleteFileW(temp_path);
+            result.error = EFxeditSerializeError::AtomicReplaceFailed;
+            return result;
+        }
+    }
+    result.emitter_count = count;
+    result.bytes_processed = static_cast<u64>(total);
+    return result;
+}
+
+TResult<void, FErrorCode> FFxeditSerializer::Save(
+    const wchar_t* file_path,
+    const FParticleEmitterDef* defs,
+    const char* const* names,
+    u32 count) noexcept {
+    const FFxeditSerializeResult result = TrySave(file_path, defs, names, count);
+    if (result.Succeeded()) return Ok();
+    return ACS_ERR_OS(
+        IO, LegacySubCode(result.error),
+        "FFxeditSerializer::Save: checked save failed", result.os_error);
+}
+
+TResult<u32, FErrorCode> FFxeditSerializer::Load(
+    const wchar_t* file_path,
+    FParticleEmitterDef* out_defs,
+    char* out_name_buffer,
+    u32 name_buffer_capacity,
+    u32 max_emitters) noexcept {
+    const FFxeditSerializeResult result = TryLoad(
+        file_path, out_defs, out_name_buffer,
+        static_cast<usize>(name_buffer_capacity), max_emitters);
+    if (!result.Succeeded()) {
+        return ACS_ERR_OS(
+            IO, LegacySubCode(result.error),
+            "FFxeditSerializer::Load: checked load failed", result.os_error);
+    }
+    u32 count = result.emitter_count;
+    return TResult<u32, FErrorCode>(OkInit, Move(count));
 }
 
 } // namespace acs::game::fxedit

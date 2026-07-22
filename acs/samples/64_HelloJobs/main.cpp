@@ -38,7 +38,7 @@ int main() {
 
     // --- (2) 非同期 1 発: 重い処理を投げて、後で待つ -------------------------
     long long result = 0;
-    JobBatch job = RunAsync([&] {
+    FJobBatch job = RunAsync([&] {
         long long acc = 0;
         for (int i = 1; i <= 1000000; ++i) acc += i;   // 1〜100万の総和
         result = acc;                                  // 結果は捕捉変数へ
@@ -51,9 +51,9 @@ int main() {
 
     // --- (3) A→B 依存: A と B を並列、両方終わってから C --------------------
     int partA = 0, partB = 0, merged = -1;
-    JobNode a = Job([&] { for (int i = 0; i < 500000; ++i) ++partA; });   // → 500000
-    JobNode b = Job([&] { for (int i = 0; i < 300000; ++i) ++partB; });   // → 300000
-    JobNode c = Job([&] { merged = partA + partB; });                    // 両方の後で実行
+    FJobNode a = Job([&] { for (int i = 0; i < 500000; ++i) ++partA; });   // → 500000
+    FJobNode b = Job([&] { for (int i = 0; i < 300000; ++i) ++partB; });   // → 300000
+    FJobNode c = Job([&] { merged = partA + partB; });                    // 両方の後で実行
     Then(a, c);                                        // c は a の後
     Then(b, c);                                        // かつ b の後 (a と b は並列)
     RunJobs();                                         // 依存順に実行し、全完了まで待つ

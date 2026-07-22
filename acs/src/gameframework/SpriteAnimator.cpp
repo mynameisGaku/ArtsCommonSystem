@@ -132,7 +132,7 @@ void FSpriteAnimator::FireEventsBetween(u32 prev, u32 next, bool wrapped) noexce
     (void)wrapped;
     const u32 n = static_cast<u32>(m_Events.Size());
     for (u32 i = 0; i < n; ++i) {
-        const FrameEvent& e = m_Events[i];
+        const FFrameEvent& e = m_Events[i];
         if (e.cb != nullptr && e.frame == next) {
             e.cb(e.user);
         }
@@ -184,7 +184,7 @@ void FSpriteAnimator::SetFps(f32 fps) noexcept {
 void FSpriteAnimator::AddFrameEvent(u32 frame, FrameEventFn cb, void* user) noexcept {
     if (cb == nullptr)         return;
     if (frame >= m_FrameCount) return; // 範囲外は黙って無視
-    m_Events.PushBack(FrameEvent{frame, cb, user});
+    m_Events.PushBack(FFrameEvent{frame, cb, user});
 }
 
 } // namespace acs::game

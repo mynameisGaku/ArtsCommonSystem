@@ -42,7 +42,7 @@
 //   ・**Reset**: 全 category を削除し、frame 履歴もクリア。SetFrameBudget で設定
 //     した frame_budget_ms はリセットされない (頻繁に再定義する想定がない)。
 //   ・**非コピー・非ムーブ**: 履歴 / category 配列の所有権を曖昧にしないため。
-//   ・**STL 不使用**: `acs::TArray<BudgetEntry>` / `acs::TArray<f32>` を使用。
+//   ・**STL 不使用**: `acs::TArray<FBudgetEntry>` / `acs::TArray<f32>` を使用。
 //     `<string>` 禁止。実装側で `<cstring>` (strcmp) のみ許可。
 //
 // 範囲外:
@@ -62,7 +62,7 @@ namespace acs::game {
  *
  * @details category 名は caller 所有 (本クラスは複製せず、リテラル運用を想定)。
  */
-struct BudgetEntry {
+struct FBudgetEntry {
     /** カテゴリ名 (caller 所有、リテラル想定)。 */
     const char* category    = nullptr;
 
@@ -209,12 +209,12 @@ public:
      * 全 category を読み取り用に列挙する。
      *
      * @details
-     * 戻り値はクラス所有の内部バッファ (`TArray<BudgetEntry>::Data`) で、DefineCategory /
+     * 戻り値はクラス所有の内部バッファ (`TArray<FBudgetEntry>::Data`) で、DefineCategory /
      * Reset 呼出しまで有効。
      * @param out_count category 件数を書き込む出力先。
      * @return category 配列の先頭ポインタ。空のときは nullptr (out_count = 0)。
      */
-    const BudgetEntry* AllCategories(u32& out_count) const noexcept;
+    const FBudgetEntry* AllCategories(u32& out_count) const noexcept;
 
     /**
      * 全 category を削除し、frame 履歴もクリアする。
@@ -237,7 +237,7 @@ private:
     usize FindCategoryIndex(const char* category) const noexcept;
 
     /** 登録済み category の配列。 */
-    TArray<BudgetEntry> m_Categories;
+    TArray<FBudgetEntry> m_Categories;
 
     /** 目標フレーム時間 ms (0 = フレーム超過判定無効)。 */
     f32  m_FrameBudgetMs     = 0.0f;

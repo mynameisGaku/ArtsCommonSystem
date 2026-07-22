@@ -65,7 +65,7 @@ ACS_REF.modules.push({
       kind: "基底クラス", header: "memory/ObjectPtr.h",
       summary: "<t>参照カウント</t>で管理される『オブジェクト』の基底。内部に自分の制御ブロックへの<t>ポインタ</t>を持つため、<b>生ポインタからでも</b>強/弱参照を作れる(UE の UObject 風)。",
       when: "エンジン上の実体(キャラ・アクター等)を表し、生ポインタを持ち回りつつ安全に生死を監視したい時。<code>NewObject</code> で生成する。",
-      sample: "class FEnemy : public FObject {\npublic:\n    int hp = 100;\n};\nTObjectPtr&lt;FEnemy&gt; e = NewObject&lt;FEnemy&gt;();\nFEnemy* raw = e.Get();\nTWeakObjectPtr&lt;FEnemy&gt; w(raw);  // 生ポインタから弱参照が作れる",
+      sample: "class AEnemy : public FObject {\npublic:\n    int hp = 100;\n};\nTObjectPtr&lt;AEnemy&gt; e = NewObject&lt;AEnemy&gt;();\nAEnemy* raw = e.Get();\nTWeakObjectPtr&lt;AEnemy&gt; w(raw);  // 生ポインタから弱参照が作れる",
       members: [
         { sig: "virtual ~FObject()", desc: "<t>デストラクタ</t>は仮想。派生クラスが正しく破棄される。" }
       ]
@@ -178,10 +178,10 @@ ACS_REF.modules.push({
         { sig: "TResult&lt;void&gt; FShardedTlsfAllocator::Init(usize total_reserve_bytes, usize commit_initial_bytes, u32 shard_count = 0)", ret: "成否", desc: "予約全体をシャードで分割。<code>shard_count=0</code> で論理コア数から自動(最大 8)。粒度整列の加算オーバーフローは VM 予約前に拒否する。" },
         { sig: "void FShardedTlsfAllocator::EnableThreadCache()", desc: "スレッドローカルの固定長ポインタ配列で小確保のヒット経路をロックなし化。管理リンクを解放済み payload 内へ置かないため、UAF 書込みを次のアドレスとして参照しない。Free は所有シャードをロックして正規の確保開始位置を確認してから格納する。アロケータ切替、スレッド終了、Shutdown/再Initは寿命世代で検証し、二重解放はブロック状態遷移で拒否する。" },
         { sig: "void* Alloc / void Free / void* Realloc", desc: "<code>FAllocator</code> の確保 API。Sharded の Realloc-to-zero は所有権を先に検証し、不正ポインタなら元の pointer を返して未解放を通知する。" },
-        { sig: "FTlsfAllocator::Stats FTlsfAllocator::GetStats() const", ret: "統計", desc: "<code>bytes_used / bytes_peak / free_blocks / used_blocks / largest_free_block</code> を返す。" },
+        { sig: "FTlsfAllocator::FStats FTlsfAllocator::GetStats() const", ret: "統計", desc: "<code>bytes_used / bytes_peak / free_blocks / used_blocks / largest_free_block</code> を返す。" },
         { sig: "bool FTlsfAllocator::ValidateHeap() const", ret: "健全か", desc: "物理ブロックチェイン/フラグの一貫性を検証(O(ブロック数)、診断用)。Alloc/Free と同じロック下で呼ぶこと。" },
         { sig: "bool FTlsfAllocator::ContainsPtr(const void* pointer) const", ret: "所属か", desc: "<code>pointer</code> がこのアロケータの管理範囲か。予約所有時は O(1)。" },
-        { sig: "TResult&lt;void&gt; FTlsfAllocator::AddPool(void* pool_base, usize pool_size) / InitWithReservation(VmReservation&amp;&amp; reservation, usize initial_commit_bytes)", ret: "成否", desc: "追加プール登録 / <code>VmReservation</code> を保持して初期コミット分をプール化。重複範囲、表現上限超過、追跡上限(64プール)を状態変更前に拒否する。" },
+        { sig: "TResult&lt;void&gt; FTlsfAllocator::AddPool(void* pool_base, usize pool_size) / InitWithReservation(FVmReservation&amp;&amp; reservation, usize initial_commit_bytes)", ret: "成否", desc: "追加プール登録 / <code>FVmReservation</code> を保持して初期コミット分をプール化。重複範囲、表現上限超過、追跡上限(64プール)を状態変更前に拒否する。" },
         { sig: "TResult&lt;void&gt; FTlsfAllocator::Reset()", ret: "成否", desc: "未初期化状態へ戻し、VM予約と確保開始ビットマップを解放する。VM予約の解放に失敗した場合は再試行できるよう状態を保持してエラーを返す。" },
         { sig: "static usize FTlsfAllocator::PayloadBlockSize(const void* pointer)", ret: "ブロックサイズ", desc: "払い出した payload のブロックサイズをレイアウトだけからロック無しで読む(thread-cache 用)。" },
         { sig: "u32 FShardedTlsfAllocator::ShardCount() const", ret: "シャード数", desc: "分割されているシャードの数(最大 <code>kMaxShards=8</code>)。" },
@@ -211,16 +211,16 @@ ACS_REF.modules.push({
       kind: "クラス(静的)", header: "memory/MemorySystem.h",
       summary: "用途別の領域(<t>セグメント</t>)・ハード予算・統計・リーク追跡を束ねる、エンジン全体のメモリ管理ファサード。通常セグメントは独立した mimalloc first-class heap、Temp は一括リセット可能な arena を使う。<code>install_as_default_allocator=true</code> なら既定確保も Default セグメントへ通す。",
       when: "メモリ使用量の可視化・上限管理・領域分割をまとめて行いたい時。",
-      sample: "MemorySystemConfig configuration = FMemorySystem::DefaultConfig();\nconfiguration.install_as_default_allocator = true;\nif (FMemorySystem::Init(configuration).IsErr()) { /* 失敗 */ }\n\n{ ScopedMemorySegment segment(ESegment::Temp);\n  FAllocator* allocator = FMemorySystem::CurrentAllocator();\n  /* 1フレーム寿命の確保 */\n}\nFMemorySystem::ResetTemp();\n\nSegmentStats statistics[(int)ESegment::_Count];\nu32 count = FMemorySystem::GetStats(statistics, 5);\nFMemorySystem::Shutdown();",
+      sample: "FMemorySystemConfig configuration = FMemorySystem::DefaultConfig();\nconfiguration.install_as_default_allocator = true;\nif (FMemorySystem::Init(configuration).IsErr()) { /* 失敗 */ }\n\n{ FScopedMemorySegment segment(ESegment::Temp);\n  FAllocator* allocator = FMemorySystem::CurrentAllocator();\n  /* 1フレーム寿命の確保 */\n}\nFMemorySystem::ResetTemp();\n\nSegmentStats statistics[(int)ESegment::_Count];\nu32 count = FMemorySystem::GetStats(statistics, 5);\nFMemorySystem::Shutdown();",
       members: [
-        { sig: "static TResult&lt;void&gt; Init(const MemorySystemConfig&amp;)", ret: "成否", desc: "全セグメントを設定で初期化(多重 Init はエラー)。" },
-        { sig: "static MemorySystemConfig DefaultConfig()", ret: "既定設定", desc: "小規模/デフォルト用の設定を返す。" },
+        { sig: "static TResult&lt;void&gt; Init(const FMemorySystemConfig&amp;)", ret: "成否", desc: "全セグメントを設定で初期化(多重 Init はエラー)。" },
+        { sig: "static FMemorySystemConfig DefaultConfig()", ret: "既定設定", desc: "小規模/デフォルト用の設定を返す。" },
         { sig: "static FAllocator* Get(ESegment)", ret: "アロケータ", desc: "セグメント別アロケータ(Init 前は null)。" },
         { sig: "static void ResetTemp()", desc: "Temp セグメントを巻き戻す(フレーム先頭で 1 回)。開始済み Temp 操作を待ち、arena・ハード予算予約・割り当て追跡を同じ排他区間でリセットする。Reset 中の新規操作は失敗する。" },
-        { sig: "static u32 GetStats(SegmentStats* output, u32 output_capacity)", ret: "件数", desc: "全セグメントの要求量・ピーク・ハード予算・未解放件数を取得。" },
+        { sig: "static u32 GetStats(FSegmentStats* output, u32 output_capacity)", ret: "件数", desc: "全セグメントの要求量・ピーク・ハード予算・未解放件数を取得。" },
         { sig: "static MemorySegmentInspection InspectSegmentMemory(ESegment segment)", ret: "独立検査", desc: "mimalloc の生存ブロック列挙から統計を再構築し、ACS カウンタとの一致を検証する。保守点で呼ぶ。" },
         { sig: "static MemoryLeakSummary CaptureLeakSummary()", ret: "リーク集計", desc: "一括寿命の frame arena セグメントを除き、未解放件数・要求バイト・該当セグメント数を集計する。" },
-        { sig: "static ESegment Current()", ret: "現セグメント", desc: "<code>ScopedMemorySegment</code> が設定中の『現在のセグメント』を返す。" },
+        { sig: "static ESegment Current()", ret: "現セグメント", desc: "<code>FScopedMemorySegment</code> が設定中の『現在のセグメント』を返す。" },
         { sig: "static FAllocator* CurrentAllocator()", ret: "アロケータ", desc: "現在セグメントのアロケータ。明示確保やセグメント対応コンテナへ渡す。" },
         { sig: "static void Shutdown()", desc: "全セグメントを解放(既定アロケータも元へ戻す)。" }
       ]
@@ -277,16 +277,16 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "ESegment / ScopedMemorySegment",
+      name: "ESegment / FScopedMemorySegment",
       kind: "enum / クラス", header: "memory/Segment.h",
-      summary: "メモリを目的・寿命で分ける論理ヒープの種別。<code>FMemorySystem</code> が各<t>セグメント</t>に独立予算を持つ。<code>ScopedMemorySegment</code> で<b>スコープ中の既定確保先</b>を切り替える(<t>RAII</t>)。",
+      summary: "メモリを目的・寿命で分ける論理ヒープの種別。<code>FMemorySystem</code> が各<t>セグメント</t>に独立予算を持つ。<code>FScopedMemorySegment</code> で<b>スコープ中の既定確保先</b>を切り替える(<t>RAII</t>)。",
       when: "確保を用途別に隔離して断片化や予算を管理したい時。",
-      sample: "{ ScopedMemorySegment seg(ESegment::Resource);  // アセット用領域へ\n  auto tex = LoadTexture(...);\n}                                               // 抜けると元へ戻る",
+      sample: "{ FScopedMemorySegment seg(ESegment::Resource);  // アセット用領域へ\n  auto tex = LoadTexture(...);\n}                                               // 抜けると元へ戻る",
       members: [
         { sig: "ESegment::Default / Permanent / Temp / Resource / Develop", desc: "汎用 / 起動時常駐 / 1フレーム / アセット / エディタ・デバッグ。" },
-        { sig: "enum class EAllocKind", desc: "プロファイラ分類用のタグ(Generic=0 / Engine=1 / FGame=2 / Render=3 / Audio=4 / Asset=5 / UI=6 / Network=7 / Debug=8)。" },
+        { sig: "enum class EAllocKind", desc: "プロファイラ分類用のタグ(Generic=0 / Engine=1 / Game=2 / Render=3 / Audio=4 / Asset=5 / UI=6 / Network=7 / Debug=8)。" },
         { sig: "const char* ToString(ESegment s)", ret: "名前文字列", desc: "<code>ESegment</code> を <code>\"Default\"</code> 等の文字列にする(ログ/プロファイラ表示用)。" },
-        { sig: "explicit ScopedMemorySegment(ESegment s)", desc: "現在セグメントを切り替え、デストラクタで元に戻す。" }
+        { sig: "explicit FScopedMemorySegment(ESegment s)", desc: "現在セグメントを切り替え、デストラクタで元に戻す。" }
       ]
     },
     {
@@ -302,13 +302,13 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "VmReservation",
+      name: "FVmReservation",
       kind: "クラス", header: "memory/VirtualMemory.h",
       summary: "巨大な仮想アドレス空間を<b>予約(Reserve)</b>し、必要なページだけ<b>物理コミット(Commit)</b>する低レベル <t>RAII</t> ハンドル(VirtualAlloc ラッパ)。Decommit したページは内部 <b>LRU キャッシュ(16 エントリ、既定の総量上限 64 MiB)</b>に保持し、再 Commit がヒットすればシステムコールを省く。コピー不可・<t>ムーブ</t>可。",
       when: "<code>FTlsfAllocator</code> 等の土台として、上限の決まった広大なアリーナを予約だけ先に取り、使う分だけ後からコミットしたい時。通常は直接使わずアロケータ越しに使う。",
-      sample: "auto r = VmReservation::Reserve(256u &lt;&lt; 20);   // 256MB 予約(物理はまだ)\nif (r.IsOk()) {\n    VmReservation vm = static_cast&lt;VmReservation&amp;&amp;&gt;(r.Value());\n    vm.Commit(0, 8u &lt;&lt; 20);                    // 先頭 8MB を物理割り当て\n    void* base = vm.Base();\n    vm.Decommit(0, 8u &lt;&lt; 20);                  // 返却(実 VirtualFree は LRU エビクト時)\n}                                                 // スコープ脱出で Release",
+      sample: "auto r = FVmReservation::Reserve(256u &lt;&lt; 20);   // 256MB 予約(物理はまだ)\nif (r.IsOk()) {\n    FVmReservation vm = static_cast&lt;FVmReservation&amp;&amp;&gt;(r.Value());\n    vm.Commit(0, 8u &lt;&lt; 20);                    // 先頭 8MB を物理割り当て\n    void* base = vm.Base();\n    vm.Decommit(0, 8u &lt;&lt; 20);                  // 返却(実 VirtualFree は LRU エビクト時)\n}                                                 // スコープ脱出で Release",
       members: [
-        { sig: "static TResult&lt;VmReservation&gt; Reserve(usize capacity_bytes) noexcept", ret: "予約 or エラー", desc: "<code>capacity_bytes</code> の仮想範囲を予約する(MEM_RESERVE)。物理はまだ割り当てない。", when: "アリーナの上限を先に押さえる時。" },
+        { sig: "static TResult&lt;FVmReservation&gt; Reserve(usize capacity_bytes) noexcept", ret: "予約 or エラー", desc: "<code>capacity_bytes</code> の仮想範囲を予約する(MEM_RESERVE)。物理はまだ割り当てない。", when: "アリーナの上限を先に押さえる時。" },
         { sig: "TResult&lt;void&gt; Release() noexcept", ret: "成否", desc: "予約全体を解放する。失敗時は所有状態を保持して再試行可能にし、機械可読ログを出す。デストラクタからも呼ばれる。" },
         { sig: "TResult&lt;void&gt; Commit(usize offset, usize size) noexcept", ret: "成否", desc: "<code>[offset, offset+size)</code> の物理ページを割り当てる。LRU ヒット時はシステムコールを省く。" },
         { sig: "TResult&lt;void&gt; Decommit(usize offset, usize size) noexcept", ret: "成否", desc: "物理ページを返却する。実際の VirtualFree は LRU からエビクトされる時まで遅延する。" },
@@ -338,14 +338,14 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "mapped_t / page_t",
+      name: "FMappedT / FPageT",
       kind: "構造体", header: "memory/VirtualMemory.h",
       summary: "VM 層がマップ済み領域・連続ページ群を<b>各 8 バイトに圧縮</b>して持つビットフィールド <t>POD</t>。アドレスとページ数・フラグをパックする。<code>static_assert</code> で 8 バイトを保証。",
       when: "VM 層の内部記述子。通常は直接触らないが、LRU キャッシュ等の構造を理解する際に参照する。",
-      sample: "static_assert(sizeof(mapped_t) == 8);\nstatic_assert(sizeof(page_t)   == 8);",
+      sample: "static_assert(sizeof(FMappedT) == 8);\nstatic_assert(sizeof(FPageT)   == 8);",
       members: [
-        { sig: "u64 packed_virtual_addr : 44 / page_count : 16 / sparse : 1 / misc : 3", desc: "<code>mapped_t</code>: マップ領域の仮想アドレス・ページ数・スパース/その他フラグ。" },
-        { sig: "u64 continuous_page_count : 12 / misc : 4 / packed_virtual_addr : 48", desc: "<code>page_t</code>: 連続ページ数・フラグ・ページ整列アドレス。" }
+        { sig: "u64 packed_virtual_addr : 44 / page_count : 16 / sparse : 1 / misc : 3", desc: "<code>FMappedT</code>: マップ領域の仮想アドレス・ページ数・スパース/その他フラグ。" },
+        { sig: "u64 continuous_page_count : 12 / misc : 4 / packed_virtual_addr : 48", desc: "<code>FPageT</code>: 連続ページ数・フラグ・ページ整列アドレス。" }
       ]
     },
     {
@@ -361,15 +361,15 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "MemorySystemConfig / SegmentConfig / SegmentStats",
+      name: "FMemorySystemConfig / FSegmentConfig / FSegmentStats",
       kind: "構造体", header: "memory/MemorySystem.h",
-      summary: "<t>FMemorySystem</t> の設定・統計を運ぶ <t>POD</t> 群。<b>SegmentConfig</b> はセグメント種別・要求量ハード予算・frame arena 使用を指定する。<b>MemorySystemConfig</b> は全セグメント設定と既定アロケータへの導入を指定する。<b>SegmentStats</b> は要求量・ピーク・予算・未解放件数を返す。",
+      summary: "<t>FMemorySystem</t> の設定・統計を運ぶ <t>POD</t> 群。<b>FSegmentConfig</b> はセグメント種別・要求量ハード予算・frame arena 使用を指定する。<b>FMemorySystemConfig</b> は全セグメント設定と既定アロケータへの導入を指定する。<b>FSegmentStats</b> は要求量・ピーク・予算・未解放件数を返す。",
       when: "<code>FMemorySystem::Init</code> に渡す設定の組み立てや、<code>GetStats</code> の結果受け取りに使う。",
-      sample: "MemorySystemConfig configuration = FMemorySystem::DefaultConfig();\nconfiguration.install_as_default_allocator = true;\nconfiguration.segments[(usize)ESegment::Resource].hard_budget_bytes = 1ull &lt;&lt; 30;\nFMemorySystem::Init(configuration);\n\nSegmentStats statistics[(int)ESegment::_Count];\nu32 count = FMemorySystem::GetStats(statistics, 5);\nfor (u32 index = 0; index &lt; count; ++index) { /* requested_bytes / hard_budget_bytes */ }",
+      sample: "FMemorySystemConfig configuration = FMemorySystem::DefaultConfig();\nconfiguration.install_as_default_allocator = true;\nconfiguration.segments[(usize)ESegment::Resource].hard_budget_bytes = 1ull &lt;&lt; 30;\nFMemorySystem::Init(configuration);\n\nSegmentStats statistics[(int)ESegment::_Count];\nu32 count = FMemorySystem::GetStats(statistics, 5);\nfor (u32 index = 0; index &lt; count; ++index) { /* requested_bytes / hard_budget_bytes */ }",
       members: [
-        { sig: "SegmentConfig: ESegment segment; usize hard_budget_bytes; bool use_frame_allocator", desc: "通常は mimalloc、<code>use_frame_allocator=true</code> なら一括 Reset する arena を使う。ハード予算超過は確保失敗になる。" },
-        { sig: "MemorySystemConfig: SegmentConfig segments[ESegment::_Count]; bool install_as_default_allocator = false", desc: "<code>install_as_default_allocator=true</code> なら Init 時に Default セグメントを既定アロケータへ据え、Shutdown で元へ復元する。" },
-        { sig: "SegmentStats: ESegment segment; const char* segment_name / allocator_name; u64 requested_bytes / peak_requested_bytes / hard_budget_bytes / outstanding_allocation_count", desc: "セグメント別の要求量・ピーク・予算・未解放件数。<code>GetStats</code> で取得。" }
+        { sig: "FSegmentConfig: ESegment segment; usize hard_budget_bytes; bool use_frame_allocator", desc: "通常は mimalloc、<code>use_frame_allocator=true</code> なら一括 Reset する arena を使う。ハード予算超過は確保失敗になる。" },
+        { sig: "FMemorySystemConfig: FSegmentConfig segments[ESegment::_Count]; bool install_as_default_allocator = false", desc: "<code>install_as_default_allocator=true</code> なら Init 時に Default セグメントを既定アロケータへ据え、Shutdown で元へ復元する。" },
+        { sig: "FSegmentStats: ESegment segment; const char* segment_name / allocator_name; u64 requested_bytes / peak_requested_bytes / hard_budget_bytes / outstanding_allocation_count", desc: "セグメント別の要求量・ピーク・予算・未解放件数。<code>GetStats</code> で取得。" }
       ]
     },
     {
@@ -394,6 +394,6 @@ Object.assign(ACS_REF.glossary, {
   "FObject": "参照カウント管理されるオブジェクトの基底。生ポインタからも強/弱参照を作れる。",
   "DefaultAllocator": "既定の<t>アロケータ</t>。指定なしの確保で使われる。",
   "セグメント": "メモリを目的・寿命で分けた論理ヒープ(Default/Permanent/Temp/Resource/Develop)。<code>FMemorySystem</code> が各セグメントに独立した予算を持つ。",
-  "VmReservation": "仮想アドレス空間を予約し、必要なページだけ物理コミットする <t>RAII</t> ハンドル。Decommit は総量上限付き LRU キャッシュ経由で実 VirtualFree を遅延する。",
+  "FVmReservation": "仮想アドレス空間を予約し、必要なページだけ物理コミットする <t>RAII</t> ハンドル。Decommit は総量上限付き LRU キャッシュ経由で実 VirtualFree を遅延する。",
   "Non-Temporal": "キャッシュ(L1/L2)を経由せずメモリへ直接読み書きする命令。大きなバッファのゼロ化/コピーでキャッシュ汚染を避けられる。"
 });

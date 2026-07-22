@@ -7,4 +7,4 @@
 #include "HelloWindowApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(hellowin::HelloWindowApp)
+ACS_DEFINE_MAIN(hellowin::FHelloWindowApp)

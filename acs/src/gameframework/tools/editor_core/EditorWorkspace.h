@@ -10,7 +10,7 @@
 //   ・登録 panel のリスト管理 (PushBack / Find / Remove)
 //   ・毎フレームの main loop coordination
 //       (OnFrameBegin → DockSpace 描画 → DrawUI → MenuBar)
-//   ・ImGui DockSpace の作成 + FWindow メニュー (panel toggle list)
+//   ・ImGui DockSpace の作成 + Window メニュー (panel toggle list)
 //   ・レイアウト永続化 (ImGui ini + per-panel state を `.acslayout` 1 ファイル)
 //   ・選択 / asset 選択イベントの全 panel への broadcast
 //   ・FSelectionService の保管点 (非所有)
@@ -38,9 +38,9 @@
 //   ・**panel は raw pointer の非所有保持**: caller が own する (= caller が
 //     panel の lifetime を制御する) ことで、panel の動的生成 / scope-stack 配置
 //     の両方を許容する。FParticleEditorPanel / FEditorToolbar と同形。
-//   ・**`acs::TArray<FEditorPanel*>` で順序保持**: dispatch 順 / FWindow メニュー
+//   ・**`acs::TArray<FEditorPanel*>` で順序保持**: dispatch 順 / Window メニュー
 //     の表示順 = 登録順。登録順以外のソートはしない。
-//   ・**`UnregisterPanel` は順序保存削除**: FWindow メニューの並びがフレーム間で
+//   ・**`UnregisterPanel` は順序保存削除**: Window メニューの並びがフレーム間で
 //     ぶれないよう、swap-remove ではなく shift 削除。FSelectionService の
 //     RemoveAtSwap とは方針を変える (UI 表示順の体験を優先)。
 //   ・**Title はリテラル文字列を期待**: `FEditorPanel::Title()` の規約 (リテラル /
@@ -49,7 +49,7 @@
 //     node を持つ」最小構成。central node 内で float window 動作させたい panel は
 //     `SetDockTarget(false)` でヒントを出せるが、現状は dock_target hint を
 //     DockSpace に強制反映する仕組みは持たない。
-//   ・**FWindow メニュー / Layout メニュー は `DrawMenuBar()` 内で MainMenuBar に
+//   ・**Window メニュー / Layout メニュー は `DrawMenuBar()` 内で MainMenuBar に
 //     直接 push**: 派生コードからは TickAllPanels を呼ぶだけで自動描画される。
 //     MenuBar の有無は `m_EnableMenuBar` で制御可能 (= 既存 MainMenuBar に
 //     共存させたい host は disable できる)。
@@ -58,6 +58,8 @@
 //       1) ヘッダ行  : `ACS_EDLAYOUT <version>`
 //       2) ImGui ini : `IMGUI_INI <byte_size>\n<raw ini bytes>\n`
 //       3) panel state: `PANEL <title> <visible:0/1> <dock_target:0/1>\n` (1 行 1 panel)
+//     PANEL 行は右端 2 token を flag として解析するため、title 内部の ASCII space
+//     (0x20) を保持できる。空 title、先頭/末尾 space、制御文字、非 ASCII は拒否する。
 //     ImGui ini は ImGui::SaveIniSettingsToMemory() で取得した raw 文字列を
 //     生埋め込み。LoadLayout 側で同じく LoadIniSettingsFromMemory に渡す。
 //   ・**BroadcastSelectionChanged / BroadcastAssetSelected** は全 panel への
@@ -77,7 +79,7 @@
 namespace acs::game::editor_core {
 
 // 同 namespace の FEditorPanel は forward-decl のみで受ける。
-// 本ヘッダから FEditorPanel.h を include しないことで、利用側 (sample / 上位
+// 本ヘッダから EditorPanel.h を include しないことで、利用側 (sample / 上位
 // editor アプリ) が「workspace と panel 群」を疎結合にビルド単位として
 // 扱えるようにする (panel 派生クラスのヘッダ変更が workspace 自身の再ビルド
 // 要否に影響しない)。
@@ -94,13 +96,62 @@ class FSelectionService;
 
 namespace acs::game::editor_core {
 
+/** `.acslayout` checked persistence の安定したエラー種別。 */
+enum class EEditorWorkspacePersistenceError : u8 {
+    None = 0,
+    NullArgument,
+    PathTooLong,
+    InputTooLarge,
+    EmbeddedNul,
+    TooManyLines,
+    LineTooLong,
+    BadMagic,
+    UnsupportedVersion,
+    InvalidSyntax,
+    DuplicateSection,
+    DuplicatePanel,
+    TooManyPanels,
+    TitleTooLong,
+    InvalidTitle,
+    IniTooLarge,
+    TruncatedIni,
+    TrailingData,
+    ImGuiContextMissing,
+    AllocationFailure,
+    FileNotFound,
+    FileOpenFailed,
+    FileSizeFailed,
+    FileChanged,
+    FileReadFailed,
+    FileWriteFailed,
+    FileFlushFailed,
+    FileCloseFailed,
+    AtomicReplaceFailed,
+};
+
+/** `.acslayout` checked load/save の結果。 */
+struct FEditorWorkspacePersistenceResult {
+    EEditorWorkspacePersistenceError error =
+        EEditorWorkspacePersistenceError::None;
+    u32 line = 0u;
+    u32 panel_entries = 0u;
+    u64 bytes_processed = 0u;
+    u32 os_error = 0u;
+
+    bool Succeeded() const noexcept {
+        return error == EEditorWorkspacePersistenceError::None;
+    }
+    static const char* ErrorName(
+        EEditorWorkspacePersistenceError error) noexcept;
+};
+
 /**
  * 複数の FEditorPanel を統括するワークスペース hub。
  *
  * @details
  * 登録 panel のリスト管理 (RegisterPanel / FindPanelByTitle / UnregisterPanel)、
  * 毎フレームの main loop coordination (OnFrameBegin → DockSpace → MenuBar →
- * DrawUI)、ImGui DockSpace と FWindow / Layout メニューの描画、レイアウトの
+ * DrawUI)、ImGui DockSpace と Window / Layout メニューの描画、レイアウトの
  * `.acslayout` 永続化、選択 / asset 選択イベントの全 panel への broadcast を担う。
  * panel は raw pointer の非所有保持で順序 = 登録順 = dispatch 順。FSelectionService
  * も非所有参照で保持する。所有 / 参照関係を曖昧にしないため非コピー・非ムーブ。
@@ -217,10 +268,10 @@ public:
     void DrawDockSpace() noexcept;
 
     /**
-     * MainMenuBar 内に "FWindow" / "Layout" メニューを追加描画する。
+     * MainMenuBar 内に "Window" / "Layout" メニューを追加描画する。
      *
      * @details
-     * FWindow は各登録 panel の visibility toggle、Layout は Save / Load Default
+     * Window は各登録 panel の visibility toggle、Layout は Save / Load Default
      * ボタンを持つ。既存 host が MainMenuBar を持つ場合は SetEnableMenuBar(false) で
      * 本 workspace 側を抑制する。
      */
@@ -237,6 +288,10 @@ public:
      */
     void SaveLayout(const wchar_t* file_path) noexcept;
 
+    /** SaveLayout の checked atomic 版。 */
+    FEditorWorkspacePersistenceResult TrySaveLayout(
+        const wchar_t* file_path) noexcept;
+
     /**
      * SaveLayout で書き出した `.acslayout` を復元する。
      *
@@ -244,6 +299,18 @@ public:
      * @param file_path 読み込み元のファイルパス。
      */
     void LoadLayout(const wchar_t* file_path) noexcept;
+
+    /** LoadLayout の checked transaction 版。 */
+    FEditorWorkspacePersistenceResult TryLoadLayout(
+        const wchar_t* file_path) noexcept;
+
+    /**
+     * 長さ付き `.acslayout` を全検証し、最後に ImGui/panel 状態だけを更新する。
+     * 登録 panel 配列と selection service pointer は変更しない。PANEL title は内部
+     * ASCII space のみ許可し、空・先頭/末尾 space・制御文字・非 ASCII を拒否する。
+     */
+    FEditorWorkspacePersistenceResult TryParseLayoutText(
+        const char* text, usize text_size) noexcept;
 
     /**
      * FSelectionService 参照を登録 / 解除する。
@@ -330,6 +397,13 @@ public:
 
     /** 同時登録可能 panel 数の上限 (overflow ガード、到達後は silent no-op)。 */
     static constexpr u32         kMaxPanels     = 32u;
+
+    static constexpr usize kMaxLayoutBytes = 4u * 1024u * 1024u;
+    static constexpr usize kMaxIniBytes = 2u * 1024u * 1024u;
+    static constexpr usize kMaxLayoutLineBytes = 255u;
+    static constexpr u32 kMaxLayoutLines = 4096u;
+    static constexpr usize kMaxPanelTitleBytes = 127u;
+    static constexpr usize kMaxPersistencePathChars = 1023u;
 
 private:
     /**

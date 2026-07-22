@@ -11,7 +11,7 @@ using namespace acs;
 
 namespace helloibl {
 
-void RenderSsrPass(HelloIblApp& app, const FMat4& vp_for_render,
+void RenderSsrPass(FHelloIblApp& app, const FMat4& vp_for_render,
                    const FMat4& inv_vp, const FMat4& vp_no_jitter) noexcept {
     if (!app.m_ShowSsr) return;
 
@@ -40,7 +40,7 @@ void RenderSsrPass(HelloIblApp& app, const FMat4& vp_for_render,
     app.m_SsrWarm = true;     // 次フレームから FPbrShader が SSR texture を読める
 }
 
-void RenderSsaoPass(HelloIblApp& app, const FMat4& vp_for_render,
+void RenderSsaoPass(FHelloIblApp& app, const FMat4& vp_for_render,
                     const FMat4& inv_vp, const FVec3& sun_dir) noexcept {
     if (!app.m_bUseSsao) return;
 
@@ -60,7 +60,7 @@ void RenderSsaoPass(HelloIblApp& app, const FMat4& vp_for_render,
     app.m_bSsaoWarm = true;     // 次フレームから FPbrShader が SSAO texture を読める
 }
 
-void RenderSsgiPass(HelloIblApp& app, const FMat4& vp_for_render,
+void RenderSsgiPass(FHelloIblApp& app, const FMat4& vp_for_render,
                     const FMat4& inv_vp, const FMat4& vp_no_jitter) noexcept {
     if (!app.m_bUseSsgi) return;
 

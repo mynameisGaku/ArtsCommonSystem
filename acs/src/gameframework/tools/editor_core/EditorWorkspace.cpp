@@ -5,7 +5,7 @@
 //   ・panel 登録 / 解除 / 探索 (TArray<FEditorPanel*> ベース)
 //   ・1 フレーム駆動 (OnFrameBegin → DockSpace → MenuBar → DrawUI)
 //   ・ImGui DockSpaceOverViewport の生成
-//   ・FWindow / Layout メニューの描画
+//   ・Window / Layout メニューの描画
 //   ・`.acslayout` 形式 (テキスト: magic + ImGui ini + per-panel state) の save/load
 //   ・FSelectionService 参照保管 + Broadcast の fan-out
 // を実装する。全 noexcept、STL 不使用、ImGui 依存はこの .cpp に閉じる。
@@ -14,12 +14,16 @@
 
 #include "gameframework/tools/editor_core/EditorPanel.h"
 #include "foundation/Log.h"
-#include "platform/FileSystem.h"
+#include "foundation/Platform.h"
 
 #include <imgui.h>
 
-#include <cstdio>   // std::snprintf / std::sscanf (layout text の整形 / 解析)
-#include <cstring>  // std::strcmp / std::strlen / std::memcpy
+#include <charconv>
+#include <cstddef>
+#include <cstdio>
+#include <cstring>
+#include <cwchar>
+#include <limits>
 
 // IMGUI_HAS_DOCK は docking branch (= ImGui の features/docking) のみで定義される。
 // master branch を引いている ACS では未定義になる。DockSpaceOverViewport /
@@ -36,6 +40,155 @@
 #endif
 
 namespace acs::game::editor_core {
+
+namespace {
+
+bool IsBoundedWidePath(
+    const wchar_t* path, usize max_chars, usize& out_length) noexcept {
+    out_length = 0u;
+    if (path == nullptr) return false;
+    while (out_length <= max_chars && path[out_length] != L'\0') ++out_length;
+    return out_length > 0u && out_length <= max_chars;
+}
+
+bool BuildUniqueTempPath(
+    const wchar_t* destination, usize destination_length,
+    wchar_t* out, usize capacity, u32 attempt) noexcept {
+    wchar_t suffix[96]{};
+    static volatile LONG counter = 0;
+    const LONG serial = ::InterlockedIncrement(&counter);
+    const int suffix_length = std::swprintf(
+        suffix, sizeof(suffix) / sizeof(suffix[0]),
+        L".tmp.%lu.%lu.%ld.%u",
+        static_cast<unsigned long>(::GetCurrentProcessId()),
+        static_cast<unsigned long>(::GetCurrentThreadId()),
+        static_cast<long>(serial), attempt);
+    if (suffix_length <= 0) return false;
+    const usize suffix_size = static_cast<usize>(suffix_length);
+    if (destination_length + suffix_size + 1u > capacity) return false;
+    std::memcpy(out, destination, destination_length * sizeof(wchar_t));
+    std::memcpy(
+        out + destination_length, suffix,
+        (suffix_size + 1u) * sizeof(wchar_t));
+    return true;
+}
+
+struct FFileRenameInfoEx {
+    DWORD flags = 0u;
+    HANDLE root_directory = nullptr;
+    DWORD file_name_length = 0u;
+    wchar_t file_name[1]{};
+};
+
+bool TryPosixAtomicReplace(
+    const wchar_t* temporary_path,
+    const wchar_t* destination,
+    usize destination_length,
+    DWORD& out_error) noexcept {
+    constexpr DWORD kRenameReplaceIfExists = 0x00000001u;
+    constexpr DWORD kRenamePosixSemantics = 0x00000002u;
+    constexpr auto kFileRenameInfoEx =
+        static_cast<FILE_INFO_BY_HANDLE_CLASS>(22);
+    constexpr usize kPrefixBytes = offsetof(FFileRenameInfoEx, file_name);
+    alignas(FFileRenameInfoEx)
+        u8 storage[kPrefixBytes +
+                   (FEditorWorkspace::kMaxPersistencePathChars + 1u) *
+                       sizeof(wchar_t)]{};
+    auto* info = reinterpret_cast<FFileRenameInfoEx*>(storage);
+    const usize destination_bytes = destination_length * sizeof(wchar_t);
+    info->flags = kRenameReplaceIfExists | kRenamePosixSemantics;
+    info->file_name_length = static_cast<DWORD>(destination_bytes);
+    std::memcpy(info->file_name, destination, destination_bytes);
+
+    HANDLE source = ::CreateFileW(
+        temporary_path, DELETE | SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (source == INVALID_HANDLE_VALUE) {
+        out_error = ::GetLastError();
+        return false;
+    }
+    const DWORD info_bytes =
+        static_cast<DWORD>(kPrefixBytes + destination_bytes);
+    const BOOL renamed = ::SetFileInformationByHandle(
+        source, kFileRenameInfoEx, info, info_bytes);
+    if (!renamed) out_error = ::GetLastError();
+    (void)::CloseHandle(source);
+    return renamed != 0;
+}
+
+bool AppendBytes(TArray<char>& out, const char* data, usize length) noexcept {
+    const usize old_size = out.Size();
+    if (length > std::numeric_limits<usize>::max() - old_size ||
+        !out.TryResize(old_size + length)) {
+        return false;
+    }
+    if (length > 0u) std::memcpy(out.Data() + old_size, data, length);
+    return true;
+}
+
+struct FToken {
+    const char* begin = nullptr;
+    const char* end = nullptr;
+};
+
+bool NextToken(const char*& cursor, const char* end, FToken& out) noexcept {
+    while (cursor < end && (*cursor == ' ' || *cursor == '\t')) ++cursor;
+    if (cursor == end) return false;
+    out.begin = cursor;
+    while (cursor < end && *cursor != ' ' && *cursor != '\t') ++cursor;
+    out.end = cursor;
+    return true;
+}
+
+bool TokenEquals(const FToken& token, const char* literal) noexcept {
+    const usize length = std::strlen(literal);
+    return static_cast<usize>(token.end - token.begin) == length &&
+        std::memcmp(token.begin, literal, length) == 0;
+}
+
+bool ParseUsizeToken(const FToken& token, usize& out) noexcept {
+    u64 value = 0u;
+    const std::from_chars_result parsed = std::from_chars(
+        token.begin, token.end, value, 10);
+    if (parsed.ec != std::errc{} || parsed.ptr != token.end ||
+        value > static_cast<u64>(std::numeric_limits<usize>::max())) {
+        return false;
+    }
+    out = static_cast<usize>(value);
+    return true;
+}
+
+/** panel title に許す byte 列かを検証する。内部の ASCII space だけを許可する。 */
+bool IsValidPanelTitleBytes(const char* title, usize length) noexcept {
+    if (title == nullptr || length == 0u ||
+        length > FEditorWorkspace::kMaxPanelTitleBytes) {
+        return false;
+    }
+    if (title[0] == ' ' || title[length - 1u] == ' ') return false;
+    for (usize i = 0u; i < length; ++i) {
+        const unsigned char c = static_cast<unsigned char>(title[i]);
+        if (c < 0x20u || c > 0x7eu) return false;
+    }
+    return true;
+}
+
+bool IsValidPanelTitle(const char* title, usize& out_length) noexcept {
+    out_length = 0u;
+    if (title == nullptr) return false;
+    while (out_length <= FEditorWorkspace::kMaxPanelTitleBytes &&
+           title[out_length] != '\0') {
+        ++out_length;
+    }
+    return IsValidPanelTitleBytes(title, out_length);
+}
+
+/** PANEL 行の title と末尾 2 flag の区切りに使える文字かを返す。 */
+bool IsPanelFieldSeparator(char c) noexcept {
+    return c == ' ' || c == '\t';
+}
+
+} // namespace
 
 /**
  * panel ポインタが登録対象として安全かを判定する。
@@ -193,7 +346,7 @@ void FEditorWorkspace::TickAllPanels(f32 dt) noexcept {
         }
     }
 
-    // 2) DockSpace: ImGui FWindow より前に central node を確保しておくと、
+    // 2) DockSpace: ImGui ウィンドウより前に central node を確保しておくと、
     //    panel 側で初回 ImGui::Begin した時点で自動 dock 候補に central node が
     //    含まれるようになる。
     if (m_EnableDockspace) {
@@ -240,14 +393,14 @@ void FEditorWorkspace::DrawDockSpace() noexcept {
 #endif
 }
 
-/** MainMenuBar に FWindow (panel toggle) / Layout (save / load) メニューを描画する。 */
+/** MainMenuBar に Window (panel toggle) / Layout (save / load) メニューを描画する。 */
 void FEditorWorkspace::DrawMenuBar() noexcept {
     if (!ImGui::BeginMainMenuBar()) {
         return;
     }
 
-    // FWindow メニュー (panel toggle)
-    if (ImGui::BeginMenu("FWindow")) {
+    // Window メニュー (panel toggle)
+    if (ImGui::BeginMenu("Window")) {
         const usize n = m_Panels.Size();
         if (n == 0) {
             ImGui::TextDisabled("(no panels registered)");
@@ -284,243 +437,567 @@ void FEditorWorkspace::DrawMenuBar() noexcept {
     ImGui::EndMainMenuBar();
 }
 
-/**
- * 現在のレイアウトを `.acslayout` テキストファイルへ書き出す。
- *
- * @details
- * フォーマットはヘッダ行 `ACS_EDLAYOUT <version>`、`IMGUI_INI <byte_size>` +
- * raw ini bytes、`PANEL <title> <visible> <dock_target>` 行群。失敗は ACS_LOG_WARN
- * のみで通知し、file_path が nullptr なら no-op。
- * @param file_path 書き出し先のファイルパス。
- */
+const char* FEditorWorkspacePersistenceResult::ErrorName(
+    EEditorWorkspacePersistenceError error) noexcept {
+    switch (error) {
+        case EEditorWorkspacePersistenceError::None: return "None";
+        case EEditorWorkspacePersistenceError::NullArgument: return "NullArgument";
+        case EEditorWorkspacePersistenceError::PathTooLong: return "PathTooLong";
+        case EEditorWorkspacePersistenceError::InputTooLarge: return "InputTooLarge";
+        case EEditorWorkspacePersistenceError::EmbeddedNul: return "EmbeddedNul";
+        case EEditorWorkspacePersistenceError::TooManyLines: return "TooManyLines";
+        case EEditorWorkspacePersistenceError::LineTooLong: return "LineTooLong";
+        case EEditorWorkspacePersistenceError::BadMagic: return "BadMagic";
+        case EEditorWorkspacePersistenceError::UnsupportedVersion: return "UnsupportedVersion";
+        case EEditorWorkspacePersistenceError::InvalidSyntax: return "InvalidSyntax";
+        case EEditorWorkspacePersistenceError::DuplicateSection: return "DuplicateSection";
+        case EEditorWorkspacePersistenceError::DuplicatePanel: return "DuplicatePanel";
+        case EEditorWorkspacePersistenceError::TooManyPanels: return "TooManyPanels";
+        case EEditorWorkspacePersistenceError::TitleTooLong: return "TitleTooLong";
+        case EEditorWorkspacePersistenceError::InvalidTitle: return "InvalidTitle";
+        case EEditorWorkspacePersistenceError::IniTooLarge: return "IniTooLarge";
+        case EEditorWorkspacePersistenceError::TruncatedIni: return "TruncatedIni";
+        case EEditorWorkspacePersistenceError::TrailingData: return "TrailingData";
+        case EEditorWorkspacePersistenceError::ImGuiContextMissing: return "ImGuiContextMissing";
+        case EEditorWorkspacePersistenceError::AllocationFailure: return "AllocationFailure";
+        case EEditorWorkspacePersistenceError::FileNotFound: return "FileNotFound";
+        case EEditorWorkspacePersistenceError::FileOpenFailed: return "FileOpenFailed";
+        case EEditorWorkspacePersistenceError::FileSizeFailed: return "FileSizeFailed";
+        case EEditorWorkspacePersistenceError::FileChanged: return "FileChanged";
+        case EEditorWorkspacePersistenceError::FileReadFailed: return "FileReadFailed";
+        case EEditorWorkspacePersistenceError::FileWriteFailed: return "FileWriteFailed";
+        case EEditorWorkspacePersistenceError::FileFlushFailed: return "FileFlushFailed";
+        case EEditorWorkspacePersistenceError::FileCloseFailed: return "FileCloseFailed";
+        case EEditorWorkspacePersistenceError::AtomicReplaceFailed: return "AtomicReplaceFailed";
+    }
+    return "Unknown";
+}
+
+FEditorWorkspacePersistenceResult FEditorWorkspace::TryParseLayoutText(
+    const char* text, usize text_size) noexcept {
+    FEditorWorkspacePersistenceResult result{};
+    result.bytes_processed = static_cast<u64>(text_size);
+    if (text == nullptr) {
+        result.error = EEditorWorkspacePersistenceError::NullArgument;
+        return result;
+    }
+    if (text_size > kMaxLayoutBytes) {
+        result.error = EEditorWorkspacePersistenceError::InputTooLarge;
+        return result;
+    }
+    if (std::memchr(text, '\0', text_size) != nullptr) {
+        result.error = EEditorWorkspacePersistenceError::EmbeddedNul;
+        return result;
+    }
+
+    struct FPanelChange {
+        FEditorPanel* panel = nullptr;
+        bool visible = false;
+        bool dock_target = false;
+    };
+    FPanelChange staged_changes[kMaxPanels]{};
+    char seen_titles[kMaxPanels][kMaxPanelTitleBytes + 1u]{};
+    u32 panel_entries = 0u;
+    usize offset = 0u;
+    u32 line_number = 0u;
+    const char* ini_data = "";
+    usize ini_size = 0u;
+
+    auto fail = [&](EEditorWorkspacePersistenceError error) noexcept {
+        result.error = error;
+        result.line = line_number;
+        result.panel_entries = panel_entries;
+        return result;
+    };
+    auto read_line = [&](const char*& begin, const char*& end) noexcept -> bool {
+        if (offset >= text_size) return false;
+        if (++line_number > kMaxLayoutLines) return false;
+        const usize begin_offset = offset;
+        while (offset < text_size && text[offset] != '\n') ++offset;
+        usize length = offset - begin_offset;
+        if (offset < text_size) ++offset;
+        if (length > 0u && text[begin_offset + length - 1u] == '\r') --length;
+        begin = text + begin_offset;
+        end = begin + length;
+        return true;
+    };
+
+    const char* line_begin = nullptr;
+    const char* line_end = nullptr;
+    if (!read_line(line_begin, line_end)) {
+        result.line = line_number;
+        result.error = line_number > kMaxLayoutLines
+            ? EEditorWorkspacePersistenceError::TooManyLines
+            : EEditorWorkspacePersistenceError::BadMagic;
+        return result;
+    }
+    if (static_cast<usize>(line_end - line_begin) > kMaxLayoutLineBytes) {
+        return fail(EEditorWorkspacePersistenceError::LineTooLong);
+    }
+    const char* cursor = line_begin;
+    FToken magic{};
+    FToken version_token{};
+    FToken trailing{};
+    if (!NextToken(cursor, line_end, magic) ||
+        !TokenEquals(magic, kLayoutMagic)) {
+        return fail(EEditorWorkspacePersistenceError::BadMagic);
+    }
+    if (!NextToken(cursor, line_end, version_token) ||
+        NextToken(cursor, line_end, trailing)) {
+        return fail(EEditorWorkspacePersistenceError::InvalidSyntax);
+    }
+    usize version = 0u;
+    if (!ParseUsizeToken(version_token, version)) {
+        return fail(EEditorWorkspacePersistenceError::InvalidSyntax);
+    }
+    if (version != kLayoutVersion) {
+        return fail(EEditorWorkspacePersistenceError::UnsupportedVersion);
+    }
+
+    if (!read_line(line_begin, line_end)) {
+        result.line = line_number;
+        result.error = line_number > kMaxLayoutLines
+            ? EEditorWorkspacePersistenceError::TooManyLines
+            : EEditorWorkspacePersistenceError::InvalidSyntax;
+        return result;
+    }
+    if (static_cast<usize>(line_end - line_begin) > kMaxLayoutLineBytes) {
+        return fail(EEditorWorkspacePersistenceError::LineTooLong);
+    }
+    cursor = line_begin;
+    FToken ini_keyword{};
+    FToken ini_size_token{};
+    if (!NextToken(cursor, line_end, ini_keyword) ||
+        !TokenEquals(ini_keyword, "IMGUI_INI") ||
+        !NextToken(cursor, line_end, ini_size_token) ||
+        NextToken(cursor, line_end, trailing) ||
+        !ParseUsizeToken(ini_size_token, ini_size)) {
+        return fail(EEditorWorkspacePersistenceError::InvalidSyntax);
+    }
+    if (ini_size > kMaxIniBytes) {
+        return fail(EEditorWorkspacePersistenceError::IniTooLarge);
+    }
+    if (ini_size > text_size - offset) {
+        return fail(EEditorWorkspacePersistenceError::TruncatedIni);
+    }
+    ini_data = text + offset;
+    offset += ini_size;
+    if (ini_size > 0u) {
+        if (offset >= text_size) {
+            return fail(EEditorWorkspacePersistenceError::TruncatedIni);
+        }
+        if (text[offset] == '\r') {
+            if (offset + 1u >= text_size || text[offset + 1u] != '\n') {
+                return fail(EEditorWorkspacePersistenceError::TrailingData);
+            }
+            offset += 2u;
+        } else if (text[offset] == '\n') {
+            ++offset;
+        } else {
+            return fail(EEditorWorkspacePersistenceError::TrailingData);
+        }
+    }
+
+    while (offset < text_size) {
+        if (!read_line(line_begin, line_end)) {
+            if (line_number > kMaxLayoutLines) {
+                return fail(EEditorWorkspacePersistenceError::TooManyLines);
+            }
+            break;
+        }
+        const usize line_length = static_cast<usize>(line_end - line_begin);
+        if (line_length > kMaxLayoutLineBytes) {
+            return fail(EEditorWorkspacePersistenceError::LineTooLong);
+        }
+        cursor = line_begin;
+        while (cursor < line_end && (*cursor == ' ' || *cursor == '\t')) ++cursor;
+        if (cursor == line_end || *cursor == '#') continue;
+        FToken keyword{};
+        FToken title{};
+        FToken visible{};
+        FToken dock{};
+        if (!NextToken(cursor, line_end, keyword)) {
+            return fail(EEditorWorkspacePersistenceError::InvalidSyntax);
+        }
+        if (TokenEquals(keyword, "IMGUI_INI")) {
+            return fail(EEditorWorkspacePersistenceError::DuplicateSection);
+        }
+        if (!TokenEquals(keyword, "PANEL")) {
+            return fail(EEditorWorkspacePersistenceError::TrailingData);
+        }
+
+        // v1 の `PANEL <title> <visible> <dock>` を保ったまま、右端 2 token
+        // から逆向きに区切る。これにより表示名の内部 ASCII space を保持できる。
+        // keyword / title / visible / dock 間の区切りは 1 byte だけ消費し、余分な
+        // space/tab は title の先頭・末尾、または空 token として厳格に拒否する。
+        if (keyword.end >= line_end ||
+            !IsPanelFieldSeparator(*keyword.end) ||
+            IsPanelFieldSeparator(*(line_end - 1))) {
+            return fail(EEditorWorkspacePersistenceError::InvalidSyntax);
+        }
+        const char* const title_begin = keyword.end + 1;
+
+        const char* dock_begin = line_end;
+        while (dock_begin > title_begin &&
+               !IsPanelFieldSeparator(*(dock_begin - 1))) {
+            --dock_begin;
+        }
+        if (dock_begin <= title_begin ||
+            !IsPanelFieldSeparator(*(dock_begin - 1))) {
+            return fail(EEditorWorkspacePersistenceError::InvalidSyntax);
+        }
+        dock.begin = dock_begin;
+        dock.end = line_end;
+
+        const char* const visible_end = dock_begin - 1;
+        const char* visible_begin = visible_end;
+        while (visible_begin > title_begin &&
+               !IsPanelFieldSeparator(*(visible_begin - 1))) {
+            --visible_begin;
+        }
+        if (visible_begin == visible_end) {
+            return fail(EEditorWorkspacePersistenceError::InvalidSyntax);
+        }
+        if (visible_begin <= title_begin) {
+            return fail(EEditorWorkspacePersistenceError::InvalidTitle);
+        }
+        visible.begin = visible_begin;
+        visible.end = visible_end;
+
+        title.begin = title_begin;
+        title.end = visible_begin - 1;
+        const usize title_length = static_cast<usize>(title.end - title.begin);
+        if (title_length > kMaxPanelTitleBytes) {
+            return fail(EEditorWorkspacePersistenceError::TitleTooLong);
+        }
+        if (!IsValidPanelTitleBytes(title.begin, title_length)) {
+            return fail(EEditorWorkspacePersistenceError::InvalidTitle);
+        }
+        if (!((TokenEquals(visible, "0") || TokenEquals(visible, "1")) &&
+              (TokenEquals(dock, "0") || TokenEquals(dock, "1")))) {
+            return fail(EEditorWorkspacePersistenceError::InvalidSyntax);
+        }
+        if (panel_entries >= kMaxPanels) {
+            return fail(EEditorWorkspacePersistenceError::TooManyPanels);
+        }
+        for (u32 i = 0u; i < panel_entries; ++i) {
+            if (std::strlen(seen_titles[i]) == title_length &&
+                std::memcmp(seen_titles[i], title.begin, title_length) == 0) {
+                return fail(EEditorWorkspacePersistenceError::DuplicatePanel);
+            }
+        }
+        std::memcpy(seen_titles[panel_entries], title.begin, title_length);
+        seen_titles[panel_entries][title_length] = '\0';
+        staged_changes[panel_entries].panel =
+            FindPanelByTitle(seen_titles[panel_entries]);
+        staged_changes[panel_entries].visible = TokenEquals(visible, "1");
+        staged_changes[panel_entries].dock_target = TokenEquals(dock, "1");
+        ++panel_entries;
+    }
+
+    if (ImGui::GetCurrentContext() == nullptr) {
+        return fail(EEditorWorkspacePersistenceError::ImGuiContextMissing);
+    }
+    ImGui::LoadIniSettingsFromMemory(ini_data, ini_size);
+    for (u32 i = 0u; i < panel_entries; ++i) {
+        if (staged_changes[i].panel == nullptr) continue;
+        staged_changes[i].panel->SetVisible(staged_changes[i].visible);
+        staged_changes[i].panel->SetDockTarget(staged_changes[i].dock_target);
+    }
+    result.line = line_number;
+    result.panel_entries = panel_entries;
+    return result;
+}
+
+FEditorWorkspacePersistenceResult FEditorWorkspace::TryLoadLayout(
+    const wchar_t* file_path) noexcept {
+    FEditorWorkspacePersistenceResult result{};
+    usize path_length = 0u;
+    if (file_path == nullptr) {
+        result.error = EEditorWorkspacePersistenceError::NullArgument;
+        return result;
+    }
+    if (!IsBoundedWidePath(
+            file_path, kMaxPersistencePathChars, path_length)) {
+        result.error = EEditorWorkspacePersistenceError::PathTooLong;
+        return result;
+    }
+    HANDLE file = ::CreateFileW(
+        file_path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        result.os_error = ::GetLastError();
+        result.error =
+            result.os_error == ERROR_FILE_NOT_FOUND ||
+                    result.os_error == ERROR_PATH_NOT_FOUND
+                ? EEditorWorkspacePersistenceError::FileNotFound
+                : EEditorWorkspacePersistenceError::FileOpenFailed;
+        return result;
+    }
+    LARGE_INTEGER size{};
+    if (!::GetFileSizeEx(file, &size) || size.QuadPart < 0) {
+        result.os_error = ::GetLastError();
+        (void)::CloseHandle(file);
+        result.error = EEditorWorkspacePersistenceError::FileSizeFailed;
+        return result;
+    }
+    if (static_cast<u64>(size.QuadPart) > static_cast<u64>(kMaxLayoutBytes)) {
+        (void)::CloseHandle(file);
+        result.error = EEditorWorkspacePersistenceError::InputTooLarge;
+        return result;
+    }
+    TArray<char> text;
+    if (!text.TryResize(static_cast<usize>(size.QuadPart))) {
+        (void)::CloseHandle(file);
+        result.error = EEditorWorkspacePersistenceError::AllocationFailure;
+        return result;
+    }
+    usize total = 0u;
+    while (total < text.Size()) {
+        const usize remaining = text.Size() - total;
+        const DWORD chunk = static_cast<DWORD>(
+            remaining > 0x7ffff000u ? 0x7ffff000u : remaining);
+        DWORD bytes_read = 0u;
+        if (!::ReadFile(
+                file, text.Data() + total, chunk, &bytes_read, nullptr) ||
+            bytes_read == 0u) {
+            result.os_error = ::GetLastError();
+            (void)::CloseHandle(file);
+            result.error = EEditorWorkspacePersistenceError::FileReadFailed;
+            result.bytes_processed = static_cast<u64>(total);
+            return result;
+        }
+        total += bytes_read;
+    }
+    char probe = '\0';
+    DWORD probe_read = 0u;
+    if (!::ReadFile(file, &probe, 1u, &probe_read, nullptr)) {
+        result.os_error = ::GetLastError();
+        (void)::CloseHandle(file);
+        result.error = EEditorWorkspacePersistenceError::FileReadFailed;
+        result.bytes_processed = static_cast<u64>(total);
+        return result;
+    }
+    LARGE_INTEGER final_size{};
+    if (probe_read != 0u) {
+        (void)::CloseHandle(file);
+        result.error = EEditorWorkspacePersistenceError::FileChanged;
+        result.bytes_processed = static_cast<u64>(total);
+        return result;
+    }
+    if (!::GetFileSizeEx(file, &final_size)) {
+        result.os_error = ::GetLastError();
+        (void)::CloseHandle(file);
+        result.error = EEditorWorkspacePersistenceError::FileSizeFailed;
+        return result;
+    }
+    if (final_size.QuadPart != size.QuadPart) {
+        (void)::CloseHandle(file);
+        result.error = EEditorWorkspacePersistenceError::FileChanged;
+        result.bytes_processed = static_cast<u64>(total);
+        return result;
+    }
+    if (!::CloseHandle(file)) {
+        result.os_error = ::GetLastError();
+        result.error = EEditorWorkspacePersistenceError::FileCloseFailed;
+        return result;
+    }
+    result = TryParseLayoutText(
+        text.IsEmpty() ? "" : text.Data(), text.Size());
+    result.bytes_processed = static_cast<u64>(total);
+    return result;
+}
+
+FEditorWorkspacePersistenceResult FEditorWorkspace::TrySaveLayout(
+    const wchar_t* file_path) noexcept {
+    FEditorWorkspacePersistenceResult result{};
+    usize path_length = 0u;
+    if (file_path == nullptr) {
+        result.error = EEditorWorkspacePersistenceError::NullArgument;
+        return result;
+    }
+    if (!IsBoundedWidePath(
+            file_path, kMaxPersistencePathChars, path_length)) {
+        result.error = EEditorWorkspacePersistenceError::PathTooLong;
+        return result;
+    }
+    if (ImGui::GetCurrentContext() == nullptr) {
+        result.error = EEditorWorkspacePersistenceError::ImGuiContextMissing;
+        return result;
+    }
+    usize ini_size = 0u;
+    const char* ini_data = ImGui::SaveIniSettingsToMemory(&ini_size);
+    if (ini_size > kMaxIniBytes) {
+        result.error = EEditorWorkspacePersistenceError::IniTooLarge;
+        return result;
+    }
+    if ((ini_size > 0u && ini_data == nullptr) ||
+        (ini_size > 0u && std::memchr(ini_data, '\0', ini_size) != nullptr)) {
+        result.error = EEditorWorkspacePersistenceError::EmbeddedNul;
+        return result;
+    }
+    const usize panel_count = m_Panels.Size();
+    if (panel_count > kMaxPanels) {
+        result.error = EEditorWorkspacePersistenceError::TooManyPanels;
+        return result;
+    }
+    usize title_lengths[kMaxPanels]{};
+    for (usize i = 0u; i < panel_count; ++i) {
+        const FEditorPanel* panel = m_Panels[i];
+        if (panel == nullptr || panel->Title() == nullptr) {
+            result.error = EEditorWorkspacePersistenceError::InvalidTitle;
+            return result;
+        }
+        if (!IsValidPanelTitle(panel->Title(), title_lengths[i])) {
+            usize bounded_length = 0u;
+            while (bounded_length <= kMaxPanelTitleBytes &&
+                   panel->Title()[bounded_length] != '\0') {
+                ++bounded_length;
+            }
+            result.error = bounded_length > kMaxPanelTitleBytes
+                ? EEditorWorkspacePersistenceError::TitleTooLong
+                : EEditorWorkspacePersistenceError::InvalidTitle;
+            return result;
+        }
+        for (usize j = 0u; j < i; ++j) {
+            if (title_lengths[j] == title_lengths[i] &&
+                std::memcmp(
+                    m_Panels[j]->Title(), panel->Title(), title_lengths[i]) == 0) {
+                result.error = EEditorWorkspacePersistenceError::DuplicatePanel;
+                return result;
+            }
+        }
+    }
+
+    TArray<char> output;
+    const usize reserve_size =
+        128u + ini_size + panel_count * (kMaxPanelTitleBytes + 32u);
+    if (!output.TryReserve(reserve_size)) {
+        result.error = EEditorWorkspacePersistenceError::AllocationFailure;
+        return result;
+    }
+    char line[256]{};
+    int line_size = std::snprintf(
+        line, sizeof(line), "%s %u\nIMGUI_INI %zu\n",
+        kLayoutMagic, kLayoutVersion, ini_size);
+    if (line_size < 0 || static_cast<usize>(line_size) >= sizeof(line) ||
+        !AppendBytes(output, line, static_cast<usize>(line_size)) ||
+        (ini_size > 0u && !AppendBytes(output, ini_data, ini_size)) ||
+        (ini_size > 0u && !AppendBytes(output, "\n", 1u))) {
+        result.error = EEditorWorkspacePersistenceError::AllocationFailure;
+        return result;
+    }
+    for (usize i = 0u; i < panel_count; ++i) {
+        const FEditorPanel* panel = m_Panels[i];
+        line_size = std::snprintf(
+            line, sizeof(line), "PANEL %s %u %u\n",
+            panel->Title(), panel->IsVisible() ? 1u : 0u,
+            panel->IsDockTarget() ? 1u : 0u);
+        if (line_size < 0 || static_cast<usize>(line_size) >= sizeof(line) ||
+            !AppendBytes(output, line, static_cast<usize>(line_size))) {
+            result.error = EEditorWorkspacePersistenceError::AllocationFailure;
+            return result;
+        }
+    }
+    if (output.Size() > kMaxLayoutBytes) {
+        result.error = EEditorWorkspacePersistenceError::InputTooLarge;
+        return result;
+    }
+
+    constexpr usize kTempPathCapacity = kMaxPersistencePathChars + 97u;
+    wchar_t temp_path[kTempPathCapacity]{};
+    HANDLE temp = INVALID_HANDLE_VALUE;
+    for (u32 attempt = 0u; attempt < 8u; ++attempt) {
+        if (!BuildUniqueTempPath(
+                file_path, path_length, temp_path, kTempPathCapacity, attempt)) {
+            result.error = EEditorWorkspacePersistenceError::PathTooLong;
+            return result;
+        }
+        temp = ::CreateFileW(
+            temp_path, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (temp != INVALID_HANDLE_VALUE) break;
+        result.os_error = ::GetLastError();
+        if (result.os_error != ERROR_FILE_EXISTS &&
+            result.os_error != ERROR_ALREADY_EXISTS) {
+            result.error = EEditorWorkspacePersistenceError::FileOpenFailed;
+            return result;
+        }
+    }
+    if (temp == INVALID_HANDLE_VALUE) {
+        result.error = EEditorWorkspacePersistenceError::FileOpenFailed;
+        return result;
+    }
+    usize total = 0u;
+    while (total < output.Size()) {
+        const usize remaining = output.Size() - total;
+        const DWORD chunk = static_cast<DWORD>(
+            remaining > 0x7ffff000u ? 0x7ffff000u : remaining);
+        DWORD written = 0u;
+        if (!::WriteFile(
+                temp, output.Data() + total, chunk, &written, nullptr) ||
+            written == 0u) {
+            result.os_error = ::GetLastError();
+            (void)::CloseHandle(temp);
+            (void)::DeleteFileW(temp_path);
+            result.error = EEditorWorkspacePersistenceError::FileWriteFailed;
+            result.bytes_processed = static_cast<u64>(total);
+            return result;
+        }
+        total += written;
+    }
+    if (!::FlushFileBuffers(temp)) {
+        result.os_error = ::GetLastError();
+        (void)::CloseHandle(temp);
+        (void)::DeleteFileW(temp_path);
+        result.error = EEditorWorkspacePersistenceError::FileFlushFailed;
+        return result;
+    }
+    if (!::CloseHandle(temp)) {
+        result.os_error = ::GetLastError();
+        (void)::DeleteFileW(temp_path);
+        result.error = EEditorWorkspacePersistenceError::FileCloseFailed;
+        return result;
+    }
+    if (!::MoveFileExW(
+            temp_path, file_path,
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        const DWORD move_error = ::GetLastError();
+        DWORD posix_error = 0u;
+        if (!TryPosixAtomicReplace(
+                temp_path, file_path, path_length, posix_error)) {
+            result.os_error = posix_error != 0u ? posix_error : move_error;
+            (void)::DeleteFileW(temp_path);
+            result.error =
+                EEditorWorkspacePersistenceError::AtomicReplaceFailed;
+            return result;
+        }
+    }
+    result.panel_entries = static_cast<u32>(panel_count);
+    result.bytes_processed = static_cast<u64>(total);
+    return result;
+}
+
 void FEditorWorkspace::SaveLayout(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return;
-
-    // ImGui ini 文字列を取得
-    // ImGui::SaveIniSettingsToMemory は内部 buffer の生ポインタ + 長さを返す。
-    // 戻り値は ImGui owned (次フレームまでは valid) なので即 buffer に積む。
-    usize       ini_size_sz = 0;
-    const char* ini_ptr     = ImGui::SaveIniSettingsToMemory(&ini_size_sz);
-    const u32   ini_size    = (ini_ptr != nullptr) ? static_cast<u32>(ini_size_sz) : 0u;
-
-    // 出力バッファ準備 (TArray<char>)
-    // 概算: ヘッダ 32B + ImGui ini (ini_size) + per-panel 64B × N
-    // 確保上限を見積もって PushBack 連発するより、Resize+memcpy の方が
-    // 1 度 で済む。
-    const usize approx_capacity =
-        64u + static_cast<usize>(ini_size) + m_Panels.Size() * 128u;
-    TArray<char> out;
-    out.Reserve(approx_capacity);
-
-    // 小ヘルパ: char buffer (NUL 終端の有無不問) を末尾に追記。
-    auto append_bytes = [&](const char* data, usize bytes) noexcept {
-        if (data == nullptr || bytes == 0) return;
-        const usize old = out.Size();
-        out.Resize(old + bytes);
-        std::memcpy(out.Data() + old, data, bytes);
-    };
-    // 小ヘルパ: NUL 終端文字列を末尾に追記 (strlen 計算)。
-    auto append_cstr = [&](const char* s) noexcept {
-        if (s == nullptr) return;
-        append_bytes(s, std::strlen(s));
-    };
-
-    // 1) ヘッダ行
-    {
-        char header[64] = {};
-        const int n = std::snprintf(header, sizeof(header), "%s %u\n",
-                                    kLayoutMagic,
-                                    static_cast<unsigned>(kLayoutVersion));
-        if (n > 0 && static_cast<usize>(n) < sizeof(header)) {
-            append_bytes(header, static_cast<usize>(n));
-        }
-    }
-
-    // 2) ImGui ini ブロック
-    {
-        char header[64] = {};
-        const int n = std::snprintf(header, sizeof(header), "IMGUI_INI %u\n",
-                                    static_cast<unsigned>(ini_size));
-        if (n > 0 && static_cast<usize>(n) < sizeof(header)) {
-            append_bytes(header, static_cast<usize>(n));
-        }
-        if (ini_size > 0 && ini_ptr != nullptr) {
-            append_bytes(ini_ptr, static_cast<usize>(ini_size));
-            // ini 末尾が改行で終わる保証は無いので separator を挟む。
-            append_cstr("\n");
-        }
-    }
-
-    // 3) PANEL 行群
-    {
-        const usize n_panels = m_Panels.Size();
-        for (usize i = 0; i < n_panels; ++i) {
-            const FEditorPanel* p = m_Panels[i];
-            if (p == nullptr) continue;
-            const char* title = p->Title();
-            if (title == nullptr) continue;
-            // title に空白が含まれていると LoadLayout 側の strtok 風 split が
-            // 壊れるため、空白を含む title は本 layout フォーマットでは
-            // skip する (= panel 側で空白を含めない命名規則を期待)。
-            // 検査だけして警告ログを出す (skip しても致命的ではない: 次回 Load で
-            // visibility が default のままになるだけ)。
-            bool has_space = false;
-            for (const char* c = title; *c != '\0'; ++c) {
-                if (*c == ' ' || *c == '\t' || *c == '\n') { has_space = true; break; }
-            }
-            if (has_space) {
-                ACS_LOG_WARN("FEditorWorkspace::SaveLayout: panel title '%s' contains whitespace, skipping layout entry",
-                             title);
-                continue;
-            }
-
-            char line[256] = {};
-            const int n = std::snprintf(line, sizeof(line),
-                                        "PANEL %s %d %d\n",
-                                        title,
-                                        p->IsVisible()    ? 1 : 0,
-                                        p->IsDockTarget() ? 1 : 0);
-            if (n > 0 && static_cast<usize>(n) < sizeof(line)) {
-                append_bytes(line, static_cast<usize>(n));
-            }
-        }
-    }
-
-    // バイト列として書き出し
-    // WriteAllText は NUL 終端を書かない仕様だが、内部で strlen を呼ぶ可能性が
-    // あるため、ini に NUL が含まれる場合に備えて WriteAllBytes を使う。
-    const auto wr = FileSystem::WriteAllBytes(
-        file_path,
-        reinterpret_cast<const byte*>(out.Data()),
-        out.Size());
-    if (wr.IsErr()) {
-        // 失敗は silent (致命ではない)。ログのみ。
-        ACS_LOG_WARN("FEditorWorkspace::SaveLayout: WriteAllBytes failed");
+    const FEditorWorkspacePersistenceResult result = TrySaveLayout(file_path);
+    if (!result.Succeeded()) {
+        ACS_LOG_WARN(
+            "FEditorWorkspace::SaveLayout: %s (line=%u os=%u)",
+            FEditorWorkspacePersistenceResult::ErrorName(result.error),
+            result.line, result.os_error);
     }
 }
 
-/** `.acslayout` を読み、ImGui ini を流し込み各 panel の visible / dock_target を復元する。 */
 void FEditorWorkspace::LoadLayout(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return;
-    if (!FileSystem::Exists(file_path)) {
-        // 初回起動時は存在しないことが普通なので silent (ログも出さない)。
-        return;
-    }
-
-    auto rr = FileSystem::ReadAllText(file_path);
-    if (rr.IsErr()) {
-        ACS_LOG_WARN("FEditorWorkspace::LoadLayout: ReadAllText failed");
-        return;
-    }
-    // ReadAllText は末尾 NUL 付きで返す (foundation/TResult 経由 TArray<char>)。
-    TArray<char>& text = rr.Value();
-    if (text.IsEmpty()) return;
-
-    // 行分割 in-place: '\n' を '\0' に書き換えながら走る
-    char* const buf      = text.Data();
-    const usize buf_size = text.Size();
-
-    // 1) ヘッダ行を検査
-    char* line_start = buf;
-    char* p          = buf;
-    auto next_line = [&]() noexcept -> char* {
-        // 現在 line_start の終端を探して '\0' に書き換え、次行の先頭を返す。
-        // 戻り値が nullptr の場合は EOF。
-        while (p < buf + buf_size && *p != '\0' && *p != '\n') ++p;
-        if (p >= buf + buf_size || *p == '\0') {
-            return nullptr;  // EOF
-        }
-        // *p == '\n'
-        *p = '\0';
-        // \r\n 対策: 直前が '\r' なら 1 文字戻して '\0' で潰す
-        if (p > line_start && *(p - 1) == '\r') {
-            *(p - 1) = '\0';
-        }
-        ++p;
-        return p;
-    };
-
-    // ヘッダ行
-    char* next = next_line();
-    {
-        // 期待 "ACS_EDLAYOUT 1"
-        unsigned version = 0;
-        char magic[32] = {};
-        const int matched = std::sscanf(line_start, "%31s %u", magic, &version);
-        if (matched != 2 || std::strcmp(magic, kLayoutMagic) != 0) {
-            ACS_LOG_WARN("FEditorWorkspace::LoadLayout: bad magic");
-            return;
-        }
-        if (version != kLayoutVersion) {
-            ACS_LOG_WARN("FEditorWorkspace::LoadLayout: version mismatch (got %u, expect %u)",
-                         version, static_cast<unsigned>(kLayoutVersion));
-            // 互換性のない version は安全に no-op。
-            return;
-        }
-    }
-    if (next == nullptr) return;
-    line_start = next;
-
-    // 2) IMGUI_INI ブロック (1 個まで、optional)
-    //    header 行を **peek 解析** してから IMGUI_INI なら本格処理、そうでなければ
-    //    line_start を消費せず PANEL ループに渡す。peek は line_start の内容を
-    //    壊さないように sscanf 単発のみ。next_line() による '\n' 置換は IMGUI_INI
-    //    確定後に行う。
-    {
-        unsigned ini_bytes = 0;
-        char     keyword[32] = {};
-        const int matched = std::sscanf(line_start, "%31s %u", keyword, &ini_bytes);
-        if (matched == 2 && std::strcmp(keyword, "IMGUI_INI") == 0) {
-            // IMGUI_INI 行確定 → next_line() でこの行の '\n' を '\0' に潰し、
-            // 直後の raw ini bytes を ImGui に流し込む。
-            next = next_line();
-            if (next != nullptr && ini_bytes > 0) {
-                char* const ini_ptr   = next;       // next は char* (mutable buf 内)
-                const usize remaining = buf_size - static_cast<usize>(next - buf);
-                usize       actual    = ini_bytes;
-                if (actual > remaining) actual = remaining;
-                ImGui::LoadIniSettingsFromMemory(ini_ptr, actual);
-                // p を ini ブロック直後に進める。next_line による '\n' 置換が
-                // ini block の中で起きないように、明示的にスキップする。
-                p = ini_ptr + actual;
-            }
-            // 次の行頭まで進める。ini block の直後は通常 '\n' (SaveLayout 側で
-            // 余分な改行を挟んでいる)。p が '\r' / '\n' を指していたら消費する。
-            while (p < buf + buf_size && *p == '\r') ++p;
-            if (p < buf + buf_size && *p == '\n') {
-                *p = '\0';
-                ++p;
-            }
-            line_start = p;
-        }
-        // IMGUI_INI でなかった場合は line_start を消費せず PANEL ループへ落ちる
-        // (= ヘッダ直後がいきなり PANEL 行というレイアウトファイルにも対応)。
-    }
-
-    // 3) PANEL 行ループ
-    //    "PANEL <title> <visible> <dock>" を順に処理。未登録 title は skip。
-    while (line_start != nullptr && line_start < buf + buf_size && *line_start != '\0') {
-        next = next_line();
-
-        char keyword[16] = {};
-        char title[160]  = {};
-        int  visible     = 0;
-        int  dock        = 0;
-        const int matched = std::sscanf(line_start, "%15s %159s %d %d",
-                                        keyword, title, &visible, &dock);
-        if (matched == 4 && std::strcmp(keyword, "PANEL") == 0) {
-            FEditorPanel* panel = FindPanelByTitle(title);
-            if (panel != nullptr) {
-                panel->SetVisible   (visible != 0);
-                panel->SetDockTarget(dock    != 0);
-            }
-            // 未登録 panel は silent skip (= 後で同名 panel が登録された場合に
-            // visibility 復元できないが、これは layout file が古い前提なので OK)。
-        }
-        // 不明 keyword は silent skip (前方互換性のため)。
-
-        if (next == nullptr) break;
-        line_start = next;
+    const FEditorWorkspacePersistenceResult result = TryLoadLayout(file_path);
+    if (!result.Succeeded() &&
+        result.error != EEditorWorkspacePersistenceError::FileNotFound) {
+        ACS_LOG_WARN(
+            "FEditorWorkspace::LoadLayout: %s (line=%u os=%u)",
+            FEditorWorkspacePersistenceResult::ErrorName(result.error),
+            result.line, result.os_error);
     }
 }
 

@@ -8,7 +8,7 @@
 // フラッシュ・クロスフェードが成立する。
 //
 // 使い方:
-//   class TitleScene : public Scene {
+//   class FTitleScene : public FScene {
 //       acs::game::FFadeTransition m_Fade;
 //       void OnEnter() noexcept override {
 //           // 画面が黒から徐々に明けるフェードイン
@@ -18,7 +18,7 @@
 //           m_Fade.Tick(dt);
 //           if (m_Fade.IsMidPause()) {
 //               // FadeInOut の暗転中: ここでシーン切替
-//               Manager().ChangeScene<GameplayScene>();
+//               Manager().ChangeScene<FGameplayScene>();
 //           }
 //       }
 //       void OnRender() noexcept override {

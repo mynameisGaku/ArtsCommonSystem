@@ -212,7 +212,7 @@ private:
     /**
      * 1 件の frame event 登録 (発火対象 frame とコールバック)。
      */
-    struct FrameEvent {
+    struct FFrameEvent {
         /** 発火対象の frame index。 */
         u32          frame = 0;
 
@@ -264,7 +264,7 @@ private:
     bool      m_Finished      = false;
 
     /** 登録済みの frame event 一覧。 */
-    TArray<FrameEvent> m_Events;
+    TArray<FFrameEvent> m_Events;
 };
 
 } // namespace acs::game

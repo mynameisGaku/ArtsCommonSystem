@@ -23,7 +23,7 @@
 namespace acs {
 
 /** プロセス内に存在する FSystemAllocator 全体の統計スナップショット。 */
-struct SystemAllocatorProcessStatistics {
+struct FSystemAllocatorProcessStatistics {
     /** 現在生存し、侵入レジストリへ登録されているアロケータ数。 */
     u64 live_allocator_count = 0;
 
@@ -75,7 +75,7 @@ public:
     /**
      * 侵入レジストリから登録解除して破棄する。
      *
-     * @details 未解放確保があれば Logger に依存しない機械可読ログをデバッグ出力と標準エラーへ出す。
+     * @details 未解放確保があれば FLogger に依存しない機械可読ログをデバッグ出力と標準エラーへ出す。
      * 未解放領域は自動回収しないため、破棄後にそのポインタを別のアロケータへ渡してはならない。
      */
     ~FSystemAllocator() noexcept override;
@@ -100,7 +100,7 @@ public:
      * リーク有無の確定判定には全ワーカを停止した静止点で呼び出すこと。
      * @return 現在値と、未解放を伴う過去の破棄の累積値。
      */
-    static SystemAllocatorProcessStatistics CaptureProcessStatistics() noexcept;
+    static FSystemAllocatorProcessStatistics CaptureProcessStatistics() noexcept;
 
     /**
      * Size バイトを Alignment 整列で確保する。

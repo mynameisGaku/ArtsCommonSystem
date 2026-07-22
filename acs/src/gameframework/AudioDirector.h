@@ -15,8 +15,8 @@
 //     `FXAudio2Backend` 等の concrete backend を差し込むと、実音再生 + master /
 //     pause / stop / Tick を backend に delegate する。backend == nullptr のとき
 //     は state-only 動作 (= 無音、ログ警告も出さない)。
-//   ・**clip 直接再生 API**: `PlayBgmClip(const AudioClipDesc&,
-//     fade, loop)` / `PlaySfxClip(const AudioClipDesc&, vol, pitch)` で raw PCM
+//   ・**clip 直接再生 API**: `PlayBgmClip(const FAudioClipDesc&,
+//     fade, loop)` / `PlaySfxClip(const FAudioClipDesc&, vol, pitch)` で raw PCM
 //     データから直接再生できる。名前ベース API (PlayBgm / PlaySfx) は state 管理
 //     のみ (将来 name→clip resolver を導入予定)。
 //
@@ -40,7 +40,7 @@
 //     を毎フレ算出して backend へ流す)。
 //
 // 範囲外:
-//   ・name → AudioClipDesc resolver (FAssetRegistry 統合)
+//   ・name → FAudioClipDesc resolver (FAssetRegistry 統合)
 //   ・3D positional / spatial / submix bus / DSP chain
 //   ・スナップショット (mixer state を hot-swap)
 //   ・wav/ogg/mp3 decode (本層は raw PCM 前提)
@@ -233,7 +233,7 @@ public:
     IAudioBackend* GetBackend() const noexcept { return m_Backend; }
 
     /**
-     * name → AudioClipDesc 解決に使う asset registry を差し込む。
+     * name → FAudioClipDesc 解決に使う asset registry を差し込む。
      *
      * @details
      * app 所有の registry (FApplication::GetAssets()) を差すと PlayBgm/PlaySfx の name
@@ -251,7 +251,7 @@ public:
     FAssetRegistry* GetAssetRegistry() const noexcept { return m_Registry; }
 
     /**
-     * raw PCM の AudioClipDesc を BGM として直接再生する。
+     * raw PCM の FAudioClipDesc を BGM として直接再生する。
      *
      * @details
      * 既存 BGM voice を fade out して停止 → 新 BGM voice を fade in する (本層 state machine
@@ -262,12 +262,12 @@ public:
      * @param loop ループ再生するか。
      * @return 再生 voice ハンドル (backend 未設定 / 不正 clip は kInvalidAudioVoice)。
      */
-    AudioVoiceHandle PlayBgmClip(const AudioClipDesc& clip,
+    FAudioVoiceHandle PlayBgmClip(const FAudioClipDesc& clip,
                                  f32 fade_in_sec = 1.0f,
                                  bool loop = true) noexcept;
 
     /**
-     * raw PCM の AudioClipDesc を SFX one-shot として直接再生する。
+     * raw PCM の FAudioClipDesc を SFX one-shot として直接再生する。
      *
      * @details volume は EffectiveSfxVolume * volume_scale で合成済 (duck は掛けない)。
      * @param clip 再生する PCM クリップ記述子。
@@ -275,7 +275,7 @@ public:
      * @param pitch 再生ピッチ (1.0 が等倍)。
      * @return 再生 voice ハンドル (backend 未設定 / 不正 clip は kInvalidAudioVoice)。
      */
-    AudioVoiceHandle PlaySfxClip(const AudioClipDesc& clip,
+    FAudioVoiceHandle PlaySfxClip(const FAudioClipDesc& clip,
                                  f32 volume_scale = 1.0f,
                                  f32 pitch = 1.0f) noexcept;
 
@@ -301,11 +301,11 @@ private:
         bool             active       = false;
 
         /** backend voice ハンドル (clip 直接再生時のみ valid、名前ベースは kInvalidAudioVoice)。 */
-        AudioVoiceHandle voice        = {};
+        FAudioVoiceHandle voice        = {};
     };
 
     /** SFX one-shot ring の 1 エントリ。 */
-    struct SfxEntry {
+    struct FSfxEntry {
         /** SFX 名 (所有しない、literal 前提)。 */
         const char* name         = nullptr;
 
@@ -344,7 +344,7 @@ private:
     FBgmSlot m_Bgm[2] {};
 
     /** SFX one-shot ring (容量 kMaxSfxVoices で予約)。 */
-    TArray<SfxEntry> m_Sfx;
+    TArray<FSfxEntry> m_Sfx;
 
     /** ring 上書き時の次書込先 (FIFO)。 */
     u32             m_SfxHead = 0;
@@ -373,7 +373,7 @@ private:
      */
     IAudioBackend* m_Backend = nullptr;
 
-    /** name → AudioClipDesc 解決用の asset registry (非所有 raw ptr)。 */
+    /** name → FAudioClipDesc 解決用の asset registry (非所有 raw ptr)。 */
     FAssetRegistry* m_Registry = nullptr;
 };
 

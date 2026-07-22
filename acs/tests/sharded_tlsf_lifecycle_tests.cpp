@@ -22,7 +22,7 @@ ACS_TEST(ShardedTlsfAllocator, LifecycleGateRejectsShutdownRacesAndSupportsReini
     Allocator.EnableThreadCache();
     EXPECT_TRUE(Allocator.ThreadCacheEnabled());
 
-    struct RaceContext
+    struct FRaceContext
     {
         FShardedTlsfAllocator* Allocator = nullptr;
         TAtomic<u32> Ready{0u};
@@ -34,9 +34,9 @@ ACS_TEST(ShardedTlsfAllocator, LifecycleGateRejectsShutdownRacesAndSupportsReini
     } Context;
     Context.Allocator = &Allocator;
 
-    struct WorkerInput
+    struct FWorkerInput
     {
-        RaceContext* Context = nullptr;
+        FRaceContext* Context = nullptr;
         u32 WorkerIndex = 0u;
     } Inputs[kWorkerCount];
 
@@ -49,8 +49,8 @@ ACS_TEST(ShardedTlsfAllocator, LifecycleGateRejectsShutdownRacesAndSupportsReini
         auto WorkerResult = FThread::Spawn(
             [](void* User)
             {
-                auto* Input = static_cast<WorkerInput*>(User);
-                RaceContext* const WorkerContext = Input->Context;
+                auto* Input = static_cast<FWorkerInput*>(User);
+                FRaceContext* const WorkerContext = Input->Context;
                 u32 Iteration = 0u;
                 WorkerContext->Ready.FetchAdd(1u);
                 while (WorkerContext->Start.Load(EMemoryOrder::Acquire) == 0u)
@@ -201,7 +201,7 @@ ACS_TEST(ShardedTlsfAllocator, ConcurrentInitializationAndShutdownAreSerialized)
     constexpr u32 kLifecycleCycles = 16u;
 
     FShardedTlsfAllocator Allocator;
-    struct ControlContext
+    struct FControlContext
     {
         FShardedTlsfAllocator* Allocator = nullptr;
         TAtomic<u32> Ready{0u};
@@ -217,7 +217,7 @@ ACS_TEST(ShardedTlsfAllocator, ConcurrentInitializationAndShutdownAreSerialized)
         auto ThreadResult = FThread::Spawn(
             [](void* User)
             {
-                auto* ThreadContext = static_cast<ControlContext*>(User);
+                auto* ThreadContext = static_cast<FControlContext*>(User);
                 ThreadContext->Ready.FetchAdd(1u);
                 while (ThreadContext->Start.Load(EMemoryOrder::Acquire) == 0u)
                 {
@@ -256,7 +256,7 @@ ACS_TEST(ShardedTlsfAllocator, ConcurrentInitializationAndShutdownAreSerialized)
         auto ThreadResult = FThread::Spawn(
             [](void* User)
             {
-                auto* ThreadContext = static_cast<ControlContext*>(User);
+                auto* ThreadContext = static_cast<FControlContext*>(User);
                 for (u32 Cycle = 0u; Cycle < kLifecycleCycles; ++Cycle)
                 {
                     ThreadContext->Allocator->Shutdown();

@@ -19,7 +19,7 @@ namespace acs::game {
  * @details hour 昇順で隣接 stop 間を線形補間する。0:00 と 22:00 が同じ夜色なので
  * 22:00→24:00 (= 0:00) 区間も自然にループする。色は写実色温度ではなく雰囲気重視の配色。
  */
-const FAmbientDirector::TimeStop FAmbientDirector::m_Stops[6] = {
+const FAmbientDirector::FTimeStop FAmbientDirector::m_Stops[6] = {
     //   hour  sky (RGB linear-ish 0..1)        ambient (RGB)
     {  0.0f,  FVec3{0.02f, 0.03f, 0.10f},  FVec3{0.03f, 0.04f, 0.10f} }, // 真夜中 紺
     {  4.0f,  FVec3{0.08f, 0.06f, 0.18f},  FVec3{0.10f, 0.07f, 0.12f} }, // 夜明け前 紫紺
@@ -61,12 +61,12 @@ void FAmbientDirector::AdvanceTime(f32 dt_hours) noexcept {
  *
  * @details t = 0 で a、t = 1 で b。22:00→24:00 ラップ時は b に m_Stops[0] (= 0:00) を採る。
  */
-struct StopPair {
+struct FStopPair {
     /** 補間始点の stop。 */
-    const FAmbientDirector::TimeStop* a;
+    const FAmbientDirector::FTimeStop* a;
 
     /** 補間終点の stop。 */
-    const FAmbientDirector::TimeStop* b;
+    const FAmbientDirector::FTimeStop* b;
 
     /** a→b の補間係数 [0, 1]。 */
     f32 t;
@@ -81,7 +81,7 @@ struct StopPair {
  * @param hours 現在時刻 [0, 24)。
  * @return 補間対象の stop ペアと係数。
  */
-static StopPair FindPair(const FAmbientDirector::TimeStop (&stops)[6], f32 hours) noexcept {
+static FStopPair FindPair(const FAmbientDirector::FTimeStop (&stops)[6], f32 hours) noexcept {
     // hours は [0, 24)。stops[0].hour == 0、stops[5].hour == 22。
     // ケース 1: 22.0 <= hours < 24.0 → (stops[5], stops[0]+24, span=2h)
     if (hours >= stops[5].hour) {
@@ -104,13 +104,13 @@ static StopPair FindPair(const FAmbientDirector::TimeStop (&stops)[6], f32 hours
 
 /** 現在時刻の空の色を stop 間補間で返す。 */
 FVec3 FAmbientDirector::SkyColor() const noexcept {
-    const StopPair p = FindPair(m_Stops, m_Hours);
+    const FStopPair p = FindPair(m_Stops, m_Hours);
     return Lerp(p.a->sky, p.b->sky, p.t);
 }
 
 /** 現在時刻の環境光の色を stop 間補間で返す。 */
 FVec3 FAmbientDirector::AmbientColor() const noexcept {
-    const StopPair p = FindPair(m_Stops, m_Hours);
+    const FStopPair p = FindPair(m_Stops, m_Hours);
     return Lerp(p.a->ambient, p.b->ambient, p.t);
 }
 

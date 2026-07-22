@@ -3,7 +3,7 @@
 // ACS Math — CPU 機能検出（CPUID 実行時判定）
 // -----------------------------------------------------------------------------
 // SSE / AVX / FMA / BMI などの命令セット対応有無をスレッドセーフに 1 度だけ
-// 検出し、結果をキャッシュする。MathDispatch が起動時に問い合わせて
+// 検出し、結果をキャッシュする。FMathDispatch が起動時に問い合わせて
 // 関数ポインタテーブルを構築するのに使う。
 // =============================================================================
 #pragma once
@@ -16,9 +16,9 @@ namespace acs {
 /**
  * CPUID で検出した CPU 命令セット対応フラグの集合。
  *
- * @details 各フィールドは対応していれば true。MathDispatch が経路選択に使う。
+ * @details 各フィールドは対応していれば true。FMathDispatch が経路選択に使う。
  */
-struct CpuFeatures {
+struct FCpuFeatures {
     /** SSE2 対応 (x64 ベースラインのため常に true)。 */
     bool sse2;
 
@@ -68,7 +68,7 @@ struct CpuFeatures {
  * @details 検出はスレッドセーフに 1 度だけ実行される。
  * @return 検出結果への const 参照。
  */
-const CpuFeatures& Cpu() noexcept;
+const FCpuFeatures& Cpu() noexcept;
 
 /**
  * AVX2 に対応しているかを返す。

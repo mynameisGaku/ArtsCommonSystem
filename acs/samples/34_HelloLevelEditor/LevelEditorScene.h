@@ -21,12 +21,12 @@
 
 namespace hellole {
 
-class LevelEditorScene : public acs::game::Scene {
+class FLevelEditorScene : public acs::game::FScene {
 public:
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
-    void OnRender(acs::game::RenderContext& rc) noexcept override;
+    void OnRender(acs::game::FRenderContext& rc) noexcept override;
 
 private:
     // OnEnter から呼ばれる、tilemap の初期パターン書き込み (床 + 壁)。

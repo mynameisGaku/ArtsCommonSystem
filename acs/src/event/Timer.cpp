@@ -16,7 +16,7 @@ u32 FTimerManager::AcquireGeneration() noexcept
 void FTimerManager::InvalidateAllSlots() noexcept
 {
     for (usize i = 0; i < m_Slots.Size(); ++i) {
-        Slot& slot = m_Slots[i];
+        FSlot& slot = m_Slots[i];
         slot.active = false;
         slot.cb = nullptr;
         slot.user = nullptr;
@@ -27,7 +27,7 @@ void FTimerManager::InvalidateAllSlots() noexcept
 /** Clear 済み slot の確保容量を解放し、再利用可能な空状態に戻す。 */
 void FTimerManager::ReleaseClearedStorage() noexcept
 {
-    m_Slots = TArray<Slot>{*m_Slots.GetAllocator()};
+    m_Slots = TArray<FSlot>{*m_Slots.GetAllocator()};
     m_FreeIndices = TArray<u32>{*m_FreeIndices.GetAllocator()};
     m_ClearPending = false;
 }
@@ -56,10 +56,10 @@ FTimerHandle FTimerManager::SetTimeout(f32 delay_seconds, TimerCallback cb, void
         m_FreeIndices.PopBack();
     } else {
         idx = static_cast<u32>(m_Slots.Size());
-        m_Slots.PushBack(Slot{});
+        m_Slots.PushBack(FSlot{});
     }
 
-    Slot& s = m_Slots[idx];
+    FSlot& s = m_Slots[idx];
     if (s.id == 0) s.id = m_NextId++;
     s.generation = AcquireGeneration();
     s.active    = true;
@@ -81,10 +81,10 @@ FTimerHandle FTimerManager::SetInterval(f32 period_seconds, TimerCallback cb, vo
         m_FreeIndices.PopBack();
     } else {
         idx = static_cast<u32>(m_Slots.Size());
-        m_Slots.PushBack(Slot{});
+        m_Slots.PushBack(FSlot{});
     }
 
-    Slot& s = m_Slots[idx];
+    FSlot& s = m_Slots[idx];
     if (s.id == 0) s.id = m_NextId++;
     s.generation = AcquireGeneration();
     s.active    = true;
@@ -101,7 +101,7 @@ bool FTimerManager::Cancel(FTimerHandle h) noexcept {
     if (!h.IsValid()) return false;
     // id は 1-based、m_Slots の中を線形検索（タイマ数は通常少ないので OK）
     for (usize i = 0; i < m_Slots.Size(); ++i) {
-        Slot& s = m_Slots[i];
+        FSlot& s = m_Slots[i];
         if (s.id == h.id && s.generation == h.generation && s.active) {
             s.active = false;
             s.cb     = nullptr;
@@ -124,7 +124,7 @@ void FTimerManager::Tick(f32 dt) noexcept {
     // 既存スロットを active=false にされても次のループで checked される。
     const usize initial_count = m_Slots.Size();
     for (usize i = 0; i < initial_count; ++i) {
-        Slot& s = m_Slots[i];
+        FSlot& s = m_Slots[i];
         if (!s.active) continue;
         s.remaining -= dt;
         if (s.remaining > 0.0f) continue;
@@ -152,7 +152,7 @@ void FTimerManager::Tick(f32 dt) noexcept {
         u32 fired = 0;
         while (true) {
             if (i >= m_Slots.Size()) break;
-            Slot& cur = m_Slots[i];
+            FSlot& cur = m_Slots[i];
             if (!cur.active || !cur.repeating ||
                 cur.id != fire_id || cur.generation != fire_gen) break;  // Cancel / 再利用された
             if (cur.remaining > 0.0f) break;                             // 追いつき完了

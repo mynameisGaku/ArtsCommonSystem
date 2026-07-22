@@ -74,8 +74,8 @@ void BuildStudioHdrEquirect(TArray<f32>& buf) noexcept {
         buf.Resize(static_cast<usize>(kEquirectWidth) * kEquirectHeight * 4u);
     }
     const f32 background[3] = {0.03f, 0.03f, 0.04f};
-    struct Panel { f32 phi; f32 r, g, b; };
-    const Panel panels[4] = {
+    struct FPanel { f32 phi; f32 r, g, b; };
+    const FPanel panels[4] = {
         {0.0f,             8.0f, 2.0f, 1.5f},      // 前方 (赤橙)
         {kPi * 0.5f,       1.5f, 8.0f, 2.5f},      // 右   (黄緑)
         {kPi,              1.5f, 2.5f, 8.0f},      // 後方 (青)

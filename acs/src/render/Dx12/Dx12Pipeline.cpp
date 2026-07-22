@@ -61,7 +61,8 @@ D3D12_RASTERIZER_DESC MakeRasterizer(ECullMode cull) noexcept {
 /**
  * ブレンドモードに応じた DX12 ブレンド記述を構築する。
  *
- * @details Opaque/AlphaBlend/Additive に対応し、独立ブレンドは無効 (RT0 を全 RT にコピー)。
+ * @details Opaque/AlphaBlend/Additive/Multiply/AdditivePreserveAlpha に対応し、
+ * 独立ブレンドは無効 (RT0 を全 RT にコピー)。
  * @param mode 適用するブレンドモード。
  * @return 構築した D3D12_BLEND_DESC。
  */
@@ -88,6 +89,16 @@ D3D12_BLEND_DESC MakeBlend(EBlendMode mode) noexcept {
             rt.BlendEnable = TRUE;
             rt.SrcBlend = D3D12_BLEND_SRC_ALPHA; rt.DestBlend = D3D12_BLEND_ONE; rt.BlendOp = D3D12_BLEND_OP_ADD;
             rt.SrcBlendAlpha = D3D12_BLEND_ONE; rt.DestBlendAlpha = D3D12_BLEND_ONE; rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+            break;
+        case EBlendMode::Multiply:
+            rt.BlendEnable = TRUE;
+            rt.SrcBlend = D3D12_BLEND_ZERO; rt.DestBlend = D3D12_BLEND_SRC_COLOR; rt.BlendOp = D3D12_BLEND_OP_ADD;
+            rt.SrcBlendAlpha = D3D12_BLEND_ZERO; rt.DestBlendAlpha = D3D12_BLEND_ONE; rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+            break;
+        case EBlendMode::AdditivePreserveAlpha:
+            rt.BlendEnable = TRUE;
+            rt.SrcBlend = D3D12_BLEND_ONE; rt.DestBlend = D3D12_BLEND_ONE; rt.BlendOp = D3D12_BLEND_OP_ADD;
+            rt.SrcBlendAlpha = D3D12_BLEND_ZERO; rt.DestBlendAlpha = D3D12_BLEND_ONE; rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
             break;
     }
     // 残りのレンダーターゲットは独立ブレンドではないので 0 番をコピー
@@ -202,7 +213,8 @@ D3D12_TEXTURE_ADDRESS_MODE ToD3DAddress(ESamplerAddress a) noexcept {
  * @param reg 割り当てるシェーダレジスタ番号 (s0..)。
  * @return 構築した D3D12_STATIC_SAMPLER_DESC。
  */
-D3D12_STATIC_SAMPLER_DESC MakeStaticSampler(const SamplerDesc& s, u32 reg) noexcept {
+D3D12_STATIC_SAMPLER_DESC MakeStaticSampler(const FSamplerDesc& s, u32 reg,
+                                             D3D12_SHADER_VISIBILITY visibility) noexcept {
     D3D12_STATIC_SAMPLER_DESC d{};
     d.Filter = ToD3DFilter(s.filter);
     d.AddressU = ToD3DAddress(s.address_u);
@@ -225,29 +237,31 @@ D3D12_STATIC_SAMPLER_DESC MakeStaticSampler(const SamplerDesc& s, u32 reg) noexc
     d.MaxLOD = s.max_lod;
     d.ShaderRegister = reg;
     d.RegisterSpace = 0;
-    d.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    d.ShaderVisibility = visibility;
     return d;
 }
 
 } // namespace
 
 /** PSO と RootSignature を解放する。 */
-Dx12Pipeline::~Dx12Pipeline() noexcept {
+FDx12Pipeline::~FDx12Pipeline() noexcept {
     Reset();
 }
 
-void Dx12Pipeline::Reset() noexcept
+void FDx12Pipeline::Reset() noexcept
 {
     ACS_SAFE_RELEASE(m_Pso);
     ACS_SAFE_RELEASE(m_RootSig);
     m_Topology = EPrimitiveTopology::TriangleList;
     m_CbufferSlots = 0;
     m_TextureSlots = 0;
+    m_IsCompute = false;
+    m_UavSlots = 0;
 }
 
 /** ルートシグネチャ・入力レイアウト・PSO を構築する (CreateRhiPipeline 経由で呼ばれる)。 */
-HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexcept {
-    HrResult r{};
+FHrResult FDx12Pipeline::Init(FDx12Device& device, const FPipelineDesc& desc) noexcept {
+    FHrResult r{};
     Reset();
 
     if (!device.D3DDevice() || !desc.vs || !desc.vs->Bytecode() || desc.vs->BytecodeSize() == 0 ||
@@ -259,15 +273,29 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
         r.hr = E_INVALIDARG;
         return r;
     }
+    constexpr u32 kMaxGraphicsRootParams = 32u;
     if (desc.layout_count > 8 || desc.static_sampler_count > 16 || desc.cbuffer_slots > 16 || desc.texture_slots > 16 ||
-        desc.cbuffer_slots > 16u - desc.texture_slots ||
+        desc.cbuffer_slots + desc.texture_slots > kMaxGraphicsRootParams ||
         ToD3DTopologyType(desc.topology) == D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED) {
         r.hr = E_INVALIDARG;
         return r;
     }
-    if (desc.ps && ToDxgiFormat(desc.rt_format) == DXGI_FORMAT_UNKNOWN) {
+    if (desc.rt_count > 8u) {
         r.hr = E_INVALIDARG;
         return r;
+    }
+    if (desc.ps) {
+        if (desc.rt_count > 0u) {
+            for (u32 i = 0; i < desc.rt_count; ++i) {
+                if (ToDxgiFormat(desc.rt_formats[i]) == DXGI_FORMAT_UNKNOWN) {
+                    r.hr = E_INVALIDARG;
+                    return r;
+                }
+            }
+        } else if (ToDxgiFormat(desc.rt_format) == DXGI_FORMAT_UNKNOWN) {
+            r.hr = E_INVALIDARG;
+            return r;
+        }
     }
     if (desc.depth_format != EFormat::Unknown && desc.depth_format != EFormat::D24_UNorm_S8_UInt &&
         desc.depth_format != EFormat::D32_Float) {
@@ -281,7 +309,7 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
 
     // ルートシグネチャを構築する。
     // パラメータ: [N x root CBV (b0..)] + [M x descriptor table (1 SRV @ tN..)]
-    constexpr u32 kMaxParams = 16;
+    constexpr u32 kMaxParams = kMaxGraphicsRootParams;
     D3D12_ROOT_PARAMETER params[kMaxParams]{};
     D3D12_DESCRIPTOR_RANGE ranges[kMaxParams]{};   // テクスチャ用、各 1 entry
     u32 param_count = 0;
@@ -311,7 +339,8 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
     D3D12_STATIC_SAMPLER_DESC samplers[16]{};
     const u32 sampler_count = desc.static_sampler_count;
     for (u32 i = 0; i < sampler_count; ++i) {
-        samplers[i] = MakeStaticSampler(desc.static_samplers[i], i);
+        samplers[i] = MakeStaticSampler(desc.static_samplers[i], i,
+                                        D3D12_SHADER_VISIBILITY_PIXEL);
     }
 
     D3D12_ROOT_SIGNATURE_DESC rsd{};
@@ -386,8 +415,15 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
     pd.SampleMask = UINT_MAX;
     pd.PrimitiveTopologyType = ToD3DTopologyType(desc.topology);
     if (desc.ps) {
-        pd.NumRenderTargets = 1;
-        pd.RTVFormats[0]    = ToDxgiFormat(desc.rt_format);
+        if (desc.rt_count > 0u) {
+            pd.NumRenderTargets = desc.rt_count;
+            for (u32 i = 0; i < desc.rt_count; ++i) {
+                pd.RTVFormats[i] = ToDxgiFormat(desc.rt_formats[i]);
+            }
+        } else {
+            pd.NumRenderTargets = 1;
+            pd.RTVFormats[0]    = ToDxgiFormat(desc.rt_format);
+        }
     } else {
         pd.NumRenderTargets = 0;          // depth-only
     }
@@ -397,6 +433,125 @@ HrResult Dx12Pipeline::Init(Dx12Device& device, const FPipelineDesc& desc) noexc
     pd.InputLayout.NumElements = desc.layout_count;
 
     r.hr = device.D3DDevice()->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&m_Pso));
+    if (r.IsErr() || !m_Pso) {
+        if (r.IsOk()) r.hr = E_FAIL;
+        Reset();
+    }
+    return r;
+}
+
+FHrResult FDx12Pipeline::InitCompute(FDx12Device& device,
+                                     const FComputePipelineDesc& desc) noexcept {
+    FHrResult r{};
+    Reset();
+
+    if (!device.D3DDevice() || !desc.cs || !desc.cs->Bytecode() ||
+        desc.cs->BytecodeSize() == 0 || desc.cs->Stage() != EShaderStage::Compute) {
+        r.hr = E_INVALIDARG;
+        return r;
+    }
+    constexpr u32 kMaxParams = 16;
+    if (desc.cbuffer_slots > 16 || desc.srv_slots > 16 || desc.uav_slots > 16 ||
+        desc.static_sampler_count > 16 ||
+        desc.cbuffer_slots + desc.srv_slots + desc.uav_slots > kMaxParams) {
+        r.hr = E_INVALIDARG;
+        return r;
+    }
+
+    m_IsCompute = true;
+    m_CbufferSlots = desc.cbuffer_slots;
+    m_TextureSlots = desc.srv_slots;
+    m_UavSlots = desc.uav_slots;
+
+    // root parameter 順は raw command-list 契約の一部:
+    // [CBV b0..] [SRV table t0..] [UAV table u0..]。
+    D3D12_ROOT_PARAMETER params[kMaxParams]{};
+    D3D12_DESCRIPTOR_RANGE ranges[kMaxParams]{};
+    u32 param_count = 0;
+
+    for (u32 i = 0; i < desc.cbuffer_slots; ++i) {
+        auto& p = params[param_count++];
+        p.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        p.Descriptor.ShaderRegister = i;
+        p.Descriptor.RegisterSpace = 0;
+        p.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    }
+    for (u32 i = 0; i < desc.srv_slots; ++i) {
+        auto& range = ranges[param_count];
+        range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        range.NumDescriptors = 1;
+        range.BaseShaderRegister = i;
+        range.RegisterSpace = 0;
+        range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+        auto& p = params[param_count++];
+        p.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        p.DescriptorTable.NumDescriptorRanges = 1;
+        p.DescriptorTable.pDescriptorRanges = &range;
+        p.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    }
+    for (u32 i = 0; i < desc.uav_slots; ++i) {
+        auto& range = ranges[param_count];
+        range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        range.NumDescriptors = 1;
+        range.BaseShaderRegister = i;
+        range.RegisterSpace = 0;
+        range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+        auto& p = params[param_count++];
+        p.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        p.DescriptorTable.NumDescriptorRanges = 1;
+        p.DescriptorTable.pDescriptorRanges = &range;
+        p.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    }
+
+    D3D12_STATIC_SAMPLER_DESC samplers[16]{};
+    for (u32 i = 0; i < desc.static_sampler_count; ++i) {
+        samplers[i] = MakeStaticSampler(desc.static_samplers[i], i,
+                                        D3D12_SHADER_VISIBILITY_ALL);
+    }
+
+    D3D12_ROOT_SIGNATURE_DESC rsd{};
+    rsd.NumParameters = param_count;
+    rsd.pParameters = param_count > 0 ? params : nullptr;
+    rsd.NumStaticSamplers = desc.static_sampler_count;
+    rsd.pStaticSamplers = desc.static_sampler_count > 0 ? samplers : nullptr;
+    rsd.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+    ID3DBlob* sig_blob = nullptr;
+    ID3DBlob* err_blob = nullptr;
+    r.hr = ::D3D12SerializeRootSignature(&rsd, D3D_ROOT_SIGNATURE_VERSION_1,
+                                         &sig_blob, &err_blob);
+    if (r.IsErr()) {
+        ACS_SAFE_RELEASE(sig_blob);
+        if (err_blob) {
+            ACS_LOG_ERROR("Compute root signature serialize: %s",
+                          static_cast<const char*>(err_blob->GetBufferPointer()));
+            err_blob->Release();
+        }
+        Reset();
+        return r;
+    }
+    if (!sig_blob) {
+        ACS_SAFE_RELEASE(err_blob);
+        r.hr = E_FAIL;
+        Reset();
+        return r;
+    }
+    r.hr = device.D3DDevice()->CreateRootSignature(
+        0, sig_blob->GetBufferPointer(), sig_blob->GetBufferSize(),
+        IID_PPV_ARGS(&m_RootSig));
+    sig_blob->Release();
+    ACS_SAFE_RELEASE(err_blob);
+    if (r.IsErr() || !m_RootSig) {
+        if (r.IsOk()) r.hr = E_FAIL;
+        Reset();
+        return r;
+    }
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};
+    pd.pRootSignature = m_RootSig;
+    pd.CS.pShaderBytecode = desc.cs->Bytecode();
+    pd.CS.BytecodeLength = desc.cs->BytecodeSize();
+    r.hr = device.D3DDevice()->CreateComputePipelineState(&pd, IID_PPV_ARGS(&m_Pso));
     if (r.IsErr() || !m_Pso) {
         if (r.IsOk()) r.hr = E_FAIL;
         Reset();
@@ -423,10 +578,10 @@ TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device, const FP
         return ACS_ERR(Render, 50, "CreateRhiPipeline: device is not DX12");
     }
 
-    auto pipeline = MakeUnique<Dx12Pipeline>();
+    auto pipeline = MakeUnique<FDx12Pipeline>();
     if (!pipeline) return ACS_ERR(Memory, 52, "Dx12Pipeline allocation failed");
 
-    const HrResult result = pipeline->Init(static_cast<Dx12Device&>(device), description);
+    const FHrResult result = pipeline->Init(static_cast<FDx12Device&>(device), description);
     if (result.IsErr()) {
         return ACS_ERR_OS(Render, 51, "Dx12Pipeline::Init failed", static_cast<u32>(result.hr));
     }
@@ -444,14 +599,24 @@ TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device, const FP
 TResult<TUniquePtr<IRhiPipeline>> CreateRhiComputePipeline(IRhiDevice& device,
                                                            const FComputePipelineDesc& description) noexcept
 {
-    (void)description;
     const char* const backend_name = device.BackendName();
     if (!backend_name || backend_name[0] != 'D' || backend_name[1] != 'X' || backend_name[2] != '1' ||
         backend_name[3] != '2') {
         return ACS_ERR(Render, 52, "CreateRhiComputePipeline: device is not DX12");
     }
 
-    return ACS_ERR(Render, 53, "CreateRhiComputePipeline: raw DX12 compute is not supported");
+    auto pipeline = MakeUnique<FDx12Pipeline>();
+    if (!pipeline) return ACS_ERR(Memory, 53, "Dx12 compute pipeline allocation failed");
+
+    const FHrResult result =
+        pipeline->InitCompute(static_cast<FDx12Device&>(device), description);
+    if (result.IsErr()) {
+        return ACS_ERR_OS(Render, 54, "Dx12Pipeline::InitCompute failed",
+                          static_cast<u32>(result.hr));
+    }
+
+    TUniquePtr<IRhiPipeline> base(pipeline.Release(), pipeline.GetAllocator());
+    return TResult<TUniquePtr<IRhiPipeline>>(OkInit, Move(base));
 }
 #endif
 

@@ -8,13 +8,13 @@ using namespace acs;
 
 namespace helloshadows {
 
-void ShadowsScene::Build() noexcept {
+void FShadowsScene::Build() noexcept {
     m_Casters.Clear();
     // 中央に背の高い柱
     for (u32 i = 0; i < 4; ++i) {
         const f32 a = (kPi * 2.0f) * static_cast<f32>(i) / 4.0f + 0.4f;
         const f32 r = 3.0f;
-        CasterInst c;
+        FCasterInst c;
         c.is_sphere  = false;
         c.base_color = FVec3{0.85f, 0.7f, 0.5f};
         c.model = FMat4::Scale(FVec3{0.6f, 2.0f, 0.6f}) *
@@ -31,7 +31,7 @@ void ShadowsScene::Build() noexcept {
     for (u32 i = 0; i < 4; ++i) {
         const f32 a = (kPi * 2.0f) * static_cast<f32>(i) / 4.0f + 0.785f;
         const f32 r = 1.5f;
-        CasterInst c;
+        FCasterInst c;
         c.is_sphere  = true;
         c.base_color = colors[i];
         c.model = FMat4::Scale(FVec3{1.0f, 1.0f, 1.0f}) *
@@ -40,28 +40,29 @@ void ShadowsScene::Build() noexcept {
     }
 }
 
-void ShadowsScene::Render(FSky&             sky,
+void FShadowsScene::Render(FSky&             sky,
                           FStandardShader&  shader,
                           FShadowMap&       shadow,
                           IRhiCommandList& cl,
                           const FCamera&    camera,
-                          const GpuMesh&   plane,
-                          const GpuMesh&   cube,
-                          const GpuMesh&   sphere,
+                          const FGpuMesh&   plane,
+                          const FGpuMesh&   cube,
+                          const FGpuMesh&   sphere,
                           FVec3             sun_dir) noexcept {
     sky.SetSunDirection(sun_dir);
 
     // === 1. シャドウパス ===
+    shadow.BeginFrame();
     shadow.SetDirectionalLight(sun_dir, FVec3{0, 1, 0}, /*radius=*/12.0f);
     cl.BeginShadowPass(*shadow.DepthTexture(), 1.0f);
     cl.SetPipeline(*shadow.CasterPipeline());
     cl.SetConstantBuffer(0, *shadow.LightCB());
-    cl.SetConstantBuffer(1, *shadow.CasterObjectCB());
 
     // 地面はシャドウキャスタにしないので、影を落とす物体だけ
-    for (const CasterInst& obj : m_Casters) {
-        shadow.SetCaster(obj.model);
-        const GpuMesh& m = obj.is_sphere ? sphere : cube;
+    for (const FCasterInst& obj : m_Casters) {
+        if (!shadow.TrySetCaster(obj.model)) continue;
+        cl.SetConstantBuffer(1, *shadow.CasterObjectCB());
+        const FGpuMesh& m = obj.is_sphere ? sphere : cube;
         cl.SetVertexBuffer(*m.vertex_buffer, m.vertex_stride);
         cl.SetIndexBuffer(*m.index_buffer);
         cl.DrawIndexed(m.index_count);
@@ -82,20 +83,21 @@ void ShadowsScene::Render(FSky&             sky,
 
     cl.SetPipeline(*shader.Pipeline());
     cl.SetConstantBuffer(0, *shader.PerFrameCB());
-    cl.SetConstantBuffer(1, *shader.PerObjectCB());
     cl.SetTexture(0, *shader.DefaultWhiteTexture());
     cl.SetTexture(1, *shader.ShadowTextureOrDefault());
 
     // 地面 (受影、キャストしない)
-    shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
-                     FVec3{0.55f, 0.55f, 0.6f}, 0.05f, 4.0f);
+    if (!shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
+                          FVec3{0.55f, 0.55f, 0.6f}, 0.05f, 4.0f)) return;
+    cl.SetConstantBuffer(1, *shader.PerObjectCB());
     cl.SetVertexBuffer(*plane.vertex_buffer, plane.vertex_stride);
     cl.SetIndexBuffer(*plane.index_buffer);
     cl.DrawIndexed(plane.index_count);
 
-    for (const CasterInst& obj : m_Casters) {
-        shader.SetObject(obj.model, obj.base_color, 0.4f, 32.0f);
-        const GpuMesh& m = obj.is_sphere ? sphere : cube;
+    for (const FCasterInst& obj : m_Casters) {
+        if (!shader.SetObject(obj.model, obj.base_color, 0.4f, 32.0f)) continue;
+        cl.SetConstantBuffer(1, *shader.PerObjectCB());
+        const FGpuMesh& m = obj.is_sphere ? sphere : cube;
         cl.SetVertexBuffer(*m.vertex_buffer, m.vertex_stride);
         cl.SetIndexBuffer(*m.index_buffer);
         cl.DrawIndexed(m.index_count);

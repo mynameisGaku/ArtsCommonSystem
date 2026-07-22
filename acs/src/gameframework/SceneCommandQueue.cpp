@@ -57,7 +57,7 @@ void FSceneCommandQueue::Enqueue(const char* label, SceneCommandFn fn, void* use
         return;
     }
 
-    CommandRecord r;
+    FCommandRecord r;
     r.label    = label;
     r.fn       = fn;
     r.user     = user;
@@ -85,7 +85,7 @@ void FSceneCommandQueue::EnqueueIfAbsent(const char* label, SceneCommandFn fn, v
     }
 
     // 新規追加 (priority / one_shot は EnqueueIfAbsent では one_shot=true 固定 — 仕様)
-    CommandRecord r;
+    FCommandRecord r;
     r.label    = label;
     r.fn       = fn;
     r.user     = user;
@@ -136,7 +136,7 @@ void FSceneCommandQueue::StableSortByPriority() noexcept {
     // 通常 < 数十)。同 priority は Enqueue 順 (= 元の index 順) を保存する。
     const usize n = m_Records.Size();
     for (usize i = 1; i < n; ++i) {
-        CommandRecord key = m_Records[i];
+        FCommandRecord key = m_Records[i];
         usize j = i;
         // j-1 の priority が key より厳密に大きい間だけ右へずらす (= 安定)。
         while (j > 0 && m_Records[j - 1].priority > key.priority) {
@@ -164,14 +164,14 @@ void FSceneCommandQueue::Flush() noexcept {
     //    snapshot 範囲外 (Flush 中に追加) は実行せず全て残す。
     //    安定順序を維持するため、新 TArray で書き戻す方式を採用 (PopBack/Swap は
     //    順序破壊が起き得るため避ける)。
-    TArray<CommandRecord> retained;
+    TArray<FCommandRecord> retained;
 
     for (usize i = 0; i < snapshot_size; ++i) {
         // fn が ClearAll()/Cancel() で m_Records を縮めると、固定 snapshot_size の i が
         // 現サイズを超えて OOB read になる。各反復で現在サイズをガードする。
         if (i >= m_Records.Size()) break;
         // ループ内で m_Records が再 alloc される可能性に備え、各反復で値をコピー。
-        const CommandRecord rec = m_Records[i];
+        const FCommandRecord rec = m_Records[i];
 
         // 実行はコピーしたフィールドで行う (m_Records 側が動いても影響を受けない)。
         if (rec.fn != nullptr) {

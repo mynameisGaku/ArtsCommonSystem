@@ -47,7 +47,7 @@ static inline bool IsValidSlot(u32 slot_index, u32 count) noexcept {
  * (仕様変更時の修正箇所を 1 つに)。slot_index は触らず呼び出し側で再設定する。
  * @param o reset 対象の MaterialOverride。
  */
-static inline void ResetOverrideToDefault(MaterialOverride& o) noexcept {
+static inline void ResetOverrideToDefault(FMaterialOverride& o) noexcept {
     // slot_index は呼び出し側責務 (= Reset 後も slot_index は保持したいため
     // ここでは触らない)。
     o.base_color        = FVec4{1.0f, 1.0f, 1.0f, 1.0f};
@@ -91,7 +91,7 @@ void FModelMaterialPanel::SetMaterialSlotCount(u32 count) noexcept {
     // 単発呼び出しなので問題なし。
     m_Overrides.Resize(static_cast<usize>(count));
     for (u32 i = 0; i < count; ++i) {
-        MaterialOverride& o = m_Overrides[static_cast<usize>(i)];
+        FMaterialOverride& o = m_Overrides[static_cast<usize>(i)];
         ResetOverrideToDefault(o);
         // slot_index は ResetOverrideToDefault では触らない (= 既存仕様の通り)
         // ので、ここで明示的に割り当てる。
@@ -110,7 +110,7 @@ void FModelMaterialPanel::ResetSlot(u32 slot_index) noexcept {
         // 範囲外は no-op (= 仕様)。
         return;
     }
-    MaterialOverride& o = m_Overrides[static_cast<usize>(slot_index)];
+    FMaterialOverride& o = m_Overrides[static_cast<usize>(slot_index)];
     ResetOverrideToDefault(o);
     // slot_index フィールドは保守的に再設定 (= 万一外部が壊していても回復)。
     o.slot_index = slot_index;
@@ -138,7 +138,7 @@ bool FModelMaterialPanel::IsSlotOverridden(u32 slot_index) const noexcept {
 }
 
 /** 指定 slot の override を const ポインタで返す (範囲外は nullptr)。 */
-const MaterialOverride* FModelMaterialPanel::GetOverride(u32 slot_index) const noexcept {
+const FMaterialOverride* FModelMaterialPanel::GetOverride(u32 slot_index) const noexcept {
     const u32 count = static_cast<u32>(m_Overrides.Size());
     if (!IsValidSlot(slot_index, count)) {
         return nullptr;
@@ -147,7 +147,7 @@ const MaterialOverride* FModelMaterialPanel::GetOverride(u32 slot_index) const n
 }
 
 /** 指定 slot の override を可変ポインタで返す (範囲外は nullptr)。 */
-MaterialOverride* FModelMaterialPanel::GetOverrideMutable(u32 slot_index) noexcept {
+FMaterialOverride* FModelMaterialPanel::GetOverrideMutable(u32 slot_index) noexcept {
     const u32 count = static_cast<u32>(m_Overrides.Size());
     if (!IsValidSlot(slot_index, count)) {
         return nullptr;
@@ -216,7 +216,7 @@ void FModelMaterialPanel::DrawUI() noexcept {
 
     // 各 slot の編集 UI。
     for (u32 i = 0; i < count; ++i) {
-        MaterialOverride& o = m_Overrides[static_cast<usize>(i)];
+        FMaterialOverride& o = m_Overrides[static_cast<usize>(i)];
 
         // 各 slot を独立 ID namespace に: 同名 field が複数 slot で並んでも
         // ImGui の widget ID が衝突しないように PushID(i) で囲む。
@@ -245,11 +245,11 @@ void FModelMaterialPanel::DrawUI() noexcept {
                 changed = true;
             }
 
-            // Base FColor (RGBA)。
+            // Base Color (RGBA) を編集する。
             // ColorEdit4 は f32[4] を直接読み書きする。FVec4 は alignas(16)、
             // 内部 f32 x,y,z,w が連続レイアウト (alignas は配置のみ、要素間 pad なし)
             // なので &o.base_color.x を直接渡せる。
-            if (ImGui::ColorEdit4("Base FColor", &o.base_color.x)) {
+            if (ImGui::ColorEdit4("Base Color", &o.base_color.x)) {
                 o.is_overridden = true;
                 changed         = true;
             }

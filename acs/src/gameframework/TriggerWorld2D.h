@@ -29,7 +29,7 @@
 //     FCollisionWorld2D と同じ SpatialGrid に置換し O(N + K) に下げる予定。
 //   ・**FTriggerId は FShapeId と同じ generational handle** (24bit index + 8bit gen)。
 //     remove → re-add で slot 再利用しても旧 handle は無効化される。
-//   ・**overlap pair は array で保持**: 前フレの状態は `TArray<OverlapPair>` に
+//   ・**overlap pair は array で保持**: 前フレの状態は `TArray<FOverlapPair>` に
 //     `was_overlapping` 付きで保存。次フレで再計算し、(was, now) の組合せで
 //     どのイベントを発火するか決める。
 //   ・**layer はメタデータとして格納のみ**: event 側で参照する。
@@ -162,7 +162,7 @@ public:
      * @param layer メタデータとして格納するレイヤ (既定 0)。
      * @return 新しい trigger の handle。
      */
-    FTriggerId AddCircle(const Circle& c, u32 layer = 0) noexcept;
+    FTriggerId AddCircle(const FCircle& c, u32 layer = 0) noexcept;
 
     /**
      * AABB trigger を登録する。
@@ -171,7 +171,7 @@ public:
      * @param layer メタデータとして格納するレイヤ (既定 0)。
      * @return 新しい trigger の handle。
      */
-    FTriggerId AddAabb  (const Aabb2&  a, u32 layer = 0) noexcept;
+    FTriggerId AddAabb  (const FAabb2&  a, u32 layer = 0) noexcept;
 
     /**
      * 円形 trigger の形状を更新する (移動時)。
@@ -180,7 +180,7 @@ public:
      * @param id 対象 trigger の handle。
      * @param c 新しい円。
      */
-    void UpdateCircle(FTriggerId id, const Circle& c) noexcept;
+    void UpdateCircle(FTriggerId id, const FCircle& c) noexcept;
 
     /**
      * AABB trigger の形状を更新する (移動時)。
@@ -189,7 +189,7 @@ public:
      * @param id 対象 trigger の handle。
      * @param a 新しい AABB。
      */
-    void UpdateAabb  (FTriggerId id, const Aabb2&  a) noexcept;
+    void UpdateAabb  (FTriggerId id, const FAabb2&  a) noexcept;
 
     /**
      * trigger を削除する。
@@ -203,7 +203,7 @@ public:
     /**
      * trigger に任意の user ポインタを紐付ける。
      *
-     * @details FTriggerComponent がイベント発火時に id → component を逆引きするのに
+     * @details ATriggerComponent がイベント発火時に id → component を逆引きするのに
      * 使う (overlap 判定には不使用)。stale handle の場合は何もしない。
      * @param id 対象 trigger の handle。
      * @param user 紐付ける任意ポインタ。
@@ -264,12 +264,12 @@ public:
 
 private:
     /** trigger 形状の種別。 */
-    enum class Kind : u8 {
+    enum class EKind : u8 {
         /** 未使用 slot。 */
         None = 0,
 
         /** AABB 形状。 */
-        FAabb,
+        Aabb,
 
         /** 円形状。 */
         Circle
@@ -278,18 +278,18 @@ private:
     /** 1 つの trigger を保持する slot。 */
     struct FTriggerSlot {
         /** 形状種別。 */
-        Kind   kind   = Kind::None;
+        EKind   kind   = EKind::None;
 
         /** AABB 形状時のジオメトリ。 */
-        Aabb2  aabb   {};
+        FAabb2  aabb   {};
 
         /** 円形状時のジオメトリ。 */
-        Circle circle {};
+        FCircle circle {};
 
         /** メタデータとして格納するレイヤ。 */
         u32    layer  = 0;
 
-        /** id→object 逆引き用の任意ポインタ (FTriggerComponent* 等)。 */
+        /** id→object 逆引き用の任意ポインタ (ATriggerComponent* 等)。 */
         void*  user   = nullptr;
 
         /** slot が使用中かどうか。 */
@@ -305,7 +305,7 @@ private:
      * @details (a_idx, b_idx) は a_idx < b_idx で正規化済み。was_overlapping は
      * 前フレでの状態で、今フレ計算後の新状態と組合せて発火イベントを決める。
      */
-    struct OverlapPair {
+    struct FOverlapPair {
         /** 正規化された小さい方の slot index。 */
         u32  a_idx           = 0;
 
@@ -336,10 +336,10 @@ private:
     TArray<FTriggerSlot> m_Slots;
 
     /** 前フレの overlap pair (a_idx < b_idx でソート済み)。 */
-    TArray<OverlapPair> m_Pairs;
+    TArray<FOverlapPair> m_Pairs;
 
     /** Tick 内で今フレ pair を構築する作業バッファ (再確保を抑える)。 */
-    TArray<OverlapPair> m_NextPairs;
+    TArray<FOverlapPair> m_NextPairs;
 
     /** active な trigger の総数。 */
     u32 m_TriggerCount = 0;

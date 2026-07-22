@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloFullGame — Bullets 実装。
+// HelloFullGame — FBullets 実装。
 #include "Bullets.h"
 #include "GameplayScene.h"
 #include "FullGameApp.h"
@@ -11,10 +11,10 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void Bullets::Init(FProjectileSystem& sys) noexcept {
+void FBullets::Init(FProjectileSystem& sys) noexcept {
     sys.Init(kMaxBullets);
 
-    ProjectileDef bdef{};
+    FProjectileDef bdef{};
     bdef.id              = kBulletDefId;
     bdef.kind            = EProjectileKind::Bullet;
     bdef.speed           = kBulletSpeed;
@@ -28,22 +28,22 @@ void Bullets::Init(FProjectileSystem& sys) noexcept {
     sys.RegisterDef(bdef);
 }
 
-void Bullets::Shutdown(FProjectileSystem& sys) noexcept {
+void FBullets::Shutdown(FProjectileSystem& sys) noexcept {
     sys.ClearAll();
 }
 
-void Bullets::Fire(GameplayScene& scene, FVec2 from, FVec2 dir_unit) noexcept {
+void FBullets::Fire(FGameplayScene& scene, FVec2 from, FVec2 dir_unit) noexcept {
     const FVec2 vel = dir_unit * kBulletSpeed;
     const FProjectileId pid = scene.GetProjectiles().Spawn(
         kBulletDefId, from, vel, /*owner_id=*/1u, kBulletDamage);
     if (!pid.IsValid()) return;
-    static_cast<FullGameApp&>(scene.GetGame()).Audio().PlaySfx("sfx_fire", 0.6f);
+    static_cast<FFullGameApp&>(scene.GetGame()).Audio().PlaySfx("sfx_fire", 0.6f);
 }
 
-void Bullets::DrawAll(const FProjectileSystem& sys, FSpriteBatch& sb,
+void FBullets::DrawAll(const FProjectileSystem& sys, FSpriteBatch& sb,
                       f32 last_dt) const noexcept {
     u32 n = 0;
-    const ProjectileInstance* bs = sys.AllAlive(n);
+    const FProjectileInstance* bs = sys.AllAlive(n);
     const f32 sz = kBulletRadius * 2.0f;
 
     // trail: 直前フレーム分の経路を kSteps 段の連続矩形で線化する。

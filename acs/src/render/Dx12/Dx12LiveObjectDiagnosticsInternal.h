@@ -24,7 +24,7 @@ namespace acs::render_internal {
 constexpr u32 kMaximumMessageIdentitiesToRecord = 16u;
 constexpr usize kRecordedDescriptionBytes = 192u;
 
-struct GpuDebugMessageIdentity {
+struct FGpuDebugMessageIdentity {
     u32 identifier = 0;
     u32 severity = 0;
     bool known_diagnostic_message = false;
@@ -32,7 +32,7 @@ struct GpuDebugMessageIdentity {
 };
 
 /** 詳細レポート対応インターフェースを優先して保持する診断専用ハンドル。 */
-struct D3D12DebugDeviceReportHandle {
+struct FD3D12DebugDeviceReportHandle {
     ID3D12DebugDevice2* detailed_device = nullptr;
     ID3D12DebugDevice* basic_device = nullptr;
 
@@ -55,7 +55,7 @@ struct D3D12DebugDeviceReportHandle {
 };
 
 /** InfoQueue のレポート前後差分と、取得できたメッセージの severity 集計。 */
-struct GpuDebugMessageSummary {
+struct FGpuDebugMessageSummary {
     bool queue_available = false;
     bool queue_monotonic = true;
     bool inspection_truncated = false;
@@ -85,16 +85,16 @@ struct GpuDebugMessageSummary {
     u64 live_object_message_count = 0;
 
     u32 recorded_identity_count = 0;
-    GpuDebugMessageIdentity recorded_identities[kMaximumMessageIdentitiesToRecord]{};
+    FGpuDebugMessageIdentity recorded_identities[kMaximumMessageIdentitiesToRecord]{};
 };
 
 constexpr u64 kMaximumMessagesToInspect = 65536u;
 constexpr usize kMessageBufferBytes = 4096u;
 
 /** D3D12 InfoQueue の既存フィルタを保持したまま、診断中だけ全メッセージを通す。 */
-class D3D12InfoQueueUnfilteredScope final {
+class FD3D12InfoQueueUnfilteredScope final {
 public:
-    explicit D3D12InfoQueueUnfilteredScope(ID3D12InfoQueue* information_queue) noexcept
+    explicit FD3D12InfoQueueUnfilteredScope(ID3D12InfoQueue* information_queue) noexcept
         : m_InformationQueue(information_queue)
     {
         if (!m_InformationQueue) return;
@@ -118,13 +118,13 @@ public:
         if (!m_Active) Restore();
     }
 
-    ~D3D12InfoQueueUnfilteredScope() noexcept
+    ~FD3D12InfoQueueUnfilteredScope() noexcept
     {
         Restore();
     }
 
-    D3D12InfoQueueUnfilteredScope(const D3D12InfoQueueUnfilteredScope&) = delete;
-    D3D12InfoQueueUnfilteredScope& operator=(const D3D12InfoQueueUnfilteredScope&) = delete;
+    FD3D12InfoQueueUnfilteredScope(const FD3D12InfoQueueUnfilteredScope&) = delete;
+    FD3D12InfoQueueUnfilteredScope& operator=(const FD3D12InfoQueueUnfilteredScope&) = delete;
 
     bool IsActive() const noexcept
     {
@@ -166,9 +166,9 @@ private:
 };
 
 /** DXGI InfoQueue の既存フィルタを保持したまま、診断中だけ全メッセージを通す。 */
-class DxgiInfoQueueUnfilteredScope final {
+class FDxgiInfoQueueUnfilteredScope final {
 public:
-    explicit DxgiInfoQueueUnfilteredScope(IDXGIInfoQueue* information_queue) noexcept
+    explicit FDxgiInfoQueueUnfilteredScope(IDXGIInfoQueue* information_queue) noexcept
         : m_InformationQueue(information_queue)
     {
         if (!m_InformationQueue) return;
@@ -192,13 +192,13 @@ public:
         if (!m_Active) Restore();
     }
 
-    ~DxgiInfoQueueUnfilteredScope() noexcept
+    ~FDxgiInfoQueueUnfilteredScope() noexcept
     {
         Restore();
     }
 
-    DxgiInfoQueueUnfilteredScope(const DxgiInfoQueueUnfilteredScope&) = delete;
-    DxgiInfoQueueUnfilteredScope& operator=(const DxgiInfoQueueUnfilteredScope&) = delete;
+    FDxgiInfoQueueUnfilteredScope(const FDxgiInfoQueueUnfilteredScope&) = delete;
+    FDxgiInfoQueueUnfilteredScope& operator=(const FDxgiInfoQueueUnfilteredScope&) = delete;
 
     bool IsActive() const noexcept
     {
@@ -242,20 +242,20 @@ private:
 };
 
 /** process-global な DXGI InfoQueue の差分採取を直列化する排他ガード。 */
-class DxgiLiveObjectDiagnosticsLockGuard final {
+class FDxgiLiveObjectDiagnosticsLockGuard final {
 public:
-    explicit DxgiLiveObjectDiagnosticsLockGuard(SRWLOCK& lock) noexcept : m_Lock(lock)
+    explicit FDxgiLiveObjectDiagnosticsLockGuard(SRWLOCK& lock) noexcept : m_Lock(lock)
     {
         ::AcquireSRWLockExclusive(&m_Lock);
     }
 
-    ~DxgiLiveObjectDiagnosticsLockGuard() noexcept
+    ~FDxgiLiveObjectDiagnosticsLockGuard() noexcept
     {
         ::ReleaseSRWLockExclusive(&m_Lock);
     }
 
-    DxgiLiveObjectDiagnosticsLockGuard(const DxgiLiveObjectDiagnosticsLockGuard&) = delete;
-    DxgiLiveObjectDiagnosticsLockGuard& operator=(const DxgiLiveObjectDiagnosticsLockGuard&) = delete;
+    FDxgiLiveObjectDiagnosticsLockGuard(const FDxgiLiveObjectDiagnosticsLockGuard&) = delete;
+    FDxgiLiveObjectDiagnosticsLockGuard& operator=(const FDxgiLiveObjectDiagnosticsLockGuard&) = delete;
 
 private:
     SRWLOCK& m_Lock;
@@ -282,9 +282,9 @@ inline const char* BooleanText(bool value) noexcept
     return value ? "true" : "false";
 }
 
-inline D3D12DebugDeviceReportHandle CaptureD3D12DebugDeviceReportHandle(ID3D12Device* device) noexcept
+inline FD3D12DebugDeviceReportHandle CaptureD3D12DebugDeviceReportHandle(ID3D12Device* device) noexcept
 {
-    D3D12DebugDeviceReportHandle handle{};
+    FD3D12DebugDeviceReportHandle handle{};
     if (!device) {
         return handle;
     }
@@ -331,13 +331,13 @@ inline bool BoundedTextEndsWith(const char* text, usize text_bytes, const char* 
 }
 
 inline void RecordMessageIdentity(u32 identifier, u32 severity, bool known_diagnostic_message, const char* description,
-                                  usize description_bytes, GpuDebugMessageSummary& summary) noexcept
+                                  usize description_bytes, FGpuDebugMessageSummary& summary) noexcept
 {
     if (summary.recorded_identity_count >= kMaximumMessageIdentitiesToRecord) {
         return;
     }
 
-    GpuDebugMessageIdentity& identity = summary.recorded_identities[summary.recorded_identity_count++];
+    FGpuDebugMessageIdentity& identity = summary.recorded_identities[summary.recorded_identity_count++];
     identity.identifier = identifier;
     identity.severity = severity;
     identity.known_diagnostic_message = known_diagnostic_message;
@@ -361,7 +361,7 @@ inline void RecordMessageIdentity(u32 identifier, u32 severity, bool known_diagn
     identity.description[output_index] = '\0';
 }
 
-inline void CaptureD3D12QueueBeforeReport(ID3D12InfoQueue* information_queue, GpuDebugMessageSummary& summary) noexcept
+inline void CaptureD3D12QueueBeforeReport(ID3D12InfoQueue* information_queue, FGpuDebugMessageSummary& summary) noexcept
 {
     if (!information_queue) {
         return;
@@ -395,7 +395,7 @@ inline bool IsKnownD3D12LiveObjectDiagnosticMessage(D3D12_MESSAGE_ID identifier,
 }
 
 inline void CountD3D12MessageSeverity(D3D12_MESSAGE_SEVERITY severity, bool known_diagnostic_message,
-                                      GpuDebugMessageSummary& summary) noexcept
+                                      FGpuDebugMessageSummary& summary) noexcept
 {
     if (known_diagnostic_message) {
         ++summary.known_diagnostic_message_count;
@@ -425,7 +425,7 @@ inline void CountD3D12MessageSeverity(D3D12_MESSAGE_SEVERITY severity, bool know
     }
 }
 
-inline void CaptureD3D12QueueAfterReport(ID3D12InfoQueue* information_queue, GpuDebugMessageSummary& summary) noexcept
+inline void CaptureD3D12QueueAfterReport(ID3D12InfoQueue* information_queue, FGpuDebugMessageSummary& summary) noexcept
 {
     if (!information_queue) {
         return;
@@ -476,7 +476,7 @@ inline void CaptureD3D12QueueAfterReport(ID3D12InfoQueue* information_queue, Gpu
     }
 }
 
-inline void CaptureDxgiQueueBeforeReport(IDXGIInfoQueue* information_queue, GpuDebugMessageSummary& summary) noexcept
+inline void CaptureDxgiQueueBeforeReport(IDXGIInfoQueue* information_queue, FGpuDebugMessageSummary& summary) noexcept
 {
     if (!information_queue) {
         return;
@@ -491,7 +491,7 @@ inline void CaptureDxgiQueueBeforeReport(IDXGIInfoQueue* information_queue, GpuD
 }
 
 inline void CountDxgiMessageSeverity(DXGI_INFO_QUEUE_MESSAGE_SEVERITY severity,
-                                     GpuDebugMessageSummary& summary) noexcept
+                                     FGpuDebugMessageSummary& summary) noexcept
 {
     ++summary.live_object_message_count;
     switch (severity) {
@@ -516,7 +516,7 @@ inline void CountDxgiMessageSeverity(DXGI_INFO_QUEUE_MESSAGE_SEVERITY severity,
     }
 }
 
-inline void CaptureDxgiQueueAfterReport(IDXGIInfoQueue* information_queue, GpuDebugMessageSummary& summary) noexcept
+inline void CaptureDxgiQueueAfterReport(IDXGIInfoQueue* information_queue, FGpuDebugMessageSummary& summary) noexcept
 {
     if (!information_queue) {
         return;
@@ -575,7 +575,7 @@ enum class EGpuLiveObjectVerdict : u8 {
     Leak,
 };
 
-inline bool IsGpuDebugMessageInspectionComplete(const GpuDebugMessageSummary& summary) noexcept
+inline bool IsGpuDebugMessageInspectionComplete(const FGpuDebugMessageSummary& summary) noexcept
 {
     const bool filter_contract_succeeded = summary.filter_override_attempted && summary.filter_override_succeeded &&
                                            summary.filter_restore_succeeded;
@@ -584,7 +584,7 @@ inline bool IsGpuDebugMessageInspectionComplete(const GpuDebugMessageSummary& su
 }
 
 inline EGpuLiveObjectVerdict EvaluateGpuLiveObjectVerdict(HRESULT report_result,
-                                                          const GpuDebugMessageSummary& summary) noexcept
+                                                          const FGpuDebugMessageSummary& summary) noexcept
 {
     if (FAILED(report_result) || !IsGpuDebugMessageInspectionComplete(summary)) {
         return EGpuLiveObjectVerdict::Inconclusive;
@@ -594,7 +594,7 @@ inline EGpuLiveObjectVerdict EvaluateGpuLiveObjectVerdict(HRESULT report_result,
 
 inline void WriteGpuLiveObjectReportMarker(const char* tracker, const char* backend, HRESULT report_result,
                                            const char* report_interface, HRESULT information_queue_result,
-                                           const GpuDebugMessageSummary& summary, u64 diagnostic_sequence) noexcept
+                                           const FGpuDebugMessageSummary& summary, u64 diagnostic_sequence) noexcept
 {
     ACS_LOG_INFO("[acs][memory] tracker=%s record=report backend=%s report_executed=true "
                  "diagnostic_sequence=%llu report_interface=%s api_call_status=%s result=0x%08lx "
@@ -646,7 +646,7 @@ inline void WriteGpuLiveObjectReportMarker(const char* tracker, const char* back
                  static_cast<unsigned long long>(summary.live_object_message_count));
 
     for (u32 index = 0; index < summary.recorded_identity_count; ++index) {
-        const GpuDebugMessageIdentity& identity = summary.recorded_identities[index];
+        const FGpuDebugMessageIdentity& identity = summary.recorded_identities[index];
         ACS_LOG_INFO("[acs][memory] tracker=%s record=info_queue_message backend=%s "
                      "diagnostic_sequence=%llu ordinal=%u identifier=%u severity=%u "
                      "known_diagnostic_message=%s description=\"%s\"",
@@ -687,7 +687,7 @@ inline void WriteGpuLiveObjectReportMarker(const char* tracker, const char* back
 }
 
 /** D3D12 live-object reportを実行する。handle の所有権は移動しない。 */
-inline void ReportD3D12LiveObjects(const D3D12DebugDeviceReportHandle& handle, const char* backend) noexcept
+inline void ReportD3D12LiveObjects(const FD3D12DebugDeviceReportHandle& handle, const char* backend) noexcept
 {
     if (!handle.IsAvailable()) {
         ACS_LOG_INFO("[acs][memory] tracker=d3d12_live_objects record=report backend=%s "
@@ -702,14 +702,14 @@ inline void ReportD3D12LiveObjects(const D3D12DebugDeviceReportHandle& handle, c
 
     ID3D12InfoQueue* information_queue = nullptr;
     HRESULT information_queue_result = E_NOINTERFACE;
-    GpuDebugMessageSummary summary{};
+    FGpuDebugMessageSummary summary{};
     HRESULT report_result = E_NOINTERFACE;
     const char* report_interface = "ID3D12DebugDevice";
 
     if (handle.detailed_device) {
         report_interface = "ID3D12DebugDevice2";
         information_queue_result = handle.detailed_device->QueryInterface(IID_PPV_ARGS(&information_queue));
-        D3D12InfoQueueUnfilteredScope filter_scope(information_queue);
+        FD3D12InfoQueueUnfilteredScope filter_scope(information_queue);
         summary.filter_override_attempted = information_queue != nullptr;
         summary.filter_override_succeeded = filter_scope.IsActive();
         CaptureD3D12QueueBeforeReport(information_queue, summary);
@@ -720,7 +720,7 @@ inline void ReportD3D12LiveObjects(const D3D12DebugDeviceReportHandle& handle, c
         summary.filter_restore_succeeded = filter_scope.WasRestored();
     } else {
         information_queue_result = handle.basic_device->QueryInterface(IID_PPV_ARGS(&information_queue));
-        D3D12InfoQueueUnfilteredScope filter_scope(information_queue);
+        FD3D12InfoQueueUnfilteredScope filter_scope(information_queue);
         summary.filter_override_attempted = information_queue != nullptr;
         summary.filter_override_succeeded = filter_scope.IsActive();
         CaptureD3D12QueueBeforeReport(information_queue, summary);
@@ -745,7 +745,7 @@ inline void ReportD3D12LiveObjects(const D3D12DebugDeviceReportHandle& handle, c
 inline void ReportDxgiLiveObjects(const char* backend) noexcept
 {
     SRWLOCK& diagnostic_lock = DxgiLiveObjectDiagnosticsLock();
-    DxgiLiveObjectDiagnosticsLockGuard diagnostic_guard(diagnostic_lock);
+    FDxgiLiveObjectDiagnosticsLockGuard diagnostic_guard(diagnostic_lock);
     const u64 diagnostic_sequence = NextDxgiLiveObjectDiagnosticSequence();
 
     IDXGIDebug1* debug = nullptr;
@@ -766,8 +766,8 @@ inline void ReportDxgiLiveObjects(const char* backend) noexcept
 
     IDXGIInfoQueue* information_queue = nullptr;
     const HRESULT information_queue_result = ::DXGIGetDebugInterface1(0, IID_PPV_ARGS(&information_queue));
-    GpuDebugMessageSummary summary{};
-    DxgiInfoQueueUnfilteredScope filter_scope(information_queue);
+    FGpuDebugMessageSummary summary{};
+    FDxgiInfoQueueUnfilteredScope filter_scope(information_queue);
     summary.filter_override_attempted = information_queue != nullptr;
     summary.filter_override_succeeded = filter_scope.IsActive();
     CaptureDxgiQueueBeforeReport(information_queue, summary);

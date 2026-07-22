@@ -18,7 +18,7 @@
 //   → 東 (+X) を向くと北 (+Y) は左 (pan<0)、南 (-Y) は右 (pan>0)。
 //   Y+ が下のスクリーン座標系を使う場合は angle の符号を反転して渡す。
 //
-// 使い方 (free function 直叩き — Scene が独自に source を持つ場合):
+// 使い方 (free function 直叩き — FScene が独自に source を持つ場合):
 //   const f32 d   = ComputeDistance2D(ear_pos, enemy_pos);
 //   const f32 vol = ComputeVolume2D(d, 20.0f, EAttenuationCurve::Linear);
 //   const f32 pan = ComputePan2D(ear_pos, ear_angle, enemy_pos);
@@ -83,7 +83,7 @@ struct FAudioSource2D {
 };
 
 // =============================================================================
-// 純数学 free function 群 (state を持たない。Scene が独自に source 配列を持つ場合に直叩き)
+// 純数学 free function 群 (state を持たない。FScene が独自に source 配列を持つ場合に直叩き)
 // =============================================================================
 
 /**
@@ -190,7 +190,7 @@ ACS_FORCEINLINE void ComputeConstantPowerStereo2D(f32 pan, f32& left, f32& right
  * 2D listener + source を集中管理する空間化レイヤ (FSpatialAudio の 2D 版)。
  *
  * @details
- * Scene 局所 instance としての所有を想定。1 listener + N source を AoS で保持し、
+ * FScene 局所 instance としての所有を想定。1 listener + N source を AoS で保持し、
  * 毎フレーム distance / volume / pan を pull で取得する。source_id は単調増加で
  * 再利用しない (stale ID 検出が単純)。全メソッド inline (header-only)。
  */

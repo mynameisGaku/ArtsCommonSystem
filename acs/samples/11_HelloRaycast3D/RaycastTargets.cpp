@@ -7,12 +7,12 @@ using namespace acs;
 
 namespace helloraycast3d {
 
-void RaycastTargets::Init() noexcept {
+void FRaycastTargets::Init() noexcept {
     for (u32 i = 0; i < kNumObjects; ++i) {
         const f32 a = (kPi * 2.0f) * static_cast<f32>(i) / kNumObjects;
-        Object& o = m_Objects[i];
+        FObject& o = m_Objects[i];
         // 球と立方体を交互に / 上下に段差を付けて見栄えに変化を出す
-        o.kind     = (i & 1) ? ShapeKind::FSphere : ShapeKind::Cube;
+        o.kind     = (i & 1) ? EShapeKind::Sphere : EShapeKind::Cube;
         o.position = { Sin(a) * kObjectArenaR,
                        1.0f + ((i & 2) ? 1.5f : 0.0f),
                        Cos(a) * kObjectArenaR };
@@ -24,16 +24,16 @@ void RaycastTargets::Init() noexcept {
     m_HitIndex = -1;
 }
 
-void RaycastTargets::SetHit(i32 index, FVec3 point) noexcept {
+void FRaycastTargets::SetHit(i32 index, FVec3 point) noexcept {
     m_HitIndex = index;
     m_HitPoint = point;
 }
 
-void RaycastTargets::ClearHit() noexcept {
+void FRaycastTargets::ClearHit() noexcept {
     m_HitIndex = -1;
 }
 
-FVec3 RaycastTargets::m_HsvToRgb(f32 h, f32 s, f32 v) noexcept {
+FVec3 FRaycastTargets::m_HsvToRgb(f32 h, f32 s, f32 v) noexcept {
     // h を [0,1) に折り返す (負値も拾えるように 2 段階で)
     h = h - static_cast<i32>(h);
     if (h < 0) h += 1.0f;

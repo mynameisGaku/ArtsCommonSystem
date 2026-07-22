@@ -15,7 +15,7 @@ namespace {
 constexpr usize kThreadNameCapacity = 64;
 
 /** CreateThread に渡す起動コンテキスト (Trampoline 内で消費・解放される一時ヒープ確保)。 */
-struct StartCtx {
+struct FStartCtx {
     /** スレッドで実行するユーザー関数。 */
     ThreadEntry entry;
 
@@ -48,7 +48,7 @@ void CopyThreadName(wchar_t* destination, const wchar_t* source) noexcept
  * @return 常に 0。
  */
 DWORD WINAPI Trampoline(LPVOID arg) noexcept {
-    StartCtx* ctx = static_cast<StartCtx*>(arg);
+    FStartCtx* ctx = static_cast<FStartCtx*>(arg);
     const ThreadEntry e = ctx->entry;
     void* const u       = ctx->user;
     if (ctx->name[0] != L'\0') ::SetThreadDescription(::GetCurrentThread(), ctx->name);
@@ -60,8 +60,8 @@ DWORD WINAPI Trampoline(LPVOID arg) noexcept {
 } // namespace
 
 /** 現在のスレッドの ID を返す (GetCurrentThreadId のラッパ)。 */
-ThreadId CurrentThreadId() noexcept {
-    return ThreadId{ static_cast<u32>(::GetCurrentThreadId()) };
+FThreadId CurrentThreadId() noexcept {
+    return FThreadId{ static_cast<u32>(::GetCurrentThreadId()) };
 }
 
 /** 現在のスレッドを指定ミリ秒スリープさせる。 */
@@ -100,11 +100,11 @@ FThread& FThread::operator=(FThread&& other) noexcept {
 }
 
 /** スレッドを生成して起動する。Trampoline 経由で entry を呼ぶ。 */
-TResult<FThread> FThread::Spawn(ThreadEntry entry, void* user, const ThreadConfig& cfg) noexcept {
+TResult<FThread> FThread::Spawn(ThreadEntry entry, void* user, const FThreadConfig& cfg) noexcept {
     if (!entry) return ACS_ERR(Threading, 1, "FThread::Spawn called with null entry");
 
     // ユーザー関数情報を保持する一時オブジェクトをヒープに確保
-    auto* ctx = static_cast<StartCtx*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(StartCtx)));
+    auto* ctx = static_cast<FStartCtx*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(FStartCtx)));
     if (!ctx) return ACS_ERR(Memory, 1, "FThread::Spawn HeapAlloc failed");
     ctx->entry = entry;
     ctx->user  = user;
@@ -125,7 +125,7 @@ TResult<FThread> FThread::Spawn(ThreadEntry entry, void* user, const ThreadConfi
 
     FThread t;
     t.m_Handle = h;
-    t.m_Id     = ThreadId{ static_cast<u32>(tid) };
+    t.m_Id     = FThreadId{ static_cast<u32>(tid) };
     return TResult<FThread>(OkInit, Move(t));
 }
 

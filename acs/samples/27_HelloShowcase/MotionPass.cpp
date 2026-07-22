@@ -10,7 +10,7 @@ using namespace acs;
 
 namespace helloshowcase {
 
-IRhiTexture* ExecuteMotionPass(Assets& a, IRhiCommandList& cl,
+IRhiTexture* ExecuteMotionPass(FAssets& a, IRhiCommandList& cl,
                                const FMat4& vp_no_jitter,
                                const FMat4& prev_vp_no_jitter,
                                bool prev_vp_valid,

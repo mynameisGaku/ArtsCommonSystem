@@ -16,7 +16,7 @@ namespace hellole {
 // ----------------------------------------------------------------------------
 // OnEnter — theme / workspace / tilemap / panel を順に初期化
 // ----------------------------------------------------------------------------
-void LevelEditorScene::OnEnter() noexcept {
+void FLevelEditorScene::OnEnter() noexcept {
     // editor 風の暗グレー背景 (ImGui に隠れるが viewport の外側余白に出る)。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
 
@@ -56,7 +56,7 @@ void LevelEditorScene::OnEnter() noexcept {
 // ----------------------------------------------------------------------------
 // 初期 tilemap パターンを焼く (床 + 外周壁 + 中央部屋の枠)
 // ----------------------------------------------------------------------------
-void LevelEditorScene::m_SeedInitialTilemapPattern() noexcept {
+void FLevelEditorScene::m_SeedInitialTilemapPattern() noexcept {
     // layer 0 = 床 (全面 tile id=1)
     m_Tilemap.Fill(FTileId{1u}, /*layer=*/0u);
 
@@ -79,7 +79,7 @@ void LevelEditorScene::m_SeedInitialTilemapPattern() noexcept {
 // ----------------------------------------------------------------------------
 // OnExit — 逆順 shutdown
 // ----------------------------------------------------------------------------
-void LevelEditorScene::OnExit() noexcept {
+void FLevelEditorScene::OnExit() noexcept {
     // FEditorWorkspace::Shutdown は登録済み全 panel に OnShutdown を 1 度ずつ
     // 呼んでから list を Clear する。よって個別 UnregisterPanel を呼ぶ必要は無い。
     m_Workspace.Shutdown();
@@ -94,9 +94,9 @@ void LevelEditorScene::OnExit() noexcept {
 // ImGui 関連 (Workspace::TickAllPanels が呼ぶ DrawDockSpace / MenuBar / panel
 // DrawUI) はすべて OnRender 側へ。`ImGui::Begin` 等は NewFrame() と Render()
 // の間でしか呼べないため、ここでは Workspace::TickAllPanels は呼ばない。
-void LevelEditorScene::OnUpdate(f32 dt) noexcept {
+void FLevelEditorScene::OnUpdate(f32 dt) noexcept {
     (void)dt;
-    if (Input::IsKeyPressed(EKey::Escape)) {
+    if (FInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -105,13 +105,13 @@ void LevelEditorScene::OnUpdate(f32 dt) noexcept {
 // ----------------------------------------------------------------------------
 // OnRender — File/Brush メニュー → Workspace 全描画
 // ----------------------------------------------------------------------------
-void LevelEditorScene::OnRender(RenderContext& rc) noexcept {
+void FLevelEditorScene::OnRender(FRenderContext& rc) noexcept {
     (void)rc;
 
     // ---- (1) MainMenuBar に本 sample 専用メニューを push ----
     // ImGui は同一フレーム内で BeginMainMenuBar を複数回呼んでも 1 個の bar に
     // マージするので、ここで File / Brush を出しておけば Workspace 側が出す
-    // FWindow / Layout メニューと並ぶ。
+    // Window / Layout メニューと並ぶ。
     if (ImGui::BeginMainMenuBar()) {
         m_DrawFileMenu();
         m_DrawBrushMenu();
@@ -126,18 +126,18 @@ void LevelEditorScene::OnRender(RenderContext& rc) noexcept {
 // ----------------------------------------------------------------------------
 // File メニュー (Save / Load / Quit)。Save/Load は stub。
 // ----------------------------------------------------------------------------
-void LevelEditorScene::m_DrawFileMenu() noexcept {
+void FLevelEditorScene::m_DrawFileMenu() noexcept {
     if (!ImGui::BeginMenu("File")) {
         return;
     }
-    if (ImGui::MenuItem("Save FTilemap")) {
+    if (ImGui::MenuItem("Save Tilemap")) {
         // 実 serializer は未配線。callback hook だけ走らせる stub。
-        ACS_LOG_INFO("[LevelEditor] Save FTilemap -> '%s' (stub, no-op: %ux%u, %u layer)",
+        ACS_LOG_INFO("[LevelEditor] Save Tilemap -> '%s' (stub, no-op: %ux%u, %u layer)",
                      kSavePath, m_Tilemap.Width(), m_Tilemap.Height(),
                      m_Tilemap.LayerCount());
     }
-    if (ImGui::MenuItem("Load FTilemap")) {
-        ACS_LOG_INFO("[LevelEditor] Load FTilemap <- '%s' (stub, no-op)", kSavePath);
+    if (ImGui::MenuItem("Load Tilemap")) {
+        ACS_LOG_INFO("[LevelEditor] Load Tilemap <- '%s' (stub, no-op)", kSavePath);
     }
     ImGui::Separator();
     if (ImGui::MenuItem("Quit", "Esc")) {
@@ -149,7 +149,7 @@ void LevelEditorScene::m_DrawFileMenu() noexcept {
 // ----------------------------------------------------------------------------
 // Brush メニュー (Paint / Erase / Fill / Pick の選択 UI)。
 // ----------------------------------------------------------------------------
-void LevelEditorScene::m_DrawBrushMenu() noexcept {
+void FLevelEditorScene::m_DrawBrushMenu() noexcept {
     if (!ImGui::BeginMenu("Brush")) {
         return;
     }

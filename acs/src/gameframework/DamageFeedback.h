@@ -35,11 +35,11 @@
 //      赤フェード残骸 / 矢印 / death cam を一括クリア。
 //
 // 非コピー・非ムーブ:
-//   FGame / Scene のメンバとして 1 インスタンスだけ存在する想定。state が
+//   FGame / FScene のメンバとして 1 インスタンスだけ存在する想定。state が
 //   重複すると death cam の trigger 整合性が壊れるので機械的に禁止。
 //
 // 使い方:
-//   class GameplayScene : public Scene {
+//   class FGameplayScene : public FScene {
 //       FDamageFeedback m_Dmg;
 //       void OnPlayerHit(f32 amount, FVec2 attacker_pos) noexcept {
 //           const FVec2 to_player = player.Position() - attacker_pos;

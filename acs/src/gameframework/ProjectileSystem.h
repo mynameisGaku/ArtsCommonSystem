@@ -13,8 +13,8 @@
 //     Spawn は inactive な slot を線形探索し、満杯なら invalid を返す。これに
 //     より realtime ループでのフレーム落ちを防ぐ (= 最悪ケース上限を制限する
 //     保守的ポリシー)。一般的に max_concurrent は 256〜512 で十分。
-//   ・**def は名前で登録 → Spawn で参照**: ParticleEmitterDef のように個別に値
-//     をコピーするのではなく、ProjectileDef を「弾種」として事前 RegisterDef、
+//   ・**def は名前で登録 → Spawn で参照**: FParticleEmitterDef のように個別に値
+//     をコピーするのではなく、FProjectileDef を「弾種」として事前 RegisterDef、
 //     Spawn 時に def_id (const char*) で名前引きする。これにより
 //       - 多数の弾を発射しても per-instance memory が小さい (def はポインタで参照)
 //       - 同種の弾の挙動を一括変更できる (テスト / バランス調整時に有利)
@@ -47,7 +47,7 @@
 //   FProjectileSystem ps;
 //   ps.Init(256);
 //
-//   ProjectileDef bullet{};
+//   FProjectileDef bullet{};
 //   bullet.id            = "bullet_9mm";
 //   bullet.kind          = EProjectileKind::Bullet;
 //   bullet.speed         = 800.0f;
@@ -67,7 +67,7 @@
 //                                /*damage=*/15.0f);
 //
 //   // hit test を登録 (FCollisionWorld2D 経由など):
-//   ps.SetHitTestFn([](void* user, const ProjectileInstance& p,
+//   ps.SetHitTestFn([](void* user, const FProjectileInstance& p,
 //                      u32& out_target, f32& out_dmg) noexcept -> bool {
 //       auto* cw = static_cast<FCollisionWorld2D*>(user);
 //       // ... overlap check ... out_target = enemy_node_id; out_dmg = p.damage;
@@ -132,7 +132,7 @@ enum class EProjectileKind : u8 {
  * @details 1 つの弾種を「def」として事前登録し、Spawn 時に id で名前引きする。多数の弾を
  * 発射しても per-instance memory が小さく、同種の弾の挙動を一括変更できる。
  */
-struct ProjectileDef {
+struct FProjectileDef {
     /** 弾種の識別子 (string literal 推奨、Spawn 時の名前引きキー)。 */
     const char*    id              = nullptr;
 
@@ -224,7 +224,7 @@ struct FProjectileId {
  * @details def_id は RegisterDef で登録した string literal をそのまま指す (描画側で弾種別
  * アセットを引くキー)。owner_id / damage は spawn 毎に変化する値。
  */
-struct ProjectileInstance {
+struct FProjectileInstance {
     /** 弾種識別子 (RegisterDef した string literal を指す、非所有)。 */
     const char* def_id      = nullptr;
 
@@ -240,7 +240,7 @@ struct ProjectileInstance {
     /** 当てた回数 (max_pierces+1 で despawn)。 */
     u32         hit_count   = 0u;
 
-    /** 撃った主体の識別子 (FNode2D::Id 等)。 */
+    /** 撃った主体の識別子 (ANode::Id 等)。 */
     u32         owner_id    = 0u;
 
     /** 1 hit 当たりのダメージ量。 */
@@ -255,7 +255,7 @@ struct ProjectileInstance {
  * user (SetHitTestFn で渡した context)、proj (判定対象)、out_hit_target_id (hit した
  * ターゲット識別子)、out_damage_dealt (実際に与えたダメージ、HitCallback へ渡る)。
  */
-using HitTestFn = bool(*)(void* user, const ProjectileInstance& proj,
+using HitTestFn = bool(*)(void* user, const FProjectileInstance& proj,
                           u32& out_hit_target_id, f32& out_damage_dealt) noexcept;
 
 /**
@@ -281,7 +281,7 @@ using ExpireCallback = void(*)(void* user, FProjectileId proj_id, const char* de
  *
  * @details
  * Init(max_concurrent) で確保した固定容量プールに inactive slot を線形探索して Spawn し、
- * 満杯なら invalid を返す。弾種は ProjectileDef を RegisterDef し Spawn 時に def_id で
+ * 満杯なら invalid を返す。弾種は FProjectileDef を RegisterDef し Spawn 時に def_id で
  * 名前引きする。命中判定は HitTestFn で外部委譲し、Tick 内で各 alive 弾に対して呼ぶ。
  * hit_count が貫通上限に達するか lifetime を超えると despawn する。AllAlive() が内部
  * buffer の生ポインタを返すため非コピー・非ムーブ。全 noexcept、STL 不使用。
@@ -321,7 +321,7 @@ public:
      * 文字列一致) が登録済みなら上書き更新。
      * @param def 登録する弾種パラメータ。
      */
-    void RegisterDef(const ProjectileDef& def) noexcept;
+    void RegisterDef(const FProjectileDef& def) noexcept;
 
     /**
      * 弾を発射する。
@@ -365,7 +365,7 @@ public:
      * @param id 取得する弾のハンドル。
      * @return instance へのポインタ (stale handle なら nullptr)。
      */
-    const ProjectileInstance* GetInstance(FProjectileId id) const noexcept;
+    const FProjectileInstance* GetInstance(FProjectileId id) const noexcept;
 
     /**
      * alive な弾を連続バッファで返す (描画ループ用)。
@@ -375,7 +375,7 @@ public:
      * @param out_count alive 弾の数を書き出す先。
      * @return alive instance 配列の先頭 (alive 0 件なら nullptr)。
      */
-    const ProjectileInstance* AllAlive(u32& out_count) const noexcept;
+    const FProjectileInstance* AllAlive(u32& out_count) const noexcept;
 
     /**
      * 全 alive 弾を dt 秒分だけ進める。
@@ -435,9 +435,9 @@ private:
      *
      * @details active=false で空き扱い。gen は generational handle 用。
      */
-    struct Slot {
+    struct FSlot {
         /** 弾の生データ。 */
-        ProjectileInstance inst         {};
+        FProjectileInstance inst         {};
 
         /** homing の追従目標位置。 */
         FVec2               homing_tgt   {0.0f, 0.0f};
@@ -453,13 +453,13 @@ private:
     };
 
     /** 登録済み弾種 def (可変長、id ポインタで識別)。 */
-    TArray<ProjectileDef> m_Defs;
+    TArray<FProjectileDef> m_Defs;
 
     /** pool 本体 (固定容量の slot 配列)。 */
-    TArray<Slot>                m_Slots;
+    TArray<FSlot>                m_Slots;
 
     /** AllAlive 専用の連続スナップショット buffer。 */
-    TArray<ProjectileInstance>  m_AliveSnapshot;
+    TArray<FProjectileInstance>  m_AliveSnapshot;
 
     /** pool 容量 (Init で確定)。 */
     u32 m_Capacity     = 0u;
@@ -494,7 +494,7 @@ private:
      * @param id 引く弾種の id。
      * @return def へのポインタ (見つからなければ nullptr)。
      */
-    const ProjectileDef* FindDef(const char* id) const noexcept;
+    const FProjectileDef* FindDef(const char* id) const noexcept;
 
     /**
      * ハンドルから slot を引く (非 const 版)。
@@ -502,7 +502,7 @@ private:
      * @param id 引く弾のハンドル。
      * @return slot へのポインタ (stale / inactive なら nullptr)。
      */
-    Slot*       FindSlot(FProjectileId id) noexcept;
+    FSlot*       FindSlot(FProjectileId id) noexcept;
 
     /**
      * ハンドルから slot を引く (const 版)。
@@ -510,7 +510,7 @@ private:
      * @param id 引く弾のハンドル。
      * @return slot への const ポインタ (stale / inactive なら nullptr)。
      */
-    const Slot* FindSlot(FProjectileId id) const noexcept;
+    const FSlot* FindSlot(FProjectileId id) const noexcept;
 
     /**
      * 空き slot index を取得する。

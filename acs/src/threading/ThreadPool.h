@@ -16,23 +16,23 @@ namespace acs {
  * Done は 0 で飽和し underflow しない (underflow すると Finished() が永久に
  * false となり Wait() がハングするため)。コピー禁止。
  */
-class CompletionCounter {
+class FCompletionCounter {
 public:
     /** カウント 0 で構築する。 */
-    CompletionCounter() noexcept = default;
+    FCompletionCounter() noexcept = default;
 
     /**
      * 初期カウントを指定して構築する。
      *
      * @param initial 初期の保留タスク数。
      */
-    explicit CompletionCounter(u32 initial) noexcept : m_V(initial) {}
+    explicit FCompletionCounter(u32 initial) noexcept : m_V(initial) {}
 
     /** コピー禁止 (カウントを共有すると意味が破綻するため)。 */
-    CompletionCounter(const CompletionCounter&) = delete;
+    FCompletionCounter(const FCompletionCounter&) = delete;
 
     /** コピー代入も禁止。 */
-    CompletionCounter& operator=(const CompletionCounter&) = delete;
+    FCompletionCounter& operator=(const FCompletionCounter&) = delete;
 
     /**
      * 保留タスク数をアトミックに加算する (タスク投入時に呼ぶ)。
@@ -78,7 +78,7 @@ private:
 using TaskFn = void (*)(void* user, u32 worker_index);
 
 /** ワーカーへ投入する 1 つのタスク (POD なので deque に値コピーされる)。 */
-struct Task {
+struct FTask {
     /** 実行する関数。 */
     TaskFn              fn       = nullptr;
 
@@ -86,7 +86,7 @@ struct Task {
     void*               user     = nullptr;
 
     /** 完了通知先のカウンタ (任意、null 可)。 */
-    CompletionCounter*  counter  = nullptr;
+    FCompletionCounter*  counter  = nullptr;
 };
 
 /**
@@ -145,14 +145,14 @@ public:
      * @param t 投入するタスク (fn が null なら Threading エラー)。
      * @return 成功なら空の TResult。未初期化・null fn・ノード確保失敗時はエラー。
      */
-    static TResult<void> Submit(const Task& t) noexcept;
+    static TResult<void> Submit(const FTask& t) noexcept;
 
     /**
      * counter が 0 になるまで待機する (待機中もスティーリングに参加)。
      *
      * @param counter 完了を待つ対象のカウンタ。
      */
-    static void         Wait(CompletionCounter& counter) noexcept;
+    static void         Wait(FCompletionCounter& counter) noexcept;
 
     /**
      * 範囲 [begin, end) を grain サイズに分割して並列実行し、完了まで待つ。

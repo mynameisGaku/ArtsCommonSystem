@@ -4,7 +4,7 @@
 // 設計のポイント (詳細はヘッダ参照):
 //   ・現選択 FNodeId (1 個) + (cb, user) 登録 list の最小ハブ。
 //   ・selection 値が変化した場合のみ callback を順番に dispatch する。
-//   ・登録 / 解除は HotReloadWatcher と同じ規約: 重複弾き / 未登録 no-op。
+//   ・登録 / 解除は FHotReloadWatcher と同じ規約: 重複弾き / 未登録 no-op。
 
 #include "gameframework/tools/inspector/SelectionService.h"
 
@@ -58,7 +58,7 @@ bool FSelectionService::IsSelected(FNodeId id) const noexcept {
 /** (cb, user) ペアを登録する (重複・null は no-op)。 */
 void FSelectionService::RegisterCallback(SelectionChangeCallback cb, void* user) noexcept {
     if (cb == nullptr) {
-        // null コールバックは silent no-op (HotReloadWatcher と同じ規約だが
+        // null コールバックは silent no-op (FHotReloadWatcher と同じ規約だが
         // ここでは log を出さない: editor 用途で頻発しても煩いだけ)。
         return;
     }
@@ -69,7 +69,7 @@ void FSelectionService::RegisterCallback(SelectionChangeCallback cb, void* user)
             return;
         }
     }
-    CallbackEntry e{};
+    FCallbackEntry e{};
     e.cb   = cb;
     e.user = user;
     m_Callbacks.PushBack(e);
@@ -116,7 +116,7 @@ void FSelectionService::FireChange(FNodeId from, FNodeId to) const noexcept {
     // editor の panel 構成は起動時に確定するため問題ない。
     const usize n = m_Callbacks.Size();
     for (usize i = 0; i < n; ++i) {
-        const CallbackEntry& e = m_Callbacks[i];
+        const FCallbackEntry& e = m_Callbacks[i];
         // cb は nullptr で登録されない (RegisterCallback で弾く) ため、
         // ここで再チェックはしない。
         e.cb(e.user, from, to);

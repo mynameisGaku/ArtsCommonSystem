@@ -2,7 +2,7 @@
 // GameFramework Pillar N — FModRegistry 実装
 //
 // 「メタデータの登録・列挙・並び替え」だけを担う。実際の `.acpak` mount /
-// hook 適用は FAssetPack 統合と Lua 5.4 統合で埋める予定で、本ファイルは未実装。
+// hook 適用は AssetPack 統合と Lua 5.4 統合で埋める予定で、本ファイルは未実装。
 #include "gameframework/ModRegistry.h"
 
 #include <cstring>  // strcmp
@@ -17,7 +17,7 @@ bool FModRegistry::IdEquals(const char* a, const char* b) noexcept {
 }
 
 /** ModInfo を登録する。id == nullptr / 同 id 重複は警告して無視する。 */
-void FModRegistry::Register(const ModInfo& info) noexcept {
+void FModRegistry::Register(const FModInfo& info) noexcept {
     if (info.id == nullptr) {
         // id 無しは管理不能 (Find/Enable で参照できない) ので拒否。
         ACS_LOG_WARN("FModRegistry::Register: skipped entry with null id (name=%s)",
@@ -36,7 +36,7 @@ void FModRegistry::Register(const ModInfo& info) noexcept {
 
     m_Mods.PushBack(info);
 
-    // FAssetPack 統合後は、info.pack_path が非 nullptr なら VirtualFileSystem に
+    // AssetPack 統合後は、info.pack_path が非 nullptr なら VirtualFileSystem に
     // mount 予約する (enable=true のときだけ実 mount)。現状は path を持つだけ。
 }
 
@@ -81,7 +81,7 @@ u32 FModRegistry::Count() const noexcept {
 }
 
 /** mod_id に一致する Mod を返す (見つからなければ nullptr)。 */
-const ModInfo* FModRegistry::Find(const char* mod_id) const noexcept {
+const FModInfo* FModRegistry::Find(const char* mod_id) const noexcept {
     for (u32 i = 0; i < m_Mods.Size(); ++i) {
         if (IdEquals(m_Mods[i].id, mod_id)) return &m_Mods[i];
     }
@@ -89,7 +89,7 @@ const ModInfo* FModRegistry::Find(const char* mod_id) const noexcept {
 }
 
 /** 登録済み Mod の生バッファ先頭を返す (長さは Count())。 */
-const ModInfo* FModRegistry::All() const noexcept {
+const FModInfo* FModRegistry::All() const noexcept {
     return m_Mods.Data();
 }
 
@@ -99,7 +99,7 @@ void FModRegistry::SortByLoadOrder() noexcept {
     // 同 load_order は登録順を保ち、UI の見え方に予測可能性が出る。
     const u32 n = static_cast<u32>(m_Mods.Size());
     for (u32 i = 1; i < n; ++i) {
-        ModInfo key = m_Mods[i];
+        FModInfo key = m_Mods[i];
         u32 j = i;
         while (j > 0 && m_Mods[j - 1].load_order > key.load_order) {
             m_Mods[j] = m_Mods[j - 1];

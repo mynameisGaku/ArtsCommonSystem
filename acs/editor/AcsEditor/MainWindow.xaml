@@ -3,13 +3,14 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:AcsEditor"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        Title="ACS Editor" Height="760" Width="1240"
+        Title="ACS Editor" Height="900" Width="1480" MinHeight="680" MinWidth="1080"
         WindowStyle="None" ResizeMode="CanResize"
         Background="{StaticResource Win}" Foreground="{StaticResource Text}"
-        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display" FontSize="12.5">
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display"
+        FontFamily="Segoe UI" FontSize="12">
 
     <shell:WindowChrome.WindowChrome>
-        <shell:WindowChrome CaptionHeight="32" ResizeBorderThickness="6" CornerRadius="0"
+        <shell:WindowChrome CaptionHeight="34" ResizeBorderThickness="6" CornerRadius="0"
                             GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
     </shell:WindowChrome.WindowChrome>
 
@@ -35,15 +36,16 @@
 
     <DockPanel>
         <!-- カスタムタイトルバー (OS chrome を置き換え、ダークテーマに統一) -->
-        <Grid DockPanel.Dock="Top" Background="{StaticResource Edge}" Height="32">
+        <Grid DockPanel.Dock="Top" Background="{StaticResource Win}" Height="34">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Center">
+                <Border Width="3" Height="18" Background="{StaticResource Accent}" Margin="0,0,8,0"/>
                 <TextBlock Text="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}"
-                           Foreground="{StaticResource TextDim}" FontSize="12" VerticalAlignment="Center"/>
+                           Foreground="{StaticResource TextDim}" FontSize="11.5" VerticalAlignment="Center"/>
             </StackPanel>
             <!-- 中央は空 = ドラッグ領域 (WindowChrome CaptionHeight が拾う) -->
             <StackPanel Grid.Column="2" Orientation="Horizontal" shell:WindowChrome.IsHitTestVisibleInChrome="True">
@@ -59,12 +61,14 @@
                 <MenuItem Header="New Scene" Click="OnNewScene" InputGestureText="Ctrl+N"/>
                 <MenuItem Header="Open Scene…" Click="OnOpenScene"/>
                 <MenuItem Header="Save Scene…" Click="OnSaveScene" InputGestureText="Ctrl+S"/>
+                <MenuItem Header="Save All" Click="OnSaveAllScenes" InputGestureText="Ctrl+Shift+S"/>
                 <Separator/>
                 <MenuItem Header="Exit" Click="OnExit"/>
             </MenuItem>
             <MenuItem Header="_Edit">
                 <MenuItem Header="Undo" Command="ApplicationCommands.Undo" InputGestureText="Ctrl+Z"/>
                 <MenuItem Header="Redo" Command="ApplicationCommands.Redo" InputGestureText="Ctrl+Y"/>
+                <MenuItem Header="Command Palette…" Click="OnCommandPalette" InputGestureText="Ctrl+Shift+P"/>
                 <Separator/>
                 <MenuItem Header="Cut" Click="OnCut" InputGestureText="Ctrl+X"/>
                 <MenuItem Header="Copy"  Command="ApplicationCommands.Copy"  InputGestureText="Ctrl+C"/>
@@ -93,6 +97,8 @@
                 <MenuItem x:Name="MenuBuild"     Header="Build"        Click="OnBuildProject"  InputGestureText="F7"/>
                 <MenuItem x:Name="MenuRun"       Header="Run"          Click="OnRunProject"    InputGestureText="Ctrl+F5"/>
                 <MenuItem x:Name="MenuBuildRun"  Header="Build &amp; Run" Click="OnBuildAndRun" InputGestureText="F5"/>
+                <Separator/>
+                <MenuItem Header="Package Project…" Click="OnPackageProject"/>
             </MenuItem>
             <MenuItem Header="_View">
                 <MenuItem Header="Anti-aliasing">
@@ -110,60 +116,129 @@
                     <MenuItem x:Name="QualLowest"  Header="Lowest (影オフ)"                 IsCheckable="True" Tag="Lowest"  Click="OnQualityMenuClick"/>
                 </MenuItem>
                 <MenuItem Header="Lighting (時間帯)">
-                    <MenuItem Header="☀ Noon (正午・既定)"   Tag="Noon"     Click="OnLightingPreset"/>
-                    <MenuItem Header="🌅 Sunset (夕焼け)"     Tag="Sunset"   Click="OnLightingPreset"/>
-                    <MenuItem Header="☁ Overcast (曇天)"     Tag="Overcast" Click="OnLightingPreset"/>
-                    <MenuItem Header="🌙 Night (夜)"          Tag="Night"    Click="OnLightingPreset"/>
+                    <MenuItem Header="Noon (正午・既定)" Tag="Noon" Click="OnLightingPreset"/>
+                    <MenuItem Header="Sunset (夕焼け)" Tag="Sunset" Click="OnLightingPreset"/>
+                    <MenuItem Header="Overcast (曇天)" Tag="Overcast" Click="OnLightingPreset"/>
+                    <MenuItem Header="Night (夜)" Tag="Night" Click="OnLightingPreset"/>
                 </MenuItem>
                 <Separator/>
                 <MenuItem x:Name="ShowGridItem" Header="Show Grid (グリッド表示)" IsCheckable="True" IsChecked="True" Click="OnToggleGrid"/>
+                <MenuItem Header="Panels">
+                    <MenuItem x:Name="MenuShowHierarchy" Header="Hierarchy" Tag="hierarchy"
+                              IsCheckable="True" IsChecked="True" Click="OnTogglePanelVisibility"/>
+                    <MenuItem x:Name="MenuShowInspector" Header="Inspector" Tag="inspector"
+                              IsCheckable="True" IsChecked="True" Click="OnTogglePanelVisibility"/>
+                    <MenuItem x:Name="MenuShowBottom" Header="Console / Assets" Tag="bottom"
+                              IsCheckable="True" IsChecked="True" InputGestureText="Ctrl+J"
+                              Click="OnTogglePanelVisibility"/>
+                    <MenuItem x:Name="MenuShowProfiler" Header="Profiler" IsCheckable="True"
+                              Click="OnShowProfiler" ToolTip="Open the renderer profiler in the bottom dock"/>
+                    <Separator/>
+                    <MenuItem Header="Reset Layout" Click="OnResetEditorLayout"/>
+                </MenuItem>
+                <MenuItem x:Name="WorkspaceMenu" Header="Workspaces"
+                          SubmenuOpened="OnWorkspaceMenuOpened"/>
             </MenuItem>
             <MenuItem Header="_Help">
                 <MenuItem Header="About ACS Editor" Click="OnAbout"/>
             </MenuItem>
         </Menu>
 
-        <!-- ツールバー -->
+        <!-- Project actions, simulation transport, and build actions are separate visual groups. -->
         <Border DockPanel.Dock="Top" Background="{StaticResource Panel2}" BorderBrush="{StaticResource Edge}" BorderThickness="0,0,0,1">
-            <!-- グローバルツールバー: プロジェクト全体の操作のみ (シーン編集ツールはシーンビューへ) -->
-            <StackPanel Orientation="Horizontal" Margin="8,6">
-                <Button x:Name="PlayBtn"  Content="▶  Play"  Click="OnPlay"  Padding="11,4" Margin="2,0" Foreground="{StaticResource OkFg}"/>
-                <Button x:Name="PauseBtn" Content="❚❚ Pause" Click="OnPause" Padding="10,4" Margin="2,0" IsEnabled="False"/>
-                <Button x:Name="StepBtn"  Content="▎▶ Step"  Click="OnStep"  Padding="10,4" Margin="2,0" IsEnabled="False"/>
-                <ToggleButton x:Name="PreviewBtn" Content="Preview" Click="OnTogglePreview" Padding="10,4" Margin="2,0"/>
-                <Button x:Name="BpRunBtn" Content="Blueprints" Click="OnRunBlueprints" Padding="10,4" Margin="2,0"/>
-                <Separator/>
-                <Button x:Name="BuildBtn" Content="Build" Click="OnBuildProject" Padding="11,4" Margin="2,0"/>
-                <Button x:Name="RunBtn" Content="Run" Click="OnBuildAndRun" Padding="11,4" Margin="2,0" Foreground="{StaticResource InfoFg}"/>
-                <ToggleButton x:Name="HotReloadBtn" Content="Hot Reload" Click="OnHotReloadToggle" Padding="10,4" Margin="2,0"/>
-            </StackPanel>
+            <Grid Margin="8,5">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left">
+                    <Button Content="New" Click="OnNewScene" Style="{StaticResource ToolbarButton}" ToolTip="New Scene (Ctrl+N)"/>
+                    <Button Content="Open" Click="OnOpenScene" Style="{StaticResource ToolbarButton}" ToolTip="Open Scene"/>
+                    <Button x:Name="SaveBtn" Content="Save" Click="OnSaveScene" Style="{StaticResource ToolbarButton}" ToolTip="Save Scene (Ctrl+S)"/>
+                    <Separator/>
+                    <TextBlock x:Name="SceneNameText" Text="Untitled" Style="{StaticResource StateLabel}"
+                               MaxWidth="190" TextTrimming="CharacterEllipsis" Margin="3,0,7,0"/>
+                    <TextBlock x:Name="SaveStateText" Text="SAVED" Style="{StaticResource StateLabel}"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
+                    <Button x:Name="PlayBtn" Content="Play" Click="OnPlay" Style="{StaticResource PlayToolbarButton}"
+                            ToolTip="Play / Stop"/>
+                    <Button x:Name="PauseBtn" Content="Pause" Click="OnPause" Style="{StaticResource ToolbarButton}"
+                            IsEnabled="False" ToolTip="Pause / Resume"/>
+                    <Button x:Name="StepBtn" Content="Step" Click="OnStep" Style="{StaticResource ToolbarButton}"
+                            IsEnabled="False" ToolTip="Advance one frame while paused"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <ToggleButton x:Name="PreviewBtn" Content="Preview" Click="OnTogglePreview" Style="{StaticResource ToolbarToggle}"/>
+                    <Button x:Name="BpRunBtn" Content="Blueprints" Click="OnRunBlueprints" Style="{StaticResource ToolbarButton}"/>
+                    <Separator/>
+                    <Button x:Name="BuildBtn" Content="Build" Click="OnBuildProject" Style="{StaticResource ToolbarButton}"
+                            ToolTip="Build (F7)"/>
+                    <Button x:Name="RunBtn" Content="Build + Run" Click="OnBuildAndRun" Style="{StaticResource ToolbarButton}"
+                            Foreground="{StaticResource InfoFg}" ToolTip="Build and Run (F5)"/>
+                    <ToggleButton x:Name="HotReloadBtn" Content="Hot Reload" Click="OnHotReloadToggle" Style="{StaticResource ToolbarToggle}"/>
+                </StackPanel>
+            </Grid>
         </Border>
 
         <!-- ステータスバー -->
-        <StatusBar DockPanel.Dock="Bottom" Background="{StaticResource Panel}" Foreground="{StaticResource TextDim}">
-            <StatusBarItem><TextBlock x:Name="StatusText" Foreground="{StaticResource TextDim}" Text="Ready"/></StatusBarItem>
-            <StatusBarItem HorizontalAlignment="Right"><TextBlock x:Name="ViewportInfo" Foreground="{StaticResource TextDim}" Text=""/></StatusBarItem>
-        </StatusBar>
+        <Border DockPanel.Dock="Bottom" Height="24" Background="{StaticResource Panel}" BorderBrush="{StaticResource Edge}" BorderThickness="0,1,0,0">
+            <Grid Margin="9,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="StatusText" Style="{StaticResource StateLabel}" Text="Ready"/>
+                <TextBlock x:Name="SceneModeText" Grid.Column="1" Style="{StaticResource StateLabel}"
+                           Text="VIEW: 2D" Margin="0,0,18,0"/>
+                <TextBlock x:Name="PlayStatusText" Grid.Column="2" Style="{StaticResource StateLabel}"
+                           Text="EDIT" Margin="0,0,18,0"/>
+                <TextBlock x:Name="WorkspaceStateText" Grid.Column="3" Style="{StaticResource StateLabel}"
+                           Text="WORKSPACE: LEVEL EDITING" Margin="0,0,18,0"/>
+                <TextBlock x:Name="ProfilerStatusText" Grid.Column="4" Style="{StaticResource StateLabel}"
+                           Text="-- FPS | Frame -- ms | CPU record/submit" Margin="0,0,18,0"
+                           ToolTip="Renderer profiler summary. View → Panels → Profiler opens the history."/>
+                <TextBlock x:Name="ViewportInfo" Grid.Column="5" Style="{StaticResource StateLabel}" Text=""/>
+            </Grid>
+        </Border>
 
         <!-- 本体: Hierarchy | (Viewport / Console) | Inspector -->
         <Grid Background="{StaticResource Edge}">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="248"/>
+                <ColumnDefinition x:Name="HierarchyColumn" Width="260"/>
                 <ColumnDefinition Width="4"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="4"/>
-                <ColumnDefinition Width="360"/>
+                <ColumnDefinition x:Name="InspectorColumn" Width="348"/>
             </Grid.ColumnDefinitions>
 
-            <!-- 左カラム: Hierarchy -->
-            <DockPanel Grid.Column="0" Background="{StaticResource Panel}">
-                <TextBlock DockPanel.Dock="Top" Text="Hierarchy" Style="{StaticResource PanelHeader}"/>
+            <!-- 左カラム: Scene Outliner -->
+            <DockPanel x:Name="HierarchyPanel" Grid.Column="0" Background="{StaticResource Panel}">
+                <Grid DockPanel.Dock="Top" Background="{StaticResource HeaderBg}">
+                    <TextBlock Text="SCENE OUTLINER" Style="{StaticResource PanelHeader}"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,2,4,2">
+                        <TextBlock x:Name="HierarchyCountText" Text="0" Style="{StaticResource StateLabel}" Margin="0,0,5,0"/>
+                        <Button Content="+ ADD" Click="OnCreateEmpty" Style="{StaticResource PanelToolButton}"
+                                MinWidth="50" ToolTip="Add an empty actor to the current scene"/>
+                    </StackPanel>
+                </Grid>
                 <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource Hairline}"/>
-                <TextBox x:Name="HierSearchBox" DockPanel.Dock="Top" Margin="4,4,2,2"
-                         VerticalContentAlignment="Center" ToolTip="ノード名で検索/フィルタ (一致ノードとその親を表示)"
-                         TextChanged="OnHierSearchChanged"/>
+                <Grid DockPanel.Dock="Top" Margin="6,6,4,2">
+                    <TextBox x:Name="HierSearchBox" Height="25" Padding="7,2,24,2"
+                             VerticalContentAlignment="Center" ToolTip="Filter hierarchy by object name"
+                             TextChanged="OnHierSearchChanged"/>
+                    <Button Content="×" HorizontalAlignment="Right" Width="23" Height="23" Margin="0,1,1,1"
+                            Background="Transparent" BorderThickness="0" Padding="0"
+                            Foreground="{StaticResource TextDim}" Click="OnClearHierarchySearch"
+                            ToolTip="Clear hierarchy filter"/>
+                </Grid>
                 <TreeView x:Name="HierarchyTree" Background="{StaticResource Panel}" Foreground="{StaticResource Text}"
-                          BorderThickness="0" Margin="4,4,2,4"
+                          BorderThickness="0" Margin="5,3,3,4"
                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                           SelectedItemChanged="OnHierarchySelect">
                     <TreeView.ContextMenu>
@@ -181,74 +256,105 @@
                 </TreeView>
             </DockPanel>
 
-            <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch" Background="{StaticResource Edge}"/>
+            <GridSplitter x:Name="HierarchySplitter" Grid.Column="1" Width="4"
+                          HorizontalAlignment="Stretch" Background="{StaticResource Edge}"
+                          DragCompleted="OnWorkspaceSplitterDragCompleted"/>
 
             <!-- 中央: Viewport (上) + Console (下) -->
             <Grid Grid.Column="2">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="4"/>
-                    <RowDefinition x:Name="BottomDockRow" Height="172"/>
+                    <RowDefinition x:Name="BottomDockRow" Height="210"/>
                 </Grid.RowDefinitions>
 
                 <DockPanel Grid.Row="0" Background="{StaticResource Edge}">
-                    <DockPanel DockPanel.Dock="Top" Background="{StaticResource Panel2}">
-                        <ToggleButton x:Name="SceneTabBtn" Content="◳ Scene" IsChecked="True" Click="OnSceneTab"
-                                      Padding="12,4" Margin="2" Background="Transparent" Foreground="{StaticResource Text}"/>
-                        <ToggleButton x:Name="GameTabBtn" Content="▶ Game" Click="OnGameTab"
-                                      Padding="12,4" Margin="2" Background="Transparent" Foreground="{StaticResource Text}"/>
-                        <ToggleButton x:Name="BlueprintTabBtn" Content="⛓ Blueprint" Click="OnBlueprintTab"
-                                      Padding="12,4" Margin="2" Background="Transparent" Foreground="{StaticResource Text}"/>
-                        <!-- シーンビュー専用の編集ツール (右寄せ。グローバルツールバーから移動) -->
-                        <StackPanel x:Name="SceneTools" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0">
-                            <ToggleButton x:Name="OrthoBtn" Content="▱ 2D" Click="OnToggleOrtho" Padding="8,3" Margin="1,0"
-                                          ToolTip="2D ビュー (正射影・正面) ⇔ 3D 透視 を切替"/>
-                            <ToggleButton x:Name="PolyBtn" Content="✎ Polygon" Click="OnPolyToggle" Padding="8,3" Margin="1,0"/>
+                    <Grid DockPanel.Dock="Top" Background="{StaticResource Panel2}" Height="33">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                            <ToggleButton x:Name="SceneTabBtn" Content="Scene" IsChecked="True" Click="OnSceneTab"
+                                          Style="{StaticResource ViewportTab}"/>
+                            <ToggleButton x:Name="GameTabBtn" Content="Game" Click="OnGameTab"
+                                          Style="{StaticResource ViewportTab}"/>
+                            <ToggleButton x:Name="BlueprintTabBtn" Content="Blueprint" Click="OnBlueprintTab"
+                                          Style="{StaticResource ViewportTab}"/>
+                        </StackPanel>
+                        <!-- Scene-local tools: projection, transform mode, snapping, and camera framing. -->
+                        <StackPanel x:Name="SceneTools" Grid.Column="2" Orientation="Horizontal"
+                                    HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0">
+                            <ToggleButton x:Name="PerspectiveViewBtn" Content="Perspective"
+                                          Click="OnSceneViewPerspective"
+                                          Style="{StaticResource ToolbarToggle}"
+                                          ToolTip="Perspective view of the current scene"/>
+                            <ToggleButton x:Name="Scene2DViewBtn" Content="2D (Orthographic)"
+                                          Click="OnSceneView2D"
+                                          Style="{StaticResource ToolbarToggle}"
+                                          ToolTip="XY-front orthographic view with orbit disabled and pan navigation"/>
                             <Separator/>
-                            <ToggleButton x:Name="GizMove"   Content="✛" Click="OnGizmoMove"   Padding="8,3" Margin="1,0" ToolTip="Move (W)"/>
-                            <ToggleButton x:Name="GizRotate" Content="⟳" Click="OnGizmoRotate" Padding="8,3" Margin="1,0" ToolTip="Rotate (E)"/>
-                            <ToggleButton x:Name="GizScale"  Content="⤢" Click="OnGizmoScale"  Padding="8,3" Margin="1,0" ToolTip="Scale (R)"/>
-                            <CheckBox x:Name="SnapCheck" Content="Snap" Click="OnSnapToggle" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                            <ToggleButton x:Name="PolyBtn" Content="Polygon" Click="OnPolyToggle"
+                                          Style="{StaticResource ToolbarToggle}"/>
                             <Separator/>
-                            <Button Content="Focus" Click="OnFocus" Padding="9,3" Margin="1,0"/>
-                            <Button Content="Reset" Click="OnResetView" Padding="9,3" Margin="1,0"/>
+                            <ToggleButton x:Name="GizMove" Content="Move  W" Click="OnGizmoMove"
+                                          Style="{StaticResource ToolbarToggle}" ToolTip="Move (W)"/>
+                            <ToggleButton x:Name="GizRotate" Content="Rotate  E" Click="OnGizmoRotate"
+                                          Style="{StaticResource ToolbarToggle}" ToolTip="Rotate (E)"/>
+                            <ToggleButton x:Name="GizScale" Content="Scale  R" Click="OnGizmoScale"
+                                          Style="{StaticResource ToolbarToggle}" ToolTip="Scale (R)"/>
+                            <CheckBox x:Name="SnapCheck" Content="Snap" Click="OnSnapToggle"
+                                      VerticalAlignment="Center" Margin="7,0,5,0"/>
+                            <ComboBox x:Name="SnapPresetBox" Width="76" Height="25" SelectedIndex="1"
+                                      SelectionChanged="OnSnapPresetChanged" ToolTip="Transform snap increments">
+                                <ComboBoxItem Content="Fine"/>
+                                <ComboBoxItem Content="Default"/>
+                                <ComboBoxItem Content="Coarse"/>
+                            </ComboBox>
                             <Separator/>
+                            <Button Content="Focus  F" Click="OnFocus" Style="{StaticResource ToolbarButton}"/>
+                            <Button Content="Frame All" Click="OnResetView" Style="{StaticResource ToolbarButton}"/>
                             <Menu Background="Transparent" VerticalAlignment="Center" Padding="0">
-                                <MenuItem Header="⊞ Align ▾" Padding="7,3" ToolTip="整列・分散">
-                                    <MenuItem Header="左揃え"     Click="OnAlignLeft"/>
-                                    <MenuItem Header="右揃え"     Click="OnAlignRight"/>
-                                    <MenuItem Header="上揃え"     Click="OnAlignTop"/>
-                                    <MenuItem Header="下揃え"     Click="OnAlignBottom"/>
-                                    <MenuItem Header="水平中央"   Click="OnAlignHC"/>
-                                    <MenuItem Header="垂直中央"   Click="OnAlignVC"/>
+                                <MenuItem Header="Align" Padding="7,3" ToolTip="Align and distribute selected objects">
+                                    <MenuItem Header="Align Left" Click="OnAlignLeft"/>
+                                    <MenuItem Header="Align Right" Click="OnAlignRight"/>
+                                    <MenuItem Header="Align Top" Click="OnAlignTop"/>
+                                    <MenuItem Header="Align Bottom" Click="OnAlignBottom"/>
+                                    <MenuItem Header="Center Horizontally" Click="OnAlignHC"/>
+                                    <MenuItem Header="Center Vertically" Click="OnAlignVC"/>
                                     <Separator/>
-                                    <MenuItem Header="水平に分散" Click="OnDistributeH"/>
-                                    <MenuItem Header="垂直に分散" Click="OnDistributeV"/>
+                                    <MenuItem Header="Distribute Horizontally" Click="OnDistributeH"/>
+                                    <MenuItem Header="Distribute Vertically" Click="OnDistributeV"/>
                                 </MenuItem>
                             </Menu>
                         </StackPanel>
-                    </DockPanel>
+                    </Grid>
                     <Grid>
                         <Border x:Name="ViewportHost" Background="{StaticResource Edge}" Margin="0"/>
                     </Grid>
                 </DockPanel>
 
-                <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch" Background="{StaticResource Edge}"/>
+                <GridSplitter x:Name="BottomDockSplitter" Grid.Row="1" Height="4"
+                              HorizontalAlignment="Stretch" Background="{StaticResource Edge}"
+                              DragCompleted="OnWorkspaceSplitterDragCompleted"/>
 
-                <Grid Grid.Row="2" Background="{StaticResource Panel}">
+                <Grid x:Name="BottomDockPanel" Grid.Row="2" Background="{StaticResource Panel}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     <!-- 下部パネルのタブ見出し + ログのフィルタ/検索/ソート -->
-                    <DockPanel Grid.Row="0" Background="{StaticResource Panel2}">
+                    <DockPanel Grid.Row="0" Background="{StaticResource HeaderBg}">
                         <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
                             <ToggleButton x:Name="TabConsole" Content="Console" IsChecked="True"
-                                          Padding="12,5" Margin="2" Click="OnBottomTab" Tag="console"/>
+                                          Style="{StaticResource ViewportTab}" Click="OnBottomTab" Tag="console"/>
                             <ToggleButton x:Name="TabBuild" Content="Build"
-                                          Padding="12,5" Margin="2" Click="OnBottomTab" Tag="build"/>
+                                          Style="{StaticResource ViewportTab}" Click="OnBottomTab" Tag="build"/>
                             <ToggleButton x:Name="TabAssets" Content="Assets"
-                                          Padding="12,5" Margin="2" Click="OnBottomTab" Tag="assets"/>
+                                          Style="{StaticResource ViewportTab}" Click="OnBottomTab" Tag="assets"/>
+                            <ToggleButton x:Name="TabProfiler" Content="Profiler"
+                                          Style="{StaticResource ViewportTab}" Click="OnBottomTab" Tag="profiler"/>
                         </StackPanel>
                         <!-- 右: ログツールバー (Console タブのときだけ表示) -->
                         <StackPanel x:Name="LogToolbar" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0">
@@ -256,11 +362,13 @@
                                      VerticalContentAlignment="Center" TextChanged="OnLogFilterChanged"
                                      ToolTip="ログを文字列で絞り込み"/>
                             <ToggleButton x:Name="FltInfo"  Content="Info"  IsChecked="True" Padding="7,3" Margin="1,0" Click="OnLogFilterChanged" Tag="info"/>
-                            <ToggleButton x:Name="FltWarn"  Content="Warn"  IsChecked="True" Padding="7,3" Margin="1,0" Click="OnLogFilterChanged" Tag="warn"/>
-                            <ToggleButton x:Name="FltError" Content="Error" IsChecked="True" Padding="7,3" Margin="1,0" Click="OnLogFilterChanged" Tag="error"/>
-                            <ToggleButton x:Name="SortNewest" Content="↓ New" Padding="7,3" Margin="6,0,0,0" Click="OnLogSortToggle"
+                            <ToggleButton x:Name="FltWarn"  Content="Warnings" IsChecked="True" Padding="7,3" Margin="1,0" Click="OnLogFilterChanged" Tag="warn"/>
+                            <ToggleButton x:Name="FltError" Content="Errors" IsChecked="True" Padding="7,3" Margin="1,0" Click="OnLogFilterChanged" Tag="error"/>
+                            <ToggleButton x:Name="SortNewest" Content="Newest last" Padding="7,3" Margin="6,0,0,0" Click="OnLogSortToggle"
                                           ToolTip="新しい順 / 古い順を切替"/>
                             <Button Content="Clear" Padding="8,3" Margin="6,0,0,0" Click="OnClearLog"/>
+                            <Button x:Name="BottomDockToggleBtn" Content="Hide" Style="{StaticResource PanelToolButton}"
+                                    Margin="6,0,0,0" Click="OnToggleBottomDock" ToolTip="Hide bottom panel (Ctrl+J)"/>
                         </StackPanel>
                     </DockPanel>
                     <ListBox x:Name="ConsoleList" Grid.Row="1" Background="{StaticResource Panel2}"
@@ -306,17 +414,37 @@
                         </ListBox.ItemTemplate>
                     </ListBox>
                     <local:AssetBrowserPanel x:Name="AssetBrowser" Grid.Row="1" Visibility="Collapsed"/>
+                    <local:ProfilerPanel x:Name="ProfilerView" Grid.Row="1" Visibility="Collapsed"/>
                 </Grid>
             </Grid>
 
-            <GridSplitter Grid.Column="3" Width="4" HorizontalAlignment="Stretch" Background="{StaticResource Edge}"/>
+            <GridSplitter x:Name="InspectorSplitter" Grid.Column="3" Width="4"
+                          HorizontalAlignment="Stretch" Background="{StaticResource Edge}"
+                          DragCompleted="OnWorkspaceSplitterDragCompleted"/>
 
-            <!-- Inspector -->
-            <DockPanel Grid.Column="4" Background="{StaticResource Panel}">
-                <TextBlock DockPanel.Dock="Top" Text="Inspector" Style="{StaticResource PanelHeader}"/>
+            <!-- UE-style Details panel -->
+            <DockPanel x:Name="InspectorPanel" Grid.Column="4" Background="{StaticResource Panel}">
+                <Grid DockPanel.Dock="Top" Background="{StaticResource HeaderBg}">
+                    <TextBlock Text="DETAILS" Style="{StaticResource PanelHeader}"/>
+                    <TextBlock Text="Selection" HorizontalAlignment="Right" VerticalAlignment="Center"
+                               Margin="0,0,10,0" Style="{StaticResource StateLabel}"/>
+                </Grid>
                 <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource Hairline}"/>
+                <Grid DockPanel.Dock="Top" Margin="7,7,7,6">
+                    <TextBox x:Name="DetailsSearchBox" Height="26" Padding="8,2,26,2"
+                             VerticalContentAlignment="Center"
+                             ToolTip="Search properties and components"
+                             TextChanged="OnDetailsSearchChanged"/>
+                    <TextBlock x:Name="DetailsSearchHint" Text="Search Details" Margin="9,0,28,0"
+                               VerticalAlignment="Center" Foreground="{StaticResource TextDim}"
+                               FontSize="11" IsHitTestVisible="False"/>
+                    <Button Content="×" HorizontalAlignment="Right" Width="24" Height="24" Margin="0,1,1,1"
+                            Background="Transparent" BorderThickness="0" Padding="0"
+                            Foreground="{StaticResource TextDim}" Click="OnClearDetailsSearch"
+                            ToolTip="Clear Details filter"/>
+                </Grid>
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0">
-                    <StackPanel Margin="12,10">
+                    <StackPanel Margin="8,0,8,10">
                         <!-- 選択ノードのヘッダ -->
                         <Border Background="{StaticResource Panel2}" CornerRadius="0" Padding="10,8" Margin="0,0,0,4">
                             <StackPanel>
@@ -393,7 +521,9 @@
                                     <TextBox x:Name="ColA" Grid.Column="3" Style="{StaticResource NumBox}"/>
                                 </Grid>
                                 <Border x:Name="ColorSwatch" Grid.Column="2" Width="26" Height="26" CornerRadius="0"
-                                        Background="#FF888888" BorderBrush="{StaticResource Edge}" BorderThickness="1"/>
+                                        Background="#FF888888" BorderBrush="{StaticResource Edge}" BorderThickness="1"
+                                        Cursor="Hand" ToolTip="Open RGBA color picker"
+                                        MouseLeftButtonDown="OnDisplayColorSwatchClicked"/>
                             </Grid>
                             <Grid Margin="0,3">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="64"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -402,7 +532,7 @@
                                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="11"/>
                                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                                     <Button Content="…" Click="OnBrowseSprite" Padding="9,2" Margin="0,0,4,0"/>
-                                    <Button Content="✕" Click="OnClearSprite" Padding="7,2" Foreground="{StaticResource WarnFg}"/>
+                                    <Button Content="Clear" Click="OnClearSprite" Padding="7,2" Foreground="{StaticResource WarnFg}"/>
                                 </StackPanel>
                             </Grid>
 
@@ -412,9 +542,9 @@
                                 <TextBlock Text="Material" Style="{StaticResource FieldLabel}"/>
                                 <ComboBox x:Name="MaterialBox" Grid.Column="1" SelectionChanged="OnMaterialSelected" FontSize="11" VerticalAlignment="Center"/>
                                 <StackPanel Grid.Column="2" Orientation="Horizontal">
-                                    <Button Content="✎" Click="OnEditMaterial" Padding="7,2" Margin="0,0,4,0" ToolTip="編集" Foreground="{StaticResource InfoFg}"/>
-                                    <Button Content="+" Click="OnNewMaterial" Padding="7,2" Margin="0,0,4,0" ToolTip="新規マテリアルを作成" Foreground="{StaticResource OkFg}"/>
-                                    <Button Content="✕" Click="OnClearMaterial" Padding="7,2" ToolTip="マテリアルを外す" Foreground="{StaticResource WarnFg}"/>
+                                    <Button Content="Edit" Click="OnEditMaterial" Padding="7,2" Margin="0,0,4,0" ToolTip="Edit material" Foreground="{StaticResource InfoFg}"/>
+                                    <Button Content="New" Click="OnNewMaterial" Padding="7,2" Margin="0,0,4,0" ToolTip="Create material" Foreground="{StaticResource OkFg}"/>
+                                    <Button Content="Clear" Click="OnClearMaterial" Padding="7,2" ToolTip="Remove material" Foreground="{StaticResource WarnFg}"/>
                                 </StackPanel>
                             </Grid>
 

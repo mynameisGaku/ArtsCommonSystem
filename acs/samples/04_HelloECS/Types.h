@@ -9,12 +9,12 @@ namespace hello04 {
 
 // World に登録する POD コンポーネント。SparseSet ストレージに直接コピーされる
 // ため自明な値型のままにしておく (継承や仮想関数を付けない)。
-struct Position { acs::FVec2 v; };
-struct Velocity { acs::FVec2 v; };
+struct FPosition { acs::FVec2 v; };
+struct FVelocity { acs::FVec2 v; };
 struct FColor    { acs::f32 r, g, b; };
 
 // MessageBroker で publish するイベント型。POD ならどんな型でも publish できる。
-struct SpawnEvent { acs::u32 total; };
+struct FSpawnEvent { acs::u32 total; };
 
 // 中央が白く外周が透明な円型 RGBA8 テクスチャを生成 (粒子描画用)。
 // out は kBallTexSize * kBallTexSize * 4 バイトを指すこと。

@@ -28,7 +28,7 @@ void ExpectVec3Near(FVec3 a, FVec3 b, f32 eps) noexcept {
 }
 
 // 点 P からレイ (origin,dir 正規化) への垂直距離。
-f32 PointRayDistance(FVec3 p, const Ray3& r) noexcept {
+f32 PointRayDistance(FVec3 p, const FRay3& r) noexcept {
     const FVec3 op{ p.x - r.origin.x, p.y - r.origin.y, p.z - r.origin.z };
     const f32 t = op.x * r.direction.x + op.y * r.direction.y + op.z * r.direction.z;
     const FVec3 closest{ r.origin.x + r.direction.x * t,
@@ -71,20 +71,20 @@ ACS_TEST(CameraRig, ProjectUnprojectRoundTrip) {
     const f32 w = 1280.0f, h = 720.0f;
     const FVec3 target{ 0, 0, 0 };
     // いくつかの軌道アングルで検証 (ハンドネス/符号が崩れていれば往復が破綻する)
-    struct Ang { f32 yaw, pitch, dist; };
-    const Ang angs[] = { { 0.0f, 0.0f, 12.0f }, { 0.78f, 0.55f, 14.0f },
+    struct FAng { f32 yaw, pitch, dist; };
+    const FAng angs[] = { { 0.0f, 0.0f, 12.0f }, { 0.78f, 0.55f, 14.0f },
                          { -1.2f, 0.30f, 10.0f }, { 2.4f, -0.40f, 16.0f } };
     // 視界内に入るワールド点 (注視点近傍)
     const FVec3 pts[] = { { 0, 0, 0 }, { 1.5f, 0.5f, -1.0f }, { -2.0f, 1.0f, 0.5f },
                           { 0.5f, -1.5f, 1.0f }, { 2.0f, 2.0f, -2.0f } };
 
-    for (const Ang& a : angs) {
+    for (const FAng& a : angs) {
         const FCamera cam = MakeOrbitCamera(target, a.yaw, a.pitch, a.dist, kFov, w / h, 0.05f, 500.0f);
         const FVec3 eye = cam.Eye();
         for (const FVec3 p : pts) {
             FVec2 px;
             EXPECT_TRUE(WorldToScreen(cam, p, w, h, px));        // 前方で射影できる
-            const Ray3 ray = ScreenPointToRay(cam, px.x, px.y, w, h);
+            const FRay3 ray = ScreenPointToRay(cam, px.x, px.y, w, h);
             // 逆射影レイは元の点を «厳密に» 通る (往復一致)
             EXPECT_TRUE(PointRayDistance(p, ray) < 1e-2f);
             // レイは前方を向く (点はレイ origin より前方 = t>0)
@@ -104,7 +104,7 @@ ACS_TEST(CameraRig, CenterRayHitsTarget) {
     const f32 w = 1280.0f, h = 720.0f;
     const FVec3 target{ -1, 2, 3 };
     const FCamera cam = MakeOrbitCamera(target, 0.5f, 0.6f, 13.0f, kFov, w / h, 0.05f, 500.0f);
-    const Ray3 ray = ScreenPointToRay(cam, w * 0.5f, h * 0.5f, w, h);
+    const FRay3 ray = ScreenPointToRay(cam, w * 0.5f, h * 0.5f, w, h);
     EXPECT_TRUE(PointRayDistance(target, ray) < 1e-2f);
 }
 

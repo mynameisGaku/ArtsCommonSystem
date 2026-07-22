@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // ACS Threading — スレッド ID
 //
-// 軽量な型として ThreadId 構造体を提供。OS スレッド ID（DWORD）を u32 で保持。
+// 軽量な型として FThreadId 構造体を提供。OS スレッド ID（DWORD）を u32 で保持。
 // std::thread::id 相当だが POD で扱いやすい。
 #pragma once
 
@@ -14,7 +14,7 @@ namespace acs {
  *
  * @details std::thread::id 相当だが POD で扱いやすく、ハッシュキーにも使える。
  */
-struct ThreadId {
+struct FThreadId {
     /** OS スレッド ID の生の値 (Windows の DWORD)。 */
     u32 raw = 0;
 
@@ -24,7 +24,7 @@ struct ThreadId {
      * @param o 比較相手。
      * @return 同じスレッド ID なら true。
      */
-    constexpr bool operator==(ThreadId o) const noexcept { return raw == o.raw; }
+    constexpr bool operator==(FThreadId o) const noexcept { return raw == o.raw; }
 
     /**
      * 2 つのスレッド ID が異なるかを返す。
@@ -32,14 +32,14 @@ struct ThreadId {
      * @param o 比較相手。
      * @return 異なるスレッド ID なら true。
      */
-    constexpr bool operator!=(ThreadId o) const noexcept { return raw != o.raw; }
+    constexpr bool operator!=(FThreadId o) const noexcept { return raw != o.raw; }
 };
 
 /**
  * 現在のスレッドの ID を返す (GetCurrentThreadId のラッパ)。
  *
- * @return 呼び出しスレッドの ThreadId。
+ * @return 呼び出しスレッドの FThreadId。
  */
-ThreadId CurrentThreadId() noexcept;
+FThreadId CurrentThreadId() noexcept;
 
 } // namespace acs

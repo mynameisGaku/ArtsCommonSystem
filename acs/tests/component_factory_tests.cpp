@@ -7,8 +7,8 @@
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "gameframework/ComponentFactory.h"
-#include "gameframework/Component2D.h"
-#include "gameframework/Node2D.h"
+#include "gameframework/AComponent.h"
+#include "gameframework/ANode.h"
 #include "gameframework/ReflectCatalog.h"
 
 #include <cstring>   // std::strcmp
@@ -20,24 +20,24 @@ using namespace acs::game;
 ACS_TEST(ComponentFactory, CreateAttachEnumerate) {
     AcsRegisterEngineTypes();
 
-    TUniquePtr<FComponent2D> comp = CreateComponentByName("FSprite2DComponent");
+    TUniquePtr<AComponent> comp = CreateComponentByName("ASprite2DComponent");
     EXPECT_TRUE(comp.Get() != nullptr);
     if (comp.Get() == nullptr) return;
 
     // インスタンス→反射名の橋 (ACS_GAME_COMPONENT_KIND が #T で実装)。
     EXPECT_TRUE(comp->ReflectName() != nullptr);
     if (comp->ReflectName() != nullptr)
-        EXPECT_TRUE(std::strcmp(comp->ReflectName(), "FSprite2DComponent") == 0);
+        EXPECT_TRUE(std::strcmp(comp->ReflectName(), "ASprite2DComponent") == 0);
 
-    auto node = MakeUnique<FNode2D>();
-    FComponent2D& ref = node->AttachComponent(Move(comp));
+    auto node = NewObject<ANode>();
+    AComponent& ref = node->AttachComponent(Move(comp));
 
     EXPECT_EQ(node->ComponentCount(), 1u);
     EXPECT_TRUE(node->ComponentAt(0) == &ref);
     EXPECT_TRUE(node->ComponentAt(1) == nullptr);
     EXPECT_TRUE(node->ComponentAt(0)->HasOwner());
     EXPECT_TRUE(&node->ComponentAt(0)->Owner() == node.Get());
-    EXPECT_TRUE(std::strcmp(node->ComponentAt(0)->ReflectName(), "FSprite2DComponent") == 0);
+    EXPECT_TRUE(std::strcmp(node->ComponentAt(0)->ReflectName(), "ASprite2DComponent") == 0);
 
     // node が scope を抜けるとコンポーネントも解放される。
     // AcsConstruct と TUniquePtr が同一 (engine) アロケータなのでここでクラッシュしない。
@@ -48,23 +48,23 @@ ACS_TEST(ComponentFactory, UnknownNonComponentAbstractReturnEmpty) {
     AcsRegisterEngineTypes();
     EXPECT_TRUE(CreateComponentByName("NoSuchComponent").Get() == nullptr);   // 未登録
     EXPECT_TRUE(CreateComponentByName("FHealthSystem").Get()   == nullptr);   // System (非 Component)
-    EXPECT_TRUE(CreateComponentByName("FTriggerComponent").Get() == nullptr); // Abstract (world& ctor)
+    EXPECT_TRUE(CreateComponentByName("ATriggerComponent").Get() == nullptr); // 抽象型 (world& ctor)
     EXPECT_TRUE(CreateComponentByName(nullptr).Get() == nullptr);             // null 安全
 }
 
 // 複数コンポーネントの attach / 列挙順。
 ACS_TEST(ComponentFactory, MultipleComponentsEnumerateInOrder) {
     AcsRegisterEngineTypes();
-    auto node = MakeUnique<FNode2D>();
+    auto node = NewObject<ANode>();
 
-    TUniquePtr<FComponent2D> a = CreateComponentByName("FSprite2DComponent");
-    TUniquePtr<FComponent2D> b = CreateComponentByName("FFire2DComponent");
+    TUniquePtr<AComponent> a = CreateComponentByName("ASprite2DComponent");
+    TUniquePtr<AComponent> b = CreateComponentByName("AFire2DComponent");
     EXPECT_TRUE(a.Get() != nullptr && b.Get() != nullptr);
     if (a.Get() == nullptr || b.Get() == nullptr) return;
 
     node->AttachComponent(Move(a));
     node->AttachComponent(Move(b));
     EXPECT_EQ(node->ComponentCount(), 2u);
-    EXPECT_TRUE(std::strcmp(node->ComponentAt(0)->ReflectName(), "FSprite2DComponent") == 0);
-    EXPECT_TRUE(std::strcmp(node->ComponentAt(1)->ReflectName(), "FFire2DComponent") == 0);
+    EXPECT_TRUE(std::strcmp(node->ComponentAt(0)->ReflectName(), "ASprite2DComponent") == 0);
+    EXPECT_TRUE(std::strcmp(node->ComponentAt(1)->ReflectName(), "AFire2DComponent") == 0);
 }

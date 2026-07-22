@@ -11,4 +11,4 @@
 #include "HelloAudioApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(helloaudio::HelloAudioApp)
+ACS_DEFINE_MAIN(helloaudio::FHelloAudioApp)

@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
-// FScene2D - practical base scene for 2D games.
+// FScene2D - 2D ゲーム向けの実用的な基底 scene。
 //
-// It wires the common 2D stack:
-//   SceneServices(Default2D | Camera2D | Physics2D)
-//   root FNode2D tree
-//   one shared FSpriteBatch for world + HUD drawing
+// 次の共通 2D stack を接続する:
+//   FSceneServices(Default2D | Camera2D | Physics2D)
+//   ルート ANode ツリー
+//   world と HUD の描画で共有する 1 つの FSpriteBatch
 //
-// Users override OnReady/OnTick/OnFixedTick/OnDrawWorld/OnDrawHud instead of
-// re-implementing the same root/update/render plumbing in every scene.
+// 利用側は scene ごとに同じ root/update/render 接続を再実装せず、
+// OnReady/OnTick/OnFixedTick/OnDrawWorld/OnDrawHud を override する。
 #pragma once
 
 #include "gameframework/Scene.h"
-#include "gameframework/Node2D.h"
+#include "gameframework/ANode.h"
 #include "render/SpriteBatch.h"
 
 namespace acs::game {
@@ -20,20 +20,20 @@ namespace acs::game {
  * 2D ゲーム向けの実用的なシーン基底クラス。
  *
  * @details
- * 共通の 2D スタック (SceneServices(Default2D | Camera2D | Physics2D)、root FNode2D ツリー、
+ * 共通の 2D スタック (FSceneServices(Default2D | Camera2D | Physics2D)、root ANode ツリー、
  * world/HUD 描画用の共有 FSpriteBatch) を配線する。利用者は root/update/render の定型
  * 処理を毎シーン書き直す代わりに OnReady/OnTick/OnFixedTick/OnDrawWorld/OnDrawHud を
  * override する。平面反射とステンシルマスクをオプションで有効化できる。
  */
-class FScene2D : public Scene {
+class FScene2D : public FScene {
 public:
     /** 空の 2D シーンを構築する (リソースは OnEnter/OnRender で遅延確保)。 */
-    FScene2D() noexcept = default;
+    FScene2D() noexcept : m_Root(NewObject<ANode>(FStringView("Root"))) {}
 
     /** シーンを破棄する (GPU リソースは各メンバが解放)。 */
     ~FScene2D() noexcept override = default;
 
-    /** コピー禁止 (FNode2D ツリーと GPU リソースを単独所有するため)。 */
+    /** コピー禁止 (ANode ツリーと GPU リソースを単独所有するため)。 */
     FScene2D(const FScene2D&)            = delete;
 
     /** コピー代入も禁止。 */
@@ -51,16 +51,16 @@ public:
     /**
      * シーンの root ノードへの可変参照を返す。
      *
-     * @return root FNode2D への参照 (ここに子を AddChild してツリーを組む)。
+     * @return root ANode への参照 (ここに子を AddChild してツリーを組む)。
      */
-    FNode2D& Root() noexcept { return m_Root; }
+    ANode& Root() noexcept { return *m_Root; }
 
     /**
      * シーンの root ノードへの const 参照を返す。
      *
-     * @return root FNode2D への const 参照。
+     * @return root ANode への const 参照。
      */
-    const FNode2D& Root() const noexcept { return m_Root; }
+    const ANode& Root() const noexcept { return *m_Root; }
 
     /**
      * world/HUD 描画に使う共有 FSpriteBatch を返す。
@@ -87,8 +87,8 @@ public:
      * 画面ピクセル座標をワールド座標へ変換する (マウスピッキング用)。
      *
      * @details
-     * 入力は左上原点の画面ピクセル (Input::MousePos() の値)。FScene2D のレンダリング
-     * (ppu * camera zoom、camera 中心) と厳密に逆対応するので、Camera2D::ScreenToWorld
+     * 入力は左上原点の画面ピクセル (FInput::MousePos() の値)。FScene2D のレンダリング
+     * (ppu * camera zoom、camera 中心) と厳密に逆対応するので、FCamera2D::ScreenToWorld
      * (ppu 非考慮) ではなくこちらを使う。画面サイズは直近の OnRender でキャッシュした値を用いる。
      * @param screen_px 変換する画面ピクセル座標 (左上原点)。
      * @return 対応するワールド座標。
@@ -128,11 +128,25 @@ public:
     bool ReflectionEnabled() const noexcept { return m_ReflectionEnabled; }
 
     /**
+     * TopDown 水面向けの実シーンカラー/水深サンプリングを有効・無効にする。
+     *
+     * @details
+     * SetReflectionEnabled(true) と併用した場合だけ、反射 RT から TopDown 水を除外して
+     * 屈折元の実シーンカラーにし、専用の正規化水深 RT も生成する。既定 OFF のため、
+     * 従来シーンや SideView 反射には追加 pass のコストがかからない。
+     * @param on true で実シーン水面サンプリングを有効化。
+     */
+    void SetWaterSceneSamplingEnabled(bool on) noexcept { m_WaterSceneSamplingEnabled = on; }
+
+    /** TopDown 水面向け実シーンサンプリングが有効かを返す。 */
+    bool WaterSceneSamplingEnabled() const noexcept { return m_WaterSceneSamplingEnabled; }
+
+    /**
      * ステンシルマスクを有効/無効にする。
      *
      * @details
      * ON にすると world パスが stencil 付き深度バッファ (D24S8) を bind した状態で描かれ、
-     * FStencilClip2DComponent 等が任意形状で描画範囲をマスクできるようになる。
+     * AStencilClip2DComponent 等が任意形状で描画範囲をマスクできるようになる。
      * 既定 OFF = 従来どおり (DSV 無し)。反射と併用可。
      * @param on true でステンシルマスクを有効化。
      */
@@ -172,14 +186,14 @@ public:
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    void OnRender(RenderContext& rc) noexcept override;
+    void OnRender(FRenderContext& rc) noexcept override;
 
 protected:
     /** シーンが top に来たとき 1 度だけ呼ばれる初期化フック (派生で override)。 */
     virtual void OnReady() noexcept {}
 
     /** World サブシステム初期化直後、root ノードへ束を配線する (配下から GetSubsystem<T>() 可に)。 */
-    void _OnWorldSubsystemsReady() noexcept override { m_Root._SetSubsystems(_WorldSubsystemsPtr()); }
+    void _OnWorldSubsystemsReady() noexcept override { m_Root->_SetSubsystems(_WorldSubsystemsPtr()); }
 
     /**
      * 毎フレームのゲームロジックフック (root の更新前に呼ばれる)。
@@ -201,7 +215,7 @@ protected:
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      * @param sb 現パスに配線された FSpriteBatch。
      */
-    virtual void OnDrawWorld(RenderContext& /*rc*/, FSpriteBatch& /*sb*/) noexcept {}
+    virtual void OnDrawWorld(FRenderContext& /*rc*/, FSpriteBatch& /*sb*/) noexcept {}
 
     /**
      * HUD view でのカスタム描画フック (画面座標、カメラ非依存)。
@@ -209,7 +223,7 @@ protected:
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      * @param sb 現パスに配線された FSpriteBatch。
      */
-    virtual void OnDrawHud(RenderContext& /*rc*/, FSpriteBatch& /*sb*/) noexcept {}
+    virtual void OnDrawHud(FRenderContext& /*rc*/, FSpriteBatch& /*sb*/) noexcept {}
 
 private:
     /**
@@ -218,7 +232,7 @@ private:
      * @param rc デバイス・カラーフォーマット取得用のレンダーコンテキスト。
      * @return 利用可能なら true、初期化失敗なら false。
      */
-    bool EnsureSpriteBatch(RenderContext& rc) noexcept;
+    bool EnsureSpriteBatch(FRenderContext& rc) noexcept;
 
     /**
      * 反射オフスクリーン pass 専用の別 FSpriteBatch を遅延初期化する。
@@ -227,7 +241,7 @@ private:
      * @param rc デバイス・カラーフォーマット取得用のレンダーコンテキスト。
      * @return 利用可能なら true、初期化失敗なら false。
      */
-    bool EnsureSceneSprites(RenderContext& rc) noexcept;
+    bool EnsureSceneSprites(FRenderContext& rc) noexcept;
 
     /**
      * 反射用に world を焼くオフスクリーン RT を遅延作成する (サイズ変化時は再作成)。
@@ -235,7 +249,21 @@ private:
      * @param rc サイズ・デバイス取得用のレンダーコンテキスト。
      * @return 利用可能なら true、作成失敗なら false。
      */
-    bool EnsureSceneRt(RenderContext& rc) noexcept;
+    bool EnsureSceneRt(FRenderContext& rc) noexcept;
+
+    /**
+     * 水面深度捕捉 pass 専用の別 FSpriteBatch を遅延初期化する。
+     *
+     * @return 利用可能なら true、初期化失敗なら false。
+     */
+    bool EnsureWaterDepthSprites(FRenderContext& rc) noexcept;
+
+    /**
+     * TopDown 水メッシュの正規化岸距離を保持するカラー RT を遅延作成する。
+     *
+     * @return 利用可能なら true、作成失敗なら false。
+     */
+    bool EnsureWaterDepthRt(FRenderContext& rc) noexcept;
 
     /**
      * マスク用の stencil 付き深度バッファ (D24S8) を遅延作成する (サイズ変化時は再作成)。
@@ -243,24 +271,24 @@ private:
      * @param rc サイズ・デバイス取得用のレンダーコンテキスト。
      * @return 利用可能なら true、作成失敗なら false。
      */
-    bool EnsureStencilBuffer(RenderContext& rc) noexcept;
+    bool EnsureStencilBuffer(FRenderContext& rc) noexcept;
 
     /**
      * world パスを描画する (camera view を設定し root を DrawTree → OnDrawWorld)。
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    void DrawWorldPass(RenderContext& rc) noexcept;
+    void DrawWorldPass(FRenderContext& rc) noexcept;
 
     /**
      * HUD パスを描画する (画面中心の view を設定し OnDrawHud)。
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    void DrawHudPass(RenderContext& rc) noexcept;
+    void DrawHudPass(FRenderContext& rc) noexcept;
 
     /** シーンの root ノード (ツリーの起点)。 */
-    FNode2D      m_Root;
+    TObjectPtr<ANode> m_Root;
 
     /** world/HUD 描画用の共有スプライトバッチ。 */
     FSpriteBatch m_Sprites;
@@ -273,6 +301,12 @@ private:
 
     /** m_SceneSprites が初期化済みかのフラグ。 */
     bool         m_SceneSpritesReady = false;
+
+    /** 水面深度捕捉 pass 専用のスプライトバッチ。 */
+    FSpriteBatch m_WaterDepthSprites;
+
+    /** m_WaterDepthSprites が初期化済みかのフラグ。 */
+    bool         m_WaterDepthSpritesReady = false;
 
     /** 1 ワールド単位あたりのピクセル数 (既定 64)。 */
     f32          m_PixelsPerUnit = 64.0f;
@@ -292,8 +326,20 @@ private:
     /** m_SceneRt の現在の高さ。 */
     u32          m_RtH = 0;
 
+    /** TopDown 水メッシュの正規化水深を保持するカラー RT。 */
+    TUniquePtr<IRhiTexture> m_WaterDepthRt;
+
+    /** m_WaterDepthRt の現在の幅。 */
+    u32          m_WaterDepthW = 0;
+
+    /** m_WaterDepthRt の現在の高さ。 */
+    u32          m_WaterDepthH = 0;
+
     /** 平面反射が有効かのフラグ。 */
     bool         m_ReflectionEnabled = false;
+
+    /** TopDown 水の実シーンカラー/水深サンプリングを生成するか。 */
+    bool         m_WaterSceneSamplingEnabled = false;
 
     /** マスク用の stencil 付き深度バッファ (D24S8、所有権を持つ)。 */
     TUniquePtr<IRhiTexture> m_StencilBuf;

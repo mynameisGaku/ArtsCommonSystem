@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Asset → GPU リソース変換ヘルパ
+// FAsset → GPU リソース変換ヘルパ
 //
 // FImageAsset を GPU テクスチャに、FMeshAsset を頂点+インデックスバッファに変換する
 // 高レベル関数群。ゲーム側コードはこの関数を呼ぶだけで描画できる。
@@ -9,7 +9,7 @@
 //   auto tex = UploadTexture(*device, *img).Value();
 //
 //   auto m   = registry.Load(L"cube.gltf").Value();
-//   GpuMesh gm;
+//   FGpuMesh gm;
 //   UploadMesh(*device, *m, gm);
 #pragma once
 
@@ -37,7 +37,7 @@ TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const FImageA
 /**
  * メッシュ 1 つ分の GPU バッファセット (頂点バッファ + インデックスバッファ)。
  */
-struct GpuMesh {
+struct FGpuMesh {
     /** 頂点バッファ (所有権を持つ)。 */
     TUniquePtr<IRhiBuffer> vertex_buffer;
 
@@ -55,19 +55,19 @@ struct GpuMesh {
 };
 
 /**
- * メッシュアセットから GpuMesh を作る (位置 + 法線 + UV、stride=32B)。
+ * メッシュアセットから FGpuMesh を作る (位置 + 法線 + UV、stride=32B)。
  *
  * @param device バッファ生成に使う RHI デバイス。
  * @param mesh アップロード元のメッシュアセット。
  * @param out 生成した VB/IB と各カウントを書き込む出力先。
  * @return 成功なら空の TResult、失敗ならエラー。
  */
-TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, GpuMesh& out) noexcept;
+TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, FGpuMesh& out) noexcept;
 
 /**
  * スキンメッシュ 1 つ分の GPU バッファセット (FSkinnedShader が消費する形式)。
  */
-struct SkinnedGpuMesh {
+struct FSkinnedGpuMesh {
     /** 頂点バッファ (所有権を持つ)。 */
     TUniquePtr<IRhiBuffer> vertex_buffer;
 
@@ -85,7 +85,7 @@ struct SkinnedGpuMesh {
 };
 
 /**
- * スキンメッシュアセットから SkinnedGpuMesh を作る。
+ * スキンメッシュアセットから FSkinnedGpuMesh を作る。
  *
  * @param device バッファ生成に使う RHI デバイス。
  * @param mesh アップロード元のスキンメッシュアセット。
@@ -94,6 +94,6 @@ struct SkinnedGpuMesh {
  */
 TResult<void> UploadSkinnedMesh(IRhiDevice& device,
                                 const FSkinnedMeshAsset& mesh,
-                                SkinnedGpuMesh& out) noexcept;
+                                FSkinnedGpuMesh& out) noexcept;
 
 } // namespace acs

@@ -16,8 +16,8 @@
 //   ・Pillar O FCharacterCustomizer との違い:
 //     - FCharacterCustomizer は cosmetic (見た目装着) — slot 単位で最大 1 つ、stack なし。
 //     - FInventorySystem は使用アイテム / 素材 / クエスト系 — stack あり、slot 数固定。
-//   ・Pillar O FEntitlement との違い:
-//     - FEntitlement は「DLC / FSeasonPass 等の永続権利フラグ」(持っているかの真偽)。
+//   ・Pillar O FEntitlementRegistry との違い:
+//     - FEntitlementRegistry は「DLC / FSeasonPass 等の永続権利フラグ」(持っているかの真偽)。
 //     - FInventorySystem は「個数を持つ消費可能アイテム」(stack 数を持つ)。
 //
 // 使い方:
@@ -42,9 +42,9 @@
 //   inv.DropSlot(7);                                     // can_drop=true のときのみ
 //
 // 設計選択 (Pillar O/G):
-//   ・**Item 定義は単一 TArray<ItemDef>**: アイテム数は AAA でも 500〜2000 のオーダー、
-//     線形走査で十分 (FEntitlement / FEconomyDirector と同じ判断)。
-//   ・**Slot data は固定長 TArray<InventorySlot>**: Init(slot_count) で Resize し、
+//   ・**Item 定義は単一 TArray<FItemDef>**: アイテム数は AAA でも 500〜2000 のオーダー、
+//     線形走査で十分 (FEntitlementRegistry / FEconomyDirector と同じ判断)。
+//   ・**FInventorySlot data は固定長 TArray<FInventorySlot>**: Init(slot_count) で Resize し、
 //     以降は伸縮しない (= UI が想定する slot grid と一致)。slot 内 item_id == nullptr
 //     を「空 slot」として表す。
 //   ・**所有しない const char***: id / display_name / icon_path すべて呼出側
@@ -58,12 +58,12 @@
 //   ・**MoveSlot は merge or swap**: 同 item で max_stack に届かない範囲なら merge、
 //     満杯 or 別 item なら swap。UI ドラッグ&ドロップ操作の自然な挙動。
 //   ・**DropSlot は can_drop チェック**: quest アイテム / key アイテム等の落とせないものを
-//     構造的に守る (ItemDef::can_drop = false なら DropSlot は失敗 false 返し)。
+//     構造的に守る (FItemDef::can_drop = false なら DropSlot は失敗 false 返し)。
 //   ・**ChangeCallback は単一購読**: STL <functional> 禁止のため C 関数ポインタ + void*
 //     user. 複数 listener が必要なら呼出側で fan-out。slot 内容が変わるたびに呼ぶ
 //     (Add / Remove / Move / Drop / ClearAll すべて。ClearAll は loop 防止のため呼ばない)。
 //   ・**重複登録は黙って弾く + WARN**: 同 id の 2 重 RegisterItem は no-op
-//     (アセット二重ロード保護)。FEconomyDirector / FEntitlement と同じパターン。
+//     (アセット二重ロード保護)。FEconomyDirector / FEntitlementRegistry と同じパターン。
 //   ・**Init は冪等に再構築**: 既に Init 済みでも slot_count を変更して呼べる
 //     (slot 数が違う場合は内容クリアして resize)。同じ slot_count なら no-op。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
@@ -114,7 +114,7 @@ enum class EItemCategory : u8 {
 /**
  * アイテム 1 種類の定義 (immutable)。
  */
-struct ItemDef {
+struct FItemDef {
     /** 一意キー (slot.item_id から参照される)。文字列リテラル想定 (非所有)。 */
     const char*  id           = nullptr;
 
@@ -137,7 +137,7 @@ struct ItemDef {
 /**
  * 1 つの slot の内容。
  */
-struct InventorySlot {
+struct FInventorySlot {
     /** 入っているアイテムの id (リテラル参照、非所有)。nullptr = 空 slot。 */
     const char* item_id = nullptr;
 
@@ -201,16 +201,16 @@ public:
      * `def.max_stack == 0` は 1 にクランプ。
      * @param def 登録するアイテム定義。
      */
-    void RegisterItem(const ItemDef& def) noexcept;
+    void RegisterItem(const FItemDef& def) noexcept;
 
     /**
-     * 単一 ItemDef を取得する。
+     * 単一 FItemDef を取得する。
      *
      * @details 返却ポインタは次の RegisterItem() / ClearAll() で無効化され得る。
      * @param item_id 探すアイテム id。
-     * @return 見つかった ItemDef へのポインタ (未登録 / nullptr なら nullptr)。
+     * @return 見つかった FItemDef へのポインタ (未登録 / nullptr なら nullptr)。
      */
-    const ItemDef* FindItem(const char* item_id) const noexcept;
+    const FItemDef* FindItem(const char* item_id) const noexcept;
 
     /**
      * 指定アイテムを count 個追加する。
@@ -279,7 +279,7 @@ public:
      * @param index 取得する slot の添字。
      * @return slot へのポインタ (範囲外なら nullptr)。
      */
-    const InventorySlot* GetSlot(u32 index) const noexcept;
+    const FInventorySlot* GetSlot(u32 index) const noexcept;
 
     /**
      * 現在の slot 数を返す。
@@ -329,10 +329,10 @@ private:
     void NotifyChange(u32 slot_index) noexcept;
 
     /** アイテム定義 (起動時 immutable)。 */
-    TArray<ItemDef> m_Items;
+    TArray<FItemDef> m_Items;
 
     /** slot data (Init で固定長 Resize、以降伸縮しない)。 */
-    TArray<InventorySlot> m_Slots;
+    TArray<FInventorySlot> m_Slots;
 
     /** 変更通知 callback (C 関数ポインタ)。未設定は nullptr。 */
     ChangeCallback m_OnChange      = nullptr;

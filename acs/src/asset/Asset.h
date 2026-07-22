@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // アセット基底クラス
 //
-// 全アセット型は Asset を継承する。Type() で実行時の型 ID を取得できる。
+// 全アセット型は FAsset を継承する。Type() で実行時の型 ID を取得できる。
 // テクスチャ・メッシュ・音声・スクリプトなどがすべてこの基底を共有する。
 #pragma once
 
@@ -36,10 +36,10 @@ enum class EAssetState : u8 {
  * Type() で実行時の型 ID を取得でき、Id()/State() でレジストリ管理用の
  * 識別子とロード状態を参照する。
  */
-class Asset {
+class FAsset {
 public:
     /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
-    virtual ~Asset() noexcept = default;
+    virtual ~FAsset() noexcept = default;
 
     /**
      * 派生クラスごとの実行時型 ID を返す。
@@ -86,9 +86,9 @@ private:
 
 // 派生クラスで型 ID を簡単に宣言するためのヘルパマクロ
 // 例:
-//   class Texture : public Asset {
+//   class FTexture : public FAsset {
 //   public:
-//       ACS_ASSET_TYPE("Texture")
+//       ACS_ASSET_TYPE("FTexture")
 //       ...
 //   };
 #define ACS_ASSET_TYPE(name_literal)                                          \

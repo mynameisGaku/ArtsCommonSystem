@@ -80,7 +80,7 @@ void FWeaponSystem::RegisterWeapon(const FWeaponDef& def) noexcept {
     // 並行 TArray — reserve は 0、mag も 0 で初期化。EquipWeapon 時に新規装備の
     // mag が 0 のままだと使い物にならないので、Equip 時に「初装備なら mag_size
     // まで充填する」フォールバックを入れる (詳細は EquipWeapon 参照)。
-    ReserveSlot slot;
+    FReserveSlot slot;
     slot.weapon_id    = def.id;
     slot.reserve_ammo = 0u;
     slot.ammo_in_mag  = 0u;
@@ -99,7 +99,7 @@ void FWeaponSystem::SaveCurrentToSlot() noexcept {
     if (m_CurrentSlot == kNotFound) return;
     if (m_CurrentSlot >= static_cast<u32>(m_Reserves.Size())) return;
 
-    ReserveSlot& slot = m_Reserves[m_CurrentSlot];
+    FReserveSlot& slot = m_Reserves[m_CurrentSlot];
     slot.reserve_ammo = _state.reserve_ammo;
     slot.ammo_in_mag  = _state.ammo_in_mag;
 }
@@ -121,7 +121,7 @@ bool FWeaponSystem::EquipWeapon(const char* weapon_id) noexcept {
     }
 
     // 新武器の slot から状態を復元する。
-    const ReserveSlot& src = m_Reserves[slot];
+    const FReserveSlot& src = m_Reserves[slot];
     const FWeaponDef&   def = m_Defs[slot];
 
     m_CurrentDef  = &m_Defs[slot];
@@ -270,7 +270,7 @@ void FWeaponSystem::AddReserveAmmo(const char* weapon_id, u32 amount) noexcept {
     if (slot == kNotFound) return;
 
     const FWeaponDef&   def    = m_Defs[slot];
-    ReserveSlot&       res    = m_Reserves[slot];
+    FReserveSlot&       res    = m_Reserves[slot];
     const u32          max_res = (def.max_reserve == 0u) ? ~static_cast<u32>(0) : def.max_reserve;
 
     // 装備中武器なら _state 側にも反映する (= 二重管理を避けるため

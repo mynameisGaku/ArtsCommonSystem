@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS FAssetPack — LZ4 block format 自前実装 (third_party 依存ゼロ)
+// ACS AssetPack — LZ4 block format 自前実装 (third_party 依存ゼロ)
 // -----------------------------------------------------------------------------
 // `.acpak` v2 で各エントリを圧縮するための自己完結 LZ4 実装。LZ4 は LZ77 系の
 // 「リテラル + 後方参照 (offset 1〜65535、length ≥4)」を 1 バイトトークンで
 // 表現する高速圧縮形式。
 //
 // なぜ自前実装か:
-//   ・ACS の third_party 方針は「OS 同梱以外原則 NG」(FAssetPack.md §9)。
+//   ・ACS の third_party 方針は「OS 同梱以外原則 NG」(AssetPack.md §9)。
 //   ・LZ4 block format は仕様が公開されており、200 LOC 程度で正しく実装可能。
 //   ・出荷ビルドで他人の MIT/BSD ライセンス文を vendor に追加したくない。
 //   ・公式実装の極限速度 (5 GB/s+) は必要ない — 起動時の数 MB を 100 MB/s で

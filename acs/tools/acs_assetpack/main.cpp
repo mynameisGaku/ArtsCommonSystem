@@ -172,7 +172,7 @@ bool ParseHex256(const wchar_t* hex, u8 out_key[32]) noexcept {
 // 成功時 true、失敗時 false (理由は err_out に英語で書く。out_size は char 数)。
 bool ReadKeyFile(const wchar_t* path, u8 out_key[32],
                  char* err_out, int err_size) noexcept {
-    auto rb = FileSystem::ReadAllBytes(path);
+    auto rb = FFileSystem::ReadAllBytes(path);
     if (rb.IsErr()) {
         std::snprintf(err_out, static_cast<usize>(err_size),
                       "cannot read key file (subcode=%u)",
@@ -261,17 +261,17 @@ void PrintError(const FErrorCode& e, const char* where) noexcept {
 // ----------------------------------------------------------------------------
 // 引数 parse 用の小さなコンテナ (argv を wchar_t** に変換した結果を保持)
 // ----------------------------------------------------------------------------
-struct WideArgs {
+struct FWideArgs {
     TArray<wchar_t*> argv;   // 各 ptr は CommandLineToArgvW の戻り値配列内を指す
     void*           raw_argv = nullptr;  // LocalFree 用 (LPWSTR*)
     int             argc = 0;
 
-    ~WideArgs() noexcept {
+    ~FWideArgs() noexcept {
         if (raw_argv) ::LocalFree(raw_argv);
     }
 };
 
-bool BuildWideArgs(WideArgs& out) noexcept {
+bool BuildWideArgs(FWideArgs& out) noexcept {
     LPWSTR  cmdline = ::GetCommandLineW();
     int     ac      = 0;
     LPWSTR* av      = ::CommandLineToArgvW(cmdline, &ac);
@@ -308,10 +308,60 @@ void FormatBytes(u64 bytes, char* out, int out_size) noexcept {
 // 全ファイルの byte 配列を生かしておく必要がある。よって m_AllBlobs に
 // TArray<byte> をすべて貯めてから Finalize する。
 
-struct PackedBlob {
+struct FPackedBlob {
     TArray<byte>    bytes;    // ファイルの全バイト (Finalize までは生かす)
     TArray<wchar_t> path;     // pak 内仮想パス (NUL 終端)
 };
+
+// Windows の FindFirstFileW / FindNextFileW が返す順序はファイルシステム依存。
+// Writer は AddFile 順に payload/table を書くため、仮想パスの UTF-16 code unit
+// ordinal 順へ固定してから渡し、同じ入力から byte-identical な pak を作る。
+int ComparePackedPath(const wchar_t* a, const wchar_t* b) noexcept {
+    if (a == nullptr) return b == nullptr ? 0 : -1;
+    if (b == nullptr) return 1;
+    while (*a != L'\0' && *b != L'\0') {
+        if (*a < *b) return -1;
+        if (*a > *b) return 1;
+        ++a;
+        ++b;
+    }
+    if (*a == *b) return 0;
+    return *a == L'\0' ? -1 : 1;
+}
+
+void SiftDownPackedBlobs(TArray<FPackedBlob>& blobs,
+                         usize root, usize count) noexcept {
+    while (root <= (count - 1u) / 2u) {
+        const usize left = root * 2u + 1u;
+        if (left >= count) break;
+        usize greater = left;
+        const usize right = left + 1u;
+        if (right < count &&
+            ComparePackedPath(blobs[left].path.Data(),
+                              blobs[right].path.Data()) < 0) {
+            greater = right;
+        }
+        if (ComparePackedPath(blobs[root].path.Data(),
+                              blobs[greater].path.Data()) >= 0) {
+            break;
+        }
+        acs::Swap(blobs[root], blobs[greater]);
+        root = greater;
+    }
+}
+
+void SortPackedBlobs(TArray<FPackedBlob>& blobs) noexcept {
+    const usize count = blobs.Size();
+    if (count < 2u) return;
+
+    for (usize start = count / 2u; start > 0u; --start) {
+        SiftDownPackedBlobs(blobs, start - 1u, count);
+    }
+    for (usize end = count; end > 1u; --end) {
+        acs::Swap(blobs[0], blobs[end - 1u]);
+        SiftDownPackedBlobs(blobs, 0u, end - 1u);
+    }
+}
 
 // dir を再帰スキャンし、各ファイルを out_blobs に push する。
 // base_dir は input_dir の絶対基点 (これより下を virtual_path にする)。
@@ -320,7 +370,7 @@ struct PackedBlob {
 // 戻り値: 成功 = ok / 失敗 = error code。usage error は呼び出し側で処理する。
 TResult<void> ScanDirRecursive(const wchar_t*       cur_dir,
                               const wchar_t*       rel_prefix,
-                              TArray<PackedBlob>&   out_blobs) noexcept {
+                              TArray<FPackedBlob>&   out_blobs) noexcept {
     // ワイルドカードパス "cur_dir\\*" を作る
     wchar_t pattern[4096];
     if (!JoinPath(cur_dir, L"*", pattern, sizeof(pattern) / sizeof(pattern[0]))) {
@@ -369,6 +419,13 @@ TResult<void> ScanDirRecursive(const wchar_t*       cur_dir,
             return ACS_ERR(IO, 9005, "pack: abs path too long");
         }
 
+        // junction / symlink / cloud placeholder 等を辿ると入力 tree 外のデータを
+        // 意図せず梱包できる。Cook pipeline も事前検証するが、CLI 自体も fail-closed。
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+            ::FindClose(h);
+            return ACS_ERR(IO, 9006, "pack: reparse point input is not allowed");
+        }
+
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
             // 再帰
             auto r = ScanDirRecursive(abs_path, next_rel, out_blobs);
@@ -378,12 +435,12 @@ TResult<void> ScanDirRecursive(const wchar_t*       cur_dir,
             }
         } else {
             // 通常ファイル — 読み込んで blob に積む
-            auto rb = FileSystem::ReadAllBytes(abs_path);
+            auto rb = FFileSystem::ReadAllBytes(abs_path);
             if (rb.IsErr()) {
                 ::FindClose(h);
                 return rb.Error();
             }
-            PackedBlob blob;
+            FPackedBlob blob;
             blob.bytes = Move(rb.Value());
 
             // virtual path をコピーして slash 正規化
@@ -469,7 +526,7 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
     }
 
     // ---- 入力 dir 存在チェック -------------------------------------------
-    if (!FileSystem::DirectoryExists(input_dir)) {
+    if (!FFileSystem::DirectoryExists(input_dir)) {
         char u8buf[1024];
         Utf16ToUtf8(input_dir, u8buf, sizeof(u8buf));
         std::fprintf(stderr, "pack: input_dir does not exist: %s\n", u8buf);
@@ -483,7 +540,7 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
     const EAcpakFlags flags = static_cast<EAcpakFlags>(raw_flags);
 
     // ---- 再帰スキャン → blob 配列に展開 ----------------------------------
-    TArray<PackedBlob> blobs;
+    TArray<FPackedBlob> blobs;
     {
         auto sr = ScanDirRecursive(input_dir, L"", blobs);
         if (sr.IsErr()) {
@@ -496,6 +553,7 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
         std::fputs("pack: input_dir contains no files\n", stderr);
         return 2;
     }
+    SortPackedBlobs(blobs);
 
     // ---- Writer 起動 ------------------------------------------------------
     FAcpakWriter writer;
@@ -514,7 +572,7 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
 
     u64 input_bytes_total = 0;
     for (usize i = 0; i < blobs.Size(); ++i) {
-        const PackedBlob& b = blobs[i];
+        const FPackedBlob& b = blobs[i];
         input_bytes_total += static_cast<u64>(b.bytes.Size());
         auto r = writer.AddFile(b.path.Data(),
                                 b.bytes.Data(),
@@ -537,7 +595,7 @@ int CmdPack(const TArray<wchar_t*>& argv) noexcept {
     // ---- 出力ファイルサイズを取って報告 ------------------------------------
     u64 output_size = 0;
     {
-        auto sr = FileSystem::FileSize(output_path);
+        auto sr = FFileSystem::FileSize(output_path);
         if (sr.IsOk()) output_size = sr.Value();
     }
 
@@ -618,7 +676,7 @@ int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
 
     // 出力 dir 作成
     {
-        auto r = FileSystem::CreateDirectory(output_dir);
+        auto r = FFileSystem::CreateDirectory(output_dir);
         if (r.IsErr()) {
             PrintError(r.Error(), "unpack: CreateDirectory");
             return 2;
@@ -662,7 +720,7 @@ int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
                 }
             }
             if (parent[0] != L'\0') {
-                auto r = FileSystem::CreateDirectory(parent);
+                auto r = FFileSystem::CreateDirectory(parent);
                 if (r.IsErr()) {
                     PrintError(r.Error(), "unpack: CreateDirectory (parent)");
                     return 2;
@@ -682,7 +740,7 @@ int CmdUnpack(const TArray<wchar_t*>& argv) noexcept {
         }
 
         // 書き出し
-        auto wr = FileSystem::WriteAllBytes(dst_path, buf.Data(), buf.Size());
+        auto wr = FFileSystem::WriteAllBytes(dst_path, buf.Data(), buf.Size());
         if (wr.IsErr()) {
             PrintError(wr.Error(), "unpack: WriteAllBytes");
             return 2;
@@ -848,7 +906,7 @@ int CmdInfo(const TArray<wchar_t*>& argv) noexcept {
     // file_size はヘッダ parse の前に取れる
     u64 file_size = 0;
     {
-        auto sr = FileSystem::FileSize(input_path);
+        auto sr = FFileSystem::FileSize(input_path);
         if (sr.IsErr()) {
             PrintError(sr.Error(), "info: FileSize");
             return 2;
@@ -922,7 +980,7 @@ int main(int /*argc*/, char** /*argv*/) {
     // 失敗しても致命ではない (英語 ASCII 範囲は普通に出るので無視)。
     ::SetConsoleOutputCP(CP_UTF8);
 
-    WideArgs wa;
+    FWideArgs wa;
     if (!BuildWideArgs(wa)) {
         std::fputs("acs_assetpack: failed to parse command line\n", stderr);
         return 1;

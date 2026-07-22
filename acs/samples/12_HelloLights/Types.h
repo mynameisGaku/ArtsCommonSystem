@@ -16,7 +16,7 @@ inline constexpr acs::u32 kCubeCount  = 6;
 // 色を 4 色 (赤/緑/青/黄) 割り当てる前提なので 4 灯固定。
 inline constexpr acs::u32 kPointCount = 4;
 
-struct ObjectInst {
+struct FObjectInst {
     acs::FMat4 model;
     acs::FVec3 color;
     bool      is_sphere;

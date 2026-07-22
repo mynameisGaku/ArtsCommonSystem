@@ -17,7 +17,7 @@ namespace acs {
  *
  * @details 専用ローダがない拡張子のフォールバック用、またはテストデータ用に使う最小実装。
  */
-class FBinaryAsset : public Asset {
+class FBinaryAsset : public FAsset {
 public:
     ACS_ASSET_TYPE("FBinaryAsset")
 
@@ -78,7 +78,7 @@ public:
      * @param bytes ファイル全体のバイト列。
      * @return 成功なら FBinaryAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 } // namespace acs

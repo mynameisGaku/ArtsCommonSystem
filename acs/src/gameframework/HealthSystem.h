@@ -26,7 +26,7 @@
 //
 // 設計選択 (Pillar R/I):
 //   ・**FHealthId は 24bit idx + 8bit gen の packed u32**: FCollisionWorld2D の
-//     FShapeId / FNode2D の FNodeId と同パターン。removed slot を再利用しても古い
+//     FShapeId / ANode の FNodeId と同パターン。removed slot を再利用しても古い
 //     handle は無効化される。0 は invalid 予約 (index 0 dummy)。
 //   ・**slot 配列 + active フラグ**: AcquireSlot で空きを線形検索、無ければ末尾
 //     拡張。Despawn では generation を進めて handle 無効化。
@@ -43,7 +43,7 @@
 //   ・**EDamageType は enum**: 属性 (Fire / Ice 等) は将来の耐性計算 / VFX 振り分け
 //     用。本クラスでは値をそのまま受け取り callback に伝えるだけで、ダメージ倍率は
 //     掛けない (caller が Resistance を考慮した最終量を渡す方針)。
-//   ・**非コピー・非ムーブ**: FGame / Scene 単位で 1 個保持される想定で、所有権
+//   ・**非コピー・非ムーブ**: FGame / FScene 単位で 1 個保持される想定で、所有権
 //     移動は不要。
 //
 // 範囲外 (将来 Phase で):
@@ -127,7 +127,7 @@ struct FHealthId {
  *
  * @details GetState() で外部へ const 参照を返す。
  */
-struct HealthState {
+struct FHealthState {
     /** 現在 HP。0 以下になると is_alive=false に遷移する。 */
     f32  current_hp    = 0.0f;
 
@@ -188,7 +188,7 @@ using DeathCallback = void(*)(void* user, FHealthId id, EDamageType lethal_type)
  *
  * @details
  * slot+generation パターンの FHealthId で entity を識別し、ApplyDamage / Heal / Revive /
- * SetInvulnerable 等を提供する。死亡通知は DeathCallback で行う。FGame / Scene 単位で 1 個
+ * SetInvulnerable 等を提供する。死亡通知は DeathCallback で行う。FGame / FScene 単位で 1 個
  * 保持される想定の非コピー・非ムーブ型。
  */
 class FHealthSystem {
@@ -286,7 +286,7 @@ public:
      * @param id 対象 entity の ID。
      * @return HP 状態。無効 id / Despawn 済 / generation 不一致なら nullptr。
      */
-    const HealthState* GetState(FHealthId id) const noexcept;
+    const FHealthState* GetState(FHealthId id) const noexcept;
 
     /**
      * 現在 HP を取得する。
@@ -360,9 +360,9 @@ public:
 
 private:
     /** 1 entity 分の slot (状態 + active フラグ + generation)。 */
-    struct Slot {
+    struct FSlot {
         /** entity の HP 状態。 */
-        HealthState state;
+        FHealthState state;
 
         /** 使用中フラグ (false なら空き slot)。 */
         bool        active = false;
@@ -385,7 +385,7 @@ private:
      * @param id 検索する entity の ID。
      * @return 有効なら slot へのポインタ、無効なら nullptr。
      */
-    Slot*       FindSlot(FHealthId id) noexcept;
+    FSlot*       FindSlot(FHealthId id) noexcept;
 
     /**
      * id に対応する slot を取得する (const 版)。
@@ -393,7 +393,7 @@ private:
      * @param id 検索する entity の ID。
      * @return 有効なら slot への const ポインタ、無効なら nullptr。
      */
-    const Slot* FindSlot(FHealthId id) const noexcept;
+    const FSlot* FindSlot(FHealthId id) const noexcept;
 
     /**
      * 値を [lo, hi] に clamp する。
@@ -406,7 +406,7 @@ private:
     static f32 Clamp(f32 v, f32 lo, f32 hi) noexcept;
 
     /** entity slot 配列 (index 0 は invalid 予約 dummy)。 */
-    TArray<Slot>    m_Slots;
+    TArray<FSlot>    m_Slots;
 
     /** active な entity 数。 */
     u32            m_EntityCount = 0;

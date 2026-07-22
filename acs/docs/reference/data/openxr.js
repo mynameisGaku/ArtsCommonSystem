@@ -19,9 +19,9 @@ ACS_REF.modules.push({
         { sig: "bool IsInitialized() const", ret: "初期化済みか", desc: "Init() が成功し Shutdown() 前なら true。" },
         { sig: "bool IsTracking() const", ret: "追跡中か", desc: "実セッションが確立してポーズが実際に更新されているか。本 backend は session loop 未実装のため<b>現状は常に false</b>。<code>IsInitialized()</code> とは別概念。", when: "ポーズを使う前に必ず確認する。false ならゼロポーズなので使わない。" },
         { sig: "EXrPlatform ActivePlatform() const", ret: "プラットフォーム種別", desc: "今選ばれている XR <t>プラットフォーム</t>(Meta Quest 等)を返す。未接続は Unknown。" },
-        { sig: "XrPose HeadPose() const", ret: "頭のポーズ", desc: "直近 Tick 時点の <t>HMD</t> の位置と向き。未追跡時は原点(ゼロポーズ)。" },
-        { sig: "XrControllerState LeftController() const", ret: "左手の状態", desc: "左コントローラの 1 フレーム分の入力<t>スナップショット</t>。" },
-        { sig: "XrControllerState RightController() const", ret: "右手の状態", desc: "右コントローラの入力スナップショット。" },
+        { sig: "FXrPose HeadPose() const", ret: "頭のポーズ", desc: "直近 Tick 時点の <t>HMD</t> の位置と向き。未追跡時は原点(ゼロポーズ)。" },
+        { sig: "FXrControllerState LeftController() const", ret: "左手の状態", desc: "左コントローラの 1 フレーム分の入力<t>スナップショット</t>。" },
+        { sig: "FXrControllerState RightController() const", ret: "右手の状態", desc: "右コントローラの入力スナップショット。" },
         { sig: "void Tick(f32 Dt)", desc: "XR ランタイムのイベントを取り込み、ポーズ/入力を更新する。ゲームループから毎フレーム呼ぶ。<code>Dt</code> は実時間秒。" },
         { sig: "bool IsPassthroughSupported() const", ret: "対応可否", desc: "<t>パススルー</t>(MR モード)に対応しているか。" },
         { sig: "void SetPassthrough(bool bOn)", desc: "パススルーの on/off を要求する。非対応/未初期化なら何もしない。" }
@@ -60,20 +60,20 @@ ACS_REF.modules.push({
         { sig: "virtual bool IsInitialized() const", ret: "初期化済みか", desc: "Init 成功後 Shutdown 前なら true。" },
         { sig: "virtual bool IsTracking() const", ret: "追跡中か", desc: "ポーズが実際にライブ追跡されているか。false ならポーズは原点なので使わない。既定実装は false(安全側)。", when: "ポーズを使う前に毎回確認。" },
         { sig: "virtual EXrPlatform ActivePlatform() const", ret: "プラットフォーム", desc: "今 active な XR <t>プラットフォーム</t>種別。stub は Unknown。" },
-        { sig: "virtual XrPose HeadPose() const", ret: "頭のポーズ", desc: "直近 Tick の HMD ポーズ。stub/未初期化は原点。" },
-        { sig: "virtual XrControllerState LeftController() const", ret: "左手状態", desc: "左コントローラの入力スナップショット。未接続はゼロ state。" },
-        { sig: "virtual XrControllerState RightController() const", ret: "右手状態", desc: "右コントローラの入力スナップショット。" },
+        { sig: "virtual FXrPose HeadPose() const", ret: "頭のポーズ", desc: "直近 Tick の HMD ポーズ。stub/未初期化は原点。" },
+        { sig: "virtual FXrControllerState LeftController() const", ret: "左手状態", desc: "左コントローラの入力スナップショット。未接続はゼロ state。" },
+        { sig: "virtual FXrControllerState RightController() const", ret: "右手状態", desc: "右コントローラの入力スナップショット。" },
         { sig: "virtual void Tick(f32 dt)", desc: "ポーズ/入力の取り込みを進める。毎フレーム呼ぶ。" },
         { sig: "virtual bool IsPassthroughSupported() const", ret: "対応可否", desc: "<t>パススルー</t>に対応するか。stub は常に false。" },
         { sig: "virtual void SetPassthrough(bool on)", desc: "パススルー on/off を要求。非対応/未初期化なら no-op。" }
       ]
     },
     {
-      name: "XrPose",
+      name: "FXrPose",
       kind: "構造体", header: "gameframework/OpenXrBridge.h",
       summary: "<t>HMD</t> やコントローラの位置と向き。向きは <t>quaternion</t> ではなく <t>オイラー角</t>(pitch, yaw, roll)を<b>ラジアン</b>で持つ簡素な表現。",
       when: "頭や手の姿勢を読むとき。<code>tracked</code> が false の時は原点なので姿勢として使わない。",
-      sample: "acs::game::XrPose p = xr.HeadPose();\nif (p.tracked) {\n    acs::FVec3 pos = p.position;            // world 位置 (m)\n    float yaw = p.orientation_euler.y;      // 向き(ラジアン)\n}",
+      sample: "acs::game::FXrPose p = xr.HeadPose();\nif (p.tracked) {\n    acs::FVec3 pos = p.position;            // world 位置 (m)\n    float yaw = p.orientation_euler.y;      // 向き(ラジアン)\n}",
       members: [
         { sig: "FVec3 position", desc: "world-space の位置(メートル)。既定は原点。" },
         { sig: "FVec3 orientation_euler", desc: "向きを (pitch, yaw, roll) のラジアンで。精密な計算が要るなら自分で <t>quaternion</t>/行列へ変換する。" },
@@ -81,13 +81,13 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "XrControllerState",
+      name: "FXrControllerState",
       kind: "構造体", header: "gameframework/OpenXrBridge.h",
       summary: "左右コントローラ 1 フレーム分の入力<t>スナップショット</t>。各プラットフォーム差を吸収した最小公倍数(ポーズ+トリガ+グリップ+2 ボタン+スティック)。",
       when: "VR コントローラの入力(撃つ・掴む・移動)を読むとき。",
       sample: "auto c = xr.RightController();\nif (c.trigger &gt; 0.5f) Fire();             // 引き金\nif (c.button_a) Jump();\nMove(c.thumbstick.x, c.thumbstick.y);      // スティックで移動",
       members: [
-        { sig: "XrPose pose", desc: "6DoF のコントローラ位置+向き。" },
+        { sig: "FXrPose pose", desc: "6DoF のコントローラ位置+向き。" },
         { sig: "f32 trigger", desc: "人差し指トリガのアナログ値 [0, 1]。" },
         { sig: "f32 grip", desc: "グリップ(中指)ボタンのアナログ値 [0, 1]。" },
         { sig: "bool button_a / button_b", desc: "親指側の主要 2 ボタン(Quest の A/B または X/Y 等にマップ)。" },
@@ -137,21 +137,21 @@ ACS_REF.modules.push({
       sample: "acs::game::OpenXrBridgeProvider p =\n    []() noexcept -&gt; acs::game::IOpenXrBridge&amp; { return MyBridge(); };"
     },
     {
-      name: "OpenXrBridgeStub",
+      name: "FOpenXrBridgeStub",
       kind: "クラス", header: "gameframework/OpenXrBridge.h",
       summary: "「常に未初期化/原点ポーズ/パススルー非対応」を返す stub 実装。実 backend をリンクしていない状態でも、上位が<t>フォールバック</t>(2D 描画)を書けるようにする placeholder。",
       when: "HMD が無い開発機/CI での既定。直接 new せず <code>GetXrStub()</code> で得る。",
       sample: "auto&amp; xr = acs::game::GetXrStub();\nauto r = xr.Init();   // 常に NotImplemented で失敗\n// → IsTracking() も false なので 2D 経路へ",
       members: [
         { sig: "TResult&lt;void&gt; Init(EXrPlatform = Unknown)", desc: "常に NotImplemented を返す(副作用なし)。" },
-        { sig: "XrPose HeadPose() const", desc: "常にゼロポーズ。" },
+        { sig: "FXrPose HeadPose() const", desc: "常にゼロポーズ。" },
         { sig: "bool IsPassthroughSupported() const", desc: "常に false。<code>SetPassthrough()</code> は no-op。" }
       ]
     },
     {
       name: "GetXrStub()",
       kind: "関数", header: "gameframework/OpenXrBridge.h",
-      summary: "プロセス内に 1 個だけ存在する静的 <t>OpenXrBridgeStub</t> への参照を返す。provider 未登録時に <code>GetDefaultOpenXrBridge()</code> が返すのもこれ。",
+      summary: "プロセス内に 1 個だけ存在する静的 <t>FOpenXrBridgeStub</t> への参照を返す。provider 未登録時に <code>GetDefaultOpenXrBridge()</code> が返すのもこれ。",
       when: "明示的に stub を使いたい/テストで原点ポーズを期待する時。",
       sample: "acs::game::IOpenXrBridge&amp; xr = acs::game::GetXrStub();"
     },

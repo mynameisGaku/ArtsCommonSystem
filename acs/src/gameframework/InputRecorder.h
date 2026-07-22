@@ -3,7 +3,7 @@
 //
 // 役割:
 //   1) **raw 入力レイヤの録画**: キーボード状態変化 (8 key まで) + マウス座標 +
-//      マウスボタン bitmask を 1 tick = 1 `InputSample` として時系列に蓄え、
+//      マウスボタン bitmask を 1 tick = 1 `FInputSample` として時系列に蓄え、
 //      後でそのまま replay 再生する。FLockstep が「ゲーム的に解釈済みの
 //      ボタン bitmask + アナログスティック」を扱うのに対し、こちらは
 //      **OS 寄りの raw 信号** (key code + key state + mouse pos) を扱う。
@@ -12,7 +12,7 @@
 //      layout で、SaveToBuffer / LoadFromBuffer で永続化する。
 //      FLockstep `.acsl` と並列の独立フォーマット。
 //   3) **FInputMap の後段に置く想定**: アプリ側で `Capture(sample)` を呼ぶのは
-//      Win32 raw input / SDL event を `InputSample` に詰めた直後。再生側は
+//      Win32 raw input / SDL event を `FInputSample` に詰めた直後。再生側は
 //      `ConsumeSample(tick, out)` で取り出し、ゲームループは録画時と
 //      ピクセル単位で同じ入力列を見ることになる。
 //
@@ -21,7 +21,7 @@
 //   rec.StartRecording(/*tick_rate_hz=*/60);
 //
 //   // ゲームループ (録画中):
-//   InputSample s;
+//   FInputSample s;
 //   s.tick                = m_Tick;
 //   s.key_codes_changed[] = ...; // 今 tick に押下/解放された key (最大 8 個)
 //   s.key_states[]        = ...; // 同 index の press(1)/release(0) 状態
@@ -33,7 +33,7 @@
 //   // 後で Replay:
 //   rec.StartReplay();
 //   while (running) {
-//       InputSample s;
+//       FInputSample s;
 //       if (rec.ConsumeSample(m_Tick, s)) {
 //           // s を OS 入力レイヤの代わりに使う (差し替え)
 //       }
@@ -41,18 +41,18 @@
 //   }
 //
 // 設計選択:
-//   ・**InputSample は trivially-copyable POD**: `u32 tick + u8[8] codes +
+//   ・**FInputSample は trivially-copyable POD**: `u32 tick + u8[8] codes +
 //     u8[8] states + FVec2 mouse_pos + u8 mouse_buttons + padding`。TArray に
 //     詰めて bulk memcpy で I/O できるよう sizeof は 28 B 程度に収まる想定。
 //     key 変化を 8 個までに絞ったのは fighting game / ARPG / RTS で同 tick に
 //     9 個以上の key 変化が起きる頻度が事実上ゼロのため (10 finger 同時入力でも
 //     状態変化点に限定すれば 8 で足りる)。9 個以上の場合は呼び出し側で 2 tick に
 //     分割するか、将来 variable-length encoding を導入する。
-//   ・**ERecorderMode の 3 状態**: FLockstep の ENetMode (Local/FLockstep/Replay) と
+//   ・**ERecorderMode の 3 状態**: FLockstep の ENetMode (Local/Lockstep/Replay) と
 //     異なり、こちらは「録画もしない・録画する・再生する」の 3 状態のみ。
 //     ネットコードは FLockstep 側に分離してあるため、FInputRecorder は録画/再生に
 //     特化する。
-//   ・**TArray<InputSample> による線形ストレージ**: 60 Hz × 30 min = 108,000 件 ×
+//   ・**TArray<FInputSample> による線形ストレージ**: 60 Hz × 30 min = 108,000 件 ×
 //     ~28 B = ~3 MB 程度。`.acsr` ファイルでもこのオーダー。長時間 TAS で
 //     1 時間分でも ~6 MB なので無圧縮で OK。
 //   ・**ConsumeSample は線形検索 + cursor 前進**: 記録順 = tick 昇順を仮定し、
@@ -68,8 +68,8 @@
 //   0x00    4     magic          'ACSR' = 0x52534341 (little-endian)
 //   0x04    4     version        u32。現在 = 1。
 //   0x08    4     tick_rate_hz   u32。再生側との sample rate 整合検証用。
-//   0x0C    4     sample_count   u32。続く InputSample の個数。
-//   0x10    N     samples        InputSample[sample_count] (各 ~28 B)。
+//   0x0C    4     sample_count   u32。続く FInputSample の個数。
+//   0x10    N     samples        FInputSample[sample_count] (各 ~28 B)。
 //   0x10+N  4     crc32_footer   u32。samples 部の CRC-32 (改竄/破損検知用)。
 //
 // 範囲外:
@@ -86,6 +86,14 @@
 
 namespace acs::game {
 
+class FReplayDirector;
+
+/** 1 recorderへ読み込めるsample件数上限。 */
+inline constexpr u32 kInputRecorderMaximumSamples = 1'000'000u;
+
+/** 永続化headerで許可するtick rate上限。 */
+inline constexpr u32 kInputRecorderMaximumTickRateHz = 1000u;
+
 /**
  * 1 tick 分の raw 入力サンプル。
  *
@@ -98,7 +106,7 @@ namespace acs::game {
  * できないが、同一 tick 内で 9 個以上の状態変化が同時に起きるケースは事実上
  * 発生しないので十分。
  */
-struct InputSample {
+struct FInputSample {
     /** フレーム番号 (0 起点、tick_rate_hz で時刻に変換)。 */
     u32  tick                 = 0;
 
@@ -164,10 +172,10 @@ public:
      * SaveToBuffer / LoadFromBuffer が返す共通エラー subcode。
      *
      * @details
-     * FSaveSlot / FLockstep / FBackendClient と同じ pattern。上位層が switch で
+     * TSaveSlot / FLockstep / IBackendClient と同じ pattern。上位層が switch で
      * 分岐できるよう enum 風に固定値を割り当てる。
      */
-    enum SubCode : u16 {
+    enum ESubCode : u16 {
         /** SaveToBuffer / LoadFromBuffer の buffer == nullptr。 */
         kSub_NullBuffer     = 1,
 
@@ -185,6 +193,15 @@ public:
 
         /** LoadFromBuffer: CRC mismatch。 */
         kSub_BadCrc         = 6,
+
+        /** LoadFromBuffer: staging allocationに失敗。 */
+        kSub_Oom            = 7,
+
+        /** sample件数またはtick rateが製品上限外。 */
+        kSub_LimitExceeded  = 8,
+
+        /** sampleにNaN/Infinityの非正規floatが含まれる。 */
+        kSub_BadValue       = 9,
 
         /** 未実装。 */
         kSub_NotImplemented = 99,
@@ -223,7 +240,7 @@ public:
      * sample.tick + 1 に進める (連続 tick 想定)。
      * @param s 記録する 1 tick 分の入力サンプル。
      */
-    void Capture(const InputSample& s) noexcept;
+    void Capture(const FInputSample& s) noexcept;
 
     /**
      * 指定 tick の sample を取り出す。
@@ -236,7 +253,7 @@ public:
      * @param out 見つかった sample の書き込み先。
      * @return 該当 sample が見つかれば true。
      */
-    bool ConsumeSample(u32 tick, InputSample& out) noexcept;
+    bool ConsumeSample(u32 tick, FInputSample& out) noexcept;
 
     /**
      * 現在の動作モードを返す。
@@ -248,7 +265,7 @@ public:
     /**
      * 蓄積済み sample 数を返す。
      *
-     * @return 録画済み InputSample の個数。
+     * @return 録画済み FInputSample の個数。
      */
     u32          SampleCount() const noexcept;
 
@@ -291,7 +308,22 @@ public:
      */
     TResult<void> LoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
+    /**
+     * bufferを全検証し、全sampleのstaging成功後にだけstateを置換する。
+     *
+     * @details 失敗時はsamples、tick rate、cursor、current tickを変更しない。
+     */
+    TResult<void> TryLoadFromBuffer(const u8* buffer, u32 size) noexcept;
+
 private:
+    friend class FReplayDirector;
+
+    /** ReplayDirector staging用にtargetと同じallocatorを注入する。 */
+    explicit FInputRecorder(FAllocator& allocator) noexcept : m_Samples(allocator) {}
+
+    /** ReplayDirectorが複数sourceを一括commitするためのno-fail state swap。 */
+    void SwapLoadedState(FInputRecorder& other) noexcept;
+
     /** 現在の動作モード。 */
     ERecorderMode       m_Mode          = ERecorderMode::Idle;
 
@@ -305,7 +337,7 @@ private:
     u32                m_Cursor        = 0;
 
     /** 録画済み sample の線形ストレージ。 */
-    TArray<InputSample> m_Samples;
+    TArray<FInputSample> m_Samples;
 };
 
 } // namespace acs::game

@@ -2,7 +2,27 @@
 // GameFramework Pillar C — FTween / FTweenManager 実装
 #include "gameframework/Tween.h"
 
+#include <cmath>
+
 namespace acs::game {
+
+namespace {
+
+bool IsFiniteTweenValue(f32 value) noexcept {
+    return std::isfinite(value);
+}
+
+bool IsFiniteTweenValue(FVec2 value) noexcept {
+    return IsFiniteTweenValue(value.x) && IsFiniteTweenValue(value.y);
+}
+
+bool IsFiniteTweenValue(FVec3 value) noexcept {
+    return IsFiniteTweenValue(value.x)
+        && IsFiniteTweenValue(value.y)
+        && IsFiniteTweenValue(value.z);
+}
+
+} // namespace
 
 u32 FTweenManager::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用 (= 一定 Tick 後の FTween 群はキャッシュ局所性高い)
@@ -16,7 +36,7 @@ u32 FTweenManager::AcquireSlot() noexcept {
     return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
-void FTweenManager::FillCommon(Slot& s, void* target, f32 duration,
+void FTweenManager::FillCommon(FSlot& s, void* target, f32 duration,
                                Easing::EasingFn ease) noexcept {
     s.target   = target;
     s.elapsed  = 0.0f;
@@ -31,13 +51,18 @@ void FTweenManager::FillCommon(Slot& s, void* target, f32 duration,
 FTweenHandle FTweenManager::Tween(f32* target, f32 from, f32 to, f32 duration,
                                  Easing::EasingFn ease) noexcept {
     if (target == nullptr) return {};
+    if (!IsFiniteTweenValue(duration)
+        || !IsFiniteTweenValue(from)
+        || !IsFiniteTweenValue(to)) {
+        return {};
+    }
     if (duration <= 0.0f) {
         *target = to;
         return {};
     }
     const u32 idx = AcquireSlot();
-    Slot& s = m_Slots[idx];
-    s.kind   = Kind::F32;
+    FSlot& s = m_Slots[idx];
+    s.kind   = EKind::F32;
     s.from_f = from;
     s.to_f   = to;
     FillCommon(s, target, duration, ease);
@@ -45,16 +70,26 @@ FTweenHandle FTweenManager::Tween(f32* target, f32 from, f32 to, f32 duration,
     return FTweenHandle{idx, s.generation};
 }
 
+FTweenHandle FTweenManager::Tween(f32* target, f32 from, f32 to, f32 duration,
+                                 Easing::EEasingType ease) noexcept {
+    return Tween(target, from, to, duration, Easing::GetFunction(ease));
+}
+
 FTweenHandle FTweenManager::Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
                                  Easing::EasingFn ease) noexcept {
     if (target == nullptr) return {};
+    if (!IsFiniteTweenValue(duration)
+        || !IsFiniteTweenValue(from)
+        || !IsFiniteTweenValue(to)) {
+        return {};
+    }
     if (duration <= 0.0f) {
         *target = to;
         return {};
     }
     const u32 idx = AcquireSlot();
-    Slot& s = m_Slots[idx];
-    s.kind    = Kind::FVec2;
+    FSlot& s = m_Slots[idx];
+    s.kind    = EKind::Vec2;
     s.from_v2 = from;
     s.to_v2   = to;
     FillCommon(s, target, duration, ease);
@@ -62,16 +97,26 @@ FTweenHandle FTweenManager::Tween(FVec2* target, FVec2 from, FVec2 to, f32 durat
     return FTweenHandle{idx, s.generation};
 }
 
+FTweenHandle FTweenManager::Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
+                                 Easing::EEasingType ease) noexcept {
+    return Tween(target, from, to, duration, Easing::GetFunction(ease));
+}
+
 FTweenHandle FTweenManager::Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
                                  Easing::EasingFn ease) noexcept {
     if (target == nullptr) return {};
+    if (!IsFiniteTweenValue(duration)
+        || !IsFiniteTweenValue(from)
+        || !IsFiniteTweenValue(to)) {
+        return {};
+    }
     if (duration <= 0.0f) {
         *target = to;
         return {};
     }
     const u32 idx = AcquireSlot();
-    Slot& s = m_Slots[idx];
-    s.kind    = Kind::FVec3;
+    FSlot& s = m_Slots[idx];
+    s.kind    = EKind::Vec3;
     s.from_v3 = from;
     s.to_v3   = to;
     FillCommon(s, target, duration, ease);
@@ -79,28 +124,33 @@ FTweenHandle FTweenManager::Tween(FVec3* target, FVec3 from, FVec3 to, f32 durat
     return FTweenHandle{idx, s.generation};
 }
 
+FTweenHandle FTweenManager::Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
+                                 Easing::EEasingType ease) noexcept {
+    return Tween(target, from, to, duration, Easing::GetFunction(ease));
+}
+
 void FTweenManager::Cancel(FTweenHandle h) noexcept {
     if (!h.IsValid() || h.index >= m_Slots.Size()) return;
-    Slot& s = m_Slots[h.index];
+    FSlot& s = m_Slots[h.index];
     if (s.generation != h.generation || !s.active) return;
     s.active = false;
-    s.kind   = Kind::None;
+    s.kind   = EKind::None;
     s.target = nullptr;
     if (m_ActiveCount > 0) --m_ActiveCount;
 }
 
 void FTweenManager::CompleteAll() noexcept {
     for (u32 i = 0; i < m_Slots.Size(); ++i) {
-        Slot& s = m_Slots[i];
+        FSlot& s = m_Slots[i];
         if (!s.active) continue;
         switch (s.kind) {
-        case Kind::F32:  *static_cast<f32*>(s.target)  = s.to_f;  break;
-        case Kind::FVec2: *static_cast<FVec2*>(s.target) = s.to_v2; break;
-        case Kind::FVec3: *static_cast<FVec3*>(s.target) = s.to_v3; break;
+        case EKind::F32:  *static_cast<f32*>(s.target)  = s.to_f;  break;
+        case EKind::Vec2: *static_cast<FVec2*>(s.target) = s.to_v2; break;
+        case EKind::Vec3: *static_cast<FVec3*>(s.target) = s.to_v3; break;
         default: break;
         }
         s.active = false;
-        s.kind   = Kind::None;
+        s.kind   = EKind::None;
         s.target = nullptr;
     }
     m_ActiveCount = 0;
@@ -109,7 +159,7 @@ void FTweenManager::CompleteAll() noexcept {
 void FTweenManager::CancelAll() noexcept {
     for (u32 i = 0; i < m_Slots.Size(); ++i) {
         m_Slots[i].active = false;
-        m_Slots[i].kind   = Kind::None;
+        m_Slots[i].kind   = EKind::None;
         m_Slots[i].target = nullptr;
     }
     m_ActiveCount = 0;
@@ -117,7 +167,7 @@ void FTweenManager::CancelAll() noexcept {
 
 bool FTweenManager::IsActive(FTweenHandle h) const noexcept {
     if (!h.IsValid() || h.index >= m_Slots.Size()) return false;
-    const Slot& s = m_Slots[h.index];
+    const FSlot& s = m_Slots[h.index];
     return s.active && s.generation == h.generation;
 }
 
@@ -126,42 +176,55 @@ u32 FTweenManager::ActiveCount() const noexcept {
 }
 
 void FTweenManager::Tick(f32 dt) noexcept {
-    if (m_ActiveCount == 0 || dt <= 0.0f) return;
+    if (m_ActiveCount == 0 || dt <= 0.0f || !std::isfinite(dt)) return;
     for (u32 i = 0; i < m_Slots.Size(); ++i) {
-        Slot& s = m_Slots[i];
+        FSlot& s = m_Slots[i];
         if (!s.active) continue;
 
         s.elapsed += dt;
+        if (!std::isfinite(s.elapsed)) s.elapsed = s.duration;
         f32 t = s.elapsed / s.duration;
         const bool finished = (t >= 1.0f);
         if (finished) t = 1.0f;
-        const f32 e = s.ease(t);
+        const f32 eased = s.ease(t);
+        const f32 e = std::isfinite(eased) ? eased : t;
 
         switch (s.kind) {
-        case Kind::F32: {
+        case EKind::F32: {
             f32* p = static_cast<f32*>(s.target);
-            *p = finished ? s.to_f
-                          : s.from_f + (s.to_f - s.from_f) * e;
+            if (finished) {
+                *p = s.to_f;
+            } else {
+                const f32 staged =
+                    s.from_f + (s.to_f - s.from_f) * e;
+                if (IsFiniteTweenValue(staged)) *p = staged;
+            }
             break;
         }
-        case Kind::FVec2: {
+        case EKind::Vec2: {
             FVec2* p = static_cast<FVec2*>(s.target);
             if (finished) {
                 *p = s.to_v2;
             } else {
-                p->x = s.from_v2.x + (s.to_v2.x - s.from_v2.x) * e;
-                p->y = s.from_v2.y + (s.to_v2.y - s.from_v2.y) * e;
+                const FVec2 staged{
+                    s.from_v2.x + (s.to_v2.x - s.from_v2.x) * e,
+                    s.from_v2.y + (s.to_v2.y - s.from_v2.y) * e,
+                };
+                if (IsFiniteTweenValue(staged)) *p = staged;
             }
             break;
         }
-        case Kind::FVec3: {
+        case EKind::Vec3: {
             FVec3* p = static_cast<FVec3*>(s.target);
             if (finished) {
                 *p = s.to_v3;
             } else {
-                p->x = s.from_v3.x + (s.to_v3.x - s.from_v3.x) * e;
-                p->y = s.from_v3.y + (s.to_v3.y - s.from_v3.y) * e;
-                p->z = s.from_v3.z + (s.to_v3.z - s.from_v3.z) * e;
+                const FVec3 staged{
+                    s.from_v3.x + (s.to_v3.x - s.from_v3.x) * e,
+                    s.from_v3.y + (s.to_v3.y - s.from_v3.y) * e,
+                    s.from_v3.z + (s.to_v3.z - s.from_v3.z) * e,
+                };
+                if (IsFiniteTweenValue(staged)) *p = staged;
             }
             break;
         }
@@ -170,7 +233,7 @@ void FTweenManager::Tick(f32 dt) noexcept {
 
         if (finished) {
             s.active = false;
-            s.kind   = Kind::None;
+            s.kind   = EKind::None;
             s.target = nullptr;
             if (m_ActiveCount > 0) --m_ActiveCount;
         }

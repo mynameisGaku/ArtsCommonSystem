@@ -67,7 +67,7 @@ struct FVoiceSlot {
     TArray<byte> Buffer;
 
     /** この発音へ割り当てたプロセス一意のハンドル。 */
-    AudioVoiceHandle Handle = {};
+    FAudioVoiceHandle Handle = {};
 
     /** 常駐 buffer 予算へ計上した確保容量。 */
     u64 ReservedBufferBytes = 0u;
@@ -103,7 +103,7 @@ private:
 /** 発音ハンドルへ割り当てるプロセス通算チケット。 */
 TAtomic<u64> g_NextAudioVoiceTicket{1u};
 
-AudioVoiceHandle AcquireAudioVoiceHandle() noexcept
+FAudioVoiceHandle AcquireAudioVoiceHandle() noexcept
 {
     constexpr u64 kLargestTicket = static_cast<u64>(~u32(0));
     u64 Current = g_NextAudioVoiceTicket.Load(EMemoryOrder::Acquire);
@@ -115,7 +115,7 @@ AudioVoiceHandle AcquireAudioVoiceHandle() noexcept
         }
         if (g_NextAudioVoiceTicket.CompareExchange(Current, Current + 1u))
         {
-            return AudioVoiceHandle::FromPackedValue(static_cast<u32>(Current));
+            return FAudioVoiceHandle::FromPackedValue(static_cast<u32>(Current));
         }
     }
 }
@@ -144,7 +144,7 @@ void WaitForBackendLifecycleTestGate() noexcept
 } // namespace
 
 /** XAudio2 と COM MTA cookie と voice pool を保持する pimpl。 */
-struct FXAudio2Backend::Impl {
+struct FXAudio2Backend::FImpl {
     /** XAudio2 エンジン。 */
     IXAudio2* XAudio2 = nullptr;
 
@@ -183,10 +183,10 @@ struct FXAudio2Backend::Impl {
 
 namespace {
 
-void DestroySlot(FXAudio2Backend::Impl& Implementation, FVoiceSlot& Slot) noexcept;
+void DestroySlot(FXAudio2Backend::FImpl& Implementation, FVoiceSlot& Slot) noexcept;
 
 /** mutex 取得済みの pimpl から全 voice を解放する。 */
-void StopAllVoicesLocked(FXAudio2Backend::Impl& Implementation) noexcept
+void StopAllVoicesLocked(FXAudio2Backend::FImpl& Implementation) noexcept
 {
     for (u32 Index = 0u; Index < Implementation.MaxVoices; ++Index)
     {
@@ -200,7 +200,7 @@ void StopAllVoicesLocked(FXAudio2Backend::Impl& Implementation) noexcept
 }
 
 /** clip から検証済み WAVEFORMATEX を作る。 */
-bool FillWaveFormat(const AudioClipDesc& Clip, WAVEFORMATEX& WaveFormat) noexcept
+bool FillWaveFormat(const FAudioClipDesc& Clip, WAVEFORMATEX& WaveFormat) noexcept
 {
     if (Clip.channel_count == 0u || Clip.channel_count > XAUDIO2_MAX_AUDIO_CHANNELS ||
         Clip.sample_rate < XAUDIO2_MIN_SAMPLE_RATE || Clip.sample_rate > XAUDIO2_MAX_SAMPLE_RATE)
@@ -241,7 +241,7 @@ bool FillWaveFormat(const AudioClipDesc& Clip, WAVEFORMATEX& WaveFormat) noexcep
 }
 
 /** voice と保持中の PCM コピーを完全に破棄する。 */
-void DestroySlot(FXAudio2Backend::Impl& Implementation, FVoiceSlot& Slot) noexcept
+void DestroySlot(FXAudio2Backend::FImpl& Implementation, FVoiceSlot& Slot) noexcept
 {
     if (Slot.Voice != nullptr)
     {
@@ -272,8 +272,8 @@ void DestroySlot(FXAudio2Backend::Impl& Implementation, FVoiceSlot& Slot) noexce
 }
 
 /** mutex 取得済みの pool から指定ハンドルを探す。 */
-FVoiceSlot* FindVoiceSlot(FXAudio2Backend::Impl& Implementation,
-                          AudioVoiceHandle Voice) noexcept
+FVoiceSlot* FindVoiceSlot(FXAudio2Backend::FImpl& Implementation,
+                          FAudioVoiceHandle Voice) noexcept
 {
     for (u32 Index = 0u; Index < Implementation.MaxVoices; ++Index)
     {
@@ -287,8 +287,8 @@ FVoiceSlot* FindVoiceSlot(FXAudio2Backend::Impl& Implementation,
 }
 
 /** mutex 取得済みの pimpl で一発またはループ再生を開始する。 */
-AudioVoiceHandle PlayInternal(FXAudio2Backend::Impl& Implementation,
-                              const AudioClipDesc& Clip,
+FAudioVoiceHandle PlayInternal(FXAudio2Backend::FImpl& Implementation,
+                              const FAudioClipDesc& Clip,
                               f32 Volume,
                               f32 Pitch,
                               bool bLoop) noexcept
@@ -328,7 +328,7 @@ AudioVoiceHandle PlayInternal(FXAudio2Backend::Impl& Implementation,
         return kInvalidAudioVoice;
     }
 
-    const AudioVoiceHandle Handle = AcquireAudioVoiceHandle();
+    const FAudioVoiceHandle Handle = AcquireAudioVoiceHandle();
     if (!Handle.IsValid())
     {
         ACS_LOG_ERROR("FXAudio2Backend::Play: 32-bit voice handle space exhausted");
@@ -447,7 +447,7 @@ TResult<void> FXAudio2Backend::Init(u32 MaxVoices) noexcept
                        "FXAudio2Backend::Init: MaxVoices exceeds the supported range");
     }
 
-    ScopedExclusiveLock LifecycleLock(m_LifecycleLock);
+    FScopedExclusiveLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return ACS_ERR(Generic, kSubAudioNotInitialized,
@@ -459,7 +459,7 @@ TResult<void> FXAudio2Backend::Init(u32 MaxVoices) noexcept
                        "FXAudio2Backend::Init: already initialized");
     }
 
-    m_Impl = new (std::nothrow) Impl();
+    m_Impl = new (std::nothrow) FImpl();
     if (m_Impl == nullptr)
     {
         return ACS_ERR(Memory, kSubAudioOutOfMemory,
@@ -509,7 +509,7 @@ TResult<void> FXAudio2Backend::Init(u32 MaxVoices) noexcept
 void FXAudio2Backend::Shutdown() noexcept
 {
     FScopedBackendShutdownRequest ShutdownRequest(m_ShutdownRequests);
-    ScopedExclusiveLock LifecycleLock(m_LifecycleLock);
+    FScopedExclusiveLock LifecycleLock(m_LifecycleLock);
     if (m_Impl == nullptr)
     {
         return;
@@ -519,7 +519,7 @@ void FXAudio2Backend::Shutdown() noexcept
 
 void FXAudio2Backend::ShutdownUnlocked() noexcept
 {
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     {
         FScopedLock StateLock(Implementation->StateMutex);
         StopAllVoicesLocked(*Implementation);
@@ -570,12 +570,12 @@ bool FXAudio2Backend::IsInitialized() const noexcept
     {
         return false;
     }
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return false;
     }
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr)
     {
         return false;
@@ -584,7 +584,7 @@ bool FXAudio2Backend::IsInitialized() const noexcept
     return Implementation->bInitialized;
 }
 
-AudioVoiceHandle FXAudio2Backend::PlayOneShot(const AudioClipDesc& Clip,
+FAudioVoiceHandle FXAudio2Backend::PlayOneShot(const FAudioClipDesc& Clip,
                                               f32 Volume,
                                               f32 Pitch) noexcept
 {
@@ -592,12 +592,12 @@ AudioVoiceHandle FXAudio2Backend::PlayOneShot(const AudioClipDesc& Clip,
     {
         return kInvalidAudioVoice;
     }
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return kInvalidAudioVoice;
     }
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr)
     {
         return kInvalidAudioVoice;
@@ -606,7 +606,7 @@ AudioVoiceHandle FXAudio2Backend::PlayOneShot(const AudioClipDesc& Clip,
     return PlayInternal(*Implementation, Clip, Volume, Pitch, false);
 }
 
-AudioVoiceHandle FXAudio2Backend::PlayLooped(const AudioClipDesc& Clip,
+FAudioVoiceHandle FXAudio2Backend::PlayLooped(const FAudioClipDesc& Clip,
                                              f32 Volume,
                                              f32 Pitch) noexcept
 {
@@ -614,12 +614,12 @@ AudioVoiceHandle FXAudio2Backend::PlayLooped(const AudioClipDesc& Clip,
     {
         return kInvalidAudioVoice;
     }
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return kInvalidAudioVoice;
     }
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr)
     {
         return kInvalidAudioVoice;
@@ -628,18 +628,18 @@ AudioVoiceHandle FXAudio2Backend::PlayLooped(const AudioClipDesc& Clip,
     return PlayInternal(*Implementation, Clip, Volume, Pitch, true);
 }
 
-void FXAudio2Backend::StopVoice(AudioVoiceHandle Voice) noexcept
+void FXAudio2Backend::StopVoice(FAudioVoiceHandle Voice) noexcept
 {
     if (IsShutdownRequested() || !Voice.IsValid())
     {
         return;
     }
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return;
     }
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr)
     {
         return;
@@ -661,18 +661,18 @@ void FXAudio2Backend::StopVoice(AudioVoiceHandle Voice) noexcept
     }
 }
 
-void FXAudio2Backend::SetVoiceVolume(AudioVoiceHandle Voice, f32 Volume) noexcept
+void FXAudio2Backend::SetVoiceVolume(FAudioVoiceHandle Voice, f32 Volume) noexcept
 {
     if (IsShutdownRequested() || !Voice.IsValid())
     {
         return;
     }
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return;
     }
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr)
     {
         return;
@@ -696,12 +696,12 @@ void FXAudio2Backend::StopAllVoices() noexcept
     {
         return;
     }
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return;
     }
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr)
     {
         return;
@@ -716,7 +716,7 @@ u32 FXAudio2Backend::ActiveVoiceCount() const noexcept
     {
         return 0u;
     }
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return 0u;
@@ -724,7 +724,7 @@ u32 FXAudio2Backend::ActiveVoiceCount() const noexcept
 #if defined(ACS_XAUDIO2_BACKEND_TEST_HOOKS)
     WaitForBackendLifecycleTestGate();
 #endif
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr)
     {
         return 0u;
@@ -740,12 +740,12 @@ void FXAudio2Backend::Tick(f32 DeltaSeconds) noexcept
     {
         return;
     }
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return;
     }
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr)
     {
         return;
@@ -783,12 +783,12 @@ void FXAudio2Backend::SetMasterVolume(f32 Volume) noexcept
     {
         return;
     }
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return;
     }
-    Impl* const Implementation = m_Impl;
+    FImpl* const Implementation = m_Impl;
     if (Implementation == nullptr)
     {
         return;
@@ -808,7 +808,7 @@ TResult<void> FXAudio2Backend::InitializeLifecycleTestState() noexcept
         return ACS_ERR(Generic, kSubAudioNotInitialized,
                        "FXAudio2Backend test shutdown is in progress");
     }
-    ScopedExclusiveLock LifecycleLock(m_LifecycleLock);
+    FScopedExclusiveLock LifecycleLock(m_LifecycleLock);
     if (IsShutdownRequested())
     {
         return ACS_ERR(Generic, kSubAudioNotInitialized,
@@ -820,7 +820,7 @@ TResult<void> FXAudio2Backend::InitializeLifecycleTestState() noexcept
                        "FXAudio2Backend test state already initialized");
     }
 
-    m_Impl = new (std::nothrow) Impl();
+    m_Impl = new (std::nothrow) FImpl();
     if (m_Impl == nullptr)
     {
         return ACS_ERR(Memory, kSubAudioOutOfMemory,
@@ -846,7 +846,7 @@ bool FXAudio2Backend::IsShutdownRequestedForTesting() const noexcept
 
 bool FXAudio2Backend::HasLifecycleStateForTesting() const noexcept
 {
-    ScopedSharedLock LifecycleLock(m_LifecycleLock);
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
     return m_Impl != nullptr;
 }
 #endif

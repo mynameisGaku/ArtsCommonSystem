@@ -15,7 +15,7 @@ using namespace acs;
 
 namespace helloibl {
 
-FMat4 BuildJitteredViewProjection(HelloIblApp& app, const FMat4& vp_no_jitter,
+FMat4 BuildJitteredViewProjection(FHelloIblApp& app, const FMat4& vp_no_jitter,
                                  u32 hdr_width, u32 hdr_height) noexcept {
     if (!app.m_bUseTaa) return vp_no_jitter;
 

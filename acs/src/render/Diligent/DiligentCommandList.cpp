@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// DiligentCommandList 実装
+// FDiligentCommandList 実装
 #include "render/Diligent/DiligentCommandList.h"
 
 #if WITH_RENDER_DILIGENT
@@ -14,9 +14,28 @@
 
 namespace acs {
 
-DiligentCommandList::~DiligentCommandList() noexcept = default;
+namespace {
 
-TResult<void> DiligentCommandList::Init(DiligentDevice& device) noexcept {
+f32 TimestampDeltaMilliseconds(
+    const Diligent::QueryDataTimestamp& begin,
+    const Diligent::QueryDataTimestamp& end) noexcept
+{
+    const u64 frequency =
+        end.Frequency != 0 ? end.Frequency : begin.Frequency;
+    if (frequency == 0 || end.Counter < begin.Counter) return -1.0f;
+    return static_cast<f32>(
+        (static_cast<double>(end.Counter - begin.Counter) * 1000.0) /
+        static_cast<double>(frequency));
+}
+
+} // namespace
+
+FDiligentCommandList::~FDiligentCommandList() noexcept {
+    ResetGpuTiming();
+}
+
+TResult<void> FDiligentCommandList::Init(FDiligentDevice& device) noexcept {
+    ResetGpuTiming();
     // 再初期化前に、旧 device/resource への借用参照をすべて失効させる。
     for (u32 index = 0; index < 16; ++index)
         m_BoundUavTex[index] = nullptr;
@@ -26,48 +45,289 @@ TResult<void> DiligentCommandList::Init(DiligentDevice& device) noexcept {
     m_MainSwapchain = nullptr;
     m_MainDepth = nullptr;
     m_Device = &device;
+
+    static_assert(
+        kGpuTimingFrameSlots == FDiligentDevice::kFramesInFlight,
+        "GPU timing slots must follow the Diligent frame ring");
+    Diligent::IRenderDevice* render_device = device.RenderDev();
+    if (render_device != nullptr &&
+        render_device->GetDeviceInfo().Features.TimestampQueries ==
+            Diligent::DEVICE_FEATURE_STATE_ENABLED) {
+        Diligent::QueryDesc query_desc{Diligent::QUERY_TYPE_TIMESTAMP};
+        query_desc.Name = "ACS profiler timestamp";
+        m_GpuTimingSupported = true;
+        for (u32 slot = 0; slot < kGpuTimingFrameSlots; ++slot) {
+            for (u32 query = 0;
+                 query < kGpuTimingQueriesPerSlot;
+                 ++query) {
+                render_device->CreateQuery(
+                    query_desc,
+                    &m_GpuTimestampQueries[slot][query]);
+                if (m_GpuTimestampQueries[slot][query] == nullptr) {
+                    ResetGpuTiming();
+                    break;
+                }
+            }
+            if (!m_GpuTimingSupported) break;
+        }
+    }
     return Ok();
 }
 
-void DiligentCommandList::Begin() noexcept {
-    // Diligent は明示的な Begin/End が不要（IDeviceContext は即時実行）
+void FDiligentCommandList::ResetGpuTiming() noexcept {
+    for (u32 slot = 0; slot < kGpuTimingFrameSlots; ++slot) {
+        for (u32 query = 0;
+             query < kGpuTimingQueriesPerSlot;
+             ++query) {
+            if (m_GpuTimestampQueries[slot][query] != nullptr) {
+                m_GpuTimestampQueries[slot][query]->Release();
+                m_GpuTimestampQueries[slot][query] = nullptr;
+            }
+        }
+        m_GpuTimingSlots[slot] = {};
+    }
+    m_LatestGpuTiming = {};
+    m_GpuTimingRecordingSlot = 0;
+    m_GpuTimingActiveBegin = kInvalidGpuTimingQuery;
+    m_GpuTimingActivePass = ERhiGpuTimingPass::Opaque;
+    m_GpuTimingSupported = false;
+    m_GpuTimingRecording = false;
+    m_GpuTimingScopeActive = false;
 }
 
-void DiligentCommandList::End() noexcept {
+void FDiligentCommandList::CollectGpuTiming(u32 slot) noexcept {
+    if (!m_GpuTimingSupported || slot >= kGpuTimingFrameSlots) return;
+    FGpuTimingSlot& timing_slot = m_GpuTimingSlots[slot];
+    if (!timing_slot.pending ||
+        timing_slot.query_count < 2 ||
+        timing_slot.query_count > kGpuTimingQueriesPerSlot) {
+        return;
+    }
+
+    // Check every query before invalidating any of them. This keeps the whole
+    // frame-slot reusable as one transaction if a driver reports late data.
+    for (u32 query = 0; query < timing_slot.query_count; ++query) {
+        if (!m_GpuTimestampQueries[slot][query]->GetData(nullptr, 0))
+            return;
+    }
+
+    Diligent::QueryDataTimestamp
+        data[kGpuTimingQueriesPerSlot]{};
+    for (u32 query = 0; query < timing_slot.query_count; ++query) {
+        if (!m_GpuTimestampQueries[slot][query]->GetData(
+                &data[query], sizeof(data[query]), false)) {
+            return;
+        }
+    }
+    for (u32 query = 0; query < timing_slot.query_count; ++query)
+        m_GpuTimestampQueries[slot][query]->Invalidate();
+
+    FRhiGpuTimingSnapshot completed{};
+    completed.frame_index = timing_slot.frame_index;
+    completed.frame_ms = TimestampDeltaMilliseconds(
+        data[0], data[timing_slot.query_count - 1]);
+    if (completed.frame_ms >= 0.0f) {
+        completed.valid = true;
+        completed.opaque_ms = 0.0f;
+        completed.atmosphere_ms = 0.0f;
+        completed.cloud_ms = 0.0f;
+        completed.fog_ms = 0.0f;
+        completed.post_ms = 0.0f;
+
+        for (u32 segment_index = 0;
+             segment_index < timing_slot.segment_count;
+             ++segment_index) {
+            const FGpuTimingSegment& segment =
+                timing_slot.segments[segment_index];
+            if (segment.begin_query >= timing_slot.query_count ||
+                segment.end_query >= timing_slot.query_count) {
+                continue;
+            }
+            const f32 elapsed = TimestampDeltaMilliseconds(
+                data[segment.begin_query], data[segment.end_query]);
+            if (elapsed < 0.0f) continue;
+            switch (segment.pass) {
+                case ERhiGpuTimingPass::Opaque:
+                    completed.opaque_ms += elapsed;
+                    break;
+                case ERhiGpuTimingPass::Atmosphere:
+                    completed.atmosphere_ms += elapsed;
+                    break;
+                case ERhiGpuTimingPass::Cloud:
+                    completed.cloud_ms += elapsed;
+                    break;
+                case ERhiGpuTimingPass::Fog:
+                    completed.fog_ms += elapsed;
+                    break;
+                case ERhiGpuTimingPass::Post:
+                    completed.post_ms += elapsed;
+                    break;
+                case ERhiGpuTimingPass::Count:
+                    break;
+            }
+        }
+        m_LatestGpuTiming = completed;
+    }
+
+    timing_slot.pending = false;
+    timing_slot.query_count = 0;
+    timing_slot.segment_count = 0;
+}
+
+u32 FDiligentCommandList::EmitGpuTimestamp() noexcept {
+    if (!m_GpuTimingRecording ||
+        m_GpuTimingRecordingSlot >= kGpuTimingFrameSlots) {
+        return kInvalidGpuTimingQuery;
+    }
+    FGpuTimingSlot& slot =
+        m_GpuTimingSlots[m_GpuTimingRecordingSlot];
+    if (slot.query_count >= kGpuTimingQueriesPerSlot) {
+        return kInvalidGpuTimingQuery;
+    }
+    Diligent::IDeviceContext* context =
+        m_Device != nullptr ? m_Device->Context() : nullptr;
+    Diligent::IQuery* query =
+        m_GpuTimestampQueries[m_GpuTimingRecordingSlot]
+                             [slot.query_count];
+    if (context == nullptr || query == nullptr) {
+        return kInvalidGpuTimingQuery;
+    }
+    const u32 index = slot.query_count++;
+    context->EndQuery(query);
+    return index;
+}
+
+bool FDiligentCommandList::BeginGpuTimingFrame(
+    u64 frame_index) noexcept
+{
+    if (!m_GpuTimingSupported || m_GpuTimingRecording ||
+        m_Device == nullptr || m_Device->Context() == nullptr) {
+        return false;
+    }
+    const u32 slot = m_Device->CurrentFrameSlot();
+    if (slot >= kGpuTimingFrameSlots) return false;
+    CollectGpuTiming(slot);
+    FGpuTimingSlot& timing_slot = m_GpuTimingSlots[slot];
+    if (timing_slot.pending) return false;
+
+    timing_slot = {};
+    timing_slot.frame_index = frame_index;
+    m_GpuTimingRecordingSlot = slot;
+    m_GpuTimingRecording = true;
+    m_GpuTimingScopeActive = false;
+    m_GpuTimingActiveBegin = kInvalidGpuTimingQuery;
+    if (EmitGpuTimestamp() == kInvalidGpuTimingQuery) {
+        m_GpuTimingRecording = false;
+        return false;
+    }
+    return true;
+}
+
+bool FDiligentCommandList::BeginGpuTimingPass(
+    ERhiGpuTimingPass pass) noexcept
+{
+    if (!m_GpuTimingRecording || m_GpuTimingScopeActive ||
+        pass == ERhiGpuTimingPass::Count) {
+        return false;
+    }
+    FGpuTimingSlot& slot =
+        m_GpuTimingSlots[m_GpuTimingRecordingSlot];
+    if (slot.segment_count >= kGpuTimingSegmentsPerSlot ||
+        slot.query_count + 3u > kGpuTimingQueriesPerSlot) {
+        return false;
+    }
+    const u32 begin = EmitGpuTimestamp();
+    if (begin == kInvalidGpuTimingQuery) return false;
+    m_GpuTimingActiveBegin = begin;
+    m_GpuTimingActivePass = pass;
+    m_GpuTimingScopeActive = true;
+    return true;
+}
+
+void FDiligentCommandList::EndGpuTimingPass() noexcept {
+    if (!m_GpuTimingRecording || !m_GpuTimingScopeActive) return;
+    const u32 end = EmitGpuTimestamp();
+    FGpuTimingSlot& slot =
+        m_GpuTimingSlots[m_GpuTimingRecordingSlot];
+    if (end != kInvalidGpuTimingQuery &&
+        slot.segment_count < kGpuTimingSegmentsPerSlot) {
+        slot.segments[slot.segment_count++] = FGpuTimingSegment{
+            m_GpuTimingActivePass,
+            m_GpuTimingActiveBegin,
+            end};
+    }
+    m_GpuTimingScopeActive = false;
+    m_GpuTimingActiveBegin = kInvalidGpuTimingQuery;
+}
+
+void FDiligentCommandList::EndGpuTimingFrame() noexcept {
+    if (!m_GpuTimingRecording) return;
+    if (m_GpuTimingScopeActive) EndGpuTimingPass();
+    FGpuTimingSlot& slot =
+        m_GpuTimingSlots[m_GpuTimingRecordingSlot];
+    const u32 end = EmitGpuTimestamp();
+    slot.pending =
+        end != kInvalidGpuTimingQuery && slot.query_count >= 2u;
+    if (!slot.pending) {
+        slot.query_count = 0;
+        slot.segment_count = 0;
+    }
+    m_GpuTimingRecording = false;
+}
+
+bool FDiligentCommandList::TryGetGpuTiming(
+    FRhiGpuTimingSnapshot& out_snapshot) const noexcept
+{
+    out_snapshot = m_LatestGpuTiming;
+    return out_snapshot.valid;
+}
+
+void FDiligentCommandList::Begin() noexcept {
+    if (m_Device) m_Device->PrepareCommandRecording();
+    // This marker is per submission. Keeping an old swapchain here would make a
+    // later off-screen preview wait for a Present that will never occur.
+    m_MainSwapchain = nullptr;
+    m_MainDepth = nullptr;
+    // Diligent は明示的な Begin/End が不要（IDeviceContext は即時実行）。
+}
+
+void FDiligentCommandList::End() noexcept {
     // Diligent はコマンドが即時積まれるので EOF も不要
 }
 
-void DiligentCommandList::Submit() noexcept {
+void FDiligentCommandList::Submit() noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
-    // フレーム終了タイミングで Flush + フェンス Signal
+    // Flush the real commands first. FinishFrame and its completion fence must
+    // happen after this Flush so dynamic allocations are retired in GPU order.
     ctx->Flush();
-    m_Device->SignalGraphicsQueue();
-    m_Device->AdvanceFrameSlot();
+    m_Device->MarkFrameSubmitted();
+    if (m_MainSwapchain == nullptr)
+        m_Device->FinishPendingSubmittedFrame();
 }
 
-void DiligentCommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 /*buffer_index*/,
-                                                  const ClearColor& clear,
+void FDiligentCommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 /*buffer_index*/,
+                                                  const FClearColor& clear,
                                                   IRhiTexture* depth,
                                                   f32 depth_clear) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
 
-    auto& dsc = static_cast<DiligentSwapchain&>(sc);
+    auto& dsc = static_cast<FDiligentSwapchain&>(sc);
     auto* swap = dsc.SwapChain();
     if (!swap) return;
 
     auto* rtv = swap->GetCurrentBackBufferRTV();
-    auto* dsv = depth ? static_cast<DiligentTexture*>(depth)->DsvView() : nullptr;
+    auto* dsv = depth ? static_cast<FDiligentTexture*>(depth)->DsvView() : nullptr;
     Diligent::ITextureView* rtvs[1] = { rtv };
     ctx->SetRenderTargets(1, rtvs, dsv,
                           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     const float clr[4] = { clear.r, clear.g, clear.b, clear.a };
     ctx->ClearRenderTarget(rtv, clr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     if (dsv) {
-        const auto cf = (depth && static_cast<DiligentTexture*>(depth)->HasStencil())
+        const auto cf = (depth && static_cast<FDiligentTexture*>(depth)->HasStencil())
             ? (Diligent::CLEAR_DEPTH_FLAG | Diligent::CLEAR_STENCIL_FLAG)
             : Diligent::CLEAR_DEPTH_FLAG;
         ctx->ClearDepthStencil(dsv, cf, depth_clear, 0,
@@ -76,18 +336,18 @@ void DiligentCommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 /*buffer
 
     // フレーム内で shadow / off-screen pass を挟んだあと復帰するために記憶。
     m_MainSwapchain = &dsc;
-    m_MainDepth     = depth ? static_cast<DiligentTexture*>(depth) : nullptr;
+    m_MainDepth     = depth ? static_cast<FDiligentTexture*>(depth) : nullptr;
 }
 
-void DiligentCommandList::EndRenderToSwapchain(IRhiSwapchain& /*sc*/, u32 /*buffer_index*/) noexcept {
+void FDiligentCommandList::EndRenderToSwapchain(IRhiSwapchain& /*sc*/, u32 /*buffer_index*/) noexcept {
     // Diligent は Present 時に PRESENT 状態に自動遷移するので何もしない
 }
 
-void DiligentCommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) noexcept {
+void FDiligentCommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
-    auto& d = static_cast<DiligentTexture&>(depth);
+    auto& d = static_cast<FDiligentTexture&>(depth);
     auto* dsv = d.DsvView();
     if (!dsv) return;
 
@@ -105,7 +365,7 @@ void DiligentCommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) n
     SetScissor(sr);
 }
 
-void DiligentCommandList::EndShadowPass(IRhiTexture& /*depth*/) noexcept {
+void FDiligentCommandList::EndShadowPass(IRhiTexture& /*depth*/) noexcept {
     // shadow texture の DSV → SRV 遷移は Diligent が次の SetTexture で
     // 自動で行う。ただし RT の復帰はやってくれないので、フレーム冒頭の
     // BeginRenderToSwapchain で記憶した swap chain RTV + main pass DSV を
@@ -130,15 +390,15 @@ void DiligentCommandList::EndShadowPass(IRhiTexture& /*depth*/) noexcept {
     SetScissor(sr);
 }
 
-void DiligentCommandList::BeginRenderToTexture(IRhiTexture& rt, const ClearColor& clear,
+void FDiligentCommandList::BeginRenderToTexture(IRhiTexture& rt, const FClearColor& clear,
                                                 IRhiTexture* depth, f32 depth_clear) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
-    auto& t = static_cast<DiligentTexture&>(rt);
+    auto& t = static_cast<FDiligentTexture&>(rt);
     auto* rtv = t.RtvView();
     if (!rtv) return;
-    auto* dsv = depth ? static_cast<DiligentTexture*>(depth)->DsvView() : nullptr;
+    auto* dsv = depth ? static_cast<FDiligentTexture*>(depth)->DsvView() : nullptr;
 
     Diligent::ITextureView* rtvs[1] = { rtv };
     ctx->SetRenderTargets(1, rtvs, dsv,
@@ -146,7 +406,7 @@ void DiligentCommandList::BeginRenderToTexture(IRhiTexture& rt, const ClearColor
     const float clr[4] = { clear.r, clear.g, clear.b, clear.a };
     ctx->ClearRenderTarget(rtv, clr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     if (dsv) {
-        const auto cf = (depth && static_cast<DiligentTexture*>(depth)->HasStencil())
+        const auto cf = (depth && static_cast<FDiligentTexture*>(depth)->HasStencil())
             ? (Diligent::CLEAR_DEPTH_FLAG | Diligent::CLEAR_STENCIL_FLAG)
             : Diligent::CLEAR_DEPTH_FLAG;
         ctx->ClearDepthStencil(dsv, cf, depth_clear, 0,
@@ -162,15 +422,15 @@ void DiligentCommandList::BeginRenderToTexture(IRhiTexture& rt, const ClearColor
     SetScissor(sr);
 }
 
-void DiligentCommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
+void FDiligentCommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
                                                     IRhiTexture* depth) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
-    auto& t = static_cast<DiligentTexture&>(rt);
+    auto& t = static_cast<FDiligentTexture&>(rt);
     auto* rtv = t.RtvView();
     if (!rtv) return;
-    auto* dsv = depth ? static_cast<DiligentTexture*>(depth)->DsvView() : nullptr;
+    auto* dsv = depth ? static_cast<FDiligentTexture*>(depth)->DsvView() : nullptr;
 
     Diligent::ITextureView* rtvs[1] = { rtv };
     ctx->SetRenderTargets(1, rtvs, dsv,
@@ -186,8 +446,8 @@ void DiligentCommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
     SetScissor(sr);
 }
 
-void DiligentCommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count,
-                                                   const ClearColor& clear,
+void FDiligentCommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count,
+                                                   const FClearColor& clear,
                                                    IRhiTexture* depth,
                                                    f32 depth_clear) noexcept {
     if (!m_Device || rt_count == 0 || rt_count > 8 || !rts) return;
@@ -199,7 +459,7 @@ void DiligentCommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 r
     u32 ref_w = 0, ref_h = 0;
     for (u32 i = 0; i < rt_count; ++i) {
         if (!rts[i]) continue;
-        auto* tex = static_cast<DiligentTexture*>(rts[i]);
+        auto* tex = static_cast<FDiligentTexture*>(rts[i]);
         auto* rtv = tex->RtvView();
         if (!rtv) continue;
         // 全 RT が同サイズ前提 (Diligent / D3D12 では viewport が 1 つしか付かない、
@@ -216,7 +476,7 @@ void DiligentCommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 r
     }
     if (valid_count == 0) return;
 
-    auto* dsv = depth ? static_cast<DiligentTexture*>(depth)->DsvView() : nullptr;
+    auto* dsv = depth ? static_cast<FDiligentTexture*>(depth)->DsvView() : nullptr;
     ctx->SetRenderTargets(valid_count, rtvs, dsv,
                           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     const float clr[4] = { clear.r, clear.g, clear.b, clear.a };
@@ -243,12 +503,12 @@ void DiligentCommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 r
     SetScissor(sr);
 }
 
-void DiligentCommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
-                                                     const ClearColor& clear) noexcept {
+void FDiligentCommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
+                                                     const FClearColor& clear) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
-    auto& t = static_cast<DiligentTexture&>(rt);
+    auto& t = static_cast<FDiligentTexture&>(rt);
     auto* rtv = t.RtvSlice(slice, mip);
     if (!rtv) return;
 
@@ -275,7 +535,7 @@ void DiligentCommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, 
     SetScissor(sr);
 }
 
-void DiligentCommandList::EndRenderToTexture(IRhiTexture& /*rt*/) noexcept {
+void FDiligentCommandList::EndRenderToTexture(IRhiTexture& /*rt*/) noexcept {
     // RT texture の RTV → SRV 遷移は Diligent が次の SetTexture で自動。
     // ただし RT 復帰はやってくれないので、main pass に戻したいときは
     // BeginRenderToSwapchain で記憶した swap chain RTV + main pass DSV +
@@ -301,7 +561,7 @@ void DiligentCommandList::EndRenderToTexture(IRhiTexture& /*rt*/) noexcept {
     SetScissor(sr);
 }
 
-void DiligentCommandList::SetViewport(const FViewport& vp) noexcept {
+void FDiligentCommandList::SetViewport(const FViewport& vp) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
@@ -315,7 +575,7 @@ void DiligentCommandList::SetViewport(const FViewport& vp) noexcept {
     ctx->SetViewports(1, &dvp, 0, 0);
 }
 
-void DiligentCommandList::SetScissor(const FScissorRect& sr) noexcept {
+void FDiligentCommandList::SetScissor(const FScissorRect& sr) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
@@ -327,26 +587,26 @@ void DiligentCommandList::SetScissor(const FScissorRect& sr) noexcept {
     ctx->SetScissorRects(1, &r, 0, 0);
 }
 
-void DiligentCommandList::SetStencilRef(u32 ref) noexcept {
+void FDiligentCommandList::SetStencilRef(u32 ref) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (ctx) ctx->SetStencilRef(ref);
 }
 
-void DiligentCommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {
+void FDiligentCommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
-    auto& p = static_cast<DiligentPipeline&>(pipeline);
+    auto& p = static_cast<FDiligentPipeline&>(pipeline);
     m_Pipeline = &p;
     if (p.Native()) ctx->SetPipelineState(p.Native());
 }
 
-void DiligentCommandList::SetVertexBuffer(IRhiBuffer& vb, u32 /*stride*/) noexcept {
+void FDiligentCommandList::SetVertexBuffer(IRhiBuffer& vb, u32 /*stride*/) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
-    auto& b = static_cast<DiligentBuffer&>(vb);
+    auto& b = static_cast<FDiligentBuffer&>(vb);
     if (!b.Native()) return;
     Diligent::IBuffer* bufs[1] = { b.Native() };
     Diligent::Uint64   offs[1] = { 0 };
@@ -355,22 +615,22 @@ void DiligentCommandList::SetVertexBuffer(IRhiBuffer& vb, u32 /*stride*/) noexce
                           Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
 }
 
-void DiligentCommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
+void FDiligentCommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
-    auto& b = static_cast<DiligentBuffer&>(ib);
+    auto& b = static_cast<FDiligentBuffer&>(ib);
     if (!b.Native()) return;
     m_bIsIndex32 = (b.Usage() == EBufferUsage::Index32);
     ctx->SetIndexBuffer(b.Native(), 0,
                         Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 }
 
-void DiligentCommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
+void FDiligentCommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
     if (!m_Pipeline || !m_Device) return;
     auto* srb = m_Pipeline->Srb();
     if (!srb) return;
-    auto& b = static_cast<DiligentBuffer&>(cb);
+    auto& b = static_cast<FDiligentBuffer&>(cb);
     if (!b.Native()) return;
 
     // Pipeline が保持してる名前 (cbuffer_names[slot]) で lookup
@@ -386,11 +646,11 @@ void DiligentCommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
     if (var) var->Set(b.Native());
 }
 
-void DiligentCommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
+void FDiligentCommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
     if (!m_Pipeline || !m_Device) return;
     auto* srb = m_Pipeline->Srb();
     if (!srb) return;
-    auto& t = static_cast<DiligentTexture&>(tex);
+    auto& t = static_cast<FDiligentTexture&>(tex);
     if (!t.SrvView()) return;
 
     const char* name = m_Pipeline->TextureName(slot);
@@ -400,8 +660,8 @@ void DiligentCommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
     if (var) var->Set(t.SrvView());
 }
 
-void DiligentCommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {
-    if (!m_Device || !m_Pipeline) return;
+void FDiligentCommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {
+    if (vertex_count == 0u || !m_Device || !m_Pipeline) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
     if (m_Pipeline->Srb()) {
@@ -416,11 +676,12 @@ void DiligentCommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {
     // 「事前 state チェック」で false positive を出す (実遷移より前に検査)
     // ため、production では NONE を使う。
     da.Flags = Diligent::DRAW_FLAG_NONE;
+    RecordDraw(vertex_count);
     ctx->Draw(da);
 }
 
-void DiligentCommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base_vertex) noexcept {
-    if (!m_Device || !m_Pipeline) return;
+void FDiligentCommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base_vertex) noexcept {
+    if (index_count == 0u || !m_Device || !m_Pipeline) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
     if (m_Pipeline->Srb()) {
@@ -433,56 +694,58 @@ void DiligentCommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base
     dia.FirstIndexLocation = first_index;
     dia.BaseVertex   = base_vertex;
     dia.Flags = Diligent::DRAW_FLAG_NONE;
+    RecordDraw(index_count);
     ctx->DrawIndexed(dia);
 }
 
 // ---- Compute (Phase 0) ----
 
-void DiligentCommandList::SetComputePipeline(IRhiPipeline& pipeline) noexcept {
+void FDiligentCommandList::SetComputePipeline(IRhiPipeline& pipeline) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
-    auto& p = static_cast<DiligentPipeline&>(pipeline);
+    auto& p = static_cast<FDiligentPipeline&>(pipeline);
     m_Pipeline = &p;
     m_BoundUavTexCount = 0;
     if (p.Native()) ctx->SetPipelineState(p.Native());
 }
 
-void DiligentCommandList::BindUav(u32 slot, IRhiTexture& tex) noexcept {
+void FDiligentCommandList::BindUav(u32 slot, IRhiTexture& tex) noexcept {
     if (!m_Pipeline || !m_Device) return;
     auto* srb = m_Pipeline->Srb();
     if (!srb) return;
-    auto& t = static_cast<DiligentTexture&>(tex);
+    auto& t = static_cast<FDiligentTexture&>(tex);
     if (!t.UavView()) return;
     const char* name = m_Pipeline->UavName(slot);
     auto* var = srb->GetVariableByName(Diligent::SHADER_TYPE_COMPUTE, name);
     if (var) var->Set(t.UavView());
 }
 
-void DiligentCommandList::BindUav(u32 slot, IRhiBuffer& buf) noexcept {
+void FDiligentCommandList::BindUav(u32 slot, IRhiBuffer& buf) noexcept {
     if (!m_Pipeline || !m_Device) return;
     auto* srb = m_Pipeline->Srb();
     if (!srb) return;
-    auto& b = static_cast<DiligentBuffer&>(buf);
+    auto& b = static_cast<FDiligentBuffer&>(buf);
     if (!b.UavView()) return;
     const char* name = m_Pipeline->UavName(slot);
     auto* var = srb->GetVariableByName(Diligent::SHADER_TYPE_COMPUTE, name);
     if (var) var->Set(b.UavView());
 }
 
-void DiligentCommandList::BindStructuredSrv(u32 slot, IRhiBuffer& buf) noexcept {
+void FDiligentCommandList::BindStructuredSrv(u32 slot, IRhiBuffer& buf) noexcept {
     if (!m_Pipeline || !m_Device) return;
     auto* srb = m_Pipeline->Srb();
     if (!srb) return;
-    auto& b = static_cast<DiligentBuffer&>(buf);
+    auto& b = static_cast<FDiligentBuffer&>(buf);
     if (!b.SrvView()) return;
     const char* name = m_Pipeline->TextureName(slot);   // SRV は texture スロットと同管理
     auto* var = srb->GetVariableByName(Diligent::SHADER_TYPE_COMPUTE, name);
     if (var) var->Set(b.SrvView());
 }
 
-void DiligentCommandList::Dispatch(u32 gx, u32 gy, u32 gz) noexcept {
-    if (!m_Device || !m_Pipeline) return;
+void FDiligentCommandList::Dispatch(u32 gx, u32 gy, u32 gz) noexcept {
+    if (gx == 0u || gy == 0u || gz == 0u ||
+        !m_Device || !m_Pipeline) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
     // TRANSITION モードで commit → Diligent が UAV を UNORDERED_ACCESS、SRV を SHADER_RESOURCE へ
@@ -495,14 +758,15 @@ void DiligentCommandList::Dispatch(u32 gx, u32 gy, u32 gz) noexcept {
     dca.ThreadGroupCountX = gx;
     dca.ThreadGroupCountY = gy;
     dca.ThreadGroupCountZ = gz;
+    RecordDispatch();
     ctx->DispatchCompute(dca);
 }
 
-void DiligentCommandList::DispatchIndirect(IRhiBuffer& args, u32 byte_offset) noexcept {
+void FDiligentCommandList::DispatchIndirect(IRhiBuffer& args, u32 byte_offset) noexcept {
     if (!m_Device || !m_Pipeline) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
-    auto& a = static_cast<DiligentBuffer&>(args);
+    auto& a = static_cast<FDiligentBuffer&>(args);
     if (!a.Native()) return;
     // Dispatch と同じく TRANSITION モードで commit → UAV/SRV state を自動整合。
     if (m_Pipeline->Srb()) {
@@ -513,10 +777,11 @@ void DiligentCommandList::DispatchIndirect(IRhiBuffer& args, u32 byte_offset) no
     dcia.pAttribsBuffer                   = a.Native();
     dcia.AttribsBufferStateTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
     dcia.DispatchArgsByteOffset           = static_cast<Diligent::Uint64>(byte_offset);
+    RecordDispatch();
     ctx->DispatchComputeIndirect(dcia);
 }
 
-void* DiligentCommandList::NativeHandle() noexcept {
+void* FDiligentCommandList::NativeHandle() noexcept {
     return m_Device ? m_Device->Context() : nullptr;
 }
 

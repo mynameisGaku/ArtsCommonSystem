@@ -2,10 +2,10 @@
 // HelloLightmap — エントリポイント。multi-bounce path-traced lightmap。
 //
 // 構成:
-//   LightmapTypes.h           - Quad / Rng / 数学ヘルパ / constexpr 定数 (inline)
+//   LightmapTypes.h           - FQuad / FRng / 数学ヘルパ / constexpr 定数 (inline)
 //   LightmapBaker.{h,cpp}     - PathTrace + BakeLightmaps (CPU 焼き)
 //   CornellBox.{h,cpp}        - Cornell box シーンの構築
-//   HelloLightmapApp.{h,cpp}  - FApplication 派生 (OnStart/OnCustomFrame ほか)
+//   FHelloLightmapApp.{h,cpp}  - FApplication 派生 (OnStart/OnCustomFrame ほか)
 //
 // 動作:
 //   ・古典的な Cornell box (床 / 天井 / 奥壁 / 左壁(赤) / 右壁(緑)) を構築
@@ -28,4 +28,4 @@
 #include "HelloLightmapApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(hellolightmap::HelloLightmapApp)
+ACS_DEFINE_MAIN(hellolightmap::FHelloLightmapApp)

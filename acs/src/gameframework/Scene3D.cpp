@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar B — FScene3D 実装
 #include "gameframework/Scene3D.h"
-#include "gameframework/MeshComponent3D.h"   // FMeshComponent3D (Raycast の bounds)
+#include "gameframework/MeshComponent3D.h"   // AMeshComponent3D (Raycast の bounds)
 #include "asset/MeshAsset.h"                 // FMeshAsset (Mesh 種別の頂点 AABB)
 #include "math/Mat.h"                        // Inverse / TransformPoint / TransformVector
 #include "memory/UniquePtr.h"
@@ -10,20 +10,20 @@ namespace acs::game {
 
 namespace {
 
-/** const ノードから FMeshComponent3D を探す (ComponentAt 経由)。 */
-const FMeshComponent3D* FindMeshC(const FNode3D& n) noexcept {
-    const void* k = Component3DKindOf<FMeshComponent3D>();
+/** const ノードから AMeshComponent3D を探す (ComponentAt 経由)。 */
+const AMeshComponent3D* FindMeshC(const ANode& n) noexcept {
+    const void* k = ComponentKindOf<AMeshComponent3D>();
     for (u32 i = 0; i < n.ComponentCount(); ++i) {
-        const FComponent3D* c = n.ComponentAt(i);
-        if (c != nullptr && c->Kind() == k) return static_cast<const FMeshComponent3D*>(c);
+        const AComponent* c = n.ComponentAt(i);
+        if (c != nullptr && c->Kind() == k) return static_cast<const AMeshComponent3D*>(c);
     }
     return nullptr;
 }
 
 /** プリミティブ種別ごとのローカル空間 AABB (Mesh は頂点から)。 */
-Aabb3 LocalBounds3D(const FMeshComponent3D& m) noexcept {
+FAabb3 LocalBounds3D(const AMeshComponent3D& m) noexcept {
     if (m.Primitive() == EMeshPrimitive3D::Plane) {
-        return Aabb3{ FVec3{ 0, 0, 0 }, FVec3{ 0.5f, 0.02f, 0.5f } };   // 薄い板
+        return FAabb3{ FVec3{ 0, 0, 0 }, FVec3{ 0.5f, 0.02f, 0.5f } };   // 薄い板
     }
     if (m.Primitive() == EMeshPrimitive3D::Mesh) {
         const FMeshAsset* a = m.Mesh();
@@ -35,38 +35,38 @@ Aabb3 LocalBounds3D(const FMeshComponent3D& m) noexcept {
                 mn.y = p.y < mn.y ? p.y : mn.y; mx.y = p.y > mx.y ? p.y : mx.y;
                 mn.z = p.z < mn.z ? p.z : mn.z; mx.z = p.z > mx.z ? p.z : mx.z;
             }
-            return Aabb3::FromMinMax(mn, mx);
+            return FAabb3::FromMinMax(mn, mx);
         }
     }
-    return Aabb3{ FVec3{ 0, 0, 0 }, FVec3{ 0.5f, 0.5f, 0.5f } };        // Cube/Sphere/フォールバック
+    return FAabb3{ FVec3{ 0, 0, 0 }, FVec3{ 0.5f, 0.5f, 0.5f } };        // Cube/Sphere/フォールバック
 }
 
 /** subtree を DFS し、レイと «最も手前で» 交わるメッシュノードを探す。 */
-void RaycastRec(const FNode3D* n, const Ray3& ray, FNodeId& best, f32& bestT) noexcept {
+void RaycastRec(const ANode* n, const FRay3& ray, FNodeId& best, f32& bestT) noexcept {
     if (n == nullptr) return;
-    if (const FMeshComponent3D* m = FindMeshC(*n)) {
+    if (const AMeshComponent3D* m = FindMeshC(*n)) {
         const FMat4 M    = n->World().ToMat4();
         const FMat4 Minv = Inverse(M);
         // レイをノードのローカル空間へ (point/vector で別変換)。t は world レイと共通。
-        const Ray3 lr{ TransformPoint(ray.origin, Minv), TransformVector(ray.direction, Minv) };
-        const RayHit3 hit = RaycastAabb(lr, LocalBounds3D(*m));
+        const FRay3 lr{ TransformPoint(ray.origin, Minv), TransformVector(ray.direction, Minv) };
+        const FRayHit3 hit = RaycastAabb(lr, LocalBounds3D(*m));
         if (hit.hit && hit.t >= 0.0f && hit.t < bestT) { bestT = hit.t; best = n->Id(); }
     }
     for (u32 i = 0; i < n->ChildCount(); ++i) RaycastRec(n->Child(i), ray, best, bestT);
 }
 
 /** subtree を深さ優先で走査し name に一致する最初のノードを返す (root から再帰)。 */
-FNode3D* FindByNameRec(FNode3D* n, FStringView name) noexcept {
+ANode* FindByNameRec(ANode* n, FStringView name) noexcept {
     if (n == nullptr) return nullptr;
     if (n->Name() == name) return n;
     for (u32 i = 0; i < n->ChildCount(); ++i) {
-        if (FNode3D* hit = FindByNameRec(n->Child(i), name)) return hit;
+        if (ANode* hit = FindByNameRec(n->Child(i), name)) return hit;
     }
     return nullptr;
 }
 
 /** subtree のノード数を数える (自分 + 全子孫)。 */
-u32 CountRec(const FNode3D* n) noexcept {
+u32 CountRec(const ANode* n) noexcept {
     if (n == nullptr) return 0;
     u32 total = 1;
     for (u32 i = 0; i < n->ChildCount(); ++i) {
@@ -77,52 +77,125 @@ u32 CountRec(const FNode3D* n) noexcept {
 
 } // namespace
 
-FNode3D& FScene3D::Spawn(FStringView name, FNode3D* parent) noexcept {
-    FNode3D* p = (parent != nullptr) ? parent : &m_Root;
-    FNode3D& child = p->AddChild(MakeUnique<FNode3D>(name));
-    m_Pool.RegisterExistingNode(&child);   // 生成ノードに generational id を振る
-    return child;
+FScene3DSpawnResult FScene3D::TrySpawn(FStringView name, ANode* parent) noexcept {
+    ANode* p = (parent != nullptr) ? parent : m_Root.Get();
+    const FNodeId parent_id = m_Pool.IdOf(p);
+    if (!parent_id.IsValid() || m_Pool.Get(parent_id) != p) {
+        return FScene3DSpawnResult{
+            nullptr, FNodeId{}, EScene3DSpawnError::InvalidParent,
+            ENodePoolRegisterError::None, EAddChildResult::Added
+        };
+    }
+
+    const ANode* tree_root = p;
+    u32 parent_depth = 0u;
+    while (tree_root != nullptr && tree_root->Parent() != nullptr
+           && parent_depth <= kNodeMaxTreeDepth) {
+        tree_root = tree_root->Parent();
+        ++parent_depth;
+    }
+    if (tree_root != m_Root.Get() || parent_depth > kNodeMaxTreeDepth) {
+        return FScene3DSpawnResult{
+            nullptr, FNodeId{}, EScene3DSpawnError::InvalidParent,
+            ENodePoolRegisterError::None, EAddChildResult::Added
+        };
+    }
+    // 新規 child は未所属・非pending・高さ0なので、TryAddChild が拒否し得る条件を
+    // pool slot 確保前に判定する。通常の境界失敗では物理 slot 容量すら変更しない。
+    if (p->IsPendingDestroy()) {
+        return FScene3DSpawnResult{
+            nullptr, FNodeId{}, EScene3DSpawnError::ChildAttachRejected,
+            ENodePoolRegisterError::None, EAddChildResult::ParentPendingDestroy
+        };
+    }
+    if (parent_depth >= kNodeMaxTreeDepth) {
+        return FScene3DSpawnResult{
+            nullptr, FNodeId{}, EScene3DSpawnError::ChildAttachRejected,
+            ENodePoolRegisterError::None, EAddChildResult::TreeDepthLimitExceeded
+        };
+    }
+
+    TObjectPtr<ANode> child = NewObject<ANode>(name);
+    if (!child) {
+        return FScene3DSpawnResult{
+            nullptr, FNodeId{}, EScene3DSpawnError::NodeAllocationFailure,
+            ENodePoolRegisterError::AllocationFailure, EAddChildResult::Added
+        };
+    }
+    ANode* raw_child = child.Get();
+    const FNodePoolRegisterResult registration =
+        m_Pool.TryRegisterExistingNode(raw_child);
+    if (!registration.Succeeded()) {
+        return FScene3DSpawnResult{
+            nullptr, FNodeId{}, EScene3DSpawnError::PoolRegistrationFailure,
+            registration.Error, EAddChildResult::Added
+        };
+    }
+
+    const EAddChildResult add_result = p->TryAddChild(child);
+    if (add_result != EAddChildResult::Added) {
+        m_Pool.Unregister(registration.Id);
+        return FScene3DSpawnResult{
+            nullptr, FNodeId{}, EScene3DSpawnError::ChildAttachRejected,
+            ENodePoolRegisterError::None, add_result
+        };
+    }
+    return FScene3DSpawnResult{
+        raw_child, registration.Id, EScene3DSpawnError::None,
+        ENodePoolRegisterError::None, EAddChildResult::Added
+    };
+}
+
+ANode& FScene3D::Spawn(FStringView name, ANode* parent) noexcept {
+    const FScene3DSpawnResult result = TrySpawn(name, parent);
+    if (result.Succeeded()) return *result.Node;
+
+    if (parent != nullptr) {
+        const FNodeId parent_id = m_Pool.IdOf(parent);
+        if (parent_id.IsValid() && m_Pool.Get(parent_id) == parent) return *parent;
+    }
+    return *m_Root;
 }
 
 void FScene3D::Update(f32 dt) noexcept {
-    m_Root.UpdateTree(dt);
+    m_Root->UpdateTree(dt);
     // reap される «前» に破棄予定ノードを pool から外す (ダングリング防止、どの破棄経路でも)。
     m_Pool.PurgePendingDestroy();
-    m_Root.ResolveStructuralChanges();
+    m_Root->ResolveStructuralChanges();
 }
 
 void FScene3D::FixedUpdate(f32 fixed_dt) noexcept {
-    m_Root.FixedUpdateTree(fixed_dt);
+    m_Root->FixedUpdateTree(fixed_dt);
     m_Pool.PurgePendingDestroy();
-    m_Root.ResolveStructuralChanges();
+    m_Root->ResolveStructuralChanges();
 }
 
-FNode3D* FScene3D::FindByName(FStringView name) noexcept {
-    return FindByNameRec(&m_Root, name);
+ANode* FScene3D::FindByName(FStringView name) noexcept {
+    return FindByNameRec(m_Root.Get(), name);
 }
 
 u32 FScene3D::NodeCount() const noexcept {
-    return CountRec(&m_Root);
+    return CountRec(m_Root.Get());
 }
 
-FNodeId FScene3D::Raycast(const Ray3& ray, f32* out_t) const noexcept {
+FNodeId FScene3D::Raycast(const FRay3& ray, f32* out_t) const noexcept {
     FNodeId best{};
     f32 bestT = 3.4028235e38f;
-    RaycastRec(&m_Root, ray, best, bestT);
+    RaycastRec(m_Root.Get(), ray, best, bestT);
     if (out_t != nullptr && best.IsValid()) *out_t = bestT;
     return best;
 }
 
 void FScene3D::Clear() noexcept {
     // top-level 子を全て破棄予定にし、pool から外して即 reap (Update を待たない)。
-    for (u32 i = 0; i < m_Root.ChildCount(); ++i) {
-        if (FNode3D* c = m_Root.Child(i)) c->Destroy();
+    for (u32 i = 0; i < m_Root->ChildCount(); ++i) {
+        if (ANode* c = m_Root->Child(i)) c->Destroy();
     }
     m_Pool.PurgePendingDestroy();
-    m_Root.ResolveStructuralChanges();
+    m_Root->ResolveStructuralChanges();
     // root 自身を既定へ戻す (読み込み側が root 行で上書きする)。
-    m_Root.Local() = FTransform3D::Identity();
-    m_Root.SetName(FStringView("Root"));
+    m_Root->Local() = FTransform3D::Identity();
+    m_Root->SetName(FStringView("Root"));
 }
 
 } // namespace acs::game

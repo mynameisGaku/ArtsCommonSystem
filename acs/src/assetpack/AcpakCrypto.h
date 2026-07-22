@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS FAssetPack — AES-256-GCM 暗号化 + PBKDF2 鍵導出 (Windows CNG / BCrypt)
+// ACS AssetPack — AES-256-GCM 暗号化 + PBKDF2 鍵導出 (Windows CNG / BCrypt)
 // -----------------------------------------------------------------------------
 // `.acpak` v2 で各ファイルエントリを暗号化するための薄いラッパ。FAcpakReader /
 // FAcpakWriter から呼ばれる。実装は Windows CNG (BCrypt) を使い、サードパーティ
 // 依存は OS 同梱 `Bcrypt.lib` 1 つのみ。
 //
-// 仕様 (FAssetPack.md §4 に準拠):
+// 仕様 (AssetPack.md §4 に準拠):
 //   ・暗号: AES-256-GCM (AEAD)。x86-64 全 CPU で AES-NI が CNG により自動利用。
 //   ・key:   256bit 固定 (FAcpakKey)。各 .acpak は 1 鍵で全エントリを暗号化。
 //   ・nonce: 96bit (12 バイト) per-entry。BCryptGenRandom で CSPRNG 取得、
@@ -35,7 +35,7 @@ namespace acs::assetpack {
  * AES-256 鍵 (256bit) を保持する POD。
  *
  * @details
- * `FAssetPack.md` の `ArchiveKey` と同じレイアウト。FAcpakWriter /
+ * `AssetPack.md` の `ArchiveKey` と同じレイアウト。FAcpakWriter /
  * FAcpakReader は事前に DeriveKey() で作成した本鍵を受け取り、内部で
  * BCryptGenerateSymmetricKey に渡す。
  */

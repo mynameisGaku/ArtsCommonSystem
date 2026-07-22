@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
-// FUiRenderer — Widget tree を FSpriteBatch + Font で描画する
+// FUiRenderer — FWidget tree を FSpriteBatch + FFont で描画する
 //
 // 使い方:
 //   FUiRenderer ur;
 //   ur.Init(*dev, GetRenderer().ColorFormat(), default_font);
 //
 //   // 毎フレーム:
-//   StackPanel root;
+//   FStackPanel root;
 //   /* root.Add<...>() で子を構築 */
-//   root.Layout(0, 0, screen_w, screen_h);
 //   ur.Render(root, *cmd, screen_w, screen_h);
 //
 // 仕組み:
 //   ・FSpriteBatch で矩形 + テクスチャ + 文字を発行
-//   ・Font は ACS Font (TTrueType + atlas)
-//   ・Widget::Render(*this) を再帰的に呼ぶ
+//   ・FFont は ACS FFont (TTrueType + atlas)
+//   ・FWidget::Render(*this) を再帰的に呼ぶ
 //   ・各 widget は描画ヘルパ (DrawRect / DrawText 等) で FUiRenderer に依頼
+//   ・root.visible=false のフレームは Layout と描画をともに省略
 #pragma once
 
 #include "foundation/Result.h"
@@ -27,51 +27,78 @@
 
 namespace acs {
 
+namespace ui_detail {
+
+// テキスト入力欄の選択ハイライト矩形を計算する。
+// 左右 6 px、上下 3 px の余白を適用し、入力欄の内容領域へ切り詰める。
+// 描画可能な領域がない場合は幅または高さが 0 の矩形を返す。
+FUiRect ComputeTextSelectionHighlightRect(const FUiRect& input_rect,
+                                           f32 prefix_start,
+                                           f32 prefix_end) noexcept;
+
 /**
- * Widget ツリーを FSpriteBatch + Font で描画する UI レンダラ。
+ * visible な root だけを Layout し、その後の描画処理を呼ぶ共通 gate。
+ *
+ * @details FUiRenderer::Render と GPU-free test が同じ可視性分岐を共有する。
+ * root が hidden なら Layout も callback も呼ばない。
+ */
+template<typename TRenderCallback>
+bool VisitVisibleUiRoot(FWidget& root, f32 width, f32 height,
+                        TRenderCallback&& render_callback) noexcept {
+    if (!root.visible) return false;
+    root.Layout(0.0f, 0.0f, width, height);
+    render_callback();
+    return true;
+}
+
+} // namespace ui_detail
+
+/**
+ * FWidget ツリーを FSpriteBatch + FFont で描画する UI レンダラ。
  *
  * @details
- * Render で root の Layout → SpriteBatch::Begin → root.Render(*this) → End を行い、
+ * Render で visible な root の Layout → FSpriteBatch::Begin → root.Render(*this) → End を行い、
  * 各 widget は DrawRect / DrawRectOutline / DrawText で描画を依頼する。テーマ色 FUiColors を
- * 保持する。Font は所有せず参照のみ。非コピー。
+ * 保持する。FFont は所有せず参照のみ。非コピー。
  */
 class FUiRenderer {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FUiRenderer() noexcept = default;
 
-    /** 破棄する (SpriteBatch のリソースは Shutdown / デストラクタで解放)。 */
+    /** 破棄する (FSpriteBatch のリソースは Shutdown / デストラクタで解放)。 */
     ~FUiRenderer() noexcept = default;
 
-    /** コピー禁止 (SpriteBatch を単独所有するため)。 */
+    /** コピー禁止 (FSpriteBatch を単独所有するため)。 */
     FUiRenderer(const FUiRenderer&) = delete;
 
     /** コピー代入も禁止。 */
     FUiRenderer& operator=(const FUiRenderer&) = delete;
 
     /**
-     * SpriteBatch を初期化し、既定フォントを設定する。
+     * FSpriteBatch を初期化し、既定フォントを設定する。
      *
      * @param device パイプライン生成に使う RHI デバイス。
      * @param rt_format 描画先レンダーターゲットのフォーマット。
      * @param default_font 文字描画に使う既定フォント (所有しない、null 可)。
-     * @return 成功なら空の TResult、SpriteBatch 初期化失敗ならエラー。
+     * @return 成功なら空の TResult、FSpriteBatch 初期化失敗ならエラー。
      */
-    TResult<void> Init(IRhiDevice& device, EFormat rt_format, Font* default_font) noexcept;
+    TResult<void> Init(IRhiDevice& device, EFormat rt_format, FFont* default_font) noexcept;
 
     /** GPU リソースを解放しフォント参照を切る。 */
     void Shutdown() noexcept;
 
     /**
-     * Widget ツリーを 1 フレーム分レイアウトして描画する。
+     * FWidget ツリーを 1 フレーム分レイアウトして描画する。
      *
-     * @details root を画面全体に Layout し、SpriteBatch を Begin/End で囲んで再帰描画する。
+     * @details visible な root を画面全体に Layout し、FSpriteBatch を Begin/End で囲んで
+     * 再帰描画する。root.visible が false なら Layout と全描画を省略する。
      * @param root 描画するツリーの root widget。
      * @param cmd コマンドを積むコマンドリスト。
      * @param screen_w 画面幅 (px)。
      * @param screen_h 画面高さ (px)。
      */
-    void Render(Widget& root, IRhiCommandList& cmd, u32 screen_w, u32 screen_h) noexcept;
+    void Render(FWidget& root, IRhiCommandList& cmd, u32 screen_w, u32 screen_h) noexcept;
 
     /**
      * 塗りつぶし矩形を発行する (widget の Render から呼ぶ)。
@@ -116,7 +143,18 @@ public:
     f32 MeasureText(const char* utf8) const noexcept;
 
     /**
-     * テーマ色への const 参照を返す (Widget の Render が色を参照)。
+     * UTF-8 文字列の先頭 byte_count バイトだけを既定フォントで測る。
+     *
+     * @details NUL 終端の一時コピーを確保しない。byte_count が文字列終端より長い場合は
+     * NUL までを測り、不正 UTF-8 列は 1 byte ずつ安全に読み飛ばす。
+     * @param utf8 NUL 終端 UTF-8 文字列。
+     * @param byte_count 測定対象とする最大バイト数。
+     * @return 対象 prefix の描画幅 (px)。
+     */
+    f32 MeasureTextBytes(const char* utf8, usize byte_count) const noexcept;
+
+    /**
+     * テーマ色への const 参照を返す (FWidget の Render が色を参照)。
      *
      * @return 現在の FUiColors への const 参照。
      */
@@ -134,14 +172,14 @@ public:
      *
      * @return 設定済みの既定フォント (未設定なら nullptr、所有しない)。
      */
-    Font* DefaultFont() const noexcept { return m_Font; }
+    FFont* DefaultFont() const noexcept { return m_Font; }
 
 private:
     /** 矩形・文字を発行するスプライトバッチ。 */
     FSpriteBatch m_Batch;
 
     /** 文字描画に使う既定フォント (所有しない)。 */
-    Font*       m_Font = nullptr;
+    FFont*       m_Font = nullptr;
 
     /** ウィジェット描画に使うテーマ色。 */
     FUiColors    m_Colors;
@@ -151,31 +189,86 @@ private:
 };
 
 /**
- * マウス/キー入力を Widget ツリーに配信する入力ディスパッチャ。
+ * マウス/キー入力を FWidget ツリーに配信する入力ディスパッチャ。
  *
  * @details
- * 毎フレーム Dispatch を呼び、Input モジュールのマウス位置・クリック・押下キーを読み取って
+ * 毎フレーム Dispatch を呼び、Input モジュールのマウス位置・クリック・キー押下/解放を読み取って
  * root を hit-test し、該当 widget の On* イベントに振り分ける。hover / pressed / focused の
- * 対象 widget を内部に保持して状態遷移を管理する。
+ * 対象は生ポインタではなく widget の address token + 構築 module token + generation で
+ * 追跡し、毎回現在の root から解決する。
+ * このため root の差し替え、アドレス再利用、同じ root 内の child 除去後にも解放済み
+ * widget を参照しない。キー配信時は左右の Shift / Ctrl / Alt / Super を
+ * FUiKeyModifiers にまとめ、押下と解放の両方を修飾キー対応の OnKey overload へ渡す。
+ *
+ * @warning Dispatch の呼び出し中は root 自身を生存させること。callback から UI を更新する
+ * 場合も、実行中の Dispatch が戻る前に root 自身を破棄してはならない。
+ * DLL unload/reload では module address 自体が再利用され得るため、host は root destruction /
+ * module unload 境界で必ず Reset(live_root) または Reset() を呼び、古い追跡を破棄すること。
  */
 class FUiInput {
 public:
+    FUiInput() noexcept = default;
+    ~FUiInput() noexcept = default;
+
+    /** 入力追跡 identity を複製して別 dispatcher から再利用しない。 */
+    FUiInput(const FUiInput&) = delete;
+    FUiInput& operator=(const FUiInput&) = delete;
+    FUiInput(FUiInput&&) = delete;
+    FUiInput& operator=(FUiInput&&) = delete;
+
     /**
      * 入力を読み取り、ツリーをヒットテストして該当 widget にイベントを配信する。
      *
      * @param root イベント配信対象のツリーの root widget。
      */
-    void Dispatch(Widget& root) noexcept;
+    void Dispatch(FWidget& root) noexcept;
+
+    /**
+     * 保存中の root / hover / pressed / focus / Ctrl+A 状態を破棄する。
+     *
+     * @details 保存状態は整数の複合 identity だけなので、この overload は widget を
+     * 一切参照しない。
+     * 現在の root を破棄する直前や、その寿命が既に不明な場合にも安全に呼べる。
+     * 同じ生存 root を再び Dispatch すると、最初に subtree の一時入力フラグを初期化する。
+     * DLL unload/reload や module 所有 root の破棄境界では host が必ず呼ぶ。
+     */
+    void Reset() noexcept;
+
+    /**
+     * 生存中の root に残る一時入力フラグも解除して保存状態を破棄する。
+     *
+     * @details scene 切り替え等で古い root を保持・再利用する場合に使う。
+     * @param live_root 現在生存している root。Dispatch 中の root と異なっていても安全。
+     */
+    void Reset(FWidget& live_root) noexcept;
 
 private:
-    /** 直近に hover 中の widget (所有しない)。 */
-    Widget* m_Hovered  = nullptr;
+    using FTrackedIdentity = ui_detail::FWidgetInputIdentity;
 
-    /** pointer-down 中で drag を受け続ける widget (所有しない)。 */
-    Widget* m_Pressed  = nullptr;
+    /** root が変わった場合に追跡を破棄し、新しい subtree を安全な初期状態へする。 */
+    void PrepareRoot(FWidget& root) noexcept;
 
-    /** 入力フォーカス中の widget (TextInput 等、所有しない)。 */
-    Widget* m_Focused  = nullptr;
+    /** 現在の生存 subtree から可視な追跡対象を解決する。 */
+    FWidget* ResolveVisible(FWidget& root,
+                            const FTrackedIdentity& identity) noexcept;
+
+    /** 除去・非表示になった追跡対象と対応フラグを破棄する。 */
+    void ValidateTrackedState(FWidget& root) noexcept;
+
+    /** 現在 Dispatch 対象の root 複合 identity (全フィールド 0 は未設定)。 */
+    FTrackedIdentity m_RootIdentity;
+
+    /** 直近に hover 中の widget 複合 identity。 */
+    FTrackedIdentity m_HoveredIdentity;
+
+    /** pointer-down 中で drag を受け続ける widget 複合 identity。 */
+    FTrackedIdentity m_PressedIdentity;
+
+    /** 入力フォーカス中の widget 複合 identity。 */
+    FTrackedIdentity m_FocusedIdentity;
+
+    /** Ctrl+A 押下を受け、対応する A 解放を待つ widget 複合 identity。 */
+    FTrackedIdentity m_ControlAOwnerIdentity;
 };
 
 } // namespace acs

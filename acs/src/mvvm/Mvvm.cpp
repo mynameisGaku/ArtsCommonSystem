@@ -13,33 +13,33 @@
 namespace acs {
 
 // header-only な MVVM に翻訳単位を 1 つ与えるため、主要な値型について
-// Observable<T> を明示インスタンス化する。
+// TObservable<T> を明示インスタンス化する。
 
 /** i32 値の Observable。 */
-template class Observable<i32>;
+template class TObservable<i32>;
 
 /** u32 値の Observable。 */
-template class Observable<u32>;
+template class TObservable<u32>;
 
 /** f32 値の Observable。 */
-template class Observable<f32>;
+template class TObservable<f32>;
 
 /** f64 値の Observable。 */
-template class Observable<f64>;
+template class TObservable<f64>;
 
 /** bool 値の Observable。 */
-template class Observable<bool>;
+template class TObservable<bool>;
 
 /** FVec2 値の Observable。 */
-template class Observable<FVec2>;
+template class TObservable<FVec2>;
 
 /** FVec3 値の Observable。 */
-template class Observable<FVec3>;
+template class TObservable<FVec3>;
 
 /** FVec4 値の Observable。 */
-template class Observable<FVec4>;
+template class TObservable<FVec4>;
 
 /** FString 値の Observable。 */
-template class Observable<FString>;
+template class TObservable<FString>;
 
 } // namespace acs

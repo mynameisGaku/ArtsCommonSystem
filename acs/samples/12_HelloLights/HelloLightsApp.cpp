@@ -16,7 +16,7 @@ using namespace acs;
 
 namespace hellolights {
 
-void HelloLightsApp::OnStart() noexcept {
+void FHelloLightsApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -40,15 +40,15 @@ void HelloLightsApp::OnStart() noexcept {
     m_CamPos = FVec3{0, 3.0f, -8.0f};
 }
 
-void HelloLightsApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloLightsApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
     m_Time += dt;
 
     const f32 mv = 5.0f * dt, tr = 1.5f * dt;
-    if (Input::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
-    if (Input::IsKeyDown(EKey::Right)) m_CamYaw += tr;
-    if (Input::IsKeyDown(EKey::Up))    m_CamPitch -= tr * 0.8f;
-    if (Input::IsKeyDown(EKey::Down))  m_CamPitch += tr * 0.8f;
+    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
+    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw += tr;
+    if (FInput::IsKeyDown(EKey::Up))    m_CamPitch -= tr * 0.8f;
+    if (FInput::IsKeyDown(EKey::Down))  m_CamPitch += tr * 0.8f;
     // 上下を 0.45π でクランプ: 真上/真下に向くと forward が縮退して
     // LookAt が破綻するため、π/2 のわずか内側で止める。
     const f32 limit = 0.45f * kPi;
@@ -58,14 +58,14 @@ void HelloLightsApp::OnUpdate(f32 dt) noexcept {
                  -Sin(m_CamPitch),
                   Cos(m_CamYaw) * Cos(m_CamPitch) };
     FVec3 right{ Cos(m_CamYaw), 0, -Sin(m_CamYaw) };
-    if (Input::IsKeyDown(EKey::W)) m_CamPos += forward * mv;
-    if (Input::IsKeyDown(EKey::S)) m_CamPos -= forward * mv;
-    if (Input::IsKeyDown(EKey::D)) m_CamPos += right   * mv;
-    if (Input::IsKeyDown(EKey::A)) m_CamPos -= right   * mv;
+    if (FInput::IsKeyDown(EKey::W)) m_CamPos += forward * mv;
+    if (FInput::IsKeyDown(EKey::S)) m_CamPos -= forward * mv;
+    if (FInput::IsKeyDown(EKey::D)) m_CamPos += right   * mv;
+    if (FInput::IsKeyDown(EKey::A)) m_CamPos -= right   * mv;
     m_Camera.SetLookAt(m_CamPos, m_CamPos + forward);
 }
 
-void HelloLightsApp::OnRender() noexcept {
+void FHelloLightsApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
 
@@ -88,13 +88,13 @@ void HelloLightsApp::OnRender() noexcept {
     }
 }
 
-void HelloLightsApp::OnShutdown() noexcept {
+void FHelloLightsApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Batch.Shutdown();
-    m_GmPlane  = GpuMesh{};
-    m_GmSphere = GpuMesh{};
-    m_GmCube   = GpuMesh{};
+    m_GmPlane  = FGpuMesh{};
+    m_GmSphere = FGpuMesh{};
+    m_GmCube   = FGpuMesh{};
     m_Shader.Shutdown();
 }
 

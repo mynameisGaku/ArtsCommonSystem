@@ -19,19 +19,19 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(
 namespace acs {
 
 /** Shutdown を呼んで backend とコンテキストを破棄する。 */
-ImGuiCtx::~ImGuiCtx() noexcept {
+FImGuiCtx::~FImGuiCtx() noexcept {
     Shutdown();
 }
 
 /** ImGui コンテキストと Win32/DX12 backend を初期化する。 */
-TResult<void> ImGuiCtx::Init(FWindow& window, FRenderer& renderer) noexcept {
+TResult<void> FImGuiCtx::Init(FWindow& window, FRenderer& renderer) noexcept {
     if (m_Initialized || m_Context != nullptr || m_SrvHeap != nullptr || m_Win32Initialized || m_Dx12Initialized) {
         return ACS_ERR(Render, 104, "ImGuiCtx::Init: already initialized");
     }
 
     HWND hwnd = static_cast<HWND>(window.NativeHandle());
-    Dx12Device* dev = static_cast<Dx12Device*>(renderer.Device());
-    Dx12Swapchain* sc = static_cast<Dx12Swapchain*>(renderer.Swapchain());
+    FDx12Device* dev = static_cast<FDx12Device*>(renderer.Device());
+    FDx12Swapchain* sc = static_cast<FDx12Swapchain*>(renderer.Swapchain());
     if (hwnd == nullptr || dev == nullptr || sc == nullptr || dev->D3DDevice() == nullptr) {
         return ACS_ERR(Render, 101, "ImGuiCtx::Init: window or renderer not initialized");
     }
@@ -93,7 +93,7 @@ TResult<void> ImGuiCtx::Init(FWindow& window, FRenderer& renderer) noexcept {
 }
 
 /** DX12/Win32 backend と ImGui コンテキスト・SRV ヒープを解放する。 */
-void ImGuiCtx::Shutdown() noexcept {
+void FImGuiCtx::Shutdown() noexcept {
     ImGuiContext* const context = static_cast<ImGuiContext*>(m_Context);
     ImGuiContext* const previous_context = ImGui::GetCurrentContext();
     if (context != nullptr) ImGui::SetCurrentContext(context);
@@ -118,7 +118,7 @@ void ImGuiCtx::Shutdown() noexcept {
 }
 
 /** 新しい ImGui フレームを開始する。 */
-void ImGuiCtx::NewFrame() noexcept {
+void FImGuiCtx::NewFrame() noexcept {
     if (!m_Initialized || m_Context == nullptr) return;
     ImGui::SetCurrentContext(static_cast<ImGuiContext*>(m_Context));
     ImGui_ImplDX12_NewFrame();
@@ -127,7 +127,7 @@ void ImGuiCtx::NewFrame() noexcept {
 }
 
 /** 構築済み ImGui の描画コマンドを現在のコマンドリストへ発行する。 */
-void ImGuiCtx::Render() noexcept {
+void FImGuiCtx::Render() noexcept {
     if (!m_Initialized || !m_Renderer || m_Context == nullptr) return;
     ImGui::SetCurrentContext(static_cast<ImGuiContext*>(m_Context));
     ImGui::Render();
@@ -148,7 +148,7 @@ void ImGuiCtx::Render() noexcept {
 }
 
 /** ウィンドウイベントを ImGui の IO に転送する。 */
-void ImGuiCtx::OnEvent(const Event& e) noexcept {
+void FImGuiCtx::OnEvent(const FEvent& e) noexcept {
     if (!m_Initialized || !m_Window || m_Context == nullptr) return;
     ImGui::SetCurrentContext(static_cast<ImGuiContext*>(m_Context));
     // ImGui の Win32 backend は WndProc 経由でメッセージを受け取る設計。
@@ -158,26 +158,26 @@ void ImGuiCtx::OnEvent(const Event& e) noexcept {
     // 必要なので、ここでは IO に直接設定する形にフォールバック。
     ImGuiIO& io = ImGui::GetIO();
     switch (e.type) {
-        case EventType::KeyPressed:
-        case EventType::KeyRepeat:
+        case EEventType::KeyPressed:
+        case EEventType::KeyRepeat:
             // ACS の EKey と ImGui の EKey は別マッピング — 主要キーのみ対応
             // 完全対応は v2（VK→ImGuiKey 変換テーブル追加）
             break;
-        case EventType::KeyReleased:
+        case EEventType::KeyReleased:
             break;
-        case EventType::MouseButtonPressed:
+        case EEventType::MouseButtonPressed:
             io.AddMouseButtonEvent(static_cast<int>(e.mouse_button.button), true);
             break;
-        case EventType::MouseButtonReleased:
+        case EEventType::MouseButtonReleased:
             io.AddMouseButtonEvent(static_cast<int>(e.mouse_button.button), false);
             break;
-        case EventType::MouseMoved:
+        case EEventType::MouseMoved:
             io.AddMousePosEvent(e.mouse_move.x, e.mouse_move.y);
             break;
-        case EventType::MouseScrolled:
+        case EEventType::MouseScrolled:
             io.AddMouseWheelEvent(e.mouse_scroll.x, e.mouse_scroll.y);
             break;
-        case EventType::CharInput:
+        case EEventType::CharInput:
             io.AddInputCharacter(e.char_input.codepoint);
             break;
         default: break;

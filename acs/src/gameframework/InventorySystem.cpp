@@ -56,7 +56,7 @@ void FInventorySystem::NotifyChange(u32 slot_index) noexcept {
     if (m_OnChange == nullptr) return;
     // 範囲外は呼ばない (defensive)。slot_index < SlotCount() のときだけ。
     if (slot_index >= static_cast<u32>(m_Slots.Size())) return;
-    const InventorySlot& s = m_Slots[slot_index];
+    const FInventorySlot& s = m_Slots[slot_index];
     m_OnChange(m_OnChangeUser, slot_index, s.item_id, s.count);
 }
 
@@ -73,7 +73,7 @@ void FInventorySystem::Init(u32 slot_count) noexcept {
     // Resize はデフォルト構築するので item_id = nullptr / count = 0 で初期化済。
 }
 
-void FInventorySystem::RegisterItem(const ItemDef& def) noexcept {
+void FInventorySystem::RegisterItem(const FItemDef& def) noexcept {
     // defensive: id == nullptr は意味を持たないので静かに弾く。
     if (def.id == nullptr) return;
 
@@ -84,13 +84,13 @@ void FInventorySystem::RegisterItem(const ItemDef& def) noexcept {
     }
 
     // max_stack == 0 は意味を持たないので 1 にクランプ。
-    ItemDef copy = def;
+    FItemDef copy = def;
     if (copy.max_stack == 0) copy.max_stack = 1;
 
     m_Items.PushBack(copy);
 }
 
-const ItemDef* FInventorySystem::FindItem(const char* item_id) const noexcept {
+const FItemDef* FInventorySystem::FindItem(const char* item_id) const noexcept {
     const u32 slot = FindItemSlot(item_id);
     if (slot == kNotFound) return nullptr;
     return &m_Items[slot];
@@ -105,7 +105,7 @@ u32 FInventorySystem::AddItem(const char* item_id, u32 count) noexcept {
     if (def_idx == kNotFound) return 0;  // 未登録 item
 
     // ItemDef::id をリテラル参照として保存する (slot.item_id は m_Items[].id を指す)。
-    const ItemDef& def     = m_Items[def_idx];
+    const FItemDef& def     = m_Items[def_idx];
     const char*    canon_id = def.id;
     const u32      max_stk  = def.max_stack;
     const u32      n_slots  = static_cast<u32>(m_Slots.Size());
@@ -114,7 +114,7 @@ u32 FInventorySystem::AddItem(const char* item_id, u32 count) noexcept {
 
     // Pass 1: 既存 stack に積み増し (積み増し優先で fragmentation を抑える)。
     for (u32 i = 0; i < n_slots && remaining > 0; ++i) {
-        InventorySlot& s = m_Slots[i];
+        FInventorySlot& s = m_Slots[i];
         if (s.item_id == nullptr) continue;          // 空 slot は Pass 2 で
         if (!StrEq(s.item_id, canon_id)) continue;   // 別 item
         if (s.count >= max_stk)         continue;    // 既に満杯
@@ -127,7 +127,7 @@ u32 FInventorySystem::AddItem(const char* item_id, u32 count) noexcept {
 
     // Pass 2: 空 slot を埋める。
     for (u32 i = 0; i < n_slots && remaining > 0; ++i) {
-        InventorySlot& s = m_Slots[i];
+        FInventorySlot& s = m_Slots[i];
         if (s.item_id != nullptr) continue;  // 埋まっている
         const u32 add = (remaining < max_stk) ? remaining : max_stk;
         s.item_id  = canon_id;  // リテラル参照
@@ -148,7 +148,7 @@ u32 FInventorySystem::RemoveItem(const char* item_id, u32 count) noexcept {
 
     // 前方優先で減らす (UI の見え方を自然にする)。
     for (u32 i = 0; i < n_slots && removed < count; ++i) {
-        InventorySlot& s = m_Slots[i];
+        FInventorySlot& s = m_Slots[i];
         if (s.item_id == nullptr) continue;
         if (!StrEq(s.item_id, item_id)) continue;
         const u32 need = count - removed;
@@ -181,7 +181,7 @@ u32 FInventorySystem::ItemTotal(const char* item_id) const noexcept {
     const u32 n_slots = static_cast<u32>(m_Slots.Size());
     u32       total   = 0;
     for (u32 i = 0; i < n_slots; ++i) {
-        const InventorySlot& s = m_Slots[i];
+        const FInventorySlot& s = m_Slots[i];
         if (s.item_id == nullptr) continue;
         if (!StrEq(s.item_id, item_id)) continue;
         // u32 オーバーフローは現実的な inventory サイズでは起きないため
@@ -199,8 +199,8 @@ bool FInventorySystem::MoveSlot(u32 from_index, u32 to_index) noexcept {
     // 同 index は no-op (UI のドラッグ操作で「同じ場所に落とした」想定)。
     if (from_index == to_index) return true;
 
-    InventorySlot& from = m_Slots[from_index];
-    InventorySlot& to   = m_Slots[to_index];
+    FInventorySlot& from = m_Slots[from_index];
+    FInventorySlot& to   = m_Slots[to_index];
 
     // from が空なら何もしない (操作としては成功扱い)。
     if (from.item_id == nullptr) return true;
@@ -219,12 +219,12 @@ bool FInventorySystem::MoveSlot(u32 from_index, u32 to_index) noexcept {
     if (StrEq(from.item_id, to.item_id)) {
         // 同 item ⇒ merge (max_stack まで)。残りは from に残す。
         // max_stack は ItemDef から引く必要がある。未登録 (= 移行中の異常 slot) なら 1 扱い。
-        const ItemDef* def     = FindItem(to.item_id);
+        const FItemDef* def     = FindItem(to.item_id);
         const u32      max_stk = (def != nullptr) ? def->max_stack : 1;
 
         if (to.count >= max_stk) {
             // 既に満杯 → swap (= 別 item と同じ扱い)。
-            const InventorySlot tmp = to;
+            const FInventorySlot tmp = to;
             to   = from;
             from = tmp;
         } else {
@@ -242,7 +242,7 @@ bool FInventorySystem::MoveSlot(u32 from_index, u32 to_index) noexcept {
     }
 
     // 別 item ⇒ swap。
-    const InventorySlot tmp = to;
+    const FInventorySlot tmp = to;
     to   = from;
     from = tmp;
     NotifyChange(from_index);
@@ -253,11 +253,11 @@ bool FInventorySystem::MoveSlot(u32 from_index, u32 to_index) noexcept {
 bool FInventorySystem::DropSlot(u32 index) noexcept {
     if (index >= static_cast<u32>(m_Slots.Size())) return false;
 
-    InventorySlot& s = m_Slots[index];
+    FInventorySlot& s = m_Slots[index];
     if (s.item_id == nullptr) return false;  // 既に空
 
     // can_drop チェック (quest / key 系を構造的に守る)。
-    const ItemDef* def = FindItem(s.item_id);
+    const FItemDef* def = FindItem(s.item_id);
     if (def != nullptr && !def->can_drop) return false;
 
     s.item_id = nullptr;
@@ -266,7 +266,7 @@ bool FInventorySystem::DropSlot(u32 index) noexcept {
     return true;
 }
 
-const InventorySlot* FInventorySystem::GetSlot(u32 index) const noexcept {
+const FInventorySlot* FInventorySystem::GetSlot(u32 index) const noexcept {
     if (index >= static_cast<u32>(m_Slots.Size())) return nullptr;
     return &m_Slots[index];
 }

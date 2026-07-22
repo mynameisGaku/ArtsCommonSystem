@@ -41,8 +41,18 @@ public partial class MainWindow
                 ToolTip = "表示 (Visible)",
             };
             int vid = id;   // クロージャ捕捉
-            eye.Checked   += (_, __) => { if (Engine != IntPtr.Zero) EngineInterop.acs_editor_node3d_set_visible(Engine, vid, 1); };
-            eye.Unchecked += (_, __) => { if (Engine != IntPtr.Zero) EngineInterop.acs_editor_node3d_set_visible(Engine, vid, 0); };
+            eye.Checked += (_, __) =>
+            {
+                if (Engine == IntPtr.Zero) return;
+                EngineInterop.acs_editor_node3d_set_visible(Engine, vid, 1);
+                RecordSceneDocumentChange("Visibility");
+            };
+            eye.Unchecked += (_, __) =>
+            {
+                if (Engine == IntPtr.Zero) return;
+                EngineInterop.acs_editor_node3d_set_visible(Engine, vid, 0);
+                RecordSceneDocumentChange("Visibility");
+            };
             var hdr = new StackPanel { Orientation = Orientation.Horizontal };
             hdr.Children.Add(eye);
             (string glyph, Brush gcol) = PrimGlyph(id);   // ノード種別アイコン (Cube/Sphere/Plane/Mesh)
@@ -96,6 +106,14 @@ public partial class MainWindow
     /// <summary>ビューポートのピックで選んだ 3D ノードを Hierarchy 上でも選択状態にする。</summary>
     private void Select3DInHierarchy(int id)
     {
+        ObserveSceneSelectionForMerge(
+            use3D: true,
+            nodeId: Engine == IntPtr.Zero
+                ? id
+                : EngineInterop.acs_editor_selected3d(Engine),
+            selectionCount: Engine == IntPtr.Zero
+                ? (id >= 0 ? 1 : 0)
+                : EngineInterop.acs_editor_selected3d_count(Engine));
         _syncingSelection = true;
         try
         {
@@ -150,6 +168,7 @@ public partial class MainWindow
         int id = EngineInterop.acs_editor_selected3d(Engine);
         if (id < 0) return;
         EngineInterop.acs_editor_node3d_set_enabled(Engine, id, InspEnabled.IsChecked == true ? 1 : 0);
+        RecordSceneDocumentChange("Enabled State");
     }
 
     private void Populate3DInspector(int id)
@@ -196,7 +215,9 @@ public partial class MainWindow
                 Background = (Brush)FindResource("Panel2"), CornerRadius = new CornerRadius(5),
                 Padding = new Thickness(8, 6, 8, 7), Margin = new Thickness(0, 0, 0, 6), Child = banner });
         }
-        // NODE: 名前 (リネーム可能)。従来 3D ノードには編集可能な Name 欄が無くリネーム不能だった。
+        bool anyDetails = false;
+        // Actor label stays editable, but participates in Details filtering like any other property.
+        if (DetailsMatches("actor", "node", "name", "label"))
         {
             var nameRow = new DockPanel { Margin = new Thickness(0, 2, 0, 6) };
             var lbl = new TextBlock { Text = "Name", Width = 64, VerticalAlignment = VerticalAlignment.Center,
@@ -208,57 +229,43 @@ public partial class MainWindow
             _name3dBox.KeyDown += (_, ev) => { if (ev.Key == Key.Enter) { Apply3DRename(nid, _name3dBox?.Text); Keyboard.ClearFocus(); } };
             nameRow.Children.Add(_name3dBox);
             Insp3DPanel.Children.Add(nameRow);
+            anyDetails = true;
         }
-        Insp3DPanel.Children.Add(Section("TRANSFORM"));
-        Insp3DPanel.Children.Add(Vec3Row("Position", tf[0], tf[1], tf[2], (x, y, z) => Set3DTransform(id, 0, x, y, z)));
-        Insp3DPanel.Children.Add(Vec3Row("Rotation°", tf[3], tf[4], tf[5], (x, y, z) => Set3DTransform(id, 1, x, y, z)));
-        Insp3DPanel.Children.Add(Vec3Row("Scale", tf[6], tf[7], tf[8], (x, y, z) => Set3DTransform(id, 2, x, y, z)));
-        // 空ノード (kind 6) は描画しないグループ用トランスフォーム → MESH RENDERER 節は出さない。
-        if (kind == 6)
-            Insp3DPanel.Children.Add(LabeledValue3D("Type", "Empty (グループ)"));
-        else {
-        // MESH RENDERER (FMeshComponent3D) — «何を・どう» 描くか。シェイプ/色/マテリアルは «ノード固有の特別扱い»
-        // ではなく «メッシュコンポーネントのプロパティ» として 1 つに束ねる (2D の描画コンポーネント方式に対応)。
-        Insp3DPanel.Children.Add(Section("MESH RENDERER"));
-        // 形状 / 種別。プリミティブ (Cube/Sphere/Plane) は編集可能ドロップダウン。
-        // Mesh/Sprite/Polygon は種別を読み取り専用ラベルで表示 (誤って "Cube" と出さない)。
-        if (kind >= 0 && kind <= 2)
+
+        if (DetailsMatches("transform", "location", "position", "rotation", "scale"))
         {
-            var shapeRow = new DockPanel { Margin = new Thickness(0, 4, 0, 2) };
-            var lbl = new TextBlock { Text = "Shape", Width = 64, VerticalAlignment = VerticalAlignment.Center,
-                Foreground = (Brush)FindResource("TextDim") };
-            DockPanel.SetDock(lbl, Dock.Left); shapeRow.Children.Add(lbl);
-            var combo = new ComboBox { VerticalAlignment = VerticalAlignment.Center };
-            foreach (var s in new[] { "Cube", "Sphere", "Plane" }) combo.Items.Add(s);
-            combo.SelectedIndex = kind;
-            combo.SelectionChanged += (_, __) =>
-            {
-                if (_pop3d) return;
-                int sel = combo.SelectedIndex;
-                if (sel >= 0 && EngineInterop.acs_editor_node3d_set_prim(Engine, id, sel) != 0)
-                    Log($"3D ノード {id} の形状を {combo.SelectedItem} に変更");
-            };
-            shapeRow.Children.Add(combo);
-            Insp3DPanel.Children.Add(shapeRow);
+            var transformBody = new StackPanel();
+            transformBody.Children.Add(Vec3Row("Location", tf[0], tf[1], tf[2],
+                (x, y, z) => Set3DTransform(id, 0, x, y, z),
+                id,
+                "inspector.transform.location"));
+            transformBody.Children.Add(Vec3Row("Rotation", tf[3], tf[4], tf[5],
+                (x, y, z) => Set3DTransform(id, 1, x, y, z),
+                id,
+                "inspector.transform.rotation"));
+            transformBody.Children.Add(Vec3Row("Scale", tf[6], tf[7], tf[8],
+                (x, y, z) => Set3DTransform(id, 2, x, y, z),
+                id,
+                "inspector.transform.scale"));
+            if (kind == 6)
+                transformBody.Children.Add(LabeledValue3D("Mobility", "Empty / Group"));
+            Insp3DPanel.Children.Add(DetailsCategory("Transform", transformBody));
+            anyDetails = true;
         }
-        else
-        {
-            string typeName = kind switch { 3 => "Mesh", 4 => "Sprite", 5 => "Polygon", _ => "—" };
-            Insp3DPanel.Children.Add(LabeledValue3D("Type", typeName));
-            if (kind == 4) Insp3DPanel.Children.Add(SpriteRow3D(id));   // スプライト画像の差替え UI
-        }
-        // 色 (FMeshComponent3D::Color, RGBA)。material 未設定時のアルベド。A=不透明度 (従来 1.0 固定で半透明不可だった)。
-        Insp3DPanel.Children.Add(Vec4Row("Color", col[0], col[1], col[2], col[3], (r, g, b, a) =>
-            EngineInterop.acs_editor_node3d_set_color(Engine, id, r, g, b, a)));
-        // マテリアル — .acsmat アセットを参照 (2D と同様、編集はマテリアルエディタで)。インライン数値編集はしない。
-        Insp3DPanel.Children.Add(Build3DMaterialSlot(id));
-        }   // end else (kind != 6)
 
         // Visible はヒエラルキー (各ノードの目トグル) へ、Enabled はヘッダ (名前の横) へ移動済み。
 
-        // COMPONENTS — 3D ノードにも振る舞いコンポーネントを付けられる (2D と同じ反射型・EEd3DRec に保持)。
-        Insp3DPanel.Children.Add(Section("COMPONENTS"));
-        Insp3DPanel.Children.Add(Build3DComponents(id));
+        // Native renderer and reflected behavior components share one component stack.
+        // Mesh Renderer is intentionally not special-cased beside Transform anymore.
+        FrameworkElement components = Build3DComponents(id, kind, col, out int shownComponents);
+        if (shownComponents > 0 || DetailsMatches("components", "add component", "script", "native"))
+        {
+            Insp3DPanel.Children.Add(DetailsCategory("Components", components));
+            anyDetails = true;
+        }
+
+        if (!anyDetails)
+            Insp3DPanel.Children.Add(EmptyDetailsResult());
 
         // 削除ボタン
         var del = new Button { Content = "🗑 Delete", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 12, 0, 0),
@@ -268,6 +275,7 @@ public partial class MainWindow
             EngineInterop.acs_editor_delete_node3d(Engine, id);
             BuildHierarchy();
             Clear3DInspector();
+            RecordSceneDocumentChange("Delete Node");
             Log($"3D ノード {id} を削除");
         };
         Insp3DPanel.Children.Add(del);
@@ -300,7 +308,11 @@ public partial class MainWindow
         clear.Click += (_, __) =>
         {
             if (EngineInterop.acs_editor_node3d_clear_sprite(Engine, id) != 0)
-            { Log($"スプライト画像を解除 (平面に戻す) (id {id})"); Populate3DInspector(id); }
+            {
+                Log($"スプライト画像を解除 (平面に戻す) (id {id})");
+                Populate3DInspector(id);
+                RecordSceneDocumentChange("Clear Sprite");
+            }
         };
         DockPanel.SetDock(clear, Dock.Right); row.Children.Add(clear);
         string cur = EngineInterop.Node3DSprite(Engine, id);
@@ -322,41 +334,41 @@ public partial class MainWindow
             {
                 Log($"スプライト画像を差替え: {System.IO.Path.GetFileName(dlg.FileName)} (id {id})");
                 Populate3DInspector(id);
+                RecordSceneDocumentChange("Assign Sprite");
             }
             else Log($"スプライト差替え失敗: {System.IO.Path.GetFileName(dlg.FileName)} (画像形式を確認)");
         };
         return row;
     }
 
-    /// <summary>3D ノードの COMPONENTS 節 (一覧 + ✕ 取外し + 「+ Add」コンボ)。型候補は CompAddBox を流用。</summary>
-    private FrameworkElement Build3DComponents(int id)
+    /// <summary>
+    /// 3D node component stack. The built-in Mesh Renderer occupies the same visual and
+    /// interaction hierarchy as reflected script components, matching the actor/component model.
+    /// </summary>
+    private FrameworkElement Build3DComponents(int id, int kind, float[] color, out int shownComponents)
     {
         var panel = new StackPanel();
         var dim    = (Brush)FindResource("TextDim");
-        var text   = (Brush)FindResource("Text");
-        var panel2 = (Brush)FindResource("Panel2");
+        shownComponents = 0;
+
+        // The render payload is a native component. It is fixed for renderable nodes, so the
+        // card carries a NATIVE badge and no remove action.
+        if (kind != 6 && DetailsMatches(
+                "component", "native", "mesh renderer", "mesh", "renderer",
+                "shape", "type", "sprite", "color", "material"))
+        {
+            panel.Children.Add(BuildMeshRendererComponent(id, kind, color));
+            shownComponents++;
+        }
+
         int count = EngineInterop.acs_editor_node3d_component_count(Engine, id);
-        if (count == 0)
-            panel.Children.Add(new TextBlock { Text = "（コンポーネントなし）", Foreground = dim, FontSize = 11, Margin = new Thickness(0, 2, 0, 4) });
         for (int i = 0; i < count; i++)
         {
             int idx = i;   // ABI の component slot
             string cname = EngineInterop.Component3DName(Engine, id, i);
+            if (!DetailsComponentMatches(cname)) continue;
 
             var inner = new StackPanel();
-            // ヘッダ: コンポーネント名 (左) + 取り外し ✕ (右)。
-            var header = new DockPanel { Margin = new Thickness(0, 0, 0, 3) };
-            var rm = new Button
-            {
-                Content = "✕", Width = 22, Height = 20, Padding = new Thickness(0),
-                Foreground = new SolidColorBrush(Color.FromRgb(0xE3, 0x9A, 0xA0)), Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0), Cursor = Cursors.Hand, ToolTip = "コンポーネントを外す",
-            };
-            rm.Click += (_, __) => { EngineInterop.acs_editor_node3d_remove_component_at(Engine, id, idx); Populate3DInspector(id); };
-            DockPanel.SetDock(rm, Dock.Right); header.Children.Add(rm);
-            header.Children.Add(new TextBlock { Text = cname, VerticalAlignment = VerticalAlignment.Center, Foreground = text,
-                FontWeight = FontWeights.SemiBold, FontFamily = new FontFamily("Consolas") });
-            inner.Children.Add(header);
 
             // 編集プロパティ (reflection スキーマ駆動)。2D と同じ BuildPropEditor を is3d:true で流用。
             int pc = EngineInterop.acs_editor_component_prop_count(cname);
@@ -390,31 +402,132 @@ public partial class MainWindow
                 mbtn.Click += (_, __) =>
                 {
                     if (EngineInterop.acs_editor_node3d_invoke_method(Engine, id, curSlot, mname) != 0)
+                    {
+                        NotifySceneMutationPending(
+                            $"Invoke {cname}.{mname}",
+                            $"component.{curSlot}.{cname}.method.{mname}",
+                            id);
                         Log($"{cname}.{mname}() を呼び出し", "General", LogLevel.Info);
+                    }
                     else Log($"{cname}.{mname}() の呼び出しに失敗");
                 };
                 inner.Children.Add(mbtn);
             }
 
-            // コンポーネントをカードにまとめる (2D PopulateComponents と同じ視覚グルーピング)。
-            panel.Children.Add(new Border { Background = panel2, CornerRadius = new CornerRadius(5),
-                Padding = new Thickness(8, 6, 8, 7), Margin = new Thickness(0, 0, 0, 6), Child = inner });
+            int capturedSlot = idx;
+            panel.Children.Add(ComponentCard(cname, inner, native: false, remove: () =>
+            {
+                EngineInterop.acs_editor_node3d_remove_component_at(Engine, id, capturedSlot);
+                Populate3DInspector(id);
+                RecordSceneDocumentChange("Remove Component");
+            }));
+            shownComponents++;
         }
-        // 「+ Add」行 (型候補は 2D 用 CompAddBox から流用)。
-        var add = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
-        var combo = new ComboBox { VerticalAlignment = VerticalAlignment.Center };
+
+        if (shownComponents == 0)
+            panel.Children.Add(new TextBlock
+            {
+                Text = _detailsFilter.Length == 0
+                    ? "No components are attached."
+                    : "No components match this filter.",
+                Foreground = dim,
+                FontSize = 11,
+                Margin = new Thickness(2, 2, 0, 7),
+            });
+
+        // Add Component always follows the card stack; it never appears between Transform and
+        // native components, and it remains usable while a Details filter is active.
+        var add = new Grid { Margin = new Thickness(0, 3, 0, 0) };
+        add.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        add.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var combo = new ComboBox { VerticalAlignment = VerticalAlignment.Center, MinWidth = 130 };
         foreach (var it in CompAddBox.Items) combo.Items.Add(it);
         if (combo.Items.Count > 0) combo.SelectedIndex = 0;
-        var btn = new Button { Content = "+ Add", Width = 62, Margin = new Thickness(6, 0, 0, 0) };
-        DockPanel.SetDock(btn, Dock.Right);
+        var btn = new Button
+        {
+            Content = "+ Add Component",
+            MinWidth = 112,
+            Margin = new Thickness(6, 0, 0, 0),
+            Foreground = (Brush)FindResource("OkFg"),
+        };
+        Grid.SetColumn(btn, 1);
         btn.Click += (_, __) =>
         {
             if (combo.SelectedItem is string tn && EngineInterop.acs_editor_node3d_add_component(Engine, id, tn) != 0)
-            { Log($"3D ノード {id} に {tn} を追加"); Populate3DInspector(id); }
+            {
+                Log($"3D ノード {id} に {tn} を追加");
+                Populate3DInspector(id);
+                RecordSceneDocumentChange("Add Component");
+            }
         };
-        add.Children.Add(btn); add.Children.Add(combo);
+        add.Children.Add(combo);
+        add.Children.Add(btn);
         panel.Children.Add(add);
         return panel;
+    }
+
+    /// <summary>Fixed native mesh renderer component, rendered in the same card stack as scripts.</summary>
+    private FrameworkElement BuildMeshRendererComponent(int id, int kind, float[] color)
+    {
+        var body = new StackPanel();
+        bool showAll = _detailsFilter.Length == 0
+            || DetailsMatches("component", "native", "mesh renderer", "mesh", "renderer");
+
+        if (showAll || DetailsMatches("shape", "type", "primitive", "sprite"))
+        {
+            if (kind >= 0 && kind <= 2)
+            {
+                var shapeRow = new DockPanel { Margin = new Thickness(0, 3, 0, 2) };
+                var label = new TextBlock
+                {
+                    Text = "Shape",
+                    Width = 78,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = (Brush)FindResource("TextDim"),
+                };
+                DockPanel.SetDock(label, Dock.Left);
+                shapeRow.Children.Add(label);
+                var combo = new ComboBox { VerticalAlignment = VerticalAlignment.Center };
+                foreach (string shape in new[] { "Cube", "Sphere", "Plane" }) combo.Items.Add(shape);
+                combo.SelectedIndex = kind;
+                combo.SelectionChanged += (_, __) =>
+                {
+                    if (_pop3d) return;
+                    int selected = combo.SelectedIndex;
+                    if (selected >= 0
+                        && EngineInterop.acs_editor_node3d_set_prim(Engine, id, selected) != 0)
+                    {
+                        Log($"3D node {id}: Mesh Renderer shape → {combo.SelectedItem}");
+                        RecordSceneDocumentChange("Change Mesh Shape");
+                    }
+                };
+                shapeRow.Children.Add(combo);
+                body.Children.Add(shapeRow);
+            }
+            else
+            {
+                string typeName = kind switch
+                {
+                    3 => "Static Mesh",
+                    4 => "Sprite",
+                    5 => "Polygon",
+                    _ => "Unknown",
+                };
+                body.Children.Add(LabeledValue3D("Type", typeName));
+                if (kind == 4) body.Children.Add(SpriteRow3D(id));
+            }
+        }
+
+        if (showAll || DetailsMatches("color", "tint", "opacity", "alpha"))
+            body.Children.Add(Vec4Row("Color", color[0], color[1], color[2], color[3],
+                (r, g, b, a) => EngineInterop.acs_editor_node3d_set_color(Engine, id, r, g, b, a),
+                id,
+                "inspector.appearance.color"));
+
+        if (showAll || DetailsMatches("material", "shader", "surface"))
+            body.Children.Add(Build3DMaterialSlot(id));
+
+        return ComponentCard("Mesh Renderer", body, native: true);
     }
 
     /// <summary>「ラベル + チェックボックス」の bool 行 (3D Inspector の Visible/Enabled 用)。populate 中は発火抑止。</summary>
@@ -425,8 +538,18 @@ public partial class MainWindow
             Foreground = (Brush)FindResource("TextDim") };
         DockPanel.SetDock(lbl, Dock.Left); row.Children.Add(lbl);
         var cb = new CheckBox { IsChecked = init, VerticalAlignment = VerticalAlignment.Center };
-        cb.Checked   += (_, __) => { if (!_pop3d) onChange(true); };
-        cb.Unchecked += (_, __) => { if (!_pop3d) onChange(false); };
+        cb.Checked += (_, __) =>
+        {
+            if (_pop3d) return;
+            onChange(true);
+            NotifySceneMutationPending();
+        };
+        cb.Unchecked += (_, __) =>
+        {
+            if (_pop3d) return;
+            onChange(false);
+            NotifySceneMutationPending();
+        };
         row.Children.Add(cb);
         return row;
     }
@@ -474,6 +597,7 @@ public partial class MainWindow
                 EngineInterop.acs_editor_node3d_set_material(Engine, id, path);
                 Log($"3D ノード {id} にマテリアル {AssetRel(path)} を割当.");
             }
+            RecordSceneDocumentChange("Assign Material");
         };
         row.Children.Add(combo);
         return row;
@@ -498,11 +622,20 @@ public partial class MainWindow
 
     // 3 成分編集行 (X/Y/Z をテキストボックス、Enter / フォーカス喪失で onChanged)。
     // RGBA など 4 成分の編集行 (Vec3Row の 4 成分版)。3D 色の Alpha 編集用。
-    private FrameworkElement Vec4Row(string label, float x, float y, float z, float w, Action<float, float, float, float> onChanged)
+    private FrameworkElement Vec4Row(
+        string label,
+        float x,
+        float y,
+        float z,
+        float w,
+        Action<float, float, float, float> onChanged,
+        int nodeId,
+        string propertyIdentity)
     {
         var grid = new Grid { Margin = new Thickness(0, 3, 0, 3) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
         for (int i = 0; i < 4; ++i) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var lbl = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center,
             Foreground = (Brush)FindResource("TextDim") };
         Grid.SetColumn(lbl, 0); grid.Children.Add(lbl);
@@ -518,17 +651,69 @@ public partial class MainWindow
             };
             Grid.SetColumn(tb, i + 1); grid.Children.Add(tb); boxes[i] = tb;
         }
-        void Apply() => onChanged(ParseF(boxes[0].Text, v[0]), ParseF(boxes[1].Text, v[1]),
-                                  ParseF(boxes[2].Text, v[2]), ParseF(boxes[3].Text, v[3]));
+
+        static byte B(float value) => (byte)Math.Clamp(value * 255f, 0f, 255f);
+        var swatch = new Button
+        {
+            Width = 26,
+            Height = 26,
+            Margin = new Thickness(6, 0, 0, 0),
+            Padding = new Thickness(0),
+            BorderBrush = (Brush)FindResource("Edge"),
+            BorderThickness = new Thickness(1),
+            Cursor = Cursors.Hand,
+            ToolTip = "Open RGBA color picker",
+            Background = new SolidColorBrush(Color.FromRgb(B(x), B(y), B(z))),
+        };
+        Grid.SetColumn(swatch, 5);
+        grid.Children.Add(swatch);
+
+        void Apply()
+        {
+            float r = ParseF(boxes[0].Text, v[0]);
+            float g = ParseF(boxes[1].Text, v[1]);
+            float b = ParseF(boxes[2].Text, v[2]);
+            float a = ParseF(boxes[3].Text, v[3]);
+            swatch.Background = new SolidColorBrush(Color.FromRgb(B(r), B(g), B(b)));
+            if (r == v[0] && g == v[1] && b == v[2] && a == v[3]) return;
+            v[0] = r; v[1] = g; v[2] = b; v[3] = a;
+            onChanged(r, g, b, a);
+            NotifySceneMutationPending(
+                $"Edit {label}",
+                propertyIdentity,
+                nodeId);
+        }
         foreach (var tb in boxes)
         {
             tb.LostKeyboardFocus += (_, __) => Apply();
             tb.KeyDown += (_, ev) => { if (ev.Key == Key.Enter) { Apply(); Keyboard.ClearFocus(); } };
         }
+        swatch.Click += (_, __) =>
+        {
+            float r = ParseF(boxes[0].Text, v[0]);
+            float g = ParseF(boxes[1].Text, v[1]);
+            float b = ParseF(boxes[2].Text, v[2]);
+            float a = ParseF(boxes[3].Text, v[3]);
+            var initial = Color.FromArgb(B(a), B(r), B(g), B(b));
+            if (!ColorPickerDialog.TryPick(this, initial, allowAlpha: true, out Color picked)) return;
+
+            boxes[0].Text = (picked.R / 255f).ToString("0.###", CultureInfo.InvariantCulture);
+            boxes[1].Text = (picked.G / 255f).ToString("0.###", CultureInfo.InvariantCulture);
+            boxes[2].Text = (picked.B / 255f).ToString("0.###", CultureInfo.InvariantCulture);
+            boxes[3].Text = (picked.A / 255f).ToString("0.###", CultureInfo.InvariantCulture);
+            Apply();
+        };
         return grid;
     }
 
-    private FrameworkElement Vec3Row(string label, float x, float y, float z, Action<float, float, float> onChanged)
+    private FrameworkElement Vec3Row(
+        string label,
+        float x,
+        float y,
+        float z,
+        Action<float, float, float> onChanged,
+        int nodeId,
+        string propertyIdentity)
     {
         var grid = new Grid { Margin = new Thickness(0, 3, 0, 3) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
@@ -553,7 +738,13 @@ public partial class MainWindow
             float fx = ParseF(boxes[0].Text, v[0]);
             float fy = ParseF(boxes[1].Text, v[1]);
             float fz = ParseF(boxes[2].Text, v[2]);
+            if (fx == v[0] && fy == v[1] && fz == v[2]) return;
+            v[0] = fx; v[1] = fy; v[2] = fz;
             onChanged(fx, fy, fz);
+            NotifySceneMutationPending(
+                $"Edit {label}",
+                propertyIdentity,
+                nodeId);
         }
         foreach (var tb in boxes)
         {
@@ -568,12 +759,12 @@ public partial class MainWindow
     private void OnAdd3DSphere(object sender, RoutedEventArgs e) => Add3DNode(1, "Sphere");
     private void OnAdd3DPlane(object sender, RoutedEventArgs e)  => Add3DNode(2, "Plane");
 
-    /// <summary>2D ポリゴン (XY 平面、z=0 のフラットメッシュ) を 3D シーンのノードとして追加する。
+    /// <summary>2D ポリゴン (XY 平面、z=0 のフラットメッシュ) を現在のシーンへ追加する。
     /// «2D も内部的に 3D 空間にある» の体現 (Phase B)。既定は正五角形。</summary>
     private void OnAdd2DPolygon(object sender, RoutedEventArgs e)
     {
         if (Engine == IntPtr.Zero) return;
-        EnsureView3D();
+        if (!EnsureView3D()) return;
         const int sides = 5;                                   // 正五角形 (半径 1、XY 平面)
         var xy = new float[sides * 2];
         for (int i = 0; i < sides; ++i)
@@ -587,14 +778,15 @@ public partial class MainWindow
         BuildHierarchy();
         Select3DInHierarchy(id);
         Populate3DInspector(id);
-        Log($"2D ポリゴンを 3D シーンに追加 (id {id})");
+        RecordSceneDocumentChange("Create Polygon");
+        Log($"2D ポリゴンをシーンへ追加 (.acs3d source, id {id})");
     }
 
     /// <summary>メッシュファイル (.gltf/.glb/.obj/.fbx) をダイアログで選び 3D ノードとして読み込む。</summary>
     private void OnImport3DMesh(object sender, RoutedEventArgs e)
     {
         if (Engine == IntPtr.Zero) return;
-        EnsureView3D();
+        if (!EnsureView3D()) return;
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Title = "Import 3D Mesh",
@@ -607,15 +799,16 @@ public partial class MainWindow
         BuildHierarchy();
         Select3DInHierarchy(id);
         Populate3DInspector(id);
+        RecordSceneDocumentChange("Import Mesh");
         Log($"3D メッシュを読込: {System.IO.Path.GetFileName(dlg.FileName)} (id {id})");
     }
 
-    /// <summary>画像ファイルをダイアログで選び、z=0 のスプライト (テクスチャ付きクアッド) として 3D シーンに追加する。
+    /// <summary>画像ファイルをダイアログで選び、z=0 のスプライト (テクスチャ付きクアッド) として現在のシーンへ追加する。
     /// «2D も内部的に 3D 空間にある» の体現 (Phase B)。アスペクト比は画像から自動。</summary>
     private void OnAddSprite(object sender, RoutedEventArgs e)
     {
         if (Engine == IntPtr.Zero) return;
-        EnsureView3D();
+        if (!EnsureView3D()) return;
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Title = "Add Sprite (画像)",
@@ -628,51 +821,85 @@ public partial class MainWindow
         BuildHierarchy();
         Select3DInHierarchy(id);
         Populate3DInspector(id);
-        Log($"スプライトを 3D シーンに追加: {System.IO.Path.GetFileName(dlg.FileName)} (id {id})");
+        RecordSceneDocumentChange("Create Sprite");
+        Log(
+            $"スプライトをシーンへ追加 (.acs3d source): " +
+            $"{System.IO.Path.GetFileName(dlg.FileName)} (id {id})");
     }
 
     private void Add3DNode(int prim, string name)
     {
         if (Engine == IntPtr.Zero) return;
-        EnsureView3D();
+        if (!EnsureView3D()) return;
         int id = EngineInterop.acs_editor_add_node3d(Engine, prim, name);
         if (id < 0) return;
         BuildHierarchy();
         Select3DInHierarchy(id);
         Populate3DInspector(id);
+        RecordSceneDocumentChange("Create Node");
         Log($"3D {name} を追加 (id {id})");
     }
 
-    // ===== 3D シーンの保存 / 読込 (<project>/Assets/scene3d.acs3d) =====
+    // ===== Legacy .acs3d source persistence (<project>/Assets/scene3d.acs3d) =====
     private string Scene3DPath =>
         _project != null ? System.IO.Path.Combine(_project.RootDir, "Assets", "scene3d.acs3d") : "";
 
-    /// <summary>3D シーンを INI 風テキストへシリアライズしてファイル保存する。</summary>
-    public void Save3DScene()
+    /// <summary>Legacy .acs3d sourceをテキストへシリアライズして保存する。</summary>
+    public async void Save3DScene() => await Save3DSceneAsync();
+
+    private async System.Threading.Tasks.Task<bool> Save3DSceneAsync()
     {
-        if (Engine == IntPtr.Zero || _project == null) return;
+        if (Engine == IntPtr.Zero) return false;
+        string? previousPath = _currentScenePath;
+        string? target = !string.IsNullOrWhiteSpace(_currentScenePath)
+                      && string.Equals(System.IO.Path.GetExtension(_currentScenePath), ".acs3d",
+                          StringComparison.OrdinalIgnoreCase)
+            ? _currentScenePath
+            : !string.IsNullOrWhiteSpace(Scene3DPath) ? Scene3DPath : null;
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            var dialog = new Microsoft.Win32.SaveFileDialog {
+                Title = "Save Legacy .acs3d Source",
+                Filter = "Legacy ACS 3D Source (*.acs3d)|*.acs3d|All files (*.*)|*.*",
+                DefaultExt = ".acs3d",
+                FileName = "scene3d.acs3d",
+                InitialDirectory = _project?.AssetsDir,
+            };
+            if (dialog.ShowDialog(this) != true) return false;
+            target = dialog.FileName;
+        }
         try
         {
-            var buf = new byte[256 * 1024];
-            EngineInterop.acs_editor_scene3d_serialize(Engine, buf, buf.Length);
-            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Scene3DPath)!);
-            System.IO.File.WriteAllText(Scene3DPath, EngineInterop.Utf8Z(buf), System.Text.Encoding.UTF8);
-            Log($"3D シーンを保存 ← {Scene3DPath}");
+            target = ValidateSceneDocumentPath(target, use3D: true);
+            string text = EngineInterop.Scene3DText(Engine);
+            if (_project != null)
+            {
+                SceneSourceFile.WriteProjectSceneAtomicText(
+                    target,
+                    text,
+                    _project.RootDir,
+                    _project.AssetsDir,
+                    SceneDocumentMode.ThreeD);
+            }
+            else
+            {
+                SceneSourceFile.WriteAtomicText(
+                    target,
+                    text,
+                    expectedMode: SceneDocumentMode.ThreeD);
+            }
+            SetCurrentScenePath(target);
+            MarkSceneClean(text);
+            NotifySceneDocumentSaved(use3D: true, target);
+            await OnSceneSourceSavedAsync(use3D: true, previousPath, target);
+            Log($"Saved scene source (.acs3d) → {target}");
+            return true;
         }
-        catch (Exception ex) { Log("3D scene save error: " + ex.Message); }
+        catch (Exception ex)
+        {
+            Log(".acs3d scene source save error: " + ex.Message);
+            return false;
+        }
     }
 
-    /// <summary>ファイルがあれば 3D シーンを読み込む。無ければ ABI の既定シーン (seed) のまま。</summary>
-    private void Load3DSceneIfPresent()
-    {
-        if (Engine == IntPtr.Zero || _project == null) return;
-        try
-        {
-            if (!System.IO.File.Exists(Scene3DPath)) return;
-            string text = System.IO.File.ReadAllText(Scene3DPath, System.Text.Encoding.UTF8);
-            if (EngineInterop.acs_editor_scene3d_load_text(Engine, text) != 0)
-                Log($"3D シーンを読込 ← {Scene3DPath}");
-        }
-        catch (Exception ex) { Log("3D scene load error: " + ex.Message); }
-    }
 }

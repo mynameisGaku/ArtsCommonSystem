@@ -14,13 +14,13 @@
 namespace hellomv {
 
 // 1 頂点 = 位置 + 色 (FColor は面ごとに使い分け)。
-struct Vertex {
+struct FVertex {
     acs::f32 pos[3];
     acs::f32 col[3];
 };
 
 // 24 頂点 (6 面 × 4 頂点) で面ごとに色を変える。
-inline constexpr Vertex kCubeVertices[24] = {
+inline constexpr FVertex kCubeVertices[24] = {
     // 前面 (-Z) 赤
     {{-1, -1, -1}, {1, 0, 0}}, {{ 1, -1, -1}, {1, 0, 0}},
     {{ 1,  1, -1}, {1, 0, 0}}, {{-1,  1, -1}, {1, 0, 0}},

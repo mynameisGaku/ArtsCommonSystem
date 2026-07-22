@@ -50,19 +50,19 @@ int __cdecl ReentrantCrtReportHook(int, char*, int*)
     return TRUE;
 }
 
-struct ConcurrentProcessConfigurationEndContext {
+struct FConcurrentProcessConfigurationEndContext {
     FCrtDebugHeapProcessConfigurationScope* process_configuration = nullptr;
     HANDLE start_event = nullptr;
 };
 
-struct ConcurrentHeapCheckContext {
+struct FConcurrentHeapCheckContext {
     HANDLE StartEvent = nullptr;
     volatile LONG* FailureCount = nullptr;
 };
 
 DWORD WINAPI RunConcurrentHeapChecks(void* OpaqueContext)
 {
-    auto* const Context = static_cast<ConcurrentHeapCheckContext*>(OpaqueContext);
+    auto* const Context = static_cast<FConcurrentHeapCheckContext*>(OpaqueContext);
     if (!Context || !Context->StartEvent || !Context->FailureCount) return 1u;
     if (::WaitForSingleObject(Context->StartEvent, 5000u) != WAIT_OBJECT_0) return 2u;
 
@@ -76,7 +76,7 @@ DWORD WINAPI RunConcurrentHeapChecks(void* OpaqueContext)
 
 DWORD WINAPI EndProcessConfigurationOnWorker(void* opaque_context)
 {
-    auto* context = static_cast<ConcurrentProcessConfigurationEndContext*>(opaque_context);
+    auto* context = static_cast<FConcurrentProcessConfigurationEndContext*>(opaque_context);
     if (!context || !context->process_configuration || !context->start_event) {
         return 1u;
     }
@@ -107,7 +107,7 @@ ACS_TEST(CrtDebugHeapDiagnostics, ConcurrentHeapChecksAreSerializedSafely)
     constexpr usize kThreadCount = 8u;
     HANDLE StartEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
     HANDLE Workers[kThreadCount] = {};
-    ConcurrentHeapCheckContext Contexts[kThreadCount] = {};
+    FConcurrentHeapCheckContext Contexts[kThreadCount] = {};
     volatile LONG FailureCount = 0;
 
     EXPECT_TRUE(StartEvent != nullptr);
@@ -139,7 +139,7 @@ ACS_TEST(CrtDebugHeapDiagnostics, ConcurrentHeapChecksAreSerializedSafely)
 
 ACS_TEST(CrtDebugHeapDiagnostics, ScopeRejectsMultipleBeginsAndCanBeReused)
 {
-    CrtDebugHeapScopeConfiguration configuration{};
+    FCrtDebugHeapScopeConfiguration configuration{};
     configuration.ScopeName = "reuse contract";
     configuration.bWriteMachineReadableLog = false;
 
@@ -148,22 +148,22 @@ ACS_TEST(CrtDebugHeapDiagnostics, ScopeRejectsMultipleBeginsAndCanBeReused)
     EXPECT_FALSE(scope.Begin(configuration));
     EXPECT_TRUE(scope.IsActive());
 
-    const CrtDebugHeapScopeReport first = scope.End();
+    const FCrtDebugHeapScopeReport first = scope.End();
     EXPECT_TRUE(first.bWasActive);
     EXPECT_FALSE(first.bLeakDetected);
     EXPECT_FALSE(scope.IsActive());
 
-    const CrtDebugHeapScopeReport inactive = scope.End();
+    const FCrtDebugHeapScopeReport inactive = scope.End();
     EXPECT_FALSE(inactive.bWasActive);
 
     EXPECT_TRUE(scope.Begin(configuration));
-    const CrtDebugHeapScopeReport second = scope.End();
+    const FCrtDebugHeapScopeReport second = scope.End();
     EXPECT_TRUE(second.bWasActive);
 }
 
 ACS_TEST(CrtDebugHeapDiagnostics, DetectsTransientLeakWithoutLeavingItAlive)
 {
-    CrtDebugHeapScopeConfiguration configuration{};
+    FCrtDebugHeapScopeConfiguration configuration{};
     configuration.ScopeName = "transient_leak";
     configuration.bCheckHeapIntegrity = true;
     configuration.bWriteMachineReadableLog = false;
@@ -171,7 +171,7 @@ ACS_TEST(CrtDebugHeapDiagnostics, DetectsTransientLeakWithoutLeavingItAlive)
     FCrtDebugHeapScope scope;
     EXPECT_TRUE(scope.Begin(configuration));
     void* const allocation = std::malloc(73u);
-    const CrtDebugHeapScopeReport report = scope.End();
+    const FCrtDebugHeapScopeReport report = scope.End();
 
 #if ACS_TEST_CRT_DEBUG_HEAP_AVAILABLE
     EXPECT_TRUE(allocation != nullptr);
@@ -208,7 +208,7 @@ ACS_TEST(CrtDebugHeapDiagnostics, ProcessConfigurationRestoresEveryCrtSetting)
     }
 #endif
 
-    CrtDebugHeapProcessConfiguration configuration{};
+    FCrtDebugHeapProcessConfiguration configuration{};
     configuration.bEnableProcessExitLeakCheck = true;
     configuration.bRetainFreedBlocks = false;
     configuration.bIncludeCrtBlocks = true;
@@ -250,7 +250,7 @@ ACS_TEST(CrtDebugHeapDiagnostics, ProcessConfigurationRestoresEveryCrtSetting)
 
 ACS_TEST(CrtDebugHeapDiagnostics, ProcessConfigurationRejectsConcurrentOwner)
 {
-    CrtDebugHeapProcessConfiguration configuration{};
+    FCrtDebugHeapProcessConfiguration configuration{};
     FCrtDebugHeapProcessConfigurationScope first;
     FCrtDebugHeapProcessConfigurationScope second;
 
@@ -270,7 +270,7 @@ ACS_TEST(CrtDebugHeapDiagnostics, ProcessConfigurationRejectsConcurrentOwner)
 
 ACS_TEST(CrtDebugHeapDiagnostics, RejectsExitLeakCheckWithoutAllocationTracking)
 {
-    CrtDebugHeapProcessConfiguration configuration{};
+    FCrtDebugHeapProcessConfiguration configuration{};
     configuration.bEnableAllocationTracking = false;
     configuration.bEnableProcessExitLeakCheck = true;
     FCrtDebugHeapProcessConfigurationScope process_configuration;
@@ -284,7 +284,7 @@ ACS_TEST(CrtDebugHeapDiagnostics, RejectsExitLeakCheckWithoutAllocationTracking)
 
 ACS_TEST(CrtDebugHeapDiagnostics, DirectSettersDoNotOverrideActiveConfigurationScope)
 {
-    CrtDebugHeapProcessConfiguration configuration{};
+    FCrtDebugHeapProcessConfiguration configuration{};
     configuration.bConfigureBreakOnAllocationSequence = true;
     configuration.BreakOnAllocationSequence = 17003;
     configuration.bEnableProcessExitLeakCheck = false;
@@ -328,14 +328,14 @@ ACS_TEST(CrtDebugHeapDiagnostics, DirectProcessSettingsCanBeRestored)
 
 ACS_TEST(CrtDebugHeapDiagnostics, DiagnosticScopeBlocksIndependentProcessSettingChanges)
 {
-    CrtDebugHeapScopeConfiguration scope_configuration{};
+    FCrtDebugHeapScopeConfiguration scope_configuration{};
     scope_configuration.ScopeName = "process_setting_exclusion";
     scope_configuration.bWriteMachineReadableLog = false;
 
     FCrtDebugHeapScope diagnostic_scope;
     EXPECT_TRUE(diagnostic_scope.Begin(scope_configuration));
 
-    CrtDebugHeapProcessConfiguration process_configuration_values{};
+    FCrtDebugHeapProcessConfiguration process_configuration_values{};
     FCrtDebugHeapProcessConfigurationScope process_configuration;
 #if ACS_TEST_CRT_DEBUG_HEAP_AVAILABLE
     const int flags_before = _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG);
@@ -359,7 +359,7 @@ ACS_TEST(CrtDebugHeapDiagnostics, DiagnosticScopeBlocksIndependentProcessSetting
 
 ACS_TEST(CrtDebugHeapDiagnostics, ProcessConfigurationRestorationWaitsForDiagnosticScope)
 {
-    CrtDebugHeapProcessConfiguration configuration{};
+    FCrtDebugHeapProcessConfiguration configuration{};
     configuration.bConfigureBreakOnAllocationSequence = true;
     configuration.BreakOnAllocationSequence = 17006;
     configuration.bReportToDebugger = true;
@@ -374,7 +374,7 @@ ACS_TEST(CrtDebugHeapDiagnostics, ProcessConfigurationRestorationWaitsForDiagnos
     FCrtDebugHeapProcessConfigurationScope process_configuration;
     EXPECT_TRUE(process_configuration.Begin(configuration));
 
-    CrtDebugHeapScopeConfiguration scope_configuration{};
+    FCrtDebugHeapScopeConfiguration scope_configuration{};
     scope_configuration.ScopeName = "deferred_process_restore";
     scope_configuration.bWriteMachineReadableLog = false;
     FCrtDebugHeapScope diagnostic_scope;
@@ -407,7 +407,7 @@ ACS_TEST(CrtDebugHeapDiagnostics, DirectTrackingFlagChangeMakesMeasurementInconc
     const int original_flags = _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG);
     (void)_CrtSetDbgFlag(original_flags | _CRTDBG_ALLOC_MEM_DF);
 
-    CrtDebugHeapScopeConfiguration configuration{};
+    FCrtDebugHeapScopeConfiguration configuration{};
     configuration.ScopeName = "tracking_flag_changed";
     configuration.bWriteMachineReadableLog = true;
     FCrtDebugHeapScope diagnostic_scope;
@@ -415,7 +415,7 @@ ACS_TEST(CrtDebugHeapDiagnostics, DirectTrackingFlagChangeMakesMeasurementInconc
 
     (void)_CrtSetDbgFlag((original_flags | _CRTDBG_ALLOC_MEM_DF) & ~_CRTDBG_ALLOC_MEM_DF);
     void* const untracked_allocation = std::malloc(41u);
-    const CrtDebugHeapScopeReport report = diagnostic_scope.End();
+    const FCrtDebugHeapScopeReport report = diagnostic_scope.End();
     (void)_CrtSetDbgFlag(original_flags);
 
     EXPECT_TRUE(untracked_allocation != nullptr);
@@ -458,7 +458,7 @@ ACS_TEST(CrtDebugHeapDiagnostics, ConcurrentProcessEndAndDiagnosticEndRestoreSet
     const int original_flags = _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG);
     const long original_break_allocation = _crtBreakAlloc;
 
-    CrtDebugHeapProcessConfiguration configuration{};
+    FCrtDebugHeapProcessConfiguration configuration{};
     configuration.bConfigureBreakOnAllocationSequence = true;
     configuration.BreakOnAllocationSequence = 17008;
     configuration.bReportToDebugger = false;
@@ -467,13 +467,13 @@ ACS_TEST(CrtDebugHeapDiagnostics, ConcurrentProcessEndAndDiagnosticEndRestoreSet
     EXPECT_TRUE(process_configuration.Begin(configuration));
 
     HANDLE start_event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    ConcurrentProcessConfigurationEndContext context{&process_configuration, start_event};
+    FConcurrentProcessConfigurationEndContext context{&process_configuration, start_event};
     HANDLE worker = start_event ? ::CreateThread(nullptr, 0u, EndProcessConfigurationOnWorker, &context, 0u, nullptr)
                                 : nullptr;
     EXPECT_TRUE(start_event != nullptr);
     EXPECT_TRUE(worker != nullptr);
 
-    CrtDebugHeapScopeConfiguration scope_configuration{};
+    FCrtDebugHeapScopeConfiguration scope_configuration{};
     scope_configuration.ScopeName = "concurrent_process_end";
     scope_configuration.bWriteMachineReadableLog = false;
     FCrtDebugHeapScope diagnostic_scope;
@@ -482,7 +482,7 @@ ACS_TEST(CrtDebugHeapDiagnostics, ConcurrentProcessEndAndDiagnosticEndRestoreSet
     if (worker) {
         (void)::SetEvent(start_event);
     }
-    const CrtDebugHeapScopeReport report = diagnostic_scope.End();
+    const FCrtDebugHeapScopeReport report = diagnostic_scope.End();
     const DWORD wait_result = worker ? ::WaitForSingleObject(worker, 10000u) : WAIT_FAILED;
     DWORD worker_exit_code = 3u;
     if (worker && wait_result == WAIT_OBJECT_0) {

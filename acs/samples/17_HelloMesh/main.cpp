@@ -19,4 +19,4 @@
 #include "HelloMeshApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(hellomesh::HelloMeshApp)
+ACS_DEFINE_MAIN(hellomesh::FHelloMeshApp)

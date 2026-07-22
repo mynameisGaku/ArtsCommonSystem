@@ -9,6 +9,7 @@ set(_acsgen_gameframework_sources
     AchievementManager.cpp
     AmbientDirector.cpp
     AnimationCurve.cpp
+    AnimationCurveArchive.cpp
     AnimationGraph.cpp
     AssetBundle.cpp
     AssetPack.cpp
@@ -54,6 +55,7 @@ set(_acsgen_gameframework_sources
     InspectorSeam.cpp
     InventorySystem.cpp
     LapTimer.cpp
+    LegacyScene3DAdapter.cpp
     LlmSafetyPipeline.cpp
     LocalizationDirector.cpp
     Lockstep.cpp
@@ -63,9 +65,6 @@ set(_acsgen_gameframework_sources
     ModRegistry.cpp
     MusicDirector.cpp
     NetSnapshot.cpp
-    Node2D.cpp
-    Node3D.cpp
-    Node3DPool.cpp
     NodePool.cpp
     OpenXrBridge.cpp
     ParticleEffectSystem.cpp
@@ -146,6 +145,7 @@ set(_acsgen_gameframework_headers
     AcsClass.h
     AmbientDirector.h
     AnimationCurve.h
+    AnimationCurveArchive.h
     AnimationGraph.h
     AppState.h
     AssetBundle.h
@@ -164,8 +164,6 @@ set(_acsgen_gameframework_headers
     Clock.h
     CollisionWorld2D.h
     CombatStateMachine.h
-    Component2D.h
-    Component3D.h
     ComponentFactory.h
     ContentModerator.h
     CooldownTimer.h
@@ -195,12 +193,14 @@ set(_acsgen_gameframework_headers
     GameFramework.h
     HealthSystem.h
     HotReload.h
+    HotReloadDiagnosticsInternal.h
     HungerSystem.h
     InputMap.h
     InputRecorder.h
     InspectorSeam.h
     InventorySystem.h
     LapTimer.h
+    LegacyScene3DAdapter.h
     Light2DComponent.h
     LlmSafetyPipeline.h
     LocalizationDirector.h
@@ -213,9 +213,6 @@ set(_acsgen_gameframework_headers
     MusicDirector.h
     NetSnapshot.h
     NetSnapshotDiagnosticsInternal.h
-    Node2D.h
-    Node3D.h
-    Node3DPool.h
     NodeId.h
     NodePool.h
     OpenXrBridge.h
@@ -303,6 +300,7 @@ set(_acsgen_gameframework_headers
     WeaponSystem.h
     WeatherSystem.h
     WorkshopBridge.h
+    WorldClockSubsystem.h
     audio_backend/IAudioBackend.h
     audio_backend/XAudio2Backend.h
 )

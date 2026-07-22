@@ -7,7 +7,7 @@
 //   1 段上のレイヤで、「いまユーザーがゲームのどの段階に居るか」を識別する。
 //
 // FSceneManager との棲み分け:
-//   ・FSceneManager は描画用 Scene のスタックを管理する低レベル機構
+//   ・FSceneManager は描画用 FScene のスタックを管理する低レベル機構
 //     (push / pop / change + 退場 ring buffer + fixed_dt)。
 //   ・FGameFlow は「ゲームとしての論理状態」を管理する高レベル state machine。
 //     状態ごとの enter / exit コールバックでサウンド切替や Save 書き出し等の
@@ -24,7 +24,7 @@
 //   ・**遷移テーブル**: 不正遷移 (例: Gameplay → Splash) を防ぐため、from →
 //     to の可否を 10x10 の bool テーブルで持つ。Init() 時に組み立てる。
 //   ・**コールバックは関数ポインタ + void* user**: ACS 規約に従い std::function
-//     不使用。Pillar Q FCinematicsDirector / FHotReload と同形。1 state につき
+//     不使用。Pillar Q FCinematicsDirector / FHotReloadWatcher と同形。1 state につき
 //     最大 enter / exit 1 個ずつ。
 //   ・**fade 量は state holder のみ**: FadeProgress() を [0, 1] で返す。描画は
 //     呼び出し側が FSpriteBatch で fullscreen overlay を被せる責任。
@@ -36,11 +36,11 @@
 //   ・state ごとの transient state (例: Loading の進捗値) — 必要なら呼び出し側
 //     が AppState で別途持つ
 //   ・遷移履歴の back stack — Pop 系 API は持たず、要求は常に「to 指定」
-//   ・並列 fade (画面内 fade) — Scene 単位の FFadeTransition が独立して動く
+//   ・並列 fade (画面内 fade) — FScene 単位の FFadeTransition が独立して動く
 //
 // 使い方:
 //   acs::game::FGameFlow flow;
-//   flow.SetOnEnterCallback(EFlowState::Gameplay, &MyApp::OnGameplayEnter, this);
+//   flow.SetOnEnterCallback(EFlowState::Gameplay, &FMyApp::OnGameplayEnter, this);
 //   flow.Init(EFlowState::Splash);
 //   // ... 毎フレーム:
 //   flow.Tick(dt);
@@ -71,11 +71,11 @@ enum class EFlowState : u8 {
     /** タイトル画面 (PRESS START 待機)。 */
     MainTitle    = 1,
 
-    /** メインメニュー (NewGame / Load / FSettings / Exit)。 */
+    /** メインメニュー (NewGame / Load / Settings / Exit)。 */
     MainMenu     = 2,
 
     /** 設定画面 (MainMenu / PauseMenu のどちらからも入れる)。 */
-    FSettings     = 3,
+    Settings      = 3,
 
     /** クレジット表示。 */
     Credits      = 4,
@@ -106,7 +106,7 @@ inline constexpr u32 kFlowStateCount = 10;
  * RequestTransition で内部に保持され、Tick で進行する。fade_in_sec / fade_out_sec
  * が両方 0 の場合は「即時遷移」(Tick 1 回で完了)。
  */
-struct FlowTransition {
+struct FFlowTransition {
     /** 遷移元の state。 */
     EFlowState from         = EFlowState::Splash;
 
@@ -252,7 +252,7 @@ private:
      *
      * @details Init() で kFlowStateCount 個確保される。
      */
-    struct StateSlot {
+    struct FStateSlot {
         /** 入場コールバック (未登録なら nullptr)。 */
         StateCallback enter      = nullptr;
 
@@ -267,7 +267,7 @@ private:
     };
 
     /** 遷移の進行段階。 */
-    enum class Phase : u8 {
+    enum class EPhase : u8 {
         /** 非遷移中。 */
         Idle      = 0,
 
@@ -290,7 +290,7 @@ private:
     static u32 IndexOf(EFlowState s) noexcept { return static_cast<u32>(s); }
 
     /** state ごとのコールバックスロット (size = kFlowStateCount)。 */
-    TArray<StateSlot> _states;
+    TArray<FStateSlot> _states;
 
     /** 遷移許可テーブル ([from][to] が true なら遷移可能)。 */
     bool             m_Allowed[kFlowStateCount][kFlowStateCount] = {};
@@ -305,7 +305,7 @@ private:
     EFlowState m_Pending          = EFlowState::Splash;
 
     /** 遷移の進行段階。 */
-    Phase     m_Phase            = Phase::Idle;
+    EPhase     m_Phase            = EPhase::Idle;
 
     /** 遷移中フラグ。 */
     bool      m_IsTransitioning = false;

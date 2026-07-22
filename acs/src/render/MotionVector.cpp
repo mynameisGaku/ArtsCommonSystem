@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // FMotionVector 実装
 #include "render/MotionVector.h"
+#include "render/NormalMatrix.h"
 #include "asset/MeshAsset.h"          // MeshVertex の input layout 用
 #include "foundation/Move.h"
 #include "foundation/Log.h"           // ACS_ERR
@@ -23,7 +24,9 @@ const char* kMotionHLSL = R"(
 cbuffer MotionCB : register(b0) {
     float4x4 curr_mvp;
     float4x4 prev_mvp;
-    float4x4 curr_model;     // 頂点法線を world へ変換するため (Phase 34m)
+    float4 normal_row0;
+    float4 normal_row1;
+    float4 normal_row2;
 };
 
 struct VSIn {
@@ -47,8 +50,12 @@ VSOut VSMain(VSIn v) {
     o.pos       = mul(float4(v.pos, 1.0), curr_mvp);
     o.curr_clip = o.pos;
     o.prev_clip = mul(float4(v.pos, 1.0), prev_mvp);
-    // 法線を world へ (回転 / 一様スケールのみ前提、非一様スケールは未対応)
-    o.world_n   = mul(float4(v.nrm, 0.0), curr_model).xyz;
+    // Row-vector inverse-transpose transform. This remains correct under
+    // non-uniform scale, unlike multiplying normals by the model matrix.
+    o.world_n = float3(
+        v.nrm.x * normal_row0.x + v.nrm.y * normal_row1.x + v.nrm.z * normal_row2.x,
+        v.nrm.x * normal_row0.y + v.nrm.y * normal_row1.y + v.nrm.z * normal_row2.y,
+        v.nrm.x * normal_row0.z + v.nrm.y * normal_row1.z + v.nrm.z * normal_row2.z);
     return o;
 }
 
@@ -60,7 +67,8 @@ PSOut PSMain(VSOut i) {
     float2 prev_uv  = float2(prev_ndc.x * 0.5 + 0.5, -prev_ndc.y * 0.5 + 0.5);
     PSOut o;
     // TAA は hist_uv = uv + motion で前フレームを引く → motion = prev_uv - curr_uv
-    o.motion = float4(prev_uv - curr_uv, 0.0, 0.0);
+    float2 velocity = i.prev_clip.w > 1e-5 ? prev_uv - curr_uv : float2(0, 0);
+    o.motion = float4(clamp(velocity, -1.0, 1.0), 0.0, 0.0);
     // 補間後に正規化 → 曲面でも滑らかな per-pixel 法線
     o.normal = float4(normalize(i.world_n), 0.0);
     return o;
@@ -68,11 +76,12 @@ PSOut PSMain(VSOut i) {
 )";
 
 // per-object 定数バッファ。curr/prev とも CPU 側で model*VP を合成して渡す。
-// curr_model は法線の world 変換用に別途渡す。
-struct MotionCB {
+struct FMotionCb {
     FMat4 curr_mvp;
     FMat4 prev_mvp;
-    FMat4 curr_model;
+    FVec4 normal_row0;
+    FVec4 normal_row1;
+    FVec4 normal_row2;
 };
 
 } // namespace
@@ -89,15 +98,20 @@ TResult<void> FMotionVector::Init(IRhiDevice& device, u32 width, u32 height) noe
     cbd.size         = 256;          // MotionCB (192B) を 256 アラインで確保
     cbd.usage        = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
-    auto cbr = CreateRhiBuffer(device, cbd);
-    if (cbr.IsErr()) return Err<void>(cbr.Error());
-    m_Cb = Move(cbr.Value());
+    for (u32 i = 0; i < kObjectCbRing; ++i) {
+        auto cbr = CreateRhiBuffer(device, cbd);
+        if (cbr.IsErr()) {
+            for (u32 j = 0; j < i; ++j) m_Cbs[j].Reset();
+            return Err<void>(cbr.Error());
+        }
+        m_Cbs[i] = Move(cbr.Value());
+    }
 
     return Ok();
 }
 
 void FMotionVector::Shutdown() noexcept {
-    m_Cb.Reset();
+    for (auto& cb : m_Cbs) cb.Reset();
     m_Pipeline.Reset();
     m_Ps.Reset();
     m_Vs.Reset();
@@ -107,6 +121,7 @@ void FMotionVector::Shutdown() noexcept {
     m_Device = nullptr;
     m_Width  = 0;
     m_Height = 0;
+    m_DrawCursor = 0;
 }
 
 TResult<void> FMotionVector::Resize(u32 width, u32 height) noexcept {
@@ -191,7 +206,7 @@ TResult<void> FMotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     pd.cbuffer_slots = 1;
     pd.texture_slots = 0;
     pd.cbuffer_names[0] = "MotionCB";
-    pd.vertex_stride = sizeof(MeshVertex);
+    pd.vertex_stride = sizeof(FMeshVertex);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
     pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 16 };
     pd.layout[2] = { "TEXCOORD", 0, EFormat::R32G32_Float,    32 };
@@ -208,24 +223,41 @@ void FMotionVector::Begin(IRhiCommandList& cl,
     if (!m_Motion || !m_Normal || !m_Depth || !m_Pipeline) return;
     m_Vp      = view_proj;
     m_PrevVp = prev_view_proj;
+    m_DrawCursor = 0;
     // motion / normal RT を (0,0,0,0) クリア → 描かれない pixel (= sky 等) は
     // motion 0 (TAA は hist_uv = uv で reproject 無し)、normal 0 (SSR/SSGI/SSAO は
     // sky を depth で先に弾くので未使用)。
     IRhiTexture* rts[2] = { m_Motion.Get(), m_Normal.Get() };
-    cl.BeginRenderToTextureMrt(rts, 2, ClearColor{0, 0, 0, 0}, m_Depth.Get(), 1.0f);
+    cl.BeginRenderToTextureMrt(rts, 2, FClearColor{0, 0, 0, 0}, m_Depth.Get(), 1.0f);
     cl.SetPipeline(*m_Pipeline);
 }
 
-void FMotionVector::DrawMesh(IRhiCommandList& cl, const GpuMesh& mesh,
+void FMotionVector::DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
                             const FMat4& model, const FMat4& prev_model) noexcept {
-    if (!m_Cb || !mesh.vertex_buffer || !mesh.index_buffer) return;
-    MotionCB cb{};
+    if (!mesh.vertex_buffer || !mesh.index_buffer) return;
+    if (m_DrawCursor >= kObjectCbRing) {
+        if (m_DrawCursor == kObjectCbRing) {
+            ACS_LOG_WARN("FMotionVector: per-frame draw limit (%u) exceeded; "
+                         "remaining motion draws are skipped", kObjectCbRing);
+            ++m_DrawCursor;
+        }
+        return;
+    }
+    IRhiBuffer* cb_buffer = m_Cbs[m_DrawCursor++].Get();
+    if (!cb_buffer) return;
+    FMotionCb cb{};
     cb.curr_mvp   = model      * m_Vp;
     cb.prev_mvp   = prev_model * m_PrevVp;
-    cb.curr_model = model;
-    m_Cb->Update(&cb, sizeof(cb));
+    const FMat4 normal_matrix = MakeSafeNormalMatrix(model);
+    cb.normal_row0 = FVec4{normal_matrix.m[0][0], normal_matrix.m[0][1],
+                           normal_matrix.m[0][2], 0};
+    cb.normal_row1 = FVec4{normal_matrix.m[1][0], normal_matrix.m[1][1],
+                           normal_matrix.m[1][2], 0};
+    cb.normal_row2 = FVec4{normal_matrix.m[2][0], normal_matrix.m[2][1],
+                           normal_matrix.m[2][2], 0};
+    cb_buffer->Update(&cb, sizeof(cb));
 
-    cl.SetConstantBuffer(0, *m_Cb);
+    cl.SetConstantBuffer(0, *cb_buffer);
     cl.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
     cl.SetIndexBuffer(*mesh.index_buffer);
     cl.DrawIndexed(mesh.index_count);

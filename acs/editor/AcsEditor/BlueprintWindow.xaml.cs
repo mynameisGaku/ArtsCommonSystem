@@ -536,7 +536,7 @@ public partial class BlueprintWindow : Window
         del.Click += (_, __) => {
             int refs = Editor.CountVariableReferences(s.Name);
             var msg = refs > 0 ? $"変数「{s.Name}」を削除しますか？\n{refs} 個の Get/Set ノードが参照しています。" : $"変数「{s.Name}」を削除しますか？";
-            if (MessageBox.Show(msg, "変数の削除", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
+            if (MessageBox.Show(this, msg, "変数の削除", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
             Editor.Variables.Remove(s); _sel = null; RefreshVars();
         };
         btns.Children.Add(del);

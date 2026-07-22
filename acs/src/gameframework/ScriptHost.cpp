@@ -53,16 +53,31 @@ bool CStrEquals(const char* a, const char* b) noexcept {
 }
 
 /**
- * LoadAndRun の読み込み上限 (64 MiB)。
- *
- * @details 実用的なスクリプト 1 本でこれを超えるのは「ファイルが壊れている / バイナリを掴んだ」と判断して即座にエラーにする。
+ * C文字列が上限内でNUL終端されているかを検証する。
  */
-inline constexpr u64 kMaxScriptFileBytes = 64ull * 1024ull * 1024ull;  // 64 MiB
+bool TryGetBoundedLength(const char* text, u32 max_bytes, u32& out_length) noexcept {
+    out_length = 0u;
+    if (text == nullptr) return false;
+    while (out_length <= max_bytes && text[out_length] != '\0') {
+        ++out_length;
+    }
+    return out_length <= max_bytes;
+}
+
+bool TryGetBoundedLength(
+    const wchar_t* text, u32 max_chars, u32& out_length) noexcept {
+    out_length = 0u;
+    if (text == nullptr) return false;
+    while (out_length <= max_chars && text[out_length] != L'\0') {
+        ++out_length;
+    }
+    return out_length <= max_chars;
+}
 
 } // anonymous namespace
 
 /** Init の実装 (副作用ゼロで成功、initialized フラグを立てる)。 */
-TResult<void> ScriptVmStub::Init() noexcept {
+TResult<void> FScriptVmStub::Init() noexcept {
     // Stub は副作用ゼロで成功させる (= 起動シーケンスを通すため)。
     // 実際のスクリプト動作は LoadScript / CallFunction の段階で
     // NotImplemented として落とす。
@@ -71,13 +86,13 @@ TResult<void> ScriptVmStub::Init() noexcept {
 }
 
 /** Shutdown の実装 (no-op、initialized フラグを下げる)。 */
-void ScriptVmStub::Shutdown() noexcept {
+void FScriptVmStub::Shutdown() noexcept {
     // 何も保持していないので no-op。Init 前に呼ばれても安全。
     m_Initialized = false;
 }
 
 /** LoadScript の実装 (Init 前は kSub_NotInitialized、それ以外は kSub_NotImplemented)。 */
-TResult<void> ScriptVmStub::LoadScript(const char* /*source*/,
+TResult<void> FScriptVmStub::LoadScript(const char* /*source*/,
                                       u32         /*source_len*/,
                                       const char* /*chunk_name*/) noexcept {
     if (!m_Initialized) {
@@ -89,9 +104,9 @@ TResult<void> ScriptVmStub::LoadScript(const char* /*source*/,
 }
 
 /** CallFunction の実装 (Init 前は kSub_NotInitialized、それ以外は kSub_NotImplemented)。 */
-TResult<void> ScriptVmStub::CallFunction(const char* /*function_name*/,
-                                        const ScriptValue* /*args*/, u32 /*arg_count*/,
-                                        ScriptValue* /*ret_out*/) noexcept {
+TResult<void> FScriptVmStub::CallFunction(const char* /*function_name*/,
+                                        const FScriptValue* /*args*/, u32 /*arg_count*/,
+                                        FScriptValue* /*ret_out*/) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, script_err::kSub_NotInitialized,
                        "ScriptVmStub::CallFunction called before Init()");
@@ -101,7 +116,7 @@ TResult<void> ScriptVmStub::CallFunction(const char* /*function_name*/,
 }
 
 /** RegisterNativeFunction の実装 (Init 前は kSub_NotInitialized、それ以外は kSub_NotImplemented)。 */
-TResult<void> ScriptVmStub::RegisterNativeFunction(const char* /*function_name*/,
+TResult<void> FScriptVmStub::RegisterNativeFunction(const char* /*function_name*/,
                                                   NativeFunction /*fn*/,
                                                   void* /*user*/) noexcept {
     if (!m_Initialized) {
@@ -113,18 +128,18 @@ TResult<void> ScriptVmStub::RegisterNativeFunction(const char* /*function_name*/
 }
 
 /** SetGlobalNumber の実装 (値の保存先が無いので no-op)。 */
-void ScriptVmStub::SetGlobalNumber(const char* /*name*/, f64 /*value*/) noexcept {
+void FScriptVmStub::SetGlobalNumber(const char* /*name*/, f64 /*value*/) noexcept {
     // 値を保存する場所が無いので no-op (= 後から GetGlobalNumber しても default
     // が返る)。上位コードは「stub では持続しない」前提で書く。
 }
 
 /** GetGlobalNumber の実装 (常に default_value を返す)。 */
-f64 ScriptVmStub::GetGlobalNumber(const char* /*name*/, f64 default_value) const noexcept {
+f64 FScriptVmStub::GetGlobalNumber(const char* /*name*/, f64 default_value) const noexcept {
     return default_value;
 }
 
 /** CollectGarbage の実装 (GC 対象が無いので no-op)。 */
-void ScriptVmStub::CollectGarbage() noexcept {
+void FScriptVmStub::CollectGarbage() noexcept {
     // GC の対象が存在しないので no-op。
 }
 
@@ -137,7 +152,7 @@ void ScriptVmStub::CollectGarbage() noexcept {
  * stub 自身が状態 (m_Initialized) を持つため複数スレッドから同時アクセスする呼び出し側は外部同期を取ること。
  */
 IScriptVm& GetVmStub() noexcept {
-    static ScriptVmStub instance;
+    static FScriptVmStub instance;
     return instance;
 }
 
@@ -192,6 +207,49 @@ IScriptVm* FScriptHost::Vm() const noexcept {
     return m_Vm;
 }
 
+/** 長さ付きsourceを検証してVMへロード・実行する。 */
+TResult<void> FScriptHost::LoadAndRunSource(const char* source,
+                                            u32         source_len,
+                                            const char* chunk_name) noexcept {
+    if (m_Vm == nullptr) {
+        return ACS_ERR(Generic, script_err::kSub_NoVm,
+                       "FScriptHost::LoadAndRunSource: vm not initialized");
+    }
+    if (source == nullptr && source_len > 0u) {
+        return ACS_ERR(Generic, script_err::kSub_InvalidArg,
+                       "FScriptHost::LoadAndRunSource: source is null");
+    }
+    if (static_cast<u64>(source_len) > kMaxScriptFileBytes) {
+        return ACS_ERR(Generic, script_err::kSub_FileTooLarge,
+                       "FScriptHost::LoadAndRunSource: source exceeds safety limit");
+    }
+    if (chunk_name != nullptr) {
+        u32 chunk_length = 0u;
+        if (!TryGetBoundedLength(chunk_name, kMaxScriptChunkNameBytes, chunk_length)) {
+            return ACS_ERR(Generic, script_err::kSub_InvalidName,
+                           "FScriptHost::LoadAndRunSource: invalid chunk name");
+        }
+    }
+    for (u32 i = 0u; i < source_len; ++i) {
+        if (source[i] == '\0') {
+            return ACS_ERR(Generic, script_err::kSub_EmbeddedNul,
+                           "FScriptHost::LoadAndRunSource: embedded NUL rejected");
+        }
+    }
+
+    const char* const safe_source = source != nullptr ? source : "";
+    TResult<void> result = m_Vm->LoadScript(
+        safe_source,
+        source_len,
+        chunk_name != nullptr ? chunk_name : "<memory>");
+    if (result.IsErr()) {
+        FireError(chunk_name != nullptr ? chunk_name : "<memory>",
+                  0u,
+                  result.Error().message);
+    }
+    return result;
+}
+
 /** LoadAndRun の実装 (Win32 でファイルを読み込み IScriptVm::LoadScript へ流す)。 */
 TResult<void> FScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     // 事前チェック。
@@ -199,22 +257,28 @@ TResult<void> FScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
         return ACS_ERR(Generic, script_err::kSub_NoVm,
                        "FScriptHost::LoadAndRun: vm not initialized (call Init(vm) first)");
     }
-    if (file_path == nullptr) {
-        return ACS_ERR(Generic, script_err::kSub_InvalidArg,
-                       "FScriptHost::LoadAndRun: file_path is null");
+    u32 path_length = 0u;
+    if (!TryGetBoundedLength(file_path, kMaxScriptPathChars, path_length) ||
+        path_length == 0u) {
+        return ACS_ERR(Generic, script_err::kSub_InvalidPath,
+                       "FScriptHost::LoadAndRun: invalid file path");
     }
 
     // Win32 で読み込み。FSaveArchive.cpp と同じ流儀 (CreateFileW + GetFileSizeEx + ReadFile)。
     HANDLE h = ::CreateFileW(file_path,
                              GENERIC_READ,
-                             FILE_SHARE_READ,
+                             FILE_SHARE_READ | FILE_SHARE_DELETE,
                              nullptr,
                              OPEN_EXISTING,
                              FILE_ATTRIBUTE_NORMAL,
                              nullptr);
     if (h == INVALID_HANDLE_VALUE) {
         const DWORD err = ::GetLastError();
-        return ACS_ERR_OS(IO, script_err::kSub_FileNotFound,
+        const u16 subcode =
+            (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND)
+                ? script_err::kSub_FileNotFound
+                : script_err::kSub_Io;
+        return ACS_ERR_OS(IO, subcode,
                           "FScriptHost::LoadAndRun: CreateFileW failed", err);
     }
 
@@ -222,15 +286,23 @@ TResult<void> FScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     if (!::GetFileSizeEx(h, &size_li)) {
         const DWORD err = ::GetLastError();
         ::CloseHandle(h);
-        return ACS_ERR_OS(IO, script_err::kSub_FileNotFound,
+        return ACS_ERR_OS(IO, script_err::kSub_Io,
                           "FScriptHost::LoadAndRun: GetFileSizeEx failed", err);
     }
 
+    if (size_li.QuadPart < 0) {
+        ::CloseHandle(h);
+        return ACS_ERR(IO, script_err::kSub_Io,
+                       "FScriptHost::LoadAndRun: negative file size");
+    }
     const u64 size_u64 = static_cast<u64>(size_li.QuadPart);
     if (size_u64 == 0) {
-        // 空ファイル → 空 chunk として LoadScript を呼ぶ (backend が許容する想定)。
-        ::CloseHandle(h);
-        return m_Vm->LoadScript("", 0, "<empty>");
+        if (!::CloseHandle(h)) {
+            return ACS_ERR_OS(IO, script_err::kSub_Io,
+                              "FScriptHost::LoadAndRun: CloseHandle failed",
+                              ::GetLastError());
+        }
+        return LoadAndRunSource("", 0u, "<empty>");
     }
     if (size_u64 > kMaxScriptFileBytes) {
         ::CloseHandle(h);
@@ -246,7 +318,7 @@ TResult<void> FScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     void*       raw      = alloc.Alloc(buf_size, alignof(u8), FSourceLoc::Current());
     if (raw == nullptr) {
         ::CloseHandle(h);
-        return ACS_ERR(Memory, script_err::kSub_FileTooLarge,
+        return ACS_ERR(Memory, script_err::kSub_AllocationFailed,
                        "FScriptHost::LoadAndRun: failed to allocate script buffer");
     }
     u8* buf = static_cast<u8*>(raw);
@@ -266,55 +338,125 @@ TResult<void> FScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
             if (io_err == 0) io_err = ERROR_HANDLE_EOF;
             alloc.Free(raw);
             ::CloseHandle(h);
-            return ACS_ERR_OS(IO, script_err::kSub_FileNotFound,
+            return ACS_ERR_OS(IO, script_err::kSub_Io,
                               "FScriptHost::LoadAndRun: ReadFile failed", io_err);
         }
         p         += got;
         remaining -= got;
     }
-    ::CloseHandle(h);
+
+    LARGE_INTEGER final_size{};
+    if (!::GetFileSizeEx(h, &final_size)) {
+        const DWORD size_err = ::GetLastError();
+        alloc.Free(raw);
+        ::CloseHandle(h);
+        return ACS_ERR_OS(IO, script_err::kSub_Io,
+                          "FScriptHost::LoadAndRun: final GetFileSizeEx failed",
+                          size_err);
+    }
+
+    u8 extra_byte = 0u;
+    DWORD extra_read = 0u;
+    const BOOL extra_ok = ::ReadFile(h, &extra_byte, 1u, &extra_read, nullptr);
+    if (final_size.QuadPart != size_li.QuadPart || (extra_ok && extra_read != 0u)) {
+        alloc.Free(raw);
+        ::CloseHandle(h);
+        return ACS_ERR(IO, script_err::kSub_FileChanged,
+                       "FScriptHost::LoadAndRun: file changed during read");
+    }
+    if (!extra_ok) {
+        const DWORD extra_err = ::GetLastError();
+        if (extra_err != ERROR_HANDLE_EOF) {
+            alloc.Free(raw);
+            ::CloseHandle(h);
+            return ACS_ERR_OS(IO, script_err::kSub_Io,
+                              "FScriptHost::LoadAndRun: EOF verification failed",
+                              extra_err);
+        }
+    }
+    if (!::CloseHandle(h)) {
+        const DWORD close_err = ::GetLastError();
+        alloc.Free(raw);
+        return ACS_ERR_OS(IO, script_err::kSub_Io,
+                          "FScriptHost::LoadAndRun: CloseHandle failed",
+                          close_err);
+    }
 
     // backend に渡す。
     // chunk_name は wide path を ASCII 化するのが面倒なので、
     // 固定文字列で代用する。実 Lua backend では caller から
     // explicit chunk name を取る overload を追加予定。
-    const u32 src_len = (buf_size > 0xFFFFFFFFull) ? 0xFFFFFFFFu : static_cast<u32>(buf_size);
-    TResult<void> r = m_Vm->LoadScript(reinterpret_cast<const char*>(buf),
-                                     src_len,
-                                     "<file>");
+    const u32 src_len = static_cast<u32>(buf_size);
+    TResult<void> r = LoadAndRunSource(
+        reinterpret_cast<const char*>(buf),
+        src_len,
+        "<file>");
 
     // backend が source を内部で複製しているはず (Lua の luaL_loadbuffer は
     // const char* を即時パースして AST 化するので、戻った時点でバッファは
     // 解放してよい)。stub も中身を見ないのでここで解放安全。
     alloc.Free(raw);
 
-    if (r.IsErr()) {
-        FireError("<file>", 0, r.Error().message);
-    }
     return r;
 }
 
 /** CallGlobalFunction の実装 (引数を防御チェックして vm->CallFunction へ委譲)。 */
 TResult<void> FScriptHost::CallGlobalFunction(const char*        function_name,
-                                            const ScriptValue* args,
+                                            const FScriptValue* args,
                                             u32                arg_count,
-                                            ScriptValue*       ret_out) noexcept {
+                                            FScriptValue*       ret_out) noexcept {
     if (m_Vm == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_NoVm,
                        "FScriptHost::CallGlobalFunction: vm not initialized (call Init(vm) first)");
     }
-    if (function_name == nullptr) {
-        return ACS_ERR(Generic, script_err::kSub_InvalidArg,
-                       "FScriptHost::CallGlobalFunction: function_name is null");
+    u32 function_name_length = 0u;
+    if (!TryGetBoundedLength(function_name,
+                             kMaxScriptFunctionNameBytes,
+                             function_name_length) ||
+        function_name_length == 0u) {
+        return ACS_ERR(Generic, script_err::kSub_InvalidName,
+                       "FScriptHost::CallGlobalFunction: invalid function name");
     }
-    // arg_count > 0 のときは args が null だと壊れるので防御。
     if (arg_count > 0 && args == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_InvalidArg,
                        "FScriptHost::CallGlobalFunction: arg_count > 0 but args is null");
     }
-    TResult<void> r = m_Vm->CallFunction(function_name, args, arg_count, ret_out);
+    if (arg_count > kMaxScriptCallArguments) {
+        return ACS_ERR(Generic, script_err::kSub_ArgumentLimit,
+                       "FScriptHost::CallGlobalFunction: argument limit exceeded");
+    }
+
+    u32 total_string_bytes = 0u;
+    for (u32 i = 0u; i < arg_count; ++i) {
+        const u32 kind = static_cast<u32>(args[i].kind);
+        if (kind > static_cast<u32>(EScriptValueKind::Handle)) {
+            return ACS_ERR(Generic, script_err::kSub_InvalidArg,
+                           "FScriptHost::CallGlobalFunction: invalid argument kind");
+        }
+        if (args[i].kind == EScriptValueKind::String) {
+            u32 string_length = 0u;
+            const u32 remaining =
+                kMaxScriptStringArgumentBytes - total_string_bytes;
+            if (!TryGetBoundedLength(args[i].v.str, remaining, string_length)) {
+                return ACS_ERR(Generic, script_err::kSub_ArgumentLimit,
+                               "FScriptHost::CallGlobalFunction: string argument limit exceeded");
+            }
+            total_string_bytes += string_length;
+        }
+    }
+
+    FScriptValue staged_return{};
+    TResult<void> r = m_Vm->CallFunction(
+        function_name,
+        args,
+        arg_count,
+        ret_out != nullptr ? &staged_return : nullptr);
     if (r.IsErr()) {
         FireError(function_name, 0, r.Error().message);
+        return r;
+    }
+    if (ret_out != nullptr) {
+        *ret_out = staged_return;
     }
     return r;
 }
@@ -327,47 +469,68 @@ TResult<void> FScriptHost::RegisterNative(const char*    function_name,
         return ACS_ERR(Generic, script_err::kSub_NoVm,
                        "FScriptHost::RegisterNative: vm not initialized (call Init(vm) first)");
     }
-    if (function_name == nullptr || fn == nullptr) {
+    u32 function_name_length = 0u;
+    if (fn == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_InvalidArg,
-                       "FScriptHost::RegisterNative: function_name or fn is null");
+                       "FScriptHost::RegisterNative: fn is null");
+    }
+    if (!TryGetBoundedLength(function_name,
+                             kMaxScriptFunctionNameBytes,
+                             function_name_length) ||
+        function_name_length == 0u) {
+        return ACS_ERR(Generic, script_err::kSub_InvalidName,
+                       "FScriptHost::RegisterNative: invalid function name");
     }
 
-    // 同名既登録なら entry を上書きする (= 内部 registry は名前ユニーク前提)。
-    bool replaced = false;
-    for (u32 i = 0; i < m_Natives.Size(); ++i) {
+    usize existing_index = static_cast<usize>(-1);
+    for (usize i = 0u; i < m_Natives.Size(); ++i) {
         if (CStrEquals(m_Natives[i].name, function_name)) {
-            m_Natives[i].fn   = fn;
-            m_Natives[i].user = user;
-            replaced         = true;
+            existing_index = i;
             break;
         }
     }
 
-    // vm 側にも登録 (backend が同名上書きをどう扱うかは backend 依存)。
-    TResult<void> r = m_Vm->RegisterNativeFunction(function_name, fn, user);
-    if (r.IsErr()) {
-        // backend 失敗時は本 host の registry にも追加しない (= 巻き戻し)。
-        // 既に上書き済みだった場合は中途半端な状態を避けるため、巻き戻しは
-        // 行わない (上書き前に snapshot を取るコストが見合わない)。warn ログ
-        // だけ残す。
-        if (!replaced) {
-            ACS_LOG_WARN("FScriptHost::RegisterNative: backend rejected '%s' (not cached)",
-                         function_name);
-        } else {
-            ACS_LOG_WARN("FScriptHost::RegisterNative: backend rejected '%s' but local cache was overwritten",
-                         function_name);
+    const bool replacing = existing_index != static_cast<usize>(-1);
+    FNativeEntry previous{};
+    if (replacing) {
+        previous = m_Natives[existing_index];
+        m_Natives[existing_index].fn = fn;
+        m_Natives[existing_index].user = user;
+    } else {
+        if (m_Natives.Size() >= static_cast<usize>(kMaxScriptNativeFunctions)) {
+            return ACS_ERR(Container, script_err::kSub_RegistryLimit,
+                           "FScriptHost::RegisterNative: registry limit exceeded");
         }
-        FireError("<register>", 0, r.Error().message);
-        return r;
+        if (!m_Natives.TryReserve(m_Natives.Size() + 1u)) {
+            return ACS_ERR(Memory, script_err::kSub_AllocationFailed,
+                           "FScriptHost::RegisterNative: registry allocation failed");
+        }
+        FNativeEntry entry{};
+        for (u32 i = 0u; i <= function_name_length; ++i) {
+            entry.name[i] = function_name[i];
+        }
+        entry.fn = fn;
+        entry.user = user;
+        if (!m_Natives.TryPushBack(entry)) {
+            return ACS_ERR(Memory, script_err::kSub_AllocationFailed,
+                           "FScriptHost::RegisterNative: registry append failed");
+        }
     }
 
-    // 新規 entry は末尾追加。
-    if (!replaced) {
-        NativeEntry e{};
-        e.name = function_name;
-        e.fn   = fn;
-        e.user = user;
-        m_Natives.PushBack(e);
+    const usize staged_index =
+        replacing ? existing_index : (m_Natives.Size() - 1u);
+    TResult<void> r =
+        m_Vm->RegisterNativeFunction(m_Natives[staged_index].name, fn, user);
+    if (r.IsErr()) {
+        if (replacing) {
+            m_Natives[existing_index] = previous;
+        } else {
+            m_Natives.PopBack();
+        }
+        ACS_LOG_WARN("FScriptHost::RegisterNative: backend rejected '%s'; cache rolled back",
+                     function_name);
+        FireError("<register>", 0, r.Error().message);
+        return r;
     }
     return Ok();
 }
@@ -398,6 +561,27 @@ void FScriptHost::RegisterStandardBindings() noexcept {
 /** RegisteredNativeCount の実装 (内部キャッシュの件数を返す)。 */
 u32 FScriptHost::RegisteredNativeCount() const noexcept {
     return static_cast<u32>(m_Natives.Size());
+}
+
+/** 登録済みnative functionを名前で取得する。 */
+bool FScriptHost::TryGetRegisteredNative(const char*     function_name,
+                                         NativeFunction& out_fn,
+                                         void*&          out_user) const noexcept {
+    u32 function_name_length = 0u;
+    if (!TryGetBoundedLength(function_name,
+                             kMaxScriptFunctionNameBytes,
+                             function_name_length) ||
+        function_name_length == 0u) {
+        return false;
+    }
+    for (usize i = 0u; i < m_Natives.Size(); ++i) {
+        if (CStrEquals(m_Natives[i].name, function_name)) {
+            out_fn = m_Natives[i].fn;
+            out_user = m_Natives[i].user;
+            return true;
+        }
+    }
+    return false;
 }
 
 /** SetOnErrorCallback の実装 (callback と user コンテキストを保存)。 */

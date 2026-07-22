@@ -25,20 +25,20 @@ int main() {
     FMeshCollider col;
     if (col.BuildFromMesh(*cube).IsErr()) { std::puts("cube: build FAILED"); return 2; }
 
-    const Aabb3 b   = col.Bounds();
+    const FAabb3 b   = col.Bounds();
     const f32   top = b.Max().y;
     const f32   right = b.Max().x;
 
     // 上から下へ中心を貫くレイ → 上面 (y=top) にヒット、法線 +Y
-    RayHit3 down = col.Raycast(Ray3{ {b.center.x, top + 4.0f, b.center.z}, {0, -1, 0} });
+    FRayHit3 down = col.Raycast(FRay3{ {b.center.x, top + 4.0f, b.center.z}, {0, -1, 0} });
     const bool hit_down = down.hit && Near(down.t, 4.0f, 0.01f) &&
                           Near(down.point.y, top, 0.01f) && down.normal.y > 0.9f;
 
     // 同じ起点で上向き (メッシュから離れる) → ヒットなし
-    const bool miss_up = !col.Raycast(Ray3{ {b.center.x, top + 4.0f, b.center.z}, {0, 1, 0} }).hit;
+    const bool miss_up = !col.Raycast(FRay3{ {b.center.x, top + 4.0f, b.center.z}, {0, 1, 0} }).hit;
 
     // 右から左 → 右面 (x=right) にヒット、法線 +X
-    RayHit3 side = col.Raycast(Ray3{ {right + 4.0f, b.center.y, b.center.z}, {-1, 0, 0} });
+    FRayHit3 side = col.Raycast(FRay3{ {right + 4.0f, b.center.y, b.center.z}, {-1, 0, 0} });
     const bool hit_side = side.hit && Near(side.point.x, right, 0.01f) && side.normal.x > 0.9f;
 
     const bool tri_ok = col.TriangleCount() == 12;   // cube = 6 面 × 2
@@ -55,7 +55,7 @@ int main() {
     TSharedPtr<FMeshAsset> sph = Primitive::MakeSphere(1.0f, 32, 16);
     FMeshCollider scol;
     if (scol.BuildFromMesh(*sph).IsErr()) { std::puts("sphere: build FAILED"); return 3; }
-    RayHit3 sh = scol.Raycast(Ray3{ {0, 5, 0}, {0, -1, 0} });
+    FRayHit3 sh = scol.Raycast(FRay3{ {0, 5, 0}, {0, -1, 0} });
     // 半径 1 の球の頂点 → 上端は y≈1 (三角形分割の誤差を許容)
     const bool sphere_ok = sh.hit && Near(sh.point.y, 1.0f, 0.05f) && sh.normal.y > 0.7f;
     std::printf("  sphere: tris=%u hit=%d y=%.3f ny=%.2f\n",

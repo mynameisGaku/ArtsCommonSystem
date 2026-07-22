@@ -2,19 +2,19 @@
 // GameFramework Pillar K — FInspectorSeam
 //
 // reflection-driven debug inspector の「シーム (seam)」インターフェース。
-// ゲーム内の任意のオブジェクト (Player / Enemy / FCamera / FSettings 等) が
+// ゲーム内の任意のオブジェクト (FPlayer / FEnemy / FCamera / FSettings 等) が
 // 自身のフィールドを `IInspectableProvider` 経由で公開し、上位レイヤ
 // (ImGui / ACS::Ui / 外部 DevTool) がそれを描画 / 編集する形を取る。
 //
 // 使い方:
-//   class Player : public acs::game::IInspectableProvider {
+//   class FPlayer : public acs::game::IInspectableProvider {
 //       f32  m_Speed = 5.0f;
 //       i32  m_Hp    = 100;
 //       bool m_bInvincible = false;
 //
 //       u32 ObjectCount() noexcept override { return 1; }
-//       InspectableObject GetObject(u32) noexcept override {
-//           static InspectableField fields[] = {
+//       FInspectableObject GetObject(u32) noexcept override {
+//           static FInspectableField fields[] = {
 //               { "speed",      EFieldKind::F32,  &m_Speed,      0, nullptr },
 //               { "hp",         EFieldKind::I32,  &m_Hp,         0, nullptr },
 //               { "invincible", EFieldKind::Bool, &m_bInvincible, 0, nullptr },
@@ -85,16 +85,16 @@ enum class EFieldKind : u8 {
     F32,
 
     /** acs::FVec2* を指す (描画側は data を FVec2* にキャスト)。 */
-    FVec2,
+    Vec2,
 
     /** acs::FVec3* を指す。 */
-    FVec3,
+    Vec3,
 
     /** acs::FVec4* を指す。 */
-    FVec4,
+    Vec4,
 
     /** const char** を指す (read-only 想定)。 */
-    FString,
+    String,
 
     /** i32* + enum_values[0..enum_value_count) のラベルを持つ。 */
     Enum,
@@ -107,10 +107,10 @@ enum class EFieldKind : u8 {
  * Provider が公開する 1 フィールド。
  *
  * @details
- * Provider が `InspectableObject` 経由で配列を返す 1 件。配列の寿命は
+ * Provider が `FInspectableObject` 経由で配列を返す 1 件。配列の寿命は
  * Provider が保持する (static / メンバ)。FInspectorSeam はコピーしない。
  */
-struct InspectableField {
+struct FInspectableField {
     /** フィールド表示名 (caller 所有、リテラル想定)。 */
     const char*  name             = nullptr;
 
@@ -128,11 +128,11 @@ struct InspectableField {
 };
 
 /**
- * Provider が公開する 1 オブジェクト (例: 1 体の Player、1 つの FCamera)。
+ * Provider が公開する 1 オブジェクト (例: 1 体の FPlayer、1 つの FCamera)。
  *
  * @details `fields` 配列の寿命は Provider 所有。
  */
-struct InspectableObject {
+struct FInspectableObject {
     /** クラス名相当 ("Player" 等)。 */
     const char*       type_name     = nullptr;
 
@@ -140,7 +140,7 @@ struct InspectableObject {
     const char*       instance_name = nullptr;
 
     /** 公開フィールド配列 (Provider 所有)。 */
-    InspectableField* fields        = nullptr;
+    FInspectableField* fields        = nullptr;
 
     /** fields の要素数。 */
     u32               field_count   = 0;
@@ -189,7 +189,7 @@ public:
      * @param index 取得するオブジェクトの添字。
      * @return index 番目の公開オブジェクト。
      */
-    virtual InspectableObject GetObject(u32 index) noexcept = 0;
+    virtual FInspectableObject GetObject(u32 index) noexcept = 0;
 
     /**
      * UI 側が field の値を書き換えた直後に呼ばれる通知フック。

@@ -66,7 +66,7 @@ u32 FCharacterCustomizer::FindIndex(const char* id) const noexcept {
     return kNotFound;
 }
 
-void FCharacterCustomizer::RegisterCosmetic(const CosmeticItem& item) noexcept {
+void FCharacterCustomizer::RegisterCosmetic(const FCosmeticItem& item) noexcept {
     // defensive: id == nullptr は意味を持たないので静かに弾く。
     if (item.id == nullptr) return;
 
@@ -97,7 +97,7 @@ bool FCharacterCustomizer::EquipCosmetic(const char* id) noexcept {
     if (idx == kNotFound)  return false;     // 未登録は失敗
     if (!m_Unlocked[idx])   return false;     // 未 unlock は装着不可 (倫理: ストア未購入を装着しない)
 
-    const CosmeticItem& item = m_Items[idx];
+    const FCosmeticItem& item = m_Items[idx];
     const u32 slot_idx = SlotIndex(item.slot);
     if (slot_idx == kNotFound) return false;  // 不正 slot 値 (将来 enum 拡張時の保険)
 
@@ -165,13 +165,13 @@ u32 FCharacterCustomizer::CountInSlot(ECosmeticSlot slot) const noexcept {
     return c;
 }
 
-const CosmeticItem* FCharacterCustomizer::FindCosmetic(const char* id) const noexcept {
+const FCosmeticItem* FCharacterCustomizer::FindCosmetic(const char* id) const noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return nullptr;
     return &m_Items[idx];
 }
 
-const CosmeticItem* FCharacterCustomizer::AllCosmetics(u32& out_count) const noexcept {
+const FCosmeticItem* FCharacterCustomizer::AllCosmetics(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Items.Size());
     return m_Items.Data();
 }

@@ -20,7 +20,7 @@ using namespace acs;
 
 namespace hellopbr {
 
-void HelloPbrApp::OnStart() noexcept {
+void FHelloPbrApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -40,15 +40,15 @@ void HelloPbrApp::OnStart() noexcept {
     m_CamPos = FVec3{0, 2.0f, -7.5f};
 }
 
-void HelloPbrApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloPbrApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
     m_Time += dt;
 
     const f32 mv = 5.0f * dt, tr = 1.5f * dt;
-    if (Input::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
-    if (Input::IsKeyDown(EKey::Right)) m_CamYaw += tr;
-    if (Input::IsKeyDown(EKey::Up))    m_CamPitch -= tr * 0.8f;
-    if (Input::IsKeyDown(EKey::Down))  m_CamPitch += tr * 0.8f;
+    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw -= tr;
+    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw += tr;
+    if (FInput::IsKeyDown(EKey::Up))    m_CamPitch -= tr * 0.8f;
+    if (FInput::IsKeyDown(EKey::Down))  m_CamPitch += tr * 0.8f;
     const f32 limit = 0.45f * kPi;
     if (m_CamPitch >  limit) m_CamPitch =  limit;
     if (m_CamPitch < -limit) m_CamPitch = -limit;
@@ -56,14 +56,14 @@ void HelloPbrApp::OnUpdate(f32 dt) noexcept {
                  -Sin(m_CamPitch),
                   Cos(m_CamYaw) * Cos(m_CamPitch) };
     FVec3 right{ Cos(m_CamYaw), 0, -Sin(m_CamYaw) };
-    if (Input::IsKeyDown(EKey::W)) m_CamPos += forward * mv;
-    if (Input::IsKeyDown(EKey::S)) m_CamPos -= forward * mv;
-    if (Input::IsKeyDown(EKey::D)) m_CamPos += right   * mv;
-    if (Input::IsKeyDown(EKey::A)) m_CamPos -= right   * mv;
+    if (FInput::IsKeyDown(EKey::W)) m_CamPos += forward * mv;
+    if (FInput::IsKeyDown(EKey::S)) m_CamPos -= forward * mv;
+    if (FInput::IsKeyDown(EKey::D)) m_CamPos += right   * mv;
+    if (FInput::IsKeyDown(EKey::A)) m_CamPos -= right   * mv;
     m_Camera.SetLookAt(m_CamPos, m_CamPos + forward);
 }
 
-void HelloPbrApp::OnRender() noexcept {
+void FHelloPbrApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
 
@@ -75,7 +75,7 @@ void HelloPbrApp::OnRender() noexcept {
     lights[0].color     = FVec3{1.4f, 1.33f, 1.26f};
 
     // 旋回する点光源で highlight をハッキリ見せる
-    PointLight pts[1];
+    FPointLight pts[1];
     pts[0].position = FVec3{Sin(m_Time * 0.6f) * 4.0f, 1.5f,
                           Cos(m_Time * 0.6f) * 4.0f - 2.0f};
     pts[0].color    = FVec3{0.7f, 0.6f, 1.0f};
@@ -98,6 +98,7 @@ void HelloPbrApp::OnRender() noexcept {
     // 地面 (PBR で metallic=0, roughness=0.8 の灰色)
     m_Shader.SetObject(FMat4::Translation(FVec3{0, -0.6f, 0}),
                       FVec3{0.5f, 0.5f, 0.5f}, 0.0f, 0.8f, 1.0f);
+    cl->SetConstantBuffer(1, *m_Shader.PerObjectCB());
     cl->SetVertexBuffer(*m_GmPlane.vertex_buffer, m_GmPlane.vertex_stride);
     cl->SetIndexBuffer(*m_GmPlane.index_buffer);
     cl->DrawIndexed(m_GmPlane.index_count);
@@ -116,6 +117,7 @@ void HelloPbrApp::OnRender() noexcept {
             const f32 py = (static_cast<f32>(y) - (kGridSize - 1) * 0.5f) * kSpacing + 3.0f;
             m_Shader.SetObject(FMat4::Translation(FVec3{px, py, 2.0f}),
                               base, metallic, roughness, 1.0f);
+            cl->SetConstantBuffer(1, *m_Shader.PerObjectCB());
             cl->DrawIndexed(m_GmSphere.index_count);
         }
     }
@@ -136,12 +138,12 @@ void HelloPbrApp::OnRender() noexcept {
     }
 }
 
-void HelloPbrApp::OnShutdown() noexcept {
+void FHelloPbrApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Batch.Shutdown();
-    m_GmPlane  = GpuMesh{};
-    m_GmSphere = GpuMesh{};
+    m_GmPlane  = FGpuMesh{};
+    m_GmSphere = FGpuMesh{};
     m_Shader.Shutdown();
 }
 

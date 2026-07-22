@@ -12,9 +12,9 @@ using namespace acs;
 
 namespace helloibl {
 
-// HUD の各 overlay helper は HelloIblApp の private を直接触るため friend 宣言済み
-// (HelloIblApp.h)。匿名名前空間に入れると friend 一致しなくなるので namespace 直下に置く。
-void DrawBrdfLutOverlay(HelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
+// HUD の各 overlay helper は FHelloIblApp の private を直接触るため friend 宣言済み
+// (FHelloIblApp.h)。匿名名前空間に入れると friend 一致しなくなるので namespace 直下に置く。
+void DrawBrdfLutOverlay(FHelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
     if (!lut) return;
     app.m_Batch.DrawRect(static_cast<f32>(sw) - 280, 20,
                         260, 320, FVec4{0, 0, 0, 0.55f});
@@ -23,7 +23,7 @@ void DrawBrdfLutOverlay(HelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
                     240, 240);
 }
 
-void DrawSsrDebugOverlay(HelloIblApp& app, u32 sh) noexcept {
+void DrawSsrDebugOverlay(FHelloIblApp& app, u32 sh) noexcept {
     if (!app.m_ShowSsr || !app.m_Ssr.OutputTexture()) return;
     app.m_Batch.DrawRect(20, static_cast<f32>(sh) - 280,
                         420, 260, FVec4{0, 0, 0, 0.6f});
@@ -35,7 +35,7 @@ void DrawSsrDebugOverlay(HelloIblApp& app, u32 sh) noexcept {
     }
 }
 
-void DrawSsaoDebugOverlay(HelloIblApp& app, u32 sw, u32 sh) noexcept {
+void DrawSsaoDebugOverlay(FHelloIblApp& app, u32 sw, u32 sh) noexcept {
     if (!app.m_bUseSsao || !app.m_Ssao.OutputTexture()) return;
     const f32 ax = static_cast<f32>(sw) - 440;
     const f32 ay = static_cast<f32>(sh) - 280;
@@ -48,7 +48,7 @@ void DrawSsaoDebugOverlay(HelloIblApp& app, u32 sw, u32 sh) noexcept {
     }
 }
 
-void DrawStatusText(HelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
+void DrawStatusText(FHelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
     if (!app.m_Font.AtlasTexture()) return;
 
     char buf[160];
@@ -60,9 +60,9 @@ void DrawStatusText(HelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
         (app.m_CurrentPreset == 0) ? "Day" :
         (app.m_CurrentPreset == 1) ? "Sunset" :
         (app.m_CurrentPreset == 2) ? "Night" :
-        (app.m_CurrentPreset == 3) ? "Studio HDR" : "Hillaire FAtmosphere";
+        (app.m_CurrentPreset == 3) ? "Studio HDR" : "Hillaire Atmosphere";
     std::snprintf(buf, sizeof(buf),
-                  "Env preset: [%s]   (1/2/3 sky / 4 Studio HDR / 5 FAtmosphere)", preset);
+                  "Env preset: [%s]   (1/2/3 sky / 4 Studio HDR / 5 Atmosphere)", preset);
     app.m_Batch.DrawString(app.m_Font, buf, 20, 44, FVec4{0.85f, 0.95f, 1.0f, 1});
 
     const char* view_label = nullptr;
@@ -120,7 +120,7 @@ void DrawStatusText(HelloIblApp& app, IRhiTexture* lut, u32 sw) noexcept {
     }
 }
 
-void DrawHud(HelloIblApp& app, u32 sw, u32 sh) noexcept {
+void DrawHud(FHelloIblApp& app, u32 sw, u32 sh) noexcept {
     IRhiCommandList* cl = app.GetRenderer().CommandList();
     if (!cl) return;
 

@@ -12,7 +12,7 @@
 
 namespace hellotri {
 
-class HelloTriangleApp : public acs::FApplication {
+class FHelloTriangleApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;

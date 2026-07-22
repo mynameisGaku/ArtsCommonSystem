@@ -22,4 +22,4 @@
 // のため)。
 #include "AnimCurveApp.h"
 
-ACS_GAME_MAIN(helloac::AnimCurveApp)
+ACS_GAME_MAIN(helloac::FAnimCurveApp)

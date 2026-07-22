@@ -16,18 +16,18 @@
 #include "gameframework/tools/inspector/EditorToolbar.h"
 #include "gameframework/tools/inspector/SelectionService.h"
 
-namespace acs::game { class FGame; class FNode2D; }
+namespace acs::game { class FGame; class ANode; }
 
 namespace helloscene {
 
-class PanelLayout {
+class FPanelLayout {
 public:
-    PanelLayout() noexcept = default;
+    FPanelLayout() noexcept = default;
 
     void Init()     noexcept;
     void Shutdown() noexcept;
 
-    // Inspector 編集対象になる Provider を 1 つ登録 (典型: PlayerNode)。
+    // Inspector 編集対象になる Provider を 1 つ登録 (典型: APlayerNode)。
     // `node_id` はその provider が紐付く FNodeId。Inspector は選択 FNodeId から
     // node-keyed lookup で provider を逆引きするため、この紐付けが必須。
     // 複数登録したい場合は呼び出し側で繰り返す。
@@ -39,7 +39,7 @@ public:
 
     // 1 フレーム分の panel 描画。`game` は Toolbar が GetGame に渡す対象、
     // `root` は Hierarchy が辿るツリーのルート。
-    void DrawUI(acs::game::FGame& game, acs::game::FNode2D& root) noexcept;
+    void DrawUI(acs::game::FGame& game, acs::game::ANode& root) noexcept;
 
 private:
     acs::game::inspector::FHierarchyPanel   m_HierarchyPanel;

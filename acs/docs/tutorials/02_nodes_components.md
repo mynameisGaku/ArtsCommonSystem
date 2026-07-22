@@ -1,15 +1,16 @@
-# ノードツリー & コンポーネント (FNode2D / FComponent2D)
+# ノードツリー & コンポーネント (ANode / AComponent)
 
-ACS GameFramework のシーンは **`FNode2D` の親子ツリー** でできています。各ノードは `FTransform2D`（位置・回転・スケール）を持ち、振る舞いは **継承（`OnUpdate` を override）** か **コンポーネント合成（`AddComponent<T>()`）** のどちらでも書けます。「キャラやエフェクトを階層構造で並べたい」「Unity 風に `GetComponent<T>()` で部品を組み合わせたい」ときに使います。
+ACS GameFramework のシーンは **`ANode` の親子ツリー** でできています。各ノードは共通の `FTransform3D`（位置・回転・スケール）を持ち、2D ゲームでは `Position2D()` / `SetPosition2D()` などの射影ヘルパを使います。振る舞いは **継承（`OnUpdate` を override）** か **コンポーネント合成（`AddComponent<T>()`）** のどちらでも書けます。「キャラやエフェクトを階層構造で並べたい」「Unity 風に `GetComponent<T>()` で部品を組み合わせたい」ときに使います。
 
-- ヘッダ: `acs/src/gameframework/Node2D.h` / `Component2D.h` / `Transform2D.h`
+- ヘッダ: `acs/src/gameframework/ANode.h` / `AComponent.h` / `Transform3D.h` /
+  `Transform2D.h`
 - 名前空間: `acs::game`（`acs::f32` などの型は `acs` 直下）
 
 ---
 
 ## 最小例
 
-プレーンな `FNode2D` に「毎フレーム回す」コンポーネントを付ける、verified サンプル 28 の構成そのものです。
+プレーンな `ANode` に「毎フレーム回す」コンポーネントを付ける、verified サンプル 28 の構成そのものです。
 
 ```cpp
 #include "gameframework/GameFramework.h"
@@ -17,58 +18,66 @@ using namespace acs;
 using namespace acs::game;
 
 // --- 自作コンポーネント ---
-class RotateComponent : public FComponent2D {
+class ARotateComponent : public AComponent {
 public:
-    ACS_GAME_COMPONENT_KIND(RotateComponent)        // 型 ID を登録 (必須・1 行)
-    explicit RotateComponent(f32 speed_rps) noexcept : m_Speed(speed_rps) {}
+    ACS_GAME_COMPONENT_KIND(ARotateComponent)        // 型 ID を登録 (必須・1 行)
+    explicit ARotateComponent(f32 speed_rps) noexcept : m_Speed(speed_rps) {}
 
     void OnUpdate(f32 dt) noexcept override {
-        Owner().Local().rotation += m_Speed * dt;   // Owner() = 取り付け先 FNode2D
+        Owner().SetRotation2D(Owner().Rotation2D() + m_Speed * dt);
     }
 private:
     f32 m_Speed;
 };
 
-// --- ツリーを組む (シーンの OnEnter などで) ---
-FNode2D root;                                        // root は自前で持つ (Scene が握る)
+// --- ツリーを組む（FScene2D::OnReady などで）---
+void AddRotator(ANode& root) noexcept {
+    auto node = NewObject<ANode>();
+    node->SetPosition2D(FVec2{-10.0f, 0.0f});
+    ANode& child = root.AddChild(Move(node));       // 強参照を移す。戻り値は参照
+    child.AddComponent<ARotateComponent>(2.0f);    // 即 OnAttach が呼ばれる
+}
 
-auto node = MakeUnique<FNode2D>();
-node->Local().position = FVec2{-10.0f, 0.0f};
-FNode2D& n = root.AddChild(Move(node));              // 所有権を渡す。戻り値は参照
-n.AddComponent<RotateComponent>(/*speed_rps=*/2.0f); // 即 OnAttach が呼ばれる
-
-// --- 毎フレーム (root から 1 回ずつ) ---
-root.UpdateTree(dt);                 // subtree 全体の OnUpdate + コンポーネント OnUpdate
-root.ResolveStructuralChanges();     // Destroy/Reparent をフレーム境界で適用
+// FScene2D は次の走査を自動実行する。独自 root を使う場合だけ自分で呼ぶ。
+void TickRoot(ANode& root, f32 dt) noexcept {
+    root.UpdateTree(dt);
+    root.ResolveStructuralChanges();
+}
 ```
 
-ポイント: ノードは **non-copy / non-move**。必ず `MakeUnique<T>(...)` で作り `Move()` で `AddChild` に渡します。
+ポイント: 子ノードは **non-copy / non-move** です。`NewObject<T>(...)` が返す
+`TObjectPtr<T>` を `Move()` で `AddChild` に渡します。ノードの生成に `MakeUnique`
+は所有モデルが異なるため使いません。
 
 ---
 
 ## 主要API
 
-### FNode2D — ツリー操作
+### ANode — ツリー操作
 
 | API | 説明 |
 | --- | --- |
-| `FNode2D& AddChild(TUniquePtr<FNode2D> child)` | 子を追加し所有権を奪う。**即時に `OnSpawn`** を呼ぶ。戻り値は追加した子への参照（チェイン用） |
-| `FNode2D* Parent() const` | 親。root なら `nullptr` |
-| `u32 ChildCount() const` / `FNode2D* Child(u32 i)` | 子の数 / i 番目の子（範囲外は `nullptr`） |
+| `ANode& AddChild(TObjectPtr<ANode> child)` | 子を追加して強参照を保持する。**即時に `OnSpawn`** を呼ぶ。戻り値は追加した子への参照（チェイン用） |
+| `ANode* Parent() const` | 親。root なら `nullptr` |
+| `u32 ChildCount() const` / `ANode* Child(u32 i)` | 子の数 / i 番目の子（範囲外は `nullptr`） |
 | `void Destroy()` | 「破棄予定」マーク。実破棄は次の `ResolveStructuralChanges()`（子から先に reap → `OnDespawn`） |
 | `bool IsPendingDestroy() const` | 破棄予定か |
-| `void Reparent(FNode2D& new_parent)` | 別の親へ移動を**要求**（フレーム境界で適用）。`OnSpawn/OnDespawn` は呼ばれない |
+| `void Reparent(ANode& new_parent)` | 別の親へ移動を**要求**（フレーム境界で適用）。`OnSpawn/OnDespawn` は呼ばれない |
 
-### FNode2D — Transform / フラグ
+### ANode — Transform / フラグ
 
 | API | 説明 |
 | --- | --- |
-| `FTransform2D& Local()` | ローカル transform（真値）。`Local().position` 等を直接書き換える |
-| `FTransform2D World() const` | 親をたどって合成した world transform を**オンザフライ計算**（Phase 1 はキャッシュなし） |
+| `FTransform3D& Local()` | 2D/3D 共通のローカル transform（真値） |
+| `FTransform3D World() const` | 親をたどって合成した world transform をオンザフライ計算 |
+| `Position2D()` / `SetPosition2D()` | x,y を読み書きし、z を温存する |
+| `Rotation2D()` / `SetRotation2D()` | Z 軸回転を読み書きする |
+| `Scale2D()` / `SetScale2D()` | x,y を読み書きし、scale.z を温存する |
+| `Local2D()` / `World2D()` | 2D 描画向けの `FTransform2D` 射影を返す |
 | `void SetEnabled(bool)` / `bool IsEnabled()` | 無効ノードは subtree ごと update をスキップ |
 | `void SetVisible(bool)` / `bool IsVisible()` | 非可視ノードは subtree ごと draw をスキップ |
 
-### FNode2D — コンポーネント
+### ANode — コンポーネント
 
 | API | 説明 |
 | --- | --- |
@@ -79,36 +88,42 @@ root.ResolveStructuralChanges();     // Destroy/Reparent をフレーム境界�
 | `bool RemoveComponent<T>()` | 最初の `T` を 1 つ `OnDetach`→破棄。`true`=除去した |
 | `u32 ComponentCount() const` | コンポーネント数 |
 
-### FNode2D — root から呼ぶ走査
+### ANode — root から呼ぶ走査
 
 | API | 説明 |
 | --- | --- |
 | `void UpdateTree(f32 dt)` | subtree の `OnUpdate` とコンポーネント `OnUpdate` を伝播 |
 | `void FixedUpdateTree(f32 fixed_dt)` | 固定刻み `OnFixedUpdate` を伝播（`FGame` の fixed-step から呼ぶ） |
-| `void DrawTree(RenderContext& rc)` | subtree の描画（`OnDraw` → 子 → `OnDrawPostChildren`） |
+| `void DrawTree(FRenderContext& rc)` | subtree の描画（`OnDraw` → 子 → `OnDrawPostChildren`） |
 | `void ResolveStructuralChanges()` | `Destroy`/`Reparent` をまとめて適用。**毎フレーム 1 回**必須 |
 
-### FNode2D — ライフサイクル override
+### ANode — ライフサイクル override
 
-`OnSpawn()` / `OnUpdate(f32 dt)` / `OnFixedUpdate(f32 fixed_dt)` / `OnDraw(RenderContext&)` / `OnDespawn()` — 全て `noexcept` 必須、必要なものだけ override。
+`OnSpawn()` / `OnUpdate(f32 dt)` / `OnFixedUpdate(f32 fixed_dt)` / `OnDraw(FRenderContext&)` / `OnDespawn()` — 全て `noexcept` 必須、必要なものだけ override。
 
-### FComponent2D — ライフサイクル override
+### AComponent — ライフサイクル override
 
 | フック | 呼ばれるタイミング |
 | --- | --- |
-| `OnRequire(FNode2D& owner)` | `AddComponent` 内で **`OnAttach` の前に 1 回**。`owner.GetOrAddComponent<Dep>()` で依存を先に確保 |
-| `OnAttach(FNode2D& owner)` | attach 直後（owner ref はここで `_SetOwner` 済、以降 `Owner()` で取得） |
+| `OnRequire(ANode& owner)` | `AddComponent` 内で **`OnAttach` の前に 1 回**。`owner.GetOrAddComponent<Dep>()` で依存を先に確保 |
+| `OnAttach(ANode& owner)` | attach 直後（owner ref はここで `_SetOwner` 済、以降 `Owner()` で取得） |
 | `OnUpdate(f32 dt)` | ノードの `OnUpdate` の**後** |
 | `OnFixedUpdate(f32 fixed_dt)` | 固定刻み。catch-up で複数回、slow-down clamp で 0 回もあり |
-| `OnDraw(RenderContext&)` | ノードの `OnDraw` の後 |
-| `OnDrawPostChildren(RenderContext&)` | `OnDraw` と **子ツリー描画の後**（ステンシルマスク解除など） |
+| `OnDraw(FRenderContext&)` | ノードの `OnDraw` の後 |
+| `OnDrawPostChildren(FRenderContext&)` | `OnDraw` と **子ツリー描画の後**（ステンシルマスク解除など） |
 | `OnDetach()` | コンポーネント除去・ノード破棄時 |
 
-その他: `FNode2D& Owner()`（取り付け先）、`bool HasOwner()`、`const void* Kind()`（`ACS_GAME_COMPONENT_KIND` で実装）。
+その他: `ANode& Owner()`（取り付け先）、`bool HasOwner()`、`const void* Kind()`（`ACS_GAME_COMPONENT_KIND` で実装）。
 
-### FTransform2D
+### FTransform3D と 2D 射影
 
-`FVec2 position` / `f32 rotation`(ラジアン) / `FVec2 scale` の値型（20 byte）。
+`ANode` が保持する真値は `FTransform3D` です。`position` は `FVec3`、`rotation` は
+`FQuat`、`scale` は `FVec3` です。2D コードでは `Position2D()` /
+`SetPosition2D()`、`Rotation2D()` / `SetRotation2D()`、`Scale2D()` /
+`SetScale2D()` を使うと、未使用の Z 成分を壊しません。
+
+`Local2D()` / `World2D()` が返す `FTransform2D` は描画や当たり判定向けの値スナップショットで、
+`FVec2 position` / `f32 rotation`（ラジアン）/ `FVec2 scale` を持ちます。
 
 | API | 説明 |
 | --- | --- |
@@ -125,77 +140,87 @@ root.ResolveStructuralChanges();     // Destroy/Reparent をフレーム境界�
 ### 1. 親子で transform が伝播する「車輪とスポーク」（サンプル 28）
 
 ```cpp
-auto wheel_up = MakeUnique<RotatingNode>(/*speed=*/1.0f, "wheel");
-wheel_up->Local().position = FVec2{10.0f, 0.0f};
-FNode2D& wheel = root.AddChild(Move(wheel_up));     // root の子
+auto wheel_up = NewObject<ARotatingNode>(/*speed=*/1.0f, "wheel");
+wheel_up->SetPosition2D(FVec2{10.0f, 0.0f});
+ANode& wheel = root.AddChild(Move(wheel_up));     // root の子
 
-auto spoke_up = MakeUnique<RotatingNode>(/*speed=*/0.0f, "spoke");
-spoke_up->Local().position = FVec2{2.0f, 0.0f};     // wheel から見た相対位置
+auto spoke_up = NewObject<ARotatingNode>(/*speed=*/0.0f, "spoke");
+spoke_up->SetPosition2D(FVec2{2.0f, 0.0f});     // wheel から見た相対位置
 wheel.AddChild(Move(spoke_up));                      // wheel が回ると spoke も回る
 ```
-`wheel.Local().rotation` が変わると、子 `spoke` の `World()` は親回転 + 親位置を含めて再計算されます。
+`wheel.SetRotation2D(...)` で回転が変わると、子 `spoke` の `World2D()` は親回転と
+親位置を含めて再計算されます。
 
 ### 2. 継承 vs 合成、同じ動きを 2 通りで（サンプル 28）
 
 ```cpp
-// (a) 継承版: FNode2D を継承して OnUpdate を override
-class RotatingNode : public FNode2D {
+// (a) 継承版: ANode を継承して OnUpdate を override
+class ARotatingNode : public ANode {
 public:
-    void OnUpdate(f32 dt) noexcept override { Local().rotation += m_Speed * dt; }
+    void OnUpdate(f32 dt) noexcept override {
+        SetRotation2D(Rotation2D() + m_Speed * dt);
+    }
 };
 
-// (b) 合成版: プレーン FNode2D + RotateComponent (上の最小例)
-auto rotator = MakeUnique<FNode2D>();
-rotator->AddComponent<RotateComponent>(2.0f);
+// (b) 合成版: プレーン ANode + ARotateComponent (上の最小例)
+auto rotator = NewObject<ANode>();
+rotator->AddComponent<ARotateComponent>(2.0f);
 ```
 キャラ固有のロジックは継承、横展開する汎用部品（回転・点滅・物理）はコンポーネントが目安です。
 
 ### 3. 依存コンポーネントを自動で揃える（RequireComponent）
 
 ```cpp
-class FFollowComponent : public FComponent2D {
+class AFollowComponent : public AComponent {
 public:
-    ACS_GAME_COMPONENT_KIND(FFollowComponent)
-    void OnRequire(FNode2D& owner) noexcept override {
-        owner.GetOrAddComponent<FSprite2DComponent>(FVec2{1,1}, FVec4{1,1,1,1});
+    ACS_GAME_COMPONENT_KIND(AFollowComponent)
+    void OnRequire(ANode& owner) noexcept override {
+        owner.GetOrAddComponent<ASprite2DComponent>(FVec2{1,1}, FVec4{1,1,1,1});
     }
-    void OnAttach(FNode2D&) noexcept override {
+    void OnAttach(ANode&) noexcept override {
         // OnRequire で先に積まれているので、ここで必ず取れる
-        m_Sprite = Owner().GetComponent<FSprite2DComponent>();
+        m_Sprite = Owner().GetComponent<ASprite2DComponent>();
     }
 private:
-    FSprite2DComponent* m_Sprite = nullptr;
+    ASprite2DComponent* m_Sprite = nullptr;
 };
 ```
-`OnRequire` は `OnAttach` の前に走るので、依存先は `OnAttach`/`OnUpdate` から `GetComponent<Dep>()` で確実に取れます。
+`OnRequire` は `OnAttach` の前に走るので、attach 時点では依存先を確実に取得できます。
+ただし後から `RemoveComponent<Dep>()` できるため、生ポインタを保存する場合は依存先を
+動的に除去しない設計にするか、使用時に `GetComponent<Dep>()` で取り直してください。
 
 ### 4. 実コンポーネントで body を持たせる（サンプル 55）
 
 ```cpp
-auto player = MakeUnique<FNode2D>();
-player->Local().position = FVec2{0.0f, 0.0f};
-player->AddComponent<FSprite2DComponent>(FVec2{0.9f, 0.9f}, FVec4{0.15f, 0.85f, 1.0f, 1.0f});
-FPhysicsBody2D& body = player->AddComponent<FPhysicsBody2D>(physics);  // 参照を保持して操作
+auto player = NewObject<ANode>();
+player->SetPosition2D(FVec2{0.0f, 0.0f});
+player->AddComponent<ASprite2DComponent>(FVec2{0.9f, 0.9f}, FVec4{0.15f, 0.85f, 1.0f, 1.0f});
+APhysicsBody2D& body = player->AddComponent<APhysicsBody2D>(physics);  // 参照を保持して操作
 body.SetCircle(0.45f);
 body.gravity = FVec2{0.0f, 14.0f};   // +Y=画面下: 下向き重力は正の Y
-m_Player = &Root().AddChild(Move(player));   // 後で参照する用にポインタ控え
+m_Player = player;                   // TWeakObjectPtr<ANode> へ非所有参照を控える
+Root().AddChild(Move(player));        // 強参照はツリーへ移す
 ```
-`AddComponent` の戻り値（参照）を保持しておくと、毎フレーム `body.velocity.x = ...` のように直接いじれます。
+`AddComponent` の戻り値は owner ノードの生存中だけ有効です。長期間使うノード参照は
+`TWeakObjectPtr<ANode>` で保持し、`Get()` で生存確認してからコンポーネントを取り直すと安全です。
 
 ---
 
 ## 注意点 (gotcha)
 
-- **non-copy/non-move**: `FNode2D`/`FComponent2D` はコピー・ムーブ禁止。生成は必ず `MakeUnique<T>(...)`、参照は生 `FNode2D*`/`T&` で持つ。`AddChild` には `Move()` で渡す。
+- **non-copy/non-move**: `ANode`/`AComponent` はコピー・ムーブ禁止。子ノードは
+  `NewObject<T>(...)` で生成し、`AddChild` へ `Move()` する。ツリーは
+  `TObjectPtr<ANode>` で所有し、長期の外部参照には `TWeakObjectPtr<ANode>` を使う。
 - **`AddChild` は即 `OnSpawn`**（Phase 1 簡略化）。一方 `Destroy()` / `Reparent()` は**遅延**で、次の `ResolveStructuralChanges()` まで反映されない。`UpdateTree` の後に `ResolveStructuralChanges()` を毎フレーム呼ぶこと（サンプル 28 の `OnUpdate` 末尾参照）。
 - **走査中の追加と削除**: `UpdateTree`/`DrawTree` は index ベース。走査中に `AddChild` された子は同フレームで走る（Unity 互換）。`Destroy` は遅延 reap なので走査中に即時除去はされない。
 - **`World()` はキャッシュなし**（Phase 1）。深い階層で毎フレーム何度も呼ぶとコストがかさむ。ループ内で使うなら一度ローカル変数に取る。
-- **回転はラジアン**。`FTransform2D::rotation` は度ではない。
+- **2D 回転はラジアン**。`Rotation2D()` / `SetRotation2D()` は度ではない。
 - **`AddComponent` の戻り値を捨てない**: 後でいじるコンポーネントは戻り値の参照（またはアドレス）を控える。`GetComponent<T>()` で取り直すこともできるが、最初の一致しか返さない線形探索。
+- **コンポーネントは owner が単独所有**: `ANode` は各 `AComponent` を `TUniquePtr` で保持する。参照や生ポインタは寿命を延ばさず、`RemoveComponent` または owner 破棄後は無効。
 - **`Reparent` の制約**: `new_parent == nullptr`、自分自身、または自分の子孫を指定すると **cycle 検出で警告ログ + 無視**。`OnSpawn/OnDespawn` は呼ばれない（生きたまま移動）。
 - **`ACS_GAME_COMPONENT_KIND(T)` を忘れない**: これが `Kind()` を実装し、`GetComponent<T>()` の型判定に使われる。書き忘れると純粋仮想のままコンパイルエラー。
 - **同じ型を複数 attach 可**: 例えば点滅タイマーを 2 つ。`GetComponent<T>()` は**最初の一致**だけ返す。
-- **`World()` の合成順**は `parent.Compose(local)`。`local` を `parent` に対して `Compose` するのではない点に注意（規約は `Transform2D.h` 冒頭コメント）。
+- **`World()` の合成順**は `parent.Compose(local)`。`local` を `parent` に対して `Compose` するのではない点に注意（規約は `Transform3D.h` 冒頭コメント）。
 
 ---
 
@@ -205,6 +230,6 @@ m_Player = &Root().AddChild(Move(player));   // 後で参照する用にポイ�
 | --- | --- |
 | 継承ノード + 自作コンポーネント + 親子 transform 伝播 | `acs/samples/28_HelloGameFramework/`（特に `GameplayScene.cpp`, `RotateComponent.{h,cpp}`, `RotatingNode.{h,cpp}`） |
 | `FScene2D` 上で sprite + physics body を組む実用スターター | `acs/samples/55_HelloScene2D/Scene2DStarter.cpp` |
-| エフェクト系コンポーネント（`FWater2DComponent`/`FFire2DComponent`/`FTrail2DComponent`）を `AddComponent` する例 | `acs/samples/59_HelloEffects2D/EffectsDemo.cpp` |
+| エフェクト系コンポーネント（`AWater2DComponent`/`AFire2DComponent`/`ATrail2DComponent`）を `AddComponent` する例 | `acs/samples/59_HelloEffects2D/EffectsDemo.cpp` |
 
 上記 3 サンプルはいずれも実機ビルド + スクリーンショット確認済みです。

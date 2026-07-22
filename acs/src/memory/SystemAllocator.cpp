@@ -144,7 +144,7 @@ void EmitDestroyedWithLiveAllocations(const FSystemAllocator* Allocator, u64 All
 constexpr u64 kAllocationHeaderMagic = 0x414353535953544Dull;
 
 /** ユーザポインタ直前に置く所有権・回収情報。 */
-struct AllocationHeader {
+struct FAllocationHeader {
     u64 magic = 0;
     FSystemAllocator* owner = nullptr;
     u64 owner_generation = 0;
@@ -165,7 +165,7 @@ enum class EAlignedFreeResult : u8 {
 };
 
 /** 解放試行の診断値。失敗時もヘッダを再読せず機械可読ログへ渡す。 */
-struct AlignedFreeDetails {
+struct FAlignedFreeDetails {
     usize freed_size = 0;
     DWORD operating_system_error = ERROR_SUCCESS;
     const FSystemAllocator* actual_owner = nullptr;
@@ -174,7 +174,7 @@ struct AlignedFreeDetails {
 
 /** 解放拒否や HeapFree 失敗を Logger 非依存で機械可読出力する。 */
 void EmitFreeFailure(const FSystemAllocator* Allocator, u64 AllocatorGeneration, const void* Pointer,
-                     const AlignedFreeDetails& Details, EAlignedFreeResult Result) noexcept
+                     const FAlignedFreeDetails& Details, EAlignedFreeResult Result) noexcept
 {
     const char* Reason = "unknown";
     if (Result == EAlignedFreeResult::InvalidMetadata) {
@@ -216,7 +216,7 @@ void EmitFreeFailure(const FSystemAllocator* Allocator, u64 AllocatorGeneration,
 
 /** 再確保の所有権拒否や旧領域解放失敗を Logger 非依存で機械可読出力する。 */
 void EmitReallocationFailure(const FSystemAllocator* Allocator, u64 AllocatorGeneration, const void* Pointer,
-                             const AlignedFreeDetails& Details, EAlignedFreeResult Result) noexcept
+                             const FAlignedFreeDetails& Details, EAlignedFreeResult Result) noexcept
 {
     const char* Reason = "invalid_metadata";
     if (Result == EAlignedFreeResult::OwnerMismatch) {
@@ -275,7 +275,7 @@ void* AlignedAlloc(usize Size, usize Alignment, FSystemAllocator* Owner, u64 Own
         ActualSize = 0;
         return nullptr;
     }
-    const usize MinimumAlignment = alignof(AllocationHeader) > sizeof(void*) ? alignof(AllocationHeader)
+    const usize MinimumAlignment = alignof(FAllocationHeader) > sizeof(void*) ? alignof(FAllocationHeader)
                                                                              : sizeof(void*);
     if (Alignment < MinimumAlignment) {
         Alignment = MinimumAlignment;
@@ -283,12 +283,12 @@ void* AlignedAlloc(usize Size, usize Alignment, FSystemAllocator* Owner, u64 Own
 
     const usize MaximumSize = ~usize(0);
     const usize AlignmentSlack = Alignment - 1u;
-    if (AlignmentSlack > MaximumSize - sizeof(AllocationHeader) ||
-        Size > MaximumSize - sizeof(AllocationHeader) - AlignmentSlack) {
+    if (AlignmentSlack > MaximumSize - sizeof(FAllocationHeader) ||
+        Size > MaximumSize - sizeof(FAllocationHeader) - AlignmentSlack) {
         ActualSize = 0;
         return nullptr;
     }
-    const usize RawSize = Size + sizeof(AllocationHeader) + AlignmentSlack;
+    const usize RawSize = Size + sizeof(FAllocationHeader) + AlignmentSlack;
     void* Raw = ::HeapAlloc(::GetProcessHeap(), 0, RawSize);
     if (!Raw) {
         ActualSize = 0;
@@ -296,12 +296,12 @@ void* AlignedAlloc(usize Size, usize Alignment, FSystemAllocator* Owner, u64 Own
     }
 
     const uptr RawAddress = reinterpret_cast<uptr>(Raw);
-    if (RawAddress > MaximumSize - sizeof(AllocationHeader)) {
+    if (RawAddress > MaximumSize - sizeof(FAllocationHeader)) {
         (void)::HeapFree(::GetProcessHeap(), 0, Raw);
         ActualSize = 0;
         return nullptr;
     }
-    const uptr AlignmentBase = RawAddress + sizeof(AllocationHeader);
+    const uptr AlignmentBase = RawAddress + sizeof(FAllocationHeader);
     if (AlignmentBase > MaximumSize - AlignmentSlack) {
         (void)::HeapFree(::GetProcessHeap(), 0, Raw);
         ActualSize = 0;
@@ -309,8 +309,8 @@ void* AlignedAlloc(usize Size, usize Alignment, FSystemAllocator* Owner, u64 Own
     }
 
     const uptr AlignedAddress = (AlignmentBase + AlignmentSlack) & ~static_cast<uptr>(AlignmentSlack);
-    const uptr HeaderAddress = AlignedAddress - sizeof(AllocationHeader);
-    auto* Header = ::new (reinterpret_cast<void*>(HeaderAddress)) AllocationHeader{};
+    const uptr HeaderAddress = AlignedAddress - sizeof(FAllocationHeader);
+    auto* Header = ::new (reinterpret_cast<void*>(HeaderAddress)) FAllocationHeader{};
     Header->magic = kAllocationHeaderMagic;
     Header->owner = Owner;
     Header->owner_generation = OwnerGeneration;
@@ -322,24 +322,24 @@ void* AlignedAlloc(usize Size, usize Alignment, FSystemAllocator* Owner, u64 Own
 }
 
 /** 正規ポインタ直前のヘッダと、確保範囲内に収まる要求サイズを検証する。 */
-const AllocationHeader* ValidateAllocationHeader(const void* Pointer) noexcept
+const FAllocationHeader* ValidateAllocationHeader(const void* Pointer) noexcept
 {
     if (!Pointer) {
         return nullptr;
     }
 
     const uptr PointerAddress = reinterpret_cast<uptr>(Pointer);
-    if (PointerAddress < sizeof(AllocationHeader)) {
+    if (PointerAddress < sizeof(FAllocationHeader)) {
         return nullptr;
     }
-    const uptr HeaderAddress = PointerAddress - sizeof(AllocationHeader);
-    if ((HeaderAddress & (alignof(AllocationHeader) - 1u)) != 0) {
+    const uptr HeaderAddress = PointerAddress - sizeof(FAllocationHeader);
+    if ((HeaderAddress & (alignof(FAllocationHeader) - 1u)) != 0) {
         return nullptr;
     }
 
-    const auto* Header = reinterpret_cast<const AllocationHeader*>(HeaderAddress);
+    const auto* Header = reinterpret_cast<const FAllocationHeader*>(HeaderAddress);
     if (Header->magic != kAllocationHeaderMagic || !Header->owner || !Header->allocation_base ||
-        Header->owner_generation == 0 || Header->allocation_size < sizeof(AllocationHeader) ||
+        Header->owner_generation == 0 || Header->allocation_size < sizeof(FAllocationHeader) ||
         Header->requested_size == 0) {
         return nullptr;
     }
@@ -349,10 +349,10 @@ const AllocationHeader* ValidateAllocationHeader(const void* Pointer) noexcept
         return nullptr;
     }
     const usize HeaderOffset = static_cast<usize>(HeaderAddress - AllocationAddress);
-    if (HeaderOffset > Header->allocation_size || sizeof(AllocationHeader) > Header->allocation_size - HeaderOffset) {
+    if (HeaderOffset > Header->allocation_size || sizeof(FAllocationHeader) > Header->allocation_size - HeaderOffset) {
         return nullptr;
     }
-    const usize UserOffset = HeaderOffset + sizeof(AllocationHeader);
+    const usize UserOffset = HeaderOffset + sizeof(FAllocationHeader);
     if (Header->requested_size > Header->allocation_size - UserOffset) {
         return nullptr;
     }
@@ -369,14 +369,14 @@ const AllocationHeader* ValidateAllocationHeader(const void* Pointer) noexcept
  * @return 解放結果。
  */
 EAlignedFreeResult AlignedFree(FSystemAllocator* Allocator, u64 AllocatorGeneration, void* Pointer,
-                               AlignedFreeDetails& Details) noexcept
+                               FAlignedFreeDetails& Details) noexcept
 {
-    Details = AlignedFreeDetails{};
+    Details = FAlignedFreeDetails{};
     if (!Pointer) {
         return EAlignedFreeResult::NullPointer;
     }
 
-    const AllocationHeader* const Header = ValidateAllocationHeader(Pointer);
+    const FAllocationHeader* const Header = ValidateAllocationHeader(Pointer);
     if (!Header) {
         return EAlignedFreeResult::InvalidMetadata;
     }
@@ -457,9 +457,9 @@ FSystemAllocator::~FSystemAllocator() noexcept
     }
 }
 
-SystemAllocatorProcessStatistics FSystemAllocator::CaptureProcessStatistics() noexcept
+FSystemAllocatorProcessStatistics FSystemAllocator::CaptureProcessStatistics() noexcept
 {
-    SystemAllocatorProcessStatistics Statistics;
+    FSystemAllocatorProcessStatistics Statistics;
     ::AcquireSRWLockShared(&g_system_allocator_registry_lock);
     Statistics.live_allocator_count = g_live_system_allocator_count;
     Statistics.destroyed_with_live_allocations_count = g_destroyed_with_live_allocations_count;
@@ -495,7 +495,7 @@ void* FSystemAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location
 void FSystemAllocator::Free(void* Pointer) noexcept
 {
     if (!Pointer) return;
-    AlignedFreeDetails Details;
+    FAlignedFreeDetails Details;
     const EAlignedFreeResult Result = AlignedFree(this, m_Generation, Pointer, Details);
     if (Result != EAlignedFreeResult::Success) {
         EmitFreeFailure(this, m_Generation, Pointer, Details, Result);
@@ -513,9 +513,9 @@ void* FSystemAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usi
         return Alloc(NewSize, Alignment, Location);
     }
 
-    const AllocationHeader* const Header = ValidateAllocationHeader(Pointer);
+    const FAllocationHeader* const Header = ValidateAllocationHeader(Pointer);
     if (!Header || Header->owner != this || Header->owner_generation != m_Generation) {
-        AlignedFreeDetails Details;
+        FAlignedFreeDetails Details;
         EAlignedFreeResult FailureResult = EAlignedFreeResult::InvalidMetadata;
         if (Header) {
             Details.actual_owner = Header->owner;
@@ -528,7 +528,7 @@ void* FSystemAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usi
     }
 
     if (NewSize == 0) {
-        AlignedFreeDetails Details;
+        FAlignedFreeDetails Details;
         const EAlignedFreeResult FreeResult = AlignedFree(this, m_Generation, Pointer, Details);
         if (FreeResult != EAlignedFreeResult::Success) {
             EmitReallocationFailure(this, m_Generation, Pointer, Details, FreeResult);
@@ -546,7 +546,7 @@ void* FSystemAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usi
     }
     MemCopy(Replacement, Pointer, PreviousRequestedSize < NewSize ? PreviousRequestedSize : NewSize);
 
-    AlignedFreeDetails Details;
+    FAlignedFreeDetails Details;
     const EAlignedFreeResult FreeResult = AlignedFree(this, m_Generation, Pointer, Details);
     if (FreeResult != EAlignedFreeResult::Success) {
         Free(Replacement);

@@ -8,13 +8,13 @@
 //   ・RevokeConsent(Required) も同様
 //   ・HasConsent(Required) は仕様により常に true
 //
-// Save/Load は FSaveSlot<ConsentStatus> 経由でローカルにバイナリ永続化する。
+// Save/Load は TSaveSlot<ConsentStatus> 経由でローカルにバイナリ永続化する。
 // GDPR/CCPA の同意情報は端末ローカルに保持する性質のものなので、プラット
 // フォーム backend は不要 (クラウド同期は将来の別案件)。永続化単位は
 // ConsentStatus 構造体単体 (POD として完結している)。
 #include "gameframework/PrivacyDirector.h"
 
-#include "gameframework/SaveSlot.h"   // FSaveSlot<T> (FSaveArchive 経由の永続化)
+#include "gameframework/SaveSlot.h"   // TSaveSlot<T> (FSaveArchive 経由の永続化)
 
 namespace acs::game {
 
@@ -140,7 +140,7 @@ u32 FPrivacyDirector::CurrentPolicyVersion() const noexcept {
 /** 全状態を初期化前に戻す (テスト・デバッグ用)。 */
 void FPrivacyDirector::Reset() noexcept {
     // テスト用。本番フローでは呼ばない。
-    _status                 = ConsentStatus{};
+    _status                 = FConsentStatus{};
     m_CurrentPolicyVersion = 0;
     m_Initialized            = false;
     m_bInitialConsentShown  = false;
@@ -162,10 +162,10 @@ TResult<void> FPrivacyDirector::SaveConsent(const wchar_t* file_path) noexcept {
     // ことが stored < current として検出できる)。
     _status.policy_version = m_CurrentPolicyVersion;
 
-    // ConsentStatus は POD (enum / u64 / u32 のみ) なので FSaveSlot にそのまま
+    // ConsentStatus は POD (enum / u64 / u32 のみ) なので TSaveSlot にそのまま
     // 委譲できる。Save 内部で FSaveArchive が 24B header + payload + CRC32 を
     // little-endian で書き出す。
-    FSaveSlot<ConsentStatus> slot;
+    TSaveSlot<FConsentStatus> slot;
     slot.Init(file_path);
     return slot.Save(_status, kConsentSchemaVersion);
 }
@@ -181,7 +181,7 @@ TResult<void> FPrivacyDirector::LoadConsent(const wchar_t* file_path) noexcept {
                        "FPrivacyDirector::LoadConsent called before Init()");
     }
 
-    FSaveSlot<ConsentStatus> slot;
+    TSaveSlot<FConsentStatus> slot;
     slot.Init(file_path);
 
     // ファイルが無いのは「初回起動」= エラーではない。_status は Required のみの

@@ -75,7 +75,7 @@ void FParticleEditorPanel::AddEmitter() noexcept {
         // 上限到達は silent no-op (UI からは Add ボタンが見えていても安全)。
         return;
     }
-    ParticleEmitterDef def {};
+    FParticleEmitterDef def {};
     // default で全くパラメータが無いと放出されないため、初学者にも見やすい
     // 「火花っぽい」プリセットを入れる。手で調整する前提の出発点。
     def.lifetime_sec       = 0.8f;
@@ -131,7 +131,7 @@ void FParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
     const usize src = static_cast<usize>(m_Selected);
     // 末尾に PushBack してから 1 個ずつ後ろにシフトして挿入位置を空ける。
     // src+1 番目に挿入したい。
-    const ParticleEmitterDef copy   = m_Emitters[src];          // 値コピー
+    const FParticleEmitterDef copy   = m_Emitters[src];          // 値コピー
     const f32                spread = m_ExtraSpreadRadians[src];
     m_Emitters.PushBack(copy);
     m_ExtraSpreadRadians.PushBack(spread);
@@ -177,13 +177,13 @@ u32 FParticleEditorPanel::EmitterCount() const noexcept {
 }
 
 /** index 番目の emitter def を返す (read-only、範囲外は nullptr)。 */
-const ParticleEmitterDef* FParticleEditorPanel::GetEmitterDef(i32 index) const noexcept {
+const FParticleEmitterDef* FParticleEditorPanel::GetEmitterDef(i32 index) const noexcept {
     if (!IsValidIndex(index, static_cast<u32>(m_Emitters.Size()))) return nullptr;
     return &m_Emitters[static_cast<usize>(index)];
 }
 
 /** index 番目の emitter def を返す (mutable、範囲外は nullptr)。 */
-ParticleEmitterDef* FParticleEditorPanel::GetEmitterDefMutable(i32 index) noexcept {
+FParticleEmitterDef* FParticleEditorPanel::GetEmitterDefMutable(i32 index) noexcept {
     if (!IsValidIndex(index, static_cast<u32>(m_Emitters.Size()))) return nullptr;
     return &m_Emitters[static_cast<usize>(index)];
 }
@@ -214,12 +214,12 @@ void FParticleEditorPanel::DrawUI() noexcept {
     // editor 内の emitter 数と system 側の真の emitter 数は別物だが、
     // particle 数は system が真値なので分けて表示する。
     if (m_TargetSystem != nullptr) {
-        ImGui::Text("Editor Emitters: %u / %u    Live FParticles: %u",
+        ImGui::Text("Editor Emitters: %u / %u    Live Particles: %u",
                     static_cast<unsigned>(m_Emitters.Size()),
                     static_cast<unsigned>(kMaxEmitters),
                     static_cast<unsigned>(m_TargetSystem->ActiveParticleCount()));
     } else {
-        ImGui::Text("Editor Emitters: %u / %u    Live FParticles: (no system attached)",
+        ImGui::Text("Editor Emitters: %u / %u    Live Particles: (no system attached)",
                     static_cast<unsigned>(m_Emitters.Size()),
                     static_cast<unsigned>(kMaxEmitters));
     }
@@ -309,7 +309,7 @@ void FParticleEditorPanel::DrawUI() noexcept {
         if (!IsValidIndex(m_Selected, count)) {
             ImGui::TextDisabled("(No emitter selected)");
         } else {
-            ParticleEmitterDef& def = m_Emitters[static_cast<usize>(m_Selected)];
+            FParticleEmitterDef& def = m_Emitters[static_cast<usize>(m_Selected)];
             ImGui::Text("Selected: idx=%d", static_cast<int>(m_Selected));
             ImGui::Separator();
 

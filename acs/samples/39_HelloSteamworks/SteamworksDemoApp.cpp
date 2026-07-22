@@ -13,13 +13,13 @@ namespace hellosteam {
 
 using namespace acs;
 
-void SteamworksDemoApp::SetStatus(const char* msg) noexcept {
+void FSteamworksDemoApp::SetStatus(const char* msg) noexcept {
     std::strncpy(m_StatusLine, msg, sizeof(m_StatusLine) - 1);
     m_StatusLine[sizeof(m_StatusLine) - 1] = 0;
     ACS_LOG_INFO("[Steamworks demo] %s", m_StatusLine);
 }
 
-void SteamworksDemoApp::OnStart() noexcept {
+void FSteamworksDemoApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -36,39 +36,39 @@ void SteamworksDemoApp::OnStart() noexcept {
         m_bUsingReal = true;
         SetStatus("Real Steamworks backend initialized");
     } else {
-        m_Social     = &acs::game::SteamworksBridgeStub::GetStub();
+        m_Social     = &acs::game::FSteamworksBridgeStub::GetStub();
         (void)m_Social->Init();
         m_bUsingReal = false;
         SetStatus("Real init failed -> fell back to Stub (Steam client?)");
     }
 #else
-    m_Social     = &acs::game::SteamworksBridgeStub::GetStub();
+    m_Social     = &acs::game::FSteamworksBridgeStub::GetStub();
     (void)m_Social->Init();
     m_bUsingReal = false;
     SetStatus("Stub backend (build with ACS_BUILD_STEAMWORKS=ON for real)");
 #endif
 
     // local player 取得
-    const acs::game::PlayerIdentity me = m_Social->GetLocalPlayer();
+    const acs::game::FPlayerIdentity me = m_Social->GetLocalPlayer();
     std::snprintf(m_PlayerLine, sizeof(m_PlayerLine), "Player: %s  (id=%s)",
                   me.display_name ? me.display_name : "?",
                   me.platform_id  ? me.platform_id  : "?");
 }
 
-void SteamworksDemoApp::OnUpdate(f32 dt) noexcept {
+void FSteamworksDemoApp::OnUpdate(f32 dt) noexcept {
     if (!m_Social) return;
     m_Social->Tick(dt);  // 必須: callback ポンプ
 
-    if (Input::IsKeyPressed(EKey::Escape)) { Quit(); return; }
+    if (FInput::IsKeyPressed(EKey::Escape)) { Quit(); return; }
 
-    if (Input::IsKeyPressed(EKey::Num1)) {
+    if (FInput::IsKeyPressed(EKey::Num1)) {
         if (auto r = m_Social->UnlockAchievement("ACH_WIN_ONE_GAME"); r.IsOk()) {
             SetStatus("UnlockAchievement(ACH_WIN_ONE_GAME) OK");
         } else {
             SetStatus("UnlockAchievement failed (stub or no Steam)");
         }
     }
-    if (Input::IsKeyPressed(EKey::Num2)) {
+    if (FInput::IsKeyPressed(EKey::Num2)) {
         if (auto g = m_Social->GetStat("demo_clicks"); g.IsOk()) {
             const i64 next = g.Value() + 1;
             if (m_Social->SetStat("demo_clicks", next).IsOk()) {
@@ -83,7 +83,7 @@ void SteamworksDemoApp::OnUpdate(f32 dt) noexcept {
             SetStatus("GetStat failed (stub or no Steam)");
         }
     }
-    if (Input::IsKeyPressed(EKey::Num3)) {
+    if (FInput::IsKeyPressed(EKey::Num3)) {
         m_LastScore += 100;
         if (m_Social->SetLeaderboardScore("demo_board", m_LastScore).IsOk()) {
             char buf[96];
@@ -94,7 +94,7 @@ void SteamworksDemoApp::OnUpdate(f32 dt) noexcept {
             SetStatus("SetLeaderboardScore failed");
         }
     }
-    if (Input::IsKeyPressed(EKey::Num4)) {
+    if (FInput::IsKeyPressed(EKey::Num4)) {
         const char* payload = "ACS Steamworks demo save v1";
         if (m_Social->CloudWriteFile("save.dat", payload,
                                      static_cast<u32>(std::strlen(payload))).IsOk()) {
@@ -105,7 +105,7 @@ void SteamworksDemoApp::OnUpdate(f32 dt) noexcept {
     }
 }
 
-void SteamworksDemoApp::OnRender() noexcept {
+void FSteamworksDemoApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
@@ -144,7 +144,7 @@ void SteamworksDemoApp::OnRender() noexcept {
     m_Batch.End();
 }
 
-void SteamworksDemoApp::OnShutdown() noexcept {
+void FSteamworksDemoApp::OnShutdown() noexcept {
     if (m_Social) m_Social->Shutdown();
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     if (m_bFontReady) {

@@ -10,13 +10,13 @@ using namespace acs;
 
 namespace helloibl {
 
-FVec3 ResolveSunDirection(const HelloIblApp& app) noexcept {
+FVec3 ResolveSunDirection(const FHelloIblApp& app) noexcept {
     // Studio HDR preset (3) は前方上向きの固定方向、それ以外は FSky の太陽。
     if (app.m_CurrentPreset == 3) return FVec3{0.3f, 0.6f, -0.5f};
     return app.m_Sky.SunDirection();
 }
 
-void RenderShadowPass(HelloIblApp& app, const FVec3& sun_dir) noexcept {
+void RenderShadowPass(FHelloIblApp& app, const FVec3& sun_dir) noexcept {
     if (!app.m_bUseShadows) return;
 
     IRhiCommandList* cl = app.GetRenderer().CommandList();
@@ -24,6 +24,7 @@ void RenderShadowPass(HelloIblApp& app, const FVec3& sun_dir) noexcept {
 
     // CSM: カメラ frustum を 3 cascade に分けて atlas へ焼く。
     // scene 範囲 (object は 30m 内) を near=0.1 / far=40 でカバー。
+    app.m_Shadow.BeginFrame();
     app.m_Shadow.SetDirectionalLightCascades(sun_dir,
                                             app.m_Camera.View(), app.m_Camera.Projection(),
                                             /*near=*/0.1f, /*far=*/40.0f);
@@ -44,7 +45,8 @@ void RenderShadowPass(HelloIblApp& app, const FVec3& sun_dir) noexcept {
             for (u32 x = 0; x < kGridCast; ++x) {
                 const f32 px = (static_cast<f32>(x) - (kGridCast - 1) * 0.5f) * kSpacingCast;
                 const f32 py = (static_cast<f32>(y) - (kGridCast - 1) * 0.5f) * kSpacingCast + 2.5f;
-                app.m_Shadow.SetCaster(FMat4::Translation(FVec3{px, py, 3.0f}));
+                if (!app.m_Shadow.TrySetCaster(
+                        FMat4::Translation(FVec3{px, py, 3.0f}))) continue;
                 cl->SetConstantBuffer(1, *app.m_Shadow.CasterObjectCB());
                 cl->DrawIndexed(app.m_GmSphere.index_count);
             }

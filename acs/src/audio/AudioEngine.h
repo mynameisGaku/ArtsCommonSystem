@@ -6,11 +6,11 @@
 //   engine.Init();
 //
 //   // FAudioAsset (wav/mp3/flac/ogg) を Asset モジュールから取得
-//   TSharedPtr<Asset> asset = registry.Load(L"sound/bgm.ogg").Value();
+//   TSharedPtr<FAsset> asset = registry.Load(L"sound/bgm.ogg").Value();
 //   auto* audio = static_cast<FAudioAsset*>(asset.Get());
 //
 //   // 再生 (volume 0..1, loop は繰り返し)
-//   SoundHandle h = engine.Play(*audio, 1.0f, /*loop=*/true);
+//   FSoundHandle h = engine.Play(*audio, 1.0f, /*loop=*/true);
 //
 //   // 停止 / 音量変更
 //   engine.SetVolume(h, 0.5f);
@@ -41,7 +41,7 @@ inline constexpr u64 kAudioEngineResidentBufferBudgetBytes = 512ull * 1024ull * 
  * Init() で COM とマスタリングボイスを立ち上げ、Play() で FAudioAsset ごとに 1 つの
  * ソースボイス (発音スロット) を確保して再生する。同時発音は最大 64 スロットで、
  * 一発再生のボイスはバッファが流れ切ると自動回収され、ループ再生は Stop されるまで残る。
- * 各再生は世代付きの SoundHandle で識別され、スロット再利用後の古いハンドルは無効になる。
+ * 各再生は世代付きの FSoundHandle で識別され、スロット再利用後の古いハンドルは無効になる。
  * 内部状態は XAudio2 ヘッダを公開しないよう pimpl で隠蔽する。pimpl の寿命は外側の
  * reader/writer lock、スロットは内側の mutex で保護する。
  * non-copy 型。
@@ -88,9 +88,9 @@ public:
      * @param Asset 再生する音声アセット (wav/mp3/flac/ogg)。
      * @param Volume 初期音量 (0.0..1.0、範囲外は内部でクランプ、既定 1.0)。
      * @param bLoop true なら無限ループ再生 (既定 false の一発再生)。
-     * @return この再生を指す SoundHandle (失敗時は kInvalidSound)。
+     * @return この再生を指す FSoundHandle (失敗時は kInvalidSound)。
      */
-    SoundHandle Play(const FAudioAsset& Asset, f32 Volume = 1.0f, bool bLoop = false) noexcept;
+    FSoundHandle Play(const FAudioAsset& Asset, f32 Volume = 1.0f, bool bLoop = false) noexcept;
 
     /**
      * 指定ハンドルの再生を停止し、内部スロットを解放する。
@@ -98,7 +98,7 @@ public:
      * @details 世代が一致しない (= 既に解放済みの) ハンドルは無視する。
      * @param Handle 停止する再生のハンドル。
      */
-    void Stop(SoundHandle Handle) noexcept;
+    void Stop(FSoundHandle Handle) noexcept;
 
     /**
      * 指定ハンドルの再生音量を変更する。
@@ -107,7 +107,7 @@ public:
      * @param Handle 対象の再生ハンドル。
      * @param Volume 新しい音量 (0.0..1.0)。
      */
-    void SetVolume(SoundHandle Handle, f32 Volume) noexcept;
+    void SetVolume(FSoundHandle Handle, f32 Volume) noexcept;
 
     /** 再生中の全ボイスを停止し、全スロットを解放する。 */
     void StopAll() noexcept;
@@ -148,7 +148,7 @@ public:
 #endif
 
     /** XAudio2 ヘッダを公開しないための pimpl 実装型 (前方宣言のみ)。 */
-    struct Impl;
+    struct FImpl;
 
 private:
     /** lifecycle 排他ロック取得済みで全リソースを解放する。 */
@@ -158,13 +158,13 @@ private:
     bool IsShutdownRequested() const noexcept;
 
     /** Init/Shutdown と通常操作間で pimpl の寿命を同期する。 */
-    mutable RwLock m_LifecycleLock;
+    mutable FRwLock m_LifecycleLock;
 
     /** 実行開始済みの Shutdown 呼び出し数。0 以外では新規操作を拒否する。 */
     TAtomic<u32> m_ShutdownRequests{0};
 
     /** pimpl 実装の所有ポインタ (未初期化時は nullptr)。 */
-    Impl* m_Impl = nullptr;
+    FImpl* m_Impl = nullptr;
 };
 
 } // namespace acs

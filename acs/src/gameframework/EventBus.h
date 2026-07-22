@@ -55,9 +55,9 @@ public:
     int Subscribe(EventId ev, HandlerFn fn, void* listener = nullptr) noexcept {
         if (fn == nullptr) return -1;
         for (u32 i = 0; i < m_Subs.Size(); ++i) {                 // 空きスロット再利用
-            if (m_Subs[i].fn == nullptr) { m_Subs[i] = Sub{ ev, fn, listener }; return static_cast<int>(i); }
+            if (m_Subs[i].fn == nullptr) { m_Subs[i] = FSub{ ev, fn, listener }; return static_cast<int>(i); }
         }
-        m_Subs.PushBack(Sub{ ev, fn, listener });
+        m_Subs.PushBack(FSub{ ev, fn, listener });
         return static_cast<int>(m_Subs.Size() - 1);
     }
 
@@ -76,7 +76,7 @@ public:
      */
     void Publish(EventId ev, const void* payload = nullptr) noexcept {
         for (u32 i = 0; i < m_Subs.Size(); ++i) {
-            const Sub s = m_Subs[i];   // 値コピー(ハンドラ内で m_Subs が再確保されても安全)
+            const FSub s = m_Subs[i];   // 値コピー(ハンドラ内で m_Subs が再確保されても安全)
             if (s.ev == ev && s.fn != nullptr) s.fn(s.listener, payload);
         }
     }
@@ -87,8 +87,8 @@ public:
     void OnDeinitialize() noexcept override { m_Subs.Clear(); }
 
 private:
-    struct Sub { EventId ev; HandlerFn fn; void* listener; };
-    TArray<Sub> m_Subs;
+    struct FSub { EventId ev; HandlerFn fn; void* listener; };
+    TArray<FSub> m_Subs;
 };
 
 } // namespace acs::game

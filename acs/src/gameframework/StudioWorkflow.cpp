@@ -34,7 +34,7 @@ namespace acs::game {
 TResult<void> FAssetLockingStub::LockAsset(const char* asset_path, const char* user) noexcept {
     (void)asset_path;
     (void)user;
-    return ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
+    return ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
                    "IAssetLockingBackend::LockAsset is not implemented "
                    "(stub: link a concrete asset locking backend such as Perforce/Plastic)");
 }
@@ -42,7 +42,7 @@ TResult<void> FAssetLockingStub::LockAsset(const char* asset_path, const char* u
 /** stub: 常に NotImplemented を返す。 */
 TResult<void> FAssetLockingStub::UnlockAsset(const char* asset_path) noexcept {
     (void)asset_path;
-    return ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
+    return ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
                    "IAssetLockingBackend::UnlockAsset is not implemented "
                    "(stub: link a concrete asset locking backend such as Perforce/Plastic)");
 }
@@ -51,25 +51,25 @@ TResult<void> FAssetLockingStub::UnlockAsset(const char* asset_path) noexcept {
 TResult<FAssetLockInfo> FAssetLockingStub::QueryLock(const char* asset_path) noexcept {
     (void)asset_path;
     return TResult<FAssetLockInfo>(
-        ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
+        ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
                 "IAssetLockingBackend::QueryLock is not implemented "
                 "(stub: link a concrete asset locking backend such as Perforce/Plastic)"));
 }
 
 /** stub: 常に NotImplemented を返す (具象ビルドファームバックエンドを link せよ)。 */
-TResult<u64> FBuildFarmStub::SubmitBuild(const BuildRequest& req) noexcept {
+TResult<u64> FBuildFarmStub::SubmitBuild(const FBuildRequest& req) noexcept {
     (void)req;
     return TResult<u64>(
-        ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
+        ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
                 "IBuildFarmBackend::SubmitBuild is not implemented "
                 "(stub: link a concrete build farm backend such as Jenkins/TeamCity)"));
 }
 
 /** stub: 常に NotImplemented を返す。 */
-TResult<IBuildFarmBackend::BuildResult> FBuildFarmStub::PollBuild(u64 build_id) noexcept {
+TResult<IBuildFarmBackend::FBuildResult> FBuildFarmStub::PollBuild(u64 build_id) noexcept {
     (void)build_id;
-    return TResult<IBuildFarmBackend::BuildResult>(
-        ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
+    return TResult<IBuildFarmBackend::FBuildResult>(
+        ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
                 "IBuildFarmBackend::PollBuild is not implemented "
                 "(stub: link a concrete build farm backend such as Jenkins/TeamCity)"));
 }
@@ -77,7 +77,7 @@ TResult<IBuildFarmBackend::BuildResult> FBuildFarmStub::PollBuild(u64 build_id) 
 /** stub: 常に NotImplemented を返す。 */
 TResult<void> FBuildFarmStub::CancelBuild(u64 build_id) noexcept {
     (void)build_id;
-    return ACS_ERR(Generic, StudioWorkflowError::kSub_NotImplemented,
+    return ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
                    "IBuildFarmBackend::CancelBuild is not implemented "
                    "(stub: link a concrete build farm backend such as Jenkins/TeamCity)");
 }
@@ -161,19 +161,6 @@ bool AppendWStr(wchar_t* dst, int cap, const wchar_t* suffix) noexcept {
 }
 
 /**
- * asset_path (UTF-8) を "<asset>.lock" の UTF-16 path に変換する。
- *
- * @param asset_path 入力アセットパス (UTF-8)。
- * @param out_w lock path を書き込む UTF-16 バッファ。
- * @param out_cap out_w の要素数。
- * @return 成功で true (out_w に NUL 終端付き lock path)、失敗で false。
- */
-bool MakeLockPath(const char* asset_path, wchar_t* out_w, int out_cap) noexcept {
-    if (!Utf8ToUtf16(asset_path, out_w, out_cap)) return false;
-    return AppendWStr(out_w, out_cap, L".lock");
-}
-
-/**
  * 現在時刻を UNIX epoch 秒で取得する。
  *
  * @details Win32 FILETIME (1601-01-01 起点, 100ns 単位) を UNIX epoch 秒へ変換する。
@@ -213,271 +200,617 @@ int U64ToDec(u64 v, char* out, int cap) noexcept {
     return w;
 }
 
-/**
- * 10 進 ASCII を u64 に変換する (atoi 相当, STL 非使用)。
- *
- * @details p から数字以外が来るまで読む。先頭の空白/改行はスキップする。
- * @param p 変換元の文字列先頭。
- * @param len 走査可能な最大文字数。
- * @return 変換した u64 値。
- */
-u64 DecToU64(const char* p, usize len) noexcept {
-    u64 v = 0;
-    usize i = 0;
-    while (i < len && (p[i] == ' ' || p[i] == '\r' || p[i] == '\n')) ++i;
-    for (; i < len && p[i] >= '0' && p[i] <= '9'; ++i) {
-        v = v * 10ull + static_cast<u64>(p[i] - '0');
-    }
-    return v;
+struct FParsedLocalLock {
+    char                 owner[FLocalFileAssetLocking::kMaxUserChars] = {};
+    FLocalAssetLockToken token = {};
+    u64                  lock_time = 0;
+};
+
+FLocalAssetLockResult LocalLockError(ELocalAssetLockError error,
+                                     DWORD os_error = 0) noexcept {
+    FLocalAssetLockResult result{};
+    result.error = error;
+    result.os_error = static_cast<u32>(os_error);
+    return result;
 }
 
-/**
- * lock ファイル本体を読み込み、owner と取得時刻に分解する。
- *
- * @details
- * フォーマットは 1 行目 = owner、2 行目 = 取得時刻(10 進秒)。out_os_err には
- * GetLastError を入れる (ERROR_FILE_NOT_FOUND は「未ロック」を意味する)。
- * @param lock_path_w 読み込む lock ファイルの UTF-16 パス。
- * @param owner_out owner 名を書き込むバッファ。
- * @param owner_cap owner_out の要素数。
- * @param time_out 取得時刻 (UNIX epoch 秒) を書き込む先。
- * @param out_os_err 失敗時の GetLastError を書き込む先。
- * @return ファイル存在 + 読み取り成功で true、存在しない/失敗で false。
- */
-bool ReadLockFile(const wchar_t* lock_path_w,
-                  char*          owner_out,
-                  int            owner_cap,
-                  u64&           time_out,
-                  DWORD&         out_os_err) noexcept {
-    out_os_err = 0;
-    time_out   = 0;
-    if (owner_out != nullptr && owner_cap > 0) owner_out[0] = '\0';
+bool TokensEqual(FLocalAssetLockToken a, FLocalAssetLockToken b) noexcept {
+    return a.high == b.high && a.low == b.low;
+}
 
-    HANDLE h = ::CreateFileW(lock_path_w, GENERIC_READ, FILE_SHARE_READ, nullptr,
-                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
-        out_os_err = ::GetLastError();
-        return false;
-    }
+bool BoundedLength(const char* value, int capacity, int& out_length) noexcept {
+    out_length = 0;
+    if (value == nullptr || capacity <= 0) return false;
+    while (out_length < capacity && value[out_length] != '\0') ++out_length;
+    return out_length < capacity;
+}
 
-    char  raw[1024] = {};
-    DWORD got = 0;
-    const BOOL ok = ::ReadFile(h, raw, static_cast<DWORD>(sizeof(raw) - 1), &got, nullptr);
-    ::CloseHandle(h);
-    if (!ok) {
-        out_os_err = ::GetLastError();
-        return false;
-    }
-    raw[got] = '\0';
+bool IsStrictUtf8(const char* value, int length) noexcept {
+    if (value == nullptr || length <= 0) return false;
+    wchar_t scratch[FLocalFileAssetLocking::kMaxPathChars] = {};
+    if (length >= FLocalFileAssetLocking::kMaxPathChars) return false;
+    const int got = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value, length,
+                                           scratch,
+                                           FLocalFileAssetLocking::kMaxPathChars);
+    return got > 0;
+}
 
-    // 1 行目 = owner (改行まで)。2 行目 = time。
-    int line_end = 0;
-    while (line_end < static_cast<int>(got) &&
-           raw[line_end] != '\n' && raw[line_end] != '\r') {
-        ++line_end;
+ELocalAssetLockError ValidateOwner(const char* owner, int& out_length) noexcept {
+    if (owner == nullptr || owner[0] == '\0') return ELocalAssetLockError::BadArgument;
+    if (!BoundedLength(owner, FLocalFileAssetLocking::kMaxUserChars, out_length)) {
+        return ELocalAssetLockError::OwnerTooLong;
     }
-    // owner を owner_out へコピー (改行を NUL に)。
-    if (owner_out != nullptr && owner_cap > 0) {
-        int n = 0;
-        for (; n < line_end && n < owner_cap - 1; ++n) owner_out[n] = raw[n];
-        owner_out[n] = '\0';
+    for (int i = 0; i < out_length; ++i) {
+        const unsigned char c = static_cast<unsigned char>(owner[i]);
+        if (c < 0x20u || c == 0x7fu) return ELocalAssetLockError::InvalidOwner;
     }
-    // 2 行目 (時刻) を探す。
-    int p = line_end;
-    while (p < static_cast<int>(got) && (raw[p] == '\n' || raw[p] == '\r')) ++p;
-    if (p < static_cast<int>(got)) {
-        time_out = DecToU64(raw + p, static_cast<usize>(static_cast<int>(got) - p));
+    return IsStrictUtf8(owner, out_length)
+        ? ELocalAssetLockError::None
+        : ELocalAssetLockError::InvalidUtf8;
+}
+
+ELocalAssetLockError MakeStrictLockPath(const char* asset_path,
+                                        wchar_t* out_w,
+                                        int out_cap) noexcept {
+    if (asset_path == nullptr || asset_path[0] == '\0') {
+        return ELocalAssetLockError::BadArgument;
+    }
+    int path_length = 0;
+    if (!BoundedLength(asset_path, FLocalFileAssetLocking::kMaxPathChars,
+                       path_length)) {
+        return ELocalAssetLockError::PathTooLong;
+    }
+    for (int i = 0; i < path_length; ++i) {
+        if (static_cast<unsigned char>(asset_path[i]) < 0x20u) {
+            return ELocalAssetLockError::BadArgument;
+        }
+    }
+    if (!IsStrictUtf8(asset_path, path_length)) {
+        return ELocalAssetLockError::InvalidUtf8;
+    }
+    const int got = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                           asset_path, path_length, out_w,
+                                           out_cap - 1);
+    if (got <= 0) return ELocalAssetLockError::PathTooLong;
+    out_w[got] = L'\0';
+    if (!AppendWStr(out_w, out_cap, L".lock")) {
+        return ELocalAssetLockError::PathTooLong;
+    }
+    return ELocalAssetLockError::None;
+}
+
+u64 MixLockToken(u64 value) noexcept {
+    value ^= value >> 30;
+    value *= 0xbf58476d1ce4e5b9ull;
+    value ^= value >> 27;
+    value *= 0x94d049bb133111ebull;
+    value ^= value >> 31;
+    return value;
+}
+
+FLocalAssetLockToken GenerateLockToken() noexcept {
+    alignas(8) static volatile LONG64 sequence = 0;
+    LARGE_INTEGER counter{};
+    FILETIME now{};
+    ::QueryPerformanceCounter(&counter);
+    ::GetSystemTimeAsFileTime(&now);
+    const u64 time_bits = (static_cast<u64>(now.dwHighDateTime) << 32) |
+                          static_cast<u64>(now.dwLowDateTime);
+    const u64 seq = static_cast<u64>(::InterlockedIncrement64(&sequence));
+    const u64 process_bits =
+        (static_cast<u64>(::GetCurrentProcessId()) << 32) |
+        static_cast<u64>(::GetCurrentThreadId());
+    FLocalAssetLockToken token{};
+    token.high = MixLockToken(time_bits ^ process_bits ^ seq);
+    token.low = MixLockToken(static_cast<u64>(counter.QuadPart) ^
+                             (seq * 0x9e3779b97f4a7c15ull) ^
+                             (process_bits << 1));
+    if (!token.IsValid()) token.low = 1;
+    return token;
+}
+
+char HexDigit(unsigned value) noexcept {
+    return static_cast<char>(value < 10u ? ('0' + value) : ('A' + value - 10u));
+}
+
+void U64ToHex16(u64 value, char* out) noexcept {
+    for (int i = 15; i >= 0; --i) {
+        out[i] = HexDigit(static_cast<unsigned>(value & 0xfull));
+        value >>= 4;
+    }
+}
+
+int HexValue(char c) noexcept {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+int BuildLockRecord(const char* owner,
+                    int owner_length,
+                    FLocalAssetLockToken token,
+                    u64 lock_time,
+                    char* out,
+                    int capacity) noexcept {
+    constexpr char kMagic[] = "ACSLOCK/1\nOWNER:";
+    constexpr char kToken[] = "\nTOKEN:";
+    constexpr char kTime[] = "\nTIME:";
+    int offset = 0;
+    for (int i = 0; kMagic[i] != '\0'; ++i) out[offset++] = kMagic[i];
+    for (int i = 0; i < owner_length; ++i) out[offset++] = owner[i];
+    for (int i = 0; kToken[i] != '\0'; ++i) out[offset++] = kToken[i];
+    U64ToHex16(token.high, out + offset);
+    offset += 16;
+    U64ToHex16(token.low, out + offset);
+    offset += 16;
+    for (int i = 0; kTime[i] != '\0'; ++i) out[offset++] = kTime[i];
+    offset += U64ToDec(lock_time, out + offset, capacity - offset);
+    out[offset++] = '\n';
+    return offset;
+}
+
+bool ConsumeLiteral(const char* raw, int length, int& at,
+                    const char* literal) noexcept {
+    for (int i = 0; literal[i] != '\0'; ++i) {
+        if (at >= length || raw[at] != literal[i]) return false;
+        ++at;
     }
     return true;
 }
 
+bool ParseLockRecord(const char* raw, int length,
+                     FParsedLocalLock& out_record) noexcept {
+    if (raw == nullptr || length <= 0) return false;
+    int at = 0;
+    if (!ConsumeLiteral(raw, length, at, "ACSLOCK/1\nOWNER:")) return false;
+
+    FParsedLocalLock parsed{};
+    int owner_length = 0;
+    while (at < length && raw[at] != '\n') {
+        const unsigned char c = static_cast<unsigned char>(raw[at]);
+        if (c == 0 || c < 0x20u || c == 0x7fu ||
+            owner_length >= FLocalFileAssetLocking::kMaxUserChars - 1) {
+            return false;
+        }
+        parsed.owner[owner_length++] = raw[at++];
+    }
+    if (owner_length == 0 || at >= length || raw[at++] != '\n') return false;
+    parsed.owner[owner_length] = '\0';
+    if (!IsStrictUtf8(parsed.owner, owner_length)) return false;
+
+    if (!ConsumeLiteral(raw, length, at, "TOKEN:")) return false;
+    for (int i = 0; i < 32; ++i) {
+        if (at >= length) return false;
+        const int digit = HexValue(raw[at++]);
+        if (digit < 0) return false;
+        u64& half = i < 16 ? parsed.token.high : parsed.token.low;
+        half = (half << 4) | static_cast<u64>(digit);
+    }
+    if (!parsed.token.IsValid() || at >= length || raw[at++] != '\n') return false;
+    if (!ConsumeLiteral(raw, length, at, "TIME:")) return false;
+
+    int digits = 0;
+    constexpr u64 kMaxU64 = ~static_cast<u64>(0);
+    while (at < length && raw[at] >= '0' && raw[at] <= '9') {
+        const u64 digit = static_cast<u64>(raw[at++] - '0');
+        if (parsed.lock_time > (kMaxU64 - digit) / 10ull) return false;
+        parsed.lock_time = parsed.lock_time * 10ull + digit;
+        ++digits;
+    }
+    if (digits == 0 || at >= length || raw[at++] != '\n') return false;
+    if (at != length) return false; // trailing byte/NUL/second record は拒否
+
+    out_record = parsed;
+    return true;
+}
+
+FLocalAssetLockResult ReadStrictLockRecord(const wchar_t* lock_path,
+                                            DWORD desired_access,
+                                            DWORD share_mode,
+                                            HANDLE& out_handle,
+                                            FParsedLocalLock& out_record) noexcept {
+    out_handle = INVALID_HANDLE_VALUE;
+    HANDLE handle = ::CreateFileW(lock_path, desired_access, share_mode, nullptr,
+                                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        const DWORD error = ::GetLastError();
+        if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
+            return LocalLockError(ELocalAssetLockError::NotFound, error);
+        }
+        return LocalLockError(ELocalAssetLockError::OpenFailed, error);
+    }
+
+    LARGE_INTEGER size{};
+    if (!::GetFileSizeEx(handle, &size)) {
+        const DWORD error = ::GetLastError();
+        ::CloseHandle(handle);
+        return LocalLockError(ELocalAssetLockError::SizeFailed, error);
+    }
+    if (size.QuadPart <= 0 ||
+        size.QuadPart > FLocalFileAssetLocking::kMaxRecordBytes) {
+        ::CloseHandle(handle);
+        return LocalLockError(size.QuadPart > FLocalFileAssetLocking::kMaxRecordBytes
+                                  ? ELocalAssetLockError::RecordTooLarge
+                                  : ELocalAssetLockError::CorruptRecord);
+    }
+
+    char raw[FLocalFileAssetLocking::kMaxRecordBytes] = {};
+    DWORD total = 0;
+    const DWORD expected = static_cast<DWORD>(size.QuadPart);
+    while (total < expected) {
+        DWORD got = 0;
+        if (!::ReadFile(handle, raw + total, expected - total, &got, nullptr)) {
+            const DWORD error = ::GetLastError();
+            ::CloseHandle(handle);
+            return LocalLockError(ELocalAssetLockError::ReadFailed, error);
+        }
+        if (got == 0) {
+            ::CloseHandle(handle);
+            return LocalLockError(ELocalAssetLockError::CorruptRecord,
+                                  ERROR_HANDLE_EOF);
+        }
+        total += got;
+    }
+    char extra = 0;
+    DWORD extra_count = 0;
+    if (!::ReadFile(handle, &extra, 1, &extra_count, nullptr)) {
+        const DWORD error = ::GetLastError();
+        ::CloseHandle(handle);
+        return LocalLockError(ELocalAssetLockError::ReadFailed, error);
+    }
+    if (extra_count != 0) {
+        ::CloseHandle(handle);
+        return LocalLockError(ELocalAssetLockError::CorruptRecord);
+    }
+
+    FParsedLocalLock parsed{};
+    if (!ParseLockRecord(raw, static_cast<int>(total), parsed)) {
+        ::CloseHandle(handle);
+        return LocalLockError(ELocalAssetLockError::CorruptRecord);
+    }
+    out_record = parsed;
+    out_handle = handle;
+    FLocalAssetLockResult result{};
+    result.token = parsed.token;
+    result.lock_time = parsed.lock_time;
+    return result;
+}
+
+bool MarkOpenFileForDelete(HANDLE handle, DWORD& out_error) noexcept {
+    FILE_DISPOSITION_INFO disposition{};
+    disposition.DeleteFile = TRUE;
+    if (!::SetFileInformationByHandle(handle, FileDispositionInfo,
+                                      &disposition, sizeof(disposition))) {
+        out_error = ::GetLastError();
+        return false;
+    }
+    out_error = 0;
+    return true;
+}
+
+class FLocalLockStateGuard {
+public:
+    explicit FLocalLockStateGuard(volatile long& state) noexcept : m_State(state) {
+        while (::InterlockedCompareExchange(&m_State, 1, 0) != 0) {
+            ::SwitchToThread();
+        }
+    }
+    ~FLocalLockStateGuard() noexcept { ::InterlockedExchange(&m_State, 0); }
+
+    FLocalLockStateGuard(const FLocalLockStateGuard&) = delete;
+    FLocalLockStateGuard& operator=(const FLocalLockStateGuard&) = delete;
+
+private:
+    volatile long& m_State;
+};
+
+u16 LegacyLockSubCode(ELocalAssetLockError error) noexcept {
+    switch (error) {
+    case ELocalAssetLockError::BadArgument:
+    case ELocalAssetLockError::PathTooLong:
+    case ELocalAssetLockError::OwnerTooLong:
+    case ELocalAssetLockError::InvalidUtf8:
+    case ELocalAssetLockError::InvalidOwner:
+        return FStudioWorkflowError::kSub_BadArgument;
+    case ELocalAssetLockError::AlreadyLocked:
+        return FStudioWorkflowError::kSub_AlreadyLocked;
+    case ELocalAssetLockError::NotFound:
+        return FStudioWorkflowError::kSub_NotFound;
+    default:
+        return FStudioWorkflowError::kSub_PermissionDenied;
+    }
+}
+
 } // namespace
 
-/** `<asset_path>.lock` を CREATE_NEW で原子的に生成し、owner と取得時刻を書く。 */
+const char* LocalAssetLockErrorName(ELocalAssetLockError error) noexcept {
+    switch (error) {
+    case ELocalAssetLockError::None:             return "None";
+    case ELocalAssetLockError::BadArgument:      return "BadArgument";
+    case ELocalAssetLockError::PathTooLong:      return "PathTooLong";
+    case ELocalAssetLockError::OwnerTooLong:     return "OwnerTooLong";
+    case ELocalAssetLockError::InvalidUtf8:      return "InvalidUtf8";
+    case ELocalAssetLockError::InvalidOwner:     return "InvalidOwner";
+    case ELocalAssetLockError::AlreadyLocked:    return "AlreadyLocked";
+    case ELocalAssetLockError::NotFound:         return "NotFound";
+    case ELocalAssetLockError::RecordTooLarge:   return "RecordTooLarge";
+    case ELocalAssetLockError::CorruptRecord:    return "CorruptRecord";
+    case ELocalAssetLockError::OpenFailed:       return "OpenFailed";
+    case ELocalAssetLockError::SizeFailed:       return "SizeFailed";
+    case ELocalAssetLockError::ReadFailed:       return "ReadFailed";
+    case ELocalAssetLockError::WriteFailed:      return "WriteFailed";
+    case ELocalAssetLockError::FlushFailed:      return "FlushFailed";
+    case ELocalAssetLockError::CloseFailed:      return "CloseFailed";
+    case ELocalAssetLockError::OwnerMismatch:    return "OwnerMismatch";
+    case ELocalAssetLockError::TokenMismatch:    return "TokenMismatch";
+    case ELocalAssetLockError::NotOwned:         return "NotOwned";
+    case ELocalAssetLockError::DeleteFailed:     return "DeleteFailed";
+    case ELocalAssetLockError::CapacityExceeded: return "CapacityExceeded";
+    }
+    return "Unknown";
+}
+
+FLocalAssetLockResult
+FLocalFileAssetLocking::TryLockAsset(const char* asset_path,
+                                     const char* user) noexcept {
+    wchar_t lock_path[kMaxPathChars] = {};
+    const ELocalAssetLockError path_error =
+        MakeStrictLockPath(asset_path, lock_path, kMaxPathChars);
+    if (path_error != ELocalAssetLockError::None) return LocalLockError(path_error);
+
+    int owner_length = 0;
+    const ELocalAssetLockError owner_error = ValidateOwner(user, owner_length);
+    if (owner_error != ELocalAssetLockError::None) return LocalLockError(owner_error);
+
+    FLocalLockStateGuard state_guard(m_StateGuard);
+    int free_slot = -1;
+    for (int i = 0; i < kMaxHeldLocks; ++i) {
+        if (!m_HeldLocks[i].in_use) {
+            free_slot = i;
+            break;
+        }
+    }
+    if (free_slot < 0) return LocalLockError(ELocalAssetLockError::CapacityExceeded);
+
+    const FLocalAssetLockToken token = GenerateLockToken();
+    const u64 lock_time = NowUnixSeconds();
+    char record[kMaxRecordBytes] = {};
+    const int record_length =
+        BuildLockRecord(user, owner_length, token, lock_time, record, kMaxRecordBytes);
+
+    HANDLE handle = ::CreateFileW(lock_path, GENERIC_WRITE | DELETE, 0, nullptr,
+                                  CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        const DWORD error = ::GetLastError();
+        if (error == ERROR_FILE_EXISTS || error == ERROR_ALREADY_EXISTS) {
+            return LocalLockError(ELocalAssetLockError::AlreadyLocked, error);
+        }
+        return LocalLockError(ELocalAssetLockError::OpenFailed, error);
+    }
+
+    DWORD total = 0;
+    while (total < static_cast<DWORD>(record_length)) {
+        DWORD wrote = 0;
+        const BOOL write_ok =
+            ::WriteFile(handle, record + total,
+                        static_cast<DWORD>(record_length) - total, &wrote, nullptr);
+        if (!write_ok ||
+            wrote == 0) {
+            const DWORD error = write_ok ? ERROR_WRITE_FAULT : ::GetLastError();
+            DWORD ignored = 0;
+            MarkOpenFileForDelete(handle, ignored);
+            ::CloseHandle(handle);
+            return LocalLockError(ELocalAssetLockError::WriteFailed, error);
+        }
+        total += wrote;
+    }
+    if (!::FlushFileBuffers(handle)) {
+        const DWORD error = ::GetLastError();
+        DWORD ignored = 0;
+        MarkOpenFileForDelete(handle, ignored);
+        ::CloseHandle(handle);
+        return LocalLockError(ELocalAssetLockError::FlushFailed, error);
+    }
+    if (!::CloseHandle(handle)) {
+        FLocalAssetLockResult result =
+            LocalLockError(ELocalAssetLockError::CloseFailed, ::GetLastError());
+        result.token = token; // close 成否が不明なため、呼び出し側が検査付き回復を試せるよう残す
+        result.lock_time = lock_time;
+        return result;
+    }
+
+    FHeldLock& held = m_HeldLocks[free_slot];
+    CopyCStr(held.path, kMaxPathChars, asset_path);
+    CopyCStr(held.owner, kMaxUserChars, user);
+    held.token = token;
+    held.in_use = true;
+
+    FLocalAssetLockResult result{};
+    result.token = token;
+    result.lock_time = lock_time;
+    return result;
+}
+
+FLocalAssetLockResult
+FLocalFileAssetLocking::TryUnlockAsset(const char* asset_path,
+                                       const char* user,
+                                       FLocalAssetLockToken token) noexcept {
+    wchar_t lock_path[kMaxPathChars] = {};
+    const ELocalAssetLockError path_error =
+        MakeStrictLockPath(asset_path, lock_path, kMaxPathChars);
+    if (path_error != ELocalAssetLockError::None) return LocalLockError(path_error);
+    int owner_length = 0;
+    const ELocalAssetLockError owner_error = ValidateOwner(user, owner_length);
+    if (owner_error != ELocalAssetLockError::None) return LocalLockError(owner_error);
+    (void)owner_length;
+    if (!token.IsValid()) return LocalLockError(ELocalAssetLockError::BadArgument);
+
+    HANDLE handle = INVALID_HANDLE_VALUE;
+    FParsedLocalLock parsed{};
+    FLocalAssetLockResult read =
+        ReadStrictLockRecord(lock_path, GENERIC_READ | DELETE, FILE_SHARE_READ,
+                             handle, parsed);
+    if (!read.Succeeded()) return read;
+
+    if (!CStrEqual(parsed.owner, user)) {
+        const DWORD close_error = ::CloseHandle(handle) ? 0 : ::GetLastError();
+        return close_error == 0
+            ? LocalLockError(ELocalAssetLockError::OwnerMismatch)
+            : LocalLockError(ELocalAssetLockError::CloseFailed, close_error);
+    }
+    if (!TokensEqual(parsed.token, token)) {
+        const DWORD close_error = ::CloseHandle(handle) ? 0 : ::GetLastError();
+        return close_error == 0
+            ? LocalLockError(ELocalAssetLockError::TokenMismatch)
+            : LocalLockError(ELocalAssetLockError::CloseFailed, close_error);
+    }
+
+    DWORD delete_error = 0;
+    if (!MarkOpenFileForDelete(handle, delete_error)) {
+        ::CloseHandle(handle);
+        return LocalLockError(ELocalAssetLockError::DeleteFailed, delete_error);
+    }
+    if (!::CloseHandle(handle)) {
+        return LocalLockError(ELocalAssetLockError::CloseFailed, ::GetLastError());
+    }
+
+    {
+        FLocalLockStateGuard state_guard(m_StateGuard);
+        for (int i = 0; i < kMaxHeldLocks; ++i) {
+            FHeldLock& held = m_HeldLocks[i];
+            if (held.in_use && CStrEqual(held.path, asset_path) &&
+                CStrEqual(held.owner, user) && TokensEqual(held.token, token)) {
+                held = FHeldLock{};
+                break;
+            }
+        }
+    }
+    FLocalAssetLockResult result{};
+    result.token = token;
+    result.lock_time = parsed.lock_time;
+    return result;
+}
+
+FLocalAssetLockResult
+FLocalFileAssetLocking::TryQueryLock(const char* asset_path,
+                                     FAssetLockInfo& out_info) noexcept {
+    wchar_t lock_path[kMaxPathChars] = {};
+    const ELocalAssetLockError path_error =
+        MakeStrictLockPath(asset_path, lock_path, kMaxPathChars);
+    if (path_error != ELocalAssetLockError::None) return LocalLockError(path_error);
+
+    HANDLE handle = INVALID_HANDLE_VALUE;
+    FParsedLocalLock parsed{};
+    FLocalAssetLockResult result =
+        ReadStrictLockRecord(lock_path, GENERIC_READ,
+                             FILE_SHARE_READ | FILE_SHARE_DELETE, handle, parsed);
+    if (!result.Succeeded()) return result;
+    if (!::CloseHandle(handle)) {
+        return LocalLockError(ELocalAssetLockError::CloseFailed, ::GetLastError());
+    }
+
+    FLocalLockStateGuard state_guard(m_StateGuard);
+    CopyCStr(m_QueryPathBuf, kMaxPathChars, asset_path);
+    CopyCStr(m_QueryUserBuf, kMaxUserChars, parsed.owner);
+    FAssetLockInfo committed{};
+    committed.asset_path = m_QueryPathBuf;
+    committed.locker_user = m_QueryUserBuf;
+    committed.lock_time = parsed.lock_time;
+    out_info = committed;
+    result.token = parsed.token;
+    result.lock_time = parsed.lock_time;
+    return result;
+}
+
 TResult<void> FLocalFileAssetLocking::LockAsset(const char* asset_path,
                                                 const char* user) noexcept {
-    if (asset_path == nullptr || asset_path[0] == '\0') {
-        return ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
-                       "FLocalFileAssetLocking::LockAsset: asset_path is null/empty");
-    }
-    if (user == nullptr || user[0] == '\0') {
-        return ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
-                       "FLocalFileAssetLocking::LockAsset: user is null/empty");
-    }
-
-    wchar_t lock_w[kMaxPathChars];
-    if (!MakeLockPath(asset_path, lock_w, kMaxPathChars)) {
-        return ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
-                       "FLocalFileAssetLocking::LockAsset: path too long / not valid UTF-8");
-    }
-
-    // CREATE_NEW は「既に存在したら原子的に失敗」。これがロックの肝。
-    // 2 者が同時に来ても OS が排他を保証し、片方のみ成功する。
-    HANDLE h = ::CreateFileW(lock_w, GENERIC_WRITE, 0, nullptr,
-                             CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
-        const DWORD err = ::GetLastError();
-        if (err == ERROR_FILE_EXISTS || err == ERROR_ALREADY_EXISTS) {
-            return ACS_ERR_OS(IO, StudioWorkflowError::kSub_AlreadyLocked,
-                              "FLocalFileAssetLocking::LockAsset: asset already locked", err);
-        }
-        return ACS_ERR_OS(IO, StudioWorkflowError::kSub_PermissionDenied,
-                          "FLocalFileAssetLocking::LockAsset: CreateFileW(CREATE_NEW) failed",
-                          err);
-    }
-
-    // owner + 改行 + 時刻 をテキストで書く。
-    char  body[kMaxUserChars + 32];
-    int   off = 0;
-    for (int i = 0; user[i] != '\0' && off < static_cast<int>(sizeof(body)) - 24; ++i) {
-        body[off++] = user[i];
-    }
-    body[off++] = '\n';
-    off += U64ToDec(NowUnixSeconds(), body + off,
-                    static_cast<int>(sizeof(body)) - off);
-    body[off++] = '\n';
-
-    DWORD wrote = 0;
-    const BOOL wok = ::WriteFile(h, body, static_cast<DWORD>(off), &wrote, nullptr);
-    const DWORD werr = wok ? 0u : ::GetLastError();
-    ::CloseHandle(h);
-    if (!wok || wrote != static_cast<DWORD>(off)) {
-        // 書き込み失敗時は中途半端な lock を残さないよう削除を試みる。
-        ::DeleteFileW(lock_w);
-        return ACS_ERR_OS(IO, StudioWorkflowError::kSub_PermissionDenied,
-                          "FLocalFileAssetLocking::LockAsset: WriteFile (lock body) failed",
-                          werr);
-    }
-    return Ok();
+    const FLocalAssetLockResult result = TryLockAsset(asset_path, user);
+    if (result.Succeeded()) return Ok();
+    return ACS_ERR_OS(IO, LegacyLockSubCode(result.error),
+                      "FLocalFileAssetLocking::LockAsset failed",
+                      result.os_error);
 }
 
-/** lock ファイルを削除してロックを解除する (協調ロックなので誰でも解除可)。 */
 TResult<void> FLocalFileAssetLocking::UnlockAsset(const char* asset_path) noexcept {
-    if (asset_path == nullptr || asset_path[0] == '\0') {
-        return ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
-                       "FLocalFileAssetLocking::UnlockAsset: asset_path is null/empty");
+    wchar_t validated_path[kMaxPathChars] = {};
+    const ELocalAssetLockError validation =
+        MakeStrictLockPath(asset_path, validated_path, kMaxPathChars);
+    if (validation != ELocalAssetLockError::None) {
+        return ACS_ERR_OS(IO, LegacyLockSubCode(validation),
+                          "FLocalFileAssetLocking::UnlockAsset: invalid path", 0);
     }
-
-    wchar_t lock_w[kMaxPathChars];
-    if (!MakeLockPath(asset_path, lock_w, kMaxPathChars)) {
-        return ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
-                       "FLocalFileAssetLocking::UnlockAsset: path too long / not valid UTF-8");
-    }
-
-    // 未ロック (lock ファイル無し) なら kSub_NotFound。
-    char  owner[kMaxUserChars] = {};
-    u64   t = 0;
-    DWORD rerr = 0;
-    if (!ReadLockFile(lock_w, owner, kMaxUserChars, t, rerr)) {
-        if (rerr == ERROR_FILE_NOT_FOUND || rerr == ERROR_PATH_NOT_FOUND) {
-            return ACS_ERR_OS(IO, StudioWorkflowError::kSub_NotFound,
-                              "FLocalFileAssetLocking::UnlockAsset: asset is not locked", rerr);
+    char owner[kMaxUserChars] = {};
+    FLocalAssetLockToken token{};
+    {
+        FLocalLockStateGuard state_guard(m_StateGuard);
+        for (int i = 0; i < kMaxHeldLocks; ++i) {
+            const FHeldLock& held = m_HeldLocks[i];
+            if (held.in_use && CStrEqual(held.path, asset_path)) {
+                CopyCStr(owner, kMaxUserChars, held.owner);
+                token = held.token;
+                break;
+            }
         }
-        return ACS_ERR_OS(IO, StudioWorkflowError::kSub_PermissionDenied,
-                          "FLocalFileAssetLocking::UnlockAsset: cannot read lock file", rerr);
     }
-
-    // 本実装は協調ロックなので所有者検証は緩い (誰でも解除可)。lock ファイルを削除。
-    if (!::DeleteFileW(lock_w)) {
-        const DWORD derr = ::GetLastError();
-        if (derr == ERROR_FILE_NOT_FOUND || derr == ERROR_PATH_NOT_FOUND) {
-            return ACS_ERR_OS(IO, StudioWorkflowError::kSub_NotFound,
-                              "FLocalFileAssetLocking::UnlockAsset: lock vanished mid-unlock",
-                              derr);
-        }
-        return ACS_ERR_OS(IO, StudioWorkflowError::kSub_PermissionDenied,
-                          "FLocalFileAssetLocking::UnlockAsset: DeleteFileW failed", derr);
+    if (!token.IsValid()) {
+        return ACS_ERR(IO, FStudioWorkflowError::kSub_PermissionDenied,
+                       "FLocalFileAssetLocking::UnlockAsset: this instance does not own lock");
     }
-    return Ok();
+    const FLocalAssetLockResult result = TryUnlockAsset(asset_path, owner, token);
+    if (result.Succeeded()) return Ok();
+    return ACS_ERR_OS(IO, LegacyLockSubCode(result.error),
+                      "FLocalFileAssetLocking::UnlockAsset failed",
+                      result.os_error);
 }
 
-/** owner を検証し、一致する場合のみ lock ファイルを削除する。 */
 TResult<void> FLocalFileAssetLocking::UnlockAssetAs(const char* asset_path,
                                                     const char* user) noexcept {
-    if (asset_path == nullptr || asset_path[0] == '\0') {
-        return ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
-                       "FLocalFileAssetLocking::UnlockAssetAs: asset_path is null/empty");
+    wchar_t validated_path[kMaxPathChars] = {};
+    const ELocalAssetLockError path_validation =
+        MakeStrictLockPath(asset_path, validated_path, kMaxPathChars);
+    int owner_length = 0;
+    const ELocalAssetLockError owner_validation = ValidateOwner(user, owner_length);
+    (void)owner_length;
+    if (path_validation != ELocalAssetLockError::None ||
+        owner_validation != ELocalAssetLockError::None) {
+        const ELocalAssetLockError validation =
+            path_validation != ELocalAssetLockError::None
+                ? path_validation : owner_validation;
+        return ACS_ERR_OS(IO, LegacyLockSubCode(validation),
+                          "FLocalFileAssetLocking::UnlockAssetAs: invalid argument", 0);
     }
-    if (user == nullptr || user[0] == '\0') {
-        return ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
-                       "FLocalFileAssetLocking::UnlockAssetAs: user is null/empty");
-    }
-
-    wchar_t lock_w[kMaxPathChars];
-    if (!MakeLockPath(asset_path, lock_w, kMaxPathChars)) {
-        return ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
-                       "FLocalFileAssetLocking::UnlockAssetAs: path too long / not valid UTF-8");
-    }
-
-    // lock ファイルを読み、owner を検証する。
-    char  owner[kMaxUserChars] = {};
-    u64   t = 0;
-    DWORD rerr = 0;
-    if (!ReadLockFile(lock_w, owner, kMaxUserChars, t, rerr)) {
-        if (rerr == ERROR_FILE_NOT_FOUND || rerr == ERROR_PATH_NOT_FOUND) {
-            return ACS_ERR_OS(IO, StudioWorkflowError::kSub_NotFound,
-                              "FLocalFileAssetLocking::UnlockAssetAs: asset is not locked", rerr);
+    FLocalAssetLockToken token{};
+    {
+        FLocalLockStateGuard state_guard(m_StateGuard);
+        for (int i = 0; i < kMaxHeldLocks; ++i) {
+            const FHeldLock& held = m_HeldLocks[i];
+            if (held.in_use && CStrEqual(held.path, asset_path) &&
+                CStrEqual(held.owner, user)) {
+                token = held.token;
+                break;
+            }
         }
-        return ACS_ERR_OS(IO, StudioWorkflowError::kSub_PermissionDenied,
-                          "FLocalFileAssetLocking::UnlockAssetAs: cannot read lock file", rerr);
     }
-    if (!CStrEqual(owner, user)) {
-        // 別ユーザーのロックは解除しない。
-        return ACS_ERR(IO, StudioWorkflowError::kSub_PermissionDenied,
-                       "FLocalFileAssetLocking::UnlockAssetAs: lock owned by a different user");
+    if (!token.IsValid()) {
+        return ACS_ERR(IO, FStudioWorkflowError::kSub_PermissionDenied,
+                       "FLocalFileAssetLocking::UnlockAssetAs: owner/token not held");
     }
-
-    if (!::DeleteFileW(lock_w)) {
-        const DWORD derr = ::GetLastError();
-        if (derr == ERROR_FILE_NOT_FOUND || derr == ERROR_PATH_NOT_FOUND) {
-            return ACS_ERR_OS(IO, StudioWorkflowError::kSub_NotFound,
-                              "FLocalFileAssetLocking::UnlockAssetAs: lock vanished mid-unlock",
-                              derr);
-        }
-        return ACS_ERR_OS(IO, StudioWorkflowError::kSub_PermissionDenied,
-                          "FLocalFileAssetLocking::UnlockAssetAs: DeleteFileW failed", derr);
-    }
-    return Ok();
+    const FLocalAssetLockResult result = TryUnlockAsset(asset_path, user, token);
+    if (result.Succeeded()) return Ok();
+    return ACS_ERR_OS(IO, LegacyLockSubCode(result.error),
+                      "FLocalFileAssetLocking::UnlockAssetAs failed",
+                      result.os_error);
 }
 
-/** lock ファイルの存在と内容を読み取り、FAssetLockInfo に詰めて返す。 */
 TResult<FAssetLockInfo>
 FLocalFileAssetLocking::QueryLock(const char* asset_path) noexcept {
-    if (asset_path == nullptr || asset_path[0] == '\0') {
-        return TResult<FAssetLockInfo>(
-            ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
-                    "FLocalFileAssetLocking::QueryLock: asset_path is null/empty"));
-    }
-
-    wchar_t lock_w[kMaxPathChars];
-    if (!MakeLockPath(asset_path, lock_w, kMaxPathChars)) {
-        return TResult<FAssetLockInfo>(
-            ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
-                    "FLocalFileAssetLocking::QueryLock: path too long / not valid UTF-8"));
-    }
-
-    u64   t = 0;
-    DWORD rerr = 0;
-    if (!ReadLockFile(lock_w, m_QueryUserBuf, kMaxUserChars, t, rerr)) {
-        if (rerr == ERROR_FILE_NOT_FOUND || rerr == ERROR_PATH_NOT_FOUND) {
-            return TResult<FAssetLockInfo>(
-                ACS_ERR_OS(IO, StudioWorkflowError::kSub_NotFound,
-                           "FLocalFileAssetLocking::QueryLock: asset is not locked", rerr));
-        }
-        return TResult<FAssetLockInfo>(
-            ACS_ERR_OS(IO, StudioWorkflowError::kSub_PermissionDenied,
-                       "FLocalFileAssetLocking::QueryLock: cannot read lock file", rerr));
-    }
-
-    // asset_path を member バッファに保持して戻り値から参照させる
-    // (寿命 = 次の Backend 呼び出しまで、ヘッダ契約どおり)。
-    CopyCStr(m_QueryPathBuf, kMaxPathChars, asset_path);
-
     FAssetLockInfo info{};
-    info.asset_path  = m_QueryPathBuf;
-    info.locker_user = m_QueryUserBuf;
-    info.lock_time   = t;
-    return TResult<FAssetLockInfo>(OkInit, info);
+    const FLocalAssetLockResult result = TryQueryLock(asset_path, info);
+    if (result.Succeeded()) return TResult<FAssetLockInfo>(OkInit, info);
+    return TResult<FAssetLockInfo>(
+        ACS_ERR_OS(IO, LegacyLockSubCode(result.error),
+                   "FLocalFileAssetLocking::QueryLock failed",
+                   result.os_error));
 }
 
 /** 追跡中のプロセス HANDLE をすべて閉じて破棄する (プロセス自体は kill しない)。 */
@@ -491,7 +824,7 @@ FLocalBuildRunner::~FLocalBuildRunner() noexcept {
 }
 
 /** build_id でジョブを引く (無ければ nullptr)。 */
-FLocalBuildRunner::Job* FLocalBuildRunner::FindJob(u64 build_id) noexcept {
+FLocalBuildRunner::FJob* FLocalBuildRunner::FindJob(u64 build_id) noexcept {
     if (build_id == 0) return nullptr;
     for (int i = 0; i < kMaxJobs; ++i) {
         if (m_Jobs[i].m_BuildId == build_id) return &m_Jobs[i];
@@ -500,7 +833,7 @@ FLocalBuildRunner::Job* FLocalBuildRunner::FindJob(u64 build_id) noexcept {
 }
 
 /** プロセス HANDLE を閉じてスロットを空きに戻す。 */
-void FLocalBuildRunner::CloseJob(Job& job) noexcept {
+void FLocalBuildRunner::CloseJob(FJob& job) noexcept {
     if (job.m_Process != nullptr) {
         ::CloseHandle(static_cast<HANDLE>(job.m_Process));
         job.m_Process = nullptr;
@@ -518,7 +851,7 @@ TResult<void> FLocalBuildRunner::RunBuild(const wchar_t* command_line,
                                           u32            timeout_ms) noexcept {
     out_exit_code = 0;
     if (command_line == nullptr || command_line[0] == L'\0') {
-        return ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
+        return ACS_ERR(IO, FStudioWorkflowError::kSub_BadArgument,
                        "FLocalBuildRunner::RunBuild: command_line is null/empty");
     }
 
@@ -530,7 +863,7 @@ TResult<void> FLocalBuildRunner::RunBuild(const wchar_t* command_line,
             cmd[n] = command_line[n];
         }
         if (command_line[n] != L'\0') {
-            return ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
+            return ACS_ERR(IO, FStudioWorkflowError::kSub_BadArgument,
                            "FLocalBuildRunner::RunBuild: command_line too long");
         }
         cmd[n] = L'\0';
@@ -543,7 +876,7 @@ TResult<void> FLocalBuildRunner::RunBuild(const wchar_t* command_line,
                                      0, nullptr, nullptr, &si, &pi);
     if (!ok) {
         const DWORD err = ::GetLastError();
-        return ACS_ERR_OS(IO, StudioWorkflowError::kSub_NotFound,
+        return ACS_ERR_OS(IO, FStudioWorkflowError::kSub_NotFound,
                           "FLocalBuildRunner::RunBuild: CreateProcessW failed", err);
     }
 
@@ -554,14 +887,14 @@ TResult<void> FLocalBuildRunner::RunBuild(const wchar_t* command_line,
         ::TerminateProcess(pi.hProcess, 1u);
         ::CloseHandle(pi.hThread);
         ::CloseHandle(pi.hProcess);
-        return ACS_ERR(IO, StudioWorkflowError::kSub_PermissionDenied,
+        return ACS_ERR(IO, FStudioWorkflowError::kSub_PermissionDenied,
                        "FLocalBuildRunner::RunBuild: build timed out");
     }
     if (wr != WAIT_OBJECT_0) {
         const DWORD err = ::GetLastError();
         ::CloseHandle(pi.hThread);
         ::CloseHandle(pi.hProcess);
-        return ACS_ERR_OS(IO, StudioWorkflowError::kSub_PermissionDenied,
+        return ACS_ERR_OS(IO, FStudioWorkflowError::kSub_PermissionDenied,
                           "FLocalBuildRunner::RunBuild: WaitForSingleObject failed", err);
     }
 
@@ -571,7 +904,7 @@ TResult<void> FLocalBuildRunner::RunBuild(const wchar_t* command_line,
     ::CloseHandle(pi.hThread);
     ::CloseHandle(pi.hProcess);
     if (!gok) {
-        return ACS_ERR_OS(IO, StudioWorkflowError::kSub_PermissionDenied,
+        return ACS_ERR_OS(IO, FStudioWorkflowError::kSub_PermissionDenied,
                           "FLocalBuildRunner::RunBuild: GetExitCodeProcess failed", gerr);
     }
 
@@ -586,36 +919,36 @@ TResult<void> FLocalBuildRunner::RunBuildUtf8(const char* command_line,
     out_exit_code = 0;
     wchar_t cmd_w[kMaxCmdChars];
     if (!Utf8ToUtf16(command_line, cmd_w, kMaxCmdChars)) {
-        return ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
+        return ACS_ERR(IO, FStudioWorkflowError::kSub_BadArgument,
                        "FLocalBuildRunner::RunBuildUtf8: command_line null / too long / bad UTF-8");
     }
     return RunBuild(cmd_w, out_exit_code, timeout_ms);
 }
 
 /** preset を起動コマンドラインとして解釈し、非同期にビルドジョブを起動する。 */
-TResult<u64> FLocalBuildRunner::SubmitBuild(const BuildRequest& req) noexcept {
+TResult<u64> FLocalBuildRunner::SubmitBuild(const FBuildRequest& req) noexcept {
     // preset を「起動するコマンドライン」として解釈する (ローカルファーム規約)。
     if (req.preset == nullptr || req.preset[0] == '\0') {
         return TResult<u64>(
-            ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
+            ACS_ERR(IO, FStudioWorkflowError::kSub_BadArgument,
                     "FLocalBuildRunner::SubmitBuild: req.preset (command line) is null/empty"));
     }
 
     // 空きスロットを探す。
-    Job* slot = nullptr;
+    FJob* slot = nullptr;
     for (int i = 0; i < kMaxJobs; ++i) {
         if (m_Jobs[i].m_BuildId == 0) { slot = &m_Jobs[i]; break; }
     }
     if (slot == nullptr) {
         return TResult<u64>(
-            ACS_ERR(IO, StudioWorkflowError::kSub_PermissionDenied,
+            ACS_ERR(IO, FStudioWorkflowError::kSub_PermissionDenied,
                     "FLocalBuildRunner::SubmitBuild: job table full"));
     }
 
     wchar_t cmd[kMaxCmdChars];
     if (!Utf8ToUtf16(req.preset, cmd, kMaxCmdChars)) {
         return TResult<u64>(
-            ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
+            ACS_ERR(IO, FStudioWorkflowError::kSub_BadArgument,
                     "FLocalBuildRunner::SubmitBuild: preset too long / bad UTF-8"));
     }
 
@@ -627,7 +960,7 @@ TResult<u64> FLocalBuildRunner::SubmitBuild(const BuildRequest& req) noexcept {
     if (!ok) {
         const DWORD err = ::GetLastError();
         return TResult<u64>(
-            ACS_ERR_OS(IO, StudioWorkflowError::kSub_NotFound,
+            ACS_ERR_OS(IO, FStudioWorkflowError::kSub_NotFound,
                        "FLocalBuildRunner::SubmitBuild: CreateProcessW failed", err));
     }
     ::CloseHandle(pi.hThread);  // メインスレッド HANDLE は不要。
@@ -652,17 +985,17 @@ TResult<u64> FLocalBuildRunner::SubmitBuild(const BuildRequest& req) noexcept {
 }
 
 /** ジョブの完了状態を非ブロッキングに確認し、結果を返す。 */
-TResult<IBuildFarmBackend::BuildResult>
+TResult<IBuildFarmBackend::FBuildResult>
 FLocalBuildRunner::PollBuild(u64 build_id) noexcept {
     if (build_id == 0) {
-        return TResult<BuildResult>(
-            ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
+        return TResult<FBuildResult>(
+            ACS_ERR(IO, FStudioWorkflowError::kSub_BadArgument,
                     "FLocalBuildRunner::PollBuild: build_id == 0 is reserved/invalid"));
     }
-    Job* job = FindJob(build_id);
+    FJob* job = FindJob(build_id);
     if (job == nullptr) {
-        return TResult<BuildResult>(
-            ACS_ERR(IO, StudioWorkflowError::kSub_NotFound,
+        return TResult<FBuildResult>(
+            ACS_ERR(IO, FStudioWorkflowError::kSub_NotFound,
                     "FLocalBuildRunner::PollBuild: unknown build_id"));
     }
 
@@ -686,7 +1019,7 @@ FLocalBuildRunner::PollBuild(u64 build_id) noexcept {
             }
             job->m_Finished = true;
             if (!got_code) {
-                return TResult<BuildResult>(ACS_ERR_OS(IO, StudioWorkflowError::kSub_PermissionDenied,
+                return TResult<FBuildResult>(ACS_ERR_OS(IO, FStudioWorkflowError::kSub_PermissionDenied,
                                                        "FLocalBuildRunner::PollBuild: GetExitCodeProcess failed",
                                                        code_error));
             }
@@ -698,41 +1031,41 @@ FLocalBuildRunner::PollBuild(u64 build_id) noexcept {
             job->m_Process = nullptr;
             job->m_Finished = true;
             job->m_Success = false;
-            return TResult<BuildResult>(ACS_ERR_OS(IO, StudioWorkflowError::kSub_PermissionDenied,
+            return TResult<FBuildResult>(ACS_ERR_OS(IO, FStudioWorkflowError::kSub_PermissionDenied,
                                                    "FLocalBuildRunner::PollBuild: WaitForSingleObject failed",
                                                    wait_error));
         }
         // WAIT_TIMEOUT = まだ実行中。
     }
 
-    BuildResult r{};
+    FBuildResult r{};
     r.build_id     = build_id;
     r.success      = job->m_Finished && job->m_Success;
     r.artifact_url = (job->m_Finished && job->m_Success) ? job->m_Artifact : nullptr;
 
     if (!job->m_Finished) {
         // 進行中は IsErr で返す (ヘッダが許容するポリシー)。Generic + NotFound 以外。
-        return TResult<BuildResult>(
-            ACS_ERR(Generic, StudioWorkflowError::kSub_PermissionDenied,
+        return TResult<FBuildResult>(
+            ACS_ERR(Generic, FStudioWorkflowError::kSub_PermissionDenied,
                     "FLocalBuildRunner::PollBuild: build still running"));
     }
-    return TResult<BuildResult>(OkInit, r);
+    return TResult<FBuildResult>(OkInit, r);
 }
 
 /** 進行中のジョブを kill してスロットを解放する。 */
 TResult<void> FLocalBuildRunner::CancelBuild(u64 build_id) noexcept {
     if (build_id == 0) {
-        return ACS_ERR(IO, StudioWorkflowError::kSub_BadArgument,
+        return ACS_ERR(IO, FStudioWorkflowError::kSub_BadArgument,
                        "FLocalBuildRunner::CancelBuild: build_id == 0 is reserved/invalid");
     }
-    Job* job = FindJob(build_id);
+    FJob* job = FindJob(build_id);
     if (job == nullptr) {
-        return ACS_ERR(IO, StudioWorkflowError::kSub_NotFound,
+        return ACS_ERR(IO, FStudioWorkflowError::kSub_NotFound,
                        "FLocalBuildRunner::CancelBuild: unknown build_id");
     }
     if (job->m_Finished) {
         // 既に完了済みのジョブはキャンセル不可 (NotFound 扱い)。
-        return ACS_ERR(IO, StudioWorkflowError::kSub_NotFound,
+        return ACS_ERR(IO, FStudioWorkflowError::kSub_NotFound,
                        "FLocalBuildRunner::CancelBuild: build already finished");
     }
 

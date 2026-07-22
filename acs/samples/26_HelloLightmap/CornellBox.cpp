@@ -12,7 +12,7 @@ using namespace acs;
 
 namespace hellolightmap {
 
-void InitQuad(IRhiDevice& dev, Quad& q, f32 w, f32 h,
+void InitQuad(IRhiDevice& dev, FQuad& q, f32 w, f32 h,
               const FMat4& model, FVec3 albedo,
               i32 axis, f32 axis_value,
               f32 u_min, f32 u_max,
@@ -32,7 +32,7 @@ void InitQuad(IRhiDevice& dev, Quad& q, f32 w, f32 h,
     q.emissive   = emissive;
 }
 
-void BuildCornellBox(IRhiDevice& dev, Quad (&quads)[kQuadCount]) noexcept {
+void BuildCornellBox(IRhiDevice& dev, FQuad (&quads)[kQuadCount]) noexcept {
     const FVec3 white{0.72f, 0.72f, 0.72f};
     const FVec3 red  {0.65f, 0.10f, 0.10f};
     const FVec3 green{0.10f, 0.55f, 0.12f};

@@ -7,4 +7,4 @@
 #include "HelloTextApp.h"
 #include "app/EntryPoint.h"
 
-ACS_DEFINE_MAIN(hellotext::HelloTextApp)
+ACS_DEFINE_MAIN(hellotext::FHelloTextApp)

@@ -18,7 +18,7 @@ class IRhiDevice;
  *
  * @details HLSL のセマンティック名・インデックス・フォーマットと、頂点構造体内オフセットを持つ。
  */
-struct InputElement {
+struct FInputElement {
     /** HLSL のセマンティック名。 */
     const char* semantic_name  = "POSITION";
 
@@ -56,8 +56,14 @@ enum class EBlendMode : u8 {
     /** src_alpha * src + (1-src_alpha) * dst (一般的な半透明)。 */
     AlphaBlend,
 
-    /** src + dst (加算)。 */
+    /** src.rgb * src.a + dst.rgb。alpha も加算する従来の additive。 */
     Additive,
+
+    /** src.rgb * dst.rgb。destination alpha は保持する。 */
+    Multiply,
+
+    /** src.rgb + dst.rgb。destination alpha は保持する。 */
+    AdditivePreserveAlpha,
 };
 
 /**
@@ -176,8 +182,8 @@ struct FPipelineDesc {
      * @details
      * rt_count > 0 のとき rt_formats[0..rt_count-1] を使い、rt_format は無視される。最大 8 RT。
      * rt_count 未満の各 slot は valid (≠ Unknown) format が必須。Unknown が残っていると
-     * DiligentPipeline::Init が ACS_ERR(Render, 155) を返す。Diligent backend のみ実装、
-     * Dx12 raw は stub (warning ログ 1 回)。
+     * backend の pipeline 作成は明示的に失敗する。Diligent / raw DX12 の両 backend で
+     * PSO のレンダーターゲット数と各 slot のフォーマットへ反映される。
      */
     EFormat            rt_formats[8] = {};
 
@@ -191,7 +197,7 @@ struct FPipelineDesc {
     u32               vertex_stride = 0;
 
     /** 入力レイアウト (最大 8 要素)。 */
-    InputElement      layout[8]     = {};
+    FInputElement      layout[8]     = {};
 
     /** 入力レイアウトの有効要素数。 */
     u32               layout_count  = 0;
@@ -203,7 +209,7 @@ struct FPipelineDesc {
     u32               texture_slots = 0;
 
     /** パイプラインに焼き込む static サンプラ s0..s{static_sampler_count-1} (容量 16)。 */
-    SamplerDesc       static_samplers[16]     = {};
+    FSamplerDesc       static_samplers[16]     = {};
 
     /** static サンプラの有効数。 */
     u32               static_sampler_count    = 0;
@@ -303,7 +309,7 @@ struct FComputePipelineDesc {
     /** static サンプラ数。 */
     u32 static_sampler_count = 0;
     /** static サンプラ s0..。 */
-    SamplerDesc static_samplers[16] = {};
+    FSamplerDesc static_samplers[16] = {};
 };
 
 /**

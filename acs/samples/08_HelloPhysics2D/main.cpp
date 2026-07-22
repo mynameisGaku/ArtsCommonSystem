@@ -3,7 +3,7 @@
 //
 // 構成:
 //   Types.h                   - Ball POD + 物理 / 描画パラメータ定数
-//   HelloPhysics2DApp.{h,cpp} - FApplication 派生 (FSpriteBatch / Font / Texture 所有)
+//   HelloPhysics2DApp.{h,cpp} - FApplication 派生 (FSpriteBatch / FFont / Texture 所有)
 //   PhysicsScene.{h,cpp}      - 物理シミュレーション + 描画
 //
 // 動作:
@@ -15,4 +15,4 @@
 #include "app/EntryPoint.h"
 #include "HelloPhysics2DApp.h"
 
-ACS_DEFINE_MAIN(hellophysics2d::HelloPhysics2DApp)
+ACS_DEFINE_MAIN(hellophysics2d::FHelloPhysics2DApp)

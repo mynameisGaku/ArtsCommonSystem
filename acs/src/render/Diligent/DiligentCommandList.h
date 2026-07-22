@@ -7,12 +7,16 @@
 #include "render/IRhiCommandList.h"
 #include "memory/UniquePtr.h"
 
+namespace Diligent {
+struct IQuery;
+}
+
 namespace acs {
 
-class DiligentDevice;
-class DiligentPipeline;
-class DiligentSwapchain;
-class DiligentTexture;
+class FDiligentDevice;
+class FDiligentPipeline;
+class FDiligentSwapchain;
+class FDiligentTexture;
 
 /**
  * Diligent の IDeviceContext を薄くラップした即時コマンドリスト実装。
@@ -23,19 +27,19 @@ class DiligentTexture;
  * 行う。RT 種別を跨ぐ pass (shadow / off-screen) の後に main pass へ復帰できるよう、
  * フレーム冒頭で bind した swap chain / depth を記憶する。
  */
-class DiligentCommandList final : public IRhiCommandList {
+class FDiligentCommandList final : public IRhiCommandList {
 public:
     /** 空状態で構築する (実体は Init で device に結び付ける)。 */
-    DiligentCommandList() noexcept = default;
+    FDiligentCommandList() noexcept = default;
 
     /** 破棄する (保持するのは生ポインタのみで所有権は持たない)。 */
-    ~DiligentCommandList() noexcept override;
+    ~FDiligentCommandList() noexcept override;
 
     /** コピー禁止 (device コンテキストへの参照を単独で持つため)。 */
-    DiligentCommandList(const DiligentCommandList&) = delete;
+    FDiligentCommandList(const FDiligentCommandList&) = delete;
 
     /** コピー代入も禁止。 */
-    DiligentCommandList& operator=(const DiligentCommandList&) = delete;
+    FDiligentCommandList& operator=(const FDiligentCommandList&) = delete;
 
     /**
      * device に結び付けてコマンドリストを初期化する。
@@ -43,7 +47,7 @@ public:
      * @param device コマンドを積む先の Diligent デバイス。
      * @return 常に成功 (空の TResult)。
      */
-    TResult<void> Init(DiligentDevice& device) noexcept;
+    TResult<void> Init(FDiligentDevice& device) noexcept;
 
     /** 記録開始フック (Diligent は即時 API のため no-op)。 */
     void Begin() noexcept override;
@@ -53,6 +57,13 @@ public:
 
     /** フレーム終了タイミングで Flush + フェンス Signal + フレームスロット前進を行う。 */
     void Submit() noexcept override;
+
+    bool BeginGpuTimingFrame(u64 frame_index) noexcept override;
+    bool BeginGpuTimingPass(ERhiGpuTimingPass pass) noexcept override;
+    void EndGpuTimingPass() noexcept override;
+    void EndGpuTimingFrame() noexcept override;
+    bool TryGetGpuTiming(
+        FRhiGpuTimingSnapshot& out_snapshot) const noexcept override;
 
     /**
      * バックバッファをレンダーターゲットとして bind しクリアする。
@@ -66,7 +77,7 @@ public:
      * @param depth_clear 深度のクリア値 (既定 1.0)。
      */
     void BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index,
-                                const ClearColor& clear,
+                                const FClearColor& clear,
                                 IRhiTexture* depth = nullptr,
                                 f32 depth_clear = 1.0f) noexcept override;
 
@@ -103,7 +114,7 @@ public:
      * @param depth bind + clear する深度テクスチャ (省略時 nullptr)。
      * @param depth_clear 深度のクリア値 (既定 1.0)。
      */
-    void BeginRenderToTexture(IRhiTexture& rt, const ClearColor& clear,
+    void BeginRenderToTexture(IRhiTexture& rt, const FClearColor& clear,
                               IRhiTexture* depth = nullptr,
                               f32 depth_clear = 1.0f) noexcept override;
 
@@ -138,7 +149,7 @@ public:
      * @param clear カラークリア値。
      */
     void BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
-                                   const ClearColor& clear) noexcept override;
+                                   const FClearColor& clear) noexcept override;
 
     /**
      * 複数 RT を同時 bind する MRT 描画を開始する (最大 8 個、depth は optional)。
@@ -152,7 +163,7 @@ public:
      * @param depth_clear 深度のクリア値 (既定 1.0)。
      */
     void BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count,
-                                 const ClearColor& clear,
+                                 const FClearColor& clear,
                                  IRhiTexture* depth = nullptr,
                                  f32 depth_clear = 1.0f) noexcept override;
 
@@ -256,25 +267,61 @@ public:
     void BindStructuredSrv(u32 slot, IRhiBuffer& buf) noexcept override;
 
 private:
+    static constexpr u32 kGpuTimingFrameSlots = 2;
+    static constexpr u32 kGpuTimingQueriesPerSlot = 32;
+    static constexpr u32 kGpuTimingSegmentsPerSlot = 15;
+    static constexpr u32 kInvalidGpuTimingQuery = ~0u;
+
+    struct FGpuTimingSegment {
+        ERhiGpuTimingPass pass = ERhiGpuTimingPass::Opaque;
+        u32 begin_query = 0;
+        u32 end_query = 0;
+    };
+
+    struct FGpuTimingSlot {
+        u64 frame_index = 0;
+        u32 query_count = 0;
+        u32 segment_count = 0;
+        bool pending = false;
+        FGpuTimingSegment segments[kGpuTimingSegmentsPerSlot]{};
+    };
+
+    void ResetGpuTiming() noexcept;
+    void CollectGpuTiming(u32 slot) noexcept;
+    u32 EmitGpuTimestamp() noexcept;
+
     /** コマンドを積む先の Diligent デバイス。 */
-    DiligentDevice*    m_Device   = nullptr;
+    FDiligentDevice*    m_Device   = nullptr;
+
+    Diligent::IQuery*
+        m_GpuTimestampQueries[kGpuTimingFrameSlots]
+                             [kGpuTimingQueriesPerSlot] = {};
+    FGpuTimingSlot m_GpuTimingSlots[kGpuTimingFrameSlots]{};
+    FRhiGpuTimingSnapshot m_LatestGpuTiming{};
+    u32 m_GpuTimingRecordingSlot = 0;
+    u32 m_GpuTimingActiveBegin = kInvalidGpuTimingQuery;
+    ERhiGpuTimingPass m_GpuTimingActivePass =
+        ERhiGpuTimingPass::Opaque;
+    bool m_GpuTimingSupported = false;
+    bool m_GpuTimingRecording = false;
+    bool m_GpuTimingScopeActive = false;
 
     /** Dispatch 前に UNORDERED_ACCESS へ遷移する、現在 bind 中の UAV テクスチャ。 */
-    DiligentTexture*   m_BoundUavTex[16] = {};
+    FDiligentTexture*   m_BoundUavTex[16] = {};
     /** bind 中 UAV テクスチャ数。 */
     u32                m_BoundUavTexCount = 0;
 
     /** 現在 bind 中のパイプライン (SetConstantBuffer/SetTexture の名前 lookup に使う)。 */
-    DiligentPipeline*  m_Pipeline = nullptr;
+    FDiligentPipeline*  m_Pipeline = nullptr;
 
     /** インデックスバッファが 32bit かどうか (DrawIndexed の IndexType に使う)。 */
     bool               m_bIsIndex32 = false;
 
     /** フレーム冒頭で bind した main pass の swap chain (shadow/off-screen pass 後の復帰先)。 */
-    DiligentSwapchain* m_MainSwapchain     = nullptr;
+    FDiligentSwapchain* m_MainSwapchain     = nullptr;
 
     /** フレーム冒頭で bind した main pass の depth (復帰時に再 bind する)。 */
-    DiligentTexture*   m_MainDepth         = nullptr;
+    FDiligentTexture*   m_MainDepth         = nullptr;
 };
 
 } // namespace acs

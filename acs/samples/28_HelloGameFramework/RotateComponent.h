@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloGameFramework — RotateComponent。
+// HelloGameFramework — ARotateComponent。
 //
-// 「回転させる」振る舞いを FNode2D 継承ではなく **コンポーネント** で実装した版。
-// プレーン FNode2D に `AddComponent<RotateComponent>(speed)` で取付け、毎フレーム
-// Owner().Local().rotation に speed*dt を加算する。継承版 (RotatingNode) と
+// 「回転させる」振る舞いを ANode 継承ではなく **コンポーネント** で実装した版。
+// プレーン ANode に `AddComponent<ARotateComponent>(speed)` で取付け、毎フレーム
+// Owner().Rotation2D() に speed*dt を加算する。継承版 (ARotatingNode) と
 // 同じ動きを composition で得られることを示すための対比サンプル。
 #pragma once
 
@@ -11,12 +11,12 @@
 
 namespace hellogf {
 
-class RotateComponent : public acs::game::FComponent2D {
+class ARotateComponent : public acs::game::AComponent {
 public:
-    ACS_GAME_COMPONENT_KIND(RotateComponent)
-    explicit RotateComponent(acs::f32 speed_rps) noexcept : m_Speed(speed_rps) {}
+    ACS_GAME_COMPONENT_KIND(ARotateComponent)
+    explicit ARotateComponent(acs::f32 speed_rps) noexcept : m_Speed(speed_rps) {}
 
-    void OnAttach(acs::game::FNode2D& owner) noexcept override;
+    void OnAttach(acs::game::ANode& owner) noexcept override;
     void OnUpdate(acs::f32 dt)              noexcept override;
     void OnDetach()                         noexcept override;
 

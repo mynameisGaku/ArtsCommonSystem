@@ -14,6 +14,6 @@
 #include "HelloNetApp.h"
 
 int main() {
-    hellonet::HelloNetApp app;
+    hellonet::FHelloNetApp app;
     return app.Run();
 }

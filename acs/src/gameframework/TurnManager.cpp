@@ -31,7 +31,7 @@ bool FTurnManager::IsEnvironmentName(const char* name) noexcept {
 }
 
 /** side の属性からターン phase (Player / Environment / Enemy) を分類する。 */
-ETurnPhase FTurnManager::ClassifyPhase(const SideSlot& s) noexcept {
+ETurnPhase FTurnManager::ClassifyPhase(const FSideSlot& s) noexcept {
     if (s.view.is_player_controlled) return ETurnPhase::PlayerTurn;
     if (IsEnvironmentName(s.view.display_name)) return ETurnPhase::EnvironmentTurn;
     return ETurnPhase::EnemyTurn;
@@ -55,21 +55,21 @@ u32 FTurnManager::AcquireSlot() noexcept {
 }
 
 /** handle を生存中の slot へ解決する (stale なら nullptr)。 */
-FTurnManager::SideSlot* FTurnManager::Resolve(FTurnSideId id) noexcept {
+FTurnManager::FSideSlot* FTurnManager::Resolve(FTurnSideId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= m_Slots.Size()) return nullptr;
-    SideSlot& s = m_Slots[idx];
+    FSideSlot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Gen()) return nullptr;
     return &s;
 }
 
 /** handle を生存中の slot へ解決する const 版 (stale なら nullptr)。 */
-const FTurnManager::SideSlot* FTurnManager::Resolve(FTurnSideId id) const noexcept {
+const FTurnManager::FSideSlot* FTurnManager::Resolve(FTurnSideId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= m_Slots.Size()) return nullptr;
-    const SideSlot& s = m_Slots[idx];
+    const FSideSlot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Gen()) return nullptr;
     return &s;
 }
@@ -79,7 +79,7 @@ void FTurnManager::Init() noexcept {
     // 全 slot を inactive 化 (gen は維持 = 次 Acquire で +1 される)
     const usize n = m_Slots.Size();
     for (usize i = 0; i < n; ++i) {
-        SideSlot& s = m_Slots[i];
+        FSideSlot& s = m_Slots[i];
         s.active                     = false;
         s.view.display_name          = nullptr;
         s.view.max_action_points     = 0u;
@@ -114,7 +114,7 @@ FTurnSideId FTurnManager::AddSide(const char* display_name, u32 max_ap, u32 init
     const u32 idx = AcquireSlot();
     if (idx >= FTurnSideId::kMaxIndex) return {}; // 上限到達
 
-    SideSlot& s = m_Slots[idx];
+    FSideSlot& s = m_Slots[idx];
 
     // generation を 1 進める (0 は未使用扱いなので必ず 1 以上を保つ)
     u8 new_gen = static_cast<u8>(s.gen + 1u);
@@ -139,7 +139,7 @@ FTurnSideId FTurnManager::AddSide(const char* display_name, u32 max_ap, u32 init
 
 /** side を解除し、必要なら current ターン / turn order を追従調整する。 */
 void FTurnManager::RemoveSide(FTurnSideId id) noexcept {
-    SideSlot* s = Resolve(id);
+    FSideSlot* s = Resolve(id);
     if (s == nullptr) return;
 
     // 現 turn side を削除する場合は EndCurrentTurn 相当の流れに乗せる必要があるが、
@@ -206,7 +206,7 @@ void FTurnManager::RemoveSide(FTurnSideId id) noexcept {
             } else {
                 // 新 current の phase / callback を発火
                 const u32 new_slot_idx = m_TurnOrder[m_CurrentOrderIndex];
-                SideSlot& ns = m_Slots[new_slot_idx];
+                FSideSlot& ns = m_Slots[new_slot_idx];
                 m_Phase = ClassifyPhase(ns);
                 if (m_OnTurnStart != nullptr) {
                     const u8 gen = ns.gen;
@@ -270,7 +270,7 @@ void FTurnManager::AdvanceToNextActor(u32 start_from) noexcept {
     for (u32 i = start_from; i < order_n; ++i) {
         const u32 slot_idx = m_TurnOrder[i];
         if (slot_idx >= m_Slots.Size()) continue;
-        const SideSlot& s = m_Slots[slot_idx];
+        const FSideSlot& s = m_Slots[slot_idx];
         if (!s.active) continue;
         if (s.view.has_acted) continue;
         m_CurrentOrderIndex = i;
@@ -289,7 +289,7 @@ void FTurnManager::StartRound() noexcept {
     // 全 active side の AP refill + has_acted リセット
     const usize n = m_Slots.Size();
     for (usize i = 0; i < n; ++i) {
-        SideSlot& s = m_Slots[i];
+        FSideSlot& s = m_Slots[i];
         if (!s.active) continue;
         s.view.current_action_points = s.view.max_action_points;
         s.view.has_acted             = false;
@@ -310,7 +310,7 @@ void FTurnManager::StartRound() noexcept {
     }
 
     const u32 slot_idx = m_TurnOrder[m_CurrentOrderIndex];
-    SideSlot& cs = m_Slots[slot_idx];
+    FSideSlot& cs = m_Slots[slot_idx];
     m_Phase = ClassifyPhase(cs);
 
     if (m_OnTurnStart != nullptr) {
@@ -329,7 +329,7 @@ void FTurnManager::EndCurrentTurn() noexcept {
     // 現 side を行動済に
     const u32 cur_slot_idx = m_TurnOrder[m_CurrentOrderIndex];
     if (cur_slot_idx < m_Slots.Size()) {
-        SideSlot& cs = m_Slots[cur_slot_idx];
+        FSideSlot& cs = m_Slots[cur_slot_idx];
         if (cs.active) {
             cs.view.has_acted = true;
         }
@@ -340,7 +340,7 @@ void FTurnManager::EndCurrentTurn() noexcept {
     if (m_CurrentOrderIndex != kInvalidOrderIndex) {
         // 次 side のターンへ
         const u32 next_slot_idx = m_TurnOrder[m_CurrentOrderIndex];
-        SideSlot& ns = m_Slots[next_slot_idx];
+        FSideSlot& ns = m_Slots[next_slot_idx];
         m_Phase = ClassifyPhase(ns);
 
         if (m_OnTurnStart != nullptr) {
@@ -378,7 +378,7 @@ bool FTurnManager::TryConsumeAP(u32 amount) noexcept {
     const u32 slot_idx = m_TurnOrder[m_CurrentOrderIndex];
     if (slot_idx >= m_Slots.Size()) return false;
 
-    SideSlot& s = m_Slots[slot_idx];
+    FSideSlot& s = m_Slots[slot_idx];
     if (!s.active) return false;
     if (s.view.current_action_points < amount) return false;
 
@@ -395,7 +395,7 @@ FTurnSideId FTurnManager::CurrentTurnSide() const noexcept {
     const u32 slot_idx = m_TurnOrder[m_CurrentOrderIndex];
     if (slot_idx >= m_Slots.Size()) return {};
 
-    const SideSlot& s = m_Slots[slot_idx];
+    const FSideSlot& s = m_Slots[slot_idx];
     if (!s.active) return {};
 
     return FTurnSideId::Pack(slot_idx, s.gen);
@@ -403,7 +403,7 @@ FTurnSideId FTurnManager::CurrentTurnSide() const noexcept {
 
 /** handle から side の公開状態 (FTurnSideState) を取得する (stale なら nullptr)。 */
 const FTurnSideState* FTurnManager::GetSideState(FTurnSideId id) const noexcept {
-    const SideSlot* s = Resolve(id);
+    const FSideSlot* s = Resolve(id);
     if (s == nullptr) return nullptr;
     // SideSlot 内に FTurnSideState を埋め込んでいるため、そのアドレスを返すだけ。
     return &s->view;
@@ -418,7 +418,7 @@ u32 FTurnManager::TurnsRemainingThisRound() const noexcept {
     for (usize i = 0; i < order_n; ++i) {
         const u32 slot_idx = m_TurnOrder[i];
         if (slot_idx >= m_Slots.Size()) continue;
-        const SideSlot& s = m_Slots[slot_idx];
+        const FSideSlot& s = m_Slots[slot_idx];
         if (!s.active) continue;
         if (!s.view.has_acted) ++count;
     }

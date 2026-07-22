@@ -9,7 +9,7 @@
 #include "ShowcaseAssets.h"
 
 #include "math/Mat.h"
-#include "render/PostProcess.h"     // PostProcessParams
+#include "render/PostProcess.h"     // FPostProcessParams
 
 namespace acs { class IRhiCommandList; class IRhiSwapchain; class IRhiTexture; }
 
@@ -18,12 +18,12 @@ namespace helloshowcase {
 // post_params は呼び出し側で TAA jitter / exposure / bloom 等を予めセット
 // しておく (本関数は taa_motion_texture / taa_depth_texture と前後 VP だけ
 // 上書きする)。
-void ExecuteBloomPass(Assets& a,
+void ExecuteBloomPass(FAssets& a,
                        acs::IRhiCommandList& cl,
                        acs::IRhiSwapchain& sc,
                        acs::u32 buffer_index,
                        acs::IRhiTexture& depth,
-                       acs::PostProcessParams& post_params,
+                       acs::FPostProcessParams& post_params,
                        const acs::FMat4& vp_no_jitter,
                        const acs::FMat4& prev_vp_no_jitter,
                        bool prev_vp_valid,

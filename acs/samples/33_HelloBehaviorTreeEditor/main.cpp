@@ -33,4 +33,4 @@
 // ACS_RENDER_DX12_RAW はコンパイル定義として渡らないため、ソース側の #if ガードは
 // 機能せず WIN32 entry (WinMain) が欠落する不具合があった → sample 30 と同じく
 // ACS_GAME_MAIN を無条件で使う。
-ACS_GAME_MAIN(hellobt::BtEditorApp)
+ACS_GAME_MAIN(hellobt::FBtEditorApp)

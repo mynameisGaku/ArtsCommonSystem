@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar X — FOpenXrBridge (XR / AR / MR seam)
+// GameFramework Pillar X — IOpenXrBridge (XR / AR / MR seam)
 //
 // 役割:
 //   Pillar X (XR / AR / MR + 新興プラットフォーム) のうち、OpenXR ランタイム及び
@@ -36,7 +36,7 @@
 //      置換でき、HMD を持たない CI で上位層のロジック試験を回せる。
 //
 // 設計選択 (Phase X-1):
-//   ・**XrPose は euler 角で簡素化**: quaternion を表現する型を本 header で
+//   ・**FXrPose は euler 角で簡素化**: quaternion を表現する型を本 header で
 //     新規導入すると math モジュールへの依存が増える。XR の生 API は quaternion
 //     を返すが、ゲーム層がポーズを扱う最小用途 (カメラ向き / コントローラ
 //     向き) は euler で十分。具象 backend が quat → euler を変換する。
@@ -49,7 +49,7 @@
 //     を返し、上位はその時点で fallback パスへ。
 //   ・**非コピー / 非ムーブ**: singleton 運用前提の seam。具象 backend も
 //     instance を 1 つだけ持つことを想定。
-//   ・**ml_err::kSub_NotImplemented と subcode 番号を揃える**: FMlRuntime.h と
+//   ・**ml_err::kSub_NotImplemented と subcode 番号を揃える**: MlRuntime.h と
 //     同じく `Generic + subcode 99` を NotImplemented の規約として共有し、
 //     上位は category 横断で「未実装エラー」を一律で扱える。
 //
@@ -111,7 +111,7 @@ enum class EXrPlatform : u8 {
  * ため quaternion 表現は本 header では避ける。精密な向き計算をしたい上位は自分で
  * euler → quat / matrix へ変換する。
  */
-struct XrPose {
+struct FXrPose {
     /** world-space 位置 (m)。 */
     acs::FVec3 position           = acs::FVec3::Zero();
 
@@ -130,9 +130,9 @@ struct XrPose {
  * スティック) のみを公開する。ハンドトラッキング / 触覚 / フェイストラッキング等の
  * より細かい input は別の構造体として後段で追加する。
  */
-struct XrControllerState {
+struct FXrControllerState {
     /** 6DoF コントローラポーズ。 */
-    XrPose    pose;
+    FXrPose    pose;
 
     /** 人差し指トリガのアナログ値 [0, 1]。 */
     f32       trigger    = 0.0f;
@@ -209,21 +209,21 @@ public:
      *
      * @return HMD ポーズ (Init 前 / stub は原点 zero pose)。
      */
-    virtual XrPose HeadPose() const noexcept = 0;
+    virtual FXrPose HeadPose() const noexcept = 0;
 
     /**
      * 直近 Tick 時点の左コントローラ state を返す。
      *
      * @return 左コントローラ state (未接続ならゼロ state)。
      */
-    virtual XrControllerState LeftController()  const noexcept = 0;
+    virtual FXrControllerState LeftController()  const noexcept = 0;
 
     /**
      * 直近 Tick 時点の右コントローラ state を返す。
      *
      * @return 右コントローラ state (未接続ならゼロ state)。
      */
-    virtual XrControllerState RightController() const noexcept = 0;
+    virtual FXrControllerState RightController() const noexcept = 0;
 
     /**
      * ポーズ / 入力の取り込みを進める (XR ランタイムのイベントポンプ相当)。
@@ -274,13 +274,13 @@ protected:
  * を返し (m_Initialized は false のまま)、pose / state は zero-initialized、
  * ActivePlatform() は Unknown、passthrough は非対応、Tick()/Shutdown() は副作用なし。
  */
-class OpenXrBridgeStub final : public IOpenXrBridge {
+class FOpenXrBridgeStub final : public IOpenXrBridge {
 public:
     /** stub を構築する (副作用なし)。 */
-    OpenXrBridgeStub() noexcept = default;
+    FOpenXrBridgeStub() noexcept = default;
 
     /** stub を破棄する (解放対象なし)。 */
-    ~OpenXrBridgeStub() noexcept override = default;
+    ~FOpenXrBridgeStub() noexcept override = default;
 
     /**
      * 常に NotImplemented を返す (XR backend 未統合)。
@@ -312,21 +312,21 @@ public:
      *
      * @return zero-initialized な原点ポーズ。
      */
-    XrPose            HeadPose()                                const noexcept override { return XrPose{}; }
+    FXrPose            HeadPose()                                const noexcept override { return FXrPose{}; }
 
     /**
      * 左コントローラ state を返す。
      *
      * @return zero-initialized な state。
      */
-    XrControllerState LeftController()                          const noexcept override { return XrControllerState{}; }
+    FXrControllerState LeftController()                          const noexcept override { return FXrControllerState{}; }
 
     /**
      * 右コントローラ state を返す。
      *
      * @return zero-initialized な state。
      */
-    XrControllerState RightController()                         const noexcept override { return XrControllerState{}; }
+    FXrControllerState RightController()                         const noexcept override { return FXrControllerState{}; }
 
     /**
      * 入力取り込みを進める (stub は何もしない)。
@@ -364,7 +364,7 @@ private:
 IOpenXrBridge& GetXrStub() noexcept;
 
 /**
- * 既定 OpenXrBridge を返す provider 関数ポインタ型。
+ * 既定 IOpenXrBridge を返す provider 関数ポインタ型。
  *
  * @details
  * gameframework は実 backend モジュール (循環依存になる) に直接依存できないため、実
@@ -382,7 +382,7 @@ using OpenXrBridgeProvider = IOpenXrBridge& (*)() noexcept;
 void SetOpenXrBridgeProvider(OpenXrBridgeProvider provider) noexcept;
 
 /**
- * 既定 OpenXrBridge を返す。
+ * 既定 IOpenXrBridge を返す。
  *
  * @return provider 登録済みならその実 bridge、未登録なら GetXrStub()。
  */
@@ -391,7 +391,7 @@ IOpenXrBridge& GetDefaultOpenXrBridge() noexcept;
 /**
  * XR seam のエラー subcode を集める namespace。
  *
- * @details FMlRuntime.h / FSaveSlot.h と subcode 番号を揃え、上位は category 横断で
+ * @details MlRuntime.h / SaveSlot.h と subcode 番号を揃え、上位は category 横断で
  * 「未実装」を一律に扱える (Generic + subcode 99 規約)。
  */
 namespace xr_err {

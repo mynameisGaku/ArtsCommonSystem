@@ -23,29 +23,29 @@
 
 namespace acs::game {
 
-// NotImplemented 専用カテゴリは無いため、FSaveSlot.h と同じ「Generic + subcode 99」の
+// NotImplemented 専用カテゴリは無いため、TSaveSlot.h と同じ「Generic + subcode 99」の
 // 規約で ACS_ERR を返す (message は静的文字列リテラル)。
-TResult<void> MlRuntimeStub::Init() noexcept {
+TResult<void> FMlRuntimeStub::Init() noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
                    "MlRuntimeStub::Init: ML backend not integrated (Phase U-1 stub)");
 }
 
-void MlRuntimeStub::Shutdown() noexcept {
+void FMlRuntimeStub::Shutdown() noexcept {
     // 何も保持していないので no-op。Init が常に失敗する以上、ここに来ても
     // 解放対象は存在しない。
 }
 
-TResult<MlModelHandle> MlRuntimeStub::LoadModel(const char* /*model_path*/) noexcept {
+TResult<FMlModelHandle> FMlRuntimeStub::LoadModel(const char* /*model_path*/) noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
                    "MlRuntimeStub::LoadModel: ML backend not integrated (Phase U-1 stub)");
 }
 
-TResult<void> MlRuntimeStub::UnloadModel(MlModelHandle /*h*/) noexcept {
+TResult<void> FMlRuntimeStub::UnloadModel(FMlModelHandle /*h*/) noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
                    "MlRuntimeStub::UnloadModel: ML backend not integrated (Phase U-1 stub)");
 }
 
-TResult<void> MlRuntimeStub::RunInference(MlModelHandle /*h*/,
+TResult<void> FMlRuntimeStub::RunInference(FMlModelHandle /*h*/,
                                          const f32* /*inputs*/,  u32 /*in_count*/,
                                          f32*       /*outputs*/, u32 /*out_count*/) noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
@@ -71,7 +71,7 @@ TResult<void> FUpscalerStub::Init(EUpscalerKind k) noexcept {
  * @return process lifetime の MlRuntimeStub への参照。
  */
 IMlRuntime& GetMlRuntimeStub() noexcept {
-    static MlRuntimeStub instance;
+    static FMlRuntimeStub instance;
     return instance;
 }
 

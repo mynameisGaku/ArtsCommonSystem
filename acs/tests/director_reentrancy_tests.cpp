@@ -178,8 +178,8 @@ ACS_TEST(DirectorReentrancy, CinematicsFiresInTimeOrderAndSkipCompletes)
     static u32 order[8];
     static u32 order_n;
     order_n = 0;
-    struct L { static void Fn(void* /*u*/, u32 id) noexcept { order[order_n++] = id; } };
-    dir.SetEventCallback(&L::Fn, nullptr);
+    struct FL { static void Fn(void* /*u*/, u32 id) noexcept { order[order_n++] = id; } };
+    dir.SetEventCallback(&FL::Fn, nullptr);
 
     EXPECT_NEAR(dir.TotalDuration(), 3.0f, 1e-5f);
 

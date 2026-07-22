@@ -8,13 +8,13 @@ using namespace acs;
 
 namespace hellolights {
 
-void LightsScene::Build() noexcept {
+void FLightsScene::Build() noexcept {
     m_Objects.Clear();
     for (u32 i = 0; i < kCubeCount; ++i) {
         // 開始位相 0.4f はカメラ初期位置と物体が重ならないようにずらすため。
         const f32 a = (kPi * 2.0f) * static_cast<f32>(i) / kCubeCount + 0.4f;
         const f32 r = 2.5f;
-        ObjectInst o;
+        FObjectInst o;
         o.is_sphere     = (i & 1) != 0;
         const f32 h     = 0.5f;
         const FVec3 pos  { Sin(a) * r, h, Cos(a) * r };
@@ -26,12 +26,12 @@ void LightsScene::Build() noexcept {
     }
 }
 
-void LightsScene::Render(FStandardShader&  shader,
+void FLightsScene::Render(FStandardShader&  shader,
                          IRhiCommandList& cl,
                          const FCamera&    camera,
-                         const GpuMesh&   plane,
-                         const GpuMesh&   cube,
-                         const GpuMesh&   sphere,
+                         const FGpuMesh&   plane,
+                         const FGpuMesh&   cube,
+                         const FGpuMesh&   sphere,
                          f32              time) noexcept {
     // --- ライト設定 ---
     // dir ライトはほぼ無効化 (ambient と同程度) に落とし、点光源の色を
@@ -42,7 +42,7 @@ void LightsScene::Render(FStandardShader&  shader,
     shader.SetLights(camera.ViewProjection(), camera.Eye(),
                      &dir, 1, FVec3{0.04f, 0.04f, 0.06f});
 
-    PointLight pts[kPointCount];
+    FPointLight pts[kPointCount];
     const FVec3 colors[kPointCount] = {
         {1.0f, 0.3f, 0.3f},
         {0.3f, 1.0f, 0.4f},
@@ -67,20 +67,21 @@ void LightsScene::Render(FStandardShader&  shader,
     // --- 描画 ---
     cl.SetPipeline(*shader.Pipeline());
     cl.SetConstantBuffer(0, *shader.PerFrameCB());
-    cl.SetConstantBuffer(1, *shader.PerObjectCB());
     cl.SetTexture(0, *shader.DefaultWhiteTexture());
     cl.SetTexture(1, *shader.ShadowTextureOrDefault());
 
     // 床: 暗めの灰色 + roughness 0.2 で点光源のハイライトが乗りやすい。
-    shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
-                     FVec3{0.55f, 0.55f, 0.6f}, 0.2f, 32.0f);
+    if (!shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
+                          FVec3{0.55f, 0.55f, 0.6f}, 0.2f, 32.0f)) return;
+    cl.SetConstantBuffer(1, *shader.PerObjectCB());
     cl.SetVertexBuffer(*plane.vertex_buffer, plane.vertex_stride);
     cl.SetIndexBuffer(*plane.index_buffer);
     cl.DrawIndexed(plane.index_count);
 
-    for (const ObjectInst& obj : m_Objects) {
-        shader.SetObject(obj.model, obj.color, 0.5f, 32.0f);
-        const GpuMesh& m = obj.is_sphere ? sphere : cube;
+    for (const FObjectInst& obj : m_Objects) {
+        if (!shader.SetObject(obj.model, obj.color, 0.5f, 32.0f)) continue;
+        cl.SetConstantBuffer(1, *shader.PerObjectCB());
+        const FGpuMesh& m = obj.is_sphere ? sphere : cube;
         cl.SetVertexBuffer(*m.vertex_buffer, m.vertex_stride);
         cl.SetIndexBuffer(*m.index_buffer);
         cl.DrawIndexed(m.index_count);
@@ -93,7 +94,8 @@ void LightsScene::Render(FStandardShader&  shader,
         const FVec3 col = pts[i].color * 0.3f;
         const FMat4 m = FMat4::Scale(FVec3{0.2f, 0.2f, 0.2f}) *
                         FMat4::Translation(pts[i].position);
-        shader.SetObject(m, col, 0.0f, 1.0f);
+        if (!shader.SetObject(m, col, 0.0f, 1.0f)) continue;
+        cl.SetConstantBuffer(1, *shader.PerObjectCB());
         cl.SetVertexBuffer(*sphere.vertex_buffer, sphere.vertex_stride);
         cl.SetIndexBuffer(*sphere.index_buffer);
         cl.DrawIndexed(sphere.index_count);

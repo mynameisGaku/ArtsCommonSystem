@@ -34,19 +34,19 @@ class FRenderer;
  * ImGui コンテキスト・SRV ディスクリプタヒープ・各 backend のライフサイクルを 1 つに
  * まとめて管理する。標準フローは Init → 毎フレーム NewFrame/Render → Shutdown。
  */
-class ImGuiCtx {
+class FImGuiCtx {
 public:
     /** 空状態で構築する (実体は Init で確保)。 */
-    ImGuiCtx() noexcept = default;
+    FImGuiCtx() noexcept = default;
 
     /** Shutdown を呼んで backend とコンテキストを破棄する。 */
-    ~ImGuiCtx() noexcept;
+    ~FImGuiCtx() noexcept;
 
     /** コピー禁止 (ImGui コンテキスト・GPU リソースを単独所有するため)。 */
-    ImGuiCtx(const ImGuiCtx&) = delete;
+    FImGuiCtx(const FImGuiCtx&) = delete;
 
     /** コピー代入も禁止。 */
-    ImGuiCtx& operator=(const ImGuiCtx&) = delete;
+    FImGuiCtx& operator=(const FImGuiCtx&) = delete;
 
     /**
      * ImGui コンテキストと Win32/DX12 backend を初期化する。
@@ -76,7 +76,7 @@ public:
      * @details マウスのボタン・移動・スクロールと文字入力を ImGuiIO へ反映する (キー入力は未対応)。
      * @param e 転送する入力・ウィンドウイベント。
      */
-    void OnEvent(const Event& e) noexcept;
+    void OnEvent(const FEvent& e) noexcept;
 
 private:
     /** 紐付け対象のウィンドウ (Init で受け取る)。 */

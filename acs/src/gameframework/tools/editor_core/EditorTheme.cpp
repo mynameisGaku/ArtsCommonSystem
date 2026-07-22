@@ -12,14 +12,19 @@
 // を実装する。全 noexcept、STL 不使用、ImGui 依存はこの .cpp に閉じる。
 #include "gameframework/tools/editor_core/EditorTheme.h"
 
+#include "container/Array.h"
 #include "foundation/Log.h"
-#include "platform/FileSystem.h"
+#include "foundation/Platform.h"
 
 #include <imgui.h>
 
-#include <cstdio>   // std::snprintf
-#include <cstring>  // std::strncmp / std::strlen
-#include <cstdlib>  // std::strtof
+#include <charconv>
+#include <cmath>
+#include <cstddef>
+#include <cstdio>
+#include <cstring>
+#include <cwchar>
+#include <limits>
 
 namespace acs::game::editor_core {
 
@@ -95,6 +100,175 @@ bool HasImGuiContext() noexcept {
     return ImGui::GetCurrentContext() != nullptr;
 }
 
+bool IsBoundedWidePath(
+    const wchar_t* path, usize max_chars, usize& out_length) noexcept {
+    out_length = 0u;
+    if (path == nullptr) return false;
+    while (out_length <= max_chars && path[out_length] != L'\0') ++out_length;
+    return out_length > 0u && out_length <= max_chars;
+}
+
+bool BuildUniqueTempPath(
+    const wchar_t* destination, usize destination_length,
+    wchar_t* out, usize capacity, u32 attempt) noexcept {
+    wchar_t suffix[96]{};
+    static volatile LONG counter = 0;
+    const LONG serial = ::InterlockedIncrement(&counter);
+    const int suffix_length = std::swprintf(
+        suffix, sizeof(suffix) / sizeof(suffix[0]),
+        L".tmp.%lu.%lu.%ld.%u",
+        static_cast<unsigned long>(::GetCurrentProcessId()),
+        static_cast<unsigned long>(::GetCurrentThreadId()),
+        static_cast<long>(serial), attempt);
+    if (suffix_length <= 0) return false;
+    const usize suffix_size = static_cast<usize>(suffix_length);
+    if (destination_length + suffix_size + 1u > capacity) return false;
+    std::memcpy(out, destination, destination_length * sizeof(wchar_t));
+    std::memcpy(
+        out + destination_length, suffix,
+        (suffix_size + 1u) * sizeof(wchar_t));
+    return true;
+}
+
+struct FFileRenameInfoEx {
+    DWORD flags = 0u;
+    HANDLE root_directory = nullptr;
+    DWORD file_name_length = 0u;
+    wchar_t file_name[1]{};
+};
+
+bool TryPosixAtomicReplace(
+    const wchar_t* temporary_path,
+    const wchar_t* destination,
+    usize destination_length,
+    DWORD& out_error) noexcept {
+    constexpr DWORD kRenameReplaceIfExists = 0x00000001u;
+    constexpr DWORD kRenamePosixSemantics = 0x00000002u;
+    constexpr auto kFileRenameInfoEx =
+        static_cast<FILE_INFO_BY_HANDLE_CLASS>(22);
+    constexpr usize kPrefixBytes = offsetof(FFileRenameInfoEx, file_name);
+    alignas(FFileRenameInfoEx)
+        u8 storage[kPrefixBytes +
+                   (FEditorTheme::kMaxPersistencePathChars + 1u) *
+                       sizeof(wchar_t)]{};
+    auto* info = reinterpret_cast<FFileRenameInfoEx*>(storage);
+    const usize destination_bytes = destination_length * sizeof(wchar_t);
+    info->flags = kRenameReplaceIfExists | kRenamePosixSemantics;
+    info->file_name_length = static_cast<DWORD>(destination_bytes);
+    std::memcpy(info->file_name, destination, destination_bytes);
+
+    HANDLE source = ::CreateFileW(
+        temporary_path, DELETE | SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (source == INVALID_HANDLE_VALUE) {
+        out_error = ::GetLastError();
+        return false;
+    }
+    const DWORD info_bytes =
+        static_cast<DWORD>(kPrefixBytes + destination_bytes);
+    const BOOL renamed = ::SetFileInformationByHandle(
+        source, kFileRenameInfoEx, info, info_bytes);
+    if (!renamed) out_error = ::GetLastError();
+    (void)::CloseHandle(source);
+    return renamed != 0;
+}
+
+bool AppendBytes(TArray<char>& out, const char* text, usize length) noexcept {
+    const usize old_size = out.Size();
+    if (length > std::numeric_limits<usize>::max() - old_size ||
+        !out.TryResize(old_size + length)) {
+        return false;
+    }
+    if (length > 0u) std::memcpy(out.Data() + old_size, text, length);
+    return true;
+}
+
+bool AppendFloatLine(
+    TArray<char>& out, const char* key, const f32* values, u32 count) noexcept {
+    if (key == nullptr || values == nullptr || count == 0u || count > 4u) {
+        return false;
+    }
+    char line[160]{};
+    const usize key_length = std::strlen(key);
+    if (key_length + 2u >= sizeof(line)) return false;
+    std::memcpy(line, key, key_length);
+    usize length = key_length;
+    for (u32 i = 0u; i < count; ++i) {
+        if (!std::isfinite(values[i]) || length + 2u >= sizeof(line)) return false;
+        line[length++] = ' ';
+        const std::to_chars_result converted = std::to_chars(
+            line + length, line + sizeof(line) - 1u, values[i],
+            std::chars_format::general, std::numeric_limits<f32>::max_digits10);
+        if (converted.ec != std::errc{}) return false;
+        length = static_cast<usize>(converted.ptr - line);
+    }
+    line[length++] = '\n';
+    return AppendBytes(out, line, length);
+}
+
+struct FToken {
+    const char* begin = nullptr;
+    const char* end = nullptr;
+};
+
+bool NextToken(const char*& cursor, const char* end, FToken& out) noexcept {
+    while (cursor < end && (*cursor == ' ' || *cursor == '\t')) ++cursor;
+    if (cursor == end) return false;
+    out.begin = cursor;
+    while (cursor < end && *cursor != ' ' && *cursor != '\t') ++cursor;
+    out.end = cursor;
+    return true;
+}
+
+bool TokenEquals(const FToken& token, const char* literal) noexcept {
+    const usize literal_length = std::strlen(literal);
+    return static_cast<usize>(token.end - token.begin) == literal_length &&
+        std::memcmp(token.begin, literal, literal_length) == 0;
+}
+
+enum class EThemeNumberStatus : u8 { Ok, Invalid, OutOfRange };
+
+EThemeNumberStatus ParseFloat(const FToken& token, f32& out) noexcept {
+    const char* begin = token.begin;
+    if (begin < token.end && *begin == '+') ++begin;
+    if (begin == token.end) return EThemeNumberStatus::Invalid;
+    f32 value = 0.0f;
+    const std::from_chars_result converted = std::from_chars(
+        begin, token.end, value, std::chars_format::general);
+    if (converted.ec == std::errc::result_out_of_range) {
+        return EThemeNumberStatus::OutOfRange;
+    }
+    if (converted.ec != std::errc{} || converted.ptr != token.end) {
+        return EThemeNumberStatus::Invalid;
+    }
+    if (!std::isfinite(value)) return EThemeNumberStatus::OutOfRange;
+    out = value;
+    return EThemeNumberStatus::Ok;
+}
+
+bool ParsePreset(const FToken& token, EEditorThemePreset& out) noexcept {
+    constexpr const char* names[] = {
+        "Dark", "DarkBlue", "Light", "HighContrast", "Sepia", "Custom"};
+    for (u32 i = 0u; i < 6u; ++i) {
+        if (TokenEquals(token, names[i])) {
+            out = static_cast<EEditorThemePreset>(i);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool IsUnitColor(const FVec4& value) noexcept {
+    const f32 components[4] = {value.x, value.y, value.z, value.w};
+    for (f32 component : components) {
+        if (!std::isfinite(component) || component < 0.0f || component > 1.0f) {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 /**
@@ -109,7 +283,7 @@ bool HasImGuiContext() noexcept {
  * @param out 書き込み先のカラーパレット (Custom では不変)。
  */
 void FEditorTheme::FillPresetColors(EEditorThemePreset       preset,
-                                   EditorThemeColors&       out) noexcept {
+                                   FEditorThemeColors&       out) noexcept {
     switch (preset) {
         case EEditorThemePreset::Dark: {
             out.window_bg     = FVec4{0.180f, 0.180f, 0.180f, 1.0f};  // #2E2E2E
@@ -222,7 +396,7 @@ void FEditorTheme::ApplyPreset(EEditorThemePreset preset) noexcept {
 }
 
 /** 任意のカラーパレットを設定して preset を Custom に切り替え ImGui に流す。 */
-void FEditorTheme::SetCustomColors(const EditorThemeColors& colors) noexcept {
+void FEditorTheme::SetCustomColors(const FEditorThemeColors& colors) noexcept {
     m_Colors = colors;
     m_Preset = EEditorThemePreset::Custom;
     ApplyToImGui();
@@ -351,7 +525,7 @@ void FEditorTheme::ApplyToImGui() noexcept {
 void FEditorTheme::DrawThemeSettingsUI() noexcept {
     if (!HasImGuiContext()) return;
 
-    if (!ImGui::Begin("Theme FSettings")) {
+    if (!ImGui::Begin("Theme Settings")) {
         ImGui::End();
         return;
     }
@@ -377,7 +551,7 @@ void FEditorTheme::DrawThemeSettingsUI() noexcept {
         }
     };
 
-    edit("FWindow BG",     m_Colors.window_bg);
+    edit("Window BG",      m_Colors.window_bg);
     edit("Title BG",      m_Colors.title_bg);
     edit("Button BG",     m_Colors.button_bg);
     edit("Button Hover",  m_Colors.button_hover);
@@ -436,6 +610,7 @@ void FEditorTheme::DrawThemeSettingsUI() noexcept {
  * 書き込み失敗時は ACS_LOG_WARN で記録し打ち切る (戻り値 void = ベストエフォート)。
  * @param file_path 書き出し先のファイルパス (nullptr は no-op)。
  */
+#if 0
 void FEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return;
 
@@ -494,7 +669,7 @@ void FEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
     }
 
     // 書き出し。
-    const auto r = FileSystem::WriteAllBytes(file_path,
+    const auto r = FFileSystem::WriteAllBytes(file_path,
                                        reinterpret_cast<const byte*>(buf),
                                        static_cast<usize>(pos));
     if (r.IsErr()) {
@@ -514,12 +689,12 @@ void FEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
  */
 void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return;
-    if (!FileSystem::Exists(file_path)) {
+    if (!FFileSystem::Exists(file_path)) {
         ACS_LOG_WARN("FEditorTheme::LoadTheme: file not found");
         return;
     }
 
-    const auto rr = FileSystem::ReadAllText(file_path);
+    const auto rr = FFileSystem::ReadAllText(file_path);
     if (rr.IsErr()) {
         ACS_LOG_WARN("FEditorTheme::LoadTheme: ReadAllText failed: os=%u",
                      rr.Error().os_error);
@@ -538,7 +713,7 @@ void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
 
     // 行単位 parser。既存値を破壊しないよう一時バッファに読んだ結果を蓄積し、
     // 最後に commit する (= magic mismatch 等で部分上書きされない)。
-    EditorThemeColors  new_colors      = m_Colors;
+    FEditorThemeColors  new_colors      = m_Colors;
     EEditorThemePreset new_preset      = m_Preset;
     f32                new_font_scale  = m_FontScale;
     f32                new_corner      = m_CornerRadius;
@@ -656,6 +831,500 @@ void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
     m_CornerRadius   = new_corner;
     m_ItemSpacingY  = new_spacing;
     ApplyToImGui();
+}
+#endif
+
+const char* FEditorThemePersistenceResult::ErrorName(
+    EEditorThemePersistenceError error) noexcept {
+    switch (error) {
+        case EEditorThemePersistenceError::None: return "None";
+        case EEditorThemePersistenceError::NullArgument: return "NullArgument";
+        case EEditorThemePersistenceError::PathTooLong: return "PathTooLong";
+        case EEditorThemePersistenceError::InputTooLarge: return "InputTooLarge";
+        case EEditorThemePersistenceError::EmbeddedNul: return "EmbeddedNul";
+        case EEditorThemePersistenceError::TooManyLines: return "TooManyLines";
+        case EEditorThemePersistenceError::LineTooLong: return "LineTooLong";
+        case EEditorThemePersistenceError::BadMagic: return "BadMagic";
+        case EEditorThemePersistenceError::UnsupportedVersion: return "UnsupportedVersion";
+        case EEditorThemePersistenceError::InvalidSyntax: return "InvalidSyntax";
+        case EEditorThemePersistenceError::UnknownKey: return "UnknownKey";
+        case EEditorThemePersistenceError::DuplicateKey: return "DuplicateKey";
+        case EEditorThemePersistenceError::MissingKey: return "MissingKey";
+        case EEditorThemePersistenceError::InvalidType: return "InvalidType";
+        case EEditorThemePersistenceError::InvalidValue: return "InvalidValue";
+        case EEditorThemePersistenceError::ValueOutOfRange: return "ValueOutOfRange";
+        case EEditorThemePersistenceError::AllocationFailure: return "AllocationFailure";
+        case EEditorThemePersistenceError::FileNotFound: return "FileNotFound";
+        case EEditorThemePersistenceError::FileOpenFailed: return "FileOpenFailed";
+        case EEditorThemePersistenceError::FileSizeFailed: return "FileSizeFailed";
+        case EEditorThemePersistenceError::FileChanged: return "FileChanged";
+        case EEditorThemePersistenceError::FileReadFailed: return "FileReadFailed";
+        case EEditorThemePersistenceError::FileWriteFailed: return "FileWriteFailed";
+        case EEditorThemePersistenceError::FileFlushFailed: return "FileFlushFailed";
+        case EEditorThemePersistenceError::FileCloseFailed: return "FileCloseFailed";
+        case EEditorThemePersistenceError::AtomicReplaceFailed: return "AtomicReplaceFailed";
+    }
+    return "Unknown";
+}
+
+FEditorThemePersistenceResult FEditorTheme::TryParseThemeText(
+    const char* text, usize text_size) noexcept {
+    FEditorThemePersistenceResult result{};
+    result.bytes_processed = static_cast<u64>(text_size);
+    if (text == nullptr) {
+        result.error = EEditorThemePersistenceError::NullArgument;
+        return result;
+    }
+    if (text_size > kMaxThemeBytes) {
+        result.error = EEditorThemePersistenceError::InputTooLarge;
+        return result;
+    }
+    if (std::memchr(text, '\0', text_size) != nullptr) {
+        result.error = EEditorThemePersistenceError::EmbeddedNul;
+        return result;
+    }
+
+    FEditorThemeColors staged_colors{};
+    EEditorThemePreset staged_preset = EEditorThemePreset::Dark;
+    f32 staged_font_scale = 1.0f;
+    f32 staged_corner_radius = 0.0f;
+    f32 staged_spacing = 0.0f;
+    constexpr u32 kRequiredKeyCount = 17u;
+    constexpr u32 kRequiredMask = (1u << kRequiredKeyCount) - 1u;
+    u32 seen = 0u;
+    bool saw_header = false;
+    usize offset = 0u;
+    u32 line_number = 0u;
+
+    auto fail = [&](EEditorThemePersistenceError error) noexcept {
+        result.error = error;
+        result.line = line_number;
+        return result;
+    };
+
+    while (offset < text_size) {
+        if (++line_number > kMaxThemeLines) {
+            return fail(EEditorThemePersistenceError::TooManyLines);
+        }
+        const usize line_begin_offset = offset;
+        while (offset < text_size && text[offset] != '\n') ++offset;
+        usize line_length = offset - line_begin_offset;
+        if (offset < text_size) ++offset;
+        if (line_length > 0u && text[line_begin_offset + line_length - 1u] == '\r') {
+            --line_length;
+        }
+        if (line_length > kMaxThemeLineBytes) {
+            return fail(EEditorThemePersistenceError::LineTooLong);
+        }
+        const char* cursor = text + line_begin_offset;
+        const char* line_end = cursor + line_length;
+        while (cursor < line_end && (*cursor == ' ' || *cursor == '\t')) ++cursor;
+        if (cursor == line_end || *cursor == '#') continue;
+
+        FToken key{};
+        if (!NextToken(cursor, line_end, key)) {
+            return fail(EEditorThemePersistenceError::InvalidSyntax);
+        }
+        if (!saw_header) {
+            if (!TokenEquals(key, kMagic)) {
+                return fail(EEditorThemePersistenceError::BadMagic);
+            }
+            FToken version_token{};
+            if (!NextToken(cursor, line_end, version_token)) {
+                return fail(EEditorThemePersistenceError::InvalidSyntax);
+            }
+            FToken trailing{};
+            if (NextToken(cursor, line_end, trailing)) {
+                return fail(EEditorThemePersistenceError::InvalidSyntax);
+            }
+            u32 version = 0u;
+            const std::from_chars_result parsed = std::from_chars(
+                version_token.begin, version_token.end, version, 10);
+            if (parsed.ec != std::errc{} || parsed.ptr != version_token.end) {
+                return fail(EEditorThemePersistenceError::InvalidSyntax);
+            }
+            if (version != kCurrentVersion) {
+                return fail(EEditorThemePersistenceError::UnsupportedVersion);
+            }
+            saw_header = true;
+            continue;
+        }
+
+        u32 key_index = kRequiredKeyCount;
+        FVec4* vector_target = nullptr;
+        if (TokenEquals(key, "preset")) key_index = 0u;
+        else if (TokenEquals(key, "font_scale")) key_index = 1u;
+        else if (TokenEquals(key, "corner_radius")) key_index = 2u;
+        else if (TokenEquals(key, "item_spacing_y")) key_index = 3u;
+        else if (TokenEquals(key, "window_bg")) {
+            key_index = 4u; vector_target = &staged_colors.window_bg;
+        } else if (TokenEquals(key, "title_bg")) {
+            key_index = 5u; vector_target = &staged_colors.title_bg;
+        } else if (TokenEquals(key, "button_bg")) {
+            key_index = 6u; vector_target = &staged_colors.button_bg;
+        } else if (TokenEquals(key, "button_hover")) {
+            key_index = 7u; vector_target = &staged_colors.button_hover;
+        } else if (TokenEquals(key, "button_active")) {
+            key_index = 8u; vector_target = &staged_colors.button_active;
+        } else if (TokenEquals(key, "frame_bg")) {
+            key_index = 9u; vector_target = &staged_colors.frame_bg;
+        } else if (TokenEquals(key, "text")) {
+            key_index = 10u; vector_target = &staged_colors.text;
+        } else if (TokenEquals(key, "text_disabled")) {
+            key_index = 11u; vector_target = &staged_colors.text_disabled;
+        } else if (TokenEquals(key, "border")) {
+            key_index = 12u; vector_target = &staged_colors.border;
+        } else if (TokenEquals(key, "separator")) {
+            key_index = 13u; vector_target = &staged_colors.separator;
+        } else if (TokenEquals(key, "accent")) {
+            key_index = 14u; vector_target = &staged_colors.accent;
+        } else if (TokenEquals(key, "warning")) {
+            key_index = 15u; vector_target = &staged_colors.warning;
+        } else if (TokenEquals(key, "error")) {
+            key_index = 16u; vector_target = &staged_colors.error;
+        } else {
+            return fail(EEditorThemePersistenceError::UnknownKey);
+        }
+
+        const u32 key_bit = 1u << key_index;
+        if ((seen & key_bit) != 0u) {
+            return fail(EEditorThemePersistenceError::DuplicateKey);
+        }
+        seen |= key_bit;
+
+        if (key_index == 0u) {
+            FToken value{};
+            FToken trailing{};
+            if (!NextToken(cursor, line_end, value) ||
+                NextToken(cursor, line_end, trailing)) {
+                return fail(EEditorThemePersistenceError::InvalidSyntax);
+            }
+            if (!ParsePreset(value, staged_preset)) {
+                return fail(EEditorThemePersistenceError::InvalidValue);
+            }
+            continue;
+        }
+
+        const u32 value_count = vector_target != nullptr ? 4u : 1u;
+        f32 values[4]{};
+        for (u32 i = 0u; i < value_count; ++i) {
+            FToken value{};
+            if (!NextToken(cursor, line_end, value)) {
+                return fail(EEditorThemePersistenceError::InvalidSyntax);
+            }
+            const EThemeNumberStatus status = ParseFloat(value, values[i]);
+            if (status == EThemeNumberStatus::Invalid) {
+                return fail(EEditorThemePersistenceError::InvalidValue);
+            }
+            if (status == EThemeNumberStatus::OutOfRange) {
+                return fail(EEditorThemePersistenceError::ValueOutOfRange);
+            }
+        }
+        FToken trailing{};
+        if (NextToken(cursor, line_end, trailing)) {
+            return fail(EEditorThemePersistenceError::InvalidSyntax);
+        }
+        if (vector_target != nullptr) {
+            *vector_target = FVec4{values[0], values[1], values[2], values[3]};
+            if (!IsUnitColor(*vector_target)) {
+                return fail(EEditorThemePersistenceError::ValueOutOfRange);
+            }
+        } else if (key_index == 1u) {
+            if (values[0] < 0.25f || values[0] > 4.0f) {
+                return fail(EEditorThemePersistenceError::ValueOutOfRange);
+            }
+            staged_font_scale = values[0];
+        } else if (key_index == 2u) {
+            if (values[0] < 0.0f || values[0] > 32.0f) {
+                return fail(EEditorThemePersistenceError::ValueOutOfRange);
+            }
+            staged_corner_radius = values[0];
+        } else {
+            if (values[0] < 0.0f || values[0] > 64.0f) {
+                return fail(EEditorThemePersistenceError::ValueOutOfRange);
+            }
+            staged_spacing = values[0];
+        }
+    }
+
+    result.line = line_number;
+    if (!saw_header) {
+        result.error = EEditorThemePersistenceError::BadMagic;
+        return result;
+    }
+    if (seen != kRequiredMask) {
+        result.error = EEditorThemePersistenceError::MissingKey;
+        return result;
+    }
+    m_Colors = staged_colors;
+    m_Preset = staged_preset;
+    m_FontScale = staged_font_scale;
+    m_CornerRadius = staged_corner_radius;
+    m_ItemSpacingY = staged_spacing;
+    ApplyToImGui();
+    return result;
+}
+
+FEditorThemePersistenceResult FEditorTheme::TryLoadTheme(
+    const wchar_t* file_path) noexcept {
+    FEditorThemePersistenceResult result{};
+    usize path_length = 0u;
+    if (file_path == nullptr) {
+        result.error = EEditorThemePersistenceError::NullArgument;
+        return result;
+    }
+    if (!IsBoundedWidePath(
+            file_path, kMaxPersistencePathChars, path_length)) {
+        result.error = EEditorThemePersistenceError::PathTooLong;
+        return result;
+    }
+    HANDLE file = ::CreateFileW(
+        file_path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        result.os_error = ::GetLastError();
+        result.error =
+            result.os_error == ERROR_FILE_NOT_FOUND ||
+                    result.os_error == ERROR_PATH_NOT_FOUND
+                ? EEditorThemePersistenceError::FileNotFound
+                : EEditorThemePersistenceError::FileOpenFailed;
+        return result;
+    }
+    LARGE_INTEGER size{};
+    if (!::GetFileSizeEx(file, &size) || size.QuadPart < 0) {
+        result.os_error = ::GetLastError();
+        (void)::CloseHandle(file);
+        result.error = EEditorThemePersistenceError::FileSizeFailed;
+        return result;
+    }
+    if (static_cast<u64>(size.QuadPart) > static_cast<u64>(kMaxThemeBytes)) {
+        (void)::CloseHandle(file);
+        result.error = EEditorThemePersistenceError::InputTooLarge;
+        return result;
+    }
+    TArray<char> text;
+    if (!text.TryResize(static_cast<usize>(size.QuadPart))) {
+        (void)::CloseHandle(file);
+        result.error = EEditorThemePersistenceError::AllocationFailure;
+        return result;
+    }
+    usize total = 0u;
+    while (total < text.Size()) {
+        const usize remaining = text.Size() - total;
+        const DWORD chunk = static_cast<DWORD>(
+            remaining > 0x7ffff000u ? 0x7ffff000u : remaining);
+        DWORD bytes_read = 0u;
+        if (!::ReadFile(
+                file, text.Data() + total, chunk, &bytes_read, nullptr) ||
+            bytes_read == 0u) {
+            result.os_error = ::GetLastError();
+            (void)::CloseHandle(file);
+            result.error = EEditorThemePersistenceError::FileReadFailed;
+            result.bytes_processed = static_cast<u64>(total);
+            return result;
+        }
+        total += bytes_read;
+    }
+    char probe = '\0';
+    DWORD probe_read = 0u;
+    if (!::ReadFile(file, &probe, 1u, &probe_read, nullptr)) {
+        result.os_error = ::GetLastError();
+        (void)::CloseHandle(file);
+        result.error = EEditorThemePersistenceError::FileReadFailed;
+        result.bytes_processed = static_cast<u64>(total);
+        return result;
+    }
+    LARGE_INTEGER final_size{};
+    if (probe_read != 0u) {
+        (void)::CloseHandle(file);
+        result.error = EEditorThemePersistenceError::FileChanged;
+        result.bytes_processed = static_cast<u64>(total);
+        return result;
+    }
+    if (!::GetFileSizeEx(file, &final_size)) {
+        result.os_error = ::GetLastError();
+        (void)::CloseHandle(file);
+        result.error = EEditorThemePersistenceError::FileSizeFailed;
+        return result;
+    }
+    if (final_size.QuadPart != size.QuadPart) {
+        (void)::CloseHandle(file);
+        result.error = EEditorThemePersistenceError::FileChanged;
+        result.bytes_processed = static_cast<u64>(total);
+        return result;
+    }
+    if (!::CloseHandle(file)) {
+        result.os_error = ::GetLastError();
+        result.error = EEditorThemePersistenceError::FileCloseFailed;
+        return result;
+    }
+    result = TryParseThemeText(
+        text.IsEmpty() ? "" : text.Data(), text.Size());
+    result.bytes_processed = static_cast<u64>(total);
+    return result;
+}
+
+FEditorThemePersistenceResult FEditorTheme::TrySaveTheme(
+    const wchar_t* file_path) noexcept {
+    FEditorThemePersistenceResult result{};
+    usize path_length = 0u;
+    if (file_path == nullptr) {
+        result.error = EEditorThemePersistenceError::NullArgument;
+        return result;
+    }
+    if (!IsBoundedWidePath(
+            file_path, kMaxPersistencePathChars, path_length)) {
+        result.error = EEditorThemePersistenceError::PathTooLong;
+        return result;
+    }
+    if (static_cast<u8>(m_Preset) > static_cast<u8>(EEditorThemePreset::Custom) ||
+        !std::isfinite(m_FontScale) || m_FontScale < 0.25f || m_FontScale > 4.0f ||
+        !std::isfinite(m_CornerRadius) || m_CornerRadius < 0.0f ||
+        m_CornerRadius > 32.0f ||
+        !std::isfinite(m_ItemSpacingY) || m_ItemSpacingY < 0.0f ||
+        m_ItemSpacingY > 64.0f) {
+        result.error = EEditorThemePersistenceError::ValueOutOfRange;
+        return result;
+    }
+    const FVec4* colors[] = {
+        &m_Colors.window_bg, &m_Colors.title_bg, &m_Colors.button_bg,
+        &m_Colors.button_hover, &m_Colors.button_active, &m_Colors.frame_bg,
+        &m_Colors.text, &m_Colors.text_disabled, &m_Colors.border,
+        &m_Colors.separator, &m_Colors.accent, &m_Colors.warning,
+        &m_Colors.error};
+    for (const FVec4* color : colors) {
+        if (!IsUnitColor(*color)) {
+            result.error = EEditorThemePersistenceError::ValueOutOfRange;
+            return result;
+        }
+    }
+
+    TArray<char> output;
+    if (!output.TryReserve(2048u)) {
+        result.error = EEditorThemePersistenceError::AllocationFailure;
+        return result;
+    }
+    char header[96]{};
+    int header_size = std::snprintf(
+        header, sizeof(header), "%s %u\npreset %s\n",
+        kMagic, kCurrentVersion, PresetName(m_Preset));
+    if (header_size < 0 || static_cast<usize>(header_size) >= sizeof(header) ||
+        !AppendBytes(output, header, static_cast<usize>(header_size)) ||
+        !AppendFloatLine(output, "font_scale", &m_FontScale, 1u) ||
+        !AppendFloatLine(output, "corner_radius", &m_CornerRadius, 1u) ||
+        !AppendFloatLine(output, "item_spacing_y", &m_ItemSpacingY, 1u)) {
+        result.error = EEditorThemePersistenceError::AllocationFailure;
+        return result;
+    }
+    constexpr const char* color_keys[] = {
+        "window_bg", "title_bg", "button_bg", "button_hover",
+        "button_active", "frame_bg", "text", "text_disabled", "border",
+        "separator", "accent", "warning", "error"};
+    for (u32 i = 0u; i < 13u; ++i) {
+        const f32 values[4] = {
+            colors[i]->x, colors[i]->y, colors[i]->z, colors[i]->w};
+        if (!AppendFloatLine(output, color_keys[i], values, 4u)) {
+            result.error = EEditorThemePersistenceError::AllocationFailure;
+            return result;
+        }
+    }
+    if (output.Size() > kMaxThemeBytes) {
+        result.error = EEditorThemePersistenceError::InputTooLarge;
+        return result;
+    }
+
+    constexpr usize kTempPathCapacity = kMaxPersistencePathChars + 97u;
+    wchar_t temp_path[kTempPathCapacity]{};
+    HANDLE temp = INVALID_HANDLE_VALUE;
+    for (u32 attempt = 0u; attempt < 8u; ++attempt) {
+        if (!BuildUniqueTempPath(
+                file_path, path_length, temp_path, kTempPathCapacity, attempt)) {
+            result.error = EEditorThemePersistenceError::PathTooLong;
+            return result;
+        }
+        temp = ::CreateFileW(
+            temp_path, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (temp != INVALID_HANDLE_VALUE) break;
+        result.os_error = ::GetLastError();
+        if (result.os_error != ERROR_FILE_EXISTS &&
+            result.os_error != ERROR_ALREADY_EXISTS) {
+            result.error = EEditorThemePersistenceError::FileOpenFailed;
+            return result;
+        }
+    }
+    if (temp == INVALID_HANDLE_VALUE) {
+        result.error = EEditorThemePersistenceError::FileOpenFailed;
+        return result;
+    }
+    usize total = 0u;
+    while (total < output.Size()) {
+        const usize remaining = output.Size() - total;
+        const DWORD chunk = static_cast<DWORD>(
+            remaining > 0x7ffff000u ? 0x7ffff000u : remaining);
+        DWORD written = 0u;
+        if (!::WriteFile(
+                temp, output.Data() + total, chunk, &written, nullptr) ||
+            written == 0u) {
+            result.os_error = ::GetLastError();
+            (void)::CloseHandle(temp);
+            (void)::DeleteFileW(temp_path);
+            result.error = EEditorThemePersistenceError::FileWriteFailed;
+            result.bytes_processed = static_cast<u64>(total);
+            return result;
+        }
+        total += written;
+    }
+    if (!::FlushFileBuffers(temp)) {
+        result.os_error = ::GetLastError();
+        (void)::CloseHandle(temp);
+        (void)::DeleteFileW(temp_path);
+        result.error = EEditorThemePersistenceError::FileFlushFailed;
+        return result;
+    }
+    if (!::CloseHandle(temp)) {
+        result.os_error = ::GetLastError();
+        (void)::DeleteFileW(temp_path);
+        result.error = EEditorThemePersistenceError::FileCloseFailed;
+        return result;
+    }
+    if (!::MoveFileExW(
+            temp_path, file_path,
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        const DWORD move_error = ::GetLastError();
+        DWORD posix_error = 0u;
+        if (!TryPosixAtomicReplace(
+                temp_path, file_path, path_length, posix_error)) {
+            result.os_error = posix_error != 0u ? posix_error : move_error;
+            (void)::DeleteFileW(temp_path);
+            result.error = EEditorThemePersistenceError::AtomicReplaceFailed;
+            return result;
+        }
+    }
+    result.bytes_processed = static_cast<u64>(total);
+    return result;
+}
+
+void FEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
+    if (file_path == nullptr) return;
+    const FEditorThemePersistenceResult result = TrySaveTheme(file_path);
+    if (!result.Succeeded()) {
+        ACS_LOG_WARN(
+            "FEditorTheme::SaveTheme: %s (line=%u os=%u)",
+            FEditorThemePersistenceResult::ErrorName(result.error),
+            result.line, result.os_error);
+    }
+}
+
+void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
+    if (file_path == nullptr) return;
+    const FEditorThemePersistenceResult result = TryLoadTheme(file_path);
+    if (!result.Succeeded()) {
+        ACS_LOG_WARN(
+            "FEditorTheme::LoadTheme: %s (line=%u os=%u)",
+            FEditorThemePersistenceResult::ErrorName(result.error),
+            result.line, result.os_error);
+    }
 }
 
 } // namespace acs::game::editor_core

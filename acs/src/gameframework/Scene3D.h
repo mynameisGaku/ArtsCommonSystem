@@ -1,44 +1,67 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar B — FScene3D
 //
-// 3D シーングラフの実用コンテナ (FScene2D の軽量 3D 版)。root FNode3D ツリーを所有し、
+// 3D シーングラフの実用コンテナ (FScene2D の軽量 3D 版)。root ANode ツリーを所有し、
 // update/fixed-update の伝播 + 構造変更の解決をまとめて行う。描画は «3D レンダラ» が
-// 別途このツリーを走査して FMeshComponent3D 等を読む (本クラスは GPU 非依存)。
+// 別途このツリーを走査して AMeshComponent3D 等を読む (本クラスは GPU 非依存)。
 //
-// 注: 本クラスは Scene 基底 (2D の描画/サービス前提) を継承せず、純粋なシーングラフ
+// 注: 本クラスは FScene 基底 (2D の描画/サービス前提) を継承せず、純粋なシーングラフ
 //     コンテナとして独立させている。3D レンダーパイプラインがエンジンに入った段階で
 //     描画フックを «末尾に追加» する。
 #pragma once
 
 #include "foundation/Types.h"
 #include "container/StringView.h"
-#include "math/Collision3D.h"   // Ray3 / Aabb3 (Raycast)
-#include "gameframework/Node3D.h"
-#include "gameframework/Node3DPool.h"
+#include "math/Collision3D.h"   // FRay3 / FAabb3 (Raycast)
+#include "gameframework/ANode.h"
+#include "gameframework/NodePool.h"
 #include "gameframework/NodeId.h"
 
 namespace acs::game {
+
+/** FScene3D::TrySpawn の大分類。詳細は PoolError / AddChildResult を参照する。 */
+enum class EScene3DSpawnError : u8 {
+    None = 0,
+    InvalidParent,
+    NodeAllocationFailure,
+    PoolRegistrationFailure,
+    ChildAttachRejected,
+};
+
+/** checked ノード生成結果。失敗時は Node が null でツリー/poolを変更しない。 */
+struct FScene3DSpawnResult {
+    ANode* Node = nullptr;
+    FNodeId Id{};
+    EScene3DSpawnError Error = EScene3DSpawnError::None;
+    ENodePoolRegisterError PoolError = ENodePoolRegisterError::None;
+    EAddChildResult AddChildResult = EAddChildResult::Added;
+
+    bool Succeeded() const noexcept {
+        return Error == EScene3DSpawnError::None && Node != nullptr && Id.IsValid();
+    }
+    explicit operator bool() const noexcept { return Succeeded(); }
+};
 
 /**
  * 3D シーングラフを所有・駆動する実用コンテナ (FScene2D の軽量 3D 版)。
  *
  * @details
- * root FNode3D ツリーを所有し、Update/FixedUpdate で subtree 全体に伝播 + フレーム境界の
+ * root ANode ツリーを所有し、Update/FixedUpdate で subtree 全体に伝播 + フレーム境界の
  * 構造変更 (destroy/reparent) を解決する。名前によるノード検索とノード数集計を提供する。
  * 描画は外部の 3D レンダラがツリーを走査して行う (本クラスは GPU 非依存)。
  */
 class FScene3D {
 public:
     /** 空のシーンを構築する (root のみ。pool を初期化し root も登録する)。 */
-    FScene3D() noexcept {
+    FScene3D() noexcept : m_Root(NewObject<ANode>(FStringView("Root"))) {
         m_Pool.Init(256);
-        m_Pool.RegisterExistingNode(&m_Root);   // root にも有効な FNodeId を振る
+        m_Pool.RegisterExistingNode(m_Root.Get());   // root にも有効な FNodeId を振る
     }
 
     /** シーンを破棄する (root ツリーごと解放。pool は非所有なので何も delete しない)。 */
     ~FScene3D() noexcept = default;
 
-    /** コピー禁止 (FNode3D ツリーを単独所有するため)。 */
+    /** コピー禁止 (ANode ツリーを単独所有するため)。 */
     FScene3D(const FScene3D&)            = delete;
 
     /** コピー代入も禁止。 */
@@ -53,35 +76,48 @@ public:
     /**
      * シーンの root ノードへの可変参照を返す (ここに子を AddChild してツリーを組む)。
      *
-     * @return root FNode3D への参照。
+     * @return root ANode への参照。
      */
-    FNode3D&       Root()       noexcept { return m_Root; }
+    ANode&       Root()       noexcept { return *m_Root; }
 
     /**
      * シーンの root ノードへの const 参照を返す。
      *
-     * @return root FNode3D への const 参照。
+     * @return root ANode への const 参照。
      */
-    const FNode3D& Root() const noexcept { return m_Root; }
+    const ANode& Root() const noexcept { return *m_Root; }
+
+    /**
+     * ノードを生成し、pool登録と親へのattachを原子的に試みる。
+     *
+     * @details
+     * parent==nullptr は root を表す。外部シーンのparent、破棄予定parent、深度上限超過を
+     * 拒否する。新規ノードは先にpoolへ仮登録し、TryAddChild失敗時はUnregisterして破棄する
+     * ため、失敗時にツリー、active slot数、既存ノードのIdを変更しない。
+     */
+    FScene3DSpawnResult TrySpawn(
+        FStringView name, ANode* parent = nullptr) noexcept;
 
     /**
      * 名前を付けて子ノードを生成し、generational id を振って参照を返す簡易ヘルパ。
      *
-     * @details parent==nullptr のときは root の子にする。OnSpawn は AddChild 内で即時発火し、
-     * 生成ノードは pool に登録される (= 戻り値の `node.Id()` が有効になる)。
+     * @details
+     * parent==nullptr のときは root の子にする。成功時の挙動は従来互換。
+     * 失敗時は安全な sentinel として、有効なparentならparent、無効parentならrootを返す。
+     * 失敗を区別する新規コードは TrySpawn を使う。
      * @param name 新規ノードの名前。
      * @param parent 親ノード (nullptr なら root)。
      * @return 生成した子ノードへの参照。
      */
-    FNode3D& Spawn(FStringView name, FNode3D* parent = nullptr) noexcept;
+    ANode& Spawn(FStringView name, ANode* parent = nullptr) noexcept;
 
     /**
-     * generational id から FNode3D を取り出す (stale / invalid なら nullptr)。
+     * generational id から ANode を取り出す (stale / invalid なら nullptr)。
      *
      * @param id 取り出す FNodeId。
      * @return 対応するノード (stale なら nullptr)。
      */
-    FNode3D* Get(FNodeId id) noexcept { return m_Pool.Get(id); }
+    ANode* Get(FNodeId id) noexcept { return m_Pool.Get(id); }
 
     /**
      * id が現在も生きているか (stale 検出)。
@@ -97,7 +133,7 @@ public:
      * @param node 逆引きするノード。
      * @return 対応する FNodeId (未登録なら invalid)。
      */
-    FNodeId IdOf(FNode3D* node) noexcept { return m_Pool.IdOf(node); }
+    FNodeId IdOf(ANode* node) noexcept { return m_Pool.IdOf(node); }
 
     /**
      * id 指定でノードを破棄予定にする (実際の reap は次の Update)。
@@ -108,8 +144,8 @@ public:
      * @return 破棄予定にしたら true、未登録 / root なら false。
      */
     bool Destroy(FNodeId id) noexcept {
-        FNode3D* n = m_Pool.Get(id);
-        if (n == nullptr || n == &m_Root) return false;
+        ANode* n = m_Pool.Get(id);
+        if (n == nullptr || n == m_Root.Get()) return false;
         n->Destroy();
         return true;
     }
@@ -143,10 +179,10 @@ public:
      * @param name 検索するノード名。
      * @return 最初に一致したノード (無ければ nullptr)。
      */
-    FNode3D* FindByName(FStringView name) noexcept;
+    ANode* FindByName(FStringView name) noexcept;
 
     /**
-     * ワールド空間レイで最も手前のノードをピックする (FMeshComponent3D を持つノードのみ対象)。
+     * ワールド空間レイで最も手前のノードをピックする (AMeshComponent3D を持つノードのみ対象)。
      *
      * @details
      * 各ノードの World() 変形を逆適用してレイをローカル空間へ移し、プリミティブ種別ごとの
@@ -156,7 +192,7 @@ public:
      * @param out_t 非 null なら命中 t (world レイ上、`ray.origin + t*ray.direction` が命中点) を書く。
      * @return 最も手前で命中したノードの FNodeId (外れは invalid)。
      */
-    FNodeId Raycast(const Ray3& ray, f32* out_t = nullptr) const noexcept;
+    FNodeId Raycast(const FRay3& ray, f32* out_t = nullptr) const noexcept;
 
     /**
      * subtree のノード総数を返す (root を含む)。
@@ -176,10 +212,10 @@ public:
 
 private:
     /** シーンの root ノード (ツリーの起点、名前 "Root")。 */
-    FNode3D m_Root{ FStringView("Root") };
+    TObjectPtr<ANode> m_Root;
 
     /** generational id レジストリ (非所有。Spawn で登録、Update で破棄予定を purge)。 */
-    FNode3DPool m_Pool;
+    FNodePool m_Pool;
 };
 
 } // namespace acs::game

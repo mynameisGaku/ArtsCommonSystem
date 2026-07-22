@@ -19,7 +19,7 @@
 
 namespace hellomodel {
 
-class ModelScene {
+class FModelScene {
 public:
     // プリミティブを GPU にアップロードしてカメラを構成する。
     // dev は OnStart の `GetRenderer().Device()` を渡す。失敗時 false。
@@ -34,7 +34,7 @@ public:
     void Render(acs::FStandardShader& shader, acs::IRhiCommandList& cl) noexcept;
 
 private:
-    acs::GpuMesh m_GmSphere, m_GmPlane, m_GmCube;
+    acs::FGpuMesh m_GmSphere, m_GmPlane, m_GmCube;
 
     acs::FCamera m_Camera;
     acs::FVec3   m_CamPos{0, 1.5f, -5.0f};

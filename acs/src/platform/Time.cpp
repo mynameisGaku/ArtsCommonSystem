@@ -15,12 +15,12 @@ namespace {
 using SteadyClock = std::chrono::steady_clock;
 
 /** 起動基準点を保持する状態。 */
-struct TimeState {
+struct FTimeState {
     /** 起点となる時刻 (構築時の now)。 */
     SteadyClock::time_point start;
 
     /** 現在時刻を起点として初期化する。 */
-    TimeState() noexcept : start(SteadyClock::now()) {}
+    FTimeState() noexcept : start(SteadyClock::now()) {}
 };
 
 /**
@@ -29,40 +29,40 @@ struct TimeState {
  * @details 初回呼び出し時の now が以降すべての経過時間計測の起点になる。
  * @return プロセス唯一の TimeState への const 参照。
  */
-const TimeState& GetTimeState() noexcept { static TimeState s; return s; }
+const FTimeState& GetTimeState() noexcept { static FTimeState s; return s; }
 
 } // namespace
 
-f64 Clock::SecondsSinceStartup() noexcept {
+f64 FClock::SecondsSinceStartup() noexcept {
     using namespace std::chrono;
     auto dt = SteadyClock::now() - GetTimeState().start;
     return duration<f64>(dt).count();
 }
 
-u64 Clock::MillisSinceStartup() noexcept {
+u64 FClock::MillisSinceStartup() noexcept {
     using namespace std::chrono;
     auto dt = SteadyClock::now() - GetTimeState().start;
     return static_cast<u64>(duration_cast<milliseconds>(dt).count());
 }
 
-u64 Clock::Ticks() noexcept {
+u64 FClock::Ticks() noexcept {
     // 内部表現の生 tick (ナノ秒 or プラットフォーム依存)
     return static_cast<u64>(SteadyClock::now().time_since_epoch().count());
 }
 
-u64 Clock::TicksPerSecond() noexcept {
+u64 FClock::TicksPerSecond() noexcept {
     using Period = SteadyClock::period;   // ratio<num, den>
     // ticks/sec = den / num
     return static_cast<u64>(Period::den / Period::num);
 }
 
-FrameTimer::FrameTimer() noexcept {
-    m_LastTicks = Clock::Ticks();
+FFrameTimer::FFrameTimer() noexcept {
+    m_LastTicks = FClock::Ticks();
 }
 
-f32 FrameTimer::Tick() noexcept {
-    const u64 now = Clock::Ticks();
-    const u64 freq = Clock::TicksPerSecond();
+f32 FFrameTimer::Tick() noexcept {
+    const u64 now = FClock::Ticks();
+    const u64 freq = FClock::TicksPerSecond();
     f32 dt = static_cast<f32>(static_cast<f64>(now - m_LastTicks) / static_cast<f64>(freq));
     m_LastTicks = now;
 

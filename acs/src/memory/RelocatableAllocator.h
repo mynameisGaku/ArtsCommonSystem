@@ -180,7 +180,7 @@ public:
 
 private:
     /** ハンドルテーブルの 1 エントリ (確保 1 件のメタデータ)。 */
-    struct Entry {
+    struct FEntry {
         /** payload のアリーナ内ポインタ (Compact で更新)。 */
         u8*  ptr;
 
@@ -207,7 +207,7 @@ private:
      * @param out 解決したエントリへのポインタを返す。
      * @return 生存中で世代一致なら true (out 有効)、それ以外は false。
      */
-    bool ResolveEntry(FRelocHandle h, Entry*& out) const noexcept;
+    bool ResolveEntry(FRelocHandle h, FEntry*& out) const noexcept;
 
     /** アリーナの先頭 (backing から確保)。 */
     u8*         m_Base       = nullptr;
@@ -221,8 +221,8 @@ private:
     /** 生存ペイロードの総バイト数。 */
     usize       m_LiveBytes  = 0;
 
-    /** ハンドルテーブル (max_handles 個の Entry)。 */
-    Entry*      m_Entries     = nullptr;
+    /** ハンドルテーブル (max_handles 個の FEntry)。 */
+    FEntry*      m_Entries     = nullptr;
 
     /** ハンドルテーブルの容量。 */
     u32         m_MaxHandles = 0;

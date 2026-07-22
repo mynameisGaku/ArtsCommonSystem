@@ -14,7 +14,7 @@ namespace acs {
 namespace {
 
 /** 検出結果のキャッシュ (DetectInternal が 1 度だけ書き込む)。 */
-CpuFeatures   g_features {};
+FCpuFeatures   g_features {};
 
 /** 初期化状態 (0=未初期化, 1=初期化中, 2=完了)。 */
 TAtomic<u32>   g_inited {0};
@@ -67,7 +67,7 @@ void DetectInternal() noexcept {
 // 1 度だけ DetectInternal を呼ぶ。CAS で「初期化中」状態に遷移できた
 // スレッドだけが実行し、他は完了まで spin で待つ。
 /** @see Cpu (Cpu.h) — スレッドセーフに 1 度だけ CPUID 検出を行う。 */
-const CpuFeatures& Cpu() noexcept {
+const FCpuFeatures& Cpu() noexcept {
     if (g_inited.Load(EMemoryOrder::Acquire) == 0) {
         u32 expected = 0;
         if (g_inited.CompareExchange(expected, 1)) {

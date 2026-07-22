@@ -38,7 +38,7 @@
 //   ・**全 noexcept**: 例外不使用方針 (TResult<T,E> + bool 戻り値)。
 //
 // 範囲外:
-//   ・format 引数展開 ("Score: {0}" の {0} 置換)。`Sprintf`/`EFormat` 層を別途用意する想定。
+//   ・format 引数展開 ("Score: {0}" の {0} 置換)。`Sprintf`/`Format` 層を別途用意する想定。
 //   ・複数形 (plural rules) / 性別 (gender) / ICU MessageFormat 相当
 //   ・右から左 (RTL) レイアウト判定 (Pillar Q Polish 側の UI 描画で扱う)
 //   ・フォントフォールバック (CJK / Cyrillic / Arabic 等のグリフセット切替)
@@ -199,7 +199,7 @@ public:
 
 private:
     /** 1 件のエントリ (locale + key + value。key/value は非所有 const char*)。 */
-    struct LocaleEntry {
+    struct FLocaleEntry {
         /** このエントリのロケール。 */
         ELocale      locale = ELocale::Default;
 
@@ -223,7 +223,7 @@ private:
     ELocale              m_Current = ELocale::Default;
 
     /** 全 locale のエントリ列。 */
-    TArray<LocaleEntry>  m_Entries;
+    TArray<FLocaleEntry>  m_Entries;
 };
 
 } // namespace acs::game

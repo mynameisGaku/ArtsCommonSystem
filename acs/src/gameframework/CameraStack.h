@@ -7,7 +7,7 @@
 // アクセサで「いまフレームでカメラがどこを写しているか」を取得する。
 //
 // 使い方:
-//   class GameplayScene : public Scene {
+//   class FGameplayScene : public FScene {
 //       acs::game::FCamera2D  m_FollowCam;     // プレイヤー追従カメラ
 //       acs::game::FCamera2D  m_CinematicCam;  // 演出用カメラ (固定 or 別追従)
 //       acs::game::FCameraStack m_Stack;
@@ -23,7 +23,7 @@
 //               m_Stack.PopCamera(0.5f);                    // 戻る
 //           }
 //       }
-//       void OnRender(RenderContext& rc) noexcept override {
+//       void OnRender(FRenderContext& rc) noexcept override {
 //           rc.SetViewCenter(m_Stack.EffectivePosition());
 //           rc.SetViewZoom(m_Stack.EffectiveZoom());
 //           rc.SetViewRotation(m_Stack.EffectiveRotation());
@@ -33,7 +33,7 @@
 //
 // 設計選択 (Pillar E):
 //   ・**virtual camera スタック**: FCamera2D は user が own。FCameraStack は
-//     **non-owning pointer** だけを持つ。寿命管理は呼び出し側責任 (= Scene 内
+//     **non-owning pointer** だけを持つ。寿命管理は呼び出し側責任 (= FScene 内
 //     のメンバ変数として持つのが典型)。
 //   ・**最大 4 layer**: 想定用途は「平常 / 演出 / カットイン / メニュー」程度。
 //     深く積む必要はないので static 上限 4。超えたら警告して無視。
@@ -41,7 +41,7 @@
 //     場合は「下層 (= 残るカメラ)」と「現 top (= これから消えるカメラ)」を
 //     補間し、blend 終了時に top を実際に pop する。途中で更に Push/Pop が
 //     来た場合は新しい blend に切り替わる (後勝ち)。
-//   ・**blend_t は entry 単位で保持**: 各 CameraEntry が自身の blend 状態
+//   ・**blend_t は entry 単位で保持**: 各 FCameraEntry が自身の blend 状態
 //     (`blend_t` の経過進捗 / `is_in` = フェードイン中か否か / 補間 duration)
 //     を持つ。top の `is_in == true && blend_t < 1` の間が「blending」。
 //   ・**zoom は対数補間**: 1.0 → 4.0 の blend で線形だと「2.5 → 中点」が
@@ -183,7 +183,7 @@ private:
     /**
      * スタックに積まれたカメラ 1 層分のエントリ (カメラ参照と blend 状態)。
      */
-    struct CameraEntry {
+    struct FCameraEntry {
         /** このエントリが指す非所有カメラ。 */
         FCamera2D* cam            = nullptr;
 
@@ -228,7 +228,7 @@ private:
     static f32  LerpAngle(f32 a, f32 b, f32 t) noexcept;
 
     /** カメラエントリの配列 (Back() が top = active)。 */
-    TArray<CameraEntry> m_Entries;
+    TArray<FCameraEntry> m_Entries;
 };
 
 } // namespace acs::game

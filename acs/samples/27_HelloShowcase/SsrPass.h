@@ -19,7 +19,7 @@ namespace helloshowcase {
 
 // Hi-Z を焼き、SSR を実行する。show_ssr=false のときは丸ごとスキップ。
 // motion_or_null は前フレームが無いと nullptr が来る (SSR は depth fallback)。
-void ExecuteSsrPass(Assets& a,
+void ExecuteSsrPass(FAssets& a,
                      acs::IRhiDevice& dev,
                      acs::IRhiCommandList& cl,
                      acs::IRhiTexture& hdr,
@@ -32,7 +32,7 @@ void ExecuteSsrPass(Assets& a,
                      bool show_ssr) noexcept;
 
 // GTAO の indirect/ambient AO を計算する。
-void ExecuteSsaoPass(Assets& a,
+void ExecuteSsaoPass(FAssets& a,
                       acs::IRhiDevice& dev,
                       acs::IRhiCommandList& cl,
                       acs::IRhiTexture& depth,

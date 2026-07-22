@@ -13,7 +13,10 @@ acs_module(
         ComponentId.h
         ComponentRegistry.h
         Entity.h
+        EntityCommandBuffer.h
+        ParallelEntityCommandBuffer.h
         Query.h
+        RollbackBuffer.h
         SparseSet.h
         System.h
         World.h

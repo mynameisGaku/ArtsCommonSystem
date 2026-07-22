@@ -10,15 +10,15 @@ ACS_REF.modules.push({
     {
       name: "FAcpakWriter",
       kind: "クラス", header: "assetpack/AcpakWriter.h",
-      summary: "バラバラのファイル(バイト列)を 1 つの <code>.acpak</code> <t>アーカイブ</t>にまとめて書き出す<b>梱包係</b>。配布前のパッキング工程で使う。",
+      summary: "バラバラのファイル(バイト列)を 1 つの <code>.acpak</code> <t>アーカイブ</t>にまとめて書き出す<b>梱包係</b>。入力は内部へコピーして所有し、完成品は同一ディレクトリの一時ファイルから出力先へ原子的に置換するため、途中失敗で既存 pak を壊さない。",
       when: "ゲームの全アセットを 1 ファイルに固めたい時。圧縮や暗号化を有効にして「中身を覗かれにくく」したい時。",
       sample: "acs::assetpack::FAcpakWriter w;\nw.Open(L\"out/game.acpak\", acs::assetpack::AcpakFlagNone);\nfor (auto&amp; a : assets)\n    w.AddFile(a.path, a.bytes, a.size);  // この場では貯めるだけ\nw.Finalize();   // ここで一気に書き出す\nw.Close();",
       members: [
-        { sig: "TResult<void> Open(const wchar_t* output_path, EAcpakFlags flags)", ret: "成否(<t>Result</t>)", desc: "出力ファイルを作る(既存は上書き)。<code>flags</code> で圧縮/暗号化を選ぶ。暗号化する場合は <b>Open より前に</b> <code>SetKey</code> を呼ぶこと。二重 Open はエラー。" },
+        { sig: "TResult<void> Open(const wchar_t* output_path, EAcpakFlags flags)", ret: "成否(<t>Result</t>)", desc: "出力先と同じディレクトリに一意な一時ファイルを作る。出力先はまだ変更しない。<code>flags</code> で圧縮/暗号化を選び、未知 bit と二重 Open はエラー。暗号化する場合は <code>Finalize</code> より前に <code>SetKey</code> を呼ぶ。" },
         { sig: "void SetKey(const FAcpakKey& key)", desc: "暗号化に使う<t>鍵</t>を設定する。<code>AcpakFlagEncrypted</code> を立てた時に <code>Finalize</code> で使われる。Open の前後どちらでも呼べる。", when: "暗号化付きの pak を作る時(鍵未設定だと Finalize でエラー)。" },
-        { sig: "TResult<void> AddFile(const wchar_t* virtual_path, const void* data, u64 size)", desc: "1 ファイルを追加する。<b>その場では書かず</b>、パス・ポインタ・サイズを内部に積むだけ。<code>data</code> は Writer がコピーしないので、<code>Finalize</code> まで寿命を保つこと。", sample: "w.AddFile(L\"textures/hero.png\", pngBytes, pngLen);", when: "梱包したいファイルを 1 つずつ登録していく時。" },
-        { sig: "TResult<void> Finalize()", desc: "pak を確定する。ヘッダ→全データ→<t>ファイルテーブル</t>の順で書き出し、各ファイルの <t>CRC32</t> も計算して記録する。これを呼ぶまで実ファイルには何も書かれない。", when: "全ファイルの AddFile が済んだ後、最後に 1 度だけ。" },
-        { sig: "void Close()", desc: "ハンドルを閉じる。<code>Finalize</code> 前に呼ぶと書きかけの中途半端なファイルが残る。多重 Close は安全(何もしない)。" }
+        { sig: "TResult<void> AddFile(const wchar_t* virtual_path, const void* data, u64 size)", desc: "1 ファイルを追加する。仮想パスと全バイトを Writer の内部配列へコピーし、同名パスや不正な <code>.</code>/<code>..</code> segment は拒否する。成功後は呼び出し側が入力を直ちに再利用・解放してよい。", sample: "w.AddFile(L\"textures/hero.png\", pngBytes, pngLen);", when: "梱包したいファイルを 1 つずつ登録していく時。" },
+        { sig: "TResult<void> Finalize()", desc: "一時ファイルへヘッダ→全データ→<t>ファイルテーブル</t>の順で書き出し、元バイトの <t>CRC32</t> を記録する。ヘッダ確定後に <code>FlushFileBuffers</code> し、出力先へ原子的に置換する。置換が成功するまでは既存の出力先を保ち、書込み・flush・置換の失敗時は <code>Close</code> またはデストラクタが一時ファイルを削除する。", when: "全ファイルの AddFile が済んだ後、最後に 1 度だけ。" },
+        { sig: "void Close()", desc: "ハンドルと内部入力コピーを解放し、鍵を 0 クリアする。まだ原子的置換していない一時ファイルは削除し、既存の出力先を残す。多重 Close は安全。" }
       ]
     },
     {
@@ -191,9 +191,9 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FAssetPack エラー subcode (format)",
+      name: ".acpak エラー subcode (format)",
       kind: "定数群", header: "assetpack/AcpakFormat.h",
-      summary: "<code>.acpak</code> の Reader/Writer が <code>ACS_ERR(IO,...)</code> / <code>ACS_ERR(Asset,...)</code> で返す<b>エラー<t>subcode</t></b>(1301〜1313)。FSaveSlot(1-99)・Steamworks/Workshop(1001-1199)・FAssetPack stub(1200 番台)と重ならないよう <b>1300 番台</b>を使う。",
+      summary: "<code>.acpak</code> の Reader/Writer が <code>ACS_ERR(IO,...)</code> / <code>ACS_ERR(Asset,...)</code> で返す<b>エラー<t>subcode</t></b>(1301〜1318)。TSaveSlot(1-99)・Steamworks/Workshop(1001-1199)・<code>FAssetPackReaderStub</code>/<code>FAssetPackWriterStub</code>(1200 番台)と重ならないよう <b>1300 番台</b>を使う。",
       when: "Open / ReadFile / Finalize の戻り <t>Result</t> が失敗した時、<code>error.subcode</code> でどの段階の失敗かを判別する時。",
       sample: "auto r = reader.Open(L\"game.acpak\");\nif (r.IsErr() &amp;&amp; r.Error().subcode == kAcpakSubBadMagic) {\n    // .acpak ではないファイル\n}",
       members: [
@@ -209,11 +209,16 @@ ACS_REF.modules.push({
         { sig: "kAcpakSubAlreadyOpen = 1310", desc: "<code>FAcpakWriter::Open</code> の二重呼び出し。" },
         { sig: "kAcpakSubNotFinalized = 1311", desc: "Finalize 前に Close(内部用)。" },
         { sig: "kAcpakSubIOFailure = 1312", desc: "Win32 I/O 失敗(<code>os_error</code> 参照)。" },
-        { sig: "kAcpakSubOutOfMemory = 1313", desc: "文字列 pool / entry 配列の確保失敗。" }
+        { sig: "kAcpakSubOutOfMemory = 1313", desc: "文字列 pool / entry 配列の確保失敗。" },
+        { sig: "kAcpakSubBadPath = 1314", desc: "空パス、不正な区切り、<code>.</code>/<code>..</code> segment、長さ上限超過など。" },
+        { sig: "kAcpakSubDuplicatePath = 1315", desc: "manifest または Writer の pending list 内で仮想パスが重複している。" },
+        { sig: "kAcpakSubBadSchema = 1316", desc: "0 固定の padding/reserved が非 0、または manifest 末尾に未知データがある。" },
+        { sig: "kAcpakSubFileChanged = 1317", desc: "Reader の Open 中にファイル identity・サイズ・更新時刻が変化した。" },
+        { sig: "kAcpakSubAtomicReplace = 1318", desc: "完成した一時ファイルを出力先へ原子的に置換できなかった。" }
       ]
     },
     {
-      name: "FAssetPack エラー subcode (crypto)",
+      name: ".acpak エラー subcode (crypto)",
       kind: "定数群", header: "assetpack/AcpakCrypto.h",
       summary: "<t>AES-256-GCM</t> / <t>PBKDF2</t> 周りの<b>暗号エラー <t>subcode</t></b>(1314〜1319)。多くは <code>ACS_ERR_OS</code>(CNG/BCrypt の OS エラー付き)。タグ検証失敗だけは改竄/破損の単一窓口として扱う。",
       when: "<code>FAcpakCrypto</code> や暗号化 pak の Read/Write が失敗した時、原因(初期化/鍵/演算/タグ/乱数/KDF)を判別する時。",
@@ -228,7 +233,7 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FAssetPack エラー subcode (lz4)",
+      name: ".acpak エラー subcode (lz4)",
       kind: "定数群", header: "assetpack/AcpakLz4.h",
       summary: "<t>LZ4</t> 圧縮/解凍の<b>エラー <t>subcode</t></b>(1320〜1323)。<code>FAcpakLz4::Compress</code> / <code>Decompress</code> が <code>ACS_ERR(Asset,...)</code> で返す。<t>境界検査</t>に引っかかった不正ブロックを表す。",
       when: "圧縮 pak の読み書きや <code>FAcpakLz4</code> 直接呼び出しが失敗した時、原因(入力枯渇/出力超過/不正 offset/不正入力)を判別する時。",
@@ -270,5 +275,5 @@ Object.assign(ACS_REF.glossary, {
   "線形探索": "先頭から順に 1 つずつ比較して目的の要素を探す単純な探索。",
   "GameFramework": "ACS のゲーム作成用モジュール(<code>acs::game</code>)。アセット読み書きの抽象 API を持つ。",
   "シングルトン": "プロセス内に 1 つだけ存在する共有インスタンス。",
-  "subcode": "エラーコードの細目番号。ACS の <t>Result</t> が持つ <code>FErrorCode.subcode</code> で、どの段階・原因の失敗かを区別する。FAssetPack は 1300 番台を使う。"
+  "subcode": "エラーコードの細目番号。ACS の <t>Result</t> が持つ <code>FErrorCode.subcode</code> で、どの段階・原因の失敗かを区別する。AssetPack は 1300 番台を使う。"
 });

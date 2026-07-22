@@ -1,0 +1,90 @@
+# FScene3D テキストシリアライズ
+
+`Scene3DSerialize` は `FScene3D` の `ANode` 階層、`FTransform3D`、
+`AMeshComponent3D`、マテリアル、および反射コンポーネントを行ベースのテキストから
+復元する。保存APIが出力する従来の `N3D` / `MSH3D` 形式に加え、エディタの
+`ACS3D v2` を互換アダプタとして直接読み込める。
+
+パッケージ内の正準起動パスは2D/3Dとも `main.acscene` である。拡張子でシーン種別を
+決めず、内容の厳密なヘッダー (`ACSCENE v1` / `ACS3D v2`) で対応アダプタを選ぶ。
+元アセットの永続IDはパッケージmanifestに保持される。
+
+## API
+
+- `TrySaveScene3DText` はシーン全体を検証・計測してから出力する。結果の
+  `FScene3DSaveResult` にはエラー、終端 NUL を含む必要容量、書込文字数、ノード数、
+  メッシュパス数が入る。`out=nullptr, cap=0` はサイズ照会になる。
+- `TryLoadScene3DText` は明示された入力サイズ内を完全に解析し、全行の検証と作業領域の
+  確保が成功した後だけ既存シーンを置き換える。結果の `FScene3DLoadResult` にはエラー、
+  消費 bytes、エラー行、宣言ノード数、メッシュパス数、ロード済み依存数が入る。
+- `TryLoadScene3DFile` はloose sceneを読み、相対メッシュ/マテリアル参照をシーンの
+  親ディレクトリ基準で解決・検証してから適用する。
+- `TryLoadScene3DAssetPack` は既定でpack内の `main.acscene` を読み、同じpackだけから
+  依存を解決する。mount後の欠損、CRC/解凍、デコード失敗ではloose fileへfallbackしない。
+- `SaveScene3DText` / `LoadScene3DText` は既存呼び出し向けの簡易 API として残る。
+  新規コード、ファイル入力、ネットワーク入力ではサイズ付き `TryLoadScene3DText` を使う。
+- `Scene3DSerializeErrorName` はログやテレメトリ向けの安定した ASCII 名を返す。
+
+## 対応フォーマット
+
+### 従来の保存形式
+
+- ヘッダー無しの `N3D` / `MSH3D`。
+- rootは `id=0, parent=-1` の1件だけ。
+- idは0から連続し、子のparentは必ず先に宣言されたidを参照する。
+
+### エディタ互換 `ACS3D v2`
+
+- 先頭行は大文字小文字も含めて正確に `ACS3D v2`。
+- node idは一意な非負整数であれば疎でもよい。parentは先に宣言されたnodeを参照する。
+- `parent=-1` のtop-level nodeを複数保持でき、runtimeでは1つの合成root配下へ接続する。
+- `N3D`、`MSH3D`、`FLG3D`、`EMPTY3D`、`MAT3D`、`CMP3D`、
+  `CPROP3D`、`SEL3D` を扱う。
+- `MAT3D` は従来のmetallic/roughness値または `.acsmat` パスを扱う。
+- `CMP3D` は反射factoryで事前生成し、`CPROP3D` を適用してからnodeへattachする。
+- `SPR3D`、`PLY3D`、`PFAB3D` と未知命令は、黙って欠落させず明示エラーでfail closedする。
+
+## 共通の検証規則
+
+- 深度上限は `ANode` と同じ512、ノード上限は65,536、入力上限は4 MiB。
+- 1行は4,095 bytes、名前は127 bytes、メッシュ/マテリアルパスは299 bytesまで。
+- primitive は `-1` または `EMeshPrimitive3D` の `0..3` のみ。
+- transform と色は有限の `f32` だけを受理する。整数範囲外、`NaN`、`Inf`、途中で
+  切れた数値、未知行、埋め込み NUL はエラーになる。
+- `MSH3D` は既出の `Mesh` ノードに1件だけ指定できる。
+- 保存時は明示スタックと visiting/complete 訪問表を使い、C++ 呼び出しスタックを
+  消費せずに循環と共有子・重複参照を区別して拒否する。
+
+## トランザクション性
+
+容量不足を含む保存前検証エラーでは出力バッファを変更しない。読み込みは全入力を固定上限内で
+解析し、親関係・深度・値・文字列・命令・反射型を検証する。file/pack APIはさらに全メッシュ/
+マテリアル依存を読み、デコードを完了してからcommitする。したがって入力破損、未対応命令、
+欠損依存、CRC/解凍/デコード失敗では読み込み先の既存シーンを変更しない。
+
+呼び出し中に別スレッドからシーンを変更することはサポートしない。保存の計測後に内容が変化した
+場合は `scene_changed_during_save` を返す。
+
+## 生成とノード登録
+
+`FScene3D::TrySpawn` は parent が同じシーンのpoolとrootツリーの両方に属することを確認する。
+新規ノードを `FNodePool` へ仮登録してから `ANode::TryAddChild` を呼び、破棄予定parentや
+深度上限でattachが拒否された場合は登録をrollbackする。失敗時はツリー、active slot数、
+既存ノードのIDを変更しない。互換用 `Spawn` は成功時に従来どおりノード参照を返し、失敗時は
+安全なparentまたはroot sentinelを返す。
+
+`FNodePool::TryRegisterExistingNode` は、同じpoolへの二重登録を既存ID付きで報告し、別poolの
+有効IDを持つノードは拒否する。互換用 `RegisterExistingNode` は同一poolへの重複呼び出しを
+冪等に扱う。親をDestroyした場合は子孫自身のpending flagが立たなくても所有関係とともに
+破棄されるため、`PurgePendingDestroy` は祖先chainも確認し、親と全子孫のhandleをreap前に
+stale化する。
+
+## スタンドアロン3Dランタイム
+
+`FLegacyScene3DAdapter` は互換入力を正準 `ANode` graphへ復元し、プリミティブまたは
+デコード済みmeshを `FPbrShader` で描画する。visible/enabled、階層transform、
+PBR/Substrate material、fogを反映し、loose/packの双方を同じ読み込み契約で扱う。
+
+投影方式はscene全体の固定属性ではない。各cameraがPerspective/Orthographicを選択する。
+パッケージmanifestの `sceneBootstrap.adapterProjectionHint` は旧形式を取り込むための
+参考値にすぎず、runtime cameraを上書きするauthoritativeなscene propertyではない。

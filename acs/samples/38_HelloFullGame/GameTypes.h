@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloFullGame — 共通型定数。HighScore POD と全シーンが参照する
+// HelloFullGame — 共通型定数。FHighScore POD と全シーンが参照する
 // constexpr 定数 (色 / 物理パラメータ / wave 設定) を集約。
 //
 // すべて `inline constexpr` で header 内に置くため、複数 TU に include
@@ -11,13 +11,13 @@
 
 namespace hellofg {
 
-// 永続データ (FSaveSlot で .acssave に保存される POD)
-struct HighScore {
+// 永続データ (TSaveSlot で .acssave に保存される POD)
+struct FHighScore {
     acs::u64 best_score = 0;   // これまでで最高のスコア
     acs::u64 timestamp  = 0;   // 達成時刻 (Clock::Ticks())、参考表示用
 };
-static_assert(__is_trivially_copyable(HighScore),
-              "HighScore must be trivially copyable for FSaveSlot");
+static_assert(__is_trivially_copyable(FHighScore),
+              "FHighScore must be trivially copyable for TSaveSlot");
 
 // world / camera
 inline constexpr acs::f32 kWorldUnit  = 32.0f;   // 1 world unit = 32 px (FCamera2D zoom)
@@ -53,7 +53,7 @@ inline constexpr acs::f32 kSpawnIntervalSec = 0.6f;
 // 弾種 ID (文字列リテラルなので strcmp / アドレス比較で安全)
 inline constexpr const char* kBulletDefId = "player_bullet";
 
-// FSaveSlot のファイル名 (相対パス wide string)。
+// TSaveSlot のファイル名 (相対パス wide string)。
 inline constexpr const wchar_t kSaveFile[] = L"hello_full_game_highscore.acssave";
 
 // HSL を rgb に変換せず、ベタの色定数だけ使う。

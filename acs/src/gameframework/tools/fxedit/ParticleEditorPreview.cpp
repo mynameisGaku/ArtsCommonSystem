@@ -107,7 +107,7 @@ void FParticleEditorPreview::Tick(f32 dt, FParticleEffectSystem& system) noexcep
  * @param def 現在選択中の emitter def (nullptr なら未選択表示)。
  */
 void FParticleEditorPreview::DrawUI(FParticleEffectSystem& system,
-                                   const ParticleEmitterDef* def) noexcept {
+                                   const FParticleEmitterDef* def) noexcept {
     if (!ImGui::Begin("Particle Preview")) {
         ImGui::End();
         return;
@@ -121,7 +121,7 @@ void FParticleEditorPreview::DrawUI(FParticleEffectSystem& system,
     }
 
     // Stats: active / capacity のフォーマット。snprintf は描画用 transient buffer。
-    ImGui::Text("FParticles: %u / %u",
+    ImGui::Text("Particles: %u / %u",
                 static_cast<unsigned>(m_LastActiveCount),
                 static_cast<unsigned>(m_LastCapacity));
     {
@@ -204,7 +204,7 @@ void FParticleEditorPreview::DrawUI(FParticleEffectSystem& system,
  * @param def 反映する emitter def (nullptr なら no-op)。
  */
 void FParticleEditorPreview::RecreatePreviewEmitter(FParticleEffectSystem& system,
-                                                   const ParticleEmitterDef* def) noexcept {
+                                                   const FParticleEmitterDef* def) noexcept {
     if (def == nullptr) return;
 
     if (HasPreview(m_PreviewHandle)) {

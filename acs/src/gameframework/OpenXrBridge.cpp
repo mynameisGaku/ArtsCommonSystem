@@ -11,7 +11,7 @@
 //     向け描画) を書くことを強制される (= HMD を持たない開発機 / CI でも
 //     ゲームは "VR off" で起動できる)。
 //   ・`HeadPose()` / `LeftController()` / `RightController()` は zero-initialized
-//     な struct を返す。`XrPose` / `XrControllerState` のデフォルトコンストラクタ
+//     な struct を返す。`FXrPose` / `FXrControllerState` のデフォルトコンストラクタ
 //     が原点 / ニュートラル値で初期化するため、stub 側で明示の値設定は不要。
 //   ・`SetPassthrough(true)` を呼ばれても passthrough は非サポートなので no-op。
 //
@@ -21,7 +21,7 @@
 //   ・`GetXrStub()` は Meyer's singleton。スレッド初回構築は C++11 以降の規格で
 //     保証されているため、追加同期は不要。
 //   ・NotImplemented の subcode は `xr_err::kSub_NotImplemented = 99` を用い、
-//     FMlRuntime.h / FSaveSlot.h と「Generic + subcode 99」規約を共有する。
+//     FMlRuntime.h / TSaveSlot.h と「Generic + subcode 99」規約を共有する。
 //
 // 決定論ゾーン:
 //   XR ランタイムは入力デバイスのドライバ層に依存するため、ティックレベルの
@@ -37,30 +37,30 @@
 namespace acs::game {
 
 /** 常に NotImplemented を返す (platform は使わず、m_Initialized は false のまま)。 */
-TResult<void> OpenXrBridgeStub::Init(EXrPlatform platform) noexcept {
+TResult<void> FOpenXrBridgeStub::Init(EXrPlatform platform) noexcept {
     (void)platform;  // stub は platform 自動検出も特定指定も実装していない
     return ACS_ERR(Generic, xr_err::kSub_NotImplemented,
                    "OpenXrBridgeStub::Init: XR backend not integrated (Phase X-1 stub)");
 }
 
 /** m_Initialized を false に戻すだけの no-op (解放対象なし)。 */
-void OpenXrBridgeStub::Shutdown() noexcept {
+void FOpenXrBridgeStub::Shutdown() noexcept {
     m_Initialized = false;
 }
 
 /** dt を受け取って捨てるだけの no-op (XR イベントポンプを持たない)。 */
-void OpenXrBridgeStub::Tick(f32 dt) noexcept {
+void FOpenXrBridgeStub::Tick(f32 dt) noexcept {
     (void)dt;
 }
 
 /** on を無視する no-op (passthrough 非対応のため安全に捨てる)。 */
-void OpenXrBridgeStub::SetPassthrough(bool on) noexcept {
+void FOpenXrBridgeStub::SetPassthrough(bool on) noexcept {
     (void)on;
 }
 
 /** 関数内 static で遅延構築する共有 stub への参照を返す (Meyers singleton)。 */
 IOpenXrBridge& GetXrStub() noexcept {
-    static OpenXrBridgeStub instance;
+    static FOpenXrBridgeStub instance;
     return instance;
 }
 

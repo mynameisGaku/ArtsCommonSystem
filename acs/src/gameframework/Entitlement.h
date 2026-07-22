@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// EntitlementRegistry — DLC / シーズンパス / コスメティック等の権利チェック
+// FEntitlementRegistry — DLC / シーズンパス / コスメティック等の権利チェック
 //
 // プレイヤーが「持っているかどうか」をゲームロジック側から問い合わせる窓口。
 // DLC、シーズンパス、バトルパス、コスメティックパック、グッズ同梱の引換コード等の
 // **権利情報** (entitlement) をローカルに保持し、ストアからの取得結果や
 // プラットフォーム SDK (Pillar S = Steamworks / EOS / 各家庭機 SDK) の問い合わせ結果を
-// Add() で流し込んでもらう想定。EntitlementRegistry 自体は **ストア非依存** であり、
+// Add() で流し込んでもらう想定。FEntitlementRegistry 自体は **ストア非依存** であり、
 // 配信プラットフォームに紐付かない (Pillar S 側がアダプタ層になる)。
 //
 // 設計上の倫理方針 (LiveOps と pay-to-win の境界):
@@ -17,12 +17,12 @@
 //     redeem フローは Pillar S 側で実装し、ここには結果だけが流れてくる。
 //
 // 使い方:
-//   EntitlementRegistry reg;
-//   reg.Add({ "dlc.expansion_1",  EntitlementKind::Dlc,           true  });
-//   reg.Add({ "cosmetic.hat_red", EntitlementKind::CosmeticPack,  true  });
+//   FEntitlementRegistry reg;
+//   reg.Add({ "dlc.expansion_1",  EEntitlementKind::Dlc,           true  });
+//   reg.Add({ "cosmetic.hat_red", EEntitlementKind::CosmeticPack,  true  });
 //
 //   if (reg.IsActive("dlc.expansion_1")) UnlockExpansionMap();
-//   if (reg.HasAny(EntitlementKind::FSeasonPass)) ShowSeasonPassBadge();
+//   if (reg.HasAny(EEntitlementKind::SeasonPass)) ShowSeasonPassBadge();
 //
 // 設計選択:
 //   ・id は **const char* 非所有**: ACS の STL 禁止方針 + 寿命管理単純化のため、
@@ -53,12 +53,12 @@ namespace acs::game {
  * Pillar S 側のアダプタが分類してから Add() に渡す前提で、レジストリは単に
  * 分類タグとして保持・検索キーに使う。
  */
-enum class EntitlementKind : u8 {
+enum class EEntitlementKind : u8 {
     /** 追加コンテンツ (マップ / シナリオ / キャラ等)。 */
     Dlc,
 
     /** 一定期間 / シーズン束ねの権利。 */
-    FSeasonPass,
+    SeasonPass,
 
     /** tier 進行型 (cosmetic 中心を推奨)。 */
     BattlePass,
@@ -75,12 +75,12 @@ enum class EntitlementKind : u8 {
  *
  * @details `id` は registry 側で所有しない (呼び出し側が寿命を保証する)。
  */
-struct EntitlementInfo {
+struct FEntitlementInfo {
     /** 権利を識別する文字列 (非所有、呼び出し側が寿命を保証)。 */
     const char*     id     = nullptr;
 
     /** 権利の分類タグ。 */
-    EntitlementKind kind   = EntitlementKind::Dlc;
+    EEntitlementKind kind   = EEntitlementKind::Dlc;
 
     /** 有効フラグ (false で「持ってはいるが現在無効」を表現可)。 */
     bool            active = false;
@@ -94,25 +94,25 @@ struct EntitlementInfo {
  * IsActive()/HasAny() でゲームロジックから所持判定を行う。Pillar S (ストア SDK)
  * 側のアダプタが取得結果を Add() で流し込む想定。非コピー・非ムーブ。
  */
-class EntitlementRegistry {
+class FEntitlementRegistry {
 public:
     /** 空のレジストリを構築する。 */
-    EntitlementRegistry()  noexcept = default;
+    FEntitlementRegistry()  noexcept = default;
 
     /** 破棄する (保持していた権利情報を解放)。 */
-    ~EntitlementRegistry() noexcept = default;
+    ~FEntitlementRegistry() noexcept = default;
 
     /** コピー禁止 (通常 1 つの長寿命オブジェクトで運用するため)。 */
-    EntitlementRegistry(const EntitlementRegistry&)            = delete;
+    FEntitlementRegistry(const FEntitlementRegistry&)            = delete;
 
     /** コピー代入も禁止。 */
-    EntitlementRegistry& operator=(const EntitlementRegistry&) = delete;
+    FEntitlementRegistry& operator=(const FEntitlementRegistry&) = delete;
 
     /** ムーブ禁止 (entitlement の分裂を防ぐため)。 */
-    EntitlementRegistry(EntitlementRegistry&&)                 = delete;
+    FEntitlementRegistry(FEntitlementRegistry&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    EntitlementRegistry& operator=(EntitlementRegistry&&)      = delete;
+    FEntitlementRegistry& operator=(FEntitlementRegistry&&)      = delete;
 
     /**
      * 新規 entitlement を登録する。
@@ -122,7 +122,7 @@ public:
      * id == nullptr は no-op で防御する。
      * @param info 登録する権利情報。
      */
-    void Add(EntitlementInfo info) noexcept;
+    void Add(FEntitlementInfo info) noexcept;
 
     /**
      * id が登録済みかを返す (active 不問)。
@@ -147,7 +147,7 @@ public:
      * @param k 探す権利種別。
      * @return 該当する active な権利が 1 つでもあれば true。
      */
-    bool HasAny(EntitlementKind k) const noexcept;
+    bool HasAny(EEntitlementKind k) const noexcept;
 
     /**
      * 全 entitlement を削除する (ストア再同期時に呼ばれる想定)。
@@ -166,11 +166,11 @@ public:
      *
      * @return Count() 件の連続バッファ。Clear() / Add() で無効化される。
      */
-    const EntitlementInfo* AllInfos() const noexcept;
+    const FEntitlementInfo* AllInfos() const noexcept;
 
 private:
     /** 登録済み権利情報の配列。 */
-    TArray<EntitlementInfo> m_Infos;
+    TArray<FEntitlementInfo> m_Infos;
 };
 
 } // namespace acs::game

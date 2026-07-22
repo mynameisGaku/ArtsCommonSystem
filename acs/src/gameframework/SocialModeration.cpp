@@ -117,7 +117,7 @@ const FBlockEntry* FSocialModeration::AllBlocked(u32& out_count) const noexcept 
 }
 
 /** 通報を backend へ同期送信する seam (現状は常に未受理 = false を返す)。 */
-bool FSocialModeration::TrySubmitToBackend(const ReportRecord& rep) noexcept {
+bool FSocialModeration::TrySubmitToBackend(const FReportRecord& rep) noexcept {
     (void)rep;  // 現状では未使用 (seam の引数だけ確定させておく)。
     // seam: 実ネットワーク送信本体。
     // backend 未接続なら受理しない → 呼び出し側 (SubmitReport / FlushReports) が
@@ -135,7 +135,7 @@ bool FSocialModeration::TrySubmitToBackend(const ReportRecord& rep) noexcept {
 }
 
 /** 通報を受け付ける (同期送信を試み、未受理なら pending queue に保持)。 */
-TResult<void> FSocialModeration::SubmitReport(const ReportRecord& rep) noexcept {
+TResult<void> FSocialModeration::SubmitReport(const FReportRecord& rep) noexcept {
     if (rep.reported_user_id == nullptr) {
         // 通報対象が空なら審査側で識別不能 (必須項目)。Generic + subcode 1。
         return ACS_ERR(Generic, 1, "FSocialModeration::SubmitReport: reported_user_id is null");

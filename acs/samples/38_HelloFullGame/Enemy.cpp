@@ -13,22 +13,22 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void EnemyPool::Reset() noexcept {
+void FEnemyPool::Reset() noexcept {
     for (u32 i = 0; i < kMaxEnemies; ++i) {
-        m_Enemies[i] = EnemyInstance{};
+        m_Enemies[i] = FEnemyInstance{};
     }
 }
 
-void EnemyPool::Shutdown() noexcept {
+void FEnemyPool::Shutdown() noexcept {
     for (u32 i = 0; i < kMaxEnemies; ++i) {
         if (m_Enemies[i].alive && m_Enemies[i].node) {
             m_Enemies[i].node->Destroy();
         }
-        m_Enemies[i] = EnemyInstance{};
+        m_Enemies[i] = FEnemyInstance{};
     }
 }
 
-void EnemyPool::Spawn(GameplayScene& scene, FNode2D& root, FHealthSystem& health,
+void FEnemyPool::Spawn(FGameplayScene& scene, ANode& root, FHealthSystem& health,
                      u32 current_wave, FVec2 pos) noexcept {
     u32 slot = kMaxEnemies;
     for (u32 i = 0; i < kMaxEnemies; ++i) {
@@ -39,36 +39,36 @@ void EnemyPool::Spawn(GameplayScene& scene, FNode2D& root, FHealthSystem& health
         return;
     }
 
-    auto up = MakeUnique<FNode2D>();
-    up->Local().position = pos;
-    FNode2D& nref = root.AddChild(Move(up));
+    auto up = NewObject<ANode>();
+    up->SetPosition2D(pos);
+    ANode& nref = root.AddChild(Move(up));
     // FNodeId は 100 オフセットで衝突回避 (player=1)。
     nref._SetId(FNodeId{slot + 100u, static_cast<u8>(1)});
 
-    EnemyInstance& e = m_Enemies[slot];
+    FEnemyInstance& e = m_Enemies[slot];
     e.alive = true;
     e.node  = &nref;
     e.hp    = health.Spawn(kEnemyHp);
-    e.shape = scene.Services().Physics().AddCircle(Circle{pos, kEnemyRadius});
+    e.shape = scene.Services().Physics().AddCircle(FCircle{pos, kEnemyRadius});
     e.wave_idx_at_spawn = current_wave;
 }
 
-bool EnemyPool::TickChaseAndContact(GameplayScene& scene, FHealthSystem& health,
+bool FEnemyPool::TickChaseAndContact(FGameplayScene& scene, FHealthSystem& health,
                                     FVec2 player_pos, f32 dt) noexcept {
     FCollisionWorld2D& phy = scene.Services().Physics();
     bool any_contact_lethal = false;
 
     for (u32 i = 0; i < kMaxEnemies; ++i) {
-        EnemyInstance& e = m_Enemies[i];
+        FEnemyInstance& e = m_Enemies[i];
         if (!e.alive || e.node == nullptr) continue;
 
         // プレイヤーへ単純追跡。AI は方向ベクトル正規化 → 等速移動のみ。
-        FVec2 ep   = e.node->Local().position;
+        FVec2 ep   = e.node->Position2D();
         const FVec2 dir = Normalize(player_pos - ep);
         if (LengthSq(dir) > 0.0f) {
             ep = ep + dir * (kEnemySpeed * dt);
-            e.node->Local().position = ep;
-            phy.UpdateCircle(e.shape, Circle{ep, kEnemyRadius});
+            e.node->SetPosition2D(ep);
+            phy.UpdateCircle(e.shape, FCircle{ep, kEnemyRadius});
         }
 
         // 円 vs 円の接触判定。
@@ -89,14 +89,14 @@ bool EnemyPool::TickChaseAndContact(GameplayScene& scene, FHealthSystem& health,
     return any_contact_lethal;
 }
 
-void EnemyPool::ApplyHit(GameplayScene& scene, FHealthSystem& health,
+void FEnemyPool::ApplyHit(FGameplayScene& scene, FHealthSystem& health,
                          u32 target_id, f32 dmg) noexcept {
     if (target_id >= kMaxEnemies) return;
-    EnemyInstance& e = m_Enemies[target_id];
+    FEnemyInstance& e = m_Enemies[target_id];
     if (!e.alive) return;
 
     const bool lethal = health.ApplyDamage(e.hp, dmg, EDamageType::Physical);
-    const FVec2 ep = e.node ? e.node->Local().position : FVec2{0.0f, 0.0f};
+    const FVec2 ep = e.node ? e.node->Position2D() : FVec2{0.0f, 0.0f};
 
     // 死亡 / 非死亡どちらでも被弾エフェクトは出す。死亡ならスコア + Wave 通知も。
     scene.GetHitEffects().TriggerEnemyHit(scene, ep);
@@ -111,12 +111,12 @@ void EnemyPool::ApplyHit(GameplayScene& scene, FHealthSystem& health,
     }
 }
 
-void EnemyPool::DrawAll(FSpriteBatch& sb) const noexcept {
+void FEnemyPool::DrawAll(FSpriteBatch& sb) const noexcept {
     const f32 sz = kEnemyRadius * 2.0f;
     for (u32 i = 0; i < kMaxEnemies; ++i) {
-        const EnemyInstance& e = m_Enemies[i];
+        const FEnemyInstance& e = m_Enemies[i];
         if (!e.alive || e.node == nullptr) continue;
-        const FVec2 p = e.node->Local().position;
+        const FVec2 p = e.node->Position2D();
         sb.DrawRect(p.x - kEnemyRadius, p.y - kEnemyRadius, sz, sz, kColorEnemy);
     }
 }

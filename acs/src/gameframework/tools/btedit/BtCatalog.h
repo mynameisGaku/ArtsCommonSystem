@@ -353,7 +353,7 @@ public:
 
 private:
     /** 1 変数 = 名前 + 型 + 値 (型に応じて union のいずれかを使う)。 */
-    struct Var {
+    struct FVar {
         char       name[kNameLen] = {};
         EBtVarType type           = EBtVarType::F32;
         union { bool b; i32 i; f32 f; } val { };
@@ -370,7 +370,7 @@ private:
     }
 
     /** 変数配列。 */
-    Var m_Vars[kMax] = {};
+    FVar m_Vars[kMax] = {};
 
     /** 変数数。 */
     u32 m_Count = 0u;

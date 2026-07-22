@@ -14,41 +14,41 @@ FJobGraph::~FJobGraph() noexcept {
 }
 
 /** upstream が完了するまで自身を走らせない依存を追加する。 */
-void JobHandle::DependOn(JobHandle upstream) noexcept {
+void FJobHandle::DependOn(FJobHandle upstream) noexcept {
     if (!IsValid() || !upstream.IsValid() || upstream.graph != graph) return;
     graph->AddDependency(upstream, *this);
 }
 
 /** ジョブを追加する (Submit 前のみ、戻り値はそのジョブのハンドル)。 */
-JobHandle FJobGraph::Add(JobFn fn, void* user) noexcept {
-    if (m_bSubmitted || !fn) return JobHandle{};
-    auto* j = new Job();
+FJobHandle FJobGraph::Add(JobFn fn, void* user) noexcept {
+    if (m_bSubmitted || !fn) return FJobHandle{};
+    auto* j = new FJob();
     j->fn    = fn;
     j->user  = user;
     j->owner = this;
     const u32 idx = static_cast<u32>(m_Jobs.Size());
     m_Jobs.PushBack(j);
-    return JobHandle{ this, idx };
+    return FJobHandle{ this, idx };
 }
 
 /** upstream → downstream の依存関係を追加する (Submit 前のみ有効)。 */
-void FJobGraph::AddDependency(JobHandle upstream, JobHandle downstream) noexcept {
+void FJobGraph::AddDependency(FJobHandle upstream, FJobHandle downstream) noexcept {
     if (m_bSubmitted) return;
     if (!upstream.IsValid() || !downstream.IsValid()) return;
     if (upstream.graph != this || downstream.graph != this) return;
     if (upstream.index == downstream.index) return;  // self-dep は無視
 
-    Job* const up = m_Jobs[upstream.index];
+    FJob* const up = m_Jobs[upstream.index];
     up->dependents.PushBack(downstream.index);
 
-    Job* const dn = m_Jobs[downstream.index];
+    FJob* const dn = m_Jobs[downstream.index];
     dn->initial_deps += 1;
     dn->deps_remaining.Store(dn->initial_deps);
 }
 
 /** ジョブ本体を実行し、依存先を起動して自身の完了を会計する TaskFn thunk。 */
 void FJobGraph::JobThunk(void* user, u32 worker_index) noexcept {
-    auto* const j = static_cast<Job*>(user);
+    auto* const j = static_cast<FJob*>(user);
     auto* const graph = j->owner;
 
     // 本体実行
@@ -57,11 +57,11 @@ void FJobGraph::JobThunk(void* user, u32 worker_index) noexcept {
     // 依存先の deps_remaining を減らし、0 になったものを FThreadPool に投入
     for (usize i = 0; i < j->dependents.Size(); ++i) {
         const u32 dep_idx = j->dependents[i];
-        Job* const down = graph->m_Jobs[dep_idx];
+        FJob* const down = graph->m_Jobs[dep_idx];
         const u32 prev = down->deps_remaining.FetchSub(1);
         if (prev == 1) {
             // 自分が最後の依存を解いた → 起動
-            Task t{};
+            FTask t{};
             t.fn      = &FJobGraph::JobThunk;
             t.user    = down;
             t.counter = nullptr;  // counter は submit 時 Add(1) / 完了時 Done(1) で会計
@@ -133,11 +133,11 @@ TResult<void> FJobGraph::Submit() noexcept {
 
     // 依存 0 の job を FThreadPool に投入
     for (usize i = 0; i < m_Jobs.Size(); ++i) {
-        Job* const j = m_Jobs[i];
+        FJob* const j = m_Jobs[i];
         // 実行中に依存先が 0 へ遷移しても entry として再投入しない。構築時から
         // 依存 0 だったジョブだけを起点にすることで高速完了時の二重実行を防ぐ。
         if (j->initial_deps == 0) {
-            Task t{};
+            FTask t{};
             t.fn      = &FJobGraph::JobThunk;
             t.user    = j;
             t.counter = nullptr;

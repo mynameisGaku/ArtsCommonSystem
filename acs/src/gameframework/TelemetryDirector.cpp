@@ -102,7 +102,7 @@ void FTelemetryDirector::Shutdown() noexcept {
 /** consent / category フィルタを通過した event を pending queue に積む。 */
 void FTelemetryDirector::TrackEvent(const char*   event_name,
                                    const char*   json_payload,
-                                   EventPriority priority,
+                                   EEventPriority priority,
                                    const char*   category) noexcept {
     // Init() 前 / event_name nullptr / json_payload nullptr は no-op。
     if (!m_Initialized) return;
@@ -123,14 +123,14 @@ void FTelemetryDirector::TrackEvent(const char*   event_name,
     // 上限到達なら最古 1 件を drop してから新規を積む。
     DropOldestIfFull();
 
-    TelemetryEvent e{};
+    FTelemetryEvent e{};
     e.event_name   = event_name;
     // category nullptr は "general" 既定に丸める (TrackEvent の default 引数で
     // 通常は "general" になるが、明示 nullptr 渡し対策)。
     e.category     = category != nullptr ? category : "general";
     e.json_payload = json_payload;
     e.priority     = priority;
-    e.timestamp    = Clock::MillisSinceStartup();
+    e.timestamp    = FClock::MillisSinceStartup();
 
     m_Pending.PushBack(e);
 }
@@ -156,7 +156,7 @@ void FTelemetryDirector::Flush() noexcept {
     // 失敗 → 残す。逆順走査により RemoveAtSwap で起こる末尾→該当位置のムーブ
     // で「未走査側を壊す」事故を防ぐ (走査済み末尾が消えるだけ)。
     for (usize i = m_Pending.Size(); i-- > 0;) {
-        const TelemetryEvent& e = m_Pending[i];
+        const FTelemetryEvent& e = m_Pending[i];
         TResult<void> r = m_Backend->SendTelemetry(e.event_name, e.json_payload);
         if (r.IsErr()) {
             // 失敗カウンタを上げ、pending には残す = 次 Flush で再送試行。

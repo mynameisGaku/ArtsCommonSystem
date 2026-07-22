@@ -7,12 +7,12 @@
 //   ・**描画と分離**: FDebugDraw 自体はジオメトリ蓄積のみ。レンダラ非依存。
 //     描画システムが Lines() / LineCount() を読み取って FSpriteBatch 等で
 //     1 フレーム末にまとめて描画する想定。Pillar H の他の描画系（FSpriteBatch /
-//     FParticles / 自前 DX12）どれでも消費できる。
+//     particle system / 自前 DX12）どれでも消費できる。
 //   ・**immediate-mode API**: DrawLine / DrawAabb / DrawCircle / DrawCross を
 //     ゲームロジックの任意の場所から呼べる。フレーム頭で Clear() を呼ぶだけ。
 //     state を持たず、衝突判定や物理デバッグから手軽に書ける。
 //   ・**テストしやすい**: 描画副作用がないので、unit test では蓄積された
-//     Line 配列をそのまま検査できる（座標が正しいか・本数が合うか等）。
+//     FLine 配列をそのまま検査できる（座標が正しいか・本数が合うか等）。
 //   ・**ゼロ寄与パス可**: Clear() しなければ蓄積され続け、Clear() を毎フレーム
 //     呼べば「今フレームの形状」だけが残る。描画システム側が消費後に Clear する
 //     運用も可能（呼び出し責任は user に委ねる、library 側は意見を持たない）。
@@ -57,9 +57,9 @@ public:
     /**
      * 描画システムが読み取る生バッファ要素 (ライン 1 本)。
      *
-     * @details 2 端点と色を持つ。Circle 等も最終的にこの Line 列へ分解される。
+     * @details 2 端点と色を持つ。Circle 等も最終的にこの FLine 列へ分解される。
      */
-    struct Line {
+    struct FLine {
         /** 線分の始点。 */
         FVec2 a;
 
@@ -103,7 +103,7 @@ public:
      * @param a 輪郭を描く軸並行境界ボックス。
      * @param color 線分の RGBA 色。
      */
-    void DrawAabb(const Aabb2& a, FVec4 color) noexcept;
+    void DrawAabb(const FAabb2& a, FVec4 color) noexcept;
 
     /**
      * 円を segments 本の線分に分解した近似輪郭を蓄積する。
@@ -113,7 +113,7 @@ public:
      * @param color 線分の RGBA 色。
      * @param segments 分割数 (既定 24)。
      */
-    void DrawCircle(const Circle& c, FVec4 color, u32 segments = 24) noexcept;
+    void DrawCircle(const FCircle& c, FVec4 color, u32 segments = 24) noexcept;
 
     /**
      * 中心 pos の "+" 記号 (横線 + 縦線) を蓄積する。位置の可視化に使う。
@@ -149,13 +149,13 @@ public:
      *
      * @return 線分配列の先頭ポインタ。空のときは nullptr (利用側は LineCount() でガードすること)。
      */
-    const Line* Lines() const noexcept {
+    const FLine* Lines() const noexcept {
         return m_Lines.IsEmpty() ? nullptr : &m_Lines.begin()[0];
     }
 
 private:
     /** 蓄積中の線分バッファ。 */
-    TArray<Line> m_Lines;
+    TArray<FLine> m_Lines;
 };
 
 } // namespace acs::game

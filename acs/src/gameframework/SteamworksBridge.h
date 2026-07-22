@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar S — FSteamworksBridge (Achievements / Leaderboards / PlayerIdentity)
+// GameFramework Pillar S — ISteamworksBridge (Achievements / Leaderboards / FPlayerIdentity)
 //
 // Steam / EOS / PS / Xbox / Switch といったプラットフォーム固有 SDK へ橋渡しする
 // 「シーム (seam)」インターフェース。ゲーム側コードは ISteamworksBridge 経由でのみ
@@ -12,7 +12,7 @@
 //
 //       void OnStart() noexcept override {
 //           // 出荷ビルドでは GoldenSteamworksBridge を DI、開発ビルドでは Stub。
-//           m_Social = &acs::game::SteamworksBridgeStub::GetStub();
+//           m_Social = &acs::game::FSteamworksBridgeStub::GetStub();
 //           (void)m_Social->Init();
 //       }
 //       void OnTick(f32 dt) noexcept override {
@@ -41,8 +41,8 @@
 //     畳み込む。ゲーム側は dt を毎フレーム渡すだけで、コールバックポンプの存在を
 //     意識しなくて良い。
 //   ・**Stub は static singleton で取得**: 依存ゼロのデフォルト実装として
-//     `SteamworksBridgeStub::GetStub()` を提供。実 SDK 未統合のビルドでも
-//     `m_Social = &SteamworksBridgeStub::GetStub();` だけでコンパイル可能。
+//     `FSteamworksBridgeStub::GetStub()` を提供。実 SDK 未統合のビルドでも
+//     `m_Social = &FSteamworksBridgeStub::GetStub();` だけでコンパイル可能。
 //   ・**実 SDK 実装はここでは作らない**: GoldenSteamworksBridge 等は Steamworks SDK
 //     ヘッダ / ライブラリへの依存を伴うため、本ファイルでは I/F + Stub のみ。
 //
@@ -58,16 +58,16 @@
 namespace acs::game {
 
 /**
- * Stub が未実装機能で返すエラーサブコード (ErrCategory::Generic 配下)。
+ * Stub が未実装機能で返すエラーサブコード (EErrCategory::Generic 配下)。
  *
  * @details
- * 本来は ErrCategory に NotImplemented を足したいが Foundation の enum 変更は影響が
+ * 本来は EErrCategory に NotImplemented を足したいが Foundation の enum 変更は影響が
  * 広いため、Generic + 安定 subcode で表現する。利用側は
  * `err.subcode == kSubSteamworksNotImplemented` でフィルタできる。
  */
 inline constexpr u16 kSubSteamworksNotImplemented = 1001;
 
-/** Init() 前に API が呼ばれたことを示すエラーサブコード (ErrCategory::Generic 配下)。 */
+/** Init() 前に API が呼ばれたことを示すエラーサブコード (EErrCategory::Generic 配下)。 */
 inline constexpr u16 kSubSteamworksNotInitialized = 1002;
 
 /**
@@ -78,7 +78,7 @@ inline constexpr u16 kSubSteamworksNotInitialized = 1002;
  * static literal) のメモリを参照するだけで、呼び出し側でコピーしない。寿命は「次の
  * Tick() を呼ぶまで」を保証する (実装によってはそれより長い)。
  */
-struct PlayerIdentity {
+struct FPlayerIdentity {
     /** "76561198..." 等の SDK 固有 ID 文字列 (所有しない)。 */
     const char* platform_id   = nullptr;
 
@@ -138,9 +138,9 @@ public:
     /**
      * ローカルプレイヤー情報を返す。
      *
-     * @return ローカルプレイヤーの PlayerIdentity (未初期化時は空)。
+     * @return ローカルプレイヤーの FPlayerIdentity (未初期化時は空)。
      */
-    virtual PlayerIdentity GetLocalPlayer() const noexcept = 0;
+    virtual FPlayerIdentity GetLocalPlayer() const noexcept = 0;
 
     /**
      * 実績を解除する。
@@ -241,9 +241,9 @@ public:
      *
      * @details 戻り値の文字列寿命は GetLocalPlayer と同じ "次の Tick まで" 契約。
      * @param index 0 <= index < GetFriendCount() のフレンドインデックス。
-     * @return フレンドの PlayerIdentity (範囲外は空)。
+     * @return フレンドの FPlayerIdentity (範囲外は空)。
      */
-    virtual PlayerIdentity GetFriendByIndex(u32 index) const noexcept = 0;
+    virtual FPlayerIdentity GetFriendByIndex(u32 index) const noexcept = 0;
 
     /**
      * Cloud (Steam Remote Storage) にファイルを書き込む。
@@ -355,13 +355,13 @@ public:
  * 返す。Achievement / Leaderboard 等の機能系は ACS_ERR(Generic,
  * kSubSteamworksNotImplemented) を返し、Shutdown() / Tick() は副作用を持たない。
  */
-class SteamworksBridgeStub final : public ISteamworksBridge {
+class FSteamworksBridgeStub final : public ISteamworksBridge {
 public:
     /** 未初期化状態の Stub を構築する。 */
-    SteamworksBridgeStub() noexcept = default;
+    FSteamworksBridgeStub() noexcept = default;
 
     /** Stub を破棄する (副作用なし)。 */
-    ~SteamworksBridgeStub() noexcept override = default;
+    ~FSteamworksBridgeStub() noexcept override = default;
 
     /**
      * 初期化済みフラグを立てて常に成功を返す。
@@ -383,9 +383,9 @@ public:
     /**
      * 固定ダミーのローカルプレイヤー情報を返す。
      *
-     * @return platform_id="stub_player" / display_name="Player" の PlayerIdentity。
+     * @return platform_id="stub_player" / display_name="Player" の FPlayerIdentity。
      */
-    PlayerIdentity  GetLocalPlayer() const noexcept override;
+    FPlayerIdentity  GetLocalPlayer() const noexcept override;
 
     /**
      * 実績解除を試みる (未実装)。
@@ -481,9 +481,9 @@ public:
      * index 番目のフレンド情報を返す (Stub では空)。
      *
      * @param index フレンドインデックス (Stub では未使用)。
-     * @return 空の PlayerIdentity。
+     * @return 空の FPlayerIdentity。
      */
-    PlayerIdentity  GetFriendByIndex(u32 index) const noexcept override;
+    FPlayerIdentity  GetFriendByIndex(u32 index) const noexcept override;
 
     /**
      * Cloud へのファイル書き込みを試みる (未実装)。
@@ -589,7 +589,7 @@ public:
      * @details 実 SDK 実装が DI される前のデフォルト Bridge として使う。
      * @return プロセス唯一の Stub インスタンスへの参照。
      */
-    static SteamworksBridgeStub& GetStub() noexcept;
+    static FSteamworksBridgeStub& GetStub() noexcept;
 
 private:
     /** 初期化済みフラグ (Init で true、Shutdown で false)。 */
@@ -618,7 +618,7 @@ void SetSteamworksBridgeProvider(SteamworksBridgeProvider provider) noexcept;
 /**
  * 既定 ISteamworksBridge を返す。
  *
- * @return provider 登録済みならその実 Bridge、未登録なら SteamworksBridgeStub::GetStub()。
+ * @return provider 登録済みならその実 Bridge、未登録なら FSteamworksBridgeStub::GetStub()。
  */
 ISteamworksBridge& GetDefaultSteamworksBridge() noexcept;
 

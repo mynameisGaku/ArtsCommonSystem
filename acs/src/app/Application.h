@@ -2,7 +2,7 @@
 // FApplication 基底（継承して OnStart / OnUpdate / OnRender / OnShutdown を実装）
 //
 // 使い方:
-//   class MyGame : public FApplication {
+//   class FMyGame : public FApplication {
 //   public:
 //       // フックは必ず noexcept override で宣言する
 //       // （基底のフックが noexcept のため。noexcept を省くとコンパイルエラー）
@@ -10,14 +10,14 @@
 //           ACS_LOG_INFO("ゲーム開始");
 //       }
 //       void OnUpdate(f32 delta_time) noexcept override {
-//           if (Input::IsKeyPressed(EKey::Escape)) Quit();
+//           if (FInput::IsKeyPressed(EKey::Escape)) Quit();
 //       }
 //       void OnRender() noexcept override {
 //           // 描画コマンド (BeginFrame / EndFrame は基底が呼ぶ)
 //       }
 //   };
 //
-//   ACS_DEFINE_MAIN(MyGame)   // エントリポイントを自動生成 (app/EntryPoint.h)
+//   ACS_DEFINE_MAIN(FMyGame)   // エントリポイントを自動生成 (app/EntryPoint.h)
 #pragma once
 
 #include "foundation/Types.h"
@@ -41,7 +41,7 @@ class FApplicationTestAccess;
  * ゲーム/サンプルが継承するアプリケーション基底クラス。
  *
  * @details
- * ウィンドウ・レンダラ・ECS World・アセット・タイマー・イベントブローカーといった
+ * ウィンドウ・レンダラ・ECS FWorld・アセット・タイマー・イベントブローカーといった
  * エンジンサブシステムを所有し、Run() で初期化からメインループ・後始末までを駆動する。
  * 派生クラスは OnStart/OnUpdate/OnRender/OnShutdown/OnEvent を override してロジックと
  * 描画を書く。non-copy 型で、通常は ACS_DEFINE_MAIN マクロ経由でインスタンス化する。
@@ -91,7 +91,7 @@ public:
      */
     void SetClearColor(f32 red, f32 green, f32 blue, f32 alpha = 1.0f) noexcept
     {
-        m_ClearColor = ClearColor{red, green, blue, alpha};
+        m_ClearColor = FClearColor{red, green, blue, alpha};
     }
 
     /**
@@ -100,7 +100,7 @@ public:
      * @details マルチパス描画で RT 再バインド時のクリアに使う。
      * @return 現在のクリア色への const 参照。
      */
-    const ClearColor& GetClearColor() const noexcept
+    const FClearColor& GetClearColor() const noexcept
     {
         return m_ClearColor;
     }
@@ -126,11 +126,11 @@ public:
     }
 
     /**
-     * ECS World への参照を返す。
+     * ECS FWorld への参照を返す。
      *
-     * @return アプリが所有する World への参照。
+     * @return アプリが所有する FWorld への参照。
      */
-    World& GetWorld() noexcept
+    FWorld& GetWorld() noexcept
     {
         return m_World;
     }
@@ -158,9 +158,9 @@ public:
     /**
      * イベントブローカーへの参照を返す。
      *
-     * @return アプリが所有する MessageBroker への参照。
+     * @return アプリが所有する FMessageBroker への参照。
      */
-    MessageBroker& GetEvents() noexcept
+    FMessageBroker& GetEvents() noexcept
     {
         return m_Events;
     }
@@ -225,7 +225,7 @@ protected:
      *
      * @param event 受信したイベント。
      */
-    virtual void OnEvent(const Event& /*event*/) noexcept
+    virtual void OnEvent(const FEvent& /*event*/) noexcept
     {
     }
 
@@ -248,34 +248,34 @@ private:
      * Run が起動したプロセス基盤だけを保持し、FApplication の全メンバより後に停止する。
      *
      * @details この型のインスタンスを最初のデータメンバに置くことで、派生メンバ、レンダラ、
-     * ウィンドウ、基底コンテナの破棄後に ThreadPool、MemorySystem、Logger を停止できる。
+     * ウィンドウ、基底コンテナの破棄後に FThreadPool、FMemorySystem、FLogger を停止できる。
      */
-    struct RuntimeFoundationLifetime {
+    struct FRuntimeFoundationLifetime {
         /** 所有中の基盤を逆順で停止する。 */
-        ~RuntimeFoundationLifetime() noexcept;
+        ~FRuntimeFoundationLifetime() noexcept;
 
-        /** 未起動なら Logger を起動し、成功時だけ所有権を記録する。 */
+        /** 未起動なら FLogger を起動し、成功時だけ所有権を記録する。 */
         void InitializeLogger(const FLogConfig& config) noexcept;
 
         /** Debug CRT のプロセス設定と基盤寿命スコープ診断を開始する。 */
         void InitializeMemoryDiagnostics() noexcept;
 
-        /** 未起動なら MemorySystem を起動し、成功時だけ所有権を記録する。 */
-        TResult<void> InitializeMemorySystem(const MemorySystemConfig& config) noexcept;
+        /** 未起動なら FMemorySystem を起動し、成功時だけ所有権を記録する。 */
+        TResult<void> InitializeMemorySystem(const FMemorySystemConfig& config) noexcept;
 
-        /** 未起動なら ThreadPool を起動し、成功時だけ所有権を記録する。 */
+        /** 未起動なら FThreadPool を起動し、成功時だけ所有権を記録する。 */
         TResult<void> InitializeThreadPool(u32 worker_count) noexcept;
 
         /** 起動途中の失敗時にも使える冪等な明示解放。 */
         void Release() noexcept;
 
-        /** このガードが Logger の終了責任を持つ。 */
+        /** このガードが FLogger の終了責任を持つ。 */
         bool logger_owned = false;
 
-        /** このガードが MemorySystem の終了責任を持つ。 */
+        /** このガードが FMemorySystem の終了責任を持つ。 */
         bool memory_system_owned = false;
 
-        /** このガードが ThreadPool の終了責任を持つ。 */
+        /** このガードが FThreadPool の終了責任を持つ。 */
         bool thread_pool_owned = false;
 
         /** Run の基盤所有権を追跡中である。 */
@@ -294,15 +294,15 @@ private:
     friend class app_internal::FApplicationTestAccess;
 
     /**
-     * FWindow のイベントを Input に流しつつ OnEvent も呼ぶ静的ブリッジ。
+     * FWindow のイベントを FInput に流しつつ OnEvent も呼ぶ静的ブリッジ。
      *
      * @param user_data this を指すユーザポインタ (SetEventCallback で登録)。
      * @param event 受信したイベント。
      */
-    static void EventBridge(void* user_data, const Event& event) noexcept;
+    static void EventBridge(void* user_data, const FEvent& event) noexcept;
 
     // 最初に構築して最後に破棄する。以降のメンバを dead allocator/device より先に解放する。
-    RuntimeFoundationLifetime m_RuntimeFoundationLifetime;
+    FRuntimeFoundationLifetime m_RuntimeFoundationLifetime;
 
     /** OS ウィンドウ。 */
     FWindow m_Window;
@@ -310,8 +310,8 @@ private:
     /** レンダラ。 */
     FRenderer m_Renderer;
 
-    /** ECS World。 */
-    World m_World;
+    /** ECS FWorld。 */
+    FWorld m_World;
 
     /** アセットレジストリ。 */
     FAssetRegistry m_Assets;
@@ -320,10 +320,10 @@ private:
     FTimerManager m_Timers;
 
     /** イベントブローカー。 */
-    MessageBroker m_Events;
+    FMessageBroker m_Events;
 
     /** フレーム計時 (dt・FPS・フレーム数を提供)。 */
-    FrameTimer m_FrameTimer;
+    FFrameTimer m_FrameTimer;
 
     /** 直近フレームの経過秒。 */
     f32 m_Dt = 0.0f;
@@ -341,7 +341,7 @@ private:
     FAppConfig m_Cfg;
 
     /** BeginFrame に渡す現在のクリア色。 */
-    ClearColor m_ClearColor{};
+    FClearColor m_ClearColor{};
 };
 
 } // namespace acs

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FTween / FTweenManager
+// GameFramework Pillar C — FTweenManager
 //
-// 値書き戻し型 FTween: 利用者の f32/FVec2/FVec3 変数のポインタを渡し、
+// 値書き戻し型 tween manager: 利用者の f32/FVec2/FVec3 変数のポインタを渡し、
 // FTweenManager が毎 Tick で補間して書き込む。コールバック不要 (= ACS の
 // std::function 非使用方針と整合)。Easing は関数ポインタで指定。
 //
 // 使い方:
-//   class GameplayScene : public Scene {
+//   class FGameplayScene : public FScene {
 //       acs::game::FTweenManager m_Tweens;
 //       acs::FVec3 m_Color{0, 0, 0};
 //
@@ -25,10 +25,10 @@
 //
 // 安全性:
 //   ・Handle は (index, generation) で stale 参照を検出。Cancel(h) は
-//     完了済 or 別 FTween に再利用された slot を弄らない。
+//     完了済 or 別 tween に再利用された slot を弄らない。
 //   ・duration <= 0 を渡すと「即時設定」(target に to を書いて Handle=invalid 返す)。
 //   ・target が null なら no-op + invalid handle 返却。
-//   ・FTween 完了時は target に正確に `to` を書く (浮動小数誤差を 1 frame 残さない)。
+//   ・tween 完了時は target に正確に `to` を書く (浮動小数誤差を 1 frame 残さない)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -39,7 +39,7 @@
 namespace acs::game {
 
 /**
- * 進行中の FTween を識別する handle (index + generation)。
+ * 進行中の tween を識別する handle (index + generation)。
  *
  * @details generation == 0 を invalid と定義し、stale 参照を検出する。
  */
@@ -90,9 +90,23 @@ public:
      * @param duration 補間時間 (秒)。<= 0 なら即時 *target = to。
      * @param ease easing 関数 (null なら Linear 扱い)。
      * @return 進行中 tween の handle。target が null / duration <= 0 なら invalid handle。
+     * @note duration または from/to が非有限なら target とマネージャー状態を変更せず拒否する。
      */
     FTweenHandle Tween(f32* target,  f32  from, f32  to, f32 duration,
                        Easing::EasingFn ease = Easing::Linear) noexcept;
+
+    /**
+     * 型付きイージング識別子を使って f32 tween を開始する。
+     *
+     * @param target 書き戻し先の f32 変数ポインタ (null なら no-op)。
+     * @param from 開始値。非有限値は拒否する。
+     * @param to 終了値。非有限値は拒否する。
+     * @param duration 補間時間 (秒)。非有限値は拒否する。
+     * @param ease イージング識別子。不明な値は安全に Linear を選ぶ。
+     * @return 進行中 tween の handle。拒否または即時完了なら invalid handle。
+     */
+    FTweenHandle Tween(f32* target, f32 from, f32 to, f32 duration,
+                       Easing::EEasingType ease) noexcept;
 
     /**
      * FVec2 変数の tween を開始する。
@@ -103,9 +117,23 @@ public:
      * @param duration 補間時間 (秒)。<= 0 なら即時 *target = to。
      * @param ease easing 関数 (null なら Linear 扱い)。
      * @return 進行中 tween の handle。target が null / duration <= 0 なら invalid handle。
+     * @note duration または from/to のいずれかの成分が非有限なら target とマネージャー状態を変更せず拒否する。
      */
     FTweenHandle Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
                        Easing::EasingFn ease = Easing::Linear) noexcept;
+
+    /**
+     * 型付きイージング識別子を使って FVec2 tween を開始する。
+     *
+     * @param target 書き戻し先の FVec2 変数ポインタ (null なら no-op)。
+     * @param from 開始値。非有限成分を含む値は拒否する。
+     * @param to 終了値。非有限成分を含む値は拒否する。
+     * @param duration 補間時間 (秒)。非有限値は拒否する。
+     * @param ease イージング識別子。不明な値は安全に Linear を選ぶ。
+     * @return 進行中 tween の handle。拒否または即時完了なら invalid handle。
+     */
+    FTweenHandle Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
+                       Easing::EEasingType ease) noexcept;
 
     /**
      * FVec3 変数の tween を開始する。
@@ -116,9 +144,23 @@ public:
      * @param duration 補間時間 (秒)。<= 0 なら即時 *target = to。
      * @param ease easing 関数 (null なら Linear 扱い)。
      * @return 進行中 tween の handle。target が null / duration <= 0 なら invalid handle。
+     * @note duration または from/to のいずれかの成分が非有限なら target とマネージャー状態を変更せず拒否する。
      */
     FTweenHandle Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
                        Easing::EasingFn ease = Easing::Linear) noexcept;
+
+    /**
+     * 型付きイージング識別子を使って FVec3 tween を開始する。
+     *
+     * @param target 書き戻し先の FVec3 変数ポインタ (null なら no-op)。
+     * @param from 開始値。非有限成分を含む値は拒否する。
+     * @param to 終了値。非有限成分を含む値は拒否する。
+     * @param duration 補間時間 (秒)。非有限値は拒否する。
+     * @param ease イージング識別子。不明な値は安全に Linear を選ぶ。
+     * @return 進行中 tween の handle。拒否または即時完了なら invalid handle。
+     */
+    FTweenHandle Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
+                       Easing::EEasingType ease) noexcept;
 
     /**
      * 進行中の tween を中止する (target は最後に書いた値で止まる)。
@@ -130,7 +172,7 @@ public:
     /**
      * 全 tween を即座に完了させる (target に完了値 to を書く)。
      *
-     * @details Scene::OnExit 等で確実に状態を確定させたいときに使う。
+     * @details FScene::OnExit 等で確実に状態を確定させたいときに使う。
      */
     void CompleteAll() noexcept;
 
@@ -155,22 +197,24 @@ public:
     /**
      * 毎フレーム呼んで全 tween を進める。
      *
-     * @param dt ゲーム時間の経過秒 (Clock::Dt() か Scene::OnUpdate の dt)。
+     * @param dt ゲーム時間の経過秒 (FSceneClock::Dt() か FScene::OnUpdate の dt)。
+     * @note 非有限の dt は無視し、easing の非有限な戻り値は Linear にフォールバックする。
+     * 補間演算が非有限になったフレームは target を変更しない。
      */
     void Tick(f32 dt) noexcept;
 
 private:
     /** slot が補間する値の型種別。 */
-    enum class Kind : u8 { None = 0, F32, FVec2, FVec3 };
+    enum class EKind : u8 { None = 0, F32, Vec2, Vec3 };
 
     /**
      * 1 tween 分の内部 slot。
      *
      * @details from/to は型ごとに別フィールドを持ち、active な kind のみが意味を持つ。
      */
-    struct Slot {
+    struct FSlot {
         /** 補間する値の型種別。 */
-        Kind kind        = Kind::None;
+        EKind kind        = EKind::None;
 
         /** slot 使用中かのフラグ。 */
         bool active      = false;
@@ -224,11 +268,11 @@ private:
      * @param duration 補間時間 (秒)。
      * @param ease easing 関数 (null なら Linear に補正)。
      */
-    void FillCommon(Slot& s, void* target, f32 duration,
+    void FillCommon(FSlot& s, void* target, f32 duration,
                     Easing::EasingFn ease) noexcept;
 
     /** tween slot 列。 */
-    TArray<Slot> m_Slots;
+    TArray<FSlot> m_Slots;
 
     /** アクティブな tween 数。 */
     u32         m_ActiveCount = 0;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// FSaveSlot<T> 非テンプレート helper 実装
+// TSaveSlot<T> 非テンプレート helper 実装
 //
-// このファイルは FSaveSlot.h で宣言した `detail::SaveSlot_*` 群の本体を実装する。
+// このファイルは TSaveSlot.h で宣言した `detail::SaveSlot_*` 群の本体を実装する。
 // テンプレート毎にコードが複製されないよう、bit-precise な I/O ロジックは
 // すべてここに集約する (Save/Load は FSaveArchive::WriteToFile / ReadFromFile
 // に委譲、Exists/Delete は acs::FileSystem に委譲)。
@@ -16,7 +16,10 @@
 // ESaveArchiveSubCode に該当値が無いため独自に 100 番台で持つ。
 #include "gameframework/SaveSlot.h"
 
+#include "container/Array.h"
+#include "foundation/Platform.h"
 #include "gameframework/SaveArchive.h"
+#include "memory/Memory.h"
 #include "platform/FileSystem.h"
 
 namespace acs::game::detail {
@@ -26,7 +29,7 @@ namespace {
 /**
  * 未初期化を示す独自 subcode (ESaveArchiveSubCode と衝突しない値域)。
  *
- * @details 値は FSaveArchive の 1..7 とは別空間にして、上位層が両方の subcode を区別して扱えるようにしておく。
+ * @details 値は FSaveArchive の予約済み subcode と別空間にし、上位層が区別できるようにする。
  */
 constexpr u16 kSubSlotNotInitialized = 100u;
 
@@ -41,9 +44,9 @@ constexpr u16 kSubSlotNotInitialized = 100u;
 inline TResult<void> CheckInitialized(const wchar_t* file_path,
                                      const char*    operation) noexcept {
     if (file_path == nullptr) {
-        ACS_LOG_WARN("FSaveSlot::%s called before Init()", operation);
+        ACS_LOG_WARN("TSaveSlot::%s called before Init()", operation);
         return ACS_ERR(IO, kSubSlotNotInitialized,
-                       "FSaveSlot is not initialized");
+                       "TSaveSlot is not initialized");
     }
     return Ok();
 }
@@ -56,6 +59,11 @@ TResult<void> SaveSlot_SaveBytes(const wchar_t* file_path,
                                 const void*    payload,
                                 usize          payload_size) noexcept {
     ACS_TRY(CheckInitialized(file_path, "Save"));
+    if (payload_size > static_cast<usize>(FSaveArchive::kMaxPayloadSize)) {
+        return ACS_ERR(IO,
+                       static_cast<u16>(ESaveArchiveSubCode::kSubPayloadTooLarge),
+                       "TSaveSlot::Save: payload exceeds FSaveArchive safety limit");
+    }
     return FSaveArchive::WriteToFile(file_path,
                                     version,
                                     payload,
@@ -66,33 +74,54 @@ TResult<void> SaveSlot_SaveBytes(const wchar_t* file_path,
  * SaveSlot_LoadBytes の実装 (CheckInitialized 後に FSaveArchive::ReadFromFile へ委譲)。
  *
  * @details
- * version 不一致は kSubMigrationNeeded でそのまま伝搬する (呼び出し側が migrate ハンドラに
- * 分岐するための情報)。FSaveArchive は payload_size を ">=" でしか比較しないため、
- * header.payload_size が sizeof(T) と完全一致することをここで追加検証し、不一致なら
- * kSubBufferTooSmall を返す。
+ * version 不一致を含む FSaveArchive の診断はそのまま伝搬する。読み込み先には一時bufferを
+ * 使い、CRC検証と型サイズ完全一致の後にだけ payload_out へ反映する。したがって
+ * detail helper を直接使う場合も、失敗時に対象objectを部分更新しない。
  */
 TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
                                 u32            expected_version,
                                 void*          payload_out,
                                 usize          payload_size) noexcept {
     ACS_TRY(CheckInitialized(file_path, "Load"));
+
+    if (payload_out == nullptr && payload_size > 0) {
+        return ACS_ERR(IO,
+                       static_cast<u16>(ESaveArchiveSubCode::kSubInvalidArgument),
+                       "TSaveSlot::Load: output is null but payload size is non-zero");
+    }
+    if (payload_size > static_cast<usize>(FSaveArchive::kMaxPayloadSize)) {
+        return ACS_ERR(IO,
+                       static_cast<u16>(ESaveArchiveSubCode::kSubPayloadTooLarge),
+                       "TSaveSlot::Load: payload exceeds FSaveArchive safety limit");
+    }
+
+    TArray<u8> temporary;
+    if (!temporary.TryResize(payload_size)) {
+        return ACS_ERR(Memory,
+                       static_cast<u16>(ESaveArchiveSubCode::kSubAllocationFailed),
+                       "TSaveSlot::Load: temporary payload allocation failed");
+    }
+
     u64 actual_payload_size = 0;
     const auto r = FSaveArchive::ReadFromFile(file_path,
-                                       payload_out,
-                                       static_cast<u64>(payload_size),
-                                       expected_version,
-                                       actual_payload_size);
+                                              temporary.Data(),
+                                              static_cast<u64>(payload_size),
+                                              expected_version,
+                                              actual_payload_size);
     if (r.IsErr()) return r.Error();
-    // header.payload_size が sizeof(T) と完全一致することを追加で確認する
-    // (FSaveArchive 側は ">=" 比較しかしないため、シュリンク/拡張時に検出)。
+
     if (actual_payload_size != static_cast<u64>(payload_size)) {
-        ACS_LOG_WARN("FSaveSlot::Load: payload size mismatch (file=%llu, T=%llu)",
+        ACS_LOG_WARN("TSaveSlot::Load: payload size mismatch (file=%llu, T=%llu)",
                      static_cast<unsigned long long>(actual_payload_size),
                      static_cast<unsigned long long>(payload_size));
         return ACS_ERR(
             Asset,
             static_cast<u16>(ESaveArchiveSubCode::kSubBufferTooSmall),
-            "FSaveSlot::Load: header.payload_size != sizeof(T)");
+            "TSaveSlot::Load: header.payload_size != sizeof(T)");
+    }
+
+    if (payload_size > 0) {
+        MemCopy(payload_out, temporary.Data(), payload_size);
     }
     return Ok();
 }
@@ -100,7 +129,7 @@ TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
 /** SaveSlot_Exists の実装 (未初期化なら警告なしで false、それ以外は FileSystem::Exists へ委譲)。 */
 bool SaveSlot_Exists(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return false;
-    return FileSystem::Exists(file_path);
+    return FFileSystem::Exists(file_path);
 }
 
 /**
@@ -110,10 +139,14 @@ bool SaveSlot_Exists(const wchar_t* file_path) noexcept {
  */
 TResult<void> SaveSlot_Delete(const wchar_t* file_path) noexcept {
     ACS_TRY(CheckInitialized(file_path, "Delete"));
-    if (!FileSystem::Exists(file_path)) {
-        return Ok();
+    const auto result = FFileSystem::Delete(file_path);
+    if (result.IsOk()) return Ok();
+
+    const u32 os_error = result.Error().os_error;
+    if (os_error == ERROR_FILE_NOT_FOUND || os_error == ERROR_PATH_NOT_FOUND) {
+        return Ok(); // 競合削除を含め「既に無い」はべき等成功。
     }
-    return FileSystem::Delete(file_path);
+    return result.Error();
 }
 
 } // namespace acs::game::detail

@@ -6,7 +6,7 @@
 //   ・RaycastTargets + RayCaster + HudRenderer の協調
 //   ・FStandardShader への描画コマンド発行
 //
-// FApplication 派生はリソース所有 (FStandardShader / FSpriteBatch / Font) を担当し、
+// FApplication 派生はリソース所有 (FStandardShader / FSpriteBatch / FFont) を担当し、
 // 毎フレームの update / render を RaycastScene に委譲する。
 #pragma once
 
@@ -22,7 +22,7 @@
 
 namespace helloraycast3d {
 
-class RaycastScene {
+class FRaycastScene {
 public:
     // プリミティブを GPU にアップロードしてカメラ + オブジェクト配置を構成。
     bool Init(acs::IRhiDevice& dev, acs::f32 aspect) noexcept;
@@ -36,7 +36,7 @@ public:
     void Render(acs::FStandardShader& shader,
                 acs::IRhiCommandList& cl,
                 acs::FSpriteBatch& batch,
-                acs::Font& font,
+                acs::FFont& font,
                 acs::u32 screen_w,
                 acs::u32 screen_h) noexcept;
 
@@ -44,11 +44,11 @@ private:
     void m_RenderTargets(acs::FStandardShader& shader,
                          acs::IRhiCommandList& cl) noexcept;
 
-    acs::GpuMesh    m_GmSphere{};
-    acs::GpuMesh    m_GmCube{};
-    acs::GpuMesh    m_GmPlane{};
-    RaycastTargets  m_Targets;
-    RayCaster       m_Caster;
+    acs::FGpuMesh    m_GmSphere{};
+    acs::FGpuMesh    m_GmCube{};
+    acs::FGpuMesh    m_GmPlane{};
+    FRaycastTargets  m_Targets;
+    FRayCaster       m_Caster;
 };
 
 } // namespace helloraycast3d

@@ -7,7 +7,7 @@
 
 namespace acs {
 
-class Dx12Device;
+class FDx12Device;
 
 /**
  * IRhiCommandList の DX12 実装。
@@ -18,22 +18,22 @@ class Dx12Device;
  * 待ってから返すため UPLOAD ヒープの書き込み競合を避ける。スワップチェイン/オフスクリーン
  * RT/シャドウ depth へのレンダーパス開始・終了でリソースバリアを発行する。
  */
-class Dx12CommandList final : public IRhiCommandList {
+class FDx12CommandList final : public IRhiCommandList {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    Dx12CommandList() noexcept = default;
+    FDx12CommandList() noexcept = default;
 
     /** 全 fence の完了を待ってからコマンドリスト・アロケータを解放する。 */
-    ~Dx12CommandList() noexcept override;
+    ~FDx12CommandList() noexcept override;
 
     /**
      * コマンドアロケータとコマンドリストを生成する。
      *
      * @details kFramesInFlight 個の DIRECT アロケータを作り、作成直後の Open 状態を Close する。
      * @param device 生成に使う DX12 デバイス。
-     * @return 成功なら IsOk な HrResult、生成失敗なら失敗 HRESULT。
+     * @return 成功なら IsOk な FHrResult、生成失敗なら失敗 HRESULT。
      */
-    HrResult Init(Dx12Device& device) noexcept;
+    FHrResult Init(FDx12Device& device) noexcept;
 
     /** 現フレームスロットのアロケータを Reset し、コマンド記録を開始する (共有 SRV ヒープを bind)。 */
     void Begin() noexcept override;
@@ -43,6 +43,13 @@ public:
 
     /** コマンドリストをキューへ投入し、GPU 完了 fence を Signal して次スロットを待つ。 */
     void Submit() noexcept override;
+
+    bool BeginGpuTimingFrame(u64 frame_index) noexcept override;
+    bool BeginGpuTimingPass(ERhiGpuTimingPass pass) noexcept override;
+    void EndGpuTimingPass() noexcept override;
+    void EndGpuTimingFrame() noexcept override;
+    bool TryGetGpuTiming(
+        FRhiGpuTimingSnapshot& out_snapshot) const noexcept override;
 
     /**
      * スワップチェインのバックバッファを RT として bind し、クリアしてパスを開始する。
@@ -57,7 +64,7 @@ public:
      * @param depth_clear 深度クリア値 (既定 1.0)。
      */
     void BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index,
-                                const ClearColor& clear,
+                                const FClearColor& clear,
                                 IRhiTexture* depth = nullptr,
                                 f32 depth_clear = 1.0f) noexcept override;
 
@@ -93,7 +100,7 @@ public:
      * @param depth 併用する深度バッファ (不要なら nullptr)。
      * @param depth_clear 深度クリア値 (既定 1.0)。
      */
-    void BeginRenderToTexture(IRhiTexture& rt, const ClearColor& clear,
+    void BeginRenderToTexture(IRhiTexture& rt, const FClearColor& clear,
                               IRhiTexture* depth = nullptr,
                               f32 depth_clear = 1.0f) noexcept override;
 
@@ -136,7 +143,7 @@ public:
      * @param clear カラーバッファのクリア色。
      */
     void BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
-                                    const ClearColor& clear) noexcept override;
+                                    const FClearColor& clear) noexcept override;
 
     /**
      * 複数レンダーターゲット (MRT) を bind してパスを開始する。
@@ -149,7 +156,7 @@ public:
      * @param depth_clear 深度クリア値 (既定 1.0)。
      */
     void BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count,
-                                  const ClearColor& clear,
+                                  const FClearColor& clear,
                                   IRhiTexture* depth = nullptr,
                                   f32 depth_clear = 1.0f) noexcept override;
 
@@ -214,6 +221,15 @@ public:
      */
     void SetTexture(u32 slot, IRhiTexture& tex) noexcept override;
 
+    /** Raw DX12 compute PSO/root signature を bind する。 */
+    void SetComputePipeline(IRhiPipeline& pipeline) noexcept override;
+
+    /** IRhiTexture の UAV を u-slot へ bind する。 */
+    void BindUav(u32 slot, IRhiTexture& tex) noexcept override;
+
+    /** Compute thread groups を dispatch する。 */
+    void Dispatch(u32 gx, u32 gy, u32 gz) noexcept override;
+
     /**
      * 非インデックス描画を発行する。
      *
@@ -239,11 +255,33 @@ public:
     void* NativeHandle() noexcept override { return m_CmdList; }
 
 private:
+    static constexpr u32 kGpuTimingFrameSlots = 2;
+    static constexpr u32 kGpuTimingQueriesPerSlot = 32;
+    static constexpr u32 kGpuTimingSegmentsPerSlot = 15;
+    static constexpr u32 kInvalidGpuTimingQuery = ~0u;
+
+    struct FGpuTimingSegment {
+        ERhiGpuTimingPass pass = ERhiGpuTimingPass::Opaque;
+        u32 begin_query = 0;
+        u32 end_query = 0;
+    };
+
+    struct FGpuTimingSlot {
+        u64 frame_index = 0;
+        u32 query_count = 0;
+        u32 segment_count = 0;
+        bool pending = false;
+        FGpuTimingSegment segments[kGpuTimingSegmentsPerSlot]{};
+    };
+
     /** 必要なら投入済み fence を待ち、COM 所有物と記録状態を空に戻す。 */
     void Reset(bool wait_for_gpu) noexcept;
+    void ResetGpuTiming() noexcept;
+    void CollectGpuTiming(u32 slot) noexcept;
+    u32 EmitGpuTimestamp() noexcept;
 
     /** Init で受け取った DX12 デバイス (fence 待ち・キュー投入に使う)。 */
-    Dx12Device*                     m_Device      = nullptr;
+    FDx12Device*                     m_Device      = nullptr;
 
     /** フレームスロットごとのコマンドアロケータ (kFramesInFlight=2)。 */
     ID3D12CommandAllocator*         _allocators[2] {};
@@ -254,8 +292,22 @@ private:
     /** 記録対象のグラフィックスコマンドリスト。 */
     ID3D12GraphicsCommandList*      m_CmdList    = nullptr;
 
+    ID3D12QueryHeap* m_GpuTimestampHeap = nullptr;
+    ID3D12Resource* m_GpuTimestampReadback = nullptr;
+    u64* m_GpuTimestampReadbackData = nullptr;
+    u64 m_GpuTimestampFrequency = 0;
+    FGpuTimingSlot m_GpuTimingSlots[kGpuTimingFrameSlots]{};
+    FRhiGpuTimingSnapshot m_LatestGpuTiming{};
+    u32 m_GpuTimingRecordingSlot = 0;
+    u32 m_GpuTimingActiveBegin = kInvalidGpuTimingQuery;
+    ERhiGpuTimingPass m_GpuTimingActivePass =
+        ERhiGpuTimingPass::Opaque;
+    bool m_GpuTimingSupported = false;
+    bool m_GpuTimingRecording = false;
+    bool m_GpuTimingScopeActive = false;
+
     /** 現在 bind 中のパイプライン (CBuffer/Texture の root index 解決に使う)。 */
-    class Dx12Pipeline*             m_BoundPipe  = nullptr;
+    class FDx12Pipeline*             m_BoundPipe  = nullptr;
 
     /** コマンド記録中なら true (Begin..End の間)。 */
     bool                            _open        = false;

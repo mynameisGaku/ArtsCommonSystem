@@ -19,6 +19,7 @@ cbuffer SsaoCB : register(b0) {
     float4   params;           // x=intensity, y=radius, z=texel_w, w=texel_h
     float4x4 view;             // GTAO: world → view 変換
     float4   light_dir;        // dir light 0 への方向 (xyz, world、surface→light)
+    float4   projection_scale; // xy=m00/m11, z=m33 (orthographic detection)
 };
 
 Texture2D    scene_depth    : register(t0);
@@ -64,7 +65,9 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // normal G-buffer の world normal を view 空間へ変換。
     // cross(ddx,ddy) は 2x2 quad 単位で faceted になり、GTAO の slice 平面
     // 射影が段差状にずれて AO がブロック状になるため避ける。
-    float3 Nw = normalize(normal_gbuffer.SampleLevel(normal_gbuffer_sampler, v.uv, 0).xyz);
+    float3 Nw = normal_gbuffer.SampleLevel(normal_gbuffer_sampler, v.uv, 0).xyz;
+    if (dot(Nw, Nw) < 1e-6) return float4(1, 1, 0, 1);
+    Nw = normalize(Nw);
     float3 N  = normalize(mul(float4(Nw, 0.0), view).xyz);
     float3 V = normalize(-P);             // view 空間: eye = 原点
     if (dot(N, V) < 0.0) N = -N;
@@ -102,18 +105,15 @@ float4 PSMain(VSOut v) : SV_TARGET {
         // 両側の horizon cos を screen-march で探す
         float cH1 = -1.0;   // -omega 側 (init = 最も低い地平)
         float cH2 = -1.0;   // +omega 側
-        // world radius → screen UV。非線形 depth ではなく view-space linear Z
-        // (P.z) で割る。透視投影では screen size ∝ world size / view_z なので
-        // これが次元的に正しい。0.5 は fov/aspect 由来の proj scale の粗い近似。
-        float screen_r = kRadius * 0.5 / max(P.z, 0.1);
-        // aspect 補正: UV は非正方 (texel_w≠texel_h)。off.x を aspect(W/H) で割らないと横長に
-        // サンプルされ AO が異方的になる。これでワールド空間で «円形» の遮蔽サンプルになる。
-        float aspectWH = params.w / max(params.z, 1e-6);   // (1/H)/(1/W) = W/H
+        // Exact projection scale keeps the world-space radius circular and
+        // stable across FOV/aspect changes.
+        float view_z = max(abs(P.z), 0.05);
+        float projection_denom = abs(projection_scale.z) > 0.5 ? 1.0 : view_z;
+        float2 screen_r = kRadius * 0.5 * abs(projection_scale.xy) / projection_denom;
         [unroll]
         for (int t = 1; t <= kSteps; ++t) {
             float tt = (float(t) - 0.5 + jitter * 0.5) / float(kSteps);
             float2 off = dir * screen_r * tt;
-            off.x /= aspectWH;
 
             float2 uvA = v.uv + off;     // +omega 側
             if (uvA.x >= 0.0 && uvA.x <= 1.0 && uvA.y >= 0.0 && uvA.y <= 1.0) {
@@ -211,14 +211,17 @@ cbuffer SsaoCB : register(b0) {
     float4x4 inv_view_proj;
     float4   eye;
     float4   params;     // z=texel_w, w=texel_h
-    float4x4 view;       // blur では未使用、CB レイアウト整合のため宣言
-    float4   light_dir;  // blur では未使用、CB レイアウト整合のため宣言
+    float4x4 view;
+    float4   light_dir;
+    float4   projection_scale;
 };
 
 Texture2D    ssao_raw    : register(t0);
 Texture2D    scene_depth : register(t1);
+Texture2D    normal_gbuffer : register(t2);
 SamplerState ssao_raw_sampler    : register(s0);
 SamplerState scene_depth_sampler : register(s1);
+SamplerState normal_gbuffer_sampler : register(s2);
 
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
@@ -231,11 +234,27 @@ VSOut VSMain(uint id : SV_VertexID) {
     return o;
 }
 
+float3 ReconstructWorldPos(float2 uv, float depth) {
+    float4 clip = float4(uv * 2.0 - 1.0, depth, 1.0);
+    clip.y = -clip.y;
+    float4 wp = mul(clip, inv_view_proj);
+    return wp.xyz / max(abs(wp.w), 1e-6);
+}
+
+float ViewDepth(float2 uv, float depth) {
+    return abs(mul(float4(ReconstructWorldPos(uv, depth), 1.0), view).z);
+}
+
 float4 PSMain(VSOut v) : SV_TARGET {
     float2 tx = float2(params.z, params.w);
     float center_d = scene_depth.SampleLevel(scene_depth_sampler, v.uv, 0).r;
+    if (center_d >= 0.9999) return float4(1, 1, 0, 1);
+    float center_z = ViewDepth(v.uv, center_d);
+    float3 center_n = normal_gbuffer.SampleLevel(normal_gbuffer_sampler, v.uv, 0).xyz;
+    center_n = dot(center_n, center_n) > 1e-6 ? normalize(center_n) : float3(0, 0, 1);
 
-    // 5x5 depth-aware bilateral blur (.r=AO, .g=contact shadow を一括平滑化)
+    // 5x5 world-depth + normal aware bilateral blur. NDC depth is non-linear,
+    // so comparing it directly made edge preservation distance dependent.
     float2 sum = float2(0, 0);
     float  wsum = 0.0;
     const int kR = 2;
@@ -246,12 +265,18 @@ float4 PSMain(VSOut v) : SV_TARGET {
             float2 uv = v.uv + float2(dx, dy) * tx;
             float2 oc = ssao_raw.SampleLevel(ssao_raw_sampler, uv, 0).rg;
             float d  = scene_depth.SampleLevel(scene_depth_sampler, uv, 0).r;
+            if (d >= 0.9999) continue;
             // spatial gaussian (sigma ~= 2 px)
             float sw = exp(-float(dx*dx + dy*dy) / 8.0);
-            // depth similarity (edge stopping): depth 差が ~0.005 で weight 半減
-            float dd = d - center_d;
-            float dw = exp(-dd * dd * 25000.0);
-            float w  = sw * dw;
+            float z = ViewDepth(uv, d);
+            float depth_sigma = max(params.y * 0.12, 0.02);
+            float dz = (z - center_z) / depth_sigma;
+            float dw = exp(-0.5 * dz * dz);
+            float3 n = normal_gbuffer.SampleLevel(normal_gbuffer_sampler, uv, 0).xyz;
+            float nw = dot(n, n) > 1e-6
+                     ? pow(saturate(dot(center_n, normalize(n))), 8.0)
+                     : 0.0;
+            float w  = sw * dw * nw;
             sum  += oc * w;
             wsum += w;
         }
@@ -264,7 +289,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 /** SSAO シェーダの定数バッファ (b0) の CPU 側レイアウト。 */
-struct SsaoCBLayout {
+struct FSsaoCbLayout {
     /** view * projection 行列。 */
     FMat4 view_proj;
 
@@ -282,6 +307,9 @@ struct SsaoCBLayout {
 
     /** contact shadow 用 dir light 0 への方向 (xyz、surface→light)。 */
     FVec4 light_dir;
+
+    /** 投影行列の x/y scale。FOV と aspect に依存する screen radius を正確に求める。 */
+    FVec4 projection_scale;
 };
 
 /**
@@ -307,7 +335,7 @@ TResult<void> FSsao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     if (auto r = CreatePipeline(device); r.IsErr()) return r;
 
     FBufferDesc cbd{};
-    cbd.size = CBSize<SsaoCBLayout>();
+    cbd.size = CBSize<FSsaoCbLayout>();
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
@@ -404,17 +432,21 @@ TResult<void> FSsao::CreatePipeline(IRhiDevice& device) noexcept {
     bpd.cull_mode     = ECullMode::None;
     bpd.blend_mode    = EBlendMode::Opaque;
     bpd.cbuffer_slots = 1;
-    bpd.texture_slots = 2;
+    bpd.texture_slots = 3;
     bpd.cbuffer_names[0] = "SsaoCB";
     bpd.texture_names[0] = "ssao_raw";
     bpd.texture_names[1] = "scene_depth";
-    bpd.static_sampler_count = 2;
+    bpd.texture_names[2] = "normal_gbuffer";
+    bpd.static_sampler_count = 3;
     bpd.static_samplers[0].filter    = ESamplerFilter::Linear;     // AO は linear で補間
     bpd.static_samplers[0].address_u = ESamplerAddress::Clamp;
     bpd.static_samplers[0].address_v = ESamplerAddress::Clamp;
     bpd.static_samplers[1].filter    = ESamplerFilter::Point;      // depth は離散値
     bpd.static_samplers[1].address_u = ESamplerAddress::Clamp;
     bpd.static_samplers[1].address_v = ESamplerAddress::Clamp;
+    bpd.static_samplers[2].filter    = ESamplerFilter::Linear;
+    bpd.static_samplers[2].address_u = ESamplerAddress::Clamp;
+    bpd.static_samplers[2].address_v = ESamplerAddress::Clamp;
     bpd.vertex_stride = 0;
     bpd.layout_count  = 0;
     if (auto r = CreateRhiPipeline(device, bpd); r.IsErr()) return Err<void>(r.Error());
@@ -453,7 +485,7 @@ void FSsao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   FVec3 eye, FVec3 light_dir,
                   f32 intensity, f32 radius) noexcept {
     if (!m_Output || !m_BlurOutput || !m_Pipeline || !m_BlurPipeline || !m_Cb) return;
-    SsaoCBLayout data{};
+    FSsaoCbLayout data{};
     data.view_proj     = view_proj;
     data.inv_view_proj = inv_view_proj;
     data.eye           = FVec4{eye.x, eye.y, eye.z, 1};
@@ -462,10 +494,13 @@ void FSsao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                                1.0f / static_cast<f32>(m_Height)};
     data.view          = view;       // GTAO: world → view
     data.light_dir     = FVec4{light_dir.x, light_dir.y, light_dir.z, 0};
+    const FMat4 projection = Inverse(view) * view_proj;
+    data.projection_scale = FVec4{
+        projection.m[0][0], projection.m[1][1], projection.m[3][3], 0};
     m_Cb->Update(&data, sizeof(data));
 
     // Pass 1: SSAO raw → m_Output
-    cl.BeginRenderToTexture(*m_Output, ClearColor{1, 1, 1, 1}, nullptr, 1.0f);
+    cl.BeginRenderToTexture(*m_Output, FClearColor{1, 1, 1, 1}, nullptr, 1.0f);
     cl.SetPipeline(*m_Pipeline);
     cl.SetConstantBuffer(0, *m_Cb);
     cl.SetTexture(0, scene_depth);
@@ -474,11 +509,12 @@ void FSsao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.EndRenderToTexture(*m_Output);
 
     // Pass 2: depth-aware bilateral blur → m_BlurOutput
-    cl.BeginRenderToTexture(*m_BlurOutput, ClearColor{1, 1, 1, 1}, nullptr, 1.0f);
+    cl.BeginRenderToTexture(*m_BlurOutput, FClearColor{1, 1, 1, 1}, nullptr, 1.0f);
     cl.SetPipeline(*m_BlurPipeline);
     cl.SetConstantBuffer(0, *m_Cb);
     cl.SetTexture(0, *m_Output);       // SSAO raw
     cl.SetTexture(1, scene_depth);
+    cl.SetTexture(2, normal_gbuffer);
     cl.Draw(3);
     cl.EndRenderToTexture(*m_BlurOutput);
 }

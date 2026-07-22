@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// DiligentSwapchain 実装
+// FDiligentSwapchain 実装
 #include "render/Diligent/DiligentSwapchain.h"
 
 #if WITH_RENDER_DILIGENT
@@ -12,11 +12,11 @@
 namespace acs {
 
 /** Diligent スワップチェインを解放する。 */
-DiligentSwapchain::~DiligentSwapchain() noexcept {
+FDiligentSwapchain::~FDiligentSwapchain() noexcept {
     Reset();
 }
 
-void DiligentSwapchain::Reset() noexcept
+void FDiligentSwapchain::Reset() noexcept
 {
     if (m_Swap) { m_Swap->Release(); m_Swap = nullptr; }
     m_Device = nullptr;
@@ -28,7 +28,7 @@ void DiligentSwapchain::Reset() noexcept
 }
 
 /** ウィンドウに対してバックエンド別 factory でスワップチェインを生成する。 */
-TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainConfig& cfg) noexcept {
+TResult<void> FDiligentSwapchain::Init(FDiligentDevice& device, const FSwapchainConfig& cfg) noexcept {
     Reset();
     m_Device = &device;
     m_BufferCount = (cfg.buffer_count >= 2 && cfg.buffer_count <= 3) ? cfg.buffer_count : 2;
@@ -40,7 +40,7 @@ TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainCon
     m_Height = cfg.window ? cfg.window->Height() : cfg.external_height;
 
     if (!native_hwnd) {
-        return ACS_ERR(Render, 110, "DiligentSwapchain::Init requires a valid window or external_hwnd");
+        return ACS_ERR(Render, 110, "FDiligentSwapchain::Init requires a valid window or external_hwnd");
     }
 
     Diligent::SwapChainDesc sd;
@@ -51,6 +51,9 @@ TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainCon
     sd.BufferCount       = m_BufferCount;
     sd.PreTransform      = Diligent::SURFACE_TRANSFORM_OPTIMAL;
     sd.Usage             = Diligent::SWAP_CHAIN_USAGE_RENDER_TARGET;
+    // Present() が Diligent の FinishFrame()/ReleaseStaleResources() を担う契約を
+    // ACS 側でも明示する。off-screen submission は FDiligentDevice が別途閉じる。
+    sd.IsPrimary         = true;
 
     Diligent::Win32NativeWindow win{};
     win.hWnd = native_hwnd;
@@ -60,7 +63,7 @@ TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainCon
     auto* dev     = device.RenderDev();
     auto* ctx     = device.Context();
     if (!dev || !ctx) {
-        return ACS_ERR(Render, 111, "DiligentSwapchain: device not initialized");
+        return ACS_ERR(Render, 111, "FDiligentSwapchain: device not initialized");
     }
 
     if (device.ActualBackend() == ERhiBackendKind::Vulkan) {
@@ -86,20 +89,23 @@ TResult<void> DiligentSwapchain::Init(DiligentDevice& device, const SwapchainCon
 }
 
 /** バックバッファインデックスを返す (Diligent が内部管理するため常に 0)。 */
-u32 DiligentSwapchain::AcquireNextImage() noexcept {
+u32 FDiligentSwapchain::AcquireNextImage() noexcept {
     // Diligent はバックバッファインデックスを内部管理する。
     // BeginRenderToSwapchain では SetRenderTargets(m_Swap->GetCurrentBackBufferRTV()) を呼ぶ。
     return 0;
 }
 
 /** 現在のバックバッファを vsync 設定に従って提示する。 */
-void DiligentSwapchain::Present() noexcept {
+void FDiligentSwapchain::Present() noexcept {
     if (!m_Swap) return;
     m_Swap->Present(m_bVsync ? 1 : 0);
+    // IsPrimary=true の Present は Diligent 内部で FinishFrame() 済み。
+    // 次の Begin/WaitIdle が二重に FinishFrame() しないよう pending を消す。
+    if (m_Device) m_Device->NotifyPrimaryPresentFinished();
 }
 
 /** スワップチェインを新しいサイズに作り直す。 */
-bool DiligentSwapchain::Resize(u32 width, u32 height) noexcept {
+bool FDiligentSwapchain::Resize(u32 width, u32 height) noexcept {
     if (!m_Swap) return false;               // スワップチェイン未初期化 = リサイズ不能
     if (width == 0 || height == 0) return true;  // 無効サイズ要求は no-op
     m_Width  = width;

@@ -13,7 +13,7 @@ using namespace acs;
 
 namespace hellotextured {
 
-void HelloTexturedApp::OnStart() noexcept {
+void FHelloTexturedApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -94,7 +94,7 @@ void HelloTexturedApp::OnStart() noexcept {
     pd.static_samplers[0].filter      = ESamplerFilter::Point;     // ピクセルアートっぽい外観にするため Point
     pd.static_samplers[0].address_u   = ESamplerAddress::Wrap;
     pd.static_samplers[0].address_v   = ESamplerAddress::Wrap;
-    pd.vertex_stride = sizeof(Vertex);
+    pd.vertex_stride = sizeof(FVertex);
     pd.layout[0] = { "POSITION",  0, EFormat::R32G32B32_Float, 0 };
     pd.layout[1] = { "TEXCOORD",  0, EFormat::R32G32_Float,    sizeof(f32) * 3 };
     pd.layout_count = 2;
@@ -110,12 +110,12 @@ void HelloTexturedApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloTextured initialized");
 }
 
-void HelloTexturedApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloTexturedApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
 
     m_Angle += dt * 0.6f;
-    if (Input::IsKeyDown(EKey::Left))  m_CamYaw -= dt * 1.5f;
-    if (Input::IsKeyDown(EKey::Right)) m_CamYaw += dt * 1.5f;
+    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw -= dt * 1.5f;
+    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw += dt * 1.5f;
 
     FVec3 eye{ Sin(m_CamYaw) * 5.0f, 1.5f, -Cos(m_CamYaw) * 5.0f };
     m_Camera.SetLookAt(eye, {0, 0, 0});
@@ -125,18 +125,18 @@ void HelloTexturedApp::OnUpdate(f32 dt) noexcept {
     m_Cb->Update(&mvp, sizeof(FMat4));
 }
 
-void HelloTexturedApp::OnRender() noexcept {
+void FHelloTexturedApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl || !m_Pipeline) return;
     cl->SetPipeline(*m_Pipeline);
     cl->SetConstantBuffer(0, *m_Cb);
     cl->SetTexture(0, *m_Tex);
-    cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    cl->SetVertexBuffer(*m_Vb, sizeof(FVertex));
     cl->SetIndexBuffer(*m_Ib);
     cl->DrawIndexed(36);
 }
 
-void HelloTexturedApp::OnShutdown() noexcept {
+void FHelloTexturedApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Pipeline.Reset();
     m_Tex.Reset();

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar F — FCollisionWorld2D + SpatialGrid
 //
-// 2D 衝突判定の高レベル API。形状 (Aabb2 / Circle) を `FShapeId` で管理し、
+// 2D 衝突判定の高レベル API。形状 (FAabb2 / FCircle) を `FShapeId` で管理し、
 // 内部の SpatialGrid (一様グリッド broad-phase) で O(N + K) クエリ
 // (K = 結果数) を提供する。narrow phase は `math/Collision2D.h` の
 // 既存関数 (Intersect / Resolve / RaycastAabb / RaycastCircle) を再利用。
@@ -20,7 +20,7 @@
 //   TArray<FShapeId> hits;
 //   world.OverlapCircle({ player_pos, 32.0f }, hits);  // 32 範囲のもの全部
 //
-//   RayHit2 rh;
+//   FRayHit2 rh;
 //   FShapeId hit_id;
 //   if (world.Raycast({ origin, dir }, /*max_t=*/100.0f, rh, hit_id)) {
 //       // rh.point/normal/t、hit_id でどの形状か分かる
@@ -110,7 +110,7 @@ struct FShapeId {
  * 一様グリッド broad-phase を持つ 2D 衝突判定の高レベル API。
  *
  * @details
- * 形状 (Aabb2 / Circle / ConvexPoly2 / Obb2) を FShapeId で管理し、内部の
+ * 形状 (FAabb2 / FCircle / FConvexPoly2 / FObb2) を FShapeId で管理し、内部の
  * SpatialGrid (cell_size 固定の一様グリッド) で O(N + K) クエリを提供する
  * (K = 結果数)。narrow phase は math/Collision2D.h の既存関数を再利用する。
  * Add/Update/Remove で dirty フラグを立て、クエリ直前にグリッドを遅延再構築する。
@@ -149,7 +149,7 @@ public:
      * @param layer この shape が属するレイヤ bitmask (クエリ mask と AND して候補判定)。
      * @return 新しい FShapeId。
      */
-    FShapeId AddAabb   (const Aabb2& a, u32 layer = kAllLayers) noexcept;
+    FShapeId AddAabb   (const FAabb2& a, u32 layer = kAllLayers) noexcept;
 
     /**
      * 円形状を登録して handle を返す。
@@ -158,7 +158,7 @@ public:
      * @param layer この shape が属するレイヤ bitmask。
      * @return 新しい FShapeId。
      */
-    FShapeId AddCircle (const Circle& c, u32 layer = kAllLayers) noexcept;
+    FShapeId AddCircle (const FCircle& c, u32 layer = kAllLayers) noexcept;
 
     /**
      * 凸ポリゴン形状を登録して handle を返す。
@@ -167,7 +167,7 @@ public:
      * @param layer この shape が属するレイヤ bitmask。
      * @return 新しい FShapeId。
      */
-    FShapeId AddPolygon(const ConvexPoly2& p, u32 layer = kAllLayers) noexcept;
+    FShapeId AddPolygon(const FConvexPoly2& p, u32 layer = kAllLayers) noexcept;
 
     /**
      * OBB (有向境界ボックス = 回転矩形) を登録して handle を返す。
@@ -177,7 +177,7 @@ public:
      * @param layer この shape が属するレイヤ bitmask。
      * @return 新しい FShapeId。
      */
-    FShapeId AddObb    (const Obb2& o, u32 layer = kAllLayers) noexcept;
+    FShapeId AddObb    (const FObb2& o, u32 layer = kAllLayers) noexcept;
 
     /**
      * AABB 形状を更新する (移動した時)。
@@ -186,7 +186,7 @@ public:
      * @param id 更新対象の handle。
      * @param a 新しい AABB。
      */
-    void UpdateAabb   (FShapeId id, const Aabb2& a) noexcept;
+    void UpdateAabb   (FShapeId id, const FAabb2& a) noexcept;
 
     /**
      * 円形状を更新する (移動した時)。
@@ -195,7 +195,7 @@ public:
      * @param id 更新対象の handle。
      * @param c 新しい円。
      */
-    void UpdateCircle (FShapeId id, const Circle& c) noexcept;
+    void UpdateCircle (FShapeId id, const FCircle& c) noexcept;
 
     /**
      * 凸ポリゴン形状を更新する (移動した時)。
@@ -204,7 +204,7 @@ public:
      * @param id 更新対象の handle。
      * @param p 新しい凸ポリゴン。
      */
-    void UpdatePolygon(FShapeId id, const ConvexPoly2& p) noexcept;
+    void UpdatePolygon(FShapeId id, const FConvexPoly2& p) noexcept;
 
     /**
      * OBB 形状を更新する (移動した時)。
@@ -213,7 +213,7 @@ public:
      * @param id 更新対象の handle。
      * @param o 新しい有向境界ボックス。
      */
-    void UpdateObb    (FShapeId id, const Obb2& o) noexcept;
+    void UpdateObb    (FShapeId id, const FObb2& o) noexcept;
 
     /**
      * shape を削除する。
@@ -241,7 +241,7 @@ public:
      * @param exclude 除外したい shape (自己 overlap 抑止用、invalid なら除外無し)。
      * @param mask ヒット候補を絞るレイヤ bitmask (shape.layer & mask == 0 は無視)。
      */
-    void OverlapAabb   (const Aabb2& a,   TArray<FShapeId>& out, FShapeId exclude = {}, u32 mask = kAllLayers) noexcept;
+    void OverlapAabb   (const FAabb2& a,   TArray<FShapeId>& out, FShapeId exclude = {}, u32 mask = kAllLayers) noexcept;
 
     /**
      * 円と重なる shape を列挙する。
@@ -251,7 +251,7 @@ public:
      * @param exclude 除外したい shape (invalid なら除外無し)。
      * @param mask ヒット候補を絞るレイヤ bitmask。
      */
-    void OverlapCircle (const Circle& c,  TArray<FShapeId>& out, FShapeId exclude = {}, u32 mask = kAllLayers) noexcept;
+    void OverlapCircle (const FCircle& c,  TArray<FShapeId>& out, FShapeId exclude = {}, u32 mask = kAllLayers) noexcept;
 
     /**
      * 凸ポリゴンと重なる shape を列挙する。
@@ -261,7 +261,7 @@ public:
      * @param exclude 除外したい shape (invalid なら除外無し)。
      * @param mask ヒット候補を絞るレイヤ bitmask。
      */
-    void OverlapPolygon(const ConvexPoly2& p, TArray<FShapeId>& out, FShapeId exclude = {}, u32 mask = kAllLayers) noexcept;
+    void OverlapPolygon(const FConvexPoly2& p, TArray<FShapeId>& out, FShapeId exclude = {}, u32 mask = kAllLayers) noexcept;
 
     /**
      * レイをキャストし最も近い shape を 1 つ返す。
@@ -273,7 +273,7 @@ public:
      * @param mask ヒット候補を絞るレイヤ bitmask。
      * @return いずれかにヒットしたら true。
      */
-    bool Raycast(const Ray2& ray, f32 max_t, RayHit2& out_hit, FShapeId& out_id, u32 mask = kAllLayers) noexcept;
+    bool Raycast(const FRay2& ray, f32 max_t, FRayHit2& out_hit, FShapeId& out_id, u32 mask = kAllLayers) noexcept;
 
     /**
      * 円を重なっている全 shape から押し出す合計ベクトルを返す (collide-and-slide 用)。
@@ -286,7 +286,7 @@ public:
      * @param mask 対象を絞るレイヤ bitmask。
      * @return 押し出しベクトルの合計。
      */
-    FVec2 ResolveCircle (const Circle& c,      FShapeId exclude = {}, u32 mask = kAllLayers) noexcept;
+    FVec2 ResolveCircle (const FCircle& c,      FShapeId exclude = {}, u32 mask = kAllLayers) noexcept;
 
     /**
      * 凸ポリゴンを重なっている全 shape から押し出す合計ベクトルを返す (collide-and-slide 用)。
@@ -297,16 +297,16 @@ public:
      * @param mask 対象を絞るレイヤ bitmask。
      * @return 押し出しベクトルの合計。
      */
-    FVec2 ResolvePolygon(const ConvexPoly2& p, FShapeId exclude = {}, u32 mask = kAllLayers) noexcept;
+    FVec2 ResolvePolygon(const FConvexPoly2& p, FShapeId exclude = {}, u32 mask = kAllLayers) noexcept;
 
 private:
     /** slot に格納された形状の種別タグ。 */
-    enum class Kind : u8 {
+    enum class EKind : u8 {
         /** 空 slot (未使用)。 */
         None = 0,
 
         /** 軸並行境界ボックス。 */
-        FAabb,
+        Aabb,
 
         /** 円。 */
         Circle,
@@ -319,9 +319,9 @@ private:
     };
 
     /** 1 形状分の格納スロット (全形状種を union 的に保持)。 */
-    struct Slot {
+    struct FSlot {
         /** 格納されている形状の種別。 */
-        Kind        kind   = Kind::None;
+        EKind        kind   = EKind::None;
 
         /** スロットが使用中か。 */
         bool        active = false;
@@ -332,21 +332,21 @@ private:
         /** 所属レイヤ bitmask。 */
         u32         layer  = kAllLayers;
 
-        /** AABB データ (kind=FAabb のとき有効)。 */
-        Aabb2       aabb   {};
+        /** AABB データ (kind=Aabb のとき有効)。 */
+        FAabb2       aabb   {};
 
         /** 円データ (kind=Circle のとき有効)。 */
-        Circle      circle {};
+        FCircle      circle {};
 
         /** 凸ポリゴンデータ (kind=Poly のとき有効)。 */
-        ConvexPoly2 poly   {};
+        FConvexPoly2 poly   {};
 
         /** OBB データ (kind=Obb のとき有効)。 */
-        Obb2        obb    {};
+        FObb2        obb    {};
     };
 
     /** SpatialGrid の 1 セル (cell 座標と、そこに重なる slot index 群)。 */
-    struct GridCell {
+    struct FGridCell {
         /** セルの x 座標。 */
         i32 cx = 0;
 
@@ -380,7 +380,7 @@ private:
      * @param cx_max セル x 最大を書き込む先。
      * @param cy_max セル y 最大を書き込む先。
      */
-    void CellRange(const Aabb2& a, i32& cx_min, i32& cy_min,
+    void CellRange(const FAabb2& a, i32& cx_min, i32& cy_min,
                                     i32& cx_max, i32& cy_max) const noexcept;
 
     /**
@@ -392,7 +392,7 @@ private:
      * @param cx_max セル x 最大を書き込む先。
      * @param cy_max セル y 最大を書き込む先。
      */
-    void CellRange(const Circle& c, i32& cx_min, i32& cy_min,
+    void CellRange(const FCircle& c, i32& cx_min, i32& cy_min,
                                     i32& cx_max, i32& cy_max) const noexcept;
 
     /**
@@ -402,7 +402,7 @@ private:
      * @param cy セル y 座標。
      * @return 対象セルへの参照。
      */
-    GridCell& GetOrCreateCell(i32 cx, i32 cy) noexcept;
+    FGridCell& GetOrCreateCell(i32 cx, i32 cy) noexcept;
 
     /**
      * (cx, cy) のセルを線形探索する。
@@ -411,7 +411,7 @@ private:
      * @param cy セル y 座標。
      * @return 見つかればセルへのポインタ、無ければ nullptr。
      */
-    GridCell* FindCell(i32 cx, i32 cy) noexcept;
+    FGridCell* FindCell(i32 cx, i32 cy) noexcept;
 
     /**
      * slot を重なる全セルに登録する。
@@ -429,7 +429,7 @@ private:
      * slot の線形走査へフォールバックする (巨大クエリでもハングしない)。
      * @param box クエリ範囲を囲む AABB。
      */
-    void CollectCandidates(const Aabb2& box) noexcept;
+    void CollectCandidates(const FAabb2& box) noexcept;
 
     /**
      * slot[idx] が AABB と交差するかを判定する (narrow phase)。
@@ -438,7 +438,7 @@ private:
      * @param a 相手の AABB。
      * @return 交差すれば true。
      */
-    bool NarrowIntersectAabb  (u32 slot_idx, const Aabb2& a) const noexcept;
+    bool NarrowIntersectAabb  (u32 slot_idx, const FAabb2& a) const noexcept;
 
     /**
      * slot[idx] が円と交差するかを判定する (narrow phase)。
@@ -447,7 +447,7 @@ private:
      * @param c 相手の円。
      * @return 交差すれば true。
      */
-    bool NarrowIntersectCircle(u32 slot_idx, const Circle& c) const noexcept;
+    bool NarrowIntersectCircle(u32 slot_idx, const FCircle& c) const noexcept;
 
     /**
      * slot[idx] が凸ポリゴンと交差するかを判定する (narrow phase)。
@@ -456,16 +456,16 @@ private:
      * @param p 相手の凸ポリゴン。
      * @return 交差すれば true。
      */
-    bool NarrowIntersectPoly  (u32 slot_idx, const ConvexPoly2& p) const noexcept;
+    bool NarrowIntersectPoly  (u32 slot_idx, const FConvexPoly2& p) const noexcept;
 
     /** 形状スロット配列 (index 0 は invalid 用に予約)。 */
-    TArray<Slot>     m_Slots;
+    TArray<FSlot>     m_Slots;
 
     /** アクティブな shape 数。 */
     u32             m_ShapeCount = 0;
 
     /** グリッドセル群 (cx/cy で線形検索)。 */
-    TArray<GridCell> m_Cells;
+    TArray<FGridCell> m_Cells;
 
     /** グリッドのセルサイズ (world unit)。 */
     f32             m_CellSize   = 64.0f;

@@ -28,4 +28,4 @@
 #include "app/EntryPoint.h"
 #include "HelloAnimationApp.h"
 
-ACS_DEFINE_MAIN(helloanim::HelloAnimationApp)
+ACS_DEFINE_MAIN(helloanim::FHelloAnimationApp)

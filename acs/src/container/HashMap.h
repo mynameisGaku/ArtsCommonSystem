@@ -18,7 +18,7 @@ namespace acs {
  * @tparam V 値型。
  */
 template<typename K, typename V>
-struct Pair {
+struct TPair {
     /** キー。 */
     K first;
 
@@ -41,8 +41,8 @@ struct Pair {
 template<typename K, typename V, typename H = THasher<K>>
 class THashMap {
 public:
-    /** 格納エントリの型 (Pair<K, V>)。 */
-    using EntryType = Pair<K, V>;
+    /** 格納エントリの型 (TPair<K, V>)。 */
+    using EntryType = TPair<K, V>;
 
     /** 既定アロケータで空のマップを構築する。 */
     THashMap() noexcept : m_Values(DefaultAllocator()), m_Alloc(&DefaultAllocator()) {}
@@ -170,7 +170,7 @@ public:
         const u32 fp = static_cast<u32>((h >> 56) | 0x01);  // fingerprint（0 を避ける）
         u32 dist = 0;
         while (true) {
-            const Bucket& b = m_Buckets[ideal];
+            const FBucket& b = m_Buckets[ideal];
             if (b.dist_fp == 0) return nullptr;            // 空スロット → 未存在
             if (b.Distance() < dist) return nullptr;       // Robin Hood: 自分より距離小 → 未存在
             if (b.Fingerprint() == fp) {
@@ -215,7 +215,7 @@ public:
         const u32 fp = static_cast<u32>((h >> 56) | 0x01);
         u32 dist = 0;
         while (true) {
-            Bucket& b = m_Buckets[ideal];
+            FBucket& b = m_Buckets[ideal];
             if (b.dist_fp == 0) return false;
             if (b.Distance() < dist) return false;
             if (b.Fingerprint() == fp && m_Values[b.value_idx].first == key) {
@@ -228,7 +228,7 @@ public:
                     const u32 cur_fp = static_cast<u32>((mh >> 56) | 0x01);
                     u32 cur_dist = 0;
                     while (true) {
-                        Bucket& mb = m_Buckets[cur_idx];
+                        FBucket& mb = m_Buckets[cur_idx];
                         if (mb.dist_fp != 0 && mb.Fingerprint() == cur_fp && mb.value_idx == m_Values.Size()) {
                             mb.value_idx = vidx;
                             break;
@@ -241,7 +241,7 @@ public:
                 // 後方シフト: 削除位置に後続を 1 つずつ詰める
                 u32 next_idx = (ideal + 1) & m_BucketMask;
                 while (true) {
-                    Bucket& nx = m_Buckets[next_idx];
+                    FBucket& nx = m_Buckets[next_idx];
                     if (nx.dist_fp == 0 || nx.Distance() == 0) {
                         m_Buckets[ideal].dist_fp = 0;
                         m_Buckets[ideal].value_idx = 0;
@@ -261,7 +261,7 @@ public:
     /** 全エントリを削除する (値配列をクリアし、バケットを 0 埋め。容量は保持)。 */
     void Clear() noexcept {
         m_Values.Clear();
-        if (m_Buckets) MemSet(m_Buckets, 0, sizeof(Bucket) * m_BucketCount);
+        if (m_Buckets) MemSet(m_Buckets, 0, sizeof(FBucket) * m_BucketCount);
     }
 
     /**
@@ -326,7 +326,7 @@ private:
      * @details dist_fp の上位 24bit が探索距離、下位 8bit が fingerprint。dist_fp==0 は
      * 空スロットを表す。value_idx は m_Values 内の格納位置。
      */
-    struct Bucket {
+    struct FBucket {
         /** 上位 24bit=距離 / 下位 8bit=fingerprint (0 は空スロット)。 */
         u32 dist_fp;
 
@@ -390,14 +390,14 @@ private:
     bool TryRehash(usize new_count) noexcept {
         ACS_ASSERT((new_count & (new_count - 1)) == 0);
 
-        void* const mem = m_Alloc->Alloc(sizeof(Bucket) * new_count, alignof(Bucket), FSourceLoc::Current());
+        void* const mem = m_Alloc->Alloc(sizeof(FBucket) * new_count, alignof(FBucket), FSourceLoc::Current());
         if (!mem) return false;  // OOM: map を変更しない
 
-        Bucket* const old_buckets = m_Buckets;
-        m_Buckets = static_cast<Bucket*>(mem);
+        FBucket* const old_buckets = m_Buckets;
+        m_Buckets = static_cast<FBucket*>(mem);
         m_BucketCount = new_count;
         m_BucketMask  = static_cast<u32>(new_count - 1);
-        MemSet(m_Buckets, 0, sizeof(Bucket) * new_count);
+        MemSet(m_Buckets, 0, sizeof(FBucket) * new_count);
 
         // 全 value を順に再挿入
         for (u32 vi = 0; vi < m_Values.Size(); ++vi) {
@@ -419,12 +419,12 @@ private:
         const u64 h = H{}(m_Values[vidx].first);
         u32 ideal = static_cast<u32>(h) & m_BucketMask;
         const u32 fp = static_cast<u32>((h >> 56) | 0x01);
-        Bucket nb;
+        FBucket nb;
         nb.Set(0, fp);
         nb.value_idx = vidx;
         u32 dist = 0;
         while (true) {
-            Bucket& slot = m_Buckets[ideal];
+            FBucket& slot = m_Buckets[ideal];
             if (slot.dist_fp == 0) {
                 slot = nb;
                 slot.SetDistance(dist);
@@ -432,7 +432,7 @@ private:
             }
             // 自分より距離が小さいスロットを見つけたら入れ替え
             if (slot.Distance() < dist) {
-                Bucket tmp = slot;
+                FBucket tmp = slot;
                 slot = nb;
                 slot.SetDistance(dist);
                 nb = tmp;
@@ -460,7 +460,7 @@ private:
         u32 probe = ideal;
         u32 dist = 0;
         while (true) {
-            const Bucket& b = m_Buckets[probe];
+            const FBucket& b = m_Buckets[probe];
             if (b.dist_fp == 0) break;
             if (b.Distance() < dist) break;
             if (b.Fingerprint() == fp && m_Values[b.value_idx].first == key) {
@@ -477,20 +477,20 @@ private:
         if (!m_Values.TryReserve(m_Values.Size() + 1u)) return false;
         const u32 new_idx = static_cast<u32>(m_Values.Size());
         m_Values.PushBack(EntryType{ key, Move(value) });  // 予約済みなので確保は起きない
-        Bucket nb;
+        FBucket nb;
         nb.Set(0, fp);
         nb.value_idx = new_idx;
         u32 d = 0;
         u32 i = ideal;
         while (true) {
-            Bucket& slot = m_Buckets[i];
+            FBucket& slot = m_Buckets[i];
             if (slot.dist_fp == 0) {
                 slot = nb;
                 slot.SetDistance(d);
                 return true;
             }
             if (slot.Distance() < d) {
-                Bucket tmp = slot;
+                FBucket tmp = slot;
                 slot = nb;
                 slot.SetDistance(d);
                 nb = tmp;
@@ -505,7 +505,7 @@ private:
     TArray<EntryType> m_Values;
 
     /** インデックスバケット配列 (m_BucketCount 個)。 */
-    Bucket*          m_Buckets      = nullptr;
+    FBucket*          m_Buckets      = nullptr;
 
     /** バケット数 (2 の冪)。 */
     usize            m_BucketCount = 0;

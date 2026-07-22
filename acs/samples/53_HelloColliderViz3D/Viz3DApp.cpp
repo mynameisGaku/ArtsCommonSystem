@@ -36,7 +36,7 @@ void FViz3DApp::OnStart() noexcept {
 }
 
 void FViz3DApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) { Quit(); return; }
+    if (FInput::IsKeyPressed(EKey::Escape)) { Quit(); return; }
     m_Time += (dt > 0.0f && dt < 0.1f) ? dt : (1.0f / 60.0f);
 }
 
@@ -53,8 +53,8 @@ void FViz3DApp::OnRender() noexcept {
     const FMat4 mvp   = model * view * proj;   // 全描画を local 空間 → mvp で一括変換
 
     // local 空間でレイキャスト (上から下) → 命中点 (球の上端 y≈1)
-    const Ray3 ray{ FVec3{ 0, 2.0f, 0 }, FVec3{ 0, -1, 0 } };
-    const RayHit3 hit = m_Collider.Raycast(ray);
+    const FRay3 ray{ FVec3{ 0, 2.0f, 0 }, FVec3{ 0, -1, 0 } };
+    const FRayHit3 hit = m_Collider.Raycast(ray);
 
     m_Dd.Begin();
     m_Dd.Wireframe(m_HullPos.Data(), static_cast<u32>(m_HullPos.Size()),

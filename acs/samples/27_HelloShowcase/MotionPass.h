@@ -20,7 +20,7 @@ namespace acs { class IRhiCommandList; class IRhiTexture; }
 
 namespace helloshowcase {
 
-acs::IRhiTexture* ExecuteMotionPass(Assets& a,
+acs::IRhiTexture* ExecuteMotionPass(FAssets& a,
                                      acs::IRhiCommandList& cl,
                                      const acs::FMat4& vp_no_jitter,
                                      const acs::FMat4& prev_vp_no_jitter,

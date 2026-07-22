@@ -20,7 +20,7 @@ namespace hellotext {
 
 using namespace acs;
 
-void HelloTextApp::OnStart() noexcept {
+void FHelloTextApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -35,12 +35,12 @@ void HelloTextApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloText initialized");
 }
 
-void HelloTextApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloTextApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
     m_Time += dt;
 }
 
-void HelloTextApp::OnRender() noexcept {
+void FHelloTextApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
@@ -102,7 +102,7 @@ void HelloTextApp::OnRender() noexcept {
     m_Batch.End();
 }
 
-void HelloTextApp::OnShutdown() noexcept {
+void FHelloTextApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_SmallFont.Shutdown();
     m_BodyFont.Shutdown();

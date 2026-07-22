@@ -25,7 +25,7 @@ namespace acs {
 /** ウィンドウ生成時のオプション (FWindow::Create に渡す)。 */
 struct FWindowConfig {
     /** タイトルバーに表示する文字列。 */
-    const wchar_t* title       = L"ACS FWindow";
+    const wchar_t* title       = L"ACS Window";
 
     /** クライアント領域の初期幅 (px)。 */
     u32            width       = 1280;
@@ -50,7 +50,7 @@ struct FWindowConfig {
  * @param user SetEventCallback で登録した任意のユーザーポインタ。
  * @param e 発生したイベント。
  */
-using EventCallback = void (*)(void* user, const Event& e);
+using EventCallback = void (*)(void* user, const FEvent& e);
 
 /**
  * Win32 ウィンドウ (イベント駆動、初学者向けの簡易 API)。
@@ -178,7 +178,7 @@ public:
      *
      * @param e 登録済みコールバックへ渡すイベント。
      */
-    void DispatchEvent_Internal(const Event& e) noexcept;
+    void DispatchEvent_Internal(const FEvent& e) noexcept;
 
     /**
      * 内部用: WindowProc からのサイズ更新を反映する。

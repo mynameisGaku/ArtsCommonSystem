@@ -5,9 +5,9 @@
 //   ローカルブロックリストと通報 (報告) キューを管理する。実プラットフォームの
 //   モデレーション SDK (Steam ISteamUser::ReportPlayer / EOS ReportPlayer /
 //   PSN Communication Block / Xbox Reputation / NSO 通報 API) への送信は seam
-//   として未接続で、`FSteamworksBridge` 等を経由して接続する。
+//   として未接続で、`ISteamworksBridge` 等を経由して接続する。
 //
-//   FPartySystem.h で「moderation / blocking は別モジュール」と明記した通り、
+//   PartySystem.h で「moderation / blocking は別モジュール」と明記した通り、
 //   本 system が「上位レイヤから呼ばれる単一窓口」を担う。InviteFriend で
 //   ブロック相手かどうかを判定したい場合は、呼び出し側で IsBlocked() を
 //   先に問い合わせる責任分離 (FPartySystem 自身は moderation を意識しない)。
@@ -40,7 +40,7 @@
 //   mod.BlockUser("steam:76561198000000999");
 //
 //   // 通報送信
-//   ReportRecord rep{};
+//   FReportRecord rep{};
 //   rep.reported_user_id = "steam:76561198000000999";
 //   rep.reporter_user_id = "steam:76561198000000001";  // local player
 //   rep.category         = EReportCategory::Harassment;
@@ -118,7 +118,7 @@ enum class EReportCategory : u8 {
  * (FPartySystem と同じポリシー)。timestamp は Unix 秒など呼び出し側が決めた
  * 単調増加値で、本 system は比較せず保存のみ行う。
  */
-struct ReportRecord {
+struct FReportRecord {
     /** 通報対象の user_id (SDK 固有 ID、非所有)。 */
     const char*    reported_user_id = nullptr;
 
@@ -237,7 +237,7 @@ public:
      * @param rep 送信する通報レコード。
      * @return 受理または queue 追加に成功すれば Ok、不正入力ならエラー。
      */
-    TResult<void> SubmitReport(const ReportRecord& rep) noexcept;
+    TResult<void> SubmitReport(const FReportRecord& rep) noexcept;
 
     /**
      * 未送信通報の件数を返す。
@@ -257,7 +257,7 @@ public:
     u32 DeliveredReportCount() const noexcept;
 
     /**
-     * backend (FSteamworksBridge / cloud filter) への接続有無を切り替える seam。
+     * backend (ISteamworksBridge / cloud filter) への接続有無を切り替える seam。
      *
      * @details
      * 上位レイヤが SDK 接続完了 / 切断時に呼ぶ。false の間は FlushReports が
@@ -310,13 +310,13 @@ private:
      * @param rep 送信する通報レコード。
      * @return backend に受理されたら true。
      */
-    bool TrySubmitToBackend(const ReportRecord& rep) noexcept;
+    bool TrySubmitToBackend(const FReportRecord& rep) noexcept;
 
     /** ローカルブロックリスト。 */
     TArray<FBlockEntry>   m_Blocked;
 
     /** 未送信通報キュー。 */
-    TArray<ReportRecord> m_PendingReports;
+    TArray<FReportRecord> m_PendingReports;
 
     /** backend 接続フラグ (seam)。 */
     bool                 m_BackendConnected = false;

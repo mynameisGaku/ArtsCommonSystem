@@ -1,6 +1,8 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -11,14 +13,252 @@ namespace AcsEditor;
 
 public partial class App : Application
 {
+    private const int GwlExStyle = -20;
+    private const long WsExNoActivate = 0x08000000L;
+    private const int SmRemoteSession = 0x1000;
+
+    internal const int WmMouseActivate = 0x0021;
+    internal const int MaActivate = 1;
+    private const int WmLButtonDown = 0x0201;
+    private const int WmRButtonDown = 0x0204;
+    private const int WmMButtonDown = 0x0207;
+    private const int WmXButtonDown = 0x020B;
+    private const int WmNcLButtonDown = 0x00A1;
+    private const int WmNcRButtonDown = 0x00A4;
+    private const int WmNcMButtonDown = 0x00A7;
+    private const int WmNcXButtonDown = 0x00AB;
+    private const int WmPointerDown = 0x0246;
+
+    /// <summary>
+    /// True for unattended visual-validation launches.  In this mode the
+    /// editor remains visible and renders normally, but neither its WPF
+    /// shortcut layer nor the native viewport child may consume user input.
+    /// </summary>
+    public static bool IsNonInteractiveLaunch { get; private set; }
+
+    /// <summary>
+    /// True while an interactive <c>--no-activate</c> launch is waiting for
+    /// the editor window's first activation.  Startup work may continue while
+    /// this is set, but owned modal prompts must wait so they cannot take focus
+    /// on behalf of the deliberately inactive editor.
+    /// </summary>
+    public static bool IsInitialActivationSuppressed { get; private set; }
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern nint GetWindowLongPtr(nint window, int index);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    private static extern nint SetWindowLongPtr(
+        nint window, int index, nint newValue);
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int index);
+
+    internal static bool ShouldForceSoftwareUi(
+        string[] arguments,
+        bool isRemoteSession,
+        int renderingTier) =>
+        isRemoteSession ||
+        arguments.Contains("--software-ui", StringComparer.OrdinalIgnoreCase);
+
+    internal static bool ShouldRunUnattended(string[] arguments) =>
+        arguments.Contains("--unattended", StringComparer.OrdinalIgnoreCase);
+
+    internal static bool ShouldAvoidInitialActivation(string[] arguments) =>
+        ShouldRunUnattended(arguments) ||
+        arguments.Contains("--no-activate", StringComparer.OrdinalIgnoreCase);
+
+    internal static bool ShouldDeferInteractivePromptsUntilActivation(
+        string[] arguments) =>
+        !ShouldRunUnattended(arguments) &&
+        arguments.Contains("--no-activate", StringComparer.OrdinalIgnoreCase);
+
+    internal static bool ShouldReleaseInitialActivationGuard(
+        bool initialActivationSuppressed,
+        bool nonInteractiveLaunch,
+        int message,
+        int activationInputMessage) =>
+        initialActivationSuppressed &&
+        !nonInteractiveLaunch &&
+        message == WmMouseActivate &&
+        IsExplicitActivationInput(activationInputMessage);
+
+    private static bool IsExplicitActivationInput(int message) =>
+        message == WmLButtonDown ||
+        message == WmRButtonDown ||
+        message == WmMButtonDown ||
+        message == WmXButtonDown ||
+        message == WmNcLButtonDown ||
+        message == WmNcRButtonDown ||
+        message == WmNcMButtonDown ||
+        message == WmNcXButtonDown ||
+        message == WmPointerDown;
+
+    internal static bool ReleaseInitialEditorActivation(Window window)
+    {
+        if (!IsInitialActivationSuppressed || IsNonInteractiveLaunch)
+        {
+            return false;
+        }
+
+        SetNoActivateStyle(window, enabled: false);
+        IsInitialActivationSuppressed = false;
+        return true;
+    }
+
+    private static void SetNoActivateStyle(Window window, bool enabled)
+    {
+        nint handle = new WindowInteropHelper(window).Handle;
+        if (handle == 0) return;
+
+        nint style = GetWindowLongPtr(handle, GwlExStyle);
+        long current = style.ToInt64();
+        long updated = enabled
+            ? current | WsExNoActivate
+            : current & ~WsExNoActivate;
+        if (updated == current) return;
+
+        SetWindowLongPtr(
+            handle,
+            GwlExStyle,
+            (nint)updated);
+    }
+
     protected override void OnStartup(StartupEventArgs e)
     {
-        // ヘッドレス / RDP / GPU コンテキスト不在の環境では WPF のハードウェア描画が
-        // ブランク (白) になることがある。WPF をソフトウェア描画に固定しておく。
-        // ビューポート (エンジン) は独自の DX12 デバイス/スワップチェインで GPU 描画する
-        // ため、この設定の影響を受けない。
-        RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
+        // SoftwareOnly makes the entire editor UI more expensive. Keep the
+        // compatibility fallback for remote sessions (and the explicit
+        // diagnostic switch), but let normal local editors use WPF hardware
+        // composition. WPF performs its own Tier fallback if the adapter truly
+        // cannot compose in hardware; forcing SoftwareOnly from the pre-startup
+        // Tier probe can otherwise pin a capable desktop.
+        int renderingTier = RenderCapability.Tier >> 16;
+        if (ShouldForceSoftwareUi(
+                e.Args,
+                GetSystemMetrics(SmRemoteSession) != 0,
+                renderingTier))
+        {
+            RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
+        }
         base.OnStartup(e);
+
+        // CLI: --autosave-selftest  → atomic recovery store / checksum / retention / safety harness.
+        // This path creates no WPF window and is safe in build/CI environments.
+        if (e.Args.Length >= 1 && e.Args[0] == "--autosave-selftest")
+        {
+            int failures = SceneAutosaveSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
+        // CLI: --scene-save-selftest → Save All planning + atomic source write safety.
+        if (e.Args.Length >= 1 && e.Args[0] == "--scene-save-selftest")
+        {
+            int failures = SceneSaveSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
+        // CLI: --document-host-selftest -> common identity/dirty/save/transaction contract.
+        if (e.Args.Length >= 1 && e.Args[0] == "--document-host-selftest")
+        {
+            int failures = EditorDocumentHostSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
+        // CLI: --scene-editor-migration-selftest -> stale labels + source/view isolation audit.
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--scene-editor-migration-selftest")
+        {
+            int failures = SceneEditorMigrationSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
+        // CLI: --workspace-selftest -> named layout persistence / validation / atomicity.
+        if (e.Args.Length >= 1 && e.Args[0] == "--workspace-selftest")
+        {
+            int failures = EditorWorkspaceSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
+        // CLI: --profiler-selftest -> snapshot/history/labels and unattended input guards.
+        if (e.Args.Length >= 1 && e.Args[0] == "--profiler-selftest")
+        {
+            int failures = EditorProfilerSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
+        // CLI: --workspaceshot <out.png> -> render named-workspace management for visual QA.
+        if (e.Args.Length >= 2 && e.Args[0] == "--workspaceshot")
+        {
+            string outPng = e.Args[1];
+            string testRoot = Path.Combine(
+                Path.GetTempPath(),
+                "acs-workspaceshot-" + Guid.NewGuid().ToString("N"));
+            var store = new EditorWorkspaceStore(Path.Combine(testRoot, "workspaces.json"));
+            store.SaveUserProfile(
+                "Cinematics",
+                new EditorWorkspaceLayout
+                {
+                    HierarchyWidth = 290,
+                    InspectorWidth = 390,
+                    BottomDockHeight = 280,
+                    BottomTab = "assets",
+                },
+                overwrite: false);
+            var win = new WorkspaceManagerWindow(store, new EditorWorkspaceLayout())
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -4000,
+                Top = -4000,
+            };
+            win.Show();
+            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                int exitCode = 0;
+                try
+                {
+                    win.UpdateLayout();
+                    int width = (int)Math.Ceiling(win.ActualWidth);
+                    int height = (int)Math.Ceiling(win.ActualHeight);
+                    var bitmap = new RenderTargetBitmap(
+                        width,
+                        height,
+                        96,
+                        96,
+                        PixelFormats.Pbgra32);
+                    bitmap.Render(win);
+                    var encoder = new PngBitmapEncoder();
+                    encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                    using var stream = File.Create(outPng);
+                    encoder.Save(stream);
+                    Console.Error.WriteLine(
+                        $"workspaceshot saved: {outPng} ({width}x{height})");
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine(ex.Message);
+                    exitCode = 1;
+                }
+                finally
+                {
+                    try
+                    {
+                        if (Directory.Exists(testRoot))
+                            Directory.Delete(testRoot, recursive: true);
+                    }
+                    catch
+                    {
+                    }
+                }
+                Shutdown(exitCode);
+            }));
+            return;
+        }
 
         // CLI: --new <name> <parentDir> <template>  → プロジェクトを生成して即終了 (スクリプト/テスト用)。
         if (e.Args.Length >= 4 && e.Args[0] == "--new")
@@ -26,6 +266,49 @@ public partial class App : Application
             try { ProjectManager.CreateNew(e.Args[1], e.Args[2], e.Args[3]); }
             catch (Exception ex) { Console.Error.WriteLine(ex.Message); }
             Shutdown();
+            return;
+        }
+
+        // CLI: --paletteshot <out.png> [query] -> render the command palette offscreen.
+        if (e.Args.Length >= 2 && e.Args[0] == "--paletteshot")
+        {
+            string outPng = e.Args[1];
+            string query = e.Args.Length >= 3 ? e.Args[2] : "package";
+            var win = new EditorCommandPaletteWindow(EditorCommandPaletteWindow.CreateVisualTestCommands())
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -4000, Top = -4000,
+            };
+            win.Show();
+            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                int exitCode = 0;
+                try
+                {
+                    win.SetQueryForTest(query);
+                    win.UpdateLayout();
+                    int w = (int)Math.Ceiling(win.ActualWidth);
+                    int h = (int)Math.Ceiling(win.ActualHeight);
+                    var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+                    rtb.Render(win);
+                    var enc = new PngBitmapEncoder();
+                    enc.Frames.Add(BitmapFrame.Create(rtb));
+                    using var fs = File.Create(outPng);
+                    enc.Save(fs);
+                    Console.Error.WriteLine($"paletteshot saved: {outPng} ({w}x{h})");
+                    bool searchOk = EditorCommandPaletteWindow.RunSearchSelfTest();
+                    Console.Error.WriteLine(searchOk
+                        ? "palette search self-test: PASS"
+                        : "palette search self-test: FAIL");
+                    if (!searchOk) exitCode = 1;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine(ex.Message);
+                    exitCode = 1;
+                }
+                Shutdown(exitCode);
+            }));
             return;
         }
 
@@ -40,9 +323,61 @@ public partial class App : Application
                 Left = -4000, Top = -4000,   // 画面外で描く (チラつき回避)
                 Height = 960,                // 全項目を ScrollViewer 内に収めて撮る
             };
+            win.SuppressClosePromptForAutomation();
             if (e.Args.Length >= 4 && int.TryParse(e.Args[3], out int hOverride)) win.Height = hOverride;
             win.Show();
             // レイアウト確定後 (Loaded) に VisualTree をビットマップへ。
+            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                try
+                {
+                    string mode = e.Args.Length >= 5 ? e.Args[4] : "";
+                    if (mode is "expr" or "exprsave" or "exprtype" or "exprcycle" or
+                        "exproperator" or "exprdelete" or "exprdeleteroot" or "exprtexture")
+                        win.BuildExpressionGraphForTest(mode == "exproperator");
+                    if (mode == "exprsave")
+                        win.SaveExpressionGraphForTest();
+                    else if (mode == "exprtype")
+                        win.TriggerExpressionConnectionErrorForTest(cycle: false);
+                    else if (mode == "exprcycle")
+                        win.TriggerExpressionConnectionErrorForTest(cycle: true);
+                    else if (mode == "exprdelete")
+                        win.DeleteExpressionForTest(3);
+                    else if (mode == "exprdeleteroot")
+                        win.DeleteExpressionForTest(8);
+                    else if (mode == "exprtexture")
+                        win.ConfigureSharedTextureForTest();
+                    // RefreshPreview is intentionally debounced for interactive edits.
+                    // A one-shot visual regression capture must render synchronously
+                    // before this dispatcher callback snapshots and shuts down.
+                    win.RenderPreviewImmediatelyForTest();
+                    win.UpdateLayout();
+                    int w = (int)Math.Ceiling(win.ActualWidth);
+                    int h = (int)Math.Ceiling(win.ActualHeight);
+                    var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+                    rtb.Render(win);
+                    var enc = new PngBitmapEncoder();
+                    enc.Frames.Add(BitmapFrame.Create(rtb));
+                    using var fs = File.Create(outPng);
+                    enc.Save(fs);
+                    Console.Error.WriteLine($"matshot saved: {outPng} ({w}x{h})");
+                }
+                catch (Exception ex) { Console.Error.WriteLine(ex.Message); }
+                Shutdown();
+            }));
+            return;
+        }
+
+        // CLI: --colorshot <out.png>  -> render the reusable color picker for visual regression QA.
+        if (e.Args.Length >= 2 && e.Args[0] == "--colorshot")
+        {
+            string outPng = e.Args[1];
+            var win = new ColorPickerDialog(Color.FromArgb(196, 52, 132, 230))
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -4000, Top = -4000,
+            };
+            win.Show();
             win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
             {
                 try
@@ -56,7 +391,7 @@ public partial class App : Application
                     enc.Frames.Add(BitmapFrame.Create(rtb));
                     using var fs = File.Create(outPng);
                     enc.Save(fs);
-                    Console.Error.WriteLine($"matshot saved: {outPng} ({w}x{h})");
+                    Console.Error.WriteLine($"colorshot saved: {outPng} ({w}x{h})");
                 }
                 catch (Exception ex) { Console.Error.WriteLine(ex.Message); }
                 Shutdown();
@@ -233,6 +568,13 @@ public partial class App : Application
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
         Project? chosen = null;
+        bool unattended = ShouldRunUnattended(e.Args);
+        bool avoidInitialActivation = ShouldAvoidInitialActivation(e.Args);
+        bool showProfiler = e.Args.Contains(
+            "--show-profiler", StringComparer.OrdinalIgnoreCase);
+        IsNonInteractiveLaunch = unattended;
+        IsInitialActivationSuppressed =
+            ShouldDeferInteractivePromptsUntilActivation(e.Args);
 
         // CLI / ファイル関連付けで .acsproject を渡されたらランチャーを飛ばして直接開く。
         string? cliProject = e.Args.FirstOrDefault(
@@ -246,6 +588,11 @@ public partial class App : Application
         if (chosen == null)
         {
             var launcher = new ProjectLauncher();
+            launcher.ShowActivated = !avoidInitialActivation;
+            launcher.IsHitTestVisible = !unattended;
+            if (unattended)
+                launcher.SourceInitialized += (_, _) =>
+                    SetNoActivateStyle(launcher, enabled: true);
             launcher.ShowDialog();
             chosen = launcher.SelectedProject;
         }
@@ -253,6 +600,59 @@ public partial class App : Application
         if (chosen != null)
         {
             var win = new MainWindow(chosen);
+            if (showProfiler)
+                win.ShowProfilerAtStartup();
+            // Visual validation and secondary-monitor launches may need the
+            // editor to become visible without interrupting the foreground
+            // application.  WPF's Show() otherwise overrides the process
+            // STARTUPINFO show state and activates the new top-level window.
+            win.ShowActivated = !avoidInitialActivation;
+            // Do not disable hit testing on the Window itself: a native
+            // HwndHost/flip-model child must remain on WPF's normal visual
+            // path or the swapchain can present only its clear surface.
+            // Unattended input is rejected by the top-level and child HWND
+            // message gates below instead.
+            // ShowActivated=false only controls the Show() call. Renderer and
+            // HwndHost startup continues for several seconds and may otherwise
+            // activate the parent later. Keep the native no-activate style
+            // until MainWindow observes the user's first real mouse click.
+            if (unattended || IsInitialActivationSuppressed)
+                win.SourceInitialized += (_, _) =>
+                    SetNoActivateStyle(win, enabled: true);
+            int cameraArg = Array.IndexOf(e.Args, "--camera3d");
+            if (cameraArg >= 0)
+            {
+                if (cameraArg + 6 >= e.Args.Length)
+                {
+                    Console.Error.WriteLine(
+                        "--camera3d requires: yaw pitch distance targetX targetY targetZ");
+                }
+                else
+                {
+                    var values = new float[6];
+                    bool valid = true;
+                    for (int i = 0; i < values.Length; ++i)
+                    {
+                        bool parsed = float.TryParse(
+                            e.Args[cameraArg + 1 + i],
+                            NumberStyles.Float,
+                            CultureInfo.InvariantCulture,
+                            out values[i]);
+                        valid &= parsed && float.IsFinite(values[i]);
+                    }
+                    if (valid)
+                    {
+                        win.SetStartupCamera3D(
+                            values[0], values[1], values[2],
+                            values[3], values[4], values[5]);
+                    }
+                    else
+                    {
+                        Console.Error.WriteLine(
+                            "--camera3d values must be finite invariant-culture numbers");
+                    }
+                }
+            }
             MainWindow = win;
             ShutdownMode = ShutdownMode.OnMainWindowClose;
             win.Show();

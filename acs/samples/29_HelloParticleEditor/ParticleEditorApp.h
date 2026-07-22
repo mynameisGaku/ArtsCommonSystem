@@ -11,18 +11,18 @@
 
 namespace helloparticleed {
 
-class ParticleEditorApp : public acs::game::FGame {
+class FParticleEditorApp : public acs::game::FGame {
 public:
     void OnStart()    noexcept override;
     void OnRender()   noexcept override;
     void OnShutdown() noexcept override;
-    void OnEvent(const acs::Event& e) noexcept override;
+    void OnEvent(const acs::FEvent& e) noexcept override;
 
 protected:
-    acs::TUniquePtr<acs::game::Scene> InitialScene() noexcept override;
+    acs::TUniquePtr<acs::game::FScene> InitialScene() noexcept override;
 
 private:
-    acs::ImGuiCtx m_Imgui;
+    acs::FImGuiCtx m_Imgui;
 };
 
 } // namespace helloparticleed

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// MessagePipe<T> — スレッド間 MPMC キュー (mutex + condvar 実装)
+// TMessagePipe<T> — スレッド間 MPMC キュー (mutex + condvar 実装)
 //
 // 使い方:
-//   MessagePipe<DamageEvent> pipe;
+//   TMessagePipe<FDamageEvent> pipe;
 //
 //   // producer thread:
-//   pipe.Push(DamageEvent{enemy, 25.0f});
+//   pipe.Push(FDamageEvent{enemy, 25.0f});
 //
 //   // consumer thread (毎フレーム):
-//   DamageEvent e;
+//   FDamageEvent e;
 //   while (pipe.TryPop(e)) {
 //       ApplyDamage(e);
 //   }
@@ -19,7 +19,7 @@
 // 設計:
 //   ・mutex + condvar の素直な実装。性能要件が出てきたら lock-free MPSC に
 //     差し替える可能性あり。
-//   ・MessageBroker (同期 pub/sub) と対照: あちらは publisher が直接 handler を
+//   ・FMessageBroker (同期 pub/sub) と対照: あちらは publisher が直接 handler を
 //     呼び、こちらは値をキューに積んで別スレッドが取りに来る。
 //   ・破棄時に block 待ちが居たら Close() してから抜ける必要がある。
 #pragma once
@@ -37,25 +37,25 @@ namespace acs {
  * スレッド間 MPMC キュー (mutex + condvar 実装)。
  *
  * @details
- * 値をキューに積み、別スレッドが取りに来る方式。MessageBroker (同期 pub/sub) と対照的に、
+ * 値をキューに積み、別スレッドが取りに来る方式。FMessageBroker (同期 pub/sub) と対照的に、
  * publisher は handler を直接呼ばず値を渡すだけ。TryPop は非ブロッキング、Pop は値が来るか
  * Close されるまで block する。先頭取り出しは O(N) シフトで実装する単純な配列キュー。
  * @tparam T キューで受け渡す値型 (ムーブで出し入れする)。
  */
 template<typename T>
-class MessagePipe {
+class TMessagePipe {
 public:
     /** 空のパイプを構築する。 */
-    MessagePipe() noexcept = default;
+    TMessagePipe() noexcept = default;
 
     /** Close() してから破棄する (block 待ち中の Pop を解放する)。 */
-    ~MessagePipe() noexcept { Close(); }
+    ~TMessagePipe() noexcept { Close(); }
 
     /** コピー禁止 (mutex/condvar を抱えるため)。 */
-    MessagePipe(const MessagePipe&) = delete;
+    TMessagePipe(const TMessagePipe&) = delete;
 
     /** コピー代入も禁止。 */
-    MessagePipe& operator=(const MessagePipe&) = delete;
+    TMessagePipe& operator=(const TMessagePipe&) = delete;
 
     /**
      * 値を末尾に積み、待機中の consumer を 1 つ起こす。
@@ -147,7 +147,7 @@ private:
     mutable FMutex   m_Mtx;
 
     /** 値到着・クローズを通知する条件変数。 */
-    ConditionVar    m_Cv;
+    FConditionVar    m_Cv;
 
     /** 値を保持する FIFO キュー。 */
     TArray<T>        m_Q;

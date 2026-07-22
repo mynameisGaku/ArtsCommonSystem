@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// FTilemapComponent — FTilemap (data) を FScene2D 上で描画する Component2D。
+// ATilemapComponent — FTilemap (data) を ANode 上で描画する AComponent。
 //
 // グリッドアトラス (cols×rows のタイル) テクスチャを持ち、各レイヤの非空タイルを
-// その atlas セルの UV で SpriteBatch に描く。タイル ID v (1-based、0=空) は
+// その atlas セルの UV で FSpriteBatch に描く。タイル ID v (1-based、0=空) は
 // セル index (v-1) に対応する。owner ノードの world 位置がマップ原点になるので、
 // タイルマップを丸ごと移動/配置できる。
 //
 // 使い方:
-//   auto& tm = node->AddComponent<FTilemapComponent>();
+//   auto& tm = node->AddComponent<ATilemapComponent>();
 //   tm.Map().Init(/*w=*/16, /*h=*/12, /*layers=*/1, /*tile_size=*/1.0f);  // world 単位
 //   tm.Map().FillRect(0, 0, 15, 0, FTileId{1});   // 上端を tile 1 で
 //   tm.SetTexture(atlas_tex);
@@ -16,7 +16,7 @@
 //   tm.BuildCollision(Services().Physics(), /*layer=*/0, /*collision_layer_bit=*/kWall);
 #pragma once
 
-#include "gameframework/Component2D.h"
+#include "gameframework/AComponent.h"
 #include "gameframework/Tilemap.h"
 #include "math/Vec.h"
 
@@ -29,22 +29,22 @@ namespace acs::game {
 class FCollisionWorld2D;
 
 /**
- * FTilemap のデータを FScene2D 上で描画する FComponent2D。
+ * FTilemap のデータを ANode 上で描画する AComponent。
  *
  * @details
  * グリッドアトラス (cols×rows のタイル) テクスチャを持ち、各レイヤの非空タイルを
- * その atlas セルの UV で SpriteBatch に描く。タイル ID v (1-based、0=空) はセル
+ * その atlas セルの UV で FSpriteBatch に描く。タイル ID v (1-based、0=空) はセル
  * index (v-1) に対応する。owner ノードの world 位置がマップ原点になるので、タイル
  * マップを丸ごと移動/配置できる。BuildCollision で指定レイヤを物理ワールドへ AABB
  * 登録してソリッド化できる。
  */
-class FTilemapComponent : public FComponent2D {
+class ATilemapComponent : public AComponent {
 public:
     /** このコンポーネントの種別 ID を提供する (Kind() を override)。 */
-    ACS_GAME_COMPONENT_KIND(FTilemapComponent)
+    ACS_GAME_COMPONENT_KIND(ATilemapComponent)
 
     /** 空のタイルマップコンポーネントを構築する (アトラス未設定、tint 白)。 */
-    FTilemapComponent() noexcept = default;
+    ATilemapComponent() noexcept = default;
 
     /**
      * 所有するタイルマップへの可変参照を返す (Init/Fill/SetTile はここ経由で行う)。
@@ -91,24 +91,24 @@ public:
      * 指定レイヤの非空タイルを AABB として物理ワールドへ登録する (ソリッド化)。
      *
      * @details
-     * 1 タイル = 1 AABB で、各タイルの world 中心に半辺 tile_size/2 の Aabb2 を追加する。
+     * 1 タイル = 1 AABB で、各タイルの world 中心に半辺 tile_size/2 の FAabb2 を追加する。
      * owner が無い、または layer が範囲外で LayerData が nullptr の場合は何もしない。
      * @param world 登録先の 2D 衝突ワールド。
      * @param layer ソリッド化するレイヤ index。
-     * @param collision_layer_bit CollisionWorld2D のレイヤ bitmask。
+ * @param collision_layer_bit FCollisionWorld2D のレイヤ bitmask。
      */
     void BuildCollision(FCollisionWorld2D& world, u32 layer, u32 collision_layer_bit) noexcept;
 
     /**
-     * 全レイヤの非空タイルを SpriteBatch へ描画する。
+     * 全レイヤの非空タイルを FSpriteBatch へ描画する。
      *
      * @details
      * レイヤ 0 を最背面として前面へ順に描く。アトラス設定時はタイル ID から算出した
      * セルの UV 矩形で描画し、未設定時は tile id 由来の色でデバッグ矩形を描く。rc に
-     * SpriteBatch が無い場合は何もしない。
+     * FSpriteBatch が無い場合は何もしない。
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    void OnDraw(RenderContext& rc) noexcept override;
+    void OnDraw(FRenderContext& rc) noexcept override;
 
 private:
     /** 所有するタイルマップデータ。 */

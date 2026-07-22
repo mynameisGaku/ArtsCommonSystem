@@ -13,7 +13,7 @@ namespace hello00 {
 
 using namespace acs::easy;
 
-int HelloEasyApp::Run() noexcept {
+int FHelloEasyApp::Run() noexcept {
     OpenWindow(1280, 720, "ACS Easy へようこそ");
     SetBackground(Rgb(28, 32, 44));
 

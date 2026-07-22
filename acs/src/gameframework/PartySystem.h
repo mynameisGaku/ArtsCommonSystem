@@ -5,7 +5,7 @@
 //   1〜N 人のローカルプレイヤーをまとめた「パーティ」状態と、簡易フレンドリストを
 //   ゲームロジック側から扱う窓口。マッチング前のロビー、Co-op 入室前の集合場所、
 //   ストアでのフレンド表示などを単一の API で扱う。実プラットフォーム接続は
-//   Pillar S = Storefront 側 (`FSteamworksBridge` / EOS / PSN / Xbox / NSO) が
+//   Pillar S = Storefront 側 (`ISteamworksBridge` / EOS / PSN / Xbox / NSO) が
 //   アダプタとなり、結果を本 system に流し込む。FPartySystem 自体は **プラット
 //   フォーム非依存**。
 //
@@ -38,7 +38,7 @@
 // 設計選択:
 //   ・**ローカル state は完全実装**: Solo / InParty / Joining / Leaving の遷移、
 //     メンバ追加・削除、リーダー / ready flag、フレンドリスト管理はすべて動く。
-//   ・**プラットフォーム接続は seam 経由**: FSteamworksBridge 等を介した実 invite
+//   ・**プラットフォーム接続は seam 経由**: ISteamworksBridge 等を介した実 invite
 //     送信、PSN cross-gen party、Xbox party、Nintendo Switch friend code の解決は
 //     bridge 側が行う。本 system は seam として const char* (platform id) を
 //     受けるだけで、解釈は bridge 側が行う。
@@ -65,9 +65,9 @@ namespace acs::game {
  *
  * @details
  * platform_id / display_name は両方 const char* 非所有で、寿命は呼び出し側が保証する
- * (文字列リテラル or 永続バッファ、Pillar O FEntitlement と同じポリシー)。
+ * (文字列リテラル or 永続バッファ、Pillar O FEntitlementRegistry と同じポリシー)。
  */
-struct Friend {
+struct FFriend {
     /** SDK 固有のユーザー識別子 (例 "steam:..." / "epic:..." / PSN account_id)。 */
     const char* platform_id        = nullptr;
 
@@ -88,7 +88,7 @@ struct Friend {
  * is_leader は招待・キック権限を持つかの判定に使う想定 (本 system は権限チェックせず
  * フラグ保持のみ)。is_ready はロビー UI の準備完了表示用 (開始判定は呼び出し側)。
  */
-struct PartyMember {
+struct FPartyMember {
     /** SDK 固有 ID (platform_id と同形式想定、非所有)。 */
     const char* player_id     = nullptr;
 
@@ -129,7 +129,7 @@ enum class EPartyState : u8 {
  *
  * @details
  * ローカルの Solo / InParty / Joining / Leaving 状態遷移とメンバ・フレンド roster
- * 管理を担う。実 SDK 接続 (FSteamworksBridge / EOS / PSN / Xbox / NSO) は seam として
+ * 管理を担う。実 SDK 接続 (ISteamworksBridge / EOS / PSN / Xbox / NSO) は seam として
  * 別レイヤが担当し、Joining / Leaving は Tick で仮想完了する。文字列はすべて const char*
  * 非所有で寿命は呼び出し側が保証する。
  */
@@ -182,7 +182,7 @@ public:
     /**
      * フレンドにパーティ招待を送る (InParty 状態のみ受理)。
      *
-     * @details リーダー権限判定は呼び出し側の責任 (本 system はフラグ参照のみ)。実 invite 送信は Storefront 側 (FSteamworksBridge 等) が担当。
+     * @details リーダー権限判定は呼び出し側の責任 (本 system はフラグ参照のみ)。実 invite 送信は Storefront 側 (ISteamworksBridge 等) が担当。
      * @param friend_id 招待先の SDK 固有 ID (非所有)。
      * @return 成功なら Ok、状態不正 / friend_id == nullptr ならエラー。
      */
@@ -218,7 +218,7 @@ public:
      * @details MemberCount() 件が有効。Leave / Add 系の操作で無効化される。
      * @return メンバ配列の先頭ポインタ。
      */
-    const PartyMember* Members()     const noexcept;
+    const FPartyMember* Members()     const noexcept;
 
     /**
      * メンバを 1 件追加する (自分含むローカル roster)。
@@ -227,7 +227,7 @@ public:
      * @param member 追加するメンバ。
      * @return 成功なら Ok、player_id == nullptr は Generic+8、重複は Generic+9。
      */
-    TResult<void> AddMember(const PartyMember& member) noexcept;
+    TResult<void> AddMember(const FPartyMember& member) noexcept;
 
     /**
      * player_id 一致のメンバを削除する (順序を保って前詰め)。
@@ -243,7 +243,7 @@ public:
      * @param index メンバの index。
      * @return メンバへのポインタ (範囲外 / kInvalidIndex は nullptr)。
      */
-    const PartyMember* GetMember(u32 index) const noexcept;
+    const FPartyMember* GetMember(u32 index) const noexcept;
 
     /**
      * player_id 一致のメンバが居るかを返す。
@@ -276,7 +276,7 @@ public:
      * @details SDK の friend list 取得結果を Storefront 側から流し込む想定。platform_id == nullptr は no-op で防御。
      * @param f 登録するフレンド。
      */
-    void AddFriend(const Friend& f) noexcept;
+    void AddFriend(const FFriend& f) noexcept;
 
     /**
      * フレンド件数を返す (オンライン / オフライン両方含む)。
@@ -291,7 +291,7 @@ public:
      * @details FriendCount() 件が有効。AddFriend で無効化される。
      * @return フレンド配列の先頭ポインタ。
      */
-    const Friend* Friends()     const noexcept;
+    const FFriend* Friends()     const noexcept;
 
 private:
     /**
@@ -316,10 +316,10 @@ private:
     f32                m_PendingTimer  = 0.0f;
 
     /** パーティメンバの roster。 */
-    TArray<PartyMember> m_Members;
+    TArray<FPartyMember> m_Members;
 
     /** フレンドリスト。 */
-    TArray<Friend>      m_Friends;
+    TArray<FFriend>      m_Friends;
 };
 
 } // namespace acs::game

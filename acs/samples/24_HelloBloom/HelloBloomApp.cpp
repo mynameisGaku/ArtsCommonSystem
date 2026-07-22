@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloBloom — HelloBloomApp 実装。HDR シーンを Bloom + ACES Tonemap で出す。
+// HelloBloom — FHelloBloomApp 実装。HDR シーンを Bloom + ACES Tonemap で出す。
 #include "HelloBloomApp.h"
 
 #include "app/Sample.h"
@@ -16,7 +16,7 @@ using namespace acs;
 
 namespace hellobloom {
 
-void HelloBloomApp::OnStart() noexcept {
+void FHelloBloomApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
     IRhiSwapchain* sc = GetRenderer().Swapchain();
@@ -26,6 +26,16 @@ void HelloBloomApp::OnStart() noexcept {
     const u32 sh = sc->Height();
 
     ACS_SAMPLE_INIT(m_Post.Init(*dev, sw, sh, GetRenderer().ColorFormat()));
+    m_Params.bloom_threshold = 1.1f;
+    m_Params.bloom_intensity = 0.42f;
+    m_Params.bloom_radius = 0.9f;
+    m_Params.bloom_scatter = 0.66f;
+    m_Params.tonemap_kind = 0;              // ACES: 夜空の黒を保つ
+    m_Params.vignette_intensity = 0.08f;
+    m_Params.vignette_radius = 0.72f;
+    m_Params.chromatic_aberration = 0.0f;   // lens fringe は既定で足さない
+    m_Params.grain_intensity = 0.004f;
+    m_Params.cas_strength = 0.20f;
 
     // シーン描画は HDR RT へ流すので shader / sky の RT format も HDR に合わせる。
     ACS_SAMPLE_INIT(m_Shader.Init(*dev, m_Post.HdrFormat(), GetRenderer().DepthFormat()));
@@ -48,22 +58,22 @@ void HelloBloomApp::OnStart() noexcept {
                  dev->BackendName(), sw, sh);
 }
 
-void HelloBloomApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
-    if (Input::IsKeyPressed(EKey::Num1)) m_Params.bloom_intensity = 0.0f;
-    if (Input::IsKeyPressed(EKey::Num2)) m_Params.bloom_intensity = 0.6f;
-    if (Input::IsKeyPressed(EKey::Num3)) m_Params.bloom_intensity = 1.5f;
+void FHelloBloomApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (FInput::IsKeyPressed(EKey::Num1)) m_Params.bloom_intensity = 0.0f;
+    if (FInput::IsKeyPressed(EKey::Num2)) m_Params.bloom_intensity = 0.42f;
+    if (FInput::IsKeyPressed(EKey::Num3)) m_Params.bloom_intensity = 0.80f;
 
     m_Angle += dt * 0.5f;
     const f32 cam_dist = 7.0f;
-    m_CamYaw += (Input::IsKeyDown(EKey::Right) ? 1.0f : 0.0f) * dt;
-    m_CamYaw -= (Input::IsKeyDown(EKey::Left)  ? 1.0f : 0.0f) * dt;
+    m_CamYaw += (FInput::IsKeyDown(EKey::Right) ? 1.0f : 0.0f) * dt;
+    m_CamYaw -= (FInput::IsKeyDown(EKey::Left)  ? 1.0f : 0.0f) * dt;
     FVec3 cam{ Sin(m_CamYaw) * cam_dist, 2.0f, -Cos(m_CamYaw) * cam_dist };
     m_Camera.SetLookAt(cam, FVec3{0, 1, 0});
 }
 
 // true を返して FApplication の既定フレームフローを置き換える (HDR RT を挟むため)。
-bool HelloBloomApp::OnCustomFrame() noexcept {
+bool FHelloBloomApp::OnCustomFrame() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     IRhiSwapchain*   sc = GetRenderer().Swapchain();
     IRhiTexture*     hdr = m_Post.HdrRenderTarget();
@@ -75,7 +85,7 @@ bool HelloBloomApp::OnCustomFrame() noexcept {
     cl->Begin();
 
     // 1) HDR RT にシーンを描く
-    cl->BeginRenderToTexture(*hdr, ClearColor{0,0,0,1}, depth, 1.0f);
+    cl->BeginRenderToTexture(*hdr, FClearColor{0,0,0,1}, depth, 1.0f);
 
     FViewport vp{}; vp.width  = static_cast<f32>(hdr->Width());
                    vp.height = static_cast<f32>(hdr->Height());
@@ -94,16 +104,17 @@ bool HelloBloomApp::OnCustomFrame() noexcept {
 
     cl->SetPipeline(*m_Shader.Pipeline());
     cl->SetConstantBuffer(0, *m_Shader.PerFrameCB());
-    cl->SetConstantBuffer(1, *m_Shader.PerObjectCB());
     cl->SetTexture(0, *m_Shader.DefaultWhiteTexture());
     cl->SetTexture(1, *m_Shader.ShadowTextureOrDefault());
 
     // 地面: 暗めの色にして Bloom 対象 (球) のコントラストを稼ぐ。
-    m_Shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
-                      FVec3{0.10f, 0.12f, 0.15f}, 0.05f, 8.0f);
-    cl->SetVertexBuffer(*m_GmPlane.vertex_buffer, m_GmPlane.vertex_stride);
-    cl->SetIndexBuffer(*m_GmPlane.index_buffer);
-    cl->DrawIndexed(m_GmPlane.index_count);
+    if (m_Shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
+                           FVec3{0.10f, 0.12f, 0.15f}, 0.05f, 8.0f)) {
+        cl->SetConstantBuffer(1, *m_Shader.PerObjectCB());
+        cl->SetVertexBuffer(*m_GmPlane.vertex_buffer, m_GmPlane.vertex_stride);
+        cl->SetIndexBuffer(*m_GmPlane.index_buffer);
+        cl->DrawIndexed(m_GmPlane.index_count);
+    }
 
     // HDR > 1.0 の色を 4 個並べる: bloom_threshold (既定 1.0) を超える成分にだけ
     // Bloom が乗る、ということを目視で示すためのデモオブジェクト。
@@ -117,7 +128,8 @@ bool HelloBloomApp::OnCustomFrame() noexcept {
         const f32 a = m_Angle + i * (kPi * 0.5f);
         const FVec3 pos{ Cos(a) * 3.0f, 1.5f, Sin(a) * 3.0f };
         FMat4 m = FMat4::Translation(pos);
-        m_Shader.SetObject(m, colors[i], 0.0f, 1.0f);
+        if (!m_Shader.SetObject(m, colors[i], 0.0f, 1.0f)) continue;
+        cl->SetConstantBuffer(1, *m_Shader.PerObjectCB());
         cl->SetVertexBuffer(*m_GmSphere.vertex_buffer, m_GmSphere.vertex_stride);
         cl->SetIndexBuffer(*m_GmSphere.index_buffer);
         cl->DrawIndexed(m_GmSphere.index_count);
@@ -140,7 +152,7 @@ bool HelloBloomApp::OnCustomFrame() noexcept {
                       m_Params.bloom_intensity, FPS());
         m_Batch.DrawString(m_Font, buf, 20, 20, FVec4{1,1,1,1});
         m_Batch.DrawString(m_Font,
-                        "1: off  2: 0.6  3: 1.5  ←→: camera  Esc: 終了",
+                        "1: off  2: cinematic  3: strong  ←→: camera  Esc: 終了",
                         20, 44, FVec4{0.8f,0.85f,0.95f,1});
         m_Batch.End();
     }
@@ -152,12 +164,12 @@ bool HelloBloomApp::OnCustomFrame() noexcept {
     return true;
 }
 
-void HelloBloomApp::OnShutdown() noexcept {
+void FHelloBloomApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Batch.Shutdown();
-    m_GmPlane  = GpuMesh{};
-    m_GmSphere = GpuMesh{};
+    m_GmPlane  = FGpuMesh{};
+    m_GmSphere = FGpuMesh{};
     m_Shader.Shutdown();
     m_Sky.Shutdown();
     m_Post.Shutdown();

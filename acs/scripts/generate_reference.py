@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Generate the ACS all-in-one HTML reference.
+"""ACS の単一 HTML API リファレンスを生成する。
 
-The output is intentionally self-contained and dependency-free:
+生成物は意図的に自己完結かつ外部依存なしとする:
 
   python acs/scripts/generate_reference.py
 
-It scans acs/src headers, samples, CMake metadata and existing docs, then writes
-acs/docs/REFERENCE.html.  The parser is deliberately conservative; it is not a
-C++ compiler, but it extracts enough structure to keep the reference exhaustive
-for day-to-day engine use.
+acs/src のヘッダー、サンプル、CMake メタデータ、既存文書を走査し、
+acs/docs/REFERENCE.html を書き出す。パーサーは C++ コンパイラーではないため
+保守的に解析するが、日常的なエンジン利用に必要な構造を網羅できる範囲で抽出する。
 """
 
 from __future__ import annotations
@@ -42,22 +40,22 @@ MODULE_INFO: "OrderedDict[str, dict[str, str]]" = OrderedDict([
     }),
     ("threading", {
         "title": "Threading",
-        "summary": "Atomic、Mutex、RwLock、Thread、ThreadPool、JobGraph。",
+        "summary": "TAtomic、FMutex、FRwLock、FThread、FThreadPool、FJobGraph。",
         "use": "ロード、ジョブ分割、非同期処理、エンジン内部の同期に使う。",
     }),
     ("memory", {
         "title": "Memory",
-        "summary": "Allocator 群、UniquePtr、Rc、仮想メモリ、メモリスナップショット。",
+        "summary": "FAllocator 群、TUniquePtr、TRc、仮想メモリ、FMemorySnapshot。",
         "use": "所有権と寿命を明示し、STL なしでメモリ管理するための層。",
     }),
     ("container", {
         "title": "Container",
-        "summary": "Array、String、StringView、Span、HashMap、JSON、Hash。",
+        "summary": "TArray、FString、FStringView、TSpan、THashMap、JSON、Hash。",
         "use": "ACS 標準コンテナ。std::vector/std::string の代替として使う。",
     }),
     ("math", {
         "title": "Math",
-        "summary": "Vec、Mat、Quat、Camera、2D/3D collision、CPU dispatch。",
+        "summary": "FVec、FMat4、FQuat、FCamera、2D/3D collision、CPU dispatch。",
         "use": "座標、変換、カメラ、当たり判定、SIMD 実行時分岐を扱う。",
     }),
     ("test", {
@@ -67,22 +65,22 @@ MODULE_INFO: "OrderedDict[str, dict[str, str]]" = OrderedDict([
     }),
     ("platform", {
         "title": "Platform",
-        "summary": "Window、Input、Time、FileSystem、Storage、Localization。",
+        "summary": "FWindow、FInput、Time API、FFileSystem、FStorage、FLocalization。",
         "use": "OS と直接接する層。ゲームコードは基本的にこの API 経由で触る。",
     }),
     ("ecs", {
         "title": "ECS",
-        "summary": "World、EntityId、SparseSet、Query、System。",
+        "summary": "FWorld、FEntityId、TSparseSet、TQueryView、FSystemScheduler。",
         "use": "大量の同種オブジェクトをデータ指向に処理する。",
     }),
     ("event", {
         "title": "Event",
-        "summary": "MessageBroker、MessagePipe、TimerManager。",
+        "summary": "FMessageBroker、TMessagePipe、FTimerManager。",
         "use": "pub/sub、時間差実行、フレームをまたぐ通知に使う。",
     }),
     ("asset", {
         "title": "Asset",
-        "summary": "AssetRegistry、AssetFuture、画像・音声・テキスト・メッシュ読み込み。",
+        "summary": "FAssetRegistry、FAssetFuture、画像・音声・テキスト・メッシュ読み込み。",
         "use": "ファイルからゲーム内リソースへ変換し、同期/非同期ロードする。",
     }),
     ("assetpack", {
@@ -97,7 +95,7 @@ MODULE_INFO: "OrderedDict[str, dict[str, str]]" = OrderedDict([
     }),
     ("render", {
         "title": "Render",
-        "summary": "Renderer、RHI、SpriteBatch、Font、Standard/PBR shader、post process、IBL。",
+        "summary": "FRenderer、RHI、FSpriteBatch、FFont、FStandardShader/FPbrShader、post process、IBL。",
         "use": "2D/3D 描画、低レベル GPU リソース、高レベル描画ヘルパを提供する。",
     }),
     ("app", {
@@ -107,7 +105,7 @@ MODULE_INFO: "OrderedDict[str, dict[str, str]]" = OrderedDict([
     }),
     ("audio", {
         "title": "Audio",
-        "summary": "AudioEngine、SoundHandle。",
+        "summary": "FAudioEngine、FSoundHandle。",
         "use": "WAV/MP3 などを読み、効果音/BGM として再生する。",
     }),
     ("network", {
@@ -122,13 +120,13 @@ MODULE_INFO: "OrderedDict[str, dict[str, str]]" = OrderedDict([
     }),
     ("mvvm", {
         "title": "MVVM",
-        "summary": "Observable、Command、Binder、ViewModel、Imgui bindings。",
+        "summary": "TObservable、FCommand、TOneWayBinder/TTwoWayBinder、FViewModel、ImGui bindings。",
         "use": "UI とゲーム状態をデータバインディングで接続する。",
     }),
     ("ui", {
         "title": "UI",
-        "summary": "Widget、標準 Widgets、UiRenderer。",
-        "use": "純正 Widget ツリーで HUD やメニューを構築する。",
+        "summary": "FWidget、標準 widget 群、FUiRenderer。",
+        "use": "純正 FWidget ツリーで HUD やメニューを構築する。",
     }),
     ("easy", {
         "title": "Easy",
@@ -137,7 +135,7 @@ MODULE_INFO: "OrderedDict[str, dict[str, str]]" = OrderedDict([
     }),
     ("gameframework", {
         "title": "GameFramework",
-        "summary": "Scene、Game、Node2D、2D 物理、入力マップ、Tween、セーブ、制作支援機能。",
+        "summary": "FScene、FGame、統一ノード ANode、AComponent、2D/3D 物理、FInputMap、FTweenManager、セーブ、制作支援機能。",
         "use": "Application の上に実ゲーム制作向けの便利な部品を載せる。",
     }),
     ("localmatch", {
@@ -158,7 +156,7 @@ MODULE_INFO: "OrderedDict[str, dict[str, str]]" = OrderedDict([
     ("scripting", {
         "title": "Scripting",
         "summary": "Lua VM bridge。",
-        "use": "GameFramework の ScriptHost に real scripting backend を差し込む。",
+        "use": "GameFramework の FScriptHost に real scripting backend を差し込む。",
     }),
     ("steamworks", {
         "title": "Steamworks",
@@ -180,16 +178,16 @@ MODULE_INFO: "OrderedDict[str, dict[str, str]]" = OrderedDict([
 
 SAMPLE_DESCRIPTIONS: dict[str, str] = {
     "00_HelloEasy": "acs::easy の最小 2D ゲーム。OpenWindow と while(NextFrame()) だけで描画・入力を学ぶ。",
-    "01_HelloWindow": "FApplication の lifecycle、Window、Input、終了処理の最小構成。",
+    "01_HelloWindow": "FApplication の lifecycle、FWindow、FInput、終了処理の最小構成。",
     "02_HelloSprite": "FSpriteBatch によるスプライト、矩形、アルファブレンド。",
-    "03_HelloText": "Font と UTF-8 テキスト描画。日本語文字列の扱いも確認できる。",
-    "04_HelloECS": "World/EntityId/Query、MessageBroker、TimerManager を使う ECS 入門。",
-    "05_HelloSave": "Storage による INI 風の設定・セーブ永続化。",
-    "06_HelloLocalization": "Localization と多言語切替。ja/en/fr の切替例。",
-    "07_HelloAudio": "AudioEngine で WAV/MP3 を再生する。",
+    "03_HelloText": "FFont と UTF-8 テキスト描画。日本語文字列の扱いも確認できる。",
+    "04_HelloECS": "FWorld/FEntityId/TQueryView、FMessageBroker、FTimerManager を使う ECS 入門。",
+    "05_HelloSave": "FStorage による INI 風の設定・セーブ永続化。",
+    "06_HelloLocalization": "FLocalization と多言語切替。ja/en/fr の切替例。",
+    "07_HelloAudio": "FAudioEngine で WAV/MP3 を再生する。",
     "08_HelloPhysics2D": "2D の円衝突、重力、マウス発射の基礎。",
     "09_HelloParticles": "2D パーティクル表現。火、火花、噴水、煙など。",
-    "10_HelloModel": "StandardShader と手続きプリミティブで最初の 3D 描画。",
+    "10_HelloModel": "FStandardShader と手続きプリミティブで最初の 3D 描画。",
     "11_HelloRaycast3D": "3D レイキャスト、ターゲット選択、HUD 表示。",
     "12_HelloLights": "複数点光源と動的ライティング。",
     "13_HelloSky": "手続きスカイと昼/夕/夜プリセット。",
@@ -198,8 +196,8 @@ SAMPLE_DESCRIPTIONS: dict[str, str] = {
     "16_HelloTriangle": "低レベル RHI、HLSL、頂点バッファ、パイプラインの最小例。",
     "17_HelloMesh": "3D メッシュ、定数バッファ、深度テスト、カメラ。",
     "18_HelloTextured": "テクスチャ、サンプラ、UV。",
-    "19_HelloUI": "ACS 純正 Widget UI と Observable バインディング。",
-    "20_HelloMVVM": "Observable、Binder、Command による MVVM。",
+    "19_HelloUI": "ACS 純正 FWidget UI と TObservable バインディング。",
+    "20_HelloMVVM": "TObservable、TOneWayBinder/TTwoWayBinder、FCommand による MVVM。",
     "21_HelloImGui": "Dear ImGui 統合とデバッグ UI。",
     "22_HelloNet": "TCP echo。Application を使わない通信の素の例。",
     "23_HelloPbr": "PBR material と metallic/roughness の変化。",
@@ -207,16 +205,16 @@ SAMPLE_DESCRIPTIONS: dict[str, str] = {
     "25_HelloIbl": "Image-Based Lighting の統合デモ。",
     "26_HelloLightmap": "Cornell box と CPU path tracing による lightmap bake。",
     "27_HelloShowcase": "PBR、IBL、屈折、post-process をまとめた cinematic demo。",
-    "28_HelloGameFramework": "FGame、Scene、SceneManager による画面遷移。",
+    "28_HelloGameFramework": "FGame、FScene、FSceneManager による画面遷移。",
     "29_HelloParticleEditor": "GameFramework tools の Particle Editor。",
-    "30_HelloSceneInspector": "Hierarchy、Inspector、Toolbar を持つ Scene Inspector。",
+    "30_HelloSceneInspector": "FHierarchyPanel、FInspectorPanel、FEditorToolbar を持つ Scene Inspector。",
     "31_HelloModelViewer": "モデルビューア、マテリアル/アニメーション/インスペクタ panels。",
-    "32_HelloAnimCurveEditor": "AnimationCurve の編集 UI。",
-    "33_HelloBehaviorTreeEditor": "BehaviorTree の編集と TreeActions。",
-    "34_HelloLevelEditor": "LevelEditorPanel とエディタ基盤。",
-    "35_HelloSpriteAtlasEditor": "SpriteAtlas editor と atlas 作成フロー。",
-    "36_HelloFontEditor": "Font editor と glyph/preview workflow。",
-    "37_HelloCinematicsEditor": "Cinematics timeline editor。",
+    "32_HelloAnimCurveEditor": "FAnimationCurve の編集 UI。",
+    "33_HelloBehaviorTreeEditor": "FBehaviorTree の編集と TreeActions の action 関数群。",
+    "34_HelloLevelEditor": "FLevelEditorPanel とエディタ基盤。",
+    "35_HelloSpriteAtlasEditor": "FSpriteAtlasEditorPanel と FSpritePack の atlas 作成フロー。",
+    "36_HelloFontEditor": "FFont editor と glyph/preview workflow。",
+    "37_HelloCinematicsEditor": "FCinematicsTimelineEditorPanel。",
     "38_HelloFullGame": "タイトル、ゲームプレイ、敵、弾、HUD、セーブを含む mini full game。",
     "39_HelloSteamworks": "ISteamworksBridge の stub/real backend デモ。",
     "40_HelloScripting": "IScriptVm と Lua backend の stub/real デモ。",
@@ -233,7 +231,7 @@ SAMPLE_DESCRIPTIONS: dict[str, str] = {
     "51_HelloConvexHull": "3D convex hull 生成と convex collider。",
     "52_HelloColliderViz2D": "2D collider の可視化。",
     "53_HelloColliderViz3D": "3D mesh/convex hull collider の wireframe 可視化。",
-    "54_HelloCollideSlide": "FPhysicsBody2D の collide-and-slide 検証。",
+    "54_HelloCollideSlide": "APhysicsBody2D の collide-and-slide 検証。",
     "55_HelloScene2D": "FScene2D starter foundation。",
     "56_HelloSpriteAnim": "sprite-sheet animation と HUD text。",
     "57_HelloTriggers": "collision layers/masks と trigger enter/stay/exit。",
@@ -250,27 +248,26 @@ GLOSSARY: "OrderedDict[str, str]" = OrderedDict([
     ("TResult", "例外の代わりに成功/失敗を返す ACS の標準結果型。IsErr() を確認してから Value() を読む。"),
     ("noexcept", "ACS の公開 callback/engine API で原則付ける例外禁止の契約。例外を投げず TResult や bool で失敗を返す。"),
     ("FApplication", "最小のゲームループ基底。OnStart/OnUpdate/OnRender/OnShutdown を override する。"),
-    ("FGame", "GameFramework の Application 派生。Scene stack、固定 timestep、RenderContext などをまとめる。"),
-    ("Scene", "1 つの画面・状態。OnEnter/OnUpdate/OnRender/OnExit を持ち SceneManager で遷移する。"),
-    ("SceneServices", "Scene が使う Tween/Input/Camera/Physics/UI/Audio などを必要分だけ attach する hub。"),
-    ("World", "ECS の中心。EntityId と component sparse-set を管理する。"),
-    ("EntityId", "index + generation の値型 handle。Destroy 後の stale 参照を検出する。"),
-    ("Query", "World 内の複数 component を持つ entity を反復する API。"),
+    ("FGame", "GameFramework の FApplication 派生。FScene stack、固定 timestep、FRenderContext などをまとめる。"),
+    ("FScene", "1 つの画面・状態。OnEnter/OnUpdate/OnRender/OnExit を持ち FSceneManager で遷移する。"),
+    ("FSceneServices", "FScene が使う FTweenManager/FInput/FCamera などを必要分だけ attach する hub。"),
+    ("FWorld", "ECS の中心。FEntityId と component sparse-set を管理する。"),
+    ("FEntityId", "index + generation の値型 handle。Destroy 後の stale 参照を検出する。"),
+    ("TQueryView", "FWorld 内の複数 component を持つ entity を反復する API。"),
     ("FSpriteBatch", "2D スプライト・矩形・文字をまとめて GPU へ投げる描画 helper。"),
     ("RHI", "Rendering Hardware Interface。DX12/Diligent の違いを IRhiDevice などの抽象に閉じ込める。"),
     ("IRhiDevice", "GPU device 抽象。buffer/texture/shader/pipeline を作成する入口。"),
-    ("FAssetRegistry", "AssetId と loader を管理し、画像・mesh・音声・text を同期/非同期ロードする。"),
+    ("FAssetRegistry", "FAssetId と loader を管理し、画像・mesh・音声・text を同期/非同期ロードする。"),
     ("AssetPack", ".acpak archive。出荷時に loose files を 1 つへまとめる仕組み。"),
-    ("Node2D", "GameFramework の 2D object model。親子 transform と Component2D を持つ。"),
-    ("Component2D", "Node2D に attach する再利用可能な振る舞い。sprite/collider/trigger など。"),
-    ("InputMap", "物理キーを gameplay action 名へ束ねる GameFramework の入力 mapping。"),
-    ("Tween", "値を時間で補間する仕組み。UI、カメラ、演出、scene transition に使う。"),
-    ("SpriteBatch", "FSpriteBatch と同義の描画 batch helper。"),
+    ("ANode", "GameFramework の統一 object model。親子 FTransform3D を持ち、2D/3D helper を提供する。"),
+    ("AComponent", "ANode に attach する再利用可能な振る舞い。sprite/collider/trigger など。"),
+    ("FInputMap", "物理キーを gameplay action 名へ束ねる GameFramework の入力 mapping。"),
+    ("FTweenManager", "値を時間で補間する仕組み。UI、カメラ、演出、scene transition に使う。"),
     ("Diligent", "Diligent Engine backend。HDR、cubemap、上級 post-process で使う sample がある。"),
     ("DX12 raw", "ACS 独自の DirectX 12 backend。既定の dx12-* preset。"),
     ("generate.ps1", "ACS の推奨生成スクリプト。Visual Studio solution、Binaries、Intermediate を現行レイアウトで作る。"),
     ("acs_assetpack", ".acpak archive を pack/unpack/list/verify/info する CLI。tools/acs_assetpack に実装がある。"),
-    ("FScene2D", "GameFramework の 2D starter scene。Root node、SpriteBatch、camera、stencil/reflection などをまとめる。"),
+    ("FScene2D", "GameFramework の 2D starter scene。ANode root、FSpriteBatch、FCamera2D、stencil/reflection などをまとめる。"),
 ])
 
 
@@ -303,7 +300,7 @@ int main() {
 #include "app/EntryPoint.h"
 #include "platform/Input.h"
 
-class MyGame : public acs::FApplication {
+class FMyGame : public acs::FApplication {
 public:
     void OnStart() noexcept override {
         SetClearColor(0.05f, 0.07f, 0.11f, 1.0f);
@@ -311,7 +308,7 @@ public:
 
     void OnUpdate(acs::f32 dt) noexcept override {
         (void)dt;
-        if (acs::Input::IsKeyPressed(acs::EKey::Escape)) Quit();
+        if (acs::FInput::IsKeyPressed(acs::EKey::Escape)) Quit();
     }
 
     void OnRender() noexcept override {
@@ -321,52 +318,52 @@ public:
     void OnShutdown() noexcept override {}
 };
 
-ACS_DEFINE_MAIN(MyGame)''',
-        "apis": ["FApplication", "ACS_DEFINE_MAIN", "Input"],
+ACS_DEFINE_MAIN(FMyGame)''',
+        "apis": ["FApplication", "ACS_DEFINE_MAIN", "FInput"],
     },
     {
         "title": "ECS で位置と速度を更新する",
         "module": "ecs",
         "summary": "大量の entity を component の組み合わせで処理する基本パターン。",
-        "code": r'''struct Position { acs::FVec2 value; };
-struct Velocity { acs::FVec2 value; };
+        "code": r'''struct FPosition { acs::FVec2 value; };
+struct FVelocity { acs::FVec2 value; };
 
-acs::World& world = GetWorld();
-acs::EntityId player = world.Create();
-world.Add<Position>(player, { acs::FVec2{100.0f, 200.0f} });
-world.Add<Velocity>(player, { acs::FVec2{60.0f, 0.0f} });
+acs::FWorld& world = GetWorld();
+acs::FEntityId player = world.Create();
+world.Add<FPosition>(player, { acs::FVec2{100.0f, 200.0f} });
+world.Add<FVelocity>(player, { acs::FVec2{60.0f, 0.0f} });
 
-world.Query<Position, Velocity>().Each(
-    [dt](acs::EntityId, Position& p, Velocity& v) {
+world.Query<FPosition, FVelocity>().Each(
+    [dt](acs::FEntityId, FPosition& p, FVelocity& v) {
         p.value.x += v.value.x * dt;
         p.value.y += v.value.y * dt;
     });''',
-        "apis": ["World", "EntityId", "Query"],
+        "apis": ["FWorld", "FEntityId", "TQueryView"],
     },
     {
-        "title": "Scene 遷移を書く",
+        "title": "FScene 遷移を書く",
         "module": "gameframework",
-        "summary": "画面単位で状態を分け、SceneManager に遷移を依頼する。",
-        "code": r'''class TitleScene final : public acs::game::Scene {
+        "summary": "画面単位で状態を分け、FSceneManager に遷移を依頼する。",
+        "code": r'''class FTitleScene final : public acs::game::FScene {
 public:
     void OnEnter() noexcept override {
         // title assets を読む。
     }
 
     void OnUpdate(acs::f32) noexcept override {
-        if (acs::Input::IsKeyPressed(acs::EKey::Enter)) {
-            Scenes().ChangeScene(acs::MakeUnique<GameplayScene>());
+        if (acs::FInput::IsKeyPressed(acs::EKey::Enter)) {
+            Scenes().ChangeScene(acs::MakeUnique<FGameplayScene>());
         }
     }
 
-    void OnRender(acs::game::RenderContext& rc) noexcept override {
-        rc.Sprites().DrawString(rc.DefaultFont(), "PRESS ENTER", 320, 240);
+    void OnRender(acs::game::FRenderContext& rc) noexcept override {
+        rc.Sprites().DrawString(rc.GetFont(), "PRESS ENTER", 320, 240);
     }
 };''',
-        "apis": ["Scene", "SceneManager", "RenderContext"],
+        "apis": ["FScene", "FSceneManager", "FRenderContext"],
     },
     {
-        "title": "SpriteBatch で 2D を描く",
+        "title": "FSpriteBatch で 2D を描く",
         "module": "render",
         "summary": "RHI の上で 2D sprite/rect/text をまとめて描く。",
         "code": r'''acs::FSpriteBatch sprites;
@@ -377,24 +374,25 @@ sprites.DrawRect(32, 32, 160, 48, acs::FVec4{0.1f, 0.2f, 0.4f, 0.9f});
 sprites.Draw(texture, 240, 120, 64, 64);
 sprites.DrawString(font, "score: 1000", 32, 96, acs::FVec4{1, 1, 1, 1});
 sprites.End();''',
-        "apis": ["FSpriteBatch", "IRhiCommandList", "Font"],
+        "apis": ["FSpriteBatch", "IRhiCommandList", "FFont"],
     },
     {
         "title": "AssetPack bridge の考え方",
         "module": "assetpack",
         "summary": "開発時は loose file、出荷時は .acpak を mount する。ゲーム側ロードコードは同じに保つ。",
-        "code": r'''acs::assetpack::FArchiveReader reader;
-ACS_TRY(reader.Open(L"game.acpak"));
+        "code": r'''acs::assetpack::FAcpakGameReader reader;
+ACS_TRY(reader.Mount("game.acpak"));
 
-acs::game::AssetPackReaderBridge bridge;
-bridge.Attach(&reader);
-
-// GameFramework 側は IAssetPackReader として読む。
-auto bytes = bridge.Read("textures/player.png");
-if (bytes.IsErr()) {
+auto size = reader.FileSize("textures/player.png");
+if (size.IsErr()) {
     ACS_LOG_ERROR("asset missing: textures/player.png");
-}''',
-        "apis": ["AssetPack", "FArchiveReader", "AssetPackReaderBridge"],
+    return;
+}
+
+acs::TArray<acs::u8> bytes;
+bytes.Resize(static_cast<acs::usize>(size.Value()));
+ACS_TRY(reader.ReadFile("textures/player.png", bytes.Data(), size.Value()));''',
+        "apis": ["AssetPack", "FAcpakGameReader", "IAssetPackReader"],
     },
 ]
 
@@ -775,7 +773,7 @@ def parse_header(path: Path) -> HeaderInfo:
         close_idx = find_matching_brace(code_text, open_idx)
         if close_idx < 0:
             continue
-        # Skip anonymous-looking false positives.
+        # 無名宣言に見える誤検出は除外する。
         name = m.group(2)
         if name in {"if", "for", "while", "switch"}:
             continue
@@ -1067,8 +1065,8 @@ def render_guide(anchor_map: dict[str, str]) -> str:
       <ol>
         <li>{term('easy', anchor_map) if 'easy' in GLOSSARY else '<code>acs::easy</code>'} で座標・入力・描画に慣れる。</li>
         <li>{term('FApplication', anchor_map)} へ移り、<code>OnStart</code>/<code>OnUpdate</code>/<code>OnRender</code> の流れを覚える。</li>
-        <li>大量オブジェクトは {term('World', anchor_map)} と {term('Query', anchor_map)}、画面遷移は {term('Scene', anchor_map)} を使う。</li>
-        <li>描画が 2D なら {term('FSpriteBatch', anchor_map)}、3D なら <code>StandardShader</code>/<code>PbrShader</code> へ進む。</li>
+        <li>大量オブジェクトは {term('FWorld', anchor_map)} と {term('TQueryView', anchor_map)}、画面遷移は {term('FScene', anchor_map)} を使う。</li>
+        <li>描画が 2D なら {term('FSpriteBatch', anchor_map)}、3D なら <code>FStandardShader</code>/<code>FPbrShader</code> へ進む。</li>
       </ol>
     </article>
     <article class="guide-card">

@@ -41,10 +41,20 @@ SamplerState src_sampler : register(s0);
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
 float4 PSMain(VSOut v) : SV_TARGET {
-    // firefly クランプ (WickedEngine bloomseparateCS の min(color,10))。閾値抽出前に極端な高輝度
-    // (鋭い鏡面/エミッシブ/太陽の disc) を上限で抑え、1 画素が bloom を支配して «hot な blob/halo»
-    // になるのを防ぐ。soft-knee 比重みだけでは firefly は w→1 でほぼ素通りしていた。
-    float3 c = min(src.Sample(src_sampler, v.uv).rgb, 10.0);
+    // The destination is half resolution. Prefilter its corresponding 2x2
+    // source footprint so sub-pixel highlights do not blink during camera motion.
+    float2 texel = float2(params1.y, params1.z);
+    float3 c0 = min(src.SampleLevel(src_sampler, v.uv + texel * float2(-0.5, -0.5), 0).rgb, 10.0);
+    float3 c1 = min(src.SampleLevel(src_sampler, v.uv + texel * float2( 0.5, -0.5), 0).rgb, 10.0);
+    float3 c2 = min(src.SampleLevel(src_sampler, v.uv + texel * float2(-0.5,  0.5), 0).rgb, 10.0);
+    float3 c3 = min(src.SampleLevel(src_sampler, v.uv + texel * float2( 0.5,  0.5), 0).rgb, 10.0);
+    // Karis weighting prevents an isolated firefly from dominating the footprint.
+    float w0 = rcp(1.0 + max(c0.r, max(c0.g, c0.b)));
+    float w1 = rcp(1.0 + max(c1.r, max(c1.g, c1.b)));
+    float w2 = rcp(1.0 + max(c2.r, max(c2.g, c2.b)));
+    float w3 = rcp(1.0 + max(c3.r, max(c3.g, c3.b)));
+    float3 c = (c0 * w0 + c1 * w1 + c2 * w2 + c3 * w3)
+             / max(w0 + w1 + w2 + w3, 1e-5);
     float l = max(max(c.r, c.g), c.b);
     float t = params0.x;                       // threshold
     // soft-knee prefilter (Unity/UE 風): 閾値付近をなめらかに立ち上げ、bloom の onset を自然に。
@@ -109,14 +119,18 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-// Upsample: tent filter で広域ぼかしを上の段に加算 (additive blend する想定)
+// Upsample: 下段を円形フィルタし、上段の元画像と energy-preserving に合成する。
 const char* kUpsamplePS = R"(
 cbuffer Post : register(b0) {
     float4 params0;   // z=radius
     float4 params1;   // y=texel_w, z=texel_h
+    float4 params2;
+    float4 params3;   // z=scatter
 };
 Texture2D    src : register(t0);
+Texture2D    base_tex : register(t1);
 SamplerState src_sampler : register(s0);
+SamplerState base_tex_sampler : register(s1);
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
 float4 PSMain(VSOut v) : SV_TARGET {
@@ -139,7 +153,10 @@ float4 PSMain(VSOut v) : SV_TARGET {
     sum += src.Sample(src_sampler, v.uv + float2(-1.732, -1.000) * t).rgb * 0.0483;
     sum += src.Sample(src_sampler, v.uv + float2( 0.000, -2.000) * t).rgb * 0.0483;
     sum += src.Sample(src_sampler, v.uv + float2( 1.732, -1.000) * t).rgb * 0.0483;
-    return float4(sum, 1.0);
+    // lerp なら一定輝度入力は何段あっても一定のまま。旧 additive の mip 数比例の
+    // 白化を防ぎつつ、scatter で広がりだけを調整できる。
+    float3 base = base_tex.Sample(base_tex_sampler, v.uv).rgb;
+    return float4(lerp(base, sum, saturate(params3.z)), 1.0);
 }
 )";
 
@@ -233,17 +250,27 @@ float3 ClipAABB(float3 amin, float3 amax, float3 p) {
 float2 ComputeMotionUv(float2 uv) {
     // 現フレームの depth から world pos を復元、前フレームの VP で clip pos を計算、
     // ndc → uv に戻して motion vec を作る。camera 動きのみ反映 (object 動きは見えない)。
+    // FXC は helper 内の早期終了を経由した値を未初期化と誤判定することがある。
+    // fallback を先に定義し、全分岐を単一の出口に合流させる。
+    float2 reprojected_uv = uv;
     float depth = scene_depth.SampleLevel(scene_depth_sampler, uv, 0).r;
-    if (depth >= 0.9999) return uv;            // sky は motion 0 (history そのまま)
-    float4 clip = float4(uv * 2.0 - 1.0, depth, 1.0);
-    clip.y = -clip.y;
-    float4 wp = mul(clip, taa_inv_view_proj);
-    wp.xyz /= max(wp.w, 1e-6);
-    float4 prev_clip = mul(float4(wp.xyz, 1.0), taa_prev_view_proj);
-    if (prev_clip.w < 1e-4) return uv;
-    float2 prev_ndc = prev_clip.xy / prev_clip.w;
-    float2 prev_uv = float2(prev_ndc.x * 0.5 + 0.5, -prev_ndc.y * 0.5 + 0.5);
-    return prev_uv;
+    if (depth >= 0.9999) {
+        reprojected_uv = uv;                    // sky は motion 0 (history そのまま)
+    } else {
+        float4 clip = float4(uv * 2.0 - 1.0, depth, 1.0);
+        clip.y = -clip.y;
+        float4 wp = mul(clip, taa_inv_view_proj);
+        wp.xyz /= max(wp.w, 1e-6);
+        float4 prev_clip = mul(float4(wp.xyz, 1.0), taa_prev_view_proj);
+        if (prev_clip.w < 1e-4) {
+            reprojected_uv = uv;
+        } else {
+            float2 prev_ndc = prev_clip.xy / prev_clip.w;
+            reprojected_uv =
+                float2(prev_ndc.x * 0.5 + 0.5, -prev_ndc.y * 0.5 + 0.5);
+        }
+    }
+    return reprojected_uv;
 }
 
 float4 PSMain(VSOut v) : SV_TARGET {
@@ -266,27 +293,45 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // 混ぜて端でゴースト/スメアになる。Karis TAA に倣い off-screen は current 100% にする。
     bool offscreen = any(hist_uv < 0.0) || any(hist_uv > 1.0);
     if (offscreen) hist_uv = v.uv;
-    float3 hist = history_hdr.SampleLevel(history_hdr_sampler, hist_uv, 0).rgb;
+    float3 hist_unclipped = history_hdr.SampleLevel(history_hdr_sampler, hist_uv, 0).rgb;
+    float3 hist = hist_unclipped;
 
-    // Neighborhood AABB clip (YCoCg): 3x3 の current min/max を YCoCg で取り、history を
-    // その AABB の «中心へ向けて» clip する (Karis)。RGB per-channel clamp よりクロマゴーストに強い。
+    // Variance clipping in YCoCg. A raw min/max box admits isolated outliers and
+    // leaves long chroma trails; intersecting it with mean +/- sigma is much
+    // more stable around thin geometry and flashing emissive pixels.
     float2 tx = float2(params1.y, params1.z);
     float3 curY = RGB2YCoCg(cur);
     float3 nmin = curY, nmax = curY;
+    float3 moment1 = 0.0;
+    float3 moment2 = 0.0;
     [unroll]
     for (int dy = -1; dy <= 1; ++dy) {
         [unroll]
         for (int dx = -1; dx <= 1; ++dx) {
-            if (dx == 0 && dy == 0) continue;
             float3 c = RGB2YCoCg(current_hdr.SampleLevel(current_hdr_sampler, v.uv + float2(dx, dy) * tx, 0).rgb);
             nmin = min(nmin, c);
             nmax = max(nmax, c);
+            moment1 += c;
+            moment2 += c * c;
         }
     }
-    hist = YCoCg2RGB(ClipAABB(nmin, nmax, RGB2YCoCg(hist)));
+    float3 mean = moment1 / 9.0;
+    float3 sigma = sqrt(max(moment2 / 9.0 - mean * mean, 0.0));
+    float3 clip_min = max(nmin, mean - sigma * 1.25);
+    float3 clip_max = min(nmax, mean + sigma * 1.25);
+    hist = YCoCg2RGB(ClipAABB(clip_min, clip_max, RGB2YCoCg(hist)));
 
     float a = saturate(taa_params.x);
     if (a < 1e-4) a = 0.1;          // ガード (CB 0 で全 history になるのを避ける)
+    // Become responsive when reprojected history strongly disagrees with the
+    // current sample. This is a lightweight reactive mask for animated
+    // emissives/particles where no material mask is available.
+    float cur_luma  = max(curY.x, 0.0);
+    float hist_luma = max(RGB2YCoCg(hist_unclipped).x, 0.0);
+    float luma_delta = abs(cur_luma - hist_luma) / max(max(cur_luma, hist_luma), 0.05);
+    float motion_px = length((hist_uv - v.uv) / max(tx, float2(1e-6, 1e-6)));
+    a = max(a, saturate(luma_delta * 1.5) * 0.85);
+    a = max(a, saturate(motion_px / 24.0) * 0.35);
     if (offscreen) a = 1.0;         // disocclusion: history 棄却 → current 100% (ゴースト防止)
     return float4(lerp(hist, cur, a), 1.0);
 }
@@ -351,9 +396,22 @@ float3 AgxLook(float3 x) {
            - 0.00232;
 }
 float3 AgxTonemap(float3 x) {
-    // AgxLook 末尾の定数項 -0.00232 と grain 加算で x=0 付近が負値に落ちる
-    // ケースがあるので、Filament 公式実装と同じく結果を saturate でガード。
-    return saturate(AgxLook(AgxLog(x)));
+    // AgX's inset/outset transforms are essential: applying the contrast curve
+    // independently in linear sRGB shifts hue and over-saturates hot highlights.
+    float3 inset;
+    inset.r = dot(x, float3(0.8424790623, 0.0784336000, 0.0792237451));
+    inset.g = dot(x, float3(0.0423282423, 0.8784686365, 0.0791661275));
+    inset.b = dot(x, float3(0.0423756549, 0.0784336000, 0.8791429738));
+    float3 encoded = AgxLook(AgxLog(max(inset, 0.0)));
+
+    float3 outset;
+    // The reference applies the inverse as mul(value, matrix), so each output
+    // channel is a dot product with one matrix column.
+    outset.r = dot(encoded, float3( 1.1968790051, -0.0980208811, -0.0990297441));
+    outset.g = dot(encoded, float3(-0.0528968518,  1.1519031299, -0.0989611768));
+    outset.b = dot(encoded, float3(-0.0529716355, -0.0980434501,  1.1510736726));
+    // The common output path applies the sRGB OETF, so return linear display RGB.
+    return saturate(pow(max(outset, 0.0), 2.2));
 }
 
 // Reinhard 拡張 (Lottes/Hable 風)
@@ -362,9 +420,17 @@ float3 ReinhardExt(float3 x, float white2) {
 }
 
 float3 Tonemap(float3 c, int kind) {
-    if (kind == 1) return AgxTonemap(c);
-    if (kind == 2) return ReinhardExt(c, 16.0);
-    return ACESFilm(c);
+    // Keep a defined default and one exit so FXC can prove every selector
+    // branch initializes the result.
+    float3 result = float3(0.0, 0.0, 0.0);
+    if (kind == 1) {
+        result = AgxTonemap(c);
+    } else if (kind == 2) {
+        result = ReinhardExt(c, 16.0);
+    } else {
+        result = ACESFilm(c);
+    }
+    return result;
 }
 
 // FColor grading: tonemap 後 (LDR) に適用する ASC-CDL 風補正。
@@ -610,11 +676,11 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 // 各パスで使う共通の動的 CB レイアウト
-struct PostCBLayout {
+struct FPostCbLayout {
     FVec4 params0;   // x=threshold, y=intensity, z=radius, w=exposure
     FVec4 params1;   // x=gamma, y=texel_w, z=texel_h, w=tonemap_kind
     FVec4 params2;   // x=vignette_intensity, y=vignette_radius, z=ca, w=grain
-    FVec4 params3;   // x=grain_time, y=ssr_intensity
+    FVec4 params3;   // x=grain_time, y=ssr_intensity, z=bloom_scatter
     FVec4 cg0;       // x=saturation, y=contrast, z=temperature, w=tint
     FVec4 cg_lift;   // xyz=lift
     FVec4 cg_gain;   // xyz=gain
@@ -623,13 +689,13 @@ struct PostCBLayout {
 };
 
 // TAA reprojection 用の別 CB (b1 で bind)。
-struct TaaReprojCBLayout {
+struct FTaaReprojCBLayout {
     FMat4 inv_view_proj;
     FMat4 prev_view_proj;
 };
 
 // auto-exposure 用 CB (Exposure adapt パスで b0 に bind)。
-struct AutoExposureCBLayout {
+struct FAutoExposureCBLayout {
     FVec4 a0;   // x=key, y=min_exp, z=max_exp, w=speed
     FVec4 a1;   // x=dt, y=warm (0=cold start)
 };
@@ -667,16 +733,19 @@ TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     if (auto r = CreatePipelines(device);                   r.IsErr()) return r;
 
     FBufferDesc cbd{};
-    cbd.size         = CBSize<PostCBLayout>();
+    cbd.size         = CBSize<FPostCbLayout>();
     cbd.usage        = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
-    auto cbr = CreateRhiBuffer(device, cbd);
-    if (cbr.IsErr()) return Err<void>(cbr.Error());
-    m_CbPost = Move(cbr.Value());
+    for (u32 i = 0; i < kPostCbRing; ++i) {
+        auto cbr = CreateRhiBuffer(device, cbd);
+        if (cbr.IsErr()) return Err<void>(cbr.Error());
+        m_CbPost[i] = Move(cbr.Value());
+    }
+    m_PostCbCursor = 0;
 
     // TaaReproj CB (b1)
     FBufferDesc rcbd{};
-    rcbd.size = CBSize<TaaReprojCBLayout>();
+    rcbd.size = CBSize<FTaaReprojCBLayout>();
     rcbd.usage = EBufferUsage::Uniform;
     rcbd.cpu_writable = true;
     auto rcbr = CreateRhiBuffer(device, rcbd);
@@ -685,7 +754,7 @@ TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
 
     // auto-exposure 用 CB
     FBufferDesc acbd{};
-    acbd.size = CBSize<AutoExposureCBLayout>();
+    acbd.size = CBSize<FAutoExposureCBLayout>();
     acbd.usage = EBufferUsage::Uniform;
     acbd.cpu_writable = true;
     auto acbr = CreateRhiBuffer(device, acbd);
@@ -702,14 +771,27 @@ TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     if (dfb.IsErr()) return Err<void>(dfb.Error());
     m_TaaDepthFb = Move(dfb.Value());
 
+    // 未使用の bloom / SSR slot に stale texture を残さないための黒 fallback。
+    const u8 black_rgba[4] = { 0, 0, 0, 255 };
+    FTextureDesc black_desc{};
+    black_desc.width = 1; black_desc.height = 1;
+    black_desc.format = EFormat::R8G8B8A8_UNorm;
+    black_desc.initial_data = black_rgba;
+    black_desc.initial_data_size = 4;
+    auto black = CreateRhiTexture(device, black_desc);
+    if (black.IsErr()) return Err<void>(black.Error());
+    m_BlackFb = Move(black.Value());
+
     return Ok();
 }
 
 void FPostProcess::Shutdown() noexcept {
+    m_BlackFb.Reset();
     m_TaaDepthFb.Reset();
     m_CbAuto.Reset();
     m_CbTaaReproj.Reset();
-    m_CbPost.Reset();
+    for (auto& cb : m_CbPost) cb.Reset();
+    m_PostCbCursor = 0;
     m_PipeExposeApply.Reset();
     m_PipeExposure.Reset();
     m_PipeLumaDown.Reset();
@@ -926,22 +1008,24 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         if (r.IsErr()) return Err<void>(r.Error());
         m_PipeDownsample = Move(r.Value());
     }
-    // Upsample: bloom_mips[i+1] → bloom_mips[i]、Additive blend
+    // upsample: lower mip + current mip → ping-pong target、正規化した opaque blend
     {
         FPipelineDesc pd{};
         FillFullscreenLayout(pd);
         pd.vs = m_VsFullscreen.Get();
         pd.ps = m_PsUpsample.Get();
         pd.rt_format = m_HdrFormat;
-        pd.blend_mode = EBlendMode::Additive;
         pd.cbuffer_slots = 1;
-        pd.texture_slots = 1;
+        pd.texture_slots = 2;
         pd.cbuffer_names[0] = "Post";
         pd.texture_names[0] = "src";
-        pd.static_sampler_count = 1;
-        pd.static_samplers[0].filter    = ESamplerFilter::Linear;
-        pd.static_samplers[0].address_u = ESamplerAddress::Clamp;
-        pd.static_samplers[0].address_v = ESamplerAddress::Clamp;
+        pd.texture_names[1] = "base_tex";
+        pd.static_sampler_count = 2;
+        for (u32 i = 0; i < 2; ++i) {
+            pd.static_samplers[i].filter    = ESamplerFilter::Linear;
+            pd.static_samplers[i].address_u = ESamplerAddress::Clamp;
+            pd.static_samplers[i].address_v = ESamplerAddress::Clamp;
+        }
         auto r = CreateRhiPipeline(device, pd);
         if (r.IsErr()) return Err<void>(r.Error());
         m_PipeUpsample = Move(r.Value());
@@ -1104,8 +1188,9 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
 }
 
 void FPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index,
-                          const PostProcessParams& params) noexcept {
+                          const FPostProcessParams& params) noexcept {
     if (!m_HdrRt || !m_PipeExtract) return;
+    m_PostCbCursor = 0;
 
     // Auto-exposure: シーン輝度測定 → 露出順応 → 露出適用。
     // TAA / Bloom / Tonemap より前に実行し、下流パスは SceneInput() 経由で
@@ -1123,31 +1208,36 @@ void FPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 bu
     // を見て参照を差し替える)。
     if (params.taa_enabled) {
         Pass_TaaResolve(cmd, params);
+    } else {
+        // A disabled temporal pass invalidates its logical history.  Without
+        // this reset, re-enabling TAA after an animated-cloud interval would
+        // blend against the last pre-cloud frame, producing a long stale-image
+        // flash.  Frame zero already uses current HDR as the history input.
+        m_TaaFrame = 0;
     }
 
     if (params.bloom_enabled) {
         // 1) Extract: HDR (もしくは TAA resolved) → mip[0]
         Pass_Extract(cmd, params);
 
-        // 2) Downsample: mip[i] → mip[i+1] (スケール生成用。box で可、後段ガウスが整形)
+        // 2) Downsample: mip[i] → mip[i+1]。13-tap filter 自体が低域を滑らかにする。
         for (u32 i = 0; i + 1 < kBloomMips; ++i) {
             Pass_Downsample(cmd, i);
         }
 
-        // 2.5) 各 mip を separable Gaussian (H→V) で «円形» にぼかす (DirectXTK 風)。
-        //      これが核心: box mip だと点光源が四角く残るが、ガウスは点を必ず丸い分布に広げる。
-        //      mip ごとに同じ texel 半径 → 低 mip ほど広い実効ガウス → 多スケールで «広く丸い» bloom。
-        for (u32 i = 0; i < kBloomMips; ++i) {
+        // 2.5) 高周波側の 2 段だけを円形 Gaussian で整形する。深い mip は既に
+        //      downsample + circular upsample で十分滑らかなので、全段 H/V の過剰な霧化を避ける。
+        const u32 gaussian_mips = kBloomMips < 2 ? kBloomMips : 2;
+        for (u32 i = 0; i < gaussian_mips; ++i) {
             Pass_GaussianBlur(cmd, i, true,  1.0f);    // 水平
             Pass_GaussianBlur(cmd, i, false, 1.0f);    // 垂直
         }
 
-        // 3) Upsample (additive): mip[i+1] → mip[i] に上書き加算。
-        //    progressive radius: 深い mip ほど tent 半径を広げ、段間を滑らかに接続して
-        //    «広く柔らかい» UE5 風 bloom にする (固定半径だと深い段の広がりが不足しブロッキー)。
+        // 3) Upsample: lower と current を scatter 付き正規化補間する。
+        //    一定輝度の energy を mip 数で増幅せず、発光体の芯と広がりを両立する。
         for (u32 i = kBloomMips - 1; i > 0; --i) {
-            const f32 r = params.bloom_radius * (1.0f + static_cast<f32>(i - 1) * 0.55f);
-            Pass_Upsample(cmd, i - 1, r);
+            const f32 r = params.bloom_radius * (0.90f + static_cast<f32>(i - 1) * 0.08f);
+            Pass_Upsample(cmd, i - 1, r, params.bloom_scatter);
         }
     }
 
@@ -1163,15 +1253,15 @@ void FPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 bu
 }
 
 namespace {
-void UpdatePostCB(IRhiBuffer* cb, const PostProcessParams& p,
+void UpdatePostCB(IRhiBuffer* cb, const FPostProcessParams& p,
                   f32 texel_w, f32 texel_h) noexcept {
     if (!cb) return;
-    PostCBLayout l{};
+    FPostCbLayout l{};
     l.params0 = FVec4{ p.bloom_threshold, p.bloom_intensity, p.bloom_radius, p.exposure };
     l.params1 = FVec4{ p.gamma, texel_w, texel_h, static_cast<f32>(p.tonemap_kind) };
     l.params2 = FVec4{ p.vignette_intensity, p.vignette_radius,
                       p.chromatic_aberration, p.grain_intensity };
-    l.params3 = FVec4{ p.grain_time, p.ssr_intensity, 0, 0 };
+    l.params3 = FVec4{ p.grain_time, p.ssr_intensity, p.bloom_scatter, 0 };
     l.cg0     = FVec4{ p.cg_saturation, p.cg_contrast, p.cg_temperature, p.cg_tint };
     l.cg_lift = FVec4{ p.cg_lift.x, p.cg_lift.y, p.cg_lift.z, 0 };
     l.cg_gain = FVec4{ p.cg_gain.x, p.cg_gain.y, p.cg_gain.z, 0 };
@@ -1186,10 +1276,21 @@ void UpdatePostCB(IRhiBuffer* cb, const PostProcessParams& p,
 }
 } // namespace
 
-void FPostProcess::Pass_Extract(IRhiCommandList& cmd, const PostProcessParams& p) noexcept {
+IRhiBuffer* FPostProcess::AcquirePostCb() noexcept {
+    if (m_PostCbCursor >= kPostCbRing) {
+        if (m_PostCbCursor == kPostCbRing) {
+            ACS_LOG_WARN("FPostProcess: per-frame pass CB limit (%u) exceeded; "
+                         "remaining post passes are skipped", kPostCbRing);
+            ++m_PostCbCursor;
+        }
+        return nullptr;
+    }
+    return m_CbPost[m_PostCbCursor++].Get();
+}
+
+void FPostProcess::Pass_Extract(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept {
     auto* dst = m_BloomMips[0].Get();
     if (!dst || !m_HdrRt) return;
-    UpdatePostCB(m_CbPost.Get(), p, 1.0f / dst->Width(), 1.0f / dst->Height());
 
     // TAA 有効時は resolved (m_Taa[cur]) を読む。そうでなければ SceneInput
     // (auto-exposure 適用後の m_ExposedRt、または raw m_HdrRt)。
@@ -1198,10 +1299,13 @@ void FPostProcess::Pass_Extract(IRhiCommandList& cmd, const PostProcessParams& p
     if (p.taa_enabled && m_Taa[m_TaaFrame % 2]) {
         src = m_Taa[m_TaaFrame % 2].Get();
     }
+    IRhiBuffer* post_cb = AcquirePostCb();
+    if (!post_cb) return;
+    UpdatePostCB(post_cb, p, 1.0f / src->Width(), 1.0f / src->Height());
 
-    cmd.BeginRenderToTexture(*dst, ClearColor{0,0,0,1}, nullptr, 1.0f);
+    cmd.BeginRenderToTexture(*dst, FClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*m_PipeExtract);
-    cmd.SetConstantBuffer(0, *m_CbPost);
+    cmd.SetConstantBuffer(0, *post_cb);
     cmd.SetTexture(0, *src);
     cmd.Draw(3, 0);
     cmd.EndRenderToTexture(*dst);
@@ -1211,35 +1315,41 @@ void FPostProcess::Pass_Downsample(IRhiCommandList& cmd, u32 from_mip) noexcept 
     auto* src = m_BloomMips[from_mip].Get();
     auto* dst = m_BloomMips[from_mip + 1].Get();
     if (!src || !dst) return;
-    PostProcessParams p{};   // params 不要だが texel size のみ更新
-    UpdatePostCB(m_CbPost.Get(), p, 1.0f / src->Width(), 1.0f / src->Height());
+    FPostProcessParams p{};   // params 不要だが texel size のみ更新
+    IRhiBuffer* post_cb = AcquirePostCb();
+    if (!post_cb) return;
+    UpdatePostCB(post_cb, p, 1.0f / src->Width(), 1.0f / src->Height());
 
-    cmd.BeginRenderToTexture(*dst, ClearColor{0,0,0,1}, nullptr, 1.0f);
+    cmd.BeginRenderToTexture(*dst, FClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*m_PipeDownsample);
-    cmd.SetConstantBuffer(0, *m_CbPost);
+    cmd.SetConstantBuffer(0, *post_cb);
     cmd.SetTexture(0, *src);
     cmd.Draw(3, 0);
     cmd.EndRenderToTexture(*dst);
 }
 
-void FPostProcess::Pass_Upsample(IRhiCommandList& cmd, u32 to_mip, f32 radius) noexcept {
+void FPostProcess::Pass_Upsample(IRhiCommandList& cmd, u32 to_mip, f32 radius,
+                                 f32 scatter) noexcept {
     auto* src = m_BloomMips[to_mip + 1].Get();
-    auto* dst = m_BloomMips[to_mip].Get();
-    if (!src || !dst) return;
-    PostProcessParams p{};
+    auto* base = m_BloomMips[to_mip].Get();
+    auto* dst = m_BloomTmp[to_mip].Get();
+    if (!src || !base || !dst) return;
+    FPostProcessParams p{};
     p.bloom_radius = radius;
-    UpdatePostCB(m_CbPost.Get(), p, 1.0f / src->Width(), 1.0f / src->Height());
+    p.bloom_scatter = scatter;
+    IRhiBuffer* post_cb = AcquirePostCb();
+    if (!post_cb) return;
+    UpdatePostCB(post_cb, p, 1.0f / src->Width(), 1.0f / src->Height());
 
-    // additive blend、clear «せず» 既存 (downsample された mip[to_mip]) に加算 → 真の progressive
-    // accumulation。★以前は BeginRenderToTexture で黒クリアしていたため downsample 内容が毎回消え、
-    // «最下層 mip (点光源=四角) だけ» が上へ伝播して四角いブルームになっていた (根本バグ)。
-    // BeginRenderToTextureLoad で既存内容を保持 → 全スケールが混ざり丸く滑らかに。
+    // 同じ texture を read/write しないよう ping-pong。opaque 出力後に所有ポインタを交換する。
+    cmd.BeginRenderToTexture(*dst, FClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*m_PipeUpsample);
-    cmd.SetConstantBuffer(0, *m_CbPost);
+    cmd.SetConstantBuffer(0, *post_cb);
     cmd.SetTexture(0, *src);
-    cmd.BeginRenderToTextureLoad(*dst, nullptr);
+    cmd.SetTexture(1, *base);
     cmd.Draw(3, 0);
     cmd.EndRenderToTexture(*dst);
+    Swap(m_BloomMips[to_mip], m_BloomTmp[to_mip]);
 }
 
 void FPostProcess::Pass_GaussianBlur(IRhiCommandList& cmd, u32 mip, bool horizontal, f32 amount) noexcept {
@@ -1248,22 +1358,24 @@ void FPostProcess::Pass_GaussianBlur(IRhiCommandList& cmd, u32 mip, bool horizon
     if (!tex || !tmp) return;
     IRhiTexture* src = horizontal ? tex : tmp;   // H: mip→tmp、V: tmp→mip
     IRhiTexture* dst = horizontal ? tmp : tex;
-    PostProcessParams p{};
+    FPostProcessParams p{};
     p.bloom_radius = amount;                     // → params0.z (step スケール)
     // 方向: H=(texel_w,0)、V=(0,texel_h) を params1.yz へ
     const f32 tw = 1.0f / static_cast<f32>(tex->Width());
     const f32 th = 1.0f / static_cast<f32>(tex->Height());
-    UpdatePostCB(m_CbPost.Get(), p, horizontal ? tw : 0.0f, horizontal ? 0.0f : th);
+    IRhiBuffer* post_cb = AcquirePostCb();
+    if (!post_cb) return;
+    UpdatePostCB(post_cb, p, horizontal ? tw : 0.0f, horizontal ? 0.0f : th);
 
-    cmd.BeginRenderToTexture(*dst, ClearColor{0,0,0,1}, nullptr, 1.0f);
+    cmd.BeginRenderToTexture(*dst, FClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*m_PipeGaussian);
-    cmd.SetConstantBuffer(0, *m_CbPost);
+    cmd.SetConstantBuffer(0, *post_cb);
     cmd.SetTexture(0, *src);
     cmd.Draw(3, 0);
     cmd.EndRenderToTexture(*dst);
 }
 
-void FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const PostProcessParams& p) noexcept {
+void FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept {
     auto* cur_rt = m_Taa[m_TaaFrame % 2].Get();         // 今フレームの書き先
     auto* hist_rt = m_Taa[(m_TaaFrame + 1) % 2].Get();   // 前フレームの resolved
     if (!cur_rt || !hist_rt || !m_HdrRt) return;
@@ -1277,11 +1389,13 @@ void FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const PostProcessParams
     const bool first_frame = (m_TaaFrame == 0);
     IRhiTexture* hist_input = first_frame ? scene : hist_rt;
 
-    UpdatePostCB(m_CbPost.Get(), p, 1.0f / cur_rt->Width(), 1.0f / cur_rt->Height());
+    IRhiBuffer* post_cb = AcquirePostCb();
+    if (!post_cb) return;
+    UpdatePostCB(post_cb, p, 1.0f / cur_rt->Width(), 1.0f / cur_rt->Height());
 
     // TaaReproj CB を埋める。`taa_view_proj_no_jitter` が単位行列の
     // ままなら inv は単位、prev も単位で motion=0 になる (= 静的 reprojection 動作)。
-    TaaReprojCBLayout r{};
+    FTaaReprojCBLayout r{};
     r.inv_view_proj  = Inverse(p.taa_view_proj_no_jitter);
     r.prev_view_proj = p.taa_prev_view_proj_no_jitter;
     if (m_CbTaaReproj) m_CbTaaReproj->Update(&r, sizeof(r));
@@ -1294,9 +1408,9 @@ void FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const PostProcessParams
                            : (p.taa_depth_texture ? p.taa_depth_texture
                                                   : m_TaaDepthFb.Get());
 
-    cmd.BeginRenderToTexture(*cur_rt, ClearColor{0,0,0,1}, nullptr, 1.0f);
+    cmd.BeginRenderToTexture(*cur_rt, FClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*m_PipeTaaResolve);
-    cmd.SetConstantBuffer(0, *m_CbPost);
+    cmd.SetConstantBuffer(0, *post_cb);
     if (m_CbTaaReproj) cmd.SetConstantBuffer(1, *m_CbTaaReproj);
     cmd.SetTexture(0, *scene);                     // current HDR (露出適用後 or raw)
     cmd.SetTexture(1, *hist_input);                // history (or current on frame 0)
@@ -1306,8 +1420,10 @@ void FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const PostProcessParams
 }
 
 void FPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
-                                const PostProcessParams& p) noexcept {
-    UpdatePostCB(m_CbPost.Get(), p, 1.0f / sc.Width(), 1.0f / sc.Height());
+                                const FPostProcessParams& p) noexcept {
+    IRhiBuffer* post_cb = AcquirePostCb();
+    if (!post_cb) return;
+    UpdatePostCB(post_cb, p, 1.0f / sc.Width(), 1.0f / sc.Height());
 
     // TAA 有効時は m_Taa[現フレーム index]、そうでなければ SceneInput
     // (auto-exposure 後の m_ExposedRt、または raw m_HdrRt) を tonemap input にする。
@@ -1316,17 +1432,21 @@ void FPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf
         tonemap_src = m_Taa[m_TaaFrame % 2].Get();
     }
 
-    cmd.BeginRenderToSwapchain(sc, buf_idx, ClearColor{0,0,0,1}, nullptr, 1.0f);
+    cmd.BeginRenderToSwapchain(sc, buf_idx, FClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*m_PipeTonemap);
-    cmd.SetConstantBuffer(0, *m_CbPost);
+    cmd.SetConstantBuffer(0, *post_cb);
     if (tonemap_src) cmd.SetTexture(0, *tonemap_src);
-    if (m_BloomMips[0]) cmd.SetTexture(1, *m_BloomMips[0]);
-    // SSR slot: ユーザー指定があれば本物、なければ 0 寄与の bloom mip[最深] を fallback として使う
-    // (SSR shader が `* ssr_intensity` で 0 にして無害化)
+    if (p.bloom_enabled && p.bloom_intensity > 0.0f && m_BloomMips[0]) {
+        cmd.SetTexture(1, *m_BloomMips[0]);
+    } else if (m_BlackFb) {
+        cmd.SetTexture(1, *m_BlackFb);
+    }
+    // 未指定 slot には必ず黒を bind。旧実装の最深 bloom mip 代用は広域 bloom を
+    // SSR として二重加算し、bloom off 時には前フレーム内容も残していた。
     if (p.ssr_texture) {
         cmd.SetTexture(2, *p.ssr_texture);
-    } else if (m_BloomMips[kBloomMips - 1]) {
-        cmd.SetTexture(2, *m_BloomMips[kBloomMips - 1]);  // 1/32 mip、SSR 指定なしなら ssr_intensity=0 で寄与なし
+    } else if (m_BlackFb) {
+        cmd.SetTexture(2, *m_BlackFb);
     }
     cmd.Draw(3, 0);
     cmd.EndRenderToSwapchain(sc, buf_idx);
@@ -1334,7 +1454,7 @@ void FPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf
 
 // ==== Auto-exposure passes ====
 
-IRhiTexture* FPostProcess::SceneInput(const PostProcessParams& p) const noexcept {
+IRhiTexture* FPostProcess::SceneInput(const FPostProcessParams& p) const noexcept {
     if (p.auto_exposure_enabled && m_ExposedRt) return m_ExposedRt.Get();
     return m_HdrRt.Get();
 }
@@ -1347,11 +1467,13 @@ void FPostProcess::Pass_LumaReduce(IRhiCommandList& cmd) noexcept {
     {
         auto* dst = m_LumaMips[0].Get();
         if (!dst) return;
-        PostProcessParams tmp{};
-        UpdatePostCB(m_CbPost.Get(), tmp, 1.0f / m_HdrRt->Width(), 1.0f / m_HdrRt->Height());
-        cmd.BeginRenderToTexture(*dst, ClearColor{0,0,0,1}, nullptr, 1.0f);
+        FPostProcessParams tmp{};
+        IRhiBuffer* post_cb = AcquirePostCb();
+        if (!post_cb) return;
+        UpdatePostCB(post_cb, tmp, 1.0f / m_HdrRt->Width(), 1.0f / m_HdrRt->Height());
+        cmd.BeginRenderToTexture(*dst, FClearColor{0,0,0,1}, nullptr, 1.0f);
         cmd.SetPipeline(*m_PipeLumaExtract);
-        cmd.SetConstantBuffer(0, *m_CbPost);
+        cmd.SetConstantBuffer(0, *post_cb);
         cmd.SetTexture(0, *m_HdrRt);
         cmd.Draw(3, 0);
         cmd.EndRenderToTexture(*dst);
@@ -1361,25 +1483,27 @@ void FPostProcess::Pass_LumaReduce(IRhiCommandList& cmd) noexcept {
         auto* src = m_LumaMips[i - 1].Get();
         auto* dst = m_LumaMips[i].Get();
         if (!src || !dst) continue;
-        PostProcessParams tmp{};
-        UpdatePostCB(m_CbPost.Get(), tmp, 1.0f / src->Width(), 1.0f / src->Height());
-        cmd.BeginRenderToTexture(*dst, ClearColor{0,0,0,1}, nullptr, 1.0f);
+        FPostProcessParams tmp{};
+        IRhiBuffer* post_cb = AcquirePostCb();
+        if (!post_cb) return;
+        UpdatePostCB(post_cb, tmp, 1.0f / src->Width(), 1.0f / src->Height());
+        cmd.BeginRenderToTexture(*dst, FClearColor{0,0,0,1}, nullptr, 1.0f);
         cmd.SetPipeline(*m_PipeLumaDown);
-        cmd.SetConstantBuffer(0, *m_CbPost);
+        cmd.SetConstantBuffer(0, *post_cb);
         cmd.SetTexture(0, *src);
         cmd.Draw(3, 0);
         cmd.EndRenderToTexture(*dst);
     }
 }
 
-void FPostProcess::Pass_ExposureAdapt(IRhiCommandList& cmd, const PostProcessParams& p) noexcept {
+void FPostProcess::Pass_ExposureAdapt(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept {
     if (m_LumaMipCount == 0 || !m_PipeExposure || !m_CbAuto) return;
     auto* avg  = m_LumaMips[m_LumaMipCount - 1].Get();   // 1x1 平均 log2 輝度
     auto* cur  = m_Exposure[m_AutoFrame % 2].Get();        // 今フレームの書き先
     auto* prev = m_Exposure[(m_AutoFrame + 1) % 2].Get();  // 前フレームの露出
     if (!avg || !cur || !prev) return;
 
-    AutoExposureCBLayout l{};
+    FAutoExposureCBLayout l{};
     l.a0 = FVec4{ p.auto_exposure_key, p.auto_exposure_min,
                  p.auto_exposure_max, p.auto_exposure_speed };
     // frame 0 は prev が未初期化 (Diligent の未定義メモリ) なので warm=0 で
@@ -1387,7 +1511,7 @@ void FPostProcess::Pass_ExposureAdapt(IRhiCommandList& cmd, const PostProcessPar
     l.a1 = FVec4{ p.delta_time, m_AutoFrame == 0 ? 0.0f : 1.0f, 0.0f, 0.0f };
     m_CbAuto->Update(&l, sizeof(l));
 
-    cmd.BeginRenderToTexture(*cur, ClearColor{0,0,0,1}, nullptr, 1.0f);
+    cmd.BeginRenderToTexture(*cur, FClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*m_PipeExposure);
     cmd.SetConstantBuffer(0, *m_CbAuto);
     cmd.SetTexture(0, *avg);
@@ -1400,7 +1524,7 @@ void FPostProcess::Pass_ExposureApply(IRhiCommandList& cmd) noexcept {
     if (!m_HdrRt || !m_ExposedRt || !m_PipeExposeApply) return;
     auto* exp_tex = m_Exposure[m_AutoFrame % 2].Get();     // Pass_ExposureAdapt が書いた露出
     if (!exp_tex) return;
-    cmd.BeginRenderToTexture(*m_ExposedRt, ClearColor{0,0,0,1}, nullptr, 1.0f);
+    cmd.BeginRenderToTexture(*m_ExposedRt, FClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*m_PipeExposeApply);
     cmd.SetTexture(0, *m_HdrRt);
     cmd.SetTexture(1, *exp_tex);

@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// FSpriteAnimComponent — FSpriteAnimator (時間→frame index) を FSprite2DComponent
-// (UV サブ矩形) に橋渡しする Component2D。同じ FNode2D に付いた FSprite2DComponent
+// ASpriteAnimComponent — FSpriteAnimator (時間→frame index) を ASprite2DComponent
+// (UV サブ矩形) に橋渡しする AComponent。同じ ANode に付いた ASprite2DComponent
 // の UV を毎フレーム書き換えてスプライトシートアニメを再生する。
 //
 // 使い方 (グリッドシート: 1 枚のテクスチャを cols×rows に等分):
-//   auto node = MakeUnique<FNode2D>();
-//   auto& spr = node->AddComponent<FSprite2DComponent>(FVec2{1,1});
+//   auto node = NewObject<ANode>();
+//   auto& spr = node->AddComponent<ASprite2DComponent>(FVec2{1,1});
 //   spr.SetTexture(sheet_tex);
-//   auto& anim = node->AddComponent<FSpriteAnimComponent>();
+//   auto& anim = node->AddComponent<ASpriteAnimComponent>();
 //   anim.InitGrid(/*cols=*/4, /*rows=*/1, /*frame_count=*/4, /*fps=*/8.0f);
 //   anim.Play();
 //
@@ -19,38 +19,38 @@
 //   anim.Play();
 //
 // 設計:
-//   ・sibling の FSprite2DComponent は OnAttach 時点では未登録のことがある
+//   ・sibling の ASprite2DComponent は OnAttach 時点では未登録のことがある
 //     (add 順依存) ため、最初の OnUpdate で遅延 lookup する (add 順非依存)。
 //   ・frame index → UV は m_FrameUvs に事前計算して持つ。InitGrid はグリッドを
 //     計算、BeginFrames/AddFrameUv/EndFrames は任意 UV 列を積む。
 //   ・FSpriteAnimator が時間管理 (Loop/PingPong/Once、frame event) を担う。
 #pragma once
 
-#include "gameframework/Component2D.h"
+#include "gameframework/AComponent.h"
 #include "gameframework/SpriteAnimator.h"
 #include "container/Array.h"
 #include "math/Vec.h"
 
 namespace acs::game {
 
-class FSprite2DComponent;
+class ASprite2DComponent;
 
 /**
- * 時間→frame index の FSpriteAnimator を sibling の FSprite2DComponent に橋渡しする Component2D。
+ * 時間→frame index の FSpriteAnimator を sibling の ASprite2DComponent に橋渡しする AComponent。
  *
  * @details
- * 同じ FNode2D に付いた FSprite2DComponent の UV サブ矩形を毎フレーム書き換えて
+ * 同じ ANode に付いた ASprite2DComponent の UV サブ矩形を毎フレーム書き換えて
  * スプライトシートアニメを再生する。frame index→UV は m_FrameUvs に事前計算して持ち、
  * InitGrid はグリッドシートを等分計算、BeginFrames/AddFrameUv/EndFrames は任意 UV 列を積む。
  * sibling の lookup は add 順依存を避けるため最初の OnUpdate まで遅延する。
  */
-class FSpriteAnimComponent : public FComponent2D {
+class ASpriteAnimComponent : public AComponent {
 public:
     /** コンポーネント種別タグを宣言する (Kind() による型識別用)。 */
-    ACS_GAME_COMPONENT_KIND(FSpriteAnimComponent)
+    ACS_GAME_COMPONENT_KIND(ASpriteAnimComponent)
 
     /** 空のアニメコンポーネントを構築する (frame 未設定・停止状態)。 */
-    FSpriteAnimComponent() noexcept = default;
+    ASpriteAnimComponent() noexcept = default;
 
     /**
      * グリッドシートで初期化する。
@@ -130,11 +130,11 @@ public:
     FSpriteAnimator& Animator() noexcept { return m_Anim; }
 
     /**
-     * 描画先の FSprite2DComponent を要求する (RequireComponent、無ければ自動追加)。
+     * 描画先の ASprite2DComponent を要求する (RequireComponent、無ければ自動追加)。
      *
-     * @param owner このコンポーネントが付く FNode2D。
+     * @param owner このコンポーネントが付く ANode。
      */
-    void OnRequire(FNode2D& owner) noexcept override;
+    void OnRequire(ANode& owner) noexcept override;
 
     /**
      * 毎フレーム animator を進め、現在 frame の UV を sibling sprite に反映する。
@@ -153,8 +153,8 @@ private:
     /** frame index → UV サブ矩形 {u0,v0,u1,v1} の事前計算テーブル。 */
     TArray<FVec4>       m_FrameUvs;
 
-    /** 描画先 sibling の FSprite2DComponent (最初の OnUpdate で遅延 lookup)。 */
-    FSprite2DComponent* m_Sprite   = nullptr;
+    /** 描画先 sibling の ASprite2DComponent (最初の OnUpdate で遅延 lookup)。 */
+    ASprite2DComponent* m_Sprite   = nullptr;
 
     /** BeginFrames で受け取り EndFrames で animator に渡す保留 fps。 */
     f32                 m_PendingFps = 1.0f;

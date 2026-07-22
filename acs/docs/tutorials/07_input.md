@@ -1,17 +1,17 @@
-# 入力 (Input / FInputMap)
+# 入力 (FInput / FInputMap)
 
 キーボード・マウス・ゲームパッドを読む方法は 2 層あります。
 
-- **`acs::Input`** … 物理キー直読みのポーリング API。手早く動かしたいとき・1 サンプルで完結するデモ向き。
+- **`acs::FInput`** … 物理キー直読みのポーリング API。手早く動かしたいとき・1 サンプルで完結するデモ向き。
 - **`acs::game::FInputMap`** … 「`Jump` を押した」のような *名前付きアクション* に物理入力を束ねる層。複数キーの OR バインドやキーコンフィグ UI を後付けしやすい。**ゲーム本体ではこちらを推奨**。
 
-座標系の注意: `Input::MousePos()` は **ウィンドウのクライアント座標 (px)**。スプライト等の **ワールド座標** に変換するには `ScreenToWorld(...)` を通します（後述）。
+座標系の注意: `FInput::MousePos()` は **ウィンドウのクライアント座標 (px)**。スプライト等の **ワールド座標** に変換するには `ScreenToWorld(...)` を通します（後述）。
 
 ---
 
 ## 最小例
 
-フレーム先頭で `Input::Update()` を 1 回呼んでから読む、が大原則です（`FApplication` / `FGame` を使う場合はフレームワークが代行するので不要 — 下の「注意点」参照）。
+フレーム先頭で `FInput::Update()` を 1 回呼んでから読む、が大原則です（`FApplication` / `FGame` を使う場合はフレームワークが代行するので不要 — 下の「注意点」参照）。
 
 ```cpp
 #include "platform/Input.h"
@@ -19,17 +19,17 @@ using namespace acs;
 
 void OnUpdate(f32 dt) noexcept {
     // エッジ: このフレームで押された瞬間だけ true
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
 
     // レベル: 押されている間ずっと true
-    if (Input::IsKeyDown(EKey::W)) MoveUp(dt);
+    if (FInput::IsKeyDown(EKey::W)) MoveUp(dt);
 
     // マウス (クライアント座標 px)
-    FVec2 m = Input::MousePos();
-    if (Input::IsMouseButtonPressed(EMouseButton::Left)) Shoot(m);
+    FVec2 m = FInput::MousePos();
+    if (FInput::IsMouseButtonPressed(EMouseButton::Left)) Shoot(m);
 
     // ホイール (正:奥 / 負:手前)
-    f32 wheel = Input::MouseWheel();
+    f32 wheel = FInput::MouseWheel();
 }
 ```
 
@@ -41,23 +41,23 @@ using namespace acs;
 using namespace acs::game;
 
 FInputMap im;
-im.BindKey      (ActionId("Jump"),  EKey::Space);
-im.BindGamepad  (ActionId("Jump"),  EGamepadButton::A);   // Space でも A でも OK
-im.BindAxisKeys (ActionId("MoveX"), EKey::A, EKey::D);    // A=-1, D=+1
+im.BindKey      (FActionId("Jump"),  EKey::Space);
+im.BindGamepad  (FActionId("Jump"),  EGamepadButton::A);   // Space でも A でも OK
+im.BindAxisKeys (FActionId("MoveX"), EKey::A, EKey::D);    // A=-1, D=+1
 
-if (im.IsPressed(ActionId("Jump"))) DoJump();
-f32 mvx = im.Axis(ActionId("MoveX"));   // -1 / 0 / +1
+if (im.IsPressed(FActionId("Jump"))) DoJump();
+f32 mvx = im.Axis(FActionId("MoveX"));   // -1 / 0 / +1
 ```
 
 ---
 
 ## 主要 API
 
-### `acs::Input`（物理キー直読み）
+### `acs::FInput`（物理キー直読み）
 
 | メソッド | 説明 |
 |---|---|
-| `Input::Update()` | フレーム先頭で 1 回。前フレーム状態を確定する（Pressed/Released 判定の土台） |
+| `FInput::Update()` | フレーム先頭で 1 回。前フレーム状態を確定する（Pressed/Released 判定の土台） |
 | `IsKeyDown(EKey)` | 押されている間 true（レベル） |
 | `IsKeyPressed(EKey)` | **このフレームで押された瞬間だけ** true（立ち上がりエッジ） |
 | `IsKeyReleased(EKey)` | このフレームで離された瞬間だけ true（立ち下がりエッジ） |
@@ -67,27 +67,26 @@ f32 mvx = im.Axis(ActionId("MoveX"));   // -1 / 0 / +1
 | `MouseWheel() -> f32` | このフレームのホイール回転（正:奥 / 負:手前） |
 | `TextInput() -> const char*` | このフレームの確定入力文字列（UTF-8, IME 確定後）。無ければ `""` |
 | `IsGamepadConnected(u32 player)` | プレイヤー `0..3` のパッド接続有無 |
-| `IsGamepadButtonDown/Pressed(u32 player, EGamepadButton)` | パッドボタン（Down / Pressed） |
+| `IsGamepadButtonDown/Pressed/Released(u32 player, EGamepadButton)` | パッドボタン（Down / Pressed / Released） |
 | `GamepadAxisValue(u32 player, EGamepadAxis) -> f32` | スティック/トリガーの **生アナログ値** |
-
-> 注: `Input` にゲームパッドの *Released* は存在しません（Down / Pressed のみ）。
 
 ### `acs::game::FInputMap`（アクションマッピング）
 
 | メソッド | 説明 |
 |---|---|
-| `BindKey(ActionId, EKey)` | アクションにキーを追加バインド |
-| `BindMouseButton(ActionId, EMouseButton)` | マウスボタンをバインド |
-| `BindGamepad(ActionId, EGamepadButton, u32 player=0)` | パッドボタンをバインド（player 既定 0） |
-| `BindAxisKeys(ActionId, EKey neg, EKey pos)` | 1D 軸。neg=-1 / pos=+1 を返す軸を作る |
-| `Unbind(ActionId)` | 指定アクションの全バインド削除 |
+| `BindKey(FActionId, EKey)` | アクションにキーを追加バインド |
+| `BindMouseButton(FActionId, EMouseButton)` | マウスボタンをバインド |
+| `BindGamepad(FActionId, EGamepadButton, u32 player=0)` | パッドボタンをバインド（player 既定 0） |
+| `BindAxisKeys(FActionId, EKey neg, EKey pos)` | 1D 軸。neg=-1 / pos=+1 を返す軸を作る |
+| `BindGamepadAxis(FActionId, EGamepadAxis, u32 player=0, f32 scale=1)` | アナログ軸を追加。負の `scale` で反転 |
+| `Unbind(FActionId)` | 指定アクションの全バインド削除 |
 | `ClearAll()` | 全バインド削除 |
-| `IsPressed(ActionId)` | いずれかのバインドがこのフレーム押された（OR） |
-| `IsHeld(ActionId)` | いずれかが押されている（OR） |
-| `IsReleased(ActionId)` | いずれかがこのフレーム離された（OR） |
-| `Axis(ActionId) -> f32` | 軸バインドの合算 → `clamp(-1, +1)` |
+| `IsPressed(FActionId)` | いずれかのバインドがこのフレーム押された（OR） |
+| `IsHeld(FActionId)` | いずれかが押されている（OR） |
+| `IsReleased(FActionId)` | いずれかがこのフレーム離された（OR） |
+| `Axis(FActionId) -> f32` | キー軸とアナログ軸を合算 → `clamp(-1, +1)` |
 
-`ActionId("Jump")` は **コンパイル時 FNV-1a ハッシュ**（`u32`）で、実行時の文字列比較は発生しません。毎フレーム `ActionId("Jump")` と書いてもコストはゼロです。
+`FActionId("Jump")` は **コンパイル時 FNV-1a ハッシュ**（`u32`）で、実行時の文字列比較は発生しません。毎フレーム `FActionId("Jump")` と書いてもコストはゼロです。
 
 ### 主要 enum（`platform/InputCodes.h`）
 
@@ -116,22 +115,28 @@ enum class EGamepadAxis : u8 {
 
 ### 1. マウスでワールド座標を拾う（ピッキング）
 
-`MousePos()` はクライアント px なので、必ず `ScreenToWorld` を通します。`FScene2D`/`FNode2D` のシーン内では基底クラスの `ScreenToWorld(...)` ヘルパが使えます（ppu = pixels-per-unit を考慮）。
+`MousePos()` はクライアント px なので、必ず `ScreenToWorld` を通します。`FScene2D` 派生シーン内では基底クラスの `ScreenToWorld(...)` ヘルパが使えます（ppu = pixels-per-unit を考慮）。
 
 ```cpp
-// 実サンプル 61_HelloWaterTopDown より
+// 実サンプル 61_HelloWaterTopDown を弱参照で安全にした形
 void OnTick(f32 dt) noexcept override {
-    if (Input::IsKeyPressed(EKey::Escape)) { GetGame().Quit(); return; }
+    if (FInput::IsKeyPressed(EKey::Escape)) { GetGame().Quit(); return; }
 
-    const FVec2 mw = ScreenToWorld(Input::MousePos());   // px -> world
-    if (m_Player) m_Player->Local().position = mw;        // マウス追従
+    const FVec2 mw = ScreenToWorld(FInput::MousePos());   // px -> world
+    if (ANode* player = m_Player.Get()) {
+        player->SetPosition2D(mw);                         // マウス追従
+    }
 
-    const FVec2 md = Input::MouseDelta();                  // なぞり速度に使う
-    const bool   click = Input::IsMouseButtonPressed(EMouseButton::Left);
+    const FVec2 md = FInput::MouseDelta();                  // なぞり速度に使う
+    const bool   click = FInput::IsMouseButtonPressed(EMouseButton::Left);
 }
 ```
 
-> シーンの外（生ウィンドウ）では `Camera2D::ScreenToWorld(screen, screen_w, screen_h)` を使います。こちらは画面サイズを明示する必要があります。
+`m_Player` は `TWeakObjectPtr<ANode>` とし、`NewObject<ANode>()` が返す強参照を
+`Root().AddChild(Move(node))` へ渡す前に代入します。ツリーから破棄された後は `Get()` が
+`nullptr` になるため、長期間保持する生ポインタより安全です。
+
+> シーンの外（生ウィンドウ）では `FCamera2D::ScreenToWorld(screen, screen_w, screen_h)` を使います。こちらは画面サイズを明示する必要があります。
 
 ### 2. アクションマッピングで移動 + 射撃（FInputMap）
 
@@ -141,18 +146,19 @@ void OnTick(f32 dt) noexcept override {
 // 実サンプル 38_HelloFullGame: OnEnter でバインド
 FInputMap& im = Services().Input();
 im.ClearAll();
-im.BindAxisKeys   (ActionId("MoveX"), EKey::A, EKey::D);
-im.BindAxisKeys   (ActionId("MoveY"), EKey::W, EKey::S);   // W=画面上=-Y (Y-down: 画面上ほど小さい Y)
-im.BindMouseButton(ActionId("Fire"),  EMouseButton::Left);
-im.BindKey        (ActionId("Pause"), EKey::P);
-im.BindKey        (ActionId("Quit"),  EKey::Escape);
+im.BindAxisKeys   (FActionId("MoveX"), EKey::A, EKey::D);
+im.BindGamepadAxis(FActionId("MoveX"), EGamepadAxis::LeftX);
+im.BindAxisKeys   (FActionId("MoveY"), EKey::W, EKey::S);   // W=画面上=-Y (Y-down: 画面上ほど小さい Y)
+im.BindMouseButton(FActionId("Fire"),  EMouseButton::Left);
+im.BindKey        (FActionId("Pause"), EKey::P);
+im.BindKey        (FActionId("Quit"),  EKey::Escape);
 
 // 毎フレームの消費（別関数）
 const FInputMap& im = scene.Services().Input();
-FVec2 move{ im.Axis(ActionId("MoveX")), im.Axis(ActionId("MoveY")) };
+FVec2 move{ im.Axis(FActionId("MoveX")), im.Axis(FActionId("MoveY")) };
 if (move.x != 0.0f || move.y != 0.0f) { /* 正規化して移動 */ }
-if (im.IsHeld(ActionId("Fire")))  Shoot();
-if (im.IsPressed(ActionId("Quit"))) GetGame().Quit();
+if (im.IsHeld(FActionId("Fire")))  Shoot();
+if (im.IsPressed(FActionId("Quit"))) GetGame().Quit();
 ```
 
 ### 3. トグル（押した瞬間だけ反転）
@@ -161,20 +167,22 @@ if (im.IsPressed(ActionId("Quit"))) GetGame().Quit();
 
 ```cpp
 // 実サンプル 60_HelloStencilMask より（前フレーム保持で確実にエッジ化）
-const bool space = Input::IsKeyPressed(EKey::Space);
+const bool space = FInput::IsKeyPressed(EKey::Space);
 if (space && !m_SpacePrev) m_Invert = !m_Invert;
 m_SpacePrev = space;
 ```
 
 ### 4. ゲームパッドのアナログスティック
 
-`FInputMap::Axis` は **キー入力専用**（`-1/0/+1` のデジタル）。スティックの生アナログ値が欲しいときは `Input` を直接読みます。
+アクションへ統合する場合は `BindGamepadAxis` を使います。キー軸とスティック値は
+`FInputMap::Axis` で合算され、最終的に `[-1,+1]` へ clamp されます。デッドゾーン等を
+独自処理したい場合だけ `FInput` の生アナログ値を直接読みます。
 
 ```cpp
-if (Input::IsGamepadConnected(0)) {
-    f32 lx = Input::GamepadAxisValue(0, EGamepadAxis::LeftX);   // -1.0 .. +1.0
-    f32 ly = Input::GamepadAxisValue(0, EGamepadAxis::LeftY);
-    f32 rt = Input::GamepadAxisValue(0, EGamepadAxis::RightTrigger); // 0.0 .. 1.0
+if (FInput::IsGamepadConnected(0)) {
+    f32 lx = FInput::GamepadAxisValue(0, EGamepadAxis::LeftX);   // -1.0 .. +1.0
+    f32 ly = FInput::GamepadAxisValue(0, EGamepadAxis::LeftY);
+    f32 rt = FInput::GamepadAxisValue(0, EGamepadAxis::RightTrigger); // 0.0 .. 1.0
     // 必要ならデッドゾーン処理を自前で
     if (lx*lx + ly*ly > 0.04f) Move(lx, ly);
 }
@@ -186,14 +194,13 @@ if (Input::IsGamepadConnected(0)) {
 
 - **`Pressed` はそのフレームだけ**。`IsKeyPressed` / `IsMouseButtonPressed` は立ち上がりエッジ。「押されている間」が欲しいなら `IsKeyDown` / `IsHeld`。逆にトグルでエッジが欲しいのに `Down` を使うと毎フレーム反転して暴れる。
 - **`MousePos()` はクライアント座標 (px)**。ワールド座標と混同しない。スプライトに当てる前に必ず `ScreenToWorld(...)` を通す。`MouseDelta()` も px 単位。
-- **`Input::Update()` の呼び出し場所**。生ウィンドウループでは毎フレーム先頭で自分で呼ぶ。`FApplication`/`FGame`（サンプル 28/38/55〜61 系）ではフレームワークが代行するので、`OnUpdate`/`OnTick` 内で **重ねて呼ばない**。
+- **`FInput::Update()` の呼び出し場所**。生ウィンドウループでは毎フレーム先頭で自分で呼ぶ。`FApplication`/`FGame`（サンプル 28/38/55〜61 系）ではフレームワークが代行するので、`OnUpdate`/`OnTick` 内で **重ねて呼ばない**。
 - **複数バインドは OR**。1 アクションに `BindKey`+`BindGamepad` を重ねると、どれか 1 つでも該当で `IsPressed/IsHeld/IsReleased` が true。「全部押す」AND セマンティクスは無い。
 - **軸キーの相殺**。`BindAxisKeys(neg, pos)` で *両方同時押し* は `0`（相殺）。複数の軸バインドは合算後 `clamp(-1, +1)`。
 - **`FInputMap` の未実装ポイント（正直な注意）**:
-  - 軸バインド (`BindAxisKeys`) に対する `IsPressed` / `IsReleased` は **常に false**（軸にエッジの概念なし）。`IsHeld` だけは「neg か pos が押下」で true。
-  - ゲームパッドバインドに対する `IsReleased` は **現状未対応で常に false**（`Input` 側に Gamepad Released が無いため）。離し判定が要るならキーバインドを併用するか `IsHeld` の前フレーム差分を自前で取る。
-  - `BindGamepad` の `player_index` は受け取るが、`BindKey`/`BindMouseButton`/`BindAxisKeys` は player 0 固定（マルチプレイヤーの完全分離は未対応）。
-- **`ActionId` のハッシュ衝突**。32bit FNV-1a なので理論上は衝突しうる。実用上は無視できるが、同一マップ内でアクション名の総当りを避ける程度の意識でよい。
+  - 軸バインド (`BindAxisKeys` / `BindGamepadAxis`) に対する `IsPressed` / `IsReleased` は **常に false**（軸にエッジの概念なし）。`IsHeld` は現在値が非ゼロなら true。
+  - キーボード/マウスには player 概念がなく、`BindKey` / `BindMouseButton` / `BindAxisKeys` は全プレイヤー共通。ゲームパッドだけ `player_index` で分離する。
+- **`FActionId` のハッシュ衝突**。32bit FNV-1a なので理論上は衝突しうる。実用上は無視できるが、同一マップ内でアクション名の総当りを避ける程度の意識でよい。
 - **`EGamepadAxis` のレンジ差**。スティックは `-1.0 .. +1.0`、トリガー（`LeftTrigger`/`RightTrigger`）は `0.0 .. 1.0`。同じ axis 値として混ぜない。
 
 ---
@@ -202,7 +209,7 @@ if (Input::IsGamepadConnected(0)) {
 
 | 内容 | パス |
 |---|---|
-| `Input` 直読み（IsKeyPressed/Down で背景色操作） | `acs/samples/01_HelloWindow/HelloWindowApp.cpp` |
+| `FInput` 直読み（IsKeyPressed/Down で背景色操作） | `acs/samples/01_HelloWindow/HelloWindowApp.cpp` |
 | マウス→ワールド + `MouseDelta` + 左クリック | `acs/samples/61_HelloWaterTopDown/WaterTopDownDemo.cpp` |
 | 同上（`ScreenToWorld` でピッキング） | `acs/samples/59_HelloEffects2D/EffectsDemo.cpp` |
 | トグル（前フレーム保持でエッジ化）+ `IsKeyDown` で連続操作 | `acs/samples/60_HelloStencilMask/StencilMaskDemo.cpp` |

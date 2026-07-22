@@ -17,7 +17,7 @@ namespace {
 /** text の判定 verdict を返す (エラーは Allow 扱いにせずテスト失敗させたいので EXPECT 済み前提)。 */
 EModerationVerdict VerdictOf(const char* text) noexcept
 {
-    ContentModeratorStub stub;
+    FContentModeratorStub stub;
     const auto r = stub.ModerateText("test_user", text);
     if (r.IsErr()) return EModerationVerdict::Allow;
     return r.Value().verdict;
@@ -62,7 +62,7 @@ ACS_TEST(ContentModerator, HardcodedBlockIsNotBypassableByLongPadding)
     for (const char* p = variant; *p != '\0'; ++p) long_text.PushBack(*p);
     long_text.PushBack('\0');
 
-    ContentModeratorStub stub;
+    FContentModeratorStub stub;
     const auto r = stub.ModerateText("test_user", long_text.Data());
     EXPECT_TRUE(r.IsOk());
     if (r.IsOk()) {
@@ -81,7 +81,7 @@ ACS_TEST(ContentModerator, HardcodedBlockIsNotBypassableByLongPadding)
 
 ACS_TEST(ContentModerator, UserNameUsesSameDictionary)
 {
-    ContentModeratorStub stub;
+    FContentModeratorStub stub;
     const auto bad = stub.ModerateUserName("xX_sh1t_Xx");
     EXPECT_TRUE(bad.IsOk());
     if (bad.IsOk()) EXPECT_TRUE(bad.Value().verdict == EModerationVerdict::Block);
@@ -93,7 +93,7 @@ ACS_TEST(ContentModerator, UserNameUsesSameDictionary)
 
 ACS_TEST(ContentModerator, ImageRgba8SkinRatioThresholds)
 {
-    ContentModeratorStub stub;
+    FContentModeratorStub stub;
 
     // 全ピクセル肌色 (R>95,G>40,B>20, R>G>B, spread>15) → ratio 1.0 → Block/Explicit。
     constexpr u32 kW = 8, kH = 8;

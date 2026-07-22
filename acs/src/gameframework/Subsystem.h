@@ -19,7 +19,7 @@
 //   };
 //   ACS_REGISTER_SUBSYSTEM(FScoreSubsystem, acs::game::ESubsystemScope::World)
 //
-//   // 取得 (Scene / FGame / FNode2D / FComponent2D の GetSubsystem<T>() から):
+//   // 取得 (FScene / FGame / ANode / AComponent の GetSubsystem<T>() から):
 //   GetSubsystem<FScoreSubsystem>()->Add(10);
 #pragma once
 
@@ -36,7 +36,7 @@ enum class ESubsystemScope : u8 {
     Engine       = 0,
     /** ゲームセッション(FGame 寿命)。シーンを跨いで保持したいシングルトン。 */
     GameInstance = 1,
-    /** ロード中の World/Scene 寿命。シーン固有の管理オブジェクト。 */
+    /** ロード中の World/FScene 寿命。シーン固有の管理オブジェクト。 */
     World        = 2,
 };
 
@@ -77,7 +77,7 @@ public:
     virtual const char* Name() const noexcept { return "FSubsystem"; }
 
     /**
-     * 所有コンテキスト(UE の Outer 相当)を返す。World サブシステムは所属 Scene、
+     * 所有コンテキスト(UE の Outer 相当)を返す。World サブシステムは所属 FScene、
      * GameInstance/Engine サブシステムは FGame が設定される(非所有・生ポインタ)。
      *
      * @return 所有コンテキスト(未設定なら nullptr)。OnInitialize 時点で有効。
@@ -97,7 +97,7 @@ public:
     void _SetOwner(void* owner) noexcept { m_Owner = owner; }
 
 private:
-    void* m_Owner = nullptr;   ///< 所有コンテキスト(Scene / FGame、非所有)。
+    void* m_Owner = nullptr;   ///< 所有コンテキスト(FScene / FGame、非所有)。
 };
 
 /**

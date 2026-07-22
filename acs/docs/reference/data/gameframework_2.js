@@ -12,7 +12,7 @@ ACS_REF.modules.push({
       when: "アバターの着せ替え / スキン選択 UI を作る時。アンロック済みの cosmetic から装着を選ばせ、装着が変わったら<t>callback</t>でレンダラに通知する。",
       sample: "FCharacterCustomizer cc;\ncc.RegisterCosmetic({ \\\"hat.red\\\", \\\"Red Cap\\\", ECosmeticSlot::Head, \\\"art/hat.fbx\\\", false, \\\"common\\\" });\ncc.UnlockCosmetic(\\\"hat.red\\\");\ncc.SetOnEquipCallback(&OnEquip, &renderer);\ncc.EquipCosmetic(\\\"hat.red\\\");  // Head slot に装着 → callback 発火",
       members: [
-        { sig: "void RegisterCosmetic(const CosmeticItem& item)", desc: "起動時に cosmetic 定義を 1 つ登録する。同 id の 2 重登録 / nullptr は無視。", when: "ゲーム開始時にすべての見た目アイテムをまとめて登録する。" },
+        { sig: "void RegisterCosmetic(const FCosmeticItem& item)", desc: "起動時に cosmetic 定義を 1 つ登録する。同 id の 2 重登録 / nullptr は無視。", when: "ゲーム開始時にすべての見た目アイテムをまとめて登録する。" },
         { sig: "bool UnlockCosmetic(const char* id)", ret: "新規 unlock したか", desc: "指定 id を入手済みにする。既に unlock 済 / 未登録なら false。", when: "ストア購入やクエスト報酬で見た目を解放した時 (検証は呼出側で済ませてから通知)。" },
         { sig: "bool IsUnlocked(const char* id) const", desc: "その cosmetic が入手済みかを返す。UI のグレーアウト判定に使う。" },
         { sig: "bool EquipCosmetic(const char* id)", ret: "装着できたか", desc: "該当 slot に装着する。同 slot の既存装着は自動で外れる。未登録 / 未 unlock は false。", when: "プレイヤーが着せ替え UI で選んだ時。" },
@@ -25,11 +25,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "CosmeticItem",
+      name: "FCosmeticItem",
       kind: "構造体", header: "gameframework/CharacterCustomizer.h",
       summary: "1 つの cosmetic (見た目アイテム) の定義。id・表示名・装着 slot・アセットパス・課金フラグ・レアリティラベルを持つ。文字列はすべて<t>非所有</t> (リテラル想定)。",
       when: "<code>RegisterCosmetic()</code> に渡す時。",
-      sample: "CosmeticItem item;\nitem.id = \\\"skin.gold\\\";\nitem.display_name = \\\"Gold Skin\\\";\nitem.slot = ECosmeticSlot::Body;\nitem.asset_path = \\\"art/skin_gold.fbx\\\";\nitem.is_premium = true;\nitem.rarity = \\\"rare\\\";"
+      sample: "FCosmeticItem item;\nitem.id = \\\"skin.gold\\\";\nitem.display_name = \\\"Gold Skin\\\";\nitem.slot = ECosmeticSlot::Body;\nitem.asset_path = \\\"art/skin_gold.fbx\\\";\nitem.is_premium = true;\nitem.rarity = \\\"rare\\\";"
     },
     {
       name: "ECosmeticSlot",
@@ -43,15 +43,15 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/CheckpointSystem.h",
       summary: "プラットフォーマー等の<b>チェックポイント (復活ポイント)</b> を管理するマネージャ。配置済み checkpoint を id で識別し、現在 active な 1 つを保持。死亡時に <code>TriggerRespawn()</code> で復活先の座標と level index を引き出す。",
       when: "「死んだら直近のチェックポイントに戻る」を実装する時。HP システムの死亡 callback から TriggerRespawn を叩くのが定番。",
-      sample: "FCheckpointSystem cps;\nCheckpointInfo cp{}; cp.id = \\\"cp.start\\\"; cp.spawn_pos = {100, 200};\ncps.Register(cp);\ncps.ActivateCheckpoint(\\\"cp.start\\\");  // チェックポイントに触れた\nFVec2 pos; u32 lv;\nif (cps.TriggerRespawn(pos, lv)) { /* pos へ復活 */ }",
+      sample: "FCheckpointSystem cps;\nFCheckpointInfo cp{}; cp.id = \\\"cp.start\\\"; cp.spawn_pos = {100, 200};\ncps.Register(cp);\ncps.ActivateCheckpoint(\\\"cp.start\\\");  // チェックポイントに触れた\nFVec2 pos; u32 lv;\nif (cps.TriggerRespawn(pos, lv)) { /* pos へ復活 */ }",
       members: [
-        { sig: "CheckpointId Register(const CheckpointInfo& info)", ret: "新しい handle", desc: "checkpoint を 1 つ配置登録する。同 id の 2 重登録 / id==nullptr は invalid を返す。", when: "レベルロード時に全 checkpoint をまとめて登録。" },
-        { sig: "void Unregister(CheckpointId id)", desc: "checkpoint を解除する。slot は再利用され generation が進む。active を消すと active は invalid 化。" },
+        { sig: "FCheckpointId Register(const FCheckpointInfo& info)", ret: "新しい handle", desc: "checkpoint を 1 つ配置登録する。同 id の 2 重登録 / id==nullptr は invalid を返す。", when: "レベルロード時に全 checkpoint をまとめて登録。" },
+        { sig: "void Unregister(FCheckpointId id)", desc: "checkpoint を解除する。slot は再利用され generation が進む。active を消すと active は invalid 化。" },
         { sig: "bool ActivateCheckpoint(const char* checkpoint_id)", ret: "切替できたか", desc: "指定 checkpoint を「現在地点」にする。one_way 違反 / 未 unlock / 未登録は false。同 id が既に active なら true (再発火なし)。", when: "プレイヤーがチェックポイントトリガに触れた時。", sample: "cps.ActivateCheckpoint(\\\"cp.mid\\\");" },
         { sig: "void UnlockCheckpoint(const char* checkpoint_id)", desc: "requires_unlock な隠し checkpoint を解放する。", when: "隠しスイッチを踏んだ時や DLC アンロック時。" },
         { sig: "bool IsUnlocked(const char* checkpoint_id) const", desc: "その checkpoint が利用可能か。requires_unlock=false な定義は常に true。" },
         { sig: "bool TriggerRespawn(FVec2& out_pos, u32& out_level_index) const", ret: "active があったか", desc: "死亡時の復活先座標と level index を書き出す。active が無ければ false。成功時に RespawnCallback 発火。", when: "プレイヤー死亡時。", sample: "FVec2 p; u32 lv;\nif (cps.TriggerRespawn(p, lv)) MovePlayer(p);" },
-        { sig: "CheckpointId CurrentCheckpoint() const", ret: "現 active handle", desc: "今 active な checkpoint。一度も Activate されていなければ invalid。" },
+        { sig: "FCheckpointId CurrentCheckpoint() const", ret: "現 active handle", desc: "今 active な checkpoint。一度も Activate されていなければ invalid。" },
         { sig: "u32 LastSpawnLevelIndex() const", desc: "直近に active 化された checkpoint の level index。" },
         { sig: "void SetOnActivateCallback(ActivateCallback cb, void* user)", desc: "Activate 成功時に呼ばれる callback (UI トースト / SE 用)。" },
         { sig: "void SetOnRespawnCallback(RespawnCallback cb, void* user)", desc: "TriggerRespawn 成功時に呼ばれる callback。" },
@@ -59,18 +59,18 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "CheckpointId",
+      name: "FCheckpointId",
       kind: "構造体", header: "gameframework/CheckpointSystem.h",
       summary: "チェックポイントを指す軽い<t>ハンドル</t>。32bit に 24bit の index と 8bit の<t>世代 (generation)</t> を詰めてある。解除後に slot が再利用されても、古いハンドルは世代不一致で弾かれる。0 は invalid。",
       when: "checkpoint を handle 経由で扱う時 (id 文字列の代わり)。",
-      sample: "CheckpointId id = cps.Register(info);\nif (id.IsValid()) cps.ActivateCheckpoint(id);"
+      sample: "FCheckpointId id = cps.Register(info);\nif (id.IsValid()) cps.ActivateCheckpoint(id);"
     },
     {
-      name: "CheckpointInfo",
+      name: "FCheckpointInfo",
       kind: "構造体", header: "gameframework/CheckpointSystem.h",
       summary: "1 つの checkpoint の定義。id・復活座標・level_index・sort_order・one_way (戻れなくする) ・requires_unlock (隠し) を持つ。",
       when: "<code>Register()</code> に渡す時。",
-      sample: "CheckpointInfo cp{};\ncp.id = \\\"cp.boss\\\";\ncp.spawn_pos = {500, 200};\ncp.sort_order = 1;\ncp.one_way = true;        // ここまで来たら戻れない\ncp.requires_unlock = false;"
+      sample: "FCheckpointInfo cp{};\ncp.id = \\\"cp.boss\\\";\ncp.spawn_pos = {500, 200};\ncp.sort_order = 1;\ncp.one_way = true;        // ここまで来たら戻れない\ncp.requires_unlock = false;"
     },
     {
       name: "FCinematicsDirector",
@@ -133,15 +133,15 @@ ACS_REF.modules.push({
       sample: "FCollisionWorld2D world;\nworld.Init(64.0f);\nFShapeId player = world.AddCircle({ {0,0}, 16.0f });\nworld.UpdateCircle(player, { pos, 16.0f });\nTArray<FShapeId> hits;\nworld.OverlapCircle({ pos, 32.0f }, hits);  // 周囲のもの全部",
       members: [
         { sig: "void Init(f32 cell_size = 64.0f)", desc: "グリッドのセルサイズを設定。典型的には最大形状の 2〜3 倍。", when: "ワールド作成直後に 1 度呼ぶ。" },
-        { sig: "FShapeId AddCircle(const Circle& c, u32 layer = kAllLayers)", ret: "形状 handle", desc: "円を登録する。layer は所属レイヤの bitmask。", when: "形状をワールドに追加する時。AddAabb / AddPolygon / AddObb も同様。" },
-        { sig: "void UpdateCircle(FShapeId id, const Circle& c)", desc: "形状が移動したら毎フレーム更新する (dirty にして次クエリで再構築)。AABB / Poly / Obb 版あり。" },
+        { sig: "FShapeId AddCircle(const FCircle& c, u32 layer = kAllLayers)", ret: "形状 handle", desc: "円を登録する。layer は所属レイヤの bitmask。", when: "形状をワールドに追加する時。AddAabb / AddPolygon / AddObb も同様。" },
+        { sig: "void UpdateCircle(FShapeId id, const FCircle& c)", desc: "形状が移動したら毎フレーム更新する (dirty にして次クエリで再構築)。AABB / Poly / Obb 版あり。" },
         { sig: "void Remove(FShapeId id)", desc: "形状を削除する (slot 再利用、generation 進む)。" },
-        { sig: "void OverlapCircle(const Circle& c, TArray<FShapeId>& out, FShapeId exclude = {}, u32 mask = kAllLayers)", desc: "円と重なる全形状を out に集める。exclude で自分を除外、mask でレイヤ絞り込み。OverlapAabb / OverlapPolygon も同様。", when: "範囲内の対象を一覧したい時。" },
-        { sig: "bool Raycast(const Ray2& ray, f32 max_t, RayHit2& out_hit, FShapeId& out_id, u32 mask = kAllLayers)", ret: "当たったか", desc: "最も近い形状を 1 つ返す。out_hit に交点 / 法線 / 距離、out_id にどの形状か。", when: "視線判定・射撃・地面検出など。", sample: "RayHit2 rh; FShapeId id;\nif (world.Raycast({org, dir}, 100.0f, rh, id)) Hit(id);" },
-        { sig: "FVec2 ResolveCircle(const Circle& c, FShapeId exclude = {}, u32 mask = kAllLayers)", ret: "押し出しベクトル", desc: "重なっている全形状から押し出す合計ベクトルを返す (重なり無しは {0,0})。<t>collide-and-slide</t> 用。", when: "kinematic body の貫通解消とスライド移動。" },
+        { sig: "void OverlapCircle(const FCircle& c, TArray<FShapeId>& out, FShapeId exclude = {}, u32 mask = kAllLayers)", desc: "円と重なる全形状を out に集める。exclude で自分を除外、mask でレイヤ絞り込み。OverlapAabb / OverlapPolygon も同様。", when: "範囲内の対象を一覧したい時。" },
+        { sig: "bool Raycast(const FRay2& ray, f32 max_t, FRayHit2& out_hit, FShapeId& out_id, u32 mask = kAllLayers)", ret: "当たったか", desc: "最も近い形状を 1 つ返す。out_hit に交点 / 法線 / 距離、out_id にどの形状か。", when: "視線判定・射撃・地面検出など。", sample: "FRayHit2 rh; FShapeId id;\nif (world.Raycast({org, dir}, 100.0f, rh, id)) Hit(id);" },
+        { sig: "FVec2 ResolveCircle(const FCircle& c, FShapeId exclude = {}, u32 mask = kAllLayers)", ret: "押し出しベクトル", desc: "重なっている全形状から押し出す合計ベクトルを返す (重なり無しは {0,0})。<t>collide-and-slide</t> 用。", when: "kinematic body の貫通解消とスライド移動。" },
         { sig: "u32 ShapeCount() const", desc: "登録中の形状数。" },
         { sig: "void ClearAll()", desc: "全形状とグリッドを破棄する。" },
-        { sig: "FVec2 ResolvePolygon(const ConvexPoly2& p, FShapeId exclude = {}, u32 mask = kAllLayers)", ret: "押し出しベクトル", desc: "凸ポリゴン版の押し出し合計ベクトル。重なり無しは {0,0}。<code>ResolveCircle</code> と同じ <t>collide-and-slide</t> 用。", when: "ポリゴン形状の kinematic body の貫通解消とスライド移動。" }
+        { sig: "FVec2 ResolvePolygon(const FConvexPoly2& p, FShapeId exclude = {}, u32 mask = kAllLayers)", ret: "押し出しベクトル", desc: "凸ポリゴン版の押し出し合計ベクトル。重なり無しは {0,0}。<code>ResolveCircle</code> と同じ <t>collide-and-slide</t> 用。", when: "ポリゴン形状の kinematic body の貫通解消とスライド移動。" }
       ]
     },
     {
@@ -155,7 +155,7 @@ ACS_REF.modules.push({
       name: "FCombatStateMachine",
       kind: "クラス", header: "gameframework/CombatStateMachine.h",
       summary: "シーン全体の<b>戦闘フェーズ</b>を 6 状態 (Peaceful / Alert / Engaged / BossFight / Victory / Retreat) の<t>有限オートマトン</t>で追跡するディレクタ。敵検出・戦闘開始・ボス出現などを notify すると状態が遷移し、連続値の <code>ThreatLevel()</code> [0,1] も出す。",
-      when: "戦況に応じて BGM や環境演出を切り替えたい時。状態が変わったら callback で MusicDirector 等に通知する。",
+      when: "戦況に応じて BGM や環境演出を切り替えたい時。状態が変わったら callback で FMusicDirector 等に通知する。",
       sample: "FCombatStateMachine combat;\ncombat.Init();\ncombat.SetOnStateChangeCallback(&OnCombatState, this);\ncombat.NotifyEnemyDetected(enemyId);  // Peaceful → Alert\ncombat.NotifyCombatStarted(enemyId);  // → Engaged\n// 毎フレーム: combat.Tick(dt);  // ThreatLevel が滑らかに追従",
       members: [
         { sig: "void Init()", desc: "Peaceful 状態に初期化 (callback は保持)。シーン再入時に使う。" },
@@ -180,35 +180,35 @@ ACS_REF.modules.push({
       sample: "if (combat.CurrentState() == ECombatState::BossFight) PlayBossMusic();"
     },
     {
-      name: "EnemyAwareness",
+      name: "FEnemyAwareness",
       kind: "構造体", header: "gameframework/CombatStateMachine.h",
       summary: "1 体の敵の認識情報。enemy_id・awareness_level [0,1] (1=完全検出) ・is_engaged を持つ。<code>FCombatStateMachine</code> が内部で配列管理する。",
       when: "通常は内部用。複数敵の検出状態を並列に追跡するためのデータ。"
     },
     {
-      name: "FComponent2D",
-      kind: "クラス", header: "gameframework/Component2D.h",
-      summary: "<code>FNode2D</code> に付ける<b>振る舞いパーツ</b>の基底。sprite 描画・当たり判定・アニメ・カスタムロジックを<b>継承でなく合成</b>で組み上げる (composition over inheritance)。<code>OnUpdate</code> 等のフックを override して使う。",
+      name: "AComponent",
+      kind: "クラス", header: "gameframework/AComponent.h",
+      summary: "<code>ANode</code> に付ける<b>振る舞いパーツ</b>の基底。sprite 描画・当たり判定・アニメ・カスタムロジックを<b>継承でなく合成</b>で組み上げる (composition over inheritance)。<code>OnUpdate</code> 等のフックを override して使う。",
       when: "ノードに独自の振る舞いを足したい時。Unity の MonoBehaviour 的な感覚で 1 機能 = 1 コンポーネントを書く。",
-      sample: "class RotateComponent : public FComponent2D {\npublic:\n    ACS_GAME_COMPONENT_KIND(RotateComponent)\n    void OnUpdate(f32 dt) noexcept override {\n        Owner().Local().rotation += m_Speed * dt;\n    }\n    f32 m_Speed = 1.0f;\n};\nnode-&gt;AddComponent&lt;RotateComponent&gt;();",
+      sample: "class ARotateComponent : public AComponent {\npublic:\n    ACS_GAME_COMPONENT_KIND(ARotateComponent)\n    void OnUpdate(f32 dt) noexcept override {\n        Owner().SetRotation2D(Owner().Rotation2D() + m_Speed * dt);\n    }\n    f32 m_Speed = 1.0f;\n};\nnode-&gt;AddComponent&lt;ARotateComponent&gt;();",
       members: [
         { sig: "virtual const void* Kind() const", desc: "型を識別する ID。派生では <code>ACS_GAME_COMPONENT_KIND(T)</code> マクロで 1 行 override する。" },
-        { sig: "virtual void OnRequire(FNode2D& owner)", desc: "依存コンポーネント宣言フック (Unity の [RequireComponent] 相当)。<code>owner.GetOrAddComponent&lt;Dep&gt;()</code> で兄弟を自動確保。", when: "「このコンポーネントは Sprite が必要」のような依存を表明する時。" },
-        { sig: "virtual void OnAttach(FNode2D& owner)", desc: "ノードに付いた瞬間に呼ばれる。初期化に使う。" },
+        { sig: "virtual void OnRequire(ANode& owner)", desc: "依存コンポーネント宣言フック (Unity の [RequireComponent] 相当)。<code>owner.GetOrAddComponent&lt;Dep&gt;()</code> で兄弟を自動確保。", when: "「このコンポーネントは ASprite2DComponent が必要」のような依存を表明する時。" },
+        { sig: "virtual void OnAttach(ANode& owner)", desc: "ノードに付いた瞬間に呼ばれる。初期化に使う。" },
         { sig: "virtual void OnUpdate(f32 dt)", desc: "毎フレーム呼ばれる。可変 dt のロジック用。", when: "毎フレームの移動・回転・状態更新。" },
         { sig: "virtual void OnFixedUpdate(f32 fixed_dt)", desc: "固定刻みで呼ばれる (同フレームで 0 回 / 複数回あり得る)。物理や決定論的ロジック用。" },
-        { sig: "virtual void OnDraw(RenderContext& rc)", desc: "描画フック。ノードの描画タイミングで呼ばれる。" },
-        { sig: "virtual void OnDrawPostChildren(RenderContext& rc)", desc: "子ツリー描画の後に呼ばれる後処理フック。OnDraw で設定したマスク等を解除する用。" },
+        { sig: "virtual void OnDraw(FRenderContext& rc)", desc: "描画フック。ノードの描画タイミングで呼ばれる。" },
+        { sig: "virtual void OnDrawPostChildren(FRenderContext& rc)", desc: "子ツリー描画の後に呼ばれる後処理フック。OnDraw で設定したマスク等を解除する用。" },
         { sig: "virtual void OnDetach()", desc: "ノードから外れる / 破棄される時に呼ばれる。後始末用。" },
-        { sig: "FNode2D& Owner()", ret: "所有ノード", desc: "このコンポーネントが付いているノードを返す。" }
+        { sig: "ANode& Owner()", ret: "所有ノード", desc: "このコンポーネントが付いているノードを返す。" }
       ]
     },
     {
       name: "ComponentKindOf&lt;T&gt; / ACS_GAME_COMPONENT_KIND",
-      kind: "関数テンプレート / マクロ", header: "gameframework/Component2D.h",
+      kind: "関数テンプレート / マクロ", header: "gameframework/AComponent.h",
       summary: "<t>RTTI</t> を使わずにコンポーネント型を一意識別する仕組み。型 T ごとに別アドレスの static 変数を持ち、そのアドレスを型 ID にする。派生クラスは <code>ACS_GAME_COMPONENT_KIND(T)</code> マクロで <code>Kind()</code> を 1 行 override する。",
       when: "コンポーネントを自作する時、クラス内に 1 行書くだけ。",
-      sample: "class MyComp : public FComponent2D {\npublic:\n    ACS_GAME_COMPONENT_KIND(MyComp)  // Kind() を生成\n};"
+      sample: "class AMyComp : public AComponent {\npublic:\n    ACS_GAME_COMPONENT_KIND(AMyComp)  // Kind() を生成\n};"
     },
     {
       name: "IContentModerator",
@@ -217,25 +217,25 @@ ACS_REF.modules.push({
       when: "オンライン要素でユーザーが入力したテキストや画像を公開前にチェックしたい時。",
       sample: "IContentModerator* mod = &acs::game::GetModeratorStub();\nauto r = mod-&gt;ModerateText(userId, text);\nif (r &amp;&amp; r.Value().verdict == EModerationVerdict::Block)\n    ShowBlockedUi(r.Value().reason);",
       members: [
-        { sig: "virtual TResult<ModerationResult> ModerateText(const char* user_id, const char* text)", ret: "判定結果", desc: "チャット / プロフィール文等をモデレーションする。", when: "テキスト投稿前。" },
-        { sig: "virtual TResult<ModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size)", desc: "投稿画像 (PNG/JPEG 等の生バイト列) をモデレーションする。size==0 / nullptr は BadArgument。" },
-        { sig: "virtual TResult<ModerationResult> ModerateUserName(const char* name)", desc: "ユーザー名をモデレーションする (通常 text より厳しめ)。" },
+        { sig: "virtual TResult<FModerationResult> ModerateText(const char* user_id, const char* text)", ret: "判定結果", desc: "チャット / プロフィール文等をモデレーションする。", when: "テキスト投稿前。" },
+        { sig: "virtual TResult<FModerationResult> ModerateImage(const char* user_id, const u8* image_data, u64 size)", desc: "投稿画像 (PNG/JPEG 等の生バイト列) をモデレーションする。size==0 / nullptr は BadArgument。" },
+        { sig: "virtual TResult<FModerationResult> ModerateUserName(const char* name)", desc: "ユーザー名をモデレーションする (通常 text より厳しめ)。" },
         { sig: "virtual void Tick(f32 dt)", desc: "非同期処理 (REST 結果ポーリング等) のポンプ。毎フレーム呼ぶ。Stub は no-op。" },
         { sig: "virtual bool IsAvailable() const", desc: "API を発火できる状態か。Stub は常に true。" }
       ]
     },
     {
-      name: "ContentModeratorStub",
+      name: "FContentModeratorStub",
       kind: "クラス", header: "gameframework/ContentModerator.h",
       summary: "<code>IContentModerator</code> の依存ゼロのデフォルト実装。内部の小さな NG 単語リストに対し、生文字列と<b>正規化</b>文字列 (小文字化 + leet 置換 + 記号除去) の 2 経路で照合する。<code>GetModeratorStub()</code> で共有 singleton を取れる。",
       when: "実 SDK を入れる前のローカルテキストフィルタとして、またはテスト用に。",
       sample: "IContentModerator& mod = acs::game::GetModeratorStub();\n// f.u.c.k や sh1t のような変種も同じ辞書で捕捉",
       members: [
-        { sig: "TResult<ModerationResult> ModerateImageRgba8(const u8* rgba, u32 width, u32 height)", desc: "デコード済み RGBA8 ピクセルを直接 NSFW 判定する。肌色比率 heuristic で露出度を推定。", when: "CPU 側に既にテクスチャがあり再デコードを避けたい時。" }
+        { sig: "TResult<FModerationResult> ModerateImageRgba8(const u8* rgba, u32 width, u32 height)", desc: "デコード済み RGBA8 ピクセルを直接 NSFW 判定する。肌色比率 heuristic で露出度を推定。", when: "CPU 側に既にテクスチャがあり再デコードを避けたい時。" }
       ]
     },
     {
-      name: "ModerationResult",
+      name: "FModerationResult",
       kind: "構造体", header: "gameframework/ContentModerator.h",
       summary: "1 回のモデレーション結果。verdict (Allow/Warn/Block) ・rating (Safe〜Explicit) ・reason 文字列を持つ。",
       when: "Moderate*() の戻り値を読む時。",
@@ -253,30 +253,30 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/CooldownTimer.h",
       summary: "複数の<b>クールダウン</b> (スキル / アビリティ / リロード等) を同時追跡する軽量マネージャ。各 cooldown は label と長さを持ち、Tick で残り時間を減らし、0 で使用可 (charged) になる。<code>TryUse</code> は charged の時だけ true を返して即リロード開始。",
       when: "「このスキルは 3 秒に 1 回しか撃てない」のような再使用待ち時間を管理する時。",
-      sample: "FCooldownTimer cd;\nCooldownId fireball = cd.Register(\\\"fireball\\\", 3.0f);\ncd.ForceReady(fireball);  // 初手は即撃てる\nvoid OnUpdate(f32 dt) {\n    cd.Tick(dt);\n    if (pressed &amp;&amp; cd.TryUse(fireball)) SpawnFireball();\n}",
+      sample: "FCooldownTimer cd;\nFCooldownId fireball = cd.Register(\\\"fireball\\\", 3.0f);\ncd.ForceReady(fireball);  // 初手は即撃てる\nvoid OnUpdate(f32 dt) {\n    cd.Tick(dt);\n    if (pressed &amp;&amp; cd.TryUse(fireball)) SpawnFireball();\n}",
       members: [
-        { sig: "CooldownId Register(const char* label, f32 duration_sec)", ret: "cooldown handle", desc: "cooldown を登録する。duration<=0 は invalid。登録直後はリロード中扱い。", when: "スキルを定義する時。" },
-        { sig: "void Unregister(CooldownId id)", desc: "cooldown を削除する (slot 再利用、stale 検出可)。" },
-        { sig: "bool TryUse(CooldownId id)", ret: "使えたか", desc: "charged なら remaining=duration にして true。リロード中は false。", when: "スキルを発動しようとする時。", sample: "if (cd.TryUse(dash)) DoDash();" },
-        { sig: "bool IsCharged(CooldownId id) const", desc: "今すぐ使えるか。" },
-        { sig: "f32 Progress(CooldownId id) const", ret: "[0,1]", desc: "リロード進捗。1.0 で charged。HUD のゲージ表示に使う。" },
-        { sig: "f32 Remaining(CooldownId id) const", desc: "残り秒数 (charged / stale は 0)。" },
-        { sig: "void ForceReady(CooldownId id)", desc: "即座に charged にする (ReadyCallback も発火)。", when: "初期化時に「最初から撃てる」状態にしたい時。" },
-        { sig: "void Reset(CooldownId id)", desc: "即座に duration までリロードし直す (charged=false)。" },
-        { sig: "void SetDuration(CooldownId id, f32 new_duration_sec)", desc: "進行中 cooldown の長さを変更する (バフ / デバフで短縮・延長)。" },
+        { sig: "FCooldownId Register(const char* label, f32 duration_sec)", ret: "cooldown handle", desc: "cooldown を登録する。duration<=0 は invalid。登録直後はリロード中扱い。", when: "スキルを定義する時。" },
+        { sig: "void Unregister(FCooldownId id)", desc: "cooldown を削除する (slot 再利用、stale 検出可)。" },
+        { sig: "bool TryUse(FCooldownId id)", ret: "使えたか", desc: "charged なら remaining=duration にして true。リロード中は false。", when: "スキルを発動しようとする時。", sample: "if (cd.TryUse(dash)) DoDash();" },
+        { sig: "bool IsCharged(FCooldownId id) const", desc: "今すぐ使えるか。" },
+        { sig: "f32 Progress(FCooldownId id) const", ret: "[0,1]", desc: "リロード進捗。1.0 で charged。HUD のゲージ表示に使う。" },
+        { sig: "f32 Remaining(FCooldownId id) const", desc: "残り秒数 (charged / stale は 0)。" },
+        { sig: "void ForceReady(FCooldownId id)", desc: "即座に charged にする (ReadyCallback も発火)。", when: "初期化時に「最初から撃てる」状態にしたい時。" },
+        { sig: "void Reset(FCooldownId id)", desc: "即座に duration までリロードし直す (charged=false)。" },
+        { sig: "void SetDuration(FCooldownId id, f32 new_duration_sec)", desc: "進行中 cooldown の長さを変更する (バフ / デバフで短縮・延長)。" },
         { sig: "void Tick(f32 dt)", desc: "全 cooldown の remaining を減らす。0 を跨いだ瞬間に charged 遷移 + ReadyCallback 発火。", when: "毎フレーム呼ぶ。" },
         { sig: "void SetOnReadyCallback(ReadyCallback cb, void* user)", desc: "charged になった瞬間に呼ばれる callback (HUD の \\\"Ready!\\\" 点滅等)。" }
       ]
     },
     {
-      name: "CooldownId",
+      name: "FCooldownId",
       kind: "構造体", header: "gameframework/CooldownTimer.h",
       summary: "cooldown を指す<t>ハンドル</t>。24bit index + 8bit generation の packed u32。0 は invalid。",
       when: "登録した cooldown を後で参照する時。",
-      sample: "CooldownId id = cd.Register(\\\"dash\\\", 0.8f);"
+      sample: "FCooldownId id = cd.Register(\\\"dash\\\", 0.8f);"
     },
     {
-      name: "CooldownState",
+      name: "FCooldownState",
       kind: "構造体", header: "gameframework/CooldownTimer.h",
       summary: "UI / デバッグ表示用の cooldown スナップショット。label・duration・remaining・charged を持つ。",
       when: "クールダウンの状態をまとめて表示したい時の読み取り用。"
@@ -288,7 +288,7 @@ ACS_REF.modules.push({
       when: "「木3個 + 鉄2個を4秒かけて斧にする」のようなクラフトを作る時。同時クラフトは 1 件なので、複数同時なら instance を複数持つ。",
       sample: "FCraftingSystem cs;\ncs.RegisterRecipe({ \\\"craft.axe\\\", \\\"Iron Axe\\\", \\\"tool.axe\\\", 1, 2, ingredients, 4.0f, \\\"workbench\\\", 3 });\ncs.SetInventoryAdapter(&Query, &Consume, &Grant, &inv);\nif (cs.CanCraft(\\\"craft.axe\\\", \\\"workbench\\\", level))\n    cs.StartCraft(\\\"craft.axe\\\", \\\"workbench\\\", level);\n// 毎フレーム: cs.Tick(dt);",
       members: [
-        { sig: "void RegisterRecipe(const CraftRecipe& recipe)", desc: "レシピを登録する。同 id の 2 重登録は no-op (WARN)。", when: "起動時に全レシピをまとめて登録。" },
+        { sig: "void RegisterRecipe(const FCraftRecipe& recipe)", desc: "レシピを登録する。同 id の 2 重登録は no-op (WARN)。", when: "起動時に全レシピをまとめて登録。" },
         { sig: "void SetInventoryAdapter(InventoryQueryFn query, InventoryConsumeFn consume, InventoryGrantFn grant, void* user)", desc: "在庫の問い合わせ / 消費 / 付与を担う関数を差し込む。全 nullptr なら在庫無制限 (デバッグ用)。", when: "在庫システムと繋ぐ時。" },
         { sig: "bool CanCraft(const char* recipe_id, const char* current_workbench = nullptr, u32 player_level = 999) const", ret: "作れるか", desc: "素材・ワークベンチ・レベルを副作用なしで事前判定する。true なら StartCraft も成功する。", when: "ボタンの有効/無効を決める時。" },
         { sig: "bool StartCraft(const char* recipe_id, const char* current_workbench, u32 player_level)", ret: "開始できたか", desc: "素材を一括消費して Crafting 状態に遷移する。途中失敗時は巻き戻す。", when: "プレイヤーがクラフト開始した時。" },
@@ -299,22 +299,22 @@ ACS_REF.modules.push({
         { sig: "const char* CurrentRecipeId() const", desc: "今クラフト中のレシピ id (Idle / 未開始は nullptr)。" },
         { sig: "void Tick(f32 dt)", desc: "Crafting 中なら残り時間を減らし、0 で成果物 grant + CompleteCallback 発火 + Completed に。", when: "毎フレーム呼ぶ。" },
         { sig: "void SetOnCompleteCallback(CompleteCallback cb, void* user)", desc: "クラフト完了フレームに呼ばれる callback (SE / トースト用)。" },
-        { sig: "const CraftRecipe* FindRecipe(const char* recipe_id) const", desc: "レシピ定義を取得する (未登録は nullptr)。" }
+        { sig: "const FCraftRecipe* FindRecipe(const char* recipe_id) const", desc: "レシピ定義を取得する (未登録は nullptr)。" }
       ]
     },
     {
-      name: "CraftRecipe",
+      name: "FCraftRecipe",
       kind: "構造体", header: "gameframework/CraftingSystem.h",
       summary: "1 件のレシピ定義。recipe_id・表示名・成果物 (result_item_id / count) ・素材配列 (ingredients) ・所要秒数・必要ワークベンチ・解放レベルを持つ。文字列・素材配列は<t>非所有</t>。",
       when: "<code>RegisterRecipe()</code> に渡す時。",
-      sample: "static const Ingredient mats[] = { {\\\"wood\\\",3}, {\\\"iron_ore\\\",2} };\nCraftRecipe r{ \\\"craft.axe\\\", \\\"Iron Axe\\\", \\\"tool.axe\\\", 1, 2, mats, 4.0f, \\\"workbench\\\", 3 };"
+      sample: "static const FIngredient mats[] = { {\\\"wood\\\",3}, {\\\"iron_ore\\\",2} };\nFCraftRecipe r{ \\\"craft.axe\\\", \\\"Iron Axe\\\", \\\"tool.axe\\\", 1, 2, mats, 4.0f, \\\"workbench\\\", 3 };"
     },
     {
-      name: "Ingredient",
+      name: "FIngredient",
       kind: "構造体", header: "gameframework/CraftingSystem.h",
       summary: "レシピの素材エントリ 1 つ。item_id (素材アイテム id) と count (必要個数) を持つ。",
       when: "レシピの素材配列を組む時。",
-      sample: "Ingredient i{ \\\"wood\\\", 3 };"
+      sample: "FIngredient i{ \\\"wood\\\", 3 };"
     },
     {
       name: "ECraftStatus",
@@ -331,7 +331,7 @@ ACS_REF.modules.push({
       sample: "ICrashReporterBackend& cr = acs::game::GetDefaultCrashReporter();\ncr.Init(\\\"com.example.game\\\", \\\"1.2.3\\\");\ncr.AddBreadcrumb(\\\"save\\\", \\\"autosave start\\\");\n// 毎フレーム: cr.Tick(dt);",
       members: [
         { sig: "virtual TResult<void> Init(const char* product_id, const char* version)", desc: "SDK を初期化する。product_id / version は集計キー。", when: "起動時に 1 度。" },
-        { sig: "virtual TResult<void> ReportCrash(const CrashContext& ctx)", desc: "クラッシュ 1 件を送信する (プロセスがまだ生きている前提)。" },
+        { sig: "virtual TResult<void> ReportCrash(const FCrashContext& ctx)", desc: "クラッシュ 1 件を送信する (プロセスがまだ生きている前提)。" },
         { sig: "virtual TResult<void> ReportError(const char* category, const char* message)", desc: "非致命的エラーを送信する。category は \\\"net\\\" / \\\"save\\\" 等の集計キー。" },
         { sig: "virtual TResult<void> AddBreadcrumb(const char* category, const char* message)", desc: "クラッシュ前の足跡を 1 件追加する (送信せず ReportCrash 時に添付)。", when: "重要操作の前後に挟んで後で追跡できるようにする。" },
         { sig: "virtual void SetUserId(const char* anonymous_id)", desc: "匿名ユーザー ID を設定する (生 email でなく UUID 推奨、GDPR/CCPA 配慮)。" },
@@ -340,18 +340,18 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "CrashReporterStub / GetCrashStub / GetDefaultCrashReporter",
+      name: "FCrashReporterStub / GetCrashStub / GetDefaultCrashReporter",
       kind: "クラス / 関数", header: "gameframework/CrashReporter.h",
-      summary: "<code>CrashReporterStub</code> は全 API が NotImplemented を返す<t>null-object</t> 実装。<code>GetCrashStub()</code> で共有 stub を取得。<code>GetDefaultCrashReporter()</code> は実 backend が登録済ならそれを、未登録なら stub を返す。<code>SetCrashReporterProvider()</code> で実 backend を結線する。",
+      summary: "<code>FCrashReporterStub</code> は全 API が NotImplemented を返す<t>null-object</t> 実装。<code>GetCrashStub()</code> で共有 stub を取得。<code>GetDefaultCrashReporter()</code> は実 backend が登録済ならそれを、未登録なら stub を返す。<code>SetCrashReporterProvider()</code> で実 backend を結線する。",
       when: "実 backend が無い環境でもリンクを通したい時、または backend 非依存に既定 reporter を取りたい時。",
       sample: "// 起動時、実 backend がリンクされていれば:\n#if WITH_ACS_CRASH_REPORTER\n    acs::crashwin::InstallWindowsCrashReporterAsDefault();\n#endif\nauto& cr = acs::game::GetDefaultCrashReporter();"
     },
     {
-      name: "CrashHandler",
+      name: "FCrashHandler",
       kind: "クラス", header: "gameframework/CrashReporter.h",
       summary: "<code>ICrashReporterBackend</code> を 1 つ抱えてタイトル側で使いやすくする薄い wrapper。backend が未 Install (nullptr) のときは全 API が no-op になる (二次クラッシュ防止)。",
       when: "ホットパスから簡単にクラッシュ通知 / breadcrumb を出したい時。",
-      sample: "CrashHandler handler;\nhandler.Install(&backend);\nhandler.AddBreadcrumb(\\\"shader\\\", \\\"compile pass 2\\\");\nhandler.NotifyCrash(\\\"SEH_AV\\\", \\\"null deref in Foo\\\");",
+      sample: "FCrashHandler handler;\nhandler.Install(&backend);\nhandler.AddBreadcrumb(\\\"shader\\\", \\\"compile pass 2\\\");\nhandler.NotifyCrash(\\\"SEH_AV\\\", \\\"null deref in Foo\\\");",
       members: [
         { sig: "void Install(ICrashReporterBackend* backend)", desc: "backend 参照を保持する (寿命は呼出側所有)。nullptr で Uninstall と同義。" },
         { sig: "void Uninstall()", desc: "backend 参照を外す (べき等)。" },
@@ -360,11 +360,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "CrashContext",
+      name: "FCrashContext",
       kind: "構造体", header: "gameframework/CrashReporter.h",
       summary: "クラッシュ 1 件分の context。exception_type・message・stack_trace (改行区切り) ・scene_name・frame_count・timestamp・build_id を持つ。文字列は<t>非所有</t>。",
       when: "<code>ReportCrash()</code> に渡す時。",
-      sample: "CrashContext ctx;\nctx.exception_type = \\\"SEH_ACCESS_VIOLATION\\\";\nctx.message = \\\"null deref\\\";\nctx.frame_count = frameCount;"
+      sample: "FCrashContext ctx;\nctx.exception_type = \\\"SEH_ACCESS_VIOLATION\\\";\nctx.message = \\\"null deref\\\";\nctx.frame_count = frameCount;"
     },
     {
       name: "FDamageFeedback",
@@ -394,12 +394,12 @@ ACS_REF.modules.push({
       sample: "FDebugDraw dd;\ndd.Clear();\ndd.DrawAabb(playerAabb, FVec4{1,0,0,1});\ndd.DrawCircle(enemyCircle, FVec4{1,1,0,1});\nfor (u32 i = 0; i < dd.LineCount(); ++i) {\n    const auto& ln = dd.Lines()[i];\n    batch.DrawLine(ln.a, ln.b, ln.color);\n}",
       members: [
         { sig: "void DrawLine(FVec2 a, FVec2 b, FVec4 color)", desc: "任意 2 点間の線分を積む。" },
-        { sig: "void DrawAabb(const Aabb2& a, FVec4 color)", desc: "AABB の輪郭 (4 辺) を積む。中身は塗らない。", when: "矩形コライダーの可視化。" },
-        { sig: "void DrawCircle(const Circle& c, FVec4 color, u32 segments = 24)", desc: "円を segments 本の線分に分解して積む。segments<3 は丸める。", when: "円コライダーや範囲の可視化。" },
+        { sig: "void DrawAabb(const FAabb2& a, FVec4 color)", desc: "AABB の輪郭 (4 辺) を積む。中身は塗らない。", when: "矩形コライダーの可視化。" },
+        { sig: "void DrawCircle(const FCircle& c, FVec4 color, u32 segments = 24)", desc: "円を segments 本の線分に分解して積む。segments<3 は丸める。", when: "円コライダーや範囲の可視化。" },
         { sig: "void DrawCross(FVec2 pos, f32 size, FVec4 color)", desc: "中心 pos の \\\"+\\\" 記号を積む。位置可視化に便利。" },
         { sig: "void Clear()", desc: "蓄積をクリアする (容量は保持)。フレーム頭か描画消費後に呼ぶ。" },
         { sig: "u32 LineCount() const", desc: "蓄積した線の本数。" },
-        { sig: "const Line* Lines() const", ret: "生バッファ先頭", desc: "描画システムが読む連続メモリ。空のとき nullptr なので LineCount() でガードする。" }
+        { sig: "const FLine* Lines() const", ret: "生バッファ先頭", desc: "描画システムが読む連続メモリ。空のとき nullptr なので LineCount() でガードする。" }
       ]
     },
     {
@@ -416,7 +416,7 @@ ACS_REF.modules.push({
         { sig: "f32 MinFps() / f32 MaxFps() const", desc: "履歴中の最小 / 最大 FPS。" },
         { sig: "void AddWatch(const char* label, const char* value)", desc: "任意のラベル + 値文字列を表示項目に追加する。同名は後勝ち上書き。値バッファは caller が毎フレーム更新する。", when: "HP やスコア等を画面に出したい時。" },
         { sig: "void RemoveWatch(const char* label)", desc: "ラベル一致の watch を削除する (順序非保持)。" },
-        { sig: "const Watch* AllWatches(u32& out_count) const", desc: "全 watch を読み取り用に列挙する。描画側が順に描く。" },
+        { sig: "const FWatch* AllWatches(u32& out_count) const", desc: "全 watch を読み取り用に列挙する。描画側が順に描く。" },
         { sig: "void Show() / Hide() / Toggle()", desc: "表示の ON/OFF (例: F3 で Toggle)。" },
         { sig: "void SetSceneName(const char* name)", desc: "オーバーレイに出すシーン名を設定する (caller 所有のリテラル)。" }
       ]
@@ -477,11 +477,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "ConsoleArg / CommandFn",
+      name: "FConsoleArg / CommandFn",
       kind: "構造体 / 関数ポインタ型", header: "gameframework/DevConsole.h",
-      summary: "<code>ConsoleArg</code> はコマンド引数 1 つ (Phase 1 では raw 文字列のみ)。<code>CommandFn</code> はコマンド本体の関数ポインタ型 <code>void(*)(void* user, u32 argc, const ConsoleArg* args)</code>。argv[0] はコマンド名でなく最初の引数。",
+      summary: "<code>FConsoleArg</code> はコマンド引数 1 つ (Phase 1 では raw 文字列のみ)。<code>CommandFn</code> はコマンド本体の関数ポインタ型 <code>void(*)(void* user, u32 argc, const FConsoleArg* args)</code>。argv[0] はコマンド名でなく最初の引数。",
       when: "コマンドを実装する時のシグネチャ。",
-      sample: "static void SpawnCmd(void* user, u32 argc, const ConsoleArg* args) noexcept {\n    if (argc >= 1) Spawn(args[0].str);\n}"
+      sample: "static void SpawnCmd(void* user, u32 argc, const FConsoleArg* args) noexcept {\n    if (argc >= 1) Spawn(args[0].str);\n}"
     }
   ]
 });

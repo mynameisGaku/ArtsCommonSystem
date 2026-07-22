@@ -2,14 +2,14 @@
 // FTimerManager — フレーム単位の遅延 / 周期タイマー
 //
 // 使い方:
-//   struct MyState { World* w; EntityId e; };
+//   struct FMyState { FWorld* w; FEntityId e; };
 //   static void OnFire(void* user) {
-//       auto* s = static_cast<MyState*>(user);
+//       auto* s = static_cast<FMyState*>(user);
 //       // ...
 //   }
 //
 //   FTimerManager timers;
-//   MyState st { &world, enemy };
+//   FMyState st { &world, enemy };
 //   FTimerHandle h = timers.SetTimeout(2.5f, &OnFire, &st);
 //
 //   // フレームループで:
@@ -20,7 +20,7 @@
 //
 // 設計:
 //   ・コールバックは関数ポインタ + void* user (STL 不依存方針に合わせる)
-//   ・Handle は世代付き (Cancel 後に再利用された ID で誤発火しない)
+//   ・FTimerHandle は世代付き (Cancel 後に再利用された ID で誤発火しない)
 //   ・SetInterval は self-rearm 方式 (発火後に次の period_seconds まで再カウント)
 //   ・全タイマは線形配列で持つ (1000 個程度なら Tick の O(N) は問題ない)
 #pragma once
@@ -148,7 +148,7 @@ private:
     /**
      * 1 タイマ slot (残時間・周期・コールバックを保持)。
      */
-    struct Slot {
+    struct FSlot {
         /** slot の 1-based id (0 は未割り当て)。 */
         u32             id          = 0;
 
@@ -184,7 +184,7 @@ private:
     void ReleaseClearedStorage() noexcept;
 
     /** タイマ slot の配列。 */
-    TArray<Slot> m_Slots;
+    TArray<FSlot> m_Slots;
 
     /** 解放済みで再利用待ちの slot 添字。 */
     TArray<u32>  m_FreeIndices;

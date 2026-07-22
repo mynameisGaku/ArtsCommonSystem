@@ -11,12 +11,12 @@ using namespace acs;
 
 // ---- FTimerManager: SetTimeout が指定時間で発火 ------------------------------
 namespace {
-struct TimeoutCtx { int hits = 0; };
+struct FTimeoutCtx { int hits = 0; };
 void OnTimeout(void* user) {
-    static_cast<TimeoutCtx*>(user)->hits++;
+    static_cast<FTimeoutCtx*>(user)->hits++;
 }
 
-struct ClearFromCallbackContext {
+struct FClearFromCallbackContext {
     FTimerManager* manager = nullptr;
     int clear_hits = 0;
     int later_hits = 0;
@@ -25,12 +25,12 @@ struct ClearFromCallbackContext {
 
 void OnLaterTimer(void* user)
 {
-    ++static_cast<ClearFromCallbackContext*>(user)->later_hits;
+    ++static_cast<FClearFromCallbackContext*>(user)->later_hits;
 }
 
 void OnClearFromCallback(void* user)
 {
-    auto& context = *static_cast<ClearFromCallbackContext*>(user);
+    auto& context = *static_cast<FClearFromCallbackContext*>(user);
     ++context.clear_hits;
     context.manager->Clear();
     context.registration_during_clear = context.manager->SetTimeout(0.0f, &OnLaterTimer, &context);
@@ -41,7 +41,7 @@ void OnClearFromCallback(void* user)
 
 ACS_TEST(Event, TimerSetTimeoutFires) {
     FTimerManager t;
-    TimeoutCtx ctx;
+    FTimeoutCtx ctx;
     auto h = t.SetTimeout(1.0f, &OnTimeout, &ctx);
     EXPECT_TRUE(h.IsValid());
 
@@ -62,7 +62,7 @@ ACS_TEST(Event, TimerSetTimeoutFires) {
 // ---- FTimerManager: SetInterval が周期で何回も発火 ---------------------------
 ACS_TEST(Event, TimerSetIntervalRepeats) {
     FTimerManager t;
-    TimeoutCtx ctx;
+    FTimeoutCtx ctx;
     t.SetInterval(0.5f, &OnTimeout, &ctx);
 
     t.Tick(1.6f);            // 1.6 / 0.5 = 3 発火
@@ -72,7 +72,7 @@ ACS_TEST(Event, TimerSetIntervalRepeats) {
 // ---- FTimerManager: Cancel で発火を止められる -------------------------------
 ACS_TEST(Event, TimerCancel) {
     FTimerManager t;
-    TimeoutCtx ctx;
+    FTimeoutCtx ctx;
     auto h = t.SetTimeout(1.0f, &OnTimeout, &ctx);
     EXPECT_TRUE(t.Cancel(h));
     EXPECT_FALSE(t.Cancel(h));   // 二重 Cancel は false
@@ -84,7 +84,7 @@ ACS_TEST(Event, TimerCancel) {
 ACS_TEST(Event, TimerClearRemovesCallbacksAndAllowsReuse)
 {
     FTimerManager timers;
-    TimeoutCtx context;
+    FTimeoutCtx context;
     const FTimerHandle old_handle = timers.SetTimeout(0.0f, &OnTimeout, &context);
     EXPECT_TRUE(old_handle.IsValid());
 
@@ -105,7 +105,7 @@ ACS_TEST(Event, TimerClearRemovesCallbacksAndAllowsReuse)
 ACS_TEST(Event, TimerClearFromTimeoutCallbackDefersStorageRelease)
 {
     FTimerManager timers;
-    ClearFromCallbackContext context;
+    FClearFromCallbackContext context;
     context.manager = &timers;
 
     const FTimerHandle clearing_handle = timers.SetTimeout(0.0f, &OnClearFromCallback, &context);
@@ -131,7 +131,7 @@ ACS_TEST(Event, TimerClearFromTimeoutCallbackDefersStorageRelease)
 ACS_TEST(Event, TimerClearFromIntervalCallbackStopsCatchUp)
 {
     FTimerManager timers;
-    ClearFromCallbackContext context;
+    FClearFromCallbackContext context;
     context.manager = &timers;
 
     const FTimerHandle interval = timers.SetInterval(0.01f, &OnClearFromCallback, &context);
@@ -145,39 +145,39 @@ ACS_TEST(Event, TimerClearFromIntervalCallbackStopsCatchUp)
 
 // ---- MessageBroker: Subscribe + Publish + Unsubscribe ----------------------
 namespace {
-struct DamageEvent { int amount; };
-struct DamageCtx   { int total = 0; };
+struct FDamageEvent { int amount; };
+struct FDamageCtx   { int total = 0; };
 
 void OnDamage(const void* payload, void* user) {
-    auto* e = static_cast<const DamageEvent*>(payload);
-    static_cast<DamageCtx*>(user)->total += e->amount;
+    auto* e = static_cast<const FDamageEvent*>(payload);
+    static_cast<FDamageCtx*>(user)->total += e->amount;
 }
 } // namespace
 
 ACS_TEST(Event, BrokerSubscribePublish) {
-    MessageBroker bus;
-    DamageCtx ctx;
-    auto h = bus.Subscribe<DamageEvent>(&OnDamage, &ctx);
+    FMessageBroker bus;
+    FDamageCtx ctx;
+    auto h = bus.Subscribe<FDamageEvent>(&OnDamage, &ctx);
     EXPECT_TRUE(h.IsValid());
 
-    bus.Publish<DamageEvent>(DamageEvent{10});
-    bus.Publish<DamageEvent>(DamageEvent{25});
+    bus.Publish<FDamageEvent>(FDamageEvent{10});
+    bus.Publish<FDamageEvent>(FDamageEvent{25});
     EXPECT_EQ(ctx.total, 35);
 
     EXPECT_TRUE(bus.Unsubscribe(h));
-    bus.Publish<DamageEvent>(DamageEvent{99});
+    bus.Publish<FDamageEvent>(FDamageEvent{99});
     EXPECT_EQ(ctx.total, 35);   // Unsubscribe 後は届かない
 }
 
 // ---- MessageBroker: 複数購読者 ---------------------------------------------
 ACS_TEST(Event, BrokerMultiSubscribers) {
-    MessageBroker bus;
-    DamageCtx a, b, c;
-    bus.Subscribe<DamageEvent>(&OnDamage, &a);
-    bus.Subscribe<DamageEvent>(&OnDamage, &b);
-    bus.Subscribe<DamageEvent>(&OnDamage, &c);
+    FMessageBroker bus;
+    FDamageCtx a, b, c;
+    bus.Subscribe<FDamageEvent>(&OnDamage, &a);
+    bus.Subscribe<FDamageEvent>(&OnDamage, &b);
+    bus.Subscribe<FDamageEvent>(&OnDamage, &c);
 
-    bus.Publish<DamageEvent>(DamageEvent{7});
+    bus.Publish<FDamageEvent>(FDamageEvent{7});
     EXPECT_EQ(a.total, 7);
     EXPECT_EQ(b.total, 7);
     EXPECT_EQ(c.total, 7);
@@ -185,21 +185,21 @@ ACS_TEST(Event, BrokerMultiSubscribers) {
 
 ACS_TEST(Event, BrokerClearRemovesSubscribersAndAllowsReuse)
 {
-    MessageBroker broker;
-    DamageCtx context;
-    const SubscriptionHandle old_handle = broker.Subscribe<DamageEvent>(&OnDamage, &context);
+    FMessageBroker broker;
+    FDamageCtx context;
+    const FSubscriptionHandle old_handle = broker.Subscribe<FDamageEvent>(&OnDamage, &context);
     EXPECT_TRUE(old_handle.IsValid());
 
     broker.Clear();
     broker.Clear();
-    EXPECT_EQ(broker.SubscriberCount(GetEventTypeId<DamageEvent>()), 0u);
+    EXPECT_EQ(broker.SubscriberCount(GetEventTypeId<FDamageEvent>()), 0u);
     EXPECT_TRUE(!broker.Unsubscribe(old_handle));
-    broker.Publish(DamageEvent{1});
+    broker.Publish(FDamageEvent{1});
     EXPECT_EQ(context.total, 0);
 
-    const SubscriptionHandle new_handle = broker.Subscribe<DamageEvent>(&OnDamage, &context);
+    const FSubscriptionHandle new_handle = broker.Subscribe<FDamageEvent>(&OnDamage, &context);
     EXPECT_TRUE(new_handle.IsValid());
     EXPECT_TRUE(!broker.Unsubscribe(old_handle));
-    broker.Publish(DamageEvent{2});
+    broker.Publish(FDamageEvent{2});
     EXPECT_EQ(context.total, 2);
 }

@@ -9,7 +9,7 @@
 
 namespace hellogf {
 
-class PauseScene : public acs::game::Scene {
+class FPauseScene : public acs::game::FScene {
 public:
     void OnEnter()             noexcept override;
     void OnExit()              noexcept override;

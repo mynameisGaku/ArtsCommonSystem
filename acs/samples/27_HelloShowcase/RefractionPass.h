@@ -4,7 +4,7 @@
 // 上に load (clear なし) で書き加える。ClearGlass には diamond/prism 風の
 // 色分離 (dispersion) も入れる。
 //
-// 呼び出し側 (ShowcaseApp) で m_ShowRefraction == false のときは丸ごとスキップ。
+// 呼び出し側 (FShowcaseApp) で m_ShowRefraction == false のときは丸ごとスキップ。
 #pragma once
 
 #include "ShowcaseAssets.h"
@@ -16,7 +16,7 @@ namespace acs { class IRhiCommandList; class IRhiTexture; }
 
 namespace helloshowcase {
 
-void ExecuteRefractionPass(Assets& a,
+void ExecuteRefractionPass(FAssets& a,
                             acs::IRhiCommandList& cl,
                             acs::IRhiTexture& hdr,
                             acs::IRhiTexture& depth,

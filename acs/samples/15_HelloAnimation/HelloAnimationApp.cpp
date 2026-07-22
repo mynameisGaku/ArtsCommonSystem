@@ -16,7 +16,7 @@ using namespace acs;
 
 namespace helloanim {
 
-void HelloAnimationApp::OnStart() noexcept {
+void FHelloAnimationApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -31,7 +31,7 @@ void HelloAnimationApp::OnStart() noexcept {
     ACS_SAMPLE_INIT(UploadMesh(*dev, *plane, m_GmPlane));
 
     // スキンメッシュ生成 + GPU アップロード
-    m_Snake = AnimationScene::BuildSnake();
+    m_Snake = FAnimationScene::BuildSnake();
     if (!m_Snake) { Quit(); return; }
     ACS_SAMPLE_INIT(UploadSkinnedMesh(*dev, *m_Snake, m_GmSnake));
     m_Player.SetMesh(m_Snake.Get());
@@ -51,14 +51,14 @@ void HelloAnimationApp::OnStart() noexcept {
                  static_cast<u32>(m_Snake->Bones().Size()));
 }
 
-void HelloAnimationApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
-    if (Input::IsKeyPressed(EKey::Space)) {
+void FHelloAnimationApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (FInput::IsKeyPressed(EKey::Space)) {
         if (m_Player.IsPlaying()) m_Player.Pause(); else m_Player.Resume();
     }
 
-    if (Input::IsKeyDown(EKey::Left))  m_CamYaw -= dt * 1.0f;
-    if (Input::IsKeyDown(EKey::Right)) m_CamYaw += dt * 1.0f;
+    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw -= dt * 1.0f;
+    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw += dt * 1.0f;
     const f32 cam_dist = 8.0f;
     m_CamPos = FVec3{ Sin(m_CamYaw) * cam_dist, 3.0f, -Cos(m_CamYaw) * cam_dist };
     m_Camera.SetLookAt(m_CamPos, FVec3{0, 2, 0});
@@ -66,7 +66,7 @@ void HelloAnimationApp::OnUpdate(f32 dt) noexcept {
     m_Player.Update(dt);
 }
 
-void HelloAnimationApp::OnRender() noexcept {
+void FHelloAnimationApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
 
@@ -95,12 +95,12 @@ void HelloAnimationApp::OnRender() noexcept {
     }
 }
 
-void HelloAnimationApp::OnShutdown() noexcept {
+void FHelloAnimationApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Batch.Shutdown();
-    m_GmSnake = SkinnedGpuMesh{};
-    m_GmPlane = GpuMesh{};
+    m_GmSnake = FSkinnedGpuMesh{};
+    m_GmPlane = FGpuMesh{};
     m_Snake    = TSharedPtr<FSkinnedMeshAsset>();
     m_StdShader.Shutdown();
     m_Shader.Shutdown();

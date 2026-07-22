@@ -22,7 +22,7 @@ namespace acs {
 using ThreadEntry = void (*)(void* user);
 
 /** スレッド生成オプション。 */
-struct ThreadConfig {
+struct FThreadConfig {
     /** デバッガ表示用のスレッド名 (nullptr で無名、Spawn 時に最大 63 UTF-16 単位をコピー)。 */
     const wchar_t* name        = nullptr;
 
@@ -82,7 +82,7 @@ public:
      * @return 起動した FThread。失敗時は Memory / OS / Threading カテゴリのエラー。
      */
     static TResult<FThread> Spawn(ThreadEntry entry, void* user,
-                                const ThreadConfig& cfg = {}) noexcept;
+                                const FThreadConfig& cfg = {}) noexcept;
 
     /**
      * Join 可能か (有効なハンドルを保持しているか) を返す。
@@ -102,14 +102,14 @@ public:
      *
      * @return スレッド ID (空ハンドルなら既定値)。
      */
-    ThreadId Id() const noexcept { return m_Id; }
+    FThreadId Id() const noexcept { return m_Id; }
 
 private:
     /** OS スレッドハンドル (CloseHandle 対象、null = スレッドなし)。 */
     void*    m_Handle = nullptr;
 
     /** 生成したスレッドの ID。 */
-    ThreadId m_Id     = {};
+    FThreadId m_Id     = {};
 };
 
 /**

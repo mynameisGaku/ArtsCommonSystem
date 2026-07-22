@@ -13,6 +13,47 @@ class IRhiDevice;
 class IRhiSwapchain;
 
 /**
+ * Lightweight per-recording command counters.
+ *
+ * Triangle count is an estimate derived from submitted vertex/index counts
+ * using triangle-list semantics. It is intended for editor diagnostics, not
+ * pipeline-statistics validation.
+ */
+struct FRhiCommandStatistics {
+    u64 draw_calls = 0;
+    u64 dispatch_calls = 0;
+    u64 triangles = 0;
+};
+
+/** Named regions reported by optional backend GPU timestamp instrumentation. */
+enum class ERhiGpuTimingPass : u32 {
+    Opaque = 0,
+    Atmosphere,
+    Cloud,
+    Fog,
+    Post,
+    Count,
+};
+
+/**
+ * Latest completed GPU timing result.
+ *
+ * Timestamp readback is intentionally asynchronous, so frame_index identifies
+ * the rendered frame that produced the values rather than the current CPU
+ * frame. Unsupported backends leave this structure invalid.
+ */
+struct FRhiGpuTimingSnapshot {
+    bool valid = false;
+    u64 frame_index = 0;
+    f32 frame_ms = -1.0f;
+    f32 opaque_ms = -1.0f;
+    f32 atmosphere_ms = -1.0f;
+    f32 cloud_ms = -1.0f;
+    f32 fog_ms = -1.0f;
+    f32 post_ms = -1.0f;
+};
+
+/**
  * GPU に送る命令を記録するコマンドリストの抽象インターフェイス。
  *
  * @details
@@ -24,14 +65,51 @@ public:
     /** 派生バックエンド実装を正しく破棄するための仮想デストラクタ。 */
     virtual ~IRhiCommandList() noexcept = default;
 
+    /** Reset low-overhead command counters at a caller-defined frame boundary. */
+    void ResetStatistics() noexcept { m_Statistics = {}; }
+
+    /** Return counters accumulated since ResetStatistics(). */
+    const FRhiCommandStatistics& Statistics() const noexcept {
+        return m_Statistics;
+    }
+
     /** 記録を開始する (毎フレーム最初に呼ぶ)。 */
     virtual void Begin() noexcept = 0;
 
     /** 記録を終了する (GPU 投入準備完了)。 */
     virtual void End() noexcept = 0;
 
-    /** GPU に投入して完了を待つ (簡易実装、本来は Fence で非同期化)。 */
+    /** GPU に投入して完了を待つ (簡易実装、本来は GPU フェンスで非同期化)。 */
     virtual void Submit() noexcept = 0;
+
+    /**
+     * Start asynchronous GPU timestamp collection for one rendered frame.
+     *
+     * The default implementation is unsupported. Implementations must never
+     * block solely to make query data available; they may consume data from a
+     * completed frame slot and report it through TryGetGpuTiming().
+     */
+    virtual bool BeginGpuTimingFrame(u64 /*frame_index*/) noexcept {
+        return false;
+    }
+
+    /** Start one non-overlapping named GPU region. */
+    virtual bool BeginGpuTimingPass(ERhiGpuTimingPass /*pass*/) noexcept {
+        return false;
+    }
+
+    /** End the currently active named GPU region. */
+    virtual void EndGpuTimingPass() noexcept {}
+
+    /** Finish timestamp collection and enqueue its asynchronous readback. */
+    virtual void EndGpuTimingFrame() noexcept {}
+
+    /** Return the latest completed timestamp result without consuming it. */
+    virtual bool TryGetGpuTiming(
+        FRhiGpuTimingSnapshot& out_snapshot) const noexcept {
+        out_snapshot = {};
+        return false;
+    }
 
     /**
      * バックバッファをレンダーターゲットとしてバインドしクリアする。
@@ -44,7 +122,7 @@ public:
      * @param depth_clear depth を渡したときのクリア値 (既定 1.0f)。
      */
     virtual void BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index,
-                                        const ClearColor& clear,
+                                        const FClearColor& clear,
                                         class IRhiTexture* depth = nullptr,
                                         f32 depth_clear = 1.0f) noexcept = 0;
 
@@ -97,7 +175,7 @@ public:
      * @param depth_clear depth を渡したときのクリア値 (既定 1.0f)。
      */
     virtual void BeginRenderToTexture(class IRhiTexture& rt,
-                                       const ClearColor& clear,
+                                       const FClearColor& clear,
                                        class IRhiTexture* depth = nullptr,
                                        f32 depth_clear = 1.0f) noexcept = 0;
 
@@ -138,16 +216,16 @@ public:
      */
     virtual void BeginRenderToTextureSlice(class IRhiTexture& rt,
                                             u32 slice, u32 mip,
-                                            const ClearColor& clear) noexcept = 0;
+                                            const FClearColor& clear) noexcept = 0;
 
     /**
      * MRT (複数レンダーターゲット) 描画を開始する。
      *
      * @details
      * 最大 8 個の color RT を同時 bind し、depth は optional。クリア色は単一値で全 RT に
-     * 適用する (個別クリアが必要なら別 API か手動で SetTexture 前 clear)。終了は
-     * EndRenderToTexture(rts[0]) で main pass に復帰できる。Diligent backend で実装、
-     * Dx12 raw は stub (no-op)。
+     * 適用する (個別クリアが必要なら別 API か手動で SetTexture 前 clear)。
+     * Diligent / raw DX12 の両 backend で実装する。後続 pass でサンプルする各 RT は、
+     * 描画後に EndRenderToTexture を呼んで shader-resource state へ遷移させる。
      * @param rts color レンダーターゲットの配列。
      * @param rt_count rts の要素数 (最大 8)。
      * @param clear 全 RT に適用するクリア色。
@@ -155,7 +233,7 @@ public:
      * @param depth_clear depth を渡したときのクリア値 (既定 1.0f)。
      */
     virtual void BeginRenderToTextureMrt(class IRhiTexture* const* rts, u32 rt_count,
-                                          const ClearColor& clear,
+                                          const FClearColor& clear,
                                           class IRhiTexture* depth = nullptr,
                                           f32 depth_clear = 1.0f) noexcept = 0;
 
@@ -272,6 +350,42 @@ public:
 
     /** 構造化バッファ SRV (StructuredBuffer) を指定 slot にバインドする。struct_stride>0 が前提。 */
     virtual void BindStructuredSrv(u32 /*slot*/, class IRhiBuffer& /*buf*/) noexcept {}
+
+protected:
+    void RecordDraw(u32 element_count) noexcept {
+        if (element_count == 0u) return;
+        ++m_Statistics.draw_calls;
+        m_Statistics.triangles += static_cast<u64>(element_count / 3u);
+    }
+
+    void RecordDispatch() noexcept {
+        ++m_Statistics.dispatch_calls;
+    }
+
+private:
+    FRhiCommandStatistics m_Statistics{};
+};
+
+/** RAII helper that keeps named GPU markers balanced on all early exits. */
+class FScopedRhiGpuTiming final {
+public:
+    FScopedRhiGpuTiming(
+        IRhiCommandList* command_list,
+        ERhiGpuTimingPass pass) noexcept
+        : m_CommandList(command_list),
+          m_Active(command_list != nullptr &&
+                   command_list->BeginGpuTimingPass(pass)) {}
+
+    ~FScopedRhiGpuTiming() noexcept {
+        if (m_Active) m_CommandList->EndGpuTimingPass();
+    }
+
+    FScopedRhiGpuTiming(const FScopedRhiGpuTiming&) = delete;
+    FScopedRhiGpuTiming& operator=(const FScopedRhiGpuTiming&) = delete;
+
+private:
+    IRhiCommandList* m_CommandList = nullptr;
+    bool m_Active = false;
 };
 
 /**

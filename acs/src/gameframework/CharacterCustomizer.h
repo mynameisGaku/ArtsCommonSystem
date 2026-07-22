@@ -6,7 +6,7 @@
 // 軽量レジストリで、メッシュ / マテリアル差し替えの実体は呼出側 (レンダラ / Skeletal
 // Mesh コンポーネント側) が EquipCallback を購読して反応する責務分離設計。
 //
-// 倫理方針 (FEntitlement.h / FSeasonPass.h と一貫):
+// 倫理方針 (Entitlement.h / SeasonPass.h と一貫):
 //   ・本クラスが扱うのは **見た目のみ (cosmetic)**。装備性能 / 戦闘パラメータの
 //     書き換えは行わない。pay-to-win 設計を構造的に避けるための型レベル分離。
 //   ・装備性能の変動が必要な場合はゲーム側で別レジストリ (e.g. 装備ステータス
@@ -23,7 +23,7 @@
 //   // ...
 //
 //   // ストア / クエスト報酬経由で unlock。実 entitlement 検証は呼出側 (Pillar O
-//   // EntitlementRegistry / Pillar S Storefront) で済ませてから本 API に通知。
+//   // FEntitlementRegistry / Pillar S Storefront) で済ませてから本 API に通知。
 //   cc.UnlockCosmetic("hat.red_cap");
 //
 //   // 装着 callback を購読 (レンダラ側で見た目差し替えを反映する用)。
@@ -35,14 +35,14 @@
 //   }
 //
 // 設計選択 (Pillar O):
-//   ・**id は const char* 非所有**: ACS の STL 禁止方針 + FEntitlement / Achievement
+//   ・**id は const char* 非所有**: ACS の STL 禁止方針 + FEntitlementRegistry / Achievement
 //     と一貫。文字列リテラル or 長寿命バッファ前提 (呼出側保証)。
 //   ・**slot は固定 enum**: ECosmeticSlot は 11 種類で固定。slot ごとに最大 1 つの
 //     cosmetic が装着可能 (装着すると同 slot の既存装着は自動で外れる)。
 //     ColorPalette は色変更用の特殊 slot (UI のカラー選択を保持)。
 //   ・**Def + Unlocked 状態を並行 TArray で持つ**: FAchievementManager と同じ Def/State
-//     分離。CosmeticItem は immutable な定義、unlocked は実行時 bool。1:1 対応で
-//     同 index を共有 (TArray<CosmeticItem> + TArray<bool>)。
+//     分離。FCosmeticItem は immutable な定義、unlocked は実行時 bool。1:1 対応で
+//     同 index を共有 (TArray<FCosmeticItem> + TArray<bool>)。
 //   ・**装着状態は slot indexed const char* 配列**: 線形検索を避けるため、slot を
 //     index にした固定長 const char*[kSlotCount] を持つ。各エントリは「現在装着
 //     されている cosmetic の id」(未装着なら nullptr)。 EquipCosmetic / UnequipSlot
@@ -55,7 +55,7 @@
 //   ・**Equip は unlock 必須**: IsUnlocked(id) == false の cosmetic は装着拒否。
 //     UI 側で「グレーアウト + locked 表示」を実装する前提。
 //   ・**線形検索**: cosmetic 件数は AAA タイトルでも通常 200〜1000 のオーダー。
-//     per-byte 文字列比較で十分 (FEntitlement / FAchievementManager と同じ判断)。
+//     per-byte 文字列比較で十分 (FEntitlementRegistry / FAchievementManager と同じ判断)。
 //   ・**ClearAll は登録も装着も両方リセット**: Save/Load 復元前のクリーンスタート用。
 //     callback は呼ばない (loop / ノイズ防止)。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
@@ -127,7 +127,7 @@ inline constexpr u32 kCosmeticSlotCount = 11;
  * 文字列は全て非所有 (呼出側が保証する文字列リテラル / 長寿命バッファを想定)。
  * Manager は rarity / display_name 等の中身を解釈せず、そのまま保持・参照する。
  */
-struct CosmeticItem {
+struct FCosmeticItem {
     /** 一意キー (ストア / 永続化 / 検索)。文字列リテラル想定 (非所有)。 */
     const char*  id           = nullptr;
 
@@ -196,7 +196,7 @@ public:
      * 未 unlock 状態で並行配列に追加される。
      * @param item 登録する cosmetic 定義 (内部にコピーされる)。
      */
-    void RegisterCosmetic(const CosmeticItem& item) noexcept;
+    void RegisterCosmetic(const FCosmeticItem& item) noexcept;
 
     /**
      * 指定 id を unlocked 状態に遷移させる。
@@ -277,7 +277,7 @@ public:
      * @param id 探す cosmetic の id。
      * @return 見つかった定義へのポインタ (見つからなければ nullptr)。
      */
-    const CosmeticItem* FindCosmetic(const char* id) const noexcept;
+    const FCosmeticItem* FindCosmetic(const char* id) const noexcept;
 
     /**
      * 全 cosmetic 定義の生バッファを返す。
@@ -288,7 +288,7 @@ public:
      * @param out_count 件数を書き出す先。
      * @return 先頭要素へのポインタ (0 件なら out_count=0)。
      */
-    const CosmeticItem* AllCosmetics(u32& out_count) const noexcept;
+    const FCosmeticItem* AllCosmetics(u32& out_count) const noexcept;
 
     /**
      * 装着 / 解除 callback を設定する (単一購読)。
@@ -315,7 +315,7 @@ private:
     u32 FindIndex(const char* id) const noexcept;
 
     /** 登録済 cosmetic 定義 (登録後は immutable)。 */
-    TArray<CosmeticItem> m_Items;
+    TArray<FCosmeticItem> m_Items;
 
     /** unlock 状態 (m_Items と並行配列、1:1 対応)。 */
     TArray<bool> m_Unlocked;

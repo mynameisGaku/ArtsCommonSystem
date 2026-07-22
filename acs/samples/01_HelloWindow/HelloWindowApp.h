@@ -3,7 +3,7 @@
 //
 // 学習ポイント:
 //   ・acs::FApplication を継承して OnStart / OnUpdate / OnRender を上書き
-//   ・Input::IsKeyPressed / IsKeyDown でキー入力を取る
+//   ・FInput::IsKeyPressed / IsKeyDown でキー入力を取る
 //   ・SetClearColor で背景色を切り替える
 //   ・GetWindow().SetTitle で実行時にタイトルバーを更新
 #pragma once
@@ -13,13 +13,13 @@
 
 namespace hellowin {
 
-class HelloWindowApp : public acs::FApplication {
+class FHelloWindowApp : public acs::FApplication {
 public:
     void OnStart()           noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
     void OnRender()          noexcept override;
     void OnShutdown()        noexcept override;
-    void OnEvent(const acs::Event& e) noexcept override;
+    void OnEvent(const acs::FEvent& e) noexcept override;
 
 private:
     acs::f32 m_R = 0.1f;

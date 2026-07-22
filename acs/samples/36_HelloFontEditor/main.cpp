@@ -23,4 +23,4 @@
 // `int WINAPI WinMain` / `int main` 両方の通常 main を裏で生成)。
 #include "FontEditorApp.h"
 
-ACS_GAME_MAIN(hellofont::FontEditorApp)
+ACS_GAME_MAIN(hellofont::FFontEditorApp)

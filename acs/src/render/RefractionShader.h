@@ -14,7 +14,8 @@
 // 使い方:
 //   FRefractionShader refr;
 //   refr.Init(*device, hdr_format, depth_format);
-//   refr.SetFrame(camera.ViewProjection(), camera.Eye());
+//   refr.SetFrame(camera.ViewProjection(), camera.Eye(),
+//                 background_tex.Width(), background_tex.Height());
 //   refr.DrawMesh(*cl, glass_mesh, model, background_tex, env_cubemap,
 //                 /*ior=*/1.5f, /*thickness=*/0.5f, /*tint=*/FVec3{1,1,1});
 //
@@ -22,7 +23,7 @@
 // alpha blend は不要 (深度も書き、後続の描画を正しく遮蔽する)。
 #pragma once
 
-#include "render/RenderAssets.h"   // GpuMesh
+#include "render/RenderAssets.h"   // FGpuMesh
 #include "render/IRhiCommandList.h"
 
 #include "foundation/Result.h"
@@ -80,8 +81,17 @@ public:
      *
      * @param view_projection カメラの view-projection 行列。
      * @param camera_pos world 空間の eye 位置。
+     * @param screen_w 主パス/background texture の幅。0 なら直前値を維持する。
+     * @param screen_h 主パス/background texture の高さ。0 なら直前値を維持する。
      */
-    void SetFrame(const FMat4& view_projection, FVec3 camera_pos) noexcept;
+    void SetFrame(const FMat4& view_projection, FVec3 camera_pos,
+                  u32 screen_w = 0, u32 screen_h = 0) noexcept;
+
+    /** 現在の屈折background幅を返す (描画診断・resize検証用)。 */
+    u32 ScreenWidth() const noexcept { return m_ScreenW; }
+
+    /** 現在の屈折background高さを返す (描画診断・resize検証用)。 */
+    u32 ScreenHeight() const noexcept { return m_ScreenH; }
 
     /**
      * per-pixel 厚み計測用に背面深度マップを設定する。
@@ -108,9 +118,11 @@ public:
      * @param tint ガラスの吸収色 (透明=白、色付きガラス=その色)。
      * @param roughness 表面荒さ (0=クリア、1=完全フロステッド)。
      * @param dispersion 色収差/分散 (0=色分離無し、1=強プリズム/ダイヤ風)。
+     * @param env_mip_levels 反射環境マップの mip 数 (roughness の LOD 選択用)。
      */
     void SetObject(const FMat4& model, f32 ior, f32 thickness, FVec3 tint,
-                   f32 roughness = 0.0f, f32 dispersion = 0.0f) noexcept;
+                   f32 roughness = 0.0f, f32 dispersion = 0.0f,
+                   u32 env_mip_levels = 1) noexcept;
 
     /**
      * 屈折描画パイプラインを返す。
@@ -131,7 +143,11 @@ public:
      *
      * @return model 行列やマテリアルを格納する CB。
      */
-    IRhiBuffer*   PerObjectCB() const noexcept { return m_ObjectCb.Get(); }
+    IRhiBuffer*   PerObjectCB() const noexcept {
+        return m_CurrentObjectCb < kObjectCbRing
+             ? m_ObjectCbs[m_CurrentObjectCb].Get()
+             : nullptr;
+    }
 
     /**
      * 1 関数で 1 体描画する (SetObject + CB/Texture バインド + DrawIndexed をまとめる)。
@@ -147,7 +163,7 @@ public:
      * @param roughness 表面荒さ (0=clear、>0 で多タップでブラー = frosted)。
      * @param dispersion 色収差/分散 (0=なし、>0 でプリズム/ダイヤ風の色分離)。
      */
-    void DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh, const FMat4& model,
+    void DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model,
                   IRhiTexture& background, IRhiTexture& env,
                   f32 ior = 1.5f, f32 thickness = 0.5f,
                   FVec3 tint = FVec3{1, 1, 1},
@@ -167,8 +183,16 @@ private:
     /** per-frame 定数バッファ (view-projection / eye)。 */
     TUniquePtr<IRhiBuffer>   m_FrameCb;
 
-    /** per-object 定数バッファ (model / マテリアル)。 */
-    TUniquePtr<IRhiBuffer>   m_ObjectCb;
+    /**
+     * per-object 定数バッファ ring (model / マテリアル)。
+     *
+     * @details Raw DX12 では同じ cpu_writable CB を同一フレームに再 Update すると、記録済み
+     * draw も最後の値を読む。ガラス draw ごとに別 GPU address を割り当てて値を固定する。
+     */
+    static constexpr u32     kObjectCbRing = 64;
+    TUniquePtr<IRhiBuffer>   m_ObjectCbs[kObjectCbRing];
+    u32                      m_ObjectCbCursor = 0;
+    u32                      m_CurrentObjectCb = kObjectCbRing;
 
     /** per-pixel 厚み計測用の背面深度マップ (弱参照、caller owns)。 */
     IRhiTexture*           m_BackDepth   = nullptr;

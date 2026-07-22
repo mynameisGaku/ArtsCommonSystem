@@ -74,13 +74,13 @@ private:
     /** 同じ kind へ同時登録できる module/source 数。 */
     static constexpr u32 kMaxSourcesPerFactory = 8;
 
-    struct FactorySource {
+    struct FFactorySource {
         FSubsystemFactory factory{};
         const void* token = nullptr;
     };
 
-    struct FactoryEntry {
-        FactorySource sources[kMaxSourcesPerFactory]{};
+    struct FFactoryEntry {
+        FFactorySource sources[kMaxSourcesPerFactory]{};
         u8 source_count = 0;
     };
 
@@ -107,7 +107,7 @@ private:
     void RegisterSource(const FSubsystemFactory& factory, const void* token) noexcept
     {
         for (u32 entry_index = 0; entry_index < m_Entries.Size(); ++entry_index) {
-            FactoryEntry& entry = m_Entries[entry_index];
+            FFactoryEntry& entry = m_Entries[entry_index];
             if (entry.sources[0].factory.kind != factory.kind) continue;
 
             for (u32 source = 0; source < entry.source_count; ++source) {
@@ -117,12 +117,12 @@ private:
                     return;
             }
             if (entry.source_count >= kMaxSourcesPerFactory) return;
-            entry.sources[entry.source_count++] = FactorySource{factory, token};
+            entry.sources[entry.source_count++] = FFactorySource{factory, token};
             return;
         }
 
-        FactoryEntry entry{};
-        entry.sources[0] = FactorySource{factory, token};
+        FFactoryEntry entry{};
+        entry.sources[0] = FFactorySource{factory, token};
         entry.source_count = 1;
         m_Entries.PushBack(entry);
     }
@@ -130,7 +130,7 @@ private:
     bool UnregisterSource(const FSubsystemFactory& factory, const void* token) noexcept
     {
         for (u32 entry_index = 0; entry_index < m_Entries.Size(); ++entry_index) {
-            FactoryEntry& entry = m_Entries[entry_index];
+            FFactoryEntry& entry = m_Entries[entry_index];
             if (entry.sources[0].factory.kind != factory.kind) continue;
 
             u32 source_index = entry.source_count;
@@ -149,7 +149,7 @@ private:
             for (u32 source = source_index; source + 1u < entry.source_count; ++source) {
                 entry.sources[source] = entry.sources[source + 1u];
             }
-            entry.sources[entry.source_count - 1u] = FactorySource{};
+            entry.sources[entry.source_count - 1u] = FFactorySource{};
             --entry.source_count;
             if (entry.source_count != 0) return true;
 
@@ -166,7 +166,7 @@ private:
     FSystemAllocator m_Allocator;
 
     /** kind ごとに登録元を束ねた factory 一覧。 */
-    TArray<FactoryEntry> m_Entries;
+    TArray<FFactoryEntry> m_Entries;
 };
 
 /** ACS_REGISTER_SUBSYSTEM が生成する登録元追跡付き RAII helper。 */

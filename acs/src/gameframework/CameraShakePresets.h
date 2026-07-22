@@ -3,12 +3,12 @@
 //
 // FCamera2D (= IShakeTarget) に対して「爆発 / 地震 / 着弾」等のジャンル別
 // shake パラメータを 1 行で流し込む薄い preset ライブラリ。Eiserloh trauma
-// 方式 (FCamera2D.h を参照) の amplitude / decay_rate / frequency / 適正
+// 方式 (Camera2D.h を参照) の amplitude / decay_rate / frequency / 適正
 // duration を、ゲームコードに magic number を書かずに済むよう名前付きで
 // 提供する。
 //
 // 使い方:
-//   class GameplayScene : public Scene {
+//   class FGameplayScene : public FScene {
 //       void OnEnter() noexcept override {
 //           // FCamera2D が IShakeTarget を派生していれば直接渡せる:
 //           // FCameraShakePresets::ApplyPreset(Services().Camera(),
@@ -19,7 +19,7 @@
 //   // カスタム preset 登録:
 //   FCameraShakePresets presets;
 //   presets.RegisterCustomPreset("BossSlam",
-//       ShakeParams{0.7f, 1.0f, 0.8f, 18.0f, 1.2f});
+//       FShakeParams{0.7f, 1.0f, 0.8f, 18.0f, 1.2f});
 //   presets.ApplyCustomByName(target, "BossSlam");
 //
 // 設計選択:
@@ -30,9 +30,9 @@
 //   ・**preset 値は static const 関数で配る**: 単純な定数なので constexpr
 //     にしたい所だが、Custom enum case + 拡張 (EShakePreset を増やす)
 //     を見越して関数経由に統一。コンパイラは余裕で fold する。
-//   ・**Custom preset は名前 + ShakeParams を TArray に保持**: 件数は典型 0〜
+//   ・**Custom preset は名前 + FShakeParams を TArray に保持**: 件数は典型 0〜
 //     20 程度なので線形検索。const char* は呼び出し側が保証する static
-//     lifetime 想定 (FAchievementManager / FEntitlement と同設計、STL <string>
+//     lifetime 想定 (FAchievementManager / FEntitlementRegistry と同設計、STL <string>
 //     不使用)。
 //   ・**ApplyPreset は trauma を AddShake で「加算」する**: SetShake* で
 //     amplitude / decay を上書きしたあと、trauma を AddShake で累積する。
@@ -97,7 +97,7 @@ enum class EShakePreset : u8 {
  * frequency と duration_hint は FCamera2D 側 API には現状反映されない (frequency は将来の
  * SetShakeFrequency 化のための予約、duration_hint は caller のヒント)。
  */
-struct ShakeParams {
+struct FShakeParams {
     /** AddShake に渡す trauma 量 (0..1 想定、preset では 0.3..0.9)。 */
     f32 trauma         = 0.0f;
 
@@ -168,7 +168,7 @@ public:
  *
  * @details
  * Eiserloh trauma 方式の amplitude / decay_rate / frequency / 適正 duration を名前付きで
- * 提供する。組み込み preset は static 関数で配り、カスタム preset は名前 + ShakeParams を
+ * 提供する。組み込み preset は static 関数で配り、カスタム preset は名前 + FShakeParams を
  * TArray に保持して線形検索する (名前は caller の static lifetime 想定)。非コピー・非ムーブ。
  */
 class FCameraShakePresets {
@@ -192,12 +192,12 @@ public:
     FCameraShakePresets& operator=(FCameraShakePresets&&)      = delete;
 
     /**
-     * 組み込み preset の ShakeParams を返す。
+     * 組み込み preset の FShakeParams を返す。
      *
      * @param preset 取得するプリセット種別。
-     * @return 対応する ShakeParams。Custom は中立値 (= 適用しても見た目に影響しない値)。
+     * @return 対応する FShakeParams。Custom は中立値 (= 適用しても見た目に影響しない値)。
      */
-    static ShakeParams GetPreset(EShakePreset preset) noexcept;
+    static FShakeParams GetPreset(EShakePreset preset) noexcept;
 
     /**
      * 組み込み preset を target に流し込む。
@@ -215,7 +215,7 @@ public:
      * @param name プリセット名。caller が保証する static lifetime の文字列 (リテラル想定)。nullptr は no-op。
      * @param params 登録する shake パラメータ。
      */
-    void RegisterCustomPreset(const char* name, const ShakeParams& params) noexcept;
+    void RegisterCustomPreset(const char* name, const FShakeParams& params) noexcept;
 
     /**
      * 名前で引いたカスタム preset を target に流し込む。
@@ -238,12 +238,12 @@ private:
     /**
      * 登録済みカスタムプリセット 1 件分のエントリ。
      */
-    struct CustomEntry {
+    struct FCustomEntry {
         /** プリセット名 (所有しない。caller の static lifetime)。 */
         const char* name = nullptr;
 
         /** 紐付く shake パラメータ。 */
-        ShakeParams params{};
+        FShakeParams params{};
     };
 
     /**
@@ -255,7 +255,7 @@ private:
     u32 FindCustomIndex(const char* name) const noexcept;
 
     /** 登録済みカスタムプリセットの配列。 */
-    TArray<CustomEntry> m_Customs;
+    TArray<FCustomEntry> m_Customs;
 };
 
 } // namespace acs::game

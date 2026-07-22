@@ -25,7 +25,7 @@ namespace {
  * @details 数値は AAA でも indie でも違和感のない一般的なバランスを狙う。
  * 単位は world unit (サンプル既定で 1px 想定)。
  */
-struct KindDefaults {
+struct FKindDefaults {
     /** 拾取半径。 */
     f32 radius;
 
@@ -45,7 +45,7 @@ struct KindDefaults {
  * @details 列挙順は EPickupKind と一致し、インデックスは static_cast<u8>(kind)。
  * サイズは Custom を含む enum 値の数 (8 個)。
  */
-constexpr KindDefaults kKindDefaults[8] = {
+constexpr FKindDefaults kKindDefaults[8] = {
     // HealthOrb : 小さめ・吸引強め・短寿命・回復量 10
     { 10.0f,  60.0f,  8.0f, 10u },
     // ManaOrb   : 小さめ・吸引強め・短寿命・MP 10
@@ -99,16 +99,16 @@ u32 FPickupSystem::AcquireSlot() noexcept {
  * @param info 登録する pickup の定義。
  * @return 新規 PickupId。
  */
-PickupId FPickupSystem::Spawn(const PickupInfo& info) noexcept {
+FPickupId FPickupSystem::Spawn(const FPickupInfo& info) noexcept {
     const u32 idx = AcquireSlot();
-    Slot& s = m_Slots[idx];
+    FSlot& s = m_Slots[idx];
     s.info   = info;
     // gen をインクリメント。0 はスキップ (= invalid id 生成を回避)。
     s.gen    = static_cast<u8>(s.gen + 1u);
     if (s.gen == 0) s.gen = 1;
     s.active = true;
     ++m_AliveCount;
-    return PickupId{idx, s.gen};
+    return FPickupId{idx, s.gen};
 }
 
 /**
@@ -116,11 +116,11 @@ PickupId FPickupSystem::Spawn(const PickupInfo& info) noexcept {
  *
  * @param id 消滅させる pickup の handle。
  */
-void FPickupSystem::Despawn(PickupId id) noexcept {
+void FPickupSystem::Despawn(FPickupId id) noexcept {
     if (!id.IsValid()) return;
     const u32 idx = id.Index();
     if (idx >= m_Slots.Size()) return;
-    Slot& s = m_Slots[idx];
+    FSlot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Generation()) return;
     s.active = false;
     if (m_AliveCount > 0) --m_AliveCount;
@@ -137,7 +137,7 @@ void FPickupSystem::Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept
     const usize n = m_Slots.Size();
     // index 0 は予約なのでスキップ。
     for (usize i = 1; i < n; ++i) {
-        Slot& s = m_Slots[i];
+        FSlot& s = m_Slots[i];
         if (!s.active) continue;
 
         // ---- 1) lifetime 進行 ----------------------------------------------
@@ -148,7 +148,7 @@ void FPickupSystem::Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept
             if (s.info.lifetime_sec <= 0.0f) {
                 // expire: コールバック発火 → Despawn。
                 // 既消滅扱いになるので、後続の磁石 / 拾取は実行しない。
-                const PickupId id{static_cast<u32>(i), s.gen};
+                const FPickupId id{static_cast<u32>(i), s.gen};
                 // ★ コールバック前に状態更新を完了させる。コールバック内で Spawn() が
                 //   m_Slots を Grow→旧バッファ Free すると `s` が dangling になるため、
                 //   callback 復帰後に s を触ってはいけない (UAF)。
@@ -180,7 +180,7 @@ void FPickupSystem::Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept
         const f32  r          = s.info.radius;
         if (r > 0.0f && dist_sq2 < r * r) {
             // pickup: コールバック発火 → Despawn。
-            const PickupId id{static_cast<u32>(i), s.gen};
+            const FPickupId id{static_cast<u32>(i), s.gen};
             // ★ コールバックに渡す値を事前にコピーし、状態更新も callback 前に完了させる
             //   (callback 内 Spawn() の m_Slots 再確保で s が dangling になる UAF を防ぐ)。
             const auto kind    = s.info.kind;
@@ -206,11 +206,11 @@ u32 FPickupSystem::AlivePickupCount() const noexcept {
  * @param id 取得する pickup の handle。
  * @return PickupInfo へのポインタ (無効 id / 既消滅は nullptr)。
  */
-const PickupInfo* FPickupSystem::GetPickup(PickupId id) const noexcept {
+const FPickupInfo* FPickupSystem::GetPickup(FPickupId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= m_Slots.Size()) return nullptr;
-    const Slot& s = m_Slots[idx];
+    const FSlot& s = m_Slots[idx];
     if (!s.active || s.gen != id.Generation()) return nullptr;
     return &s.info;
 }
@@ -250,7 +250,7 @@ void FPickupSystem::SpawnRandomAt(EPickupKind kind, FVec2 center, f32 spread_rad
     // kind の index を範囲 clamp (enum 拡張時の保険)。
     u8 ki = static_cast<u8>(kind);
     if (ki >= 8u) ki = 7u;  // Custom にフォールバック
-    const KindDefaults& d = kKindDefaults[ki];
+    const FKindDefaults& d = kKindDefaults[ki];
 
     // 円板内一様サンプル。spread_radius <= 0 のときは center 真上。
     FVec2 offset = FVec2::Zero();
@@ -258,7 +258,7 @@ void FPickupSystem::SpawnRandomAt(EPickupKind kind, FVec2 center, f32 spread_rad
         offset = FRandom::Global().PointInCircle(spread_radius);
     }
 
-    PickupInfo info{};
+    FPickupInfo info{};
     info.kind          = kind;
     info.item_id       = nullptr;  // SpawnRandomAt では item_id は未設定 (呼出側が必要なら Spawn 直呼び)
     info.world_pos     = center + offset;
@@ -277,7 +277,7 @@ void FPickupSystem::SpawnRandomAt(EPickupKind kind, FVec2 center, f32 spread_rad
 void FPickupSystem::DespawnAllOfKind(EPickupKind kind) noexcept {
     const usize n = m_Slots.Size();
     for (usize i = 1; i < n; ++i) {
-        Slot& s = m_Slots[i];
+        FSlot& s = m_Slots[i];
         if (!s.active) continue;
         if (s.info.kind != kind) continue;
         s.active = false;
@@ -295,7 +295,7 @@ u32 FPickupSystem::CountOfKind(EPickupKind kind) const noexcept {
     u32 count = 0;
     const usize n = m_Slots.Size();
     for (usize i = 1; i < n; ++i) {
-        const Slot& s = m_Slots[i];
+        const FSlot& s = m_Slots[i];
         if (!s.active) continue;
         if (s.info.kind == kind) ++count;
     }

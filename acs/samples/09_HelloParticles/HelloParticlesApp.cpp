@@ -34,7 +34,7 @@ void GenerateGlow(u8* out) noexcept {
 
 } // namespace
 
-void HelloParticlesApp::OnStart() noexcept {
+void FHelloParticlesApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -61,12 +61,12 @@ void HelloParticlesApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloParticles initialized");
 }
 
-void HelloParticlesApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloParticlesApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
     m_Scene.Update(dt);
 }
 
-void HelloParticlesApp::OnRender() noexcept {
+void FHelloParticlesApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
@@ -82,7 +82,7 @@ void HelloParticlesApp::OnRender() noexcept {
     m_Batch.End();
 }
 
-void HelloParticlesApp::OnShutdown() noexcept {
+void FHelloParticlesApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Font.Shutdown();
     m_Scene.Shutdown();

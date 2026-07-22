@@ -28,7 +28,7 @@ public partial class NewClassDialog : Window
         UpdateHint();
     }
 
-    // 階層を構築: Empty + エンジン基底 (FComponent2D/FNode2D/FScene2D) を根に、
+    // 階層を構築: Empty + エンジン基底 (AComponent/ANode/FScene2D) を根に、
     // プロジェクトのユーザークラスを基底配下へ (連鎖は複数パスで解決)。
     private void BuildTree(Project? project)
     {
@@ -36,8 +36,9 @@ public partial class NewClassDialog : Window
 
         var empty = MakeItem("Empty", EmptyFg);
         BaseTree.Items.Add(empty);
-        foreach (var rb in new[] { "FComponent2D", "FNode2D", "FScene2D" })
+        foreach (string rb in ProjectManager.BaseClassOptions)
         {
+            if (rb == "Empty") continue;
             var it = MakeItem(rb, RootFg);
             itemByName[rb] = it;
             BaseTree.Items.Add(it);
@@ -63,15 +64,15 @@ public partial class NewClassDialog : Window
                     }
                 }
             }
-            // 基底が解決できなかったユーザークラスは FComponent2D 配下へ置く (孤立回避)。
+            // 基底が解決できなかったユーザークラスは AComponent 配下へ置く (孤立回避)。
             foreach (var (name, _) in pending)
-                if (!itemByName.ContainsKey(name) && itemByName.TryGetValue("FComponent2D", out var fc))
+                if (!itemByName.ContainsKey(name) && itemByName.TryGetValue("AComponent", out var fc))
                 {
                     var it = MakeItem(name, UserFg); fc.Items.Add(it); itemByName[name] = it;
                 }
         }
 
-        if (itemByName.TryGetValue("FComponent2D", out var def)) def.IsSelected = true;   // 既定
+        if (itemByName.TryGetValue("AComponent", out var def)) def.IsSelected = true;   // 既定
     }
 
     private static TreeViewItem MakeItem(string name, Brush fg) =>
@@ -84,7 +85,7 @@ public partial class NewClassDialog : Window
         string b = SelectedBase();
         HintText.Text = b == "Empty"
             ? "指定の名前の空クラスのみを生成します。"
-            : b == "FComponent2D"
+            : b == "AComponent"
                 ? "<IDENT>_API でエクスポートしリフレクション登録。ビルド/ホットリロードでエディタの『ユーザー定義のオブジェクト』に現れ、ノードへ付与できます。"
                 : $"{b} を基底に <IDENT>_API でエクスポートするクラスを生成します。";
     }

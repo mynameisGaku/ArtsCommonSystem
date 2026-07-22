@@ -108,7 +108,7 @@ public:
      *
      * @return ピクセルフォーマット。
      */
-    virtual EFormat EPixelFormat() const noexcept = 0;
+    virtual EFormat PixelFormat() const noexcept = 0;
 
     /**
      * ミップレベル数を返す。

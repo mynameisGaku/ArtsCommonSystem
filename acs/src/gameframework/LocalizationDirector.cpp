@@ -44,7 +44,7 @@ void FLocalizationDirector::RegisterString(ELocale loc, const char* key, const c
     // (「存在するが空翻訳」を表現する余地、Get では nullptr のままで返さず
     // 後続の処理で扱う前提)。
     if (key == nullptr) return;
-    LocaleEntry e;
+    FLocaleEntry e;
     e.locale = loc;
     e.key    = key;
     e.value  = value;
@@ -138,7 +138,7 @@ isize FLocalizationDirector::FindIndex(ELocale loc, const char* key) const noexc
     if (key == nullptr) return -1;
     const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
-        const LocaleEntry& e = m_Entries[i];
+        const FLocaleEntry& e = m_Entries[i];
         if (e.locale == loc && StrEq(e.key, key)) {
             return static_cast<isize>(i);
         }

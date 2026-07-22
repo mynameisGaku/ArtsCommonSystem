@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloShowcase — GPU resource 一式 (Assets) と初期化 / 解放ヘルパ。
+// HelloShowcase — GPU resource 一式 (FAssets) と初期化 / 解放ヘルパ。
 //
 // FPostProcess / FSky / IBL / PBR / SSR / SSAO / FHiZ / Motion / Refraction / FBlit /
-// FSpriteBatch / Font / 球 + 床メッシュ / 屈折 background RT を 1 つの struct に
+// FSpriteBatch / FFont / 球 + 床メッシュ / 屈折 background RT を 1 つの struct に
 // まとめる。pass 系 helper (PbrPass / RefractionPass / SsrPass / ...) はこの
-// Assets を const & または & で受け取って動く free function 群。
+// FAssets を const & または & で受け取って動く free function 群。
 //
-// ShowcaseApp は Assets を 1 メンバとして保持し、OnStart で Initialize() を
+// FShowcaseApp は FAssets を 1 メンバとして保持し、OnStart で Initialize() を
 // 1 行で呼ぶ。Initialize() は失敗時に TResult<void> を返すので、呼び出し側で
 // ACS_SAMPLE_INIT(...) を被せれば失敗時に自動 Quit() できる。
 #pragma once
@@ -36,9 +36,9 @@ namespace helloshowcase {
 
 // 描画に必要な GPU resource をひとまとめにしたもの。
 // pass helper はこの参照を受け取って働き、内部状態は持たない。
-struct Assets {
+struct FAssets {
     acs::FPostProcess        post;
-    acs::ImageBasedLighting ibl;
+    acs::FImageBasedLighting ibl;
     acs::FSky                sky;
     acs::FPbrShader          pbr;
     acs::FSsr                ssr;
@@ -48,10 +48,10 @@ struct Assets {
     acs::FRefractionShader   refr;
     acs::FBlit               blit;
     acs::TUniquePtr<acs::IRhiTexture> bg_rt;     // 屈折 pass が読む opaque シーンの複製先
-    acs::GpuMesh            gm_sphere;
-    acs::GpuMesh            gm_floor;
+    acs::FGpuMesh            gm_sphere;
+    acs::FGpuMesh            gm_floor;
     acs::FSpriteBatch        batch;
-    acs::Font               font;
+    acs::FFont               font;
 };
 
 // すべての resource を一括で初期化する。HDR RT + Bloom + ACES tonemap を有効化し、
@@ -62,7 +62,7 @@ struct Assets {
 //
 // 1 つでも失敗すると IsErr が返り、後段の resource は未初期化のまま残る
 // (Shutdown は安全に呼べる)。
-acs::TResult<void> InitializeAssets(Assets& assets,
+acs::TResult<void> InitializeAssets(FAssets& assets,
                                     acs::IRhiDevice& device,
                                     acs::u32 width, acs::u32 height,
                                     acs::EFormat color_fmt,
@@ -70,6 +70,6 @@ acs::TResult<void> InitializeAssets(Assets& assets,
 
 // 全 resource を解放する (順序は依存関係に従う)。
 // device.WaitIdle() は呼び出し側で先に行う想定。
-void ShutdownAssets(Assets& assets) noexcept;
+void ShutdownAssets(FAssets& assets) noexcept;
 
 } // namespace helloshowcase

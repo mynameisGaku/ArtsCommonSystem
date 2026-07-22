@@ -17,7 +17,7 @@
 
 namespace hellosprite {
 
-class HelloSpriteApp : public acs::FApplication {
+class FHelloSpriteApp : public acs::FApplication {
 public:
     void OnStart()            noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -29,7 +29,7 @@ private:
 
     acs::FSpriteBatch                 m_Batch;
     acs::TUniquePtr<acs::IRhiTexture> m_Tex;
-    Sprite                           m_Sprites[kMaxSprites] {};
+    FSprite                           m_Sprites[kMaxSprites] {};
     acs::u32                         m_SpriteCount = 0;
 };
 

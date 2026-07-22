@@ -10,7 +10,7 @@
 //   ・FScene2D による画面遷移 (ChangeScene)
 //   ・クリック可能 UI メニュー (FUiLayer、スクリーン空間)
 //   ・自前 atlas テクスチャ + FSpritePack フレーム → プレイヤースプライト
-//   ・FTilemapComponent によるタイルマップ描画
+//   ・ATilemapComponent によるタイルマップ描画
 //   ・FSettings によるハイスコア永続化 (INI、次回起動でロード)
 //
 // 座標は ACS 2D 正規規約 = **Y-down** (左上原点・+X 右・+Y 下)。
@@ -55,7 +55,7 @@ constexpr f32 kCoinRadius  = 0.55f;      // 取得判定半径
 constexpr f32 kGameTime    = 30.0f;      // 制限時間 (秒)
 constexpr u32 kNumCoins    = 6;
 
-// プレイ範囲は石の外周 (実 AABB コライダー) が FPhysicsBody2D の collide-and-slide で
+// プレイ範囲は石の外周 (実 AABB コライダー) が APhysicsBody2D の collide-and-slide で
 // 囲うので、手動クランプは不要 (壁/水に沿って滑る)。
 
 // コインのタイル座標 (草マスのみ、外周/水たまりを避ける)。
@@ -170,15 +170,15 @@ void EnsureSfx() noexcept {
 }
 
 // 入力アクション
-constexpr ActionId kMoveX("vs.MoveX");
-constexpr ActionId kMoveY("vs.MoveY");
-constexpr ActionId kStart("vs.Start");
-constexpr ActionId kPause("vs.Pause");
-constexpr ActionId kQuit ("vs.Quit");
+constexpr FActionId kMoveX("vs.MoveX");
+constexpr FActionId kMoveY("vs.MoveY");
+constexpr FActionId kStart("vs.Start");
+constexpr FActionId kPause("vs.Pause");
+constexpr FActionId kQuit ("vs.Quit");
 
-class TitleScene;
-class PlayScene;
-class GameOverScene;
+class FTitleScene;
+class FPlayScene;
+class FGameOverScene;
 
 // ===========================================================================
 // アプリ: ハイスコア永続化 (FSettings) + タイトル用大フォントを保持。
@@ -199,7 +199,7 @@ public:
 
     // タイトル/見出し用の大きめフォント (英字)。device が出来てから遅延ロード。
     // 失敗時 (フォント不在環境) は nullptr を返し、呼び側は共有フォントへ fallback。
-    Font* TitleFont() noexcept {
+    FFont* TitleFont() noexcept {
         if (!m_TitleTried) {
             m_TitleTried = true;
             IRhiDevice* dev = GetRenderer().Device();
@@ -246,12 +246,12 @@ protected:
         FGame::OnShutdown();
     }
 
-    TUniquePtr<Scene> InitialScene() noexcept override;   // 下で定義 (TitleScene 完全後)
+    TUniquePtr<FScene> InitialScene() noexcept override;   // 下で定義 (FTitleScene 完全後)
 
 private:
     void PlaySfx(const i16* pcm, u32 bytes) noexcept {
         if (!m_AudioOn) return;
-        AudioClipDesc clip{};
+        FAudioClipDesc clip{};
         clip.pcm_data      = pcm;
         clip.pcm_size      = bytes;
         clip.sample_rate   = kSfxRate;
@@ -262,7 +262,7 @@ private:
 
     FSettings m_Cfg;
     i32       m_HighScore  = 0;
-    Font      m_TitleFont;
+    FFont      m_TitleFont;
     bool      m_TitleTried = false;
     bool      m_TitleReady = false;
     FXAudio2Backend m_Backend;
@@ -272,20 +272,20 @@ private:
 };
 
 // 共有: スクリーン中央寄せでテキストを描く。
-void DrawCentered(FSpriteBatch& sb, Font* font, const char* s, f32 cx, f32 y, FVec4 col) noexcept {
+void DrawCentered(FSpriteBatch& sb, FFont* font, const char* s, f32 cx, f32 y, FVec4 col) noexcept {
     if (!font) return;
     const f32 w = font->MeasureWidth(s);
     sb.DrawString(*font, s, cx - w * 0.5f, y, col);
 }
 
-FVerticalSliceGame& App(Scene& s) noexcept {
+FVerticalSliceGame& App(FScene& s) noexcept {
     return static_cast<FVerticalSliceGame&>(s.GetGame());
 }
 
 // ===========================================================================
 // Title
 // ===========================================================================
-class TitleScene final : public FScene2D {
+class FTitleScene final : public FScene2D {
 public:
     void OnReady() noexcept override {
         GetGame().SetClearColor(0.06f, 0.07f, 0.11f);
@@ -297,14 +297,14 @@ public:
         Services().Camera().SetPosition(FVec2{0.0f, 0.0f});
     }
 
-    void OnEvent(const Event& e) noexcept override { m_Ui.HandleInput(e); }
+    void OnEvent(const FEvent& e) noexcept override { m_Ui.HandleInput(e); }
 
     void OnTick(f32 dt) noexcept override;   // 遷移を含むので out-of-line
 
-    void OnDrawHud(RenderContext& rc, FSpriteBatch& sb) noexcept override {
+    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
         BuildUi(rc.Width(), rc.Height());
-        Font* big   = App(*this).TitleFont();
-        Font* small = rc.HasFont() ? &rc.GetFont() : nullptr;
+        FFont* big   = App(*this).TitleFont();
+        FFont* small = rc.HasFont() ? &rc.GetFont() : nullptr;
         const f32 cx = static_cast<f32>(rc.Width()) * 0.5f;
         DrawCentered(sb, big ? big : small, "ACS Vertical Slice", cx, rc.Height() * 0.22f, kColText);
 
@@ -338,7 +338,7 @@ private:
 // ===========================================================================
 // Play (タイルマップ + atlas プレイヤー + コイン + ポーズ state)
 // ===========================================================================
-class PlayScene final : public FScene2D {
+class FPlayScene final : public FScene2D {
 public:
     void OnReady() noexcept override {
         SetPixelsPerUnit(44.0f);
@@ -355,9 +355,9 @@ public:
 
         // --- タイルマップ ---
         if (dev) m_TileAtlas = MakeTileAtlas(*dev);
-        auto mapNode = MakeUnique<FNode2D>();
-        mapNode->Local().position = FVec2{kOriginX, kOriginY};   // 左上 (Y-down)
-        auto& tm = mapNode->AddComponent<FTilemapComponent>();
+        auto mapNode = NewObject<ANode>();
+        mapNode->SetPosition2D(FVec2{kOriginX, kOriginY});   // 左上 (Y-down)
+        auto& tm = mapNode->AddComponent<ATilemapComponent>();
         tm.Map().Init(kMapW, kMapH, 1, kTile);
         tm.Map().Fill(FTileId{1});                                  // 草
         tm.Map().FillRect(0, 0, kMapW - 1, 0, FTileId{2});          // 上端 石 (row0 = 画面上)
@@ -373,29 +373,29 @@ public:
         phy.Init(2.0f);
         const f32 hw = static_cast<f32>(kMapW) * 0.5f;            // マップ半幅/半高
         const f32 hh = static_cast<f32>(kMapH) * 0.5f;
-        phy.AddAabb(Aabb2{FVec2{0.0f, kOriginY + 0.5f},                         FVec2{hw, 0.5f}});  // 上端 石
-        phy.AddAabb(Aabb2{FVec2{0.0f, kOriginY + static_cast<f32>(kMapH) - 0.5f}, FVec2{hw, 0.5f}}); // 下端 石
-        phy.AddAabb(Aabb2{FVec2{kOriginX + 0.5f, 0.0f},                         FVec2{0.5f, hh}});  // 左端 石
-        phy.AddAabb(Aabb2{FVec2{kOriginX + static_cast<f32>(kMapW) - 0.5f, 0.0f}, FVec2{0.5f, hh}}); // 右端 石
-        phy.AddAabb(Aabb2{FVec2{0.0f, 0.0f},                                    FVec2{2.0f, 1.5f}}); // 中央 水たまり
+        phy.AddAabb(FAabb2{FVec2{0.0f, kOriginY + 0.5f},                         FVec2{hw, 0.5f}});  // 上端 石
+        phy.AddAabb(FAabb2{FVec2{0.0f, kOriginY + static_cast<f32>(kMapH) - 0.5f}, FVec2{hw, 0.5f}}); // 下端 石
+        phy.AddAabb(FAabb2{FVec2{kOriginX + 0.5f, 0.0f},                         FVec2{0.5f, hh}});  // 左端 石
+        phy.AddAabb(FAabb2{FVec2{kOriginX + static_cast<f32>(kMapW) - 0.5f, 0.0f}, FVec2{0.5f, hh}}); // 右端 石
+        phy.AddAabb(FAabb2{FVec2{0.0f, 0.0f},                                    FVec2{2.0f, 1.5f}}); // 中央 水たまり
         // 斜めの OBB バー (有向境界ボックス)。回転矩形の実コライダー。
-        m_ObbBar = Obb2{ FVec2{-4.5f, -2.2f}, FVec2{1.5f, 0.28f}, 0.5f };
+        m_ObbBar = FObb2{ FVec2{-4.5f, -2.2f}, FVec2{1.5f, 0.28f}, 0.5f };
         phy.AddObb(m_ObbBar);
 
         // --- プレイヤー (atlas の "hero" フレームを UV で貼る + 物理ボディ) ---
         if (dev) m_HeroAtlas = MakeHeroAtlas(*dev);
-        SpritePackInfo info{}; info.atlas_width = 64; info.atlas_height = 32;
+        FSpritePackInfo info{}; info.atlas_width = 64; info.atlas_height = 32;
         m_Pack.Init(info);
-        SpriteFrame fr{}; fr.name = "hero"; fr.x = 0; fr.y = 0; fr.w = 32; fr.h = 32;
+        FSpriteFrame fr{}; fr.name = "hero"; fr.x = 0; fr.y = 0; fr.w = 32; fr.h = 32;
         m_Pack.AddFrame(fr);
-        auto player = MakeUnique<FNode2D>();
-        player->Local().position = TileCenter(3, 5);               // 草の上 (左寄り)
-        auto& spr = player->AddComponent<FSprite2DComponent>(FVec2{0.9f, 0.9f});
-        if (const SpriteFrame* f = m_Pack.FindFrame("hero"); f && m_HeroAtlas) {
+        auto player = NewObject<ANode>();
+        player->SetPosition2D(TileCenter(3, 5));               // 草の上 (左寄り)
+        auto& spr = player->AddComponent<ASprite2DComponent>(FVec2{0.9f, 0.9f});
+        if (const FSpriteFrame* f = m_Pack.FindFrame("hero"); f && m_HeroAtlas) {
             spr.SetTexture(m_HeroAtlas.Get());
             spr.SetUvRect(m_Pack.ComputeUv(*f));                   // atlas 左半分のみ
         }
-        auto& body = player->AddComponent<FPhysicsBody2D>(phy);
+        auto& body = player->AddComponent<APhysicsBody2D>(phy);
         body.SetCircle(0.4f);
         body.gravity = FVec2{0.0f, 0.0f};   // 見下ろし: 重力なし
         body.slide   = true;                // 壁/水に沿って滑る (collide-and-slide)
@@ -414,11 +414,11 @@ public:
         m_Ui.Init();
     }
 
-    void OnEvent(const Event& e) noexcept override { m_Ui.HandleInput(e); }
+    void OnEvent(const FEvent& e) noexcept override { m_Ui.HandleInput(e); }
 
     void OnTick(f32 dt) noexcept override;       // 遷移/ロジックを含むので out-of-line
 
-    void OnDrawWorld(RenderContext& /*rc*/, FSpriteBatch& sb) noexcept override {
+    void OnDrawWorld(FRenderContext& /*rc*/, FSpriteBatch& sb) noexcept override {
         // 斜めの OBB バー (回転矩形コライダー) を可視化。collider と同じ中心/回転。
         sb.DrawRectRotated(m_ObbBar.center.x, m_ObbBar.center.y,
                            m_ObbBar.half_size.x * 2.0f, m_ObbBar.half_size.y * 2.0f,
@@ -433,9 +433,9 @@ public:
         }
     }
 
-    void OnDrawHud(RenderContext& rc, FSpriteBatch& sb) noexcept override {
+    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
         BuildUi(rc.Width(), rc.Height());
-        Font* small = rc.HasFont() ? &rc.GetFont() : nullptr;
+        FFont* small = rc.HasFont() ? &rc.GetFont() : nullptr;
         const f32 cx = static_cast<f32>(rc.Width()) * 0.5f;
 
         // 上部 HUD バー: スコア / コイン / 残り時間。
@@ -454,7 +454,7 @@ public:
         if (m_State == EState::Paused) {
             // 全画面ディム + メニュー。
             sb.DrawRect(0.0f, 0.0f, static_cast<f32>(rc.Width()), static_cast<f32>(rc.Height()), kColDim);
-            Font* big = App(*this).TitleFont();
+            FFont* big = App(*this).TitleFont();
             DrawCentered(sb, big ? big : small, "PAUSED", cx, rc.Height() * 0.30f, kColText);
             m_Ui.Draw(rc);   // RESUME / QUIT TO TITLE
         }
@@ -487,14 +487,14 @@ private:
         }
     }
 
-    void EndGame(bool win) noexcept;   // GameOverScene へ (out-of-line)
+    void EndGame(bool win) noexcept;   // FGameOverScene へ (out-of-line)
 
     TUniquePtr<IRhiTexture> m_TileAtlas;
     TUniquePtr<IRhiTexture> m_HeroAtlas;
     FSpritePack             m_Pack;
-    FNode2D*                m_Player = nullptr;
-    FPhysicsBody2D*         m_PlayerBody = nullptr;
-    Obb2                    m_ObbBar;
+    ANode*                m_Player = nullptr;
+    APhysicsBody2D*         m_PlayerBody = nullptr;
+    FObb2                    m_ObbBar;
     FVec2  m_CoinPos[kNumCoins]{};
     bool   m_CoinGot[kNumCoins]{};
     u32    m_Collected = 0;
@@ -511,9 +511,9 @@ private:
 // ===========================================================================
 // GameOver (スコア表示 + ハイスコア保存 + Retry / Title)
 // ===========================================================================
-class GameOverScene final : public FScene2D {
+class FGameOverScene final : public FScene2D {
 public:
-    GameOverScene(i32 score, bool win) noexcept : m_Score(score), m_Win(win) {}
+    FGameOverScene(i32 score, bool win) noexcept : m_Score(score), m_Win(win) {}
 
     void OnReady() noexcept override {
         GetGame().SetClearColor(m_Win ? 0.05f : 0.10f, 0.07f, m_Win ? 0.10f : 0.06f);
@@ -528,14 +528,14 @@ public:
         Services().Camera().SetPosition(FVec2{0.0f, 0.0f});
     }
 
-    void OnEvent(const Event& e) noexcept override { m_Ui.HandleInput(e); }
+    void OnEvent(const FEvent& e) noexcept override { m_Ui.HandleInput(e); }
 
     void OnTick(f32 dt) noexcept override;   // 遷移を含むので out-of-line
 
-    void OnDrawHud(RenderContext& rc, FSpriteBatch& sb) noexcept override {
+    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
         BuildUi(rc.Width(), rc.Height());
-        Font* big   = App(*this).TitleFont();
-        Font* small = rc.HasFont() ? &rc.GetFont() : nullptr;
+        FFont* big   = App(*this).TitleFont();
+        FFont* small = rc.HasFont() ? &rc.GetFont() : nullptr;
         const f32 cx = static_cast<f32>(rc.Width()) * 0.5f;
 
         DrawCentered(sb, big ? big : small, m_Win ? "YOU WIN!" : "GAME OVER",
@@ -583,21 +583,21 @@ private:
 
 // ---- 相互参照する遷移メソッドを各クラス定義後に out-of-line で実装 ----------
 
-TUniquePtr<Scene> FVerticalSliceGame::InitialScene() noexcept {
-    return MakeUnique<TitleScene>();
+TUniquePtr<FScene> FVerticalSliceGame::InitialScene() noexcept {
+    return MakeUnique<FTitleScene>();
 }
 
-void TitleScene::OnTick(f32 dt) noexcept {
+void FTitleScene::OnTick(f32 dt) noexcept {
     m_Ui.Tick(dt);
     FInputMap& in = Services().Input();
     if (m_Ui.IsButtonPressed(m_PlayBtn) || in.IsPressed(kStart)) {
-        Scenes().ChangeScene(MakeUnique<PlayScene>());
+        Scenes().ChangeScene(MakeUnique<FPlayScene>());
     } else if (m_Ui.IsButtonPressed(m_QuitBtn) || in.IsPressed(kQuit)) {
         GetGame().Quit();
     }
 }
 
-void PlayScene::OnTick(f32 dt) noexcept {
+void FPlayScene::OnTick(f32 dt) noexcept {
     m_Time += dt;
     m_Ui.Tick(dt);
     FInputMap& in = Services().Input();
@@ -606,21 +606,21 @@ void PlayScene::OnTick(f32 dt) noexcept {
         if (m_Ui.IsButtonPressed(m_ResumeBtn) || in.IsPressed(kPause)) {
             SetPaused(false);
         } else if (m_Ui.IsButtonPressed(m_TitleBtn)) {
-            Scenes().ChangeScene(MakeUnique<TitleScene>());
+            Scenes().ChangeScene(MakeUnique<FTitleScene>());
         }
         return;   // ポーズ中はゲーム更新を凍結
     }
 
     if (in.IsPressed(kPause)) { SetPaused(true); return; }
 
-    // --- 移動 (Y-down): 入力を velocity にして FPhysicsBody2D の collide-and-slide に
+    // --- 移動 (Y-down): 入力を velocity にして APhysicsBody2D の collide-and-slide に
     //     任せる。壁/水の AABB に当たると軸ごとに止まりつつ沿って滑る。位置は body が
     //     m_Root.UpdateTree (OnTick の後) で更新する。 ---
     f32 dx = in.Axis(kMoveX), dy = in.Axis(kMoveY);
     const f32 len = Sqrt(dx * dx + dy * dy);
     if (len > 0.0001f) { dx /= len; dy /= len; }
     if (m_PlayerBody) m_PlayerBody->velocity = FVec2{dx * kPlayerSpeed, dy * kPlayerSpeed};
-    const FVec2 p = m_Player->Local().position;   // body が前フレームに更新した現在位置
+    const FVec2 p = m_Player->Position2D();   // body が前フレームに更新した現在位置
 
     // --- コイン取得 ---
     for (u32 i = 0; i < kNumCoins; ++i) {
@@ -638,17 +638,17 @@ void PlayScene::OnTick(f32 dt) noexcept {
     if (m_TimeLeft <= 0.0f)       { m_TimeLeft = 0.0f; EndGame(false); return; }
 }
 
-void PlayScene::EndGame(bool win) noexcept {
-    Scenes().ChangeScene(MakeUnique<GameOverScene>(m_Score, win));
+void FPlayScene::EndGame(bool win) noexcept {
+    Scenes().ChangeScene(MakeUnique<FGameOverScene>(m_Score, win));
 }
 
-void GameOverScene::OnTick(f32 dt) noexcept {
+void FGameOverScene::OnTick(f32 dt) noexcept {
     m_Ui.Tick(dt);
     FInputMap& in = Services().Input();
     if (m_Ui.IsButtonPressed(m_RetryBtn) || in.IsPressed(kStart)) {
-        Scenes().ChangeScene(MakeUnique<PlayScene>());
+        Scenes().ChangeScene(MakeUnique<FPlayScene>());
     } else if (m_Ui.IsButtonPressed(m_TitleBtn) || in.IsPressed(kQuit)) {
-        Scenes().ChangeScene(MakeUnique<TitleScene>());
+        Scenes().ChangeScene(MakeUnique<FTitleScene>());
     }
 }
 

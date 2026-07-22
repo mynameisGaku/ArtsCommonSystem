@@ -83,7 +83,7 @@ public:
      * @param t_max 探索する最大パラメータ距離 (既定はほぼ無限大)。
      * @return 最近接ヒット情報 (hit / t / point / normal)。
      */
-    RayHit3 Raycast(const Ray3& ray, f32 t_max = 3.4028235e38f) const noexcept;
+    FRayHit3 Raycast(const FRay3& ray, f32 t_max = 3.4028235e38f) const noexcept;
 
     /**
      * AABB がメッシュと重なるかを判定する (broadphase 用)。
@@ -92,14 +92,14 @@ public:
      * @param box 重なりを調べる AABB。
      * @return いずれかの三角形 AABB と重なれば true。
      */
-    bool OverlapsAabb(const Aabb3& box) const noexcept;
+    bool OverlapsAabb(const FAabb3& box) const noexcept;
 
     /**
      * メッシュ全体の AABB を返す。
      *
      * @return 構築時に求めた境界ボックス。
      */
-    Aabb3 Bounds()        const noexcept { return m_Bounds; }
+    FAabb3 Bounds()        const noexcept { return m_Bounds; }
 
     /**
      * 三角形数を返す。
@@ -121,7 +121,7 @@ private:
      *
      * @details 重心は BVH 分割の軸キーに使う。
      */
-    struct Tri {
+    struct FTri {
         /** 頂点 0 の位置。 */
         FVec3 v0;
 
@@ -142,9 +142,9 @@ private:
      * 葉のときは tri_count>0 で [first_tri, first_tri+tri_count) が m_TriIndex の範囲。
      * 内部ノードのときは tri_count==0 で left / left+1 が子ノードのインデックス。
      */
-    struct BvhNode {
+    struct FBvhNode {
         /** このノードが覆う AABB。 */
-        Aabb3 bounds;
+        FAabb3 bounds;
 
         /** 内部ノードの左子のインデックス (右子は left+1)。 */
         u32   left      = 0;
@@ -166,19 +166,19 @@ private:
      * @param count 範囲に含む三角形数。
      * @return 範囲の三角形を包む境界ボックス。
      */
-    Aabb3 ComputeBounds(u32 first, u32 count) const noexcept;
+    FAabb3 ComputeBounds(u32 first, u32 count) const noexcept;
 
     /** 三角形リスト (頂点位置 + 重心)。 */
-    TArray<Tri>     m_Tris;
+    TArray<FTri>     m_Tris;
 
     /** BVH 用の三角形並べ替えインデックス (m_Tris への参照)。 */
     TArray<u32>     m_TriIndex;
 
     /** BVH ノード配列 (ノード 0 が root)。 */
-    TArray<BvhNode> m_Nodes;
+    TArray<FBvhNode> m_Nodes;
 
     /** メッシュ全体の AABB。 */
-    Aabb3           m_Bounds{};
+    FAabb3           m_Bounds{};
 };
 
 } // namespace acs

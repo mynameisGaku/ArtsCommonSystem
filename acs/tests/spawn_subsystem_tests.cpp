@@ -9,7 +9,7 @@
 #include "test/Expect.h"
 #include "gameframework/Spawn2DSubsystem.h"
 #include "gameframework/Scene2D.h"
-#include "gameframework/Node2D.h"
+#include "gameframework/ANode.h"
 
 using namespace acs;
 using namespace acs::game;
@@ -31,16 +31,16 @@ ACS_TEST(SpawnSubsystem, SpawnsIntoSceneRootAtPosition) {
     spawner._SetOwner(&scene);                         // World サブシステムの owner = Scene
 
     const u32 before = scene.Root().ChildCount();
-    FNode2D* n = spawner.SpawnPrefabText(kBullet, FVec2{ 100.0f, 50.0f });
+    ANode* n = spawner.SpawnPrefabText(kBullet, FVec2{ 100.0f, 50.0f });
     EXPECT_TRUE(n != nullptr);
     EXPECT_TRUE(n->Parent() == &scene.Root());         // シーン root の子として生成
     EXPECT_EQ(scene.Root().ChildCount(), before + 1u);
-    EXPECT_TRUE(n->Local().position.x == 100.0f && n->Local().position.y == 50.0f);  // 指定位置
+    EXPECT_TRUE(n->Position2D().x == 100.0f && n->Position2D().y == 50.0f);  // 指定位置
     EXPECT_EQ(n->ChildCount(), 1u);                    // 子 Tip も生成
     EXPECT_EQ(n->SerialId(), 1);                       // SerialId 復元(参照解決の土台)
 
     // 複数スポーンは独立に積み上がる。
-    FNode2D* m = spawner.SpawnPrefabText(kBullet, FVec2{ 0.0f, 0.0f });
+    ANode* m = spawner.SpawnPrefabText(kBullet, FVec2{ 0.0f, 0.0f });
     EXPECT_TRUE(m != nullptr && m != n);
     EXPECT_EQ(scene.Root().ChildCount(), before + 2u);
 }

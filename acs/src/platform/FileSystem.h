@@ -2,11 +2,11 @@
 // ファイル I/O とパス操作
 //
 // 使い方:
-//   auto data = FileSystem::ReadAllBytes(L"data/save.bin");
+//   auto data = FFileSystem::ReadAllBytes(L"data/save.bin");
 //   if (data.IsErr()) { /* エラー処理 */ }
 //   TSpan<const byte> bytes = data.Value().AsSpan();
 //
-//   FileSystem::WriteAllBytes(L"data/save.bin", bytes);
+//   FFileSystem::WriteAllBytes(L"data/save.bin", bytes);
 #pragma once
 
 #include "foundation/Types.h"
@@ -17,7 +17,7 @@
 namespace acs {
 
 /** ファイル I/O とパス操作のユーティリティ (全メソッド static、Win32 実装)。 */
-class FileSystem {
+class FFileSystem {
 public:
     /**
      * ファイル全体をバイト列として読み込む。

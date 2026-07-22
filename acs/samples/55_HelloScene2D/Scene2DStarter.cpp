@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloScene2D - practical starter for ACS 2D games.
+// HelloScene2D - ACS 2D ゲームの実用的な開始例。
 //
-// Demonstrates the new FScene2D base:
-//   - Root node tree
-//   - shared SpriteBatch via RenderContext
-//   - FSprite2DComponent rendering
-//   - FPhysicsBody2D collide-and-slide
-//   - camera follow
+// FScene2D 基盤の次の機能を示す:
+//   - ルートノードツリー
+//   - FRenderContext 経由で共有する SpriteBatch
+//   - ASprite2DComponent による描画
+//   - APhysicsBody2D の collide-and-slide
+//   - カメラ追従
 #include "gameframework/GameFramework.h"
 #include "platform/InputCodes.h"
 
@@ -15,9 +15,9 @@ using namespace acs::game;
 
 namespace {
 
-constexpr ActionId kMoveX("MoveX");
-constexpr ActionId kMoveY("MoveY");
-constexpr ActionId kQuit("Quit");
+constexpr FActionId kMoveX("MoveX");
+constexpr FActionId kMoveY("MoveY");
+constexpr FActionId kQuit("Quit");
 
 class FStarterScene final : public FScene2D
 {
@@ -34,18 +34,18 @@ public:
 
         FCollisionWorld2D& physics = Services().Physics();
         physics.Init(1.0f);
-        physics.AddAabb(Aabb2{FVec2{0.0f, 2.25f}, FVec2{8.0f, 0.35f}});
-        physics.AddAabb(Aabb2{FVec2{-4.25f, 0.0f}, FVec2{0.35f, 2.5f}});
-        physics.AddAabb(Aabb2{FVec2{4.25f, 0.0f}, FVec2{0.35f, 2.5f}});
+        physics.AddAabb(FAabb2{FVec2{0.0f, 2.25f}, FVec2{8.0f, 0.35f}});
+        physics.AddAabb(FAabb2{FVec2{-4.25f, 0.0f}, FVec2{0.35f, 2.5f}});
+        physics.AddAabb(FAabb2{FVec2{4.25f, 0.0f}, FVec2{0.35f, 2.5f}});
 
         AddBox(FVec2{0.0f, 2.25f}, FVec2{16.0f, 0.7f}, FVec4{0.25f, 0.28f, 0.34f, 1.0f});
         AddBox(FVec2{-4.25f, 0.0f}, FVec2{0.7f, 5.0f}, FVec4{0.22f, 0.24f, 0.30f, 1.0f});
         AddBox(FVec2{4.25f, 0.0f}, FVec2{0.7f, 5.0f}, FVec4{0.22f, 0.24f, 0.30f, 1.0f});
 
-        auto player = MakeUnique<FNode2D>();
-        player->Local().position = FVec2{0.0f, 0.0f};
-        player->AddComponent<FSprite2DComponent>(FVec2{0.9f, 0.9f}, FVec4{0.15f, 0.85f, 1.0f, 1.0f});
-        FPhysicsBody2D& body = player->AddComponent<FPhysicsBody2D>(physics);
+        auto player = NewObject<ANode>();
+        player->SetPosition2D(FVec2{0.0f, 0.0f});
+        player->AddComponent<ASprite2DComponent>(FVec2{0.9f, 0.9f}, FVec4{0.15f, 0.85f, 1.0f, 1.0f});
+        APhysicsBody2D& body = player->AddComponent<APhysicsBody2D>(physics);
         body.SetCircle(0.45f);
         body.gravity = FVec2{0.0f, 14.0f};  // +Y = 画面下 (重力は下向き = 正の Y)
         body.slide = true;
@@ -68,14 +68,14 @@ public:
         const f32 mx = Services().Input().Axis(kMoveX);
         const f32 my = Services().Input().Axis(kMoveY);
         m_PlayerBody->velocity.x = mx * 4.0f;
-        if (my > 0.1f && m_Player->Local().position.y >= 1.30f)
+        if (my > 0.1f && m_Player->Position2D().y >= 1.30f)
         {
             m_PlayerBody->velocity.y = -7.0f;  // ジャンプ = 画面上 = 負の Y
         }
-        Services().Camera().SetTargetPos(m_Player->Local().position, 8.0f);
+        Services().Camera().SetTargetPos(m_Player->Position2D(), 8.0f);
     }
 
-    void OnDrawWorld(RenderContext& /*rc*/, FSpriteBatch& sb) noexcept override
+    void OnDrawWorld(FRenderContext& /*rc*/, FSpriteBatch& sb) noexcept override
     {
         // A small grid so camera/scale are obvious.
         for (i32 x = -8; x <= 8; ++x)
@@ -90,7 +90,7 @@ public:
         }
     }
 
-    void OnDrawHud(RenderContext& rc, FSpriteBatch& sb) noexcept override
+    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override
     {
         sb.DrawRect(12.0f, 12.0f, 360.0f, 54.0f, FVec4{0.0f, 0.0f, 0.0f, 0.45f});
         // Text omitted intentionally: this starter has no font dependency.
@@ -100,20 +100,20 @@ public:
 private:
     void AddBox(FVec2 pos, FVec2 size, FVec4 color) noexcept
     {
-        auto n = MakeUnique<FNode2D>();
-        n->Local().position = pos;
-        n->AddComponent<FSprite2DComponent>(size, color);
+        auto n = NewObject<ANode>();
+        n->SetPosition2D(pos);
+        n->AddComponent<ASprite2DComponent>(size, color);
         Root().AddChild(Move(n));
     }
 
-    FNode2D* m_Player = nullptr;
-    FPhysicsBody2D* m_PlayerBody = nullptr;
+    ANode* m_Player = nullptr;
+    APhysicsBody2D* m_PlayerBody = nullptr;
 };
 
 class FStarterGame final : public FGame
 {
 protected:
-    TUniquePtr<Scene> InitialScene() noexcept override { return MakeUnique<FStarterScene>(); }
+    TUniquePtr<FScene> InitialScene() noexcept override { return MakeUnique<FStarterScene>(); }
 };
 
 }; // namespace

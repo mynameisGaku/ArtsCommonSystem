@@ -17,8 +17,8 @@ void DebugDrawRigidWorld(const FRigidWorld2D& world, FDebugDraw& dd,
         if (b == nullptr) break;
         if (!b->active) continue;
 
-        if (b->is_circle) dd.DrawCircle(Circle{ b->pos, b->radius }, color);
-        else              dd.DrawAabb(Aabb2{ b->pos, b->half }, color);
+        if (b->is_circle) dd.DrawCircle(FCircle{ b->pos, b->radius }, color);
+        else              dd.DrawAabb(FAabb2{ b->pos, b->half }, color);
 
         // 動的ボディの速度ベクトルを矢印で。
         if (b->inv_mass > 0.0f && (b->vel.x != 0.0f || b->vel.y != 0.0f)) {

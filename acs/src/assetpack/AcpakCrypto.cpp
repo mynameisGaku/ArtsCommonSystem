@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS FAssetPack — FAcpakCrypto 実装 (Windows CNG / BCrypt)
+// ACS AssetPack — FAcpakCrypto 実装 (Windows CNG / BCrypt)
 // -----------------------------------------------------------------------------
 // Win32 BCrypt API ラッパ。各 API 呼び出しでアルゴリズムプロバイダを開いて
 // 閉じるシンプルな実装。キャッシュ無し (起動時 + ストリーミングが

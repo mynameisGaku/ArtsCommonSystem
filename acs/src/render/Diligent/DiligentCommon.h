@@ -131,6 +131,24 @@ inline void ApplyBlend(EBlendMode m, RenderTargetBlendDesc& rt) noexcept {
             rt.DestBlendAlpha = BLEND_FACTOR_ONE;
             rt.BlendOpAlpha   = BLEND_OPERATION_ADD;
             break;
+        case EBlendMode::Multiply:
+            rt.BlendEnable    = True;
+            rt.SrcBlend       = BLEND_FACTOR_ZERO;
+            rt.DestBlend      = BLEND_FACTOR_SRC_COLOR;
+            rt.BlendOp        = BLEND_OPERATION_ADD;
+            rt.SrcBlendAlpha  = BLEND_FACTOR_ZERO;
+            rt.DestBlendAlpha = BLEND_FACTOR_ONE;
+            rt.BlendOpAlpha   = BLEND_OPERATION_ADD;
+            break;
+        case EBlendMode::AdditivePreserveAlpha:
+            rt.BlendEnable    = True;
+            rt.SrcBlend       = BLEND_FACTOR_ONE;
+            rt.DestBlend      = BLEND_FACTOR_ONE;
+            rt.BlendOp        = BLEND_OPERATION_ADD;
+            rt.SrcBlendAlpha  = BLEND_FACTOR_ZERO;
+            rt.DestBlendAlpha = BLEND_FACTOR_ONE;
+            rt.BlendOpAlpha   = BLEND_OPERATION_ADD;
+            break;
     }
 }
 
@@ -165,7 +183,7 @@ inline TEXTURE_ADDRESS_MODE ToDiligentAddress(ESamplerAddress a) noexcept {
     return TEXTURE_ADDRESS_WRAP;
 }
 
-// 注意: SamplerDesc は ACS 名前空間にも同名がある。Diligent::SamplerDesc を使うときは
+// 注意: ACS 側の記述子は FSamplerDesc。Diligent 側の SamplerDesc を使うときは
 // 必ず完全修飾 (Diligent::SamplerDesc) で呼ぶ。
 
 /**

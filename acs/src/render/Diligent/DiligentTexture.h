@@ -13,7 +13,7 @@ namespace Diligent {
 
 namespace acs {
 
-class DiligentDevice;
+class FDiligentDevice;
 
 /**
  * Diligent Engine の ITexture を IRhiTexture として包むテクスチャ実装。
@@ -25,19 +25,19 @@ class DiligentDevice;
  * (IBL prefilter 等の slice 単位描画で使う)、これらは ITexture 所有外なので
  * デストラクタで明示 Release する。
  */
-class DiligentTexture final : public IRhiTexture {
+class FDiligentTexture final : public IRhiTexture {
 public:
     /** 空のテクスチャを構築する (GPU リソースは Init で確保)。 */
-    DiligentTexture() noexcept = default;
+    FDiligentTexture() noexcept = default;
 
     /** ITexture と per-slice RTV を解放する。 */
-    ~DiligentTexture() noexcept override;
+    ~FDiligentTexture() noexcept override;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    DiligentTexture(const DiligentTexture&) = delete;
+    FDiligentTexture(const FDiligentTexture&) = delete;
 
     /** コピー代入も禁止。 */
-    DiligentTexture& operator=(const DiligentTexture&) = delete;
+    FDiligentTexture& operator=(const FDiligentTexture&) = delete;
 
     /**
      * FTextureDesc から ITexture とビューを生成する。
@@ -52,7 +52,7 @@ public:
      * @param desc 生成するテクスチャの記述子。
      * @return 成功なら空の TResult、検証失敗・生成失敗ならエラー。
      */
-    TResult<void> Init(DiligentDevice& device, const FTextureDesc& desc) noexcept;
+    TResult<void> Init(FDiligentDevice& device, const FTextureDesc& desc) noexcept;
 
     /**
      * テクスチャの幅 (テクセル数) を返す。
@@ -73,7 +73,7 @@ public:
      *
      * @return テクスチャの EFormat。
      */
-    EFormat EPixelFormat() const noexcept override { return m_Format; }
+    EFormat PixelFormat() const noexcept override { return m_Format; }
 
     /**
      * mip レベル数を返す。
@@ -177,7 +177,7 @@ private:
     void Reset() noexcept;
 
     /** Init で受け取った所有元デバイス。 */
-    DiligentDevice*         m_Device  = nullptr;
+    FDiligentDevice*         m_Device  = nullptr;
 
     /** Diligent ネイティブのテクスチャ本体。 */
     Diligent::ITexture*     m_Texture = nullptr;

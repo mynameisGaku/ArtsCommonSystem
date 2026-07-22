@@ -6,7 +6,7 @@
 //   ・Get<T>() が自スコープ → 上位スコープ (World→GameInstance→Engine) へフォール
 //     バック検索する。上位から下位は «見えない»
 //   ・OnTick がフレーム毎に呼ばれ、OnDeinitialize が解体時に呼ばれる
-//   ・FNode2D / FComponent2D の GetSubsystem<T>() が root 配線を walk-to-root で
+//   ・ANode / AComponent の GetSubsystem<T>() が root 配線を walk-to-root で
 //     解決する (= ワールドのオブジェクト同士がサブシステム経由でやり取りできる)
 // =============================================================================
 #include "test/Test.h"
@@ -14,8 +14,8 @@
 #include "gameframework/Subsystem.h"
 #include "gameframework/SubsystemRegistry.h"
 #include "gameframework/SubsystemCollection.h"
-#include "gameframework/Node2D.h"
-#include "gameframework/Component2D.h"
+#include "gameframework/ANode.h"
+#include "gameframework/AComponent.h"
 #include "gameframework/WorldClockSubsystem.h"
 #include "memory/UniquePtr.h"
 
@@ -25,9 +25,9 @@ using namespace acs::game;
 namespace {
 
 // World スコープ: スコア管理 (オブジェクト間のやり取りのハブを想定)。
-class TScoreSub : public FSubsystem {
+class FScoreSub : public FSubsystem {
 public:
-    ACS_GAME_SUBSYSTEM_KIND(TScoreSub)
+    ACS_GAME_SUBSYSTEM_KIND(FScoreSub)
     int score  = -999;
     int ticks  = 0;
     int deinit = 0;
@@ -38,52 +38,52 @@ public:
 };
 
 // GameInstance スコープ: シーン跨ぎの設定 (シングルトン)。
-class TConfigSub : public FSubsystem {
+class FConfigSub : public FSubsystem {
 public:
-    ACS_GAME_SUBSYSTEM_KIND(TConfigSub)
+    ACS_GAME_SUBSYSTEM_KIND(FConfigSub)
     int volume = 0;
     void OnInitialize() noexcept override { volume = 50; }
 };
 
 // Engine スコープ: アプリ全体寿命。
-class TEngineSub : public FSubsystem {
+class FEngineSub : public FSubsystem {
 public:
-    ACS_GAME_SUBSYSTEM_KIND(TEngineSub)
+    ACS_GAME_SUBSYSTEM_KIND(FEngineSub)
     bool inited = false;
     void OnInitialize() noexcept override { inited = true; }
 };
 
 // コンポーネントからサブシステムを引いて使うテストコンポーネント。
-struct TProbeComp : public FComponent2D {
-    ACS_GAME_COMPONENT_KIND(TProbeComp)
+struct AProbeComponent : public AComponent {
+    ACS_GAME_COMPONENT_KIND(AProbeComponent)
 };
 
 // OnInitialize 時点で Owner() を読み取って記録するサブシステム (World)。
-class TOwnerSub : public FSubsystem {
+class FOwnerSub : public FSubsystem {
 public:
-    ACS_GAME_SUBSYSTEM_KIND(TOwnerSub)
+    ACS_GAME_SUBSYSTEM_KIND(FOwnerSub)
     void* seenOwner = reinterpret_cast<void*>(0x1);   // 初期値は «未設定» と区別できる値
     void OnInitialize() noexcept override { seenOwner = Owner(); }
 };
 
-class TDynamicSubsystemOne : public FSubsystem {
+class FDynamicSubsystemOne : public FSubsystem {
 public:
-    ACS_GAME_SUBSYSTEM_KIND(TDynamicSubsystemOne)
+    ACS_GAME_SUBSYSTEM_KIND(FDynamicSubsystemOne)
 };
 
-class TDynamicSubsystemTwo : public FSubsystem {
+class FDynamicSubsystemTwo : public FSubsystem {
 public:
-    ACS_GAME_SUBSYSTEM_KIND(TDynamicSubsystemTwo)
+    ACS_GAME_SUBSYSTEM_KIND(FDynamicSubsystemTwo)
 };
 
 TUniquePtr<FSubsystem> CreateDynamicSubsystemOne() noexcept
 {
-    return MakeUnique<TDynamicSubsystemOne>();
+    return MakeUnique<FDynamicSubsystemOne>();
 }
 
 TUniquePtr<FSubsystem> CreateDynamicSubsystemTwo() noexcept
 {
-    return MakeUnique<TDynamicSubsystemTwo>();
+    return MakeUnique<FDynamicSubsystemTwo>();
 }
 
 const FSubsystemFactory* FindFactoryByKind(const FSubsystemRegistry& registry, const void* kind) noexcept
@@ -96,17 +96,17 @@ const FSubsystemFactory* FindFactoryByKind(const FSubsystemRegistry& registry, c
 
 } // namespace
 
-ACS_REGISTER_SUBSYSTEM(TScoreSub,  ESubsystemScope::World)
-ACS_REGISTER_SUBSYSTEM(TConfigSub, ESubsystemScope::GameInstance)
-ACS_REGISTER_SUBSYSTEM(TEngineSub, ESubsystemScope::Engine)
-ACS_REGISTER_SUBSYSTEM(TOwnerSub,  ESubsystemScope::World)
+ACS_REGISTER_SUBSYSTEM(FScoreSub,  ESubsystemScope::World)
+ACS_REGISTER_SUBSYSTEM(FConfigSub, ESubsystemScope::GameInstance)
+ACS_REGISTER_SUBSYSTEM(FEngineSub, ESubsystemScope::Engine)
+ACS_REGISTER_SUBSYSTEM(FOwnerSub,  ESubsystemScope::World)
 
 namespace {
 
 // Engine→GameInstance→World の親チェーンで 3 コレクションを初期化するヘルパ。
-struct Stack {
+struct FStack {
     FSubsystemCollection engine, gameInst, world;
-    Stack() noexcept {
+    FStack() noexcept {
         engine.Initialize(ESubsystemScope::Engine);
         gameInst.Initialize(ESubsystemScope::GameInstance, &engine);
         world.Initialize(ESubsystemScope::World, &gameInst);
@@ -117,72 +117,72 @@ struct Stack {
 
 // 各スコープのサブシステムが «該当スコープのコレクションにのみ» 生成される。
 ACS_TEST(Subsystem, InstantiatedPerScope) {
-    Stack s;
-    EXPECT_TRUE(s.world.Get<TScoreSub>()     != nullptr);
-    EXPECT_TRUE(s.gameInst.Get<TConfigSub>() != nullptr);
-    EXPECT_TRUE(s.engine.Get<TEngineSub>()   != nullptr);
+    FStack s;
+    EXPECT_TRUE(s.world.Get<FScoreSub>()     != nullptr);
+    EXPECT_TRUE(s.gameInst.Get<FConfigSub>() != nullptr);
+    EXPECT_TRUE(s.engine.Get<FEngineSub>()   != nullptr);
     // OnInitialize が走っている。
-    EXPECT_EQ(s.world.Get<TScoreSub>()->score, 0);
-    EXPECT_EQ(s.gameInst.Get<TConfigSub>()->volume, 50);
-    EXPECT_TRUE(s.engine.Get<TEngineSub>()->inited);
+    EXPECT_EQ(s.world.Get<FScoreSub>()->score, 0);
+    EXPECT_EQ(s.gameInst.Get<FConfigSub>()->volume, 50);
+    EXPECT_TRUE(s.engine.Get<FEngineSub>()->inited);
 }
 
 // 下位スコープから上位スコープを取得できる (フォールバック)。上位→下位は不可。
 ACS_TEST(Subsystem, ScopeFallback) {
-    Stack s;
+    FStack s;
     // World から GameInstance / Engine が見える。
-    EXPECT_TRUE(s.world.Get<TConfigSub>() != nullptr);
-    EXPECT_TRUE(s.world.Get<TEngineSub>() != nullptr);
+    EXPECT_TRUE(s.world.Get<FConfigSub>() != nullptr);
+    EXPECT_TRUE(s.world.Get<FEngineSub>() != nullptr);
     // GameInstance から Engine は見えるが World は見えない。
-    EXPECT_TRUE(s.gameInst.Get<TEngineSub>() != nullptr);
-    EXPECT_TRUE(s.gameInst.Get<TScoreSub>()  == nullptr);
+    EXPECT_TRUE(s.gameInst.Get<FEngineSub>() != nullptr);
+    EXPECT_TRUE(s.gameInst.Get<FScoreSub>()  == nullptr);
     // Engine から下位は見えない。
-    EXPECT_TRUE(s.engine.Get<TConfigSub>() == nullptr);
-    EXPECT_TRUE(s.engine.Get<TScoreSub>()  == nullptr);
+    EXPECT_TRUE(s.engine.Get<FConfigSub>() == nullptr);
+    EXPECT_TRUE(s.engine.Get<FScoreSub>()  == nullptr);
 }
 
 // Tick が毎フレーム呼ばれる。
 ACS_TEST(Subsystem, TickForwards) {
-    Stack s;
+    FStack s;
     s.world.Tick(0.016f);
     s.world.Tick(0.016f);
     s.world.Tick(0.016f);
-    EXPECT_EQ(s.world.Get<TScoreSub>()->ticks, 3);
+    EXPECT_EQ(s.world.Get<FScoreSub>()->ticks, 3);
 }
 
 // Deinitialize で OnDeinitialize が呼ばれ、以後取得不可になる。冪等。
 ACS_TEST(Subsystem, DeinitializeTearsDown) {
     FSubsystemCollection world;
     world.Initialize(ESubsystemScope::World);
-    EXPECT_TRUE(world.Get<TScoreSub>() != nullptr);
+    EXPECT_TRUE(world.Get<FScoreSub>() != nullptr);
     world.Deinitialize();
-    EXPECT_TRUE(world.Get<TScoreSub>() == nullptr);
+    EXPECT_TRUE(world.Get<FScoreSub>() == nullptr);
     world.Deinitialize();   // 冪等 (二重解体しても安全)
 }
 
 // ノード/コンポーネントが root 配線のサブシステムを walk-to-root で取得できる
 // (= ワールドのオブジェクト同士がサブシステム経由でやり取りできる)。
 ACS_TEST(Subsystem, NodeAndComponentAccess) {
-    Stack s;
-    FNode2D root;
+    FStack s;
+    ANode root;
     root._SetSubsystems(&s.world);                          // root にのみ配線
-    FNode2D& child = root.AddChild(MakeUnique<FNode2D>());
-    TProbeComp& comp = child.AddComponent<TProbeComp>();
+    ANode& child = root.AddChild(NewObject<ANode>());
+    AProbeComponent& comp = child.AddComponent<AProbeComponent>();
 
     // 子ノードから (walk-to-root)。
-    EXPECT_TRUE(child.GetSubsystem<TScoreSub>()  != nullptr);
-    EXPECT_TRUE(child.GetSubsystem<TConfigSub>() != nullptr);   // 上位へフォールバック
+    EXPECT_TRUE(child.GetSubsystem<FScoreSub>()  != nullptr);
+    EXPECT_TRUE(child.GetSubsystem<FConfigSub>() != nullptr);   // 上位へフォールバック
     // コンポーネントから (owner → root)。
-    EXPECT_TRUE(comp.GetSubsystem<TScoreSub>() != nullptr);
+    EXPECT_TRUE(comp.GetSubsystem<FScoreSub>() != nullptr);
 
     // コンポーネント経由でスコアを加算 → 同じ World サブシステムへ反映される。
-    comp.GetSubsystem<TScoreSub>()->Add(7);
-    comp.GetSubsystem<TScoreSub>()->Add(3);
-    EXPECT_EQ(s.world.Get<TScoreSub>()->score, 10);
+    comp.GetSubsystem<FScoreSub>()->Add(7);
+    comp.GetSubsystem<FScoreSub>()->Add(3);
+    EXPECT_EQ(s.world.Get<FScoreSub>()->score, 10);
 
     // 未配線ノードは nullptr。
-    FNode2D lonely;
-    EXPECT_TRUE(lonely.GetSubsystem<TScoreSub>() == nullptr);
+    ANode lonely;
+    EXPECT_TRUE(lonely.GetSubsystem<FScoreSub>() == nullptr);
 }
 
 // Owner() が Initialize で渡したコンテキストになる(OnInitialize 時点で有効)。
@@ -191,7 +191,7 @@ ACS_TEST(Subsystem, OwnerContextIsSet) {
     void* owner = &dummyOwner;
     FSubsystemCollection world;
     world.Initialize(ESubsystemScope::World, nullptr, owner);
-    TOwnerSub* s = world.Get<TOwnerSub>();
+    FOwnerSub* s = world.Get<FOwnerSub>();
     EXPECT_TRUE(s != nullptr);
     EXPECT_TRUE(s->Owner() == owner);            // 取得 API
     EXPECT_TRUE(s->seenOwner == owner);          // OnInitialize 時点で既に配線済み
@@ -199,7 +199,7 @@ ACS_TEST(Subsystem, OwnerContextIsSet) {
     // owner 未指定なら nullptr。
     FSubsystemCollection w2;
     w2.Initialize(ESubsystemScope::World);
-    EXPECT_TRUE(w2.Get<TOwnerSub>()->Owner() == nullptr);
+    EXPECT_TRUE(w2.Get<FOwnerSub>()->Owner() == nullptr);
 }
 
 ACS_TEST(Subsystem, DuplicateFactorySourcesPromoteOnUnregister)

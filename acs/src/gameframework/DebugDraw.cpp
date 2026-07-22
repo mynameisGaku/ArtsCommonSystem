@@ -13,11 +13,11 @@ namespace acs::game {
 
 /** 任意 2 点間の線分を 1 本バッファへ積む。 */
 void FDebugDraw::DrawLine(FVec2 a, FVec2 b, FVec4 color) noexcept {
-    m_Lines.PushBack(Line{a, b, color});
+    m_Lines.PushBack(FLine{a, b, color});
 }
 
 /** AABB の 4 隅を 4 辺の線分に分解して積む。 */
-void FDebugDraw::DrawAabb(const Aabb2& a, FVec4 color) noexcept {
+void FDebugDraw::DrawAabb(const FAabb2& a, FVec4 color) noexcept {
     // 4 隅 → 4 辺。
     //   tl --- tr
     //    |     |
@@ -28,14 +28,14 @@ void FDebugDraw::DrawAabb(const Aabb2& a, FVec4 color) noexcept {
     const FVec2 tr{mx.x, mn.y};
     const FVec2 br{mx.x, mx.y};
     const FVec2 bl{mn.x, mx.y};
-    m_Lines.PushBack(Line{tl, tr, color});  // 上辺
-    m_Lines.PushBack(Line{tr, br, color});  // 右辺
-    m_Lines.PushBack(Line{br, bl, color});  // 下辺
-    m_Lines.PushBack(Line{bl, tl, color});  // 左辺
+    m_Lines.PushBack(FLine{tl, tr, color});  // 上辺
+    m_Lines.PushBack(FLine{tr, br, color});  // 右辺
+    m_Lines.PushBack(FLine{br, bl, color});  // 下辺
+    m_Lines.PushBack(FLine{bl, tl, color});  // 左辺
 }
 
 /** 円を segments 本の線分に分解した近似輪郭を積む (segments<3 は 3 に丸める)。 */
-void FDebugDraw::DrawCircle(const Circle& c, FVec4 color, u32 segments) noexcept {
+void FDebugDraw::DrawCircle(const FCircle& c, FVec4 color, u32 segments) noexcept {
     // 縮退ガード: 3 角形未満は形にならない。
     if (segments < 3u) segments = 3u;
 
@@ -48,7 +48,7 @@ void FDebugDraw::DrawCircle(const Circle& c, FVec4 color, u32 segments) noexcept
         const f32 theta = step * static_cast<f32>(i);
         const FVec2 curr{c.center.x + c.radius * Cos(theta),
                         c.center.y + c.radius * Sin(theta)};
-        m_Lines.PushBack(Line{prev, curr, color});
+        m_Lines.PushBack(FLine{prev, curr, color});
         prev = curr;
     }
     // i = segments のとき theta = 2π となり、開始点に戻るため自然に閉じる。
@@ -58,13 +58,13 @@ void FDebugDraw::DrawCircle(const Circle& c, FVec4 color, u32 segments) noexcept
 void FDebugDraw::DrawCross(FVec2 pos, f32 size, FVec4 color) noexcept {
     // "+" 記号: 横線（左右）+ 縦線（上下）。size は片側長。
     const f32 h = size;
-    m_Lines.PushBack(Line{FVec2{pos.x - h, pos.y}, FVec2{pos.x + h, pos.y}, color});
-    m_Lines.PushBack(Line{FVec2{pos.x, pos.y - h}, FVec2{pos.x, pos.y + h}, color});
+    m_Lines.PushBack(FLine{FVec2{pos.x - h, pos.y}, FVec2{pos.x + h, pos.y}, color});
+    m_Lines.PushBack(FLine{FVec2{pos.x, pos.y - h}, FVec2{pos.x, pos.y + h}, color});
 }
 
 /** a→b の矢印: 軸 1 本 + 矢じり 2 本 (b から後方へ ±約23°)。 */
 void FDebugDraw::DrawArrow(FVec2 a, FVec2 b, FVec4 color, f32 head_len) noexcept {
-    m_Lines.PushBack(Line{a, b, color});   // 軸
+    m_Lines.PushBack(FLine{a, b, color});   // 軸
     const FVec2 dv{ b.x - a.x, b.y - a.y };
     const f32   len = std::sqrt(dv.x * dv.x + dv.y * dv.y);
     if (len < 1e-6f) return;               // 退化: 矢じり無し
@@ -76,8 +76,8 @@ void FDebugDraw::DrawArrow(FVec2 a, FVec2 b, FVec4 color, f32 head_len) noexcept
     const f32   c = Cos(0.4f), s = Sin(0.4f);
     const FVec2 l{ back.x * c - back.y * s, back.x * s + back.y * c };   // +ang
     const FVec2 r{ back.x * c + back.y * s, -back.x * s + back.y * c };  // -ang
-    m_Lines.PushBack(Line{b, FVec2{b.x + l.x * hl, b.y + l.y * hl}, color});
-    m_Lines.PushBack(Line{b, FVec2{b.x + r.x * hl, b.y + r.y * hl}, color});
+    m_Lines.PushBack(FLine{b, FVec2{b.x + l.x * hl, b.y + l.y * hl}, color});
+    m_Lines.PushBack(FLine{b, FVec2{b.x + r.x * hl, b.y + r.y * hl}, color});
 }
 
 } // namespace acs::game

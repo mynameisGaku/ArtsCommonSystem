@@ -22,7 +22,7 @@ constexpr f32 kSpacing = 1.4f;
 
 } // anonymous namespace
 
-void DrawFloor(HelloIblApp& app) noexcept {
+void DrawFloor(FHelloIblApp& app) noexcept {
     IRhiCommandList* cl = app.GetRenderer().CommandList();
     if (!cl) return;
 
@@ -44,7 +44,7 @@ void DrawFloor(HelloIblApp& app) noexcept {
     app.m_Pbr.SetLightmap(nullptr, 0.0f);
 }
 
-void DrawSphereGrid(HelloIblApp& app) noexcept {
+void DrawSphereGrid(FHelloIblApp& app) noexcept {
     IRhiCommandList* cl = app.GetRenderer().CommandList();
     if (!cl) return;
 

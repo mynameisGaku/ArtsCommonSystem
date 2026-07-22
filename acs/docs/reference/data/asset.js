@@ -8,11 +8,11 @@ ACS_REF.modules.push({
   blurb: "画像・音声・メッシュ・テキストなどの素材ファイルを<b>パスを渡すだけで読み込み</b>、一度読んだものは<t>レジストリ</t>で共有・再利用します。<t>同期</t>でも<t>非同期</t>でも読み込めます。",
   types: [
     {
-      name: "Asset",
+      name: "FAsset",
       kind: "基底クラス", header: "asset/Asset.h",
       summary: "すべてのアセット(画像・音声・メッシュ・テキスト等)が継承する<b>共通の基底</b>。実行時の型 ID(<code>Type()</code>)・<t>FAssetId</t>・<t>ロード状態</t>を持つ。",
-      when: "ローダやレジストリがアセットを型を問わず受け渡す時の共通の入れ物。読み込んだ <code>TSharedPtr&lt;Asset&gt;</code> を具体型に判別したい時にも使う。",
-      sample: "TSharedPtr&lt;Asset&gt; a = result.Value();\nif (a-&gt;Type() == FImageAsset::StaticType()) {\n    auto* img = static_cast&lt;FImageAsset*&gt;(a.Get());\n    u32 w = img-&gt;Width();\n}",
+      when: "ローダやレジストリがアセットを型を問わず受け渡す時の共通の入れ物。読み込んだ <code>TSharedPtr&lt;FAsset&gt;</code> を具体型に判別したい時にも使う。",
+      sample: "TSharedPtr&lt;FAsset&gt; a = result.Value();\nif (a-&gt;Type() == FImageAsset::StaticType()) {\n    auto* img = static_cast&lt;FImageAsset*&gt;(a.Get());\n    u32 w = img-&gt;Width();\n}",
       members: [
         { sig: "virtual AssetType Type() const", ret: "型 ID", desc: "派生クラスごとの実行時<t>型 ID</t>。<code>FXxx::StaticType()</code> と比較して種類を判別する。" },
         { sig: "FAssetId Id() const", ret: "識別子", desc: "このアセットの <t>FAssetId</t>(パスのハッシュ)。レジストリが設定する。" },
@@ -24,8 +24,8 @@ ACS_REF.modules.push({
       name: "ACS_ASSET_TYPE(name)",
       kind: "マクロ", header: "asset/Asset.h",
       summary: "派生アセットクラスに<b>型 ID を一行で宣言</b>するマクロ。文字列リテラルから<t>ハッシュ</t>で <code>StaticType()</code> を作り、<code>Type()</code> を override する。",
-      when: "自前のアセット型を <code>Asset</code> から派生させる時、クラス先頭に置くだけ。",
-      sample: "class FMyAsset : public Asset {\npublic:\n    ACS_ASSET_TYPE(\"FMyAsset\")   // StaticType() と Type() を定義\n    // ...\n};\nif (a-&gt;Type() == FMyAsset::StaticType()) { /* これだ */ }"
+      when: "自前のアセット型を <code>FAsset</code> から派生させる時、クラス先頭に置くだけ。",
+      sample: "class FMyAsset : public FAsset {\npublic:\n    ACS_ASSET_TYPE(\"FMyAsset\")   // StaticType() と Type() を定義\n    // ...\n};\nif (a-&gt;Type() == FMyAsset::StaticType()) { /* これだ */ }"
     },
     {
       name: "EAssetState",
@@ -38,7 +38,7 @@ ACS_REF.modules.push({
       name: "AssetType",
       kind: "型エイリアス", header: "asset/Asset.h",
       summary: "アセット型を識別する 32-bit 値(<code>using AssetType = u32</code>)。文字列名から<t>ハッシュ</t>で一意に生成され、衝突しない前提。",
-      when: "ローダの担当型や <code>Asset::Type()</code> の比較で使う数値 ID。",
+      when: "ローダの担当型や <code>FAsset::Type()</code> の比較で使う数値 ID。",
       sample: "AssetType t = FImageAsset::StaticType();"
     },
     {
@@ -46,7 +46,7 @@ ACS_REF.modules.push({
       kind: "構造体", header: "asset/AssetId.h",
       summary: "アセットの<b>識別子</b>。パス文字列を<t>ハッシュ</t>した 64-bit 値で、同じパスからは常に同じ ID が得られる。<t>レジストリ</t>のキャッシュキーになる。",
       when: "パスではなく ID でアセットを引きたい時(<code>FAssetRegistry::Find</code> など)。",
-      sample: "FAssetId id = MakeAssetId(\"textures/hero.png\");\nif (id.IsValid()) {\n    TSharedPtr&lt;Asset&gt; a = reg.Find(id);\n}",
+      sample: "FAssetId id = MakeAssetId(\"textures/hero.png\");\nif (id.IsValid()) {\n    TSharedPtr&lt;FAsset&gt; a = reg.Find(id);\n}",
       members: [
         { sig: "u64 value", desc: "ハッシュ値の本体。0 は「無効」用に予約。" },
         { sig: "bool IsValid() const", ret: "有効か", desc: "<code>value != 0</code> なら true。" },
@@ -68,16 +68,16 @@ ACS_REF.modules.push({
       kind: "クラス", header: "asset/AssetRegistry.h",
       summary: "アセット読み込みの<b>中心</b>。パスを渡すと拡張子に合う<t>ローダ</t>でファイルを読み、結果を <t>TSharedPtr</t> で<b>キャッシュ共有</b>する。同期/非同期どちらも対応。コピー不可。",
       when: "ゲーム内でテクスチャ・音・モデル等を読み込む時の入口。一度読んだものを二度読まずに使い回したい時。",
-      sample: "FAssetRegistry reg;\nreg.RegisterDefaultLoaders();             // 標準ローダ一括登録\nauto r = reg.Load(L\"textures/hero.png\");\nif (r.IsOk()) {\n    TSharedPtr&lt;Asset&gt; a = r.Value();      // 同じパスの再 Load は同じ a を返す\n}",
+      sample: "FAssetRegistry reg;\nreg.RegisterDefaultLoaders();             // 標準ローダ一括登録\nauto r = reg.Load(L\"textures/hero.png\");\nif (r.IsOk()) {\n    TSharedPtr&lt;FAsset&gt; a = r.Value();      // 同じパスの再 Load は同じ a を返す\n}",
       members: [
         { sig: "void RegisterLoader(IAssetLoader* loader)", desc: "拡張子マッチで使う<t>ローダ</t>を 1 つ登録する。所有権はレジストリに渡らない(ローダの寿命は呼び出し側が管理)。", when: "自前ローダや特定型だけ追加したい時。" },
         { sig: "void RegisterDefaultLoaders()", desc: "標準ローダ群(Image / Audio / Mesh / Text / Binary)を一括登録する。", when: "とりあえず一般的な素材を読みたい最初の一手。" },
-        { sig: "TResult<TSharedPtr<Asset>> Load(const wchar_t* path)", ret: "アセット or エラー", desc: "<b>同期</b>でファイル読み込み + ローダ呼び出し。キャッシュ済みなら即返却。<t>Result</t> で成否を返す。", sample: "auto r = reg.Load(L\"mesh/box.glb\");\nif (r.IsOk()) use(r.Value());" },
+        { sig: "TResult<TSharedPtr<FAsset>> Load(const wchar_t* path)", ret: "アセット or エラー", desc: "<b>同期</b>でファイル読み込み + ローダ呼び出し。キャッシュ済みなら即返却。<t>Result</t> で成否を返す。", sample: "auto r = reg.Load(L\"mesh/box.glb\");\nif (r.IsOk()) use(r.Value());" },
         { sig: "FAssetFuture LoadAsync(const wchar_t* path)", ret: "完了ハンドル", desc: "<b>非同期</b>で <t>FThreadPool</t> ワーカーに読み込みを投げ、<t>FAssetFuture</t> を返す。キャッシュ済みなら即完了状態の future。", when: "大きいモデル等をフレームを止めずに読みたい時。", sample: "FAssetFuture fut = reg.LoadAsync(L\"big.glb\");\n// ...別の処理...\nif (fut.IsReady()) use(fut.Get().Value());" },
-        { sig: "TSharedPtr<Asset> Find(FAssetId id)", ret: "アセット or 空", desc: "キャッシュ<b>からのみ</b>取得。未キャッシュなら空の <code>TSharedPtr</code>(読み込みはしない)。", when: "既に読んだはずのものを ID で引きたい時。" },
+        { sig: "TSharedPtr<FAsset> Find(FAssetId id)", ret: "アセット or 空", desc: "キャッシュ<b>からのみ</b>取得。未キャッシュなら空の <code>TSharedPtr</code>(読み込みはしない)。", when: "既に読んだはずのものを ID で引きたい時。" },
         { sig: "void Unload(FAssetId id)", desc: "キャッシュから外す。ファイル変更時の再読み込み準備に使う(保持中の <code>TSharedPtr</code> は生き続ける)。" },
         { sig: "void Clear()", desc: "全キャッシュをクリアする。" },
-        { sig: "void AsyncCacheInsert(FAssetId, TSharedPtr<Asset>)", desc: "ワーカースレッドから<t>ロック</t>付きでキャッシュへ挿入する内部 API。一般ユーザは使わない。" }
+        { sig: "TResult<void> AsyncCacheInsert(FAssetId, TSharedPtr<FAsset>)", ret: "成功 or エラー", desc: "ワーカースレッドから<t>ロック</t>付きでキャッシュへ挿入する内部 API。レジストリ終了中やキャッシュ挿入失敗はエラーで返す。一般ユーザは使わない。" }
       ]
     },
     {
@@ -85,11 +85,11 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "asset/IAssetLoader.h",
       summary: "アセット<b>ローダの共通<t>インターフェース</t></b>。担当する拡張子と型 ID を申告し、バイト列からアセットを作る役。<t>FAssetRegistry</t> に登録して使う。",
       when: "新しいファイル形式に対応したい時、これを実装して登録する。",
-      sample: "class FMyLoader final : public IAssetLoader {\n    AssetType   TypeId()    const noexcept override { return FMyAsset::StaticType(); }\n    const char* Extension() const noexcept override { return \"myext\"; }\n    TResult&lt;TSharedPtr&lt;Asset&gt;&gt; LoadFromBytes(FAssetId id, const TArray&lt;byte&gt;&amp; b) noexcept override;\n};",
+      sample: "class FMyLoader final : public IAssetLoader {\n    AssetType   TypeId()    const noexcept override { return FMyAsset::StaticType(); }\n    const char* Extension() const noexcept override { return \"myext\"; }\n    TResult&lt;TSharedPtr&lt;FAsset&gt;&gt; LoadFromBytes(FAssetId id, const TArray&lt;byte&gt;&amp; b) noexcept override;\n};",
       members: [
         { sig: "virtual AssetType TypeId() const", ret: "型 ID", desc: "このローダが作るアセットの<t>型 ID</t>。" },
         { sig: "virtual const char* Extension() const", ret: "拡張子", desc: "担当する拡張子(\"png\" など)。<code>\"*\"</code> は全拡張子のフォールバック。レジストリがこれでマッチングする。" },
-        { sig: "virtual TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes)", ret: "アセット or エラー", desc: "ファイルのバイト列を解析してアセットを生成する(同期)。非同期化はレジストリ側がスレッドプールでこれを呼ぶ形で実現。" }
+        { sig: "virtual TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes)", ret: "アセット or エラー", desc: "ファイルのバイト列を解析してアセットを生成する(同期)。非同期化はレジストリ側がスレッドプールでこれを呼ぶ形で実現。" }
       ]
     },
     {
@@ -97,35 +97,35 @@ ACS_REF.modules.push({
       kind: "クラス", header: "asset/AssetFuture.h",
       summary: "<t>非同期</t>ロードの<b>結果ハンドル</b>(<t>フューチャ</t>)。<code>LoadAsync</code> が返す。完了をノンブロッキングで確認したり、待って結果を取り出したりできる。",
       when: "<code>FAssetRegistry::LoadAsync</code> の戻り値を保持し、後で完了を確認・取得する時。",
-      sample: "FAssetFuture fut = reg.LoadAsync(L\"big_mesh.glb\");\nwhile (!fut.IsReady()) { /* 他の処理を進める */ }\nauto r = fut.Get();\nif (r.IsOk()) TSharedPtr&lt;Asset&gt; a = r.Value();",
+      sample: "FAssetFuture fut = reg.LoadAsync(L\"big_mesh.glb\");\nwhile (!fut.IsReady()) { /* 他の処理を進める */ }\nauto r = fut.Get();\nif (r.IsOk()) TSharedPtr&lt;FAsset&gt; a = r.Value();",
       members: [
         { sig: "bool IsReady() const", ret: "完了済みか", desc: "ノンブロッキングで完了を確認。true なら <code>Get()</code> がすぐ返る。" },
         { sig: "bool Valid() const", ret: "有効か", desc: "中身のある future か(構築失敗なら false)。" },
-        { sig: "TResult<TSharedPtr<Asset>> Get()", ret: "アセット or エラー", desc: "完了を<b>待って</b>結果を取り出す。呼び出しスレッドがワーカーなら読み込みを手伝う(<t>ワークスチール</t>)。", when: "結果が必要になったら呼ぶ。完了済みなら待たずに返る。" },
-        { sig: "TResult<TSharedPtr<Asset>> Wait()", ret: "アセット or エラー", desc: "<code>Get()</code> の別名。直感的に「待つ」と書きたい時に。" }
+        { sig: "TResult<TSharedPtr<FAsset>> Get()", ret: "アセット or エラー", desc: "完了を<b>待って</b>結果を取り出す。呼び出しスレッドがワーカーなら読み込みを手伝う(<t>ワークスチール</t>)。", when: "結果が必要になったら呼ぶ。完了済みなら待たずに返る。" },
+        { sig: "TResult<TSharedPtr<FAsset>> Wait()", ret: "アセット or エラー", desc: "<code>Get()</code> の別名。直感的に「待つ」と書きたい時に。" }
       ]
     },
     {
-      name: "AsyncLoadState",
+      name: "FAsyncLoadState",
       kind: "構造体", header: "asset/AssetFuture.h",
       summary: "<t>FAssetFuture</t> とワーカーが<b>共有する内部状態</b>。完了カウンタ・結果・エラーを保持する。通常ユーザが直接触ることはない。",
       when: "非同期ロードの仕組みを理解・拡張する時の内部構造。",
       sample: "// 内部用。FAssetRegistry::LoadAsync が生成し future へ渡す。",
       members: [
-        { sig: "CompletionCounter counter{1}", desc: "1 → 0 で完了を表す<t>完了カウンタ</t>。" },
-        { sig: "TSharedPtr<Asset> result", desc: "成功時の読み込み結果。" },
+        { sig: "FCompletionCounter counter{1}", desc: "1 → 0 で完了を表す<t>完了カウンタ</t>。" },
+        { sig: "TSharedPtr<FAsset> result", desc: "成功時の読み込み結果。" },
         { sig: "FErrorCode error; bool has_error", desc: "失敗時の<t>エラーコード</t>とその有無。" }
       ]
     },
     {
       name: "FImageAsset",
-      kind: "クラス(Asset 派生)", header: "asset/ImageAsset.h",
+      kind: "クラス(FAsset 派生)", header: "asset/ImageAsset.h",
       summary: "<b>画像 1 枚</b>分の CPU 側ピクセルデータ。幅・高さ・<t>ピクセルフォーマット</t>・生バイト列を持つ。<code>stb_image</code> 経由で png/jpg/bmp/tga/gif/hdr 等に対応。",
       when: "テクスチャ用画像を読み込んで GPU へアップロードする前の中間データとして。",
       sample: "auto r = reg.Load(L\"hero.png\");\nauto* img = static_cast&lt;FImageAsset*&gt;(r.Value().Get());\nu32 w = img-&gt;Width(), h = img-&gt;Height();\nconst byte* px = img-&gt;Pixels();   // GPU へアップロード等",
       members: [
         { sig: "u32 Width() / u32 Height()", ret: "画素数", desc: "画像の幅・高さ(ピクセル)。" },
-        { sig: "EPixelFormat EFormat()", ret: "フォーマット", desc: "<t>EPixelFormat</t>(チャンネル数と型)を返す。" },
+        { sig: "EPixelFormat Format()", ret: "フォーマット", desc: "<t>EPixelFormat</t>(チャンネル数と型)を返す。" },
         { sig: "const byte* Pixels()", ret: "先頭ポインタ", desc: "ピクセル列の先頭<t>ポインタ</t>。" },
         { sig: "usize PixelByteCount()", ret: "バイト数", desc: "ピクセルデータの総バイト数。" }
       ]
@@ -135,25 +135,25 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "asset/ImageAsset.h",
       summary: "画像の<b><t>ピクセルフォーマット</t></b>。チャンネル数とビット深度で識別: <code>R8</code> / <code>R8G8</code> / <code>R8G8B8</code> / <code>R8G8B8A8</code> / <code>R32G32B32_F</code> / <code>R32G32B32A32_F</code>(後 2 つは HDR の float)。",
       when: "画像データを GPU テクスチャフォーマットへ対応付ける時。",
-      sample: "if (img-&gt;EFormat() == EPixelFormat::R8G8B8A8) {\n    // 8-bit RGBA として扱う\n}"
+      sample: "if (img-&gt;Format() == EPixelFormat::R8G8B8A8) {\n    // 8-bit RGBA として扱う\n}"
     },
     {
-      name: "ImageAssetLoader",
+      name: "FImageAssetLoader",
       kind: "クラス(IAssetLoader 派生)", header: "asset/ImageAsset.h",
       summary: "画像ファイルの<t>ローダ</t>(<code>stb_image</code>)。バイト列を <t>FImageAsset</t> にデコードする。<code>RegisterDefaultLoaders()</code> で登録される。",
       when: "通常は標準ローダ登録で自動的に使われる。個別に追加したい時のみ手動登録。",
-      sample: "ImageAssetLoader loader;\nreg.RegisterLoader(&amp;loader);"
+      sample: "FImageAssetLoader loader;\nreg.RegisterLoader(&amp;loader);"
     },
     {
       name: "FAudioAsset",
-      kind: "クラス(Asset 派生)", header: "asset/AudioAsset.h",
+      kind: "クラス(FAsset 派生)", header: "asset/AudioAsset.h",
       summary: "<b>音声データ</b>。全フォーマットを 16-bit か float の <t>PCM</t> に統一して保持する。サンプルレート・チャンネル数・フレーム数・生サンプルを持つ。再生は <t>FAudioEngine</t> が直接この PCM を扱う。",
       when: "BGM や効果音を読み込んで再生する時。wav/mp3/flac/ogg に対応。",
       sample: "auto r = reg.Load(L\"se/jump.wav\");\nauto* au = static_cast&lt;FAudioAsset*&gt;(r.Value().Get());\nf32 sec = au-&gt;DurationSeconds();\nu32 rate = au-&gt;SampleRate();",
       members: [
         { sig: "u32 SampleRate()", ret: "Hz", desc: "1 秒あたりのサンプル数(44100 など)。" },
         { sig: "u8 Channels()", ret: "チャンネル数", desc: "モノラル=1 / ステレオ=2。" },
-        { sig: "ESampleFormat EFormat()", ret: "サンプル形式", desc: "<t>ESampleFormat</t>(16-bit 整数 or 32-bit float)。" },
+        { sig: "ESampleFormat Format()", ret: "サンプル形式", desc: "<t>ESampleFormat</t>(16-bit 整数 or 32-bit float)。" },
         { sig: "u64 FrameCount()", ret: "フレーム数", desc: "1 フレーム = チャンネル数ぶんのサンプル。" },
         { sig: "const byte* Samples() / usize SampleByteCount()", desc: "インターリーブ済みの生サンプル先頭<t>ポインタ</t>と総バイト数。" },
         { sig: "f32 DurationSeconds()", ret: "秒", desc: "再生時間(秒)。<code>FrameCount / SampleRate</code>。" }
@@ -164,36 +164,36 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "asset/AudioAsset.h",
       summary: "音声サンプルの<b>形式</b>。<code>PCM_S16</code>(16-bit 符号付き整数) / <code>PCM_F32</code>(32-bit 浮動小数)。",
       when: "音声データのバイト並びを正しく解釈する時。",
-      sample: "if (au-&gt;EFormat() == ESampleFormat::PCM_F32) { /* float として読む */ }"
+      sample: "if (au-&gt;Format() == ESampleFormat::PCM_F32) { /* float として読む */ }"
     },
     {
-      name: "WavAssetLoader / Mp3AssetLoader / FlacAssetLoader / OggAssetLoader",
+      name: "FWavAssetLoader / FMp3AssetLoader / FFlacAssetLoader / FOggAssetLoader",
       kind: "クラス(IAssetLoader 派生)", header: "asset/AudioAsset.h",
       summary: "音声フォーマット<b>別の<t>ローダ</t></b>。それぞれ wav / mp3 / flac / ogg を担当し、デコード結果はすべて <t>FAudioAsset</t>(統一 PCM)になる。",
       when: "標準ローダ登録で自動使用。特定形式だけ手動で足したい時に個別登録。",
-      sample: "WavAssetLoader  wav;\nOggAssetLoader  ogg;\nreg.RegisterLoader(&amp;wav);\nreg.RegisterLoader(&amp;ogg);",
+      sample: "FWavAssetLoader  wav;\nFOggAssetLoader  ogg;\nreg.RegisterLoader(&amp;wav);\nreg.RegisterLoader(&amp;ogg);",
       members: [
         { sig: "const char* Extension()", desc: "各クラスが \"wav\" / \"mp3\" / \"flac\" / \"ogg\" を返す。" }
       ]
     },
     {
       name: "FMeshAsset",
-      kind: "クラス(Asset 派生)", header: "asset/MeshAsset.h",
+      kind: "クラス(FAsset 派生)", header: "asset/MeshAsset.h",
       summary: "<b>単一メッシュ</b>。<t>頂点</t>配列 + <t>インデックス</t>配列 + サブメッシュ範囲を持つ。頂点は「位置 + 法線 + UV」固定(v1)。gltf/glb/obj/fbx に対応。",
       when: "3D モデルを読み込んで GPU メッシュにアップロードする時。",
       sample: "auto r = reg.Load(L\"models/box.glb\");\nauto* m = static_cast&lt;FMeshAsset*&gt;(r.Value().Get());\nusize vcount = m-&gt;Vertices().Size();\nusize icount = m-&gt;Indices().Size();",
       members: [
-        { sig: "const TArray<MeshVertex>& Vertices()", ret: "頂点配列", desc: "<t>MeshVertex</t>(位置/法線/UV)の配列。非 const 版で編集も可。" },
+        { sig: "const TArray<FMeshVertex>& Vertices()", ret: "頂点配列", desc: "<t>FMeshVertex</t>(位置/法線/UV)の配列。非 const 版で編集も可。" },
         { sig: "const TArray<u32>& Indices()", ret: "インデックス配列", desc: "三角形を作る頂点<t>インデックス</t>。" },
-        { sig: "const TArray<SubMesh>& SubMeshes()", ret: "サブメッシュ配列", desc: "マテリアル単位の描画範囲(<t>SubMesh</t>)。" }
+        { sig: "const TArray<FSubMesh>& SubMeshes()", ret: "サブメッシュ配列", desc: "マテリアル単位の描画範囲(<t>FSubMesh</t>)。" }
       ]
     },
     {
-      name: "MeshVertex",
+      name: "FMeshVertex",
       kind: "構造体", header: "asset/MeshAsset.h",
       summary: "標準<b>頂点フォーマット</b>。位置 <code>FVec3</code> + 法線 <code>FVec3</code> + UV(<code>u, v</code>)。<code>FVec3</code> が <code>alignas(16)</code> のため <code>sizeof</code> は <b>48 バイト</b>(末尾 8B パディング込み)。<small>※ ヘッダ <code>MeshAsset.h:19</code> のコメント「32 bytes」は FVec3 が 12B だった頃の古い記述。</small>",
       when: "メッシュの頂点を直接組み立て・読み取りする時。",
-      sample: "MeshVertex v;\nv.position = FVec3{0, 1, 0};\nv.normal   = FVec3{0, 1, 0};\nv.u = 0.5f; v.v = 0.0f;",
+      sample: "FMeshVertex v;\nv.position = FVec3{0, 1, 0};\nv.normal   = FVec3{0, 1, 0};\nv.u = 0.5f; v.v = 0.0f;",
       members: [
         { sig: "FVec3 position", desc: "頂点座標。" },
         { sig: "FVec3 normal", desc: "法線ベクトル。" },
@@ -201,22 +201,22 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "SubMesh",
+      name: "FSubMesh",
       kind: "構造体", header: "asset/MeshAsset.h",
       summary: "<b>サブメッシュ</b>。複数マテリアルに対応するため、インデックス配列内の開始位置と本数だけを持つ範囲指定。",
       when: "1 つのメッシュをマテリアルごとに分けて描画する時。",
-      sample: "for (const SubMesh&amp; s : mesh-&gt;SubMeshes()) {\n    DrawIndexed(s.first_index, s.index_count);\n}",
+      sample: "for (const FSubMesh&amp; s : mesh-&gt;SubMeshes()) {\n    DrawIndexed(s.first_index, s.index_count);\n}",
       members: [
         { sig: "u32 first_index", desc: "このサブメッシュが使う最初のインデックス位置。" },
         { sig: "u32 index_count", desc: "インデックス数。" }
       ]
     },
     {
-      name: "GltfAssetLoader / GlbAssetLoader / ObjAssetLoader / FbxAssetLoader",
+      name: "FGltfAssetLoader / FGlbAssetLoader / FObjAssetLoader / FFbxAssetLoader",
       kind: "クラス(IAssetLoader 派生)", header: "asset/MeshAsset.h",
       summary: "メッシュ形式<b>別の<t>ローダ</t></b>。gltf/glb は <code>cgltf</code>、obj は自前パーサ、fbx は <code>ufbx</code> で読み、いずれも <t>FMeshAsset</t> を作る。",
       when: "標準ローダ登録で自動使用。特定形式だけ足したい時に個別登録。",
-      sample: "GltfAssetLoader gltf;\nObjAssetLoader  obj;\nreg.RegisterLoader(&amp;gltf);\nreg.RegisterLoader(&amp;obj);",
+      sample: "FGltfAssetLoader gltf;\nFObjAssetLoader  obj;\nreg.RegisterLoader(&amp;gltf);\nreg.RegisterLoader(&amp;obj);",
       members: [
         { sig: "const char* Extension()", desc: "各クラスが \"gltf\" / \"glb\" / \"obj\" / \"fbx\" を返す。" }
       ]
@@ -235,7 +235,7 @@ ACS_REF.modules.push({
     },
     {
       name: "FSkinnedMeshAsset",
-      kind: "クラス(Asset 派生)", header: "asset/SkinnedMesh.h",
+      kind: "クラス(FAsset 派生)", header: "asset/SkinnedMesh.h",
       summary: "<b>スキンメッシュ</b>(ボーン + アニメーション付き)。頂点(位置/法線/UV + ボーン indices/weights) + インデックス + <t>ボーン</t>階層 + アニメーション群を持つ。",
       when: "キャラクターなど骨で動かすモデルを扱う時。MVP ではプログラム的にデータを構築する。",
       sample: "FSkinnedMeshAsset mesh;\nmesh.Vertices().Add(FSkinnedVertex{ /* ... */ });\nmesh.Bones().Add(FBone{ /* ... */ });\nmesh.ComputeInverseBindMatrices();   // bind_* 設定後に 1 度",
@@ -302,7 +302,7 @@ ACS_REF.modules.push({
     },
     {
       name: "FTextAsset",
-      kind: "クラス(Asset 派生)", header: "asset/TextAsset.h",
+      kind: "クラス(FAsset 派生)", header: "asset/TextAsset.h",
       summary: "<b>テキスト</b>(UTF-8 文字列)を保持するアセット。末尾 NUL 付きで C 文字列として取り出せる。txt/json/xml/yaml/csv/md/hlsl/glsl/lua 等に対応。",
       when: "設定ファイル・スクリプト・シェーダソースなどテキストを読み込む時。",
       sample: "auto r = reg.Load(L\"config/level.json\");\nauto* t = static_cast&lt;FTextAsset*&gt;(r.Value().Get());\nconst char* json = t-&gt;CStr();   // NUL 終端\nusize len = t-&gt;Size();",
@@ -321,7 +321,7 @@ ACS_REF.modules.push({
     },
     {
       name: "FBinaryAsset",
-      kind: "クラス(Asset 派生)", header: "asset/BinaryAsset.h",
+      kind: "クラス(FAsset 派生)", header: "asset/BinaryAsset.h",
       summary: "<b>バイト列をそのまま保持</b>する最小アセット。専用ローダがない拡張子の<t>フォールバック</t>や、テストデータ用。",
       when: "形式不問で生バイトを読みたい時。専用型がない拡張子はこれで読まれる。",
       sample: "auto r = reg.Load(L\"data/save.bin\");\nauto* b = static_cast&lt;FBinaryAsset*&gt;(r.Value().Get());\nconst TArray&lt;byte&gt;&amp; raw = b-&gt;Bytes();",
@@ -367,8 +367,8 @@ Object.assign(ACS_REF.glossary, {
   "頂点": "メッシュを構成する点。位置・法線・UV などの属性を持つ。",
   "インデックス": "頂点配列のどの点で三角形を作るかを示す番号の列。同じ頂点を使い回せる。",
   "UV 座標": "テクスチャ上のどこを貼るかを示す 0..1 の 2 次元座標。",
-  "MeshVertex": "ACS 標準の頂点(位置+法線+UV)。<code>FVec3</code> が 16B 整列のため sizeof=48 バイト。",
-  "SubMesh": "メッシュをマテリアル単位に分ける描画範囲(開始インデックスと本数)。",
+  "FMeshVertex": "ACS 標準の頂点(位置+法線+UV)。<code>FVec3</code> が 16B 整列のため sizeof=48 バイト。",
+  "FSubMesh": "メッシュをマテリアル単位に分ける描画範囲(開始インデックスと本数)。",
   "ボーン": "スキンメッシュを動かす骨。階層を組み、頂点がこれに追従して変形する。",
   "ボーンパレット": "全ボーンの変形行列をまとめた配列。シェーダへ渡してスキニングに使う。",
   "FSkinnedVertex": "ボーン番号とウェイトを持つスキンメッシュの頂点(64 バイト)。",

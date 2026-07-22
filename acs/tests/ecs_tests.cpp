@@ -12,10 +12,10 @@
 using namespace acs;
 
 namespace {
-struct Position { f32 x, y, z; };
-struct Velocity { f32 dx, dy, dz; };
-struct Health   { i32 hp; };
-struct Frozen   { u8 unused; };  // タグ的コンポーネント (除外フィルタ検証用)
+struct FPosition { f32 x, y, z; };
+struct FVelocity { f32 dx, dy, dz; };
+struct FHealth   { i32 hp; };
+struct FFrozen   { u8 unused; };  // タグ的コンポーネント (除外フィルタ検証用)
 
 /** 非コピー・可ムーブなコンポーネント (World::CopyFrom の拒否契約検証用)。 */
 struct FMoveOnlyComp {
@@ -43,9 +43,9 @@ public:
 }
 
 ACS_TEST(Ecs, CreateDestroy) {
-    World w;
-    EntityId a = w.Create();
-    EntityId b = w.Create();
+    FWorld w;
+    FEntityId a = w.Create();
+    FEntityId b = w.Create();
     EXPECT_TRUE(w.IsAlive(a));
     EXPECT_TRUE(w.IsAlive(b));
     EXPECT_EQ(w.EntityCount(), 2u);
@@ -55,31 +55,31 @@ ACS_TEST(Ecs, CreateDestroy) {
 }
 
 ACS_TEST(Ecs, AddGetRemoveComponent) {
-    World w;
-    EntityId e = w.Create();
-    w.Add<Position>(e, {1, 2, 3});
-    EXPECT_TRUE(w.Has<Position>(e));
-    Position* p = w.Get<Position>(e);
+    FWorld w;
+    FEntityId e = w.Create();
+    w.Add<FPosition>(e, {1, 2, 3});
+    EXPECT_TRUE(w.Has<FPosition>(e));
+    FPosition* p = w.Get<FPosition>(e);
     EXPECT_TRUE(p != nullptr);
     if (p) EXPECT_NEAR(p->x, 1.0f, 1e-5f);
-    w.Remove<Position>(e);
-    EXPECT_FALSE(w.Has<Position>(e));
+    w.Remove<FPosition>(e);
+    EXPECT_FALSE(w.Has<FPosition>(e));
 }
 
 ACS_TEST(Ecs, GenerationInvalidatesOldId) {
-    World w;
-    EntityId a = w.Create();
+    FWorld w;
+    FEntityId a = w.Create();
     w.Destroy(a);
-    EntityId b = w.Create();  // 同じ index を再利用するが世代が違う
+    FEntityId b = w.Create();  // 同じ index を再利用するが世代が違う
     EXPECT_FALSE(w.IsAlive(a));
     EXPECT_TRUE(w.IsAlive(b));
 }
 
 ACS_TEST(Ecs, ClearReleasesAllStateAndAllowsReuse)
 {
-    World world;
-    const EntityId old_entity = world.Create();
-    world.Add<Position>(old_entity, Position{1.0f, 2.0f, 3.0f});
+    FWorld world;
+    const FEntityId old_entity = world.Create();
+    world.Add<FPosition>(old_entity, FPosition{1.0f, 2.0f, 3.0f});
     EXPECT_EQ(world.EntityCount(), 1u);
 
     world.Clear();
@@ -87,42 +87,42 @@ ACS_TEST(Ecs, ClearReleasesAllStateAndAllowsReuse)
     EXPECT_EQ(world.EntityCount(), 0u);
     EXPECT_TRUE(!world.IsAlive(old_entity));
 
-    const EntityId new_entity = world.Create();
-    world.Add<Position>(new_entity, Position{4.0f, 5.0f, 6.0f});
+    const FEntityId new_entity = world.Create();
+    world.Add<FPosition>(new_entity, FPosition{4.0f, 5.0f, 6.0f});
     EXPECT_TRUE(world.IsAlive(new_entity));
     EXPECT_TRUE(!world.IsAlive(old_entity));
-    EXPECT_TRUE(world.Get<Position>(new_entity) != nullptr);
+    EXPECT_TRUE(world.Get<FPosition>(new_entity) != nullptr);
 }
 
 ACS_TEST(Ecs, QueryIteratesMatching) {
-    World w;
+    FWorld w;
     for (int i = 0; i < 100; ++i) {
-        EntityId e = w.Create();
-        w.Add<Position>(e, {(f32)i, 0, 0});
-        if (i % 2 == 0) w.Add<Velocity>(e, {1, 0, 0});
+        FEntityId e = w.Create();
+        w.Add<FPosition>(e, {(f32)i, 0, 0});
+        if (i % 2 == 0) w.Add<FVelocity>(e, {1, 0, 0});
     }
     u32 count = 0;
-    w.Query<Position, Velocity>().Each([&count](EntityId, Position&, Velocity&){ ++count; });
+    w.Query<FPosition, FVelocity>().Each([&count](FEntityId, FPosition&, FVelocity&){ ++count; });
     EXPECT_EQ(count, 50u);  // 偶数 i のみ Velocity を持つ
 }
 
 ACS_TEST(Ecs, SystemSchedulerRuns) {
-    World w;
+    FWorld w;
     for (int i = 0; i < 10; ++i) {
-        EntityId e = w.Create();
-        w.Add<Position>(e, {0, 0, 0});
-        w.Add<Velocity>(e, {1, 0, 0});
+        FEntityId e = w.Create();
+        w.Add<FPosition>(e, {0, 0, 0});
+        w.Add<FVelocity>(e, {1, 0, 0});
     }
-    SystemScheduler s;
-    s.Add([](World& w, f32 dt){
-        w.Query<Position, Velocity>().Each([dt](EntityId, Position& p, Velocity& v){
+    FSystemScheduler s;
+    s.Add([](FWorld& w, f32 dt){
+        w.Query<FPosition, FVelocity>().Each([dt](FEntityId, FPosition& p, FVelocity& v){
             p.x += v.dx * dt;
         });
     });
     s.Tick(w, 1.0f);
     s.Tick(w, 1.0f);
     bool all_two = true;
-    w.Query<Position>().Each([&all_two](EntityId, Position& p){
+    w.Query<FPosition>().Each([&all_two](FEntityId, FPosition& p){
         if (p.x != 2.0f) all_two = false;
     });
     EXPECT_TRUE(all_two);
@@ -130,21 +130,21 @@ ACS_TEST(Ecs, SystemSchedulerRuns) {
 
 ACS_TEST(Ecs, EntityCommandBufferDefersAndAppliesStructuralChanges)
 {
-    World w;
-    const EntityId a = w.Create();
-    const EntityId b = w.Create();
-    const EntityId c = w.Create();
-    w.Add<Health>(a, {10});
-    w.Add<Health>(b, {0});
-    w.Add<Health>(c, {-5});
+    FWorld w;
+    const FEntityId a = w.Create();
+    const FEntityId b = w.Create();
+    const FEntityId c = w.Create();
+    w.Add<FHealth>(a, {10});
+    w.Add<FHealth>(b, {0});
+    w.Add<FHealth>(c, {-5});
 
     FEntityCommandBuffer cmd(w);
     // 反復中は構造変更せず記録だけ。渡された Health& は反復中ずっと有効 (dangling しない)。
-    w.Query<Health>().Each([&cmd](EntityId e, Health& h) {
+    w.Query<FHealth>().Each([&cmd](FEntityId e, FHealth& h) {
         if (h.hp <= 0) {
             cmd.Destroy(e);                          // hp<=0 のエンティティを破棄予約
         } else {
-            cmd.Add<Velocity>(e, {1.0f, 0.0f, 0.0f}); // 生存者へ Velocity 追加予約
+            cmd.Add<FVelocity>(e, {1.0f, 0.0f, 0.0f}); // 生存者へ Velocity 追加予約
         }
     });
 
@@ -152,7 +152,7 @@ ACS_TEST(Ecs, EntityCommandBufferDefersAndAppliesStructuralChanges)
     EXPECT_TRUE(w.IsAlive(a));
     EXPECT_TRUE(w.IsAlive(b));
     EXPECT_TRUE(w.IsAlive(c));
-    EXPECT_FALSE(w.Has<Velocity>(a));
+    EXPECT_FALSE(w.Has<FVelocity>(a));
     EXPECT_EQ(cmd.Size(), static_cast<usize>(3));
     EXPECT_FALSE(cmd.HasOverflowed());
 
@@ -163,51 +163,51 @@ ACS_TEST(Ecs, EntityCommandBufferDefersAndAppliesStructuralChanges)
     EXPECT_TRUE(w.IsAlive(a));
     EXPECT_FALSE(w.IsAlive(b));
     EXPECT_FALSE(w.IsAlive(c));
-    EXPECT_TRUE(w.Has<Velocity>(a));
-    Velocity* const v = w.Get<Velocity>(a);
+    EXPECT_TRUE(w.Has<FVelocity>(a));
+    FVelocity* const v = w.Get<FVelocity>(a);
     EXPECT_TRUE(v != nullptr);
     if (v) EXPECT_NEAR(v->dx, 1.0f, 1e-5f);
 }
 
 ACS_TEST(Ecs, EntityCommandBufferRemoveAndClearDiscardsWithoutApplying)
 {
-    World w;
-    const EntityId e = w.Create();
-    w.Add<Position>(e, {1, 2, 3});
-    w.Add<Velocity>(e, {4, 5, 6});
+    FWorld w;
+    const FEntityId e = w.Create();
+    w.Add<FPosition>(e, {1, 2, 3});
+    w.Add<FVelocity>(e, {4, 5, 6});
 
     {
         FEntityCommandBuffer cmd(w);
-        cmd.Remove<Velocity>(e);
-        cmd.Add<Health>(e, {99});
+        cmd.Remove<FVelocity>(e);
+        cmd.Add<FHealth>(e, {99});
         // Clear は適用せず破棄する (退避した Health 値も解放される)。
         cmd.Clear();
         EXPECT_EQ(cmd.Size(), static_cast<usize>(0));
     }
     // Clear したので World は変わらない。
-    EXPECT_TRUE(w.Has<Velocity>(e));
-    EXPECT_FALSE(w.Has<Health>(e));
+    EXPECT_TRUE(w.Has<FVelocity>(e));
+    EXPECT_FALSE(w.Has<FHealth>(e));
 
     // Flush 経路の Remove も確認する。
     FEntityCommandBuffer cmd2(w);
-    cmd2.Remove<Velocity>(e);
+    cmd2.Remove<FVelocity>(e);
     cmd2.Flush();
-    EXPECT_FALSE(w.Has<Velocity>(e));
-    EXPECT_TRUE(w.Has<Position>(e));
+    EXPECT_FALSE(w.Has<FVelocity>(e));
+    EXPECT_TRUE(w.Has<FPosition>(e));
 }
 
 ACS_TEST(Ecs, EntityCommandBufferGracefullyHandlesOutOfMemory)
 {
-    World w;
-    const EntityId e = w.Create();
+    FWorld w;
+    const FEntityId e = w.Create();
 
     // command buffer 自身のストレージを常時失敗 backing に載せると、記録は落ちるが
     // クラッシュせず HasOverflowed() で検知でき、Flush も安全 (何も適用しない)。
     FEcbFailAllocator failing;
     FEntityCommandBuffer cmd(w, failing);
     cmd.Destroy(e);              // TryPushBack が失敗
-    cmd.Add<Health>(e, {5});     // New が失敗 (値の退避不可)
-    cmd.Remove<Health>(e);       // TryPushBack が失敗
+    cmd.Add<FHealth>(e, {5});     // New が失敗 (値の退避不可)
+    cmd.Remove<FHealth>(e);       // TryPushBack が失敗
 
     EXPECT_TRUE(cmd.HasOverflowed());
     EXPECT_EQ(cmd.Size(), static_cast<usize>(0));
@@ -220,23 +220,23 @@ ACS_TEST(Ecs, WorldCopyFromSnapshotAndRollback)
 {
     // rollback netcode の要件: snapshot 時の EntityId は復元後も有効、snapshot 後に
     // 作った EntityId は復元で無効、値・コンポーネント構成・生存状態が完全に巻き戻る。
-    World w;
-    const EntityId a = w.Create();
-    w.Add<Position>(a, {1, 2, 3});
-    w.Add<Health>(a, {10});
-    const EntityId b = w.Create();
-    w.Add<Position>(b, {4, 5, 6});
+    FWorld w;
+    const FEntityId a = w.Create();
+    w.Add<FPosition>(a, {1, 2, 3});
+    w.Add<FHealth>(a, {10});
+    const FEntityId b = w.Create();
+    w.Add<FPosition>(b, {4, 5, 6});
 
-    World snap;
+    FWorld snap;
     EXPECT_TRUE(snap.CopyFrom(w));
     EXPECT_EQ(snap.EntityCount(), 2u);
 
     // snapshot は独立コピー: 元 World の変更が snapshot に波及しない。
-    w.Get<Position>(a)->x = 100.0f;
+    w.Get<FPosition>(a)->x = 100.0f;
     w.Destroy(b);
-    const EntityId c = w.Create();       // b のスロット再利用 (世代は進んでいる)
-    w.Add<Health>(c, {77});
-    EXPECT_NEAR(snap.Get<Position>(a)->x, 1.0f, 1e-5f);
+    const FEntityId c = w.Create();       // b のスロット再利用 (世代は進んでいる)
+    w.Add<FHealth>(c, {77});
+    EXPECT_NEAR(snap.Get<FPosition>(a)->x, 1.0f, 1e-5f);
 
     // rollback: フレーム N の状態へ完全に巻き戻す。
     EXPECT_TRUE(w.CopyFrom(snap));
@@ -244,16 +244,16 @@ ACS_TEST(Ecs, WorldCopyFromSnapshotAndRollback)
     EXPECT_TRUE(w.IsAlive(b));           // snapshot 時点で生存 → 復活
     EXPECT_FALSE(w.IsAlive(c));          // snapshot 後に作った id は世代不一致で無効
     EXPECT_EQ(w.EntityCount(), 2u);
-    EXPECT_NEAR(w.Get<Position>(a)->x, 1.0f, 1e-5f);   // 値も巻き戻る
-    Health* const ha = w.Get<Health>(a);
+    EXPECT_NEAR(w.Get<FPosition>(a)->x, 1.0f, 1e-5f);   // 値も巻き戻る
+    FHealth* const ha = w.Get<FHealth>(a);
     EXPECT_TRUE(ha != nullptr);
     if (ha) EXPECT_EQ(ha->hp, 10);
-    EXPECT_TRUE(w.Has<Position>(b));
-    EXPECT_FALSE(w.Has<Health>(b));
+    EXPECT_TRUE(w.Has<FPosition>(b));
+    EXPECT_FALSE(w.Has<FHealth>(b));
 
     // 復元後も通常運用できる (Create / Add / Destroy)。
-    const EntityId d = w.Create();
-    w.Add<Velocity>(d, {1, 0, 0});
+    const FEntityId d = w.Create();
+    w.Add<FVelocity>(d, {1, 0, 0});
     EXPECT_TRUE(w.IsAlive(d));
     EXPECT_EQ(w.EntityCount(), 3u);
 
@@ -265,12 +265,12 @@ ACS_TEST(Ecs, WorldCopyFromSnapshotAndRollback)
 ACS_TEST(Ecs, WorldCopyFromRejectsNonCopyableComponents)
 {
     // 非コピー型の SparseSet を持つ World は複製できず、部分複製も残さない。
-    World w;
-    const EntityId e = w.Create();
-    w.Add<Position>(e, {1, 2, 3});
+    FWorld w;
+    const FEntityId e = w.Create();
+    w.Add<FPosition>(e, {1, 2, 3});
     w.Add<FMoveOnlyComp>(e, FMoveOnlyComp{5});
 
-    World snap;
+    FWorld snap;
     EXPECT_FALSE(snap.CopyFrom(w));
     EXPECT_EQ(snap.EntityCount(), 0u);   // 失敗時は空 (Clear 済み) に戻る
     EXPECT_FALSE(snap.IsAlive(e));
@@ -282,10 +282,10 @@ ACS_TEST(Ecs, WorldCopyFromRejectsNonCopyableComponents)
 
 ACS_TEST(Ecs, EntityCommandBufferDeferredCreate)
 {
-    World w;
+    FWorld w;
     FEntityCommandBuffer cmd(w);
     cmd.Create();
-    cmd.CreateWith<Health>(Health{42});
+    cmd.CreateWith<FHealth>(FHealth{42});
     EXPECT_EQ(w.EntityCount(), 0u);      // Flush まで生成されない
     EXPECT_EQ(cmd.Size(), static_cast<usize>(2));
 
@@ -293,12 +293,12 @@ ACS_TEST(Ecs, EntityCommandBufferDeferredCreate)
     EXPECT_EQ(w.EntityCount(), 2u);
     u32 with_health = 0;
     i32 hp = 0;
-    w.Query<Health>().Each([&](EntityId, Health& h) { ++with_health; hp = h.hp; });
+    w.Query<FHealth>().Each([&](FEntityId, FHealth& h) { ++with_health; hp = h.hp; });
     EXPECT_EQ(with_health, 1u);
     EXPECT_EQ(hp, 42);
 
     // Clear は生成せず退避値も解放する (リークは CRT/ASan 検査で担保)。
-    cmd.CreateWith<Health>(Health{7});
+    cmd.CreateWith<FHealth>(FHealth{7});
     cmd.Clear();
     cmd.Flush();
     EXPECT_EQ(w.EntityCount(), 2u);
@@ -310,22 +310,22 @@ ACS_TEST(Ecs, ParallelCommandBufferRecordsFromWorkersAndApplies)
     // 完了後の Flush で一括適用できることを検証する (per-worker スロット分離の実地確認)。
     EXPECT_TRUE(FThreadPool::Init(4).IsOk());
     {
-        World w;
+        FWorld w;
         constexpr u32 kCount = 2000u;
         for (u32 i = 0; i < kCount; ++i) {
-            const EntityId e = w.Create();
-            w.Add<Health>(e, {static_cast<i32>(i % 3u)});   // hp: 0,1,2,0,1,2,...
+            const FEntityId e = w.Create();
+            w.Add<FHealth>(e, {static_cast<i32>(i % 3u)});   // hp: 0,1,2,0,1,2,...
         }
 
         FParallelEntityCommandBuffer cmd(w);
         EXPECT_TRUE(cmd.IsValid());
 
         // grain を小さくして複数ワーカー + 呼び出し元 (Wait 中の steal) に分散させる。
-        w.Query<Health>().EachParallel([&cmd](EntityId e, Health& h) {
+        w.Query<FHealth>().EachParallel([&cmd](FEntityId e, FHealth& h) {
             if (h.hp <= 0) {
                 cmd.Destroy(e);                              // hp==0 (1/3) を破棄予約
             } else {
-                cmd.Add<Velocity>(e, {1.0f, 0.0f, 0.0f});    // 残り 2/3 へ Velocity 追加予約
+                cmd.Add<FVelocity>(e, {1.0f, 0.0f, 0.0f});    // 残り 2/3 へ Velocity 追加予約
             }
         }, 64u);
 
@@ -341,7 +341,7 @@ ACS_TEST(Ecs, ParallelCommandBufferRecordsFromWorkersAndApplies)
         constexpr u32 kDestroyed = (kCount + 2u) / 3u;
         EXPECT_EQ(w.EntityCount(), kCount - kDestroyed);
         u32 with_velocity = 0;
-        w.Query<Velocity>().Each([&with_velocity](EntityId, Velocity&) { ++with_velocity; });
+        w.Query<FVelocity>().Each([&with_velocity](FEntityId, FVelocity&) { ++with_velocity; });
         EXPECT_EQ(with_velocity, kCount - kDestroyed);
     }
     FThreadPool::Shutdown();
@@ -353,17 +353,17 @@ ACS_TEST(Ecs, ParallelCommandBufferDeferredCreateSpawnsAfterFlush)
     // 遅延記録し、Flush で一括生成する (並列スポーンの実地確認)。
     EXPECT_TRUE(FThreadPool::Init(4).IsOk());
     {
-        World w;
+        FWorld w;
         constexpr u32 kCount = 500u;
         for (u32 i = 0; i < kCount; ++i) {
-            const EntityId e = w.Create();
-            w.Add<Position>(e, {static_cast<f32>(i), 0, 0});
+            const FEntityId e = w.Create();
+            w.Add<FPosition>(e, {static_cast<f32>(i), 0, 0});
         }
 
         FParallelEntityCommandBuffer cmd(w);
-        w.Query<Position>().EachParallel([&cmd](EntityId, Position& p) {
+        w.Query<FPosition>().EachParallel([&cmd](FEntityId, FPosition& p) {
             if ((static_cast<u32>(p.x) % 2u) == 0u) {
-                cmd.CreateWith<Health>(Health{static_cast<i32>(p.x)});
+                cmd.CreateWith<FHealth>(FHealth{static_cast<i32>(p.x)});
             }
         }, 32u);
 
@@ -372,7 +372,7 @@ ACS_TEST(Ecs, ParallelCommandBufferDeferredCreateSpawnsAfterFlush)
         cmd.Flush();
         EXPECT_EQ(w.EntityCount(), kCount + kCount / 2u);
         u32 spawned = 0;
-        w.Query<Health>().Each([&spawned](EntityId, Health&) { ++spawned; });
+        w.Query<FHealth>().Each([&spawned](FEntityId, FHealth&) { ++spawned; });
         EXPECT_EQ(spawned, kCount / 2u);
     }
     FThreadPool::Shutdown();
@@ -382,53 +382,53 @@ ACS_TEST(Ecs, ParallelCommandBufferWorksWithoutThreadPool)
 {
     // プール未初期化でも構築できる (スロット = 非ワーカー用の 1 本)。逐次 Each からの
     // 記録・Flush が単体の FEntityCommandBuffer と同じに動くことを確認する。
-    World w;
-    const EntityId a = w.Create();
-    const EntityId b = w.Create();
-    w.Add<Health>(a, {5});
-    w.Add<Health>(b, {0});
+    FWorld w;
+    const FEntityId a = w.Create();
+    const FEntityId b = w.Create();
+    w.Add<FHealth>(a, {5});
+    w.Add<FHealth>(b, {0});
 
     FParallelEntityCommandBuffer cmd(w);
     EXPECT_TRUE(cmd.IsValid());
-    w.Query<Health>().Each([&cmd](EntityId e, Health& h) {
+    w.Query<FHealth>().Each([&cmd](FEntityId e, FHealth& h) {
         if (h.hp <= 0) cmd.Destroy(e);
-        else           cmd.Add<Velocity>(e, {2.0f, 0.0f, 0.0f});
+        else           cmd.Add<FVelocity>(e, {2.0f, 0.0f, 0.0f});
     });
     EXPECT_EQ(cmd.Size(), static_cast<usize>(2));
     cmd.Flush();
 
     EXPECT_TRUE(w.IsAlive(a));
     EXPECT_FALSE(w.IsAlive(b));
-    EXPECT_TRUE(w.Has<Velocity>(a));
+    EXPECT_TRUE(w.Has<FVelocity>(a));
 
     // Clear は適用せず破棄する (Add の退避値もリークしない — ASan/CRT リーク検査で担保)。
-    cmd.Add<Health>(a, {99});
+    cmd.Add<FHealth>(a, {99});
     EXPECT_EQ(cmd.Size(), static_cast<usize>(1));
     cmd.Clear();
     EXPECT_EQ(cmd.Size(), static_cast<usize>(0));
-    EXPECT_EQ(w.Get<Health>(a)->hp, 5);
+    EXPECT_EQ(w.Get<FHealth>(a)->hp, 5);
 }
 
 ACS_TEST(Ecs, QueryEachExcludingSkipsEntitiesWithExcludedComponents)
 {
-    World w;
+    FWorld w;
     for (int i = 0; i < 20; ++i) {
-        const EntityId e = w.Create();
-        w.Add<Position>(e, {static_cast<f32>(i), 0, 0});
-        if (i % 5 == 0) w.Add<Frozen>(e, {0});  // 0,5,10,15 を Frozen に
+        const FEntityId e = w.Create();
+        w.Add<FPosition>(e, {static_cast<f32>(i), 0, 0});
+        if (i % 5 == 0) w.Add<FFrozen>(e, {0});  // 0,5,10,15 を Frozen に
     }
 
     u32 visited = 0;
     u32 frozen_visited = 0;
-    w.Query<Position>().EachExcluding<Frozen>([&](EntityId e, Position&) {
+    w.Query<FPosition>().EachExcluding<FFrozen>([&](FEntityId e, FPosition&) {
         ++visited;
-        if (w.Has<Frozen>(e)) ++frozen_visited;  // 除外されるので 0 のはず
+        if (w.Has<FFrozen>(e)) ++frozen_visited;  // 除外されるので 0 のはず
     });
     EXPECT_EQ(visited, 16u);        // 20 - 4 (Frozen) = 16
     EXPECT_EQ(frozen_visited, 0u);  // Frozen は 1 つも訪問しない
 
     // 空の Excludes は Each と同じ (全 Position を訪問)。
     u32 all = 0;
-    w.Query<Position>().EachExcluding<>([&](EntityId, Position&) { ++all; });
+    w.Query<FPosition>().EachExcluding<>([&](FEntityId, FPosition&) { ++all; });
     EXPECT_EQ(all, 20u);
 }

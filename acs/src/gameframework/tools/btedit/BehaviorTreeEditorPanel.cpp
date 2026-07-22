@@ -10,8 +10,13 @@
 // を実装する。すべて noexcept、STL 不使用、ImGui 依存はこの .cpp に閉じる。
 #include "gameframework/tools/btedit/BehaviorTreeEditorPanel.h"
 #include "gameframework/tools/btedit/BtGuardNodes.h"   // FBtConditionNode / FBtCompareNode (bake)
+#include "foundation/Move.h"
+#include "foundation/Platform.h"
 
 #include <imgui.h>
+#include <charconv>
+#include <limits>
+#include <system_error>
 
 #include <cstdio>   // std::snprintf / fopen / fgets / sscanf (label 整形・保存読込)
 #include <cmath>    // floorf (グリッド描画)
@@ -30,7 +35,7 @@ static constexpr u32 kTreeRecursionLimit = 64u;
  * EBtKind を表示用リテラルに変換する。
  *
  * @param k 変換元の node 種別。
- * @return "Selector" / "FSequence" / "Action" (到達不能時は "Unknown")。
+ * @return "Selector" / "Sequence" / "Action" (到達不能時は "Unknown")。
  */
 static const char* KindLabel(EBtKind k) noexcept {
     switch (k) {
@@ -128,6 +133,392 @@ static const char* SafeName(const char* name) noexcept {
 static bool IsValidId(u32 id, usize node_count) noexcept {
     if (id == FBehaviorTreeEditorPanel::kInvalidId) return false;
     return static_cast<usize>(id) < node_count;
+}
+
+static FBtGraphPersistenceResult GraphFailure(
+    EBtGraphPersistenceError error, u32 line = 0u, u64 bytes = 0u,
+    u32 os_error = 0u) noexcept {
+    FBtGraphPersistenceResult result{};
+    result.error = error;
+    result.line = line;
+    result.bytes = bytes;
+    result.os_error = os_error;
+    return result;
+}
+
+static bool TryBoundedCStringLength(
+    const char* text, usize limit, usize& out_length) noexcept {
+    out_length = 0u;
+    if (text == nullptr) return false;
+    while (out_length <= limit && text[out_length] != '\0') ++out_length;
+    return out_length <= limit;
+}
+
+static bool IsSafeToken(const char* text, usize length) noexcept {
+    if (text == nullptr || length == 0u) return false;
+    for (usize i = 0u; i < length; ++i) {
+        const u8 byte = static_cast<u8>(text[i]);
+        if (byte <= 0x20u || byte == 0x7Fu) return false;
+    }
+    return true;
+}
+
+static bool IsSafeDisplayName(const char* text, usize length) noexcept {
+    if (text == nullptr) return false;
+    for (usize i = 0u; i < length; ++i) {
+        const u8 byte = static_cast<u8>(text[i]);
+        if (byte < 0x20u || byte == 0x7Fu) return false;
+    }
+    return true;
+}
+
+struct FGraphTokenCursor {
+    const char* Current = nullptr;
+    const char* End = nullptr;
+
+    FGraphTokenCursor(const char* text, usize length) noexcept
+        : Current(text), End(text + length) {}
+
+    void SkipSpace() noexcept {
+        while (Current < End && (*Current == ' ' || *Current == '\t')) ++Current;
+    }
+
+    bool Next(const char*& begin, const char*& end) noexcept {
+        SkipSpace();
+        if (Current == End) return false;
+        begin = Current;
+        while (Current < End && *Current != ' ' && *Current != '\t') ++Current;
+        end = Current;
+        return true;
+    }
+
+    const char* Remainder() noexcept {
+        SkipSpace();
+        return Current;
+    }
+
+    bool Empty() noexcept {
+        SkipSpace();
+        return Current == End;
+    }
+};
+
+static EBtGraphPersistenceError ParseU32Token(
+    const char* begin, const char* end, u32& out) noexcept {
+    if (begin == end) return EBtGraphPersistenceError::InvalidNumber;
+    const char* conversion_begin = (*begin == '+') ? begin + 1 : begin;
+    if (conversion_begin == end) return EBtGraphPersistenceError::InvalidNumber;
+    u32 value = 0u;
+    const std::from_chars_result parsed =
+        std::from_chars(conversion_begin, end, value, 10);
+    if (parsed.ec != std::errc{} || parsed.ptr != end) {
+        return EBtGraphPersistenceError::InvalidNumber;
+    }
+    out = value;
+    return EBtGraphPersistenceError::None;
+}
+
+static EBtGraphPersistenceError ParseI32Token(
+    const char* begin, const char* end, i32& out) noexcept {
+    if (begin == end) return EBtGraphPersistenceError::InvalidNumber;
+    const char* conversion_begin = (*begin == '+') ? begin + 1 : begin;
+    if (conversion_begin == end) return EBtGraphPersistenceError::InvalidNumber;
+    i32 value = 0;
+    const std::from_chars_result parsed =
+        std::from_chars(conversion_begin, end, value, 10);
+    if (parsed.ec == std::errc::result_out_of_range) {
+        return EBtGraphPersistenceError::IntegerOutOfRange;
+    }
+    if (parsed.ec != std::errc{} || parsed.ptr != end) {
+        return EBtGraphPersistenceError::InvalidNumber;
+    }
+    out = value;
+    return EBtGraphPersistenceError::None;
+}
+
+static EBtGraphPersistenceError ParseF32Token(
+    const char* begin, const char* end, f32& out) noexcept {
+    if (begin == end) return EBtGraphPersistenceError::InvalidNumber;
+    const char* conversion_begin = (*begin == '+') ? begin + 1 : begin;
+    if (conversion_begin == end) return EBtGraphPersistenceError::InvalidNumber;
+    f32 value = 0.0f;
+    const std::from_chars_result parsed = std::from_chars(
+        conversion_begin, end, value, std::chars_format::general);
+    if (parsed.ec != std::errc{} || parsed.ptr != end) {
+        return EBtGraphPersistenceError::InvalidNumber;
+    }
+    if (!std::isfinite(value)) {
+        return EBtGraphPersistenceError::NonFiniteNumber;
+    }
+    out = value;
+    return EBtGraphPersistenceError::None;
+}
+
+struct FGraphTextBuilder {
+    TArray<char> Text;
+    EBtGraphPersistenceError Error = EBtGraphPersistenceError::None;
+
+    bool Append(const char* bytes, usize length) noexcept {
+        if (Error != EBtGraphPersistenceError::None) return false;
+        if (length > FBehaviorTreeEditorPanel::kMaxGraphTextBytes - Text.Size()) {
+            Error = EBtGraphPersistenceError::InputTooLarge;
+            return false;
+        }
+        const usize old_size = Text.Size();
+        if (!Text.TryResize(old_size + length)) {
+            Error = EBtGraphPersistenceError::AllocationFailure;
+            return false;
+        }
+        if (length != 0u) std::memcpy(Text.Data() + old_size, bytes, length);
+        return true;
+    }
+
+    bool AppendChar(char value) noexcept { return Append(&value, 1u); }
+
+    bool AppendCString(const char* value) noexcept {
+        return Append(value, std::strlen(value));
+    }
+
+    bool AppendU32(u32 value) noexcept {
+        char buffer[16]{};
+        const std::to_chars_result converted =
+            std::to_chars(buffer, buffer + sizeof(buffer), value);
+        if (converted.ec != std::errc{}) {
+            Error = EBtGraphPersistenceError::InvalidNumber;
+            return false;
+        }
+        return Append(buffer, static_cast<usize>(converted.ptr - buffer));
+    }
+
+    bool AppendI32(i32 value) noexcept {
+        char buffer[16]{};
+        const std::to_chars_result converted =
+            std::to_chars(buffer, buffer + sizeof(buffer), value);
+        if (converted.ec != std::errc{}) {
+            Error = EBtGraphPersistenceError::InvalidNumber;
+            return false;
+        }
+        return Append(buffer, static_cast<usize>(converted.ptr - buffer));
+    }
+
+    bool AppendF32(f32 value) noexcept {
+        if (!std::isfinite(value)) {
+            Error = EBtGraphPersistenceError::NonFiniteNumber;
+            return false;
+        }
+        char buffer[64]{};
+        const std::to_chars_result converted = std::to_chars(
+            buffer, buffer + sizeof(buffer), value, std::chars_format::general,
+            std::numeric_limits<f32>::max_digits10);
+        if (converted.ec != std::errc{}) {
+            Error = EBtGraphPersistenceError::InvalidNumber;
+            return false;
+        }
+        return Append(buffer, static_cast<usize>(converted.ptr - buffer));
+    }
+};
+
+static bool SeekGraphFileEnd(std::FILE* file) noexcept {
+#if ACS_PLATFORM_WINDOWS
+    return ::_fseeki64(file, 0, SEEK_END) == 0;
+#else
+    return std::fseek(file, 0, SEEK_END) == 0;
+#endif
+}
+
+static i64 TellGraphFile(std::FILE* file) noexcept {
+#if ACS_PLATFORM_WINDOWS
+    return static_cast<i64>(::_ftelli64(file));
+#else
+    return static_cast<i64>(std::ftell(file));
+#endif
+}
+
+static bool SeekGraphFileBegin(std::FILE* file) noexcept {
+#if ACS_PLATFORM_WINDOWS
+    return ::_fseeki64(file, 0, SEEK_SET) == 0;
+#else
+    return std::fseek(file, 0, SEEK_SET) == 0;
+#endif
+}
+
+#if ACS_PLATFORM_WINDOWS
+static volatile LONG g_BtGraphTemporarySerial = 0;
+#endif
+
+static FBtGraphPersistenceResult WriteGraphAtomically(
+    const char* path, const char* bytes, usize byte_count) noexcept {
+    constexpr u32 kOpenAttempts = 32u;
+    constexpr usize kTemporaryPathBytes =
+        FBehaviorTreeEditorPanel::kMaxGraphPathBytes + 96u;
+    char temporary_path[kTemporaryPathBytes]{};
+
+#if ACS_PLATFORM_WINDOWS
+    HANDLE file = INVALID_HANDLE_VALUE;
+    DWORD last_error = ERROR_FILE_EXISTS;
+    for (u32 attempt = 0u; attempt < kOpenAttempts; ++attempt) {
+        const u32 serial = static_cast<u32>(
+            ::InterlockedIncrement(&g_BtGraphTemporarySerial));
+        const int length = std::snprintf(
+            temporary_path, sizeof(temporary_path), "%s.tmp.%08lX.%08lX.%08X",
+            path, static_cast<unsigned long>(::GetCurrentProcessId()),
+            static_cast<unsigned long>(::GetCurrentThreadId()),
+            static_cast<unsigned int>(serial));
+        if (length <= 0 || static_cast<usize>(length) >= sizeof(temporary_path)) {
+            return GraphFailure(EBtGraphPersistenceError::PathTooLong);
+        }
+        file = ::CreateFileA(
+            temporary_path, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file != INVALID_HANDLE_VALUE) break;
+        last_error = ::GetLastError();
+        if (last_error != ERROR_FILE_EXISTS &&
+            last_error != ERROR_ALREADY_EXISTS) {
+            return GraphFailure(
+                EBtGraphPersistenceError::FileOpenFailed, 0u, 0u,
+                static_cast<u32>(last_error));
+        }
+    }
+    if (file == INVALID_HANDLE_VALUE) {
+        return GraphFailure(
+            EBtGraphPersistenceError::TemporaryFileExhausted, 0u, 0u,
+            static_cast<u32>(last_error));
+    }
+
+    usize offset = 0u;
+    while (offset < byte_count) {
+        const usize remaining = byte_count - offset;
+        const DWORD chunk = remaining > 0x7FFFFFFFu
+            ? 0x7FFFFFFFu
+            : static_cast<DWORD>(remaining);
+        DWORD written = 0u;
+        if (!::WriteFile(file, bytes + offset, chunk, &written, nullptr) ||
+            written != chunk) {
+            const DWORD error = ::GetLastError();
+            ::CloseHandle(file);
+            ::DeleteFileA(temporary_path);
+            return GraphFailure(
+                EBtGraphPersistenceError::FileWriteFailed, 0u,
+                static_cast<u64>(offset), static_cast<u32>(error));
+        }
+        offset += written;
+    }
+    if (!::FlushFileBuffers(file)) {
+        const DWORD error = ::GetLastError();
+        ::CloseHandle(file);
+        ::DeleteFileA(temporary_path);
+        return GraphFailure(
+            EBtGraphPersistenceError::FileFlushFailed, 0u,
+            static_cast<u64>(offset), static_cast<u32>(error));
+    }
+    if (!::CloseHandle(file)) {
+        const DWORD error = ::GetLastError();
+        ::DeleteFileA(temporary_path);
+        return GraphFailure(
+            EBtGraphPersistenceError::FileCloseFailed, 0u,
+            static_cast<u64>(offset), static_cast<u32>(error));
+    }
+    if (!::MoveFileExA(
+            temporary_path, path,
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        const DWORD error = ::GetLastError();
+        ::DeleteFileA(temporary_path);
+        return GraphFailure(
+            EBtGraphPersistenceError::AtomicReplaceFailed, 0u,
+            static_cast<u64>(offset), static_cast<u32>(error));
+    }
+#else
+    const int length = std::snprintf(
+        temporary_path, sizeof(temporary_path), "%s.tmp.%p",
+        path, static_cast<const void*>(bytes));
+    if (length <= 0 || static_cast<usize>(length) >= sizeof(temporary_path)) {
+        return GraphFailure(EBtGraphPersistenceError::PathTooLong);
+    }
+    std::FILE* file = std::fopen(temporary_path, "wbx");
+    if (file == nullptr) {
+        return GraphFailure(EBtGraphPersistenceError::FileOpenFailed);
+    }
+    const usize written = std::fwrite(bytes, 1u, byte_count, file);
+    if (written != byte_count) {
+        std::fclose(file);
+        std::remove(temporary_path);
+        return GraphFailure(
+            EBtGraphPersistenceError::FileWriteFailed, 0u,
+            static_cast<u64>(written));
+    }
+    if (std::fflush(file) != 0) {
+        std::fclose(file);
+        std::remove(temporary_path);
+        return GraphFailure(
+            EBtGraphPersistenceError::FileFlushFailed, 0u,
+            static_cast<u64>(written));
+    }
+    if (std::fclose(file) != 0) {
+        std::remove(temporary_path);
+        return GraphFailure(
+            EBtGraphPersistenceError::FileCloseFailed, 0u,
+            static_cast<u64>(written));
+    }
+    if (std::rename(temporary_path, path) != 0) {
+        std::remove(temporary_path);
+        return GraphFailure(
+            EBtGraphPersistenceError::AtomicReplaceFailed, 0u,
+            static_cast<u64>(written));
+    }
+#endif
+
+    FBtGraphPersistenceResult result{};
+    result.bytes = static_cast<u64>(byte_count);
+    return result;
+}
+
+const char* FBtGraphPersistenceResult::ErrorName(
+    EBtGraphPersistenceError value) noexcept {
+    switch (value) {
+        case EBtGraphPersistenceError::None: return "None";
+        case EBtGraphPersistenceError::NullArgument: return "NullArgument";
+        case EBtGraphPersistenceError::EmptyPath: return "EmptyPath";
+        case EBtGraphPersistenceError::PathTooLong: return "PathTooLong";
+        case EBtGraphPersistenceError::EmptyInput: return "EmptyInput";
+        case EBtGraphPersistenceError::InputTooLarge: return "InputTooLarge";
+        case EBtGraphPersistenceError::EmbeddedNul: return "EmbeddedNul";
+        case EBtGraphPersistenceError::TooManyLines: return "TooManyLines";
+        case EBtGraphPersistenceError::LineTooLong: return "LineTooLong";
+        case EBtGraphPersistenceError::InvalidMagic: return "InvalidMagic";
+        case EBtGraphPersistenceError::UnsupportedVersion: return "UnsupportedVersion";
+        case EBtGraphPersistenceError::InvalidCount: return "InvalidCount";
+        case EBtGraphPersistenceError::NodeCountLimit: return "NodeCountLimit";
+        case EBtGraphPersistenceError::InvalidNodeRecord: return "InvalidNodeRecord";
+        case EBtGraphPersistenceError::DuplicateNodeId: return "DuplicateNodeId";
+        case EBtGraphPersistenceError::InvalidNodeId: return "InvalidNodeId";
+        case EBtGraphPersistenceError::InvalidParentReference: return "InvalidParentReference";
+        case EBtGraphPersistenceError::InvalidStructure: return "InvalidStructure";
+        case EBtGraphPersistenceError::CycleDetected: return "CycleDetected";
+        case EBtGraphPersistenceError::DepthLimitExceeded: return "DepthLimitExceeded";
+        case EBtGraphPersistenceError::InvalidKind: return "InvalidKind";
+        case EBtGraphPersistenceError::InvalidDecorator: return "InvalidDecorator";
+        case EBtGraphPersistenceError::InvalidDecoratorMode: return "InvalidDecoratorMode";
+        case EBtGraphPersistenceError::InvalidCompareOp: return "InvalidCompareOp";
+        case EBtGraphPersistenceError::InvalidNumber: return "InvalidNumber";
+        case EBtGraphPersistenceError::NonFiniteNumber: return "NonFiniteNumber";
+        case EBtGraphPersistenceError::NameTooLong: return "NameTooLong";
+        case EBtGraphPersistenceError::InvalidName: return "InvalidName";
+        case EBtGraphPersistenceError::BlackboardCountLimit: return "BlackboardCountLimit";
+        case EBtGraphPersistenceError::InvalidBlackboardRecord: return "InvalidBlackboardRecord";
+        case EBtGraphPersistenceError::DuplicateBlackboardName: return "DuplicateBlackboardName";
+        case EBtGraphPersistenceError::IntegerOutOfRange: return "IntegerOutOfRange";
+        case EBtGraphPersistenceError::AllocationFailure: return "AllocationFailure";
+        case EBtGraphPersistenceError::FileOpenFailed: return "FileOpenFailed";
+        case EBtGraphPersistenceError::FileSizeFailed: return "FileSizeFailed";
+        case EBtGraphPersistenceError::FileChanged: return "FileChanged";
+        case EBtGraphPersistenceError::FileReadFailed: return "FileReadFailed";
+        case EBtGraphPersistenceError::FileWriteFailed: return "FileWriteFailed";
+        case EBtGraphPersistenceError::FileFlushFailed: return "FileFlushFailed";
+        case EBtGraphPersistenceError::FileCloseFailed: return "FileCloseFailed";
+        case EBtGraphPersistenceError::TemporaryFileExhausted: return "TemporaryFileExhausted";
+        case EBtGraphPersistenceError::AtomicReplaceFailed: return "AtomicReplaceFailed";
+    }
+    return "Unknown";
 }
 
 /**
@@ -284,7 +675,7 @@ u32 FBehaviorTreeEditorPanel::AddNode(EBtKind kind, const char* name, u32 parent
         parent_id = kInvalidId;
     }
 
-    NodeMeta n;
+    FNodeMeta n;
     n.id          = static_cast<u32>(m_Nodes.Size()); // 払い出し = 現在の末尾 index
     n.parent_id   = parent_id;
     n.kind        = kind;
@@ -306,7 +697,7 @@ void FBehaviorTreeEditorPanel::SetNodeStatus(u32 node_id, EBtStatus status) noex
 /** Decorator node の変換 op を設定する (範囲外 / Decorator 以外は no-op で false)。 */
 bool FBehaviorTreeEditorPanel::SetNodeDecoratorOp(u32 node_id, EBtDecoratorOp op) noexcept {
     if (!IsValidId(node_id, m_Nodes.Size())) return false;
-    NodeMeta& n = m_Nodes[static_cast<usize>(node_id)];
+    FNodeMeta& n = m_Nodes[static_cast<usize>(node_id)];
     if (n.kind != EBtKind::Decorator) return false;
     n.deco = op;
     return true;
@@ -315,7 +706,7 @@ bool FBehaviorTreeEditorPanel::SetNodeDecoratorOp(u32 node_id, EBtDecoratorOp op
 /** Decorator node の動作モードを設定する (範囲外 / Decorator 以外は no-op で false)。 */
 bool FBehaviorTreeEditorPanel::SetNodeDecoratorMode(u32 node_id, EBtDecoMode mode) noexcept {
     if (!IsValidId(node_id, m_Nodes.Size())) return false;
-    NodeMeta& n = m_Nodes[static_cast<usize>(node_id)];
+    FNodeMeta& n = m_Nodes[static_cast<usize>(node_id)];
     if (n.kind != EBtKind::Decorator) return false;
     n.decoMode = mode;
     return true;
@@ -324,7 +715,7 @@ bool FBehaviorTreeEditorPanel::SetNodeDecoratorMode(u32 node_id, EBtDecoMode mod
 /** Decorator node を Compare モードにし、比較条件 (var op rhs) を設定する。 */
 bool FBehaviorTreeEditorPanel::SetNodeCompare(u32 node_id, const char* var, EBtCompareOp op, f32 rhs) noexcept {
     if (!IsValidId(node_id, m_Nodes.Size())) return false;
-    NodeMeta& n = m_Nodes[static_cast<usize>(node_id)];
+    FNodeMeta& n = m_Nodes[static_cast<usize>(node_id)];
     if (n.kind != EBtKind::Decorator) return false;
     n.decoMode = EBtDecoMode::Compare;
     std::snprintf(n.var, sizeof(n.var), "%s", (var != nullptr) ? var : "");
@@ -370,7 +761,7 @@ void FBehaviorTreeEditorPanel::DrawTreeRecursive(u32 node_id, u32 depth) noexcep
     }
     if (!IsValidId(node_id, m_Nodes.Size())) return;
 
-    const NodeMeta& node = m_Nodes[static_cast<usize>(node_id)];
+    const FNodeMeta& node = m_Nodes[static_cast<usize>(node_id)];
     if (!node.alive) return;
 
     // 子検索 (= 線形走査で parent_id == node_id の生存要素があるか)。
@@ -440,7 +831,7 @@ void FBehaviorTreeEditorPanel::DrawTreeRecursive(u32 node_id, u32 depth) noexcep
 }
 
 /** node の表示名 (エディタ名 ename を優先、無ければ name)。 */
-const char* FBehaviorTreeEditorPanel::DisplayName(const NodeMeta& n) const noexcept {
+const char* FBehaviorTreeEditorPanel::DisplayName(const FNodeMeta& n) const noexcept {
     if (n.ename[0] != '\0') return n.ename;
     return SafeName(n.name);
 }
@@ -468,8 +859,8 @@ void FBehaviorTreeEditorPanel::AutoLayout() noexcept {
     // m_Nodes を直接触る member 再帰を below の static 関数に委譲する代わり、ここで完結させる。
     f32 next_leaf = 0.0f;
     // 再帰ヘルパ (自己呼び出しのため struct local function)
-    struct Rec {
-        TArray<NodeMeta>& nodes;
+    struct FRec {
+        TArray<FNodeMeta>& nodes;
         f32& next_leaf;
         f32 run(u32 id, u32 depth, u32 guard) noexcept {
             if (guard >= kTreeRecursionLimit || !(static_cast<usize>(id) < nodes.Size())) {
@@ -513,7 +904,7 @@ u32 FBehaviorTreeEditorPanel::AddNodeGraph(EBtKind kind, u32 parent_id, f32 wx, 
         }
     }
 
-    NodeMeta n;
+    FNodeMeta n;
     n.id          = static_cast<u32>(m_Nodes.Size());
     n.parent_id   = parent_id;
     n.kind        = kind;
@@ -577,7 +968,7 @@ EBtStatus FBehaviorTreeEditorPanel::TickGraphNode(u32 id, f32 dt, u32 guard) noe
         result = (fn != nullptr) ? fn(m_GraphBb, dt) : EBtStatus::Failure;  // 未解決は Failure
     } else if (kind == EBtKind::Decorator) {
         // Decorator は子 1 つ (左端 = 最初の子)。モードで Transform / 条件ガードを切替。
-        NodeMeta& dn = m_Nodes[static_cast<usize>(id)];
+        FNodeMeta& dn = m_Nodes[static_cast<usize>(id)];
         u32 kids[kMaxNodes];
         const u32 ck = CollectChildrenSorted(id, kids, kMaxNodes);
 
@@ -650,58 +1041,222 @@ EBtStatus FBehaviorTreeEditorPanel::TickGraph(f32 dt) noexcept {
 
 /** グラフをテキストファイルへ保存する (生存ノードを id 圧縮して書く)。 */
 bool FBehaviorTreeEditorPanel::SaveGraph(const char* path) const noexcept {
-    if (path == nullptr) return false;
-    std::FILE* f = std::fopen(path, "wb");
-    if (f == nullptr) return false;
+    return TrySaveGraph(path).Succeeded();
+}
 
-    // 生存ノードに連番 (new id) を振る remap。
-    u32 remap[kMaxNodes];
-    for (u32 i = 0; i < kMaxNodes; ++i) remap[i] = kInvalidId;
-    u32 nc = 0;
-    for (usize i = 0; i < m_Nodes.Size(); ++i) if (m_Nodes[i].alive) remap[i] = nc++;
-
-    // version 4: ノード列 (v3 と同形) の後に動的ブラックボード変数セクション "BB <n>" を追加。
-    // ノード列: id parent kind deco decoMode cmpOp cmpRhs x y var name
-    //   var は 1 トークン (空なら "-")、name は行末まで (空白可)。
-    std::fprintf(f, "ACSBT 4\n%u\n", nc);
-    for (usize i = 0; i < m_Nodes.Size(); ++i) {
-        const NodeMeta& n = m_Nodes[i];
-        if (!n.alive) continue;
-        int parent_out = -1;
-        if (n.parent_id != kInvalidId && static_cast<usize>(n.parent_id) < m_Nodes.Size()
-            && m_Nodes[static_cast<usize>(n.parent_id)].alive) {
-            parent_out = static_cast<int>(remap[n.parent_id]);
-        }
-        const char* var_out = (n.var[0] != '\0') ? n.var : "-";
-        std::fprintf(f, "%u %d %d %d %d %d %.3f %.1f %.1f %s %s\n",
-                     remap[i], parent_out, static_cast<int>(n.kind),
-                     static_cast<int>(n.deco), static_cast<int>(n.decoMode),
-                     static_cast<int>(n.cmpOp), static_cast<double>(n.cmpRhs),
-                     n.x, n.y, var_out, DisplayName(n));
+FBtGraphPersistenceResult FBehaviorTreeEditorPanel::TrySaveGraph(
+    const char* path) const noexcept {
+    if (path == nullptr) {
+        return GraphFailure(EBtGraphPersistenceError::NullArgument);
+    }
+    usize path_length = 0u;
+    if (!TryBoundedCStringLength(path, kMaxGraphPathBytes, path_length)) {
+        return GraphFailure(EBtGraphPersistenceError::PathTooLong);
+    }
+    if (path_length == 0u) {
+        return GraphFailure(EBtGraphPersistenceError::EmptyPath);
+    }
+    if (m_Nodes.Size() > static_cast<usize>(kMaxNodes)) {
+        return GraphFailure(EBtGraphPersistenceError::NodeCountLimit);
     }
 
-    // 動的ブラックボード変数 (v4)。"BB <count>" の後に "<name> <type> <value>" を並べる。
-    // value は型に応じた数値 (bool=0/1, i32, f32)。name は 1 トークン想定 (識別子)。
-    const u32 vc = (m_DynBb != nullptr) ? m_DynBb->Count() : 0u;
-    std::fprintf(f, "BB %u\n", vc);
-    for (u32 v = 0; v < vc; ++v) {
-        const char* vn = m_DynBb->NameAt(v);
-        const int   ty = static_cast<int>(m_DynBb->TypeAt(v));
-        switch (m_DynBb->TypeAt(v)) {
-            case EBtVarType::Bool: std::fprintf(f, "%s %d %d\n",    vn, ty, m_DynBb->GetBool(vn) ? 1 : 0); break;
-            case EBtVarType::I32:  std::fprintf(f, "%s %d %d\n",    vn, ty, m_DynBb->GetI32(vn)); break;
-            case EBtVarType::F32:  std::fprintf(f, "%s %d %.6g\n",  vn, ty, static_cast<double>(m_DynBb->GetF32(vn))); break;
+    u32 remap[kMaxNodes]{};
+    for (u32 i = 0u; i < kMaxNodes; ++i) remap[i] = kInvalidId;
+    u32 node_count = 0u;
+    for (usize i = 0u; i < m_Nodes.Size(); ++i) {
+        if (m_Nodes[i].alive) remap[i] = node_count++;
+    }
+
+    for (usize i = 0u; i < m_Nodes.Size(); ++i) {
+        const FNodeMeta& node = m_Nodes[i];
+        if (!node.alive) continue;
+
+        const u32 kind = static_cast<u32>(node.kind);
+        const u32 decorator = static_cast<u32>(node.deco);
+        const u32 mode = static_cast<u32>(node.decoMode);
+        const u32 compare = static_cast<u32>(node.cmpOp);
+        if (kind > static_cast<u32>(EBtKind::Task)) {
+            return GraphFailure(EBtGraphPersistenceError::InvalidKind);
+        }
+        if (decorator > static_cast<u32>(EBtDecoratorOp::Repeat)) {
+            return GraphFailure(EBtGraphPersistenceError::InvalidDecorator);
+        }
+        if (mode > static_cast<u32>(EBtDecoMode::Compare)) {
+            return GraphFailure(EBtGraphPersistenceError::InvalidDecoratorMode);
+        }
+        if (compare > static_cast<u32>(EBtCompareOp::Greater)) {
+            return GraphFailure(EBtGraphPersistenceError::InvalidCompareOp);
+        }
+        if (!std::isfinite(node.cmpRhs) ||
+            !std::isfinite(node.x) || !std::isfinite(node.y)) {
+            return GraphFailure(EBtGraphPersistenceError::NonFiniteNumber);
+        }
+
+        usize variable_length = 0u;
+        if (!TryBoundedCStringLength(
+                node.var, sizeof(node.var) - 1u, variable_length)) {
+            return GraphFailure(EBtGraphPersistenceError::NameTooLong);
+        }
+        if (variable_length != 0u &&
+            !IsSafeToken(node.var, variable_length)) {
+            return GraphFailure(EBtGraphPersistenceError::InvalidName);
+        }
+
+        const char* display_name = DisplayName(node);
+        usize name_length = 0u;
+        if (!TryBoundedCStringLength(
+                display_name, sizeof(node.ename) - 1u, name_length)) {
+            return GraphFailure(EBtGraphPersistenceError::NameTooLong);
+        }
+        if (!IsSafeDisplayName(display_name, name_length)) {
+            return GraphFailure(EBtGraphPersistenceError::InvalidName);
+        }
+
+        if (node.parent_id != kInvalidId) {
+            if (!IsValidId(node.parent_id, m_Nodes.Size()) ||
+                !m_Nodes[static_cast<usize>(node.parent_id)].alive) {
+                return GraphFailure(
+                    EBtGraphPersistenceError::InvalidParentReference);
+            }
+        }
+
+        u32 child_count = 0u;
+        for (usize child = 0u; child < m_Nodes.Size(); ++child) {
+            if (m_Nodes[child].alive &&
+                m_Nodes[child].parent_id == static_cast<u32>(i)) {
+                ++child_count;
+            }
+        }
+        if ((BtKindIsLeaf(node.kind) && child_count != 0u) ||
+            (node.kind == EBtKind::Decorator && child_count > 1u)) {
+            return GraphFailure(EBtGraphPersistenceError::InvalidStructure);
+        }
+
+        bool visited[kMaxNodes]{};
+        u32 current = static_cast<u32>(i);
+        u32 depth = 0u;
+        while (current != kInvalidId) {
+            if (!IsValidId(current, m_Nodes.Size()) ||
+                !m_Nodes[static_cast<usize>(current)].alive) {
+                return GraphFailure(
+                    EBtGraphPersistenceError::InvalidParentReference);
+            }
+            if (visited[current]) {
+                return GraphFailure(EBtGraphPersistenceError::CycleDetected);
+            }
+            if (depth >= kMaxGraphDepth) {
+                return GraphFailure(
+                    EBtGraphPersistenceError::DepthLimitExceeded);
+            }
+            visited[current] = true;
+            ++depth;
+            current = m_Nodes[static_cast<usize>(current)].parent_id;
         }
     }
 
-    std::fclose(f);
-    return true;
+    const u32 blackboard_count =
+        m_DynBb != nullptr ? m_DynBb->Count() : 0u;
+    if (blackboard_count > FBtBlackboard::kMax) {
+        return GraphFailure(
+            EBtGraphPersistenceError::BlackboardCountLimit);
+    }
+    for (u32 i = 0u; i < blackboard_count; ++i) {
+        const char* name = m_DynBb->NameAt(i);
+        const u32 type_value = static_cast<u32>(m_DynBb->TypeAt(i));
+        if (type_value > static_cast<u32>(EBtVarType::F32)) {
+            return GraphFailure(
+                EBtGraphPersistenceError::InvalidBlackboardRecord);
+        }
+        usize name_length = 0u;
+        if (!TryBoundedCStringLength(
+                name, FBtBlackboard::kNameLen - 1u, name_length)) {
+            return GraphFailure(EBtGraphPersistenceError::NameTooLong);
+        }
+        if (!IsSafeToken(name, name_length)) {
+            return GraphFailure(EBtGraphPersistenceError::InvalidName);
+        }
+        for (u32 previous = 0u; previous < i; ++previous) {
+            if (std::strcmp(name, m_DynBb->NameAt(previous)) == 0) {
+                return GraphFailure(
+                    EBtGraphPersistenceError::DuplicateBlackboardName);
+            }
+        }
+        if (m_DynBb->TypeAt(i) == EBtVarType::F32 &&
+            !std::isfinite(m_DynBb->GetF32(name))) {
+            return GraphFailure(EBtGraphPersistenceError::NonFiniteNumber);
+        }
+    }
+
+    FGraphTextBuilder builder;
+    if (!builder.Text.TryReserve(4096u)) {
+        return GraphFailure(EBtGraphPersistenceError::AllocationFailure);
+    }
+    builder.AppendCString("ACSBT 4\n");
+    builder.AppendU32(node_count);
+    builder.AppendChar('\n');
+    for (usize i = 0u; i < m_Nodes.Size(); ++i) {
+        const FNodeMeta& node = m_Nodes[i];
+        if (!node.alive) continue;
+        builder.AppendU32(remap[i]);
+        builder.AppendChar(' ');
+        builder.AppendI32(
+            node.parent_id == kInvalidId
+                ? -1
+                : static_cast<i32>(remap[node.parent_id]));
+        builder.AppendChar(' ');
+        builder.AppendU32(static_cast<u32>(node.kind));
+        builder.AppendChar(' ');
+        builder.AppendU32(static_cast<u32>(node.deco));
+        builder.AppendChar(' ');
+        builder.AppendU32(static_cast<u32>(node.decoMode));
+        builder.AppendChar(' ');
+        builder.AppendU32(static_cast<u32>(node.cmpOp));
+        builder.AppendChar(' ');
+        builder.AppendF32(node.cmpRhs);
+        builder.AppendChar(' ');
+        builder.AppendF32(node.x);
+        builder.AppendChar(' ');
+        builder.AppendF32(node.y);
+        builder.AppendChar(' ');
+        builder.AppendCString(node.var[0] == '\0' ? "-" : node.var);
+        builder.AppendChar(' ');
+        builder.AppendCString(DisplayName(node));
+        builder.AppendChar('\n');
+    }
+    builder.AppendCString("BB ");
+    builder.AppendU32(blackboard_count);
+    builder.AppendChar('\n');
+    for (u32 i = 0u; i < blackboard_count; ++i) {
+        const char* name = m_DynBb->NameAt(i);
+        const EBtVarType type = m_DynBb->TypeAt(i);
+        builder.AppendCString(name);
+        builder.AppendChar(' ');
+        builder.AppendU32(static_cast<u32>(type));
+        builder.AppendChar(' ');
+        switch (type) {
+            case EBtVarType::Bool:
+                builder.AppendU32(m_DynBb->GetBool(name) ? 1u : 0u);
+                break;
+            case EBtVarType::I32:
+                builder.AppendI32(m_DynBb->GetI32(name));
+                break;
+            case EBtVarType::F32:
+                builder.AppendF32(m_DynBb->GetF32(name));
+                break;
+        }
+        builder.AppendChar('\n');
+    }
+    if (builder.Error != EBtGraphPersistenceError::None) {
+        return GraphFailure(builder.Error);
+    }
+    return WriteGraphAtomically(
+        path, builder.Text.Data(), builder.Text.Size());
 }
 
 /** メタミラー 1 ノードを実行可能な FBtNode へ再帰変換する。 */
 TUniquePtr<FBtNode> FBehaviorTreeEditorPanel::BuildRuntimeNode(u32 id, u32 guard) const noexcept {
     if (guard >= kTreeRecursionLimit || !IsValidId(id, m_Nodes.Size())) return TUniquePtr<FBtNode>();
-    const NodeMeta& n = m_Nodes[static_cast<usize>(id)];
+    const FNodeMeta& n = m_Nodes[static_cast<usize>(id)];
     if (!n.alive) return TUniquePtr<FBtNode>();
 
     u32 kids[kMaxNodes];
@@ -768,6 +1323,11 @@ TUniquePtr<FBtNode> FBehaviorTreeEditorPanel::BuildRuntimeTree() const noexcept 
 
 /** テキストファイルからグラフを読み込む (既存はクリア)。 */
 bool FBehaviorTreeEditorPanel::LoadGraph(const char* path) noexcept {
+    return TryLoadGraph(path).Succeeded();
+}
+
+#if 0
+bool FBehaviorTreeEditorPanel::LoadGraphLegacy(const char* path) noexcept {
     if (path == nullptr) return false;
     std::FILE* f = std::fopen(path, "rb");
     if (f == nullptr) return false;
@@ -806,7 +1366,7 @@ bool FBehaviorTreeEditorPanel::LoadGraph(const char* path) noexcept {
             if (namebuf[c] == '\n' || namebuf[c] == '\r') { namebuf[c] = '\0'; break; }
         }
         if (m_Nodes.Size() >= static_cast<usize>(kMaxNodes)) break;
-        NodeMeta n;
+        FNodeMeta n;
         n.id          = static_cast<u32>(m_Nodes.Size());
         n.parent_id   = (parent < 0) ? kInvalidId : static_cast<u32>(parent);
         n.kind        = (kind == 0) ? EBtKind::Selector
@@ -859,6 +1419,619 @@ bool FBehaviorTreeEditorPanel::LoadGraph(const char* path) noexcept {
     m_DidLayout = true;          // 保存座標を尊重 (auto-layout で潰さない)
     m_Selected  = kInvalidId;
     return true;
+}
+#endif
+
+FBtGraphPersistenceResult FBehaviorTreeEditorPanel::TryParseGraphText(
+    const char* text, usize text_size) noexcept {
+    if (text == nullptr) {
+        return GraphFailure(EBtGraphPersistenceError::NullArgument);
+    }
+    if (text_size == 0u) {
+        return GraphFailure(EBtGraphPersistenceError::EmptyInput);
+    }
+    if (text_size > kMaxGraphTextBytes) {
+        return GraphFailure(
+            EBtGraphPersistenceError::InputTooLarge, 0u,
+            static_cast<u64>(text_size));
+    }
+    if (std::memchr(text, '\0', text_size) != nullptr) {
+        return GraphFailure(
+            EBtGraphPersistenceError::EmbeddedNul, 0u,
+            static_cast<u64>(text_size));
+    }
+
+    FBtGraphPersistenceResult result{};
+    result.bytes = static_cast<u64>(text_size);
+    usize offset = 0u;
+    u32 line_number = 0u;
+    char line[kMaxGraphLineBytes + 1u]{};
+    usize line_length = 0u;
+    auto next_line = [&]() noexcept -> bool {
+        if (offset >= text_size ||
+            result.error != EBtGraphPersistenceError::None) {
+            return false;
+        }
+        ++line_number;
+        if (line_number > kMaxGraphLines) {
+            result.error = EBtGraphPersistenceError::TooManyLines;
+            result.line = line_number;
+            return false;
+        }
+        const usize begin = offset;
+        while (offset < text_size && text[offset] != '\n') ++offset;
+        usize length = offset - begin;
+        if (offset < text_size) ++offset;
+        if (length != 0u && text[begin + length - 1u] == '\r') --length;
+        if (length > kMaxGraphLineBytes) {
+            result.error = EBtGraphPersistenceError::LineTooLong;
+            result.line = line_number;
+            return false;
+        }
+        if (length != 0u) std::memcpy(line, text + begin, length);
+        line[length] = '\0';
+        line_length = length;
+        return true;
+    };
+
+    if (!next_line()) {
+        if (result.error == EBtGraphPersistenceError::None) {
+            result.error = EBtGraphPersistenceError::EmptyInput;
+        }
+        return result;
+    }
+
+    FGraphTokenCursor header(line, line_length);
+    const char* begin = nullptr;
+    const char* end = nullptr;
+    if (!header.Next(begin, end) ||
+        static_cast<usize>(end - begin) != 5u ||
+        std::memcmp(begin, "ACSBT", 5u) != 0) {
+        result.error = EBtGraphPersistenceError::InvalidMagic;
+        result.line = line_number;
+        return result;
+    }
+    u32 version = 0u;
+    if (!header.Next(begin, end)) {
+        result.error = EBtGraphPersistenceError::UnsupportedVersion;
+        result.line = line_number;
+        return result;
+    }
+    EBtGraphPersistenceError parse_error =
+        ParseU32Token(begin, end, version);
+    if (parse_error != EBtGraphPersistenceError::None ||
+        !header.Empty() || version < 1u || version > 4u) {
+        result.error = EBtGraphPersistenceError::UnsupportedVersion;
+        result.line = line_number;
+        return result;
+    }
+
+    if (!next_line()) {
+        if (result.error == EBtGraphPersistenceError::None) {
+            result.error = EBtGraphPersistenceError::InvalidCount;
+            result.line = line_number + 1u;
+        }
+        return result;
+    }
+    FGraphTokenCursor count_cursor(line, line_length);
+    u32 node_count = 0u;
+    if (!count_cursor.Next(begin, end)) {
+        result.error = EBtGraphPersistenceError::InvalidCount;
+        result.line = line_number;
+        return result;
+    }
+    parse_error = ParseU32Token(begin, end, node_count);
+    if (parse_error != EBtGraphPersistenceError::None ||
+        !count_cursor.Empty()) {
+        result.error = EBtGraphPersistenceError::InvalidCount;
+        result.line = line_number;
+        return result;
+    }
+    if (node_count > kMaxNodes) {
+        result.error = EBtGraphPersistenceError::NodeCountLimit;
+        result.line = line_number;
+        return result;
+    }
+
+    FNodeMeta parsed_nodes[kMaxNodes]{};
+    bool seen_ids[kMaxNodes]{};
+    u32 source_lines[kMaxNodes]{};
+    for (u32 record = 0u; record < node_count; ++record) {
+        if (!next_line()) {
+            if (result.error == EBtGraphPersistenceError::None) {
+                result.error = EBtGraphPersistenceError::InvalidNodeRecord;
+                result.line = line_number + 1u;
+            }
+            return result;
+        }
+        FGraphTokenCursor cursor(line, line_length);
+        const char* token_begin = nullptr;
+        const char* token_end = nullptr;
+        auto required_token = [&]() noexcept -> bool {
+            return cursor.Next(token_begin, token_end);
+        };
+
+        u32 id = 0u;
+        i32 parent = -1;
+        u32 kind = static_cast<u32>(EBtKind::Action);
+        u32 decorator = static_cast<u32>(EBtDecoratorOp::Inverter);
+        u32 decorator_mode = static_cast<u32>(EBtDecoMode::Transform);
+        u32 compare_op = static_cast<u32>(EBtCompareOp::Less);
+        f32 compare_rhs = 0.0f;
+        f32 x = 0.0f;
+        f32 y = 0.0f;
+        const char* variable_begin = nullptr;
+        const char* variable_end = nullptr;
+
+        if (!required_token() ||
+            (parse_error = ParseU32Token(
+                 token_begin, token_end, id)) !=
+                EBtGraphPersistenceError::None ||
+            !required_token() ||
+            (parse_error = ParseI32Token(
+                 token_begin, token_end, parent)) !=
+                EBtGraphPersistenceError::None ||
+            !required_token() ||
+            (parse_error = ParseU32Token(
+                 token_begin, token_end, kind)) !=
+                EBtGraphPersistenceError::None) {
+            result.error = parse_error == EBtGraphPersistenceError::None
+                ? EBtGraphPersistenceError::InvalidNodeRecord
+                : parse_error;
+            result.line = line_number;
+            return result;
+        }
+
+        if (version >= 2u) {
+            if (!required_token() ||
+                (parse_error = ParseU32Token(
+                     token_begin, token_end, decorator)) !=
+                    EBtGraphPersistenceError::None) {
+                result.error = parse_error == EBtGraphPersistenceError::None
+                    ? EBtGraphPersistenceError::InvalidNodeRecord
+                    : parse_error;
+                result.line = line_number;
+                return result;
+            }
+        }
+        if (version >= 3u) {
+            if (!required_token() ||
+                (parse_error = ParseU32Token(
+                     token_begin, token_end, decorator_mode)) !=
+                    EBtGraphPersistenceError::None ||
+                !required_token() ||
+                (parse_error = ParseU32Token(
+                     token_begin, token_end, compare_op)) !=
+                    EBtGraphPersistenceError::None ||
+                !required_token() ||
+                (parse_error = ParseF32Token(
+                     token_begin, token_end, compare_rhs)) !=
+                    EBtGraphPersistenceError::None) {
+                result.error = parse_error == EBtGraphPersistenceError::None
+                    ? EBtGraphPersistenceError::InvalidNodeRecord
+                    : parse_error;
+                result.line = line_number;
+                return result;
+            }
+        }
+        if (!required_token() ||
+            (parse_error = ParseF32Token(
+                 token_begin, token_end, x)) !=
+                EBtGraphPersistenceError::None ||
+            !required_token() ||
+            (parse_error = ParseF32Token(
+                 token_begin, token_end, y)) !=
+                EBtGraphPersistenceError::None) {
+            result.error = parse_error == EBtGraphPersistenceError::None
+                ? EBtGraphPersistenceError::InvalidNodeRecord
+                : parse_error;
+            result.line = line_number;
+            return result;
+        }
+        if (version >= 3u) {
+            if (!required_token()) {
+                result.error = EBtGraphPersistenceError::InvalidNodeRecord;
+                result.line = line_number;
+                return result;
+            }
+            variable_begin = token_begin;
+            variable_end = token_end;
+        }
+
+        if (id >= node_count) {
+            result.error = EBtGraphPersistenceError::InvalidNodeId;
+            result.line = line_number;
+            return result;
+        }
+        if (seen_ids[id]) {
+            result.error = EBtGraphPersistenceError::DuplicateNodeId;
+            result.line = line_number;
+            return result;
+        }
+        if (parent < -1 ||
+            (parent >= 0 && static_cast<u32>(parent) >= node_count)) {
+            result.error = EBtGraphPersistenceError::InvalidParentReference;
+            result.line = line_number;
+            return result;
+        }
+        if (kind > static_cast<u32>(EBtKind::Task)) {
+            result.error = EBtGraphPersistenceError::InvalidKind;
+            result.line = line_number;
+            return result;
+        }
+        if (decorator > static_cast<u32>(EBtDecoratorOp::Repeat)) {
+            result.error = EBtGraphPersistenceError::InvalidDecorator;
+            result.line = line_number;
+            return result;
+        }
+        if (decorator_mode > static_cast<u32>(EBtDecoMode::Compare)) {
+            result.error = EBtGraphPersistenceError::InvalidDecoratorMode;
+            result.line = line_number;
+            return result;
+        }
+        if (compare_op > static_cast<u32>(EBtCompareOp::Greater)) {
+            result.error = EBtGraphPersistenceError::InvalidCompareOp;
+            result.line = line_number;
+            return result;
+        }
+
+        FNodeMeta& node = parsed_nodes[id];
+        node.id = id;
+        node.parent_id =
+            parent < 0 ? kInvalidId : static_cast<u32>(parent);
+        node.kind = static_cast<EBtKind>(kind);
+        node.deco = static_cast<EBtDecoratorOp>(decorator);
+        node.decoMode = static_cast<EBtDecoMode>(decorator_mode);
+        node.cmpOp = static_cast<EBtCompareOp>(compare_op);
+        node.cmpRhs = compare_rhs;
+        node.x = x;
+        node.y = y;
+        node.alive = true;
+        node.last_status = EBtStatus::Failure;
+        node.visit_order = 0u;
+        node.name = nullptr;
+
+        if (version >= 3u &&
+            !(static_cast<usize>(variable_end - variable_begin) == 1u &&
+              variable_begin[0] == '-')) {
+            const usize variable_length =
+                static_cast<usize>(variable_end - variable_begin);
+            if (variable_length >= sizeof(node.var)) {
+                result.error = EBtGraphPersistenceError::NameTooLong;
+                result.line = line_number;
+                return result;
+            }
+            if (!IsSafeToken(variable_begin, variable_length)) {
+                result.error = EBtGraphPersistenceError::InvalidName;
+                result.line = line_number;
+                return result;
+            }
+            std::memcpy(node.var, variable_begin, variable_length);
+            node.var[variable_length] = '\0';
+        }
+
+        const char* name = cursor.Remainder();
+        const usize name_length =
+            static_cast<usize>((line + line_length) - name);
+        if (name_length >= sizeof(node.ename)) {
+            result.error = EBtGraphPersistenceError::NameTooLong;
+            result.line = line_number;
+            return result;
+        }
+        if (!IsSafeDisplayName(name, name_length)) {
+            result.error = EBtGraphPersistenceError::InvalidName;
+            result.line = line_number;
+            return result;
+        }
+        if (name_length != 0u) {
+            std::memcpy(node.ename, name, name_length);
+        }
+        node.ename[name_length] = '\0';
+        seen_ids[id] = true;
+        source_lines[id] = line_number;
+    }
+
+    for (u32 id = 0u; id < node_count; ++id) {
+        if (!seen_ids[id]) {
+            result.error = EBtGraphPersistenceError::InvalidNodeId;
+            return result;
+        }
+        const FNodeMeta& node = parsed_nodes[id];
+        u32 child_count = 0u;
+        for (u32 child = 0u; child < node_count; ++child) {
+            if (parsed_nodes[child].parent_id == id) ++child_count;
+        }
+        if ((BtKindIsLeaf(node.kind) && child_count != 0u) ||
+            (node.kind == EBtKind::Decorator && child_count > 1u)) {
+            result.error = EBtGraphPersistenceError::InvalidStructure;
+            result.line = source_lines[id];
+            return result;
+        }
+
+        bool visited[kMaxNodes]{};
+        u32 current = id;
+        u32 depth = 0u;
+        while (current != kInvalidId) {
+            if (current >= node_count || !seen_ids[current]) {
+                result.error =
+                    EBtGraphPersistenceError::InvalidParentReference;
+                result.line = source_lines[id];
+                return result;
+            }
+            if (visited[current]) {
+                result.error = EBtGraphPersistenceError::CycleDetected;
+                result.line = source_lines[id];
+                return result;
+            }
+            if (depth >= kMaxGraphDepth) {
+                result.error =
+                    EBtGraphPersistenceError::DepthLimitExceeded;
+                result.line = source_lines[id];
+                return result;
+            }
+            visited[current] = true;
+            ++depth;
+            current = parsed_nodes[current].parent_id;
+        }
+    }
+
+    FBtBlackboard staged_blackboard;
+    bool commit_blackboard = false;
+    if (version >= 4u) {
+        if (!next_line()) {
+            if (result.error == EBtGraphPersistenceError::None) {
+                result.error =
+                    EBtGraphPersistenceError::InvalidBlackboardRecord;
+                result.line = line_number + 1u;
+            }
+            return result;
+        }
+        FGraphTokenCursor bb_header(line, line_length);
+        if (!bb_header.Next(begin, end) ||
+            static_cast<usize>(end - begin) != 2u ||
+            std::memcmp(begin, "BB", 2u) != 0 ||
+            !bb_header.Next(begin, end)) {
+            result.error =
+                EBtGraphPersistenceError::InvalidBlackboardRecord;
+            result.line = line_number;
+            return result;
+        }
+        u32 blackboard_count = 0u;
+        parse_error = ParseU32Token(begin, end, blackboard_count);
+        if (parse_error != EBtGraphPersistenceError::None ||
+            !bb_header.Empty()) {
+            result.error =
+                EBtGraphPersistenceError::InvalidBlackboardRecord;
+            result.line = line_number;
+            return result;
+        }
+        if (blackboard_count > FBtBlackboard::kMax) {
+            result.error =
+                EBtGraphPersistenceError::BlackboardCountLimit;
+            result.line = line_number;
+            return result;
+        }
+
+        for (u32 record = 0u; record < blackboard_count; ++record) {
+            if (!next_line()) {
+                if (result.error == EBtGraphPersistenceError::None) {
+                    result.error =
+                        EBtGraphPersistenceError::InvalidBlackboardRecord;
+                    result.line = line_number + 1u;
+                }
+                return result;
+            }
+            FGraphTokenCursor cursor(line, line_length);
+            const char* name_begin = nullptr;
+            const char* name_end = nullptr;
+            const char* type_begin = nullptr;
+            const char* type_end = nullptr;
+            const char* value_begin = nullptr;
+            const char* value_end = nullptr;
+            if (!cursor.Next(name_begin, name_end) ||
+                !cursor.Next(type_begin, type_end) ||
+                !cursor.Next(value_begin, value_end) ||
+                !cursor.Empty()) {
+                result.error =
+                    EBtGraphPersistenceError::InvalidBlackboardRecord;
+                result.line = line_number;
+                return result;
+            }
+            const usize name_length =
+                static_cast<usize>(name_end - name_begin);
+            if (name_length >= FBtBlackboard::kNameLen) {
+                result.error = EBtGraphPersistenceError::NameTooLong;
+                result.line = line_number;
+                return result;
+            }
+            if (!IsSafeToken(name_begin, name_length)) {
+                result.error = EBtGraphPersistenceError::InvalidName;
+                result.line = line_number;
+                return result;
+            }
+            char name[FBtBlackboard::kNameLen]{};
+            std::memcpy(name, name_begin, name_length);
+            name[name_length] = '\0';
+            if (staged_blackboard.Has(name)) {
+                result.error =
+                    EBtGraphPersistenceError::DuplicateBlackboardName;
+                result.line = line_number;
+                return result;
+            }
+
+            u32 type_value = 0u;
+            parse_error = ParseU32Token(type_begin, type_end, type_value);
+            if (parse_error != EBtGraphPersistenceError::None ||
+                type_value > static_cast<u32>(EBtVarType::F32)) {
+                result.error =
+                    EBtGraphPersistenceError::InvalidBlackboardRecord;
+                result.line = line_number;
+                return result;
+            }
+            const EBtVarType type = static_cast<EBtVarType>(type_value);
+            if (staged_blackboard.Add(name, type) ==
+                FBtBlackboard::kInvalid) {
+                result.error =
+                    EBtGraphPersistenceError::BlackboardCountLimit;
+                result.line = line_number;
+                return result;
+            }
+            switch (type) {
+                case EBtVarType::Bool: {
+                    u32 value = 0u;
+                    parse_error =
+                        ParseU32Token(value_begin, value_end, value);
+                    if (parse_error != EBtGraphPersistenceError::None ||
+                        value > 1u) {
+                        result.error =
+                            EBtGraphPersistenceError::InvalidBlackboardRecord;
+                        result.line = line_number;
+                        return result;
+                    }
+                    staged_blackboard.SetBool(name, value != 0u);
+                    break;
+                }
+                case EBtVarType::I32: {
+                    i32 value = 0;
+                    parse_error =
+                        ParseI32Token(value_begin, value_end, value);
+                    if (parse_error != EBtGraphPersistenceError::None) {
+                        result.error = parse_error;
+                        result.line = line_number;
+                        return result;
+                    }
+                    staged_blackboard.SetI32(name, value);
+                    break;
+                }
+                case EBtVarType::F32: {
+                    f32 value = 0.0f;
+                    parse_error =
+                        ParseF32Token(value_begin, value_end, value);
+                    if (parse_error != EBtGraphPersistenceError::None) {
+                        result.error = parse_error;
+                        result.line = line_number;
+                        return result;
+                    }
+                    staged_blackboard.SetF32(name, value);
+                    break;
+                }
+            }
+        }
+        commit_blackboard = true;
+    }
+
+    while (next_line()) {
+        FGraphTokenCursor trailing(line, line_length);
+        if (!trailing.Empty()) {
+            result.error = version >= 4u
+                ? EBtGraphPersistenceError::InvalidBlackboardRecord
+                : EBtGraphPersistenceError::InvalidNodeRecord;
+            result.line = line_number;
+            return result;
+        }
+    }
+    if (result.error != EBtGraphPersistenceError::None) return result;
+
+    TArray<FNodeMeta> committed_nodes;
+    if (!committed_nodes.TryReserve(static_cast<usize>(node_count))) {
+        result.error = EBtGraphPersistenceError::AllocationFailure;
+        return result;
+    }
+    for (u32 id = 0u; id < node_count; ++id) {
+        if (!committed_nodes.TryPushBack(parsed_nodes[id])) {
+            result.error = EBtGraphPersistenceError::AllocationFailure;
+            return result;
+        }
+    }
+
+    m_Nodes = Move(committed_nodes);
+    if (commit_blackboard && m_DynBb != nullptr) {
+        *m_DynBb = staged_blackboard;
+    }
+    m_DidLayout = true;
+    m_Selected = kInvalidId;
+    m_DragNode = kInvalidId;
+    m_LinkSrc = kInvalidId;
+    m_CtxNode = kInvalidId;
+    return result;
+}
+
+FBtGraphPersistenceResult FBehaviorTreeEditorPanel::TryLoadGraph(
+    const char* path) noexcept {
+    if (path == nullptr) {
+        return GraphFailure(EBtGraphPersistenceError::NullArgument);
+    }
+    usize path_length = 0u;
+    if (!TryBoundedCStringLength(path, kMaxGraphPathBytes, path_length)) {
+        return GraphFailure(EBtGraphPersistenceError::PathTooLong);
+    }
+    if (path_length == 0u) {
+        return GraphFailure(EBtGraphPersistenceError::EmptyPath);
+    }
+
+    std::FILE* file = std::fopen(path, "rb");
+    if (file == nullptr) {
+        return GraphFailure(EBtGraphPersistenceError::FileOpenFailed);
+    }
+    if (!SeekGraphFileEnd(file)) {
+        std::fclose(file);
+        return GraphFailure(EBtGraphPersistenceError::FileSizeFailed);
+    }
+    const i64 signed_size = TellGraphFile(file);
+    if (signed_size < 0 || !SeekGraphFileBegin(file)) {
+        std::fclose(file);
+        return GraphFailure(EBtGraphPersistenceError::FileSizeFailed);
+    }
+    const u64 file_size = static_cast<u64>(signed_size);
+    if (file_size == 0u) {
+        std::fclose(file);
+        return GraphFailure(EBtGraphPersistenceError::EmptyInput);
+    }
+    if (file_size > static_cast<u64>(kMaxGraphTextBytes)) {
+        std::fclose(file);
+        return GraphFailure(
+            EBtGraphPersistenceError::InputTooLarge, 0u, file_size);
+    }
+
+    TArray<char> buffer;
+    if (!buffer.TryResize(static_cast<usize>(file_size))) {
+        std::fclose(file);
+        return GraphFailure(EBtGraphPersistenceError::AllocationFailure);
+    }
+    usize total = 0u;
+    while (total < buffer.Size()) {
+        const usize read = std::fread(
+            buffer.Data() + total, 1u, buffer.Size() - total, file);
+        if (read == 0u) {
+            const bool read_error = std::ferror(file) != 0;
+            std::fclose(file);
+            return GraphFailure(
+                read_error
+                    ? EBtGraphPersistenceError::FileReadFailed
+                    : EBtGraphPersistenceError::FileChanged,
+                0u, static_cast<u64>(total));
+        }
+        total += read;
+    }
+    const int extra = std::fgetc(file);
+    const bool read_error = std::ferror(file) != 0;
+    const int close_result = std::fclose(file);
+    if (read_error) {
+        return GraphFailure(
+            EBtGraphPersistenceError::FileReadFailed, 0u,
+            static_cast<u64>(total));
+    }
+    if (close_result != 0) {
+        return GraphFailure(
+            EBtGraphPersistenceError::FileCloseFailed, 0u,
+            static_cast<u64>(total));
+    }
+    if (extra != EOF) {
+        return GraphFailure(
+            EBtGraphPersistenceError::FileChanged, 0u,
+            static_cast<u64>(total));
+    }
+    return TryParseGraphText(buffer.Data(), buffer.Size());
 }
 
 /** 「ノード追加」メニュー項目群を描画する (popup / submenu から共通利用)。 */
@@ -956,9 +2129,9 @@ void FBehaviorTreeEditorPanel::DrawGraph() noexcept {
     // エッジ (親→子)。直近 tick で訪問された子へのエッジは status 色で太く光らせ、
     // 「今どの経路を処理が流れたか」を可視化する。
     for (usize i = 0; i < m_Nodes.Size(); ++i) {
-        const NodeMeta& n = m_Nodes[i];
+        const FNodeMeta& n = m_Nodes[i];
         if (!n.alive || !IsValidId(n.parent_id, m_Nodes.Size())) continue;
-        const NodeMeta& p = m_Nodes[static_cast<usize>(n.parent_id)];
+        const FNodeMeta& p = m_Nodes[static_cast<usize>(n.parent_id)];
         if (!p.alive) continue;
         const ImVec2 a = BT_S(p.x + NW * 0.5f, p.y + NH);
         const ImVec2 b = BT_S(n.x + NW * 0.5f, n.y);
@@ -977,7 +2150,7 @@ void FBehaviorTreeEditorPanel::DrawGraph() noexcept {
 
     // リンクドラッグのプレビュー
     if (IsValidId(m_LinkSrc, m_Nodes.Size())) {
-        const NodeMeta& s = m_Nodes[static_cast<usize>(m_LinkSrc)];
+        const FNodeMeta& s = m_Nodes[static_cast<usize>(m_LinkSrc)];
         const ImVec2 a = BT_S(s.x + NW * 0.5f, s.y + NH);
         const ImVec2 b = io.MousePos;
         const float dyy = (b.y - a.y) * 0.5f;
@@ -986,7 +2159,7 @@ void FBehaviorTreeEditorPanel::DrawGraph() noexcept {
 
     // ノード
     for (usize i = 0; i < m_Nodes.Size(); ++i) {
-        const NodeMeta& n = m_Nodes[i];
+        const FNodeMeta& n = m_Nodes[i];
         if (!n.alive) continue;
         const ImVec2 p0 = BT_S(n.x, n.y);
         const ImVec2 p1 = BT_S(n.x + NW, n.y + NH);
@@ -1068,7 +2241,7 @@ void FBehaviorTreeEditorPanel::DrawGraph() noexcept {
 
     u32 hitN = kInvalidId, hitOut = kInvalidId;
     for (int i = static_cast<int>(m_Nodes.Size()) - 1; i >= 0; --i) {
-        const NodeMeta& n = m_Nodes[static_cast<usize>(i)];
+        const FNodeMeta& n = m_Nodes[static_cast<usize>(i)];
         if (!n.alive) continue;
         if (!BtKindIsLeaf(n.kind) && hitOut == kInvalidId) {
             const ImVec2 pc = BT_S(n.x + NW * 0.5f, n.y + NH);
@@ -1188,7 +2361,7 @@ constexpr u32 kMaxUndo = 64u;
 } // namespace
 
 /** 現在のグラフ状態 (ノード + 動的 BB) を out へコピーする。 */
-void FBehaviorTreeEditorPanel::CaptureSnapshot(GraphSnapshot& out) const noexcept {
+void FBehaviorTreeEditorPanel::CaptureSnapshot(FGraphSnapshot& out) const noexcept {
     out.nodes.Clear();
     out.nodes.Reserve(m_Nodes.Size());
     for (usize i = 0; i < m_Nodes.Size(); ++i) out.nodes.PushBack(m_Nodes[i]);   // NodeMeta 値コピー
@@ -1197,7 +2370,7 @@ void FBehaviorTreeEditorPanel::CaptureSnapshot(GraphSnapshot& out) const noexcep
 }
 
 /** スナップショットから現在のグラフ状態を復元する。 */
-void FBehaviorTreeEditorPanel::RestoreSnapshot(const GraphSnapshot& s) noexcept {
+void FBehaviorTreeEditorPanel::RestoreSnapshot(const FGraphSnapshot& s) noexcept {
     m_Nodes.Clear();
     m_Nodes.Reserve(s.nodes.Size());
     for (usize i = 0; i < s.nodes.Size(); ++i) m_Nodes.PushBack(s.nodes[i]);
@@ -1232,7 +2405,7 @@ u64 FBehaviorTreeEditorPanel::GraphSignature() const noexcept {
     u64 h = 1469598103934665603ull;
     h = SigMix(h, static_cast<u64>(m_Nodes.Size()));
     for (usize i = 0; i < m_Nodes.Size(); ++i) {
-        const NodeMeta& n = m_Nodes[i];
+        const FNodeMeta& n = m_Nodes[i];
         h = SigMix(h, n.alive ? 1u : 0u);
         if (!n.alive) continue;
         h = SigMix(h, n.parent_id);
@@ -1302,9 +2475,9 @@ void FBehaviorTreeEditorPanel::PushUndoCheckpoint() noexcept {
 /** 1 手戻す。 */
 void FBehaviorTreeEditorPanel::Undo() noexcept {
     if (m_UndoStack.IsEmpty()) return;
-    GraphSnapshot cur; CaptureSnapshot(cur);
+    FGraphSnapshot cur; CaptureSnapshot(cur);
     m_RedoStack.PushBack(Move(cur));                                 // 現在 → redo
-    GraphSnapshot prev = Move(m_UndoStack[m_UndoStack.Size() - 1]);
+    FGraphSnapshot prev = Move(m_UndoStack[m_UndoStack.Size() - 1]);
     m_UndoStack.PopBack();
     RestoreSnapshot(prev);
     m_BaselineSig  = GraphSignature();
@@ -1314,9 +2487,9 @@ void FBehaviorTreeEditorPanel::Undo() noexcept {
 /** 1 手やり直す。 */
 void FBehaviorTreeEditorPanel::Redo() noexcept {
     if (m_RedoStack.IsEmpty()) return;
-    GraphSnapshot cur; CaptureSnapshot(cur);
+    FGraphSnapshot cur; CaptureSnapshot(cur);
     m_UndoStack.PushBack(Move(cur));                                 // 現在 → undo
-    GraphSnapshot next = Move(m_RedoStack[m_RedoStack.Size() - 1]);
+    FGraphSnapshot next = Move(m_RedoStack[m_RedoStack.Size() - 1]);
     m_RedoStack.PopBack();
     RestoreSnapshot(next);
     m_BaselineSig  = GraphSignature();
@@ -1487,7 +2660,7 @@ void FBehaviorTreeEditorPanel::DrawUI() noexcept {
             ImGui::TextDisabled(m_GraphMode ? "Click a node. Right-click: add/delete."
                                             : "Click a node in the tree view.");
         } else {
-            NodeMeta& n = m_Nodes[static_cast<usize>(m_Selected)];
+            FNodeMeta& n = m_Nodes[static_cast<usize>(m_Selected)];
 
             // child count を線形走査でカウント (leaf なら 0、生存のみ)。
             u32 child_count = 0;

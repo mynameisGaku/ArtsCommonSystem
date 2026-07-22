@@ -76,6 +76,43 @@ enum class ESpriteEffect : u8 {
     Chromatic  = 12,  ///< 色収差 (strength=度合い, p0=ずれ量)。要テクスチャ。
 };
 
+/**
+ * 見下ろし水面用の GPU パラメータ。
+ *
+ * @details AWater2DComponent が SetWaterSurfaceEffect に渡す専用データ。通常の
+ * スプライトマテリアルには公開せず、岸距離・プロシージャル波・コースティクスと
+ * 最大 48 本の波紋をピクセル単位で評価する。
+ */
+struct FWaterSurfaceParams {
+    static constexpr u32 kMaxRipples = 48;
+
+    f32   time                = 0.0f;
+    f32   caustics_intensity = 0.0f;
+    f32   caustics_scale     = 1.4f;
+    f32   caustics_speed     = 0.7f;
+    f32   flow_speed         = 1.0f;
+    f32   wave_amplitude     = 0.04f;
+    f32   flow_angle         = 0.0f;
+    f32   foam_width         = 0.1f;
+    f32   foam_speed         = 2.0f;
+    f32   foam_alpha         = 0.0f;
+    f32   sky_alpha          = 0.0f;
+    f32   ripple_wavelength  = 0.8f;
+    f32   roughness          = 0.16f;
+    f32   normal_strength    = 0.9f;
+    f32   normal_tiling      = 0.1f;
+    f32   refraction_strength = 0.24f;
+    bool  glints_enabled     = false;
+    FVec3 caustics_color{0.5f, 0.82f, 1.0f};
+    FVec3 foam_color{0.96f, 0.99f, 1.0f};
+    FVec3 sky_color{0.40f, 0.60f, 0.90f};
+    FVec3 absorption{0.38f, 0.16f, 0.055f};
+
+    /** xy=中心、z=現在の半径、w=減衰済み振幅。 */
+    FVec4 ripples[kMaxRipples]{};
+    u32   ripple_count = 0;
+};
+
 /** 2D ライトの種類。 */
 enum class ELightType : u8 {
     Point       = 0,   ///< 点光源 (位置 + 半径減衰、全方向)。
@@ -260,7 +297,7 @@ public:
      * @param y 行の左上 Y (ピクセル)。
      * @param color 文字色 (既定は白)。
      */
-    void DrawString(const class Font& font, const char* utf8_text,
+    void DrawString(const class FFont& font, const char* utf8_text,
                   f32 x, f32 y, FVec4 color = FVec4{1,1,1,1}) noexcept;
 
     /**
@@ -328,6 +365,16 @@ public:
      */
     void DrawTriangleVC(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
                         FVec4 c0, FVec4 c1, FVec4 c2) noexcept;
+
+    /**
+     * 頂点カラーと任意 UV を持つ無地三角形を描く。
+     *
+     * @details 白テクスチャを使うため外部テクスチャは不要。水面では UV.x に
+     * 正規化岸距離 (0=岸、1=深部) を渡す。
+     */
+    void DrawTriangleVCUV(f32 x0, f32 y0, f32 u0, f32 v0, FVec4 c0,
+                          f32 x1, f32 y1, f32 u1, f32 v1, FVec4 c1,
+                          f32 x2, f32 y2, f32 u2, f32 v2, FVec4 c2) noexcept;
 
     /**
      * 任意テクスチャを per-vertex UV で貼る三角形を描く。
@@ -414,6 +461,21 @@ public:
      */
     void SetEffect(ESpriteEffect effect, const FEffectParams& params) noexcept;
 
+    /**
+     * 見下ろし水面の専用 GPU 効果を有効にする。
+     *
+     * @details 次の ClearEffect まで、DrawTriangleVCUV の岸距離と world 座標から
+     * 波・法線・反射・泡・コースティクス・波紋をピクセル単位で再構成する。
+     * scene_color / scene_depth が null の既存呼び出しは固定環境色・頂点深度へ fallback する。
+     * @param params 水面の光学・アニメーションパラメータ。
+     * @param scene_color main pass 前に捕捉した実シーンカラー (null で fallback)。
+     * @param scene_depth 水メッシュの正規化深度 RT (null で頂点深度)。
+     * @return GPU 水面 effect が利用可能なら true。
+     */
+    bool SetWaterSurfaceEffect(const FWaterSurfaceParams& params,
+                               IRhiTexture* scene_color = nullptr,
+                               IRhiTexture* scene_depth = nullptr) noexcept;
+
     /** ピクセル効果を解除し、通常 (アルファブレンド) パイプラインへ戻す。 */
     void ClearEffect() noexcept;
 
@@ -456,6 +518,15 @@ public:
     /** lit を解除し、通常 (アンリット) パイプラインへ戻す。 */
     void ClearLit() noexcept;
 
+    /**
+     * 描画コマンドの蓄積を一時的に抑止する。
+     *
+     * @details FScene2D の水深捕捉 pass で通常ノードを描かず、TopDown 水だけを一時的に
+     * 有効化するための内部向け機能。状態変更時は保留バッチを先に flush する。
+     * @param suppress true なら Draw 系を無視、false なら通常描画。
+     */
+    void SetDrawSuppressed(bool suppress) noexcept;
+
     /** 描画を終了し、残りのバッチを GPU に送る。 */
     void End() noexcept;
 
@@ -477,7 +548,7 @@ public:
 
 private:
     /** 1 スプライト頂点 (pos2D + uv + color)。 */
-    struct Vertex {
+    struct FVertex {
         /** スクリーン X 座標。 */
         f32 x;
 
@@ -528,6 +599,15 @@ private:
      * @return 生成済み or 生成成功なら true。
      */
     bool EnsureAdditivePipeline() noexcept;
+
+    /** 不透明ブレンド PSO を遅延生成する。 */
+    bool EnsureOpaquePipeline() noexcept;
+
+    /** 乗算ブレンド PSO を遅延生成する。 */
+    bool EnsureMultiplyPipeline() noexcept;
+
+    /** alpha を保持する加算ブレンド PSO を遅延生成する。 */
+    bool EnsureAdditivePreserveAlphaPipeline() noexcept;
 
     /**
      * ピクセル効果 PS + PSO + 効果用 CB リングを遅延生成する。
@@ -586,6 +666,18 @@ private:
 
     /** 加算ブレンド PSO が生成済みかのフラグ。 */
     bool                     m_AdditiveReady = false;
+
+    /** 不透明ブレンド用 PSO。 */
+    TUniquePtr<IRhiPipeline> m_OpaquePipe;
+    bool                     m_OpaqueReady = false;
+
+    /** 乗算ブレンド用 PSO。 */
+    TUniquePtr<IRhiPipeline> m_MultiplyPipe;
+    bool                     m_MultiplyReady = false;
+
+    /** alpha 保持加算ブレンド用 PSO。 */
+    TUniquePtr<IRhiPipeline> m_AdditivePreserveAlphaPipe;
+    bool                     m_AdditivePreserveAlphaReady = false;
 
     /** 現在のブレンドモード。 */
     EBlendMode               m_BlendMode = EBlendMode::AlphaBlend;
@@ -670,6 +762,14 @@ private:
     /** 法線マップ未指定時の平面法線 1x1 テクスチャ ((128,128,255)=+Z)。 */
     TUniquePtr<IRhiTexture>  m_FlatNormal;
 
+    /**
+     * 見下ろし水面専用のシームレス法線マップ。
+     *
+     * @details effect パイプライン初回生成時に決定論的な周期波から CPU 生成し、
+     * 水面 PS が異なる縮尺・流速で複数回サンプルする。RGB=接空間法線、A=泡用高さノイズ。
+     */
+    TUniquePtr<IRhiTexture>  m_WaterNormal;
+
     /** 頂点バッファ。 */
     TUniquePtr<IRhiBuffer>   m_Vb;
 
@@ -699,7 +799,7 @@ private:
     TUniquePtr<IRhiTexture>  m_White;
 
     /** CPU 側の頂点バッファステージ (Flush で GPU へコピー)。 */
-    Vertex*          m_VertexCpu    = nullptr;
+    FVertex*          m_VertexCpu    = nullptr;
 
     /** CPU 側の頂点バッファステージを確保したアロケータ。 */
     FAllocator* m_VertexAllocator = nullptr;
@@ -715,6 +815,9 @@ private:
 
     /** 現在バッチ中のテクスチャ (切り替わると Flush)。 */
     IRhiTexture*     m_CurrentTex   = nullptr;
+
+    /** 水深捕捉 pass で通常ノードの Draw 系を無視するフラグ。 */
+    bool             m_DrawSuppressed = false;
 
     /** Begin で受け取ったコマンドリスト。 */
     IRhiCommandList* m_Cl            = nullptr;

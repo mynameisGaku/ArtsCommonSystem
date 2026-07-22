@@ -4,7 +4,7 @@
 //
 // 役割:
 //   1) **Server 側 snapshot 書出**: 毎 tick のゲーム状態 (entity ごとの位置 /
-//      速度 / 姿勢 / health 等) を 1 つの SnapshotHeader + payload に固めて
+//      速度 / 姿勢 / health 等) を 1 つの FSnapshotHeader + payload に固めて
 //      INetTransport.Send で配信する。1 snapshot = 「ある tick の世界全体の
 //      authoritative state」を意味する。
 //   2) **Client 側 snapshot 補間**: server から到着した複数 snapshot を ring
@@ -27,7 +27,7 @@
 //   側が用途に応じて選べるようにする。
 //
 // 使い方 (server 側):
-//   NetSnapshotConfig cfg{ /*snapshot_rate_hz=*/30, /*buffer_capacity=*/64,
+//   FNetSnapshotConfig cfg{ /*snapshot_rate_hz=*/30, /*buffer_capacity=*/64,
 //                          /*interpolation_delay_sec=*/0.1f,
 //                          /*max_payload_bytes=*/8192 };
 //   FNetSnapshot snap;
@@ -45,7 +45,7 @@
 //
 //   // 毎フレーム:
 //   snap.Tick(dt);  // ← Receive + ring buffer 維持
-//   EntitySnapshot view_buf[256];
+//   FEntitySnapshot view_buf[256];
 //   u32 view_n = 0;
 //   if (snap.TryGetInterpolatedSnapshot(client_time, view_buf, 256, view_n)) {
 //       // view_buf[0..view_n] を描画用 state に流し込む (補間後の世界状態)
@@ -61,15 +61,15 @@
 //     は内部的に Server + Client を同居させる役割で、host プレイヤーが自機の
 //     simulation を server として回しつつ自分の画面用に snapshot 補間も使う
 //     ケースに使う (HelloMultiplayer サンプル等)。
-//   ・**SnapshotHeader fixed 24B**: tick(4) + sequence(4) + timestamp(8) +
+//   ・**FSnapshotHeader fixed 24B**: tick(4) + sequence(4) + timestamp(8) +
 //     payload_size(4) + crc32(4) = 24 byte。LE 固定。CRC32 は magic 直後 〜
-//     payload 末尾 (= version + SnapshotHeader 本体 + payload) に対する Zlib /
+//     payload 末尾 (= version + FSnapshotHeader 本体 + payload) に対する Zlib /
 //     PNG 規約 (poly 0xEDB88320, init/xorout 0xFFFFFFFF) で、wire format の
 //     改竄 / 破損検知に使う。EncodeSnapshot で計算し DecodeSnapshot で検証する。
-//     なお SnapshotHeader::crc32 フィールドは header を CRC 対象に含めるため
+//     なお FSnapshotHeader::crc32 フィールドは header を CRC 対象に含めるため
 //     計算時に 0 として扱い (= header の他フィールドのみが寄与)、実際の値は
 //     frame 末尾 4 byte の footer に格納される。
-//   ・**EntitySnapshot は非所有 view**: `const void*` + size の pair。Server 側
+//   ・**FEntitySnapshot は非所有 view**: `const void*` + size の pair。Server 側
 //     は AddEntitySnapshot で m_PendingEntities にコピーを積み、CommitSnapshot
 //     で payload に bulk concat する。Client 側は TryGetInterpolatedSnapshot
 //     で ring buffer の中の payload を指す view として返す (寿命は次の Tick
@@ -83,7 +83,7 @@
 //     buffer_capacity (= 数十) なので O(N) で十分。
 //   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 全体方針。
 //   ・**コピー / ムーブ禁止**: 1 セッション 1 オブジェクトの長寿命 (transport
-//     との結合関係を分裂させないため FLockstep / FBackendClient と同じ方針)。
+//     との結合関係を分裂させないため FLockstep / IBackendClient と同じ方針)。
 #pragma once
 
 #include "container/Array.h"
@@ -120,11 +120,11 @@ enum class ENetRole : u8 {
  * wire format の 1 snapshot 内 header (24 byte、LE 固定)。
  *
  * @details
- * frame 全体は [magic 'ACSN'(4)][version(4)][SnapshotHeader(24)]
+ * frame 全体は [magic 'ACSN'(4)][version(4)][FSnapshotHeader(24)]
  * [payload(payload_size)][crc32(4)] のレイアウト。EncodeSnapshot で書き、
  * DecodeSnapshot で magic / version / payload_size 上限 / crc32 を検証する。
  */
-struct SnapshotHeader {
+struct FSnapshotHeader {
     /** server tick (1 simulation step = 1 tick)。 */
     u32 tick = 0;
 
@@ -149,7 +149,7 @@ struct SnapshotHeader {
  * メモリを指す。寿命は server 側で「CommitSnapshot まで」、client 側で
  * 「次の Tick() 呼出まで」を保証する。
  */
-struct EntitySnapshot {
+struct FEntitySnapshot {
     /** ゲーム内 entity ID (0 = invalid)。 */
     u32 entity_id = 0;
 
@@ -171,7 +171,7 @@ struct EntitySnapshot {
  * しない (Caller が dt に応じて Commit を呼ぶ責任を持つ)。buffer_capacity は
  * ring buffer サイズで、30Hz × 0.5s = 15 程度が補間 + loss 吸収に十分。
  */
-struct NetSnapshotConfig {
+struct FNetSnapshotConfig {
     /** server 側の目標 commit Hz (注: 自動 throttle はしない)。 */
     u32 snapshot_rate_hz = 30;
 
@@ -184,6 +184,21 @@ struct NetSnapshotConfig {
     /** 1 snapshot あたりの payload 上限バイト数。 */
     u32 max_payload_bytes = 8192;
 };
+
+/** 1 snapshot の payload に許可する製品上限 (4 MiB)。 */
+inline constexpr u32 kNetSnapshotMaximumPayloadBytes = 4u * 1024u * 1024u;
+
+/** ring buffer の snapshot 件数上限。 */
+inline constexpr u32 kNetSnapshotMaximumRingCapacity = 4096u;
+
+/** 1 snapshot に積める entity record 件数上限。 */
+inline constexpr u32 kNetSnapshotMaximumPendingEntities = 65536u;
+
+/** 1 Tick で transport から取り出す message 数上限。 */
+inline constexpr u32 kNetSnapshotMaximumReceivesPerTick = 8192u;
+
+/** IPv4 UDP payload の理論上限 (65535 - IPv4 header 20 - UDP header 8)。 */
+inline constexpr u32 kNetSnapshotMaximumUdpDatagramBytes = 65507u;
 
 /**
  * 抽象 transport (TCP / UDP / Steam Datagram Relay / fake)。
@@ -271,17 +286,17 @@ public:
 };
 
 /**
- * FNetSnapshot + NetTransportStub + FUdpTransport 共通のエラー subcode。
+ * FNetSnapshot + FNetTransportStub + FUdpTransport 共通のエラー subcode。
  *
  * @details
  * FErrorCode の subcode として使う。kSub_Wsa* 以降の FUdpTransport 固有コードでは
  * os_error に WSAGetLastError() の値をそのまま載せる。
  */
-struct NetSnapshotError {
+struct FNetSnapshotError {
     /**
      * エラー subcode の値。
      */
-    enum SubCode : u16 {
+    enum ESubCode : u16 {
         /** Send 前に Connect されていない。 */
         kSub_NotConnected = 1,
 
@@ -311,6 +326,33 @@ struct NetSnapshotError {
 
         /** DecodeSnapshot: CRC32 mismatch (破損 / 改竄)。 */
         kSub_BadCrc = 10,
+
+        /** Encode/DecodeSnapshot: 製品上限を超える payload / frame。 */
+        kSub_FrameTooLarge = 11,
+
+        /** wire header の予約値が非0、または sequence が予約値0。 */
+        kSub_NonCanonicalHeader = 12,
+
+        /** checked API の一時領域または出力領域を確保できない。 */
+        kSub_AllocationFailed = 13,
+
+        /** Receive が capacity より大きい値を返す等、transport 契約違反。 */
+        kSub_TransportContractViolation = 14,
+
+        /** payload の entity record が途中で終わる、または非正規値を含む。 */
+        kSub_BadEntityPayload = 15,
+
+        /** ring / payload / role 等の設定値が許容範囲外。 */
+        kSub_InvalidConfig = 16,
+
+        /** role に対して許可されない送受信操作。 */
+        kSub_WrongRole = 17,
+
+        /** pending entity 件数または合計 payload が上限に達した。 */
+        kSub_PendingLimit = 18,
+
+        /** UDP datagram が受信 buffer に収まらず切り詰められた。 */
+        kSub_DatagramTruncated = 19,
 
         /** FUdpTransport: WSAStartup 失敗。 */
         kSub_WsaStartup = 20,
@@ -342,20 +384,52 @@ struct NetSnapshotError {
 };
 
 /**
+ * TryTick の受信結果。
+ *
+ * @details transport は複数 message を順に消費するため、途中エラーより前に受理した
+ * snapshot は保持される。`stop_subcode == 0` は正常な「受信なし」で停止したことを表す。
+ */
+struct FNetSnapshotTickResult {
+    /** transport から取り出した非空 message 数。 */
+    u32 received_messages = 0;
+
+    /** 検証に成功して ring buffer へ commit した snapshot 数。 */
+    u32 accepted_snapshots = 0;
+
+    /** frame / entity payload 検証で棄却した message 数。 */
+    u32 rejected_messages = 0;
+
+    /** 正常 message と棄却 messageを合わせた受信バイト数。 */
+    u64 received_bytes = 0;
+
+    /** 0 は正常停止。それ以外は FNetSnapshotError::ESubCode。 */
+    u16 stop_subcode = 0;
+
+    /** 最後に棄却した message の FNetSnapshotError::ESubCode。棄却なしは0。 */
+    u16 last_rejected_subcode = 0;
+
+    /** transport / allocation / contract error で停止しなかったかを返す。 */
+    bool Succeeded() const noexcept
+    {
+        return stop_subcode == 0;
+    }
+};
+
+/**
  * INetTransport の null-object 実装 (defensive stub)。
  *
  * @details
  * 「常に NotImplemented を返す」stub でサンプル / テスト / linker 互換用。本番
  * ビルドに混入したケースを QA で必ず検出できるよう、Connect / Send / Receive は
- * 必ず Err を返す (BackendClientStub と同じ pattern)。
+ * 必ず Err を返す (GetBackendStub() と同じ pattern)。
  */
-class NetTransportStub final : public INetTransport {
+class FNetTransportStub final : public INetTransport {
 public:
     /** 既定構築。 */
-    NetTransportStub() noexcept = default;
+    FNetTransportStub() noexcept = default;
 
     /** 破棄する。 */
-    ~NetTransportStub() noexcept override = default;
+    ~FNetTransportStub() noexcept override = default;
 
     /**
      * 常に kSub_NotImplemented を返す。
@@ -421,12 +495,12 @@ public:
 /**
  * プロセス共有の stub INetTransport を返す。
  *
- * @return 常に NotImplemented を返す NetTransportStub への参照。
+ * @return 常に NotImplemented を返す FNetTransportStub への参照。
  */
 INetTransport& GetTransportStub() noexcept;
 
 /** FUdpTransport が共有する Winsock 資源の診断スナップショット。 */
-struct UdpTransportDiagnostics {
+struct FUdpTransportDiagnostics {
     /** 現在 FUdpTransport 群が所有する WSAStartup 参照数。 */
     u32 active_winsock_reference_count = 0;
 
@@ -468,14 +542,14 @@ public:
     ~FUdpTransport() noexcept override;
 
     /** 全 FUdpTransport が共有する Winsock 参照・解放失敗の現在値を返す。 */
-    static UdpTransportDiagnostics CaptureDiagnostics() noexcept;
+    static FUdpTransportDiagnostics CaptureDiagnostics() noexcept;
 
     /**
      * 破棄済み transport から共有回収処理へ移された socket と WSA 参照を再回収する。
      *
      * @details 生存中 transport が所有する cleanup debt には触れない。回収完了時も
      * `deferred_cleanup_resolved` の機械可読ログを出し、以前の cleanup_pending が
-     * 解決済みであることを明示する。Application 終了前の明示 drain にも使用できる。
+ * 解決済みであることを明示する。FApplication 終了前の明示 drain にも使用できる。
      * @return 全共有 debt を回収できれば成功。残存時は kSub_CloseFailed。
      */
     static TResult<void> DrainDeferredResources() noexcept;
@@ -629,11 +703,19 @@ public:
      * @details
      * role = Standalone では transport は nullptr を許容する。それ以外で nullptr が
      * 渡された場合は内部で GetTransportStub() に差し替えてリンク互換を保つ。
-     * @param config ランタイム設定 (buffer_capacity は内部で最低 2 に丸める)。
+     * @param config ランタイム設定 (互換APIでは公開上限の範囲へ正規化する)。
      * @param role 動作役割。
      * @param transport 使用する transport (Standalone なら nullptr 可)。
      */
-    void Init(const NetSnapshotConfig& config, ENetRole role, INetTransport* transport) noexcept;
+    void Init(const FNetSnapshotConfig& config, ENetRole role, INetTransport* transport) noexcept;
+
+    /**
+     * 設定を検証して初期化を試みる。
+     *
+     * @details ring 確保を含む全検証が成功するまで既存 state を変更しない。
+     * @return 成功、InvalidConfig、AllocationFailed のいずれか。
+     */
+    TResult<void> TryInit(const FNetSnapshotConfig& config, ENetRole role, INetTransport* transport) noexcept;
 
     /** ring buffer / pending entities / 統計値をリセットする (transport は触らない)。 */
     void Shutdown() noexcept;
@@ -688,6 +770,15 @@ public:
     void AddEntitySnapshot(u32 entity_id, u32 component_mask, const void* data, u32 data_size) noexcept;
 
     /**
+     * entity state を上限付きで pending list に追加する。
+     *
+     * @details 失敗時は pending list と合計サイズを変更しない。
+     * @return 成功、WrongRole、BadArgument、PendingLimit、AllocationFailed のいずれか。
+     */
+    TResult<void> TryAddEntitySnapshot(u32 entity_id, u32 component_mask, const void* data,
+                                       u32 data_size) noexcept;
+
+    /**
      * pending list を 1 payload に concat し、header を付けて transport.Send する。
      *
      * @details
@@ -698,6 +789,14 @@ public:
     void CommitSnapshot(u32 tick) noexcept;
 
     /**
+     * pending snapshot の直列化と送信を試みる。
+     *
+     * @details 失敗時は pending entities、sequence、ring、統計値を変更しないため、
+     * caller は同じ snapshot を再送できる。成功時だけ pending list を消費する。
+     */
+    TResult<void> TryCommitSnapshot(u32 tick) noexcept;
+
+    /**
      * client 時刻に対応する snapshot を取り出して補間結果を書き出す。
      *
      * @details
@@ -705,12 +804,12 @@ public:
      * 次の Tick() 呼出まで有効。現状は最新 snapshot を view として返す (float 単位の
      * lerp はコンポーネントスキーマ導入後に本実装)。
      * @param client_time_sec client 側の現在時刻秒 (現状は未使用)。
-     * @param out_snapshots 書き出し先の EntitySnapshot 配列。
+     * @param out_snapshots 書き出し先の FEntitySnapshot 配列。
      * @param max_count out_snapshots の容量。
      * @param out_actual_count 書き出した entity 数を返す (max_count で clamp)。
      * @return 有効データを書いたら true、buffer 空 / 範囲外なら false。
      */
-    bool TryGetInterpolatedSnapshot(f32 client_time_sec, EntitySnapshot* out_snapshots, u32 max_count,
+    bool TryGetInterpolatedSnapshot(f32 client_time_sec, FEntitySnapshot* out_snapshots, u32 max_count,
                                     u32& out_actual_count) noexcept;
 
     /**
@@ -720,6 +819,14 @@ public:
      * @param dt 前フレームからの経過秒 (jitter buffer 用に予約。現状は無視)。
      */
     void Tick(f32 dt) noexcept;
+
+    /**
+     * transport.Receive を上限付きで pump し、詳細結果を返す。
+     *
+     * @details 各 message は完全検証と allocation 成功後にだけ ring へ commit する。
+     * transport が capacity 超の byte 数を返した場合は契約違反として即停止する。
+     */
+    FNetSnapshotTickResult TryTick(f32 dt) noexcept;
 
     /**
      * 送信に成功した packet 数を返す。
@@ -761,6 +868,18 @@ public:
         return m_BytesReceived;
     }
 
+    /** 検証で棄却した frame の飽和累積数。 */
+    u32 RejectedPackets() const noexcept
+    {
+        return m_RejectedPackets;
+    }
+
+    /** transport 契約違反の飽和累積数。 */
+    u32 TransportContractViolations() const noexcept
+    {
+        return m_TransportContractViolations;
+    }
+
     /**
      * 1 frame に必要な総バイト数を返す。
      *
@@ -774,10 +893,10 @@ public:
      * header + payload を frame wire layout で out_buffer に直列化する。
      *
      * @details
-     * frame layout は [magic 'ACSN'][version][SnapshotHeader(24)][payload][crc32]。
+     * frame layout は [magic 'ACSN'][version][FSnapshotHeader(24)][payload][crc32]。
      * crc32 は magic を除いた [version .. payload 末尾) を対象に計算し footer に格納する
      * (header 内 crc32 フィールドは内部で 0 として扱う)。
-     * @param header 書き出す SnapshotHeader。
+     * @param header 書き出す FSnapshotHeader。
      * @param payload payload バイト列 (payload_size==0 なら nullptr 可)。
      * @param payload_size payload のバイト数 (header.payload_size と一致必須)。
      * @param out_buffer frame を書き込む先。
@@ -785,7 +904,7 @@ public:
      * @param out_written 書き込みバイト数を返す (= EncodedSnapshotSize)。
      * @return 成功なら空の TResult、引数不正 / 容量不足ならエラー。
      */
-    static TResult<void> EncodeSnapshot(const SnapshotHeader& header, const u8* payload, u32 payload_size,
+    static TResult<void> EncodeSnapshot(const FSnapshotHeader& header, const u8* payload, u32 payload_size,
                                         u8* out_buffer, u32 out_capacity, u32& out_written) noexcept;
 
     /**
@@ -793,25 +912,26 @@ public:
      *
      * @details
      * magic / version / size / CRC32 を順に検証し、不正なら対応する Err を返す。
-     * out_payload は置換セマンティクス (Clear → payload_size 件 Resize)。
+     * out_payload は置換セマンティクス。検証またはallocation失敗時は
+     * out_header、out_payloadの内容・サイズ・capacity・pointerを変更しない。
      * @param buffer 解釈する frame bytes。
      * @param size buffer のバイト数。
      * @param out_header 復元した header を書き込む先 (crc32 は footer の値を復元)。
      * @param out_payload payload を複製する先。
      * @return 成功なら空の TResult、検証失敗なら対応するエラー。
      */
-    static TResult<void> DecodeSnapshot(const u8* buffer, u32 size, SnapshotHeader& out_header,
+    static TResult<void> DecodeSnapshot(const u8* buffer, u32 size, FSnapshotHeader& out_header,
                                         TArray<u8>& out_payload) noexcept;
 
 private:
     /**
-     * 1 ring buffer エントリ (SnapshotHeader + payload バイト列)。
+     * 1 ring buffer エントリ (FSnapshotHeader + payload バイト列)。
      *
      * @details payload は AddEntitySnapshot で積んだ全 entity の concat。
      */
-    struct BufferedSnapshot {
+    struct FBufferedSnapshot {
         /** この snapshot の header。 */
-        SnapshotHeader header{};
+        FSnapshotHeader header{};
 
         /** 全 entity record を concat した payload。 */
         TArray<u8> payload;
@@ -822,7 +942,7 @@ private:
      *
      * @details AddEntitySnapshot で 1 件ずつコピーして積み、CommitSnapshot で payload に concat する。
      */
-    struct PendingEntity {
+    struct FPendingEntity {
         /** ゲーム内 entity ID。 */
         u32 entity_id = 0;
 
@@ -840,7 +960,7 @@ private:
     TArray<u8> m_InterpScratch;
 
     /** ランタイム設定 (Init でコピー)。 */
-    NetSnapshotConfig m_Config{};
+    FNetSnapshotConfig m_Config{};
 
     /** 動作役割。 */
     ENetRole m_Role = ENetRole::Standalone;
@@ -849,10 +969,10 @@ private:
     INetTransport* m_Transport = nullptr;
 
     /** server 側で送信待ちの entity list。 */
-    TArray<PendingEntity> m_PendingEntities;
+    TArray<FPendingEntity> m_PendingEntities;
 
     /** client 側の受信 snapshot ring buffer (capacity = buffer_capacity_snapshots)。 */
-    TArray<BufferedSnapshot> m_RingBuffer;
+    TArray<FBufferedSnapshot> m_RingBuffer;
 
     /** ring buffer の次の挿入位置 (FIFO)。 */
     u32 m_RingHead = 0;
@@ -877,6 +997,15 @@ private:
 
     /** 受信した総バイト数。 */
     u32 m_BytesReceived = 0;
+
+    /** pending entity wire payload の合計バイト数。 */
+    u32 m_PendingPayloadBytes = 0;
+
+    /** frame / entity payload 検証で棄却した packet 数。 */
+    u32 m_RejectedPackets = 0;
+
+    /** transport が Receive 契約に違反した回数。 */
+    u32 m_TransportContractViolations = 0;
 };
 
 } // namespace acs::game

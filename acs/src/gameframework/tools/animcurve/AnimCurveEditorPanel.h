@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar — animcurve / FAnimCurveEditorPanel
 //
-// `acs::game::FAnimationCurve` (Hermite/Linear/Step + WrapMode) を ImGui で
-// **対話的に編集する curve editor panel**。Unity FAnimationCurve エディタ /
+// `acs::game::FAnimationCurve` (Hermite/Linear/Step + EWrapMode) を ImGui で
+// **対話的に編集する curve editor panel**。Unity AnimationCurve エディタ /
 // Unreal CurveEditor / Godot Curve のキー打ち + タンジェントドラッグの
 // 簡易版に相当。`editor_core::FEditorPanel` 基底に
 // 載せ、`FEditorWorkspace::RegisterPanel(&panel)` の 1 行で workspace に
@@ -16,7 +16,7 @@
 //   ・右クリックで context menu (Add key here / Delete selected key)
 //   ・上部 toolbar:
 //       - Interpolation Combo (Step / Linear / Hermite) — 選択中 key に適用
-//       - WrapMode Combo (Pre / Post 個別) — curve 全体に適用
+//       - EWrapMode Combo (Pre / Post 個別) — curve 全体に適用
 //       - Add Key ボタン (= time=0.5 / value=0 の標準キーを 1 個追加)
 //       - Clear ボタン (= 全 key 削除)
 //       - Eval preview slider (= 現在時刻 [0, Duration] で曲線を sample し、
@@ -55,7 +55,7 @@
 //   panel.Shutdown();
 //
 // 設計選択:
-//   ・**FEditorPanel 継承**: 共通基盤を利用する。Title = "FAnimation Curve Editor"、DrawUI override。
+//   ・**FEditorPanel 継承**: 共通基盤を利用する。Title = "Animation Curve Editor"、DrawUI override。
 //   ・**curve は raw pointer の非所有保持**: caller が own する設計
 //     (FParticleEditorPanel が FParticleEffectSystem を参照渡しで受けるのと
 //     同じ方針)。本 panel は curve の寿命に関与せず、`m_Curve == nullptr` 時は
@@ -79,7 +79,7 @@
 //     callback 規約 (FModelAnimationPanel の AnimationFrameCallback と同形)。
 //     キー操作の都度発火する設計だが、drag 中は連続発火を避けるため
 //     「drag end (= マウス release)」のタイミングで 1 度だけ呼ぶ。
-//   ・**Toolbar の WrapMode Combo は Pre / Post 個別**: FAnimationCurve API も
+//   ・**Toolbar の EWrapMode Combo は Pre / Post 個別**: FAnimationCurve API も
 //     SetPreWrap / SetPostWrap が分かれているので、UI もそれに合わせる。
 //   ・**Eval preview slider [0, Duration]**: 単純な可視化用 read-only 数値表示。
 //     curve.Duration() == 0 の場合は slider を disable して 0 表示。
@@ -90,7 +90,6 @@
 //
 // 範囲外:
 //   ・複数 curve の同時編集 / レイヤ重ね (= timeline editor の役割)
-//   ・curve preset library (= ease-in-out / bounce 等のプリセットボタン)
 //   ・undo / redo 統合
 //   ・curve のシリアライズ (= 現状は caller が独自に保存する想定)
 //   ・key 複数選択 + 一括 drag (= 現状は単一選択のみ)
@@ -104,7 +103,7 @@
 
 namespace acs::game {
 // 編集対象の FAnimationCurve は本ヘッダから forward-decl のみで受ける。
-// `<gameframework/FAnimationCurve.h>` を include しないことで、本 panel を
+// `<gameframework/AnimationCurve.h>` を include しないことで、本 panel を
 // 利用する側がヘッダ依存を最小化できる (= FAnimationCurve 自体の変更で
 // 不要な再ビルドを避ける)。
 class FAnimationCurve;
@@ -116,7 +115,7 @@ namespace acs::game::animcurve {
  * FAnimationCurve を ImGui で対話的に編集する curve editor panel。
  *
  * @details
- * Unity FAnimationCurve エディタ / Unreal CurveEditor 相当のキー打ち +
+ * Unity AnimationCurve エディタ / Unreal CurveEditor 相当のキー打ち +
  * タンジェントドラッグの簡易版。editor_core::FEditorPanel を継承し、
  * FEditorWorkspace::RegisterPanel(&panel) で workspace に統合できる。
  * canvas 上に curve を kCurveSampleCount sample で線描画し、各 key を丸 marker、
@@ -217,9 +216,9 @@ public:
     /**
      * window タイトルを返す (ImGui::Begin の引数兼 ID)。
      *
-     * @return 固定リテラル "FAnimation Curve Editor"。
+     * @return 固定リテラル "Animation Curve Editor"。
      */
-    const char* Title() const noexcept override { return "FAnimation Curve Editor"; }
+    const char* Title() const noexcept override { return "Animation Curve Editor"; }
 
     /**
      * Toolbar + Canvas を ImGui で描画する。
@@ -249,6 +248,9 @@ private:
 
     /** 最後の ClearDirty() 以降に編集があったか。 */
     bool m_Dirty = false;
+
+    /** toolbar で選択中の Easing::EEasingType の安定した u8 値。 */
+    u8 m_SelectedEasingPreset = 0u;
 
     /** ドラッグ種別 (0=なし / 1=key 本体 / 2=in-tangent handle / 3=out-tangent handle)。 */
     u8 m_DragKind = 0u;

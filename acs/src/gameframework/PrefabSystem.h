@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar J — FPrefabSystem
 //
-// 名前付きの FNode2D ツリーテンプレート (= 「Prefab」) を関数ポインタファクトリ
-// として登録し、ID または名前から `acs::TUniquePtr<FNode2D>` を spawn する軽量
+// 名前付きの ANode ツリーテンプレート (= 「Prefab」) を関数ポインタファクトリ
+// として登録し、ID または名前から `acs::TObjectPtr<ANode>` を spawn する軽量
 // レジストリ。Unity の Prefab / Unreal の Blueprint asset に相当する役割を、
 // 「アセットファイル」ではなく「ファクトリ関数」で表現する設計。
 //
 // 使い方:
-//   // 1) ファクトリ関数を書く (cpp 側で FNode2D の full type を include する)
-//   static acs::TUniquePtr<acs::game::FNode2D> SpawnEnemy(void* /*user*/) noexcept {
-//       auto n = acs::MakeUnique<acs::game::FNode2D>();
+//   // 1) ファクトリ関数を書く (cpp 側で ANode の full type を include する)
+//   static acs::TObjectPtr<acs::game::ANode> SpawnEnemy(void* /*user*/) noexcept {
+//       auto n = acs::NewObject<acs::game::ANode>();
 //       // 子ノード / コンポーネント / 初期値 ... を組み立てる
 //       return n;
 //   }
 //
 //   // 2) 登録
 //   FPrefabSystem prefabs;
-//   PrefabId enemy_id = prefabs.Register("Enemy", &SpawnEnemy);
+//   FPrefabId enemy_id = prefabs.Register("Enemy", &SpawnEnemy);
 //
-//   // 3) spawn (Scene 側からは ID 経由 / Mod 側からは名前経由 が想定)
+//   // 3) spawn (FScene 側からは ID 経由 / Mod 側からは名前経由 が想定)
 //   auto a = prefabs.Spawn(enemy_id);
 //   auto b = prefabs.SpawnByName("Enemy");
 //
@@ -33,27 +33,27 @@
 //   ・**24bit idx + 8bit gen の packed handle**: `FNodeId` / `FShapeId` と完全に
 //     同パターン。Unregister 後の slot 再利用で生まれる stale handle 検出に
 //     generation を 1〜255 で循環させる (0 は「未使用 slot」予約)。
-//   ・**slot 0 を invalid 予約**: `PrefabId{}` (= packed == 0) がそのまま
+//   ・**slot 0 を invalid 予約**: `FPrefabId{}` (= packed == 0) がそのまま
 //     IsValid() == false になる。Register 時に必ず index >= 1 を返す。
-//   ・**線形走査の `TArray<PrefabEntry>`**: 想定登録件数は数十〜数百 (1 タイトル
+//   ・**線形走査の `TArray<FPrefabEntry>`**: 想定登録件数は数十〜数百 (1 タイトル
 //     の prefab 数)、Register/Find は load 時に集中して走るので O(N) で十分。
 //     ハッシュ化は実用上ボトルネックになった時点で検討。
-//   ・**FNode2D は forward declare**: `TUniquePtr<FNode2D>` のメンバ宣言には full
-//     type は不要 (TUniquePtr の宣言上の forward 互換、`.cpp` 側は触らない)。
-//     factory 関数の中身は呼び出し側 cpp が `FNode2D.h` を include する責務。
+//   ・**ANode は forward declare**: `TObjectPtr<ANode>` のメンバ宣言には full
+//     type は不要 (TObjectPtr の宣言上の forward 互換、`.cpp` 側は触らない)。
+//     factory 関数の中身は呼び出し側 cpp が `ANode.h` を include する責務。
 //   ・**非コピー / 非ムーブ**: 登録された factory ポインタを別所有者に渡す事故
-//     を排除。プロジェクト中 FPrefabSystem は通常 Scene/FGame に 1 個。
+//     を排除。プロジェクト中 FPrefabSystem は通常 FScene/FGame に 1 個。
 #pragma once
 
 #include "foundation/Types.h"
 #include "container/Array.h"
-#include "memory/UniquePtr.h"
+#include "memory/ObjectPtr.h"
 
 namespace acs::game {
 
-// FNode2D の full type はこのヘッダでは不要 (TUniquePtr<FNode2D> の宣言として
-// 触るだけ)。factory 関数を実装する cpp 側で `gameframework/FNode2D.h` を include すること。
-class FNode2D;
+// ANode の full type はこのヘッダでは不要 (TObjectPtr<ANode> の宣言として
+// 触るだけ)。factory 関数を実装する cpp 側で `gameframework/ANode.h` を include すること。
+class ANode;
 
 /**
  * Prefab を識別する packed 32bit handle (generational)。
@@ -62,20 +62,20 @@ class FNode2D;
  * layout は low24 = index、high8 = generation。m_Packed == 0 が invalid。
  * FNodeId / FShapeId と完全に同じパターン。
  */
-struct PrefabId {
+struct FPrefabId {
     /** index (low24) と generation (high8) を詰めた 32bit 値。 */
     u32 m_Packed = 0;
 
-    /** invalid (m_Packed == 0) な PrefabId を構築する。 */
-    constexpr PrefabId() noexcept = default;
+    /** invalid (m_Packed == 0) な FPrefabId を構築する。 */
+    constexpr FPrefabId() noexcept = default;
 
     /**
-     * index と generation から PrefabId を構築する。
+     * index と generation から FPrefabId を構築する。
      *
      * @param index 24bit のスロット index。
      * @param gen 8bit の generation。
      */
-    constexpr PrefabId(u32 index, u8 gen) noexcept
+    constexpr FPrefabId(u32 index, u8 gen) noexcept
         : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
     /**
@@ -103,20 +103,20 @@ struct PrefabId {
     bool IsValid() const noexcept { return m_Packed != 0; }
 
     /**
-     * 2 つの PrefabId が同一かを比較する。
+     * 2 つの FPrefabId が同一かを比較する。
      *
-     * @param o 比較対象の PrefabId。
+     * @param o 比較対象の FPrefabId。
      * @return packed 値が等しければ true。
      */
-    constexpr bool operator==(PrefabId o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator==(FPrefabId o) const noexcept { return m_Packed == o.m_Packed; }
 
     /**
-     * 2 つの PrefabId が異なるかを比較する。
+     * 2 つの FPrefabId が異なるかを比較する。
      *
-     * @param o 比較対象の PrefabId。
+     * @param o 比較対象の FPrefabId。
      * @return packed 値が異なれば true。
      */
-    constexpr bool operator!=(PrefabId o) const noexcept { return m_Packed != o.m_Packed; }
+    constexpr bool operator!=(FPrefabId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 /**
@@ -124,15 +124,15 @@ struct PrefabId {
  *
  * @details
  * user_data は Register 時に渡されたコンテキストポインタ (closure 代替)。
- * 返り値は新規 FNode2D ツリーの所有権で、失敗時は空 TUniquePtr (= bool == false) を返してよい。
+ * 返り値は新規 ANode ツリーの所有権で、失敗時は空 TObjectPtr (= bool == false) を返してよい。
  */
-using PrefabFactoryFn = TUniquePtr<FNode2D>(*)(void* user_data) noexcept;
+using PrefabFactoryFn = TObjectPtr<ANode>(*)(void* user_data) noexcept;
 
 /**
  * 名前付き Prefab レジストリ。
  *
  * @details
- * テンプレート (= factory 関数) を登録し、ID または名前から FNode2D ツリーを spawn する。
+ * テンプレート (= factory 関数) を登録し、ID または名前から ANode ツリーを spawn する。
  * 1 セッション内で通常数十〜数百件の登録を想定し、線形走査ベース。登録された factory
  * ポインタの所有移譲を抑止するため non-copy / non-move。
  */
@@ -157,7 +157,7 @@ public:
     FPrefabSystem& operator=(FPrefabSystem&&)      = delete;
 
     /**
-     * 新規 Prefab を登録して PrefabId を返す。
+     * 新規 Prefab を登録して FPrefabId を返す。
      *
      * @details
      * name は永続文字列を渡すこと (string literal か別バッファ管理)。FPrefabSystem は複製せず
@@ -167,42 +167,42 @@ public:
      * @param name Prefab 名 (永続文字列、複製されない)。
      * @param factory Prefab を実体化するファクトリ関数。
      * @param user_data factory に渡すコンテキストポインタ (既定 nullptr)。
-     * @return 登録した Prefab の PrefabId (バリデーション失敗時は invalid)。
+     * @return 登録した Prefab の FPrefabId (バリデーション失敗 / 24bit 容量上限時は invalid)。
      */
-    PrefabId Register(const char* name, PrefabFactoryFn factory, void* user_data = nullptr) noexcept;
+    FPrefabId Register(const char* name, PrefabFactoryFn factory, void* user_data = nullptr) noexcept;
 
     /**
      * 名前で Prefab を検索する (登録順で最初に一致したもの)。
      *
      * @param name 検索する Prefab 名。
-     * @return 一致した Prefab の PrefabId (一致しない / name == nullptr なら invalid)。
+     * @return 一致した Prefab の FPrefabId (一致しない / name == nullptr なら invalid)。
      */
-    PrefabId FindByName(const char* name) const noexcept;
+    FPrefabId FindByName(const char* name) const noexcept;
 
     /**
-     * ID から FNode2D ツリーを spawn する (factory を 1 回呼ぶ)。
+     * ID から ANode ツリーを spawn する (factory を 1 回呼ぶ)。
      *
-     * @param id spawn する Prefab の PrefabId。
-     * @return 生成した FNode2D ツリー (id が invalid / stale / factory が nullptr なら空 TUniquePtr)。
+     * @param id spawn する Prefab の FPrefabId。
+     * @return 生成した ANode ツリー (id が invalid / stale / factory が nullptr なら空 TObjectPtr)。
      */
-    TUniquePtr<FNode2D> Spawn(PrefabId id) noexcept;
+    TObjectPtr<ANode> Spawn(FPrefabId id) noexcept;
 
     /**
-     * 名前から FNode2D ツリーを spawn する (内部で FindByName → Spawn 相当)。
+     * 名前から ANode ツリーを spawn する (内部で FindByName → Spawn 相当)。
      *
      * @param name spawn する Prefab 名。
-     * @return 生成した FNode2D ツリー (見つからない場合は空 TUniquePtr)。
+     * @return 生成した ANode ツリー (見つからない場合は空 TObjectPtr)。
      */
-    TUniquePtr<FNode2D> SpawnByName(const char* name) noexcept;
+    TObjectPtr<ANode> SpawnByName(const char* name) noexcept;
 
     /**
      * 登録を解除する。
      *
      * @details slot を再利用可能にし、generation を +1 して既存 handle を stale 化する。
-     * @param id 解除する Prefab の PrefabId。
+     * @param id 解除する Prefab の FPrefabId。
      * @return 実際に解除したら true、id が invalid / stale なら false (no-op)。
      */
-    bool Unregister(PrefabId id) noexcept;
+    bool Unregister(FPrefabId id) noexcept;
 
     /**
      * 現在 active な (= Unregister されていない) 登録数を返す。
@@ -215,12 +215,17 @@ public:
      * デバッグ用に Prefab 名を取得する。
      *
      * @details 呼び出し側が条件分岐せずログにそのまま流せるよう nullptr は返さない。
-     * @param id 名前を取得する Prefab の PrefabId。
+     * @param id 名前を取得する Prefab の FPrefabId。
      * @return Prefab 名 (invalid / stale なら "(unknown)")。
      */
-    const char* GetName(PrefabId id) const noexcept;
+    const char* GetName(FPrefabId id) const noexcept;
 
-    /** 全登録を破棄する (既存の ID は全て stale 化される)。 */
+    /**
+     * 全登録を破棄する (既存の ID は全て stale 化される)。
+     *
+     * @details slot と generation 履歴は保持し、次の Register で世代を進める。
+     * これにより ClearAll 前の ID が同じ index へ再登録した新 Prefab を指すことを防ぐ。
+     */
     void ClearAll() noexcept;
 
 private:
@@ -229,7 +234,7 @@ private:
      *
      * @details m_Entries 内に index 順で並び、index 0 は invalid 予約用の dummy。
      */
-    struct PrefabEntry {
+    struct FPrefabEntry {
         /** Prefab 名 (永続文字列へのポインタ、複製しない)。 */
         const char*     name      = nullptr;
 
@@ -249,13 +254,14 @@ private:
     /**
      * 未使用 slot を探して index を返す。
      *
-     * @details 空きが無ければ末尾に push する。index 0 は invalid 予約なので返さない (最低 index 1)。
-     * @return 確保したスロットの index。
+     * @details 空きが無ければ末尾に push する。index 0 は invalid 予約なので、24bit の
+     * index 上限へ到達した場合だけ失敗値 0 を返す。
+     * @return 確保したスロットの index (容量上限時は 0)。
      */
     u32 AcquireSlot() noexcept;
 
     /** 登録スロットの配列 (index 0 は dummy)。 */
-    TArray<PrefabEntry> m_Entries;
+    TArray<FPrefabEntry> m_Entries;
 
     /** 現在 active な登録数。 */
     u32                m_ActiveCount = 0;

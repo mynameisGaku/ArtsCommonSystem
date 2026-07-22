@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS FAssetPack — FAcpakLz4 実装 (自前 LZ4 block format)
+// ACS AssetPack — FAcpakLz4 実装 (自前 LZ4 block format)
 // -----------------------------------------------------------------------------
 // LZ4 block format の self-contained 実装。公式 reference (lz4.c) より単純な
 // hash table ベースの "fast" 1 パススキャナ。圧縮率は公式の 80-90% 程度だが、

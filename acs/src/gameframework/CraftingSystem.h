@@ -23,7 +23,7 @@
 //   FCraftingSystem cs;
 //
 //   // レシピ定義 (素材配列は呼出側が長寿命を保証する static / global 想定)。
-//   static const Ingredient kIronAxeIngredients[] = {
+//   static const FIngredient kIronAxeIngredients[] = {
 //       { "wood",     3 },
 //       { "iron_ore", 2 },
 //   };
@@ -53,9 +53,9 @@
 //   cs.Tick(dt);
 //
 // 設計選択 (ジャンルキット survival / crafting):
-//   ・**レシピは単一 TArray<CraftRecipe>**: ジャンルキット規模 (200〜500 recipe) で
+//   ・**レシピは単一 TArray<FCraftRecipe>**: ジャンルキット規模 (200〜500 recipe) で
 //     線形検索で十分。FEconomyDirector / FInventorySystem と同じ判断。
-//   ・**Ingredient 配列は非所有**: CraftRecipe::ingredients は呼出側が長寿命を保証する
+//   ・**FIngredient 配列は非所有**: FCraftRecipe::ingredients は呼出側が長寿命を保証する
 //     生バッファ (static / global 配列、リソースバンドル) を指す。文字列 id も同様
 //     (Manager は何もコピーしない。STL <string> 禁止 / <vector> 禁止)。
 //   ・**Inventory adapter は C 関数ポインタ + user**: STL <functional> 禁止のため。
@@ -91,7 +91,7 @@ namespace acs::game {
 /**
  * レシピ 1 件分の素材エントリ。
  */
-struct Ingredient {
+struct FIngredient {
     /** 素材アイテム id (FInventorySystem の item_id と一致する想定。文字列リテラル、非所有)。 */
     const char* item_id = nullptr;
 
@@ -102,7 +102,7 @@ struct Ingredient {
 /**
  * 1 件のクラフトレシピ定義 (immutable)。
  */
-struct CraftRecipe {
+struct FCraftRecipe {
     /** 一意キー (FindRecipe / StartCraft のキー。文字列リテラル想定)。 */
     const char*       recipe_id          = nullptr;
 
@@ -119,7 +119,7 @@ struct CraftRecipe {
     u32               ingredient_count   = 0;
 
     /** 素材配列 (呼出側が長寿命を保証する非所有バッファ。要素数 0 のとき nullptr 許容)。 */
-    const Ingredient* ingredients        = nullptr;
+    const FIngredient* ingredients        = nullptr;
 
     /** クラフト所要秒数。0 以下は「即座に完了」(次の Tick で grant)。 */
     f32               craft_duration_sec = 0.0f;
@@ -227,7 +227,7 @@ public:
      * の場合は ingredient_count を 0 に補正して受理する (配列指定漏れの救済)。
      * @param recipe 登録するレシピ定義 (内部にコピーされる)。
      */
-    void RegisterRecipe(const CraftRecipe& recipe) noexcept;
+    void RegisterRecipe(const FCraftRecipe& recipe) noexcept;
 
     /**
      * recipe_id で単一レシピを取得する。
@@ -236,7 +236,7 @@ public:
      * @param recipe_id 探すレシピ id。
      * @return 見つかったレシピへのポインタ (未登録 / nullptr は nullptr)。
      */
-    const CraftRecipe* FindRecipe(const char* recipe_id) const noexcept;
+    const FCraftRecipe* FindRecipe(const char* recipe_id) const noexcept;
 
     /**
      * 登録済みレシピ件数を返す。
@@ -253,7 +253,7 @@ public:
      * @param out_count レシピ件数を書き出す出力先。
      * @return 全レシピを指す先頭ポインタ。
      */
-    const CraftRecipe* AllRecipes(u32& out_count) const noexcept;
+    const FCraftRecipe* AllRecipes(u32& out_count) const noexcept;
 
     /**
      * インベントリ adapter を設定する。
@@ -376,7 +376,7 @@ private:
     u32 FindRecipeSlot(const char* recipe_id) const noexcept;
 
     /** レシピ定義 (起動時 immutable)。 */
-    TArray<CraftRecipe> m_Recipes;
+    TArray<FCraftRecipe> m_Recipes;
 
     /** 在庫個数取得 adapter。 */
     InventoryQueryFn   m_Query   = nullptr;
@@ -400,7 +400,7 @@ private:
     ECraftStatus _status               = ECraftStatus::Idle;
 
     /** 現在のクラフト対象 recipe (m_Recipes の要素を指す。Idle / ClearAll で nullptr)。 */
-    const CraftRecipe* m_CurrentRecipe = nullptr;
+    const FCraftRecipe* m_CurrentRecipe = nullptr;
 
     /** 現在クラフトの所要秒数 (進行率計算用に保持。recipe 差し替えに対し安定)。 */
     f32 m_CurrentDurationSec          = 0.0f;

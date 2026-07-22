@@ -21,6 +21,7 @@
 #include "foundation/Types.h"
 #include "math/Vec.h"
 #include "render/SpriteBatch.h"   // ESpriteEffect / FEffectParams / FSpriteBatch
+#include "render/SubstrateMaterial.h"
 
 namespace acs::game {
 
@@ -97,11 +98,76 @@ struct FMaterial2D {
     bool          animated = false;        ///< true で描画時に経過秒を time に流す。
     // --- Lit (PBR) 種別 ---
     FPbrParams2D  pbr      = {};            ///< PBR サーフェスプロパティ。
+
+    /**
+     * Principled slab graph.  enabled=false preserves the ACSMAT 1 legacy
+     * metallic/roughness asset exactly; runtime can still expose that legacy
+     * material through MakeLegacySubstrateMaterial().
+     */
+    FSubstrateMaterial substrate = {};
+    /**
+     * Material-level resources for expression TextureSample2D slots 0..3.
+     * Paths are UTF-8 and resolve independently from the opaque node asset ID.
+     */
+    char substrateExpressionTexturePaths
+        [kShaderExpressionMaxTextureSlots][256] = {};
 };
 
+/** .acsmat の解析・ファイル読み込みで返す安定したエラー種別。 */
+enum class EMaterial2DLoadError : u8 {
+    None = 0,
+    NullArgument,
+    InputTooLarge,
+    EmptyInput,
+    EmbeddedNul,
+    TooManyLines,
+    LineTooLong,
+    InvalidHeader,
+    UnsupportedVersion,
+    InvalidSyntax,
+    KeyTooLong,
+    ValueTooLong,
+    DuplicateKey,
+    InvalidValue,
+    ValueOutOfRange,
+    PathTooLong,
+    FileOpenFailed,
+    FileSizeFailed,
+    FileChanged,
+    FileReadFailed,
+    AllocationFailure,
+};
+
+/** .acsmat の checked load 結果。失敗時は出力マテリアルを変更しない。 */
+struct FMaterial2DLoadResult {
+    EMaterial2DLoadError error = EMaterial2DLoadError::None;
+    u32 line = 0;
+    u64 bytes_read = 0;
+
+    bool Succeeded() const noexcept { return error == EMaterial2DLoadError::None; }
+    static const char* ErrorName(EMaterial2DLoadError error) noexcept;
+};
+
+/** 公開入力境界。値は終端 NUL を含まないバイト数。 */
+inline constexpr usize kMaterial2DMaxTextBytes = 1024u * 1024u;
+inline constexpr usize kMaterial2DMaxLineBytes = 1023u;
+inline constexpr u32 kMaterial2DMaxLines = 4096u;
+inline constexpr usize kMaterial2DMaxPathBytes = 1023u;
+
 /** PBR/トゥーンの永続パラメータ (FPbrParams2D) を描画パラメータ (FLitMaterialParams) へ変換する。
- *  editor の DrawScene・Node2D・GPU プレビューが共通で使う (DRY)。 */
+ *  editor の DrawScene・ANode・GPU プレビューが共通で使う (DRY)。 */
 FLitMaterialParams ToLitParams(const FPbrParams2D& pbr) noexcept;
+
+/** Convert the legacy metallic/roughness block into a physical slab building block. */
+FSubstrateMaterial MakeLegacySubstrateMaterial(const FPbrParams2D& pbr) noexcept;
+
+/** Resolve the authored graph, or the generated legacy building block when disabled. */
+bool ResolveMaterialSubstrate(const FMaterial2D& material,
+                              FSubstrateResolvedSurface& out,
+                              FSubstrateCompileStats* out_stats = nullptr) noexcept;
+
+/** Update legacy fallback fields used by existing 2D/refraction paths from a valid graph. */
+bool SyncLegacyPbrFromSubstrate(FMaterial2D& material) noexcept;
 
 /** 効果プリセットの総数 (None を含む)。エディタのドロップダウン用。 */
 u32 SpriteEffectCount() noexcept;
@@ -142,6 +208,15 @@ bool EffectAnimatedByDefault(ESpriteEffect e) noexcept;
 FMaterial2D ParseAcsmatText(const char* text) noexcept;
 
 /**
+ * 長さ付き .acsmat テキストを厳密に解析する。
+ *
+ * @details 既知キーの重複、不正/非有限数値、embedded NUL、上限超過を拒否する。
+ * 未知キーは将来バージョンとの前方互換のため無視する。成功時だけ out を更新する。
+ */
+FMaterial2DLoadResult TryParseAcsmatText(
+    const char* text, usize text_size, FMaterial2D& out) noexcept;
+
+/**
  * マテリアルを .acsmat テキストへ書き出す。
  *
  * @param mat 書き出すマテリアル。
@@ -161,6 +236,14 @@ u32 WriteAcsmatText(const FMaterial2D& mat, char* buf, u32 buf_size) noexcept;
 bool LoadAcsmatFile(const char* path, FMaterial2D& out) noexcept;
 
 /**
+ * .acsmat ファイルを完全 read してから厳密に解析する。
+ *
+ * @details サイズ取得後の短縮/伸長、サイズ narrowing、allocation failure を検出し、
+ * 失敗時は out を変更しない。
+ */
+FMaterial2DLoadResult TryLoadAcsmatFile(const char* path, FMaterial2D& out) noexcept;
+
+/**
  * マテリアルを .acsmat ファイルへ書き出す。
  *
  * @param path ファイルパス (UTF-8)。
@@ -173,7 +256,7 @@ bool SaveAcsmatFile(const char* path, const FMaterial2D& mat) noexcept;
  * アニメーション付きマテリアルの「経過秒」を設定する (プロセス全体で共有)。
  *
  * @details
- * FNode2D::DrawTree がマテリアルを適用するとき、RenderContext には時刻が無いため、
+ * ANode::DrawTree がマテリアルを適用するとき、FRenderContext には時刻が無いため、
  * この共有クロックを参照する。スタンドアロンのシーンが毎フレーム OnTick で
  * SetMaterialClock(累積秒) を呼ぶ。エディタは host->time を直接渡すのでこれは使わない。
  * @param seconds 起動からの経過秒。
@@ -184,7 +267,7 @@ void SetMaterialClock(f32 seconds) noexcept;
 f32 MaterialClock() noexcept;
 
 /**
- * マテリアルの効果を SpriteBatch へ適用する。
+ * マテリアルの効果を FSpriteBatch へ適用する。
  *
  * @details effect == None なら何もしない。animated が true なら time_sec を params.time
  *          に差し込んで適用する。適用したら戻り値 true → 描画後に sb.ClearEffect() を呼ぶこと。

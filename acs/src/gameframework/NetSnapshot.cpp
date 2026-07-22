@@ -183,7 +183,7 @@ u32 ComputeCrc32(const void* data, u64 size) noexcept
  * @param dst 書き込み先 (24 byte 確保済み)。
  * @param h 書き出す header (crc32 フィールドも含めてそのまま書く)。
  */
-void WriteHeader(u8* dst, const SnapshotHeader& h) noexcept
+void WriteHeader(u8* dst, const FSnapshotHeader& h) noexcept
 {
     WriteU32LE(dst + 0, h.tick);
     WriteU32LE(dst + 4, h.sequence);
@@ -198,7 +198,7 @@ void WriteHeader(u8* dst, const SnapshotHeader& h) noexcept
  * @param src 読み込み元 (24 byte)。
  * @param h 復元した header を書き込む先。
  */
-void ReadHeader(const u8* src, SnapshotHeader& h) noexcept
+void ReadHeader(const u8* src, FSnapshotHeader& h) noexcept
 {
     h.tick = ReadU32LE(src + 0);
     h.sequence = ReadU32LE(src + 4);
@@ -222,22 +222,22 @@ u32 g_winsock_cleanup_error = 0;
 bool g_winsock_cleanup_debt_orphaned = false;
 
 /** 破棄済み transport から所有権を引き継ぐ固定長 socket 回収表。 */
-struct OrphanedSocketRecord {
+struct FOrphanedSocketRecord {
     SOCKET socket = INVALID_SOCKET;
     bool owns_winsock_reference = false;
 };
 
 constexpr u32 kMaximumPrimaryOrphanedSocketCount = 256;
-OrphanedSocketRecord g_primary_orphaned_sockets[kMaximumPrimaryOrphanedSocketCount] = {};
+FOrphanedSocketRecord g_primary_orphaned_sockets[kMaximumPrimaryOrphanedSocketCount] = {};
 u32 g_primary_orphaned_socket_count = 0;
 
 /** 固定表の飽和時に VirtualAlloc で確保する回収 record。 */
-struct OverflowOrphanedSocketRecord {
-    OrphanedSocketRecord resource{};
-    OverflowOrphanedSocketRecord* next = nullptr;
+struct FOverflowOrphanedSocketRecord {
+    FOrphanedSocketRecord resource{};
+    FOverflowOrphanedSocketRecord* next = nullptr;
 };
 
-OverflowOrphanedSocketRecord* g_overflow_orphaned_socket_head = nullptr;
+FOverflowOrphanedSocketRecord* g_overflow_orphaned_socket_head = nullptr;
 u32 g_overflow_orphaned_socket_count = 0;
 
 /** テスト時だけ固定表を縮小し、overflow 所有移管を少数 socket で検証する。 */
@@ -261,7 +261,7 @@ volatile LONG g_injected_cleanup_error = WSAEINPROGRESS;
 #endif
 
 /** 1 回の資源解放または所有権検証失敗を、lock 解放後に出力するための値。 */
-struct WinsockFailureReport {
+struct FWinsockFailureReport {
     const char* record = nullptr;
     const char* leak_verdict = "inconclusive";
     u32 error = 0;
@@ -269,10 +269,10 @@ struct WinsockFailureReport {
 };
 
 /** 共有 lock 内で検出した失敗を、動的確保なしで一時保持する。 */
-struct PendingWinsockFailureReports {
+struct FPendingWinsockFailureReports {
     static constexpr u32 kCapacity = kMaximumPrimaryOrphanedSocketCount + 4;
 
-    WinsockFailureReport reports[kCapacity] = {};
+    FWinsockFailureReport reports[kCapacity] = {};
     u32 report_count = 0;
     u32 suppressed_report_count = 0;
 
@@ -288,7 +288,7 @@ struct PendingWinsockFailureReports {
 };
 
 /** 機械可読の 1 失敗レコードを debugger と標準エラーへ出す。 */
-void EmitWinsockResourceFailure(const WinsockFailureReport& report) noexcept
+void EmitWinsockResourceFailure(const FWinsockFailureReport& report) noexcept
 {
     char message[320] = {};
     const int length = ::snprintf(message, sizeof(message),
@@ -335,7 +335,7 @@ void EmitSuppressedWinsockResourceFailures(u32 suppressed_report_count) noexcept
 }
 
 /** lock 内で蓄積した失敗をすべて lock 外から出力する。 */
-void EmitWinsockResourceFailures(const PendingWinsockFailureReports& reports) noexcept
+void EmitWinsockResourceFailures(const FPendingWinsockFailureReports& reports) noexcept
 {
     for (u32 index = 0; index < reports.report_count; ++index) {
         EmitWinsockResourceFailure(reports.reports[index]);
@@ -346,7 +346,7 @@ void EmitWinsockResourceFailures(const PendingWinsockFailureReports& reports) no
 /** lifecycle lock を保持していない経路から 1 失敗を即時記録する。 */
 void ReportWinsockResourceFailure(const char* record, u32 error, const char* leak_verdict) noexcept
 {
-    PendingWinsockFailureReports reports{};
+    FPendingWinsockFailureReports reports{};
     reports.Add(record, error, leak_verdict);
     EmitWinsockResourceFailures(reports);
 }
@@ -424,20 +424,20 @@ int CleanupWinsockOperation() noexcept
 }
 
 /** WSA 参照解放の結果。error が非0でも released=true なら所有状態は修復済み。 */
-struct WinsockReleaseResult {
+struct FWinsockReleaseResult {
     u32 error = 0;
     bool released = false;
 };
 
 /** 最終 cleanup 失敗時に、呼出元が参照所有を保持するか共有 debt へ移すか。 */
-enum class WinsockReleaseOwnership : u8 {
+enum class EWinsockReleaseOwnership : u8 {
     RetainOnFailure,
     TransferOnFailure,
 };
 
 /** lifecycle lock 保持下で WSAStartup の ref を 1 戻す。 */
-WinsockReleaseResult WsaStartupReleaseReferenceLocked(WinsockReleaseOwnership ownership,
-                                                      PendingWinsockFailureReports& reports) noexcept
+FWinsockReleaseResult WsaStartupReleaseReferenceLocked(EWinsockReleaseOwnership ownership,
+                                                      FPendingWinsockFailureReports& reports) noexcept
 {
     if (g_winsock_reference_count == 0) {
         reports.Add("reference_underflow", static_cast<u32>(WSANOTINITIALISED), "inconclusive");
@@ -467,9 +467,9 @@ WinsockReleaseResult WsaStartupReleaseReferenceLocked(WinsockReleaseOwnership ow
     }
 
     g_winsock_cleanup_error = cleanup_error;
-    g_winsock_cleanup_debt_orphaned = ownership == WinsockReleaseOwnership::TransferOnFailure;
+    g_winsock_cleanup_debt_orphaned = ownership == EWinsockReleaseOwnership::TransferOnFailure;
     reports.Add("cleanup_failed", cleanup_error, "inconclusive");
-    return {cleanup_error, ownership == WinsockReleaseOwnership::TransferOnFailure};
+    return {cleanup_error, ownership == EWinsockReleaseOwnership::TransferOnFailure};
 }
 
 /** 固定回収表から index の socket を swap-remove する。 */
@@ -482,8 +482,8 @@ void RemovePrimaryOrphanedSocketLocked(u32 index) noexcept
 }
 
 /** 1 socket を閉じ、対応する WSA 参照も共有所有から解放する。 */
-bool TryCloseOrphanedSocketLocked(const OrphanedSocketRecord& record, u32& first_unresolved_error,
-                                  PendingWinsockFailureReports& reports) noexcept
+bool TryCloseOrphanedSocketLocked(const FOrphanedSocketRecord& record, u32& first_unresolved_error,
+                                  FPendingWinsockFailureReports& reports) noexcept
 {
     if (CloseSocketOperation(record.socket) == SOCKET_ERROR) {
         const u32 close_error = static_cast<u32>(::WSAGetLastError());
@@ -495,18 +495,18 @@ bool TryCloseOrphanedSocketLocked(const OrphanedSocketRecord& record, u32& first
     }
 
     if (record.owns_winsock_reference) {
-        (void)WsaStartupReleaseReferenceLocked(WinsockReleaseOwnership::TransferOnFailure, reports);
+        (void)WsaStartupReleaseReferenceLocked(EWinsockReleaseOwnership::TransferOnFailure, reports);
     }
     return true;
 }
 
 /** lifecycle lock 保持下で、破棄済み transport の socket を可能な限り回収する。 */
-u32 DrainOrphanedSocketsLocked(PendingWinsockFailureReports& reports) noexcept
+u32 DrainOrphanedSocketsLocked(FPendingWinsockFailureReports& reports) noexcept
 {
     u32 first_unresolved_error = 0;
     u32 index = 0;
     while (index < g_primary_orphaned_socket_count) {
-        const OrphanedSocketRecord record = g_primary_orphaned_sockets[index];
+        const FOrphanedSocketRecord record = g_primary_orphaned_sockets[index];
         if (!TryCloseOrphanedSocketLocked(record, first_unresolved_error, reports)) {
             ++index;
             continue;
@@ -514,9 +514,9 @@ u32 DrainOrphanedSocketsLocked(PendingWinsockFailureReports& reports) noexcept
         RemovePrimaryOrphanedSocketLocked(index);
     }
 
-    OverflowOrphanedSocketRecord** next_link = &g_overflow_orphaned_socket_head;
+    FOverflowOrphanedSocketRecord** next_link = &g_overflow_orphaned_socket_head;
     while (*next_link != nullptr) {
-        OverflowOrphanedSocketRecord* node = *next_link;
+        FOverflowOrphanedSocketRecord* node = *next_link;
         if (!TryCloseOrphanedSocketLocked(node->resource, first_unresolved_error, reports)) {
             next_link = &node->next;
             continue;
@@ -534,7 +534,7 @@ u32 DrainOrphanedSocketsLocked(PendingWinsockFailureReports& reports) noexcept
 }
 
 /** lifecycle lock 保持下で、共有所有の WSACleanup debt だけを再試行する。 */
-u32 RetryOrphanedWinsockCleanupLocked(PendingWinsockFailureReports& reports) noexcept
+u32 RetryOrphanedWinsockCleanupLocked(FPendingWinsockFailureReports& reports) noexcept
 {
     if (g_winsock_cleanup_error == 0) return 0;
     if (!g_winsock_cleanup_debt_orphaned) return g_winsock_cleanup_error;
@@ -567,48 +567,48 @@ u32 RetryOrphanedWinsockCleanupLocked(PendingWinsockFailureReports& reports) noe
 }
 
 /** 新しい WSA 参照を作れなかった段階。 */
-enum class WinsockAcquireFailure : u8 {
+enum class EWinsockAcquireFailure : u8 {
     None,
     Startup,
     DeferredCleanup,
 };
 
-struct WinsockAcquireResult {
+struct FWinsockAcquireResult {
     u32 error = 0;
-    WinsockAcquireFailure failure = WinsockAcquireFailure::None;
+    EWinsockAcquireFailure failure = EWinsockAcquireFailure::None;
 };
 
 /** lifecycle lock 保持下で、既存 debt を回収して新しい WSA 参照を作る。 */
-WinsockAcquireResult WsaStartupAddReferenceLocked(PendingWinsockFailureReports& reports) noexcept
+FWinsockAcquireResult WsaStartupAddReferenceLocked(FPendingWinsockFailureReports& reports) noexcept
 {
     const u32 orphaned_socket_error = DrainOrphanedSocketsLocked(reports);
     if (TotalOrphanedSocketCountLocked() != 0) {
         return {orphaned_socket_error != 0 ? orphaned_socket_error : static_cast<u32>(WSAEWOULDBLOCK),
-                WinsockAcquireFailure::DeferredCleanup};
+                EWinsockAcquireFailure::DeferredCleanup};
     }
     if (orphaned_socket_error != 0) {
-        return {orphaned_socket_error, WinsockAcquireFailure::DeferredCleanup};
+        return {orphaned_socket_error, EWinsockAcquireFailure::DeferredCleanup};
     }
 
     if (g_winsock_cleanup_error != 0) {
         // 生存 instance が所有する debt は、別 instance が回収して参照世代を奪ってはならない。
         if (!g_winsock_cleanup_debt_orphaned) {
-            return {g_winsock_cleanup_error, WinsockAcquireFailure::DeferredCleanup};
+            return {g_winsock_cleanup_error, EWinsockAcquireFailure::DeferredCleanup};
         }
 
         const u32 cleanup_error = RetryOrphanedWinsockCleanupLocked(reports);
-        if (cleanup_error != 0) return {cleanup_error, WinsockAcquireFailure::DeferredCleanup};
+        if (cleanup_error != 0) return {cleanup_error, EWinsockAcquireFailure::DeferredCleanup};
     }
 
     if (g_winsock_reference_count == ~u32{0}) {
-        return {static_cast<u32>(WSAEPROCLIM), WinsockAcquireFailure::Startup};
+        return {static_cast<u32>(WSAEPROCLIM), EWinsockAcquireFailure::Startup};
     }
 
     if (g_winsock_reference_count == 0) {
         WSADATA winsock_data{};
         const int startup_result = ::WSAStartup(MAKEWORD(2, 2), &winsock_data);
         if (startup_result != 0) {
-            return {static_cast<u32>(startup_result), WinsockAcquireFailure::Startup};
+            return {static_cast<u32>(startup_result), EWinsockAcquireFailure::Startup};
         }
     }
 
@@ -621,16 +621,16 @@ WinsockAcquireResult WsaStartupAddReferenceLocked(PendingWinsockFailureReports& 
  *
  * @return 成功、WSAStartup 失敗、既存 cleanup 失敗を区別した結果。
  */
-WinsockAcquireResult WsaStartupAddReference() noexcept
+FWinsockAcquireResult WsaStartupAddReference() noexcept
 {
-    PendingWinsockFailureReports reports{};
+    FPendingWinsockFailureReports reports{};
     bool had_deferred_resources = false;
     u32 remaining_socket_count = 0;
     u32 remaining_overflow_socket_count = 0;
     bool cleanup_debt_orphaned = false;
     ::AcquireSRWLockExclusive(&g_winsock_lifecycle_lock);
     had_deferred_resources = TotalOrphanedSocketCountLocked() != 0 || g_winsock_cleanup_debt_orphaned;
-    const WinsockAcquireResult result = WsaStartupAddReferenceLocked(reports);
+    const FWinsockAcquireResult result = WsaStartupAddReferenceLocked(reports);
     remaining_socket_count = TotalOrphanedSocketCountLocked();
     remaining_overflow_socket_count = g_overflow_orphaned_socket_count;
     cleanup_debt_orphaned = g_winsock_cleanup_debt_orphaned;
@@ -639,7 +639,7 @@ WinsockAcquireResult WsaStartupAddReference() noexcept
 
     if (had_deferred_resources) {
         const bool cleanup_pending = remaining_socket_count != 0 || cleanup_debt_orphaned;
-        if (!cleanup_pending && result.failure != WinsockAcquireFailure::DeferredCleanup) {
+        if (!cleanup_pending && result.failure != EWinsockAcquireFailure::DeferredCleanup) {
             EmitWinsockResourceState("deferred_cleanup_resolved", 0, "false", false, 0, 0, false);
         } else {
             EmitWinsockResourceState(cleanup_pending ? "deferred_cleanup_still_pending" : "deferred_cleanup_untracked",
@@ -651,11 +651,11 @@ WinsockAcquireResult WsaStartupAddReference() noexcept
 }
 
 /** WSAStartup の ref を 1 戻す (最後の解放で WSACleanup を呼ぶ)。 */
-WinsockReleaseResult WsaStartupReleaseReference() noexcept
+FWinsockReleaseResult WsaStartupReleaseReference() noexcept
 {
-    PendingWinsockFailureReports reports{};
+    FPendingWinsockFailureReports reports{};
     ::AcquireSRWLockExclusive(&g_winsock_lifecycle_lock);
-    const WinsockReleaseResult result = WsaStartupReleaseReferenceLocked(WinsockReleaseOwnership::RetainOnFailure,
+    const FWinsockReleaseResult result = WsaStartupReleaseReferenceLocked(EWinsockReleaseOwnership::RetainOnFailure,
                                                                          reports);
     ::ReleaseSRWLockExclusive(&g_winsock_lifecycle_lock);
     EmitWinsockResourceFailures(reports);
@@ -663,18 +663,18 @@ WinsockReleaseResult WsaStartupReleaseReference() noexcept
 }
 
 /** destructor が残した socket または cleanup debt を共有回収処理へ移す。 */
-struct WinsockOwnershipTransferResult {
+struct FWinsockOwnershipTransferResult {
     bool transferred = false;
     u32 orphaned_socket_count = 0;
     u32 overflow_orphaned_socket_count = 0;
     bool cleanup_debt_orphaned = false;
 };
 
-WinsockOwnershipTransferResult TransferWinsockOwnershipFromDestroyedTransport(SOCKET socket,
+FWinsockOwnershipTransferResult TransferWinsockOwnershipFromDestroyedTransport(SOCKET socket,
                                                                               bool owns_winsock_reference) noexcept
 {
-    WinsockOwnershipTransferResult result{};
-    PendingWinsockFailureReports reports{};
+    FWinsockOwnershipTransferResult result{};
+    FPendingWinsockFailureReports reports{};
     ::AcquireSRWLockExclusive(&g_winsock_lifecycle_lock);
 
     if (socket != INVALID_SOCKET) {
@@ -682,8 +682,8 @@ WinsockOwnershipTransferResult TransferWinsockOwnershipFromDestroyedTransport(SO
             g_primary_orphaned_sockets[g_primary_orphaned_socket_count++] = {socket, owns_winsock_reference};
             result.transferred = true;
         } else {
-            auto* overflow_record = static_cast<OverflowOrphanedSocketRecord*>(
-                ::VirtualAlloc(nullptr, sizeof(OverflowOrphanedSocketRecord), MEM_RESERVE | MEM_COMMIT,
+            auto* overflow_record = static_cast<FOverflowOrphanedSocketRecord*>(
+                ::VirtualAlloc(nullptr, sizeof(FOverflowOrphanedSocketRecord), MEM_RESERVE | MEM_COMMIT,
                                PAGE_READWRITE));
             if (overflow_record != nullptr) {
                 overflow_record->resource = {socket, owns_winsock_reference};
@@ -709,11 +709,66 @@ WinsockOwnershipTransferResult TransferWinsockOwnershipFromDestroyedTransport(SO
     return result;
 }
 
+/** u32 診断 counter を wrap させず飽和加算する。 */
+void SaturatingAdd(u32& value, u32 increment) noexcept
+{
+    value = increment > (~u32{0} - value) ? ~u32{0} : value + increment;
+}
+
+/** 公開 enum に未定義の role 値が渡されていないかを検証する。 */
+bool IsValidNetRole(ENetRole role) noexcept
+{
+    return role == ENetRole::Client || role == ENetRole::Server || role == ENetRole::ServerListener ||
+           role == ENetRole::Standalone;
+}
+
+/** 2つのbyte rangeが重なるかを、pointer加算overflowなしで判定する。 */
+bool ByteRangesOverlap(const void* first, u64 first_size, const void* second, u64 second_size) noexcept
+{
+    if (first == nullptr || second == nullptr || first_size == 0 || second_size == 0) return false;
+    const uptr first_begin = reinterpret_cast<uptr>(first);
+    const uptr second_begin = reinterpret_cast<uptr>(second);
+    const uptr first_end =
+        first_size > static_cast<u64>(~uptr{0} - first_begin) ? ~uptr{0} : first_begin + static_cast<uptr>(first_size);
+    const uptr second_end = second_size > static_cast<u64>(~uptr{0} - second_begin)
+                              ? ~uptr{0}
+                              : second_begin + static_cast<uptr>(second_size);
+    return first_begin < second_end && second_begin < first_end;
+}
+
+/**
+ * entity payload を最後まで preflight する。
+ *
+ * @details record は [entity_id][component_mask][data_size][data]。途中まで正しい
+ * prefix の後ろに trailing byte がある場合も非正規として拒否する。
+ */
+bool IsCanonicalEntityPayload(const u8* payload, u32 payload_size) noexcept
+{
+    constexpr u32 kEntityWireHeaderSize = 12u;
+    if (payload == nullptr) return payload_size == 0;
+
+    u64 offset = 0;
+    u32 entity_count = 0;
+    while (offset < payload_size) {
+        if (static_cast<u64>(payload_size) - offset < kEntityWireHeaderSize) return false;
+        const u8* record = payload + static_cast<usize>(offset);
+        const u32 entity_id = ReadU32LE(record);
+        const u32 data_size = ReadU32LE(record + 8u);
+        if (entity_id == 0 || data_size > kNetSnapshotMaximumPayloadBytes) return false;
+        offset += kEntityWireHeaderSize;
+        if (static_cast<u64>(data_size) > static_cast<u64>(payload_size) - offset) return false;
+        offset += data_size;
+        if (entity_count == kNetSnapshotMaximumPendingEntities) return false;
+        ++entity_count;
+    }
+    return offset == payload_size;
+}
+
 } // namespace
 
 namespace internal {
 
-bool ConfigureUdpTransportFailureInjectionForTesting(const UdpTransportFailureInjection& injection) noexcept
+bool ConfigureUdpTransportFailureInjectionForTesting(const FUdpTransportFailureInjection& injection) noexcept
 {
 #if !defined(ACS_GAMEFRAMEWORK_TEST_HOOKS)
     (void)injection;
@@ -779,37 +834,37 @@ bool ResetUdpTransportDiagnosticsForTesting() noexcept
 } // namespace internal
 
 /** 常に kSub_NotImplemented を返す (stub が本番に混入したケースを QA で検出可能に)。 */
-TResult<void> NetTransportStub::Connect(const char* address, u16 port) noexcept
+TResult<void> FNetTransportStub::Connect(const char* address, u16 port) noexcept
 {
     (void)address;
     (void)port;
-    return ACS_ERR(IO, NetSnapshotError::kSub_NotImplemented,
+    return ACS_ERR(IO, FNetSnapshotError::kSub_NotImplemented,
                    "INetTransport::Connect is not implemented "
                    "(stub: link a concrete transport implementation)");
 }
 
 /** never-connected なので no-op。 */
-void NetTransportStub::Disconnect() noexcept
+void FNetTransportStub::Disconnect() noexcept
 {
     // stub は never-connected。no-op で安全に通す。
 }
 
 /** 常に kSub_NotImplemented を返す。 */
-TResult<void> NetTransportStub::Send(const void* data, u32 size) noexcept
+TResult<void> FNetTransportStub::Send(const void* data, u32 size) noexcept
 {
     (void)data;
     (void)size;
-    return ACS_ERR(IO, NetSnapshotError::kSub_NotImplemented,
+    return ACS_ERR(IO, FNetSnapshotError::kSub_NotImplemented,
                    "INetTransport::Send is not implemented "
                    "(stub: link a concrete transport implementation)");
 }
 
 /** 常に kSub_NotImplemented を返す。 */
-TResult<u32> NetTransportStub::Receive(void* out_buffer, u32 capacity) noexcept
+TResult<u32> FNetTransportStub::Receive(void* out_buffer, u32 capacity) noexcept
 {
     (void)out_buffer;
     (void)capacity;
-    return ACS_ERR(IO, NetSnapshotError::kSub_NotImplemented,
+    return ACS_ERR(IO, FNetSnapshotError::kSub_NotImplemented,
                    "INetTransport::Receive is not implemented "
                    "(stub: link a concrete transport implementation)");
 }
@@ -817,7 +872,7 @@ TResult<u32> NetTransportStub::Receive(void* out_buffer, u32 capacity) noexcept
 /** プロセス共有の stub を返す (function-local static で thread-safe 初期化)。 */
 INetTransport& GetTransportStub() noexcept
 {
-    static NetTransportStub s_instance;
+    static FNetTransportStub s_instance;
     return s_instance;
 }
 
@@ -826,7 +881,7 @@ FUdpTransport::~FUdpTransport() noexcept
 {
     bool cleanup_outstanding = false;
     u32 cleanup_error = 0;
-    WinsockOwnershipTransferResult transfer_result{};
+    FWinsockOwnershipTransferResult transfer_result{};
     {
         FScopedLock state_lock(m_StateLock);
         cleanup_error = DisconnectLocked();
@@ -851,9 +906,9 @@ FUdpTransport::~FUdpTransport() noexcept
 }
 
 /** 全 FUdpTransport が共有する Winsock 資源状態を一貫した時点で取得する。 */
-UdpTransportDiagnostics FUdpTransport::CaptureDiagnostics() noexcept
+FUdpTransportDiagnostics FUdpTransport::CaptureDiagnostics() noexcept
 {
-    UdpTransportDiagnostics diagnostics{};
+    FUdpTransportDiagnostics diagnostics{};
     ::AcquireSRWLockShared(&g_winsock_lifecycle_lock);
     diagnostics.active_winsock_reference_count = g_winsock_reference_count;
     diagnostics.pending_cleanup_error = g_winsock_cleanup_error;
@@ -869,7 +924,7 @@ UdpTransportDiagnostics FUdpTransport::CaptureDiagnostics() noexcept
 /** 共有回収処理へ移された socket / WSA 参照を明示的に drain する。 */
 TResult<void> FUdpTransport::DrainDeferredResources() noexcept
 {
-    PendingWinsockFailureReports reports{};
+    FPendingWinsockFailureReports reports{};
     u32 first_error = 0;
     u32 remaining_socket_count = 0;
     u32 remaining_overflow_socket_count = 0;
@@ -903,7 +958,7 @@ TResult<void> FUdpTransport::DrainDeferredResources() noexcept
     EmitWinsockResourceState(cleanup_pending ? "deferred_cleanup_still_pending" : "deferred_cleanup_untracked",
                              reported_error, cleanup_pending ? "inconclusive" : "true", cleanup_pending,
                              remaining_socket_count, remaining_overflow_socket_count, cleanup_debt_orphaned);
-    return ACS_ERR_OS(IO, NetSnapshotError::kSub_CloseFailed,
+    return ACS_ERR_OS(IO, FNetSnapshotError::kSub_CloseFailed,
                       "FUdpTransport::DrainDeferredResources: deferred Winsock cleanup failed", reported_error);
 }
 
@@ -932,14 +987,14 @@ bool FUdpTransport::IsConnected() const noexcept
 TResult<void> FUdpTransport::Connect(const char* address, u16 port) noexcept
 {
     if (address == nullptr) {
-        return ACS_ERR(IO, NetSnapshotError::kSub_BadArgument, "FUdpTransport::Connect: address is null");
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument, "FUdpTransport::Connect: address is null");
     }
 
     // ---- remote endpoint の IPv4 dotted-quad を先に検証 (副作用前に弾く) ----
     // inet_pton で "127.0.0.1" 等を 4 octet に変換する。失敗 = 不正なアドレス。
     in_addr remote_in{};
     if (::inet_pton(AF_INET, address, &remote_in) != 1) {
-        return ACS_ERR(IO, NetSnapshotError::kSub_BadAddress,
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadAddress,
                        "FUdpTransport::Connect: address is not a valid IPv4 dotted-quad");
     }
 
@@ -949,21 +1004,21 @@ TResult<void> FUdpTransport::Connect(const char* address, u16 port) noexcept
     if (m_State != EState::Disconnected || m_Socket != kInvalidSocket || m_WsaStarted) {
         const u32 cleanup_error = DisconnectLocked();
         if (cleanup_error != 0) {
-            return ACS_ERR_OS(IO, NetSnapshotError::kSub_CloseFailed,
+            return ACS_ERR_OS(IO, FNetSnapshotError::kSub_CloseFailed,
                               "FUdpTransport::Connect: previous socket cleanup failed", cleanup_error);
         }
     }
     m_State = EState::Configuring;
 
     // ---- WSAStartup (ref-count、初回のみ実行) -----------------------------
-    const WinsockAcquireResult winsock_result = WsaStartupAddReference();
+    const FWinsockAcquireResult winsock_result = WsaStartupAddReference();
     if (winsock_result.error != 0) {
         m_State = EState::Disconnected;
-        if (winsock_result.failure == WinsockAcquireFailure::DeferredCleanup) {
-            return ACS_ERR_OS(IO, NetSnapshotError::kSub_CloseFailed,
+        if (winsock_result.failure == EWinsockAcquireFailure::DeferredCleanup) {
+            return ACS_ERR_OS(IO, FNetSnapshotError::kSub_CloseFailed,
                               "FUdpTransport::Connect: deferred Winsock cleanup failed", winsock_result.error);
         }
-        return ACS_ERR_OS(IO, NetSnapshotError::kSub_WsaStartup, "FUdpTransport::Connect: WSAStartup failed",
+        return ACS_ERR_OS(IO, FNetSnapshotError::kSub_WsaStartup, "FUdpTransport::Connect: WSAStartup failed",
                           winsock_result.error);
     }
     m_WsaStarted = true;
@@ -974,7 +1029,7 @@ TResult<void> FUdpTransport::Connect(const char* address, u16 port) noexcept
         const u32 socket_error = static_cast<u32>(::WSAGetLastError());
         m_State = EState::CleanupPending;
         (void)DisconnectLocked();
-        return ACS_ERR_OS(IO, NetSnapshotError::kSub_SocketCreate, "FUdpTransport::Connect: socket() failed",
+        return ACS_ERR_OS(IO, FNetSnapshotError::kSub_SocketCreate, "FUdpTransport::Connect: socket() failed",
                           socket_error);
     }
     // 以降の失敗でも ownership を失わないよう、構成完了前から内部状態へ記録する。
@@ -986,7 +1041,7 @@ TResult<void> FUdpTransport::Connect(const char* address, u16 port) noexcept
         const u32 socket_error = static_cast<u32>(::WSAGetLastError());
         m_State = EState::CleanupPending;
         (void)DisconnectLocked();
-        return ACS_ERR_OS(IO, NetSnapshotError::kSub_SetNonBlocking,
+        return ACS_ERR_OS(IO, FNetSnapshotError::kSub_SetNonBlocking,
                           "FUdpTransport::Connect: ioctlsocket(FIONBIO) failed", socket_error);
     }
 
@@ -1000,7 +1055,7 @@ TResult<void> FUdpTransport::Connect(const char* address, u16 port) noexcept
         const u32 socket_error = static_cast<u32>(::WSAGetLastError());
         m_State = EState::CleanupPending;
         (void)DisconnectLocked();
-        return ACS_ERR_OS(IO, NetSnapshotError::kSub_Bind, "FUdpTransport::Connect: bind() failed (local port in use?)",
+        return ACS_ERR_OS(IO, FNetSnapshotError::kSub_Bind, "FUdpTransport::Connect: bind() failed (local port in use?)",
                           socket_error);
     }
 
@@ -1038,7 +1093,7 @@ u32 FUdpTransport::DisconnectLocked() noexcept
     m_RemotePort = 0;
 
     if (m_WsaStarted) {
-        const WinsockReleaseResult release_result = WsaStartupReleaseReference();
+        const FWinsockReleaseResult release_result = WsaStartupReleaseReference();
         if (release_result.released) m_WsaStarted = false;
         if (first_error == 0) first_error = release_result.error;
         if (!release_result.released) {
@@ -1063,11 +1118,15 @@ TResult<void> FUdpTransport::Send(const void* data, u32 size) noexcept
 {
     FScopedLock state_lock(m_StateLock);
     if (m_State != EState::Established || m_Socket == kInvalidSocket) {
-        return ACS_ERR(IO, NetSnapshotError::kSub_NotConnected,
+        return ACS_ERR(IO, FNetSnapshotError::kSub_NotConnected,
                        "FUdpTransport::Send: not connected (call Connect first)");
     }
     if (data == nullptr || size == 0) {
-        return ACS_ERR(IO, NetSnapshotError::kSub_BadArgument, "FUdpTransport::Send: data is null or size == 0");
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument, "FUdpTransport::Send: data is null or size == 0");
+    }
+    if (size > kNetSnapshotMaximumUdpDatagramBytes) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_FrameTooLarge,
+                       "FUdpTransport::Send: datagram exceeds the IPv4 UDP payload limit");
     }
 
     sockaddr_in remote{};
@@ -1082,13 +1141,16 @@ TResult<void> FUdpTransport::Send(const void* data, u32 size) noexcept
         const int werr = ::WSAGetLastError();
         if (werr == WSAEWOULDBLOCK) {
             // 送信 buffer が一時的に満杯。BufferFull として上位に伝える。
-            return ACS_ERR(IO, NetSnapshotError::kSub_BufferFull,
+            return ACS_ERR(IO, FNetSnapshotError::kSub_BufferFull,
                            "FUdpTransport::Send: send buffer full (WSAEWOULDBLOCK)");
         }
-        return ACS_ERR_OS(IO, NetSnapshotError::kSub_SendFailed, "FUdpTransport::Send: sendto() failed",
+        return ACS_ERR_OS(IO, FNetSnapshotError::kSub_SendFailed, "FUdpTransport::Send: sendto() failed",
                           static_cast<u32>(werr));
     }
-    // UDP の sendto は datagram 全体を一度に送る (部分送信は起きない)。
+    if (sent < 0 || static_cast<u32>(sent) != size) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_TransportContractViolation,
+                       "FUdpTransport::Send: sendto() reported a partial datagram");
+    }
     return Ok();
 }
 
@@ -1097,28 +1159,41 @@ TResult<u32> FUdpTransport::Receive(void* out_buffer, u32 capacity) noexcept
 {
     FScopedLock state_lock(m_StateLock);
     if (m_State != EState::Established || m_Socket == kInvalidSocket) {
-        return ACS_ERR(IO, NetSnapshotError::kSub_NotConnected,
+        return ACS_ERR(IO, FNetSnapshotError::kSub_NotConnected,
                        "FUdpTransport::Receive: not connected (call Connect first)");
     }
     if (out_buffer == nullptr || capacity == 0) {
-        return ACS_ERR(IO, NetSnapshotError::kSub_BadArgument,
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument,
                        "FUdpTransport::Receive: out_buffer is null or capacity == 0");
     }
+    // IPv4 UDP datagram は 65,507 byte を超えない。caller がそれより大きい
+    // generic snapshot buffer を渡しても OS へ narrow する長さはここで制限する。
+    const u32 receive_capacity =
+        capacity < kNetSnapshotMaximumUdpDatagramBytes ? capacity : kNetSnapshotMaximumUdpDatagramBytes;
 
     sockaddr_in from{};
     int from_len = static_cast<int>(sizeof(from));
     const int got = ::recvfrom(static_cast<SOCKET>(m_Socket), static_cast<char*>(out_buffer),
-                               static_cast<int>(capacity), 0, reinterpret_cast<sockaddr*>(&from), &from_len);
+                               static_cast<int>(receive_capacity), 0, reinterpret_cast<sockaddr*>(&from), &from_len);
     if (got == SOCKET_ERROR) {
         const int werr = ::WSAGetLastError();
         if (werr == WSAEWOULDBLOCK) {
             // 受信データなし。0 byte の成功 (= Tick の pump ループ終了条件)。
             return TResult<u32>(OkInit, 0u);
         }
-        return ACS_ERR_OS(IO, NetSnapshotError::kSub_RecvFailed, "FUdpTransport::Receive: recvfrom() failed",
+        if (werr == WSAEMSGSIZE) {
+            return ACS_ERR_OS(IO, FNetSnapshotError::kSub_DatagramTruncated,
+                              "FUdpTransport::Receive: datagram exceeded receive capacity and was discarded",
+                              static_cast<u32>(werr));
+        }
+        return ACS_ERR_OS(IO, FNetSnapshotError::kSub_RecvFailed, "FUdpTransport::Receive: recvfrom() failed",
                           static_cast<u32>(werr));
     }
-    // got >= 0。0 byte datagram (空 UDP packet) もそのまま成功で返す。
+    if (got < 0 || static_cast<u32>(got) > receive_capacity ||
+        static_cast<u32>(got) > kNetSnapshotMaximumUdpDatagramBytes) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_TransportContractViolation,
+                       "FUdpTransport::Receive: recvfrom() returned a size outside the supplied capacity");
+    }
     return TResult<u32>(OkInit, static_cast<u32>(got));
 }
 
@@ -1149,28 +1224,40 @@ u32 FNetSnapshot::EncodedSnapshotSize(u32 payload_size) noexcept
 }
 
 /** header + payload を frame wire layout で out_buffer に直列化する (CRC を footer に付与)。 */
-TResult<void> FNetSnapshot::EncodeSnapshot(const SnapshotHeader& header, const u8* payload, u32 payload_size,
+TResult<void> FNetSnapshot::EncodeSnapshot(const FSnapshotHeader& header, const u8* payload, u32 payload_size,
                                            u8* out_buffer, u32 out_capacity, u32& out_written) noexcept
 {
     out_written = 0;
     if (out_buffer == nullptr) {
-        return ACS_ERR(IO, NetSnapshotError::kSub_NullBuffer, "FNetSnapshot::EncodeSnapshot: out_buffer is null");
+        return ACS_ERR(IO, FNetSnapshotError::kSub_NullBuffer, "FNetSnapshot::EncodeSnapshot: out_buffer is null");
     }
     // payload == nullptr は payload_size == 0 のときのみ許容。
     if (payload == nullptr && payload_size != 0) {
-        return ACS_ERR(IO, NetSnapshotError::kSub_BadArgument,
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument,
                        "FNetSnapshot::EncodeSnapshot: payload is null but size != 0");
     }
     // header.payload_size と引数 payload_size の不一致は wire 不整合の元なので拒否。
     if (header.payload_size != payload_size) {
-        return ACS_ERR(IO, NetSnapshotError::kSub_BadArgument,
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument,
                        "FNetSnapshot::EncodeSnapshot: header.payload_size != payload_size");
+    }
+    if (payload_size > kNetSnapshotMaximumPayloadBytes) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_FrameTooLarge,
+                       "FNetSnapshot::EncodeSnapshot: payload exceeds the product limit");
+    }
+    if (header.sequence == 0 || header.crc32 != 0) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_NonCanonicalHeader,
+                       "FNetSnapshot::EncodeSnapshot: sequence must be nonzero and header.crc32 must be zero");
     }
 
     const u32 required = EncodedSnapshotSize(payload_size);
     if (out_capacity < required) {
-        return ACS_ERR(IO, NetSnapshotError::kSub_BufferTooSmall,
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BufferTooSmall,
                        "FNetSnapshot::EncodeSnapshot: out_buffer too small for frame");
+    }
+    if (ByteRangesOverlap(payload, payload_size, out_buffer, required)) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument,
+                       "FNetSnapshot::EncodeSnapshot: payload must not overlap the output frame");
     }
 
     // ---- magic (4) + version (4) ----------------------------------------
@@ -1180,7 +1267,7 @@ TResult<void> FNetSnapshot::EncodeSnapshot(const SnapshotHeader& header, const u
     // ---- SnapshotHeader (24, crc32 フィールドは 0 で書き出す) -------------
     // crc32 は frame footer に置くため、CRC 計算対象に含まれる header 内
     // フィールドは 0 として扱う (= 自己参照を避ける)。
-    SnapshotHeader hdr = header;
+    FSnapshotHeader hdr = header;
     hdr.crc32 = 0;
     WriteHeader(out_buffer + kHeaderOffset, hdr);
 
@@ -1200,38 +1287,55 @@ TResult<void> FNetSnapshot::EncodeSnapshot(const SnapshotHeader& header, const u
 }
 
 /** frame bytes を magic / version / size / CRC32 で検証し、header + payload を復元する。 */
-TResult<void> FNetSnapshot::DecodeSnapshot(const u8* buffer, u32 size, SnapshotHeader& out_header,
+TResult<void> FNetSnapshot::DecodeSnapshot(const u8* buffer, u32 size, FSnapshotHeader& out_header,
                                            TArray<u8>& out_payload) noexcept
 {
     if (buffer == nullptr) {
-        return ACS_ERR(IO, NetSnapshotError::kSub_NullBuffer, "FNetSnapshot::DecodeSnapshot: buffer is null");
+        return ACS_ERR(IO, FNetSnapshotError::kSub_NullBuffer, "FNetSnapshot::DecodeSnapshot: buffer is null");
     }
     // ---- 最小サイズ (固定オーバーヘッド = payload 0 のケース) ------------
     if (size < kFrameFixedOverhead) {
-        return ACS_ERR(IO, NetSnapshotError::kSub_BadSize,
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadSize,
                        "FNetSnapshot::DecodeSnapshot: buffer smaller than frame overhead");
+    }
+    if (size > kFrameFixedOverhead + kNetSnapshotMaximumPayloadBytes) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_FrameTooLarge,
+                       "FNetSnapshot::DecodeSnapshot: frame exceeds the product limit");
+    }
+    if (ByteRangesOverlap(buffer, size, out_payload.Data(), out_payload.Capacity())) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument,
+                       "FNetSnapshot::DecodeSnapshot: input frame aliases output payload storage");
     }
     // ---- magic 検証 ------------------------------------------------------
     if (MemCmp(buffer, kFrameMagic, sizeof(kFrameMagic)) != 0) {
-        return ACS_ERR(IO, NetSnapshotError::kSub_BadMagic,
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadMagic,
                        "FNetSnapshot::DecodeSnapshot: magic mismatch (not an ACSN frame)");
     }
     // ---- version 検証 ----------------------------------------------------
     const u32 version = ReadU32LE(buffer + kVersionOffset);
     if (version != kFrameVersion) {
-        return ACS_ERR(IO, NetSnapshotError::kSub_BadVersion,
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadVersion,
                        "FNetSnapshot::DecodeSnapshot: unsupported frame version");
     }
 
     // ---- header 読み出し + payload_size とサイズの整合 -------------------
-    SnapshotHeader hdr{};
+    FSnapshotHeader hdr{};
     ReadHeader(buffer + kHeaderOffset, hdr);
+
+    if (hdr.sequence == 0 || hdr.crc32 != 0) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_NonCanonicalHeader,
+                       "FNetSnapshot::DecodeSnapshot: noncanonical sequence or reserved crc32 field");
+    }
+    if (hdr.payload_size > kNetSnapshotMaximumPayloadBytes) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_FrameTooLarge,
+                       "FNetSnapshot::DecodeSnapshot: declared payload exceeds the product limit");
+    }
 
     // payload_size + 固定オーバーヘッドが size と完全一致することを要求する。
     // u64 で計算して 32bit 加算オーバーフローを避ける。
     const u64 expected64 = static_cast<u64>(kFrameFixedOverhead) + static_cast<u64>(hdr.payload_size);
     if (expected64 != static_cast<u64>(size)) {
-        return ACS_ERR(IO, NetSnapshotError::kSub_BadSize,
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadSize,
                        "FNetSnapshot::DecodeSnapshot: payload_size inconsistent with buffer size");
     }
 
@@ -1242,13 +1346,15 @@ TResult<void> FNetSnapshot::DecodeSnapshot(const u8* buffer, u32 size, SnapshotH
     const u32 actual_crc = ComputeCrc32(buffer + kVersionOffset, crc_region_size);
     const u32 stored_crc = ReadU32LE(buffer + kPayloadOffset + hdr.payload_size);
     if (actual_crc != stored_crc) {
-        return ACS_ERR(IO, NetSnapshotError::kSub_BadCrc,
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadCrc,
                        "FNetSnapshot::DecodeSnapshot: CRC32 mismatch (corrupt or tampered)");
     }
 
     // ---- payload を復元 (置換) ------------------------------------------
-    out_payload.Clear();
-    out_payload.Resize(static_cast<usize>(hdr.payload_size));
+    if (!out_payload.TryResize(static_cast<usize>(hdr.payload_size))) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
+                       "FNetSnapshot::DecodeSnapshot: output payload allocation failed");
+    }
     if (hdr.payload_size > 0) {
         MemCopy(out_payload.Data(), buffer + kPayloadOffset, static_cast<usize>(hdr.payload_size));
     }
@@ -1260,43 +1366,65 @@ TResult<void> FNetSnapshot::DecodeSnapshot(const u8* buffer, u32 size, SnapshotH
 }
 
 /** 設定をコピーし ring buffer を確保する (Standalone 以外で nullptr transport は stub に差替)。 */
-void FNetSnapshot::Init(const NetSnapshotConfig& config, ENetRole role, INetTransport* transport) noexcept
+void FNetSnapshot::Init(const FNetSnapshotConfig& config, ENetRole role, INetTransport* transport) noexcept
 {
+    FNetSnapshotConfig normalized = config;
+    if (normalized.snapshot_rate_hz == 0) normalized.snapshot_rate_hz = 30;
+    if (normalized.snapshot_rate_hz > 1000u) normalized.snapshot_rate_hz = 1000u;
+    if (normalized.buffer_capacity_snapshots < 2u) normalized.buffer_capacity_snapshots = 2u;
+    if (normalized.buffer_capacity_snapshots > kNetSnapshotMaximumRingCapacity) {
+        normalized.buffer_capacity_snapshots = kNetSnapshotMaximumRingCapacity;
+    }
+    if (!(normalized.interpolation_delay_sec >= 0.0f && normalized.interpolation_delay_sec <= 60.0f)) {
+        normalized.interpolation_delay_sec = 0.1f;
+    }
+    if (normalized.max_payload_bytes == 0) normalized.max_payload_bytes = 1024u;
+    if (normalized.max_payload_bytes > kNetSnapshotMaximumPayloadBytes) {
+        normalized.max_payload_bytes = kNetSnapshotMaximumPayloadBytes;
+    }
+    if (!IsValidNetRole(role)) role = ENetRole::Standalone;
+    (void)TryInit(normalized, role, transport);
+}
+
+/** 設定と ring allocation が成功してから state を一括置換する checked 初期化。 */
+TResult<void> FNetSnapshot::TryInit(const FNetSnapshotConfig& config, ENetRole role,
+                                   INetTransport* transport) noexcept
+{
+    if (!IsValidNetRole(role) || config.snapshot_rate_hz == 0 || config.snapshot_rate_hz > 1000u ||
+        config.buffer_capacity_snapshots < 2u ||
+        config.buffer_capacity_snapshots > kNetSnapshotMaximumRingCapacity ||
+        !(config.interpolation_delay_sec >= 0.0f && config.interpolation_delay_sec <= 60.0f) ||
+        config.max_payload_bytes == 0 || config.max_payload_bytes > kNetSnapshotMaximumPayloadBytes) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_InvalidConfig,
+                       "FNetSnapshot::TryInit: config is outside the documented bounds");
+    }
+
+    TArray<FBufferedSnapshot> staged_ring;
+    if (!staged_ring.TryResize(static_cast<usize>(config.buffer_capacity_snapshots))) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
+                       "FNetSnapshot::TryInit: ring buffer allocation failed");
+    }
+
     m_Config = config;
     m_Role = role;
-
-    // buffer_capacity が 0 / 1 だと補間 (= 2 snapshot 必須) が成立しないため
-    // 最低 2 に丸める。max_payload_bytes が 0 の場合は 1KB に。
-    if (m_Config.buffer_capacity_snapshots < 2) {
-        m_Config.buffer_capacity_snapshots = 2;
-    }
-    if (m_Config.max_payload_bytes == 0) {
-        m_Config.max_payload_bytes = 1024;
-    }
-
-    // Standalone 以外で nullptr が渡されたら stub に差し替える (落ちないように)。
-    if (role == ENetRole::Standalone) {
-        m_Transport = transport; // nullptr 許容
-    } else {
-        m_Transport = (transport != nullptr) ? transport : &GetTransportStub();
-    }
-
-    // ring buffer を capacity 件で fixed-size 確保。各エントリの payload は
-    // 初期サイズ 0 (CommitSnapshot で書き込まれる際に Resize される)。
-    m_RingBuffer.Clear();
-    m_RingBuffer.Resize(static_cast<usize>(m_Config.buffer_capacity_snapshots));
-    m_RingHead = 0;
-    m_RingCount = 0;
-
+    m_Transport = role == ENetRole::Standalone
+                      ? transport
+                      : (transport != nullptr ? transport : &GetTransportStub());
+    m_RingBuffer = Move(staged_ring);
     m_PendingEntities.Clear();
     m_InterpScratch.Clear();
-
+    m_RingHead = 0;
+    m_RingCount = 0;
     m_NextSequence = 1;
     m_LastReceivedTick = 0;
     m_PacketsSent = 0;
     m_PacketsReceived = 0;
     m_BytesSent = 0;
     m_BytesReceived = 0;
+    m_PendingPayloadBytes = 0;
+    m_RejectedPackets = 0;
+    m_TransportContractViolations = 0;
+    return Ok();
 }
 
 /** ring buffer / pending / scratch を解放する (transport は外部所有なので触らない)。 */
@@ -1308,6 +1436,15 @@ void FNetSnapshot::Shutdown() noexcept
     m_RingHead = 0;
     m_RingCount = 0;
     m_Transport = nullptr;
+    m_PendingPayloadBytes = 0;
+    m_NextSequence = 1;
+    m_LastReceivedTick = 0;
+    m_PacketsSent = 0;
+    m_PacketsReceived = 0;
+    m_BytesSent = 0;
+    m_BytesReceived = 0;
+    m_RejectedPackets = 0;
+    m_TransportContractViolations = 0;
 }
 
 /** ring buffer に貯まっている snapshot 件数を返す。 */
@@ -1319,58 +1456,98 @@ u32 FNetSnapshot::BufferedSnapshotCount() const noexcept
 /** server 側で 1 entity 分の state を pending list にコピーして積む (Client/Standalone は no-op)。 */
 void FNetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask, const void* data, u32 data_size) noexcept
 {
-    // Client / Standalone は送信側ではないので no-op。
-    if (m_Role == ENetRole::Client || m_Role == ENetRole::Standalone) {
-        return;
+    (void)TryAddEntitySnapshot(entity_id, component_mask, data, data_size);
+}
+
+/** 失敗時に pending state を維持する entity 追加。 */
+TResult<void> FNetSnapshot::TryAddEntitySnapshot(u32 entity_id, u32 component_mask, const void* data,
+                                                u32 data_size) noexcept
+{
+    if (m_Role != ENetRole::Server && m_Role != ENetRole::ServerListener) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_WrongRole,
+                       "FNetSnapshot::TryAddEntitySnapshot: role is not a sender");
     }
-    // 不正な引数は黙ってスキップ (defensive、ベストエフォート方針)。
-    if (data == nullptr && data_size != 0) {
-        return;
+    if (entity_id == 0 || (data == nullptr && data_size != 0)) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument,
+                       "FNetSnapshot::TryAddEntitySnapshot: invalid entity id or data pointer");
+    }
+    const u64 next_payload_size = static_cast<u64>(m_PendingPayloadBytes) + kEntityHeaderSize + data_size;
+    if (m_PendingEntities.Size() >= kNetSnapshotMaximumPendingEntities ||
+        next_payload_size > m_Config.max_payload_bytes) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_PendingLimit,
+                       "FNetSnapshot::TryAddEntitySnapshot: pending snapshot limit exceeded");
     }
 
-    PendingEntity pe;
+    FPendingEntity pe{};
     pe.entity_id = entity_id;
     pe.component_mask = component_mask;
+    if (data_size > 0 && !pe.data.TryResize(static_cast<usize>(data_size))) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
+                       "FNetSnapshot::TryAddEntitySnapshot: component allocation failed");
+    }
     if (data_size > 0) {
-        pe.data.Resize(static_cast<usize>(data_size));
         MemCopy(pe.data.Data(), data, data_size);
     }
-    m_PendingEntities.PushBack(Move(pe));
+    if (!m_PendingEntities.TryPushBack(Move(pe))) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
+                       "FNetSnapshot::TryAddEntitySnapshot: pending list allocation failed");
+    }
+    m_PendingPayloadBytes = static_cast<u32>(next_payload_size);
+    return Ok();
 }
 
 /** pending list を 1 payload に concat し、frame を構築して best-effort 送信する。 */
 void FNetSnapshot::CommitSnapshot(u32 tick) noexcept
 {
-    // 役割チェック。Client / Standalone は no-op。
-    if (m_Role == ENetRole::Client || m_Role == ENetRole::Standalone) {
+    if (TryCommitSnapshot(tick).IsErr()) {
+        // 互換 API は従来どおり best-effort で 1 tick 分を消費する。
         m_PendingEntities.Clear();
-        return;
+        m_PendingPayloadBytes = 0;
+    }
+}
+
+/** state を成功時だけ commit する checked snapshot 送信。 */
+TResult<void> FNetSnapshot::TryCommitSnapshot(u32 tick) noexcept
+{
+    if (m_Role != ENetRole::Server && m_Role != ENetRole::ServerListener) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_WrongRole,
+                       "FNetSnapshot::TryCommitSnapshot: role is not a sender");
     }
     if (m_Transport == nullptr) {
-        m_PendingEntities.Clear();
-        return;
+        return ACS_ERR(IO, FNetSnapshotError::kSub_NotConnected,
+                       "FNetSnapshot::TryCommitSnapshot: transport is null");
+    }
+    if (m_PendingPayloadBytes > m_Config.max_payload_bytes ||
+        m_PendingPayloadBytes > kNetSnapshotMaximumPayloadBytes ||
+        m_PendingEntities.Size() > kNetSnapshotMaximumPendingEntities) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_PendingLimit,
+                       "FNetSnapshot::TryCommitSnapshot: pending state exceeds configured bounds");
     }
 
-    // payload バイト数を見積もる。
-    //   per-entity = kEntityHeaderSize (12) + data_size
-    usize payload_size = 0;
+    u64 verified_payload_size = 0;
     const usize n_ent = m_PendingEntities.Size();
     for (usize i = 0; i < n_ent; ++i) {
-        payload_size += static_cast<usize>(kEntityHeaderSize) + static_cast<usize>(m_PendingEntities[i].data.Size());
+        const usize data_size = m_PendingEntities[i].data.Size();
+        if (data_size > ~u32{0}) {
+            return ACS_ERR(IO, FNetSnapshotError::kSub_BadEntityPayload,
+                           "FNetSnapshot::TryCommitSnapshot: entity payload exceeds wire integer range");
+        }
+        verified_payload_size += static_cast<u64>(kEntityHeaderSize) + data_size;
     }
-    if (payload_size > static_cast<usize>(m_Config.max_payload_bytes)) {
-        // 上限超過。interest management / 分割送信は本クラスの範囲外なので skip。
-        m_PendingEntities.Clear();
-        return;
+    if (verified_payload_size != m_PendingPayloadBytes) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_BadEntityPayload,
+                       "FNetSnapshot::TryCommitSnapshot: pending payload accounting mismatch");
     }
 
-    // payload を per-entity layout で 1 本に concat する。
     TArray<u8> payload_buf;
-    payload_buf.Resize(payload_size);
+    if (!payload_buf.TryResize(static_cast<usize>(m_PendingPayloadBytes))) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
+                       "FNetSnapshot::TryCommitSnapshot: payload allocation failed");
+    }
     u8* payload_ptr = payload_buf.Data();
     usize off = 0;
     for (usize i = 0; i < n_ent; ++i) {
-        const PendingEntity& pe = m_PendingEntities[i];
+        const FPendingEntity& pe = m_PendingEntities[i];
         const u32 data_size = static_cast<u32>(pe.data.Size());
         WriteU32LE(payload_ptr + off + 0, pe.entity_id);
         WriteU32LE(payload_ptr + off + 4, pe.component_mask);
@@ -1382,123 +1559,155 @@ void FNetSnapshot::CommitSnapshot(u32 tick) noexcept
     }
 
     // header を構築。crc32 は EncodeSnapshot が footer に計算して書き込む。
-    SnapshotHeader hdr;
+    FSnapshotHeader hdr;
     hdr.tick = tick;
     hdr.sequence = m_NextSequence;
     hdr.server_timestamp_us = 0; // タイムスタンプ source の wire 化は caller 責務
-    hdr.payload_size = static_cast<u32>(payload_size);
+    hdr.payload_size = m_PendingPayloadBytes;
     hdr.crc32 = 0;
 
-    // frame bytes = magic+version+header+payload+crc32 を 1 本にまとめる
-    // (Send 1 回で送信)。EncodeSnapshot が real CRC を計算する。
     TArray<u8> wire_buf;
-    const u32 frame_size = EncodedSnapshotSize(static_cast<u32>(payload_size));
-    wire_buf.Resize(static_cast<usize>(frame_size));
+    const u32 frame_size = EncodedSnapshotSize(m_PendingPayloadBytes);
+    if (!wire_buf.TryResize(static_cast<usize>(frame_size))) {
+        return ACS_ERR(IO, FNetSnapshotError::kSub_AllocationFailed,
+                       "FNetSnapshot::TryCommitSnapshot: frame allocation failed");
+    }
     u32 written = 0;
-    TResult<void> enc = EncodeSnapshot(hdr, payload_ptr, static_cast<u32>(payload_size), wire_buf.Data(), frame_size,
-                                       written);
+    TResult<void> enc =
+        EncodeSnapshot(hdr, payload_ptr, m_PendingPayloadBytes, wire_buf.Data(), frame_size, written);
     if (enc.IsErr()) {
-        // 直列化に失敗したら send せず skip (ベストエフォート)。
-        m_PendingEntities.Clear();
-        return;
+        return enc;
     }
 
-    // 送信 (best-effort)。失敗してもクラッシュさせず、統計だけ更新しない。
-    TResult<void> r = m_Transport->Send(wire_buf.Data(), written);
-    if (r.IsOk()) {
-        ++m_PacketsSent;
-        m_BytesSent += written;
-        ++m_NextSequence;
-        if (m_NextSequence == 0) {
-            m_NextSequence = 1; // 0 は invalid 値として予約
-        }
-
-        // ServerListener は host が自分の画面用に補間も使うため、自分が
-        // commit した snapshot を ring buffer にも積む (loopback)。送信した
-        // frame を DecodeSnapshot で復元することで、受信経路と同じ検証 (CRC 等)
-        // を通した上で ring buffer に積む (= encode/decode の round-trip 検証)。
-        if (m_Role == ENetRole::ServerListener) {
-            const u32 idx = m_RingHead;
-            BufferedSnapshot& slot = m_RingBuffer[static_cast<usize>(idx)];
-            SnapshotHeader decoded{};
-            TResult<void> dec = DecodeSnapshot(wire_buf.Data(), written, decoded, slot.payload);
-            if (dec.IsOk()) {
-                slot.header = decoded;
-                m_RingHead = (m_RingHead + 1u) % m_Config.buffer_capacity_snapshots;
-                if (m_RingCount < m_Config.buffer_capacity_snapshots) {
-                    ++m_RingCount;
-                }
-                m_LastReceivedTick = decoded.tick;
-            }
+    FSnapshotHeader loopback_header{};
+    TArray<u8> loopback_payload;
+    if (m_Role == ENetRole::ServerListener) {
+        TResult<void> dec = DecodeSnapshot(wire_buf.Data(), written, loopback_header, loopback_payload);
+        if (dec.IsErr()) return dec;
+        if (!IsCanonicalEntityPayload(loopback_payload.Data(), static_cast<u32>(loopback_payload.Size()))) {
+            return ACS_ERR(IO, FNetSnapshotError::kSub_BadEntityPayload,
+                           "FNetSnapshot::TryCommitSnapshot: generated entity payload is noncanonical");
         }
     }
 
-    // pending list は成否によらずクリア (= 次 tick の AddEntitySnapshot は
-    // 必ず空 list から積み直す)。
+    TResult<void> sent = m_Transport->Send(wire_buf.Data(), written);
+    if (sent.IsErr()) return sent;
+
+    SaturatingAdd(m_PacketsSent, 1u);
+    SaturatingAdd(m_BytesSent, written);
+    ++m_NextSequence;
+    if (m_NextSequence == 0) m_NextSequence = 1;
+
+    if (m_Role == ENetRole::ServerListener) {
+        const u32 idx = m_RingHead;
+        FBufferedSnapshot& slot = m_RingBuffer[static_cast<usize>(idx)];
+        slot.header = loopback_header;
+        slot.payload = Move(loopback_payload);
+        m_RingHead = (m_RingHead + 1u) % m_Config.buffer_capacity_snapshots;
+        if (m_RingCount < m_Config.buffer_capacity_snapshots) ++m_RingCount;
+        m_LastReceivedTick = loopback_header.tick;
+    }
+
     m_PendingEntities.Clear();
+    m_PendingPayloadBytes = 0;
+    return Ok();
 }
 
 /** transport.Receive を pump し、検証成功した snapshot を ring buffer に積む。 */
 void FNetSnapshot::Tick(f32 dt) noexcept
 {
-    (void)dt;
+    (void)TryTick(dt);
+}
 
-    // Server (listen 非搭載) は受信側を持たないので何もしない。
-    // Client / ServerListener / Standalone は (transport があれば) 受信する。
+/** message 単位で完全検証後に ring へ commit する checked receive pump。 */
+FNetSnapshotTickResult FNetSnapshot::TryTick(f32 dt) noexcept
+{
+    (void)dt;
+    FNetSnapshotTickResult result{};
+
     if (m_Role == ENetRole::Server) {
-        return;
+        result.stop_subcode = FNetSnapshotError::kSub_WrongRole;
+        return result;
     }
     if (m_Transport == nullptr) {
-        return;
+        if (m_Role != ENetRole::Standalone) result.stop_subcode = FNetSnapshotError::kSub_NotConnected;
+        return result;
+    }
+    if (m_Config.max_payload_bytes == 0 || m_Config.max_payload_bytes > kNetSnapshotMaximumPayloadBytes ||
+        m_Config.buffer_capacity_snapshots < 2u ||
+        m_Config.buffer_capacity_snapshots > kNetSnapshotMaximumRingCapacity ||
+        m_RingBuffer.Size() != m_Config.buffer_capacity_snapshots) {
+        result.stop_subcode = FNetSnapshotError::kSub_InvalidConfig;
+        return result;
     }
 
-    // 受信用一時 buffer。1 frame 最大長 = 固定オーバーヘッド + max_payload_bytes。
     const u32 cap = kFrameFixedOverhead + m_Config.max_payload_bytes;
     TArray<u8> rx_buf;
-    rx_buf.Resize(static_cast<usize>(cap));
+    if (!rx_buf.TryResize(static_cast<usize>(cap))) {
+        result.stop_subcode = FNetSnapshotError::kSub_AllocationFailed;
+        return result;
+    }
 
-    // 1 Tick で取りきる安全上限 (transport が壊れてループが終わらない事故予防)。
-    // ring buffer 容量の 2 倍を上限としておく (古い snapshot は捨てる流儀)。
-    const u32 max_iters = m_Config.buffer_capacity_snapshots * 2u;
+    u32 max_iters = m_Config.buffer_capacity_snapshots * 2u;
+    if (max_iters > kNetSnapshotMaximumReceivesPerTick) max_iters = kNetSnapshotMaximumReceivesPerTick;
     for (u32 iter = 0; iter < max_iters; ++iter) {
         TResult<u32> r = m_Transport->Receive(rx_buf.Data(), cap);
         if (r.IsErr()) {
-            // 受信エラーは loss と等価扱い。次 Tick で再試行。
+            result.stop_subcode = r.Error().subcode != 0 ? r.Error().subcode : FNetSnapshotError::kSub_RecvFailed;
             break;
         }
         const u32 got = r.Value();
         if (got == 0) {
-            // データなし。受信側 pump 完了。
+            break;
+        }
+        if (got > cap) {
+            SaturatingAdd(m_TransportContractViolations, 1u);
+            SaturatingAdd(m_RejectedPackets, 1u);
+            SaturatingAdd(result.rejected_messages, 1u);
+            result.last_rejected_subcode = FNetSnapshotError::kSub_TransportContractViolation;
+            result.stop_subcode = FNetSnapshotError::kSub_TransportContractViolation;
             break;
         }
 
-        // ring buffer の挿入先 slot に直接 decode する (payload を slot に複製)。
-        // FIFO で最古を上書きするため、検証成功時にのみ head を進める。
-        const u32 idx = m_RingHead;
-        BufferedSnapshot& slot = m_RingBuffer[static_cast<usize>(idx)];
-        SnapshotHeader hdr{};
-        TResult<void> dec = DecodeSnapshot(rx_buf.Data(), got, hdr, slot.payload);
+        SaturatingAdd(result.received_messages, 1u);
+        result.received_bytes += got;
+        SaturatingAdd(m_PacketsReceived, 1u);
+        SaturatingAdd(m_BytesReceived, got);
+
+        TArray<u8> staged_payload;
+        FSnapshotHeader hdr{};
+        TResult<void> dec = DecodeSnapshot(rx_buf.Data(), got, hdr, staged_payload);
         if (dec.IsErr()) {
-            // magic / version / size / CRC のいずれかで弾かれた frame。破棄して
-            // 統計にだけ載せる (= 破損 / 非互換 / 改竄パケットは ring に積まない)。
-            ++m_PacketsReceived;
-            m_BytesReceived += got;
+            SaturatingAdd(result.rejected_messages, 1u);
+            SaturatingAdd(m_RejectedPackets, 1u);
+            result.last_rejected_subcode = dec.Error().subcode;
+            if (dec.Error().subcode == FNetSnapshotError::kSub_AllocationFailed) {
+                result.stop_subcode = FNetSnapshotError::kSub_AllocationFailed;
+                break;
+            }
+            continue;
+        }
+        if (!IsCanonicalEntityPayload(staged_payload.Data(), static_cast<u32>(staged_payload.Size()))) {
+            SaturatingAdd(result.rejected_messages, 1u);
+            SaturatingAdd(m_RejectedPackets, 1u);
+            result.last_rejected_subcode = FNetSnapshotError::kSub_BadEntityPayload;
             continue;
         }
 
+        const u32 idx = m_RingHead;
+        FBufferedSnapshot& slot = m_RingBuffer[static_cast<usize>(idx)];
         slot.header = hdr;
+        slot.payload = Move(staged_payload);
         m_RingHead = (m_RingHead + 1u) % m_Config.buffer_capacity_snapshots;
-        if (m_RingCount < m_Config.buffer_capacity_snapshots) {
-            ++m_RingCount;
-        }
+        if (m_RingCount < m_Config.buffer_capacity_snapshots) ++m_RingCount;
         m_LastReceivedTick = hdr.tick;
-        ++m_PacketsReceived;
-        m_BytesReceived += got;
+        SaturatingAdd(result.accepted_snapshots, 1u);
     }
+    return result;
 }
 
 /** 最新 snapshot を payload walk して EntitySnapshot view に流す (float lerp は未実装)。 */
-bool FNetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec, EntitySnapshot* out_snapshots, u32 max_count,
+bool FNetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec, FEntitySnapshot* out_snapshots, u32 max_count,
                                               u32& out_actual_count) noexcept
 {
     out_actual_count = 0;
@@ -1518,7 +1727,7 @@ bool FNetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec, EntitySnapsho
     // インクリメントするので、最新エントリは (m_RingHead - 1) % capacity。
     const u32 cap = m_Config.buffer_capacity_snapshots;
     const u32 newest_idx = (m_RingHead + cap - 1u) % cap;
-    const BufferedSnapshot& newest = m_RingBuffer[static_cast<usize>(newest_idx)];
+    const FBufferedSnapshot& newest = m_RingBuffer[static_cast<usize>(newest_idx)];
 
     // target_seq: client_time_sec を秒として持つが、実時刻軸はまだ wire format
     // に乗っていない (server_timestamp_us は 0 固定)。よって本実装では「最新
@@ -1531,9 +1740,14 @@ bool FNetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec, EntitySnapsho
     // 現状 client_time_sec は受け取るだけで使わない (API 後方互換のため)。
     (void)client_time_sec;
 
-    const SnapshotHeader& hdr = newest.header;
+    const FSnapshotHeader& hdr = newest.header;
     const u8* payload_ptr = newest.payload.Data();
+    if (newest.payload.Size() > kNetSnapshotMaximumPayloadBytes ||
+        newest.payload.Size() != static_cast<usize>(hdr.payload_size)) {
+        return false;
+    }
     const u32 payload_size = static_cast<u32>(newest.payload.Size());
+    if (!IsCanonicalEntityPayload(payload_ptr, payload_size)) return false;
 
     // payload を per-entity wire format で walk して EntitySnapshot に流す。
     // out_snapshots の component_data は ring buffer の payload を直接指す
@@ -1554,7 +1768,7 @@ bool FNetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec, EntitySnapsho
             break;
         }
 
-        EntitySnapshot& dst = out_snapshots[emitted];
+        FEntitySnapshot& dst = out_snapshots[emitted];
         dst.entity_id = entity_id;
         dst.component_mask = component_mask;
         dst.component_data = (data_size > 0) ? static_cast<const void*>(payload_ptr + off + kEntityHeaderSize)

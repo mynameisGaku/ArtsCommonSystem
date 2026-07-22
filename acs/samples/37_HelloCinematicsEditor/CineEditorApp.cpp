@@ -11,7 +11,7 @@ using namespace acs::game;
 
 namespace hellocine {
 
-void CineEditorApp::OnStart() noexcept {
+void FCineEditorApp::OnStart() noexcept {
     // ImGui を FWindow + FRenderer に紐付け。失敗時は早期 Quit。
     if (auto r = m_Imgui.Init(GetWindow(), GetRenderer()); r.IsErr()) {
         ACS_LOG_ERROR("[CineEditorApp] ImGuiCtx.Init failed -> Quit");
@@ -22,7 +22,7 @@ void CineEditorApp::OnStart() noexcept {
     FGame::OnStart();
 }
 
-void CineEditorApp::OnRender() noexcept {
+void FCineEditorApp::OnRender() noexcept {
     // ImGui フレーム開始 → Scene::OnRender で ImGui::* が呼ばれる →
     // ImGui の描画コマンドをコマンドリストに発行、の順。
     m_Imgui.NewFrame();
@@ -30,20 +30,20 @@ void CineEditorApp::OnRender() noexcept {
     m_Imgui.Render();
 }
 
-void CineEditorApp::OnShutdown() noexcept {
+void FCineEditorApp::OnShutdown() noexcept {
     // Scene 側を先に止めてから ImGui を落とす (Scene が ImGui::* を握って
     // ないことを保証)。
     FGame::OnShutdown();
     m_Imgui.Shutdown();
 }
 
-void CineEditorApp::OnEvent(const Event& e) noexcept {
+void FCineEditorApp::OnEvent(const FEvent& e) noexcept {
     m_Imgui.OnEvent(e);
     FGame::OnEvent(e);
 }
 
-TUniquePtr<Scene> CineEditorApp::InitialScene() noexcept {
-    return MakeUnique<CineEditorScene>();
+TUniquePtr<FScene> FCineEditorApp::InitialScene() noexcept {
+    return MakeUnique<FCineEditorScene>();
 }
 
 } // namespace hellocine

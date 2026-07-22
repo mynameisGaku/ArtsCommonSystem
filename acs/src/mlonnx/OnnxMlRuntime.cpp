@@ -156,7 +156,7 @@ struct FOnnxMlRuntime::FImpl {
     acs::u64           m_NextId = 1;
     bool               m_bInitialized = false;
 
-    FModel* Find(acs::game::MlModelHandle h) noexcept {
+    FModel* Find(acs::game::FMlModelHandle h) noexcept {
         if (!h.IsValid()) return nullptr;
         for (acs::u32 i = 0; i < kMaxModels; ++i) {
             if (m_Models[i].m_bUsed && m_Models[i].m_Id == h.m_Opaque) {
@@ -247,13 +247,13 @@ void FOnnxMlRuntime::Shutdown() noexcept {
     m_Impl->m_bInitialized = false;
 }
 
-TResult<game::MlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) noexcept {
+TResult<game::FMlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) noexcept {
     if (!m_Impl || !m_Impl->m_bInitialized) {
-        return TResult<game::MlModelHandle>(ACS_ERR(Generic, game::ml_err::kSub_NotImplemented,
+        return TResult<game::FMlModelHandle>(ACS_ERR(Generic, game::ml_err::kSub_NotImplemented,
             "FOnnxMlRuntime::LoadModel called before Init"));
     }
     if (!model_path || model_path[0] == 0) {
-        return TResult<game::MlModelHandle>(ACS_ERR(Generic, game::ml_err::kSub_InvalidArg,
+        return TResult<game::FMlModelHandle>(ACS_ERR(Generic, game::ml_err::kSub_InvalidArg,
             "model_path is null or empty"));
     }
 
@@ -265,12 +265,12 @@ TResult<game::MlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) n
         }
     }
     if (!slot) {
-        return TResult<game::MlModelHandle>(ACS_ERR(Generic, kSubOrtPoolFull, "ONNX model pool full"));
+        return TResult<game::FMlModelHandle>(ACS_ERR(Generic, kSubOrtPoolFull, "ONNX model pool full"));
     }
 
     wchar_t wpath[MAX_PATH] = {};
     if (!Utf8ToWide(model_path, wpath, static_cast<acs::u32>(MAX_PATH))) {
-        return TResult<game::MlModelHandle>(ACS_ERR(Generic, game::ml_err::kSub_InvalidArg,
+        return TResult<game::FMlModelHandle>(ACS_ERR(Generic, game::ml_err::kSub_InvalidArg,
             "model_path UTF-8 conversion failed"));
     }
 
@@ -280,7 +280,7 @@ TResult<game::MlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) n
             OrtStatusToResult(api, api.CreateSession(m_Impl->m_Env, wpath, m_Impl->m_SessionOptions, &session.value),
                               kSubOrtLoadFailed, "CreateSession failed");
         result.IsErr()) {
-        return TResult<game::MlModelHandle>(result.Error());
+        return TResult<game::FMlModelHandle>(result.Error());
     }
 
     size_t input_count = 0;
@@ -288,15 +288,15 @@ TResult<game::MlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) n
     if (auto result = OrtStatusToResult(api, api.SessionGetInputCount(session.value, &input_count), kSubOrtLoadFailed,
                                         "SessionGetInputCount failed");
         result.IsErr()) {
-        return TResult<game::MlModelHandle>(result.Error());
+        return TResult<game::FMlModelHandle>(result.Error());
     }
     if (auto result = OrtStatusToResult(api, api.SessionGetOutputCount(session.value, &output_count), kSubOrtLoadFailed,
                                         "SessionGetOutputCount failed");
         result.IsErr()) {
-        return TResult<game::MlModelHandle>(result.Error());
+        return TResult<game::FMlModelHandle>(result.Error());
     }
     if (input_count != 1 || output_count != 1) {
-        return TResult<game::MlModelHandle>(ACS_ERR(Generic, kSubOrtShapeMismatch,
+        return TResult<game::FMlModelHandle>(ACS_ERR(Generic, kSubOrtShapeMismatch,
             "Only 1-input/1-output ONNX models are supported by this seam"));
     }
 
@@ -306,16 +306,16 @@ TResult<game::MlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) n
             OrtStatusToResult(api, api.SessionGetInputName(session.value, 0, m_Impl->m_Allocator, &input_name.value),
                               kSubOrtLoadFailed, "SessionGetInputName failed");
         result.IsErr()) {
-        return TResult<game::MlModelHandle>(result.Error());
+        return TResult<game::FMlModelHandle>(result.Error());
     }
     if (auto result =
             OrtStatusToResult(api, api.SessionGetOutputName(session.value, 0, m_Impl->m_Allocator, &output_name.value),
                               kSubOrtLoadFailed, "SessionGetOutputName failed");
         result.IsErr()) {
-        return TResult<game::MlModelHandle>(result.Error());
+        return TResult<game::FMlModelHandle>(result.Error());
     }
     if (input_name.value == nullptr || output_name.value == nullptr) {
-        return TResult<game::MlModelHandle>(
+        return TResult<game::FMlModelHandle>(
             ACS_ERR(Generic, kSubOrtLoadFailed, "ONNX Runtime returned a null input or output name"));
     }
 
@@ -324,12 +324,12 @@ TResult<game::MlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) n
     if (auto result = OrtStatusToResult(api, api.SessionGetInputTypeInfo(session.value, 0, &input_type.value),
                                         kSubOrtLoadFailed, "SessionGetInputTypeInfo failed");
         result.IsErr()) {
-        return TResult<game::MlModelHandle>(result.Error());
+        return TResult<game::FMlModelHandle>(result.Error());
     }
     if (auto result = OrtStatusToResult(api, api.SessionGetOutputTypeInfo(session.value, 0, &output_type.value),
                                         kSubOrtLoadFailed, "SessionGetOutputTypeInfo failed");
         result.IsErr()) {
-        return TResult<game::MlModelHandle>(result.Error());
+        return TResult<game::FMlModelHandle>(result.Error());
     }
 
     const OrtTensorTypeAndShapeInfo* input_tensor = nullptr;
@@ -337,15 +337,15 @@ TResult<game::MlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) n
     if (auto result = OrtStatusToResult(api, api.CastTypeInfoToTensorInfo(input_type.value, &input_tensor),
                                         kSubOrtShapeMismatch, "Input is not a tensor");
         result.IsErr()) {
-        return TResult<game::MlModelHandle>(result.Error());
+        return TResult<game::FMlModelHandle>(result.Error());
     }
     if (auto result = OrtStatusToResult(api, api.CastTypeInfoToTensorInfo(output_type.value, &output_tensor),
                                         kSubOrtShapeMismatch, "Output is not a tensor");
         result.IsErr()) {
-        return TResult<game::MlModelHandle>(result.Error());
+        return TResult<game::FMlModelHandle>(result.Error());
     }
     if (input_tensor == nullptr || output_tensor == nullptr) {
-        return TResult<game::MlModelHandle>(
+        return TResult<game::FMlModelHandle>(
             ACS_ERR(Generic, kSubOrtShapeMismatch, "ONNX input or output is not a tensor"));
     }
 
@@ -354,15 +354,15 @@ TResult<game::MlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) n
     if (auto result = OrtStatusToResult(api, api.GetDimensionsCount(input_tensor, &input_rank), kSubOrtLoadFailed,
                                         "Get input dimensions count failed");
         result.IsErr()) {
-        return TResult<game::MlModelHandle>(result.Error());
+        return TResult<game::FMlModelHandle>(result.Error());
     }
     if (auto result = OrtStatusToResult(api, api.GetDimensionsCount(output_tensor, &output_rank), kSubOrtLoadFailed,
                                         "Get output dimensions count failed");
         result.IsErr()) {
-        return TResult<game::MlModelHandle>(result.Error());
+        return TResult<game::FMlModelHandle>(result.Error());
     }
     if (input_rank > 8 || output_rank > 8) {
-        return TResult<game::MlModelHandle>(ACS_ERR(Generic, kSubOrtShapeMismatch,
+        return TResult<game::FMlModelHandle>(ACS_ERR(Generic, kSubOrtShapeMismatch,
             "ONNX tensor rank exceeds ACS fixed limit"));
     }
 
@@ -371,12 +371,12 @@ TResult<game::MlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) n
     if (auto result = OrtStatusToResult(api, api.GetDimensions(input_tensor, input_shape, input_rank),
                                         kSubOrtLoadFailed, "Get input dimensions failed");
         result.IsErr()) {
-        return TResult<game::MlModelHandle>(result.Error());
+        return TResult<game::FMlModelHandle>(result.Error());
     }
     if (auto result = OrtStatusToResult(api, api.GetDimensions(output_tensor, output_shape, output_rank),
                                         kSubOrtLoadFailed, "Get output dimensions failed");
         result.IsErr()) {
-        return TResult<game::MlModelHandle>(result.Error());
+        return TResult<game::FMlModelHandle>(result.Error());
     }
 
     // ここまで全検証に成功してからスロットへ所有権とメタデータを確定する。
@@ -405,10 +405,10 @@ TResult<game::MlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) n
     slot->m_Id = m_Impl->m_NextId++;
     slot->m_bUsed = true;
 
-    return TResult<game::MlModelHandle>(OkInit, game::MlModelHandle{slot->m_Id});
+    return TResult<game::FMlModelHandle>(OkInit, game::FMlModelHandle{slot->m_Id});
 }
 
-TResult<void> FOnnxMlRuntime::UnloadModel(game::MlModelHandle h) noexcept {
+TResult<void> FOnnxMlRuntime::UnloadModel(game::FMlModelHandle h) noexcept {
     if (!m_Impl || !m_Impl->m_bInitialized) return ACS_ERR(Generic, game::ml_err::kSub_NotImplemented, "Init first");
     FImpl::FModel* model = m_Impl->Find(h);
     if (!model) return Ok();
@@ -419,7 +419,7 @@ TResult<void> FOnnxMlRuntime::UnloadModel(game::MlModelHandle h) noexcept {
     return Ok();
 }
 
-TResult<void> FOnnxMlRuntime::RunInference(game::MlModelHandle h,
+TResult<void> FOnnxMlRuntime::RunInference(game::FMlModelHandle h,
                                            const f32* inputs, u32 in_count,
                                            f32* outputs, u32 out_count) noexcept {
     if (!m_Impl || !m_Impl->m_bInitialized) {

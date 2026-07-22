@@ -2,13 +2,13 @@
 // システム関数の登録と実行（World に対して毎フレーム呼ばれる関数の登録機構）
 //
 // 使い方:
-//   void MovementSystem(World& w, f32 dt) {
-//       w.Query<Position, Velocity>().Each([dt](EntityId, Position& p, Velocity& v) {
+//   void MovementSystem(FWorld& w, f32 dt) {
+//       w.Query<FPosition, FVelocity>().Each([dt](FEntityId, FPosition& p, FVelocity& v) {
 //           p.x += v.x * dt;
 //       });
 //   }
 //
-//   SystemScheduler s;
+//   FSystemScheduler s;
 //   s.Add(&MovementSystem);
 //   while (running) { s.Tick(world, dt); }
 #pragma once
@@ -18,22 +18,22 @@
 
 namespace acs {
 
-class World;
+class FWorld;
 
-/** システム関数のシグネチャ (World と経過秒を受け取る関数ポインタ)。 */
-using SystemFn = void (*)(World& world, f32 dt);
+/** システム関数のシグネチャ (FWorld と経過秒を受け取る関数ポインタ)。 */
+using SystemFn = void (*)(FWorld& world, f32 dt);
 
 /**
  * 登録したシステム関数を毎フレーム登録順に実行するスケジューラ。
  *
  * @details
- * システムは (World&, f32 dt) の自由関数ポインタとして保持する。Tick で登録順に
+ * システムは (FWorld&, f32 dt) の自由関数ポインタとして保持する。Tick で登録順に
  * 1 回ずつ呼ぶだけの単純な逐次スケジューラで、依存解決や並列化は行わない。
  */
-class SystemScheduler {
+class FSystemScheduler {
 public:
     /** 空のスケジューラを構築する。 */
-    SystemScheduler() noexcept = default;
+    FSystemScheduler() noexcept = default;
 
     /**
      * システム関数を登録する (実行順は登録順)。
@@ -45,10 +45,10 @@ public:
     /**
      * 登録した全システムを登録順に 1 回ずつ呼ぶ。
      *
-     * @param world 各システムへ渡す World。
+     * @param world 各システムへ渡す FWorld。
      * @param dt 前フレームからの経過秒。
      */
-    void Tick(World& world, f32 dt) noexcept {
+    void Tick(FWorld& world, f32 dt) noexcept {
         for (usize i = 0; i < m_Systems.Size(); ++i) {
             m_Systems[i](world, dt);
         }

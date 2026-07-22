@@ -25,7 +25,7 @@ namespace acs {
  * すべてのエラーはこのいずれかに分類され、ロガー側でのフィルタに使う。
  * 末尾への新カテゴリ追加は安全 (既存値は不変)。
  */
-enum class ErrCategory : u16 {
+enum class EErrCategory : u16 {
     /** 成功 (IsOk() の判定に使う、エラーなしを表す)。 */
     None        = 0,
 
@@ -70,7 +70,7 @@ enum class ErrCategory : u16 {
  */
 struct FErrorCode {
     /** 大カテゴリ (None は成功を表す)。 */
-    ErrCategory category   = ErrCategory::None;
+    EErrCategory category   = EErrCategory::None;
 
     /** モジュール固有の細分化コード。 */
     u16         subcode    = 0;
@@ -96,7 +96,7 @@ struct FErrorCode {
      * @param l 発生位置 (既定: 呼び出し位置)。
      * @param os OS エラー値 (既定 0)。
      */
-    constexpr FErrorCode(ErrCategory c,
+    constexpr FErrorCode(EErrCategory c,
                         u16 sub,
                         const char* msg,
                         FSourceLoc l = FSourceLoc::Current(),
@@ -108,7 +108,7 @@ struct FErrorCode {
      *
      * @return category が None (= 成功) なら true。
      */
-    constexpr bool IsOk() const noexcept { return category == ErrCategory::None; }
+    constexpr bool IsOk() const noexcept { return category == EErrCategory::None; }
 
     /**
      * bool 変換: エラーを保持しているかを返す (`if (e) { ... }` で判定可能)。
@@ -124,19 +124,19 @@ struct FErrorCode {
  * @param c 文字列化するカテゴリ。
  * @return カテゴリ名の文字列 (未知の値は "Unknown")。
  */
-constexpr const char* ToString(ErrCategory c) noexcept {
+constexpr const char* ToString(EErrCategory c) noexcept {
     switch (c) {
-        case ErrCategory::None:       return "None";
-        case ErrCategory::Generic:    return "Generic";
-        case ErrCategory::Memory:     return "Memory";
-        case ErrCategory::OS:         return "OS";
-        case ErrCategory::IO:         return "IO";
-        case ErrCategory::Container:  return "Container";
-        case ErrCategory::Threading:  return "Threading";
-        case ErrCategory::Math:       return "Math";
-        case ErrCategory::Render:     return "Render";
-        case ErrCategory::Asset:      return "Asset";
-        case ErrCategory::UserCancel: return "UserCancel";
+        case EErrCategory::None:       return "None";
+        case EErrCategory::Generic:    return "Generic";
+        case EErrCategory::Memory:     return "Memory";
+        case EErrCategory::OS:         return "OS";
+        case EErrCategory::IO:         return "IO";
+        case EErrCategory::Container:  return "Container";
+        case EErrCategory::Threading:  return "Threading";
+        case EErrCategory::Math:       return "Math";
+        case EErrCategory::Render:     return "Render";
+        case EErrCategory::Asset:      return "Asset";
+        case EErrCategory::UserCancel: return "UserCancel";
     }
     return "Unknown";
 }
@@ -147,9 +147,9 @@ constexpr const char* ToString(ErrCategory c) noexcept {
 //   return ACS_ERR(IO, 1, "ファイルが開けません");
 //   return ACS_ERR_OS(OS, 5, "CreateFile failed", GetLastError());
 #define ACS_ERR(cat, sub, msg) \
-    ::acs::FErrorCode(::acs::ErrCategory::cat, static_cast<::acs::u16>(sub), (msg), ::acs::FSourceLoc::Current())
+    ::acs::FErrorCode(::acs::EErrCategory::cat, static_cast<::acs::u16>(sub), (msg), ::acs::FSourceLoc::Current())
 
 #define ACS_ERR_OS(cat, sub, msg, os_err) \
-    ::acs::FErrorCode(::acs::ErrCategory::cat, static_cast<::acs::u16>(sub), (msg), ::acs::FSourceLoc::Current(), (os_err))
+    ::acs::FErrorCode(::acs::EErrCategory::cat, static_cast<::acs::u16>(sub), (msg), ::acs::FSourceLoc::Current(), (os_err))
 
 } // namespace acs

@@ -34,38 +34,38 @@ int main() {
 
     FSpriteCollider sc;
     if (sc.BuildFromAlpha(img, kW, kH, 128, 2.0f).IsErr()) { std::puts("collider FAILED"); return 2; }
-    const ConvexPoly2 hull = sc.HullPolygon();
+    const FConvexPoly2 hull = sc.HullPolygon();
 
-    bool ok = hull.count >= 3 && hull.count <= ConvexPoly2::kMaxVerts;
+    bool ok = hull.count >= 3 && hull.count <= FConvexPoly2::kMaxVerts;
 
     FCollisionWorld2D world;
     world.Init(64.0f);
     const FShapeId poly_id = world.AddPolygon(hull);
-    const FShapeId wall_id = world.AddAabb(Aabb2{ {300, 300}, {20, 20} });
+    const FShapeId wall_id = world.AddAabb(FAabb2{ {300, 300}, {20, 20} });
 
     TArray<FShapeId> hits;
 
     // (1) 凸包中心に重なる円 → poly に当たる
-    world.OverlapCircle(Circle{ {64, 64}, 8.0f }, hits);
+    world.OverlapCircle(FCircle{ {64, 64}, 8.0f }, hits);
     const bool t1 = (hits.Size() == 1 && hits[0] == poly_id);
 
     // (2) 何も無い所の円 → 0 件
-    world.OverlapCircle(Circle{ {64, 260}, 8.0f }, hits);
+    world.OverlapCircle(FCircle{ {64, 260}, 8.0f }, hits);
     const bool t2 = (hits.Size() == 0);
 
     // (3) 凸包に重なる小ボックス poly → poly に当たる
-    ConvexPoly2 probe;
+    FConvexPoly2 probe;
     probe.Add({ 60, 60 }); probe.Add({ 72, 60 }); probe.Add({ 72, 72 }); probe.Add({ 60, 72 });
     world.OverlapPolygon(probe, hits);
     const bool t3 = (hits.Size() == 1 && hits[0] == poly_id);
 
     // (4) 上からレイ → 凸包の上側 (y < 64) にヒット
-    RayHit2 rh; FShapeId hid;
-    const bool hit = world.Raycast(Ray2{ {64, -20}, {0, 1} }, 500.0f, rh, hid);
+    FRayHit2 rh; FShapeId hid;
+    const bool hit = world.Raycast(FRay2{ {64, -20}, {0, 1} }, 500.0f, rh, hid);
     const bool t4 = hit && hid == poly_id && rh.point.y < 64.0f && rh.point.y > 10.0f;
 
     // (5) 壁 (AABB) も poly クエリで当たる
-    ConvexPoly2 wall_probe;
+    FConvexPoly2 wall_probe;
     wall_probe.Add({ 290, 290 }); wall_probe.Add({ 310, 290 });
     wall_probe.Add({ 310, 310 }); wall_probe.Add({ 290, 310 });
     world.OverlapPolygon(wall_probe, hits);

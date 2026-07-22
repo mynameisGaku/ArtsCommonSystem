@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// FTwoWayBinder<T> — 2 つの Observable<T> を双方向同期させる
+// TTwoWayBinder<T> — 2 つの TObservable<T> を双方向同期させる
 //
 // 使い方:
-//   Observable<f32> view_hp;
-//   Observable<f32> model_hp { 100.0f };
+//   TObservable<f32> view_hp;
+//   TObservable<f32> model_hp { 100.0f };
 //
-//   FTwoWayBinder<f32> bind(view_hp, model_hp);  // 両方が同期
+//   TTwoWayBinder<f32> bind(view_hp, model_hp);  // 両方が同期
 //   model_hp.Set(50.0f);   // → view_hp も 50 になる
 //   view_hp.Set(0.0f);     // → model_hp も 0 になる
 //
@@ -13,7 +13,7 @@
 //
 // 設計:
 //   ・Set() はループしないように、現在更新中フラグで再帰防止
-//   ・OneWayBinder<T>(src, dst) で片方向版もアリ
+//   ・TOneWayBinder<T>(src, dst) で片方向版もアリ
 #pragma once
 
 #include "mvvm/Observable.h"
@@ -23,26 +23,26 @@
 namespace acs {
 
 /**
- * 2 つの Observable<T> を双方向に同期させるバインダ。
+ * 2 つの TObservable<T> を双方向に同期させるバインダ。
  *
  * @details
  * 構築時にまず a の値を b へ反映し、その後両方を Subscribe する。一方が変わると
  * もう一方へ Set で伝播し、m_bUpdating フラグで往復ループ (再帰) を防ぐ。
- * dtor で両 Observable から Unsubscribe する。
+ * dtor で両 TObservable から Unsubscribe する。
  *
  * @tparam T 同期する値の型。
  */
 template<typename T>
-class FTwoWayBinder {
+class TTwoWayBinder {
 public:
     /**
-     * 2 つの Observable を双方向バインドして構築する。
+     * 2 つの TObservable を双方向バインドして構築する。
      *
      * @details a の現在値を b に初期反映してから両方を Subscribe する (a→b が初期方向)。
-     * @param a 一方の Observable (初期同期の source)。
-     * @param b もう一方の Observable (初期同期の destination)。
+     * @param a 一方の TObservable (初期同期の source)。
+     * @param b もう一方の TObservable (初期同期の destination)。
      */
-    FTwoWayBinder(Observable<T>& a, Observable<T>& b) noexcept
+    TTwoWayBinder(TObservable<T>& a, TObservable<T>& b) noexcept
         : m_A(&a), m_B(&b) {
         // 初期同期: a の値を b に反映 (FViewModel → View 想定)
         b.Set(a.Get());
@@ -50,17 +50,24 @@ public:
         m_HB = b.Subscribe(&OnBChanged, this);
     }
 
-    /** 両 Observable から Unsubscribe して同期を解除する。 */
-    ~FTwoWayBinder() noexcept {
+    /**
+     * 実行中 callback を寿命切れにしてから両 TObservable の購読を解除する。
+     *
+     * @details 伝播先 Set の listener が本 binder を同期破棄した場合、callback の
+     * stack guard を先に dead にし、復帰後に破棄済み member を書き換えない。
+     */
+    ~TTwoWayBinder() noexcept {
+        mvvm_detail::FCallbackLifetimeGuard::InvalidateChain(
+            m_CallbackLifetimeGuards);
         if (m_A) m_A->Unsubscribe(m_HA);
         if (m_B) m_B->Unsubscribe(m_HB);
     }
 
     /** コピー禁止 (購読を単独所有するため)。 */
-    FTwoWayBinder(const FTwoWayBinder&) = delete;
+    TTwoWayBinder(const TTwoWayBinder&) = delete;
 
     /** コピー代入も禁止。 */
-    FTwoWayBinder& operator=(const FTwoWayBinder&) = delete;
+    TTwoWayBinder& operator=(const TTwoWayBinder&) = delete;
 
 private:
     /**
@@ -71,10 +78,14 @@ private:
      * @param user this を指すポインタ。
      */
     static void OnAChanged(const T& v, void* user) noexcept {
-        auto* self = static_cast<FTwoWayBinder*>(user);
+        auto* self = static_cast<TTwoWayBinder*>(user);
+        mvvm_detail::FCallbackLifetimeGuard lifetime_guard(
+            self->m_CallbackLifetimeGuards);
         if (self->m_bUpdating) return;
         self->m_bUpdating = true;
-        self->m_B->Set(v);
+        TObservable<T>* const destination = self->m_B;
+        destination->Set(v);
+        if (!lifetime_guard.IsAlive()) return;
         self->m_bUpdating = false;
     }
 
@@ -86,27 +97,34 @@ private:
      * @param user this を指すポインタ。
      */
     static void OnBChanged(const T& v, void* user) noexcept {
-        auto* self = static_cast<FTwoWayBinder*>(user);
+        auto* self = static_cast<TTwoWayBinder*>(user);
+        mvvm_detail::FCallbackLifetimeGuard lifetime_guard(
+            self->m_CallbackLifetimeGuards);
         if (self->m_bUpdating) return;
         self->m_bUpdating = true;
-        self->m_A->Set(v);
+        TObservable<T>* const destination = self->m_A;
+        destination->Set(v);
+        if (!lifetime_guard.IsAlive()) return;
         self->m_bUpdating = false;
     }
 
-    /** 一方の Observable。 */
-    Observable<T>*    m_A = nullptr;
+    /** 一方の TObservable。 */
+    TObservable<T>*    m_A = nullptr;
 
-    /** もう一方の Observable。 */
-    Observable<T>*    m_B = nullptr;
+    /** もう一方の TObservable。 */
+    TObservable<T>*    m_B = nullptr;
 
     /** m_A への購読ハンドル。 */
-    ObservableHandle  m_HA;
+    FObservableHandle  m_HA;
 
     /** m_B への購読ハンドル。 */
-    ObservableHandle  m_HB;
+    FObservableHandle  m_HB;
 
     /** 伝播中フラグ (往復ループ防止)。 */
     bool              m_bUpdating = false;
+
+    /** 実行中 OnAChanged / OnBChanged の stack lifetime guard 先頭。 */
+    mvvm_detail::FCallbackLifetimeGuard* m_CallbackLifetimeGuards = nullptr;
 };
 
 /**
@@ -116,30 +134,30 @@ private:
  * @tparam T 同期する値の型。
  */
 template<typename T>
-class OneWayBinder {
+class TOneWayBinder {
 public:
     /**
      * 片方向バインドして構築する。
      *
-     * @param src 監視元の Observable。
-     * @param dst 反映先の Observable。
+     * @param src 監視元の TObservable。
+     * @param dst 反映先の TObservable。
      */
-    OneWayBinder(Observable<T>& src, Observable<T>& dst) noexcept
+    TOneWayBinder(TObservable<T>& src, TObservable<T>& dst) noexcept
         : m_Src(&src), m_Dst(&dst) {
         dst.Set(src.Get());
         m_H = src.Subscribe(&OnChanged, this);
     }
 
     /** src から Unsubscribe して同期を解除する。 */
-    ~OneWayBinder() noexcept {
+    ~TOneWayBinder() noexcept {
         if (m_Src) m_Src->Unsubscribe(m_H);
     }
 
     /** コピー禁止 (購読を単独所有するため)。 */
-    OneWayBinder(const OneWayBinder&) = delete;
+    TOneWayBinder(const TOneWayBinder&) = delete;
 
     /** コピー代入も禁止。 */
-    OneWayBinder& operator=(const OneWayBinder&) = delete;
+    TOneWayBinder& operator=(const TOneWayBinder&) = delete;
 
 private:
     /**
@@ -149,18 +167,18 @@ private:
      * @param user this を指すポインタ。
      */
     static void OnChanged(const T& v, void* user) noexcept {
-        auto* self = static_cast<OneWayBinder*>(user);
+        auto* self = static_cast<TOneWayBinder*>(user);
         self->m_Dst->Set(v);
     }
 
-    /** 監視元の Observable。 */
-    Observable<T>*   m_Src = nullptr;
+    /** 監視元の TObservable。 */
+    TObservable<T>*   m_Src = nullptr;
 
-    /** 反映先の Observable。 */
-    Observable<T>*   m_Dst = nullptr;
+    /** 反映先の TObservable。 */
+    TObservable<T>*   m_Dst = nullptr;
 
     /** src への購読ハンドル。 */
-    ObservableHandle m_H;
+    FObservableHandle m_H;
 };
 
 /**
@@ -173,7 +191,7 @@ private:
  * @tparam Dst 反映先の値の型。
  */
 template<typename Src, typename Dst>
-class OneWayConvertBinder {
+class TOneWayConvertBinder {
 public:
     /** Src を Dst へ変換する関数型 (値と user を受け取る)。 */
     using ConvertFn = Dst (*)(const Src& v, void* user);
@@ -181,12 +199,12 @@ public:
     /**
      * 変換つき片方向バインドして構築する。
      *
-     * @param src 監視元の Observable。
-     * @param dst 反映先の Observable。
+     * @param src 監視元の TObservable。
+     * @param dst 反映先の TObservable。
      * @param fn Src を Dst へ変換する関数。
      * @param user 変換関数へそのまま渡される任意ポインタ。
      */
-    OneWayConvertBinder(Observable<Src>& src, Observable<Dst>& dst,
+    TOneWayConvertBinder(TObservable<Src>& src, TObservable<Dst>& dst,
                         ConvertFn fn, void* user) noexcept
         : m_Src(&src), m_Dst(&dst), m_Fn(fn), m_User(user) {
         dst.Set(fn(src.Get(), user));
@@ -194,15 +212,15 @@ public:
     }
 
     /** src から Unsubscribe して同期を解除する。 */
-    ~OneWayConvertBinder() noexcept {
+    ~TOneWayConvertBinder() noexcept {
         if (m_Src) m_Src->Unsubscribe(m_H);
     }
 
     /** コピー禁止 (購読を単独所有するため)。 */
-    OneWayConvertBinder(const OneWayConvertBinder&)            = delete;
+    TOneWayConvertBinder(const TOneWayConvertBinder&)            = delete;
 
     /** コピー代入も禁止。 */
-    OneWayConvertBinder& operator=(const OneWayConvertBinder&) = delete;
+    TOneWayConvertBinder& operator=(const TOneWayConvertBinder&) = delete;
 
 private:
     /**
@@ -212,15 +230,15 @@ private:
      * @param user this を指すポインタ。
      */
     static void OnChanged(const Src& v, void* user) noexcept {
-        auto* self = static_cast<OneWayConvertBinder*>(user);
+        auto* self = static_cast<TOneWayConvertBinder*>(user);
         if (self->m_Fn) self->m_Dst->Set(self->m_Fn(v, self->m_User));
     }
 
-    /** 監視元の Observable。 */
-    Observable<Src>*  m_Src  = nullptr;
+    /** 監視元の TObservable。 */
+    TObservable<Src>*  m_Src  = nullptr;
 
-    /** 反映先の Observable。 */
-    Observable<Dst>*  m_Dst  = nullptr;
+    /** 反映先の TObservable。 */
+    TObservable<Dst>*  m_Dst  = nullptr;
 
     /** Src→Dst の変換関数。 */
     ConvertFn         m_Fn   = nullptr;
@@ -229,7 +247,7 @@ private:
     void*             m_User = nullptr;
 
     /** src への購読ハンドル。 */
-    ObservableHandle  m_H;
+    FObservableHandle  m_H;
 };
 
 /**
@@ -237,55 +255,55 @@ private:
  *
  * @details 継続購読しないため class ではなく関数で提供する。
  * @tparam T 値の型。
- * @param src コピー元の Observable。
- * @param dst コピー先の Observable。
+ * @param src コピー元の TObservable。
+ * @param dst コピー先の TObservable。
  */
 template<typename T>
-inline void CopyOnce(const Observable<T>& src, Observable<T>& dst) noexcept {
+inline void CopyOnce(const TObservable<T>& src, TObservable<T>& dst) noexcept {
     dst.Set(src.Get());
 }
 
 /**
- * 同じ型の src→dst を片方向バインドする (OneWayBinder ファクトリ)。
+ * 同じ型の src→dst を片方向バインドする (TOneWayBinder ファクトリ)。
  *
  * @details 返り値は prvalue なので copy elision で auto に直接受けられる。
  * @tparam T 値の型。
- * @param src 監視元の Observable。
- * @param dst 反映先の Observable。
- * @return 構築した OneWayBinder<T>。
+ * @param src 監視元の TObservable。
+ * @param dst 反映先の TObservable。
+ * @return 構築した TOneWayBinder<T>。
  */
 template<typename T>
-inline OneWayBinder<T> Bind(Observable<T>& src, Observable<T>& dst) noexcept {
-    return OneWayBinder<T>(src, dst);
+inline TOneWayBinder<T> Bind(TObservable<T>& src, TObservable<T>& dst) noexcept {
+    return TOneWayBinder<T>(src, dst);
 }
 
 /**
  * 異なる型の src→dst を既定変換を通して片方向バインドする。
  *
- * @details TDefaultConverter<Src, Dst> 経由の OneWayConvertBinder を返す。
+ * @details TDefaultConverter<Src, Dst> 経由の TOneWayConvertBinder を返す。
  * @tparam Src 監視元の値の型。
  * @tparam Dst 反映先の値の型。
- * @param src 監視元の Observable。
- * @param dst 反映先の Observable。
- * @return 構築した OneWayConvertBinder<Src, Dst>。
+ * @param src 監視元の TObservable。
+ * @param dst 反映先の TObservable。
+ * @return 構築した TOneWayConvertBinder<Src, Dst>。
  */
 template<typename Src, typename Dst>
-inline OneWayConvertBinder<Src, Dst> Bind(Observable<Src>& src, Observable<Dst>& dst) noexcept {
-    return OneWayConvertBinder<Src, Dst>(
+inline TOneWayConvertBinder<Src, Dst> Bind(TObservable<Src>& src, TObservable<Dst>& dst) noexcept {
+    return TOneWayConvertBinder<Src, Dst>(
         src, dst, &mvvm::TDefaultConverter<Src, Dst>::Convert, nullptr);
 }
 
 /**
- * 同じ型の a と b を双方向バインドする (FTwoWayBinder ファクトリ)。
+ * 同じ型の a と b を双方向バインドする (TTwoWayBinder ファクトリ)。
  *
  * @tparam T 値の型。
- * @param a 一方の Observable。
- * @param b もう一方の Observable。
- * @return 構築した FTwoWayBinder<T>。
+ * @param a 一方の TObservable。
+ * @param b もう一方の TObservable。
+ * @return 構築した TTwoWayBinder<T>。
  */
 template<typename T>
-inline FTwoWayBinder<T> TwoWayBind(Observable<T>& a, Observable<T>& b) noexcept {
-    return FTwoWayBinder<T>(a, b);
+inline TTwoWayBinder<T> TwoWayBind(TObservable<T>& a, TObservable<T>& b) noexcept {
+    return TTwoWayBinder<T>(a, b);
 }
 
 /**
@@ -295,26 +313,26 @@ inline FTwoWayBinder<T> TwoWayBind(Observable<T>& a, Observable<T>& b) noexcept 
  * 生 Binder はコピー/ムーブ不可でメンバとして持ちにくいため、ヒープ確保した
  * TUniquePtr を返してクラスメンバとして保持でき、dtor で自動 Unsubscribe される。
  * @tparam T 値の型。
- * @param src 監視元の Observable。
- * @param dst 反映先の Observable。
- * @return 所有権を持つ OneWayBinder<T> の TUniquePtr。
+ * @param src 監視元の TObservable。
+ * @param dst 反映先の TObservable。
+ * @return 所有権を持つ TOneWayBinder<T> の TUniquePtr。
  */
 template<typename T>
-inline TUniquePtr<OneWayBinder<T>> MakeBind(Observable<T>& src, Observable<T>& dst) noexcept {
-    return MakeUnique<OneWayBinder<T>>(src, dst);
+inline TUniquePtr<TOneWayBinder<T>> MakeBind(TObservable<T>& src, TObservable<T>& dst) noexcept {
+    return MakeUnique<TOneWayBinder<T>>(src, dst);
 }
 
 /**
  * 同じ型の双方向バインドを TUniquePtr で生成する。
  *
  * @tparam T 値の型。
- * @param a 一方の Observable。
- * @param b もう一方の Observable。
- * @return 所有権を持つ FTwoWayBinder<T> の TUniquePtr。
+ * @param a 一方の TObservable。
+ * @param b もう一方の TObservable。
+ * @return 所有権を持つ TTwoWayBinder<T> の TUniquePtr。
  */
 template<typename T>
-inline TUniquePtr<FTwoWayBinder<T>> MakeTwoWayBind(Observable<T>& a, Observable<T>& b) noexcept {
-    return MakeUnique<FTwoWayBinder<T>>(a, b);
+inline TUniquePtr<TTwoWayBinder<T>> MakeTwoWayBind(TObservable<T>& a, TObservable<T>& b) noexcept {
+    return MakeUnique<TTwoWayBinder<T>>(a, b);
 }
 
 /**
@@ -322,14 +340,14 @@ inline TUniquePtr<FTwoWayBinder<T>> MakeTwoWayBind(Observable<T>& a, Observable<
  *
  * @tparam Src 監視元の値の型。
  * @tparam Dst 反映先の値の型。
- * @param src 監視元の Observable。
- * @param dst 反映先の Observable。
- * @return 所有権を持つ OneWayConvertBinder<Src, Dst> の TUniquePtr。
+ * @param src 監視元の TObservable。
+ * @param dst 反映先の TObservable。
+ * @return 所有権を持つ TOneWayConvertBinder<Src, Dst> の TUniquePtr。
  */
 template<typename Src, typename Dst>
-inline TUniquePtr<OneWayConvertBinder<Src, Dst>>
-MakeBindConvert(Observable<Src>& src, Observable<Dst>& dst) noexcept {
-    return MakeUnique<OneWayConvertBinder<Src, Dst>>(
+inline TUniquePtr<TOneWayConvertBinder<Src, Dst>>
+MakeBindConvert(TObservable<Src>& src, TObservable<Dst>& dst) noexcept {
+    return MakeUnique<TOneWayConvertBinder<Src, Dst>>(
         src, dst, &mvvm::TDefaultConverter<Src, Dst>::Convert, nullptr);
 }
 
@@ -338,17 +356,17 @@ MakeBindConvert(Observable<Src>& src, Observable<Dst>& dst) noexcept {
  *
  * @tparam Src 監視元の値の型。
  * @tparam Dst 反映先の値の型。
- * @param src 監視元の Observable。
- * @param dst 反映先の Observable。
+ * @param src 監視元の TObservable。
+ * @param dst 反映先の TObservable。
  * @param fn Src を Dst へ変換する関数。
  * @param user 変換関数へ渡す任意ポインタ。
- * @return 所有権を持つ OneWayConvertBinder<Src, Dst> の TUniquePtr。
+ * @return 所有権を持つ TOneWayConvertBinder<Src, Dst> の TUniquePtr。
  */
 template<typename Src, typename Dst>
-inline TUniquePtr<OneWayConvertBinder<Src, Dst>>
-MakeBindConvert(Observable<Src>& src, Observable<Dst>& dst,
+inline TUniquePtr<TOneWayConvertBinder<Src, Dst>>
+MakeBindConvert(TObservable<Src>& src, TObservable<Dst>& dst,
                 Dst (*fn)(const Src&, void*), void* user) noexcept {
-    return MakeUnique<OneWayConvertBinder<Src, Dst>>(src, dst, fn, user);
+    return MakeUnique<TOneWayConvertBinder<Src, Dst>>(src, dst, fn, user);
 }
 
 } // namespace acs

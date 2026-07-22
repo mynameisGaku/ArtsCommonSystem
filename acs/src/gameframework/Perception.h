@@ -21,19 +21,19 @@
 //   ・視野角に依存しない 360 度判定。
 //
 // 設計選択:
-//   ・target は `acs::TArray<PerceptionTarget>` で線形管理。
+//   ・target は `acs::TArray<FPerceptionTarget>` で線形管理。
 //     N が小さい想定 (1 NPC あたり数〜数十 target) なので hash map 不要。
 //     RemoveAtSwap で順序非保証の高速削除。
 //   ・cos(fov/2) は SetConfig 呼び出し時に 1 回だけ計算してキャッシュ。
 //     Tick の hot path に Cos を入れない。
-//   ・visible / audible は Tick 内でまとめて更新し、結果を PerceptionTarget に
+//   ・visible / audible は Tick 内でまとめて更新し、結果を FPerceptionTarget に
 //     書き戻す。これにより IsTargetVisible / IsTargetAudible は O(N) lookup。
-//   ・非コピー・非ムーブ — Scene / Actor のメンバとして固定の場所に置く想定。
+//   ・非コピー・非ムーブ — FScene / Actor のメンバとして固定の場所に置く想定。
 //   ・全 noexcept、STL 不使用。
 //
 // 使い方:
 //   acs::game::FPerception perc;
-//   acs::game::SenseConfig cfg;
+//   acs::game::FSenseConfig cfg;
 //   cfg.sight_range   = 10.0f;
 //   cfg.sight_fov_rad = acs::kPi * 0.5f;   // 90 度
 //   cfg.hearing_range = 5.0f;
@@ -58,7 +58,7 @@ namespace acs::game {
  * @details 視覚判定は距離フィルタ (sight_range) と視野角フィルタ (cos(fov/2) との dot 比較)
  *          の両方、聴覚判定は距離フィルタ (hearing_range) のみで行う。
  */
-struct SenseConfig {
+struct FSenseConfig {
     /** 視認距離の上限 (m, world unit)。0 以下なら誰も見えない。 */
     f32 sight_range   = 0.0f;
 
@@ -74,7 +74,7 @@ struct SenseConfig {
  *
  * @details pos / id は外部から与え、is_visible / is_audible は Tick が更新する出力スロット。
  */
-struct PerceptionTarget {
+struct FPerceptionTarget {
     /** target のワールド座標。 */
     FVec2 pos        = FVec2::Zero();
 
@@ -94,7 +94,7 @@ struct PerceptionTarget {
  * @details
  * eye 位置 / forward / config と複数 target を保持し、Tick で全 target の visible/audible
  * フラグを再計算する。FBehaviorTree の leaf や blackboard の値ソースとして使う想定。
- * target は線形管理 (N が小さい想定)、cos(fov/2) は SetConfig でキャッシュする。Scene/Actor
+ * target は線形管理 (N が小さい想定)、cos(fov/2) は SetConfig でキャッシュする。FScene/Actor
  * のメンバとして固定位置に置く想定で非コピー・非ムーブ。
  */
 class FPerception {
@@ -125,7 +125,7 @@ public:
      * visible/audible フラグは次の Tick まで変化しない (現値保持)。
      * @param cfg 適用する感覚パラメータ。
      */
-    void SetConfig(const SenseConfig& cfg) noexcept;
+    void SetConfig(const FSenseConfig& cfg) noexcept;
 
     /**
      * eye 位置と forward ベクトルを更新する。
@@ -192,7 +192,7 @@ public:
      * @param out_count target 件数を書き込む出力先。
      * @return target 配列の先頭ポインタ (空のときの扱いは TArray::Data に従う)。
      */
-    const PerceptionTarget* AllTargets(u32& out_count) const noexcept;
+    const FPerceptionTarget* AllTargets(u32& out_count) const noexcept;
 
     /**
      * 1 フレームぶんの知覚を再計算する。
@@ -221,7 +221,7 @@ private:
     usize FindIndexById(u32 id) const noexcept;
 
     /** 現在の感覚パラメータ。 */
-    SenseConfig m_Cfg            = {};
+    FSenseConfig m_Cfg            = {};
 
     /** SetConfig でキャッシュした cos(fov/2) (視野角判定の閾値)。 */
     f32         m_CosHalfFov   = 1.0f;
@@ -233,7 +233,7 @@ private:
     FVec2        m_EyeForward    = FVec2{1.0f, 0.0f};
 
     /** 知覚対象の配列 (線形管理)。 */
-    TArray<PerceptionTarget> m_Targets;
+    TArray<FPerceptionTarget> m_Targets;
 };
 
 } // namespace acs::game

@@ -10,16 +10,16 @@
 
 namespace acs {
 
-FApplication::RuntimeFoundationLifetime::~RuntimeFoundationLifetime() noexcept
+FApplication::FRuntimeFoundationLifetime::~FRuntimeFoundationLifetime() noexcept
 {
     Release();
 }
 
-void FApplication::RuntimeFoundationLifetime::InitializeLogger(const FLogConfig& config) noexcept
+void FApplication::FRuntimeFoundationLifetime::InitializeLogger(const FLogConfig& config) noexcept
 {
     if (!lifetime_active) {
         // Run 前から存在する DbgHelp 状態は外部所有として扱い、終了時にも残す。
-        symbol_resolver_preexisting = StackTrace::IsSymbolResolverInitialized();
+        symbol_resolver_preexisting = FStackTrace::IsSymbolResolverInitialized();
         lifetime_active = true;
     }
     if (FLogger::IsInitialized()) {
@@ -31,7 +31,7 @@ void FApplication::RuntimeFoundationLifetime::InitializeLogger(const FLogConfig&
     InitializeMemoryDiagnostics();
 }
 
-void FApplication::RuntimeFoundationLifetime::InitializeMemoryDiagnostics() noexcept
+void FApplication::FRuntimeFoundationLifetime::InitializeMemoryDiagnostics() noexcept
 {
     if (!FCrtDebugHeapDiagnostics::IsSupported() || CrtHeapScope.IsActive()) {
         return;
@@ -43,7 +43,7 @@ void FApplication::RuntimeFoundationLifetime::InitializeMemoryDiagnostics() noex
     // leak_detected=true になる (IRhiDevice.h の PrewarmRhiProcessSingletons 参照)。
     PrewarmRhiProcessSingletons();
 
-    CrtDebugHeapProcessConfiguration ProcessConfiguration{};
+    FCrtDebugHeapProcessConfiguration ProcessConfiguration{};
     ProcessConfiguration.bEnableAllocationTracking = true;
     ProcessConfiguration.bEnableProcessExitLeakCheck = false;
     ProcessConfiguration.bRetainFreedBlocks = false;
@@ -55,7 +55,7 @@ void FApplication::RuntimeFoundationLifetime::InitializeMemoryDiagnostics() noex
         return;
     }
 
-    CrtDebugHeapScopeConfiguration ScopeConfiguration{};
+    FCrtDebugHeapScopeConfiguration ScopeConfiguration{};
     ScopeConfiguration.ScopeName = "FApplication";
     ScopeConfiguration.bCheckHeapIntegrity = true;
     ScopeConfiguration.bDumpObjectsOnLeak = true;
@@ -66,7 +66,7 @@ void FApplication::RuntimeFoundationLifetime::InitializeMemoryDiagnostics() noex
     }
 }
 
-TResult<void> FApplication::RuntimeFoundationLifetime::InitializeMemorySystem(const MemorySystemConfig& config) noexcept
+TResult<void> FApplication::FRuntimeFoundationLifetime::InitializeMemorySystem(const FMemorySystemConfig& config) noexcept
 {
     if (FMemorySystem::Get(ESegment::Default) != nullptr) return Ok();
     const auto result = FMemorySystem::Init(config);
@@ -74,7 +74,7 @@ TResult<void> FApplication::RuntimeFoundationLifetime::InitializeMemorySystem(co
     return result;
 }
 
-TResult<void> FApplication::RuntimeFoundationLifetime::InitializeThreadPool(u32 worker_count) noexcept
+TResult<void> FApplication::FRuntimeFoundationLifetime::InitializeThreadPool(u32 worker_count) noexcept
 {
     if (FThreadPool::WorkerCount() != 0) return Ok();
     const auto result = FThreadPool::Init(worker_count);
@@ -82,14 +82,14 @@ TResult<void> FApplication::RuntimeFoundationLifetime::InitializeThreadPool(u32 
     return result;
 }
 
-void FApplication::RuntimeFoundationLifetime::Release() noexcept
+void FApplication::FRuntimeFoundationLifetime::Release() noexcept
 {
     if (thread_pool_owned) {
         FThreadPool::Shutdown();
         thread_pool_owned = false;
     }
-    if (lifetime_active && !symbol_resolver_preexisting && StackTrace::IsSymbolResolverInitialized()) {
-        StackTrace::ShutdownSymbolResolver();
+    if (lifetime_active && !symbol_resolver_preexisting && FStackTrace::IsSymbolResolverInitialized()) {
+        FStackTrace::ShutdownSymbolResolver();
     }
     if (memory_system_owned) {
         FMemorySystem::Shutdown();
@@ -110,11 +110,11 @@ void FApplication::RuntimeFoundationLifetime::Release() noexcept
 // 1) Input サブシステムに流して状態を更新
 // 2) アプリ派生クラスの OnEvent も呼ぶ
 // 3) リサイズ時は FRenderer にも通知
-void FApplication::EventBridge(void* user_data, const Event& event) noexcept
+void FApplication::EventBridge(void* user_data, const FEvent& event) noexcept
 {
     FApplication* const app = static_cast<FApplication*>(user_data);
-    Input::OnEvent(event);
-    if (event.type == EventType::WindowResize) {
+    FInput::OnEvent(event);
+    if (event.type == EEventType::WindowResize) {
         app->m_Renderer.OnResize(event.resize.width, event.resize.height);
     }
     app->OnEvent(event);
@@ -134,9 +134,9 @@ int FApplication::Run(const FAppConfig& configuration) noexcept
     }
 
     m_Cfg = configuration;
-    m_ClearColor = ClearColor{configuration.clear_r, configuration.clear_g, configuration.clear_b,
+    m_ClearColor = FClearColor{configuration.clear_r, configuration.clear_g, configuration.clear_b,
                               configuration.clear_a};
-    m_FrameTimer = FrameTimer{};
+    m_FrameTimer = FFrameTimer{};
     m_Dt = 0.0f;
     m_bRunning = true;
 
@@ -209,7 +209,7 @@ int FApplication::Run(const FAppConfig& configuration) noexcept
     // メインループ
     while (m_bRunning && !m_Window.ShouldClose()) {
         // フレーム先頭処理
-        Input::Update();            // 押下状態を 1 フレーム進める
+        FInput::Update();            // 押下状態を 1 フレーム進める
         m_Window.PollEvents();      // OS メッセージ処理
         FMemorySystem::ResetTemp(); // Temp セグメントを毎フレーム巻き戻し
         m_Dt = m_FrameTimer.Tick();

@@ -7,7 +7,8 @@
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
-#include "gameframework/Node2D.h"
+#include "gameframework/ANode.h"
+#include "gameframework/PrefabSystem.h"
 #include "gameframework/SceneTextLoader.h"
 
 using namespace acs;
@@ -22,11 +23,16 @@ static const char* kPrefab =
     "2 1 5 3 0 1 1 48 0.2 0.3 0.4 1 PrefChild\n"
     "SEL -1 0\n";
 
+/** FPrefabSystem の世代 ID 検証に使う最小 factory。 */
+static TObjectPtr<ANode> SpawnEmptyNode(void*) noexcept {
+    return NewObject<ANode>();
+}
+
 ACS_TEST(PrefabSpawn, SpawnReturnsRootWithChildren) {
-    FNode2D scene;
+    ANode scene;
     const u32 before = scene.ChildCount();
 
-    FNode2D* root = SpawnPrefabText(kPrefab, scene);
+    ANode* root = SpawnPrefabText(kPrefab, scene);
     EXPECT_TRUE(root != nullptr);
 
     // 生成ルートは scene の «新しい» 子。
@@ -34,13 +40,13 @@ ACS_TEST(PrefabSpawn, SpawnReturnsRootWithChildren) {
     EXPECT_EQ(scene.ChildCount(), before + 1u);
 
     // ルートの transform が復元される。
-    EXPECT_TRUE(root->Local().position.x == 10.0f && root->Local().position.y == 20.0f);
+    EXPECT_TRUE(root->Position2D().x == 10.0f && root->Position2D().y == 20.0f);
 
     // 子 1 個 (PrefChild) が付く。
     EXPECT_EQ(root->ChildCount(), 1u);
-    FNode2D* child = root->Child(0);
+    ANode* child = root->Child(0);
     EXPECT_TRUE(child != nullptr);
-    EXPECT_TRUE(child->Local().position.x == 5.0f && child->Local().position.y == 3.0f);
+    EXPECT_TRUE(child->Position2D().x == 5.0f && child->Position2D().y == 3.0f);
 
     // SerialId が .acsprefab の id から復元される(= オブジェクト参照の解決キー)。
     EXPECT_EQ(root->SerialId(),  1);
@@ -48,7 +54,7 @@ ACS_TEST(PrefabSpawn, SpawnReturnsRootWithChildren) {
 }
 
 ACS_TEST(PrefabSpawn, NullAndEmptyAreSafe) {
-    FNode2D scene;
+    ANode scene;
     EXPECT_TRUE(SpawnPrefabText(nullptr, scene) == nullptr);
     EXPECT_TRUE(SpawnPrefabText("", scene) == nullptr);               // ヘッダ無し → nullptr
     EXPECT_EQ(scene.ChildCount(), 0u);
@@ -56,11 +62,31 @@ ACS_TEST(PrefabSpawn, NullAndEmptyAreSafe) {
 
 // 複数回 spawn すると独立したサブツリーが積み上がる(敵/弾の量産)。
 ACS_TEST(PrefabSpawn, MultipleSpawnsAreIndependent) {
-    FNode2D scene;
-    FNode2D* a = SpawnPrefabText(kPrefab, scene);
-    FNode2D* b = SpawnPrefabText(kPrefab, scene);
+    ANode scene;
+    ANode* a = SpawnPrefabText(kPrefab, scene);
+    ANode* b = SpawnPrefabText(kPrefab, scene);
     EXPECT_TRUE(a != nullptr && b != nullptr && a != b);
     EXPECT_EQ(scene.ChildCount(), 2u);
-    a->Local().position = FVec2{ 999.0f, 0.0f };          // 片方を動かしても
-    EXPECT_TRUE(b->Local().position.x == 10.0f);          // 他方は不変(独立)
+    a->SetPosition2D(FVec2{ 999.0f, 0.0f });          // 片方を動かしても
+    EXPECT_TRUE(b->Position2D().x == 10.0f);          // 他方は不変(独立)
+}
+
+ACS_TEST(PrefabSystem, ClearAllKeepsOldIdsStaleAfterReregister) {
+    FPrefabSystem prefabs;
+    const FPrefabId old_id =
+        prefabs.Register("BeforeClear", &SpawnEmptyNode);
+    EXPECT_TRUE(old_id.IsValid());
+    EXPECT_EQ(prefabs.Count(), 1u);
+
+    prefabs.ClearAll();
+    EXPECT_EQ(prefabs.Count(), 0u);
+    EXPECT_FALSE(prefabs.Spawn(old_id).IsValid());
+
+    const FPrefabId replacement_id =
+        prefabs.Register("AfterClear", &SpawnEmptyNode);
+    EXPECT_TRUE(replacement_id.IsValid());
+    EXPECT_EQ(replacement_id.Index(), old_id.Index());
+    EXPECT_FALSE(replacement_id == old_id);
+    EXPECT_FALSE(prefabs.Spawn(old_id).IsValid());
+    EXPECT_TRUE(prefabs.Spawn(replacement_id).IsValid());
 }

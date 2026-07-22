@@ -52,9 +52,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Keep a valid Windows Path for CMake/MSBuild child processes. Some shells inject
-# odd PATH/Path combinations; resetting the process `Path` from machine + user
-# scope keeps tools discoverable without relying on the caller's transient env.
+# CMake/MSBuild の子プロセス向けに有効な Windows Path を維持する。一部 shell は
+# PATH/Path の不整合を持ち込むため、machine + user scope から process の `Path` を
+# 再構築し、呼び出し元の一時的な環境だけに依存せずツールを見つけられるようにする。
 $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
 $userPath    = [Environment]::GetEnvironmentVariable("Path", "User")
 $processPath = [Environment]::GetEnvironmentVariable("Path", "Process")
@@ -122,9 +122,9 @@ function Repair-GeneratedAcl([string]$path) {
         $inheritArgs += "/T"
         $removeArgs += "/T"
     }
-    # Convert inherited ACEs to explicit ACEs for generated trees, then remove
-    # inherited deny-delete ACEs such as Everyone:(DENY)(DC). MSBuild writes
-    # .tlog files via temporary-file replacement; deny-delete breaks that.
+    # 生成ツリーの継承 ACE を明示 ACE へ変換し、Everyone:(DENY)(DC) などの
+    # 削除拒否 ACE を外す。MSBuild は一時ファイル置換で .tlog を書くため、
+    # 削除拒否が残るとビルドを妨げる。
     & $icacls @inheritArgs | Out-Null
     & $icacls @removeArgs | Out-Null
 }
@@ -133,9 +133,9 @@ function Repair-VisibleGeneratedAcl([string]$path) {
     if (-not (Test-Path $path)) { return }
     $icacls = Join-Path $env:SystemRoot "System32\icacls.exe"
     if (-not (Test-Path $icacls)) { return }
-    # The visible .slnx lives at the ACS surface. If the parent directory keeps
-    # an inherited deny-delete-child ACE, users cannot remove/rename generated
-    # solutions. Repair only this directory, not the source tree recursively.
+    # 表示用 .slnx は ACS の表層に置く。親 directory に子削除拒否 ACE が
+    # 継承されていると生成済み solution を削除・改名できないため、この directory
+    # だけを修復し、source tree 全体は再帰的に変更しない。
     & $icacls $path /inheritance:d | Out-Null
     & $icacls $path /remove:d Everyone | Out-Null
 }

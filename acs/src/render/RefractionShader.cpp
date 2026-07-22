@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // スクリーンスペース屈折シェーダ実装
 #include "render/RefractionShader.h"
+#include "render/NormalMatrix.h"
 #include "asset/MeshAsset.h"
 #include "foundation/Move.h"
+#include "foundation/Log.h"
 
 namespace acs {
 
@@ -19,13 +21,17 @@ cbuffer Frame : register(b0) {
     float4   camera_pos;     // xyz=eye
     // Phase 35-3f thickness map
     float4   back_params;    // x=enabled (0/1), y=near, z=far, w=pad
-    float4   screen_params;  // x=1/screen_w, y=1/screen_h, zw=pad
 };
 
 cbuffer Object : register(b1) {
     float4x4 model;
+    float4   normal_row0;
+    float4   normal_row1;
+    float4   normal_row2;
     float4   material;       // x=ior, y=thickness, z=roughness, w=dispersion (Phase 35-3e)
     float4   tint;           // xyz=glass tint (吸収色), w=pad
+    // Draw ごとに異なる background 寸法/env mip を shared Frame CB へ置かない。
+    float4   screen_params;  // x=1/screen_w, y=1/screen_h, z=env mip count
 };
 
 Texture2D    background : register(t0);   // opaque シーンの複製
@@ -43,7 +49,10 @@ VSOut VSMain(VSIn v) {
     float4 wp = mul(float4(v.pos, 1.0), model);
     o.world_p = wp.xyz;
     o.pos     = mul(wp, view_proj);
-    o.world_n = mul(float4(v.nrm, 0.0), model).xyz;
+    o.world_n = float3(
+        v.nrm.x * normal_row0.x + v.nrm.y * normal_row1.x + v.nrm.z * normal_row2.x,
+        v.nrm.x * normal_row0.y + v.nrm.y * normal_row1.y + v.nrm.z * normal_row2.y,
+        v.nrm.x * normal_row0.z + v.nrm.y * normal_row1.z + v.nrm.z * normal_row2.z);
     return o;
 }
 
@@ -125,14 +134,16 @@ float4 PSMain(VSOut v) : SV_TARGET {
         // Frosted glass — 8-tap Vogel disk per channel (uniform branch)
         const float kGoldenAngle = 2.39996323;
         const int   kTaps        = 8;
-        const float kRadius      = roughness * 0.02;
+        // Pixel-space radius keeps frosted glass consistent across resolution
+        // and aspect ratio. The old normalized 0.02 radius was ~38 px at 1080p.
+        float2 filter_radius = screen_params.xy * (2.0 + roughness * roughness * 16.0);
         float3 sum = 0;
         [unroll]
         for (int t = 0; t < kTaps; ++t) {
             float ft = (float(t) + 0.5) / float(kTaps);
-            float r2 = sqrt(ft) * kRadius;
+            float r2 = sqrt(ft);
             float a  = float(t) * kGoldenAngle;
-            float2 off = float2(cos(a), sin(a)) * r2;
+            float2 off = float2(cos(a), sin(a)) * r2 * filter_radius;
             float rv = background.SampleLevel(background_sampler, saturate(refractUV_r + off), 0).r;
             float gv = background.SampleLevel(background_sampler, saturate(refractUV_g + off), 0).g;
             float bv = background.SampleLevel(background_sampler, saturate(refractUV_b + off), 0).b;
@@ -140,13 +151,22 @@ float4 PSMain(VSOut v) : SV_TARGET {
         }
         refracted = sum / float(kTaps);
     }
+    // Fade distortion before the refracted ray leaves the screen. Saturating
+    // every displaced UV directly creates long edge-colour streaks.
+    float2 screen_uv = v.pos.xy * screen_params.xy;
+    float2 edge_distance = min(refractUV_g, 1.0 - refractUV_g);
+    float edge_fade = saturate(min(edge_distance.x, edge_distance.y) * 40.0);
+    float3 undistorted = background.SampleLevel(background_sampler, screen_uv, 0).rgb;
+    refracted = lerp(undistorted, refracted, edge_fade);
     refracted *= tint.xyz;                               // ガラスの吸収色
 
     // --- Fresnel 反射 (環境マップ) ---
     float  NoV = saturate(dot(N, V));
-    float  F   = 0.04 + 0.96 * pow(saturate(1.0 - NoV), 5.0);   // F0=0.04 (誘電体)
+    float  f0s = (ior - 1.0) / (ior + 1.0);
+    float  F0  = f0s * f0s;
+    float  F   = F0 + (1.0 - F0) * pow(saturate(1.0 - NoV), 5.0);
     // roughness で prefilter mip を選び、荒い面ほどボケた反射にする (常時シャープな
-    // 「安い鏡」を回避)。screen_params.z = env の mip 数。prefilter でない (mip=1) cubemap
+    // 「安い鏡」を回避)。screen_params.z = この draw の env mip 数。prefilter でない (mip=1) cubemap
     // なら LOD は 0 にクランプされ従来どおり。
     float  env_max_lod = max(screen_params.z - 1.0, 0.0);
     float  refl_lod    = roughness * env_max_lod;
@@ -158,17 +178,20 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 // CB レイアウト (HLSL と一致、float4 アライン)
-struct FrameCBLayout {
+struct FFrameCBLayout {
     FMat4 view_proj;
     FVec4 camera_pos;
     FVec4 back_params;     // x=enabled, y=near, z=far, w=pad
-    FVec4 screen_params;   // x=1/w, y=1/h, zw=pad
 };
 
-struct ObjectCBLayout {
+struct FObjectCbLayout {
     FMat4 model;
+    FVec4 normal_row0;
+    FVec4 normal_row1;
+    FVec4 normal_row2;
     FVec4 material;       // x=ior, y=thickness, z=roughness, w=dispersion
     FVec4 tint;           // xyz=glass tint
+    FVec4 screen_params;  // x=1/w, y=1/h, z=env mip count
 };
 
 // CB は 256B にアライン (DX12 制約)
@@ -202,7 +225,7 @@ TResult<void> FRefractionShader::Init(IRhiDevice& device, EFormat rt_format,
 
     // === 定数バッファ ===
     FBufferDesc fcb{};
-    fcb.size = CBSize<FrameCBLayout>();
+    fcb.size = CBSize<FFrameCBLayout>();
     fcb.usage = EBufferUsage::Uniform;
     fcb.cpu_writable = true;
     auto fcb_r = CreateRhiBuffer(device, fcb);
@@ -210,12 +233,16 @@ TResult<void> FRefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     m_FrameCb = Move(fcb_r.Value());
 
     FBufferDesc ocb{};
-    ocb.size = CBSize<ObjectCBLayout>();
+    ocb.size = CBSize<FObjectCbLayout>();
     ocb.usage = EBufferUsage::Uniform;
     ocb.cpu_writable = true;
-    auto ocb_r = CreateRhiBuffer(device, ocb);
-    if (ocb_r.IsErr()) return Err<void>(ocb_r.Error());
-    m_ObjectCb = Move(ocb_r.Value());
+    for (u32 i = 0; i < kObjectCbRing; ++i) {
+        auto ocb_r = CreateRhiBuffer(device, ocb);
+        if (ocb_r.IsErr()) return Err<void>(ocb_r.Error());
+        m_ObjectCbs[i] = Move(ocb_r.Value());
+    }
+    m_ObjectCbCursor = 0;
+    m_CurrentObjectCb = kObjectCbRing;
 
     // === パイプライン ===
     FPipelineDesc pd{};
@@ -246,7 +273,7 @@ TResult<void> FRefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     pd.static_samplers[2].filter    = ESamplerFilter::Point;
     pd.static_samplers[2].address_u = ESamplerAddress::Clamp;
     pd.static_samplers[2].address_v = ESamplerAddress::Clamp;
-    pd.vertex_stride = sizeof(MeshVertex);
+    pd.vertex_stride = sizeof(FMeshVertex);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
     pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 16 }; // FVec3 はアライン 16
     pd.layout[2] = { "TEXCOORD", 0, EFormat::R32G32_Float,    32 };
@@ -277,24 +304,27 @@ void FRefractionShader::Shutdown() noexcept {
     m_BackDepthFb.Reset();
     m_BackDepth = nullptr;
     m_Pipeline.Reset();
-    m_ObjectCb.Reset();
+    for (auto& cb : m_ObjectCbs) cb.Reset();
+    m_ObjectCbCursor = 0;
+    m_CurrentObjectCb = kObjectCbRing;
     m_FrameCb.Reset();
     m_Ps.Reset();
     m_Vs.Reset();
 }
 
-void FRefractionShader::SetFrame(const FMat4& view_projection, FVec3 camera_pos) noexcept {
-    if (!m_FrameCb) return;
+void FRefractionShader::SetFrame(const FMat4& view_projection, FVec3 camera_pos,
+                                 u32 screen_w, u32 screen_h) noexcept {
+    m_ObjectCbCursor = 0;
+    m_CurrentObjectCb = kObjectCbRing;
     m_Vp  = view_projection;
     m_Eye = camera_pos;
-    FrameCBLayout cb{};
+    if (screen_w > 0) m_ScreenW = screen_w;
+    if (screen_h > 0) m_ScreenH = screen_h;
+    if (!m_FrameCb) return;
+    FFrameCBLayout cb{};
     cb.view_proj  = m_Vp;
     cb.camera_pos = FVec4{m_Eye.x, m_Eye.y, m_Eye.z, 1.0f};
     cb.back_params = FVec4{m_bBackEnabled ? 1.0f : 0.0f, m_BackNear, m_BackFar, 0};
-    cb.screen_params = FVec4{
-        m_ScreenW > 0 ? 1.0f / static_cast<f32>(m_ScreenW) : 0.0f,
-        m_ScreenH > 0 ? 1.0f / static_cast<f32>(m_ScreenH) : 0.0f,
-        0, 0};
     m_FrameCb->Update(&cb, sizeof(cb));
 }
 
@@ -306,54 +336,72 @@ void FRefractionShader::SetBackDepth(IRhiTexture* back_depth, f32 near_z, f32 fa
     m_BackFar     = far_z  > m_BackNear ? far_z : (m_BackNear + 1.0f);
     m_ScreenW     = screen_w > 0 ? screen_w : 1;
     m_ScreenH     = screen_h > 0 ? screen_h : 1;
-    // Frame CB を再 flush して back_params / screen_params を反映
+    // Frame CB を再 flush して back_params を反映。screen/env 情報は draw 専用
+    // Object CB に置き、先行 draw の Frame CB を後続 draw から上書きしない。
     if (m_FrameCb) {
-        FrameCBLayout cb{};
+        FFrameCBLayout cb{};
         cb.view_proj  = m_Vp;
         cb.camera_pos = FVec4{m_Eye.x, m_Eye.y, m_Eye.z, 1.0f};
         cb.back_params = FVec4{m_bBackEnabled ? 1.0f : 0.0f, m_BackNear, m_BackFar, 0};
-        cb.screen_params = FVec4{1.0f / static_cast<f32>(m_ScreenW),
-                                1.0f / static_cast<f32>(m_ScreenH), 0, 0};
         m_FrameCb->Update(&cb, sizeof(cb));
     }
 }
 
 void FRefractionShader::SetObject(const FMat4& model, f32 ior, f32 thickness,
-                                 FVec3 tint, f32 roughness, f32 dispersion) noexcept {
-    if (!m_ObjectCb) return;
+                                 FVec3 tint, f32 roughness, f32 dispersion,
+                                 u32 env_mip_levels) noexcept {
+    if (m_ObjectCbCursor >= kObjectCbRing) {
+        if (m_ObjectCbCursor == kObjectCbRing) {
+            ACS_LOG_WARN("FRefractionShader: per-frame draw limit (%u) exceeded; "
+                         "remaining refraction draws are skipped", kObjectCbRing);
+            ++m_ObjectCbCursor;
+        }
+        m_CurrentObjectCb = kObjectCbRing;
+        return;
+    }
+    m_CurrentObjectCb = m_ObjectCbCursor++;
+    IRhiBuffer* object_cb = m_ObjectCbs[m_CurrentObjectCb].Get();
+    if (!object_cb) {
+        m_CurrentObjectCb = kObjectCbRing;
+        return;
+    }
     const f32 r = roughness < 0.0f ? 0.0f : (roughness > 1.0f ? 1.0f : roughness);
     const f32 d = dispersion < 0.0f ? 0.0f : (dispersion > 1.0f ? 1.0f : dispersion);
-    ObjectCBLayout cb{};
+    FObjectCbLayout cb{};
     cb.model    = model;
+    const FMat4 normal_matrix = MakeSafeNormalMatrix(model);
+    cb.normal_row0 = FVec4{normal_matrix.m[0][0], normal_matrix.m[0][1],
+                           normal_matrix.m[0][2], 0};
+    cb.normal_row1 = FVec4{normal_matrix.m[1][0], normal_matrix.m[1][1],
+                           normal_matrix.m[1][2], 0};
+    cb.normal_row2 = FVec4{normal_matrix.m[2][0], normal_matrix.m[2][1],
+                           normal_matrix.m[2][2], 0};
     cb.material = FVec4{ior < 1.0f ? 1.0f : ior,
                        thickness < 0.0f ? 0.0f : thickness, r, d};
     cb.tint     = FVec4{tint.x, tint.y, tint.z, 0};
-    m_ObjectCb->Update(&cb, sizeof(cb));
+    cb.screen_params = FVec4{
+        m_ScreenW > 0 ? 1.0f / static_cast<f32>(m_ScreenW) : 0.0f,
+        m_ScreenH > 0 ? 1.0f / static_cast<f32>(m_ScreenH) : 0.0f,
+        static_cast<f32>(env_mip_levels > 0 ? env_mip_levels : 1u), 0};
+    object_cb->Update(&cb, sizeof(cb));
 }
 
-void FRefractionShader::DrawMesh(IRhiCommandList& cmd, const GpuMesh& mesh,
+void FRefractionShader::DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh,
                                 const FMat4& model, IRhiTexture& background,
                                 IRhiTexture& env, f32 ior, f32 thickness,
                                 FVec3 tint, f32 roughness, f32 dispersion) noexcept {
-    if (!m_Pipeline || !mesh.vertex_buffer || !mesh.index_buffer) return;
-    SetObject(model, ior, thickness, tint, roughness, dispersion);
-
-    // env の mip 数を screen_params.z に載せ直し、shader の roughness→反射 LOD を駆動する。
-    if (m_FrameCb) {
-        FrameCBLayout cb{};
-        cb.view_proj   = m_Vp;
-        cb.camera_pos  = FVec4{m_Eye.x, m_Eye.y, m_Eye.z, 1.0f};
-        cb.back_params = FVec4{m_bBackEnabled ? 1.0f : 0.0f, m_BackNear, m_BackFar, 0};
-        cb.screen_params = FVec4{
-            m_ScreenW > 0 ? 1.0f / static_cast<f32>(m_ScreenW) : 0.0f,
-            m_ScreenH > 0 ? 1.0f / static_cast<f32>(m_ScreenH) : 0.0f,
-            static_cast<f32>(env.MipLevels()), 0};
-        m_FrameCb->Update(&cb, sizeof(cb));
-    }
+    // SetBackDepth は optional。通常の DrawMesh 経路でも実際に sample する
+    // background の寸法を必ず採用し、rough blur を 1x1 texel size に退行させない。
+    m_ScreenW = background.Width() > 0 ? background.Width() : 1;
+    m_ScreenH = background.Height() > 0 ? background.Height() : 1;
+    if (!m_Pipeline || !m_FrameCb || !mesh.vertex_buffer || !mesh.index_buffer) return;
+    SetObject(model, ior, thickness, tint, roughness, dispersion, env.MipLevels());
+    IRhiBuffer* object_cb = PerObjectCB();
+    if (!object_cb) return;
 
     cmd.SetPipeline(*m_Pipeline);
     cmd.SetConstantBuffer(0, *m_FrameCb);
-    cmd.SetConstantBuffer(1, *m_ObjectCb);
+    cmd.SetConstantBuffer(1, *object_cb);
     cmd.SetTexture(0, background);
     cmd.SetTexture(1, env);
     // back_depth slot は SetBackDepth で渡されたテクスチャ、

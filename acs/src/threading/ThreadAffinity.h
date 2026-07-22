@@ -2,7 +2,7 @@
 // ThreadAffinity — クラスごとに「どのスレッドから呼べるか」を Debug ビルドで検証する
 //
 // 使い方:
-//   class MyView {
+//   class FMyView {
 //       ACS_THREAD_AFFINITY_FIELD();
 //   public:
 //       void Set(int v) noexcept {
@@ -33,10 +33,10 @@ namespace acs::detail {
  * Debug ビルド (ACS_ASSERTS_ENABLED) でのみ実体を持ち、Release では完全に no-op。
  * ACS_THREAD_AFFINITY_FIELD / ACS_THREAD_AFFINITY_CHECK マクロ経由で使う。
  */
-class ThreadAffinityGuard {
+class FThreadAffinityGuard {
 public:
     /** 未固定状態 (m_ExpectedThread == 0) で構築する。 */
-    ThreadAffinityGuard() noexcept = default;
+    FThreadAffinityGuard() noexcept = default;
 
     /**
      * 現在のスレッドが固定スレッドと一致するか検証する。
@@ -70,7 +70,7 @@ private:
 
 /** クラス内にアフィニティ検査用メンバを生やす (Debug 版、mutable な guard を宣言)。 */
 #define ACS_THREAD_AFFINITY_FIELD() \
-    mutable ::acs::detail::ThreadAffinityGuard m_AcsAffinityGuard
+    mutable ::acs::detail::FThreadAffinityGuard m_AcsAffinityGuard
 
 /** 現在のスレッドが初回スレッドと一致するか検証する (Debug 版、不一致で panic)。 */
 #define ACS_THREAD_AFFINITY_CHECK() \

@@ -378,7 +378,7 @@ TResult<void> FShardedTlsfAllocator::Init(usize TotalReserveBytes, usize CommitI
     if (CommitBytesPerShard > ReserveBytesPerShard) CommitBytesPerShard = ReserveBytesPerShard;
 
     for (u32 i = 0; i < EffectiveShardCount; ++i) {
-        auto ReservationResult = VmReservation::Reserve(ReserveBytesPerShard);
+        auto ReservationResult = FVmReservation::Reserve(ReserveBytesPerShard);
         if (ReservationResult.IsErr()) {
             (void)ResetShardsAfterLifecycleClose();
             return Err<void>(ReservationResult.Error());
@@ -531,7 +531,7 @@ void* FShardedTlsfAllocator::AllocSharded(usize Size, usize Alignment, FSourceLo
     // 自分のシャードから試し、満杯なら隣へフォールバック (偏り/枯渇でも全体予約まで使える)。
     for (u32 i = 0; i < m_ShardCount; ++i) {
         const u32 ShardIndex = static_cast<u32>(StartShardIndex + static_cast<int>(i)) % m_ShardCount;
-        Shard& CurrentShard = m_Shards[ShardIndex];
+        FShard& CurrentShard = m_Shards[ShardIndex];
         FScopedLock Lock(CurrentShard.lock);
         void* const Result = CurrentShard.alloc.Alloc(Size, Alignment, Location);
         if (Result) return Result;

@@ -122,15 +122,15 @@ u32 FVoiceChatBackendStub::ParticipantCount(EVoiceChannel ch) noexcept {
 }
 
 /** 参加者取得 (未初期化なら NotInitialized、それ以外は NotImplemented)。 */
-TResult<VoiceParticipant> FVoiceChatBackendStub::GetParticipant(EVoiceChannel ch, u32 index) noexcept {
+TResult<FVoiceParticipant> FVoiceChatBackendStub::GetParticipant(EVoiceChannel ch, u32 index) noexcept {
     (void)ch;
     (void)index;
     if (!m_Initialized) {
-        return TResult<VoiceParticipant>(
+        return TResult<FVoiceParticipant>(
             ACS_ERR(Generic, kSubVoiceNotInitialized,
                     "FVoiceChatBackendStub::GetParticipant called before Init()"));
     }
-    return TResult<VoiceParticipant>(
+    return TResult<FVoiceParticipant>(
         ACS_ERR(Generic, kSubVoiceNotImplemented,
                 "FVoiceChatBackendStub: GetParticipant is not implemented (link real voice SDK)"));
 }
@@ -155,19 +155,19 @@ u32 FVoiceChatLoopbackBackend::EncodeFrame(const i16* pcm, u32 sample_count, u32
     if (sample_count != 0 && pcm == nullptr) return 0;
 
     const u32 payload_bytes = sample_count * static_cast<u32>(sizeof(i16));
-    const u32 total = static_cast<u32>(sizeof(VoiceFrameHeader)) + payload_bytes;
+    const u32 total = static_cast<u32>(sizeof(FVoiceFrameHeader)) + payload_bytes;
     if (out_capacity < total) return 0;
 
-    VoiceFrameHeader hdr;
+    FVoiceFrameHeader hdr;
     hdr.magic        = kVoiceFrameMagic;
     hdr.sequence     = sequence;
     hdr.sample_count = sample_count;
     hdr.reserved     = 0;
 
     // header はトリビアルコピー可能な POD なのでバイト列として安全に転写できる。
-    MemCopy(out, &hdr, sizeof(VoiceFrameHeader));
+    MemCopy(out, &hdr, sizeof(FVoiceFrameHeader));
     if (payload_bytes != 0) {
-        MemCopy(out + sizeof(VoiceFrameHeader), pcm, payload_bytes);
+        MemCopy(out + sizeof(FVoiceFrameHeader), pcm, payload_bytes);
     }
     return total;
 }
@@ -175,13 +175,13 @@ u32 FVoiceChatLoopbackBackend::EncodeFrame(const i16* pcm, u32 sample_count, u32
 /** framed バイト列を検証して int16 PCM を復元する (破損は FrameCorrupt)。 */
 TResult<u32> FVoiceChatLoopbackBackend::DecodeFrame(const u8* in, u32 in_size,
                                                     i16* out, u32 out_capacity) noexcept {
-    if (in == nullptr || in_size < sizeof(VoiceFrameHeader)) {
+    if (in == nullptr || in_size < sizeof(FVoiceFrameHeader)) {
         return TResult<u32>(ACS_ERR(Generic, kSubVoiceFrameCorrupt,
                                     "DecodeFrame: input smaller than header"));
     }
 
-    VoiceFrameHeader hdr;
-    MemCopy(&hdr, in, sizeof(VoiceFrameHeader));
+    FVoiceFrameHeader hdr;
+    MemCopy(&hdr, in, sizeof(FVoiceFrameHeader));
     if (hdr.magic != kVoiceFrameMagic) {
         return TResult<u32>(ACS_ERR(Generic, kSubVoiceFrameCorrupt,
                                     "DecodeFrame: bad magic"));
@@ -192,7 +192,7 @@ TResult<u32> FVoiceChatLoopbackBackend::DecodeFrame(const u8* in, u32 in_size,
     }
 
     const u32 payload_bytes = hdr.sample_count * static_cast<u32>(sizeof(i16));
-    if (in_size < sizeof(VoiceFrameHeader) + payload_bytes) {
+    if (in_size < sizeof(FVoiceFrameHeader) + payload_bytes) {
         return TResult<u32>(ACS_ERR(Generic, kSubVoiceFrameCorrupt,
                                     "DecodeFrame: truncated payload"));
     }
@@ -202,7 +202,7 @@ TResult<u32> FVoiceChatLoopbackBackend::DecodeFrame(const u8* in, u32 in_size,
     }
 
     if (payload_bytes != 0) {
-        MemCopy(out, in + sizeof(VoiceFrameHeader), payload_bytes);
+        MemCopy(out, in + sizeof(FVoiceFrameHeader), payload_bytes);
     }
     return Ok<u32>(hdr.sample_count);
 }
@@ -221,7 +221,7 @@ u32 FVoiceChatLoopbackBackend::FindParticipant(const FChannel& c, const char* us
 void FVoiceChatLoopbackBackend::EnqueueFrame(FLoopParticipant& p, const i16* pcm, u32 sample_count) noexcept {
     // この参加者の受信キュー末尾に 1 frame を append する。sequence は送信元
     // (= ローカル) ではなく「キュー所有者から見た到着順」として next_seq を使う。
-    u8 staging[sizeof(VoiceFrameHeader) + kVoiceMaxFrameSamples * sizeof(i16)];
+    u8 staging[sizeof(FVoiceFrameHeader) + kVoiceMaxFrameSamples * sizeof(i16)];
     const u32 n = EncodeFrame(pcm, sample_count, p.next_seq,
                               staging, static_cast<u32>(sizeof(staging)));
     if (n == 0) return;  // 引数不正 (上位で弾いている想定だが防御的に)
@@ -370,32 +370,32 @@ u32 FVoiceChatLoopbackBackend::ParticipantCount(EVoiceChannel ch) noexcept {
 }
 
 /** index 番目の参加者を VoiceParticipant に詰めて返す。 */
-TResult<VoiceParticipant> FVoiceChatLoopbackBackend::GetParticipant(EVoiceChannel ch, u32 index) noexcept {
+TResult<FVoiceParticipant> FVoiceChatLoopbackBackend::GetParticipant(EVoiceChannel ch, u32 index) noexcept {
     if (!m_Initialized) {
-        return TResult<VoiceParticipant>(
+        return TResult<FVoiceParticipant>(
             ACS_ERR(Generic, kSubVoiceNotInitialized,
                     "FVoiceChatLoopbackBackend::GetParticipant called before Init()"));
     }
     FChannel& c = Chan(ch);
     if (!c.joined) {
-        return TResult<VoiceParticipant>(
+        return TResult<FVoiceParticipant>(
             ACS_ERR(Generic, kSubVoiceNotJoined,
                     "FVoiceChatLoopbackBackend::GetParticipant: channel not joined"));
     }
     if (index >= c.participants.Size()) {
-        return TResult<VoiceParticipant>(
+        return TResult<FVoiceParticipant>(
             ACS_ERR(Generic, kSubVoiceBadArgument,
                     "FVoiceChatLoopbackBackend::GetParticipant: index out of range"));
     }
     const FLoopParticipant& p = c.participants[index];
-    VoiceParticipant out;
+    FVoiceParticipant out;
     out.user_id        = p.user_id.Data();        // 寿命 = 次 Tick / 構造変更まで (FString 所有領域)
     out.display_name   = p.display_name.Data();
     out.is_muted_local = p.muted_local;
     // 受信キューに未消費フレームがあれば「発言中」とみなし、最後の RMS を level に。
     out.is_speaking    = !p.rx_frames.IsEmpty();
     out.audio_level    = (index == 0) ? m_LastLocalRms : (p.rx_frames.IsEmpty() ? 0.0f : 1.0f);
-    return TResult<VoiceParticipant>(OkInit, out);
+    return TResult<FVoiceParticipant>(OkInit, out);
 }
 
 /** ループバックは event pump を持たないので何もしない。 */
@@ -491,11 +491,11 @@ u32 FVoiceChatLoopbackBackend::PendingFrameCount(EVoiceChannel ch, const char* u
     const usize total = p.rx_frames.Size();
     usize off = 0;
     u32 count = 0;
-    while (off + sizeof(VoiceFrameHeader) <= total) {
-        VoiceFrameHeader hdr;
-        MemCopy(&hdr, base + off, sizeof(VoiceFrameHeader));
+    while (off + sizeof(FVoiceFrameHeader) <= total) {
+        FVoiceFrameHeader hdr;
+        MemCopy(&hdr, base + off, sizeof(FVoiceFrameHeader));
         if (hdr.magic != kVoiceFrameMagic) break;
-        const usize frame = sizeof(VoiceFrameHeader)
+        const usize frame = sizeof(FVoiceFrameHeader)
                           + static_cast<usize>(hdr.sample_count) * sizeof(i16);
         if (off + frame > total) break;
         off += frame;
@@ -624,11 +624,11 @@ u32 FVoiceChatLoopbackBackend::PumpMixedOutput(EVoiceChannel ch, i16* out, u32 o
     usize consumed = 0;             // 完全に mix し終えたバイト数 (キューから除去する量)
     i16 decoded[kVoiceMaxFrameSamples];
 
-    while (off + sizeof(VoiceFrameHeader) <= total) {
-        VoiceFrameHeader hdr;
-        MemCopy(&hdr, base + off, sizeof(VoiceFrameHeader));
+    while (off + sizeof(FVoiceFrameHeader) <= total) {
+        FVoiceFrameHeader hdr;
+        MemCopy(&hdr, base + off, sizeof(FVoiceFrameHeader));
         if (hdr.magic != kVoiceFrameMagic) break;  // 破損したら以降を捨てる
-        const usize frame_bytes = sizeof(VoiceFrameHeader)
+        const usize frame_bytes = sizeof(FVoiceFrameHeader)
                                 + static_cast<usize>(hdr.sample_count) * sizeof(i16);
         if (off + frame_bytes > total) break;       // 途中までしか無い (理論上起きない)
 
@@ -668,8 +668,8 @@ u32 FVoiceChatLoopbackBackend::PumpMixedOutput(EVoiceChannel ch, i16* out, u32 o
 
 /** ループバック backend の Meyer's singleton を返す。 */
 FVoiceChatLoopbackBackend& GetVoiceLoopback() noexcept {
-    struct VoiceLoopbackState {
-        VoiceLoopbackState() noexcept : backend(allocator)
+    struct FVoiceLoopbackState {
+        FVoiceLoopbackState() noexcept : backend(allocator)
         {
         }
 
@@ -677,7 +677,7 @@ FVoiceChatLoopbackBackend& GetVoiceLoopback() noexcept {
         FSystemAllocator allocator;
         FVoiceChatLoopbackBackend backend;
     };
-    static VoiceLoopbackState s_state;
+    static FVoiceLoopbackState s_state;
     return s_state.backend;
 }
 

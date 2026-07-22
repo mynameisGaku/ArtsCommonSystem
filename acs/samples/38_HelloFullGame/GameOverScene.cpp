@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloFullGame — GameOverScene 実装。
+// HelloFullGame — FGameOverScene 実装。
 #include "GameOverScene.h"
 #include "FullGameApp.h"
 #include "TitleScene.h"
@@ -17,13 +17,13 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void GameOverScene::OnEnter() noexcept {
+void FGameOverScene::OnEnter() noexcept {
     FInputMap& im = Services().Input();
     im.ClearAll();
-    im.BindKey(ActionId("Reset"), EKey::R);
-    im.BindKey(ActionId("Quit"),  EKey::Escape);
+    im.BindKey(FActionId("Reset"), EKey::R);
+    im.BindKey(FActionId("Quit"),  EKey::Escape);
 
-    auto& app = static_cast<FullGameApp&>(GetGame());
+    auto& app = static_cast<FFullGameApp&>(GetGame());
     m_SavedBest    = app.GetHighScore().best_score;
     m_bIsNewRecord = m_FinalScore >= m_SavedBest && m_FinalScore > 0;
 
@@ -36,25 +36,25 @@ void GameOverScene::OnEnter() noexcept {
                  static_cast<unsigned long long>(m_SavedBest));
 }
 
-void GameOverScene::OnExit() noexcept {
+void FGameOverScene::OnExit() noexcept {
     ACS_LOG_INFO("[GameOver] exit");
 }
 
-void GameOverScene::OnUpdate(f32 dt) noexcept {
+void FGameOverScene::OnUpdate(f32 dt) noexcept {
     const FInputMap& im = Services().Input();
-    if (im.IsPressed(ActionId("Quit"))) {
+    if (im.IsPressed(FActionId("Quit"))) {
         GetGame().Quit();
         return;
     }
-    if (im.IsPressed(ActionId("Reset"))) {
-        Scenes().ChangeScene(MakeUnique<TitleScene>());
+    if (im.IsPressed(FActionId("Reset"))) {
+        Scenes().ChangeScene(MakeUnique<FTitleScene>());
         return;
     }
     _state_sec += dt;
 }
 
-void GameOverScene::OnRender(RenderContext& rc) noexcept {
-    auto& app = static_cast<FullGameApp&>(GetGame());
+void FGameOverScene::OnRender(FRenderContext& rc) noexcept {
+    auto& app = static_cast<FFullGameApp&>(GetGame());
     app.EnsureSpritesInitialized();
     if (!app.SpritesReady()) return;
 
@@ -100,8 +100,8 @@ void GameOverScene::OnRender(RenderContext& rc) noexcept {
 
     // ----- テキストラベル -----
     if (app.FontReady()) {
-        Font& title_font = app.FontTitle();
-        Font& body       = app.FontBody();
+        FFont& title_font = app.FontTitle();
+        FFont& body       = app.FontBody();
 
         const char* result_text = m_bDidWin ? "VICTORY!" : "GAME OVER";
         const f32 rw = title_font.MeasureWidth(result_text);

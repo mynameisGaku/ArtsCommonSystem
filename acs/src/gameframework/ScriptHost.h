@@ -9,7 +9,7 @@
 //   call し、native 関数を bind する」実行レイヤを担当する。
 //
 //   GameFramework 設計書 v13 では Lua 5.4 が推奨 backend だが、本 module
-//   自体は実 Lua ライブラリをリンクしない。具象 backend (LuaVm / WrenVm 等) は
+//   自体は実 Lua ライブラリをリンクしない。具象 backend (FLuaVm / Wren VM 実装等) は
 //   別モジュール (将来の `ACS::ScriptingLua` = `src/scripting/`) で `IScriptVm`
 //   を override する形で実装される。
 //
@@ -29,16 +29,16 @@
 //      (UI / イベントトリガー / カットシーン / Mod hook) に限定する規約を
 //      API レベルで強制する (= 本 header の呼び出し位置で発見できる)。
 //   4. **defensive な未統合フォールバック**:
-//      実 Lua backend が同梱されないビルドでも、`ScriptVmStub` が
+//      実 Lua backend が同梱されないビルドでも、`FScriptVmStub` が
 //      `kSub_NotImplemented` を返すことで、Mod / scripting に依存する path が
 //      「常にスクリプト無し」状態でも安全に動く前提を強制できる。
 //
 // 本 header が提供するもの:
 //   ・`IScriptVm` の純粋仮想 interface 確定 (Init / Shutdown / LoadScript /
 //     CallFunction / RegisterNativeFunction / GetGlobal / SetGlobal / GC)
-//   ・タグ付き union 風 POD `ScriptValue` + `ScriptCallFrame` + `NativeFunction`
+//   ・タグ付き union 風 POD `FScriptValue` + `FScriptCallFrame` + `NativeFunction`
 //     による backend 中立な値受け渡し
-//   ・`ScriptVmStub` (全 method NotImplemented を返す defensive 実装)
+//   ・`FScriptVmStub` (全 method NotImplemented を返す defensive 実装)
 //   ・global stub アクセサ `GetVmStub()`
 //   ・`FScriptHost` 高レベルラッパ (vm を保持 + native 関数 registry + file load
 //     + 標準 binding 一括登録)
@@ -47,7 +47,7 @@
 //   ・STL 不使用 / `<string>` 不使用 (文字列は `const char*` のみ)
 //   ・例外不使用、エラーは `TResult<T, FErrorCode>` で伝搬
 //   ・全 noexcept
-//   ・`FScriptHost` / `ScriptVmStub` は シングルトン / 単一所有運用前提で
+//   ・`FScriptHost` / `FScriptVmStub` は シングルトン / 単一所有運用前提で
 //     コピー / ムーブ禁止
 #pragma once
 
@@ -80,7 +80,7 @@ enum class EScriptLanguage : u8 {
 };
 
 /**
- * ScriptValue が現在保持している値の種別タグ。
+ * FScriptValue が現在保持している値の種別タグ。
  *
  * @details
  * backend 中立な値受け渡し用。Lua/Wren/Python いずれの native 関数も、引数 / 戻り値は
@@ -97,7 +97,7 @@ enum class EScriptValueKind : u8 {
     Number = 2,
 
     /** 文字列 (const char*、所有しない。寿命は呼び出し側が保証)。 */
-    FString = 3,
+    String = 3,
 
     /** 不透明ハンドル (u32、entity / scene node / save slot 等のゲーム側 ID)。 */
     Handle = 4,
@@ -110,7 +110,7 @@ enum class EScriptValueKind : u8 {
  * 共用体にしているのは「同時には 1 値しか保持しない」という意味合いを表すためで、
  * サイズ上は struct でも変わらない (u64 1 個分にフィットする)。
  */
-struct ScriptValue {
+struct FScriptValue {
     /** 現在 v が保持している値の種別。 */
     EScriptValueKind kind = EScriptValueKind::Nil;
 
@@ -138,15 +138,15 @@ struct ScriptValue {
  * 渡すペイロード。POD ポインタ + 件数だけを保持し、args / ret のメモリは backend
  * (スタック / 仮 buffer) が所有する。
  */
-struct ScriptCallFrame {
+struct FScriptCallFrame {
     /** 引数配列 (immutable、長さは arg_count)。 */
-    const ScriptValue* args      = nullptr;
+    const FScriptValue* args      = nullptr;
 
     /** args の長さ (0 でも有効 = 引数なし関数)。 */
     u32                arg_count = 0;
 
     /** 戻り値書き込み先 (nullptr 可 = 戻り値を捨てる)。native は kind / v を上書きしてよい。 */
-    ScriptValue*       ret       = nullptr;
+    FScriptValue*       ret       = nullptr;
 };
 
 class IScriptVm;
@@ -159,15 +159,15 @@ class IScriptVm;
  * (this 束縛用の trampoline パターン)。例外を投げてはならない (script backend は
  * C 由来で stack unwind 安全性を持たないことが多い)。
  */
-using NativeFunction = void(*)(IScriptVm& vm, ScriptCallFrame& frame, void* user) noexcept;
+using NativeFunction = void(*)(IScriptVm& vm, FScriptCallFrame& frame, void* user) noexcept;
 
 /**
  * 本 module 内で固定する安定 subcode の名前空間。
  *
  * @details
- * ErrCategory::Generic 配下で subcode を固定し、上位層が err.subcode ==
- * script_err::kSub_NotImplemented などで分岐できるようにする。FSaveSlot.h /
- * FMlRuntime.h と同じ流儀。
+ * EErrCategory::Generic 配下で subcode を固定し、上位層が err.subcode ==
+ * script_err::kSub_NotImplemented などで分岐できるようにする。SaveSlot.h /
+ * MlRuntime.h と同じ流儀。
  */
 namespace script_err {
     /** stub / backend 未統合。 */
@@ -191,9 +191,54 @@ namespace script_err {
     /** ファイルが内部上限を超える。 */
     inline constexpr u16 kSub_FileTooLarge   = 21;
 
+    /** ファイルの open/read/close または snapshot 整合性確認に失敗。 */
+    inline constexpr u16 kSub_Io             = 22;
+
+    /** 一時バッファまたは native registry の確保に失敗。 */
+    inline constexpr u16 kSub_AllocationFailed = 23;
+
+    /** 読み込み中にファイルの長さが変化した。 */
+    inline constexpr u16 kSub_FileChanged    = 24;
+
+    /** スクリプトsourceに埋込みNULが含まれる。 */
+    inline constexpr u16 kSub_EmbeddedNul    = 25;
+
+    /** ファイルパスがnull、空、長すぎる、またはNUL終端されていない。 */
+    inline constexpr u16 kSub_InvalidPath    = 26;
+
     /** FScriptHost::Init 未呼出 (vm 未設定)。 */
     inline constexpr u16 kSub_NoVm           = 30;
+
+    /** 関数名が空、長すぎる、またはNUL終端されていない。 */
+    inline constexpr u16 kSub_InvalidName    = 31;
+
+    /** 呼び出し引数数または文字列引数量が上限を超える。 */
+    inline constexpr u16 kSub_ArgumentLimit  = 32;
+
+    /** native function registry が上限に達した。 */
+    inline constexpr u16 kSub_RegistryLimit  = 33;
 } // namespace script_err
+
+/** 1スクリプトファイル/sourceの最大バイト数 (64 MiB)。 */
+inline constexpr u64 kMaxScriptFileBytes = 64ull * 1024ull * 1024ull;
+
+/** 関数名の最大バイト数 (終端NULを含まない)。 */
+inline constexpr u32 kMaxScriptFunctionNameBytes = 127u;
+
+/** source診断に渡すchunk名の最大バイト数。 */
+inline constexpr u32 kMaxScriptChunkNameBytes = 255u;
+
+/** script file pathの最大UTF-16 code unit数。 */
+inline constexpr u32 kMaxScriptPathChars = 1023u;
+
+/** 1回のscript callに渡せる引数数。 */
+inline constexpr u32 kMaxScriptCallArguments = 1024u;
+
+/** 1回のscript callに含められる文字列引数の合計バイト数。 */
+inline constexpr u32 kMaxScriptStringArgumentBytes = 1024u * 1024u;
+
+/** 1 hostが保持できるnative function登録数。 */
+inline constexpr u32 kMaxScriptNativeFunctions = 4096u;
 
 /**
  * スクリプト VM の純粋仮想 interface (backend 差し替え用 seam)。
@@ -250,9 +295,9 @@ public:
      * @return 成功なら空の TResult、未登録関数 / 実行時エラーは kSub_CallFailed。
      */
     virtual TResult<void> CallFunction(const char*        function_name,
-                                      const ScriptValue* args,
+                                      const FScriptValue* args,
                                       u32                arg_count,
-                                      ScriptValue*       ret_out) noexcept = 0;
+                                      FScriptValue*       ret_out) noexcept = 0;
 
     /**
      * C++ 関数を script グローバル空間に bind する。
@@ -324,13 +369,13 @@ protected:
  * LoadScript / CallFunction / RegisterNativeFunction は kSub_NotImplemented を返す。
  * SetGlobalNumber / GetGlobalNumber / CollectGarbage は no-op、MemoryUsageBytes は常に 0。
  */
-class ScriptVmStub final : public IScriptVm {
+class FScriptVmStub final : public IScriptVm {
 public:
     /** 空状態で構築する。 */
-    ScriptVmStub() noexcept = default;
+    FScriptVmStub() noexcept = default;
 
     /** 破棄する (no-op)。 */
-    ~ScriptVmStub() noexcept override = default;
+    ~FScriptVmStub() noexcept override = default;
 
     /**
      * Init を no-op 成功させる (起動シーケンスを通すため)。
@@ -370,8 +415,8 @@ public:
      * @return Init 前なら kSub_NotInitialized、それ以外は kSub_NotImplemented。
      */
     TResult<void>    CallFunction(const char* function_name,
-                                 const ScriptValue* args, u32 arg_count,
-                                 ScriptValue* ret_out)                              noexcept override;
+                                 const FScriptValue* args, u32 arg_count,
+                                 FScriptValue* ret_out)                              noexcept override;
 
     /**
      * RegisterNativeFunction を未実装として失敗させる。
@@ -419,13 +464,13 @@ private:
 /**
  * process 内で 1 個だけ存在する静的 stub への参照を返す (Meyers singleton)。
  *
- * @details FGame / Scene 側からのスクリプト問い合わせはこれを通る。
- * @return 共有 ScriptVmStub インスタンスへの参照。
+ * @details FGame / FScene 側からのスクリプト問い合わせはこれを通る。
+ * @return 共有 FScriptVmStub インスタンスへの参照。
  */
 IScriptVm& GetVmStub() noexcept;
 
 /**
- * 既定 ScriptVm を返す provider 関数型 (実 backend モジュールへの委譲点)。
+ * 既定 IScriptVm を返す provider 関数型 (実 backend モジュールへの委譲点)。
  *
  * @details
  * gameframework は実 backend モジュール (例: ACS::Scripting / FLuaVm) に依存できない
@@ -448,7 +493,7 @@ using ScriptVmProvider = IScriptVm& (*)() noexcept;
 void SetScriptVmProvider(ScriptVmProvider provider) noexcept;
 
 /**
- * 既定 ScriptVm を返す。
+ * 既定 IScriptVm を返す。
  *
  * @return provider 登録済みならその実 VM、未登録なら GetVmStub()。
  */
@@ -463,7 +508,7 @@ IScriptVm& GetDefaultScriptVm() noexcept;
  * LoadAndRun(file_path) で Win32 ファイル読み込み → LoadScript の一括ヘルパを、
  * RegisterStandardBindings で標準 binding (Log / Math / Time / Input / Audio 等) の一括登録 API を
  * 提供し、script 実行中エラーを上位 UI / ログに通知する ScriptErrorCallback を保持する。
- * vm の生成 / 破棄は呼び出し側 (= FGame / Scene) が責任を持ち、FScriptHost は raw ポインタを保持する
+ * vm の生成 / 破棄は呼び出し側 (= FGame / FScene) が責任を持ち、FScriptHost は raw ポインタを保持する
  * だけで Shutdown でも delete しない (stub singleton をそのまま差し込んでも安全)。「現在 active な
  * スクリプト窓口は 1 つ」という規約を担保するため non-copy / non-move。
  */
@@ -539,6 +584,20 @@ public:
     TResult<void> LoadAndRun(const wchar_t* file_path) noexcept;
 
     /**
+     * 長さ付きsourceを検証してVMへロード・実行する。
+     *
+     * @details sourceの上限と埋込みNULをVM呼び出し前に検証する。backend失敗時は
+     * error callbackを発火する。sourceは呼び出し中だけ参照される。
+     * @param source UTF-8 source。source_len==0ならnullptrも許可する。
+     * @param source_len sourceの有効バイト数。
+     * @param chunk_name 診断名 (nullptr可)。
+     * @return 成功または安定したscript_err subcode。
+     */
+    TResult<void> LoadAndRunSource(const char* source,
+                                   u32         source_len,
+                                   const char* chunk_name = nullptr) noexcept;
+
+    /**
      * グローバル関数を呼び出す薄いラッパ (vm への単純 delegate)。
      *
      * @details vm 未設定 / 引数不正は subcode で区別し、CallFunction がエラーなら error callback を発火する。
@@ -549,16 +608,17 @@ public:
      * @return 成功なら空の TResult、vm 未設定 / 引数不正 / 実行失敗ならエラー。
      */
     TResult<void> CallGlobalFunction(const char*        function_name,
-                                    const ScriptValue* args,
+                                    const FScriptValue* args,
                                     u32                arg_count,
-                                    ScriptValue*       ret_out) noexcept;
+                                    FScriptValue*       ret_out) noexcept;
 
     /**
      * C++ 関数を vm に登録すると同時に、本ホストの内部 registry にも記録する。
      *
      * @details
-     * 同名既登録なら内部 entry を上書きする。backend が拒否した場合、新規登録時は registry に
-     * 追加せず、上書き済みだった場合はロールバックせず警告ログを残す。失敗時は error callback も発火する。
+     * 同名既登録なら内部 entry を上書きする。内部registryを先にstagingし、backendが
+     * 拒否した場合は新規追加・既存上書きのどちらも完全にロールバックする。
+     * 失敗時はerror callbackも発火する。
      * @param function_name script 側から見える関数名。
      * @param fn 呼び出される native 関数。
      * @param user fn の第 3 引数に渡すコンテキスト (this 束縛用)。
@@ -585,6 +645,18 @@ public:
     u32 RegisteredNativeCount() const noexcept;
 
     /**
+     * 登録済みnative functionを名前で取得する。
+     *
+     * @param function_name 検索する上限付きNUL終端名。
+     * @param out_fn 成功時の関数。
+     * @param out_user 成功時のcontext。
+     * @return 登録済みならtrue。失敗時は出力を変更しない。
+     */
+    bool TryGetRegisteredNative(const char*     function_name,
+                                NativeFunction& out_fn,
+                                void*&          out_user) const noexcept;
+
+    /**
      * エラー callback を設定する。
      *
      * @param cb 設定する callback (nullptr で無効化)。
@@ -598,11 +670,12 @@ private:
      *
      * @details
      * backend (= vm) を差し替えても再登録できるように name / fn / user を保持する
-     * (vm 自身が再登録を提供しないことが多いため)。名前は所有しない (literal / バンドル参照前提)。
+     * (vm 自身が再登録を提供しないことが多いため)。名前はentry内へ複製し、
+     * 呼び出し側文字列の寿命に依存しない。
      */
-    struct NativeEntry {
-        /** script 側から見える関数名 (非所有、literal / バンドル参照前提)。 */
-        const char*    name = nullptr;
+    struct FNativeEntry {
+        /** script 側から見える関数名 (NUL終端、entry所有)。 */
+        char           name[kMaxScriptFunctionNameBytes + 1u] = {};
 
         /** 呼び出される native 関数。 */
         NativeFunction fn   = nullptr;
@@ -625,7 +698,7 @@ private:
     IScriptVm*           m_Vm           = nullptr;
 
     /** 登録済み native function のキャッシュ (vm 差し替え時の再登録用)。 */
-    TArray<NativeEntry>   m_Natives;
+    TArray<FNativeEntry>   m_Natives;
 
     /** エラー通知 callback (未設定なら nullptr)。 */
     ScriptErrorCallback  m_OnError     = nullptr;

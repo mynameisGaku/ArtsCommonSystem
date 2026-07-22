@@ -4,12 +4,12 @@
 // 役割:
 //   ParticleEditor (in-engine particle authoring tool) が編集中の emitter 群を
 //   人間可読 / git diff 可能なテキスト形式で保存・復元するためのシリアライザ。
-//   バイナリ形式の `FSaveSlot<T>` (Pillar J) と違い、**作業中アセットを版管理に
+//   バイナリ形式の `TSaveSlot<T>` (Pillar J) と違い、**作業中アセットを版管理に
 //   そのまま乗せられる** ことを最優先する (= UE5 の `.uasset` ではなく Unity の
 //   `.meta` 風のフィロソフィー)。
 //
 // 使い方:
-//   acs::game::ParticleEmitterDef defs[8] = {};
+//   acs::game::FParticleEmitterDef defs[8] = {};
 //   defs[0].lifetime_sec      = 2.0f;
 //   defs[0].emit_rate_per_sec = 50.0f;
 //   defs[0].color_start       = {1.0f, 0.8f, 0.2f};
@@ -20,7 +20,7 @@
 //                                              defs, names, 2);
 //
 //   // ロード側:
-//   acs::game::ParticleEmitterDef loaded[16] = {};
+//   acs::game::FParticleEmitterDef loaded[16] = {};
 //   char                          name_buf[16 * 32] = {};
 //   auto r = acs::game::fxedit::FFxeditSerializer::Load(
 //       L"data/effects/fireball.fxedit", loaded, name_buf, sizeof(name_buf), 16);
@@ -50,7 +50,7 @@
 //   ・`#` 始まりはコメント (parse 時にスキップ)。
 //   ・空行スキップ。
 //   ・未知 key は無視 (前方互換: 将来 key を増やしても旧ローダで読める)。
-//   ・実 `ParticleEmitterDef` 構造体は color が FVec3、gravity が FVec2 であり、
+//   ・実 `FParticleEmitterDef` 構造体は color が FVec3、gravity が FVec2 であり、
 //     テキスト形式の 4 番目 (alpha) / 3 番目 (z) 成分はシリアライズ側で 1.0/0.0
 //     を埋め、デシリアライズ側で破棄する。`spread_radians` は emitter def の
 //     正式メンバではないため将来拡張用の予約 key として読み込みのみサポート
@@ -64,7 +64,7 @@
 //     version をインクリメントし、後方互換ローダが分岐する。
 //   ・**非コピー・非ムーブ static class**: state を持たないため。
 //   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 規約。
-//   ・**file I/O は acs::FileSystem に委譲**: `<stdio.h>` 等の C 標準 I/O を
+//   ・**file I/O は acs::FFileSystem に委譲**: `<stdio.h>` 等の C 標準 I/O を
 //     直接呼ばず、Win32 CreateFileW ベースの platform/FileSystem を使うことで
 //     wchar_t パスや GetLastError 由来エラーが一貫して扱える。
 //   ・**name buffer は呼び出し側持ち**: 内部に `TArray<char>` を持つ設計も
@@ -73,9 +73,9 @@
 //     allocation を省く。format は `name0\0name1\0name2\0...` 連結。
 //
 // 注意:
-//   ・本クラスは ParticleEmitterDef の型を不完全宣言 (forward decl) のみで
-//     参照する (.h では `struct ParticleEmitterDef;`)。実体は .cpp 側で
-//     `FParticleEffectSystem.h` を include する。これにより本ヘッダのインクルードコストを
+//   ・本クラスは FParticleEmitterDef の型を不完全宣言 (forward decl) のみで
+//     参照する (.h では `struct FParticleEmitterDef;`)。実体は .cpp 側で
+//     `ParticleEffectSystem.h` を include する。これにより本ヘッダのインクルードコストを
 //     最小に保つ。
 #pragma once
 
@@ -85,9 +85,57 @@
 namespace acs::game {
 
 // 前方宣言: 実体は `gameframework/ParticleEffectSystem.h`。.cpp 側で完全型を include する。
-struct ParticleEmitterDef;
+struct FParticleEmitterDef;
 
 namespace fxedit {
+
+/** `.fxedit` の checked parse/load/save が返す安定したエラー種別。 */
+enum class EFxeditSerializeError : u8 {
+    None = 0,
+    NullArgument,
+    PathTooLong,
+    InputTooLarge,
+    EmbeddedNul,
+    TooManyLines,
+    LineTooLong,
+    BadMagic,
+    UnsupportedVersion,
+    MissingEmitterCount,
+    DuplicateEmitterCount,
+    TooManyEmitters,
+    BufferTooSmall,
+    InvalidSyntax,
+    InvalidEmitterIndex,
+    DuplicateKey,
+    InvalidValue,
+    ValueOutOfRange,
+    NameTooLong,
+    InvalidName,
+    TooManyCurves,
+    TooManyKeyframes,
+    AllocationFailure,
+    FileNotFound,
+    FileOpenFailed,
+    FileSizeFailed,
+    FileChanged,
+    FileReadFailed,
+    FileWriteFailed,
+    FileFlushFailed,
+    FileCloseFailed,
+    AtomicReplaceFailed,
+};
+
+/** `.fxedit` の checked operation 結果。 */
+struct FFxeditSerializeResult {
+    EFxeditSerializeError error = EFxeditSerializeError::None;
+    u32 line = 0u;
+    u32 emitter_count = 0u;
+    u64 bytes_processed = 0u;
+    u32 os_error = 0u;
+
+    bool Succeeded() const noexcept { return error == EFxeditSerializeError::None; }
+    static const char* ErrorName(EFxeditSerializeError error) noexcept;
+};
 
 /**
  * `.fxedit` テキストファイルの save/load を担う state-less ユーティリティ。
@@ -132,7 +180,7 @@ public:
      */
     static constexpr usize       kMaxBytesPerEmitter = 2048;
 
-    /** 1 行のテキストパース時に許容する最大長 (これ以上は切り捨てる)。 */
+    /** 1 行のテキストパース時に許容する最大長 (超過はエラー)。 */
     static constexpr usize       kMaxLineLength      = 512;
 
     /**
@@ -142,12 +190,30 @@ public:
      */
     static constexpr usize       kMaxEmitterName     = 31;
 
+    /** checked loader が受理する `.fxedit` 全体の最大 byte 数。 */
+    static constexpr usize       kMaxInputBytes      = 8u * 1024u * 1024u;
+
+    /** 1 ファイルに保持できる emitter の安全上限。 */
+    static constexpr u32         kMaxEmitterCount    = 1024u;
+
+    /** コメント・空行を含む入力行数の安全上限。 */
+    static constexpr u32         kMaxLineCount       = 65536u;
+
+    /** 将来予約の curve 数上限（emitter ごと）。 */
+    static constexpr u32         kMaxCurvesPerEmitter = 16u;
+
+    /** 将来予約の keyframe 数上限（curve ごと）。 */
+    static constexpr u32         kMaxKeyframesPerCurve = 256u;
+
+    /** Win32 wide path の終端 NUL を除く最大文字数。 */
+    static constexpr usize       kMaxPathChars       = 1023u;
+
     /**
-     * save/load のエラー subcode (FErrorCode の ErrCategory::IO で使う)。
+     * save/load のエラー subcode (FErrorCode の EErrCategory::IO で使う)。
      *
-     * @details FSaveSlot (1-99) と衝突しないよう、fxedit は 700-799 番を使う。
+     * @details TSaveSlot (1-99) と衝突しないよう、fxedit は 700-799 番を使う。
      */
-    enum SubCode : u16 {
+    enum ESubCode : u16 {
         /** エラーなし。 */
         kSub_OK                = 0,
 
@@ -172,23 +238,68 @@ public:
         /** 読み込み対象が存在しない。 */
         kSub_FileNotFound      = 706,
 
-        /** 下位 FileSystem からのエラー。 */
+        /** 下位 FFileSystem からのエラー。 */
         kSub_IOFailure         = 707,
+
+        /** checked parser の schema/value 検証失敗。 */
+        kSub_ValidationFailed  = 708,
+
+        /** allocation failure。 */
+        kSub_AllocationFailure = 709,
+
+        /** atomic replace に失敗。 */
+        kSub_AtomicReplace     = 710,
     };
+
+    /**
+     * 長さ付き `.fxedit` text を全検証後に出力へ commit する。
+     *
+     * @details text は NUL 終端不要。失敗時は out_defs と out_name_buffer を変更しない。
+     */
+    static FFxeditSerializeResult TryParseText(
+        const char* text,
+        usize text_size,
+        FParticleEmitterDef* out_defs,
+        char* out_name_buffer,
+        usize name_buffer_capacity,
+        u32 max_emitters) noexcept;
+
+    /**
+     * `.fxedit` を上限付き完全 read し、TryParseText で復元する。
+     *
+     * @details サイズ変化、embedded NUL、OOM、close failure を成功扱いしない。
+     */
+    static FFxeditSerializeResult TryLoad(
+        const wchar_t* file_path,
+        FParticleEmitterDef* out_defs,
+        char* out_name_buffer,
+        usize name_buffer_capacity,
+        u32 max_emitters) noexcept;
+
+    /**
+     * emitter 群を事前検証し、一意 temp へ durable write 後に atomic replace する。
+     *
+     * @details 失敗時は既存の保存先を変更せず、作成した temp を削除する。
+     */
+    static FFxeditSerializeResult TrySave(
+        const wchar_t* file_path,
+        const FParticleEmitterDef* defs,
+        const char* const* names,
+        u32 count) noexcept;
 
     /**
      * emitter 群を `.fxedit` テキストへ書き出す。
      *
-     * @details count が 0 のときはヘッダだけ書き出す。既存ファイルは上書きする。
+     * @details count が 0 のときはヘッダだけ書き出す。checked atomic save を経由する。
      * @param file_path 保存先 (Win32 wide path)。
-     * @param defs ParticleEmitterDef 配列 (count 個)。count>0 のとき nullptr 不可。
+     * @param defs FParticleEmitterDef 配列 (count 個)。count>0 のとき nullptr 不可。
      * @param names emitter 名 (C 文字列) の配列。個別要素 nullptr は "" 扱い。
      *              count>0 で names ポインタ自体が nullptr の場合は kSub_NullArgs。
      * @param count emitter 個数 (0 も valid)。
      * @return 成功なら空の TResult、null 引数 / バッファ溢れ / I/O 失敗ならエラー。
      */
     static TResult<void, FErrorCode> Save(const wchar_t*             file_path,
-                                        const ParticleEmitterDef*  defs,
+                                        const FParticleEmitterDef*  defs,
                                         const char* const*         names,
                                         u32                        count) noexcept;
 
@@ -196,7 +307,7 @@ public:
      * `.fxedit` テキストから emitter 群を読み出す。
      *
      * @param file_path 読み込み元 (Win32 wide path)。
-     * @param out_defs 復元する ParticleEmitterDef 配列 (max_emitters 個分の領域)。
+     * @param out_defs 復元する FParticleEmitterDef 配列 (max_emitters 個分の領域)。
      * @param out_name_buffer 名前バッファ。各 emitter の C string を `name0\0name1\0...`
      *                        形式で連結配置する。
      * @param name_buffer_capacity out_name_buffer のバイト数。
@@ -205,7 +316,7 @@ public:
      *         magic 不一致 / version 不一致 / 容量超過 / I/O 失敗ならエラー。
      */
     static TResult<u32, FErrorCode> Load(const wchar_t*       file_path,
-                                       ParticleEmitterDef*  out_defs,
+                                       FParticleEmitterDef*  out_defs,
                                        char*                out_name_buffer,
                                        u32                  name_buffer_capacity,
                                        u32                  max_emitters) noexcept;

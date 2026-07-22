@@ -3,9 +3,86 @@ using System.Runtime.InteropServices;
 
 namespace AcsEditor;
 
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+internal struct EditorProfilerSnapshot
+{
+    public uint Version;
+    public uint StructSize;
+    public uint TimingSource;
+    public uint Flags;
+
+    public ulong FrameIndex;
+    public ulong DrawCalls;
+    public ulong DispatchCalls;
+    public ulong Triangles;
+
+    public float Fps;
+    public float CpuFrameMs;
+    public float CpuSubmitMs;
+    public float GpuFrameMs;
+
+    public float OpaqueCpuMs;
+    public float AtmosphereCpuMs;
+    public float CloudCpuMs;
+    public float FogCpuMs;
+    public float PostCpuMs;
+
+    public float OpaqueGpuMs;
+    public float AtmosphereGpuMs;
+    public float CloudGpuMs;
+    public float FogGpuMs;
+    public float PostGpuMs;
+
+    public uint ViewportWidth;
+    public uint ViewportHeight;
+    public uint CloudWidth;
+    public uint CloudHeight;
+    public uint CloudMarchSteps;
+    public uint CloudLightSteps;
+    public float CloudRenderScale;
+
+    public ulong GpuFrameIndex;
+    public float CpuFramePeakMs;
+    public float GpuFramePeakMs;
+    public uint PeakWindowFrames;
+    public uint GpuLatencyFrames;
+
+    public uint GpuQueryWindowCount;
+    public uint GpuQueryWindowCapacity;
+    public float GpuFrameAverageMs;
+    public float OpaqueGpuAverageMs;
+    public float AtmosphereGpuAverageMs;
+    public float CloudGpuAverageMs;
+    public float FogGpuAverageMs;
+    public float PostGpuAverageMs;
+    public float OpaqueGpuWindowPeakMs;
+    public float AtmosphereGpuWindowPeakMs;
+    public float CloudGpuWindowPeakMs;
+    public float FogGpuWindowPeakMs;
+    public float PostGpuWindowPeakMs;
+}
+
+internal static class EditorProfilerContract
+{
+    internal const uint Version = 3;
+    internal const uint TimingCpuRecordSubmit = 1;
+    internal const uint TimingGpuTimestamp = 2;
+
+    internal const uint FlagView3D = 1u << 0;
+    internal const uint FlagClouds = 1u << 1;
+    internal const uint FlagFog = 1u << 2;
+    internal const uint FlagAerialPerspective = 1u << 3;
+    internal const uint FlagGpuTimingsValid = 1u << 4;
+
+    internal static uint SnapshotSize =>
+        checked((uint)Marshal.SizeOf<EditorProfilerSnapshot>());
+}
+
 /// <summary>
 /// acs_editor_abi.dll (C ABI) への P/Invoke バインディング。
 /// エンジンの DX12 描画を外部 HWND にホストするブリッジ関数群。
+/// export 名の node/node3d は互換維持する C ABI 識別子で、C++ 型名ではないため
+/// ANode 統一後も改名しない。
 /// </summary>
 internal static class EngineInterop
 {
@@ -21,7 +98,68 @@ internal static class EngineInterop
     public static extern int acs_editor_attach(IntPtr handle, IntPtr hwnd, uint width, uint height);
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_startup_status(
+        IntPtr handle, out uint completed, out uint total);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_render(IntPtr handle, float dt);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int acs_editor_profiler_get(
+        IntPtr handle,
+        ref EditorProfilerSnapshot snapshot,
+        uint snapshotSize);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    private static extern void acs_editor_profiler_reset_peaks(
+        IntPtr handle);
+
+    internal static bool TryGetProfilerSnapshot(
+        IntPtr handle,
+        out EditorProfilerSnapshot snapshot)
+    {
+        snapshot = new EditorProfilerSnapshot
+        {
+            Version = EditorProfilerContract.Version,
+            StructSize = EditorProfilerContract.SnapshotSize,
+        };
+        if (handle == IntPtr.Zero)
+            return false;
+
+        try
+        {
+            return acs_editor_profiler_get(
+                handle,
+                ref snapshot,
+                EditorProfilerContract.SnapshotSize) != 0 &&
+                   snapshot.Version == EditorProfilerContract.Version &&
+                   snapshot.StructSize >= EditorProfilerContract.SnapshotSize;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return false;
+        }
+        catch (DllNotFoundException)
+        {
+            return false;
+        }
+    }
+
+    internal static void ResetProfilerPeaks(IntPtr handle)
+    {
+        if (handle == IntPtr.Zero)
+            return;
+        try
+        {
+            acs_editor_profiler_reset_peaks(handle);
+        }
+        catch (EntryPointNotFoundException)
+        {
+        }
+        catch (DllNotFoundException)
+        {
+        }
+    }
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_resize(IntPtr handle, uint width, uint height);
@@ -192,14 +330,53 @@ internal static class EngineInterop
     public static extern int acs_editor_distribute3d_selection(IntPtr handle, int axis);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_pick3d(IntPtr handle, float sx, float sy);
+    /// <summary>
+    /// Serializes the legacy .acs3d scene source into <paramref name="buf"/>.
+    /// A return value greater than or equal to <paramref name="cap"/> means the buffer was too
+    /// small and its contents must not be used.
+    /// </summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_scene3d_serialize(IntPtr handle, [Out] byte[] buf, int cap);
+
+    /// <summary>
+    /// Returns a complete legacy .acs3d source serialization. The native ABI reports overflow, so this
+    /// retries with a larger buffer instead of ever treating a truncated scene as valid.
+    /// </summary>
+    public static string Scene3DText(IntPtr handle)
+    {
+        if (handle == IntPtr.Zero)
+            throw new ArgumentException("A valid editor handle is required.", nameof(handle));
+
+        const int initialCapacity = 64 * 1024;
+        const int maximumCapacity = 256 * 1024 * 1024;
+        int capacity = initialCapacity;
+
+        while (true)
+        {
+            var buffer = new byte[capacity];
+            int length = acs_editor_scene3d_serialize(handle, buffer, buffer.Length);
+            if (length <= 0)
+                throw new InvalidOperationException(
+                    "The native editor could not serialize the .acs3d source.");
+
+            if (length < buffer.Length)
+                return System.Text.Encoding.UTF8.GetString(buffer, 0, length);
+
+            if (capacity >= maximumCapacity)
+                throw new InvalidOperationException(
+                    $"The .acs3d source serialization exceeds the {maximumCapacity / (1024 * 1024)} MiB safety limit.");
+
+            long requested = Math.Max((long)capacity * 2L, (long)length + 1L);
+            capacity = (int)Math.Min(requested, maximumCapacity);
+        }
+    }
+
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_scene3d_load_text(IntPtr handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string text);
     /// <summary>メッシュファイル (.gltf/.glb/.obj/.fbx) を 3D ノードとして読み込む。</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_add_mesh3d(IntPtr handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string path, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
-    /// <summary>画像ファイルを z=0 のスプライト (テクスチャ付きクアッド) として 3D シーンに追加する。</summary>
+    /// <summary>画像ファイルを z=0 のスプライトとしてlegacy .acs3d payloadへ追加する。</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_add_sprite3d(IntPtr handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string path, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
     // 3D 変形ギズモ (現在のギズモモード move/rotate/scale を軸方向に適用)。
@@ -377,6 +554,11 @@ internal static class EngineInterop
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_render_preview_material(IntPtr handle,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string path, [Out] byte[] outRgba, int size);
+    // Editor-only presentation state. quality: 0=1x, 1=2x, 2=4x;
+    // model: 0=sphere, 1=cube, 2=plane; background: 0=studio, 1=checker, 2=black.
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_set_material_preview_options(
+        IntPtr handle, int quality, int model, int background, float exposure);
 
     // シェーディングモード + トゥーン項目 (s1/s2/rim/spec は float[3])。
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -402,6 +584,107 @@ internal static class EngineInterop
         float specularLevel, float specularTint,
         float sheen, float sheenRoughness, float sheenR, float sheenG, float sheenB,
         float subsurface, float sssR, float sssG, float sssB);
+
+    // Substrate closure DAG. The .acsmat file owns topology and Slab data; the
+    // editor sidecar stores presentation-only state such as positions and zoom.
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_material_substrate_max_nodes();
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_material_substrate_slab_scalar_count();
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_material_substrate_get_header(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        out int enabled, out int root, out int count);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_material_substrate_get_node(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path, int index,
+        out int type, out int inputA, out int inputB, out float factor, out uint flags,
+        [Out] float[] slab39);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_material_substrate_save(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        int enabled, int root, int count,
+        [In] int[] types, [In] int[] inputsA, [In] int[] inputsB,
+        [In] float[] factors, [In] uint[] flags, [In] float[] slabs39);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_material_substrate_compile(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        out int errorCode, out int errorNode, out uint featureBits,
+        out int closureCount, out int complexity, out int bytesPerPixel);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_material_substrate_compile_arrays(
+        int enabled, int root, int count,
+        [In] int[] types, [In] int[] inputsA, [In] int[] inputsB,
+        [In] float[] factors, [In] uint[] flags, [In] float[] slabs39,
+        out int errorCode, out int errorNode, out uint featureBits,
+        out int closureCount, out int complexity, out int bytesPerPixel);
+
+    // Typed shader-expression graph used by Substrate Slab scalar inputs.
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_material_expression_max_nodes();
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_material_expression_texture_slots();
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_material_expression_get_header(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        out int root, out int count);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_material_expression_get_node(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path, int index,
+        out int op, out int declaredType, out int textureSlot, out int textureFlags,
+        out int componentIndex, out int input0, out int input1, out int input2,
+        out uint parameterId, out uint textureAssetIdLow, out uint textureAssetIdHigh,
+        [Out] float[] value4);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_material_expression_get_bindings(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path, int slabNodeIndex,
+        [Out] int[] roots39);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_material_expression_get_texture_path(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path, int slot,
+        [Out] byte[] utf8, int capacity);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_material_expression_compile_arrays(
+        int root, int count,
+        [In] int[] ops, [In] int[] declaredTypes,
+        [In] int[] textureSlots, [In] int[] textureFlags,
+        [In] int[] componentIndices,
+        [In] int[] input0, [In] int[] input1, [In] int[] input2,
+        [In] uint[] parameterIds,
+        [In] uint[] textureAssetIdLows, [In] uint[] textureAssetIdHighs,
+        [In] float[] values4,
+        out int errorCode, out int errorNode, out int errorInput,
+        out int expectedType, out int actualType,
+        out int instructionCount, out int constantFoldCount,
+        out uint hashLow, out uint hashHigh);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_material_expression_compile(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        out int linkError, out int linkErrorNode, out int linkErrorScalar,
+        out int expressionError, out int expressionErrorNode,
+        out int expressionErrorInput, out int expectedType, out int actualType,
+        out int instructionCount, out int bindingCount);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_material_substrate_expression_save(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        int enabled, int substrateRoot, int substrateCount,
+        [In] int[] substrateTypes, [In] int[] substrateInputsA,
+        [In] int[] substrateInputsB, [In] float[] substrateFactors,
+        [In] uint[] substrateFlags, [In] float[] substrateSlabs39,
+        [In] int[] substrateExpressionRoots39,
+        int expressionRoot, int expressionCount,
+        [In] int[] expressionOps, [In] int[] expressionDeclaredTypes,
+        [In] int[] expressionTextureSlots, [In] int[] expressionTextureFlags,
+        [In] int[] expressionComponentIndices,
+        [In] int[] expressionInput0, [In] int[] expressionInput1,
+        [In] int[] expressionInput2, [In] uint[] expressionParameterIds,
+        [In] uint[] expressionTextureAssetIdLows,
+        [In] uint[] expressionTextureAssetIdHighs,
+        [In] float[] expressionValues4,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string texturePath0,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string texturePath1,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string texturePath2,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string texturePath3);
 
     /// <summary>3D ノードの使用マテリアルパス (UTF-8、未設定は "")。NodeMaterial(2D) の鏡映。</summary>
     public static string NodeMaterial3D(IntPtr handle, int id)
@@ -498,6 +781,16 @@ internal static class EngineInterop
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_camera_get(IntPtr handle, out float panX, out float panY, out float zoom);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_camera3d_set(
+        IntPtr handle, float yaw, float pitch, float distance,
+        float targetX, float targetY, float targetZ);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_camera3d_get(
+        IntPtr handle, out float yaw, out float pitch, out float distance,
+        out float targetX, out float targetY, out float targetZ);
 
     // ----- transform gizmo (move / rotate / scale) -----
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -694,7 +987,7 @@ internal static class EngineInterop
     public static string CopySubtree3D(IntPtr handle, int id) =>
         Marshal.PtrToStringUTF8(acs_editor_copy_subtree3d(handle, id)) ?? "";
 
-    // ----- node components (reflection-registered Component 型のアタッチ記述子) -----
+    // ----- ノードコンポーネント (reflection 登録済み AComponent 型のアタッチ記述子) -----
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node_add_component(IntPtr handle, int id,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string typeName);
@@ -712,7 +1005,7 @@ internal static class EngineInterop
     public static string ComponentName(IntPtr handle, int id, int index) =>
         Marshal.PtrToStringUTF8(acs_editor_node_component_name_at(handle, id, index)) ?? "";
 
-    // ----- 3D node components (2D と同じ。EEd3DRec にエディタ・メタデータとして保持) -----
+    // ----- 3D ノードコンポーネント (2D と同じ。AEditor3DRecordComponent にメタデータとして保持) -----
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_add_component(IntPtr handle, int id,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string typeName);
@@ -737,7 +1030,7 @@ internal static class EngineInterop
     public static extern int acs_editor_node3d_invoke_method(IntPtr handle, int id, int slot,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string method);
 
-    // ----- 3D node visible/enabled (FNode3D の m_Visible/m_Enabled) -----
+    // ----- 3D ノードの visible/enabled (ANode の m_Visible/m_Enabled) -----
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_get_visible(IntPtr handle, int id);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -747,7 +1040,7 @@ internal static class EngineInterop
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_node3d_set_enabled(IntPtr handle, int id, int enabled);
 
-    // ----- component property editing (リフレクション・スキーマ駆動のプロパティ編集) -----
+    // ----- コンポーネントプロパティ編集 (リフレクション・スキーマ駆動) -----
     // 型のスキーマ (どの編集フィールドがあるか) は reflection から、インスタンスの値は
     // ノード+slot ごとに ABI が保持する。
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]

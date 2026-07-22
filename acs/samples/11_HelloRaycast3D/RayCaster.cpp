@@ -11,19 +11,19 @@ using namespace acs;
 
 namespace helloraycast3d {
 
-void RayCaster::Init(f32 aspect) noexcept {
+void FRayCaster::Init(f32 aspect) noexcept {
     m_Camera.SetPerspective(60.0f * kDeg2Rad, aspect, 0.1f, 200.0f);
     m_CamPos = kCamInitialPos;
 }
 
-void RayCaster::Update(f32 dt, RaycastTargets& targets) noexcept {
+void FRayCaster::Update(f32 dt, FRaycastTargets& targets) noexcept {
     // ---- カメラ回転 / 移動 ----
     const f32 move_speed = kCamMoveSpeed * dt;
     const f32 turn_speed = kCamTurnSpeed * dt;
-    if (Input::IsKeyDown(EKey::Left))  m_CamYaw   -= turn_speed;
-    if (Input::IsKeyDown(EKey::Right)) m_CamYaw   += turn_speed;
-    if (Input::IsKeyDown(EKey::Up))    m_CamPitch -= turn_speed * 0.8f;
-    if (Input::IsKeyDown(EKey::Down))  m_CamPitch += turn_speed * 0.8f;
+    if (FInput::IsKeyDown(EKey::Left))  m_CamYaw   -= turn_speed;
+    if (FInput::IsKeyDown(EKey::Right)) m_CamYaw   += turn_speed;
+    if (FInput::IsKeyDown(EKey::Up))    m_CamPitch -= turn_speed * 0.8f;
+    if (FInput::IsKeyDown(EKey::Down))  m_CamPitch += turn_speed * 0.8f;
 
     // pitch を ±81° 程度に clamp してジンバルロックを回避
     const f32 limit = 0.45f * kPi;
@@ -35,29 +35,29 @@ void RayCaster::Update(f32 dt, RaycastTargets& targets) noexcept {
                         Cos(m_CamYaw) * Cos(m_CamPitch) };
     const FVec3 right  { Cos(m_CamYaw), 0, -Sin(m_CamYaw) };
 
-    if (Input::IsKeyDown(EKey::W)) m_CamPos += forward * move_speed;
-    if (Input::IsKeyDown(EKey::S)) m_CamPos -= forward * move_speed;
-    if (Input::IsKeyDown(EKey::D)) m_CamPos += right   * move_speed;
-    if (Input::IsKeyDown(EKey::A)) m_CamPos -= right   * move_speed;
+    if (FInput::IsKeyDown(EKey::W)) m_CamPos += forward * move_speed;
+    if (FInput::IsKeyDown(EKey::S)) m_CamPos -= forward * move_speed;
+    if (FInput::IsKeyDown(EKey::D)) m_CamPos += right   * move_speed;
+    if (FInput::IsKeyDown(EKey::A)) m_CamPos -= right   * move_speed;
 
     m_CamForward = forward;
     m_Camera.SetLookAt(m_CamPos, m_CamPos + forward);
 
     // ---- レイ vs オブジェクト (最近傍ヒット) ----
     // best_t を 1000 で初期化 → ヒット候補の中で最も手前を残す。
-    Ray3 ray{ m_CamPos, forward };
+    FRay3 ray{ m_CamPos, forward };
     i32  best_index = -1;
     FVec3 best_point{};
     f32  best_t = 1000.0f;
     const u32 n = targets.Count();
     for (u32 i = 0; i < n; ++i) {
-        const Object& o = targets.At(i);
-        RayHit3 h{};
-        if (o.kind == ShapeKind::FSphere) {
+        const FObject& o = targets.At(i);
+        FRayHit3 h{};
+        if (o.kind == EShapeKind::Sphere) {
             const FSphere s{ o.position, o.radius_or_half };
             h = RaycastSphere(ray, s, best_t);
         } else {
-            const Aabb3 box = Aabb3::FromCenterExtents(
+            const FAabb3 box = FAabb3::FromCenterExtents(
                 o.position,
                 FVec3{o.radius_or_half, o.radius_or_half, o.radius_or_half});
             h = RaycastAabb(ray, box, best_t);

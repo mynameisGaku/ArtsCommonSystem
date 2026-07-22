@@ -49,7 +49,7 @@ enum class ESamplerAddress : u8 {
  * フィルタとアドレッシング（U/V/W 各軸）、LOD 範囲、異方性度数をまとめて持つ。
  * FPipelineDesc::static_samplers にそのまま渡してパイプラインへ埋め込む。
  */
-struct SamplerDesc {
+struct FSamplerDesc {
     /** 拡大・縮小フィルタ。 */
     ESamplerFilter  filter      = ESamplerFilter::Linear;
 

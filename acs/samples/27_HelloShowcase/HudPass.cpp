@@ -12,7 +12,7 @@ using namespace acs;
 
 namespace helloshowcase {
 
-void ExecuteHudPass(Assets& a, IRhiCommandList& cl, IRhiSwapchain& sc,
+void ExecuteHudPass(FAssets& a, IRhiCommandList& cl, IRhiSwapchain& sc,
                     bool paused, bool show_ssr, bool show_refraction) noexcept {
     a.batch.Begin(cl, sc.Width(), sc.Height());
     if (a.font.AtlasTexture()) {

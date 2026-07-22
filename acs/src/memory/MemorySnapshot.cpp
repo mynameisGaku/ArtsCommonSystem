@@ -17,12 +17,12 @@ namespace acs {
 namespace {
 
 /** RGB の 3 バイト色 (描画/出力共通)。 */
-struct RgbColor {
+struct FRgbColor {
     u8 r, g, b;
 };
 
 /** セグメントごとの固定色 (バーの色だけで識別できるよう割り当て)。 */
-constexpr RgbColor kSegmentColor[(usize)ESegment::_Count] = {
+constexpr FRgbColor kSegmentColor[(usize)ESegment::_Count] = {
     /* Default   */ {60, 120, 220},
     /* Permanent */ {110, 200, 110},
     /* Temp      */ {240, 180, 60},
@@ -111,7 +111,7 @@ TResult<void> FMemorySnapshot::WriteSvg(const wchar_t* Path, u32 Width, u32 RowH
         return ACS_ERR(Memory, 43, "invalid SVG dimensions or path");
     }
 
-    SegmentStats StatisticsArray[(usize)ESegment::_Count];
+    FSegmentStats StatisticsArray[(usize)ESegment::_Count];
     const u32 SegmentCount = FMemorySystem::GetStats(StatisticsArray, (u32)ESegment::_Count);
     if (SegmentCount == 0) return ACS_ERR(Memory, 40, "FMemorySystem has no segments");
     if (SegmentCount + 1u > ((~u32(0)) - 40u) / RowHeight) {
@@ -146,7 +146,7 @@ TResult<void> FMemorySnapshot::WriteSvg(const wchar_t* Path, u32 Width, u32 RowH
     const u32 BarWidth = (Width > BarX + 10) ? (Width - BarX - 10) : 0;
 
     for (u32 i = 0; i < SegmentCount; ++i) {
-        const SegmentStats& Statistics = StatisticsArray[i];
+        const FSegmentStats& Statistics = StatisticsArray[i];
         const u32 y = 30 + i * RowHeight;
 
         // セグメント名ラベル
@@ -171,7 +171,7 @@ TResult<void> FMemorySnapshot::WriteSvg(const wchar_t* Path, u32 Width, u32 RowH
                                     ? Statistics.hard_budget_bytes
                                     : (Statistics.peak_requested_bytes > 0 ? Statistics.peak_requested_bytes : 1);
         const u32 UsedWidth = CalculateBarWidth(BarWidth, Statistics.requested_bytes, BarCapacity);
-        const RgbColor& Color = kSegmentColor[(usize)Statistics.segment];
+        const FRgbColor& Color = kSegmentColor[(usize)Statistics.segment];
         Length = ::snprintf(Buffer, sizeof(Buffer),
                             "<rect x=\"%u\" y=\"%u\" width=\"%u\" height=\"%u\" fill=\"rgb(%u,%u,%u)\"/>\n", BarX, y,
                             UsedWidth, RowHeight - 4, Color.r, Color.g, Color.b);
@@ -225,7 +225,7 @@ namespace {
 // packed=1 でコンパイラの詰め物を抑制（BMP ヘッダ仕様通りに並べる）
 #pragma pack(push, 1)
 /** BMP ファイルヘッダ (14 バイト、仕様通りに packed)。 */
-struct BmpFileHeader {
+struct FBmpFileHeader {
     /** マジック 'BM' (0x4D42)。 */
     u16 type;
 
@@ -243,7 +243,7 @@ struct BmpFileHeader {
 };
 
 /** BMP 情報ヘッダ (BITMAPINFOHEADER、40 バイト)。 */
-struct BmpInfoHeader {
+struct FBmpInfoHeader {
     /** この構造体のサイズ。 */
     u32 size;
 
@@ -286,7 +286,7 @@ struct BmpInfoHeader {
  * @param PixelX 行内のピクセル位置。
  * @param Color 書き込む色。
  */
-ACS_FORCEINLINE void PutPixel(u8* Row, u32 PixelX, RgbColor Color) noexcept
+ACS_FORCEINLINE void PutPixel(u8* Row, u32 PixelX, FRgbColor Color) noexcept
 {
     Row[PixelX * 3 + 0] = Color.b;
     Row[PixelX * 3 + 1] = Color.g;
@@ -298,13 +298,13 @@ ACS_FORCEINLINE void PutPixel(u8* Row, u32 PixelX, RgbColor Color) noexcept
 TResult<void> FMemorySnapshot::WriteBmp(const wchar_t* Path, u32 Width, u32 RowHeight) noexcept
 {
     constexpr u64 kMaximumBitmapDimension = 0x7FFFFFFFull;
-    constexpr u64 kBitmapHeaderBytes = sizeof(BmpFileHeader) + sizeof(BmpInfoHeader);
+    constexpr u64 kBitmapHeaderBytes = sizeof(FBmpFileHeader) + sizeof(FBmpInfoHeader);
     if (!Path || Path[0] == L'\0' || Width == 0u || RowHeight < 3u ||
         static_cast<u64>(Width) > kMaximumBitmapDimension) {
         return ACS_ERR(Memory, 44, "invalid BMP dimensions or path");
     }
 
-    SegmentStats StatisticsArray[(usize)ESegment::_Count];
+    FSegmentStats StatisticsArray[(usize)ESegment::_Count];
     const u32 SegmentCount = FMemorySystem::GetStats(StatisticsArray, (u32)ESegment::_Count);
     if (SegmentCount == 0) return ACS_ERR(Memory, 41, "FMemorySystem has no segments");
 
@@ -330,13 +330,13 @@ TResult<void> FMemorySnapshot::WriteBmp(const wchar_t* Path, u32 Width, u32 RowH
     const u32 PixelBytes = static_cast<u32>(PixelBytes64);
 
     // ヘッダ初期化
-    BmpFileHeader FileHeader{};
-    BmpInfoHeader InfoHeader{};
+    FBmpFileHeader FileHeader{};
+    FBmpInfoHeader InfoHeader{};
     FileHeader.type = 0x4D42;
-    FileHeader.offbits = sizeof(BmpFileHeader) + sizeof(BmpInfoHeader);
+    FileHeader.offbits = sizeof(FBmpFileHeader) + sizeof(FBmpInfoHeader);
     FileHeader.size = FileHeader.offbits + PixelBytes;
 
-    InfoHeader.size = sizeof(BmpInfoHeader);
+    InfoHeader.size = sizeof(FBmpInfoHeader);
     InfoHeader.width = static_cast<i32>(Width);
     InfoHeader.height = -static_cast<i32>(Height); // 負: 上→下スキャン
     InfoHeader.planes = 1;
@@ -353,8 +353,8 @@ TResult<void> FMemorySnapshot::WriteBmp(const wchar_t* Path, u32 Width, u32 RowH
 
     // 各セグメントのバーを描画
     for (u32 i = 0; i < SegmentCount; ++i) {
-        const SegmentStats& Statistics = StatisticsArray[i];
-        const RgbColor& Color = kSegmentColor[(usize)Statistics.segment];
+        const FSegmentStats& Statistics = StatisticsArray[i];
+        const FRgbColor& Color = kSegmentColor[(usize)Statistics.segment];
         const u32 YStart = i * RowHeight;
         const u32 YEnd = (i + 1) * RowHeight - 2;
         const u64 BarCapacity = Statistics.hard_budget_bytes > 0
@@ -368,7 +368,7 @@ TResult<void> FMemorySnapshot::WriteBmp(const wchar_t* Path, u32 Width, u32 RowH
             u8* const Row = Pixels + y * Stride;
             // 背景色 → 使用量カラーの順に塗る
             for (u32 x = 0; x < ReserveWidth; ++x)
-                PutPixel(Row, x, RgbColor{0xDD, 0xDD, 0xDD});
+                PutPixel(Row, x, FRgbColor{0xDD, 0xDD, 0xDD});
             for (u32 x = 0; x < UsedWidth; ++x)
                 PutPixel(Row, x, Color);
         }
@@ -399,14 +399,14 @@ TResult<void> FMemorySnapshot::WriteBmp(const wchar_t* Path, u32 Width, u32 RowH
 // stdout への簡易テキスト表（CI ログ・コンソール確認用）
 void FMemorySnapshot::DumpToStdOut() noexcept
 {
-    SegmentStats StatisticsArray[(usize)ESegment::_Count];
+    FSegmentStats StatisticsArray[(usize)ESegment::_Count];
     const u32 SegmentCount = FMemorySystem::GetStats(StatisticsArray, (u32)ESegment::_Count);
     ::printf("[ACS Memory Snapshot]\n");
     ::printf("  %-12s | %-10s | %-12s | %-12s | %-12s | %-12s\n", "ESegment", "Allocator", "Budget", "Requested",
              "Peak", "Allocations");
     ::printf("  %s\n", "----------------------------------------------------------------------------------------");
     for (u32 i = 0; i < SegmentCount; ++i) {
-        const SegmentStats& Statistics = StatisticsArray[i];
+        const FSegmentStats& Statistics = StatisticsArray[i];
         char BudgetText[16];
         char RequestedText[16];
         char PeakText[16];

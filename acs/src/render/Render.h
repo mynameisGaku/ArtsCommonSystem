@@ -9,7 +9,7 @@
 //
 // 含まれるもの:
 //   - 低レベル RHI インターフェイス (IRhiDevice / IRhiBuffer / IRhiShader / ...)
-//   - 高レベルヘルパ (FRenderer / FStandardShader / FSpriteBatch / Font /
+//   - 高レベルヘルパ (FRenderer / FStandardShader / FSpriteBatch / FFont /
 //     メッシュ・テクスチャのアップロード)
 //
 // PBR・スカイ・シャドウ・IBL・スキンメッシュなど特定機能のヘッダ
@@ -31,7 +31,8 @@
 
 // ---- 高レベルヘルパ ---------------------------------------------------------
 #include "render/Renderer.h"        // スワップチェイン + フレーム管理
-#include "render/RenderAssets.h"    // UploadMesh / UploadTexture / GpuMesh
+#include "render/RenderAssets.h"    // UploadMesh / UploadTexture / FGpuMesh
 #include "render/StandardShader.h"  // Lambert + 環境光の標準シェーダ（HLSL 不要）
 #include "render/SpriteBatch.h"     // 2D スプライト / 矩形 / テキスト
 #include "render/Font.h"            // TTF フォント
+#include "render/WaterSurface3D.h"  // 3D 対話水面 (法線・屈折・Fresnel・永続波紋)

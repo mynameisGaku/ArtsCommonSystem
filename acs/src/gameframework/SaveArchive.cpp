@@ -14,13 +14,15 @@
 //     使えるように) ため、ここでも単独に持つ。
 //   ・little-endian 読み書きは MemCopy 経由で strict-aliasing 違反を避ける。
 //     ACS 対応プラットフォームは Win/x64 と ARM64 (LE) のみ前提。
-//   ・>4GiB の payload を扱う想定は無いが、WriteFile/ReadFile は DWORD (32bit)
-//     単位でしか扱えないため一応 chunk ループを残す (assetpack と同じ流儀)。
+//   ・payload は安全上限 256 MiB。WriteFile/ReadFile は DWORD (32bit) 単位なので
+//     chunk ループを使い、将来上限を拡張しても I/O 単位が溢れないようにする。
 #include "gameframework/SaveArchive.h"
 
 #include "foundation/Platform.h"   // <windows.h>
 #include "foundation/Log.h"
 #include "memory/Memory.h"         // MemCopy / MemCmp / MemSet
+
+#include <cstddef>
 
 namespace acs::game {
 
@@ -65,13 +67,17 @@ const u32* GetCrc32Table() noexcept
  * @param size 入力バイト数。
  * @return 計算した CRC32 値 (init/xorout 0xFFFFFFFF)。
  */
-u32 ComputeCrc32(const void* data, u64 size) noexcept {
+u32 UpdateCrc32(u32 crc, const void* data, u64 size) noexcept {
     const u32* table = GetCrc32Table();
     const u8*  p     = static_cast<const u8*>(data);
-    u32        crc   = 0xFFFFFFFFu;
     for (u64 i = 0; i < size; ++i) {
         crc = table[(crc ^ p[i]) & 0xFFu] ^ (crc >> 8);
     }
+    return crc;
+}
+
+u32 ComputeCrc32(const void* data, u64 size) noexcept {
+    const u32 crc = UpdateCrc32(0xFFFFFFFFu, data, size);
     return crc ^ 0xFFFFFFFFu;
 }
 
@@ -198,14 +204,133 @@ bool WriteAll(HANDLE h, const void* src, u64 size, DWORD& err) noexcept {
  * ESaveArchiveSubCode を FErrorCode.subcode 用の u16 に縮約する。
  *
  * @details
- * ESaveArchiveSubCode は u32 だが FErrorCode.subcode は u16。値は 1..7 のみなので
- * 情報落ちは無いが、明示的に縮約しておく。
+ * ESaveArchiveSubCode は u32 だが FErrorCode.subcode は u16。定義済み値は u16 範囲内なので、
+ * 情報落ちがないことを前提に明示的に縮約する。
  * @param sc 縮約するサブコード。
  * @return u16 に縮約したサブコード値。
  */
 constexpr u16 SubU16(ESaveArchiveSubCode sc) noexcept {
     return static_cast<u16>(static_cast<u32>(sc));
 }
+
+TResult<void> ValidatePathArgument(const wchar_t* path) noexcept {
+    if (path == nullptr || path[0] == L'\0') {
+        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubInvalidArgument),
+                       "FSaveArchive: path is null or empty");
+    }
+
+    usize chars = 0;
+    while (chars <= FSaveArchive::kMaxPathChars && path[chars] != L'\0') {
+        ++chars;
+    }
+    if (chars > FSaveArchive::kMaxPathChars) {
+        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubPathTooLong),
+                       "FSaveArchive: path exceeds safety limit");
+    }
+    return Ok();
+}
+
+/** Win32 の拡張パスを含む最大文字数 (終端 NUL 込み)。 */
+constexpr usize kMaxWin32PathChars = 32768;
+
+/**
+ * u32 の 10 進表現を path buffer へ追記する。
+ *
+ * @param value 追記する値。
+ * @param out 出力 path buffer。
+ * @param pos 現在位置。成功時に末尾位置へ進む。
+ * @param cap out の wchar_t 要素数。
+ * @return 全桁を追記できれば true。
+ */
+bool AppendDecimal(u32 value, wchar_t* out, usize& pos, usize cap) noexcept
+{
+    wchar_t reversed[10] = {};
+    usize count = 0;
+    do {
+        reversed[count++] = static_cast<wchar_t>(L'0' + (value % 10u));
+        value /= 10u;
+    } while (value != 0u);
+
+    if (pos > cap || count > cap - pos) return false;
+    while (count > 0) out[pos++] = reversed[--count];
+    return true;
+}
+
+/**
+ * `<path>.tmp.<pid>.<tid>` を同一ディレクトリの一時パスとして組み立てる。
+ *
+ * @details
+ * 同一ディレクトリに置くことで最終 MoveFileExW が同一 volume 内の置換になる。
+ * pid/tid suffix により、複数プロセス/スレッドが同じ保存先へ同時保存しても
+ * 書き込み途中の一時ファイルを共有しない。
+ */
+bool MakeAtomicTempPath(const wchar_t* path,
+                        wchar_t*       out,
+                        usize          cap,
+                        u32            retry_nonce = 0u) noexcept
+{
+    constexpr wchar_t kTmpSuffix[] = L".tmp.";
+    constexpr usize kTmpSuffixChars = 5;
+    constexpr usize kWorstCaseSuffixChars =
+        kTmpSuffixChars + 10 + 1 + 10 + 1 + 10;
+
+    usize path_chars = 0;
+    while (path_chars < cap && path[path_chars] != L'\0') ++path_chars;
+    if (cap <= kWorstCaseSuffixChars ||
+        path_chars == cap ||
+        path_chars > cap - 1 - kWorstCaseSuffixChars) {
+        return false;
+    }
+
+    for (usize i = 0; i < path_chars; ++i) out[i] = path[i];
+    usize pos = path_chars;
+    for (usize i = 0; i < kTmpSuffixChars; ++i) out[pos++] = kTmpSuffix[i];
+    if (!AppendDecimal(static_cast<u32>(::GetCurrentProcessId()), out, pos, cap)) return false;
+    if (pos + 1 >= cap) return false;
+    out[pos++] = L'.';
+    if (!AppendDecimal(static_cast<u32>(::GetCurrentThreadId()), out, pos, cap)) return false;
+    if (retry_nonce != 0u) {
+        if (pos + 1 >= cap) return false;
+        out[pos++] = L'.';
+        if (!AppendDecimal(retry_nonce, out, pos, cap)) return false;
+    }
+    if (pos >= cap) return false;
+    out[pos] = L'\0';
+    return true;
+}
+
+/**
+ * Process Heap 上の一時領域をスコープ終了時に解放する。
+ *
+ * @details
+ * transactional read payload と atomic write path 用。DefaultAllocator の差し替えや
+ * 例外に依存せず、Win32 I/O と同じプロセス基盤だけで寿命を閉じる。
+ */
+class FProcessHeapBuffer {
+public:
+    explicit FProcessHeapBuffer(u64 size) noexcept
+    {
+        if (size > 0) {
+            m_Data = ::HeapAlloc(::GetProcessHeap(), 0, static_cast<SIZE_T>(size));
+        }
+    }
+
+    ~FProcessHeapBuffer() noexcept
+    {
+        if (m_Data != nullptr) {
+            ::HeapFree(::GetProcessHeap(), 0, m_Data);
+        }
+    }
+
+    FProcessHeapBuffer(const FProcessHeapBuffer&) = delete;
+    FProcessHeapBuffer& operator=(const FProcessHeapBuffer&) = delete;
+
+    void* Data() noexcept { return m_Data; }
+    const void* Data() const noexcept { return m_Data; }
+
+private:
+    void* m_Data = nullptr;
+};
 
 /**
  * 24 バイトの header buffer を検証してフィールドを取り出す。
@@ -217,6 +342,89 @@ constexpr u16 SubU16(ESaveArchiveSubCode sc) noexcept {
  * @param out_crc32 magic 一致時に payload の CRC32 を受け取る出力引数。
  * @return magic が一致すれば true、不一致なら false。
  */
+/**
+ * FileRenameInfoEx に渡す可変長バッファの固定部分。
+ *
+ * SDK の FILE_RENAME_INFO は target Windows version により先頭が BOOLEAN
+ * または DWORD になるため、FileRenameInfoEx の DWORD Flags layout を明示する。
+ */
+struct FFileRenameInfoEx {
+    DWORD   Flags = 0;
+    HANDLE  RootDirectory = nullptr;
+    DWORD   FileNameLength = 0;
+    wchar_t FileName[1] = {};
+};
+
+/**
+ * 開いた旧ファイルの snapshot を維持したまま一時ファイルを置換する。
+ *
+ * FileRenameInfoEx の POSIX semantics は、対象が FILE_SHARE_DELETE で
+ * 開かれていても replace を許可する。未対応環境では安全に失敗する。
+ */
+bool TryPosixAtomicReplace(const wchar_t* temp_path,
+                           const wchar_t* file_path,
+                           DWORD&         out_error) noexcept {
+    constexpr DWORD kRenameReplaceIfExists = 0x00000001u;
+    constexpr DWORD kRenamePosixSemantics  = 0x00000002u;
+    constexpr auto kFileRenameInfoEx =
+        static_cast<FILE_INFO_BY_HANDLE_CLASS>(22);
+
+    out_error = 0;
+    usize path_chars = 0;
+    while (path_chars < kMaxWin32PathChars && file_path[path_chars] != L'\0') {
+        ++path_chars;
+    }
+    if (path_chars == kMaxWin32PathChars) {
+        out_error = ERROR_FILENAME_EXCED_RANGE;
+        return false;
+    }
+
+    constexpr usize kPrefixBytes = offsetof(FFileRenameInfoEx, FileName);
+    const usize path_bytes = path_chars * sizeof(wchar_t);
+    const usize buffer_bytes = kPrefixBytes + path_bytes + sizeof(wchar_t);
+    FProcessHeapBuffer storage(buffer_bytes);
+    if (storage.Data() == nullptr) {
+        out_error = ERROR_NOT_ENOUGH_MEMORY;
+        return false;
+    }
+
+    auto* const info = static_cast<FFileRenameInfoEx*>(storage.Data());
+    MemSet(info, 0, buffer_bytes);
+    info->Flags = kRenameReplaceIfExists | kRenamePosixSemantics;
+    info->FileNameLength = static_cast<DWORD>(path_bytes);
+    if (path_bytes > 0) {
+        MemCopy(info->FileName, file_path, path_bytes);
+    }
+
+    HANDLE source = ::CreateFileW(
+        temp_path,
+        DELETE | SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+    if (source == INVALID_HANDLE_VALUE) {
+        out_error = ::GetLastError();
+        return false;
+    }
+
+    const BOOL renamed = ::SetFileInformationByHandle(
+        source,
+        kFileRenameInfoEx,
+        info,
+        static_cast<DWORD>(buffer_bytes));
+    if (!renamed) {
+        out_error = ::GetLastError();
+    }
+    const BOOL closed = ::CloseHandle(source);
+    if (renamed && !closed) {
+        out_error = ::GetLastError();
+        return false;
+    }
+    return renamed != 0;
+}
+
 bool ParseHeader(const u8* header_buf,
                  u32&      out_version,
                  u64&      out_payload_size,
@@ -240,11 +448,12 @@ bool ParseHeader(const u8* header_buf,
  * @return 成功なら開いたハンドルを持つ TResult、失敗ならエラー。
  */
 TResult<HANDLE> OpenForRead(const wchar_t* file_path) noexcept {
-    if (file_path == nullptr) {
-        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                       "FSaveArchive: file_path is null");
-    }
-    HANDLE h = ::CreateFileW(file_path, GENERIC_READ, FILE_SHARE_READ, nullptr,
+    const auto path_result = ValidatePathArgument(file_path);
+    if (path_result.IsErr()) return path_result.Error();
+    // FILE_SHARE_DELETE により、読み込み中も atomic replace を妨げない。開いた handle は
+    // 置換前の一貫した file object を参照し続けるため、読み込み途中で内容は切り替わらない。
+    HANDLE h = ::CreateFileW(file_path, GENERIC_READ,
+                             FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr,
                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) {
         DWORD err = ::GetLastError();
@@ -261,37 +470,70 @@ TResult<HANDLE> OpenForRead(const wchar_t* file_path) noexcept {
 } // namespace
 
 /**
- * header (24B) → payload の順で .acssave ファイルを書き出す。
+ * header (24B) → payload の順で一時ファイルへ書き、保存先を atomic replace する。
  *
  * @details
- * 書き込み途中の失敗時 (停電 / disk full) はファイルが破損し得るが、atomic rename は
- * 呼び出し側の FSaveSlot が ".tmp" 経由で担当する設計。
+ * `<path>.tmp.<pid>.<tid>` を FlushFileBuffers/CloseHandle してから、同一ディレクトリ内で
+ * MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH) する。最終置換まで既存ファイルは触らない。
  */
 TResult<void> FSaveArchive::WriteToFile(const wchar_t* file_path,
-                                      u32            version,
-                                      const void*    payload,
-                                      u64            payload_size) noexcept {
-    if (file_path == nullptr) {
-        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                       "FSaveArchive::WriteToFile: file_path is null");
-    }
+                                       u32            version,
+                                       const void*    payload,
+                                       u64            payload_size) noexcept {
+    const auto path_result = ValidatePathArgument(file_path);
+    if (path_result.IsErr()) return path_result.Error();
     if (payload == nullptr && payload_size > 0) {
-        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
+        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubInvalidArgument),
                        "FSaveArchive::WriteToFile: payload is null but size > 0");
     }
+    if (payload_size > kMaxPayloadSize) {
+        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubPayloadTooLarge),
+                       "FSaveArchive::WriteToFile: payload exceeds safety limit");
+    }
 
-    // CreateFileW(CREATE_ALWAYS) は既存ファイルを truncate して開く。
-    HANDLE h = ::CreateFileW(file_path,
-                             GENERIC_WRITE,
-                             0,           // 排他: 書き込み中に他者が読めないように
-                             nullptr,
-                             CREATE_ALWAYS,
-                             FILE_ATTRIBUTE_NORMAL,
-                             nullptr);
+    FProcessHeapBuffer temp_path_storage(kMaxWin32PathChars * sizeof(wchar_t));
+    if (temp_path_storage.Data() == nullptr) {
+        return ACS_ERR(Memory, SubU16(ESaveArchiveSubCode::kSubAllocationFailed),
+                       "FSaveArchive::WriteToFile: atomic temp path allocation failed");
+    }
+    auto* const temp_path = static_cast<wchar_t*>(temp_path_storage.Data());
+    // 互換性のため最初の候補名は維持し、中断 process が残した古い file がある場合は
+    // atomic nonce を加えて回復する。既存 object を追跡または truncate せず、通常の
+    // 名前衝突だけを retry し、それ以外の create 失敗は fail-closed にする。
+    static volatile LONG temp_serial = 0;
+    HANDLE h = INVALID_HANDLE_VALUE;
+    DWORD create_err = ERROR_FILE_EXISTS;
+    constexpr u32 kMaxTempCreateAttempts = 8u;
+    for (u32 attempt = 0; attempt < kMaxTempCreateAttempts; ++attempt) {
+        const u32 nonce = (attempt == 0u)
+            ? 0u
+            : static_cast<u32>(::InterlockedIncrement(&temp_serial));
+        if (!MakeAtomicTempPath(file_path, temp_path, kMaxWin32PathChars, nonce)) {
+            return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubPathTooLong),
+                           "FSaveArchive::WriteToFile: file path too long for atomic temp suffix");
+        }
+
+        h = ::CreateFileW(temp_path,
+                          GENERIC_WRITE,
+                          0,
+                          nullptr,
+                          CREATE_NEW,
+                          FILE_ATTRIBUTE_NORMAL,
+                          nullptr);
+        if (h != INVALID_HANDLE_VALUE) break;
+
+        create_err = ::GetLastError();
+        if (create_err != ERROR_FILE_EXISTS &&
+            create_err != ERROR_ALREADY_EXISTS) {
+            return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
+                              "FSaveArchive::WriteToFile: CreateFileW (temp) failed",
+                              create_err);
+        }
+    }
     if (h == INVALID_HANDLE_VALUE) {
-        DWORD err = ::GetLastError();
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "FSaveArchive::WriteToFile: CreateFileW failed", err);
+                          "FSaveArchive::WriteToFile: unique temp path attempts exhausted",
+                          create_err);
     }
 
     // header (24B) を build
@@ -306,6 +548,7 @@ TResult<void> FSaveArchive::WriteToFile(const wchar_t* file_path,
     DWORD err = 0;
     if (!WriteAll(h, header_buf, kHeaderSize, err)) {
         ::CloseHandle(h);
+        ::DeleteFileW(temp_path);
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
                           "FSaveArchive::WriteToFile: WriteFile (header) failed", err);
     }
@@ -314,19 +557,45 @@ TResult<void> FSaveArchive::WriteToFile(const wchar_t* file_path,
     if (payload_size > 0) {
         if (!WriteAll(h, payload, payload_size, err)) {
             ::CloseHandle(h);
+            ::DeleteFileW(temp_path);
             return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
                               "FSaveArchive::WriteToFile: WriteFile (payload) failed",
                               err);
         }
     }
 
-    // CloseHandle は flush も兼ねる (OS buffer cache に書き出すだけで、
-    // 真の persistence は FlushFileBuffers が必要だが、ここでは呼ばない —
-    // 上位 FSaveSlot 層が rename を行う前に明示 flush することを期待)。
+    if (!::FlushFileBuffers(h)) {
+        const DWORD flush_err = ::GetLastError();
+        ::CloseHandle(h);
+        ::DeleteFileW(temp_path);
+        return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
+                          "FSaveArchive::WriteToFile: FlushFileBuffers (temp) failed",
+                          flush_err);
+    }
+
     if (!::CloseHandle(h)) {
         DWORD close_err = ::GetLastError();
+        ::DeleteFileW(temp_path);
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                          "FSaveArchive::WriteToFile: CloseHandle failed", close_err);
+                          "FSaveArchive::WriteToFile: CloseHandle (temp) failed", close_err);
+    }
+
+    if (!::MoveFileExW(temp_path, file_path,
+                       MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        const DWORD move_err = ::GetLastError();
+        DWORD posix_err = 0;
+        if (!TryPosixAtomicReplace(temp_path, file_path, posix_err)) {
+            ::DeleteFileW(temp_path);
+            const DWORD reported_err =
+                (posix_err == ERROR_INVALID_PARAMETER ||
+                 posix_err == ERROR_NOT_SUPPORTED ||
+                 posix_err == ERROR_CALL_NOT_IMPLEMENTED)
+                    ? move_err
+                    : posix_err;
+            return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
+                              "FSaveArchive::WriteToFile: atomic replace failed",
+                              reported_err);
+        }
     }
     return Ok();
 }
@@ -336,7 +605,8 @@ TResult<void> FSaveArchive::WriteToFile(const wchar_t* file_path,
  *
  * @details
  * header (24B) を読んで magic + version + payload_size + crc を取り出し、file_size 検査 →
- * version 検査 → 容量検査 → payload 読込 → CRC 検証の順で fail-fast する。
+ * version 検査 → 容量検査 → 一時領域へ payload 読込 → CRC 検証 → 出力 commit の順で進む。
+ * 最後の commit より前に失敗した場合、呼び出し側の out_payload は一切変更しない。
  */
 TResult<u32> FSaveArchive::ReadFromFile(const wchar_t* file_path,
                                       void*          out_payload,
@@ -346,7 +616,7 @@ TResult<u32> FSaveArchive::ReadFromFile(const wchar_t* file_path,
     out_payload_size = 0;
 
     if (out_payload == nullptr && out_capacity > 0) {
-        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
+        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubInvalidArgument),
                        "FSaveArchive::ReadFromFile: out_payload is null but capacity > 0");
     }
 
@@ -387,11 +657,17 @@ TResult<u32> FSaveArchive::ReadFromFile(const wchar_t* file_path,
                        "FSaveArchive::ReadFromFile: magic mismatch (not an .acssave)");
     }
 
-    // payload_size が file_size - kHeaderSize と一致するか
-    if (payload_size > file_size - kHeaderSize) {
+    if (payload_size > kMaxPayloadSize) {
         ::CloseHandle(h);
-        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                       "FSaveArchive::ReadFromFile: payload_size > file_size - header");
+        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubPayloadTooLarge),
+                       "FSaveArchive::ReadFromFile: payload exceeds safety limit");
+    }
+
+    // 短い payload だけでなく末尾の余分なデータも拒否し、1 header = 1 payload を保証する。
+    if (payload_size != file_size - kHeaderSize) {
+        ::CloseHandle(h);
+        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubSizeMismatch),
+                       "FSaveArchive::ReadFromFile: declared payload size does not match file");
     }
 
     out_payload_size = payload_size;
@@ -413,9 +689,16 @@ TResult<u32> FSaveArchive::ReadFromFile(const wchar_t* file_path,
                        "FSaveArchive::ReadFromFile: out_capacity < payload_size");
     }
 
-    // payload を out_payload に読み込む
+    // CRC 検証前に呼び出し側の object/buffer を壊さないよう、一時領域へ読み込む。
+    FProcessHeapBuffer temporary_payload(payload_size);
+    if (payload_size > 0 && temporary_payload.Data() == nullptr) {
+        ::CloseHandle(h);
+        return ACS_ERR(Memory, SubU16(ESaveArchiveSubCode::kSubAllocationFailed),
+                       "FSaveArchive::ReadFromFile: temporary payload allocation failed");
+    }
+
     if (payload_size > 0) {
-        if (!ReadAll(h, out_payload, payload_size, err)) {
+        if (!ReadAll(h, temporary_payload.Data(), payload_size, err)) {
             ::CloseHandle(h);
             return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
                               "FSaveArchive::ReadFromFile: ReadFile (payload) failed", err);
@@ -423,7 +706,7 @@ TResult<u32> FSaveArchive::ReadFromFile(const wchar_t* file_path,
     }
 
     // CRC32 検証
-    const u32 actual_crc = (payload_size > 0) ? ComputeCrc32(out_payload, payload_size)
+    const u32 actual_crc = (payload_size > 0) ? ComputeCrc32(temporary_payload.Data(), payload_size)
                                               : (0xFFFFFFFFu ^ 0xFFFFFFFFu);
     if (actual_crc != expected_crc) {
         ACS_LOG_WARN("FSaveArchive::ReadFromFile: CRC mismatch (expected=0x%08x, actual=0x%08x)",
@@ -433,7 +716,16 @@ TResult<u32> FSaveArchive::ReadFromFile(const wchar_t* file_path,
                        "FSaveArchive::ReadFromFile: CRC32 mismatch (corrupt or tampered)");
     }
 
-    ::CloseHandle(h);
+    if (!::CloseHandle(h)) {
+        const DWORD close_err = ::GetLastError();
+        return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
+                          "FSaveArchive::ReadFromFile: CloseHandle failed", close_err);
+    }
+
+    // すべての検証と handle close が成功した後にだけ呼び出し側へ反映する。
+    if (payload_size > 0) {
+        MemCopy(out_payload, temporary_payload.Data(), static_cast<usize>(payload_size));
+    }
     return TResult<u32>(OkInit, version);
 }
 
@@ -450,7 +742,11 @@ TResult<u32> FSaveArchive::PeekVersion(const wchar_t* file_path) noexcept {
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
                           "FSaveArchive::PeekVersion: ReadFile (header) failed", err);
     }
-    ::CloseHandle(h);
+    if (!::CloseHandle(h)) {
+        const DWORD close_err = ::GetLastError();
+        return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
+                          "FSaveArchive::PeekVersion: CloseHandle failed", close_err);
+    }
 
     u32 version = 0, dummy_crc = 0;
     u64 dummy_size = 0;
@@ -466,9 +762,8 @@ TResult<u32> FSaveArchive::PeekVersion(const wchar_t* file_path) noexcept {
  *
  * @details
  * 戻り値は「この値で buffer を確保する」用途 (SaveArchive.h の宣言コメント参照) なので、
- * header の申告値をそのまま信じず、実ファイルサイズと照合してから返す。改竄で
- * payload_size に巨大値 (例: 2^63) を書かれても、呼び出し側が巨大確保 (OOM/DoS)
- * しないようここで fail-fast する (ReadFromFile と同じ検査)。
+ * header の申告値をそのまま信じず、安全上限と実ファイルサイズの完全一致を検証して返す。
+ * 改竄された巨大値や末尾へのデータ付加を、呼び出し側が確保する前に拒否する。
  */
 TResult<u64> FSaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
     const auto open_r = OpenForRead(file_path);
@@ -496,7 +791,11 @@ TResult<u64> FSaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
         return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
                           "FSaveArchive::PeekPayloadSize: ReadFile (header) failed", err);
     }
-    ::CloseHandle(h);
+    if (!::CloseHandle(h)) {
+        const DWORD close_err = ::GetLastError();
+        return ACS_ERR_OS(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
+                          "FSaveArchive::PeekPayloadSize: CloseHandle failed", close_err);
+    }
 
     u32 dummy_version = 0, dummy_crc = 0;
     u64 payload_size  = 0;
@@ -504,11 +803,103 @@ TResult<u64> FSaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
         return ACS_ERR(Asset, SubU16(ESaveArchiveSubCode::kSubBadMagic),
                        "FSaveArchive::PeekPayloadSize: magic mismatch (not an .acssave)");
     }
-    if (payload_size > file_size - kHeaderSize) {
-        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubIoError),
-                       "FSaveArchive::PeekPayloadSize: payload_size > file_size - header");
+    if (payload_size > kMaxPayloadSize) {
+        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubPayloadTooLarge),
+                       "FSaveArchive::PeekPayloadSize: payload exceeds safety limit");
+    }
+    if (payload_size != file_size - kHeaderSize) {
+        return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubSizeMismatch),
+                       "FSaveArchive::PeekPayloadSize: declared payload size does not match file");
     }
     return TResult<u64>(OkInit, payload_size);
+}
+
+TResult<FSaveArchiveMetadata> FSaveArchive::ValidateFile(
+    const wchar_t* file_path) noexcept {
+    const auto open_result = OpenForRead(file_path);
+    if (open_result.IsErr()) return open_result.Error();
+    HANDLE file = open_result.Value();
+
+    LARGE_INTEGER file_size_value{};
+    if (!::GetFileSizeEx(file, &file_size_value)) {
+        const DWORD error = ::GetLastError();
+        ::CloseHandle(file);
+        return ACS_ERR_OS(
+            IO, SubU16(ESaveArchiveSubCode::kSubIoError),
+            "FSaveArchive::ValidateFile: GetFileSizeEx failed", error);
+    }
+    if (file_size_value.QuadPart < static_cast<LONGLONG>(kHeaderSize)) {
+        ::CloseHandle(file);
+        return ACS_ERR(
+            IO, SubU16(ESaveArchiveSubCode::kSubBadMagic),
+            "FSaveArchive::ValidateFile: file smaller than header");
+    }
+    const u64 file_size = static_cast<u64>(file_size_value.QuadPart);
+
+    u8 header[kHeaderSize] = {};
+    DWORD error = 0;
+    if (!ReadAll(file, header, kHeaderSize, error)) {
+        ::CloseHandle(file);
+        return ACS_ERR_OS(
+            IO, SubU16(ESaveArchiveSubCode::kSubIoError),
+            "FSaveArchive::ValidateFile: header read failed", error);
+    }
+
+    FSaveArchiveMetadata metadata{};
+    if (!ParseHeader(
+            header, metadata.Version, metadata.PayloadSize,
+            metadata.PayloadCrc32)) {
+        ::CloseHandle(file);
+        return ACS_ERR(
+            Asset, SubU16(ESaveArchiveSubCode::kSubBadMagic),
+            "FSaveArchive::ValidateFile: magic mismatch");
+    }
+    if (metadata.PayloadSize > kMaxPayloadSize) {
+        ::CloseHandle(file);
+        return ACS_ERR(
+            IO, SubU16(ESaveArchiveSubCode::kSubPayloadTooLarge),
+            "FSaveArchive::ValidateFile: payload exceeds safety limit");
+    }
+    if (metadata.PayloadSize != file_size - kHeaderSize) {
+        ::CloseHandle(file);
+        return ACS_ERR(
+            IO, SubU16(ESaveArchiveSubCode::kSubSizeMismatch),
+            "FSaveArchive::ValidateFile: declared payload size does not match file");
+    }
+
+    // 固定 stack buffer により、非信頼 payload size と heap 可用性から検証を分離する。
+    constexpr usize kValidationChunkSize = 64u * 1024u;
+    u8 chunk[kValidationChunkSize] = {};
+    u64 remaining = metadata.PayloadSize;
+    u32 crc = 0xFFFFFFFFu;
+    while (remaining > 0u) {
+        const u64 chunk_size =
+            remaining > kValidationChunkSize ? kValidationChunkSize : remaining;
+        if (!ReadAll(file, chunk, chunk_size, error)) {
+            ::CloseHandle(file);
+            return ACS_ERR_OS(
+                IO, SubU16(ESaveArchiveSubCode::kSubIoError),
+                "FSaveArchive::ValidateFile: payload read failed", error);
+        }
+        crc = UpdateCrc32(crc, chunk, chunk_size);
+        remaining -= chunk_size;
+    }
+    crc ^= 0xFFFFFFFFu;
+
+    if (crc != metadata.PayloadCrc32) {
+        ::CloseHandle(file);
+        return ACS_ERR(
+            Asset, SubU16(ESaveArchiveSubCode::kSubChecksumFail),
+            "FSaveArchive::ValidateFile: CRC32 mismatch");
+    }
+    if (!::CloseHandle(file)) {
+        const DWORD close_error = ::GetLastError();
+        return ACS_ERR_OS(
+            IO, SubU16(ESaveArchiveSubCode::kSubIoError),
+            "FSaveArchive::ValidateFile: CloseHandle failed", close_error);
+    }
+
+    return TResult<FSaveArchiveMetadata>(OkInit, metadata);
 }
 
 } // namespace acs::game

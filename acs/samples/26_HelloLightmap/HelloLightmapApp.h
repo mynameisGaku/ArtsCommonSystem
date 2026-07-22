@@ -9,7 +9,7 @@
 // レンダリング:
 //   ・HDR FPostProcess (Bloom + ACES tonemap)。HDR lightmap の高輝度が tonemap で
 //     自然にロールオフし、bloom で天井が光る。
-//   ・FSpriteBatch + Font は tonemap 後の LDR backbuffer に直接描く HUD。
+//   ・FSpriteBatch + FFont は tonemap 後の LDR backbuffer に直接描く HUD。
 //
 // 操作:
 //   WASD 移動 / 矢印 視点 / L: lightmap on-off / Esc: 終了
@@ -28,7 +28,7 @@
 
 namespace hellolightmap {
 
-class HelloLightmapApp : public acs::FApplication {
+class FHelloLightmapApp : public acs::FApplication {
 public:
     void OnStart() noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -38,10 +38,10 @@ public:
 private:
     acs::FPbrShader         m_Pbr;
     acs::FPostProcess       m_Post;
-    acs::PostProcessParams m_PostParams;
-    Quad                   m_Quads[kQuadCount];
+    acs::FPostProcessParams m_PostParams;
+    FQuad                   m_Quads[kQuadCount];
     acs::FSpriteBatch       m_Batch;
-    acs::Font              m_Font;
+    acs::FFont              m_Font;
     acs::FCamera            m_Camera;
     acs::FVec3              m_CamPos{0, 1.0f, -0.9f};
     acs::f32               m_CamYaw   = 0.0f;

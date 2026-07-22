@@ -18,7 +18,7 @@
 
 namespace hellobloom {
 
-class HelloBloomApp : public acs::FApplication {
+class FHelloBloomApp : public acs::FApplication {
 public:
     void OnStart() noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -30,11 +30,11 @@ private:
     acs::FSky               m_Sky;
     acs::FStandardShader    m_Shader;
     acs::FSpriteBatch       m_Batch;
-    acs::Font              m_Font;
-    acs::GpuMesh           m_GmSphere;
-    acs::GpuMesh           m_GmPlane;
+    acs::FFont              m_Font;
+    acs::FGpuMesh           m_GmSphere;
+    acs::FGpuMesh           m_GmPlane;
     acs::FCamera            m_Camera;
-    acs::PostProcessParams m_Params;
+    acs::FPostProcessParams m_Params;
     acs::f32               m_CamYaw = 0.5f;
     acs::f32               m_Angle   = 0.0f;
 };

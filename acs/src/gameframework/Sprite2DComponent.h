@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// FSprite2DComponent - minimal render component for FNode2D.
+// ASprite2DComponent - ANode 向けの最小 render component。
 //
-// It draws a colored rectangle or a texture through the FSpriteBatch installed
-// in RenderContext by FScene2D. Size is in world units; the owner transform
-// supplies position/rotation/scale.
+// FScene2D が FRenderContext に設定した FSpriteBatch を通じて、色付き矩形または
+// texture を描画する。Size は world 単位で、owner transform から
+// position/rotation/scale を取得する。
 #pragma once
 
 #include "foundation/Log.h"          // ACS_LOG_INFO (LogState のデモ出力)
 #include "gameframework/AcsClass.h"   // ACS_FUNCTION マーカー
-#include "gameframework/Component2D.h"
+#include "gameframework/AComponent.h"
 #include "math/Vec.h"
 
 namespace acs {
@@ -18,21 +18,21 @@ class IRhiTexture;
 namespace acs::game {
 
 /**
- * FNode2D に色付き矩形 / テクスチャを描く最小の描画コンポーネント。
+ * ANode に色付き矩形 / テクスチャを描く最小の描画コンポーネント。
  *
  * @details
- * FScene2D が RenderContext に差し込んだ FSpriteBatch を通じて、owner の world
+ * FScene2D が FRenderContext に差し込んだ FSpriteBatch を通じて、owner の world
  * transform を pivot に矩形 1 枚を積む。サイズは world 単位で、位置・回転・スケールは
  * owner の transform から供給される。テクスチャ未設定なら tint 色の塗り潰し矩形を、
  * 設定済みなら UV サブ矩形 + tint でテクスチャを描く。
  */
-class FSprite2DComponent : public FComponent2D {
+class ASprite2DComponent : public AComponent {
 public:
     /** コンポーネント種別タグを宣言する (Kind() による型識別用)。 */
-    ACS_GAME_COMPONENT_KIND(FSprite2DComponent)
+    ACS_GAME_COMPONENT_KIND(ASprite2DComponent)
 
     /** 空のスプライトを構築する (size {1,1}・tint 白・テクスチャ無し)。 */
-    FSprite2DComponent() noexcept = default;
+    ASprite2DComponent() noexcept = default;
 
     /**
      * サイズと tint 色を指定して構築する。
@@ -40,7 +40,7 @@ public:
      * @param size スプライトの world 単位サイズ。
      * @param tint 乗算する tint 色 (既定 {1,1,1,1} = 白)。
      */
-    explicit FSprite2DComponent(FVec2 size, FVec4 tint = FVec4{1, 1, 1, 1}) noexcept
+    explicit ASprite2DComponent(FVec2 size, FVec4 tint = FVec4{1, 1, 1, 1}) noexcept
         : m_Size(size), m_Tint(tint) {}
 
     /**
@@ -102,7 +102,7 @@ public:
     /**
      * UV サブ矩形を 4 成分で設定する (スプライトシートの 1 フレーム等)。
      *
-     * @details 既定 {0,0,1,1} = テクスチャ全体。FSpriteAnimComponent がフレーム毎にここを書き換えてアニメさせる。
+     * @details 既定 {0,0,1,1} = テクスチャ全体。ASpriteAnimComponent がフレーム毎にここを書き換えてアニメさせる。
      * @param u0 左上 U 座標。
      * @param v0 左上 V 座標。
      * @param u1 右下 U 座標。
@@ -132,11 +132,11 @@ public:
     FVec2 UvMax() const noexcept { return m_UvMax; }
 
     /**
-     * 描画フック。owner の world transform を pivot に矩形 1 枚を SpriteBatch へ積む。
+     * 描画フック。owner の world transform を pivot に矩形 1 枚を FSpriteBatch へ積む。
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    void OnDraw(RenderContext& rc) noexcept override;
+    void OnDraw(FRenderContext& rc) noexcept override;
 
     /** 現在のサイズ/tint をログ出力する(BlueprintCallable + CallInEditor のデモ関数)。
      *  Blueprint グラフの «関数» ノードから実ノードへ作用させる検証に使う。 */

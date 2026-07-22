@@ -11,7 +11,7 @@ using namespace acs;
 namespace {
 
 /** LinearAllocator の Reset 競合ストレスで共有する状態。 */
-struct LinearAllocatorResetRaceContext
+struct FLinearAllocatorResetRaceContext
 {
     FLinearAllocator* Allocator = nullptr;
     TAtomic<u32> Start{0u};
@@ -23,7 +23,7 @@ struct LinearAllocatorResetRaceContext
 /** Reset と並行して確保を繰り返し、返却アドレスの最小契約を検証する。 */
 void AllocateWhileLinearAllocatorResets(void* User) noexcept
 {
-    auto* const Context = static_cast<LinearAllocatorResetRaceContext*>(User);
+    auto* const Context = static_cast<FLinearAllocatorResetRaceContext*>(User);
     while (Context->Start.Load(EMemoryOrder::Acquire) == 0u)
     {
         Yield();
@@ -48,7 +48,7 @@ void AllocateWhileLinearAllocatorResets(void* User) noexcept
 /** メインスレッドの Reset と競合させるため、別スレッドからも Reset を繰り返す。 */
 void ResetLinearAllocatorRepeatedly(void* User) noexcept
 {
-    auto* const Context = static_cast<LinearAllocatorResetRaceContext*>(User);
+    auto* const Context = static_cast<FLinearAllocatorResetRaceContext*>(User);
     while (Context->Start.Load(EMemoryOrder::Acquire) == 0u)
     {
         Yield();
@@ -66,7 +66,7 @@ ACS_TEST(Memory, LinearAllocatorResetDrainsConcurrentAllocations)
 {
     constexpr u32 kAllocationWorkerCount = 6u;
     FLinearAllocator Allocator(8192u);
-    LinearAllocatorResetRaceContext Context{};
+    FLinearAllocatorResetRaceContext Context{};
     Context.Allocator = &Allocator;
 
     FThread AllocationWorkers[kAllocationWorkerCount];

@@ -17,7 +17,7 @@
 
 namespace helloshadows {
 
-class ShadowsScene {
+class FShadowsScene {
 public:
     // 中央の 4 本の柱 + 周囲の 4 個の色違い球を生成。
     void Build() noexcept;
@@ -37,13 +37,13 @@ public:
                 acs::FShadowMap&       shadow,
                 acs::IRhiCommandList& cl,
                 const acs::FCamera&    camera,
-                const acs::GpuMesh&   plane,
-                const acs::GpuMesh&   cube,
-                const acs::GpuMesh&   sphere,
+                const acs::FGpuMesh&   plane,
+                const acs::FGpuMesh&   cube,
+                const acs::FGpuMesh&   sphere,
                 acs::FVec3             sun_dir) noexcept;
 
 private:
-    acs::TArray<CasterInst> m_Casters;
+    acs::TArray<FCasterInst> m_Casters;
 };
 
 } // namespace helloshadows

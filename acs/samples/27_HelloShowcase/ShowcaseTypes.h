@@ -15,12 +15,12 @@ namespace helloshowcase {
 inline constexpr acs::u32 kSphereCount = 4;
 inline constexpr acs::f32 kSphereX[kSphereCount] = {-2.4f, -0.8f, 0.8f, 2.4f};
 
-enum class MaterialKind : acs::u8 { Gold, Ceramic, ClearGlass, FrostedGlass };
-inline constexpr MaterialKind kSphereKind[kSphereCount] = {
-    MaterialKind::Gold,
-    MaterialKind::Ceramic,
-    MaterialKind::ClearGlass,
-    MaterialKind::FrostedGlass,
+enum class EMaterialKind : acs::u8 { Gold, Ceramic, ClearGlass, FrostedGlass };
+inline constexpr EMaterialKind kSphereKind[kSphereCount] = {
+    EMaterialKind::Gold,
+    EMaterialKind::Ceramic,
+    EMaterialKind::ClearGlass,
+    EMaterialKind::FrostedGlass,
 };
 
 inline constexpr acs::f32 kSphereRadius = 0.55f;     // MakeSphere の既定半径

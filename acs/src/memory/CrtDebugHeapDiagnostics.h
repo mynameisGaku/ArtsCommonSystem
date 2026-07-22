@@ -13,7 +13,7 @@
 namespace acs {
 
 /** CRT デバッグヒープ診断スコープの動作設定。 */
-struct CrtDebugHeapScopeConfiguration {
+struct FCrtDebugHeapScopeConfiguration {
     /** 機械可読ログに載せるスコープ名。Begin 時に内部へコピーされる。 */
     const char* ScopeName = "unnamed";
 
@@ -31,7 +31,7 @@ struct CrtDebugHeapScopeConfiguration {
 };
 
 /** CRT デバッグヒープのチェックポイント差分。 */
-struct CrtDebugHeapScopeReport {
+struct FCrtDebugHeapScopeReport {
     /** このビルドで MSVC CRT デバッグヒープが利用可能か。 */
     bool bSupported = false;
 
@@ -82,7 +82,7 @@ struct CrtDebugHeapScopeReport {
 };
 
 /** `_CrtDumpMemoryLeaks` によるプロセス全体の直接検査結果。 */
-struct CrtDebugHeapProcessLeakReport {
+struct FCrtDebugHeapProcessLeakReport {
     /** 現在のビルドで MSVC Debug CRT 診断を利用できるか。 */
     bool bSupported = false;
 
@@ -103,7 +103,7 @@ enum class ECrtDebugHeapCheckFrequency : u8 {
 };
 
 /** プロセス全体へ一時適用する CRT デバッグヒープ設定。 */
-struct CrtDebugHeapProcessConfiguration {
+struct FCrtDebugHeapProcessConfiguration {
     /** デバッグヒープによる割り当て追跡を有効にする。 */
     bool bEnableAllocationTracking = true;
 
@@ -150,10 +150,10 @@ public:
     FCrtDebugHeapScope& operator=(FCrtDebugHeapScope&&) = delete;
 
     /** 現在位置を基準チェックポイントとして診断を開始する。追跡無効時は false。 */
-    bool Begin(const CrtDebugHeapScopeConfiguration& Configuration = {}) noexcept;
+    bool Begin(const FCrtDebugHeapScopeConfiguration& Configuration = {}) noexcept;
 
     /** 現在位置との差分を収集し、必要ならダンプと機械可読ログを出力する。 */
-    CrtDebugHeapScopeReport End() noexcept;
+    FCrtDebugHeapScopeReport End() noexcept;
 
     /** Begin 済みか。 */
     bool IsActive() const noexcept
@@ -186,7 +186,7 @@ public:
     FCrtDebugHeapProcessConfigurationScope& operator=(FCrtDebugHeapProcessConfigurationScope&&) = delete;
 
     /** 設定を退避して一時設定を適用する。 */
-    bool Begin(const CrtDebugHeapProcessConfiguration& Configuration = {}) noexcept;
+    bool Begin(const FCrtDebugHeapProcessConfiguration& Configuration = {}) noexcept;
 
     /** Begin 前の設定を復元する。診断中の場合は、その診断の End まで復元を遅延する。 */
     void End() noexcept;
@@ -226,7 +226,7 @@ public:
      * @param bWriteMachineReadableLog 機械可読な最終判定を出力するか。
      * @return 対応状況、検査完了、リーク検出の各状態。
      */
-    static CrtDebugHeapProcessLeakReport DumpProcessMemoryLeaks(
+    static FCrtDebugHeapProcessLeakReport DumpProcessMemoryLeaks(
         bool bWriteMachineReadableLog = true) noexcept;
 
     /**

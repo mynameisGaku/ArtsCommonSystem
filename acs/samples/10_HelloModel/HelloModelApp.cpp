@@ -10,7 +10,7 @@ using namespace acs;
 
 namespace hellomodel {
 
-void HelloModelApp::OnStart() noexcept {
+void FHelloModelApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -30,18 +30,18 @@ void HelloModelApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloModel initialized");
 }
 
-void HelloModelApp::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloModelApp::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
     m_Scene.Update(dt, m_AsyncMesh, m_bAsyncLoaded);
 }
 
-void HelloModelApp::OnRender() noexcept {
+void FHelloModelApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl || !m_Shader.Pipeline()) return;
     m_Scene.Render(m_Shader, *cl);
 }
 
-void HelloModelApp::OnShutdown() noexcept {
+void FHelloModelApp::OnShutdown() noexcept {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     // 非同期ロード進行中なら待ってから解放
     if (m_AsyncMesh.Valid() && !m_bAsyncLoaded) (void)m_AsyncMesh.Wait();

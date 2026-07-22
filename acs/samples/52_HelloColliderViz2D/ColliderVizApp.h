@@ -22,7 +22,7 @@ public:
 
 private:
     acs::FSpriteBatch m_Batch;
-    acs::Font         m_Font;
+    acs::FFont         m_Font;
     bool              m_bFontReady = false;
 
     acs::TUniquePtr<acs::IRhiTexture> m_SpriteTex;

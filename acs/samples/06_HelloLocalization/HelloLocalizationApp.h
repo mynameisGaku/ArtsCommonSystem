@@ -20,7 +20,7 @@
 
 namespace helloloc {
 
-class HelloLocalizationApp : public acs::FApplication {
+class FHelloLocalizationApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -30,9 +30,9 @@ public:
 private:
     void SwitchTo(acs::u32 idx) noexcept;
 
-    acs::Localization m_Loc;
+    acs::FLocalization m_Loc;
     acs::FSpriteBatch  m_Batch;
-    acs::Font         m_FontBig, m_FontSmall;
+    acs::FFont         m_FontBig, m_FontSmall;
     acs::u32          m_Lang = 0;
 };
 

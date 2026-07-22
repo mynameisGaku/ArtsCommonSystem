@@ -3,12 +3,12 @@
 //
 // 使い方:
 //   while (!w.ShouldClose()) {
-//       Input::Update();           // フレーム先頭で呼ぶ
+//       FInput::Update();           // フレーム先頭で呼ぶ
 //       w.PollEvents();
 //
-//       if (Input::IsKeyDown(EKey::Space)) Jump();
-//       if (Input::IsMouseButtonPressed(EMouseButton::Left)) Shoot();
-//       FVec2 m = Input::MousePos();
+//       if (FInput::IsKeyDown(EKey::Space)) Jump();
+//       if (FInput::IsMouseButtonPressed(EMouseButton::Left)) Shoot();
+//       FVec2 m = FInput::MousePos();
 //   }
 //
 // ・「Down」 = 現在押されている
@@ -31,7 +31,7 @@ namespace acs {
  * 前フレームを進め、FWindow からのイベントを OnEvent でこの状態へ反映する。「Down」=現在
  * 押下中、「Pressed」=このフレームで押下開始、「Released」=このフレームで離した、を表す。
  */
-class Input {
+class FInput {
 public:
     /**
      * フレーム先頭で 1 回呼び、入力状態をフレーム間で進める。
@@ -47,7 +47,7 @@ public:
      * @details FWindow::SetEventCallback でこの関数へブリッジして使う。
      * @param e 反映するイベント。
      */
-    static void OnEvent(const Event& e) noexcept;
+    static void OnEvent(const FEvent& e) noexcept;
 
     /**
      * キーが現在押されているかを返す。

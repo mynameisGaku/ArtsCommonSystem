@@ -1,28 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — FSettings 実装
-//
-// 線形検索 + 同 key 上書き。STL 禁止方針に従い、<cstring> も避けて
-// per-byte 比較ループを自前で書く (FEntitlement.cpp と同じ StrEq pattern)。
-//
-// Save / Load は INI 風 `<tag>:<key>=<value>\n` テキスト (UTF-8 / LF) を読み書き
-// する。型は 1 文字 prefix (f/i/b/s) でディスクに残し round-trip させる。書き込みは
-// FSaveArchive と同じ atomic write (`.tmp` に書いて MoveFileExW で rename) を使う。
+// GameFramework Pillar G — FSettings 実装と永続化境界。
 #include "gameframework/Settings.h"
 
-#include "foundation/Platform.h"   // <windows.h> (CreateFileW / WriteFile / MoveFileExW)
-#include "memory/Memory.h"         // DefaultAllocator / MemCopy
+#include "foundation/Platform.h"
+#include "memory/Memory.h"
+
+#include <charconv>
+#include <cstddef>
+#include <cfloat>
+#include <cwchar>
+#include <limits>
+#include <system_error>
 
 namespace acs::game {
 
 namespace {
 
-/**
- * const char* を per-byte 比較する (nullptr 安全)。
- *
- * @param a 比較する文字列 A。
- * @param b 比較する文字列 B。
- * @return 両者が等しければ true (どちらかが nullptr なら false)。
- */
+constexpr usize kMaxNumericBytes = 96u;
+constexpr usize kPersistencePathCapacity = 1024u;
+constexpr u32 kTemporaryOpenAttempts = 32u;
+
+volatile LONG g_SettingsTemporarySerial = 0;
+
 bool StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) return false;
     while (*a != '\0' && *b != '\0') {
@@ -33,608 +32,988 @@ bool StrEq(const char* a, const char* b) noexcept {
     return *a == '\0' && *b == '\0';
 }
 
-/**
- * const char* の長さ (NUL 終端まで) を返す。
- *
- * @param s 長さを測る文字列 (nullptr は 0)。
- * @return NUL 終端を除いた文字数。
- */
-usize StrLen(const char* s) noexcept {
-    if (s == nullptr) return 0;
-    usize n = 0;
-    while (s[n] != '\0') ++n;
-    return n;
+bool TryBoundedLength(const char* text, usize limit, usize& out_length) noexcept {
+    out_length = 0u;
+    if (text == nullptr) return false;
+    while (out_length <= limit && text[out_length] != '\0') ++out_length;
+    return out_length <= limit;
 }
 
-/**
- * f32 を round-trip 可能な精度で 10 進文字列にして FString へ追記する。
- *
- * @details
- * STL (snprintf) を避け、自前で「整数部.小数部」を出力する。整数部を 10 進展開し、
- * 小数部は固定 6 桁まで出して末尾の 0 を畳む (1.5 → "1.5")。NaN / Inf は安全側で 0 と
- * して書き、u64 に収まらない巨大値は double 空間で上位桁から展開する。
- * @param out 追記先の FString。
- * @param v 書き出す f32 値。
- */
-void AppendF32(FString& out, f32 v) noexcept {
-    // NaN / Inf は設定値として現実的でないので、安全側で 0 として書く
-    // (Load 側でも 0 に parse される)。
-    if (!(v == v) /* NaN */ || v > 3.0e38f || v < -3.0e38f) {
-        out.Append(FStringView("0", 1));
-        return;
+bool ContainsByte(const char* text, usize length, char value) noexcept {
+    for (usize i = 0u; i < length; ++i) {
+        if (text[i] == value) return true;
     }
-    if (v < 0.0f) {
-        out.Append('-');
-        v = -v;
-    }
-    // u64 に収まらない巨大値 (v >= 2^64) を static_cast<u64> すると範囲外変換で
-    // 未定義動作になる。f32 は 2^24 超で整数値しか持たない (小数部は 0) ため、
-    // double 空間で上位桁から 10 進展開して桁を直接出力する (u64 オーバーフロー回避)。
-    const f32 kU64Max = 18446744073709551616.0f; // 2^64 (f32 で厳密表現可)
-    if (v >= kU64Max) {
-        double dv = static_cast<double>(v);
-        double p  = 1.0;
-        while (p * 10.0 <= dv) p *= 10.0;   // p = 10^k (<= dv の最大の 10 冪)
-        while (p >= 1.0) {
-            int digit = static_cast<int>(dv / p);
-            if (digit < 0) digit = 0;
-            if (digit > 9) digit = 9;        // 丸め誤差で 10 になる場合の保険
-            out.Append(static_cast<char>('0' + digit));
-            dv -= static_cast<double>(digit) * p;
-            p  /= 10.0;
-        }
-        return;
-    }
-
-    // 整数部
-    u64 int_part = static_cast<u64>(v);
-    f32 frac     = v - static_cast<f32>(int_part);
-
-    char digits[20];
-    int  n = 0;
-    if (int_part == 0) {
-        digits[n++] = '0';
-    } else {
-        char tmp[20];
-        int  t = 0;
-        while (int_part > 0 && t < 20) {
-            tmp[t++] = static_cast<char>('0' + static_cast<int>(int_part % 10));
-            int_part /= 10;
-        }
-        while (t > 0) digits[n++] = tmp[--t];  // 逆順に積んだので戻す
-    }
-    out.Append(FStringView(digits, static_cast<usize>(n)));
-
-    // 小数部 (固定 6 桁 → 末尾 0 を畳む)。f32 の有効精度に合わせて 6 桁で十分。
-    char frac_buf[8];
-    int  fn = 0;
-    frac_buf[fn++] = '.';
-    int last_nonzero = 0;  // '.' の index
-    for (int d = 0; d < 6; ++d) {
-        frac *= 10.0f;
-        int digit = static_cast<int>(frac);
-        if (digit < 0) digit = 0;
-        if (digit > 9) digit = 9;
-        frac -= static_cast<f32>(digit);
-        frac_buf[fn] = static_cast<char>('0' + digit);
-        if (digit != 0) last_nonzero = fn;
-        ++fn;
-    }
-    // last_nonzero == 0 (= 小数部すべて 0) なら小数点ごと省く ("1" のまま)。
-    if (last_nonzero > 0) {
-        out.Append(FStringView(frac_buf, static_cast<usize>(last_nonzero + 1)));
-    }
+    return false;
 }
 
-/**
- * i32 を 10 進文字列にして FString へ追記する。
- *
- * @details INT_MIN を含めて安全に絶対値化するため符号なしで magnitude を扱う。
- * @param out 追記先の FString。
- * @param v 書き出す i32 値。
- */
-void AppendI32(FString& out, i32 v) noexcept {
-    u32 mag;
-    if (v < 0) {
-        out.Append('-');
-        // INT_MIN を含めて安全に絶対値化 (符号なしで受ける)。
-        mag = static_cast<u32>(0u - static_cast<u32>(v));
-    } else {
-        mag = static_cast<u32>(v);
+bool SpanEquals(const char* a, usize a_length, const char* b, usize b_length) noexcept {
+    if (a_length != b_length) return false;
+    for (usize i = 0u; i < a_length; ++i) {
+        if (a[i] != b[i]) return false;
     }
-    char tmp[12];
-    int  t = 0;
-    if (mag == 0) {
-        tmp[t++] = '0';
-    } else {
-        while (mag > 0 && t < 12) {
-            tmp[t++] = static_cast<char>('0' + static_cast<int>(mag % 10u));
-            mag /= 10u;
-        }
-    }
-    char digits[12];
-    int  n = 0;
-    while (t > 0) digits[n++] = tmp[--t];
-    out.Append(FStringView(digits, static_cast<usize>(n)));
+    return true;
 }
 
-/**
- * [begin, end) を f32 に parse する。
- *
- * @details "<int>.<frac>" 形式と先頭符号を許容する。
- * @param begin parse 対象の先頭ポインタ。
- * @param end parse 対象の終端ポインタ (この手前まで)。
- * @return parse した f32 値。
- */
-f32 ParseF32(const char* begin, const char* end) noexcept {
-    const char* p   = begin;
-    f32         sign = 1.0f;
-    if (p < end && (*p == '+' || *p == '-')) {
-        if (*p == '-') sign = -1.0f;
-        ++p;
-    }
-    f32 int_part = 0.0f;
+bool IsStrictFloatSyntax(const char* begin, const char* end) noexcept {
+    const char* p = begin;
+    if (p < end && (*p == '+' || *p == '-')) ++p;
+
+    bool has_integer_digits = false;
     while (p < end && *p >= '0' && *p <= '9') {
-        int_part = int_part * 10.0f + static_cast<f32>(*p - '0');
+        has_integer_digits = true;
         ++p;
     }
-    f32 frac  = 0.0f;
-    f32 scale = 1.0f;
+
+    bool has_fraction_digits = false;
     if (p < end && *p == '.') {
         ++p;
         while (p < end && *p >= '0' && *p <= '9') {
-            scale *= 0.1f;
-            frac += static_cast<f32>(*p - '0') * scale;
+            has_fraction_digits = true;
             ++p;
         }
     }
-    return sign * (int_part + frac);
+    if (!has_integer_digits && !has_fraction_digits) return false;
+
+    if (p < end && (*p == 'e' || *p == 'E')) {
+        ++p;
+        if (p < end && (*p == '+' || *p == '-')) ++p;
+        const char* exponent_begin = p;
+        while (p < end && *p >= '0' && *p <= '9') ++p;
+        if (p == exponent_begin) return false;
+    }
+    return p == end;
 }
 
-/**
- * [begin, end) を i32 に parse する。
- *
- * @details
- * 先頭符号を許容する。オーバーフローは飽和しない (設定値が i32 範囲を超える運用は
- * 想定外)。
- * @param begin parse 対象の先頭ポインタ。
- * @param end parse 対象の終端ポインタ (この手前まで)。
- * @return parse した i32 値。
- */
-i32 ParseI32(const char* begin, const char* end) noexcept {
-    const char* p    = begin;
-    bool        neg  = false;
+ESettingsPersistenceError TryParseI32(
+    const char* begin, const char* end, i32& out_value) noexcept {
+    const char* p = begin;
+    bool negative = false;
     if (p < end && (*p == '+' || *p == '-')) {
-        neg = (*p == '-');
+        negative = *p == '-';
         ++p;
     }
-    i64 acc = 0;
-    while (p < end && *p >= '0' && *p <= '9') {
-        acc = acc * 10 + static_cast<i64>(*p - '0');
-        ++p;
+    if (p == end) return ESettingsPersistenceError::InvalidInteger;
+
+    const u64 limit = negative ? 2147483648ull : 2147483647ull;
+    u64 magnitude = 0u;
+    for (; p < end; ++p) {
+        if (*p < '0' || *p > '9') return ESettingsPersistenceError::InvalidInteger;
+        const u32 digit = static_cast<u32>(*p - '0');
+        if (magnitude > (limit - digit) / 10ull) {
+            return ESettingsPersistenceError::InvalidInteger;
+        }
+        magnitude = magnitude * 10ull + digit;
     }
-    if (neg) acc = -acc;
-    return static_cast<i32>(acc);
+
+    if (negative) {
+        if (magnitude == 2147483648ull) {
+            out_value = static_cast<i32>(0x80000000u);
+        } else {
+            out_value = -static_cast<i32>(magnitude);
+        }
+    } else {
+        out_value = static_cast<i32>(magnitude);
+    }
+    return ESettingsPersistenceError::None;
+}
+
+ESettingsPersistenceError TryParseF32(
+    const char* begin, const char* end, f32& out_value) noexcept {
+    const usize length = static_cast<usize>(end - begin);
+    if (length == 0u || length > kMaxNumericBytes) {
+        return ESettingsPersistenceError::InvalidFloat;
+    }
+
+    const char* unsigned_begin = begin;
+    if (*unsigned_begin == '+' || *unsigned_begin == '-') ++unsigned_begin;
+    const usize unsigned_length = static_cast<usize>(end - unsigned_begin);
+    if (SpanEquals(unsigned_begin, unsigned_length, "nan", 3u) ||
+        SpanEquals(unsigned_begin, unsigned_length, "inf", 3u) ||
+        SpanEquals(unsigned_begin, unsigned_length, "infinity", 8u)) {
+        return ESettingsPersistenceError::NonFiniteFloat;
+    }
+    if (!IsStrictFloatSyntax(begin, end)) {
+        return ESettingsPersistenceError::InvalidFloat;
+    }
+
+    // from_chars は locale 非依存。標準の浮動小数点 overload は先頭 `+` を拒否するため、
+    // この文法で受理した `+` は先に取り除く。
+    const char* conversion_begin = *begin == '+' ? begin + 1 : begin;
+    f32 value = 0.0f;
+    const std::from_chars_result conversion = std::from_chars(
+        conversion_begin, end, value, std::chars_format::general);
+    if (conversion.ec != std::errc{} || conversion.ptr != end) {
+        return ESettingsPersistenceError::InvalidFloat;
+    }
+    out_value = value;
+    return ESettingsPersistenceError::None;
+}
+
+struct FParsedRecord {
+    const char* Key = nullptr;
+    usize KeyLength = 0u;
+    const char* Value = nullptr;
+    usize ValueLength = 0u;
+    ESettingKind Kind = ESettingKind::None;
+    f32 FloatValue = 0.0f;
+    i32 IntegerValue = 0;
+    bool BoolValue = false;
+};
+
+ESettingsPersistenceError ParseRecord(
+    const char* begin, const char* end, FParsedRecord& out_record) noexcept {
+    const usize length = static_cast<usize>(end - begin);
+    if (length < 4u || begin[1] != ':') {
+        return ESettingsPersistenceError::MalformedRecord;
+    }
+
+    switch (begin[0]) {
+        case 'f': out_record.Kind = ESettingKind::F32; break;
+        case 'i': out_record.Kind = ESettingKind::I32; break;
+        case 'b': out_record.Kind = ESettingKind::Bool; break;
+        case 's': out_record.Kind = ESettingKind::String; break;
+        default: return ESettingsPersistenceError::UnknownType;
+    }
+
+    const char* equals = begin + 2;
+    while (equals < end && *equals != '=') ++equals;
+    if (equals == end) return ESettingsPersistenceError::MalformedRecord;
+
+    out_record.Key = begin + 2;
+    out_record.KeyLength = static_cast<usize>(equals - out_record.Key);
+    out_record.Value = equals + 1;
+    out_record.ValueLength = static_cast<usize>(end - out_record.Value);
+
+    if (out_record.KeyLength == 0u) return ESettingsPersistenceError::EmptyKey;
+    if (out_record.KeyLength > FSettings::kMaxPersistenceKeyBytes) {
+        return ESettingsPersistenceError::KeyTooLong;
+    }
+    if (ContainsByte(out_record.Key, out_record.KeyLength, '\r') ||
+        ContainsByte(out_record.Key, out_record.KeyLength, '\n')) {
+        return ESettingsPersistenceError::UnrepresentableText;
+    }
+
+    switch (out_record.Kind) {
+        case ESettingKind::F32:
+            return TryParseF32(
+                out_record.Value, out_record.Value + out_record.ValueLength,
+                out_record.FloatValue);
+        case ESettingKind::I32:
+            if (out_record.ValueLength > kMaxNumericBytes) {
+                return ESettingsPersistenceError::InvalidInteger;
+            }
+            return TryParseI32(
+                out_record.Value, out_record.Value + out_record.ValueLength,
+                out_record.IntegerValue);
+        case ESettingKind::Bool:
+            if (SpanEquals(out_record.Value, out_record.ValueLength, "true", 4u)) {
+                out_record.BoolValue = true;
+                return ESettingsPersistenceError::None;
+            }
+            if (SpanEquals(out_record.Value, out_record.ValueLength, "false", 5u)) {
+                out_record.BoolValue = false;
+                return ESettingsPersistenceError::None;
+            }
+            return ESettingsPersistenceError::InvalidBool;
+        case ESettingKind::String:
+            if (out_record.ValueLength > FSettings::kMaxPersistenceStringBytes) {
+                return ESettingsPersistenceError::ValueTooLong;
+            }
+            if (ContainsByte(out_record.Value, out_record.ValueLength, '\r') ||
+                ContainsByte(out_record.Value, out_record.ValueLength, '\n')) {
+                return ESettingsPersistenceError::UnrepresentableText;
+            }
+            return ESettingsPersistenceError::None;
+        default:
+            return ESettingsPersistenceError::UnknownType;
+    }
+}
+
+FSettingsPersistenceResult Failure(
+    ESettingsPersistenceError error, u32 line = 0u, u32 entries = 0u,
+    u32 os_error = 0u) noexcept {
+    FSettingsPersistenceResult result{};
+    result.Error = error;
+    result.Line = line;
+    result.Entries = entries;
+    result.OsError = os_error;
+    return result;
+}
+
+ESettingsPersistenceError TryAppendLimited(
+    FString& output, FStringView value) noexcept {
+    if (output.Size() > FSettings::kMaxPersistenceBytes) {
+        return ESettingsPersistenceError::OutputTooLarge;
+    }
+    if (value.Size() > FSettings::kMaxPersistenceBytes - output.Size()) {
+        return ESettingsPersistenceError::OutputTooLarge;
+    }
+    return output.TryAppend(value)
+        ? ESettingsPersistenceError::None
+        : ESettingsPersistenceError::AllocationFailure;
+}
+
+ESettingsPersistenceError TryAppendLimited(FString& output, char value) noexcept {
+    if (output.Size() == FSettings::kMaxPersistenceBytes) {
+        return ESettingsPersistenceError::OutputTooLarge;
+    }
+    return output.TryAppend(value)
+        ? ESettingsPersistenceError::None
+        : ESettingsPersistenceError::AllocationFailure;
+}
+
+ESettingsPersistenceError TryAppendI32(FString& output, i32 value) noexcept {
+    char reversed[12]{};
+    usize count = 0u;
+    u32 magnitude = 0u;
+    if (value < 0) {
+        const ESettingsPersistenceError sign_error = TryAppendLimited(output, '-');
+        if (sign_error != ESettingsPersistenceError::None) return sign_error;
+        magnitude = 0u - static_cast<u32>(value);
+    } else {
+        magnitude = static_cast<u32>(value);
+    }
+    do {
+        reversed[count++] = static_cast<char>('0' + magnitude % 10u);
+        magnitude /= 10u;
+    } while (magnitude != 0u);
+
+    char digits[12]{};
+    for (usize i = 0u; i < count; ++i) digits[i] = reversed[count - i - 1u];
+    return TryAppendLimited(output, FStringView(digits, count));
+}
+
+ESettingsPersistenceError TryAppendF32(FString& output, f32 value) noexcept {
+    if (!(value == value) || value > FLT_MAX || value < -FLT_MAX) {
+        return ESettingsPersistenceError::NonFiniteFloat;
+    }
+    char buffer[64]{};
+    const std::to_chars_result conversion = std::to_chars(
+        buffer, buffer + sizeof(buffer), value, std::chars_format::general,
+        std::numeric_limits<f32>::max_digits10);
+    if (conversion.ec != std::errc{}) {
+        return ESettingsPersistenceError::InvalidInMemoryEntry;
+    }
+    return TryAppendLimited(
+        output, FStringView(
+            buffer, static_cast<usize>(conversion.ptr - buffer)));
+}
+
+bool TryMakeTemporaryPath(
+    const wchar_t* destination, u32 serial,
+    wchar_t (&out_path)[kPersistencePathCapacity]) noexcept {
+    usize destination_length = 0u;
+    while (destination_length < kPersistencePathCapacity &&
+           destination[destination_length] != L'\0') {
+        ++destination_length;
+    }
+    if (destination_length == kPersistencePathCapacity) return false;
+
+    wchar_t suffix[96]{};
+    const int suffix_length = ::_snwprintf_s(
+        suffix, sizeof(suffix) / sizeof(suffix[0]), _TRUNCATE,
+        L".tmp.%08lX.%08lX.%08X",
+        static_cast<unsigned long>(::GetCurrentProcessId()),
+        static_cast<unsigned long>(::GetCurrentThreadId()),
+        static_cast<unsigned int>(serial));
+    if (suffix_length <= 0) return false;
+    const usize suffix_size = static_cast<usize>(suffix_length);
+    if (destination_length > kPersistencePathCapacity - suffix_size - 1u) {
+        return false;
+    }
+
+    for (usize i = 0u; i < destination_length; ++i) {
+        out_path[i] = destination[i];
+    }
+    for (usize i = 0u; i < suffix_size; ++i) {
+        out_path[destination_length + i] = suffix[i];
+    }
+    out_path[destination_length + suffix_size] = L'\0';
+    return true;
+}
+
+ESettingsPersistenceError ValidatePath(const wchar_t* path) noexcept {
+    if (path == nullptr || path[0] == L'\0') {
+        return ESettingsPersistenceError::NullPath;
+    }
+    usize length = 0u;
+    while (length < kPersistencePathCapacity && path[length] != L'\0') {
+        ++length;
+    }
+    return length == kPersistencePathCapacity
+        ? ESettingsPersistenceError::PathTooLong
+        : ESettingsPersistenceError::None;
+}
+
+struct FFileRenameInfoEx {
+    DWORD Flags = 0u;
+    HANDLE RootDirectory = nullptr;
+    DWORD FileNameLength = 0u;
+    wchar_t FileName[1]{};
+};
+
+/**
+ * FILE_SHARE_DELETE 付きで開かれている出力先を置換する。
+ *
+ * source/destination path はどちらも kPersistencePathCapacity の上限検証済みなので、
+ * 固定 buffer を安全に使用できる。
+ */
+bool TryPosixAtomicReplace(
+    const wchar_t* temporary_path, const wchar_t* destination,
+    DWORD& out_error) noexcept {
+    constexpr DWORD kRenameReplaceIfExists = 0x00000001u;
+    constexpr DWORD kRenamePosixSemantics = 0x00000002u;
+    constexpr auto kFileRenameInfoEx =
+        static_cast<FILE_INFO_BY_HANDLE_CLASS>(22);
+
+    usize destination_length = 0u;
+    while (destination_length < kPersistencePathCapacity &&
+           destination[destination_length] != L'\0') {
+        ++destination_length;
+    }
+    if (destination_length == kPersistencePathCapacity) {
+        out_error = ERROR_FILENAME_EXCED_RANGE;
+        return false;
+    }
+
+    constexpr usize kPrefixBytes = offsetof(FFileRenameInfoEx, FileName);
+    alignas(FFileRenameInfoEx)
+        u8 storage[kPrefixBytes +
+                   kPersistencePathCapacity * sizeof(wchar_t)]{};
+    auto* const info = reinterpret_cast<FFileRenameInfoEx*>(storage);
+    const usize destination_bytes = destination_length * sizeof(wchar_t);
+    info->Flags = kRenameReplaceIfExists | kRenamePosixSemantics;
+    info->FileNameLength = static_cast<DWORD>(destination_bytes);
+    for (usize i = 0u; i < destination_length; ++i) {
+        info->FileName[i] = destination[i];
+    }
+
+    HANDLE source = ::CreateFileW(
+        temporary_path, DELETE | SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (source == INVALID_HANDLE_VALUE) {
+        out_error = ::GetLastError();
+        return false;
+    }
+
+    const DWORD info_bytes =
+        static_cast<DWORD>(kPrefixBytes + destination_bytes);
+    const BOOL renamed = ::SetFileInformationByHandle(
+        source, kFileRenameInfoEx, info, info_bytes);
+    if (!renamed) out_error = ::GetLastError();
+    // rename 成功時点で commit 済み。close 診断によって commit 済み操作を
+    // transactional failure として報告してはならない。
+    (void)::CloseHandle(source);
+    return renamed != 0;
 }
 
 } // namespace
 
-/** key 一致 entry の index を返す (未検出 / nullptr は -1)。 */
+const char* SettingsPersistenceErrorName(
+    ESettingsPersistenceError error) noexcept {
+    switch (error) {
+        case ESettingsPersistenceError::None: return "None";
+        case ESettingsPersistenceError::FileOpenFailed: return "FileOpenFailed";
+        case ESettingsPersistenceError::FileTooLarge: return "FileTooLarge";
+        case ESettingsPersistenceError::NullPath: return "NullPath";
+        case ESettingsPersistenceError::AllocationFailure: return "AllocationFailure";
+        case ESettingsPersistenceError::FileSizeFailed: return "FileSizeFailed";
+        case ESettingsPersistenceError::FileReadFailed: return "FileReadFailed";
+        case ESettingsPersistenceError::FileCloseFailed: return "FileCloseFailed";
+        case ESettingsPersistenceError::EmbeddedNul: return "EmbeddedNul";
+        case ESettingsPersistenceError::LineTooLong: return "LineTooLong";
+        case ESettingsPersistenceError::EntryLimitExceeded: return "EntryLimitExceeded";
+        case ESettingsPersistenceError::MalformedRecord: return "MalformedRecord";
+        case ESettingsPersistenceError::UnknownType: return "UnknownType";
+        case ESettingsPersistenceError::EmptyKey: return "EmptyKey";
+        case ESettingsPersistenceError::KeyTooLong: return "KeyTooLong";
+        case ESettingsPersistenceError::ValueTooLong: return "ValueTooLong";
+        case ESettingsPersistenceError::InvalidInteger: return "InvalidInteger";
+        case ESettingsPersistenceError::InvalidFloat: return "InvalidFloat";
+        case ESettingsPersistenceError::NonFiniteFloat: return "NonFiniteFloat";
+        case ESettingsPersistenceError::InvalidBool: return "InvalidBool";
+        case ESettingsPersistenceError::DuplicateKey: return "DuplicateKey";
+        case ESettingsPersistenceError::InvalidInMemoryEntry: return "InvalidInMemoryEntry";
+        case ESettingsPersistenceError::UnrepresentableText: return "UnrepresentableText";
+        case ESettingsPersistenceError::OutputTooLarge: return "OutputTooLarge";
+        case ESettingsPersistenceError::PathTooLong: return "PathTooLong";
+        case ESettingsPersistenceError::TemporaryFileExhausted: return "TemporaryFileExhausted";
+        case ESettingsPersistenceError::FileWriteFailed: return "FileWriteFailed";
+        case ESettingsPersistenceError::FileFlushFailed: return "FileFlushFailed";
+        case ESettingsPersistenceError::AtomicReplaceFailed: return "AtomicReplaceFailed";
+    }
+    return "Unknown";
+}
+
 isize FSettings::FindIndex(const char* key) const noexcept {
     if (key == nullptr) return -1;
-    const usize n = m_Entries.Size();
-    for (usize i = 0; i < n; ++i) {
+    const usize count = m_Entries.Size();
+    for (usize i = 0u; i < count; ++i) {
         if (StrEq(m_Entries[i].key, key)) return static_cast<isize>(i);
     }
     return -1;
 }
 
-/** key 一致 entry を返し、無ければ kind=None で新規追加して返す。 */
-FSettings::Entry& FSettings::UpsertEntry(const char* key) noexcept {
-    // key == nullptr は呼び出し側でガードされている前提だが、二重防御で
-    // 末尾を返す代わりに sentinel を立てる必要はない (Set* 側で弾く)。
-    const isize idx = FindIndex(key);
-    if (idx >= 0) {
-        return m_Entries[static_cast<usize>(idx)];
-    }
-    Entry e;
-    e.key  = key;
-    e.kind = ESettingKind::None;
-    m_Entries.PushBack(e);
-    return m_Entries[m_Entries.Size() - 1];
+FSettings::FEntry& FSettings::UpsertEntry(const char* key) noexcept {
+    const isize index = FindIndex(key);
+    if (index >= 0) return m_Entries[static_cast<usize>(index)];
+    FEntry entry{};
+    entry.key = key;
+    m_Entries.PushBack(entry);
+    return m_Entries.Back();
 }
 
-/** f32 値を書き込む (同名 key は上書き、key == nullptr は no-op)。 */
-void FSettings::SetF32(const char* key, f32 v) noexcept {
+void FSettings::SetF32(const char* key, f32 value) noexcept {
     if (key == nullptr) return;
-    Entry& e   = UpsertEntry(key);
-    e.kind     = ESettingKind::F32;
-    e.value.f  = v;
+    FEntry& entry = UpsertEntry(key);
+    entry.kind = ESettingKind::F32;
+    entry.value.f = value;
 }
 
-/** i32 値を書き込む (同名 key は上書き、key == nullptr は no-op)。 */
-void FSettings::SetI32(const char* key, i32 v) noexcept {
+void FSettings::SetI32(const char* key, i32 value) noexcept {
     if (key == nullptr) return;
-    Entry& e   = UpsertEntry(key);
-    e.kind     = ESettingKind::I32;
-    e.value.i  = v;
+    FEntry& entry = UpsertEntry(key);
+    entry.kind = ESettingKind::I32;
+    entry.value.i = value;
 }
 
-/** bool 値を書き込む (同名 key は上書き、key == nullptr は no-op)。 */
-void FSettings::SetBool(const char* key, bool v) noexcept {
+void FSettings::SetBool(const char* key, bool value) noexcept {
     if (key == nullptr) return;
-    Entry& e   = UpsertEntry(key);
-    e.kind     = ESettingKind::Bool;
-    e.value.b  = v;
+    FEntry& entry = UpsertEntry(key);
+    entry.kind = ESettingKind::Bool;
+    entry.value.b = value;
 }
 
-/** string 値を書き込む (非所有、同名 key は上書き、key == nullptr は no-op)。 */
-void FSettings::SetString(const char* key, const char* v) noexcept {
+void FSettings::SetString(const char* key, const char* value) noexcept {
     if (key == nullptr) return;
-    Entry& e   = UpsertEntry(key);
-    e.kind     = ESettingKind::FString;
-    e.value.s  = v;  // 非所有: 呼び出し側が寿命を保証する
+    FEntry& entry = UpsertEntry(key);
+    entry.kind = ESettingKind::String;
+    entry.value.s = value;
 }
 
-/** f32 値を読み出す (型不一致 / 未検出は default_value)。 */
 f32 FSettings::GetF32(const char* key, f32 default_value) const noexcept {
-    const isize idx = FindIndex(key);
-    if (idx < 0) return default_value;
-    const Entry& e = m_Entries[static_cast<usize>(idx)];
-    if (e.kind != ESettingKind::F32) return default_value;
-    return e.value.f;
+    const isize index = FindIndex(key);
+    if (index < 0) return default_value;
+    const FEntry& entry = m_Entries[static_cast<usize>(index)];
+    return entry.kind == ESettingKind::F32 ? entry.value.f : default_value;
 }
 
-/** i32 値を読み出す (型不一致 / 未検出は default_value)。 */
 i32 FSettings::GetI32(const char* key, i32 default_value) const noexcept {
-    const isize idx = FindIndex(key);
-    if (idx < 0) return default_value;
-    const Entry& e = m_Entries[static_cast<usize>(idx)];
-    if (e.kind != ESettingKind::I32) return default_value;
-    return e.value.i;
+    const isize index = FindIndex(key);
+    if (index < 0) return default_value;
+    const FEntry& entry = m_Entries[static_cast<usize>(index)];
+    return entry.kind == ESettingKind::I32 ? entry.value.i : default_value;
 }
 
-/** bool 値を読み出す (型不一致 / 未検出は default_value)。 */
 bool FSettings::GetBool(const char* key, bool default_value) const noexcept {
-    const isize idx = FindIndex(key);
-    if (idx < 0) return default_value;
-    const Entry& e = m_Entries[static_cast<usize>(idx)];
-    if (e.kind != ESettingKind::Bool) return default_value;
-    return e.value.b;
+    const isize index = FindIndex(key);
+    if (index < 0) return default_value;
+    const FEntry& entry = m_Entries[static_cast<usize>(index)];
+    return entry.kind == ESettingKind::Bool ? entry.value.b : default_value;
 }
 
-/** string 値を読み出す (型不一致 / 未検出は default_value)。 */
-const char* FSettings::GetString(const char* key, const char* default_value) const noexcept {
-    const isize idx = FindIndex(key);
-    if (idx < 0) return default_value;
-    const Entry& e = m_Entries[static_cast<usize>(idx)];
-    if (e.kind != ESettingKind::FString) return default_value;
-    return e.value.s;
+const char* FSettings::GetString(
+    const char* key, const char* default_value) const noexcept {
+    const isize index = FindIndex(key);
+    if (index < 0) return default_value;
+    const FEntry& entry = m_Entries[static_cast<usize>(index)];
+    return entry.kind == ESettingKind::String ? entry.value.s : default_value;
 }
 
-/** key が登録済みかを返す (kind 不問)。 */
 bool FSettings::Has(const char* key) const noexcept {
     return FindIndex(key) >= 0;
 }
 
-/** key を 1 件削除する (該当なし / nullptr は no-op、順序非保持)。 */
 void FSettings::Remove(const char* key) noexcept {
-    const isize idx = FindIndex(key);
-    if (idx < 0) return;
-    // 順序は保持しなくてよい (key 検索は全件走査するため、index は不変条件にない)。
-    m_Entries.RemoveAtSwap(static_cast<usize>(idx));
+    const isize index = FindIndex(key);
+    if (index >= 0) m_Entries.RemoveAtSwap(static_cast<usize>(index));
 }
 
-/** 全エントリを削除する。 */
 void FSettings::Clear() noexcept {
     m_Entries.Clear();
 }
 
-/** 登録エントリ数を返す (kind 不問)。 */
 u32 FSettings::Count() const noexcept {
-    // 件数は通常 u32 範囲を超えない (UI 設定で数百個が現実的上限)。
-    return static_cast<u32>(m_Entries.Size());
+    return m_Entries.Size() > 0xFFFFFFFFu
+        ? 0xFFFFFFFFu
+        : static_cast<u32>(m_Entries.Size());
 }
 
-namespace {
-
-/** エラーサブコード: CreateFileW / WriteFile / MoveFileExW 等の IO 失敗。 */
-constexpr u16 kSubIo        = 10;
-
-/** エラーサブコード: Load 対象が sanity 上限を超過。 */
-constexpr u16 kSubFileTooLarge = 11;
-
-/** エラーサブコード: file_path == nullptr。 */
-constexpr u16 kSubNullPath   = 12;
-
-/** エラーサブコード: 読み込みバッファ確保失敗。 */
-constexpr u16 kSubOom        = 13;
-
-/**
- * Load が読み込む settings ファイルの sanity 上限 (16 MiB)。
- *
- * @details これを超えるのは破損か別フォーマットの誤指定なので弾く。
- */
-constexpr u64 kMaxSettingsBytes = 16ull * 1024ull * 1024ull;
-
-/**
- * `<path>` の末尾に L".tmp" を付けた一時パスを out_buf に作る。
- *
- * @param path 元のパス (NUL 終端)。
- * @param out_buf 一時パスを書き込むバッファ。
- * @param out_cap out_buf の要素数。
- * @return 収まれば true、長さ超過なら false。
- */
-bool MakeTmpPath(const wchar_t* path, wchar_t* out_buf, usize out_cap) noexcept {
-    usize n = 0;
-    while (path[n] != L'\0') ++n;
-    const wchar_t  suffix[]  = L".tmp";
-    const usize    suffix_n  = 4;
-    if (n + suffix_n + 1 > out_cap) return false;  // +1 = NUL
-    for (usize i = 0; i < n; ++i) out_buf[i] = path[i];
-    for (usize i = 0; i < suffix_n; ++i) out_buf[n + i] = suffix[i];
-    out_buf[n + suffix_n] = L'\0';
-    return true;
-}
-} // namespace
-
-/**
- * 全 entry を `<tag>:<key>=<value>` で直列化し atomic write する。
- *
- * @details
- * (1) FString に全行を組み立て (UTF-8 / LF)、(2) `<path>.tmp` に CREATE_ALWAYS で
- * 書いて FlushFileBuffers で flush し、(3) MoveFileExW(REPLACE_EXISTING |
- * WRITE_THROUGH) で本パスへ rename する。途中で失敗しても本ファイルは旧内容のまま
- * (atomicity)。
- */
-TResult<void> FSettings::Save(const wchar_t* file_path) noexcept {
-    if (file_path == nullptr) {
-        return ACS_ERR(IO, kSubNullPath, "FSettings::Save: file_path is null");
+FSettingsPersistenceResult FSettings::TrySave(
+    const wchar_t* file_path) noexcept {
+    const ESettingsPersistenceError path_error = ValidatePath(file_path);
+    if (path_error != ESettingsPersistenceError::None) return Failure(path_error);
+    if (m_Entries.Size() > kMaxPersistenceEntries) {
+        return Failure(ESettingsPersistenceError::EntryLimitExceeded);
     }
 
-    // テキスト組み立て
     FString text;
-    const usize n = m_Entries.Size();
-    for (usize i = 0; i < n; ++i) {
-        const Entry& e = m_Entries[i];
-        if (e.key == nullptr || e.kind == ESettingKind::None) continue;  // 無効 entry は skip
-
-        switch (e.kind) {
-            case ESettingKind::F32:     text.Append(FStringView("f:", 2)); break;
-            case ESettingKind::I32:     text.Append(FStringView("i:", 2)); break;
-            case ESettingKind::Bool:    text.Append(FStringView("b:", 2)); break;
-            case ESettingKind::FString: text.Append(FStringView("s:", 2)); break;
-            default: continue;
+    u32 serialized_entries = 0u;
+    for (usize i = 0u; i < m_Entries.Size(); ++i) {
+        const usize line_begin = text.Size();
+        const FEntry& entry = m_Entries[i];
+        usize key_length = 0u;
+        if (entry.kind == ESettingKind::None || entry.key == nullptr) {
+            return Failure(
+                ESettingsPersistenceError::InvalidInMemoryEntry, 0u,
+                serialized_entries);
         }
-        text.Append(FStringView(e.key, StrLen(e.key)));
-        text.Append('=');
-        switch (e.kind) {
-            case ESettingKind::F32:  AppendF32(text, e.value.f); break;
-            case ESettingKind::I32:  AppendI32(text, e.value.i); break;
+        if (!TryBoundedLength(
+                entry.key, kMaxPersistenceKeyBytes, key_length)) {
+            return Failure(
+                ESettingsPersistenceError::KeyTooLong, 0u,
+                serialized_entries);
+        }
+        if (key_length == 0u) {
+            return Failure(
+                ESettingsPersistenceError::EmptyKey, 0u, serialized_entries);
+        }
+        if (ContainsByte(entry.key, key_length, '=') ||
+            ContainsByte(entry.key, key_length, '\r') ||
+            ContainsByte(entry.key, key_length, '\n')) {
+            return Failure(
+                ESettingsPersistenceError::UnrepresentableText, 0u,
+                serialized_entries);
+        }
+        for (usize prior = 0u; prior < i; ++prior) {
+            if (StrEq(entry.key, m_Entries[prior].key)) {
+                return Failure(
+                    ESettingsPersistenceError::DuplicateKey, 0u,
+                    serialized_entries);
+            }
+        }
+
+        char tag = '\0';
+        switch (entry.kind) {
+            case ESettingKind::F32: tag = 'f'; break;
+            case ESettingKind::I32: tag = 'i'; break;
+            case ESettingKind::Bool: tag = 'b'; break;
+            case ESettingKind::String: tag = 's'; break;
+            default:
+                return Failure(
+                    ESettingsPersistenceError::InvalidInMemoryEntry, 0u,
+                    serialized_entries);
+        }
+
+        ESettingsPersistenceError error = TryAppendLimited(text, tag);
+        if (error == ESettingsPersistenceError::None) {
+            error = TryAppendLimited(text, ':');
+        }
+        if (error == ESettingsPersistenceError::None) {
+            error = TryAppendLimited(text, FStringView(entry.key, key_length));
+        }
+        if (error == ESettingsPersistenceError::None) {
+            error = TryAppendLimited(text, '=');
+        }
+        if (error != ESettingsPersistenceError::None) {
+            return Failure(error, 0u, serialized_entries);
+        }
+
+        switch (entry.kind) {
+            case ESettingKind::F32:
+                error = TryAppendF32(text, entry.value.f);
+                break;
+            case ESettingKind::I32:
+                error = TryAppendI32(text, entry.value.i);
+                break;
             case ESettingKind::Bool:
-                text.Append(e.value.b ? FStringView("true", 4) : FStringView("false", 5));
+                error = TryAppendLimited(
+                    text, entry.value.b
+                        ? FStringView("true", 4u)
+                        : FStringView("false", 5u));
                 break;
-            case ESettingKind::FString:
-                if (e.value.s != nullptr) {
-                    text.Append(FStringView(e.value.s, StrLen(e.value.s)));
+            case ESettingKind::String: {
+                usize value_length = 0u;
+                if (!TryBoundedLength(
+                        entry.value.s, kMaxPersistenceStringBytes,
+                        value_length)) {
+                    error = entry.value.s == nullptr
+                        ? ESettingsPersistenceError::InvalidInMemoryEntry
+                        : ESettingsPersistenceError::ValueTooLong;
+                    break;
                 }
-                break;
-            default: break;
-        }
-        text.Append('\n');
-    }
-
-    // `<path>.tmp` を組む
-    wchar_t tmp_path[1024];
-    if (!MakeTmpPath(file_path, tmp_path, 1024)) {
-        return ACS_ERR(IO, kSubIo, "FSettings::Save: file path too long for .tmp suffix");
-    }
-
-    // tmp に書き込む (CREATE_ALWAYS = 既存 truncate)
-    HANDLE h = ::CreateFileW(tmp_path,
-                             GENERIC_WRITE,
-                             0,                 // 排他: 書き込み中は他者に開かせない
-                             nullptr,
-                             CREATE_ALWAYS,
-                             FILE_ATTRIBUTE_NORMAL,
-                             nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
-        const DWORD err = ::GetLastError();
-        return ACS_ERR_OS(IO, kSubIo, "FSettings::Save: CreateFileW (.tmp) failed", err);
-    }
-
-    const char* bytes = text.Data();
-    u64         remaining = static_cast<u64>(text.Size());
-    while (remaining > 0) {
-        const DWORD chunk = (remaining > 0x7FFFFFFFu)
-                                ? 0x7FFFFFFFu
-                                : static_cast<DWORD>(remaining);
-        DWORD wrote = 0;
-        if (!::WriteFile(h, bytes, chunk, &wrote, nullptr) || wrote != chunk) {
-            const DWORD err = ::GetLastError();
-            ::CloseHandle(h);
-            return ACS_ERR_OS(IO, kSubIo, "FSettings::Save: WriteFile (.tmp) failed", err);
-        }
-        bytes     += wrote;
-        remaining -= wrote;
-    }
-
-    // ディスクまで flush してから rename することで、rename 後の本ファイルが
-    // 必ず完全なデータを指すことを保証する (atomic write の肝)。
-    ::FlushFileBuffers(h);
-    if (!::CloseHandle(h)) {
-        const DWORD err = ::GetLastError();
-        return ACS_ERR_OS(IO, kSubIo, "FSettings::Save: CloseHandle (.tmp) failed", err);
-    }
-
-    // atomic rename: tmp → 本パス
-    if (!::MoveFileExW(tmp_path, file_path,
-                       MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        const DWORD err = ::GetLastError();
-        ::DeleteFileW(tmp_path);  // 失敗した tmp は残さない (best-effort)
-        return ACS_ERR_OS(IO, kSubIo, "FSettings::Save: MoveFileExW (rename) failed", err);
-    }
-    return Ok();
-}
-
-/**
- * ファイルを全読みし、各行を parse して in-memory store に復元する。
- *
- * @details
- * 行形式は `<tag>:<key>=<value>` (tag = f/i/b/s)。`#` 始まりと空行は skip し、未知 tag /
- * `=` 無しの行も skip する (前方互換)。復元した key / string 値は m_StringPool が所有
- * する (ファイル由来の文字列寿命をストアより長く保つため複製する)。行数 ×2 を先に
- * Reserve し、TArray 再確保による FString 移動 = Data() ポインタ無効化を防ぐ。
- */
-TResult<void> FSettings::Load(const wchar_t* file_path) noexcept {
-    if (file_path == nullptr) {
-        return ACS_ERR(IO, kSubNullPath, "FSettings::Load: file_path is null");
-    }
-
-    // ファイルを開く (FSaveArchive.cpp と同じ流儀)
-    HANDLE h = ::CreateFileW(file_path,
-                             GENERIC_READ,
-                             FILE_SHARE_READ,
-                             nullptr,
-                             OPEN_EXISTING,
-                             FILE_ATTRIBUTE_NORMAL,
-                             nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
-        const DWORD err = ::GetLastError();
-        // ファイル不在は IO カテゴリで返す (初回起動を呼び出し側が区別できる)。
-        return ACS_ERR_OS(IO, kSubIo, "FSettings::Load: CreateFileW failed", err);
-    }
-
-    LARGE_INTEGER size_li{};
-    if (!::GetFileSizeEx(h, &size_li)) {
-        const DWORD err = ::GetLastError();
-        ::CloseHandle(h);
-        return ACS_ERR_OS(IO, kSubIo, "FSettings::Load: GetFileSizeEx failed", err);
-    }
-    const u64 size_u64 = static_cast<u64>(size_li.QuadPart);
-    if (size_u64 == 0) {
-        // 空ファイル: 復元なしで成功 (保存した設定が空だったケース)。
-        ::CloseHandle(h);
-        Clear();
-        m_StringPool.Clear();
-        return Ok();
-    }
-    if (size_u64 > kMaxSettingsBytes) {
-        ::CloseHandle(h);
-        return ACS_ERR(IO, kSubFileTooLarge,
-                       "FSettings::Load: settings file exceeds 16 MiB sanity limit");
-    }
-
-    // 全読み込み (+1 で末尾に番兵 NUL を置けるようにする)
-    const usize buf_size = static_cast<usize>(size_u64);
-    FAllocator& alloc    = DefaultAllocator();
-    void*       raw      = alloc.Alloc(buf_size + 1, alignof(char), FSourceLoc::Current());
-    if (raw == nullptr) {
-        ::CloseHandle(h);
-        return ACS_ERR(Memory, kSubOom, "FSettings::Load: failed to allocate read buffer");
-    }
-    char* buf = static_cast<char*>(raw);
-
-    char* p         = buf;
-    u64   remaining = size_u64;
-    while (remaining > 0) {
-        const DWORD chunk = (remaining > 0x7FFFFFFFu)
-                                ? 0x7FFFFFFFu
-                                : static_cast<DWORD>(remaining);
-        DWORD got = 0;
-        if (!::ReadFile(h, p, chunk, &got, nullptr) || got == 0) {
-            DWORD err = ::GetLastError();
-            if (err == 0) err = ERROR_HANDLE_EOF;
-            alloc.Free(raw);
-            ::CloseHandle(h);
-            return ACS_ERR_OS(IO, kSubIo, "FSettings::Load: ReadFile failed", err);
-        }
-        p         += got;
-        remaining -= got;
-    }
-    ::CloseHandle(h);
-    buf[buf_size] = '\0';  // 番兵
-
-    // 既存値を捨ててから復元 (Load は「ファイル状態に置き換える」意味)
-    Clear();
-    m_StringPool.Clear();
-
-    // 行数を数えて m_StringPool を一括 Reserve する (再確保 = FString 移動を封じ
-    // Data() ポインタを安定させる)。1 行あたり key + (string 値) で最大 2 個。
-    usize line_count = 1;
-    for (usize i = 0; i < buf_size; ++i) {
-        if (buf[i] == '\n') ++line_count;
-    }
-    m_StringPool.Reserve(line_count * 2);
-
-    // 行ごとに parse
-    usize i = 0;
-    while (i < buf_size) {
-        // 行の範囲 [line_begin, line_end) を切り出す (LF 区切り、CR は除去)。
-        usize line_begin = i;
-        while (i < buf_size && buf[i] != '\n') ++i;
-        usize line_end = i;
-        if (i < buf_size) ++i;  // '\n' を飛ばす
-        if (line_end > line_begin && buf[line_end - 1] == '\r') --line_end;  // CRLF 対応
-
-        // 空行 / コメント行は skip。
-        if (line_end <= line_begin) continue;
-        if (buf[line_begin] == '#') continue;
-
-        // tag は先頭 2 文字 `x:`。形式不一致は skip (前方互換)。
-        if (line_end - line_begin < 3 || buf[line_begin + 1] != ':') continue;
-        const char tag = buf[line_begin];
-
-        // `=` の位置を探す (key と value の境界)。
-        usize eq = line_begin + 2;
-        while (eq < line_end && buf[eq] != '=') ++eq;
-        if (eq >= line_end) continue;  // '=' 無しは skip
-
-        const usize key_begin   = line_begin + 2;
-        const usize key_end     = eq;
-        const usize val_begin   = eq + 1;
-        const usize val_end     = line_end;
-        if (key_end <= key_begin) continue;  // 空 key は skip
-
-        // key を pool に複製 (NUL 終端 const char* を Set* に渡す)。
-        FString key_str(FStringView(buf + key_begin, key_end - key_begin));
-        m_StringPool.PushBack(Move(key_str));
-        const char* key_cstr = m_StringPool.Back().Data();
-
-        switch (tag) {
-            case 'f': {
-                SetF32(key_cstr, ParseF32(buf + val_begin, buf + val_end));
-                break;
-            }
-            case 'i': {
-                SetI32(key_cstr, ParseI32(buf + val_begin, buf + val_end));
-                break;
-            }
-            case 'b': {
-                // "true" のみ true、それ以外 ("false" 含む) は false。
-                const usize vlen = val_end - val_begin;
-                const bool  bv   = (vlen == 4 &&
-                                    buf[val_begin]     == 't' &&
-                                    buf[val_begin + 1] == 'r' &&
-                                    buf[val_begin + 2] == 'u' &&
-                                    buf[val_begin + 3] == 'e');
-                SetBool(key_cstr, bv);
-                break;
-            }
-            case 's': {
-                FString val_str(FStringView(buf + val_begin, val_end - val_begin));
-                m_StringPool.PushBack(Move(val_str));
-                SetString(key_cstr, m_StringPool.Back().Data());
+                if (ContainsByte(entry.value.s, value_length, '\r') ||
+                    ContainsByte(entry.value.s, value_length, '\n')) {
+                    error = ESettingsPersistenceError::UnrepresentableText;
+                    break;
+                }
+                error = TryAppendLimited(
+                    text, FStringView(entry.value.s, value_length));
                 break;
             }
             default:
-                // 未知 tag: key を pool に積んでしまったが無害 (entry は作らない)。
+                error = ESettingsPersistenceError::InvalidInMemoryEntry;
                 break;
+        }
+        if (error == ESettingsPersistenceError::None) {
+            if (text.Size() - line_begin > kMaxPersistenceLineBytes) {
+                return Failure(
+                    ESettingsPersistenceError::LineTooLong, 0u,
+                    serialized_entries);
+            }
+            error = TryAppendLimited(text, '\n');
+        }
+        if (error != ESettingsPersistenceError::None) {
+            return Failure(error, 0u, serialized_entries);
+        }
+        ++serialized_entries;
+    }
+
+    wchar_t temporary_path[kPersistencePathCapacity]{};
+    HANDLE file = INVALID_HANDLE_VALUE;
+    u32 last_collision_error = ERROR_FILE_EXISTS;
+    for (u32 attempt = 0u; attempt < kTemporaryOpenAttempts; ++attempt) {
+        const u32 serial = static_cast<u32>(
+            ::InterlockedIncrement(&g_SettingsTemporarySerial));
+        if (!TryMakeTemporaryPath(file_path, serial, temporary_path)) {
+            return Failure(
+                ESettingsPersistenceError::PathTooLong, 0u,
+                serialized_entries);
+        }
+        file = ::CreateFileW(
+            temporary_path, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file != INVALID_HANDLE_VALUE) break;
+
+        const DWORD os_error = ::GetLastError();
+        if (os_error != ERROR_FILE_EXISTS &&
+            os_error != ERROR_ALREADY_EXISTS) {
+            return Failure(
+                ESettingsPersistenceError::FileOpenFailed, 0u,
+                serialized_entries, os_error);
+        }
+        last_collision_error = os_error;
+    }
+    if (file == INVALID_HANDLE_VALUE) {
+        return Failure(
+            ESettingsPersistenceError::TemporaryFileExhausted, 0u,
+            serialized_entries, last_collision_error);
+    }
+
+    const char* cursor = text.Data();
+    usize remaining = text.Size();
+    while (remaining != 0u) {
+        const DWORD chunk = remaining > 0x7FFFFFFFu
+            ? 0x7FFFFFFFu
+            : static_cast<DWORD>(remaining);
+        DWORD written = 0u;
+        if (!::WriteFile(file, cursor, chunk, &written, nullptr) ||
+            written != chunk) {
+            const DWORD os_error = ::GetLastError();
+            ::CloseHandle(file);
+            ::DeleteFileW(temporary_path);
+            return Failure(
+                ESettingsPersistenceError::FileWriteFailed, 0u,
+                serialized_entries, os_error);
+        }
+        cursor += written;
+        remaining -= written;
+    }
+
+    if (!::FlushFileBuffers(file)) {
+        const DWORD os_error = ::GetLastError();
+        ::CloseHandle(file);
+        ::DeleteFileW(temporary_path);
+        return Failure(
+            ESettingsPersistenceError::FileFlushFailed, 0u,
+            serialized_entries, os_error);
+    }
+    if (!::CloseHandle(file)) {
+        const DWORD os_error = ::GetLastError();
+        ::DeleteFileW(temporary_path);
+        return Failure(
+            ESettingsPersistenceError::FileCloseFailed, 0u,
+            serialized_entries, os_error);
+    }
+    if (!::MoveFileExW(
+            temporary_path, file_path,
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        const DWORD move_error = ::GetLastError();
+        DWORD posix_error = ERROR_SUCCESS;
+        if (!TryPosixAtomicReplace(
+                temporary_path, file_path, posix_error)) {
+            ::DeleteFileW(temporary_path);
+            const DWORD reported_error =
+                posix_error == ERROR_INVALID_PARAMETER ||
+                posix_error == ERROR_NOT_SUPPORTED ||
+                posix_error == ERROR_CALL_NOT_IMPLEMENTED
+                ? move_error
+                : posix_error;
+            return Failure(
+                ESettingsPersistenceError::AtomicReplaceFailed, 0u,
+                serialized_entries, reported_error);
         }
     }
 
-    alloc.Free(raw);
-    return Ok();
+    FSettingsPersistenceResult result{};
+    result.Entries = serialized_entries;
+    return result;
+}
+
+FSettingsPersistenceResult FSettings::TryLoad(
+    const wchar_t* file_path) noexcept {
+    const ESettingsPersistenceError path_error = ValidatePath(file_path);
+    if (path_error != ESettingsPersistenceError::None) return Failure(path_error);
+
+    HANDLE file = ::CreateFileW(
+        file_path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return Failure(
+            ESettingsPersistenceError::FileOpenFailed, 0u, 0u,
+            ::GetLastError());
+    }
+
+    LARGE_INTEGER file_size{};
+    if (!::GetFileSizeEx(file, &file_size) || file_size.QuadPart < 0) {
+        const DWORD os_error = ::GetLastError();
+        ::CloseHandle(file);
+        return Failure(
+            ESettingsPersistenceError::FileSizeFailed, 0u, 0u, os_error);
+    }
+    const u64 size = static_cast<u64>(file_size.QuadPart);
+    if (size > kMaxPersistenceBytes) {
+        ::CloseHandle(file);
+        return Failure(ESettingsPersistenceError::FileTooLarge);
+    }
+
+    FAllocator& allocator = DefaultAllocator();
+    void* raw = nullptr;
+    if (size != 0u) {
+        raw = allocator.Alloc(
+            static_cast<usize>(size), alignof(char), FSourceLoc::Current());
+        if (raw == nullptr) {
+            ::CloseHandle(file);
+            return Failure(ESettingsPersistenceError::AllocationFailure);
+        }
+    }
+
+    char* cursor = static_cast<char*>(raw);
+    u64 remaining = size;
+    while (remaining != 0u) {
+        const DWORD chunk = remaining > 0x7FFFFFFFu
+            ? 0x7FFFFFFFu
+            : static_cast<DWORD>(remaining);
+        DWORD read = 0u;
+        if (!::ReadFile(file, cursor, chunk, &read, nullptr) ||
+            read == 0u || read > chunk) {
+            DWORD os_error = ::GetLastError();
+            if (os_error == ERROR_SUCCESS) os_error = ERROR_HANDLE_EOF;
+            if (raw != nullptr) allocator.Free(raw);
+            ::CloseHandle(file);
+            return Failure(
+                ESettingsPersistenceError::FileReadFailed, 0u, 0u, os_error);
+        }
+        cursor += read;
+        remaining -= read;
+    }
+
+    char extra = '\0';
+    DWORD extra_read = 0u;
+    if (!::ReadFile(file, &extra, 1u, &extra_read, nullptr) ||
+        extra_read != 0u) {
+        DWORD os_error = ::GetLastError();
+        if (os_error == ERROR_SUCCESS) os_error = ERROR_FILE_INVALID;
+        if (raw != nullptr) allocator.Free(raw);
+        ::CloseHandle(file);
+        return Failure(
+            ESettingsPersistenceError::FileReadFailed, 0u, 0u, os_error);
+    }
+    if (!::CloseHandle(file)) {
+        const DWORD os_error = ::GetLastError();
+        if (raw != nullptr) allocator.Free(raw);
+        return Failure(
+            ESettingsPersistenceError::FileCloseFailed, 0u, 0u, os_error);
+    }
+
+    const char* bytes = static_cast<const char*>(raw);
+    u32 nul_line = 1u;
+    for (usize i = 0u; i < static_cast<usize>(size); ++i) {
+        if (bytes[i] == '\0') {
+            allocator.Free(raw);
+            return Failure(
+                ESettingsPersistenceError::EmbeddedNul, nul_line);
+        }
+        if (bytes[i] == '\n') ++nul_line;
+    }
+
+    u32 record_count = 0u;
+    u32 string_record_count = 0u;
+    u32 line_number = 0u;
+    usize position = 0u;
+    while (position < static_cast<usize>(size)) {
+        ++line_number;
+        const usize line_begin = position;
+        while (position < static_cast<usize>(size) &&
+               bytes[position] != '\n') {
+            ++position;
+        }
+        usize line_end = position;
+        if (position < static_cast<usize>(size)) ++position;
+        if (line_end > line_begin && bytes[line_end - 1u] == '\r') --line_end;
+        const usize line_length = line_end - line_begin;
+        if (line_length > kMaxPersistenceLineBytes) {
+            allocator.Free(raw);
+            return Failure(
+                ESettingsPersistenceError::LineTooLong, line_number,
+                record_count);
+        }
+        if (line_length == 0u || bytes[line_begin] == '#') continue;
+
+        FParsedRecord parsed{};
+        const ESettingsPersistenceError parse_error = ParseRecord(
+            bytes + line_begin, bytes + line_end, parsed);
+        if (parse_error != ESettingsPersistenceError::None) {
+            allocator.Free(raw);
+            return Failure(parse_error, line_number, record_count);
+        }
+        if (record_count == kMaxPersistenceEntries) {
+            allocator.Free(raw);
+            return Failure(
+                ESettingsPersistenceError::EntryLimitExceeded, line_number,
+                record_count);
+        }
+        ++record_count;
+        if (parsed.Kind == ESettingKind::String) ++string_record_count;
+    }
+
+    TArray<FString> staged_pool;
+    TArray<FEntry> staged_entries;
+    const usize pool_count =
+        static_cast<usize>(record_count) +
+        static_cast<usize>(string_record_count);
+    if (!staged_pool.TryReserve(pool_count) ||
+        !staged_entries.TryReserve(record_count)) {
+        if (raw != nullptr) allocator.Free(raw);
+        return Failure(ESettingsPersistenceError::AllocationFailure);
+    }
+
+    line_number = 0u;
+    position = 0u;
+    while (position < static_cast<usize>(size)) {
+        ++line_number;
+        const usize line_begin = position;
+        while (position < static_cast<usize>(size) &&
+               bytes[position] != '\n') {
+            ++position;
+        }
+        usize line_end = position;
+        if (position < static_cast<usize>(size)) ++position;
+        if (line_end > line_begin && bytes[line_end - 1u] == '\r') --line_end;
+        if (line_end == line_begin || bytes[line_begin] == '#') continue;
+
+        FParsedRecord parsed{};
+        const ESettingsPersistenceError parse_error = ParseRecord(
+            bytes + line_begin, bytes + line_end, parsed);
+        if (parse_error != ESettingsPersistenceError::None) {
+            allocator.Free(raw);
+            return Failure(
+                parse_error, line_number,
+                static_cast<u32>(staged_entries.Size()));
+        }
+
+        for (usize prior = 0u; prior < staged_entries.Size(); ++prior) {
+            usize prior_length = 0u;
+            (void)TryBoundedLength(
+                staged_entries[prior].key, kMaxPersistenceKeyBytes,
+                prior_length);
+            if (SpanEquals(
+                    staged_entries[prior].key, prior_length,
+                    parsed.Key, parsed.KeyLength)) {
+                allocator.Free(raw);
+                return Failure(
+                    ESettingsPersistenceError::DuplicateKey, line_number,
+                    static_cast<u32>(staged_entries.Size()));
+            }
+        }
+
+        FString key;
+        if (!key.TryAppend(FStringView(parsed.Key, parsed.KeyLength)) ||
+            !staged_pool.TryPushBack(Move(key))) {
+            allocator.Free(raw);
+            return Failure(
+                ESettingsPersistenceError::AllocationFailure, line_number,
+                static_cast<u32>(staged_entries.Size()));
+        }
+
+        FEntry entry{};
+        entry.key = staged_pool.Back().Data();
+        entry.kind = parsed.Kind;
+        switch (parsed.Kind) {
+            case ESettingKind::F32:
+                entry.value.f = parsed.FloatValue;
+                break;
+            case ESettingKind::I32:
+                entry.value.i = parsed.IntegerValue;
+                break;
+            case ESettingKind::Bool:
+                entry.value.b = parsed.BoolValue;
+                break;
+            case ESettingKind::String: {
+                FString value;
+                if (!value.TryAppend(
+                        FStringView(parsed.Value, parsed.ValueLength)) ||
+                    !staged_pool.TryPushBack(Move(value))) {
+                    allocator.Free(raw);
+                    return Failure(
+                        ESettingsPersistenceError::AllocationFailure,
+                        line_number,
+                        static_cast<u32>(staged_entries.Size()));
+                }
+                entry.value.s = staged_pool.Back().Data();
+                break;
+            }
+            default:
+                allocator.Free(raw);
+                return Failure(
+                    ESettingsPersistenceError::UnknownType, line_number,
+                    static_cast<u32>(staged_entries.Size()));
+        }
+        if (!staged_entries.TryPushBack(entry)) {
+            allocator.Free(raw);
+            return Failure(
+                ESettingsPersistenceError::AllocationFailure, line_number,
+                static_cast<u32>(staged_entries.Size()));
+        }
+    }
+
+    if (raw != nullptr) allocator.Free(raw);
+
+    // ここから先の操作は失敗しない。array の Move は backing storage を移すため、
+    // staged_pool 内への pointer は commit 後も有効。
+    m_Entries = Move(staged_entries);
+    m_StringPool = Move(staged_pool);
+
+    FSettingsPersistenceResult result{};
+    result.Entries = record_count;
+    return result;
+}
+
+TResult<void> FSettings::Save(const wchar_t* file_path) noexcept {
+    const FSettingsPersistenceResult result = TrySave(file_path);
+    if (result) return Ok();
+    const EErrCategory category =
+        result.Error == ESettingsPersistenceError::AllocationFailure
+        ? EErrCategory::Memory
+        : EErrCategory::IO;
+    return FErrorCode(
+        category, static_cast<u16>(result.Error),
+        SettingsPersistenceErrorName(result.Error), FSourceLoc::Current(),
+        result.OsError);
+}
+
+TResult<void> FSettings::Load(const wchar_t* file_path) noexcept {
+    const FSettingsPersistenceResult result = TryLoad(file_path);
+    if (result) return Ok();
+    const EErrCategory category =
+        result.Error == ESettingsPersistenceError::AllocationFailure
+        ? EErrCategory::Memory
+        : EErrCategory::IO;
+    return FErrorCode(
+        category, static_cast<u16>(result.Error),
+        SettingsPersistenceErrorName(result.Error), FSourceLoc::Current(),
+        result.OsError);
 }
 
 } // namespace acs::game

@@ -2,7 +2,7 @@
 // GameFramework Tools — SceneInspector / FHierarchyPanel 実装
 //
 // 仕様の意図は FHierarchyPanel.h を参照。本ファイルでは:
-//   ・root_node を起点に FNode2D ツリーを再帰描画 (ImGui::TreeNodeEx)
+//   ・root_node を起点に ANode ツリーを再帰描画 (ImGui::TreeNodeEx)
 //   ・各ノードクリックで selection 切替 (FSelectionService 経由 or 内部 fallback)
 //   ・右クリックで context menu (Delete / Duplicate / Reparent target 設定)
 //   ・Drag & Drop で reparent (BeginDragDropSource / BeginDragDropTarget)
@@ -10,7 +10,7 @@
 // を実装する。すべて noexcept、STL 不使用、ImGui include は本 .cpp 限定。
 #include "gameframework/tools/inspector/HierarchyPanel.h"
 
-#include "gameframework/Node2D.h"
+#include "gameframework/ANode.h"
 #include "gameframework/tools/inspector/SelectionService.h"
 
 #include <imgui.h>
@@ -32,7 +32,7 @@ namespace acs::game::inspector {
  * @param sibling_index ラベルに埋め込む兄弟インデックス。
  */
 static void FormatNodeLabel(char* buf, usize buf_size,
-                            const FNode2D& node, u32 sibling_index) noexcept {
+                            const ANode& node, u32 sibling_index) noexcept {
     if (buf == nullptr || buf_size == 0) return;
     const FNodeId id = node.Id();
     if (id.IsValid()) {
@@ -73,13 +73,13 @@ void FHierarchyPanel::Shutdown() noexcept {
  * FSelectionService を注入し、内部 selection キャッシュを seam 側の現選択に同期する。
  *
  * @details
- * FNode2D* は FNodeId から逆引きできないため nullptr に戻し、次の DrawUI 走査で再キャッシュする。
+ * ANode* は FNodeId から逆引きできないため nullptr に戻し、次の DrawUI 走査で再キャッシュする。
  * @param svc 共有する selection サービス (nullptr で内部 selection モードに戻る)。
  */
 void FHierarchyPanel::SetSelectionService(FSelectionService* svc) noexcept {
     m_SelectionService = svc;
     // FSelectionService 注入直後、internal cache を seam 側の現選択に同期して
-    // おく (= 既に何か選択されていた場合に表示を合わせる)。FNode2D* は
+    // おく (= 既に何か選択されていた場合に表示を合わせる)。ANode* は
     // FNodeId からは逆引きできないので nullptr に戻す (= 次の DrawUI 走査で
     // ヒットしたら再キャッシュする)。
     if (m_SelectionService != nullptr) {
@@ -107,7 +107,7 @@ FNodeId FHierarchyPanel::SelectedNodeId() const noexcept {
  * @details 内部キャッシュ (m_SelectedNode / m_SelectedId) を更新し、FSelectionService 注入時はそちらにも反映する。
  * @param node 選択するノード (nullptr で選択解除)。
  */
-void FHierarchyPanel::SelectNode(FNode2D* node) noexcept {
+void FHierarchyPanel::SelectNode(ANode* node) noexcept {
     m_SelectedNode = node;
     if (node != nullptr) {
         m_SelectedId = node->Id();
@@ -148,9 +148,9 @@ void FHierarchyPanel::CollapseAll() noexcept {
  * 回避のため clear する。
  */
 void FHierarchyPanel::DeleteSelected() noexcept {
-    // selection の Node* は DrawUI 走査中にキャッシュされている前提
+    // selection の ANode* は DrawUI 走査中にキャッシュされている前提
     // (FSelectionService 注入時も同様)。キャッシュが無ければ no-op。
-    FNode2D* target = m_SelectedNode;
+    ANode* target = m_SelectedNode;
     if (target == nullptr) return;
     target->Destroy();  // フレーム境界で reap される
     // selection は明示解除 (次フレーム描画前に古い FNodeId を引きずらない)。
@@ -207,7 +207,7 @@ void FHierarchyPanel::SetCollapsed(FNodeId id, bool c) noexcept {
     // c == false (= expanded) かつ既存なし → no-op (default expanded を保つ)。
     // c == true (= collapsed) なら新規追加。
     if (c) {
-        CollapsedEntry e {};
+        FCollapsedEntry e {};
         e.id        = id;
         e.collapsed = true;
         m_CollapsedMap.PushBack(e);
@@ -223,12 +223,12 @@ void FHierarchyPanel::SetCollapsed(FNodeId id, bool c) noexcept {
  * 現ノードを強制 close する。クリックされたら SelectNode、右クリックで
  * BeginPopupContextItem (Delete / Duplicate / Reparent (Set Target / Reparent Here) + 外部
  * callback)、Drag source は payload に &node を、Drop target は受け取った source ノードに
- * Reparent を要求する (cycle / self は FNode2D 側で弾かれる)。深さ 64 で防衛的にガードする。
+ * Reparent を要求する (cycle / self は ANode 側で弾かれる)。深さ 64 で防衛的にガードする。
  * @param node 描画する対象ノード。
  * @param depth 再帰の深さ (上限ガードおよび簡易ラベル表示に使う)。
  */
-void FHierarchyPanel::DrawNodeRecursive(FNode2D& node, u32 depth) noexcept {
-    // depth 上限ガード (ACS の FNode2D は構造的に木構造で循環不能だが、防衛策)。
+void FHierarchyPanel::DrawNodeRecursive(ANode& node, u32 depth) noexcept {
+    // depth 上限ガード (ACS の ANode は構造的に木構造で循環不能だが、防衛策)。
     if (depth >= 64u) {
         ImGui::TextDisabled("(depth limit reached)");
         return;
@@ -302,26 +302,26 @@ void FHierarchyPanel::DrawNodeRecursive(FNode2D& node, u32 depth) noexcept {
 
     // Drag source: 自分を payload に。
     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-        FNode2D* self_ptr = &node;
+        ANode* self_ptr = &node;
         ImGui::SetDragDropPayload(kDragDropId, &self_ptr, sizeof(self_ptr));
         ImGui::TextUnformatted(label);
         ImGui::EndDragDropSource();
     }
 
-    // Drop target: 受け取った FNode2D* を自分の子に reparent。
+    // Drop target: 受け取った ANode* を自分の子に reparent。
     if (ImGui::BeginDragDropTarget()) {
         const ImGuiPayload* payload =
             ImGui::AcceptDragDropPayload(kDragDropId);
         if (payload != nullptr
-            && payload->DataSize == static_cast<int>(sizeof(FNode2D*))) {
-            FNode2D* src = nullptr;
+            && payload->DataSize == static_cast<int>(sizeof(ANode*))) {
+            ANode* src = nullptr;
             // 安全のため memcpy (payload->Data は void*、align 保証なし)。
-            for (int b = 0; b < static_cast<int>(sizeof(FNode2D*)); ++b) {
+            for (int b = 0; b < static_cast<int>(sizeof(ANode*)); ++b) {
                 reinterpret_cast<unsigned char*>(&src)[b] =
                     static_cast<const unsigned char*>(payload->Data)[b];
             }
             if (src != nullptr && src != &node) {
-                // FNode2D::Reparent は cycle / self / pending_destroy を内部で弾く。
+                // ANode::Reparent は cycle / self / pending_destroy を内部で弾く。
                 src->Reparent(node);
             }
         }
@@ -342,7 +342,7 @@ void FHierarchyPanel::DrawNodeRecursive(FNode2D& node, u32 depth) noexcept {
             return;
         }
 
-        // Duplicate: FNode2D 側に組み込み Clone API が未だ無いため、ここでは
+        // Duplicate: ANode 側に組み込み Clone API が未だ無いため、ここでは
         // 「メニュー項目だけ提示し、実処理は外部 callback に委譲」する設計。
         // callback 未登録時は disabled 表示にしてユーザに気付かせる。
         const bool dup_enabled = (m_RightClickCb != nullptr);
@@ -389,7 +389,7 @@ void FHierarchyPanel::DrawNodeRecursive(FNode2D& node, u32 depth) noexcept {
     // 子の再帰描画。
     if (open && has_child) {
         for (u32 i = 0; i < node.ChildCount(); ++i) {
-            FNode2D* c = node.Child(i);
+            ANode* c = node.Child(i);
             if (c != nullptr) {
                 DrawNodeRecursive(*c, depth + 1u);
             }
@@ -421,7 +421,7 @@ void FHierarchyPanel::DrawUI() noexcept {
         ImGui::End();
         return;
     }
-    FNode2D& root_node = *m_RootNode;
+    ANode& root_node = *m_RootNode;
 
     // Toolbar。
     if (ImGui::Button("Expand All")) {

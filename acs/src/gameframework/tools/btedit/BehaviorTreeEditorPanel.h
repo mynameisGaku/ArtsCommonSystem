@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar — btedit / FBehaviorTreeEditorPanel
 //
-// `gameframework/FBehaviorTree.h` (Pillar L) の BT を **可視化 + ライブデバッグ**
+// `gameframework/BehaviorTree.h` (Pillar L) の BT を **可視化 + ライブデバッグ**
 // するための ImGui パネル。Unity の Behavior Designer / Unreal の Behavior Tree
 // Editor の `Debugger` モードに相当する役割を担う。スコープは "visualize
 // + step debug" に絞り、ノードのグラフ編集 (drag drop で
@@ -18,7 +18,7 @@
 //     一般的な「BT 構築直後にミラーも組み立てる」運用なら手書きでも整合は楽。
 //   ・ノードごとの `last_status` は SetNodeStatus で push してもらう。`FBtAction`
 //     の関数ポインタが Tick されるたびに `panel.SetNodeStatus(my_id, ret)` を
-//     呼ぶ規約。composite (Selector / FSequence) の status は root から伝搬する
+//     呼ぶ規約。composite (Selector / Sequence) の status は root から伝搬する
 //     必要があるが、panel 側は気にしない (= ユーザ自由)。
 //   ・StepOnce は `tree->Tick(nullptr, 0.016f)` を 1 回回す + step_count++ +
 //     history ring へ root status を push する最小実装。blackboard は nullptr 固定。
@@ -30,13 +30,13 @@
 //   ・**FEditorPanel 継承**: editor_core 基底に乗せる。
 //     FEditorWorkspace に登録するだけで自動 dispatch される。Title は
 //     "Behavior Tree Editor"。
-//   ・**メタミラー方式 (前述)**: FBehaviorTree.h の API を改造しないために採用。
-//     panel 内に `TArray<NodeMeta>` を持ち、AddNode で順次積む。FNodeId は 0 から
+//   ・**メタミラー方式 (前述)**: BehaviorTree.h の API を改造しないために採用。
+//     panel 内に `TArray<FNodeMeta>` を持ち、AddNode で順次積む。FNodeId は 0 から
 //     panel が払い出す (= 1 panel 内で unique、複数 BT を同 panel で扱う想定なし)。
 //     parent_id は同 TArray 内の id (== index、payload と一致)。kInvalidId
 //     (= 0xFFFFFFFFu) を root の parent_id として使う。
-//   ・**EBtKind (Selector / FSequence / Action) を u8 enum で持つ**: 表示時の色分け
-//     と TreeNode タイプ判別に使う。FBehaviorTree.h の EBtStatus と同じく u8 enum
+//   ・**EBtKind (Selector / Sequence / Action) を u8 enum で持つ**: 表示時の色分け
+//     と TreeNode タイプ判別に使う。BehaviorTree.h の EBtStatus と同じく u8 enum
 //     で揃え、ACS の "E-prefix enum" 規約に従う。
 //   ・**status 表示色は固定リテラル**: Success=緑 (0,1,0)、Failure=赤 (1,0,0)、
 //     Running=黄 (1,1,0)。ImGui::PushStyleColor で TreeNode テキストに反映する。
@@ -67,10 +67,10 @@
 //   │ └───────────────────────────────────────────────────────────┘ │
 //   │ ┌── left: Tree view ─────┐  ┌── right: Node Inspector ────┐ │
 //   │ │  Selector ▶            │  │ Name : <selected name>      │ │
-//   │ │   FSequence ▶           │  │ Kind : Selector/FSequence/   │ │
+//   │ │   Sequence ▶            │  │ Kind : Selector/Sequence/    │ │
 //   │ │    Action "Pickup" ●   │  │        Action               │ │
 //   │ │    Action "Move"   ●   │  │ Id   : <u32>                │ │
-//   │ │   FSequence ▶           │  │ Parent: <u32 or "(root)">   │ │
+//   │ │   Sequence ▶            │  │ Parent: <u32 or "(root)">   │ │
 //   │ │    Action "Wait"   ●   │  │ Children: <u32>             │ │
 //   │ │    Action "Attack" ●   │  │ Last Status: <colored text> │ │
 //   │ └────────────────────────┘  └─────────────────────────────┘ │
@@ -148,6 +148,68 @@ enum class EBtDecoMode : u8 {
 
     /** ブラックボード変数と定数の比較 (var <op> const) で子をガードする。 */
     Compare   = 2,
+};
+
+/** behavior graph text 永続化で使う安定した失敗 category。 */
+enum class EBtGraphPersistenceError : u8 {
+    None = 0,
+    NullArgument,
+    EmptyPath,
+    PathTooLong,
+    EmptyInput,
+    InputTooLarge,
+    EmbeddedNul,
+    TooManyLines,
+    LineTooLong,
+    InvalidMagic,
+    UnsupportedVersion,
+    InvalidCount,
+    NodeCountLimit,
+    InvalidNodeRecord,
+    DuplicateNodeId,
+    InvalidNodeId,
+    InvalidParentReference,
+    InvalidStructure,
+    CycleDetected,
+    DepthLimitExceeded,
+    InvalidKind,
+    InvalidDecorator,
+    InvalidDecoratorMode,
+    InvalidCompareOp,
+    InvalidNumber,
+    NonFiniteNumber,
+    NameTooLong,
+    InvalidName,
+    BlackboardCountLimit,
+    InvalidBlackboardRecord,
+    DuplicateBlackboardName,
+    IntegerOutOfRange,
+    AllocationFailure,
+    FileOpenFailed,
+    FileSizeFailed,
+    FileChanged,
+    FileReadFailed,
+    FileWriteFailed,
+    FileFlushFailed,
+    FileCloseFailed,
+    TemporaryFileExhausted,
+    AtomicReplaceFailed,
+};
+
+/** 検証付き behavior graph 永続化 API が返す結果。 */
+struct FBtGraphPersistenceResult {
+    EBtGraphPersistenceError error = EBtGraphPersistenceError::None;
+    u32 line = 0u;
+    u64 bytes = 0u;
+    u32 os_error = 0u;
+
+    bool Succeeded() const noexcept {
+        return error == EBtGraphPersistenceError::None;
+    }
+
+    explicit operator bool() const noexcept { return Succeeded(); }
+
+    static const char* ErrorName(EBtGraphPersistenceError value) noexcept;
 };
 
 /**
@@ -262,7 +324,7 @@ public:
     /**
      * step counter / history / 全 node の last_status を初期状態に戻す。
      *
-     * @details メタミラー (NodeMeta 配列) と autorun フラグ・selection は触らない。
+     * @details メタミラー (FNodeMeta 配列) と autorun フラグ・selection は触らない。
      */
     void Reset() noexcept;
 
@@ -452,12 +514,31 @@ public:
     bool SaveGraph(const char* path) const noexcept;
 
     /**
+     * canonical な ACSBT v4 text 形式を検証し、atomic に保存する。
+     * temporary file が完成した後にだけ出力先を置き換える。
+     */
+    FBtGraphPersistenceResult TrySaveGraph(const char* path) const noexcept;
+
+    /**
      * テキストファイルからグラフを読み込む (既存ノードはクリアされる)。
      *
      * @param path 読み込み元パス。
      * @return 成功なら true。
      */
     bool LoadGraph(const char* path) noexcept;
+
+    /**
+     * 上限付き file snapshot を読み、完全な検証後にだけ commit する。
+     * 従来の ACSBT version 1 から 3 も引き続き読み込める。
+     */
+    FBtGraphPersistenceResult TryLoadGraph(const char* path) noexcept;
+
+    /**
+     * 長さ指定された ACSBT document を transactional に parse する。
+     * 失敗時は graph、selection、layout state、dynamic blackboard を変更しない。
+     */
+    FBtGraphPersistenceResult TryParseGraphText(
+        const char* text, usize text_size) noexcept;
 
     /**
      * 現在のグラフを実行可能な FBehaviorTree ノードツリーへ bake する。
@@ -524,6 +605,21 @@ public:
      */
     static constexpr u32 kMaxNodes = 128u;
 
+    /** 末尾 newline を含む、受け入れ可能な ACSBT document の最大サイズ。 */
+    static constexpr usize kMaxGraphTextBytes = 256u * 1024u;
+
+    /** CR/LF を除く、ACSBT source 1 行の最大バイト数。 */
+    static constexpr usize kMaxGraphLineBytes = 255u;
+
+    /** ACSBT document 1 つに含められる物理行の最大数。 */
+    static constexpr u32 kMaxGraphLines = 256u;
+
+    /** 終端 NUL より前の path 最大バイト数。 */
+    static constexpr usize kMaxGraphPathBytes = 1023u;
+
+    /** 受け入れ可能な parent chain の最大深さ。 */
+    static constexpr u32 kMaxGraphDepth = 64u;
+
     /** StepOnce で使う固定 dt (= 60 fps の 1 frame 分)。 */
     static constexpr f32 kStepDt   = 0.016f;
 
@@ -531,9 +627,9 @@ private:
     /**
      * 1 個の BT node の表示用情報 + last_status を持つ value 型 struct。
      *
-     * @details 配列内 index == id == NodeMeta::id (= 三位一体で常に等しい)。
+     * @details 配列内 index == id == FNodeMeta::id (= 三位一体で常に等しい)。
      */
-    struct NodeMeta {
+    struct FNodeMeta {
         /** この node の id (== 配列内 index)。 */
         u32         id          = kInvalidId;
 
@@ -581,11 +677,11 @@ private:
     /**
      * undo/redo 用のグラフ状態スナップショット (ノード配列 + 動的 BB のコピー)。
      *
-     * @details TArray はコピー不可なので move-only。要素 (NodeMeta) は値コピーで詰める。
+     * @details TArray はコピー不可なので move-only。要素 (FNodeMeta) は値コピーで詰める。
      */
-    struct GraphSnapshot {
+    struct FGraphSnapshot {
         /** ノード配列のコピー。 */
-        TArray<NodeMeta> nodes;
+        TArray<FNodeMeta> nodes;
 
         /** 動的ブラックボードのコピー (hasBb のときのみ有効)。 */
         FBtBlackboard    bb;
@@ -631,7 +727,7 @@ private:
     void AutoLayout() noexcept;
 
     /** node の表示名を返す (ename が空でなければそれ、無ければ name)。 */
-    const char* DisplayName(const NodeMeta& n) const noexcept;
+    const char* DisplayName(const FNodeMeta& n) const noexcept;
 
     /**
      * エディタからノードを追加する (グラフ上に配置)。
@@ -679,10 +775,10 @@ private:
     TUniquePtr<FBtNode> BuildRuntimeNode(u32 id, u32 guard) const noexcept;
 
     /** 現在のグラフ状態 (ノード + 動的 BB) を out へコピーする (undo 用)。 */
-    void CaptureSnapshot(GraphSnapshot& out) const noexcept;
+    void CaptureSnapshot(FGraphSnapshot& out) const noexcept;
 
     /** スナップショットから現在のグラフ状態を復元する (selection 等はリセット)。 */
-    void RestoreSnapshot(const GraphSnapshot& s) noexcept;
+    void RestoreSnapshot(const FGraphSnapshot& s) noexcept;
 
     /** 現在のグラフ状態の変更検出用シグネチャ (ノード + 動的 BB を畳み込む)。 */
     u64 GraphSignature() const noexcept;
@@ -717,7 +813,7 @@ private:
     u32           m_Selected     = kInvalidId;
 
     /** メタミラー本体 (index == id)。 */
-    TArray<NodeMeta> m_Nodes;
+    TArray<FNodeMeta> m_Nodes;
 
     /**
      * root status の履歴 ring buffer (要素は EBtStatus の u8 生値)。
@@ -784,13 +880,13 @@ private:
 
     // ===== undo / redo =====
     /** undo スタック (古い→新しい順。top が直前の確定状態)。 */
-    TArray<GraphSnapshot> m_UndoStack;
+    TArray<FGraphSnapshot> m_UndoStack;
 
     /** redo スタック (undo で押し戻された状態)。 */
-    TArray<GraphSnapshot> m_RedoStack;
+    TArray<FGraphSnapshot> m_RedoStack;
 
     /** 現在の確定状態のスナップショット (変更検出の基準)。 */
-    GraphSnapshot m_UndoBaseline;
+    FGraphSnapshot m_UndoBaseline;
 
     /** m_UndoBaseline のシグネチャ (現在状態と比較して変更を検出)。 */
     u64  m_BaselineSig = 0u;

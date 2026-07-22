@@ -106,6 +106,46 @@ struct FTileId {
     constexpr bool operator!=(FTileId o) const noexcept { return value != o.value; }
 };
 
+/** 検証付き tilemap 構築・読み込みが返す安定した失敗理由。 */
+enum class ETilemapLoadError : u16 {
+    None = 0,
+    NullInput = 1420,
+    EmptyInput = 1421,
+    InputTooLarge = 1422,
+    EmbeddedNul = 1423,
+    JsonDepthExceeded = 1424,
+    JsonStringTooLong = 1425,
+    JsonNodeLimitExceeded = 1426,
+    JsonSyntaxError = 1427,
+    RootTypeMismatch = 1428,
+    DuplicateMember = 1429,
+    MissingMember = 1430,
+    MemberTypeMismatch = 1431,
+    InvalidInteger = 1432,
+    NonFiniteNumber = 1433,
+    InvalidDimensions = 1434,
+    DimensionLimitExceeded = 1435,
+    CellCountOverflow = 1436,
+    LayerLimitExceeded = 1437,
+    MissingTileLayer = 1438,
+    DataLengthMismatch = 1439,
+    AllocationFailure = 1440,
+};
+
+/** TryInit と TryLoadTiledJson が返す allocation-free の結果。 */
+struct FTilemapLoadResult {
+    ETilemapLoadError Error = ETilemapLoadError::None;
+    u16 JsonSubcode = 0u;
+    u32 Layer = 0u;
+    u32 Element = 0u;
+
+    bool Succeeded() const noexcept { return Error == ETilemapLoadError::None; }
+    explicit operator bool() const noexcept { return Succeeded(); }
+};
+
+/** ETilemapLoadError に対応する安定した診断名。 */
+const char* TilemapLoadErrorName(ETilemapLoadError error) noexcept;
+
 /**
  * 2D グリッド上に FTileId を並べる data-only コンテナ (レイヤー対応)。
  *
@@ -117,8 +157,22 @@ struct FTileId {
  */
 class FTilemap {
 public:
+    static constexpr usize kMaxTiledJsonBytes = 8u * 1024u * 1024u;
+    static constexpr u32 kMaxJsonDepth = 64u;
+    static constexpr usize kMaxJsonStringBytes = 4096u;
+    static constexpr u32 kMaxJsonNodes = 1100000u;
+    static constexpr u32 kMaxJsonObjectMembers = 4096u;
+    static constexpr u32 kMaxLayerRecords = 256u;
+    static constexpr u32 kMaxMapDimension = 2048u;
+    static constexpr usize kMaxCellsPerLayer = 262144u;
+    static constexpr u32 kMaxTileLayers = 32u;
+    static constexpr usize kMaxTotalCells = 1048576u;
+
     /** 空のタイルマップを構築する (グリッドは Init で確保)。 */
     FTilemap() noexcept = default;
+
+    /** 外側の layer array に呼び出し側所有の allocator を使う。 */
+    explicit FTilemap(FAllocator& allocator) noexcept : m_Layers(allocator) {}
 
     /** 破棄する (レイヤーバッファは TArray が解放)。 */
     ~FTilemap() noexcept = default;
@@ -148,6 +202,11 @@ public:
      */
     void Init(u32 width, u32 height, u32 layer_count = 1, f32 tile_size = 16.0f) noexcept;
 
+    /** Init に対応する厳密かつ transactional な API。 */
+    FTilemapLoadResult TryInit(
+        u32 width, u32 height, u32 layer_count = 1u,
+        f32 tile_size = 16.0f) noexcept;
+
     /**
      * Tiled Map Editor の JSON マップを読み込む。
      *
@@ -162,6 +221,15 @@ public:
      * @return 成功なら空の TResult、解析失敗ならエラー。
      */
     TResult<void> LoadTiledJson(const char* json_text, usize len) noexcept;
+
+    /**
+     * Tiled JSON document を厳密に検証し、transactional に読み込む。
+     *
+     * forward-compatible な入力として未知の Tiled 拡張 member は維持し、
+     * 重複 member と既知 member の不正形式は拒否する。
+     */
+    FTilemapLoadResult TryLoadTiledJson(
+        const char* json_text, usize len) noexcept;
 
     /**
      * 個別タイルを設定する。

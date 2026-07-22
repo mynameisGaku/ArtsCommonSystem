@@ -9,8 +9,8 @@ namespace acs {
  *
  * @return kMaxComponentTypes 個の ComponentOps 配列先頭。
  */
-ComponentOps* FComponentRegistry::Slots() noexcept {
-    static ComponentOps slots[kMaxComponentTypes] {};
+FComponentOps* FComponentRegistry::Slots() noexcept {
+    static FComponentOps slots[kMaxComponentTypes] {};
     return slots;
 }
 

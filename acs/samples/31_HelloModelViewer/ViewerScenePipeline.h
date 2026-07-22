@@ -26,7 +26,7 @@ class FRenderer;
 
 namespace hellomv {
 
-class ViewerScenePipeline {
+class FViewerScenePipeline {
 public:
     // FRenderer から ColorFormat / DepthFormat を引くので FRenderer 参照を取る。
     // 戻り値 true なら初期化成功。false の caller は Quit を発行する想定。

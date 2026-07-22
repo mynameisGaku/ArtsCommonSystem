@@ -4,8 +4,8 @@
 // 内容:
 //   ・Cornell box の寸法と baker パラメータ (constexpr)
 //   ・天井光源の放射輝度 (kLightRadiance)
-//   ・Quad: Cornell box の 1 面 (mesh + 軸並行平面パラメータ + lightmap)
-//   ・Rng: xorshift32 軽量 RNG (texel ごとに seed して再現性)
+//   ・FQuad: Cornell box の 1 面 (mesh + 軸並行平面パラメータ + lightmap)
+//   ・FRng: xorshift32 軽量 RNG (texel ごとに seed して再現性)
 //   ・MakeTBN / CosineSampleHemisphere / Hadamard: baker から使う数学ヘルパ
 //
 // 「軸並行平面」表現を取っているのは Cornell box の壁が全部軸並行で、
@@ -47,8 +47,8 @@ inline const acs::FVec3 kLightRadiance{4.5f, 4.2f, 3.8f};
 //   plane_w / plane_h           : MakePlane に渡したローカルサイズ。baker が
 //                                 texel uv → ローカル座標 → model → world と
 //                                 変換するのに使う (回転を model に委ねる)。
-struct Quad {
-    acs::GpuMesh                mesh;
+struct FQuad {
+    acs::FGpuMesh                mesh;
     acs::FMat4                   model;
     acs::FVec3                   albedo;
     acs::FVec3                   normal;        // world-space 法線 (model から導出)
@@ -66,7 +66,7 @@ struct Quad {
 
 // 軸並行平面 axis(=value) 上の矩形 [u_min,u_max]x[v_min,v_max] と
 // ray (o,d) の交差。hit したら t を返す (なければ -1)。
-inline acs::f32 RayQuad(acs::FVec3 o, acs::FVec3 d, const Quad& q) noexcept {
+inline acs::f32 RayQuad(acs::FVec3 o, acs::FVec3 d, const FQuad& q) noexcept {
     acs::f32 od, dd;
     if (q.axis == 0)      { od = o.x; dd = d.x; }
     else if (q.axis == 1) { od = o.y; dd = d.y; }
@@ -90,7 +90,7 @@ inline acs::FVec3 Hadamard(acs::FVec3 a, acs::FVec3 b) noexcept {
 }
 
 // 軽量 RNG (xorshift32)。texel ごとに seed して bake の再現性を持たせる。
-struct Rng {
+struct FRng {
     acs::u32 state;
     acs::f32 NextF() noexcept {                       // [0, 1)
         state ^= state << 13;
@@ -110,7 +110,7 @@ inline void MakeTBN(acs::FVec3 N, acs::FVec3& T, acs::FVec3& B) noexcept {
 // cosine-weighted hemisphere sampling。pdf = cosθ/π なので、この方向で
 // 入射放射輝度を平均すると cosine 重みと pdf の π が相殺し、「入射 irradiance の
 // 平均」がそのまま得られる (FPbrShader が描画時に albedo を掛ける)。
-inline acs::FVec3 CosineSampleHemisphere(acs::FVec3 N, acs::FVec3 T, acs::FVec3 B, Rng& rng) noexcept {
+inline acs::FVec3 CosineSampleHemisphere(acs::FVec3 N, acs::FVec3 T, acs::FVec3 B, FRng& rng) noexcept {
     const acs::f32 u1  = rng.NextF();
     const acs::f32 u2  = rng.NextF();
     const acs::f32 r   = acs::Sqrt(u1);

@@ -20,7 +20,7 @@
 #include "math/Mat.h"
 #include "math/Math.h"
 #include "math/Camera.h"
-#include "math/Collision3D.h"   // Ray3
+#include "math/Collision3D.h"   // FRay3
 
 namespace acs {
 
@@ -118,7 +118,7 @@ inline bool WorldToScreen(const FCamera& cam, FVec3 world,
  * @param screen_h スクリーン高さ (px)。
  * @return ワールド空間のピックレイ (origin=near 平面点, direction=正規化)。
  */
-inline Ray3 ScreenPointToRay(const FMat4& view_proj, f32 px, f32 py,
+inline FRay3 ScreenPointToRay(const FMat4& view_proj, f32 px, f32 py,
                              f32 screen_w, f32 screen_h) noexcept {
     const FMat4 inv = Inverse(view_proj);
     const f32 ndc_x = 2.0f * px / screen_w - 1.0f;
@@ -131,7 +131,7 @@ inline Ray3 ScreenPointToRay(const FMat4& view_proj, f32 px, f32 py,
     FVec3 d{ pf.x - pn.x, pf.y - pn.y, pf.z - pn.z };
     const f32 len = Sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
     if (len > 1e-8f) d = FVec3{ d.x / len, d.y / len, d.z / len };
-    return Ray3{ pn, d };
+    return FRay3{ pn, d };
 }
 
 /**
@@ -144,7 +144,7 @@ inline Ray3 ScreenPointToRay(const FMat4& view_proj, f32 px, f32 py,
  * @param screen_h スクリーン高さ (px)。
  * @return ワールド空間のピックレイ。
  */
-inline Ray3 ScreenPointToRay(const FCamera& cam, f32 px, f32 py,
+inline FRay3 ScreenPointToRay(const FCamera& cam, f32 px, f32 py,
                              f32 screen_w, f32 screen_h) noexcept {
     return ScreenPointToRay(cam.ViewProjection(), px, py, screen_w, screen_h);
 }

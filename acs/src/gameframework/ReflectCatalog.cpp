@@ -19,18 +19,18 @@
 #include "gameframework/ReflectCatalog.h"
 #include "gameframework/Reflect.h"
 
-// ----- Component (FComponent2D 派生) -----
+// ----- Component (AComponent 派生) -----
 #include "gameframework/Sprite2DComponent.h"
 #include "gameframework/SpriteAnimComponent.h"
 #include "gameframework/TriggerComponent.h"
 #include "gameframework/TilemapComponent.h"
 #include "gameframework/PhysicsBody2D.h"
-#include "gameframework/RigidBody2D.h"          // FRigidBody2D (剛体ボディ・コンポーネント)
-#include "gameframework/PrimitiveRenderer2D.h"  // FPrimitiveRenderer2D (形状描画 + コライダー形状)
-#include "gameframework/MeshComponent3D.h"       // FMeshComponent3D (3D メッシュ: primitive/color を反射プロパティ化)
+#include "gameframework/RigidBody2D.h"          // ARigidBody2D (剛体ボディ・コンポーネント)
+#include "gameframework/PrimitiveRenderer2D.h"  // APrimitiveRenderer2D (形状描画 + コライダー形状)
+#include "gameframework/MeshComponent3D.h"       // AMeshComponent3D (3D メッシュ: primitive/color を反射プロパティ化)
 #include "gameframework/Effects2D.h"   // FWater2D / FFire2D / FTrail2D / FStencilClip2D
-#include "gameframework/Light2DComponent.h"  // FLight2DComponent (2D 点光源)
-#include "gameframework/Follow2DComponent.h"  // FFollow2DComponent (オブジェクト参照デモ)
+#include "gameframework/Light2DComponent.h"  // ALight2DComponent (2D 点光源)
+#include "gameframework/Follow2DComponent.h"  // AFollow2DComponent (オブジェクト参照デモ)
 #include "gameframework/ReflectMethod.h"      // ACS_REGISTER_METHOD (関数リフレクション)
 #include "gameframework/SubsystemRegistry.h"  // ACS_REGISTER_SUBSYSTEM
 #include "gameframework/EventBus.h"           // FEventBus (オブジェクト間 pub/sub)
@@ -101,77 +101,77 @@
 // Component は多態 + private メンバで offsetof 反射できないため、各型の public setter に
 // 対応する「名前・種別・既定値」だけを反射し、値はエディタ側がスキーマ順に保持する。
 // 既定値は各コンポーネントのメンバ初期化子に一致させている。
-ACS_REGISTER_COMPONENT(FSprite2DComponent,
+ACS_REGISTER_COMPONENT(ASprite2DComponent,
     ACS_RPROP_V2("size",  1.0f, 1.0f),                 // m_Size{1,1}
     ACS_RPROP_V4("tint",  1.0f, 1.0f, 1.0f, 1.0f),     // m_Tint{1,1,1,1} (RGBA)
     ACS_RPROP_V2("pivot", 0.5f, 0.5f))                 // m_Pivot{0.5,0.5}
-ACS_REGISTER_COMPONENT(FSpriteAnimComponent)
-ACS_REGISTER_COMPONENT(FTriggerComponent)        // ctor が world& 必須 → Abstract (factory なし)
-ACS_REGISTER_COMPONENT(FTilemapComponent)
-ACS_REGISTER_COMPONENT(FPhysicsBody2D)           // ctor が world& 必須 → Abstract (kinematic swept)
+ACS_REGISTER_COMPONENT(ASpriteAnimComponent)
+ACS_REGISTER_COMPONENT(ATriggerComponent)        // ctor が world& 必須 → Abstract (factory なし)
+ACS_REGISTER_COMPONENT(ATilemapComponent)
+ACS_REGISTER_COMPONENT(APhysicsBody2D)           // ctor が world& 必須 → Abstract (kinematic swept)
 // プリミティブ描画 (形状を選ぶ。コライダー形状もこの shape に合わせる)。
 // shape: 0=Box, 1=Circle, 2=Triangle。
-ACS_REGISTER_COMPONENT(FPrimitiveRenderer2D,
+ACS_REGISTER_COMPONENT(APrimitiveRenderer2D,
     ACS_RPROP_I("shape", 0))                // 0=Box, 1=Circle, 2=Triangle
 // 3D メッシュ描画 (シェイプ/色を «ノード直書き» でなくコンポーネントの反射プロパティとして扱う。
-// 2D の FPrimitiveRenderer2D/FSprite2DComponent と同じ «スキーマのみ» 方式。値はエディタが保持)。
+// 2D の APrimitiveRenderer2D/ASprite2DComponent と同じ «スキーマのみ» 方式。値はエディタが保持)。
 // primitive: 0=Cube, 1=Sphere, 2=Plane, 3=Mesh。
-ACS_REGISTER_COMPONENT(FMeshComponent3D,
+ACS_REGISTER_COMPONENT(AMeshComponent3D,
     ACS_RPROP_I ("primitive", 0),                       // m_Prim (EMeshPrimitive3D)
     ACS_RPROP_V4("color", 1.0f, 1.0f, 1.0f, 1.0f))      // m_Color{1,1,1,1} (RGBA)
-// 剛体ボディ (現実的な剛体物理の dynamics。形状は FPrimitiveRenderer2D の shape を使う)。
+// 剛体ボディ (現実的な剛体物理の dynamics。形状は APrimitiveRenderer2D の shape を使う)。
 // bodyType: 0=Static, 1=Dynamic。値はエディタが保持し Play で読む。
-ACS_REGISTER_COMPONENT(FRigidBody2D,
+ACS_REGISTER_COMPONENT(ARigidBody2D,
     ACS_RPROP_I("bodyType",       1),       // 0=Static, 1=Dynamic
     ACS_RPROP_F("restitution",    0.1f),    // 弾性 (反発係数 [0,1])
     ACS_RPROP_F("friction",       0.5f),    // 摩擦係数
     ACS_RPROP_F("mass",           1.0f),    // 質量 (Dynamic のみ。<=0 で静的扱い)
     ACS_RPROP_F("linearDamping",  0.05f),   // 線形減衰
     ACS_RPROP_F("angularDamping", 0.1f))    // 角減衰
-ACS_REGISTER_COMPONENT(FWater2DComponent,
+ACS_REGISTER_COMPONENT(AWater2DComponent,
     ACS_RPROP_V3("color",     0.12f, 0.35f, 0.60f),    // m_Color
     ACS_RPROP_F ("alpha",     0.72f),                  // m_Alpha
     ACS_RPROP_F ("waveAmp",   0.12f),                  // m_Amp
     ACS_RPROP_F ("waveSpeed", 1.6f))                   // m_Speed
-ACS_REGISTER_COMPONENT(FFire2DComponent,
+ACS_REGISTER_COMPONENT(AFire2DComponent,
     ACS_RPROP_V2("size",      0.8f, 1.6f),             // m_W, m_H (SetSize)
     ACS_RPROP_F ("intensity", 1.0f))                   // m_Intensity
-ACS_REGISTER_COMPONENT(FTrail2DComponent,
+ACS_REGISTER_COMPONENT(ATrail2DComponent,
     ACS_RPROP_V3("color",  0.3f, 0.8f, 1.0f),          // m_Color
     ACS_RPROP_F ("width",  0.25f),                     // m_Width
     ACS_RPROP_I ("points", 24))                        // m_Max (SetPoints)
-ACS_REGISTER_COMPONENT(FStencilClip2DComponent)
+ACS_REGISTER_COMPONENT(AStencilClip2DComponent)
 // 2D 点光源 (lit スプライト/PBR マテリアルを照らす)。位置は owner ノードの world 位置。
 // public メンバ + 単一継承なので ACS_RFIELD_D で offset 反射 → 実体へ値が適用される
 // (standalone/Play でも authored 値で光る = エディタと一致)。フィールド順 = radius/color/intensity。
-ACS_REGISTER_COMPONENT(FLight2DComponent,
-    ACS_RFIELD_D(FLight2DComponent, m_Radius,    EFieldKind::F32,   256.0f, 0.0f, 0.0f, 0.0f),
-    ACS_RFIELD_D(FLight2DComponent, m_Color,     EFieldKind::FVec3, 1.0f, 0.95f, 0.85f, 0.0f),
-    ACS_RFIELD_D(FLight2DComponent, m_Intensity, EFieldKind::F32,   1.5f, 0.0f, 0.0f, 0.0f),
-    ACS_RFIELD_D(FLight2DComponent, m_Type,      EFieldKind::F32,   0.0f, 0.0f, 0.0f, 0.0f),    // 0=Point,1=Spot,2=Directional
-    ACS_RFIELD_D(FLight2DComponent, m_Angle,     EFieldKind::F32,   90.0f, 0.0f, 0.0f, 0.0f),   // 方向角(度)
-    ACS_RFIELD_D(FLight2DComponent, m_ConeAngle, EFieldKind::F32,   35.0f, 0.0f, 0.0f, 0.0f))   // スポット半角(度)
+ACS_REGISTER_COMPONENT(ALight2DComponent,
+    ACS_RFIELD_D(ALight2DComponent, m_Radius,    EFieldKind::F32,   256.0f, 0.0f, 0.0f, 0.0f),
+    ACS_RFIELD_D(ALight2DComponent, m_Color,     EFieldKind::Vec3, 1.0f, 0.95f, 0.85f, 0.0f),
+    ACS_RFIELD_D(ALight2DComponent, m_Intensity, EFieldKind::F32,   1.5f, 0.0f, 0.0f, 0.0f),
+    ACS_RFIELD_D(ALight2DComponent, m_Type,      EFieldKind::F32,   0.0f, 0.0f, 0.0f, 0.0f),    // 0=Point,1=Spot,2=Directional
+    ACS_RFIELD_D(ALight2DComponent, m_Angle,     EFieldKind::F32,   90.0f, 0.0f, 0.0f, 0.0f),   // 方向角(度)
+    ACS_RFIELD_D(ALight2DComponent, m_ConeAngle, EFieldKind::F32,   35.0f, 0.0f, 0.0f, 0.0f))   // スポット半角(度)
 // 影を落とすタグ (このノードのシルエットが lit スプライトに円ソフト影を落とす)。
-ACS_REGISTER_COMPONENT(FShadowCaster2DComponent,
-    ACS_RFIELD_D(FShadowCaster2DComponent, m_RadiusScale, EFieldKind::F32, 1.0f, 0.0f, 0.0f, 0.0f),
-    ACS_RFIELD_D(FShadowCaster2DComponent, m_Shape,       EFieldKind::F32, 0.0f, 0.0f, 0.0f, 0.0f),  // 0=円,1=箱
-    ACS_RFIELD_D(FShadowCaster2DComponent, m_SelfShadow,  EFieldKind::Bool, 0.0f, 0.0f, 0.0f, 0.0f))  // false=自己影スキップ (既定)
+ACS_REGISTER_COMPONENT(AShadowCaster2DComponent,
+    ACS_RFIELD_D(AShadowCaster2DComponent, m_RadiusScale, EFieldKind::F32, 1.0f, 0.0f, 0.0f, 0.0f),
+    ACS_RFIELD_D(AShadowCaster2DComponent, m_Shape,       EFieldKind::F32, 0.0f, 0.0f, 0.0f, 0.0f),  // 0=円,1=箱
+    ACS_RFIELD_D(AShadowCaster2DComponent, m_SelfShadow,  EFieldKind::Bool, 0.0f, 0.0f, 0.0f, 0.0f))  // false=自己影スキップ (既定)
 // 追従コンポーネント。target は «オブジェクト参照»(他ノードへの参照を渡す UPROPERTY 風)、
 // arrived は «読み取り専用»(VisibleAnywhere 風 = FIELD_READONLY)のデモ。
-ACS_REGISTER_COMPONENT(FFollow2DComponent,
-    ACS_RFIELD_DFC(FFollow2DComponent, target,  EFieldKind::ObjectRef, FIELD_NONE,     "Follow", -1, 0, 0, 0),  // 参照先 (ピッカー)
-    ACS_RFIELD_DFC(FFollow2DComponent, speed,   EFieldKind::F32,       FIELD_NONE,     "Follow", 3.0f, 0, 0, 0),
-    ACS_RFIELD_DFC(FFollow2DComponent, arrived, EFieldKind::Bool,      FIELD_READONLY, "Status", 0, 0, 0, 0))
+ACS_REGISTER_COMPONENT(AFollow2DComponent,
+    ACS_RFIELD_DFC(AFollow2DComponent, target,  EFieldKind::ObjectRef, FIELD_NONE,     "Follow", -1, 0, 0, 0),  // 参照先 (ピッカー)
+    ACS_RFIELD_DFC(AFollow2DComponent, speed,   EFieldKind::F32,       FIELD_NONE,     "Follow", 3.0f, 0, 0, 0),
+    ACS_RFIELD_DFC(AFollow2DComponent, arrived, EFieldKind::Bool,      FIELD_READONLY, "Status", 0, 0, 0, 0))
 // BlueprintCallable + CallInEditor メソッド(エディタのボタン / Blueprint グラフから呼べる)。
-ACS_REGISTER_METHOD(FFollow2DComponent, Ping, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
-// FSprite2DComponent / FPrimitiveRenderer2D: 描画ノードに常在するので Blueprint の
+ACS_REGISTER_METHOD(AFollow2DComponent, Ping, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
+// ASprite2DComponent / APrimitiveRenderer2D: 描画ノードに常在するので Blueprint の
 // «関数» ノード→実ノード作用の実例 (どちらのノードを選んでも呼べるよう両方登録)。
-ACS_REGISTER_METHOD(FSprite2DComponent,   LogState, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
-ACS_REGISTER_METHOD(FPrimitiveRenderer2D, LogState, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
+ACS_REGISTER_METHOD(ASprite2DComponent,   LogState, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
+ACS_REGISTER_METHOD(APrimitiveRenderer2D, LogState, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
 // 引数あり(f32)メソッドのデモ: Blueprint の定数ピンから実引数を渡せる。
-ACS_REGISTER_METHOD_F32(FPrimitiveRenderer2D, LogValue, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
+ACS_REGISTER_METHOD_F32(APrimitiveRenderer2D, LogValue, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
 // 戻り値あり(f32)メソッドのデモ: 結果が data 出力ピンへ流れ下流ノードが消費できる。
-ACS_REGISTER_METHOD_RET_F32(FPrimitiveRenderer2D, GetArea, METHOD_BP_CALLABLE)
+ACS_REGISTER_METHOD_RET_F32(APrimitiveRenderer2D, GetArea, METHOD_BP_CALLABLE)
 
 // ----- Subsystem (エンジン提供。各 World に自動生成される) -----
 // FEventBus: ワールド内オブジェクト間の疎結合通信 (名前付きイベント pub/sub)。
@@ -247,7 +247,9 @@ ACS_REGISTER_ENUM(ECombatState,
 
 // ----- enum (render, 名前空間 acs) -----
 ACS_REGISTER_ENUM(EBlendMode,
-    ACS_EVAL(EBlendMode, Opaque), ACS_EVAL(EBlendMode, AlphaBlend), ACS_EVAL(EBlendMode, Additive))
+    ACS_EVAL(EBlendMode, Opaque), ACS_EVAL(EBlendMode, AlphaBlend),
+    ACS_EVAL(EBlendMode, Additive), ACS_EVAL(EBlendMode, Multiply),
+    ACS_EVAL(EBlendMode, AdditivePreserveAlpha))
 ACS_REGISTER_ENUM(ECullMode,
     ACS_EVAL(ECullMode, None), ACS_EVAL(ECullMode, Front), ACS_EVAL(ECullMode, Back))
 ACS_REGISTER_ENUM(ECompareFunc,

@@ -11,7 +11,7 @@ using namespace acs;
 
 namespace helloraycast3d {
 
-bool RaycastScene::Init(IRhiDevice& dev, f32 aspect) noexcept {
+bool FRaycastScene::Init(IRhiDevice& dev, f32 aspect) noexcept {
     // 球は半径 1 で作っておき、描画時に radius_or_half で Scale する。
     // 立方体も同様に full-size 1.0 (= 半サイズ 0.5) で生成 → Scale で実寸を出す。
     auto sphere = Primitive::MakeSphere(1.0f, 32, 16);
@@ -27,20 +27,20 @@ bool RaycastScene::Init(IRhiDevice& dev, f32 aspect) noexcept {
     return true;
 }
 
-void RaycastScene::Shutdown() noexcept {
-    m_GmPlane  = GpuMesh{};
-    m_GmCube   = GpuMesh{};
-    m_GmSphere = GpuMesh{};
+void FRaycastScene::Shutdown() noexcept {
+    m_GmPlane  = FGpuMesh{};
+    m_GmCube   = FGpuMesh{};
+    m_GmSphere = FGpuMesh{};
 }
 
-void RaycastScene::Update(f32 dt) noexcept {
+void FRaycastScene::Update(f32 dt) noexcept {
     m_Caster.Update(dt, m_Targets);
 }
 
-void RaycastScene::Render(FStandardShader& shader,
+void FRaycastScene::Render(FStandardShader& shader,
                           IRhiCommandList& cl,
                           FSpriteBatch& batch,
-                          Font& font,
+                          FFont& font,
                           u32 screen_w,
                           u32 screen_h) noexcept {
     // ---- 2 灯ライティング (暖色キー + 寒色フィル) ----
@@ -55,20 +55,20 @@ void RaycastScene::Render(FStandardShader& shader,
 
     cl.SetPipeline(*shader.Pipeline());
     cl.SetConstantBuffer(0, *shader.PerFrameCB());
-    cl.SetConstantBuffer(1, *shader.PerObjectCB());
     cl.SetTexture(0, *shader.DefaultWhiteTexture());
     cl.SetTexture(1, *shader.ShadowTextureOrDefault());
 
     m_RenderTargets(shader, cl);
 
-    HudRenderer::Draw(batch, font, cl, screen_w, screen_h, m_Targets);
+    FHudRenderer::Draw(batch, font, cl, screen_w, screen_h, m_Targets);
 }
 
-void RaycastScene::m_RenderTargets(FStandardShader& shader,
+void FRaycastScene::m_RenderTargets(FStandardShader& shader,
                                    IRhiCommandList& cl) noexcept {
     // 地面 (世界原点に置く)
-    shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
-                     kPlaneColor, 0.0f, 1.0f);
+    if (!shader.SetObject(FMat4::Translation(FVec3{0, 0, 0}),
+                          kPlaneColor, 0.0f, 1.0f)) return;
+    cl.SetConstantBuffer(1, *shader.PerObjectCB());
     cl.SetVertexBuffer(*m_GmPlane.vertex_buffer, m_GmPlane.vertex_stride);
     cl.SetIndexBuffer(*m_GmPlane.index_buffer);
     cl.DrawIndexed(m_GmPlane.index_count);
@@ -76,7 +76,7 @@ void RaycastScene::m_RenderTargets(FStandardShader& shader,
     // 各オブジェクト: ヒット中は色を白 + spec/shine を強めてハイライト
     const u32 n = m_Targets.Count();
     for (u32 i = 0; i < n; ++i) {
-        const Object& o = m_Targets.At(i);
+        const FObject& o = m_Targets.At(i);
         const bool    selected = (static_cast<i32>(i) == m_Targets.HitIndex());
         const FVec3    col   = selected ? kSelectedColor : o.base_color;
         const f32     spec  = selected ? 0.9f  : 0.3f;
@@ -86,9 +86,10 @@ void RaycastScene::m_RenderTargets(FStandardShader& shader,
         // radius_or_half をかけてからワールド位置に運ぶ)
         const FMat4 m = FMat4::Scale(FVec3{o.radius_or_half, o.radius_or_half, o.radius_or_half}) *
                        FMat4::Translation(o.position);
-        shader.SetObject(m, col, spec, shine);
+        if (!shader.SetObject(m, col, spec, shine)) continue;
+        cl.SetConstantBuffer(1, *shader.PerObjectCB());
 
-        const GpuMesh& mesh = (o.kind == ShapeKind::FSphere) ? m_GmSphere : m_GmCube;
+        const FGpuMesh& mesh = (o.kind == EShapeKind::Sphere) ? m_GmSphere : m_GmCube;
         cl.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
         cl.SetIndexBuffer(*mesh.index_buffer);
         cl.DrawIndexed(mesh.index_count);

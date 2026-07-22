@@ -7,7 +7,7 @@
 
 namespace hellofg {
 
-class TitleScene : public acs::game::Scene {
+class FTitleScene : public acs::game::FScene {
 public:
     acs::game::ESvc WantedServices() const noexcept override {
         return acs::game::ESvc::Default2D;   // Clock | Tweens | Sequences | Input
@@ -16,7 +16,7 @@ public:
     void OnEnter() noexcept override;
     void OnExit()  noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
-    void OnRender(acs::game::RenderContext& rc) noexcept override;
+    void OnRender(acs::game::FRenderContext& rc) noexcept override;
 
 private:
     acs::FVec3                  m_BgColor  {0.06f, 0.08f, 0.16f};

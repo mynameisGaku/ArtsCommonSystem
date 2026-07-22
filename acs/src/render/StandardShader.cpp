@@ -71,126 +71,184 @@ VSOut VSMain(VSIn v) {
     return o;
 }
 
+float AcsStandardSrgbToLinearChannel(float value) {
+    float safe_value = saturate(value);
+    return safe_value <= 0.04045
+        ? safe_value / 12.92
+        : pow(abs((safe_value + 0.055) / 1.055), 2.4);
+}
+
+float3 AcsStandardDecodeAlbedo(float3 value) {
+    return float3(
+        AcsStandardSrgbToLinearChannel(value.r),
+        AcsStandardSrgbToLinearChannel(value.g),
+        AcsStandardSrgbToLinearChannel(value.b));
+}
+
 // シャドウ係数: 1=完全に光が当たる、0=影、中間で半影。
 //
 // PCSS (Percentage-Closer Soft Shadow、Fernando 2005)。
-// 1) blocker search (4x4 = 16 tap、半径 = 4 * texel) で receiver の周囲の
-//    実遮蔽点 avg depth を求める
+// 1) Vogel disk 16 tap の blocker search で receiver 周囲の実遮蔽点 avg depth を求める
 // 2) penumbra width = (receiver - blocker_avg) / blocker_avg * light_size
 //    遮蔽点が receiver から遠いほど影が大きく柔らかくなる物理的挙動
-// 3) penumbra サイズで stratified 4x4 PCF
-// 早期 return (全 lit / 全 occluded) で blocker が無い空中の負荷を抑える。
+// 3) penumbra サイズで重み付き Vogel disk 24 tap PCF
+// 初期値 1 の単一 return にして、無効・範囲外・blocker 無しを安全に扱う。
 //
 // shadow_params.w = filter_radius (0=hard PCF、1.0=PCSS 標準、>1 で更に柔らか)
-float ComputeShadow(float3 world_p) {
-    float result = 1.0;
-    if (shadow_params.y < 0.5) return result;
+float InterleavedGradientNoise(float2 pixel) {
+    return frac(52.9829189 * frac(dot(pixel, float2(0.06711056, 0.00583715))));
+}
 
-    float4 lp = mul(float4(world_p, 1.0), light_view_proj);
-    float3 ndc = lp.xyz / lp.w;
-    if (ndc.x < -1.0 || ndc.x > 1.0 ||
-        ndc.y < -1.0 || ndc.y > 1.0 ||
-        ndc.z <  0.0 || ndc.z > 1.0) {
-        return result;
-    }
+float2 VogelDiskSample(int sample_index, int sample_count, float angle) {
+    const float golden_angle = 2.39996323;
+    float r = sqrt((float(sample_index) + 0.5) / float(sample_count));
+    float theta = float(sample_index) * golden_angle + angle;
+    float s, c;
+    sincos(theta, s, c);
+    return float2(c, s) * r;
+}
 
-    float2 uv    = float2(ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5);
-    float  my_d  = ndc.z;
-    float  bias  = shadow_params.x;
-    float  ts    = shadow_params.z;       // 1 texel in UV
-    float  kFilt = shadow_params.w;       // 0=hard、>0=PCSS scale
+float ComputeShadow(float3 world_p, float3 world_n, float3 light_to_surface) {
+    float shadow_result = 1.0;
+    if (shadow_params.y >= 0.5) {
+        float4 light_clip =
+            mul(float4(world_p, 1.0), light_view_proj);
+        if (light_clip.w > 1e-5) {
+            float3 light_ndc = light_clip.xyz / light_clip.w;
+            bool inside_shadow_map =
+                light_ndc.x >= -1.0 && light_ndc.x <= 1.0 &&
+                light_ndc.y >= -1.0 && light_ndc.y <= 1.0 &&
+                light_ndc.z >=  0.0 && light_ndc.z <= 1.0;
+            if (inside_shadow_map) {
+                float2 uv = float2(
+                    light_ndc.x * 0.5 + 0.5,
+                    -light_ndc.y * 0.5 + 0.5);
+                float my_d = light_ndc.z;
+                float ts = max(abs(shadow_params.z), 1e-7);
+                float kFilt = max(shadow_params.w, 0.0);
+
+    // Grazing angle でだけ receiver bias を増やす。正面では基準 bias を保つため
+    // contact shadow の浮きを抑えつつ、斜面の acne を軽減できる。
+    float ndotl = saturate(dot(normalize(world_n), normalize(light_to_surface)));
+    float bias = max(shadow_params.x, 0.0)
+               * lerp(1.0, 2.5, 1.0 - ndotl);
+    float angle = InterleavedGradientNoise(floor(uv / max(ts, 1e-7))) * 6.28318531;
+    float2 min_uv = float2(ts * 0.5, ts * 0.5);
+    float2 max_uv = 1.0 - min_uv;
 
     // ---- 1) Blocker search ----
     float blocker_sum = 0;
     int   blocker_cnt = 0;
-    const int kBlockerN = 4;
-    float search_r = ts * 4.0;
+    const int kBlockerSamples = 16;
+    float search_r = ts * lerp(3.0, 5.0, saturate(kFilt));
     [unroll]
-    for (int by = -kBlockerN/2; by < kBlockerN/2; ++by) {
-        [unroll]
-        for (int bx = -kBlockerN/2; bx < kBlockerN/2; ++bx) {
-            float2 off = float2(bx, by) * (search_r * 0.5);
-            float sd = shadow_map.SampleLevel(shadow_map_sampler, uv + off, 0).r;
-            if (sd + bias < my_d) {
-                blocker_sum += sd;
-                blocker_cnt += 1;
-            }
+    for (int blocker_sample_index = 0;
+         blocker_sample_index < kBlockerSamples;
+         ++blocker_sample_index) {
+        float2 off = VogelDiskSample(
+            blocker_sample_index, kBlockerSamples, angle) * search_r;
+        float sd = shadow_map.SampleLevel(shadow_map_sampler, clamp(uv + off, min_uv, max_uv), 0).r;
+        if (sd + bias < my_d) {
+            blocker_sum += sd;
+            blocker_cnt += 1;
         }
     }
-    if (blocker_cnt == 0) return result;
-    if (blocker_cnt == kBlockerN * kBlockerN) return 0.0;
-
+    if (blocker_cnt == kBlockerSamples) {
+        shadow_result = 0.0;
+    } else if (blocker_cnt > 0) {
     float blocker_avg = blocker_sum / float(blocker_cnt);
 
     // ---- 2) Penumbra width ----
     // light_size_uv = 0.01 をハードコード、kFilt で全体スケーリング。
     // FPbrShader と同じ係数で 27_HelloShowcase 等の見た目に整合。
-    float penumbra = max((my_d - blocker_avg) / max(blocker_avg, 1e-3), 0.0);
     float pcss_penumbra = max((my_d - blocker_avg) / max(blocker_avg, 1e-3), 0.0);
-    float filter_r = max(pcss_penumbra * 0.01 * kFilt, ts);
+    float filter_r = max(pcss_penumbra * 0.01 * kFilt, ts * 1.25);
+    // 極端な receiver/blocker 比で隣接物へ影が漏れるのを防ぐ。
+    filter_r = min(filter_r, ts * lerp(8.0, 24.0, saturate(kFilt)));
 
-    // ---- 3) Penumbra-sized stratified 4x4 PCF ----
+    // ---- 3) 半影サイズに応じた重み付き Vogel PCF ----
     float lit = 0;
-    const int kPcfN = 4;
+    float weight_sum = 0;
+    const int kPcfSamples = 24;
     [unroll]
-    for (int py = 0; py < kPcfN; ++py) {
-        [unroll]
-        for (int px = 0; px < kPcfN; ++px) {
-            float2 jitter = float2((float)px / (kPcfN - 1) - 0.5,
-                                   (float)py / (kPcfN - 1) - 0.5);
-            float2 off    = jitter * filter_r * 2.0;
-            float  sd     = shadow_map.SampleLevel(shadow_map_sampler, uv + off, 0).r;
-            lit += (sd + bias >= my_d) ? 1.0 : 0.0;
+    for (int pcf_sample_index = 0;
+         pcf_sample_index < kPcfSamples;
+         ++pcf_sample_index) {
+        float2 disk =
+            VogelDiskSample(pcf_sample_index, kPcfSamples, angle);
+        float weight = 1.0 - 0.35 * length(disk);  // 中央寄りの滑らかな disk kernel
+        float sd = shadow_map.SampleLevel(
+            shadow_map_sampler, clamp(uv + disk * filter_r, min_uv, max_uv), 0).r;
+        lit += ((sd + bias >= my_d) ? 1.0 : 0.0) * weight;
+        weight_sum += weight;
+    }
+    shadow_result = lit / max(weight_sum, 1e-4);
+    }
+            }
         }
     }
-    result = lit / float(kPcfN * kPcfN);
-    return result;
+    return shadow_result;
 }
 
 float4 PSMain(VSOut v) : SV_TARGET {
     float3 N = normalize(v.world_n);
     float3 V = normalize(camera_pos.xyz - v.world_p);
 
-    float3 albedo_rgb = albedo.Sample(albedo_sampler, v.uv).rgb * base_color.xyz;
+    // LDR color assets are uploaded as linear UNORM resources containing their
+    // original sRGB bytes. Decode only the sampled color; base_color is linear.
+    float3 albedo_texel_linear = AcsStandardDecodeAlbedo(
+        albedo.Sample(albedo_sampler, v.uv).rgb);
+    float3 albedo_rgb = albedo_texel_linear * base_color.xyz;
 
     // 環境光
     float3 col = ambient.xyz * albedo_rgb;
-    float main_shadow = ComputeShadow(v.world_p);
     int active_dir_count = (int)ambient.w;
 
-    // シャドウ係数（最初の dir light のみ適用）
-    float shadow = ComputeShadow(v.world_p);
+    // シャドウ係数（最初の dir light のみ適用）。1 pixel につき 1 回だけ評価する。
+    float main_shadow = (active_dir_count > 0)
+        ? ComputeShadow(v.world_p, N, light_dir[0].xyz)
+        : 1.0;
 
-    // 1) 有向光源（Lambert + Blinn-Phong）。i==0 にのみシャドウを乗算
-    int dir_count = (int)ambient.w;
+    // 1) 有向光源（Lambert + Blinn-Phong）。先頭光源にのみシャドウを乗算
     [unroll]
-    for (int i = 0; i < ACS_MAX_DIR_LIGHTS; ++i) {
-        if (i >= active_dir_count) break;
-        float3 L = normalize(light_dir[i].xyz);
+    for (int dir_light_index = 0;
+         dir_light_index < ACS_MAX_DIR_LIGHTS;
+         ++dir_light_index) {
+        if (dir_light_index >= active_dir_count) break;
+        float3 L = normalize(light_dir[dir_light_index].xyz);
         float  diff = saturate(dot(N, L));
         float3 H = normalize(L + V);
-        float  spec = pow(saturate(dot(N, H)), max(material.y, 1.0)) * material.x;
-        float  k    = (i == 0) ? main_shadow : 1.0;
-        col += light_color[i].xyz * (albedo_rgb * diff + spec) * k;
+        float dir_spec_base = abs(saturate(dot(N, H)));
+        float spec =
+            pow(abs(dir_spec_base), max(material.y, 1.0)) * material.x;
+        float k = (dir_light_index == 0) ? main_shadow : 1.0;
+        col += light_color[dir_light_index].xyz
+             * (albedo_rgb * diff + spec) * k;
     }
 
     // 2) 点光源（距離による減衰付き）
-    int pt_count = (int)point_count_pad.x;
     int active_point_count = (int)point_count_pad.x;
     [unroll]
-    for (int j = 0; j < ACS_MAX_POINT_LIGHTS; ++j) {
-        if (j >= active_point_count) break;
-        float3 to_light = point_pos_range[j].xyz - v.world_p;
+    for (int point_light_index = 0;
+         point_light_index < ACS_MAX_POINT_LIGHTS;
+         ++point_light_index) {
+        if (point_light_index >= active_point_count) break;
+        float3 to_light =
+            point_pos_range[point_light_index].xyz - v.world_p;
         float  dist = length(to_light);
-        float  rng  = max(point_pos_range[j].w, 0.0001);
+        float  rng =
+            max(point_pos_range[point_light_index].w, 0.0001);
         if (dist >= rng) continue;
         float3 L = to_light / dist;
         float  att = 1.0 - dist / rng;
         att = att * att;                                  // smooth falloff
         float  diff = saturate(dot(N, L)) * att;
         float3 H = normalize(L + V);
-        float  spec = pow(saturate(dot(N, H)), max(material.y, 1.0)) * material.x * att;
-        col += point_color[j].xyz * (albedo_rgb * diff + spec);
+        float point_spec_base = abs(saturate(dot(N, H)));
+        float spec = pow(abs(point_spec_base), max(material.y, 1.0))
+                   * material.x * att;
+        col += point_color[point_light_index].xyz
+             * (albedo_rgb * diff + spec);
     }
 
     return float4(col, base_color.w);
@@ -206,7 +264,7 @@ constexpr u32 kMaxPointLights = 4;
 /**
  * フレーム単位の定数バッファのレイアウト (HLSL の cbuffer Frame と一致、float4 アライン)。
  */
-struct FrameCBLayout {
+struct FFrameCBLayout {
     /** view-projection 行列。 */
     FMat4 view_proj;
 
@@ -241,7 +299,7 @@ struct FrameCBLayout {
 /**
  * オブジェクト単位の定数バッファのレイアウト (HLSL の cbuffer Object と一致)。
  */
-struct ObjectCBLayout {
+struct FObjectCbLayout {
     /** モデル (world) 行列。 */
     FMat4 model;
 
@@ -288,7 +346,7 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
 
     // 定数バッファ
     FBufferDesc fcb{};
-    fcb.size = CBSize<FrameCBLayout>();
+    fcb.size = CBSize<FFrameCBLayout>();
     fcb.usage = EBufferUsage::Uniform;
     fcb.cpu_writable = true;
     auto fcb_r = CreateRhiBuffer(device, fcb);
@@ -296,12 +354,18 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     m_FrameCb = Move(fcb_r.Value());
 
     FBufferDesc ocb{};
-    ocb.size = CBSize<ObjectCBLayout>();
+    ocb.size = CBSize<FObjectCbLayout>();
     ocb.usage = EBufferUsage::Uniform;
     ocb.cpu_writable = true;
-    auto ocb_r = CreateRhiBuffer(device, ocb);
-    if (ocb_r.IsErr()) return Err<void>(ocb_r.Error());
-    m_ObjectCb = Move(ocb_r.Value());
+    for (u32 i = 0; i < kMaxObjectDrawsPerFrame; ++i) {
+        auto ocb_r = CreateRhiBuffer(device, ocb);
+        if (ocb_r.IsErr()) return Err<void>(ocb_r.Error());
+        m_ObjectCbs[i] = Move(ocb_r.Value());
+    }
+    m_ObjectCbCursor = 0;
+    // Legacy manual paths may query/bind before their first SetObject. Slot 0 is
+    // exactly the slot the first SetObject will populate, so this remains safe.
+    m_CurrentObjectCb = 0;
 
     // 1×1 白テクスチャ
     const u8 white_pixel[4] = { 255, 255, 255, 255 };
@@ -339,7 +403,7 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     pd.static_samplers[1].filter    = ESamplerFilter::Linear;
     pd.static_samplers[1].address_u = ESamplerAddress::Clamp;
     pd.static_samplers[1].address_v = ESamplerAddress::Clamp;
-    pd.vertex_stride = sizeof(MeshVertex);
+    pd.vertex_stride = sizeof(FMeshVertex);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
     pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 16 }; // FVec3 はアライン 16
     pd.layout[2] = { "TEXCOORD", 0, EFormat::R32G32_Float,    32 };
@@ -355,7 +419,9 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
 void FStandardShader::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_White.Reset();
-    m_ObjectCb.Reset();
+    for (auto& cb : m_ObjectCbs) cb.Reset();
+    m_ObjectCbCursor = 0;
+    m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
     m_FrameCb.Reset();
     m_Ps.Reset();
     m_Vs.Reset();
@@ -378,13 +444,15 @@ void FStandardShader::SetLights(const FMat4& vp, FVec3 cam,
     m_Vp = vp;
     m_Eye = cam;
     m_Ambient = ambient;
+    m_ObjectCbCursor = 0;
+    m_CurrentObjectCb = 0;
     m_DirCount = count;
     for (u32 i = 0; i < count; ++i) m_DirLights[i] = lights[i];
     FlushFrameCB();
 }
 
 /** 点光源群を保持し、フレーム CB を更新する。 */
-void FStandardShader::SetPointLights(const PointLight* lights, u32 count) noexcept {
+void FStandardShader::SetPointLights(const FPointLight* lights, u32 count) noexcept {
     if (count > kMaxPointLights) count = kMaxPointLights;
     m_PointCount = count;
     for (u32 i = 0; i < count; ++i) m_PointLights[i] = lights[i];
@@ -404,7 +472,7 @@ void FStandardShader::SetShadowMap(IRhiTexture* tex, const FMat4& light_vp,
 /** 保持中のライト・カメラ・シャドウ状態をフレーム定数バッファに書き込む。 */
 void FStandardShader::FlushFrameCB() noexcept {
     if (!m_FrameCb) return;
-    FrameCBLayout cb{};
+    FFrameCBLayout cb{};
     cb.view_proj  = m_Vp;
     cb.camera_pos = FVec4{m_Eye.x, m_Eye.y, m_Eye.z, 1.0f};
     cb.ambient    = FVec4{m_Ambient.x, m_Ambient.y, m_Ambient.z, static_cast<f32>(m_DirCount)};
@@ -423,44 +491,65 @@ void FStandardShader::FlushFrameCB() noexcept {
     }
     cb.light_view_proj = m_LightVp;
     // shadow_params: x=bias, y=enabled (0/1), z=texel_size (UV)、w=filter_radius
-    // texel_size は FShadowMap 固定 2048 想定 (FPbrShader と同じ近似)。PCSS は
-    // 1 texel offset でも blocker search が正しく機能するため、Vogel 時代の
-    // 2-texel bilinear 補正は不要 (penumbra 計算で自動的にエッジが広がる)。
-    // w=0 で hard、w=1 で FPbrShader と同じ標準 PCSS。
+    // atlas の場合も height は 1 cascade の解像度なので、実テクスチャから取得すれば
+    // 1024/2048/4096 のいずれでも blocker search と PCF 半径が正しい texel 単位になる。
+    const u32 shadow_size = m_ShadowTex ? m_ShadowTex->Height() : 0u;
+    const f32 shadow_texel = shadow_size > 0
+        ? 1.0f / static_cast<f32>(shadow_size)
+        : 0.0f;
     cb.shadow_params = FVec4{
         m_ShadowBias,
         m_ShadowTex ? 1.0f : 0.0f,
-        1.0f / 2048.0f,
+        shadow_texel,
         m_ShadowFilter
     };
     m_FrameCb->Update(&cb, sizeof(cb));
 }
 
 /** モデル行列・ベースカラー・マテリアルをオブジェクト定数バッファに書き込む。 */
-void FStandardShader::SetObject(const FMat4& model, FVec3 base_color,
+bool FStandardShader::SetObject(const FMat4& model, FVec3 base_color,
                                f32 specular_strength, f32 shininess) noexcept {
-    if (!m_ObjectCb) return;
-    ObjectCBLayout cb{};
+    if (m_ObjectCbCursor >= kMaxObjectDrawsPerFrame) {
+        if (m_ObjectCbCursor == kMaxObjectDrawsPerFrame) {
+            ACS_LOG_WARN("FStandardShader: per-frame object limit (%u) exceeded; "
+                         "remaining standard draws are skipped",
+                         kMaxObjectDrawsPerFrame);
+            ++m_ObjectCbCursor;
+        }
+        m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
+        return false;
+    }
+    m_CurrentObjectCb = m_ObjectCbCursor++;
+    IRhiBuffer* object_cb = m_ObjectCbs[m_CurrentObjectCb].Get();
+    if (!object_cb) {
+        m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
+        return false;
+    }
+    FObjectCbLayout cb{};
     cb.model      = model;
     cb.base_color = FVec4{base_color.x, base_color.y, base_color.z, 1.0f};
     cb.material   = FVec4{specular_strength, shininess, 0, 0};
-    m_ObjectCb->Update(&cb, sizeof(cb));
+    object_cb->Update(&cb, sizeof(cb));
+    return true;
 }
 
 /** オブジェクト CB を更新し、パイプライン・バッファ・テクスチャを束ねてメッシュを描画する。 */
 void FStandardShader::DrawMesh(IRhiCommandList& cmd,
-                              const GpuMesh& mesh,
+                              const FGpuMesh& mesh,
                               const FMat4& model,
                               FVec3 base_color,
                               f32  specular_strength,
                               f32  shininess,
                               IRhiTexture* albedo) noexcept {
-    if (!m_Pipeline || !mesh.vertex_buffer || !mesh.index_buffer) return;
-    SetObject(model, base_color, specular_strength, shininess);
+    if (!m_Pipeline || !m_FrameCb || !m_White ||
+        !mesh.vertex_buffer || !mesh.index_buffer) return;
+    if (!SetObject(model, base_color, specular_strength, shininess)) return;
+    IRhiBuffer* object_cb = PerObjectCB();
+    if (!object_cb) return;
 
     cmd.SetPipeline(*m_Pipeline);
     cmd.SetConstantBuffer(0, *m_FrameCb);
-    cmd.SetConstantBuffer(1, *m_ObjectCb);
+    cmd.SetConstantBuffer(1, *object_cb);
     cmd.SetTexture(0, albedo ? *albedo : *m_White);
     cmd.SetTexture(1, *ShadowTextureOrDefault());
     cmd.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);

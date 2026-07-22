@@ -14,7 +14,7 @@
 //      する保守的なポリシー。空き探索は `next_free` カーソル + 線形走査の
 //      ハイブリッド (大半のフレームで O(1)、最悪 O(N))。
 //   ・**描画は user 側**: 本クラスは描画 API を一切呼ばず、`AllParticles()` で
-//      `const Particle*` を渡すのみ。FSpriteBatch / FDebugDraw / カスタム pipeline
+//      `const FParticle*` を渡すのみ。FSpriteBatch / FDebugDraw / カスタム pipeline
 //      など、ユーザー側の描画戦略に依存しない (= テスト容易・headless 動作可)。
 //   ・**FRandom は内部 LCG**: `acs::game::FRandom` (xoshiro128**) には依存せず、
 //      FParticleEffectSystem は単一の `u32` state を持つ簡素な Linear Congruential
@@ -37,7 +37,7 @@
 //   ・**全 noexcept**: ACS 規約。失敗は invalid handle / no-op で表現。
 //
 // 使い方:
-//   ParticleEmitterDef def{};
+//   FParticleEmitterDef def{};
 //   def.color_start      = {1.0f, 0.6f, 0.1f};  // 橙
 //   def.color_end        = {0.5f, 0.0f, 0.0f};  // 暗赤
 //   def.lifetime_sec     = 0.8f;
@@ -58,7 +58,7 @@
 //
 //   // 描画 (ユーザー側):
 //   u32 n = 0;
-//   const Particle* p = fx.AllParticles(n);
+//   const FParticle* p = fx.AllParticles(n);
 //   for (u32 i = 0; i < n; ++i) {
 //       if (!p[i].IsAlive()) continue;
 //       // FSpriteBatch.Draw(p[i].position, current_scale, current_color);
@@ -67,7 +67,7 @@
 //   // 爆発:
 //   fx.Burst(h);
 //
-//   // emitter 破棄 (Scene 退場時など):
+//   // emitter 破棄 (FScene 退場時など):
 //   fx.DestroyEmitter(h);
 //
 // 範囲外:
@@ -91,7 +91,7 @@ namespace acs::game {
  * particle を放出する emitter の見た目と物理を決める設定値の束。CreateEmitter に
  * 渡してコピー保持され、放出時に各 particle へ複製される。
  */
-struct ParticleEmitterDef {
+struct FParticleEmitterDef {
     /** 出生時の RGB 色 (0..1)。color_end へ線形補間される。 */
     FVec3 color_start         {1.0f, 1.0f, 1.0f};
 
@@ -131,7 +131,7 @@ struct ParticleEmitterDef {
  * position / velocity 以外は emitter から複製してきた瞬時パラメータで、emitter の
  * def が後から変わっても放出済 particle は出生時の値で進む (self-contained particle)。
  */
-struct Particle {
+struct FParticle {
     /** world 座標の現在位置。 */
     FVec2 position           {0.0f, 0.0f};
 
@@ -278,7 +278,7 @@ public:
      * @param pos emitter の world 座標 (描画側解釈)。
      * @return 作成した emitter の handle (失敗時は invalid)。
      */
-    FEmitterHandle CreateEmitter(const ParticleEmitterDef& def, FVec2 pos) noexcept;
+    FEmitterHandle CreateEmitter(const FParticleEmitterDef& def, FVec2 pos) noexcept;
 
     /**
      * 既存 emitter の位置を変更する。
@@ -339,11 +339,11 @@ public:
     /**
      * 描画用の particle 生バッファを返す。
      *
-     * @details out_count には pool 全体サイズが入る (各要素の生存判定は Particle::IsAlive())。返却ポインタは Init で確定し破棄まで安定。Init 前は nullptr / 0。
+     * @details out_count には pool 全体サイズが入る (各要素の生存判定は FParticle::IsAlive())。返却ポインタは Init で確定し破棄まで安定。Init 前は nullptr / 0。
      * @param out_count pool 全体サイズの出力先。
      * @return particle 配列の先頭ポインタ (Init 前は nullptr)。
      */
-    const Particle* AllParticles(u32& out_count) const noexcept;
+    const FParticle* AllParticles(u32& out_count) const noexcept;
 
     /** 全 emitter と全 particle を即座にクリアする (pool 容量は維持)。 */
     void ClearAll() noexcept;
@@ -352,9 +352,9 @@ private:
     /**
      * 1 個の emitter slot。generational handle + 動作パラメータ + 連続放出累積器。
      */
-    struct Emitter {
+    struct FEmitter {
         /** emitter の挙動パラメータ (CreateEmitter でコピー)。 */
-        ParticleEmitterDef def        {};
+        FParticleEmitterDef def        {};
 
         /** emitter の world 座標。 */
         FVec2               pos        {0.0f, 0.0f};
@@ -378,7 +378,7 @@ private:
      * @details pool が満杯なら何もしない (見た目の劣化は許容し、フレームレートを保つ)。
      * @param e 出生元の emitter。
      */
-    void EmitOne(const Emitter& e) noexcept;
+    void EmitOne(const FEmitter& e) noexcept;
 
     /** 空き探索・slot 確保の失敗を表す番兵 index (u32 全 1)。 */
     static constexpr u32 kInvalidIdx = 0xFFFFFFFFu;
@@ -416,10 +416,10 @@ private:
     f32 NextRandRange(f32 min, f32 max) noexcept;
 
     /** emitter slot 配列 (generational)。 */
-    TArray<Emitter>  m_Emitters       {};
+    TArray<FEmitter>  m_Emitters       {};
 
     /** particle pool (固定容量)。 */
-    TArray<Particle> m_Particles      {};
+    TArray<FParticle> m_Particles      {};
 
     /** particle の使用中フラグ (1 で使用中)。 */
     TArray<u8>       m_ParticleActive{};

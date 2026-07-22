@@ -11,7 +11,7 @@ using namespace acs;
 
 namespace hellotri {
 
-void HelloTriangleApp::OnStart() noexcept {
+void FHelloTriangleApp::OnStart() noexcept {
     // === シェーダ === (同じ HLSL ソースから entry を変えて VS / PS を 2 回コンパイル)
     FShaderDesc vs_desc{};
     vs_desc.stage = EShaderStage::Vertex;
@@ -60,7 +60,7 @@ void HelloTriangleApp::OnStart() noexcept {
     pd.topology = EPrimitiveTopology::TriangleList;
     pd.rt_format = EFormat::B8G8R8A8_UNorm;
     pd.depth_format = EFormat::Unknown;
-    pd.vertex_stride = sizeof(Vertex);
+    pd.vertex_stride = sizeof(FVertex);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0 };
     pd.layout[1] = { "COLOR",    0, EFormat::R32G32B32_Float, sizeof(f32) * 3 };
     pd.layout_count = 2;
@@ -75,21 +75,21 @@ void HelloTriangleApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloTriangle initialized");
 }
 
-void HelloTriangleApp::OnUpdate(f32 /*dt*/) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloTriangleApp::OnUpdate(f32 /*dt*/) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
 }
 
-void HelloTriangleApp::OnRender() noexcept {
+void FHelloTriangleApp::OnRender() noexcept {
     // BeginFrame は基底クラスが先に呼んでくれる (クリア済み)。
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl || !m_Pipeline || !m_Vb) return;
 
     cl->SetPipeline(*m_Pipeline);
-    cl->SetVertexBuffer(*m_Vb, sizeof(Vertex));
+    cl->SetVertexBuffer(*m_Vb, sizeof(FVertex));
     cl->Draw(3);
 }
 
-void HelloTriangleApp::OnShutdown() noexcept {
+void FHelloTriangleApp::OnShutdown() noexcept {
     // GPU が描画完了するまで待ってからリソースを解放
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_Pipeline.Reset();

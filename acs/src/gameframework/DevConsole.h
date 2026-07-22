@@ -34,10 +34,10 @@
 //
 // 使い方:
 //   FDevConsole con;
-//   con.RegisterCommand("quit", &MyApp::QuitCmd, this, "exit the application");
-//   con.RegisterCommand("help", &MyApp::HelpCmd, this, "list commands");
+//   con.RegisterCommand("quit", &FMyApp::QuitCmd, this, "exit the application");
+//   con.RegisterCommand("help", &FMyApp::HelpCmd, this, "list commands");
 //   ...
-//   if (Input::IsKeyPressed(EKey::Tilde)) con.Toggle();
+//   if (FInput::IsKeyPressed(EKey::Tilde)) con.Toggle();
 //   if (con.IsOpen() && enter_pressed) {
 //       con.PushHistory(input_buf);
 //       con.Execute(input_buf);
@@ -52,7 +52,7 @@
 namespace acs::game {
 
 /** コマンド引数 1 つ (raw string のみ、パースは呼出側の責務)。 */
-struct ConsoleArg {
+struct FConsoleArg {
     /** トークン文字列 (Execute の作業バッファを指す、非所有)。 */
     const char* str = nullptr;
 };
@@ -64,9 +64,9 @@ struct ConsoleArg {
  * log で処理する規約。
  * @param user RegisterCommand で渡したコンテキスト (非所有)。
  * @param argc args の長さ。
- * @param args 引数配列 (raw token を ConsoleArg にラップしたもの)。
+ * @param args 引数配列 (raw token を FConsoleArg にラップしたもの)。
  */
-using CommandFn = void(*)(void* user, u32 argc, const ConsoleArg* args) noexcept;
+using CommandFn = void(*)(void* user, u32 argc, const FConsoleArg* args) noexcept;
 
 /**
  * `~` で開く開発用コマンドコンソールの state コンテナ。
@@ -214,7 +214,7 @@ private:
     static constexpr u32 kMaxLineLen = 512;
 
     /** 登録済みコマンド 1 件のレコード。 */
-    struct Command {
+    struct FCommand {
         /** コマンド名 (caller 所有、リテラル前提、非所有参照)。 */
         const char* name = nullptr;
 
@@ -265,7 +265,7 @@ private:
     FAllocator* m_Allocator = nullptr;
 
     /** 登録済みコマンド列。 */
-    TArray<Command>     m_Commands;
+    TArray<FCommand>     m_Commands;
 
     /** 入力履歴 (各要素は所有するヒープ文字列)。 */
     TArray<const char*> m_History;

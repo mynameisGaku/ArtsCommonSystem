@@ -8,7 +8,7 @@
 // 役割分担:
 //   ・FSpriteAnimator  : sprite シートの frame index (2D 用)
 //   ・FAnimationCurve  : 任意 f32 を時間で滑らかに動かす汎用パス
-//   ・FStateMachine<T> : 汎用 FSM (関数ポインタ駆動)
+//   ・TStateMachine<T> : 汎用 FSM (関数ポインタ駆動)
 //   ・FAnimationGraph  : 本ファイル — 3D skeleton clip の選択 + 状態間 blend
 //
 // 役割の境界:
@@ -72,7 +72,7 @@
 //     共有の場合はポインタ一致 fast path, 異なるバッファでも strcmp で機能)。
 //   ・**非コピー・非ムーブ**, 全 noexcept, STL 不使用, `<string>` 禁止。
 //
-// 参考: FSpriteAnimator (frame anim), FAnimationCurve (curve), FStateMachine<T> (FSM 基盤),
+// 参考: FSpriteAnimator (frame anim), FAnimationCurve (curve), TStateMachine<T> (FSM 基盤),
 //      FModelAnimationPanel (UI 連動可能)
 #pragma once
 
@@ -122,7 +122,7 @@ enum class EAnimationGraphState : u8 {
  * clip メタ情報 (state からは clip_index で参照する)。
  *
  * @details
- * tools/modelview/FModelAnimationPanel.h にある同名構造は acs::game::modelview
+ * tools/modelview/ModelAnimationPanel.h にある同名構造は acs::game::modelview
  * 名前空間で別物。本構造は acs::game 直下に置く。
  */
 struct FAnimationClipBinding {
@@ -187,7 +187,7 @@ struct FAnimationTransition {
  * FAnimationGraph 単体使用想定だが、複数グラフ (= 上半身 / 下半身別レイヤ) を
  * 導入する際に再利用するため API として公開しておく。
  */
-struct GraphHandle {
+struct FGraphHandle {
     /** index と generation を packed した値 (0 = 無効)。 */
     u32 m_Packed = 0u;
 
@@ -212,10 +212,10 @@ struct GraphHandle {
      *
      * @param index 24bit に収まる配列インデックス。
      * @param gen 8bit の generation 値。
-     * @return packed した GraphHandle。
+     * @return packed した FGraphHandle。
      */
-    static GraphHandle Pack(u32 index, u8 gen) noexcept {
-        GraphHandle h;
+    static FGraphHandle Pack(u32 index, u8 gen) noexcept {
+        FGraphHandle h;
         h.m_Packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
         return h;
     }
@@ -240,7 +240,7 @@ struct GraphHandle {
      * @param o 比較する handle。
      * @return packed が一致すれば true。
      */
-    constexpr bool operator==(GraphHandle o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator==(FGraphHandle o) const noexcept { return m_Packed == o.m_Packed; }
 
     /**
      * packed 値が異なるかを比較する。
@@ -248,7 +248,7 @@ struct GraphHandle {
      * @param o 比較する handle。
      * @return packed が異なれば true。
      */
-    constexpr bool operator!=(GraphHandle o) const noexcept { return m_Packed != o.m_Packed; }
+    constexpr bool operator!=(FGraphHandle o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 /**
@@ -490,7 +490,7 @@ private:
     /**
      * 名前付きの f32 パラメータ 1 個。
      */
-    struct Param {
+    struct FParam {
         /** param 名 (literal 寿命は caller 管理)。 */
         const char* name  = nullptr;
 
@@ -543,7 +543,7 @@ private:
     TArray<FAnimationTransition>  m_Transitions;
 
     /** 遷移条件で参照される param 群。 */
-    TArray<Param>                m_Params;
+    TArray<FParam>                m_Params;
 
     /** 現在の state ID。 */
     EAnimationGraphState m_CurrentState    = EAnimationGraphState::Idle;

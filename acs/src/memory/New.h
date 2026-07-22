@@ -5,7 +5,7 @@
 // 呼び出し → デストラクタ呼び出し → FAllocator に返す、という流れを 1 関数化。
 //
 // 例:
-//   MyObj* p = New<MyObj>(allocator, args...);
+//   FMyObj* p = New<FMyObj>(allocator, args...);
 //   ...
 //   Delete(allocator, p);
 #pragma once

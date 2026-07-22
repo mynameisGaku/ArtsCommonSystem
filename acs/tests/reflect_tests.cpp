@@ -318,7 +318,7 @@ ACS_TEST(ReflectCatalog, RegistersConcreteEngineTypes) {
 
     auto& reg = FTypeRegistry::Get();
 
-    const FTypeDesc* sprite = reg.FindByName("FSprite2DComponent");
+    const FTypeDesc* sprite = reg.FindByName("ASprite2DComponent");
     EXPECT_TRUE(sprite != nullptr);
     if (sprite != nullptr) EXPECT_TRUE(sprite->category == ETypeCategory::Component);
 
@@ -336,7 +336,7 @@ ACS_TEST(ReflectCatalog, RegistersConcreteEngineTypes) {
 
     // ID 検索も一致する。
     if (sprite != nullptr)
-        EXPECT_TRUE(reg.FindById(AcsTypeHash("FSprite2DComponent")) == sprite);
+        EXPECT_TRUE(reg.FindById(AcsTypeHash("ASprite2DComponent")) == sprite);
 }
 
 ACS_TEST(ReflectCatalog, CategoryCounts) {
@@ -358,11 +358,17 @@ ACS_TEST(ReflectCatalog, EngineEnumsReflected) {
     EXPECT_TRUE(blend != nullptr);
     if (blend != nullptr) {
         EXPECT_TRUE(blend->category == ETypeCategory::Enum);
-        EXPECT_EQ(blend->enum_count, 3u);
-        if (blend->enum_count >= 3) {
+        EXPECT_EQ(blend->enum_count, 5u);
+        if (blend->enum_count >= 5) {
             EXPECT_TRUE(std::strcmp(blend->enum_values[0].name, "Opaque") == 0);
             EXPECT_EQ(blend->enum_values[0].value, static_cast<i64>(0));
             EXPECT_TRUE(std::strcmp(blend->enum_values[2].name, "Additive") == 0);
+            EXPECT_TRUE(std::strcmp(blend->enum_values[3].name, "Multiply") == 0);
+            EXPECT_EQ(blend->enum_values[3].value, static_cast<i64>(3));
+            EXPECT_TRUE(std::strcmp(
+                blend->enum_values[4].name,
+                "AdditivePreserveAlpha") == 0);
+            EXPECT_EQ(blend->enum_values[4].value, static_cast<i64>(4));
         }
     }
 
@@ -377,8 +383,8 @@ ACS_TEST(ReflectCatalog, EnumsAreComplete) {
     AcsRegisterEngineTypes();
     auto& reg = FTypeRegistry::Get();
 
-    struct Expect { const char* name; u32 count; };
-    const Expect kExpect[] = {
+    struct FExpect { const char* name; u32 count; };
+    const FExpect kExpect[] = {
         { "ECompareFunc",   8u },   // Never..Always (既定 Always を含む)
         { "ECombatState",   6u },   // Peaceful..Retreat (実機が遷移する全状態)
         { "EResourceState", 9u },   // Common..DepthRead
@@ -405,12 +411,12 @@ ACS_TEST(ReflectCatalog, FactoryRespectsConstructibility) {
     AcsRegisterEngineTypes();
     auto& reg = FTypeRegistry::Get();
 
-    // FTriggerComponent は ctor が world& 必須 → 既定構築不可 → Abstract、factory なし。
-    const FTypeDesc* trig = reg.FindByName("FTriggerComponent");
+    // ATriggerComponent は ctor が world& 必須 → 既定構築不可 → Abstract、factory なし。
+    const FTypeDesc* trig = reg.FindByName("ATriggerComponent");
     EXPECT_TRUE(trig != nullptr);
     if (trig != nullptr) {
         EXPECT_TRUE((trig->traits & TRAIT_ABSTRACT) != 0u);
-        EXPECT_TRUE(reg.Create("FTriggerComponent") == nullptr);
+        EXPECT_TRUE(reg.Create("ATriggerComponent") == nullptr);
     }
 
     // INSTANTIABLE な型は factory で生成→破棄できる (FScene2D が既定構築可能なら踏む)。

@@ -108,17 +108,17 @@ ACS_TEST(BehaviorTree, DecoratorNode)
 
 ACS_TEST(BehaviorTree, CompareVar)
 {
-    struct Bb {
+    struct FBb {
         f32 hp;
         i32 ammo;
         bool alive;
     };
-    Bb bb{25.0f, 3, true};
-    EXPECT_TRUE(BtCompareVar(&bb, static_cast<u32>(offsetof(Bb, hp)), EBtVarType::F32, EBtCompareOp::Less, 30.0f));
-    EXPECT_FALSE(BtCompareVar(&bb, static_cast<u32>(offsetof(Bb, hp)), EBtVarType::F32, EBtCompareOp::Greater, 30.0f));
-    EXPECT_TRUE(BtCompareVar(&bb, static_cast<u32>(offsetof(Bb, ammo)), EBtVarType::I32, EBtCompareOp::Equal, 3.0f));
+    FBb bb{25.0f, 3, true};
+    EXPECT_TRUE(BtCompareVar(&bb, static_cast<u32>(offsetof(FBb, hp)), EBtVarType::F32, EBtCompareOp::Less, 30.0f));
+    EXPECT_FALSE(BtCompareVar(&bb, static_cast<u32>(offsetof(FBb, hp)), EBtVarType::F32, EBtCompareOp::Greater, 30.0f));
+    EXPECT_TRUE(BtCompareVar(&bb, static_cast<u32>(offsetof(FBb, ammo)), EBtVarType::I32, EBtCompareOp::Equal, 3.0f));
     EXPECT_TRUE(
-        BtCompareVar(&bb, static_cast<u32>(offsetof(Bb, alive)), EBtVarType::Bool, EBtCompareOp::NotEqual, 0.0f));
+        BtCompareVar(&bb, static_cast<u32>(offsetof(FBb, alive)), EBtVarType::Bool, EBtCompareOp::NotEqual, 0.0f));
     EXPECT_FALSE(BtCompareVar(nullptr, 0u, EBtVarType::F32, EBtCompareOp::Less, 30.0f)); // null は false
     EXPECT_TRUE(BtCompareF32(25.0f, EBtCompareOp::LessEq, 25.0f));
     EXPECT_TRUE(BtCompareF32(25.0f, EBtCompareOp::GreaterEq, 25.0f));
@@ -182,16 +182,16 @@ ACS_TEST(BtBake, CompareSchemaMode)
 {
     using namespace acs::game::btedit;
     // offset スキーマ (raw 構造体) モデルの Compare も bake → 正しく走る (UB なし)。
-    struct GameBb {
+    struct FGameBb {
         f32 hp;
     };
-    GameBb game{10.0f};
+    FGameBb game{10.0f};
     FBehaviorTreeEditorPanel panel;
     panel.Init();
     FBtActionRegistry reg;
     reg.Register("Win", &RetSuccess);
     FBtBlackboardSchema sch;
-    sch.Add("hp", EBtVarType::F32, static_cast<u32>(offsetof(GameBb, hp)));
+    sch.Add("hp", EBtVarType::F32, static_cast<u32>(offsetof(FGameBb, hp)));
     panel.SetActionRegistry(&reg);
     panel.SetBlackboardSchema(&sch); // 動的 BB は設定しない (schema のみ)
     panel.SetGraphBlackboard(&game); // raw 構造体を blackboard に

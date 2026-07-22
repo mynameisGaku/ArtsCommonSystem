@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// RHI 共通型（フォーマット、FViewport、ClearColor など、バックエンド非依存）
+// RHI 共通型（フォーマット、FViewport、FClearColor など、バックエンド非依存）
 #pragma once
 
 #include "foundation/Types.h"
@@ -94,7 +94,7 @@ struct FScissorRect {
 /**
  * クリア色 (RGBA、各成分 0..1)。
  */
-struct ClearColor {
+struct FClearColor {
     /** 赤成分 (0..1)。 */
     f32 r = 0.0f;
 

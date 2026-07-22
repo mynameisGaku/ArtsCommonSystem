@@ -83,7 +83,7 @@ f32 FDynamicDifficulty::SampleCurve(f32 t, const f32 vals[4]) noexcept {
 
 /** 統計を初期化して base_level に切り替える (Adaptive は 0.5 中庸スタート)。 */
 void FDynamicDifficulty::Init(EDifficultyLevel base_level) noexcept {
-    _stats        = PlayerSkillStats{};
+    _stats        = FPlayerSkillStats{};
     m_SessionTime = 0.0f;
     m_Mode         = base_level;
     if (base_level == EDifficultyLevel::Adaptive) {
@@ -148,7 +148,7 @@ void FDynamicDifficulty::RecordPowerupCollected() noexcept {
 
 /** 統計とセッション時間のみ初期化する (モード / current_difficulty は維持)。 */
 void FDynamicDifficulty::ResetStats() noexcept {
-    _stats        = PlayerSkillStats{};
+    _stats        = FPlayerSkillStats{};
     m_SessionTime = 0.0f;
 }
 

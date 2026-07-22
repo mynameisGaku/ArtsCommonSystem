@@ -44,7 +44,7 @@ TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const FImageA
     if (img.Width() == 0 || img.Height() == 0)
         return ACS_ERR(Render, 80, "UploadTexture: empty image");
 
-    const EFormat gpu_fmt = ToRhiFormat(img.EFormat());
+    const EFormat gpu_fmt = ToRhiFormat(img.Format());
     if (gpu_fmt == EFormat::Unknown)
         return ACS_ERR(Render, 81, "UploadTexture: unsupported pixel format");
 
@@ -63,7 +63,7 @@ TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const FImageA
 }
 
 /**
- * メッシュアセットから頂点バッファ・インデックスバッファを作って GpuMesh に詰める。
+ * メッシュアセットから頂点バッファ・インデックスバッファを作って FGpuMesh に詰める。
  *
  * @details 静的 mesh は USAGE_IMMUTABLE で扱う。インデックスが無ければ IB は生成しない。
  * @param device バッファ生成に使う RHI デバイス。
@@ -71,13 +71,13 @@ TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const FImageA
  * @param out 生成した VB/IB と頂点数・インデックス数・ストライドの書き込み先。
  * @return 成功なら空の TResult、空メッシュ・バッファ生成失敗ならエラー。
  */
-TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, GpuMesh& out) noexcept {
+TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, FGpuMesh& out) noexcept {
     if (mesh.Vertices().Size() == 0)
         return ACS_ERR(Render, 82, "UploadMesh: empty mesh");
 
     // 頂点バッファ
     FBufferDesc vb_desc{};
-    vb_desc.size  = mesh.Vertices().Size() * sizeof(MeshVertex);
+    vb_desc.size  = mesh.Vertices().Size() * sizeof(FMeshVertex);
     vb_desc.usage = EBufferUsage::Vertex;
     vb_desc.cpu_writable = false;         // 静的 mesh は USAGE_IMMUTABLE で扱う
     vb_desc.initial_data = mesh.Vertices().Data();
@@ -85,7 +85,7 @@ TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, GpuMesh& ou
     if (vbr.IsErr()) return Err<void>(vbr.Error());
     out.vertex_buffer = Move(vbr.Value());
     out.vertex_count  = static_cast<u32>(mesh.Vertices().Size());
-    out.vertex_stride = sizeof(MeshVertex);
+    out.vertex_stride = sizeof(FMeshVertex);
 
     // インデックスバッファ
     if (mesh.Indices().Size() > 0) {
@@ -114,7 +114,7 @@ TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, GpuMesh& ou
  * @return 成功なら空の TResult、空メッシュ・バッファ生成失敗ならエラー。
  */
 TResult<void> UploadSkinnedMesh(IRhiDevice& device, const FSkinnedMeshAsset& mesh,
-                               SkinnedGpuMesh& out) noexcept {
+                               FSkinnedGpuMesh& out) noexcept {
     if (mesh.Vertices().Size() == 0)
         return ACS_ERR(Render, 84, "UploadSkinnedMesh: empty mesh");
 

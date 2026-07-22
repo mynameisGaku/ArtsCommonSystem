@@ -2,7 +2,7 @@
 // HelloTriggers - Package B 検証コンソール: 衝突レイヤ/マスク + トリガ enter/exit。
 //
 // 1) FCollisionWorld2D のレイヤ/マスク絞り込み (player/pickup/wall) を assert。
-// 2) FTriggerComponent をノードに付け、world.Tick 経由で OnEnter/OnExit が
+// 2) ATriggerComponent をノードに付け、world.Tick 経由で OnEnter/OnExit が
 //    マスクに従って正しく発火することを assert。GPU 不要・ヘッドレスで完結。
 #include "gameframework/GameFramework.h"
 #include "container/Array.h"
@@ -28,10 +28,10 @@ constexpr u32 kPlayer = 1u << 3;
 // トリガ enter/exit 回数を数える user 構造体。
 struct FCounter { int enter = 0; int exit = 0; };
 
-void OnEnterCb(FTriggerComponent& /*self*/, FTriggerComponent* /*other*/, void* user) noexcept {
+void OnEnterCb(ATriggerComponent& /*self*/, ATriggerComponent* /*other*/, void* user) noexcept {
     static_cast<FCounter*>(user)->enter++;
 }
-void OnExitCb(FTriggerComponent& /*self*/, FTriggerComponent* /*other*/, void* user) noexcept {
+void OnExitCb(ATriggerComponent& /*self*/, ATriggerComponent* /*other*/, void* user) noexcept {
     static_cast<FCounter*>(user)->exit++;
 }
 
@@ -44,53 +44,53 @@ int main() {
     {
         FCollisionWorld2D world;
         world.Init(1.0f);
-        world.AddAabb(Aabb2{FVec2{0, 0}, FVec2{1, 1}}, kWall);
-        world.AddCircle(Circle{FVec2{0, 0}, 0.5f}, kPickup);
+        world.AddAabb(FAabb2{FVec2{0, 0}, FVec2{1, 1}}, kWall);
+        world.AddCircle(FCircle{FVec2{0, 0}, 0.5f}, kPickup);
 
         TArray<FShapeId> hits;
-        world.OverlapCircle(Circle{FVec2{0, 0}, 3.0f}, hits, {}, kWall);
+        world.OverlapCircle(FCircle{FVec2{0, 0}, 3.0f}, hits, {}, kWall);
         Check(hits.Size() == 1, "mask=Wall -> 1 hit");
-        world.OverlapCircle(Circle{FVec2{0, 0}, 3.0f}, hits, {}, kPickup);
+        world.OverlapCircle(FCircle{FVec2{0, 0}, 3.0f}, hits, {}, kPickup);
         Check(hits.Size() == 1, "mask=Pickup -> 1 hit");
-        world.OverlapCircle(Circle{FVec2{0, 0}, 3.0f}, hits, {}, kWall | kPickup);
+        world.OverlapCircle(FCircle{FVec2{0, 0}, 3.0f}, hits, {}, kWall | kPickup);
         Check(hits.Size() == 2, "mask=Wall|Pickup -> 2 hits");
-        world.OverlapCircle(Circle{FVec2{0, 0}, 3.0f}, hits, {}, kEnemy);
+        world.OverlapCircle(FCircle{FVec2{0, 0}, 3.0f}, hits, {}, kEnemy);
         Check(hits.Size() == 0, "mask=Enemy -> 0 hits");
         // default mask = all → both
-        world.OverlapCircle(Circle{FVec2{0, 0}, 3.0f}, hits);
+        world.OverlapCircle(FCircle{FVec2{0, 0}, 3.0f}, hits);
         Check(hits.Size() == 2, "mask=default(all) -> 2 hits");
     }
 
-    // ---- 2) FTriggerComponent enter/exit through node tree + world.Tick ----
+    // ---- 2) node tree + world.Tick 経由の ATriggerComponent enter/exit ----
     {
         FTriggerWorld2D tw;
         tw.Init();
-        FNode2D root;
+        ANode root;
 
         FCounter playerC, pickupC, enemyC;
 
         // player: layer=Player, mask=Pickup (pickups にのみ反応)
-        auto pnode = MakeUnique<FNode2D>();
-        pnode->Local().position = FVec2{0.0f, 0.0f};
-        auto& ptrig = pnode->AddComponent<FTriggerComponent>(tw, kPlayer, kPickup);
+        auto pnode = NewObject<ANode>();
+        pnode->SetPosition2D(FVec2{0.0f, 0.0f});
+        auto& ptrig = pnode->AddComponent<ATriggerComponent>(tw, kPlayer, kPickup);
         ptrig.SetCircle(0.5f);
         ptrig.SetOnEnter(&OnEnterCb, &playerC);
         ptrig.SetOnExit(&OnExitCb, &playerC);
-        FNode2D* player = &root.AddChild(Move(pnode));
+        ANode* player = &root.AddChild(Move(pnode));
 
         // pickup: layer=Pickup, mask=Player
-        auto knode = MakeUnique<FNode2D>();
-        knode->Local().position = FVec2{0.3f, 0.0f};   // player と重なる
-        auto& ktrig = knode->AddComponent<FTriggerComponent>(tw, kPickup, kPlayer);
+        auto knode = NewObject<ANode>();
+        knode->SetPosition2D(FVec2{0.3f, 0.0f});   // player と重なる
+        auto& ktrig = knode->AddComponent<ATriggerComponent>(tw, kPickup, kPlayer);
         ktrig.SetCircle(0.5f);
         ktrig.SetOnEnter(&OnEnterCb, &pickupC);
         ktrig.SetOnExit(&OnExitCb, &pickupC);
         root.AddChild(Move(knode));
 
         // enemy: layer=Enemy, mask=0 (何にも反応しない)。player の mask にも含まれない。
-        auto enode = MakeUnique<FNode2D>();
-        enode->Local().position = FVec2{0.2f, 0.0f};    // player と重なる
-        auto& etrig = enode->AddComponent<FTriggerComponent>(tw, kEnemy, 0u);
+        auto enode = NewObject<ANode>();
+        enode->SetPosition2D(FVec2{0.2f, 0.0f});    // player と重なる
+        auto& etrig = enode->AddComponent<ATriggerComponent>(tw, kEnemy, 0u);
         etrig.SetCircle(0.5f);
         etrig.SetOnEnter(&OnEnterCb, &enemyC);
         etrig.SetOnExit(&OnExitCb, &enemyC);
@@ -108,7 +108,7 @@ int main() {
         // 1 回のみ) で確認済み。
 
         // player を遠くへ動かす → EXIT
-        player->Local().position = FVec2{10.0f, 10.0f};
+        player->SetPosition2D(FVec2{10.0f, 10.0f});
         root.UpdateTree(1.0f / 60.0f);
         tw.Tick(1.0f / 60.0f);
         Check(playerC.exit == 1, "player exited pickup");
@@ -117,20 +117,20 @@ int main() {
 
     // ---- 3) RequireComponent: 依存コンポーネントの自動追加 ----
     {
-        // FSpriteAnimComponent は FSprite2DComponent を要求する。sprite が無い
+        // ASpriteAnimComponent は ASprite2DComponent を要求する。sprite が無い
         // ノードに anim を足すと、OnRequire 経由で sprite が自動追加されるはず。
-        FNode2D node;
-        Check(!node.HasComponent<FSprite2DComponent>(), "initially no sprite");
-        node.AddComponent<FSpriteAnimComponent>();
-        Check(node.HasComponent<FSprite2DComponent>(),
-              "RequireComponent auto-added FSprite2DComponent");
-        Check(node.HasComponent<FSpriteAnimComponent>(), "anim component present");
+        ANode node;
+        Check(!node.HasComponent<ASprite2DComponent>(), "initially no sprite");
+        node.AddComponent<ASpriteAnimComponent>();
+        Check(node.HasComponent<ASprite2DComponent>(),
+              "RequireComponent auto-added ASprite2DComponent");
+        Check(node.HasComponent<ASpriteAnimComponent>(), "anim component present");
 
         // 既に sprite があれば重複追加せず既存を再利用する。
-        FNode2D node2;
-        auto& spr = node2.AddComponent<FSprite2DComponent>(FVec2{1.0f, 1.0f});
-        node2.AddComponent<FSpriteAnimComponent>();
-        Check(node2.GetComponent<FSprite2DComponent>() == &spr,
+        ANode node2;
+        auto& spr = node2.AddComponent<ASprite2DComponent>(FVec2{1.0f, 1.0f});
+        node2.AddComponent<ASpriteAnimComponent>();
+        Check(node2.GetComponent<ASprite2DComponent>() == &spr,
               "existing sprite reused (no replacement)");
     }
 

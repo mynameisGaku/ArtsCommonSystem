@@ -67,7 +67,7 @@ void FAchievementManager::UnlockInternal(u32 index) noexcept {
     p.current_progress = p.max_progress;
     p.unlocked         = true;
     // 起動からの ms。プラットフォーム時刻が必要になったら拡張する。
-    p.unlock_timestamp = Clock::MillisSinceStartup();
+    p.unlock_timestamp = FClock::MillisSinceStartup();
 
     // Bridge attach 中なら SDK へ送信。失敗時はローカル進捗には影響させない。
     if (m_Bridge != nullptr) {

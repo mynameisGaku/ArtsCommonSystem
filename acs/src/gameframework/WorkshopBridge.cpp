@@ -26,21 +26,21 @@ namespace acs::game {
 
 // ---- Stub: Init / Shutdown ------------------------------------------------
 
-TResult<void> WorkshopBridgeStub::Init() noexcept {
+TResult<void> FWorkshopBridgeStub::Init() noexcept {
     // 多重 Init は明示的に許容する。実 SDK の SteamUGC()->Init() 相当は本来
     // 失敗パスがあるが、Stub はテスト容易性のため常に成功。
     m_Initialized = true;
     return Ok();
 }
 
-void WorkshopBridgeStub::Shutdown() noexcept {
+void FWorkshopBridgeStub::Shutdown() noexcept {
     // Init() 前に呼ばれても安全。
     m_Initialized = false;
 }
 
 // ---- Stub: Publish (Create / Update) ------------------------------------
 
-TResult<u64> WorkshopBridgeStub::CreateItem(const char* title, const char* content_path) noexcept {
+TResult<u64> FWorkshopBridgeStub::CreateItem(const char* title, const char* content_path) noexcept {
     (void)title;
     (void)content_path;
     if (!m_Initialized) {
@@ -51,7 +51,7 @@ TResult<u64> WorkshopBridgeStub::CreateItem(const char* title, const char* conte
                                "WorkshopBridgeStub: CreateItem is not implemented (link real SDK)"));
 }
 
-TResult<void> WorkshopBridgeStub::UpdateItem(u64 item_id,
+TResult<void> FWorkshopBridgeStub::UpdateItem(u64 item_id,
                                             const char* content_path,
                                             const char* change_note) noexcept {
     (void)item_id;
@@ -67,17 +67,17 @@ TResult<void> WorkshopBridgeStub::UpdateItem(u64 item_id,
 
 // ---- Stub: Query -------------------------------------------------------
 
-TResult<WorkshopItem> WorkshopBridgeStub::QueryItem(u64 item_id) noexcept {
+TResult<FWorkshopItem> FWorkshopBridgeStub::QueryItem(u64 item_id) noexcept {
     (void)item_id;
     if (!m_Initialized) {
-        return TResult<WorkshopItem>(ACS_ERR(Generic, kSubWorkshopNotInitialized,
+        return TResult<FWorkshopItem>(ACS_ERR(Generic, kSubWorkshopNotInitialized,
                                             "WorkshopBridgeStub::QueryItem called before Init()"));
     }
-    return TResult<WorkshopItem>(ACS_ERR(Generic, kSubWorkshopNotImplemented,
+    return TResult<FWorkshopItem>(ACS_ERR(Generic, kSubWorkshopNotImplemented,
                                         "WorkshopBridgeStub: QueryItem is not implemented (link real SDK)"));
 }
 
-TResult<u32> WorkshopBridgeStub::QuerySubscribedCount() noexcept {
+TResult<u32> FWorkshopBridgeStub::QuerySubscribedCount() noexcept {
     if (!m_Initialized) {
         return TResult<u32>(ACS_ERR(Generic, kSubWorkshopNotInitialized,
                                    "WorkshopBridgeStub::QuerySubscribedCount called before Init()"));
@@ -88,7 +88,7 @@ TResult<u32> WorkshopBridgeStub::QuerySubscribedCount() noexcept {
 
 // ---- Stub: Subscribe / Download ----------------------------------------
 
-TResult<void> WorkshopBridgeStub::SubscribeItem(u64 item_id) noexcept {
+TResult<void> FWorkshopBridgeStub::SubscribeItem(u64 item_id) noexcept {
     (void)item_id;
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubWorkshopNotInitialized,
@@ -98,7 +98,7 @@ TResult<void> WorkshopBridgeStub::SubscribeItem(u64 item_id) noexcept {
                    "WorkshopBridgeStub: SubscribeItem is not implemented (link real SDK)");
 }
 
-TResult<void> WorkshopBridgeStub::UnsubscribeItem(u64 item_id) noexcept {
+TResult<void> FWorkshopBridgeStub::UnsubscribeItem(u64 item_id) noexcept {
     (void)item_id;
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubWorkshopNotInitialized,
@@ -108,7 +108,7 @@ TResult<void> WorkshopBridgeStub::UnsubscribeItem(u64 item_id) noexcept {
                    "WorkshopBridgeStub: UnsubscribeItem is not implemented (link real SDK)");
 }
 
-TResult<void> WorkshopBridgeStub::DownloadItem(u64 item_id) noexcept {
+TResult<void> FWorkshopBridgeStub::DownloadItem(u64 item_id) noexcept {
     (void)item_id;
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubWorkshopNotInitialized,
@@ -118,7 +118,7 @@ TResult<void> WorkshopBridgeStub::DownloadItem(u64 item_id) noexcept {
                    "WorkshopBridgeStub: DownloadItem is not implemented (link real SDK)");
 }
 
-f32 WorkshopBridgeStub::GetDownloadProgress(u64 item_id) noexcept {
+f32 FWorkshopBridgeStub::GetDownloadProgress(u64 item_id) noexcept {
     (void)item_id;
     // 「ダウンロード中ではない / 不明」を表すセンチネル値。
     // 実 SDK 実装では SteamUGC()->GetItemDownloadInfo() を投げて [0, 1] を返す。
@@ -127,7 +127,7 @@ f32 WorkshopBridgeStub::GetDownloadProgress(u64 item_id) noexcept {
 
 // ---- Stub: Tick ----------------------------------------------------------
 
-void WorkshopBridgeStub::Tick(f32 dt) noexcept {
+void FWorkshopBridgeStub::Tick(f32 dt) noexcept {
     (void)dt;  // Stub は callback pump を持たないので何もしない
 }
 
@@ -135,7 +135,7 @@ void WorkshopBridgeStub::Tick(f32 dt) noexcept {
 
 IWorkshopBridge& GetWorkshopStub() noexcept {
     // C++11 以降、関数スコープ static の初期化は thread-safe。
-    static WorkshopBridgeStub m_Instance;
+    static FWorkshopBridgeStub m_Instance;
     return m_Instance;
 }
 

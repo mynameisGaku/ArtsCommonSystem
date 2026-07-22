@@ -22,7 +22,7 @@
 
 namespace helloanim {
 
-class HelloAnimationApp : public acs::FApplication {
+class FHelloAnimationApp : public acs::FApplication {
 public:
     void OnStart()    noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
@@ -30,16 +30,16 @@ public:
     void OnShutdown() noexcept override;
 
 private:
-    AnimationScene                m_Scene;
+    FAnimationScene                m_Scene;
     acs::FSky                      m_Sky;
     acs::FSkinnedShader            m_Shader;       // スキンメッシュ用
     acs::FStandardShader           m_StdShader;   // 地面用
     acs::FSpriteBatch              m_Batch;
-    acs::Font                     m_Font;
+    acs::FFont                     m_Font;
 
     acs::TSharedPtr<acs::FSkinnedMeshAsset> m_Snake;
-    acs::SkinnedGpuMesh            m_GmSnake;
-    acs::GpuMesh                   m_GmPlane;
+    acs::FSkinnedGpuMesh            m_GmSnake;
+    acs::FGpuMesh                   m_GmPlane;
     acs::FAnimationPlayer           m_Player;
 
     acs::FCamera                   m_Camera;

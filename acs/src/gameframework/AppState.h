@@ -5,13 +5,13 @@
 // 任意のシーンから `GetGame().AppState<T>()` で取り出せる。
 //
 // 使い方:
-//   struct PlayerProfile { int hi_score = 0; };
+//   struct FPlayerProfile { int hi_score = 0; };
 //
 //   // 起動時 (OnStart や InitialScene::OnEnter で):
-//   GetGame().EmplaceAppState<PlayerProfile>();
+//   GetGame().EmplaceAppState<FPlayerProfile>();
 //
 //   // 任意のシーンで:
-//   auto* prof = GetGame().AppState<PlayerProfile>();
+//   auto* prof = GetGame().AppState<FPlayerProfile>();
 //   if (prof) prof->hi_score = 9999;
 //
 // 設計:

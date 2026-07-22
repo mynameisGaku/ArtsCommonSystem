@@ -33,7 +33,7 @@
 #include "foundation/Result.h"
 #include "memory/UniquePtr.h"
 #include "math/Mat.h"
-#include "render/RenderAssets.h"        // GpuMesh
+#include "render/RenderAssets.h"        // FGpuMesh
 #include "render/IRhiDevice.h"
 #include "render/IRhiCommandList.h"
 #include "render/IRhiTexture.h"
@@ -109,7 +109,7 @@ public:
      * @param model 現フレームの model 行列。
      * @param prev_model 前フレームの model 行列。
      */
-    void DrawMesh(IRhiCommandList& cl, const GpuMesh& mesh,
+    void DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
                   const FMat4& model, const FMat4& prev_model) noexcept;
 
     /**
@@ -185,8 +185,16 @@ private:
     /** G-buffer 描画のパイプライン。 */
     TUniquePtr<IRhiPipeline> m_Pipeline;
 
-    /** 定数バッファ (MotionCB { curr_mvp, prev_mvp, curr_model })。 */
-    TUniquePtr<IRhiBuffer>   m_Cb;
+    /**
+     * Per-draw constant-buffer ring.
+     *
+     * A single mapped upload CB cannot be overwritten between draws in one
+     * command list: raw DX12 consumes it later on the GPU and every draw would
+     * otherwise observe the final object's matrices.
+     */
+    static constexpr u32     kObjectCbRing = 256;
+    TUniquePtr<IRhiBuffer>   m_Cbs[kObjectCbRing];
+    u32                      m_DrawCursor = 0;
 };
 
 } // namespace acs

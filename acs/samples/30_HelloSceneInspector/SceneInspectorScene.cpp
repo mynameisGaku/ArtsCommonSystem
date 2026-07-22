@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloSceneInspector — SceneInspectorScene 実装。
+// HelloSceneInspector — FSceneInspectorScene 実装。
 #include "SceneInspectorScene.h"
 #include "SceneNodes.h"
 
@@ -13,7 +13,7 @@ using namespace acs::game;
 
 namespace helloscene {
 
-void SceneInspectorScene::OnEnter() noexcept {
+void FSceneInspectorScene::OnEnter() noexcept {
     // 背景色は editor らしいニュートラルグレー。
     GetGame().SetClearColor(0.15f, 0.15f, 0.18f);
 
@@ -30,37 +30,37 @@ void SceneInspectorScene::OnEnter() noexcept {
     ACS_LOG_INFO("[SceneInspector] entered (root + wheel + 2 spokes + player, selection=Player)");
 }
 
-void SceneInspectorScene::m_BuildNodeTree() noexcept {
+void FSceneInspectorScene::m_BuildNodeTree() noexcept {
     // root → wheel (30 deg/s で自転) → spoke[0/1]
     //      → player (Inspector 編集対象、wheel と兄弟)
-    auto wheel_up = MakeUnique<WheelNode>(0.5f /*rad/s*/);
-    wheel_up->Local().position = FVec2{ 4.0f, 0.0f };
+    auto wheel_up = NewObject<AWheelNode>(0.5f /*rad/s*/);
+    wheel_up->SetPosition2D(FVec2{ 4.0f, 0.0f });
     wheel_up->_SetId(FNodeId{ 2u, 1u });
-    FNode2D& wheel_ref = m_RootNode.AddChild(Move(wheel_up));
-    m_Wheel = static_cast<WheelNode*>(&wheel_ref);
+    ANode& wheel_ref = m_RootNode.AddChild(Move(wheel_up));
+    m_Wheel = static_cast<AWheelNode*>(&wheel_ref);
 
-    auto sp0_up = MakeUnique<FNode2D>();
-    sp0_up->Local().position = FVec2{ 2.0f, 0.0f };
+    auto sp0_up = NewObject<ANode>();
+    sp0_up->SetPosition2D(FVec2{ 2.0f, 0.0f });
     sp0_up->_SetId(FNodeId{ 3u, 1u });
     m_Spoke[0] = &wheel_ref.AddChild(Move(sp0_up));
 
-    auto sp1_up = MakeUnique<FNode2D>();
-    sp1_up->Local().position = FVec2{ 0.0f, 2.0f };
+    auto sp1_up = NewObject<ANode>();
+    sp1_up->SetPosition2D(FVec2{ 0.0f, 2.0f });
     sp1_up->_SetId(FNodeId{ 4u, 1u });
     m_Spoke[1] = &wheel_ref.AddChild(Move(sp1_up));
 
-    auto player_up = MakeUnique<PlayerNode>();
-    player_up->Local().position = FVec2{ -4.0f, 0.0f };
+    auto player_up = NewObject<APlayerNode>();
+    player_up->SetPosition2D(FVec2{ -4.0f, 0.0f });
     // FNodeId{1, 1}: index=1 (root が将来 0 に振られる想定)、generation=1。
     player_up->_SetId(FNodeId{ 1u, 1u });
-    FNode2D& player_ref = m_RootNode.AddChild(Move(player_up));
-    m_Player = static_cast<PlayerNode*>(&player_ref);
+    ANode& player_ref = m_RootNode.AddChild(Move(player_up));
+    m_Player = static_cast<APlayerNode*>(&player_ref);
 
     // root 自体にも id を振る (Hierarchy が根クリックに反応できるように)。
     m_RootNode._SetId(FNodeId{ 0u, 1u });
 }
 
-void SceneInspectorScene::OnExit() noexcept {
+void FSceneInspectorScene::OnExit() noexcept {
     m_Panels.Shutdown();
 
     // ツリーを破棄。
@@ -72,8 +72,8 @@ void SceneInspectorScene::OnExit() noexcept {
     ACS_LOG_INFO("[SceneInspector] exited");
 }
 
-void SceneInspectorScene::OnUpdate(f32 dt) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) {
+void FSceneInspectorScene::OnUpdate(f32 dt) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
@@ -85,7 +85,7 @@ void SceneInspectorScene::OnUpdate(f32 dt) noexcept {
     m_RootNode.ResolveStructuralChanges();
 }
 
-void SceneInspectorScene::OnRender(RenderContext& /*rc*/) noexcept {
+void FSceneInspectorScene::OnRender(FRenderContext& /*rc*/) noexcept {
     // ImGui の draw コマンドは FGame::OnRender の NewFrame() と Render() の
     // 間で発行される。Scene::OnRender はその内側なのでそのまま ImGui::* を
     // 呼んで OK。

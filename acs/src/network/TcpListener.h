@@ -2,9 +2,9 @@
 // TCP リスナー（接続を待ち受ける側）
 //
 // 使い方 (サーバ側):
-//   auto lr = TcpListener::Listen(IpAddress::Any(), 8080);
+//   auto lr = FTcpListener::Listen(FIpAddress::Any(), 8080);
 //   if (lr.IsErr()) { ... }
-//   TcpListener& l = lr.Value();
+//   FTcpListener& l = lr.Value();
 //   while (true) {
 //       auto cr = l.Accept();
 //       if (cr.IsOk()) HandleClient(Move(cr.Value()));
@@ -23,29 +23,29 @@ namespace acs {
  *
  * @details
  * Listen() で bind/listen まで済んだソケットを生成し、Accept() で 1 接続ずつ
- * TcpConnection を受け取る。ソケットを単独所有する non-copy / move-only 型で、
+ * FTcpConnection を受け取る。ソケットを単独所有する non-copy / move-only 型で、
  * ムーブ後の元オブジェクトは無効状態 (m_Socket = ~uptr{0}) になる。
  */
-class TcpListener {
+class FTcpListener {
 public:
     /** 無効状態 (ソケット未確保) で構築する。 */
-    TcpListener() noexcept = default;
+    FTcpListener() noexcept = default;
 
     /** ソケットが開いていれば閉じてから破棄する。 */
-    ~TcpListener() noexcept;
+    ~FTcpListener() noexcept;
 
     /** コピー禁止 (ソケットを単独所有するため)。 */
-    TcpListener(const TcpListener&) = delete;
+    FTcpListener(const FTcpListener&) = delete;
 
     /** コピー代入も禁止。 */
-    TcpListener& operator=(const TcpListener&) = delete;
+    FTcpListener& operator=(const FTcpListener&) = delete;
 
     /**
      * ムーブ構築する (ソケットの所有権を奪い、元を無効化する)。
      *
      * @param o ムーブ元のリスナー (実行後は無効状態になる)。
      */
-    TcpListener(TcpListener&& o) noexcept;
+    FTcpListener(FTcpListener&& o) noexcept;
 
     /**
      * ムーブ代入する (自分のソケットを閉じてから所有権を奪う)。
@@ -53,28 +53,28 @@ public:
      * @param o ムーブ元のリスナー (実行後は無効状態になる)。
      * @return *this への参照。
      */
-    TcpListener& operator=(TcpListener&& o) noexcept;
+    FTcpListener& operator=(FTcpListener&& o) noexcept;
 
     /**
      * 指定アドレス/ポートで Listen を開始する。
      *
      * @details
-     * socket→SO_REUSEADDR→bind→listen を実行する。Network::Init() 未呼び出し、
+     * socket→SO_REUSEADDR→bind→listen を実行する。FNetwork::Init() 未呼び出し、
      * または各 WinSock 呼び出しの失敗時はエラーを返す。
-     * @param addr バインドするアドレス (IpAddress::Any() で全インターフェイス)。
+     * @param addr バインドするアドレス (FIpAddress::Any() で全インターフェイス)。
      * @param port 待ち受けるポート番号。
      * @param backlog 接続キューの最大長 (既定 16)。
-     * @return 成功なら待ち受け中の TcpListener、失敗ならエラー。
+     * @return 成功なら待ち受け中の FTcpListener、失敗ならエラー。
      */
-    static TResult<TcpListener> Listen(IpAddress addr, u16 port, u32 backlog = 16) noexcept;
+    static TResult<FTcpListener> Listen(FIpAddress addr, u16 port, u32 backlog = 16) noexcept;
 
     /**
      * 1 接続を受け付ける (ブロッキング)。
      *
-     * @details accept した接続を TcpConnection として返す。リモートのアドレス/ポートも設定される。
-     * @return 成功なら受理した TcpConnection、失敗ならエラー。
+     * @details accept した接続を FTcpConnection として返す。リモートのアドレス/ポートも設定される。
+     * @return 成功なら受理した FTcpConnection、失敗ならエラー。
      */
-    TResult<TcpConnection> Accept() noexcept;
+    TResult<FTcpConnection> Accept() noexcept;
 
     /**
      * ソケットのノンブロッキングモードを切り替える。

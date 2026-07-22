@@ -17,7 +17,7 @@ namespace acs {
  *
  * @details 内部バッファは末尾に NUL を含み、CStr() で NUL 終端文字列として参照できる。
  */
-class FTextAsset : public Asset {
+class FTextAsset : public FAsset {
 public:
     ACS_ASSET_TYPE("FTextAsset")
 
@@ -81,7 +81,7 @@ public:
      * @param bytes テキストファイル全体のバイト列。
      * @return 成功なら FTextAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<Asset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
 } // namespace acs

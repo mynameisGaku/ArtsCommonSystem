@@ -15,7 +15,7 @@
 //   theme.SetFontScale(1.25f);                 // 高 DPI 対応
 //   theme.SetRoundedCorners(4.0f);
 //   // ... 毎フレーム panel.DrawUI() ...
-//   theme.DrawThemeSettingsUI();               // Theme FSettings window を出す
+//   theme.DrawThemeSettingsUI();               // Theme Settings window を出す
 //   // 終了時:
 //   theme.SaveTheme(L"data/editor/theme.acstheme");
 //
@@ -30,7 +30,7 @@
 //   ・**font scale は ImGuiIO::FontGlobalScale に流す**: フォント atlas 自体は
 //     再構築せず、グローバルスケール変更で済ませる (高 DPI で軽い)。本格的な
 //     atlas 再構築 (= 異なる px サイズの bake) は本クラスでは扱わない。
-//   ・**SetRoundedCorners は Frame/FWindow/Popup/Grab/Tab/Scrollbar すべてに
+//   ・**SetRoundedCorners は Frame/Window/Popup/Grab/Tab/Scrollbar すべてに
 //     同 radius を流す**: 統一感のため。違う値を当てたい派生 panel は ImGui の
 //     `ImGui::PushStyleVar` で局所上書きすればよい。
 //   ・**SetSpacing は ItemSpacing.y のみを操作する**: 縦詰めは「情報密度」を
@@ -51,11 +51,11 @@
 // preset カラー設計指針:
 //   Dark         : 標準 dark grey (ImGui 既定の StyleColorsDark に近い + 若干
 //                  暖色寄りの中間グレーで目疲れ低減)。
-//   DarkBlue     : VS Code "Dark+" 風。FWindow/Frame に青みのある #1F232C 系。
+//   DarkBlue     : VS Code "Dark+" 風。Window/Frame に青みのある #1F232C 系。
 //                  accent は Visual Studio の青 #007ACC 系。
 //   Light        : 明るい背景 (ImGui StyleColorsLight 相当)。長時間屋外作業や
 //                  プロジェクタ表示向け。
-//   HighContrast : 黒 / 白 / 黄 (#FFD700) の三色設計。FAccessibilityProfile.h の
+//   HighContrast : 黒 / 白 / 黄 (#FFD700) の三色設計。AccessibilityProfile.h の
 //                  `high_contrast_ui` フラグと連動する想定。
 //   Sepia        : 焼け紙のような暖色基調 (#3A2E22 系背景、#F4E8D8 系 text)。
 //                  長時間作業時の眼精疲労低減 (e-reader 系から着想)。
@@ -63,15 +63,15 @@
 //
 // 将来拡張余地:
 //   ・per-panel custom theme: ParticleEditor は赤系、ModelViewer は青系等、
-//     panel ごとに別色を適用する (panel_name → EditorThemeColors map を持ち、
+//     panel ごとに別色を適用する (panel_name → FEditorThemeColors map を持ち、
 //     panel.DrawUI() の前後で Push/PopStyleColor する仕組み)。
 //   ・automatic dark/light mode 切替: OS のテーマ設定 (Windows 10+ の
 //     `AppsUseLightTheme` レジストリ) を参照して起動時 / 切替時に自動追従。
 //   ・FAccessibilityProfile 連動: Colorblind モード時に HighContrast を強制、
 //     ColorMode::Protanopia 時に accent を青系に切り替える等の自動マッピング。
-//   ・syntax highlighting palette: FBehaviorTree editor の AST node 種別、
+//   ・syntax highlighting palette: BehaviorTree editor の AST node 種別、
 //     FDialogueScript の語彙ハイライト、FCombatStateMachine の遷移条件等を
-//     色分けするための拡張カラーパレット (EditorThemeColors を継承する派生
+//     色分けするための拡張カラーパレット (FEditorThemeColors を継承する派生
 //     SyntaxColors 構造体)。
 //   ・color picker のリアルタイムプレビュー: 現状は SetCustomColors 経由で
 //     パレット差し替え時のみ反映。DrawThemeSettingsUI 内で個別 ColorEdit4 を
@@ -84,7 +84,7 @@
 //   ・カラーピッカーの HSV / LCh 等の高度な色空間。現状は ImGui::ColorEdit4
 //     (RGB + α) のみ。
 //   ・theme アニメーション (起動時に Dark → DarkBlue へフェード等)。
-//   ・theme の zip 化 / アセットパック化 (将来 FAssetPack 経由で配布する場合)。
+//   ・theme の zip 化 / アセットパック化 (将来 AssetPack 経由で配布する場合)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -126,7 +126,7 @@ enum class EEditorThemePreset : u8 {
  * 各メンバは RGBA `[0, 1]` 範囲の `acs::FVec4`。ImGui の ImVec4 と同じ意味論
  * (= sRGB 線形値、α は 0 = 完全透明 / 1 = 不透明)。
  */
-struct EditorThemeColors {
+struct FEditorThemeColors {
     /** パネル背景 (ImGuiCol_WindowBg)。 */
     FVec4 window_bg{};
 
@@ -165,6 +165,49 @@ struct EditorThemeColors {
 
     /** エラーメッセージ用。ImGui 標準色ではなく本 theme で手動適用する。 */
     FVec4 error{};
+};
+
+/** `.acstheme` checked persistence の安定したエラー種別。 */
+enum class EEditorThemePersistenceError : u8 {
+    None = 0,
+    NullArgument,
+    PathTooLong,
+    InputTooLarge,
+    EmbeddedNul,
+    TooManyLines,
+    LineTooLong,
+    BadMagic,
+    UnsupportedVersion,
+    InvalidSyntax,
+    UnknownKey,
+    DuplicateKey,
+    MissingKey,
+    InvalidType,
+    InvalidValue,
+    ValueOutOfRange,
+    AllocationFailure,
+    FileNotFound,
+    FileOpenFailed,
+    FileSizeFailed,
+    FileChanged,
+    FileReadFailed,
+    FileWriteFailed,
+    FileFlushFailed,
+    FileCloseFailed,
+    AtomicReplaceFailed,
+};
+
+/** `.acstheme` checked load/save の結果。 */
+struct FEditorThemePersistenceResult {
+    EEditorThemePersistenceError error = EEditorThemePersistenceError::None;
+    u32 line = 0u;
+    u64 bytes_processed = 0u;
+    u32 os_error = 0u;
+
+    bool Succeeded() const noexcept {
+        return error == EEditorThemePersistenceError::None;
+    }
+    static const char* ErrorName(EEditorThemePersistenceError error) noexcept;
 };
 
 /**
@@ -232,14 +275,14 @@ public:
      * 妨げないため 1.0 超の値も技術的には許可)。
      * @param colors 適用するカラーパレット。
      */
-    void SetCustomColors(const EditorThemeColors& colors) noexcept;
+    void SetCustomColors(const FEditorThemeColors& colors) noexcept;
 
     /**
      * 現在のカラーパレットを返す。
      *
      * @return preset 既定 or Custom のカラーパレットへの const 参照。
      */
-    const EditorThemeColors& Colors() const noexcept { return m_Colors; }
+    const FEditorThemeColors& Colors() const noexcept { return m_Colors; }
 
     /**
      * global font scale を設定する (高 DPI / HighContrast 視認性向上用)。
@@ -261,7 +304,7 @@ public:
     /**
      * 全 corner radius を統一する。
      *
-     * @details FWindow / Frame / Popup / Grab / Tab / Scrollbar すべてに同 radius を流す。
+     * @details Window / Frame / Popup / Grab / Tab / Scrollbar すべてに同 radius を流す。
      * @param radius 適用する corner radius (負値は 0 に clamp)。
      */
     void SetRoundedCorners(f32 radius) noexcept;
@@ -289,7 +332,7 @@ public:
     f32 Spacing() const noexcept { return m_ItemSpacingY; }
 
     /**
-     * "Theme FSettings" 独立 ImGui window を描画する。
+     * "Theme Settings" 独立 ImGui window を描画する。
      *
      * @details
      * 内容: preset combo + 全カラー ColorEdit4 + font_scale / corner / spacing の
@@ -308,6 +351,9 @@ public:
      */
     void SaveTheme(const wchar_t* file_path) noexcept;
 
+    /** SaveTheme の checked atomic 版。 */
+    FEditorThemePersistenceResult TrySaveTheme(const wchar_t* file_path) noexcept;
+
     /**
      * `.acstheme` テキストから読み込み、即時 ImGui に流す。
      *
@@ -318,11 +364,25 @@ public:
      */
     void LoadTheme(const wchar_t* file_path) noexcept;
 
+    /** LoadTheme の checked transaction 版。 */
+    FEditorThemePersistenceResult TryLoadTheme(const wchar_t* file_path) noexcept;
+
+    /**
+     * 長さ付き `.acstheme` text を厳密に解析し、全検証後だけ theme を更新する。
+     */
+    FEditorThemePersistenceResult TryParseThemeText(
+        const char* text, usize text_size) noexcept;
+
     /** `.acstheme` ファイル先頭の magic 文字列 (テスト / 外部ツールから参照可)。 */
     static constexpr const char* kMagic          = "ACS_THEME";
 
     /** `.acstheme` ファイルフォーマットの現行バージョン。 */
     static constexpr u32         kCurrentVersion = 1u;
+
+    static constexpr usize kMaxThemeBytes = 64u * 1024u;
+    static constexpr usize kMaxThemeLineBytes = 255u;
+    static constexpr u32 kMaxThemeLines = 64u;
+    static constexpr usize kMaxPersistencePathChars = 1023u;
 
 private:
     /**
@@ -343,13 +403,13 @@ private:
      * @param out 書き込み先のカラーパレット。
      */
     static void FillPresetColors(EEditorThemePreset preset,
-                                 EditorThemeColors& out) noexcept;
+                                 FEditorThemeColors& out) noexcept;
 
     /** 現在の preset 種別 (既定 Dark)。 */
     EEditorThemePreset m_Preset          = EEditorThemePreset::Dark;
 
     /** 現在のカラーパレット (preset 既定 or Custom)。 */
-    EditorThemeColors  m_Colors          {};
+    FEditorThemeColors  m_Colors          {};
 
     /** global font scale (ImGuiIO::FontGlobalScale へ流す)。 */
     f32                m_FontScale      = 1.0f;

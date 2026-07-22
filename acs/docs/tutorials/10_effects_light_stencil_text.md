@@ -1,6 +1,6 @@
 # エフェクト(水/炎/トレイル) & 2Dライト & ステンシル & HUDテキスト
 
-シェーダーもアセットも書かずに「波打つ水・揺れる炎・残像トレイル・点光源+ソフト影・窓型くりぬき・HUD文字」を出すための drop-in コンポーネント集です。`AddComponent` してパラメータを設定するだけで動きます。`acs::game` の `FWater2DComponent` / `FFire2DComponent` / `FTrail2DComponent` / `FStencilClip2DComponent`、`acs` の `FLighting2D` / `Font` を扱います。「水辺・たき火のある2Dシーンを作りたい」「暗い洞窟に松明を灯したい」「窓越しに別シーンを覗かせたい」ときに使います。
+シェーダーもアセットも書かずに「波打つ水・揺れる炎・残像トレイル・点光源+ソフト影・窓型くりぬき・HUD文字」を出すための drop-in コンポーネント集です。`AddComponent` してパラメータを設定するだけで動きます。`acs::game` の `AWater2DComponent` / `AFire2DComponent` / `ATrail2DComponent` / `AStencilClip2DComponent`、`acs` の `FLighting2D` / `FFont` を扱います。「水辺・たき火のある2Dシーンを作りたい」「暗い洞窟に松明を灯したい」「窓越しに別シーンを覗かせたい」ときに使います。
 
 > すべて `FSpriteBatch` のプリミティブ(三角形/矩形)を毎フレーム手続き生成して描くので HLSL は不要です。
 
@@ -12,7 +12,7 @@
 
 ```cpp
 #include "gameframework/GameFramework.h"
-#include "gameframework/Effects2D.h"   // FWater2D/FFire2D/FTrail2D/FStencilClip2D
+#include "gameframework/Effects2D.h"   // AWater2D/AFire2D/ATrail2D/AStencilClip2D の各 Component
 using namespace acs;
 using namespace acs::game;
 
@@ -22,9 +22,9 @@ public:
         SetPixelsPerUnit(48.0f);
 
         // 海 (横視点の矩形水面)
-        auto n = MakeUnique<FNode2D>();
-        n->Local().position = FVec2{0.0f, 0.0f};
-        auto& w = n->AddComponent<FWater2DComponent>();
+        auto n = NewObject<ANode>();
+        n->SetPosition2D(FVec2{0.0f, 0.0f});
+        auto& w = n->AddComponent<AWater2DComponent>();
         w.SetRect(FVec2{0.0f, 5.0f}, FVec2{11.0f, 2.0f});   // center, half_size (owner相対)
         w.SetWaves(0.16f, 1.6f);                             // 振幅, 速度
         w.SetDepthColors(FVec3{0.22f,0.55f,0.78f}, FVec3{0.03f,0.14f,0.30f}); // 浅→深
@@ -32,9 +32,9 @@ public:
         Root().AddChild(Move(n));
 
         // たき火
-        auto fn = MakeUnique<FNode2D>();
-        fn->Local().position = FVec2{-4.0f, 1.5f};
-        auto& f = fn->AddComponent<FFire2DComponent>();
+        auto fn = NewObject<ANode>();
+        fn->SetPosition2D(FVec2{-4.0f, 1.5f});
+        auto& f = fn->AddComponent<AFire2DComponent>();
         f.SetSize(0.85f, 2.1f);                              // 幅, 高さ
         Root().AddChild(Move(fn));
     }
@@ -42,7 +42,7 @@ public:
 
 class FMyGame final : public FGame {
 protected:
-    TUniquePtr<Scene> InitialScene() noexcept override { return MakeUnique<FMyScene>(); }
+    TUniquePtr<FScene> InitialScene() noexcept override { return MakeUnique<FMyScene>(); }
 };
 ACS_GAME_MAIN(FMyGame)
 ```
@@ -53,7 +53,7 @@ ACS_GAME_MAIN(FMyGame)
 
 ## 主要API
 
-### FWater2DComponent — 波打つ水面
+### AWater2DComponent — 波打つ水面
 
 | API | 説明 |
 | --- | --- |
@@ -79,25 +79,25 @@ ACS_GAME_MAIN(FMyGame)
 | `ContainsPoint(world)` / `ContainsX(x)` / `SurfaceY()` | 入水判定ヘルパ(bbox近似) |
 
 ```cpp
-auto& w = node->AddComponent<FWater2DComponent>();
+auto& w = node->AddComponent<AWater2DComponent>();
 w.SetStyle(EWaterStyle::TopDown);
 w.SetEllipse(FVec2{0,0}, 2.4f, 1.7f, 36);
 w.SetCaustics(FVec3{0.55f,0.85f,1.0f}, 0.6f, 2.6f, 0.85f); // 見下ろしの光網目
 w.Disturb(FVec2{0.5f, 0.0f}, 0.6f);                        // クリック位置で splash
 ```
 
-### FFire2DComponent — 手続き炎
+### AFire2DComponent — 手続き炎
 
 - `SetSize(width, height)` — 炎のサイズ。
 - `SetIntensity(f32)` — 勢い(負値は0にクランプ)。近づくと強める等の演出に使う。
 - `Intensity()` — 現在値の取得。
 
-### FTrail2DComponent — owner追従の残像
+### ATrail2DComponent — owner追従の残像
 
 - `SetColor(FVec3)` / `SetWidth(f32)` — 色と帯幅。
 - `SetPoints(u32 k)` — 履歴点数(2〜48にクランプ)。owner ノードを自動で追従するので、ノードを動かすだけで残像が出ます。
 
-### FStencilClip2DComponent — 任意形状で子ツリーをクリップ
+### AStencilClip2DComponent — 任意形状で子ツリーをクリップ
 
 | API | 説明 |
 | --- | --- |
@@ -111,7 +111,8 @@ w.Disturb(FVec2{0.5f, 0.0f}, 0.6f);                        // クリック位置
 
 `FScene2D` には組み込まれていません。`FApplication::OnCustomFrame` 等で自前のレンダーループを組む低レベルAPIです。
 
-- `Init(device, color_format, w, h)` / `Shutdown()` / `Resize(w, h)`
+- `Init(device, color_format, w, h)` / `Resize(w, h)` — どちらも `TResult<void>`。成功確認後に使用する
+- `Shutdown()` — GPU リソースを明示解放する
 - `SetAmbient(FVec3)` — 環境光。暗くしておくと光源周りだけ照らされる Core Keeper 風に。
 - `ClearLights()` / `AddLight(const FLight2D&)`(上限16、超過で `false`) / `LightCount()`
 - `SetShadowQuality(march_steps, ray_count)` — レイ本数が多いほど penumbra が滑らか/重い。
@@ -119,11 +120,11 @@ w.Disturb(FVec2{0.5f, 0.0f}, 0.6f);                        // クリック位置
 
 `FLight2D{ pos, radius=256, color, intensity=1, softness=0.5 }`。座標は**スプライトと同じピクセル空間(左上原点)**です。
 
-### Font / DrawString — HUDテキスト
+### FFont / DrawString — HUDテキスト
 
-- `Font::LoadFromFile(device, L"C:/Windows/Fonts/meiryo.ttc", 32.0f, atlas=1024, include_cjk=false)` — TTF/TTC をアトラスに焼く。漢字は `include_cjk=true`(アトラス自動で2048に)。
+- `FFont font; auto r = font.LoadFromFile(device, L"C:/Windows/Fonts/meiryo.ttc", 32.0f, 1024, false)` — TTF/TTC をアトラスに焼き、`TResult<void>` を返す。`IsOk()` を確認してから使う。漢字は第5引数を `true` にする（アトラスは必要に応じて2048等へ拡大）。
 - `FSpriteBatch::DrawString(font, utf8_text, x, y, color=白)` — `(x,y)` は行の左上、`\n` で改行。
-- `RenderContext::HasFont()` / `GetFont()` — `FScene2D::OnDrawHud` ではこの2つで安全に描けます。
+- `FRenderContext::HasFont()` / `GetFont()` — `FScene2D::OnDrawHud` ではこの2つで安全に描けます。
 
 ---
 
@@ -135,12 +136,12 @@ w.Disturb(FVec2{0.5f, 0.0f}, 0.6f);                        // クリック位置
 
 ```cpp
 void OnTick(f32 /*dt*/) noexcept override {
-    const FVec2 mw = ScreenToWorld(Input::MousePos());
-    const FVec2 md = Input::MouseDelta();
+    const FVec2 mw = ScreenToWorld(FInput::MousePos());
+    const FVec2 md = FInput::MouseDelta();
     const f32 sp = Sqrt(md.x*md.x + md.y*md.y);                 // px/frame
-    const bool click = Input::IsMouseButtonPressed(EMouseButton::Left);
+    const bool click = FInput::IsMouseButtonPressed(EMouseButton::Left);
     for (u32 i = 0; i < m_WaterCount; ++i) {
-        FWater2DComponent* w = m_Waters[i];
+        AWater2DComponent* w = m_Waters[i];
         if (sp > 1.0f && w->ContainsPoint(mw)) w->Disturb(mw, 0.05f + sp*0.0006f);
         if (click && w->ContainsPoint(mw))     w->Disturb(mw, 0.55f);
     }
@@ -149,11 +150,11 @@ void OnTick(f32 /*dt*/) noexcept override {
 
 ### 2. 平面反射を有効にする (横視点の海)
 
-`FWater2DComponent::SetReflection(true, ...)` だけでは映りません。シーン側で `SetReflectionEnabled(true)` を呼んで「world→RT→swapchain」の3パス描画にする必要があります(sample 59)。
+`AWater2DComponent::SetReflection(true, ...)` だけでは映りません。シーン側で `SetReflectionEnabled(true)` を呼んで「world→RT→swapchain」の3パス描画にする必要があります(sample 59)。
 
 ```cpp
 void OnReady() noexcept override {
-    auto& w = node->AddComponent<FWater2DComponent>();
+    auto& w = node->AddComponent<AWater2DComponent>();
     w.SetRect(FVec2{0,5}, FVec2{11,2});
     w.SetReflection(true, FVec3{0.85f,0.92f,1.0f}, 0.5f);  // 反射色と強さ
     w.SetReflectionDistortion(1.2f);
@@ -170,19 +171,19 @@ void OnReady() noexcept override {
 void OnReady() noexcept override {
     SetStencilMaskEnabled(true);                 // world を stencil 付き DSV で描く
 
-    auto win = MakeUnique<FNode2D>();
-    win->Local().position = FVec2{0,0};
-    m_Clip = &win->AddComponent<FStencilClip2DComponent>();
+    auto win = NewObject<ANode>();
+    win->SetPosition2D(FVec2{0,0});
+    m_Clip = &win->AddComponent<AStencilClip2DComponent>();
     m_Clip->SetCircle(FVec2{0,0}, 2.4f, 48);     // 窓の形 (owner相対)
 
     // 子 = 窓の中だけに見える隠しシーン
-    auto hidden = MakeUnique<FNode2D>();
-    hidden->AddComponent<FWater2DComponent>().SetRect(FVec2{0,4.5f}, FVec2{12,2.4f});
+    auto hidden = NewObject<ANode>();
+    hidden->AddComponent<AWater2DComponent>().SetRect(FVec2{0,4.5f}, FVec2{12,2.4f});
     win->AddChild(Move(hidden));
     Root().AddChild(Move(win));
 }
 void OnTick(f32) noexcept override {
-    if (m_Clip) m_Clip->SetCircle(ScreenToWorld(Input::MousePos()), 2.4f, 48); // 窓を動かす
+    if (m_Clip) m_Clip->SetCircle(ScreenToWorld(FInput::MousePos()), 2.4f, 48); // 窓を動かす
     // m_Clip->SetInvert(true); で「窓の中だけ隠す = 視界の穴」
 }
 ```
@@ -207,7 +208,7 @@ m_Lighting.BeginOccluders(*cl);
   occBatch.Begin(*cl, w, h); DrawOccluders(/*tint=*/FVec4{1,1,1,1}); occBatch.End();
 m_Lighting.EndOccluders(*cl);
 // 3) backbuffer に scene × light を合成
-cl->BeginRenderToSwapchain(*sc, idx, ClearColor{0,0,0,1});
+cl->BeginRenderToSwapchain(*sc, idx, FClearColor{0,0,0,1});
   m_Lighting.Composite(*cl, w, h);
   // ...この後に HUD を重ねる...
 cl->EndRenderToSwapchain(*sc, idx);
@@ -218,7 +219,7 @@ cl->EndRenderToSwapchain(*sc, idx);
 `FScene2D::OnDrawHud` で `rc.HasFont()` をガードしてから描きます(sample 59/60/61 共通)。
 
 ```cpp
-void OnDrawHud(RenderContext& rc, FSpriteBatch& sb) noexcept override {
+void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override {
     sb.DrawRect(8.0f, 8.0f, 640.0f, 30.0f, FVec4{0,0,0,0.45f});  // 背景帯
     if (rc.HasFont()) {
         sb.DrawString(rc.GetFont(), "Effects2D  [Esc]", 16.0f, 15.0f,
@@ -233,14 +234,16 @@ void OnDrawHud(RenderContext& rc, FSpriteBatch& sb) noexcept override {
 
 - **反射は2段階**: `SetReflection(true)` は水コンポーネント側のフラグに過ぎません。シーンで `SetReflectionEnabled(true)` を呼ばないと反射RTが配線されず無視されます。逆に反射を使わないシーンでONにすると world を2度描く無駄コストがかかります。
 - **コースティクスは実用上 TopDown**: `SetCaustics`/`SetSkyTint` は見下ろし(`EWaterStyle::TopDown`)の見せ方です。横視点は反射+泡+縁で表現します。`SetCaustics` を呼ぶと内部で `EnableCaustics(true)` も立ちます。
-- **ステンシルも2段階**: `SetStencilMaskEnabled(true)` を呼び忘れると DSV が無く、`FStencilClip2DComponent` は素通し(クリップしない)になります。また反射のRTパスなど stencil バッファの無いパスでは自動的に素通しです。入れ子マスクは `SetRef` を別値にしてください。
+- **ステンシルも2段階**: `SetStencilMaskEnabled(true)` を呼び忘れると DSV が無く、`AStencilClip2DComponent` は素通し(クリップしない)になります。また反射のRTパスなど stencil バッファの無いパスでは自動的に素通しです。入れ子マスクは `SetRef` を別値にしてください。
 - **クリップ対象は「子ツリー」**: マスクは attach したノード自身ではなく、その子に追加したノード群に効きます。`win->AddChild(...)` で中身を足す構造にします。
-- **座標系の混在に注意**: `FWater2DComponent`/`FStencilClip2DComponent` の `SetRect` 等はすべて **owner ノード相対**で、world +Y が画面下(sample のコメント参照)。一方 `FLighting2D` と `Font`/`DrawString` は **スクリーンのピクセル空間(左上原点)** です。混同しないこと。
-- **ピッキングは `ScreenToWorld` を使う**: マウス→ワールド変換は `FScene2D::ScreenToWorld`(ppu と camera zoom を考慮)を使います。`Camera2D::ScreenToWorld`(ppu非考慮)では水域とズレます。
+- **座標系の混在に注意**: `AWater2DComponent`/`AStencilClip2DComponent` の `SetRect` 等はすべて **owner ノード相対**で、world +Y が画面下(sample のコメント参照)。一方 `FLighting2D` と `FFont`/`DrawString` は **スクリーンのピクセル空間(左上原点)** です。混同しないこと。
+- **ピッキングは `ScreenToWorld` を使う**: マウス→ワールド変換は `FScene2D::ScreenToWorld`(ppu と camera zoom を考慮)を使います。`FCamera2D::ScreenToWorld`(ppu非考慮)では水域とズレます。
 - **`FLighting2D` の呼び順**: `BeginScene/EndScene` → `BeginOccluders/EndOccluders` → ターゲットbind → `Composite` の順序が必須。occluder は**白tint**で黒地に焼くとシルエットが遮蔽物になります。光源は最大16個(`AddLight` が `false` を返したら上限)。
 - **メッシュ上限**: 水は頂点320/三角形560が上限。強い凹形状の `SetPolygon` は centroid 扇塗りで破綻しやすいので、複数の水域に分けるのが安全です。
-- **トレイルは owner を追う**: `FTrail2DComponent` はノードを動かして初めて軌跡が出ます。静止ノードでは何も描かれません。
-- **`Font` は事前ロード**: `Font::LoadFromFile` 失敗時(フォントが無い環境)は `rc.HasFont()` が `false` になり、テキストは単に描かれません(クラッシュはしない)。`Font` はコピー不可・要 `Shutdown()`。
+- **トレイルは owner を追う**: `ATrail2DComponent` はノードを動かして初めて軌跡が出ます。静止ノードでは何も描かれません。
+- **コンポーネントの生ポインタは owner 寿命内だけ**: 例の `m_Clip` / `m_Waters` は各ノードが所有するコンポーネントへの非所有参照です。ノードを `Destroy()` した後は参照せず、必要なら同時に `nullptr` へ戻してください。
+- **初期化結果を確認する**: `FLighting2D::Init` / `Resize` と `FFont::LoadFromFile` は `TResult<void>` を返します。`IsOk()` / `IsErr()` で分岐し、失敗した機能を使わないでください。
+- **`FFont` は事前ロード**: `FFont::LoadFromFile` 失敗時(フォントが無い環境)は `rc.HasFont()` が `false` になり、テキストは単に描かれません(クラッシュはしない)。`FFont` はコピー不可で、device 破棄前に `Shutdown()` します。
 
 ---
 
@@ -252,3 +255,5 @@ void OnDrawHud(RenderContext& rc, FSpriteBatch& sb) noexcept override {
 - 2Dライト+ソフト影(松明・占有遮蔽・ブロブ影・HUD): `acs/samples/47_HelloLight2D/Light2DApp.cpp`
 
 いずれも実機ビルド+スクリーンショット確認済みのサンプルです。
+
+ヘッダ実体: `acs/src/gameframework/Effects2D.h` / `acs/src/render/Light2D.h` / `acs/src/render/Font.h`。

@@ -24,7 +24,7 @@
 //
 //   td.TrackEvent("level_started",
 //                 R"({"level":3,"difficulty":"hard"})",
-//                 EventPriority::Important,
+//                 EEventPriority::Important,
 //                 "gameplay");
 //
 //   // 毎フレーム
@@ -75,7 +75,7 @@
 
 namespace acs::game {
 
-// FBackendClient.h / FPrivacyDirector.h を引き込むと TResult<T> 等 foundation 系も
+// BackendClient.h / PrivacyDirector.h を引き込むと TResult<T> 等 foundation 系も
 // 芋づるで広がる。本ヘッダは公開 API のみ薄く保つ方針なので、interface /
 // class は forward declare に留めて、実体 include は .cpp 側で行う。
 class IBackendClient;
@@ -89,7 +89,7 @@ class FPrivacyDirector;
  * 切り替えるためのマーカ。現状は送信側が全て同じ扱いだが、API 形状だけ確定して
  * 将来の sampling/retry 実装で差別化する。
  */
-enum class EventPriority : u8 {
+enum class EEventPriority : u8 {
     /** 開発用 (デフォルトの出荷ビルドではフィルタされる想定)。 */
     Debug     = 0,
 
@@ -109,7 +109,7 @@ enum class EventPriority : u8 {
  * @details
  * 文字列はすべて呼出側保証の static lifetime ポインタで、Director 側ではコピーしない。
  */
-struct TelemetryEvent {
+struct FTelemetryEvent {
     /** イベント名 (非所有。呼出側保証の static lifetime)。 */
     const char*   event_name   = nullptr;
 
@@ -120,9 +120,9 @@ struct TelemetryEvent {
     const char*   json_payload = nullptr;
 
     /** イベントの重要度ヒント。 */
-    EventPriority priority     = EventPriority::Info;
+    EEventPriority priority     = EEventPriority::Info;
 
-    /** TrackEvent 時の Clock::MillisSinceStartup() (起動からの ms、0 = 未取得)。 */
+    /** TrackEvent 時の FClock::MillisSinceStartup() (起動からの ms、0 = 未取得)。 */
     u64           timestamp    = 0;
 };
 
@@ -189,7 +189,7 @@ public:
      */
     void TrackEvent(const char*   event_name,
                     const char*   json_payload = "{}",
-                    EventPriority priority     = EventPriority::Info,
+                    EEventPriority priority     = EEventPriority::Info,
                     const char*   category     = "general") noexcept;
 
     /**
@@ -291,7 +291,7 @@ private:
     static constexpr u32 kMaxPending = 100;
 
     /** 送信待ち event queue。 */
-    TArray<TelemetryEvent>  m_Pending;
+    TArray<FTelemetryEvent>  m_Pending;
 
     /** category 別の enable/disable フィルタ (deny list)。 */
     TArray<FCategoryFilter>  m_Filters;

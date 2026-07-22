@@ -6,9 +6,9 @@
 
 namespace hellofg {
 
-class GameOverScene : public acs::game::Scene {
+class FGameOverScene : public acs::game::FScene {
 public:
-    GameOverScene(acs::u64 final_score, bool did_win) noexcept
+    FGameOverScene(acs::u64 final_score, bool did_win) noexcept
         : m_FinalScore(final_score), m_bDidWin(did_win) {}
 
     acs::game::ESvc WantedServices() const noexcept override {
@@ -18,7 +18,7 @@ public:
     void OnEnter() noexcept override;
     void OnExit()  noexcept override;
     void OnUpdate(acs::f32 dt) noexcept override;
-    void OnRender(acs::game::RenderContext& rc) noexcept override;
+    void OnRender(acs::game::FRenderContext& rc) noexcept override;
 
 private:
     acs::u64 m_FinalScore   = 0;

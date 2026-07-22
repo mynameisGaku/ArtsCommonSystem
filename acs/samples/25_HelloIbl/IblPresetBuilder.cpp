@@ -14,7 +14,7 @@ using namespace acs;
 
 namespace helloibl {
 
-void ApplyPresetRebuilds(HelloIblApp& app) noexcept {
+void ApplyPresetRebuilds(FHelloIblApp& app) noexcept {
     IRhiDevice*      dev = app.GetRenderer().Device();
     IRhiCommandList* cl  = app.GetRenderer().CommandList();
     if (!dev || !cl) return;
@@ -40,7 +40,7 @@ void ApplyPresetRebuilds(HelloIblApp& app) noexcept {
     // Hillaire 風物理大気を CPU で焼く
     if (app.m_bNeedAtmosphere) {
         dev->WaitIdle();
-        AtmosphereParams ap;
+        FAtmosphereParams ap;
         ap.sun_dir       = FVec3{0.3f, 0.5f, 0.5f};
         ap.sun_intensity = FVec3{22.0f, 22.0f, 22.0f};
         ap.ray_steps     = 32;

@@ -21,7 +21,7 @@
 //   FPickupSystem ps;
 //   ps.Init();
 //
-//   PickupInfo info{};
+//   FPickupInfo info{};
 //   info.kind          = EPickupKind::Coin;
 //   info.item_id       = "coin.gold";
 //   info.world_pos     = { 100.0f, 50.0f };
@@ -29,7 +29,7 @@
 //   info.magnet_radius = 80.0f;    // 磁石半径
 //   info.lifetime_sec  = 10.0f;    // 10 秒で消滅
 //   info.value         = 5;        // 通貨価値 / 回復量等
-//   PickupId id = ps.Spawn(info);
+//   FPickupId id = ps.Spawn(info);
 //
 //   ps.SetOnPickupCallback(&OnPickup, user);
 //   ps.SetOnExpireCallback(&OnExpire, user);
@@ -38,9 +38,9 @@
 //   ps.Tick(dt, player_pos, /*magnet_strength=*/200.0f);
 //
 // 設計選択:
-//   ・**PickupId**: 32bit packed = 24bit index + 8bit generation。FCollisionWorld2D の
+//   ・**FPickupId**: 32bit packed = 24bit index + 8bit generation。FCollisionWorld2D の
 //     FShapeId / FNodeId と同じパターン。slot 再利用しても古い handle は無効化される。
-//   ・**Slot TArray**: 内部 `TArray<Slot>` に固定。index 0 は予約 (= invalid)。
+//   ・**FSlot TArray**: 内部 `TArray<FSlot>` に固定。index 0 は予約 (= invalid)。
 //     Spawn 時に inactive slot を線形検索 (典型 N が小さいので十分)、無ければ
 //     末尾に PushBack。Despawn は active=false、slot は再利用。
 //   ・**磁石効果は equal-step**: `|player - pickup| < magnet_radius` のとき
@@ -104,7 +104,7 @@ enum class EPickupKind : u8 {
     PowerUp   = 5,
 
     /** 鍵。 */
-    EKey       = 6,
+    Key        = 6,
 
     /** ユーザ定義 (既定値テーブルでは最小限の設定)。 */
     Custom    = 7,
@@ -114,15 +114,15 @@ enum class EPickupKind : u8 {
  * 拾取アイテムの generational handle。
  *
  * @details 32bit packed = 下位 24bit index + 上位 8bit generation。0 = invalid。
- * FCollisionWorld2D の FShapeId / FNode2D の FNodeId と同じパターンで、slot を再利用しても
+ * FCollisionWorld2D の FShapeId / ANode の FNodeId と同じパターンで、slot を再利用しても
  * 古い handle は generation 不一致で無効化される。
  */
-struct PickupId {
+struct FPickupId {
     /** packed 値 (下位 24bit=index、上位 8bit=generation)。 */
     u32 m_Packed = 0;
 
     /** invalid handle (m_Packed == 0) を構築する。 */
-    constexpr PickupId() noexcept = default;
+    constexpr FPickupId() noexcept = default;
 
     /**
      * index と generation から packed handle を構築する。
@@ -130,7 +130,7 @@ struct PickupId {
      * @param index slot インデックス (下位 24bit に格納)。
      * @param gen generation (上位 8bit に格納)。
      */
-    constexpr PickupId(u32 index, u8 gen) noexcept
+    constexpr FPickupId(u32 index, u8 gen) noexcept
         : m_Packed((index & 0x00FFFFFFu) | (static_cast<u32>(gen) << 24)) {}
 
     /**
@@ -160,7 +160,7 @@ struct PickupId {
      * @param o 比較相手。
      * @return packed 値が一致すれば true。
      */
-    constexpr bool operator==(PickupId o) const noexcept { return m_Packed == o.m_Packed; }
+    constexpr bool operator==(FPickupId o) const noexcept { return m_Packed == o.m_Packed; }
 
     /**
      * 非等価比較。
@@ -168,11 +168,11 @@ struct PickupId {
      * @param o 比較相手。
      * @return packed 値が異なれば true。
      */
-    constexpr bool operator!=(PickupId o) const noexcept { return m_Packed != o.m_Packed; }
+    constexpr bool operator!=(FPickupId o) const noexcept { return m_Packed != o.m_Packed; }
 };
 
 /** pickup 1 件の定義 (生成パラメータ + Tick で更新される状態)。 */
-struct PickupInfo {
+struct FPickupInfo {
     /** 種別 (HealthOrb / Coin / ...)。 */
     EPickupKind  kind          = EPickupKind::Custom;
 
@@ -202,7 +202,7 @@ struct PickupInfo {
  * HP/MP オーブ・通貨・ジェム・弾薬箱・パワーアップ・鍵などを統一的に扱い、player 位置との
  * 距離による磁石効果・拾取判定・lifetime 切れによる消滅を 1 つの Tick() でまとめて処理する。
  * broad-phase は持たず O(N) の距離判定 (典型 N=10〜100)。内部は slot+generation の TArray で
- * handle (PickupId) を管理し、拾取/失効時に C 関数ポインタ + user のコールバックで通知する。
+ * handle (FPickupId) を管理し、拾取/失効時に C 関数ポインタ + user のコールバックで通知する。
  * 非コピー・非ムーブ、全 noexcept、STL 不使用。
  */
 class FPickupSystem {
@@ -211,21 +211,21 @@ public:
      * 拾取コールバックの型 (STL <functional> 禁止のため C 関数ポインタ + user)。
      *
      * @param user SetOnPickupCallback で渡したコンテキスト (Manager は所有しない)。
-     * @param id 拾われた PickupId (この時点で Despawn 済み)。
+     * @param id 拾われた FPickupId (この時点で Despawn 済み)。
      * @param kind pickup 種別。
      * @param item_id pickup の item_id (生ポインタを素通し、文字列リテラル想定)。
      * @param value pickup の value (通貨価値 / 回復量等)。
      */
-    using PickupCallback = void(*)(void* user, PickupId id, EPickupKind kind,
+    using PickupCallback = void(*)(void* user, FPickupId id, EPickupKind kind,
                                     const char* item_id, u32 value) noexcept;
 
     /**
      * 寿命切れコールバックの型 (拾われずに lifetime が尽きて消滅した時に呼ばれる)。
      *
      * @param user SetOnExpireCallback で渡したコンテキスト。
-     * @param id 消滅した PickupId (この時点で Despawn 済み)。
+     * @param id 消滅した FPickupId (この時点で Despawn 済み)。
      */
-    using ExpireCallback = void(*)(void* user, PickupId id) noexcept;
+    using ExpireCallback = void(*)(void* user, FPickupId id) noexcept;
 
     /** 空の状態で構築する (slot なし、コールバック未設定)。 */
     FPickupSystem()  noexcept = default;
@@ -252,9 +252,9 @@ public:
      * pickup を世界に登録する。
      *
      * @param info 登録する pickup の定義。
-     * @return 新規に割り当てた PickupId (失敗時 invalid)。
+     * @return 新規に割り当てた FPickupId (失敗時 invalid)。
      */
-    PickupId Spawn(const PickupInfo& info) noexcept;
+    FPickupId Spawn(const FPickupInfo& info) noexcept;
 
     /**
      * pickup を消滅させる (拾取扱いではなく、コールバックも発火しない)。
@@ -262,7 +262,7 @@ public:
      * @details 無効 id / 既消滅は no-op。
      * @param id 消滅させる pickup の handle。
      */
-    void Despawn(PickupId id) noexcept;
+    void Despawn(FPickupId id) noexcept;
 
     /**
      * 毎フレーム呼んで全 pickup を更新する。
@@ -286,13 +286,13 @@ public:
     u32 AlivePickupCount() const noexcept;
 
     /**
-     * pickup の PickupInfo への生ポインタを返す。
+     * pickup の FPickupInfo への生ポインタを返す。
      *
      * @details 返したポインタは Despawn / Spawn / ClearAll で無効化される。
      * @param id 取得する pickup の handle。
-     * @return PickupInfo へのポインタ (無効 id / 既消滅は nullptr)。
+     * @return FPickupInfo へのポインタ (無効 id / 既消滅は nullptr)。
      */
-    const PickupInfo* GetPickup(PickupId id) const noexcept;
+    const FPickupInfo* GetPickup(FPickupId id) const noexcept;
 
     /**
      * 拾取コールバックを設定する。
@@ -341,10 +341,10 @@ public:
     void ClearAll() noexcept;
 
 private:
-    /** pickup 1 件分の slot (PickupInfo + active フラグ + generation)。 */
-    struct Slot {
+    /** pickup 1 件分の slot (FPickupInfo + active フラグ + generation)。 */
+    struct FSlot {
         /** pickup の定義 / 状態。 */
-        PickupInfo info{};
+        FPickupInfo info{};
 
         /** この slot が使用中かのフラグ。 */
         bool       active = false;
@@ -362,7 +362,7 @@ private:
     u32 AcquireSlot() noexcept;
 
     /** pickup slot 配列 (index 0 は予約)。 */
-    TArray<Slot>     m_Slots;
+    TArray<FSlot>     m_Slots;
 
     /** active pickup 数のキャッシュ。 */
     u32             m_AliveCount = 0;

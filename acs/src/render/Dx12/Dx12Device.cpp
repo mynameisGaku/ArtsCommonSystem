@@ -15,20 +15,51 @@ namespace acs {
 
 namespace {
 
+/**
+ * ReadTexture が密な CPU 行へ変換できる非圧縮 format の bytes-per-pixel。
+ *
+ * 0 は未対応を表す。D3D12 の copy footprint は実 format から算出されるため、
+ * ここでは destination の密配置と一致する format だけを明示的に許可する。
+ */
+u32 ReadbackBytesPerPixel(EFormat format) noexcept
+{
+    switch (format) {
+    case EFormat::R8G8B8A8_UNorm:
+    case EFormat::R8G8B8A8_UNorm_sRGB:
+    case EFormat::R8G8B8A8_UInt:
+    case EFormat::B8G8R8A8_UNorm:
+    case EFormat::R11G11B10_Float:
+    case EFormat::D24_UNorm_S8_UInt:
+    case EFormat::D32_Float:
+        return 4u;
+    case EFormat::R16G16_Float:
+        return 4u;
+    case EFormat::R16G16B16A16_Float:
+    case EFormat::R32G32_Float:
+        return 8u;
+    case EFormat::R32G32B32_Float:
+        return 12u;
+    case EFormat::R32G32B32A32_Float:
+        return 16u;
+    default:
+        return 0u;
+    }
+}
+
 /** 例外を使わず SRWLOCK の排他範囲を確実に閉じる内部ガード。 */
-class ExclusiveLockGuard final {
+class FExclusiveLockGuard final {
 public:
-    explicit ExclusiveLockGuard(SRWLOCK& lock) noexcept : m_Lock(lock)
+    explicit FExclusiveLockGuard(SRWLOCK& lock) noexcept : m_Lock(lock)
     {
         ::AcquireSRWLockExclusive(&m_Lock);
     }
-    ~ExclusiveLockGuard() noexcept
+    ~FExclusiveLockGuard() noexcept
     {
         ::ReleaseSRWLockExclusive(&m_Lock);
     }
 
-    ExclusiveLockGuard(const ExclusiveLockGuard&) = delete;
-    ExclusiveLockGuard& operator=(const ExclusiveLockGuard&) = delete;
+    FExclusiveLockGuard(const FExclusiveLockGuard&) = delete;
+    FExclusiveLockGuard& operator=(const FExclusiveLockGuard&) = delete;
 
 private:
     SRWLOCK& m_Lock;
@@ -36,18 +67,18 @@ private:
 
 } // namespace
 
-Dx12Device::~Dx12Device() noexcept
+FDx12Device::~FDx12Device() noexcept
 {
     Reset();
 }
 
-void Dx12Device::Reset() noexcept
+void FDx12Device::Reset() noexcept
 {
 #if ACS_BUILD_DEBUG
     // 初期化途中で Factory または Adapter だけを得た経路も DXGI 診断対象にする。
     const bool report_d3d12_live_objects = m_Device != nullptr;
     const bool report_dxgi_live_objects = m_Device || m_Adapter || m_Factory;
-    render_internal::D3D12DebugDeviceReportHandle debug_device = render_internal::CaptureD3D12DebugDeviceReportHandle(
+    render_internal::FD3D12DebugDeviceReportHandle debug_device = render_internal::CaptureD3D12DebugDeviceReportHandle(
         m_Device);
 #endif
     // event まで揃っている場合だけ待機できる。Init 途中のロールバックでは
@@ -90,9 +121,9 @@ void Dx12Device::Reset() noexcept
     m_RtvFreeCount = 0;
 }
 
-HrResult Dx12Device::InitDescriptorHeaps() noexcept
+FHrResult FDx12Device::InitDescriptorHeaps() noexcept
 {
-    HrResult r{};
+    FHrResult r{};
     // SRV/CBV/UAV 用シェーダ可視ヒープ
     D3D12_DESCRIPTOR_HEAP_DESC hd{};
     hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -147,9 +178,9 @@ HrResult Dx12Device::InitDescriptorHeaps() noexcept
     return r;
 }
 
-i32 Dx12Device::AllocateSrvSlot() noexcept
+i32 FDx12Device::AllocateSrvSlot() noexcept
 {
-    ExclusiveLockGuard guard(m_DescriptorLock);
+    FExclusiveLockGuard guard(m_DescriptorLock);
     if (m_SrvFreeCount > 0) {
         return m_SrvFreeList[--m_SrvFreeCount];
     }
@@ -157,9 +188,9 @@ i32 Dx12Device::AllocateSrvSlot() noexcept
     return static_cast<i32>(m_SrvHighWater++);
 }
 
-void Dx12Device::FreeSrvSlot(i32 index) noexcept
+void FDx12Device::FreeSrvSlot(i32 index) noexcept
 {
-    ExclusiveLockGuard guard(m_DescriptorLock);
+    FExclusiveLockGuard guard(m_DescriptorLock);
     if (index < 0 || static_cast<u32>(index) >= m_SrvHighWater) return;
     for (u32 i = 0; i < m_SrvFreeCount; ++i) {
         if (m_SrvFreeList[i] == index) return; // 二重返却で同一スロットを重複配布しない
@@ -169,7 +200,7 @@ void Dx12Device::FreeSrvSlot(i32 index) noexcept
     }
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE Dx12Device::SrvCpuHandle(i32 index) const noexcept
+D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::SrvCpuHandle(i32 index) const noexcept
 {
     if (!m_SrvHeap || index < 0 || static_cast<u32>(index) >= m_SrvHighWater) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
     D3D12_CPU_DESCRIPTOR_HANDLE h = m_SrvHeap->GetCPUDescriptorHandleForHeapStart();
@@ -177,7 +208,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE Dx12Device::SrvCpuHandle(i32 index) const noexcept
     return h;
 }
 
-D3D12_GPU_DESCRIPTOR_HANDLE Dx12Device::SrvGpuHandle(i32 index) const noexcept
+D3D12_GPU_DESCRIPTOR_HANDLE FDx12Device::SrvGpuHandle(i32 index) const noexcept
 {
     if (!m_SrvHeap || index < 0 || static_cast<u32>(index) >= m_SrvHighWater) return D3D12_GPU_DESCRIPTOR_HANDLE{0};
     D3D12_GPU_DESCRIPTOR_HANDLE h = m_SrvHeap->GetGPUDescriptorHandleForHeapStart();
@@ -185,17 +216,17 @@ D3D12_GPU_DESCRIPTOR_HANDLE Dx12Device::SrvGpuHandle(i32 index) const noexcept
     return h;
 }
 
-i32 Dx12Device::AllocateDsvSlot() noexcept
+i32 FDx12Device::AllocateDsvSlot() noexcept
 {
-    ExclusiveLockGuard guard(m_DescriptorLock);
+    FExclusiveLockGuard guard(m_DescriptorLock);
     if (m_DsvFreeCount > 0) return m_DsvFreeList[--m_DsvFreeCount];
     if (m_DsvHighWater >= kDsvCapacity) return -1;
     return static_cast<i32>(m_DsvHighWater++);
 }
 
-void Dx12Device::FreeDsvSlot(i32 index) noexcept
+void FDx12Device::FreeDsvSlot(i32 index) noexcept
 {
-    ExclusiveLockGuard guard(m_DescriptorLock);
+    FExclusiveLockGuard guard(m_DescriptorLock);
     if (index < 0 || static_cast<u32>(index) >= m_DsvHighWater) return;
     for (u32 i = 0; i < m_DsvFreeCount; ++i) {
         if (m_DsvFreeList[i] == index) return;
@@ -203,7 +234,7 @@ void Dx12Device::FreeDsvSlot(i32 index) noexcept
     if (m_DsvFreeCount < kDsvCapacity) m_DsvFreeList[m_DsvFreeCount++] = index;
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE Dx12Device::DsvCpuHandle(i32 index) const noexcept
+D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::DsvCpuHandle(i32 index) const noexcept
 {
     if (!m_DsvHeap || index < 0 || static_cast<u32>(index) >= m_DsvHighWater) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
     D3D12_CPU_DESCRIPTOR_HANDLE h = m_DsvHeap->GetCPUDescriptorHandleForHeapStart();
@@ -211,17 +242,17 @@ D3D12_CPU_DESCRIPTOR_HANDLE Dx12Device::DsvCpuHandle(i32 index) const noexcept
     return h;
 }
 
-i32 Dx12Device::AllocateRtvSlot() noexcept
+i32 FDx12Device::AllocateRtvSlot() noexcept
 {
-    ExclusiveLockGuard guard(m_DescriptorLock);
+    FExclusiveLockGuard guard(m_DescriptorLock);
     if (m_RtvFreeCount > 0) return m_RtvFreeList[--m_RtvFreeCount];
     if (m_RtvHighWater >= kRtvCapacity) return -1;
     return static_cast<i32>(m_RtvHighWater++);
 }
 
-void Dx12Device::FreeRtvSlot(i32 index) noexcept
+void FDx12Device::FreeRtvSlot(i32 index) noexcept
 {
-    ExclusiveLockGuard guard(m_DescriptorLock);
+    FExclusiveLockGuard guard(m_DescriptorLock);
     if (index < 0 || static_cast<u32>(index) >= m_RtvHighWater) return;
     for (u32 i = 0; i < m_RtvFreeCount; ++i) {
         if (m_RtvFreeList[i] == index) return;
@@ -229,7 +260,7 @@ void Dx12Device::FreeRtvSlot(i32 index) noexcept
     if (m_RtvFreeCount < kRtvCapacity) m_RtvFreeList[m_RtvFreeCount++] = index;
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE Dx12Device::RtvCpuHandle(i32 index) const noexcept
+D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::RtvCpuHandle(i32 index) const noexcept
 {
     if (!m_RtvHeap || index < 0 || static_cast<u32>(index) >= m_RtvHighWater) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
     D3D12_CPU_DESCRIPTOR_HANDLE h = m_RtvHeap->GetCPUDescriptorHandleForHeapStart();
@@ -237,9 +268,9 @@ D3D12_CPU_DESCRIPTOR_HANDLE Dx12Device::RtvCpuHandle(i32 index) const noexcept
     return h;
 }
 
-HrResult Dx12Device::Init(const DeviceConfig& configuration) noexcept
+FHrResult FDx12Device::Init(const FDeviceConfig& configuration) noexcept
 {
-    HrResult r{};
+    FHrResult r{};
     Reset();
 
     // デバッグレイヤー有効化（ID3D12Debug を取得して EnableDebugLayer）
@@ -339,7 +370,7 @@ HrResult Dx12Device::Init(const DeviceConfig& configuration) noexcept
 }
 
 // GPU が現在のキューに積まれた全コマンドを完了するまで待つ
-void Dx12Device::WaitIdle() noexcept
+void FDx12Device::WaitIdle() noexcept
 {
     if (!m_GfxQueue || !m_IdleFence || !m_IdleEvent) return;
     const u64 value = SignalGraphicsQueue();
@@ -348,20 +379,20 @@ void Dx12Device::WaitIdle() noexcept
 }
 
 // フレーム単位で利用する Signal/Wait（WaitIdle と同じ fence を共有）
-u64 Dx12Device::SignalGraphicsQueue() noexcept
+u64 FDx12Device::SignalGraphicsQueue() noexcept
 {
     if (!m_GfxQueue || !m_IdleFence) return 0;
-    ExclusiveLockGuard guard(m_FenceSignalLock);
+    FExclusiveLockGuard guard(m_FenceSignalLock);
     const u64 next_value = m_IdleValue + 1;
     if (next_value == 0 || FAILED(m_GfxQueue->Signal(m_IdleFence, next_value))) return 0;
     m_IdleValue = next_value;
     return next_value;
 }
 
-void Dx12Device::WaitForFenceValue(u64 value) noexcept
+void FDx12Device::WaitForFenceValue(u64 value) noexcept
 {
     if (!m_IdleFence || !m_IdleEvent || value == 0) return;
-    ExclusiveLockGuard guard(m_FenceWaitLock);
+    FExclusiveLockGuard guard(m_FenceWaitLock);
     if (m_IdleFence->GetCompletedValue() >= value) return;
     if (SUCCEEDED(m_IdleFence->SetEventOnCompletion(value, m_IdleEvent)) &&
         ::WaitForSingleObject(m_IdleEvent, INFINITE) == WAIT_OBJECT_0)
@@ -376,20 +407,22 @@ void Dx12Device::WaitForFenceValue(u64 value) noexcept
     }
 }
 
-// RT テクスチャを CPU へ読み戻す (一度きりのサムネイル/スクショ用)。RGBA8/BGRA8 (4 B/px) 前提。
-bool Dx12Device::ReadTexture(IRhiTexture& texture, void* destination_pixels, u32 destination_size) noexcept
+// Texture の mip0/slice0 (3D は depth slice 0) を密な CPU 行へ読み戻す。
+bool FDx12Device::ReadTexture(IRhiTexture& texture, void* destination_pixels, u32 destination_size) noexcept
 {
     if (!m_Device || !m_GfxQueue || destination_pixels == nullptr) return false;
-    auto* dtex = static_cast<Dx12Texture*>(&texture);
+    auto* dtex = static_cast<FDx12Texture*>(&texture);
     ID3D12Resource* res = dtex->Resource();
     if (res == nullptr) return false;
     const u32 w = texture.Width(), h = texture.Height();
-    const u32 bpp = 4; // RGBA8/BGRA8 前提
-    if (texture.EPixelFormat() != EFormat::R8G8B8A8_UNorm && texture.EPixelFormat() != EFormat::R8G8B8A8_UNorm_sRGB &&
-        texture.EPixelFormat() != EFormat::B8G8R8A8_UNorm)
+    const u32 bpp = ReadbackBytesPerPixel(texture.PixelFormat());
+    if (bpp == 0u) return false;
+    if (w == 0u || h == 0u) return false;
+    const u64 dense_row_bytes = static_cast<u64>(w) * bpp;
+    if (dense_row_bytes > destination_size ||
+        static_cast<u64>(h) >
+            static_cast<u64>(destination_size) / dense_row_bytes)
         return false;
-    const u64 required_bytes = static_cast<u64>(w) * static_cast<u64>(h) * bpp;
-    if (w == 0 || h == 0 || required_bytes > destination_size) return false;
 
     // コピー可能フットプリント (行ピッチは 256B 整列されることがある)。
     D3D12_RESOURCE_DESC desc = res->GetDesc();
@@ -397,7 +430,21 @@ bool Dx12Device::ReadTexture(IRhiTexture& texture, void* destination_pixels, u32
     UINT num_rows = 0;
     UINT64 row_size = 0, total = 0;
     m_Device->GetCopyableFootprints(&desc, 0, 1, 0, &fp, &num_rows, &row_size, &total);
-    if (total == 0 || num_rows < h || row_size < static_cast<u64>(w) * bpp) return false;
+    if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER ||
+        desc.SampleDesc.Count != 1u ||
+        total == 0u ||
+        fp.Footprint.Depth == 0u ||
+        num_rows < h ||
+        row_size < dense_row_bytes ||
+        fp.Footprint.RowPitch < dense_row_bytes ||
+        fp.Offset > total)
+        return false;
+    const u64 remaining_after_offset = total - fp.Offset;
+    const u64 row_offset =
+        static_cast<u64>(h - 1u) * fp.Footprint.RowPitch;
+    if (row_offset > remaining_after_offset ||
+        dense_row_bytes > remaining_after_offset - row_offset)
+        return false;
 
     // readback ヒープのバッファを確保。
     D3D12_HEAP_PROPERTIES hp{};
@@ -459,7 +506,8 @@ bool Dx12Device::ReadTexture(IRhiTexture& texture, void* destination_pixels, u32
         D3D12_RANGE read_range{0, static_cast<SIZE_T>(total)};
         if (ok && SUCCEEDED(rb->Map(0, &read_range, &mapped)) && mapped != nullptr) {
             auto* dstp = static_cast<u8*>(destination_pixels);
-            const auto* srcp = static_cast<const u8*>(mapped);
+            const auto* srcp =
+                static_cast<const u8*>(mapped) + static_cast<usize>(fp.Offset);
             const u32 row_pitch = fp.Footprint.RowPitch;
             for (u32 y = 0; y < h; ++y)
                 std::memcpy(dstp + static_cast<usize>(y) * w * bpp, srcp + static_cast<usize>(y) * row_pitch, w * bpp);
@@ -477,11 +525,11 @@ bool Dx12Device::ReadTexture(IRhiTexture& texture, void* destination_pixels, u32
 // ファクトリ関数: CreateRhiDevice の DX12 実装
 // Diligent バックエンドが有効化されている場合は RhiBackend.cpp が実装を提供する。
 #if !WITH_RENDER_DILIGENT
-TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const DeviceConfig& configuration) noexcept
+TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const FDeviceConfig& configuration) noexcept
 {
-    auto d = MakeUnique<Dx12Device>();
+    auto d = MakeUnique<FDx12Device>();
     if (!d) return ACS_ERR(Memory, 200, "Dx12Device alloc failed");
-    const HrResult r = d->Init(configuration);
+    const FHrResult r = d->Init(configuration);
     if (r.IsErr()) {
         return ACS_ERR_OS(Render, 1, "Dx12Device::Init failed", static_cast<u32>(r.hr));
     }

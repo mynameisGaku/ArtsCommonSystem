@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "gameframework/TilemapComponent.h"
-#include "gameframework/Node2D.h"
+#include "gameframework/ANode.h"
 #include "gameframework/RenderContext.h"
 #include "gameframework/CollisionWorld2D.h"
 #include "render/SpriteBatch.h"
@@ -9,11 +9,11 @@
 namespace acs::game {
 
 /** 全レイヤの非空タイルを atlas UV (未設定時はデバッグ色) で SpriteBatch へ描く。 */
-void FTilemapComponent::OnDraw(RenderContext& rc) noexcept {
+void ATilemapComponent::OnDraw(FRenderContext& rc) noexcept {
     if (!rc.HasSprites()) return;
     FSpriteBatch& sb = rc.Sprites();
 
-    const FVec2 origin = Owner().World().position;
+    const FVec2 origin = Owner().World2D().position;
     const f32   ts     = m_Map.TileSize();
     const u32   w      = m_Map.Width();
     const u32   h      = m_Map.Height();
@@ -52,11 +52,11 @@ void FTilemapComponent::OnDraw(RenderContext& rc) noexcept {
 }
 
 /** 指定レイヤの非空タイルを 1 タイル = 1 AABB で物理ワールドへ登録する。 */
-void FTilemapComponent::BuildCollision(FCollisionWorld2D& world, u32 layer,
+void ATilemapComponent::BuildCollision(FCollisionWorld2D& world, u32 layer,
                                        u32 collision_layer_bit) noexcept {
     const FTileId* data = m_Map.LayerData(layer);
     if (data == nullptr || !HasOwner()) return;
-    const FVec2 origin = Owner().World().position;
+    const FVec2 origin = Owner().World2D().position;
     const f32   ts     = m_Map.TileSize();
     const FVec2 half{ts * 0.5f, ts * 0.5f};
     const u32   w = m_Map.Width();
@@ -65,7 +65,7 @@ void FTilemapComponent::BuildCollision(FCollisionWorld2D& world, u32 layer,
         for (u32 x = 0; x < w; ++x) {
             if (data[y * w + x].IsEmpty()) continue;
             const FVec2 c = m_Map.TileToWorld(x, y);
-            world.AddAabb(Aabb2{FVec2{origin.x + c.x, origin.y + c.y}, half},
+            world.AddAabb(FAabb2{FVec2{origin.x + c.x, origin.y + c.y}, half},
                           collision_layer_bit);
         }
     }

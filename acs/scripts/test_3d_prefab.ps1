@@ -1,5 +1,5 @@
-# Headless P/Invoke verification of 3D subtree serialize/paste + sprite clear (no GUI, no mouse).
-#   - acs_editor_copy_subtree3d / acs_editor_paste_subtree3d  (Prefab/Blueprint round-trip)
+# 3D subtree の serialize/paste と sprite clear を P/Invoke でヘッドレス検証する (GUI・マウス不要)。
+#   - acs_editor_copy_subtree3d / acs_editor_paste_subtree3d  (Prefab/Blueprint 往復)
 #   - acs_editor_node3d_clear_sprite
 $ErrorActionPreference = 'Stop'
 $bin = "C:\dev\acs_github\acs\editor\AcsEditor\bin\Release\net10.0-windows\win-x64"
@@ -37,12 +37,12 @@ Add-Type -TypeDefinition $src
 $pass=0;$fail=0
 function Check($n,$c){ if($c){$script:pass++;Write-Host "  PASS  $n"} else {$script:fail++;Write-Host "  FAIL  $n" -ForegroundColor Red} }
 
-# Parent(10) -> Child(11, FRigidBody2D mass=5). Plus a Sprite node(12, fake path) at root.
+# Parent(10) -> Child(11, ARigidBody2D mass=5)。加えてルートに Sprite node(12, fake path)。
 $scene = @"
 ACS3D v2
 N3D 10 -1 0 0.0000 0.0000 0.0000 0.0000 0.0000 0.0000 1.0000 1.0000 1.0000 0.800 0.800 0.850 1.000 Parent
 N3D 11 10 1 1.0000 0.0000 0.0000 0.0000 0.0000 0.0000 1.0000 1.0000 1.0000 0.400 0.620 0.920 1.000 Child
-CMP3D 11 FRigidBody2D
+CMP3D 11 ARigidBody2D
 CPROP3D 11 0 3 5.0000 0.0000 0.0000 0.0000
 N3D 12 -1 2 -3.0000 0.0000 0.0000 0.0000 0.0000 0.0000 1.0000 1.0000 1.0000 1.000 1.000 1.000 1.000 Spr
 SPR3D 12 fake.png
@@ -64,7 +64,7 @@ $txt = [E]::Copy3D($h,10)
 Check "subtree has ACS3D header" ($txt -match "ACS3D")
 Check "subtree root parent forced -1 (N3D 10 -1)" ($txt -match "N3D 10 -1 ")
 Check "subtree child under 10 (N3D 11 10)" ($txt -match "N3D 11 10 ")
-Check "subtree carries component (CMP3D 11 FRigidBody2D)" ($txt -match "CMP3D 11 FRigidBody2D")
+Check "subtree carries component (CMP3D 11 ARigidBody2D)" ($txt -match "CMP3D 11 ARigidBody2D")
 Check "subtree carries prop (CPROP3D 11 0 3 5.0000)" ($txt -match "CPROP3D 11 0 3 5\.0000")
 Check "subtree EXCLUDES out-of-tree sprite node 12" (-not ($txt -match "N3D 12 "))
 
@@ -73,7 +73,7 @@ $root = [E]::acs_editor_paste_subtree3d($h,$txt,-1)
 Check "paste returns a new root id (>=13)" ($root -ge 13)
 Check "now 5 nodes" ([E]::acs_editor_node3d_count($h) -eq 5)
 Check "pasted root is at scene root (parent -1)" ([E]::acs_editor_node3d_parent($h,$root) -eq -1)
-# child id = root + 1 (offset preserves intra-subtree id spacing: 10->root, 11->root+1)
+# child id = root + 1 (offset は subtree 内の id 間隔 10->root、11->root+1 を維持する)
 $child = $root + 1
 Check "pasted child parent = pasted root" ([E]::acs_editor_node3d_parent($h,$child) -eq $root)
 Check "pasted child kept its component" ([E]::acs_editor_node3d_component_count($h,$child) -eq 1)

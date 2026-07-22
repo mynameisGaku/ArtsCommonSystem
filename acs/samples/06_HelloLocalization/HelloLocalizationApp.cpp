@@ -16,7 +16,7 @@ using namespace acs;
 
 namespace helloloc {
 
-void HelloLocalizationApp::OnStart() noexcept
+void FHelloLocalizationApp::OnStart() noexcept
 {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) {
@@ -33,15 +33,15 @@ void HelloLocalizationApp::OnStart() noexcept
     (void)FSample::TryLoadDefaultUIFont(m_FontSmall, *dev, 20.0f, 1024, true);
 }
 
-void HelloLocalizationApp::OnUpdate(f32 /*dt*/) noexcept
+void FHelloLocalizationApp::OnUpdate(f32 /*dt*/) noexcept
 {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
-    if (Input::IsKeyPressed(EKey::F1)) SwitchTo(0);
-    if (Input::IsKeyPressed(EKey::F2)) SwitchTo(1);
-    if (Input::IsKeyPressed(EKey::F3)) SwitchTo(2);
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
+    if (FInput::IsKeyPressed(EKey::F1)) SwitchTo(0);
+    if (FInput::IsKeyPressed(EKey::F2)) SwitchTo(1);
+    if (FInput::IsKeyPressed(EKey::F3)) SwitchTo(2);
 }
 
-void HelloLocalizationApp::OnRender() noexcept
+void FHelloLocalizationApp::OnRender() noexcept
 {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
@@ -71,7 +71,7 @@ void HelloLocalizationApp::OnRender() noexcept
     m_Batch.End();
 }
 
-void HelloLocalizationApp::OnShutdown() noexcept
+void FHelloLocalizationApp::OnShutdown() noexcept
 {
     if (GetRenderer().Device()) GetRenderer().Device()->WaitIdle();
     m_FontSmall.Shutdown();
@@ -79,7 +79,7 @@ void HelloLocalizationApp::OnShutdown() noexcept
     m_Batch.Shutdown();
 }
 
-void HelloLocalizationApp::SwitchTo(u32 idx) noexcept
+void FHelloLocalizationApp::SwitchTo(u32 idx) noexcept
 {
     const char* src = (idx == 0) ? kLangJa : (idx == 1) ? kLangEn : kLangFr;
     if (m_Loc.LoadActiveBytes(reinterpret_cast<const u8*>(src), std::strlen(src)).IsOk()) {

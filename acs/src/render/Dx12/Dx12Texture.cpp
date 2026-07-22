@@ -39,25 +39,28 @@ u32 BytesPerPixel(EFormat f) noexcept {
 } // namespace
 
 /** 割り当て済みの SRV/DSV/RTV スロットを解放しリソースを Release する。 */
-Dx12Texture::~Dx12Texture() noexcept {
+FDx12Texture::~FDx12Texture() noexcept {
     Reset();
 }
 
-void Dx12Texture::Reset() noexcept
+void FDx12Texture::Reset() noexcept
 {
     if (m_Device) {
         if (m_SrvSlot >= 0) m_Device->FreeSrvSlot(m_SrvSlot);
+        if (m_UavSlot >= 0) m_Device->FreeSrvSlot(m_UavSlot);
         if (m_DsvSlot >= 0) m_Device->FreeDsvSlot(m_DsvSlot);
         for (usize i = 0; i < m_RtvSlots.Size(); ++i)
             if (m_RtvSlots[i] >= 0) m_Device->FreeRtvSlot(m_RtvSlots[i]);
     }
     m_SrvSlot = -1;
+    m_UavSlot = -1;
     m_DsvSlot = -1;
     m_RtvSlots.ReleaseStorage();
     ACS_SAFE_RELEASE(m_Resource);
     m_Device = nullptr;
     m_Width = 0;
     m_Height = 0;
+    m_Depth = 1;
     m_Format = EFormat::Unknown;
     m_MipLevels = 1;
     m_ArraySize = 1;
@@ -68,8 +71,8 @@ void Dx12Texture::Reset() noexcept
 }
 
 /** desc に従って DX12 リソースと SRV/DSV/RTV を生成する (詳細はヘッダ参照)。 */
-HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcept {
-    HrResult r{};
+FHrResult FDx12Texture::Init(FDx12Device& device, const FTextureDesc& desc) noexcept {
+    FHrResult r{};
     Reset();
 
     if (!device.D3DDevice() || !device.GraphicsQueue()) {
@@ -79,6 +82,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     m_Device = &device;
     m_Width  = desc.width;
     m_Height = desc.height;
+    m_Depth  = desc.depth > 0 ? desc.depth : 1;
     m_Format = desc.format;
     m_IsDepth = desc.is_depth_target;
     m_MipLevels = desc.mip_levels > 0 ? desc.mip_levels : 1;
@@ -101,10 +105,13 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
         return r;
     }
 
-    if (m_ArraySize > 0xFFFFu || m_MipLevels > 0xFFFFu ||
+    if (m_ArraySize > 0xFFFFu || m_MipLevels > 0xFFFFu || m_Depth > 0xFFFFu ||
         (desc.initial_data == nullptr) != (desc.initial_data_size == 0) ||
         (desc.is_depth_target && desc.is_render_target) || (desc.shader_visible_depth && !desc.is_depth_target) ||
-        (desc.is_depth_target && desc.format != EFormat::D24_UNorm_S8_UInt && desc.format != EFormat::D32_Float)) {
+        (desc.is_depth_target && desc.is_uav) ||
+        (desc.is_depth_target && desc.format != EFormat::D24_UNorm_S8_UInt && desc.format != EFormat::D32_Float) ||
+        (m_Depth > 1 && (m_ArraySize != 1 || desc.is_cubemap || desc.is_depth_target ||
+                         desc.is_render_target || desc.per_slice_rtv || desc.initial_data))) {
         ACS_LOG_ERROR("Dx12Texture: descriptor の組み合わせまたは範囲が不正です");
         r.hr = E_INVALIDARG;
         Reset();
@@ -148,7 +155,8 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
 
     // MSAA は RT 専用 (MS テクスチャは mip 不可・SRV 無し・初期データ不可)
     m_SampleCount = (desc.is_render_target && desc.sample_count > 1) ? desc.sample_count : 1;
-    if (desc.sample_count > 1 && (!desc.is_render_target || desc.initial_data || m_MipLevels != 1 || m_ArraySize != 1 ||
+    if (desc.sample_count > 1 && (!desc.is_render_target || desc.initial_data || desc.is_uav ||
+                                  m_MipLevels != 1 || m_ArraySize != 1 ||
                                   desc.is_cubemap || desc.per_slice_rtv)) {
         ACS_LOG_ERROR("Dx12Texture: MSAA は単一スライス・単一 mip の初期データなし RT 専用です");
         r.hr = E_INVALIDARG;
@@ -158,11 +166,12 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
 
     // 1. DEFAULT ヒープにテクスチャを作成
     D3D12_RESOURCE_DESC td{};
-    td.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    td.Dimension = m_Depth > 1 ? D3D12_RESOURCE_DIMENSION_TEXTURE3D
+                               : D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     td.Alignment = 0;
     td.Width  = desc.width;
     td.Height = desc.height;
-    td.DepthOrArraySize = static_cast<UINT16>(req_array);   // cubemap=6 / 配列=N / 単一=1
+    td.DepthOrArraySize = static_cast<UINT16>(m_Depth > 1 ? m_Depth : req_array);
     td.MipLevels = static_cast<UINT16>(m_MipLevels);
     td.Format = resource_fmt;
     td.SampleDesc.Count = m_SampleCount;
@@ -170,6 +179,7 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     td.Flags  = D3D12_RESOURCE_FLAG_NONE;
     if (desc.is_depth_target) td.Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
     if (desc.is_render_target) td.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    if (desc.is_uav) td.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
     D3D12_HEAP_PROPERTIES default_hp{};
     default_hp.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -438,7 +448,12 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
     srv.Format = typed_fmt;
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    if (m_IsCubemap) {
+    if (m_Depth > 1) {
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
+        srv.Texture3D.MostDetailedMip = 0;
+        srv.Texture3D.MipLevels = m_MipLevels;
+        srv.Texture3D.ResourceMinLODClamp = 0.0f;
+    } else if (m_IsCubemap) {
         // cubemap: シェーダは TextureCube として全 mip をサンプルする (prefilter roughness LOD)
         srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
         srv.TextureCube.MostDetailedMip     = 0;
@@ -459,7 +474,38 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
     device.D3DDevice()->CreateShaderResourceView(
         m_Resource, &srv, device.SrvCpuHandle(m_SrvSlot));
 
-    // 5. オフスクリーン RT は RTV も作成 (BeginRenderToTexture(Slice) 用)
+    // 5. Compute write target は同じ shader-visible heap に UAV も作成。
+    if (desc.is_uav) {
+        m_UavSlot = device.AllocateSrvSlot();
+        if (m_UavSlot < 0) {
+            ACS_LOG_ERROR("Dx12Texture: UAV slot exhausted");
+            r.hr = E_OUTOFMEMORY;
+            Reset();
+            return r;
+        }
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
+        uav.Format = typed_fmt;
+        if (m_Depth > 1) {
+            uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D;
+            uav.Texture3D.MipSlice = 0;
+            uav.Texture3D.FirstWSlice = 0;
+            uav.Texture3D.WSize = m_Depth;
+        } else if (m_ArraySize > 1) {
+            uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+            uav.Texture2DArray.MipSlice = 0;
+            uav.Texture2DArray.FirstArraySlice = 0;
+            uav.Texture2DArray.ArraySize = m_ArraySize;
+            uav.Texture2DArray.PlaneSlice = 0;
+        } else {
+            uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+            uav.Texture2D.MipSlice = 0;
+            uav.Texture2D.PlaneSlice = 0;
+        }
+        device.D3DDevice()->CreateUnorderedAccessView(
+            m_Resource, nullptr, &uav, device.SrvCpuHandle(m_UavSlot));
+    }
+
+    // 6. オフスクリーン RT は RTV も作成 (BeginRenderToTexture(Slice) 用)
     if (desc.is_render_target) {
         if (desc.per_slice_rtv) {
             // array_size * mip_levels 個の per-slice RTV を作成 (cube face / 配列スライス / mip
@@ -516,13 +562,13 @@ HrResult Dx12Texture::Init(Dx12Device& device, const FTextureDesc& desc) noexcep
 }
 
 /** 先頭 (slice0/mip0) の RTV CPU ハンドルを返す。 */
-D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::RtvCpuHandle() const noexcept {
+D3D12_CPU_DESCRIPTOR_HANDLE FDx12Texture::RtvCpuHandle() const noexcept {
     if (!m_Device || m_RtvSlots.IsEmpty()) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
     return m_Device->RtvCpuHandle(m_RtvSlots[0]);
 }
 
 /** index = slice*mip_levels + mip の per-slice RTV CPU ハンドルを返す。 */
-D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::RtvCpuHandleForSlice(u32 slice, u32 mip) const noexcept {
+D3D12_CPU_DESCRIPTOR_HANDLE FDx12Texture::RtvCpuHandleForSlice(u32 slice, u32 mip) const noexcept {
     if (!m_Device) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
     const usize idx = static_cast<usize>(slice) * m_MipLevels + mip;
     if (idx >= m_RtvSlots.Size()) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
@@ -530,12 +576,17 @@ D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::RtvCpuHandleForSlice(u32 slice, u32 mip
 }
 
 /** SRV の GPU ディスクリプタハンドルを返す。 */
-D3D12_GPU_DESCRIPTOR_HANDLE Dx12Texture::SrvGpuHandle() const noexcept {
+D3D12_GPU_DESCRIPTOR_HANDLE FDx12Texture::SrvGpuHandle() const noexcept {
     return (m_Device && m_SrvSlot >= 0) ? m_Device->SrvGpuHandle(m_SrvSlot) : D3D12_GPU_DESCRIPTOR_HANDLE{0};
 }
 
+D3D12_GPU_DESCRIPTOR_HANDLE FDx12Texture::UavGpuHandle() const noexcept {
+    return (m_Device && m_UavSlot >= 0) ? m_Device->SrvGpuHandle(m_UavSlot)
+                                        : D3D12_GPU_DESCRIPTOR_HANDLE{0};
+}
+
 /** DSV の CPU ディスクリプタハンドルを返す。 */
-D3D12_CPU_DESCRIPTOR_HANDLE Dx12Texture::DsvCpuHandle() const noexcept {
+D3D12_CPU_DESCRIPTOR_HANDLE FDx12Texture::DsvCpuHandle() const noexcept {
     return (m_Device && m_DsvSlot >= 0) ? m_Device->DsvCpuHandle(m_DsvSlot) : D3D12_CPU_DESCRIPTOR_HANDLE{0};
 }
 
@@ -555,9 +606,9 @@ TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 70, "CreateRhiTexture: device is not DX12");
-    Dx12Device* dxd = static_cast<Dx12Device*>(&device);
-    auto t = MakeUnique<Dx12Texture>();
-    const HrResult r = t->Init(*dxd, desc);
+    FDx12Device* dxd = static_cast<FDx12Device*>(&device);
+    auto t = MakeUnique<FDx12Texture>();
+    const FHrResult r = t->Init(*dxd, desc);
     if (r.IsErr())
         return ACS_ERR_OS(Render, 71, "Dx12Texture::Init failed", static_cast<u32>(r.hr));
     TUniquePtr<IRhiTexture> base(t.Release(), t.GetAllocator());

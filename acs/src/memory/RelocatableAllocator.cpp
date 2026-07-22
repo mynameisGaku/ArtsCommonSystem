@@ -43,14 +43,14 @@ TResult<void> FRelocatableAllocator::Init(usize capacity_bytes, u32 max_handles,
     m_Base = static_cast<u8*>(m_Backing->Alloc(capacity_bytes, 16, FSourceLoc::Current()));
     if (!m_Base) return ACS_ERR(Memory, 62, "FRelocatableAllocator: arena alloc failed");
 
-    if (max_handles > (~usize(0)) / sizeof(Entry) || max_handles > (~usize(0)) / sizeof(u32)) {
+    if (max_handles > (~usize(0)) / sizeof(FEntry) || max_handles > (~usize(0)) / sizeof(u32)) {
         m_Backing->Free(m_Base);
         m_Base = nullptr;
         return ACS_ERR(Memory, 63, "FRelocatableAllocator: handle table size overflow");
     }
 
-    m_Entries = static_cast<Entry*>(
-        m_Backing->Alloc(sizeof(Entry) * max_handles, alignof(Entry), FSourceLoc::Current()));
+    m_Entries = static_cast<FEntry*>(
+        m_Backing->Alloc(sizeof(FEntry) * max_handles, alignof(FEntry), FSourceLoc::Current()));
     if (!m_Entries) {
         m_Backing->Free(m_Base); m_Base = nullptr;
         return ACS_ERR(Memory, 63, "FRelocatableAllocator: handle table alloc failed");
@@ -93,9 +93,9 @@ void FRelocatableAllocator::Shutdown() noexcept {
     m_Backing = nullptr;
 }
 
-bool FRelocatableAllocator::ResolveEntry(FRelocHandle h, Entry*& out) const noexcept {
+bool FRelocatableAllocator::ResolveEntry(FRelocHandle h, FEntry*& out) const noexcept {
     if (!m_Base || h.generation == 0u || h.index >= m_MaxHandles) return false;
-    Entry& e = m_Entries[h.index];
+    FEntry& e = m_Entries[h.index];
     if (!e.live || e.generation != h.generation) return false;
     out = &e;
     return true;
@@ -120,7 +120,7 @@ FRelocHandle FRelocatableAllocator::Alloc(usize size, usize alignment) noexcept 
     }
 
     const u32 idx = m_FreeHead;
-    Entry& e = m_Entries[idx];
+    FEntry& e = m_Entries[idx];
     m_FreeHead = e.next_free;
 
     u64 gen = m_NextGeneration++;
@@ -141,7 +141,7 @@ FRelocHandle FRelocatableAllocator::Alloc(usize size, usize alignment) noexcept 
 }
 
 void FRelocatableAllocator::Free(FRelocHandle h) noexcept {
-    Entry* e = nullptr;
+    FEntry* e = nullptr;
     if (!ResolveEntry(h, e)) {
         // 二重解放や期限切れハンドルは状態を変更せず拒否する。
         return;
@@ -156,17 +156,17 @@ void FRelocatableAllocator::Free(FRelocHandle h) noexcept {
 }
 
 void* FRelocatableAllocator::Resolve(FRelocHandle h) const noexcept {
-    Entry* e = nullptr;
+    FEntry* e = nullptr;
     return ResolveEntry(h, e) ? e->ptr : nullptr;
 }
 
 usize FRelocatableAllocator::SizeOf(FRelocHandle h) const noexcept {
-    Entry* e = nullptr;
+    FEntry* e = nullptr;
     return ResolveEntry(h, e) ? e->size : 0u;
 }
 
 bool FRelocatableAllocator::ValidateHandle(FRelocHandle h) const noexcept {
-    Entry* e = nullptr;
+    FEntry* e = nullptr;
     return ResolveEntry(h, e);
 }
 
@@ -196,7 +196,7 @@ usize FRelocatableAllocator::Compact() noexcept {
     // 前方へスライドして gap を詰める。dst <= src なので MemMove (overlap 安全)。
     usize write = 0;
     for (u32 k = 0; k < cnt; ++k) {
-        Entry& e = m_Entries[m_Order[k]];
+        FEntry& e = m_Entries[m_Order[k]];
         usize off = 0u;
         if (!TryCalculateAlignedOffset(m_Base, write, e.align, m_Capacity, off) ||
             off > m_Capacity || e.size > m_Capacity - off) {

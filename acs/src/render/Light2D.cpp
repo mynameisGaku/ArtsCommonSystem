@@ -100,7 +100,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 /** Light2DCB 定数バッファの CPU 側レイアウト (HLSL の cbuffer と一致)。 */
-struct Light2DCBLayout {
+struct FLight2DcbLayout {
     /** rgb = ambient、w = light count。 */
     FVec4 ambient;
 
@@ -144,7 +144,7 @@ TResult<void> FLighting2D::Init(IRhiDevice& device, EFormat color_format,
     if (auto r = CreatePipeline(device); r.IsErr()) return r;
 
     FBufferDesc cbd{};
-    cbd.size         = CBSize<Light2DCBLayout>();
+    cbd.size         = CBSize<FLight2DcbLayout>();
     cbd.usage        = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     auto r = CreateRhiBuffer(device, cbd);
@@ -260,7 +260,7 @@ void FLighting2D::SetShadowQuality(u32 march_steps, u32 ray_count) noexcept {
 /** scene RT を bind + clear して世界の albedo 描画 bracket を開始する。 */
 void FLighting2D::BeginScene(IRhiCommandList& cl, FVec4 clear) noexcept {
     if (!m_SceneRt) return;
-    cl.BeginRenderToTexture(*m_SceneRt, ClearColor{clear.x, clear.y, clear.z, clear.w},
+    cl.BeginRenderToTexture(*m_SceneRt, FClearColor{clear.x, clear.y, clear.z, clear.w},
                             nullptr, 1.0f);
 }
 
@@ -272,7 +272,7 @@ void FLighting2D::EndScene(IRhiCommandList& cl) noexcept {
 /** occluder RT を黒 clear して影スプライト描画 bracket を開始する。 */
 void FLighting2D::BeginOccluders(IRhiCommandList& cl) noexcept {
     if (!m_OccluderRt) return;
-    cl.BeginRenderToTexture(*m_OccluderRt, ClearColor{0, 0, 0, 1}, nullptr, 1.0f);
+    cl.BeginRenderToTexture(*m_OccluderRt, FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
 }
 
 /** occluder 描画 bracket を終了する。 */
@@ -284,7 +284,7 @@ void FLighting2D::EndOccluders(IRhiCommandList& cl) noexcept {
 void FLighting2D::Composite(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexcept {
     if (!m_Pipeline || !m_Cb || !m_SceneRt || !m_OccluderRt) return;
 
-    Light2DCBLayout data{};
+    FLight2DcbLayout data{};
     data.ambient = FVec4{m_Ambient.x, m_Ambient.y, m_Ambient.z,
                          static_cast<f32>(m_LightCount)};
     data.screen  = FVec4{1.0f / static_cast<f32>(screen_w),

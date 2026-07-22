@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar — in-game ParticleEditor
 //
-// `FParticleEffectSystem` (gameframework/FParticleEffectSystem.h) の emitter
+// `FParticleEffectSystem` (gameframework/ParticleEffectSystem.h) の emitter
 // パラメータを ImGui で実機編集するためのツール用パネル。Editor / DevTool
 // ビルドからのみ使われる前提で、retail ビルドからは #ifdef で消す想定。
 //
 // 役割分担:
-//   ・本パネルは `ParticleEmitterDef` の **編集** のみを担う。emitter handle
+//   ・本パネルは `FParticleEmitterDef` の **編集** のみを担う。emitter handle
 //     や particle pool への反映 (CreateEmitter / DestroyEmitter) は呼び出し
 //     側 (例: dev tool 統合レイヤ) が行う。これは
 //       (1) editor 側で in-place に EmitterDef を弄り続け、Apply 時にまとめて
@@ -18,12 +18,12 @@
 //     知らなくて済む。
 //
 // 設計選択:
-//   ・**非コピー / 非ムーブ**: 内部 `TArray<ParticleEmitterDef>` の所有を
+//   ・**非コピー / 非ムーブ**: 内部 `TArray<FParticleEmitterDef>` の所有を
 //     曖昧にしない。ACS の他 system (FInspectorSeam, FParticleEffectSystem 等)
 //     と同じ規約。
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range 等を no-op /
 //     null で表現。
-//   ・**STL 不使用**: emitter list は `acs::TArray<ParticleEmitterDef>`。
+//   ・**STL 不使用**: emitter list は `acs::TArray<FParticleEmitterDef>`。
 //   ・**ImGui ヘッダは .cpp 側のみ include**: header からは imgui 依存を
 //     漏らさず、ヘッダだけ見ても include order を意識せずに済むようにする。
 //   ・**SaveCallback / LoadCallback は raw function pointer + void* user**:
@@ -61,10 +61,10 @@
 //   ・ImGui 関数の戻り値 (true on change) を見て emitter def を書き換えた
 //     直後に `m_Dirty = true` を立てる。外部は `IsDirty()` で確認後 `ClearDirty()`
 //     で同期 (= Save 用のシグナル)。
-//   ・`spread_radians` は `ParticleEmitterDef` には現状フィールドが無いが、
+//   ・`spread_radians` は `FParticleEmitterDef` には現状フィールドが無いが、
 //     仕様で要求されているため editor 側で「将来追加予定」の
 //     placeholder field を持つ。実 emitter 実行時には未使用。
-//     ParticleEmitterDef に spread_radians フィールドが正式追加されたら、
+//     FParticleEmitterDef に spread_radians フィールドが正式追加されたら、
 //     `m_ExtraSpreadRadians` を削除して `def.spread_radians` 直結に切替える。
 #pragma once
 
@@ -79,7 +79,7 @@ namespace acs::game::fxedit {
  * ImGui ベースの emitter property editor パネル。
  *
  * @details
- * `FParticleEffectSystem` の emitter パラメータ (ParticleEmitterDef) を実機編集する
+ * `FParticleEffectSystem` の emitter パラメータ (FParticleEmitterDef) を実機編集する
  * editor_core::FEditorPanel 派生のツールパネル。emitter list の編集 (Add/Remove/
  * Duplicate) のみを担い、emitter handle や particle pool への反映と Save/Load の実体は
  * 呼び出し側 / callback に委譲する。非コピー・非ムーブ・全 noexcept・STL 不使用。
@@ -91,7 +91,7 @@ public:
      *
      * @details user は SetSaveCallback の第二引数で渡したポインタがそのまま戻る (closure 代替)。
      */
-    using SaveCallback = void (*)(void* user, const ParticleEmitterDef* defs, u32 count) noexcept;
+    using SaveCallback = void (*)(void* user, const FParticleEmitterDef* defs, u32 count) noexcept;
 
     /**
      * Load callback 型。
@@ -100,7 +100,7 @@ public:
      * user は SetLoadCallback の第二引数で渡したポインタがそのまま戻る。inout_count は
      * 入力で受け入れ可能な最大数、出力で実際にロードした数。
      */
-    using LoadCallback = void (*)(void* user, ParticleEmitterDef* defs, u32& inout_count) noexcept;
+    using LoadCallback = void (*)(void* user, FParticleEmitterDef* defs, u32& inout_count) noexcept;
 
     /** 空のパネルを構築する (emitter list は空、未選択)。 */
     FParticleEditorPanel() noexcept = default;
@@ -215,7 +215,7 @@ public:
      * @param index 取得する emitter index。
      * @return emitter def への const ポインタ、範囲外なら nullptr。
      */
-    const ParticleEmitterDef* GetEmitterDef(i32 index) const noexcept;
+    const FParticleEmitterDef* GetEmitterDef(i32 index) const noexcept;
 
     /**
      * index 番目の emitter def を返す (mutable)。
@@ -224,7 +224,7 @@ public:
      * @param index 取得する emitter index。
      * @return emitter def へのポインタ、範囲外なら nullptr。
      */
-    ParticleEmitterDef* GetEmitterDefMutable(i32 index) noexcept;
+    FParticleEmitterDef* GetEmitterDefMutable(i32 index) noexcept;
 
     /**
      * Save callback を登録する。
@@ -261,10 +261,10 @@ public:
 
 private:
     /** 編集中の emitter def 群 (所有)。 */
-    TArray<ParticleEmitterDef> m_Emitters {};
+    TArray<FParticleEmitterDef> m_Emitters {};
 
     /**
-     * editor 専用の spread_radians 値 (ParticleEmitterDef に未配備の placeholder)。
+     * editor 専用の spread_radians 値 (FParticleEmitterDef に未配備の placeholder)。
      *
      * @details 長さは m_Emitters と同期する。実 emitter 実行時には未使用。
      */

@@ -11,7 +11,7 @@ ACS_TEST(ParticleEffect, BurstEmitsAndPoolClamps) {
     FParticleEffectSystem ps;
     ps.Init(64);
 
-    ParticleEmitterDef def;
+    FParticleEmitterDef def;
     def.lifetime_sec = 1.0f;
     def.burst_count  = 10.0f;
     const FEmitterHandle h = ps.CreateEmitter(def, {0, 0});
@@ -29,7 +29,7 @@ ACS_TEST(ParticleEffect, HugeBurstCountIsClampedToCapacity) {
     FParticleEffectSystem ps;
     ps.Init(64);
 
-    ParticleEmitterDef def;
+    FParticleEmitterDef def;
     def.lifetime_sec = 1.0f;
     // u32 範囲外の f32。修正前は f32→u32 の範囲外 cast (UB) + 数十億回の
     // 空ループでストールしていた。修正後は容量にクランプされ即完走する。

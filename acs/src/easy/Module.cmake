@@ -20,4 +20,5 @@ acs_module(
         Asset
         Render
         Audio
+        GameFramework
 )

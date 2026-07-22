@@ -98,7 +98,7 @@ void FDebugOverlay::AddWatch(const char* label, const char* value) noexcept {
             return;
         }
     }
-    Watch w;
+    FWatch w;
     w.label = label;
     w.value = value;
     m_Watches.PushBack(w);
@@ -128,7 +128,7 @@ u32 FDebugOverlay::WatchCount() const noexcept {
 }
 
 /** watch 配列の先頭ポインタと件数を返す (空なら nullptr)。 */
-const FDebugOverlay::Watch* FDebugOverlay::AllWatches(u32& out_count) const noexcept {
+const FDebugOverlay::FWatch* FDebugOverlay::AllWatches(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Watches.Size());
     if (m_Watches.Size() == 0u) return nullptr;
     return m_Watches.Data();

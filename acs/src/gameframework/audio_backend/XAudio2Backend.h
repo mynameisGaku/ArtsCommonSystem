@@ -126,7 +126,7 @@ public:
      * @param Pitch 周波数比 (1.0=等倍、範囲外は [0.25, 4.0] に clamp)。
      * @return 再生中 voice のハンドル (失敗時は kInvalidAudioVoice)。
      */
-    AudioVoiceHandle PlayOneShot(const AudioClipDesc& Clip,
+    FAudioVoiceHandle PlayOneShot(const FAudioClipDesc& Clip,
                                  f32 Volume,
                                  f32 Pitch) noexcept override;
 
@@ -139,7 +139,7 @@ public:
      * @param Pitch 周波数比 (1.0=等倍、範囲外は [0.25, 4.0] に clamp)。
      * @return 再生中 voice のハンドル (失敗時は kInvalidAudioVoice)。
      */
-    AudioVoiceHandle PlayLooped(const AudioClipDesc& Clip,
+    FAudioVoiceHandle PlayLooped(const FAudioClipDesc& Clip,
                                 f32 Volume,
                                 f32 Pitch) noexcept override;
 
@@ -149,7 +149,7 @@ public:
      * @details 無効ハンドル / 既に解放済 / ハンドル不一致 (古いハンドル) は no-op。
      * @param Voice 停止する voice のハンドル。
      */
-    void StopVoice(AudioVoiceHandle Voice) noexcept override;
+    void StopVoice(FAudioVoiceHandle Voice) noexcept override;
 
     /**
      * 指定 voice の音量を変更する。
@@ -158,7 +158,7 @@ public:
      * @param Voice 対象 voice のハンドル。
      * @param Volume 新しい音量 (0.0〜1.0、範囲外は clamp)。
      */
-    void SetVoiceVolume(AudioVoiceHandle Voice, f32 Volume) noexcept override;
+    void SetVoiceVolume(FAudioVoiceHandle Voice, f32 Volume) noexcept override;
 
     /** 全 voice を停止して slot を解放する (Init 前は no-op)。 */
     void StopAllVoices() noexcept override;
@@ -205,10 +205,10 @@ public:
      * XAudio2 / COM の重ヘッダを .cpp に閉じ込めるための pimpl。
      *
      * @details
-     * public に置くのは .cpp 内の自由関数 (PlayInternal 等) から Impl のメンバを
+     * public に置くのは .cpp 内の自由関数 (PlayInternal 等) から FImpl のメンバを
      * 直接触るため (acs::FAudioEngine と同じパターン)。定義は .cpp 側にある。
      */
-    struct Impl;
+    struct FImpl;
 
 private:
     /** lifecycle 排他ロック取得済みで全資源を解放する。 */
@@ -218,13 +218,13 @@ private:
     bool IsShutdownRequested() const noexcept;
 
     /** pimpl の寿命を Init/Shutdown と共有操作間で同期する。 */
-    mutable RwLock m_LifecycleLock;
+    mutable FRwLock m_LifecycleLock;
 
     /** 実行開始済み Shutdown 数。0 以外では新規共有操作を拒否する。 */
     TAtomic<u32> m_ShutdownRequests{0u};
 
     /** pimpl 本体 (Init で確保、Shutdown で解放。未 init は nullptr)。 */
-    Impl* m_Impl = nullptr;
+    FImpl* m_Impl = nullptr;
 };
 
 } // namespace acs::game

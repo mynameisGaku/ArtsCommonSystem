@@ -16,7 +16,7 @@
 
 namespace hellolights {
 
-class LightsScene {
+class FLightsScene {
 public:
     void Build() noexcept;
 
@@ -25,13 +25,13 @@ public:
     void Render(acs::FStandardShader&    shader,
                 acs::IRhiCommandList&   cl,
                 const acs::FCamera&      camera,
-                const acs::GpuMesh&     plane,
-                const acs::GpuMesh&     cube,
-                const acs::GpuMesh&     sphere,
+                const acs::FGpuMesh&     plane,
+                const acs::FGpuMesh&     cube,
+                const acs::FGpuMesh&     sphere,
                 acs::f32                time) noexcept;
 
 private:
-    acs::TArray<ObjectInst> m_Objects;
+    acs::TArray<FObjectInst> m_Objects;
 };
 
 } // namespace hellolights

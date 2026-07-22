@@ -7,12 +7,12 @@
 
 | 層 | クラス | 役割 |
 |----|--------|------|
-| 画面スタック | `FSceneManager` | `Scene` の push/pop/change。低レベル |
+| 画面スタック | `FSceneManager` | `FScene` の push/pop/change。低レベル |
 | フェード遷移 | `FGame::TransitionTo` / `FFadeTransition` | 暗転を挟んだ画面切替 |
 | 高レベル進行 | `FGameFlow` | Title/Menu/Gameplay… の論理状態マシン |
 | ポーズ | `FPauseDirector` | 複数理由の bit mask 管理 |
 | 跨ぎ状態 | `FGame::AppState<T>` | シーンを跨いで生きる 1 個の状態 |
-| 保存 | `FSaveSlot<T>` / `FSaveArchive` | 実ファイルへの POD 永続化 |
+| 保存 | `TSaveSlot<T>` / `FSaveArchive` | 実ファイルへの POD 永続化 |
 
 ---
 
@@ -25,23 +25,23 @@
 using namespace acs;
 using namespace acs::game;
 
-class TitleScene final : public Scene {
+class FTitleScene final : public FScene {
 public:
     void OnUpdate(f32 /*dt*/) noexcept override {
         // Space でゲーム本編へフェード遷移 (暗転中に切替)。
         // ※ 実際の入力取得は FSceneServices::Input() 等で行う (後述)
     }
-    void OnRender(RenderContext& /*rc*/) noexcept override { /* 描画 */ }
+    void OnRender(FRenderContext& /*rc*/) noexcept override { /* 描画 */ }
 };
 
-class MyGame final : public FGame {
+class FMyGame final : public FGame {
 protected:
-    TUniquePtr<Scene> InitialScene() noexcept override {
-        return MakeUnique<TitleScene>();   // 最初に push される Scene
+    TUniquePtr<FScene> InitialScene() noexcept override {
+        return MakeUnique<FTitleScene>();   // 最初に push される FScene
     }
 };
 
-ACS_GAME_MAIN(MyGame)
+ACS_GAME_MAIN(FMyGame)
 ```
 
 シーンの中からは `GetGame()`(FGame 参照)と `Scenes()`(FSceneManager 参照)に常にアクセスできます。
@@ -54,7 +54,7 @@ ACS_GAME_MAIN(MyGame)
 
 | メンバ | 説明 |
 |--------|------|
-| `InitialScene()` | **override 必須**。最初に push する `TUniquePtr<Scene>` を返す |
+| `InitialScene()` | **override 必須**。最初に push する `TUniquePtr<FScene>` を返す |
 | `Scenes()` | `FSceneManager&` を返す。push/pop/change の入口 |
 | `TransitionTo(next, out=0.3f, in=0.3f)` | フェードアウト→暗転中に切替→フェードインを 1 行で |
 | `Fade()` | 進行中フェードの `FFadeTransition&`。`IsActive()` で遷移中判定 |
@@ -63,19 +63,19 @@ ACS_GAME_MAIN(MyGame)
 | `SetTimeScale(s)` | `OnUpdate`/`OnFixedUpdate` の dt に乗算(ポーズ=0) |
 | `SetFixedTimestep(dt, max=8)` | 固定ステップ長と 1 フレーム最大ステップ数 |
 
-### Scene ライフサイクル (Scene.h) — すべて `noexcept`
+### FScene ライフサイクル (Scene.h) — すべて `noexcept`
 
 | フック | 呼ばれるタイミング |
 |--------|------------------|
-| `OnEnter()` | top に来た直後(新規 push / pop 復帰の両方)。アセット読込はここ |
+| `OnEnter()` | 新規 push / change で top に追加された直後。アセット読込はここ |
 | `OnExit()` | top から退場する直前(Change/Pop) |
 | `OnPause()` / `OnResume()` | 上に Push された / Pop で復帰した時 |
 | `OnUpdate(dt)` | 毎フレーム。dt は time_scale 反映済(秒) |
 | `OnFixedUpdate(fixed_dt)` | 固定刻み(物理向け) |
-| `OnRender(rc)` | 描画。`rc` は SpriteBatch/Font/CmdList を持つ |
+| `OnRender(rc)` | 描画。`rc` は `FSpriteBatch` / `FFont` / `IRhiCommandList` を配線する |
 | `OnEvent(e)` | 入力/ウィンドウイベント。top のみに届く |
 
-> 注: 上の表は素の `Scene` の API です。サンプル 58 が使う `FScene2D` は `Scene` 派生で、フックが `OnReady()`/`OnTick(dt)`/`OnDrawHud(rc, sb)` という別名・別粒度になります。どちらを継承するかでフック名が変わる点に注意。
+> 注: 上の表は素の `FScene` の API です。サンプル 58 が使う `FScene2D` は `FScene` 派生で、フックが `OnReady()`/`OnTick(dt)`/`OnDrawHud(rc, sb)` という別名・別粒度になります。どちらを継承するかでフック名が変わる点に注意。
 
 ### FSceneManager (SceneManager.h)
 
@@ -86,7 +86,7 @@ ACS_GAME_MAIN(MyGame)
 | `PopScene()` | top を pop(残り 1 枚以下なら何もせず警告)。新 top に `OnResume` |
 | `Top()` / `Depth()` / `IsEmpty()` | 状態取得 |
 
-**遷移は即時ではなく「次フレーム頭」で適用**されます。`OnUpdate` の途中でスタックを書き換えても安全。1 フレームに複数要求すると**後勝ち**。退場した Scene は GPU が参照中の可能性があるため **3 フレーム保持**してから破棄します。
+**遷移は即時ではなく「次フレーム頭」で適用**されます。`OnUpdate` の途中でスタックを書き換えても安全。1 フレームに複数要求すると**後勝ち**。退場した FScene は GPU が参照中の可能性があるため **3 フレーム保持**してから破棄します。
 
 ### FFadeTransition (FadeTransition.h)
 
@@ -94,7 +94,7 @@ ACS_GAME_MAIN(MyGame)
 
 | enum / メソッド | 説明 |
 |------|------|
-| `EFadeKind::{FadeIn, FadeOut, FadeInOut, CrossFade}` | フェード種別。FadeInOut が定番の暗転切替 |
+| `EFadeKind::{None, FadeIn, FadeOut, FadeInOut, CrossFade}` | フェード種別。FadeInOut が定番の暗転切替 |
 | `StartFade(kind, out=0.3f, in=0.3f, mid_pause=0.0f)` | 開始 |
 | `Tick(dt)` | 毎フレーム駆動 |
 | `IsActive()` / `IsMidPause()` | 遷移中 / 暗転待機中(=切替タイミング) |
@@ -104,11 +104,11 @@ ACS_GAME_MAIN(MyGame)
 
 ### FGameFlow (GameFlow.h) — 高レベル進行マシン
 
-`FSceneManager` より 1 段上で「いまゲームのどの段階か」を持ちます。両者は**独立**(FGameFlow は SceneManager に依存しない)。
+`FSceneManager` より 1 段上で「いまゲームのどの段階か」を持ちます。両者は**独立**(FGameFlow は FSceneManager に依存しない)。
 
 | enum / メソッド | 説明 |
 |------|------|
-| `EFlowState::{Splash, MainTitle, MainMenu, FSettings, Credits, Loading, Gameplay, PauseMenu, GameOver, ExitingGame}` | 10 状態固定 |
+| `EFlowState::{Splash, MainTitle, MainMenu, Settings, Credits, Loading, Gameplay, PauseMenu, GameOver, ExitingGame}` | 10 状態固定 |
 | `Init(initial=Splash)` | 10 スロット + 遷移許可テーブル構築。initial の OnEnter 即発火 |
 | `RequestTransition(to, fade_sec=0.3f)` | 遷移要求。不正遷移/遷移中の追加要求は no-op |
 | `Tick(dt)` | fade timer を進め、enter/exit コールバックを発火 |
@@ -124,7 +124,7 @@ ACS_GAME_MAIN(MyGame)
 
 | enum / メソッド | 説明 |
 |------|------|
-| `EPauseReason::{None, UserMenu, SystemMenu, FocusLost, Cinematic, FPhotoMode, NetworkSync, Custom1, Custom2}` | bit flag。`\|`/`&` 演算子あり |
+| `EPauseReason::{None, UserMenu, SystemMenu, FocusLost, Cinematic, PhotoMode, NetworkSync, Custom1, Custom2}` | bit flag。`\|`/`&` 演算子あり |
 | `Pause(reason)` / `Resume(reason)` | bit を立てる / 落とす(複合可) |
 | `IsPaused()` | 1 つでも立っていれば true |
 | `EffectiveTimeScale()` | ポーズ中=0、非ポーズ=`NormalTimeScale`。**自分で `FGame::SetTimeScale` に渡す** |
@@ -132,17 +132,22 @@ ACS_GAME_MAIN(MyGame)
 | `SetCallback(cb, user)` | bit が立った/落ちた瞬間にだけ発火 |
 | `Clear()` | 全 reason 解除(タイトルへ戻る時など) |
 
-### FSaveSlot&lt;T&gt; / FSaveArchive (SaveSlot.h / SaveArchive.h) — **実ファイル保存**
+列挙子は型名と異なり接頭辞を付けません。設定画面は
+`EFlowState::Settings`、フォトモード由来のポーズは
+`EPauseReason::PhotoMode` で表します。
+
+### TSaveSlot&lt;T&gt; / FSaveArchive (SaveSlot.h / SaveArchive.h) — **実ファイル保存**
 
 `T` は **trivially-copyable な POD** 限定。`.acssave`(24B ヘッダ + payload + CRC32)を Win32 直叩きで読み書きします。これは stub ではなく**実ディスク I/O**です。
 
 | メソッド | 説明 |
 |----------|------|
-| `Init(const wchar_t* path)` | ファイルパス設定(**ポインタのみ保持・コピーしない** → 寿命に注意) |
+| `TryInit(const wchar_t* path)` | パスを検証して内部へコピーする推奨 API。`TResult<void>`。失敗時も以前の設定を維持 |
+| `Init(const wchar_t* path)` | 互換 API。**ポインタのみ保持・コピーしない**ため、呼び出し側が寿命を保証する |
 | `Save(const T& data, version=1)` | `.acssave` 形式で保存。`TResult<void>` |
 | `Load(expected_version=1)` | 読み出し。`TResult<T>` |
 | `Exists()` | ファイル有無(未初期化なら常に false) |
-| `Delete()` | 削除(無ければ成功扱い・べき等) |
+| `Delete()` | 削除。無ければ成功扱い・べき等。`TResult<void>` |
 
 低レベルが欲しい時は `FSaveArchive::WriteToFile/ReadFromFile/PeekVersion/PeekPayloadSize`(static)を直接使えます。
 
@@ -167,20 +172,20 @@ void FTitleScene::OnTick(f32 /*dt*/) noexcept {
 }
 ```
 
-`Scene` 派生なら `OnUpdate` から同じく呼べます。フェード overlay は **FGame が描画する**ので、切替先シーンで重ねてフェードしないこと。
+`FScene` 派生なら `OnUpdate` から同じく呼べます。フェード overlay は **FGame が描画する**ので、切替先シーンで重ねてフェードしないこと。
 
 ### 2. モーダルを重ねる(ポーズメニュー)
 
 `ChangeScene` ではなく `PushScene` を使うと下のシーンが残り、`PopScene` で戻れます。
 
 ```cpp
-void GameplayScene::OnUpdate(f32 dt) noexcept {
+void FGameplayScene::OnUpdate(f32 dt) noexcept {
     if (Services().Input().IsPressed(kPause)) {
-        Scenes().PushScene(MakeUnique<PauseMenuScene>());  // Gameplay は残る → OnPause
+        Scenes().PushScene(MakeUnique<FPauseMenuScene>());  // Gameplay は残る → OnPause
     }
 }
-// PauseMenuScene 側で閉じるとき:
-void PauseMenuScene::OnUpdate(f32 dt) noexcept {
+// FPauseMenuScene 側で閉じるとき:
+void FPauseMenuScene::OnUpdate(f32 dt) noexcept {
     if (Services().Input().IsPressed(kResume)) {
         Scenes().PopScene();                                // Gameplay が OnResume
     }
@@ -192,13 +197,13 @@ void PauseMenuScene::OnUpdate(f32 dt) noexcept {
 ハイスコアやプレイヤープロファイルなど「シーンを切り替えても消えてほしくない」1 個の状態。
 
 ```cpp
-struct PlayerProfile { acs::u32 hi_score = 0; };
+struct FPlayerProfile { acs::u32 hi_score = 0; };
 
 // 起動時 (FGame::OnStart や最初のシーンの OnEnter で 1 回):
-GetGame().EmplaceAppState<PlayerProfile>();
+GetGame().EmplaceAppState<FPlayerProfile>();
 
 // 任意のシーンから:
-if (auto* prof = GetGame().AppState<PlayerProfile>()) {
+if (auto* prof = GetGame().AppState<FPlayerProfile>()) {
     if (score > prof->hi_score) prof->hi_score = score;
 }
 ```
@@ -211,23 +216,27 @@ RTTI 不使用で型 ID を管理するため、`AppState<別の型>()` は安�
 
 ```cpp
 // 型 (GameTypes.h)
-struct HighScore { acs::u64 best_score = 0; acs::u64 timestamp = 0; };
-static_assert(__is_trivially_copyable(HighScore), "POD only");
+struct FHighScore { acs::u64 best_score = 0; acs::u64 timestamp = 0; };
+static_assert(__is_trivially_copyable(FHighScore), "POD only");
 
 inline constexpr wchar_t kSaveFile[] = L"hello_full_game_highscore.acssave";
 
-// 起動時にロード (FullGameApp::OnStart)
-m_HighscoreSlot.Init(kSaveFile);
-if (m_HighscoreSlot.Exists()) {
-    auto r = m_HighscoreSlot.Load();              // TResult<HighScore>
+// 起動時にロード (FFullGameApp::OnStart)。
+// サンプル 38 の Init(kSaveFile) も static 配列なので安全だが、
+// 新規コードでは所有コピーする TryInit を基本にする。
+auto init = m_HighscoreSlot.TryInit(kSaveFile);
+if (init.IsErr()) {
+    ACS_LOG_WARN("save slot init failed: %s", init.Error().message);
+} else if (m_HighscoreSlot.Exists()) {
+    auto r = m_HighscoreSlot.Load();              // TResult<FHighScore>
     if (r.IsOk()) m_Highscore = r.Value();
     else ACS_LOG_WARN("load failed: %s", r.Error().message);
 } else {
     ACS_LOG_INFO("first run, no save yet");
 }
 
-// ベスト更新時だけ保存 (FullGameApp::SaveHighScoreIfBetter)
-void FullGameApp::SaveHighScoreIfBetter(u64 final_score) noexcept {
+// ベスト更新時だけ保存 (FFullGameApp::SaveHighScoreIfBetter)
+void FFullGameApp::SaveHighScoreIfBetter(u64 final_score) noexcept {
     if (final_score <= m_Highscore.best_score) return;
     m_Highscore.best_score = final_score;
     auto r = m_HighscoreSlot.Save(m_Highscore);   // 実ディスクへ書込
@@ -244,7 +253,8 @@ m_Flow.Init(EFlowState::Splash);
 m_Flow.RequestTransition(EFlowState::MainTitle, 0.0f);  // fade_sec=0 → 即時
 // ... 毎フレーム:
 m_Flow.Tick(dt);
-if (input.JustPressed(EKey::Enter) && m_Flow.CurrentState() == EFlowState::MainTitle) {
+if (FInput::IsKeyPressed(EKey::Enter) &&
+    m_Flow.CurrentState() == EFlowState::MainTitle) {
     m_Flow.RequestTransition(EFlowState::Gameplay, 0.5f);
 }
 if (m_Flow.IsTransitioning()) {
@@ -259,21 +269,23 @@ if (m_Flow.IsTransitioning()) {
 - **遷移は次フレーム頭で適用**。`Change/Push/Pop` を呼んでも即座には切り替わらない。同フレームに複数要求すると後勝ち。`OnUpdate` 内で安全にスタックを書き換えられるのはこのため。
 - **`TransitionTo` の描画は FGame 持ち**。切替先シーンで二重にフェードを描かない。フェードは time_scale の影響を受けず**実時間で進む**(ポーズ中でも遷移は進む)。
 - **遷移中は入力をガード**。`if (GetGame().Fade().IsActive()) return;` を入れないと暗転中に二重遷移しがち(サンプル 58 の定番パターン)。
-- **`Scene` と `FScene2D` でフック名が違う**。素の `Scene` は `OnEnter/OnUpdate/OnRender/OnExit`、`FScene2D` は `OnReady/OnTick/OnDrawHud`。継承元を確認すること。
-- **`Scene::OnPause/OnResume` は Push/Pop でのみ呼ばれる**。`ChangeScene` は pause/resume を呼ばない(退場側は `OnExit`、新 top は `OnEnter`)。
-- **`FSaveSlot::Init` はパス文字列をコピーしない**(ポインタ保持)。`static` / メンバの `constexpr wchar_t[]` など**寿命がスロット以上の wchar_t 列**を渡すこと。一時バッファを渡すと dangling。
-- **`Save` は atomic ではない**。`CREATE_ALWAYS` で truncate 書込なので途中で電源断すると中途半端なファイルが残り得る。電源断耐性が要るなら tmp file → rename を自前で。`Load` 側は CRC32 で破損を検知し `kSubChecksumFail` を返す。
+- **`FScene` と `FScene2D` でフック名が違う**。素の `FScene` は `OnEnter/OnUpdate/OnRender/OnExit`、`FScene2D` は `OnReady/OnTick/OnDrawHud`。継承元を確認すること。
+- **`FScene::OnPause/OnResume` は Push/Pop でのみ呼ばれる**。`ChangeScene` は pause/resume を呼ばない(退場側は `OnExit`、新 top は `OnEnter`)。
+- **新規コードは `TSaveSlot::TryInit` を優先**。パスを検証して所有コピーし、空・長すぎるパスや OOM を `TResult<void>` で返します。失敗時は以前のパスを変えません。互換 API の `Init` はコピーしないため、`static` / メンバの `constexpr wchar_t[]` など**寿命がスロット以上の文字列**だけを渡してください。
+- **`Save` は atomic replace**。同一ディレクトリの一時ファイルへ完全書込・flush 後に置換するため、途中失敗では既存ファイルを保持する。`Load` 側はサイズ完全一致と CRC32 を検証し、失敗時に呼び出し側の値を変更しない。
 - **`TResult` の `Value()`/`Error()` は誤用するとアサートで停止**。必ず `IsOk()`/`IsErr()` で分岐してから読む。
-- **`FSaveSlot<T>` の `T` は POD 限定**。ポインタや非トリビアルなメンバ(動的配列・文字列)を含む構造体を memcpy 保存してはいけない。
+- **`TSaveSlot<T>` の `T` は trivially-copyable 限定**。ポインタは型制約を通っても参照先を永続化できないため、動的配列・文字列・プロセス固有アドレスを含めず、固定レイアウトの値だけを使う。
 - **`FPauseDirector` は値を返すだけ**。`EffectiveTimeScale()` を取得して自分で `GetGame().SetTimeScale(...)` を呼ぶ必要がある(モジュールが FGame に依存しない設計)。
 - **`FGameFlow` は遷移中の追加要求を無視**(後勝ちしない)。現遷移を完了させてから次を受ける。不正遷移(許可テーブル外)も no-op。
-- **`FSettings::Save/Load` は実装済み**(INI 風テキスト、`.tmp`→`MoveFileExW` の atomic write)。`SetI32/GetI32/SetF32/SetBool/SetString/...` の型付き key-value を `Save(L"...ini")` でディスクへ、`Load(L"...ini")` で復元(ファイルが無ければ `Err` → 既定値のまま)。検証 = `62`(round-trip) / `63`(ハイスコアを保存→次回起動でロード)。整数 1〜数個の設定/スコアなら最短、POD をまとめて残すゲームセーブ全般は `FSaveSlot<T>`。
+- **`FSettings::Save/Load` は実装済み**(INI 風テキスト、`.tmp`→`MoveFileExW` の atomic write)。`SetI32/GetI32/SetF32/SetBool/SetString/...` の型付き key-value を `Save(L"...ini")` でディスクへ、`Load(L"...ini")` で復元(ファイルが無ければ `Err` → 既定値のまま)。検証 = `62`(round-trip) / `63`(ハイスコアを保存→次回起動でロード)。整数 1〜数個の設定/スコアなら最短、POD をまとめて残すゲームセーブ全般は `TSaveSlot<T>`。
 
 ---
 
 ## 動くサンプル
 
 - **`acs/samples/58_HelloTilemap/TilemapDemo.cpp`** — `FGame::TransitionTo` による FadeInOut 遷移(Title ⇄ Level)。`GetGame().Fade().IsActive()` での入力ガード。`FScene2D` 派生・`OnReady/OnTick/OnDrawHud`。
-- **`acs/samples/38_HelloFullGame/`** — フルゲーム構成。`FSaveSlot<HighScore>` の実ファイル・ラウンドトリップ(`FullGameApp.cpp` の `OnStart` でロード / `SaveHighScoreIfBetter` で保存)、`FGameFlow` の進行管理、`Scene` 派生の `ChangeScene`(`GameplayScene.cpp` → `GameOverScene.cpp` → `TitleScene`)。POD 定義は `GameTypes.h`。
-- **`acs/samples/63_HelloVerticalSlice/main.cpp`** — **縦スライスの完結例**。`FScene2D` 派生の Title/Play/GameOver を `ChangeScene` で遷移、Pause は Play 内 state でゲームを背後に凍結。`FSettings` でハイスコアを INI 保存→次回起動でロード(`OnStart` で `Load`、`GameOverScene::OnReady` で `SubmitScore`)。UI(`FUiLayer`)・atlas(`FSpritePack`)・tilemap・collide-and-slide(OBB 含む)を 1 本に統合。全 Y-down。
-- ヘッダ実物: `acs/src/gameframework/{Game,SceneManager,Scene,FadeTransition,GameFlow,PauseDirector,AppState,SaveSlot,SaveArchive}.h`
+- **`acs/samples/38_HelloFullGame/`** — フルゲーム構成。`TSaveSlot<FHighScore>` の実ファイル・ラウンドトリップ(`FullGameApp.cpp` の `OnStart` でロード / `SaveHighScoreIfBetter` で保存)、`FGameFlow` の進行管理、`FScene` 派生の `ChangeScene`(`GameplayScene.cpp` → `GameOverScene.cpp` → `TitleScene.cpp`)。POD 定義は `GameTypes.h`。
+- **`acs/samples/63_HelloVerticalSlice/main.cpp`** — **縦スライスの完結例**。`FScene2D` 派生の Title/Play/GameOver を `ChangeScene` で遷移、Pause は Play 内 state でゲームを背後に凍結。`FSettings` でハイスコアを INI 保存→次回起動でロード(`OnStart` で `Load`、`FGameOverScene::OnReady` で `SubmitScore`)。UI(`FUiLayer`)・atlas(`FSpritePack`)・tilemap・collide-and-slide(OBB 含む)を 1 本に統合。全 Y-down。
+- ヘッダ実物: `acs/src/gameframework/Game.h` / `SceneManager.h` / `Scene.h` /
+  `FadeTransition.h` / `GameFlow.h` / `PauseDirector.h` / `AppState.h` /
+  `SaveSlot.h` / `SaveArchive.h`

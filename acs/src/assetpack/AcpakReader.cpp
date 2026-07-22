@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS FAssetPack — FAcpakReader 実装 (Win32 I/O + CRC32 検証)
+// ACS AssetPack — FAcpakReader 実装 (Win32 I/O + CRC32 検証)
 // -----------------------------------------------------------------------------
 // 実装範囲:
 //   ・magic / version / flags 検証
@@ -22,6 +22,7 @@
 
 #include "foundation/Platform.h" // <windows.h> を 1 箇所に隠す
 #include "foundation/Log.h"
+#include "foundation/Move.h"
 #include "memory/Memory.h" // MemCopy / MemSet
 #include "threading/ScopedLock.h"
 
@@ -169,6 +170,67 @@ int CompareW(const wchar_t* a, const wchar_t* b) noexcept
     return static_cast<int>(*a) - static_cast<int>(*b);
 }
 
+bool EqualPathUnits(const wchar_t* Left, usize LeftLength,
+                    const wchar_t* Right, usize RightLength) noexcept
+{
+    if (LeftLength != RightLength) return false;
+    for (usize Index = 0; Index < LeftLength; ++Index) {
+        if (Left[Index] != Right[Index]) return false;
+    }
+    return true;
+}
+
+bool IsValidVirtualPath(const wchar_t* Path, usize Length) noexcept
+{
+    if (Path == nullptr || Length == 0 || Path[0] == L'/' || Path[Length - 1u] == L'/') {
+        return false;
+    }
+
+    usize SegmentStart = 0;
+    for (usize Index = 0; Index < Length; ++Index) {
+        const wchar_t Character = Path[Index];
+        if (Character == L'\0' || Character < 0x20 || Character == L'\\' || Character == L':') {
+            return false;
+        }
+        if (Character >= 0xD800 && Character <= 0xDBFF) {
+            if (Index + 1u >= Length || Path[Index + 1u] < 0xDC00 || Path[Index + 1u] > 0xDFFF) {
+                return false;
+            }
+            ++Index;
+            continue;
+        }
+        if (Character >= 0xDC00 && Character <= 0xDFFF) {
+            return false;
+        }
+        if (Character != L'/') continue;
+
+        const usize SegmentLength = Index - SegmentStart;
+        if (SegmentLength == 0 ||
+            (SegmentLength == 1 && Path[SegmentStart] == L'.') ||
+            (SegmentLength == 2 && Path[SegmentStart] == L'.' && Path[SegmentStart + 1u] == L'.')) {
+            return false;
+        }
+        SegmentStart = Index + 1u;
+    }
+
+    const usize LastLength = Length - SegmentStart;
+    return !((LastLength == 1u && Path[SegmentStart] == L'.') ||
+             (LastLength == 2u && Path[SegmentStart] == L'.' &&
+              Path[SegmentStart + 1u] == L'.'));
+}
+
+bool SameFileSnapshot(const BY_HANDLE_FILE_INFORMATION& Left,
+                      const BY_HANDLE_FILE_INFORMATION& Right) noexcept
+{
+    return Left.dwVolumeSerialNumber == Right.dwVolumeSerialNumber &&
+           Left.nFileIndexHigh == Right.nFileIndexHigh &&
+           Left.nFileIndexLow == Right.nFileIndexLow &&
+           Left.nFileSizeHigh == Right.nFileSizeHigh &&
+           Left.nFileSizeLow == Right.nFileSizeLow &&
+           Left.ftLastWriteTime.dwHighDateTime == Right.ftLastWriteTime.dwHighDateTime &&
+           Left.ftLastWriteTime.dwLowDateTime == Right.ftLastWriteTime.dwLowDateTime;
+}
+
 } // namespace
 
 /** DefaultAllocator で空の Reader を構築する。 */
@@ -190,7 +252,7 @@ FAcpakReader::~FAcpakReader() noexcept
 /** ハンドルを閉じ、文字列 pool + entry 配列 + 鍵情報を解放/0 クリアする。 */
 void FAcpakReader::Close() noexcept
 {
-    ScopedExclusiveLock Lock(m_LifecycleLock);
+    FScopedExclusiveLock Lock(m_LifecycleLock);
     CloseUnlocked();
 }
 
@@ -215,7 +277,7 @@ void FAcpakReader::CloseUnlocked() noexcept
 /** 暗号化 pak の復号鍵を内部にコピーし、鍵設定済みフラグを立てる。 */
 void FAcpakReader::SetKey(const FAcpakKey& Key) noexcept
 {
-    ScopedExclusiveLock Lock(m_LifecycleLock);
+    FScopedExclusiveLock Lock(m_LifecycleLock);
     MemCopy(m_Key.bytes, Key.bytes, sizeof(m_Key.bytes));
     m_HasKey = true;
 }
@@ -223,23 +285,70 @@ void FAcpakReader::SetKey(const FAcpakKey& Key) noexcept
 /** `.acpak` を開き、header と file table を読み出す (失敗時は Close 相当に戻す)。 */
 TResult<void> FAcpakReader::Open(const wchar_t* FilePath) noexcept
 {
-    ScopedExclusiveLock Lock(m_LifecycleLock);
+    FScopedExclusiveLock Lock(m_LifecycleLock);
 
-    // 二度目以降の Open は前回を黙って閉じる (gameframework の Mount 流儀)。
-    CloseUnlocked();
-
-    if (FilePath == nullptr) {
-        return ACS_ERR(IO, kAcpakSubIOFailure, "FAcpakReader::Open: file_path is null");
+    // 新しいファイルは独立した Reader に完全に構築する。失敗時は現在の
+    // handle / manifest / key を一切変更しない。
+    FAcpakReader Staged(*m_Entries.GetAllocator());
+    if (m_HasKey) {
+        MemCopy(Staged.m_Key.bytes, m_Key.bytes, sizeof(m_Key.bytes));
+        Staged.m_HasKey = true;
+    }
+    const auto Result = Staged.OpenIntoEmptyUnlocked(FilePath);
+    if (Result.IsErr()) {
+        return Result.Error();
     }
 
-    const HANDLE Handle = ::CreateFileW(FilePath, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+    CloseUnlocked();
+    m_FileHandle = Staged.m_FileHandle;
+    Staged.m_FileHandle = nullptr;
+    m_FileSize = Staged.m_FileSize;
+    Staged.m_FileSize = 0;
+    m_Flags = Staged.m_Flags;
+    Staged.m_Flags = 0;
+    m_TableOffset = Staged.m_TableOffset;
+    Staged.m_TableOffset = 0;
+    m_Entries = Move(Staged.m_Entries);
+    m_StringPool = Move(Staged.m_StringPool);
+    MemCopy(m_Key.bytes, Staged.m_Key.bytes, sizeof(m_Key.bytes));
+    m_HasKey = Staged.m_HasKey;
+    MemSet(Staged.m_Key.bytes, 0, sizeof(Staged.m_Key.bytes));
+    Staged.m_HasKey = false;
+    return Ok();
+}
+
+TResult<void> FAcpakReader::OpenIntoEmptyUnlocked(const wchar_t* FilePath) noexcept
+{
+    if (FilePath == nullptr || FilePath[0] == L'\0') {
+        return ACS_ERR(IO, kAcpakSubBadPath, "FAcpakReader::Open: file_path is null or empty");
+    }
+    usize FilePathLength = 0;
+    while (FilePathLength <= kAcpakMaxOutputPathLength &&
+           FilePath[FilePathLength] != L'\0') {
+        ++FilePathLength;
+    }
+    if (FilePathLength > kAcpakMaxOutputPathLength) {
+        return ACS_ERR(IO, kAcpakSubBadPath,
+                       "FAcpakReader::Open: file_path exceeds limit");
+    }
+
+    const HANDLE Handle = ::CreateFileW(FilePath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE,
+                                        nullptr, OPEN_EXISTING,
                                         FILE_ATTRIBUTE_NORMAL, nullptr);
     if (Handle == INVALID_HANDLE_VALUE) {
         return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakReader::Open: CreateFileW failed", ::GetLastError());
     }
 
+    BY_HANDLE_FILE_INFORMATION Before{};
+    if (!::GetFileInformationByHandle(Handle, &Before)) {
+        const DWORD Error = ::GetLastError();
+        ::CloseHandle(Handle);
+        return ACS_ERR_OS(IO, kAcpakSubIOFailure,
+                          "FAcpakReader::Open: initial file snapshot failed", Error);
+    }
+
     LARGE_INTEGER FileSize{};
-    if (!::GetFileSizeEx(Handle, &FileSize)) {
+    if (!::GetFileSizeEx(Handle, &FileSize) || FileSize.QuadPart < 0) {
         const DWORD Error = ::GetLastError();
         ::CloseHandle(Handle);
         return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakReader::Open: GetFileSizeEx failed", Error);
@@ -252,6 +361,19 @@ TResult<void> FAcpakReader::Open(const wchar_t* FilePath) noexcept
     if (Result.IsErr()) {
         CloseUnlocked();
         return Result.Error();
+    }
+
+    BY_HANDLE_FILE_INFORMATION After{};
+    if (!::GetFileInformationByHandle(Handle, &After)) {
+        const DWORD Error = ::GetLastError();
+        CloseUnlocked();
+        return ACS_ERR_OS(IO, kAcpakSubIOFailure,
+                          "FAcpakReader::Open: final file snapshot failed", Error);
+    }
+    if (!SameFileSnapshot(Before, After)) {
+        CloseUnlocked();
+        return ACS_ERR(IO, kAcpakSubFileChanged,
+                       "FAcpakReader::Open: file changed while manifest was read");
     }
     return Ok();
 }
@@ -290,9 +412,9 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept
     const u32 Version = ReadU32LE(HeaderBytes + 8);
     const u32 HeaderFlags = ReadU32LE(HeaderBytes + 12);
     const u32 FileCount = ReadU32LE(HeaderBytes + 16);
-    // padding (offset 20) は 0 で予約
+    const u32 HeaderPadding = ReadU32LE(HeaderBytes + 20);
     const u64 FileTableOffset = ReadU64LE(HeaderBytes + 24);
-    // reserved (offset 32) は 0 で予約
+    const u32 HeaderReserved = ReadU32LE(HeaderBytes + 32);
 
     if (Version != kAcpakVersion) {
         ACS_LOG_WARN("FAcpakReader::Open: version mismatch (file=%u, expected=%u)", Version, kAcpakVersion);
@@ -303,6 +425,10 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept
     const u32 KnownFlags = static_cast<u32>(AcpakFlagEncrypted) | static_cast<u32>(AcpakFlagCompressed);
     if ((HeaderFlags & ~KnownFlags) != 0) {
         return ACS_ERR(Asset, kAcpakSubBadFlags, "FAcpakReader::Open: unknown flag bits in header");
+    }
+    if (HeaderPadding != 0 || HeaderReserved != 0) {
+        return ACS_ERR(Asset, kAcpakSubBadSchema,
+                       "FAcpakReader::Open: non-zero reserved header field");
     }
 
     if (FileTableOffset < kAcpakHeaderDiskSize || FileTableOffset > m_FileSize) {
@@ -324,6 +450,10 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept
 
     // file_count == 0 ならテーブル読み出しは不要 (空 pak)。
     if (FileCount == 0) {
+        if (FileTableOffset != m_FileSize) {
+            return ACS_ERR(Asset, kAcpakSubBadSchema,
+                           "FAcpakReader::Open: empty manifest has trailing data");
+        }
         return Ok();
     }
 
@@ -331,8 +461,9 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept
     //              `paths_temp` (TArray<wchar_t>) に連結する -----------------
     // 内部表現: entry のうち path だけ後で resolve するので、index 配列を別途
     // 保持する。encrypted pak のときは追加で cipher_nonce/tag も読む。
-    struct RawEntry {
+    struct FRawEntry {
         usize PathPoolOffset;
+        usize PathLength;
         u64 Offset;
         u64 UncompressedSize;
         u64 StoredSize;
@@ -341,7 +472,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept
         u8 CipherTag[16];
     };
 
-    TArray<RawEntry> Raws(*m_Entries.GetAllocator());
+    TArray<FRawEntry> Raws(*m_Entries.GetAllocator());
     TArray<wchar_t> PathsTemporary(*m_StringPool.GetAllocator());
     if (!Raws.TryReserve(FileCount)) {
         return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakReader::Open: entry metadata allocation failed");
@@ -363,8 +494,9 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept
 
         // path 長を許容範囲に制限する (悪意のあるアーカイブで OOM を防ぐ)。
         // Win32 long path 対応のため 4096 wchar_t = 8KB まで許容する。
-        if (PathLength > kAcpakMaxPathLength) {
-            return ACS_ERR(IO, kAcpakSubBadSize, "FAcpakReader::Open: path_len too large (>4096)");
+        if (PathLength == 0 || PathLength > kAcpakMaxPathLength) {
+            return ACS_ERR(IO, kAcpakSubBadPath,
+                           "FAcpakReader::Open: path_len is zero or exceeds limit");
         }
 
         const u64 PathBytes = static_cast<u64>(PathLength) * sizeof(wchar_t);
@@ -395,8 +527,20 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept
             if (!ReadAt(Handle, Cursor, PathsTemporary.Data() + PreviousSize, PathBytes, Error, m_IoLock)) {
                 return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakReader::Open: ReadFile (path) failed", Error);
             }
-        } else if (PathsTemporary.Size() >= kAcpakMaxPathPoolBytes / sizeof(wchar_t)) {
-            return ACS_ERR(IO, kAcpakSubBadSize, "FAcpakReader::Open: path pool exceeds limit");
+        }
+
+        const wchar_t* const CurrentPath = PathsTemporary.Data() + PoolOffset;
+        if (!IsValidVirtualPath(CurrentPath, PathLength)) {
+            return ACS_ERR(Asset, kAcpakSubBadPath,
+                           "FAcpakReader::Open: invalid virtual path");
+        }
+        for (usize PriorIndex = 0; PriorIndex < Raws.Size(); ++PriorIndex) {
+            const FRawEntry& Prior = Raws[PriorIndex];
+            if (EqualPathUnits(CurrentPath, PathLength,
+                               PathsTemporary.Data() + Prior.PathPoolOffset, Prior.PathLength)) {
+                return ACS_ERR(Asset, kAcpakSubDuplicatePath,
+                               "FAcpakReader::Open: duplicate virtual path");
+            }
         }
         if (!PathsTemporary.TryPushBack(L'\0')) {
             return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakReader::Open: path terminator allocation failed");
@@ -412,8 +556,9 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept
         }
         Cursor += TailRead;
 
-        RawEntry Raw{};
+        FRawEntry Raw{};
         Raw.PathPoolOffset = PoolOffset;
+        Raw.PathLength = PathLength;
         Raw.Offset = ReadU64LE(Tail + 0);
         Raw.UncompressedSize = ReadU64LE(Tail + 8);
         Raw.StoredSize = ReadU64LE(Tail + 16);
@@ -430,8 +575,11 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept
         // (例: offset=0xFFFF...FF00, size_stored=0x200) が境界チェックをすり抜け、
         // ReadFile で任意オフセットへ seek して OOB read する。減算側で評価して
         // overflow を回避する: size_stored > file_size || offset > file_size - size_stored。
-        if (Raw.StoredSize > m_FileSize || Raw.Offset > m_FileSize - Raw.StoredSize) {
-            return ACS_ERR(IO, kAcpakSubBadSize, "FAcpakReader::Open: entry data range out of file");
+        if (Raw.StoredSize > FileTableOffset ||
+            Raw.Offset < kAcpakHeaderDiskSize ||
+            Raw.Offset > FileTableOffset - Raw.StoredSize) {
+            return ACS_ERR(IO, kAcpakSubBadSize,
+                           "FAcpakReader::Open: entry data range crosses header or manifest");
         }
         // stored != uncompressed は AcpakFlagCompressed のときだけ許容。
         // Compressed 立ってないのに stored != uncompressed なら破損アーカイブ。
@@ -439,9 +587,26 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept
             return ACS_ERR(Asset, kAcpakSubBadSize, "FAcpakReader::Open: stored != uncompressed but flag clear");
         }
 
+        if (Raw.StoredSize > 0) {
+            for (usize PriorIndex = 0; PriorIndex < Raws.Size(); ++PriorIndex) {
+                const FRawEntry& Prior = Raws[PriorIndex];
+                if (Prior.StoredSize > 0 &&
+                    Raw.Offset < Prior.Offset + Prior.StoredSize &&
+                    Prior.Offset < Raw.Offset + Raw.StoredSize) {
+                    return ACS_ERR(Asset, kAcpakSubBadSize,
+                                   "FAcpakReader::Open: entry data ranges overlap");
+                }
+            }
+        }
+
         if (!Raws.TryPushBack(Raw)) {
             return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakReader::Open: entry metadata allocation failed");
         }
+    }
+
+    if (Cursor != m_FileSize) {
+        return ACS_ERR(Asset, kAcpakSubBadSchema,
+                       "FAcpakReader::Open: manifest has trailing unknown data");
     }
 
     // ---- Pass 2: m_StringPool を最終サイズで Resize し、paths_temp を
@@ -460,7 +625,7 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept
     }
     const wchar_t* PoolBase = m_StringPool.Data();
     for (usize Index = 0; Index < Raws.Size(); ++Index) {
-        const RawEntry& Raw = Raws[Index];
+        const FRawEntry& Raw = Raws[Index];
         FAcpakFileEntry Entry{};
         Entry.path = PoolBase + Raw.PathPoolOffset;
         Entry.offset = Raw.Offset;
@@ -481,28 +646,28 @@ TResult<void> FAcpakReader::LoadHeaderAndTable() noexcept
 /** index 番目の entry を返す (範囲外 / 未 Open なら nullptr)。 */
 bool FAcpakReader::IsOpen() const noexcept
 {
-    ScopedSharedLock Lock(m_LifecycleLock);
+    FScopedSharedLock Lock(m_LifecycleLock);
     return m_FileHandle != nullptr;
 }
 
 /** 現在開いている pak の entry 数を返す。 */
 u32 FAcpakReader::FileCount() const noexcept
 {
-    ScopedSharedLock Lock(m_LifecycleLock);
+    FScopedSharedLock Lock(m_LifecycleLock);
     return static_cast<u32>(m_Entries.Size());
 }
 
 /** header.flags を返す。 */
 u32 FAcpakReader::Flags() const noexcept
 {
-    ScopedSharedLock Lock(m_LifecycleLock);
+    FScopedSharedLock Lock(m_LifecycleLock);
     return m_Flags;
 }
 
 /** index 番目の entry を返す (範囲外 / 未 Open なら nullptr)。 */
 const FAcpakFileEntry* FAcpakReader::GetEntry(u32 Index) const noexcept
 {
-    ScopedSharedLock Lock(m_LifecycleLock);
+    FScopedSharedLock Lock(m_LifecycleLock);
     if (m_FileHandle == nullptr || static_cast<usize>(Index) >= m_Entries.Size()) {
         return nullptr;
     }
@@ -512,7 +677,7 @@ const FAcpakFileEntry* FAcpakReader::GetEntry(u32 Index) const noexcept
 /** 仮想パスから entry を線形探索で探す (無い / 未 Open なら nullptr)。 */
 const FAcpakFileEntry* FAcpakReader::FindEntry(const wchar_t* Path) const noexcept
 {
-    ScopedSharedLock Lock(m_LifecycleLock);
+    FScopedSharedLock Lock(m_LifecycleLock);
     return FindEntryUnlocked(Path);
 }
 
@@ -533,7 +698,7 @@ const FAcpakFileEntry* FAcpakReader::FindEntryUnlocked(const wchar_t* Path) cons
 /** 仮想パスの復号 + 解凍後のバイト数を返す (未存在は kAcpakSubNotFound)。 */
 TResult<u64> FAcpakReader::GetUncompressedSize(const wchar_t* Path) const noexcept
 {
-    ScopedSharedLock Lock(m_LifecycleLock);
+    FScopedSharedLock Lock(m_LifecycleLock);
     if (m_FileHandle == nullptr) {
         return ACS_ERR(IO, kAcpakSubNotOpen, "FAcpakReader::GetUncompressedSize: pak not open");
     }
@@ -547,7 +712,7 @@ TResult<u64> FAcpakReader::GetUncompressedSize(const wchar_t* Path) const noexce
 /** 仮想パスのファイルを out_buffer に読み出す (復号 → 解凍 → CRC32 検証)。 */
 TResult<u64> FAcpakReader::ReadFile(const wchar_t* Path, void* OutBuffer, u64 BufferSize) noexcept
 {
-    ScopedSharedLock Lock(m_LifecycleLock);
+    FScopedSharedLock Lock(m_LifecycleLock);
     if (m_FileHandle == nullptr) {
         return ACS_ERR(IO, kAcpakSubNotOpen, "FAcpakReader::ReadFile: pak not open");
     }
@@ -594,6 +759,18 @@ TResult<u64> FAcpakReader::ReadFile(const wchar_t* Path, void* OutBuffer, u64 Bu
     //
     // tmp バッファは size_stored バイト確保する。
 
+    const usize FinalSize = static_cast<usize>(Entry->size_uncompressed);
+    if (static_cast<u64>(FinalSize) != Entry->size_uncompressed) {
+        return ACS_ERR(Asset, kAcpakSubBadSize,
+                       "FAcpakReader::ReadFile: output exceeds address space");
+    }
+    TArray<u8> Final(*m_StringPool.GetAllocator());
+    if (!Final.TryResize(FinalSize)) {
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory,
+                       "FAcpakReader::ReadFile: transactional output allocation failed");
+    }
+    void* const FinalDestination = Final.IsEmpty() ? nullptr : Final.Data();
+
     TArray<u8> Temporary(*m_StringPool.GetAllocator());
     void* StoredDestination = nullptr;
 
@@ -608,7 +785,7 @@ TResult<u64> FAcpakReader::ReadFile(const wchar_t* Path, void* OutBuffer, u64 Bu
         StoredDestination = Temporary.IsEmpty() ? nullptr : Temporary.Data();
     } else {
         // 非圧縮なら out_buffer 直接 (size_stored == size_uncompressed)
-        StoredDestination = OutBuffer;
+        StoredDestination = FinalDestination;
     }
 
     // ---- ディスク read -----------------------------------------------------
@@ -637,8 +814,9 @@ TResult<u64> FAcpakReader::ReadFile(const wchar_t* Path, void* OutBuffer, u64 Bu
         if (Entry->size_uncompressed > 0xFFFFFFFFu) {
             return ACS_ERR(Asset, kAcpakSubBadSize, "FAcpakReader::ReadFile: uncompressed size > 4GiB (LZ4 limit)");
         }
-        const auto DecompressResult = FAcpakLz4::Decompress(Temporary.Data(), static_cast<u32>(Entry->size_stored),
-                                                            static_cast<u8*>(OutBuffer), static_cast<u32>(BufferSize));
+        const auto DecompressResult = FAcpakLz4::Decompress(
+            Temporary.Data(), static_cast<u32>(Entry->size_stored),
+            Final.Data(), static_cast<u32>(Entry->size_uncompressed));
         if (DecompressResult.IsErr()) {
             return DecompressResult.Error();
         }
@@ -649,12 +827,15 @@ TResult<u64> FAcpakReader::ReadFile(const wchar_t* Path, void* OutBuffer, u64 Bu
     }
 
     // ---- CRC32 検証 (元の生バイトに対して) --------------------------------
-    const u32 ActualCrc = ComputeCrc32(OutBuffer, Entry->size_uncompressed);
+    const u32 ActualCrc = ComputeCrc32(FinalDestination, Entry->size_uncompressed);
     if (ActualCrc != Entry->crc32) {
         ACS_LOG_WARN("FAcpakReader::ReadFile: CRC mismatch (expected=0x%08x, actual=0x%08x)", Entry->crc32, ActualCrc);
         return ACS_ERR(Asset, kAcpakSubBadCrc, "FAcpakReader::ReadFile: CRC32 mismatch");
     }
 
+    if (FinalSize > 0) {
+        MemCopy(OutBuffer, Final.Data(), FinalSize);
+    }
     return TResult<u64>(OkInit, Entry->size_uncompressed);
 }
 

@@ -4,6 +4,7 @@
 #include "asset/MeshAsset.h"          // MeshVertex の input layout 用
 #include "math/Math.h"
 #include "foundation/Move.h"
+#include "foundation/Log.h"
 
 namespace acs {
 
@@ -80,6 +81,32 @@ ACS_FORCEINLINE FVec4 MulRowVec4(const FVec4& v, const FMat4& m) noexcept {
     };
 }
 
+/**
+ * 直交シャドウ投影をシャドウマップの texel grid にスナップする。
+ *
+ * @details
+ * カメラや cascade 中心が texel 未満だけ動いたとき light VP が連続的に揺れると、
+ * 固定したワールド面上でも影の境界がちらつく。world 原点の light clip 座標を
+ * 最寄り texel に丸め、その差だけ投影の平行移動成分を補正することで、投影を
+ * 1 texel 単位で安定させる。atlas でも cascade viewport の一辺は map_size なので
+ * cascade ごとに同じ計算を使える。
+ */
+ACS_FORCEINLINE void StabilizeOrthoProjection(const FMat4& light_view,
+                                              FMat4& light_proj,
+                                              u32 map_size) noexcept {
+    if (map_size == 0) return;
+
+    const FMat4 light_vp = light_view * light_proj;
+    const FVec4 origin   = MulRowVec4(FVec4{0, 0, 0, 1}, light_vp);
+    const f32 half_size  = static_cast<f32>(map_size) * 0.5f;
+    const f32 texel_x    = origin.x * half_size;
+    const f32 texel_y    = origin.y * half_size;
+
+    // row-vector 規約では clip-space translation は projection の第 4 行。
+    light_proj.m[3][0] += (Round(texel_x) - texel_x) / half_size;
+    light_proj.m[3][1] += (Round(texel_y) - texel_y) / half_size;
+}
+
 } // namespace
 
 /** 深度テクスチャ・キャスター VS・定数バッファ・depth-only パイプラインを生成する。 */
@@ -89,6 +116,9 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     if (cascade_count > kMaxCascades) cascade_count = kMaxCascades;
     m_Size          = size;
     m_CascadeCount = cascade_count;
+    m_Device        = &device;
+    m_CurrentCascade = 0;
+    BeginFrame();
 
     // 深度テクスチャ (SRV 可視)。
     // single mode (cascade_count=1): size × size
@@ -118,13 +148,17 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     cbd.size = 256;
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
-    auto lb_r = CreateRhiBuffer(device, cbd);
-    if (lb_r.IsErr()) return Err<void>(lb_r.Error());
-    m_LightCb = Move(lb_r.Value());
+    for (u32 cascade = 0; cascade < m_CascadeCount; ++cascade) {
+        auto lb_r = CreateRhiBuffer(device, cbd);
+        if (lb_r.IsErr()) return Err<void>(lb_r.Error());
+        m_LightCbs[cascade] = Move(lb_r.Value());
+    }
 
-    auto ob_r = CreateRhiBuffer(device, cbd);
-    if (ob_r.IsErr()) return Err<void>(ob_r.Error());
-    m_ObjectCb = Move(ob_r.Value());
+    // Keep the legacy post-Init CasterObjectCB() contract non-null per cascade.
+    for (u32 cascade = 0; cascade < m_CascadeCount; ++cascade) {
+        if (!EnsureCasterBuffer(cascade, 0))
+            return ACS_ERR(Render, 115, "FShadowMap: failed to create caster constant buffer");
+    }
 
     // 深度のみパイプライン。
     FPipelineDesc pd{};
@@ -141,7 +175,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     pd.texture_slots = 0;
     pd.cbuffer_names[0] = "LightFrame";
     pd.cbuffer_names[1] = "CasterObject";
-    pd.vertex_stride = sizeof(MeshVertex);
+    pd.vertex_stride = sizeof(FMeshVertex);
     pd.layout[0] = { "POSITION", 0, EFormat::R32G32B32_Float, 0  };
     pd.layout[1] = { "NORMAL",   0, EFormat::R32G32B32_Float, 16 };
     pd.layout[2] = { "TEXCOORD", 0, EFormat::R32G32_Float,    32 };
@@ -159,12 +193,51 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
 /** 確保した GPU リソースを解放し、サイズ・cascade 数を初期状態に戻す。 */
 void FShadowMap::Shutdown() noexcept {
     m_Pipeline.Reset();
-    m_ObjectCb.Reset();
-    m_LightCb.Reset();
+    for (u32 cascade = 0; cascade < kMaxCascades; ++cascade) {
+        for (u32 draw = 0; draw < kMaxCasterDrawsPerCascade; ++draw)
+            m_ObjectCbs[cascade][draw].Reset();
+    }
+    for (u32 i = 0; i < kMaxCascades; ++i) m_LightCbs[i].Reset();
     m_Vs.Reset();
     m_Depth.Reset();
+    m_Device        = nullptr;
     m_Size          = 0;
     m_CascadeCount = 1;
+    m_CurrentCascade = 0;
+    m_TotalCasterDrawCount = 0;
+    for (u32 cascade = 0; cascade < kMaxCascades; ++cascade) {
+        m_CurrentCasters[cascade] = 0;
+        m_CasterDrawCounts[cascade] = 0;
+        m_CasterOverflowed[cascade] = false;
+        m_CasterWarningIssued[cascade] = false;
+    }
+}
+
+/** Reset the CPU cursor; already-recorded GPU addresses remain immutable. */
+void FShadowMap::BeginFrame() noexcept {
+    m_TotalCasterDrawCount = 0;
+    for (u32 cascade = 0; cascade < kMaxCascades; ++cascade) {
+        m_CurrentCasters[cascade] = 0;
+        m_CasterDrawCounts[cascade] = 0;
+        m_CasterOverflowed[cascade] = false;
+        m_CasterWarningIssued[cascade] = false;
+    }
+}
+
+/** Lazily allocate a distinct RHI buffer for one caster draw. */
+bool FShadowMap::EnsureCasterBuffer(u32 cascade, u32 slot) noexcept {
+    if (cascade >= m_CascadeCount ||
+        slot >= kMaxCasterDrawsPerCascade || !m_Device) return false;
+    if (m_ObjectCbs[cascade][slot]) return true;
+
+    FBufferDesc desc{};
+    desc.size = 256;
+    desc.usage = EBufferUsage::Uniform;
+    desc.cpu_writable = true;
+    auto result = CreateRhiBuffer(*m_Device, desc);
+    if (result.IsErr()) return false;
+    m_ObjectCbs[cascade][slot] = Move(result.Value());
+    return true;
 }
 
 /** single cascade 用に光源の LookAt + ortho を組み、cascade 0 の light VP を更新する。 */
@@ -179,7 +252,8 @@ void FShadowMap::SetDirectionalLight(FVec3 light_dir, FVec3 center, f32 radius) 
     if (Abs(dir.y) > 0.95f) up = FVec3{0, 0, 1};
 
     const FMat4 view = FMat4::LookAtLH(light_pos, center, up);
-    const FMat4 proj = FMat4::OrthoLH(radius * 2.5f, radius * 2.5f, 0.0f, radius * 5.0f);
+    FMat4 proj = FMat4::OrthoLH(radius * 2.5f, radius * 2.5f, 0.0f, radius * 5.0f);
+    StabilizeOrthoProjection(view, proj, m_Size);
     m_LightVp[0] = view * proj;
     // 残りの cascade は同じ VP を入れて split を inf に (常に cascade 0 が当たる)
     for (u32 c = 1; c < kMaxCascades; ++c) {
@@ -188,7 +262,8 @@ void FShadowMap::SetDirectionalLight(FVec3 light_dir, FVec3 center, f32 radius) 
     }
     m_CascadeSplits[0] = 1e30f;   // single mode は cascade 0 が全範囲
 
-    if (m_LightCb) m_LightCb->Update(&m_LightVp[0], sizeof(FMat4));
+    m_CurrentCascade = 0;
+    if (m_LightCbs[0]) m_LightCbs[0]->Update(&m_LightVp[0], sizeof(FMat4));
 }
 
 /** CSM 用に frustum を分割し、各 cascade の bounding sphere から light VP を計算する。 */
@@ -198,8 +273,33 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
                                              f32 lambda) noexcept {
     if (lambda < 0.0f) lambda = 0.0f;
     if (lambda > 1.0f) lambda = 1.0f;
-    if (near_z < 1e-3f) near_z = 1e-3f;
-    if (far_z <= near_z) far_z = near_z + 1.0f;
+
+    // 呼び出し側が渡した near/far は「CSM を割り当てたい範囲」であり、projection が
+    // 実際に持つ clip range と一致するとは限らない。NDC z=0/1 を view space へ逆投影して
+    // 実 near/far を復元し、後段の corner 補間は必ずこの実範囲を基準にする。
+    // これにより、例えば projection=0.05..500 / requested=0.5..300 でも far=300 が
+    // frustum の 60% 地点へ正しく写り、500 までの巨大な範囲を誤って各 cascade に含めない。
+    const FMat4 inv_proj = Inverse(proj);
+    const FVec4 near_h   = MulRowVec4(FVec4{0, 0, 0, 1}, inv_proj);
+    const FVec4 far_h    = MulRowVec4(FVec4{0, 0, 1, 1}, inv_proj);
+    f32 actual_near = near_z;
+    f32 actual_far  = far_z;
+    if (Abs(near_h.w) > 1e-6f && Abs(far_h.w) > 1e-6f) {
+        const f32 derived_near = near_h.z / near_h.w;
+        const f32 derived_far  = far_h.z / far_h.w;
+        // NaN は比較が false になるため、この条件で非可逆/不正 projection も除外できる。
+        if (derived_near >= 0.0f && derived_far > derived_near + 1e-4f) {
+            actual_near = derived_near;
+            actual_far  = derived_far;
+        }
+    }
+
+    if (actual_near < 1e-3f) actual_near = 1e-3f;
+    if (actual_far <= actual_near) actual_far = actual_near + 1.0f;
+    if (near_z < actual_near) near_z = actual_near;
+    if (far_z > actual_far) far_z = actual_far;
+    if (near_z >= actual_far) near_z = actual_near;
+    if (far_z <= near_z) far_z = actual_far;
 
     // Zhang practical split: splits[i] = (1-λ)*uniform + λ*log
     // 配列要素は cascade 境界の view-space z (splits[0]=near、splits[N]=far)
@@ -233,12 +333,14 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
     const FVec3 dir = NormalizeSafe(light_dir);
     const FVec3 up  = (Abs(dir.y) > 0.95f) ? FVec3{0, 0, 1} : FVec3{0, 1, 0};
 
-    const f32 inv_full = 1.0f / (far_z - near_z);
+    // fcorners は projection の実 near/far に対応するため、requested range ではなく
+    // actual range で補間する。requested far が projection far より短い場合にも有効。
+    const f32 inv_full = 1.0f / (actual_far - actual_near);
     for (u32 c = 0; c < m_CascadeCount; ++c) {
         const f32 z_n = splits[c];
         const f32 z_f = splits[c + 1];
-        const f32 t_n = (z_n - near_z) * inv_full;
-        const f32 t_f = (z_f - near_z) * inv_full;
+        const f32 t_n = (z_n - actual_near) * inv_full;
+        const f32 t_f = (z_f - actual_near) * inv_full;
 
         FVec3 sub[8];
         for (u32 i = 0; i < 4; ++i) {
@@ -257,6 +359,8 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
             if (d > radius) radius = d;
         }
         if (radius < 1e-3f) radius = 1e-3f;
+        // 浮動小数誤差による投影幅の微細な伸縮を抑え、常に外側へ量子化して clipping を防ぐ。
+        radius = Ceil(radius * 16.0f) * (1.0f / 16.0f);
 
         // Light VP: center を見るカメラ、ortho 幅は半径×2.5 (10% margin、large caster の
         // edge clip 防止。single-cascade SetDirectionalLight と同じ margin)。
@@ -266,7 +370,8 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
             center.z + dir.z * radius * 2.5f,
         };
         const FMat4 view_l = FMat4::LookAtLH(light_pos, center, up);
-        const FMat4 proj_l = FMat4::OrthoLH(radius * 2.5f, radius * 2.5f, 0.0f, radius * 5.0f);
+        FMat4 proj_l = FMat4::OrthoLH(radius * 2.5f, radius * 2.5f, 0.0f, radius * 5.0f);
+        StabilizeOrthoProjection(view_l, proj_l, m_Size);
         m_LightVp[c]       = view_l * proj_l;
         m_CascadeSplits[c] = z_f;            // view-space z far (cascade 選択の閾値)
     }
@@ -276,19 +381,56 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
         m_CascadeSplits[c] = 1e30f;
     }
 
-    // default: LightCB に cascade 0 を書いておく
-    if (m_LightCb) m_LightCb->Update(&m_LightVp[0], sizeof(FMat4));
+    // Each cascade owns an immutable CB for all draws recorded this frame.
+    for (u32 cascade = 0; cascade < m_CascadeCount; ++cascade) {
+        if (m_LightCbs[cascade])
+            m_LightCbs[cascade]->Update(&m_LightVp[cascade], sizeof(FMat4));
+    }
+    m_CurrentCascade = 0;
 }
 
-/** LightCB を選択 cascade の VP で更新する (範囲外は cascade 0)。 */
+/** Select a cascade-specific CB without overwriting an already-recorded address. */
 void FShadowMap::SetCurrentCascade(u32 cascade) noexcept {
     if (cascade >= m_CascadeCount) cascade = 0;
-    if (m_LightCb) m_LightCb->Update(&m_LightVp[cascade], sizeof(FMat4));
+    m_CurrentCascade = cascade;
 }
 
-/** キャスターの model 行列を per-object CB へ書き込む。 */
+/** 後方互換 API。失敗は CasterOverflowed() で照会できる。 */
 void FShadowMap::SetCaster(const FMat4& model) noexcept {
-    if (m_ObjectCb) m_ObjectCb->Update(&model, sizeof(FMat4));
+    (void)TrySetCaster(model);
+}
+
+/** Write the model matrix to a buffer used by this draw only. */
+bool FShadowMap::TrySetCaster(const FMat4& model) noexcept {
+    const u32 cascade = m_CurrentCascade;
+    u32& draw_count = m_CasterDrawCounts[cascade];
+    if (draw_count >= kMaxCasterDrawsPerCascade) {
+        m_CasterOverflowed[cascade] = true;
+        if (!m_CasterWarningIssued[cascade]) {
+            ACS_LOG_WARN("FShadowMap cascade %u caster CB ring exhausted "
+                         "(%u draws); extra caster draws are skipped",
+                         cascade, kMaxCasterDrawsPerCascade);
+            m_CasterWarningIssued[cascade] = true;
+        }
+        return false;
+    }
+
+    const u32 slot = draw_count;
+    if (!EnsureCasterBuffer(cascade, slot)) {
+        m_CasterOverflowed[cascade] = true;
+        if (!m_CasterWarningIssued[cascade]) {
+            ACS_LOG_WARN("FShadowMap failed to allocate cascade %u caster CB "
+                         "slot %u; the caster draw is skipped", cascade, slot);
+            m_CasterWarningIssued[cascade] = true;
+        }
+        return false;
+    }
+
+    m_CurrentCasters[cascade] = slot;
+    m_ObjectCbs[cascade][slot]->Update(&model, sizeof(FMat4));
+    ++draw_count;
+    ++m_TotalCasterDrawCount;
+    return true;
 }
 
 /** atlas 内の cascade 領域に対応する viewport を組み立てて返す。 */

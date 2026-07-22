@@ -366,7 +366,7 @@ private:
      *
      * @details 武器定義 m_Defs[i] に対して m_Reserves[i] が対応する。
      */
-    struct ReserveSlot {
+    struct FReserveSlot {
         /** m_Defs[i].id へのコピー (非所有、寿命は呼出側)。 */
         const char* weapon_id    = nullptr;
 
@@ -395,7 +395,7 @@ private:
     TArray<FWeaponDef>   m_Defs;
 
     /** m_Defs[i] と並行な per-weapon reserve スロット。 */
-    TArray<ReserveSlot> m_Reserves;
+    TArray<FReserveSlot> m_Reserves;
 
     /** 装備中武器の定義 (Equip 前は nullptr)。 */
     const FWeaponDef* m_CurrentDef  = nullptr;

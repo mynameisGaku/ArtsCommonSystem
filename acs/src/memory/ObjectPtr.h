@@ -12,14 +12,14 @@
 //   ・エンジンの「オブジェクト」を扱う → FObject 継承 + TObjectPtr / TWeakObjectPtr
 //
 // 例:
-//   class FEnemy : public FObject { public: void Hit(); };
-//   TObjectPtr<FEnemy> e = NewObject<FEnemy>();    // 強参照（生かし続ける）
-//   TWeakObjectPtr<FEnemy> w = e;                  // 弱参照（生死を監視するだけ）
-//   e.Reset();                                     // 強参照ゼロ → FEnemy 破棄
+//   class AEnemy : public FObject { public: void Hit(); };
+//   TObjectPtr<AEnemy> e = NewObject<AEnemy>();    // 強参照（生かし続ける）
+//   TWeakObjectPtr<AEnemy> w = e;                  // 弱参照（生死を監視するだけ）
+//   e.Reset();                                     // 強参照ゼロ → AEnemy 破棄
 //   if (w.IsValid()) w.Get()->Hit();               // → false。破棄済なので呼ばれない
 #pragma once
 
-#include "memory/SharedPtr.h"   // sp_detail::ControlBlock / InlineBlock を共有
+#include "memory/SharedPtr.h"   // sp_detail::FControlBlock / TInlineBlock を共有
 
 namespace acs {
 
@@ -63,7 +63,7 @@ protected:
 
 private:
     /** 自分の制御ブロックへの逆ポインタ (NewObject 経由でのみ設定される)。 */
-    sp_detail::ControlBlock* m_Cb = nullptr;
+    sp_detail::FControlBlock* m_Cb = nullptr;
 
     /** TObjectPtr が m_Cb へアクセスするための friend 宣言。 */
     template<typename U> friend class TObjectPtr;
@@ -109,7 +109,7 @@ public:
     {
         static_assert(IsBaseOfV<FObject, T>, "TObjectPtr<T>: T は FObject を継承していること");
         if (obj) {
-            sp_detail::ControlBlock* const cb = static_cast<FObject*>(obj)->m_Cb;
+            sp_detail::FControlBlock* const cb = static_cast<FObject*>(obj)->m_Cb;
             if (cb && cb->TryAddStrong()) {
                 m_Ptr = obj;
                 m_Cb = cb;
@@ -239,7 +239,7 @@ public:
      */
     void Swap(TObjectPtr& o) noexcept {
         T* p = m_Ptr; m_Ptr = o.m_Ptr; o.m_Ptr = p;
-        sp_detail::ControlBlock* c = m_Cb; m_Cb = o.m_Cb; o.m_Cb = c;
+        sp_detail::FControlBlock* c = m_Cb; m_Cb = o.m_Cb; o.m_Cb = c;
     }
 
 private:
@@ -247,7 +247,7 @@ private:
     T*                       m_Ptr = nullptr;
 
     /** 参照カウント制御ブロック (空なら nullptr)。 */
-    sp_detail::ControlBlock* m_Cb  = nullptr;
+    sp_detail::FControlBlock* m_Cb  = nullptr;
 
     /**
      * 既に +1 済みの強参照を採用する内部コンストラクタ (追加で +1 しない)。
@@ -256,7 +256,7 @@ private:
      * @param p 採用する対象ポインタ。
      * @param cb 採用する制御ブロック (強参照は加算済み)。
      */
-    TObjectPtr(T* p, sp_detail::ControlBlock* cb) noexcept : m_Ptr(p), m_Cb(cb) {}
+    TObjectPtr(T* p, sp_detail::FControlBlock* cb) noexcept : m_Ptr(p), m_Cb(cb) {}
 
     /** 別要素型の TObjectPtr から private メンバへアクセスするための friend 宣言。 */
     template<typename U> friend class TObjectPtr;
@@ -304,7 +304,7 @@ public:
     explicit TWeakObjectPtr(T* obj) noexcept {
         static_assert(IsBaseOfV<FObject, T>, "TWeakObjectPtr<T>: T は FObject を継承していること");
         if (obj) {
-            sp_detail::ControlBlock* const cb = static_cast<FObject*>(obj)->m_Cb;
+            sp_detail::FControlBlock* const cb = static_cast<FObject*>(obj)->m_Cb;
             if (cb && cb->TryAddWeak()) { m_Ptr = obj; m_Cb = cb; }
         }
     }
@@ -412,7 +412,7 @@ public:
      */
     void Swap(TWeakObjectPtr& o) noexcept {
         T* p = m_Ptr; m_Ptr = o.m_Ptr; o.m_Ptr = p;
-        sp_detail::ControlBlock* c = m_Cb; m_Cb = o.m_Cb; o.m_Cb = c;
+        sp_detail::FControlBlock* c = m_Cb; m_Cb = o.m_Cb; o.m_Cb = c;
     }
 
 private:
@@ -420,7 +420,7 @@ private:
     T*                       m_Ptr = nullptr;
 
     /** 参照カウント制御ブロック (空なら nullptr)。 */
-    sp_detail::ControlBlock* m_Cb  = nullptr;
+    sp_detail::FControlBlock* m_Cb  = nullptr;
 
     /** 別要素型の TWeakObjectPtr から private メンバへアクセスするための friend 宣言。 */
     template<typename U> friend class TWeakObjectPtr;
@@ -432,7 +432,7 @@ private:
 /**
  * 指定アロケータでオブジェクトを生成し強参照を返す。
  *
- * @details ControlBlock と T を 1 アロケーションに同居させ、生成した T に制御ブロックへの
+ * @details FControlBlock と T を 1 アロケーションに同居させ、生成した T に制御ブロックへの
  * 逆ポインタを仕込んでから強参照 1 を採用して返す。
  * @tparam T 生成する FObject 派生型。
  * @tparam Args T のコンストラクタ引数型。
@@ -443,7 +443,7 @@ private:
 template<typename T, typename... Args>
 ACS_FORCEINLINE TObjectPtr<T> NewObjectIn(FAllocator& a, Args&&... args) noexcept {
     static_assert(IsBaseOfV<FObject, T>, "NewObject<T>: T は FObject を継承していること");
-    using Block = sp_detail::InlineBlock<T>;
+    using Block = sp_detail::TInlineBlock<T>;
     void* const mem = a.Alloc(sizeof(Block), alignof(Block), FSourceLoc::Current());
     if (!mem) return TObjectPtr<T>();
     auto* const blk = ::new (mem) Block();

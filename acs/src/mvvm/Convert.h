@@ -2,18 +2,18 @@
 // 組込み暗黙変換 — i32/u32/f32/f64/bool/FString の主要ペアを Bind 一発で
 //
 // 使い方:
-//   Observable<f32> hp{100.0f};
-//   Observable<FString> hp_text;
+//   TObservable<f32> hp{100.0f};
+//   TObservable<FString> hp_text;
 //
 //   auto bind = Bind(hp, hp_text);   // 自動で f32 → FString 変換 (例: "100.0")
 //
-//   Observable<i32> level{42};
-//   Observable<f32> level_f;
+//   TObservable<i32> level{42};
+//   TObservable<f32> level_f;
 //   auto bind2 = Bind(level, level_f);   // 自動で i32 → f32 (42.0)
 //
-//   // 同じ型なら OneWayBinder にフォールバック
-//   Observable<f32> a{1.0f}, b;
-//   auto bind3 = Bind(a, b);   // OneWayBinder<f32>
+//   // 同じ型なら TOneWayBinder にフォールバック
+//   TObservable<f32> a{1.0f}, b;
+//   auto bind3 = Bind(a, b);   // TOneWayBinder<f32>
 //
 // サポート対象の変換マトリクス:
 //   i32  ↔ u32 / f32 / f64 / bool / FString
@@ -40,14 +40,14 @@ namespace acs::mvvm {
  *
  * @details
  * 特殊化が無いペアでインスタンス化されると static_assert が発火し、明示変換関数つきの
- * OneWayConvertBinder を使うよう促す。実際の変換は型ペアごとの特殊化が提供する。
+ * TOneWayConvertBinder を使うよう促す。実際の変換は型ペアごとの特殊化が提供する。
  * @tparam Src 変換元の型。
  * @tparam Dst 変換先の型。
  */
 template<typename Src, typename Dst>
 struct TDefaultConverter {
     static_assert(sizeof(Src) == 0,
-        "Bind(src, dst): no built-in conversion. Use OneWayConvertBinder<Src, Dst> "
+        "Bind(src, dst): no built-in conversion. Use TOneWayConvertBinder<Src, Dst> "
         "with an explicit converter function.");
 };
 

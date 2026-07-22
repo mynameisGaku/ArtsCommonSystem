@@ -1,0 +1,236 @@
+<Window x:Class="AcsEditor.PackageProjectDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="Package Project"
+        Width="860" Height="720" MinWidth="720" MinHeight="600"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None" ResizeMode="CanResize"
+        Background="{StaticResource Win}" Foreground="{StaticResource Text}"
+        FontFamily="Segoe UI" FontSize="12"
+        UseLayoutRounding="True"
+        Closing="OnClosing">
+
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="34"
+                            ResizeBorderThickness="6"
+                            CornerRadius="0"
+                            GlassFrameThickness="0"
+                            UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
+
+    <Window.Resources>
+        <Style x:Key="PackageCaption" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,5"/>
+        </Style>
+        <Style x:Key="PackageMuted" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <Grid DockPanel.Dock="Top" Height="34" Background="{StaticResource Win}"
+              MouseLeftButtonDown="OnTitleBarMouseDown">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Center">
+                <Border Width="3" Height="18" Background="{StaticResource Accent}" Margin="0,0,8,0"/>
+                <TextBlock Text="PACKAGE PROJECT" Foreground="{StaticResource TextDim}"
+                           FontSize="11.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                <Button Style="{StaticResource CaptionButton}" Content="&#x2012;" Click="OnMinimize"/>
+                <Button Style="{StaticResource CaptionButton}" Content="&#x25A1;" Click="OnMaximizeRestore"/>
+                <Button Style="{StaticResource CloseCaptionButton}" Content="&#x2715;" Click="OnClose"/>
+            </StackPanel>
+        </Grid>
+
+        <Border DockPanel.Dock="Top" Background="{StaticResource Panel}"
+                BorderBrush="{StaticResource Edge}" BorderThickness="0,1,0,1"
+                Padding="18,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock x:Name="ProjectTitle" FontSize="18" FontWeight="SemiBold"/>
+                    <TextBlock Text="Validate, build, stage, hash, and archive a portable Windows release."
+                               Style="{StaticResource PackageMuted}" Margin="0,3,0,0"/>
+                </StackPanel>
+                <Border Grid.Column="1" BorderBrush="{StaticResource Accent}" BorderThickness="1"
+                        Padding="10,5" VerticalAlignment="Center">
+                    <TextBlock Text="WINDOWS x64  /  RELEASE  /  ZIP"
+                               Foreground="{StaticResource InfoFg}" FontWeight="SemiBold" FontSize="10"/>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Grid Margin="14">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="150"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Background="{StaticResource Panel}"
+                    BorderBrush="{StaticResource Hairline}" BorderThickness="1"
+                    Padding="14" Margin="0,0,0,10">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="170"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,16,10">
+                        <TextBlock Text="PACKAGE PROFILE" Style="{StaticResource PackageCaption}"/>
+                        <TextBlock Text="Development / Test / Shipping" Style="{StaticResource PackageMuted}"/>
+                    </StackPanel>
+                    <ComboBox x:Name="ProfileBox" Grid.Row="0" Grid.Column="1"
+                              Height="30" Margin="0,0,0,10"
+                              SelectionChanged="OnProfileChanged">
+                        <ComboBoxItem Content="Development — pack + loose cooked assets"/>
+                        <ComboBoxItem Content="Test — verified compressed pack"/>
+                        <ComboBoxItem Content="Shipping — stripped verified pack"/>
+                    </ComboBox>
+
+                    <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,16,10">
+                        <TextBlock Text="PRODUCT VERSION" Style="{StaticResource PackageCaption}"/>
+                        <TextBlock Text="Semantic version in manifest" Style="{StaticResource PackageMuted}"/>
+                    </StackPanel>
+                    <TextBox x:Name="VersionBox" Grid.Row="1" Grid.Column="1" Height="30"
+                             VerticalContentAlignment="Center" Padding="8,3" Margin="0,0,0,10"
+                             TextChanged="OnOptionChanged"/>
+
+                    <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,0,16,10">
+                        <TextBlock Text="OUTPUT DIRECTORY" Style="{StaticResource PackageCaption}"/>
+                        <TextBlock Text="ZIP is replaced atomically" Style="{StaticResource PackageMuted}"/>
+                    </StackPanel>
+                    <TextBox x:Name="OutputBox" Grid.Row="2" Grid.Column="1" Height="30"
+                             VerticalContentAlignment="Center" Padding="8,3" Margin="0,0,6,10"
+                             TextChanged="OnOptionChanged"/>
+                    <Button Grid.Row="2" Grid.Column="2" Content="Browse…" Height="30"
+                            Padding="12,3" Margin="0,0,0,10" Click="OnBrowse"/>
+
+                    <StackPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2"
+                                Orientation="Horizontal">
+                        <CheckBox x:Name="BuildReleaseCheck" Content="Build Release before packaging"
+                                  IsChecked="True" Margin="0,0,24,0" Click="OnOptionChanged"/>
+                        <CheckBox x:Name="IncludeSymbolsCheck" Content="Include game PDB"
+                                  IsChecked="False" Click="OnOptionChanged"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="1" Background="{StaticResource Panel}"
+                    BorderBrush="{StaticResource Hairline}" BorderThickness="1"
+                    Margin="0,0,0,10">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="34"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Border Background="{StaticResource HeaderBg}" BorderBrush="{StaticResource Hairline}"
+                            BorderThickness="0,0,0,1" Padding="12,0">
+                        <Grid>
+                            <TextBlock Text="PREFLIGHT" Style="{StaticResource PackageCaption}"
+                                       Margin="0" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="ValidationSummary" HorizontalAlignment="Right"
+                                       VerticalAlignment="Center" Style="{StaticResource PackageMuted}"/>
+                        </Grid>
+                    </Border>
+                    <ListBox x:Name="ValidationList" Grid.Row="1" BorderThickness="0"
+                             Background="Transparent" Padding="6"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="2,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="70"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Label}" Foreground="{Binding Color}"
+                                               FontSize="10" FontWeight="SemiBold" VerticalAlignment="Top"/>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="{Binding Message}" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding Detail}" Style="{StaticResource PackageMuted}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="2" Background="{StaticResource Panel}"
+                    BorderBrush="{StaticResource Hairline}" BorderThickness="1"
+                    Margin="0,0,0,10">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="34"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Border Background="{StaticResource HeaderBg}" BorderBrush="{StaticResource Hairline}"
+                            BorderThickness="0,0,0,1" Padding="12,0">
+                        <Grid>
+                            <TextBlock Text="PACKAGE OUTPUT" Style="{StaticResource PackageCaption}"
+                                       Margin="0" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="StatusText" HorizontalAlignment="Right"
+                                       VerticalAlignment="Center" Style="{StaticResource PackageMuted}"
+                                       Text="Ready"/>
+                        </Grid>
+                    </Border>
+                    <ProgressBar x:Name="PackageProgressBar" Grid.Row="1" Height="3"
+                                 Minimum="0" Maximum="1" Value="0"
+                                 Background="{StaticResource Panel2}" Foreground="{StaticResource Accent}"/>
+                    <TextBox x:Name="LogBox" Grid.Row="2" IsReadOnly="True" AcceptsReturn="True"
+                             TextWrapping="NoWrap" FontFamily="Consolas" FontSize="11"
+                             Background="{StaticResource Panel2}" BorderThickness="0"
+                             Padding="10,8" VerticalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Auto"/>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="3">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock x:Name="ResultPathText" Text="No package generated."
+                               Style="{StaticResource PackageMuted}" TextTrimming="CharacterEllipsis"
+                               MaxWidth="540"/>
+                    <TextBlock Text="Code signing, installers, and store upload are separate deployment steps."
+                               Style="{StaticResource PackageMuted}" Margin="0,3,0,0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button x:Name="OpenResultButton" Content="Show in Explorer"
+                            IsEnabled="False" Padding="12,5" Margin="0,0,7,0"
+                            Click="OnOpenResult"/>
+                    <Button Content="Validate" Padding="12,5" Margin="0,0,7,0"
+                            Click="OnValidate"/>
+                    <Button x:Name="PackageButton" Content="Package Project"
+                            Padding="16,5" Foreground="{StaticResource InfoFg}"
+                            Click="OnPackage"/>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </DockPanel>
+</Window>

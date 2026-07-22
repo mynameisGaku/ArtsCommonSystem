@@ -102,7 +102,9 @@ public:
      * @param eye カメラのワールド位置。
      * @param intensity SSR 強度 (0..2)。
      * @param motion_texture 非 null なら temporal pass が動く mesh の反射を motion vector で reproject する (null なら camera-only depth reproject)。FMotionVector::OutputTexture() を渡す。
-     * @param hiz_texture 非 null なら 1/8 解像度 coarse min-depth として ray march の skip-ahead に使う (FHiZ::Texture())。null なら 1 texel/step DDA。空中レイで 4-6 倍高速化。
+     * @param hiz_even Hi-Z の偶数 level texture。旧 FHiZ::Texture() だけなら level 0 の coarse path。
+     * @param hiz_odd Hi-Z の奇数 level texture。hiz_mip_count > 1 のとき使用する。
+     * @param hiz_mip_count 有効 pyramid level 数。0 は hiz_even があれば互換 level 0、無ければ Hi-Z 無効。
      */
     void Render(IRhiDevice& device, IRhiCommandList& cl,
                 IRhiTexture& scene_color, IRhiTexture& scene_depth,
@@ -111,7 +113,9 @@ public:
                 const FMat4& prev_view_proj,
                 FVec3 eye, f32 intensity = 0.6f,
                 IRhiTexture* motion_texture = nullptr,
-                IRhiTexture* hiz_texture    = nullptr) noexcept;
+                IRhiTexture* hiz_even       = nullptr,
+                IRhiTexture* hiz_odd        = nullptr,
+                u32 hiz_mip_count           = 0) noexcept;
 
     /**
      * temporal accumulation 後の history テクスチャを返す (FPbrShader / overlay 用)。

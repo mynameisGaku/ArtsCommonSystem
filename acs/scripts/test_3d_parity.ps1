@@ -1,4 +1,4 @@
-# Headless P/Invoke verification of 3D parity additions (no GUI window, no mouse):
+# 3D parity 追加分を P/Invoke でヘッドレス検証する (GUI window・マウス不要):
 #   - acs_editor_distribute3d_selection
 #   - acs_editor_node3d_component_prop_get / _set  (+ CPROP3D serialize round-trip)
 #   - acs_editor_node3d_invoke_method (guard)
@@ -35,7 +35,7 @@ Add-Type -TypeDefinition $src
 
 $pass=0;$fail=0
 function Check($n,$c){ if($c){$script:pass++;Write-Host "  PASS  $n"} else {$script:fail++;Write-Host "  FAIL  $n" -ForegroundColor Red} }
-# Parse "N3D <id> <parent> <prim> px ..." -> X of a given id from serialized scene text.
+# serialize 済み scene text の "N3D <id> <parent> <prim> px ..." から指定 id の X を読む。
 function NodeX($txt,$id){
   foreach($line in ($txt -split "`n")){
     if($line -match "^N3D\s+$id\s+\S+\s+\S+\s+(\S+)"){ return [double]$matches[1] }
@@ -47,7 +47,7 @@ $scene = @"
 ACS3D v2
 N3D 1 -1 2 10.0000 0.0000 0.0000 0.0000 0.0000 0.0000 16.0000 1.0000 16.0000 0.320 0.340 0.380 1.000 Ground
 N3D 2 -1 0 -2.0000 0.5000 0.0000 0.0000 0.0000 0.0000 1.0000 1.0000 1.0000 0.850 0.450 0.350 1.000 Cube
-CMP3D 2 FRigidBody2D
+CMP3D 2 ARigidBody2D
 CPROP3D 2 0 2 0.9000 0.0000 0.0000 0.0000
 CPROP3D 2 0 3 7.0000 0.0000 0.0000 0.0000
 N3D 3 -1 1 0.0000 0.6000 0.2000 0.0000 0.0000 0.0000 1.2000 1.2000 1.2000 0.400 0.620 0.920 1.000 Sphere
@@ -84,7 +84,7 @@ Write-Host "`n[distribute3d X] middle node spreads evenly between ends"
 Check "3 selected" ([E]::acs_editor_selected3d_count($h) -eq 3)
 Check "distribute3d returns 3" ([E]::acs_editor_distribute3d_selection($h,0) -eq 3)
 $td=[E]::Serialize($h)
-# sorted by X: Cube(-2,id2), Sphere(0,id3), Ground(10,id1). middle=Sphere -> -2 + (10-(-2))/2 = 4
+# X 順は Cube(-2,id2)、Sphere(0,id3)、Ground(10,id1)。中央 Sphere は -2 + (10-(-2))/2 = 4
 Check "Sphere(id3) middle -> X=4.0" ([math]::Abs((NodeX $td 3)-4.0) -lt 0.01)
 Check "Cube(id2) end unchanged X=-2" ([math]::Abs((NodeX $td 2)+2.0) -lt 0.01)
 Check "Ground(id1) end unchanged X=10" ([math]::Abs((NodeX $td 1)-10.0) -lt 0.01)

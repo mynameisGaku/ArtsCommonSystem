@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// DiligentMemoryAdapter 実装
+// FDiligentMemoryAdapter 実装
 //
 // Diligent の IMemoryAllocator は以下の仮想関数を持つ:
 //   void* Allocate(size_t Size, const Char* dbgInfo, const Char* dbgFile, const Int32 dbgLine);
@@ -34,7 +34,7 @@ enum class EAllocationRegistryLookup : u8 {
 };
 
 /** backing 領域を読まずに Free の所有権と寿命を検証するプロセス寿命レコード。 */
-struct AllocationRegistryRecord {
+struct FAllocationRegistryRecord {
     void* pointer = nullptr;
     void* raw = nullptr;
     FAllocator* allocator = nullptr;
@@ -45,9 +45,9 @@ struct AllocationRegistryRecord {
 };
 
 /** STL コンテナへ依存せず、Win32 process heap 上で伸長する open-addressing レジストリ。 */
-class AllocationRegistry final {
+class FAllocationRegistry final {
 public:
-    ~AllocationRegistry() noexcept
+    ~FAllocationRegistry() noexcept
     {
         if (m_Records) {
             (void)::HeapFree(::GetProcessHeap(), 0, m_Records);
@@ -55,13 +55,13 @@ public:
         }
     }
 
-    AllocationRegistry() noexcept = default;
-    AllocationRegistry(const AllocationRegistry&) = delete;
-    AllocationRegistry& operator=(const AllocationRegistry&) = delete;
+    FAllocationRegistry() noexcept = default;
+    FAllocationRegistry(const FAllocationRegistry&) = delete;
+    FAllocationRegistry& operator=(const FAllocationRegistry&) = delete;
 
-    bool Insert(const AllocationRegistryRecord& record) noexcept
+    bool Insert(const FAllocationRegistryRecord& record) noexcept
     {
-        ScopedExclusiveLock lock(m_Lock);
+        FScopedExclusiveLock lock(m_Lock);
         if (!record.pointer || !record.raw || !record.allocator || record.allocator_lifetime_generation == 0 ||
             record.adapter_binding_generation == 0 || record.requested_bytes == 0) {
             return false;
@@ -72,15 +72,15 @@ public:
     }
 
     EAllocationRegistryLookup BeginFree(void* pointer, u64 expected_binding_generation,
-                                        AllocationRegistryRecord& output,
+                                        FAllocationRegistryRecord& output,
                                         u64& current_allocator_lifetime_generation) noexcept
     {
-        ScopedExclusiveLock lock(m_Lock);
+        FScopedExclusiveLock lock(m_Lock);
         current_allocator_lifetime_generation = 0;
         const usize index = FindIndex(pointer);
         if (index == kInvalidIndex) return EAllocationRegistryLookup::NotFound;
 
-        AllocationRegistryRecord& record = m_Records[index];
+        FAllocationRegistryRecord& record = m_Records[index];
         output = record;
         if (record.state == kFreeingState) return EAllocationRegistryLookup::FreeInProgress;
         if (record.allocator) {
@@ -96,13 +96,13 @@ public:
         return EAllocationRegistryLookup::Ready;
     }
 
-    bool CompleteFree(const AllocationRegistryRecord& expected, bool backing_free_confirmed) noexcept
+    bool CompleteFree(const FAllocationRegistryRecord& expected, bool backing_free_confirmed) noexcept
     {
-        ScopedExclusiveLock lock(m_Lock);
+        FScopedExclusiveLock lock(m_Lock);
         const usize index = FindIndex(expected.pointer);
         if (index == kInvalidIndex) return false;
 
-        AllocationRegistryRecord& record = m_Records[index];
+        FAllocationRegistryRecord& record = m_Records[index];
         if (record.state != kFreeingState || record.pointer != expected.pointer || record.raw != expected.raw ||
             record.allocator != expected.allocator ||
             record.allocator_lifetime_generation != expected.allocator_lifetime_generation ||
@@ -140,14 +140,14 @@ private:
         return static_cast<usize>(value);
     }
 
-    static AllocationRegistryRecord* AllocateRecords(usize capacity) noexcept
+    static FAllocationRegistryRecord* AllocateRecords(usize capacity) noexcept
     {
-        if (capacity == 0 || capacity > (~usize{0}) / sizeof(AllocationRegistryRecord)) return nullptr;
-        return static_cast<AllocationRegistryRecord*>(
-            ::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY, capacity * sizeof(AllocationRegistryRecord)));
+        if (capacity == 0 || capacity > (~usize{0}) / sizeof(FAllocationRegistryRecord)) return nullptr;
+        return static_cast<FAllocationRegistryRecord*>(
+            ::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY, capacity * sizeof(FAllocationRegistryRecord)));
     }
 
-    static bool InsertInto(AllocationRegistryRecord* records, usize capacity, const AllocationRegistryRecord& input,
+    static bool InsertInto(FAllocationRegistryRecord* records, usize capacity, const FAllocationRegistryRecord& input,
                            usize& count, usize& tombstone_count) noexcept
     {
         const usize mask = capacity - 1u;
@@ -155,7 +155,7 @@ private:
         usize first_tombstone = kInvalidIndex;
         for (usize probe = 0; probe < capacity; ++probe) {
             const usize index = (HashPointer(input.pointer) + probe) & mask;
-            AllocationRegistryRecord& record = records[index];
+            FAllocationRegistryRecord& record = records[index];
             if (record.state == kOccupiedState || record.state == kFreeingState) {
                 if (record.pointer == input.pointer) return false;
                 continue;
@@ -200,7 +200,7 @@ private:
 
     bool Rebuild(usize new_capacity) noexcept
     {
-        AllocationRegistryRecord* const new_records = AllocateRecords(new_capacity);
+        FAllocationRegistryRecord* const new_records = AllocateRecords(new_capacity);
         if (!new_records) return false;
 
         usize new_count = 0;
@@ -227,7 +227,7 @@ private:
         const usize mask = m_Capacity - 1u;
         for (usize probe = 0; probe < m_Capacity; ++probe) {
             const usize index = (HashPointer(pointer) + probe) & mask;
-            const AllocationRegistryRecord& record = m_Records[index];
+            const FAllocationRegistryRecord& record = m_Records[index];
             if (record.state == kEmptyState) return kInvalidIndex;
             if ((record.state == kOccupiedState || record.state == kFreeingState) && record.pointer == pointer) {
                 return index;
@@ -236,8 +236,8 @@ private:
         return kInvalidIndex;
     }
 
-    RwLock m_Lock;
-    AllocationRegistryRecord* m_Records = nullptr;
+    FRwLock m_Lock;
+    FAllocationRegistryRecord* m_Records = nullptr;
     usize m_Capacity = 0;
     usize m_Count = 0;
     usize m_TombstoneCount = 0;
@@ -250,10 +250,10 @@ private:
  * Diligent の確保・解放要求を backing FAllocator へ流す。アライメントは max_align_t に
  * 固定し、確保ごとに確保元を記録するため、アダプタの再バインド後も正しい元へ解放できる。
  */
-class AcsMemoryAllocator final : public Diligent::IMemoryAllocator {
+class FAcsMemoryAllocator final : public Diligent::IMemoryAllocator {
 public:
     /** 委譲先未設定の静的アダプタを構築する。 */
-    AcsMemoryAllocator() noexcept = default;
+    FAcsMemoryAllocator() noexcept = default;
 
     /**
      * 以後の確保に使う委譲先アロケータを設定する。
@@ -262,7 +262,7 @@ public:
      */
     bool Bind(FAllocator* backing) noexcept
     {
-        ScopedExclusiveLock lock(m_LifetimeLock);
+        FScopedExclusiveLock lock(m_LifetimeLock);
         if (!backing) return false;
         const u64 backing_lifetime_generation = backing->LifetimeGeneration();
         if (backing_lifetime_generation == 0) return false;
@@ -290,7 +290,7 @@ public:
     {
         if (Size == 0) return nullptr;
 
-        ScopedSharedLock lock(m_LifetimeLock);
+        FScopedSharedLock lock(m_LifetimeLock);
 
         FAllocator* const allocator = m_Backing;
         if (!allocator) return nullptr;
@@ -311,7 +311,7 @@ public:
                                            FSourceLoc::Create(dbgFile, dbgInfo, source_line));
         if (!raw) return nullptr;
 
-        AllocationRegistryRecord record{};
+        FAllocationRegistryRecord record{};
         record.pointer = raw;
         record.raw = raw;
         record.allocator = allocator;
@@ -343,8 +343,8 @@ public:
     {
         if (!Ptr) return;
         // backing Free 直後の同一アドレス再割り当てを、レジストリ確定まで待たせる。
-        ScopedExclusiveLock lock(m_LifetimeLock);
-        AllocationRegistryRecord record{};
+        FScopedExclusiveLock lock(m_LifetimeLock);
+        FAllocationRegistryRecord record{};
         u64 current_allocator_lifetime_generation = 0;
         const EAllocationRegistryLookup lookup = m_AllocationRegistry.BeginFree(Ptr, m_BindingGeneration, record,
                                                                                 current_allocator_lifetime_generation);
@@ -412,23 +412,23 @@ public:
     /** 現在の成功バインド世代を返す。 */
     u64 BindingGeneration() noexcept
     {
-        ScopedSharedLock lock(m_LifetimeLock);
+        FScopedSharedLock lock(m_LifetimeLock);
         return m_BindingGeneration;
     }
 
     /** 現在バインドしている backing allocator の寿命世代を返す。 */
     u64 BackingLifetimeGeneration() noexcept
     {
-        ScopedSharedLock lock(m_LifetimeLock);
+        FScopedSharedLock lock(m_LifetimeLock);
         return m_BackingLifetimeGeneration;
     }
 
 private:
     /** backing の差し替えを確保・解放に対して直列化し、解放トランザクションを排他化する寿命ロック。 */
-    RwLock m_LifetimeLock;
+    FRwLock m_LifetimeLock;
 
     /** backing 領域から独立し、旧ポインタを参照せず所有権を判定するレジストリ。 */
-    AllocationRegistry m_AllocationRegistry;
+    FAllocationRegistry m_AllocationRegistry;
 
     /** 確保・解放を委譲する ACS アロケータ。 */
     FAllocator* m_Backing = nullptr;
@@ -447,21 +447,21 @@ private:
 };
 
 /** 静的寿命のアダプタ実体を一箇所から取得する。 */
-AcsMemoryAllocator& AdapterInstance() noexcept
+FAcsMemoryAllocator& AdapterInstance() noexcept
 {
-    static AcsMemoryAllocator adapter;
+    static FAcsMemoryAllocator adapter;
     return adapter;
 }
 
 } // namespace
 
 /** backing を委譲先にする静的寿命のアダプタを返す。 */
-void* DiligentMemoryAdapter::Create(FAllocator* backing) noexcept
+void* FDiligentMemoryAdapter::Create(FAllocator* backing) noexcept
 {
     if (!backing) return nullptr;
     // アダプタ本体は backing の外に置く。同一アドレスが再利用されても、旧寿命の領域が残る間は
     // 再バインドを拒否し、解放済み VM を新しい allocator の領域として扱わない。
-    AcsMemoryAllocator& adapter = AdapterInstance();
+    FAcsMemoryAllocator& adapter = AdapterInstance();
     if (!adapter.Bind(backing)) {
         ACS_LOG_ERROR("[acs][memory] tracker=diligent_memory_adapter record=bind_rejected "
                       "backing=%p requested_backing_lifetime_generation=%llu "
@@ -477,22 +477,22 @@ void* DiligentMemoryAdapter::Create(FAllocator* backing) noexcept
     return static_cast<void*>(&adapter);
 }
 
-u64 DiligentMemoryAdapter::OutstandingAllocationCount() noexcept
+u64 FDiligentMemoryAdapter::OutstandingAllocationCount() noexcept
 {
     return AdapterInstance().OutstandingAllocationCount();
 }
 
-u64 DiligentMemoryAdapter::OutstandingRequestedBytes() noexcept
+u64 FDiligentMemoryAdapter::OutstandingRequestedBytes() noexcept
 {
     return AdapterInstance().OutstandingRequestedBytes();
 }
 
-u64 DiligentMemoryAdapter::BindingGeneration() noexcept
+u64 FDiligentMemoryAdapter::BindingGeneration() noexcept
 {
     return AdapterInstance().BindingGeneration();
 }
 
-u64 DiligentMemoryAdapter::BackingLifetimeGeneration() noexcept
+u64 FDiligentMemoryAdapter::BackingLifetimeGeneration() noexcept
 {
     return AdapterInstance().BackingLifetimeGeneration();
 }

@@ -8,7 +8,7 @@
 // 倫理方針 (重要):
 //   ・本クラスが扱う報酬は **cosmetic のみ** を強く推奨する。装備性能・ダメージ
 //     倍率等、ゲームプレイ核心に影響する報酬を Premium tier に置く設計は
-//     pay-to-win に直結し、ACS としては明示的に反対する立場 (FEntitlement.h の
+//     pay-to-win に直結し、ACS としては明示的に反対する立場 (Entitlement.h の
 //     方針を継承)。loot box (中身がランダムで対価が確率に依存する仕組み) も
 //     倫理的に拒絶しており、本 API には乱数要素を一切持たせない (= 払うと
 //     必ず指定の cosmetic が得られる、固定 tier 方式に限定)。
@@ -16,8 +16,8 @@
 //     entitlement / unlock を指すよう設計時に揃えること。
 //
 // 想定する位置付け:
-//   ・Pillar O (FEntitlement) との違い:
-//     - FEntitlement は「持っているかどうか」の権利フラグを保持する受動レジストリ。
+//   ・Pillar O (FEntitlementRegistry) との違い:
+//     - FEntitlementRegistry は「持っているかどうか」の権利フラグを保持する受動レジストリ。
 //     - FSeasonPass は「期間内に xp を稼ぐと tier が上がり、各 tier の報酬を請求
 //       できる」進行 + claim 状態の能動マネージャ。報酬 ID は entitlement 側に
 //       橋渡しする想定 (本クラスは ID を吐き出すだけ)。
@@ -30,7 +30,7 @@
 // 使い方:
 //   FSeasonPass sp;
 //
-//   SeasonInfo info;
+//   FSeasonInfo info;
 //   info.season_id        = "season.spring_2026";
 //   info.display_name     = "Spring 2026";
 //   info.start_timestamp  = 1'748'736'000ull;        // 2026-06-01 (Unix seconds)
@@ -43,7 +43,7 @@
 //   sp.DefineTier({ 1, 250,  "cosmetic.frame_basic_t01", "cosmetic.skin_premium_t01" });
 //   // ...
 //
-//   // (任意) プレミアムパス購入が確定したら通知。FEntitlement 側で課金検証する。
+//   // (任意) プレミアムパス購入が確定したら通知。FEntitlementRegistry 側で課金検証する。
 //   sp.SetPremiumPass(true);
 //
 //   // ゲームプレイ中の xp 加算 + 毎フレームの時刻更新。
@@ -56,11 +56,11 @@
 //   // プレイヤーが UI から請求。
 //   if (sp.ClaimReward(/*tier_index*/ 0, /*premium*/ false)) {
 //       // 新規 claim 成功 → entitlement 側に reward_id を追加
-//       entitlement.Add({ sp.GetRewardId(0, false), EntitlementKind::CosmeticPack, true });
+//       entitlement.Add({ sp.GetRewardId(0, false), EEntitlementKind::CosmeticPack, true });
 //   }
 //
 // 設計選択:
-//   ・**Tier は事前定義型 (固定 reward_id)**: 乱数 / loot box を避けるため、tier
+//   ・**FTier は事前定義型 (固定 reward_id)**: 乱数 / loot box を避けるため、tier
 //     ごとに free 報酬 ID と premium 報酬 ID を 1 つずつ静的に持つ。両方とも
 //     nullptr 可 (= その tier には該当ストリームの報酬がない、例: free のみ tier)。
 //   ・**tier_index は 0-origin で連続**: DefineTier(t) は t.tier_index を一意な
@@ -71,8 +71,8 @@
 //   ・**CurrentTier() は xp_threshold ベースの線形走査**: tier 件数は通常 50〜100
 //     のオーダーなので二分探索化は不要。`xp >= threshold` を満たす最大 tier_index
 //     を返す (どれも満たさなければ ~0u = 「未到達」)。
-//   ・**claim 状態は Def と並行 TArray**: ClaimState{ tier_index; free_claimed;
-//     premium_claimed } を Tier 定義と 1:1 で持つ。`bool` 2 つで Pillar S
+//   ・**claim 状態は Def と並行 TArray**: FClaimState{ tier_index; free_claimed;
+//     premium_claimed } を FTier 定義と 1:1 で持つ。`bool` 2 つで Pillar S
 //     FAchievementProgress と同じ Def/State 分離設計を踏襲。
 //   ・**status は (start/end timestamp) と現在時刻の比較**:
 //       NotStarted: now < start_timestamp
@@ -116,7 +116,7 @@ namespace acs::game {
  * 解放扱いになる。reward_id_free / reward_id_premium は解放時に「何が貰えるか」を表す
  * cosmetic ID で、本クラスは ID を返すだけで実体解放はしない。
  */
-struct Tier {
+struct FTier {
     /** 0-origin の一意 ID (DefineTier 時のキー)。 */
     u32         tier_index        = 0;
 
@@ -137,7 +137,7 @@ struct Tier {
  * 期間は start_timestamp / end_timestamp で持ち、単位は呼出側が定義する (典型は Unix
  * seconds)。Tick(dt) が dt[秒] を加算する前提なので、timestamp も秒で揃えるのが推奨。
  */
-struct SeasonInfo {
+struct FSeasonInfo {
     /** シーズンキー (永続化 / 分析用)。文字列リテラル想定 (非所有)。 */
     const char* season_id        = nullptr;
 
@@ -208,7 +208,7 @@ public:
      * start_timestamp >= end_timestamp も受理するが、即 Ended 状態になる。
      * @param info 開始するシーズンの定義。
      */
-    void StartSeason(const SeasonInfo& info) noexcept;
+    void StartSeason(const FSeasonInfo& info) noexcept;
 
     /**
      * tier を 1 件登録する。
@@ -216,7 +216,7 @@ public:
      * @details tier_index が重複していたら no-op (WARN)。reward_id は nullptr 許容。
      * @param t 登録する tier 定義。
      */
-    void DefineTier(const Tier& t) noexcept;
+    void DefineTier(const FTier& t) noexcept;
 
     /**
      * 手動でシーズンを終了させる (timestamp 経過を待たずに Ended へ遷移)。
@@ -334,10 +334,10 @@ public:
 
 private:
     /**
-     * tier 報酬の claim 状態 (Tier と並行 TArray で 1:1 対応)。
+     * tier 報酬の claim 状態 (FTier と並行 TArray で 1:1 対応)。
      */
-    struct ClaimState {
-        /** 対応する Tier::tier_index (検索冗長化のため保持)。 */
+    struct FClaimState {
+        /** 対応する FTier::tier_index (検索冗長化のため保持)。 */
         u32  tier_index      = 0;
 
         /** free ストリームの報酬を請求済みなら true。 */
@@ -356,7 +356,7 @@ private:
     u32 FindTierSlot(u32 tier_index) const noexcept;
 
     /** 現在のシーズン定義 (StartSeason 時に上書き)。 */
-    SeasonInfo m_Info{};
+    FSeasonInfo m_Info{};
 
     /** 累積 xp (シーズン内のみ意味を持つ)。 */
     u32 m_Xp = 0;
@@ -368,10 +368,10 @@ private:
     u64 m_CurrentTime = 0;
 
     /** tier 定義 (m_Claims と同 index で 1:1 対応)。 */
-    TArray<Tier>       m_Tiers;
+    TArray<FTier>       m_Tiers;
 
     /** tier ごとの claim 状態 (m_Tiers と同 index で 1:1 対応)。 */
-    TArray<ClaimState> m_Claims;
+    TArray<FClaimState> m_Claims;
 };
 
 } // namespace acs::game

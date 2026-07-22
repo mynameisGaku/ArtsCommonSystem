@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — Scene 基底
+// GameFramework Pillar A — FScene 基底
 //
-// 1 つの画面/状態を 1 つの Scene サブクラスで書く。FGame がスタック上で
-// 切り替え・更新・描画する。Scene の override は全て `noexcept`。
+// 1 つの画面/状態を 1 つの FScene サブクラスで書く。FGame がスタック上で
+// 切り替え・更新・描画する。FScene の override は全て `noexcept`。
 //
 // 使い方:
-//   class TitleScene : public acs::game::Scene {
+//   class FTitleScene : public acs::game::FScene {
 //   public:
 //       void OnEnter()      noexcept override { /* 起動時の初期化 */ }
 //       void OnUpdate(f32)  noexcept override { /* ロジック */ }
-//       void OnRender(acs::game::RenderContext&) noexcept override { /* 描画 */ }
+//       void OnRender(acs::game::FRenderContext&) noexcept override { /* 描画 */ }
 //       void OnExit()       noexcept override { /* 後片付け */ }
 //   };
 //
-// 遷移: OnUpdate 内で `Scenes().ChangeScene(MakeUnique<NextScene>())` を呼ぶと
+// 遷移: OnUpdate 内で `Scenes().ChangeScene(MakeUnique<FNextScene>())` を呼ぶと
 // **次フレーム頭**で適用される (走査中の構造変更を避ける、1 フレーム 1 遷移)。
 //
 // 本ヘッダは lifecycle hook + FGame/FSceneManager 参照を提供する。
@@ -28,13 +28,13 @@
 
 namespace acs {
 
-struct Event;
+struct FEvent;
 
 namespace game {
 
 class FGame;
 class FSceneManager;
-class RenderContext;
+class FRenderContext;
 
 /**
  * 1 つの画面/状態を表すシーンの基底クラス。
@@ -45,19 +45,19 @@ class RenderContext;
  * FGame/FSceneManager が _SetContext / _AttachServices で実行コンテキストを配線する。
  * シーン遷移は OnUpdate 内で Scenes().ChangeScene() を呼ぶと次フレーム頭で適用される。
  */
-class Scene {
+class FScene {
 public:
     /** 空のシーンを構築する (コンテキスト・サービスは未配線)。 */
-    Scene() noexcept = default;
+    FScene() noexcept = default;
 
     /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
-    virtual ~Scene() noexcept = default;
+    virtual ~FScene() noexcept = default;
 
     /** コピー禁止 (シーンは単独所有・参照が前提のため)。 */
-    Scene(const Scene&)            = delete;
+    FScene(const FScene&)            = delete;
 
     /** コピー代入も禁止。 */
-    Scene& operator=(const Scene&) = delete;
+    FScene& operator=(const FScene&) = delete;
 
     /**
      * シーンがスタックの top に来た直後に 1 度だけ呼ばれる初期化フック。
@@ -101,18 +101,18 @@ public:
     /**
      * 描画フック。
      *
-     * @details RenderContext は Scene 全体で共有される FSpriteBatch / Font /
+     * @details FRenderContext は FScene 全体で共有される FSpriteBatch / FFont /
      * 現フレームの IRhiCommandList* を持つ。
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      */
-    virtual void OnRender(RenderContext& /*rc*/) noexcept {}
+    virtual void OnRender(FRenderContext& /*rc*/) noexcept {}
 
     /**
      * ウィンドウ/入力イベントの配送フック (最上段シーンにのみ届く)。
      *
      * @param e 配送されたイベント。
      */
-    virtual void OnEvent(const Event& /*e*/) noexcept {}
+    virtual void OnEvent(const FEvent& /*e*/) noexcept {}
 
     /**
      * このシーンが使いたいサービスを bit flag で宣言する。
@@ -210,7 +210,7 @@ public:
      * @param parent GameInstance スコープのコレクション(フォールバック先)。
      */
     void _InitWorldSubsystems(FSubsystemCollection* parent) noexcept {
-        m_WorldSubsystems.Initialize(ESubsystemScope::World, parent, this);   // owner = この Scene
+        m_WorldSubsystems.Initialize(ESubsystemScope::World, parent, this);   // owner = この FScene
         _OnWorldSubsystemsReady();
     }
 

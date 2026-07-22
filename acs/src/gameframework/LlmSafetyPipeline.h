@@ -7,10 +7,10 @@
 //   refusal 強制 を 1 つの bit flag 駆動パイプラインとして提供する。
 //
 //   入力経路 (ユーザー → LLM):
-//     ValidateInput(user_text) → SafetyResult{Pass | Refused | BudgetExceeded}
+//     ValidateInput(user_text) → FSafetyResult{Pass | Refused | BudgetExceeded}
 //
 //   出力経路 (LLM → 画面 / NPC セリフ):
-//     FilterOutput(llm_response) → SafetyResult{Pass | Filtered | Refused | BudgetExceeded}
+//     FilterOutput(llm_response) → FSafetyResult{Pass | Filtered | Refused | BudgetExceeded}
 //
 // 設計判断:
 //   ・**bit flag で個別 on/off**: シーン (チュートリアル / 児童向け / 大人向け) ごとに
@@ -21,12 +21,12 @@
 //     返すので上位層は "Refused" / "Filtered" 経路の表示 (例: NPC が黙る / 別
 //     セリフを話す) を確実に書ける。EContentRating の 4 軸スコアだけは学習済み
 //     分類器を要するため、明示的に ML 注入の seam として残してある。
-//   ・**所有しない文字列**: `<string>` 不使用 (ACS 規約)。`SafetyResult::filtered_text`
+//   ・**所有しない文字列**: `<string>` 不使用 (ACS 規約)。`FSafetyResult::filtered_text`
 //     は呼び出しごとに内部の static thread_local バッファを指す。次回呼び出しで
 //     上書きされるため、呼び出し側は **使い終わるまでに必ずコピー or 消費** すること。
 //   ・**決定論ゾーン外宣言**: LLM 推論自体が非決定論なので、本パイプラインも
 //     `FGame::Tick()` 固定ステップ内で呼ばないこと (= UI スレッド / セリフ表示
-//     コールバックから呼ぶ前提)。FMlRuntime と同じ契約。
+//     コールバックから呼ぶ前提)。IMlRuntime と同じ契約。
 //
 // 範囲外 (ML 分類器の差し込み口として残す seam):
 //   ・分類器ベース jailbreak 検出 (BERT 系、prompt injection corpus 照合) —
@@ -35,7 +35,7 @@
 //     本実装で検出済み。住所は分類器側の責務とする。
 //   ・コンテンツレーティングモデル (暴力 / 性的 / 自傷 / ヘイトの 4 軸スコア) —
 //     EContentRating 軸として有効化口だけ用意済み (classifier 注入待ち)。
-//   ・rate limit / per-user quota (FBackendClient と連携で別レイヤ)
+//   ・rate limit / per-user quota (IBackendClient と連携で別レイヤ)
 //
 // ACS 規約:
 //   ・STL 不使用 / `<string>` 不使用 / 例外不使用 / 全 noexcept
@@ -66,7 +66,7 @@ enum class ESafetyRule : u32 {
     PiiRedaction        = 1u << 2,
 
     /** 暴力 / 性的 / 自傷 / ヘイトを弾く (ML 分類器 seam、未注入時は no-op)。 */
-    EContentRating       = 1u << 3,
+    ContentRating        = 1u << 3,
 
     /** 入出力トークン上限を超えた場合に弾く (簡易: 1 token ≒ 4 byte)。 */
     TokenBudget         = 1u << 4,
@@ -76,7 +76,7 @@ enum class ESafetyRule : u32 {
 
     /** 全機能 on (既定値)。 */
     Default = InputValidation | JailbreakDetection | PiiRedaction
-            | EContentRating   | TokenBudget        | RefusalEnforcement,
+            | ContentRating    | TokenBudget        | RefusalEnforcement,
 };
 
 /**
@@ -115,7 +115,7 @@ constexpr bool SafetyHas(ESafetyRule mask, ESafetyRule flag) noexcept {
 /**
  * パイプラインの判定結果。
  *
- * @details Validate / Filter が SafetyResult::verdict に返す 4 値。
+ * @details Validate / Filter が FSafetyResult::verdict に返す 4 値。
  */
 enum class ESafetyVerdict : u32 {
     /** 安全に通過。filtered_text は入力をそのまま返す。 */
@@ -138,7 +138,7 @@ enum class ESafetyVerdict : u32 {
  * 文字列は所有しない (= 内部 static バッファへのポインタ)。寿命は次回の
  * ValidateInput / FilterOutput 呼び出しまで。呼び出し側はその前にコピー or 消費すること。
  */
-struct SafetyResult {
+struct FSafetyResult {
     /** 判定結果。 */
     ESafetyVerdict verdict        = ESafetyVerdict::Pass;
 
@@ -219,7 +219,7 @@ public:
      * @param user_text 検証するユーザー入力。
      * @return 判定結果 (Pass 時は filtered_text に入力コピー)。
      */
-    SafetyResult ValidateInput(const char* user_text) noexcept;
+    FSafetyResult ValidateInput(const char* user_text) noexcept;
 
     /**
      * LLM 応答を検証 / フィルタする (UI 表示前)。
@@ -231,7 +231,7 @@ public:
      * @param llm_response 検証する LLM 応答。
      * @return 判定結果 (Filtered 時は filtered_text に置換済みテキスト)。
      */
-    SafetyResult FilterOutput(const char* llm_response) noexcept;
+    FSafetyResult FilterOutput(const char* llm_response) noexcept;
 
     /**
      * 指定ルールが有効かを返す。

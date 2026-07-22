@@ -2,7 +2,7 @@
 // HelloSceneInspector — エントリポイント。
 //
 // 動作:
-//   ・GameFramework Pillar A の Scene 上に複数階層の FNode2D ツリーを構築:
+//   ・GameFramework Pillar A の Scene 上に複数階層の ANode ツリーを構築:
 //        root
 //        ├── wheel        (自転、spoke の親)
 //        │   ├── spoke[0] (オフセット)
@@ -19,14 +19,14 @@
 //   ・Esc で終了。
 //
 // 構成:
-//   main.cpp                      - ACS_GAME_MAIN(SceneInspectorApp) のみ
-//   SceneNodes.{h,cpp}            - PlayerNode (Provider 実装) + WheelNode
-//   PanelLayout.{h,cpp}           - 4 panel + Selection + Seam の束ね
-//   SceneInspectorScene.{h,cpp}   - FNode2D ツリー + PanelLayout を持つ Scene
-//   SceneInspectorApp.{h,cpp}     - FGame 派生クラス (ImGui lifecycle ラッパ)
+//   main.cpp                      - ACS_GAME_MAIN(FSceneInspectorApp) のみ
+//   SceneNodes.{h,cpp}            - APlayerNode (Provider 実装) + AWheelNode
+//   FPanelLayout.{h,cpp}           - 4 panel + Selection + Seam の束ね
+//   FSceneInspectorScene.{h,cpp}   - ANode ツリー + FPanelLayout を持つ Scene
+//   FSceneInspectorApp.{h,cpp}     - FGame 派生クラス (ImGui lifecycle ラッパ)
 //
 // 必須バックエンド: ACS_RENDER_DX12_RAW (samples/21_HelloImGui /
 // 29_HelloParticleEditor と同じ理由で、ImGuiCtx が DX12 raw backend 経由のため)。
 #include "SceneInspectorApp.h"
 
-ACS_GAME_MAIN(helloscene::SceneInspectorApp)
+ACS_GAME_MAIN(helloscene::FSceneInspectorApp)

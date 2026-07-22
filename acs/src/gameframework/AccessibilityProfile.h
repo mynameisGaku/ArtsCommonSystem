@@ -23,7 +23,7 @@
 //     のような追加変更はプリセット適用後に個別 setter で行う想定。
 //   ・**POD struct + class wrapper**: FAccessibilitySettings は値オブジェクト
 //     としてコピー可能 (UI から渡されたスナップショットを Set() で受け取れる)。
-//     FAccessibilityProfile は非コピー・非ムーブ (FGame / Scene のメンバとして
+//     FAccessibilityProfile は非コピー・非ムーブ (FGame / FScene のメンバとして
 //     1 インスタンスのみ存在する設計)。
 //   ・**screen_shake_scale / flash_intensity_scale は [0, 1] 推奨だが clamp しない**:
 //     1.0 = フル、0.0 = 完全カット。1.0 を超える値も技術的には許可するが、

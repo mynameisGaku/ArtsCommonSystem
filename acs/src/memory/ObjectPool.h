@@ -113,7 +113,7 @@ public:
             return {};
         }
 
-        Slot& PoolSlot = SlotRef(SlotIndex);
+        FSlot& PoolSlot = SlotRef(SlotIndex);
         PoolSlot.liveIdx = static_cast<u32>(m_Live.Size() - 1u);
         ::new (static_cast<void*>(PoolSlot.storage)) T(Forward<Args>(Arguments)...);
         PoolSlot.alive = true;
@@ -131,7 +131,7 @@ public:
      */
     bool Destroy(Handle ObjectHandle) noexcept
     {
-        Slot* PoolSlot = Resolve(ObjectHandle);
+        FSlot* PoolSlot = Resolve(ObjectHandle);
         if (PoolSlot == nullptr) return false;
         if (!m_Free.TryReserve(m_Free.Size() + 1u)) return false;
 
@@ -149,12 +149,12 @@ public:
     /** ハンドルが今も生きていれば対象ポインタを、死んでいれば nullptr を返す。 */
     T* Get(Handle ObjectHandle) noexcept
     {
-        Slot* PoolSlot = Resolve(ObjectHandle);
+        FSlot* PoolSlot = Resolve(ObjectHandle);
         return (PoolSlot != nullptr) ? reinterpret_cast<T*>(PoolSlot->storage) : nullptr;
     }
     const T* Get(Handle ObjectHandle) const noexcept
     {
-        const Slot* PoolSlot = Resolve(ObjectHandle);
+        const FSlot* PoolSlot = Resolve(ObjectHandle);
         return (PoolSlot != nullptr) ? reinterpret_cast<const T*>(PoolSlot->storage) : nullptr;
     }
 
@@ -180,7 +180,7 @@ public:
     {
         for (usize i = 0; i < m_Live.Size(); ++i) {
             const u32 SlotIndex = m_Live[i];
-            Slot& PoolSlot = SlotRef(SlotIndex);
+            FSlot& PoolSlot = SlotRef(SlotIndex);
             Function(*reinterpret_cast<T*>(PoolSlot.storage), Handle{SlotIndex, PoolSlot.gen});
         }
     }
@@ -200,7 +200,7 @@ public:
         }
         for (usize i = 0; i < m_Live.Size(); ++i) {
             const u32 SlotIndex = m_Live[i];
-            Slot& PoolSlot = SlotRef(SlotIndex);
+            FSlot& PoolSlot = SlotRef(SlotIndex);
             reinterpret_cast<T*>(PoolSlot.storage)->~T();
             PoolSlot.alive = false;
             PoolSlot.gen = AdvanceGeneration(PoolSlot.gen);
@@ -230,7 +230,7 @@ public:
         // 完全解放中はフリーリストへ戻さない。Clear() 経由だと破棄処理中に
         // m_Free が拡張され、不要な再確保や確保失敗を招く可能性がある。
         for (usize i = 0; i < m_Live.Size(); ++i) {
-            Slot& PoolSlot = SlotRef(m_Live[i]);
+            FSlot& PoolSlot = SlotRef(m_Live[i]);
             reinterpret_cast<T*>(PoolSlot.storage)->~T();
             PoolSlot.alive = false;
         }
@@ -243,14 +243,14 @@ public:
     }
 
 private:
-    struct Slot {
+    struct FSlot {
         u64 gen = 0;
         u32 liveIdx = 0;
         bool alive = false;
         alignas(T) unsigned char storage[sizeof(T)];
     };
-    struct Chunk {
-        Slot slots[kChunkSize];
+    struct FChunk {
+        FSlot slots[kChunkSize];
     };
 
     /** 世代を 1 つ進め、wrap 後は初期世代との即時一致を避けるため 0 を飛ばす。 */
@@ -265,7 +265,7 @@ private:
     {
         const u32 ChunkIndex = SlotIndex / kChunkSize;
         while (static_cast<u32>(m_Chunks.Size()) <= ChunkIndex) {
-            Chunk* NewChunk = New<Chunk>(*m_Alloc); // チャンクはアドレス固定 (移動しない)
+            FChunk* NewChunk = New<FChunk>(*m_Alloc); // チャンクはアドレス固定 (移動しない)
             if (NewChunk == nullptr) return false;
             for (u32 i = 0; i < kChunkSize; ++i)
                 NewChunk->slots[i].gen = m_GenerationSeed;
@@ -276,25 +276,25 @@ private:
         }
         return true;
     }
-    Slot& SlotRef(u32 SlotIndex) noexcept
+    FSlot& SlotRef(u32 SlotIndex) noexcept
     {
         return m_Chunks[SlotIndex / kChunkSize]->slots[SlotIndex % kChunkSize];
     }
-    const Slot& SlotRef(u32 SlotIndex) const noexcept
+    const FSlot& SlotRef(u32 SlotIndex) const noexcept
     {
         return m_Chunks[SlotIndex / kChunkSize]->slots[SlotIndex % kChunkSize];
     }
 
-    Slot* Resolve(Handle ObjectHandle) noexcept
+    FSlot* Resolve(Handle ObjectHandle) noexcept
     {
         if (ObjectHandle.index >= m_SlotCount) return nullptr;
-        Slot& PoolSlot = SlotRef(ObjectHandle.index);
+        FSlot& PoolSlot = SlotRef(ObjectHandle.index);
         return (PoolSlot.alive && PoolSlot.gen == ObjectHandle.gen) ? &PoolSlot : nullptr;
     }
-    const Slot* Resolve(Handle ObjectHandle) const noexcept
+    const FSlot* Resolve(Handle ObjectHandle) const noexcept
     {
         if (ObjectHandle.index >= m_SlotCount) return nullptr;
-        const Slot& PoolSlot = SlotRef(ObjectHandle.index);
+        const FSlot& PoolSlot = SlotRef(ObjectHandle.index);
         return (PoolSlot.alive && PoolSlot.gen == ObjectHandle.gen) ? &PoolSlot : nullptr;
     }
     void FreeChunks() noexcept
@@ -305,7 +305,7 @@ private:
     }
 
     FAllocator* m_Alloc;
-    TArray<Chunk*> m_Chunks;  /**< チャンク (各 kChunkSize スロット)。ポインタは固定。 */
+    TArray<FChunk*> m_Chunks;  /**< チャンク (各 kChunkSize スロット)。ポインタは固定。 */
     TArray<u32> m_Free;       /**< 再利用可能なスロット番号。 */
     TArray<u32> m_Live;       /**< 生存スロット番号の密な配列 (反復用)。 */
     usize m_SlotCount = 0;    /**< これまでに確保したスロット総数。 */

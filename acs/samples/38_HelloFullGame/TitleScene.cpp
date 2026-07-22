@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// HelloFullGame — TitleScene 実装。
+// HelloFullGame — FTitleScene 実装。
 #include "TitleScene.h"
 #include "FullGameApp.h"
 #include "GameplayScene.h"
@@ -17,7 +17,7 @@ using namespace acs::game;
 
 namespace hellofg {
 
-void TitleScene::OnEnter() noexcept {
+void FTitleScene::OnEnter() noexcept {
     GetGame().SetClearColor(m_BgColor.x, m_BgColor.y, m_BgColor.z);
 
     // 背景色を 2 秒 ping-pong する FTween (Services 経由で自動 tick される)
@@ -28,30 +28,30 @@ void TitleScene::OnEnter() noexcept {
     // 入力バインド
     FInputMap& im = Services().Input();
     im.ClearAll();
-    im.BindKey(ActionId("Start"), EKey::Space);
-    im.BindKey(ActionId("Quit"),  EKey::Escape);
+    im.BindKey(FActionId("Start"), EKey::Space);
+    im.BindKey(FActionId("Quit"),  EKey::Escape);
 
     // BGM 切替 (state-only、ログのみ出る)
-    auto& app = static_cast<FullGameApp&>(GetGame());
+    auto& app = static_cast<FFullGameApp&>(GetGame());
     app.Music().SetState(EMusicState::Calm, 1.0f);
     app.Audio().PlayBgm("bgm_title", 1.0f, true);
 
     ACS_LOG_INFO("[Title] enter - Press Space to start, Esc to quit");
 }
 
-void TitleScene::OnExit() noexcept {
+void FTitleScene::OnExit() noexcept {
     if (HasServices()) Services().Tweens().CancelAll();
     ACS_LOG_INFO("[Title] exit");
 }
 
-void TitleScene::OnUpdate(f32 dt) noexcept {
+void FTitleScene::OnUpdate(f32 dt) noexcept {
     const FInputMap& im = Services().Input();
-    if (im.IsPressed(ActionId("Quit"))) {
+    if (im.IsPressed(FActionId("Quit"))) {
         GetGame().Quit();
         return;
     }
-    if (im.IsPressed(ActionId("Start"))) {
-        Scenes().ChangeScene(MakeUnique<GameplayScene>());
+    if (im.IsPressed(FActionId("Start"))) {
+        Scenes().ChangeScene(MakeUnique<FGameplayScene>());
         return;
     }
 
@@ -67,8 +67,8 @@ void TitleScene::OnUpdate(f32 dt) noexcept {
     m_PulseSec += dt;
 }
 
-void TitleScene::OnRender(RenderContext& rc) noexcept {
-    auto& app = static_cast<FullGameApp&>(GetGame());
+void FTitleScene::OnRender(FRenderContext& rc) noexcept {
+    auto& app = static_cast<FFullGameApp&>(GetGame());
     app.EnsureSpritesInitialized();
     if (!app.SpritesReady()) return;
 
@@ -90,8 +90,8 @@ void TitleScene::OnRender(RenderContext& rc) noexcept {
     sb.DrawRect(cx - 220.0f, cy + 120.0f, 440.0f, 36.0f,
                 FVec4{0.95f, 0.95f, 0.95f, alpha});
 
-    // HighScore があれば右下に表示する小バー
-    const HighScore& hs = app.GetHighScore();
+    // FHighScore があれば右下に表示する小バー
+    const FHighScore& hs = app.GetHighScore();
     if (hs.best_score > 0) {
         sb.DrawRect(static_cast<f32>(sw) - 260.0f, static_cast<f32>(sh) - 50.0f,
                     240.0f, 30.0f, FVec4{0.1f, 0.1f, 0.1f, 0.7f});
@@ -101,9 +101,9 @@ void TitleScene::OnRender(RenderContext& rc) noexcept {
 
     // ----- テキストラベル -----
     if (app.FontReady()) {
-        Font& title_font = app.FontTitle();
-        Font& body_font  = app.FontBody();
-        const char* kTitle = "ACS Hello Full FGame";
+        FFont& title_font = app.FontTitle();
+        FFont& body_font  = app.FontBody();
+        const char* kTitle = "ACS Hello Full Game";
         const f32 tw = title_font.MeasureWidth(kTitle);
         sb.DrawString(title_font, kTitle, cx - tw * 0.5f, cy - 18.0f,
                       FVec4{1.0f, 1.0f, 1.0f, 1.0f});

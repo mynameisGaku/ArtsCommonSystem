@@ -10,7 +10,7 @@ using namespace acs;
 
 namespace helloui {
 
-void HelloUIApp::OnStart() noexcept {
+void FHelloUiApp::OnStart() noexcept {
     IRhiDevice* dev = GetRenderer().Device();
     if (!dev) { Quit(); return; }
 
@@ -27,12 +27,12 @@ void HelloUIApp::OnStart() noexcept {
     ACS_LOG_INFO("HelloUI initialized");
 }
 
-void HelloUIApp::OnUpdate(f32 /*dt*/) noexcept {
-    if (Input::IsKeyPressed(EKey::Escape)) Quit();
+void FHelloUiApp::OnUpdate(f32 /*dt*/) noexcept {
+    if (FInput::IsKeyPressed(EKey::Escape)) Quit();
     m_Input.Dispatch(*m_Root);
 }
 
-void HelloUIApp::OnRender() noexcept {
+void FHelloUiApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
     const u32 sw = GetRenderer().Swapchain()->Width();
@@ -41,54 +41,54 @@ void HelloUIApp::OnRender() noexcept {
     m_Ui.Render(*m_Root, *cl, sw, sh);
 }
 
-void HelloUIApp::OnShutdown() noexcept {
+void FHelloUiApp::OnShutdown() noexcept {
     // Binder と m_Root (Widget tree) は member 宣言順の自動破棄に任せる。
     // dtor は declaration order の REVERSE で走るため、後ろに宣言した binder
     // が先に死に、Observable がまだ生きている状態で Unsubscribe できる。
-    // ここで明示的に m_Root.Reset() すると Observable<f32>::value 等が先に死に、
+    // ここで明示的に m_Root.Reset() すると TObservable<f32>::value 等が先に死に、
     // 後の binder の ~ が dangling pointer を叩いて AV する。
     m_Ui.Shutdown();
     m_Font.Shutdown();
 }
 
-void HelloUIApp::BuildUI() noexcept {
+void FHelloUiApp::BuildUI() noexcept {
     // 画面左上に縦並びパネルを置く。requested.w / requested.h を未指定にした
     // widget は Label の content size か StackPanel の内側幅にフィットする。
-    m_Root = MakeUnique<StackPanel>();
+    m_Root = MakeUnique<FStackPanel>();
     m_Root->dir = EStackDir::Vertical;
     m_Root->padding = FUiPadding{ 24, 24, 24, 24 };
     m_Root->spacing = 8.0f;
 
-    auto* title = m_Root->Add<Label>("=== ACS UI Demo ===");
+    auto* title = m_Root->Add<FLabel>("=== ACS UI Demo ===");
     title->requested.h = 28.0f;
 
-    m_LblHp = m_Root->Add<Label>("HP: 100");
+    m_LblHp = m_Root->Add<FLabel>("HP: 100");
 
-    // Slider/Checkbox/TextInput は FTwoWayBinder で VM と双方向同期する。
+    // Slider/Checkbox/TextInput は TTwoWayBinder で VM と双方向同期する。
     // どちらの側を書き換えても他方が追従する。
-    auto* sl_hp = m_Root->Add<Slider>(0.0f, 100.0f);
+    auto* sl_hp = m_Root->Add<FSlider>(0.0f, 100.0f);
     sl_hp->requested.w = 360.0f;
     m_HpSliderBinder = MakeTwoWayBind(m_Vm.hp, sl_hp->value);
 
-    m_Root->Add<Label>("Mana");
-    auto* sl_mp = m_Root->Add<Slider>(0.0f, 100.0f);
+    m_Root->Add<FLabel>("Mana");
+    auto* sl_mp = m_Root->Add<FSlider>(0.0f, 100.0f);
     m_MpSliderBinder = MakeTwoWayBind(m_Vm.mana, sl_mp->value);
 
-    auto* cb = m_Root->Add<Checkbox>("無敵モード");
+    auto* cb = m_Root->Add<FCheckbox>("無敵モード");
     m_InvincibleBinder = MakeTwoWayBind(m_Vm.invincible, cb->checked);
 
-    m_Root->Add<Label>("名前");
-    auto* ti = m_Root->Add<TextInput>();
+    m_Root->Add<FLabel>("名前");
+    auto* ti = m_Root->Add<FTextInput>();
     ti->requested.w = 280.0f;
     m_NameBinder = MakeTwoWayBind(m_Vm.name, ti->text);
 
     // Button::clicked は bool Observable。push down (true) と release (false)
     // の両方が通知されるため v==false は無視して click edge だけ拾う。
-    auto* btn = m_Root->Add<Button>("攻撃を受ける (-10 HP)");
+    auto* btn = m_Root->Add<FButton>("攻撃を受ける (-10 HP)");
     btn->requested.w = 240.0f;
     btn->clicked.Subscribe([](const bool& v, void* user){
         if (!v) return;
-        auto* self = static_cast<HelloUIApp*>(user);
+        auto* self = static_cast<FHelloUiApp*>(user);
         if (self->m_Vm.invincible.Get()) {
             ACS_LOG_INFO("ダメージ無効 (無敵中)");
             return;
@@ -96,16 +96,16 @@ void HelloUIApp::BuildUI() noexcept {
         self->m_Vm.hp.Set(self->m_Vm.hp.Get() - 10.0f);
     }, this);
 
-    auto* btn_heal = m_Root->Add<Button>("満タン回復");
+    auto* btn_heal = m_Root->Add<FButton>("満タン回復");
     btn_heal->requested.w = 240.0f;
     btn_heal->clicked.Subscribe([](const bool& v, void* user){
         if (!v) return;
-        auto* self = static_cast<HelloUIApp*>(user);
+        auto* self = static_cast<FHelloUiApp*>(user);
         self->m_Vm.hp.Set(100.0f);
         self->m_Vm.mana.Set(100.0f);
     }, this);
 
-    m_Root->Add<Label>("Esc: 終了");
+    m_Root->Add<FLabel>("Esc: 終了");
 }
 
 } // namespace helloui

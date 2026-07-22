@@ -20,7 +20,7 @@ namespace acs {
 /**
  * 起動時に CPU 機能から実装を選んで結線するバッチ演算の関数ポインタ群。
  */
-struct MathDispatch {
+struct FMathDispatch {
     /** 点群を行列で一括変換する関数 (in→out、count 個、行列 m)。 */
     void (*transform_points) (const FVec3* in, FVec3* out, usize count, const FMat4& m) = nullptr;
 
@@ -31,9 +31,9 @@ struct MathDispatch {
 /**
  * ディスパッチテーブルを返す (初回呼び出しで初期化)。
  *
- * @return 結線済みの MathDispatch への const 参照。
+ * @return 結線済みの FMathDispatch への const 参照。
  */
-const MathDispatch& GetMathDispatch() noexcept;
+const FMathDispatch& GetMathDispatch() noexcept;
 
 /**
  * 点群をディスパッチ越しに行列変換する利便関数。

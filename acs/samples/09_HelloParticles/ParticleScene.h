@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloParticles — パーティクルシステムの管理 + 描画を担当する scene。
-// FApplication 派生はリソース所有 (FSpriteBatch / Font / Glow テクスチャ) を
+// FApplication 派生はリソース所有 (FSpriteBatch / FFont / Glow テクスチャ) を
 // 担当し、毎フレームの update / render を ParticleScene に委譲する。
 #pragma once
 
@@ -14,7 +14,7 @@
 
 namespace helloparticles {
 
-class ParticleScene {
+class FParticleScene {
 public:
     // ParticleSystem の初期化 + 初期 preset の適用。
     // 失敗時は false。
@@ -28,14 +28,14 @@ public:
     // ParticleSystem の draw + HUD。screen_h はヘルプ行を画面下端に
     // 配置するために必要。
     void Render(acs::FSpriteBatch& batch,
-                acs::Font& font,
+                acs::FFont& font,
                 acs::u32 screen_h,
                 acs::f32 fps) noexcept;
 
 private:
     void ApplyPreset(acs::u32 idx, acs::FVec2 pos) noexcept;
 
-    acs::ParticleSystem m_Ps;
+    acs::FParticleSystem m_Ps;
     acs::u32            m_Preset = 0;
 };
 

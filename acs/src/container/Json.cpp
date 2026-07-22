@@ -26,11 +26,11 @@ thread_local char g_JsonErrBuf[160] = {0};
  * するため _strtod_l に渡す C ロケールを 1 度だけ生成して使い回す。
  * @return C ロケールハンドル (生成失敗時は NULL になり得る)。
  */
-struct JsonLocaleState {
-    JsonLocaleState() noexcept : locale(::_create_locale(LC_ALL, "C"))
+struct FJsonLocaleState {
+    FJsonLocaleState() noexcept : locale(::_create_locale(LC_ALL, "C"))
     {
     }
-    ~JsonLocaleState() noexcept
+    ~FJsonLocaleState() noexcept
     {
         if (locale != nullptr) ::_free_locale(locale);
     }
@@ -40,7 +40,7 @@ struct JsonLocaleState {
 
 _locale_t JsonCLocale() noexcept {
     // _create_locale の所有権も process static のデストラクタで対称に戻す。
-    static const JsonLocaleState s_state;
+    static const FJsonLocaleState s_state;
     return s_state.locale;
 }
 } // namespace
@@ -51,8 +51,8 @@ _locale_t JsonCLocale() noexcept {
  * @return const な静的 Null 値への参照 (chain アクセス用)。
  */
 static const FJsonValue& NullValue() noexcept {
-    struct NullState {
-        NullState() noexcept : value(allocator)
+    struct FNullState {
+        FNullState() noexcept : value(allocator)
         {
         }
 
@@ -60,7 +60,7 @@ static const FJsonValue& NullValue() noexcept {
         FSystemAllocator allocator;
         FJsonValue value;
     };
-    static const NullState s_null;
+    static const FNullState s_null;
     return s_null.value;
 }
 
@@ -225,7 +225,7 @@ constexpr u32 kMaxDepth = 256;
  * @details 入力範囲 [p, end) を走査し、行・列を追跡しながら値を組み立てる。
  * 最初のエラーだけを err_sub と g_JsonErrBuf に保持する。
  */
-struct Parser {
+struct FParser {
     /** 現在の読み取り位置。 */
     const char* p;
 
@@ -247,7 +247,7 @@ struct Parser {
      * @param text 入力 JSON テキスト。
      * @param len text のバイト長。
      */
-    explicit Parser(const char* text, usize len) noexcept
+    explicit FParser(const char* text, usize len) noexcept
         : p(text), end(text + len) {}
 
     /**
@@ -567,7 +567,7 @@ TResult<FJsonValue> ParseJson(const char* text, usize len) noexcept {
     if (text == nullptr || len == 0) {
         return ACS_ERR(Generic, kSubJsonEof, "JSON: empty input");
     }
-    Parser ps(text, len);
+    FParser ps(text, len);
     FJsonValue root;
     if (!ps.ParseValue(root, 0)) {
         return ACS_ERR(Generic, ps.err_sub != 0 ? ps.err_sub : kSubJsonSyntax,

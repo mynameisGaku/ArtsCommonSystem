@@ -23,7 +23,7 @@ VSOut VSMain(VSIn i) {
 float4 PSMain(VSOut v) : SV_TARGET { return v.col; }
 )";
 
-struct DebugCbLayout { FMat4 view_proj; };
+struct FDebugCbLayout { FMat4 view_proj; };
 
 template<typename T>
 constexpr usize CBSize() noexcept { return (sizeof(T) + 255u) & ~static_cast<usize>(255u); }
@@ -62,7 +62,7 @@ TResult<void> FDebugDraw3D::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     pd.cbuffer_slots = 1;
     pd.cbuffer_names[0] = "DebugCb";
     pd.texture_slots = 0;
-    pd.vertex_stride = sizeof(LineVtx);
+    pd.vertex_stride = sizeof(FLineVtx);
     pd.layout_count  = 2;
     pd.layout[0].semantic_name = "POSITION"; pd.layout[0].format = EFormat::R32G32B32_Float;    pd.layout[0].offset = 0;
     pd.layout[1].semantic_name = "COLOR";    pd.layout[1].format = EFormat::R32G32B32A32_Float; pd.layout[1].offset = 12;
@@ -70,14 +70,14 @@ TResult<void> FDebugDraw3D::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     else m_Pipeline = Move(r.Value());
 
     FBufferDesc vbd{};
-    vbd.size = static_cast<usize>(m_MaxVerts) * sizeof(LineVtx);
+    vbd.size = static_cast<usize>(m_MaxVerts) * sizeof(FLineVtx);
     vbd.usage = EBufferUsage::Vertex;
     vbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, vbd); r.IsErr()) return Err<void>(r.Error());
     else m_Vb = Move(r.Value());
 
     FBufferDesc cbd{};
-    cbd.size = CBSize<DebugCbLayout>();
+    cbd.size = CBSize<FDebugCbLayout>();
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
@@ -100,11 +100,11 @@ void FDebugDraw3D::Begin() noexcept { m_Verts.Clear(); }
 
 void FDebugDraw3D::Line(FVec3 a, FVec3 b, FVec4 c) noexcept {
     if (m_Verts.Size() + 2 > m_MaxVerts) return;
-    m_Verts.PushBack(LineVtx{ a.x, a.y, a.z, c.x, c.y, c.z, c.w });
-    m_Verts.PushBack(LineVtx{ b.x, b.y, b.z, c.x, c.y, c.z, c.w });
+    m_Verts.PushBack(FLineVtx{ a.x, a.y, a.z, c.x, c.y, c.z, c.w });
+    m_Verts.PushBack(FLineVtx{ b.x, b.y, b.z, c.x, c.y, c.z, c.w });
 }
 
-void FDebugDraw3D::Aabb(const Aabb3& box, FVec4 color) noexcept {
+void FDebugDraw3D::Aabb(const FAabb3& box, FVec4 color) noexcept {
     const FVec3 mn = box.Min(), mx = box.Max();
     const FVec3 c[8] = {
         {mn.x,mn.y,mn.z},{mx.x,mn.y,mn.z},{mx.x,mx.y,mn.z},{mn.x,mx.y,mn.z},
@@ -130,14 +130,14 @@ void FDebugDraw3D::Wireframe(const FVec3* positions, u32 vertex_count,
 
 void FDebugDraw3D::End(IRhiCommandList& cl, const FMat4& view_proj) noexcept {
     if (!m_Pipeline || !m_Vb || !m_Cb || m_Verts.Size() == 0) return;
-    DebugCbLayout cb{};
+    FDebugCbLayout cb{};
     cb.view_proj = view_proj;
     m_Cb->Update(&cb, sizeof(cb));
-    m_Vb->Update(m_Verts.Data(), m_Verts.Size() * sizeof(LineVtx), 0);
+    m_Vb->Update(m_Verts.Data(), m_Verts.Size() * sizeof(FLineVtx), 0);
 
     cl.SetPipeline(*m_Pipeline);
     cl.SetConstantBuffer(0, *m_Cb);
-    cl.SetVertexBuffer(*m_Vb, sizeof(LineVtx));
+    cl.SetVertexBuffer(*m_Vb, sizeof(FLineVtx));
     cl.Draw(static_cast<u32>(m_Verts.Size()), 0);
 }
 

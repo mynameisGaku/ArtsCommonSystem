@@ -8,7 +8,7 @@
 //     ・OS / システムメニュー表示 (SystemMenu)
 //     ・ウィンドウフォーカス喪失   (FocusLost)
 //     ・カットシーン再生中         (Cinematic)
-//     ・FPhotoMode 中               (FPhotoMode)
+//     ・FPhotoMode 中               (PhotoMode)
 //     ・ネットワーク同期待ち       (NetworkSync)
 //   これらを単純な on/off bool で管理すると、片方が解除されたら resume
 //   してしまい「メニュー閉じたらフォーカス喪失中なのに動き出した」等の
@@ -61,7 +61,7 @@
 // 範囲外:
 //   ・per-system pause (オーディオだけ pause / 物理だけ pause 等)。
 //     現状は全体一律の time_scale = 0 想定。
-//   ・スローモーション補間 (1.0 → 0.0 の遷移カーブ)。FTween モジュール側で
+//   ・スローモーション補間 (1.0 → 0.0 の遷移カーブ)。Tween モジュール側で
 //     扱う想定。
 //   ・pause 中の入力 routing (Pillar A FInputMap 側の責務)。
 #pragma once
@@ -95,7 +95,7 @@ enum class EPauseReason : u32 {
     Cinematic   = 1u << 3,
 
     /** FPhotoMode 中。 */
-    FPhotoMode   = 1u << 4,
+    PhotoMode    = 1u << 4,
 
     /** ネットワーク同期待ち。 */
     NetworkSync = 1u << 5,

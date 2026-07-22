@@ -83,7 +83,7 @@ enum class EMusicState : u8 {
  * [intensity_min, intensity_max] に含まれるとき本 track が候補となり、range を
  * [0, 1] にすれば常時候補となる。
  */
-struct MusicTrack {
+struct FMusicTrack {
     /** 再生するアセットのパス (所有しない。literal 前提)。 */
     const char* asset_path    = nullptr;
 
@@ -144,7 +144,7 @@ public:
      * @param state 登録先の state。
      * @param track 登録する track 情報。
      */
-    void RegisterTrack(EMusicState state, const MusicTrack& track) noexcept;
+    void RegisterTrack(EMusicState state, const FMusicTrack& track) noexcept;
 
     /**
      * current state から指定 state へクロスフェードを開始する。
@@ -268,14 +268,14 @@ public:
      *
      * @return 該当 track へのポインタ (該当なし or 未登録なら nullptr)。
      */
-    const MusicTrack* CurrentTrack() const noexcept;
+    const FMusicTrack* CurrentTrack() const noexcept;
 
     /**
      * 遷移先 state 側の track を返す。
      *
      * @return target state の track へのポインタ (遷移していなければ nullptr)。
      */
-    const MusicTrack* TargetTrack() const noexcept;
+    const FMusicTrack* TargetTrack() const noexcept;
 
 private:
     /**
@@ -316,7 +316,7 @@ private:
     void RouteCurrentTrackToAudio(f32 fade_in_sec) noexcept;
 
     /** 全 state の track をフラットに保持する倉庫。 */
-    TArray<MusicTrack> m_Tracks;
+    TArray<FMusicTrack> m_Tracks;
 
     /** 各 state の m_Tracks 上の開始 index (SoA で state→range mapping)。 */
     u32 _state_first[kStateCount] {};

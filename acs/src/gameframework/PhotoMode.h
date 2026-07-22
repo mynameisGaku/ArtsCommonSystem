@@ -29,7 +29,7 @@
 //     だけを保持する。
 //
 // 非コピー・非ムーブ:
-//   FPhotoMode は FGame / Scene のメンバとして 1 インスタンスだけ存在する
+//   FPhotoMode は FGame / FScene のメンバとして 1 インスタンスだけ存在する
 //   想定。複製可能にすると saved_time_scale 等の整合性管理が破綻する。
 //
 // 範囲外:
@@ -50,7 +50,7 @@ namespace acs::game {
  * @details
  * active フラグ・カメラ自由操作オフセット (pan / zoom / rotation)・色フィルタ種別・
  * 撮影リクエスト flag・Enter 時の time scale 保存値だけを保持する。実際の時間停止や
- * カメラ移動・フィルタ適用は caller (FGame / Scene / ポストプロセスパス) が状態を見て
+ * カメラ移動・フィルタ適用は caller (FGame / FScene / ポストプロセスパス) が状態を見て
  * 行うため、GameFramework から FGame への依存を持たない。state holder の唯一性を保つ
  * ため非コピー・非ムーブ。
  */
@@ -62,7 +62,7 @@ public:
      * @details 実 LUT / シェーダパラメータの解決はポストプロセスパスが担当し、
      * 本クラスはどのフィルタが選ばれているかだけを保持する。
      */
-    enum FilterKind {
+    enum EFilterKind {
         /** フィルタなし (素通し)。 */
         None      = 0,
 
@@ -171,14 +171,14 @@ public:
      *
      * @param f 適用するフィルタ種別。
      */
-    void       SetFilter(FilterKind f) noexcept { m_Filter = f; }
+    void       SetFilter(EFilterKind f) noexcept { m_Filter = f; }
 
     /**
      * 現在の色フィルタ種別を返す。
      *
      * @return 設定済みのフィルタ種別。
      */
-    FilterKind GetFilter() const noexcept       { return m_Filter; }
+    EFilterKind GetFilter() const noexcept       { return m_Filter; }
 
     /** 撮影リクエスト flag を立てる (シャッターボタン押下時に呼ぶ)。 */
     void RequestCapture() noexcept { m_bCapturePending = true; }
@@ -215,7 +215,7 @@ private:
     f32        m_Rot               = 0.0f;
 
     /** 選択中の色フィルタ種別。 */
-    FilterKind m_Filter            = None;
+    EFilterKind m_Filter            = None;
 
     /** 撮影リクエストの保留フラグ (poll-and-consume)。 */
     bool       m_bCapturePending   = false;

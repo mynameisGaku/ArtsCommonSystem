@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "gameframework/Sprite2DComponent.h"
 
-#include "gameframework/Node2D.h"
+#include "gameframework/ANode.h"
 #include "gameframework/RenderContext.h"
 #include "render/SpriteBatch.h"
 #include "render/IRhiTexture.h"
@@ -9,10 +9,10 @@
 namespace acs::game {
 
 /** owner の world transform から矩形を計算し、テクスチャ有無で描き分けて SpriteBatch へ積む。 */
-void FSprite2DComponent::OnDraw(RenderContext& rc) noexcept {
+void ASprite2DComponent::OnDraw(FRenderContext& rc) noexcept {
     if (!rc.HasSprites()) return;
 
-    const FTransform2D wt = Owner().World();
+    const FTransform2D wt = Owner().World2D();
     const f32 w = m_Size.x * wt.scale.x;
     const f32 h = m_Size.y * wt.scale.y;
     const f32 cx = wt.position.x + (0.5f - m_Pivot.x) * w;

@@ -53,11 +53,11 @@ struct FAsyncLeaderboardOp {
  * FSteamworksBridgeImpl の内部 state と Steam async コールバックハンドラ。
  *
  * @details
- * PlayerIdentity が返す const char* の寿命を保持する文字列バッファと、leaderboard
+ * FPlayerIdentity が返す const char* の寿命を保持する文字列バッファと、leaderboard
  * の async 操作を追跡する固定プールを持つ。各コールバックは CCallResult 経由で
  * Steam から呼ばれ、対応する pending op を完了状態に遷移させる。
  */
-struct FSteamworksBridgeImpl::Impl {
+struct FSteamworksBridgeImpl::FImpl {
     /** persona name の保持バッファ (GetLocalPlayer が返す寿命を確保、Tick で更新)。 */
     char m_PersonaName[64]  = {};
 
@@ -120,7 +120,7 @@ struct FSteamworksBridgeImpl::Impl {
         }
     }
     /** FindLeaderboard の async 結果を OnLeaderboardFindResult に結び付ける call result。 */
-    CCallResult<Impl, LeaderboardFindResult_t> m_FindResult;
+    CCallResult<FImpl, LeaderboardFindResult_t> m_FindResult;
 
     /**
      * UploadLeaderboardScore 完了コールバック。対応する upload op を完了にする。
@@ -139,7 +139,7 @@ struct FSteamworksBridgeImpl::Impl {
         }
     }
     /** UploadLeaderboardScore の async 結果を OnLeaderboardScoreUploaded に結び付ける call result。 */
-    CCallResult<Impl, LeaderboardScoreUploaded_t> m_UploadResult;
+    CCallResult<FImpl, LeaderboardScoreUploaded_t> m_UploadResult;
 
     /**
      * DownloadLeaderboardEntries 完了コールバック。download op を完了にしてスコアを格納する。
@@ -165,12 +165,12 @@ struct FSteamworksBridgeImpl::Impl {
         }
     }
     /** DownloadLeaderboardEntries の async 結果を OnLeaderboardScoresDownloaded に結び付ける call result。 */
-    CCallResult<Impl, LeaderboardScoresDownloaded_t> m_DownloadResult;
+    CCallResult<FImpl, LeaderboardScoresDownloaded_t> m_DownloadResult;
 };
 
 /** Pimpl 状態を確保する。 */
 FSteamworksBridgeImpl::FSteamworksBridgeImpl() noexcept {
-    m_Impl = new Impl();
+    m_Impl = new FImpl();
 }
 
 /** 必要なら Shutdown し、Pimpl 状態を解放する。 */
@@ -216,9 +216,9 @@ bool FSteamworksBridgeImpl::IsInitialized() const noexcept {
     return m_bInitialized;
 }
 
-/** persona name + SteamID64 + session token を詰めた PlayerIdentity を返す。 */
-acs::game::PlayerIdentity FSteamworksBridgeImpl::GetLocalPlayer() const noexcept {
-    acs::game::PlayerIdentity id{};
+/** persona name + SteamID64 + session token を詰めた FPlayerIdentity を返す。 */
+acs::game::FPlayerIdentity FSteamworksBridgeImpl::GetLocalPlayer() const noexcept {
+    acs::game::FPlayerIdentity id{};
     if (!m_bInitialized) return id;
     id.platform_id   = m_Impl->m_SteamId64Str;
     id.display_name  = m_Impl->m_PersonaName;
@@ -254,7 +254,7 @@ acs::TResult<void> FSteamworksBridgeImpl::SetLeaderboardScore(const char* board_
         return ACS_ERR(Generic, 0, "board_id is null or empty");
     }
     // pool に空き op を確保 (Pimpl 内 fixed pool)
-    if (m_Impl->m_NumPending >= Impl::kMaxPendingOps) {
+    if (m_Impl->m_NumPending >= FImpl::kMaxPendingOps) {
         return ACS_ERR(Generic, kSubSteamworksUploadFailed,
                        "too many pending leaderboard ops");
     }
@@ -268,7 +268,7 @@ acs::TResult<void> FSteamworksBridgeImpl::SetLeaderboardScore(const char* board_
     op.m_BoardId[sizeof(op.m_BoardId) - 1] = 0;
     // FindLeaderboard kick off (async、result は OnLeaderboardFindResult で受ける)
     SteamAPICall_t hCall = SteamUserStats()->FindLeaderboard(board_id);
-    m_Impl->m_FindResult.Set(hCall, m_Impl, &Impl::OnLeaderboardFindResult);
+    m_Impl->m_FindResult.Set(hCall, m_Impl, &FImpl::OnLeaderboardFindResult);
     return acs::OkInit;
 }
 
@@ -311,7 +311,7 @@ acs::TResult<acs::i64> FSteamworksBridgeImpl::GetLeaderboardScore(const char* bo
     }
 
     // この board の download op がまだ存在しない場合のみ新規に kick off する。
-    if (m_Impl->m_NumPending >= Impl::kMaxPendingOps) {
+    if (m_Impl->m_NumPending >= FImpl::kMaxPendingOps) {
         return acs::TResult<acs::i64>(
             ACS_ERR(Generic, kSubSteamworksDownloadFailed,
                     "too many pending leaderboard ops"));
@@ -324,7 +324,7 @@ acs::TResult<acs::i64> FSteamworksBridgeImpl::GetLeaderboardScore(const char* bo
     std::strncpy(op.m_BoardId, board_id, sizeof(op.m_BoardId) - 1);
     op.m_BoardId[sizeof(op.m_BoardId) - 1] = 0;
     SteamAPICall_t hCall = SteamUserStats()->FindLeaderboard(board_id);
-    m_Impl->m_FindResult.Set(hCall, m_Impl, &Impl::OnLeaderboardFindResult);
+    m_Impl->m_FindResult.Set(hCall, m_Impl, &FImpl::OnLeaderboardFindResult);
     // 同期 wait はしない (async)。Find→Download 完了後に再度本関数を呼べば、上の
     // 相関ループが完了 op を拾って正しいスコアを返す。初回呼び出しでは結果が無い
     // ため、誤った成功 (旧実装の OkInit, 0) ではなく Timeout/Pending を返す。
@@ -453,8 +453,8 @@ acs::u32 FSteamworksBridgeImpl::GetFriendCount() const noexcept {
 }
 
 /** index 番目のフレンドの persona name / SteamID64 を thread_local バッファ越しに返す。 */
-acs::game::PlayerIdentity FSteamworksBridgeImpl::GetFriendByIndex(acs::u32 index) const noexcept {
-    acs::game::PlayerIdentity id{};
+acs::game::FPlayerIdentity FSteamworksBridgeImpl::GetFriendByIndex(acs::u32 index) const noexcept {
+    acs::game::FPlayerIdentity id{};
     if (!m_bInitialized) return id;
     ISteamFriends* friends = SteamFriends();
     if (!friends) return id;

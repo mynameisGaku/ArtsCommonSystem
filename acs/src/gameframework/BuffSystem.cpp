@@ -49,27 +49,27 @@ u32 FBuffSystem::FindBuffDefSlot(const char* buff_id) const noexcept {
 }
 
 /** owner handle を gen 照合しつつ有効な OwnerSlot へ解決する (無効なら nullptr)。 */
-FBuffSystem::OwnerSlot* FBuffSystem::ResolveOwner(FBuffOwnerId owner) noexcept {
+FBuffSystem::FOwnerSlot* FBuffSystem::ResolveOwner(FBuffOwnerId owner) noexcept {
     if (!owner.IsValid()) return nullptr;
     const u32 idx = owner.Index();
     if (idx >= m_Owners.Size()) return nullptr;
-    OwnerSlot& s = m_Owners[static_cast<usize>(idx)];
+    FOwnerSlot& s = m_Owners[static_cast<usize>(idx)];
     if (!s.in_use || s.gen != owner.Gen()) return nullptr;
     return &s;
 }
 
 /** owner handle を gen 照合しつつ有効な OwnerSlot へ解決する (const 版、無効なら nullptr)。 */
-const FBuffSystem::OwnerSlot* FBuffSystem::ResolveOwner(FBuffOwnerId owner) const noexcept {
+const FBuffSystem::FOwnerSlot* FBuffSystem::ResolveOwner(FBuffOwnerId owner) const noexcept {
     if (!owner.IsValid()) return nullptr;
     const u32 idx = owner.Index();
     if (idx >= m_Owners.Size()) return nullptr;
-    const OwnerSlot& s = m_Owners[static_cast<usize>(idx)];
+    const FOwnerSlot& s = m_Owners[static_cast<usize>(idx)];
     if (!s.in_use || s.gen != owner.Gen()) return nullptr;
     return &s;
 }
 
 /** slot 内で buff_id に一致する buff instance の index を線形探索する (なければ kNotFound)。 */
-u32 FBuffSystem::FindBuffInstance(const OwnerSlot& slot, const char* buff_id) noexcept {
+u32 FBuffSystem::FindBuffInstance(const FOwnerSlot& slot, const char* buff_id) noexcept {
     if (buff_id == nullptr) return kNotFound;
     const usize n = slot.buffs.Size();
     for (usize i = 0; i < n; ++i) {
@@ -102,7 +102,7 @@ FBuffOwnerId FBuffSystem::CreateOwner() noexcept {
     // 既存 inactive slot を線形探索で再利用 (= FParticleEffectSystem と同設計)。
     const usize n = m_Owners.Size();
     for (usize i = 0; i < n; ++i) {
-        OwnerSlot& s = m_Owners[i];
+        FOwnerSlot& s = m_Owners[i];
         if (s.in_use) continue;
 
         // gen を 1 進める (0 にラップしたら 1 に戻す)。0 は invalid なので配らない。
@@ -121,7 +121,7 @@ FBuffOwnerId FBuffSystem::CreateOwner() noexcept {
         return FBuffOwnerId{};
     }
     m_Owners.PushBack({});
-    OwnerSlot& s = m_Owners[n];
+    FOwnerSlot& s = m_Owners[n];
     s.gen    = 1u;        // 新規 slot は gen=1 から開始
     s.in_use = true;
     return FBuffOwnerId::Pack(static_cast<u32>(n), 1u);
@@ -129,7 +129,7 @@ FBuffOwnerId FBuffSystem::CreateOwner() noexcept {
 
 /** owner の buff を全破棄して slot を非使用に戻す (gen は据置、ExpireCallback は発火しない)。 */
 void FBuffSystem::DestroyOwner(FBuffOwnerId owner) noexcept {
-    OwnerSlot* s = ResolveOwner(owner);
+    FOwnerSlot* s = ResolveOwner(owner);
     if (s == nullptr) return;
 
     // 「キャラ消滅」と「効果時間切れ」を区別するため、ここでは ExpireCallback を
@@ -142,7 +142,7 @@ void FBuffSystem::DestroyOwner(FBuffOwnerId owner) noexcept {
 
 /** owner に buff を適用する。新規は追加、既存は StackPolicy (Refresh/Stack/Ignore) で分岐する。 */
 bool FBuffSystem::ApplyBuff(FBuffOwnerId owner, const char* buff_id) noexcept {
-    OwnerSlot* s = ResolveOwner(owner);
+    FOwnerSlot* s = ResolveOwner(owner);
     if (s == nullptr) return false;
 
     const u32 def_slot = FindBuffDefSlot(buff_id);
@@ -196,7 +196,7 @@ bool FBuffSystem::ApplyBuff(FBuffOwnerId owner, const char* buff_id) noexcept {
 
 /** owner から buff を swap-and-pop で除去し、ExpireCallback を発火する。 */
 bool FBuffSystem::RemoveBuff(FBuffOwnerId owner, const char* buff_id) noexcept {
-    OwnerSlot* s = ResolveOwner(owner);
+    FOwnerSlot* s = ResolveOwner(owner);
     if (s == nullptr) return false;
     if (buff_id == nullptr) return false;
 
@@ -218,21 +218,21 @@ bool FBuffSystem::RemoveBuff(FBuffOwnerId owner, const char* buff_id) noexcept {
 
 /** owner が持つ buff 数を返す (無効 owner なら 0)。 */
 u32 FBuffSystem::BuffCountOnOwner(FBuffOwnerId owner) const noexcept {
-    const OwnerSlot* s = ResolveOwner(owner);
+    const FOwnerSlot* s = ResolveOwner(owner);
     if (s == nullptr) return 0u;
     return static_cast<u32>(s->buffs.Size());
 }
 
 /** owner が指定 buff を持っているかを返す。 */
 bool FBuffSystem::HasBuff(FBuffOwnerId owner, const char* buff_id) const noexcept {
-    const OwnerSlot* s = ResolveOwner(owner);
+    const FOwnerSlot* s = ResolveOwner(owner);
     if (s == nullptr) return false;
     return FindBuffInstance(*s, buff_id) != kNotFound;
 }
 
 /** owner の指定 buff の現在 stack 数を返す (無ければ 0)。 */
 u32 FBuffSystem::GetStack(FBuffOwnerId owner, const char* buff_id) const noexcept {
-    const OwnerSlot* s = ResolveOwner(owner);
+    const FOwnerSlot* s = ResolveOwner(owner);
     if (s == nullptr) return 0u;
     const u32 inst_slot = FindBuffInstance(*s, buff_id);
     if (inst_slot == kNotFound) return 0u;
@@ -241,7 +241,7 @@ u32 FBuffSystem::GetStack(FBuffOwnerId owner, const char* buff_id) const noexcep
 
 /** owner の指定 buff の残り秒を返す (無ければ 0)。 */
 f32 FBuffSystem::GetRemaining(FBuffOwnerId owner, const char* buff_id) const noexcept {
-    const OwnerSlot* s = ResolveOwner(owner);
+    const FOwnerSlot* s = ResolveOwner(owner);
     if (s == nullptr) return 0.0f;
     const u32 inst_slot = FindBuffInstance(*s, buff_id);
     if (inst_slot == kNotFound) return 0.0f;
@@ -250,7 +250,7 @@ f32 FBuffSystem::GetRemaining(FBuffOwnerId owner, const char* buff_id) const noe
 
 /** owner の buff 配列先頭ポインタを返し、out_count に要素数を書き込む (空 / 無効なら nullptr)。 */
 const FBuffInstance* FBuffSystem::AllBuffsOfOwner(FBuffOwnerId owner, u32& out_count) const noexcept {
-    const OwnerSlot* s = ResolveOwner(owner);
+    const FOwnerSlot* s = ResolveOwner(owner);
     if (s == nullptr) {
         out_count = 0u;
         return nullptr;
@@ -262,7 +262,7 @@ const FBuffInstance* FBuffSystem::AllBuffsOfOwner(FBuffOwnerId owner, u32& out_c
 
 /** owner の buff を全消去する (ExpireCallback は発火しない強制クリア)。 */
 void FBuffSystem::ClearAllOnOwner(FBuffOwnerId owner) noexcept {
-    OwnerSlot* s = ResolveOwner(owner);
+    FOwnerSlot* s = ResolveOwner(owner);
     if (s == nullptr) return;
     // ExpireCallback は発火しない (= DestroyOwner と同じ「強制クリア」)。
     s->buffs.Clear();
@@ -297,7 +297,7 @@ void FBuffSystem::Tick(f32 dt) noexcept {
 
     const usize owner_n = m_Owners.Size();
     for (usize oi = 0; oi < owner_n; ++oi) {
-        OwnerSlot& s = m_Owners[oi];
+        FOwnerSlot& s = m_Owners[oi];
         if (!s.in_use) continue;
 
         // この owner の handle を再構成 (コールバックで渡すため)。

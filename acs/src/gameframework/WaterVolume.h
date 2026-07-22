@@ -3,7 +3,7 @@
 //
 // AABB で定義された 2D 水域を複数登録し、点が水中に居るかの query と、
 // 物体に掛かる浮力 + drag を世界座標 force ベクトルとして返す。
-// FPhysicsBody2D / FEffectSystem 側は本クラスを参照することで「浮く」「沈む」「水流
+// APhysicsBody2D / FEffectSystem 側は本クラスを参照することで「浮く」「沈む」「水流
 // 抵抗」といった水中挙動を組み立てられる。水面演出 (波 / splash 粒子) はレンダラ
 // 側で `FWaterVolumeInfo::surface_y` と `water_color` を pull して描画する想定。
 //
@@ -21,7 +21,7 @@
 //   };
 //   auto id = water.AddVolume(pond);
 //
-//   // 毎フレーム、FPhysicsBody2D に浮力を適用
+//   // 毎フレーム、APhysicsBody2D に浮力を適用
 //   if (water.IsUnderwater(body.position)) {
 //       FVec2 f = water.ComputeBuoyancyForce(body.position, body.velocity, body.mass);
 //       body.ApplyForce(f);
@@ -249,7 +249,7 @@ public:
 
 private:
     /** 1 volume 分の slot (info + active フラグ + generation)。 */
-    struct Slot {
+    struct FSlot {
         /** この slot が保持する水域情報。 */
         FWaterVolumeInfo info{};
 
@@ -271,7 +271,7 @@ private:
     void RebuildPackedCacheIfNeeded() const noexcept;
 
     /** volume の slot 配列 (index 0 は invalid 予約)。 */
-    TArray<Slot> m_Slots;
+    TArray<FSlot> m_Slots;
 
     /** active な volume 数。 */
     u32         m_VolumeCount = 0;
