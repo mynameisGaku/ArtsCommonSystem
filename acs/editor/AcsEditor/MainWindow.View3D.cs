@@ -554,53 +554,152 @@ public partial class MainWindow
         return row;
     }
 
-    // 3D ノードの «.acsmat マテリアル» 参照スロット。2D の RefreshMaterialBox/OnMaterialSelected を
-    // コード生成方式 (名前付き XAML 不使用) で鏡映。Assets/**/*.acsmat を列挙し、選択で set/clear。
+    // 3D Mesh Renderer material slot. It mirrors the complete 2D workflow: choose an existing
+    // asset, edit it modelessly, create-and-assign a new one, or clear the assignment.
     private FrameworkElement Build3DMaterialSlot(int id)
     {
-        var row = new DockPanel { Margin = new Thickness(0, 3, 0, 1) };
+        var root = new StackPanel { Margin = new Thickness(0, 3, 0, 1) };
+        var row = new DockPanel();
         var lbl = new TextBlock { Text = "Material", Width = 64, VerticalAlignment = VerticalAlignment.Center,
             Foreground = (Brush)FindResource("TextDim") };
         DockPanel.SetDock(lbl, Dock.Left); row.Children.Add(lbl);
         var combo = new ComboBox { VerticalAlignment = VerticalAlignment.Center };
         combo.Items.Add(new ComboBoxItem { Content = "(なし)", Tag = null });
-        string cur = EngineInterop.NodeMaterial3D(Engine, id);
-        int sel = 0, idx = 0;
-        if (_project != null && System.IO.Directory.Exists(_project.AssetsDir))
+        string current = EngineInterop.NodeMaterial3D(Engine, id);
+        MaterialAssetCatalog catalog = MaterialAssetWorkflow.BuildCatalog(
+            _project?.AssetsDir,
+            current);
+        foreach (MaterialAssetChoice choice in catalog.Choices)
         {
-            foreach (string f in System.IO.Directory.EnumerateFiles(_project.AssetsDir, "*.acsmat",
-                                                                    System.IO.SearchOption.AllDirectories))
+            combo.Items.Add(new ComboBoxItem
             {
-                idx++;
-                combo.Items.Add(new ComboBoxItem { Content = AssetRel(f), Tag = f });
-                if (!string.IsNullOrEmpty(cur) && PathEq(f, cur)) sel = idx;
-            }
+                Content = choice.DisplayName,
+                Tag = choice.FullPath,
+                ToolTip = choice.FullPath,
+            });
         }
-        if (sel == 0 && !string.IsNullOrEmpty(cur))   // Assets 外/未列挙のパスもそのまま 1 項目に
+        combo.SelectedIndex = catalog.SelectedIndex + 1;
+        row.Children.Add(combo);
+        root.Children.Add(row);
+
+        var actions = new StackPanel
         {
-            combo.Items.Add(new ComboBoxItem { Content = System.IO.Path.GetFileName(cur), Tag = cur });
-            sel = combo.Items.Count - 1;
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(64, 4, 0, 0),
+        };
+        var edit = new Button
+        {
+            Content = "Edit",
+            Padding = new Thickness(7, 2, 7, 2),
+            Margin = new Thickness(0, 0, 4, 0),
+            Foreground = (Brush)FindResource("InfoFg"),
+            ToolTip = "Open the assigned material in the node editor",
+        };
+        var create = new Button
+        {
+            Content = "New",
+            Padding = new Thickness(7, 2, 7, 2),
+            Margin = new Thickness(0, 0, 4, 0),
+            Foreground = (Brush)FindResource("OkFg"),
+            ToolTip = "Create, assign, and edit a new material",
+        };
+        var clear = new Button
+        {
+            Content = "Clear",
+            Padding = new Thickness(7, 2, 7, 2),
+            Foreground = (Brush)FindResource("WarnFg"),
+            ToolTip = "Remove the material assignment",
+        };
+
+        string? selectedPath = catalog.SelectedIndex >= 0
+            ? catalog.Choices[catalog.SelectedIndex].FullPath
+            : null;
+        int committedSelection = combo.SelectedIndex;
+        bool restoringSelection = false;
+        void UpdateActionState()
+        {
+            edit.IsEnabled = !string.IsNullOrWhiteSpace(selectedPath) &&
+                             System.IO.File.Exists(selectedPath);
+            clear.IsEnabled = !string.IsNullOrWhiteSpace(selectedPath);
         }
-        combo.SelectedIndex = sel;
+
         combo.SelectionChanged += (_, __) =>
         {
-            if (_pop3d) return;
+            if (_pop3d || restoringSelection) return;
             if (combo.SelectedItem is not ComboBoxItem it) return;
             string? path = it.Tag as string;
+            int changed;
             if (string.IsNullOrEmpty(path))
             {
-                EngineInterop.acs_editor_node3d_clear_material(Engine, id);
-                Log("3D マテリアルを外した (→ ノード色).");
+                changed = EngineInterop.acs_editor_node3d_clear_material(Engine, id);
             }
             else
             {
-                EngineInterop.acs_editor_node3d_set_material(Engine, id, path);
-                Log($"3D ノード {id} にマテリアル {AssetRel(path)} を割当.");
+                changed = EngineInterop.acs_editor_node3d_set_material(Engine, id, path);
             }
-            RecordSceneDocumentChange("Assign Material");
+            if (changed == 0)
+            {
+                Log($"3D ノード {id} のマテリアル変更に失敗しました。");
+                restoringSelection = true;
+                combo.SelectedIndex = committedSelection;
+                restoringSelection = false;
+                return;
+            }
+            selectedPath = path;
+            committedSelection = combo.SelectedIndex;
+            UpdateActionState();
+            Log(string.IsNullOrEmpty(path)
+                ? "3D マテリアルを外した (→ ノード色)."
+                : $"3D ノード {id} にマテリアル {AssetRel(path)} を割当.");
+            RecordSceneDocumentChange(string.IsNullOrEmpty(path)
+                ? "Clear Material"
+                : "Assign Material");
         };
-        row.Children.Add(combo);
-        return row;
+
+        edit.Click += (_, __) =>
+        {
+            if (!string.IsNullOrWhiteSpace(selectedPath) &&
+                System.IO.File.Exists(selectedPath))
+            {
+                OpenMaterialEditor(selectedPath);
+            }
+        };
+        create.Click += (_, __) =>
+        {
+            if (!TryCreateMaterialAsset(out string path)) return;
+            if (EngineInterop.acs_editor_node3d_set_material(Engine, id, path) == 0)
+            {
+                Log($"3D ノード {id} へ新規マテリアルを割り当てられませんでした。");
+                OpenMaterialEditor(path);
+                return;
+            }
+
+            RecordSceneDocumentChange("Assign Material");
+            Log($"3D ノード {id} に新規マテリアル {AssetRel(path)} を割当.");
+            Populate3DInspector(id);
+            OpenMaterialEditor(path);
+        };
+        clear.Click += (_, __) =>
+        {
+            if (string.IsNullOrWhiteSpace(selectedPath)) return;
+            if (EngineInterop.acs_editor_node3d_clear_material(Engine, id) == 0)
+            {
+                Log($"3D ノード {id} のマテリアル解除に失敗しました。");
+                return;
+            }
+
+            RecordSceneDocumentChange("Clear Material");
+            Log("3D マテリアルを外した (→ ノード色).");
+            Populate3DInspector(id);
+        };
+
+        actions.Children.Add(edit);
+        actions.Children.Add(create);
+        actions.Children.Add(clear);
+        root.Children.Add(actions);
+        UpdateActionState();
+        return root;
     }
 
     private void Set3DTransform(int id, int which, float a, float b, float c)

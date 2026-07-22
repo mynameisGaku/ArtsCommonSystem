@@ -47,11 +47,17 @@ VSOut VSMain(VSIn v) {
  * @return 正規化したベクトル (長さがほぼ 0 なら {0,1,0})。
  */
 ACS_FORCEINLINE FVec3 NormalizeSafe(FVec3 v) noexcept {
-    const f32 len2 = v.x*v.x + v.y*v.y + v.z*v.z;
-    if (!std::isfinite(len2) || len2 < 1e-12f)
+    const f64 length = std::hypot(
+        static_cast<f64>(v.x),
+        static_cast<f64>(v.y),
+        static_cast<f64>(v.z));
+    if (!std::isfinite(length) || length < 1e-6)
         return FVec3{0, 1, 0};
-    const f32 inv = 1.0f / Sqrt(len2);
-    return { v.x * inv, v.y * inv, v.z * inv };
+    return {
+        static_cast<f32>(static_cast<f64>(v.x) / length),
+        static_cast<f32>(static_cast<f64>(v.y) / length),
+        static_cast<f32>(static_cast<f64>(v.z) / length),
+    };
 }
 
 ACS_FORCEINLINE bool IsFinite(FVec3 value) noexcept {
@@ -76,10 +82,10 @@ bool IsFinite(const FMat4& value) noexcept {
  * @return a と b の距離。
  */
 ACS_FORCEINLINE f32 Distance3(const FVec3& a, const FVec3& b) noexcept {
-    const f32 dx = a.x - b.x;
-    const f32 dy = a.y - b.y;
-    const f32 dz = a.z - b.z;
-    return Sqrt(dx * dx + dy * dy + dz * dz);
+    return static_cast<f32>(std::hypot(
+        static_cast<f64>(a.x) - static_cast<f64>(b.x),
+        static_cast<f64>(a.y) - static_cast<f64>(b.y),
+        static_cast<f64>(a.z) - static_cast<f64>(b.z)));
 }
 
 /**
@@ -130,6 +136,7 @@ ACS_FORCEINLINE void StabilizeOrthoProjection(const FMat4& light_view,
 
 /** 深度テクスチャ・キャスター VS・定数バッファ・depth-only パイプラインを生成する。 */
 TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) noexcept {
+    Shutdown();
     if (size == 0) size = 2048;
     if (cascade_count == 0) cascade_count = 1;
     if (cascade_count > kMaxCascades) cascade_count = kMaxCascades;
@@ -139,6 +146,11 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     m_Device        = &device;
     m_CurrentCascade = 0;
     BeginFrame();
+
+    auto fail_init = [this](FErrorCode error) noexcept -> TResult<void> {
+        Shutdown();
+        return Err<void>(error);
+    };
 
     // 深度テクスチャ (SRV 可視)。
     // single mode (cascade_count=1): size × size
@@ -150,7 +162,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     td.is_depth_target      = true;
     td.shader_visible_depth = true;
     auto tr = CreateRhiTexture(device, td);
-    if (tr.IsErr()) return Err<void>(tr.Error());
+    if (tr.IsErr()) return fail_init(tr.Error());
     m_Depth = Move(tr.Value());
 
     // Caster VS。
@@ -160,7 +172,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     vs_d.entry_point = "VSMain";
     vs_d.debug_name  = "ShadowCaster.VS";
     auto vs_r = CreateRhiShader(device, vs_d);
-    if (vs_r.IsErr()) return Err<void>(vs_r.Error());
+    if (vs_r.IsErr()) return fail_init(vs_r.Error());
     m_Vs = Move(vs_r.Value());
 
     // 定数バッファ。
@@ -170,14 +182,16 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     cbd.cpu_writable = true;
     for (u32 cascade = 0; cascade < m_CascadeCount; ++cascade) {
         auto lb_r = CreateRhiBuffer(device, cbd);
-        if (lb_r.IsErr()) return Err<void>(lb_r.Error());
+        if (lb_r.IsErr()) return fail_init(lb_r.Error());
         m_LightCbs[cascade] = Move(lb_r.Value());
     }
 
     // Keep the legacy post-Init CasterObjectCB() contract non-null per cascade.
     for (u32 cascade = 0; cascade < m_CascadeCount; ++cascade) {
         if (!EnsureCasterBuffer(cascade, 0))
-            return ACS_ERR(Render, 115, "FShadowMap: failed to create caster constant buffer");
+            return fail_init(ACS_ERR(
+                Render, 115,
+                "FShadowMap: failed to create caster constant buffer"));
     }
 
     // 深度のみパイプライン。
@@ -201,7 +215,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     pd.layout[2] = { "TEXCOORD", 0, EFormat::R32G32_Float,    32 };
     pd.layout_count = 3;
     auto pl_r = CreateRhiPipeline(device, pd);
-    if (pl_r.IsErr()) return Err<void>(pl_r.Error());
+    if (pl_r.IsErr()) return fail_init(pl_r.Error());
     m_Pipeline = Move(pl_r.Value());
 
     // 未使用 cascade スロットは inf split で「常に cascade 0 を選択」に
@@ -269,12 +283,26 @@ void FShadowMap::SetDirectionalLight(FVec3 light_dir, FVec3 center, f32 radius) 
     m_CascadeCount = 1;
     if (!IsFinite(center)) center = FVec3{0, 0, 0};
     if (!std::isfinite(radius) || radius < 1e-3f) radius = 1.0f;
+    // Keep every intermediate comfortably inside float range. Values beyond
+    // this are not representable with useful shadow-map precision anyway.
+    if (radius > 1.0e12f) radius = 1.0e12f;
     const FVec3 dir = NormalizeSafe(light_dir);
-    const FVec3 light_pos = FVec3{
+    FVec3 light_pos = FVec3{
         center.x + dir.x * radius * 2.5f,
         center.y + dir.y * radius * 2.5f,
         center.z + dir.z * radius * 2.5f,
     };
+    // At very large world coordinates a small offset can round back to the
+    // center, making LookAtLH degenerate. Use the equivalent origin-centered
+    // fallback instead of publishing a NaN matrix.
+    if (!IsFinite(light_pos) || Distance3(light_pos, center) < radius) {
+        center = FVec3{0, 0, 0};
+        light_pos = FVec3{
+            dir.x * radius * 2.5f,
+            dir.y * radius * 2.5f,
+            dir.z * radius * 2.5f,
+        };
+    }
     FVec3 up = FVec3{0, 1, 0};
     if (Abs(dir.y) > 0.95f) up = FVec3{0, 0, 1};
 
@@ -418,6 +446,10 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
         f32 radius = 0.0f;
         for (u32 i = 0; i < 8; ++i) {
             const f32 d = Distance3(sub[i], center);
+            if (!std::isfinite(d)) {
+                SetDirectionalLight(light_dir, FVec3{0, 0, 0}, far_z);
+                return;
+            }
             if (d > radius) radius = d;
         }
         if (radius < 1e-3f) radius = 1e-3f;
@@ -464,6 +496,7 @@ void FShadowMap::SetCaster(const FMat4& model) noexcept {
 
 /** Write the model matrix to a buffer used by this draw only. */
 bool FShadowMap::TrySetCaster(const FMat4& model) noexcept {
+    if (!IsFinite(model)) return false;
     const u32 cascade = m_CurrentCascade;
     u32& draw_count = m_CasterDrawCounts[cascade];
     if (draw_count >= kMaxCasterDrawsPerCascade) {

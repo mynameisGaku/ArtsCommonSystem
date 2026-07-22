@@ -690,6 +690,12 @@ float4 PSMain(VSOut v) : SV_TARGET {
                         lin.b < 0.0031308 ? lo.b : hi.b);
     }
 
+    // The public gamma control is a display trim around the neutral sRGB
+    // transfer. gamma=2.2 leaves the standards-based OETF above unchanged;
+    // larger values brighten and smaller values darken without replacing its
+    // linear toe with an inaccurate pure power curve.
+    mapped = pow(max(mapped, 0.0), 2.2 / max(params1.x, 1.0));
+
     // 6) Dither: 8-bit 量子化前に ±1 LSB の三角分布 (TPDF) ノイズを足し、空・bloom の裾・
     //    vignette・グレーディングのシャドウに出る等高線状バンディングを消す。ほぼゼロコスト
     //    で「安っぽさ」に最も効く。2 つの IGN を独立化して足すと三角分布 (TPDF) になる。
@@ -913,13 +919,22 @@ void FPostProcessParams::Sanitize() noexcept {
 
 TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
                                 EFormat color_format) noexcept {
+    Shutdown();
+    if (width == 0) width = 1;
+    if (height == 0) height = 1;
     m_Device = &device;
     m_ColorFormat = color_format;
     m_Width = width;
     m_Height = height;
 
-    if (auto r = CreateRenderTargets(device, width, height); r.IsErr()) return r;
-    if (auto r = CreatePipelines(device);                   r.IsErr()) return r;
+    auto fail_init = [this](FErrorCode error) noexcept -> TResult<void> {
+        Shutdown();
+        return Err<void>(error);
+    };
+    if (auto r = CreateRenderTargets(device, width, height); r.IsErr())
+        return fail_init(r.Error());
+    if (auto r = CreatePipelines(device); r.IsErr())
+        return fail_init(r.Error());
 
     FBufferDesc cbd{};
     cbd.size         = CBSize<FPostCbLayout>();
@@ -927,7 +942,7 @@ TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     cbd.cpu_writable = true;
     for (u32 i = 0; i < kPostCbRing; ++i) {
         auto cbr = CreateRhiBuffer(device, cbd);
-        if (cbr.IsErr()) return Err<void>(cbr.Error());
+        if (cbr.IsErr()) return fail_init(cbr.Error());
         m_CbPost[i] = Move(cbr.Value());
     }
     m_PostCbCursor = 0;
@@ -938,7 +953,7 @@ TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     rcbd.usage = EBufferUsage::Uniform;
     rcbd.cpu_writable = true;
     auto rcbr = CreateRhiBuffer(device, rcbd);
-    if (rcbr.IsErr()) return Err<void>(rcbr.Error());
+    if (rcbr.IsErr()) return fail_init(rcbr.Error());
     m_CbTaaReproj = Move(rcbr.Value());
 
     // auto-exposure 用 CB
@@ -947,7 +962,7 @@ TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     acbd.usage = EBufferUsage::Uniform;
     acbd.cpu_writable = true;
     auto acbr = CreateRhiBuffer(device, acbd);
-    if (acbr.IsErr()) return Err<void>(acbr.Error());
+    if (acbr.IsErr()) return fail_init(acbr.Error());
     m_CbAuto = Move(acbr.Value());
 
     // depth が未指定だった時のための 1x1 fallback (depth>=0.9999 になるよう 255 で fill)
@@ -957,7 +972,7 @@ TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = far_depth; td.initial_data_size = 4;
     auto dfb = CreateRhiTexture(device, td);
-    if (dfb.IsErr()) return Err<void>(dfb.Error());
+    if (dfb.IsErr()) return fail_init(dfb.Error());
     m_TaaDepthFb = Move(dfb.Value());
 
     // 未使用の bloom / SSR slot に stale texture を残さないための黒 fallback。
@@ -968,7 +983,7 @@ TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     black_desc.initial_data = black_rgba;
     black_desc.initial_data_size = 4;
     auto black = CreateRhiTexture(device, black_desc);
-    if (black.IsErr()) return Err<void>(black.Error());
+    if (black.IsErr()) return fail_init(black.Error());
     m_BlackFb = Move(black.Value());
 
     return Ok();
@@ -1017,6 +1032,8 @@ void FPostProcess::Shutdown() noexcept {
 
 TResult<void> FPostProcess::Resize(u32 width, u32 height) noexcept {
     if (!m_Device) return ACS_ERR(Render, 300, "FPostProcess::Resize before Init");
+    if (width == 0) width = 1;
+    if (height == 0) height = 1;
     if (width == m_Width && height == m_Height) return Ok();
     m_HdrRt.Reset();
     for (auto& m : m_BloomMips) m.Reset();

@@ -41,6 +41,7 @@ public partial class MainWindow : Window
     private int  _dropTargetId = -1;  // ドロップ対象ノード
     private int  _selectedId = -1;   // primary (active) ノード id。複数選択の集合は ABI 側が保持。
     private bool _populating;        // populate 中は編集ハンドラを無視
+    private bool _refreshingMaterialBox; // MaterialBox 再構築中の SelectionChanged を抑止
     private bool _syncingSelection;  // 選択同期中は OnHierarchySelect の単一選択化を抑止
     private string? _clipboard;      // コピーした subtree のシリアライズ文字列 (2D)
     private bool    _hasClip3d;      // 3D クリップボードに内容があるか (Paste の CanExecute 用)
@@ -255,7 +256,20 @@ public partial class MainWindow : Window
             int s3 = EngineInterop.acs_editor_selected3d(Engine);
             if (s3 >= 0)
             {
-                EngineInterop.acs_editor_node3d_set_material(Engine, s3, matPath);
+                if (MaterialAssetWorkflow.SamePath(
+                        EngineInterop.NodeMaterial3D(Engine, s3),
+                        matPath))
+                {
+                    return;
+                }
+
+                if (EngineInterop.acs_editor_node3d_set_material(Engine, s3, matPath) == 0)
+                {
+                    Populate3DInspector(s3); // native state is authoritative after failure.
+                    Log($"Material assignment failed (3D node {s3}): {matPath}");
+                    return;
+                }
+
                 Populate3DInspector(s3);   // インスペクタの .acsmat ドロップダウンを更新
                 RecordSceneDocumentChange("Assign Material");
                 Log($"Material ← {System.IO.Path.GetFileName(matPath)} (3D node {s3})");
@@ -263,10 +277,24 @@ public partial class MainWindow : Window
         }
         else if (_selectedId >= 0)
         {
-            EngineInterop.acs_editor_node_set_material(Engine, _selectedId, matPath);
-            RefreshMaterialBox(_selectedId);
+            int id = _selectedId;
+            if (MaterialAssetWorkflow.SamePath(
+                    EngineInterop.NodeMaterial(Engine, id),
+                    matPath))
+            {
+                return;
+            }
+
+            if (EngineInterop.acs_editor_node_set_material(Engine, id, matPath) == 0)
+            {
+                RefreshMaterialBox(id); // rollback any optimistic Inspector selection.
+                Log($"Material assignment failed (node {id}): {matPath}");
+                return;
+            }
+
+            RefreshMaterialBox(id);
             RecordSceneDocumentChange("Assign Material");
-            Log($"Material ← {System.IO.Path.GetFileName(matPath)} (node {_selectedId})");
+            Log($"Material ← {System.IO.Path.GetFileName(matPath)} (node {id})");
         }
     }
 
@@ -2712,61 +2740,71 @@ public partial class MainWindow : Window
     // MaterialBox を Assets 内の *.acsmat 一覧で埋め、ノードの現在マテリアルを選択状態にする。
     private void RefreshMaterialBox(int id)
     {
-        MaterialBox.Items.Clear();
-        MaterialBox.Items.Add(new ComboBoxItem { Content = "(なし)", Tag = null });
-        string cur = EngineInterop.NodeMaterial(Engine, id);
-        int sel = 0, idx = 0;
-        if (_project != null && System.IO.Directory.Exists(_project.AssetsDir))
+        bool wasRefreshing = _refreshingMaterialBox;
+        _refreshingMaterialBox = true;
+        try
         {
-            foreach (string f in System.IO.Directory.EnumerateFiles(_project.AssetsDir, "*.acsmat",
-                                                                    System.IO.SearchOption.AllDirectories))
+            MaterialBox.Items.Clear();
+            MaterialBox.Items.Add(new ComboBoxItem { Content = "(なし)", Tag = null });
+            string cur = EngineInterop.NodeMaterial(Engine, id);
+            MaterialAssetCatalog catalog = MaterialAssetWorkflow.BuildCatalog(
+                _project?.AssetsDir,
+                cur);
+            foreach (MaterialAssetChoice choice in catalog.Choices)
             {
-                idx++;
-                MaterialBox.Items.Add(new ComboBoxItem { Content = AssetRel(f), Tag = f });
-                if (!string.IsNullOrEmpty(cur) && PathEq(f, cur)) sel = idx;
+                MaterialBox.Items.Add(new ComboBoxItem
+                {
+                    Content = choice.DisplayName,
+                    Tag = choice.FullPath,
+                    ToolTip = choice.FullPath,
+                });
             }
+            MaterialBox.SelectedIndex = catalog.SelectedIndex + 1; // index 0 is the explicit None item.
         }
-        // ノードに設定済みだが Assets 外/未列挙のパスならそれも 1 項目として足す。
-        if (sel == 0 && !string.IsNullOrEmpty(cur))
+        finally
         {
-            MaterialBox.Items.Add(new ComboBoxItem { Content = System.IO.Path.GetFileName(cur), Tag = cur });
-            sel = MaterialBox.Items.Count - 1;
+            _refreshingMaterialBox = wasRefreshing;
         }
-        MaterialBox.SelectedIndex = sel;
     }
 
     private string AssetRel(string full)
-    {
-        if (_project == null) return System.IO.Path.GetFileName(full);
-        string root = _project.AssetsDir;
-        if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-            return full.Substring(root.Length).TrimStart('\\', '/').Replace('\\', '/');
-        return System.IO.Path.GetFileName(full);
-    }
-
-    private static bool PathEq(string a, string b)
-    {
-        try { return string.Equals(System.IO.Path.GetFullPath(a), System.IO.Path.GetFullPath(b),
-                                   StringComparison.OrdinalIgnoreCase); }
-        catch { return string.Equals(a, b, StringComparison.OrdinalIgnoreCase); }
-    }
+        => MaterialAssetWorkflow.DisplayName(_project?.AssetsDir, full);
 
     private void OnMaterialSelected(object sender, SelectionChangedEventArgs e)
     {
-        if (_populating || Engine == IntPtr.Zero || _selectedId < 0) return;
+        if (_populating || _refreshingMaterialBox || Engine == IntPtr.Zero || _selectedId < 0) return;
         if (MaterialBox.SelectedItem is not ComboBoxItem it) return;
         string? path = it.Tag as string;
+        int id = _selectedId;
+        string current = EngineInterop.NodeMaterial(Engine, id);
+        if ((string.IsNullOrEmpty(path) && string.IsNullOrEmpty(current)) ||
+            (!string.IsNullOrEmpty(path) && MaterialAssetWorkflow.SamePath(path, current)))
+        {
+            return;
+        }
+
+        int changed;
         if (string.IsNullOrEmpty(path))
         {
-            EngineInterop.acs_editor_node_clear_material(Engine, _selectedId);
-            Log("Material cleared (→ 効果なし).");
+            changed = EngineInterop.acs_editor_node_clear_material(Engine, id);
         }
         else
         {
-            EngineInterop.acs_editor_node_set_material(Engine, _selectedId, path);
-            Log($"Material ← {AssetRel(path)} (node {_selectedId})");
+            changed = EngineInterop.acs_editor_node_set_material(Engine, id, path);
         }
-        RecordSceneDocumentChange("Assign Material");
+        if (changed == 0)
+        {
+            RefreshMaterialBox(id);
+            Log($"Material change failed (node {id}).");
+            return;
+        }
+
+        Log(string.IsNullOrEmpty(path)
+            ? "Material cleared (→ 効果なし)."
+            : $"Material ← {AssetRel(path)} (node {id})");
+        RecordSceneDocumentChange(string.IsNullOrEmpty(path)
+            ? "Clear Material"
+            : "Assign Material");
     }
 
     private void OnEditMaterial(object sender, RoutedEventArgs e)
@@ -2784,31 +2822,92 @@ public partial class MainWindow : Window
 
     private void OnNewMaterial(object sender, RoutedEventArgs e)
     {
-        if (Engine == IntPtr.Zero) return;
-        if (_project == null) { Log("マテリアル作成にはプロジェクトが必要です。"); return; }
-        System.IO.Directory.CreateDirectory(_project.AssetsDir);
-        string baseName = "Material";
-        string path = System.IO.Path.Combine(_project.AssetsDir, baseName + ".acsmat");
-        for (int i = 1; System.IO.File.Exists(path); i++)
-            path = System.IO.Path.Combine(_project.AssetsDir, $"{baseName}{i}.acsmat");
-        if (EngineInterop.acs_editor_material_create(path, System.IO.Path.GetFileNameWithoutExtension(path)) == 0)
-        { Log("マテリアル作成に失敗しました。"); return; }
-        Log($"New material: {AssetRel(path)}");
+        if (!TryCreateMaterialAsset(out string path)) return;
         // 選択ノードがあれば即割当。
         if (_selectedId >= 0)
         {
-            EngineInterop.acs_editor_node_set_material(Engine, _selectedId, path);
-            RefreshMaterialBox(_selectedId);
-            RecordSceneDocumentChange("Assign Material");
+            int id = _selectedId;
+            if (EngineInterop.acs_editor_node_set_material(Engine, id, path) != 0)
+            {
+                RefreshMaterialBox(id);
+                RecordSceneDocumentChange("Assign Material");
+            }
+            else
+            {
+                RefreshMaterialBox(id);
+                Log($"New material was created but could not be assigned to node {id}.");
+            }
         }
         OpenMaterialEditor(path);
+    }
+
+    /// <summary>
+    /// Creates a project material without overwriting an existing asset. Assignment is kept at
+    /// the Inspector call site because 2D and 3D nodes use different native compatibility APIs.
+    /// </summary>
+    private bool TryCreateMaterialAsset(out string path)
+    {
+        path = "";
+        if (Engine == IntPtr.Zero) return false;
+        if (_project == null)
+        {
+            Log("マテリアル作成にはプロジェクトが必要です。");
+            return false;
+        }
+
+        try
+        {
+            System.IO.Directory.CreateDirectory(_project.AssetsDir);
+            path = MaterialAssetWorkflow.ReserveNextAvailablePath(_project.AssetsDir);
+        }
+        catch (Exception error) when (
+            MaterialAssetWorkflow.IsRecoverableCreationFailure(error))
+        {
+            Log("マテリアルの保存先を作成できません: " + error.Message);
+            path = "";
+            return false;
+        }
+
+        if (EngineInterop.acs_editor_material_create(
+                path,
+                System.IO.Path.GetFileNameWithoutExtension(path)) == 0)
+        {
+            string failedPath = path;
+            try
+            {
+                System.IO.File.Delete(failedPath);
+            }
+            catch (Exception cleanupError) when (
+                cleanupError is IOException or UnauthorizedAccessException)
+            {
+                Log("不完全なマテリアル予約ファイルを削除できません: " + cleanupError.Message);
+            }
+            Log("マテリアル作成に失敗しました。");
+            path = "";
+            return false;
+        }
+
+        Log($"New material: {AssetRel(path)}");
+        return true;
     }
 
     private void OnClearMaterial(object sender, RoutedEventArgs e)
     {
         if (Engine == IntPtr.Zero || _selectedId < 0) return;
-        EngineInterop.acs_editor_node_clear_material(Engine, _selectedId);
-        RefreshMaterialBox(_selectedId);
+        int id = _selectedId;
+        if (string.IsNullOrEmpty(EngineInterop.NodeMaterial(Engine, id)))
+        {
+            RefreshMaterialBox(id);
+            return;
+        }
+        if (EngineInterop.acs_editor_node_clear_material(Engine, id) == 0)
+        {
+            RefreshMaterialBox(id);
+            Log($"Material clear failed (node {id}).");
+            return;
+        }
+
+        RefreshMaterialBox(id);
         RecordSceneDocumentChange("Clear Material");
         Log("Material cleared (→ 効果なし).");
     }

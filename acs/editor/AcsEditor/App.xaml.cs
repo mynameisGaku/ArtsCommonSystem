@@ -183,6 +183,15 @@ public partial class App : Application
             return;
         }
 
+        // CLI: --material-workflow-selftest -> deterministic material catalogue / assignment
+        // retention / collision-free asset naming shared by 2D and 3D Mesh Renderer slots.
+        if (e.Args.Length >= 1 && e.Args[0] == "--material-workflow-selftest")
+        {
+            int failures = MaterialWorkflowSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
         // CLI: --workspace-selftest -> named layout persistence / validation / atomicity.
         if (e.Args.Length >= 1 && e.Args[0] == "--workspace-selftest")
         {

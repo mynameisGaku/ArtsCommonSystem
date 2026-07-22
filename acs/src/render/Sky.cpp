@@ -265,7 +265,9 @@ constexpr usize CBSize() noexcept {
  */
 ACS_FORCEINLINE FVec3 NormalizeSafe(FVec3 v) noexcept {
     const f32 len2 = v.x*v.x + v.y*v.y + v.z*v.z;
-    if (len2 < 1e-12f) return FVec3{0, 1, 0};
+    if (!std::isfinite(len2) || len2 < 1e-12f) {
+        return FVec3{0, 1, 0};
+    }
     const f32 inv = 1.0f / Sqrt(len2);
     return { v.x * inv, v.y * inv, v.z * inv };
 }
@@ -2382,6 +2384,79 @@ struct FCloudAtmosphereCb {
     FVec4 atmosphereParams;
 };
 
+bool IsFiniteCloudVector(FVec3 value) noexcept {
+    return std::isfinite(value.x) && std::isfinite(value.y) &&
+           std::isfinite(value.z);
+}
+
+bool IsFiniteCloudMatrix(const FMat4& value) noexcept {
+    for (u32 row = 0; row < 4u; ++row) {
+        for (u32 column = 0; column < 4u; ++column) {
+            if (!std::isfinite(value.m[row][column])) return false;
+        }
+    }
+    return true;
+}
+
+bool UnprojectCloudViewDirection(const FMat4& inverse_view_projection,
+                                 f32 ndc_x, f32 ndc_y,
+                                 FVec3& direction) noexcept {
+    const FVec4 nearHomogeneous = Transform(
+        FVec4{ndc_x, ndc_y, 0.0f, 1.0f}, inverse_view_projection);
+    const FVec4 farHomogeneous = Transform(
+        FVec4{ndc_x, ndc_y, 1.0f, 1.0f}, inverse_view_projection);
+    if (!std::isfinite(nearHomogeneous.x) ||
+        !std::isfinite(nearHomogeneous.y) ||
+        !std::isfinite(nearHomogeneous.z) ||
+        !std::isfinite(nearHomogeneous.w) ||
+        !std::isfinite(farHomogeneous.x) ||
+        !std::isfinite(farHomogeneous.y) ||
+        !std::isfinite(farHomogeneous.z) ||
+        !std::isfinite(farHomogeneous.w) ||
+        std::fabs(nearHomogeneous.w) <= 1e-7f ||
+        std::fabs(farHomogeneous.w) <= 1e-7f) {
+        return false;
+    }
+
+    const f32 nearInvW = 1.0f / nearHomogeneous.w;
+    const f32 farInvW = 1.0f / farHomogeneous.w;
+    const FVec3 nearPoint{
+        nearHomogeneous.x * nearInvW,
+        nearHomogeneous.y * nearInvW,
+        nearHomogeneous.z * nearInvW};
+    const FVec3 farPoint{
+        farHomogeneous.x * farInvW,
+        farHomogeneous.y * farInvW,
+        farHomogeneous.z * farInvW};
+    const FVec3 ray{
+        farPoint.x - nearPoint.x,
+        farPoint.y - nearPoint.y,
+        farPoint.z - nearPoint.z};
+    const f32 rayLengthSquared =
+        ray.x * ray.x + ray.y * ray.y + ray.z * ray.z;
+    if (!std::isfinite(rayLengthSquared) || rayLengthSquared <= 1e-12f) {
+        return false;
+    }
+    const f32 inverseLength = 1.0f / Sqrt(rayLengthSquared);
+    direction = FVec3{ray.x * inverseLength, ray.y * inverseLength,
+                      ray.z * inverseLength};
+    return IsFiniteCloudVector(direction);
+}
+
+FVec3 SanitizeCloudRadiance(FVec3 value, FVec3 fallback) noexcept {
+    constexpr f32 kMaximumCloudRadiance = 16384.0f;
+    auto sanitize = [kMaximumCloudRadiance](
+                        f32 component, f32 fallbackComponent) noexcept {
+        f32 result = std::isfinite(component) ? component : fallbackComponent;
+        if (!std::isfinite(result) || result < 0.0f) result = 0.0f;
+        if (result > kMaximumCloudRadiance) result = kMaximumCloudRadiance;
+        return result;
+    };
+    return FVec3{sanitize(value.x, fallback.x),
+                 sanitize(value.y, fallback.y),
+                 sanitize(value.z, fallback.z)};
+}
+
 } // namespace
 
 FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
@@ -2483,6 +2558,58 @@ bool VolumetricCloudLightingChanged(
            previous_sky_color.x != sky_color.x ||
            previous_sky_color.y != sky_color.y ||
            previous_sky_color.z != sky_color.z;
+}
+
+bool VolumetricCloudViewCutDetected(
+    const FMat4& previous_inv_view_proj, FVec3 previous_camera_position,
+    const FMat4& current_inv_view_proj,
+    FVec3 current_camera_position) noexcept {
+    if (!IsFiniteCloudMatrix(previous_inv_view_proj) ||
+        !IsFiniteCloudMatrix(current_inv_view_proj) ||
+        !IsFiniteCloudVector(previous_camera_position) ||
+        !IsFiniteCloudVector(current_camera_position)) {
+        return true;
+    }
+
+    const f32 deltaX =
+        current_camera_position.x - previous_camera_position.x;
+    const f32 deltaY =
+        current_camera_position.y - previous_camera_position.y;
+    const f32 deltaZ =
+        current_camera_position.z - previous_camera_position.z;
+    constexpr f32 kTeleportDistance = 256.0f;
+    if (deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ >
+        kTeleportDistance * kTeleportDistance) {
+        return true;
+    }
+
+    // Centre and cardinal edge rays detect yaw/pitch/roll and projection/FOV
+    // cuts while remaining invariant under pure camera translation.
+    constexpr f32 kRaySamples[5][2] = {
+        {0.0f, 0.0f}, {-0.85f, 0.0f}, {0.85f, 0.0f},
+        {0.0f, -0.85f}, {0.0f, 0.85f}};
+    constexpr f32 kMaximumRayAngleCosine = 0.965925826f; // 15 degrees
+    for (const auto& sample : kRaySamples) {
+        FVec3 previousDirection{};
+        FVec3 currentDirection{};
+        if (!UnprojectCloudViewDirection(
+                previous_inv_view_proj, sample[0], sample[1],
+                previousDirection) ||
+            !UnprojectCloudViewDirection(
+                current_inv_view_proj, sample[0], sample[1],
+                currentDirection)) {
+            return true;
+        }
+        const f32 directionDot =
+            previousDirection.x * currentDirection.x +
+            previousDirection.y * currentDirection.y +
+            previousDirection.z * currentDirection.z;
+        if (!std::isfinite(directionDot) ||
+            directionDot < kMaximumRayAngleCosine) {
+            return true;
+        }
+    }
+    return false;
 }
 
 FVolumetricCloudRayInterval IntersectVolumetricCloudLayer(
@@ -3249,6 +3376,9 @@ bool FVolumetricClouds::EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
     m_FrameIndex = 0; m_TemporalPhase = 0;
     m_ResolvedIndex = 0; m_HistoryValid = false;
     m_WorldOrigin = FVec3{};
+    m_PrevViewProj = FMat4::Identity();
+    m_PrevInvViewProj = FMat4::Identity();
+    m_PrevCamPos = FVec3{};
     m_PrevSunDir = FVec3{};
     m_PrevSunColor = FVec3{};
     m_PrevSkyColor = FVec3{};
@@ -3265,16 +3395,60 @@ void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         !m_CloudPipe || !m_ResolvePipe || !m_Cb ||
         !m_WeatherPipe || !m_WeatherTex ||
         !m_DetailPipe || !m_DetailTex || !m_CurlPipe || !m_CurlTex) return;
+    // A corrupt camera transform cannot produce a meaningful world ray and
+    // would otherwise seed NaNs into every temporal/history resource. Fail
+    // closed for this frame; the ordinary sky remains available.
+    if (!IsFiniteCloudMatrix(inv_view_proj) ||
+        !IsFiniteCloudVector(cam_pos)) {
+        m_HistoryValid = false;
+        return;
+    }
+    const FMat4 viewProj = Inverse(inv_view_proj);
+    if (!IsFiniteCloudMatrix(viewProj)) {
+        m_HistoryValid = false;
+        return;
+    }
     const FVec3 safeSun = NormalizeSafe(sun_dir);
-    const f32 safeCoverage = coverage < 0.0f ? 0.0f : (coverage > 1.0f ? 1.0f : coverage);
-    const f32 safeDensity = density < 0.05f ? 0.05f : (density > 8.0f ? 8.0f : density);
-    const f32 safeWind = wind < -20.0f ? -20.0f : (wind > 20.0f ? 20.0f : wind);
+    const f32 fallbackCoverage =
+        m_HistoryValid && std::isfinite(m_PrevCoverage)
+            ? m_PrevCoverage : 0.5f;
+    const f32 fallbackDensity =
+        m_HistoryValid && std::isfinite(m_PrevDensity)
+            ? m_PrevDensity : 1.0f;
+    const f32 fallbackWind =
+        m_HistoryValid && std::isfinite(m_PrevWindSpeed)
+            ? m_PrevWindSpeed : 0.0f;
+    const f32 fallbackTime =
+        m_HistoryValid && std::isfinite(m_PrevTime)
+            ? m_PrevTime : 0.0f;
+    const f32 finiteCoverage = std::isfinite(coverage)
+                             ? coverage : fallbackCoverage;
+    const f32 finiteDensity = std::isfinite(density)
+                            ? density : fallbackDensity;
+    const f32 finiteWind = std::isfinite(wind) ? wind : fallbackWind;
+    const f32 finiteTime = std::isfinite(time) ? time : fallbackTime;
+    // Bound even finite hostile values before time*wind is evaluated. Normal
+    // editor sessions remain many orders of magnitude inside this interval.
+    const f32 safeTime = finiteTime < -10000000.0f ? -10000000.0f
+                       : (finiteTime > 10000000.0f ? 10000000.0f
+                                                   : finiteTime);
+    const f32 safeCoverage = finiteCoverage < 0.0f ? 0.0f
+                           : (finiteCoverage > 1.0f ? 1.0f : finiteCoverage);
+    const f32 safeDensity = finiteDensity < 0.05f ? 0.05f
+                          : (finiteDensity > 8.0f ? 8.0f : finiteDensity);
+    const f32 safeWind = finiteWind < -20.0f ? -20.0f
+                       : (finiteWind > 20.0f ? 20.0f : finiteWind);
+    const FVec3 safeSunColor = SanitizeCloudRadiance(
+        sun_color, m_HistoryValid ? m_PrevSunColor
+                                  : FVec3{1.0f, 1.0f, 1.0f});
+    const FVec3 safeSkyColor = SanitizeCloudRadiance(
+        sky_color, m_HistoryValid ? m_PrevSkyColor
+                                  : FVec3{0.2f, 0.25f, 0.3f});
     const FVec3 worldOrigin = RebaseVolumetricCloudWorldOrigin(cam_pos);
     // One scalar world-space advection distance drives weather, base shape,
     // detail, curl and temporal reprojection.  Keeping it independent from
     // noise frequency prevents layers from sliding through each other.
-    const f32 windOffset = time * safeWind * 2.5f;
-    const FMat4 viewProj = Inverse(inv_view_proj);
+    const f32 windOffset = safeTime * safeWind * 2.5f;
 
     const FVec2 windWorld = VolumetricCloudWindOffsetXZ(windOffset);
     const FVec2 cameraQ = VolumetricCloudMaterialXZ(cam_pos, windOffset);
@@ -3369,6 +3543,9 @@ void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     // history invalidation: resize は EnsureSize で扱う。ここでは camera cut、time jump、
     // 見える品質設定の不連続を拒否する。Reprojection に使える履歴と、
     // expensive march を 2x2 interleave してよい静止状態は別に判定する。
+    // These strict deltas only gate the same-screen stationary fast path below.
+    // Camera-cut invalidation uses projection-ray angles and a true teleport
+    // threshold, so ordinary translated view matrices keep valid history.
     const f32 cameraDx = cam_pos.x - m_PrevCamPos.x;
     const f32 cameraDy = cam_pos.y - m_PrevCamPos.y;
     const f32 cameraDz = cam_pos.z - m_PrevCamPos.z;
@@ -3384,7 +3561,11 @@ void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     }
     bool historyValid = m_HistoryValid;
     if (historyValid) {
-        if (cameraDeltaSquared > 4.0f) historyValid = false;
+        if (VolumetricCloudViewCutDetected(
+                m_PrevInvViewProj, m_PrevCamPos,
+                inv_view_proj, cam_pos)) {
+            historyValid = false;
+        }
         // The soft-snapped tangent origin changes continuously only inside a
         // transition band.  Treat it like ordinary camera motion and let the
         // reprojection depth/alpha tests reject individual stale pixels.
@@ -3392,15 +3573,15 @@ void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         // those bands into visibly noisy strips during editor pans.
         if (VolumetricCloudLightingChanged(
                 m_PrevSunDir, m_PrevSunColor, m_PrevSkyColor,
-                safeSun, sun_color, sky_color)) {
+                safeSun, safeSunColor, safeSkyColor)) {
             historyValid = false;
         }
         f32 coverageDelta = safeCoverage - m_PrevCoverage; if (coverageDelta < 0.0f) coverageDelta = -coverageDelta;
         f32 densityDelta = safeDensity - m_PrevDensity; if (densityDelta < 0.0f) densityDelta = -densityDelta;
         f32 windSpeedDelta = safeWind - m_PrevWindSpeed; if (windSpeedDelta < 0.0f) windSpeedDelta = -windSpeedDelta;
-        f32 timeDelta = time - m_PrevTime; if (timeDelta < 0.0f) timeDelta = -timeDelta;
+        f32 timeDelta = safeTime - m_PrevTime; if (timeDelta < 0.0f) timeDelta = -timeDelta;
         f32 windDelta = windOffset - m_PrevWindOffset; if (windDelta < 0.0f) windDelta = -windDelta;
-        if (matrixDelta > 0.35f || coverageDelta > 0.001f || densityDelta > 0.001f ||
+        if (coverageDelta > 0.001f || densityDelta > 0.001f ||
             windSpeedDelta > 0.001f || timeDelta > 0.25f || windDelta > 2.0f) historyValid = false;
     }
     // A cut/settings invalidation starts a deterministic spatially distributed
@@ -3416,9 +3597,9 @@ void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
                   ? FVec4{m_PrevCamPos.x, m_PrevCamPos.y, m_PrevCamPos.z, 0.0f}
                   : cb.camPos;
     cb.sunDir = FVec4{ safeSun.x, safeSun.y, safeSun.z, 0.0f };
-    cb.sunCol = FVec4{ sun_color.x, sun_color.y, sun_color.z, 0.0f };
-    cb.skyCol = FVec4{ sky_color.x, sky_color.y, sky_color.z, 0.0f };
-    cb.params = FVec4{ safeCoverage, safeDensity, windOffset, time };
+    cb.sunCol = FVec4{ safeSunColor.x, safeSunColor.y, safeSunColor.z, 0.0f };
+    cb.skyCol = FVec4{ safeSkyColor.x, safeSkyColor.y, safeSkyColor.z, 0.0f };
+    cb.params = FVec4{ safeCoverage, safeDensity, windOffset, safeTime };
     cb.dims   = FVec4{ static_cast<f32>(m_W), static_cast<f32>(m_H),
                        static_cast<f32>(m_FullW), static_cast<f32>(m_FullH) };
     const bool temporalSuperResolution =
@@ -3560,16 +3741,17 @@ void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     m_TemporalPhase = (m_TemporalPhase + 1u) & 15u;
     m_HistoryValid = true;
     m_PrevViewProj = viewProj;
+    m_PrevInvViewProj = inv_view_proj;
     m_PrevCamPos = cam_pos;
     m_WorldOrigin = worldOrigin;
     m_PrevSunDir = safeSun;
-    m_PrevSunColor = sun_color;
-    m_PrevSkyColor = sky_color;
+    m_PrevSunColor = safeSunColor;
+    m_PrevSkyColor = safeSkyColor;
     m_PrevWindOffset = windOffset;
     m_PrevWindSpeed = safeWind;
     m_PrevCoverage = safeCoverage;
     m_PrevDensity = safeDensity;
-    m_PrevTime = time;
+    m_PrevTime = safeTime;
 }
 
 void FVolumetricClouds::Composite(IRhiCommandList& cl, IRhiTexture& scene_depth,
@@ -3623,6 +3805,9 @@ void FVolumetricClouds::Shutdown() noexcept {
     m_FrameIndex = 0; m_TemporalPhase = 0; m_ResolvedIndex = 0;
     m_W = 0; m_H = 0; m_FullW = 0; m_FullH = 0;
     m_WorldOrigin = FVec3{};
+    m_PrevViewProj = FMat4::Identity();
+    m_PrevInvViewProj = FMat4::Identity();
+    m_PrevCamPos = FVec3{};
     m_PrevSunDir = FVec3{}; m_PrevSunColor = FVec3{}; m_PrevSkyColor = FVec3{};
     m_PrevWindOffset = 0.0f; m_PrevWindSpeed = 0.0f;
     m_PrevCoverage = -1.0f; m_PrevDensity = -1.0f; m_PrevTime = -1.0f;

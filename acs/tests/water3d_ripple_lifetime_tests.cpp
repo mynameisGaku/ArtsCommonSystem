@@ -125,3 +125,42 @@ ACS_TEST(Water3DRippleLifetime, HugeFiniteFlowDirectionNormalizesWithoutOverflow
     EXPECT_NEAR(flow.x, 0.70710678f, 1e-5f);
     EXPECT_NEAR(flow.y, 0.70710678f, 1e-5f);
 }
+
+ACS_TEST(Water3DRippleLifetime, HugeFiniteDeltaNeverPoisonsAnimationState) {
+    FWaterSurface3D water;
+    FWaterSurface3DParams params{};
+    params.ripple_lifetime = 3600.0f;
+    params.ripple_damping = 0.0f;
+    water.SetParams(params);
+
+    EXPECT_TRUE(water.AddDisturbance(
+        FVec3{0.0f, 0.0f, 0.0f},
+        std::numeric_limits<f32>::max(),
+        std::numeric_limits<f32>::max()));
+    water.Update(std::numeric_limits<f32>::max());
+    EXPECT_TRUE(std::isfinite(water.Time()));
+    EXPECT_TRUE(water.Time() >= 0.0f);
+    EXPECT_TRUE(water.Time() < 65536.0f);
+    water.Update(std::numeric_limits<f32>::max());
+
+    EXPECT_TRUE(std::isfinite(water.Time()));
+    EXPECT_TRUE(water.Time() >= 0.0f);
+    EXPECT_TRUE(water.Time() < 65536.0f);
+    EXPECT_EQ(water.ActiveRippleCount(), 0u);
+}
+
+ACS_TEST(Water3DRippleLifetime, HugeFiniteEventCoordinatesStayBounded) {
+    FWaterSurface3D water;
+    const f32 maximum = std::numeric_limits<f32>::max();
+
+    EXPECT_TRUE(water.AddDisturbance(
+        FVec3{maximum, -maximum, maximum}, maximum, maximum));
+    EXPECT_EQ(water.ActiveRippleCount(), 1u);
+
+    // The wake offset is computed before the event reaches the shared pool;
+    // overflow there must be rejected without consuming a reserved wake slot.
+    EXPECT_FALSE(water.AddWake(
+        FVec3{-maximum, 0.0f, -maximum},
+        FVec3{maximum, 0.0f, maximum}, maximum, 1.0f));
+    EXPECT_EQ(water.ActiveRippleCount(), 1u);
+}

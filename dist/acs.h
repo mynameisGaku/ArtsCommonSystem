@@ -94940,6 +94940,21 @@ bool VolumetricCloudLightingChanged(
     FVec3 previous_sky_color, FVec3 sun_direction,
     FVec3 sun_color, FVec3 sky_color) noexcept;
 
+/**
+ * Detect a discontinuous camera cut without treating ordinary world-space
+ * translation as a cut.
+ *
+ * Comparing view-projection matrix elements directly also compares their
+ * translation terms. In a metre-scale editor that invalidates temporal cloud
+ * history during normal fly/pan motion and repeatedly exposes the cold 4x4
+ * reconstruction pattern. This comparison instead measures representative
+ * view-ray directions and reserves the distance test for a real teleport.
+ */
+bool VolumetricCloudViewCutDetected(
+    const FMat4& previous_inv_view_proj, FVec3 previous_camera_position,
+    const FMat4& current_inv_view_proj,
+    FVec3 current_camera_position) noexcept;
+
 class FVolumetricClouds {
 public:
     /** CPU-compiled shader bytecode handed to the render-owner thread. */
@@ -95082,6 +95097,7 @@ private:
     TUniquePtr<IRhiTexture>  m_HistoryColor[2];// 全解像度 RGBA16F の時間履歴 ping-pong
     TUniquePtr<IRhiTexture>  m_HistoryDepth[2];// 全解像度 RG32F の雲距離・信頼度 ping-pong
     FMat4                    m_PrevViewProj = FMat4::Identity();
+    FMat4                    m_PrevInvViewProj = FMat4::Identity();
     FVec3                    m_PrevCamPos{};
     FVec3                    m_WorldOrigin{};
     FVec3                    m_PrevSunDir{};

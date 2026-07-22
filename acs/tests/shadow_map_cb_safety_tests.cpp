@@ -53,6 +53,28 @@ ACS_TEST(ShadowMap, InvalidAuthoringInputsKeepFiniteProjection)
         0.1f, 100.0f, 0.5f);
     EXPECT_EQ(shadow.CascadeCount(), 1u);
     EXPECT_TRUE(MatrixIsFinite(shadow.LightViewProjection()));
+
+    // Finite directions near FLT_MAX must normalize by scale instead of
+    // overflowing a float length-squared and silently becoming vertical.
+    const f32 maximum = std::numeric_limits<f32>::max();
+    shadow.SetDirectionalLight(
+        FVec3{maximum, maximum * 0.5f, -maximum * 0.25f},
+        FVec3{0, 0, 0}, 20.0f);
+    const FMat4 huge_direction = shadow.LightViewProjection();
+    shadow.SetDirectionalLight(
+        FVec3{1.0f, 0.5f, -0.25f}, FVec3{0, 0, 0}, 20.0f);
+    const FMat4 reference_direction = shadow.LightViewProjection();
+    for (u32 row = 0; row < 4; ++row) {
+        for (u32 column = 0; column < 4; ++column) {
+            EXPECT_NEAR(huge_direction.m[row][column],
+                        reference_direction.m[row][column], 1e-5f);
+        }
+    }
+
+    shadow.SetDirectionalLight(
+        FVec3{0.3f, 0.8f, -0.4f},
+        FVec3{maximum, maximum, maximum}, maximum);
+    EXPECT_TRUE(MatrixIsFinite(shadow.LightViewProjection()));
 }
 
 ACS_TEST(ShadowMap, CascadeAndCasterBuffersRemainDrawImmutable)
@@ -62,6 +84,7 @@ ACS_TEST(ShadowMap, CascadeAndCasterBuffersRemainDrawImmutable)
     if (device_result.IsErr()) return; // Headless CI may not expose a GPU.
 
     FShadowMap shadow;
+    EXPECT_TRUE(shadow.Init(*device_result.Value(), 64, 3).IsOk());
     EXPECT_TRUE(shadow.Init(*device_result.Value(), 64, 3).IsOk());
     if (!shadow.DepthTexture()) return;
 
@@ -86,6 +109,10 @@ ACS_TEST(ShadowMap, CascadeAndCasterBuffersRemainDrawImmutable)
     EXPECT_TRUE(shadow.LightCB() == cascade0);
 
     shadow.BeginFrame();
+    FMat4 invalid_model = FMat4::Identity();
+    invalid_model.m[1][2] = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_FALSE(shadow.TrySetCaster(invalid_model));
+    EXPECT_EQ(shadow.CasterDrawCount(), 0u);
     EXPECT_TRUE(shadow.TrySetCaster(FMat4::Translation(FVec3{1, 0, 0})));
     IRhiBuffer* caster0 = shadow.CasterObjectCB();
     EXPECT_TRUE(shadow.TrySetCaster(FMat4::Translation(FVec3{2, 0, 0})));

@@ -14,6 +14,7 @@
 #include "render/IRhiTexture.h"
 
 #include <cmath>
+#include <limits>
 
 namespace acs {
 
@@ -328,7 +329,9 @@ float3 ReconstructWorldPosition(float2 uv, float depth) {
     float4 clip = float4(uv * 2.0 - 1.0, depth, 1.0);
     clip.y = -clip.y;
     float4 world = mul(clip, inverse_view_projection);
-    return world.xyz / max(world.w, 1e-6);
+    float safe_w = abs(world.w) > 1e-6
+        ? world.w : (world.w < 0.0 ? -1e-6 : 1e-6);
+    return world.xyz / safe_w;
 }
 
 float ComputeSunShadow(float3 world_position, float no_l) {
@@ -593,6 +596,15 @@ bool IsFinite(FVec2 value) noexcept {
 bool IsFinite(FVec3 value) noexcept {
     return std::isfinite(value.x) && std::isfinite(value.y)
         && std::isfinite(value.z);
+}
+
+bool IsFinite(const FMat4& value) noexcept {
+    for (u32 row = 0; row < 4; ++row) {
+        for (u32 column = 0; column < 4; ++column) {
+            if (!std::isfinite(value.m[row][column])) return false;
+        }
+    }
+    return true;
 }
 
 f32 ClampFinite(f32 value, f32 fallback, f32 minimum,
@@ -934,12 +946,22 @@ void FWaterSurface3D::Shutdown() noexcept {
 void FWaterSurface3D::Update(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
     if (!std::isfinite(dt)) return;
-    m_Time += dt;
+    const f64 next_time = static_cast<f64>(m_Time) + static_cast<f64>(dt);
+    // The shader only needs a periodic phase clock. Wrapping every update also
+    // keeps phase multiplication precise when a caller supplies a huge but
+    // finite hitch delta; never expose FLT_MAX to sin/cos for even one frame.
+    m_Time = static_cast<f32>(std::fmod(next_time, 65536.0));
 
     for (u32 i = 0; i < kMaxRipples; ++i) {
         FRipple& ripple = m_Ripples[i];
         if (!ripple.active) continue;
-        ripple.age += dt;
+        const f64 next_age =
+            static_cast<f64>(ripple.age) + static_cast<f64>(dt);
+        if (next_age >= static_cast<f64>(ripple.lifetime)) {
+            ripple.active = false;
+            continue;
+        }
+        ripple.age = static_cast<f32>(next_age);
         ripple.amplitude =
             ripple.initial_amplitude
             * std::exp(-m_Params.ripple_damping * ripple.age);
@@ -960,6 +982,11 @@ bool FWaterSurface3D::AddEvent(FVec3 world_point, FVec2 direction,
         return false;
     }
     if (radius < 0.0f) radius = 0.0f;
+    if (radius > 1.0e15f) radius = 1.0e15f;
+    if (strength > 65504.0f) strength = 65504.0f;
+    if (strength < -65504.0f) strength = -65504.0f;
+    world_point = ClampFinite(
+        world_point, FVec3{0.0f, 0.0f, 0.0f}, -1.0e15f, 1.0e15f);
     if (anisotropy < 1.0f) anisotropy = 1.0f;
     if (anisotropy > 3.5f) anisotropy = 3.5f;
     if (first_slot >= kMaxRipples || slot_count == 0) return false;
@@ -1010,6 +1037,7 @@ bool FWaterSurface3D::AddWake(FVec3 world_point, FVec3 world_velocity,
         world_point.y,
         world_point.z - direction.y * radius * 0.38f,
     };
+    if (!IsFinite(trailing_point)) return false;
     return AddEvent(trailing_point, direction, anisotropy,
                     radius, strength,
                     kImpactRippleSlots, kWakeRippleSlots);
@@ -1034,13 +1062,19 @@ void FWaterSurface3D::SetFrame(const FMat4& view_projection,
                                u32 screen_width, u32 screen_height,
                                FVec3 sun_direction,
                                FVec3 sun_color) noexcept {
-    m_ViewProjection = view_projection;
-    m_InverseViewProjection = Inverse(view_projection);
-    m_CameraPos = camera_pos;
+    if (IsFinite(view_projection)) {
+        const FMat4 inverse = Inverse(view_projection);
+        if (IsFinite(inverse)) {
+            m_ViewProjection = view_projection;
+            m_InverseViewProjection = inverse;
+        }
+    }
+    m_CameraPos = ClampFinite(
+        camera_pos, m_CameraPos, -1.0e15f, 1.0e15f);
     m_ScreenWidth = screen_width > 0 ? screen_width : 1;
     m_ScreenHeight = screen_height > 0 ? screen_height : 1;
-    m_SunDirection = Normalize3(sun_direction);
-    m_SunColor = sun_color;
+    if (IsFinite(sun_direction)) m_SunDirection = Normalize3(sun_direction);
+    m_SunColor = ClampFinite(sun_color, m_SunColor, 0.0f, 65504.0f);
     m_FrameSlot = (m_FrameSlot + 1u) % kBufferedFrames;
     m_DrawCursor = 0;
     m_DrawOverflowLogged = false;
@@ -1051,12 +1085,13 @@ void FWaterSurface3D::SetShadowMap(
     const FMat4& light_view_projection,
     f32 depth_bias,
     f32 pcf_radius) noexcept {
-    m_ShadowMap = shadow_map;
-    m_LightViewProjection = light_view_projection;
+    const bool valid_projection = IsFinite(light_view_projection);
+    m_ShadowMap = valid_projection ? shadow_map : nullptr;
+    m_LightViewProjection = valid_projection
+        ? light_view_projection : FMat4::Identity();
     m_ShadowBias =
         std::isfinite(depth_bias) && depth_bias > 0.0f ? depth_bias : 0.0f;
-    m_ShadowPcfRadius =
-        std::isfinite(pcf_radius) && pcf_radius > 0.0f ? pcf_radius : 0.0f;
+    m_ShadowPcfRadius = ClampFinite(pcf_radius, 0.0f, 0.0f, 8.0f);
 }
 
 void FWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
@@ -1065,7 +1100,7 @@ void FWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
                                IRhiTexture* scene_color,
                                IRhiTexture* scene_depth,
                                IRhiTexture* screen_reflection) noexcept {
-    if (!m_Pipeline || !m_ManualDepthPipeline
+    if (!m_Pipeline || !m_ManualDepthPipeline || !IsFinite(model)
         || !mesh.vertex_buffer || !mesh.index_buffer
         || !m_NormalMap || !m_SceneFallback) {
         return;

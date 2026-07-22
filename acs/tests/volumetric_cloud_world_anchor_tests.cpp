@@ -4,6 +4,7 @@
 #include "render/IRhiDevice.h"
 #include "render/Sky.h"
 #include "editor_abi/EditorRenderPolicy.h"
+#include "math/Camera.h"
 #include "math/Math.h"
 
 #include <cctype>
@@ -870,9 +871,9 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         source, "m_PrevSunDir = safeSun;"));
     EXPECT_TRUE(Contains(
-        source, "m_PrevSunColor = sun_color;"));
+        source, "m_PrevSunColor = safeSunColor;"));
     EXPECT_TRUE(Contains(
-        source, "m_PrevSkyColor = sky_color;"));
+        source, "m_PrevSkyColor = safeSkyColor;"));
 }
 
 ACS_TEST(VolumetricClouds,
@@ -1678,7 +1679,7 @@ ACS_TEST(VolumetricClouds,
     // Camera cuts can still invalidate color history, but invalidation no
     // longer selects a different current-trace workload.
     EXPECT_TRUE(Contains(
-        source, "if (cameraDeltaSquared > 4.0f) historyValid = false;"));
+        source, "if (VolumetricCloudViewCutDetected("));
     EXPECT_TRUE(Contains(marchShader, "uint2pixelQ=tid.xy;"));
     EXPECT_TRUE(Contains(marchShader, "cloudOut[pixelQ]="));
     EXPECT_TRUE(Contains(marchShader, "cloudDepthOut[pixelQ]="));
@@ -3184,4 +3185,125 @@ ACS_TEST(VolumetricClouds,
         compact,
         "constboolshadowCacheUsableThisFrame="
         "(m_ShadowCacheValid&&!shadowDirty)||shadowWillBuildThisFrame;"));
+}
+
+ACS_TEST(VolumetricClouds,
+         ViewCutDetectionRetainsHistoryAcrossOrdinaryEditorTranslation) {
+    FCamera previousCamera;
+    previousCamera.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f,
+                                  0.05f, 250000.0f);
+    const FVec3 previousEye{12.0f, 24.0f, -36.0f};
+    previousCamera.SetLookAt(
+        previousEye, FVec3{12.0f, 24.0f, -35.0f});
+
+    FCamera translatedCamera;
+    translatedCamera.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f,
+                                    0.05f, 250000.0f);
+    const FVec3 translatedEye{92.0f, 40.0f, 4.0f};
+    translatedCamera.SetLookAt(
+        translatedEye, FVec3{92.0f, 40.0f, 5.0f});
+
+    EXPECT_FALSE(VolumetricCloudViewCutDetected(
+        Inverse(previousCamera.ViewProjection()), previousEye,
+        Inverse(translatedCamera.ViewProjection()), translatedEye));
+}
+
+ACS_TEST(VolumetricClouds,
+         ViewCutDetectionRejectsTeleportsAndAbruptOrientationChanges) {
+    FCamera previousCamera;
+    previousCamera.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f,
+                                  0.05f, 250000.0f);
+    const FVec3 previousEye{0.0f, 8.0f, 0.0f};
+    previousCamera.SetLookAt(
+        previousEye, FVec3{0.0f, 8.0f, 1.0f});
+    const FMat4 previousInverse =
+        Inverse(previousCamera.ViewProjection());
+
+    FCamera smallRotation;
+    smallRotation.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f,
+                                 0.05f, 250000.0f);
+    smallRotation.SetLookAt(
+        previousEye,
+        FVec3{Sin(5.0f * kDeg2Rad), 8.0f,
+              Cos(5.0f * kDeg2Rad)});
+    EXPECT_FALSE(VolumetricCloudViewCutDetected(
+        previousInverse, previousEye,
+        Inverse(smallRotation.ViewProjection()), previousEye));
+
+    FCamera abruptRotation;
+    abruptRotation.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f,
+                                  0.05f, 250000.0f);
+    abruptRotation.SetLookAt(
+        previousEye,
+        FVec3{Sin(35.0f * kDeg2Rad), 8.0f,
+              Cos(35.0f * kDeg2Rad)});
+    EXPECT_TRUE(VolumetricCloudViewCutDetected(
+        previousInverse, previousEye,
+        Inverse(abruptRotation.ViewProjection()), previousEye));
+
+    const FVec3 teleportedEye{400.0f, 8.0f, 0.0f};
+    FCamera teleportedCamera;
+    teleportedCamera.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f,
+                                    0.05f, 250000.0f);
+    teleportedCamera.SetLookAt(
+        teleportedEye, FVec3{400.0f, 8.0f, 1.0f});
+    EXPECT_TRUE(VolumetricCloudViewCutDetected(
+        previousInverse, previousEye,
+        Inverse(teleportedCamera.ViewProjection()), teleportedEye));
+}
+
+ACS_TEST(VolumetricClouds,
+         ViewCutAndSunDirectionRejectNonFiniteInputs) {
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    FMat4 invalidMatrix = FMat4::Identity();
+    invalidMatrix.m[1][2] = nan;
+    EXPECT_TRUE(VolumetricCloudViewCutDetected(
+        FMat4::Identity(), FVec3{}, invalidMatrix, FVec3{}));
+    EXPECT_TRUE(VolumetricCloudViewCutDetected(
+        FMat4::Identity(), FVec3{}, FMat4::Identity(),
+        FVec3{nan, 0.0f, 0.0f}));
+    FMat4 singularMatrix = FMat4::Identity();
+    for (u32 row = 0u; row < 4u; ++row) {
+        for (u32 column = 0u; column < 4u; ++column) {
+            singularMatrix.m[row][column] = 0.0f;
+        }
+    }
+    EXPECT_TRUE(VolumetricCloudViewCutDetected(
+        FMat4::Identity(), FVec3{}, singularMatrix, FVec3{}));
+
+    FSky sky;
+    sky.SetSunDirection(FVec3{nan, 1.0f, 0.0f});
+    ExpectVec3Near(sky.SunDirection(), FVec3{0.0f, 1.0f, 0.0f}, 0.0f);
+}
+
+ACS_TEST(VolumetricClouds,
+         RuntimeSanitizesFrameInputsWithoutMatrixTranslationInvalidation) {
+    const std::string source = ReadSkySource();
+    const std::string compact = CompactShader(source);
+
+    EXPECT_TRUE(Contains(
+        compact,
+        "if(!IsFiniteCloudMatrix(inv_view_proj)||"
+        "!IsFiniteCloudVector(cam_pos)){"));
+    EXPECT_TRUE(Contains(
+        compact,
+        "constFMat4viewProj=Inverse(inv_view_proj);"
+        "if(!IsFiniteCloudMatrix(viewProj)){"));
+    EXPECT_TRUE(Contains(
+        compact,
+        "constf32finiteTime=std::isfinite(time)?time:fallbackTime;"));
+    EXPECT_TRUE(Contains(
+        compact,
+        "constf32safeTime=finiteTime<-10000000.0f?-10000000.0f:"));
+    EXPECT_TRUE(Contains(
+        compact,
+        "VolumetricCloudViewCutDetected("
+        "m_PrevInvViewProj,m_PrevCamPos,inv_view_proj,cam_pos)"));
+    EXPECT_FALSE(Contains(compact, "matrixDelta>0.35f"));
+    EXPECT_TRUE(Contains(
+        compact, "m_PrevInvViewProj=inv_view_proj;"));
+    EXPECT_TRUE(Contains(
+        compact, "m_PrevSunColor=safeSunColor;"));
+    EXPECT_TRUE(Contains(
+        compact, "m_PrevSkyColor=safeSkyColor;"));
 }

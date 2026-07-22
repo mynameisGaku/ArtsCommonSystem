@@ -6,6 +6,7 @@
 #include "math/Vec.h"
 #include "memory/MemorySystem.h"
 #include "render/IRhiDevice.h"
+#include "render/IRhiTexture.h"
 #include "render/HiZ.h"
 #include "render/MotionVector.h"
 #include "render/NormalMatrix.h"
@@ -154,6 +155,7 @@ ACS_TEST(PostEffects, AuthoringParamsRejectNonFiniteAndInvalidRanges)
     params.bloom_radius = infinity;
     params.bloom_scatter = 4.0f;
     params.exposure = infinity;
+    params.gamma = nan;
     params.tonemap_kind = 99;
     params.chromatic_aberration = -1.0f;
     params.cg_lift = FVec3{nan, -5.0f, 5.0f};
@@ -176,6 +178,7 @@ ACS_TEST(PostEffects, AuthoringParamsRejectNonFiniteAndInvalidRanges)
     EXPECT_NEAR(params.bloom_radius, 1.0f, 1e-6f);
     EXPECT_NEAR(params.bloom_scatter, 1.0f, 1e-6f);
     EXPECT_NEAR(params.exposure, 1.0f, 1e-6f);
+    EXPECT_NEAR(params.gamma, 2.2f, 1e-6f);
     EXPECT_EQ(params.tonemap_kind, 0);
     EXPECT_NEAR(params.chromatic_aberration, 0.0f, 1e-6f);
     EXPECT_TRUE(std::isfinite(params.cg_lift.x));
@@ -236,7 +239,20 @@ ACS_TEST(PostEffects, WaterAndBloomShadersKeepPhysicalSafetyContracts)
         std::string::npos);
     EXPECT_TRUE(tonemap.find(
         "return all(abs(color) < 1.0e30) ? max(color, 0.0) : 0.0;") !=
-        std::string::npos);
+                std::string::npos);
+    EXPECT_TRUE(tonemap.find(
+        "mapped = pow(max(mapped, 0.0), 2.2 / max(params1.x, 1.0));") !=
+                std::string::npos);
+    EXPECT_TRUE(water.find("float safe_w = abs(world.w) > 1e-6") !=
+                std::string::npos);
+    EXPECT_TRUE(water_source.find("if (IsFinite(view_projection))") !=
+                std::string::npos);
+    EXPECT_TRUE(water_source.find(
+        "m_SunColor = ClampFinite(sun_color, m_SunColor, 0.0f, 65504.0f);") !=
+                std::string::npos);
+    EXPECT_TRUE(water_source.find(
+        "m_ShadowPcfRadius = ClampFinite(pcf_radius, 0.0f, 0.0f, 8.0f);") !=
+                std::string::npos);
 }
 
 ACS_TEST(PostEffects, RawDx12PostShadersAvoidFxcIsFiniteMiscompile)
@@ -664,6 +680,18 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
 
     FPostProcess post;
     EXPECT_TRUE(post.Init(device, 64, 64, EFormat::B8G8R8A8_UNorm).IsOk());
+    EXPECT_TRUE(post.Init(device, 0, 0, EFormat::B8G8R8A8_UNorm).IsOk());
+    EXPECT_TRUE(post.HdrRenderTarget() != nullptr);
+    if (post.HdrRenderTarget()) {
+        EXPECT_EQ(post.HdrRenderTarget()->Width(), 1u);
+        EXPECT_EQ(post.HdrRenderTarget()->Height(), 1u);
+    }
+    EXPECT_TRUE(post.Resize(0, 0).IsOk());
+    EXPECT_TRUE(post.HdrRenderTarget() != nullptr);
+    if (post.HdrRenderTarget()) {
+        EXPECT_EQ(post.HdrRenderTarget()->Width(), 1u);
+        EXPECT_EQ(post.HdrRenderTarget()->Height(), 1u);
+    }
 
     FSsao ssao;
     EXPECT_TRUE(ssao.Init(device, 64, 64).IsOk());
